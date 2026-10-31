@@ -1,0 +1,15 @@
+namespace Lib;
+using Std.Collections;
+
+public class Item { public int N; public Item(int n) { this.N = n; } }
+public class GBox<T> { public T V; public GBox(T v) { this.V = v; } }
+public class Pair<A, B> { public A X; public B Y; public Pair(A a, B b) { this.X = a; this.Y = b; } }
+
+// This package instantiates `GBox<int>` / `Pair<string,Item>` itself, so it ships their
+// instantiation descriptors; the main package instantiates the same types from the imported
+// definitions (definition descriptor + per-instance type arguments).
+public static class Make {
+    public static object GBoxInt() { return new GBox<int>(5); }
+    public static object PairOf() { return new Pair<string, Item>("a", new Item(1)); }
+    public static object ListOfObject() { return new List<object>(); }
+}

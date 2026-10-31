@@ -131,6 +131,11 @@ public sealed class TypeOpEmitter {
             Z42InstantiatedType it = e.Target as Z42InstantiatedType;
             targs = new string[it.ArgCount];
             while (targc < it.ArgCount) { targs[targc] = this._ee._typeofArgName(it.TypeArgs[targc]); targc = targc + 1; }
+        } else if (e.Target is Z42InstantiatedInterfaceType) {
+            // `typeof(IFoo<string>)` 是构造类型，不是定义 `IFoo`（否则 `IsAssignableFrom` / `==` 按定义比）。
+            Z42InstantiatedInterfaceType ii = e.Target as Z42InstantiatedInterfaceType;
+            targs = new string[ii.ArgCount];
+            while (targc < ii.ArgCount) { targs[targc] = this._ee._typeofArgName(ii.TypeArgs[targc]); targc = targc + 1; }
         }
         TypedReg dst = this._ctx.Alloc(IrType.Ref);
         this._ctx.Emit(new TypeofInstr(dst, name, targs, targc));

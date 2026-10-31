@@ -11,10 +11,13 @@ pub fn type_methods(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> 
     };
     let mut seen: HashSet<String> = HashSet::new();
     let mut out = Vec::new();
+    // A constructed Type (`typeof(Box<int>)`) reports signatures with its arguments substituted.
+    let subst = member_subst(ty);
+    let subst = subst.as_ref();
     // Virtual / inherited methods carry their simple name in the vtable.
     for (simple, qualified) in &td.vtable {
         if seen.insert(qualified.clone()) {
-            out.push(build_method_info(ctx, simple, qualified, true).map_err(BuiltinError::Legacy)?);
+            out.push(build_method_info_ex(ctx, simple, qualified, true, false, subst).map_err(BuiltinError::Legacy)?);
         }
     }
     // Declared non-virtual methods (qualified names only). Constructors are not among
@@ -23,7 +26,7 @@ pub fn type_methods(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> 
         let q = qualified.to_string();
         if seen.insert(q.clone()) {
             let simple = simple_method_name(&q).to_string();
-            out.push(build_method_info(ctx, &simple, &q, false).map_err(BuiltinError::Legacy)?);
+            out.push(build_method_info_ex(ctx, &simple, &q, false, false, subst).map_err(BuiltinError::Legacy)?);
         }
     }
     // add-interface-member-reflection: an interface carries its declared method
@@ -116,9 +119,13 @@ pub fn type_constructors(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinEr
     ctor_keys.sort_by(|a, b| a.0.cmp(b.0));
     let mut seen_idx: HashSet<usize> = HashSet::new();
     let mut out = Vec::new();
+    // A constructed Type's constructors build *that* instantiation (`ConstructorInfo.Invoke`
+    // reads `__owner`) and take its substituted parameter types.
+    let subst = member_subst(ty);
+    let owner = type_value_name(ty).unwrap_or_else(|| td.name.clone());
     for (key, idx) in ctor_keys {
         if seen_idx.insert(idx) {
-            out.push(build_ctor_info(ctx, key).map_err(BuiltinError::Legacy)?);
+            out.push(build_ctor_info(ctx, key, &owner, subst.as_ref()).map_err(BuiltinError::Legacy)?);
         }
     }
     Ok(ctx.heap().alloc_array(out))
@@ -127,10 +134,12 @@ pub fn type_constructors(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinEr
 /// Build a `ConstructorInfo` for the constructor function `qualified`
 /// (`<ClassFQN>.<SimpleName>[$N]`). Reuses `build_param_infos`; a constructor is never
 /// static, has no return type, and its user-facing `Name` is the class simple name.
-pub(super) fn build_ctor_info(ctx: &VmContext, qualified: &str) -> Result<Value> {
+pub(super) fn build_ctor_info(
+    ctx: &VmContext, qualified: &str, owner: &str, subst: Option<&(Vec<String>, Vec<String>)>,
+) -> Result<Value> {
     let simple_full = simple_method_name(qualified);
     let simple = simple_full.split('$').next().unwrap_or(simple_full);
-    let (params, _is_static, _ret, _vis, _mf, _sig_found) = build_param_infos(ctx, qualified)?;
+    let (params, _is_static, _ret, _vis, _mf, _sig_found) = build_param_infos_ex(ctx, qualified, false, subst)?;
     let params_arr = ctx.heap().alloc_array(params);
     alloc_named(
         ctx,
@@ -140,6 +149,7 @@ pub(super) fn build_ctor_info(ctx: &VmContext, qualified: &str) -> Result<Value>
             ("IsStatic", Value::Bool(false)),
             ("__parameters", params_arr),
             ("__qualified", Value::Str(qualified.to_string().into())),
+            ("__owner", Value::Str(owner.to_string().into())),
         ],
     )
 }
@@ -147,12 +157,6 @@ pub(super) fn build_ctor_info(ctx: &VmContext, qualified: &str) -> Result<Value>
 /// Build the logical `ParameterInfo[]` (excludes the implicit `this`) for a function,
 /// plus its resolved `(is_static, ret_type, visibility, method_flags, sig_found)`.
 /// Shared by `build_method_info` and `build_ctor_info`.
-pub(super) fn build_param_infos(
-    ctx: &VmContext,
-    qualified: &str,
-) -> Result<(Vec<Value>, bool, String, u8, u8, bool)> {
-    build_param_infos_ex(ctx, qualified, false)
-}
 
 /// `receiverless`: the caller knows the function takes no receiver (a free / top-level
 /// function — `Assembly.GetFunctions`). Its `Function.is_static` is not set (the flag is
@@ -162,6 +166,7 @@ fn build_param_infos_ex(
     ctx: &VmContext,
     qualified: &str,
     receiverless: bool,
+    subst: Option<&(Vec<String>, Vec<String>)>,
 ) -> Result<(Vec<Value>, bool, String, u8, u8, bool)> {
     match resolve_func_sig(ctx, qualified) {
         Some((param_count, ret_type, fn_is_static0, param_types, param_names, vis, mf, min_arg, params_from, param_defaults)) => {
@@ -205,7 +210,7 @@ fn build_param_infos_ex(
                     STD_REFLECTION_PARAMINFO,
                     &[
                         ("Name", Value::Str(name.into())),
-                        ("ParameterType", make_type_from_name(ctx, tag)),
+                        ("ParameterType", make_type_from_name(ctx, &subst_tag(tag, subst))),
                         ("Position", Value::I64(pos)),
                         ("IsOptional", Value::Bool(is_optional)),
                         ("IsParams", Value::Bool(is_params)),
@@ -217,7 +222,7 @@ fn build_param_infos_ex(
                     ],
                 )?);
             }
-            Ok((params, fn_is_static, ret_type, vis, mf, true))
+            Ok((params, fn_is_static, subst_tag(&ret_type, subst), vis, mf, true))
         }
         None => Ok((Vec::new(), false, "void".to_string(), 0, 0, false)),
     }
@@ -231,12 +236,12 @@ pub(crate) fn build_method_info(
     qualified: &str,
     is_virtual: bool,
 ) -> Result<Value> {
-    build_method_info_ex(ctx, simple, qualified, is_virtual, false)
+    build_method_info_ex(ctx, simple, qualified, is_virtual, false, None)
 }
 
 /// MethodInfo for a free (top-level) function: no receiver, `IsStatic == true`.
 pub(crate) fn build_free_function_info(ctx: &VmContext, simple: &str, qualified: &str) -> Result<Value> {
-    build_method_info_ex(ctx, simple, qualified, false, true)
+    build_method_info_ex(ctx, simple, qualified, false, true, None)
 }
 
 fn build_method_info_ex(
@@ -245,6 +250,7 @@ fn build_method_info_ex(
     qualified: &str,
     is_virtual: bool,
     receiverless: bool,
+    subst: Option<&(Vec<String>, Vec<String>)>,
 ) -> Result<Value> {
     // stabilize-dispatch-keys (方案A): dispatch keys now carry a
     // full `$N$types` mangle suffix for every method (vtable slots + own_methods
@@ -253,7 +259,7 @@ fn build_method_info_ex(
     // the user-facing `MethodInfo.Name` (dispatch still uses `qualified`).
     let simple = simple.split('$').next().unwrap_or(simple);
     let (params, is_static, ret_tag, visibility, method_flags, sig_found) =
-        build_param_infos_ex(ctx, qualified, receiverless)?;
+        build_param_infos_ex(ctx, qualified, receiverless, subst)?;
     // add-method-modifiers (unify P1-c): IsVirtual authoritative from the flag
     // (bit0) WHEN a SIGS entry was resolved — z42 lists every method (virtual or
     // not) in the vtable, so vtable-presence alone over-reports. Fall back to the

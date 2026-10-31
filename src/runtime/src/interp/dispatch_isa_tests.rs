@@ -240,6 +240,30 @@ fn erased_descriptor_entries_match_instantiated_targets() {
     assert!(!isa(&ctx, &boxed, "Pkg.Box<string>", &TypeKeyCell::new()));
 }
 
+/// A constructed name no package declares a descriptor for (an imported generic instantiated
+/// elsewhere — `Type.IsAssignableFrom` on `typeof(List<int>)`) is tested as an instance of the
+/// definition carrying those arguments would be: arguments compare exactly, the definition's
+/// own bases / interfaces still apply.
+#[test]
+fn name_test_on_an_undeclared_instantiation_reads_its_arguments() {
+    let ctx = setup();
+    let pkg = module("Pkg2", vec![class("Pkg.List", Some("Pkg.Base"), &[])]);
+    load_lazily(&ctx, pkg);
+    let entry = Arc::clone(ctx.module().unwrap());
+    let reg = &entry.type_registry;
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.List<int>"));
+    assert!(!is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.List<string>"));
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.List"));
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.Base"));
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.IShape"));
+    assert!(!is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "App.Thing"));
+    // A declared instantiation keeps answering from its own descriptor.
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.Box<int>", "Pkg.Box"));
+    assert!(!is_subclass_or_eq_td(&ctx, reg, "Pkg.Box<int>", "Pkg.Box<string>"));
+    // Neither declared nor constructed: unknown.
+    assert!(!is_subclass_or_eq_td(&ctx, reg, "Pkg.Nope", "Pkg.Base"));
+}
+
 #[test]
 fn arrays_test_by_element_type_and_are_invariant() {
     // Array / Object roots.

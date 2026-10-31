@@ -352,8 +352,11 @@ fn primitive_fqn_maps_both_vocabularies() {
     assert_eq!(primitive_fqn("ushort"), Some("Std.UInt16"));
     assert_eq!(primitive_fqn("uint"), Some("Std.UInt32"));
     assert_eq!(primitive_fqn("ulong"), Some("Std.UInt64"));
-    // Non-primitive names pass through (resolved as classes earlier).
-    assert_eq!(primitive_fqn("Std.Int32"), None);
+    // `object` is a built-in spelling too (`typeof(object)` ≡ `new object().GetType()`), and
+    // the FQN is its own canonical form.
+    assert_eq!(primitive_fqn("object"), Some("Std.Object"));
+    assert_eq!(primitive_fqn("Std.Int32"), Some("Std.Int32"));
+    // Non-built-in names pass through (resolved as classes earlier).
     assert_eq!(primitive_fqn("Demo.Point"), None);
     assert_eq!(primitive_fqn("List"), None);
 }

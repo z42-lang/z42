@@ -20,7 +20,9 @@ pub fn type_element(ctx: &VmContext, ty: &Value) -> Value {
 /// `__type_base(typeObj) -> Type | null` — base class Type; `Std.Object` for
 /// classes with no explicit base; `null` for `Std.Object` itself / no handle.
 pub fn type_base(ctx: &VmContext, ty: &Value) -> Value {
-    let td = match type_handle_of(ty) {
+    // A constructed Type's handle is its definition, whose base names no arguments; the
+    // instantiation descriptor carries the substituted one (`Sub<int>` → `Box<int>`).
+    let td = match instantiation_desc(ctx, ty).or_else(|| type_handle_of(ty)) {
         Some(t) => t,
         None => return Value::Null,
     };
@@ -97,7 +99,8 @@ pub fn type_generic_definition(ctx: &VmContext, ty: &Value) -> Result<Value, Bui
 /// name becomes a name-only `Std.Type` via `make_type_from_name`. Transitive
 /// interface implementation via BFS (add-reflection-transitive-interfaces).
 pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
-    let td = match type_handle_of(ty) {
+    // Same as `type_base`: the instantiation descriptor lists its interfaces substituted.
+    let td = match instantiation_desc(ctx, ty).or_else(|| type_handle_of(ty)) {
         Some(t) => t,
         None => return ctx.heap().alloc_array(Vec::new()),
     };
@@ -119,7 +122,7 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
         // add-crosspkg-impl-reflection (unify P1-e): traits added to this class
         // via cross-package `impl Trait for Type` (IMPL section of loaded
         // packages). Same queue → transitive closure + dedup apply uniformly.
-        for tr in ctx.impl_traits_for(&c.name) {
+        for tr in ctx.impl_traits_for(crate::metadata::type_names::erased(&c.name)) {
             queue.push_back(tr);
         }
         cur = c.base_name.as_ref().and_then(|b| resolve(b));
@@ -269,35 +272,26 @@ pub fn type_is_assignable_from(ctx: &VmContext, this: &Value, c: &Value) -> bool
     if matches!(c, Value::Null) {
         return false;
     }
-    // C# semantics: everything is assignable to `object` — value types box, all
-    // reference types / interfaces / arrays derive from it. `typeof(object)` is a
-    // handle-less Type named "object" (also accept the FQ "Std.Object"), so the
-    // handle/FullName paths below would wrongly report false for value types etc.
-    // add-reflection-object-assignable. (`c` is already non-null, checked above.)
-    let this_name = match type_handle_of(this) {
-        Some(td) => td.name.to_string(),
-        None => match read_type_slot_of(this, "__fullName") {
-            Value::Str(s) => s.to_string(),
-            _ => String::new(),
-        },
+    // Both sides by their canonical runtime name (`type_value_name`): a constructed Type's
+    // handle is its generic *definition*, so comparing handle names answered
+    // `typeof(Box<string>).IsAssignableFrom(typeof(DInt))` (DInt : Box<int>) with true.
+    let (Some(this_name), Some(c_name)) = (type_value_name(this), type_value_name(c)) else {
+        return false;
     };
-    if this_name == "object" || this_name == STD_OBJECT {
+    // C# semantics: everything is assignable to `object` — value types box, all reference
+    // types / interfaces / arrays derive from it. add-reflection-object-assignable.
+    if this_name == STD_OBJECT {
         return true;
     }
     match (type_handle_of(this), type_handle_of(c)) {
-        (Some(this_td), Some(c_td)) => match ctx.module() {
+        (Some(_), Some(_)) => match ctx.module() {
             Some(m) => crate::interp::dispatch::is_subclass_or_eq_td(
-                ctx, &m.type_registry, &c_td.name, &this_td.name,
+                ctx, &m.type_registry, &c_name, &this_name,
             ),
-            None => c_td.name == this_td.name,
+            None => c_name == this_name,
         },
-        // Handle-less (primitive / array synthetic): no base chain — same
-        // identity only, compared by the __fullName slot.
-        _ => {
-            let a = read_type_slot_of(this, "__fullName");
-            let b = read_type_slot_of(c, "__fullName");
-            matches!((&a, &b), (Value::Str(x), Value::Str(y)) if x == y)
-        }
+        // Handle-less (array / unresolved synthetic): no base chain — same identity only.
+        _ => c_name == this_name,
     }
 }
 
