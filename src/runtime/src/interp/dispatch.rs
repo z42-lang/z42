@@ -138,6 +138,53 @@ fn erased_instance_matches(def: &str, inst_args: &[String], target: &str) -> Opt
     Some(inst_args.iter().zip(targs.iter()).all(|(a, t)| a == t || is_open_type_arg(a)))
 }
 
+/// Type test for an **array** receiver whose element type is `elem` — the single entry used by
+/// interp and JIT `is` / `as` / checked casts.
+///
+/// An array is-a `Std.Array` and `Std.Object`, and is-a `X[]` exactly when its element type is
+/// `X`: arrays are invariant (no covariance — `Dog[]` is not an `Animal[]`). The compiler spells
+/// the element of an array target and the element recorded by `ArrayNew` with the same function,
+/// so the comparison is by name; [`type_name_matches`] adds the cases a name cannot decide.
+/// An element-less array (`""`: built by the runtime without an element type) matches any `X[]`.
+pub fn array_isa(elem: &str, target: &str) -> bool {
+    if matches!(target, "Array" | "Object" | "Std.Array" | "Std.Object") {
+        return true;
+    }
+    match target.strip_suffix("[]") {
+        Some(t) => elem.is_empty() || type_name_matches(elem, t),
+        None => false,
+    }
+}
+
+/// Does the runtime type name `actual` match the test target `target`? Equal names match; so does
+/// an `actual` that is (or contains, at the same position) an unsubstituted type parameter
+/// (`new T[n]` / `new Box<T>[n]` in a generic body records `T`) — the erased answer
+/// [`erased_instance_matches`] gives for the same situation.
+fn type_name_matches(actual: &str, target: &str) -> bool {
+    if actual == target || is_open_type_arg_name(actual) {
+        return true;
+    }
+    if let (Some(a), Some(t)) = (actual.strip_suffix("[]"), target.strip_suffix("[]")) {
+        return type_name_matches(a, t);
+    }
+    let (Some(al), Some(tl)) = (actual.find('<'), target.find('<')) else {
+        return false;
+    };
+    if actual[..al] != target[..tl] || !actual.ends_with('>') || !target.ends_with('>') {
+        return false;
+    }
+    let aargs = split_top_level_args(&actual[al + 1..actual.len() - 1]);
+    let targs = split_top_level_args(&target[tl + 1..target.len() - 1]);
+    aargs.len() == targs.len() && aargs.iter().zip(targs.iter()).all(|(a, t)| type_name_matches(a, t))
+}
+
+/// A whole name that is a bare type parameter (`T`): dot-free, not a keyword, no structure.
+fn is_open_type_arg_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains(['.', '<', '[', ','])
+        && !is_keyword_type_name(name)
+}
+
 /// `"a,B<c,d>,e"` → `["a", "B<c,d>", "e"]` (commas nested in `<…>` do not split).
 fn split_top_level_args(s: &str) -> Vec<&str> {
     let mut out = Vec::new();

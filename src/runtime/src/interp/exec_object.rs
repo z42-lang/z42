@@ -7,7 +7,6 @@ use crate::vm_context::VmContext;
 use anyhow::Result;
 
 use super::dispatch::isa_td;
-use super::exec_vcall::is_array_isa;
 use super::ops::collect_args;
 use super::Frame;
 

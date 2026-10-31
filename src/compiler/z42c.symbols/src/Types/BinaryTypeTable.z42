@@ -28,10 +28,12 @@ public static class ResultKind {
 // 基元包装结构体（Boolean/Byte/Int32…）在 struct 方法内 this 的类型，与基元同等处理。
 public static class TypeFacts {
     // semantics-split 自 TypeChecker._isNonNullableValueType 下沉（纯类型模型谓据：enum 或
-    // IsStruct 的 Z42ClassType）——ImportedSymbolLoader 的 nullable 标记与绑定期共用同一判据
-    //（「编译期与运行期各判各的」正是 `where T : struct` 那个 bug 的形状，故不复制两份）。
+    // IsStruct 的 Z42ClassType，或定义是 struct 的实例化 `SB<int>`）——ImportedSymbolLoader 的 nullable
+    // 标记与绑定期共用同一判据（「编译期与运行期各判各的」正是 `where T : struct` 那个 bug 的形状，故不复制两份）。
     public static bool IsNonNullableValueType(Z42Type t) {
         if (TypeFacts.IsEnum(t)) { return true; }
+        Z42InstantiatedType it = t as Z42InstantiatedType;
+        if (it != null) { return it.Def != null && it.Def.IsStruct; }
         Z42ClassType ct = t as Z42ClassType;
         if (ct == null) { return false; }
         return ct.IsStruct;
