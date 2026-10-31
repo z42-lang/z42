@@ -108,7 +108,7 @@ VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 
 
 ### 4.2 地基模块内部
 
-- **`pal/`**：`fs.rs`（含 `Vfs` trait，每台 VM 一个句柄，文件系统状态归属 VmCore）+ `vfs/{local,memory}.rs`、`process.rs`（spawn / wait / kill / 进程树）、`net.rs`、`mem.rs`（现 `gc/os_mem.rs`）、`thread.rs`（栈边界、sigaltstack）、`signal.rs`、`dynlib.rs`（合并`interop/loader`、`interop/ext`、`corelib/repl_native` 三处 dlopen）、`console.rs`、`time.rs`、`sys.rs`；平台分支在 `sys/{unix,windows,wasm}/`。现 corelib 103 处、gc 21 处、vm_context 18 处平台 cfg 与 7 个非 PAL 文件的 `libc` 调用全部收进来。
+- **`pal/`**：`fs.rs`（含 `Vfs` trait，每台 VM 一个句柄，文件系统状态归属 VmCore）+ `vfs/{local,memory}.rs`、`process.rs`（spawn / wait / kill / 进程树）、`net.rs`、`mem.rs`（GC 页管理）、`thread.rs`（栈边界、sigaltstack）、`signal.rs`、`dynlib.rs`（运行时唯一的动态库装载入口）、`console.rs`、`time.rs`、`sys.rs`；平台分支在 `sys/{unix,windows,wasm}/`。尚在 PAL 各 concern 文件中的操作系统分支统一迁入 `sys/`，上层保留平台无关接口。
 - **`metadata/`**：`format/`（常量、版本、build_id）、`reader/`（现 `zbc_reader/*`）、`ir/`（现 `bytecode/*`、`ir_type`）、`image.rs`（PackageImage：零拷贝、字符串表解析一次、函数体按需解码）、`index/`（包内按名找下标、知名类型名、类型名格式化——现 `name_index` / `well_known_names` / `type_names`）、`debug/`（行号表、局部变量、帧名，读 .zsym 按需）。**纯静态的查询（名字、行号、attribute、签名）调用方直接用本模块，不经 vm。**
 - **`object/`**：`value/`（Value、ref word、codec、cells）、`header/`（16 B 统一头、`var_ref` / `obj_ref` / `arr_ref` 句柄）、`types/`（TypeDesc 形状、字段、elem kind、TypeArgs 形状、布局计算纯函数、引用槽位图）、`object/`、`array/`、`string/`（Str 句柄、非 ASCII 字符索引）。不抛异常、不查缓存、不管类型从哪来。
 - **`gc/`**：`heap.rs`（具体类型 `Heap`，取代 51 方法的 `dyn MagrGC`）、`config.rs`（`GcConfig` 由门面传入，取代 gc→config 27 处引用）、`to_vm.rs`（`GcToVm`：根枚举、`suspend_all` / `resume_all`）、`region/`、`alloc/`（含 TLAB）、`collect/`（标记、分代、增量、屏障、记忆集）、`policy/`、`refs/`、`walk.rs`（堆遍历原语）、`observe/`。移出：`sampler` / `snapshot` / `retention` → profiler；`safepoint` → vm/threads；`ambient` → vm。
