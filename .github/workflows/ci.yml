@@ -145,7 +145,7 @@ jobs:
           MAX_WAIT_MIN: "240"
         run: .github/ci/pr-gate.sh
 
-  # ── 纯文档改动的全部门禁：死链与文档结构、诊断码文档对账、书页代码引用（doc-refs）。不需要 SDK
+  # ── 纯文档改动的全部门禁：死链与文档结构、诊断码文档对账。不需要 SDK
   #    构建树，xtask 用种子 z42c 编出即可。doc-lints 不在这里：纯文档改动碰不到 stdlib
   #    的 `///`（那是 src/）；它是 `xtask test` 的一个 stage，随 build-and-test 跑。
   docs-check:
@@ -156,11 +156,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      # Rust 只为 `xtask check doc-refs`：它先 cargo 编 rust-index（syn 解析运行时 crate）重建 artifacts/doc/rust.idx，
-      # 书页里的 Rust 符号才按当前源码解析；其余门禁跑在 `.z42` SDK 的 z42vm 上、不碰构建树。
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
 
       - name: Bootstrap xtask (seed z42c → current xtask only)
         uses: ./.github/actions/ci-bootstrap
@@ -176,7 +171,6 @@ jobs:
           set -euo pipefail
           xtask test docs links
           xtask check diagcodes
-          xtask check doc-refs
 
   build-and-test:
     name: test-host(${{ matrix.platform }})

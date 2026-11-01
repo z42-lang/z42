@@ -460,7 +460,7 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 
 **改语义要换名字**：已发布的种子 stdlib 跑在新 VM 上（冷启动自举），同名 builtin 的签名与返回形状
 必须保持兼容（只把抛出的异常换成更具体的子类是兼容的）。要改形状就起新名字（例：返回 `[KIND, …]` 判别数组的
-旧形状 → 返回普通值、失败从 Rust 抛的新名字），旧名字挂 `STAGE2-DEBT` 留到种子不再声明它为止、随后连同表项
+旧形状 → 返回普通值、失败从 Rust 抛的新名字），旧名字保留到确认 nightly 种子不再声明它为止，随后连同表项
 与实现一并删除。形状不变、只把抛出的异常换成更具体子类的可以原名迁（`__monitor_*`：`Std.Exception` →
 `LockRecursionException` / `SynchronizationLockException`）。
 

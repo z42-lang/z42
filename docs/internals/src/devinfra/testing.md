@@ -33,29 +33,26 @@
 | 查询 | `xtask test list` | 用例目录（只读） |
 
 裸 `test` 先跑一个重建波（debug VM + stdlib + z42c 自建 + golden `.zbc` 基线），
-`--no-build` 跳过它、消费已有产物。**Rust VM 单测不在 gate 内**——它的
-signal-crash helper 会挂死整套 `cargo test`，所以 CI 每条腿单列一步。
+`--no-build` 跳过它、消费已有产物。GREEN 包含 Rust `cargo test --lib` 与全部测试 target 的编译检查；
+完整 `cargo test` 因 signal-crash helper 在 CI 每条腿单列一步。
 `--skip` 的完整键表用 `xtask test --list` 查询，编排规则见[测试门禁 §5](test-gate.md)。
 
 gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比对，秒级），单跑入口是 `xtask check`（每项是一个子命令，
-`xtask check -h` 列出全部）；其中 doc-refs 这道文档门禁**只在 `xtask check` 里**、不进 GREEN gate，一起列在下表：
+`xtask check -h` 列出全部）；doc-refs 是手动维护用的报告，不进 GREEN gate，一起列在下表：
 
 | 命令 | 守什么 |
 |---|---|
 | `xtask check` | 下面全部，跑完汇总哪些红 |
-| `xtask check diagcodes [--update]` | 每个发得出去的诊断码在登记表里登记恰好一次 |
-| `xtask check stage2` | 阶段-1 过渡形态的 `STAGE2-DEBT(<tag>,YYYY-MM-DD)` 标记必须带挂账日且不超宽限（宽限在 `gates.toml [stage2]`） |
+| `xtask check diagcodes` | 每个发得出去的诊断码在登记表里登记恰好一次 |
 | `xtask check vscode-syntax` | VSCode 语法文件 ↔ Lexer 关键字表同步 |
 | `xtask check ci-shell` | CI composite action 的 `run:` 块没有先用后赋的变量 |
 | `xtask check proc-env` | `Z42_LIBS` / `Z42_PROBING_PATHS` 只经 `_z42Proc` / `_z42bProc` / `_z42cProc` 设置 |
 | `xtask check layout` | 测试布局规范里能机械判定的部分（[test-layout](test-layout.md) 的「实现」节） |
 | `xtask check versions` | `scripts/versions.toml` 与它的投影文件（Cargo workspace 版本、Android / iOS 平台下限）文本一致 |
-| `xtask check layers [--update]` | 运行时源码的跨组件引用与 pal/sys 外的平台 cfg / `libc::` 不超 `gates.toml [layers.*]` 的欠账基线（只降不升，见[测试门禁](test-gate.md)） |
 | `xtask check doc-lints` | **文档门禁**：stdlib doc 注释没有 W08xx 发现（硬门、无白名单）；是 GREEN gate 的一个 stage |
-| `xtask check doc-refs [--update]` | **文档门禁**：internals / reference 手写页与 README 的代码引用可解析、不写行号（行号已是硬指标；未解析多段链按 `gates.toml [doc-refs]` 只降不升） |
+| `xtask check doc-refs` | 只读报告书页与 README 的行号引用、未解析符号链；不维护基线，不判 CI 通过与否 |
 
-doc-refs **不在 GREEN gate 的 stage 清单里**，CI 只在纯文档 PR 的 docs-check 里跑它（见
-[CI 拓扑](ci.md)）。doc-lints 在 GREEN gate 里，改了 stdlib `///` 的 PR 走的正是它。reference 的 stdlib 生成页
+doc-refs **不在 GREEN gate 的 stage 清单里**，仅供手动查看引用报告。doc-lints 在 GREEN gate 里，改了 stdlib `///` 的 PR 走的正是它。reference 的 stdlib 生成页
 不入库、没有对账门（发布时现生成）。两道的机制见[文档索引与 `z42 doc`](../toolchain/doc.md)。
 
 打包相关：`xtask package sdk --verify` 组装完 SDK 后先自检 `packages.toml` 的解析 / 组件安装 / 发布归档，再拿这份

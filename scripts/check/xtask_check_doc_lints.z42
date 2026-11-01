@@ -1,0 +1,83 @@
+// stdlib 文档注释校验。
+namespace Z42Xtask;
+
+using Std.IO;
+using Z42.Doc;
+
+void _sortCounts(string[] codes, int[] counts, int n) {
+    int i = 1;
+    while (i < n) {
+        string c = codes[i]; int v = counts[i];
+        int j = i - 1;
+        while (j >= 0 && codes[j].CompareTo(c) > 0) {
+            codes[j + 1] = codes[j]; counts[j + 1] = counts[j]; j = j - 1;
+        }
+        codes[j + 1] = c; counts[j + 1] = v;
+        i = i + 1;
+    }
+}
+
+// doc 注释硬门：stdlib 各包跑 DocLint（W08xx 语法级检查），任何 W08xx 即红，无白名单（豁免走修注释或改
+// W08xx 码本身）。W0803（链接 / @throws 类型解析）需要语义信息，归编译器 DocChecker pass，不在此列。
+int _checkDocLints() {
+    string root = _root();
+    SourceFile[] all = SourceTree.Collect(root);
+    DocLintFinding[] fs = new DocLintFinding[64];
+    int n = 0;
+    // 按包分组跑（W0808 的「同一命名空间一份 //!」按包判），再合并计数。
+    // 范围 = stdlib（src/libraries/）：编译器域（z42c.* / z42.doc）的注释按 doc-system
+    // §3.6「契约不显然时写」，不要求 W0805 全覆盖。
+    int i = 0;
+    while (i < all.Length) {
+        string pkg = all[i].Pkg;
+        if (pkg.Length == 0 || !all[i].Rel.StartsWith("src/libraries/")) { i = i + 1; continue; }
+        string[] paths = new string[all.Length];
+        int m = 0;
+        while (i < all.Length && all[i].Pkg == pkg) { paths[m] = all[i].Abs; m = m + 1; i = i + 1; }
+        string[] one = new string[m];
+        int c = 0;
+        while (c < m) { one[c] = paths[c]; c = c + 1; }
+        DocLintFinding[] found = DocLint.CheckPaths(one);
+        int k = 0;
+        while (k < found.Length) {
+            if (n == fs.Length) { DocLintFinding[] g = new DocLintFinding[n * 2]; Array.Copy(fs, g, n); fs = g; }
+            fs[n] = found[k]; n = n + 1; k = k + 1;
+        }
+    }
+
+    // 逐条列出（硬门红了要能直接定位），再按码计数（码升序打印，便于人工比对）。
+    string rootSlash = root + "/";
+    int f = 0;
+    while (f < n) {
+        string file = fs[f].File.StartsWith(rootSlash) ? fs[f].File.Substring(rootSlash.Length) : fs[f].File;
+        ConsoleError.WriteLine("  " + file + ":" + fs[f].Line.ToString() + ": " + fs[f].Code + " " + fs[f].Msg);
+        f = f + 1;
+    }
+    string[] codes = new string[n];
+    int[] counts = new int[n];
+    int cn = 0;
+    int j = 0;
+    while (j < n) {
+        int at = -1;
+        int q = 0;
+        while (q < cn) { if (codes[q] == fs[j].Code) { at = q; break; } q = q + 1; }
+        if (at < 0) { codes[cn] = fs[j].Code; counts[cn] = 1; cn = cn + 1; }
+        else { counts[at] = counts[at] + 1; }
+        j = j + 1;
+    }
+    _sortCounts(codes, counts, cn);
+
+    int total = 0;
+    int w = 0;
+    while (w < cn) {
+        total = total + counts[w];
+        Console.WriteLine("  " + codes[w] + " " + counts[w].ToString());
+        w = w + 1;
+    }
+    if (total > 0) {
+        ConsoleError.WriteLine("check doc-lints: ✗ " + total.ToString() + " 条欠账（硬门，无白名单）");
+        return 1;
+    }
+    Console.WriteLine("check doc-lints: ✓ 0 条欠账（硬门）");
+    return 0;
+}

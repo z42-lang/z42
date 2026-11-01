@@ -5,8 +5,7 @@
 // 配置与抑制零新机制，全部复用 attribute-handler-registry 的既有面：
 //   · 清单 `[lints]`：规则 severity 覆盖（精确 Id / `style.*` 通配 / warnings_as_errors）；
 //   · 源内抑制：方法级 `[Suppress("style.fnLinesHard", "理由")]`、文件级 `#suppress style.fileLinesHard "理由"`
-//    （不闭合延伸到 EOF）。原 gates.toml 棘轮基线由此退役——被抑制的条目各自带理由、可见可 grep，
-//     代价是失去「基线内不许膨胀」那条（抑制条目可增长）；拆完函数删标记即收口。
+//    （不闭合延伸到 EOF）。被抑制的条目各自带理由；拆完函数删标记即收口。
 //
 // 规则默认全部关闭（EnabledByDefault=false）：code-organization.md 的 886/500/60/40 是本仓约定，
 // 不强加给所有用户工程；阈值是规则内常量（原门禁里也是硬编码，不扩 [lints] 值语法）。

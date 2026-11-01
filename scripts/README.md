@@ -249,6 +249,7 @@ scripts/
 │   ├── xtask_common.z42     _root/_exec/cargo/toolchain 选择器 + verbosity + 种子解析
 │   ├── xtask_layout.z42     构建树布局路径（per-member 读 workspace.toml 单源 + flat/runtime/build-root 约定）+ `layout` 命令
 │   ├── xtask_versions.z42   versions.toml 读取器（_vget/_vRead/...）
+│   ├── xtask_doc_index.z42  Rust 符号索引生成（doc index 与 doc-refs 报告共用）
 │   ├── xtask_golden.z42     golden 枚举 / 入口推导（多 test stage + build test 复用）
 │   ├── xtask_toolset.z42    外部工具（cargo/gh/tar/...）的存在性与定位
 │   ├── xtask_fs.z42         文件系统原语（_resetDir/_copyAll/_linkAll/_copyFile/_copyIfExists/_cleanGlob/_makeExe；写入前先断链）
@@ -263,10 +264,9 @@ scripts/
 │   ├── xtask_toolchain.z42      build workload / build toolchain [z42b]（apphost publish，路径从各 toml 读）
 │   ├── xtask_golden_assets.z42  **`build test` 的实现**（golden .zbc 编译；_buildTest / _regenGolden / _regenCore）
 │   ├── xtask_clean.z42          clean 命令（production / tests / bench / intermediate / all，见 artifacts-layout.md §4）
-│   ├── xtask_doc.z42            doc 命令族（gen / index）+ `check doc-lints` / `doc-refs` 的引擎
+│   ├── xtask_doc.z42            doc 命令族（gen / index）与文档生成
 │   └── xtask_bootstrap_check.z42 上一版 nightly z42c 能否编当前源（分阶段纪律边界检查）
-├── test/               test 命令族 + 大部分 `check` 的实现（注意：`test compiler` / `test compiler bootstrap` /
-│   │                   `check vscode-syntax` 的实现**不在**本目录，见 build/ install/）
+├── test/               test 命令族（`test compiler` / `test compiler bootstrap` 实现在 build/）
 │   ├── xtask_test_cmd.z42       `test` 族的命令类 + LibUnitsCommand（test stdlib / bench stdlib 共用）
 │   ├── xtask_test.z42           all/e2e 编排 + stage 单源登记 / 只读列表 / 计时
 │   ├── xtask_test_vm.z42        e2e golden 跑分（+ --dir/--file 子选择）
@@ -291,10 +291,7 @@ scripts/
 │   ├── xtask_test_incremental{,_ws}.z42 增量编译暴力对账（逐文件 touch：增量产物 == 全量，逐字节；`_ws` 为 stdlib 整体读回）
 │   ├── xtask_test_docs.z42      `test docs`：相对链接死链 + 文档分层 / README 关联文档检查
 │   ├── xtask_test_app.z42       `test app`：设备测试一条命令（+ `xtask_test_device_host.z42` 宿主工程暂存）
-│   ├── xtask_check_versions.z42 `check versions`：versions.toml ↔ Cargo.toml / build.gradle.kts / Package.swift
-│   ├── xtask_test_layers.z42    `check layers`：运行时分层门（引用解析 + 基线比较）；`xtask_layers_rules.z42` 是源文件 → 组件
-│   │                            映射表与允许依赖矩阵，`xtask_layers_{lex,scan}.z42` 切 Rust 记号 / 取引用与平台 cfg，`xtask_layers_selftest.z42` 是每次先跑的自测
-│   ├── xtask_test_{diagcodes,layout,stage2,fingerprint,ci_shell,proc_env}.z42  各机械门（诊断码唯一 / 测试布局 / 阶段-2 欠账 / 编译器指纹 / CI shell / 子进程环境）；棘轮基线统一在 `test/gates.toml`（行数棘轮已下沉编译器 style.* lint，AST walker 完备性门已随语法树 visitor 化退役）
+│   ├── xtask_test_fingerprint.z42  编译器语义指纹检查
 │   ├── xtask_test_changed.z42   按改动文件挑 stage
 │   └── xtask_test_{platform,wasm,ios,android,desktop}.z42  平台 3 段测试（build/assets/run）
 │                                platform 是 dispatcher + 共享 phase②；其余四个是 backend 类
@@ -316,15 +313,22 @@ scripts/
 │   ├── xtask_install{,_android}.z42  `setup [--os]` + Android SDK·NDK·模拟器
 │   ├── xtask_setup_check.z42         `setup check`：只读在场校验
 │   └── xtask_install_vscode.z42      生成 z42.tmLanguage.json + **`check vscode-syntax` 门**
-├── check/              `check` 命令（xtask_check_cmd.z42：静态检查的单跑入口；各检查实现在 test/ build/ install/ 原处）
+└── check/              静态检查与引用报告（VSCode grammar 检查复用 install/ 的生成逻辑）
+    ├── xtask_check_cmd.z42          检查名称、说明与处理函数的统一登记和 CLI
+    ├── xtask_check_{diagcodes,layout,ci_shell,proc_env,versions}.z42
+    │                               诊断码 / 测试布局 / CI shell / 子进程环境 / 版本一致性
+    ├── xtask_check_doc_lints.z42    stdlib 文档注释 W08xx 检查
+    ├── xtask_check_doc_refs.z42     符号引用与旧行号的只读报告
+    └── xtask_selfcheck_checks.z42   诊断码检查回归，随 builder 夹具跑
 ```
 
 每个命令的详细 Usage 见 `xtask -h`（每层子命令 `-h` 自动生成）与各源文件顶部注释。
 
 ### 目录分层规则
 
-**依赖只有一个方向：`build/` `test/` `package/` `install/` `bench/` 各族 → `common/`；`cli/` 是分发层，
-只向下调各族的 handler。族与族之间不得互相调用，`common/` 更不得反调任何族。**
+`common/` 提供路径、进程、文件系统与共享索引操作，不反调命令实现。命令入口负责解析参数，
+具体处理函数按职责放在 `build/`、`test/`、`package/`、`install/`、`bench/`、`check/`。
+`test/` 负责组合构建、执行与静态检查；`check/` 的 VSCode 检查复用 `install/` 的生成逻辑。
 
 被两个以上族用到的东西，就该上移到 `common/`——最底层的文件系统原语在
 `common/xtask_fs.z42`，路径布局在 `xtask_layout.z42`，外部工具探测在 `xtask_toolset.z42`。

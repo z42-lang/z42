@@ -1,0 +1,68 @@
+// 用独立小仓库验证诊断码检查，不依赖真实仓库的码号或任何基线。
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _selfcheckDiagCodes(string root) {
+    string dir = _xtaskWork(root, "diagcodes-selfcheck");
+    _dcFixture(dir);
+    _dcExpect(dir, 0, "registered literal needs no baseline");
+    _dcFixtureWrite(dir, "src/emitter.z42", "DiagnosticCodes.First;\n");
+    _dcExpect(dir, 0, "registered constant reference");
+    _dcFixtureWrite(dir, "src/emitter.z42", "DiagnosticCodes.First; DiagnosticCodes.Ghost;\n");
+    _dcExpect(dir, 1, "unknown constant reference");
+    _dcFixtureWrite(dir, "src/emitter.z42", "\"E0001\"; \"E0002\";\n");
+    _dcExpect(dir, 1, "unregistered literal");
+    _dcFixture(dir);
+    _dcFixtureWrite(dir, _dcRegistryPath(),
+        "public static string First = \"E0001\";\npublic static string Second = \"E0001\";\n");
+    _dcExpect(dir, 1, "duplicate registration");
+    _dcFixtureWrite(dir, _dcRegistryPath(), "");
+    _dcExpect(dir, 1, "empty registry");
+    _dcFixture(dir);
+    File.Delete(Path.Join(dir, _dcRegistryPath()));
+    _dcExpect(dir, 1, "missing registry");
+    _dcSelfcheckDocAndCoverage(dir);
+    Console.WriteLine("  ✅ diagnostic checks: registration, references, documentation, liveness, coverage");
+    return 0;
+}
+
+void _dcSelfcheckDocAndCoverage(string dir) {
+    _dcFixture(dir);
+    _dcFixtureWrite(dir, _dcDocPath(), "| E0002 | test | active |\n");
+    _dcExpect(dir, 1, "documentation agrees with registry");
+    _dcFixtureWrite(dir, _dcDocPath(), "| E0001 | test | 零发射点 |\n");
+    _dcExpect(dir, 1, "live code cannot be marked inactive");
+    _dcFixtureWrite(dir, "src/emitter.z42", "// \"E0001\" is not an emission site\n");
+    _dcExpect(dir, 0, "test references and source comments do not make a code live");
+    _dcFixtureWrite(dir, _dcDocPath(), "| E0001 | test | active |\n");
+    _dcExpect(dir, 1, "inactive code cannot be marked live");
+    _dcFixture(dir);
+    _dcFixtureWrite(dir, "src/tests/code.txt", "");
+    _dcFixtureWrite(dir, "src/tests/comment.z42", "// E0001\n");
+    _dcExpect(dir, 1, "comments alone do not cover a live code");
+    _dcFixtureWrite(dir, "src/tests/assert.z42", "DiagnosticCodes.First;\n");
+    _dcExpect(dir, 0, "test constant reference provides coverage");
+}
+
+void _dcFixture(string dir) {
+    _resetDir(dir);
+    _dcFixtureWrite(dir, _dcRegistryPath(), "public static string First = \"E0001\";\n");
+    _dcFixtureWrite(dir, _dcDocPath(), "| E0001 | test | active |\n");
+    _dcFixtureWrite(dir, "src/emitter.z42", "\"E0001\";\n");
+    _dcFixtureWrite(dir, "src/tests/code.txt", "E0001\n");
+}
+
+void _dcFixtureWrite(string dir, string rel, string text) {
+    string path = Path.Join(dir, rel);
+    Directory.Create(Path.GetDirectoryName(path));
+    File.WriteAllText(path, text);
+}
+
+void _dcExpect(string dir, int expected, string scenario) {
+    int actual = _checkDiagCodesAt(dir);
+    if (actual != expected) {
+        throw new Exception("diagnostic selfcheck: " + scenario + "; expected "
+            + expected.ToString() + ", got " + actual.ToString());
+    }
+}

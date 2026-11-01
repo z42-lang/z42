@@ -154,10 +154,6 @@ public static class ZpkgReader {
     // （`metadata/reader/zpkg.rs`）—— z42 侧读不出来，于是 `_bundleExeDeps` 只能搬直接依赖。
     // 另一条路（顺着源码树的 toml 找）在 repo 外整个失效（publisher 今天就是那样），不能用。
     //
-    // 🔴 **support 阶段：本方法今天无人调用** ⇒ 产物逐字节不变、可立即合并。
-    // ✅ 阶段 2 已落地（#849）：`_bundleExeDeps` 用它按 DEPS 段建按名/产物引用的传递闭包。
-    //    （此前这里写着「消费要等它随 nightly 进种子之后」—— 消费落地后没人回来改这句，
-    //     于是支持侧的注释变成假话。这类腐坏现在由 `xtask check stage2` 的双向棘轮盯着。）
     // PLGS 段（unify-plugin-packages 1c）：`u32 count` + 每条 { u32 name_idx; u32 ver_idx }。
     // 消费方（z42c / z42b 的携带解析）按名在插件目录定位、比对版本。无段 → 空数组。
     public static PluginCarryZ[] ReadCarried(ZpkgInfo z) {

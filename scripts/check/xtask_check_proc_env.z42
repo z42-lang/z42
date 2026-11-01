@@ -29,7 +29,7 @@ bool _peSetsProcEnv(string line, string name) {
 // 允许直接设这些变量的唯一文件（工厂所在）。
 string _peFactoryFile() { return "scripts/build/xtask_stdlib.z42"; }
 
-int _testProcEnv() {
+int _checkProcEnv() {
     string root = _root();
     Console.WriteLine("① Z42_LIBS / Z42_PROBING_PATHS 只经 _z42Proc / _z42bProc / _z42cProc 设置");
     int files = 0;

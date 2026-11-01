@@ -127,6 +127,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeGoldenBundleHost(root, tt);
         failed = failed + _selfcheckBundleCompileFailure(root);
         failed = failed + _selfcheckGateStages();
+        failed = failed + _selfcheckDiagCodes(root);
         failed = failed + _smokeCompileFailClean(root, tt);
         failed = failed + _smokeManifestSections(root, tt);
         failed = failed + _smokeBuildHooksMode(root, tt);
