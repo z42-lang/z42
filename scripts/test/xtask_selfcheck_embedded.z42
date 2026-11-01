@@ -1,0 +1,50 @@
+// embedded bundle 构建回归：部分编译失败必须使整包失败，且不能留下上一轮的 manifest。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+int _selfcheckBundleCompileFailure(string root) {
+    string dir = _xtaskWork(root, "bundle-compile-failure");
+    _resetDir(dir);
+    string goodDir = Path.Join(dir, "good");
+    string badDir = Path.Join(dir, "bad");
+    Directory.Create(goodDir);
+    Directory.Create(badDir);
+    File.WriteAllText(Path.Join(goodDir, "source.z42"), "namespace BundleCompilePass;\nvoid Main() {}\n");
+    File.WriteAllText(Path.Join(badDir, "source.z42"), "namespace BundleCompileFail;\nvoid Main() { MissingBundleCompileSymbol(); }\n");
+    _CorpusCase good = _bundleCompileCase(goodDir, "pass");
+    _CorpusCase bad = _bundleCompileCase(badDir, "fail");
+    string outDir = Path.Join(dir, "bundle");
+    string manifest = _compileTestBundle(root, new _CorpusCase[]{ good }, outDir);
+    if (manifest.Length == 0 || !File.Exists(Path.Join(outDir, "pass.zbc"))) {
+        ConsoleError.WriteLine("  ❌ bundle compile: valid case failed"); return 1;
+    }
+    JsonValue cases = JsonValue.Parse(File.ReadAllText(manifest)).Get("cases");
+    if (cases.Length() != 1) {
+        ConsoleError.WriteLine("  ❌ bundle compile: valid case missing from manifest"); return 1;
+    }
+    string mixed = _compileTestBundle(root, new _CorpusCase[]{ good, bad }, outDir);
+    if (mixed.Length > 0 || File.Exists(manifest)) {
+        ConsoleError.WriteLine("  ❌ bundle compile: partial failure published a manifest"); return 1;
+    }
+    if (_buildGoldenBundle(root, goodDir).Length == 0 || _buildGoldenBundle(root, badDir).Length > 0) {
+        ConsoleError.WriteLine("  ❌ bundle compile: single golden failure was not propagated"); return 1;
+    }
+    string goldenDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "golden-bundle");
+    if (File.Exists(Path.Join(goldenDir, "manifest.json"))) {
+        ConsoleError.WriteLine("  ❌ bundle compile: failed single golden kept a stale manifest"); return 1;
+    }
+    if (_compileTestBundle(root, new _CorpusCase[0], outDir).Length > 0 || File.Exists(manifest)) {
+        ConsoleError.WriteLine("  ❌ bundle compile: empty selection published a manifest"); return 1;
+    }
+    Console.WriteLine("  ✅ bundle compile: valid, mixed failure, single failure, empty selection");
+    return 0;
+}
+
+_CorpusCase _bundleCompileCase(string dir, string name) {
+    _CorpusCase c = new _CorpusCase();
+    c.name = name; c.kind = "golden"; c.dir = dir;
+    c.src = Path.Join(dir, "source.z42");
+    return c;
+}

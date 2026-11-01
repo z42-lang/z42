@@ -40,8 +40,8 @@ inputs:
       command below) instead of cargo-building them. Saves ~95s per job: rust-cache only caches
       DEPENDENCIES, so even on an exact cache hit the z42 crate itself is re-linked with fat LTO.
       🔴 Only for jobs whose later steps never invoke cargo (they'd find a target dir with no
-      fingerprints and rebuild the whole crate cold) — today: `test stdlib --no-build` jobs and
-      publish-nightly. Ignored on other hosts (they always build their own z42vm).
+      fingerprints and rebuild the whole crate cold) — today: compile-test-assets,
+      `test stdlib --no-build` jobs and publish-nightly. Ignored on other hosts (they always build their own z42vm).
     required: false
     default: "false"
 runs:
