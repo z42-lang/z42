@@ -9,7 +9,7 @@
 //! whose inline guard misses — null or non-object receiver, a type or cell kind entry 0
 //! does not cache yet — calls them, and they install the site's IC.
 
-use crate::metadata::resolver::FieldIC;
+use crate::vm::runtime::dispatch::ic::FieldIC;
 
 use super::super::frame::JitFrame;
 use crate::vm_context::VmContext;

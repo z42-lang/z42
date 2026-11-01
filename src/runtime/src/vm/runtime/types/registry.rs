@@ -1,4 +1,8 @@
-use super::*;
+use rustc_hash::FxHashMap;
+use crate::metadata::index::NameIndex;
+use std::sync::Arc;
+use crate::object::{FieldSlot, TypeDesc};
+use crate::vm::runtime::Module;
 
 // ── TypeDesc registry ─────────────────────────────────────────────────────────
 
@@ -47,7 +51,7 @@ pub fn build_type_registry(module: &mut Module) {
     // on the bare u32 and nothing renumbers a TypeDesc when it crosses a zpkg
     // boundary, so per-module numbering made two zpkgs' classes collide and
     // dispatch into each other. See `tokens::alloc_type_id_block`.
-    let mut next_type_id: u32 = crate::metadata::tokens::alloc_type_id_block(order.len() as u32);
+    let mut next_type_id: u32 = crate::vm::runtime::ids::tokens::alloc_type_id_block(order.len() as u32);
 
     let class_by_name: FxHashMap<&str, &crate::metadata::ClassDesc> =
         module.classes.iter().map(|c| (c.name.as_str(), c)).collect();
@@ -137,7 +141,7 @@ pub fn build_type_registry(module: &mut Module) {
         let (fields, field_index, vtable, vtable_index) =
             merge_with_base(&own_fields, &own_methods, &own_static, &own_iface_slots, class_name, desc.base_class.as_deref(), &registry);
 
-        let type_id = crate::metadata::tokens::TypeId(next_type_id);
+        let type_id = crate::vm::runtime::ids::tokens::TypeId(next_type_id);
         next_type_id += 1;
         // add-field-attribute-reflection: index per-field attr refs (instance +
         // static fields with attributes) by field name for reflection.
@@ -686,4 +690,31 @@ fn needs_fixup(td: &TypeDesc, registry: &FxHashMap<String, Arc<TypeDesc>>) -> bo
         .count();
     let expected_vtable_count = base.vtable.len() + own_unique_methods;
     td.fields.len() != expected_field_count || td.vtable.len() != expected_vtable_count
+}
+
+/// Return class names in topological order (base before derived).
+fn topo_sort_classes(module: &Module) -> Vec<String> {
+    let base_of: rustc_hash::FxHashMap<&str, Option<&str>> = module.classes.iter()
+        .map(|c| (c.name.as_str(), c.base_class.as_deref()))
+        .collect();
+    let mut visited: rustc_hash::FxHashSet<&str> = rustc_hash::FxHashSet::default();
+    let mut order: Vec<String> = Vec::new();
+
+    fn visit<'m>(
+        name: &'m str,
+        base_of: &rustc_hash::FxHashMap<&'m str, Option<&'m str>>,
+        visited: &mut rustc_hash::FxHashSet<&'m str>,
+        order: &mut Vec<String>,
+    ) {
+        if !visited.insert(name) { return; }
+        if let Some(Some(base)) = base_of.get(name) {
+            visit(base, base_of, visited, order);
+        }
+        order.push(name.to_string());
+    }
+
+    for cls in &module.classes {
+        visit(&cls.name, &base_of, &mut visited, &mut order);
+    }
+    order
 }

@@ -6,7 +6,7 @@
 
 use crate::vm::runtime::{Function, Module};
 use crate::object::Value;
-use crate::metadata::tokens::FnId;
+use crate::vm::runtime::ids::tokens::FnId;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
@@ -83,7 +83,7 @@ fn try_native_static_call(
 pub(crate) fn fn_by_id<'m>(ctx: &'m VmContext, module: &'m Module, id: u32) -> Option<&'m Function> {
     match module.functions.get(id as usize) {
         Some(f) => Some(f),
-        None => ctx.funcs().get(crate::metadata::tokens::FnId(id)),
+        None => ctx.funcs().get(crate::vm::runtime::ids::tokens::FnId(id)),
     }
 }
 
@@ -175,9 +175,9 @@ pub(super) fn call(
     // package is what loads it, and loading is what registers its types' static constructors
     // (`LazyLoader::insert_type`). `callee_id` = the callee's JIT id (= the bound token),
     // which routes it to native code when compiled.
-    let token = method_token.map_or(crate::metadata::tokens::UNRESOLVED, |s| s.load(Ordering::Relaxed));
+    let token = method_token.map_or(crate::vm::runtime::ids::tokens::UNRESOLVED, |s| s.load(Ordering::Relaxed));
     let mut lazy_holder: Option<Arc<Function>> = None;
-    let hit = if token != crate::metadata::tokens::UNRESOLVED { fn_by_id(ctx, module, token) } else { None };
+    let hit = if token != crate::vm::runtime::ids::tokens::UNRESOLVED { fn_by_id(ctx, module, token) } else { None };
     let (target, callee_id): (&Function, Option<usize>) = match hit {
         Some(f) => (f, Some(token as usize)),
         None => match bind_callee(ctx, module, fname, args.len(), method_token, &mut lazy_holder) {
@@ -251,7 +251,7 @@ pub(super) fn builtin(
     frame: &mut Frame, dst: u32, name: &str, args: &[u32],
     builtin_id: Option<u32>,
 ) -> Result<Option<Value>> {
-    let id = builtin_id.unwrap_or(crate::metadata::tokens::UNRESOLVED);
+    let id = builtin_id.unwrap_or(crate::vm::runtime::ids::tokens::UNRESOLVED);
     match crate::corelib::invoke_builtin(ctx, id, name, None, &frame.regs, args) {
         Ok(Some(v)) => {
             frame.set(dst, v);
@@ -310,7 +310,7 @@ pub(crate) fn fn_ref_id(
 ) -> Result<FnId, Value> {
     if let Some(t) = token {
         let id = t.load(std::sync::atomic::Ordering::Relaxed);
-        if id != crate::metadata::tokens::UNRESOLVED { return Ok(FnId(id)); }
+        if id != crate::vm::runtime::ids::tokens::UNRESOLVED { return Ok(FnId(id)); }
     }
     bind_fn_ref(ctx, module, name, token)
 }

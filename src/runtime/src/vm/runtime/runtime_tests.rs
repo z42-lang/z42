@@ -4,7 +4,7 @@ use crate::metadata::image::PackageImage;
 use crate::metadata::ir::{
     self, BasicBlock, ClassDesc, ExceptionEntry, FunctionCold, Instruction, Terminator,
 };
-use crate::metadata::tokens::FnId;
+use crate::vm::runtime::ids::tokens::FnId;
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 
@@ -135,7 +135,7 @@ fn two_vms_share_definitions_and_isolate_all_link_state() {
     af.catch_key(0).set(18);
     af.forward.set(Some(19));
     af.owner_init.set(Some(at.clone())).unwrap();
-    crate::metadata::resolver::resolve_function_tokens(&am.functions[0], am, &a);
+    crate::vm::runtime::resolve::resolve_function_tokens(&am.functions[0], am, &a);
     assert_eq!(bf.type_key(0, 0).get(), None);
     assert_eq!(af.type_key(0, 1).get(), None, "is/as have distinct cells");
     assert_eq!(bf.catch_key(0).get(), None);
@@ -160,7 +160,7 @@ fn two_vms_share_definitions_and_isolate_all_link_state() {
 
 #[test]
 fn the_same_image_can_register_at_different_function_ids() {
-    use crate::metadata::func_table::FuncTable;
+    use crate::vm::runtime::ids::func_table::FuncTable;
     let image = image();
     let module = Arc::new(Module::from_image(image.clone()));
     let entry = FuncTable::new(Some(module.clone()));
@@ -224,7 +224,7 @@ fn link_time_edits_preserve_old_images_and_update_new_snapshots() {
 #[test]
 #[should_panic(expected = "a linked function belongs to one VM")]
 fn a_linked_function_cannot_be_shared_between_function_tables() {
-    use crate::metadata::func_table::FuncTable;
+    use crate::vm::runtime::ids::func_table::FuncTable;
     let function = Arc::new(Function::new(definition("F", vec![])));
     FuncTable::new(None).register_lazy(&function);
     FuncTable::new(None).register_lazy(&function);

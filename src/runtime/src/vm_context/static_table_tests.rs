@@ -15,7 +15,7 @@ fn td(name: &str) -> Arc<crate::object::TypeDesc> {
     Arc::new(crate::object::TypeDesc {
         class_flags: 0, visibility: 0, name: name.to_string(), base_name: None, fields, field_index,
         vtable: Vec::new(), vtable_index: crate::metadata::NameIndex::new(), cold: None,
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 

@@ -316,8 +316,8 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         let mut m = crate::metadata::merge_modules(modules)
             .with_context(|| format!("merging modules for `{}`", file))?;
         m.name = user_module_name;
-        crate::metadata::loader::build_type_registry(&mut m);
-        crate::metadata::loader::verify_constraints(&m)
+        crate::vm::runtime::types::build_type_registry(&mut m);
+        crate::vm::runtime::types::verify_constraints(&m)
             .with_context(|| format!("constraint verification failed for `{}`", file))?;
         crate::metadata::loader::build_block_indices(&mut m);
         crate::metadata::loader::build_func_index(&mut m);

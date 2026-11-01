@@ -38,7 +38,7 @@ impl VmContext {
         *state = Some(loader);
         drop(state);
         // cache-ctorless-objnew: a loader swap can make an absent ctor present.
-        crate::metadata::resolver::note_fn_registration();
+        crate::vm::runtime::dispatch::ic::note_fn_registration();
     }
 
     /// Clear the lazy loader (used in tests).
@@ -47,7 +47,7 @@ impl VmContext {
         self.core.funcs.reset_lazy_names();
         *state = None;
         drop(state);
-        crate::metadata::resolver::note_fn_registration();
+        crate::vm::runtime::dispatch::ic::note_fn_registration();
     }
 
     /// cache-ctorless-objnew: the current function-registration count. An `ObjNew`
@@ -56,7 +56,7 @@ impl VmContext {
     /// grows, and a ctor can only appear by being inserted there.
     #[inline]
     pub fn fn_registration_mark(&self) -> usize {
-        crate::metadata::resolver::fn_registration_mark()
+        crate::vm::runtime::dispatch::ic::fn_registration_mark()
     }
 
     /// fix-cross-pkg-subclass-fields : seed the lazy loader's
@@ -248,7 +248,7 @@ impl VmContext {
     /// The `TypeId` of the type the lazy loader has registered under `class_name`, without
     /// loading anything (`None` if no loader / not registered / no id). Type-test target keys
     /// (`interp::dispatch::target_key`) use it.
-    pub(crate) fn loaded_type_id(&self, class_name: &str) -> Option<crate::metadata::tokens::TypeId> {
+    pub(crate) fn loaded_type_id(&self, class_name: &str) -> Option<crate::vm::runtime::ids::tokens::TypeId> {
         let state = self.core.lazy_loader.read();
         let id = state.as_ref()?.loaded_type(class_name)?.id;
         id.is_resolved().then_some(id)
@@ -391,7 +391,7 @@ impl VmContext {
     }
 
     /// defer-class-initialization: 入队一个「静态字段所属类」，等待 `run_pending_static_inits`
-    /// 触发其所属包的加载 + 初始化。由 `metadata::resolver` 在解析静态字段名时调用。
+    /// 触发其所属包的加载 + 初始化。由 `vm::runtime::resolve` 在解析静态字段名时调用。
     pub fn enqueue_type_init(&self, class_fq: &str) {
         let mut q = self.core.pending_type_inits.lock();
         if !q.iter().any(|c| c == class_fq) {
@@ -472,7 +472,7 @@ impl VmContext {
     ///
     /// Against the VM's entry module (every production run — lazily loaded functions
     /// run against it too, their operands already shifted into the VM's id space) this
-    /// is the [`StrTable`](crate::metadata::str_table::StrTable): after the first
+    /// is the [`StrTable`](crate::vm::runtime::ids::str_table::StrTable): after the first
     /// execution of an id on any thread, a lock-free load, no hashing. Shared by the
     /// interpreter and the JIT helper.
     #[inline]
@@ -489,7 +489,7 @@ impl VmContext {
     /// VM's entry module: there the id is a `FuncTable` id. Without one (a bare test
     /// context) ids are indices of whatever module created the value, which this context
     /// does not know — `None`.
-    pub(crate) fn callable_fn(&self, id: crate::metadata::tokens::FnId) -> Option<&crate::vm::runtime::Function> {
+    pub(crate) fn callable_fn(&self, id: crate::vm::runtime::ids::tokens::FnId) -> Option<&crate::vm::runtime::Function> {
         self.core.module.as_ref()?;
         self.funcs().get(id)
     }

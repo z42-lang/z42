@@ -15,11 +15,11 @@ use crate::object::header::{BlockType, VarGcRef};
 pub struct TypeDesc {
     /// Fully-qualified class name (e.g. `"Demo.Point"`).
     pub name: String,
-    /// Runtime token assigned by `metadata::resolver::resolve_module` (introduce-method-token).
+    /// Runtime token assigned by `vm::runtime::resolve::resolve_module` (introduce-method-token).
     /// Stable for the lifetime of the loaded module; used by VCallIC / FieldIC
     /// for receiver-type comparison without name hash. Default `TypeId::UNRESOLVED` until
     /// resolver runs (back-compat — pre-resolver code doesn't depend on this).
-    pub id: crate::metadata::tokens::TypeId,
+    pub id: crate::vm::runtime::ids::tokens::TypeId,
     /// Fully-qualified base class name, if any.
     pub base_name: Option<String>,
     /// Field slots in order (base fields first, then derived).
@@ -27,7 +27,7 @@ pub struct TypeDesc {
     /// **Cross-zpkg subclass note** (fix-cross-pkg-subclass-fields):
     /// `build_type_registry` populates this with base fields from the local
     /// module's registry only — cross-zpkg base classes contribute nothing
-    /// until [`crate::metadata::loader::try_fixup_inheritance`] runs at
+    /// until [`crate::vm::runtime::types::try_fixup_inheritance`] runs at
     /// lazy-load time, which rebuilds this vector to include inherited slots.
     pub fields: Vec<FieldSlot>,
     /// `field_name → slot index` — linear scan (review.md C4 P1:

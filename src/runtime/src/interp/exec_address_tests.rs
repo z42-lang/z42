@@ -10,7 +10,7 @@
 //! arena, store-through writing back to the underlying location, and the three bail
 //! paths (wrong receiver kind, missing field, out-of-range index).
 use super::*;
-use crate::metadata::tokens::TypeId;
+use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{RefKind, TypeDesc};
 use crate::{metadata::NameIndex, object::FieldSlot};
 use crate::object::NativeData;

@@ -44,8 +44,8 @@ use parking_lot::{Mutex, RwLock};
 use rustc_hash::FxHashMap;
 
 use crate::vm::runtime::Module;
-use super::seg_vec::SparseSegTable;
-use super::tokens::{alloc_type_id_block, TypeId};
+use crate::vm::runtime::ids::seg_vec::SparseSegTable;
+use crate::vm::runtime::ids::tokens::{alloc_type_id_block, TypeId};
 use crate::object::TypeDesc;
 
 /// One id's slot: null until the id is registered in this table.

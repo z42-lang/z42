@@ -127,7 +127,7 @@ pub unsafe fn decode_for_trace(w: u64) -> Value {
             RK_ARRAY | RK_BOXED_VALUE => ArrRef::from_tagged_bits(h).map_or(Value::Null, Value::Array),
             RK_STR => VarGcRef::from_bits(h).map_or(Value::Null, |b| Value::Str(Str::from_var_ref(b))),
             RK_CLOSURE => VarGcRef::from_bits(h).map_or(Value::Null, Value::Closure),
-            RK_FUNC_REF => Value::FuncRef(crate::metadata::tokens::FnId((w >> 3) as u32)),
+            RK_FUNC_REF => Value::FuncRef(crate::vm::runtime::ids::tokens::FnId((w >> 3) as u32)),
             RK_BOXED_STRUCT => ObjRef::from_tagged_bits(h).map_or(Value::Null, Value::BoxedStruct),
             _ => {
                 debug_assert_eq!(w, 0, "reference word with kind 0 but a non-zero handle");

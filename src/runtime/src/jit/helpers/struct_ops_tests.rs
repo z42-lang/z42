@@ -24,7 +24,7 @@ const PAIR: &str = "Demo.Pair";
 
 fn register_pair(vm: &VmContext) {
     use crate::object::{FieldSlot, StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
-    use crate::metadata::tokens::TypeId;
+    use crate::vm::runtime::ids::tokens::TypeId;
     use crate::metadata::index::name::NameIndex;
     let layout = StructTypeLayout {
         size: 8,

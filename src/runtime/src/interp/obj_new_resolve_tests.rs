@@ -5,7 +5,7 @@ use super::*;
 use crate::interp::Frame;
 use crate::metadata::ir::{BasicBlock, Instruction, ObjNewInsn, Terminator};
 use crate::metadata::index::name::NameIndex;
-use crate::metadata::tokens::{alloc_type_id_block, FnId, TypeId};
+use crate::vm::runtime::ids::tokens::{alloc_type_id_block, FnId, TypeId};
 use crate::metadata::ir::ExecMode;
 use crate::object::TypeDescCold;
 
@@ -261,7 +261,7 @@ fn resolver_prefills_registered_class_and_ctor() {
     ctx.install_lazy_loader(None, 0);
     let f = register_lazy_fn(&ctx, ctor("Pkg.Foo..ctor$0", 1));
     let entry = Arc::clone(ctx.module().unwrap());
-    crate::metadata::resolver::resolve_function_tokens(&entry.functions[0], &entry, &ctx);
+    crate::vm::runtime::resolve::resolve_function_tokens(&entry.functions[0], &entry, &ctx);
     let r = entry.functions[0].resolved.get().unwrap();
     assert_eq!(r.obj_new.len(), 1);
     assert!(Arc::ptr_eq(r.obj_new[0].class.get().expect("prefilled"), &td));

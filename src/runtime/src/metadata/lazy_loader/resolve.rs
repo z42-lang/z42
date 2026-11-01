@@ -153,7 +153,7 @@ impl LazyLoader {
         }
         let cap = self.type_registry.len() + 8;
         for _ in 0..cap {
-            if crate::metadata::loader::try_fixup_inheritance(&mut self.type_registry) == 0 {
+            if crate::vm::runtime::types::try_fixup_inheritance(&mut self.type_registry) == 0 {
                 break;
             }
         }

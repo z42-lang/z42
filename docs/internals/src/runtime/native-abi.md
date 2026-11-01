@@ -239,7 +239,7 @@ pub(crate) const BUILTINS: &[abi::BuiltinDesc] = &JOINED;
 - 名字 → id 的反查表 `BUILTIN_INDEX: OnceLock<HashMap<&str, u32>>` 首次访问时从 `BUILTINS` 现算
   （`corelib/mod.rs`），保证单一真相。
 
-加载期由 `metadata::resolver` 把每个 builtin 调用点的名字解析成 token：先查 `BUILTINS`，未命中再查
+加载期由 `vm::runtime::resolve` 把每个 builtin 调用点的名字解析成 token：先查 `BUILTINS`，未命中再查
 per-VM 的 ext 表；两边都没有则留 `UNRESOLVED`，在真正调用时按名字再解一次（JIT 在 ext 库尚未加载时就
 可能走到这里）。调用时仍解不出 ⇒ 抛 `Std.MissingSymbolException`（与调用不存在的函数同一个类）。
 

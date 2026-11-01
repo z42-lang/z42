@@ -51,7 +51,7 @@ fn holder() -> Value {
             composed_object_layout: Some(layout),
             ..Default::default()
         })),
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(td, 16)))
 }

@@ -47,7 +47,7 @@ pub enum Value {
     /// Function reference value: a no-capture lambda or a method group bound to a free
     /// function (`LoadFn`). `CallIndirect` dispatches to the function it names.
     ///
-    /// P1-2 PR 8 : the payload is the target's [`FnId`](crate::metadata::tokens::FnId),
+    /// P1-2 PR 8 : the payload is the target's [`FnId`](crate::vm::runtime::ids::tokens::FnId),
     /// bound once when the value is created (`LoadFn` — the per-site token makes later
     /// executions of the same site a single load), instead of the function's name as a GC
     /// string resolved again by every `CallIndirect`. The id lives in the space `Call`
@@ -57,7 +57,7 @@ pub enum Value {
     /// that module's indices. Not a heap reference — no GC edge, no write barrier. Equal
     /// ids ⇔ the same function, so delegate equality is id equality; the name for
     /// reflection / display comes from the `Function` the id names.
-    FuncRef(crate::metadata::tokens::FnId) = 9,
+    FuncRef(crate::vm::runtime::ids::tokens::FnId) = 9,
     /// L3 capturing closure value: pairs a heap-allocated env (Vec<Value>)
     /// with the lifted function's id (P1-2 PR 8: [`ClosureData::fn_id`], bound at `MkClos`;
     /// previously its qualified name). CallIndirect on a Closure
@@ -219,7 +219,7 @@ impl Value {
     /// P1-2 PR 8: the bound target of a callable value — a `FuncRef`'s id or a closure's
     /// `fn_id` (same id space, see [`Value::FuncRef`]); `None` for anything else.
     #[inline]
-    pub fn callable_id(&self) -> Option<crate::metadata::tokens::FnId> {
+    pub fn callable_id(&self) -> Option<crate::vm::runtime::ids::tokens::FnId> {
         match self {
             Value::FuncRef(id) => Some(*id),
             Value::Closure(_) => self.closure_data().map(|d| d.fn_id),

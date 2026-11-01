@@ -472,11 +472,8 @@ public sealed partial class ClassDescBuilder {
             d.RequiresClass  = b.RequiresClass;      // bit0
             d.RequiresStruct = b.RequiresStruct;     // bit1
             // bit2 base-class：**必须写 FQ 名**，不能像 bundle 里的接口名那样写裸名。
-            // 运行期 metadata/loader/constraints.rs::check_one 在**加载期**就校验约束引用，
-            // 查的是 module.type_registry（键为 FQ）；查不到直接 bail → 整个模块加载失败 →
-            // 「class X not found in module registry」+ 所有字段写入被丢弃。接口约束之所以
-            // 从没暴露这点，是因为 check_one 有一条「`I` + 大写开头就放行」的启发式兜住了它们
-            // （见该文件注释：registry 目前只装类，接口 soft-allow）——基类没有这层豁免。
+            // 运行期 vm/runtime/types/constraints.rs 在加载期按类型注册表校验基类约束，
+            // 名称必须与注册键一致。接口约束允许依赖尚未加载，在使用处再解析。
             // 与类级 cd.Interfaces 的既有约定一致：TYPE 段存 FQ，读端（TsigReconcile）剥回裸名。
             if (b.HasBaseClass)    { d.BaseClass = this._qDecl(b.BaseClassName); }   // bit2
             if (b.HasTypeParamRef) { d.TypeParamConstraint = b.TypeParamRef; }   // bit3

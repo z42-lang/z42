@@ -56,7 +56,7 @@ fn holder() -> Value {
         fields: Vec::new(), field_index, vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(td, 16)))
 }
@@ -86,7 +86,7 @@ fn field_roundtrip_primitive_and_reference() {
 #[test]
 fn field_ic_hit_and_miss_agree() {
     let vm = VmContext::new();
-    let ic = crate::metadata::resolver::FieldIC::default();
+    let ic = crate::vm::runtime::dispatch::ic::FieldIC::default();
     let h = holder();
     field_set(&vm, &h, "n", &Value::I64(3), Some(&ic)).unwrap();
     // 第一次 miss 装 IC，第二次命中，结果相同（UNRESOLVED 类型号不入 IC，走的仍是查表路径）。

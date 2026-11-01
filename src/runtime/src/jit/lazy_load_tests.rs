@@ -16,7 +16,7 @@ use crate::jit::runtime::{install, install_tuned, JitRuntime};
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, Terminator};
 use crate::metadata::ir::ExecMode;
-use crate::metadata::tokens::UNRESOLVED;
+use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use std::sync::Arc;
 use crate::vm_context::VmContext;
 

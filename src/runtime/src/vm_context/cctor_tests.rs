@@ -252,7 +252,7 @@ fn barrier_epoch_moves_on_every_invalidating_event() {
         class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
         fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(), cold: None,
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     assert!(moved(&|| r.register_module_init(&m, FxHashSet::default())), "a package initializer registered");
     r.register("Demo.$Module", "Demo.$Module.$init");
@@ -288,7 +288,7 @@ fn static_field_barrier_records_only_a_settled_verdict() {
         class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
         fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(), cold: None,
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     ctx.core.cctors.register_module_init(&m, FxHashSet::default());
     ctx.core.cctors.register("Demo.$Module", "Demo.$Module.$init");
@@ -320,7 +320,7 @@ fn callee_barrier_settled_tracks_the_same_events_as_the_epoch() {
         class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
         fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(), cold: None,
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     ctx.core.cctors.register_module_init(&m, FxHashSet::default());
     assert!(!ctx.callee_barrier_settled(&owner));

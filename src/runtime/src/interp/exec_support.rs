@@ -394,7 +394,7 @@ pub(super) fn find_handler(
                 if let Some((td, inst_args)) = thrown_obj {
                     let hit = if crate::metadata::index::type_param_markers::has_markers(target) {
                         let t = tp_env.test_target(ctx, target);
-                        let key = crate::metadata::tokens::TypeKeyCell::new();
+                        let key = crate::vm::runtime::ids::tokens::TypeKeyCell::new();
                         super::dispatch::isa_object(ctx, type_registry, td, inst_args, &t, &key)
                     } else {
                         super::dispatch::isa_object(ctx, type_registry, td, inst_args, target, func.catch_key(i))

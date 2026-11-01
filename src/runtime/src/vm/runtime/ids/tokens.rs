@@ -5,7 +5,7 @@
 //! one VmContext lifetime, NOT persisted to zbc / cross-process**. The current
 //! lifecycle:
 //!
-//!   1. Module load → `metadata::resolver::resolve_module` walks every IR
+//!   1. Module load → `vm::runtime::resolve::resolve_module` walks every IR
 //!      instruction and resolves available `String` references to tokens
 //!      (intra-module hits resolved eagerly; cross-zpkg lazy loaded targets
 //!      stay `UNRESOLVED` and are filled on first dispatch).
@@ -112,7 +112,7 @@ define_token!(
     /// [`alloc_type_id_block`], never per-module from 0. See that function for
     /// why; violating this silently dispatches to another zpkg's method.
     /// Never reused, so it is also a safe cache key across load / unload (unlike
-    /// a descriptor address). Each VM's [`TypeTable`](crate::metadata::type_table::TypeTable)
+    /// a descriptor address). Each VM's [`TypeTable`](crate::vm::runtime::ids::type_table::TypeTable)
     /// maps the ids it has registered back to their descriptor.
     TypeId
 );
@@ -147,7 +147,7 @@ define_token!(
 );
 
 define_token!(
-    /// Identifies one `Function` in the VM's [`FuncTable`](crate::metadata::func_table::FuncTable)
+    /// Identifies one `Function` in the VM's [`FuncTable`](crate::vm::runtime::ids::func_table::FuncTable)
     /// — **dense per `VmCore`, never reused**. Entry-module functions take
     /// `0..n` equal to their `Module.functions` index (so a resolved `MethodId`
     /// and the same function's `FnId` are numerically equal); functions of
@@ -219,12 +219,12 @@ impl ForwardCell {
 ///
 /// The key is the target's `TypeId` when the name denotes a type already
 /// registered at first use, otherwise an id reserved for the *name*
-/// ([`TypeTable::name_key`](crate::metadata::type_table::TypeTable::name_key)).
+/// ([`TypeTable::name_key`](crate::vm::runtime::ids::type_table::TypeTable::name_key)).
 /// Both come from [`alloc_type_id_block`], so a key is process-unique, never
 /// reused, and denotes exactly one target name — which is all the `isa_cache`
 /// key needs (the verdict is a function of the receiver type and the target
-/// name). The cell can therefore live in shared metadata (an instruction, an
-/// exception-table row, a `static`) regardless of which VM resolves it.
+/// name). The cell is held in the VM-owned site table beside the immutable instruction
+/// or exception-table definition; its key retains the same target-name identity.
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct TypeKeyCell(std::sync::atomic::AtomicU32);

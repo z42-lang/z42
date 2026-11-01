@@ -40,7 +40,7 @@ use std::sync::{Arc, OnceLock};
 use parking_lot::Mutex;
 
 use crate::vm::runtime::Module;
-use super::seg_vec::SegVec;
+use crate::vm::runtime::ids::seg_vec::SegVec;
 use crate::object::string::vstr::Str;
 
 /// One string id.

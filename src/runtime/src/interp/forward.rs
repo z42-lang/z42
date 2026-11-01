@@ -45,7 +45,7 @@
 use crate::exception::{FrameSnapshot, VmFrame};
 use crate::metadata::ir::{Instruction, Terminator};
 use crate::vm::runtime::Function;
-use crate::metadata::tokens::UNRESOLVED;
+use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use crate::vm::runtime::Module;
 use crate::object::Value;
 use crate::vm_context::VmContext;

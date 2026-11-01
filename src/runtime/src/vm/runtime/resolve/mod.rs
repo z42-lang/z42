@@ -24,7 +24,7 @@
 //! and before any dispatch happens (so hot paths see fully-populated
 //! `ResolvedTokens`).
 
-use crate::metadata::tokens::UNRESOLVED;
+use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use crate::vm::runtime::Function;
 use std::sync::atomic::AtomicU32;
 
@@ -82,13 +82,7 @@ pub struct ResolvedTokens {
     pub site_index: Vec<Vec<u32>>,
 }
 
-mod ic;
-pub use ic::{
-    assert_field_ic_loc, FIELD_IC_GUARD_MASK,
-    ctorless_hit, ctorless_note, fn_registration_mark, note_fn_registration,
-    field_ic_install, field_ic_lookup, vcall_ic_install, vcall_ic_lookup,
-    FieldIC, FieldICEntry, ObjNewSite, VCallIC, VCallICEntry, IC_SLOTS,
-};
+use crate::vm::runtime::dispatch::ic::{FieldIC, ObjNewSite, VCallIC};
 
 /// Walk every Function in `module` and populate its `resolved`
 /// `OnceLock<ResolvedTokens>`. Idempotent: once `OnceLock` is
@@ -263,7 +257,7 @@ pub fn resolve_function_tokens(
                 // can run at JIT compile time, where a panic aborts the VM); the call
                 // site then resolves it by name and throws `MissingSymbolException`.
                 crate::corelib::builtin_id_of(name)
-                    .map_or(crate::metadata::tokens::UNRESOLVED, |b| b.0)
+                    .map_or(crate::vm::runtime::ids::tokens::UNRESOLVED, |b| b.0)
             })
             .collect();
 

@@ -26,8 +26,8 @@
 //! never reused), so ids cached against them keep pointing at the old functions.
 //!
 //! Consumers: `Call` site tokens (`ResolvedTokens.method_tokens` hold `FnId`s,
-//! see `metadata::resolver`), the JIT slot table (`jit::runtime::JitRuntime`, indexed by
-//! `FnId`), and the `VCall` PIC payload (`metadata::resolver::ic`) — all three
+//! see `vm::runtime::resolve`), the JIT slot table (`jit::runtime::JitRuntime`, indexed by
+//! `FnId`), and the `VCall` PIC payload (`vm::runtime::dispatch::ic`) — all three
 //! read a lazily loaded callee back through [`FuncTable::get`].
 //!
 //! Memory ordering: a slot is published by [`SegVec`]'s Release store of its
@@ -44,8 +44,8 @@ use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 
 use crate::vm::runtime::{Function, Module};
-use super::seg_vec::SegVec;
-use super::tokens::FnId;
+use crate::vm::runtime::ids::seg_vec::SegVec;
+use crate::vm::runtime::ids::tokens::FnId;
 
 /// One registered function.
 struct FnSlot {

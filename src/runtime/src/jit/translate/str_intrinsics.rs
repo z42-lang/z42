@@ -57,7 +57,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     pub(super) fn str_intrinsic_of_call(&self, insn: &CallInsn) -> Option<StrIntrinsic> {
         if !STR_INTRINSICS_SUPPORTED || !insn.method_type_args.is_empty() { return None; }
         let mid = method_id_at(self.func, self.block_idx, self.instr_idx);
-        if mid == crate::metadata::tokens::UNRESOLVED { return None; }
+        if mid == crate::vm::runtime::ids::tokens::UNRESOLVED { return None; }
         let k = StrIntrinsic::of_builtin(self.callees.forward_of_id(mid)?)?;
         self.str_operands_ok(k, &insn.args).then_some(k)
     }

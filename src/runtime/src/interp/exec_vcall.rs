@@ -101,7 +101,7 @@ pub(crate) fn primitive_class_name(obj: &Value) -> Option<&'static str> {
 /// Returns None for objects (which use real `type_desc.id.0`) and `Value::Null`.
 #[inline]
 pub(crate) fn value_synthetic_type_id(obj: &Value) -> Option<u32> {
-    use crate::metadata::tokens::*;
+    use crate::vm::runtime::ids::tokens::*;
     match obj {
         Value::I64(_)   => Some(PRIM_TYPE_I64),
         Value::F64(_)   => Some(PRIM_TYPE_F64),
@@ -118,7 +118,7 @@ pub(super) fn vcall(
     dst: u32, obj: u32, method: &str, args: &[u32],
     // vcall_ic: per-site polymorphic inline cache (TypeId → callee FnId), populated by
     // `resolve_vcall` on a miss; hits go straight to the callee.
-    vcall_ic: Option<&crate::metadata::resolver::VCallIC>,
+    vcall_ic: Option<&crate::vm::runtime::dispatch::ic::VCallIC>,
     // add-generic-methods: resolved FQ type-arg names for a generic instance-method
     // call (empty for non-generic). Threaded into the callee frame's method_type_args.
     method_type_args: &[String],

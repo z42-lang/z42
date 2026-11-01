@@ -3,7 +3,7 @@
 //! generic `default(T)` runtime helper.
 
 use crate::interp::dispatch::{self, isa_object, isa_td};
-use crate::metadata::resolver::ObjNewSite;
+use crate::vm::runtime::dispatch::ic::ObjNewSite;
 use crate::object::Value;
 
 use super::super::frame::JitFrame;
@@ -235,7 +235,7 @@ pub(super) unsafe fn bind_forwarded_mta(frame: *mut JitFrame, ctx: *const VmCont
 pub unsafe extern "C" fn jit_is_instance(
     frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, obj: u32, cls_ptr: *const u8, cls_len: usize,
-    key: *const crate::metadata::tokens::TypeKeyCell,
+    key: *const crate::vm::runtime::ids::tokens::TypeKeyCell,
 ) {
     let class_name = super::baked_str(cls_ptr, cls_len);
     // The instruction's own key cell, baked at translate time (lives as long as the code).
@@ -243,7 +243,7 @@ pub unsafe extern "C" fn jit_is_instance(
     // A class-level type-parameter target (`o is T` in a generic class body): bound from the
     // receiver, tested with a key of its own (method-level ones never reach the JIT).
     let dynamic = dynamic_target(frame, ctx, class_name);
-    let fresh = crate::metadata::tokens::TypeKeyCell::new();
+    let fresh = crate::vm::runtime::ids::tokens::TypeKeyCell::new();
     let (class_name, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (class_name, key) };
     let module = super::jit_module(ctx);
     let v = &(*frame).regs[obj as usize];
@@ -271,13 +271,13 @@ pub unsafe extern "C" fn jit_is_instance(
 pub unsafe extern "C" fn jit_as_cast(
     frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, obj: u32, cls_ptr: *const u8, cls_len: usize,
-    key: *const crate::metadata::tokens::TypeKeyCell,
+    key: *const crate::vm::runtime::ids::tokens::TypeKeyCell,
 ) {
     let class_name = super::baked_str(cls_ptr, cls_len);
     // The instruction's own key cell, baked at translate time (lives as long as the code).
     let key = &*key;
     let dynamic = dynamic_target(frame, ctx, class_name);
-    let fresh = crate::metadata::tokens::TypeKeyCell::new();
+    let fresh = crate::vm::runtime::ids::tokens::TypeKeyCell::new();
     let (class_name, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (class_name, key) };
     let module = super::jit_module(ctx);
     let val    = (*frame).regs[obj as usize].clone();
@@ -367,7 +367,7 @@ pub unsafe extern "C" fn jit_static_get(
 ) -> i32 {
     note_static_helper_call();
     let field = super::baked_str(field_ptr, field_len);
-    let id = (field_id != crate::metadata::tokens::UNRESOLVED).then_some(field_id);
+    let id = (field_id != crate::vm::runtime::ids::tokens::UNRESOLVED).then_some(field_id);
     match crate::objops::statics::static_get(vm_ctx_ref(ctx), super::jit_module(ctx), field, id) {
         Ok(v) => { (*frame).regs[dst as usize] = v; 0 }
         Err(e) => super::raise(ctx, e) as i32,
@@ -383,7 +383,7 @@ pub unsafe extern "C" fn jit_static_set(
 ) -> i32 {
     note_static_helper_call();
     let field = super::baked_str(field_ptr, field_len);
-    let id = (field_id != crate::metadata::tokens::UNRESOLVED).then_some(field_id);
+    let id = (field_id != crate::vm::runtime::ids::tokens::UNRESOLVED).then_some(field_id);
     let v = (*frame).regs[val as usize];
     match crate::objops::statics::static_set(vm_ctx_ref(ctx), super::jit_module(ctx), field, id, v) {
         Ok(()) => 0,

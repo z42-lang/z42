@@ -577,7 +577,7 @@ impl crate::vm_context::VmContext {
     #[inline]
     pub fn ensure_static_owner_init(&self, field: &str, field_id: Option<u32>) -> Result<(), String> {
         use super::static_table::StaticOwner;
-        use crate::metadata::tokens::StaticFieldId;
+        use crate::vm::runtime::ids::tokens::StaticFieldId;
         if !self.core.cctors.any_pending() { return Ok(()); }
         if let Some(cell) = field_id.and_then(|id| self.core.statics.cell(StaticFieldId(id))) {
             match cell.owner() {
@@ -592,7 +592,7 @@ impl crate::vm_context::VmContext {
     /// The owner answer is not cached yet: derive it from the name, cache it, apply it.
     #[inline(never)]
     fn resolve_static_owner_init(&self, field: &str, field_id: Option<u32>) -> Result<(), String> {
-        use crate::metadata::tokens::StaticFieldId;
+        use crate::vm::runtime::ids::tokens::StaticFieldId;
         let owner = self.static_field_owner(field);
         if let Some(id) = field_id {
             // 基类链未合并的类型不缓存（加载器要 `Arc::get_mut` 原地补布局）。

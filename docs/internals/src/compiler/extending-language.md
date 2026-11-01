@@ -68,7 +68,7 @@
 8. `src/runtime/src/metadata/ir/instruction.rs` — `Instruction` variant + `written_reg()`
 9. `src/runtime/src/metadata/reader/opcodes.rs` — `OP_XXX` 常量
 10. `src/runtime/src/metadata/reader/instr_decode.rs` — 解码
-11. `src/runtime/src/metadata/resolver.rs` — 若需 per-site token 解析
+11. `src/runtime/src/vm/runtime/resolve/mod.rs` — 若需 per-site token 解析
 12. `src/runtime/src/interp/exec_*.rs` — 执行语义。**`exec_instr` 的 match 无 `_` 兜底，必须显式处理**
 13. `src/runtime/src/jit/translate/*.rs` — **要么翻译，要么**登记进
     `src/runtime/src/jit/translate/unsupported.rs` 的 `unsupported_reason`（单一真相表）

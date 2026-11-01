@@ -27,7 +27,7 @@ pub(super) fn obj_new(
     // The site's interned type-arguments (`ObjNewInsn::type_args`).
     type_args: crate::object::TypeArgs,
     // This site's `ResolvedTokens::obj_new` cache (None when the resolver hasn't run).
-    site: Option<&crate::metadata::resolver::ObjNewSite>,
+    site: Option<&crate::vm::runtime::dispatch::ic::ObjNewSite>,
     stack_alloc: bool,
     // encode-ctorless-objnew: compile-time positive marker; see `missing_ctor_exception`.
     ctor_known: bool,
@@ -132,7 +132,7 @@ pub(super) fn obj_new(
 #[inline]
 pub(super) fn field_get(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, field_name: &str,
-    field_ic: Option<&crate::metadata::resolver::FieldIC>,
+    field_ic: Option<&crate::vm::runtime::dispatch::ic::FieldIC>,
 ) -> Result<Option<Value>> {
     match crate::objops::field::field_get(ctx, frame.get(obj)?, field_name, field_ic) {
         Ok(v) => { frame.set(dst, v); Ok(None) }
@@ -145,7 +145,7 @@ pub(super) fn field_get(
 #[inline]
 pub(super) fn field_set(
     ctx: &VmContext, module: &Module, frame: &mut Frame, obj: u32, field_name: &str, val: u32,
-    field_ic: Option<&crate::metadata::resolver::FieldIC>,
+    field_ic: Option<&crate::vm::runtime::dispatch::ic::FieldIC>,
 ) -> Result<Option<Value>> {
     let v = frame.get(val)?;
     // add-escape-analysis-stack-alloc (diagnostic #2): FieldSet.val is an escape

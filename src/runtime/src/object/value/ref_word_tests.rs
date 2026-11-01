@@ -23,7 +23,7 @@ fn plain_td(name: &str) -> Arc<TypeDesc> {
         vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
         cold: None,
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 
@@ -54,7 +54,7 @@ pub(crate) fn ref_cell_td(n: usize) -> Arc<TypeDesc> {
         vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 
@@ -103,7 +103,7 @@ fn every_kind_round_trips_with_its_tag_in_the_low_bits() {
 /// (including 0, which must not collide with the null word), and the JIT reads it via the slow path.
 #[test]
 fn func_ref_word_carries_the_fn_id_inline() {
-    use crate::metadata::tokens::FnId;
+    use crate::vm::runtime::ids::tokens::FnId;
     for id in [0u32, 1, 7, 123_456, (1 << 28) - 1] {
         let w = encode(&Value::FuncRef(FnId(id))).expect("a FuncRef encodes");
         assert_eq!(w & KIND_MASK, RK_FUNC_REF);
@@ -135,7 +135,7 @@ fn the_jit_store_table_matches_encode() {
     assert_eq!(VALUE_TAG_TO_KIND[discriminant(&Value::Null) as usize], 0);
     let slow = [
         Value::I64(1), Value::F64(1.0), Value::Bool(true), Value::Char('x'),
-        Value::FuncRef(crate::metadata::tokens::FnId(3)),
+        Value::FuncRef(crate::vm::runtime::ids::tokens::FnId(3)),
         Value::StackObject { idx: 0, frame_id: 0 }, Value::StackArray { idx: 0, frame_id: 0 },
         Value::StructRef { idx: 0, frame_id: 0 }, Value::Ref { idx: 0, frame_id: 0 },
     ];

@@ -143,7 +143,7 @@ use super::symres::{static_zero_value, verify_static_field, StaticNullVerdict};
 use crate::vm::runtime::Module;
 use crate::metadata::ir::{FieldDesc, CLASS_FLAG_ENUM, CLASS_FLAG_STRUCT};
 use crate::metadata::index::name::NameIndex;
-use crate::metadata::tokens::TypeId;
+use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
 use crate::object::Value;
 use crate::vm_context::VmContext;

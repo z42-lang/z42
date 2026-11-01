@@ -73,7 +73,7 @@ pub struct PinnedViewData {
 #[derive(Debug, Clone)]
 pub struct ClosureData {
     pub env: ArrRef,
-    pub fn_id: crate::metadata::tokens::FnId,
+    pub fn_id: crate::vm::runtime::ids::tokens::FnId,
 }
 
 /// unify-gc-heap PR-2: read the [`ClosureData`] behind a closure's `VarGcRef` handle (the

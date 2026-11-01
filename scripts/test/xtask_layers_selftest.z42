@@ -28,13 +28,13 @@ int _lySelfTestMap() {
     f = f + _lyExpect("map sampler", _lyComponentOf("gc/sampler.rs"), "profiler");
     f = f + _lyExpect("map object value", _lyComponentOf("object/value/value.rs"), "object");
     f = f + _lyExpect("map object hub", _lyComponentOf("object/mod.rs"), "object");
-    f = f + _lyExpect("map type_table", _lyComponentOf("metadata/type_table.rs"), "vm.runtime");
+    f = f + _lyExpect("map runtime ids", _lyComponentOf("vm/runtime/ids/type_table.rs"), "vm.runtime");
     f = f + _lyExpect("map reader", _lyComponentOf("metadata/reader/cursor.rs"), "metadata");
     f = f + _lyExpect("map format versions", _lyComponentOf("metadata/format/versions.rs"), "metadata");
     f = f + _lyExpect("map ir reg type", _lyComponentOf("metadata/ir/reg_type.rs"), "metadata");
     f = f + _lyExpect("map index type names", _lyComponentOf("metadata/index/type_names.rs"), "metadata");
     f = f + _lyExpect("map debug records", _lyComponentOf("metadata/debug/symbols.rs"), "metadata");
-    f = f + _lyExpect("map loader 内细分", _lyComponentOf("metadata/loader/type_registry.rs"), "vm.runtime");
+    f = f + _lyExpect("map runtime types", _lyComponentOf("vm/runtime/types/registry.rs"), "vm.runtime");
     f = f + _lyExpect("map loader 默认", _lyComponentOf("metadata/loader/artifact.rs"), "vm.loader");
     f = f + _lyExpect("map corelib/abi", _lyComponentOf("corelib/abi/args.rs"), "vm.exec");
     f = f + _lyExpect("map corelib 默认", _lyComponentOf("corelib/fs.rs"), "corelib");

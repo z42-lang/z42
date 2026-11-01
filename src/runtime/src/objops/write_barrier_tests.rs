@@ -42,7 +42,7 @@ fn class_td(name: &str, fields: &[(&str, &str)]) -> Arc<TypeDesc> {
         class_flags: 0, visibility: 0, name: name.to_string(), base_name: None,
         fields, field_index, vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
-        cold: None, id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        cold: None, id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 
@@ -157,7 +157,7 @@ fn struct_s() -> (Arc<TypeDesc>, Arc<StructTypeLayout>) {
         fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { struct_layout: Some(layout.clone()), ..Default::default() })),
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     (td, layout)
 }

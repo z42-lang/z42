@@ -120,7 +120,7 @@ fn heap_object_inline_struct_field_roundtrips() {
     use crate::vm_context::VmContext;
     use crate::object::{NativeData, TypeDesc, TypeDescCold};
     use crate::metadata::NameIndex;
-    use crate::metadata::tokens::TypeId;
+    use crate::vm::runtime::ids::tokens::TypeId;
 
     // The object stores the inline struct's leaves in its `bytes` at their composed offsets,
     // the reference leaf as an 8 B reference word (listed in `ref_cells`).
@@ -278,7 +278,7 @@ fn stack_object_inline_struct_field_roundtrips() {
     use crate::vm_context::VmContext;
     use crate::object::{ScriptObject, TypeDesc, TypeDescCold};
     use crate::metadata::NameIndex;
-    use crate::metadata::tokens::TypeId;
+    use crate::vm::runtime::ids::tokens::TypeId;
 
     // Same shape as the heap test: Point{x:i32@0, y:i32@4, tag:str@8}, size 16,
     // one reference leaf (a reference word) at offset 8.
@@ -362,7 +362,7 @@ fn stack_object_inline_struct_field_roundtrips() {
 #[ignore]
 fn symbolization_cost_by_path_depth() {
     use crate::metadata::index::name::NameIndex;
-    use crate::metadata::tokens::TypeId;
+    use crate::vm::runtime::ids::tokens::TypeId;
     use crate::object::{FieldSlot, StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
     use std::sync::Arc;
     use std::time::Instant;

@@ -5,7 +5,7 @@
 use super::*;
 use crate::vm::runtime::Module;
 use crate::metadata::ir::ClassDesc;
-use crate::metadata::tokens::{TypeId, TypeKeyCell};
+use crate::vm::runtime::ids::tokens::{TypeId, TypeKeyCell};
 use std::sync::Arc;
 
 fn class(name: &str, base: Option<&str>, interfaces: &[&str]) -> ClassDesc {
@@ -39,7 +39,7 @@ fn module(name: &str, classes: Vec<ClassDesc>) -> Module {
         classes,
         func_index: rustc_hash::FxHashMap::default(),
     }, vec![], rustc_hash::FxHashMap::default());
-    crate::metadata::loader::build_type_registry(&mut m);
+    crate::vm::runtime::types::build_type_registry(&mut m);
     m
 }
 

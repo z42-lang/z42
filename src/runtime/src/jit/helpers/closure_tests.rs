@@ -5,8 +5,8 @@
 use crate::jit::runtime::{install, install_tuned};
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, Instruction, LoadFnInsn, Terminator};
-use crate::metadata::resolver::ResolvedTokens;
-use crate::metadata::tokens::UNRESOLVED;
+use crate::vm::runtime::resolve::ResolvedTokens;
+use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use crate::metadata::ir::ExecMode;
 use crate::vm_context::VmContext;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -127,7 +127,7 @@ fn interp_call_indirect_routes_to_the_jit_slot() {
     let module = Arc::clone(vm.module().unwrap());
     let rt = install_tuned(&vm, &module, |rt| rt.jit_threshold = 2);
     let main = &module.functions[0];
-    crate::metadata::resolver::resolve_function_tokens(main, &module, &vm);
+    crate::vm::runtime::resolve::resolve_function_tokens(main, &module, &vm);
     let before = vm.counters().jit_native_from_interp.load(Ordering::Relaxed);
     let r = crate::interp::exec_function(&vm, &module, main, &[]);
     assert!(matches!(r, Ok(crate::interp::ExecOutcome::Returned(_))));

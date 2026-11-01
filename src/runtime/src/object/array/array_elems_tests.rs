@@ -16,7 +16,7 @@ fn obj(h: &ArcMagrGC) -> Value {
         class_flags: 0, visibility: 0, name: "O".into(), base_name: None, fields: Vec::new(),
         field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(), cold: None,
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     h.alloc_object(td, Vec::new(), NativeData::None)
 }

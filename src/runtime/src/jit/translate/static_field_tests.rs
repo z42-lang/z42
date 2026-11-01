@@ -9,7 +9,7 @@ use crate::jit::invoke::{call_entry, NativeOutcome};
 use crate::jit::runtime::install;
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, FieldDesc, Instruction, StaticGetInsn, StaticSetInsn, Terminator};
-use crate::metadata::tokens::TypeId;
+use crate::vm::runtime::ids::tokens::TypeId;
 use crate::metadata::ir::ExecMode;
 use crate::object::{NativeData, ObjectLayout, TypeDesc, TypeDescCold};
 use crate::{metadata::IrType, object::Value};

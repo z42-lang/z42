@@ -175,8 +175,8 @@ pub(crate) fn build_host_module(
         let mut m = merge_modules(modules)
             .context("z42_host_load_zbc: merging dependencies into user module")?;
         m.name = user_module_name;
-        crate::metadata::loader::build_type_registry(&mut m);
-        crate::metadata::loader::verify_constraints(&m).with_context(|| {
+        crate::vm::runtime::types::build_type_registry(&mut m);
+        crate::vm::runtime::types::verify_constraints(&m).with_context(|| {
             format!("z42_host_load_zbc: constraint verification failed for `{}`", m.name)
         })?;
         crate::metadata::loader::build_block_indices(&mut m);

@@ -6,7 +6,7 @@
 
 use super::{ContextId, ContextRegistry, ContextState, UnloadOutcome};
 use crate::vm::runtime::Module;
-use crate::metadata::tokens::TypeId;
+use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{NativeData, TypeDesc};
 use crate::metadata::NameIndex;
 use std::collections::HashSet;

@@ -10,7 +10,7 @@
 use super::*;
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, ClassDesc, Terminator};
-use crate::metadata::tokens::TypeId;
+use crate::vm::runtime::ids::tokens::TypeId;
 use crate::{metadata::NameIndex, object::TypeDesc};
 use crate::metadata::ir::ExecMode;
 use std::sync::Arc;

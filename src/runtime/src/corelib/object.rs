@@ -196,7 +196,7 @@ fn weak_handle_type_desc() -> Arc<TypeDesc> {
         vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
         cold: None,
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })).clone()
 }
 

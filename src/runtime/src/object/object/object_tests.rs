@@ -14,7 +14,7 @@ fn td(name: &str) -> Arc<TypeDesc> {
         vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
         cold: None,
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 
@@ -133,7 +133,7 @@ fn the_meta_word_trails_the_fields_and_only_generic_or_native_objects_have_one()
 fn jit_layout_matches_the_accessors() {
     use super::obj_jit_layout as ol;
     let mut d = (*td("Demo.Pin")).clone();
-    d.id = crate::metadata::tokens::TypeId(0x5151_0001);
+    d.id = crate::vm::runtime::ids::tokens::TypeId(0x5151_0001);
     let r = crate::object::ObjRef::leak(OwnedObject::new(Arc::new(d), 16));
     let hdr = (r.to_tagged_bits() & ol::HANDLE_ADDR_MASK) as *const u8;
     unsafe {

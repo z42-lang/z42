@@ -1,6 +1,6 @@
 use super::*;
 use crate::metadata::index::name::NameIndex;
-use crate::metadata::tokens::UNRESOLVED;
+use crate::vm::runtime::ids::tokens::UNRESOLVED;
 
 fn desc(name: &str, id: TypeId) -> Arc<TypeDesc> {
     Arc::new(TypeDesc {
