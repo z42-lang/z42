@@ -19,7 +19,7 @@ use anyhow::{bail, Result};
 use super::abi::BuiltinError;
 
 use super::reflection::make_type_object;
-use crate::metadata::context::{AssemblyId, ContextId, ContextState, UnloadOutcome};
+use crate::vm::loader::contexts::{AssemblyId, ContextId, ContextState, UnloadOutcome};
 use crate::object::NativeData;
 use crate::object::Value;
 use crate::vm_context::VmContext;
@@ -145,7 +145,7 @@ pub fn lctx_load(ctx: &VmContext, this: &Value, path: &crate::object::string::vs
         return Err(BuiltinError::InvalidOperation(
             "AssemblyLoadContext.Load: context is unloading (cannot load new assemblies)".into()));
     }
-    let artifact = crate::metadata::loader::load_artifact(&**ctx.vfs(), path)
+    let artifact = crate::vm::loader::package::load_artifact(&**ctx.vfs(), path)
         .map_err(|e| BuiltinError::Legacy(anyhow::anyhow!("AssemblyLoadContext.Load(\"{path}\"): {e}")))?;
     let name = assembly_name_from_path(path);
     let aid = ctx

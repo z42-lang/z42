@@ -1,7 +1,7 @@
 //! `__sym_available` —— `available!(X)` 的运行期回落（add-symbol-availability-macro）。
 //!
 //! **正常路径永不执行。** 这条 builtin 在模块加载期就被
-//! [`crate::metadata::loader::fold_availability`] 折成 `ConstBool` 并连带剪掉死分支。
+//! [`crate::vm::loader::availability::fold_availability`] 折成 `ConstBool` 并连带剪掉死分支。
 //!
 //! 那为什么还要它？因为「折叠 pass 没跑」必须**可被发现**。如果这里静默返回一个看似
 //! 合理的值，pass 失效就会退化成「每次调用查一次表」——结果照样对、只是慢，且死分支
@@ -20,7 +20,7 @@ pub fn sym_available(key: &str) -> bool {
         false,
         "__sym_available(`{key}`) reached at runtime — the load-time \
          `fold_availability` pass did not run. Dead branches were NOT pruned; \
-         see metadata/loader/availability.rs."
+         see vm/loader/availability.rs."
     );
 
     tracing::warn!(

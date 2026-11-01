@@ -140,7 +140,7 @@ pub fn vm_cores_snapshot() -> Vec<Arc<VmCore>> {
         .unwrap_or_default()
 }
 
-use crate::metadata::lazy_loader::{LazyLoader, ZpkgCandidate};
+use crate::vm::loader::lazy::{LazyLoader, ZpkgCandidate};
 use crate::vm::runtime::Function;
 use crate::object::{TypeDesc, Value};
 
@@ -157,13 +157,13 @@ impl crate::gc::arc_heap::ContextReclaim for CoreContextReclaimer {
     fn is_unloading(&self) -> bool {
         self.unloading.load(std::sync::atomic::Ordering::Relaxed) > 0
     }
-    fn snapshot(&self) -> crate::metadata::context::ContextLiveness {
+    fn snapshot(&self) -> crate::vm::loader::contexts::ContextLiveness {
         self.core
             .upgrade()
             .map(|c| c.context_registry.lock().liveness_snapshot())
             .unwrap_or_default()
     }
-    fn reclaim(&self, live: &std::collections::HashSet<crate::metadata::context::ContextId>) {
+    fn reclaim(&self, live: &std::collections::HashSet<crate::vm::loader::contexts::ContextId>) {
         if let Some(c) = self.core.upgrade() {
             c.context_registry.lock().reclaim(live);
         }

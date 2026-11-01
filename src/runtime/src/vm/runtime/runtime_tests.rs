@@ -234,7 +234,7 @@ fn a_linked_function_cannot_be_shared_between_function_tables() {
 fn debug_overlay_reprepares_static_metadata_without_mutating_the_image() {
     let original = image();
     let mut module = Module::from_image(original.clone());
-    crate::metadata::loader::build_block_indices(&mut module);
+    crate::vm::loader::package::build_block_indices(&mut module);
     assert_eq!(module.functions[0].branch_targets.len(), 1);
     let line = crate::metadata::debug::LineEntry {
         block: 0,
@@ -245,7 +245,7 @@ fn debug_overlay_reprepares_static_metadata_without_mutating_the_image() {
     };
     module.functions[0].cold_mut().line_table = Box::new([line]);
     assert!(module.functions[0].branch_targets.is_empty());
-    crate::metadata::loader::build_block_indices(&mut module);
+    crate::vm::loader::package::build_block_indices(&mut module);
     assert_eq!(module.functions[0].branch_targets.len(), 1);
     assert_eq!(module.functions[0].fused_tails.len(), 1);
     assert_eq!(module.functions[0].max_reg, 1);

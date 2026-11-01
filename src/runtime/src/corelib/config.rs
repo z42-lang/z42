@@ -68,7 +68,7 @@ pub fn cfg_source(key: &str) -> &'static str {
 ///
 /// 非 app 路径（纯 host 嵌入）未初始化 → 空数组。
 pub fn search_dirs(ctx: &VmContext) -> Value {
-    let dirs: Vec<Value> = crate::probing::search_dirs()
+    let dirs: Vec<Value> = crate::vm::loader::locate::probing::search_dirs()
         .iter()
         .map(|p| Value::Str(p.display().to_string().into()))
         .collect();

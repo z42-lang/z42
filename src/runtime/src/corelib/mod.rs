@@ -101,7 +101,7 @@ pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Optio
 fn unknown_builtin(name: &str) -> abi::BuiltinError {
     abi::BuiltinError::Exception {
         class: "Std.MissingSymbolException",
-        message: crate::probing::with_sdk_missing_hint(format!("unknown builtin `{name}`")),
+        message: crate::vm::loader::locate::probing::with_sdk_missing_hint(format!("unknown builtin `{name}`")),
     }
 }
 

@@ -1,8 +1,8 @@
 // 运行时分层门：语法层——从记号流里取出跨模块引用、再导出、平台 cfg 与 `libc::`（纯函数，`_lySelfTest` 覆盖）。
 //
 // 两遍：第一遍逐文件记下 `use` 叶子、行内 `crate::` 路径、`pub use` 再导出与条目定义；第二遍才解析
-// 引用落在哪个文件——`crate::metadata::LazyLoader` 经 `metadata/mod.rs` 的 `pub use` 落到
-// lazy_loader.rs，`crate::object::ObjRef` 落到 object/header/obj_ref.rs，而不是记在 hub 头上。
+// 引用落在哪个文件——`crate::vm::loader::LazyLoader` 经 `vm/loader/mod.rs` 的 `pub use` 落到
+// vm/loader/lazy/mod.rs，`crate::object::ObjRef` 落到 object/header/obj_ref.rs，而不是记在 hub 头上。
 //
 // 判据与刻意不判的：
 //   · 引用 = `crate::` / `$crate::` / `z42::`（z42vm 二进制里指库 crate）开头的路径，含多行

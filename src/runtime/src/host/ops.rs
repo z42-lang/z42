@@ -13,8 +13,8 @@ use crate::corelib::io;
 use crate::interp;
 use crate::vm::runtime::Module;
 use crate::{
-    metadata::{load_artifact, load_artifact_from_bytes, merge_modules},
     object::Value,
+    vm::loader::{load_artifact, load_artifact_from_bytes, merge_modules},
 };
 
 use super::config::ResolvedConfig;
@@ -140,7 +140,7 @@ pub(crate) fn build_host_module(
         } else if let Some(libs) = libs_dir.as_ref() {
             let libs_paths = vec![libs.clone()];
             let Ok(zpkg_paths) =
-                crate::metadata::resolve_namespace(fs, ns, &libs_paths)
+                crate::vm::loader::resolve_namespace(fs, ns, &libs_paths)
             else {
                 continue;
             };
@@ -179,8 +179,8 @@ pub(crate) fn build_host_module(
         crate::vm::runtime::types::verify_constraints(&m).with_context(|| {
             format!("z42_host_load_zbc: constraint verification failed for `{}`", m.name)
         })?;
-        crate::metadata::loader::build_block_indices(&mut m);
-        crate::metadata::loader::build_func_index(&mut m);
+        crate::vm::loader::package::build_block_indices(&mut m);
+        crate::vm::loader::package::build_func_index(&mut m);
         m
     };
 

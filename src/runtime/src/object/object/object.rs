@@ -28,10 +28,10 @@ pub enum NativeData {
     /// add-load-context-model：`Std.Runtime.LoadContext` 对象携带的
     /// 上下文句柄（root = `ContextId::ROOT`）。`__lctx_*` builtins 据此查
     /// `VmCore.context_registry`。
-    LoadContextHandle(crate::metadata::context::ContextId),
+    LoadContextHandle(crate::vm::loader::contexts::ContextId),
     /// add-load-context-model：`Std.Reflection.Assembly` 对象携带的
     /// 程序集句柄（zpkg 运行时投影）。`__asm_*` builtins 据此查注册表。
-    AssemblyHandle(crate::metadata::context::AssemblyId),
+    AssemblyHandle(crate::vm::loader::contexts::AssemblyId),
     /// store-sync-values-in-heap：`Std.Threading.Mutex/RwLock/Channel` 的同步底座。
     /// **不含任何 GC 值**（值是 z42 字段）；句柄对象的槽位被复用时随旧条目 drop。
     Monitor(std::sync::Arc<crate::corelib::monitor::Monitor>),

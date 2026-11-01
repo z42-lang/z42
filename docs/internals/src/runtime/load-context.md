@@ -7,7 +7,7 @@
 
 ## 为什么需要
 
-z42 的 root 区域**没有代码边界**：`metadata::merge::merge_modules` 把所有 zpkg 塌成
+z42 的 root 区域**没有代码边界**：`vm::loader::package::merge::merge_modules` 把所有 zpkg 塌成
 **一个扁平 `Module`**，zpkg 身份在运行时被销毁。没有边界 = 没有可卸载的单元、没有可问
 "被谁引用"的对象、没有可界定"重载范围"的粒度。加载上下文（dotnet `AssemblyLoadContext`
 对标）引入这个边界。边界只承载反射身份与惰性卸载；强制卸载、热重载见上。
@@ -52,7 +52,7 @@ z42 的 root 区域**没有代码边界**：`metadata::merge::merge_modules` 把
 
 ## 机制 / 实现
 
-### ContextRegistry（`metadata/context.rs`）
+### ContextRegistry（`vm/loader/contexts.rs`）
 `VmCore.context_registry: Mutex<ContextRegistry>` 持两张表：`contexts`（按 `ContextId` 索引：
 name / is_collectible / assemblies）+ `assemblies`（按 `AssemblyId` 索引：name / context /
 owned `Module`）。root context(0) + root assembly(0) 由 `ContextRegistry::new()` 预置。
@@ -71,7 +71,7 @@ owned `Module`）。root context(0) + root assembly(0) 由 `ContextRegistry::new
 观测行为与"context 挂在 TypeDesc 上"完全一致，且保住 `TypeDesc` 无锁读的写一次契约。这为将来
 `type identity = (context, type)`（版本共存）留出可达路径（Type → asmId → context）。
 
-### 加载路径分叉（`metadata/loader.rs`）
+### 加载路径分叉（`vm/loader/package/mod.rs`）
 root 走现有 `merge_modules`（不动）；collectible 走 `AssemblyLoadContext.Load` →
 `loader::load_artifact` 解析 zpkg → 存入该 context 的 `AssemblyEntry.module`，**不 merge 进
 root**。`GetTypes()` 按 FQ 名有序返回（`assembly_types` sort，避免 HashMap 非确定序）。

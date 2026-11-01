@@ -130,7 +130,7 @@ Std.MissingSymbolException: undefined function `Z42.Build.Project.ManifestLoader
 | 面 | 按什么解析 | 依据 |
 |---|---|---|
 | 编译期 | 命名空间（`using` + FQN），**不看包文件名** | z42c 语义层的 using-scoped 解析 |
-| 运行期 | **zpkg 文件名**（消费者 `DEPS` 段记的名字），**不看命名空间** | `runtime/src/metadata/loader/namespace.rs` 的 `resolve_dependency` |
+| 运行期 | **zpkg 文件名**（消费者 `DEPS` 段记的名字），**不看命名空间** | `runtime/src/vm/loader/locate/namespace.rs` 的 `resolve_dependency` |
 
 于是别名形态跟着「改的是哪一面」走：
 

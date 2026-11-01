@@ -3,8 +3,9 @@
 //! 守的是 design.md §probing-paths 的解析规则那张表——每条规则一个测试，而不是把它们
 //! 混在一个"大概能用"的用例里：这些规则彼此独立，混在一起测就分不清是哪条坏了。
 
-use crate::probing::{
-    expand_probing_paths, expand_probing_paths_with, format_sdk_missing_hint, unresolved_z42_home_patterns_with,
+use crate::vm::loader::locate::probing::{
+    expand_probing_paths, expand_probing_paths_with, format_sdk_missing_hint,
+    unresolved_z42_home_patterns_with,
 };
 use std::path::PathBuf;
 
