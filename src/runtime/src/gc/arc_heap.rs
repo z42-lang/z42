@@ -48,12 +48,15 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::metadata::{ScriptObject, Value};
-use crate::metadata::types::ArrayObj;
+use crate::object::{ScriptObject, Value};
+use crate::object::ArrayObj;
 
-use super::obj_ref::{ObjRef, WeakObjRef};
-use super::arr_ref::{ArrRef, WeakArrRef};
-use super::var_region::{BlockType, VarGcRef, VarRegion};
+use crate::object::header::obj_ref::{ObjRef, WeakObjRef};
+use crate::object::header::arr_ref::{ArrRef, WeakArrRef};
+use {
+    super::var_region::VarRegion,
+    crate::object::header::{BlockType, VarGcRef},
+};
 use super::types::{
     AllocSamplerFn, GcHandleKind, GcObserver, HeapStats, ObserverId, RootHandle,
 };
@@ -293,7 +296,7 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
 }
 
 /// The payload finalizer injected into the variable-length region (which stays a pure byte
-/// allocator with no `metadata::types` dependency), dispatched by block type, and the mask of the
+/// allocator with no `object` dependency), dispatched by block type, and the mask of the
 /// block types it runs for (`drop_type_bit`) — the region checks the mask before the indirect call,
 /// so a reclaimed POD block costs one branch:
 ///
@@ -304,19 +307,19 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
 /// - `ArrayValue` — `Value`s, which own nothing while `Value: Copy` (`needs_drop` keeps the arm
 ///   out of the mask; it comes back on its own the day a droppable variant joins `Value`);
 /// - every other block (strings, closures, packed / REF / MIXED arrays) is POD.
-fn var_payload_drop_glue() -> Option<(crate::gc::var_region::PayloadDropGlue, u8)> {
-    use crate::gc::var_region::drop_type_bit;
+fn var_payload_drop_glue() -> Option<(crate::object::header::PayloadDropGlue, u8)> {
+    use crate::object::header::drop_type_bit;
     let mut types = drop_type_bit(BlockType::Object) | drop_type_bit(BlockType::ArrayStruct);
     if std::mem::needs_drop::<Value>() {
         types |= drop_type_bit(BlockType::ArrayValue);
     }
-    Some((var_drop_glue as crate::gc::var_region::PayloadDropGlue, types))
+    Some((var_drop_glue as crate::object::header::PayloadDropGlue, types))
 }
 
 /// # Safety
 /// Called once per block reclaim with this block's header (whole-block provenance) and its
 /// initialized `size`-byte payload (upheld by `VarRegion`).
-unsafe fn var_drop_glue(bt: BlockType, header: std::ptr::NonNull<crate::gc::var_region::GcBlockHeader>, size: usize) -> u64 {
+unsafe fn var_drop_glue(bt: BlockType, header: std::ptr::NonNull<crate::object::header::GcBlockHeader>, size: usize) -> u64 {
     match bt {
         BlockType::Object => {
             // A block whose type word was never written (an allocation refunded before
@@ -350,7 +353,7 @@ unsafe fn var_drop_glue(bt: BlockType, header: std::ptr::NonNull<crate::gc::var_
         BlockType::ArrayValue => {
             let n = size / std::mem::size_of::<Value>();
             // SAFETY: the payload follows the header in the same allocation.
-            let base = unsafe { crate::gc::var_region::payload_ptr_of(header) } as *mut Value;
+            let base = unsafe { crate::object::header::payload_ptr_of(header) } as *mut Value;
             for i in 0..n {
                 // SAFETY: `base[i]` is one of `n` initialized `Value`s in the block payload.
                 unsafe { std::ptr::drop_in_place(base.add(i)) }
@@ -415,7 +418,7 @@ pub struct ArcMagrGC {
     /// **add-incremental-major-gc M1 **: this heap's current major mark epoch
     /// (1..=127; starts at 1, so the first major opens 2). Per heap, not per process: another heap advancing a
     /// shared counter could wrap it onto this heap's last epoch and make stale marks read as
-    /// current. See [`crate::gc::refs::MarkKind`].
+    /// current. See [`crate::object::header::marks::MarkKind`].
     mark_epoch: std::sync::atomic::AtomicU8,
     /// **add-incremental-major-gc M2a**: old values recorded by the SATB barrier (`gc::satb`) and
     /// handed over by mutator threads when they retire their TLAB. Drained into the mark before a
@@ -451,7 +454,7 @@ pub struct ArcMagrGC {
     /// **fix-wasm-string-ops**: process-unique, monotonically-increasing epoch for this heap's
     /// address space (see [`MagrGC::heap_epoch`]). Assigned once at construction from
     /// [`NEXT_HEAP_EPOCH`] and never reused, so an address-keyed cache outliving a torn-down
-    /// heap (`corelib::str_meta`) can detect a heap switch and drop entries that would otherwise
+    /// heap (`object::string::str_meta`) can detect a heap switch and drop entries that would otherwise
     /// false-hit a recycled address (the wasm32 cross-VM string-corruption bug).
     epoch: u64,
     /// **add-gc-tlab (option B)**: live allocation counters moved OUT of the

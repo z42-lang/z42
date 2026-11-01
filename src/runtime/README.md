@@ -12,7 +12,7 @@
 |------|------|
 | `main.rs` | `z42vm` CLI 入口，加载产物并交给 `Vm` 执行 |
 | `startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
-| `vm.rs` | `Vm`：持有 `Module`，按 `ExecMode` 分发到 interp / jit / aot |
+| `vm.rs` | `Vm`：持有执行配置，从 VmContext 取得 Module，按 `ExecMode` 分发到 interp / jit / aot |
 | `app.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
 | `boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`app::run` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
 | `probing.rs` | zpkg 依赖的额外搜索目录展开（`Z42_PROBING_PATHS` / `[runtime] probing-paths`） |
@@ -27,7 +27,8 @@
 ### 子模块
 | 目录 | 职责 |
 |------|------|
-| `src/metadata/` | IR 元数据与加载层（见下） |
+| `src/metadata/` | 静态包信息与尚在此目录的链接/加载实现（见下） |
+| `src/object/` | 值、类型形状、布局、对象头、句柄及存储原语，见 [`src/object/README.md`](src/object/README.md) |
 | `src/objops/` | 引擎无关的对象操作（字段 / 数组 / 静态字段 / struct 叶子的读写与错误通道），interp 与 JIT 共用，见 [`src/objops/README.md`](src/objops/README.md) |
 | `src/interp/` | 字节码解释器，见 [`src/interp/README.md`](src/interp/README.md) |
 | `src/jit/` | Cranelift JIT 后端，见 [`src/jit/README.md`](src/jit/README.md) |
@@ -49,7 +50,6 @@
 | `image.rs` | `PackageImage`：可跨 VM 共享的不可变定义快照，持有模块数据与函数定义的 Arc；不持有类型表或运行期缓存 |
 | `index/` | `name` 字段/vtable 名称索引、`type_names` 类型名操作、`well_known_names` 常量与 `type_param_markers` 静态标记替换 |
 | `debug/` | `symbols` 的源位置 / 局部变量 / DBUG 记录，`frames` 的帧名与源文件查询；sidecar 定位及覆盖由 loader 执行 |
-| `types.rs` + `types/` | 运行时值类型与对象模型：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局、字段单元归属与编解码）、`cells`（堆上单元的同宽原子访问视图）、`ref_word`（8 B 自描述引用字）、`tparam_cell`（16 B 型参单元：自描述标签字 + 基元负载字）、`struct_blob`（堆上值 struct blob 与帧 arena 形态互转）、`object` / `object_fields` / `owned_object`（ScriptObject 对象头 / NativeData / 堆外对象 `OwnedObject`；字段单元的原子读写与 GC 遍历）、`array` / `array_elems` / `array_access`（ArrayObj：REF / MIXED / PRIM / STRUCT / FROZEN 模式）、`value` / `value_aux`（Value / Closure 数据）；hub 全量 `pub use` |
 | `loader.rs` + `loader/` | 统一加载入口 `load_artifact(fs, path)` → `Module`（从调用方给的 VFS 读）；`build_type_registry` 预构建 `TypeDesc` 注册表；`namespace` / `indices` / `constraints` / `availability` 等关注点子模块 |
 | `lazy_loader.rs` + `lazy_loader/` | 惰性依赖加载（启动只载 `z42.core`，其余 zpkg 首次用到时加载：按 DEPS 引用表精确路由到定义包 `symbols.rs`，无静态引用的名字按命名空间前缀兜底 `resolve.rs`；加载与注册 `registry.rs`） |
 | `merge.rs` | 多模块合并：字符串池重映射 + 函数拼接 |
@@ -62,6 +62,19 @@
 | `seg_vec.rs` | `SegVec`（只追加、读无锁的分段向量）/ `SparseSegTable`（按 id 索引、段首次触达才分配的侧表） |
 | `superinstr.rs` | 超级指令融合框架 |
 
+
+### src/object/ — 对象模型
+
+| 目录 | 职责 |
+|------|------|
+| `value/` | `Value`、引用/闭包/pin 载荷、codec、原子 cells、引用字、型参单元和 struct blob |
+| `types/` | `TypeDesc` 形状、字段、布局计算、元素类型及泛型实参句柄 |
+| `header/` | 16 B 区块头、标记位、`VarGcRef` / `ObjRef` / `ArrRef` 与弱句柄 |
+| `object/` | `ScriptObject` / `NativeData`、字段原语和堆外 `OwnedObject` |
+| `array/` | 数组模式、描述符、元素访问、视图与排序 |
+| `string/` | `Str` 与非 ASCII 字符索引 |
+
+GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管理。
 
 ### src/vm/runtime/ — 每 VM 的链接状态
 

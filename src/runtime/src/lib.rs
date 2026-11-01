@@ -1,4 +1,5 @@
 pub mod metadata;
+pub mod object;
 pub mod corelib;
 pub mod gc;
 // review.md Part 1 P2 Phase 1 (add-pal-system-phase1):

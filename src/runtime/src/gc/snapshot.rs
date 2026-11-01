@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 
 use super::heap::MagrGC;
-use crate::metadata::Value;
+use crate::object::Value;
 
 // ── Node / edge type discriminants ───────────────────────────────────────────
 
@@ -164,8 +164,8 @@ impl GraphSnapshot {
 /// Returns `None` for non-heap values (primitives, refs, closures).
 fn value_ptr(v: &Value) -> Option<usize> {
     match v {
-        Value::Object(gc) => Some(crate::gc::ObjRef::as_ptr(gc) as usize),
-        Value::Array(gc)  => Some(crate::gc::ArrRef::as_ptr(gc) as usize),
+        Value::Object(gc) => Some(crate::object::ObjRef::as_ptr(gc) as usize),
+        Value::Array(gc)  => Some(crate::object::ArrRef::as_ptr(gc) as usize),
         _ => None,
     }
 }

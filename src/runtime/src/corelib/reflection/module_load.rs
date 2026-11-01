@@ -4,7 +4,7 @@ use super::*;
 /// (component injection, project hooks, `[analyzers]` zpkgs, and the test runner, which then
 /// discovers tests by reflection): merge the artifact (+ dependency closure) into the live
 /// registries. Returns Null.
-pub fn load_module(ctx: &VmContext, path: &crate::metadata::vstr::Str) -> anyhow::Result<Value> {
+pub fn load_module(ctx: &VmContext, path: &crate::object::string::vstr::Str) -> anyhow::Result<Value> {
     let path = path.to_string();
     // Static fields of the loaded closure need nothing here: their initializers are
     // per-type and run lazily at first use, and `load_module_into_vm` already drains
@@ -77,7 +77,7 @@ pub fn load_bytecode_in_memory(ctx: &VmContext, bytes_arr: &Value) -> anyhow::Re
 /// marker so the caller's comparison fails visibly.
 pub fn run_goldens_isolated(
     ctx: &VmContext, paths_arr: &Value, entries_arr: &Value,
-    libs_dir: &crate::metadata::vstr::Str, jobs: i64,
+    libs_dir: &crate::object::string::vstr::Str, jobs: i64,
 ) -> anyhow::Result<Value> {
     let paths = read_str_vec(Some(paths_arr), "paths")?;
     let entries = read_str_vec(Some(entries_arr), "entries")?;
@@ -211,7 +211,7 @@ pub mod typed {
     use super::*;
 
     #[builtin(name = "__load_module", reenters)]
-    pub fn load(ctx: &VmContext, path: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+    pub fn load(ctx: &VmContext, path: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
         reentry(ctx, load_module(ctx, path))
     }
 
@@ -223,7 +223,7 @@ pub mod typed {
     #[builtin(name = "__run_goldens_isolated", reenters)]
     pub fn run_goldens(
         ctx: &VmContext, paths: &Value, entries: &Value,
-        libs_dir: &crate::metadata::vstr::Str, jobs: i64,
+        libs_dir: &crate::object::string::vstr::Str, jobs: i64,
     ) -> Result<Value, BuiltinError> {
         reentry(ctx, run_goldens_isolated(ctx, paths, entries, libs_dir, jobs))
     }

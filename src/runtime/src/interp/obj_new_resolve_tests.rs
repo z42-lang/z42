@@ -7,7 +7,7 @@ use crate::metadata::ir::{BasicBlock, Instruction, ObjNewInsn, Terminator};
 use crate::metadata::index::name::NameIndex;
 use crate::metadata::tokens::{alloc_type_id_block, FnId, TypeId};
 use crate::metadata::ir::ExecMode;
-use crate::metadata::types::TypeDescCold;
+use crate::object::TypeDescCold;
 
 /// A ctor (receiver in reg 0) with `params` physical parameters, body `Ret`.
 fn ctor(name: &str, params: usize) -> Function {
@@ -135,7 +135,7 @@ fn interp_obj_new_hits_the_site_cache() {
     let run = |ctx: &VmContext| {
         let mut frame = Frame::new(ctx, &[], 4);
         let thrown = super::super::exec_object::obj_new(
-            ctx, &entry, &mut frame, 1, "Pkg.Foo", "Pkg.Foo..ctor$0", &[], crate::metadata::types::TypeArgs::empty(), Some(&site), false, true,
+            ctx, &entry, &mut frame, 1, "Pkg.Foo", "Pkg.Foo..ctor$0", &[], crate::object::TypeArgs::empty(), Some(&site), false, true,
         ).unwrap();
         assert!(thrown.is_none());
         match frame.get(1).unwrap() {

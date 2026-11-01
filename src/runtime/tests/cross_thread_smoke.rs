@@ -20,7 +20,7 @@ use z42::gc::{ArcMagrGC, MagrGC};
 use z42::vm::runtime::{Function, Module};
 use z42::metadata::ir::{BasicBlock, Terminator};
 use z42::metadata::ir::ExecMode;
-use z42::metadata::Value;
+use z42::object::Value;
 use z42::vm_context::VmContext;
 
 // 🪦 这里原有两个测试 `mutex_serializes_concurrent_increments_across_threads` /
@@ -77,7 +77,7 @@ fn gc_alloc_on_one_thread_drop_on_another() {
     let val = ctx.heap().alloc_object(
         dummy_type_desc("DemoCrossThreadObj"),
         vec![Value::I64(0)],
-        z42::metadata::NativeData::None,
+        z42::object::NativeData::None,
     );
     let handle = thread::spawn(move || {
         // Move val into worker; drop happens at end of scope (last strong
@@ -377,8 +377,8 @@ fn make_void_action_module(fn_name: &str) -> Module {
     }, vec![func], rustc_hash::FxHashMap::default())
 }
 
-fn dummy_type_desc(name: &str) -> Arc<z42::metadata::TypeDesc> {
-    Arc::new(z42::metadata::TypeDesc {
+fn dummy_type_desc(name: &str) -> Arc<z42::object::TypeDesc> {
+    Arc::new(z42::object::TypeDesc {
         class_flags: 0,
         visibility: 0,
         name: name.to_string(),

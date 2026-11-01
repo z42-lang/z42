@@ -4,7 +4,7 @@
 #[z42_macros::builtins]
 pub mod typed {
     use crate::corelib::abi::{Blocking, BuiltinError, RefArg};
-    use crate::metadata::Value;
+    use crate::object::Value;
     use crate::vm_context::VmContext;
 
     /// Echo every scalar kind back as text.

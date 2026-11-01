@@ -2,7 +2,7 @@
 //! 从 `arc_heap.rs` 拆出（refactor-arc-heap-modularization）。
 
 use parking_lot::Mutex;
-use crate::metadata::Value;
+use crate::object::Value;
 
 impl crate::gc::arc_heap::ArcMagrGC {
     /// Test-only entry point to `snapshot_roots_into_mark_queue` (whose
@@ -35,7 +35,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
     /// add-incremental-major-gc M1: the major kind in force, for tests that inspect marks.
     #[cfg(test)]
-    pub(crate) fn major_mark_for_test(&self) -> crate::gc::refs::MarkKind {
+    pub(crate) fn major_mark_for_test(&self) -> crate::object::header::marks::MarkKind {
         self.major_mark()
     }
 
@@ -112,7 +112,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         //    reads "minor bit clear, and the major epoch is either the current one or 0" — a
         //    survivor of cycle E keeps E (that is what whitens it for E+1); anything else is a
         //    stale epoch, which would make the next major skip tracing its children.
-        let epoch = match self.major_mark() { crate::gc::refs::MarkKind::Major(e) => e, _ => unreachable!() };
+        let epoch = match self.major_mark() { crate::object::header::marks::MarkKind::Major(e) => e, _ => unreachable!() };
         let stale = |minor: bool, e: u8| minor || (e != 0 && e != epoch);
         //    iterate_alive walks heap-registry-equivalent (regions).
         //
@@ -125,11 +125,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let mut stale_blk: Option<(usize, String, usize)> = None;
         self.region_var.lock().iterate_alive(|h, header| {
             if stale_blk.is_some() || !header.block_type().is_object_or_array() { return; }
-            if stale(header.is_marked(crate::gc::refs::MarkKind::Minor), header.major_epoch()) {
-                let what = if header.block_type() == crate::gc::var_region::BlockType::Object {
-                    crate::gc::ObjRef::from_var(h).borrow().type_desc.name.clone()
+            if stale(header.is_marked(crate::object::header::marks::MarkKind::Minor), header.major_epoch()) {
+                let what = if header.block_type() == crate::object::header::BlockType::Object {
+                    crate::object::ObjRef::from_var(h).borrow().type_desc.name.clone()
                 } else {
-                    format!("{}[]", crate::gc::ArrRef::from_var(h).borrow().element_type())
+                    format!("{}[]", crate::object::ArrRef::from_var(h).borrow().element_type())
                 };
                 stale_blk = Some((h.addr(), what, header.size()));
             }

@@ -1,0 +1,774 @@
+/// Unit tests for `object`: per-tag default value derivation.
+///
+/// fix-array-default-init.
+
+use crate::object::*;
+
+#[test]
+fn default_for_bool_tag_is_false() {
+    assert!(matches!(default_value_for_tag(TAG_BOOL), Value::Bool(false)));
+}
+
+#[test]
+fn default_for_signed_int_tags_is_zero_i64() {
+    for t in [TAG_I8, TAG_I16, TAG_I32, TAG_I64] {
+        assert!(matches!(default_value_for_tag(t), Value::I64(0)), "tag {:#x}", t);
+    }
+}
+
+#[test]
+fn default_for_unsigned_int_tags_is_zero_i64() {
+    for t in [TAG_U8, TAG_U16, TAG_U32, TAG_U64] {
+        assert!(matches!(default_value_for_tag(t), Value::I64(0)), "tag {:#x}", t);
+    }
+}
+
+#[test]
+fn default_for_float_tags_is_zero_f64() {
+    for t in [TAG_F32, TAG_F64] {
+        match default_value_for_tag(t) {
+            Value::F64(v) => assert_eq!(v, 0.0),
+            other => panic!("tag {:#x}: expected F64(0.0), got {:?}", t, other),
+        }
+    }
+}
+
+#[test]
+fn default_for_char_tag_is_null_char() {
+    assert!(matches!(default_value_for_tag(TAG_CHAR), Value::Char('\0')));
+}
+
+#[test]
+fn default_for_ref_tags_is_null() {
+    for t in [TAG_STR, TAG_OBJECT, TAG_ARRAY, TAG_UNKNOWN, 0xFF] {
+        assert!(matches!(default_value_for_tag(t), Value::Null), "tag {:#x}", t);
+    }
+}
+
+// ── is_heap_ref (add-write-barriers) ────────────────────────────
+
+use std::sync::Arc;
+
+fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
+    Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: name.to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: crate::metadata::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(),
+        cold: None,
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    })
+}
+
+#[test]
+fn is_heap_ref_true_for_object() {
+    let v = Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(dummy_type_desc("Foo"), 0)));
+    assert!(v.is_heap_ref());
+}
+
+#[test]
+fn is_heap_ref_true_for_array() {
+    let v = Value::Array(crate::object::ArrayObj::leaked(vec![Value::I64(1), Value::I64(2)]));
+    assert!(v.is_heap_ref());
+}
+
+#[test]
+fn is_heap_ref_true_for_closure() {
+    let v = Value::Closure(crate::object::header::VarGcRef::leak_for_test(
+        ClosureData {
+            env:     crate::object::ArrayObj::leaked(vec![Value::I64(42)]),
+            fn_id:   crate::metadata::tokens::FnId(0),
+        },
+        crate::object::header::BlockType::Closure,
+    ));
+    assert!(v.is_heap_ref());
+}
+
+#[test]
+fn is_heap_ref_false_for_ref_handle() {
+    // make-value-copy: a `Ref` is now an 8B transient-arena handle (payload — incl. the
+    // Array/Field target ArrRef — lives in the arena, kept marked by its root scan). The
+    // handle itself never escapes into a heap slot, so it is NOT a heap edge here (matches
+    // `StructRef` / `StackObject`). Only the arena root scan keeps the target alive.
+    let v = Value::Ref { idx: 0, frame_id: 1 };
+    assert!(!v.is_heap_ref());
+}
+
+// ── add-struct-heap-inline (P3b, D1-a): inline struct fields' reference side-table
+//    is GC-traversed (scaffolding is inert in production until the stage-3 format
+//    wire populates it, so validate the traversal via manual construction). ──────
+
+#[test]
+fn trace_children_visits_inline_struct_refs() {
+    // An object whose inline struct field (16 B blob @0, reference leaf @8) holds a nested
+    // object. The leaf is a reference word in the object's bytes (the struct keeps its blob
+    // layout); `trace_children` must visit it so the leaf stays marked.
+    use crate::object::{FieldAccess, ObjectLayout, TypeDescCold, STRUCT_LEAF_STRUCT};
+    let leaf = Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(dummy_type_desc("Leaf"), 0)));
+    let layout = Arc::new(ObjectLayout {
+        size: 16,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([16]),
+        field_kinds:   Box::new([STRUCT_LEAF_STRUCT]),
+        ref_cells:     Box::new([8]),
+        tparam_cells:  Box::new([]),
+        field_access:  Box::new([FieldAccess::struct_root(0, 16)]),
+    });
+    let td = Arc::new(TypeDesc {
+        cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
+        ..(*dummy_type_desc("Owner")).clone()
+    });
+    let obj = crate::object::OwnedObject::of_type(td.clone());
+    obj.set_struct_ref_leaf(8, &leaf).unwrap();
+    assert!(obj.set_struct_ref_leaf(0, &leaf).is_err(), "offset 0 is not a reference leaf");
+    let owner = Value::Object(crate::object::ObjRef::leak(obj));
+
+    let mut visited_object_children = 0usize;
+    owner.trace_children(crate::object::header::marks::MarkKind::Major(1), &mut |v: &Value| {
+        if matches!(v, Value::Object(_)) { visited_object_children += 1; }
+    });
+    assert_eq!(visited_object_children, 1, "the inline struct's reference leaf must be traced");
+}
+
+// ── unify-object-byte-layout (PR-3 chunk 2b): a DIRECT object field is byte-inlined as
+//    an 8B tagged pointer in `bytes` (out of the side-table). Exercises the real runtime
+//    read/write/GC path end-to-end (the compose tests only check the layout metadata). ──
+#[test]
+fn inline_object_field_roundtrips_and_is_traced() {
+    use crate::object::{FieldAccess, ObjectLayout, TypeDescCold, TAG_OBJECT};
+
+    // `class Holder { object child; }` — one direct object field inlined at byte offset 0.
+    let layout = Arc::new(ObjectLayout {
+        size: 8,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([8]),
+        field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
+        ref_cells:     Box::new([0]),
+        tparam_cells:  Box::new([]),
+        field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
+    });
+    let holder_td = Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: "Holder".to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: crate::metadata::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(),
+        cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    });
+
+    // The heap object the inlined field will point at.
+    let leaf = Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(dummy_type_desc("Leaf"), 0)));
+    // A Holder instance: one 8B inline field window, zero-initialized.
+    let holder = crate::object::ObjRef::leak(crate::object::OwnedObject::new(holder_td, 8));
+
+    // Zeroed window (`0` sentinel) reads back as `Null`.
+    assert!(matches!(holder.borrow().field_value(0), Value::Null), "zeroed inline field = Null");
+    // Writing an object inlines its 8B tagged pointer AND reports a reference write
+    // (so the caller still fires `write_barrier_field`).
+    let wrote_ref = holder.borrow().set_field_value(0, &leaf);
+    assert!(wrote_ref, "inlined object field is a reference slot");
+    // Reads back by reference identity (address + generation preserved through bytes).
+    match holder.borrow().field_value(0) {
+        Value::Object(got) => match &leaf {
+            Value::Object(l) => assert!(crate::object::ObjRef::ptr_eq(&got, l), "inlined object round-trips by identity"),
+            _ => unreachable!(),
+        },
+        o => panic!("expected the inlined object, got {o:?}"),
+    }
+    // GC must reach the leaf THROUGH the inlined pointer in `bytes` (side-table is empty).
+    let hv = Value::Object(holder);
+    let mut visited = 0usize;
+    hv.trace_children(crate::object::header::marks::MarkKind::Major(1), &mut |v: &Value| if matches!(v, Value::Object(_)) { visited += 1; });
+    assert_eq!(visited, 1, "trace_children visits the byte-inlined object ref");
+}
+
+/// The sweep's edge-breaking half, at the unit level. `clear_refs_for_sweep` is what stops a
+/// dead object from holding its children — the 16 B side table AND the 8 B reference words
+/// in `bytes`.
+///
+/// **perf-cheap-dead-edge-break **: this used to `collect()` the offsets into a
+/// `Vec<u32>` before writing, on the stated grounds of releasing a borrow — `type_desc` and
+/// `storage` are disjoint fields, so there was no borrow to release, and the minor sweep paid
+/// a malloc/free for every dead object (710 080 per `z42c.semantics` build, **51.0 ms → 18.5
+/// ms** of `minor/tomb objects` once removed). The rewrite has to keep answering this test.
+#[test]
+fn clear_refs_for_sweep_erases_every_reference_word() {
+    use crate::object::{FieldAccess, ObjectLayout, TypeDescCold, TAG_OBJECT};
+
+    // `class Holder { object child; }` — the same shape as the round-trip test above.
+    let layout = Arc::new(ObjectLayout {
+        size: 8,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([8]),
+        field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
+        ref_cells:     Box::new([0]),
+        tparam_cells:  Box::new([]),
+        field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
+    });
+    let holder_td = Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: "Holder".to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: crate::metadata::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(),
+        cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    });
+
+    let leaf = Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(dummy_type_desc("Leaf"), 0)));
+    let holder = crate::object::ObjRef::leak(crate::object::OwnedObject::new(holder_td, 8));
+    holder.borrow().set_field_value(0, &leaf);
+
+    let hv = Value::Object(holder.clone());
+    let mut before = 0usize;
+    hv.trace_children(crate::object::header::marks::MarkKind::Major(1), &mut |v: &Value| if matches!(v, Value::Object(_)) { before += 1; });
+    assert_eq!(before, 1, "the edge exists before the erase");
+
+    holder.borrow().clear_refs_for_sweep();
+
+    let mut after = 0usize;
+    hv.trace_children(crate::object::header::marks::MarkKind::Major(1), &mut |v: &Value| if matches!(v, Value::Object(_)) { after += 1; });
+    assert_eq!(after, 0, "clear_refs_for_sweep breaks the reference-word edge");
+    assert!(matches!(holder.borrow().field_value(0), Value::Null), "the window reads back Null");
+}
+
+/// A reference-word offset that does not fit in `bytes` is **skipped, not panicked on**. The
+/// bound belongs to the erase itself: a `TypeDesc` can outlive the storage shape it was
+/// composed for (a synthesized / Rust-constructed instance with a shorter `bytes`), and the
+/// sweep runs this on every dead object of the type.
+#[test]
+fn clear_refs_for_sweep_skips_an_offset_past_the_payload() {
+    use crate::object::{FieldAccess, ObjectLayout, TypeDescCold, TAG_OBJECT};
+
+    let layout = Arc::new(ObjectLayout {
+        size: 8,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([8]),
+        field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
+        // Offset 64 against a 8-byte payload: out of range on purpose.
+        ref_cells:     Box::new([64]),
+        tparam_cells:  Box::new([]),
+        field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
+    });
+    let td = Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: "Short".to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: crate::metadata::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(),
+        cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    });
+
+    let obj = crate::object::ObjRef::leak(crate::object::OwnedObject::new(td, 8));
+    obj.borrow().clear_refs_for_sweep(); // must not panic
+    assert_eq!(obj.borrow().payload_len(), 8, "payload untouched");
+}
+
+/// The borrowed layout accessor and the `Arc`-cloning one must never drift apart — the
+/// borrowed twin exists only to save the atomic pair, not to answer a different question.
+#[test]
+fn composed_object_layout_ref_matches_the_cloning_twin() {
+    let td = dummy_type_desc("Plain");
+    assert_eq!(
+        td.composed_object_layout_ref().map(|l| l as *const _),
+        td.composed_object_layout().as_deref().map(|l| l as *const _),
+        "both accessors answer with the same layout (or both with None)"
+    );
+}
+
+#[test]
+fn struct_array_backing_roundtrip_and_traced_leaves() {
+    use crate::object::*;
+    // Point[2] with element layout {x:i32@0, y:i32@4, tag:string@8}, size 16, 1 ref leaf.
+    let layout = Arc::new(StructTypeLayout {
+        size: 16,
+        ref_offsets: Box::new([8]),
+        ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
+        fields: Box::new([]),
+    });
+    // Heap-less test: a leaked block; element blobs written through `write_struct_elem`, read
+    // back through `struct_elem` / `visit_refs`.
+    let arr_ref = ArrayObj::struct_leaked("Demo.P", 2, layout.clone());
+    let arr = arr_ref.borrow();
+    assert_eq!(arr.len(), 2, "2 elements of 16 bytes each");
+    assert_eq!(arr.elem_storage_bytes(), 32, "one block: the reference leaf is an 8 B word inside the blob");
+
+    let write = |arr: &ArrayObj, i: usize, x: i32, y: i32, tag: &str| {
+        let mut b = [0u8; 16];
+        b[0..4].copy_from_slice(&x.to_le_bytes());
+        b[4..8].copy_from_slice(&y.to_le_bytes());
+        arr.write_struct_elem(i, &b, std::slice::from_ref(&Value::Str(tag.into())), &mut |_| {}).unwrap();
+    };
+    write(arr, 0, 5, 6, "a");
+    write(arr, 1, 7, 8, "b");
+
+    // Element bytes are stored + independent across elements; reference slots read as zero.
+    let (b0, r0) = arr.struct_elem(0).expect("StructBytes backing");
+    assert_eq!(i32::from_le_bytes([b0[0], b0[1], b0[2], b0[3]]), 5);
+    assert_eq!(i32::from_le_bytes([b0[4], b0[5], b0[6], b0[7]]), 6);
+    assert!(b0[8..16].iter().all(|&x| x == 0), "the snapshot never carries handle bits");
+    match &r0[0] { Value::Str(s) => assert_eq!(&**s, "a"), o => panic!("{o:?}") }
+    let (b1, _) = arr.struct_elem(1).unwrap();
+    assert_eq!(i32::from_le_bytes([b1[0], b1[1], b1[2], b1[3]]), 7);
+    assert_eq!(arr.struct_elem_ref(1, 8).unwrap(), Value::Str("b".into()));
+    assert!(arr.struct_elem_ref(1, 4).is_err(), "offset 4 is not a reference leaf");
+
+    // GC must see both elements' string ref leaves (else premature free).
+    let mut strs: Vec<String> = Vec::new();
+    arr.visit_refs(&mut |v| if let Value::Str(s) = v { strs.push(s.to_string()) });
+    assert_eq!(strs, vec!["a", "b"]);
+    let (slots, per) = arr.elem_ref_slots(0, 2);
+    assert_eq!((slots.len(), per), (2, 1), "one reference slot per element");
+}
+
+#[test]
+fn object_storage_empty_for_fieldless_type() {
+    // shrink-object-footprint P2: a field-less type with no delivered/synthesized
+    // layout has an empty payload — and allocates nothing for it.
+    let td = dummy_type_desc("Plain");
+    assert_eq!(crate::object::OwnedObject::of_type(td.clone()).payload_len(), 0);
+    assert_eq!(td.object_bytes_len(), 0);
+}
+
+#[test]
+fn is_heap_ref_false_for_primitives() {
+    assert!(!Value::I64(0).is_heap_ref());
+    assert!(!Value::F64(0.0).is_heap_ref());
+    assert!(!Value::Bool(true).is_heap_ref());
+    assert!(!Value::Char('a').is_heap_ref());
+    assert!(!Value::Null.is_heap_ref());
+}
+
+#[test]
+fn is_heap_ref_true_for_string_false_for_func_ref() {
+    // unify-gc-heap PR-4: strings are GC blocks now — `Value::Str` is a heap ref, so a
+    // write into a heap slot fires the barrier (generational card) that keeps the block
+    // found by a minor. P1-2 PR 8: `Value::FuncRef` holds a `FnId` — no heap edge.
+    assert!(Value::Str("hello".to_string().into()).is_heap_ref());
+    assert!(!Value::FuncRef(crate::metadata::tokens::FnId(3)).is_heap_ref());
+}
+
+#[test]
+fn is_heap_ref_false_for_pinned_view() {
+    let v = Value::PinnedView { idx: 0, frame_id: 1 };
+    assert!(!v.is_heap_ref());
+}
+
+#[test]
+fn is_heap_ref_false_for_ref_stack() {
+    let v = Value::Ref { idx: 0, frame_id: 1 };
+    assert!(!v.is_heap_ref(), "stack ref points to stack location, not heap");
+}
+
+#[test]
+fn default_value_for_string_keys_match_tags() {
+    // Sanity: the string-keyed and byte-keyed lookups stay in sync for the
+    // primitive types — drift here would silently regress per-type defaults
+    // across the two call paths (FieldSlot vs ArrayNew).
+    assert!(matches!(default_value_for("bool"), Value::Bool(false)));
+    assert!(matches!(default_value_for("int"),  Value::I64(0)));
+    assert!(matches!(default_value_for("long"), Value::I64(0)));
+    assert!(matches!(default_value_for("byte"), Value::I64(0)));
+    assert!(matches!(default_value_for("char"), Value::Char('\0')));
+    assert!(matches!(default_value_for("string"), Value::Null));
+    match default_value_for("double") {
+        Value::F64(v) => assert_eq!(v, 0.0),
+        other => panic!("expected F64(0.0), got {:?}", other),
+    }
+    // fix-type-reflection-names: FQ wrapper names (from reflective method_type_args,
+    // e.g. `MakeGenericMethod(typeof(int)).Invoke` → `default(T)`) yield the same
+    // value-type zero as the keyword/tag spellings.
+    assert!(matches!(default_value_for("Std.Int32"), Value::I64(0)));
+    assert!(matches!(default_value_for("Std.Int64"), Value::I64(0)));
+    assert!(matches!(default_value_for("Std.Byte"), Value::I64(0)));
+    assert!(matches!(default_value_for("Std.Boolean"), Value::Bool(false)));
+    assert!(matches!(default_value_for("Std.Char"), Value::Char('\0')));
+    assert!(matches!(default_value_for("Std.String"), Value::Null)); // reference → null
+    match default_value_for("Std.Double") {
+        Value::F64(v) => assert_eq!(v, 0.0),
+        other => panic!("expected F64(0.0), got {:?}", other),
+    }
+    match default_value_for("Std.Single") {
+        Value::F64(v) => assert_eq!(v, 0.0),
+        other => panic!("expected F64(0.0), got {:?}", other),
+    }
+}
+
+#[test]
+fn value_size_observed() {
+    // Diagnostic: pin current Value size. Refactors that hot/cold-split
+    // variants (review.md C1) should make this shrink. Update the expected
+    // when an intentional shrink lands.
+    //
+    // review.md C1 chunks 1-5 (all cold variants boxed):
+    // Value shrunk 48 B → 24 B. Max-payload variant was
+    // Str(Arc<str>) = 16 B → +1 B tag + 7 B align = 24 B.
+    //
+    // unify-object-byte-layout PR-3/4/5: ArrRef 16→8 B (PR-3),
+    // Str Arc<str> 16→8 B thin (PR-4), FuncRef Box<str> 16→8 B thin (PR-5).
+    // Every payload is now ≤ 8 B → tag(1 B, padded to 8) + 8 B = 16 B.
+    // This is also enforced at compile time by the `const _: () = assert!`
+    // in types.rs; keep both in sync.
+    assert_eq!(std::mem::size_of::<Value>(), 16,
+        "Value size changed: {}", std::mem::size_of::<Value>());
+    assert_eq!(std::mem::align_of::<Value>(), 8, "Value alignment changed");
+}
+
+// ── review.md C2 P1 step 0 : Value layout pin ──────────────
+//
+// `Value` uses `#[repr(C, u8)]` so the JIT can load/store register
+// payloads via raw memory access. These tests pin the discriminant
+// values + payload offset so drift fails CI before bad JIT loads emit.
+//
+// Pinned layout (x86-64 / aarch64, alignment 8):
+//   * offset 0  — u8 discriminant (explicit assignments in Value enum)
+//   * offset 8  — payload (max 8 B since PR-3/4/5: ArrRef / Str / FuncRef
+//     are all thin 8 B pointers → Value is 16 B, see `value_size_observed`)
+
+#[test]
+fn value_discriminants_pinned() {
+    fn tag(v: &Value) -> u8 {
+        unsafe { *(v as *const Value as *const u8) }
+    }
+    assert_eq!(tag(&Value::I64(0)),                            0, "I64 tag");
+    assert_eq!(tag(&Value::F64(0.0)),                          1, "F64 tag");
+    assert_eq!(tag(&Value::Bool(false)),                       2, "Bool tag");
+    assert_eq!(tag(&Value::Char('\0')),                        3, "Char tag");
+    assert_eq!(tag(&Value::Str(crate::object::string::vstr::Str::from(""))),     4, "Str tag");
+    assert_eq!(tag(&Value::Null),                              5, "Null tag");
+    // Heap variants (Array/Object tags 6/7) need a ArrRef — skip cheap test.
+    assert_eq!(tag(&Value::PinnedView { idx: 0, frame_id: 1 }), 8, "PinnedView tag");
+    assert_eq!(tag(&Value::FuncRef(crate::metadata::tokens::FnId(0))), 9, "FuncRef tag");
+    // Closure tag 10 — needs ArrRef, skip.
+    // 11 retired (was StackClosure).
+    assert_eq!(tag(&Value::Ref { idx: 0, frame_id: 1 }), 12, "Ref tag");
+}
+
+#[test]
+fn value_i64_payload_at_offset_8() {
+    // I64 payload at offset 8 (after u8 tag + 7 B padding to align(8)).
+    // C2 P1 JIT will emit `iadd` against values loaded from this offset;
+    // drift breaks the fast path silently.
+    let v = Value::I64(0x1234_5678_9ABC_DEF0);
+    unsafe {
+        let base = &v as *const Value as *const u8;
+        let payload_ptr = base.add(8) as *const i64;
+        assert_eq!(*payload_ptr, 0x1234_5678_9ABC_DEF0_i64);
+    }
+}
+
+#[test]
+fn value_f64_payload_at_offset_8() {
+    let v = Value::F64(std::f64::consts::PI);
+    unsafe {
+        let base = &v as *const Value as *const u8;
+        let payload_ptr = base.add(8) as *const f64;
+        assert_eq!(*payload_ptr, std::f64::consts::PI);
+    }
+}
+
+#[test]
+fn value_bool_payload_at_offset_8() {
+    let v_true  = Value::Bool(true);
+    let v_false = Value::Bool(false);
+    unsafe {
+        let base_true  = &v_true  as *const Value as *const u8;
+        let base_false = &v_false as *const Value as *const u8;
+        assert_eq!(*base_true.add(8),  1);
+        assert_eq!(*base_false.add(8), 0);
+    }
+}
+
+// ── unify Phase 2 R3（装箱统一）: ScriptObject::boxed_prim_i64 —— 整数基元装箱盒的
+//    struct_bytes 标量编解码（宽度 + 有无符号扩展）。box 侧存 LE 字节，unbox 侧按 wrapper
+//    名的 (width, signed) 还原 i64。见 well_known_names::int_wrapper_scalar_spec。────────
+
+fn boxed_prim(name: &str, bytes: &[u8]) -> crate::object::ObjRef {
+    // shrink-object-footprint P2: a boxed primitive's scalar is its whole byte payload; no
+    // reference leaves.
+    crate::object::ObjRef::leak(crate::object::OwnedObject::from_bytes(dummy_type_desc(name), bytes))
+}
+
+#[test]
+fn boxed_prim_i64_roundtrip_widths_and_sign() {
+    // Int32: 4 bytes, signed. +5 与 -5（符号扩展）
+    assert_eq!(boxed_prim("Std.Int32", &5i32.to_le_bytes()).borrow().boxed_prim_i64(), Some(5));
+    assert_eq!(boxed_prim("Std.Int32", &(-5i32).to_le_bytes()).borrow().boxed_prim_i64(), Some(-5));
+    // Int64: 8 bytes, signed
+    assert_eq!(boxed_prim("Std.Int64", &(-1i64).to_le_bytes()).borrow().boxed_prim_i64(), Some(-1));
+    assert_eq!(boxed_prim("Std.Int64", &9i64.to_le_bytes()).borrow().boxed_prim_i64(), Some(9));
+    // Byte(unsigned 1B): 255 零扩展；SByte(signed 1B): 0xFF → -1
+    assert_eq!(boxed_prim("Std.Byte",  &[255u8]).borrow().boxed_prim_i64(), Some(255));
+    assert_eq!(boxed_prim("Std.SByte", &[0xFFu8]).borrow().boxed_prim_i64(), Some(-1));
+    // UInt32 max: 零扩展（不当负数）
+    assert_eq!(boxed_prim("Std.UInt32", &u32::MAX.to_le_bytes()).borrow().boxed_prim_i64(),
+               Some(u32::MAX as i64));
+    // Int16: -1000 符号扩展
+    assert_eq!(boxed_prim("Std.Int16", &(-1000i16).to_le_bytes()).borrow().boxed_prim_i64(), Some(-1000));
+}
+
+#[test]
+fn boxed_prim_i64_none_for_non_int_wrapper_and_short_bytes() {
+    // 非整数 wrapper（普通 struct 装箱盒 / 未知名）→ None（调用方据此走 struct-blob 分流）
+    assert_eq!(boxed_prim("some.Point", &[1, 2, 3, 4]).borrow().boxed_prim_i64(), None);
+    assert_eq!(boxed_prim("Std.Double", &8u64.to_le_bytes()).borrow().boxed_prim_i64(), None);
+    // struct_bytes 短于 wrapper 宽度（不该发生）→ None，不 panic
+    assert_eq!(boxed_prim("Std.Int32", &[1, 2]).borrow().boxed_prim_i64(), None);
+}
+
+// ── unify-object-byte-layout (PR-2, task 2.0): compose_object_layout ──────────
+
+#[test]
+fn compose_object_layout_root_is_identity() {
+    let own = crate::metadata::ir::ObjectLayoutDesc {
+        size: 24,
+        field_offsets: Box::new([0, 8, 16]),
+        field_sizes:   Box::new([8, 8, 8]),
+        field_kinds:   Box::new([0, 1, 2]), // Prim @0, ArcString @8, ArrRef(object) @16
+        ref_offsets:   Box::new([8, 16]),
+        ref_kinds:     Box::new([1, 2]),
+    };
+    let composed = compose_object_layout(None, &own, &[], &[]);
+    // No base → identity (base_shift 0).
+    assert_eq!(composed.size, 24);
+    assert_eq!(&*composed.field_offsets, &[0, 8, 16]);
+    // Both direct reference fields — the string @8 and the object @16 — are 8 B reference
+    // words in `bytes`.
+    assert_eq!(&*composed.ref_cells, &[8, 16]);
+}
+
+/// Cell assignment: type-parameter fields (`T`, `T?`) — any `Value`, a raw `I64` under erasure —
+/// get 16 B type-parameter cells (tag word at their own slot, payload word past the compiler
+/// layout); `object` / string / delegate fields of the same compiler kind get 8 B reference
+/// words, and so are inline-struct interior leaves (the struct keeps its blob layout).
+#[test]
+fn compose_object_layout_gives_type_parameter_fields_their_own_cells() {
+    let own = crate::metadata::ir::ObjectLayoutDesc {
+        size: 48,
+        field_offsets: Box::new([0, 8, 16, 24, 32]),
+        field_sizes:   Box::new([8, 8, 8, 8, 16]),
+        // T, object, T?, string, inline struct {int, string}
+        field_kinds:   Box::new([5, 5, 5, 1, 3]),
+        ref_offsets:   Box::new([0, 8, 16, 24, 40]),
+        ref_kinds:     Box::new([2, 2, 2, 1, 1]),
+    };
+    let fields: Vec<FieldSlot> = [("v", "T"), ("o", "object"), ("n", "T?"), ("s", "string"), ("p", "Demo.P")]
+        .iter().map(|(n, t)| FieldSlot { name: (*n).into(), type_tag: (*t).into(), visibility: 0 }).collect();
+    let composed = compose_object_layout(None, &own, &fields, &["T".to_string()]);
+    assert_eq!(&*composed.ref_cells, &[8, 24, 40], "object + string fields and the struct's leaf are reference words");
+    assert_eq!(&*composed.tparam_cells, &[0, 16], "T and T? are type-parameter cells");
+    let cells: Vec<FieldCell> = composed.field_access.iter().map(|f| f.cell()).collect();
+    assert_eq!(cells, [FieldCell::TypeParam, FieldCell::Ref, FieldCell::TypeParam, FieldCell::Ref, FieldCell::Struct]);
+    assert_eq!((composed.field_access[2].offset, composed.field_access[2].aux), (16, 56),
+        "T?: tag word at its slot, payload word after the 48 B compiler layout");
+    assert_eq!(composed.size, 48, "the compiler's size is unchanged");
+    assert_eq!(composed.bytes_len(), 64);
+}
+
+#[test]
+fn compose_object_layout_pads_base_to_8() {
+    // Base size 1 (single bool) must pad to 8 before the own region starts —
+    // the unified 8B inheritance boundary keeps 8-aligned refs aligned.
+    let base = ObjectLayout {
+        size: 1,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([1]),
+        field_kinds:   Box::new([0]),
+        ref_cells:     Box::new([]),
+        tparam_cells:  Box::new([]),
+        field_access: Box::new([]),
+    };
+    let own = crate::metadata::ir::ObjectLayoutDesc {
+        size: 8,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([8]),
+        field_kinds:   Box::new([2]), // STRUCT_LEAF_GCREF (object) → PR-3 chunk 2b inlines it
+        ref_offsets:   Box::new([0]),
+        ref_kinds:     Box::new([2]),
+    };
+    let composed = compose_object_layout(Some(&base), &own, &[], &[]);
+    // base_shift = align_up(1, 8) = 8.
+    assert_eq!(composed.size, 16, "8 (padded base) + 8 (own)");
+    assert_eq!(&*composed.field_offsets, &[0, 8], "own field shifted to 8, not 1");
+    // The own direct object field is an 8 B reference word at the shifted offset 8.
+    assert!(composed.is_ref_cell(8), "own GCREF field is a reference word at the shifted offset");
+    assert_eq!(&*composed.ref_cells, &[8], "reference word at the shifted offset 8");
+}
+
+#[test]
+fn compose_object_layout_already_aligned_base_no_extra_pad() {
+    let base = ObjectLayout {
+        size: 16,
+        field_offsets: Box::new([0, 8]),
+        field_sizes:   Box::new([8, 8]),
+        field_kinds:   Box::new([0, 0]),
+        ref_cells:     Box::new([]),
+        tparam_cells:  Box::new([]),
+        field_access: Box::new([]),
+    };
+    let own = crate::metadata::ir::ObjectLayoutDesc {
+        size: 4,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([4]),
+        field_kinds:   Box::new([0]),
+        ref_offsets:   Box::new([]),
+        ref_kinds:     Box::new([]),
+    };
+    let composed = compose_object_layout(Some(&base), &own, &[], &[]);
+    // align_up(16, 8) == 16 — no extra padding.
+    assert_eq!(composed.size, 20);
+    assert_eq!(&*composed.field_offsets, &[0, 8, 16]);
+}
+
+#[test]
+fn script_object_stays_small() {
+    // shrink-object-footprint / object model R8: the object header (`ObjHeader`, the sized prefix
+    // of the `ScriptObject` DST) *is* the 16 B block header — GC word + type word — so its size is
+    // multiplied by the live object count. Pin it so an added field is a deliberate decision with
+    // a measurement, not a drift.
+    assert_eq!(std::mem::size_of::<crate::object::ObjHeader>(), 16,
+        "the object header grew — re-measure per-object RSS before updating this");
+    assert_eq!(std::mem::size_of::<crate::object::ObjHeader>(),
+        crate::object::header::GcBlockHeader::DATA_OFFSET, "one header per object");
+    // `&ScriptObject` is fat (address + field-area length): hot structures keep `ObjRef`.
+    assert_eq!(std::mem::size_of::<&ScriptObject>(), 2 * std::mem::size_of::<usize>());
+}
+
+// ── generic_field_zero_overrides (fix-generic-typeparam-field-zero) ──
+//
+// A `T`-typed field is laid out as a reference slot (layout is computed from the
+// declaration), so layout zero-init leaves it `Null`. These pin the narrow rule that
+// recovers the instantiation's real zero at the allocation point.
+
+fn td_with_params(name: &str, params: &[&str], fields: &[(&str, &str)]) -> Arc<TypeDesc> {
+    let mut cold = crate::object::TypeDescCold::default();
+    cold.type_params = params.iter().map(|p| p.to_string()).collect();
+    Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: name.to_string(),
+        base_name: None,
+        fields: fields.iter().map(|(n, t)| FieldSlot {
+            name: (*n).into(), type_tag: (*t).into(), visibility: 0,
+        }).collect(),
+        field_index: crate::metadata::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(),
+        cold: Some(Box::new(cold)),
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    })
+}
+
+#[test]
+fn generic_field_zero_primitive_arg_yields_zero() {
+    let td = td_with_params("GBox", &["T"], &[("V", "T")]);
+    let got = generic_field_zero_overrides(&td, &["int".to_string()]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].0, 0);
+    assert!(matches!(got[0].1, Value::I64(0)));
+}
+
+#[test]
+fn generic_field_zero_covers_bool_and_double() {
+    let td = td_with_params("GBox", &["T"], &[("V", "T")]);
+    assert!(matches!(
+        generic_field_zero_overrides(&td, &["bool".to_string()])[0].1, Value::Bool(false)));
+    match generic_field_zero_overrides(&td, &["double".to_string()])[0].1 {
+        Value::F64(v) => assert_eq!(v, 0.0),
+        ref other => panic!("expected F64(0.0), got {other:?}"),
+    }
+}
+
+#[test]
+fn generic_field_zero_skips_reference_arg() {
+    // A reference argument's zero already IS `Null` — nothing to rewrite.
+    let td = td_with_params("GBox", &["T"], &[("V", "T")]);
+    assert!(generic_field_zero_overrides(&td, &["string".to_string()]).is_empty());
+    assert!(generic_field_zero_overrides(&td, &["Demo.Thing".to_string()]).is_empty());
+}
+
+#[test]
+fn generic_field_zero_picks_the_right_param_by_index() {
+    let td = td_with_params("Multi", &["A", "B"], &[("X", "A"), ("Y", "B")]);
+    // A=string (ref, skipped), B=int (slot 1) — proves the name→index mapping is used
+    // rather than positional pairing with the field list.
+    let got = generic_field_zero_overrides(&td, &["string".to_string(), "int".to_string()]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].0, 1);
+}
+
+#[test]
+fn generic_field_zero_ignores_concretely_typed_fields() {
+    // `int N` is already a byte-region slot: layout zero-init handles it, and an
+    // override here would be a second source of truth.
+    let td = td_with_params("Mixed", &["T"], &[("N", "int"), ("V", "T")]);
+    let got = generic_field_zero_overrides(&td, &["int".to_string()]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].0, 1);
+}
+
+#[test]
+fn generic_field_zero_empty_for_non_generic_or_missing_args() {
+    let plain = td_with_params("Plain", &[], &[("N", "int")]);
+    assert!(generic_field_zero_overrides(&plain, &["int".to_string()]).is_empty());
+    let td = td_with_params("GBox", &["T"], &[("V", "T")]);
+    assert!(generic_field_zero_overrides(&td, &[]).is_empty());
+}
+
+#[test]
+fn generic_field_zero_short_type_args_does_not_panic() {
+    // Partially-applied / erased call sites reach here with fewer args than params.
+    let td = td_with_params("Multi", &["A", "B"], &[("X", "A"), ("Y", "B")]);
+    let got = generic_field_zero_overrides(&td, &["int".to_string()]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].0, 0);
+}
+
+// ── ctor identity (fix-nested-ctor-key) ─────────────────────────────────────
+// One spelling of "what is this class's constructor called", shared by the type-registry
+// loader (which keeps ctors out of `own_methods`), reflection's `GetConstructors()` /
+// `Activator`, and the `where T : new()` probe. Each of those used to derive it locally as
+// `rsplit('.')`, which leaves a nested type's `+` declaring-type prefix attached.
+
+#[test]
+fn ctor_member_name_strips_namespace_nesting_and_generic_args() {
+    assert_eq!(TypeDesc::ctor_member_name("Point"), "Point");
+    assert_eq!(TypeDesc::ctor_member_name("Demo.Point"), "Point");
+    assert_eq!(TypeDesc::ctor_member_name("Demo.Outer+Inner"), "Inner");
+    assert_eq!(TypeDesc::ctor_member_name("Demo.Outer+Mid+Deep"), "Deep");
+    assert_eq!(TypeDesc::ctor_member_name("Demo.Box<Demo.P2>"), "Box");
+}
+
+#[test]
+fn is_ctor_member_accepts_bare_and_overload_mangled_keys() {
+    // The 1st ctor registers bare; the 2nd..Nth carry a `$N$types` mangle suffix — the
+    // exact-equality test this replaced let those through as ordinary methods.
+    assert!(TypeDesc::is_ctor_member("Demo.Point", "Point"));
+    assert!(TypeDesc::is_ctor_member("Demo.Point", "Point$2$i32$i32"));
+    assert!(TypeDesc::is_ctor_member("Demo.Outer+Inner", "Inner$1$i32"));
+}
+
+#[test]
+fn is_ctor_member_rejects_ordinary_methods() {
+    assert!(!TypeDesc::is_ctor_member("Demo.Point", "Sum"));
+    assert!(!TypeDesc::is_ctor_member("Demo.Point", "Sum$1$i32"));
+    // A method whose name merely starts with the class name is not a ctor.
+    assert!(!TypeDesc::is_ctor_member("Demo.Point", "PointToString"));
+    // Nor is the enclosing type's name, for a nested type.
+    assert!(!TypeDesc::is_ctor_member("Demo.Outer+Inner", "Outer"));
+}

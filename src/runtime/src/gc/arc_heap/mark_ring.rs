@@ -23,7 +23,7 @@
 //! Order changes, nothing else: every value that enters the ring leaves it (the loops drain it
 //! before they finish or hand their stack back), and marking is order-independent.
 
-use crate::metadata::Value;
+use crate::object::Value;
 
 /// Values in flight. Measured on Apple M-series: a pointer-chase microbenchmark ran 1.5–2× slower
 /// per object at 8 than at 16, and the full mark of 1 M chained objects gained nothing at 32 (it is

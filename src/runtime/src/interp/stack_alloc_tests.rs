@@ -5,7 +5,7 @@
 //! Arrays (`StackArray`) suffice: the arena logic is element-type-agnostic.
 
 use super::{StackArena, StackArray};
-use crate::metadata::types::Value;
+use crate::object::Value;
 
 fn arr(vals: &[i64]) -> StackArray {
     StackArray::new(vals.iter().map(|&n| Value::I64(n)).collect())
@@ -113,9 +113,8 @@ fn reused_slot_rejects_old_handle() {
 #[test]
 fn scan_roots_visits_object_inlined_refs() {
     use std::sync::Arc;
-    use crate::metadata::types::{
-        FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
-        STRUCT_LEAF_GCREF, TAG_OBJECT,
+    use crate::object::{
+        FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold, STRUCT_LEAF_GCREF, TAG_OBJECT,
     };
 
     // `class Holder { object child; }` — the one field is byte-inlined, side-table empty.
@@ -146,9 +145,9 @@ fn scan_roots_visits_object_inlined_refs() {
         vtable_index: crate::metadata::NameIndex::new(), cold: None,
         class_flags: 0, visibility: 0, id: crate::metadata::tokens::TypeId::UNRESOLVED,
     });
-    let leaf = Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(leafless, 0)));
+    let leaf = Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(leafless, 0)));
 
-    let holder = crate::metadata::types::OwnedObject::new(holder_td, 8);
+    let holder = crate::object::OwnedObject::new(holder_td, 8);
     assert!(holder.set_field_value(0, &leaf), "the inlined field is a reference slot");
 
     let mut a = StackArena::default();

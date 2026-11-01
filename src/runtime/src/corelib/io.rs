@@ -176,7 +176,7 @@ fn read_line_from(r: &mut impl std::io::BufRead) -> std::io::Result<String> {
 pub mod typed {
     use super::{route, Stream};
     use crate::corelib::abi::{Blocking, BuiltinError};
-    use crate::metadata::Value;
+    use crate::object::Value;
     use crate::vm_context::VmContext;
 
     /// dispatch-tostring-in-native-stringify: the same string interpolation / `ToString()`

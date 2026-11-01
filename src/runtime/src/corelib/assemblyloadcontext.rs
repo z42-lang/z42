@@ -20,8 +20,8 @@ use super::abi::BuiltinError;
 
 use super::reflection::make_type_object;
 use crate::metadata::context::{AssemblyId, ContextId, ContextState, UnloadOutcome};
-use crate::metadata::types::NativeData;
-use crate::metadata::Value;
+use crate::object::NativeData;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 const STD_LOADCONTEXT: &str = "Std.Runtime.AssemblyLoadContext";
@@ -128,7 +128,7 @@ pub fn lctx_default(ctx: &VmContext) -> Result<Value, BuiltinError> {
 }
 
 /// `AssemblyLoadContext.CreateCollectible(string name)` (static) → a new collectible context.
-pub fn lctx_create_collectible(ctx: &VmContext, name: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+pub fn lctx_create_collectible(ctx: &VmContext, name: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
     let name = name.as_ref();
     let cid = ctx.core.context_registry.lock().create_collectible(name);
     build_loadcontext(ctx, cid).map_err(BuiltinError::Legacy)
@@ -137,7 +137,7 @@ pub fn lctx_create_collectible(ctx: &VmContext, name: &crate::metadata::vstr::St
 /// `ctx.Load(string zpkgPath)` (instance) → the loaded `Assembly`.
 /// Phase 1: loads the zpkg into the context's private arena, reflection-visible;
 /// the assembly's functions are NOT yet cross-context executable.
-pub fn lctx_load(ctx: &VmContext, this: &Value, path: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+pub fn lctx_load(ctx: &VmContext, this: &Value, path: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
     let cid = ctx_handle_of(this)?;
     let path = path.as_ref();
     // Phase 2: a context being unloaded no longer accepts new assemblies.
@@ -299,12 +299,12 @@ pub mod typed {
     pub fn default_ctx(ctx: &VmContext) -> Result<Value, BuiltinError> { lctx_default(ctx) }
 
     #[builtin(name = "__lctx_create_collectible")]
-    pub fn create_collectible(ctx: &VmContext, name: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+    pub fn create_collectible(ctx: &VmContext, name: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
         lctx_create_collectible(ctx, name)
     }
 
     #[builtin(name = "__lctx_load", reenters)]
-    pub fn load(ctx: &VmContext, this: &Value, path: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+    pub fn load(ctx: &VmContext, this: &Value, path: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
         lctx_load(ctx, this, path)
     }
 

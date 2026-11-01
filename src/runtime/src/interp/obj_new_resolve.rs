@@ -27,7 +27,7 @@ use std::sync::Arc;
 use crate::metadata::resolver::{ctorless_hit, ctorless_note, ObjNewSite};
 use crate::metadata::tokens::UNRESOLVED;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::{TypeDesc, Value};
+use crate::object::{TypeDesc, Value};
 use crate::vm_context::symres;
 use crate::vm_context::VmContext;
 
@@ -50,8 +50,8 @@ pub(crate) fn site_for<'s>(
 /// Both engines hand the result to `ScriptObject::install_type_args` before the ctor runs.
 #[inline]
 pub(crate) fn instance_type_args(
-    site_args: crate::metadata::types::TypeArgs, class: &TypeDesc,
-) -> crate::metadata::types::TypeArgs {
+    site_args: crate::object::TypeArgs, class: &TypeDesc,
+) -> crate::object::TypeArgs {
     if site_args.is_empty() { class.type_args_handle() } else { site_args }
 }
 

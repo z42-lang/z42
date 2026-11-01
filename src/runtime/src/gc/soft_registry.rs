@@ -44,31 +44,31 @@ pub(crate) enum ErasedKind {
 /// so the handle always names a readable header.
 #[derive(Clone)]
 pub(crate) struct ErasedSoftEntry {
-    block: crate::gc::var_region::VarGcRef,
+    block: crate::object::header::VarGcRef,
     pub(crate) kind: ErasedKind,
 }
 
 impl ErasedSoftEntry {
     /// An object target.
-    pub(crate) fn object(obj: crate::gc::ObjRef) -> Self {
+    pub(crate) fn object(obj: crate::object::ObjRef) -> Self {
         Self { block: obj.var_ref(), kind: ErasedKind::Object }
     }
 
     /// An array target.
-    pub(crate) fn array(arr: crate::gc::ArrRef) -> Self {
+    pub(crate) fn array(arr: crate::object::ArrRef) -> Self {
         Self { block: arr.var_ref(), kind: ErasedKind::Array }
     }
 
     /// The target's block.
-    pub(crate) fn block(&self) -> crate::gc::var_region::VarGcRef {
+    pub(crate) fn block(&self) -> crate::object::header::VarGcRef {
         self.block
     }
 
     /// The target as a `Value` (the recorded handle — safe against slot reuse).
-    pub(crate) fn value(&self) -> crate::metadata::Value {
+    pub(crate) fn value(&self) -> crate::object::Value {
         match self.kind {
-            ErasedKind::Object => crate::metadata::Value::Object(crate::gc::ObjRef::from_var(self.block)),
-            ErasedKind::Array => crate::metadata::Value::Array(crate::gc::ArrRef::from_var(self.block)),
+            ErasedKind::Object => crate::object::Value::Object(crate::object::ObjRef::from_var(self.block)),
+            ErasedKind::Array => crate::object::Value::Array(crate::object::ArrRef::from_var(self.block)),
         }
     }
 
@@ -84,7 +84,7 @@ impl ErasedSoftEntry {
 
     /// Re-mark the target if it is alive and currently unmarked.
     /// Returns `true` if the entry was successfully revived.
-    pub(crate) fn revive_if_unmarked(&self, major: crate::gc::refs::MarkKind) -> bool {
+    pub(crate) fn revive_if_unmarked(&self, major: crate::object::header::marks::MarkKind) -> bool {
         self.is_alive() && self.block.mark(major)
     }
 }
@@ -135,7 +135,7 @@ impl SoftRegistry {
         entries: &[ErasedSoftEntry],
         used_bytes: u64,
         max_bytes: u64,
-        major: crate::gc::refs::MarkKind,
+        major: crate::object::header::marks::MarkKind,
         mut on_revived: impl FnMut(&ErasedSoftEntry),
     ) -> usize {
         let threshold = soft_threshold_from_env();

@@ -2,7 +2,7 @@
 //! mark/sweep 原语见 `collect.rs`（refactor-arc-heap-modularization）。
 
 use crate::gc::heap::MagrGC;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::gc::types::{CollectStats, GcEvent, GcKind};
 use crate::gc::phase_timer::PhaseTimer;
 use super::incremental::{GenWork, SliceBudget};

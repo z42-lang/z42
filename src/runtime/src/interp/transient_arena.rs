@@ -28,9 +28,7 @@
 //! these variants (exactly like `StructRef` / `StackObject`). No write barrier: the
 //! arena is re-scanned as a root each collection.
 
-use crate::metadata::types::{
-    PinnedViewData, RefKind, StructArrayElem, Value,
-};
+use crate::object::{PinnedViewData, RefKind, StructArrayElem, Value};
 use anyhow::Result;
 
 /// One transient payload. All are immutable after creation, so a `Value`

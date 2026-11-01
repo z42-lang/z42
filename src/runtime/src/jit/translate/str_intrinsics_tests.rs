@@ -14,8 +14,8 @@ use crate::jit::runtime::install;
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator, VCallInsn};
 use crate::metadata::ir::ExecMode;
-use crate::metadata::vstr::{jit_layout, Str};
-use crate::metadata::{IrType, Value};
+use crate::object::string::vstr::{jit_layout, Str};
+use crate::{metadata::IrType, object::Value};
 use crate::vm_context::VmContext;
 
 const GET_LENGTH: usize = 0;

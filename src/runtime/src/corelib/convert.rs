@@ -1,5 +1,5 @@
-use crate::metadata::Value;
-use crate::metadata::types::NativeData;
+use crate::object::Value;
+use crate::object::NativeData;
 use crate::metadata::index::well_known_names::int_wrapper_scalar_spec;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
@@ -70,7 +70,7 @@ pub(crate) fn box_struct_blob(
 /// 不同引用→不 Equals→哈希可碰撞）。结果 `& 0x7fffffff` 非负（`__str_hash_code` 同款，Dictionary 契约）。
 /// 值相等的 struct → 字节+refs 相同 → 同哈希（契约满足）。⚠️边角：float ±0.0 字节不同→哈希不同，而 Equals
 /// 的浮点 == 判 +0==-0 → 极少数含 ±0 float 的 struct 违反契约（pre-1.0 文档标注，与 C# 历史一致）。
-pub(crate) fn struct_hash_code(gc: &crate::gc::ObjRef) -> i64 {
+pub(crate) fn struct_hash_code(gc: &crate::object::ObjRef) -> i64 {
     // add-boxed-struct-identity (P4b): read the blob out of the shared box object.
     // The blob's reference slots hold reference words — hash the bytes with them zeroed.
     let (bytes, refs) = gc.borrow().boxed_blob();
@@ -278,7 +278,7 @@ pub fn value_to_str(v: &Value) -> String {
         // the id is shown. The ctx-aware display (`interp::dispatch::with_obj_str`, which
         // string interpolation / `Console.WriteLine` / `ToStr` use) prints the name.
         Value::FuncRef(id) => format!("<fn #{}>", id.0),
-        Value::Closure(c)                   => format!("<closure #{}>", crate::metadata::types::closure_data_of(c).fn_id.0),
+        Value::Closure(c)                   => format!("<closure #{}>", crate::object::closure_data_of(c).fn_id.0),
         // make-value-copy: PinnedView / Ref are transient-arena handles
         // and `value_to_str` has no `ctx` to resolve the arena payload — placeholders
         // (same as StackObject / StructRef below). These never reach the user-visible
@@ -483,7 +483,7 @@ fn hex_str(bytes: &[u8]) -> String {
 pub mod typed {
     use super::{parse_double, parse_int, try_int, try_store, value_to_str};
     use crate::corelib::abi::{BuiltinError, RefArg};
-    use crate::metadata::Value;
+    use crate::object::Value;
     use crate::vm_context::VmContext;
 
     /// native-hash：字符串（按其 UTF-8 字节）→ MurmurHash3_x86_128 的 32 个小写 hex 字符。

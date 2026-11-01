@@ -71,7 +71,7 @@ pub mod typed {
     use super::*;
     use crate::corelib::abi::{Blocking, Then};
     use crate::corelib::fs::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
-    use crate::metadata::Value;
+    use crate::object::Value;
     use std::io::{Read, Write};
 
     /// `Connect(host, port, timeoutMs) -> slot`; `timeoutMs <= 0` = no limit.

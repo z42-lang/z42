@@ -130,7 +130,7 @@ pub(super) fn type_has_no_arg_ctor(ctx: &VmContext, name: &str) -> bool {
     // left a nested type's `+` prefix on, so every candidate key missed and the answer
     // came out of the `!has_any_ctor` fallback — "yes" for the wrong reason, and "yes"
     // even for a nested type whose only ctor takes arguments).
-    let simple = crate::metadata::types::TypeDesc::ctor_member_name(name);
+    let simple = crate::object::TypeDesc::ctor_member_name(name);
     let cand_bare = format!("{name}.{simple}");
     let cand_zero = format!("{name}.{simple}$0");
     let Some(m) = ctx.module() else { return true };
@@ -165,7 +165,7 @@ pub(super) fn type_has_no_arg_ctor(ctx: &VmContext, name: &str) -> bool {
 /// this change**. Static contexts and type params inherited from a generic base
 /// therefore keep their previous behaviour rather than silently resolving to a
 /// plausible-but-wrong type.
-pub fn class_type_arg(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::metadata::vstr::Str) -> Value {
+pub fn class_type_arg(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::object::string::vstr::Str) -> Value {
     if idx < 0 {
         return make_constructed_type(ctx, "T", &[]);
     }
@@ -184,13 +184,13 @@ pub fn class_type_arg(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::me
 /// `default(T)` yielded `null` instead of `0` (measured). Widening the instruction would mean
 /// a zbc format bump plus the two-nightly bootstrap dance; a builtin delivers the same
 /// semantics with neither (same precedent as `__class_type_arg`).
-pub fn class_default(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::metadata::vstr::Str) -> Value {
+pub fn class_default(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::object::string::vstr::Str) -> Value {
     if idx < 0 {
         return Value::Null;
     }
     let owner = (!owner.is_empty()).then(|| owner.to_string());
     match resolve_class_type_arg(ctx, recv, idx as usize, owner.as_deref()) {
-        Some(n) => crate::metadata::types::default_value_for(&n),
+        Some(n) => crate::object::default_value_for(&n),
         None => Value::Null,
     }
 }
@@ -273,12 +273,12 @@ pub mod typed {
     use super::*;
 
     #[builtin(name = "__class_type_arg")]
-    pub fn type_arg_of(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::metadata::vstr::Str) -> Value {
+    pub fn type_arg_of(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::object::string::vstr::Str) -> Value {
         super::class_type_arg(ctx, recv, idx, owner)
     }
 
     #[builtin(name = "__class_default")]
-    pub fn default_of(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::metadata::vstr::Str) -> Value {
+    pub fn default_of(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::object::string::vstr::Str) -> Value {
         super::class_default(ctx, recv, idx, owner)
     }
 

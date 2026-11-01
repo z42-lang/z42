@@ -214,30 +214,30 @@ pub(crate) fn check_buffer_range(offset: i64, count: i64, len: usize) -> Result<
     Ok((off, n))
 }
 
-pub(crate) fn byte_array(v: &crate::metadata::Value, param: &str) -> Result<crate::gc::ArrRef, BuiltinError> {
+pub(crate) fn byte_array(v: &crate::object::Value, param: &str) -> Result<crate::object::ArrRef, BuiltinError> {
     match v {
-        crate::metadata::Value::Array(rc) => Ok(*rc),
-        crate::metadata::Value::Null => Err(BuiltinError::ArgumentNull(format!("Value cannot be null. (Parameter '{param}')"))),
+        crate::object::Value::Array(rc) => Ok(*rc),
+        crate::object::Value::Null => Err(BuiltinError::ArgumentNull(format!("Value cannot be null. (Parameter '{param}')"))),
         other => Err(BuiltinError::InvalidCast(format!(
             "argument `{param}` expects a byte[], got {}", crate::semantics::value_kind_name(other)))),
     }
 }
 
 /// `buf[off..off + n]` copied out (packed `byte[]`: one atomic chunked copy).
-pub(crate) fn read_byte_range(arr: &crate::metadata::types::ArrayObj, off: usize, n: usize) -> Result<Vec<u8>, BuiltinError> {
+pub(crate) fn read_byte_range(arr: &crate::object::ArrayObj, off: usize, n: usize) -> Result<Vec<u8>, BuiltinError> {
     if let Some(b) = arr.byte_range(off, n) { return Ok(b); }
     (off..off + n).map(|i| match arr.get_boxed(i) {
-        crate::metadata::Value::I64(b) if (0..=255).contains(&b) => Ok(b as u8),
+        crate::object::Value::I64(b) if (0..=255).contains(&b) => Ok(b as u8),
         other => Err(BuiltinError::InvalidCast(format!(
             "buffer element {i} is not a byte: {}", crate::semantics::value_kind_name(&other)))),
     }).collect()
 }
 
 /// Store `bytes` into `buf` from `off` on.
-pub(crate) fn write_byte_range(arr: &crate::metadata::types::ArrayObj, off: usize, bytes: &[u8]) {
+pub(crate) fn write_byte_range(arr: &crate::object::ArrayObj, off: usize, bytes: &[u8]) {
     if !arr.write_byte_range(off, bytes) {
         for (i, b) in bytes.iter().enumerate() {
-            arr.set_boxed(off + i, crate::metadata::Value::I64(*b as i64));
+            arr.set_boxed(off + i, crate::object::Value::I64(*b as i64));
         }
     }
 }
@@ -246,7 +246,7 @@ pub(crate) fn write_byte_range(arr: &crate::metadata::types::ArrayObj, off: usiz
 pub mod typed {
     use super::{check_buffer_range, check_path, fs_error, on_vfs, open_file, two_path_error, vfs_error, FileHandleSlot, PathRole};
     use crate::corelib::abi::{Blocking, BuiltinError, Then};
-    use crate::metadata::Value;
+    use crate::object::Value;
     use crate::vm_context::VmContext;
     use std::io::{Read, Seek, SeekFrom, Write};
 

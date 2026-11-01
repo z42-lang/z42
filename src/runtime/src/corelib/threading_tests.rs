@@ -10,7 +10,7 @@
 //! - Spawn without `VmContext::with_module` → `Err`
 
 use super::*;
-use crate::metadata::Value;
+use crate::object::Value;
 
 /// Build a VmContext with no Module installed — `__thread_spawn` should
 /// bail before touching the thread API.

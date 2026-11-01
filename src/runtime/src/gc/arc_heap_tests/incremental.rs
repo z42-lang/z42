@@ -84,7 +84,7 @@ fn satb_records_through_set_field_value() {
     let _bound = Bound::to(&heap);
 
     let holder = heap.alloc_object(
-        crate::metadata::types::ref_word::ref_word_tests::ref_cell_td(1), vec![], NativeData::None);
+        crate::object::value::ref_word::ref_word_tests::ref_cell_td(1), vec![], NativeData::None);
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let Value::Object(holder_gc) = &holder else { panic!() };
     holder_gc.borrow().set_field_value(0, &x);
@@ -114,7 +114,7 @@ fn run_type_param_overwrite(barrier_on: bool, claimed: bool) -> bool {
     let _ambient = crate::gc::ambient::HeapGuard::enter(&heap);
     crate::gc::satb::set_disabled_for_test(!barrier_on);
 
-    let td = crate::metadata::types::tparam_cell::tparam_cell_tests::tparam_td(1);
+    let td = crate::object::value::tparam_cell::tparam_cell_tests::tparam_td(1);
     let holder = heap.alloc_object(td, vec![], NativeData::None);
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let Value::Object(holder_gc) = &holder else { panic!() };
@@ -283,7 +283,7 @@ fn close_major_marking_marks_recorded_values_with_the_cycle_epoch() {
     heap.satb_queue.lock().push(x.clone());
     heap.close_major_marking();
     let Value::Object(gc) = &x else { panic!() };
-    assert!(crate::gc::ObjRef::is_marked(gc, kind));
+    assert!(crate::object::ObjRef::is_marked(gc, kind));
     assert!(crate::gc::satb::heap_is_marking(heap.heap_epoch()).is_none(), "recording stopped");
 }
 
@@ -331,7 +331,7 @@ fn without_satb_a_bulk_array_copy_loses_the_overwritten_reference() {
 /// elements' **reference leaves**, which must be recorded — between two arrays (`copy_elems_from`)
 /// and within one (`copy_elems_within`, the overlapping `Array.Copy`).
 fn run_struct_copy_over_live_leaf(barrier_on: bool, within: bool) -> bool {
-    use crate::metadata::types::{ArrayObj, ElemType, StructTypeLayout, STRUCT_REF_GCREF};
+    use crate::object::{ArrayObj, ElemType, StructTypeLayout, STRUCT_REF_GCREF};
     let heap = ArcMagrGC::new();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
@@ -691,7 +691,7 @@ fn incremental_cycles_interleaved_with_writes_and_minors_keep_the_graph_intact()
     let mut seen = std::collections::HashSet::new();
     while let Some(v) = stack.pop() {
         let Value::Object(gc) = &v else { continue };
-        if !seen.insert(crate::gc::ObjRef::as_ptr(gc) as usize) {
+        if !seen.insert(crate::object::ObjRef::as_ptr(gc) as usize) {
             continue;
         }
         v.visit_gc_children(None, &mut |c| stack.push(c.clone()));
@@ -803,7 +803,7 @@ fn run_grey_subtree(seeded: bool) -> bool {
     drop(c);
 
     assert!(!heap.run_major_slice_for_test(1), "cycle open");
-    let is_g = |v: &Value| matches!(v, Value::Object(o) if crate::gc::ObjRef::ptr_eq(o, g_gc));
+    let is_g = |v: &Value| matches!(v, Value::Object(o) if crate::object::ObjRef::ptr_eq(o, g_gc));
     assert!(heap.mark_queue_for_test().iter().any(is_g),
         "g must be grey after a budget-1 slice");
     if !seeded {
@@ -867,7 +867,7 @@ fn run_old_grey_entry_child(dirty_card: bool) -> bool {
     // entry, with `y` still white behind it.
     assert!(!heap.run_major_slice_for_test(1), "cycle open");
     assert!(heap.mark_queue_for_test().iter()
-            .any(|v| matches!(v, Value::Object(o) if crate::gc::ObjRef::ptr_eq(o, holder_gc))),
+            .any(|v| matches!(v, Value::Object(o) if crate::object::ObjRef::ptr_eq(o, holder_gc))),
         "holder must be grey after a budget-1 slice");
 
     crate::gc::satb::set_disabled_for_test(true);

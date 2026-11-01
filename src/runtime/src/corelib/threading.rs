@@ -17,7 +17,7 @@
 //! `VmCore.vm_contexts` so the GC scanner walks both threads' roots.
 
 use crate::interp::ExecOutcome;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, bail, Result};
 use std::sync::Arc;
@@ -32,7 +32,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::corel
     let (fn_id, env_vec): (crate::metadata::tokens::FnId, Option<Vec<Value>>) = match action {
         Value::FuncRef(id) => (*id, None),
         Value::Closure(c) => {
-            let data = crate::metadata::types::closure_data_of(c);
+            let data = crate::object::closure_data_of(c);
             (data.fn_id, Some(data.env.borrow().to_boxed_vec()))
         }
         // The stdlib passes `object action`; anything but a delegate value is the
@@ -80,7 +80,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::corel
     // which is exactly as long as the environment can be live.
     let env_root = env_vec.as_ref().map(|env| SpawnedEnvRoot {
         core:   Arc::clone(&ctx.core),
-        handle: ctx.heap().pin_root(crate::metadata::types::ArrayObj::alloc_frozen(ctx.heap(), &env)),
+        handle: ctx.heap().pin_root(crate::object::ArrayObj::alloc_frozen(ctx.heap(), &env)),
     });
 
     // runtime-audit P0-4: z42 calls recurse on the native stack and running out
@@ -158,7 +158,7 @@ pub mod typed {
     /// `Std.Threading.ThreadException`(与 `__thread_wait` 的失败同类);非 callable 实参 →
     /// `ArgumentException`。spawn 本身不等(worker 跑在别的线程上,不占调用线程)。
     #[builtin(name = "__thread_spawn")]
-    pub fn thread_spawn(ctx: &VmContext, action: &crate::metadata::Value) -> Result<i64, BuiltinError> {
+    pub fn thread_spawn(ctx: &VmContext, action: &crate::object::Value) -> Result<i64, BuiltinError> {
         super::thread_spawn(ctx, action)
     }
 
@@ -201,7 +201,7 @@ fn run_spawned_action(
     let arg_vals: Vec<Value> = match env_vec {
         None => Vec::new(),
         Some(env) => {
-            let env_val = crate::metadata::types::ArrayObj::alloc_frozen(thread_ctx.heap(), &env);
+            let env_val = crate::object::ArrayObj::alloc_frozen(thread_ctx.heap(), &env);
             vec![env_val]
         }
     };

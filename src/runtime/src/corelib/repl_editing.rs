@@ -20,7 +20,7 @@
 //!   "accept"        → submit (Enter, complete buffer)
 //! The mapping of these strings to redo-immune `Cmd`s lives in the cdylib.
 
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 #[cfg(feature = "native-interop")]

@@ -31,9 +31,9 @@ use std::cell::Cell;
 
 use anyhow::{anyhow, Result};
 
-use crate::metadata::types::{NativeData, TypeDesc};
+use crate::object::{NativeData, TypeDesc};
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::{default_value_for, Value};
+use crate::object::{default_value_for, Value};
 use crate::vm_context::VmContext;
 
 /// One unified per-frame entry — single source of truth for
@@ -181,7 +181,7 @@ pub fn make_missing_symbol_exception(
     ctx: &crate::vm_context::VmContext,
     module: &crate::vm::runtime::Module,
     msg: String,
-) -> crate::metadata::Value {
+) -> crate::object::Value {
     // add-sdk-libs D6：`${Z42_HOME}` 条目解析不到时附「是否没装 SDK」提示（无此类条目 ⇒ 原样）。
     let msg = crate::probing::with_sdk_missing_hint(msg);
     if let Ok(e) = make_stdlib_exception(ctx, module, "Std.MissingSymbolException", msg.clone()) {
@@ -190,7 +190,7 @@ pub fn make_missing_symbol_exception(
     if let Ok(e) = make_stdlib_exception(ctx, module, "Std.Exception", msg.clone()) {
         return e;
     }
-    crate::metadata::Value::Str(msg.into())
+    crate::object::Value::Str(msg.into())
 }
 
 pub fn format_stack_trace(frames: &[FrameSnapshot]) -> String {

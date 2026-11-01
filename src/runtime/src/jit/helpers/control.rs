@@ -2,7 +2,7 @@
 //! Exception-flow helpers: `throw`, `install_catch`, `match_catch_type`.
 //! Mirror the interpreter's `Terminator::Throw` and `find_handler` paths.
 
-use crate::metadata::Value;
+use crate::object::Value;
 use super::super::frame::JitFrame;
 use crate::vm_context::VmContext;
 use super::{set_exception, take_exception, vm_ctx_ref};

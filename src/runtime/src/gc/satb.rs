@@ -48,8 +48,8 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use parking_lot::Mutex;
 
-use crate::gc::refs::MarkKind;
-use crate::metadata::Value;
+use crate::object::header::marks::MarkKind;
+use crate::object::Value;
 
 /// Heaps with a major mark in progress. The hot path reads only this.
 static MARKING_HEAPS: AtomicUsize = AtomicUsize::new(0);

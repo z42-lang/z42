@@ -148,7 +148,7 @@ fn two_vms_share_definitions_and_isolate_all_link_state() {
     assert!(!std::ptr::eq(af.catch_key(0), bf.catch_key(0)));
     for (ctx, module) in [(&a, am), (&b, bm)] {
         let value = crate::interp::run_returning(ctx, module, &module.functions[0], &[]).unwrap();
-        assert!(matches!(value, Some(crate::metadata::Value::I64(42))));
+        assert!(matches!(value, Some(crate::object::Value::I64(42))));
     }
     let worker = VmContext::new_with_core(a.core_arc());
     assert!(Arc::ptr_eq(worker.module().unwrap(), am));

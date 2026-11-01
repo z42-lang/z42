@@ -5,7 +5,7 @@
 //!
 //! # Why this exists
 //!
-//! Migrating `Str` (`metadata/vstr.rs`) from a hand-rolled Arc into a GC
+//! Migrating `Str` (`object/string/vstr.rs`) from a hand-rolled Arc into a GC
 //! variable-length block means `Str::new(s)` — reached from ~189 `.into()` /
 //! `From<&str>` sites — must allocate from the GC heap. Those sites do **not**
 //! carry a `&VmContext`/`&dyn MagrGC` (the whole point of `.into()` is to be
@@ -48,7 +48,7 @@ thread_local! {
     /// **fix-wasm-string-ops**: the active heap's [`MagrGC::heap_epoch`] snapshot (0 = no heap).
     /// Maintained in lockstep with `CURRENT_HEAP` by [`HeapGuard`] so a cheap `u64` read
     /// ([`current_heap_epoch`]) identifies "which heap" without a per-access vtable call.
-    /// Address-keyed caches ([`crate::corelib::str_meta`]) read it to detect a heap switch and
+    /// Address-keyed caches ([`crate::object::string::str_meta`]) read it to detect a heap switch and
     /// drop entries that would otherwise false-hit a malloc-recycled address (wasm32 cross-VM
     /// string corruption). Monotonic epoch ⇒ a recycled address in a new heap never matches.
     static CURRENT_EPOCH: Cell<u64> = const { Cell::new(0) };
@@ -135,7 +135,7 @@ pub fn current_heap() -> Option<&'static dyn MagrGC> {
 /// **fix-wasm-string-ops**: the active heap's [`MagrGC::heap_epoch`] (0 when no z42 frame is
 /// executing). A cheap `u64` TLS read — the epoch is snapshotted into `CURRENT_EPOCH` by
 /// [`HeapGuard`] on each heap switch, so this avoids a vtable call on hot per-char callers.
-/// Used by [`crate::corelib::str_meta`] to scope its address-keyed cache to a single heap:
+/// Used by [`crate::object::string::str_meta`] to scope its address-keyed cache to a single heap:
 /// a monotonic, never-reused epoch means a malloc-recycled block address in a *new* heap can
 /// never collide with a stale entry from a torn-down heap.
 #[inline]
@@ -143,7 +143,7 @@ pub fn current_heap_epoch() -> u64 {
     CURRENT_EPOCH.with(|e| e.get())
 }
 
-/// **D7**: what an address-keyed cache that outlives its blocks ([`crate::corelib::str_meta`])
+/// **D7**: what an address-keyed cache that outlives its blocks ([`crate::object::string::str_meta`])
 /// needs from the heap layer, behind the one ambient entry it already goes through. `epoch` is
 /// [`current_heap_epoch`] (a heap switch drops the whole cache); `dedicated_frees` is the
 /// process-wide dedicated-chunk free count (when it moves, every chunk-stamped entry is re-checked
@@ -160,7 +160,7 @@ impl CacheScope {
     /// chunk (payload past the large-object threshold), whose memory goes back to the allocator
     /// the moment `s` dies; `None` for a bump-chunk block (pooled, never handed back while the
     /// region lives), or with no heap installed. `s` must be live. Takes the region lock.
-    pub fn dedicated_chunk_stamp(&self, s: &crate::metadata::vstr::Str) -> Option<(u32, u32)> {
+    pub fn dedicated_chunk_stamp(&self, s: &crate::object::string::vstr::Str) -> Option<(u32, u32)> {
         if !super::var_region::may_be_dedicated(s.len()) {
             return None;
         }

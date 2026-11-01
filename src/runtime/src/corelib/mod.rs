@@ -25,7 +25,6 @@ pub mod repl_editing;
 // (wasm) it is the plain-stdin fallback in `repl`. (extract-repl-native-cdylib)
 pub mod repl_native;
 pub mod string;
-pub mod str_meta;
 pub mod math;
 pub mod fs;
 pub mod object;
@@ -55,7 +54,7 @@ pub mod tls;
 pub mod crypto;
 
 use crate::metadata::tokens::BuiltinId;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 use std::collections::HashMap;

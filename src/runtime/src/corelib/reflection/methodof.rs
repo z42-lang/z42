@@ -21,7 +21,7 @@ use super::*;
 /// lenient (a missing SIGS entry just yields `sig_found = false` and an empty
 /// parameter list), which would turn "emitted a name nobody can resolve" into a
 /// silent wrong answer — precisely the failure mode this feature exists to kill.
-pub fn methodof(ctx: &VmContext, qualified: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+pub fn methodof(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
     let qualified = qualified.to_string();
 
     // Existence check mirrors `invoke_qualified`'s two-step lookup: the current
@@ -50,7 +50,7 @@ pub mod typed {
     use super::*;
 
     #[builtin(name = "__methodof")]
-    pub fn method_of(ctx: &VmContext, qualified: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+    pub fn method_of(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
         methodof(ctx, qualified)
     }
 }

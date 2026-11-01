@@ -6,9 +6,12 @@
 
 use super::*;
 use crate::gc::PROMOTION_THRESHOLD;
-use crate::gc::var_region::{class_for, BlockType, GcBlockHeader};
-use crate::gc::{GcMode, ObjRef};
-use crate::metadata::types::{OwnedObject, ScriptObject};
+use crate::{
+    gc::var_region::class_for,
+    object::header::{BlockType, GcBlockHeader},
+};
+use crate::{gc::GcMode, object::ObjRef};
+use crate::object::{OwnedObject, ScriptObject};
 
 fn generational_heap() -> ArcMagrGC {
     let heap = ArcMagrGC::new();

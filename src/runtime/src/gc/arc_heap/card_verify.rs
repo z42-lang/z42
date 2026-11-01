@@ -15,9 +15,12 @@
 //! are leaves, and a closure's reference (`env`) is fixed at construction, so neither can *gain* a
 //! young child after it is old.
 
-use crate::gc::{ArrRef, GcMode, MagrGC, ObjRef};
-use crate::gc::var_region::BlockType;
-use crate::metadata::Value;
+use crate::{
+    gc::{GcMode, MagrGC},
+    object::{ArrRef, ObjRef},
+};
+use crate::object::header::BlockType;
+use crate::object::Value;
 
 impl crate::gc::arc_heap::ArcMagrGC {
     /// Check the remembered-set invariant over the whole old generation. `Err` lists the

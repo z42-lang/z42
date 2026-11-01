@@ -11,8 +11,8 @@ use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, FieldDesc, Instruction, StaticGetInsn, StaticSetInsn, Terminator};
 use crate::metadata::tokens::TypeId;
 use crate::metadata::ir::ExecMode;
-use crate::metadata::types::{NativeData, ObjectLayout, TypeDesc, TypeDescCold};
-use crate::metadata::{IrType, Value};
+use crate::object::{NativeData, ObjectLayout, TypeDesc, TypeDescCold};
+use crate::{metadata::IrType, object::Value};
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 

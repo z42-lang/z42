@@ -565,7 +565,7 @@ fn recording_ambiguity_is_append_only_and_idempotent() {
 
 fn type_desc_with_cctor(name: &str, cctor: Option<&str>) -> Arc<TypeDesc> {
     let cold = cctor.map(|f| {
-        Box::new(crate::metadata::types::TypeDescCold {
+        Box::new(crate::object::TypeDescCold {
             cctor_func: Some(f.into()),
             ..Default::default()
         })
@@ -619,7 +619,7 @@ fn td_shape(name: &str, class_flags: u8, field_count: usize) -> TypeDesc {
         class_flags,
         visibility: 0,
         fields: (0..field_count)
-            .map(|i| crate::metadata::types::FieldSlot {
+            .map(|i| crate::object::FieldSlot {
                 name: format!("f{i}").into(),
                 type_tag: "i64".into(),
                 visibility: 0,

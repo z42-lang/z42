@@ -190,7 +190,7 @@ impl VarRegion {
     /// reachable as minor roots only through the remembered set.
     /// Only what this minor marked survives, whatever epoch a block carries; `promote_black` is
     /// the debug check that whatever leaves the set while a major cycle sweeps carries its epoch.
-    pub fn sweep_young(&mut self, promote_black: Option<crate::gc::refs::MarkKind>) -> (usize, u64) {
+    pub fn sweep_young(&mut self, promote_black: Option<crate::object::header::marks::MarkKind>) -> (usize, u64) {
         let out = self.sweep_young_with(promote_black, u8::MAX, |_| {});
         (out.reclaimed, out.credited)
     }
@@ -202,7 +202,7 @@ impl VarRegion {
     /// remembering), and the bytes objects and arrays carry into the old generation.
     pub fn sweep_young_with(
         &mut self,
-        promote_black: Option<crate::gc::refs::MarkKind>,
+        promote_black: Option<crate::object::header::marks::MarkKind>,
         observed_age: u8,
         mut observe: impl FnMut(bool),
     ) -> super::VarMinorSweep {
@@ -225,7 +225,7 @@ impl VarRegion {
             }
             let bt = header.block_type();
             let unit = bt.is_object_or_array();
-            let marked = header.is_marked(crate::gc::refs::MarkKind::Minor);
+            let marked = header.is_marked(crate::object::header::marks::MarkKind::Minor);
             if unit && header.gen_age() == observed_age {
                 observe(marked);
             }
@@ -260,7 +260,7 @@ impl VarRegion {
     /// and stays young. Returns how many blocks left, and the allocation charge of the **objects
     /// and arrays** among them (they count towards the heap's promoted-byte budget; strings and
     /// closures never did).
-    pub fn tenure_young(&mut self, doomed_unless: Option<crate::gc::refs::MarkKind>) -> (usize, u64) {
+    pub fn tenure_young(&mut self, doomed_unless: Option<crate::object::header::marks::MarkKind>) -> (usize, u64) {
         let threshold = self.promotion_age;
         let (mut tenured, mut object_bytes) = (0usize, 0u64);
         self.for_each_young(|r, ptr, ci| {

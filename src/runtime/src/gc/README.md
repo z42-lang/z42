@@ -33,25 +33,25 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `arc_heap/incremental.rs` | **增量 major**：切片状态机（Marking / Sweeping）、切片预算、pacer、`admit_resurrected`（弱读 / 堆遍历不交出待清扫的死对象）。机制见 [book: 增量 major](../../../../docs/internals/src/runtime/gc-incremental-major.md) |
 | `arc_heap/interface.rs` | `impl MagrGC for ArcMagrGC` —— 公共 trait 接口（薄委托层，重方法体下沉到上列 concern 模块）|
 | `arc_heap/debug.rs` | `#[cfg(test)]`/`#[cfg(debug_assertions)]` 辅助：test accessors + `debug_validate_invariants` |
-| `var_region.rs` + `var_region/` | 变长 `VarRegion` 字节 bump 分配器——堆唯一的 region（对象 / 数组 / 字符串 / 闭包各是一块）：`block.rs`（`GcBlockHeader` 16 B 头 + payload）、`chunk.rs`（尺寸类 + `VarChunkClaim` + 按高水位逐块遍历 chunk —— 区内没有块索引）、`var_ref.rs`（`VarGcRef` 8 字节 tagged 句柄）、`generation.rs`（年轻集合：每 chunk 一张块起点位图）、`holes.rs`（M12：TLAB 按 size class 成批认领半活 chunk 的死槽、原址复用；见 [book: GC TLAB · 空洞复用](../../../../docs/internals/src/runtime/gc-tlab.md#空洞复用tlab-按-size-class-成批认领死槽m12)）、`objects.rs`（对象与数组块要的：带标记死块列表、chunk 复用 epoch、按类型遍历、minor 清扫的晋升报告、堆外的脱离块 `DetachedBlock`） |
-| `obj_ref.rs` / `arr_ref.rs` | `ObjRef` / `ArrRef`（对象 / 数组句柄 = 块的 `VarGcRef`：`borrow` / `ptr_eq` / `as_ptr` / 标记 / 代龄）/ `WeakObjRef` / `WeakArrRef`（多记 chunk 复用 epoch，由堆 upgrade） |
+| `var_region.rs` + `var_region/` | `VarRegion` 分配器：`chunk.rs` 的尺寸类、认领与复用，`generation.rs` 的年轻块集合，`holes.rs` 的 TLAB 空洞批量复用，`objects.rs` 的弱句柄校验、块遍历及清扫报告；区块头和句柄形状由 `object/header` 提供 |
 | `side_bits.rs` | 字数组位集（置位 / 清位 / 逐位遍历），region 的年轻集合位图用 |
 | `satb.rs` | **SATB 删除屏障**：进程级 `MARKING_HEAPS` 快路径 + 线程本地记录缓冲，`retire_thread_tlab` 时交给堆 |
 | `tlab.rs` | thread-local `Tlab{var,holes}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/internals/src/runtime/gc-tlab.md) |
 | `safepoint.rs` | GC safepoint 协议 |
 | `ambient.rs` | thread-local 当前 VM 堆指针，供无堆参数的调用点分配 GC block |
-| `refs.rs` | mark 位编码（`MarkKind`：minor 位 + major epoch）与块头 `marked` 字节的读写 |
 | `types.rs` | 支持类型 —— `RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `WeakRef` / `HeapSnapshot` / `HeapStats` / `FinalizerFn` / `AllocSamplerFn` / ... |
 | `retention.rs` / `snapshot.rs` | 堆保留诊断（反向引用图 + `whyRetained`）/ V8 `.heapsnapshot` 导出 |
 | `soft_registry.rs` | soft-reference 注册表（堆压力下可被清除的引用） |
 | `sampler.rs` / `phase_timer.rs` / `trace.rs` | safepoint 采样 profiler / `Z42_GC_PHASES` 分阶段停顿计时 / `Z42_GC_TRACE` 每次 collect 的 stderr trace |
 | `heap_tests.rs` / `arc_heap_tests/` / `*_tests.rs` | trait 默认方法契约测试 / `ArcMagrGC` 行为单测（分配 / 收集 / 标记队列 / 分代 / 增量 / finalizer / 不变量等）/ 各模块单测 |
 
+对象头、标记位与强/弱句柄定义在 [`object/header`](../object/header)，GC 负责其分配、回收与存活判定。
+
 ## 入口点
 
 - `crate::gc::MagrGC` —— GC 接口 trait（11 能力组）
 - `crate::gc::ArcMagrGC` —— 默认实现（对象、数组、字符串、闭包都是变长区的块；默认 `GenerationalMarkSweep`）
-- `crate::gc::ObjRef` / `crate::gc::WeakObjRef` —— 对象句柄；`crate::gc::ArrRef` / `crate::gc::WeakArrRef` —— 数组句柄
+- `crate::object::ObjRef` / `crate::object::WeakObjRef` —— 对象句柄；`crate::object::ArrRef` / `crate::object::WeakArrRef` —— 数组句柄
 - 嵌入相关类型：`RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `AllocSample` / `WeakRef` / `HeapSnapshot` / `HeapStats` / ...
 
 ### 能力组（按 trait 内分组）
@@ -89,7 +89,7 @@ z42 脚本端可调 `Std.GC.Collect()` / `UsedBytes()` / `ForceCollect()`（见
 
 ## 依赖关系
 
-- 上游：`metadata::{Value, ScriptObject, OwnedObject, TypeDesc, NativeData}`
+- 上游：`object::{Value, ScriptObject, OwnedObject, TypeDesc, NativeData}`
 - 下游：`vm_context::VmContext` 持有 `Box<dyn MagrGC>` + 注入 external root
   scanner 闭包（扫描 static_fields / pending_exception / interp+JIT exec_stack）；
   `interp/` 与 `jit/helpers/` 通过 `ctx.heap()` 调用

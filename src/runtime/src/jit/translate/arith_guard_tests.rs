@@ -6,7 +6,7 @@
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
 use crate::metadata::ir::ExecMode;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 fn func(name: &str, instructions: Vec<Instruction>, ret: u32) -> Function {
@@ -81,7 +81,7 @@ fn both_engines(m: &Module, name: &str, expected: &Value) {
 
 macro_rules! k { ($v:expr) => { Value::I64($v) } }
 macro_rules! b { ($v:expr) => { Value::Bool($v) } }
-macro_rules! s { ($v:expr) => { Value::Str(crate::metadata::vstr::Str::from($v)) } }
+macro_rules! s { ($v:expr) => { Value::Str(crate::object::string::vstr::Str::from($v)) } }
 
 use Instruction::{Add as IAdd, ConstF64, ConstI64, ConstNull, ConstStr, Eq as IEq, Ge as IGe, Lt as ILt, Mul as IMul, Ne as INe, Sub as ISub};
 

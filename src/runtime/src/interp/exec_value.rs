@@ -3,7 +3,7 @@
 /// none of these can throw user exceptions; all errors are VM-internal.
 
 use crate::vm::runtime::Module;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 

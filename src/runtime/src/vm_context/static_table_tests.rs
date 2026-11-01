@@ -3,16 +3,16 @@
 
 use super::*;
 use crate::gc::GcMode;
-use crate::metadata::types::NativeData;
+use crate::object::NativeData;
 use crate::vm_context::VmContext;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// A layout-less class with one `object` field (its synthesized layout gives it a cell).
-fn td(name: &str) -> Arc<crate::metadata::TypeDesc> {
-    let fields = vec![crate::metadata::types::FieldSlot { name: "f".into(), type_tag: "object".into(), visibility: 0 }];
+fn td(name: &str) -> Arc<crate::object::TypeDesc> {
+    let fields = vec![crate::object::FieldSlot { name: "f".into(), type_tag: "object".into(), visibility: 0 }];
     let field_index = fields.iter().enumerate().map(|(i, f)| (f.name.to_string(), i)).collect();
-    Arc::new(crate::metadata::TypeDesc {
+    Arc::new(crate::object::TypeDesc {
         class_flags: 0, visibility: 0, name: name.to_string(), base_name: None, fields, field_index,
         vtable: Vec::new(), vtable_index: crate::metadata::NameIndex::new(), cold: None,
         id: crate::metadata::tokens::TypeId::UNRESOLVED,
@@ -150,7 +150,7 @@ fn concurrent_writers_never_tear_and_stay_rooted_across_collections() {
 #[cfg(feature = "jit")]
 #[test]
 fn jit_layout_matches_the_accessors() {
-    use crate::metadata::types::{ref_word, tparam_cell};
+    use crate::object::{ref_word, tparam_cell};
     let ctx = VmContext::new();
     let _heap = crate::gc::ambient::HeapGuard::enter(ctx.heap());
     let t = StaticTable::default();

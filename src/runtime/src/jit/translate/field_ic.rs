@@ -37,7 +37,7 @@ use super::*;
 use super::ctx::TxCtx;
 use cranelift_codegen::ir::{Block, BlockArg, Value as CValue};
 use crate::metadata::resolver::{FieldIC, FIELD_IC_GUARD_MASK};
-use crate::metadata::types::{ref_word, FieldLoc};
+use crate::object::{ref_word, FieldLoc};
 
 /// The inline layout (`obj_jit_layout`) is spelled for 64-bit handles only.
 pub(super) const FIELD_IC_SUPPORTED: bool = cfg!(target_pointer_width = "64");
@@ -80,7 +80,7 @@ pub(super) fn emit_guard(
     b: &mut FunctionBuilder, ptr: cranelift_codegen::ir::Type, regs_base: CValue, obj: u32,
     ic: *const FieldIC, kind: u8, hit: Block, miss: Block,
 ) {
-    use crate::metadata::types::obj_jit_layout as ol;
+    use crate::object::obj_jit_layout as ol;
     let flags = MemFlagsData::trusted();
     let addr = reg_addr(b, regs_base, obj);
     let tag = load_tag(b, addr);
@@ -132,7 +132,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         let cell_addr = self.builder.ins().iadd(hdr, off);
         let dst_addr = reg_addr(self.builder, self.regs_base, *dst);
         let flags = MemFlagsData::trusted();
-        let fields_off = crate::metadata::types::obj_jit_layout::FIELDS_OFFSET;
+        let fields_off = crate::object::obj_jit_layout::FIELDS_OFFSET;
         match cell {
             InlineCell::Prim(fk) => {
                 let raw = self.builder.ins().load(fk.load_ty, flags, cell_addr, fields_off);
@@ -191,7 +191,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         let cell_addr = self.builder.ins().iadd(hdr, off);
         let val_addr = reg_addr(self.builder, self.regs_base, *val);
         let flags = MemFlagsData::trusted();
-        let fields_off = crate::metadata::types::obj_jit_layout::FIELDS_OFFSET;
+        let fields_off = crate::object::obj_jit_layout::FIELDS_OFFSET;
         match cell {
             InlineCell::Prim(fk) => {
                 if fk.ext == FieldExt::Float {
@@ -237,7 +237,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         &mut self, hdr: CValue, cell_addr: CValue, val_addr: CValue,
         mode: *const std::sync::atomic::AtomicU8, promo: *const std::sync::atomic::AtomicU8, slow: Block,
     ) {
-        use crate::metadata::types::obj_jit_layout as ol;
+        use crate::object::obj_jit_layout as ol;
         let flags = MemFlagsData::trusted();
         // word = payload | kind (a null's word is 0); unencodable → helper.
         let vtag = load_tag(self.builder, val_addr);
@@ -302,7 +302,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
 
     /// `gen_age` out of a block header's `type_tag` byte (as i32).
     fn age_of(&mut self, tt: CValue) -> CValue {
-        use crate::metadata::types::obj_jit_layout as ol;
+        use crate::object::obj_jit_layout as ol;
         let shifted = self.builder.ins().ushr_imm_u(tt, ol::AGE_SHIFT);
         self.builder.ins().band_imm_u(shifted, ol::AGE_MASK)
     }

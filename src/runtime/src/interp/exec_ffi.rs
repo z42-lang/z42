@@ -14,7 +14,7 @@
 
 use crate::exception::make_stdlib_exception;
 use crate::vm::runtime::Module;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
@@ -129,16 +129,16 @@ pub(super) fn pin_ptr(
     let fid = frame.frame_id(ctx);
     // make-value-copy: PinnedView payload lives in the per-context transient arena;
     // the register holds only an 8B `{idx, frame_id}` handle.
-    let mk_view = |ctx: &VmContext, data: crate::metadata::PinnedViewData| {
+    let mk_view = |ctx: &VmContext, data: crate::object::PinnedViewData| {
         let idx = ctx.transient_arena.lock()
             .alloc(fid, crate::interp::transient_arena::TransientPayload::PinView(data));
         Value::PinnedView { idx, frame_id: fid }
     };
     let view = match frame.get(src)? {
-        Value::Str(s) => mk_view(ctx, crate::metadata::PinnedViewData {
+        Value::Str(s) => mk_view(ctx, crate::object::PinnedViewData {
             ptr: s.as_ptr() as u64,
             len: s.len() as u64,
-            kind: crate::metadata::PinSourceKind::Str,
+            kind: crate::object::PinSourceKind::Str,
         }),
         Value::Array(arr) => {
             // Spec C10 — `Array<u8>` pin: snapshot the bytes into
@@ -170,10 +170,10 @@ pub(super) fn pin_ptr(
             let len = bytes.len() as u64;
             let buf: Box<[u8]> = bytes.into_boxed_slice();
             let ptr = ctx.pin_owned_buffer(buf);
-            mk_view(ctx, crate::metadata::PinnedViewData {
+            mk_view(ctx, crate::object::PinnedViewData {
                 ptr,
                 len,
-                kind: crate::metadata::PinSourceKind::ArrayU8,
+                kind: crate::object::PinSourceKind::ArrayU8,
             })
         }
         other => {
@@ -195,9 +195,9 @@ pub(super) fn unpin_ptr(ctx: &VmContext, frame: &Frame, pinned: u32) -> Result<(
         &Value::PinnedView { idx, frame_id } => {
             let (kind, ptr) = ctx.transient_arena.lock().with(idx, frame_id, |p| match p {
                 crate::interp::transient_arena::TransientPayload::PinView(pv) => (pv.kind, pv.ptr),
-                _ => (crate::metadata::PinSourceKind::Str, 0),
+                _ => (crate::object::PinSourceKind::Str, 0),
             })?;
-            if kind == crate::metadata::PinSourceKind::ArrayU8 {
+            if kind == crate::object::PinSourceKind::ArrayU8 {
                 // Spec C10: drop the snapshot Box<[u8]> we leaked into VmContext at PinPtr time.
                 ctx.release_owned_buffer(ptr);
             }

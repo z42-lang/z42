@@ -253,8 +253,8 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     /// Stride 0 (any other array) and an out-of-range index take `jit_array_get` (same exception).
     fn tr_array_get_ref(&mut self, dst: u32, arr: u32, idx: u32) {
         use cranelift_codegen::ir::condcodes::IntCC;
-        use crate::metadata::types::ref_word::{KIND_MASK, KIND_TO_VALUE_TAG, SLOW_PATH_TAG};
-        use crate::metadata::types::tparam_cell::PRIM_KIND_TO_VALUE_TAG;
+        use crate::object::value::ref_word::{KIND_MASK, KIND_TO_VALUE_TAG, SLOW_PATH_TAG};
+        use crate::object::value::tparam_cell::PRIM_KIND_TO_VALUE_TAG;
         let (data_ptr, len, info) = match self.hoisted_ref_arrays.get(&arr) {
             Some(&h) => h,
             None => super::hoist::ref_array_data(

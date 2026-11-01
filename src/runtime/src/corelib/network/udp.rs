@@ -20,8 +20,8 @@ fn socket(ctx: &VmContext, slot: i64) -> Result<Arc<UdpSocket>, BuiltinError> {
 }
 
 /// `[n-or-bytes, remoteHost, remotePort]` — what both receive builtins return.
-fn received(ctx: &VmContext, first: crate::metadata::Value, peer: SocketAddr) -> crate::metadata::Value {
-    use crate::metadata::Value;
+fn received(ctx: &VmContext, first: crate::object::Value, peer: SocketAddr) -> crate::object::Value {
+    use crate::object::Value;
     ctx.heap().alloc_array(vec![first, Value::Str(peer.ip().to_string().into()), Value::I64(peer.port() as i64)])
 }
 
@@ -45,7 +45,7 @@ pub mod typed {
     use super::*;
     use crate::corelib::abi::{Blocking, Then};
     use crate::corelib::fs::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
-    use crate::metadata::Value;
+    use crate::object::Value;
 
     /// `Bind(host, port) -> slot` (port 0 = the OS picks).
     #[builtin(name = "__udp_bind")]

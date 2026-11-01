@@ -11,10 +11,10 @@
 //! paths (wrong receiver kind, missing field, out-of-range index).
 use super::*;
 use crate::metadata::tokens::TypeId;
-use crate::metadata::types::{RefKind, TypeDesc};
-use crate::metadata::{FieldSlot, NameIndex};
-use crate::metadata::NativeData;
-use crate::metadata::Value;
+use crate::object::{RefKind, TypeDesc};
+use crate::{metadata::NameIndex, object::FieldSlot};
+use crate::object::NativeData;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 

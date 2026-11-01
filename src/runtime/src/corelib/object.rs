@@ -1,4 +1,4 @@
-use crate::metadata::{NativeData, TypeDesc, Value};
+use crate::object::{NativeData, TypeDesc, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 use crate::corelib::abi::BuiltinError;
@@ -58,7 +58,7 @@ fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
 
 /// The `Std.Type` of a heap instance with descriptor `td` and per-instance type arguments
 /// `args`: see `obj_get_type_impl`.
-fn instance_type(ctx: &VmContext, td: std::sync::Arc<crate::metadata::TypeDesc>, args: &[String]) -> Value {
+fn instance_type(ctx: &VmContext, td: std::sync::Arc<crate::object::TypeDesc>, args: &[String]) -> Value {
     use crate::corelib::reflection::{make_type_from_name, make_type_object};
     if args.is_empty() || !td.type_args().is_empty() {
         make_type_object(ctx, td)
@@ -71,8 +71,8 @@ fn instance_type(ctx: &VmContext, td: std::sync::Arc<crate::metadata::TypeDesc>,
 /// or both are null.
 pub fn obj_ref_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
-        (Value::Object(a), Value::Object(b)) => crate::gc::ObjRef::ptr_eq(a, b),
-        (Value::Array(a),  Value::Array(b))  => crate::gc::ArrRef::ptr_eq(a, b),
+        (Value::Object(a), Value::Object(b)) => crate::object::ObjRef::ptr_eq(a, b),
+        (Value::Array(a),  Value::Array(b))  => crate::object::ArrRef::ptr_eq(a, b),
         (Value::Str(a),    Value::Str(b))    => std::ptr::eq(a.as_ptr(), b.as_ptr()),
         (Value::Null, Value::Null)           => true,
         (Value::Null, _) | (_, Value::Null) => false,
@@ -106,7 +106,7 @@ pub fn obj_make_weak(ctx: &VmContext, target: &Value) -> Value {
 pub fn delegate_target(delegate: &Value) -> Value {
     match delegate {
         Value::Closure(c) => {
-            let env_ref = crate::metadata::types::closure_data_of(c).env.borrow();
+            let env_ref = crate::object::closure_data_of(c).env.borrow();
             match env_ref.first() {
                 Some(Value::Object(o)) => Value::Object(o.clone()),
                 Some(Value::Array(a)) => Value::Array(a.clone()),
@@ -158,11 +158,11 @@ pub fn make_closure(ctx: &VmContext, fn_name: &Value, env: &Value) -> Result<Val
     // 把 Array 里的元素拷贝到 Vec<Value>，再走 heap.alloc_array 拿到新的 ArrRef。
     // 与 jit_mk_clos 同款路径：env 是 GC 管理的 Array → Closure 持其 ArrRef。
     let env_vec: Vec<Value> = env_arr.borrow().iter_boxed().collect();
-    let Value::Array(env) = crate::metadata::types::ArrayObj::alloc_frozen(ctx.heap(), &env_vec) else {
+    let Value::Array(env) = crate::object::ArrayObj::alloc_frozen(ctx.heap(), &env_vec) else {
         return Ok(Value::Null);  // unreachable but lenient
     };
     // unify-gc-heap PR-2: the ClosureData lives in the GC variable-length region.
-    Ok(ctx.heap().alloc_closure(crate::metadata::ClosureData { env, fn_id }))
+    Ok(ctx.heap().alloc_closure(crate::object::ClosureData { env, fn_id }))
 }
 
 /// expose-weak-ref-builtin (D-1a)：升格 WeakHandle 弱引用。
@@ -244,9 +244,9 @@ pub fn obj_hash_code(this: &Value) -> Result<i64, BuiltinError> {
 
 fn obj_hash_code_impl(this: &Value) -> Result<i64, BuiltinError> {
     match this {
-        Value::Object(gc) => Ok(identity_hash(crate::gc::ObjRef::as_ptr(gc) as *const _ as *const u8 as usize)),
+        Value::Object(gc) => Ok(identity_hash(crate::object::ObjRef::as_ptr(gc) as *const _ as *const u8 as usize)),
         // add-array-base-class: identity hash for Value::Array
-        Value::Array(gc) => Ok(identity_hash(crate::gc::ArrRef::as_ptr(gc) as *const _ as *const u8 as usize)),
+        Value::Array(gc) => Ok(identity_hash(crate::object::ArrRef::as_ptr(gc) as *const _ as *const u8 as usize)),
         Value::Null => Ok(0),
         other => Err(BuiltinError::Internal(format!(
             "__obj_hash_code: expected an object, got {other:?}"))),
@@ -257,9 +257,9 @@ fn obj_hash_code_impl(this: &Value) -> Result<i64, BuiltinError> {
 /// args: [this, other]
 pub fn obj_equals(this: &Value, other: &Value) -> bool {
     let result = match (this, other) {
-        (Value::Object(a), Value::Object(b)) => crate::gc::ObjRef::ptr_eq(a, b),
+        (Value::Object(a), Value::Object(b)) => crate::object::ObjRef::ptr_eq(a, b),
         // add-array-base-class: reference-equality for arrays (mirror Object)
-        (Value::Array(a),  Value::Array(b))  => crate::gc::ArrRef::ptr_eq(a, b),
+        (Value::Array(a),  Value::Array(b))  => crate::object::ArrRef::ptr_eq(a, b),
         (Value::Null, Value::Null)           => true,
         (Value::Null, _) | (_, Value::Null) => false,
         _                                  => false,

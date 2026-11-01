@@ -3,8 +3,8 @@
 //! [`crate::objops::array`] (shared with the interpreter): register read/write plus
 //! mapping `OpError` to the pending-exception channel ([`super::raise`]).
 
-use crate::metadata::types::{ElemType, ElemTypeInfo};
-use crate::metadata::Value;
+use crate::object::{ElemType, ElemTypeInfo};
+use crate::object::Value;
 use super::super::frame::JitFrame;
 use crate::vm_context::VmContext;
 use super::{raise, vm_ctx_ref};

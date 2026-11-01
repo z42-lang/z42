@@ -6,7 +6,7 @@
 
 use std::sync::atomic::{AtomicU32, AtomicU64};
 use crate::metadata::tokens::UNRESOLVED;
-use crate::metadata::types::FieldLoc;
+use crate::object::FieldLoc;
 
 /// review.md C4 P2 + C5 P2 (jit-polymorphic-ic): 4-slot
 /// polymorphic inline cache. `IC_SLOTS` is the lookup window per site.
@@ -232,7 +232,7 @@ pub fn vcall_ic_install(ic: &VCallIC, recv_type: u32, fn_id: u32) {
 /// barriers (relaxed loads once initialised), allocation and generic type arguments.
 #[derive(Debug)]
 pub struct ObjNewSite {
-    pub class:    std::sync::OnceLock<std::sync::Arc<crate::metadata::TypeDesc>>,
+    pub class:    std::sync::OnceLock<std::sync::Arc<crate::object::TypeDesc>>,
     pub ctor:     AtomicU32,
     pub ctorless: std::sync::atomic::AtomicUsize,
 }
@@ -322,7 +322,7 @@ pub fn ctorless_note(mark: Option<&std::sync::atomic::AtomicUsize>, mark_before:
 /// 用单原子打包修掉；这条断言留着守这两条不变量。
 #[cfg(debug_assertions)]
 pub fn assert_field_ic_loc(
-    td: &crate::metadata::TypeDesc, field_name: &str, cached: FieldLoc, expected: Option<FieldLoc>,
+    td: &crate::object::TypeDesc, field_name: &str, cached: FieldLoc, expected: Option<FieldLoc>,
 ) {
     if expected == Some(cached) {
         return;
@@ -339,5 +339,5 @@ pub fn assert_field_ic_loc(
 #[cfg(not(debug_assertions))]
 #[inline(always)]
 pub fn assert_field_ic_loc(
-    _td: &crate::metadata::TypeDesc, _field_name: &str, _cached: FieldLoc, _expected: Option<FieldLoc>,
+    _td: &crate::object::TypeDesc, _field_name: &str, _cached: FieldLoc, _expected: Option<FieldLoc>,
 ) {}

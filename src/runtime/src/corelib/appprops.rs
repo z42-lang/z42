@@ -19,7 +19,7 @@
 //! add-app-properties。
 
 use crate::config::runtime_config;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, Result};
 

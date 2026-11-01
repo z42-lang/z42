@@ -8,9 +8,9 @@
 //! the young generation — which is exactly the asymmetry that makes changing the definition of
 //! "old" a delicate operation (see `ArcMagrGC::apply_promotion_age`).
 
-use crate::metadata::Value;
-use crate::gc::ArrRef;
-use crate::gc::obj_ref::ObjRef;
+use crate::object::Value;
+use crate::object::ArrRef;
+use crate::object::header::obj_ref::ObjRef;
 use crate::gc::heap::MagrGC;
 
 impl crate::gc::arc_heap::ArcMagrGC {

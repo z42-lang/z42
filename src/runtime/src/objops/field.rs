@@ -9,8 +9,8 @@
 //! - `Null` → `NullReferenceException`。
 
 use crate::metadata::resolver::{assert_field_ic_loc, field_ic_install, field_ic_lookup, FieldIC};
-use crate::metadata::types::{FieldAccess, FieldLoc, FieldWrite, ScriptObject};
-use crate::metadata::Value;
+use crate::object::{FieldAccess, FieldLoc, FieldWrite, ScriptObject};
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 use super::error::{OpError, OpResult};
@@ -84,7 +84,7 @@ pub fn field_get(ctx: &VmContext, recv: &Value, name: &str, ic: Option<&FieldIC>
     match recv {
         Value::Object(rc) => Ok(load(&rc.borrow(), name, ic)),
         // `.Length` 落到 FieldGet 的两种常见接收者（词法器之类的热循环）也留在内联路径。
-        Value::Str(s) if name == "Length" => Ok(Value::I64(crate::corelib::str_meta::char_len(s) as i64)),
+        Value::Str(s) if name == "Length" => Ok(Value::I64(crate::object::string::str_meta::char_len(s) as i64)),
         Value::Array(rc) if name == "Length" => Ok(Value::I64(rc.borrow().len() as i64)),
         _ => field_get_rare(ctx, recv, name, ic),
     }
@@ -95,7 +95,7 @@ fn field_get_rare(ctx: &VmContext, recv: &Value, name: &str, ic: Option<&FieldIC
     match recv {
         Value::Object(rc) => Ok(load(&rc.borrow(), name, ic)),
         Value::Str(s) => match name {
-            "Length"     => Ok(Value::I64(crate::corelib::str_meta::char_len(s) as i64)),
+            "Length"     => Ok(Value::I64(crate::object::string::str_meta::char_len(s) as i64)),
             "ByteLength" => Ok(Value::I64(s.len() as i64)),
             other        => Err(OpError::internal(format!("string has no field `{other}`"))),
         },
@@ -169,7 +169,7 @@ fn field_set_rare(ctx: &VmContext, recv: &Value, name: &str, v: &Value, ic: Opti
 }
 
 /// `LoadFieldAddr` 的接收者检查：只有堆对象能取字段地址。
-pub fn check_field_addr(recv: &Value, name: &str) -> OpResult<crate::gc::ObjRef> {
+pub fn check_field_addr(recv: &Value, name: &str) -> OpResult<crate::object::ObjRef> {
     match recv {
         Value::Object(rc) => Ok(*rc),
         Value::Null => Err(OpError::null_field_addr(name)),
@@ -178,7 +178,7 @@ pub fn check_field_addr(recv: &Value, name: &str) -> OpResult<crate::gc::ObjRef>
 }
 
 /// 经 `ref` 读字段（`RefKind::Field`）：字段必须存在。
-pub fn load_named(gc: &crate::gc::ObjRef, name: &str) -> OpResult<Value> {
+pub fn load_named(gc: &crate::object::ObjRef, name: &str) -> OpResult<Value> {
     let o = gc.borrow();
     let slot = *o.type_desc.field_index.get(name).ok_or_else(|| OpError::internal(format!(
         "ref field `{name}` not found on type `{}`", o.type_desc.name)))?;
@@ -186,7 +186,7 @@ pub fn load_named(gc: &crate::gc::ObjRef, name: &str) -> OpResult<Value> {
 }
 
 /// 经 `ref` 写字段：与 `FieldSet` 同一条写入 + 写屏障规则。
-pub fn store_named(ctx: &VmContext, gc: &crate::gc::ObjRef, name: &str, v: &Value) -> OpResult<()> {
+pub fn store_named(ctx: &VmContext, gc: &crate::object::ObjRef, name: &str, v: &Value) -> OpResult<()> {
     let wrote = {
         let o = gc.borrow();
         if !o.type_desc.field_index.contains_key(name) {
@@ -208,7 +208,7 @@ pub fn store_named(ctx: &VmContext, gc: &crate::gc::ObjRef, name: &str, v: &Valu
 /// 年轻引用却没染脏卡，下一次 minor 就把还被引用着的年轻对象扫掉（use-after-free）。
 ///
 /// 基元槽类型不符照 `try_set_field_value` 报错（错误留给调用方按自己的语义包装）。
-pub fn store_slot(ctx: &VmContext, gc: &crate::gc::ObjRef, slot: usize, v: &Value) -> anyhow::Result<()> {
+pub fn store_slot(ctx: &VmContext, gc: &crate::object::ObjRef, slot: usize, v: &Value) -> anyhow::Result<()> {
     let o = gc.borrow();
     let Some(fa) = o.field_access_of(slot) else { return Ok(()) };
     let w = o.store_access(fa, v)?;

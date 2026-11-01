@@ -22,10 +22,10 @@ reference = 253
 # z42-gates:layers-begin（xtask check layers --update 维护）
 [layers.edges]
 "jit -> interp" = 22
-"object -> gc" = 18
 "gc -> facade" = 15
 "interp -> jit" = 13
 "corelib -> interp" = 12
+"object -> gc" = 11
 "vm.exec -> corelib" = 11
 "vm.runtime -> vm.exec" = 10
 "corelib -> facade" = 9

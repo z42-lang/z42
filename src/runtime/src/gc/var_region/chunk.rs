@@ -6,8 +6,10 @@ use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-use super::block::{payload_ptr_of, BlockType, GcBlockHeader, ALIVE_GEN_BIT, FIRST_GEN};
-use super::{VarGcRef, VarRegion};
+use crate::object::header::block::{
+    payload_ptr_of, BlockType, GcBlockHeader, ALIVE_GEN_BIT, FIRST_GEN,
+};
+use {super::VarRegion, crate::object::header::VarGcRef};
 
 /// Size-class sentinel ([`class_for`]) for a block that exceeds the largest in-chunk class and
 /// gets its own dedicated, exactly-sized chunk.
@@ -24,7 +26,7 @@ pub(super) const CHUNK_BYTES: usize = 64 * 1024;
 
 /// Chunk alignment — 16 so every block start (bumped to 8) and the header (align 8) are
 /// satisfied with margin.
-pub(super) const CHUNK_ALIGN: usize = 16;
+pub(crate) const CHUNK_ALIGN: usize = 16;
 
 /// Sub-classes per octave, as a log2. `0` would be plain powers of two; `2` splits every
 /// octave into four (32/40/48/56, 64/80/96/112, …) — the mimalloc / jemalloc shape. The octave
@@ -70,7 +72,7 @@ static LOH_BYTES_FLOOR: AtomicUsize = AtomicUsize::new(CHUNK_BYTES);
 
 /// How many [`VarRegion::reclaim_dead_var_chunks`] passes, in any heap of this process, have
 /// handed a dedicated chunk back to the allocator. Address-keyed caches that outlive a block
-/// (`corelib::str_meta`) compare it on every lookup — one load — and re-check their
+/// (`object::string::str_meta`) compare it on every lookup — one load — and re-check their
 /// dedicated-chunk entries only when it moved (see [`dedicated_free_count`]).
 static DEDICATED_FREES: AtomicU64 = AtomicU64::new(0);
 
@@ -601,7 +603,7 @@ impl VarRegion {
         }
         if !free.is_empty() {
             // Caches holding dedicated blocks' addresses re-check them on their next lookup
-            // (`corelib::str_meta`); this runs inside a collection pause, so no lookup is in flight.
+            // (`object::string::str_meta`); this runs inside a collection pause, so no lookup is in flight.
             DEDICATED_FREES.fetch_add(1, Ordering::Release);
         }
         let mut freed_bytes = 0u64;

@@ -2,7 +2,7 @@
 //! one becomes a typed Rust parameter ([`FromArg`]).
 
 use super::{BuiltinError, ParamKind};
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 /// The arguments of one builtin call.
@@ -108,7 +108,7 @@ impl<'a> FromArg<'a> for &'a str {
 }
 
 /// The string handle itself — for builtins that use its cached metadata (`str_meta`).
-impl<'a> FromArg<'a> for &'a crate::metadata::vstr::Str {
+impl<'a> FromArg<'a> for &'a crate::object::string::vstr::Str {
     const KIND: ParamKind = ParamKind::Str;
     #[inline(always)]
     fn from_arg(v: &'a Value, at: &ArgAt) -> Result<Self, BuiltinError> {
@@ -128,13 +128,13 @@ impl<'a> FromArg<'a> for String {
     }
 }
 
-impl<'a> FromArg<'a> for Option<&'a crate::metadata::vstr::Str> {
+impl<'a> FromArg<'a> for Option<&'a crate::object::string::vstr::Str> {
     const KIND: ParamKind = ParamKind::OptStr;
     #[inline(always)]
     fn from_arg(v: &'a Value, at: &ArgAt) -> Result<Self, BuiltinError> {
         match v {
             Value::Null => Ok(None),
-            other => <&crate::metadata::vstr::Str>::from_arg(other, at).map(Some),
+            other => <&crate::object::string::vstr::Str>::from_arg(other, at).map(Some),
         }
     }
 }
@@ -272,7 +272,7 @@ impl<'a> FromArg<'a> for Vec<String> {
 /// An array of any element type, by handle (`Copy`, 8 bytes): the builtin works on the
 /// array in place. Null → `ArgumentNullException` (`NullReferenceException` as a
 /// receiver); any other kind of value → `InvalidCastException`.
-impl<'a> FromArg<'a> for crate::gc::ArrRef {
+impl<'a> FromArg<'a> for crate::object::ArrRef {
     const KIND: ParamKind = ParamKind::Array;
     #[inline(always)]
     fn from_arg(v: &'a Value, at: &ArgAt) -> Result<Self, BuiltinError> {

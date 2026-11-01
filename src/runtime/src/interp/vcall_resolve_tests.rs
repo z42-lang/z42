@@ -6,7 +6,7 @@ use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
 use crate::metadata::index::name::NameIndex;
 use crate::metadata::tokens::{alloc_type_id_block, FnId, TypeId};
 use crate::metadata::ir::ExecMode;
-use crate::metadata::types::{NativeData, TypeDesc};
+use crate::object::{NativeData, TypeDesc};
 use crate::vm::runtime::Function;
 use crate::interp::Frame;
 use std::sync::Arc;

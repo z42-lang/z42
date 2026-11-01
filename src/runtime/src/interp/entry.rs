@@ -5,7 +5,10 @@
 #![allow(unused_imports)]
 use super::*;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::{BranchTargets, Terminator, Value};
+use crate::{
+    metadata::{BranchTargets, Terminator},
+    object::Value,
+};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;

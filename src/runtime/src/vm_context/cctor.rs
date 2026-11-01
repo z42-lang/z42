@@ -148,7 +148,7 @@ pub struct CctorEntry {
 /// `owned` 是归属判定的唯一依据（见 [`module_owns_symbol`]）。它在登记时由调用方从**整包**的
 /// 类型表与函数表算出 —— 构造式精确，不依赖任何命名约定。
 struct ModuleInitEntry {
-    desc: Arc<crate::metadata::TypeDesc>,
+    desc: Arc<crate::object::TypeDesc>,
     owned: FxHashSet<String>,
 }
 
@@ -290,7 +290,7 @@ impl CctorRegistry {
     /// 调用方必须在**整包**视野下算它 —— 逐类型漏斗（`insert_type`）那时类型表还没填完。
     pub fn register_module_init(
         &self,
-        desc: &Arc<crate::metadata::TypeDesc>,
+        desc: &Arc<crate::object::TypeDesc>,
         owned: FxHashSet<String>,
     ) {
         let mut v = self.module_inits.lock().unwrap_or_else(|e| e.into_inner());
@@ -303,7 +303,7 @@ impl CctorRegistry {
     }
 
     /// 当前登记的全部包初始化伪类型（快照；遍历时不持锁，避免初始化器重入时自锁）。
-    pub fn module_init_snapshot(&self) -> Vec<Arc<crate::metadata::TypeDesc>> {
+    pub fn module_init_snapshot(&self) -> Vec<Arc<crate::object::TypeDesc>> {
         self.module_inits
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -366,10 +366,10 @@ impl CctorRegistry {
     /// ✅ 那条「已知边界」已消除：判据从命名空间前缀换成**包的符号集合**，
     /// 所以「一个包声明了互不嵌套的多个命名空间」不再影响归属 —— 同包的兄弟命名空间照样重抛，
     /// 别的包也不会被毒。见 [`module_owns_symbol`] 的头注。
-    pub fn failed_module_owning(&self, sym_fq: &str) -> Option<Arc<crate::metadata::TypeDesc>> {
+    pub fn failed_module_owning(&self, sym_fq: &str) -> Option<Arc<crate::object::TypeDesc>> {
         if !self.any_module_init_failed() { return None; }
         // 先取快照再拿 map 锁：初始化器是用户代码，遍历时持 module_inits 锁会在重入时自锁。
-        let entries: Vec<(Arc<crate::metadata::TypeDesc>, FxHashSet<String>)> = self
+        let entries: Vec<(Arc<crate::object::TypeDesc>, FxHashSet<String>)> = self
             .module_inits
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -531,7 +531,7 @@ impl crate::vm_context::VmContext {
     /// fix-crosspkg-static-call-cctor：惰性这一处以前挂在 `try_lookup_type` 上。跨包静态方法
     /// 调用只查函数、从不查类型 ⇒ 类型没登记 ⇒ 门读到 0 ⇒ 静态 ctor（连同注入其体首的静态字段
     /// 初始化器）不执行，且结果随「之前有没有别的类型被查过」而变。
-    pub fn register_cctor_of(&self, td: &crate::metadata::TypeDesc) {
+    pub fn register_cctor_of(&self, td: &crate::object::TypeDesc) {
         if let Some(f) = td.cctor_func() {
             tracing::debug!("cctor-register: type `{}` -> `{}`", td.name, f);
             self.core.cctors.register(&td.name, f);
@@ -609,7 +609,7 @@ impl crate::vm_context::VmContext {
     /// 静态字段 `field` 的属主类型——只在它有静态构造器时返回。先查主模块 registry、
     /// 再回落惰性加载器：`try_lookup_type` 只问惰性加载器，主合并模块里的类型不在它的
     /// 索引里（同 ensure_type_init 里函数查找那条注释）。
-    fn static_field_owner(&self, field: &str) -> Option<Arc<crate::metadata::TypeDesc>> {
+    fn static_field_owner(&self, field: &str) -> Option<Arc<crate::object::TypeDesc>> {
         let owner = owner_class_of_static_field(field)?;
         let td = match self.module().and_then(|m| m.type_registry.get(owner)) {
             Some(td) => Arc::clone(td),
@@ -758,7 +758,7 @@ impl crate::vm_context::VmContext {
     /// namespace, which is not a type — asking `try_lookup_type` for it walked
     /// every declared-but-unloaded package before answering no (runtime-audit
     /// A.5: one free-function call loaded 16 stdlib packages).
-    fn loaded_type(&self, name: &str) -> Option<Arc<crate::metadata::TypeDesc>> {
+    fn loaded_type(&self, name: &str) -> Option<Arc<crate::object::TypeDesc>> {
         if let Some(td) = self.module().and_then(|m| m.type_registry.get(name)) {
             return Some(Arc::clone(td));
         }
@@ -779,7 +779,7 @@ impl crate::vm_context::VmContext {
     /// 屏障手上已经有 `TypeDesc`，而 `register` 是幂等的 —— 于是「在哪登记」这个
     /// 难题自解：不必在每个 type-registry 插入点（急切一处 + 跨包惰性两处）各挂钩子，
     /// 首次触达时登记即可。少一处要维护的枚举，就少一处将来会漏的地方。
-    pub fn ensure_type_init(&self, td: &crate::metadata::TypeDesc) -> Result<(), String> {
+    pub fn ensure_type_init(&self, td: &crate::object::TypeDesc) -> Result<(), String> {
         let Some(func) = td.cctor_func() else { return Ok(()) };
         // unify-static-init-into-cctor（7.3）：无锁快路。`register` + `claim` 各要一次
         // mutex + 一次哈希查表，而「该类型早就初始化完了」是绝对多数情形。
@@ -858,7 +858,7 @@ pub fn make_type_init_exception(
     vm: &crate::vm_context::VmContext,
     module: &crate::vm::runtime::Module,
     msg: &str,
-) -> crate::metadata::Value {
+) -> crate::object::Value {
     if let Ok(e) = crate::exception::make_stdlib_exception(
         vm, module, "Std.TypeInitializationException", msg.to_string()) {
         return e;
@@ -867,7 +867,7 @@ pub fn make_type_init_exception(
         vm, module, "Std.Exception", msg.to_string()) {
         return e;
     }
-    crate::metadata::Value::Str(msg.into())
+    crate::object::Value::Str(msg.into())
 }
 
 /// 从静态字段的全限定名取所属类 FQ：`A.B.C.Field` → `A.B.C`。

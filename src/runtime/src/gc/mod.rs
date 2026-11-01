@@ -36,14 +36,11 @@
 //! D MMTk 集成（终极方向）。
 
 pub mod ambient;
-pub mod arr_ref;
 pub mod heap;
 pub mod arc_heap;
 pub mod mode;
-pub mod obj_ref;
 pub mod footprint;
 pub mod phase_timer;
-pub mod refs;
 pub mod satb;
 pub(crate) mod side_bits;
 pub mod tlab;
@@ -60,8 +57,6 @@ pub use heap::MagrGC;
 pub use sampler::Sampler;
 pub use arc_heap::ArcMagrGC;
 pub use mode::GcMode;
-pub use obj_ref::{ObjRef, WeakObjRef};
-pub use arr_ref::{ArrRef, WeakArrRef};
 pub use safepoint::{
     check_safepoint, request_gc_pause, GcPauseGuard, GcPhase, NativeParkGuard, NativeUnparkGuard,
 };
@@ -76,7 +71,7 @@ pub use types::{
 
 /// Minor collections a block must survive before it is promoted (old). The age is packed into two
 /// bits of the block header's `type_tag`, so this default sits at the top of what fits
-/// (`var_region::MAX_GEN_AGE`); `Z42_GC_PROMOTION_AGE` can lower it.
+/// (`crate::object::header::MAX_GEN_AGE`); `Z42_GC_PROMOTION_AGE` can lower it.
 pub const PROMOTION_THRESHOLD: u8 = 3;
 
 /// **add-promotion-age-knob **: resolve `Z42_GC_PROMOTION_AGE` for a heap being
@@ -91,7 +86,7 @@ pub fn promotion_age_from_config() -> u8 {
     let want = crate::config::runtime_config()
         .gc_promotion_age
         .unwrap_or(PROMOTION_THRESHOLD);
-    let max = var_region::MAX_GEN_AGE;
+    let max = crate::object::header::MAX_GEN_AGE;
     if want < 1 || want > max {
         let clamped = want.clamp(1, max);
         eprintln!(

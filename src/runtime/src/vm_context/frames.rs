@@ -20,7 +20,7 @@ impl VmContext {
     // The length store happens UNDER the arena lock (single-writer publish).
 
     /// Allocate a stack object; publishes the new `objs` length. See `stack_obj_len`.
-    pub(crate) fn stack_alloc_obj(&self, frame_id: u32, obj: crate::metadata::types::OwnedObject) -> u32 {
+    pub(crate) fn stack_alloc_obj(&self, frame_id: u32, obj: crate::object::OwnedObject) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.stack_arena.lock();
         let idx = a.alloc_obj(frame_id, obj);
@@ -40,7 +40,7 @@ impl VmContext {
     /// Allocate a value-struct blob; publishes the new length. See `struct_len`.
     pub(crate) fn struct_alloc(
         &self, frame_id: u32, type_name: std::sync::Arc<str>,
-        layout: std::sync::Arc<crate::metadata::types::StructTypeLayout>,
+        layout: std::sync::Arc<crate::object::StructTypeLayout>,
     ) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.struct_arena.lock();

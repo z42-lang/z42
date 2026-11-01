@@ -12,11 +12,11 @@
 use std::ptr::NonNull;
 use std::sync::Arc;
 
-use crate::gc::obj_ref::ObjRef;
+use crate::object::header::obj_ref::ObjRef;
 use crate::gc::types::{AllocKind, GcEvent};
-use crate::gc::var_region::{BlockType, GcBlockHeader, KIND_WORD_OFFSET};
-use crate::metadata::types::{ObjHeader, OwnedObject, ScriptObject, TypeArgs};
-use crate::metadata::{TypeDesc, Value};
+use crate::object::header::{BlockType, GcBlockHeader, KIND_WORD_OFFSET};
+use crate::object::{ObjHeader, OwnedObject, ScriptObject, TypeArgs};
+use crate::object::{TypeDesc, Value};
 
 /// Bytes of the meta word a generic / native-backed object carries at the end of its payload.
 const META_BYTES: usize = std::mem::size_of::<*const ()>();

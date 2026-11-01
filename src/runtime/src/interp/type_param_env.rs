@@ -12,8 +12,8 @@
 //! (`Frame::type_param_env`), the JIT helpers from their frame's reg 0 (no method arguments).
 
 use crate::metadata::index::type_param_markers::{self, Marker};
-use crate::metadata::types::TypeArgs;
-use crate::metadata::Value;
+use crate::object::TypeArgs;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 #[derive(Clone, Copy)]
@@ -132,7 +132,7 @@ pub(crate) fn class_type_arg(ctx: &VmContext, recv: &Value, idx: usize, owner: O
 /// The receiver's descriptor name and own type arguments. An escape-analysis **stack** object
 /// (`StackObject`, `new Box<int>(..)` that never leaves its frame) is a receiver like a heap one:
 /// its methods' `typeof(T)` / `o is T` read the same two carriers.
-fn receiver_parts(ctx: &VmContext, recv: &Value) -> Option<(String, crate::metadata::types::TypeArgs)> {
+fn receiver_parts(ctx: &VmContext, recv: &Value) -> Option<(String, crate::object::TypeArgs)> {
     match recv {
         Value::Object(rc) => {
             let o = rc.borrow();
@@ -167,7 +167,7 @@ fn inherited_type_arg(
     // Bounded: a class hierarchy is finite, but a corrupt `base_name` cycle must not hang us.
     for _ in 0..64 {
         if erased_of(&cur) == want {
-            let targs = crate::metadata::types::type_args_from_name(&cur);
+            let targs = crate::object::type_args_from_name(&cur);
             return targs.get(idx).cloned();
         }
         let td = ctx.try_lookup_type(&cur)?;

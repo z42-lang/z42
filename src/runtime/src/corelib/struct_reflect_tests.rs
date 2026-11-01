@@ -5,7 +5,7 @@
 //! signedness guardrail).
 
 use super::*;
-use crate::metadata::types::{
+use crate::object::{
     self as ty, FieldSlot, StructTypeLayout, TypeDesc, TypeDescCold, STRUCT_REF_ARC_STRING,
 };
 use crate::metadata::tokens::TypeId;

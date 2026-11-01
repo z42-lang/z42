@@ -63,7 +63,7 @@ pub(crate) fn reentry<T>(ctx: &VmContext, r: anyhow::Result<T>) -> Result<T, Bui
 /// real `TypeHandle`. Arrays, constructed generics, primitives and unqualified
 /// simple names keep their existing synthetic-Type semantics — those are load-
 /// bearing (e.g. `typeof(int[])`, cross-package generic type-arg names).
-pub fn type_get_type(ctx: &VmContext, fqn: &crate::metadata::vstr::Str) -> Value {
+pub fn type_get_type(ctx: &VmContext, fqn: &crate::object::string::vstr::Str) -> Value {
     let t = make_type_from_name(ctx, fqn);
     let qualified_class = fqn.contains('.') && !fqn.ends_with("[]") && !fqn.contains('<');
     if qualified_class && type_handle_of(&t).is_none() {
@@ -261,7 +261,7 @@ pub(super) fn invoke_qualified(
 /// `ctx.set_pending_thrown` (consumed by `exec_call::builtin` / `jit_builtin`),
 /// so the runner can `try/catch` the real exception. Returns the function's
 /// return value (`void` → null).
-pub fn invoke_static(ctx: &VmContext, fqn: &crate::metadata::vstr::Str) -> anyhow::Result<Value> {
+pub fn invoke_static(ctx: &VmContext, fqn: &crate::object::string::vstr::Str) -> anyhow::Result<Value> {
     let qualified = fqn.to_string();
     let module_arc = ctx
         .core
@@ -310,7 +310,7 @@ pub(super) fn invoke_arity_check(qualified: &str, expected: usize, got: usize) -
 /// its descriptor. `None` when nothing by that name is loaded.
 pub(super) fn construction_target(
     ctx: &VmContext, name: &str,
-) -> Option<(Arc<TypeDesc>, crate::metadata::types::TypeArgs)> {
+) -> Option<(Arc<TypeDesc>, crate::object::TypeArgs)> {
     let lookup = |n: &str| {
         ctx.module()
             .and_then(|m| m.type_registry.get(n).cloned())
@@ -325,19 +325,19 @@ pub(super) fn construction_target(
         return None;
     }
     let td = lookup(def)?;
-    let args = crate::metadata::types::type_args_from_name(name);
-    Some((td, crate::metadata::types::TypeArgs::intern(&args)))
+    let args = crate::object::type_args_from_name(name);
+    Some((td, crate::object::TypeArgs::intern(&args)))
 }
 
 /// A default-initialised instance of `td` with generic arguments `type_args` — fields zeroed as
 /// `ObjNew` zeroes them (type-parameter fields included), arguments installed before the object
 /// is published (object model R4). `Null` under strict-OOM refusal.
-fn alloc_default(ctx: &VmContext, td: &Arc<TypeDesc>, type_args: crate::metadata::types::TypeArgs) -> Value {
-    let mut inst = crate::metadata::types::OwnedObject::of_type(td.clone());
+fn alloc_default(ctx: &VmContext, td: &Arc<TypeDesc>, type_args: crate::object::TypeArgs) -> Value {
+    let mut inst = crate::object::OwnedObject::of_type(td.clone());
     for (i, f) in td.fields.iter().enumerate() {
-        inst.set_field_value(i, &crate::metadata::default_value_for(&f.type_tag));
+        inst.set_field_value(i, &crate::object::default_value_for(&f.type_tag));
     }
-    for (i, v) in crate::metadata::types::generic_field_zero_overrides(td, &type_args) {
+    for (i, v) in crate::object::generic_field_zero_overrides(td, &type_args) {
         inst.set_field_value(i, &v);
     }
     if !type_args.is_empty() {
@@ -378,14 +378,14 @@ pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
         return Ok(Value::Str("".into()));
     }
     if crate::metadata::index::well_known_names::is_scalar_prim_wrapper(&td.name) {
-        return Ok(crate::metadata::default_value_for(&td.name));
+        return Ok(crate::object::default_value_for(&td.name));
     }
     // plan-generic-reflection G1: a constructed generic Type (typeof(Box<int>) or
     // MakeGenericType(...)) builds an instance of *that* instantiation, the same one `new`
     // builds (`construction_target`) — so it passes `is Box<int>` and reports its own Type.
     let (td, type_args) = match type_value_name(t).and_then(|n| construction_target(ctx, &n)) {
         Some(target) => target,
-        None => (td, crate::metadata::types::TypeArgs::empty()),
+        None => (td, crate::object::TypeArgs::empty()),
     };
     let class_name = td.name.clone();
     let obj = alloc_default(ctx, &td, type_args);
@@ -410,7 +410,7 @@ pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
     // `+` declaring-type prefix attached, so neither candidate key existed and
     // `Activator.CreateInstance(typeof(Outer.Inner))` silently fell through to the
     // default-field allocation — object handed back with its constructor never run.
-    let simple = crate::metadata::types::TypeDesc::ctor_member_name(class_name.as_str());
+    let simple = crate::object::TypeDesc::ctor_member_name(class_name.as_str());
     // An instantiation descriptor (`Demo.Box<int>`) has its own constructor only when its layout
     // differs from the definition's; otherwise it shares the definition's (what `new` calls).
     let def_name = crate::metadata::index::type_names::erased(&class_name);
@@ -471,7 +471,7 @@ fn run_first_noarg_ctor(
 /// tagged `Value::BoxedStruct` instead of `Value::Object`. That is the representation every
 /// boxed-struct path keys on — `is` / `as` / `GetType` / the unboxing `AsCast` at a generic
 /// call site (`T mk<T>() { return new T(); }` called as `mk<Vec2>()` comes back through it).
-fn boxed_if_struct(td: &crate::metadata::types::TypeDesc, obj: Value) -> Value {
+fn boxed_if_struct(td: &crate::object::TypeDesc, obj: Value) -> Value {
     if td.is_struct() {
         if let Value::Object(gc) = obj { return Value::BoxedStruct(gc); }
     }
@@ -564,7 +564,7 @@ pub mod typed {
     use super::*;
 
     #[builtin(name = "__type_get_type")]
-    pub fn get_type(ctx: &VmContext, fqn: &crate::metadata::vstr::Str) -> Value { type_get_type(ctx, fqn) }
+    pub fn get_type(ctx: &VmContext, fqn: &crate::object::string::vstr::Str) -> Value { type_get_type(ctx, fqn) }
 
     #[builtin(name = "__method_generic_arguments")]
     pub fn generic_args(ctx: &VmContext, mi: &Value) -> Result<Value, BuiltinError> {
@@ -584,7 +584,7 @@ pub mod typed {
     }
 
     #[builtin(name = "__invoke_static", reenters)]
-    pub fn invoke_static_fn(ctx: &VmContext, fqn: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+    pub fn invoke_static_fn(ctx: &VmContext, fqn: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
         reentry(ctx, invoke_static(ctx, fqn))
     }
 

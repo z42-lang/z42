@@ -9,7 +9,7 @@
 //! also reads the forward of a call target to inline string intrinsics.
 
 use crate::vm::runtime::Function;
-use crate::metadata::Value;
+use crate::object::Value;
 
 use super::frame::JitFrame;
 use super::runtime::JitRuntime;

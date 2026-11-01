@@ -1,6 +1,6 @@
 //! Unit tests for the value-struct byte arena (add-struct-value-semantics).
 use super::*;
-use crate::metadata::types::{StructTypeLayout, STRUCT_REF_ARC_STRING};
+use crate::object::{StructTypeLayout, STRUCT_REF_ARC_STRING};
 use std::sync::Arc;
 
 /// Pure-primitive layout of `size` bytes (no reference leaves).

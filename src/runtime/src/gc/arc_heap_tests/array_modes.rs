@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::gc::GcMode;
-use crate::metadata::types::{ArrayObj, ElemKind, ElemType, StructTypeLayout, STRUCT_REF_GCREF};
+use crate::object::{ArrayObj, ElemKind, ElemType, StructTypeLayout, STRUCT_REF_GCREF};
 
 struct Bound;
 impl Bound {

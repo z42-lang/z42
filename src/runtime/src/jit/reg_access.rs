@@ -18,11 +18,11 @@
 //! cache + mark dirty", spilling to memory only at the boundaries the design
 //! enumerates (block terminators, Category-B calls, safepoints, OSR entry).
 //!
-//! Layout (pinned by `metadata::types_tests` + a compile-time `assert!` in
-//! `metadata::types`): `Value` is 16 B, align 8, u8 discriminant at offset 0,
+//! Layout (pinned by `object::types_tests` + a compile-time `assert!` in
+//! `object`): `Value` is 16 B, align 8, u8 discriminant at offset 0,
 //! 8 B payload at offset 8.
 
-use crate::metadata::Value;
+use crate::object::Value;
 use cranelift_codegen::ir::types;
 use cranelift_codegen::ir::{InstBuilder, MemFlagsData, Value as ClifValue};
 use cranelift_frontend::FunctionBuilder;
@@ -36,8 +36,8 @@ pub const PAYLOAD_OFFSET: i32 = 8;
 pub const TAG_OFFSET: i32 = 0;
 
 // ── Value discriminant bytes ─────────────────────────────────────────────────
-// Mirror `Value`'s `#[repr(C, u8)]` order (`metadata/types.rs`), pinned by
-// `value_discriminants_pinned` in `metadata/types_tests.rs`. Only the tags the
+// Mirror `Value`'s `#[repr(C, u8)]` order (`object/mod.rs`), pinned by
+// `value_discriminants_pinned` in `object/types_tests.rs`. Only the tags the
 // JIT materializes natively are named here; heap tags (Array/Object/…) never
 // get a native store (their payloads need Arc handling → helper path).
 pub const TAG_I64: u8 = 0;

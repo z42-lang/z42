@@ -272,8 +272,8 @@ fn bound_parameter_extra_matches() {
     assert!(array_isa("int", "Std.Array"));
     assert!(!array_isa("int", "string[]"));
     // A bound parameter does not bypass the ordinary array check.
-    let arr = crate::metadata::types::ArrayObj::alloc_typed_filled(ctx.heap(),
-        crate::metadata::types::ElemType::intern("int"), 1, Value::I64(0));
+    let arr = crate::object::ArrayObj::alloc_typed_filled(ctx.heap(),
+        crate::object::ElemType::intern("int"), 1, Value::I64(0));
     assert!(!bound_param_extra_isa(&ctx, &registry, &arr, "string[]"));
     assert!(!bound_param_extra_isa(&ctx, &registry, &arr, "Demo.Entry"));
     // An integer is no extra match for a non-enum (here: unknown) type.

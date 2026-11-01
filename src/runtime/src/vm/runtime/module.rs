@@ -1,7 +1,7 @@
 //! Per-VM module linkage and link-time copy-on-write views of package data.
 use super::Function;
 use crate::metadata::image::{ModuleData, PackageImage};
-use crate::metadata::{ir, TypeDesc};
+use crate::{metadata::ir, object::TypeDesc};
 use rustc_hash::FxHashMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;

@@ -12,7 +12,7 @@
 
 use super::*;
 use super::super::super::frame::JitFrame;
-use crate::metadata::types::{Value, TAG_I32};
+use crate::object::{Value, TAG_I32};
 use crate::vm_context::VmContext;
 
 /// symbolic-struct-field-access P2：字段访问改带 `(root 类型名, 字段序号路径)`，
@@ -23,7 +23,7 @@ use crate::vm_context::VmContext;
 const PAIR: &str = "Demo.Pair";
 
 fn register_pair(vm: &VmContext) {
-    use crate::metadata::types::{StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold, FieldSlot};
+    use crate::object::{FieldSlot, StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
     use crate::metadata::tokens::TypeId;
     use crate::metadata::index::name::NameIndex;
     let layout = StructTypeLayout {

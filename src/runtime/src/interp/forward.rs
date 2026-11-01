@@ -47,7 +47,7 @@ use crate::metadata::ir::{Instruction, Terminator};
 use crate::vm::runtime::Function;
 use crate::metadata::tokens::UNRESOLVED;
 use crate::vm::runtime::Module;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 /// The builtin id `func` forwards to, if `func` is exactly

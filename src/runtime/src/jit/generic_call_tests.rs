@@ -10,7 +10,7 @@ use crate::interp::ExecOutcome;
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator, VCallInsn};
 use crate::metadata::ir::ExecMode;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use super::translate::{jit_unsupported_reason, unsupported_reason};
 

@@ -18,7 +18,7 @@
 //! - `size_of`/`align_of`/`leaf_kind` ← `StructLayout._sizeOf/_alignOf/_kindOf` (`StructLayout.z42:332/343/322`)
 //! - `tag_from_name` ← `Tag.FromName`       (`z42.package/.../ZbcFormat.z42:75`)
 
-use crate::metadata::types::{self as ty, StructTypeLayout, TypeDesc};
+use crate::object::{self as ty, StructTypeLayout, TypeDesc};
 use anyhow::{bail, Result};
 use std::sync::Arc;
 

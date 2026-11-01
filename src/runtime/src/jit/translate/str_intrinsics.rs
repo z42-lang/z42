@@ -90,7 +90,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         &mut self, k: StrIntrinsic, dst: u32, operands: &[u32], gated: bool,
         slow: impl FnOnce(&mut Self),
     ) {
-        use crate::metadata::vstr::jit_layout as sl;
+        use crate::object::string::vstr::jit_layout as sl;
         let flags = MemFlagsData::trusted();
         let slow_blk = self.builder.create_block();
         let done_blk = self.builder.create_block();

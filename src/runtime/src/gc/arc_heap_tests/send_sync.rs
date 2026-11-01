@@ -9,8 +9,11 @@
 
 use std::sync::Arc;
 
-use crate::gc::{ArrRef, MagrGC, ArcMagrGC};
-use crate::metadata::Value;
+use crate::{
+    gc::{ArcMagrGC, MagrGC},
+    object::ArrRef,
+};
+use crate::object::Value;
 use crate::vm_context::{VmContext, VmContextPtr, VmCore};
 
 fn assert_send<T: Send>() {}
@@ -33,7 +36,7 @@ fn gc_ref_value_types_are_send_sync() {
     // The array handle that appears in `Value::Array`.
     assert_send_sync::<ArrRef>();
     // ScriptObject path checked via Value enum below — separate explicit
-    // crate::gc::ObjRef assertion requires re-exporting ScriptObject so
+    // crate::object::ObjRef assertion requires re-exporting ScriptObject so
     // is covered indirectly through `Value`.
 }
 

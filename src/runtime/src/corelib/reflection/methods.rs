@@ -90,7 +90,7 @@ pub(super) fn is_ctor_key(class_fq: &str, qualified: &str) -> bool {
     qualified
         .strip_prefix(class_fq)
         .and_then(|rest| rest.strip_prefix('.'))
-        .is_some_and(|member| crate::metadata::types::TypeDesc::is_ctor_member(class_fq, member))
+        .is_some_and(|member| crate::object::TypeDesc::is_ctor_member(class_fq, member))
 }
 
 /// `__type_constructors(typeObj) -> ConstructorInfo[]` (add-reflective-invoke).

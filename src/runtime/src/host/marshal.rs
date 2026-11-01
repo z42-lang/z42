@@ -13,7 +13,7 @@ use z42_abi::{
     Z42Value, Z42_VALUE_TAG_BOOL, Z42_VALUE_TAG_F64, Z42_VALUE_TAG_I64, Z42_VALUE_TAG_NULL,
 };
 
-use crate::metadata::Value;
+use crate::object::Value;
 
 /// Convert a host-supplied `Z42Value` into a runtime `Value` for use as
 /// an interpreter argument. Unsupported tags surface as an `anyhow`

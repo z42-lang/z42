@@ -21,10 +21,10 @@
 //! The mutator path takes no region lock: a relaxed age load, one `fetch_or` on the block
 //! header, and — only when the bit was clear — a push under the set's own mutex.
 
-use crate::gc::arr_ref::ArrRef;
-use crate::gc::obj_ref::ObjRef;
-use crate::gc::var_region::{BlockType, VarGcRef};
-use crate::metadata::Value;
+use crate::object::header::arr_ref::ArrRef;
+use crate::object::header::obj_ref::ObjRef;
+use crate::object::header::{BlockType, VarGcRef};
+use crate::object::Value;
 
 impl crate::gc::arc_heap::ArcMagrGC {
     /// The barrier's half: the owner block `b` (already known to be old) just received a young

@@ -5,7 +5,10 @@
 #![allow(unused_imports)]
 use super::*;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::{BranchTargets, Terminator, Value};
+use crate::{
+    metadata::{BranchTargets, Terminator},
+    object::Value,
+};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
@@ -279,7 +282,7 @@ pub(crate) fn exec_function_from_receiver_regs(
 /// the thrown value if it's an Exception subclass; otherwise stamps both
 /// as `"<non-exception-value>"`. Message truncated to 256 chars to keep
 /// the event firehose bounded.
-pub(super) fn fire_exception_thrown(ctx: &VmContext, module: &crate::vm::runtime::Module, val: &crate::metadata::Value) {
+pub(super) fn fire_exception_thrown(ctx: &VmContext, module: &crate::vm::runtime::Module, val: &crate::object::Value) {
     use std::sync::atomic::Ordering;
     ctx.counters().exceptions_thrown.fetch_add(1, Ordering::Relaxed);
     if !ctx.has_runtime_observers() { return; }
@@ -296,7 +299,7 @@ pub(super) fn fire_exception_thrown(ctx: &VmContext, module: &crate::vm::runtime
 /// catch; 1 for callee-thrown + caller-caught; >1 for deeper unwind.
 pub(super) fn fire_exception_caught(
     ctx: &VmContext, module: &crate::vm::runtime::Module,
-    val: &crate::metadata::Value, frames_unwound: u32,
+    val: &crate::object::Value, frames_unwound: u32,
 ) {
     use std::sync::atomic::Ordering;
     ctx.counters().exceptions_caught.fetch_add(1, Ordering::Relaxed);
@@ -306,9 +309,9 @@ pub(super) fn fire_exception_caught(
 }
 
 pub(super) fn exception_class_and_message(
-    ctx: &VmContext, val: &crate::metadata::Value, module: &crate::vm::runtime::Module,
+    ctx: &VmContext, val: &crate::object::Value, module: &crate::vm::runtime::Module,
 ) -> (String, String) {
-    use crate::metadata::Value;
+    use crate::object::Value;
     let class = match val {
         Value::Object(rc) => rc.type_desc().name.clone(),
         _ => "<non-exception-value>".to_string(),
@@ -359,7 +362,7 @@ pub(super) fn find_handler(
     func: &Function,
     block_idx: usize,
     block_map: &HashMap<String, usize>,
-    type_registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::metadata::TypeDesc>>,
+    type_registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::object::TypeDesc>>,
     thrown: &Value,
     // Binds the type-parameter markers of a `catch (Err<T> e)` in a shared generic body.
     tp_env: super::type_param_env::TypeParamEnv<'_>,

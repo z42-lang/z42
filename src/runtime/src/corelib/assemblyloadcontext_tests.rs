@@ -10,7 +10,7 @@
 use crate::vm::runtime::Module;
 use crate::metadata::context::{AssemblyId, ContextId, ContextRegistry};
 use crate::metadata::tokens::TypeId;
-use crate::metadata::types::TypeDesc;
+use crate::object::TypeDesc;
 use crate::metadata::NameIndex;
 use std::sync::Arc;
 

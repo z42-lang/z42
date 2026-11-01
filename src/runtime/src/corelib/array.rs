@@ -9,9 +9,9 @@
 
 use crate::corelib::convert::box_prim_to_heap;
 use crate::corelib::reflection::read_obj_slot;
-use crate::gc::ArrRef;
-use crate::metadata::types::{default_value_for, ArrayObj};
-use crate::metadata::Value;
+use crate::object::ArrRef;
+use crate::object::{default_value_for, ArrayObj};
+use crate::object::Value;
 use crate::objops;
 use crate::vm_context::VmContext;
 
@@ -86,7 +86,7 @@ pub mod typed {
         let tag = elem_tag(&name);
         let default = default_value_for(tag);
         let heap = ctx.heap();
-        let et = crate::metadata::types::ElemType::intern(tag);
+        let et = crate::object::ElemType::intern(tag);
         // Same mode choice as `ArrayNew` (REF for a class / interface element type, …).
         Ok(match crate::objops::array::elem_mode(ctx, et, false) {
             crate::objops::array::ElemMode::Struct(layout) => ArrayObj::alloc_struct(heap, et, n, layout),

@@ -43,7 +43,7 @@ pub fn enum_name(ty: &Value, val: i64) -> Value {
 /// the name is not a member (mirrors C# `Enum.Parse` → ArgumentException). **Case-sensitive**
 /// (z42 is a case-sensitive language — no `ignoreCase` variant). Reads the
 /// existing `enum_members` metadata; no format change. add-enum-parse-isdefined.
-pub fn enum_parse(ty: &Value, name: &crate::metadata::vstr::Str) -> Result<i64, BuiltinError> {
+pub fn enum_parse(ty: &Value, name: &crate::object::string::vstr::Str) -> Result<i64, BuiltinError> {
     let td = type_handle(std::slice::from_ref(ty))
         .ok_or_else(|| BuiltinError::Argument(format!("Enum.Parse: receiver is not a type handle")))?;
     for (n, v) in td.enum_members() {
@@ -99,7 +99,7 @@ pub mod typed {
     pub fn name(ty: &Value, val: i64) -> Value { enum_name(ty, val) }
 
     #[builtin(name = "__enum_parse")]
-    pub fn parse(ty: &Value, name: &crate::metadata::vstr::Str) -> Result<i64, BuiltinError> { enum_parse(ty, name) }
+    pub fn parse(ty: &Value, name: &crate::object::string::vstr::Str) -> Result<i64, BuiltinError> { enum_parse(ty, name) }
 
     #[builtin(name = "__enum_is_defined")]
     pub fn is_defined(ty: &Value, val: i64) -> bool { enum_is_defined(ty, val) }

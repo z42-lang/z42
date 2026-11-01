@@ -13,14 +13,14 @@
 
 use crate::gc::PROMOTION_THRESHOLD;
 use crate::gc::types::RootHandle;
-use crate::gc::{GcMode, ArrRef};
+use crate::{gc::GcMode, object::ArrRef};
 use crate::vm::runtime::Module;
 use crate::metadata::ir::CLASS_FLAG_STRUCT;
-use crate::metadata::types::{
+use crate::object::{
     ArrayObj, ElemType, FieldSlot, NativeData, StructTypeLayout, TypeDesc, TypeDescCold,
     STRUCT_REF_GCREF, TAG_OBJECT,
 };
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -48,7 +48,7 @@ fn class_td(name: &str, fields: &[(&str, &str)]) -> Arc<TypeDesc> {
 
 fn age(v: &Value) -> u8 {
     match v {
-        Value::Object(gc) | Value::BoxedStruct(gc) => crate::gc::ObjRef::gen_age(gc),
+        Value::Object(gc) | Value::BoxedStruct(gc) => crate::object::ObjRef::gen_age(gc),
         Value::Array(gc) => ArrRef::gen_age(gc),
         other => panic!("not a carded heap value: {other:?}"),
     }

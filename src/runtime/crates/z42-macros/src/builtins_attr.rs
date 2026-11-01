@@ -265,8 +265,8 @@ fn expand_fn(f: &mut ItemFn, args: BuiltinArgs) -> syn::Result<(TokenStream2, sy
         #[doc(hidden)]
         fn #regs_fn(
             __ctx: &crate::vm_context::VmContext,
-            this: ::core::option::Option<crate::metadata::Value>,
-            regs: &[crate::metadata::Value],
+            this: ::core::option::Option<crate::object::Value>,
+            regs: &[crate::object::Value],
             idx: &[u32],
         ) -> #abi::CallResult {
             #inner(__ctx, &#abi::RegArgs::new(this, regs, idx))
@@ -274,7 +274,7 @@ fn expand_fn(f: &mut ItemFn, args: BuiltinArgs) -> syn::Result<(TokenStream2, sy
         #(#cfgs)*
         #[doc(hidden)]
         fn #slice_fn(
-            __ctx: &crate::vm_context::VmContext, args: &[crate::metadata::Value],
+            __ctx: &crate::vm_context::VmContext, args: &[crate::object::Value],
         ) -> #abi::CallResult {
             #inner(__ctx, args)
         }

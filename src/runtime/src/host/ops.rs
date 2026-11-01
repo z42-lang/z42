@@ -12,7 +12,10 @@ use anyhow::{anyhow, bail, Context, Result};
 use crate::corelib::io;
 use crate::interp;
 use crate::vm::runtime::Module;
-use crate::metadata::{load_artifact, load_artifact_from_bytes, merge_modules, Value};
+use crate::{
+    metadata::{load_artifact, load_artifact_from_bytes, merge_modules},
+    object::Value,
+};
 
 use super::config::ResolvedConfig;
 use super::marshal::{value_to_z42_value, z42_value_to_value};

@@ -2,7 +2,7 @@
 //! ([`IntoRet`]), and [`Blocking`] — the parked part of a builtin.
 
 use super::{BuiltinError, CallResult, RetKind};
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 /// A Rust result type a builtin can return. `None` = void (the destination register is

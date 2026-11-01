@@ -1,7 +1,7 @@
 //! `Std.OperatingSystem` builtin unit tests.
 
 use super::*;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 #[test]

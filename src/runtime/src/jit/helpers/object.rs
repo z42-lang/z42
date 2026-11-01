@@ -4,7 +4,7 @@
 
 use crate::interp::dispatch::{self, isa_object, isa_td};
 use crate::metadata::resolver::ObjNewSite;
-use crate::metadata::Value;
+use crate::object::Value;
 
 use super::super::frame::JitFrame;
 use crate::vm_context::VmContext;
@@ -28,7 +28,7 @@ pub unsafe extern "C" fn jit_obj_new(
     // expand-jit-type-args: the site's interned type-arguments handle
     // (`ObjNewInsn::type_args.as_raw()`, a leaked process-lifetime entry; the empty
     // handle for a non-generic `new`).
-    type_args: *const crate::metadata::types::TypeArgsInfo,
+    type_args: *const crate::object::TypeArgsInfo,
     // P1-2 PR 5: this site's `ResolvedTokens::obj_new` cache (null when the function was
     // compiled without a resolved token table).
     site_ptr: *const ObjNewSite,
@@ -74,7 +74,7 @@ pub unsafe extern "C" fn jit_obj_new(
     // interp `obj_new` so the two engines agree; a published object never changes its meta
     // word, object model R4 / R6). The arguments are set before the ctor runs so its `default(T)` resolves correctly.
     // SAFETY: `type_args` was baked from `TypeArgs::as_raw` at translate time.
-    let site_args = unsafe { crate::metadata::types::TypeArgs::from_raw(type_args) };
+    let site_args = unsafe { crate::object::TypeArgs::from_raw(type_args) };
     // `new List<T>()` in a generic class body: class-level markers bound from the receiver.
     let site_args = crate::interp::type_param_env::TypeParamEnv::new(&[], frame_ref.regs.first())
         .instantiate(vm, site_args);
@@ -147,7 +147,7 @@ pub unsafe extern "C" fn jit_default_of(
         Some(Value::Object(rc)) => {
             let b = rc.borrow();
             b.type_args().get(param_index as usize)
-                .map(|tag| crate::metadata::types::default_value_for(tag))
+                .map(|tag| crate::object::default_value_for(tag))
                 .unwrap_or(Value::Null)
         }
         _ => Value::Null,

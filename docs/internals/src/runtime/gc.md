@@ -210,8 +210,8 @@ chunk 永不移动 —— 地址在块生命周期内**绝对稳定**（`ObjRef:
 JIT 按帧提升的字段基址、数组元素基址也依赖它）。
 
 句柄都是 8B 标记指针（64 位：低 48 位块头地址 + 高 16 位 generation 快照；32 位：`{ptr, gen}`）：
-`ObjRef`（[gc/obj_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/obj_ref.rs)）指对象块头，
-`ArrRef`（[gc/arr_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/arr_ref.rs)）指数组块头，`VarGcRef` 是二者底下的无类型块句柄。
+`ObjRef`（[object/header/obj_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/header/obj_ref.rs)）指对象块头，
+`ArrRef`（[object/header/arr_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/header/arr_ref.rs)）指数组块头，`VarGcRef` 是二者底下的无类型块句柄。
 - Clone = memcpy 8 字节，**零原子 op**（相对 `Arc::clone` 每次
   `fetch_add` 2-4 ns）
 
@@ -264,7 +264,7 @@ VarRegion 变长块（16B 对齐原始 chunk + size-class free-list + oversized 
 | 字段 | 为什么在头里 / 推不出来的东西去了哪 |
 |---|---|
 | `generation: u16` | 陈旧句柄守卫，句柄本来就只存 16 位。**最低位是存活位**：活块为奇数，tombstone 变偶、复用变下一个奇数，所以 `borrow` / `resolve` 一次相等比较同时判「死了」与「被复用」；M12 填进空洞的块保持偶数 generation 直到 `publish` 以 release 写入奇数（遍历者 acquire 读） |
-| `marked: u8` | 标记位（minor 位 + major epoch，`refs::mark_cell`） |
+| `marked: u8` | 标记位（minor 位 + major epoch，`object::header::marks::mark_cell`） |
 | `type_tag: u8` | 块种类 / 代龄 / 记忆集 / ASCII 或 meta / 侧表位（位表见 [GC TLAB](gc-tlab.md#变长区的分代)），屏障在 mutator 线程无锁读 |
 | `size: u32` | payload 长度：字符串长度、数组的元素区（数组长度由它和元素宽度推出）、对象的字段区 + meta。**size class 是它的函数**（`chunk::payload_class`），chunk 遍历按它的 footprint 步进 |
 | 种类字 | 对象的 `Arc<TypeDesc>`、数组的 `&'static ArrayDesc`；字符串块惰性缓存 `GetHashCode` 的 FNV 值（不可变 ⇒ 块常量；null=未算，carve/复用必清）；闭包恒空 |
@@ -289,7 +289,7 @@ drop glue 只对类型掩码里的块调用（`drop_type_bit`：`Object`、`Arra
 空洞复用（M12）把块填进同 size class 的死槽，不管原来是哪种块：填洞时把种类字清空（对象的种类字 drop glue 已清，
 数组的描述符是不计数的 `&'static`、tombstone 时原样留在死头里）。
 
-**数组直接在块里构造**（[`metadata/types/array.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/array.rs)）：
+**数组直接在块里构造**（[`object/array/array.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/array/array.rs)）：
 所有构造器（`alloc_filled` / `alloc_from_iter` / `alloc_typed_iter` / `alloc_struct` / `alloc_frozen` / `alloc_bytes` / `deep_copy`）
 都经一条 `MagrGC::alloc_array_with(desc, len, layout, init)`：按 `desc.payload_bytes(len)` 取一个清零块、写入描述符（与 STRUCT 的布局字）、
 在**未发布**的数组上跑 `init` 写元素，然后 `publish` 并记账——与对象的漏斗同形。`ArrayNew`（interp + JIT `jit_array_new`）/
@@ -314,7 +314,7 @@ REF / MIXED / FROZEN 是元素本身，struct[] 是元素的每个引用叶子�
 `AtomicU64` 领一个**永不复用**的 `epoch`（`MagrGC::heap_epoch()`），`HeapGuard` 把它随
 `current_heap` 一起装进 thread-local（`current_heap_epoch()`，热路径只多一个 `u64` 读）。
 用途：**给「按 GC 块地址索引、但生命周期长于单个堆」的 thread-local 缓存做作用域**。典型即
-`corelib/str_meta` 的字符元数据缓存——它跨 `VmContext` 拆毁存活；旧堆拆毁后 `VarRegion` 的
+`object/string/str_meta` 的字符元数据缓存——它跨 `VmContext` 拆毁存活；旧堆拆毁后 `VarRegion` 的
 chunk 内存还给系统 malloc，新堆可能在**同一地址**重分配块，且 bump 新块 `generation` 归零，
 于是旧堆遗留条目（同址、同 gen=0）会**假命中**返回错误串长（wasm32 上线性内存密集复用地址 →
 `"".Length==13` 类串味；`is_live` 的 gen 守卫只防同 region 内复用，防不住跨堆）。epoch 单调 ⇒
