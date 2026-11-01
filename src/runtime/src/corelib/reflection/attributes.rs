@@ -126,7 +126,7 @@ pub fn param_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate
     let position = position as usize;
     // Resolve the backing Function (main module first, then lazy loader) and read
     // its SIGS-aligned per-param attrs. wire_index = position + (this offset).
-    let lookup = |f: &crate::metadata::ir::Function| {
+    let lookup = |f: &crate::vm::runtime::Function| {
         let wire_index = position + if f.is_static { 0 } else { 1 };
         f.param_attributes().get(wire_index).map(|a| a.to_vec())
     };

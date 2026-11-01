@@ -2,7 +2,8 @@
 //! descriptors on package load, fixed-up versions after the inheritance fixup.
 
 use super::*;
-use crate::metadata::ir::{ClassDesc, FieldDesc, Module};
+use crate::vm::runtime::Module;
+use crate::metadata::ir::{ClassDesc, FieldDesc};
 use crate::metadata::type_table::TypeTable;
 
 fn class(name: &str, base: Option<&str>, fields: &[&str]) -> ClassDesc {
@@ -31,14 +32,12 @@ fn class(name: &str, base: Option<&str>, fields: &[&str]) -> ClassDesc {
 }
 
 fn artifact(module_name: &str, classes: Vec<ClassDesc>) -> crate::metadata::loader::LoadedArtifact {
-    let mut module = Module {
+    let mut module = Module::new(crate::metadata::image::ModuleData {
         name: module_name.to_owned(),
         string_pool: vec![],
         classes,
-        functions: vec![],
-        type_registry: FxHashMap::default(),
         func_index: FxHashMap::default(),
-    };
+    }, vec![], FxHashMap::default());
     crate::metadata::loader::build_type_registry(&mut module);
     crate::metadata::loader::LoadedArtifact {
         module,

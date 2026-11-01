@@ -43,7 +43,7 @@ mod lazy_load_tests;
 #[path = "generic_call_tests.rs"]
 mod generic_call_tests;
 
-use crate::metadata::Module;
+use crate::vm::runtime::Module;
 use vm_interface::JitVm;
 use anyhow::Result;
 use crate::vm_context::VmContext;

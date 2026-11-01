@@ -26,7 +26,7 @@
 //! host stdout sink, so initializer output reaches the host).
 
 use crate::metadata::lazy_loader::ZpkgCandidate;
-use crate::metadata::Module;
+use crate::vm::runtime::Module;
 use crate::vm_context::VmContext;
 use std::path::PathBuf;
 use std::pin::Pin;

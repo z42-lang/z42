@@ -5,14 +5,12 @@ use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn module_with_pool(pool: &[&str]) -> Arc<Module> {
-    Arc::new(Module {
+    Arc::new(Module::new(crate::metadata::image::ModuleData {
         name: "Entry".to_string(),
         string_pool: pool.iter().map(|s| s.to_string()).collect(),
         classes: vec![],
-        functions: vec![],
-        type_registry: Default::default(),
         func_index: Default::default(),
-    })
+    }, vec![], Default::default()))
 }
 
 /// An allocator that counts its calls (strings are leaked: no heap in these tests).

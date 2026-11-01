@@ -4,7 +4,8 @@
 //! location, and the label-map branch fallback. See the 「热循环布局」 note in
 //! `exec_instr.rs`.
 
-use crate::metadata::{Function, Module, Value};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::{Context, Result};
 use std::collections::HashMap;

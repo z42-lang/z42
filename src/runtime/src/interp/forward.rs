@@ -43,9 +43,11 @@
 //! not on any hot path.
 
 use crate::exception::{FrameSnapshot, VmFrame};
-use crate::metadata::ir::{Function, Instruction, Terminator};
+use crate::metadata::ir::{Instruction, Terminator};
+use crate::vm::runtime::Function;
 use crate::metadata::tokens::UNRESOLVED;
-use crate::metadata::{Module, Value};
+use crate::vm::runtime::Module;
+use crate::metadata::Value;
 use crate::vm_context::VmContext;
 
 /// The builtin id `func` forwards to, if `func` is exactly

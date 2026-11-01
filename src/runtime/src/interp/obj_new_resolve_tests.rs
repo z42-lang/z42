@@ -6,7 +6,8 @@ use crate::interp::Frame;
 use crate::metadata::ir::{BasicBlock, Instruction, ObjNewInsn, Terminator};
 use crate::metadata::index::name::NameIndex;
 use crate::metadata::tokens::{alloc_type_id_block, FnId, TypeId};
-use crate::metadata::types::{ExecMode, TypeDescCold};
+use crate::metadata::ir::ExecMode;
+use crate::metadata::types::TypeDescCold;
 
 /// A ctor (receiver in reg 0) with `params` physical parameters, body `Ret`.
 fn ctor(name: &str, params: usize) -> Function {
@@ -14,7 +15,7 @@ fn ctor(name: &str, params: usize) -> Function {
 }
 
 fn func(name: &str, params: usize, instructions: Vec<Instruction>) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: params,
         ret_type: "void".to_string(),
@@ -26,19 +27,16 @@ fn func(name: &str, params: usize, instructions: Vec<Instruction>) -> Function {
         }],
         is_static: false,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 4,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 fn class(name: &str, base_unmerged: bool) -> Arc<TypeDesc> {
@@ -58,14 +56,12 @@ fn class(name: &str, base_unmerged: bool) -> Arc<TypeDesc> {
 
 fn module(name: &str, functions: Vec<Function>, types: Vec<Arc<TypeDesc>>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![],
         classes: vec![],
-        functions,
-        type_registry: types.into_iter().map(|t| (t.name.clone(), t)).collect(),
         func_index,
-    }
+    }, functions, types.into_iter().map(|t| (t.name.clone(), t)).collect())
 }
 
 fn register_lazy_fn(ctx: &VmContext, f: Function) -> Arc<Function> {
@@ -256,7 +252,7 @@ fn non_entry_module_never_uses_the_cache() {
 fn resolver_prefills_registered_class_and_ctor() {
     let new_foo = Instruction::ObjNew(Box::new(ObjNewInsn {
         dst: 1, class_name: "Entry.Foo".to_string(), ctor_name: "Pkg.Foo..ctor$0".to_string(),
-        args: Box::new([]), type_args: crate::metadata::types::TypeArgs::empty(), stack_alloc: false, ctor_known: true,
+        args: Box::new([]), type_args: Box::new([]), stack_alloc: false, ctor_known: true,
     }));
     let td = class("Entry.Foo", false);
     let ctx = VmContext::with_module(module(

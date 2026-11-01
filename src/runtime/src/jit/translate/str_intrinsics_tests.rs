@@ -11,10 +11,9 @@ use crate::jit::forward::{builtin_forward, chained_forward, ForwardLookup, StrIn
 use crate::jit::frame::JitFrame;
 use crate::jit::invoke::{call_entry, NativeOutcome};
 use crate::jit::runtime::install;
-use crate::metadata::ir::{
-    BasicBlock, BuiltinInsn, CallInsn, Function, Instruction, Module, Terminator, VCallInsn,
-};
-use crate::metadata::types::ExecMode;
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator, VCallInsn};
+use crate::metadata::ir::ExecMode;
 use crate::metadata::vstr::{jit_layout, Str};
 use crate::metadata::{IrType, Value};
 use crate::vm_context::VmContext;
@@ -27,7 +26,7 @@ const AT_CALL: usize = 4;
 const AT_VCALL: usize = 5;
 
 fn func(name: &str, params: usize, regs: &[IrType], instr: Instruction, ret: u32) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: params,
         ret_type: "i64".to_string(),
@@ -39,19 +38,16 @@ fn func(name: &str, params: usize, regs: &[IrType], instr: Instruction, ret: u32
         }],
         is_static: false,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: regs.len().saturating_sub(1) as u32,
         cold: None,
         reg_types: regs.into(),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 fn builtin(dst: u32, name: &str, args: &[u32]) -> Instruction {
@@ -82,14 +78,12 @@ fn module() -> Module {
         func("T.AtV", 2, &[Str, I64, Char], vcall(2, 0, "CharAt", &[1]), 2),
     ];
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: "T".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),
-        functions,
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index,
-    }
+    }, functions, rustc_hash::FxHashMap::default())
 }
 
 /// Translate-time lookup over the test module. (The production one also requires
@@ -268,10 +262,12 @@ fn char_comparisons_match_the_interpreter() {
         .map(|(n, mk)| func(&format!("T.{n}"), 2, &[Char, Char, Bool], mk(2, 0, 1), 2))
         .collect();
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    let m = Module {
-        name: "T".to_string(), string_pool: Vec::new(), classes: Vec::new(), functions,
-        type_registry: rustc_hash::FxHashMap::default(), func_index,
-    };
+    let m = Module::new(crate::metadata::image::ModuleData {
+        name: "T".to_string(),
+        string_pool: Vec::new(),
+        classes: Vec::new(),
+        func_index,
+    }, functions, rustc_hash::FxHashMap::default());
     let chars = ['0', '7', '9', 'a', 'z', 'é', '你', '\u{10FFFF}'];
     for idx in 0..ops.len() {
         for &x in &chars {

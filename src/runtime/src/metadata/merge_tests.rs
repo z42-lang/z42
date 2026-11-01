@@ -1,5 +1,6 @@
 use super::*;
-use crate::metadata::{BasicBlock, ExecMode, Function, Instruction, Module, Terminator};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::{BasicBlock, ExecMode, Instruction, Terminator};
 
 fn make_module(name: &str, strings: &[&str], const_str_idx: u32) -> Module {
     make_module_with(name, strings, const_str_idx, vec![], vec![])
@@ -18,7 +19,7 @@ fn make_module_with(
         instructions: vec![instr],
         terminator: Terminator::Ret { reg: None },
     };
-    let mut functions = vec![Function {
+    let mut functions = vec![Function::new(crate::metadata::ir::Function {
         name: format!("{}.Main", name),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -32,22 +33,15 @@ fn make_module_with(
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }];
+    })];
     functions.extend(extra_functions);
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: name.to_string(),
         string_pool: strings.iter().map(|s| s.to_string()).collect(),
         classes,
-        functions,
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, functions, rustc_hash::FxHashMap::default())
 }
 
 #[test]
@@ -164,10 +158,10 @@ fn merge_deduplicates_classes_by_name() {
 
 #[test]
 fn merge_deduplicates_functions_by_name() {
-    let dup_func = Function {
+    let dup_func = Function::new(crate::metadata::ir::Function {
         name: "A.Main".to_string(),
         param_count: 0,
-        ret_type: "i32".to_string(), // different ret_type to distinguish
+        ret_type: "i32".to_string(),
         exec_mode: ExecMode::Interp,
         blocks: vec![BasicBlock {
             label: "entry".to_string(),
@@ -176,19 +170,16 @@ fn merge_deduplicates_functions_by_name() {
         }],
         is_static: false,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 0,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    };
+    });
     let m0 = make_module("A", &["hello"], 0);
     let m1 = make_module_with("B", &["world"], 0, vec![], vec![dup_func]);
 

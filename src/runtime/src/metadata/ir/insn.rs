@@ -14,7 +14,7 @@ pub type Reg = u32;
 // See docs/internals/src/formats/ir.md (hot/cold boxing strategy).
 
 /// Payload for [`super::Instruction::Call`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CallInsn {
     pub dst: Reg,
     pub func: String,
@@ -27,16 +27,15 @@ pub struct CallInsn {
 }
 
 /// Payload for [`super::Instruction::ArrayNew`] (add-reflection-array-element-type).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ArrayNewInsn {
     pub dst: Reg,
     pub size: Reg,
     pub elem_tag: u8,
     /// Element type's FQ name (e.g. "int" / "geometry.Point"), resolved from the
-    /// string pool at decode and **interned** there ([`ElemType`](crate::metadata::types::ElemType)), so creating the
-    /// array copies an 8 B handle instead of allocating a name. Stored on the array's
-    /// `ArrayObj` so `arr.GetType().GetElementType()` is non-erased. Empty = absent (legacy).
-    pub element_type: crate::metadata::types::ElemType,
+    /// string pool at decode. The VM interns its own allocation-site handle.
+    /// Empty = absent (legacy).
+    pub element_type: String,
     /// add-escape-analysis-stack-alloc (zbc 1.29): escape analysis proved this
     /// array does not escape its creating frame → interp allocates it in the
     /// frame arena (GC-skipped). JIT ignores this flag (heap-allocates) in v1.
@@ -51,18 +50,18 @@ pub struct ArrayNewInsn {
 }
 
 /// Payload for [`super::Instruction::ArrayNewLit`] (add-reflection-array-element-type).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ArrayNewLitInsn {
     pub dst: Reg,
     pub elems: Box<[Reg]>,
-    /// Interned element type FQ name (see [`ArrayNewInsn::element_type`]).
-    pub element_type: crate::metadata::types::ElemType,
+    /// Element type FQ name (see [`ArrayNewInsn::element_type`]).
+    pub element_type: String,
     /// add-escape-analysis-stack-alloc (zbc 1.29): non-escaping → frame arena (interp).
     pub stack_alloc: bool,
 }
 
 /// Payload for [`super::Instruction::Builtin`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BuiltinInsn {
     pub dst: Reg,
     pub name: String,
@@ -70,14 +69,14 @@ pub struct BuiltinInsn {
 }
 
 /// Payload for [`super::Instruction::LoadFn`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LoadFnInsn {
     pub dst: Reg,
     pub func: String,
 }
 
 /// Payload for [`super::Instruction::MkClos`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MkClosInsn {
     pub dst: Reg,
     pub fn_name: String,
@@ -85,7 +84,7 @@ pub struct MkClosInsn {
 }
 
 /// Payload for [`super::Instruction::ObjNew`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ObjNewInsn {
     pub dst: Reg,
     pub class_name: String,
@@ -94,9 +93,8 @@ pub struct ObjNewInsn {
     /// Resolved generic type-arguments for this allocation (e.g. `["int"]` for
     /// `new Foo<int>()`, the literal `["T"]` in erased generic code); empty for non-generic
     /// and for an instantiation whose class name already carries them (`Demo.Box<int>`).
-    /// Interned at decode ([`TypeArgs`](crate::metadata::types::TypeArgs)): every instance
-    /// the site creates shares the one handle.
-    pub type_args: crate::metadata::types::TypeArgs,
+    /// The VM interns a site handle when this function first needs it.
+    pub type_args: Box<[String]>,
     /// add-escape-analysis-stack-alloc (zbc 1.29): escape analysis proved this
     /// object does not escape AND its ctor does not leak `this` → interp allocates
     /// it in the frame arena (GC-skipped). JIT ignores this flag (heap) in v1.
@@ -117,7 +115,7 @@ pub struct ObjNewInsn {
 /// instantiation type arguments (`typeof(Box<int>)` → `["int"]`; empty for
 /// non-generic / open). A non-empty list marks a *constructed* generic type.
 /// add-reflection-generic-type-definition (zbc 1.18).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeofInsn {
     pub dst: Reg,
     pub type_name: String,
@@ -125,7 +123,7 @@ pub struct TypeofInsn {
 }
 
 /// Payload for [`super::Instruction::FieldGet`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FieldGetInsn {
     pub dst: Reg,
     pub obj: Reg,
@@ -133,7 +131,7 @@ pub struct FieldGetInsn {
 }
 
 /// Payload for [`super::Instruction::FieldSet`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FieldSetInsn {
     pub obj: Reg,
     pub field_name: String,
@@ -141,7 +139,7 @@ pub struct FieldSetInsn {
 }
 
 /// Payload for [`super::Instruction::VCall`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VCallInsn {
     pub dst: Reg,
     pub obj: Reg,
@@ -153,43 +151,37 @@ pub struct VCallInsn {
 }
 
 /// Payload for [`super::Instruction::IsInstance`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IsInstanceInsn {
     pub dst: Reg,
     pub obj: Reg,
     pub class_name: String,
-    /// Runtime-only: `class_name`'s type-test key, resolved on first use
-    /// (see [`TypeKeyCell`](crate::metadata::tokens::TypeKeyCell)).
-    pub target: crate::metadata::tokens::TypeKeyCell,
 }
 
 /// Payload for [`super::Instruction::AsCast`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AsCastInsn {
     pub dst: Reg,
     pub obj: Reg,
     pub class_name: String,
-    /// Runtime-only: `class_name`'s type-test key, resolved on first use
-    /// (see [`TypeKeyCell`](crate::metadata::tokens::TypeKeyCell)).
-    pub target: crate::metadata::tokens::TypeKeyCell,
 }
 
 /// Payload for [`super::Instruction::StaticGet`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StaticGetInsn {
     pub dst: Reg,
     pub field: String,
 }
 
 /// Payload for [`super::Instruction::StaticSet`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StaticSetInsn {
     pub field: String,
     pub val: Reg,
 }
 
 /// Payload for [`super::Instruction::CallNative`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CallNativeInsn {
     pub dst: Reg,
     pub module: String,
@@ -199,7 +191,7 @@ pub struct CallNativeInsn {
 }
 
 /// Payload for [`super::Instruction::StructAlloc`] (add-struct-value-semantics Phase A).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StructAllocInsn {
     pub dst: Reg,
     /// FQ value-type name — the arena records it so GC can scan blob reference
@@ -226,7 +218,7 @@ pub struct StructAllocInsn {
 /// 偏移才变**（`Pair<A,B>` 的 First/Second 永远 0/1）⇒ 解析是 O(1) 下标，无哈希、无字符串、
 /// 不需要 IC。嵌套链（`line.a.x`）此前被编译器**求和展平**成一个立即数，现在保留为路径。
 /// 实测分布：深度 1 占 85.1%，最大深度 4（见提案）。
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StructFieldGetInsn {
     pub dst: Reg,
     pub base: Reg,
@@ -237,7 +229,7 @@ pub struct StructFieldGetInsn {
 
 /// Payload for [`super::Instruction::StructFieldSetPrim`] — 写侧镜像，语义见
 /// [`StructFieldGetInsn`]。
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StructFieldSetInsn {
     pub base: Reg,
     pub root_type: String,
@@ -247,7 +239,7 @@ pub struct StructFieldSetInsn {
 }
 
 /// Payload for [`super::Instruction::LoadFieldAddr`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LoadFieldAddrInsn {
     pub dst: Reg,
     /// Reg holding the object (must be `Value::Object`).

@@ -43,7 +43,7 @@ use anyhow::Result;
 use crate::metadata::func_table::FuncTable;
 use crate::metadata::seg_vec::SparseSegTable;
 use crate::metadata::tokens::FnId;
-use crate::metadata::{Function, Module};
+use crate::vm::runtime::{Function, Module};
 use crate::vm_context::VmContext;
 
 use super::forward::CompileLookup;

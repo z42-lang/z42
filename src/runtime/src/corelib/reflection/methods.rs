@@ -377,7 +377,7 @@ pub(super) fn resolve_func_sig(
     // whose `reg` matches its index. Empty string when no debug symbols are
     // present (the builder falls back to `arg{n}`).
     fn extract(
-        f: &crate::metadata::ir::Function,
+        f: &crate::vm::runtime::Function,
     ) -> (usize, String, bool, Vec<String>, Vec<String>, u8, u8, u16, u8, Vec<(u8, i64, String)>) {
         // add-param-metadata (unify P1-d): prefer the authoritative SIGS param
         // names; fall back to the DBUG local-var guess (empty → `arg{n}` later).

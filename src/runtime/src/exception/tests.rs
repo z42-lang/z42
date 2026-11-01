@@ -11,15 +11,17 @@ fn line(block: u32, instr: u32, line: u32, column: u32, file: Option<&str>) -> L
 /// with the given parameter types and line table. Shared with other tests
 /// that need a function for a `VmFrame` to point at.
 pub(crate) fn test_function(name: &str, param_types: &[&str], line_table: Vec<LineEntry>) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: param_types.len(),
         ret_type: "void".to_string(),
-        exec_mode: crate::metadata::types::ExecMode::Interp,
+        exec_mode: crate::metadata::ir::ExecMode::Interp,
         blocks: Vec::new(),
         is_static: true,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 0,
         cold: Some(Box::new(FunctionCold {
             param_types: param_types.iter().map(|t| t.to_string()).collect(),
@@ -29,13 +31,8 @@ pub(crate) fn test_function(name: &str, param_types: &[&str], line_table: Vec<Li
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 #[test]
@@ -168,7 +165,7 @@ fn format_prefers_line_over_offset() {
 #[cfg(test)]
 mod make_stdlib_exception_tests {
     use super::*;
-    use crate::metadata::ir::Module;
+    use crate::vm::runtime::Module;
     use crate::metadata::tokens::TypeId;
     use crate::metadata::types::FieldSlot;
     use crate::vm_context::VmContext;
@@ -176,14 +173,12 @@ mod make_stdlib_exception_tests {
     use std::sync::Arc;
 
     fn empty_module() -> Module {
-        Module {
+        Module::new(crate::metadata::image::ModuleData {
             name: "test".into(),
             string_pool: vec![],
             classes: vec![],
-            functions: vec![],
-            type_registry: rustc_hash::FxHashMap::default(),
             func_index: rustc_hash::FxHashMap::default(),
-        }
+        }, vec![], rustc_hash::FxHashMap::default())
     }
 
     fn exception_type_desc(name: &str, base: Option<&str>) -> Arc<TypeDesc> {

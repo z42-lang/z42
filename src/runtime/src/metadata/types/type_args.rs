@@ -9,7 +9,7 @@
 //! - [`TypeArgs`] = 指向驻留条目的 **8 B 细指针**，`Copy`，同内容恒同址；
 //! - 条目持有 `Box<[String]>`，[`TypeArgs::as_slice`] 给出 `&'static [String]`，
 //!   所有读者照旧拿 `&[String]`，可见行为逐字不变；
-//! - 驻留在**解码 / 注册期**完成（`ObjNewInsn::type_args`、`TypeDescCold::type_args`），
+//! - 驻留在 VM 函数站点侧表首次建立或类型注册时完成；IR 只保存名称，
 //!   建对象的热路径只拷一个指针，不查表、不哈希。
 //!
 //! 进程级而非 VM 级：包按需惰性加载、多个 VM 可以并存，句柄要在它们之间共享（同 `ElemType`）。

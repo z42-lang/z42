@@ -14,7 +14,8 @@
 use crate::gc::PROMOTION_THRESHOLD;
 use crate::gc::types::RootHandle;
 use crate::gc::{GcMode, ArrRef};
-use crate::metadata::ir::{Module, CLASS_FLAG_STRUCT};
+use crate::vm::runtime::Module;
+use crate::metadata::ir::CLASS_FLAG_STRUCT;
 use crate::metadata::types::{
     ArrayObj, ElemType, FieldSlot, NativeData, StructTypeLayout, TypeDesc, TypeDescCold,
     STRUCT_REF_GCREF, TAG_OBJECT,
@@ -86,10 +87,12 @@ fn exception_module() -> Module {
     ]);
     let mut type_registry = rustc_hash::FxHashMap::default();
     type_registry.insert("Std.Exception".to_string(), td);
-    Module {
-        name: "test".into(), string_pool: vec![], classes: vec![], functions: vec![],
-        type_registry, func_index: rustc_hash::FxHashMap::default(),
-    }
+    Module::new(crate::metadata::image::ModuleData {
+        name: "test".into(),
+        string_pool: vec![],
+        classes: vec![],
+        func_index: rustc_hash::FxHashMap::default(),
+    }, vec![], type_registry)
 }
 
 /// 异常对象通常早就老了（构造、存起来、晚些才抛），throw 点却当场分配 trace 字符串：一次老→年轻写入。

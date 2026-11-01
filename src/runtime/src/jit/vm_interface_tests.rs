@@ -8,16 +8,17 @@
 //!    see `vm_interface.rs` module docs).
 
 use super::*;
-use crate::metadata::ir::{BasicBlock, ClassDesc, Function, Module, Terminator};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::ir::{BasicBlock, ClassDesc, Terminator};
 use crate::metadata::tokens::TypeId;
 use crate::metadata::{NameIndex, TypeDesc};
-use crate::metadata::types::ExecMode;
+use crate::metadata::ir::ExecMode;
 use std::sync::Arc;
 
 // ── Module impl forwards correctly ───────────────────────────────────────────
 
 fn empty_function(name: &str) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -29,19 +30,16 @@ fn empty_function(name: &str) -> Function {
         }],
         is_static: false,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 0,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 fn empty_type_desc(name: &str, id: TypeId) -> Arc<TypeDesc> {
@@ -75,14 +73,12 @@ fn module_with(
         let td = empty_type_desc(class_name, TypeId(idx as u32));
         type_registry.insert((*class_name).to_string(), td);
     }
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: name.to_string(),
         string_pool,
         classes: Vec::new(),
-        functions,
-        type_registry,
         func_index,
-    }
+    }, functions, type_registry)
 }
 
 #[test]

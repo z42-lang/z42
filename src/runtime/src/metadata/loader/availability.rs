@@ -29,7 +29,8 @@
 //!
 //! 加载放大因此有界（≤ `available!` 触及的不同 dep 文件数），不会退化成「加载全世界」。
 
-use crate::metadata::ir::{Instruction, Module, Terminator};
+use crate::metadata::ir::{Instruction, Terminator};
+use crate::vm::runtime::Module;
 use crate::metadata::namespace_index::ZpkgCandidate;
 use std::collections::HashSet;
 
@@ -269,7 +270,7 @@ fn remove_unreachable_blocks(module: &mut Module, fi: usize) -> usize {
     let nblocks = module.functions[fi].blocks.len();
     if nblocks == 0 { return 0; }
 
-    let index_of = |label: &str, f: &crate::metadata::ir::Function| -> Option<usize> {
+    let index_of = |label: &str, f: &crate::vm::runtime::Function| -> Option<usize> {
         f.blocks.iter().position(|b| b.label == label)
     };
 

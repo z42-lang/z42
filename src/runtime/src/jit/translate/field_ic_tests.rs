@@ -2,6 +2,7 @@
 //! natively (and, for values, on the interpreter), and checks which accesses left the native path
 //! through the helper counter (`helpers::object_field::HELPER_CALLS`).
 
+use crate::metadata::ir::ExecMode;
 use crate::gc::PROMOTION_THRESHOLD;
 use crate::gc::GcMode;
 use crate::jit::forward::ForwardLookup;
@@ -9,10 +10,11 @@ use crate::jit::frame::JitFrame;
 use crate::jit::helpers::object_field::HELPER_CALLS;
 use crate::jit::invoke::{call_entry, NativeOutcome};
 use crate::jit::runtime::install;
-use crate::metadata::ir::{BasicBlock, FieldGetInsn, FieldSetInsn, Function, Instruction, Module, Terminator};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::ir::{BasicBlock, FieldGetInsn, FieldSetInsn, Instruction, Terminator};
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{
-    ExecMode, FieldAccess, NativeData, ObjectLayout, TypeDesc, TypeDescCold,
+    FieldAccess, NativeData, ObjectLayout, TypeDesc, TypeDescCold,
     STRUCT_LEAF_GCREF, STRUCT_LEAF_PRIM, TAG_I32, TAG_I64, TAG_OBJECT,
 };
 use crate::metadata::{IrType, Value};
@@ -59,14 +61,24 @@ fn new_obj(vm: &VmContext, td: &Arc<TypeDesc>, n: usize) -> Value {
 
 fn func(name: &str, params: usize, regs: &[IrType], blocks: Vec<BasicBlock>) -> Function {
     let block_index = blocks.iter().enumerate().map(|(i, b)| (b.label.clone(), i)).collect();
-    Function {
-        name: name.to_string(), param_count: params, ret_type: "i64".to_string(),
-        exec_mode: ExecMode::Jit, blocks, is_static: true, visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
-        max_reg: regs.len().saturating_sub(1) as u32, cold: None, reg_types: regs.into(),
-        block_index, branch_targets: Vec::new(), fused_tails: Vec::new(), frame_meta: None,
-        resolved: std::sync::OnceLock::new(), owner_init: Default::default(), id: Default::default(), forward: Default::default(),
-    }
+    Function::new(crate::metadata::ir::Function {
+        name: name.to_string(),
+        param_count: params,
+        ret_type: "i64".to_string(),
+        exec_mode: ExecMode::Jit,
+        blocks,
+        is_static: true,
+        visibility: 0,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
+        max_reg: regs.len().saturating_sub(1) as u32,
+        cold: None,
+        reg_types: regs.into(),
+        block_index,
+        branch_targets: Vec::new(),
+        frame_meta: None,
+    })
 }
 
 fn block(label: &str, instructions: Vec<Instruction>, terminator: Terminator) -> BasicBlock {
@@ -83,10 +95,12 @@ fn set(obj: u32, f: &str, val: u32) -> Instruction {
 
 fn module(functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module {
-        name: "T".to_string(), string_pool: Vec::new(), classes: Vec::new(), functions,
-        type_registry: rustc_hash::FxHashMap::default(), func_index,
-    }
+    Module::new(crate::metadata::image::ModuleData {
+        name: "T".to_string(),
+        string_pool: Vec::new(),
+        classes: Vec::new(),
+        func_index,
+    }, functions, rustc_hash::FxHashMap::default())
 }
 
 /// The production translator's view of the VM: no call forwarding, the heap's barrier gate.

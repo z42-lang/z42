@@ -63,12 +63,12 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
   描述符被释放、地址被别的类型复用（可回收的 load context、REPL 轮次）也不会让键误命中。同一类型的几个描述符版本
   （主模块里只含自身字段的那份、加载器 fixup 出的合并副本）同 id、同名、同基类链，判定相同。没有 id 的描述符
   （`UNRESOLVED`：按对象现建的回落描述符、corelib 原生句柄单例）照常走遍历作答，**不进缓存**。
-- **目标键**：站点上的 `TypeKeyCell`（`IsInstanceInsn.target` / `AsCastInsn.target` / `ExceptionEntry.catch_key`；
+- **目标键**：`vm::runtime::Function` 侧表里的 `TypeKeyCell`（`type_key(block, instr)` / `catch_key(entry)`；
   `is_exception_subclass` 用一个 `static`）。首次判定时由 `dispatch::target_key` 按名解析一次：名字是已登记类型
   （主模块注册表，再查惰性加载器——只查不加载）→ 取它的 `TypeId`；否则（擦除名 `Demo.GBox`、arity 形 `GBox$1`、
   所在包尚未加载的接口）→ `TypeTable::name_key` 为这个**名字**保留一个 id（同一发号器，不会分给描述符）。
-  两种键都进程唯一、各自只代表一个目标名，而判定只取决于「接收者类型的名字链 + 目标名」，所以键可以放在
-  共享元数据里，不论哪个 VM 解析的都对；目标类型后来才加载、键仍是先前保留的那个，判定照旧正确。
+  两种键都进程唯一、各自只代表一个目标名，而判定只取决于「接收者类型的名字链 + 目标名」，VM 仍为每台实例保留独立的站点单元，
+  不把解析结果写入共享映像；目标类型后来才加载、键仍是先前保留的那个，判定照旧正确。
   反射等只有名字的调用方（`is_subclass_or_eq_td`）每次按名求键，走同一份 memo。
 
 `IsaCache` 每槽是**一个** `AtomicU64`：`recv << 32 | verdict << 31 | target`（两个 id 都在 `IMPORT_BASE = 1<<31`
@@ -76,7 +76,7 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
 `UNRESOLVED`，永不匹配）。命中 = 一次 relaxed load + 一次比较，无锁无哈希；直接映射、冲突覆盖，未命中回 memo
 （`Mutex<FxHashMap<u64, bool>>`，键同一个打包值）再回填。两者在显式模块 (re)load（REPL 重定义）时一起清空。
 JIT 侧不自带子类遍历：`jit_is_instance` / `jit_as_cast` / `jit_match_catch_type` 多收一个烘焙的 `TypeKeyCell`
-指针（指令 / 异常表行里的那个，与代码同寿），同样调 `isa_td`。
+指针（VM 函数侧表里的单元，与该 VM 的代码同寿），同样调 `isa_td`。
 
 #### 缓存键必须是**全局**类型身份
 

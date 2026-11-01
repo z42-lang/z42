@@ -36,7 +36,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use super::ir::{Function, Instruction};
+use crate::vm::runtime::Function;
+use super::ir::Instruction;
 use super::loader::{load_artifact, load_artifact_from_bytes, LoadedArtifact};
 use super::types::TypeDesc;
 use super::namespace_index;

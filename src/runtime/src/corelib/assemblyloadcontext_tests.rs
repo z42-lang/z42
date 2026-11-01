@@ -7,7 +7,7 @@
 //! throws) is exercised end-to-end by the golden test
 //! `src/tests/reflection/load_context/`.
 
-use crate::metadata::ir::Module;
+use crate::vm::runtime::Module;
 use crate::metadata::context::{AssemblyId, ContextId, ContextRegistry};
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::TypeDesc;
@@ -34,14 +34,12 @@ fn mk_module(type_names: &[&str]) -> Module {
     for n in type_names {
         type_registry.insert(n.to_string(), dummy_type_desc(n));
     }
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: "dep".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),
-        functions: Vec::new(),
-        type_registry,
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, Vec::new(), type_registry)
 }
 
 #[test]

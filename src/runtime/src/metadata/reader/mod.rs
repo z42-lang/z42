@@ -21,7 +21,7 @@ use super::ir::{
 use super::format::{ZpkgDep, ZPKG_MAGIC, ZBC_MAGIC, verify_zbc_version, verify_zpkg_version,
     ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR, ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR};
 use super::debug::DbugFuncEntry;
-use super::types::ExecMode;
+use super::ir::ExecMode;
 
 // Section decoders and sidecar/container readers.
 mod opcodes;
@@ -187,37 +187,38 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
             Some(Box::new(cold_inner))
         };
         Function {
-            name:            sig.map(|s| s.name.clone()).unwrap_or_else(|| format!("func#{i}")),
-            param_count:     sig.map(|s| s.param_count).unwrap_or(0),
-            ret_type:        sig.map(|s| s.ret_type.clone()).unwrap_or_else(|| "void".to_owned()),
-            exec_mode:       sig.map(|s| s.exec_mode).unwrap_or(ExecMode::Interp),
-            blocks:          body.blocks,
-            is_static:       sig.map(|s| s.is_static).unwrap_or(false),
-            visibility:      sig.map(|s| s.visibility).unwrap_or(0),
-            method_flags:    sig.map(|s| s.method_flags).unwrap_or(0),
-            min_arg:         sig.map(|s| s.min_arg).unwrap_or(0),
-            params_from:     sig.map(|s| s.params_from).unwrap_or(0xFF),
-            max_reg:         0,
+            name: sig
+                .map(|s| s.name.clone())
+                .unwrap_or_else(|| format!("func#{i}")),
+            param_count: sig.map(|s| s.param_count).unwrap_or(0),
+            ret_type: sig
+                .map(|s| s.ret_type.clone())
+                .unwrap_or_else(|| "void".to_owned()),
+            exec_mode: sig.map(|s| s.exec_mode).unwrap_or(ExecMode::Interp),
+            blocks: body.blocks,
+            is_static: sig.map(|s| s.is_static).unwrap_or(false),
+            visibility: sig.map(|s| s.visibility).unwrap_or(0),
+            method_flags: sig.map(|s| s.method_flags).unwrap_or(0),
+            min_arg: sig.map(|s| s.min_arg).unwrap_or(0),
+            params_from: sig.map(|s| s.params_from).unwrap_or(0xFF),
+            max_reg: 0,
             cold,
             reg_types,
-            block_index:     std::collections::HashMap::new(),
-            branch_targets:  Vec::new(),
-            fused_tails:     Vec::new(),
-            frame_meta:     None,
-            resolved:        std::sync::OnceLock::new(),
-            owner_init:        Default::default(),
-            id: Default::default(),
-            forward: Default::default(),
+            block_index: std::collections::HashMap::new(),
+            branch_targets: Vec::new(),
+            frame_meta: None,
         }
     }).collect();
 
     let name = if namespace.is_empty() { "unknown".to_owned() } else { namespace };
     let string_pool = rebuild_string_pool(&pool_raw, &mut functions);
     Ok(Module {
-        name, string_pool, classes, functions,
-        type_registry: rustc_hash::FxHashMap::default(),
-        func_index: rustc_hash::FxHashMap::default(),
-    })
+name: name,
+string_pool: string_pool,
+classes: classes,
+functions: functions,
+func_index: rustc_hash::FxHashMap::default(),
+})
 }
 
 #[cfg(test)]

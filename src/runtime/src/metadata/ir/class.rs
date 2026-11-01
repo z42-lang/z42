@@ -67,7 +67,7 @@ pub const METHOD_FLAG_NO_INLINING: u8 = 1 << 4;
 /// note as [`METHOD_FLAG_NO_INLINING`].
 pub const METHOD_FLAG_NO_OPTIMIZATION: u8 = 1 << 5;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ClassDesc {
     pub name: String,
     pub base_class: Option<String>,

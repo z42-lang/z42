@@ -7,7 +7,8 @@
 /// the mixed-mode divert to an already-compiled native method, and running the
 /// resolved target on an interpreter frame.
 
-use crate::metadata::{Function, Module, Value};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 

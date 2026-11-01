@@ -124,7 +124,7 @@ pub struct VmCore {
     /// Production paths use `VmContext::with_module(module)` to populate.
     /// `__thread_spawn` requires this to be `Some` (panics in test paths if
     /// missing, which is acceptable since tests don't spawn threads).
-    pub(crate) module:             Option<Arc<crate::metadata::Module>>,
+    pub(crate) module:             Option<Arc<crate::vm::runtime::Module>>,
     /// Process-level function identity (`FnId` → `Function`, lock-free reads).
     /// Entry-module functions are registered at construction as ids `0..n`
     /// (= `module.functions` index); the lazy loader appends each package's
@@ -483,7 +483,7 @@ pub struct VmContext {
     /// and the function table is first-loaded-wins. Cleared with the memo on
     /// explicit module (re)load (REPL redefinition).
     pub(crate) type_lookup_cache: Mutex<FxHashMap<Box<str>, std::sync::Arc<crate::metadata::TypeDesc>>>,
-    pub(crate) fn_lookup_cache:   Mutex<FxHashMap<Box<str>, std::sync::Arc<crate::metadata::Function>>>,
+    pub(crate) fn_lookup_cache:   Mutex<FxHashMap<Box<str>, std::sync::Arc<crate::vm::runtime::Function>>>,
     /// **add-vmcontext-registry **: marks `VmContext: !Unpin`,
     /// so callers cannot `mem::swap` / move out of the `Pin<Box<VmContext>>`
     /// returned by [`new`]. Required so the raw pointer registered in

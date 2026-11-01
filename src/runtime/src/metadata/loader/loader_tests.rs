@@ -185,9 +185,10 @@ fn module_with_one_class(
     name: &str,
     base: Option<&str>,
     fields: Vec<(&str, &str)>,
-) -> crate::metadata::ir::Module {
-    use crate::metadata::ir::{ClassDesc, FieldDesc, Module};
-    Module {
+) -> crate::vm::runtime::Module {
+    use crate::vm::runtime::Module;
+    use crate::metadata::ir::{ClassDesc, FieldDesc};
+    Module::new(crate::metadata::image::ModuleData {
         name: name.to_owned(),
         string_pool: vec![],
         classes: vec![ClassDesc {
@@ -205,17 +206,21 @@ fn module_with_one_class(
             iface_slots: Box::new([]),
             name: name.to_owned(),
             base_class: base.map(str::to_owned),
-            fields: fields.into_iter().map(|(n, t)| FieldDesc {
-                name: n.to_owned(), type_tag: t.to_owned(), attributes: Box::new([]), visibility: 0,
-            }).collect(),
+            fields: fields
+                .into_iter()
+                .map(|(n, t)| FieldDesc {
+                    name: n.to_owned(),
+                    type_tag: t.to_owned(),
+                    attributes: Box::new([]),
+                    visibility: 0,
+                })
+                .collect(),
             type_params: Box::new([]),
             type_param_constraints: Box::new([]),
             attributes: Box::new([]),
         }],
-        functions: vec![],
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, vec![], rustc_hash::FxHashMap::default())
 }
 
 /// Cross-zpkg subclass: base in module A, subclass in module B. After
@@ -405,7 +410,7 @@ fn fixup_converges_with_duplicate_field_names() {
 /// One module holding several classes (each `(name, base, fields)`), registry built.
 fn module_with_classes(
     name: &str, classes: &[(&str, Option<&str>, Vec<(&str, &str)>)],
-) -> crate::metadata::ir::Module {
+) -> crate::vm::runtime::Module {
     let mut m = module_with_one_class(name, None, vec![]);
     m.classes = classes.iter().map(|(n, b, f)| {
         let mut c = module_with_one_class(n, *b, f.clone()).classes.pop().unwrap();
@@ -417,7 +422,7 @@ fn module_with_classes(
 }
 
 fn merge_and_converge(
-    mods: Vec<crate::metadata::ir::Module>,
+    mods: Vec<crate::vm::runtime::Module>,
 ) -> rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> {
     let mut global = rustc_hash::FxHashMap::default();
     for mut m in mods {
@@ -563,7 +568,7 @@ fn module_with_object_layout(
     base: Option<&str>,
     fields: Vec<(&str, &str)>,
     layout: crate::metadata::ir::ObjectLayoutDesc,
-) -> crate::metadata::ir::Module {
+) -> crate::vm::runtime::Module {
     let mut m = module_with_one_class(name, base, fields);
     m.classes[0].object_layout = Some(layout);
     m
@@ -573,7 +578,8 @@ fn module_with_object_layout(
 /// derived class composes against the base's composed layout at build time.
 #[test]
 fn object_layout_composed_local_inheritance() {
-    use crate::metadata::ir::{ClassDesc, Module, ObjectLayoutDesc};
+    use crate::vm::runtime::Module;
+    use crate::metadata::ir::{ClassDesc, ObjectLayoutDesc};
     use crate::metadata::types::{STRUCT_REF_ARC_STRING, STRUCT_REF_GCREF};
 
     // Base { i64 age@0; str name@8 } — size 16, one ref leaf (name @ 8).
@@ -601,7 +607,7 @@ fn object_layout_composed_local_inheritance() {
     let sub_mod = module_with_object_layout("Sub", Some("Base"),
         vec![("flag", "bool"), ("other", "obj")], sub_layout);
     // Merge Sub's class into base_mod so build_type_registry sees both.
-    let sub_class: ClassDesc = sub_mod.classes.into_iter().next().unwrap();
+    let sub_class: ClassDesc = sub_mod.into_parts().0.classes.into_iter().next().unwrap();
     base_mod.classes.push(sub_class);
     let mut module: Module = base_mod;
 
@@ -704,35 +710,37 @@ fn object_layout_composed_crosspkg_fixup() {
 // ── TypeId global uniqueness (fix-crosspkg-typeid-collision) ──────
 
 /// A minimal `Module` holding `names` as field-less, base-less classes.
-fn module_with_class_names(name: &str, names: &[&str]) -> crate::metadata::ir::Module {
-    use crate::metadata::ir::{ClassDesc, Module};
-    Module {
+fn module_with_class_names(name: &str, names: &[&str]) -> crate::vm::runtime::Module {
+    use crate::vm::runtime::Module;
+    use crate::metadata::ir::ClassDesc;
+    Module::new(crate::metadata::image::ModuleData {
         name: name.to_owned(),
         string_pool: vec![],
-        classes: names.iter().map(|n| ClassDesc {
-            static_fields: vec![].into(),
-            interfaces: vec![].into(),
-            enum_members: vec![].into(),
-            iface_methods: vec![].into(),
-            struct_layout: None,
-            inline_layout: None,
-            object_layout: None,
-            class_flags: 0,
-            visibility: 0,
-            class_flags2: 0,
-            struct_field_table: Box::new([]),
-            iface_slots: Box::new([]),
-            name: (*n).to_owned(),
-            base_class: None,
-            fields: Box::new([]),
-            type_params: Box::new([]),
-            type_param_constraints: Box::new([]),
-            attributes: Box::new([]),
-        }).collect(),
-        functions: vec![],
-        type_registry: rustc_hash::FxHashMap::default(),
+        classes: names
+            .iter()
+            .map(|n| ClassDesc {
+                static_fields: vec![].into(),
+                interfaces: vec![].into(),
+                enum_members: vec![].into(),
+                iface_methods: vec![].into(),
+                struct_layout: None,
+                inline_layout: None,
+                object_layout: None,
+                class_flags: 0,
+                visibility: 0,
+                class_flags2: 0,
+                struct_field_table: Box::new([]),
+                iface_slots: Box::new([]),
+                name: (*n).to_owned(),
+                base_class: None,
+                fields: Box::new([]),
+                type_params: Box::new([]),
+                type_param_constraints: Box::new([]),
+                attributes: Box::new([]),
+            })
+            .collect(),
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, vec![], rustc_hash::FxHashMap::default())
 }
 
 /// `TypeId`s must be unique across **modules**, not just within one.
@@ -754,7 +762,7 @@ fn type_ids_are_unique_across_modules() {
     crate::metadata::loader::build_type_registry(&mut a);
     crate::metadata::loader::build_type_registry(&mut b);
 
-    let ids = |m: &crate::metadata::ir::Module| -> HashSet<u32> {
+    let ids = |m: &crate::vm::runtime::Module| -> HashSet<u32> {
         m.type_registry.values().map(|td| td.id.0).collect()
     };
     let (ids_a, ids_b) = (ids(&a), ids(&b));
@@ -793,7 +801,7 @@ fn allocated_type_ids_stay_below_import_base() {
 /// 造一个带 struct 字段表的单类模块。
 fn module_with_struct_field_table(
     class: &str, size: u32, entries: &[(u32, u32, u8)],
-) -> crate::metadata::ir::Module {
+) -> crate::vm::runtime::Module {
     use crate::metadata::ir::{FieldDesc, StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
     let mut m = module_with_class_names("m", &[class]);
     let c = &mut m.classes[0];
@@ -993,29 +1001,30 @@ fn empty_value_struct_without_a_field_table_is_accepted() {
 
 /// A bodiless instance method stub named `name` — only its name matters to
 /// `build_type_registry` (own methods are collected by `<class>.` prefix).
-fn iface_stub_fn(name: &str) -> crate::metadata::Function {
+fn iface_stub_fn(name: &str) -> crate::vm::runtime::Function {
     use crate::metadata::ir::{BasicBlock, Terminator};
-    crate::metadata::Function {
+    crate::vm::runtime::Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: 1,
         ret_type: "string".to_string(),
         exec_mode: crate::metadata::ExecMode::Interp,
-        blocks: vec![BasicBlock { label: "entry".to_string(), instructions: vec![], terminator: Terminator::Ret { reg: None } }],
+        blocks: vec![BasicBlock {
+            label: "entry".to_string(),
+            instructions: vec![],
+            terminator: Terminator::Ret { reg: None },
+        }],
         is_static: false,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 1,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 /// `W` declares `Get(int)` (bare key `Get`, declared first) and `Get(string)`
@@ -1072,29 +1081,30 @@ fn iface_slot_alias_to_an_inherited_method_is_installed_by_fixup() {
 
 // ── Members by owner (runtime-audit S1) ───────────────────────────────────────
 
-fn stub_fn(name: &str, is_static: bool) -> crate::metadata::Function {
+fn stub_fn(name: &str, is_static: bool) -> crate::vm::runtime::Function {
     use crate::metadata::ir::{BasicBlock, Terminator};
-    crate::metadata::Function {
+    crate::vm::runtime::Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: if is_static { 0 } else { 1 },
         ret_type: "void".to_string(),
-        exec_mode: crate::metadata::types::ExecMode::Interp,
-        blocks: vec![BasicBlock { label: "entry".to_string(), instructions: vec![], terminator: Terminator::Ret { reg: None } }],
+        exec_mode: crate::metadata::ir::ExecMode::Interp,
+        blocks: vec![BasicBlock {
+            label: "entry".to_string(),
+            instructions: vec![],
+            terminator: Terminator::Ret { reg: None },
+        }],
         is_static,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 1,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 /// A class's own methods are every function named `<class>.<member>` in declaration

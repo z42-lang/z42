@@ -158,7 +158,7 @@ fn all_golden_zbc_decode() {
 /// must reference valid pool entries. Ensures opcode parameter layout matches
 /// across C# write and Rust read.
 fn check_instr_pool_refs(
-    module: &z42::metadata::Module,
+    module: &z42::metadata::ir::Module,
     instr: &z42::metadata::Instruction,
     _func_name: &str,
 ) -> Result<(), String> {

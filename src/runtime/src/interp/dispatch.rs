@@ -3,7 +3,8 @@
 /// Static-field storage moved to `VmContext::static_fields` (consolidate-vm-state).
 /// Call sites now use `ctx.static_get(field)` / `ctx.static_set(...)`.
 
-use crate::metadata::{ClassDesc, FieldSlot, Function, Module, TypeDesc, Value};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::{ClassDesc, FieldSlot, TypeDesc, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 

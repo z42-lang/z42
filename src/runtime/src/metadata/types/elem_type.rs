@@ -10,7 +10,7 @@
 //! - 条目同时持有一份 `Arc<str>`，需要 `Arc<str>` 的旁路（struct 元素拷出到 arena）
 //!   只做一次引用计数 +1，与此前一致。
 //!
-//! 指令解码时（`instr_decode.rs`）就把名字驻留进 `ArrayNewInsn::element_type`，所以
+//! IR 保存元素类型名；VM 函数站点侧表首次建立时缓存驻留句柄，所以
 //! interp / JIT 的建数组热路径连查表都没有；其余 Rust 侧调用点走 [`ElemType::intern`]
 //! （读锁 + FxHash 查表）。
 //!

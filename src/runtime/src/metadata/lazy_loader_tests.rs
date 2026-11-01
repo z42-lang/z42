@@ -278,15 +278,13 @@ fn build_in_dirs_first_dir_wins() {
 // "cannot read dep zpkg meta `repl_r1.zpkg`" WARN, even though the ref resolves
 // in-process). The fix: on load, mark `<package_name>.zpkg` in `loaded_zpkgs`.
 
-fn ll_empty_module(name: &str) -> crate::metadata::ir::Module {
-    crate::metadata::ir::Module {
+fn ll_empty_module(name: &str) -> crate::vm::runtime::Module {
+    crate::vm::runtime::Module::new(crate::metadata::image::ModuleData {
         name: name.to_owned(),
         string_pool: vec![],
         classes: vec![],
-        functions: vec![],
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, vec![], rustc_hash::FxHashMap::default())
 }
 
 fn ll_inmem_artifact(
@@ -421,10 +419,11 @@ fn qualified_and_user_names_are_not_primitive() {
 // ── cache-failed-name-resolution: negative resolve cache ─────────────────────
 
 /// A minimal `Function` usable as an in-memory module member.
-fn ll_stub_function(name: &str) -> crate::metadata::ir::Function {
-    use crate::metadata::ir::{BasicBlock, Function, Terminator};
-    use crate::metadata::types::ExecMode;
-    Function {
+fn ll_stub_function(name: &str) -> crate::vm::runtime::Function {
+    use crate::vm::runtime::Function;
+    use crate::metadata::ir::{BasicBlock, Terminator};
+    use crate::metadata::ir::ExecMode;
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -436,19 +435,16 @@ fn ll_stub_function(name: &str) -> crate::metadata::ir::Function {
         }],
         is_static: true,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 0,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 #[test]
@@ -638,7 +634,7 @@ fn td_shape(name: &str, class_flags: u8, field_count: usize) -> TypeDesc {
 }
 
 fn fn_shape(name: &str, param_count: usize, instr_count: usize) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count,
         ret_type: "void".to_string(),
@@ -652,19 +648,16 @@ fn fn_shape(name: &str, param_count: usize, instr_count: usize) -> Function {
         }],
         is_static: false,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 0,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 #[test]

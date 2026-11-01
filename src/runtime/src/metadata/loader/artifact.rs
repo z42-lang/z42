@@ -83,6 +83,7 @@ fn load_zbc(fs: &dyn Vfs, path: &str) -> Result<LoadedArtifact> {
     if let Some(sp) = sidecar_path.to_str() {
         if let Ok(sym_raw) = fs.read(sp) {
             apply_zbc_sidecar(&mut artifact.module, &raw, &sym_raw, &sidecar_path);
+            build_block_indices(&mut artifact.module);
         }
     }
 
@@ -145,7 +146,7 @@ fn load_zbc_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
         bail!("not a binary zbc payload: expected ZBC magic bytes");
     }
 
-    let mut module = read_zbc(raw).context("cannot parse binary zbc")?;
+    let mut module = Module::from_ir(read_zbc(raw).context("cannot parse binary zbc")?);
 
     build_type_registry(&mut module);
     verify_constraints(&module)
@@ -225,7 +226,7 @@ fn load_zpkg_indexed(fs: &dyn Vfs, path: &str, raw: &[u8]) -> Result<LoadedArtif
         }
         let module = read_zbc(&bytes)
             .with_context(|| format!("decoding scattered zbc `{}`", zbc_path.display()))?;
-        module_pairs.push((module, e.namespace.clone()));
+        module_pairs.push((Module::from_ir(module), e.namespace.clone()));
     }
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
         crate::metadata::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
@@ -250,7 +251,8 @@ fn load_zpkg_bytes_with_sidecar(
     }
 
     let meta = read_zpkg_meta(raw).context("cannot read zpkg metadata")?;
-    let mut module_pairs = read_zpkg_modules(raw).context("cannot load modules from zpkg")?;
+    let mut module_pairs = read_zpkg_modules(raw).context("cannot load modules from zpkg")?
+        .into_iter().map(|(m, ns)| (Module::from_ir(m), ns)).collect::<Vec<_>>();
 
     // Apply sidecar (if present + valid + build_id matches) to per-module
     // function debug fields before flattening.
@@ -359,7 +361,8 @@ fn load_zpkg_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
     }
 
     let meta = read_zpkg_meta(raw).context("cannot read zpkg metadata")?;
-    let module_pairs = read_zpkg_modules(raw).context("cannot load modules from zpkg")?;
+    let module_pairs = read_zpkg_modules(raw).context("cannot load modules from zpkg")?
+        .into_iter().map(|(m, ns)| (Module::from_ir(m), ns)).collect::<Vec<_>>();
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
         crate::metadata::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
         Some(meta.name))

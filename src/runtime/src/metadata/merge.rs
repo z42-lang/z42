@@ -4,7 +4,7 @@
 /// instruction references an index into its module's string pool. When N pools are
 /// concatenated, every index from module i must be shifted by the cumulative length of
 /// pools 0..i-1.
-use super::ir::{BasicBlock, Instruction, Module};
+use crate::vm::runtime::Module;
 use anyhow::Result;
 use std::collections::HashSet;
 
@@ -31,7 +31,8 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
     let mut seen_functions: HashSet<String> = HashSet::new();
     let mut functions = Vec::new();
 
-    for mut module in modules {
+    for module in modules {
+        let (module, mut module_functions, _) = module.into_parts();
         let str_offset = string_pool.len() as u32;
         string_pool.extend(module.string_pool);
 
@@ -42,43 +43,29 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
             }
         }
 
-        remap_functions(&mut module.functions, str_offset);
+        remap_functions(&mut module_functions, str_offset);
 
         // Idempotent function merge: keep first occurrence by name.
-        for func in module.functions {
+        for func in module_functions {
             if seen_functions.insert(func.name.clone()) {
                 functions.push(func);
             }
         }
     }
 
-    let merged = Module {
-        name, string_pool, classes, functions,
-        type_registry: rustc_hash::FxHashMap::default(),
+    let merged = Module::new(crate::metadata::image::ModuleData {
+        name,
+        string_pool,
+        classes,
         func_index: rustc_hash::FxHashMap::default(),
-    };
+    }, functions, rustc_hash::FxHashMap::default());
     Ok(merged)
 }
 
 /// Shift every `ConstStr.idx` by `str_offset` so cross-module merge produces
 /// a flat global string index space.
-fn remap_functions(functions: &mut Vec<super::ir::Function>, str_offset: u32) {
-    if str_offset == 0 {
-        return; // nothing to do
-    }
-    for func in functions.iter_mut() {
-        for block in func.blocks.iter_mut() {
-            remap_block(block, str_offset);
-        }
-    }
-}
-
-fn remap_block(block: &mut BasicBlock, str_offset: u32) {
-    for instr in block.instructions.iter_mut() {
-        if let Instruction::ConstStr { idx, .. } = instr {
-            *idx += str_offset;
-        }
-    }
+fn remap_functions(functions: &mut [crate::vm::runtime::Function], str_offset: u32) {
+    for func in functions { func.remap_string_ids(str_offset); }
 }
 
 #[cfg(test)]

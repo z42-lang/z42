@@ -18,7 +18,7 @@ use anyhow::{bail, Context, Result};
 // as files on disk.
 use crate::pal::fs::Vfs;
 
-use super::ir::Module;
+use crate::vm::runtime::Module;
 use super::format::{ZpkgDep, ZBC_MAGIC, ZPKG_MAGIC};
 use super::merge::merge_modules;
 use super::index::name::NameIndex;

@@ -8,7 +8,7 @@
 //! through the function's own cache (`interp::forward::forward_of`). The translator
 //! also reads the forward of a call target to inline string intrinsics.
 
-use crate::metadata::ir::Function;
+use crate::vm::runtime::Function;
 use crate::metadata::Value;
 
 use super::frame::JitFrame;

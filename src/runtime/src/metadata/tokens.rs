@@ -180,7 +180,9 @@ impl FnIdCell {
 
     #[inline]
     pub(crate) fn set(&self, id: FnId) {
-        self.0.store(id.0, std::sync::atomic::Ordering::Relaxed);
+        assert!(self.0.compare_exchange(UNRESOLVED, id.0,
+            std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed).is_ok(),
+            "a linked function belongs to one VM; share its PackageImage instead");
     }
 }
 

@@ -8,7 +8,8 @@
 //! （`jit::translate::static_field`），其余情况经 helper 调这里。
 
 use crate::metadata::tokens::StaticFieldId;
-use crate::metadata::{Module, Value};
+use crate::vm::runtime::Module;
+use crate::metadata::Value;
 use crate::vm_context::cctor::make_type_init_exception;
 use crate::vm_context::symres::{verify_static_field, StaticNullVerdict};
 use crate::vm_context::VmContext;

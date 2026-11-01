@@ -3,7 +3,8 @@
 //! loaded and generic-instantiation types too.
 
 use super::*;
-use crate::metadata::ir::{ClassDesc, Module};
+use crate::vm::runtime::Module;
+use crate::metadata::ir::ClassDesc;
 use crate::metadata::tokens::{TypeId, TypeKeyCell};
 use std::sync::Arc;
 
@@ -32,14 +33,12 @@ fn class(name: &str, base: Option<&str>, interfaces: &[&str]) -> ClassDesc {
 
 /// A module whose `type_registry` is built the way the loader builds it (global TypeIds).
 fn module(name: &str, classes: Vec<ClassDesc>) -> Module {
-    let mut m = Module {
+    let mut m = Module::new(crate::metadata::image::ModuleData {
         name: name.to_owned(),
         string_pool: vec![],
         classes,
-        functions: vec![],
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    };
+    }, vec![], rustc_hash::FxHashMap::default());
     crate::metadata::loader::build_type_registry(&mut m);
     m
 }

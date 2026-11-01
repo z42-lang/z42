@@ -1,6 +1,8 @@
 //! Decoded instructions, signatures, function bodies and module records.
 
 pub mod reg_type;
+mod exec_mode;
+pub use exec_mode::ExecMode;
 
 mod module;
 mod class;

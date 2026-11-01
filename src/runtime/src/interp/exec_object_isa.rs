@@ -5,7 +5,8 @@
 //! re-exports so `exec_object::is_instance` / `as_cast` paths are unchanged.
 
 use crate::metadata::tokens::TypeKeyCell;
-use crate::metadata::{Module, Value};
+use crate::vm::runtime::Module;
+use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 

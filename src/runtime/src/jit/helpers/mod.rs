@@ -35,7 +35,8 @@ pub mod vcall;
 
 pub use registry::{declare_imports, register_symbols, HelperIds};
 
-use crate::metadata::{Module, Value};
+use crate::vm::runtime::Module;
+use crate::metadata::Value;
 use crate::vm_context::VmContext;
 
 use super::frame::JitFrame;
@@ -115,7 +116,7 @@ pub(super) fn take_exception(ctx: &VmContext) -> Option<Value> {
     ctx.take_exception()
 }
 
-pub fn take_exception_error(ctx: &VmContext, module: &crate::metadata::Module) -> anyhow::Error {
+pub fn take_exception_error(ctx: &VmContext, module: &crate::vm::runtime::Module) -> anyhow::Error {
     let msg = take_exception(ctx)
         .as_ref()
         .map(|v| crate::exception::format_uncaught(v, ctx, module))

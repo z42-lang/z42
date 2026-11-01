@@ -3,16 +3,17 @@
 //! any `Call`, from native code and from an interpreter frame alike.
 
 use crate::jit::runtime::{install, install_tuned};
-use crate::metadata::ir::{BasicBlock, Function, Instruction, LoadFnInsn, Module, Terminator};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::ir::{BasicBlock, Instruction, LoadFnInsn, Terminator};
 use crate::metadata::resolver::ResolvedTokens;
 use crate::metadata::tokens::UNRESOLVED;
-use crate::metadata::types::ExecMode;
+use crate::metadata::ir::ExecMode;
 use crate::vm_context::VmContext;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 fn func(name: &str, instructions: Vec<Instruction>) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -24,19 +25,16 @@ fn func(name: &str, instructions: Vec<Instruction>) -> Function {
         }],
         is_static: true,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 2,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 /// `f = Lib.F; f(); f(); f();`
@@ -50,14 +48,12 @@ fn main_calling_lib_f_three_times() -> Function {
 
 fn module_of(functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: "App".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),
-        functions,
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index,
-    }
+    }, functions, rustc_hash::FxHashMap::default())
 }
 
 /// A VM whose entry module is `App.Main` + a lazily loaded `Lib.F`; returns `Lib.F`.

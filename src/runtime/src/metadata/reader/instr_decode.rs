@@ -194,8 +194,7 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             let stack_alloc = c.read_u8()? != 0;
             // encode-ctorless-objnew (zbc 1.39): trailing positive ctor-known flag.
             let ctor_known = c.read_u8()? != 0;
-            // Interned here, once per decoded site: every instance this `new` makes shares the handle.
-            let type_args = crate::metadata::types::TypeArgs::intern(&type_args);
+            let type_args = type_args.into_boxed_slice();
             Instruction::ObjNew(Box::new(ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc, ctor_known }))
         }
         OP_TYPEOF => {
@@ -212,19 +211,19 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
         OP_IS_INSTANCE => {
             let obj        = c.read_u16()? as u32;
             let class_name = id_map.resolve_type(c.read_u32()?)?;
-            Instruction::IsInstance(Box::new(IsInstanceInsn { dst, obj, class_name, target: Default::default() }))
+            Instruction::IsInstance(Box::new(IsInstanceInsn { dst, obj, class_name, }))
         }
         OP_AS_CAST => {
             let obj        = c.read_u16()? as u32;
             let class_name = id_map.resolve_type(c.read_u32()?)?;
-            Instruction::AsCast(Box::new(AsCastInsn { dst, obj, class_name, target: Default::default() }))
+            Instruction::AsCast(Box::new(AsCastInsn { dst, obj, class_name, }))
         }
         OP_ARRAY_NEW     => {
             let size = c.read_u16()? as u32;
             let elem_tag = c.read_u8()?;
             // add-reflection-array-element-type (zbc 1.16): element type FQ name.
             let et_idx = c.read_u32()?;
-            let element_type = crate::metadata::types::ElemType::intern(c.pool_str(pool, et_idx)?);
+            let element_type = c.pool_str(pool, et_idx)?.to_owned();
             // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
             let stack_alloc = c.read_u8()? != 0;
             // fix-generic-array-value-zero-init (zbc 1.37): trailing type-param ref.
@@ -235,7 +234,7 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
         OP_ARRAY_NEW_LIT => {
             let elems = read_args(c)?;
             let et_idx = c.read_u32()?;
-            let element_type = crate::metadata::types::ElemType::intern(c.pool_str(pool, et_idx)?);
+            let element_type = c.pool_str(pool, et_idx)?.to_owned();
             // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
             let stack_alloc = c.read_u8()? != 0;
             Instruction::ArrayNewLit(Box::new(crate::metadata::ir::ArrayNewLitInsn { dst, elems, element_type, stack_alloc }))

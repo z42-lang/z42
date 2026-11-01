@@ -6,13 +6,12 @@
 
 use std::collections::HashMap;
 
-use z42::metadata::{
-    BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Function, Instruction, Module, Terminator, Value,
-};
+use z42::vm::runtime::{Function, Module};
+use z42::metadata::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator, Value};
 use z42::vm_context::VmContext;
 
 fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Module {
-    let func = Function {
+    let func = Function::new(z42::metadata::ir::Function {
         name: format!("{name}.Main"),
         param_count: 0,
         ret_type: "i64".to_string(),
@@ -23,26 +22,23 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
             terminator,
         }],
         is_static: true,
-        visibility: 0, method_flags: 0, min_arg: 0, params_from: 0xFF,        max_reg: 8,
+        visibility: 0,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
+        max_reg: 8,
         cold: None,
         reg_types: Box::new([]),
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    };
-    Module {
+    });
+    Module::new(z42::metadata::image::ModuleData {
         name: name.to_string(),
         string_pool: vec!["hello world".to_string()],
         classes: vec![],
-        functions: vec![func],
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, vec![func], rustc_hash::FxHashMap::default())
 }
 
 fn run_returning(module: &Module) -> anyhow::Result<Option<Value>> {
@@ -110,7 +106,7 @@ fn pin_empty_array_returns_zero_length_view() {
     let m = build_module(
         "pin_empty_array",
         vec![
-            Instruction::ArrayNewLit(Box::new(z42::metadata::ir::ArrayNewLitInsn { dst: 0, elems: vec![].into(), element_type: z42::metadata::types::ElemType::empty(), stack_alloc: false })),
+            Instruction::ArrayNewLit(Box::new(z42::metadata::ir::ArrayNewLitInsn { dst: 0, elems: vec![].into(), element_type: String::new(), stack_alloc: false })),
             Instruction::PinPtr { dst: 1, src: 0 },
             Instruction::FieldGet(Box::new(FieldGetInsn { dst: 2, obj: 1, field_name: "len".to_string() })),
             Instruction::UnpinPtr { pinned: 1 },
@@ -131,7 +127,7 @@ fn pin_array_u8_snapshots_bytes() {
         vec![
             Instruction::ConstI64 { dst: 0, val: 0x68 }, // 'h'
             Instruction::ConstI64 { dst: 1, val: 0x69 }, // 'i'
-            Instruction::ArrayNewLit(Box::new(z42::metadata::ir::ArrayNewLitInsn { dst: 2, elems: vec![0, 1].into(), element_type: z42::metadata::types::ElemType::empty(), stack_alloc: false })),
+            Instruction::ArrayNewLit(Box::new(z42::metadata::ir::ArrayNewLitInsn { dst: 2, elems: vec![0, 1].into(), element_type: String::new(), stack_alloc: false })),
             Instruction::PinPtr { dst: 3, src: 2 },
             Instruction::FieldGet(Box::new(FieldGetInsn { dst: 4, obj: 3, field_name: "len".to_string() })),
             Instruction::UnpinPtr { pinned: 3 },
@@ -159,7 +155,7 @@ fn pin_array_with_out_of_range_element_traps() {
         "pin_oor",
         vec![
             Instruction::ConstI64 { dst: 0, val: 256 },          // out of u8 range
-            Instruction::ArrayNewLit(Box::new(z42::metadata::ir::ArrayNewLitInsn { dst: 1, elems: vec![0].into(), element_type: z42::metadata::types::ElemType::empty(), stack_alloc: false })),
+            Instruction::ArrayNewLit(Box::new(z42::metadata::ir::ArrayNewLitInsn { dst: 1, elems: vec![0].into(), element_type: String::new(), stack_alloc: false })),
             Instruction::PinPtr { dst: 2, src: 1 },
         ],
         Terminator::Ret { reg: None },
@@ -175,7 +171,7 @@ fn pin_array_with_negative_element_traps() {
         "pin_neg",
         vec![
             Instruction::ConstI64 { dst: 0, val: -1 },
-            Instruction::ArrayNewLit(Box::new(z42::metadata::ir::ArrayNewLitInsn { dst: 1, elems: vec![0].into(), element_type: z42::metadata::types::ElemType::empty(), stack_alloc: false })),
+            Instruction::ArrayNewLit(Box::new(z42::metadata::ir::ArrayNewLitInsn { dst: 1, elems: vec![0].into(), element_type: String::new(), stack_alloc: false })),
             Instruction::PinPtr { dst: 2, src: 1 },
         ],
         Terminator::Ret { reg: None },

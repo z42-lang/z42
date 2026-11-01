@@ -4,7 +4,7 @@
 //! stays ≤32 B; `instruction_size_is_slim` pins that invariant.
 
 use super::Instruction;
-use crate::metadata::types::ExecMode;
+use crate::metadata::ir::ExecMode;
 use super::{BasicBlock, ExceptionEntry, Function, FunctionCold, Terminator};
 
 /// add-offline-symbolication: build a bare Function with the given per-block
@@ -24,18 +24,15 @@ fn fn_with_block_sizes(sizes: &[usize]) -> Function {
         blocks,
         is_static: false,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 0,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
     }
 }
 
@@ -54,7 +51,7 @@ fn fn_for_reg_len(param_count: usize, dsts: &[u32], catch_regs: &[u32]) -> Funct
             catch_label: "b0".to_string(),
             catch_type:  None,
             catch_reg:   r,
-            catch_key:   Default::default(),
+
         }).collect();
         f.cold = Some(Box::new(FunctionCold {
             exception_table: et.into_boxed_slice(),

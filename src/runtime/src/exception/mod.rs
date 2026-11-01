@@ -32,7 +32,8 @@ use std::cell::Cell;
 use anyhow::{anyhow, Result};
 
 use crate::metadata::types::{NativeData, TypeDesc};
-use crate::metadata::{default_value_for, Function, Module, Value};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::{default_value_for, Value};
 use crate::vm_context::VmContext;
 
 /// One unified per-frame entry — single source of truth for
@@ -178,7 +179,7 @@ pub struct FrameSnapshot {
 /// 缺任一类时仍把错误传出去，而不是静默吞掉。
 pub fn make_missing_symbol_exception(
     ctx: &crate::vm_context::VmContext,
-    module: &crate::metadata::Module,
+    module: &crate::vm::runtime::Module,
     msg: String,
 ) -> crate::metadata::Value {
     // add-sdk-libs D6：`${Z42_HOME}` 条目解析不到时附「是否没装 SDK」提示（无此类条目 ⇒ 原样）。

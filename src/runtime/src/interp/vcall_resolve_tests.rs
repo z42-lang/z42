@@ -5,14 +5,15 @@ use super::*;
 use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
 use crate::metadata::index::name::NameIndex;
 use crate::metadata::tokens::{alloc_type_id_block, FnId, TypeId};
-use crate::metadata::types::{ExecMode, NativeData, TypeDesc};
-use crate::metadata::Function;
+use crate::metadata::ir::ExecMode;
+use crate::metadata::types::{NativeData, TypeDesc};
+use crate::vm::runtime::Function;
 use crate::interp::Frame;
 use std::sync::Arc;
 
 /// An instance method returning `val` (receiver in reg 0).
 fn method(name: &str, val: i32) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: 1,
         ret_type: "int".to_string(),
@@ -24,31 +25,26 @@ fn method(name: &str, val: i32) -> Function {
         }],
         is_static: false,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 4,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 fn module(name: &str, functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![],
         classes: vec![],
-        functions,
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index,
-    }
+    }, functions, rustc_hash::FxHashMap::default())
 }
 
 fn register_lazy(ctx: &VmContext, f: Function) -> Arc<Function> {

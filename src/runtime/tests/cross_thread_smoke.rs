@@ -17,8 +17,9 @@ use std::thread;
 
 use z42::corelib;
 use z42::gc::{ArcMagrGC, MagrGC};
-use z42::metadata::ir::{BasicBlock, Function, Module, Terminator};
-use z42::metadata::types::ExecMode;
+use z42::vm::runtime::{Function, Module};
+use z42::metadata::ir::{BasicBlock, Terminator};
+use z42::metadata::ir::ExecMode;
 use z42::metadata::Value;
 use z42::vm_context::VmContext;
 
@@ -343,40 +344,37 @@ fn concurrent_gc_collect_callers_arbitrate() {
 /// body is empty + `Ret { reg: None }`. Sufficient for spawn/join smoke
 /// tests where we just need a valid dispatch target.
 fn make_void_action_module(fn_name: &str) -> Module {
-    let func = Function {
-        name:                   fn_name.to_string(),
-        param_count:            0,
-        ret_type:               "void".into(),
-        exec_mode:              ExecMode::Interp,
+    let func = Function::new(z42::metadata::ir::Function {
+        name: fn_name.to_string(),
+        param_count: 0,
+        ret_type: "void".into(),
+        exec_mode: ExecMode::Interp,
         blocks: vec![BasicBlock {
-            label:        "entry".into(),
+            label: "entry".into(),
             instructions: vec![],
-            terminator:   Terminator::Ret { reg: None },
+            terminator: Terminator::Ret { reg: None },
         }],
-        is_static:              true,
-        visibility: 0, method_flags: 0, min_arg: 0, params_from: 0xFF,        max_reg:                1,
+        is_static: true,
+        visibility: 0,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
+        max_reg: 1,
         cold: None,
         reg_types: Box::new([]),
-        block_index:            std::collections::HashMap::new(),
-        branch_targets:         Vec::new(),
-        fused_tails: Vec::new(),
+        block_index: std::collections::HashMap::new(),
+        branch_targets: Vec::new(),
         frame_meta: None,
-        resolved:               std::sync::OnceLock::new(),
-        owner_init:               Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    };
+    });
     let mut func_index = rustc_hash::FxHashMap::default();
     func_index.insert(fn_name.to_string(), 0);
 
-    Module {
-        name:                fn_name.to_string(),
-        string_pool:         vec![],
-        classes:             vec![],
-        functions:           vec![func],
-        type_registry:       rustc_hash::FxHashMap::default(),
+    Module::new(z42::metadata::image::ModuleData {
+        name: fn_name.to_string(),
+        string_pool: vec![],
+        classes: vec![],
         func_index,
-    }
+    }, vec![func], rustc_hash::FxHashMap::default())
 }
 
 fn dummy_type_desc(name: &str) -> Arc<z42::metadata::TypeDesc> {

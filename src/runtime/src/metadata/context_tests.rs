@@ -5,7 +5,7 @@
 //! covered by `src/tests/reflection/load_context_unload/`.
 
 use super::{ContextId, ContextRegistry, ContextState, UnloadOutcome};
-use crate::metadata::ir::Module;
+use crate::vm::runtime::Module;
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{NativeData, TypeDesc};
 use crate::metadata::NameIndex;
@@ -33,14 +33,12 @@ fn mk_module(type_names: &[&str]) -> Module {
     for n in type_names {
         type_registry.insert(n.to_string(), dummy_type_desc(n));
     }
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: "dep".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),
-        functions: Vec::new(),
-        type_registry,
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, Vec::new(), type_registry)
 }
 
 #[test]
@@ -149,10 +147,11 @@ fn reflection_handles_are_retention_edges() {
     );
 }
 
-fn stub_function(name: &str) -> crate::metadata::ir::Function {
-    use crate::metadata::ir::{BasicBlock, Function, Terminator};
-    use crate::metadata::types::ExecMode;
-    Function {
+fn stub_function(name: &str) -> crate::vm::runtime::Function {
+    use crate::vm::runtime::Function;
+    use crate::metadata::ir::{BasicBlock, Terminator};
+    use crate::metadata::ir::ExecMode;
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -164,19 +163,16 @@ fn stub_function(name: &str) -> crate::metadata::ir::Function {
         }],
         is_static: true,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 0,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 #[test]

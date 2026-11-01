@@ -22,14 +22,12 @@ fn fresh_id() -> TypeId {
 }
 
 fn entry_module(types: &[Arc<TypeDesc>]) -> Module {
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: "Entry".to_string(),
         string_pool: vec![],
         classes: vec![],
-        functions: vec![],
-        type_registry: types.iter().map(|t| (t.name.clone(), Arc::clone(t))).collect(),
         func_index: FxHashMap::default(),
-    }
+    }, vec![], types.iter().map(|t| (t.name.clone(), Arc::clone(t))).collect())
 }
 
 #[test]

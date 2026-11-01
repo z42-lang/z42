@@ -3,7 +3,8 @@
 //! `[Native]` forward short-circuit), so both engines throw the same thing.
 
 use crate::exception::FrameSnapshot;
-use crate::metadata::{Module, Value};
+use crate::vm::runtime::Module;
+use crate::metadata::Value;
 use crate::vm_context::VmContext;
 
 /// What a builtin can fail with. Every kind but `Internal` / `Thrown` is one stdlib

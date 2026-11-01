@@ -1,4 +1,7 @@
-use crate::metadata::{ExecMode, Module};
+pub mod runtime;
+
+use crate::vm::runtime::Module;
+use crate::metadata::ExecMode;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 

@@ -4,11 +4,11 @@
 use super::*;
 use crate::metadata::ir::{BasicBlock, Instruction, LoadFnInsn, MkClosInsn, Terminator};
 use crate::metadata::tokens::{FnId, UNRESOLVED};
-use crate::metadata::types::ExecMode;
+use crate::metadata::ir::ExecMode;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 fn func(name: &str, param_count: usize, instructions: Vec<Instruction>, ret: Option<u32>) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count,
         ret_type: "long".to_string(),
@@ -20,19 +20,16 @@ fn func(name: &str, param_count: usize, instructions: Vec<Instruction>, ret: Opt
         }],
         is_static: true,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 8,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 fn const_fn(name: &str, val: i32) -> Function {
@@ -49,14 +46,12 @@ fn mk_clos(dst: u32, name: &str, captures: &[u32]) -> Instruction {
 
 fn module(name: &str, functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![],
         classes: vec![],
-        functions,
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index,
-    }
+    }, functions, rustc_hash::FxHashMap::default())
 }
 
 fn register_lazy(ctx: &VmContext, f: Function) -> Arc<Function> {

@@ -85,7 +85,7 @@ impl Instruction {
 /// Register fields accept both plain integers (`42`) and TypedReg objects
 /// (`{"id": 42, "type": "i32"}`) during JSON deserialization for backward
 /// compatibility with both old and new compiler output.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Instruction {
     // Constants
     ConstStr  { dst: Reg, idx: u32 },
@@ -395,7 +395,7 @@ pub enum Instruction {
 }
 
 /// Block terminator.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Terminator {
     Ret {
         reg: Option<Reg>,
