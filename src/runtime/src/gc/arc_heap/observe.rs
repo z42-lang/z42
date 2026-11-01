@@ -4,9 +4,9 @@
 #[cfg(test)]
 use super::{BarrierEvent, BarrierObserver};
 use std::sync::Arc;
-use crate::metadata::{Value};
+use crate::object::Value;
 #[cfg(test)]
-use crate::gc::ArrRef;
+use crate::object::ArrRef;
 use crate::gc::types::{GcEvent, HeapSnapshot, HeapStats, SnapshotCoverage};
 
 impl crate::gc::arc_heap::ArcMagrGC {
@@ -59,7 +59,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn fire_barrier_field(&self, owner: &Value, slot: usize, new: &Value) {
         if let Some(obs) = self.barrier_observer.lock().as_ref() {
             let owner_addr = match owner {
-                Value::Object(rc) => crate::gc::ObjRef::as_ptr(rc) as *const () as usize,
+                Value::Object(rc) => crate::object::ObjRef::as_ptr(rc) as *const () as usize,
                 _ => 0,
             };
             obs.push(BarrierEvent::Field {

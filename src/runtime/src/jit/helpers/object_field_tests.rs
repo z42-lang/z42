@@ -12,9 +12,9 @@
 use super::*;
 use crate::jit::helpers::take_exception;
 use super::super::super::frame::JitFrame;
-use crate::metadata::types::{
-    FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold, Value,
-    STRUCT_LEAF_PRIM, TAG_I32, TAG_STR,
+use crate::object::{
+    FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold, Value, STRUCT_LEAF_PRIM,
+    TAG_I32, TAG_STR,
 };
 use crate::vm_context::VmContext;
 use std::sync::Arc;
@@ -53,7 +53,7 @@ fn holder() -> Value {
         })),
         id: crate::metadata::tokens::TypeId::UNRESOLVED,
     });
-    Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(td, 16)))
+    Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(td, 16)))
 }
 
 /// 读回字段（`n` 是基元 ⇒ 从 bytes 解码）。

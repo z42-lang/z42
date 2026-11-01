@@ -10,7 +10,7 @@ use std::os::raw::c_void;
 use anyhow::{anyhow, Result};
 use z42_abi::Z42Value;
 
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::interop::dispatch::{
     self, SigType, Z42_VALUE_TAG_BOOL, Z42_VALUE_TAG_F64, Z42_VALUE_TAG_I64,
     Z42_VALUE_TAG_NATIVEPTR, Z42_VALUE_TAG_NULL,

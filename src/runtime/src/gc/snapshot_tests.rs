@@ -7,13 +7,13 @@
 
 use super::*;
 use crate::gc::{ArcMagrGC, MagrGC};
-use crate::metadata::{NativeData, ScriptObject, TypeDesc, Value};
+use crate::object::{NativeData, ScriptObject, TypeDesc, Value};
 use std::sync::Arc;
 
 fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
     let fields = vec![
-        crate::metadata::FieldSlot { name: "head".to_string().into(), type_tag: "object".to_string().into(), visibility: 0 },
-        crate::metadata::FieldSlot { name: "tail".to_string().into(), type_tag: "object".to_string().into(), visibility: 0 },
+        crate::object::FieldSlot { name: "head".to_string().into(), type_tag: "object".to_string().into(), visibility: 0 },
+        crate::object::FieldSlot { name: "tail".to_string().into(), type_tag: "object".to_string().into(), visibility: 0 },
     ];
     let mut field_index = crate::metadata::NameIndex::new();
     field_index.insert("head".to_string(), 0usize);
@@ -23,7 +23,7 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
         visibility: 0,
         name: name.to_string(),
         base_name: None,
-        cold: Some(Box::new(crate::metadata::types::TypeDescCold {
+        cold: Some(Box::new(crate::object::TypeDescCold {
             own_fields: fields.clone().into(),
             ..Default::default()
         })),

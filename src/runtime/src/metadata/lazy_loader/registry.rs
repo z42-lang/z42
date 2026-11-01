@@ -11,7 +11,7 @@ use super::*;
 #[derive(Default)]
 struct OwnedSyms {
     names: rustc_hash::FxHashSet<String>,
-    module_descs: Vec<std::sync::Arc<crate::metadata::TypeDesc>>,
+    module_descs: Vec<std::sync::Arc<crate::object::TypeDesc>>,
 }
 
 impl OwnedSyms {
@@ -19,7 +19,7 @@ impl OwnedSyms {
         self.names.insert(name.to_string());
     }
     /// 顺带记下这一轮见到的 `$Module`（可能一个都没有，那是常态）。
-    fn note_type(&mut self, desc: &std::sync::Arc<crate::metadata::TypeDesc>) {
+    fn note_type(&mut self, desc: &std::sync::Arc<crate::object::TypeDesc>) {
         self.names.insert(desc.name.clone());
         if crate::vm_context::cctor::is_module_pseudo_type(&desc.name) && desc.cctor_func().is_some() {
             self.module_descs.push(std::sync::Arc::clone(desc));

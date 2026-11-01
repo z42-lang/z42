@@ -476,7 +476,7 @@ impl VmContext {
     /// execution of an id on any thread, a lock-free load, no hashing. Shared by the
     /// interpreter and the JIT helper.
     #[inline]
-    pub fn const_str(&self, module: &crate::vm::runtime::Module, idx: u32) -> Option<crate::metadata::vstr::Str> {
+    pub fn const_str(&self, module: &crate::vm::runtime::Module, idx: u32) -> Option<crate::object::string::vstr::Str> {
         let strings = &self.core.strings;
         if strings.is_entry(module) {
             return strings.get_or_intern(idx, |text| self.heap().alloc_str(text));
@@ -499,7 +499,7 @@ impl VmContext {
     /// names that literal and allocates a fresh string each time (nothing to key a cache
     /// on); past it, the id is a lazily loaded package's, interned in the table.
     #[cold]
-    fn const_str_foreign(&self, module: &crate::vm::runtime::Module, idx: u32) -> Option<crate::metadata::vstr::Str> {
+    fn const_str_foreign(&self, module: &crate::vm::runtime::Module, idx: u32) -> Option<crate::object::string::vstr::Str> {
         if let Some(text) = module.string_pool.get(idx as usize) {
             return Some(self.heap().alloc_str(text));
         }

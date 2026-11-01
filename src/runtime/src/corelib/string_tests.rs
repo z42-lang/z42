@@ -1,5 +1,5 @@
 use super::*;
-use crate::metadata::Value;
+use crate::object::Value;
 
 // __str_to_chars: bulk materialise the whole char[] in one native call — the
 // array-view primitive backing script-side string ops (String.ToCharArray →
@@ -147,7 +147,7 @@ fn split_returns_a_ref_backed_string_array() {
     let out = str_split(&ctx, &"a,b,c".into(), ",").unwrap();
     match out {
         Value::Array(a) => {
-            assert_eq!(a.borrow().mode(), crate::metadata::types::ArrayMode::Ref,
+            assert_eq!(a.borrow().mode(), crate::object::ArrayMode::Ref,
                 "split 的 string[] 必须是 REF backing(逐片 GC 串),不是 MIXED");
             assert_eq!(a.borrow().len(), 3);
         }
@@ -167,7 +167,7 @@ fn substring_out_of_range_is_argument_out_of_range() {
 // immutable input, constant answer, second read O(1) (runtime-audit X-5).
 #[test]
 fn str_hash_code_is_stable_and_memoized() {
-    use crate::metadata::vstr::Str;
+    use crate::object::string::vstr::Str;
     let s = Str::new_leaked("hello, world");
     assert_eq!(s.memoized_hash_code(), None, "fresh block carries no memo");
     let h1 = str_hash_code(&s);

@@ -19,7 +19,7 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::exception::VmFrame;
-use crate::metadata::Value;
+use crate::object::Value;
 
 /// See the module docs.
 pub(crate) struct FrameStack {

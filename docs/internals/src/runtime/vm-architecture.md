@@ -32,6 +32,10 @@ is/as/catch 目标键及数组元素/对象泛型实参的驻留句柄。侧表�
 `VmContext::with_image` 为映像构建新的类型注册表、身份和缓存；跨 VM 不复用已登记的链接函数。
 解码/包加载时机与字节码格式保持不变，没有全局映像缓存或按需解码。
 
+对象表示集中在 `object/{value,types,header,object,array,string}`：Value、类型形状与布局、区块头和
+句柄、对象/数组存储及字符串索引。`gc/var_region` 管理分配、回收和弱句柄的 chunk epoch 校验；
+静态 PackageImage 不持有这些对象表示或 GC 状态。对象与字段的内存契约见 [object-abi.md](object-abi.md)。
+
 ## VmContext / VmCore —— 运行时状态归口
 
 宿主代码运行 VM 的标准流程：
@@ -895,8 +899,8 @@ ctor 在分配**之前**绑定：绑定可能加载包、跑包初始化器，�
 
 **字段默认值**：步骤 2 不逐字段填值。对象按加载期组合好的字节布局分配：基元字段落在清零的
 字节区（⇒ `0` / `false` / `'\0'` / `0.0`），引用字段为 `Null`（对象块整块清零，`TypeDesc::object_bytes_len()` 定尺，
-`metadata/types/type_desc.rs`）。布局按**声明**算，`T` 型参字段因此被归为引用槽、零值是 `Null`；
-泛型实例由 `metadata/types/field.rs::generic_field_zero_overrides` 按实参把基元型参字段改写成该类型的零值。
+`object/types/type_desc.rs`）。布局按**声明**算，`T` 型参字段因此被归为引用槽、零值是 `Null`；
+泛型实例由 `object/types/field.rs::generic_field_zero_overrides` 按实参把基元型参字段改写成该类型的零值。
 interp（堆 / 栈两支）与 JIT (`jit_obj_new`) 共用步骤 4。字段分类依赖 `FieldSlot` 携带的
 `type_tag: Box<str>`（从 zbc `FieldDesc.type_tag` 透传），见下文 TypeDesc 结构；
 完整的零初始化不变式见 [object-abi.md](object-abi.md)「槽位零初始化」。
@@ -1236,7 +1240,7 @@ jit/helpers/
 `emit_bool_binop` / `emit_bool_not` / `emit_const_*` + `is_*_typed` 谓词。
 依赖：`Function.reg_types: Box<[IrType]>`（来自 zbc REGT section）+
 `Value` enum 锁布局（`#[repr(C, u8)]`，16 B，tag@0、payload@8，pinned by
-`metadata::types_tests::value_*_payload_at_offset_8` 与 `size_of::<Value>() == 16` 编译期断言）。
+`object::types_tests::value_*_payload_at_offset_8` 与 `size_of::<Value>() == 16` 编译期断言）。
 
 **问题**: JIT-compiled 代码每条算术 / 比较 / 逻辑 op 都 call 一个
 `extern "C"` helper（`jit_add` / `jit_eq` / ...）。helper 内部走
@@ -1407,7 +1411,7 @@ pub struct ResolvedTokens {
 
 id 永不复用，所以它也是比地址更稳的缓存键：描述符释放后地址可能被别的类型复用（可回收的 load context、REPL 轮次），id 不会。`isa_cache` 因此按 `(接收者 TypeId, 目标键)` 做键（见 [interp-jit-semantics.md](interp-jit-semantics.md)「类型判定的缓存键」）。同一类型可能有多个描述符版本（急切主模块里只含自身字段的那份、惰性加载器 fixup 出的合并副本），它们同 id、同名、同基类链——按 id 做键的缓存对它们给出同一判定；`TypeTable` 的槽位指向最新版本。
 
-> **无锁读 type_id**：PIC scan 读 receiver `type_id` 不拿锁。`ObjRef::type_desc()`（`metadata/types/object.rs`）经 `borrow()` 直接读对象头里的 `type_desc`（发布前写定、之后不变），没有每对象锁。详见 `docs/internals/src/runtime/gc.md`。这是 PIC inline 入 Cranelift IR（待办）的前置条件 —— 需 lock 的话 PIC 不能 inline。
+> **无锁读 type_id**：PIC scan 读 receiver `type_id` 不拿锁。`ObjRef::type_desc()`（`object/object/object.rs`）经 `borrow()` 直接读对象头里的 `type_desc`（发布前写定、之后不变），没有每对象锁。详见 `docs/internals/src/runtime/gc.md`。这是 PIC inline 入 Cranelift IR（待办）的前置条件 —— 需 lock 的话 PIC 不能 inline。
 
 ### 跨 zpkg 时序
 

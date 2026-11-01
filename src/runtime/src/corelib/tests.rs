@@ -1,5 +1,5 @@
 use super::*;
-use crate::metadata::{NativeData, TypeDesc, Value};
+use crate::object::{NativeData, TypeDesc, Value};
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 
@@ -17,7 +17,10 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> { VmContext::new() }
 /// exercise the real `Std.Type`-producing path. (make-typeof-return-type C2 /
 /// add-attribute-reflection C3 made this path z42.core-dependent.)
 fn ctx_with_std_type() -> std::pin::Pin<Box<VmContext>> {
-    use crate::metadata::{index::name::NameIndex, tokens::TypeId, FieldSlot};
+    use crate::{
+        metadata::{index::name::NameIndex, tokens::TypeId},
+        object::FieldSlot,
+    };
     let c = VmContext::new();
     c.install_lazy_loader(None, 0);
     let mut fi = NameIndex::new();
@@ -213,7 +216,7 @@ fn obj_ref_eq_both_null_is_true() {
 #[test]
 fn obj_ref_eq_compares_array_and_string_identity() {
     let c = ctx();
-    let arr = |v: i64| Value::Array(crate::metadata::types::ArrayObj::leaked(vec![Value::I64(v)]));
+    let arr = |v: i64| Value::Array(crate::object::ArrayObj::leaked(vec![Value::I64(v)]));
     let a = arr(1);
     assert_eq!(exec_builtin_value(&c, "__obj_ref_eq", &[a.clone(), a]).unwrap(), Value::Bool(true));
     assert_eq!(exec_builtin_value(&c, "__obj_ref_eq", &[arr(1), arr(1)]).unwrap(), Value::Bool(false));
@@ -270,15 +273,15 @@ fn obj_hash_code_non_object_errors() {
 
 // ── __delegate_eq (fix-delegate-reference-equality, D-5) ───────────
 
-use crate::gc::ArrRef;
+use crate::object::ArrRef;
 
 /// P1-2 PR 8: callables hold their target's `FnId`.
 fn fn_ref(id: u32) -> Value { Value::FuncRef(crate::metadata::tokens::FnId(id)) }
 
 fn closure_of(env: ArrRef, id: u32) -> Value {
-    Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(
-        crate::metadata::ClosureData { env, fn_id: crate::metadata::tokens::FnId(id) },
-        crate::gc::var_region::BlockType::Closure,
+    Value::Closure(crate::object::header::VarGcRef::leak_for_test(
+        crate::object::ClosureData { env, fn_id: crate::metadata::tokens::FnId(id) },
+        crate::object::header::BlockType::Closure,
     ))
 }
 
@@ -337,7 +340,7 @@ fn delegate_eq_diff_funcref_not_equal() {
 #[test]
 fn delegate_eq_same_closure_equal_via_ptr_eq() {
     let c = ctx();
-    let env = crate::metadata::types::ArrayObj::leaked(vec![Value::I64(1)]);
+    let env = crate::object::ArrayObj::leaked(vec![Value::I64(1)]);
     let a = closure_of(env.clone(), 3);
     let b = closure_of(env.clone(), 3);
     assert_eq!(exec_builtin_value(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(true));
@@ -346,8 +349,8 @@ fn delegate_eq_same_closure_equal_via_ptr_eq() {
 #[test]
 fn delegate_eq_diff_closure_env_not_equal() {
     let c = ctx();
-    let a = closure_of(crate::metadata::types::ArrayObj::leaked(vec![Value::I64(1)]), 3);
-    let b = closure_of(crate::metadata::types::ArrayObj::leaked(vec![Value::I64(1)]), 3);
+    let a = closure_of(crate::object::ArrayObj::leaked(vec![Value::I64(1)]), 3);
+    let b = closure_of(crate::object::ArrayObj::leaked(vec![Value::I64(1)]), 3);
     assert_eq!(exec_builtin_value(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(false));
 }
 
@@ -355,7 +358,7 @@ fn delegate_eq_diff_closure_env_not_equal() {
 fn delegate_eq_funcref_vs_closure_not_equal() {
     let c = ctx();
     let a = fn_ref(5);
-    let b = closure_of(crate::metadata::types::ArrayObj::leaked(vec![]), 5);
+    let b = closure_of(crate::object::ArrayObj::leaked(vec![]), 5);
     assert_eq!(exec_builtin_value(&c, "__delegate_eq", &[a, b]).unwrap(), Value::Bool(false));
 }
 
@@ -422,7 +425,7 @@ fn upgrade_weak_non_handle_returns_null() {
 #[test]
 fn make_weak_then_upgrade_array() {
     let c = ctx();
-    let arr = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![i(1), i(2)]));
+    let arr = Value::Array(crate::object::ArrayObj::leaked(vec![i(1), i(2)]));
     let handle = exec_builtin_value(&c, "__obj_make_weak", &[arr.clone()]).unwrap();
     assert!(matches!(handle, Value::Object(_)));
     let upgraded = exec_builtin_value(&c, "__obj_upgrade_weak", &[handle]).unwrap();
@@ -432,7 +435,7 @@ fn make_weak_then_upgrade_array() {
 // ── __delegate_target / __delegate_fn_name / __make_closure (D-1b) ──
 
 fn closure(env: Vec<Value>, id: u32) -> Value {
-    closure_of(crate::metadata::types::ArrayObj::leaked(env), id)
+    closure_of(crate::object::ArrayObj::leaked(env), id)
 }
 
 #[test]
@@ -501,11 +504,11 @@ fn delegate_fn_name_returns_null_for_non_delegate() {
 fn make_closure_constructs_value_closure() {
     let c = ctx_with_fns(&["Demo.Other", "thunk_X"]);
     let receiver = obj(&c, "Listener");
-    let env_arr = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![receiver.clone()]));
+    let env_arr = Value::Array(crate::object::ArrayObj::leaked(vec![receiver.clone()]));
     let cl = exec_builtin_value(&c, "__make_closure", &[s("thunk_X"), env_arr]).unwrap();
     match cl {
         Value::Closure(cd) => {
-            let data = crate::metadata::types::closure_data_of(&cd);
+            let data = crate::object::closure_data_of(&cd);
             assert_eq!(data.fn_id, crate::metadata::tokens::FnId(1), "the name binds to its FnId");
             // env[0] 应是同一 receiver
             let env_ref = data.env.borrow();
@@ -529,7 +532,7 @@ fn make_closure_constructs_value_closure() {
 fn make_closure_returns_null_for_invalid_args() {
     let c = ctx();
     // fn_name 不是 string
-    let env_arr = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![]));
+    let env_arr = Value::Array(crate::object::ArrayObj::leaked(vec![]));
     assert_eq!(exec_builtin_value(&c, "__make_closure", &[i(5), env_arr.clone()]).unwrap(), Value::Null);
     // env 不是 array
     assert_eq!(exec_builtin_value(&c, "__make_closure", &[s("x"), i(5)]).unwrap(), Value::Null);

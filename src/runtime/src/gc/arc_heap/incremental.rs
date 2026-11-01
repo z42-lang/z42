@@ -49,8 +49,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use parking_lot::Mutex;
 
 use crate::gc::phase_timer::PhaseTimer;
-use crate::gc::refs::MarkKind;
-use crate::metadata::Value;
+use crate::object::header::marks::MarkKind;
+use crate::object::Value;
 
 const IDLE: u8 = 0;
 const MARKING: u8 = 1;

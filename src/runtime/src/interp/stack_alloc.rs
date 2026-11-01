@@ -28,7 +28,7 @@
 //! bypasses stack allocation at runtime (heap everything) for triage without a
 //! recompile; `=stats` prints hit counts.
 
-use crate::metadata::types::{OwnedObject, ScriptObject, Value};
+use crate::object::{OwnedObject, ScriptObject, Value};
 use anyhow::Result;
 use std::sync::atomic::{AtomicU32, Ordering};
 

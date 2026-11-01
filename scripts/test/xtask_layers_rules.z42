@@ -4,7 +4,7 @@
 // vm 子系统、引擎 / 能力 / 工具 / 门面、易混边界）。这里只把它翻成机器可查的两张表：
 //
 //   · _lyMapTable：src/runtime/src 下的相对路径前缀 → 组件，**最长前缀胜出**。前缀以 `/` 结尾的是目录；
-//     不带 `/` 的同时匹配同名文件与同名目录（`metadata/types` 覆盖 `types.rs` 与 `types/`）。
+//     不带 `/` 的同时匹配同名文件与同名目录（`object` 覆盖 `object.rs` 与 `object/`）。
 //     注释写的是 §4 里的目标位置。文件按「整个文件将来去哪」归属；一个文件里混着两处归属的，
 //     按主体归，拆分时跟着改表。
 //   · _lyAllowTable：组件 → 允许直接引用的组件。同组件内引用恒允许。
@@ -40,14 +40,7 @@ string[] _lyMapBase() {
         "metadata/format/              = metadata",
         "metadata/index/               = metadata",
         "metadata/debug/               = metadata",
-        "metadata/types                = object          # object types/ value/ object/ array/",
-        "metadata/vstr.rs              = object          # object string/",
-        "corelib/str_meta.rs           = object          # object string/（非 ASCII 字符索引）",
-        "gc/refs.rs                    = object          # object header/（GC 字里的标记位）",
-        "gc/obj_ref.rs                 = object          # object header/ 句柄",
-        "gc/arr_ref.rs                 = object          # object header/ 句柄",
-        "gc/var_region/block.rs        = object          # object header/（16 B 统一头）",
-        "gc/var_region/var_ref.rs      = object          # object header/ 句柄",
+        "object/                       = object",
         "gc/                           = gc"
     };
 }

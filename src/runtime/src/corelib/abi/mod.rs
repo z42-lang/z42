@@ -30,7 +30,7 @@ pub use args::{ArgAt, ArgSource, FromArg, PlainArg, RefArg, RegArgs};
 pub use error::{BuiltinError, FieldInit};
 pub use ret::{Blocking, IntoRet, PlainRet, Then};
 
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 /// Kind of a builtin parameter, as the Rust signature declares it (descriptor data,

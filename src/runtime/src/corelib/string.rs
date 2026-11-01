@@ -1,4 +1,4 @@
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, bail, Result};
 use crate::corelib::abi::BuiltinError;
@@ -12,13 +12,13 @@ use super::convert::{arg_str, arg_usize, this_str};
 /// characters as a single primitive so string algorithms can be written in
 /// SCRIPT over `arr[i]` (the `ArrayGet` opcode) instead of `CharAt` (a builtin
 /// call) — the C# "string ops in managed code over a char buffer" model.
-pub fn str_to_chars(ctx: &VmContext, s: &crate::metadata::vstr::Str) -> Value {
+pub fn str_to_chars(ctx: &VmContext, s: &crate::object::string::vstr::Str) -> Value {
     let s: &str = s;
     // One PRIM `char[]` block, decoded straight into it (perf-array-alloc-direct: no staging
     // `Vec<Value>`).
     let n = s.chars().count();
     let heap = ctx.heap();
-    crate::metadata::types::ArrayObj::alloc_typed_iter(heap, crate::metadata::types::ElemType::char(), n, s.chars().map(Value::Char))
+    crate::object::ArrayObj::alloc_typed_iter(heap, crate::object::ElemType::char(), n, s.chars().map(Value::Char))
 }
 
 /// Returns the number of UTF-8 bytes in the string. O(1).
@@ -29,7 +29,7 @@ pub fn str_to_chars(ctx: &VmContext, s: &crate::metadata::vstr::Str) -> Value {
 /// UTF-8 byte storage — `"你好".ByteLength == 6` — for hot paths that
 /// need O(1) size queries (allocation sizing, network framing, hashing).
 /// args: [this: str]
-pub fn str_byte_length(s: &crate::metadata::vstr::Str) -> i64 {
+pub fn str_byte_length(s: &crate::object::string::vstr::Str) -> i64 {
     s.len() as i64
 }
 
@@ -39,14 +39,14 @@ pub fn str_byte_length(s: &crate::metadata::vstr::Str) -> i64 {
 pub mod typed {
     use crate::corelib::abi::BuiltinError;
     use crate::vm_context::VmContext;
-    use crate::metadata::vstr::Str;
+    use crate::object::string::vstr::Str;
 
     /// Number of Unicode scalar values. O(1) amortised via the per-string metadata
     /// cache (`str_meta`, perf-str-char-index): the z42c lexer queries `src.Length` once
     /// per character, which would be O(n²) with a fresh count each time.
     #[builtin(name = "__str_length", this = "get_Length", pure)]
     pub fn str_length(this: &Str) -> i64 {
-        crate::corelib::str_meta::char_len(this) as i64
+        crate::object::string::str_meta::char_len(this) as i64
     }
 
     /// The char at scalar index `i`. O(1) amortised: ASCII strings index bytes directly,
@@ -55,28 +55,28 @@ pub mod typed {
     #[builtin(name = "__str_char_at", this = "CharAt", pure)]
     pub fn str_char_at(this: &Str, i: i64) -> Result<char, BuiltinError> {
         usize::try_from(i).ok()
-            .and_then(|i| crate::corelib::str_meta::char_at(this, i))
+            .and_then(|i| crate::object::string::str_meta::char_at(this, i))
             .ok_or_else(|| BuiltinError::IndexOutOfRange(format!(
-                "index {i} is out of range for a string of length {}", crate::corelib::str_meta::char_len(this))))
+                "index {i} is out of range for a string of length {}", crate::object::string::str_meta::char_len(this))))
     }
     /// `ToCharArray()` — 一个 PRIM char[] 块,解码直写。
     #[builtin(name = "__str_to_chars", this = "ToCharArray")]
-    pub fn to_chars(ctx: &VmContext, s: &crate::metadata::vstr::Str) -> crate::metadata::Value {
+    pub fn to_chars(ctx: &VmContext, s: &crate::object::string::vstr::Str) -> crate::object::Value {
         super::str_to_chars(ctx, s)
     }
 
     /// UTF-8 字节数,O(1)(`"你好".ByteLength == 6`)。
     #[builtin(name = "__str_byte_length", this = "get_ByteLength", pure)]
-    pub fn byte_length(s: &crate::metadata::vstr::Str) -> i64 { super::str_byte_length(s) }
+    pub fn byte_length(s: &crate::object::string::vstr::Str) -> i64 { super::str_byte_length(s) }
 
     #[builtin(name = "__str_substring", this = "Substring")]
     pub fn substring(
-        s: &crate::metadata::vstr::Str, start: i64, len: i64,
+        s: &crate::object::string::vstr::Str, start: i64, len: i64,
     ) -> Result<String, BuiltinError> { super::str_substring(s, start, len) }
 
     /// `ConcatParts(parts, count)` — 单分配拼接(StringBuilder.ToString / Join 的地板)。
     #[builtin(name = "__str_concat_parts")]
-    pub fn concat_parts(ctx: &VmContext, parts: &crate::metadata::Value, count: i64) -> Result<String, BuiltinError> {
+    pub fn concat_parts(ctx: &VmContext, parts: &crate::object::Value, count: i64) -> Result<String, BuiltinError> {
         super::str_concat_parts(ctx, parts, count)
     }
 
@@ -116,28 +116,28 @@ pub mod typed {
     }
 
     #[builtin(name = "__str_split", this = "Split")]
-    pub fn split(ctx: &VmContext, s: &crate::metadata::vstr::Str, sep: &str) -> Result<crate::metadata::Value, BuiltinError> {
+    pub fn split(ctx: &VmContext, s: &crate::object::string::vstr::Str, sep: &str) -> Result<crate::object::Value, BuiltinError> {
         super::str_split(ctx, s, sep)
     }
 
     #[builtin(name = "__str_join")]
-    pub fn join(sep: &str, values: &crate::metadata::Value) -> Result<String, BuiltinError> {
+    pub fn join(sep: &str, values: &crate::object::Value) -> Result<String, BuiltinError> {
         super::str_join(sep, values)
     }
 
     #[builtin(name = "__str_from_chars")]
-    pub fn from_chars(chars: &crate::metadata::Value) -> Result<String, BuiltinError> {
+    pub fn from_chars(chars: &crate::object::Value) -> Result<String, BuiltinError> {
         super::str_from_chars(chars)
     }
 
     #[builtin(name = "__str_equals", this = "Equals", pure)]
     pub fn equals(
-        s: &crate::metadata::vstr::Str, other: Option<&crate::metadata::vstr::Str>,
+        s: &crate::object::string::vstr::Str, other: Option<&crate::object::string::vstr::Str>,
     ) -> bool { super::str_equals(s, other) }
 
     /// FNV-1a 哈希(UTF-8 字节),31 位截断。
     #[builtin(name = "__str_hash_code", this = "GetHashCode", pure)]
-    pub fn hash_code(s: &crate::metadata::vstr::Str) -> i64 { super::str_hash_code(s) }
+    pub fn hash_code(s: &crate::object::string::vstr::Str) -> i64 { super::str_hash_code(s) }
 
 }
 
@@ -147,16 +147,16 @@ pub mod typed {
 /// its own message; this is the defensive floor).
 /// args: [this: str, start: int, length: int]
 pub fn str_substring(
-    s: &crate::metadata::vstr::Str, start: i64, len: i64,
+    s: &crate::object::string::vstr::Str, start: i64, len: i64,
 ) -> Result<String, BuiltinError> {
     let (start, len) = (start as usize, len as usize);
-    match super::str_meta::byte_range(s, start, len) {
+    match crate::object::string::str_meta::byte_range(s, start, len) {
         Some((b0, b1)) => Ok(s[b0..b1].to_string()),
         // 与旧表同语义:越界 → ArgumentOutOfRangeException(此前 catchable
         // Std.Exception,文案不变)。
         None => Err(BuiltinError::ArgumentOutOfRange(format!(
             "__str_substring: range [{}, {}) out of bounds (length {})",
-            start, start + len, super::str_meta::char_len(s)))),
+            start, start + len, crate::object::string::str_meta::char_len(s)))),
     }
 }
 
@@ -200,8 +200,8 @@ pub fn str_concat_parts(
 /// (none inside a builtin) and blocks allocated during marking are born marked.
 /// args: [this: str, sep: str (non-empty — the script side rejects "")]
 pub fn str_split(
-    ctx: &VmContext, s: &crate::metadata::vstr::Str, sep: &str,
-) -> Result<crate::metadata::Value, BuiltinError> {
+    ctx: &VmContext, s: &crate::object::string::vstr::Str, sep: &str,
+) -> Result<crate::object::Value, BuiltinError> {
     if sep.is_empty() {
         return Err(BuiltinError::Argument("__str_split: separator must not be empty".into()));
     }
@@ -270,7 +270,7 @@ pub fn str_from_chars(chars: &Value) -> Result<String, BuiltinError> {
 
 /// string.Equals(other) — value equality.
 /// args: [this: str, other: str | null]
-pub fn str_equals(a: &crate::metadata::vstr::Str, other: Option<&crate::metadata::vstr::Str>) -> bool {
+pub fn str_equals(a: &crate::object::string::vstr::Str, other: Option<&crate::object::string::vstr::Str>) -> bool {
     match other {
         Some(b) => a == b,
         None => false,
@@ -280,7 +280,7 @@ pub fn str_equals(a: &crate::metadata::vstr::Str, other: Option<&crate::metadata
 /// string.GetHashCode() — FNV-1a hash of the UTF-8 bytes, memoized per string
 /// block (immutable input ⇒ constant answer; see `Str::memoized_hash_code`).
 /// args: [this: str]
-pub fn str_hash_code(s: &crate::metadata::vstr::Str) -> i64 {
+pub fn str_hash_code(s: &crate::object::string::vstr::Str) -> i64 {
     if let Some(h) = s.memoized_hash_code() { return h; }
     let mut hash: u32 = 2_166_136_261;
     for byte in s.bytes() {

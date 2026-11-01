@@ -16,11 +16,11 @@
 //! - **weak references** record the owning chunk's reuse epoch (`WeakObjRef`), so an upgrade
 //!   never reads memory that was re-carved or handed back to the allocator.
 
-use crate::gc::arr_ref::{ArrRef, WeakArrRef};
-use crate::gc::obj_ref::{ObjRef, WeakObjRef};
+use crate::object::header::arr_ref::{ArrRef, WeakArrRef};
+use crate::object::header::obj_ref::{ObjRef, WeakObjRef};
 use crate::gc::types::FinalizerFn;
-use crate::gc::var_region::VarGcRef;
-use crate::metadata::Value;
+use crate::object::header::VarGcRef;
+use crate::object::Value;
 
 impl crate::gc::arc_heap::ArcMagrGC {
     /// The block of an object or array `Value` — what side tables and the remembered set key on.
@@ -35,7 +35,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
     /// `(chunk, epoch)` a weak reference to `b` records: its chunk and that chunk's current reuse
     /// epoch. A block outside every chunk (a detached / leaked one) is never reclaimed.
-    /// `corelib::str_meta` records the same stamp (`MagrGC::var_chunk_stamp`).
+    /// `object::string::str_meta` records the same stamp (`MagrGC::var_chunk_stamp`).
     pub(super) fn weak_stamp(&self, b: VarGcRef) -> (u32, u32) {
         let region = self.region_var.lock();
         match region.chunk_of(b.addr()) {

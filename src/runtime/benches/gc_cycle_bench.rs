@@ -25,7 +25,10 @@ use std::sync::Arc;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 use z42::gc::{ArcMagrGC, GcMode, MagrGC};
-use z42::metadata::{tokens::TypeId, NativeData, TypeDesc, Value};
+use z42::{
+    metadata::tokens::TypeId,
+    object::{NativeData, TypeDesc, Value},
+};
 use z42::vm_context::VmContext;
 
 fn make_type_desc(name: &str) -> Arc<TypeDesc> {
@@ -48,7 +51,7 @@ fn build_cycle_heavy(heap: &dyn MagrGC, num_cycles: usize) {
     // written via `set_field_value` against the type's composed layout. Give `Cycle` one
     // reference field (slot 0, an 8 B reference word) so `a ⇄ b` forms a real traced cycle.
     let td = {
-        use z42::metadata::types::{ObjectLayout, FieldAccess, TypeDescCold, TAG_OBJECT};
+        use z42::object::{FieldAccess, ObjectLayout, TypeDescCold, TAG_OBJECT};
         let layout = Arc::new(ObjectLayout {
             size: 8,
             field_offsets: Box::new([0]),

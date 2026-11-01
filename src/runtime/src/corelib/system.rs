@@ -7,7 +7,7 @@
 //!  add-platform-os-stdlib (original landing).
 
 use super::convert::arg_str;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::pal;
 use crate::vm_context::VmContext;
 use anyhow::Result;

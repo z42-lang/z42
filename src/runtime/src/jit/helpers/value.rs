@@ -4,7 +4,7 @@
 //! inline loads/stores on `JitFrame` — see `JIT_FRAME_*_OFFSET`.)
 
 use crate::corelib::convert::with_value_str;
-use crate::metadata::Value;
+use crate::object::Value;
 use super::super::frame::JitFrame;
 use crate::vm_context::VmContext;
 use super::super::invoke::{call_entry, NativeOutcome};
@@ -127,7 +127,7 @@ pub unsafe extern "C" fn jit_to_str(
                     NativeOutcome::Threw => return 1,
                 };
                 let heap = vm_ctx_ref(ctx).heap();
-                let s: crate::metadata::vstr::Str = match ret {
+                let s: crate::object::string::vstr::Str = match ret {
                     Some(Value::Str(s)) => s,
                     Some(ref other)     => with_value_str(other, |t| heap.alloc_str(t)),
                     None                => heap.alloc_str(""),

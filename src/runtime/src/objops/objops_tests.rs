@@ -8,12 +8,12 @@
 use super::array::{array_get, array_len, array_new, array_new_lit, array_set, packed_data};
 use super::field::{field_get, field_set};
 use super::{OpError, Throw};
-use crate::metadata::types::{
-    ArrayObj, FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
-    STRUCT_LEAF_PRIM, TAG_I32, TAG_STR,
+use crate::object::{
+    ArrayObj, FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold, STRUCT_LEAF_PRIM,
+    TAG_I32, TAG_STR,
 };
-use crate::metadata::Value;
-use crate::metadata::types::ElemType;
+use crate::object::Value;
+use crate::object::ElemType;
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 
@@ -58,7 +58,7 @@ fn holder() -> Value {
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
         id: crate::metadata::tokens::TypeId::UNRESOLVED,
     });
-    Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(td, 16)))
+    Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(td, 16)))
 }
 
 fn long_array(vm: &VmContext, vals: &[i64]) -> Value {
@@ -144,7 +144,7 @@ fn stack_object_fields_go_through_the_arena() {
     let vm = VmContext::new();
     let Value::Object(rc) = holder() else { unreachable!() };
     let td = rc.type_desc_arc().clone();
-    let idx = vm.stack_alloc_obj(5, crate::metadata::types::OwnedObject::new(td, 16));
+    let idx = vm.stack_alloc_obj(5, crate::object::OwnedObject::new(td, 16));
     let so = Value::StackObject { idx, frame_id: 5 };
     field_set(&vm, &so, "n", &Value::I64(9), None).unwrap();
     assert_eq!(field_get(&vm, &so, "n", None).unwrap(), Value::I64(9));
@@ -224,7 +224,7 @@ fn negative_array_size_throws_overflow() {
 #[test]
 fn packed_data_never_throws() {
     let vm = VmContext::new();
-    let a = array_new(&vm, &Value::I64(4), crate::metadata::types::TAG_I64, ElemType::intern("long"), false, None, None, None::<fn() -> u32>).unwrap();
+    let a = array_new(&vm, &Value::I64(4), crate::object::TAG_I64, ElemType::intern("long"), false, None, None, None::<fn() -> u32>).unwrap();
     let (ptr, len, width) = packed_data(&a);
     assert!(!ptr.is_null());
     assert_eq!((len, width), (4, 8));

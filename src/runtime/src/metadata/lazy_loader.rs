@@ -39,7 +39,7 @@ use anyhow::Result;
 use crate::vm::runtime::Function;
 use super::ir::Instruction;
 use super::loader::{load_artifact, load_artifact_from_bytes, LoadedArtifact};
-use super::types::TypeDesc;
+use crate::object::TypeDesc;
 use super::namespace_index;
 
 // ── Public API ────────────────────────────────────────────────────────────────

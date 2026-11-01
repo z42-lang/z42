@@ -33,7 +33,7 @@
 
 use std::sync::Arc;
 
-use crate::metadata::{NativeData, TypeDesc, Value};
+use crate::object::{NativeData, TypeDesc, Value};
 
 pub use super::types::{
     AllocKind, AllocSample, AllocSamplerFn, CollectStats, FinalizerFn, FrameMark,
@@ -57,7 +57,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
 
     /// 分配一个 `ScriptObject` 并以 `Value::Object` 返回。
     /// 泛型实例的类型实参由调用方随后经 `ScriptObject::install_type_args` 写入（驻留句柄，
-    /// 见 `metadata/types/type_args.rs`）；本接口不带实参。
+    /// 见 `object/types/type_args.rs`）；本接口不带实参。
     fn alloc_object(
         &self,
         type_desc: Arc<TypeDesc>,
@@ -69,11 +69,11 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// 访问、不再能改 `NativeData` / 泛型实参（没有每对象锁），所以要先设好这些的冷路径（反射的
     /// `Activator.CreateInstance`、测试）在本地建好整个对象，再交给 heap —— heap 把对象头与字段
     /// 拷进一个新块。热路径 `ObjNew` 走 [`MagrGC::alloc_instance`]，直接在块里建。
-    fn alloc_script_object(&self, obj: crate::metadata::types::OwnedObject) -> Value;
+    fn alloc_script_object(&self, obj: crate::object::OwnedObject) -> Value;
 
     /// `ObjNew` 的堆分支（对象模型 R6）：`type_desc` 的新实例（字段清零）加上实例的泛型一步
     /// （`ScriptObject::install_type_args`），在对象自己的块里建好再发布。strict OOM 越限返 `Null`。
-    fn alloc_instance(&self, type_desc: Arc<TypeDesc>, type_args: crate::metadata::types::TypeArgs) -> Value;
+    fn alloc_instance(&self, type_desc: Arc<TypeDesc>, type_args: crate::object::TypeArgs) -> Value;
 
     /// unify Phase 2 R3（装箱统一）：装箱一个基元（整数）成堆 `ScriptObject` + 引用身份。
     /// 裸标量 LE 字节存 `struct_bytes`（宽度由调用方按 wrapper 标量宽度定尺，与 struct 装箱完全同构），
@@ -85,22 +85,22 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
 
     /// 分配一个 `Vec<Value>` 数组并以 `Value::Array` 返回（元素类型未知，MIXED）。
     fn alloc_array(&self, elems: Vec<Value>) -> Value {
-        crate::metadata::types::ArrayObj::alloc_untyped(self.as_dyn(), elems)
+        crate::object::ArrayObj::alloc_untyped(self.as_dyn(), elems)
     }
 
     /// add-reflection-array-element-type: 分配携带元素类型 FQ 名的数组（来自
     /// `ArrayNew` / `ArrayNewLit`），使 `arr.GetType().GetElementType()` 不擦除。
     fn alloc_array_typed(&self, element_type: &str, elems: Vec<Value>) -> Value {
-        crate::metadata::types::ArrayObj::alloc_typed(self.as_dyn(), element_type, elems)
+        crate::object::ArrayObj::alloc_typed(self.as_dyn(), element_type, elems)
     }
 
     /// packed-primitive-arrays Step 3: allocate a packed `byte[]` directly from
     /// an owned `Vec<u8>` (FFI return path — no per-byte boxing).
     fn alloc_bytes(&self, bytes: Vec<u8>) -> Value {
-        crate::metadata::types::ArrayObj::alloc_bytes(self.as_dyn(), &bytes)
+        crate::object::ArrayObj::alloc_bytes(self.as_dyn(), &bytes)
     }
 
-    /// Object model R9 — the one array allocation path (`metadata::types::ArrayObj`'s constructors
+    /// Object model R9 — the one array allocation path (`object::ArrayObj`'s constructors
     /// funnel here): a block for `len` elements of `desc` (`layout`: a value-struct array's element
     /// layout, owned by the array), zeroed — every mode's default — with the descriptor installed;
     /// `init` writes the elements into the still unpublished array; then the array is published
@@ -108,10 +108,10 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// payload past the block size limit).
     fn alloc_array_with(
         &self,
-        desc: &'static crate::metadata::types::ArrayDesc,
+        desc: &'static crate::object::ArrayDesc,
         len: usize,
-        layout: Option<Arc<crate::metadata::types::StructTypeLayout>>,
-        init: &mut dyn FnMut(&crate::metadata::types::ArrayObj),
+        layout: Option<Arc<crate::object::StructTypeLayout>>,
+        init: &mut dyn FnMut(&crate::object::ArrayObj),
     ) -> Value;
 
     /// `self` as a trait object (the array constructors take `&dyn MagrGC`).
@@ -120,7 +120,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// fix-wasm-string-ops: a process-unique, monotonically-increasing identifier for this
     /// heap's address space. Never reused across heaps (even if a new heap's backing memory is
     /// malloc-recycled at an old heap's address). Address-keyed caches with a lifetime longer
-    /// than one heap (`corelib::str_meta`) tag their entries with this epoch and invalidate on
+    /// than one heap (`object::string::str_meta`) tag their entries with this epoch and invalidate on
     /// change, so a fresh block (generation 0) at a recycled address can't false-hit a stale
     /// gen-0 entry from a torn-down heap. Mock/test heaps return `0` (they never churn heaps).
     fn heap_epoch(&self) -> u64 {
@@ -130,10 +130,10 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// D7: the `(chunk, epoch)` identity of the variable-length chunk holding `b` — the stamp a
     /// weak reference records (`VarRegion::chunk_epoch`: it moves when the chunk is pooled or
     /// freed) — or `None` for a block in no chunk of this heap (a leaked / detached block, never
-    /// freed). Lets an address-keyed cache that outlives a block (`corelib::str_meta`) tell,
+    /// freed). Lets an address-keyed cache that outlives a block (`object::string::str_meta`) tell,
     /// before reading the block's header, whether the memory under it went back to the
     /// allocator. Takes the region lock. Mock heaps have no region: `None`.
-    fn var_chunk_stamp(&self, b: crate::gc::var_region::VarGcRef) -> Option<(u32, u32)> {
+    fn var_chunk_stamp(&self, b: crate::object::header::VarGcRef) -> Option<(u32, u32)> {
         let _ = b;
         None
     }
@@ -145,10 +145,10 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         false
     }
 
-    /// unify-gc-heap PR-2: allocate a capturing closure's [`ClosureData`](crate::metadata::types::ClosureData)
+    /// unify-gc-heap PR-2: allocate a capturing closure's [`ClosureData`](crate::object::ClosureData)
     /// into the GC variable-length region and return a `Value::Closure` handle. Default boxes it
     /// for mock heaps (no variable-length region); `ArcMagrGC` overrides to region-alloc in place.
-    fn alloc_closure(&self, data: crate::metadata::types::ClosureData) -> Value {
+    fn alloc_closure(&self, data: crate::object::ClosureData) -> Value {
         // Mock/default heaps have no variable-length region — this default is unused in the real
         // VM (ArcMagrGC overrides). Constructing a closure without a region is impossible, so the
         // default drops the data and yields Null (mock heaps never build closures).
@@ -162,8 +162,8 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// from `Str::new`/`.into()`). The default falls back to a standalone leaked
     /// block for mock heaps with no variable-length region (test doubles never churn
     /// enough for the leak to matter); `ArcMagrGC` overrides to region-alloc in place.
-    fn alloc_str(&self, s: &str) -> crate::metadata::vstr::Str {
-        crate::metadata::vstr::Str::new_leaked(s)
+    fn alloc_str(&self, s: &str) -> crate::object::string::vstr::Str {
+        crate::object::string::vstr::Str::new_leaked(s)
     }
 
     /// fuse-str-concat-alloc: allocate a fresh GC string that is the
@@ -174,11 +174,11 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// hot path for the `StrConcat` IR op (string `+`) and `Std.String.Concat`.
     /// The default builds the `String` and falls back to a leaked block (mock
     /// heaps); `ArcMagrGC` overrides to region-alloc the fused block in place.
-    fn alloc_str_concat2(&self, a: &str, b: &str) -> crate::metadata::vstr::Str {
+    fn alloc_str_concat2(&self, a: &str, b: &str) -> crate::object::string::vstr::Str {
         let mut s = String::with_capacity(a.len() + b.len());
         s.push_str(a);
         s.push_str(b);
-        crate::metadata::vstr::Str::new_leaked(&s)
+        crate::object::string::vstr::Str::new_leaked(&s)
     }
 
     // ── 2. Roots ─────────────────────────────────────────────────────────────
@@ -365,7 +365,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     ///
     /// Default impl returns false — non-ArcMagrGC backends without
     /// region/tombstone semantics don't support prompt finalization.
-    fn finalize_now(&self, _value: &crate::metadata::Value) -> bool {
+    fn finalize_now(&self, _value: &crate::object::Value) -> bool {
         false
     }
 

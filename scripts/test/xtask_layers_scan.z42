@@ -2,7 +2,7 @@
 //
 // 两遍：第一遍逐文件记下 `use` 叶子、行内 `crate::` 路径、`pub use` 再导出与条目定义；第二遍才解析
 // 引用落在哪个文件——`crate::metadata::LazyLoader` 经 `metadata/mod.rs` 的 `pub use` 落到
-// lazy_loader.rs，`crate::gc::ObjRef` 落到 gc/obj_ref.rs，而不是记在 hub 头上。
+// lazy_loader.rs，`crate::object::ObjRef` 落到 object/header/obj_ref.rs，而不是记在 hub 头上。
 //
 // 判据与刻意不判的：
 //   · 引用 = `crate::` / `$crate::` / `z42::`（z42vm 二进制里指库 crate）开头的路径，含多行
@@ -34,10 +34,10 @@ class LyFile {
     }
 }
 
-// 一个 crate 的模块图：模块路径（`gc/obj_ref`，根 = ""）→ 文件，以及每个模块的再导出与定义。
+// 一个 crate 的模块图：模块路径（`object/header/obj_ref`，根 = ""）→ 文件，以及每个模块的再导出与定义。
 class LyCrate {
     public Dictionary<string, string> ModFile;
-    public Dictionary<string, string> Exports;   // "模块#名字" → 目标路径（`metadata/types/Value`）
+    public Dictionary<string, string> Exports;   // "模块#名字" → 目标路径（`object/Value`）
     public Dictionary<string, string> Globs;     // 模块 → "目标模块|目标模块"
     public Dictionary<string, bool> Defs;        // "模块#名字"
     public List<LyFile> Files;
@@ -55,7 +55,7 @@ class LyCrate {
     }
 }
 
-// `gc/obj_ref.rs` → `gc/obj_ref`；`gc/mod.rs` → `gc`；`lib.rs` / `main.rs` → ""。
+// `object/header/obj_ref.rs` → `object/header/obj_ref`；`gc/mod.rs` → `gc`；`lib.rs` / `main.rs` → ""。
 string _lyModOf(string rel) {
     string m = rel.EndsWith(".rs") ? rel.Substring(0, rel.Length - 3) : rel;
     if (m == "lib" || m == "main" || m == "mod") { return ""; }

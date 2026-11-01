@@ -24,7 +24,7 @@ fn two_alloc_object_calls_return_distinct_rcs() {
     let a    = heap.alloc_object(td.clone(), vec![], NativeData::None);
     let b    = heap.alloc_object(td.clone(), vec![], NativeData::None);
     let (Value::Object(ra), Value::Object(rb)) = (a, b) else { panic!() };
-    assert!(!crate::gc::ObjRef::ptr_eq(&ra, &rb));
+    assert!(!crate::object::ObjRef::ptr_eq(&ra, &rb));
 }
 
 #[test]

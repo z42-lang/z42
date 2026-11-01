@@ -3,7 +3,7 @@
 /// IsInstance / AsCast (runtime type checks), StaticGet / StaticSet.
 
 use crate::vm::runtime::Module;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 
@@ -25,7 +25,7 @@ pub(super) fn obj_new(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, class_name: &str, ctor_name: &str, args: &[u32],
     // The site's interned type-arguments (`ObjNewInsn::type_args`).
-    type_args: crate::metadata::types::TypeArgs,
+    type_args: crate::object::TypeArgs,
     // This site's `ResolvedTokens::obj_new` cache (None when the resolver hasn't run).
     site: Option<&crate::metadata::resolver::ObjNewSite>,
     stack_alloc: bool,
@@ -84,7 +84,7 @@ pub(super) fn obj_new(
     // and the stack branch (`OwnedObject::new_instance`) must stay in lockstep with the heap one,
     // or flipping `Z42_STACKALLOC` changes observable values.
     let obj_val = if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
-        let obj = crate::metadata::types::OwnedObject::new_instance(type_desc.clone(), inst_args);
+        let obj = crate::object::OwnedObject::new_instance(type_desc.clone(), inst_args);
         let frame_id = frame.frame_id(ctx);
         let idx = ctx.stack_alloc_obj(frame_id, obj);
         Value::StackObject { idx, frame_id }

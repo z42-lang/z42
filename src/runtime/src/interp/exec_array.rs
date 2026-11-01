@@ -7,9 +7,9 @@
 /// `IndexOutOfRangeException` / `OverflowException` / `OutOfMemoryException`),
 /// `Err` = internal VM error.
 
-use crate::metadata::types::{default_value_for, ElemKind, ElemType};
+use crate::object::{default_value_for, ElemKind, ElemType};
 use crate::vm::runtime::Module;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::objops;
 use crate::vm_context::VmContext;
 use anyhow::Result;

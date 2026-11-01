@@ -2,7 +2,7 @@
 //! (add-struct-value-semantics Phase A).
 use super::*;
 use crate::interp::struct_arena::StructArena;
-use crate::metadata::types::StructTypeLayout;
+use crate::object::StructTypeLayout;
 use std::sync::Arc;
 
 /// Pure-primitive layout of `size` bytes (no reference leaves).
@@ -118,14 +118,14 @@ fn value_semantics_copy_then_mutate_leaves_source_unchanged() {
 #[test]
 fn heap_object_inline_struct_field_roundtrips() {
     use crate::vm_context::VmContext;
-    use crate::metadata::types::{TypeDesc, TypeDescCold, NativeData};
+    use crate::object::{NativeData, TypeDesc, TypeDescCold};
     use crate::metadata::NameIndex;
     use crate::metadata::tokens::TypeId;
 
     // The object stores the inline struct's leaves in its `bytes` at their composed offsets,
     // the reference leaf as an 8 B reference word (listed in `ref_cells`).
     // Point{x:i32@0, y:i32@4, tag:str@8}, size 16, one reference leaf at offset 8.
-    let composed = Arc::new(crate::metadata::types::ObjectLayout {
+    let composed = Arc::new(crate::object::ObjectLayout {
         size: 16,
         field_offsets: Box::new([]),
         field_sizes: Box::new([]),
@@ -189,7 +189,7 @@ fn heap_object_inline_struct_field_roundtrips() {
 #[test]
 fn struct_array_element_leaf_access_via_handle() {
     use crate::vm_context::VmContext;
-    use crate::metadata::types::{ArrayObj, StructArrayElem, STRUCT_REF_ARC_STRING};
+    use crate::object::{ArrayObj, StructArrayElem, STRUCT_REF_ARC_STRING};
 
     let layout = Arc::new(StructTypeLayout {
         size: 16,
@@ -276,13 +276,13 @@ fn boxed_struct_owns_snapshot_and_survives_arena_truncate() {
 #[test]
 fn stack_object_inline_struct_field_roundtrips() {
     use crate::vm_context::VmContext;
-    use crate::metadata::types::{TypeDesc, TypeDescCold, ScriptObject};
+    use crate::object::{ScriptObject, TypeDesc, TypeDescCold};
     use crate::metadata::NameIndex;
     use crate::metadata::tokens::TypeId;
 
     // Same shape as the heap test: Point{x:i32@0, y:i32@4, tag:str@8}, size 16,
     // one reference leaf (a reference word) at offset 8.
-    let composed = Arc::new(crate::metadata::types::ObjectLayout {
+    let composed = Arc::new(crate::object::ObjectLayout {
         size: 16,
         field_offsets: Box::new([]),
         field_sizes: Box::new([]),
@@ -306,7 +306,7 @@ fn stack_object_inline_struct_field_roundtrips() {
 
     let ctx = VmContext::new();
     let mut frame = Frame::new(&ctx, &[], 8);
-    let obj = crate::metadata::types::OwnedObject::of_type(td);
+    let obj = crate::object::OwnedObject::of_type(td);
     let idx = ctx.stack_alloc_obj(frame.frame_id(&ctx), obj);
     let base = Value::StackObject { idx, frame_id: frame.frame_id(&ctx) };
 
@@ -363,7 +363,7 @@ fn stack_object_inline_struct_field_roundtrips() {
 fn symbolization_cost_by_path_depth() {
     use crate::metadata::index::name::NameIndex;
     use crate::metadata::tokens::TypeId;
-    use crate::metadata::types::{FieldSlot, StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
+    use crate::object::{FieldSlot, StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
     use std::sync::Arc;
     use std::time::Instant;
 

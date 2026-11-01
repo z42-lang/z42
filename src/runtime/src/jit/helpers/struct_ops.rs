@@ -27,7 +27,7 @@
 //! means "not yet allocated"; `next_frame_id()` never returns `0`.
 
 use crate::interp::exec_struct;
-use crate::metadata::Value;
+use crate::object::Value;
 use super::super::frame::JitFrame;
 use crate::vm_context::VmContext;
 use super::{set_exception, vm_ctx_ref};

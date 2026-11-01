@@ -28,9 +28,9 @@ pub(crate) fn kind(k: i64) -> BuiltinError {
 
 use crate::corelib::{builtin_id_of, invoke_builtin, BUILTINS};
 use crate::metadata::tokens::TypeId;
-use crate::metadata::types::{FieldSlot, TypeDesc};
+use crate::object::{FieldSlot, TypeDesc};
 use crate::vm::runtime::Module;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 
@@ -136,7 +136,7 @@ fn argument_errors_are_typed() {
 #[test]
 fn ref_arguments_are_stored_through() {
     use crate::interp::transient_arena::TransientPayload;
-    use crate::metadata::types::RefKind;
+    use crate::object::RefKind;
     let ctx = VmContext::new();
     // A `ref` to slot 0 of a frame on the stack (what `LoadLocalAddr` makes).
     let target: Vec<Value> = vec![Value::I64(0)];
@@ -167,7 +167,7 @@ fn exception_type(name: &str, base: Option<&str>) -> Arc<TypeDesc> {
         class_flags: 0, visibility: 0, name: name.into(), id: TypeId::UNRESOLVED,
         base_name: base.map(str::to_owned), fields, field_index,
         vtable: vec![], vtable_index: crate::metadata::NameIndex::new(),
-        cold: Some(Box::new(crate::metadata::types::TypeDescCold { own_fields: own, ..Default::default() })),
+        cold: Some(Box::new(crate::object::TypeDescCold { own_fields: own, ..Default::default() })),
     })
 }
 

@@ -1,6 +1,6 @@
 use super::*;
-use crate::gc::ArrRef;
-use crate::metadata::Value;
+use crate::object::ArrRef;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 fn ctx() -> std::pin::Pin<Box<VmContext>> {
@@ -16,7 +16,7 @@ fn clone(ctx: &VmContext, this: &Value) -> anyhow::Result<Value> {
 #[test]
 fn clone_primitives_independent() {
     let ctx = ctx();
-    let original = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![Value::I64(1), Value::I64(2), Value::I64(3)]));
+    let original = Value::Array(crate::object::ArrayObj::leaked(vec![Value::I64(1), Value::I64(2), Value::I64(3)]));
     let cloned = clone(&ctx, &original).expect("clone ok");
 
     let (orig_rc, copy_rc) = match (&original, &cloned) {
@@ -34,8 +34,8 @@ fn clone_primitives_independent() {
 #[test]
 fn clone_shares_reference_elements() {
     let ctx = ctx();
-    let inner = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![Value::I64(7)]));
-    let original = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![inner.clone()]));
+    let inner = Value::Array(crate::object::ArrayObj::leaked(vec![Value::I64(7)]));
+    let original = Value::Array(crate::object::ArrayObj::leaked(vec![inner.clone()]));
     let cloned = clone(&ctx, &original).expect("clone ok");
 
     let (orig_rc, copy_rc) = match (&original, &cloned) {
@@ -54,7 +54,7 @@ fn clone_shares_reference_elements() {
 #[test]
 fn clone_empty_array() {
     let ctx = ctx();
-    let empty = Value::Array(crate::metadata::types::ArrayObj::leaked(Vec::new()));
+    let empty = Value::Array(crate::object::ArrayObj::leaked(Vec::new()));
     let cloned = clone(&ctx, &empty).expect("clone ok");
 
     let (orig_rc, copy_rc) = match (&empty, &cloned) {
@@ -82,7 +82,7 @@ fn clone_rejects_null() {
 // ── __array_copy (perf-bulk-array-copy) ──────────────────────────────────────
 
 fn ints(v: &[i64]) -> Value {
-    Value::Array(crate::metadata::types::ArrayObj::leaked(
+    Value::Array(crate::object::ArrayObj::leaked(
         v.iter().map(|n| Value::I64(*n)).collect(),
     ))
 }
@@ -410,7 +410,7 @@ fn prim_backing_accepts_agrees_with_set_boxed() {
 
 #[test]
 fn typed_filled_every_slot_reads_back_the_fill() {
-    use crate::metadata::types::ArrayObj;
+    use crate::object::ArrayObj;
     let ctx = ctx();
     let cases: Vec<(&str, Value)> = vec![
         ("int", Value::I64(0)), ("long", Value::I64(0)), ("byte", Value::I64(0)),
@@ -422,7 +422,7 @@ fn typed_filled_every_slot_reads_back_the_fill() {
     for (ty, fill) in cases {
         for n in [0usize, 1, 5, 1000] {
             let heap = ctx.heap();
-            let et = crate::metadata::types::ElemType::intern(ty);
+            let et = crate::object::ElemType::intern(ty);
             let arr = ArrayObj::alloc_typed_filled(heap, et, n, fill.clone());
             let Value::Array(gc) = arr else { panic!("expected an array") };
             let a = gc.borrow();
@@ -445,17 +445,17 @@ fn typed_filled_every_slot_reads_back_the_fill() {
 
 #[test]
 fn typed_iter_packs_each_element_in_place() {
-    use crate::metadata::types::ArrayObj;
+    use crate::object::ArrayObj;
     let ctx = ctx();
     let heap = ctx.heap();
     let src = [3i64, -1, 70000, 0];
-    let arr = ArrayObj::alloc_typed_iter(heap, crate::metadata::types::ElemType::intern("int"), src.len(), src.iter().map(|&n| Value::I64(n)));
+    let arr = ArrayObj::alloc_typed_iter(heap, crate::object::ElemType::intern("int"), src.len(), src.iter().map(|&n| Value::I64(n)));
     let Value::Array(gc) = arr else { panic!("expected an array") };
     assert_eq!(gc.borrow().prim_backing_kind(), Some("int[]"));
     for (i, &n) in src.iter().enumerate() {
         assert!(matches!(gc.borrow().get_boxed(i), Value::I64(v) if v == n));
     }
-    let strs = ArrayObj::alloc_typed_iter(heap, crate::metadata::types::ElemType::intern("string"), 2,
+    let strs = ArrayObj::alloc_typed_iter(heap, crate::object::ElemType::intern("string"), 2,
         [Value::Str("a".into()), Value::Null].into_iter());
     let Value::Array(gc) = strs else { panic!("expected an array") };
     assert!(matches!(gc.borrow().get_boxed(0), Value::Str(s) if s.as_str() == "a"));

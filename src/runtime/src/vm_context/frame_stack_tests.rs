@@ -28,7 +28,7 @@ fn push_pop_publish_depth_and_owner() {
 
 #[test]
 fn regs_at_copies_the_frame_register_pointer() {
-    let regs: Vec<crate::metadata::Value> = Vec::new();
+    let regs: Vec<crate::object::Value> = Vec::new();
     let s = FrameStack::default();
     s.push(VmFrame::new(std::ptr::null(), &regs));
     assert_eq!(s.regs_at(0), Some(&regs as *const _));

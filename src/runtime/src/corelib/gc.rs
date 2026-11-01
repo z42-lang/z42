@@ -9,7 +9,7 @@
 
 use crate::corelib::abi::BuiltinError;
 use crate::gc::GcHandleKind;
-use crate::metadata::{FieldSlot, NativeData, TypeDesc, Value};
+use crate::object::{FieldSlot, NativeData, TypeDesc, Value};
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, Result};
 use std::io::Write as _;
@@ -123,7 +123,7 @@ fn gc_handle_type_desc() -> Arc<TypeDesc> {
             base_name: None,
             class_flags: 0,
             visibility: 0,
-            cold: Some(Box::new(crate::metadata::types::TypeDescCold {
+            cold: Some(Box::new(crate::object::TypeDescCold {
                 own_fields: fields.clone().into(),
                 ..Default::default()
             })),
@@ -159,7 +159,7 @@ fn heap_stats_type_desc() -> Arc<TypeDesc> {
             base_name: None,
             class_flags: 0,
             visibility: 0,
-            cold: Some(Box::new(crate::metadata::types::TypeDescCold {
+            cold: Some(Box::new(crate::object::TypeDescCold {
                 own_fields: fields.clone().into(),
                 ..Default::default()
             })),
@@ -370,7 +370,7 @@ fn soft_handle_type_desc() -> Arc<TypeDesc> {
             base_name: None,
             class_flags: 0,
             visibility: 0,
-            cold: Some(Box::new(crate::metadata::types::TypeDescCold {
+            cold: Some(Box::new(crate::object::TypeDescCold {
                 own_fields: fields.clone().into(),
                 ..Default::default()
             })),

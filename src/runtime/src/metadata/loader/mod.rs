@@ -22,7 +22,7 @@ use crate::vm::runtime::Module;
 use super::format::{ZpkgDep, ZBC_MAGIC, ZPKG_MAGIC};
 use super::merge::merge_modules;
 use super::index::name::NameIndex;
-use super::types::{FieldSlot, TypeDesc};
+use crate::object::{FieldSlot, TypeDesc};
 use super::reader::{
     parse_zbc_sidecar, parse_zpkg_sidecar, read_build_id,
     read_zbc, read_zpkg_file_entries, read_zpkg_meta,

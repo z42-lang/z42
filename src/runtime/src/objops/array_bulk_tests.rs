@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::gc::GcMode;
-use crate::metadata::types::{StructTypeLayout, STRUCT_REF_GCREF};
+use crate::object::{StructTypeLayout, STRUCT_REF_GCREF};
 use crate::objops::error::{ARRAY_TYPE_MISMATCH_EXC, INVALID_CAST_EXC};
 use crate::objops::Throw;
 use std::sync::Arc;

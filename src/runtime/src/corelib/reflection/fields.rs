@@ -25,7 +25,7 @@ pub fn type_fields(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
     let subst = member_subst(ty);
     let subst = subst.as_ref();
     let inst = instantiation_desc(ctx, ty);
-    let field_tag = |i: usize, f: &crate::metadata::FieldSlot| -> String {
+    let field_tag = |i: usize, f: &crate::object::FieldSlot| -> String {
         match inst.as_ref().and_then(|d| d.fields.get(i)).filter(|g| g.name == f.name) {
             Some(g) => g.type_tag.to_string(),
             None => subst_tag(&f.type_tag, subst),

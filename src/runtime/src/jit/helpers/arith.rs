@@ -2,7 +2,7 @@
 //! Arithmetic, comparison, logical, unary, and bitwise helpers.
 
 use crate::corelib::convert::with_value_str;
-use crate::metadata::Value;
+use crate::object::Value;
 // converge-vm-arith-semantics (H3): scalar rules come from the single source of
 // truth `crate::semantics` (shared with interp), not a JIT-local copy.
 use crate::semantics;

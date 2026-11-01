@@ -27,7 +27,7 @@ pub fn type_custom_attributes(ctx: &VmContext, ty: &Value) -> Result<Value, Buil
 /// z42 `MethodInfo` passes its hidden `__qualified` name; the builtin resolves
 /// the backing `Function` (main module first, then lazy loader) and calls each
 /// of its attribute factories. Same factory-call mechanism as the class path.
-pub fn method_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+pub fn method_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
     let qualified = qualified.to_string();
     let attrs: Vec<crate::metadata::ir::AttributeRef> = ctx
         .module()
@@ -46,7 +46,7 @@ pub fn method_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crat
 /// instances for the field named by "<Class>.<Field>" (FieldInfo passes its
 /// hidden `__qualified`). Resolves the class TypeDesc, finds the field in
 /// `cold.field_attributes`, and calls each factory. add-field-attribute-reflection.
-pub fn field_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+pub fn field_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
     let qualified = qualified.to_string();
     // Split "<Class>.<Field>" at the last dot.
     let dot = match qualified.rfind('.') {
@@ -78,7 +78,7 @@ pub fn field_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate
 /// `cold.field_attributes` under the `__prop_<Property>` name (reusing the existing
 /// field-attribute format — no wire-format bump). Computed properties (no backing
 /// field) carry no attributes. add-json-serde.
-pub fn property_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+pub fn property_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
     let qualified = qualified.to_string();
     // Accept the accessor-qualified name "<Class>.get_<Prop>" / "<Class>.set_<Prop>"
     // (z42 JsonReflect passes PropertyInfo.__getterQualified directly — avoids z42-side
@@ -118,7 +118,7 @@ pub fn property_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &cr
 /// `ParameterInfo` passes its hidden `__qualified` + `__position`. The backing
 /// `Function`'s `param_attributes` are SIGS-aligned (include the `this` slot),
 /// so the wire index = position + (is_static ? 0 : 1). add-parameter-attribute-reflection.
-pub fn param_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate::metadata::vstr::Str, position: i64) -> Result<Value, BuiltinError> {
+pub fn param_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate::object::string::vstr::Str, position: i64) -> Result<Value, BuiltinError> {
     let qualified = qualified.to_string();
     if position < 0 {
         return Ok(ctx.heap().alloc_array(Vec::new()));
@@ -205,22 +205,22 @@ pub mod typed {
     }
 
     #[builtin(name = "__method_custom_attributes", reenters)]
-    pub fn method_attrs(ctx: &VmContext, this: &Value, qualified: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+    pub fn method_attrs(ctx: &VmContext, this: &Value, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
         method_custom_attributes(ctx, this, qualified)
     }
 
     #[builtin(name = "__field_custom_attributes", reenters)]
-    pub fn field_attrs(ctx: &VmContext, this: &Value, qualified: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+    pub fn field_attrs(ctx: &VmContext, this: &Value, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
         field_custom_attributes(ctx, this, qualified)
     }
 
     #[builtin(name = "__property_custom_attributes", reenters)]
-    pub fn property_attrs(ctx: &VmContext, this: &Value, qualified: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+    pub fn property_attrs(ctx: &VmContext, this: &Value, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
         property_custom_attributes(ctx, this, qualified)
     }
 
     #[builtin(name = "__param_custom_attributes", reenters)]
-    pub fn param_attrs(ctx: &VmContext, this: &Value, qualified: &crate::metadata::vstr::Str, position: i64) -> Result<Value, BuiltinError> {
+    pub fn param_attrs(ctx: &VmContext, this: &Value, qualified: &crate::object::string::vstr::Str, position: i64) -> Result<Value, BuiltinError> {
         param_custom_attributes(ctx, this, qualified, position)
     }
 }

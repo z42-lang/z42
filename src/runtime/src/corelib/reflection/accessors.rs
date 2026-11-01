@@ -71,7 +71,7 @@ pub fn field_get_value(ctx: &VmContext, fi: &Value, target: &Value) -> anyhow::R
 /// (`struct_reflect::compute_class_inline`, validated against the delivered `inline_layout`).
 /// Returns `Ok(None)` when `name` is not an inline struct field → caller reads the plain slot.
 pub(super) fn object_inline_struct_field_get(
-    ctx: &VmContext, rc: &crate::gc::ObjRef, name: &str,
+    ctx: &VmContext, rc: &crate::object::ObjRef, name: &str,
 ) -> Result<Option<Value>> {
     let class_name = rc.type_desc().name.to_string();
     let resolve = |n: &str| ctx.try_lookup_type(n);
@@ -112,7 +112,7 @@ pub(super) fn object_inline_struct_field_get(
 /// object-relative offset to its `struct_refs` slot).
 pub(super) fn snapshot_struct_leaf(
     ctx: &VmContext,
-    o: &crate::metadata::types::ScriptObject,
+    o: &crate::object::ScriptObject,
     parent: &crate::corelib::struct_reflect::ComputedLayout,
     leaf: &crate::corelib::struct_reflect::FieldLeaf,
 ) -> Result<Value> {
@@ -133,7 +133,7 @@ pub(super) fn snapshot_struct_leaf(
 /// accept-boxed-struct-field-get: 也被 `field_get` 的 `BoxedStruct` 臂复用（interp + JIT）——
 /// 值 struct 经擦除返回位流出泛型函数时接收者就是这种盒，按名取叶子的逻辑与反射完全同一件事。
 pub(crate) fn boxed_struct_field_get(
-    ctx: &VmContext, gc: &crate::gc::ObjRef, name: &str,
+    ctx: &VmContext, gc: &crate::object::ObjRef, name: &str,
 ) -> Result<Value> {
     use crate::interp::exec_struct::prim_width;
     let type_name = gc.type_desc().name.to_string();
@@ -208,7 +208,7 @@ pub fn field_set_value(ctx: &VmContext, fi: &Value, target: &Value, value: &Valu
 /// struct field → caller writes the plain slot.
 pub(super) fn object_inline_struct_field_set(
     ctx: &VmContext, target: &Value,
-    rc: &crate::gc::ObjRef, name: &str, value: &Value,
+    rc: &crate::object::ObjRef, name: &str, value: &Value,
 ) -> Result<Option<()>> {
     let class_name = rc.type_desc().name.to_string();
     let resolve = |n: &str| ctx.try_lookup_type(n);
@@ -281,10 +281,10 @@ pub(super) fn object_inline_struct_field_set(
 /// boxed-struct nested-field write (P4b) and the object-inline struct-field write (P4b-B).
 pub(super) fn write_struct_leaf(
     ctx: &VmContext, base_val: &Value,
-    gc: &crate::gc::ObjRef,
+    gc: &crate::object::ObjRef,
     parent: &crate::corelib::struct_reflect::ComputedLayout,
     leaf: &crate::corelib::struct_reflect::FieldLeaf,
-    src: &crate::gc::ObjRef,
+    src: &crate::object::ObjRef,
 ) -> Result<()> {
     let resolve = |n: &str| ctx.try_lookup_type(n);
     let nested = crate::corelib::struct_reflect::compute(&resolve, &leaf.type_name)?;
@@ -311,7 +311,7 @@ pub(super) fn write_struct_leaf(
 /// supplied box's bytes/refs into the parent's field region.
 pub(super) fn boxed_struct_field_set(
     ctx: &VmContext, base_val: &Value,
-    gc: &crate::gc::ObjRef, name: &str, value: &Value,
+    gc: &crate::object::ObjRef, name: &str, value: &Value,
 ) -> Result<Value> {
     use crate::interp::exec_struct::prim_width;
     let type_name = gc.type_desc().name.to_string();

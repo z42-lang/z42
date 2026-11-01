@@ -1,6 +1,6 @@
 //! 静态字段的存储：每个字段一个**地址稳定**的 16 B 单元，读写不拿锁。
 //!
-//! 单元就是型参字段的 16 B 单元（`metadata::types::tparam_cell`）：标签字（自描述，acquire 读 /
+//! 单元就是型参字段的 16 B 单元（`object::value::tparam_cell`）：标签字（自描述，acquire 读 /
 //! release 写）+ 负载字（基元原始位，relaxed）。静态字段按名字登记、首次用到才分配 id，登记时不知道
 //! 它的声明类型，而这个单元能装下任何 `Value`：
 //!
@@ -27,8 +27,8 @@ use rustc_hash::FxHashMap;
 
 use crate::metadata::seg_vec::SegVec;
 use crate::metadata::tokens::StaticFieldId;
-use crate::metadata::types::{tparam_cell, Cells};
-use crate::metadata::{TypeDesc, Value};
+use crate::object::{tparam_cell, Cells};
+use crate::object::{TypeDesc, Value};
 
 /// Tag word at byte 0, payload word at byte 8 (`tparam_cell`).
 const W0: usize = 0;
@@ -132,9 +132,9 @@ impl StaticCell {
     fn reset(&self) {
         let old = self.words[0].swap(0, Ordering::AcqRel);
         self.words[1].store(0, Ordering::Relaxed);
-        if old & crate::metadata::types::ref_word::KIND_MASK != 0 {
+        if old & crate::object::value::ref_word::KIND_MASK != 0 {
             // SAFETY: `old` was this cell's tag word an instant ago — a live reference word.
-            crate::gc::satb::record_overwrite(&unsafe { crate::metadata::types::ref_word::decode_for_trace(old) });
+            crate::gc::satb::record_overwrite(&unsafe { crate::object::value::ref_word::decode_for_trace(old) });
         }
     }
 }

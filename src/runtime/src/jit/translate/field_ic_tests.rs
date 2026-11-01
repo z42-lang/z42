@@ -13,11 +13,11 @@ use crate::jit::runtime::install;
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, FieldGetInsn, FieldSetInsn, Instruction, Terminator};
 use crate::metadata::tokens::TypeId;
-use crate::metadata::types::{
-    FieldAccess, NativeData, ObjectLayout, TypeDesc, TypeDescCold,
-    STRUCT_LEAF_GCREF, STRUCT_LEAF_PRIM, TAG_I32, TAG_I64, TAG_OBJECT,
+use crate::object::{
+    FieldAccess, NativeData, ObjectLayout, TypeDesc, TypeDescCold, STRUCT_LEAF_GCREF,
+    STRUCT_LEAF_PRIM, TAG_I32, TAG_I64, TAG_OBJECT,
 };
-use crate::metadata::{IrType, Value};
+use crate::{metadata::IrType, object::Value};
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 

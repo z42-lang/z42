@@ -7,8 +7,8 @@ use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
 use crate::metadata::loader::LoadedArtifact;
 use crate::metadata::tokens::FnId;
 use crate::metadata::ir::ExecMode;
-use crate::metadata::vstr::Str;
-use crate::metadata::Value;
+use crate::object::string::vstr::Str;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 /// `string F() { return <pool[idx]>; }`

@@ -31,7 +31,7 @@ use super::*;
 use super::ctx::TxCtx;
 use cranelift_codegen::ir::{Block, Value as CValue};
 use crate::metadata::tokens::UNRESOLVED;
-use crate::metadata::types::{ref_word, tparam_cell};
+use crate::object::{ref_word, tparam_cell};
 use crate::vm_context::static_table::StaticCell;
 
 /// The cell offsets are spelled for 64-bit words and pointers.

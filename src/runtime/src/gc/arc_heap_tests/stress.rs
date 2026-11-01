@@ -92,7 +92,7 @@ fn pick_op(rng: &mut Rng, allow_mode_switch: bool) -> Op {
 struct State {
     objects: Vec<Value>,
     pins: Vec<RootHandle>,
-    dummy_td: std::sync::Arc<crate::metadata::TypeDesc>,
+    dummy_td: std::sync::Arc<crate::object::TypeDesc>,
     // Op counters for coverage gates.
     n_alloc_object: usize,
     n_alloc_array: usize,
@@ -455,7 +455,7 @@ fn pr3_mixed_region_var_churn_keeps_graph_intact() {
         for k in 0..8 {
             let env = heap.alloc_array(vec![Value::I64(k as i64)]);
             let Value::Array(env_rc) = env else { panic!() };
-            let _c = heap.alloc_closure(crate::metadata::types::ClosureData {
+            let _c = heap.alloc_closure(crate::object::ClosureData {
                 env: env_rc, fn_id: crate::metadata::tokens::FnId(k as u32),
             });
         }

@@ -8,7 +8,10 @@
 use std::collections::HashMap;
 
 use z42::vm::runtime::{Function, Module};
-use z42::metadata::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator, Value};
+use z42::{
+    metadata::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator},
+    object::Value,
+};
 use z42::vm_context::VmContext;
 
 fn module_with_single_instr(name: &str, instr: Instruction) -> Module {

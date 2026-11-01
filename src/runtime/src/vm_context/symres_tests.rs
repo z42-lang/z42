@@ -144,8 +144,8 @@ use crate::vm::runtime::Module;
 use crate::metadata::ir::{FieldDesc, CLASS_FLAG_ENUM, CLASS_FLAG_STRUCT};
 use crate::metadata::index::name::NameIndex;
 use crate::metadata::tokens::TypeId;
-use crate::metadata::types::{StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
-use crate::metadata::Value;
+use crate::object::{StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 
@@ -235,7 +235,7 @@ fn zero_of_every_value_type_kind() {
     assert_zero_box(static_zero_value(&vm, "Demo.Point"), "Demo.Point");
     // 每次都是新盒子（装入哪一个由 `StaticTable::init_default` 决定）。
     match (static_zero_value(&vm, "Demo.Point"), static_zero_value(&vm, "Demo.Point")) {
-        (Value::BoxedStruct(a), Value::BoxedStruct(b)) => assert!(!crate::gc::ObjRef::ptr_eq(&a, &b)),
+        (Value::BoxedStruct(a), Value::BoxedStruct(b)) => assert!(!crate::object::ObjRef::ptr_eq(&a, &b)),
         other => panic!("{other:?}"),
     }
 }

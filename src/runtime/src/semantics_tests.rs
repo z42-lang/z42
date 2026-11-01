@@ -3,7 +3,7 @@
 //! `interp/exec_value_tests.rs` by converge-vm-arith-semantics (H3).
 
 use super::*;
-use crate::metadata::Value;
+use crate::object::Value;
 
 // ── integer div / rem ───────────────────────────────────────────────────────
 
@@ -310,7 +310,9 @@ fn is_int_div_by_zero_only_integer_zero() {
 
 mod hard_cast {
     use super::super::*;
-    use crate::metadata::types::{TAG_I32, TAG_I64, TAG_F64, TAG_BOOL, TAG_CHAR, TAG_STR, TAG_OBJECT, TAG_ARRAY};
+    use crate::object::{
+        TAG_ARRAY, TAG_BOOL, TAG_CHAR, TAG_F64, TAG_I32, TAG_I64, TAG_OBJECT, TAG_STR,
+    };
 
     /// 🔒 **本组最要紧的一条**：`hard_cast_failure` 与 `convert_value` 的放行条件必须严格互补。
     ///

@@ -4,7 +4,10 @@
 /// Call sites now use `ctx.static_get(field)` / `ctx.static_set(...)`.
 
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::{ClassDesc, FieldSlot, TypeDesc, Value};
+use crate::{
+    metadata::ClassDesc,
+    object::{FieldSlot, TypeDesc, Value},
+};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
@@ -54,7 +57,7 @@ fn constructed_name_isa(
     if def.len() == derived.len() {
         return false;
     }
-    let args = crate::metadata::types::type_args_from_name(derived);
+    let args = crate::object::type_args_from_name(derived);
     if let Some(v) = erased_instance_matches(def, &args, target) {
         return v;
     }
@@ -180,7 +183,7 @@ fn integer_as_enum_isa(
 /// the rest of the answer from that type's descriptor (interfaces, `Std.Object`).
 pub(crate) fn struct_ref_isa(
     ctx: &VmContext,
-    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::metadata::TypeDesc>>,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::object::TypeDesc>>,
     idx: u32, frame_id: u32, class_name: &str,
 ) -> bool {
     if class_name == "Std.Object" || class_name == "Object" {
@@ -535,7 +538,7 @@ pub fn with_obj_str<R>(
 /// perf-str-concat-direct: [`with_obj_str`] as a GC string (`ToStr` / `$"{x}"`). A user
 /// `ToString`'s returned string is used as-is — no copy (the JIT's native `jit_to_str` path
 /// does the same); everything else is formatted straight into one fresh GC block.
-pub fn obj_to_gc_str(ctx: &VmContext, module: &Module, val: &Value) -> Result<crate::metadata::vstr::Str> {
+pub fn obj_to_gc_str(ctx: &VmContext, module: &Module, val: &Value) -> Result<crate::object::string::vstr::Str> {
     use crate::corelib::convert::with_value_str;
     let heap = ctx.heap();
     Ok(match tostring_result(ctx, module, val)? {
@@ -635,7 +638,7 @@ pub fn stringify_dispatch(ctx: &VmContext, val: &Value) -> Result<String> {
 }
 
 /// perf-str-concat-direct: [`stringify_dispatch`] as a GC string (see [`obj_to_gc_str`]).
-pub fn stringify_dispatch_gc(ctx: &VmContext, val: &Value) -> Result<crate::metadata::vstr::Str> {
+pub fn stringify_dispatch_gc(ctx: &VmContext, val: &Value) -> Result<crate::object::string::vstr::Str> {
     match ctx.core.module.as_ref() {
         Some(m) => {
             let m = m.clone();
@@ -714,7 +717,7 @@ pub fn make_fallback_type_desc(module: &Module, class_name: &str) -> TypeDesc {
     // (references in type-parameter cells), so field access and GC walks read a stored layout
     // instead of synthesizing one per access.
     let composed = (!fields.is_empty())
-        .then(|| std::sync::Arc::new(crate::metadata::types::synthesize_object_layout(&fields)));
+        .then(|| std::sync::Arc::new(crate::object::synthesize_object_layout(&fields)));
     TypeDesc {
         name: class_name.to_string(),
         base_name,
@@ -724,7 +727,7 @@ pub fn make_fallback_type_desc(module: &Module, class_name: &str) -> TypeDesc {
         field_index,
         vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
-        cold: Some(Box::new(crate::metadata::types::TypeDescCold {
+        cold: Some(Box::new(crate::object::TypeDescCold {
             composed_object_layout: composed,
             own_fields: own_fields.into(),
             ..Default::default()

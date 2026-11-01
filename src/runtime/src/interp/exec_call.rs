@@ -5,7 +5,7 @@
 /// `Result<Option<Value>>` (Some = thrown). Pure helpers return `Result<()>`.
 
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::metadata::tokens::FnId;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
@@ -424,7 +424,7 @@ pub(super) fn call_indirect(
     let (id, env_val_opt): (FnId, Option<Value>) = match frame.get(callee)? {
         Value::FuncRef(id) => (*id, None),
         Value::Closure(c)    => {
-            let data = crate::metadata::types::closure_data_of(&c);
+            let data = crate::object::closure_data_of(&c);
             (data.fn_id, Some(Value::Array(data.env.clone())))
         }
         // fix-null-delegate-invoke: a *null* callee is the one case here that ordinary
@@ -482,7 +482,7 @@ pub(super) fn mk_clos(
     for r in captures {
         env_vec.push(frame.get(*r)?.clone());
     }
-    let env_val = crate::metadata::types::ArrayObj::alloc_frozen(ctx.heap(), &env_vec);
+    let env_val = crate::object::ArrayObj::alloc_frozen(ctx.heap(), &env_vec);
     // add-gc-oom-exception: alloc_array returns Null only under strict OOM
     if matches!(env_val, Value::Null) {
         return Ok(Some(crate::exception::make_oom_exception(
@@ -495,7 +495,7 @@ pub(super) fn mk_clos(
         _ => bail!("mk_clos: alloc_array returned unexpected value"),
     };
     // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
-    let value = ctx.heap().alloc_closure(crate::metadata::ClosureData { env, fn_id });
+    let value = ctx.heap().alloc_closure(crate::object::ClosureData { env, fn_id });
     frame.set(dst, value);
     Ok(None)
 }

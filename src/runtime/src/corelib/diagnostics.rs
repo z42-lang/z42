@@ -9,8 +9,8 @@
 
 use crate::corelib::abi::BuiltinError;
 use crate::gc::retention::RootKind;
-use crate::metadata::types::NativeData;
-use crate::metadata::Value;
+use crate::object::NativeData;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 const STD_RETAINER: &str = "Std.Diagnostics.Retainer";
@@ -24,8 +24,8 @@ const STD_RUNTIME_COUNTERS: &str = "Std.Diagnostics.RuntimeCounters";
 /// non-heap values (primitive / null → no retention to report).
 fn target_ptr(v: &Value) -> Option<usize> {
     match v {
-        Value::Object(gc) => Some(crate::gc::ObjRef::as_ptr(gc) as usize),
-        Value::Array(gc) => Some(crate::gc::ArrRef::as_ptr(gc) as usize),
+        Value::Object(gc) => Some(crate::object::ObjRef::as_ptr(gc) as usize),
+        Value::Array(gc) => Some(crate::object::ArrRef::as_ptr(gc) as usize),
         _ => None,
     }
 }

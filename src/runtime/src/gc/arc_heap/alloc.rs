@@ -1,9 +1,9 @@
 //! `ArcMagrGC` 分配尾部：region 分配 + OOM 兜底 + 压力检查 + size 估算/查询。
 //! 从 `arc_heap.rs` 拆出（refactor-arc-heap-modularization）。
 
-use crate::metadata::Value;
-use crate::metadata::types::ClosureData;
-use crate::gc::var_region::{BlockType, GcBlockHeader};
+use crate::object::Value;
+use crate::object::ClosureData;
+use crate::object::header::{BlockType, GcBlockHeader};
 use crate::gc::types::{AllocKind, AllocSample, GcEvent};
 
 impl crate::gc::arc_heap::ArcMagrGC {
@@ -122,7 +122,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         &self,
         payload: usize,
         block_type: BlockType,
-    ) -> Option<crate::gc::var_region::VarGcRef> {
+    ) -> Option<crate::object::header::VarGcRef> {
         let (footprint, size_class) = crate::gc::var_region::class_for(payload);
         if size_class == crate::gc::var_region::OVERSIZED_CLASS {
             return None; // oversized → dedicated-chunk locked path
@@ -172,7 +172,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         &self,
         payload: usize,
         block_type: BlockType,
-    ) -> (crate::gc::var_region::VarGcRef, bool) {
+    ) -> (crate::object::header::VarGcRef, bool) {
         if crate::gc::tlab::is_armed()
             && !self.strict_oom_atomic.load(std::sync::atomic::Ordering::Relaxed)
         {
@@ -363,7 +363,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// record + auto-collect tail. No drop-glue / OOM-refund: a `Str` block is a POD leaf
     /// (`var_drop_glue` already treats `BlockType::Str` as nothing-to-drop). Exposed via the
     /// `MagrGC` trait (`alloc_str`) so ambient-heap callers (`Str::new`) reach it.
-    pub(super) fn alloc_str_in_region(&self, s: &str) -> crate::metadata::vstr::Str {
+    pub(super) fn alloc_str_in_region(&self, s: &str) -> crate::object::string::vstr::Str {
         // add-gc-tlab (stage 3): lock-free var TLAB when armed; else locked path.
         let (vref, fast) = self.acquire_var_block(s.len(), BlockType::Str);
         // SAFETY: fresh block sized for exactly `s.len()` bytes; write the UTF-8 bytes
@@ -371,7 +371,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         unsafe {
             std::ptr::copy_nonoverlapping(s.as_ptr(), vref.payload_as_ptr::<u8>(), s.len());
         }
-        // `Length` / `CharAt` / `Substring` then index bytes directly (corelib::str_meta).
+        // `Length` / `CharAt` / `Substring` then index bytes directly (object::string::str_meta).
         if s.is_ascii() { vref.set_ascii_str(); }
         vref.publish();
         let size = GcBlockHeader::DATA_OFFSET + s.len();
@@ -383,7 +383,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             self.record_alloc(&Value::Null, || AllocKind::Object { class: "<string>".to_string() }, size);
             self.maybe_auto_collect();
         }
-        crate::metadata::vstr::Str::from_var_ref(vref)
+        crate::object::string::vstr::Str::from_var_ref(vref)
     }
 
     /// fuse-str-concat-alloc: region-alloc a `BlockType::Str` block sized
@@ -391,7 +391,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// the fused counterpart of `alloc_str_in_region(&format!("{a}{b}"))` that
     /// skips the intermediate `String`. Same `record_alloc` / `maybe_auto_collect`
     /// bookkeeping as the single-string path (the concatenation is one block).
-    pub(super) fn alloc_str_concat2_in_region(&self, a: &str, b: &str) -> crate::metadata::vstr::Str {
+    pub(super) fn alloc_str_concat2_in_region(&self, a: &str, b: &str) -> crate::object::string::vstr::Str {
         let total = a.len() + b.len();
         // add-gc-tlab (stage 3): lock-free var TLAB when armed; else locked path.
         let (vref, fast) = self.acquire_var_block(total, BlockType::Str);
@@ -412,7 +412,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             self.record_alloc(&Value::Null, || AllocKind::Object { class: "<string>".to_string() }, size);
             self.maybe_auto_collect();
         }
-        crate::metadata::vstr::Str::from_var_ref(vref)
+        crate::object::string::vstr::Str::from_var_ref(vref)
     }
 
     /// The array allocation funnel (object model R9 — `MagrGC::alloc_array_with`): one block of
@@ -425,10 +425,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// refuses, or the payload is past the block size limit (`u32` bytes).
     pub(super) fn alloc_array_block(
         &self,
-        desc: &'static crate::metadata::types::ArrayDesc,
+        desc: &'static crate::object::ArrayDesc,
         len: usize,
-        layout: Option<std::sync::Arc<crate::metadata::types::StructTypeLayout>>,
-        init: &mut dyn FnMut(&crate::metadata::types::ArrayObj),
+        layout: Option<std::sync::Arc<crate::object::StructTypeLayout>>,
+        init: &mut dyn FnMut(&crate::object::ArrayObj),
     ) -> Value {
         let Some(payload) = desc.payload_bytes(len, layout.as_deref()) else {
             let requested = (len as u64).saturating_mul(desc.width() as u64);
@@ -437,11 +437,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
         };
         let (vref, fast) = self.acquire_var_block(payload, desc.block_type());
         // SAFETY: a fresh, zeroed block of exactly `payload` bytes nothing else can reach.
-        let arr = unsafe { crate::metadata::types::ArrayObj::install(vref.header_raw(), payload, desc, layout) };
+        let arr = unsafe { crate::object::ArrayObj::install(vref.header_raw(), payload, desc, layout) };
         init(arr);
         // Built: from here a heap walk may see it (M12 — a reused slot is born not alive).
         vref.publish();
-        let value = Value::Array(crate::gc::ArrRef::from_var(vref));
+        let value = Value::Array(crate::object::ArrRef::from_var(vref));
         let size = GcBlockHeader::DATA_OFFSET + payload;
         let kind = || AllocKind::Array { elem_count: len };
         if fast {

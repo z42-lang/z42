@@ -4,7 +4,7 @@
 //! 不 panic、不改变可观察状态。具体后端的行为测试在 `arc_heap_tests.rs`。
 
 use crate::gc::{HeapStats, MagrGC, ArcMagrGC};
-use crate::metadata::Value;
+use crate::object::Value;
 
 // flip-gc-default-to-generational : these two used to pass a **primitive** as the
 // written value. That is a contract violation — `write_barrier_*` documents "caller must filter

@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::vm::runtime::Module;
-use super::types::{NativeData, TypeDesc};
+use crate::object::{NativeData, TypeDesc};
 
 /// Identifies one load context in [`ContextRegistry`]. `ContextId(0)` is always
 /// the永驻 root. Stable for the lifetime of one `VmContext`.

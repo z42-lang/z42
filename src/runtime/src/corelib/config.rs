@@ -19,7 +19,7 @@
 //! complete-runtime-settings P4。
 
 use crate::config::{is_available, knob_by_key, runtime_config, BuildCtx, KNOWN_KNOBS};
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, Result};
 

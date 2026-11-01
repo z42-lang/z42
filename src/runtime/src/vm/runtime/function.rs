@@ -3,7 +3,7 @@ use super::sites::CodeSites;
 use super::SuperInstr;
 use crate::metadata::resolver::ResolvedTokens;
 use crate::metadata::tokens::{FnIdCell, ForwardCell, TypeKeyCell};
-use crate::metadata::{ir, TypeDesc};
+use crate::{metadata::ir, object::TypeDesc};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, OnceLock};
 
@@ -48,11 +48,11 @@ impl Function {
         let sites = self.sites();
         &sites.type_keys[sites.indices[block][instr] as usize]
     }
-    pub fn array_type(&self, block: usize, instr: usize) -> crate::metadata::types::ElemType {
+    pub fn array_type(&self, block: usize, instr: usize) -> crate::object::ElemType {
         let sites = self.sites();
         sites.array_types[sites.indices[block][instr] as usize]
     }
-    pub fn object_args(&self, block: usize, instr: usize) -> crate::metadata::types::TypeArgs {
+    pub fn object_args(&self, block: usize, instr: usize) -> crate::object::TypeArgs {
         let sites = self.sites();
         sites.object_args[sites.indices[block][instr] as usize]
     }

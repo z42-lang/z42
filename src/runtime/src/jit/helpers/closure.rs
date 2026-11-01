@@ -14,7 +14,7 @@
 //!     through the slot table — no name on the call path.
 
 use crate::metadata::tokens::FnId;
-use crate::metadata::Value;
+use crate::object::Value;
 
 use super::super::frame::{FnEntry, JitFrame};
 use crate::vm_context::VmContext;
@@ -87,13 +87,13 @@ pub unsafe extern "C" fn jit_mk_clos(
         .collect();
 
     // Allocate env via the GC heap so it's tracked as a managed array.
-    let env_val = crate::metadata::types::ArrayObj::alloc_frozen(vm_ctx_ref(ctx).heap(), &env_vec);
+    let env_val = crate::object::ArrayObj::alloc_frozen(vm_ctx_ref(ctx).heap(), &env_vec);
     let env = match env_val {
         Value::Array(rc) => rc,
         _ => unreachable!("alloc_array must return Value::Array"),
     };
     // unify-gc-heap PR-2: ClosureData into the GC variable-length region.
-    let value = vm_ctx_ref(ctx).heap().alloc_closure(crate::metadata::ClosureData { env, fn_id });
+    let value = vm_ctx_ref(ctx).heap().alloc_closure(crate::object::ClosureData { env, fn_id });
     frame_ref.regs[dst as usize] = value;
     0
 }
@@ -125,7 +125,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     let (id, env_val_opt): (FnId, Option<Value>) = match &frame_ref.regs[callee as usize] {
         Value::FuncRef(id) => (*id, None),
         Value::Closure(c) => {
-            let data = crate::metadata::types::closure_data_of(c);
+            let data = crate::object::closure_data_of(c);
             (data.fn_id, Some(Value::Array(data.env.clone())))
         }
         // fix-null-delegate-invoke: same as interp's `call_indirect` — a null callee is

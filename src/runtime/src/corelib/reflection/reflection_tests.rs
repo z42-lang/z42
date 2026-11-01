@@ -4,7 +4,10 @@
 //! covered by the z42 `[Test]` + golden tests (they run with z42.core present).
 
 use super::*;
-use crate::metadata::{tokens::TypeId, NameIndex, NativeData, TypeDesc, Value};
+use crate::{
+    metadata::{tokens::TypeId, NameIndex},
+    object::{NativeData, TypeDesc, Value},
+};
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 
@@ -162,7 +165,7 @@ fn type_flags_decode_abstract_and_sealed() {
 #[test]
 fn static_fields_accessor_reads_cold() {
     use crate::metadata::ir::FieldDesc;
-    use crate::metadata::TypeDesc;
+    use crate::object::TypeDesc;
     // No cold box → empty.
     assert!(bare_td("Demo.Plain").static_fields().is_empty());
     // Cold box with one static field → accessor returns it.
@@ -206,7 +209,7 @@ fn field_custom_attributes_lenient_for_bad_qualified() {
 #[test]
 fn field_attributes_accessor_reads_cold() {
     use crate::metadata::ir::AttributeRef;
-    use crate::metadata::TypeDesc;
+    use crate::object::TypeDesc;
     // No cold → empty.
     assert!(bare_td("Demo.Plain").field_attributes().is_empty());
     // Cold with one field's attrs → accessor finds it by name.
@@ -370,9 +373,9 @@ fn primitive_fqn_maps_both_vocabularies() {
 /// 带 per-instance type_args 的对象（镜像 `ObjNew` 的填充动作）。
 fn obj_with_type_args(ctx: &VmContext, name: &str, targs: &[&str]) -> Value {
     let td = bare_td(name);
-    let mut obj = crate::metadata::types::OwnedObject::of_type(td.clone());
+    let mut obj = crate::object::OwnedObject::of_type(td.clone());
     let names: Vec<String> = targs.iter().map(|s| s.to_string()).collect();
-    obj.set_type_args(crate::metadata::types::TypeArgs::intern(&names));
+    obj.set_type_args(crate::object::TypeArgs::intern(&names));
     ctx.heap().alloc_script_object(obj)
 }
 

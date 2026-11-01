@@ -14,7 +14,7 @@ use crate::jit::runtime::{install, install_tuned};
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator};
 use crate::metadata::ir::ExecMode;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 fn func(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Function {

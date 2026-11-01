@@ -97,10 +97,10 @@ fn validation_detects_stale_mark_on_an_object() {
     // add-incremental-major-gc M1: a stale mark is now an epoch that is neither the current one
     // nor 0 — which a sweep can never leave behind. Stamp one by hand.
     let Value::Object(gc) = &v else { panic!() };
-    let stale = crate::gc::refs::MarkKind::Major(100);
+    let stale = crate::object::header::marks::MarkKind::Major(100);
     assert_ne!(stale, heap.major_mark_for_test());
-    crate::gc::ObjRef::mark(gc, stale);
-    assert!(crate::gc::ObjRef::is_marked(gc, stale));
+    crate::object::ObjRef::mark(gc, stale);
+    assert!(crate::object::ObjRef::is_marked(gc, stale));
 
     heap.debug_validate_invariants();  // expected panic
 }
@@ -114,7 +114,7 @@ fn validation_detects_stale_minor_mark_on_an_object() {
     let v = heap.alloc_object(dummy_type_desc("MinorLeak"), vec![], NativeData::None);
     let _pin = heap.pin_root(v.clone());
     let Value::Object(gc) = &v else { panic!() };
-    crate::gc::ObjRef::mark(gc, crate::gc::refs::MarkKind::Minor);
+    crate::object::ObjRef::mark(gc, crate::object::header::marks::MarkKind::Minor);
     heap.debug_validate_invariants();  // expected panic
 }
 
@@ -126,6 +126,6 @@ fn validation_accepts_current_epoch() {
     let v = heap.alloc_object(dummy_type_desc("Survivor"), vec![], NativeData::None);
     let _pin = heap.pin_root(v.clone());
     let Value::Object(gc) = &v else { panic!() };
-    crate::gc::ObjRef::mark(gc, heap.major_mark_for_test());
+    crate::object::ObjRef::mark(gc, heap.major_mark_for_test());
     heap.debug_validate_invariants();
 }

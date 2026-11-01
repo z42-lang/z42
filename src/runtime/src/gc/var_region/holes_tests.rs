@@ -116,7 +116,7 @@ fn a_reused_slot_starts_young_unmarked_and_without_flags() {
     // SAFETY: header of a live block in `r`.
     let hdr = unsafe { victim.header_ptr().as_ref() };
     hdr.raise_gen_age_to(3);
-    hdr.mark(crate::gc::refs::MarkKind::Major(1));
+    hdr.mark(crate::object::header::marks::MarkKind::Major(1));
     assert!(hdr.try_set_remembered());
     hdr.set_side();
     assert!(r.tombstone(victim));
@@ -141,7 +141,7 @@ fn a_reused_slot_starts_young_unmarked_and_without_flags() {
     assert_eq!(hdr.gen_age(), 0);
     assert!(!hdr.is_remembered());
     assert!(!hdr.needs_dead_notice(), "side and remembered bits are clear");
-    assert!(!hdr.is_marked(crate::gc::refs::MarkKind::Major(1)) && hdr.major_epoch() == 0);
+    assert!(!hdr.is_marked(crate::object::header::marks::MarkKind::Major(1)) && hdr.major_epoch() == 0);
     assert_eq!(hdr.block_type(), BlockType::Object);
     assert!(r.young_blocks_for_test().contains(&h.header_ptr()), "reused block is young");
     r.retire_holes(&mut stash);

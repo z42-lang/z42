@@ -478,7 +478,7 @@ fn generational_collection_bumps_minor_counter() {
 fn allocating_while_native_parked_is_caught() {
     let ctx = VmContext::new();
     let _park = NativeParkGuard::enter(&ctx);
-    let _ = ctx.heap().alloc_array(vec![crate::metadata::Value::I64(1)]);
+    let _ = ctx.heap().alloc_array(vec![crate::object::Value::I64(1)]);
 }
 
 /// The tripwire is about the park, not the thread: once the guard drops, allocation is back
@@ -489,7 +489,7 @@ fn allocating_after_the_park_ends_is_fine() {
     {
         let _park = NativeParkGuard::enter(&ctx);
     }
-    let _ = ctx.heap().alloc_array(vec![crate::metadata::Value::I64(1)]);
+    let _ = ctx.heap().alloc_array(vec![crate::object::Value::I64(1)]);
     assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 0);
 }
 
@@ -502,7 +502,7 @@ fn an_unpark_guard_lifts_the_tripwire_for_its_span() {
     let _park = NativeParkGuard::enter(&ctx);
     {
         let _unpark = NativeUnparkGuard::exit(&ctx);
-        let _ = ctx.heap().alloc_array(vec![crate::metadata::Value::I64(1)]);
+        let _ = ctx.heap().alloc_array(vec![crate::object::Value::I64(1)]);
     }
     let still_parked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         debug_assert_not_native_parked();
@@ -644,7 +644,7 @@ fn an_auto_collect_trip_sends_every_mutator_to_the_slow_path() {
     other.safepoint_skip.store(n, Ordering::Relaxed);
     let mut keep = Vec::new();
     for _ in 0..10_000 {
-        keep.push(ctx.heap().alloc_array(vec![crate::metadata::Value::I64(0); 16]));
+        keep.push(ctx.heap().alloc_array(vec![crate::object::Value::I64(0); 16]));
         if ctx.core.needs_auto_collect.load(Ordering::Acquire) {
             break;
         }
@@ -690,7 +690,7 @@ fn a_collection_during_a_native_park_retires_the_parked_claims() {
     let (to_worker, from_main) = std::sync::mpsc::channel::<()>();
     let worker = std::thread::spawn(move || {
         let w = VmContext::new_with_core(core);
-        let kept = crate::metadata::Value::Str(w.heap().alloc_str("kept across the park"));
+        let kept = crate::object::Value::Str(w.heap().alloc_str("kept across the park"));
         let root = w.heap().pin_root(kept);
         {
             let _park = NativeParkGuard::enter(&w);
@@ -701,7 +701,7 @@ fn a_collection_during_a_native_park_retires_the_parked_claims() {
             assert!(w.parked_tlab.take().is_none(), "the collector retired them");
         }
         let after = w.heap().alloc_str("allocated after unparking");
-        let crate::metadata::Value::Str(k) = kept else { panic!() };
+        let crate::object::Value::Str(k) = kept else { panic!() };
         assert_eq!(k.as_str(), "kept across the park", "survived the collection");
         assert_eq!(after.as_str(), "allocated after unparking");
         w.heap().unpin_root(root);

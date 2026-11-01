@@ -46,7 +46,7 @@ use rustc_hash::FxHashMap;
 use crate::vm::runtime::Module;
 use super::seg_vec::SparseSegTable;
 use super::tokens::{alloc_type_id_block, TypeId};
-use super::types::TypeDesc;
+use crate::object::TypeDesc;
 
 /// One id's slot: null until the id is registered in this table.
 #[derive(Default)]

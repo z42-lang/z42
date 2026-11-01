@@ -206,7 +206,7 @@ JIT 这一侧：
 ## 字符串原语内联
 
 > `jit/translate/str_intrinsics.rs`（识别 + 发射）、`jit/forward.rs`（`StrIntrinsic` / `ForwardLookup`）、
-> `metadata/vstr.rs::jit_layout`（生成码读字符串块的唯一布局出口）。
+> `object/string/vstr.rs::jit_layout`（生成码读字符串块的唯一布局出口）。
 
 上一节的短路之后，`s.Length` / `s[i]` / `s.CharAt(i)` 每次仍是一次 helper 调用：把实参克隆进
 `SmallVec`、按 id 派发 builtin、把结果装回 `Value`。字符串处理循环（逐字符扫描、`StringBuilder`
@@ -475,8 +475,8 @@ flowchart TD
 ## 字段访问：原生单态字段 IC
 
 > `jit/translate/field_ic.rs`（守卫、读写、引用写的屏障判定）+ `jit/translate/hoist.rs`（循环内的守卫 hoist）+
-> `metadata/resolver/ic.rs`（`FieldIC` 载荷）+ `metadata/types/object.rs`（`obj_jit_layout`）+
-> `metadata/types/ref_word.rs`（种类表）。慢路径：`jit/helpers/object_field.rs`（`jit_field_get` / `jit_field_set`，
+> `metadata/resolver/ic.rs`（`FieldIC` 载荷）+ `object/object/object.rs`（`obj_jit_layout`）+
+> `object/value/ref_word.rs`（种类表）。慢路径：`jit/helpers/object_field.rs`（`jit_field_get` / `jit_field_set`，
 > 经 [objops](interp-jit-semantics.md#对象操作objops) 与解释器同一份语义）。
 
 ### 为什么

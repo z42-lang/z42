@@ -4,7 +4,7 @@
 /// and are specific to the interpreter's execution model.
 /// Value conversion helpers (value_to_str, arg_str, etc.) live in corelib::convert.
 
-use crate::metadata::Value;
+use crate::object::Value;
 use anyhow::{bail, Result};
 
 /// Collect register values into a Vec.

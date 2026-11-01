@@ -12,8 +12,8 @@ use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator};
 use crate::metadata::tokens::TypeId;
 use crate::metadata::ir::ExecMode;
-use crate::metadata::types::{FieldSlot, TypeDesc};
-use crate::metadata::Value;
+use crate::object::{FieldSlot, TypeDesc};
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use crate::interp::ExecOutcome;
 
@@ -82,7 +82,7 @@ fn exception_type(name: &str, base: Option<&str>) -> Arc<TypeDesc> {
         class_flags: 0, visibility: 0, name: name.into(), id: TypeId::UNRESOLVED,
         base_name: base.map(str::to_owned), fields, field_index,
         vtable: vec![], vtable_index: crate::metadata::NameIndex::new(),
-        cold: Some(Box::new(crate::metadata::types::TypeDescCold { own_fields: own, ..Default::default() })),
+        cold: Some(Box::new(crate::object::TypeDescCold { own_fields: own, ..Default::default() })),
     })
 }
 

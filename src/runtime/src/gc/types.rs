@@ -12,7 +12,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use super::arr_ref::WeakArrRef;
+use crate::object::header::arr_ref::WeakArrRef;
 
 // ── Handles ──────────────────────────────────────────────────────────────────
 
@@ -141,7 +141,7 @@ pub struct WeakRef {
 #[derive(Debug, Clone)]
 pub(crate) enum WeakRefInner {
     /// Object model R6 / R9: a weak reference records its chunk's reuse epoch.
-    Object(super::obj_ref::WeakObjRef),
+    Object(crate::object::WeakObjRef),
     Array (WeakArrRef),
 }
 

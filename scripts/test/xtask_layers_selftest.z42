@@ -26,9 +26,9 @@ int _lySelfTestMap() {
     f = f + _lyExpect("map gc 默认", _lyComponentOf("gc/arc_heap/alloc.rs"), "gc");
     f = f + _lyExpect("map safepoint", _lyComponentOf("gc/safepoint.rs"), "vm.threads");
     f = f + _lyExpect("map sampler", _lyComponentOf("gc/sampler.rs"), "profiler");
-    f = f + _lyExpect("map types 目录", _lyComponentOf("metadata/types/value.rs"), "object");
-    f = f + _lyExpect("map types hub", _lyComponentOf("metadata/types.rs"), "object");
-    f = f + _lyExpect("map type_table 不被 types 吃掉", _lyComponentOf("metadata/type_table.rs"), "vm.runtime");
+    f = f + _lyExpect("map object value", _lyComponentOf("object/value/value.rs"), "object");
+    f = f + _lyExpect("map object hub", _lyComponentOf("object/mod.rs"), "object");
+    f = f + _lyExpect("map type_table", _lyComponentOf("metadata/type_table.rs"), "vm.runtime");
     f = f + _lyExpect("map reader", _lyComponentOf("metadata/reader/cursor.rs"), "metadata");
     f = f + _lyExpect("map format versions", _lyComponentOf("metadata/format/versions.rs"), "metadata");
     f = f + _lyExpect("map ir reg type", _lyComponentOf("metadata/ir/reg_type.rs"), "metadata");
@@ -112,11 +112,12 @@ int _lySelfTestCfg() {
 int _lySelfTestResolve() {
     LyCrate c = new LyCrate();
     string[] files = new string[]{
-        "lib.rs", "pub mod metadata;",
-        "metadata/mod.rs", "pub mod loader; pub mod types;\npub use loader::Foo;\npub use types::*;\npub(crate) use crate::gc::Bar as Baz;",
+        "lib.rs", "pub mod metadata; pub mod object;",
+        "metadata/mod.rs", "pub mod loader;\npub use loader::Foo;\npub(crate) use crate::gc::Bar as Baz;",
+        "object/mod.rs", "pub mod value; pub use value::*;",
         "metadata/loader.rs", "pub struct Foo;",
-        "metadata/types.rs", "mod value; pub use value::*;",
-        "metadata/types/value.rs", "pub enum Value { A }",
+        "object/value/mod.rs", "mod value; pub use value::*;",
+        "object/value/value.rs", "pub enum Value { A }",
         "gc/mod.rs", "pub struct Bar;"
     };
     int i = 0;
@@ -124,11 +125,11 @@ int _lySelfTestResolve() {
     i = 0;
     while (i < c.Files.Count) { _lyCollect(c, c.Files[i], c.Texts[i]); i = i + 1; }
     string got = "";
-    string[] paths = new string[]{ "metadata/Foo", "metadata/Value", "metadata/types/Value", "metadata/Unknown",
+    string[] paths = new string[]{ "metadata/Foo", "object/Value", "object/value/Value", "metadata/Unknown",
         "metadata/loader/x/y", "metadata/Baz", "metadata", "gc/Bar" };
     foreach (var p in paths) { got = got + (got.Length == 0 ? "" : " ") + _lyResolve(c, _lySplitSegs(p), 0); }
     return _lyExpect("再导出解析", got,
-        "metadata/loader metadata/types/value metadata/types/value metadata metadata/loader gc metadata gc");
+        "metadata/loader object/value/value object/value/value metadata metadata/loader gc metadata gc");
 }
 
 int _lySelfTestMetadataDirs() {

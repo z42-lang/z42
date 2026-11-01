@@ -9,7 +9,7 @@
 //!
 //!  add-platform-os-stdlib.
 
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 

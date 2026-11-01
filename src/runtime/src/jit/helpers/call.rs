@@ -1,7 +1,7 @@
 #![allow(dangerous_implicit_autorefs)]
 //! Direct call (`jit_call`) and corelib builtin dispatch (`jit_builtin`).
 
-use crate::metadata::Value;
+use crate::object::Value;
 
 use super::super::frame::{FnEntry, JitFrame};
 use crate::vm_context::VmContext;

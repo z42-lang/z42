@@ -2,7 +2,7 @@
 
 use super::dispatch::SigType;
 use super::marshal::{value_to_z42, z42_to_value, Arena};
-use crate::metadata::Value;
+use crate::object::Value;
 
 fn arena() -> Arena { Arena::new() }
 

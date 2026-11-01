@@ -5,7 +5,7 @@
 //! `exec_instr.rs`.
 
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{Context, Result};
 use std::collections::HashMap;

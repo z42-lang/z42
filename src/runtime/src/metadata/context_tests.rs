@@ -7,7 +7,7 @@
 use super::{ContextId, ContextRegistry, ContextState, UnloadOutcome};
 use crate::vm::runtime::Module;
 use crate::metadata::tokens::TypeId;
-use crate::metadata::types::{NativeData, TypeDesc};
+use crate::object::{NativeData, TypeDesc};
 use crate::metadata::NameIndex;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;

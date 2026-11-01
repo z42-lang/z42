@@ -6,7 +6,7 @@
 //! `BenchHelpers.blackBox` needs no native: it is a plain z42 identity marked
 //! `[MethodImpl(NoInlining | NoOptimization)]`, which the compiler's optimizer honours.
 
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 pub fn time_now_mono_ns() -> i64 {

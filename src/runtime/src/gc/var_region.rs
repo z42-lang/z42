@@ -60,40 +60,33 @@
 //!
 //! # Module layout
 //!
-//! - [`block`] — `BlockType` / `GcBlockHeader` / payload pointer + drop-glue plumbing.
+//! - `object::header` — block layout, tagged handles and finalizer callback types.
 //! - [`chunk`] — size classes, raw chunks, the TLAB claim, and chunk grow/borrow/reclaim.
 //! - [`holes`] — the TLAB's batched reuse of dead slots in partially-live chunks (M12).
-//! - [`var_ref`] — the [`VarGcRef`] tagged handle.
 //! - this file — the `VarRegion` allocator itself (alloc / resolve / tombstone / sweep).
 
+use crate::object::header::block;
 use std::alloc::dealloc;
 use std::collections::BTreeMap;
 use std::ptr::NonNull;
 use std::sync::atomic::Ordering;
 
-mod block;
-mod chunk;
+pub(crate) mod chunk;
 mod generation;
 mod holes;
 mod objects;
-mod var_ref;
 
-pub use block::{drop_type_bit, BlockType, GcBlockHeader, GcWord, PayloadDropGlue};
-pub(crate) use block::KIND_WORD_OFFSET;
+use crate::object::header::block::{BlockType, GcBlockHeader, PayloadDropGlue};
 pub use objects::{DetachedBlock, VarMinorSweep};
-pub(crate) use block::payload_ptr_of;
-#[cfg(feature = "jit")]
-pub(crate) use block::{ASCII_STR_BIT, HEADER_SIZE_OFFSET, HEADER_TYPE_TAG_OFFSET};
-#[cfg(all(feature = "jit", target_pointer_width = "64"))]
-pub(crate) use var_ref::HANDLE_ADDR_MASK;
+use crate::object::header::block::payload_ptr_of;
 pub(crate) use chunk::{class_for, class_for_with_limit, dedicated_free_count, may_be_dedicated, OVERSIZED_CLASS};
-use block::{ALIVE_GEN_BIT, FIRST_GEN};
+use crate::object::header::block::{ALIVE_GEN_BIT, FIRST_GEN};
 use chunk::payload_class;
 pub use chunk::{loh_bytes, set_loh_bytes};
 pub use chunk::{VarChunkClaim, VarChunkReclaim};
 pub use holes::VarHoleStash;
 pub(crate) use holes::prefetch_write;
-pub use var_ref::VarGcRef;
+use crate::object::header::var_ref::VarGcRef;
 
 use chunk::{Chunk, FreeEntry, FreeSlot, NUM_CLASSES};
 
@@ -104,7 +97,6 @@ const _: () = assert!(
     crate::gc::PROMOTION_THRESHOLD <= block::MAX_GEN_AGE,
     "PROMOTION_THRESHOLD exceeds the gen_age bits packed into GcBlockHeader::type_tag"
 );
-pub use block::MAX_GEN_AGE;
 
 /// Variable-length GC block allocator. See the module docs for the block / allocation /
 /// sweep model.
@@ -637,7 +629,7 @@ impl VarRegion {
     /// **fix-var-sweep-accounting**: the byte figure must mirror exactly what `used_bytes`
     /// was *charged* at alloc, or the auto-collect budget reads a number that drifts from
     /// the heap. See [`Self::alloc_charge_bytes`] for the per-`BlockType` rule.
-    pub fn sweep(&mut self, major: crate::gc::refs::MarkKind) -> (usize, u64) {
+    pub fn sweep(&mut self, major: crate::object::header::marks::MarkKind) -> (usize, u64) {
         let (reclaimed, credited, _) = self.sweep_buckets(major, 0, usize::MAX);
         (reclaimed, credited)
     }
@@ -646,7 +638,7 @@ impl VarRegion {
     /// starting at chunk `from`. Returns `(reclaimed, credited bytes, next chunk)`; `next ==
     /// bucket_count()` means done. Resumable across STW slices for the same reason as
     /// the cycle's epoch: blocks allocated between slices carry it.
-    pub fn sweep_buckets(&mut self, major: crate::gc::refs::MarkKind, from: usize, max_buckets: usize) -> (usize, u64, usize) {
+    pub fn sweep_buckets(&mut self, major: crate::object::header::marks::MarkKind, from: usize, max_buckets: usize) -> (usize, u64, usize) {
         let mut reclaimed = 0;
         let mut credited: u64 = 0;
         let end = from.saturating_add(max_buckets).min(self.chunks.len());

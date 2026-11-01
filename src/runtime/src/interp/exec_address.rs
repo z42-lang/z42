@@ -10,8 +10,8 @@
 /// `DefaultOf` resolves `default(T)` for a generic type-parameter at runtime
 /// (D-8b-3 Phase 2).
 
-use crate::metadata::Value;
-use crate::metadata::types::RefKind;
+use crate::object::Value;
+use crate::object::RefKind;
 use crate::vm_context::VmContext;
 use crate::interp::transient_arena::TransientPayload;
 use anyhow::Result;
@@ -82,7 +82,7 @@ pub(super) fn default_of(frame: &mut Frame, dst: u32, param_index: u8) {
         Ok(Value::Object(rc)) => {
             let borrowed = rc.borrow();
             borrowed.type_args().get(param_index as usize)
-                .map(|tag| crate::metadata::types::default_value_for(tag))
+                .map(|tag| crate::object::default_value_for(tag))
                 .unwrap_or(Value::Null)
         }
         _ => Value::Null,
@@ -118,7 +118,7 @@ pub(super) fn type_of(ctx: &VmContext, frame: &mut Frame, insn: &crate::metadata
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn method_default(frame: &mut Frame, dst: u32, param_index: u8) {
     let val = frame.method_type_args.get(param_index as usize)
-        .map(|tag| crate::metadata::types::default_value_for(tag))
+        .map(|tag| crate::object::default_value_for(tag))
         .unwrap_or(Value::Null);
     frame.set(dst, val);
 }

@@ -1,13 +1,16 @@
 //! 数组：分配、元素读写、长度的唯一实现，外加 ref 解引用与 JIT 打包快路用的原语。
 //!
 //! 数组形态：堆数组 `Array`（变长区里的一块：头 + 元素；REF / MIXED / PRIM / STRUCT / FROZEN，见
-//! `metadata::types::array`）、栈数组 `StackArray`（逃逸分析，经 per-context 栈 arena）。模式在分配时由元素类型定
+//! `object::array::array`）、栈数组 `StackArray`（逃逸分析，经 per-context 栈 arena）。模式在分配时由元素类型定
 //! （[`elem_mode`]）。`Null` → `NullReferenceException`；
 //! 下标越界（含负数）→ `IndexOutOfRangeException`；长度为负 → `OverflowException`。
 
-use crate::metadata::types::{default_value_for_tag, ArrayMode, ArrayObj, ElemKind, ElemType, FieldWrite, StructArrayElem, StructTypeLayout};
-use crate::metadata::Value;
-use crate::gc::ArrRef;
+use crate::object::{
+    default_value_for_tag, ArrayMode, ArrayObj, ElemKind, ElemType, FieldWrite, StructArrayElem,
+    StructTypeLayout,
+};
+use crate::object::Value;
+use crate::object::ArrRef;
 use crate::interp::transient_arena::TransientPayload;
 use crate::vm_context::VmContext;
 
@@ -265,7 +268,7 @@ pub fn class_type_param_elem(receiver: Option<&Value>, index: usize) -> Option<T
     let ta = rc.borrow().type_args_handle();
     let kind = ta.elem_kind(index);
     if !kind.is_prim() { return None; }
-    let zero = crate::metadata::types::default_value_for(ta.get(index)?);
+    let zero = crate::object::default_value_for(ta.get(index)?);
     (!matches!(zero, Value::Null)).then_some(TypeParamElem { kind, zero })
 }
 

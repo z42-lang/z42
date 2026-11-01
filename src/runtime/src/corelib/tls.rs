@@ -116,7 +116,7 @@ pub mod typed {
     use crate::corelib::abi::{Blocking, BuiltinError, Then};
     use crate::corelib::fs::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use crate::corelib::network::error::{check_port, resolve, slot_id, socket_error, timeout};
-    use crate::metadata::Value;
+    use crate::object::Value;
     use crate::vm_context::VmContext;
     use rustls::pki_types::ServerName;
     use rustls::{ClientConnection, StreamOwned};

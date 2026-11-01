@@ -54,8 +54,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
     #[inline]
     pub(super) fn shade_var_newborn(
         &self,
-        vref: crate::gc::var_region::VarGcRef,
-    ) -> crate::gc::var_region::VarGcRef {
+        vref: crate::object::header::VarGcRef,
+    ) -> crate::object::header::VarGcRef {
         if self.allocating_black() {
             vref.mark(self.major_mark());
         }

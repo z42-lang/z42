@@ -546,7 +546,7 @@ minor N+1  : 同一个 owner 再次入队 → mark_if_unmarked 撞见旧位 → 
 
 ## minor 位与 major epoch 同字节分治
 
-每个块头（`GcBlockHeader`）的 `marked` 字节拆成两段，由 `gc::refs::MarkKind` 统一读写：
+每个块头（`GcBlockHeader`）的 `marked` 字节拆成两段，由 `object::header::marks::MarkKind` 统一读写：
 
 ```
 bit 0      minor 标记    —— minor BFS 置位，minor sweep 清位

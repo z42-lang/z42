@@ -2,7 +2,7 @@
 //! 从 `arc_heap.rs` 拆出（refactor-arc-heap-modularization）。
 
 use super::*;
-use crate::metadata::Value;
+use crate::object::Value;
 
 impl crate::gc::arc_heap::ArcMagrGC {
     /// Root snapshot for an incremental major. Walks pinned roots +
@@ -62,9 +62,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
         let major = self.major_mark();
         let region = self.region_var.lock();
-        region.iterate_alive_of(crate::gc::var_region::BlockType::Object, |h, header| {
+        region.iterate_alive_of(crate::object::header::BlockType::Object, |h, header| {
             if header.is_marked(major) {
-                let obj = crate::gc::ObjRef::from_var(h);
+                let obj = crate::object::ObjRef::from_var(h);
                 let obj = obj.borrow();
                 let td_ptr = std::sync::Arc::as_ptr(&obj.type_desc) as usize;
                 if let Some(cid) = snap.retained_context(td_ptr, &obj.native()) {
@@ -89,9 +89,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // Objects (variable-length region) → each object's heap-ref slots become reverse edges.
         {
             let region = self.region_var.lock();
-            region.iterate_alive_of(crate::gc::var_region::BlockType::Object, |h, _| {
-                let handle = crate::gc::ObjRef::from_var(h);
-                let self_ptr = crate::gc::ObjRef::as_ptr(&handle) as usize;
+            region.iterate_alive_of(crate::object::header::BlockType::Object, |h, _| {
+                let handle = crate::object::ObjRef::from_var(h);
+                let self_ptr = crate::object::ObjRef::as_ptr(&handle) as usize;
                 let obj = handle.borrow();
                 let type_name = obj.type_desc.name.clone();
                 obj.visit_refs(&mut |slot: &Value| {
@@ -110,11 +110,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
             let region = self.region_var.lock();
             region.iterate_alive(|h, header| {
                 let bt = header.block_type();
-                if bt == crate::gc::var_region::BlockType::Object || !bt.is_object_or_array() {
+                if bt == crate::object::header::BlockType::Object || !bt.is_object_or_array() {
                     return;
                 }
-                let handle = crate::gc::ArrRef::from_var(h);
-                let self_ptr = crate::gc::ArrRef::as_ptr(&handle) as usize;
+                let handle = crate::object::ArrRef::from_var(h);
+                let self_ptr = crate::object::ArrRef::as_ptr(&handle) as usize;
                 let arr = handle.borrow();
                 let type_name = format!("{}[]", &*arr.element_type());
                 // `visit_refs`: the array's reference edges (elements / struct[] reference leaves).

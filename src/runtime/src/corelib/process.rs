@@ -32,7 +32,7 @@
 //!
 
 use crate::corelib::abi::{BuiltinError, CallResult, FieldInit, IntoRet, PlainRet, RetKind};
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use std::io::{Read, Write};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
@@ -389,7 +389,7 @@ fn read_pipe<R: Read + Send + 'static>(
 pub mod typed {
     use super::{handle_invalid, start_error, timeout_error, CommandSpec, MaybeExited, ProcessSlot, RunFail, RunOutput};
     use crate::corelib::abi::{Blocking, BuiltinError, Then};
-    use crate::metadata::Value;
+    use crate::object::Value;
     use crate::vm_context::VmContext;
     use std::io::Write;
 

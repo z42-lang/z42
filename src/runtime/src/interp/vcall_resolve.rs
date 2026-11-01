@@ -39,7 +39,7 @@ use anyhow::{bail, Result};
 use crate::metadata::resolver::{vcall_ic_install, vcall_ic_lookup, VCallIC};
 use crate::metadata::tokens::UNRESOLVED;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 use super::dispatch::resolve_virtual;
@@ -212,13 +212,13 @@ pub(crate) fn resolve_iface_slot(
 ) -> Option<String> {
     let erased = erased_iface_slot_key(key);
     let lookup = |name: &str| module.type_registry.get(name).cloned().or_else(|| ctx.try_lookup_type(name));
-    let probe = |td: &crate::metadata::TypeDesc| -> Option<String> {
+    let probe = |td: &crate::object::TypeDesc| -> Option<String> {
         let at = |k: &str| td.vtable_index.get(k).and_then(|&slot| td.vtable.get(slot)).map(|(simple, _)| simple.clone());
         at(key).or_else(|| erased.as_deref().and_then(at))
     };
-    let probe_with_def = |td: &crate::metadata::TypeDesc| -> Option<String> {
+    let probe_with_def = |td: &crate::object::TypeDesc| -> Option<String> {
         probe(td).or_else(|| {
-            let def = crate::metadata::TypeDesc::erased_definition_name(&td.name)?;
+            let def = crate::object::TypeDesc::erased_definition_name(&td.name)?;
             probe(&*lookup(def)?)
         })
     };

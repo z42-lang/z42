@@ -263,13 +263,13 @@ fn build_type_section_one_struct(size: u32, ref_leaves: &[(u32, u8)]) -> Vec<u8>
 fn struct_layout_block_roundtrips_ref_bitmap() {
     // struct { s: string @0; n: int @16 } → size 20, one ArcString ref leaf @0.
     let pool = vec!["Demo.R".to_owned()];
-    let sec = build_type_section_one_struct(20, &[(0, crate::metadata::types::STRUCT_REF_ARC_STRING)]);
+    let sec = build_type_section_one_struct(20, &[(0, crate::object::STRUCT_REF_ARC_STRING)]);
     let classes = read_type(&sec, &pool).expect("read_type");
     assert_eq!(classes.len(), 1);
     let sl = classes[0].struct_layout.as_ref().expect("struct class must carry a layout block");
     assert_eq!(sl.size, 20);
     assert_eq!(&*sl.ref_offsets, &[0u32]);
-    assert_eq!(&*sl.ref_kinds, &[crate::metadata::types::STRUCT_REF_ARC_STRING]);
+    assert_eq!(&*sl.ref_kinds, &[crate::object::STRUCT_REF_ARC_STRING]);
 }
 
 /// fix-interface-overload-dispatch: `class_flags2` bit1 gates the interface-slot table at

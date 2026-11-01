@@ -35,7 +35,7 @@
 //!   generic, the trait is already there; we just change a signature.
 
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::TypeDesc;
+use crate::object::TypeDesc;
 use std::sync::Arc;
 
 /// Read-only metadata contract the JIT backend uses against the source

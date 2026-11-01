@@ -9,9 +9,9 @@
 use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use std::ptr::NonNull;
 
-use super::block::{payload_ptr_of, BlockType, GcBlockHeader, FIRST_GEN};
+use crate::object::header::block::{payload_ptr_of, BlockType, GcBlockHeader, FIRST_GEN};
 use super::chunk::{class_for, CHUNK_ALIGN};
-use super::{VarGcRef, VarRegion};
+use {super::VarRegion, crate::object::header::VarGcRef};
 
 /// What a minor sweep of the region ([`VarRegion::sweep_young_with`]) did, with the details the
 /// heap's generational bookkeeping needs.

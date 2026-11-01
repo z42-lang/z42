@@ -1,10 +1,10 @@
 //! `ArcMagrGC` mark-sweep 原语：mark/sweep 阶段 + soft-ref 复活 + live 快照。
 //! 编排/控制 API 见 `control.rs`（refactor-arc-heap-modularization）。
 
-use crate::gc::refs::MarkKind;
-use crate::metadata::Value;
-use crate::gc::ArrRef;
-use crate::gc::obj_ref::ObjRef;
+use crate::object::header::marks::MarkKind;
+use crate::object::Value;
+use crate::object::ArrRef;
+use crate::object::header::obj_ref::ObjRef;
 use crate::gc::phase_timer::PhaseTimer;
 
 impl crate::gc::arc_heap::ArcMagrGC {
@@ -285,7 +285,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// epoch, so advancing it whitens the whole heap at once. Why that is safe is on
     /// [`MarkKind`].
     pub(super) fn begin_major_mark(&self) -> MarkKind {
-        let epoch = crate::gc::refs::next_epoch(self.mark_epoch.load(std::sync::atomic::Ordering::Relaxed));
+        let epoch = crate::object::header::marks::next_epoch(self.mark_epoch.load(std::sync::atomic::Ordering::Relaxed));
         self.mark_epoch.store(epoch, std::sync::atomic::Ordering::Relaxed);
         MarkKind::Major(epoch)
     }
@@ -316,7 +316,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let mut alive: Vec<Value> = Vec::new();
         self.region_var.lock().iterate_alive(|h, header| {
             match header.block_type() {
-                crate::gc::var_region::BlockType::Object => alive.push(Value::Object(ObjRef::from_var(h))),
+                crate::object::header::BlockType::Object => alive.push(Value::Object(ObjRef::from_var(h))),
                 bt if bt.is_object_or_array() => alive.push(Value::Array(ArrRef::from_var(h))),
                 _ => {}
             }

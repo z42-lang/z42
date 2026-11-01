@@ -456,7 +456,7 @@ FFI 零 marshaling + 零 per-field 堆分配。这是 struct 值语义功能面�
 所以内联 struct 与独立 blob 逐字节同布局，偏移只有一套（[object-abi.md](object-abi.md)「字段存储布局」）。
 
 帧 arena 是寄存器侧：`StructSlot` 的引用叶子是 `refs` 里的 16 B `Value`（arena 是 GC 根，无屏障）。
-两种形态之间的转换只在 `metadata/types/struct_blob.rs`：`read`（读出时引用槽清零，arena 字节里从不带句柄位）、
+两种形态之间的转换只在 `object/value/struct_blob.rs`：`read`（读出时引用槽清零，arena 字节里从不带句柄位）、
 `write`（基元字节段拷入，每个引用叶子经引用字写原语：SATB 记旧字、落下的引用交给调用方的写屏障）。
 
 ### 对象内联表示与访问（路线 α）
@@ -554,7 +554,7 @@ string 各留自己的 `Value` variant，不经此路）。整数标量的 **LE 
 尺寸），**不**走 `type_desc.inline_regions()`（那会给零字段 wrapper 空 `struct_bytes`）→ wrapper 的 emitted
 struct_layout / zbc TYPE section 完全不动，**无格式 bump**。
 
-**拆箱**：`ScriptObject::boxed_prim_i64()`（`metadata/types/object.rs`）按 `type_desc.name` 的
+**拆箱**：`ScriptObject::boxed_prim_i64()`（`object/object/object.rs`）按 `type_desc.name` 的
 `(width, signed)` 从 `struct_bytes` 前 `width` 字节还原 i64——signed narrow 符号扩展、unsigned 零扩展；
 非整数盒（多字段 struct 装箱 / 名不在整数 wrapper 表）返 `None`。**这个 `Some`/`None` 是「基元盒 vs struct 盒」
 的分流判据**：所有原 `Value::Boxed` 消费点收敛成单一 `BoxedStruct` 臂，需要区分时用 `boxed_prim_i64()`：

@@ -1,5 +1,5 @@
 use super::*;
-use crate::metadata::types::{PinSourceKind, PinnedViewData, RefKind};
+use crate::object::{PinSourceKind, PinnedViewData, RefKind};
 
 fn stack_ref(slot: u32) -> TransientPayload {
     TransientPayload::Ref(RefKind::Stack { frame_idx: 0, slot })

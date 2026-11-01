@@ -273,7 +273,7 @@ fn instantiation_type_args_are_one_handle_across_modules() {
     let b = mod_b.type_registry.get("Demo.Box<Std.Int32>").expect("registered").type_args_handle();
     assert_eq!(a.as_slice(), &["Std.Int32".to_string()][..]);
     assert!(std::ptr::eq(a.as_raw(), b.as_raw()));
-    let site = crate::metadata::types::TypeArgs::intern(&["Std.Int32".to_string()]);
+    let site = crate::object::TypeArgs::intern(&["Std.Int32".to_string()]);
     assert!(std::ptr::eq(a.as_raw(), site.as_raw()));
     // A non-generic class carries the empty handle.
     let mut plain = module_with_one_class("Demo.Plain", None, vec![]);
@@ -580,7 +580,7 @@ fn module_with_object_layout(
 fn object_layout_composed_local_inheritance() {
     use crate::vm::runtime::Module;
     use crate::metadata::ir::{ClassDesc, ObjectLayoutDesc};
-    use crate::metadata::types::{STRUCT_REF_ARC_STRING, STRUCT_REF_GCREF};
+    use crate::object::{STRUCT_REF_ARC_STRING, STRUCT_REF_GCREF};
 
     // Base { i64 age@0; str name@8 } — size 16, one ref leaf (name @ 8).
     let base_layout = ObjectLayoutDesc {
@@ -639,7 +639,7 @@ fn object_layout_composed_local_inheritance() {
     assert_eq!(sub.field_index.get("other"), Some(&3));
 
     // D12: per-field access table resolves exact tags + refs slots from type_tag.
-    use crate::metadata::types::{FieldCell, TAG_I64, TAG_STR, TAG_OBJECT};
+    use crate::object::{FieldCell, TAG_I64, TAG_OBJECT, TAG_STR};
     let fa = &sl.field_access;
     assert_eq!(fa.len(), 4, "one FieldAccess per merged field");
     // age: i64 primitive @ 0, not a ref.
@@ -659,7 +659,7 @@ fn object_layout_composed_local_inheritance() {
 #[test]
 fn object_layout_composed_crosspkg_fixup() {
     use crate::metadata::ir::ObjectLayoutDesc;
-    use crate::metadata::types::STRUCT_REF_ARC_STRING;
+    use crate::object::STRUCT_REF_ARC_STRING;
 
     // Base { str name@0 } — size 8, ref leaf @ 0.
     let base_layout = ObjectLayoutDesc {

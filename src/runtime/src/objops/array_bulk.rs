@@ -15,9 +15,9 @@
 //! 抛异常时目的数组不动。写入之后对写入区间里**每个引用槽**（REF / MIXED / FROZEN 的元素、struct[] 元素的每个
 //! 引用叶子）里的堆引用发 `write_barrier_array_elem`；覆盖前的旧引用由各写入原语交给 SATB。
 
-use crate::gc::ArrRef;
-use crate::metadata::types::{ArrayObj, ElemType};
-use crate::metadata::Value;
+use crate::object::ArrRef;
+use crate::object::{ArrayObj, ElemType};
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 use super::error::{OpError, OpResult, INVALID_CAST_EXC};

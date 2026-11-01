@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::gc::{GcEvent, GcHandleKind, GcKind, GcObserver, MagrGC, ArcMagrGC, SnapshotCoverage};
-use crate::metadata::{NativeData, TypeDesc, Value};
-use crate::metadata::types::FieldSlot;
+use crate::object::{NativeData, TypeDesc, Value};
+use crate::object::FieldSlot;
 
 /// unify-object-byte-layout (PR-2): a test TypeDesc with 4 **reference-typed** fields
 /// (`f0..f3`). The GC tests store arbitrary `Value`s (object refs to test reachability,

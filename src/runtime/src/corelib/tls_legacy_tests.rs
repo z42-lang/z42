@@ -1,5 +1,5 @@
 use super::*;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 fn ctx() -> std::pin::Pin<Box<VmContext>> {

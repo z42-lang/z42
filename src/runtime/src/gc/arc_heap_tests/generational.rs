@@ -4,7 +4,10 @@
 //! GC dispatch.
 
 use super::*;
-use crate::gc::{GcMode, ArrRef, MagrGC};
+use crate::{
+    gc::{GcMode, MagrGC},
+    object::ArrRef,
+};
 use crate::gc::PROMOTION_THRESHOLD;
 
 // Helpers to make Rust ArrRef and Value::Object/Array allocations
@@ -20,7 +23,7 @@ fn alloc_arr(heap: &ArcMagrGC, len: usize) -> Value {
 
 fn gen_age_of(v: &Value) -> u8 {
     match v {
-        Value::Object(gc) => crate::gc::ObjRef::gen_age(gc),
+        Value::Object(gc) => crate::object::ObjRef::gen_age(gc),
         Value::Array(gc)  => ArrRef::gen_age(gc),
         _ => unreachable!("test helper expects heap ref"),
     }
@@ -41,7 +44,7 @@ fn promote_to_old(v: &Value) {
 
 /// Object model R6: an object owner has no card — the barrier puts it in the remembered set.
 /// The probe is the owner's handle; `.var_ref().is_remembered()` reads the bit.
-fn remembered_probe(v: &Value) -> crate::gc::ObjRef {
+fn remembered_probe(v: &Value) -> crate::object::ObjRef {
     match v {
         Value::Object(gc) => *gc,
         _ => unreachable!("object owner expected"),
@@ -699,7 +702,7 @@ fn a_major_ages_its_survivors_so_the_young_list_still_drains() {
     }
     for v in &vals {
         let Value::Object(g) = v else { panic!("expected Object") };
-        assert_eq!(crate::gc::ObjRef::gen_age(g), 0, "test setup: all ten start young");
+        assert_eq!(crate::object::ObjRef::gen_age(g), 0, "test setup: all ten start young");
     }
 
     // One minor (ages 0 → 1), then one-shot majors for the remaining tiers.
@@ -712,9 +715,9 @@ fn a_major_ages_its_survivors_so_the_young_list_still_drains() {
     // if the **majors** aged them too, the same way a minor does.
     for v in &vals {
         let Value::Object(g) = v else { panic!("expected Object") };
-        assert!(crate::gc::ObjRef::gen_age(g) >= PROMOTION_THRESHOLD,
+        assert!(crate::object::ObjRef::gen_age(g) >= PROMOTION_THRESHOLD,
             "the major must age its survivors like a minor does; got age {}",
-            crate::gc::ObjRef::gen_age(g));
+            crate::object::ObjRef::gen_age(g));
     }
     let _ = pins;
 }
@@ -856,7 +859,7 @@ fn minor_gc_reclaims_array_header_and_element_block_together() {
 /// every string, so old var blocks kept being pushed into minor mark phases.
 #[test]
 fn closure_env_survives_repeated_minors() {
-    use crate::metadata::types::ClosureData;
+    use crate::object::ClosureData;
 
     let heap = ArcMagrGC::new();
     heap.set_mode(GcMode::GenerationalMarkSweep);
@@ -1022,7 +1025,7 @@ fn minor_leaves_no_mark_on_any_entry() {
 
     for v in [&old_owner, &young] {
         let Value::Object(g) = v else { panic!() };
-        assert!(!crate::gc::ObjRef::is_marked(g, crate::gc::refs::MarkKind::Minor), "a minor must not leave a mark bit set");
+        assert!(!crate::object::ObjRef::is_marked(g, crate::object::header::marks::MarkKind::Minor), "a minor must not leave a mark bit set");
     }
 }
 

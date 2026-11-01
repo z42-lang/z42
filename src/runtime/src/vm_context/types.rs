@@ -482,7 +482,7 @@ pub struct VmContext {
     /// mutates a TypeDesc during inheritance fixup, which `probe_type` never returns,
     /// and the function table is first-loaded-wins. Cleared with the memo on
     /// explicit module (re)load (REPL redefinition).
-    pub(crate) type_lookup_cache: Mutex<FxHashMap<Box<str>, std::sync::Arc<crate::metadata::TypeDesc>>>,
+    pub(crate) type_lookup_cache: Mutex<FxHashMap<Box<str>, std::sync::Arc<crate::object::TypeDesc>>>,
     pub(crate) fn_lookup_cache:   Mutex<FxHashMap<Box<str>, std::sync::Arc<crate::vm::runtime::Function>>>,
     /// **add-vmcontext-registry **: marks `VmContext: !Unpin`,
     /// so callers cannot `mem::swap` / move out of the `Pin<Box<VmContext>>`

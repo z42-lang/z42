@@ -167,7 +167,7 @@ mod make_stdlib_exception_tests {
     use super::*;
     use crate::vm::runtime::Module;
     use crate::metadata::tokens::TypeId;
-    use crate::metadata::types::FieldSlot;
+    use crate::object::FieldSlot;
     use crate::vm_context::VmContext;
     
     use std::sync::Arc;
@@ -202,7 +202,7 @@ mod make_stdlib_exception_tests {
             field_index,
             vtable:                 vec![],
             vtable_index:           crate::metadata::NameIndex::new(),
-            cold: Some(Box::new(crate::metadata::types::TypeDescCold {
+            cold: Some(Box::new(crate::object::TypeDescCold {
                 own_fields: own_fields_box,
                 ..Default::default()
             })),

@@ -147,7 +147,7 @@ pub fn build_type_registry(module: &mut Module) {
                 .filter(|f| !f.attributes.is_empty())
                 .map(|f| (f.name.as_str().into(), f.attributes.clone()))
                 .collect();
-        let cold_inner = crate::metadata::types::TypeDescCold {
+        let cold_inner = crate::object::TypeDescCold {
             // unify-static-init-into-cctor（7.3）：初始为 0（未知）；慢路确认 Done 后置 1。
             init_gen:               Default::default(),
             own_fields:             own_fields.into(),
@@ -160,8 +160,8 @@ pub fn build_type_registry(module: &mut Module) {
             // copy alongside it. Parse it here — `build_type_registry` is the one funnel all
             // modules (eager + cross-zpkg lazy) go through, so every consumer of
             // `type_args()` sees them without a second source of truth.
-            type_args:              crate::metadata::types::TypeArgs::intern(
-                &crate::metadata::types::type_args_from_name(class_name)),
+            type_args:              crate::object::TypeArgs::intern(
+                &crate::object::type_args_from_name(class_name)),
             type_param_constraints: desc.type_param_constraints.clone(),
             // C3 add-attribute-reflection: carry the class's user attributes.
             custom_attributes:      desc.attributes.clone(),
@@ -214,7 +214,7 @@ pub fn build_type_registry(module: &mut Module) {
                      plausible-looking wrong offset.",
                     class_name, desc.struct_field_table.len(), desc.fields.len(),
                 );
-                std::sync::Arc::new(crate::metadata::types::StructTypeLayout {
+                std::sync::Arc::new(crate::object::StructTypeLayout {
                     size:        l.size as usize,
                     ref_offsets: l.ref_offsets.clone(),
                     ref_kinds:   l.ref_kinds.clone(),
@@ -222,7 +222,7 @@ pub fn build_type_registry(module: &mut Module) {
                     // （`class_flags2` bit0 门控，#903 落地）。没带表的类型 ⇒ 空。
                     // **休眠元数据**：目前无消费方，接通是 P2。
                     fields:      desc.struct_field_table.iter()
-                        .map(|e| crate::metadata::types::StructFieldLayout {
+                        .map(|e| crate::object::StructFieldLayout {
                             offset: e.offset, size: e.size, kind: e.kind,
                         })
                         .collect(),
@@ -231,7 +231,7 @@ pub fn build_type_registry(module: &mut Module) {
             // add-struct-heap-inline (P3b): the class's composed inline-struct layout
             // (zbc 1.32 inline block). `map` → shared `Arc`, same as struct_layout.
             inline_layout:          desc.inline_layout.as_ref().map(|l| {
-                std::sync::Arc::new(crate::metadata::types::StructTypeLayout {
+                std::sync::Arc::new(crate::object::StructTypeLayout {
                     size:        l.size as usize,
                     ref_offsets: l.ref_offsets.clone(),
                     ref_kinds:   l.ref_kinds.clone(),
@@ -257,7 +257,7 @@ pub fn build_type_registry(module: &mut Module) {
                     let base_composed = desc.base_class.as_deref()
                         .and_then(|b| registry.get(b))
                         .and_then(|b| b.composed_object_layout());
-                    Some(std::sync::Arc::new(crate::metadata::types::compose_object_layout(
+                    Some(std::sync::Arc::new(crate::object::compose_object_layout(
                         base_composed.as_deref(), own, &fields, &desc.type_params,
                     )))
                 }
@@ -268,7 +268,7 @@ pub fn build_type_registry(module: &mut Module) {
                 None if !fields.is_empty()
                         && (desc.class_flags & (4 | 16 | 32 | 64)) == 0 => {
                     Some(std::sync::Arc::new(
-                        crate::metadata::types::synthesize_object_layout(&fields),
+                        crate::object::synthesize_object_layout(&fields),
                     ))
                 }
                 None => None,
@@ -524,7 +524,7 @@ pub fn try_fixup_inheritance(
     // base_shift 0); once resolvable, recompose `base.composed ++ own`. `None` when
     // this class carries no own object layout (e.g. 0-own-field derived not emitting a
     // block). Convergence rides on the same `needs_fixup` gate as `fields`.
-    let mut planned: Vec<(String, MergedLayout, Option<Arc<crate::metadata::types::ObjectLayout>>)> = Vec::new();
+    let mut planned: Vec<(String, MergedLayout, Option<Arc<crate::object::ObjectLayout>>)> = Vec::new();
     // fix-silent-symbol-resolution：`base_unmerged` 的清位**不能**挂在 `needs_fixup` 上。
     // 基类一旦可解析，`needs_fixup` 比的是「字段/vtable 条数对不对得上」——基类若**零字段
     // 零非静态方法**（标记基类），条数天然相等 ⇒ needs_fixup 恒 false ⇒ 旗子永远清不掉
@@ -553,14 +553,14 @@ pub fn try_fixup_inheritance(
                     .and_then(|b| registry.get(b))
                     .and_then(|b| b.composed_object_layout());
                 // `layout.0` = freshly merged fields (base ++ own) for the access table.
-                Some(Arc::new(crate::metadata::types::compose_object_layout(
+                Some(Arc::new(crate::object::compose_object_layout(
                     base_composed.as_deref(), own, &layout.0, td.type_params(),
                 )))
             }
             // No zbc object block — synthesize over the full merged fields (mirrors the
             // build-time fallback), so a cross-zpkg normal class still gets a layout.
             None if !layout.0.is_empty() && (td.class_flags & (4 | 16 | 32 | 64)) == 0 => {
-                Some(Arc::new(crate::metadata::types::synthesize_object_layout(&layout.0)))
+                Some(Arc::new(crate::object::synthesize_object_layout(&layout.0)))
             }
             None => None,
         };

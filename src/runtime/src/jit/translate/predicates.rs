@@ -149,8 +149,9 @@ pub(super) struct FieldPrim {
 pub(super) enum FieldExt { Sext, Uext, Keep, Float }
 
 pub(super) fn field_prim_kind(func: &Function, reg: u32) -> Option<FieldPrim> {
-    use crate::metadata::types::{
-        TAG_BOOL, TAG_CHAR, TAG_I8, TAG_I16, TAG_I32, TAG_I64, TAG_U8, TAG_U16, TAG_U32, TAG_U64, TAG_F64,
+    use crate::object::{
+        TAG_BOOL, TAG_CHAR, TAG_F64, TAG_I16, TAG_I32, TAG_I64, TAG_I8, TAG_U16, TAG_U32, TAG_U64,
+        TAG_U8,
     };
     let (load_ty, ext, reg_tag, field_tag) = match func.reg_types.get(reg as usize).copied()? {
         IrType::I8  => (types::I8,  FieldExt::Sext,  0, TAG_I8),

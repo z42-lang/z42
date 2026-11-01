@@ -8,7 +8,7 @@
 //! exception stays pending or is taken) stays at the call site.
 
 use crate::vm::runtime::Function;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 use super::frame::{FnEntry, JitFrame};

@@ -2,9 +2,9 @@
 //! 重方法体下沉到 concern 子模块的 inherent 方法（refactor-arc-heap-modularization）。
 
 use std::sync::Arc;
-use crate::metadata::{NativeData, TypeDesc, Value};
-use crate::metadata::types::OwnedObject;
-use crate::metadata::types::ClosureData;
+use crate::object::{NativeData, TypeDesc, Value};
+use crate::object::OwnedObject;
+use crate::object::ClosureData;
 use crate::gc::heap::MagrGC;
 use crate::gc::types::{AllocSamplerFn, CollectStats, FinalizerFn, FrameMark, GcHandleKind, GcObserver, HeapSnapshot, HeapStats, ObserverId, RootHandle, WeakRef, WeakRefInner};
 
@@ -12,13 +12,13 @@ use crate::gc::arc_heap::{ArcMagrGC, HandleEntry, ContextReclaimHook, ExternalRo
 
 impl MagrGC for ArcMagrGC {
     /// **fix-wasm-string-ops**: this heap's process-unique, never-reused epoch (assigned at
-    /// construction). See [`MagrGC::heap_epoch`] and [`crate::corelib::str_meta`].
+    /// construction). See [`MagrGC::heap_epoch`] and [`crate::object::string::str_meta`].
     #[inline]
     fn heap_epoch(&self) -> u64 {
         self.epoch
     }
 
-    fn var_chunk_stamp(&self, b: crate::gc::var_region::VarGcRef) -> Option<(u32, u32)> {
+    fn var_chunk_stamp(&self, b: crate::object::header::VarGcRef) -> Option<(u32, u32)> {
         let (chunk, epoch) = self.weak_stamp(b);
         (chunk != u32::MAX).then_some((chunk, epoch))
     }
@@ -89,7 +89,7 @@ impl MagrGC for ArcMagrGC {
         // heap first: encoding a value can allocate (a boxed primitive in an `object` field), and
         // no allocation may happen between taking an object's block and publishing it.
         if slots.is_empty() && matches!(native, NativeData::None) {
-            return self.alloc_instance_in_region(type_desc, crate::metadata::types::TypeArgs::empty());
+            return self.alloc_instance_in_region(type_desc, crate::object::TypeArgs::empty());
         }
         let obj = OwnedObject::with_native(type_desc, native);
         for (i, v) in slots.into_iter().enumerate() {
@@ -102,7 +102,7 @@ impl MagrGC for ArcMagrGC {
         self.alloc_owned_in_region(obj)
     }
 
-    fn alloc_instance(&self, type_desc: Arc<TypeDesc>, type_args: crate::metadata::types::TypeArgs) -> Value {
+    fn alloc_instance(&self, type_desc: Arc<TypeDesc>, type_args: crate::object::TypeArgs) -> Value {
         self.alloc_instance_in_region(type_desc, type_args)
     }
 
@@ -116,10 +116,10 @@ impl MagrGC for ArcMagrGC {
 
     fn alloc_array_with(
         &self,
-        desc: &'static crate::metadata::types::ArrayDesc,
+        desc: &'static crate::object::ArrayDesc,
         len: usize,
-        layout: Option<Arc<crate::metadata::types::StructTypeLayout>>,
-        init: &mut dyn FnMut(&crate::metadata::types::ArrayObj),
+        layout: Option<Arc<crate::object::StructTypeLayout>>,
+        init: &mut dyn FnMut(&crate::object::ArrayObj),
     ) -> Value {
         self.alloc_array_block(desc, len, layout, init)
     }
@@ -133,11 +133,11 @@ impl MagrGC for ArcMagrGC {
         self.alloc_closure_in_region(data)
     }
 
-    fn alloc_str(&self, s: &str) -> crate::metadata::vstr::Str {
+    fn alloc_str(&self, s: &str) -> crate::object::string::vstr::Str {
         self.alloc_str_in_region(s)
     }
 
-    fn alloc_str_concat2(&self, a: &str, b: &str) -> crate::metadata::vstr::Str {
+    fn alloc_str_concat2(&self, a: &str, b: &str) -> crate::object::string::vstr::Str {
         self.alloc_str_concat2_in_region(a, b)
     }
 

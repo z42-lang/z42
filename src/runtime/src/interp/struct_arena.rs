@@ -33,7 +33,7 @@
 //! references stored into *heap* objects (which are not re-scanned as roots) —
 //! that is P3 (struct inlined into a heap object / array), not P1 local structs.
 
-use crate::metadata::types::{StructTypeLayout, Value};
+use crate::object::{StructTypeLayout, Value};
 use anyhow::Result;
 use std::sync::Arc;
 

@@ -11,7 +11,7 @@
 
 use super::*;
 use super::super::super::frame::JitFrame;
-use crate::metadata::types::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 /// 在 ctx 的栈 arena 里放一个 `int[]`，返回对应的 `Value::StackArray` 句柄。

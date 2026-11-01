@@ -4,7 +4,7 @@
 
 use crate::exception::FrameSnapshot;
 use crate::vm::runtime::Module;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 /// What a builtin can fail with. Every kind but `Internal` / `Thrown` is one stdlib

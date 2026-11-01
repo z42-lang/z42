@@ -12,7 +12,7 @@
 pub mod net {
     use crate::corelib::abi::BuiltinError;
     use crate::corelib::network::error::unsupported;
-    use crate::metadata::Value;
+    use crate::object::Value;
 
     #[builtin(name = "__tcp_connect")]
     pub fn tcp_connect(_a0: &Value, _a1: &Value, _a2: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
@@ -76,7 +76,7 @@ pub mod net {
 pub mod tls {
     use crate::corelib::abi::BuiltinError;
     use crate::corelib::network::error::unsupported;
-    use crate::metadata::Value;
+    use crate::object::Value;
 
     #[builtin(name = "__tls_connect")]
     pub fn tls_connect(_a0: &Value, _a1: &Value, _a2: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }

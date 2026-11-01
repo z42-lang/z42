@@ -63,9 +63,11 @@
 use std::ptr::NonNull;
 use std::sync::atomic::Ordering;
 
-use super::block::{payload_ptr_of, BlockType, GcBlockHeader, GcWord, ALIVE_GEN_BIT};
+use crate::object::header::block::{
+    payload_ptr_of, BlockType, GcBlockHeader, GcWord, ALIVE_GEN_BIT,
+};
 use super::chunk::{payload_class, FreeEntry, FreeSlot, NUM_CLASSES};
-use super::{VarGcRef, VarRegion};
+use {super::VarRegion, crate::object::header::VarGcRef};
 
 /// Slots taken per refill. Large enough that the region lock is taken once per 64 reused
 /// allocations of a class; small enough that a thread holds at most a few KB of another thread's

@@ -6,7 +6,7 @@
 /// (`super::runtime::JitRuntime`) hands it out.
 
 use crate::vm::runtime::Function;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 
 // ── JitFrame ─────────────────────────────────────────────────────────────────

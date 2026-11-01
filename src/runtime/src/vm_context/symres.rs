@@ -23,7 +23,7 @@
 //! 站点管），保持既有行为。宁可漏掉一些，也不要把正常的跨包加载变成崩溃。
 
 use crate::vm::runtime::Module;
-use crate::metadata::TypeDesc;
+use crate::object::TypeDesc;
 use crate::vm_context::VmContext;
 
 /// 静态字段声明的类型：`type_tag`，以及它是不是声明类型的**未代换型参**（擦除泛型定义上的
@@ -64,9 +64,9 @@ pub enum StaticNullVerdict {
     Ok,
     /// 字段已声明且是**值类型**，槽位却是 `Null` ⇒ 该槽从未被零初始化。
     /// 用声明类型的零值补上（调用方应**回写槽位**，相当于惰性零初始化）。
-    Default(crate::metadata::Value),
+    Default(crate::object::Value),
     /// 确定不存在 ⇒ 抛该异常值。
-    Missing(crate::metadata::Value),
+    Missing(crate::object::Value),
 }
 
 /// 读静态字段得到 `Null` 后的裁决。见 [`StaticNullVerdict`]。
@@ -96,7 +96,7 @@ pub fn verify_static_field(
         Ok(Some(ft)) if ft.open_type_param => StaticNullVerdict::Ok,
         Ok(Some(ft)) => match static_zero_value(ctx, &ft.tag) {
             // 引用型的零值就是 Null —— 合法
-            crate::metadata::Value::Null => StaticNullVerdict::Ok,
+            crate::object::Value::Null => StaticNullVerdict::Ok,
             d => StaticNullVerdict::Default(d),
         },
         Ok(None) => StaticNullVerdict::Missing(crate::exception::make_missing_symbol_exception(
@@ -119,13 +119,13 @@ pub fn verify_static_field(
 ///
 /// 泛型类实例化上的静态字段，`tag` 已是代换后的实参（`Demo.Holder<int>` 上 `static T V` 的 tag 是
 /// `int`），无需在这里解析型参。
-pub(crate) fn static_zero_value(ctx: &VmContext, tag: &str) -> crate::metadata::Value {
-    use crate::metadata::Value;
-    let prim = crate::metadata::types::default_value_for(tag);
+pub(crate) fn static_zero_value(ctx: &VmContext, tag: &str) -> crate::object::Value {
+    use crate::object::Value;
+    let prim = crate::object::default_value_for(tag);
     if !matches!(prim, Value::Null) { return prim; }
     let Some(td) = lookup_value_type(ctx, tag) else { return Value::Null };
     if td.is_enum() { return Value::I64(0); }
-    match ctx.heap().alloc_object(td, Vec::new(), crate::metadata::types::NativeData::None) {
+    match ctx.heap().alloc_object(td, Vec::new(), crate::object::NativeData::None) {
         Value::Object(gc) => Value::BoxedStruct(gc),
         // alloc_object 在严格 OOM 拒绝下返回 Null：不装入，照旧返回 Null。
         _ => Value::Null,
@@ -197,7 +197,7 @@ pub fn ctor_missing_is_definite(ctor_name: &str, argc: usize, ctor_known: bool) 
 pub fn missing_ctor_exception(
     ctx: &VmContext, module: &Module, class_name: &str, ctor_name: &str, argc: usize,
     ctor_known: bool,
-) -> Option<crate::metadata::Value> {
+) -> Option<crate::object::Value> {
     if !ctor_missing_is_definite(ctor_name, argc, ctor_known) { return None; }
     Some(crate::exception::make_missing_symbol_exception(
         ctx, module,
@@ -278,7 +278,7 @@ pub fn call_arity(f: &crate::vm::runtime::Function) -> CallArity {
 /// 调用点指名的那个签名**确实不在**，撞上的是同键下的另一个。
 pub fn wrong_arity_exception(
     ctx: &VmContext, module: &Module, callee: &str, arity: CallArity, phys: usize,
-) -> Option<crate::metadata::Value> {
+) -> Option<crate::object::Value> {
     if arity.accepts(phys) { return None; }
     let want = if arity.max == u16::MAX {
         format!("at least {}", arity.min)
@@ -319,7 +319,7 @@ pub fn wrong_arity_exception(
 #[inline]
 pub fn ambiguous_function_exception(
     ctx: &VmContext, module: &Module, fname: &str,
-) -> Option<crate::metadata::Value> {
+) -> Option<crate::object::Value> {
     if !crate::metadata::lazy_loader::ambiguity_seen() { return None; }
     ambiguous_function_exception_slow(ctx, module, fname)
 }
@@ -328,7 +328,7 @@ pub fn ambiguous_function_exception(
 #[inline(never)]
 fn ambiguous_function_exception_slow(
     ctx: &VmContext, module: &Module, fname: &str,
-) -> Option<crate::metadata::Value> {
+) -> Option<crate::object::Value> {
     if !ctx.is_ambiguous_function(fname) { return None; }
     Some(crate::exception::make_missing_symbol_exception(
         ctx, module,
@@ -345,7 +345,7 @@ fn ambiguous_function_exception_slow(
 #[inline]
 pub fn ambiguous_type_exception(
     ctx: &VmContext, module: &Module, class_name: &str,
-) -> Option<crate::metadata::Value> {
+) -> Option<crate::object::Value> {
     if !crate::metadata::lazy_loader::ambiguity_seen() { return None; }
     ambiguous_type_exception_slow(ctx, module, class_name)
 }
@@ -354,7 +354,7 @@ pub fn ambiguous_type_exception(
 #[inline(never)]
 fn ambiguous_type_exception_slow(
     ctx: &VmContext, module: &Module, class_name: &str,
-) -> Option<crate::metadata::Value> {
+) -> Option<crate::object::Value> {
     if !ctx.is_ambiguous_type(class_name) { return None; }
     Some(crate::exception::make_missing_symbol_exception(
         ctx, module,
@@ -387,7 +387,7 @@ fn ambiguous_type_exception_slow(
 /// 判据既然已经确定，就该抛。
 pub fn missing_type_exception(
     ctx: &VmContext, module: &Module, class_name: &str,
-) -> Option<crate::metadata::Value> {
+) -> Option<crate::object::Value> {
     if !class_name.contains('.') { return None; }
     if module.classes.iter().any(|c| c.name == class_name) { return None; }
     Some(crate::exception::make_missing_symbol_exception(
@@ -416,10 +416,10 @@ pub fn missing_type_exception(
 /// 「基类现在不在注册表里」**不等于**不存在：按需加载下它随时可能随下一个 zpkg 到场。
 /// 所以调用方必须先走完 `try_lookup_type`（内部会 `ensure_base_chain_loaded` + 把继承
 /// fixup 跑到不动点），拿回来的描述符**仍然**带着 `base_unmerged` 旗子，才算定案。
-/// 详见 [`crate::metadata::types::TypeDescCold::base_unmerged`]。
+/// 详见 [`crate::object::TypeDescCold::base_unmerged`]。
 pub fn missing_base_exception(
     ctx: &VmContext, module: &Module, td: &TypeDesc,
-) -> Option<crate::metadata::Value> {
+) -> Option<crate::object::Value> {
     if !td.base_unmerged() { return None; }
     let base = td.base_name.as_deref().unwrap_or("<unknown>");
     let name = &td.name;

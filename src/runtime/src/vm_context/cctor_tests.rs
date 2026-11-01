@@ -248,7 +248,7 @@ fn barrier_epoch_moves_on_every_invalidating_event() {
     assert!(r.claim("A.C").unwrap().is_some());
     assert!(!moved(&|| r.finish("A.C", None)), "a type finishing only makes barriers cheaper");
     assert!(moved(&|| r.reset_for_rerun()), "a re-run generation");
-    let m = Arc::new(crate::metadata::TypeDesc {
+    let m = Arc::new(crate::object::TypeDesc {
         class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
         fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(), cold: None,
@@ -284,7 +284,7 @@ fn static_field_barrier_records_only_a_settled_verdict() {
     assert!(!cell().barrier_ready(ctx.core.cctors.barrier_epoch()));
     // A package initializer still to run (here: running on this thread, so the barrier passes
     // re-entrantly) is not settled.
-    let m = Arc::new(crate::metadata::TypeDesc {
+    let m = Arc::new(crate::object::TypeDesc {
         class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
         fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(), cold: None,
@@ -316,7 +316,7 @@ fn callee_barrier_settled_tracks_the_same_events_as_the_epoch() {
     let _ = owner.set(None);
     assert!(ctx.callee_barrier_settled(&owner));
     // A package initializer pending: never settled, owner exempt or not.
-    let m = Arc::new(crate::metadata::TypeDesc {
+    let m = Arc::new(crate::object::TypeDesc {
         class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
         fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(), cold: None,

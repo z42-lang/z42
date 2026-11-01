@@ -4,7 +4,8 @@
 //! under `cargo +nightly miri test -p z42 gc::var_region` before landing.
 
 use super::*;
-use crate::gc::refs::MarkKind;
+use crate::object::header::{GcWord, KIND_WORD_OFFSET};
+use crate::object::header::marks::MarkKind;
 
 /// add-incremental-major-gc M1: the major kind these single-cycle tests mark and sweep with.
 const MAJOR: MarkKind = MarkKind::Major(1);
@@ -269,7 +270,7 @@ fn alloc_counter(r: &mut VarRegion) -> VarGcRef {
 fn drop_glue_finalizes_payload_on_reclaim_and_teardown() {
     DROP_COUNT.store(0, AOrd::SeqCst);
     {
-        let mut r = VarRegion::with_drop_glue(test_drop_glue, crate::gc::var_region::drop_type_bit(BlockType::Closure));
+        let mut r = VarRegion::with_drop_glue(test_drop_glue, crate::object::header::drop_type_bit(BlockType::Closure));
 
         // (1) tombstone runs the finalizer exactly once.
         let a = alloc_counter(&mut r);
@@ -1135,7 +1136,7 @@ fn age_updates_keep_the_object_flags() {
     h.set_side();
     assert!(h.try_set_remembered());
     // STW age writes rewrite the whole tag byte; the flags must survive them.
-    h.mark(crate::gc::refs::MarkKind::Minor);
+    h.mark(crate::object::header::marks::MarkKind::Minor);
     r.sweep_young(None);
     h.raise_gen_age_to(crate::gc::PROMOTION_THRESHOLD);
     assert!(h.is_remembered());

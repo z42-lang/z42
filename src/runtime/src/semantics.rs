@@ -37,7 +37,7 @@
 //! fix-mixed-numeric-equality 就是栽在这里：`jit_eq` / `jit_ne` 曾绕过本模块直接用
 //! `Value: PartialEq`，三路口径不一致而无人发现。**新增比较 helper 时先确认它调的是本模块。**
 
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::metadata::superinstr::CmpOp;
 use anyhow::{bail, Result};
 
@@ -166,15 +166,15 @@ pub fn int_rem(x: i64, y: i64) -> i64 {
 
 // ── 数值转换（cast）───────────────────────────────────────────────────────────
 
-/// 目标类型标签常量 —— 单一真相源在 `crate::metadata::types`（`TAG_*`，镜像 z42
+/// 目标类型标签常量 —— 单一真相源在 `crate::object`（`TAG_*`，镜像 z42
 /// 编译器 `z42.package` 的 TypeTags）。此处以 `T_*` 别名重导出，供下面 `convert_value`
 /// 的 match 臂简洁引用，避免第二份 0xNN 表漂移。（C# bootstrap 编译器已于
 /// 移除，权威在 z42 侧。）
-pub use crate::metadata::types::{
-    TAG_BOOL as T_BOOL, TAG_I8 as T_I8, TAG_I16 as T_I16, TAG_I32 as T_I32,
-    TAG_I64 as T_I64, TAG_U8 as T_U8, TAG_U16 as T_U16, TAG_U32 as T_U32,
-    TAG_U64 as T_U64, TAG_F32 as T_F32, TAG_F64 as T_F64, TAG_CHAR as T_CHAR,
-    TAG_STR as T_STR, TAG_OBJECT as T_OBJECT, TAG_ARRAY as T_ARRAY,
+pub use crate::object::{
+    TAG_ARRAY as T_ARRAY, TAG_BOOL as T_BOOL, TAG_CHAR as T_CHAR, TAG_F32 as T_F32,
+    TAG_F64 as T_F64, TAG_I16 as T_I16, TAG_I32 as T_I32, TAG_I64 as T_I64, TAG_I8 as T_I8,
+    TAG_OBJECT as T_OBJECT, TAG_STR as T_STR, TAG_U16 as T_U16, TAG_U32 as T_U32, TAG_U64 as T_U64,
+    TAG_U8 as T_U8,
 };
 
 /// 纯数值转换 —— 无 frame 读写副作用，故 interp `convert` 处理器与 JIT `jit_convert`

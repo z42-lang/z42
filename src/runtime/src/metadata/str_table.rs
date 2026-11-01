@@ -41,7 +41,7 @@ use parking_lot::Mutex;
 
 use crate::vm::runtime::Module;
 use super::seg_vec::SegVec;
-use super::vstr::Str;
+use crate::object::string::vstr::Str;
 
 /// One string id.
 struct StrSlot {

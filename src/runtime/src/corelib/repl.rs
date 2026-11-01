@@ -31,7 +31,7 @@
 
 use crate::corelib::reflection::{type_members, make_type_from_name};
 use crate::interp::{exec_function, ExecOutcome};
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 #[cfg(feature = "native-interop")]
@@ -58,13 +58,13 @@ pub mod typed {
 
     /// 执行 z42 补全回调并原样回传其 string[](重入;回调 throw 经 Thrown 原样传播)。
     #[builtin(name = "__repl_complete_probe", reenters)]
-    pub fn complete_probe(ctx: &VmContext, fqn: &str, line: &crate::metadata::vstr::Str, pos: i64) -> Result<crate::metadata::Value, BuiltinError> {
+    pub fn complete_probe(ctx: &VmContext, fqn: &str, line: &crate::object::string::vstr::Str, pos: i64) -> Result<crate::object::Value, BuiltinError> {
         crate::corelib::reflection::reentry(ctx, super::repl_complete_probe(ctx, fqn, line, pos))
     }
 
     /// 会话变量的活值成员名(static_get 可触发 cctor——重入)。
     #[builtin(name = "__repl_member_names", reenters)]
-    pub fn member_names(ctx: &VmContext, fqn: &str) -> Result<crate::metadata::Value, BuiltinError> {
+    pub fn member_names(ctx: &VmContext, fqn: &str) -> Result<crate::object::Value, BuiltinError> {
         crate::corelib::reflection::reentry(ctx, super::repl_member_names(ctx, fqn))
     }
 
@@ -104,7 +104,7 @@ static REGISTERED_COMPLETER: std::sync::OnceLock<parking_lot::Mutex<Option<Strin
 /// `complete_trampoline`; here it is exposed as a direct builtin so a piped z42
 /// program can verify risk A (builtin → z42 callback with args → string[] back)
 /// end-to-end on the real VM.
-pub fn repl_complete_probe(ctx: &VmContext, fqn: &str, line: &crate::metadata::vstr::Str, pos: i64) -> anyhow::Result<Value> {
+pub fn repl_complete_probe(ctx: &VmContext, fqn: &str, line: &crate::object::string::vstr::Str, pos: i64) -> anyhow::Result<Value> {
     complete_via_callback(ctx, fqn, Value::Str(line.clone()), pos)
 }
 

@@ -42,8 +42,8 @@ fn field_ic_default_all_slots_unresolved() {
 // ── PIC lookup + install (review.md C4 P2 + C5 P2) ─────────────────
 
 /// A distinct primitive-cell locator per `n` (offset `n`, kind `TAG_I64`).
-fn loc(n: u32) -> crate::metadata::types::FieldLoc {
-    crate::metadata::types::FieldLoc { offset: n as u16, width: 8, kind: crate::metadata::types::TAG_I64 }
+fn loc(n: u32) -> crate::object::FieldLoc {
+    crate::object::FieldLoc { offset: n as u16, width: 8, kind: crate::object::TAG_I64 }
 }
 
 #[test]
@@ -87,16 +87,16 @@ fn field_ic_megamorphic_evicts_via_round_robin() {
 /// empty entry carries kind `KIND_NONE`, so even an `UNRESOLVED` receiver never matches it.
 #[test]
 fn field_ic_guard_word_matches_only_installed_pairs() {
-    use crate::metadata::types::FieldLoc;
+    use crate::object::FieldLoc;
     use std::sync::atomic::Ordering;
     let want = |tid: u32, kind: u8| ((tid as u64) << 32) | kind as u64;
     let ic = FieldIC::default();
     let empty = ic.entries[0].packed.load(Ordering::Relaxed);
     assert_eq!((empty & FIELD_IC_GUARD_MASK) as u8, FieldLoc::KIND_NONE);
-    for kind in [FieldLoc::KIND_REF, crate::metadata::types::TAG_I64, crate::metadata::types::TAG_BOOL] {
+    for kind in [FieldLoc::KIND_REF, crate::object::TAG_I64, crate::object::TAG_BOOL] {
         assert_ne!(empty & FIELD_IC_GUARD_MASK, want(UNRESOLVED, kind));
     }
-    let l = FieldLoc { offset: 0x1234, width: 4, kind: crate::metadata::types::TAG_I32 };
+    let l = FieldLoc { offset: 0x1234, width: 4, kind: crate::object::TAG_I32 };
     field_ic_install(&ic, 42, l);
     let e = ic.entries[0].packed.load(Ordering::Relaxed);
     assert_eq!(e & FIELD_IC_GUARD_MASK, want(42, l.kind));

@@ -19,7 +19,7 @@
 
 use std::cell::UnsafeCell;
 
-use crate::metadata::Value;
+use crate::object::Value;
 
 /// Max `Vec`s retained. Caps idle memory after a deep-then-shallow recursion;
 /// excess `Vec`s are freed.

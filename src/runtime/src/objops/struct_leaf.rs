@@ -14,8 +14,9 @@
 //! | `StructRefHeap`（`struct[]` 元素） | struct 布局 × 元素下标 | `write_barrier_array_elem` |
 //! | `StructRef`（帧内 arena blob） | struct 布局 | 无（arena 是根） |
 
-use crate::metadata::types::{
-    decode_prim, encode_prim, is_ref_tag, prim_width, ScriptObject, StructArrayElem, StructTypeLayout, Value,
+use crate::object::{
+    decode_prim, encode_prim, is_ref_tag, prim_width, ScriptObject, StructArrayElem,
+    StructTypeLayout, Value,
 };
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
@@ -125,7 +126,7 @@ pub(crate) fn struct_field_set_val(
 }
 
 /// 装箱 struct 的整块快照（类型名、字节、引用叶子）——拆箱时拷进帧 arena。
-pub(crate) fn snapshot_box(gc: &crate::gc::ObjRef) -> (Arc<str>, Vec<u8>, Vec<Value>) {
+pub(crate) fn snapshot_box(gc: &crate::object::ObjRef) -> (Arc<str>, Vec<u8>, Vec<Value>) {
     let o = gc.borrow();
     let (bytes, refs) = o.boxed_blob();
     (Arc::from(&*o.type_desc.name), bytes, refs)

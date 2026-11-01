@@ -1,10 +1,10 @@
 //! `ArcMagrGC` 分代 GC：minor / major / promotion + gen_age（写屏障在 `barrier.rs`，记忆集在
 //! `remembered.rs`）。从 `arc_heap.rs` 拆出（refactor-arc-heap-modularization）。
 
-use crate::gc::refs::MarkKind;
-use crate::metadata::{Value};
-use crate::gc::ArrRef;
-use crate::gc::obj_ref::ObjRef;
+use crate::object::header::marks::MarkKind;
+use crate::object::Value;
+use crate::object::ArrRef;
+use crate::object::header::obj_ref::ObjRef;
 use crate::gc::phase_timer::PhaseTimer;
 
 /// What one minor collection reclaimed. `reclaimed_entries` is what the escalation heuristic

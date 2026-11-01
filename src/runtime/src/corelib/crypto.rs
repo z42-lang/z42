@@ -10,13 +10,13 @@
 
 use crate::corelib::abi::BuiltinError;
 use super::convert::arg_i64;
-use crate::metadata::Value;
+use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
 const NAME: &str = "__crypto_random_bytes";
 
-pub fn crypto_random_bytes(ctx: &VmContext, n: i64) -> Result<crate::metadata::Value, BuiltinError> {
+pub fn crypto_random_bytes(ctx: &VmContext, n: i64) -> Result<crate::object::Value, BuiltinError> {
     if n < 0 {
         return Err(BuiltinError::Argument(format!("{}: n must be non-negative, got {}", NAME, n)));
     }
@@ -42,7 +42,7 @@ pub mod typed {
     use super::*;
 
     #[builtin(name = "__crypto_random_bytes")]
-    pub fn random_bytes(ctx: &VmContext, n: i64) -> Result<crate::metadata::Value, crate::corelib::abi::BuiltinError> {
+    pub fn random_bytes(ctx: &VmContext, n: i64) -> Result<crate::object::Value, crate::corelib::abi::BuiltinError> {
         crypto_random_bytes(ctx, n)
     }
 }

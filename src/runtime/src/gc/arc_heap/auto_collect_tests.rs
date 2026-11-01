@@ -16,7 +16,7 @@ fn no_budget_still_collects() {
     let heap = ArcMagrGC::new();
     heap.set_nursery_bytes_for_test(64 * 1024);
     for _ in 0..4000 {
-        heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);
+        heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
     }
     assert!(cycles(&heap) > 0,
         "an unbudgeted heap must still collect (got {} cycles)", cycles(&heap));
@@ -31,7 +31,7 @@ fn a_heap_that_is_not_growing_does_not_collect() {
     heap.set_nursery_bytes_for_test(64 * 1024);
     let mut pins = Vec::new();
     for _ in 0..200 {
-        pins.push(heap.pin_root(heap.alloc_array(vec![crate::metadata::Value::I64(0); 16])));
+        pins.push(heap.pin_root(heap.alloc_array(vec![crate::object::Value::I64(0); 16])));
     }
     let after_growth = cycles(&heap);
     // Nothing more is allocated; the policy must stay quiet.
@@ -47,7 +47,7 @@ fn a_budget_arms_automatic_collection() {
     heap.set_nursery_bytes_for_test(16 * 1024);
     heap.set_max_heap_bytes(Some(64 * 1024));
     for _ in 0..4000 {
-        heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);
+        heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
     }
     assert!(cycles(&heap) > 0,
         "a heap budget must arm auto-collect (got {} cycles)", cycles(&heap));
@@ -77,13 +77,13 @@ fn an_over_budget_live_set_does_not_re_collect_forever() {
     let mut pins = Vec::new();
     for _ in 0..128 {
         heap.set_nursery_bytes_for_test(1 << 30);
-        let v = heap.alloc_array(vec![crate::metadata::Value::I64(0); 128]);
+        let v = heap.alloc_array(vec![crate::object::Value::I64(0); 128]);
         pins.push(heap.pin_root(v));
         heap.set_nursery_bytes_for_test(4 * 1024);
         // One tiny throwaway per round: enough that collections have *something* to reclaim,
         // far less than one gate's worth — which is exactly what "futile" means here. The
         // retained arrays supply the growth.
-        let _ = heap.alloc_array(vec![crate::metadata::Value::I64(0); 4]);
+        let _ = heap.alloc_array(vec![crate::object::Value::I64(0); 4]);
     }
     let n = cycles(&heap);
     assert!(
@@ -159,7 +159,7 @@ fn a_reclaiming_collector_keeps_collecting_as_the_heap_refills() {
     let budget = 512 * 1024;
     heap.set_max_heap_bytes(Some(budget));
     for _ in 0..20_000 {
-        heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);
+        heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
     }
     // Asserted on `used`, the unit the trip point is armed in: at this scale the footprint is
     // dominated by fixed chunk overhead (a third of the budget of live bytes already costs
@@ -189,7 +189,7 @@ fn generational_trips_a_minor_on_the_nursery_gate_below_the_near_limit() {
     heap.set_nursery_bytes_for_test(64 * 1024);
     heap.set_max_heap_bytes(Some(BUDGET));
     for _ in 0..20_000 {
-        heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);
+        heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
     }
     let used = heap.stats().used_bytes;
     assert!(
@@ -224,7 +224,7 @@ fn generational_enforces_a_soft_cap_far_below_one_nursery() {
     let budget = 512 * 1024;
     heap.set_max_heap_bytes(Some(budget));
     for _ in 0..20_000 {
-        heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);
+        heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
     }
     let used = heap.stats().used_bytes;
     assert!(cycles(&heap) > 0, "a budget below one nursery must still trip a collection");
@@ -251,7 +251,7 @@ fn generational_collects_more_often_than_stw_on_the_same_workload() {
         });
         heap.set_nursery_bytes_for_test(64 * 1024);
         for _ in 0..20_000 {
-            heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);
+            heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
         }
         cycles(&heap)
     }

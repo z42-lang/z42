@@ -1,4 +1,4 @@
-//! Package formats, decoded IR, static queries, object data and VM linking state.
+//! Package formats, decoded IR, static queries and VM linking state.
 //! Static concerns are grouped under format, reader, ir, index and debug.
 
 pub mod image;
@@ -7,9 +7,7 @@ pub mod reader;
 pub mod ir;
 pub mod index;
 pub mod debug;
-pub mod types;
 pub mod tokens;
-pub mod vstr;
 pub mod superinstr;
 pub mod context;
 pub mod loader;
@@ -30,20 +28,12 @@ pub mod resolver;
 #[path = "constraint_tests.rs"]
 mod constraint_tests;
 
-#[cfg(test)]
-#[path = "types_tests.rs"]
-mod types_tests;
 
 // Re-exports: string pool typed handle (Part 5 P0 Phase A)
 // Re-exports: NameIndex (review.md Part 2 C4 / C5 P1)
 pub use index::NameIndex;
 // Re-exports: per-register static type tag (C2 step 0.2)
 pub use ir::reg_type::IrType;
-
-// Re-exports: runtime value types
-pub use types::{default_value_for, ClosureData, FieldSlot, NativeData, PinSourceKind, PinnedViewData, ScriptObject, TypeDesc, Value};
-#[allow(deprecated)]
-pub use types::ObjectData;
 
 // Re-exports: bytecode IR structures
 pub use ir::ExecMode;

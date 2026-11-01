@@ -5,7 +5,10 @@
 #![allow(unused_imports)]
 use super::*;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::{BranchTargets, Terminator, Value};
+use crate::{
+    metadata::{BranchTargets, Terminator},
+    object::Value,
+};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
@@ -22,7 +25,7 @@ pub(crate) struct Frame {
     /// lvalue. Net semantic: caller sees the post-call value of its
     /// `ref`/`out` lvalue, identical to true cross-frame refs but without
     /// requiring 80+ instruction handlers to be deref-aware.
-    pub ref_writebacks: Vec<(u32, crate::metadata::types::RefKind)>,
+    pub ref_writebacks: Vec<(u32, crate::object::RefKind)>,
     /// add-osr-loop-tiering: loop back-edges taken in THIS activation. When it
     /// reaches `JitRuntime::osr_threshold` (jit mode only), the running loop is
     /// hot enough to hand off to native code (OSR). Per-activation (reset each
@@ -229,9 +232,9 @@ impl Frame {
 /// (raw pointer, safe under design Decision 9: refs don't escape call
 /// stack). Array/Field kinds borrow the held ArrRef and read.
 pub(crate) fn deref_ref(
-    kind: &crate::metadata::types::RefKind, ctx: &VmContext,
+    kind: &crate::object::RefKind, ctx: &VmContext,
 ) -> Result<Value> {
-    use crate::metadata::types::RefKind;
+    use crate::object::RefKind;
     match kind {
         RefKind::Stack { frame_idx, slot } => {
             let regs_ptr = ctx.frame_state_at(*frame_idx as usize)
@@ -261,9 +264,9 @@ pub(crate) fn deref_ref(
 /// Spec impl-ref-out-in-runtime: store a value through a `Value::Ref` to
 /// the underlying location. Mirror of `deref_ref` for the write path.
 pub(crate) fn store_thru_ref(
-    kind: &crate::metadata::types::RefKind, val: Value, ctx: &VmContext,
+    kind: &crate::object::RefKind, val: Value, ctx: &VmContext,
 ) -> Result<()> {
-    use crate::metadata::types::RefKind;
+    use crate::object::RefKind;
     match kind {
         RefKind::Stack { frame_idx, slot } => {
             let regs_ptr = ctx.frame_state_at(*frame_idx as usize)
