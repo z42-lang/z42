@@ -4,7 +4,7 @@
 > `src/tests/`、`src/libraries/<lib>/tests/`、`src/runtime/src/*_tests.rs`
 >
 > 用例放哪、写成什么形态、平台能力怎么声明见[测试用例组织规范](test-layout.md)（唯一权威）；
-> gate 由哪些 stage 组成、`--skip` 与 `test changed` 的清单见[测试门禁](test-gate.md)（唯一权威）；
+> gate 执行顺序与 skip 键用 `xtask test --list` 查询；`--skip` 与 `test changed` 的机制见[测试门禁](test-gate.md)；
 > 一份测试是怎么被跑起来的见[测试流水线](test-pipeline.md)；CI 把 stage 摊到并行 job 见
 > [CI 拓扑](ci.md)；`[Test]` 属性怎么写、`z42 test` 怎么用见
 > [参考手册](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html)。
@@ -18,7 +18,7 @@
 
 | 类别 | 命令 | 测什么 |
 |---|---|---|
-| 门禁 | `xtask test [--no-build] [--skip <csv>]` | 完整 GREEN gate（串联全部 stage，任一失败立刻停） |
+| 门禁 | `xtask test [--no-build] [--skip <csv>]` / `--list` | 完整 GREEN gate；`--list` 只读列出执行顺序与 skip 键 |
 | | `xtask test changed [--dry-run] [<base>]` | 按改动推导该跑的命令（§3） |
 | 语言 / VM | `xtask test e2e` | `src/tests/**` 的 golden，interp + JIT 双模；`--dir cross-zpkg` / `multi-exe` 是多包夹具 |
 | 库 | `xtask test stdlib [<lib>]` | `src/libraries/<lib>/tests/` 与编译器域库的 `[Test]`，由 `z42b` 调度 |
@@ -35,7 +35,7 @@
 裸 `test` 先跑一个重建波（debug VM + stdlib + z42c 自建 + golden `.zbc` 基线），
 `--no-build` 跳过它、消费已有产物。**Rust VM 单测不在 gate 内**——它的
 signal-crash helper 会挂死整套 `cargo test`，所以 CI 每条腿单列一步。
-`--skip` 的完整 stage 名清单以[测试门禁 §5](test-gate.md) 为准。
+`--skip` 的完整键表用 `xtask test --list` 查询，编排规则见[测试门禁 §5](test-gate.md)。
 
 gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比对，秒级），单跑入口是 `xtask check`（每项是一个子命令，
 `xtask check -h` 列出全部）；其中 doc-refs 这道文档门禁**只在 `xtask check` 里**、不进 GREEN gate，一起列在下表：

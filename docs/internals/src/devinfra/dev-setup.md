@@ -63,7 +63,7 @@ mkdir -p artifacts && cp -R <warm 树>/artifacts/xtask artifacts/
 
 ```bash
 ./xtask build all     # compiler + runtime + stdlib（各子命令与编排见 build.md）
-./xtask test          # 完整 GREEN gate（stage 清单见 test-gate.md）
+./xtask test          # 完整 GREEN gate；用 ./xtask test --list 查询 stage
 ./xtask -h            # 命令树
 ```
 

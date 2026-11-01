@@ -301,7 +301,7 @@ stdlib、`bundle` 组嵌入语料并放进宿主、`run` 在宿主 / 设备上�
 | 组件 | 位置 |
 |---|---|
 | 布局门 | `scripts/test/xtask_test_layout.z42` |
-| 文档清单区解析（与 gate-stages 共用） | `scripts/test/xtask_test.z42` 的 `_docListBlock` |
+| 文档清单区解析 | `scripts/test/xtask_test.z42` 的 `_docListBlock` |
 | golden 语料枚举（host） | `scripts/common/xtask_golden.z42` 的 `_walkGoldenCorpus` |
 | app 语料枚举 / 分片 / 排除表 | `scripts/test/xtask_test_embedded_corpus.z42`、`scripts/test/xtask_test_embedded_golden.z42` |
 | 产物路径（单一定义） | `scripts/common/xtask_layout.z42` |

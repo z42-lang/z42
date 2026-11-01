@@ -303,7 +303,7 @@ cargo build && xtask test          # 默认串联所有必跑 stage（完整 GRE
 
 - **dev 期可以缩窄**（`xtask test changed` / 单 stage / `--no-build`），但 **commit 前最终 GREEN 必须跑完整
   `xtask test`**——partial 验证只算快速迭代，不替代门禁。
-- **stage 清单不在这里复列**：见 [GREEN gate](../../internals/src/devinfra/test-gate.md)（那里与代码由门禁对账）。单跑某层、按改动挑 stage、「我改了 X 该验什么」见
+- **stage 清单不在这里复列**：见 [GREEN gate](../../internals/src/devinfra/test-gate.md)（`xtask test --list` 查询执行清单）。单跑某层、按改动挑 stage、「我改了 X 该验什么」见
   [怎么跑测试](../../internals/src/devinfra/testing.md)。
 - 发行版变更（xtask package / 跨平台 / 嵌入接口）追加跑 `xtask package sdk --verify`。
 

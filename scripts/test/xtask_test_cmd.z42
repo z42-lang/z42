@@ -12,6 +12,8 @@ using Std.Cli;
 using Std.Collections;
 
 class TestCommand : Command {
+    [Option(help: "list all gate stages and skip keys without building or running tests")]
+    public bool List;
     [Option(help: "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built")]
     public bool NoBuild;
     [Option(help: "skip named stages (csv; see test-gate.md §5) — CI offloads stages to parallel jobs")]
@@ -33,6 +35,7 @@ class TestCommand : Command {
     }
 
     public override int Run() {
+        if (this.List) { return _listGateStages(); }
         string skip = this.Skip;
         if (this.Changed.Length > 0) {
             string extra = _changedGateSkips(this.Changed);

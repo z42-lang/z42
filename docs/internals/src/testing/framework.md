@@ -243,24 +243,15 @@ z42b 的 `z42vm --mode <mode>` 决定。所以"stdlib 测试在 JIT 下跑"就�
 
 ## 6. GREEN gate 的组成
 
-`xtask test`（不带子命令）= `_testAll`，顺序执行、**首错即停**。stage 清单见[测试门禁](../devinfra/test-gate.md)
-的 gate-stages 区（唯一权威，由下面 §6.1 的门禁对账）。
+`xtask test`（不带子命令）= `_testAll`，顺序执行、**首错即停**。
+`xtask test --list` 只读打印完整执行顺序与 skip 键，具体职责见[测试门禁](../devinfra/test-gate.md)。
 
-build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样计入耗时表，对读日志的人就是一个 stage。
+build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样计入耗时表。
 
-### 6.1 清单本身有门禁
+### 6.1 stage 单源定义
 
-这份清单若被复列在多处会互相漂移；收敛成一处"唯一权威清单"的文档页后，
-那页自己也会烂——加 stage 时不同步，文档就会落后于 gate 实跑的 stage 数。
-
-结论写进了代码：**纯纪律守不住一份没有测试盯着的清单**。现在 gate 名单是数据
-（`_gateStageNames()`，代码侧唯一 SoT），`_checkGateStageDoc()` 在**构建波之前**（几毫秒）
-把它与开发基础设施那页 test-gate 文档里 `<!-- gate-stages:begin/end -->` 区的
-`` - `name` `` 行**逐项比对**，不一致就打印双方清单后返回 1。
-
-> **加/删/改名一个 stage 的正确姿势**：改 `_gateStageNames()` + 改那份文档的 gate-stages 区，
-> 两处一致才绿。只改一处 → 本门变红。对账放在最前面是刻意的：文档漂移不该让人等十几分钟的
-> gate 跑完才发现。
+`_gateStages` 将名称、skip 键和执行函数登记在同一个 `GateStage` 中；列表和执行均消费此表。
+文档不维护完整的平行名单。`_runGateStages` 在构建前拒绝未知 skip 键，并原样传播首个失败的退出码。
 
 ### 6.2 `--skip`：让 CI 拆解这块整料
 
@@ -299,5 +290,5 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 | 报告字段 | `src/libraries/z42.harness/src/TestReport.z42`（json）+ `Runner._runOne`（pretty） |
 | benchmark 统计形状 | `Bencher.printSummary` **和** `BenchStats._parseLine`，同一个 commit |
 | 加载/调用能力 | `src/runtime/src/corelib/reflection/module_load.rs` + `builtin_table.rs` 登记 |
-| gate 组成 | `_gateStageNames()` **和** test-gate 文档的 gate-stages 区 |
+| gate 组成 | `scripts/test/xtask_test.z42` 的 `_gateStages`；检查职责变化时同步 test-gate 文档 |
 | 单元编排 / 并行 / 分片 | `scripts/test/xtask_test_lib.z42`、`scripts/test/xtask_test_cmd.z42`（命令面） |
