@@ -100,7 +100,7 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 main push 取 `before...sha` 的 compare（新分支的全零 `before`、API 失败、到 compare 的 300 文件上限 ⇒ 当作非纯文档）。
 `docs-check` 的内容：ci-bootstrap 的 `xtask-only`
 模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（先 `doc gen` 生成不入库的
-reference stdlib 页，再查相对链接 + gate stage 清单 ↔ `test-gate.md`）+ `xtask check diagcodes`（诊断码 ↔
+reference stdlib 页，再查相对链接与文档结构）+ `xtask check diagcodes`（诊断码 ↔
 `error-codes.md`）+ `xtask check doc-refs`（书页代码引用；为此装一份 stable Rust，先 cargo 编 rust-index 重建 Rust
 外部索引）。gen 用的解析器是种子 SDK 的 z42c.syntax（xtask-only 的既定语义）：stdlib 用上种子还不认的语法时，下一次
 nightly 种子发布前这里可能假红（种子随每次 main push 重发，窗口很短）。doc-lints 不在这里——纯文档改动碰不到

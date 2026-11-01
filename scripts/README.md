@@ -92,7 +92,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `package release <label> [--dir D] …` | 发布汇总：合并 desktop workload → SHA256SUMS → release-index.json | 9 个 RID 的归档（默认在 `artifacts/packages/`） | 合并后的 desktop workload + `SHA256SUMS` + `release-index.json` |
 | `bench [--tier T] [--diff\|--ab]` | 性能基准 / 回归对比（场景在 `src/benches/`） | z42c + hyperfine | 各场景编译/执行耗时；`--diff` 比对两组结果，`--ab` 同 runner A/B 判红 |
 | `profile <script> [--cpu\|--heap\|--threads\|--e2e\|--all]` | 深挖某个 `.z42` 脚本的性能 | z42c +（可选）samply/dhat/hyperfine | `artifacts/reports/profile/<name>/`：CPU 火焰图 / dhat 堆报告 / peak-RSS / counter 摘要 + `report.md` |
-| `test` | **每次 commit / 合并前必跑** | 下面各 stage | 串联全部验证 stage（清单见 internals/devinfra/test-gate.md；不含 runtime——见下） |
+| `test` | **每次 commit / 合并前必跑** | 下面各 stage | 串联全部验证 stage（`test --list` 查询清单；机制见 internals/devinfra/test-gate.md；完整 runtime 测试独立运行） |
 | `test runtime` | 改了 Rust VM (`src/runtime/`) | `cargo` | Rust VM 单测/集成（`cargo test --test-threads=1`；含 zbc/zpkg format 基线）。**不在 `test` gate 内**（signal 测试在受限沙箱会挂）；CI 每腿单独一步 + 按需本地跑 |
 | `test e2e [--dir <cat>] [--file <p>] [--mode interp\|jit]` | 跑 `src/tests/` 端到端（golden + cross-zpkg；最常用） | `cargo build` + golden 产物 | 默认全跑；`--dir`/`--file` narrow |
 | `test stdlib [lib]` | stdlib 源 / 编译器变动 | `build stdlib` + z42b（z42.builder.zpkg） | 各 stdlib lib 的 `[Test]` 通过率 |
@@ -123,7 +123,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 
 ```
 test ──► _testAll
-  │  ⓪ stage 清单 ↔ 文档对账              _checkGateStageDoc（不一致即停，几毫秒）
+  │  ⓪ 读取 _gateStages、校验 skip 键        未知键在构建前报错
   │  ① 构建波 (一次)                      _buildDebugVmAndCompression → _regenForTest
   │       └ cargo debug z42vm + compression cdylib → build stdlib + z42c
   │         + cargo release z42vm + golden .zbc
@@ -131,9 +131,8 @@ test ──► _testAll
   # CI 只为并行用 `--skip` 把部分 stage 下放到独立 shard job（见 internals/devinfra/ci.md）。
 ```
 
-> **stage 清单不在这里复列**——[`internals/devinfra/test-gate.md`](../docs/internals/src/devinfra/test-gate.md)
-> 是唯一权威清单，由 `_checkGateStageDoc` 与代码 `_gateStageNames()` 对账守着；
-> 每个 stage 落在哪个文件见下面的「源码结构」。
+> `xtask test --list` 从执行表打印完整 stage 顺序与 skip 键，不构建、不运行测试。
+> 各类检查的职责见[测试门禁](../docs/internals/src/devinfra/test-gate.md)，源码入口见下方「源码结构」。
 
 ### `build stdlib`（`build/xtask_stdlib.z42 :: _buildStdlib`）
 
@@ -269,7 +268,7 @@ scripts/
 ├── test/               test 命令族 + 大部分 `check` 的实现（注意：`test compiler` / `test compiler bootstrap` /
 │   │                   `check vscode-syntax` 的实现**不在**本目录，见 build/ install/）
 │   ├── xtask_test_cmd.z42       `test` 族的命令类 + LibUnitsCommand（test stdlib / bench stdlib 共用）
-│   ├── xtask_test.z42           all/e2e/dist 编排 + stage 计时 + stage 清单 SoT 与文档对账门
+│   ├── xtask_test.z42           all/e2e 编排 + stage 单源登记 / 只读列表 / 计时
 │   ├── xtask_test_vm.z42        e2e golden 跑分（+ --dir/--file 子选择）
 │   ├── xtask_test_cross.z42     e2e cross-zpkg 多包
 │   ├── xtask_test_multiexe.z42  e2e multi-exe（一工程 → N 个 exe zpkg）
@@ -287,9 +286,10 @@ scripts/
 │   ├── xtask_test_embedded_corpus.z42  语料枚举 SoT（`test app desktop` 与 `test list` 共用）
 │   ├── xtask_test_embedded_golden.z42  golden / 单元语料的 zbc/zpkg 发射
 │   ├── xtask_selfcheck_embedded.z42  bundle 构建回归（成功 / 部分失败 / 旧 manifest / 空选择），随 builder 夹具跑
+│   ├── xtask_selfcheck_stages.z42  stage 编排回归（skip / 必跑 / 首败短路 / 退出码），随 builder 夹具跑
 │   ├── xtask_test_list.z42      `test list`：只读语料目录（pretty / json）
 │   ├── xtask_test_incremental{,_ws}.z42 增量编译暴力对账（逐文件 touch：增量产物 == 全量，逐字节；`_ws` 为 stdlib 整体读回）
-│   ├── xtask_test_docs.z42      `test docs`：相对链接死链 + stage 清单对账
+│   ├── xtask_test_docs.z42      `test docs`：相对链接死链 + 文档分层 / README 关联文档检查
 │   ├── xtask_test_app.z42       `test app`：设备测试一条命令（+ `xtask_test_device_host.z42` 宿主工程暂存）
 │   ├── xtask_check_versions.z42 `check versions`：versions.toml ↔ Cargo.toml / build.gradle.kts / Package.swift
 │   ├── xtask_test_layers.z42    `check layers`：运行时分层门（引用解析 + 基线比较）；`xtask_layers_rules.z42` 是源文件 → 组件

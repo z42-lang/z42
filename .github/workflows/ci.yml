@@ -145,7 +145,7 @@ jobs:
           MAX_WAIT_MIN: "240"
         run: .github/ci/pr-gate.sh
 
-  # ── 纯文档改动的全部门禁：死链 + gate 清单对账、诊断码文档对账、书页代码引用（doc-refs）。不需要 SDK
+  # ── 纯文档改动的全部门禁：死链与文档结构、诊断码文档对账、书页代码引用（doc-refs）。不需要 SDK
   #    构建树，xtask 用种子 z42c 编出即可。doc-lints 不在这里：纯文档改动碰不到 stdlib
   #    的 `///`（那是 src/）；它是 `xtask test` 的一个 stage，随 build-and-test 跑。
   docs-check:

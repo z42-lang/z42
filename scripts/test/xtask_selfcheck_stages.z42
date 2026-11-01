@@ -1,0 +1,53 @@
+// stage 编排回归：必跑项、skip、首败短路、退出码传播，以及登记表元数据完整性。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+
+int _selfcheckGateStages() {
+    _checkGateRegistry(_gateStages(false));
+    var calls = new List<string>();
+    GateStage[] stages = new GateStage[]{
+        new GateStage("", "selfcheck required", () => _recordGateCall(calls, "required", 0)),
+        new GateStage("skip-me", "selfcheck skipped", () => _recordGateCall(calls, "skipped", 91)),
+        new GateStage("fail", "selfcheck failure", () => _recordGateCall(calls, "failed", 17)),
+        new GateStage("later", "selfcheck later", () => _recordGateCall(calls, "later", 0))
+    };
+    StageLogZ log = new StageLogZ();
+    int rc = _runGateStages(stages, "skip-me", log);
+    _gateAssert(rc == 17, "first failure exit code");
+    _gateAssert(String.Join(",", calls.ToArray()) == "required,failed", "skip and short circuit");
+    _gateAssert(log.Names.Count == 1 && log.Names[0] == "selfcheck required", "successful stage timing");
+
+    calls.Clear();
+    rc = _runGateStages(stages, "skip-me,fail later,fail", new StageLogZ());
+    _gateAssert(rc == 0 && calls.Count == 1 && calls[0] == "required", "required stage and skip separators");
+
+    calls.Clear();
+    rc = _runGateStages(stages, "not-a-stage", new StageLogZ());
+    _gateAssert(rc == 2 && calls.Count == 0, "unknown skip rejected before any work");
+    Console.WriteLine("  ✅ stage runner: registry, required, skip, short circuit, exit codes");
+    return 0;
+}
+
+void _checkGateRegistry(GateStage[] stages) {
+    var names = new List<string>();
+    var keys = new List<string>();
+    foreach (var stage in stages) {
+        _gateAssert(stage.Name.Length > 0 && !names.Contains(stage.Name), "unique nonempty stage name");
+        _gateAssert(stage.Body != null, "stage body registered");
+        names.Add(stage.Name);
+        if (stage.Key.Length == 0) { continue; }
+        _gateAssert(!keys.Contains(stage.Key), "unique skip key");
+        keys.Add(stage.Key);
+    }
+}
+
+int _recordGateCall(List<string> calls, string name, int rc) {
+    calls.Add(name);
+    return rc;
+}
+
+void _gateAssert(bool condition, string what) {
+    if (!condition) { throw new Exception("stage runner: " + what); }
+}

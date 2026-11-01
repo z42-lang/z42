@@ -3,9 +3,8 @@
 // 纯文档 PR 只跑本门 + diagcodes，所以读文档的检查必须都在这里：
 //   ① 仓内相对链接必须能解析到真实文件 / 目录（死链一律红，无存量豁免，无 `--update`）；
 //      reference/stdlib 的生成页不入库，先 `doc gen` 生成，手写页链进去的链接和生成页自己的链接一起查
-//   ② GREEN gate stage 清单 ↔ test-gate.md
-//   ③ 书 / README / 代码不引用 docs/agent
-//   ④ 目录 README 有「关联文档」段
+//   ② 书 / README / 代码不引用 docs/agent
+//   ③ 目录 README 有「关联文档」段
 //
 // 有意不查：外部 URL（联网让门禁慢且不稳）、纯锚点 `#section`（要解析标题生成 slug）、
 // 代码块内容（示例文本，见 _stripFences）。
@@ -26,23 +25,19 @@ int _testDocs(string root) {
         ConsoleError.WriteLine("     链接目标按所在文件的目录解析；跨书链接请用相对路径或完整 URL。");
         return 1;
     }
-    // ② `xtask test` 开头也查这一条；放进本门，纯文档 PR 走的 docs-check 才不会漏掉它
-    // —— 只改 test-gate.md 的 PR 正是最可能把它改坏的那种。
-    Console.WriteLine("② gate stage 清单与 test-gate.md 一致");
-    if (_checkGateStageDoc() != 0) { return 1; }
-    // ③ 分层链接方向（doc-system §2.1）：三本书与 README 不得引用 docs/agent。
+    // ② 分层链接方向（doc-system §2.1）：三本书与 README 不得引用 docs/agent。
     if (_checkAgentRefs(root) != 0) { return 1; }
-    // ④ 目录 README → 书的链路：src/ 第 2、3 层的目录 README 必有「关联文档」段。
+    // ③ 目录 README → 书的链路：src/ 第 2、3 层的目录 README 必有「关联文档」段。
     if (_checkReadmeRelatedDocs(root) != 0) { return 1; }
     Console.WriteLine("✔ test docs");
     return 0;
 }
 
-// ④ 目录 README 必有 `## 关联文档`：README 是入口、书是细节，人和 AI 都是「先读目录 README，再顺着
+// ③ 目录 README 必有 `## 关联文档`：README 是入口、书是细节，人和 AI 都是「先读目录 README，再顺着
 // 关联文档进书」。这一段缺了，链路就断在目录层——而缺段不会让任何死链检查变红，只能正向断言。
 // 范围与「哪层目录要 README」一致：`src/<X>/README.md` 与 `src/<X>/<Y>/README.md`。
 int _checkReadmeRelatedDocs(string root) {
-    Console.WriteLine("④ 目录 README 有「关联文档」段");
+    Console.WriteLine("③ 目录 README 有「关联文档」段");
     int bad = 0;
     foreach (var file in _docMarkdownFiles(root)) {
         string rel = _relToRoot(root, file);
@@ -65,7 +60,7 @@ int _checkReadmeRelatedDocs(string root) {
     return 0;
 }
 
-// ③ 分层链接方向：**三本书与 README 不得引用 `docs/agent`**（规范只在 agent，书 / README 只链书）。
+// ② 分层链接方向：**三本书与 README 不得引用 `docs/agent`**（规范只在 agent，书 / README 只链书）。
 //
 // 为什么要单列一条正向断言（而不是靠上面的死链检查）：agent 的规范文件改动最频繁（改名 / 删并），
 // 而跨书那批引用多是**绝对 GitHub URL**，死链检查只查仓内相对路径、照不到它们 ⇒ 只能正向禁止。
@@ -73,7 +68,7 @@ int _checkReadmeRelatedDocs(string root) {
 // 豁免两处（doc-system §2.1）：① agent 自己；② 仓库门面 `README.md` 与 `docs/README.md` 的分流导航
 // —— 它们本身就是「文档与代码的总入口」，不指路会让贡献者找不到规范。
 int _checkAgentRefs(string root) {
-    Console.WriteLine("③ 分层链接：书 / README / 代码不引用 agent");
+    Console.WriteLine("② 分层链接：书 / README / 代码不引用 agent");
     int bad = 0;
     foreach (var file in _docMarkdownFiles(root)) {
         string rel = _relToRoot(root, file);
@@ -192,7 +187,7 @@ string _stripFences(string text) {
     return string.Join("\n", lines);
 }
 
-// ③ 的代码侧：`src/` / `scripts/` / `.github/` 下的代码、脚本与 CI 配置同样不以路径引用 `docs/agent/`。
+// ② 的代码侧：`src/` / `scripts/` / `.github/` 下的代码、脚本与 CI 配置同样不以路径引用 `docs/agent/`。
 // 代码注释是写给下一个改它的人看的，事实与操作在书里；agent 的文件随时会改名、删并，指过去迟早变成死指针，
 // 而注释里的路径不是 markdown 链接，死链检查照不到。门本身（本文件）要提到这个路径，豁免。
 int _checkCodeAgentRefs(string root) {

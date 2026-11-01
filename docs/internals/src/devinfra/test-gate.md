@@ -2,93 +2,35 @@
 
 > 代码：`scripts/test/xtask_test.z42`（gate 编排 + stage 清单）、`scripts/test/xtask_test_*.z42`（各 stage）
 >
-> 怎么写 `[Test]`、`z42 test` 怎么用 → 参考手册；本页写 **gate 由哪些 stage 组成、谁保证这份清单不漂移、加一个 stage 要改哪两处**。
+> 怎么写 `[Test]`、`z42 test` 怎么用 → 参考手册；本页写 gate 的编排机制、各类检查的职责与 CI 分工。
 
 裸 `xtask test` 就是提交门禁：串联全部必跑 stage，任一失败即停；全绿是 commit / push 的先决条件。
-本页的 §1 是 **GREEN gate stage 组成的唯一权威清单**——其他文档一律「跑 `xtask test`，
-组成见此」加链接，不各自复列。
 
-## 1. 完整 gate 的 stage 流水
+## 1. 查看完整 gate 的 stage 流水
 
-```mermaid
-graph LR
-    B[stdlib + z42c 自建] --> D[debug z42vm<br/>+ compression cdylib]
-    D --> R[regen 构建波<br/>cargo release z42vm<br/>+ golden .zbc]
-    R --> S1[e2e goldens<br/>interp]
-    S1 --> S2[e2e cross-zpkg<br/>编译=release·运行=debug]
-    S2 --> S2b[e2e multi-exe<br/>一工程 → N 个 exe zpkg]
-    S2b --> S3[stdlib Test 用例]
-    S3 --> S3a2[stdlib Benchmark<br/>语料能跑 · 不判时间]
-    S3a2 --> S3b[manifest targets<br/>&#91;&#91;test&#93;&#93; + &#91;&#91;example&#93;&#93; fixture]
-    S3b --> S3c[examples<br/>书↔示例引用 + SDK 重放 .console]
-    S3c --> S3d[docs<br/>相对链接可解析]
-    S3d --> S4[compiler 自举<br/>编译器域 + 不动点 + units]
-    S4 --> S4g[gc modes<br/>z42c.semantics 在各 GC 模式下重编]
-    S4g --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
-    S5 --> S8[diagcodes<br/>诊断码唯一性]
-    S8 --> S9[stage2<br/>阶段-2 欠账挂账 + 到期]
-    S9 --> S10[ci-shell<br/>CI 内嵌 shell 先用后赋]
-    S10 --> S11[proc-env<br/>子进程 env 单一入口]
-    S11 --> S12[layout<br/>测试布局规范]
-    S12 --> S13[versions<br/>versions.toml ↔ 投影文件]
-    S13 --> S14[layers<br/>运行时分层欠账只减不增]
-    S14 --> S15[doc-lints<br/>stdlib 文档注释无欠账]
-    S15 --> G((GREEN))
+```bash
+xtask test --list
 ```
 
-**机器可读清单**（`_checkGateStageDoc` 解析此区；条目文本 = `_stageStart` 打的 banner 名，
-顺序 = 实际执行顺序。仅改这里而不改 `_gateStageNames()` 会让 gate 变红，反之亦然）：
-
-<!-- gate-stages:begin -->
-- `build wave (debug vm + regen)`
-- `rust units (cargo test --lib + --no-run)`
-- `e2e goldens (interp; jit → vm-jit-consistency)`
-- `e2e cross-zpkg`
-- `e2e multi-exe`
-- `stdlib [Test]`
-- `toolchain [Test]`
-- `stdlib [Benchmark]`
-- `manifest targets ([[test]] + [[example]])`
-- `examples (learn book transcripts)`
-- `docs (relative links)`
-- `compiler`
-- `gc modes (z42c.semantics build)`
-- `vscode-syntax`
-- `diagcodes`
-- `stage2`
-- `ci-shell`
-- `proc-env`
-- `layout`
-- `versions`
-- `layers`
-- `doc-lints`
-<!-- gate-stages:end -->
-
+按执行顺序打印每个 stage 的名称和 `--skip` 键；`(required)` 表示不可跳过。
+该命令只读 stage 元数据，不构建、不运行测试，也不要求构建树已有产物。
 先备工具链与基线（build wave），再依序跑其余验证 stage；任一步失败立即终止。
 
-## 2. 这份清单为什么有一道门守着
+## 2. 登记与执行共用一张表
 
-**纯纪律守不住一份没有测试盯着的清单**（stage 加了而文档没同步，清单就会漂），所以把「gate 跑哪些 stage」
-变成数据 + 开跑前对账。两个环扣在一起：
+`scripts/test/xtask_test.z42` 的 `_gateStages` 是唯一执行清单：每条 `GateStage` 同时携带
+名称、skip 键与执行函数。完整测试与 `--list` 都消费这张表，文档只描述机制，不维护另一份完整名单。
+加、删、改名或调整顺序只改这张表；若改变了某类检查的职责，同步本页对应说明。
 
-| 环 | 谁 | 保证什么 |
-|---|---|---|
-| ① | `_stageStart` 的注册校验 | banner 名必须已在 `_gateStageNames()` 里登记，否则当场抛异常 —— 挡住「加了 stage 却没进代码侧清单」 |
-| ② | `_checkGateStageDoc` | 逐条对账 `_gateStageNames()` 与本页 `gate-stages` 区，不一致即红并打印两侧差异 |
-
-**加 / 删 / 改名一个 stage，要同时改 `_gateStageNames()`（`scripts/test/xtask_test.z42`）与本页的
-`gate-stages` 区**，两处一致才绿。对账跑在构建波**之前**（几毫秒）——文档漂移不该让人等十几分钟
-的 gate 跑完才发现。`gate-stages` 区缺失标记时报的是「标记不见了」而不是「清单为空」：
-两种失败的修法不同，混在一起会让人去改清单而不是去找被删掉的标记。
-
-形态照 `vscode-syntax`（生成产物 ↔ 源表防漂移）。
+`_runGateStages` 在任何构建或测试开始前校验 `--skip`，未知键直接报错；随后按表顺序执行，
+成功的 stage 记录耗时，第一个非零退出码原样向上传播，后续 stage 不执行。
 
 ## 3. 顺序里的两条硬约束
 
 **debug z42vm 必须先于 regen 构建。** golden regen 用 `_activeVm(root, "debug")` 解析 debug vm 去
 编译各 golden；若 regen 先跑而 debug vm 陈旧（早于某个新增的 VM builtin），会在 regen 阶段
 panic「unknown builtin」→ 全体 golden 假失败，且 regen 返回 1 早退，使 debug vm 那一步永远跑不到。
-故 `_testAll` / `_testE2eCore` 把 `_buildDebugVmAndCompression()` 排在 `_regenForTest()` 之前。
+故 `_gateBuildWave` / `_testE2eCore` 把 `_buildDebugVmAndCompression()` 排在 `_regenForTest()` 之前。
 
 **cross-zpkg 的 fixture 编译走 release z42vm、运行走 debug z42vm。** 该 stage 每个 fixture 要三阶段
 z42c 编译（target → ext → main，全跑约 40 次），debug VM 编译慢 release 一个量级，会成为
@@ -309,13 +251,9 @@ vm.exec / vm.core，引擎 interp / jit，能力与工具 corelib / interop / pr
 
 ## 5. `--skip`：只改「在哪跑」，不改 gate 的组成
 
-除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <csv>` 下放到独立 CI job
-（`_skipHas`）。skip 名是短名，**不等于 banner 全名**：`rust-units` / `cross-zpkg` / `multi-exe` / `stdlib` /
-`toolchain` / `bench` / `targets` / `examples` / `docs` / `compiler` / `gcgen` / `vscode` / `walkers` / `diagcodes` /
-`stage2` / `ci-shell` / `proc-env` / `layout` / `versions` / `layers`。
-
-skip 只影响**在哪跑**，不改变 gate 的 stage 组成，所以 §1 的清单不随 `--skip` 变化，
-`_checkGateStageDoc` 也照常对全量清单对账。
+除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <csv>` 下放到独立 CI job。
+skip 键与 banner 名可能不同（如 `vscode` 对应 `vscode-syntax`）；完整键表用 `xtask test --list` 查询。
+逗号或空格均可分隔，未知键在构建前报错。skip 只影响在哪跑，不改变完整 stage 表。
 
 `--changed <base>` 是 `--skip` 的自动版：按 §7 映射表的「gate stage」列，把相对 `<base>` 的改动**用不到**的
 重 stage（`rust-units` / `cross-zpkg` / `multi-exe` / `stdlib` / `toolchain` / `bench` / `targets` / `examples` /

@@ -104,7 +104,7 @@ learn  ──链──▶  reference          internals  ──链──▶  lea
 | 门 | 内容 |
 |---|---|
 | **① 同一个 PR** | 文档与代码同分支同 PR。禁止「代码先合、文档后补」 |
-| **② `xtask test docs`** | 机械检查：① 相对链接可解析；② gate stage 清单与 test-gate 文档一致；③ 书 / README / 代码不引用 agent；④ `src/` 第 2、3 层的目录 README 有「关联文档」段。`xtask test docs examples` 另查 learn ↔ examples（B1–B10，含 learn 的 SUMMARY 对账）并重放会话脚本 |
+| **② `xtask test docs`** | 机械检查：① 相对链接可解析；② 书 / README / 代码不引用 agent；③ `src/` 第 2、3 层的目录 README 有「关联文档」段。`xtask test docs examples` 另查 learn ↔ examples（B1–B10，含 learn 的 SUMMARY 对账）并重放会话脚本 |
 | **③ 合并前 doc-check** | 人工兜底，清单如下 |
 
 **合并前 doc-check 清单**（全部勾上才能合并）：

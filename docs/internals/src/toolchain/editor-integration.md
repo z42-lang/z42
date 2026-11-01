@@ -80,7 +80,7 @@ syntaxes/z42.tmLanguage.json              ← 生成产物，入库
 `vscode` 是 `xtask setup` 的一个子命令（不带子命令的 `setup` = 装平台必备依赖，不碰编辑器资产）。
 它属于依赖模型的第三类：**主机集成，用户显式触发**——编辑器集成没法「用到时自动装」。
 
-`vscode-syntax` 挂在全量 gate 的链尾（`scripts/test/xtask_test.z42`，`_gateStageNames()` 里有它），
+`vscode-syntax` 挂在全量 gate 的链尾（`scripts/test/xtask_test.z42`，`_gateStages` 中登记），
 守的是跨子系统的 SoT 一致性，性质同自举字节不动点。成本≈一次 z42c fork，可忽略。
 CI 的分腿 job 用 `xtask test --skip vscode` 把它挪到别的腿上。
 
