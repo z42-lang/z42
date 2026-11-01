@@ -14,7 +14,7 @@
 use crate::gc::PROMOTION_THRESHOLD;
 use crate::gc::types::RootHandle;
 use crate::gc::{GcMode, ArrRef};
-use crate::metadata::bytecode::{Module, CLASS_FLAG_STRUCT};
+use crate::metadata::ir::{Module, CLASS_FLAG_STRUCT};
 use crate::metadata::types::{
     ArrayObj, ElemType, FieldSlot, NativeData, StructTypeLayout, TypeDesc, TypeDescCold,
     STRUCT_REF_GCREF, TAG_OBJECT,

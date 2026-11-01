@@ -27,7 +27,7 @@ fn struct_td(name: &str, fields: &[(&str, &str)], layout: StructTypeLayout) -> A
     Arc::new(TypeDesc {
         name: name.to_string(),
         base_name: None,
-        class_flags: crate::metadata::bytecode::CLASS_FLAG_STRUCT,
+        class_flags: crate::metadata::ir::CLASS_FLAG_STRUCT,
         visibility: 0,
         fields: fs,
         field_index,

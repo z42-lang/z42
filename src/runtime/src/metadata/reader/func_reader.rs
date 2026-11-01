@@ -129,12 +129,6 @@ pub(super) fn block_label(idx: usize) -> String {
 
 // ── DBUG section (line table + local variable names; 1.2+) ──────────────────
 
-#[derive(Default, Clone, Debug)]
-pub struct DbugFuncEntry {
-    pub line_table: Vec<crate::metadata::bytecode::LineEntry>,
-    pub local_vars: Vec<crate::metadata::bytecode::LocalVar>,
-}
-
 pub(super) fn read_dbug(sec: &[u8], pool: &[String]) -> Result<Vec<DbugFuncEntry>> {
     let mut c = Cursor::new(sec);
     let func_count = c.read_u32()? as usize;
@@ -153,7 +147,7 @@ pub(super) fn read_dbug(sec: &[u8], pool: &[String]) -> Result<Vec<DbugFuncEntry
             let file = if file_id == u32::MAX { None } else {
                 pool.get(file_id as usize).cloned()
             };
-            line_table.push(crate::metadata::bytecode::LineEntry {
+            line_table.push(crate::metadata::debug::LineEntry {
                 block: blk, instr: ins, line, file, column,
             });
         }
@@ -165,7 +159,7 @@ pub(super) fn read_dbug(sec: &[u8], pool: &[String]) -> Result<Vec<DbugFuncEntry
             let name_idx = c.read_u32()? as usize;
             let reg = c.read_u16()?;
             let name = pool.get(name_idx).cloned().unwrap_or_else(|| format!("?{name_idx}"));
-            local_vars.push(crate::metadata::bytecode::LocalVar { name, reg });
+            local_vars.push(crate::metadata::debug::LocalVar { name, reg });
         }
 
         result.push(DbugFuncEntry { line_table, local_vars });

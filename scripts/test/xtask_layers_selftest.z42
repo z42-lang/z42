@@ -8,7 +8,7 @@ using Std.Collections;
 
 int _lySelfTest() {
     int fails = _lySelfTestMap() + _lySelfTestAllow() + _lySelfTestRefs() + _lySelfTestCfg()
-        + _lySelfTestResolve() + _lySelfTestCompare() + _lySelfTestPalBoundary();
+        + _lySelfTestResolve() + _lySelfTestCompare() + _lySelfTestPalBoundary() + _lySelfTestMetadataDirs();
     if (fails == 0) { Console.WriteLine("  自测通过（映射 / 矩阵 / 词法 / use 组 / cfg / 再导出 / 基线）"); }
     return fails;
 }
@@ -29,7 +29,11 @@ int _lySelfTestMap() {
     f = f + _lyExpect("map types 目录", _lyComponentOf("metadata/types/value.rs"), "object");
     f = f + _lyExpect("map types hub", _lyComponentOf("metadata/types.rs"), "object");
     f = f + _lyExpect("map type_table 不被 types 吃掉", _lyComponentOf("metadata/type_table.rs"), "vm.runtime");
-    f = f + _lyExpect("map zbc_reader", _lyComponentOf("metadata/zbc_reader/cursor.rs"), "metadata");
+    f = f + _lyExpect("map reader", _lyComponentOf("metadata/reader/cursor.rs"), "metadata");
+    f = f + _lyExpect("map format versions", _lyComponentOf("metadata/format/versions.rs"), "metadata");
+    f = f + _lyExpect("map ir reg type", _lyComponentOf("metadata/ir/reg_type.rs"), "metadata");
+    f = f + _lyExpect("map index type names", _lyComponentOf("metadata/index/type_names.rs"), "metadata");
+    f = f + _lyExpect("map debug records", _lyComponentOf("metadata/debug/symbols.rs"), "metadata");
     f = f + _lyExpect("map loader 内细分", _lyComponentOf("metadata/loader/type_registry.rs"), "vm.runtime");
     f = f + _lyExpect("map loader 默认", _lyComponentOf("metadata/loader/artifact.rs"), "vm.loader");
     f = f + _lyExpect("map corelib/abi", _lyComponentOf("corelib/abi/args.rs"), "vm.exec");
@@ -125,6 +129,33 @@ int _lySelfTestResolve() {
     foreach (var p in paths) { got = got + (got.Length == 0 ? "" : " ") + _lyResolve(c, _lySplitSegs(p), 0); }
     return _lyExpect("再导出解析", got,
         "metadata/loader metadata/types/value metadata/types/value metadata metadata/loader gc metadata gc");
+}
+
+int _lySelfTestMetadataDirs() {
+    LyCrate c = new LyCrate();
+    string[] files = new string[]{
+        "lib.rs", "pub mod metadata;",
+        "metadata/mod.rs", "pub mod ir; pub mod format; pub mod index; pub mod debug;\npub use ir::Function; pub use index::NameIndex;",
+        "metadata/ir/mod.rs", "mod function; pub use function::*; pub mod reg_type;",
+        "metadata/ir/function.rs", "pub struct Function;",
+        "metadata/ir/reg_type.rs", "pub enum IrType { Unknown }",
+        "metadata/format/mod.rs", "mod versions; pub use versions::VERSION;",
+        "metadata/format/versions.rs", "pub const VERSION: u16 = 1;",
+        "metadata/index/mod.rs", "pub mod name; pub use name::NameIndex;",
+        "metadata/index/name.rs", "pub struct NameIndex;",
+        "metadata/debug/mod.rs", "mod symbols; pub use symbols::LineEntry;",
+        "metadata/debug/symbols.rs", "pub struct LineEntry;"
+    };
+    int i = 0;
+    while (i < files.Length) { c.AddFile(files[i], files[i + 1]); i = i + 2; }
+    i = 0;
+    while (i < c.Files.Count) { _lyCollect(c, c.Files[i], c.Texts[i]); i = i + 1; }
+    string got = "";
+    string[] paths = new string[]{ "metadata/Function", "metadata/NameIndex", "metadata/ir/reg_type/IrType",
+        "metadata/format/VERSION", "metadata/debug/LineEntry" };
+    foreach (var p in paths) { got = got + (got.Length == 0 ? "" : " ") + _lyResolve(c, _lySplitSegs(p), 0); }
+    return _lyExpect("metadata 新目录再导出", got,
+        "metadata/ir/function metadata/index/name metadata/ir/reg_type metadata/format/versions metadata/debug/symbols");
 }
 
 int _lySelfTestCompare() {

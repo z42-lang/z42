@@ -2,7 +2,7 @@
 //! or lazily loaded code is one id space, interned once per VM and rooted by the table.
 
 use super::*;
-use crate::metadata::bytecode::{BasicBlock, Function, Instruction, Module, Terminator};
+use crate::metadata::ir::{BasicBlock, Function, Instruction, Module, Terminator};
 use crate::metadata::loader::LoadedArtifact;
 use crate::metadata::tokens::FnId;
 use crate::metadata::types::ExecMode;

@@ -222,7 +222,7 @@ pub fn array_new<F: FnOnce() -> u32>(
 /// `new T[n]`'s element type as bound at run time: the argument's name, interned. `None` when
 /// the parameter is not bound here (the array keeps reporting `T`).
 pub fn type_param_bound_elem(arg: Option<&str>) -> Option<ElemType> {
-    arg.filter(|a| !a.is_empty() && !crate::metadata::type_param_markers::has_markers(a)).map(ElemType::intern)
+    arg.filter(|a| !a.is_empty() && !crate::metadata::index::type_param_markers::has_markers(a)).map(ElemType::intern)
 }
 
 /// The class-level argument `index` on `receiver` (the carrier [`class_type_param_elem`] reads).

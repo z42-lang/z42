@@ -90,7 +90,7 @@ impl VmContext {
 
     /// precise-pkg-refs: seed the loader's "which package defines this name" table from the
     /// eagerly merged artifacts' DEPS symbol lists. Companion of `seed_lazy_loader_impls`.
-    pub fn seed_lazy_loader_symbol_owners(&self, deps: &[crate::metadata::formats::ZpkgDep]) {
+    pub fn seed_lazy_loader_symbol_owners(&self, deps: &[crate::metadata::format::ZpkgDep]) {
         if deps.is_empty() { return; }
         let mut state = self.core.lazy_loader.write();
         if let Some(loader) = state.as_mut() {

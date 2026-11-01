@@ -2,7 +2,7 @@
 //! and `CallIndirect` dispatches on it — no name on the call path.
 
 use super::*;
-use crate::metadata::bytecode::{BasicBlock, Instruction, LoadFnInsn, MkClosInsn, Terminator};
+use crate::metadata::ir::{BasicBlock, Instruction, LoadFnInsn, MkClosInsn, Terminator};
 use crate::metadata::tokens::{FnId, UNRESOLVED};
 use crate::metadata::types::ExecMode;
 use std::sync::atomic::{AtomicU32, Ordering};

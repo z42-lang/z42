@@ -43,23 +43,24 @@
 ### src/metadata/ — IR 元数据与加载层
 | 文件 | 职责 |
 |------|------|
+| `format/` | `mod.rs` 的 magic 与依赖记录、`versions.rs` 的严格版本校验、`build_id.rs` 的符号配对标识 |
+| `reader/` | zbc / zpkg 二进制解码：节目录、指令、签名、类型、包目录与 sidecar；输出 IR 与调试记录 |
+| `ir/` | `module` / `class` / `function` / `instruction` / `insn` 的解码结构与 `reg_type` 寄存器类型；Module / Function 仍含加载后填写的运行期字段 |
+| `index/` | `name` 字段/vtable 名称索引、`type_names` 类型名操作、`well_known_names` 常量与 `type_param_markers` 静态标记替换 |
+| `debug/` | `symbols` 的源位置 / 局部变量 / DBUG 记录，`frames` 的帧名与源文件查询；sidecar 定位及覆盖由 loader 执行 |
 | `types.rs` + `types/` | 运行时值类型与对象模型：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局、字段单元归属与编解码）、`cells`（堆上单元的同宽原子访问视图）、`ref_word`（8 B 自描述引用字）、`tparam_cell`（16 B 型参单元：自描述标签字 + 基元负载字）、`struct_blob`（堆上值 struct blob 与帧 arena 形态互转）、`object` / `object_fields` / `owned_object`（ScriptObject 对象头 / NativeData / 堆外对象 `OwnedObject`；字段单元的原子读写与 GC 遍历）、`array` / `array_elems` / `array_access`（ArrayObj：REF / MIXED / PRIM / STRUCT / FROZEN 模式）、`value` / `value_aux`（Value / ExecMode / Closure 数据）；hub 全量 `pub use` |
-| `bytecode.rs` + `bytecode/` | zbc IR 数据结构：`module`（Module）、`class`（ClassDesc / FieldDesc / 布局描述 / CLASS_FLAG_*）、`function`（Function / BasicBlock / 异常表）、`insn`（*Insn 载荷）、`instruction`（Instruction / Terminator）；`bytecode_serde.rs` 为 TypedReg 兼容 serde |
-| `formats.rs` | `.zbc` / `.zpkg` magic 常量 + 依赖记录 `ZpkgDep` |
-| `zbc_reader/` | zbc / zpkg 二进制读取：`cursor` / `opcodes` / `instr_decode` / `func_reader` / `type_reader` / `zpkg` / `zpkg_index` / `sidecar` / `versions` |
 | `loader.rs` + `loader/` | 统一加载入口 `load_artifact(fs, path)` → `Module`（从调用方给的 VFS 读）；`build_type_registry` 预构建 `TypeDesc` 注册表；`namespace` / `indices` / `constraints` / `availability` 等关注点子模块 |
 | `lazy_loader.rs` + `lazy_loader/` | 惰性依赖加载（启动只载 `z42.core`，其余 zpkg 首次用到时加载：按 DEPS 引用表精确路由到定义包 `symbols.rs`，无静态引用的名字按命名空间前缀兜底 `resolve.rs`；加载与注册 `registry.rs`） |
 | `merge.rs` | 多模块合并：字符串池重映射 + 函数拼接 |
 | `resolver.rs` + `resolver/` | 加载期 token 解析（预填每函数 `ResolvedTokens`）+ 内联缓存（`ic.rs`） |
 | `context.rs` | 加载上下文模型（`AssemblyLoadContext` 对等的代码边界抽象） |
-| `tokens.rs` / `name_index.rs` / `namespace_index.rs` / `vstr.rs` | 热路径 token 新类型（含运行期 `FnId` / `FnIdCell` / 类型判定目标键 `TypeKeyCell`） / 字段·vtable 名称索引 / namespace→zpkg 索引 / GC 堆内不可变字符串句柄 |
-| `type_names.rs` | 类型名 / 函数名的顶层切分（`<…>` 外、特化实参 `:` 前找 `.` / `+`）与简单名；实例化实参是全名，按名字切分的代码经它 |
+| `tokens.rs` / `namespace_index.rs` / `vstr.rs` | 运行期 token 与目标键 / namespace→zpkg 索引 / GC 堆内不可变字符串句柄 |
 | `func_table.rs` | `FuncTable`：VM 级函数身份（`FnId` → `Function`，读无锁）；入口模块函数 + 惰性包函数统一编号 |
 | `type_table.rs` | `TypeTable`：VM 级类型身份（进程级 `TypeId` → 最新版本 `TypeDesc`，读无锁，稀疏分段）；入口模块类型 + 惰性包发布的类型；类型判定目标名的保留键 |
 | `str_table.rs` | `StrTable`：VM 级字符串字面量身份（`ConstStr` 操作数 = 字符串 id → 文本 + 驻留的 GC 字符串，驻留后读无锁）；入口模块字符串池 + 惰性包追加的池统一编号，驻留串是 GC 根 |
 | `seg_vec.rs` | `SegVec`（只追加、读无锁的分段向量）/ `SparseSegTable`（按 id 索引、段首次触达才分配的侧表） |
 | `superinstr.rs` | 超级指令融合框架 |
-| `build_id.rs` / `well_known_names.rs` / `ir_type.rs` | 分离调试符号的 build id / 常用限定名常量 / 寄存器类型 tag |
+
 
 ### crates/ — Rust workspace 子 crate
 native interop 三层 ABI 的 Rust 侧公开接口与宿主 / native 扩展 crate；详见 [`crates/README.md`](crates/README.md)。

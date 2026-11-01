@@ -50,7 +50,7 @@ public static class IrMethodImpl {
 // 这一步，也避免编译期命名约定与运行期拼名两处规则漂移（同 available! 的 D2.1 教训）。
 //
 // 为什么走哨兵而不是 class_flags 位：`class_flags` 是 u8 且**已用满 8 位**
-// （runtime `bytecode.rs` 注释：Last free class_flags bit）。哨兵零格式-bump，先例 $Deprecated。
+// （runtime `metadata/ir/class.rs` 注释：Last free class_flags bit）。哨兵零格式-bump，先例 $Deprecated。
 //
 // 屏障方案 B：只有挂了本哨兵的类型才付「首次使用前初始化」的检查代价；没有静态构造器的类型
 // （绝大多数）在运行期只多一次布尔判断。
@@ -193,7 +193,7 @@ public sealed class IrFieldDesc {
 // 类型参数约束描述 —— 与语义侧 ConstraintBundle 和运行期 validate_type_arg_constraint 的七项一一对应。
 //
 // 承载位与 zbc 约束 bundle 的 flag 位对应关系（权威定义见 runtime 的
-// metadata/zbc_reader/type_reader.rs::read_constraint_bundle）：
+// metadata/reader/type_reader.rs::read_constraint_bundle）：
 //   bit0 0x01 requires_class       → RequiresClass
 //   bit1 0x02 requires_struct      → RequiresStruct
 //   bit2 0x04 has_base             → BaseClass（"" = 无）

@@ -1,7 +1,7 @@
 //! Tests for interpreter support helpers on hand-built IR.
 
 use super::*;
-use crate::metadata::bytecode::{BasicBlock, ExceptionEntry, FunctionCold, Instruction, Terminator};
+use crate::metadata::ir::{BasicBlock, ExceptionEntry, FunctionCold, Instruction, Terminator};
 use crate::metadata::types::ExecMode;
 
 fn block(label: &str) -> BasicBlock {

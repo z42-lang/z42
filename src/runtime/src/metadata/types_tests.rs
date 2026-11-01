@@ -535,7 +535,7 @@ fn boxed_prim_i64_none_for_non_int_wrapper_and_short_bytes() {
 
 #[test]
 fn compose_object_layout_root_is_identity() {
-    let own = crate::metadata::bytecode::ObjectLayoutDesc {
+    let own = crate::metadata::ir::ObjectLayoutDesc {
         size: 24,
         field_offsets: Box::new([0, 8, 16]),
         field_sizes:   Box::new([8, 8, 8]),
@@ -558,7 +558,7 @@ fn compose_object_layout_root_is_identity() {
 /// words, and so are inline-struct interior leaves (the struct keeps its blob layout).
 #[test]
 fn compose_object_layout_gives_type_parameter_fields_their_own_cells() {
-    let own = crate::metadata::bytecode::ObjectLayoutDesc {
+    let own = crate::metadata::ir::ObjectLayoutDesc {
         size: 48,
         field_offsets: Box::new([0, 8, 16, 24, 32]),
         field_sizes:   Box::new([8, 8, 8, 8, 16]),
@@ -593,7 +593,7 @@ fn compose_object_layout_pads_base_to_8() {
         tparam_cells:  Box::new([]),
         field_access: Box::new([]),
     };
-    let own = crate::metadata::bytecode::ObjectLayoutDesc {
+    let own = crate::metadata::ir::ObjectLayoutDesc {
         size: 8,
         field_offsets: Box::new([0]),
         field_sizes:   Box::new([8]),
@@ -621,7 +621,7 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
         tparam_cells:  Box::new([]),
         field_access: Box::new([]),
     };
-    let own = crate::metadata::bytecode::ObjectLayoutDesc {
+    let own = crate::metadata::ir::ObjectLayoutDesc {
         size: 4,
         field_offsets: Box::new([0]),
         field_sizes:   Box::new([4]),

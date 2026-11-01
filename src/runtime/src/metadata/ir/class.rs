@@ -1,12 +1,5 @@
-//! ClassDesc / FieldDesc / 布局描述 / 约束束 / CLASS_FLAG_* · METHOD_FLAG_*。refactor-split-bytecode：从 1334 行的 `bytecode.rs` 按职责拆出，
-//! 对外路径不变（`metadata::bytecode::*` 经 hub 的 `pub use` 全量再导出）。
+//! Class and field signatures, declared layouts, constraints and attribute records.
 
-#![allow(unused_imports)]
-use super::*;
-use crate::metadata::tokens::TypeId;
-use crate::metadata::types::{ExecMode, TypeDesc};
-use rustc_hash::FxHashMap;
-use std::sync::Arc;
 
 /// Class descriptor — field layout for object allocation.
 ///

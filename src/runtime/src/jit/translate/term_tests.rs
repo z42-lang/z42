@@ -1,7 +1,7 @@
 //! Terminator translation tests that need hand-built IR (shapes z42c never emits).
 
 use crate::jit::runtime::install;
-use crate::metadata::bytecode::{BasicBlock, Function, Instruction, Module, Terminator};
+use crate::metadata::ir::{BasicBlock, Function, Instruction, Module, Terminator};
 use crate::metadata::types::ExecMode;
 use crate::vm_context::VmContext;
 

@@ -25,7 +25,7 @@ pub fn verify_constraints(module: &Module) -> Result<()> {
 }
 
 fn check_constraint_refs(
-    b: &crate::metadata::bytecode::ConstraintBundle,
+    b: &crate::metadata::ir::ConstraintBundle,
     registry: &FxHashMap<String, Arc<TypeDesc>>,
     owner: &str,
     type_params: &[&str],

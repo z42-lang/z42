@@ -7,7 +7,7 @@
 //! a compiled callee (the mixed-mode path these sites were shut out of).
 
 use crate::interp::ExecOutcome;
-use crate::metadata::bytecode::{BasicBlock, CallInsn, Function, Instruction, Module, Terminator, VCallInsn};
+use crate::metadata::ir::{BasicBlock, CallInsn, Function, Instruction, Module, Terminator, VCallInsn};
 use crate::metadata::types::ExecMode;
 use crate::metadata::Value;
 use crate::vm_context::VmContext;

@@ -109,7 +109,7 @@ VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 
 ### 4.2 地基模块内部
 
 - **`pal/`**：`fs.rs`（含 `Vfs` trait，每台 VM 一个句柄，文件系统状态归属 VmCore）+ `vfs/{local,memory}.rs`、`process.rs`（spawn / wait / kill / 进程树）、`net.rs`、`mem.rs`（GC 页管理）、`thread.rs`（栈边界、sigaltstack）、`signal.rs`、`dynlib.rs`（运行时唯一的动态库装载入口）、`console.rs`、`time.rs`、`system.rs`；上层 concern 保留平台无关接口，操作系统实现与后端选择集中在 `sys/`。`sys/mod.rs` 在编译期选择 `unix/`、`windows/`、`wasm/` 或 `fallback/`，`common/` 复用共享实现与降级行为。
-- **`metadata/`**：`format/`（常量、版本、build_id）、`reader/`（现 `zbc_reader/*`）、`ir/`（现 `bytecode/*`、`ir_type`）、`image.rs`（PackageImage：零拷贝、字符串表解析一次、函数体按需解码）、`index/`（包内按名找下标、知名类型名、类型名格式化——现 `name_index` / `well_known_names` / `type_names`）、`debug/`（行号表、局部变量、帧名，读 .zsym 按需）。**纯静态的查询（名字、行号、attribute、签名）调用方直接用本模块，不经 vm。**
+- **`metadata/`**：`format/`（常量、版本、build_id）、`reader/`（二进制解码）、`ir/`（解码结构与寄存器类型）、`image.rs`（PackageImage：零拷贝、字符串表解析一次、函数体按需解码）、`index/`（包内按名找下标、知名类型名、类型名格式化与型参标记）、`debug/`（行号表、局部变量、帧名，读 .zsym 按需）。**纯静态的查询（名字、行号、attribute、签名）调用方直接用本模块，不经 vm。**
 - **`object/`**：`value/`（Value、ref word、codec、cells）、`header/`（16 B 统一头、`var_ref` / `obj_ref` / `arr_ref` 句柄）、`types/`（TypeDesc 形状、字段、elem kind、TypeArgs 形状、布局计算纯函数、引用槽位图）、`object/`、`array/`、`string/`（Str 句柄、非 ASCII 字符索引）。不抛异常、不查缓存、不管类型从哪来。
 - **`gc/`**：`heap.rs`（具体类型 `Heap`，取代 51 方法的 `dyn MagrGC`）、`config.rs`（`GcConfig` 由门面传入，取代 gc→config 27 处引用）、`to_vm.rs`（`GcToVm`：根枚举、`suspend_all` / `resume_all`）、`region/`、`alloc/`（含 TLAB）、`collect/`（标记、分代、增量、屏障、记忆集）、`policy/`、`refs/`、`walk.rs`（堆遍历原语）、`observe/`。移出：`sampler` / `snapshot` / `retention` → profiler；`safepoint` → vm/threads；`ambient` → vm。
 
@@ -253,7 +253,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | ID | 类型 | 内容 | 对照 | 预期 | 状态 |
 |---|---|---|---|---|---|
 | S1 | perf/load | **合并入口模块时增量构建类型表**：加载单包、合并入口后仍各建一遍。先确定跨包成员贡献与构造泛型继承的归属判据，再增量追加，保证 vtable 完整 | — | 省去第二次全量构建（需重测） | ⬜ |
-| S2 | perf/load | 库目录 NSPC 扫描冷启动全价（`metadata/namespace_index.rs` + `metadata/zbc_reader/zpkg.rs` 整读、全解 STRS）。改法：z42.core 已提供的命名空间不扫；只读文件头、目录与 NSPC 引用的串；SDK 安装时生成 `namespace → zpkg` 索引 | .NET TPA / deps.json | −1.0~1.5 ms | ⬜ |
+| S2 | perf/load | 库目录 NSPC 扫描冷启动全价（`metadata/namespace_index.rs` + `metadata/reader/zpkg.rs` 整读、全解 STRS）。改法：z42.core 已提供的命名空间不扫；只读文件头、目录与 NSPC 引用的串；SDK 安装时生成 `namespace → zpkg` 索引 | .NET TPA / deps.json | −1.0~1.5 ms | ⬜ |
 | S3 | perf/load | STRS 每包解码 3 次、每项一个 `String`。改为一次解析 + `Arc<[u8]>` 偏移零拷贝 | — | −0.5~0.8 ms | ⬜ |
 | S4 | perf/load | `.zsym` 与 `frame_meta` 启动时 eager（`metadata/loader/artifact.rs` 解析 sidecar ≈0.3 ms，`metadata/loader/indices.rs` 给全部函数预格式化帧名）。改为首次生成栈回溯 / 调试器附加时加载 | .NET PDB 按需 | −0.3~0.4 ms、≈−0.5 MB | ⬜ |
 | S6 | perf/load | 入口函数不预编译：`jit/runtime.rs` 的 `resolve_fn_by_name` 先编译 Main 再执行；只跑一次的 Main / cctor 交给解释器 + OSR | .NET tier0 / OSR | hello −0.2 ms、`z42c --help` −2 ms | ⬜ |

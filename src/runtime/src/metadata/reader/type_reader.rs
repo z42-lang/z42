@@ -80,7 +80,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         for _ in 0..attr_count {
             let type_idx = c.read_u32()?;
             let factory_idx = c.read_u32()?;
-            attributes.push(crate::metadata::bytecode::AttributeRef {
+            attributes.push(crate::metadata::ir::AttributeRef {
                 type_name: c.pool_str(pool, type_idx)?.to_owned(),
                 factory_func: c.pool_str(pool, factory_idx)?.to_owned(),
             });
@@ -111,7 +111,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             let type_tag = c.pool_str(pool, type_str_idx)?.to_owned();
             let attributes = read_attr_refs(&mut c, pool)?;  // 1.14 field attrs
             let visibility = c.read_u8()?;                    // 1.23 add-member-visibility
-            static_fields.push(crate::metadata::bytecode::FieldDesc { name, type_tag, attributes, visibility });
+            static_fields.push(crate::metadata::ir::FieldDesc { name, type_tag, attributes, visibility });
         }
         // add-reflection-get-interfaces (zbc 1.17): per-class interface block —
         // u16 count + interface_name_idx[] u32. Surfaced by Type.GetInterfaces().
@@ -123,7 +123,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         }
         // add-enum-type-metadata (zbc 1.22): trailing enum-member block, present
         // only when CLASS_FLAG_ENUM is set. member_count:u16 + (name_idx, i64)×n.
-        let enum_members = if class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM != 0 {
+        let enum_members = if class_flags & crate::metadata::ir::CLASS_FLAG_ENUM != 0 {
             let em_count = c.read_u16()? as usize;
             let mut ems = Vec::with_capacity(em_count);
             for _ in 0..em_count {
@@ -145,8 +145,8 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         // fix-imported-iface-static-fidelity (zbc 1.41): each method now carries
         // is_static:u8 after pcount (mirrors the SIGS is_static byte). The VM must
         // consume it to keep the cursor aligned even though vtable dispatch ignores it.
-        let iface_methods: Box<[crate::metadata::bytecode::IfaceMethodSig]> =
-            if class_flags & crate::metadata::bytecode::CLASS_FLAG_INTERFACE != 0 {
+        let iface_methods: Box<[crate::metadata::ir::IfaceMethodSig]> =
+            if class_flags & crate::metadata::ir::CLASS_FLAG_INTERFACE != 0 {
                 let im_count = c.read_u16()? as usize;
                 let mut ims = Vec::with_capacity(im_count);
                 for _ in 0..im_count {
@@ -159,7 +159,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
                         let ptype_idx = c.read_u32()?;
                         param_types.push(c.pool_str(pool, ptype_idx)?.to_owned());
                     }
-                    ims.push(crate::metadata::bytecode::IfaceMethodSig {
+                    ims.push(crate::metadata::ir::IfaceMethodSig {
                         name: c.pool_str(pool, name_idx)?.to_owned(),
                         ret_type: c.pool_str(pool, ret_idx)?.to_owned(),
                         param_types: param_types.into_boxed_slice(),
@@ -175,7 +175,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         // ref_count:u16 + (byte_off:u32, kind:u8)×n — the reference bitmap the
         // runtime uses to locate + clone heap refs in a value-struct blob (byte
         // size / field offsets are baked into the access instructions, not here).
-        let struct_layout_desc = if class_flags & crate::metadata::bytecode::CLASS_FLAG_STRUCT != 0 {
+        let struct_layout_desc = if class_flags & crate::metadata::ir::CLASS_FLAG_STRUCT != 0 {
             let size = c.read_u32()?;
             let ref_count = c.read_u16()? as usize;
             let mut ref_offsets = Vec::with_capacity(ref_count);
@@ -184,7 +184,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
                 ref_offsets.push(c.read_u32()?);
                 ref_kinds.push(c.read_u8()?);
             }
-            Some(crate::metadata::bytecode::StructLayoutDesc {
+            Some(crate::metadata::ir::StructLayoutDesc {
                 size,
                 ref_offsets: ref_offsets.into_boxed_slice(),
                 ref_kinds: ref_kinds.into_boxed_slice(),
@@ -197,7 +197,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         // Layout: field_count:u16 + (off:u32, size:u32, kind:u8)×n, parallel to `fields`.
         // **Dormant**: stored, consumed by nobody yet (same as the 1.34 object block was).
         let struct_field_table = if class_flags2
-            & crate::metadata::bytecode::CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE
+            & crate::metadata::ir::CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE
             != 0
         {
             let n = c.read_u16()? as usize;
@@ -206,18 +206,18 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
                 let offset = c.read_u32()?;
                 let size = c.read_u32()?;
                 let kind = c.read_u8()?;
-                v.push(crate::metadata::bytecode::StructFieldEntry { offset, size, kind });
+                v.push(crate::metadata::ir::StructFieldEntry { offset, size, kind });
             }
             v.into_boxed_slice()
         } else {
-            Box::new([]) as Box<[crate::metadata::bytecode::StructFieldEntry]>
+            Box::new([]) as Box<[crate::metadata::ir::StructFieldEntry]>
         };
         // add-struct-heap-inline (P3b, zbc 1.32): trailing inline-struct layout block,
         // present only when CLASS_FLAG_HAS_INLINE_STRUCT. Same shape as the struct block
         // (size:u32 + ref_count:u16 + (byte_off:u32, kind:u8)×n) — the class's composed
         // inline byte region size + object-relative reference bitmap. Follows the struct
         // block in the record (a type is a struct XOR a class-with-inline-fields).
-        let inline_layout_desc = if class_flags & crate::metadata::bytecode::CLASS_FLAG_HAS_INLINE_STRUCT != 0 {
+        let inline_layout_desc = if class_flags & crate::metadata::ir::CLASS_FLAG_HAS_INLINE_STRUCT != 0 {
             let size = c.read_u32()?;
             let ref_count = c.read_u16()? as usize;
             let mut ref_offsets = Vec::with_capacity(ref_count);
@@ -226,7 +226,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
                 ref_offsets.push(c.read_u32()?);
                 ref_kinds.push(c.read_u8()?);
             }
-            Some(crate::metadata::bytecode::StructLayoutDesc {
+            Some(crate::metadata::ir::StructLayoutDesc {
                 size,
                 ref_offsets: ref_offsets.into_boxed_slice(),
                 ref_kinds: ref_kinds.into_boxed_slice(),
@@ -243,10 +243,10 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         // consumed. The writer (ClassDescBuilder / ZbcWriter) emits under the same
         // predicate, so presence stays in lockstep without a flag.
         let is_object_layout_class = class_flags
-            & (crate::metadata::bytecode::CLASS_FLAG_STRUCT
-                | crate::metadata::bytecode::CLASS_FLAG_INTERFACE
-                | crate::metadata::bytecode::CLASS_FLAG_ENUM
-                | crate::metadata::bytecode::CLASS_FLAG_DELEGATE)
+            & (crate::metadata::ir::CLASS_FLAG_STRUCT
+                | crate::metadata::ir::CLASS_FLAG_INTERFACE
+                | crate::metadata::ir::CLASS_FLAG_ENUM
+                | crate::metadata::ir::CLASS_FLAG_DELEGATE)
             == 0;
         let object_layout_desc = if is_object_layout_class {
             let size = c.read_u32()?;
@@ -266,7 +266,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
                 ref_offsets.push(c.read_u32()?);
                 ref_kinds.push(c.read_u8()?);
             }
-            Some(crate::metadata::bytecode::ObjectLayoutDesc {
+            Some(crate::metadata::ir::ObjectLayoutDesc {
                 size,
                 field_offsets: field_offsets.into_boxed_slice(),
                 field_sizes: field_sizes.into_boxed_slice(),
@@ -286,7 +286,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         // fix-interface-overload-dispatch: interface-slot table, gated by `class_flags2`
         // bit1, at the very end of the record. slot_count:u16 + (key_idx:u32, impl_idx:u32)×n.
         let iface_slots: Box<[(String, String)]> = if class_flags2
-            & crate::metadata::bytecode::CLASS_FLAGS2_HAS_IFACE_SLOTS
+            & crate::metadata::ir::CLASS_FLAGS2_HAS_IFACE_SLOTS
             != 0
         {
             let n = c.read_u16()? as usize;
@@ -336,13 +336,13 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
 pub(super) fn read_attr_refs(
     c: &mut Cursor,
     pool: &[String],
-) -> Result<Box<[crate::metadata::bytecode::AttributeRef]>> {
+) -> Result<Box<[crate::metadata::ir::AttributeRef]>> {
     let count = c.read_u16()? as usize;
     let mut refs = Vec::with_capacity(count);
     for _ in 0..count {
         let type_idx = c.read_u32()?;
         let factory_idx = c.read_u32()?;
-        refs.push(crate::metadata::bytecode::AttributeRef {
+        refs.push(crate::metadata::ir::AttributeRef {
             type_name: c.pool_str(pool, type_idx)?.to_owned(),
             factory_func: c.pool_str(pool, factory_idx)?.to_owned(),
         });
@@ -382,7 +382,7 @@ pub(super) fn read_constraint_bundle(c: &mut Cursor, pool: &[String]) -> Result<
         }
         let ret_idx = c.read_u32()?;
         let ret = c.pool_str(pool, ret_idx)?.to_owned();
-        Some(crate::metadata::bytecode::FuncSigDescriptor { params, ret })
+        Some(crate::metadata::ir::FuncSigDescriptor { params, ret })
     } else { None };
     // bit7 has_assoc_binding (zbc 1.42, assoc-type-crosspkg): `where T:IEnum<Item=int>` bindings.
     // Associated types are a compile-time concept (the compiler checks binding consistency);
@@ -429,11 +429,11 @@ pub(super) struct FuncSig {
     pub(super) type_params: Vec<String>,
     pub(super) type_param_constraints: Vec<ConstraintBundle>,
     /// C3b add-attribute-reflection-methods: user attributes on this function.
-    pub(super) custom_attributes: Vec<crate::metadata::bytecode::AttributeRef>,
+    pub(super) custom_attributes: Vec<crate::metadata::ir::AttributeRef>,
     /// add-parameter-attribute-reflection (zbc 1.15): per-parameter attributes,
     /// aligned by index with the SIGS parameter array (length == param_count,
     /// incl. the implicit `this` slot for instance methods).
-    pub(super) param_attributes: Vec<Box<[crate::metadata::bytecode::AttributeRef]>>,
+    pub(super) param_attributes: Vec<Box<[crate::metadata::ir::AttributeRef]>>,
 }
 
 pub(super) fn read_sigs(sec: &[u8], pool: &[String], has_is_static: bool) -> Result<Vec<FuncSig>> {
@@ -487,7 +487,7 @@ pub(super) fn read_sigs(sec: &[u8], pool: &[String], has_is_static: bool) -> Res
         for _ in 0..attr_count {
             let type_idx = c.read_u32()?;
             let factory_idx = c.read_u32()?;
-            custom_attributes.push(crate::metadata::bytecode::AttributeRef {
+            custom_attributes.push(crate::metadata::ir::AttributeRef {
                 type_name: c.pool_str(pool, type_idx)?.to_owned(),
                 factory_func: c.pool_str(pool, factory_idx)?.to_owned(),
             });

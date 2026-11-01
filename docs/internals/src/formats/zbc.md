@@ -121,13 +121,13 @@ assoc_count     u16；assoc × {name u32, type u32}
 
 > 🔴 **这个 u8 也满了（8/8）。** 载荷顺序是 `base → tp_ref → iface_count → [bit7 assoc]`，
 > 三方 reader（z42 `TsigReconcile` / z42 `ZbcReader` / Rust `read_constraint_bundle`）必须同序读。
-> 三处都用裸数字，无常量副本；Rust 侧见 `zbc_reader/type_reader.rs`。
+> 三处都用裸数字，无常量副本；Rust 侧见 `reader/type_reader.rs`。
 
 **类形状 flags（u8）**：`bit0` abstract、`bit1` sealed、`bit2` struct、`bit3` record、`bit4` interface、
 `bit5` enum、`bit6` delegate、`bit7` has-inline-struct（gated 合成内联布局块）。
 
 > 🔴 **这个 u8 已经满了（8/8）**——再加一个类形状位必须扩宽字段或另开一字节，不能「找个空位」。
-> 权威副本在 `src/runtime/src/metadata/bytecode/class.rs`（`CLASS_FLAG_ABSTRACT` …
+> 权威副本在 `src/runtime/src/metadata/ir/class.rs`（`CLASS_FLAG_ABSTRACT` …
 > `CLASS_FLAG_HAS_INLINE_STRUCT`，`1 << 0` … `1 << 7`）；z42 侧是裸数字，无常量。
 > ⚠️ 正文表必须与实际位同步：**表落后 = 下一个分配位的人
 > 以为 bit7 空着**。加位的同一个 PR 里必须改这一行。
@@ -305,7 +305,7 @@ cross-zpkg:      [0x8000_0000,   0xFFFF_FFFE]   token - IMPORT_BASE = STRS idx
 UNRESOLVED:      0xFFFF_FFFF                    占位 / 错误状态
 ```
 
-Decoder（z42c `ZbcReader` / Rust `metadata::zbc_reader::IdMap`）按 token
+Decoder（z42c `ZbcReader` / Rust `metadata::reader::IdMap`）按 token
 范围分发：本地 token → `local_funcs[token]` 或 `local_classes[token]`；
 import token → `pool[token - IMPORT_BASE]`；UNRESOLVED → `<unresolved>` 诊断。
 

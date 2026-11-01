@@ -3,8 +3,8 @@
 
 use super::*;
 use crate::interp::Frame;
-use crate::metadata::bytecode::{BasicBlock, Instruction, ObjNewInsn, Terminator};
-use crate::metadata::name_index::NameIndex;
+use crate::metadata::ir::{BasicBlock, Instruction, ObjNewInsn, Terminator};
+use crate::metadata::index::name::NameIndex;
 use crate::metadata::tokens::{alloc_type_id_block, FnId, TypeId};
 use crate::metadata::types::{ExecMode, TypeDescCold};
 

@@ -50,7 +50,7 @@ pub(crate) fn prelude_candidates(fs: &dyn Vfs, search_dirs: &[PathBuf]) -> Vec<P
 
 // fix-version-mismatch-diagnosis : a .zpkg whose format version is
 // not this runtime's is **not** a "skip it and carry on" condition. The strict
-// pin (see zbc_reader/versions.rs) means z42vm reads exactly one generation, so
+// pin (see format/versions.rs) means z42vm reads exactly one generation, so
 // a mismatched package can never be substituted — warning and continuing boots a
 // world with no stdlib and the real failure surfaces far away as a bogus
 // `undefined function Std.IO.Environment.GetCommandLineArgs$0` (and on runtimes
@@ -61,7 +61,7 @@ pub(crate) fn prelude_candidates(fs: &dyn Vfs, search_dirs: &[PathBuf]) -> Vec<P
 // that fixes them. Every other read failure keeps its warn-and-continue
 // behavior — those really can be optional / unrelated artifacts.
 fn version_mismatch_hint(file: &str, e: &anyhow::Error) -> Option<String> {
-    let m = crate::metadata::zbc_reader::as_version_mismatch(e)?;
+    let m = crate::metadata::format::as_version_mismatch(e)?;
     Some(format!(
         "`{file}` was built for a different z42 format version than this runtime: {m}.\n\
          z42vm and every .zpkg it loads must be the same generation — there is no \

@@ -122,7 +122,7 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
         // add-crosspkg-impl-reflection (unify P1-e): traits added to this class
         // via cross-package `impl Trait for Type` (IMPL section of loaded
         // packages). Same queue → transitive closure + dedup apply uniformly.
-        for tr in ctx.impl_traits_for(crate::metadata::type_names::erased(&c.name)) {
+        for tr in ctx.impl_traits_for(crate::metadata::index::type_names::erased(&c.name)) {
             queue.push_back(tr);
         }
         cur = c.base_name.as_ref().and_then(|b| resolve(b));
@@ -187,7 +187,7 @@ pub fn type_declaring_type(ctx: &VmContext, ty: &Value) -> Value {
         Some(t) => t,
         None => return Value::Null,
     };
-    match crate::metadata::type_names::last_top(&td.name, '+') {
+    match crate::metadata::index::type_names::last_top(&td.name, '+') {
         Some(i) => make_type_from_name(ctx, &td.name[..i]),
         None => Value::Null,
     }
@@ -219,45 +219,45 @@ pub fn type_nested_types(ctx: &VmContext, ty: &Value) -> Value {
 /// `__type_is_abstract(typeObj) -> bool` — true if the class was declared
 /// `abstract`. False for handle-less Types (primitives / arrays).
 pub fn type_is_abstract(ty: &Value) -> bool {
-    class_flag_set(ty, crate::metadata::bytecode::CLASS_FLAG_ABSTRACT)
+    class_flag_set(ty, crate::metadata::ir::CLASS_FLAG_ABSTRACT)
 }
 
 /// `__type_is_sealed(typeObj) -> bool` — true if the class was declared
 /// `sealed`. False for handle-less Types.
 pub fn type_is_sealed(ty: &Value) -> bool {
-    class_flag_set(ty, crate::metadata::bytecode::CLASS_FLAG_SEALED)
+    class_flag_set(ty, crate::metadata::ir::CLASS_FLAG_SEALED)
 }
 
 /// `__type_is_value_type(typeObj) -> bool` — true for a `struct` (value type).
 /// Reads the struct bit captured in the TYPE-section flags byte (no new wire).
 /// add-reflection-value-record-flags.
 pub fn type_is_value_type(ty: &Value) -> bool {
-    class_flag_set(ty, crate::metadata::bytecode::CLASS_FLAG_STRUCT)
+    class_flag_set(ty, crate::metadata::ir::CLASS_FLAG_STRUCT)
 }
 
 /// `__type_is_record(typeObj) -> bool` — true if the type was declared `record`.
 pub fn type_is_record(ty: &Value) -> bool {
-    class_flag_set(ty, crate::metadata::bytecode::CLASS_FLAG_RECORD)
+    class_flag_set(ty, crate::metadata::ir::CLASS_FLAG_RECORD)
 }
 
 /// `__type_is_interface(typeObj) -> bool` — true if the reflected type is an
 /// `interface` (its minimal TYPE entry carries the interface flag). Handle-less
 /// Types (primitive / array) → false. add-reflection-interface-class-predicates.
 pub fn type_is_interface(ty: &Value) -> bool {
-    class_flag_set(ty, crate::metadata::bytecode::CLASS_FLAG_INTERFACE)
+    class_flag_set(ty, crate::metadata::ir::CLASS_FLAG_INTERFACE)
 }
 
 /// `__type_is_enum(typeObj) -> bool` — true if the reflected type is an `enum`.
 /// Reads CLASS_FLAG_ENUM from the TYPE-section flags byte. add-enum-type-metadata.
 pub fn type_is_enum(ty: &Value) -> bool {
-    class_flag_set(ty, crate::metadata::bytecode::CLASS_FLAG_ENUM)
+    class_flag_set(ty, crate::metadata::ir::CLASS_FLAG_ENUM)
 }
 
 /// `__type_is_delegate(typeObj) -> bool` — true if the reflected type is a
 /// `delegate` (delegate-as-class TYPE entry). Reads CLASS_FLAG_DELEGATE.
 /// add-delegate-metadata (unify P1-e).
 pub fn type_is_delegate(ty: &Value) -> bool {
-    class_flag_set(ty, crate::metadata::bytecode::CLASS_FLAG_DELEGATE)
+    class_flag_set(ty, crate::metadata::ir::CLASS_FLAG_DELEGATE)
 }
 
 /// `__type_is_assignable_from(this, c) -> bool` — true if an instance of `c`
@@ -301,7 +301,7 @@ pub fn type_is_assignable_from(ctx: &VmContext, this: &Value, c: &Value) -> bool
 /// (primitive / array / enum) → false (z42 arrays are name-only synthetic, so
 /// — unlike C# — `typeof(int[]).IsClass == false`; see reflection.md Deferred).
 pub fn type_is_class(ty: &Value) -> bool {
-    use crate::metadata::bytecode::{CLASS_FLAG_INTERFACE, CLASS_FLAG_STRUCT};
+    use crate::metadata::ir::{CLASS_FLAG_INTERFACE, CLASS_FLAG_STRUCT};
     type_handle_of(ty)
         .map(|td| td.class_flags & CLASS_FLAG_STRUCT == 0
                   && td.class_flags & CLASS_FLAG_INTERFACE == 0)

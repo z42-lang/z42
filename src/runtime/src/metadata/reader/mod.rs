@@ -1,6 +1,4 @@
-/// Binary zbc v0.3 and zpkg v0.1 reader for the Rust VM.
-///
-/// Mirrors the C# ZbcWriter/ZpkgWriter layout exactly.
+/// Binary zbc/zpkg decoders. Format constants and validation live in `format`.
 ///
 /// zbc layout:
 ///   Header (16): magic[4] + major[2] + minor[2] + flags[2] + sec_count[2] + reserved[4]
@@ -12,19 +10,20 @@ use std::collections::HashMap;
 
 use anyhow::{bail, Result};
 
-use super::bytecode::{
+use super::ir::{
     BasicBlock, ClassDesc, ConstraintBundle, ExceptionEntry, FieldDesc, Function, Instruction, Module, Terminator,
 };
-use super::bytecode::{
+use super::ir::{
     AsCastInsn, BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, IsInstanceInsn,
     LoadFieldAddrInsn, LoadFnInsn, MkClosInsn, ObjNewInsn, StaticGetInsn,
     StaticSetInsn, StructAllocInsn, TypeofInsn, VCallInsn,
 };
-use super::formats::{ZpkgDep, ZPKG_MAGIC, ZBC_MAGIC};
+use super::format::{ZpkgDep, ZPKG_MAGIC, ZBC_MAGIC, verify_zbc_version, verify_zpkg_version,
+    ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR, ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR};
+use super::debug::DbugFuncEntry;
 use super::types::ExecMode;
 
-// ── Submodules (refactor-zbc-reader-split): 2344-line god-file → cohesive units ──
-mod versions;
+// Section decoders and sidecar/container readers.
 mod opcodes;
 mod cursor;
 mod type_reader;
@@ -36,7 +35,6 @@ mod zpkg_index;
 
 // Internal hub: private re-glob of every submodule so `read_zbc` (here) and each
 // sibling's own `use super::*` resolve all reader helpers uniformly.
-use versions::*;
 use opcodes::*;
 use cursor::*;
 use type_reader::*;
@@ -44,10 +42,6 @@ use func_reader::*;
 use instr_decode::*;
 use zpkg::*;
 
-// Public API preserved at `metadata::zbc_reader::*` for in-crate consumers.
-pub use versions::{ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR, ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR};
-pub use versions::{as_version_mismatch, FormatKind, FormatVersionMismatch};
-pub use func_reader::DbugFuncEntry;
 pub use sidecar::{ZbcSidecarData, ZpkgSidecarData, read_build_id, parse_zbc_sidecar, parse_zpkg_sidecar};
 pub use zpkg::{ZpkgInfo, read_zpkg_meta, read_zpkg_modules, read_zpkg_namespaces};
 pub use zpkg_index::{
@@ -165,7 +159,7 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
         } else {
             Box::new([])
         };
-        let cold_inner = crate::metadata::bytecode::FunctionCold {
+        let cold_inner = crate::metadata::ir::FunctionCold {
             param_types:            sig.map(|s| s.param_types.clone()).unwrap_or_default().into_boxed_slice(),
             exception_table:        body.exception_table.into_boxed_slice(),
             line_table:             dbug.line_table.into_boxed_slice(),
@@ -227,5 +221,9 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
 }
 
 #[cfg(test)]
-#[path = "../zbc_reader_tests.rs"]
+#[path = "reader_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "sidecar_tests.rs"]
+mod sidecar_tests;

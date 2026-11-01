@@ -5,7 +5,7 @@ use super::*;
 use crate::gc::arc_heap::ArcMagrGC;
 use crate::gc::heap::MagrGC;
 use crate::gc::GcMode;
-use crate::metadata::bytecode::ObjectLayoutDesc;
+use crate::metadata::ir::ObjectLayoutDesc;
 use crate::metadata::types::{
     compose_object_layout, generic_field_zero_overrides, FieldCell, FieldSlot, NativeData, ScriptObject,
     TypeDesc, TypeDescCold, STRUCT_LEAF_GCREF_CLOSURE, STRUCT_LEAF_PRIM,

@@ -274,7 +274,7 @@ owner 前缀）都出自 `z42c.symbols/src/Types/LayoutKey.z42`：
 
 **运行期切分名字只看顶层**：实参里有点（`Demo.Pair<Demo.A.P>`、`Demo.C.Echo:Demo.A.P`），于是「取最后一个
 `.`」会落进实参里 —— `Type.Name` 得出 `P>`、静态方法的 owner 得出 `Demo.C.Echo:Demo.A`（类型初始化屏障静默跳过）。
-`src/runtime/src/metadata/type_names.rs` 收拢了正确切法（`last_top_dot` 在 `<…>` 外、`:` 之前找；
+`src/runtime/src/metadata/index/type_names.rs` 收拢了正确切法（`last_top_dot` 在 `<…>` 外、`:` 之前找；
 `simple` / `unqualified` 去 ns 并递归简化实参，`Type.Name` 与装箱值默认 `ToString` 因此仍是 `Pair<P,int>`）；
 `symbol_key` 在 `:` 处也截断。新增按名字切分的代码要经它们。
 

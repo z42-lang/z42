@@ -550,7 +550,7 @@ pub unsafe extern "C" fn z42_zpkg_read_namespaces(
         } else {
             unsafe { std::slice::from_raw_parts(bytes, length) }
         };
-        match crate::metadata::zbc_reader::read_zpkg_meta(slice) {
+        match crate::metadata::reader::read_zpkg_meta(slice) {
             Ok(info) => {
                 // Package name first (the corelib prelude "z42.core" is
                 // requested by package name, not a declared namespace),

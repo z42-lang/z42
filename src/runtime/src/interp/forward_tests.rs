@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use crate::metadata::bytecode::{BasicBlock, BuiltinInsn, CallInsn, Function, Instruction, Module, Terminator};
+use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Function, Instruction, Module, Terminator};
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{ExecMode, FieldSlot, TypeDesc};
 use crate::metadata::Value;

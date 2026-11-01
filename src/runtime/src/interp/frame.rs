@@ -297,7 +297,7 @@ pub(crate) fn store_thru_ref(
 /// overshoot. Column is 0 when the source position predates zbc 1.1 or the
 /// emitter didn't capture it (gracefully degraded by `format_stack_trace`
 /// — `(file:line)` instead of `(file:line:col)`).
-pub(crate) fn resolve_line(table: &[crate::metadata::bytecode::LineEntry], block: u32, instr: u32) -> (u32, u32) {
+pub(crate) fn resolve_line(table: &[crate::metadata::debug::LineEntry], block: u32, instr: u32) -> (u32, u32) {
     // S2a (perf-interp-hot-paths): the line table is emitted in non-decreasing
     // (block, instr) order — the previous linear forward-scan already relied on
     // that (it `break`s on the first overshoot). Binary-search the last entry

@@ -3,7 +3,7 @@
 //! guards (`emit_arith_guarded_binop` / `emit_cmp_guarded`) or falls to the fat
 //! helper. Each case asserts the JIT and the interpreter agree.
 
-use crate::metadata::bytecode::{BasicBlock, Function, Instruction, Module, Terminator};
+use crate::metadata::ir::{BasicBlock, Function, Instruction, Module, Terminator};
 use crate::metadata::types::ExecMode;
 use crate::metadata::Value;
 use crate::vm_context::VmContext;

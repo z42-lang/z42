@@ -117,7 +117,7 @@ pub(crate) fn assert_pic_target(
     let Value::Object(rc) = obj_val else { return };
     let td = rc.type_desc();
     let callee = callee.name.as_str();
-    let Some(declaring) = crate::metadata::type_names::last_top_dot(callee).map(|p| &callee[..p]) else { return };
+    let Some(declaring) = crate::metadata::index::type_names::last_top_dot(callee).map(|p| &callee[..p]) else { return };
     if super::dispatch::is_subclass_or_eq_td(ctx, &module.type_registry, &td.name, declaring) {
         return;
     }
@@ -276,7 +276,7 @@ fn resolve_vcall_unchecked<'a>(
             // value comparison wanted, the same method a boxed `long` would reach.
             // (`ToString` never gets here: the enum arm above returns the member name.)
             let mut class_name = gc.type_desc().name.clone();
-            if gc.type_desc().class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM != 0 {
+            if gc.type_desc().class_flags & crate::metadata::ir::CLASS_FLAG_ENUM != 0 {
                 class_name = "Std.Int64".to_string();
             }
             match resolve_by_candidates(ctx, module, &class_name, method, arity, true, None, ic) {
@@ -315,7 +315,7 @@ fn resolve_vcall_unchecked<'a>(
                 if let Some(target) = resolve_own_slot(ctx, module, &type_name, method, arity) {
                     return Ok(ResolvedVCall { target, this: obj_val.clone() });
                 }
-                let short = crate::metadata::type_names::unqualified(&b.type_desc().name);
+                let short = crate::metadata::index::type_names::unqualified(&b.type_desc().name);
                 return Ok(ResolvedVCall {
                     target: VCallTarget::Immediate(Value::Str(short.into())), this: obj_val.clone(),
                 });

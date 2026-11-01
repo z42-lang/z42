@@ -8,7 +8,7 @@
 //!     `METHOD_FLAG_SRET`（zbc 1.40）精确识别，而不是容一或猜。
 
 use super::symres::call_arity;
-use crate::metadata::bytecode::{BasicBlock, Function, Terminator, METHOD_FLAG_SRET, METHOD_FLAG_VIRTUAL};
+use crate::metadata::ir::{BasicBlock, Function, Terminator, METHOD_FLAG_SRET, METHOD_FLAG_VIRTUAL};
 use crate::metadata::types::ExecMode;
 
 /// 造一个只有 arity 相关字段有意义的 `Function`（`call_arity` 只读 param_count / method_flags / params_from）。
@@ -144,8 +144,8 @@ fn args_alone_still_decide_without_the_marker() {
 // 一读就崩在 `StructCopy src: … got Null`，`static Color C;` 读出 `null`。
 
 use super::symres::{static_zero_value, verify_static_field, StaticNullVerdict};
-use crate::metadata::bytecode::{FieldDesc, Module, CLASS_FLAG_ENUM, CLASS_FLAG_STRUCT};
-use crate::metadata::name_index::NameIndex;
+use crate::metadata::ir::{FieldDesc, Module, CLASS_FLAG_ENUM, CLASS_FLAG_STRUCT};
+use crate::metadata::index::name::NameIndex;
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
 use crate::metadata::Value;

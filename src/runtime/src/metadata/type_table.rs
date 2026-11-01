@@ -43,7 +43,7 @@ use std::sync::Arc;
 use parking_lot::{Mutex, RwLock};
 use rustc_hash::FxHashMap;
 
-use super::bytecode::Module;
+use super::ir::Module;
 use super::seg_vec::SparseSegTable;
 use super::tokens::{alloc_type_id_block, TypeId};
 use super::types::TypeDesc;

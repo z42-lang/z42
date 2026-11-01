@@ -28,7 +28,7 @@ pub struct TypeArgsInfo {
     /// M13: 每个实参名按 [`ElemKind::of_type_param`] 折好的打包种类（基元宽度或 `Mixed`），
     /// 驻留时算一次——`new T[n]` 的分配点读它，不重复字符串 match。
     kinds: Box<[ElemKind]>,
-    /// 实参里有没有型参标记（`$mta:N` / `$cta:N@Owner`，见 `metadata::type_param_markers`）——
+    /// 实参里有没有型参标记（`$mta:N` / `$cta:N@Owner`，见 `metadata::index::type_param_markers`）——
     /// 共享泛型体里 `new List<T>()` 的站点实参。驻留时判一次，建对象的热路径只读这一位。
     open: bool,
 }
@@ -61,7 +61,7 @@ impl TypeArgs {
         let info: &'static TypeArgsInfo = Box::leak(Box::new(TypeArgsInfo {
             args: args.to_vec().into_boxed_slice(),
             kinds: args.iter().map(|n| ElemKind::of_type_param(n)).collect(),
-            open: args.iter().any(|n| crate::metadata::type_param_markers::has_markers(n)),
+            open: args.iter().any(|n| crate::metadata::index::type_param_markers::has_markers(n)),
         }));
         // `info` is leaked ⇒ its slice lives for the process, so a `&'static [String]`
         // view of it is sound as the map key.

@@ -7,7 +7,7 @@
 //! throws) is exercised end-to-end by the golden test
 //! `src/tests/reflection/load_context/`.
 
-use crate::metadata::bytecode::Module;
+use crate::metadata::ir::Module;
 use crate::metadata::context::{AssemblyId, ContextId, ContextRegistry};
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::TypeDesc;

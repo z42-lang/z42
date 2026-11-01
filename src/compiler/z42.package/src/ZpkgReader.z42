@@ -89,7 +89,7 @@ public static class ZpkgReader {
         // strict-pin（add-params-varargs 5.4）：跨包扫描（DepScan.ScanDirs）会把 libsDirs 下所有
         // z42.*.zpkg 当数据盲读——版本不匹配的包（如 minor bump 前构建的旧 stdlib）其 TSIG/SIGS
         // 字节布局已变，不校验直接按新布局解析会读出垃圾偏移量甚至越界崩溃。此处比照 Rust
-        // zbc_reader 的 strict-pin 原则，major/minor 任一不符即视为不可读 → 跳过（但会先点名，见下）。
+        // Rust reader 的 strict-pin 原则，major/minor 任一不符即视为不可读 → 跳过（但会先点名，见下）。
         var vc = new ZpkgCursor(data, 4);
         int major = vc.U16();
         int minor = vc.U16();
@@ -151,7 +151,7 @@ public static class ZpkgReader {
     //
     // **为什么需要它**（add-deployment-model 批 2 support）：给 exe 装配**传递闭包**要知道
     // 「某个依赖自己依赖了谁」。这份信息一直在 zpkg 里，但**只有 Rust 侧解码**
-    // （`metadata/zbc_reader/zpkg.rs`）—— z42 侧读不出来，于是 `_bundleExeDeps` 只能搬直接依赖。
+    // （`metadata/reader/zpkg.rs`）—— z42 侧读不出来，于是 `_bundleExeDeps` 只能搬直接依赖。
     // 另一条路（顺着源码树的 toml 找）在 repo 外整个失效（publisher 今天就是那样），不能用。
     //
     // 🔴 **support 阶段：本方法今天无人调用** ⇒ 产物逐字节不变、可立即合并。

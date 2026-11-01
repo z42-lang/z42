@@ -43,7 +43,7 @@
 //! not on any hot path.
 
 use crate::exception::{FrameSnapshot, VmFrame};
-use crate::metadata::bytecode::{Function, Instruction, Terminator};
+use crate::metadata::ir::{Function, Instruction, Terminator};
 use crate::metadata::tokens::UNRESOLVED;
 use crate::metadata::{Module, Value};
 use crate::vm_context::VmContext;

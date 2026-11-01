@@ -25,7 +25,7 @@ const PAIR: &str = "Demo.Pair";
 fn register_pair(vm: &VmContext) {
     use crate::metadata::types::{StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold, FieldSlot};
     use crate::metadata::tokens::TypeId;
-    use crate::metadata::name_index::NameIndex;
+    use crate::metadata::index::name::NameIndex;
     let layout = StructTypeLayout {
         size: 8,
         ref_offsets: Box::new([]),
@@ -37,7 +37,7 @@ fn register_pair(vm: &VmContext) {
     };
     let td = std::sync::Arc::new(TypeDesc {
         name: PAIR.into(),
-        class_flags: crate::metadata::bytecode::CLASS_FLAG_STRUCT,
+        class_flags: crate::metadata::ir::CLASS_FLAG_STRUCT,
         fields: vec![
             FieldSlot { name: "a".into(), type_tag: "int".into(), visibility: 0 },
             FieldSlot { name: "b".into(), type_tag: "int".into(), visibility: 0 },

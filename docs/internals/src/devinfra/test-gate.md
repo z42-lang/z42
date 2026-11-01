@@ -118,7 +118,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `proc-env` | xtask 子进程的 `Z42_LIBS` / `Z42_PROBING_PATHS` **只经** `_z42Proc` / `_z42bProc` / `_z42cProc` 设置，调用点不得直接 `.Env(...)`，见下 | 纯文本扫描 < 1 s |
 | `layout` | [测试用例组织规范](test-layout.md)里能机械判定的部分：`src/tests` 类别登记、能力词表 ↔ 运行期、能力声明只用已生效的名字 | 纯文本扫描，秒级 |
 | `versions` | `scripts/versions.toml` 与它的投影文件一致：`src/runtime/Cargo.toml` 的 workspace 版本、Android `build.gradle.kts` 的 minSdk / compileSdk、iOS harness `Package.swift` 的平台下限。只比文本、不看本机装了什么（那是 `xtask setup check`） | 纯文本扫描 < 1 s |
-| `layers` | 运行时源码按目标分层归到组件后，跨组件引用只朝允许的方向、平台 `cfg` 与 `libc::` 只在 pal；现存违规是欠账，记在 `gates.toml [layers.*]`，只减不增，见下 | 纯文本扫描，约 1.5 s |
+| `layers` | 运行时源码按目标分层归到组件后，跨组件引用只朝允许的方向、平台 `cfg` 与 `libc::` 只在 pal/sys；现存违规是欠账，记在 `gates.toml [layers.*]`，只减不增，见下 | 纯文本扫描，约 1.5 s |
 | `doc-lints` | stdlib（`src/libraries/`）的 `///` 文档注释没有 W08xx 发现（显式 public 声明缺 `///` 等）；硬门、无白名单，红时逐条列出位置 | 纯文本扫描，约 3 s |
 
 **`stdlib [Benchmark]` 为什么必须在 gate 里**：bench 语料若只靠 `bench-pr.yml` 看门，
@@ -167,7 +167,8 @@ vm.exec / vm.core，引擎 interp / jit，能力与工具 corelib / interop / pr
 `file:line`，已有欠账变多的项按文件汇总条数（分不出哪条是新的，对照 `git diff` 定位）；新违规要改代码消掉，不靠
 `--update` 收进基线。某项变少 → 提示「可收紧」，跑 `xtask check layers --update` 写回。文件落在映射表没登记的位置
 直接红：先回答它属于哪一层。每次运行先跑 `_lySelfTest`（映射、矩阵、词法、use 组、cfg、再导出、基线比较的构造
-用例），自测不过不信扫描结果。迁移挪动文件时改映射表对应的一行。
+用例），自测不过不信扫描结果。metadata 的 format / reader / ir / index / debug 目录与跨目录再导出都有构造用例覆盖。
+迁移挪动文件时改映射表对应的一行。
 
 **`lines` / `fnlines`（行数棘轮）已退役**：机制下沉为编译器内建 lint——``style.fileLines`` / ``style.fileLinesHard``
 （886/500 两档）与 ``style.fnLines`` / ``style.fnLinesHard``（60/40 两档）四条规则，各包清单 `[lints]` 启用并升 error

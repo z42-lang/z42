@@ -2,7 +2,7 @@
 //! lazily loaded packages, and the interp call path reading those tokens.
 
 use super::*;
-use crate::metadata::bytecode::{BasicBlock, CallInsn, Instruction, Terminator};
+use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator};
 use crate::metadata::tokens::{FnId, UNRESOLVED};
 use crate::metadata::types::ExecMode;
 use std::sync::atomic::Ordering;

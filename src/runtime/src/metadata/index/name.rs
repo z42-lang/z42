@@ -135,5 +135,5 @@ impl FromIterator<(String, usize)> for NameIndex {
 }
 
 #[cfg(test)]
-#[path = "name_index_tests.rs"]
+#[path = "name_tests.rs"]
 mod name_index_tests;

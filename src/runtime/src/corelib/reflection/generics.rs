@@ -27,14 +27,14 @@ pub(super) fn constraint_satisfied_by(ctx: &VmContext, arg_name: &str, constrain
     if type_name_assignable(ctx, arg_name, constraint) {
         return true;
     }
-    let target_simple = crate::metadata::type_names::unqualified(constraint);
+    let target_simple = crate::metadata::index::type_names::unqualified(constraint);
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut stack = vec![arg_name.to_string()];
     while let Some(cur) = stack.pop() {
         if !seen.insert(cur.clone()) {
             continue;
         }
-        if crate::metadata::type_names::unqualified(&cur) == target_simple {
+        if crate::metadata::index::type_names::unqualified(&cur) == target_simple {
             return true;
         }
         if let Some(td) = resolve_td(ctx, &cur) {
@@ -68,7 +68,7 @@ pub(super) fn is_value_type_primitive(name: &str) -> bool {
 pub(super) fn validate_type_arg_constraint(
     ctx: &VmContext,
     param_name: &str,
-    cb: &crate::metadata::bytecode::ConstraintBundle,
+    cb: &crate::metadata::ir::ConstraintBundle,
     arg_name: &str,
     type_params: &[String],
     all_arg_names: &[String],
@@ -76,7 +76,7 @@ pub(super) fn validate_type_arg_constraint(
     let arg_td = resolve_td(ctx, arg_name);
     let is_value = arg_td
         .as_ref()
-        .map(|td| td.class_flags & crate::metadata::bytecode::CLASS_FLAG_STRUCT != 0)
+        .map(|td| td.class_flags & crate::metadata::ir::CLASS_FLAG_STRUCT != 0)
         .unwrap_or_else(|| is_value_type_primitive(arg_name));
     let is_enum = arg_td.as_ref().map(|td| td.is_enum()).unwrap_or(false);
 
@@ -103,7 +103,7 @@ pub(super) fn validate_type_arg_constraint(
         // Primitives satisfy `new()`; a class arg must be non-abstract with a
         // reachable no-arg ctor (or no explicit ctor = default construction).
         if let Some(td) = &arg_td {
-            let abstract_ = td.class_flags & crate::metadata::bytecode::CLASS_FLAG_ABSTRACT != 0;
+            let abstract_ = td.class_flags & crate::metadata::ir::CLASS_FLAG_ABSTRACT != 0;
             if abstract_ || !type_has_no_arg_ctor(ctx, &td.name) {
                 bail!("MakeGenericType: `{arg_name}` for type parameter `{param_name}` must have a public parameterless constructor (constraint `new()`)");
             }

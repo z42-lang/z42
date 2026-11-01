@@ -17,7 +17,7 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> { VmContext::new() }
 /// exercise the real `Std.Type`-producing path. (make-typeof-return-type C2 /
 /// add-attribute-reflection C3 made this path z42.core-dependent.)
 fn ctx_with_std_type() -> std::pin::Pin<Box<VmContext>> {
-    use crate::metadata::{name_index::NameIndex, tokens::TypeId, FieldSlot};
+    use crate::metadata::{index::name::NameIndex, tokens::TypeId, FieldSlot};
     let c = VmContext::new();
     c.install_lazy_loader(None, 0);
     let mut fi = NameIndex::new();
@@ -285,7 +285,7 @@ fn closure_of(env: ArrRef, id: u32) -> Value {
 /// A context whose entry module defines empty functions named `names` (ids `0..n`), so
 /// callables can name them (`__delegate_fn_name`, `__make_closure`).
 fn ctx_with_fns(names: &[&str]) -> std::pin::Pin<Box<VmContext>> {
-    use crate::metadata::bytecode::{BasicBlock, Function, Module, Terminator};
+    use crate::metadata::ir::{BasicBlock, Function, Module, Terminator};
     let functions: Vec<Function> = names.iter().map(|n| Function {
         name: n.to_string(),
         param_count: 0,

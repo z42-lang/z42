@@ -11,7 +11,7 @@ use crate::jit::forward::{builtin_forward, chained_forward, ForwardLookup, StrIn
 use crate::jit::frame::JitFrame;
 use crate::jit::invoke::{call_entry, NativeOutcome};
 use crate::jit::runtime::install;
-use crate::metadata::bytecode::{
+use crate::metadata::ir::{
     BasicBlock, BuiltinInsn, CallInsn, Function, Instruction, Module, Terminator, VCallInsn,
 };
 use crate::metadata::types::ExecMode;

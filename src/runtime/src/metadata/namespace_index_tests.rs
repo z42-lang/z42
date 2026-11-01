@@ -6,7 +6,7 @@ use std::path::PathBuf;
 // namespace list, mirroring what `read_zpkg_namespaces` parses. We only need a
 // buffer that round-trips through the real reader, so we lean on the existing
 // zpkg fixtures the loader tests already exercise — here we assert the *scan +
-// filter* wiring, not the byte format (covered by zbc_reader tests).
+// filter* wiring, not the byte format (covered by reader tests).
 
 fn tmp_dir(tag: &str) -> PathBuf {
     // Deterministic per-test dir under the OS temp root; cleaned best-effort.

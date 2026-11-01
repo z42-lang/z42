@@ -223,7 +223,7 @@ pub fn repl_member_names(ctx: &VmContext, fqn: &str) -> anyhow::Result<Value> {
         // so member reflection returns the real member set (string.Length/CharAt,
         // int.ToString, …). Mirrors `object::builtin_obj_get_type` so the names actually
         // resolve in `make_type_from_name` (hardcoding "string"/"int" would not).
-        Value::Str(_) => crate::metadata::well_known_names::STD_STRING.to_string(),
+        Value::Str(_) => crate::metadata::index::well_known_names::STD_STRING.to_string(),
         // unify Phase 2 R3: 装箱值类型（struct 或基元）→ 精确类型名（type_desc.name）。
         Value::BoxedStruct(b) => b.type_desc().name.to_string(),
         v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)) => {

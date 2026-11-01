@@ -4,7 +4,7 @@
 //! is covered by the golden suite under `--mode jit`.
 
 use super::builtin_forward;
-use crate::metadata::bytecode::{BasicBlock, BuiltinInsn, CallInsn, Function, Instruction, Terminator};
+use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Function, Instruction, Terminator};
 use crate::metadata::types::ExecMode;
 
 fn wrapper(name: &str, params: usize, args: &[u32], ret: Option<u32>) -> Function {

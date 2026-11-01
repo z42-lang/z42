@@ -2,7 +2,7 @@
 //! Covers: loader populates TypeDesc/Function constraints; verify pass flags bad refs;
 //! `Std.*` refs are passed through for lazy loader to resolve.
 
-use super::bytecode::{ClassDesc, ConstraintBundle, Function, Module};
+use super::ir::{ClassDesc, ConstraintBundle, Function, Module};
 use super::loader::{build_type_registry, verify_constraints};
 use super::types::ExecMode;
 
@@ -41,7 +41,7 @@ fn simple_class(name: &str) -> ClassDesc {
 }
 
 fn generic_fn(name: &str, tp: &str, bundle: ConstraintBundle) -> Function {
-    let cold = Some(Box::new(crate::metadata::bytecode::FunctionCold {
+    let cold = Some(Box::new(crate::metadata::ir::FunctionCold {
         type_params:            vec![tp.into()].into_boxed_slice(),
         type_param_constraints: vec![bundle].into_boxed_slice(),
         ..Default::default()

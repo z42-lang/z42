@@ -7,7 +7,7 @@ use crate::jit::frame::JitFrame;
 use crate::jit::helpers::object::STATIC_HELPER_CALLS;
 use crate::jit::invoke::{call_entry, NativeOutcome};
 use crate::jit::runtime::install;
-use crate::metadata::bytecode::{
+use crate::metadata::ir::{
     BasicBlock, FieldDesc, Function, Instruction, Module, StaticGetInsn, StaticSetInsn, Terminator,
 };
 use crate::metadata::tokens::TypeId;

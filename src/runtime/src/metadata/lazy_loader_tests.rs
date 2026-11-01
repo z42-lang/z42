@@ -278,8 +278,8 @@ fn build_in_dirs_first_dir_wins() {
 // "cannot read dep zpkg meta `repl_r1.zpkg`" WARN, even though the ref resolves
 // in-process). The fix: on load, mark `<package_name>.zpkg` in `loaded_zpkgs`.
 
-fn ll_empty_module(name: &str) -> crate::metadata::bytecode::Module {
-    crate::metadata::bytecode::Module {
+fn ll_empty_module(name: &str) -> crate::metadata::ir::Module {
+    crate::metadata::ir::Module {
         name: name.to_owned(),
         string_pool: vec![],
         classes: vec![],
@@ -297,7 +297,7 @@ fn ll_inmem_artifact(
         entry_hint: None,
         dependencies: deps
             .iter()
-            .map(|f| crate::metadata::formats::ZpkgDep { file: (*f).to_string(), namespaces: vec![], symbols: vec![] })
+            .map(|f| crate::metadata::format::ZpkgDep { file: (*f).to_string(), namespaces: vec![], symbols: vec![] })
             .collect(),
         import_namespaces: vec![],
         impl_pairs: vec![],
@@ -421,8 +421,8 @@ fn qualified_and_user_names_are_not_primitive() {
 // ── cache-failed-name-resolution: negative resolve cache ─────────────────────
 
 /// A minimal `Function` usable as an in-memory module member.
-fn ll_stub_function(name: &str) -> crate::metadata::bytecode::Function {
-    use crate::metadata::bytecode::{BasicBlock, Function, Terminator};
+fn ll_stub_function(name: &str) -> crate::metadata::ir::Function {
+    use crate::metadata::ir::{BasicBlock, Function, Terminator};
     use crate::metadata::types::ExecMode;
     Function {
         name: name.to_string(),
@@ -629,9 +629,9 @@ fn td_shape(name: &str, class_flags: u8, field_count: usize) -> TypeDesc {
                 visibility: 0,
             })
             .collect(),
-        field_index: crate::metadata::name_index::NameIndex::new(),
+        field_index: crate::metadata::index::name::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: crate::metadata::name_index::NameIndex::new(),
+        vtable_index: crate::metadata::index::name::NameIndex::new(),
         cold: None,
         id: crate::metadata::tokens::TypeId::UNRESOLVED,
     }

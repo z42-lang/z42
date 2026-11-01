@@ -1,5 +1,5 @@
 use super::*;
-use crate::metadata::bytecode::{BasicBlock, Terminator};
+use crate::metadata::ir::{BasicBlock, Terminator};
 use crate::metadata::types::ExecMode;
 
 fn stub_function(name: &str) -> Function {

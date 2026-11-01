@@ -1,6 +1,7 @@
 use super::*;
 
-use crate::metadata::bytecode::{FunctionCold, LineEntry};
+use crate::metadata::ir::FunctionCold;
+use crate::metadata::debug::LineEntry;
 
 fn line(block: u32, instr: u32, line: u32, column: u32, file: Option<&str>) -> LineEntry {
     LineEntry { block, instr, line, column, file: file.map(str::to_string) }
@@ -167,7 +168,7 @@ fn format_prefers_line_over_offset() {
 #[cfg(test)]
 mod make_stdlib_exception_tests {
     use super::*;
-    use crate::metadata::bytecode::Module;
+    use crate::metadata::ir::Module;
     use crate::metadata::tokens::TypeId;
     use crate::metadata::types::FieldSlot;
     use crate::vm_context::VmContext;

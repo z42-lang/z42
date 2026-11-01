@@ -518,12 +518,12 @@ impl ScriptObject {
     /// this method (cast, compare, …) without each of them growing an enum arm.
     pub fn boxed_prim_i64(&self) -> Option<i64> {
         let (width, signed) = if self.type_desc.class_flags
-            & crate::metadata::bytecode::CLASS_FLAG_ENUM
+            & crate::metadata::ir::CLASS_FLAG_ENUM
             != 0
         {
             (8usize, true)
         } else {
-            crate::metadata::well_known_names::int_wrapper_scalar_spec(&self.type_desc.name)?
+            crate::metadata::index::well_known_names::int_wrapper_scalar_spec(&self.type_desc.name)?
         };
         if self.payload_len() < width {
             return None;

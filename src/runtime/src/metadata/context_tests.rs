@@ -5,7 +5,7 @@
 //! covered by `src/tests/reflection/load_context_unload/`.
 
 use super::{ContextId, ContextRegistry, ContextState, UnloadOutcome};
-use crate::metadata::bytecode::Module;
+use crate::metadata::ir::Module;
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{NativeData, TypeDesc};
 use crate::metadata::NameIndex;
@@ -149,8 +149,8 @@ fn reflection_handles_are_retention_edges() {
     );
 }
 
-fn stub_function(name: &str) -> crate::metadata::bytecode::Function {
-    use crate::metadata::bytecode::{BasicBlock, Function, Terminator};
+fn stub_function(name: &str) -> crate::metadata::ir::Function {
+    use crate::metadata::ir::{BasicBlock, Function, Terminator};
     use crate::metadata::types::ExecMode;
     Function {
         name: name.to_string(),

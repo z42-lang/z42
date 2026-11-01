@@ -33,9 +33,9 @@ z42 pre-1.0 是 **strict-pin**：Rust reader 精确匹配 writer 的 major + min
 | 端 | 文件 | 常量 |
 |----|------|------|
 | zbc writer（z42c） | `src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` |
-| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` |
+| zbc reader（Rust） | `src/runtime/src/metadata/format/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` |
 | zpkg writer（z42c） | `src/compiler/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` |
-| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` |
+| zpkg reader（Rust） | `src/runtime/src/metadata/format/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` |
 
 > 🔒 **本表有防腐门**：`cargo test --test format_fixture_versions` 的
 > `version_bumping_coordinate_table_matches_the_real_constants` **解析本表自己的四行**，到每行指着的文件里找该行
@@ -49,8 +49,8 @@ z42 pre-1.0 是 **strict-pin**：Rust reader 精确匹配 writer 的 major + min
 1. **`src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42`** — `ZbcVersion.Minor++`，常量旁注释本次 bump 内容
    （参考已有行格式）。若 bump 改了指令 / section 布局，`ZbcInstr.z42`（编码）+ `ZbcReaderInstr.z42`（解码）或
    `ZbcWriter.z42` 的对应 `Build*` / `_assemble` 逻辑同步。
-2. **`src/runtime/src/metadata/zbc_reader/versions.rs`** — `ZBC_VERSION_MINOR` 同步，**同时改钉值单测**
-   `zbc_reader_tests.rs` 的 `zbc_version_constants_pinned` / `zpkg_version_constants_pinned`；并在常量上方 changelog
+2. **`src/runtime/src/metadata/format/versions.rs`** — `ZBC_VERSION_MINOR` 同步，**同时改钉值单测**
+   `reader/reader_tests.rs` 的 `zbc_version_constants_pinned` / `zpkg_version_constants_pinned`；并在常量上方 changelog
    注释块追加一行（日期 / PR / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **[zbc.md](../formats/zbc.md)** — 格式描述（指令表 / section 布局）变了就同步对应章节；页内不记版本历史。
 4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler` + `build stdlib` 已用新格式重建），
@@ -82,7 +82,7 @@ z42 pre-1.0 是 **strict-pin**：Rust reader 精确匹配 writer 的 major + min
 **zbc minor bump 必须同步 bump zpkg minor**（zpkg 内嵌 zbc，见 [zpkg.md](../formats/zpkg.md)）。在上述 5 步外加：
 
 6. **`src/compiler/z42.package/src/ZpkgWriter.z42`** — `ZpkgWriterZ.Minor++`，注释更新内嵌 zbc 版本。
-7. **`zbc_reader/versions.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
+7. **`format/versions.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
 8. **[zpkg.md](../formats/zpkg.md)** — 页内不写当前版本号；只有 outer 布局变化时才改对应章节。
    zpkg 的逐 minor 记录写在写端常量旁（步骤 6 已覆盖）。
 9. **regen zpkg-format fixture** — 覆写 `src/compiler/z42.package/tests/fixtures/zpkg-format/*/source.zpkg`

@@ -25,7 +25,7 @@ pub(crate) fn is_integer_class(cn: &str) -> bool {
 /// markers; it is substituted from this activation first and tested with a key of its own (the
 /// site's cached key belongs to the marker spelling, which names a different type per call).
 fn dynamic_target(ctx: &VmContext, frame: &Frame, class_name: &str) -> Option<String> {
-    crate::metadata::type_param_markers::has_markers(class_name)
+    crate::metadata::index::type_param_markers::has_markers(class_name)
         .then(|| frame.type_param_env().test_target(ctx, class_name))
 }
 

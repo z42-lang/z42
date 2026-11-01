@@ -4,6 +4,7 @@
 //! in S3c (pre-1.0 keeps no old-version compatibility).
 
 use super::*;
+use crate::metadata::format::{as_version_mismatch, FormatKind};
 
 fn pool_for_test() -> Vec<String> {
     vec![
@@ -233,7 +234,7 @@ fn build_type_section_one_struct(size: u32, ref_leaves: &[(u32, u8)]) -> Vec<u8>
     b.extend_from_slice(&0u16.to_le_bytes());        // field count = 0
     b.push(0u8);                                     // type-param count = 0
     b.extend_from_slice(&0u16.to_le_bytes());        // class attr count = 0
-    b.push(crate::metadata::bytecode::CLASS_FLAG_STRUCT); // class_flags = struct
+    b.push(crate::metadata::ir::CLASS_FLAG_STRUCT); // class_flags = struct
     b.push(0u8);                                     // class visibility = public (zbc 1.33, enforce-class-access)
     // zbc 1.45 (type-section-flags2-and-struct-fields): always-present class_flags2 u16,
     // immediately after visibility. 0 ⇒ the flag-gated per-field layout table is absent.
@@ -279,7 +280,7 @@ fn iface_slot_table_roundtrips_when_flags2_bit1_is_set() {
     let mut sec = build_type_section_one_struct(0, &[]);
     // class_flags2 sits right after class_flags(u8) + visibility(u8): offset 4+4+4+2+1+2+1+1.
     let flags2_at = 4 + 4 + 4 + 2 + 1 + 2 + 1 + 1;
-    sec[flags2_at..flags2_at + 2].copy_from_slice(&crate::metadata::bytecode::CLASS_FLAGS2_HAS_IFACE_SLOTS.to_le_bytes());
+    sec[flags2_at..flags2_at + 2].copy_from_slice(&crate::metadata::ir::CLASS_FLAGS2_HAS_IFACE_SLOTS.to_le_bytes());
     sec.extend_from_slice(&1u16.to_le_bytes());      // slot count
     sec.extend_from_slice(&1u32.to_le_bytes());      // key → pool[1]
     sec.extend_from_slice(&2u32.to_le_bytes());      // impl → pool[2]

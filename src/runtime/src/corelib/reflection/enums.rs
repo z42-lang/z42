@@ -75,7 +75,7 @@ pub fn enum_is_defined(ty: &Value, val: i64) -> bool {
 /// TYPE enum block — a format bump — and z42 honoring it; deferred.)
 pub fn type_enum_underlying(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
     let is_enum = type_handle(std::slice::from_ref(ty))
-        .map(|td| td.class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM != 0)
+        .map(|td| td.class_flags & crate::metadata::ir::CLASS_FLAG_ENUM != 0)
         .unwrap_or(false);
     if !is_enum {
         return Err(BuiltinError::Argument("GetEnumUnderlyingType: type is not an enum".to_string()));
