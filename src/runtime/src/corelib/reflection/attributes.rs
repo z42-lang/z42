@@ -29,7 +29,7 @@ pub fn type_custom_attributes(ctx: &VmContext, ty: &Value) -> Result<Value, Buil
 /// of its attribute factories. Same factory-call mechanism as the class path.
 pub fn method_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
     let qualified = qualified.to_string();
-    let attrs: Vec<crate::metadata::bytecode::AttributeRef> = ctx
+    let attrs: Vec<crate::metadata::ir::AttributeRef> = ctx
         .module()
         .and_then(|m| {
             m.func_index
@@ -58,7 +58,7 @@ pub fn field_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate
         .module()
         .and_then(|m| m.type_registry.get(class).cloned())
         .or_else(|| ctx.try_lookup_type(class));
-    let attrs: Vec<crate::metadata::bytecode::AttributeRef> = td
+    let attrs: Vec<crate::metadata::ir::AttributeRef> = td
         .as_ref()
         .map(|td| {
             td.field_attributes()
@@ -99,7 +99,7 @@ pub fn property_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &cr
         .module()
         .and_then(|m| m.type_registry.get(class).cloned())
         .or_else(|| ctx.try_lookup_type(class));
-    let attrs: Vec<crate::metadata::bytecode::AttributeRef> = td
+    let attrs: Vec<crate::metadata::ir::AttributeRef> = td
         .as_ref()
         .map(|td| {
             td.field_attributes()
@@ -126,11 +126,11 @@ pub fn param_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate
     let position = position as usize;
     // Resolve the backing Function (main module first, then lazy loader) and read
     // its SIGS-aligned per-param attrs. wire_index = position + (this offset).
-    let lookup = |f: &crate::metadata::bytecode::Function| {
+    let lookup = |f: &crate::metadata::ir::Function| {
         let wire_index = position + if f.is_static { 0 } else { 1 };
         f.param_attributes().get(wire_index).map(|a| a.to_vec())
     };
-    let attrs: Vec<crate::metadata::bytecode::AttributeRef> = ctx
+    let attrs: Vec<crate::metadata::ir::AttributeRef> = ctx
         .module()
         .and_then(|m| {
             m.func_index
@@ -150,7 +150,7 @@ pub fn param_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate
 /// here is safe — `exec_function` keeps per-call state in a stack-local `Frame`.
 pub(super) fn call_attribute_factories(
     ctx: &VmContext,
-    attrs: &[crate::metadata::bytecode::AttributeRef],
+    attrs: &[crate::metadata::ir::AttributeRef],
 ) -> Result<Value> {
     if attrs.is_empty() {
         return Ok(ctx.heap().alloc_array(Vec::new()));

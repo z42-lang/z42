@@ -5,7 +5,7 @@
 //! These unit tests focus on Rust-side rejection of malformed / mispurposed
 //! files.
 
-use super::zbc_reader::{parse_zbc_sidecar, parse_zpkg_sidecar, read_build_id};
+use super::{parse_zbc_sidecar, parse_zpkg_sidecar, read_build_id};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,7 +49,7 @@ fn parse_zbc_sidecar_rejects_non_zbc_magic() {
 // where SymOnly / BLID checks are reachable, and to use mismatched minors where
 // the strict-pin reject path is being tested.
 
-use crate::metadata::zbc_reader::{ZBC_VERSION_MINOR, ZPKG_VERSION_MINOR};
+use crate::metadata::format::{ZBC_VERSION_MINOR, ZPKG_VERSION_MINOR};
 
 #[test]
 fn parse_zbc_sidecar_rejects_old_minor() {

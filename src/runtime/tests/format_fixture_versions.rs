@@ -28,9 +28,7 @@
 
 use std::path::{Path, PathBuf};
 
-use z42::metadata::zbc_reader::{
-    ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR, ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR,
-};
+use z42::metadata::format::{ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR, ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR};
 
 fn tests_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../compiler/z42.package/tests/fixtures")
@@ -292,8 +290,7 @@ fn version_bumping_coordinate_table_matches_the_real_constants() {
         assert!(
             file.is_file(),
             "{md_rel}:{}: the table points at `{}`, which does not exist.\n\
-             (The paths went stale once before, when the Rust reader was split \
-             out of `zbc_reader.rs` into `zbc_reader/versions.rs`.)",
+             The format maintenance table must name current source files.",
             row.line_no,
             row.path
         );

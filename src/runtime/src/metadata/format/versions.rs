@@ -1,4 +1,5 @@
-use super::*;
+use anyhow::{bail, Result};
+use super::{ZBC_MAGIC, ZPKG_MAGIC};
 
 // ── zbc wire format version (mirror of the z42 writer's Major/Minor) ─────────
 //
@@ -349,12 +350,12 @@ pub const ZPKG_VERSION_MINOR: u16 = 54;
 // These helpers centralize the magic + exact major/minor guard that was formerly
 // copy-pasted across the full-mode readers. Error strings are byte-identical to
 // the former inline checks (asserted by the `*_rejects_*` tests in
-// zbc_reader_tests.rs); callers still read `flags` / `sec_count` + any SymOnly
+// reader/reader_tests.rs); callers still read `flags` / `sec_count` + any SymOnly
 // handling themselves, since those diverge per reader.
 
 /// Reject truncated data, wrong magic, or any zbc major/minor ≠ the pinned writer
-/// version. Used by [`super::read_zbc`].
-pub(super) fn verify_zbc_version(data: &[u8]) -> Result<()> {
+/// version. Used by [`crate::metadata::reader::read_zbc`].
+pub(in crate::metadata) fn verify_zbc_version(data: &[u8]) -> Result<()> {
     if data.len() < 16 { bail!("zbc file too short") }
     if &data[0..4] != ZBC_MAGIC { bail!("not a binary zbc (bad magic)") }
     let major = u16::from_le_bytes([data[4], data[5]]);
@@ -375,7 +376,7 @@ pub(super) fn verify_zbc_version(data: &[u8]) -> Result<()> {
 /// `read_zpkg_modules` / `read_zpkg_file_entries` (each still reads `flags` /
 /// `sec_count` + its own SymOnly handling afterward). The magic-only readers
 /// (`read_zpkg_impl_pairs` / `read_zpkg_namespaces`) intentionally do not use it.
-pub(super) fn verify_zpkg_version(data: &[u8]) -> Result<()> {
+pub(in crate::metadata) fn verify_zpkg_version(data: &[u8]) -> Result<()> {
     if data.len() < 16 { bail!("zpkg file too short") }
     if &data[0..4] != ZPKG_MAGIC { bail!("not a binary zpkg (bad magic)") }
     let major = u16::from_le_bytes([data[4], data[5]]);
@@ -404,7 +405,7 @@ pub(super) fn verify_zpkg_version(data: &[u8]) -> Result<()> {
 // downcasts this type out of the anyhow chain to tell the two apart.
 //
 // Display strings are byte-identical to the former inline `bail!`s (asserted by
-// `zbc_reader_tests.rs`), so existing diagnostics and user-facing text are
+// `reader/reader_tests.rs`), so existing diagnostics and user-facing text are
 // unchanged — only the *type* is new.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FormatKind { Zbc, Zpkg }

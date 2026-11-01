@@ -168,7 +168,7 @@ pub struct FnEntry {
     pub func:    *const Function,
     /// The function's `owner_init` cell (shared, see `Function::owner_init`),
     /// so `jit_call`'s cctor barrier needs no name-based owner lookup.
-    pub owner_init: crate::metadata::bytecode::OwnerInitCell,
+    pub owner_init: crate::metadata::ir::OwnerInitCell,
     /// `Some(fold token)` when the function is a pure `[Native]` extern wrapper
     /// (`interp::forward::forward_of`); the call helpers then skip the activation and
     /// dispatch the builtin directly (see [`super::forward`]).

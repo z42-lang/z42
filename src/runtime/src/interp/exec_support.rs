@@ -96,7 +96,7 @@ pub(super) fn resolve_forwarded_mta(ctx: &VmContext, caller: &Frame, mta: &[Stri
 /// Does a call site's `method_type_args` carry type-parameter markers to bind first?
 #[inline]
 pub(super) fn has_forwarded_mta(mta: &[String]) -> bool {
-    mta.iter().any(|s| crate::metadata::type_param_markers::has_markers(s))
+    mta.iter().any(|s| crate::metadata::index::type_param_markers::has_markers(s))
 }
 
 /// add-reflective-invoke: like [`exec_function`] but threads method-level generic
@@ -388,7 +388,7 @@ pub(super) fn find_handler(
             Some("*") => return Some(i),                   // synthetic finally fallthrough
             Some(target) => {
                 if let Some((td, inst_args)) = thrown_obj {
-                    let hit = if crate::metadata::type_param_markers::has_markers(target) {
+                    let hit = if crate::metadata::index::type_param_markers::has_markers(target) {
                         let t = tp_env.test_target(ctx, target);
                         let key = crate::metadata::tokens::TypeKeyCell::new();
                         super::dispatch::isa_object(ctx, type_registry, td, inst_args, &t, &key)

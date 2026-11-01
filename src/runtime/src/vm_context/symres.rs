@@ -247,7 +247,7 @@ impl CallArity {
 /// `params` 变长尾参：调用点通常已打包成数组（普查中实参数恒等于形参数），但展开形状多出的
 /// 实参同样放行 ⇒ 无上界。
 pub fn call_arity(f: &crate::metadata::Function) -> CallArity {
-    let sret = (f.method_flags & crate::metadata::bytecode::METHOD_FLAG_SRET) != 0;
+    let sret = (f.method_flags & crate::metadata::ir::METHOD_FLAG_SRET) != 0;
     let expected = f.param_count.saturating_add(sret as usize).min(u16::MAX as usize) as u16;
     let max = if f.params_from != 0xFF { u16::MAX } else { expected };
     CallArity { min: expected, max }

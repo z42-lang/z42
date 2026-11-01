@@ -125,5 +125,5 @@ impl IrType {
 }
 
 #[cfg(test)]
-#[path = "ir_type_tests.rs"]
+#[path = "reg_type_tests.rs"]
 mod ir_type_tests;

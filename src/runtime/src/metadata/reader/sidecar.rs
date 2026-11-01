@@ -6,7 +6,7 @@ use super::*;
 /// Mirrors C# `ZbcReader.SidecarData`.
 #[derive(Debug)]
 pub struct ZbcSidecarData {
-    pub build_id: [u8; crate::metadata::build_id::SIZE],
+    pub build_id: [u8; crate::metadata::format::build_id::SIZE],
     pub functions: Vec<DbugFuncEntry>,
 }
 
@@ -14,21 +14,21 @@ pub struct ZbcSidecarData {
 /// Mirrors C# `ZpkgReader.ZpkgSidecarData`.
 #[derive(Debug)]
 pub struct ZpkgSidecarData {
-    pub build_id: [u8; crate::metadata::build_id::SIZE],
+    pub build_id: [u8; crate::metadata::format::build_id::SIZE],
     /// (namespace, per-function debug). Order matches main zpkg's MODS section.
     pub modules: Vec<(String, Vec<DbugFuncEntry>)>,
 }
 
 /// Reads only the BLID section (16-byte build_id) from any zbc or zpkg.
 /// Returns None when the file has no BLID section (e.g. non-strip build).
-pub fn read_build_id(data: &[u8]) -> Option<[u8; crate::metadata::build_id::SIZE]> {
+pub fn read_build_id(data: &[u8]) -> Option<[u8; crate::metadata::format::build_id::SIZE]> {
     if data.len() < 16 { return None; }
     let sec_count = u16::from_le_bytes([data[10], data[11]]);
     let dir = read_directory(data, sec_count).ok()?;
     let sec = get_section(data, &dir, b"BLID")?;
-    if sec.len() < crate::metadata::build_id::SIZE { return None; }
-    let mut out = [0u8; crate::metadata::build_id::SIZE];
-    out.copy_from_slice(&sec[..crate::metadata::build_id::SIZE]);
+    if sec.len() < crate::metadata::format::build_id::SIZE { return None; }
+    let mut out = [0u8; crate::metadata::format::build_id::SIZE];
+    out.copy_from_slice(&sec[..crate::metadata::format::build_id::SIZE]);
     Some(out)
 }
 
@@ -57,11 +57,11 @@ pub fn parse_zbc_sidecar(data: &[u8]) -> Result<ZbcSidecarData> {
 
     let blid = get_section(data, &dir, b"BLID")
         .ok_or_else(|| anyhow::anyhow!("zbc sidecar missing BLID section"))?;
-    if blid.len() < crate::metadata::build_id::SIZE {
+    if blid.len() < crate::metadata::format::build_id::SIZE {
         bail!("zbc sidecar BLID section too short");
     }
-    let mut build_id = [0u8; crate::metadata::build_id::SIZE];
-    build_id.copy_from_slice(&blid[..crate::metadata::build_id::SIZE]);
+    let mut build_id = [0u8; crate::metadata::format::build_id::SIZE];
+    build_id.copy_from_slice(&blid[..crate::metadata::format::build_id::SIZE]);
 
     let pool = get_section(data, &dir, b"STRS")
         .map(|s| read_strs(s))
@@ -99,11 +99,11 @@ pub fn parse_zpkg_sidecar(data: &[u8]) -> Result<ZpkgSidecarData> {
 
     let blid = get_section(data, &dir, b"BLID")
         .ok_or_else(|| anyhow::anyhow!("zpkg sidecar missing BLID section"))?;
-    if blid.len() < crate::metadata::build_id::SIZE {
+    if blid.len() < crate::metadata::format::build_id::SIZE {
         bail!("zpkg sidecar BLID section too short");
     }
-    let mut build_id = [0u8; crate::metadata::build_id::SIZE];
-    build_id.copy_from_slice(&blid[..crate::metadata::build_id::SIZE]);
+    let mut build_id = [0u8; crate::metadata::format::build_id::SIZE];
+    build_id.copy_from_slice(&blid[..crate::metadata::format::build_id::SIZE]);
 
     let pool = get_section(data, &dir, b"STRS")
         .map(|s| read_strs(s))

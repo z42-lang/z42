@@ -17,7 +17,7 @@ use std::thread;
 
 use z42::corelib;
 use z42::gc::{ArcMagrGC, MagrGC};
-use z42::metadata::bytecode::{BasicBlock, Function, Module, Terminator};
+use z42::metadata::ir::{BasicBlock, Function, Module, Terminator};
 use z42::metadata::types::ExecMode;
 use z42::metadata::Value;
 use z42::vm_context::VmContext;

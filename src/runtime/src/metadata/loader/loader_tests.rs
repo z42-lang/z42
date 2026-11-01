@@ -64,7 +64,7 @@ fn import_with_no_dot_uses_full_name() {
 /// Build a minimal binary zpkg (indexed, lib) with a STRS + NSPC section.
 /// Layout: header(16) + dir(sec_count×12) + META + STRS + NSPC sections.
 fn make_fake_zpkg(dir: &Path, filename: &str, namespaces: &[&str]) {
-    use crate::metadata::formats::ZPKG_MAGIC;
+    use crate::metadata::format::ZPKG_MAGIC;
 
     // Build STRS section (segment-dict, zbc 1.21): seg_count + (varint len + utf8)×n
     //   + str_count + (varint segN + varint segIdx×segN)×n. Names split on '.'.
@@ -185,8 +185,8 @@ fn module_with_one_class(
     name: &str,
     base: Option<&str>,
     fields: Vec<(&str, &str)>,
-) -> crate::metadata::bytecode::Module {
-    use crate::metadata::bytecode::{ClassDesc, FieldDesc, Module};
+) -> crate::metadata::ir::Module {
+    use crate::metadata::ir::{ClassDesc, FieldDesc, Module};
     Module {
         name: name.to_owned(),
         string_pool: vec![],
@@ -405,7 +405,7 @@ fn fixup_converges_with_duplicate_field_names() {
 /// One module holding several classes (each `(name, base, fields)`), registry built.
 fn module_with_classes(
     name: &str, classes: &[(&str, Option<&str>, Vec<(&str, &str)>)],
-) -> crate::metadata::bytecode::Module {
+) -> crate::metadata::ir::Module {
     let mut m = module_with_one_class(name, None, vec![]);
     m.classes = classes.iter().map(|(n, b, f)| {
         let mut c = module_with_one_class(n, *b, f.clone()).classes.pop().unwrap();
@@ -417,7 +417,7 @@ fn module_with_classes(
 }
 
 fn merge_and_converge(
-    mods: Vec<crate::metadata::bytecode::Module>,
+    mods: Vec<crate::metadata::ir::Module>,
 ) -> rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> {
     let mut global = rustc_hash::FxHashMap::default();
     for mut m in mods {
@@ -562,8 +562,8 @@ fn module_with_object_layout(
     name: &str,
     base: Option<&str>,
     fields: Vec<(&str, &str)>,
-    layout: crate::metadata::bytecode::ObjectLayoutDesc,
-) -> crate::metadata::bytecode::Module {
+    layout: crate::metadata::ir::ObjectLayoutDesc,
+) -> crate::metadata::ir::Module {
     let mut m = module_with_one_class(name, base, fields);
     m.classes[0].object_layout = Some(layout);
     m
@@ -573,7 +573,7 @@ fn module_with_object_layout(
 /// derived class composes against the base's composed layout at build time.
 #[test]
 fn object_layout_composed_local_inheritance() {
-    use crate::metadata::bytecode::{ClassDesc, Module, ObjectLayoutDesc};
+    use crate::metadata::ir::{ClassDesc, Module, ObjectLayoutDesc};
     use crate::metadata::types::{STRUCT_REF_ARC_STRING, STRUCT_REF_GCREF};
 
     // Base { i64 age@0; str name@8 } — size 16, one ref leaf (name @ 8).
@@ -652,7 +652,7 @@ fn object_layout_composed_local_inheritance() {
 /// the base joins the global registry — in lockstep with `fields`.
 #[test]
 fn object_layout_composed_crosspkg_fixup() {
-    use crate::metadata::bytecode::ObjectLayoutDesc;
+    use crate::metadata::ir::ObjectLayoutDesc;
     use crate::metadata::types::STRUCT_REF_ARC_STRING;
 
     // Base { str name@0 } — size 8, ref leaf @ 0.
@@ -704,8 +704,8 @@ fn object_layout_composed_crosspkg_fixup() {
 // ── TypeId global uniqueness (fix-crosspkg-typeid-collision) ──────
 
 /// A minimal `Module` holding `names` as field-less, base-less classes.
-fn module_with_class_names(name: &str, names: &[&str]) -> crate::metadata::bytecode::Module {
-    use crate::metadata::bytecode::{ClassDesc, Module};
+fn module_with_class_names(name: &str, names: &[&str]) -> crate::metadata::ir::Module {
+    use crate::metadata::ir::{ClassDesc, Module};
     Module {
         name: name.to_owned(),
         string_pool: vec![],
@@ -754,7 +754,7 @@ fn type_ids_are_unique_across_modules() {
     crate::metadata::loader::build_type_registry(&mut a);
     crate::metadata::loader::build_type_registry(&mut b);
 
-    let ids = |m: &crate::metadata::bytecode::Module| -> HashSet<u32> {
+    let ids = |m: &crate::metadata::ir::Module| -> HashSet<u32> {
         m.type_registry.values().map(|td| td.id.0).collect()
     };
     let (ids_a, ids_b) = (ids(&a), ids(&b));
@@ -793,8 +793,8 @@ fn allocated_type_ids_stay_below_import_base() {
 /// 造一个带 struct 字段表的单类模块。
 fn module_with_struct_field_table(
     class: &str, size: u32, entries: &[(u32, u32, u8)],
-) -> crate::metadata::bytecode::Module {
-    use crate::metadata::bytecode::{FieldDesc, StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
+) -> crate::metadata::ir::Module {
+    use crate::metadata::ir::{FieldDesc, StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
     let mut m = module_with_class_names("m", &[class]);
     let c = &mut m.classes[0];
     c.struct_layout = Some(StructLayoutDesc {
@@ -851,7 +851,7 @@ fn struct_field_table_reaches_the_runtime_layout() {
 /// （留着那半句会和隔壁覆盖门的判据前提直接打架——那正是「判据腐坏」的起点。）
 #[test]
 fn absent_struct_field_table_yields_an_empty_one() {
-    use crate::metadata::bytecode::StructLayoutDesc;
+    use crate::metadata::ir::StructLayoutDesc;
     let mut m = module_with_class_names("m", &["Demo.Old"]);
     m.classes[0].struct_layout = Some(StructLayoutDesc {
         size: 8, ref_offsets: Box::new([]), ref_kinds: Box::new([]),
@@ -872,7 +872,7 @@ fn absent_struct_field_table_yields_an_empty_one() {
 /// 这条钉住那个「顺手复用」的诱惑。
 #[test]
 fn inline_layout_does_not_borrow_the_struct_field_table() {
-    use crate::metadata::bytecode::{StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
+    use crate::metadata::ir::{StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
     let mut m = module_with_class_names("m", &["Demo.Holder"]);
     let c = &mut m.classes[0];
     c.inline_layout = Some(StructLayoutDesc {
@@ -902,11 +902,11 @@ fn inline_layout_does_not_borrow_the_struct_field_table() {
 #[test]
 #[should_panic(expected = "index-parallel to `fields`")]
 fn struct_field_table_that_is_not_parallel_to_fields_is_rejected() {
-    use crate::metadata::bytecode::{StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
+    use crate::metadata::ir::{StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
     // 表有 3 条，`fields` 只有 1 个 ⇒ 第 2/3 跳会沿着不存在的字段找类型名。
     let mut m = module_with_struct_field_table("Demo.Skew", 24, &[(0, 4, 0), (8, 8, 0), (16, 8, 0)]);
     let c = &mut m.classes[0];
-    c.fields = vec![crate::metadata::bytecode::FieldDesc {
+    c.fields = vec![crate::metadata::ir::FieldDesc {
         name: "only".to_string(), type_tag: "int".to_string(),
         attributes: Box::new([]), visibility: 0,
     }].into();
@@ -935,7 +935,7 @@ fn struct_field_table_that_is_not_parallel_to_fields_is_rejected() {
 #[test]
 #[should_panic(expected = "empty per-field layout table")]
 fn value_struct_with_fields_but_no_field_table_is_rejected() {
-    use crate::metadata::bytecode::{CLASS_FLAG_STRUCT, FieldDesc, StructLayoutDesc};
+    use crate::metadata::ir::{CLASS_FLAG_STRUCT, FieldDesc, StructLayoutDesc};
     let mut m = module_with_class_names("m", &["Demo.NoTable"]);
     let c = &mut m.classes[0];
     c.class_flags = CLASS_FLAG_STRUCT;
@@ -959,7 +959,7 @@ fn value_struct_with_fields_but_no_field_table_is_rejected() {
 #[test]
 #[should_panic(expected = "ships no struct byte layout block")]
 fn value_struct_with_fields_but_no_struct_block_is_rejected() {
-    use crate::metadata::bytecode::{CLASS_FLAG_STRUCT, FieldDesc};
+    use crate::metadata::ir::{CLASS_FLAG_STRUCT, FieldDesc};
     let mut m = module_with_class_names("m", &["Demo.NoBlock"]);
     let c = &mut m.classes[0];
     c.class_flags = CLASS_FLAG_STRUCT;
@@ -976,7 +976,7 @@ fn value_struct_with_fields_but_no_struct_block_is_rejected() {
 /// phantom / 零字段 wrapper 本来就没有表可带。
 #[test]
 fn empty_value_struct_without_a_field_table_is_accepted() {
-    use crate::metadata::bytecode::{CLASS_FLAG_STRUCT, StructLayoutDesc};
+    use crate::metadata::ir::{CLASS_FLAG_STRUCT, StructLayoutDesc};
     let mut m = module_with_class_names("m", &["Demo.Phantom"]);
     let c = &mut m.classes[0];
     c.class_flags = CLASS_FLAG_STRUCT;
@@ -994,7 +994,7 @@ fn empty_value_struct_without_a_field_table_is_accepted() {
 /// A bodiless instance method stub named `name` — only its name matters to
 /// `build_type_registry` (own methods are collected by `<class>.` prefix).
 fn iface_stub_fn(name: &str) -> crate::metadata::Function {
-    use crate::metadata::bytecode::{BasicBlock, Terminator};
+    use crate::metadata::ir::{BasicBlock, Terminator};
     crate::metadata::Function {
         name: name.to_string(),
         param_count: 1,
@@ -1025,7 +1025,7 @@ fn iface_stub_fn(name: &str) -> crate::metadata::Function {
 #[test]
 fn iface_slot_aliases_the_implementing_slot_and_follows_overrides() {
     let mut m = module_with_class_names("m", &["Demo.W", "Demo.D"]);
-    m.classes[0].class_flags2 = crate::metadata::bytecode::CLASS_FLAGS2_HAS_IFACE_SLOTS;
+    m.classes[0].class_flags2 = crate::metadata::ir::CLASS_FLAGS2_HAS_IFACE_SLOTS;
     m.classes[0].iface_slots = vec![("Demo.IPlain#Get".to_string(), "Get$1$string".to_string())].into();
     m.classes[1].base_class = Some("Demo.W".to_string());
     m.functions = vec![iface_stub_fn("Demo.W.Get"), iface_stub_fn("Demo.W.Get$1$string"),
@@ -1052,7 +1052,7 @@ fn iface_slot_alias_to_an_inherited_method_is_installed_by_fixup() {
     mod_a.functions = vec![iface_stub_fn("A.Base.Get"), iface_stub_fn("A.Base.Get$1$string")];
     let mut mod_b = module_with_class_names("PkgB", &["B.Sub"]);
     mod_b.classes[0].base_class = Some("A.Base".to_string());
-    mod_b.classes[0].class_flags2 = crate::metadata::bytecode::CLASS_FLAGS2_HAS_IFACE_SLOTS;
+    mod_b.classes[0].class_flags2 = crate::metadata::ir::CLASS_FLAGS2_HAS_IFACE_SLOTS;
     mod_b.classes[0].iface_slots = vec![("B.IPlain#Get".to_string(), "Get$1$string".to_string())].into();
     mod_b.functions = vec![iface_stub_fn("B.Sub.Other")];
     build_type_registry(&mut mod_a);
@@ -1073,7 +1073,7 @@ fn iface_slot_alias_to_an_inherited_method_is_installed_by_fixup() {
 // ── Members by owner (runtime-audit S1) ───────────────────────────────────────
 
 fn stub_fn(name: &str, is_static: bool) -> crate::metadata::Function {
-    use crate::metadata::bytecode::{BasicBlock, Terminator};
+    use crate::metadata::ir::{BasicBlock, Terminator};
     crate::metadata::Function {
         name: name.to_string(),
         param_count: if is_static { 0 } else { 1 },

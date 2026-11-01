@@ -10,7 +10,7 @@
 
 use crate::jit::runtime::{install, install_tuned};
 use crate::jit::run_fn;
-use crate::metadata::bytecode::{BasicBlock, CallInsn, Function, Instruction, Module, Terminator};
+use crate::metadata::ir::{BasicBlock, CallInsn, Function, Instruction, Module, Terminator};
 use crate::metadata::types::ExecMode;
 use crate::vm_context::VmContext;
 

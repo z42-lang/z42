@@ -185,7 +185,7 @@ pub trait ZpkgResolver: Send + Sync {
 | Android | `AssetZpkgResolver(assets, subdir = "stdlib")` —— `AssetManager.list` 枚举，逐个经 `Z42VM.readNamespaces`（JNI 桥到同一个 C ABI）读 NSPC。另有 `MapZpkgResolver`。`Z42VM` 构造器里 resolver 是**必填参数** | `android/.../io/z42/vm/ZpkgResolver.kt` |
 | wasm | `bundleStdlibNode(readNamespaces)` / `bundleStdlibBrowser(baseUrl, readNamespaces)` / `mapResolver(map)` —— Node 侧 `readdir`，浏览器侧 fetch 构建期生成的 `files.json`（HTTP 枚举不了目录，这是文件名清单的派生替身，**不是** namespace 映射） | `wasm/platform/js/stdlib-resolver.js` |
 
-读 NSPC 的 helper 在三个层面各有一份入口，都落到同一段 Rust（`metadata::zbc_reader::read_zpkg_meta`）：
+读 NSPC 的 helper 在三个层面各有一份入口，都落到同一段 Rust（`metadata::reader::read_zpkg_meta`）：
 C ABI `z42_zpkg_read_namespaces`、Rust `z42_host::read_zpkg_namespaces`、
 wasm 导出 `readNamespaces` / Android JNI `Z42VM.readNamespaces`。
 Swift / Kotlin / JS 都不需要自己重写 zpkg 解析。

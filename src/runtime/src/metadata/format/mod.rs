@@ -22,3 +22,13 @@ pub struct ZpkgDep {
     /// like a .NET TypeRef's resolution scope, instead of guessing by namespace.
     pub symbols: Vec<String>,
 }
+
+
+pub mod build_id;
+mod versions;
+
+pub use versions::{
+    ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR, ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR,
+    as_version_mismatch, FormatKind, FormatVersionMismatch,
+};
+pub(super) use versions::{verify_zbc_version, verify_zpkg_version};

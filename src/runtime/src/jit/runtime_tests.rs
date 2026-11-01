@@ -11,7 +11,7 @@ use crate::exception::VmFrame;
 use crate::jit::frame::JitFrame;
 use crate::jit::invoke::{call_entry, NativeOutcome};
 use crate::jit::runtime::{install, install_tuned};
-use crate::metadata::bytecode::{BasicBlock, CallInsn, Function, Instruction, Module, Terminator};
+use crate::metadata::ir::{BasicBlock, CallInsn, Function, Instruction, Module, Terminator};
 use crate::metadata::types::ExecMode;
 use crate::metadata::Value;
 use crate::vm_context::VmContext;

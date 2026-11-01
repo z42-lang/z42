@@ -98,7 +98,7 @@ regt_len  u32 + regt 体
 
 `hash` 是**源码哈希**，形如 `mmh3:<32 hex>`（`Z42.Package.ZpkgBuilder.SourceHashHex`，MurmurHash3
 x86_128）。它只服务增量构建的**变更检测**——「这个 `.z42` 与上次编译时是否一字不差」，纯相等性比较，
-不参与信任决策；Rust 侧（`zbc_reader/zpkg_index.rs` 的 `src_hash`）只把它当不透明字段存取，从不重算或校验。理由与 [BLID](#blid--build-id)
+不参与信任决策；Rust 侧（`reader/zpkg_index.rs` 的 `src_hash`）只把它当不透明字段存取，从不重算或校验。理由与 [BLID](#blid--build-id)
 同（解释执行下 SHA-256 需 6.38 G 指令 / 800 KB，Murmur3 只需 0.41 G）。算法前缀带在值里：`mmh3:` 与
 旧的 `sha256:` 天然不等 ⇒ 跨版本混用的缓存一次全量失效，正是想要的语义。
 
@@ -139,7 +139,7 @@ zbc_hash       pool idx（散装 zbc 内容 SHA-256，一致性校验）
 16 字节 **MurmurHash3 x86_128**（`Std.Hashing.Murmur3.Hash128`）。release strip 的主 packed 包先写 16 字节占位、装配后对全字节 hash 回填；sidecar 直接写同一 build id。runtime 据此把 sidecar 与主包配对。
 
 > **为什么不是密码学哈希**：build_id 只做「这个 `.zsym` 配不配这个 `.zpkg`」的**配对识别**，不参与
-> 任何信任决策；runtime 只**读取两个值比相等**，从不重算（`metadata::build_id::compute` 在整个
+> 任何信任决策；runtime 只**读取两个值比相等**，从不重算（`metadata::format::build_id::compute` 在整个
 > runtime 里没有调用点）。而 z42c 是解释执行的，BLAKE3 在这条路径上贵得离谱——800 KB 输入实测
 > BLAKE3-128 需 6.21 G 指令，MurmurHash3 x86_128 只需 0.41 G（**15×**）。选 x86 而非 x64 变体是因为
 > z42 没有逻辑右移也没有无符号整数：x86 的 lane 是 32 位，用 `long` 承载 + `& 0xFFFFFFFF` 掩码即可
@@ -314,7 +314,7 @@ zpkg 同样读不了。所以 **一个 z42vm 与它加载的每一个 `.zpkg` �
 （比运行时更旧的 VM 上则直接挂死），故取致命。典型触发场景：仓库里 `install-z42.sh` 下载的
 `.z42/` 种子还停在旧格式，而构建树已经跟着 main 的格式 bump 走到了新版本。
 
-实现：`zbc_reader/versions.rs` 的 `FormatVersionMismatch`（带类型的错误，Display 文案与
+实现：`format/versions.rs` 的 `FormatVersionMismatch`（带类型的错误，Display 文案与
 历史字符串逐字相同）+ `app.rs` 从 anyhow 链里 `downcast` 出它来与「普通读失败」区分。
 补救命令由错误类型自带：zpkg → `xtask build stdlib`，zbc → `xtask regen`；也可以改用
 `Z42_PORTABLE_VM=<配套的 z42vm>` 反过来迁就产物。
@@ -325,7 +325,7 @@ zpkg 同样读不了。所以 **一个 z42vm 与它加载的每一个 `.zpkg` �
 
 | reader | 谁在用 | 什么时候读 |
 |---|---|---|
-| `src/runtime/src/metadata/zbc_reader`（Rust） | z42vm | **运行期**加载包 |
+| `src/runtime/src/metadata/reader`（Rust） | z42vm | **运行期**加载包 |
 | `src/compiler/z42.package/src/ZpkgReader.z42`（z42） | z42c / z42b / REPL / 分析工具 | **编译期**跨包扫描（`DepScan.ScanDirs` 把 libsDirs 下所有 `z42.*.zpkg` 当数据盲读） |
 
 上一节那套「点名 + 给补救命令」在 Rust 侧是失败路径；z42 侧的 `ZpkgReader.Open` 对版本

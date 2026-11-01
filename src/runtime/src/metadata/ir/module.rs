@@ -1,10 +1,7 @@
-//! Module（zbc 模块：函数表 / 类表 / 字符串池 / 类型注册表）。refactor-split-bytecode：从 1334 行的 `bytecode.rs` 按职责拆出，
-//! 对外路径不变（`metadata::bytecode::*` 经 hub 的 `pub use` 全量再导出）。
+//! Decoded module contents and loader-populated type/function indexes.
 
-#![allow(unused_imports)]
 use super::*;
-use crate::metadata::tokens::TypeId;
-use crate::metadata::types::{ExecMode, TypeDesc};
+use crate::metadata::types::TypeDesc;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 

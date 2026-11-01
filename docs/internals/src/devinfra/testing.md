@@ -134,7 +134,7 @@ xtask 的 `--jobs N` 是**上层 unit 级**批宽（每批 N 个 unit 同时 com
 ```
 
 CI 只在 Windows 腿跑 `cargo test`，容易静默腐烂——改 ClassDesc / 反射 / 版本相关代码后
-**本地必跑**；版本 bump 还要更新 `zbc_reader_tests` 里的 version-pin 测试。
+**本地必跑**；版本 bump 还要更新 `reader/reader_tests.rs` 里的 version-pin 测试。
 
 ### `test compiler fingerprint`：本地怎么给它一棵 base 树
 

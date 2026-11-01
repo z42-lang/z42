@@ -694,7 +694,7 @@ impl crate::vm_context::VmContext {
     /// (including an unresolved owner cell) simply keeps the caller on the
     /// full barrier — a settle record is only ever an optimization.
     pub fn callee_barrier_settled(
-        &self, owner: &crate::metadata::bytecode::OwnerInitCell,
+        &self, owner: &crate::metadata::ir::OwnerInitCell,
     ) -> bool {
         let cc = &self.core.cctors;
         if cc.any_module_init_pending() { return false; }
@@ -715,7 +715,7 @@ impl crate::vm_context::VmContext {
     /// methods of types without a static constructor, which is almost every call.
     #[inline]
     pub fn ensure_callee_owner_init(
-        &self, func_fq: &str, owner: &crate::metadata::bytecode::OwnerInitCell,
+        &self, func_fq: &str, owner: &crate::metadata::ir::OwnerInitCell,
     ) -> Result<(), String> {
         if !self.core.cctors.any_pending() { return Ok(()); }
         // Owner resolved and without a static constructor — almost every call.
@@ -725,7 +725,7 @@ impl crate::vm_context::VmContext {
 
     #[inline(never)]
     fn ensure_callee_owner_init_slow(
-        &self, func_fq: &str, owner: &crate::metadata::bytecode::OwnerInitCell,
+        &self, func_fq: &str, owner: &crate::metadata::ir::OwnerInitCell,
     ) -> Result<(), String> {
         if let Some(cached) = owner.get() {
             return match cached {
@@ -810,7 +810,7 @@ impl crate::vm_context::VmContext {
         // （`__static_init__` 之所以能被它找到，是因为那些名字会被显式压进 pending 队列）。
         // 只用 try_lookup_function 的话，同模块的静态构造器会「明明存在却 not found」——
         // 实测：`C.C$0` 当 entry 能正常跑，屏障里却查不到。
-        let run = |f: &crate::metadata::bytecode::Function,
+        let run = |f: &crate::metadata::ir::Function,
                    module: &crate::metadata::Module| -> Option<String> {
             match crate::interp::exec_function(self, module, f, &[]) {
                 Ok(crate::interp::ExecOutcome::Returned(_)) => None,
@@ -880,7 +880,7 @@ pub fn owner_class_of_static_field(field_fq: &str) -> Option<&str> {
 /// 那部分在最后一段里，不影响按最后一个 `.` 切分。特化名的实参是全名
 /// （`Demo.C.Echo:Demo.A.P`）、实例化 owner 的实参也是（`Demo.G<Demo.A.P>.M`）——只看顶层的点。
 pub fn owner_class_of_static_func(func_fq: &str) -> Option<&str> {
-    crate::metadata::type_names::last_top_dot(func_fq).map(|i| &func_fq[..i])
+    crate::metadata::index::type_names::last_top_dot(func_fq).map(|i| &func_fq[..i])
 }
 
 #[cfg(test)]

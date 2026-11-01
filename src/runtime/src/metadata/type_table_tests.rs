@@ -1,5 +1,5 @@
 use super::*;
-use crate::metadata::name_index::NameIndex;
+use crate::metadata::index::name::NameIndex;
 use crate::metadata::tokens::UNRESOLVED;
 
 fn desc(name: &str, id: TypeId) -> Arc<TypeDesc> {

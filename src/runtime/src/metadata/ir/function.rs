@@ -1,49 +1,9 @@
-//! Function / FunctionCold / 帧名 / LocalVar / LineEntry / ExceptionEntry / BasicBlock。refactor-split-bytecode：从 1334 行的 `bytecode.rs` 按职责拆出，
-//! 对外路径不变（`metadata::bytecode::*` 经 hub 的 `pub use` 全量再导出）。
+//! Function bodies, signatures and execution-side cached metadata.
 
-#![allow(unused_imports)]
 use super::*;
-use crate::metadata::tokens::TypeId;
-use crate::metadata::types::{ExecMode, TypeDesc};
-use rustc_hash::FxHashMap;
+use crate::metadata::debug::{format_frame_name, frame_file, LineEntry, LocalVar};
+use crate::metadata::types::ExecMode;
 use std::sync::Arc;
-
-/// Format a function's stack-trace display name with parameter signature.
-/// Returns `<name>(<t1>,<t2>,...)` (e.g. `Demo.Greeter.greet(str)`).
-/// Empty signature is `<name>()`. Stack traces show it so overloads are
-/// distinguishable (1.3 split-debug-symbols Phase 4).
-pub fn format_frame_name(func: &Function) -> String {
-    let mut out = String::with_capacity(func.name.len() + 2 + func.param_count * 4);
-    for_each_frame_name_piece(func, |piece| out.push_str(piece));
-    out
-}
-
-/// The pieces of [`format_frame_name`], in order, without allocating — the
-/// crash-signal handler writes them straight to the fd.
-pub fn for_each_frame_name_piece(func: &Function, mut emit: impl FnMut(&str)) {
-    emit(&func.name);
-    emit("(");
-    for (i, t) in func.param_types().iter().enumerate() {
-        if i > 0 { emit(","); }
-        emit(t);
-    }
-    // When SIGS lacks per-param types (older artifacts or null source), fall
-    // back to "?" placeholders matching `param_count` so the shape is
-    // recognizable.
-    if func.param_types().is_empty() && func.param_count > 0 {
-        for i in 0..func.param_count {
-            if i > 0 { emit(","); }
-            emit("?");
-        }
-    }
-    emit(")");
-}
-
-/// Source file of a function's frames: the file of its line table's first
-/// entry, empty when the emitter omitted it.
-pub fn frame_file(func: &Function) -> &str {
-    func.line_table().first().and_then(|e| e.file.as_deref()).unwrap_or("")
-}
 
 /// Cold (rarely-accessed) slice fields on `Function`. Boxed behind an
 /// `Option` on Function so functions with no debug info, no try/catch,
@@ -143,7 +103,7 @@ pub struct Function {
     /// path). JIT translate.rs reads this to specialize arithmetic /
     /// comparison / logical ops on known primitives (`I64` → emit
     /// Cranelift `iadd` instead of `jit_add` helper call).
-    pub reg_types: Box<[crate::metadata::ir_type::IrType]>,
+    pub reg_types: Box<[crate::metadata::ir::reg_type::IrType]>,
     /// Precomputed block label → index mapping. Not serialized; populated after module load.
     pub block_index: std::collections::HashMap<String, usize>,
     /// perf-vm-iteration: per-block pre-resolved branch targets (indices),
@@ -301,27 +261,6 @@ impl Function {
         (offset >> 16, offset & 0xffff)
     }
 }
-/// An entry in a function's local variable table: register `reg` holds variable `name`.
-#[derive(Debug, Clone)]
-pub struct LocalVar {
-    pub name: String,
-    pub reg:  u16,
-}
-
-/// An entry in a function's source-line mapping table.
-///
-/// span-column-propagate (zbc 1.1): `column` carries 1-based
-/// source column from `Span.Column`. Value `0` means unknown (legacy
-/// hand-rolled IR or pre-1.1 zbc never reach here — reader rejects).
-#[derive(Debug, Clone)]
-pub struct LineEntry {
-    pub block:  u32,
-    pub instr:  u32,
-    pub line:   u32,
-    pub file:   Option<String>,
-    pub column: u32,
-}
-
 /// One row in a function's exception table.
 #[derive(Debug)]
 pub struct ExceptionEntry {

@@ -3,7 +3,7 @@
 //! any `Call`, from native code and from an interpreter frame alike.
 
 use crate::jit::runtime::{install, install_tuned};
-use crate::metadata::bytecode::{BasicBlock, Function, Instruction, LoadFnInsn, Module, Terminator};
+use crate::metadata::ir::{BasicBlock, Function, Instruction, LoadFnInsn, Module, Terminator};
 use crate::metadata::resolver::ResolvedTokens;
 use crate::metadata::tokens::UNRESOLVED;
 use crate::metadata::types::ExecMode;

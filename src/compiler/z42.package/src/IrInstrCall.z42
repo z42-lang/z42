@@ -129,7 +129,7 @@ public sealed class CallNativeInstr : IrInstr {
         return new CallNativeInstr(this.Dst, this.Module, this.Type, this.Symbol, IrInstr.CloneRegs(this.Args), this.ArgCount);
     }
     public override void Write(ZbcEncoder e) {
-        // OP_CALL_NATIVE(0x53)：dst + module/type/symbol（3× pool idx u32）+ args；镜像 VM zbc_reader.rs 解码。
+        // OP_CALL_NATIVE(0x53)：dst + module/type/symbol（3× pool idx u32）+ args；镜像 VM metadata/reader/instr_decode.rs 解码。
         e.Head(Op.CallNative, this.Dst);
         e.Str(this.Module); e.Str(this.Type); e.Str(this.Symbol);
         e.Args(this.Args, this.ArgCount);

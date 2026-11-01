@@ -251,14 +251,14 @@ z42vm (Rust) ──要它才能跑──> z42c ──产出──> z42c.driver.z
 ## 7. strict-pin：改格式必须同 commit bump 且重生基线
 
 z42c（writer）在每个 `.zbc` / `.zpkg` 头写版本常量；z42vm（reader，
-`src/runtime/src/metadata/zbc_reader/`）加载时**精确匹配 major + minor**，不匹配直接拒
+`src/runtime/src/metadata/reader/`）加载时**精确匹配 major + minor**，不匹配直接拒
 （`zpkg minor 22 not supported (writer 0.23)`），**没有兼容回退**。推论三条：
 
 - 改 wire 格式（新 opcode / section / 字段语义）→ **writer 与 reader 的版本常量必须同一 commit 一起
   bump**，否则 strict-pin 校验失败。完整同步清单见[格式 bump 清单](format-bump.md)。
 - strict-pin 让所有旧 `.zbc` / `.zpkg` 立即失效——所以 bump 后必须 `xtask build test` 重生 golden
   基线，并重截 z42c 的 golden hex 单测（header 的 minor 字段会变）。
-- `zbc_reader_tests.rs::zpkg_version_constants_pinned` 钉住 reader 常量的当前值，防止 writer/reader
+- `reader/reader_tests.rs::zpkg_version_constants_pinned` 钉住 reader 常量的当前值，防止 writer/reader
   单边漂移悄悄溜过（曾漏改一侧 → fresh 构建炸、cache 命中蒙混）。
 
 ## 8. golden 语料：一次遍历，四个消费者

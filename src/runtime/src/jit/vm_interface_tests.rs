@@ -8,7 +8,7 @@
 //!    see `vm_interface.rs` module docs).
 
 use super::*;
-use crate::metadata::bytecode::{BasicBlock, ClassDesc, Function, Module, Terminator};
+use crate::metadata::ir::{BasicBlock, ClassDesc, Function, Module, Terminator};
 use crate::metadata::tokens::TypeId;
 use crate::metadata::{NameIndex, TypeDesc};
 use crate::metadata::types::ExecMode;

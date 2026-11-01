@@ -263,11 +263,11 @@ fn write_frame(fd: i32, frame: &crate::exception::VmFrame) {
             sigsafe::write_str(fd, file.as_bytes());
         }
         None => {
-            crate::metadata::bytecode::for_each_frame_name_piece(func, |piece| {
+            crate::metadata::debug::for_each_frame_name_piece(func, |piece| {
                 sigsafe::write_str(fd, piece.as_bytes());
             });
             sigsafe::write_str(fd, b" at ");
-            sigsafe::write_str(fd, crate::metadata::bytecode::frame_file(func).as_bytes());
+            sigsafe::write_str(fd, crate::metadata::debug::frame_file(func).as_bytes());
         }
     }
     let (line, column) = frame.line_col();

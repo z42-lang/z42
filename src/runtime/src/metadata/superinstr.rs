@@ -33,8 +33,8 @@
 //!   store→reload round-trip and one dispatch per iteration. `%t` is still written
 //!   (cheap) so any other reader of it is unaffected — no liveness analysis needed.
 
-use super::bytecode::{BasicBlock, BranchTargets, Instruction, Reg, Terminator};
-use super::ir_type::IrType;
+use super::ir::{BasicBlock, BranchTargets, Instruction, Reg, Terminator};
+use super::ir::reg_type::IrType;
 
 /// A comparison operator, shared by the fused recognizer and the interp's
 /// standalone cmp handlers (via `interp::ops::eval_cmp`).

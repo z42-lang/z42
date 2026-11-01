@@ -70,7 +70,7 @@ public static class Op {
     public static int StrConcat = 0x85;
     public static int LoadLocalAddr = 0xA0;  // ref 参数调用：dst, slot（镜像 C# Opcodes.LoadLocalAddr）
     // fix-ref-lvalue-addressing：`ref arr[i]` / `ref obj.f`。**opcode 值不可自选** ——
-    // 必须与 src/runtime/src/metadata/zbc_reader/opcodes.rs:80-82 一致（VM 侧早
+    // 必须与 src/runtime/src/metadata/reader/opcodes.rs:80-82 一致（VM 侧早
     // 就能解码并执行这两条，只是编译器从没发过 ⇒ 一直是死代码）。
     public static int LoadElemAddr  = 0xA1;  // dst, arr(u16), idx(u16)
     public static int LoadFieldAddr = 0xA2;  // dst, obj(u16), field(STRS idx u32)

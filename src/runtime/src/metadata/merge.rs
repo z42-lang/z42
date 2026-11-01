@@ -4,7 +4,7 @@
 /// instruction references an index into its module's string pool. When N pools are
 /// concatenated, every index from module i must be shifted by the cumulative length of
 /// pools 0..i-1.
-use super::bytecode::{BasicBlock, Instruction, Module};
+use super::ir::{BasicBlock, Instruction, Module};
 use anyhow::Result;
 use std::collections::HashSet;
 
@@ -62,7 +62,7 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
 
 /// Shift every `ConstStr.idx` by `str_offset` so cross-module merge produces
 /// a flat global string index space.
-fn remap_functions(functions: &mut Vec<super::bytecode::Function>, str_offset: u32) {
+fn remap_functions(functions: &mut Vec<super::ir::Function>, str_offset: u32) {
     if str_offset == 0 {
         return; // nothing to do
     }

@@ -69,7 +69,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
             || !is_typed(self.func, insn.obj, IrType::Str) {
             return None;
         }
-        let target = format!("{}.{}", crate::metadata::well_known_names::STD_STRING, insn.method);
+        let target = format!("{}.{}", crate::metadata::index::well_known_names::STD_STRING, insn.method);
         let k = StrIntrinsic::of_builtin(self.callees.forward_of_name(&target)?)?;
         // Receiver + arguments, as the builtin sees them.
         (insn.args.len() + 1 == k.argc()

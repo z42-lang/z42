@@ -207,7 +207,7 @@ unsafe fn call_interp(
 /// `TypeInitializationException` to throw.
 unsafe fn call_barriers(
     vm: &crate::vm_context::VmContext, ctx: *const VmContext,
-    callee: &crate::metadata::Function, owner: &crate::metadata::bytecode::OwnerInitCell,
+    callee: &crate::metadata::Function, owner: &crate::metadata::ir::OwnerInitCell,
 ) -> Option<Value> {
     let module = super::jit_module(ctx);
     if let Err(msg) = vm.ensure_module_inits(Some(&callee.name)) {

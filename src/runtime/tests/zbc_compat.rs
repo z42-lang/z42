@@ -1,6 +1,6 @@
 //! Cross-language zbc decoder contract test.
 //!
-//! Exercises Rust's `metadata::zbc_reader::read_zbc` against real `.zbc`
+//! Exercises Rust's `metadata::reader::read_zbc` against real `.zbc`
 //! bytes produced by the C# compiler (the golden test artifacts under
 //! `tests/golden/run/<name>/source.zbc`). Catches **any** C# opcode /
 //! section format drift that breaks Rust decoding — without waiting for
@@ -15,7 +15,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use z42::metadata::zbc_reader::read_zbc;
+use z42::metadata::reader::read_zbc;
 
 /// Project root resolved from `CARGO_MANIFEST_DIR` (= src/runtime).
 fn project_root() -> PathBuf {

@@ -167,7 +167,7 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             let path      = read_field_path(c)?;
             let kind      = c.read_u8()?;
             Instruction::StructFieldGetPrim(Box::new(
-                crate::metadata::bytecode::StructFieldGetInsn { dst, base, root_type, path, kind },
+                crate::metadata::ir::StructFieldGetInsn { dst, base, root_type, path, kind },
             ))
         }
         OP_STRUCT_FIELD_SET_PRIM => {
@@ -177,7 +177,7 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             let kind      = c.read_u8()?;
             let val       = c.read_u16()? as u32;
             Instruction::StructFieldSetPrim(Box::new(
-                crate::metadata::bytecode::StructFieldSetInsn { base, root_type, path, kind, val },
+                crate::metadata::ir::StructFieldSetInsn { base, root_type, path, kind, val },
             ))
         }
         OP_OBJ_NEW => {
@@ -230,7 +230,7 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             // fix-generic-array-value-zero-init (zbc 1.37): trailing type-param ref.
             let type_param_kind = c.read_u8()?;
             let type_param_index = c.read_u16()? as i32 - 1;   // biased: 0 → -1 (none)
-            Instruction::ArrayNew(Box::new(crate::metadata::bytecode::ArrayNewInsn { dst, size, elem_tag, element_type, stack_alloc, type_param_kind, type_param_index }))
+            Instruction::ArrayNew(Box::new(crate::metadata::ir::ArrayNewInsn { dst, size, elem_tag, element_type, stack_alloc, type_param_kind, type_param_index }))
         }
         OP_ARRAY_NEW_LIT => {
             let elems = read_args(c)?;
@@ -238,7 +238,7 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             let element_type = crate::metadata::types::ElemType::intern(c.pool_str(pool, et_idx)?);
             // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
             let stack_alloc = c.read_u8()? != 0;
-            Instruction::ArrayNewLit(Box::new(crate::metadata::bytecode::ArrayNewLitInsn { dst, elems, element_type, stack_alloc }))
+            Instruction::ArrayNewLit(Box::new(crate::metadata::ir::ArrayNewLitInsn { dst, elems, element_type, stack_alloc }))
         }
         OP_ARRAY_GET     => {
             let arr = c.read_u16()? as u32;

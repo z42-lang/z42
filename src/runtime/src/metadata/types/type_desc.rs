@@ -36,14 +36,14 @@ pub struct TypeDesc {
     /// `NameIndex` replaces `HashMap<String, usize>` because typical class
     /// field counts ≤16, where `Vec<(Box<str>, usize)>` scan beats hash +
     /// string compare). Same cross-zpkg fixup semantics as `fields`.
-    pub field_index: crate::metadata::name_index::NameIndex,
+    pub field_index: crate::metadata::index::name::NameIndex,
     /// Virtual method table: slot → (simple_method_name, qualified_func_name).
     /// Derived class overrides replace base entries at the same slot index.
     /// Same cross-zpkg fixup semantics as `fields`.
     pub vtable: Vec<(String, String)>,
     /// `method_name → vtable slot index` — linear scan (review.md C5 P1).
     /// Same rationale as `field_index`.
-    pub vtable_index: crate::metadata::name_index::NameIndex,
+    pub vtable_index: crate::metadata::index::name::NameIndex,
     /// add-reflection-type-flags (zbc 1.12): class-shape flags byte
     /// (`bytecode::CLASS_FLAG_*` — abstract/sealed/struct/record). Reflection
     /// only; backs `Type.IsAbstract` / `Type.IsSealed`. A single byte kept hot
@@ -129,16 +129,16 @@ pub struct TypeDescCold {
     pub type_args: super::TypeArgs,
     /// L3-G3a: constraint bundle per type parameter (aligned by index with `type_params`).
     /// Empty for non-generic classes; inner bundle may be empty for unconstrained params.
-    pub type_param_constraints: Box<[crate::metadata::bytecode::ConstraintBundle]>,
+    pub type_param_constraints: Box<[crate::metadata::ir::ConstraintBundle]>,
     /// C3 add-attribute-reflection: user attributes applied to this class
     /// (carried from the zbc TYPE section). Each is (attribute-type qualified
     /// name, factory-func qualified name). `__type_custom_attributes` calls each
     /// factory once and caches the resulting instances on the Type object.
-    pub custom_attributes: Box<[crate::metadata::bytecode::AttributeRef]>,
+    pub custom_attributes: Box<[crate::metadata::ir::AttributeRef]>,
     /// add-reflection-static-fields (zbc 1.13): the class's static fields
     /// (separate from hot `TypeDesc::fields`, the instance layout). Reflection
     /// only — surfaced by `Type.GetFields()` with `FieldInfo.IsStatic = true`.
-    pub static_fields: Box<[crate::metadata::bytecode::FieldDesc]>,
+    pub static_fields: Box<[crate::metadata::ir::FieldDesc]>,
     /// add-field-attribute-reflection (zbc 1.14): per-field user-attribute refs,
     /// indexed by field name (instance + static fields with attributes).
     /// add-static-constructors：本类静态构造器的**发射函数名**（FQ），来自编译期
@@ -150,7 +150,7 @@ pub struct TypeDescCold {
     pub cctor_func: Option<Box<str>>,
     /// `__field_custom_attributes` resolves a field's factories here.
     /// Reflection only; empty for classes with no field attributes.
-    pub field_attributes: Box<[(Box<str>, Box<[crate::metadata::bytecode::AttributeRef]>)]>,
+    pub field_attributes: Box<[(Box<str>, Box<[crate::metadata::ir::AttributeRef]>)]>,
     /// add-reflection-get-interfaces (zbc 1.17): the interface names this class
     /// directly declares (bare; e.g. "IFoo"). Reflection only — surfaced by
     /// `Type.GetInterfaces()`, which base-walks the `base_name` chain to also
@@ -164,7 +164,7 @@ pub struct TypeDescCold {
     /// signatures (zbc 1.28 block). Reflection only — surfaced by
     /// `Type.GetMethods()`; presence mirrors `class_flags & CLASS_FLAG_INTERFACE`.
     /// Empty for non-interface types.
-    pub iface_methods: Box<[crate::metadata::bytecode::IfaceMethodSig]>,
+    pub iface_methods: Box<[crate::metadata::ir::IfaceMethodSig]>,
     /// add-struct-value-semantics (A-use): the value-struct byte + reference
     /// layout (from the zbc TYPE-section struct block, present only when
     /// `class_flags & CLASS_FLAG_STRUCT`). Shared (`Arc`) so `StructAlloc` can
@@ -187,7 +187,7 @@ pub struct TypeDescCold {
     /// through `slots`); PR-2 switches `ScriptObject` field storage to this byte layout.
     /// Holds the parsed descriptor directly (no runtime form yet). `None` for
     /// value/interface/enum/delegate types and modules predating the block.
-    pub object_layout: Option<std::sync::Arc<crate::metadata::bytecode::ObjectLayoutDesc>>,
+    pub object_layout: Option<std::sync::Arc<crate::metadata::ir::ObjectLayoutDesc>>,
     /// unify-object-byte-layout (PR-2): the **composed** runtime object layout —
     /// `object_layout` (own-only) merged with the base class's composed layout via
     /// `compose_object_layout` (`base.composed ++ own`, own region at
@@ -229,9 +229,9 @@ impl TypeDesc {
     #[inline] pub fn type_args(&self)              -> &[String]                                 { self.cold_slice(|c| c.type_args.as_slice()) }
     /// The instantiation's interned type-arguments (empty handle for non-generic / open).
     #[inline] pub fn type_args_handle(&self) -> super::TypeArgs { self.cold.as_ref().map_or_else(super::TypeArgs::empty, |c| c.type_args) }
-    #[inline] pub fn type_param_constraints(&self) -> &[crate::metadata::bytecode::ConstraintBundle]      { self.cold_slice(|c| &c.type_param_constraints) }
+    #[inline] pub fn type_param_constraints(&self) -> &[crate::metadata::ir::ConstraintBundle]      { self.cold_slice(|c| &c.type_param_constraints) }
     /// C3 add-attribute-reflection: user attributes applied to this class.
-    #[inline] pub fn custom_attributes(&self)      -> &[crate::metadata::bytecode::AttributeRef]          { self.cold_slice(|c| &c.custom_attributes) }
+    #[inline] pub fn custom_attributes(&self)      -> &[crate::metadata::ir::AttributeRef]          { self.cold_slice(|c| &c.custom_attributes) }
     /// add-static-constructors：本类静态构造器的发射函数名；`None` = 没有静态构造器。
     /// 屏障用它短路——没有 cctor 的类型（绝大多数）只付一次 `Option` 判断。
     #[inline] pub fn cctor_func(&self) -> Option<&str> { self.cold.as_ref().and_then(|c| c.cctor_func.as_deref()) }
@@ -254,11 +254,11 @@ impl TypeDesc {
     /// 完整（没有基类，或基类已并入）。冷区不在（绝大多数类型）时恒 `false`。
     #[inline] pub fn base_unmerged(&self) -> bool { self.cold.as_ref().is_some_and(|c| c.base_unmerged) }
     /// add-reflection-static-fields: the class's static fields (reflection only).
-    #[inline] pub fn static_fields(&self)          -> &[crate::metadata::bytecode::FieldDesc]             { self.cold_slice(|c| &c.static_fields) }
+    #[inline] pub fn static_fields(&self)          -> &[crate::metadata::ir::FieldDesc]             { self.cold_slice(|c| &c.static_fields) }
     /// add-interface-member-reflection: the interface's declared method signatures.
-    #[inline] pub fn iface_methods(&self)          -> &[crate::metadata::bytecode::IfaceMethodSig]        { self.cold_slice(|c| &c.iface_methods) }
+    #[inline] pub fn iface_methods(&self)          -> &[crate::metadata::ir::IfaceMethodSig]        { self.cold_slice(|c| &c.iface_methods) }
     /// add-field-attribute-reflection: per-field attr refs (field name → refs).
-    #[inline] pub fn field_attributes(&self)       -> &[(Box<str>, Box<[crate::metadata::bytecode::AttributeRef]>)] { self.cold_slice(|c| &c.field_attributes) }
+    #[inline] pub fn field_attributes(&self)       -> &[(Box<str>, Box<[crate::metadata::ir::AttributeRef]>)] { self.cold_slice(|c| &c.field_attributes) }
     /// add-reflection-get-interfaces: the class's directly-declared interfaces.
     #[inline] pub fn interfaces(&self)             -> &[Box<str>]                               { self.cold_slice(|c| &c.interfaces) }
     /// add-enum-type-metadata: enum member (name, value) pairs (reflection only).
@@ -271,7 +271,7 @@ impl TypeDesc {
     /// Lives on `TypeDesc`, not `ScriptObject`, so the hot callers reach it straight
     /// through `ArrRef::type_desc()`.
     pub fn enum_member_name(&self, raw: i64) -> Option<String> {
-        if self.class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM == 0 {
+        if self.class_flags & crate::metadata::ir::CLASS_FLAG_ENUM == 0 {
             return None;
         }
         Some(
@@ -335,14 +335,14 @@ impl TypeDesc {
     }
 
     /// add-struct-value-semantics: whether this type is a value struct (Type.IsValueType).
-    #[inline] pub fn is_struct(&self)             -> bool { self.class_flags & crate::metadata::bytecode::CLASS_FLAG_STRUCT != 0 }
+    #[inline] pub fn is_struct(&self)             -> bool { self.class_flags & crate::metadata::ir::CLASS_FLAG_STRUCT != 0 }
     /// add-record-value-semantics: whether this type is a `[Record]` (Type.IsRecord). Used by the
     /// boxed-struct vcall arm to step aside from the native ToString intercept so a record struct's
     /// compiler-synthesized `<Type>.ToString` (record format) is reached instead of the type name.
-    #[inline] pub fn is_record(&self)             -> bool { self.class_flags & crate::metadata::bytecode::CLASS_FLAG_RECORD != 0 }
+    #[inline] pub fn is_record(&self)             -> bool { self.class_flags & crate::metadata::ir::CLASS_FLAG_RECORD != 0 }
     /// add-enum-type-metadata: whether this type is an enum (Type.IsEnum).
-    #[inline] pub fn is_enum(&self)                -> bool { self.class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM != 0 }
-    #[inline] pub fn is_delegate(&self)            -> bool { self.class_flags & crate::metadata::bytecode::CLASS_FLAG_DELEGATE != 0 }
+    #[inline] pub fn is_enum(&self)                -> bool { self.class_flags & crate::metadata::ir::CLASS_FLAG_ENUM != 0 }
+    #[inline] pub fn is_delegate(&self)            -> bool { self.class_flags & crate::metadata::ir::CLASS_FLAG_DELEGATE != 0 }
 
     /// Lazy-init the cold side-table for mutation.
     #[inline]

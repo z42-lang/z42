@@ -11,7 +11,7 @@
 //! stripped — the compiler writes them the same way (`Z42.Semantics.DepRef.SymKey`).
 
 use super::*;
-use crate::metadata::formats::ZpkgDep;
+use crate::metadata::format::ZpkgDep;
 
 /// Where a lookup name was routed by the symbol table.
 pub(crate) struct SymbolRoute {

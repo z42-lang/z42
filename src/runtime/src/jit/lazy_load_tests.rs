@@ -13,7 +13,7 @@
 //! the in-process resolution invariants that back them.
 
 use crate::jit::runtime::{install, install_tuned, JitRuntime};
-use crate::metadata::bytecode::{BasicBlock, Function, Module, Terminator};
+use crate::metadata::ir::{BasicBlock, Function, Module, Terminator};
 use crate::metadata::types::ExecMode;
 use crate::metadata::tokens::UNRESOLVED;
 use std::sync::Arc;
@@ -69,7 +69,7 @@ fn compiled_count(vm: &VmContext) -> u64 {
 /// An untranslatable function (`LoadLocalAddr` is interp-only).
 fn interp_only_fn(name: &str) -> Function {
     let mut f = empty_fn(name);
-    f.blocks[0].instructions = vec![crate::metadata::bytecode::Instruction::LoadLocalAddr { dst: 0, slot: 0 }];
+    f.blocks[0].instructions = vec![crate::metadata::ir::Instruction::LoadLocalAddr { dst: 0, slot: 0 }];
     f
 }
 

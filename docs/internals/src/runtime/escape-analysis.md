@@ -270,7 +270,7 @@ interp `Frame` / `JitFrame` / `VmFrame` 没有闭包 env arena，`CallIndirect` 
   （`FunctionEmitter` 局部函数闭包、`ExprEmitter` lambda 字面量、`CallEmitter` 合成 thunk）都传常量 `false`；
   `IrEscapeAnalysis` 只给 `ObjNew` / `ArrayNew` / `ArrayNewLit` 置标志，不碰 `MkClos`。
 - **格式**：zbc 的 `MkClos` 仍带一个 `u8` 尾字节（原 `stack_alloc`）。VM 读出后丢弃
-  （`zbc_reader/instr_decode.rs`），下次 zbc bump 时删除（登记在
+  （`reader/instr_decode.rs`），下次 zbc bump 时删除（登记在
   [zbc.md `## Deferred`](../formats/zbc.md#deferred)）。
 - **为什么不做栈闭包**（2026-10-07 决策）：它只覆盖「创建后当场调用」这一种用法；把 lambda 传给别的
   函数（`list.Where(x => …)`）本来就逃逸。维护两套闭包表示要让调用协议、对象模型、OSR、GC 根扫描每次都改两条

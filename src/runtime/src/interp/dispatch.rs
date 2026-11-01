@@ -49,7 +49,7 @@ fn constructed_name_isa(
     derived: &str,
     target: &str,
 ) -> bool {
-    let def = crate::metadata::type_names::erased(derived);
+    let def = crate::metadata::index::type_names::erased(derived);
     if def.len() == derived.len() {
         return false;
     }
@@ -151,7 +151,7 @@ fn callable_isa(
     if class_name == "Std.Object" || class_name == "Object" {
         return true;
     }
-    if class_name.ends_with("[]") || crate::metadata::type_names::builtin_fqn(class_name).is_some() {
+    if class_name.ends_with("[]") || crate::metadata::index::type_names::builtin_fqn(class_name).is_some() {
         return false;
     }
     let erased = class_name.split('<').next().unwrap_or(class_name);
@@ -290,7 +290,7 @@ fn is_open_type_arg(arg: &str) -> bool {
 /// The keyword spellings of built-in types (`type_names::canonical_arg`) — the only dot-free
 /// names a canonical type argument can carry.
 fn is_keyword_type_name(t: &str) -> bool {
-    crate::metadata::type_names::builtin_keyword(t) == Some(t)
+    crate::metadata::index::type_names::builtin_keyword(t) == Some(t)
 }
 
 /// Front cache, then the memo / walk. `td.id` is resolved; `key` is `target`'s key.

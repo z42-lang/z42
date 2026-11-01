@@ -88,7 +88,7 @@ pub(crate) fn unsupported_reason(instr: &Instruction) -> Option<&'static str> {
     })
 }
 
-use crate::metadata::type_param_markers::has_method_markers;
+use crate::metadata::index::type_param_markers::has_method_markers;
 
 /// Whether a call site's `method_type_args` contain a `$mta:N` forwarding marker, bare or inside
 /// a constructed argument (resolved against the caller frame at run time —

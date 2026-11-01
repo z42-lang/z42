@@ -209,7 +209,7 @@ pub(super) fn read_mods_section(
             } else {
                 Box::new([])
             };
-            let cold_inner = crate::metadata::bytecode::FunctionCold {
+            let cold_inner = crate::metadata::ir::FunctionCold {
                 param_types:            sig.map(|s| s.param_types.clone()).unwrap_or_default().into_boxed_slice(),
                 exception_table:        body.exception_table.into_boxed_slice(),
                 line_table:             dbug.line_table.into_boxed_slice(),

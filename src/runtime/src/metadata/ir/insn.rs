@@ -1,12 +1,5 @@
-//! 指令载荷结构（*Insn）与 Reg。refactor-split-bytecode：从 1334 行的 `bytecode.rs` 按职责拆出，
-//! 对外路径不变（`metadata::bytecode::*` 经 hub 的 `pub use` 全量再导出）。
+//! Register operands and boxed instruction payloads.
 
-#![allow(unused_imports)]
-use super::*;
-use crate::metadata::tokens::TypeId;
-use crate::metadata::types::{ExecMode, TypeDesc};
-use rustc_hash::FxHashMap;
-use std::sync::Arc;
 
 /// Register index.
 pub type Reg = u32;
@@ -20,7 +13,7 @@ pub type Reg = u32;
 // to the same `{"op":"call", dst, func, args}` as the old struct variant.
 // See docs/internals/src/formats/ir.md (hot/cold boxing strategy).
 
-/// Payload for [`Instruction::Call`].
+/// Payload for [`super::Instruction::Call`].
 #[derive(Debug)]
 pub struct CallInsn {
     pub dst: Reg,
@@ -33,7 +26,7 @@ pub struct CallInsn {
     pub method_type_args: Box<[String]>,
 }
 
-/// Payload for [`Instruction::ArrayNew`] (add-reflection-array-element-type).
+/// Payload for [`super::Instruction::ArrayNew`] (add-reflection-array-element-type).
 #[derive(Debug)]
 pub struct ArrayNewInsn {
     pub dst: Reg,
@@ -57,7 +50,7 @@ pub struct ArrayNewInsn {
     pub type_param_index: i32,
 }
 
-/// Payload for [`Instruction::ArrayNewLit`] (add-reflection-array-element-type).
+/// Payload for [`super::Instruction::ArrayNewLit`] (add-reflection-array-element-type).
 #[derive(Debug)]
 pub struct ArrayNewLitInsn {
     pub dst: Reg,
@@ -68,7 +61,7 @@ pub struct ArrayNewLitInsn {
     pub stack_alloc: bool,
 }
 
-/// Payload for [`Instruction::Builtin`].
+/// Payload for [`super::Instruction::Builtin`].
 #[derive(Debug)]
 pub struct BuiltinInsn {
     pub dst: Reg,
@@ -76,14 +69,14 @@ pub struct BuiltinInsn {
     pub args: Box<[Reg]>,
 }
 
-/// Payload for [`Instruction::LoadFn`].
+/// Payload for [`super::Instruction::LoadFn`].
 #[derive(Debug)]
 pub struct LoadFnInsn {
     pub dst: Reg,
     pub func: String,
 }
 
-/// Payload for [`Instruction::MkClos`].
+/// Payload for [`super::Instruction::MkClos`].
 #[derive(Debug)]
 pub struct MkClosInsn {
     pub dst: Reg,
@@ -91,7 +84,7 @@ pub struct MkClosInsn {
     pub captures: Box<[Reg]>,
 }
 
-/// Payload for [`Instruction::ObjNew`].
+/// Payload for [`super::Instruction::ObjNew`].
 #[derive(Debug)]
 pub struct ObjNewInsn {
     pub dst: Reg,
@@ -117,7 +110,7 @@ pub struct ObjNewInsn {
     pub ctor_known: bool,
 }
 
-/// Payload for [`Instruction::Typeof`].
+/// Payload for [`super::Instruction::Typeof`].
 ///
 /// `typeof(T)` reflection. `type_name` is the FQ definition name
 /// (`make_type_from_name`-resolvable); `type_args` are the FQ names of the
@@ -131,7 +124,7 @@ pub struct TypeofInsn {
     pub type_args: Box<[String]>,
 }
 
-/// Payload for [`Instruction::FieldGet`].
+/// Payload for [`super::Instruction::FieldGet`].
 #[derive(Debug)]
 pub struct FieldGetInsn {
     pub dst: Reg,
@@ -139,7 +132,7 @@ pub struct FieldGetInsn {
     pub field_name: String,
 }
 
-/// Payload for [`Instruction::FieldSet`].
+/// Payload for [`super::Instruction::FieldSet`].
 #[derive(Debug)]
 pub struct FieldSetInsn {
     pub obj: Reg,
@@ -147,7 +140,7 @@ pub struct FieldSetInsn {
     pub val: Reg,
 }
 
-/// Payload for [`Instruction::VCall`].
+/// Payload for [`super::Instruction::VCall`].
 #[derive(Debug)]
 pub struct VCallInsn {
     pub dst: Reg,
@@ -159,7 +152,7 @@ pub struct VCallInsn {
     pub method_type_args: Box<[String]>,
 }
 
-/// Payload for [`Instruction::IsInstance`].
+/// Payload for [`super::Instruction::IsInstance`].
 #[derive(Debug)]
 pub struct IsInstanceInsn {
     pub dst: Reg,
@@ -170,7 +163,7 @@ pub struct IsInstanceInsn {
     pub target: crate::metadata::tokens::TypeKeyCell,
 }
 
-/// Payload for [`Instruction::AsCast`].
+/// Payload for [`super::Instruction::AsCast`].
 #[derive(Debug)]
 pub struct AsCastInsn {
     pub dst: Reg,
@@ -181,21 +174,21 @@ pub struct AsCastInsn {
     pub target: crate::metadata::tokens::TypeKeyCell,
 }
 
-/// Payload for [`Instruction::StaticGet`].
+/// Payload for [`super::Instruction::StaticGet`].
 #[derive(Debug)]
 pub struct StaticGetInsn {
     pub dst: Reg,
     pub field: String,
 }
 
-/// Payload for [`Instruction::StaticSet`].
+/// Payload for [`super::Instruction::StaticSet`].
 #[derive(Debug)]
 pub struct StaticSetInsn {
     pub field: String,
     pub val: Reg,
 }
 
-/// Payload for [`Instruction::CallNative`].
+/// Payload for [`super::Instruction::CallNative`].
 #[derive(Debug)]
 pub struct CallNativeInsn {
     pub dst: Reg,
@@ -205,7 +198,7 @@ pub struct CallNativeInsn {
     pub args: Box<[Reg]>,
 }
 
-/// Payload for [`Instruction::StructAlloc`] (add-struct-value-semantics Phase A).
+/// Payload for [`super::Instruction::StructAlloc`] (add-struct-value-semantics Phase A).
 #[derive(Debug)]
 pub struct StructAllocInsn {
     pub dst: Reg,
@@ -216,7 +209,7 @@ pub struct StructAllocInsn {
     pub size: u32,
 }
 
-/// Payload for [`Instruction::StructFieldGetPrim`] (symbolic-struct-field-access P2, 方案 A).
+/// Payload for [`super::Instruction::StructFieldGetPrim`] (symbolic-struct-field-access P2, 方案 A).
 ///
 /// ⚠️ **`root_type` 不只是「所属类型」，它同时是编号空间的判别器。**
 /// 这条指令此前携带一个**烘焙好的字节偏移**，而那个偏移活在**两个互不相容的编号空间**里
@@ -242,7 +235,7 @@ pub struct StructFieldGetInsn {
     pub kind: u8,
 }
 
-/// Payload for [`Instruction::StructFieldSetPrim`] — 写侧镜像，语义见
+/// Payload for [`super::Instruction::StructFieldSetPrim`] — 写侧镜像，语义见
 /// [`StructFieldGetInsn`]。
 #[derive(Debug)]
 pub struct StructFieldSetInsn {
@@ -253,7 +246,7 @@ pub struct StructFieldSetInsn {
     pub val: Reg,
 }
 
-/// Payload for [`Instruction::LoadFieldAddr`].
+/// Payload for [`super::Instruction::LoadFieldAddr`].
 #[derive(Debug)]
 pub struct LoadFieldAddrInsn {
     pub dst: Reg,

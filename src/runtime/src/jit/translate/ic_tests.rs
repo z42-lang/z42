@@ -1,7 +1,7 @@
 //! Site-token readers used at translate time.
 
 use super::method_id_at;
-use crate::metadata::bytecode::{BasicBlock, Function, Terminator};
+use crate::metadata::ir::{BasicBlock, Function, Terminator};
 use crate::metadata::resolver::ResolvedTokens;
 use crate::metadata::tokens::UNRESOLVED;
 use crate::metadata::types::ExecMode;

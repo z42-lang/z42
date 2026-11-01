@@ -29,7 +29,7 @@
 //!
 //! 加载放大因此有界（≤ `available!` 触及的不同 dep 文件数），不会退化成「加载全世界」。
 
-use crate::metadata::bytecode::{Instruction, Module, Terminator};
+use crate::metadata::ir::{Instruction, Module, Terminator};
 use crate::metadata::namespace_index::ZpkgCandidate;
 use std::collections::HashSet;
 
@@ -227,7 +227,7 @@ fn probe_declared(fs: &dyn crate::pal::fs::Vfs, declared: &[(String, ZpkgCandida
 
 /// `A.B.C.Member` → `A.B.C`（去掉最后一段）。无点 → None（全局命名空间，无候选可查）。
 fn namespace_of(fq: &str) -> Option<String> {
-    crate::metadata::type_names::last_top_dot(fq).map(|i| fq[..i].to_string())
+    crate::metadata::index::type_names::last_top_dot(fq).map(|i| fq[..i].to_string())
 }
 
 /// 候选声明的 namespace `claimed` 是否覆盖目标 `ns`（等于或为其祖先）。
@@ -269,7 +269,7 @@ fn remove_unreachable_blocks(module: &mut Module, fi: usize) -> usize {
     let nblocks = module.functions[fi].blocks.len();
     if nblocks == 0 { return 0; }
 
-    let index_of = |label: &str, f: &crate::metadata::bytecode::Function| -> Option<usize> {
+    let index_of = |label: &str, f: &crate::metadata::ir::Function| -> Option<usize> {
         f.blocks.iter().position(|b| b.label == label)
     };
 

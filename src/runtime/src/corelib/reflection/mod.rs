@@ -24,7 +24,8 @@
 
 use crate::corelib::abi::BuiltinError;
 use crate::interp::{exec_function, exec_function_with_type_args, ExecOutcome};
-use crate::metadata::{well_known_names, NativeData, TypeDesc, Value};
+use crate::metadata::{NativeData, TypeDesc, Value};
+use crate::metadata::index::well_known_names;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 use std::collections::{HashSet, VecDeque};

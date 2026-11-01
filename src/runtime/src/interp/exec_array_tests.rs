@@ -2,7 +2,7 @@
 //! generic type-param element to a concrete type via `frame.method_type_args` /
 //! receiver `type_args`, so value-type slots get the type's zero instead of Null.
 use super::*;
-use crate::metadata::bytecode::Module;
+use crate::metadata::ir::Module;
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 

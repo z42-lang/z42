@@ -2,8 +2,8 @@
 //! target lives in a lazily loaded package is cached and dispatched like a module-local one.
 
 use super::*;
-use crate::metadata::bytecode::{BasicBlock, Instruction, Terminator};
-use crate::metadata::name_index::NameIndex;
+use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
+use crate::metadata::index::name::NameIndex;
 use crate::metadata::tokens::{alloc_type_id_block, FnId, TypeId};
 use crate::metadata::types::{ExecMode, NativeData, TypeDesc};
 use crate::metadata::Function;

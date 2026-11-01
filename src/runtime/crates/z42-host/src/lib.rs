@@ -121,7 +121,7 @@ impl Default for HostConfig {
 /// map directly from the packages they ship — no separate index file.
 /// Mirrors the C ABI `z42_zpkg_read_namespaces`.
 pub fn read_zpkg_namespaces(bytes: &[u8]) -> Result<Vec<String>, HostError> {
-    let info = z42::metadata::zbc_reader::read_zpkg_meta(bytes)
+    let info = z42::metadata::reader::read_zpkg_meta(bytes)
         .map_err(|e| HostError::BadZbc(format!("read zpkg metadata: {e:#}")))?;
     let mut keys = Vec::with_capacity(info.namespaces.len() + 1);
     if !info.name.is_empty() {

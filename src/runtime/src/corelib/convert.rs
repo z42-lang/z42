@@ -1,6 +1,6 @@
 use crate::metadata::Value;
 use crate::metadata::types::NativeData;
-use crate::metadata::well_known_names::int_wrapper_scalar_spec;
+use crate::metadata::index::well_known_names::int_wrapper_scalar_spec;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 use super::abi;
@@ -19,7 +19,7 @@ pub(crate) fn box_prim_to_heap(ctx: &VmContext, class: &str, raw: i64) -> Result
     // `Color.Blue.GetType()` folds. Width is 8/signed because z42 backs every enum
     // with i64 (`z42.core/src/Type.z42` — `GetEnumUnderlyingType()` is always `long`);
     // stated explicitly rather than leaning on the "shouldn't happen" fallback below.
-    let is_enum = td.class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM != 0;
+    let is_enum = td.class_flags & crate::metadata::ir::CLASS_FLAG_ENUM != 0;
     let (width, _signed) = if is_enum {
         (8, true)
     } else {

@@ -141,7 +141,7 @@ pub fn build_type_registry(module: &mut Module) {
         next_type_id += 1;
         // add-field-attribute-reflection: index per-field attr refs (instance +
         // static fields with attributes) by field name for reflection.
-        let field_attributes: Box<[(Box<str>, Box<[crate::metadata::bytecode::AttributeRef]>)]> =
+        let field_attributes: Box<[(Box<str>, Box<[crate::metadata::ir::AttributeRef]>)]> =
             desc.fields.iter()
                 .chain(desc.static_fields.iter())
                 .filter(|f| !f.attributes.is_empty())
@@ -361,9 +361,9 @@ pub fn build_type_registry(module: &mut Module) {
 #[inline]
 fn check_struct_field_table_coverage(
     class_name: &str,
-    desc: &crate::metadata::bytecode::ClassDesc,
+    desc: &crate::metadata::ir::ClassDesc,
 ) {
-    use crate::metadata::bytecode::CLASS_FLAG_STRUCT;
+    use crate::metadata::ir::CLASS_FLAG_STRUCT;
     // 判据取**并集**（旗子 or 交付了 struct 块），不是二选一：漏掉任一侧都会把门做成
     // 恒不响的摆设 —— 声明路径按 `c.Kind == "struct"` 置旗、实例化路径硬写 `Flags = 4`，
     // 但 struct 块本身还额外受 `Layouts.IsStructType(layoutKey)` 门控。

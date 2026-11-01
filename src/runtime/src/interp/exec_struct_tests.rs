@@ -361,7 +361,7 @@ fn stack_object_inline_struct_field_roundtrips() {
 #[test]
 #[ignore]
 fn symbolization_cost_by_path_depth() {
-    use crate::metadata::name_index::NameIndex;
+    use crate::metadata::index::name::NameIndex;
     use crate::metadata::tokens::TypeId;
     use crate::metadata::types::{FieldSlot, StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
     use std::sync::Arc;
@@ -370,7 +370,7 @@ fn symbolization_cost_by_path_depth() {
     fn struct_desc(name: &str, n: usize, nest: Option<&str>) -> Arc<TypeDesc> {
         Arc::new(TypeDesc {
             name: name.into(),
-            class_flags: crate::metadata::bytecode::CLASS_FLAG_STRUCT,
+            class_flags: crate::metadata::ir::CLASS_FLAG_STRUCT,
             fields: (0..n).map(|i| FieldSlot {
                 name: format!("f{i}").into(),
                 type_tag: if i == 0 { nest.unwrap_or("long").into() } else { "long".into() },

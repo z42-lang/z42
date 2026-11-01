@@ -9,7 +9,7 @@ use crate::jit::frame::JitFrame;
 use crate::jit::helpers::object_field::HELPER_CALLS;
 use crate::jit::invoke::{call_entry, NativeOutcome};
 use crate::jit::runtime::install;
-use crate::metadata::bytecode::{BasicBlock, FieldGetInsn, FieldSetInsn, Function, Instruction, Module, Terminator};
+use crate::metadata::ir::{BasicBlock, FieldGetInsn, FieldSetInsn, Function, Instruction, Module, Terminator};
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{
     ExecMode, FieldAccess, NativeData, ObjectLayout, TypeDesc, TypeDescCold,

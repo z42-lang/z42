@@ -2,7 +2,7 @@
 //! descriptors on package load, fixed-up versions after the inheritance fixup.
 
 use super::*;
-use crate::metadata::bytecode::{ClassDesc, FieldDesc, Module};
+use crate::metadata::ir::{ClassDesc, FieldDesc, Module};
 use crate::metadata::type_table::TypeTable;
 
 fn class(name: &str, base: Option<&str>, fields: &[&str]) -> ClassDesc {

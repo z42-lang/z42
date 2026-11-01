@@ -3,7 +3,7 @@
 //! loaded and generic-instantiation types too.
 
 use super::*;
-use crate::metadata::bytecode::{ClassDesc, Module};
+use crate::metadata::ir::{ClassDesc, Module};
 use crate::metadata::tokens::{TypeId, TypeKeyCell};
 use std::sync::Arc;
 

@@ -35,8 +35,11 @@ string[] _lyMapBase() {
     return new string[]{
         "pal/                          = pal",
         "metadata/                     = metadata        # 静态包信息（hub 与未单列的文件）",
-        "metadata/zbc_reader/          = metadata        # reader/",
-        "metadata/bytecode             = metadata        # ir/",
+        "metadata/reader/              = metadata",
+        "metadata/ir/                  = metadata",
+        "metadata/format/              = metadata",
+        "metadata/index/               = metadata",
+        "metadata/debug/               = metadata",
         "metadata/types                = object          # object types/ value/ object/ array/",
         "metadata/vstr.rs              = object          # object string/",
         "corelib/str_meta.rs           = object          # object string/（非 ASCII 字符索引）",

@@ -3,7 +3,7 @@ use super::*;
 /// Precompute block label → index mapping for all functions in the module.
 /// This eliminates the O(n) HashMap construction in every exec_function call.
 pub fn build_block_indices(module: &mut Module) {
-    use crate::metadata::bytecode::{BranchTargets, Terminator};
+    use crate::metadata::ir::{BranchTargets, Terminator};
     for func in &mut module.functions {
         // cache-zpkg-candidate-scan：同一批函数会被跑**两遍**——
         // 依赖 zpkg 作为 artifact 加载时一遍，合并进入口模块后又一遍（实测 z42.core
@@ -48,8 +48,8 @@ pub fn build_block_indices(module: &mut Module) {
         // re-formatting. `format_frame_name` needs `param_types` (in the cold box)
         // + the display name; the file comes from the line table's first entry.
         func.frame_meta = Some((
-            std::sync::Arc::from(crate::metadata::bytecode::format_frame_name(func)),
-            std::sync::Arc::from(crate::metadata::bytecode::frame_file(func)),
+            std::sync::Arc::from(crate::metadata::debug::format_frame_name(func)),
+            std::sync::Arc::from(crate::metadata::debug::frame_file(func)),
         ));
         // interp-frame-presize: backfill the register-file length so the interp
         // `Frame::new*` pre-sizes the register file in one `resize` instead of

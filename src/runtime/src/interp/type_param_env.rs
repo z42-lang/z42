@@ -1,5 +1,5 @@
 //! What the type-parameter markers of a shared generic body (`$mta:N` / `$cta:N@Owner`,
-//! [`crate::metadata::type_param_markers`]) mean in **one activation**.
+//! [`crate::metadata::index::type_param_markers`]) mean in **one activation**.
 //!
 //! The carriers are the ones `typeof(T)` already reads, so a body's `o is T`, `new List<T>()`,
 //! `catch (Err<T>)` and `typeof(T)` agree on what `T` is:
@@ -11,7 +11,7 @@
 //! Both engines go through this one type: interp builds it from its `Frame`
 //! (`Frame::type_param_env`), the JIT helpers from their frame's reg 0 (no method arguments).
 
-use crate::metadata::type_param_markers::{self, Marker};
+use crate::metadata::index::type_param_markers::{self, Marker};
 use crate::metadata::types::TypeArgs;
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
@@ -47,7 +47,7 @@ impl<'a> TypeParamEnv<'a> {
     /// tests name built-ins by their class (`Std.Int32`), as z42c does for a written `o is int`.
     pub(crate) fn test_target(&self, ctx: &VmContext, name: &str) -> String {
         let t = self.substitute(ctx, name);
-        match crate::metadata::type_names::builtin_fqn(&t) {
+        match crate::metadata::index::type_names::builtin_fqn(&t) {
             Some(fqn) => fqn.to_string(),
             None => t,
         }

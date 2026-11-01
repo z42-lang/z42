@@ -1,12 +1,6 @@
-//! Instruction / Terminator / BranchTargets 枚举 + impl Instruction。refactor-split-bytecode：从 1334 行的 `bytecode.rs` 按职责拆出，
-//! 对外路径不变（`metadata::bytecode::*` 经 hub 的 `pub use` 全量再导出）。
+//! Instructions, terminators and branch-target queries.
 
-#![allow(unused_imports)]
 use super::*;
-use crate::metadata::tokens::TypeId;
-use crate::metadata::types::{ExecMode, TypeDesc};
-use rustc_hash::FxHashMap;
-use std::sync::Arc;
 
 impl Instruction {
     /// The register this instruction writes (its `dst`), or `None` for the
