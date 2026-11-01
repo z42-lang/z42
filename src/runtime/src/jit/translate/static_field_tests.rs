@@ -7,11 +7,11 @@ use crate::jit::frame::JitFrame;
 use crate::jit::helpers::object::STATIC_HELPER_CALLS;
 use crate::jit::invoke::{call_entry, NativeOutcome};
 use crate::jit::runtime::install;
-use crate::metadata::ir::{
-    BasicBlock, FieldDesc, Function, Instruction, Module, StaticGetInsn, StaticSetInsn, Terminator,
-};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::ir::{BasicBlock, FieldDesc, Instruction, StaticGetInsn, StaticSetInsn, Terminator};
 use crate::metadata::tokens::TypeId;
-use crate::metadata::types::{ExecMode, NativeData, ObjectLayout, TypeDesc, TypeDescCold};
+use crate::metadata::ir::ExecMode;
+use crate::metadata::types::{NativeData, ObjectLayout, TypeDesc, TypeDescCold};
 use crate::metadata::{IrType, Value};
 use crate::vm_context::VmContext;
 use std::sync::Arc;
@@ -20,14 +20,24 @@ use std::sync::Arc;
 
 fn func(name: &str, params: usize, regs: &[IrType], blocks: Vec<BasicBlock>) -> Function {
     let block_index = blocks.iter().enumerate().map(|(i, b)| (b.label.clone(), i)).collect();
-    Function {
-        name: name.to_string(), param_count: params, ret_type: "object".to_string(),
-        exec_mode: ExecMode::Jit, blocks, is_static: true, visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
-        max_reg: regs.len().saturating_sub(1) as u32, cold: None, reg_types: regs.into(),
-        block_index, branch_targets: Vec::new(), fused_tails: Vec::new(), frame_meta: None,
-        resolved: std::sync::OnceLock::new(), owner_init: Default::default(), id: Default::default(), forward: Default::default(),
-    }
+    Function::new(crate::metadata::ir::Function {
+        name: name.to_string(),
+        param_count: params,
+        ret_type: "object".to_string(),
+        exec_mode: ExecMode::Jit,
+        blocks,
+        is_static: true,
+        visibility: 0,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
+        max_reg: regs.len().saturating_sub(1) as u32,
+        cold: None,
+        reg_types: regs.into(),
+        block_index,
+        branch_targets: Vec::new(),
+        frame_meta: None,
+    })
 }
 
 fn block(label: &str, instructions: Vec<Instruction>, terminator: Terminator) -> BasicBlock {
@@ -77,10 +87,12 @@ fn class(name: &str, id: u32, statics: &[(&str, &str)], cctor: bool) -> Arc<Type
 
 fn module(functions: Vec<Function>, types: Vec<Arc<TypeDesc>>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module {
-        name: "T".to_string(), string_pool: Vec::new(), classes: Vec::new(), functions,
-        type_registry: types.into_iter().map(|t| (t.name.clone(), t)).collect(), func_index,
-    }
+    Module::new(crate::metadata::image::ModuleData {
+        name: "T".to_string(),
+        string_pool: Vec::new(),
+        classes: Vec::new(),
+        func_index,
+    }, functions, types.into_iter().map(|t| (t.name.clone(), t)).collect())
 }
 
 /// A VM running `build()` as its entry module, its JIT installed, every static constructor of the

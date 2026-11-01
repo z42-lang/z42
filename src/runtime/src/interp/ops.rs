@@ -129,7 +129,7 @@ pub(super) fn to_usize(v: &Value, ctx: &str) -> Result<usize> {
 #[cold]
 #[inline(never)]
 pub(super) fn raise(
-    ctx: &crate::vm_context::VmContext, module: &crate::metadata::Module, e: crate::objops::OpError,
+    ctx: &crate::vm_context::VmContext, module: &crate::vm::runtime::Module, e: crate::objops::OpError,
 ) -> Result<Option<Value>> {
     e.into_exception(ctx, Some(module)).map(Some)
 }

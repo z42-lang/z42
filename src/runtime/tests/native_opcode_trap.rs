@@ -7,13 +7,12 @@
 
 use std::collections::HashMap;
 
-use z42::metadata::{
-    BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Function, Instruction, Module, Terminator, Value,
-};
+use z42::vm::runtime::{Function, Module};
+use z42::metadata::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator, Value};
 use z42::vm_context::VmContext;
 
 fn module_with_single_instr(name: &str, instr: Instruction) -> Module {
-    let func = Function {
+    let func = Function::new(z42::metadata::ir::Function {
         name: format!("{name}.Main"),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -24,27 +23,24 @@ fn module_with_single_instr(name: &str, instr: Instruction) -> Module {
             terminator: Terminator::Ret { reg: None },
         }],
         is_static: true,
-        visibility: 0, method_flags: 0, min_arg: 0, params_from: 0xFF,        max_reg: 4,
+        visibility: 0,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
+        max_reg: 4,
         cold: None,
         reg_types: Box::new([]),
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    };
+    });
 
-    Module {
+    Module::new(z42::metadata::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![],
         classes: vec![],
-        functions: vec![func],
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, vec![func], rustc_hash::FxHashMap::default())
 }
 
 fn run(module: &Module) -> anyhow::Result<()> {

@@ -45,10 +45,11 @@
 |------|------|
 | `format/` | `mod.rs` 的 magic 与依赖记录、`versions.rs` 的严格版本校验、`build_id.rs` 的符号配对标识 |
 | `reader/` | zbc / zpkg 二进制解码：节目录、指令、签名、类型、包目录与 sidecar；输出 IR 与调试记录 |
-| `ir/` | `module` / `class` / `function` / `instruction` / `insn` 的解码结构与 `reg_type` 寄存器类型；Module / Function 仍含加载后填写的运行期字段 |
+| `ir/` | `module` / `class` / `function` / `instruction` / `insn` 的解码结构与 `reg_type` 寄存器类型；Module / Function 只含静态定义；`exec_mode` 提供执行策略枚举 |
+| `image.rs` | `PackageImage`：可跨 VM 共享的不可变定义快照，持有模块数据与函数定义的 Arc；不持有类型表或运行期缓存 |
 | `index/` | `name` 字段/vtable 名称索引、`type_names` 类型名操作、`well_known_names` 常量与 `type_param_markers` 静态标记替换 |
 | `debug/` | `symbols` 的源位置 / 局部变量 / DBUG 记录，`frames` 的帧名与源文件查询；sidecar 定位及覆盖由 loader 执行 |
-| `types.rs` + `types/` | 运行时值类型与对象模型：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局、字段单元归属与编解码）、`cells`（堆上单元的同宽原子访问视图）、`ref_word`（8 B 自描述引用字）、`tparam_cell`（16 B 型参单元：自描述标签字 + 基元负载字）、`struct_blob`（堆上值 struct blob 与帧 arena 形态互转）、`object` / `object_fields` / `owned_object`（ScriptObject 对象头 / NativeData / 堆外对象 `OwnedObject`；字段单元的原子读写与 GC 遍历）、`array` / `array_elems` / `array_access`（ArrayObj：REF / MIXED / PRIM / STRUCT / FROZEN 模式）、`value` / `value_aux`（Value / ExecMode / Closure 数据）；hub 全量 `pub use` |
+| `types.rs` + `types/` | 运行时值类型与对象模型：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局、字段单元归属与编解码）、`cells`（堆上单元的同宽原子访问视图）、`ref_word`（8 B 自描述引用字）、`tparam_cell`（16 B 型参单元：自描述标签字 + 基元负载字）、`struct_blob`（堆上值 struct blob 与帧 arena 形态互转）、`object` / `object_fields` / `owned_object`（ScriptObject 对象头 / NativeData / 堆外对象 `OwnedObject`；字段单元的原子读写与 GC 遍历）、`array` / `array_elems` / `array_access`（ArrayObj：REF / MIXED / PRIM / STRUCT / FROZEN 模式）、`value` / `value_aux`（Value / Closure 数据）；hub 全量 `pub use` |
 | `loader.rs` + `loader/` | 统一加载入口 `load_artifact(fs, path)` → `Module`（从调用方给的 VFS 读）；`build_type_registry` 预构建 `TypeDesc` 注册表；`namespace` / `indices` / `constraints` / `availability` 等关注点子模块 |
 | `lazy_loader.rs` + `lazy_loader/` | 惰性依赖加载（启动只载 `z42.core`，其余 zpkg 首次用到时加载：按 DEPS 引用表精确路由到定义包 `symbols.rs`，无静态引用的名字按命名空间前缀兜底 `resolve.rs`；加载与注册 `registry.rs`） |
 | `merge.rs` | 多模块合并：字符串池重映射 + 函数拼接 |
@@ -61,6 +62,12 @@
 | `seg_vec.rs` | `SegVec`（只追加、读无锁的分段向量）/ `SparseSegTable`（按 id 索引、段首次触达才分配的侧表） |
 | `superinstr.rs` | 超级指令融合框架 |
 
+
+### src/vm/runtime/ — 每 VM 的链接状态
+
+`Module` / `Function` 共享 `PackageImage` 的静态定义，分别持有类型注册表与 FnId、解析、初始化、转发和站点缓存。
+链接期修改静态字段使用写时复制；`Module::image()` 生成当前定义快照，旧映像保持不变。
+`VmContext::with_image` 为同一映像构建独立的类型表与缓存；`new_with_core` 继续共享同一 VM 的状态。
 
 ### crates/ — Rust workspace 子 crate
 native interop 三层 ABI 的 Rust 侧公开接口与宿主 / native 扩展 crate；详见 [`crates/README.md`](crates/README.md)。

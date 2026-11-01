@@ -4,7 +4,8 @@
 //!
 //! 用户可见的异常类与消息文本**只在本文件**定义；任何一侧都不得自己拼一条。
 
-use crate::metadata::{Module, Value};
+use crate::vm::runtime::Module;
+use crate::metadata::Value;
 use crate::vm_context::VmContext;
 
 pub const NULL_REF_EXC: &str = crate::semantics::NULL_REF_EXC;

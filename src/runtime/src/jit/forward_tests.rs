@@ -4,11 +4,12 @@
 //! is covered by the golden suite under `--mode jit`.
 
 use super::builtin_forward;
-use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Function, Instruction, Terminator};
-use crate::metadata::types::ExecMode;
+use crate::vm::runtime::Function;
+use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator};
+use crate::metadata::ir::ExecMode;
 
 fn wrapper(name: &str, params: usize, args: &[u32], ret: Option<u32>) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: "T.C.F".to_string(),
         param_count: params,
         ret_type: "i64".to_string(),
@@ -16,25 +17,24 @@ fn wrapper(name: &str, params: usize, args: &[u32], ret: Option<u32>) -> Functio
         blocks: vec![BasicBlock {
             label: "entry".to_string(),
             instructions: vec![Instruction::Builtin(Box::new(BuiltinInsn {
-                dst: params as u32, name: name.to_string(), args: args.into(),
+                dst: params as u32,
+                name: name.to_string(),
+                args: args.into(),
             }))],
             terminator: Terminator::Ret { reg: ret },
         }],
         is_static: false,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 0,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 #[test]

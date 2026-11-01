@@ -12,7 +12,7 @@
 //! returns the error below; the user-visible message in `vm.rs::Vm::run`
 //! reproduces the same milestone hint.
 
-use crate::metadata::{Function, Module};
+use crate::vm::runtime::{Function, Module};
 use anyhow::Result;
 
 pub fn run(_module: &Module, _func: &Function) -> Result<()> {

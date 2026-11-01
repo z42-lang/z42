@@ -25,7 +25,7 @@
 //! `ResolvedTokens`).
 
 use crate::metadata::tokens::UNRESOLVED;
-use crate::metadata::Function;
+use crate::vm::runtime::Function;
 use std::sync::atomic::AtomicU32;
 
 /// Per-function lazy-init cache populated by `resolve_module`. Stored on
@@ -98,7 +98,7 @@ pub use ic::{
 /// `ctx` is needed for `StaticGet/Set` resolution: static field IDs are
 /// allocated lazily through `VmContext::resolve_static_field_id` so
 /// cross-zpkg static fields can be encountered in any load order.
-pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::vm_context::VmContext) {
+pub fn resolve_module(module: &crate::vm::runtime::Module, ctx: &crate::vm_context::VmContext) {
     for func in &module.functions {
         resolve_function_tokens(func, module, ctx);
     }
@@ -127,7 +127,7 @@ pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::vm_context:
 /// already populated this function.
 pub fn resolve_function_tokens(
     func: &Function,
-    module: &crate::metadata::Module,
+    module: &crate::vm::runtime::Module,
     ctx: &crate::vm_context::VmContext,
 ) {
     {

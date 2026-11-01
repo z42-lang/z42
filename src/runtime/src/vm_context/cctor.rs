@@ -694,7 +694,7 @@ impl crate::vm_context::VmContext {
     /// (including an unresolved owner cell) simply keeps the caller on the
     /// full barrier — a settle record is only ever an optimization.
     pub fn callee_barrier_settled(
-        &self, owner: &crate::metadata::ir::OwnerInitCell,
+        &self, owner: &crate::vm::runtime::OwnerInitCell,
     ) -> bool {
         let cc = &self.core.cctors;
         if cc.any_module_init_pending() { return false; }
@@ -709,13 +709,13 @@ impl crate::vm_context::VmContext {
     }
 
     ///
-    /// `owner` is the callee's [`Function::owner_init`](crate::metadata::Function::owner_init)
+    /// `owner` is the callee's [`Function::owner_init`](crate::vm::runtime::Function::owner_init)
     /// cell. After the first call it holds the answer, so the steady-state cost
     /// is one `OnceLock` read — and nothing at all for free functions and
     /// methods of types without a static constructor, which is almost every call.
     #[inline]
     pub fn ensure_callee_owner_init(
-        &self, func_fq: &str, owner: &crate::metadata::ir::OwnerInitCell,
+        &self, func_fq: &str, owner: &crate::vm::runtime::OwnerInitCell,
     ) -> Result<(), String> {
         if !self.core.cctors.any_pending() { return Ok(()); }
         // Owner resolved and without a static constructor — almost every call.
@@ -725,7 +725,7 @@ impl crate::vm_context::VmContext {
 
     #[inline(never)]
     fn ensure_callee_owner_init_slow(
-        &self, func_fq: &str, owner: &crate::metadata::ir::OwnerInitCell,
+        &self, func_fq: &str, owner: &crate::vm::runtime::OwnerInitCell,
     ) -> Result<(), String> {
         if let Some(cached) = owner.get() {
             return match cached {
@@ -810,8 +810,8 @@ impl crate::vm_context::VmContext {
         // （`__static_init__` 之所以能被它找到，是因为那些名字会被显式压进 pending 队列）。
         // 只用 try_lookup_function 的话，同模块的静态构造器会「明明存在却 not found」——
         // 实测：`C.C$0` 当 entry 能正常跑，屏障里却查不到。
-        let run = |f: &crate::metadata::ir::Function,
-                   module: &crate::metadata::Module| -> Option<String> {
+        let run = |f: &crate::vm::runtime::Function,
+                   module: &crate::vm::runtime::Module| -> Option<String> {
             match crate::interp::exec_function(self, module, f, &[]) {
                 Ok(crate::interp::ExecOutcome::Returned(_)) => None,
                 // 取异常对象的 Message 字段；非异常值（裸抛）才回落到值的文本形式。
@@ -856,7 +856,7 @@ impl crate::vm_context::VmContext {
 /// 仍能把错误传出去，而不是静默吞掉。
 pub fn make_type_init_exception(
     vm: &crate::vm_context::VmContext,
-    module: &crate::metadata::Module,
+    module: &crate::vm::runtime::Module,
     msg: &str,
 ) -> crate::metadata::Value {
     if let Ok(e) = crate::exception::make_stdlib_exception(

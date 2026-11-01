@@ -13,7 +13,8 @@
 ///     `Z####:` prefix — the error message text is the diagnostic itself.
 
 use crate::exception::make_stdlib_exception;
-use crate::metadata::{Module, Value};
+use crate::vm::runtime::Module;
+use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 

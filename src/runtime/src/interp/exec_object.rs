@@ -2,7 +2,8 @@
 /// to its size). Covers: ObjNew (allocate + ctor), FieldGet / FieldSet,
 /// IsInstance / AsCast (runtime type checks), StaticGet / StaticSet.
 
-use crate::metadata::{Module, Value};
+use crate::vm::runtime::Module;
+use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 

@@ -4,7 +4,7 @@ impl VmContext {
     /// Public accessor for the shared compiled Module installed by
     /// [`with_module`](Self::with_module). Returns `None` if VmContext was
     /// built via [`new`](Self::new) (test path).
-    pub fn module(&self) -> Option<&Arc<crate::metadata::Module>> {
+    pub fn module(&self) -> Option<&Arc<crate::vm::runtime::Module>> {
         self.core.module.as_ref()
     }
 
@@ -116,17 +116,37 @@ impl VmContext {
     /// Module wrapped in `Arc` for cross-thread sharing. Required by any
     /// path that may invoke `__thread_spawn` (which dispatches into the
     /// shared module from the spawned thread).
-    pub fn with_module(module: crate::metadata::Module) -> std::pin::Pin<Box<Self>> {
-        Self::new_internal(Some(Arc::new(module)), crate::pal::fs::default_vfs())
+    pub fn with_module(module: crate::vm::runtime::Module) -> std::pin::Pin<Box<Self>> {
+        Self::with_module_and_vfs(module, crate::pal::fs::default_vfs())
     }
 
     /// [`with_module`](Self::with_module) on the file system `vfs`: every path-based file
     /// builtin and every package load of this VM goes through it.
     pub fn with_module_and_vfs(
-        module: crate::metadata::Module,
+        mut module: crate::vm::runtime::Module,
         vfs: Arc<dyn crate::pal::fs::Vfs>,
     ) -> std::pin::Pin<Box<Self>> {
+        module.clear_link_state();
         Self::new_internal(Some(Arc::new(module)), vfs)
+    }
+
+    /// Instantiate shared package definitions with fresh per-VM types and caches.
+    pub fn with_image(
+        image: Arc<crate::metadata::image::PackageImage>,
+    ) -> anyhow::Result<std::pin::Pin<Box<Self>>> {
+        Self::with_image_and_vfs(image, crate::pal::fs::default_vfs())
+    }
+
+    /// Instantiate an image using this VM's file system for subsequent loads.
+    pub fn with_image_and_vfs(
+        image: Arc<crate::metadata::image::PackageImage>,
+        vfs: Arc<dyn crate::pal::fs::Vfs>,
+    ) -> anyhow::Result<std::pin::Pin<Box<Self>>> {
+        let mut module = crate::vm::runtime::Module::from_image(image);
+        crate::metadata::loader::build_type_registry(&mut module);
+        crate::metadata::loader::verify_constraints(&module)?;
+        crate::metadata::loader::build_block_indices(&mut module);
+        Ok(Self::with_module_and_vfs(module, vfs))
     }
 
     /// The file system this VM reads and writes through.
@@ -208,7 +228,7 @@ impl VmContext {
     }
 
     fn new_internal(
-        module: Option<Arc<crate::metadata::Module>>,
+        module: Option<Arc<crate::vm::runtime::Module>>,
         vfs: Arc<dyn crate::pal::fs::Vfs>,
     ) -> std::pin::Pin<Box<Self>> {
         let pending_exception: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));

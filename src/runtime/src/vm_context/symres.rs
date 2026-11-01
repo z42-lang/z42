@@ -22,7 +22,8 @@
 //! **只在确信时才报错。** 属主类型解析不出来时**不报**（那是另一类缺失，归 ObjNew 那个
 //! 站点管），保持既有行为。宁可漏掉一些，也不要把正常的跨包加载变成崩溃。
 
-use crate::metadata::{Module, TypeDesc};
+use crate::vm::runtime::Module;
+use crate::metadata::TypeDesc;
 use crate::vm_context::VmContext;
 
 /// 静态字段声明的类型：`type_tag`，以及它是不是声明类型的**未代换型参**（擦除泛型定义上的
@@ -246,7 +247,7 @@ impl CallArity {
 ///
 /// `params` 变长尾参：调用点通常已打包成数组（普查中实参数恒等于形参数），但展开形状多出的
 /// 实参同样放行 ⇒ 无上界。
-pub fn call_arity(f: &crate::metadata::Function) -> CallArity {
+pub fn call_arity(f: &crate::vm::runtime::Function) -> CallArity {
     let sret = (f.method_flags & crate::metadata::ir::METHOD_FLAG_SRET) != 0;
     let expected = f.param_count.saturating_add(sret as usize).min(u16::MAX as usize) as u16;
     let max = if f.params_from != 0xFF { u16::MAX } else { expected };

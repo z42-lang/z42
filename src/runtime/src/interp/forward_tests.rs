@@ -8,35 +8,38 @@
 
 use std::sync::Arc;
 
-use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Function, Instruction, Module, Terminator};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator};
 use crate::metadata::tokens::TypeId;
-use crate::metadata::types::{ExecMode, FieldSlot, TypeDesc};
+use crate::metadata::ir::ExecMode;
+use crate::metadata::types::{FieldSlot, TypeDesc};
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use crate::interp::ExecOutcome;
 
 fn func(name: &str, params: usize, instructions: Vec<Instruction>, terminator: Terminator) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: params,
         ret_type: "object".to_string(),
         exec_mode: ExecMode::Interp,
-        blocks: vec![BasicBlock { label: "entry".to_string(), instructions, terminator }],
+        blocks: vec![BasicBlock {
+            label: "entry".to_string(),
+            instructions,
+            terminator,
+        }],
         is_static: true,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 8,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 /// `%n = builtin <name>(%0..%n-1); ret %n` (or `ret` void).
@@ -95,7 +98,12 @@ pub(crate) fn module_of(functions: Vec<Function>) -> Module {
     ] {
         type_registry.insert(n.to_string(), exception_type(n, b));
     }
-    Module { name: "M".into(), string_pool: Vec::new(), classes: Vec::new(), functions, type_registry, func_index }
+    Module::new(crate::metadata::image::ModuleData {
+        name: "M".into(),
+        string_pool: Vec::new(),
+        classes: Vec::new(),
+        func_index,
+    }, functions, type_registry)
 }
 
 fn idx(m: &Module, name: &str) -> usize { m.func_index[name] }

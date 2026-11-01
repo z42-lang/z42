@@ -8,7 +8,8 @@
 //! the JIT has one (tiered), otherwise the interpreter on a receiver-filled frame.
 
 use crate::metadata::resolver::VCallIC;
-use crate::metadata::{Function, Value};
+use crate::vm::runtime::Function;
+use crate::metadata::Value;
 use crate::interp::vcall_resolve::{resolve_vcall, vcall_ic_hit, VCallTarget};
 
 use super::super::frame::{FnEntry, JitFrame};

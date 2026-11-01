@@ -17,8 +17,20 @@
 源位置、局部变量和 DBUG 函数记录位于 `metadata/debug`，帧名格式化与无分配的分片输出也由它提供。
 sidecar 的定位、build-id 配对及数据覆盖仍由加载器编排，加载时机见下文「Sidecar 调试符号加载」。
 
-当前 `Module` 还包含加载器填写的类型注册表与函数索引，`Function` 还包含 VM 身份、解析缓存及
-初始化/转发缓存。这些字段在注册和执行时填写，因此当前解码结果并不是可以跨 VM 共享的不可变包映像。
+`metadata::ir::{Module, Function}` 只保存解码后的静态定义。`metadata::image::PackageImage` 将模块名、
+字符串池、类签名、函数索引与函数定义封装为只读映像；函数定义包含指令、签名、调试信息及由它们推导的
+控制流/帧信息。映像没有 FnId、TypeDesc、GC 值或可变缓存，可以通过 Arc 跨 VM 共享。
+
+`vm::runtime::{Module, Function}` 是每 VM 的链接对象：Module 拥有类型注册表，Function 拥有 FnId、
+ResolvedTokens、类型初始化属主、Native 转发判定与融合执行计划；`sites` 的 OnceLock 侧表保存每个
+is/as/catch 目标键及数组元素/对象泛型实参的驻留句柄。侧表首次使用时建立，此前指令已完整解码；JIT 烘焙
+这些 VM 侧单元的稳定地址，不把 VM 状态放回映像。
+
+常规加载仍按原有顺序解码、合并、构建类型表、验证约束与准备索引；链接对象持有静态定义的 Arc，链接时
+改写字面量索引、裁剪 CFG 或覆盖调试信息使用写时复制。普通定义修改清除派生索引、帧信息和链接缓存；
+仅重映射字符串 id 保留控制流与融合计划。`Module::image()` 捕获当前定义，后续改写不会影响旧映像。
+`VmContext::with_image` 为映像构建新的类型注册表、身份和缓存；跨 VM 不复用已登记的链接函数。
+解码/包加载时机与字节码格式保持不变，没有全局映像缓存或按需解码。
 
 ## VmContext / VmCore —— 运行时状态归口
 
@@ -33,11 +45,12 @@ vm.run(&ctx, hint)?;
 
 上述装配（`available!` 折叠 → `with_module` → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/boot.rs::boot_context` 一处完成，`app::run` 与嵌入 host（`host/ops.rs`）共用。
 
-### VmContext 构造 entry —— 三个
+### VmContext 构造入口
 
 | 方法 | 用途 | 备注 |
 |------|------|------|
 | `VmContext::with_module(module: Module) -> Pin<Box<Self>>` | 生产入口；构造新 VmCore + 把 `Arc<Module>` 装入 `VmCore.module` | `__thread_spawn` worker 需要 `VmCore.module = Some` 来 dispatch；test 路径若不需要 module 走 `new()` |
+| `VmContext::with_image(image: Arc<PackageImage>) -> Result<Pin<Box<Self>>>` | 复用不可变定义，构造新 VM 的类型表并验证约束 | 不复用另一 VM 的 FnId 或缓存；`with_image_and_vfs` 指定后续文件系统 |
 | `VmContext::new() -> Pin<Box<Self>>` | 测试入口；构造新 VmCore + `module = None` | 单测大量用（heap / 静态字段 / corelib 单测均不需要真 Module） |
 | `VmContext::new_with_core(core: Arc<VmCore>) -> Pin<Box<Self>>` | spawn 入口；**复用现有 VmCore**，仅构造 per-thread 字段 + register self 到 `vm_contexts` | `__thread_spawn` worker 通过此构造，让 worker 看见父 VmCore 的 statics / heap / lazy_loader / native_libs |
 
@@ -47,7 +60,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.jit` 是�
 
 ### VmCore：跨线程共享状态
 
-`VmCore` 持有 **process-globally singular** 的状态，通过 `Arc<VmCore>` 让多个 `VmContext`（每个 OS 线程一个）共享：
+`VmCore` 持有 **VM 级**的状态，通过 `Arc<VmCore>` 让多个 `VmContext`（每个 OS 线程一个）共享：
 
 - `statics: StaticTable` — 用户类 static 字段（`vm_context/static_table.rs`）：每个 `StaticFieldId` 一个地址稳定的 16 B 单元
   （型参单元协议，读写无锁，单元旁缓存类型初始化屏障的属主判定），外加 FQN → id 的登记表（首次用到才分配，解析期才走它的锁）。

@@ -34,7 +34,8 @@
 //! - **Phase 2/3 lever**: when the time comes to make `compile_module`
 //!   generic, the trait is already there; we just change a signature.
 
-use crate::metadata::{Function, Module, TypeDesc};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::TypeDesc;
 use std::sync::Arc;
 
 /// Read-only metadata contract the JIT backend uses against the source

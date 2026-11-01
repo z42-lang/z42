@@ -5,7 +5,8 @@
 /// (see `helpers/`). Only branches, jumps, and function entry/exit are
 /// emitted as inline Cranelift instructions.
 
-use crate::metadata::{Function, Instruction, Terminator};
+use crate::vm::runtime::Function;
+use crate::metadata::{Instruction, Terminator};
 use crate::metadata::{
     AsCastInsn, BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, IsInstanceInsn,
     LoadFnInsn, MkClosInsn, ObjNewInsn, StaticGetInsn, StaticSetInsn, TypeofInsn,
@@ -343,7 +344,7 @@ pub fn translate_function(
                     .expect("catch_label block must exist");
                 let ty = match entry.catch_type.as_deref() {
                     None | Some("*") => None,
-                    Some(t)          => Some((t, &entry.catch_key)),
+                    Some(t)          => Some((t, z42_func.catch_key(ei))),
                 };
                 (cl_blocks[catch_idx], entry.catch_reg, ty)
             }).collect();

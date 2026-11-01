@@ -2,19 +2,18 @@
 //! Covers: loader populates TypeDesc/Function constraints; verify pass flags bad refs;
 //! `Std.*` refs are passed through for lazy loader to resolve.
 
-use super::ir::{ClassDesc, ConstraintBundle, Function, Module};
+use crate::vm::runtime::{Function, Module};
+use super::ir::{ClassDesc, ConstraintBundle};
 use super::loader::{build_type_registry, verify_constraints};
-use super::types::ExecMode;
+use super::ir::ExecMode;
 
 fn empty_module(name: &str) -> Module {
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: name.to_owned(),
         string_pool: vec![],
         classes: vec![],
-        functions: vec![],
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, vec![], rustc_hash::FxHashMap::default())
 }
 
 fn simple_class(name: &str) -> ClassDesc {
@@ -46,7 +45,7 @@ fn generic_fn(name: &str, tp: &str, bundle: ConstraintBundle) -> Function {
         type_param_constraints: vec![bundle].into_boxed_slice(),
         ..Default::default()
     }));
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_owned(),
         param_count: 0,
         ret_type: "void".into(),
@@ -54,19 +53,16 @@ fn generic_fn(name: &str, tp: &str, bundle: ConstraintBundle) -> Function {
         blocks: vec![],
         is_static: false,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 0,
         cold,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 #[test]

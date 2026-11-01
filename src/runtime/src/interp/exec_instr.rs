@@ -22,7 +22,8 @@
 /// measured slower — a call per access costs store-heavy loops more than the tighter
 /// loop gains. The loop's own slow paths live in `exec_body_cold.rs`.
 
-use crate::metadata::{Function, Instruction, Module, Value};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Instruction, Value};
 use crate::metadata::{
     BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, MkClosInsn, ObjNewInsn,
     StaticGetInsn, StaticSetInsn, VCallInsn,
@@ -241,12 +242,12 @@ pub fn exec_instr(
 
         // ── Arrays ───────────────────────────────────────────────────────────
         Instruction::ArrayNew(insn) => {
-            if let Some(thrown) = exec_array::array_new(ctx, module, frame, insn.dst, insn.size, insn.elem_tag, insn.element_type, insn.stack_alloc, insn.type_param_kind, insn.type_param_index)? {
+            if let Some(thrown) = exec_array::array_new(ctx, module, frame, insn.dst, insn.size, insn.elem_tag, func.array_type(block_idx, instr_idx), insn.stack_alloc, insn.type_param_kind, insn.type_param_index)? {
                 return Ok(Some(thrown));
             }
         }
         Instruction::ArrayNewLit(insn) => {
-            if let Some(thrown) = exec_array::array_new_lit(ctx, module, frame, insn.dst, &insn.elems, insn.element_type, insn.stack_alloc)? {
+            if let Some(thrown) = exec_array::array_new_lit(ctx, module, frame, insn.dst, &insn.elems, func.array_type(block_idx, instr_idx), insn.stack_alloc)? {
                 return Ok(Some(thrown));
             }
         }
@@ -270,7 +271,7 @@ pub fn exec_instr(
         Instruction::ObjNew(insn) => {
             // add-escape-analysis-stack-alloc: stack_alloc forwarded to obj_new,
             // which allocates in the per-context arena when set (+ runtime-enabled).
-            let ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc, ctor_known } = &**insn;
+            let ObjNewInsn { dst, class_name, ctor_name, args, type_args: _, stack_alloc, ctor_known } = &**insn;
             let _site_idx = site_idx!();
             // P1-2 PR 5: the site cache (class descriptor + ctor FnId) — hit = no hashing.
             let site = cached_token!(_site_idx, obj_new);
@@ -278,7 +279,7 @@ pub fn exec_instr(
             // propagate user `throw` from the ctor body to the enclosing
             // try/catch instead of silently dropping it.
             if let Some(thrown) = exec_object::obj_new(
-                ctx, module, frame, *dst, class_name, ctor_name, args, *type_args, site,
+                ctx, module, frame, *dst, class_name, ctor_name, args, func.object_args(block_idx, instr_idx), site,
                 *stack_alloc, *ctor_known,
             )? {
                 return Ok(Some(thrown));
@@ -313,8 +314,8 @@ pub fn exec_instr(
                 return Ok(Some(thrown));
             }
         }
-        Instruction::IsInstance(insn) => exec_object::is_instance(ctx, module, frame, insn.dst, insn.obj, &insn.class_name, &insn.target)?,
-        Instruction::AsCast(insn) => exec_object::as_cast(ctx, module, frame, insn.dst, insn.obj, &insn.class_name, &insn.target)?,
+        Instruction::IsInstance(insn) => exec_object::is_instance(ctx, module, frame, insn.dst, insn.obj, &insn.class_name, func.type_key(block_idx, instr_idx))?,
+        Instruction::AsCast(insn) => exec_object::as_cast(ctx, module, frame, insn.dst, insn.obj, &insn.class_name, func.type_key(block_idx, instr_idx))?,
         Instruction::StaticGet(insn) => {
             let StaticGetInsn { dst, field } = &**insn;
             let _site_idx = site_idx!();

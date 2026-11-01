@@ -476,7 +476,7 @@ impl VmContext {
     /// execution of an id on any thread, a lock-free load, no hashing. Shared by the
     /// interpreter and the JIT helper.
     #[inline]
-    pub fn const_str(&self, module: &crate::metadata::Module, idx: u32) -> Option<crate::metadata::vstr::Str> {
+    pub fn const_str(&self, module: &crate::vm::runtime::Module, idx: u32) -> Option<crate::metadata::vstr::Str> {
         let strings = &self.core.strings;
         if strings.is_entry(module) {
             return strings.get_or_intern(idx, |text| self.heap().alloc_str(text));
@@ -489,7 +489,7 @@ impl VmContext {
     /// VM's entry module: there the id is a `FuncTable` id. Without one (a bare test
     /// context) ids are indices of whatever module created the value, which this context
     /// does not know — `None`.
-    pub(crate) fn callable_fn(&self, id: crate::metadata::tokens::FnId) -> Option<&crate::metadata::Function> {
+    pub(crate) fn callable_fn(&self, id: crate::metadata::tokens::FnId) -> Option<&crate::vm::runtime::Function> {
         self.core.module.as_ref()?;
         self.funcs().get(id)
     }
@@ -499,7 +499,7 @@ impl VmContext {
     /// names that literal and allocates a fresh string each time (nothing to key a cache
     /// on); past it, the id is a lazily loaded package's, interned in the table.
     #[cold]
-    fn const_str_foreign(&self, module: &crate::metadata::Module, idx: u32) -> Option<crate::metadata::vstr::Str> {
+    fn const_str_foreign(&self, module: &crate::vm::runtime::Module, idx: u32) -> Option<crate::metadata::vstr::Str> {
         if let Some(text) = module.string_pool.get(idx as usize) {
             return Some(self.heap().alloc_str(text));
         }

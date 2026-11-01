@@ -204,7 +204,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 | ID | 类型 | 内容 | 验证要点 | 状态 |
 |---|---|---|---|---|
-| L-4 | refactor | metadata 剩余拆分：静态包数据与每台 VM 的链接状态分离；`types/` 形状进 object，组装与查询进 vm/runtime，加载进 vm/loader；`semantics.rs` 进 exec/ops | metadata 不再引用 gc / vm_context / corelib；启动项 S1–S4 可在新结构上做 | 🟡 |
+| L-4 | refactor | metadata 剩余拆分：静态 IR / PackageImage 与 `vm/runtime` 每 VM 链接状态已分离；`types/` 形状进 object，组装与查询进 vm/runtime，加载进 vm/loader；`semantics.rs` 进 exec/ops | metadata 不再引用 gc / vm_context / corelib；启动项 S1–S4 可在新结构上做 | 🟡 |
 | L-5 | refactor | gc 断环：注入 `GcConfig`、加 `GcToVm`、safepoint 移到 vm/threads、`MagrGC` 改具体类型；sampler / snapshot / retention 移到 `profiler/` | gc 不再引用 config / vm_context / corelib；GC 模型测试与 loom 测试；13 / 09 微基准不退化 | ⬜ |
 | L-6 | refactor | 引擎断环：vcall / obj_new / isa 拆成 runtime/dispatch（查询）与 exec/ops（执行）；加 Engine 注册槽与统一栈遍历；interp ↔ jit 不再互相引用 | 双引擎一致性测试；OSR / 分层测试；`jit_native_from_interp` 计数不变 | ⬜ |
 | L-7 | refactor | VmCore 按子系统重组为状态组合；corelib 收尾（builtin ABI 移 vm/exec/call、OS 资源表移进扩展状态、corelib 不再引用 interp）；配置与启动编排移到门面层 | VmCore 无散字段；z42-host 嵌入与 C ABI 测试 | ⬜ |

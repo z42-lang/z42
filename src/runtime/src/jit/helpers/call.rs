@@ -106,7 +106,7 @@ unsafe fn call_impl(
     let name = std::str::from_utf8(std::slice::from_raw_parts(fn_name_ptr, fn_name_len))
         .unwrap_or("<invalid>");
     let site = if ic_ptr.is_null() { None } else { Some(&*ic_ptr) };
-    let mut holder: Option<std::sync::Arc<crate::metadata::Function>> = None;
+    let mut holder: Option<std::sync::Arc<crate::vm::runtime::Function>> = None;
     let (callee, id) = match crate::interp::bind_callee(vm, module, name, argc, site, &mut holder) {
         Ok(bound) => bound,
         Err(exc) => { set_exception(vm, exc); return 1; }
@@ -170,7 +170,7 @@ unsafe fn call_compiled(
 #[inline(never)]
 unsafe fn call_interp(
     frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
-    callee: &crate::metadata::Function, arg_regs: &[u32], caller_offset: u32, mta: &[String],
+    callee: &crate::vm::runtime::Function, arg_regs: &[u32], caller_offset: u32, mta: &[String],
 ) -> u8 {
     let vm = vm_ctx_ref(ctx);
     let module = super::jit_module(ctx);
@@ -207,7 +207,7 @@ unsafe fn call_interp(
 /// `TypeInitializationException` to throw.
 unsafe fn call_barriers(
     vm: &crate::vm_context::VmContext, ctx: *const VmContext,
-    callee: &crate::metadata::Function, owner: &crate::metadata::ir::OwnerInitCell,
+    callee: &crate::vm::runtime::Function, owner: &crate::vm::runtime::OwnerInitCell,
 ) -> Option<Value> {
     let module = super::jit_module(ctx);
     if let Err(msg) = vm.ensure_module_inits(Some(&callee.name)) {

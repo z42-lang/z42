@@ -1,9 +1,9 @@
 use super::*;
 use crate::metadata::ir::{BasicBlock, Terminator};
-use crate::metadata::types::ExecMode;
+use crate::metadata::ir::ExecMode;
 
 fn stub_function(name: &str) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -15,33 +15,28 @@ fn stub_function(name: &str) -> Function {
         }],
         is_static: true,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 0,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 /// An entry module whose `func_index` is filled the way the loader fills it.
 fn entry_module(names: &[&str]) -> Arc<Module> {
     let functions: Vec<Function> = names.iter().map(|n| stub_function(n)).collect();
     let func_index = names.iter().enumerate().map(|(i, n)| (n.to_string(), i)).collect();
-    Arc::new(Module {
+    Arc::new(Module::new(crate::metadata::image::ModuleData {
         name: "Entry".to_string(),
         string_pool: vec![],
         classes: vec![],
-        functions,
-        type_registry: FxHashMap::default(),
         func_index,
-    })
+    }, functions, FxHashMap::default()))
 }
 
 #[test]

@@ -7,34 +7,36 @@
 //! a compiled callee (the mixed-mode path these sites were shut out of).
 
 use crate::interp::ExecOutcome;
-use crate::metadata::ir::{BasicBlock, CallInsn, Function, Instruction, Module, Terminator, VCallInsn};
-use crate::metadata::types::ExecMode;
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator, VCallInsn};
+use crate::metadata::ir::ExecMode;
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use super::translate::{jit_unsupported_reason, unsupported_reason};
 
 fn func(name: &str, params: usize, is_static: bool, instructions: Vec<Instruction>, ret: Option<u32>) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: params,
         ret_type: "object".to_string(),
         exec_mode: ExecMode::Interp,
-        blocks: vec![BasicBlock { label: "entry".to_string(), instructions, terminator: Terminator::Ret { reg: ret } }],
+        blocks: vec![BasicBlock {
+            label: "entry".to_string(),
+            instructions,
+            terminator: Terminator::Ret { reg: ret },
+        }],
         is_static,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 8,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 fn mta(names: &[&str]) -> Box<[String]> { names.iter().map(|s| s.to_string()).collect() }
@@ -67,10 +69,12 @@ fn id_body() -> Function { func("T.Id", 1, true, vec![], Some(0)) }
 
 fn module_of(functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module {
-        name: "M".into(), string_pool: Vec::new(), classes: Vec::new(), functions,
-        type_registry: rustc_hash::FxHashMap::default(), func_index,
-    }
+    Module::new(crate::metadata::image::ModuleData {
+        name: "M".into(),
+        string_pool: Vec::new(),
+        classes: Vec::new(),
+        func_index,
+    }, functions, rustc_hash::FxHashMap::default())
 }
 
 fn test_module() -> Module {

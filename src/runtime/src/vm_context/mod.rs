@@ -141,7 +141,8 @@ pub fn vm_cores_snapshot() -> Vec<Arc<VmCore>> {
 }
 
 use crate::metadata::lazy_loader::{LazyLoader, ZpkgCandidate};
-use crate::metadata::{Function, TypeDesc, Value};
+use crate::vm::runtime::Function;
+use crate::metadata::{TypeDesc, Value};
 
 /// **add-lazy-context-unload **: routes GC-driven collectible-context
 /// reclamation to `VmCore.context_registry`. Captures `Weak<VmCore>` (cycle

@@ -1,8 +1,9 @@
 //! Terminator translation tests that need hand-built IR (shapes z42c never emits).
 
 use crate::jit::runtime::install;
-use crate::metadata::ir::{BasicBlock, Function, Instruction, Module, Terminator};
-use crate::metadata::types::ExecMode;
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
+use crate::metadata::ir::ExecMode;
 use crate::vm_context::VmContext;
 
 fn block(label: &str, instructions: Vec<Instruction>, terminator: Terminator) -> BasicBlock {
@@ -14,7 +15,7 @@ fn br_cond(cond: u32, t: &str, f: &str) -> Terminator {
 }
 
 fn function(blocks: Vec<BasicBlock>, max_reg: u32) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: "f".to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -22,30 +23,25 @@ fn function(blocks: Vec<BasicBlock>, max_reg: u32) -> Function {
         blocks,
         is_static: false,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 fn module(f: Function) -> Module {
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: "M".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),
         func_index: [(f.name.clone(), 0)].into_iter().collect(),
-        functions: vec![f],
-        type_registry: rustc_hash::FxHashMap::default(),
-    }
+    }, vec![f], rustc_hash::FxHashMap::default())
 }
 
 /// `entry: r0 = 5; br_cond r0 → yes / no`. `reg_types` is empty, so the

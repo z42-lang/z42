@@ -183,7 +183,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         ));
     }
 
-    let mut modules: Vec<crate::metadata::Module> = Vec::new();
+    let mut modules: Vec<crate::vm::runtime::Module> = Vec::new();
     // Track canonical paths of loaded artifact files to prevent duplicate loading.
     let mut loaded_paths: HashSet<PathBuf> = HashSet::new();
     // Track zpkg file names loaded eagerly at startup (initially_loaded input

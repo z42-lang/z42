@@ -29,7 +29,8 @@ pub(crate) fn kind(k: i64) -> BuiltinError {
 use crate::corelib::{builtin_id_of, invoke_builtin, BUILTINS};
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{FieldSlot, TypeDesc};
-use crate::metadata::{Module, Value};
+use crate::vm::runtime::Module;
+use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 
@@ -176,10 +177,12 @@ fn module_with(classes: &[&str]) -> Module {
     for c in classes {
         type_registry.insert(c.to_string(), exception_type(c, Some("Std.Exception")));
     }
-    Module {
-        name: "M".into(), string_pool: vec![], classes: vec![], functions: vec![],
-        type_registry, func_index: rustc_hash::FxHashMap::default(),
-    }
+    Module::new(crate::metadata::image::ModuleData {
+        name: "M".into(),
+        string_pool: vec![],
+        classes: vec![],
+        func_index: rustc_hash::FxHashMap::default(),
+    }, vec![], type_registry)
 }
 
 fn thrown_class(r: error::Raised) -> String {
@@ -225,7 +228,7 @@ fn an_unloaded_class_falls_back_to_its_base() {
     assert_eq!(class(BuiltinError::FileNotFound("f".into())), "Std.IO.IOException");
     assert_eq!(class(BuiltinError::Overflow("o".into())), "Std.ArithmeticException");
     assert_eq!(class(BuiltinError::Format("f".into())), "Std.Exception");
-    let bare = Module { type_registry: Default::default(), ..module_with(&[]) };
+    let bare = { let mut module = module_with(&[]); module.type_registry = Default::default();  module };
     assert_eq!(thrown_class(error::raise(&ctx, &bare, "x", BuiltinError::Format("f".into()), &[])),
         "raw: Std.FormatException: f");
 }

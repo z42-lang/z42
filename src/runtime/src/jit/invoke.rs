@@ -7,7 +7,8 @@
 //! them (how the callee frame is filled, where the return value goes, whether the
 //! exception stays pending or is taken) stays at the call site.
 
-use crate::metadata::{Function, Value};
+use crate::vm::runtime::Function;
+use crate::metadata::Value;
 use crate::vm_context::VmContext;
 
 use super::frame::{FnEntry, JitFrame};

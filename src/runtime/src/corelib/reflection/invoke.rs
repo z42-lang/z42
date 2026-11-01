@@ -439,9 +439,9 @@ pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
 /// `<FQ>.<Simple>$0` 的次序找第一个**零参**(param_count ≤ 1,含 this)构造函数并跑它;
 /// 都不存在则什么也不跑(默认字段分配即构造)。构造器 `throw` 原样传播(pending_thrown)。
 fn run_first_noarg_ctor(
-    ctx: &VmContext, module: &crate::metadata::Module, cands: &[String], obj: &Value,
+    ctx: &VmContext, module: &crate::vm::runtime::Module, cands: &[String], obj: &Value,
 ) -> anyhow::Result<()> {
-    let arity_ok = |f: &crate::metadata::Function| f.param_count <= 1;   // param_count includes `this`
+    let arity_ok = |f: &crate::vm::runtime::Function| f.param_count <= 1;   // param_count includes `this`
     for cand in cands {
         let cand = cand.as_str();
         let outcome = match module.func_index.get(cand) {

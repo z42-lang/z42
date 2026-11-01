@@ -38,7 +38,8 @@ use anyhow::{bail, Result};
 
 use crate::metadata::resolver::{vcall_ic_install, vcall_ic_lookup, VCallIC};
 use crate::metadata::tokens::UNRESOLVED;
-use crate::metadata::{Function, Module, Value};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::Value;
 use crate::vm_context::VmContext;
 
 use super::dispatch::resolve_virtual;

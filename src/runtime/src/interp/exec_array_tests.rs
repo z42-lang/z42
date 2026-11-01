@@ -2,19 +2,17 @@
 //! generic type-param element to a concrete type via `frame.method_type_args` /
 //! receiver `type_args`, so value-type slots get the type's zero instead of Null.
 use super::*;
-use crate::metadata::ir::Module;
+use crate::vm::runtime::Module;
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 
 fn empty_module() -> Module {
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: "test".to_owned(),
         string_pool: vec![],
         classes: vec![],
-        functions: vec![],
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, vec![], rustc_hash::FxHashMap::default())
 }
 
 // TAG_UNKNOWN (0x00): what codegen emits for an erased generic-param element.

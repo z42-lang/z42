@@ -13,9 +13,8 @@
 
 use std::collections::HashMap;
 
-use z42::metadata::{
-    BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Function, Instruction, Module, Terminator, Value,
-};
+use z42::vm::runtime::{Function, Module};
+use z42::metadata::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator, Value};
 use z42::vm_context::VmContext;
 
 // build.rs compiles the archive into OUT_DIR but does not link it into the `z42`
@@ -62,7 +61,7 @@ extern "C" {
 }
 
 fn build_function(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Function {
-    Function {
+    Function::new(z42::metadata::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "i64".to_string(),
@@ -73,29 +72,26 @@ fn build_function(name: &str, instructions: Vec<Instruction>, terminator: Termin
             terminator,
         }],
         is_static: true,
-        visibility: 0, method_flags: 0, min_arg: 0, params_from: 0xFF,        max_reg: 4,
+        visibility: 0,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
+        max_reg: 4,
         cold: None,
         reg_types: Box::new([]),
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Module {
-    Module {
+    Module::new(z42::metadata::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![],
         classes: vec![],
-        functions: vec![build_function(&format!("{name}.Main"), instructions, terminator)],
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, vec![build_function(&format!("{name}.Main"), instructions, terminator)], rustc_hash::FxHashMap::default())
 }
 
 /// Bring up a VmContext with `numz42::Counter` registered.
@@ -377,7 +373,7 @@ fn z42_source_calls_numz42_via_native_attr() {
 
 /// Helper: tiny module with an arbitrary single-string pool for C8 tests.
 fn module_with_str(name: &str, s: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Module {
-    let func = Function {
+    let func = Function::new(z42::metadata::ir::Function {
         name: format!("{name}.Main"),
         param_count: 0,
         ret_type: "i64".into(),
@@ -388,26 +384,23 @@ fn module_with_str(name: &str, s: &str, instructions: Vec<Instruction>, terminat
             terminator,
         }],
         is_static: true,
-        visibility: 0, method_flags: 0, min_arg: 0, params_from: 0xFF,        max_reg: 4,
+        visibility: 0,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
+        max_reg: 4,
         cold: None,
         reg_types: Box::new([]),
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    };
-    Module {
+    });
+    Module::new(z42::metadata::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![s.to_string()],
         classes: vec![],
-        functions: vec![func],
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, vec![func], rustc_hash::FxHashMap::default())
 }
 
 #[test]
@@ -454,7 +447,7 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
     let ctx = VmContext::new();
     invoke_with_vm_guard(&ctx, || unsafe { numz42_register_static() });
 
-    let func = Function {
+    let func = Function::new(z42::metadata::ir::Function {
         name: "byte_pin_e2e.Main".into(),
         param_count: 0,
         ret_type: "i64".into(),
@@ -465,10 +458,23 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
                 Instruction::ConstI64 { dst: 0, val: 0x68 }, // 'h'
                 Instruction::ConstI64 { dst: 1, val: 0x69 }, // 'i'
                 Instruction::ConstI64 { dst: 2, val: 0x21 }, // '!'
-                Instruction::ArrayNewLit(Box::new(z42::metadata::ir::ArrayNewLitInsn { dst: 3, elems: vec![0, 1, 2].into(), element_type: z42::metadata::types::ElemType::empty(), stack_alloc: false })),
+                Instruction::ArrayNewLit(Box::new(z42::metadata::ir::ArrayNewLitInsn {
+                    dst: 3,
+                    elems: vec![0, 1, 2].into(),
+                    element_type: String::new(),
+                    stack_alloc: false,
+                })),
                 Instruction::PinPtr { dst: 4, src: 3 },
-                Instruction::FieldGet(Box::new(FieldGetInsn { dst: 5, obj: 4, field_name: "ptr".into() })),
-                Instruction::FieldGet(Box::new(FieldGetInsn { dst: 6, obj: 4, field_name: "len".into() })),
+                Instruction::FieldGet(Box::new(FieldGetInsn {
+                    dst: 5,
+                    obj: 4,
+                    field_name: "ptr".into(),
+                })),
+                Instruction::FieldGet(Box::new(FieldGetInsn {
+                    dst: 6,
+                    obj: 4,
+                    field_name: "len".into(),
+                })),
                 Instruction::CallNative(Box::new(CallNativeInsn {
                     dst: 7,
                     module: "numz42".into(),
@@ -481,26 +487,23 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
             terminator: Terminator::Ret { reg: Some(7) },
         }],
         is_static: true,
-        visibility: 0, method_flags: 0, min_arg: 0, params_from: 0xFF,        max_reg: 16,
+        visibility: 0,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
+        max_reg: 16,
         cold: None,
         reg_types: Box::new([]),
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    };
-    let m = Module {
+    });
+    let m = Module::new(z42::metadata::image::ModuleData {
         name: "byte_pin_e2e".into(),
         string_pool: vec![],
         classes: vec![],
-        functions: vec![func],
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    };
+    }, vec![func], rustc_hash::FxHashMap::default());
     let func = &m.functions[0];
     let result = z42::interp::run_returning(&ctx, &m, func, &[] as &[Value])
         .expect("byte array pin → native buflen succeeds");
@@ -519,7 +522,7 @@ fn z42_str_with_interior_nul_traps_marshal() {
 
     // Pool the bad string. We can't reuse build_module's pool directly
     // (which only stores "hello world"); set up a tiny custom module.
-    let func = Function {
+    let func = Function::new(z42::metadata::ir::Function {
         name: "interior_nul.Main".into(),
         param_count: 0,
         ret_type: "i64".into(),
@@ -539,26 +542,23 @@ fn z42_str_with_interior_nul_traps_marshal() {
             terminator: Terminator::Ret { reg: Some(1) },
         }],
         is_static: true,
-        visibility: 0, method_flags: 0, min_arg: 0, params_from: 0xFF,        max_reg: 4,
+        visibility: 0,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
+        max_reg: 4,
         cold: None,
         reg_types: Box::new([]),
         block_index: HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    };
-    let m = Module {
+    });
+    let m = Module::new(z42::metadata::image::ModuleData {
         name: "interior_nul".into(),
         string_pool: vec!["a\0b".to_string()],
         classes: vec![],
-        functions: vec![func],
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    };
+    }, vec![func], rustc_hash::FxHashMap::default());
     let func = &m.functions[0];
     let err = z42::interp::run_returning(&ctx, &m, func, &[] as &[Value])
         .expect_err("interior NUL must fail at marshal");

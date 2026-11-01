@@ -154,7 +154,7 @@ fn free_function_barrier_loads_no_package() {
     // Some type with a pending static constructor keeps the global gate open.
     ctx.core.cctors.register("Other.C", "Other.C.$cctor");
 
-    let cell = crate::metadata::ir::OwnerInitCell::default();
+    let cell = crate::vm::runtime::OwnerInitCell::default();
     assert!(ctx.ensure_callee_owner_init("Demo.Greet$1", &cell).is_ok());
     let loaded = ctx.core.lazy_loader.read().as_ref().map(|l| l.loaded_zpkgs.len());
     assert_eq!(loaded, Some(0), "the barrier for a free function must not load packages");
@@ -303,7 +303,7 @@ fn static_field_barrier_records_only_a_settled_verdict() {
 #[test]
 fn callee_barrier_settled_tracks_the_same_events_as_the_epoch() {
     let ctx = crate::vm_context::VmContext::new();
-    let owner = crate::metadata::ir::OwnerInitCell::default();
+    let owner = crate::vm::runtime::OwnerInitCell::default();
     // Nothing pending anywhere: settled (this is the `any_cctor_pending == false`
     // world, where `call_compiled` never even reaches the gate).
     assert!(ctx.callee_barrier_settled(&owner));

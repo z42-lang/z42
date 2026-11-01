@@ -3,13 +3,14 @@
 //! guards (`emit_arith_guarded_binop` / `emit_cmp_guarded`) or falls to the fat
 //! helper. Each case asserts the JIT and the interpreter agree.
 
-use crate::metadata::ir::{BasicBlock, Function, Instruction, Module, Terminator};
-use crate::metadata::types::ExecMode;
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
+use crate::metadata::ir::ExecMode;
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 
 fn func(name: &str, instructions: Vec<Instruction>, ret: u32) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "object".to_string(),
@@ -21,31 +22,26 @@ fn func(name: &str, instructions: Vec<Instruction>, ret: u32) -> Function {
         }],
         is_static: true,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 8,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 fn module_of(strings: &[&str], functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: "M".into(),
         string_pool: strings.iter().map(|s| s.to_string()).collect(),
         classes: Vec::new(),
-        functions,
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index,
-    }
+    }, functions, rustc_hash::FxHashMap::default())
 }
 
 fn interp(vm: &VmContext, m: &Module, name: &str) -> Value {

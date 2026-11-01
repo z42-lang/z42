@@ -20,7 +20,7 @@ use super::frame::FnEntry;
 use super::forward::ForwardLookup;
 use super::helpers::{self, HelperIds};
 use super::translate;
-use crate::metadata::ir::Function;
+use crate::vm::runtime::Function;
 
 /// Mutable JIT compilation state: compiles z42 functions to native code lazily.
 pub struct LazyCompiler {

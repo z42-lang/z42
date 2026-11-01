@@ -25,7 +25,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use super::ir::Module;
+use crate::vm::runtime::Module;
 use super::types::{NativeData, TypeDesc};
 
 /// Identifies one load context in [`ContextRegistry`]. `ContextId(0)` is always

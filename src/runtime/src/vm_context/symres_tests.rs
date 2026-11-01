@@ -8,12 +8,13 @@
 //!     `METHOD_FLAG_SRET`（zbc 1.40）精确识别，而不是容一或猜。
 
 use super::symres::call_arity;
-use crate::metadata::ir::{BasicBlock, Function, Terminator, METHOD_FLAG_SRET, METHOD_FLAG_VIRTUAL};
-use crate::metadata::types::ExecMode;
+use crate::vm::runtime::Function;
+use crate::metadata::ir::{BasicBlock, Terminator, METHOD_FLAG_SRET, METHOD_FLAG_VIRTUAL};
+use crate::metadata::ir::ExecMode;
 
 /// 造一个只有 arity 相关字段有意义的 `Function`（`call_arity` 只读 param_count / method_flags / params_from）。
 fn f(param_count: usize, min_arg: u16, params_from: u8, method_flags: u8) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: "T.M".to_string(),
         param_count,
         ret_type: "void".to_string(),
@@ -33,13 +34,8 @@ fn f(param_count: usize, min_arg: u16, params_from: u8, method_flags: u8) -> Fun
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 #[test]
@@ -144,7 +140,8 @@ fn args_alone_still_decide_without_the_marker() {
 // 一读就崩在 `StructCopy src: … got Null`，`static Color C;` 读出 `null`。
 
 use super::symres::{static_zero_value, verify_static_field, StaticNullVerdict};
-use crate::metadata::ir::{FieldDesc, Module, CLASS_FLAG_ENUM, CLASS_FLAG_STRUCT};
+use crate::vm::runtime::Module;
+use crate::metadata::ir::{FieldDesc, CLASS_FLAG_ENUM, CLASS_FLAG_STRUCT};
 use crate::metadata::index::name::NameIndex;
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
@@ -205,10 +202,12 @@ fn vm_with_types() -> std::pin::Pin<Box<VmContext>> {
 }
 
 fn empty_module() -> Module {
-    Module {
-        name: "test".to_owned(), string_pool: vec![], classes: vec![], functions: vec![],
-        type_registry: rustc_hash::FxHashMap::default(), func_index: rustc_hash::FxHashMap::default(),
-    }
+    Module::new(crate::metadata::image::ModuleData {
+        name: "test".to_owned(),
+        string_pool: vec![],
+        classes: vec![],
+        func_index: rustc_hash::FxHashMap::default(),
+    }, vec![], rustc_hash::FxHashMap::default())
 }
 
 /// `v` 是 `type_name` 的装箱 struct，且整块为零。

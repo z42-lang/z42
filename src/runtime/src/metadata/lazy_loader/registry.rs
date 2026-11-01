@@ -461,11 +461,5 @@ impl LazyLoader {
 /// `offset` (the package's first id in the VM's `StrTable`), so they become ids
 /// in the VM's one string id space.
 fn remap_const_str(fn_: &mut Function, offset: u32) {
-    for block in fn_.blocks.iter_mut() {
-        for instr in block.instructions.iter_mut() {
-            if let Instruction::ConstStr { idx, .. } = instr {
-                *idx += offset;
-            }
-        }
-    }
+    fn_.remap_string_ids(offset);
 }

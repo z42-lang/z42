@@ -237,39 +237,38 @@ pub(super) fn read_mods_section(
                 Some(Box::new(cold_inner))
             };
             Function {
-                name:            sig.map(|s| s.name.clone()).unwrap_or_else(|| format!("func#{i}")),
-                param_count:     sig.map(|s| s.param_count).unwrap_or(0),
-                ret_type:        sig.map(|s| s.ret_type.clone()).unwrap_or_else(|| "void".to_owned()),
-                exec_mode:       sig.map(|s| s.exec_mode).unwrap_or(ExecMode::Interp),
-                blocks:          body.blocks,
-                is_static:       sig.map(|s| s.is_static).unwrap_or(false),
-                visibility:      sig.map(|s| s.visibility).unwrap_or(0),
-                method_flags:    sig.map(|s| s.method_flags).unwrap_or(0),
-                min_arg:         sig.map(|s| s.min_arg).unwrap_or(0),
-                params_from:     sig.map(|s| s.params_from).unwrap_or(0xFF),
-                max_reg:         0,
+                name: sig
+                    .map(|s| s.name.clone())
+                    .unwrap_or_else(|| format!("func#{i}")),
+                param_count: sig.map(|s| s.param_count).unwrap_or(0),
+                ret_type: sig
+                    .map(|s| s.ret_type.clone())
+                    .unwrap_or_else(|| "void".to_owned()),
+                exec_mode: sig.map(|s| s.exec_mode).unwrap_or(ExecMode::Interp),
+                blocks: body.blocks,
+                is_static: sig.map(|s| s.is_static).unwrap_or(false),
+                visibility: sig.map(|s| s.visibility).unwrap_or(0),
+                method_flags: sig.map(|s| s.method_flags).unwrap_or(0),
+                min_arg: sig.map(|s| s.min_arg).unwrap_or(0),
+                params_from: sig.map(|s| s.params_from).unwrap_or(0xFF),
+                max_reg: 0,
                 cold,
                 reg_types,
-                block_index:     std::collections::HashMap::new(),
-            branch_targets:  Vec::new(),
-            fused_tails:     Vec::new(),
-            frame_meta:     None,
-                resolved:        std::sync::OnceLock::new(),
-                owner_init:        Default::default(),
-                id: Default::default(),
-                forward: Default::default(),
+                block_index: std::collections::HashMap::new(),
+                branch_targets: Vec::new(),
+                frame_meta: None,
             }
         }).collect();
 
         let name = if namespace.is_empty() { "unknown".to_owned() } else { namespace.clone() };
         let string_pool = rebuild_string_pool(pool, &mut functions);
         result.push((Module {
-            name, string_pool, classes, functions,
-            // Populated inside `merge_modules` (these per-namespace modules
-            // are always merged before consumption).
-            type_registry: rustc_hash::FxHashMap::default(),
-            func_index: rustc_hash::FxHashMap::default(),
-        }, namespace));
+name: name,
+string_pool: string_pool,
+classes: classes,
+functions: functions,
+func_index: rustc_hash::FxHashMap::default(),
+}, namespace));
 
         sig_offset += func_count;
         let _ = sig_offset; // used for validation if needed

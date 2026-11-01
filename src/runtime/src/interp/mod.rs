@@ -50,7 +50,8 @@ pub(crate) use exec_call::fn_ref_id;
 pub(crate) use exec_object::prim_isa;   // fix-boxed-primitive-is-as: JIT is/as 复用
 
 pub use crate::corelib::convert::value_to_str;
-use crate::metadata::{BranchTargets, Function, Module, Terminator, Value};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::{BranchTargets, Terminator, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Context, Result};
 

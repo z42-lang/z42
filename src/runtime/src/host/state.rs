@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::metadata::Module;
+use crate::vm::runtime::Module;
 use crate::vm_context::VmContext;
 
 use super::config::ResolvedConfig;

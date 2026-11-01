@@ -4,7 +4,8 @@
 /// Helpers that may propagate a user exception from a callee return
 /// `Result<Option<Value>>` (Some = thrown). Pure helpers return `Result<()>`.
 
-use crate::metadata::{Function, Module, Value};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::Value;
 use crate::metadata::tokens::FnId;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
@@ -246,7 +247,7 @@ pub(super) fn call(
 /// an internal error or while a fatal error unwinds, the raw error (`Err`), which no z42
 /// handler sees.
 pub(super) fn builtin(
-    ctx: &VmContext, module: &crate::metadata::Module,
+    ctx: &VmContext, module: &crate::vm::runtime::Module,
     frame: &mut Frame, dst: u32, name: &str, args: &[u32],
     builtin_id: Option<u32>,
 ) -> Result<Option<Value>> {

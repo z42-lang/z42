@@ -10,14 +10,15 @@
 
 use crate::jit::runtime::{install, install_tuned};
 use crate::jit::run_fn;
-use crate::metadata::ir::{BasicBlock, CallInsn, Function, Instruction, Module, Terminator};
-use crate::metadata::types::ExecMode;
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator};
+use crate::metadata::ir::ExecMode;
 use crate::vm_context::VmContext;
 
 /// A JIT-translatable function whose body is a bare `return;` (no `Call`, no
 /// interp-only opcode → `jit_unsupported_reason` is `None`).
 fn empty_fn(name: &str) -> Function {
-    Function {
+    Function::new(crate::metadata::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -29,19 +30,16 @@ fn empty_fn(name: &str) -> Function {
         }],
         is_static: false,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 0,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }
+    })
 }
 
 /// A function containing an interp-only opcode (`LoadLocalAddr`) →
@@ -71,14 +69,12 @@ fn module_of(name: &str, functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate()
         .map(|(i, f)| (f.name.clone(), i))
         .collect();
-    Module {
+    Module::new(crate::metadata::image::ModuleData {
         name: name.to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),
-        functions,
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index,
-    }
+    }, functions, rustc_hash::FxHashMap::default())
 }
 
 /// VM-wide total (every thread's shard).

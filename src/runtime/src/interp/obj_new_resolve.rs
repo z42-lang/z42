@@ -26,7 +26,8 @@ use std::sync::Arc;
 
 use crate::metadata::resolver::{ctorless_hit, ctorless_note, ObjNewSite};
 use crate::metadata::tokens::UNRESOLVED;
-use crate::metadata::{Function, Module, TypeDesc, Value};
+use crate::vm::runtime::{Function, Module};
+use crate::metadata::{TypeDesc, Value};
 use crate::vm_context::symres;
 use crate::vm_context::VmContext;
 

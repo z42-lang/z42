@@ -1,6 +1,7 @@
 //! Package formats, decoded IR, static queries, object data and VM linking state.
 //! Static concerns are grouped under format, reader, ir, index and debug.
 
+pub mod image;
 pub mod format;
 pub mod reader;
 pub mod ir;
@@ -40,11 +41,12 @@ pub use index::NameIndex;
 pub use ir::reg_type::IrType;
 
 // Re-exports: runtime value types
-pub use types::{default_value_for, ClosureData, ExecMode, FieldSlot, NativeData, PinSourceKind, PinnedViewData, ScriptObject, TypeDesc, Value};
+pub use types::{default_value_for, ClosureData, FieldSlot, NativeData, PinSourceKind, PinnedViewData, ScriptObject, TypeDesc, Value};
 #[allow(deprecated)]
 pub use types::ObjectData;
 
 // Re-exports: bytecode IR structures
+pub use ir::ExecMode;
 pub use ir::{BasicBlock, BranchTargets, ClassDesc, ExceptionEntry, FieldDesc, Function, Instruction, Module, Terminator};
 pub use ir::{
     AsCastInsn, BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, IsInstanceInsn,

@@ -285,37 +285,37 @@ fn closure_of(env: ArrRef, id: u32) -> Value {
 /// A context whose entry module defines empty functions named `names` (ids `0..n`), so
 /// callables can name them (`__delegate_fn_name`, `__make_closure`).
 fn ctx_with_fns(names: &[&str]) -> std::pin::Pin<Box<VmContext>> {
-    use crate::metadata::ir::{BasicBlock, Function, Module, Terminator};
-    let functions: Vec<Function> = names.iter().map(|n| Function {
+    use crate::vm::runtime::{Function, Module};
+    use crate::metadata::ir::{BasicBlock, Terminator};
+    let functions: Vec<Function> = names.iter().map(|n| Function::new(crate::metadata::ir::Function {
         name: n.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
-        exec_mode: crate::metadata::types::ExecMode::Interp,
-        blocks: vec![BasicBlock { label: "entry".to_string(), instructions: Vec::new(), terminator: Terminator::Ret { reg: None } }],
+        exec_mode: crate::metadata::ir::ExecMode::Interp,
+        blocks: vec![BasicBlock {
+            label: "entry".to_string(),
+            instructions: Vec::new(),
+            terminator: Terminator::Ret { reg: None },
+        }],
         is_static: true,
         visibility: 0,
-        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        method_flags: 0,
+        min_arg: 0,
+        params_from: 0xFF,
         max_reg: 0,
         cold: None,
         reg_types: Box::new([]),
         block_index: std::collections::HashMap::new(),
         branch_targets: Vec::new(),
-        fused_tails: Vec::new(),
         frame_meta: None,
-        resolved: std::sync::OnceLock::new(),
-        owner_init: Default::default(),
-        id: Default::default(),
-        forward: Default::default(),
-    }).collect();
+    })).collect();
     let func_index = names.iter().enumerate().map(|(i, n)| (n.to_string(), i)).collect();
-    VmContext::with_module(Module {
+    VmContext::with_module(Module::new(crate::metadata::image::ModuleData {
         name: "Demo".to_string(),
         string_pool: vec![],
         classes: vec![],
-        functions,
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index,
-    })
+    }, functions, rustc_hash::FxHashMap::default()))
 }
 
 #[test]

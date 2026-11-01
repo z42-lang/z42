@@ -39,7 +39,7 @@ use std::sync::{Arc, OnceLock};
 
 use parking_lot::Mutex;
 
-use super::ir::Module;
+use crate::vm::runtime::Module;
 use super::seg_vec::SegVec;
 use super::vstr::Str;
 

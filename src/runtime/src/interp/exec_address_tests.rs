@@ -18,15 +18,13 @@ use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 
-fn m() -> crate::metadata::Module {
-    crate::metadata::Module {
+fn m() -> crate::vm::runtime::Module {
+    crate::vm::runtime::Module::new(crate::metadata::image::ModuleData {
         name: "test".to_owned(),
         string_pool: vec![],
         classes: vec![],
-        functions: vec![],
-        type_registry: rustc_hash::FxHashMap::default(),
         func_index: rustc_hash::FxHashMap::default(),
-    }
+    }, vec![], rustc_hash::FxHashMap::default())
 }
 
 /// A minimal heap object with one field `f` at slot 0.

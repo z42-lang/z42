@@ -12,7 +12,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 Instruction::ObjNew(insn) => {
                     // add-escape-analysis-stack-alloc: JIT ignores stack_alloc in v1
                     // (heap-allocates); the optimization targets interp (interp-first).
-                    let ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc: _, ctor_known } = &**insn;
+                    let ObjNewInsn { dst, class_name, ctor_name, args, type_args: _, stack_alloc: _, ctor_known } = &**insn;
                     // expand-jit-type-args: bake the site's interned type-arguments
                     // handle (`TypeArgs::as_raw`, a leaked process-lifetime entry) as a
                     // pointer constant for `jit_obj_new`.
@@ -20,7 +20,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let (cp, cl) = self.str_val(class_name);
                     let (kp, kl) = self.str_val(ctor_name);
                     let (ap, al) = self.regs_val(args);
-                    let tap = self.builder.ins().iconst(self.ptr, type_args.as_raw() as i64);
+                    let tap = self.builder.ins().iconst(self.ptr, self.func.object_args(self.block_idx, self.instr_idx).as_raw() as i64);
                     // P1-2 PR 5: bake the site cache's address (class + ctor FnId + ctorless
                     // mark; stable through `Function.resolved`, like the FieldIC pointer below).
                     let cm = obj_new_site_ptr_at(self.func, self.block_idx, self.instr_idx);
@@ -62,14 +62,16 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     }
                 }
                 Instruction::IsInstance(insn) => {
-                    let IsInstanceInsn { dst, obj, class_name, target } = &**insn;
+                    let IsInstanceInsn { dst, obj, class_name } = &**insn;
+                    let target = self.func.type_key(self.block_idx, self.instr_idx);
                     let d = self.ri(*dst); let o = self.ri(*obj);
                     let (cp, cl) = self.str_val(class_name);
                     let kp = self.builder.ins().iconst(self.ptr, target as *const _ as i64);
                     self.builder.ins().call(self.hr_is_instance, &[self.frame_val, self.ctx_val, d, o, cp, cl, kp]);
                 }
                 Instruction::AsCast(insn) => {
-                    let AsCastInsn { dst, obj, class_name, target } = &**insn;
+                    let AsCastInsn { dst, obj, class_name } = &**insn;
+                    let target = self.func.type_key(self.block_idx, self.instr_idx);
                     let d = self.ri(*dst); let o = self.ri(*obj);
                     let (cp, cl) = self.str_val(class_name);
                     let kp = self.builder.ins().iconst(self.ptr, target as *const _ as i64);

@@ -92,23 +92,6 @@ pub fn closure_data_of(vref: &VarGcRef) -> &ClosureData {
     // one immutable `ClosureData`, valid for the returned borrow.
     unsafe { &*vref.payload_as_ptr::<ClosureData>() }
 }
-/// Execution mode for a module or function.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExecMode {
-    /// Tree-walking / bytecode interpreter — fast startup, no warmup cost.
-    Interp,
-    /// Just-in-time compilation — best steady-state throughput.
-    Jit,
-    /// Ahead-of-time compilation — best for predictable, startup-sensitive code.
-    Aot,
-}
-
-impl Default for ExecMode {
-    fn default() -> Self {
-        ExecMode::Interp
-    }
-}
-
 // ── Backward compatibility alias ─────────────────────────────────────────────
 
 /// Deprecated alias kept so external code using `ObjectData` by name continues

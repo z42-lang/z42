@@ -43,7 +43,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 
-use super::ir::{Function, Module};
+use crate::vm::runtime::{Function, Module};
 use super::seg_vec::SegVec;
 use super::tokens::FnId;
 

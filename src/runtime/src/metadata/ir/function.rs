@@ -1,8 +1,8 @@
-//! Function bodies, signatures and execution-side cached metadata.
+//! Immutable function bodies, signatures and derived static metadata.
 
 use super::*;
 use crate::metadata::debug::{format_frame_name, frame_file, LineEntry, LocalVar};
-use crate::metadata::types::ExecMode;
+use crate::metadata::ir::ExecMode;
 use std::sync::Arc;
 
 /// Cold (rarely-accessed) slice fields on `Function`. Boxed behind an
@@ -13,7 +13,7 @@ use std::sync::Arc;
 /// review.md E2.P5 . Mirror of CoreCLR's split between
 /// `MethodDesc` (hot, 32 B base) and `MethodDescChunk` / cold side
 /// tables.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct FunctionCold {
     /// 1.3 split-debug-symbols: per-parameter type names for stack-trace
     /// signature decoration. Length always equals `param_count` (zbc writer
@@ -59,7 +59,7 @@ pub struct FunctionCold {
 /// methods that return `&[T]` (empty slice when cold is absent). Sidecar
 /// mutations (`loader.rs` debug-symbol overlay) lazy-init via
 /// [`Function::cold_mut`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
     /// Number of parameters — they occupy registers 0..param_count-1 on entry.
@@ -112,45 +112,35 @@ pub struct Function {
     /// Not serialized; populated by `loader::build_block_indices`. Empty ⇒
     /// runtime falls back to `block_index` (hand-built test functions).
     pub branch_targets: Vec<BranchTargets>,
-    /// interp-superinstr-fusion : per-block fused-tail super-instruction
-    /// (e.g. `cmp`+`BrCond` → `CmpBr`), parallel to `blocks`. Recognized once at
-    /// load by `superinstr::compute_fused_tails`; the interp reads
-    /// `fused_tails[block_idx]` (O(1)) to run the fused step and skip a dispatch on
-    /// hot loops. `None`/empty ⇒ no fusion for that block (normal execution).
-    /// Not serialized (pure runtime optimization; no zbc/format impact).
-    pub fused_tails: Vec<Option<crate::metadata::superinstr::SuperInstr>>,
     /// perf-frame-name-precompute: the stack-frame display name (`"Fn(params)"`)
     /// + source file as `Arc<str>`, precomputed once at load (like
     /// `branch_targets`), so building a stack trace clones them instead of
     /// formatting. `None` for hand-built test functions the loader never
     /// post-processes → [`Function::frame_name_file`] formats on the fly.
     pub frame_meta: Option<(std::sync::Arc<str>, std::sync::Arc<str>)>,
-    /// Per-function token cache (introduce-method-token).
-    /// Lazy-init by `metadata::resolver::resolve_module` after module load.
-    /// `OnceLock` so `Function: Sync` is preserved (single-thread today,
-    /// future multi-thread ready). Not serialized — purely runtime metadata.
-    pub resolved: std::sync::OnceLock<crate::metadata::resolver::ResolvedTokens>,
-    /// The type whose static constructor must run before this function is
-    /// called — `Some` only for a method of a type that has one; free functions
-    /// and methods of cctor-less types cache `None` and skip the barrier for
-    /// good. Filled on the first barrier check (`VmContext::ensure_callee_owner_init`).
-    /// `Arc` so the JIT's `FnEntry` shares the cell instead of re-deriving it.
-    pub owner_init: OwnerInitCell,
-    /// This function's id in the owning VM's `FuncTable` (`metadata::func_table`),
-    /// set when the function is registered there. Runtime-only — not part of any
-    /// file format.
-    pub id: crate::metadata::tokens::FnIdCell,
-    /// Whether this is a pure `[Native]` forwarder, and to which builtin — computed on
-    /// the first call (`interp::forward::forward_of`), so both engines dispatch calls of
-    /// it straight to the builtin. Runtime-only.
-    pub forward: crate::metadata::tokens::ForwardCell,
 }
 
-/// See [`Function::owner_init`].
-pub type OwnerInitCell =
-    std::sync::Arc<std::sync::OnceLock<Option<std::sync::Arc<crate::metadata::TypeDesc>>>>;
-
 impl Function {
+    /// Derive control-flow indices and frame metadata before sharing a definition.
+    pub fn prepare(&mut self) {
+        self.block_index = self.blocks.iter().enumerate()
+            .map(|(i, b)| (b.label.clone(), i)).collect();
+        let idx = &self.block_index;
+        self.branch_targets = self.blocks.iter().map(|b| match &b.terminator {
+            Terminator::Br { label } => idx.get(label.as_str())
+                .map(|&t| BranchTargets::Br(t)).unwrap_or(BranchTargets::NoBranch),
+            Terminator::BrCond { true_label, false_label, .. } => {
+                match (idx.get(true_label.as_str()), idx.get(false_label.as_str())) {
+                    (Some(&t), Some(&f)) => BranchTargets::BrCond(t, f),
+                    _ => BranchTargets::NoBranch,
+                }
+            }
+            _ => BranchTargets::NoBranch,
+        }).collect();
+        self.frame_meta = Some((Arc::from(format_frame_name(self)), Arc::from(frame_file(self))));
+        self.max_reg = self.reg_file_len();
+    }
+
     /// Borrow the cold side-table or return a static empty slice. Accessor
     /// methods below all delegate here.
     #[inline]
@@ -262,20 +252,17 @@ impl Function {
     }
 }
 /// One row in a function's exception table.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExceptionEntry {
     pub try_start:   String,
     pub try_end:     String,
     pub catch_label: String,
     pub catch_type:  Option<String>,
     pub catch_reg:   u32,
-    /// Runtime-only: `catch_type`'s type-test key, resolved on first match
-    /// (see [`TypeKeyCell`](crate::metadata::tokens::TypeKeyCell)).
-    pub catch_key:   crate::metadata::tokens::TypeKeyCell,
 }
 
 /// A basic block — straight-line instructions ending in exactly one terminator.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BasicBlock {
     pub label: String,
     pub instructions: Vec<Instruction>,
