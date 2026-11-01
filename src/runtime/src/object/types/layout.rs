@@ -180,7 +180,7 @@ impl FieldAccess {
 
 /// A direct field's cell, resolved to what a field access needs: the cell's byte offset in the
 /// field area and its kind — what a `FieldIC` entry caches next to the receiver's `TypeId`
-/// (`metadata::resolver::ic`). A cache hit is one compare and one cell access: no name lookup, no
+/// (`vm::runtime::dispatch::ic`). A cache hit is one compare and one cell access: no name lookup, no
 /// layout walk.
 ///
 /// `kind` is the primitive's exact `ty::TAG_*` (`TAG_BOOL ..= TAG_CHAR`, its byte width in `width`) or

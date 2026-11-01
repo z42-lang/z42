@@ -4,7 +4,7 @@
 use super::*;
 use crate::vm::runtime::Module;
 use crate::metadata::ir::{ClassDesc, FieldDesc};
-use crate::metadata::type_table::TypeTable;
+use crate::vm::runtime::ids::type_table::TypeTable;
 
 fn class(name: &str, base: Option<&str>, fields: &[&str]) -> ClassDesc {
     ClassDesc {
@@ -38,7 +38,7 @@ fn artifact(module_name: &str, classes: Vec<ClassDesc>) -> crate::metadata::load
         classes,
         func_index: FxHashMap::default(),
     }, vec![], FxHashMap::default());
-    crate::metadata::loader::build_type_registry(&mut module);
+    crate::vm::runtime::types::build_type_registry(&mut module);
     crate::metadata::loader::LoadedArtifact {
         module,
         entry_hint: None,

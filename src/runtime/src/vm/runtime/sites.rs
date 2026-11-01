@@ -1,6 +1,6 @@
 //! Lazy VM-local operand caches. Definitions contain names and source positions only.
 use crate::metadata::ir::{Function, Instruction};
-use crate::metadata::tokens::{TypeKeyCell, UNRESOLVED};
+use crate::vm::runtime::ids::tokens::{TypeKeyCell, UNRESOLVED};
 use crate::object::{ElemType, TypeArgs};
 #[derive(Debug)]
 pub(super) struct CodeSites {

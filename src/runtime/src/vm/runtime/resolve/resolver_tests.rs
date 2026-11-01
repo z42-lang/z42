@@ -1,10 +1,7 @@
-//! Unit tests for `resolver.rs` (per-site token tables + the inline caches).
-//!
-//! Split out of the inline `#[cfg(test)] mod resolver_tests` when `resolver.rs`
-//! crossed the 500-line hard limit — same `#[path]` pattern as
-//! `lazy_loader_tests.rs` / `types_tests.rs`.
+//! Tests for per-site token tables and dispatch cache publication.
 
 use super::*;
+use crate::vm::runtime::dispatch::ic::*;
 
 #[test]
 fn resolved_tokens_default_is_empty() {

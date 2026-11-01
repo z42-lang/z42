@@ -14,7 +14,7 @@ fn td(name: &str) -> Arc<TypeDesc> {
         vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
         cold: None,
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 

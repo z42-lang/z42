@@ -141,27 +141,27 @@ pub struct LazyLoader {
     /// Simple name → the unique recorded full name with that short name (`None` once two
     /// differ). Lets reflection resolve a dotless type name without force-loading everything.
     short_symbols: FxHashMap<String, Option<String>>,
-    /// The VM's [`FuncTable`](crate::metadata::func_table::FuncTable), which is also this
+    /// The VM's [`FuncTable`](crate::vm::runtime::ids::func_table::FuncTable), which is also this
     /// loader's **function registry**: functions loaded from lazily resolved zpkgs (ConstStr
     /// indices already remapped to absolute) are registered there by
     /// [`Self::insert_function`] — getting their `FnId` — and looked up by name from there
     /// (`FuncTable::lazy_fn`); the loader keeps no name map of its own. Attached by
     /// `VmContext::install_lazy_loader_with_deps`; a loader built directly (unit tests) starts
     /// with a private empty table.
-    funcs: Arc<crate::metadata::func_table::FuncTable>,
-    /// The VM's [`TypeTable`](crate::metadata::type_table::TypeTable) (`TypeId` → descriptor).
+    funcs: Arc<crate::vm::runtime::ids::func_table::FuncTable>,
+    /// The VM's [`TypeTable`](crate::vm::runtime::ids::type_table::TypeTable) (`TypeId` → descriptor).
     /// `type_registry` stays the loader's name map; every step that changes it ends with
     /// [`Self::publish_types`], which registers new descriptors there and repoints fixed-up
     /// ones. Attached by `VmContext::install_lazy_loader_with_deps`; a loader built directly
     /// (unit tests) starts with a private empty table.
-    types: Arc<crate::metadata::type_table::TypeTable>,
-    /// The VM's [`StrTable`](crate::metadata::str_table::StrTable): each loaded package's
+    types: Arc<crate::vm::runtime::ids::type_table::TypeTable>,
+    /// The VM's [`StrTable`](crate::vm::runtime::ids::str_table::StrTable): each loaded package's
     /// string pool is appended there and its `ConstStr` operands are shifted by the returned
     /// first id (`remap_const_str`), so every operand is an id in the VM's one string id
     /// space (entry-module pool first). Attached by `VmContext::install_lazy_loader_with_deps`;
     /// a loader built directly (unit tests) starts with a private table whose ids below
     /// `main_pool_len` are reserved.
-    strings: Arc<crate::metadata::str_table::StrTable>,
+    strings: Arc<crate::vm::runtime::ids::str_table::StrTable>,
 }
 
 /// runtime-ambiguous-use-site: the two ambiguity sets, behind one `Box` so
@@ -299,7 +299,7 @@ impl LazyLoader {
             .into_iter()
             .filter(|(k, _)| !loaded_zpkgs.contains(k))
             .collect();
-        let strings = crate::metadata::str_table::StrTable::new(None);
+        let strings = crate::vm::runtime::ids::str_table::StrTable::new(None);
         strings.reserve(main_pool_len);
         Self {
             search_dirs,
@@ -314,8 +314,8 @@ impl LazyLoader {
             cctors: None,
             symbol_owners: FxHashMap::default(),
             short_symbols: FxHashMap::default(),
-            funcs: Arc::new(crate::metadata::func_table::FuncTable::new(None)),
-            types: Arc::new(crate::metadata::type_table::TypeTable::default()),
+            funcs: Arc::new(crate::vm::runtime::ids::func_table::FuncTable::new(None)),
+            types: Arc::new(crate::vm::runtime::ids::type_table::TypeTable::default()),
             strings: Arc::new(strings),
         }
     }
@@ -374,14 +374,14 @@ impl LazyLoader {
 
     /// Attach the VM's function table (see the `funcs` field doc). Must precede any
     /// registration — functions already in the private table would be dropped.
-    pub(crate) fn set_func_table(&mut self, table: Arc<crate::metadata::func_table::FuncTable>) {
+    pub(crate) fn set_func_table(&mut self, table: Arc<crate::vm::runtime::ids::func_table::FuncTable>) {
         debug_assert_eq!(self.funcs.lazy_name_count(), 0, "set_func_table after registration");
         self.funcs = table;
     }
 
     /// Attach the VM's string table (see the `strings` field doc). Carries over the id
     /// space reserved so far (`main_pool_len`); call before any package registers.
-    pub(crate) fn set_str_table(&mut self, table: Arc<crate::metadata::str_table::StrTable>) {
+    pub(crate) fn set_str_table(&mut self, table: Arc<crate::vm::runtime::ids::str_table::StrTable>) {
         table.reserve(self.strings.len());
         self.strings = table;
     }
@@ -392,7 +392,7 @@ impl LazyLoader {
     }
 
     /// Attach the VM's type table (see the `types` field doc).
-    pub(crate) fn set_type_table(&mut self, table: Arc<crate::metadata::type_table::TypeTable>) {
+    pub(crate) fn set_type_table(&mut self, table: Arc<crate::vm::runtime::ids::type_table::TypeTable>) {
         self.types = table;
         self.publish_types();
     }
@@ -453,7 +453,7 @@ impl LazyLoader {
         if self.funcs.register_lazy(&f).is_none() {
             return false;
         }
-        crate::metadata::resolver::note_fn_registration();
+        crate::vm::runtime::dispatch::ic::note_fn_registration();
         true
     }
 

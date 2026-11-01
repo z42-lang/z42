@@ -5,7 +5,7 @@ use super::*;
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
 use crate::metadata::loader::LoadedArtifact;
-use crate::metadata::tokens::FnId;
+use crate::vm::runtime::ids::tokens::FnId;
 use crate::metadata::ir::ExecMode;
 use crate::object::string::vstr::Str;
 use crate::object::Value;

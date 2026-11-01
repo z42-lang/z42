@@ -4,7 +4,7 @@
 //! `exec_object.rs` when it crossed the 500-line hard limit; the parent
 //! re-exports so `exec_object::is_instance` / `as_cast` paths are unchanged.
 
-use crate::metadata::tokens::TypeKeyCell;
+use crate::vm::runtime::ids::tokens::TypeKeyCell;
 use crate::vm::runtime::Module;
 use crate::object::Value;
 use crate::vm_context::VmContext;

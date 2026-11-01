@@ -12,7 +12,7 @@ use super::*;
 pub(super) fn method_id_at(func: &Function, block_idx: usize, instr_idx: usize) -> u32 {
     method_token_at(func, block_idx, instr_idx)
         .map(|atom| atom.load(std::sync::atomic::Ordering::Relaxed))
-        .unwrap_or(crate::metadata::tokens::UNRESOLVED)
+        .unwrap_or(crate::vm::runtime::ids::tokens::UNRESOLVED)
 }
 
 /// Stable raw pointer to the `Call` site's `method_tokens` cell — the per-site
@@ -47,7 +47,7 @@ pub(super) fn fn_ref_token_at(func: &Function, block_idx: usize, instr_idx: usiz
 /// non-IC slow path). The IC lives inside `Function.resolved.vcall_ic`
 /// (which lives inside Module), so the pointer is valid for the entire
 /// lifetime of the code that bakes it.
-pub(super) fn vcall_ic_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const crate::metadata::resolver::VCallIC {
+pub(super) fn vcall_ic_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const crate::vm::runtime::dispatch::ic::VCallIC {
     func.resolved.get()
         .and_then(|r| {
             let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
@@ -60,7 +60,7 @@ pub(super) fn vcall_ic_ptr_at(func: &Function, block_idx: usize, instr_idx: usiz
 /// formalize-jit-method-token Phase 2.E helper: stable raw pointer to
 /// the `FieldIC` slot for a FieldGet/FieldSet site. Same lifetime
 /// guarantees as `vcall_ic_ptr_at`.
-pub(super) fn field_ic_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const crate::metadata::resolver::FieldIC {
+pub(super) fn field_ic_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const crate::vm::runtime::dispatch::ic::FieldIC {
     func.resolved.get()
         .and_then(|r| {
             let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
@@ -75,7 +75,7 @@ pub(super) fn field_ic_ptr_at(func: &Function, block_idx: usize, instr_idx: usiz
 /// `field_ic_ptr_at` (the slot lives in `Function.resolved`, a write-once `OnceLock`, so
 /// the address is stable for the module's life). Null when the function was compiled
 /// without a resolved token table — the helper then resolves by name every time.
-pub(super) fn obj_new_site_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const crate::metadata::resolver::ObjNewSite {
+pub(super) fn obj_new_site_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const crate::vm::runtime::dispatch::ic::ObjNewSite {
     func.resolved.get()
         .and_then(|r| {
             let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
@@ -104,8 +104,8 @@ pub(super) fn static_field_id_at(func: &Function, block_idx: usize, instr_idx: u
             r.static_field_tokens.get(site as usize)
         })
         .map(|atom| atom.load(std::sync::atomic::Ordering::Relaxed))
-        .filter(|&id| id != crate::metadata::tokens::UNRESOLVED)
-        .unwrap_or(crate::metadata::tokens::UNRESOLVED)
+        .filter(|&id| id != crate::vm::runtime::ids::tokens::UNRESOLVED)
+        .unwrap_or(crate::vm::runtime::ids::tokens::UNRESOLVED)
 }
 
 #[cfg(test)]

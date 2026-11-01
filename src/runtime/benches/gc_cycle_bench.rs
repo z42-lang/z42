@@ -26,8 +26,8 @@ use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 use z42::gc::{ArcMagrGC, GcMode, MagrGC};
 use z42::{
-    metadata::tokens::TypeId,
     object::{NativeData, TypeDesc, Value},
+    vm::runtime::ids::tokens::TypeId,
 };
 use z42::vm_context::VmContext;
 

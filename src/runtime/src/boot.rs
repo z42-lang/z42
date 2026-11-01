@@ -102,5 +102,5 @@ pub(crate) fn prepare_execution(ctx: &VmContext, module: &Module) {
     // tokens for every Function. Idempotent — safe if hot paths run
     // before Phase 4 hookups consume the cache (they fall back to
     // string lookup until Phase 4 lands).
-    crate::metadata::resolver::resolve_module(module, ctx);
+    crate::vm::runtime::resolve::resolve_module(module, ctx);
 }

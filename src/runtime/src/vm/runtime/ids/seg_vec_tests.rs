@@ -11,7 +11,7 @@ fn locate_maps_segment_boundaries() {
     assert_eq!(locate(3 * FIRST_SEG), Some((2, 0)));
     assert_eq!(locate(SEG_CAPACITY - 1), Some((NSEG - 1, seg_len(NSEG - 1) - 1)));
     assert_eq!(locate(SEG_CAPACITY), None);
-    assert!(SEG_CAPACITY as u64 <= crate::metadata::tokens::IMPORT_BASE as u64);
+    assert!(SEG_CAPACITY as u64 <= crate::vm::runtime::ids::tokens::IMPORT_BASE as u64);
 }
 
 #[test]

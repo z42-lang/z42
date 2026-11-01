@@ -14,13 +14,13 @@ impl VmContext {
     // Storage is `core.statics` (`static_table`): one stable-address cell per
     // `StaticFieldId`, read and written without a lock; the name → id registration is
     // lazy. The dispatch hot path uses `static_get_by_id` / `static_set_by_id` with the
-    // per-site id `metadata::resolver` resolved; the by-name `static_get` / `static_set`
+    // per-site id `vm::runtime::resolve` resolved; the by-name `static_get` / `static_set`
     // serve sites without one (and the REPL).
 
     /// Resolve (or lazy-allocate) a `StaticFieldId` for the given full-qualified
-    /// static-field name. Idempotent. Called by `metadata::resolver` at module
+    /// static-field name. Idempotent. Called by `vm::runtime::resolve` at module
     /// load and by hot paths on cache miss (cross-zpkg lazy fields).
-    pub fn resolve_static_field_id(&self, name: &str) -> crate::metadata::tokens::StaticFieldId {
+    pub fn resolve_static_field_id(&self, name: &str) -> crate::vm::runtime::ids::tokens::StaticFieldId {
         self.core.statics.resolve(name)
     }
 
@@ -38,7 +38,7 @@ impl VmContext {
     /// Hot-path read by id: one acquire load of the cell's tag word (and a relaxed load of
     /// its payload for a primitive). `Value::Null` for an id never allocated.
     #[inline]
-    pub fn static_get_by_id(&self, id: crate::metadata::tokens::StaticFieldId) -> Value {
+    pub fn static_get_by_id(&self, id: crate::vm::runtime::ids::tokens::StaticFieldId) -> Value {
         self.core.statics.get(id)
     }
 
@@ -46,7 +46,7 @@ impl VmContext {
     /// boxed into it (`tparam_cell`), which needs the thread's active heap — the only way this
     /// fails (a context with no frame running).
     #[inline]
-    pub fn static_set_by_id(&self, id: crate::metadata::tokens::StaticFieldId, val: Value) -> anyhow::Result<()> {
+    pub fn static_set_by_id(&self, id: crate::vm::runtime::ids::tokens::StaticFieldId, val: Value) -> anyhow::Result<()> {
         self.core.statics.set(id, &val)
     }
 
@@ -62,7 +62,7 @@ impl VmContext {
     /// (re)load) moves the epoch on, and the next access re-runs the full barrier.
     #[inline]
     pub fn ensure_static_field_init(&self, field: &str, field_id: Option<u32>) -> Result<(), String> {
-        let cell = field_id.and_then(|id| self.core.statics.cell(crate::metadata::tokens::StaticFieldId(id)));
+        let cell = field_id.and_then(|id| self.core.statics.cell(crate::vm::runtime::ids::tokens::StaticFieldId(id)));
         if let Some(c) = cell {
             if c.barrier_ready(self.core.cctors.barrier_epoch()) {
                 return Ok(());
@@ -123,7 +123,7 @@ impl VmContext {
     pub(crate) fn jit_static_cell(
         &self, id: u32,
     ) -> Option<(*const super::static_table::StaticCell, *const std::sync::atomic::AtomicU32)> {
-        let cell = self.core.statics.cell(crate::metadata::tokens::StaticFieldId(id))?;
+        let cell = self.core.statics.cell(crate::vm::runtime::ids::tokens::StaticFieldId(id))?;
         Some((cell as *const _, self.core.cctors.barrier_epoch_ptr()))
     }
 
@@ -131,7 +131,7 @@ impl VmContext {
     /// install `zero` unless something was written meanwhile, and return the field's value
     /// (`StaticTable::init_default`). `field_id` `None` = by name (allocating the id).
     pub fn static_init_default(
-        &self, field: &str, field_id: Option<crate::metadata::tokens::StaticFieldId>, zero: &Value,
+        &self, field: &str, field_id: Option<crate::vm::runtime::ids::tokens::StaticFieldId>, zero: &Value,
     ) -> anyhow::Result<Value> {
         let id = field_id.unwrap_or_else(|| self.resolve_static_field_id(field));
         self.core.statics.init_default(id, zero)

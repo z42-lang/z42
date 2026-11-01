@@ -1,4 +1,8 @@
-use super::*;
+use anyhow::{bail, Result};
+use rustc_hash::FxHashMap;
+use std::sync::Arc;
+use crate::object::TypeDesc;
+use crate::vm::runtime::Module;
 
 // ── L3-G3a: constraint verification pass ───────────────────────────────────
 

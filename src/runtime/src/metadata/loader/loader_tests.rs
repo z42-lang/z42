@@ -1,5 +1,8 @@
 use super::*;
 use std::path::Path;
+use std::sync::Arc;
+use rustc_hash::FxHashMap;
+use crate::object::TypeDesc;
 
 // ── extract_import_namespaces ─────────────────────────────────────────────────
 
@@ -233,8 +236,8 @@ fn fixup_inherits_base_fields_from_separate_module() {
     let mut mod_b = module_with_one_class("Sub", Some("Base"),
         vec![("flag", "bool")]);
 
-    crate::metadata::loader::build_type_registry(&mut mod_a);
-    crate::metadata::loader::build_type_registry(&mut mod_b);
+    crate::vm::runtime::types::build_type_registry(&mut mod_a);
+    crate::vm::runtime::types::build_type_registry(&mut mod_b);
 
     // Before merge, B's Sub has only its own field — base is unresolvable
     // within mod_b's local registry.
@@ -249,7 +252,7 @@ fn fixup_inherits_base_fields_from_separate_module() {
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
 
-    let fixed = crate::metadata::loader::try_fixup_inheritance(&mut global);
+    let fixed = crate::vm::runtime::types::try_fixup_inheritance(&mut global);
     assert_eq!(fixed, 1, "Sub should be the single newly-fixed type");
 
     let sub_after = global.get("Sub").expect("Sub still present");
@@ -267,8 +270,8 @@ fn fixup_inherits_base_fields_from_separate_module() {
 fn instantiation_type_args_are_one_handle_across_modules() {
     let mut mod_a = module_with_one_class("Demo.Box<Std.Int32>", None, vec![]);
     let mut mod_b = module_with_one_class("Demo.Box<Std.Int32>", None, vec![]);
-    crate::metadata::loader::build_type_registry(&mut mod_a);
-    crate::metadata::loader::build_type_registry(&mut mod_b);
+    crate::vm::runtime::types::build_type_registry(&mut mod_a);
+    crate::vm::runtime::types::build_type_registry(&mut mod_b);
     let a = mod_a.type_registry.get("Demo.Box<Std.Int32>").expect("registered").type_args_handle();
     let b = mod_b.type_registry.get("Demo.Box<Std.Int32>").expect("registered").type_args_handle();
     assert_eq!(a.as_slice(), &["Std.Int32".to_string()][..]);
@@ -277,7 +280,7 @@ fn instantiation_type_args_are_one_handle_across_modules() {
     assert!(std::ptr::eq(a.as_raw(), site.as_raw()));
     // A non-generic class carries the empty handle.
     let mut plain = module_with_one_class("Demo.Plain", None, vec![]);
-    crate::metadata::loader::build_type_registry(&mut plain);
+    crate::vm::runtime::types::build_type_registry(&mut plain);
     assert!(plain.type_registry.get("Demo.Plain").expect("registered").type_args_handle().is_empty());
 }
 
@@ -290,7 +293,7 @@ fn fixup_handles_three_level_chain() {
     let mut mod_c = module_with_one_class("Leaf", Some("Mid"),  vec![("c", "str")]);
 
     for m in [&mut mod_a, &mut mod_b, &mut mod_c] {
-        crate::metadata::loader::build_type_registry(m);
+        crate::vm::runtime::types::build_type_registry(m);
     }
 
     let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
@@ -305,7 +308,7 @@ fn fixup_handles_three_level_chain() {
     // present), then Leaf in pass 2 (base = Mid, freshly fixed up).
     let mut total = 0;
     loop {
-        let n = crate::metadata::loader::try_fixup_inheritance(&mut global);
+        let n = crate::vm::runtime::types::try_fixup_inheritance(&mut global);
         if n == 0 { break; }
         total += n;
     }
@@ -324,24 +327,24 @@ fn fixup_handles_three_level_chain() {
 #[test]
 fn fixup_deferred_until_base_loads() {
     let mut mod_b = module_with_one_class("Sub", Some("Base"), vec![("x", "str")]);
-    crate::metadata::loader::build_type_registry(&mut mod_b);
+    crate::vm::runtime::types::build_type_registry(&mut mod_b);
 
     let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
         rustc_hash::FxHashMap::default();
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
 
     // First fixup pass: base "Base" unresolvable — Sub stays own-only.
-    let n1 = crate::metadata::loader::try_fixup_inheritance(&mut global);
+    let n1 = crate::vm::runtime::types::try_fixup_inheritance(&mut global);
     assert_eq!(n1, 0, "no fixup possible without Base");
     assert_eq!(global.get("Sub").unwrap().fields.len(), 1, "Sub still has only its own field");
 
     // Now A loads, bringing Base into the global registry.
     let mut mod_a = module_with_one_class("Base", None, vec![("b", "str")]);
-    crate::metadata::loader::build_type_registry(&mut mod_a);
+    crate::vm::runtime::types::build_type_registry(&mut mod_a);
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
 
     // Second fixup pass: Sub now resolvable, gets inherited slot.
-    let n2 = crate::metadata::loader::try_fixup_inheritance(&mut global);
+    let n2 = crate::vm::runtime::types::try_fixup_inheritance(&mut global);
     assert_eq!(n2, 1, "Sub should fix up now that Base is present");
     let sub = global.get("Sub").unwrap();
     assert_eq!(sub.fields.len(), 2);
@@ -355,16 +358,16 @@ fn fixup_idempotent_when_no_new_resolutions() {
     let mut mod_a = module_with_one_class("Base", None, vec![("x", "str")]);
     let mut mod_b = module_with_one_class("Sub", Some("Base"), vec![]);
     for m in [&mut mod_a, &mut mod_b] {
-        crate::metadata::loader::build_type_registry(m);
+        crate::vm::runtime::types::build_type_registry(m);
     }
     let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
         rustc_hash::FxHashMap::default();
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
 
-    let pass1 = crate::metadata::loader::try_fixup_inheritance(&mut global);
+    let pass1 = crate::vm::runtime::types::try_fixup_inheritance(&mut global);
     assert!(pass1 >= 1);
-    let pass2 = crate::metadata::loader::try_fixup_inheritance(&mut global);
+    let pass2 = crate::vm::runtime::types::try_fixup_inheritance(&mut global);
     assert_eq!(pass2, 0, "second pass is no-op");
 }
 
@@ -384,7 +387,7 @@ fn fixup_converges_with_duplicate_field_names() {
     let mut mod_b = module_with_one_class("Sub", Some("Base"),
         vec![("dup", "str"), ("dup", "str"), ("x", "i64")]);
     for m in [&mut mod_a, &mut mod_b] {
-        crate::metadata::loader::build_type_registry(m);
+        crate::vm::runtime::types::build_type_registry(m);
     }
     let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
         rustc_hash::FxHashMap::default();
@@ -393,9 +396,9 @@ fn fixup_converges_with_duplicate_field_names() {
 
     // First pass merges Sub against Base; subsequent passes MUST reach the
     // fixed point (0) rather than re-fixing `Sub` every round.
-    let pass1 = crate::metadata::loader::try_fixup_inheritance(&mut global);
+    let pass1 = crate::vm::runtime::types::try_fixup_inheritance(&mut global);
     assert_eq!(pass1, 1, "Sub fixed up once against Base");
-    let pass2 = crate::metadata::loader::try_fixup_inheritance(&mut global);
+    let pass2 = crate::vm::runtime::types::try_fixup_inheritance(&mut global);
     assert_eq!(pass2, 0, "converged: duplicate field name must not re-trigger fixup");
 
     let sub = global.get("Sub").unwrap();
@@ -417,7 +420,7 @@ fn module_with_classes(
         c.name = (*n).to_owned();
         c
     }).collect();
-    crate::metadata::loader::build_type_registry(&mut m);
+    crate::vm::runtime::types::build_type_registry(&mut m);
     m
 }
 
@@ -429,7 +432,7 @@ fn merge_and_converge(
         for (n, td) in std::mem::take(&mut m.type_registry) { global.insert(n, td); }
     }
     for _ in 0..16 {
-        if crate::metadata::loader::try_fixup_inheritance(&mut global) == 0 { break; }
+        if crate::vm::runtime::types::try_fixup_inheritance(&mut global) == 0 { break; }
     }
     global
 }
@@ -495,7 +498,7 @@ fn transitive_flag_clears_in_one_round_for_a_marker_base() {
     for mut m in [app, dep] {
         for (n, td) in std::mem::take(&mut m.type_registry) { global.insert(n, td); }
     }
-    assert_eq!(crate::metadata::loader::try_fixup_inheritance(&mut global), 0, "nothing to merge");
+    assert_eq!(crate::vm::runtime::types::try_fixup_inheritance(&mut global), 0, "nothing to merge");
     assert!(!global["Mid"].base_unmerged());
     assert!(!global["Leaf"].base_unmerged(), "cleared in the same round");
 }
@@ -611,7 +614,7 @@ fn object_layout_composed_local_inheritance() {
     base_mod.classes.push(sub_class);
     let mut module: Module = base_mod;
 
-    crate::metadata::loader::build_type_registry(&mut module);
+    crate::vm::runtime::types::build_type_registry(&mut module);
 
     let base = module.type_registry.get("Base").expect("Base");
     let bl = base.composed_object_layout().expect("Base has composed layout");
@@ -682,8 +685,8 @@ fn object_layout_composed_crosspkg_fixup() {
 
     let mut mod_a = module_with_object_layout("Base", None, vec![("name", "str")], base_layout);
     let mut mod_b = module_with_object_layout("Sub", Some("Base"), vec![("n", "i64")], sub_layout);
-    crate::metadata::loader::build_type_registry(&mut mod_a);
-    crate::metadata::loader::build_type_registry(&mut mod_b);
+    crate::vm::runtime::types::build_type_registry(&mut mod_a);
+    crate::vm::runtime::types::build_type_registry(&mut mod_b);
 
     // Pre-merge: Sub composed against an unresolved base → own-only (base_shift 0).
     let sub_before = mod_b.type_registry.get("Sub").expect("Sub").composed_object_layout().unwrap();
@@ -696,7 +699,7 @@ fn object_layout_composed_crosspkg_fixup() {
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
 
-    let fixed = crate::metadata::loader::try_fixup_inheritance(&mut global);
+    let fixed = crate::vm::runtime::types::try_fixup_inheritance(&mut global);
     assert_eq!(fixed, 1, "Sub recomposed once base resolves");
 
     let sub_after = global.get("Sub").unwrap().composed_object_layout().unwrap();
@@ -759,8 +762,8 @@ fn type_ids_are_unique_across_modules() {
 
     let mut a = module_with_class_names("PkgA", &["A.One", "A.Two", "A.Three"]);
     let mut b = module_with_class_names("PkgB", &["B.One", "B.Two", "B.Three"]);
-    crate::metadata::loader::build_type_registry(&mut a);
-    crate::metadata::loader::build_type_registry(&mut b);
+    crate::vm::runtime::types::build_type_registry(&mut a);
+    crate::vm::runtime::types::build_type_registry(&mut b);
 
     let ids = |m: &crate::vm::runtime::Module| -> HashSet<u32> {
         m.type_registry.values().map(|td| td.id.0).collect()
@@ -779,10 +782,10 @@ fn type_ids_are_unique_across_modules() {
 #[test]
 fn allocated_type_ids_stay_below_import_base() {
     let mut m = module_with_class_names("PkgC", &["C.One", "C.Two"]);
-    crate::metadata::loader::build_type_registry(&mut m);
+    crate::vm::runtime::types::build_type_registry(&mut m);
     for td in m.type_registry.values() {
         assert!(
-            td.id.0 < crate::metadata::tokens::IMPORT_BASE,
+            td.id.0 < crate::vm::runtime::ids::tokens::IMPORT_BASE,
             "type id {} escaped the intra-module band", td.id.0
         );
         assert!(td.id.is_resolved());
@@ -1072,7 +1075,7 @@ fn iface_slot_alias_to_an_inherited_method_is_installed_by_fixup() {
     let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> = rustc_hash::FxHashMap::default();
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
-    crate::metadata::loader::try_fixup_inheritance(&mut global);
+    crate::vm::runtime::types::try_fixup_inheritance(&mut global);
 
     let sub = global.get("B.Sub").unwrap();
     let slot = *sub.vtable_index.get("B.IPlain#Get").expect("alias installed by fixup");
@@ -1124,7 +1127,7 @@ fn own_methods_are_the_functions_under_the_class_name() {
         stub_fn("G.Special", false),
         stub_fn("G<int>.Special", false),
     ];
-    crate::metadata::loader::build_type_registry(&mut m);
+    crate::vm::runtime::types::build_type_registry(&mut m);
     let own = |c: &str| m.type_registry[c].own_methods().iter().map(|s| s.to_string()).collect::<Vec<_>>();
     assert_eq!(own("A.B"), ["A.B.First", "A.B.C.Inner", "A.B.Last"]);
     assert_eq!(own("A.B.C"), ["A.B.C.Inner"]);

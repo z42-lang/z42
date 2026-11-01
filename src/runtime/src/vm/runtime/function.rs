@@ -1,8 +1,8 @@
 //! A VM's function linkage, sharing an immutable definition with its image.
 use super::sites::CodeSites;
 use super::SuperInstr;
-use crate::metadata::resolver::ResolvedTokens;
-use crate::metadata::tokens::{FnIdCell, ForwardCell, TypeKeyCell};
+use crate::vm::runtime::resolve::ResolvedTokens;
+use crate::vm::runtime::ids::tokens::{FnIdCell, ForwardCell, TypeKeyCell};
 use crate::{metadata::ir, object::TypeDesc};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, OnceLock};

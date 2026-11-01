@@ -166,7 +166,7 @@ fn format_prefers_line_over_offset() {
 mod make_stdlib_exception_tests {
     use super::*;
     use crate::vm::runtime::Module;
-    use crate::metadata::tokens::TypeId;
+    use crate::vm::runtime::ids::tokens::TypeId;
     use crate::object::FieldSlot;
     use crate::vm_context::VmContext;
     

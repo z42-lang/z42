@@ -34,7 +34,7 @@ pub struct VmCore {
     /// `try_lookup_function` / `try_lookup_type` 上，而 GC 分配锁只有 6 个。
     pub(crate) lazy_loader:        RwLock<Option<LazyLoader>>,
     /// defer-class-initialization: 待初始化的**所属类** FQN 队列。由
-    /// `metadata::resolver` 解析 `StaticGet`/`StaticSet` 时入队（字段名去掉最后一段），
+    /// `vm::runtime::resolve` 解析 `StaticGet`/`StaticSet` 时入队（字段名去掉最后一段），
     /// 在 `VmContext::run_pending_static_inits` 里逐个 `try_lookup_type` 触发所属包加载
     /// + 初始化。这是「静态字段引用触发类初始化」的落点：热路径
     /// `static_get_by_id` 因 `Value::Null` 是合法值而无法区分「未初始化」，
@@ -129,18 +129,18 @@ pub struct VmCore {
     /// Entry-module functions are registered at construction as ids `0..n`
     /// (= `module.functions` index); the lazy loader appends each package's
     /// functions as they register. Only registers today — no lookup path reads
-    /// it yet. See `metadata::func_table`.
-    pub(crate) funcs:              Arc<crate::metadata::func_table::FuncTable>,
+    /// it yet. See `vm::runtime::ids::func_table`.
+    pub(crate) funcs:              Arc<crate::vm::runtime::ids::func_table::FuncTable>,
     /// Process-level type identity (`TypeId` → latest `TypeDesc` version, lock-free reads).
     /// Entry-module types are registered at construction; the lazy loader publishes its
     /// registry after every change. Also reserves type-test keys for target names that
-    /// name no registered type. See `metadata::type_table`.
-    pub(crate) types:              Arc<crate::metadata::type_table::TypeTable>,
+    /// name no registered type. See `vm::runtime::ids::type_table`.
+    pub(crate) types:              Arc<crate::vm::runtime::ids::type_table::TypeTable>,
     /// String-literal identity (`ConstStr` id → text + interned GC string, lock-free reads
     /// once interned). Entry-module pool = ids `0..n`; the lazy loader appends each package's
     /// pool. Per VM because the strings live in this VM's heap; its interned strings are GC
-    /// roots. See `metadata::str_table`.
-    pub(crate) strings:            Arc<crate::metadata::str_table::StrTable>,
+    /// roots. See `vm::runtime::ids::str_table`.
+    pub(crate) strings:            Arc<crate::vm::runtime::ids::str_table::StrTable>,
     /// **add-threading-stdlib **: live `Std.Threading.Thread`
     /// instances keyed by monotonic u64 slot id. `__thread_spawn` inserts;
     /// `__thread_wait` takes-out + joins. Pattern mirrors

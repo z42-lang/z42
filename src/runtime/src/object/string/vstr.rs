@@ -42,7 +42,7 @@
 //! - **Drop** = no-op. The GC frees the block when it becomes unreachable; a
 //!   `Value::Str` in a frame register is a root (the external root scanner walks
 //!   frame regs), so live strings stay marked. Interned `ConstStr` literals are kept
-//!   alive by the VM's string table (a scanned root); see `metadata::str_table`.
+//!   alive by the VM's string table (a scanned root); see `vm::runtime::ids::str_table`.
 //! - **Reachability, not refcount**: a `Str` handle sitting in a *Rust* local (not
 //!   a GC root) does not by itself keep the block alive — but the GC only runs at
 //!   safepoints (loop back-edges / calls) and on `ForceCollect`, never mid-operation,

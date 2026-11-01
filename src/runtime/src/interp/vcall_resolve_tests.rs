@@ -4,7 +4,7 @@
 use super::*;
 use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
 use crate::metadata::index::name::NameIndex;
-use crate::metadata::tokens::{alloc_type_id_block, FnId, TypeId};
+use crate::vm::runtime::ids::tokens::{alloc_type_id_block, FnId, TypeId};
 use crate::metadata::ir::ExecMode;
 use crate::object::{NativeData, TypeDesc};
 use crate::vm::runtime::Function;

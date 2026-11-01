@@ -77,7 +77,7 @@ unsafe fn call_impl(
     caller_offset: u32,
     mta: &[String],
 ) -> u8 {
-    use crate::metadata::tokens::UNRESOLVED;
+    use crate::vm::runtime::ids::tokens::UNRESOLVED;
     let rt        = super::jit_rt(ctx);
     let frame_ref = &mut *frame;
     let arg_regs  = std::slice::from_raw_parts(args_ptr, argc);
@@ -234,7 +234,7 @@ pub unsafe extern "C" fn jit_builtin(
     let frame_ref = &mut *frame;
     let arg_regs  = std::slice::from_raw_parts(args_ptr, argc);
     let vm = vm_ctx_ref(ctx);
-    let name = if builtin_id != crate::metadata::tokens::UNRESOLVED { "" } else {
+    let name = if builtin_id != crate::vm::runtime::ids::tokens::UNRESOLVED { "" } else {
         std::str::from_utf8(std::slice::from_raw_parts(name_ptr, name_len)).unwrap_or("<invalid>")
     };
     match crate::corelib::invoke_builtin(vm, builtin_id, name, None, &frame_ref.regs, arg_regs) {

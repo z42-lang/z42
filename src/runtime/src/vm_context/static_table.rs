@@ -25,8 +25,8 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 
-use crate::metadata::seg_vec::SegVec;
-use crate::metadata::tokens::StaticFieldId;
+use crate::vm::runtime::ids::seg_vec::SegVec;
+use crate::vm::runtime::ids::tokens::StaticFieldId;
 use crate::object::{tparam_cell, Cells};
 use crate::object::{TypeDesc, Value};
 

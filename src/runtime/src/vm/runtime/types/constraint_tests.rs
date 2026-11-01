@@ -3,9 +3,9 @@
 //! `Std.*` refs are passed through for lazy loader to resolve.
 
 use crate::vm::runtime::{Function, Module};
-use super::ir::{ClassDesc, ConstraintBundle};
-use super::loader::{build_type_registry, verify_constraints};
-use super::ir::ExecMode;
+use {crate::metadata::ir::ClassDesc, crate::metadata::ir::ConstraintBundle};
+use crate::vm::runtime::types::{build_type_registry, verify_constraints};
+use crate::metadata::ir::ExecMode;
 
 fn empty_module(name: &str) -> Module {
     Module::new(crate::metadata::image::ModuleData {

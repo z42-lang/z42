@@ -12,7 +12,7 @@ use crate::jit::invoke::{call_entry, NativeOutcome};
 use crate::jit::runtime::install;
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, FieldGetInsn, FieldSetInsn, Instruction, Terminator};
-use crate::metadata::tokens::TypeId;
+use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{
     FieldAccess, NativeData, ObjectLayout, TypeDesc, TypeDescCold, STRUCT_LEAF_GCREF,
     STRUCT_LEAF_PRIM, TAG_I32, TAG_I64, TAG_OBJECT,
@@ -121,7 +121,7 @@ struct Jitted<'m> {
 
 impl Jitted<'_> {
     fn new<'m>(vm: &'m VmContext, m: &'m Module, idx: usize) -> Jitted<'m> {
-        crate::metadata::resolver::resolve_function_tokens(&m.functions[idx], m, vm);
+        crate::vm::runtime::resolve::resolve_function_tokens(&m.functions[idx], m, vm);
         let rt = install(vm, m).expect("install");
         let entry = rt.compile_with(&m.functions[idx], &Lookup(vm)).expect("compile");
         Jitted { vm, entry }

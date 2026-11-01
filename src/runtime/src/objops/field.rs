@@ -8,7 +8,9 @@
 //! - `BoxedStruct`：擦除返回位流出的值 struct 盒，按名读叶子（复用反射那一份）。
 //! - `Null` → `NullReferenceException`。
 
-use crate::metadata::resolver::{assert_field_ic_loc, field_ic_install, field_ic_lookup, FieldIC};
+use crate::vm::runtime::dispatch::ic::{
+    assert_field_ic_loc, field_ic_install, field_ic_lookup, FieldIC,
+};
 use crate::object::{FieldAccess, FieldLoc, FieldWrite, ScriptObject};
 use crate::object::Value;
 use crate::vm_context::VmContext;

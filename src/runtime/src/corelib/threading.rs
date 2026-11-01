@@ -29,7 +29,7 @@ use std::sync::Arc;
 pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::corelib::abi::BuiltinError> {
     // P1-2 PR 8: the target is the value's bound `FnId` — a plain integer that crosses to
     // the worker as is (the worker shares this VM's `FuncTable`).
-    let (fn_id, env_vec): (crate::metadata::tokens::FnId, Option<Vec<Value>>) = match action {
+    let (fn_id, env_vec): (crate::vm::runtime::ids::tokens::FnId, Option<Vec<Value>>) = match action {
         Value::FuncRef(id) => (*id, None),
         Value::Closure(c) => {
             let data = crate::object::closure_data_of(c);
@@ -190,7 +190,7 @@ pub mod typed {
 
 fn run_spawned_action(
     thread_ctx: &VmContext,
-    fn_id:      crate::metadata::tokens::FnId,
+    fn_id:      crate::vm::runtime::ids::tokens::FnId,
     env_vec:    Option<Vec<Value>>,
 ) -> Result<()> {
     let module_arc = thread_ctx.core.module.as_ref()

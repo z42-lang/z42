@@ -13,7 +13,7 @@
 //!     (site token, shared with the interpreter); `CallIndirect` dispatches on that id
 //!     through the slot table — no name on the call path.
 
-use crate::metadata::tokens::FnId;
+use crate::vm::runtime::ids::tokens::FnId;
 use crate::object::Value;
 
 use super::super::frame::{FnEntry, JitFrame};
@@ -72,7 +72,7 @@ pub unsafe extern "C" fn jit_mk_clos(
     tok: *const std::sync::atomic::AtomicU32,
     caps_ptr: *const u32, caps_len: usize,
 ) -> u8 {
-    let fn_id = if baked != crate::metadata::tokens::UNRESOLVED {
+    let fn_id = if baked != crate::vm::runtime::ids::tokens::UNRESOLVED {
         FnId(baked)
     } else {
         match bind_target(ctx, name_ptr, name_len, tok) {

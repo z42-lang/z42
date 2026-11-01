@@ -40,9 +40,9 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use anyhow::Result;
 
-use crate::metadata::func_table::FuncTable;
-use crate::metadata::seg_vec::SparseSegTable;
-use crate::metadata::tokens::FnId;
+use crate::vm::runtime::ids::func_table::FuncTable;
+use crate::vm::runtime::ids::seg_vec::SparseSegTable;
+use crate::vm::runtime::ids::tokens::FnId;
 use crate::vm::runtime::{Function, Module};
 use crate::vm_context::VmContext;
 
@@ -319,7 +319,7 @@ impl JitRuntime {
         // the callee executes against (identity invariant). Outside the compiler
         // lock: resolution may load a package.
         if func.resolved.get().is_none() {
-            crate::metadata::resolver::resolve_function_tokens(func, self.module(), vm);
+            crate::vm::runtime::resolve::resolve_function_tokens(func, self.module(), vm);
         }
         if super::translate::jit_unsupported_reason(func).is_some() {
             slot.state.store(SLOT_REJECTED, Ordering::Relaxed);

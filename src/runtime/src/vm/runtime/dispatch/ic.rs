@@ -5,7 +5,7 @@
 //! 的热路径。父模块 `resolver` 只负责前者。
 
 use std::sync::atomic::{AtomicU32, AtomicU64};
-use crate::metadata::tokens::UNRESOLVED;
+use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use crate::object::FieldLoc;
 
 /// review.md C4 P2 + C5 P2 (jit-polymorphic-ic): 4-slot

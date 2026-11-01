@@ -26,6 +26,9 @@ ResolvedTokens、类型初始化属主、Native 转发判定与融合执行计�
 is/as/catch 目标键及数组元素/对象泛型实参的驻留句柄。侧表首次使用时建立，此前指令已完整解码；JIT 烘焙
 这些 VM 侧单元的稳定地址，不把 VM 状态放回映像。
 
+身份与 token 定义位于 `vm/runtime/ids`，类型注册表组装与约束验证位于 `vm/runtime/types`；
+`vm/runtime/resolve` 建立每函数预链接，`vm/runtime/dispatch/ic` 定义缓存和发布原语。
+
 常规加载仍按原有顺序解码、合并、构建类型表、验证约束与准备索引；链接对象持有静态定义的 Arc，链接时
 改写字面量索引、裁剪 CFG 或覆盖调试信息使用写时复制。普通定义修改清除派生索引、帧信息和链接缓存；
 仅重映射字符串 id 保留控制流与融合计划。`Module::image()` 捕获当前定义，后续改写不会影响旧映像。
@@ -78,9 +81,9 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.jit` 是�
 - `processes: ResourceRegistry<ProcessSlot>` — `Std.IO.Process` 子进程注册表
 - `heap: Box<dyn MagrGC>` — GC 子系统接口（后端 `ArcMagrGC`）
 - `module: Option<Arc<Module>>` — 用户编译后的 Module，跨线程共享；测试路径 `None`，生产路径 `Some(Arc::new(module))`
-- `funcs: Arc<FuncTable>` — VM 级函数身份表（`metadata/func_table.rs`）：每个函数一个 `FnId`（u32，本 VmCore 内稠密、永不复用、只存在于运行期），`get(id)` 无锁。入口模块的函数在构造 VmCore 时整块登记为 `0..n`，**等于 `module.functions` 下标**（槽位借用 `module`，表里持有同一个 `Arc`）；惰性包的函数在 `LazyLoader::insert_function` 入表时逐个追加（槽位持有 `Arc<Function>`），重名 first-wins、不分配新 id。`Function.id` 记录登记得到的 id。名字反查 `id_of` 是冷路径：先查入口模块的 `func_index`，再查惰性函数的 `by_name`。`by_name` 同时就是 lazy loader 的函数名表（加载器自己不另存一份，`probe_function` / `resolve_function` 都经 `FuncTable::lazy_fn` 读它）；惰性函数与入口函数同名时仍各有 id，`id_of` 答入口那个。再次安装 lazy loader（只有测试会）用 `reset_lazy_names` 清空名字空间，槽位与 id 保留。底层是 `metadata/seg_vec.rs` 的 `SegVec`：倍增分段（首段 1024 项）、段永不移动，追加持写者锁并以 Release 发布长度，读侧 Acquire 读长度。消费方：`Call` 站点 token（见下文「Call 站点 token：FnId」）、VCall PIC 载荷、ObjNew 站点的 ctor、`LoadFn` / `MkClos` 站点 token 与 `FuncRef` / 闭包值里的目标（见下文「闭包 dispatch」），以及 JIT 的槽位表——全都存同一个 `FnId`。
-- `types: Arc<TypeTable>` — VM 级类型身份表（`metadata/type_table.rs`）：`TypeId` → 该类型**最新版本**的描述符，`get(id)` 无锁（Acquire 读槽指针）。`TypeId` 是**进程级**的（`tokens::alloc_type_id_block` 在构建模块类型注册表时整块分配，见下「TypeId 的作用域」），一个 VM 只看到其中稀疏的一部分，所以底层是按裸 id 下标的 `SparseSegTable`（段在首次触碰时分配）。登记：入口模块的 `type_registry` 在构造 VmCore 时整体登记；lazy loader 在每个改动自己类型表的步骤之后调 `LazyLoader::publish_types` 把整张表发布一遍——包加载（继承 fixup 跑完之后，此时新描述符仍独占，fixup 原地改）、`seed_types_for_lookup`、`ensure_base_chain_loaded` 的 fixup。fixup 写时复制出的合并副本与原描述符同 id 同名，发布时槽位改指新副本；发布过的每个版本都留在表里直到表析构，借出的 `&TypeDesc` 不会悬空。同一 id 下名字不同的描述符被拒（first-wins，记 error 日志；只有发号器不变量被破坏才会发生）。重名类型由加载器 first-wins，输家从不发布。**不登记**：按对象现建的回落描述符、corelib 原生句柄单例（两者 `id == UNRESOLVED`）、只由 load context 持有的模块的类型。名字查找仍走 `Module.type_registry` 与加载器的 `type_registry`（两张名字表尚未并入本表）。另外为**类型判定的目标名**保留键（`name_key`，见 [interp-jit-semantics.md](interp-jit-semantics.md)「类型判定的缓存键」）。消费方：`isa_cache` 的键。
-- `strings: Arc<StrTable>` — VM 级字符串字面量身份表（`metadata/str_table.rs`）：每个 `ConstStr` 操作数都是本 VM 一个稠密、只追加、永不复用的**字符串 id**，槽位存字面量文本与驻留的 GC 字符串。入口模块的 `string_pool` 在构造 VmCore 时整块登记为 `0..n`（槽位不复制文本，从 `module` 读）；惰性包注册时加载器把它的整个池追加进来（`StrTable::append` 返回首个 id，`remap_const_str` 把包内 `ConstStr.idx` 加上它）。再次安装 lazy loader（只有测试会）接着往后编号，旧加载器的函数仍读得到自己的字面量；加载器的 `main_pool_len` 以下、表里没有文本的 id 用空槽占位（`reserve`）。驻留与 GC 根见下「ConstStr：每 VM 的字符串表」。
+- `funcs: Arc<FuncTable>` — VM 级函数身份表（`vm/runtime/ids/func_table.rs`）：每个函数一个 `FnId`（u32，本 VmCore 内稠密、永不复用、只存在于运行期），`get(id)` 无锁。入口模块的函数在构造 VmCore 时整块登记为 `0..n`，**等于 `module.functions` 下标**（槽位借用 `module`，表里持有同一个 `Arc`）；惰性包的函数在 `LazyLoader::insert_function` 入表时逐个追加（槽位持有 `Arc<Function>`），重名 first-wins、不分配新 id。`Function.id` 记录登记得到的 id。名字反查 `id_of` 是冷路径：先查入口模块的 `func_index`，再查惰性函数的 `by_name`。`by_name` 同时就是 lazy loader 的函数名表（加载器自己不另存一份，`probe_function` / `resolve_function` 都经 `FuncTable::lazy_fn` 读它）；惰性函数与入口函数同名时仍各有 id，`id_of` 答入口那个。再次安装 lazy loader（只有测试会）用 `reset_lazy_names` 清空名字空间，槽位与 id 保留。底层是 `vm/runtime/ids/seg_vec.rs` 的 `SegVec`：倍增分段（首段 1024 项）、段永不移动，追加持写者锁并以 Release 发布长度，读侧 Acquire 读长度。消费方：`Call` 站点 token（见下文「Call 站点 token：FnId」）、VCall PIC 载荷、ObjNew 站点的 ctor、`LoadFn` / `MkClos` 站点 token 与 `FuncRef` / 闭包值里的目标（见下文「闭包 dispatch」），以及 JIT 的槽位表——全都存同一个 `FnId`。
+- `types: Arc<TypeTable>` — VM 级类型身份表（`vm/runtime/ids/type_table.rs`）：`TypeId` → 该类型**最新版本**的描述符，`get(id)` 无锁（Acquire 读槽指针）。`TypeId` 是**进程级**的（`tokens::alloc_type_id_block` 在构建模块类型注册表时整块分配，见下「TypeId 的作用域」），一个 VM 只看到其中稀疏的一部分，所以底层是按裸 id 下标的 `SparseSegTable`（段在首次触碰时分配）。登记：入口模块的 `type_registry` 在构造 VmCore 时整体登记；lazy loader 在每个改动自己类型表的步骤之后调 `LazyLoader::publish_types` 把整张表发布一遍——包加载（继承 fixup 跑完之后，此时新描述符仍独占，fixup 原地改）、`seed_types_for_lookup`、`ensure_base_chain_loaded` 的 fixup。fixup 写时复制出的合并副本与原描述符同 id 同名，发布时槽位改指新副本；发布过的每个版本都留在表里直到表析构，借出的 `&TypeDesc` 不会悬空。同一 id 下名字不同的描述符被拒（first-wins，记 error 日志；只有发号器不变量被破坏才会发生）。重名类型由加载器 first-wins，输家从不发布。**不登记**：按对象现建的回落描述符、corelib 原生句柄单例（两者 `id == UNRESOLVED`）、只由 load context 持有的模块的类型。名字查找仍走 `Module.type_registry` 与加载器的 `type_registry`（两张名字表尚未并入本表）。另外为**类型判定的目标名**保留键（`name_key`，见 [interp-jit-semantics.md](interp-jit-semantics.md)「类型判定的缓存键」）。消费方：`isa_cache` 的键。
+- `strings: Arc<StrTable>` — VM 级字符串字面量身份表（`vm/runtime/ids/str_table.rs`）：每个 `ConstStr` 操作数都是本 VM 一个稠密、只追加、永不复用的**字符串 id**，槽位存字面量文本与驻留的 GC 字符串。入口模块的 `string_pool` 在构造 VmCore 时整块登记为 `0..n`（槽位不复制文本，从 `module` 读）；惰性包注册时加载器把它的整个池追加进来（`StrTable::append` 返回首个 id，`remap_const_str` 把包内 `ConstStr.idx` 加上它）。再次安装 lazy loader（只有测试会）接着往后编号，旧加载器的函数仍读得到自己的字面量；加载器的 `main_pool_len` 以下、表里没有文本的 id 用空槽占位（`reserve`）。驻留与 GC 根见下「ConstStr：每 VM 的字符串表」。
 - `threads: ResourceRegistry<JoinHandle<Result<()>>>` — `Std.Threading.Thread` 的 JoinHandle slot table；`__thread_spawn` 插入，`__thread_wait` take-out 后 join（parked）
 - `file_handles: ResourceRegistry<FileHandleSlot>` + `tcp_sockets` / `tcp_listeners` / `tls_sockets` / `udp_sockets`（后四者随 cargo feature `net` / `tls` 存在，`tls_sockets` 要 `tls`）— `Std.IO.FileStream` 句柄（槽里是 `Arc<File>`：表锁下只克隆句柄，读写 / seek 在锁外做）+ `Std.Net.Sockets` 各类 socket slot table
 - `vm_contexts: Mutex<Vec<VmContextPtr>>` — 本 core 上所有存活 `VmContext` 的注册表（见下「Send-safety 与 GC scanner 设计」）
@@ -573,7 +576,7 @@ try_lookup_function(func_name):        # VmContext 先查 per-context fn_lookup_
 `ResolvedTokens.method_tokens[site]`（`AtomicU32`）存被调函数的 `FnId`。入口函数的 `FnId` 等于
 `module.functions` 下标，惰性包函数的 `FnId` 排在其后，所以一个 u32 就够得着所有已登记的函数。
 
-- **解析期按名填**（[resolver.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolver.rs)）：
+- **解析期按名填**（[resolver.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/runtime/resolve/mod.rs)）：
   `module` 是 FuncTable 的入口模块时（`FuncTable::is_entry`，生产路径恒成立），名字经 `FuncTable::id_of` 解析——
   先入口模块、再已登记的惰性函数，与调用路径冷解析同一优先级。惰性包里的函数首执解析时自己的包已登记，
   **包内调用一开始就绑好**；调入尚未加载的包的站点留 `UNRESOLVED`。只查不加载。签名容不下本站点实参数的目标
@@ -610,7 +613,7 @@ token = UNRESOLVED（bind_callee，冷路径）:
 上面所有 per-site 缓存（`method_tokens` / `vcall_ic` /
 `field_ic` / `builtin_tokens` / `static_field_tokens` / `obj_new` / `fn_ref_tokens` / `site_index`）
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
-[`resolver::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolver.rs) 一次性填充。
+[`resolve::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/runtime/resolve/mod.rs) 一次性填充。
 但 `resolve_module` **只经 `Vm::run` → `boot::prepare_execution` 对 entry module 跑一次**——而
 interp/JIT 模式下依赖是**纯惰性加载**（[app.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/app.rs)
 `is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
@@ -625,7 +628,7 @@ Field 无 IC、Builtin/Static 走名字查、每个 Call 都对 entry module 的
 profile 里 `get_inner`+`memcmp`+`try_lookup_*` 的大头即源于此。
 
 做法：`resolve_module` 的**单函数体**抽成
-[`resolve_function_tokens(func, module, ctx)`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolver.rs)，
+[`resolve_function_tokens(func, module, ctx)`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/runtime/resolve/mod.rs)，
 并在 [`exec_function_body`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/mod.rs) 顶部**首次执行时**
 按需填充（`if func.resolved.get().is_none()`，OnceLock 门禁 → 每函数只解析一次；
 热路径仅一次 relaxed atomic load，指令循环本就要再读它）。
@@ -755,7 +758,7 @@ Sub : Std.Exception { ... }` 加载时，`Std.Exception`（在 z42.core）尚
 
 **阶段 2 — fixup**（`try_fixup_inheritance`）：
 - 在 [`LazyLoader::load_zpkg_file`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/lazy_loader/registry.rs)
-  把新 zpkg 的 TypeDesc 插入全局 `type_registry` 之后调用（函数本体在 `metadata/loader/type_registry.rs`）。
+  把新 zpkg 的 TypeDesc 插入全局 `type_registry` 之后调用（函数本体在 `vm/runtime/types/registry.rs`）。
 - 扫描整个 `type_registry`，对每个 base 链 *新近可解析* 的 TypeDesc
   （`needs_fixup` 检测），用 `merge_with_base` 用全局 registry 重算
   layout，然后 `Arc::make_mut` mutate 该 TypeDesc。
@@ -817,7 +820,7 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 
 ## ConstStr：每 VM 的字符串表
 
-`ConstStr { dst, idx }` 的 `idx` 是本 VM `StrTable`（`VmCore.strings`，`metadata/str_table.rs`）里的
+`ConstStr { dst, idx }` 的 `idx` 是本 VM `StrTable`（`VmCore.strings`，`vm/runtime/ids/str_table.rs`）里的
 字符串 id（编号见上文 `strings` 与「ConstStr 索引重映射」）。interp `exec_value::const_str` 与 JIT
 helper `jit_const_str` 都调同一个 `VmContext::const_str(module, idx)`：
 
@@ -876,7 +879,7 @@ const_str(module, idx):
 
 ctor 在分配**之前**绑定：绑定可能加载包、跑包初始化器，而刚分配的对象只在 Rust 局部变量里时不是 GC 根。
 
-**站点缓存**（`ResolvedTokens.obj_new[site]: ObjNewSite`，[resolver/ic.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolver/ic.rs)）：
+**站点缓存**（`ResolvedTokens.obj_new[site]: ObjNewSite`，[resolver/ic.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/runtime/dispatch/ic.rs)）：
 
 | 字段 | 内容 | 何时写 |
 |---|---|---|
@@ -930,7 +933,7 @@ struct TypeDesc {
 }
 ```
 
-TypeDesc 由 `build_type_registry`（`metadata/loader/type_registry.rs`）在模块加载完成后按 topo
+TypeDesc 由 `build_type_registry`（`vm/runtime/types/registry.rs`）在模块加载完成后按 topo
 sort 预计算一次，避免运行时重复构建。
 
 #### NameIndex：linear-scan 替代 HashMap
@@ -1325,7 +1328,7 @@ mixed-type sites 调用，删除会让那些 sites 慢一档。
 
 ## Method token system
 
-位置：`src/runtime/src/metadata/tokens.rs` + `metadata/resolver.rs`（+ `resolver/ic.rs`）+ `vm_context/statics.rs::resolve_static_field_id` + 各 `interp/exec_*.rs` 热路径
+位置：`src/runtime/src/vm/runtime/ids/tokens.rs` + `vm/runtime/resolve/mod.rs`（+ `resolver/ic.rs`）+ `vm_context/statics.rs::resolve_static_field_id` + 各 `interp/exec_*.rs` 热路径
 
 **问题**: z42 IR 所有跨引用 dispatch 用 `String` + `HashMap.get()` 做身份。每次虚调用一次 hash + 字符串等价比较；IR 内存表示膨胀；反射 R-series 设计无 token 锚点。
 
@@ -1334,7 +1337,7 @@ mixed-type sites 调用，删除会让那些 sites 慢一档。
 ### 数据结构
 
 ```rust
-// metadata/tokens.rs — 7 个 newtype + UNRESOLVED sentinel
+// vm/runtime/ids/tokens.rs — 7 个 newtype + UNRESOLVED sentinel
 pub const UNRESOLVED: u32 = u32::MAX;
 pub struct MethodId(pub u32);     // → Module.functions[id]
 pub struct FnId(pub u32);         // → VmCore.funcs（FuncTable）；入口函数 = Module.functions 下标
@@ -1344,7 +1347,7 @@ pub struct FieldId(pub u32);      // → TypeDesc.fields[id]
 pub struct StaticFieldId(pub u32);// → VmCore.statics 的单元 id
 pub struct VTableSlot(pub u32);   // → TypeDesc.vtable[id]
 
-// metadata/resolver.rs — Function.resolved 内容
+// vm/runtime/resolve/mod.rs — Function.resolved 内容
 pub struct ResolvedTokens {
     pub method_tokens:        Vec<AtomicU32>,   // Call 站点：被调函数的 FnId（未加载的包留 UNRESOLVED；JIT 共用）
     pub builtin_tokens:       Vec<u32>,         // Builtin 站点（100% 命中）
@@ -1358,7 +1361,7 @@ pub struct ResolvedTokens {
 
 ### 解析时序
 
-1. **`metadata::loader::build_type_registry`**: 在 topo order 中给每个 `TypeDesc.id` 分配 —— 号从 **进程级全局发号器** `tokens::alloc_type_id_block(n)` 批量取（每模块一次 `fetch_add`，模块内连续），**不是每模块从 0 重开**（见下）
+1. **`vm::runtime::types::build_type_registry`**: 在 topo order 中给每个 `TypeDesc.id` 分配 —— 号从 **进程级全局发号器** `tokens::alloc_type_id_block(n)` 批量取（每模块一次 `fetch_add`，模块内连续），**不是每模块从 0 重开**（见下）
 2. **`Vm::run`** → `boot::prepare_execution` 调 `resolver::resolve_module(&module, ctx)`：
    - 走每个 Function 的每个 (block, instr) 元组
    - 对每个 token-bearing instruction 分配 per-kind site_idx
@@ -1381,7 +1384,7 @@ pub struct ResolvedTokens {
 - **VCall**: PIC 命中（4-slot 线性扫描；receiver 的 type id 匹配任一槽位的 `type_id`）→ 按载荷 `FnId` 直调（`fn_by_id`：入口函数 = `module.functions` 下标，惰性函数经 `FuncTable::get`）；miss → 走 `vcall_resolve` 的完整派发阶梯，目标有 `FnId`（本模块与惰性包的函数都有；唯一例外是非入口模块单测里的惰性目标）且实参个数匹配时通过 `vcall_ic_install` 填入第一个空槽（或 round-robin 牺牲一个槽）
 - **FieldGet/Set**: PIC 命中（4-slot 线性扫描）→ 载荷 `FieldLoc` 直接给出单元的字节偏移、宽度与种类（基元 / 引用字 / struct 根；型参单元记字段下标，回布局取负载字偏移），一次单元读写；miss → `field_index` + `field_access[slot]` 解析，通过 `field_ic_install` 填槽。JIT 生成码对 entry 0 做内联守卫（见 [jit.md](jit.md)「字段访问：原生单态字段 IC」）
 
-> **Polymorphic IC**：IC 是 4-slot polymorphic IC（每槽 `(type_id, 载荷)`）。线性扫描使用 `UNRESOLVED` sentinel 提前退出（mono 站点首槽命中即返回，0 额外开销）。超过 4 个 receiver type 的站点用 round-robin counter 牺牲槽位（`ic.round_robin.fetch_add(1, Relaxed) % 4`）。每个槽是**一个** `AtomicU64`（高 32 位 `type_id`、低 32 位载荷：VCall 是 `FnId`，Field 是 `FieldLoc` = `offset:16 | width:8 | kind:8`），安装写一次、查找读一次，`(type_id, 载荷)` 永远成对，撕裂在结构上不可能，所以 `Relaxed` 足够。惰性函数的 `FnId` 只经 `FuncTable::get` 解引用，那里对段长度和槽指针的 Acquire 与登记时的 Release 配对，槽内容的发布顺序由它保证；先看到 id、后看到登记的读者只会拿到 `None` 走慢路径。发布协议的细节见 [inline-cache-publication.md](inline-cache-publication.md)。Helpers `field_ic_lookup` / `field_ic_install` / `vcall_ic_lookup` / `vcall_ic_install` 在 `metadata::resolver` 公开，供 interp + JIT helpers 共用。
+> **Polymorphic IC**：IC 是 4-slot polymorphic IC（每槽 `(type_id, 载荷)`）。线性扫描使用 `UNRESOLVED` sentinel 提前退出（mono 站点首槽命中即返回，0 额外开销）。超过 4 个 receiver type 的站点用 round-robin counter 牺牲槽位（`ic.round_robin.fetch_add(1, Relaxed) % 4`）。每个槽是**一个** `AtomicU64`（高 32 位 `type_id`、低 32 位载荷：VCall 是 `FnId`，Field 是 `FieldLoc` = `offset:16 | width:8 | kind:8`），安装写一次、查找读一次，`(type_id, 载荷)` 永远成对，撕裂在结构上不可能，所以 `Relaxed` 足够。惰性函数的 `FnId` 只经 `FuncTable::get` 解引用，那里对段长度和槽指针的 Acquire 与登记时的 Release 配对，槽内容的发布顺序由它保证；先看到 id、后看到登记的读者只会拿到 `None` 走慢路径。发布协议的细节见 [inline-cache-publication.md](inline-cache-publication.md)。Helpers `field_ic_lookup` / `field_ic_install` / `vcall_ic_lookup` / `vcall_ic_install` 在 `vm::runtime::resolve` 公开，供 interp + JIT helpers 共用。
 >
 #### TypeId 的作用域：为什么必须进程内全局唯一
 

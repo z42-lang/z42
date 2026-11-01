@@ -7,27 +7,12 @@ pub mod reader;
 pub mod ir;
 pub mod index;
 pub mod debug;
-pub mod tokens;
 pub mod superinstr;
 pub mod context;
 pub mod loader;
 pub mod namespace_index;
-/// Append-only, lock-free-read segmented tables (`SegVec` / `SparseSegTable`).
-pub mod seg_vec;
-/// Process-level function identity: `FuncTable` (FnId → Function).
-pub mod func_table;
-/// Process-level type identity: `TypeTable` (TypeId → TypeDesc) + type-test name keys.
-pub mod type_table;
-/// VM-level string-literal identity: `StrTable` (ConstStr id → text + interned GC string).
-pub mod str_table;
 pub mod lazy_loader;
 pub mod merge;
-pub mod resolver;
-
-#[cfg(test)]
-#[path = "constraint_tests.rs"]
-mod constraint_tests;
-
 
 // Re-exports: string pool typed handle (Part 5 P0 Phase A)
 // Re-exports: NameIndex (review.md Part 2 C4 / C5 P1)

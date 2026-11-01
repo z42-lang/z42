@@ -38,9 +38,9 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                             let site = *r.site_index.get(self.block_idx)?.get(self.instr_idx)?;
                             r.builtin_tokens.get(site as usize).copied()
                         })
-                        .filter(|&id| id != crate::metadata::tokens::UNRESOLVED)
+                        .filter(|&id| id != crate::vm::runtime::ids::tokens::UNRESOLVED)
                         .or_else(|| crate::corelib::builtin_id_of(name).map(|b| b.0))
-                        .unwrap_or(crate::metadata::tokens::UNRESOLVED);
+                        .unwrap_or(crate::vm::runtime::ids::tokens::UNRESOLVED);
                     let bid = self.builder.ins().iconst(types::I32, builtin_id as i64);
                     let inst = self.builder.ins().call(self.hr_builtin, &[self.frame_val, self.ctx_val, d, bid, np, nl, ap, al]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
@@ -54,9 +54,9 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 Instruction::LoadFn(insn) => {
                     let LoadFnInsn { dst, func } = &**insn;
                     let tok = fn_ref_token_at(self.func, self.block_idx, self.instr_idx);
-                    let baked = tok.map_or(crate::metadata::tokens::UNRESOLVED,
+                    let baked = tok.map_or(crate::vm::runtime::ids::tokens::UNRESOLVED,
                         |t| t.load(std::sync::atomic::Ordering::Relaxed));
-                    if baked != crate::metadata::tokens::UNRESOLVED {
+                    if baked != crate::vm::runtime::ids::tokens::UNRESOLVED {
                         let addr = reg_addr(self.builder, self.regs_base, *dst);
                         let v = self.builder.ins().iconst(types::I64, baked as i64);
                         store_const_tag(self.builder, addr, TAG_FUNCREF, v);
@@ -73,7 +73,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let MkClosInsn { dst, fn_name, captures } = &**insn;
                     let d = self.ri(*dst);
                     let tok = fn_ref_token_at(self.func, self.block_idx, self.instr_idx);
-                    let baked = tok.map_or(crate::metadata::tokens::UNRESOLVED,
+                    let baked = tok.map_or(crate::vm::runtime::ids::tokens::UNRESOLVED,
                         |t| t.load(std::sync::atomic::Ordering::Relaxed));
                     let bv = self.builder.ins().iconst(types::I32, baked as i64);
                     let (np, nl) = self.str_val(fn_name);

@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator};
-use crate::metadata::tokens::{FnId, UNRESOLVED};
+use crate::vm::runtime::ids::tokens::{FnId, UNRESOLVED};
 use crate::metadata::ir::ExecMode;
 use std::sync::atomic::Ordering;
 
@@ -89,7 +89,7 @@ fn lazy_package_calls_bind_to_fn_ids_at_resolve_time() {
         call(3, "Lazy.Missing$0", &[]),
     ], Some(0)));
     let entry = Arc::clone(ctx.module().unwrap());
-    crate::metadata::resolver::resolve_function_tokens(&f, &entry, &ctx);
+    crate::vm::runtime::resolve::resolve_function_tokens(&f, &entry, &ctx);
 
     let g_id = g.id.get().expect("registered");
     assert_eq!(g_id, FnId(1), "lazy ids follow the entry module's");
@@ -106,7 +106,7 @@ fn interp_call_runs_and_binds_lazy_targets_by_fn_id() {
     ctx.install_lazy_loader(None, 0);
     let entry = Arc::clone(ctx.module().unwrap());
     let main = &entry.functions[0];
-    crate::metadata::resolver::resolve_function_tokens(main, &entry, &ctx);
+    crate::vm::runtime::resolve::resolve_function_tokens(main, &entry, &ctx);
     assert_eq!(tokens(main), vec![UNRESOLVED], "not registered when Main resolved");
 
     let g = register_lazy(&ctx, const7("Late.G$0"));
@@ -132,7 +132,7 @@ fn non_entry_module_never_caches_a_lazy_fn_id() {
         const7("M.B$0"),
     ]);
     let a = &m.functions[0];
-    crate::metadata::resolver::resolve_function_tokens(a, &m, &ctx);
+    crate::vm::runtime::resolve::resolve_function_tokens(a, &m, &ctx);
     assert_eq!(tokens(a), vec![UNRESOLVED, 1]);
 
     let v = returned(super::super::exec_function(&ctx, &m, a, &[]).unwrap());
@@ -153,7 +153,7 @@ fn entry_function_wins_over_a_same_named_lazy_one() {
     assert_eq!(lazy.id.get(), Some(FnId(2)), "the shadowed lazy function has its own id");
     let entry = Arc::clone(ctx.module().unwrap());
     let main = &entry.functions[0];
-    crate::metadata::resolver::resolve_function_tokens(main, &entry, &ctx);
+    crate::vm::runtime::resolve::resolve_function_tokens(main, &entry, &ctx);
     assert_eq!(tokens(main), vec![1]);
     let v = returned(super::super::exec_function(&ctx, &entry, main, &[]).unwrap());
     assert!(matches!(v, Value::I64(7)));

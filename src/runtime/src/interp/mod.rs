@@ -121,7 +121,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
         // defer-class-initialization (T3): `resolve_function_tokens` 内部会在发布
         // `resolved` 之前排空「静态字段所属类」队列并跑完它们的初始化器，
         // 所以这里不需要再排空一次（放在那里才对并发安全，见 resolver.rs 的注释）。
-        crate::metadata::resolver::resolve_function_tokens(func, module, ctx);
+        crate::vm::runtime::resolve::resolve_function_tokens(func, module, ctx);
     }
 
     // Read once per activation (a `OnceLock`: once set — at the latest by the resolve

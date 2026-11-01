@@ -5,8 +5,9 @@
 
 use super::*;
 use crate::{
-    metadata::{tokens::TypeId, NameIndex},
+    metadata::NameIndex,
     object::{NativeData, TypeDesc, Value},
+    vm::runtime::ids::tokens::TypeId,
 };
 use crate::vm_context::VmContext;
 use std::sync::Arc;

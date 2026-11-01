@@ -7,7 +7,7 @@
 //! this helper only decides how to run the resolved target: a compiled `FnEntry` when
 //! the JIT has one (tiered), otherwise the interpreter on a receiver-filled frame.
 
-use crate::metadata::resolver::VCallIC;
+use crate::vm::runtime::dispatch::ic::VCallIC;
 use crate::vm::runtime::Function;
 use crate::object::Value;
 use crate::interp::vcall_resolve::{resolve_vcall, vcall_ic_hit, VCallTarget};

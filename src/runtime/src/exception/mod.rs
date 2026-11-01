@@ -236,7 +236,7 @@ pub fn format_stack_trace(frames: &[FrameSnapshot]) -> String {
 /// the fields. Goes through the shared type test (`isa_td`), so a base class
 /// that lives in a lazily loaded package is found too.
 pub fn is_exception_subclass(desc: &TypeDesc, ctx: &VmContext, module: &Module) -> bool {
-    static KEY: crate::metadata::tokens::TypeKeyCell = crate::metadata::tokens::TypeKeyCell::new();
+    static KEY: crate::vm::runtime::ids::tokens::TypeKeyCell = crate::vm::runtime::ids::tokens::TypeKeyCell::new();
     crate::interp::dispatch::isa_td(ctx, &module.type_registry, desc, "Std.Exception", &KEY)
 }
 

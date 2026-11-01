@@ -580,7 +580,7 @@ fn type_desc_with_cctor(name: &str, cctor: Option<&str>) -> Arc<TypeDesc> {
         vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
         cold,
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 
@@ -629,7 +629,7 @@ fn td_shape(name: &str, class_flags: u8, field_count: usize) -> TypeDesc {
         vtable: Vec::new(),
         vtable_index: crate::metadata::index::name::NameIndex::new(),
         cold: None,
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     }
 }
 
@@ -712,8 +712,8 @@ fn ll_artifact_with_functions(
 
 #[test]
 fn package_registration_appends_fn_ids_first_wins() {
-    use crate::metadata::func_table::FuncTable;
-    use crate::metadata::tokens::FnId;
+    use crate::vm::runtime::ids::func_table::FuncTable;
+    use crate::vm::runtime::ids::tokens::FnId;
     let table = Arc::new(FuncTable::new(None));
     let mut loader = LazyLoader::new(Vec::new(), 0, Vec::new(), Vec::new());
     loader.set_func_table(Arc::clone(&table));
@@ -738,7 +738,7 @@ fn package_registration_appends_fn_ids_first_wins() {
 
 #[test]
 fn vm_core_registers_entry_functions_and_the_loader_appends() {
-    use crate::metadata::tokens::FnId;
+    use crate::vm::runtime::ids::tokens::FnId;
     let mut module = ll_empty_module("Entry");
     for (i, n) in ["Entry.Main$0", "Entry.Helper$0"].iter().enumerate() {
         module.functions.push(ll_stub_function(n));

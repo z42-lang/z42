@@ -24,8 +24,8 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use crate::metadata::resolver::{ctorless_hit, ctorless_note, ObjNewSite};
-use crate::metadata::tokens::UNRESOLVED;
+use crate::vm::runtime::dispatch::ic::{ctorless_hit, ctorless_note, ObjNewSite};
+use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use crate::vm::runtime::{Function, Module};
 use crate::object::{TypeDesc, Value};
 use crate::vm_context::symres;

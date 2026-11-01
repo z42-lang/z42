@@ -456,7 +456,7 @@ fn pr3_mixed_region_var_churn_keeps_graph_intact() {
             let env = heap.alloc_array(vec![Value::I64(k as i64)]);
             let Value::Array(env_rc) = env else { panic!() };
             let _c = heap.alloc_closure(crate::object::ClosureData {
-                env: env_rc, fn_id: crate::metadata::tokens::FnId(k as u32),
+                env: env_rc, fn_id: crate::vm::runtime::ids::tokens::FnId(k as u32),
             });
         }
         // churn objects

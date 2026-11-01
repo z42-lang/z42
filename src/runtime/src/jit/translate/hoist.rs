@@ -141,7 +141,7 @@ fn hoist_fields(
     if !super::field_ic::FIELD_IC_SUPPORTED { return map; }
     let in_loop = loop_blocks(func);
     // (receiver, field, kind) → the first in-loop site's IC.
-    let mut cands: Vec<(u32, &str, u8, *const crate::metadata::resolver::FieldIC)> = Vec::new();
+    let mut cands: Vec<(u32, &str, u8, *const crate::vm::runtime::dispatch::ic::FieldIC)> = Vec::new();
     for (bi, b) in func.blocks.iter().enumerate() {
         if !in_loop[bi] { continue; }
         for (ii, ins) in b.instructions.iter().enumerate() {

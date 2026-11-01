@@ -1,4 +1,8 @@
 //! VM-owned linked definitions, identities and execution caches.
+pub mod ids;
+pub mod types;
+pub mod resolve;
+pub mod dispatch;
 mod function;
 mod module;
 mod sites;

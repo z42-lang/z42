@@ -162,14 +162,14 @@ impl LazyLoader {
         // never hang the loader at 100% CPU — bail loudly instead.
         let fixup_cap = self.type_registry.len() + 8;
         for round in 0.. {
-            let n = crate::metadata::loader::try_fixup_inheritance(&mut self.type_registry);
+            let n = crate::vm::runtime::types::try_fixup_inheritance(&mut self.type_registry);
             if n == 0 { break; }
             if round >= fixup_cap {
                 tracing::error!(
                     "inheritance fixup did not converge after {fixup_cap} rounds while \
                      loading `{file_name}` (still fixing {n}/round); likely duplicate \
                      field names or a base-class cycle. Unconverged: {:?}",
-                    crate::metadata::loader::unconverged_type_names(&self.type_registry)
+                    crate::vm::runtime::types::unconverged_type_names(&self.type_registry)
                 );
                 break;
             }
@@ -388,7 +388,7 @@ impl LazyLoader {
         // Inheritance fixup (subclasses whose base lives in an already-loaded module).
         let fixup_cap = self.type_registry.len() + 8;
         for round in 0.. {
-            let n = crate::metadata::loader::try_fixup_inheritance(&mut self.type_registry);
+            let n = crate::vm::runtime::types::try_fixup_inheritance(&mut self.type_registry);
             if n == 0 || round >= fixup_cap {
                 break;
             }

@@ -77,7 +77,7 @@ FullName 是展示形。
 返回 `null`，链式 `.FullName` 直接 `FieldGet on Null` 崩。
 
 **坑不在编译器重载决议**（它正确选中 arity-0 的 `GetType`），而在**运行期 vtable 构建**
-（`metadata/loader/type_registry.rs::merge_with_base`）：
+（`vm/runtime/types/registry.rs::merge_with_base`）：
 
 - `Std.Type` 声明了一个**静态** `GetType(string fqn)`（`Type.z42`，`[Native("__type_get_type")]`，
   按 FQ 名查类型）。它的限定函数名 `Std.Type.GetType$1$string` 进 `own_methods`。

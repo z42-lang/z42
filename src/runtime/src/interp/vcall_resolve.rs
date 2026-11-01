@@ -36,8 +36,8 @@
 
 use anyhow::{bail, Result};
 
-use crate::metadata::resolver::{vcall_ic_install, vcall_ic_lookup, VCallIC};
-use crate::metadata::tokens::UNRESOLVED;
+use crate::vm::runtime::dispatch::ic::{vcall_ic_install, vcall_ic_lookup, VCallIC};
+use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use crate::vm::runtime::{Function, Module};
 use crate::object::Value;
 use crate::vm_context::VmContext;

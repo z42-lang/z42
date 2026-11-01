@@ -3,8 +3,8 @@
 use super::method_id_at;
 use crate::vm::runtime::Function;
 use crate::metadata::ir::{BasicBlock, Terminator};
-use crate::metadata::resolver::ResolvedTokens;
-use crate::metadata::tokens::UNRESOLVED;
+use crate::vm::runtime::resolve::ResolvedTokens;
+use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use crate::metadata::ir::ExecMode;
 use std::sync::atomic::AtomicU32;
 

@@ -53,7 +53,7 @@ pub mod network;
 pub mod tls;
 pub mod crypto;
 
-use crate::metadata::tokens::BuiltinId;
+use crate::vm::runtime::ids::tokens::BuiltinId;
 use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
@@ -117,7 +117,7 @@ pub(crate) fn invoke_builtin(
     ctx: &VmContext, id: u32, name: &str,
     this: Option<Value>, regs: &[Value], args: &[u32],
 ) -> abi::CallResult {
-    if id == crate::metadata::tokens::UNRESOLVED {
+    if id == crate::vm::runtime::ids::tokens::UNRESOLVED {
         return invoke_by_name(ctx, name, this, regs, args);
     }
     invoke_builtin_id(ctx, id, this, regs, args)

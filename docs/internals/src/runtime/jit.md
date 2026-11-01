@@ -475,7 +475,7 @@ flowchart TD
 ## 字段访问：原生单态字段 IC
 
 > `jit/translate/field_ic.rs`（守卫、读写、引用写的屏障判定）+ `jit/translate/hoist.rs`（循环内的守卫 hoist）+
-> `metadata/resolver/ic.rs`（`FieldIC` 载荷）+ `object/object/object.rs`（`obj_jit_layout`）+
+> `vm/runtime/dispatch/ic.rs`（`FieldIC` 载荷）+ `object/object/object.rs`（`obj_jit_layout`）+
 > `object/value/ref_word.rs`（种类表）。慢路径：`jit/helpers/object_field.rs`（`jit_field_get` / `jit_field_set`，
 > 经 [objops](interp-jit-semantics.md#对象操作objops) 与解释器同一份语义）。
 

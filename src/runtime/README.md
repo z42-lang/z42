@@ -28,6 +28,7 @@
 | 目录 | 职责 |
 |------|------|
 | `src/metadata/` | 静态包信息与尚在此目录的链接/加载实现（见下） |
+| `src/vm/runtime/` | 每 VM 的身份、类型组装与链接缓存，见 [`src/vm/runtime/README.md`](src/vm/runtime/README.md) |
 | `src/object/` | 值、类型形状、布局、对象头、句柄及存储原语，见 [`src/object/README.md`](src/object/README.md) |
 | `src/objops/` | 引擎无关的对象操作（字段 / 数组 / 静态字段 / struct 叶子的读写与错误通道），interp 与 JIT 共用，见 [`src/objops/README.md`](src/objops/README.md) |
 | `src/interp/` | 字节码解释器，见 [`src/interp/README.md`](src/interp/README.md) |
@@ -50,16 +51,11 @@
 | `image.rs` | `PackageImage`：可跨 VM 共享的不可变定义快照，持有模块数据与函数定义的 Arc；不持有类型表或运行期缓存 |
 | `index/` | `name` 字段/vtable 名称索引、`type_names` 类型名操作、`well_known_names` 常量与 `type_param_markers` 静态标记替换 |
 | `debug/` | `symbols` 的源位置 / 局部变量 / DBUG 记录，`frames` 的帧名与源文件查询；sidecar 定位及覆盖由 loader 执行 |
-| `loader.rs` + `loader/` | 统一加载入口 `load_artifact(fs, path)` → `Module`（从调用方给的 VFS 读）；`build_type_registry` 预构建 `TypeDesc` 注册表；`namespace` / `indices` / `constraints` / `availability` 等关注点子模块 |
+| `loader/` | 统一加载入口 `load_artifact(fs, path)` → `Module`（从调用方给的 VFS 读）；namespace、执行索引准备与 availability；类型组装和约束验证调用 vm/runtime/types |
 | `lazy_loader.rs` + `lazy_loader/` | 惰性依赖加载（启动只载 `z42.core`，其余 zpkg 首次用到时加载：按 DEPS 引用表精确路由到定义包 `symbols.rs`，无静态引用的名字按命名空间前缀兜底 `resolve.rs`；加载与注册 `registry.rs`） |
 | `merge.rs` | 多模块合并：字符串池重映射 + 函数拼接 |
-| `resolver.rs` + `resolver/` | 加载期 token 解析（预填每函数 `ResolvedTokens`）+ 内联缓存（`ic.rs`） |
 | `context.rs` | 加载上下文模型（`AssemblyLoadContext` 对等的代码边界抽象） |
-| `tokens.rs` / `namespace_index.rs` / `vstr.rs` | 运行期 token 与目标键 / namespace→zpkg 索引 / GC 堆内不可变字符串句柄 |
-| `func_table.rs` | `FuncTable`：VM 级函数身份（`FnId` → `Function`，读无锁）；入口模块函数 + 惰性包函数统一编号 |
-| `type_table.rs` | `TypeTable`：VM 级类型身份（进程级 `TypeId` → 最新版本 `TypeDesc`，读无锁，稀疏分段）；入口模块类型 + 惰性包发布的类型；类型判定目标名的保留键 |
-| `str_table.rs` | `StrTable`：VM 级字符串字面量身份（`ConstStr` 操作数 = 字符串 id → 文本 + 驻留的 GC 字符串，驻留后读无锁）；入口模块字符串池 + 惰性包追加的池统一编号，驻留串是 GC 根 |
-| `seg_vec.rs` | `SegVec`（只追加、读无锁的分段向量）/ `SparseSegTable`（按 id 索引、段首次触达才分配的侧表） |
+| `namespace_index.rs` | namespace → zpkg 索引 |
 | `superinstr.rs` | 超级指令融合框架 |
 
 
@@ -77,6 +73,14 @@
 GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管理。
 
 ### src/vm/runtime/ — 每 VM 的链接状态
+
+| 目录 | 职责 |
+|------|------|
+| `ids/` | token 与函数、类型、字符串身份表，读无锁的分段存储 |
+| `types/` | 类型注册表组装、继承补全及约束验证 |
+| `resolve/` | 每函数 ResolvedTokens 的预链接 |
+| `dispatch/` | VCall / Field IC、构造站点与原子发布 |
+
 
 `Module` / `Function` 共享 `PackageImage` 的静态定义，分别持有类型注册表与 FnId、解析、初始化、转发和站点缓存。
 链接期修改静态字段使用写时复制；`Module::image()` 生成当前定义快照，旧映像保持不变。

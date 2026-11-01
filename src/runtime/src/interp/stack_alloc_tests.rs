@@ -137,13 +137,13 @@ fn scan_roots_visits_object_inlined_refs() {
         vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     let leafless = Arc::new(TypeDesc {
         name: "Leaf".to_string(), base_name: None, fields: Vec::new(),
         field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(), cold: None,
-        class_flags: 0, visibility: 0, id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        class_flags: 0, visibility: 0, id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     let leaf = Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(leafless, 0)));
 

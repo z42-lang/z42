@@ -27,7 +27,7 @@ pub(crate) fn kind(k: i64) -> BuiltinError {
 }
 
 use crate::corelib::{builtin_id_of, invoke_builtin, BUILTINS};
-use crate::metadata::tokens::TypeId;
+use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{FieldSlot, TypeDesc};
 use crate::vm::runtime::Module;
 use crate::object::Value;
@@ -248,7 +248,7 @@ fn a_typed_error_survives_the_anyhow_channel() {
 #[test]
 fn an_unknown_builtin_is_a_missing_symbol() {
     let ctx = VmContext::new();
-    let r = invoke_builtin(&ctx, crate::metadata::tokens::UNRESOLVED, "__no_such_builtin", None, &[], &[]);
+    let r = invoke_builtin(&ctx, crate::vm::runtime::ids::tokens::UNRESOLVED, "__no_such_builtin", None, &[], &[]);
     let m = module_with(&["Std.MissingSymbolException"]);
     assert_eq!(thrown_class(error::raise(&ctx, &m, "__no_such_builtin", *r.unwrap_err(), &[])),
         "Std.MissingSymbolException");

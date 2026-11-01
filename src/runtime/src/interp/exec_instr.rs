@@ -28,8 +28,8 @@ use crate::metadata::{
     BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, MkClosInsn, ObjNewInsn,
     StaticGetInsn, StaticSetInsn, VCallInsn,
 };
-use crate::metadata::resolver::ResolvedTokens;
-use crate::metadata::tokens::UNRESOLVED;
+use crate::vm::runtime::resolve::ResolvedTokens;
+use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 

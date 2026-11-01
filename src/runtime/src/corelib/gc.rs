@@ -131,7 +131,7 @@ fn gc_handle_type_desc() -> Arc<TypeDesc> {
             field_index,
             vtable: Vec::new(),
             vtable_index: crate::metadata::NameIndex::new(),
-            id: crate::metadata::tokens::TypeId::UNRESOLVED,
+            id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
         })
     }).clone()
 }
@@ -167,7 +167,7 @@ fn heap_stats_type_desc() -> Arc<TypeDesc> {
             field_index,
             vtable: Vec::new(),
             vtable_index: crate::metadata::NameIndex::new(),
-            id: crate::metadata::tokens::TypeId::UNRESOLVED,
+            id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
         })
     }).clone()
 }
@@ -378,7 +378,7 @@ fn soft_handle_type_desc() -> Arc<TypeDesc> {
             field_index,
             vtable: Vec::new(),
             vtable_index: crate::metadata::NameIndex::new(),
-            id: crate::metadata::tokens::TypeId::UNRESOLVED,
+            id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
         })
     }).clone()
 }

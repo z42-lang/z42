@@ -8,15 +8,15 @@ impl VmContext {
         self.core.module.as_ref()
     }
 
-    /// The VM's function table (process-level `FnId`s; see `metadata::func_table`).
+    /// The VM's function table (process-level `FnId`s; see `vm::runtime::ids::func_table`).
     #[inline]
-    pub(crate) fn funcs(&self) -> &crate::metadata::func_table::FuncTable {
+    pub(crate) fn funcs(&self) -> &crate::vm::runtime::ids::func_table::FuncTable {
         &self.core.funcs
     }
 
-    /// The VM's type table (process-global `TypeId`s; see `metadata::type_table`).
+    /// The VM's type table (process-global `TypeId`s; see `vm::runtime::ids::type_table`).
     #[inline]
-    pub(crate) fn types(&self) -> &crate::metadata::type_table::TypeTable {
+    pub(crate) fn types(&self) -> &crate::vm::runtime::ids::type_table::TypeTable {
         &self.core.types
     }
 
@@ -143,8 +143,8 @@ impl VmContext {
         vfs: Arc<dyn crate::pal::fs::Vfs>,
     ) -> anyhow::Result<std::pin::Pin<Box<Self>>> {
         let mut module = crate::vm::runtime::Module::from_image(image);
-        crate::metadata::loader::build_type_registry(&mut module);
-        crate::metadata::loader::verify_constraints(&module)?;
+        crate::vm::runtime::types::build_type_registry(&mut module);
+        crate::vm::runtime::types::verify_constraints(&module)?;
         crate::metadata::loader::build_block_indices(&mut module);
         Ok(Self::with_module_and_vfs(module, vfs))
     }
@@ -255,9 +255,9 @@ impl VmContext {
             processes:            ResourceRegistry::new(),
             heap:                 Box::new(ArcMagrGC::new()),
             vm_contexts:          Mutex::new(Vec::new()),
-            funcs:                Arc::new(crate::metadata::func_table::FuncTable::new(module.clone())),
-            types:                Arc::new(crate::metadata::type_table::TypeTable::new(module.as_deref())),
-            strings:              Arc::new(crate::metadata::str_table::StrTable::new(module.clone())),
+            funcs:                Arc::new(crate::vm::runtime::ids::func_table::FuncTable::new(module.clone())),
+            types:                Arc::new(crate::vm::runtime::ids::type_table::TypeTable::new(module.as_deref())),
+            strings:              Arc::new(crate::vm::runtime::ids::str_table::StrTable::new(module.clone())),
             module,
             threads:              ResourceRegistry::new(),
             gc_phase:             Mutex::new(crate::gc::safepoint::GcPhase::Idle),
@@ -373,7 +373,7 @@ impl VmContext {
                 // 1. Shared static fields.
                 c.statics.scan_roots(visit);
                 // Interned `ConstStr` literals: after their instruction they live only in
-                // the VM's string table (`metadata::str_table`), which keeps them alive.
+                // the VM's string table (`vm::runtime::ids::str_table`), which keeps them alive.
                 c.strings.scan_roots(|s| visit(&Value::Str(s)));
                 // 2-4. Per-thread roots, one VmContext per OS thread.
                 //

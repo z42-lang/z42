@@ -17,7 +17,7 @@ use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlagsData};
 use cranelift_codegen::ir::types;
 use cranelift_codegen::ir::condcodes::IntCC;
 use crate::metadata::IrType;
-use crate::metadata::tokens::TypeKeyCell;
+use crate::vm::runtime::ids::tokens::TypeKeyCell;
 use cranelift_codegen::Context;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{FuncId, Module as CraneliftModule};

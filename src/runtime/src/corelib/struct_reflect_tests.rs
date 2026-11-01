@@ -8,7 +8,7 @@ use super::*;
 use crate::object::{
     self as ty, FieldSlot, StructTypeLayout, TypeDesc, TypeDescCold, STRUCT_REF_ARC_STRING,
 };
-use crate::metadata::tokens::TypeId;
+use crate::vm::runtime::ids::tokens::TypeId;
 use crate::metadata::NameIndex;
 use std::collections::HashMap;
 use std::sync::Arc;

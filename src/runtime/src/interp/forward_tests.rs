@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator};
-use crate::metadata::tokens::TypeId;
+use crate::vm::runtime::ids::tokens::TypeId;
 use crate::metadata::ir::ExecMode;
 use crate::object::{FieldSlot, TypeDesc};
 use crate::object::Value;

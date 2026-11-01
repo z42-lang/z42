@@ -43,7 +43,7 @@ pub unsafe extern "C" fn jit_install_catch(
 pub unsafe extern "C" fn jit_match_catch_type(
     _frame: *mut JitFrame, ctx: *const VmContext,
     target_ptr: *const u8, target_len: i64,
-    key: *const crate::metadata::tokens::TypeKeyCell,
+    key: *const crate::vm::runtime::ids::tokens::TypeKeyCell,
 ) -> i8 {
     let target = match std::str::from_utf8(
         std::slice::from_raw_parts(target_ptr, target_len as usize)) {
@@ -62,7 +62,7 @@ pub unsafe extern "C" fn jit_match_catch_type(
     let module = super::jit_module(ctx);
     // `catch (Err<T>)` in a generic class body: bound from the receiver, own key.
     let dynamic = super::object::dynamic_target(_frame, ctx, target);
-    let fresh = crate::metadata::tokens::TypeKeyCell::new();
+    let fresh = crate::vm::runtime::ids::tokens::TypeKeyCell::new();
     // `key` is the exception-table row's key cell, baked into the JIT code with `target`.
     let (target, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (target, &*key) };
     // The thrown object's own type arguments count, as in `is` (`catch (Err<int>)` vs `Err<string>`).

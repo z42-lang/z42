@@ -60,7 +60,7 @@ pub(crate) fn tparam_td(n: usize) -> Arc<TypeDesc> {
             type_params,
             ..Default::default()
         })),
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 

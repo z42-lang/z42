@@ -66,7 +66,7 @@ fn constructed_name_isa(
 
 /// Type test for a **receiver descriptor** — the single entry used by interp `is` / `as` /
 /// typed `catch` and their JIT helpers. `key` is the site's cached target key
-/// ([`TypeKeyCell`](crate::metadata::tokens::TypeKeyCell): instruction / exception-table row /
+/// ([`TypeKeyCell`](crate::vm::runtime::ids::tokens::TypeKeyCell): instruction / exception-table row /
 /// a `static`), resolved here on first use. Then: `ctx.isa_cache` keyed by
 /// `(td.id, key)` (one load on a hit) → `subclass_memo` → base/interface chain walk.
 ///
@@ -78,7 +78,7 @@ pub fn isa_td(
     registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
     td: &TypeDesc,
     target: &str,
-    key: &crate::metadata::tokens::TypeKeyCell,
+    key: &crate::vm::runtime::ids::tokens::TypeKeyCell,
 ) -> bool {
     if !td.id.is_resolved() {
         return td.name == target || is_subclass_or_eq_td_walk(ctx, registry, &td.name, target);
@@ -110,7 +110,7 @@ pub fn isa_object(
     td: &TypeDesc,
     inst_args: &[String],
     target: &str,
-    key: &crate::metadata::tokens::TypeKeyCell,
+    key: &crate::vm::runtime::ids::tokens::TypeKeyCell,
 ) -> bool {
     if !inst_args.is_empty() {
         if let Some(v) = erased_instance_matches(&td.name, inst_args, target) {
@@ -732,7 +732,7 @@ pub fn make_fallback_type_desc(module: &Module, class_name: &str) -> TypeDesc {
             own_fields: own_fields.into(),
             ..Default::default()
         })),
-        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     }
 }
 
