@@ -15,6 +15,8 @@ z42 把「跑测试」拆成两层，各有单一 owner，**以 bundle manifest 
 缝 = 一份 test-bundle：`manifest.json`（`{cases:[…]}`）+ 可部署布局 `{app, libs, bundle}`。
 xtask 组装 bundle，交 z42b 执行（host）或组装设备 deployable（device）。组装时每个用例起一个 z42c 进程，
 成本主要在进程启动，所以和 `build test` 一样分批并发（`max(8, CpuCount())`，`Z42_REGEN_JOBS` 可覆盖）。
+每次重建先清空目标 bundle 目录；所有选中用例编译成功后才写 `manifest.json`。任一用例失败或选择集为空，
+整包构建失败，不发布部分语料，也不保留上一轮的 manifest。单个 golden 用例使用同一条组包路径。
 
 ```
                   ┌──────────── xtask（fleet 编排器）────────────┐

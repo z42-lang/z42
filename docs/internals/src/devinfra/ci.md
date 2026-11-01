@@ -36,7 +36,7 @@ regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-ubuntu-late
 取的是同一份（只有 z42vm 按宿主 cargo 现编）。
 
 `compile-toolchain` 另传一份 `z42vm-linux-x64`（z42vm + 同目录的 cdylib）。linux-x64 上**之后不调 cargo**
-的消费方（`test stdlib --no-build` 两类 job、`publish-nightly`）用 `xtask-bootstrap-artifact` 的
+的消费方（`compile-test-assets`、`test stdlib --no-build` 两类 job、`publish-nightly`）用 `xtask-bootstrap-artifact` 的
 `prebuilt-vm: "true"` 直接拿它，省掉 Rust 准备与 `cargo build`：rust-cache 只缓存**依赖**，即使 key 精确命中，
 z42 crate 本身仍要 fat-LTO 重链一遍，实测约 95 s / job。**会调 cargo 的 job 不能开**——target 目录里没有
 cargo 指纹，它会把整个 crate 冷编一遍（`compiler-checks` 的 `test compiler`、`test-vm-jit` 的 debug VM 都属此类），所以这两个 job 只留 linux 一条腿——
@@ -44,6 +44,9 @@ cargo 指纹，它会把整个 crate 冷编一遍（`compiler-checks` 的 `test 
 
 `compile-test-assets` **故意从 `compile-toolchain` 里拆出来**：golden regen 很慢，留在里面会卡住
 `package-*` → `publish-nightly` 这条关键路径，而打包根本不消费测试资产。
+
+`test-consume` 用下载的 SDK 编译并运行 xtask，再调用一次无筛选的 `test e2e --mode interp --no-rebuild --jobs 4`：
+golden 消费共享 `.zbc`，随后 cross-zpkg 与 multi-exe 各编跑一次，整条路径都只使用下载的工具链。
 
 `test-host` 是例外——它每条腿自己从上一版 nightly 种子完整自举一遍（`ci-bootstrap` action），
 这既是 gate 也是「种子能编当前源」这条边界的实测。

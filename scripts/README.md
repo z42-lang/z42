@@ -285,7 +285,8 @@ scripts/
 │   ├── xtask_test_examples.z42  `test docs examples`：学习手册配套示例门（+ `xtask_examples_{book,run,transcript}.z42`：书↔examples 引用校验、`*.console` 会话重放）
 │   ├── xtask_test_embedded.z42  `test app desktop`：嵌入式 test-host 调度（desktop/wasm/ios/android）
 │   ├── xtask_test_embedded_corpus.z42  语料枚举 SoT（`test app desktop` 与 `test list` 共用）
-│   ├── xtask_test_embedded_golden.z42  golden → [Test] 归一 + zbc/zpkg emit
+│   ├── xtask_test_embedded_golden.z42  golden / 单元语料的 zbc/zpkg 发射
+│   ├── xtask_selfcheck_embedded.z42  bundle 构建回归（成功 / 部分失败 / 旧 manifest / 空选择），随 builder 夹具跑
 │   ├── xtask_test_list.z42      `test list`：只读语料目录（pretty / json）
 │   ├── xtask_test_incremental{,_ws}.z42 增量编译暴力对账（逐文件 touch：增量产物 == 全量，逐字节；`_ws` 为 stdlib 整体读回）
 │   ├── xtask_test_docs.z42      `test docs`：相对链接死链 + stage 清单对账

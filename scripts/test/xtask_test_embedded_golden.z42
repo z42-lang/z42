@@ -42,12 +42,7 @@ string _buildGoldenBundle(string root, string caseDir) {
     c.optAll = File.Exists(Path.Join(dir, "opt_all"));
 
     string bundleDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "golden-bundle");
-    Directory.Create(bundleDir);
-    _cleanGlob(bundleDir, "*.zbc");
-    string[] entries = _compileBundleCases(root, new _CorpusCase[]{ c }, bundleDir);
-    string entry = entries[0];
-    if (entry.Length == 0) { return ""; }
-    return _writeBundleManifest(bundleDir, _withRequires(entry, _caseRequires(c)));
+    return _compileTestBundle(root, new _CorpusCase[]{ c }, bundleDir);
 }
 
 // Write `<bundleDir>/manifest.json` around the already-joined case entries; returns its path.

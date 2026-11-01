@@ -491,8 +491,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # cargo 编 z42vm + 原地还原 z42c / stdlib / xtask（缓存 key 的取舍写在 action 的 cache-key input 上）。
+      # 只编 z42 测试资产与组装 SDK，直接复用同轮已建的 release VM，无需再调 cargo。
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          prebuilt-vm: "true"
 
       # golden .zbc 只在这里编一次，下游 interp / jit 跑同一份字节（.zbc 与执行模式无关）。
       - name: Build golden .zbc test assets (compile shared assets once)
@@ -550,15 +552,6 @@ jobs:
           echo "$out" | grep -q "build compiler\|SUBCOMMANDS" \
             && echo "✅ current-sdk compiles AND runs (cross-job, self-contained)" \
             || { echo "::error::current-sdk run failed"; echo "$out"; exit 1; }
-      - name: Run cross-zpkg gate via --toolchain (real test-stage consume)
-        shell: bash
-        run: |
-          set -euo pipefail
-          TC="$PWD/.z42-dl"
-          # the just-compiled xtask drives the cross-zpkg gate entirely from the
-          # downloaded toolchain (z42c + stdlib + z42vm), no bootstrap/rebuild.
-          Z42_LIBS="$TC/libs" "$TC/bin/z42vm" "$RUNNER_TEMP/consume-out/xtask.zpkg" -- \
-            --toolchain "$TC" test e2e --dir cross-zpkg
       # current-sdk 里带着只编一次的 golden .zbc；解到规范镜像位置，`--no-rebuild` 直接跑（interp / jit 跑同一份字节）。
       - name: Extract bundled goldens (shared compiled asset)
         shell: bash
@@ -570,14 +563,14 @@ jobs:
           else
             echo "::error::current-sdk has no bundled goldens (tests/) — assemble-current-sdk regen step?"; exit 1
           fi
-      # interp: the shared compiled asset (prebuilt .zbc) runs with no regen/bootstrap.
-      - name: Run VM goldens INTERP from shared asset (--no-rebuild)
+      # 无筛选的 e2e 已包含 cross-zpkg 与 multi-exe；golden 消费共享字节，夹具使用下载的工具链编跑一次。
+      - name: Run INTERP e2e (shared goldens + cross-zpkg + multi-exe)
         shell: bash
         run: |
           set -euo pipefail
           TC="$PWD/.z42-dl"
           Z42_LIBS="$TC/libs" "$TC/bin/z42vm" "$RUNNER_TEMP/consume-out/xtask.zpkg" -- \
-            --toolchain "$TC" test e2e --mode interp --no-rebuild
+            --toolchain "$TC" test e2e --mode interp --no-rebuild --jobs 4
 
   # ── VM goldens 的 JIT 门（唯一的一道）：test-host 只跑 interp。cranelift 行为与宿主无关，linux-x64 一条足够。
   vm-jit-consistency:

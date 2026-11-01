@@ -197,8 +197,6 @@ _CorpusCase[] _shardCorpus(_CorpusCase[] cases, int k, int n) {
 //     local default; the whole corpus would blow the emulator/browser job wall.
 string _buildTestBundle(string root, string filter, string rid, int shardK, int shardN) {
     string bundleDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "bundle");
-    Directory.Create(bundleDir);
-    _cleanGlob(bundleDir, "*.zbc");
     int embedCap = (rid.Contains("wasm") || rid.Contains("ios") || rid.Contains("android")) ? 60 : 0;
 
     _CorpusCase[] included = _enumerateCorpus(root, filter);
@@ -208,17 +206,6 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
     if (shardN > 0) { sel = _shardCorpus(included, shardK, shardN); }
     else            { sel = _sampleCorpus(included, embedCap); }
     int capped = (shardN > 0) ? 0 : (ni - sel.Length);
-
-    // 每例一个 z42c 进程，成本由进程启动主导——与 `build test` 同样分批并发（_regenJobs），manifest 仍按选中顺序写。
-    string[] entries = _compileBundleCases(root, sel, bundleDir);
-    string items = "";
-    int count = 0;
-    for (int i = 0; i < sel.Length; i = i + 1) {
-        if (entries[i].Length == 0) { continue; }
-        if (count > 0) { items = items + ",\n"; }
-        items = items + _withRequires(entries[i], _caseRequires(sel[i]));
-        count = count + 1;
-    }
 
     if (shardN > 0) {
         Console.WriteLine("  (embed shard " + shardK.ToString() + "/" + shardN.ToString()
@@ -231,16 +218,28 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
             + ni.ToString() + " per-category (cap " + embedCap.ToString() + "); skipped "
             + capped.ToString() + " — full coverage runs on desktop or via --shard)");
     }
-    if (count == 0) { ConsoleError.WriteLine("error: no cases matched filter"); return ""; }
-    string mpath = _writeBundleManifest(bundleDir, items);
-    Console.WriteLine("  bundle: " + count.ToString() + " cases → " + mpath);
+    string mpath = _compileTestBundle(root, sel, bundleDir);
+    if (mpath.Length == 0) { return ""; }
+    Console.WriteLine("  bundle: " + sel.Length.ToString() + " cases → " + mpath);
     return mpath;
 }
 
-// 编译选中的用例进 bundleDir，返回与 sel 对齐的 manifest 条目（编译失败的位置是 ""，并打印 ✗ 与 z42c 的输出）。
+// manifest 只发布完整语料；重建前清掉旧产物，失败不能留下可被后续 run 消费的旧 manifest。
+string _compileTestBundle(string root, _CorpusCase[] sel, string bundleDir) {
+    _resetDir(bundleDir);
+    if (sel.Length == 0) { ConsoleError.WriteLine("error: no cases matched filter"); return ""; }
+    string[] entries = _compileBundleCases(root, sel, bundleDir);
+    if (entries == null) { return ""; }
+    string[] items = new string[sel.Length];
+    for (int i = 0; i < sel.Length; i++) { items[i] = _withRequires(entries[i], _caseRequires(sel[i])); }
+    return _writeBundleManifest(bundleDir, String.Join(",\n", items));
+}
+
+// 编译选中的用例进 bundleDir，返回与 sel 对齐的 manifest 条目；任一失败返回 null，并打印失败用例与诊断。
 // 分批：spawn 一批 → 逐个 wait → 收尾（golden 写 .expected、dir-unit 删合成清单并拷出 zpkg）。各例输出路径互不相同。
 string[] _compileBundleCases(string root, _CorpusCase[] sel, string bundleDir) {
     string[] entries = new string[sel.Length];
+    bool failed = false;
     int jobs = _regenJobs();
     int k = 0;
     while (k < sel.Length) {
@@ -282,6 +281,7 @@ string[] _compileBundleCases(string root, _CorpusCase[] sel, string bundleDir) {
                 }
             }
             if (entry.Length == 0) {
+                failed = true;
                 ConsoleError.WriteLine("  ✗ " + c.kind + " " + c.name);
                 if (r.Stdout.Length > 0) { ConsoleError.Write(r.Stdout); }
                 if (r.Stderr.Length > 0) { ConsoleError.Write(r.Stderr); }
@@ -290,7 +290,7 @@ string[] _compileBundleCases(string root, _CorpusCase[] sel, string bundleDir) {
         }
         k = k + bsz;
     }
-    return entries;
+    return failed ? null : entries;
 }
 
 // The capabilities a case declares (`// requires-caps: a, b` in its source; see
