@@ -13,8 +13,8 @@
 //! resolution + CLI/process concerns stay in the caller; `run` takes a resolved
 //! [`RunOpts`].
 
-use crate::metadata::lazy_loader::ZpkgCandidate;
-use crate::metadata::{ExecMode, LoadedArtifact};
+use crate::vm::loader::lazy::ZpkgCandidate;
+use crate::{metadata::ExecMode, vm::loader::LoadedArtifact};
 use crate::pal::fs::Vfs;
 use anyhow::{bail, Context, Result};
 use std::collections::HashSet;
@@ -156,7 +156,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         }
         // Relative probing paths resolve against the entry zpkg's dir, so the same
         // install behaves identically whatever cwd it is launched from.
-        for p in crate::probing::expand_probing_paths(&entry_dir, &crate::config::runtime_config().probing_paths) {
+        for p in crate::vm::loader::locate::probing::expand_probing_paths(&entry_dir, &crate::config::runtime_config().probing_paths) {
             if !dirs.iter().any(|d| d == &p) {
                 dirs.push(p);
             }
@@ -170,14 +170,14 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     };
     // 交给 z42 侧只读查询（`Std.Runtime.ModuleSearch.Dirs`）。存的是**解析结果**——相对项已按
     // entry zpkg 解析、通配符已展开 —— 免得调用方各自重做一遍规则然后慢慢漂移。
-    crate::probing::set_search_dirs(search_dirs.clone());
+    crate::vm::loader::locate::probing::set_search_dirs(search_dirs.clone());
     // add-sdk-libs D6：记下展开后不存在的 `${Z42_HOME}` 条目，供依赖解析失败时提示「是否没装 SDK」。
     {
         let entry_dir = match std::path::Path::new(file).parent() {
             Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
             _ => PathBuf::from("."),
         };
-        crate::probing::set_unresolved_sdk_patterns(crate::probing::unresolved_z42_home_patterns(
+        crate::vm::loader::locate::probing::set_unresolved_sdk_patterns(crate::vm::loader::locate::probing::unresolved_z42_home_patterns(
             &entry_dir,
             &crate::config::runtime_config().probing_paths,
         ));
@@ -219,7 +219,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
             seen_any = true;
             let core_canonical = core_path.canonicalize().unwrap_or(core_path.clone());
             let core_str = core_path.to_string_lossy().into_owned();
-            match crate::metadata::load_artifact(fs, &core_str) {
+            match crate::vm::loader::load_artifact(fs, &core_str) {
                 Ok(a) => {
                     tracing::debug!("loaded stdlib z42.core from {core_str}");
                     let byte_size = std::fs::metadata(&core_path).ok().map(|m| m.len());
@@ -250,7 +250,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     }
 
     // 5.1c — load the user artifact.
-    let user_artifact = crate::metadata::load_artifact(fs, file)?;
+    let user_artifact = crate::vm::loader::load_artifact(fs, file)?;
     register_entry_as_loaded(file, &mut loaded_paths, &mut initially_loaded_zpkgs, &mut loaded_for_replay);
 
     // 5.1d — dependency loading strategy: Interp / JIT → pure lazy (declared
@@ -266,7 +266,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
             user_artifact.import_namespaces.iter().cloned().collect();
         loop {
             while let Some(ns) = ns_queue.pop_front() {
-                let Ok(zpkg_paths) = crate::metadata::resolve_namespace(fs, &ns, &libs_paths)
+                let Ok(zpkg_paths) = crate::vm::loader::resolve_namespace(fs, &ns, &libs_paths)
                 else { continue };
                 for zpkg_path in zpkg_paths {
                     if let Some(name) = zpkg_path.file_name().and_then(|n| n.to_str()) {
@@ -282,7 +282,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
             let canonical = dep_path.canonicalize().unwrap_or_else(|_| dep_path.clone());
             if !loaded_paths.insert(canonical) { continue; }  // already merged
             let dep_str = dep_path.to_string_lossy().into_owned();
-            if let Ok(a) = crate::metadata::load_artifact(fs, &dep_str) {
+            if let Ok(a) = crate::vm::loader::load_artifact(fs, &dep_str) {
                 for d in &a.dependencies { file_queue.push_back(d.file.clone()); }
                 for ns in &a.import_namespaces { ns_queue.push_back(ns.clone()); }
                 eager_impl_pairs.extend(a.impl_pairs.iter().cloned());
@@ -313,14 +313,14 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     let final_module = if modules.len() == 1 {
         modules.into_iter().next().unwrap()
     } else {
-        let mut m = crate::metadata::merge_modules(modules)
+        let mut m = crate::vm::loader::merge_modules(modules)
             .with_context(|| format!("merging modules for `{}`", file))?;
         m.name = user_module_name;
         crate::vm::runtime::types::build_type_registry(&mut m);
         crate::vm::runtime::types::verify_constraints(&m)
             .with_context(|| format!("constraint verification failed for `{}`", file))?;
-        crate::metadata::loader::build_block_indices(&mut m);
-        crate::metadata::loader::build_func_index(&mut m);
+        crate::vm::loader::package::build_block_indices(&mut m);
+        crate::vm::loader::package::build_func_index(&mut m);
         m
     };
 
@@ -518,7 +518,7 @@ fn build_declared_candidates(
             continue;
         }
         for ns in &dep.namespaces {
-            let Ok(zpkg_paths) = crate::metadata::resolve_namespace(fs, ns, &libs_paths) else {
+            let Ok(zpkg_paths) = crate::vm::loader::resolve_namespace(fs, ns, &libs_paths) else {
                 continue;
             };
             for zpkg_path in zpkg_paths {
@@ -545,7 +545,7 @@ fn build_declared_candidates(
 
     // .zbc import_namespaces — reverse lookup
     for ns in &user_artifact.import_namespaces {
-        let Ok(zpkg_paths) = crate::metadata::resolve_namespace(fs, ns, &libs_paths) else {
+        let Ok(zpkg_paths) = crate::vm::loader::resolve_namespace(fs, ns, &libs_paths) else {
             continue;
         };
         for zpkg_path in zpkg_paths {

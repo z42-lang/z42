@@ -145,7 +145,7 @@ impl VmContext {
         let mut module = crate::vm::runtime::Module::from_image(image);
         crate::vm::runtime::types::build_type_registry(&mut module);
         crate::vm::runtime::types::verify_constraints(&module)?;
-        crate::metadata::loader::build_block_indices(&mut module);
+        crate::vm::loader::package::build_block_indices(&mut module);
         Ok(Self::with_module_and_vfs(module, vfs))
     }
 
@@ -245,7 +245,7 @@ impl VmContext {
             pending_type_init_count: std::sync::atomic::AtomicUsize::new(0),
             init_batch_inflight:     std::sync::atomic::AtomicUsize::new(0),
             static_init_error:  Mutex::new(None),
-            context_registry:   Mutex::new(crate::metadata::context::ContextRegistry::new()),
+            context_registry:   Mutex::new(crate::vm::loader::contexts::ContextRegistry::new()),
             #[cfg(feature = "native-interop")]
             native_types:       RwLock::new(HashMap::new()),
             #[cfg(feature = "native-interop")]

@@ -2,7 +2,7 @@
 //
 // 覆盖 z42 级可观测行为：root 卸载抛 InvalidOperationException、collectible 卸载不抛
 // 且幂等、Unloading context 拒绝 Load、以及 Unload+ForceCollect 的 GC 回收路径端到端
-// 不崩。实际 arena 确定性 free + 保留边判定由 Rust 单测（metadata/context_tests.rs）覆盖
+// 不崩。实际 arena 确定性 free + 保留边判定由 Rust 单测（vm/loader/context_tests.rs）覆盖
 // ——z42 级无法在不持句柄的情况下观测回收（持句柄本身即保留边，阻止回收）。
 namespace Demo;
 using Std;

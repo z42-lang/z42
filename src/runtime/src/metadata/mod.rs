@@ -1,4 +1,4 @@
-//! Package formats, decoded IR, static queries and VM linking state.
+//! Package formats, decoded IR, static queries and interpreter fusion.
 //! Static concerns are grouped under format, reader, ir, index and debug.
 
 pub mod image;
@@ -8,11 +8,6 @@ pub mod ir;
 pub mod index;
 pub mod debug;
 pub mod superinstr;
-pub mod context;
-pub mod loader;
-pub mod namespace_index;
-pub mod lazy_loader;
-pub mod merge;
 
 // Re-exports: string pool typed handle (Part 5 P0 Phase A)
 // Re-exports: NameIndex (review.md Part 2 C4 / C5 P1)
@@ -28,11 +23,3 @@ pub use ir::{
     LoadFieldAddrInsn, LoadFnInsn, MkClosInsn, ObjNewInsn, StaticGetInsn,
     StaticSetInsn, TypeofInsn, VCallInsn,
 };
-
-// Re-exports: package format types and artifact loading
-pub use loader::{load_artifact, load_artifact_from_bytes, resolve_namespace, resolve_dependency, extract_import_namespaces, LoadedArtifact};
-pub use merge::merge_modules;
-
-// Re-exports: lazy loader (state owned by VmContext, see crate::vm_context)
-pub use lazy_loader::{LazyLoader, ZpkgCandidate};
-

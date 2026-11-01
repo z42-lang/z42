@@ -35,7 +35,7 @@ int _lySelfTestMap() {
     f = f + _lyExpect("map index type names", _lyComponentOf("metadata/index/type_names.rs"), "metadata");
     f = f + _lyExpect("map debug records", _lyComponentOf("metadata/debug/symbols.rs"), "metadata");
     f = f + _lyExpect("map runtime types", _lyComponentOf("vm/runtime/types/registry.rs"), "vm.runtime");
-    f = f + _lyExpect("map loader 默认", _lyComponentOf("metadata/loader/artifact.rs"), "vm.loader");
+    f = f + _lyExpect("map loader 默认", _lyComponentOf("vm/loader/package/artifact.rs"), "vm.loader");
     f = f + _lyExpect("map corelib/abi", _lyComponentOf("corelib/abi/args.rs"), "vm.exec");
     f = f + _lyExpect("map corelib 默认", _lyComponentOf("corelib/fs.rs"), "corelib");
     f = f + _lyExpect("map vm_context 默认", _lyComponentOf("vm_context/mod.rs"), "vm.core");

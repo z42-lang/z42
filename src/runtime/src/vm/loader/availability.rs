@@ -31,7 +31,7 @@
 
 use crate::metadata::ir::{Instruction, Terminator};
 use crate::vm::runtime::Module;
-use crate::metadata::namespace_index::ZpkgCandidate;
+use crate::vm::loader::locate::namespace_index::ZpkgCandidate;
 use std::collections::HashSet;
 
 /// 编译器发射的探测 builtin 名（与 `TypeOpEmitter._emitSymAvailable` 对齐）。
@@ -212,7 +212,7 @@ fn probe_declared(fs: &dyn crate::pal::fs::Vfs, declared: &[(String, ZpkgCandida
     for cand in files {
         if !seen.insert(cand.file_path.as_path()) { continue; }
         let path = cand.file_path.to_string_lossy().into_owned();
-        let Ok(art) = crate::metadata::load_artifact(fs, &path) else {
+        let Ok(art) = crate::vm::loader::load_artifact(fs, &path) else {
             // probe 失败不是错误：文件可能损坏/版本不符，此时「不可用」正是我们要的答案。
             tracing::debug!("available!: probe of `{path}` failed; treating as unavailable");
             continue;

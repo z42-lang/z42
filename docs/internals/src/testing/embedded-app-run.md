@@ -100,8 +100,8 @@ wasm 没有文件系统、也没有进程 stdout，所以它**不能**直接复�
 
 **(a) 加载走 VM 的 VFS，不是 `std::fs`。** 运行期工件读取一律走这台 VM 的 `pal::fs::Vfs`
 句柄（`RunOpts::vfs`，不给就是默认：native 为 `LocalFs`，即 `std::fs`；wasm 为内存 VFS）。
-走它的有 `metadata/loader/artifact.rs`（`load_zbc` / `load_zpkg` 及 `.zsym` sidecar、indexed-zpkg
-散装读）、`metadata/namespace_index.rs`（命名空间目录扫描、`ZpkgCandidate::build`）、惰性加载器、
+走它的有 `vm/loader/package/artifact.rs`（`load_zbc` / `load_zpkg` 及 `.zsym` sidecar、indexed-zpkg
+散装读）、`vm/loader/locate/namespace_index.rs`（命名空间目录扫描、`ZpkgCandidate::build`）、惰性加载器、
 `app.rs`（`z42.core` 预载的 `exists`、entry-dir 的 `is_dir`）。
 
 于是宿主先把 agent app.zpkg + stdlib zpkg + bundle（manifest + 各 case zbc）挂进它自己的

@@ -320,7 +320,7 @@ pub fn wrong_arity_exception(
 pub fn ambiguous_function_exception(
     ctx: &VmContext, module: &Module, fname: &str,
 ) -> Option<crate::object::Value> {
-    if !crate::metadata::lazy_loader::ambiguity_seen() { return None; }
+    if !crate::vm::loader::lazy::ambiguity_seen() { return None; }
     ambiguous_function_exception_slow(ctx, module, fname)
 }
 
@@ -346,7 +346,7 @@ fn ambiguous_function_exception_slow(
 pub fn ambiguous_type_exception(
     ctx: &VmContext, module: &Module, class_name: &str,
 ) -> Option<crate::object::Value> {
-    if !crate::metadata::lazy_loader::ambiguity_seen() { return None; }
+    if !crate::vm::loader::lazy::ambiguity_seen() { return None; }
     ambiguous_type_exception_slow(ctx, module, class_name)
 }
 

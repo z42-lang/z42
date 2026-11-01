@@ -1,7 +1,6 @@
 use super::*;
+use crate::vm::loader::locate::{extract_import_namespaces, resolve_namespace};
 use std::path::Path;
-use std::sync::Arc;
-use rustc_hash::FxHashMap;
 use crate::object::TypeDesc;
 
 // ── extract_import_namespaces ─────────────────────────────────────────────────
@@ -520,7 +519,7 @@ fn indexed_zpkg_loads_via_path() {
     std::fs::copy(indexed_fixture_dir().join("source.zpkg"), base.join("demo.indexed.zpkg")).unwrap();
     std::fs::copy(indexed_fixture_dir().join("source.zbc"), base.join("source.zbc")).unwrap();
 
-    let art = crate::metadata::loader::load_artifact(&crate::pal::vfs::LocalFs,
+    let art = crate::vm::loader::package::load_artifact(&crate::pal::vfs::LocalFs,
         base.join("demo.indexed.zpkg").to_str().unwrap(),
     )
     .expect("indexed zpkg loads through the path-aware loader");
@@ -537,7 +536,7 @@ fn indexed_zpkg_rejects_hash_mismatch() {
     zbc.push(0x78); // 篡改散装 zbc → 内容 hash 必不符
     std::fs::write(base.join("source.zbc"), zbc).unwrap();
 
-    let err = match crate::metadata::loader::load_artifact(&crate::pal::vfs::LocalFs,
+    let err = match crate::vm::loader::package::load_artifact(&crate::pal::vfs::LocalFs,
         base.join("demo.indexed.zpkg").to_str().unwrap(),
     ) {
         Ok(_) => panic!("tampered scattered zbc must be rejected"),
@@ -550,7 +549,7 @@ fn indexed_zpkg_rejects_hash_mismatch() {
 fn indexed_zpkg_bytes_only_load_is_rejected() {
     // 字节 API（embedding）无包目录 → 明确拒绝而非静默。
     let raw = std::fs::read(indexed_fixture_dir().join("source.zpkg")).unwrap();
-    let err = match crate::metadata::loader::load_artifact_from_bytes(&raw) {
+    let err = match crate::vm::loader::package::load_artifact_from_bytes(&raw) {
         Ok(_) => panic!("indexed from bytes alone must be rejected"),
         Err(e) => e,
     };
@@ -805,7 +804,9 @@ fn allocated_type_ids_stay_below_import_base() {
 fn module_with_struct_field_table(
     class: &str, size: u32, entries: &[(u32, u32, u8)],
 ) -> crate::vm::runtime::Module {
-    use crate::metadata::ir::{FieldDesc, StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
+    use crate::metadata::ir::{
+        FieldDesc, StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE,
+    };
     let mut m = module_with_class_names("m", &[class]);
     let c = &mut m.classes[0];
     c.struct_layout = Some(StructLayoutDesc {
@@ -883,7 +884,9 @@ fn absent_struct_field_table_yields_an_empty_one() {
 /// 这条钉住那个「顺手复用」的诱惑。
 #[test]
 fn inline_layout_does_not_borrow_the_struct_field_table() {
-    use crate::metadata::ir::{StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
+    use crate::metadata::ir::{
+        StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE,
+    };
     let mut m = module_with_class_names("m", &["Demo.Holder"]);
     let c = &mut m.classes[0];
     c.inline_layout = Some(StructLayoutDesc {
@@ -913,7 +916,9 @@ fn inline_layout_does_not_borrow_the_struct_field_table() {
 #[test]
 #[should_panic(expected = "index-parallel to `fields`")]
 fn struct_field_table_that_is_not_parallel_to_fields_is_rejected() {
-    use crate::metadata::ir::{StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE};
+    use crate::metadata::ir::{
+        StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE,
+    };
     // 表有 3 条，`fields` 只有 1 个 ⇒ 第 2/3 跳会沿着不存在的字段找类型名。
     let mut m = module_with_struct_field_table("Demo.Skew", 24, &[(0, 4, 0), (8, 8, 0), (16, 8, 0)]);
     let c = &mut m.classes[0];
@@ -946,7 +951,7 @@ fn struct_field_table_that_is_not_parallel_to_fields_is_rejected() {
 #[test]
 #[should_panic(expected = "empty per-field layout table")]
 fn value_struct_with_fields_but_no_field_table_is_rejected() {
-    use crate::metadata::ir::{CLASS_FLAG_STRUCT, FieldDesc, StructLayoutDesc};
+    use crate::metadata::ir::{FieldDesc, StructLayoutDesc, CLASS_FLAG_STRUCT};
     let mut m = module_with_class_names("m", &["Demo.NoTable"]);
     let c = &mut m.classes[0];
     c.class_flags = CLASS_FLAG_STRUCT;
@@ -970,7 +975,7 @@ fn value_struct_with_fields_but_no_field_table_is_rejected() {
 #[test]
 #[should_panic(expected = "ships no struct byte layout block")]
 fn value_struct_with_fields_but_no_struct_block_is_rejected() {
-    use crate::metadata::ir::{CLASS_FLAG_STRUCT, FieldDesc};
+    use crate::metadata::ir::{FieldDesc, CLASS_FLAG_STRUCT};
     let mut m = module_with_class_names("m", &["Demo.NoBlock"]);
     let c = &mut m.classes[0];
     c.class_flags = CLASS_FLAG_STRUCT;
@@ -987,7 +992,7 @@ fn value_struct_with_fields_but_no_struct_block_is_rejected() {
 /// phantom / 零字段 wrapper 本来就没有表可带。
 #[test]
 fn empty_value_struct_without_a_field_table_is_accepted() {
-    use crate::metadata::ir::{CLASS_FLAG_STRUCT, StructLayoutDesc};
+    use crate::metadata::ir::{StructLayoutDesc, CLASS_FLAG_STRUCT};
     let mut m = module_with_class_names("m", &["Demo.Phantom"]);
     let c = &mut m.classes[0];
     c.class_flags = CLASS_FLAG_STRUCT;

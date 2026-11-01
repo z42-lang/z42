@@ -252,7 +252,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         // —— 消费点 inline `std::env::var`，这是元旋钮的既定形态。
         description: "SDK install root; `${Z42_HOME}` in `probing-paths` expands to it",
         default_hint: "unset; then derived from $Z42_PORTABLE_VM, else from the running z42vm's own location",
-        consumed_by: "probing.rs (`${Z42_HOME}` expansion) + toolchain launcher/installer",
+        consumed_by: "vm/loader/locate/probing.rs (`${Z42_HOME}` expansion) + toolchain launcher/installer",
         ..META
     },
     KnobSpec {
@@ -375,7 +375,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         // 同上一条：元旋钮，不是应用设置。
         description: "path to the z42vm to run (`<sdk-root>/bin/z42vm`); the VM itself only uses it to derive the SDK root for `${Z42_HOME}`",
         default_hint: "unset; the launcher/apphost sets it when it picks a VM",
-        consumed_by: "probing.rs (SDK-root derivation) + toolchain launcher/apphost",
+        consumed_by: "vm/loader/locate/probing.rs (SDK-root derivation) + toolchain launcher/apphost",
         ..META
     },
     KnobSpec {

@@ -258,9 +258,9 @@ pub trait ContextReclaim: Send + Sync {
     /// Cheap gate — true iff ≥1 context is in `Unloading` state (atomic read).
     fn is_unloading(&self) -> bool;
     /// Snapshot the context↔object association for this collect (registry lock once).
-    fn snapshot(&self) -> crate::metadata::context::ContextLiveness;
+    fn snapshot(&self) -> crate::vm::loader::contexts::ContextLiveness;
     /// Free every `Unloading` context NOT in `live` (post-sweep, STW).
-    fn reclaim(&self, live: &std::collections::HashSet<crate::metadata::context::ContextId>);
+    fn reclaim(&self, live: &std::collections::HashSet<crate::vm::loader::contexts::ContextId>);
 }
 
 pub type ContextReclaimHook = Box<dyn ContextReclaim>;

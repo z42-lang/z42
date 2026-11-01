@@ -21,7 +21,7 @@ cargo test lazy_loader                      # packed-minimal 作 colocated-dep �
 cargo test indexed_zpkg                     # 加载 indexed-minimal 的 indexed 主文件 + 散装 zbc
 ```
 
-消费方：`src/runtime/tests/format_fixture_versions.rs`、`src/runtime/src/metadata/lazy_loader_tests.rs`、`src/runtime/src/metadata/loader/loader_tests.rs`。
+消费方：`src/runtime/tests/format_fixture_versions.rs`、`src/runtime/src/vm/loader/lazy/lazy_loader_tests.rs`、`src/runtime/src/vm/loader/package/loader_tests.rs`。
 只有 `packed-minimal` 与 `indexed-minimal` 被功能测试消费；`packed-multi-module` / `sym-only-sidecar` 仅由版本防腐门覆盖。
 
 ## 维护流程

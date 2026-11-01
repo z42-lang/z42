@@ -29,6 +29,9 @@ is/as/catch 目标键及数组元素/对象泛型实参的驻留句柄。侧表�
 身份与 token 定义位于 `vm/runtime/ids`，类型注册表组装与约束验证位于 `vm/runtime/types`；
 `vm/runtime/resolve` 建立每函数预链接，`vm/runtime/dispatch/ic` 定义缓存和发布原语。
 
+包定位位于 `vm/loader/locate`，VFS 读取、合并与执行准备位于 `vm/loader/package`；
+惰性路由与注册位于 `vm/loader/lazy`，加载上下文与 assembly 关联由 `vm/loader/contexts.rs` 持有。
+
 常规加载仍按原有顺序解码、合并、构建类型表、验证约束与准备索引；链接对象持有静态定义的 Arc，链接时
 改写字面量索引、裁剪 CFG 或覆盖调试信息使用写时复制。普通定义修改清除派生索引、帧信息和链接缓存；
 仅重映射字符串 id 保留控制流与融合计划。`Module::image()` 捕获当前定义，后续改写不会影响旧映像。
@@ -403,7 +406,7 @@ for ((module, ns, _tidx), (sym_ns, fns)) in module_pairs.iter_mut().zip(sidecar.
 
 ### 与 `merge_modules` 的顺序
 
-`load_zpkg_bytes_with_sidecar`（`metadata/loader/artifact.rs`）调用顺序：
+`load_zpkg_bytes_with_sidecar`（`vm/loader/package/artifact.rs`）调用顺序：
 
 1. `read_zpkg_modules(raw)` → `Vec<(Module, ns, TestEntry[])>` 拥有可变 Module
 2. `apply_zpkg_sidecar(&mut module_pairs, raw, sym, sym_path)` — 把 sidecar DBUG 合入 per-module funcs
@@ -514,7 +517,7 @@ struct ZpkgCandidate {
 
 > **解析 vs 生命周期分层**：
 > `ZpkgCandidate` 与「扫目录 → 逐 zpkg 读 NSPC → 建 namespace↔path 候选」这段
-> **无状态解析**逻辑住在 `metadata/namespace_index.rs`（`scan_zpkg_candidates` /
+> **无状态解析**逻辑住在 `vm/loader/locate/namespace_index.rs`（`scan_zpkg_candidates` /
 > `scan_zbc_candidates`，返回 owned 候选）。两个消费者按「弃/留」分工同一原语：
 > **loader**（`resolve_namespace`，编译期工具/诊断）扫完精确匹配即 **drop** 候选（transient）；
 > **lazy_loader** 把候选**留存**进 `declared_zpkgs`、配 `loaded_zpkgs` 管加载/释放
@@ -757,7 +760,7 @@ Sub : Std.Exception { ... }` 加载时，`Std.Exception`（在 z42.core）尚
   可解析 → 仅含 own 部分（后续 fixup 补齐）。
 
 **阶段 2 — fixup**（`try_fixup_inheritance`）：
-- 在 [`LazyLoader::load_zpkg_file`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/lazy_loader/registry.rs)
+- 在 [`LazyLoader::load_zpkg_file`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/loader/lazy/registry.rs)
   把新 zpkg 的 TypeDesc 插入全局 `type_registry` 之后调用（函数本体在 `vm/runtime/types/registry.rs`）。
 - 扫描整个 `type_registry`，对每个 base 链 *新近可解析* 的 TypeDesc
   （`needs_fixup` 检测），用 `merge_with_base` 用全局 registry 重算

@@ -8,7 +8,7 @@
 //! ## Triggering (Decision 1: strategy C + fallback B)
 //!
 //!   0. **precise-pkg-refs**: the consumers' DEPS symbol lists say which package defines a
-//!      referenced type / free function — load exactly that one (`lazy_loader/symbols.rs`).
+//!      referenced type / free function — load exactly that one (`vm/loader/lazy/symbols.rs`).
 //!      Steps 1–3 remain for names nobody referenced statically (reflection, runtime-built names).
 //!   1. Extract namespace prefix from `func_name` / `class_name`
 //!   2. Route to candidate zpkgs whose exported `namespaces` metadata
@@ -23,13 +23,10 @@
 //! visits them one by one and `first-wins` on function/type name collisions
 //! (Decision 6).
 //!
-//! ## State ownership (consolidate-vm-state)
+//! ## State ownership
 //!
-//! Previously `LazyLoader` lived in a `thread_local!` slot. Now an instance
-//! is owned by `VmContext::lazy_loader`; all `try_lookup_*` /
-//! `declared_namespaces` calls go through `VmContext` methods which delegate
-//! here. `LazyLoader` itself remains usable directly by tests / advanced
-//! embedders.
+//! A loader belongs to one VmCore and is shared by its VmContexts. Lookup
+//! methods delegate here; tests can construct the loader directly.
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -37,22 +34,16 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::vm::runtime::Function;
-use super::ir::Instruction;
-use super::loader::{load_artifact, load_artifact_from_bytes, LoadedArtifact};
+use crate::metadata::ir::Instruction;
+use crate::vm::loader::package::{load_artifact, load_artifact_from_bytes, LoadedArtifact};
 use crate::object::TypeDesc;
-use super::namespace_index;
+use crate::vm::loader::locate::namespace_index;
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-// `ZpkgCandidate` (the namespace→zpkg index entry: file path + exported
-// namespaces) and its disk-parse constructors (`build` / `build_in_dirs`) live
-// in the stateless `namespace_index` primitive (refactor-metadata-namespace-
-// index, runtime_review #6 step 2). Re-exported here so existing
-// `lazy_loader::ZpkgCandidate` paths (app.rs, vm_context, tests, and the
-// `metadata::ZpkgCandidate` facade) are unaffected. The lazy loader is the
-// *retaining* consumer: it keeps candidates in `declared_zpkgs` and owns the
-// load/track/release lifecycle; parsing stays in the primitive.
-pub use super::namespace_index::ZpkgCandidate;
+// Candidate metadata comes from locate::namespace_index; this loader retains
+// declared candidates and owns their load/track/release lifecycle.
+pub use crate::vm::loader::locate::namespace_index::ZpkgCandidate;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -136,7 +127,7 @@ pub struct LazyLoader {
 
     /// **precise-pkg-refs**: symbol key (type / free-function full name) → zpkg file that defines
     /// it, from the DEPS symbol lists of the entry artifact and of every loaded package. See
-    /// `lazy_loader/symbols.rs`.
+    /// `vm/loader/lazy/symbols.rs`.
     symbol_owners: FxHashMap<String, String>,
     /// Simple name → the unique recorded full name with that short name (`None` once two
     /// differ). Lets reflection resolve a dotless type name without force-loading everything.

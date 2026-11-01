@@ -68,12 +68,7 @@ string[] _lyMapVmLow() {
 // vm 上层：loader / exec / core。
 string[] _lyMapVmHigh() {
     return new string[]{
-        "metadata/loader/              = vm.loader       # loader/package、availability、locate",
-        "metadata/lazy_loader          = vm.loader       # loader/lazy",
-        "metadata/context.rs           = vm.loader       # loader/contexts",
-        "metadata/namespace_index.rs   = vm.loader       # loader/locate",
-        "metadata/merge.rs             = vm.loader       # loader/package",
-        "probing.rs                    = vm.loader       # loader/locate（probing）",
+        "vm/loader/                    = vm.loader",
         "vm_context/lookup.rs          = vm.loader       # VmContext 上的加载 / 查找入口",
         "objops/                       = vm.exec         # exec/ops",
         "semantics.rs                  = vm.exec         # exec/ops/scalar",

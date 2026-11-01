@@ -197,7 +197,7 @@ impl Function {
     }
 
     /// Lazy-init the cold side-table for mutation. Used by sidecar debug-
-    /// symbol overlay in `metadata::loader`.
+    /// symbol overlay in `vm::loader::package`.
     #[inline]
     pub fn cold_mut(&mut self) -> &mut FunctionCold {
         self.cold.get_or_insert_with(|| Box::new(FunctionCold::default()))
