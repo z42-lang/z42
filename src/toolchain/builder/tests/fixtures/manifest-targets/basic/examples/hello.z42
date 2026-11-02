@@ -1,6 +1,4 @@
-// [[example]] test=true target — compiled by the `xtask test` example gate and,
-// because test=true, also executed (exit-code judged). Also runnable directly via
-// `xtask example hello`.
+// [[example]] test=true：完整 xtask test 中既编译也执行，按退出码判定。
 namespace MtHello;
 
 using Std.IO;

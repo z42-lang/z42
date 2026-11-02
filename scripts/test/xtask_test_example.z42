@@ -6,8 +6,7 @@
 // 源文件 `namespace` + ".Main"。
 //
 // 发现：扫描声明了 examples 的工程（stdlib 各库 + manifest-target fixtures）：`[examples]` 段自动 glob
-// （约定目录 `examples/`）+ 显式 `[[example]]`。复用 exit-target 编译器（_runExitTarget，
-// xtask_manifest_targets.z42）与 fixture 工具准备（_prepFixtureTooling）。
+// （约定目录 `examples/`）+ 显式 `[[example]]`。复用 example 构建器（xtask_example_build.z42）与 fixture 工具准备（_prepFixtureTooling）。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -24,67 +23,46 @@ int _testManifestExamples(bool noBuild) {
     }
     TargetTooling tt = _prepFixtureTooling(root, noBuild);
     if (!tt.Ok) { return 2; }
-    return _exampleRun(root, tt, "", true);
-}
-
-// Core: iterate every project dir under src/libraries + _fixturesRoot, discover its
-// example targets, compile all (gate), and run the selected ones.
-// gate=true → run only RunInTest targets; gate=false → run `name` (exact) or all
-// RunInTest when name=="". A name matching nothing → error listing available.
-int _exampleRun(string root, TargetTooling tt, string name, bool gate) {
     string[] roots = new string[] { Path.Join(root, "src/libraries"), _fixturesRoot(root) };
-    int failed = 0;
-    int compiled = 0;
-    int ran = 0;
-    string avail = "";
+    ExampleCounts counts = new ExampleCounts();
     foreach (var r in roots) {
         if (!Directory.Exists(r)) { continue; }
         foreach (var proj in _sortedStrings(Directory.Enumerate(r))) {
             string projDir = Path.Join(r, proj);
             string toml = _findToml(projDir);
             if (toml.Length > 0 && Directory.Exists(projDir)) {
-                int[] cref = new int[] { compiled, ran, failed };
-                _exampleRunProject(root, projDir, proj, toml, tt, name, gate, cref, ref avail);
-                compiled = cref[0]; ran = cref[1]; failed = cref[2];
+                _exampleRunProject(root, projDir, proj, toml, tt, counts);
             }
         }
     }
-    if (!gate && name.Length > 0 && ran == 0 && failed == 0) {
-        ConsoleError.WriteLine("error: no example named '" + name + "'");
-        if (avail.Length > 0) { ConsoleError.WriteLine("  available: " + avail); }
-        return 2;
-    }
     Console.WriteLine("");
-    if (failed > 0) {
-        Console.WriteLine("  ❌ examples: " + failed.ToString() + " failure(s) (" + compiled.ToString() + " compiled, " + ran.ToString() + " ran)");
+    if (counts.Failed > 0) {
+        Console.WriteLine("  ❌ examples: " + counts.Failed.ToString() + " failure(s) (" + counts.Compiled.ToString() + " compiled, " + counts.Ran.ToString() + " ran)");
         return 1;
     }
-    Console.WriteLine("  ✅ examples: " + compiled.ToString() + " compiled, " + ran.ToString() + " ran");
+    Console.WriteLine("  ✅ examples: " + counts.Compiled.ToString() + " compiled, " + counts.Ran.ToString() + " ran");
     return 0;
 }
 
-// Discover + compile/run one project's examples. Updates cref[0]=compiled,
-// cref[1]=ran, cref[2]=failed; appends names to `avail`.
+class ExampleCounts {
+    public int Compiled;
+    public int Ran;
+    public int Failed;
+}
+
+// 编译一个工程的全部 example，只运行 RunInTest 标记的目标。
 void _exampleRunProject(string root, string projDir, string projName, string toml,
-                        TargetTooling tt, string name, bool gate, int[] cref, ref string avail) {
+                        TargetTooling tt, ExampleCounts counts) {
     ProjectManifest man = _loadManifestOr(toml);
     RunTarget[] tgts = _explicitTargets(man, "example");
     string verr = _validateRunTargets(tgts, tgts.Length, "example");
-    if (verr.Length > 0) { ConsoleError.WriteLine("error: " + projName + ": " + verr); cref[2] = cref[2] + 1; return; }
+    if (verr.Length > 0) { ConsoleError.WriteLine("error: " + projName + ": " + verr); counts.Failed = counts.Failed + 1; return; }
     foreach (var ex in _discoverExamples(projDir, man, tgts)) {
-        avail = _appendName(avail, ex.Name);
-        // run decision: a given name → run iff it matches; no name → RunInTest.
-        bool selected = (name.Length > 0) ? (ex.Name == name) : ex.RunInTest;
-        bool runAfter = selected;
-        // gate compiles EVERYTHING; a named non-gate run only touches the match.
-        if (!gate && name.Length > 0 && ex.Name != name) { continue; }
-        DepBundle deps = _targetDepsPairs(man, "example", ex.DepNames, ex.DepVersions, ex.DepCount);
-        int rc = _runExitTarget(root, projDir, projName + ".example", "examples",
-                                ex.Name, ex.HasEntry, ex.Entry, ex.Sources, ex.SrcCount, deps,
-                                tt.Vm, tt.DriverZpkg, tt.Libs, runAfter);
-        cref[0] = cref[0] + 1;
-        if (runAfter) { cref[1] = cref[1] + 1; }
-        if (rc != 0) { cref[2] = cref[2] + 1; }
+        DepBundle deps = _exampleDeps(man, ex.DepNames, ex.DepVersions, ex.DepCount);
+        int rc = _runExampleTarget(root, projDir, projName, tt, ex, deps);
+        counts.Compiled = counts.Compiled + 1;
+        if (ex.RunInTest) { counts.Ran = counts.Ran + 1; }
+        if (rc != 0) { counts.Failed = counts.Failed + 1; }
     }
 }
 

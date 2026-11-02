@@ -1,0 +1,185 @@
+// example 目标的依赖合并、合成清单和编译执行；测试与 bench 由 z42b 执行。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+using Z42.Project;
+
+class DepBundle {
+    public string[] Names { get; set; }
+    public string[] Versions { get; set; }
+    public int Count { get; set; }
+}
+
+// ── three-layer dev-dep merge (target > section > project) ─────────────────────
+// 只服务 example 目标（`_exampleDeps`）；test/bench 的依赖合并在 z42b 里。
+
+DepBundle _newBundle() {
+    DepBundle b = new DepBundle();
+    b.Names = new string[16]; b.Versions = new string[16]; b.Count = 0;
+    return b;
+}
+
+// Insert one (name, version) into a bundle, first-wins dedup by name (grows on
+// demand). "" version → "*".
+void _bundlePut(DepBundle b, string name, string ver) {
+    int j = 0;
+    while (j < b.Count) { if (b.Names[j] == name) { return; } j = j + 1; }
+    if (b.Count == b.Names.Length) {
+        int cap = b.Names.Length * 2;
+        string[] nn = new string[cap]; string[] nv = new string[cap];
+        Array.Copy(b.Names, nn, b.Count); Array.Copy(b.Versions, nv, b.Count);
+        b.Names = nn; b.Versions = nv;
+    }
+    if (ver.Length == 0) { ver = "*"; }
+    b.Names[b.Count] = name; b.Versions[b.Count] = ver; b.Count = b.Count + 1;
+}
+
+// Append DepEntry[] into a bundle (first-wins dedup).
+void _bundleAddDeps(DepBundle b, DepEntry[] deps, int n) {
+    int i = 0;
+    while (i < n) { _bundlePut(b, deps[i].Name, deps[i].Version); i = i + 1; }
+}
+
+// Three-layer merge from raw (name, version) pairs instead of a DepEntry[] — for
+// the example runner, whose local ExampleUnit carries deps as primitive string
+// arrays (avoids an imported-type field). Priority: pairs > section > project.
+DepBundle _exampleDeps(ProjectManifest m, string[] names, string[] versions, int n) {
+    DepBundle b = _newBundle();
+    int i = 0;
+    while (i < n) { _bundlePut(b, names[i], versions[i]); i = i + 1; }
+    if (m != null) {
+        _bundleAddDeps(b, m.ExampleSection.Deps, m.ExampleSection.DepCount);
+        _bundleAddDeps(b, m.Deps, m.DepCount);
+    }
+    return b;
+}
+
+// ── example 目标的执行器（exit-code）───────────────────────────────────────────
+// examples 不走 z42b —— 它们不是测试，判据是「编得过（+ 可选跑得通）」。
+
+// 编译一个 example；RunInTest 目标编译成功后直接运行 baked entry。
+int _runExampleTarget(string root, string projDir, string project, TargetTooling tt, ExampleUnit ex, DepBundle deps) {
+    string projName = project + ".example." + ex.Name;
+    string zpkg = _compileExampleTarget(root, projDir, projName, tt, ex, deps);
+    if (zpkg.Length == 0) { return 1; }
+    if (!ex.RunInTest) { Console.WriteLine("✓ " + ex.Name + " (compiled)"); return 0; }
+    ProcessResult rr = _z42Proc(tt.Vm, tt.Libs).Arg(zpkg).Run();
+    Console.Write(rr.Stdout);
+    if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
+    if (rr.ExitCode != 0) { Console.WriteLine("✗ " + ex.Name + " (exit " + rr.ExitCode.ToString() + ")"); return 1; }
+    Console.WriteLine("✓ " + ex.Name);
+    return 0;
+}
+
+// 清单放在工程旁以保留 include 的相对语义，构建产物落 intermediate，结束后删除合成清单。
+string _compileExampleTarget(string root, string projDir, string projName, TargetTooling tt, ExampleUnit ex, DepBundle deps) {
+    string outDir = Path.Join(_workRootOf(root, projDir), "targets/" + projName);
+    if (Directory.Exists(outDir)) { try { Directory.Delete(outDir, true); } catch (Exception e) {} }
+    Directory.Create(Path.Join(outDir, "dist"));
+    string[] inc = _targetIncludes(projDir, "examples", ex.Name, ex.Sources, ex.SrcCount);
+    if (inc.Length == 0) {
+        ConsoleError.WriteLine("✗ " + ex.Name + ": no source files match (sources glob / convention empty)");
+        return "";
+    }
+    string synth = Path.Join(projDir, ".xtask-" + projName + ".z42.toml");
+    File.WriteAllText(synth, _renderExampleManifest(projName, ex.Entry, ex.HasEntry, inc, outDir, deps));
+    ProcessResult br = _z42cProc(tt.Vm, tt.Libs, tt.DriverZpkg).Arg("build").Arg(synth).Run();
+    try { File.Delete(synth); } catch (Exception e) {}
+    if (br.ExitCode != 0) {
+        ConsoleError.WriteLine("✗ COMPILE ERROR: " + ex.Name);
+        Console.Write(br.Stdout); Console.Write(br.Stderr);
+        return "";
+    }
+    string zpkg = Path.Join(Path.Join(outDir, "dist"), projName + ".zpkg");
+    if (!File.Exists(zpkg)) {
+        ConsoleError.WriteLine("✗ " + ex.Name + ": no zpkg produced at " + zpkg);
+        return "";
+    }
+    return zpkg;
+}
+
+// Resolve a target's source globs to projDir-relative include patterns. Explicit
+// sources verbatim; else convention <subdir>/<name>.z42 (single) or
+// <subdir>/<name>/**/*.z42 (dir). Absent → empty (caller errors "no match").
+string[] _targetIncludes(string projDir, string subdir, string tName, string[] tSources, int tSrcCount) {
+    if (tSrcCount > 0) {
+        if (_countMatches(projDir, tSources, tSrcCount) == 0) { return new string[0]; }
+        string[] r = new string[tSrcCount];
+        int i = 0;
+        while (i < tSrcCount) { r[i] = _z42cInclude(tSources[i]); i = i + 1; }
+        return r;
+    }
+    string single = Path.Join(Path.Join(projDir, subdir), tName + ".z42");
+    if (File.Exists(single)) { return new string[]{ _z42cInclude(subdir + "/" + tName + ".z42") }; }
+    string dir = Path.Join(Path.Join(projDir, subdir), tName);
+    if (Directory.Exists(dir)) { return new string[]{ subdir + "/" + tName + "/**/*.z42" }; }
+    return new string[0];
+}
+
+// Rewrite a source include for the synth manifest: `<dir>/<base>` → `<dir>/**/<base>`
+// (recursive from <dir>, includes depth 0). Patterns already using `**` / bare basenames pass through.
+string _z42cInclude(string pattern) {
+    if (pattern.IndexOf("/**/") >= 0) { return pattern; }
+    if (pattern.StartsWith("**/")) { return pattern; }
+    int slash = pattern.LastIndexOf("/");
+    if (slash < 0) { return pattern; }
+    string dir = pattern.Substring(0, slash);
+    string base = pattern.Substring(slash + 1, pattern.Length - slash - 1);
+    return dir + "/**/" + base;
+}
+
+// Count files matching any projDir-relative glob (for no-match validation).
+int _countMatches(string projDir, string[] patterns, int n) {
+    int total = 0;
+    int i = 0;
+    while (i < n) { total = total + _expandGlob(projDir, patterns[i]).Length; i = i + 1; }
+    return total;
+}
+
+// Expand one projDir-relative glob → absolute paths. Handles `<a>/**/<suffix>`
+// (recursive), `**/<suffix>`, `<dir>/<basePat>` (single dir), and bare `<basePat>`.
+string[] _expandGlob(string projDir, string pattern) {
+    int mid = pattern.IndexOf("/**/");
+    if (mid >= 0) {
+        string prefix = pattern.Substring(0, mid);
+        string suffix = pattern.Substring(mid + 4, pattern.Length - (mid + 4));
+        return Path.GlobRecursive(Path.Join(projDir, prefix), suffix);
+    }
+    if (pattern.StartsWith("**/")) {
+        return Path.GlobRecursive(projDir, pattern.Substring(3, pattern.Length - 3));
+    }
+    int slash = pattern.LastIndexOf("/");
+    if (slash >= 0) {
+        string d = pattern.Substring(0, slash);
+        string basePat = pattern.Substring(slash + 1, pattern.Length - slash - 1);
+        return Path.Glob(Path.Join(projDir, d), basePat);
+    }
+    return Path.Glob(projDir, pattern);
+}
+
+// Hand-rolled mini-manifest: [project] name/kind, [sources] include globs (projDir-relative),
+// merged [dependencies]. 显式入口（目标的 `entry`）写成同名的单个 `[[exe]]`——
+// `[project]` 没有 `entry` 键（z42c 自动检测唯一 Main，写了报错）；`[[exe]]` 产物同样落 dist/<name>.zpkg。
+string _renderExampleManifest(string projName, string entry, bool hasEntry,
+                             string[] inc, string outputDir, DepBundle deps) {
+    string body = "# Auto-generated by xtask (add-tests-bench-manifest-config P2/P3).\n"
+        + "[project]\n"
+        + "name    = \"" + projName + "\"\n"
+        + "version = \"0.1.0\"\n";
+    if (!hasEntry) { body = body + "kind    = \"exe\"\n"; }
+    body = body + "\n[sources]\ninclude = [\"" + string.Join("\", \"", inc) + "\"]\n\n"
+        + "[build]\noutput_dir = \"" + outputDir + "\"\n"
+        + "dist_dir   = \"${output_dir}/dist\"\n"
+        + "cache_dir  = \"${output_dir}/cache\"\n\n";
+    if (hasEntry) { body = body + "\n[[exe]]\nname  = \"" + projName + "\"\nentry = \"" + entry + "\"\n"; }
+    if (deps.Count > 0) {
+        body = body + "\n[dependencies]\n";
+        int i = 0;
+        while (i < deps.Count) {
+            body = body + "\"" + deps.Names[i] + "\" = \"" + deps.Versions[i] + "\"\n";
+            i = i + 1;
+        }
+    }
+    return body;
+}
