@@ -505,7 +505,7 @@ fn an_unpark_guard_lifts_the_tripwire_for_its_span() {
         let _ = ctx.heap().alloc_array(vec![crate::object::Value::I64(1)]);
     }
     let still_parked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        debug_assert_not_native_parked();
+        crate::gc::to_vm::debug_assert_not_native_parked();
     }));
     assert!(still_parked.is_err(), "the outer park is back in force after the unpark guard");
 }

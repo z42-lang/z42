@@ -43,6 +43,40 @@ pub trait ContextReclaim: Send + Sync {
 
 pub type ContextReclaimHook = Box<dyn ContextReclaim>;
 
+thread_local! {
+    /// Allocation permission follows the VM native-park protocol on this thread.
+    static ALLOCATION_SUSPENSION_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+#[inline]
+pub(crate) fn suspend_allocations() {
+    ALLOCATION_SUSPENSION_DEPTH.with(|d| d.set(d.get() + 1));
+}
+
+#[inline]
+pub(crate) fn resume_allocations() {
+    ALLOCATION_SUSPENSION_DEPTH.with(|d| d.set(d.get() - 1));
+}
+
+#[cfg(debug_assertions)]
+pub(crate) fn allocation_suspension_depth() -> u32 {
+    ALLOCATION_SUSPENSION_DEPTH.with(|d| d.get())
+}
+
+/// A stopped mutator cannot publish new roots; reject allocation in debug builds.
+#[inline]
+pub(crate) fn debug_assert_not_native_parked() {
+    #[cfg(debug_assertions)]
+    ALLOCATION_SUSPENSION_DEPTH.with(|d| {
+        assert!(
+            d.get() == 0,
+            "GC allocation inside a NativeParkGuard region: a parked thread's new objects are \
+             not GC roots, so a concurrent collection frees them. End the park (drop the \
+             guard) before allocating — see vm/threads/safepoint.rs"
+        );
+    });
+}
+
 #[cfg(test)]
 #[path = "to_vm_tests.rs"]
 mod to_vm_tests;

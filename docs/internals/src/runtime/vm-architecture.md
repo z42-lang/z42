@@ -217,7 +217,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 ### Send-safety 与 GC scanner 设计
 
-`Heap` trait 要求 `Send + Sync`。GC scanner closure（mark 阶段被调用）也要求 `Send + Sync`，进而所有 closure 捕获都必须 Send + Sync —— 这是 per-thread 字段用 `Arc<Mutex<>>` 而非 `Rc<RefCell<>>` 的根因。帧栈例外：它在调用热路径上，靠「别的线程只在所属线程 park 时读」的协议免锁（`FrameStack` 为此 `unsafe impl Sync`，见上「帧栈的归属」）。
+`Heap` 要求 `Send + Sync`。GC scanner closure（mark 阶段被调用）也要求 `Send + Sync`，进而所有 closure 捕获都必须 Send + Sync —— 这是 per-thread 字段用 `Arc<Mutex<>>` 而非 `Rc<RefCell<>>` 的根因。帧栈例外：它在调用热路径上，靠「别的线程只在所属线程 park 时读」的协议免锁（`FrameStack` 为此 `unsafe impl Sync`，见上「帧栈的归属」）。
 
 Scanner closure 通过 `Weak<VmCore>` 捕获 VmCore（避免 `VmCore → heap → scanner → Arc<VmCore>` 循环引用），upgrade 失败时 silent skip。
 
@@ -1520,7 +1520,7 @@ allocator、分代 GC、记忆集、finalizer 契约、迭代规划等）已抽�
 
 简要状态：
 
-- **核心 trait**：[`crate::gc::Heap`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs) ——
+- **具体堆类型**：[`crate::gc::Heap`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs) ——
   对齐 [MMTk](https://www.mmtk.io/) `VMBinding` porting contract
 - **Backing**：[`VarRegion`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/var_region.rs) 变长块
   allocator（对象、数组、字符串、闭包各是一块）+ 8B 句柄（`ObjRef` / `ArrRef` / `VarGcRef`，标记指针指向块头）
@@ -1529,7 +1529,7 @@ allocator、分代 GC、记忆集、finalizer 契约、迭代规划等）已抽�
     (~4× faster minor pause vs full STW)；major GC 全堆扫描，默认拆成增量切片
   - `StwMarkSweep` (opt-in，`stw`) — stop-the-world mark + sweep
 - **Write barriers**：interp + JIT 5 个 FieldSet / ArraySet 写入点全 wired；
-  call-site 通过 `Value::is_heap_ref()` 过滤 primitive；trait override 由
+  call-site 通过 `Value::is_heap_ref()` 过滤 primitive；write barrier 由
   generational 模式实现（老属主进记忆集）；SATB 删除屏障在写原语里
 - **Finalizer**：sweep 时触发 + `Std.GC.Finalize(x)` 显式 API
   
