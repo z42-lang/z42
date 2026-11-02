@@ -113,7 +113,7 @@ reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不�
 `IrOptInfo` 不逐 opcode 镜像 `ZbcWriter._regtInstr`（REGT 收集同走该接口），新增指令实现接口即被所有 pass 正确计入。参数寄存器 seed 为 live-out（out/ref 参数最终值由调用方读，函数内看不到）。
 
 **pass 1 const-fold**：`TryConstFold(ins, cint, cval)` —— 建单赋值 int 常量表(`ConstI64`→`_parseIntLit`)，
-前向扫描把两操作数皆常量的运算/比较就地折成 `Const` 指令，并把折出的新 const 登记回表(链式传播
+前向扫描把两操作数皆常量的运算/比较就地折成 `Const` 指令。原始常量和新折叠结果只在目标是**非参数、全函数单赋值**寄存器时登记到表；取地址导致的潜在写入同样由 `Defs` 排除。参数有调用方的入口初值，不能把之后的赋值反向传播到此前读取。单条指令的折叠不要求目标稳定，只有把结果作为后续表达式的常量依据时才要求稳定。合格的新 const 登记回表(链式传播
 `1+2→3`、`3+3→6`)。放最前 → 产出的 const 供 copy-prop 传播、死源 const 供 temp-DCE 清理。
 **这是"加规则 = 插一条 rule"的样例**：`TryConstFold` 是一张 opcode→折叠规则表,加规则只是往这张表加
 分支,pass 框架不动。**另含单操作数代数恒等式**——双常量折不成时再试:`x+0`/`0+x`/`x-0`/
