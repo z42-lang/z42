@@ -1,0 +1,12 @@
+[project]
+name    = "e2e.papp"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+# deps-plugin-routing：.zpkg path 条目读头自述——是插件包 ⇒ 分流进编译器（目录不并入 libs、
+# 不链入产物）；是普通库 ⇒ 照旧作为运行期依赖。
+"e2e.pgen" = { path = "../plug/dist/e2e.pgen.zpkg" }

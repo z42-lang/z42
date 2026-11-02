@@ -8,7 +8,7 @@
 //! viewpoint — the world stop is an implementation detail, no z42 code runs.
 
 use crate::corelib::abi::BuiltinError;
-use crate::gc::retention::RootKind;
+use crate::gc::walk::RootKind;
 use crate::object::NativeData;
 use crate::object::Value;
 use crate::vm_context::VmContext;
@@ -36,7 +36,7 @@ fn target_ptr(v: &Value) -> Option<usize> {
 /// collector is active, `request_gc_pause` parks us until it is done; retry.
 fn with_world_stopped<R>(ctx: &VmContext, query: impl FnOnce() -> R) -> R {
     loop {
-        if let Some(_pause) = crate::gc::safepoint::request_gc_pause(ctx) {
+        if let Some(_pause) = crate::vm::threads::safepoint::request_gc_pause(ctx) {
             return query();
         }
     }
@@ -63,7 +63,7 @@ pub fn heap_direct_referrers(ctx: &VmContext, target: &Value) -> Result<Value, B
     let Some(ptr) = target_ptr(target) else {
         return Ok(ctx.heap().alloc_array(Vec::new()));
     };
-    let referrers = with_world_stopped(ctx, || ctx.heap().retention_direct_referrers(ptr));
+    let referrers = with_world_stopped(ctx, || crate::profiler::heap::retention::direct_referrers(ctx.heap(), ptr));
     let mut out = Vec::with_capacity(referrers.len());
     for r in referrers {
         out.push(alloc_named(
@@ -83,7 +83,7 @@ pub fn heap_retaining_roots(ctx: &VmContext, target: &Value) -> Result<Value, Bu
     let Some(ptr) = target_ptr(target) else {
         return Ok(ctx.heap().alloc_array(Vec::new()));
     };
-    let roots = with_world_stopped(ctx, || ctx.heap().retention_roots(ptr));
+    let roots = with_world_stopped(ctx, || crate::profiler::heap::retention::retaining_roots(ctx.heap(), ptr));
     let mut out = Vec::with_capacity(roots.len());
     for r in roots {
         // `RootRef.Kind` is a z42 `RootKind` enum, i64-backed; the discriminant

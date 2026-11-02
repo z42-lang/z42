@@ -223,7 +223,7 @@ fn gc_pause_does_not_wait_for_a_thread_waiting_on_a_cctor() {
         let core = Arc::clone(&core);
         std::thread::spawn(move || {
             let w = VmContext::new_with_core(Arc::clone(&core));
-            core.cctors.claim_with("A.C", || crate::gc::safepoint::NativeParkGuard::enter(&w))
+            core.cctors.claim_with("A.C", || crate::vm::threads::safepoint::NativeParkGuard::enter(&w))
         })
     };
     let start = std::time::Instant::now();
@@ -231,7 +231,7 @@ fn gc_pause_does_not_wait_for_a_thread_waiting_on_a_cctor() {
         assert!(start.elapsed() < std::time::Duration::from_secs(5), "等待者没有 park");
         std::thread::yield_now();
     }
-    let pause = crate::gc::safepoint::request_gc_pause(&collector).expect("uncontended");
+    let pause = crate::vm::threads::safepoint::request_gc_pause(&collector).expect("uncontended");
     drop(pause);
     collector.core.cctors.finish("A.C", None);
     assert_eq!(waiter.join().unwrap(), Ok(None));

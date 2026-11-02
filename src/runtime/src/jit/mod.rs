@@ -64,7 +64,7 @@ pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
     // Scope the heap as the ambient GC heap for this JIT run. The entry's
     // bottom-frame push installs it too (`vm_context/engine_guards.rs`); this
     // one also covers the entry's lazy compile before that push.
-    let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
+    let _heap_guard = crate::vm::exec::ambient::HeapGuard::enter(ctx.heap());
     let module = rt.module();
     // Resolve (and lazily compile on first call) the entry function.
     let Some(entry) = rt.resolve_fn_by_name(ctx, entry_name) else {

@@ -42,7 +42,7 @@ use std::sync::Arc;
 use crate::object::string::vstr::Str;
 use crate::object::ArrRef;
 use crate::object::header::{BlockType, GcBlockHeader, GcWord, VarGcRef};
-use crate::gc::heap::MagrGC;
+use crate::gc::Heap;
 
 /// An array's storage mode (see the module docs). The packed primitive modes carry their
 /// element kind; MIXED's zero kind lives in the descriptor ([`ArrayDesc::zero`]).
@@ -433,21 +433,21 @@ impl ArrayObj {
     /// refuses (strict OOM, or a payload past the block size limit).
     #[inline]
     fn alloc(
-        heap: &dyn MagrGC, desc: &'static ArrayDesc, len: usize, layout: Option<Arc<StructTypeLayout>>,
+        heap: &Heap, desc: &'static ArrayDesc, len: usize, layout: Option<Arc<StructTypeLayout>>,
         init: &mut dyn FnMut(&ArrayObj),
     ) -> Value {
         heap.alloc_array_with(desc, len, layout, init)
     }
 
     /// An untyped MIXED array (element type unknown) — Rust-synthesized arrays.
-    pub fn alloc_untyped(heap: &dyn MagrGC, elems: Vec<Value>) -> Value {
+    pub fn alloc_untyped(heap: &Heap, elems: Vec<Value>) -> Value {
         let len = elems.len();
         Self::alloc_from_iter(heap, ElemType::empty(), ElemKind::Mixed, len, elems.into_iter())
     }
 
     /// A FROZEN array: `elems` written once, read-only afterwards (closure environments, the
     /// `ref_word` kind-7 value box — which may hold a stack handle no cell can encode).
-    pub fn alloc_frozen(heap: &dyn MagrGC, elems: &[Value]) -> Value {
+    pub fn alloc_frozen(heap: &Heap, elems: &[Value]) -> Value {
         let desc = ElemType::empty().array_desc(ArrayMode::Frozen, 0);
         Self::alloc(heap, desc, elems.len(), None, &mut |a| {
             for (i, v) in elems.iter().enumerate() {
@@ -458,14 +458,14 @@ impl ArrayObj {
     }
 
     /// An array of `element_type` (name-only mode choice, [`ElemKind::of`]).
-    pub fn alloc_typed(heap: &dyn MagrGC, element_type: &str, elems: Vec<Value>) -> Value {
+    pub fn alloc_typed(heap: &Heap, element_type: &str, elems: Vec<Value>) -> Value {
         let et = ElemType::intern(element_type);
         let len = elems.len();
         Self::alloc_from_iter(heap, et, et.kind(), len, elems.into_iter())
     }
 
     /// A `byte[]` straight from bytes (FFI return fast path).
-    pub fn alloc_bytes(heap: &dyn MagrGC, bytes: &[u8]) -> Value {
+    pub fn alloc_bytes(heap: &Heap, bytes: &[u8]) -> Value {
         let desc = ElemType::byte().array_desc(ArrayMode::Bytes, 0);
         Self::alloc(heap, desc, bytes.len(), None, &mut |a| {
             a.cells().copy_in(0, bytes);
@@ -474,7 +474,7 @@ impl ArrayObj {
 
     /// A zeroed value-struct array `Point[len]` (zero = the default struct, every reference leaf
     /// `null`).
-    pub fn alloc_struct(heap: &dyn MagrGC, element_type: ElemType, len: usize, layout: Arc<StructTypeLayout>) -> Value {
+    pub fn alloc_struct(heap: &Heap, element_type: ElemType, len: usize, layout: Arc<StructTypeLayout>) -> Value {
         let desc = element_type.array_desc(ArrayMode::Struct, 0);
         Self::alloc(heap, desc, len, Some(layout), &mut |_| {})
     }
@@ -484,7 +484,7 @@ impl ArrayObj {
     /// block's value for that mode (packed `0` / `'\0'` / `false` / `+0.0`, `null` for REF /
     /// MIXED, or a primitive zero for MIXED — recorded as the descriptor's zero kind) the fresh
     /// block **is** the array; otherwise each element is written once in place.
-    pub fn alloc_filled(heap: &dyn MagrGC, element_type: ElemType, kind: ElemKind, len: usize, fill: Value) -> Value {
+    pub fn alloc_filled(heap: &Heap, element_type: ElemType, kind: ElemKind, len: usize, fill: Value) -> Value {
         let zero = match (kind, &fill) {
             (ElemKind::Bytes | ElemKind::I32 | ElemKind::I64, Value::I64(0)) => true,
             (ElemKind::Chars, Value::Char('\0')) => true,
@@ -504,7 +504,7 @@ impl ArrayObj {
 
     /// [`Self::alloc_filled`] in the mode the element type's name selects.
     #[inline]
-    pub fn alloc_typed_filled(heap: &dyn MagrGC, element_type: ElemType, len: usize, fill: Value) -> Value {
+    pub fn alloc_typed_filled(heap: &Heap, element_type: ElemType, len: usize, fill: Value) -> Value {
         Self::alloc_filled(heap, element_type, element_type.kind(), len, fill)
     }
 
@@ -513,7 +513,7 @@ impl ArrayObj {
     /// into the block. A value that needs a box (a raw primitive reaching `object[]`, a stack
     /// handle in a MIXED cell) is boxed after the element loop.
     pub fn alloc_from_iter(
-        heap: &dyn MagrGC, element_type: ElemType, kind: ElemKind, len: usize, elems: impl Iterator<Item = Value>,
+        heap: &Heap, element_type: ElemType, kind: ElemKind, len: usize, elems: impl Iterator<Item = Value>,
     ) -> Value {
         let desc = element_type.array_desc(ArrayMode::of_kind(kind), 0);
         let mut elems = Some(elems);
@@ -526,7 +526,7 @@ impl ArrayObj {
 
     /// [`Self::alloc_from_iter`] in the mode the element type's name selects.
     #[inline]
-    pub fn alloc_typed_iter(heap: &dyn MagrGC, element_type: ElemType, len: usize, elems: impl Iterator<Item = Value>) -> Value {
+    pub fn alloc_typed_iter(heap: &Heap, element_type: ElemType, len: usize, elems: impl Iterator<Item = Value>) -> Value {
         Self::alloc_from_iter(heap, element_type, element_type.kind(), len, elems)
     }
 

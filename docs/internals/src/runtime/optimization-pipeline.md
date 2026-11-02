@@ -113,7 +113,7 @@ reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不�
 `IrOptInfo` 不逐 opcode 镜像 `ZbcWriter._regtInstr`（REGT 收集同走该接口），新增指令实现接口即被所有 pass 正确计入。参数寄存器 seed 为 live-out（out/ref 参数最终值由调用方读，函数内看不到）。
 
 **pass 1 const-fold**：`TryConstFold(ins, cint, cval)` —— 建单赋值 int 常量表(`ConstI64`→`_parseIntLit`)，
-前向扫描把两操作数皆常量的运算/比较就地折成 `Const` 指令，并把折出的新 const 登记回表(链式传播
+前向扫描把两操作数皆常量的运算/比较就地折成 `Const` 指令。原始常量和新折叠结果只在目标是**非参数、全函数单赋值**寄存器时登记到表；取地址导致的潜在写入同样由 `Defs` 排除。参数有调用方的入口初值，不能把之后的赋值反向传播到此前读取。单条指令的折叠不要求目标稳定，只有把结果作为后续表达式的常量依据时才要求稳定。合格的新 const 登记回表(链式传播
 `1+2→3`、`3+3→6`)。放最前 → 产出的 const 供 copy-prop 传播、死源 const 供 temp-DCE 清理。
 **这是"加规则 = 插一条 rule"的样例**：`TryConstFold` 是一张 opcode→折叠规则表,加规则只是往这张表加
 分支,pass 框架不动。**另含单操作数代数恒等式**——双常量折不成时再试:`x+0`/`0+x`/`x-0`/
@@ -152,7 +152,9 @@ reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不�
 ⓪ **有异常表（try/catch/finally，`ExcCount>0`）的函数整体跳过**——CFG 仅从 `Br/BrCond/Ret` 终结子建，
 **不含异常隐式边**（受保护区→handler/finally），支配/循环分析会错 → 误提 → miscompile（event/multicast/
 finally/div-by-zero 等 e2e 会中招）。异常边入 CFG 后再放开；
-① CFG（各块终结子取后继 Br→1/BrCond→2/Ret·Throw→0，反转得前驱位阵）；② **支配**（迭代数据流
+前驱表按源块下标升序构造，建表时间与空间均为 O(N+E)，循环体和 preheader 查询复用同一份表。支配集仍采用位图，空间为 O(N²/16)；块标签解析在 ≥128 块时建立字符串索引（重复标签保留首个块，缺失目标仍为 -1），后继解析平均为 O(N+E)；小函数保留直接扫描，避免索引分配成本。
+
+① CFG（各块终结子取后继 Br→1/BrCond→2/Ret·Throw→0，直接反转得 CSR 前驱邻接表，同一源块的重复后继只登记一次）；② **支配**（迭代数据流
 `dom[b] = {b} ∪ (∩ dom[preds])`，entry=Blocks[0]）；③ **回边**（边 b→h 且 h 支配 b）→ 自然循环，body =
 h + 从 latch 反向可达（不过 h）（**并**同 header 所有回边体，多 latch 才完整）；④ **pre-header 保守判定**：
 h 的**唯一**循环外前驱 `ph` 且 `ph` 终结子 = `br h` → 干净 pre-header，否则**跳过该循环**（不做 CFG 手术造

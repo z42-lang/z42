@@ -16,10 +16,10 @@ use std::io::Write as _;
 use std::sync::{Arc, OnceLock};
 
 /// `Std.GC.Collect()` —— 触发环检测（不阻断；no-op 当 paused）。
-/// 调用 `ctx.heap().collect_cycles()`，进而走 `ArcMagrGC` 的 trial-deletion 算法。
+/// 调用 `ctx.heap().collect_cycles()`，进而走 `Heap` 的 trial-deletion 算法。
 ///
 /// **add-gc-safepoint **: stop-the-world via
-/// [`crate::gc::safepoint::request_gc_pause`] before mark+sweep. All other
+/// [`crate::vm::threads::safepoint::request_gc_pause`] before mark+sweep. All other
 /// VmContexts park at their next safepoint check; this thread runs collect;
 /// the RAII guard's Drop releases everyone.
 ///
@@ -30,9 +30,9 @@ use std::sync::{Arc, OnceLock};
 /// reclaim. Matches typical `GC.Collect()` semantics in C# / Java where
 /// concurrent calls may coalesce.
 pub fn gc_collect(ctx: &VmContext) {
-    // Dispatch via collect_cycles_with_context so the heap takes the pause
+    // Dispatch via collect_cycles_with_vm so the heap takes the pause
     // and picks the work for its current GcMode.
-    ctx.heap().collect_cycles_with_context(ctx);
+    ctx.heap().collect_cycles_with_vm(ctx);
 }
 
 /// `Std.GC.UsedBytes()` —— 返回当前 `HeapStats.used_bytes`（i64）。
@@ -41,7 +41,7 @@ pub fn gc_used_bytes(ctx: &VmContext) -> i64 {
     ctx.heap().used_bytes() as i64
 }
 
-/// `Std.GC.ForceCollect()` —— 强制一次**全堆** collect（分代下是 major，见 `MagrGC::collect_full`），
+/// `Std.GC.ForceCollect()` —— 强制一次**全堆** collect（分代下是 major，见 `Heap::collect_full`），
 /// 返回 `freed_bytes`（i64）。
 /// 与 `Collect()` 区别：前者是建议性（pause 时跳过），后者总是触发并返回数据。
 ///
@@ -53,7 +53,7 @@ pub fn gc_used_bytes(ctx: &VmContext) -> i64 {
 /// bytes (the active collector's work covers our intent). Same
 /// best-effort semantics as `builtin_gc_collect`.
 pub fn gc_force_collect(ctx: &VmContext) -> anyhow::Result<i64> {
-    if let Some(_pause) = crate::gc::safepoint::request_gc_pause(ctx) {
+    if let Some(_pause) = crate::vm::threads::safepoint::request_gc_pause(ctx) {
         let stats = ctx.heap().collect_full();
         Ok(stats.freed_bytes as i64)
     } else {
@@ -317,7 +317,7 @@ pub fn gc_pause_window_capacity(ctx: &VmContext) -> i64 {
 
 /// `Std.GC.WriteHeapSnapshot(path)` — **add-gc-heap-snapshot-export **.
 ///
-/// Walks the live heap once via `MagrGC::iterate_live_objects` +
+/// Walks the live heap once via `Heap::iterate_live_objects` +
 /// `scan_object_refs` + `for_each_root`, builds the V8 `.heapsnapshot`
 /// graph, serialises it to JSON, and writes the result to `path`.
 /// Returns the number of bytes written (as `long`).
@@ -328,11 +328,11 @@ pub fn gc_write_heap_snapshot(ctx: &VmContext, path: &str) -> Result<i64> {
     // add-gc-snapshot-streaming : write JSON directly to
     // a BufWriter<File> via the streaming serializer — avoids the
     // ~30 MB intermediate String for large heaps.
-    let snap = crate::gc::snapshot::build_graph_snapshot(ctx.heap());
+    let snap = crate::profiler::heap::snapshot::build_graph_snapshot(ctx.heap());
     let file = std::fs::File::create(&*path)
         .map_err(|e| anyhow!("__gc_write_heap_snapshot: create {}: {}", path, e))?;
     let mut writer = std::io::BufWriter::new(file);
-    let n_bytes = crate::gc::snapshot::serialize_v8_heapsnapshot_to(&snap, &mut writer)
+    let n_bytes = crate::profiler::heap::snapshot::serialize_v8_heapsnapshot_to(&snap, &mut writer)
         .map_err(|e| anyhow!("__gc_write_heap_snapshot: write {}: {}", path, e))?;
     // Explicit flush so we surface IO errors before returning success;
     // BufWriter's Drop-flush silently drops errors otherwise.

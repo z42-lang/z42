@@ -111,7 +111,7 @@ VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 
 - **`pal/`**：`fs.rs`（含 `Vfs` trait，每台 VM 一个句柄，文件系统状态归属 VmCore）+ `vfs/{local,memory}.rs`、`process.rs`（spawn / wait / kill / 进程树）、`net.rs`、`mem.rs`（GC 页管理）、`thread.rs`（栈边界、sigaltstack）、`signal.rs`、`dynlib.rs`（运行时唯一的动态库装载入口）、`console.rs`、`time.rs`、`system.rs`；上层 concern 保留平台无关接口，操作系统实现与后端选择集中在 `sys/`。`sys/mod.rs` 在编译期选择 `unix/`、`windows/`、`wasm/` 或 `fallback/`，`common/` 复用共享实现与降级行为。
 - **`metadata/`**：`format/`（常量、版本、build_id）、`reader/`（二进制解码）、`ir/`（解码结构与寄存器类型）、`image.rs`（PackageImage：零拷贝、字符串表解析一次、函数体按需解码）、`index/`（包内按名找下标、知名类型名、类型名格式化与型参标记）、`debug/`（行号表、局部变量、帧名，读 .zsym 按需）。**纯静态的查询（名字、行号、attribute、签名）调用方直接用本模块，不经 vm。**
 - **`object/`**：`value/`（Value、ref word、codec、cells）、`header/`（16 B 统一头、`var_ref` / `obj_ref` / `arr_ref` 句柄）、`types/`（TypeDesc 形状、字段、elem kind、TypeArgs 形状、布局计算纯函数、引用槽位图）、`object/`、`array/`、`string/`（Str 句柄、非 ASCII 字符索引）。不抛异常、不查缓存、不管类型从哪来。
-- **`gc/`**：`heap.rs`（具体类型 `Heap`，取代 51 方法的 `dyn MagrGC`）、`config.rs`（`GcConfig` 由门面传入，取代 gc→config 27 处引用）、`to_vm.rs`（`GcToVm`：根枚举、`suspend_all` / `resume_all`）、`region/`、`alloc/`（含 TLAB）、`collect/`（标记、分代、增量、屏障、记忆集）、`policy/`、`refs/`、`walk.rs`（堆遍历原语）、`observe/`。移出：`sampler` / `snapshot` / `retention` → profiler；`safepoint` → vm/threads；`ambient` → vm。
+- **`gc/`**：`heap.rs`（具体类型 `Heap`）、`config.rs`（`GcConfig` 由门面传入，GC 不解析门面设置）、`to_vm.rs`（`GcRoots` / `GcToVm`：根枚举、`suspend_all` 返回暂停令牌，令牌 Drop 恢复线程）、`region/`、`alloc/`（含 TLAB）、`collect/`（标记、分代、增量、屏障、记忆集）、`policy/`、`refs/`、`walk.rs`（堆遍历原语）、`observe/`。采样和堆诊断归 `profiler/`；线程暂停归 `vm/threads/`；当前堆 TLS 归 `vm/exec/`。
 
 ### 4.3 vm 内部
 
@@ -156,9 +156,9 @@ vm/
 - **`corelib/`**：只写 builtin 胶水（参数、异常映射、句柄表、park），碰 OS 一律调 pal。`core/`（string、convert、math、object、array、gc、threading、monitor、reflection/ 等，无 feature 开关）、`io/`（console、fs）、`os/`（feature `process`）、`net/`（feature `net`）、`tls/`（feature `tls`，启用 rustls）、`repl/`（feature `repl`）、`test_host.rs`。不再另设 stdlib-os / stdlib-net 模块：OS 实现在 pal、胶水在 corelib，rustls 可选用 feature 表达。builtin 的 ABI 与注册表在 vm（`exec/call/builtin_abi`、`runtime/builtins.rs`），实现全部在 corelib 与 interop。
 - **`interop/`**：`tier1/`（Tier 1 C ABI：registry、marshal、dispatch、exports）、`ext/`（统一的扩展库加载器、REPL 编辑器懒加载、实现 loader 的 extern 提供方）。feature `ffi`（libffi，wasm 关闭）、`ext`（只需 libloading）。
 - **`debugger/`**：VM 进程内的调试代理（同 Node inspector / JVM JDWP 代理）。`engine/`（断点表——源位置经 metadata 行号表映射到 (FnId, pc)、条件与异常断点；step in / over / out；**默认全体暂停**，经 vm/threads 的 `suspend_all`，即路线图 Q14 的建议答案；帧 / 局部变量 / 对象检查；表达式求值复用 REPL 编译通道）+ `adapter/`（DAP：stdio / TCP 传输、会话分派，`z42vm --debug` 时起服务线程，feature `dap`）。前端（`z42d dbg`、VS Code 插件）不在 runtime 目录。前置：编译器把局部变量名与作用域写进 .zsym。
-- **`profiler/`**：`cpu/`（safepoint 采样，现 `gc/sampler.rs`）、`alloc/`（TLAB 每满 N KB 采一次栈，对标 .NET AllocationTick / JFR）、`locks/`（锁争用探针，现 `corelib/sync_contention.rs`）、`heap/`（堆快照、保留链，现 `gc/snapshot.rs` / `gc/retention.rs`，遍历用 `gc/walk.rs`）、`coverage/`、`jitmap/`（perf map / jitdump）、`export/`（folded、chrome / perfetto trace、V8 heapsnapshot、pprof）。`Std.Diagnostics` 的剖析类 builtin 由它自己登记。
+- **`profiler/`**：`cpu/`（safepoint 采样，现 `profiler/cpu.rs`）、`alloc/`（TLAB 每满 N KB 采一次栈，对标 .NET AllocationTick / JFR）、`locks/`（锁争用探针，现 `corelib/sync_contention.rs`）、`heap/`（堆快照、保留链，现 `profiler/heap/snapshot.rs` / `profiler/heap/retention.rs`，遍历用 `gc/walk.rs`）、`coverage/`、`jitmap/`（perf map / jitdump）、`export/`（folded、chrome / perfetto trace、V8 heapsnapshot、pprof）。`Std.Diagnostics` 的剖析类 builtin 由它自己登记。
 - **监控 API（vm/diagnostics/monitor）**：工具槽 DEBUGGER / PROFILER / COVERAGE；事件含函数进出、行 / pc 单步、分支、异常抛出与捕获、分配采样、safepoint 采样、线程起止、模块加载与卸载、JIT 编译、GC 阶段；按函数开关，未开启的函数零成本，开启后解释器走插桩分派、JIT 函数回退解释器（deopt）。对标 CPython PEP 669、CoreCLR ICorDebug / ICorProfiler、JVMTI。
-- **门面（crate 根）**：`lib.rs`（Runtime、RuntimeBuilder）、`config/`（现 `config.rs` + `config/*`，新增 `split.rs` 拆出 VmConfig / GcConfig / JitConfig）、`app.rs`（现 app / boot / startup / vm）、`crash.rs`（现 `signal_handler.rs`，可选安装）。feature：jit、interop、debugger、profiler、net、tls、process、repl、mimalloc；平台预设是 feature 组合。
+- **门面（crate 根）**：`lib.rs`（Runtime、RuntimeBuilder）、`config/`（现 `config.rs` + `config/*`，`split.rs` 将门面设置转换为 GcConfig，VmConfig / JitConfig 随 L-7 拆分）、`app.rs`（现 app / boot / startup / vm）、`crash.rs`（现 `signal_handler.rs`，可选安装）。feature：jit、interop、debugger、profiler、net、tls、process、repl、mimalloc；平台预设是 feature 组合。
 - **hot-reload** 不设模块：loader 重载新版本包、runtime 做函数与类型的版本映射、exec/engine 负责 deopt 与替换，与调试器共用 deopt 和全体暂停。
 - 删除：`aot.rs`、`thread/`（空桩）。
 
@@ -204,13 +204,12 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 | ID | 类型 | 内容 | 验证要点 | 状态 |
 |---|---|---|---|---|
-| L-5 | refactor | gc 断环：注入 `GcConfig`、加 `GcToVm`、safepoint 移到 vm/threads、`MagrGC` 改具体类型；sampler / snapshot / retention 移到 `profiler/` | gc 不再引用 config / vm_context / corelib；GC 模型测试与 loom 测试；13 / 09 微基准不退化 | ⬜ |
 | L-6 | refactor | 引擎断环：vcall / obj_new / isa 拆成 runtime/dispatch（查询）与 exec/ops（执行）；加 Engine 注册槽与统一栈遍历；interp ↔ jit 不再互相引用 | 双引擎一致性测试；OSR / 分层测试；`jit_native_from_interp` 计数不变 | ⬜ |
 | L-7 | refactor | VmCore 按子系统重组为状态组合；corelib 收尾（builtin ABI 移 vm/exec/call、OS 资源表移进扩展状态、corelib 不再引用 interp）；配置与启动编排移到门面层 | VmCore 无散字段；z42-host 嵌入与 C ABI 测试 | ⬜ |
 | L-8 | — | 物理拆 crate：暂不做，VM 保持单 crate、各层是 `src/runtime/src/<模块>/`（User 2026-10-29）；以后是否拆另议 | — | ⏸ |
 | L-9 | feature | 监控 API（vm/diagnostics/monitor）→ debugger（0.8.x，前置：.zsym 局部变量信息）→ profiler 的分配采样与覆盖率；AOT（M9）时拆出 codegen | 各自立项，动工前出方案 | ⬜ |
 
-依赖与顺序：L-5 与 L-6 以 object、runtime 和 loader 的现有模块边界为前置；L-7 在两者之后。TierApi 注册槽归 L-6，GC 具体类型归 L-5。
+依赖与顺序：L-6 以 object、runtime 和 loader 的现有模块边界为前置；L-7 在 L-6 之后。TierApi 注册槽归 L-6。
 
 以下 6.2–6.4 依据 §1 与 2026-10-28 一轮只读代码审读。排序按预期收益；「结构性」项属阶段 2，动工前需 User 确认方案。行号对应审读时的 main `bd14a4958`。
 
@@ -223,7 +222,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | X-9 | perf/jit | **数组访问全内联**：`ArrayLen` 恒走 helper（`translate/array.rs`）；hoist 只覆盖整函数不写的寄存器，`this._items[i]` 每次都调 `hr_array_data`；引用 / T 元素写恒走 `jit_array_set`。改法：内联 tag → 头 → len / data 解码，引用写复用字段 IC 的屏障判定，`i < arr.Length` 形态消除边界检查 | CoreCLR 内联长度、内联写屏障、BCE | 集合密集代码 1.3–2× | ⬜ |
 | X-10 | perf/jit | **is / as 内联**：`IsInstance` / `AsCast` 恒调 helper 再查 `isa_cache` 哈希。改法：TypeDesc 加 Cohen display（深度 + 祖先数组），类目标 O(1) 内联判定；接口目标用站点单态 memo | CoreCLR 精确类型比较 + cast cache | 类型判定密集代码该部分 3–5× | ⬜ |
 | X-11 | perf/jit | **方法级泛型函数体可 JIT + 方法类型实参驻留**：mta 是 `Box<[String]>`，解释器每次泛型调用深拷贝（`interp/exec_support.rs`）；读 T 的函数体被整函数拒译（`translate/unsupported.rs`）。改法：mta 改为驻留 `TypeArgs` 句柄（M14 同法）放进 Frame / JitFrame，`MethodTypeArg` 等经 helper 读句柄，`$mta` 转发直接传句柄 | CoreCLR 共享规范代码 + 泛型字典参数 | 最后一类泛型解释回落消失、泛型调用零分配 | ⬜ |
-| X-12 | perf/vm | **分配快路**（依赖 M15、M16）：`jit_obj_new` 是 11 参 helper，每次过 dyn `MagrGC`、2 次 TLS、全局原子记账、`Arc<TypeDesc>` clone，ctor 再走完整调用协议；解释器 `new` 还为 ctor 实参 malloc 一个 Vec。改法：TLAB cursor / limit 挪进 VmContext，站点稳定后用纪元门（同 X-4）跳过屏障，生成码直接 bump、写头、清零；空洞复用只走慢路 | CoreCLR 每线程分配上下文 + 内联 bump（≈10 条指令、0 原子） | 09_alloc_ctorless 1.5–2×；z42c `jit_obj_new` 14.5% inclusive | ⬜ |
+| X-12 | perf/vm | **分配快路**（依赖 M15、M16）：`jit_obj_new` 是 11 参 helper，每次经过具体 `Heap`、2 次 TLS、全局原子记账、`Arc<TypeDesc>` clone，ctor 再走完整调用协议；解释器 `new` 还为 ctor 实参 malloc 一个 Vec。改法：TLAB cursor / limit 挪进 VmContext，站点稳定后用纪元门（同 X-4）跳过屏障，生成码直接 bump、写头、清零；空洞复用只走慢路 | CoreCLR 每线程分配上下文 + 内联 bump（≈10 条指令、0 原子） | 09_alloc_ctorless 1.5–2×；z42c `jit_obj_new` 14.5% inclusive | ⬜ |
 | X-13 | perf/jit | **后台 / 批量编译 + 代码 arena**：编译在调用线程上、持全局 `Mutex`，持锁期间其他线程直接等不 park；每函数一次 `finalize_definitions`、各占一块 mmap。动工前先对齐编译耗时两个口径（计数 1.59 s vs 采样 3.9%） | CoreCLR tier1 后台编译 | z42c 墙钟 −5~15%，`--jobs` 不再串行等锁 | ⬜ |
 | X-14 | perf/interp | **解释器调用路径继续瘦身**：调用仍有两道屏障，并逐次检查 `$mta:` 转发。将 X-4 的纪元快路用于解释器调用，减少重复屏障与实参扫描；须保留属主初始化、加载和歧义诊断的语义 | — | 减少屏障与扫描开销（需重测） | ⬜ |
 | X-15 | perf/vm | **异常惰性栈**：throw 时当场格式化整条栈（`exception/mod.rs`），`find_handler` 按 String label 查 HashMap。改法：只存 (func, pc) 快照，读 StackTrace 时才格式化；异常表用块下标 | CoreCLR 惰性 IP 数组 | 异常密集代码 5–10× | ⬜ |
@@ -234,16 +233,16 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | ID | 类型 | 内容 | 对照 | 预期 | 状态 |
 |---|---|---|---|---|---|
 | M15 | perf/gc | **对象类型字不计数**：`Arc<TypeDesc>` → arena 持有的 `*const TypeDesc`。现状每次 `new` 一次 `Arc::clone`（`interp/obj_new_resolve.rs`），每个死对象经 drop glue 一次 fetch_sub + 间接调用；多线程分配同类时争同一条 refcount 缓存行。改后 Object 块是纯 POD，是 X-12、M18 的前提。风险：可回收加载上下文卸载时须保证无活实例（`context_reclaimer` 钩子） | .NET MethodTable* 不计数 | 每次分配 / 死亡各省 1 次竞争原子 RMW | ⬜ |
-| M16 | perf/gc | **分配记账下沉到 TLAB + 热字段缓存行隔离**：`record_alloc_fast`（`gc/arc_heap/alloc.rs`）每次分配两次共享 fetch_add；`used_bytes` / `allocations` 与 JIT 屏障常读的 `mode` / `promotion_age` 同结构体无 padding（推断伪共享）。改法：claim 时按 cursor 差值记账，回收闸门做成 claim 的 limit 指针 | .NET alloc_limit：只在换缓冲时记账 | 单线程每次分配省 2 次 RMW；多线程扩展性（gc-tlab 实测 24 线程仅 2.76×） | ⬜ |
+| M16 | perf/gc | **分配记账下沉到 TLAB + 热字段缓存行隔离**：`record_alloc_fast`（`gc/heap/alloc.rs`）每次分配两次共享 fetch_add；`used_bytes` / `allocations` 与 JIT 屏障常读的 `mode` / `promotion_age` 同结构体无 padding（推断伪共享）。改法：claim 时按 cursor 差值记账，回收闸门做成 claim 的 limit 指针 | .NET alloc_limit：只在换缓冲时记账 | 单线程每次分配省 2 次 RMW；多线程扩展性（gc-tlab 实测 24 线程仅 2.76×） | ⬜ |
 | M17 | perf/gc | **引用实参的泛型数组 REF 打包**（M13 延伸）：`objops/array.rs` 只为基元实参打包，`List<string>` / `List<Node>` / 字典键数组仍是 16 B 一格的 MIXED | .NET 8 B / 元素 | 每元素 −8 B | ⬜ |
 | M18 | perf/gc | **免清扫 nursery**（移动式 nursery 的中间步，依赖 M15）：`sweep_young_with` 对每个死的年轻块做 tombstone / CAS / drop / 位图 / free-list push，minor 成本 ∝ 分配量。改法：标记时按 chunk 计存活，零存活 chunk 整块入池，半活 chunk 交给空洞补货时惰性清扫（Immix 式） | .NET gen0 成本 ∝ 存活量 | minor 时间 ÷2–4（推断） | ⬜ |
 | M19 | perf/gc | **标记内核**：单线程 BFS，队列元素 16 B `Value`，每条边一次 `&mut dyn FnMut`，经 `Arc<TypeDesc>` 多跳取引用偏移。改法：TypeDesc 热区放引用偏移位图（GCDesc 式），标记栈 8 B 头指针；之后用已 park 线程并行标记（阶段 3） | .NET GCDesc + 并行标记 | 单核 1.3–2×（推断） | ⬜ |
 | M20 | perf/gc | **大数组卡表**：记忆集按属主整个重扫，100 万元素老 `object[]` 每次 minor ≈6 ms。≥1–4 KB 数组配逐区间卡字节，屏障置 `idx >> k` | .NET / HotSpot card table | 去掉记忆集穿透的停顿地板 | ⬜ |
 | M21 | perf/gc | **尺寸档细化**：`gc/var_region/chunk.rs` `SUB_LOG2 = 2`，注释实测取整浪费约占 footprint 15%；改 3 后 < 128 B 全按 8 B 对齐（stash 的 class 位图需加宽） | — | 堆 footprint −5~10%（推断） | ⬜ |
-| M22 | perf/gc | **chunk 64 KB 对齐 + 池按时间 purge**：chunk 从 mimalloc 按 16 B 对齐分配（arm64 64 KB chunk 只有 3 页可 decommit），`chunk_of` 走 BTreeMap，池至少留 64 MB 或 occupied/4（`gc/arc_heap/footprint.rs`）。改法：64 KB 对齐 mmap 段，`chunk_of` 一次 mask、整页 decommit、侧表固定偏移；池改延时 purge、去掉固定地板 | .NET regions / mimalloc segment | 小堆 RSS 降几十 MB | ⬜ |
+| M22 | perf/gc | **chunk 64 KB 对齐 + 池按时间 purge**：chunk 从 mimalloc 按 16 B 对齐分配（arm64 64 KB chunk 只有 3 页可 decommit），`chunk_of` 走 BTreeMap，池至少留 64 MB 或 occupied/4（`gc/heap/footprint.rs`）。改法：64 KB 对齐 mmap 段，`chunk_of` 一次 mask、整页 decommit、侧表固定偏移；池改延时 purge、去掉固定地板 | .NET regions / mimalloc segment | 小堆 RSS 降几十 MB | ⬜ |
 | M23 | perf/vm | **字符串**：分配先清零再拷贝（冗余）、之后再扫一遍 `is_ascii`，拼接不复用源串 ASCII 位；`""` 与单字符串无缓存；非 ASCII 串按字符索引靠 8 条目 TLS LRU，> 8 串交错退化 O(n²)。改法：去冗余清零；块尾 breadcrumb（每 64 字符）+ 前缀字符数 | CPython 单字符缓存、PEP 393 O(1) 索引 | 拼接密集负载几个百分点；非 ASCII 索引去掉退化 | ⬜ |
 | M24 | perf/vm | **闭包单块**：闭包块 32 B + FROZEN env 16 + 16n B 两次分配，env 内联进闭包块 | — | 每闭包 −1 次分配、−16 B（T5 剩余大头） | ⬜ |
-| M25 | perf/gc | 低频全局锁：弱引用 downgrade / upgrade 每次拿 `region_var` 全局锁查 BTreeMap（`gc/arc_heap/side_tables.rs`）；safepoint 慢路径每 1024 次 poll 取一次 `gc_phase` Mutex；锁路径 `record_alloc` 为读 sampler 每次 `inner.lock()` | — | 争用场景 | ⬜ |
+| M25 | perf/gc | 低频全局锁：弱引用 downgrade / upgrade 每次拿 `region_var` 全局锁查 BTreeMap（`gc/heap/side_tables.rs`）；safepoint 慢路径每 1024 次 poll 取一次 `gc_phase` Mutex；锁路径 `record_alloc` 为读 sampler 每次 `inner.lock()` | — | 争用场景 | ⬜ |
 
 不做：NaN-boxing（`long` 需 64 位全宽，大整数要装箱；16 B `Value` 只剩寄存器 / 型参单元 / MIXED 数组，走 M17 与阶段 2 类型化寄存器更划算）。
 
@@ -276,7 +275,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | 身份 | 「身份按名字」的残余：三套函数注册表合一的清理、PIC 未覆盖的反射侧 |
 | builtin | 旧 builtin 名与 z42.core 旧包装在种子不再声明后删除（运行时表项、legacy 实现一并删） |
 | interop | native 扩展改用函数表 ABI v2（`const Z42Api*`，与 repl 的 `ReplCallbacks` 同构），扩展不再依赖 z42vm 导出全局符号（同 §5 第 8 条，本条为准） |
-| 清理 | 死代码：`Function.exec_mode`（解码了从不读）、零注册的 finalizer 机制、`collect()` 默认 no-op、死旋钮 `Z42_GC_THROTTLE_RATIO`、`versions.rs` 的 changelog 注释、z42-macros 的 `compile_error!` 桩仍从 z42-rs prelude 导出 |
+| 清理 | 死代码：`Function.exec_mode`（解码了从不读）、零注册的 finalizer 机制、死旋钮 `Z42_GC_THROTTLE_RATIO`、`versions.rs` 的 changelog 注释、z42-macros 的 `compile_error!` 桩仍从 z42-rs prelude 导出 |
 | z42c | StrMap 数据结构（z42c 侧，z42 层内建采样 ≈11%）：键哈希驻留、探测局部性、rehash 次数——属 z42c 战役，开工前与该线对齐 |
 
 ### 6.6 待 User 决策
@@ -288,7 +287,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 阶段 2：
 1. 解释器预链接紧凑码（u16 寄存器 / 16 B op / 偏移跳转 / 内嵌 IC 槽 / quickening / handler 表 + 尾调用分发）——iOS / wasm（只有解释器）性能的主要杠杆。
 2. 每线程连续 VM 栈，interp 与 JIT 共用；JIT→JIT 直接调用（X-8）；JIT 代码 arena 与后台编译（X-13）；类型化 SSA 寄存器。
-3. TierApi 注册槽、GC 编译期具体类型——分别随 §6.1 的 L-6、L-5 推进。
+3. TierApi 注册槽——随 §6.1 的 L-6 推进。
 
 阶段 3：精确 stack map + 移动式 nursery（M18 是中间步）；用已 park 的 mutator 线程做并行标记；AOT 复用 JIT 翻译核（前提：改用符号化常量，Cranelift 现在到处烘焙进程内绝对地址）；按 packaging.md 记录的触发条件再评估动态链接 / 可选 JIT。
 

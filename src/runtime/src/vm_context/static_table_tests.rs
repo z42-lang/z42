@@ -39,7 +39,7 @@ fn ids_are_dense_stable_and_lazily_allocated() {
 #[test]
 fn every_value_kind_round_trips_and_a_kind_change_is_boxed() {
     let ctx = VmContext::new();
-    let _heap = crate::gc::ambient::HeapGuard::enter(ctx.heap());
+    let _heap = crate::vm::exec::ambient::HeapGuard::enter(ctx.heap());
     let obj = ctx.heap().alloc_object(td("O"), vec![Value::Null], NativeData::None);
     let arr = ctx.heap().alloc_array(vec![Value::I64(1)]);
     let values = [
@@ -125,7 +125,7 @@ fn concurrent_writers_never_tear_and_stay_rooted_across_collections() {
                     w.core.needs_auto_collect.store(true, Ordering::Release);
                 }
                 w.safepoint_skip.store(1, Ordering::Relaxed);
-                crate::gc::safepoint::check_safepoint(&w);
+                crate::vm::threads::safepoint::check_safepoint(&w);
                 match w.static_get_by_id(ints) {
                     Value::I64(v) => assert_eq!(v as u64 >> 32, v as u64 & 0xFFFF_FFFF, "torn int {v:#x}"),
                     other => panic!("int static read {other:?}"),
@@ -152,7 +152,7 @@ fn concurrent_writers_never_tear_and_stay_rooted_across_collections() {
 fn jit_layout_matches_the_accessors() {
     use crate::object::{ref_word, tparam_cell};
     let ctx = VmContext::new();
-    let _heap = crate::gc::ambient::HeapGuard::enter(ctx.heap());
+    let _heap = crate::vm::exec::ambient::HeapGuard::enter(ctx.heap());
     let t = StaticTable::default();
     let raw64 = |c: &StaticCell, off: i32| unsafe { *((c as *const StaticCell as *const u8).add(off as usize) as *const u64) };
     let raw32 = |c: &StaticCell, off: i32| unsafe { *((c as *const StaticCell as *const u8).add(off as usize) as *const u32) };
