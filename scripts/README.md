@@ -248,9 +248,13 @@ scripts/
 ├── common/             共享基建（非某个命令专属）
 │   ├── xtask_common.z42     _root/_exec/cargo/toolchain 选择器 + verbosity + 种子解析
 │   ├── xtask_layout.z42     构建树布局路径（per-member 读 workspace.toml 单源 + flat/runtime/build-root 约定）+ `layout` 命令
-│   ├── xtask_versions.z42   versions.toml 读取器（_vget/_vRead/...）
+│   ├── xtask_versions.z42   versions.toml 读取器 + RID / cargo target 映射
+│   ├── xtask_packages_config.z42  packages.toml 读取器（package/component 注册表）
+│   ├── xtask_components.z42  workspace 成员、工具链组件与 TOML 产物/发布路径
+│   ├── xtask_process.z42     z42 子进程工厂（stdlib、编译器 probing 与种子隔离）
+│   ├── xtask_publish.z42     共用的 z42c build / z42b publish 调用
 │   ├── xtask_doc_index.z42  Rust 符号索引生成（doc index 与 doc-refs 报告共用）
-│   ├── xtask_golden.z42     golden 枚举 / 入口推导（多 test stage + build test 复用）
+│   ├── xtask_golden.z42     golden 枚举 / 测试单元识别 / 入口推导（多 test stage + build test 复用）
 │   ├── xtask_toolset.z42    外部工具（cargo/gh/tar/...）的存在性与定位
 │   ├── xtask_fs.z42         文件系统原语（_resetDir/_copyAll/_linkAll/_copyFile/_copyIfExists/_cleanGlob/_makeExe；写入前先断链）
 │   ├── xtask_exec_profile.z42  执行剖面词汇（tier × aot_pkgs × VM caps；test 与 bench 共用，故不随 bench/ 走）
@@ -301,7 +305,6 @@ scripts/
 │   ├── xtask_package_cmd.z42         `package` 族的命令类
 │   ├── xtask_package{,_desktop,_ios,_android,_wasm}.z42   分类入口与各 RID 实现
 │   ├── xtask_package_dev.z42         `package dev-sdk` / `package ci`（只组装已编好的产物）
-│   ├── xtask_packages_config.z42     scripts/packages.toml 读取器（package/component 注册表）
 │   ├── xtask_package_install.z42     组件安装：按 packages.toml include + kind 直接装进包目录（无暂存）
 │   ├── xtask_package_test.z42        **`package workload test`**：打 payload-only 的 test workload
 │   │                                 （与 _desktop/_ios/_android/_wasm 同族：`test` 是 workload 名）
@@ -339,9 +342,6 @@ scripts/
 > 任何文件都能裸名调任何文件的函数，反向依赖不会报错、只会让人读代码时在目录间打转。
 > 这条规则只能靠 review 守。
 >
-> **待办**：`build/xtask_toolchain.z42` 的 apphost 发布仍调 `package/` 的 `_z42bPublish`；`package/` 读
-> `build/` 的组件清单（`_compilerMembers` / `_toolchainApphostTomls` / `_desktopPublishDir`）。这些是
-> 「工具链由哪些组件组成、各自产物在哪」的知识，该上移进 `common/`，不是某一族的私有函数。
 
 ### 文件命名规则
 

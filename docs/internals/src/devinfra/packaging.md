@@ -202,7 +202,8 @@ source-identity 只比「拷进来的东西和源一不一致」，管不到「�
 |---|---|---|
 | 顶层分发（按 RID）| `scripts/package/xtask_package.z42` | desktop / ios / android / wasm 四管道；`_pkgFinish` = identity 门 + 结构门 |
 | 包结构门 | `xtask_package_layout.z42` | `_pkgLayoutCheck(root, pkgDir, kind, rid)`，见 §5.1 |
-| 清单解析 | `xtask_packages_config.z42` | `[package.*]` + `[component.*]` 读取、include 名解析 |
+| 清单解析 | `scripts/common/xtask_packages_config.z42` | `[package.*]` + `[component.*]` 读取、include 名解析 |
+| 组件与共享调用 | `scripts/common/xtask_components.z42` / `xtask_process.z42` / `xtask_publish.z42` | 构建/打包共用组件列表、路径与工具进程参数 |
 | 组件安装 | `xtask_package_install.z42` | `_pkgInstallPackage`：按 include 逐组件、按 kind 分派直接装进包目录（cargo-bin / cargo-native / cargo-native-ext / stdlib-glob / editor-assets 拷贝；apphost `z42b publish --output`）|
 | desktop 管道 | `xtask_package_desktop.z42` | SDK 分段组装 |
 | 移动 / 浏览器管道 | `xtask_package_{ios,android,wasm}.z42` | native 产物 + 平台 facade（SwiftPM / Gradle / npm）|

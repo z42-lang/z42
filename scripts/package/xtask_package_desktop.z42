@@ -277,37 +277,3 @@ string _quotedExisting(string dir, string a, string b) {
     if (b.Length > 0 && File.Exists(Path.Join(dir, b))) { if (acc.Length > 0) { acc = acc + ", "; } acc = acc + "\"" + b + "\""; }
     return acc;
 }
-
-// ── z42c / z42b invocation (internal SDK packaging) ─────────────────────────
-// Apphost patching is NOT done here — `_z42bPublish` below delegates to the single
-// implementation in z42b (`_pubProduceApphost`, builder_apphost.z42), the same one
-// `z42b publish` uses standalone, so the stub MAGIC has one place to stay in sync.
-
-// Build one z42 package toml with z42c (z42vm + colocated z42c.driver.zpkg).
-// `vm` = host z42vm; `z42cDir` holds the z42c.* seed zpkgs (driver siblings
-// resolve colocated); `libs` = Z42_LIBS (stdlib + prior workload zpkgs). The toml
-// itself carries its dist_dir.
-int _z42cBuildToml(string vm, string z42cDir, string libs, string toml) {
-    if (toml == _z42bToml()) { _syncBuilderPins(_root()); }   // z42b 的构建期常量（见 _syncBuilderPins）
-    return _exec(_z42cProc(vm, libs, Path.Join(z42cDir, "z42c.driver.zpkg")).Arg("build").Arg(toml).Arg("--release"));
-}
-
-// Publish `toml`'s desktop apphost into `outputDir` via an already-built
-// `z42bZpkg` (z42.builder.zpkg) — `vm z42bZpkg -- publish <toml> --rid <rid>
-// --output <outputDir>`. `libs` resolves z42b's own stdlib deps; `apphostStub`
-// is forwarded as Z42_APPHOST_TEMPLATE (the raw, unpatched apphost binary that
-// z42b's publish command patches — mirrors the launcher's Z42_APPHOST_TEMPLATE
-// forwarding for `z42 publish`).
-// `--no-build`：publish 缺省会先过一遍 z42c 增量编译，
-// 这里**必须关掉**——每个调用点都已用 `_z42cBuildToml`（in-tree 自建 z42c + 自建 libs）
-// 编好了产物，若让 publish 拿 SDK 种子 z42c 再编一遍，自举 gen2 字节不动点当场就破。
-// 「publish 只负责部署已编好的字节」是本函数的契约，靠显式 `--no-build` 声明而不是「zpkg 存在就不编」
-// 这类隐式规则（后者会发出 stale payload）。
-int _z42bPublish(string vm, string z42bZpkg, string libs, string apphostStub, string toml, string rid, string outputDir) {
-    // z42b 运行期要加载编译器包（`z42.build` / `z42.project` + 注入的 `z42c.pipeline`）⇒ 挂编译器 probing。
-    return _exec(_z42bProc(vm, libs)
-        .Arg(z42bZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("publish").Arg(toml).Arg("--rid").Arg(rid).Arg("--output").Arg(outputDir)
-        .Arg("--no-build")
-        .Env("Z42_APPHOST_TEMPLATE", apphostStub));
-}

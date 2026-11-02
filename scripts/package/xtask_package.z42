@@ -1,4 +1,4 @@
-// xtask — release packaging: package sdk / runtime / workload entry points, RID + cargo helpers,
+// xtask — release packaging: package sdk / runtime / workload entry points, cargo helpers,
 // native/stdlib copy, and the source-identity gate. Desktop pipeline: xtask_package_desktop.z42.
 namespace Z42Xtask;
 
@@ -91,48 +91,6 @@ int _packageWorkloadBuild(string rid, string profile) {
     int c = _buildDesktopWorkload(root, rid, version, profile);
     if (c == 0) { _procEnd("package workload (build per-RID)", sw); }
     return c;
-}
-
-// ── RID + version helpers ───────────────────────────────────────────────────
-
-string _detectHostRid() {
-    string arch = Platform.Arch();
-    if (Platform.IsMacOS())   { if (arch == "x86_64") { return "macos-x64-unsupported"; } return "macos-arm64"; }
-    if (Platform.IsWindows()) { return "windows-x64"; }
-    // linux
-    if (arch == "aarch64" || arch == "arm64") { return "linux-arm64"; }
-    return "linux-x64";
-}
-
-// RID → 类别 / cargo triple：versions.toml `[rid.*]` 的唯一登记（不在表里 = unknown / ""，
-// 如 Intel mac 的 macos-x64-unsupported——versions.toml 只承诺 arm64，不支持的 host 在此止步，
-// 而不是按前缀猜一个类别继续往下走）。
-string _ridCategory(string rid) { return _vRidCategory(_root(), rid); }
-
-string _ridToCargo(string rid) { return _vRidTriple(_root(), rid); }
-
-// versions.toml [project].version; "" when versions.toml is absent.
-string _versionsGet(string root) {
-    return _vReadOr(root, "project.version", "");
-}
-
-// ── cargo wrappers ──────────────────────────────────────────────────────────
-
-// compile-once host reuse: when building for the HOST rid, pass an EMPTY target so
-// cargo reuses the default host build dir (artifacts/build/runtime/<profile>) that
-// ci-bootstrap / xtask-bootstrap-artifact already warmed (z42vm + cranelift + deps
-// compiled, Swatinem-cached) instead of recompiling everything under a redundant
-// --target <host-triple> tree. Cross RIDs (ios/android/wasm) keep their triple.
-string _cargoTargetFor(string rid) {
-    return (rid == _detectHostRid()) ? "" : _ridToCargo(rid);
-}
-
-// The cargo output dir matching _cargoTargetFor: <profile> for host (no triple),
-// <triple>/<profile> for cross. All three desktop package functions read from here.
-string _cargoOutFor(string root, string rid, string profile) {
-    string t = _cargoTargetFor(rid);
-    string sub = (t.Length == 0) ? profile : (t + "/" + profile);
-    return Path.Join(_cargoTargetDir(root), sub);
 }
 
 int _cargo(bool rel, string verb, string manifest, string target, string pkg) {
