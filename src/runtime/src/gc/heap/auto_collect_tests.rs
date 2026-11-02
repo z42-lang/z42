@@ -1,0 +1,287 @@
+//! add-gc-runtime-knobs : auto-collect gating + futility backoff.
+//!
+//! These drive `maybe_auto_collect` on a bare `Heap` (no `VmCore` wiring),
+//! so it takes the inline-collect fallback and we can observe `gc_cycles`.
+
+use crate::gc::{Heap};
+
+fn cycles(heap: &Heap) -> u64 { heap.stats().gc_cycles }
+
+/// **arm-gc-by-default ** reverses the historical default: with no
+/// `Z42_GC_MAX_BYTES` the collector used to *never* run, so a long-lived program grew until
+/// it exited. Every threshold is relative now (Mono SGen's shape), so there is nothing left
+/// for a budget to switch on.
+#[test]
+fn no_budget_still_collects() {
+    let heap = Heap::default();
+    heap.set_nursery_bytes_for_test(64 * 1024);
+    for _ in 0..4000 {
+        heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
+    }
+    assert!(cycles(&heap) > 0,
+        "an unbudgeted heap must still collect (got {} cycles)", cycles(&heap));
+}
+
+/// The gate is **relative**, so a heap that is not growing does not collect however long it
+/// runs — the counterpart to the test above, and what keeps "armed by default" from meaning
+/// "collects constantly".
+#[test]
+fn a_heap_that_is_not_growing_does_not_collect() {
+    let heap = Heap::default();
+    heap.set_nursery_bytes_for_test(64 * 1024);
+    let mut pins = Vec::new();
+    for _ in 0..200 {
+        pins.push(heap.pin_root(heap.alloc_array(vec![crate::object::Value::I64(0); 16])));
+    }
+    let after_growth = cycles(&heap);
+    // Nothing more is allocated; the policy must stay quiet.
+    for _ in 0..1000 {
+        let _ = heap.used_bytes();
+    }
+    assert_eq!(cycles(&heap), after_growth, "a static heap must not re-collect");
+}
+
+#[test]
+fn a_budget_arms_automatic_collection() {
+    let heap = Heap::default();
+    heap.set_nursery_bytes_for_test(16 * 1024);
+    heap.set_max_heap_bytes(Some(64 * 1024));
+    for _ in 0..4000 {
+        heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
+    }
+    assert!(cycles(&heap) > 0,
+        "a heap budget must arm auto-collect (got {} cycles)", cycles(&heap));
+}
+
+#[test]
+fn an_over_budget_live_set_does_not_re_collect_forever() {
+    // The pathology the futility backoff was added for: a live set that genuinely exceeds the
+    // budget makes every collection reclaim ~nothing while the heap keeps growing, so a gate
+    // that only asks for growth re-arms forever. Measured on
+    // `src/benches/scenarios/09_alloc_ctorless` with a 64MB budget: a 0.29s run had not
+    // finished after 9 minutes, doing a 0-byte 75ms mark-sweep every ~6MB.
+    //
+    // **arm-gc-by-default ** attacks it from the other side as well: the gate is
+    // now `live × ALLOWANCE_HEAP_RATIO`, so it *grows with the live set* and the collection
+    // count is logarithmic in heap growth rather than linear. The backoff stays as a belt for
+    // the case a soft cap squeezes the allowance down to its floor — which is what this test
+    // sets up.
+    //
+    // Each retained allocation is made with a wide-open nursery: the inline fallback collects
+    // at the tail of the allocation that trips the gate, so a tight gate can tombstone the
+    // fresh value before the caller can root it (production defers to a safepoint, where it is
+    // already a frame-reg root).
+    let heap = Heap::default();
+    let budget = 32 * 1024;
+    heap.set_max_heap_bytes(Some(budget));
+    let mut pins = Vec::new();
+    for _ in 0..128 {
+        heap.set_nursery_bytes_for_test(1 << 30);
+        let v = heap.alloc_array(vec![crate::object::Value::I64(0); 128]);
+        pins.push(heap.pin_root(v));
+        heap.set_nursery_bytes_for_test(4 * 1024);
+        // One tiny throwaway per round: enough that collections have *something* to reclaim,
+        // far less than one gate's worth — which is exactly what "futile" means here. The
+        // retained arrays supply the growth.
+        let _ = heap.alloc_array(vec![crate::object::Value::I64(0); 4]);
+    }
+    let n = cycles(&heap);
+    assert!(
+        n <= 20,
+        "an over-budget live set must stop re-collecting; got {n} cycles over 128 rounds"
+    );
+    drop(pins);
+}
+
+// ── fix-futile-backoff-is-too-eager  ─────────────────────────────
+
+/// The two shapes the futility multiplier has to tell apart, with the numbers actually
+/// measured off each. Both reclaim well under half a 32 MB gate — which is why the original
+/// half-gate bar could not separate them, and why the bar is now [`FUTILE_DIVISOR`].
+#[test]
+fn merely_surviving_is_not_futile() {
+    const GATE: u64 = 32 * 1024 * 1024;
+    // `z42c.semantics`, the two collections that used to take the multiplier to 4: a compiler
+    // holding on to most of what it allocates, working perfectly. 26% and 32% of a gate.
+    for reclaimed in [8_400_000u64, 10_100_000] {
+        assert_eq!(
+            Heap::next_backoff(1, reclaimed, GATE, 6), 1,
+            "{reclaimed} B of a {GATE} B gate is a high survival rate, not futility"
+        );
+        // And it does not merely fail to climb — it *resets* a multiplier that had climbed.
+        assert_eq!(Heap::next_backoff(16, reclaimed, GATE, 6), 1);
+    }
+}
+
+/// The other shape: `09_alloc_ctorless`, whose live set produces no garbage at all. Backing off
+/// here is right and costs nothing — a 100%-live heap does not even grow RSS for not being
+/// collected (measured 243 MB backed off vs 257 MB collecting anyway), while collecting it cost
+/// +78% wall.
+#[test]
+fn reclaiming_essentially_nothing_still_backs_off() {
+    const GATE: u64 = 32 * 1024 * 1024;
+    for reclaimed in [0u64, 384] {
+        assert_eq!(
+            Heap::next_backoff(1, reclaimed, GATE, 6), 4,
+            "{reclaimed} B against a {GATE} B gate is what futility actually looks like"
+        );
+    }
+    // Climbs multiplicatively, and stops at the cap rather than running away.
+    assert_eq!(Heap::next_backoff(4, 0, GATE, 6), 16);
+    assert_eq!(Heap::next_backoff(super::MAX_BACKOFF, 0, GATE, 6), super::MAX_BACKOFF);
+}
+
+/// With no collection behind it there is nothing to judge: reading the absent collection's
+/// 0 reclaimed as futile penalised a heap that had never been collected at all.
+#[test]
+fn the_first_trip_is_judged_neutral() {
+    assert_eq!(Heap::next_backoff(1, 0, 32 * 1024 * 1024, 0), 1);
+}
+
+#[test]
+fn a_reclaiming_collector_keeps_collecting_as_the_heap_refills() {
+    // The growth gate (rule 2) measures from the *end* of the last collection.
+    // Measured from the last trip instead — the pre-collect high-water, which
+    // rule 1 pins at `near_limit_ratio × budget` — re-tripping demanded
+    // `(0.90 + 0.10) × budget` and up, i.e. the heap had to climb past the
+    // whole budget before a second cycle. A collector doing its job keeps it
+    // below that, so the budget silently stopped being enforced after cycle 1:
+    // `z42c.semantics --release --no-incremental` under a 256MB budget
+    // collected exactly once in a run that allocated 450MB, ending 17MB over.
+    //
+    // Nothing here is rooted, so every cycle reclaims essentially all of it and
+    // the heap refills from near zero — the case the old baseline could not see.
+    //
+    // The budget is judged by the true footprint (`gc::footprint`), so it has to clear the
+    // heap's floor: one array chunk plus one 64 KB var chunk is already ~92 KB, and a cap
+    // below what the heap needs just to exist is one it can only back off from.
+    let heap = Heap::default();
+    let budget = 512 * 1024;
+    heap.set_max_heap_bytes(Some(budget));
+    for _ in 0..20_000 {
+        heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
+    }
+    // Asserted on `used`, the unit the trip point is armed in: at this scale the footprint is
+    // dominated by fixed chunk overhead (a third of the budget of live bytes already costs
+    // more than the budget in chunks), so `occupied` says nothing about the ratchet.
+    let used = heap.stats().used_bytes;
+    assert!(cycles(&heap) > 0, "auto-collect should fire");
+    assert!(used <= budget,
+        "a reclaimable heap must be held at its budget; ended at {used} bytes over a \
+         {budget}-byte budget (a trip point ratcheting up by one growth gate per cycle ends \
+         ~2.5x over)");
+}
+
+// ── add-bounded-nursery  ─────────────────────────────────────────
+
+/// The nursery gate is a *separate* trip condition from the budget gate: under
+/// `GenerationalMarkSweep` a minor fires once `Z42_GC_NURSERY_BYTES` has been allocated,
+/// without waiting for `used` to climb to `gc_near_limit_ratio × budget`. That is what bounds
+/// minor work — and therefore minor pause — by the nursery rather than by the whole heap.
+#[test]
+fn generational_trips_a_minor_on_the_nursery_gate_below_the_near_limit() {
+    use crate::gc::GcMode;
+    // A budget large enough that `used` never gets near `0.90 × budget`: under the old
+    // single gate this workload collected zero times.
+    let heap = Heap::default();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+    const BUDGET: u64 = 8 * 1024 * 1024;
+    heap.set_nursery_bytes_for_test(64 * 1024);
+    heap.set_max_heap_bytes(Some(BUDGET));
+    for _ in 0..20_000 {
+        heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
+    }
+    let used = heap.stats().used_bytes;
+    assert!(
+        used < BUDGET * 9 / 10,
+        "test setup: `used` must stay below the near-limit gate (got {used})"
+    );
+    assert!(
+        cycles(&heap) > 0,
+        "the nursery gate must trip a minor before the budget gate would"
+    );
+}
+
+/// **flip-gc-default-to-generational **: a soft cap has to be enforced under the
+/// generational collector too.
+///
+/// The generational gate is the **nursery** — an absolute 32 MB by default, deliberately
+/// independent of any budget — so with a budget far below one nursery the policy was never
+/// consulted: `next_collect_at` sat at `live + 32 MB` and the heap sailed past its cap without
+/// collecting once. (`decide_trip` would have called for a major on `near_cap`; it just never
+/// got asked.) The fix is `minor_gate` = `min(nursery, allowance)`, and the allowance is what a
+/// soft cap squeezes.
+///
+/// This was invisible while STW was the default — its gate is the allowance, already squeezed.
+#[test]
+fn generational_enforces_a_soft_cap_far_below_one_nursery() {
+    use crate::gc::GcMode;
+    let heap = Heap::default();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+    // Deliberately does NOT touch the nursery: a budget far below the 16 MB default is exactly
+    // the shape that went unenforced. (512 KB, not less: the budget is judged by the true
+    // footprint, whose floor — one array chunk plus one 64 KB var chunk — is ~92 KB.)
+    let budget = 512 * 1024;
+    heap.set_max_heap_bytes(Some(budget));
+    for _ in 0..20_000 {
+        heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
+    }
+    let used = heap.stats().used_bytes;
+    assert!(cycles(&heap) > 0, "a budget below one nursery must still trip a collection");
+    assert!(used <= budget,
+        "a reclaimable generational heap must be held at its budget; ended at {used} bytes \
+         over a {budget}-byte budget (unenforced, it runs to ~one nursery before collecting \
+         once)");
+}
+
+/// The two modes size their growth gate differently, and that is the whole point of the
+/// nursery: a minor only has to look at the young set, so it may run after one nursery's
+/// worth of allocation, while a full collection has to earn its cost and waits for a whole
+/// allowance (`ALLOWANCE_NURSERY_RATIO` = 4 nurseries at the floor).
+#[test]
+fn generational_collects_more_often_than_stw_on_the_same_workload() {
+    fn cycles_for(generational: bool) -> u64 {
+        let heap = Heap::default();
+        // flip-gc-default-to-generational: both arms select their mode explicitly — leaving
+        // one to the default made this compare generational against generational.
+        heap.set_mode(if generational {
+            crate::gc::GcMode::GenerationalMarkSweep
+        } else {
+            crate::gc::GcMode::StwMarkSweep
+        });
+        heap.set_nursery_bytes_for_test(64 * 1024);
+        for _ in 0..20_000 {
+            heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
+        }
+        cycles(&heap)
+    }
+    let (gen, stw) = (cycles_for(true), cycles_for(false));
+    assert!(stw > 0, "STW is armed too — it just waits for a full allowance (got {stw})");
+    assert!(
+        gen > stw,
+        "one nursery per minor must trip more often than one allowance per full collection \
+         (generational {gen} vs stw {stw})"
+    );
+}
+
+/// One generation: the futility multiplier lands in full on an allowance a soft cap squeezed, and
+/// one step behind on any other — a single futile collection (a live set being built) must not
+/// make the next productive phase sweep ×4 in one pause (`13_gc_large_heap` STW: 256 MB, the run's
+/// maximum pause); a second one in a row does back off (`09_alloc_ctorless`).
+#[test]
+fn one_generation_backs_off_an_unsqueezed_allowance_one_step_behind() {
+    use super::super::footprint::SoftCap;
+    let heap = Heap::default();
+    heap.set_mode(crate::gc::GcMode::StwMarkSweep);
+    heap.set_nursery_bytes_for_test(1024 * 1024); // floor: 4 MB
+    let live = 64 * 1024 * 1024;
+    let free = Heap::collection_allowance(live, heap.allowance_unit(), None);
+    assert_eq!(heap.single_generation_gate(live, 4, None), free, "one futile collection: not multiplied");
+    assert_eq!(heap.single_generation_gate(live, 16, None), free * 4, "two in a row: multiplied");
+    let roomy = SoftCap { footprint: 1 << 40, used: 1 << 40 };
+    assert_eq!(heap.single_generation_gate(live, 4, Some(roomy)), free, "a cap that does not squeeze: same");
+    let tight = SoftCap { footprint: live + 8 * 1024 * 1024, used: live + 8 * 1024 * 1024 };
+    let squeezed = Heap::collection_allowance(live, heap.allowance_unit(), Some(tight));
+    assert!(squeezed < free);
+    assert_eq!(heap.single_generation_gate(live, 4, Some(tight)), squeezed * 4, "the cap's own trips: in full");
+}

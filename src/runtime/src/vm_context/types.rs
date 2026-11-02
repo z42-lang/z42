@@ -99,9 +99,9 @@ pub struct VmCore {
     /// per-core like every other socket/handle table.
     pub(crate) processes:          ResourceRegistry<crate::corelib::process::ProcessSlot>,
     /// **GC subsystem**. Moved here in Phase 2.2 so it can be shared across
-    /// threads (single global heap). Backing today is `ArcMagrGC`; Phase 3
-    /// swaps to Arc + Send + Sync. Stored as `Box<dyn MagrGC>` (no inner
-    /// lock) because all `MagrGC` methods take `&self` and the impl handles
+    /// threads (single global heap). Backing today is `Heap`; Phase 3
+    /// swaps to Arc + Send + Sync. Stored as `Box<Heap>` (no inner
+    /// lock) because all `Heap` methods take `&self` and the impl handles
     /// its own interior mutability.
     ///
     /// **Scanner cycle avoidance**: the external root scanner closure
@@ -110,7 +110,7 @@ pub struct VmCore {
     /// and the core never drops. Per-thread roots (call_stack /
     /// pending_exception) stay captured via `Rc<RefCell>`
     /// clones from the unique VmContext.
-    pub(crate) heap:               Box<dyn MagrGC>,
+    pub(crate) heap:               Box<Heap>,
     /// **add-vmcontext-registry **: registry of all live
     /// [`VmContext`] instances on this VmCore (one per OS thread).
     /// Populated by `VmContext::new()`; cleared by `VmContext::drop()`.
@@ -180,7 +180,7 @@ pub struct VmCore {
     /// park-as-mutator and return `None`. Cleared by `GcPauseGuard::drop`.
     pub(crate) collector_active:   std::sync::atomic::AtomicBool,
     /// **add-gc-safepoint-auto-threshold **: shared AtomicBool
-    /// that `ArcMagrGC::maybe_auto_collect` sets on pressure trip;
+    /// that `Heap::maybe_auto_collect` sets on pressure trip;
     /// `check_safepoint(ctx)` swaps it to `false` and takes ownership of
     /// the round's stop-the-world collect. Cross-thread safe via the
     /// safepoint protocol.
@@ -362,12 +362,12 @@ impl JitHead {
 ///
 /// All `RefCell` fields take `&self` so JIT extern-C call sites (which reach
 /// the receiver through `*mut VmContext`) can avoid producing `&mut`. The
-/// `heap` field is `Box<dyn MagrGC>` without `RefCell` because it is set once
+/// `heap` field is `Box<Heap>` without `RefCell` because it is set once
 /// in `new()` and never replaced; trait methods take `&self` and the
 /// implementation handles its own interior mutability.
 ///
 /// **Phase 3d.1 **: `static_fields` / `pending_exception` /
-/// `lazy_loader` 改用 `Rc<RefCell<...>>` 包装，让 `ArcMagrGC` 的 external
+/// `lazy_loader` 改用 `Rc<RefCell<...>>` 包装，让 `Heap` 的 external
 /// root scanner 闭包能 clone Rc 共享访问，从而 mark_reachable_set 把这些
 /// 字段持有的 Value 也纳入 GC roots（修复 cycle collector 漏扫 static_fields
 /// 导致误清的 bug）。
@@ -379,7 +379,7 @@ pub struct VmContext {
     pub(crate) core: Arc<VmCore>,
     /// **Phase 3 revision of Decision 2** : per-thread state is
     /// Arc<Mutex<>> instead of Rc<RefCell<>> because the GC scanner closure
-    /// must be `Send + Sync` (MagrGC trait now requires it), which forces
+    /// must be `Send + Sync` (Heap trait now requires it), which forces
     /// every closure capture to also be Send + Sync. Single-thread overhead
     /// is small (~few ns per lock vs RefCell borrow), worth the architectural
     /// consistency. Tracked in design.md Decision 2 amendment.

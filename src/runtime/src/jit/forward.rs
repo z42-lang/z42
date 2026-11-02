@@ -74,7 +74,7 @@ impl StrIntrinsic {
 /// and the heap's write-barrier gate. Implemented by [`CompileLookup`]; never loads a
 /// package or binds a site.
 pub(crate) trait ForwardLookup {
-    /// The heap's barrier-gate bytes (`MagrGC::jit_barrier_bytes`) that compiled reference
+    /// The heap's barrier-gate bytes (`Heap::jit_barrier_bytes`) that compiled reference
     /// field stores read; `None` keeps every reference store on the helper.
     fn barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
         None

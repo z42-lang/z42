@@ -1,45 +1,9 @@
-//! Garbage collector —— heap memory management for z42 VM.
-//!
-//! # 当前状态（至 Phase 3-OOM 完成，**主功能完整可投产**）
-//!
-//! - [`MagrGC`] —— GC 抽象 trait，对齐 MMTk porting contract（10 个能力组 / ~30 方法）
-//! - [`ObjRef`] / [`ArrRef`] —— 对象 / 数组句柄（变长区块的 8 B 标记指针），弱引用 [`WeakObjRef`] / [`WeakArrRef`]
-//! - [`ArcMagrGC`] —— 默认后端：对象、数组、字符串、闭包都是变长区（`var_region`）里的块
-//!   + 完整 host-side 嵌入接口（alloc / roots / write barriers / object model /
-//!   collection control / heap config / finalization / weak refs / observers /
-//!   profiler / stats）
-//!
-//! # Phase 路线（见 `docs/internals/src/runtime/gc.md` "Phase 路线（持续迭代）" 段）
-//!
-//! | Phase | 内容 | 状态 |
-//! |-------|------|:---:|
-//! | 1 | trait + ArcMagrGC + 6 个脚本驱动 callsite 收口 | ✅ |
-//! | 1（扩展）| trait 全面对齐 MMTk porting contract（10 能力组）+ host-side 嵌入接口完整 | ✅ |
-//! | 1.5 | corelib NativeFn 签名带 `&VmContext` + 剩余 Rc::new 迁移 | ✅ |
-//! | 2 | （**跳过**）—— 直奔 Phase 3 mark-sweep | ⏭ |
-//! | 3a | GC 句柄抽象（backing 仍 Rc<RefCell<T>>，行为零变化）| ✅ |
-//! | 3b | Heap registry + snapshot/iterate Full coverage | ✅ |
-//! | 3c | **Trial-deletion 环回收器** —— `collect_cycles` 真实回收环引用 | ✅ |
-//! | 3d | Finalizer 真触发（collect 时调度）+ 内存压力自动 collect | ✅ |
-//! | 3d.1 | External root scanner（VmContext static_fields 自动暴露给 GC，修复漏扫 bug）| ✅ |
-//! | 3d.2 | `Std.GC.Collect()` / `UsedBytes()` / `ForceCollect()` 暴露给 z42 脚本 + 端到端 golden test | ✅ |
-//! | 3e | ArrRef backing → `Rc<GcAllocation<T>>` wrapper + Drop 自动触发 finalizer（含纯 Rc Drop 路径）| ✅ |
-//! | 3f | interp 栈扫描（FrameGuard RAII 把 frame.regs 暴露给 scanner，修复 transitive bug）| ✅ |
-//! | 3f-2 | JIT JitFrame.regs 对接（6 callsites push/pop frame.regs 到 exec_stack）| ✅ |
-//! | 3-OOM | strict OOM 模式（trait `set_strict_oom`；启用后 alloc 越限返 Null 不进 registry/stats）| ✅ |
-//!
-//! 后续可选迭代轨道见
-//! [`docs/internals/src/runtime/gc.md`](../../../docs/internals/src/runtime/gc.md)
-//! "GC 后续迭代规划" 段：A 性能（自定义 allocator / mark-sweep / generational
-//! / 增量 major）、B 嵌入式工具（OOM 异常 / 软引用 / heap snapshot 导出 /
-//! alloc 站点追踪 / pause 直方图）、C 测试质量（debug invariants / stress 压测）、
-//! D MMTk 集成（终极方向）。
+//! Heap allocation, tracing, barriers, references and collection policy.
 
 pub mod config;
 pub use config::GcConfig;
 pub mod to_vm;
 pub mod heap;
-pub mod arc_heap;
 pub mod mode;
 pub mod footprint;
 pub mod phase_timer;
@@ -54,9 +18,8 @@ pub mod soft_registry;
 pub mod trace;
 pub mod types;
 
-pub use heap::MagrGC;
+pub use heap::Heap;
 pub use sampler::Sampler;
-pub use arc_heap::ArcMagrGC;
 pub use mode::GcMode;
 
 pub use snapshot::{

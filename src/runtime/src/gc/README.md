@@ -3,7 +3,7 @@
 ## 职责
 
 z42 VM 的 GC 子系统：堆对象（对象 / 数组 / 字符串 / 闭包）的分配、引用追踪与
-回收抽象 —— 通过 `trait MagrGC` 提供 host-friendly 嵌入接口（pin roots /
+回收能力 —— 通过具体 `Heap` 提供嵌入接口（pin roots /
 observers / profiler / weak refs / finalizers / strict OOM / ...）。
 
 ## 核心文件
@@ -12,29 +12,28 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 |------|------|
 | `config.rs` | `GcConfig`：显式传入堆的不可变策略值，GC 不解析全局运行时设置 |
 | `to_vm.rs` | `GcRoots` / `GcToVm` / `GcPause`，以及不透明的上下文回收快照；VM 提供实现 |
-| `heap.rs` | `trait MagrGC` —— GC 抽象接口（MMTk porting contract 形态，11 能力组） |
+| `heap.rs` | 具体 `Heap` 的状态、身份、句柄表与 concern 声明 |
 | `mode.rs` | `GcMode`：`GenerationalMarkSweep`（默认）/ `StwMarkSweep`，`Z42_GC_MODE` 选择 |
 | `footprint.rs` | `Footprint`：堆的真实占用（committed / pooled / occupied），三个 region 共用一份、随变随记；`malloc_size` 分配器取整模型。机制见 [book: GC 调参 · 真实占用记账](../../../../docs/internals/src/runtime/gc-tuning.md#真实占用记账与软上限) |
-| `arc_heap.rs` | `ArcMagrGC` 协调器 —— struct/字段、句柄表、类型别名、`Default`/`Debug` + concern 子模块声明 |
-| `arc_heap/construct.rs` | `new(GcConfig)` 构造；`Default` 只使用纯默认策略 |
-| `arc_heap/alloc.rs` | 分配尾部（TLAB / 锁路径 `acquire_var_block`、数组漏斗 `alloc_array_block`：对象模型 R9，数组 = 一个块，在块里建好再发布）+ OOM 兜底 + 内存压力检查 + size 查询（`object_size_bytes`）|
-| `arc_heap/alloc_object.rs` | 对象分配（对象模型 R6）：对象 = 一个 `BlockType::Object` 变长块，在块里建好（对象头 + 泛型一步）再发布 |
-| `arc_heap/alloc_black.rs` | 增量 major 周期内的 allocate-black |
-| `arc_heap/auto_collect.rs` | 自动 collect 触发策略（分配压力） |
-| `arc_heap/collect.rs` | mark-sweep 原语：mark/sweep 阶段 + soft-ref 复活 + live 快照 |
-| `arc_heap/control.rs` | 环回收编排与控制 API：`run_cycle_collection(_stw)` + `collect_cycles`/`force_collect`/`collect_full` + finalize + soft-ref |
-| `arc_heap/generational.rs` / `barrier.rs` | 分代 GC：minor/major/promotion + `gen_age`；分代写屏障（老属主进记忆集） |
-| `arc_heap/remembered.rs` | 记忆集（对象模型 R6 / R9）：变长区没有卡表，老对象 / 老数组收到年轻引用 / 带着年轻引用晋升时置块头 `REMEMBERED_BIT` 入集，minor 从它出根、排空。见 [book: GC](../../../../docs/internals/src/runtime/gc.md)「记忆集」 |
-| `arc_heap/side_tables.rs` | 对象与数组的侧表（对象模型 R6 / R9）：弱引用（带 chunk 复用 epoch）、finalizer、软引用按块头地址记账；`process_flagged_dead` 在 chunk 回收前处理死掉的带标记块 |
-| `arc_heap/card_verify.rs` | 记忆集不变量的从头核对（`verify_card_invariant`；`Z42_GC_VERIFY_CARDS` 每次 minor 前跑）——抓漏掉的写屏障。见 [book: GC · 记忆集不变量核对](../../../../docs/internals/src/runtime/gc.md#记忆集不变量核对z42_gc_verify_cards) |
-| `arc_heap/promotion_policy.rs` / `pause_budget.rs` | 自适应晋升判定 / 停顿预算化 nursery |
-| `arc_heap/young_policy.rs` | 年轻代策略：按回收收益（对比上一次 major）判定 minor，不划算时把 minor 换成 **tenure**（年轻代整体晋升、不标记）。机制见 [book: GC 调参 · 年轻代策略](../../../../docs/internals/src/runtime/gc-tuning.md#年轻代策略按收益判定-minor不划算就-tenure) |
-| `arc_heap/roots.rs` | roots/retention 扫描：root 快照 + marked-context 扫描 + 反向引用图 |
-| `arc_heap/observe.rs` | 观测：barrier observer(test) + 事件分发 + pause 计时 + snapshot/stats |
-| `arc_heap/footprint.rs` | 真实占用的堆侧：region 的 payload 度量函数、`committed` / `occupied` 读数、软上限的两种单位（`SoftCap`）、sweep 尾部的 chunk 回收 + 侧表重量 |
-| `arc_heap/incremental.rs` | **增量 major**：切片状态机（Marking / Sweeping）、切片预算、pacer、`admit_resurrected`（弱读 / 堆遍历不交出待清扫的死对象）。机制见 [book: 增量 major](../../../../docs/internals/src/runtime/gc-incremental-major.md) |
-| `arc_heap/interface.rs` | `impl MagrGC for ArcMagrGC` —— 公共 trait 接口（薄委托层，重方法体下沉到上列 concern 模块）|
-| `arc_heap/debug.rs` | `#[cfg(test)]`/`#[cfg(debug_assertions)]` 辅助：test accessors + `debug_validate_invariants` |
+| `heap/construct.rs` | `new(GcConfig)` 构造；`Default` 只使用纯默认策略 |
+| `heap/alloc.rs` | 分配尾部（TLAB / 锁路径 `acquire_var_block`、数组漏斗 `alloc_array_block`：对象模型 R9，数组 = 一个块，在块里建好再发布）+ OOM 兜底 + 内存压力检查 + size 查询（`object_size_bytes`）|
+| `heap/alloc_object.rs` | 对象分配（对象模型 R6）：对象 = 一个 `BlockType::Object` 变长块，在块里建好（对象头 + 泛型一步）再发布 |
+| `heap/alloc_black.rs` | 增量 major 周期内的 allocate-black |
+| `heap/auto_collect.rs` | 自动 collect 触发策略（分配压力） |
+| `heap/collect.rs` | mark-sweep 原语：mark/sweep 阶段 + soft-ref 复活 + live 快照 |
+| `heap/control.rs` | 环回收编排与控制 API：`run_cycle_collection(_stw)` + `collect_cycles`/`force_collect`/`collect_full` + finalize + soft-ref |
+| `heap/generational.rs` / `barrier.rs` | 分代 GC：minor/major/promotion + `gen_age`；分代写屏障（老属主进记忆集） |
+| `heap/remembered.rs` | 记忆集（对象模型 R6 / R9）：变长区没有卡表，老对象 / 老数组收到年轻引用 / 带着年轻引用晋升时置块头 `REMEMBERED_BIT` 入集，minor 从它出根、排空。见 [book: GC](../../../../docs/internals/src/runtime/gc.md)「记忆集」 |
+| `heap/side_tables.rs` | 对象与数组的侧表（对象模型 R6 / R9）：弱引用（带 chunk 复用 epoch）、finalizer、软引用按块头地址记账；`process_flagged_dead` 在 chunk 回收前处理死掉的带标记块 |
+| `heap/card_verify.rs` | 记忆集不变量的从头核对（`verify_card_invariant`；`Z42_GC_VERIFY_CARDS` 每次 minor 前跑）——抓漏掉的写屏障。见 [book: GC · 记忆集不变量核对](../../../../docs/internals/src/runtime/gc.md#记忆集不变量核对z42_gc_verify_cards) |
+| `heap/promotion_policy.rs` / `pause_budget.rs` | 自适应晋升判定 / 停顿预算化 nursery |
+| `heap/young_policy.rs` | 年轻代策略：按回收收益（对比上一次 major）判定 minor，不划算时把 minor 换成 **tenure**（年轻代整体晋升、不标记）。机制见 [book: GC 调参 · 年轻代策略](../../../../docs/internals/src/runtime/gc-tuning.md#年轻代策略按收益判定-minor不划算就-tenure) |
+| `heap/roots.rs` | roots/retention 扫描：root 快照 + marked-context 扫描 + 反向引用图 |
+| `heap/observe.rs` | 观测：barrier observer(test) + 事件分发 + pause 计时 + snapshot/stats |
+| `heap/footprint.rs` | 真实占用的堆侧：region 的 payload 度量函数、`committed` / `occupied` 读数、软上限的两种单位（`SoftCap`）、sweep 尾部的 chunk 回收 + 侧表重量 |
+| `heap/incremental.rs` | **增量 major**：切片状态机（Marking / Sweeping）、切片预算、pacer、`admit_resurrected`（弱读 / 堆遍历不交出待清扫的死对象）。机制见 [book: 增量 major](../../../../docs/internals/src/runtime/gc-incremental-major.md) |
+| `heap/api.rs` | 公开固有方法；同名转发直接公开原有 concern 实现|
+| `heap/debug.rs` | `#[cfg(test)]`/`#[cfg(debug_assertions)]` 辅助：test accessors + `debug_validate_invariants` |
 | `var_region.rs` + `var_region/` | `VarRegion` 分配器：`chunk.rs` 的尺寸类、认领与复用，`generation.rs` 的年轻块集合，`holes.rs` 的 TLAB 空洞批量复用，`objects.rs` 的弱句柄校验、块遍历及清扫报告；区块头和句柄形状由 `object/header` 提供 |
 | `side_bits.rs` | 字数组位集（置位 / 清位 / 逐位遍历），region 的年轻集合位图用 |
 | `satb.rs` | **SATB 删除屏障**：进程级 `MARKING_HEAPS` 快路径 + 线程本地记录缓冲，`retire_thread_tlab` 时交给堆 |
@@ -43,24 +42,23 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `retention.rs` / `snapshot.rs` | 堆保留诊断（反向引用图 + `whyRetained`）/ V8 `.heapsnapshot` 导出 |
 | `soft_registry.rs` | soft-reference 注册表（堆压力下可被清除的引用） |
 | `sampler.rs` / `phase_timer.rs` / `trace.rs` | safepoint 采样 profiler / `Z42_GC_PHASES` 分阶段停顿计时 / `Z42_GC_TRACE` 每次 collect 的 stderr trace |
-| `heap_tests.rs` / `arc_heap_tests/` / `*_tests.rs` | trait 默认方法契约测试 / `ArcMagrGC` 行为单测（分配 / 收集 / 标记队列 / 分代 / 增量 / finalizer / 不变量等）/ 各模块单测 |
+| `heap_api_tests.rs` / `heap_tests/` / `*_tests.rs` | 公开堆 API 契约测试 / `Heap` 行为单测（分配 / 收集 / 标记队列 / 分代 / 增量 / finalizer / 不变量等）/ 各模块单测 |
 
 对象头、标记位与强/弱句柄定义在 [`object/header`](../object/header)，GC 负责其分配、回收与存活判定。
 
 ## 入口点
 
-- `crate::gc::MagrGC` —— GC 接口 trait（11 能力组）
-- `crate::gc::ArcMagrGC` —— 默认实现（对象、数组、字符串、闭包都是变长区的块；默认 `GenerationalMarkSweep`）
+- `crate::gc::Heap` —— 具体堆的分配、根、屏障、回收、引用、观测与统计接口
 - `crate::object::ObjRef` / `crate::object::WeakObjRef` —— 对象句柄；`crate::object::ArrRef` / `crate::object::WeakArrRef` —— 数组句柄
 - 嵌入相关类型：`RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `AllocSample` / `WeakRef` / `HeapSnapshot` / `HeapStats` / ...
 
-### 能力组（按 trait 内分组）
+### 能力组
 
 | # | 能力组 | 主要方法 |
 |---|--------|---------|
 | 1 | Allocation | `alloc_object` / `alloc_array` / `alloc_array_with`（数组漏斗） |
 | 2 | Roots | `pin_root` / `unpin_root` / `enter_frame` / `leave_frame` / `for_each_root` |
-| 3 | Write barriers | `write_barrier_field` / `write_barrier_array_elem`（默认 no-op，generational / 自定义堆 backend 时可重载）；`verify_card_invariant`（核对记忆集不变量）|
+| 3 | Write barriers | `write_barrier_field` / `write_barrier_array_elem`（STW 模式不记忆，分代模式记录老到年轻引用）；`verify_card_invariant`（核对记忆集不变量）|
 | 4 | Object Model | `object_size_bytes` / `scan_object_refs` |
 | 5 | Collection | `collect` / `collect_cycles` / `force_collect` / `collect_full` / `pause` / `resume` |
 | 6 | Heap config | `set_max_heap_bytes` / `used_bytes` / `set_strict_oom` |
@@ -89,8 +87,8 @@ z42 脚本端可调 `Std.GC.Collect()` / `UsedBytes()` / `ForceCollect()`（见
 
 ### 构造与配置
 
-`ArcMagrGC::new(config)` 显式接收 `GcConfig`，每个堆保存自己的配置快照。
-`ArcMagrGC::default()` 使用纯默认值，不读取环境或进程设置。VM 入口由门面
+`Heap::new(config)` 显式接收 `GcConfig`，每个堆保存自己的配置快照。
+`Heap::default()` 使用纯默认值，不读取环境或进程设置。VM 入口由门面
 `RuntimeConfig::gc_config` 转换已解析设置，继续应用原有配置优先级；独立基准同样显式转发。
 软引用阈值、阶段计时、nursery 策略与停顿窗口均取自当前堆。safepoint 的轮询节流由 `vm/threads` 的线程协议读取。
 `collect_cycles_with_vm` 通过 `GcToVm` 申请暂停，GC 不持有线程上下文。根访问须处于暂停内，
@@ -100,14 +98,14 @@ GC 只在标记后观察活对象，清扫结束后交回本轮不透明快照�
 ## 依赖关系
 
 - 上游：`object::{Value, ScriptObject, OwnedObject, TypeDesc, NativeData}`
-- 下游：`vm_context::VmContext` 持有 `Box<dyn MagrGC>` + 注入 external root
+- 下游：`vm_context::VmCore` 持有地址稳定的 `Box<Heap>` + 注入 external root
   scanner 闭包（扫描 static_fields / pending_exception / interp+JIT exec_stack）；
   `interp/` 与 `jit/helpers/` 通过 `ctx.heap()` 调用
 
 ## 如何测试验证
 
 ```bash
-(cd src/runtime && cargo test --lib gc)     # GC 单测（含 arc_heap_tests/）
+(cd src/runtime && cargo test --lib gc)     # GC 单测（含 heap_tests/）
 ./xtask test e2e --dir gc                   # GC golden 端到端
 ```
 
@@ -119,4 +117,4 @@ GC 只在标记后观察活对象，清扫结束后交回本轮不透明快照�
 
 ## 命名
 
-**MagrGC** 取自《银河系漫游指南》中的 **Magrathea** —— 那颗专门建造定制行星的传奇世界。
+**Heap** 取自《银河系漫游指南》中的 **Magrathea** —— 那颗专门建造定制行星的传奇世界。
