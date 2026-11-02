@@ -82,7 +82,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.jit` 是�
 - `pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>` — `Value::PinnedView` 的 owned 缓冲
 - `fatal: AtomicBool` — 致命 VM 错误（栈溢出）正在展开，见下文「原生栈预算」
 - `processes: ResourceRegistry<ProcessSlot>` — `Std.IO.Process` 子进程注册表
-- `heap: Box<dyn MagrGC>` — GC 子系统接口（后端 `ArcMagrGC`）
+- `heap: Box<Heap>` — GC 子系统接口（后端 `Heap`）
 - `module: Option<Arc<Module>>` — 用户编译后的 Module，跨线程共享；测试路径 `None`，生产路径 `Some(Arc::new(module))`
 - `funcs: Arc<FuncTable>` — VM 级函数身份表（`vm/runtime/ids/func_table.rs`）：每个函数一个 `FnId`（u32，本 VmCore 内稠密、永不复用、只存在于运行期），`get(id)` 无锁。入口模块的函数在构造 VmCore 时整块登记为 `0..n`，**等于 `module.functions` 下标**（槽位借用 `module`，表里持有同一个 `Arc`）；惰性包的函数在 `LazyLoader::insert_function` 入表时逐个追加（槽位持有 `Arc<Function>`），重名 first-wins、不分配新 id。`Function.id` 记录登记得到的 id。名字反查 `id_of` 是冷路径：先查入口模块的 `func_index`，再查惰性函数的 `by_name`。`by_name` 同时就是 lazy loader 的函数名表（加载器自己不另存一份，`probe_function` / `resolve_function` 都经 `FuncTable::lazy_fn` 读它）；惰性函数与入口函数同名时仍各有 id，`id_of` 答入口那个。再次安装 lazy loader（只有测试会）用 `reset_lazy_names` 清空名字空间，槽位与 id 保留。底层是 `vm/runtime/ids/seg_vec.rs` 的 `SegVec`：倍增分段（首段 1024 项）、段永不移动，追加持写者锁并以 Release 发布长度，读侧 Acquire 读长度。消费方：`Call` 站点 token（见下文「Call 站点 token：FnId」）、VCall PIC 载荷、ObjNew 站点的 ctor、`LoadFn` / `MkClos` 站点 token 与 `FuncRef` / 闭包值里的目标（见下文「闭包 dispatch」），以及 JIT 的槽位表——全都存同一个 `FnId`。
 - `types: Arc<TypeTable>` — VM 级类型身份表（`vm/runtime/ids/type_table.rs`）：`TypeId` → 该类型**最新版本**的描述符，`get(id)` 无锁（Acquire 读槽指针）。`TypeId` 是**进程级**的（`tokens::alloc_type_id_block` 在构建模块类型注册表时整块分配，见下「TypeId 的作用域」），一个 VM 只看到其中稀疏的一部分，所以底层是按裸 id 下标的 `SparseSegTable`（段在首次触碰时分配）。登记：入口模块的 `type_registry` 在构造 VmCore 时整体登记；lazy loader 在每个改动自己类型表的步骤之后调 `LazyLoader::publish_types` 把整张表发布一遍——包加载（继承 fixup 跑完之后，此时新描述符仍独占，fixup 原地改）、`seed_types_for_lookup`、`ensure_base_chain_loaded` 的 fixup。fixup 写时复制出的合并副本与原描述符同 id 同名，发布时槽位改指新副本；发布过的每个版本都留在表里直到表析构，借出的 `&TypeDesc` 不会悬空。同一 id 下名字不同的描述符被拒（first-wins，记 error 日志；只有发号器不变量被破坏才会发生）。重名类型由加载器 first-wins，输家从不发布。**不登记**：按对象现建的回落描述符、corelib 原生句柄单例（两者 `id == UNRESOLVED`）、只由 load context 持有的模块的类型。名字查找仍走 `Module.type_registry` 与加载器的 `type_registry`（两张名字表尚未并入本表）。另外为**类型判定的目标名**保留键（`name_key`，见 [interp-jit-semantics.md](interp-jit-semantics.md)「类型判定的缓存键」）。消费方：`isa_cache` 的键。
@@ -108,7 +108,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.jit` 是�
 > `construct.rs`（构造 + Drop）+ `frame_stack.rs`（`FrameStack`，见下「帧栈的归属」）+ `resources.rs` / `native.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
 > （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）+ `cctor.rs`（静态构造器状态机）/ `isa_cache.rs`（`is`/`as`/`catch` 前置缓存）/ `symres.rs`（「确定不存在」判定）。
 
-`VmCore` 满足 `Send + Sync`（编译期 assertion 在 `src/runtime/src/gc/arc_heap_tests/send_sync.rs`）。
+`VmCore` 满足 `Send + Sync`（编译期 assertion 在 `src/runtime/src/gc/heap_tests/send_sync.rs`）。
 
 ### VmContext：per-thread 视图
 
@@ -217,7 +217,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 ### Send-safety 与 GC scanner 设计
 
-`MagrGC` trait 要求 `Send + Sync`。GC scanner closure（mark 阶段被调用）也要求 `Send + Sync`，进而所有 closure 捕获都必须 Send + Sync —— 这是 per-thread 字段用 `Arc<Mutex<>>` 而非 `Rc<RefCell<>>` 的根因。帧栈例外：它在调用热路径上，靠「别的线程只在所属线程 park 时读」的协议免锁（`FrameStack` 为此 `unsafe impl Sync`，见上「帧栈的归属」）。
+`Heap` trait 要求 `Send + Sync`。GC scanner closure（mark 阶段被调用）也要求 `Send + Sync`，进而所有 closure 捕获都必须 Send + Sync —— 这是 per-thread 字段用 `Arc<Mutex<>>` 而非 `Rc<RefCell<>>` 的根因。帧栈例外：它在调用热路径上，靠「别的线程只在所属线程 park 时读」的协议免锁（`FrameStack` 为此 `unsafe impl Sync`，见上「帧栈的归属」）。
 
 Scanner closure 通过 `Weak<VmCore>` 捕获 VmCore（避免 `VmCore → heap → scanner → Arc<VmCore>` 循环引用），upgrade 失败时 silent skip。
 
@@ -873,7 +873,7 @@ const_str(module, idx):
          否则 module.func_index[ctor_name] | ctx.try_lookup_function(ctor_name)
             → 签名判定（不符则抛、不缓存）→ 写回 FnId
             | 都没有：判定缺失则抛，否则记 ctorless 标记
-4. 分配对象：MagrGC::alloc_instance 取一个清零的对象块（TypeDesc::object_bytes_len() 定尺），写对象头，
+4. 分配对象：Heap::alloc_instance 取一个清零的对象块（TypeDesc::object_bytes_len() 定尺），写对象头，
    泛型实例按实参改写型参字段（generic_field_zero_overrides），建完才发布（栈分支：OwnedObject::new_instance）
 5. if ctor: interp exec_function(ctor, [obj, ...args]) / JIT 已编译 → 原生（按 FnId 计数升层），否则 interp
    else:    skip ctor call（默认无参 ctor 语义；TypeChecker 已确保有显式 ctor 时 ctor_name 命中）
@@ -1461,7 +1461,7 @@ builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等
 - **`Value` 是 `Copy` 的 16B POD**（`#[repr(C, u8)]`，tag + 8B payload，`size_of::<Value>() == 16` 编译期断言）：
   clone = memcpy，`Vec<Value>` 无 Drop glue。瞬态变体（`Ref` / `PinnedView` / `StructRefHeap`）
   只带 `{idx, frame_id}` 句柄，载荷在 per-thread `transient_arena`。
-- **跨线程**：`Value` 与 `VmCore` 满足 `Send + Sync`（`gc/arc_heap_tests/send_sync.rs` 编译期断言）。
+- **跨线程**：`Value` 与 `VmCore` 满足 `Send + Sync`（`gc/heap_tests/send_sync.rs` 编译期断言）。
 
 表示细节、JIT 共享布局与 ABI 约束见 [object-abi.md](object-abi.md)。
 
@@ -1511,7 +1511,7 @@ ConstStr 索引相对自己 pool。合并时若不重映射，懒加载函数里
 
 ---
 
-## GC 子系统 —— MagrGC
+## GC 子系统 —— Heap
 
 详细 GC 设计（接口形状、phase 路线、`GcMode` opt-in 模式、增量 major、自定义
 allocator、分代 GC、记忆集、finalizer 契约、迭代规划等）已抽取到独立文档：
@@ -1520,7 +1520,7 @@ allocator、分代 GC、记忆集、finalizer 契约、迭代规划等）已抽�
 
 简要状态：
 
-- **核心 trait**：[`crate::gc::MagrGC`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs) ——
+- **核心 trait**：[`crate::gc::Heap`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs) ——
   对齐 [MMTk](https://www.mmtk.io/) `VMBinding` porting contract
 - **Backing**：[`VarRegion`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/var_region.rs) 变长块
   allocator（对象、数组、字符串、闭包各是一块）+ 8B 句柄（`ObjRef` / `ArrRef` / `VarGcRef`，标记指针指向块头）

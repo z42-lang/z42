@@ -1,576 +1,608 @@
-//! `MagrGC` —— z42 VM 的 GC 抽象接口（嵌入式宿主友好版）。
-//!
-//! 命名取自《银河系漫游指南》中的 **Magrathea** —— 那颗专门建造定制行星的传奇
-//! 世界。
-//!
-//! # 设计
-//!
-//! trait 形状对齐 [MMTk](https://www.mmtk.io/) 的 `VMBinding` porting contract
-//! —— OpenJDK / V8 / Julia / Ruby / RustPython 的事实标准 GC 抽象。把
-//! MMTk 拆分的 sub-trait（`ObjectModel` / `Scanning` / `Collection` /
-//! `ReferenceGlue` / ...）合到一个 trait 里按"能力组"分段，让 z42 体量下
-//! 接口更易读，未来如需拆 sub-trait 切割面清晰。
-//!
-//! # 能力组
-//!
-//! 1. **Allocation** —— 堆分配入口
-//! 2. **Roots** —— host-side 显式 pin/unpin + frame scope + GC-side scan
-//! 3. **Write barriers** —— 字段 / 数组元素写屏障（默认 no-op；generational
-//!    / 自定义堆 / MMTk 集成等后续迭代会重载，见 gc.md "GC 后续迭代规划" A3 / D1）
-//! 4. **Object Model** —— 对象尺寸 / 引用扫描 helper（用于 trace / snapshot）
-//! 5. **Collection control** —— collect / cycles / force / pause / resume
-//! 6. **Heap config** —— max_bytes / used_bytes
-//! 7. **Finalization** —— register / cancel finalizer
-//! 8. **Weak references** —— make / upgrade weak
-//! 9. **Event observers** —— add / remove observer + GcEvent
-//! 10. **Profiler** —— alloc sampler / heap snapshot / iterate live
-//! 11. **Stats** —— HeapStats 快照
-//!
-//! # Phase 路线
-//!
-//! 见 [`docs/internals/src/runtime/gc.md`](../../../../docs/internals/src/runtime/gc.md)
-//! "GC 子系统" 段。
+//! Concrete heap state, identity and GC concern modules.
 
+use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::object::{NativeData, TypeDesc, Value};
+use crate::object::{ScriptObject, Value};
+use crate::object::ArrayObj;
 
-pub use super::types::{
-    AllocKind, AllocSample, AllocSamplerFn, CollectStats, FinalizerFn, FrameMark,
-    GcEvent, GcHandleKind, GcKind, GcObserver, HeapSnapshot, HeapStats, ObjectStats,
-    ObserverId, RootHandle, SnapshotCoverage, WeakRef,
+use crate::object::header::obj_ref::{ObjRef, WeakObjRef};
+use crate::object::header::arr_ref::{ArrRef, WeakArrRef};
+use {
+    super::var_region::VarRegion,
+    crate::object::header::{BlockType, VarGcRef},
+};
+use super::types::{
+    AllocSamplerFn, GcHandleKind, GcObserver, HeapStats, ObserverId, RootHandle,
 };
 
-/// MagrGC —— z42 VM 的 GC 抽象接口（host-friendly）。
+// ── Handle table（reorganize-gc-stdlib）─────────────────────────
+
+/// One slot in [`HandleSlab`]. Strong slots store cloneable references that
+/// anchor their target across collection; weak slots store a `Weak<...>` that
+/// silently nulls out when the target drops elsewhere.
 ///
-/// # 实现契约
-///
-/// - `alloc_*` 返回的 `Value` 与对应 variant 一致（Object / Array）
-/// - 多次 `alloc_*` 返回的堆对象互相独立（`Rc::ptr_eq` 为 false）
-/// - `pin_root` 返回的 `RootHandle` 在该 heap 内唯一，且 `unpin_root(h)` 后该
-///   handle 不再有效
-/// - `for_each_root` 必须遍历**所有当前活跃**的 pinned root（含 frame 内）
-/// - `enter_frame` 与 `leave_frame` 必须严格配对（栈式）
-/// - 实现自负 `&self` 接口背后的内部可变性
-pub trait MagrGC: std::fmt::Debug + Send + Sync {
-    // ── 1. Allocation ────────────────────────────────────────────────────────
+/// `Strong(Atomic)` covers `AllocStrong` for atomic values (`I64` / `Str` / ...)
+/// — not Rc-backed, so we just hold the cloned `Value`. `AllocWeak` rejects
+/// atomic values at the `handle_alloc` layer (returns slot 0).
+#[derive(Clone)]
+enum HandleEntry {
+    StrongObject(ObjRef),
+    StrongArray(ArrRef),
+    /// Atomic Value clone (I64 / F64 / Str / Bool / Char / FuncRef / ...).
+    /// Strong-only — AllocWeak on atomics rejects at the alloc layer.
+    StrongAtomic(Value),
+    /// Object model R6 / R9: upgraded by the heap (`Heap::upgrade_weak_object` /
+    /// `upgrade_weak_array`), which reads the chunk epoch the reference recorded.
+    WeakObject(WeakObjRef),
+    WeakArray(WeakArrRef),
+}
 
-    /// 分配一个 `ScriptObject` 并以 `Value::Object` 返回。
-    /// 泛型实例的类型实参由调用方随后经 `ScriptObject::install_type_args` 写入（驻留句柄，
-    /// 见 `object/types/type_args.rs`）；本接口不带实参。
-    fn alloc_object(
-        &self,
-        type_desc: Arc<TypeDesc>,
-        slots: Vec<Value>,
-        native: NativeData,
-    ) -> Value;
-
-    /// 分配一个**在堆外建好**的对象（`OwnedObject`，对象模型 R4 / R6）：发布之后对象只经 `&self`
-    /// 访问、不再能改 `NativeData` / 泛型实参（没有每对象锁），所以要先设好这些的冷路径（反射的
-    /// `Activator.CreateInstance`、测试）在本地建好整个对象，再交给 heap —— heap 把对象头与字段
-    /// 拷进一个新块。热路径 `ObjNew` 走 [`MagrGC::alloc_instance`]，直接在块里建。
-    fn alloc_script_object(&self, obj: crate::object::OwnedObject) -> Value;
-
-    /// `ObjNew` 的堆分支（对象模型 R6）：`type_desc` 的新实例（字段清零）加上实例的泛型一步
-    /// （`ScriptObject::install_type_args`），在对象自己的块里建好再发布。strict OOM 越限返 `Null`。
-    fn alloc_instance(&self, type_desc: Arc<TypeDesc>, type_args: crate::object::TypeArgs) -> Value;
-
-    /// unify Phase 2 R3（装箱统一）：装箱一个基元（整数）成堆 `ScriptObject` + 引用身份。
-    /// 裸标量 LE 字节存 `struct_bytes`（宽度由调用方按 wrapper 标量宽度定尺，与 struct 装箱完全同构），
-    /// **不**走 `type_desc.inline_regions()` 定尺——wrapper 是 phantom struct（零字段/size 0），其
-    /// emitted struct_layout 不动（零格式 bump）。默认实现回落 `alloc_object`（测试 mock 不装箱基元，无碍）。
-    fn alloc_boxed_prim(&self, type_desc: Arc<TypeDesc>, _struct_bytes: Box<[u8]>) -> Value {
-        self.alloc_object(type_desc, Vec::new(), NativeData::None)
-    }
-
-    /// 分配一个 `Vec<Value>` 数组并以 `Value::Array` 返回（元素类型未知，MIXED）。
-    fn alloc_array(&self, elems: Vec<Value>) -> Value {
-        crate::object::ArrayObj::alloc_untyped(self.as_dyn(), elems)
-    }
-
-    /// add-reflection-array-element-type: 分配携带元素类型 FQ 名的数组（来自
-    /// `ArrayNew` / `ArrayNewLit`），使 `arr.GetType().GetElementType()` 不擦除。
-    fn alloc_array_typed(&self, element_type: &str, elems: Vec<Value>) -> Value {
-        crate::object::ArrayObj::alloc_typed(self.as_dyn(), element_type, elems)
-    }
-
-    /// packed-primitive-arrays Step 3: allocate a packed `byte[]` directly from
-    /// an owned `Vec<u8>` (FFI return path — no per-byte boxing).
-    fn alloc_bytes(&self, bytes: Vec<u8>) -> Value {
-        crate::object::ArrayObj::alloc_bytes(self.as_dyn(), &bytes)
-    }
-
-    /// Object model R9 — the one array allocation path (`object::ArrayObj`'s constructors
-    /// funnel here): a block for `len` elements of `desc` (`layout`: a value-struct array's element
-    /// layout, owned by the array), zeroed — every mode's default — with the descriptor installed;
-    /// `init` writes the elements into the still unpublished array; then the array is published
-    /// and the allocation recorded. `Value::Null` when the heap refuses it (strict OOM, or a
-    /// payload past the block size limit).
-    fn alloc_array_with(
-        &self,
-        desc: &'static crate::object::ArrayDesc,
-        len: usize,
-        layout: Option<Arc<crate::object::StructTypeLayout>>,
-        init: &mut dyn FnMut(&crate::object::ArrayObj),
-    ) -> Value;
-
-    /// `self` as a trait object (the array constructors take `&dyn MagrGC`).
-    fn as_dyn(&self) -> &dyn MagrGC;
-
-    /// fix-wasm-string-ops: a process-unique, monotonically-increasing identifier for this
-    /// heap's address space. Never reused across heaps (even if a new heap's backing memory is
-    /// malloc-recycled at an old heap's address). Address-keyed caches with a lifetime longer
-    /// than one heap (`object::string::str_meta`) tag their entries with this epoch and invalidate on
-    /// change, so a fresh block (generation 0) at a recycled address can't false-hit a stale
-    /// gen-0 entry from a torn-down heap. Mock/test heaps return `0` (they never churn heaps).
-    fn heap_epoch(&self) -> u64 {
-        0
-    }
-
-    /// D7: the `(chunk, epoch)` identity of the variable-length chunk holding `b` — the stamp a
-    /// weak reference records (`VarRegion::chunk_epoch`: it moves when the chunk is pooled or
-    /// freed) — or `None` for a block in no chunk of this heap (a leaked / detached block, never
-    /// freed). Lets an address-keyed cache that outlives a block (`object::string::str_meta`) tell,
-    /// before reading the block's header, whether the memory under it went back to the
-    /// allocator. Takes the region lock. Mock heaps have no region: `None`.
-    fn var_chunk_stamp(&self, b: crate::object::header::VarGcRef) -> Option<(u32, u32)> {
-        let _ = b;
-        None
-    }
-
-    /// D7: whether `chunk` still carries `epoch` (a stamp from [`Self::var_chunk_stamp`]) —
-    /// `false` once the chunk was pooled or freed. Takes the region lock.
-    fn var_chunk_unchanged(&self, chunk: u32, epoch: u32) -> bool {
-        let _ = (chunk, epoch);
-        false
-    }
-
-    /// unify-gc-heap PR-2: allocate a capturing closure's [`ClosureData`](crate::object::ClosureData)
-    /// into the GC variable-length region and return a `Value::Closure` handle. Default boxes it
-    /// for mock heaps (no variable-length region); `ArcMagrGC` overrides to region-alloc in place.
-    fn alloc_closure(&self, data: crate::object::ClosureData) -> Value {
-        // Mock/default heaps have no variable-length region — this default is unused in the real
-        // VM (ArcMagrGC overrides). Constructing a closure without a region is impossible, so the
-        // default drops the data and yields Null (mock heaps never build closures).
-        let _ = data;
-        Value::Null
-    }
-
-    /// unify-gc-heap PR-4: allocate an immutable UTF-8 string into the GC
-    /// variable-length region (`BlockType::Str`) and return a thin [`Str`] handle.
-    /// The primary allocation entry for `Value::Str` (reached via the ambient heap
-    /// from `Str::new`/`.into()`). The default falls back to a standalone leaked
-    /// block for mock heaps with no variable-length region (test doubles never churn
-    /// enough for the leak to matter); `ArcMagrGC` overrides to region-alloc in place.
-    fn alloc_str(&self, s: &str) -> crate::object::string::vstr::Str {
-        crate::object::string::vstr::Str::new_leaked(s)
-    }
-
-    /// fuse-str-concat-alloc: allocate a fresh GC string that is the
-    /// concatenation `a ++ b`, sizing the `BlockType::Str` block to
-    /// `a.len() + b.len()` and filling it by copying both segments directly.
-    /// This fuses what `alloc_str(&format!("{a}{b}"))` did in two heap
-    /// allocations (the intermediate `String` + the GC block) into one — the
-    /// hot path for the `StrConcat` IR op (string `+`) and `Std.String.Concat`.
-    /// The default builds the `String` and falls back to a leaked block (mock
-    /// heaps); `ArcMagrGC` overrides to region-alloc the fused block in place.
-    fn alloc_str_concat2(&self, a: &str, b: &str) -> crate::object::string::vstr::Str {
-        let mut s = String::with_capacity(a.len() + b.len());
-        s.push_str(a);
-        s.push_str(b);
-        crate::object::string::vstr::Str::new_leaked(&s)
-    }
-
-    // ── 2. Roots ─────────────────────────────────────────────────────────────
-
-    /// 注册一个 **external root scanner** 闭包 —— GC mark 阶段在扫完 pinned
-    /// root 后调用此闭包，让宿主（典型情况是 `VmContext` / `VmCore`）暴露自己
-    /// 持有的、不通过 GC handle 持有的 `Value`（如 `static_fields` 槽位、
-    /// pending exception、frame regs 等）。
-    ///
-    /// **add-multithreading-foundation Phase 2.2 **：本方法从
-    /// `ArcMagrGC` 专属升级到 trait 接口，因为 `heap` 字段在本阶段移入 VmCore
-    /// 后，scanner 必须能通过 `Box<dyn MagrGC>` 安装（VmCore 构造完毕拿到
-    /// `Weak<VmCore>` 再 install）。
-    ///
-    /// 同一 backend 上重复调用**覆盖**之前的 scanner（仅一个 active 闭包）。
-    /// 默认实现 no-op（适合不参与 cycle / external-root 的 backend；当前
-    /// 仅 `ArcMagrGC` 重载）。
-    fn set_external_root_scanner(&self, _scanner: super::to_vm::ExternalRootScanner) {}
-
-    /// **add-lazy-context-unload **: wire the collectible-context
-    /// reclaimer hook (drives `AssemblyLoadContext` unload reclamation on major
-    /// GC). Default no-op; only `ArcMagrGC` overrides.
-    fn set_context_reclaimer(&self, _hook: super::to_vm::ContextReclaimHook) {}
-
-    /// **add-heap-retention-diagnostics **: wire the categorized
-    /// root scanner (for retention-query L2). Default no-op; `ArcMagrGC` overrides.
-    fn set_categorized_root_scanner(&self, _scanner: super::arc_heap::CategorizedRootScanner) {}
-
-    /// **add-heap-retention-diagnostics**: L1 direct referrers of a heap object
-    /// (by data ptr). Default empty (backends without a reverse walk).
-    fn retention_direct_referrers(&self, _target: usize) -> Vec<super::retention::RetainerInfo> {
-        Vec::new()
-    }
-
-    /// **add-heap-retention-diagnostics**: L2 retaining roots of a heap object.
-    /// Default empty.
-    fn retention_roots(&self, _target: usize) -> Vec<super::retention::RootInfo> {
-        Vec::new()
-    }
-
-    /// **add-gc-safepoint-auto-threshold **: register the external
-    /// "needs collect" flag that turns an allocator pressure-trip into a
-    /// *deferred*, safepoint-coordinated collect rather than an inline one.
-    ///
-    /// # Auto-collect protocol (three states)
-    ///
-    /// The allocator's [`maybe_auto_collect`](crate::gc::arc_heap) decides a
-    /// collect is warranted when heap-used crosses **`gc_near_limit_ratio`**
-    /// (default 0.90) of the max-bytes limit *and* has grown by at least
-    /// **`gc_throttle_ratio`** (default 0.10) of the limit since the last
-    /// auto-collect (both `Z42_GC_*` knobs — see `config.rs`). What happens
-    /// next depends on whether this flag is wired:
-    ///
-    /// 1. **Register** — `VmCore::new` calls this once after construction to
-    ///    hand the heap an `Arc<AtomicBool>` shared with every `VmContext`.
-    ///    A backend that ignores allocation thresholds (mock heaps) or needs
-    ///    no cross-thread coordination keeps the default no-op and stays in
-    ///    state 3 permanently.
-    /// 2. **Defer** (flag wired, the production path) — `maybe_auto_collect`
-    ///    only does `flag.store(true, Release)` (and pokes every mutator's
-    ///    safepoint, see [`Self::set_safepoint_poke`]) and returns; it does **not**
-    ///    collect on the allocating thread. The next
-    ///    [`check_safepoint`](crate::vm::threads::safepoint::check_safepoint) on any
-    ///    mutator that sees the flag runs a stop-the-world collect under
-    ///    [`request_gc_pause`](crate::vm::threads::safepoint::request_gc_pause), so the
-    ///    scanner never races a mutator's live registers. The flag is **sticky**:
-    ///    only the thread that wins the collector role clears it, once it holds
-    ///    the pause — a thread that loses the race leaves it for the next safepoint.
-    /// 3. **Fallback** (flag unwired) — `maybe_auto_collect` collects inline
-    ///    via `collect_cycles()`. This preserves single-threaded behaviour for
-    ///    GC unit tests that construct `ArcMagrGC::default()` without a VmCore.
-    ///
-    /// **Who checks / when**: the flag is *set* on the allocating thread at
-    /// alloc time; it is *checked and cleared* by mutator threads at their
-    /// throttled safepoint polls (function entry / back-edge / Call return).
-    /// A set flag never blocks the allocator — collection latency is bounded
-    /// by the safepoint throttle, not by allocation.
-    fn set_external_needs_collect_flag(&self, _flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {}
-
-    /// Wire the callback that sends every mutator's **next** safepoint check down the slow path
-    /// (`VmCore::poke_safepoints`). Called alongside [`Self::set_external_needs_collect_flag`];
-    /// the heap runs it whenever it raises that flag, so the collection starts within one check
-    /// of the request instead of up to `Z42_SAFEPOINT_THROTTLE` of them. Default: no-op.
-    fn set_safepoint_poke(&self, _poke: std::sync::Arc<dyn Fn() + Send + Sync>) {}
-
-    /// 把一个 value 加入 root set，host 持有返回的 `RootHandle` 期间该值
-    /// 不会被 GC 回收。等价于 V8 `Persistent<T>` / .NET `GCHandle.Alloc(Normal)`。
-    fn pin_root(&self, value: Value) -> RootHandle;
-
-    /// 释放 `pin_root` 返回的 handle。释放后的 handle 不应再次使用。
-    fn unpin_root(&self, handle: RootHandle);
-
-    /// 进入一个 root scope frame。同 frame 内所有 `pin_root` 在
-    /// `leave_frame(mark)` 时自动 unpin（无需逐个调 `unpin_root`）。
-    fn enter_frame(&self) -> FrameMark;
-
-    /// 离开 frame，丢弃自 `enter_frame` 起 pin 的所有 root。
-    fn leave_frame(&self, mark: FrameMark);
-
-    /// 遍历当前所有活跃 root（`pin_root` + frame pins）。GC 实现 trace 时使用。
-    fn for_each_root(&self, visitor: &mut dyn FnMut(&Value));
-
-    // ── 3. Write barriers ────────────────────────────────────────────────────
-
-    /// 字段写屏障：当 `owner` 对象的第 `slot` 字段被赋为 `new` 时通知 GC。
-    ///
-    /// **Caller 契约 (add-write-barriers)**: callers (interp /
-    /// JIT FieldSet path) MUST invoke this exactly when `new.is_heap_ref()
-    /// == true`. Primitive writes (`I64 / F64 / Bool / Char / Str / Null /
-    /// FuncRef / PinnedView / Ref::Stack`) skip the call —
-    /// they neither create cross-region nor cross-generation references.
-    ///
-    /// **Override 契约**: implementations may `debug_assert!(new.is_heap_ref())`
-    /// to detect contract violations. Phase 1 STW mark-sweep default is
-    /// no-op; `ArcMagrGC` overrides it with generational card-marking.
-    ///
-    /// `slot` only identifies the written cell for the test observer (callers pass its byte
-    /// offset in the owner's field area); the barrier itself looks at `owner` and `new`.
-    #[allow(unused_variables)]
-    fn write_barrier_field(&self, owner: &Value, slot: usize, new: &Value) {}
-
-    /// 数组元素写屏障；契约同 `write_barrier_field`（call-site filter +
-    /// post-write + lock released before call）。
-    #[allow(unused_variables)]
-    fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value) {}
-
-    /// The two bytes a JIT-compiled reference store reads to decide, without a call, whether
-    /// [`Self::write_barrier_field`] could do anything: the GC mode (`GcMode as u8`) and the
-    /// promotion age (owners younger than it never need a barrier). Both live as long as the
-    /// heap. `None` (the default) keeps every compiled reference store on the helper.
-    #[cfg(feature = "jit")]
-    fn jit_barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
-        None
-    }
-
-    /// Whether `owner` (an object or an array) is in the remembered set (tests only).
-    #[cfg(test)]
-    fn is_remembered_for_test(&self, _owner: &Value) -> bool { false }
-
-    /// Re-derive the generational invariant (every old owner holding a young reference is in the
-    /// remembered set) and report the owners that break it — i.e. reference stores that skipped
-    /// the write barrier. `Ok` for non-generational backends. O(old heap): for tests and the
-    /// `Z42_GC_VERIFY_CARDS` debug knob, never a hot path.
-    fn verify_card_invariant(&self) -> Result<(), String> { Ok(()) }
-
-    // ── 4. Object Model ──────────────────────────────────────────────────────
-
-    /// 估计对象的浅尺寸（不递归 nested values）。Phase 1 实现给出 enum tag +
-    /// 容器自身的合理估计；Phase 3 trace 时会被精确化。
-    fn object_size_bytes(&self, value: &Value) -> usize;
-
-    /// 访问 `value` 中所有引用类型的内嵌 Value。
-    /// - `Value::Object` → 每个 slot
-    /// - `Value::Array`  → 每个元素
-    /// - 原子值（I64/F64/Bool/Char/Str/Null）→ 不调 visitor
-    fn scan_object_refs(&self, value: &Value, visitor: &mut dyn FnMut(&Value));
-
-    // ── 5. Collection control ────────────────────────────────────────────────
-
-    /// 读取当前 GC 模式（STW mark-sweep / generational mark-sweep）。
-    ///
-    /// 默认实现返回 `GcMode::StwMarkSweep` —— 非 Arc backing 的 heap impl
-    /// 不必支持模式切换，trait 默认让它们自动落到 STW（兼容）。
-    fn mode(&self) -> super::GcMode { super::GcMode::StwMarkSweep }
-
-    /// 设置 GC 模式。
-    ///
-    /// 默认实现 panic —— 只有支持多模式的 backing（当前仅 `ArcMagrGC`）
-    /// 真实重载。模式切换在 collect 进行中不生效（下次 collect 才采用
-    /// 新模式），由实现保证。
-    fn set_mode(&self, _mode: super::GcMode) {
-        panic!("set_mode not supported by this MagrGC impl");
-    }
-
-    /// **add-custom-allocator P2 **: explicit finalize.
-    /// User-facing entry point via `Std.GC.Finalize(x)` z42 builtin.
-    /// Fires `value`'s registered finalizer immediately (one-shot)
-    /// and tombstones the slot so future strong references panic on
-    /// borrow + future weak references upgrade to None.
-    ///
-    /// Returns `true` if a finalizer was invoked (object had one
-    /// registered and was alive at time of call), `false` otherwise
-    /// (no-finalizer / not heap-ref / already tombstoned).
-    ///
-    /// Default impl returns false — non-ArcMagrGC backends without
-    /// region/tombstone semantics don't support prompt finalization.
-    fn finalize_now(&self, _value: &crate::object::Value) -> bool {
-        false
-    }
-
-    /// 触发完整 GC（stop-the-world tracing）。Phase 1 默认 no-op。
-    fn collect(&self) {}
-
-    /// 触发环引用检测与回收。Phase 1 默认 no-op（仅递增 stats counter
-    /// 与发 GcEvent）。
-    fn collect_cycles(&self) {}
-
-    /// VmContext-aware collect entry point. Production callers (safepoint
-    /// slow-path + the `Std.GC.Collect()` builtin) call this so the heap
-    /// takes the pause (`request_gc_pause`) itself and decides what the
-    /// pause does — a one-shot STW major, or (generational) a minor, an
-    /// incremental major slice or a one-shot major.
-    ///
-    /// Default implementation falls back to the STW path: caller
-    /// acquires its own pause (via `request_gc_pause`) and calls
-    /// `collect_cycles()`. ArcMagrGC overrides to dispatch on `mode()`.
-    fn collect_cycles_with_vm(&self, vm: &dyn crate::gc::to_vm::GcToVm) {
-        // Default: STW path. ArcMagrGC overrides.
-        if let Some(_pause) = vm.suspend_all() {
-            self.collect_cycles();
+impl HandleEntry {
+    fn kind(&self) -> GcHandleKind {
+        match self {
+            HandleEntry::StrongObject(_)
+            | HandleEntry::StrongArray(_)
+            | HandleEntry::StrongAtomic(_) => GcHandleKind::Strong,
+            HandleEntry::WeakObject(_) | HandleEntry::WeakArray(_) => GcHandleKind::Weak,
         }
     }
 
-    /// 强制立即回收，返回本次 GC 的统计。返回 `kind: None` 表示被
-    /// `pause()` 跳过。
-    fn force_collect(&self) -> CollectStats;
+    /// Read the slot's current target; weak slots return None once collected. `heap` upgrades
+    /// a weak object reference (it needs the variable-length region — call without `inner`
+    /// held).
+    fn target(&self, heap: &Heap) -> Option<Value> {
+        match self {
+            HandleEntry::StrongObject(g) => Some(Value::Object(*g)),
+            HandleEntry::StrongArray(g)  => Some(Value::Array(*g)),
+            HandleEntry::StrongAtomic(v) => Some(v.clone()),
+            HandleEntry::WeakObject(w)   => heap.upgrade_weak_object(w).map(Value::Object),
+            HandleEntry::WeakArray(w)    => heap.upgrade_weak_array(w).map(Value::Array),
+        }
+    }
+}
 
-    /// 立即做一次**全堆**回收：不论模式，返回时所有不可达对象都已回收（分代下是一次 major，
-    /// 而 `force_collect` 在分代下只是 minor，够不着已晋升的对象）。`GC.ForceCollect()` 与
-    /// retention 诊断走这里。`pause()` 期间跳过，返回 `kind: None`。
-    fn collect_full(&self) -> CollectStats {
-        self.force_collect()
+/// `Vec<Option<HandleEntry>>` slab + `Vec<u64>` free list. Slot id 0 is reserved
+/// as the "unallocated" sentinel — `entries[0]` is never read or written.
+#[derive(Default)]
+struct HandleSlab {
+    entries:   Vec<Option<HandleEntry>>,
+    free_list: Vec<u64>,
+}
+
+impl HandleSlab {
+    fn alloc(&mut self, entry: HandleEntry) -> u64 {
+        // Lazy-init: reserve index 0 as the unallocated sentinel on first use.
+        if self.entries.is_empty() {
+            self.entries.push(None);
+        }
+        if let Some(slot) = self.free_list.pop() {
+            self.entries[slot as usize] = Some(entry);
+            slot
+        } else {
+            let slot = self.entries.len() as u64;
+            self.entries.push(Some(entry));
+            slot
+        }
     }
 
-    /// 暂停 GC（关键区使用，如 host 在采样热路径时不希望 GC 介入）。
-    /// 暂停期间 `force_collect` / `collect_cycles` 跳过实际工作但仍返回
-    /// 一致结果。
-    fn pause(&self);
-
-    /// 恢复 GC 工作。`pause` / `resume` 嵌套调用，需配对。
-    fn resume(&self);
-
-    // ── 6. Heap config ───────────────────────────────────────────────────────
-
-    /// 设置堆字节上限（`None` = 不限制）。超过 75% 触发 `AllocationPressure`，
-    /// 超过 90% 触发 `NearHeapLimit`，越界触发 `OutOfMemory`。
-    /// 默认情况下（strict_oom=false）alloc 仍然成功，仅通知；启用
-    /// `set_strict_oom(true)` 后 alloc 越界返回 `Value::Null` 不实际占用 heap。
-    fn set_max_heap_bytes(&self, max: Option<u64>);
-
-    /// 已用字节数（同 `stats().used_bytes`）。
-    fn used_bytes(&self) -> u64;
-
-    /// 启用 / 关闭 **strict OOM 模式**。Phase 3-OOM。
-    /// 默认 false（行为兼容历史：alloc 越界仅 fire 事件不拒绝）。
-    /// 启用后：`alloc_*` 越过 `max_heap_bytes` 时返回 `Value::Null`、不入 registry、
-    /// 不 bump used_bytes，仍 fire `OutOfMemory` 事件让 observer 感知。
-    /// 调用方（script）见到 Null 通常会在后续访问产生 NullReferenceException；
-    /// host 可通过 OOM observer 提前感知并主动管理（kill VM / 重置 heap 等）。
-    fn set_strict_oom(&self, _enabled: bool) {}
-
-    /// **add-gc-tlab (stage 2)**: retire the **calling thread's**
-    /// TLAB — merge every borrowed chunk's filled prefix back into the shared
-    /// region and drop the claims, leaving the thread's TLAB unbound.
+    /// Every **strong** slot's target, as mark roots.
     ///
-    /// MUST be called on the owning thread *before* it becomes GC-visible in a
-    /// consistent state: at a safepoint park (before signalling parked), before
-    /// a collector starts marking, and at `VmContext::drop`. After it returns,
-    /// the region holds no chunk borrowed by this thread, so a collector sees a
-    /// fully-merged heap (design D5). Default no-op for heaps without a TLAB.
-    fn retire_thread_tlab(&self) {}
-
-    /// Park the calling thread's TLAB for a blocking native call (`NativeParkGuard`):
-    /// instead of retiring it — which would burn the half-filled chunks, one per call — set
-    /// its claims aside in `slot`. A collector that begins while the thread is parked
-    /// retires them ([`Self::retire_parked_tlab`]); otherwise the thread takes them back on
-    /// unpark ([`Self::unpark_thread_tlab`]) and keeps filling. Default: plain retire.
-    fn park_thread_tlab(&self, _slot: &crate::gc::tlab::ParkedTlabSlot) {
-        self.retire_thread_tlab()
+    /// **fix-strong-handles-are-not-roots **: this is what makes
+    /// `GCHandle.AllocStrong` mean anything. `handle_slab` was reachable only from the four
+    /// `handle_*` methods in `heap/interface.rs`; **no mark phase ever scanned it**, so a
+    /// strong handle did not anchor its target and the only observable difference from a weak
+    /// one was whether `downgrade` was possible. Weak slots are deliberately absent — a weak
+    /// handle must *not* keep its target alive.
+    fn strong_targets(&self) -> impl Iterator<Item = Value> + '_ {
+        self.entries.iter().flatten().filter_map(|e| match e {
+            HandleEntry::StrongObject(g) => Some(Value::Object(*g)),
+            HandleEntry::StrongArray(g)  => Some(Value::Array(*g)),
+            HandleEntry::StrongAtomic(v) => Some(v.clone()),
+            HandleEntry::WeakObject(_) | HandleEntry::WeakArray(_) => None,
+        })
     }
 
-    /// Take the claims set aside by [`Self::park_thread_tlab`] back into the calling
-    /// thread's TLAB (or retire them, if the TLAB got bound meanwhile).
-    fn unpark_thread_tlab(&self, _slot: &crate::gc::tlab::ParkedTlabSlot) {}
+    fn get(&self, slot: u64) -> Option<&HandleEntry> {
+        self.entries.get(slot as usize).and_then(|e| e.as_ref())
+    }
 
-    /// Collector side: retire a native-parked thread's set-aside claims into the regions
-    /// (inside a pause, before marking — the collector must see no borrowed chunk).
-    fn retire_parked_tlab(&self, _slot: &crate::gc::tlab::ParkedTlabSlot) {}
+    fn free(&mut self, slot: u64) {
+        if slot == 0 { return; }
+        let idx = slot as usize;
+        if idx >= self.entries.len() { return; }
+        if self.entries[idx].take().is_some() {
+            self.free_list.push(slot);
+        }
+    }
+}
 
-    // ── 7. Finalization ──────────────────────────────────────────────────────
+// ── Internal state ───────────────────────────────────────────────────────────
 
-    /// 注册一个 finalizer，当 `value` 不可达时触发。
+#[derive(Default)]
+struct RcHeapInner {
+    stats:             HeapStats,
+    roots:             HashMap<RootHandle, Value>,
+    /// 每个 frame 的 pin 列表，用于 leave_frame 时整批 unpin。
+    frame_pins:        Vec<Vec<RootHandle>>,
+    observers:         Vec<(ObserverId, Arc<dyn GcObserver>)>,
+    alloc_sampler:     Option<AllocSamplerFn>,
+    pause_count:       u32,
+    next_root_id:      u64,
+    next_observer_id:  u64,
+    /// 防止 NearHeapLimit 事件刷屏（Phase 3d 后 collect_cycles 完成且使用降到
+    /// 阈值以下时会自动 reset，下次跨阈值能再发事件）。
+    near_limit_warned: bool,
+    /// The authoritative liveness store is `Heap.region_var` (every object, array, string
+    /// and closure is one of its blocks); sweep and iteration walk it directly.
+    /// **Phase 3d**: 上次 auto-collect 触发时的 `used_bytes`，用于 throttle
+    /// 自动 collect —— 仅当当前 used 距上次增长 >= 10% limit 才再次自动触发。
+    last_auto_collect_used: u64,
+    /// add-gc-runtime-knobs : `stats.reclaimed_bytes` as of the last
+    /// auto-collect trip. The delta since tells `maybe_auto_collect` whether the
+    /// previous collection actually bought room — see `auto_collect.rs`.
+    last_auto_collect_reclaimed: u64,
+    /// Multiplier on the auto-collect growth gate. Doubles on each unproductive
+    /// collection (capped), resets to 1 on a productive one, so an over-budget
+    /// live set stops re-collecting forever.
+    auto_collect_backoff: u32,
+    /// The occupied footprint (`gc::footprint`) at the last auto-collect trip, and whether that
+    /// trip was the soft cap's (near-limit). A collection the cap asked for is judged by whether
+    /// it held the footprint, not by the live bytes it reclaimed — see `auto_collect.rs`.
+    last_auto_collect_occupied: u64,
+    last_trip_for_cap: bool,
+    /// **Phase 3-OOM**: strict OOM 模式开关。true 时 alloc 越界返回 Value::Null
+    /// 不入 registry / 不 bump used_bytes（撤销分配）；false（默认）兼容历史
+    /// 行为：alloc 仍成功，只 fire 事件。
+    strict_oom: bool,
+    /// **reorganize-gc-stdlib **: GCHandle slab。Slot 0 reserved
+    /// 作"未分配" sentinel；其他 slot 由 `Std.GCHandle._slot: long` 引用。
+    handle_slab: HandleSlab,
+    // **Phase 3e**: finalizers 不再集中存 HashMap；改存到每个 GcAllocation 的
+    // finalizer Cell 上。Drop 时自动 take + fire（含 cycle 断环后 alive_vec
+    // drop 链）。register_finalizer / cancel_finalizer 走 ArrRef 方法。
+    // finalizers_pending 由 stats() 即时遍历 registry 重算。
+
+    /// **add-gc-softref **: registry of all active soft
+    /// references. Populated by `register_soft_ref`; entries are removed
+    /// on `unregister_soft_ref`. The revive pass (between mark + sweep)
+    /// iterates this to re-mark alive targets when heap pressure is below
+    /// the soft threshold.
+    soft_registry: super::soft_registry::SoftRegistry,
+    /// Object model R6 / R9: finalizers registered on objects and arrays, keyed by block-header
+    /// address. The block carries `SIDE_BIT`, so its death reaches the heap through the region's
+    /// flagged-dead list (`Heap::process_flagged_dead`), which fires and removes the entry.
+    obj_finalizers: HashMap<usize, super::types::FinalizerFn>,
+}
+
+impl std::fmt::Debug for RcHeapInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RcHeapInner")
+            .field("stats",             &self.stats)
+            .field("roots_count",       &self.roots.len())
+            .field("frame_count",       &self.frame_pins.len())
+            .field("observers_count",   &self.observers.len())
+            .field("alloc_sampler",     &self.alloc_sampler.is_some())
+            .field("pause_count",       &self.pause_count)
+            .field("near_limit_warned", &self.near_limit_warned)
+            .field("last_auto_collect_used", &self.last_auto_collect_used)
+            .field("auto_collect_backoff", &self.auto_collect_backoff)
+            .finish()
+    }
+}
+
+// ── Heap ─────────────────────────────────────────────────────────────────
+
+use super::to_vm::{ContextReclaimHook, ExternalRootScanner};
+
+/// **add-heap-retention-diagnostics **: like `ExternalRootScanner`
+/// but yields each root **with its category** (`RootKind`). Used only by the
+/// on-demand retention query (`retention_*`) to report retaining roots at the
+/// category level — NOT on the mark hot path (mark uses the anonymous scanner).
+pub type CategorizedRootScanner =
+    Box<dyn Fn(&mut dyn FnMut(&Value, super::retention::RootKind)) + Send + Sync>;
+
+/// **add-heap-retention-diagnostics **: the heap identity (data ptr
+/// as usize) of a heap-ref `Value`, or `None` for primitives / stack refs. Used
+/// to key the reverse reference graph. Mirrors `mark_if_unmarked`'s variant set.
+fn value_heap_ptr(v: &Value) -> Option<usize> {
+    match v {
+        // Object model R6: the header address, taken from the handle (thin, whole-block provenance).
+        Value::Object(gc) => Some(ObjRef::as_ptr(gc) as usize),
+        // add-boxed-struct-identity (P4b): boxed struct is a heap object (an object block).
+        Value::BoxedStruct(gc) => Some(ObjRef::as_ptr(gc) as usize),
+        // Object model R9: an array is a block too — the header address.
+        Value::Array(gc) => Some(ArrRef::as_ptr(gc) as usize),
+        // unify-gc-heap PR-2: the closure is itself a heap object (region_var block) — its own
+        // block address is its identity.
+        Value::Closure(c) => Some(c.addr()),
+        // unify-gc-heap PR-4: strings are region_var blocks now — the block header address is
+        // their heap identity. (`FuncRef` is a `FnId` since P1-2 PR 8 — no heap identity.)
+        Value::Str(s) => Some(s.as_ptr() as usize),
+        // make-value-copy: a `Ref` handle has no stable heap identity of its own (its
+        // payload lives in the transient arena); like `StructRef`/`StackObject` → None.
+        _ => None,
+    }
+}
+
+/// The payload finalizer injected into the variable-length region (which stays a pure byte
+/// allocator with no `object` dependency), dispatched by block type, and the mask of the
+/// block types it runs for (`drop_type_bit`) — the region checks the mask before the indirect call,
+/// so a reclaimed POD block costs one branch:
+///
+/// - `Object` — the header owns an `Arc<TypeDesc>` and, for a native-backed object, the extras box
+///   (object model R6 / R8);
+/// - `ArrayStruct` — a value-struct array owns its element layout (`Arc<StructTypeLayout>`, the
+///   payload's first word; object model R9);
+/// - `ArrayValue` — `Value`s, which own nothing while `Value: Copy` (`needs_drop` keeps the arm
+///   out of the mask; it comes back on its own the day a droppable variant joins `Value`);
+/// - every other block (strings, closures, packed / REF / MIXED arrays) is POD.
+fn var_payload_drop_glue() -> Option<(crate::object::header::PayloadDropGlue, u8)> {
+    use crate::object::header::drop_type_bit;
+    let mut types = drop_type_bit(BlockType::Object) | drop_type_bit(BlockType::ArrayStruct);
+    if std::mem::needs_drop::<Value>() {
+        types |= drop_type_bit(BlockType::ArrayValue);
+    }
+    Some((var_drop_glue as crate::object::header::PayloadDropGlue, types))
+}
+
+/// # Safety
+/// Called once per block reclaim with this block's header (whole-block provenance) and its
+/// initialized `size`-byte payload (upheld by `VarRegion`).
+unsafe fn var_drop_glue(bt: BlockType, header: std::ptr::NonNull<crate::object::header::GcBlockHeader>, size: usize) -> u64 {
+    match bt {
+        BlockType::Object => {
+            // A block whose type word was never written (an allocation refunded before
+            // construction) owns nothing; an installed `Arc` is never null.
+            // SAFETY: `header` is this block's header (whole-block provenance, from the region).
+            if unsafe { header.as_ref() }.kind_word().is_null() {
+                return 0;
+            }
+            // SAFETY: `header` / `size` are this block's (whole-block provenance, from the region).
+            let obj = unsafe { ScriptObject::from_block(header.cast(), size) };
+            // SAFETY: a constructed object, dropped exactly once (the region calls the glue once
+            // per reclaim); the extras box size is read before it is freed. The kind word is
+            // cleared behind it, so a later occupant of the slot finds it null.
+            unsafe {
+                let freed = ScriptObject::destroy(obj);
+                header.as_ref().clear_kind_word();
+                freed
+            }
+        }
+        BlockType::ArrayStruct => {
+            // SAFETY: as above; a STRUCT array's layout word is null until installed.
+            unsafe {
+                if header.as_ref().kind_word().is_null() {
+                    return 0;
+                }
+                ArrayObj::destroy_struct(ArrayObj::from_block(header.cast(), size));
+                header.as_ref().clear_kind_word();
+            }
+            0
+        }
+        BlockType::ArrayValue => {
+            let n = size / std::mem::size_of::<Value>();
+            // SAFETY: the payload follows the header in the same allocation.
+            let base = unsafe { crate::object::header::payload_ptr_of(header) } as *mut Value;
+            for i in 0..n {
+                // SAFETY: `base[i]` is one of `n` initialized `Value`s in the block payload.
+                unsafe { std::ptr::drop_in_place(base.add(i)) }
+            }
+            0
+        }
+        BlockType::Str | BlockType::ArrayPrim | BlockType::Closure
+        | BlockType::ArrayRef | BlockType::ArrayCell => 0,
+    }
+}
+
+pub struct Heap {
+    config: crate::gc::GcConfig,
+    inner: Mutex<RcHeapInner>,
+    external_root_scanner: Mutex<Option<ExternalRootScanner>>,
+    /// **add-lazy-context-unload**: collectible-context reclaimer hook. `None`
+    /// until wired by `VmCore` (tests leave it None → no context reclamation).
+    context_reclaimer: Mutex<Option<ContextReclaimHook>>,
+    /// **add-heap-retention-diagnostics**: categorized root scanner for the
+    /// on-demand retention query. `None` until wired by `VmCore`.
+    categorized_root_scanner: Mutex<Option<CategorizedRootScanner>>,
+    /// Selectable GC algorithm.
+    /// Encoded as `u8` (`GcMode::from_u8` for round-trip). Read on the
+    /// barrier-override hot path and at the entrance of
+    /// `run_cycle_collection`. `Relaxed` ordering is sufficient — mode
+    /// changes don't synchronize with collect; in-progress collect
+    /// completes with its original mode, next collect picks up new
+    /// mode (per spec scenario "Mode switch is observable but cannot
+    /// interrupt a running collect"). Initialized from the caller-supplied
+    /// `GcConfig`; the facade resolves `Z42_GC_MODE`.
+    mode: std::sync::atomic::AtomicU8,
+    /// The heap: one variable-length GC block region holding every managed value — objects
+    /// (`Value::Object` / `Value::BoxedStruct`, object model R6), arrays (`Value::Array`, R9),
+    /// strings and closures, each one block (16 B header + payload). Constructed with
+    /// `var_drop_glue` (object and value-struct-array blocks release what their header owns; the
+    /// rest are POD).
+    region_var: Mutex<VarRegion>,
+    /// **Object model R6 / R9**: the remembered set — old objects and arrays that may hold a young
+    /// reference, each with `REMEMBERED_BIT` set on its block (the bit makes a push happen once
+    /// per block). The region has no card table; this list is what the minor re-roots the old
+    /// generation from (`seed_from_remembered`). Pushed by the write barrier (mutators, only when
+    /// the bit was clear) and by promotion; trimmed by every minor and when a remembered block
+    /// dies.
+    remembered: Mutex<Vec<VarGcRef>>,
+    /// **adaptive-promotion **: whether a survivor one tier short of promotion
+    /// should be promoted now rather than spend another collection being re-marked. Decided
+    /// per minor from the survival rate of the tier it would skip — see
+    /// [`promotion_policy`](super::heap::promotion_policy) for the measurements.
+    promotion_policy: promotion_policy::PromotionPolicy,
+    /// Gray-object queue of a major mark. Populated by the root snapshot
+    /// (`snapshot_roots_into_mark_queue`), by the SATB hand-over in
+    /// `close_major_marking`, and by tracing when children turn out to be
+    /// newly reachable; drained by `drain_mark_queue` / the incremental mark
+    /// slices. Only the collector touches it, always inside a pause, so it is
+    /// empty outside a cycle.
+    mark_queue: Mutex<Vec<Value>>,
+    /// Marking-period allocate-black. True for exactly the span of an
+    /// incremental major cycle in which mutators can run between slices; every
+    /// allocation made while it is set is born with the cycle's mark. See
+    /// [`super::heap::alloc_black`] for why this exists and what it costs.
+    alloc_black: std::sync::atomic::AtomicBool,
+    /// **add-incremental-major-gc M1 **: this heap's current major mark epoch
+    /// (1..=127; starts at 1, so the first major opens 2). Per heap, not per process: another heap advancing a
+    /// shared counter could wrap it onto this heap's last epoch and make stale marks read as
+    /// current. See [`crate::object::header::marks::MarkKind`].
+    mark_epoch: std::sync::atomic::AtomicU8,
+    /// **add-incremental-major-gc M2a**: old values recorded by the SATB barrier (`gc::satb`) and
+    /// handed over by mutator threads when they retire their TLAB. Drained into the mark before a
+    /// cycle's marking is declared complete, and treated as extra roots by a minor.
+    satb_queue: parking_lot::Mutex<Vec<Value>>,
+    /// **add-gc-pause-histogram **: aggregate pause-time
+    /// histogram. Recorded into at the end of every `collect_cycles` /
+    /// `collect_cycles_with_vm` / `force_collect` path, right
+    /// before the `AfterCollect` event fires. Surfaced via
+    /// `stats().pause_histogram` and the `Std.GC.PauseHistogram()` /
+    /// `Std.GC.PauseStatsRaw()` z42 builtins. Single histogram per
+    /// heap (per-mode split is a deferred perf spec).
+    pause_histogram: Mutex<super::types::PauseHistogram>,
+    /// **add-gc-safepoint-auto-threshold **: external flag the
+    /// `maybe_auto_collect` path sets (instead of running collect inline)
+    /// when allocation pressure trips the threshold. Drained by the next
+    /// `check_safepoint(ctx)` which runs a stop-the-world collect.
     ///
-    /// **Phase 1 RC 模式限制**：注册被记录（`stats().finalizers_pending` 加 1），
-    /// 但 callback **不会被自动调用** —— `Rc<RefCell<T>>` Drop 不可拦截。
-    /// Phase 3 mark-sweep 调度真实触发。
-    fn register_finalizer(&self, value: &Value, finalizer: FinalizerFn);
-
-    /// 取消之前注册的 finalizer。
-    fn cancel_finalizer(&self, value: &Value);
-
-    // ── 8. Weak references ───────────────────────────────────────────────────
-
-    /// 创建对 `value` 的弱引用。原子值（I64/Str/Null/...）返回 `None`。
-    fn make_weak(&self, value: &Value) -> Option<WeakRef>;
-
-    // ── 8.6 Soft references（add-gc-softref）────────────────────
-    //
-    // Soft references keep their target alive when heap pressure is below
-    // `Z42_GC_SOFT_THRESHOLD` (default 0.80). Above the threshold the
-    // target is treated as unreachable and may be swept.
-    //
-    // The registry key returned by `register_soft_ref` is an opaque `u64`
-    // that the `Std.SoftHandle` script object stores in its `_key: long`
-    // field. `soft_ref_get(key)` re-upgrades the target; `unregister_soft_ref`
-    // must be called when the `SoftHandle` object is finalized.
-
-    /// Register a soft reference to `value`. Returns an opaque key (`>= 1`)
-    /// on success. Returns 0 for non-heap values (atomics / Null).
+    /// `None` when not wired (e.g. GC unit tests that construct
+    /// `Heap::default()` standalone without a VmCore) — `maybe_auto_collect`
+    /// then falls back to the legacy inline `collect_cycles()` call,
+    /// preserving the pre- single-threaded behaviour.
+    external_needs_collect: Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>>,
+    /// Sends every mutator's next safepoint check to the slow path; run whenever
+    /// `external_needs_collect` is raised (`request_collect_at_safepoint`). `None` when unwired.
+    safepoint_poke: Mutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
+    /// **add-write-barriers **: test-only sink for barrier
+    /// dispatch events. Production builds (no `cfg(test)`) compile this
+    /// field out entirely, so the override on `write_barrier_field` /
+    /// `write_barrier_array_elem` collapses to a true no-op.
+    #[cfg(test)]
+    barrier_observer: Mutex<Option<std::sync::Arc<BarrierObserver>>>,
+    /// **fix-wasm-string-ops**: process-unique, monotonically-increasing epoch for this heap's
+    /// address space (see [`Heap::heap_epoch`]). Assigned once at construction from
+    /// [`NEXT_HEAP_EPOCH`] and never reused, so an address-keyed cache outliving a torn-down
+    /// heap (`object::string::str_meta`) can detect a heap switch and drop entries that would otherwise
+    /// false-hit a recycled address (the wasm32 cross-VM string-corruption bug).
+    epoch: u64,
+    /// **add-gc-tlab (option B)**: live allocation counters moved OUT of the
+    /// `inner`-locked `HeapStats` onto lock-free atomics, so the per-alloc hot path
+    /// (`record_alloc`) no longer takes the `inner` Mutex (removes 2 of the 4–5 inner locks
+    /// per `new`). `stats()` reads these to fill the returned `HeapStats` snapshot; collect
+    /// paths `sub_used_bytes` the reclaimed bytes. `Relaxed` suffices — these are monotone
+    /// counters / heuristic pressure thresholds, not synchronization for other heap state.
+    used_bytes: std::sync::atomic::AtomicU64,
+    /// What the heap really holds (`gc::footprint`), shared with the three regions — the
+    /// figure `HeapStats::committed_bytes` reports and the soft cap is judged against.
+    footprint: std::sync::Arc<crate::gc::footprint::Footprint>,
+    allocations: std::sync::atomic::AtomicU64,
+    /// **add-gc-tlab (stage 2)**: lock-free mirrors of three
+    /// `inner`-locked config fields, read on the TLAB allocation fast path so it
+    /// takes **no** `inner` lock per object (the whole point of the TLAB):
+    /// - `strict_oom_atomic`: mirrors `inner.strict_oom`. When `true` the fast
+    ///   path is bypassed entirely (D6 — strict OOM needs per-object precise
+    ///   refund, so it stays on the locked path).
+    /// - `max_bytes_atomic`: mirrors `inner.stats.max_bytes` (`u64::MAX` =
+    ///   `None`). Lets `check_pressure` short-circuit lock-free when no heap
+    ///   limit is set (the common case).
+    /// - `sampler_active`: `true` iff `inner.alloc_sampler.is_some()`. Lets the
+    ///   fast path skip the sampler `inner.lock()` unless sampling is on.
     ///
-    /// Default: returns 0 (unsupported by non-ArcMagrGC backends).
-    fn register_soft_ref(&self, _value: &Value) -> u64 { 0 }
-
-    /// Try to upgrade the soft reference identified by `key`. Returns
-    /// `Value::Null` if the target was collected or `key` is unknown.
+    /// All `Relaxed` — heuristics / rarely-flipped config, not synchronization.
+    strict_oom_atomic: std::sync::atomic::AtomicBool,
+    max_bytes_atomic: std::sync::atomic::AtomicU64,
+    sampler_active: std::sync::atomic::AtomicBool,
+    /// **add-bounded-nursery **: bytes that have been **promoted into the old
+    /// generation** since the last major collection. This is the only signal in the heap that
+    /// tracks old-generation growth, and therefore the only sound trigger for a major.
     ///
-    /// Default: always returns `Value::Null`.
-    fn soft_ref_get(&self, _key: u64) -> Value { Value::Null }
-
-    /// Release the soft-ref slot identified by `key`. Idempotent.
+    /// `used_bytes` cannot do that job: it counts **live** bytes, and a minor keeps it low by
+    /// reclaiming young garbage — so a budget gate reading it is satisfied forever while dead
+    /// *old* objects (which only a major sweeps) pile up unseen. Measured on
+    /// `z42c.semantics --release --no-incremental` at a 128M budget before this change:
+    /// `used` ≈ 90 MB, 18 minors, **0 majors**, peak RSS 1031 MB — against 607 MB for plain
+    /// STW. Old-gen garbage is bounded by what flowed into it, which is exactly this counter.
     ///
-    /// Default: no-op.
-    fn unregister_soft_ref(&self, _key: u64) {}
-
-    /// 尝试从弱引用恢复强引用。若目标已被回收（无强引用持有）返回 `None`。
-    fn upgrade_weak(&self, weak: &WeakRef) -> Option<Value>;
-
-    // ── 8.5 Handle table（reorganize-gc-stdlib）─────────────────
-    //
-    // Slab + free-list backed handle table that powers `Std.GCHandle` (struct,
-    // single `_slot: long`). Slot 0 is reserved as the "unallocated" sentinel —
-    // any caller seeing `_slot == 0` knows the handle was never bound to a real
-    // entry (e.g. `AllocWeak` on an atomic value).
-    //
-    // Strong slots `Rc::clone` the underlying ScriptObject / Vec<Value>, which
-    // anchors the target across GC collection. Weak slots store a `Weak<...>`
-    // and return `None` from `handle_target` once the target has been dropped.
-    // Both kinds require explicit `handle_free` to release the slot — copying a
-    // GCHandle struct duplicates the slot ID, so freeing one alias frees the
-    // backing for all aliases (matches C# `GCHandle` struct semantics).
-
-    /// Allocate a handle table slot for `target` with the given `kind`.
-    /// Returns the slot id (always `>= 1` on success, `0` for "could not
-    /// allocate"). The current rejection conditions:
-    /// - `kind == Weak` and `target` is an atomic value (no Rc backing) → 0
-    /// - `target == Value::Null` → 0
-    fn handle_alloc(&self, target: &Value, kind: GcHandleKind) -> u64;
-
-    /// Read the current target of `slot`. Returns `None` when the slot has been
-    /// freed, or — for Weak slots — when the target has been collected.
-    fn handle_target(&self, slot: u64) -> Option<Value>;
-
-    /// `true` until `handle_free(slot)` is called. **Note**: for Weak slots
-    /// `is_alloc` stays `true` even after the target is collected (slot is
-    /// still owned by its handle). Use `handle_target` to detect collection.
-    fn handle_is_alloc(&self, slot: u64) -> bool;
-
-    /// `Some(kind)` while the slot is allocated; `None` after `handle_free`.
-    fn handle_kind(&self, slot: u64) -> Option<GcHandleKind>;
-
-    /// Release `slot`. Idempotent: freeing a slot that has already been freed
-    /// (or never allocated, e.g. slot 0) is a no-op.
-    fn handle_free(&self, slot: u64);
-
-    // ── 9. Event observers ───────────────────────────────────────────────────
-
-    /// 注册一个 GC 事件观察者。
-    fn add_observer(&self, observer: Arc<dyn GcObserver>) -> ObserverId;
-
-    /// 移除一个观察者。
-    fn remove_observer(&self, id: ObserverId);
-
-    // ── 10. Profiler ─────────────────────────────────────────────────────────
-
-    /// 安装分配采样器（每次 `alloc_*` 触发回调），传 `None` 卸载。
-    fn set_alloc_sampler(&self, sampler: Option<AllocSamplerFn>);
-
-    /// 拍下堆快照（按 type_desc.name 聚合）。
+    /// Maintained in the minor sweep (where the promoted set is already being computed) and
+    /// reset by [`Self::run_cycle_collection_major`] — **zero cost on the allocation path**.
+    promoted_bytes_since_major: std::sync::atomic::AtomicU64,
+    /// **add-bounded-nursery **: set by `maybe_auto_collect` when the promoted-byte
+    /// gate trips, consumed (and cleared) by the generational arm of
+    /// `collect_cycles_with_vm`. The auto-collect policy decides *which kind* of
+    /// collection it wants; the deferred safepoint path only knows "collect".
+    pending_major: std::sync::atomic::AtomicBool,
+    /// **add-promotion-age-knob **: minor GCs an entry must survive before it is
+    /// promoted. Seeded from `Z42_GC_PROMOTION_AGE` at construction (see `construct.rs`).
     ///
-    /// **Phase 1 RC 模式**：snapshot 仅覆盖**从 pinned roots 可达**的对象，
-    /// `coverage = SnapshotCoverage::ReachableFromPinnedRoots`。Phase 3 trace
-    /// 实现后自动升级 `Full`。
-    fn take_snapshot(&self) -> HeapSnapshot;
+    /// **adaptive-promotion **: no longer fixed — the minor sweep lowers it when
+    /// the tier it would drop is measured to reclaim nothing, and restores it otherwise (see
+    /// [`promotion_policy`](heap::promotion_policy)). Still a field rather than a config
+    /// lookup, so the write barrier's cross-gen check stays one relaxed load; and it only
+    /// ever changes inside a STW sweep, so no mutator can observe it mid-write.
+    promotion_age: std::sync::atomic::AtomicU8,
+    /// The age [`promotion_age`](Self::promotion_age) was configured with, kept because the
+    /// adaptive policy needs a fixed line to reason against — it lowers *by one tier from
+    /// the configured age*, never by one tier from wherever it drifted to last.
+    configured_promotion_age: u8,
+    /// **arm-gc-by-default **: the `used_bytes` reading at which the auto-collect
+    /// policy wants to be consulted again — Mono SGen's `major_collection_trigger_size`.
+    ///
+    /// This is what makes arming-by-default affordable. `maybe_auto_collect` takes the heap's
+    /// `inner` mutex to read its watermarks, so calling it on every allocation would put a
+    /// lock acquire on the hottest path in the VM; before this, the only thing keeping that
+    /// off the path was "no budget set ⇒ never collect". Now every allocation instead does
+    /// **one relaxed load and a compare** against this, and the slow path runs at most once
+    /// per growth gate.
+    ///
+    /// Maintained by `maybe_auto_collect` on every exit (so a declined trip cannot re-enter
+    /// on the next allocation) and by `rearm_auto_collect` after every collection.
+    /// `0` — the initial value — means "consult on the first allocation", which arms it.
+    next_collect_at: std::sync::atomic::AtomicU64,
+    /// **arm-gc-by-default **: bytes that may be allocated before a **minor**
+    /// trips, and the unit the major allowance is floored in. `Z42_GC_NURSERY_BYTES` when
+    /// set, else [`auto_collect::DEFAULT_NURSERY_BYTES`] — read once at construction, like
+    /// `promotion_age`, so the policy never does a `runtime_config()` lookup.
+    ///
+    /// An `AtomicU64` rather than a plain field only so tests can size it: the policy is all
+    /// about ratios between this and the live set, and a test that has to allocate 16 MB to
+    /// see one collection is not a test of the policy.
+    nursery_bytes: std::sync::atomic::AtomicU64,
+    /// **add-incremental-major-gc M2b**: the incremental major's phase, cursor and the policy's
+    /// request flags — see `heap/incremental.rs`.
+    incremental: incremental::IncrementalState,
+    /// **add-pause-budget-nursery**: sizes the nursery from the measured cost of a minor, so the
+    /// minor pause has a bound the way the major's slices do. Disabled (and left at the constant
+    /// nursery) when `Z42_GC_PAUSE_TARGET_MS=0` or `Z42_GC_NURSERY_BYTES` is set explicitly.
+    pause_budget: pause_budget::PauseBudget,
+    /// **M9**: judges each minor by its yield and schedules tenures when minors stop paying —
+    /// see `heap/young_policy.rs`.
+    young_policy: young_policy::YoungPolicy,
+    /// **add-pause-budget-nursery**: the configured nursery, kept fixed while `nursery_bytes`
+    /// adapts — the old generation's allowance is denominated in this one. See
+    /// `auto_collect::allowance_unit`.
+    allowance_unit_bytes: std::sync::atomic::AtomicU64,
+    /// The allocation-size reading that caps the default gates in entries — see
+    /// `heap/entry_unit.rs`. Off when the nursery is configured explicitly.
+    entry_unit: entry_unit::EntryUnit,
+}
 
-    /// 遍历当前所有存活对象（同 snapshot 的覆盖范围限制）。
-    fn iterate_live_objects(&self, visitor: &mut dyn FnMut(&Value));
+impl Heap {
+    /// Resize the nursery (tests only). See [`Heap::nursery_bytes`].
+    #[cfg(test)]
+    pub(crate) fn set_nursery_bytes_for_test(&self, n: u64) {
+        self.nursery_bytes.store(n.max(1), std::sync::atomic::Ordering::Relaxed);
+        // add-pause-budget-nursery: a test sizing the nursery is sizing the whole policy, so the
+        // old generation's allowance unit moves with it (production splits the two — see
+        // `auto_collect::allowance_unit`).
+        self.allowance_unit_bytes.store(n.max(1), std::sync::atomic::Ordering::Relaxed);
+        // A stated byte nursery is a manual setting: no entry cap on top of it.
+        self.entry_unit.disable();
+        self.rearm_auto_collect();
+    }
 
-    // ── 11. Stats ────────────────────────────────────────────────────────────
+    /// Bytes promoted into the old generation since the last major (tests).
+    #[cfg(test)]
+    pub(crate) fn promoted_bytes_for_test(&self) -> u64 {
+        self.promoted_bytes_since_major.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
 
-    fn stats(&self) -> HeapStats;
+/// **fix-wasm-string-ops**: process-global monotonic source for [`Heap::epoch`]. Starts at
+/// `1` so `0` stays the "no ambient heap" sentinel ([`crate::vm::exec::ambient::current_heap_epoch`]).
+static NEXT_HEAP_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+
+/// **add-write-barriers **: discriminant for a single
+/// barrier dispatch event captured by [`BarrierObserver`]. Used by
+/// `heap_tests::write_barriers` to prove that interp / JIT call
+/// sites invoke the barrier with the expected arguments.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BarrierEvent {
+    Field { owner_addr: usize, slot: usize, new_is_heap: bool },
+    ArrayElem { arr_addr: usize, idx: usize, new_is_heap: bool },
+}
+
+/// **add-write-barriers **: test-only barrier event sink.
+/// Wrap in `Arc` for sharing across the heap and the test assertion
+/// closure. Construct via `BarrierObserver::new()`, install via
+/// [`Heap::install_barrier_observer`], read recorded events via
+/// [`BarrierObserver::events`].
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub struct BarrierObserver {
+    events: Mutex<Vec<BarrierEvent>>,
 }
 
 #[cfg(test)]
-#[path = "heap_tests.rs"]
-mod heap_tests;
+impl BarrierObserver {
+    pub fn new() -> Self { Self::default() }
+    pub fn events(&self) -> Vec<BarrierEvent> { self.events.lock().clone() }
+    pub fn count(&self) -> usize { self.events.lock().len() }
+    pub(crate) fn push(&self, ev: BarrierEvent) { self.events.lock().push(ev); }
+}
+
+impl std::fmt::Debug for Heap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let scanner_set = self.external_root_scanner.try_lock()
+            .map(|s| s.is_some())
+            .unwrap_or(false);
+        let mut d = f.debug_struct("Heap");
+        match self.inner.try_lock() {
+            Some(i) => { d.field("inner", &*i); }
+            None    => { d.field("inner", &"<borrowed>"); }
+        }
+        d.field("external_scanner", &scanner_set).finish()
+    }
+}
+
+// ── concern 子模块（refactor-arc-heap-modularization）─────────────────────────
+// 每个子模块以 `impl Heap` 承载一组职责的 inherent 方法；跨模块调用的方法标
+// `pub(super)`（heap 子树内可见）。公开操作在 `api.rs`，同名方法直接由 concern 实现。
+mod alloc;
+mod alloc_black;
+mod alloc_object;
+mod barrier;
+mod remembered;
+mod side_tables;
+mod card_verify;
+mod construct;
+mod auto_collect;
+mod collect;
+mod control;
+mod generational;
+mod incremental;
+mod mark_ring;
+mod pause_budget;
+mod entry_unit;
+mod promotion_policy;
+mod young_policy;
+mod roots;
+mod observe;
+mod api;
+#[cfg(any(test, debug_assertions))]
+mod debug;
+mod footprint;
+
+impl Heap {
+    /// Construct a heap from caller-owned policy, without reading process settings.
+    pub fn new(config: crate::gc::GcConfig) -> Self { Self::construct(config) }
+
+    pub(super) fn phase_timer(&self, name: &'static str) -> crate::gc::phase_timer::PhaseTimer {
+        crate::gc::phase_timer::PhaseTimer::start(self.config.phases, name)
+    }
+
+    pub(super) fn phase_note(&self, args: std::fmt::Arguments<'_>) {
+        crate::gc::phase_timer::note(self.config.phases, args);
+    }
+}
+
+#[cfg(test)]
+#[path = "heap_tests/mod.rs"]
+mod tests;
+#[cfg(test)]
+#[path = "heap_api_tests.rs"]
+mod api_tests;

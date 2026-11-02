@@ -1,9 +1,9 @@
 //! V8 `.heapsnapshot` graph export (add-gc-heap-snapshot-export).
 //!
-//! Walks the live heap via the existing [`MagrGC`] trait methods
-//! ([`iterate_live_objects`](super::heap::MagrGC::iterate_live_objects) +
-//! [`scan_object_refs`](super::heap::MagrGC::scan_object_refs) +
-//! [`for_each_root`](super::heap::MagrGC::for_each_root)) and emits a
+//! Walks the live heap via the existing [`Heap`] trait methods
+//! ([`iterate_live_objects`](super::heap::Heap::iterate_live_objects) +
+//! [`scan_object_refs`](super::heap::Heap::scan_object_refs) +
+//! [`for_each_root`](super::heap::Heap::for_each_root)) and emits a
 //! flat node/edge graph serializable to the canonical V8 heap-snapshot
 //! JSON format. Chrome DevTools (Memory → Load), speedscope, and
 //! heapviewer.com all open the resulting `.heapsnapshot` directly.
@@ -23,7 +23,7 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
 
-use super::heap::MagrGC;
+use super::Heap;
 use crate::object::Value;
 
 // ── Node / edge type discriminants ───────────────────────────────────────────
@@ -171,7 +171,7 @@ fn value_ptr(v: &Value) -> Option<usize> {
 }
 
 /// Resolve `(NodeType, display_name, self_size_bytes)` for a heap value.
-fn node_desc(v: &Value, heap: &dyn MagrGC) -> (NodeType, String, u32) {
+fn node_desc(v: &Value, heap: &Heap) -> (NodeType, String, u32) {
     let size = heap.object_size_bytes(v) as u32;
     match v {
         Value::Object(gc) => {
@@ -202,7 +202,7 @@ fn node_desc(v: &Value, heap: &dyn MagrGC) -> (NodeType, String, u32) {
 /// 3. Walk pinned + external roots via [`for_each_root`]; for each
 ///    rooted heap value, emit a Shortcut edge from the synthetic root
 ///    (node index 0 / id 0).
-pub fn build_graph_snapshot(heap: &dyn MagrGC) -> GraphSnapshot {
+pub fn build_graph_snapshot(heap: &Heap) -> GraphSnapshot {
     let mut snap = GraphSnapshot::new();
     let mut id_map: HashMap<usize, u32> = HashMap::new();   // ptr → V8 id
     let mut idx_map: HashMap<u32, u32>   = HashMap::new();  // id  → nodes[] index

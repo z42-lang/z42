@@ -513,7 +513,7 @@ flowchart TD
   SATB 标记进行中（`satb::marking_heaps_addr` 的计数非 0）→ helper，被覆盖的旧字要记；否则若堆是分代模式、属主的
   `gen_age ≥ promotion_age` 且未在记忆集里、值是堆引用且年轻（或是数组——年龄在另一种头里）→ helper，由它写入并把
   属主加入记忆集；其余情况内联 release store（AArch64 `stlr`，x86-64 普通 store）。判定全部发生在写之前，所以要屏障的写
-  整条走 helper，与解释器同一路径。两个判定字节的地址来自 `MagrGC::jit_barrier_bytes`（GC 模式、晋升年龄，随堆存活）。
+  整条走 helper，与解释器同一路径。两个判定字节的地址来自 `Heap::jit_barrier_bytes`（GC 模式、晋升年龄，随堆存活）。
 
 entry 0 是站点第一次见到的类型；多态站点的其它类型走 helper，helper 扫完 4 个 entry 仍不按名字查。站点没有 IC
 （函数没有解析表）时整条走 helper。只支持 64 位目标（`obj_jit_layout` 按 64 位句柄写）。

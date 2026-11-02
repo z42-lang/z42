@@ -1,9 +1,9 @@
 # GC 调参与自动回收 / safepoint 协议
 
-> 代码：`src/runtime/src/config.rs`（knob）、`gc/arc_heap/auto_collect.rs`（自动回收策略）、
-> `gc/trace.rs` + `gc/phase_timer.rs` + `gc/arc_heap/card_verify.rs`（诊断旋钮）、
-> `gc/arc_heap/alloc.rs`（压力事件），
-> `vm/threads/safepoint.rs`（协作式 safepoint）、`gc/heap.rs`（`MagrGC` trait 协议文档）、
+> 代码：`src/runtime/src/config.rs`（knob）、`gc/heap/auto_collect.rs`（自动回收策略）、
+> `gc/trace.rs` + `gc/phase_timer.rs` + `gc/heap/card_verify.rs`（诊断旋钮）、
+> `gc/heap/alloc.rs`（压力事件），
+> `vm/threads/safepoint.rs`（协作式 safepoint）、`gc/heap.rs`（`Heap` trait 协议文档）、
 > `interp/exec_support.rs` + `interp/mod.rs`（被调函数入口 safepoint 的插桩点）。
 
 ## 为什么
@@ -24,20 +24,20 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 
 | Knob | 默认 | 语义 | 消费点 |
 |------|------|------|--------|
-| `Z42_GC_NEAR_LIMIT_RATIO` | 0.90 | 堆**真实占用**（occupied，见「真实占用记账与软上限」）达 max-bytes 上限的此比率 → 触发自动回收 + 发 `NearHeapLimit` 事件 | `arc_heap/auto_collect.rs`、`arc_heap/alloc.rs` |
-| `Z42_GC_PRESSURE_RATIO` | 0.75 | 真实占用落在 `[pressure, near)` 区间 → 发 `AllocationPressure` 事件（应低于 near-limit 比率） | `arc_heap/alloc.rs` |
+| `Z42_GC_NEAR_LIMIT_RATIO` | 0.90 | 堆**真实占用**（occupied，见「真实占用记账与软上限」）达 max-bytes 上限的此比率 → 触发自动回收 + 发 `NearHeapLimit` 事件 | `heap/auto_collect.rs`、`heap/alloc.rs` |
+| `Z42_GC_PRESSURE_RATIO` | 0.75 | 真实占用落在 `[pressure, near)` 区间 → 发 `AllocationPressure` 事件（应低于 near-limit 比率） | `heap/alloc.rs` |
 | `Z42_GC_THROTTLE_RATIO` | 0.10 | ⚠️ **不参与自动回收的触发**（闸门是相对余量）；保留供未来的去抖策略使用 | — |
 | `Z42_GC_PROMOTION_AGE` | **3** | **分代专用**：熬过几次 minor 才晋升到老年代；范围 1–3（年龄只有两位）。默认值就是上界 ⇒ **只能调低、不能调高**。**建堆时读一次**，写屏障读的是字段 | `gc/mod.rs` |
 | `Z42_GC_LOH_BYTES` | 64K | 变长块走 dedicated chunk 的尺寸门槛（死后内存直接还给分配器）；上界 = 64K bump chunk。**进程级** | `var_region/chunk.rs` |
-| `Z42_GC_NURSERY_BYTES` | **16M** | **整套策略的计量单位**：自上次回收以来分配这么多就触发 minor（分代）；×4 是 major 余量的下界（两种模式）。**不设时** 16M 是字节上限，默认闸门另按分配次数封顶（256 Ki 次，见「默认闸门按条目封顶」）；**显式设置**是纯字节的手动挡（同时关掉自适应与条目封顶）。买停顿上界的那个旋钮，**调它必须连 `Z42_GC_PROMOTION_AGE` 一起想**（见下「过早晋升」） | `arc_heap/auto_collect`、`arc_heap/entry_unit.rs` |
-| `Z42_GC_PAUSE_TARGET_MS` | **10** | **分代专用**：minor 停顿的目标上限（ms），nursery 按实测代价反推而非常量；它折算出的条目预算同时是年轻代策略的「超预算」线（幸存者单独就占满预算 → 接下来 tenure，见「年轻代策略」）。`0` 关掉自适应（也关掉超预算判定），显式设 `Z42_GC_NURSERY_BYTES` 也会关掉它（手动挡优先）。clamp 到 `[0.5, 1000]`。见下「按停顿预算自适应 nursery」 | `arc_heap/pause_budget.rs`、`arc_heap/young_policy.rs` |
-| `Z42_GC_MAX_BYTES` | **unset = 无上限** | **软上限，不是武装开关**：设了只压回收余量并加一个近上限触发；**按真实占用判定**（不是 `used`），见「真实占用记账与软上限」 | `arc_heap/auto_collect`、`arc_heap/footprint.rs` |
-| `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major（上一次 major 徒劳时不升级，见「年轻代策略」） | `arc_heap` |
+| `Z42_GC_NURSERY_BYTES` | **16M** | **整套策略的计量单位**：自上次回收以来分配这么多就触发 minor（分代）；×4 是 major 余量的下界（两种模式）。**不设时** 16M 是字节上限，默认闸门另按分配次数封顶（256 Ki 次，见「默认闸门按条目封顶」）；**显式设置**是纯字节的手动挡（同时关掉自适应与条目封顶）。买停顿上界的那个旋钮，**调它必须连 `Z42_GC_PROMOTION_AGE` 一起想**（见下「过早晋升」） | `heap/auto_collect`、`heap/entry_unit.rs` |
+| `Z42_GC_PAUSE_TARGET_MS` | **10** | **分代专用**：minor 停顿的目标上限（ms），nursery 按实测代价反推而非常量；它折算出的条目预算同时是年轻代策略的「超预算」线（幸存者单独就占满预算 → 接下来 tenure，见「年轻代策略」）。`0` 关掉自适应（也关掉超预算判定），显式设 `Z42_GC_NURSERY_BYTES` 也会关掉它（手动挡优先）。clamp 到 `[0.5, 1000]`。见下「按停顿预算自适应 nursery」 | `heap/pause_budget.rs`、`heap/young_policy.rs` |
+| `Z42_GC_MAX_BYTES` | **unset = 无上限** | **软上限，不是武装开关**：设了只压回收余量并加一个近上限触发；**按真实占用判定**（不是 `used`），见「真实占用记账与软上限」 | `heap/auto_collect`、`heap/footprint.rs` |
+| `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major（上一次 major 徒劳时不升级，见「年轻代策略」） | `heap` |
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
 | `Z42_GC_PAUSE_WINDOW` | 1024 | per-heap 滚动 pause-time 队列容量（entries），clamp 到 `[1, 65536]` | `gc/types.rs` |
 | `Z42_SAFEPOINT_THROTTLE` | 1024 | 每线程 safepoint 快路径计数；每 N 次才走真 Mutex 轮询。`1` = 禁节流 | `vm/threads/safepoint.rs` |
-| `Z42_GC_INCREMENTAL` | **on** | **分代专用**：major 拆成有界 STW 切片、切片之间 mutator 与 minor 照常运行（最大停顿与堆大小脱钩）；`0` = 一次性 major（A/B 与排障开关）。见 [增量 major](gc-incremental-major.md) | `arc_heap/incremental.rs` |
-| `Z42_GC_SLICE_MS` | **2** | 一个增量 major 切片的时间预算（ms），clamp 到 `[0.01, 1000]`。极小值（如 `0.05`）是压力配方：让 mutator / minor 最大程度地插进周期中间 | `arc_heap/incremental.rs` |
+| `Z42_GC_INCREMENTAL` | **on** | **分代专用**：major 拆成有界 STW 切片、切片之间 mutator 与 minor 照常运行（最大停顿与堆大小脱钩）；`0` = 一次性 major（A/B 与排障开关）。见 [增量 major](gc-incremental-major.md) | `heap/incremental.rs` |
+| `Z42_GC_SLICE_MS` | **2** | 一个增量 major 切片的时间预算（ms），clamp 到 `[0.01, 1000]`。极小值（如 `0.05`）是压力配方：让 mutator / minor 最大程度地插进周期中间 | `heap/incremental.rs` |
 | `Z42_GC_MODE` | **`generational-mark-sweep`** | GC 算法：`stw` / `generational`。默认 `generational`（见下「为什么分代是默认」） | `gc/mode.rs` |
 
 ## 诊断旋钮（`Z42_GC_TRACE` / `Z42_GC_PHASES` / `Z42_GC_VERIFY_CARDS`）
@@ -48,7 +48,7 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 |------|------|--------|
 | `Z42_GC_TRACE` | 每次回收一行：种类（这次停顿**实际做的工作**：`Minor` / `Slice`（增量 major 的一个切片）/ `Major`（整堆回收做完：STW、一次性 major、或同步做完的增量周期）——不按入口命名，分代下的 `GC.Collect()` 通常就是 `Minor`）、堆 used 前后、回收字节、停顿 ms、第几个周期；外加近上限 / 超预算两条边沿。关掉时连 observer 都不装 | `gc/trace.rs` |
 | `Z42_GC_PHASES` | 把那一行停顿**拆开**：每个阶段一行耗时 + 处理条目数，外加一行「这次回收是被哪个闸门触发的」 | `gc/phase_timer.rs` |
-| `Z42_GC_VERIFY_CARDS` | **分代专用**：每次 minor 开始前从头核对记忆集不变量（老对象 / 老数组持有年轻引用 ⇒ 它在记忆集里），不成立就 panic 并报出属主——漏写屏障在第一次 minor 就现形，而不是几次回收后的 UAF。O(老年代)/次，只用于排障与压力测试。见 [GC · 记忆集不变量核对](gc.md#记忆集不变量核对z42_gc_verify_cards) | `gc/arc_heap/card_verify.rs` |
+| `Z42_GC_VERIFY_CARDS` | **分代专用**：每次 minor 开始前从头核对记忆集不变量（老对象 / 老数组持有年轻引用 ⇒ 它在记忆集里），不成立就 panic 并报出属主——漏写屏障在第一次 minor 就现形，而不是几次回收后的 UAF。O(老年代)/次，只用于排障与压力测试。见 [GC · 记忆集不变量核对](gc.md#记忆集不变量核对z42_gc_verify_cards) | `gc/heap/card_verify.rs` |
 
 `Z42_GC_PHASES=1` 的一次 minor、和随后被年轻代策略换成的一次 tenure，长这样（`z42c` 工作区构建）：
 
@@ -170,7 +170,7 @@ nursery 是**测出来的量**、不是常量：每次 minor 结束时
 
 ## 默认闸门按条目封顶
 
-> 代码：`gc/arc_heap/entry_unit.rs`（读数、封顶、探针）、`auto_collect.rs::allowance_unit`、
+> 代码：`gc/heap/entry_unit.rs`（读数、封顶、探针）、`auto_collect.rs::allowance_unit`、
 > `pause_budget.rs::Bounds`。
 
 回收的**工作量按对象算**（minor 标记、清扫的是条目，major 追踪活条目、清扫死条目），而决定**何时**回收的默认闸门
@@ -200,7 +200,7 @@ major 下界 = 4 × unit；切片间隔 ≤ unit / 4；周期增长目标 = allo
 
 ## 年轻代策略：按收益判定 minor，不划算就 tenure
 
-> 代码：`gc/arc_heap/young_policy.rs`（判定 + `run_tenure`）、
+> 代码：`gc/heap/young_policy.rs`（判定 + `run_tenure`）、
 > `var_region/generation.rs`（`tenure_young`）、`incremental.rs`（`GenWork::Tenure`）。
 
 一次 minor 的代价是它标记的年轻代 + 一块固定成本（记忆集与周期的 grey 队列），只有年轻代**大部分是垃圾**
@@ -417,7 +417,7 @@ throttle 去抖比 near-limit 触发更容易写错，且错了不会报错、�
 ## 自动回收 / safepoint 三态协议
 
 allocator 判定「该回收了」后**不在分配线程就地回收**（那会让 scanner 与 mutator 的活寄存器读写竞争），
-而是走一个由 `MagrGC::set_external_needs_collect_flag` 注册的 `Arc<AtomicBool>` flag。三态：
+而是走一个由 `Heap::set_external_needs_collect_flag` 注册的 `Arc<AtomicBool>` flag。三态：
 
 ```text
 ① Register  VmCore::new 构造后调 set_external_needs_collect_flag(flag)
@@ -434,13 +434,13 @@ allocator 判定「该回收了」后**不在分配线程就地回收**（那会
               抢输者照常 park，flag 留给下一个 safepoint（粘性）
 
 ③ Fallback  flag 未注册 → maybe_auto_collect 直接 collect_cycles() 就地回收。
-            保留 GC 单测（直接 ArcMagrGC::default() 无 VmCore）的单线程行为。
+            保留 GC 单测（直接 Heap::default() 无 VmCore）的单线程行为。
 ```
 
 **谁检查 / 何时**：flag 在**分配线程**、alloc 时**置位**；在**mutator 线程**的 safepoint 轮询时**检查**，
 由拿到暂停的 collector **清除**。置位的 flag **从不阻塞 allocator**；因为置位时顺手戳了每个 mutator 的计数器，
 回收在下一次 check 就开始，不必等满节流（`Z42_SAFEPOINT_THROTTLE`）。戳是跨线程普通 store、可能被 mutator 自己的
-递减覆盖——那时退回到节流上界，flag 仍在。该三态协议集中文档在 `MagrGC::set_external_needs_collect_flag`
+递减覆盖——那时退回到节流上界，flag 仍在。该三态协议集中文档在 `Heap::set_external_needs_collect_flag`
 的 doc（`gc/heap.rs`）。
 
 safepoint 本身的相位状态机（`Idle → Requested → Marking`）见 `vm/threads/safepoint.rs` 顶注 + `GcPhase` 文档。
@@ -714,7 +714,7 @@ region 与堆共用同一个 `Arc<Footprint>`（建堆时 `attach_footprint` 挂
 软上限判的是 `occupied = committed − pooled`：池里的 chunk 下一次分配就能直接用、不会让占用增长，
 回收也缩不了它；只有扑空池子的分配会让占用上涨。
 
-软上限在策略里有两种读法（`arc_heap/footprint.rs` 的 `SoftCap`）：
+软上限在策略里有两种读法（`heap/footprint.rs` 的 `SoftCap`）：
 
 - **近上限跳闸 / 压力事件 / strict OOM / 软引用压力**：直接拿 `occupied` 比上限。
 - **回收余量**（allowance）整套是按 `used` 单位写的，于是上限要**换算到 `used` 单位**再去压：
@@ -966,7 +966,7 @@ root 后面，直接 pin owner 的测试是空转的。**
 
 晋升阈值**不做成热路径读取**的 knob，两条理由：
 
-1. **热路径成本**：它被 `gc/arc_heap/barrier.rs::maybe_remember_owner`
+1. **热路径成本**：它被 `gc/heap/barrier.rs::maybe_remember_owner`
    —— 即**写屏障** —— 每次堆引用写读取。改成 `runtime_config()` 读取会给每次引用写
    注入一次全局查找。
 2. **约 20 处测试**以 `for _ in 0..PROMOTION_THRESHOLD` 的形式把它当编译期常量硬编码。
@@ -975,7 +975,7 @@ root 后面，直接 pin owner 的测试是空转的。**
 而不是 write-barrier 的运行时读。
 
 - `Z42_GC_PROMOTION_AGE` 经门面解析并传入 `GcConfig`，在**建堆时规范化一次**（`GcConfig::promotion_age`），
-  值分发给 `ArcMagrGC` / `VarRegion` 各存一份 `promotion_age`；
+  值分发给 `Heap` / `VarRegion` 各存一份 `promotion_age`；
 - 写屏障读的是 `self.promotion_age` —— 一个**普通字段**，不是原子、不是全局，
   热路径成本为零；
 - `PROMOTION_THRESHOLD` 常量**保留**，语义从「值」变成「默认值」，
@@ -996,7 +996,7 @@ bit 6 是字符串块的「全 ASCII」位——字符串分配时写入，`Leng
 的 chunk 三种归宿）。门槛降低 → 更多块走这条路 → 更快归还，代价是每块一次 `malloc`。
 
 ⚠️ **它是进程级的 `static`，不是 per-heap 字段** —— `class_for` 被
-`arc_heap/alloc.rs` 的**无锁 TLAB 快路径**调用，那里既没有 region 也没有堆引用。
+`heap/alloc.rs` 的**无锁 TLAB 快路径**调用，那里既没有 region 也没有堆引用。
 一个进程里的多个 VM 共享同一个设置（和它还是 `const` 的时候一样）。
 在 VM 构造时 `set_loh_bytes` 一次，热路径上只剩一次 relaxed load ——
 **实测代价 +0.023%（78.504 → 78.522 G 指令，三次取中位），落在噪声里**。

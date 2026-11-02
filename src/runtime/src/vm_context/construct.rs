@@ -253,7 +253,7 @@ impl VmContext {
             pinned_owned_buffers: Mutex::new(HashMap::new()),
             fatal:                std::sync::atomic::AtomicBool::new(false),
             processes:            ResourceRegistry::new(),
-            heap:                 Box::new(ArcMagrGC::new(crate::config::runtime_config().gc_config())),
+            heap:                 Box::new(Heap::new(crate::config::runtime_config().gc_config())),
             vm_contexts:          Mutex::new(Vec::new()),
             funcs:                Arc::new(crate::vm::runtime::ids::func_table::FuncTable::new(module.clone())),
             types:                Arc::new(crate::vm::runtime::ids::type_table::TypeTable::new(module.as_deref())),

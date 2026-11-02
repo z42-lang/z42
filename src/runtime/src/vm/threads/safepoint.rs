@@ -293,7 +293,7 @@ pub(crate) fn debug_assert_frame_change_not_parked() {
 fn native_park_incr(ctx: &VmContext) {
     // add-gc-tlab (stage 2, D5): a collector that runs while this thread sits in native
     // code must see no chunk borrowed by it. The claims are set aside rather than retired
-    // (`MagrGC::park_thread_tlab`): retiring on every blocking call burned a half-filled
+    // (`Heap::park_thread_tlab`): retiring on every blocking call burned a half-filled
     // chunk per call — a loop of parked builtins grew the heap by a chunk per iteration
     // (`Thread.Sleep(0)` + one allocation, 100 000 times: 1.8 GB RSS) without ever looking
     // used enough to collect. A collector beginning meanwhile retires them on our behalf

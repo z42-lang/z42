@@ -6,7 +6,7 @@
 //! flat array lengths matching node/edge counts, string dedup).
 
 use super::*;
-use crate::gc::{ArcMagrGC, MagrGC};
+use crate::gc::{Heap};
 use crate::object::{NativeData, ScriptObject, TypeDesc, Value};
 use std::sync::Arc;
 
@@ -35,13 +35,13 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
     })
 }
 
-fn alloc_obj_with_fields(heap: &ArcMagrGC, td: Arc<TypeDesc>, slots: Vec<Value>) -> Value {
+fn alloc_obj_with_fields(heap: &Heap, td: Arc<TypeDesc>, slots: Vec<Value>) -> Value {
     heap.alloc_object(td, slots, NativeData::None)
 }
 
 #[test]
 fn empty_heap_produces_root_only() {
-    let heap = ArcMagrGC::default();
+    let heap = Heap::default();
     let snap = build_graph_snapshot(&heap);
     assert_eq!(snap.nodes.len(), 1, "only the synthetic root");
     assert_eq!(snap.edges.len(), 0, "no edges from a 0-object heap");
@@ -52,7 +52,7 @@ fn empty_heap_produces_root_only() {
 
 #[test]
 fn single_object_creates_node_with_property_edges() {
-    let heap = ArcMagrGC::default();
+    let heap = Heap::default();
     let td = dummy_type_desc("Foo");
     let v = alloc_obj_with_fields(&heap, td, vec![Value::Null, Value::Null]);
     let root = heap.pin_root(v.clone());
@@ -75,7 +75,7 @@ fn single_object_creates_node_with_property_edges() {
 
 #[test]
 fn linked_objects_emit_property_edges() {
-    let heap = ArcMagrGC::default();
+    let heap = Heap::default();
     let td = dummy_type_desc("Node");
 
     let b = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);
@@ -102,7 +102,7 @@ fn linked_objects_emit_property_edges() {
 
 #[test]
 fn array_emits_element_edges_with_index() {
-    let heap = ArcMagrGC::default();
+    let heap = Heap::default();
     let td = dummy_type_desc("Elem");
     let e0 = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);
     let e1 = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);
@@ -130,7 +130,7 @@ fn array_emits_element_edges_with_index() {
 
 #[test]
 fn cycle_does_not_loop() {
-    let heap = ArcMagrGC::default();
+    let heap = Heap::default();
     let td = dummy_type_desc("Node");
 
     let a = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);
@@ -159,7 +159,7 @@ fn cycle_does_not_loop() {
 
 #[test]
 fn node_ids_are_odd_except_root() {
-    let heap = ArcMagrGC::default();
+    let heap = Heap::default();
     let td = dummy_type_desc("Foo");
     let v1 = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);
     let v2 = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);
@@ -178,7 +178,7 @@ fn node_ids_are_odd_except_root() {
 
 #[test]
 fn serialized_json_has_expected_structure() {
-    let heap = ArcMagrGC::default();
+    let heap = Heap::default();
     let td = dummy_type_desc("Foo");
     let v = alloc_obj_with_fields(&heap, td, vec![Value::Null, Value::Null]);
     let root = heap.pin_root(v.clone());
@@ -220,7 +220,7 @@ fn serialized_json_has_expected_structure() {
 
 #[test]
 fn flat_arrays_have_correct_lengths() {
-    let heap = ArcMagrGC::default();
+    let heap = Heap::default();
     let td = dummy_type_desc("Node");
 
     let b = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);
@@ -258,7 +258,7 @@ fn flat_arrays_have_correct_lengths() {
 
 #[test]
 fn string_table_is_deduped() {
-    let heap = ArcMagrGC::default();
+    let heap = Heap::default();
     let td_foo = dummy_type_desc("Foo");
 
     // Allocate 5 Foo objects → they all share the type name "Foo".
@@ -277,7 +277,7 @@ fn string_table_is_deduped() {
 
 #[test]
 fn root_edge_count_matches_pinned_root_count() {
-    let heap = ArcMagrGC::default();
+    let heap = Heap::default();
     let td = dummy_type_desc("Foo");
     let v1 = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);
     let v2 = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);
@@ -310,8 +310,8 @@ fn root_edge_count_matches_pinned_root_count() {
 /// shortcut + property edges. Includes string-table entries that exercise
 /// escape paths (newline + double-quote inside a class name to force
 /// `escape_json_str_to` through its replace branches).
-fn build_sample_snapshot_with_escapes() -> (ArcMagrGC, crate::gc::GraphSnapshot, Vec<crate::gc::RootHandle>) {
-    let heap = ArcMagrGC::default();
+fn build_sample_snapshot_with_escapes() -> (Heap, crate::gc::GraphSnapshot, Vec<crate::gc::RootHandle>) {
+    let heap = Heap::default();
     let td = dummy_type_desc("Has\"weird\nname");
     let b = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);
     let a = alloc_obj_with_fields(&heap, td.clone(), vec![b.clone(), Value::Null]);
@@ -346,7 +346,7 @@ fn streaming_and_in_memory_produce_identical_bytes() {
 #[test]
 fn streaming_byte_count_matches_string_length() {
     // Empty heap variant — exercises the minimal-content path.
-    let heap = ArcMagrGC::default();
+    let heap = Heap::default();
     let snap = build_graph_snapshot(&heap);
 
     let from_string = serialize_v8_heapsnapshot(&snap);

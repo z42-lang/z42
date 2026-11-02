@@ -13,7 +13,7 @@
 //! age), so code that handles an object did not have to learn a new vocabulary. Weak references
 //! are the exception: a var-region address can be re-carved (a pooled chunk is re-bumped from
 //! offset 0, a dedicated chunk is freed), so a weak handle also records its chunk's reuse epoch
-//! and is upgraded by the heap ([`WeakObjRef`], `ArcMagrGC::upgrade_weak_object`).
+//! and is upgraded by the heap ([`WeakObjRef`], `Heap::upgrade_weak_object`).
 
 use crate::object::header::marks::MarkKind;
 use crate::object::header::VarGcRef;
@@ -153,7 +153,7 @@ impl std::fmt::Debug for ObjRef {
 /// from (`VarRegion::chunk_epoch`). While the epoch is unchanged, the address is still a block
 /// header of that chunk, so the generation / alive guard decides; once the chunk has been pooled
 /// (re-bumped from offset 0) or freed (a dedicated large-object chunk), the reference is dead
-/// without the header being read at all. Upgraded by the heap (`MagrGC::upgrade_weak`), which
+/// without the header being read at all. Upgraded by the heap (`Heap::upgrade_weak`), which
 /// holds the region.
 #[derive(Clone, Copy)]
 pub struct WeakObjRef {
