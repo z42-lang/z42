@@ -1,15 +1,6 @@
-// IrOptPipeline —— 编译期 IR 优化管线（处理流程骨架）。
-// 引入 change：optimization-pipeline。挂载点：IrGen.Generate 末尾（emit 后、写 zbc 前）。
-//
-// 流程（见 docs/internals/src/runtime/optimization-pipeline.md，准则 1 interp-first）：
-//   Run(module) → 逐函数 _optFunc：
-//     pass 1 copy-prop：消 SSA-lite 拷回冗余 Copy（`t = expr; copy local, t` → `local = expr`），
-//                       砍 interp 每个赋值的一次 dispatch（interp 热路大头）。
-//     pass 2 temp-DCE：删「纯 + Dst 零读」的死指令（含参数寄存器 live-out 保护）。
-//   两 pass 间重算读计数（copy-prop 改了 IR）。
-//
-// 安全：copy-prop 只在**相邻** producer→copy、且 t 单赋值(defs==1)单读(reads==1，含终结子读)、t≠local
-//       时 retarget；temp-DCE 只删 IsPure 白名单 + Dst 零读 + 非参数寄存器。保守正确，单趟不级联。
+// 编译期 IR 优化管线：模块级变换与逐函数 pass 的编排。
+// 运行顺序和门控集中在 Run / _optFunc；机制见 docs/internals/src/runtime/optimization-pipeline.md。
+// 跨 pass 复用分析前，必须证明前序变换保持该分析的不变量。
 namespace Z42.Optimization;
 
 using Z42.IR;
