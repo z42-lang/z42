@@ -1,0 +1,52 @@
+namespace LoopCfgBench;
+using Z42.Optimization;
+using Z42.IR;
+using Std.IO;
+using Std.Harness;
+
+int exercise(int n, int repeats) {
+    var f = LoopCfgFixture.Make(n, 1);
+    int sum = 0;
+    int i = 0;
+    while (i < repeats) {
+        var cfg = IrLoopUtil.BuildCfg(f);
+        sum = sum + cfg.S0.Length;
+        BenchHelpers.blackBox(cfg.Dom);
+        i = i + 1;
+    }
+    return sum;
+}
+[Benchmark]
+void bench_loop_cfg_256() {
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(exercise(256, 1)); });
+    b.printSummary("loop_cfg_256");
+}
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = args.Length > 0 ? int.Parse(args[0]) : 256;
+    int repeats = args.Length > 1 ? int.Parse(args[1]) : 10;
+    Console.WriteLine(exercise(n, repeats));
+}
+
+public static class LoopCfgFixture {
+    public static IrFunction Make(int n, int shape) {
+        IrBlock[] blocks = new IrBlock[n];
+        int i = 0;
+        while (i < n) {
+            IrTerminator term = new RetTerm(false, null);
+            if (i + 1 < n) {
+                string next = "b" + (i + 1).ToString();
+                term = new BrTerm(next);
+                if (shape >= 2) {
+                    string other = shape == 2 ? next : "b" + ((i * 7 + shape) % n).ToString();
+                    term = new BrCondTerm(new TypedReg(0, IrType.Bool), next, other);
+                }
+            } else if (shape == 1) { term = new BrTerm("b1"); }
+            blocks[i] = new IrBlock("b" + i.ToString(), new IrInstr[0], 0, term, true);
+            i = i + 1;
+        }
+        return new IrFunction("cfg", 0, "void", true, blocks, n, 1, "Interp",
+            new string[0], 0, new int[0], 0, new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+    }
+}
