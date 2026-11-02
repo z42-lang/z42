@@ -36,7 +36,7 @@ fn target_ptr(v: &Value) -> Option<usize> {
 /// collector is active, `request_gc_pause` parks us until it is done; retry.
 fn with_world_stopped<R>(ctx: &VmContext, query: impl FnOnce() -> R) -> R {
     loop {
-        if let Some(_pause) = crate::gc::safepoint::request_gc_pause(ctx) {
+        if let Some(_pause) = crate::vm::threads::safepoint::request_gc_pause(ctx) {
             return query();
         }
     }

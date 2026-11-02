@@ -11,3 +11,6 @@ pub use value::*;
 pub use value_aux::*;
 pub use codec::*;
 pub use cells::Cells;
+
+mod kind;
+pub use kind::value_kind_name;

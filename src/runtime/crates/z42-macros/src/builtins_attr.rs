@@ -206,7 +206,7 @@ fn expand_fn(f: &mut ItemFn, args: BuiltinArgs) -> syn::Result<(TokenStream2, sy
     let call = if args.blocking {
         quote! {
             let __r = {
-                let __park = crate::gc::NativeParkGuard::enter(__ctx);
+                let __park = crate::vm::threads::safepoint::NativeParkGuard::enter(__ctx);
                 #fname(#(#call_args),*)
             };
         }

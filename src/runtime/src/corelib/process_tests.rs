@@ -189,7 +189,7 @@ fn a_collection_completes_while_a_thread_waits_on_a_child() {
         assert!(wait_until(|| parked(&ctx) == 1), "{name}: the waiting thread is parked");
         let t0 = std::time::Instant::now();
         {
-            let pause = crate::gc::safepoint::request_gc_pause(&ctx);
+            let pause = crate::vm::threads::safepoint::request_gc_pause(&ctx);
             assert!(pause.is_some(), "{name}: this thread becomes the collector");
             ctx.heap().collect_full();
         }

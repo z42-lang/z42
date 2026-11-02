@@ -51,7 +51,7 @@ pub mod typed {
     /// the read, with this context (`reenters`). So the body parks itself around the read —
     /// the callbacks unpark via `NativeUnparkGuard` in their trampolines before re-entering
     /// the VM — and the line becomes a z42 string (a GC allocation) only after the park
-    /// ends (`gc::safepoint::debug_assert_not_native_parked`).
+    /// ends (`vm::threads::safepoint::debug_assert_not_native_parked`).
     /// 注册 / 清除 Tab 补全回调名(纯配置,不执行 z42 代码)。
     #[builtin(name = "__repl_set_completer")]
     pub fn set_completer(fqn: &str) { super::repl_set_completer(fqn) }
@@ -70,7 +70,7 @@ pub mod typed {
 
     #[builtin(name = "__repl_readline", reenters)]
     pub fn repl_readline(ctx: &VmContext, prompt: Option<&str>) -> Result<Option<String>, BuiltinError> {
-        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        let _park = crate::vm::threads::safepoint::NativeParkGuard::enter(ctx);
         super::read_one_line(ctx, prompt.unwrap_or("")).map_err(|e| match e.downcast::<std::io::Error>() {
             Ok(io) => io.into(),
             Err(e) => BuiltinError::Legacy(e),
@@ -183,7 +183,7 @@ pub(crate) extern "C" fn complete_trampoline(
     // Fires mid-`readline`, inside the outer NativeParkGuard; temporarily un-park so
     // the completer runs as a normal mutator (parking at its own safepoints if a
     // background GC is requested); re-parks on drop before returning to the read.
-    let _unpark = crate::gc::NativeUnparkGuard::exit(vmctx);
+    let _unpark = crate::vm::threads::safepoint::NativeUnparkGuard::exit(vmctx);
     let line_val = Value::Str(line_str.into());
     let cands: Vec<String> = match complete_via_callback(vmctx, &fqn, line_val, pos as i64) {
         Ok(Value::Array(a)) => a

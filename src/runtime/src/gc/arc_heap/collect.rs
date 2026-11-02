@@ -27,9 +27,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         {
             let scanner_borrow = self.external_root_scanner.lock();
             if let Some(scan) = scanner_borrow.as_ref() {
-                scan(&mut |v| {
+                // SAFETY: mutators are paused, or this is a standalone heap.
+                unsafe { scan.visit_roots(&mut |v| {
                     queue.push(v.clone());
-                });
+                }) };
             }
         }
 

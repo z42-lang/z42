@@ -146,7 +146,7 @@ impl<R: Send + 'static> Blocking<R> {
         match self.body {
             BlockingBody::Ready(r) => Ok(r),
             BlockingBody::Run(body) => {
-                let _park = crate::gc::NativeParkGuard::enter(ctx);
+                let _park = crate::vm::threads::safepoint::NativeParkGuard::enter(ctx);
                 body()
             }
         }
