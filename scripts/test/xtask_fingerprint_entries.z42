@@ -1,0 +1,85 @@
+namespace Z42Xtask;
+using Z42.Syntax;
+using Std.Hashing;
+
+sealed class FingerprintEntries {
+    public int Count;
+    public string Value;
+    public FingerprintEntries(int count, string payload) {
+        this.Count = count; this.Value = "mmh3:" + Murmur3.Hash128Hex(payload);
+    }
+}
+
+// 与 CompilerFingerprint.Value 一样，对解码后的条目按换行连接并哈希。
+FingerprintEntries _readFingerprintEntries(string source) {
+    Lexer lex = new Lexer(source, "CompilerFingerprint.z42");
+    lex.Tokenize();
+    if (lex.Diagnostics().HasErrors()) { return null; }
+    int n = lex.TokenCount();
+    int depth = 0;
+    int i = 0;
+    while (i + 1 < n) {
+        Token token = lex.TokenAt(i);
+        if (depth == 0 && token.Text == "class" && lex.TokenAt(i + 1).Text == "CompilerFingerprint") {
+            int j = i + 2;
+            while (j < n && lex.TokenAt(j).Kind != TokenKind.LBrace) { j = j + 1; }
+            return _readFingerprintClass(lex, j + 1);
+        }
+        if (token.Kind == TokenKind.LBrace) { depth = depth + 1; }
+        else if (token.Kind == TokenKind.RBrace) { depth = depth - 1; }
+        i = i + 1;
+    }
+    return null;
+}
+
+FingerprintEntries _readFingerprintClass(Lexer lex, int start) {
+    int depth = 1;
+    int i = start;
+    while (i < lex.TokenCount() && depth > 0) {
+        Token token = lex.TokenAt(i);
+        if (depth == 1 && i + 6 < lex.TokenCount() && token.Kind == TokenKind.Identifier && token.Text == "Entries"
+            && lex.TokenAt(i + 1).Text == "=" && lex.TokenAt(i + 2).Text == "new"
+            && lex.TokenAt(i + 3).Text == "string" && lex.TokenAt(i + 4).Text == "["
+            && lex.TokenAt(i + 5).Text == "]" && lex.TokenAt(i + 6).Text == "{") {
+            return _readFingerprintEntryBody(lex, i + 7);
+        }
+        if (token.Kind == TokenKind.LBrace) { depth = depth + 1; }
+        else if (token.Kind == TokenKind.RBrace) { depth = depth - 1; }
+        i = i + 1;
+    }
+    return null;
+}
+
+FingerprintEntries _readFingerprintEntryBody(Lexer lex, int start) {
+    string payload = "";
+    int count = 0;
+    bool wantValue = true;
+    int i = start;
+    while (i < lex.TokenCount()) {
+        Token token = lex.TokenAt(i);
+        if (token.Kind == TokenKind.RBrace) {
+            if (i + 1 < lex.TokenCount() && lex.TokenAt(i + 1).Text == ";") {
+                return new FingerprintEntries(count, payload);
+            }
+            return null;
+        }
+        if (wantValue && (token.Kind == TokenKind.StringLiteral || token.Kind == TokenKind.RawStringLiteral)) {
+            if (count > 0) { payload = payload + "\n"; }
+            payload = payload + Lexer.DecodeString(token.Text);
+            count = count + 1; wantValue = false;
+        } else if (!wantValue && token.Text == ",") { wantValue = true; }
+        else { return null; }
+        i = i + 1;
+    }
+    return null;
+}
+
+bool _fingerprintIdentityChanged(string baseSource, string headSource, string baseId, string headId) {
+    FingerprintEntries a = _readFingerprintEntries(baseSource);
+    FingerprintEntries b = _readFingerprintEntries(headSource);
+    if (a == null || b == null) { throw new FormatException("CompilerFingerprint.Entries 必须是可解析的字符串字面量数组"); }
+    // 日志里的条目数不是缓存键；只有格式和实际指纹值可以证明缓存会失效。
+    string baseFormat = baseId.Substring(baseId.IndexOf("/"));
+    string headFormat = headId.Substring(headId.IndexOf("/"));
+    return baseFormat != headFormat || a.Value != b.Value;
+}
