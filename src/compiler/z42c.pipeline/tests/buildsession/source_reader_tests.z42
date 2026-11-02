@@ -1,0 +1,41 @@
+namespace SourceReaderTests;
+using Std.IO;
+using Std.Harness;
+using Z42.Pipeline;
+using Z42.Package;
+
+[Test]
+void test_source_reader_preserves_order_hashes_and_parallel_results() {
+    string dir = File.CreateTempDir("source-reader");
+    string[] paths = new string[3];
+    paths[0] = Path.Join(dir, "b.z42"); paths[1] = Path.Join(dir, "a.z42"); paths[2] = paths[0];
+    File.WriteAllText(paths[0], "中文\nint B() { return 2; }");
+    File.WriteAllText(paths[1], "int A() { return 1; }");
+    SourceInputs serial = SourceReader.Read(paths, "", 1);
+    SourceInputs parallel = SourceReader.Read(paths, "", 3);
+    int i = 0;
+    while (i < paths.Length) {
+        Assert.Equal(File.ReadAllText(paths[i]), serial.Texts[i]);
+        Assert.Equal(ZpkgBuilder.SourceHashHex(serial.Texts[i]), serial.Hashes[i]);
+        Assert.Equal(serial.Texts[i], parallel.Texts[i]);
+        Assert.Equal(serial.Hashes[i], parallel.Hashes[i]);
+        i = i + 1;
+    }
+    SourceInputs plugin = SourceReader.Read(paths, "plugin-id", 2);
+    Assert.Equal(serial.Texts[0], plugin.Texts[0]);
+    Assert.Equal(ZpkgBuilder.SourceHashHex(serial.Texts[0] + "\n#z42c-handler-fp:plugin-id"), plugin.Hashes[0]);
+    Assert.True(serial.Hashes[0] != plugin.Hashes[0]);
+    Directory.Delete(dir, true);
+}
+
+[Test]
+void test_source_reader_empty_inputs_and_missing_files() {
+    SourceInputs empty = SourceReader.Read(new string[0], "", 4);
+    Assert.Equal(0, empty.Texts.Length); Assert.Equal(0, empty.Hashes.Length);
+    string dir = File.CreateTempDir("source-reader-missing");
+    string[] paths = new string[1]; paths[0] = Path.Join(dir, "missing.z42");
+    bool failed = false;
+    try { SourceReader.Read(paths, "", 1); } catch (Exception ex) { failed = true; }
+    Assert.True(failed);
+    Directory.Delete(dir, true);
+}

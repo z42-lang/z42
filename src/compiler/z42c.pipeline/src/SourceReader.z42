@@ -1,0 +1,36 @@
+namespace Z42.Pipeline;
+using Std.IO;
+using Z42.Package;
+
+// 依原路径顺序对齐的源码快照；哈希供 probe、模块来源与 cache meta 共用。
+public sealed class SourceInputs {
+    public string[] Texts;
+    public string[] Hashes;
+    public SourceInputs(int count) { this.Texts = new string[count]; this.Hashes = new string[count]; }
+}
+
+public static class SourceReader {
+    // 调用方决定并行度；HostTarget 保持串行，CLI 采用其 --jobs 配置。
+    public static SourceInputs Read(string[] paths, string handlerFp, int jobs) {
+        SourceInputs result = new SourceInputs(paths.Length);
+        ParallelFor.Run(paths.Length, jobs, new SourceReadTask(paths, result, handlerFp));
+        return result;
+    }
+}
+
+// 每项只写自己的槽，完成顺序不会改变 Texts/Hashes 的对应关系。
+internal sealed class SourceReadTask : IParallelTask {
+    private string[] _paths;
+    private SourceInputs _result;
+    private string _handlerFp;
+    public SourceReadTask(string[] paths, SourceInputs result, string handlerFp) {
+        this._paths = paths; this._result = result; this._handlerFp = handlerFp;
+    }
+    public void Run(int i) {
+        string text = File.ReadAllText(this._paths[i]);
+        this._result.Texts[i] = text;
+        string hashInput = text;
+        if (this._handlerFp.Length > 0) { hashInput = hashInput + "\n#z42c-handler-fp:" + this._handlerFp; }
+        this._result.Hashes[i] = ZpkgBuilder.SourceHashHex(hashInput);
+    }
+}
