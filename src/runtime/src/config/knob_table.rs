@@ -73,7 +73,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "dump superinstruction fusion decisions to stderr",
         default_hint: "unset; no fusion dump",
-        consumed_by: "metadata/superinstr.rs",
+        consumed_by: "interp/superinstr.rs",
         ..DEBUG_KNOB
     },
     KnobSpec {
@@ -339,7 +339,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "disable interpreter superinstruction fusion (kill-switch / A-B knob)",
         default_hint: "unset; fusion enabled",
-        consumed_by: "metadata/superinstr.rs",
+        consumed_by: "interp/superinstr.rs",
         ..DEBUG_KNOB
     },
     KnobSpec {
@@ -348,7 +348,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "disable the type-specialised half of superinstruction fusion",
         default_hint: "unset; typed fusion enabled",
-        consumed_by: "metadata/superinstr.rs",
+        consumed_by: "interp/superinstr.rs",
         ..DEBUG_KNOB
     },
     KnobSpec {

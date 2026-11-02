@@ -25,6 +25,7 @@
 | `exec_vcall.rs` | `VCall` 的 interp 调用侧（PIC 命中 / 解析结果 → 帧执行、mixed-mode 原生分流）+ `primitive_class_name` |
 | `exec_ffi.rs` | `CallNative` / `CallNativeVtable` / `PinPtr` / `UnpinPtr` |
 | `dispatch.rs` | 对象分发辅助：vtable 解析、ToString 协议、**类型判定单一入口 `isa_td`**（数组接收者走 `array_isa`：按元素类型不变地比；`is` / `as` / 带类型 `catch`，interp 与 JIT 共用；前置 `vm_context::isa_cache`（键 `(接收者 TypeId, 目标键)`，目标键缓存在站点的 `TypeKeyCell`），后置同键 memo + 基链/接口遍历）、静态字段、fallback TypeDesc |
+| `superinstr.rs` | 加载期识别融合尾部；缓存形态由 `vm/runtime/fusion.rs` 定义 |
 | `ops.rs` | 寄存器级辅助：`int_binop`、`collect_args`、`bool_val`、`str_val` |
 | `stack_alloc.rs` / `struct_arena.rs` / `transient_arena.rs` | per-`VmContext` arena：逃逸对象/数组、值 struct blob、以及 `Ref`/`PinnedView`/`StructRefHeap` 瞬态 payload（`Value` 里只留 8B `{idx,frame_id}` 句柄 → `Value: Copy`，见 `docs/internals/src/runtime/object-abi.md` §2.2）。均 LIFO 随帧 truncate + GC root 扫描 |
 
@@ -34,7 +35,8 @@
 
 ## 依赖关系
 - 依赖 `corelib` 模块的 `invoke_builtin` / `abi::error::raise` 和 `value_to_str`
-- 依赖 `metadata` 模块的 `Module`、`Function`、`Instruction`、`Value` 等类型
+- `metadata` 提供静态 IR，`vm/runtime` 提供链接后的 `Module` / `Function` 与执行计划，`object` 提供 `Value`。
+- 标量运算调用 `vm/exec/ops/scalar`；融合识别留在本后端。
 
 ## 如何测试验证
 
@@ -42,3 +44,8 @@
 ./xtask test runtime              # cargo test（含 interp 单测）
 ./xtask test e2e --mode interp   # golden 端到端（解释器）
 ```
+
+## 关联文档
+
+- [解释器与 JIT 语义](../../../../docs/internals/src/runtime/interp-jit-semantics.md)
+- [超级指令融合](../../../../docs/internals/src/runtime/superinstr-fusion.md)

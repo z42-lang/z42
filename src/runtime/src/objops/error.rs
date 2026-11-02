@@ -8,8 +8,8 @@ use crate::vm::runtime::Module;
 use crate::object::Value;
 use crate::vm_context::VmContext;
 
-pub const NULL_REF_EXC: &str = crate::semantics::NULL_REF_EXC;
-pub const INVALID_CAST_EXC: &str = crate::semantics::INVALID_CAST_EXC;
+pub const NULL_REF_EXC: &str = crate::vm::exec::ops::scalar::NULL_REF_EXC;
+pub const INVALID_CAST_EXC: &str = crate::vm::exec::ops::scalar::INVALID_CAST_EXC;
 pub const INDEX_OOR_EXC: &str = "Std.IndexOutOfRangeException";
 pub const OVERFLOW_EXC: &str = "Std.OverflowException";
 pub const OOM_EXC: &str = "Std.OutOfMemoryException";
@@ -138,7 +138,7 @@ impl OpError {
         } else {
             Self::throw(INVALID_CAST_EXC, format!(
                 "cannot store {} into primitive field `{field}`",
-                crate::semantics::value_kind_name(v)))
+                crate::vm::exec::ops::scalar::value_kind_name(v)))
         }
     }
 
@@ -155,7 +155,7 @@ impl OpError {
     pub fn struct_elem_store_rejected(elem: &str, v: &Value) -> Self {
         let what = match v {
             Value::BoxedStruct(b) => format!("a boxed {}", b.borrow().type_desc.name),
-            other => crate::semantics::value_kind_name(other).to_string(),
+            other => crate::vm::exec::ops::scalar::value_kind_name(other).to_string(),
         };
         Self::throw(INVALID_CAST_EXC, format!("cannot store {what} into a {}[] element", elem_label(elem)))
     }
