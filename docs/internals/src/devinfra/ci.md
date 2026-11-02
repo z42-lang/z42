@@ -157,11 +157,14 @@ main 上的运行替换规则与 nightly 发布串行化分别由对应机制管
 
 ### macOS 资源队列与 runner 获取失败恢复
 
-主 CI 在 `detect-changes` 中按 `run_number % 3` 选择 macOS 资源槽，输出 `macos_lane`（0 / 1 / 2）。
-`test-host`、`package-host`、`test-stdlib-interp` 的 macOS 腿，以及 `package-ios`、`test-ios`，
-在同一次运行中都使用对应的 job 级 concurrency group `ci-macos-arm64-<lane>`。一个槽同时只申请一个
-macOS runner，三个槽之间并行，主 CI 的 macOS 并发需求上限为 3；重跑保持原 run_number，仍使用同一个槽。
-不把全仓 macOS 工作串成单条队列，也不让每个 PR 自行扇出多个 macOS 申请。
+主 CI 在 `detect-changes` 中为 macOS 的宿主测试、宿主打包和其余检查分别选择一个资源槽：
+按 `run_number` 加 0 / 1 / 2 后对 3 取余，输出 `macos_{host,package,checks}_lane`。
+`test-host` 的 macOS 腿使用 host 槽，`package-host` 的 macOS 腿使用 package 槽；
+`test-stdlib-interp` 的 macOS 腿、`package-ios`、`test-ios` 使用 checks 槽。
+
+job 级 concurrency group 统一为 `ci-macos-arm64-<lane>`，一个槽同时只申请一个 macOS runner。
+三个槽之间并行，主 CI 的 macOS 并发需求上限为 3；同一次运行的三个 job 类别也可以并行，
+不同运行按 run_number 轮转分配，避免某一固定类别成为全仓单一瓶颈。重跑保持原 run_number，槽位不变。
 
 槽数的唯一配置在 ci.yml 的 `Select bounded macOS runner queue` 步骤。3 低于
 [Free / Pro / Team 默认的 macOS 并发上限 5](https://docs.github.com/en/actions/reference/limits)，

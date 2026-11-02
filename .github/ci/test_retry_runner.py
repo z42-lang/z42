@@ -164,12 +164,14 @@ class RetryTests(unittest.TestCase):
     def test_all_macos_ci_jobs_share_a_multi_waiter_queue(self):
         workflow = Path(__file__).parents[1] / "workflows" / "ci.yml"
         text = workflow.read_text()
-        for name in ["build-and-test", "host-package", "stdlib-interp-consistency", "package-ios", "test-ios"]:
+        for name, lane in {"build-and-test": "host", "host-package": "package",
+                           "stdlib-interp-consistency": "checks", "package-ios": "checks",
+                           "test-ios": "checks"}.items():
             with self.subTest(job=name):
                 section = text.split(f"\n  {name}:\n", 1)[1].split("\n  # ──", 1)[0]
                 self.assertIn("concurrency:\n      group:", section)
                 self.assertIn("ci-macos-arm64", section)
-                self.assertIn("needs.changes.outputs.macos_lane", section)
+                self.assertIn(f"needs.changes.outputs.macos_{lane}_lane", section)
                 self.assertIn("queue: max", section)
                 self.assertIn("cancel-in-progress: false", section)
 
@@ -185,10 +187,11 @@ class RetryTests(unittest.TestCase):
                 subprocess.run(["bash", "-euo", "pipefail", "-c",
                                 script.replace("${{ github.run_number }}", str(number))],
                                env=env, check=True, capture_output=True)
-                line = output.read_text().strip()
-                self.assertTrue(line.startswith("lane="))
-                lanes.append(int(line.removeprefix("lane=")))
-        self.assertEqual(set(lanes[:3]), {0, 1, 2})
+                selection = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual(set(selection), {"host", "package", "checks"})
+                lanes.append({key: int(value) for key, value in selection.items()})
+                self.assertEqual(set(lanes[-1].values()), {0, 1, 2})
+        self.assertEqual({selection["host"] for selection in lanes[:3]}, {0, 1, 2})
         self.assertEqual(lanes[0], lanes[3])
 
 

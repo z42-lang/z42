@@ -37,7 +37,9 @@ jobs:
       vm: ${{ steps.filter.outputs.vm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
       docs_only: ${{ steps.docsonly.outputs.docs_only }}
-      macos_lane: ${{ steps.macos_queue.outputs.lane }}
+      macos_host_lane: ${{ steps.macos_queue.outputs.host }}
+      macos_package_lane: ${{ steps.macos_queue.outputs.package }}
+      macos_checks_lane: ${{ steps.macos_queue.outputs.checks }}
       # 当前 nightly → 本 commit 的累计改动是否影响 SDK；只在 push to main 上判，其余事件为空（= 照常发布）。
       sdk: ${{ steps.supersede.outputs.sdk }}
     steps:
@@ -49,7 +51,9 @@ jobs:
         run: |
           lane_count=3
           run_number=${{ github.run_number }}
-          echo "lane=$((run_number % lane_count))" >> "$GITHUB_OUTPUT"
+          echo "host=$((run_number % lane_count))" >> "$GITHUB_OUTPUT"
+          echo "package=$(((run_number + 1) % lane_count))" >> "$GITHUB_OUTPUT"
+          echo "checks=$(((run_number + 2) % lane_count))" >> "$GITHUB_OUTPUT"
 
       - name: Test CI runner recovery rules
         run: python3 -m unittest discover -s .github/ci -p 'test_*.py'
@@ -196,10 +200,10 @@ jobs:
           - { os: macos-26,         platform: macos-arm64 }
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
-    # Each run uses one of three macOS queue lanes before requesting a runner.
+    # Three shared lanes bound macOS demand; job classes rotate between them per run.
     # Non-macOS matrix legs keep independent groups and run in parallel.
     concurrency:
-      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_lane) || format('ci-test-host-{0}-{1}', github.run_id, matrix.platform) }}
+      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_host_lane) || format('ci-test-host-{0}-{1}', github.run_id, matrix.platform) }}
       queue: max
       cancel-in-progress: false
 
@@ -348,7 +352,7 @@ jobs:
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
     concurrency:
-      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_lane) || format('ci-package-host-{0}-{1}', github.run_id, matrix.platform) }}
+      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_package_lane) || format('ci-package-host-{0}-{1}', github.run_id, matrix.platform) }}
       queue: max
       cancel-in-progress: false
     steps:
@@ -663,7 +667,7 @@ jobs:
     timeout-minutes: 45
     runs-on: ${{ matrix.os }}
     concurrency:
-      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_lane) || format('ci-stdlib-interp-{0}-{1}', github.run_id, matrix.platform) }}
+      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) || format('ci-stdlib-interp-{0}-{1}', github.run_id, matrix.platform) }}
       queue: max
       cancel-in-progress: false
     needs: [changes, toolchain-bootstrap]
@@ -733,7 +737,7 @@ jobs:
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
     runs-on: macos-26
     concurrency:
-      group: ${{ format('ci-macos-arm64-{0}', needs.changes.outputs.macos_lane) }}
+      group: ${{ format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) }}
       queue: max
       cancel-in-progress: false
 
@@ -1143,7 +1147,7 @@ jobs:
         shard: [1, 2, 3]
     runs-on: macos-26
     concurrency:
-      group: ${{ format('ci-macos-arm64-{0}', needs.changes.outputs.macos_lane) }}
+      group: ${{ format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) }}
       queue: max
       cancel-in-progress: false
     permissions:
