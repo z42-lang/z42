@@ -76,3 +76,10 @@ PR 编译器各编一遍**同一份 base stdlib 源码**，逐包比 zpkg 字节
 本地复现：`xtask test compiler fingerprint --base <base 源码树根>`（base 树的 stdlib 须先由 base 编译器建好）。
 覆盖面 = stdlib 实际走到的编译器路径；stdlib 没用到的 codegen 分支测不到（只会漏判，不会误判）——
 这类改动仍按上表手动追加。
+
+### 门禁读取的身份
+
+门禁复用编译器词法器读取 `Entries` 字符串字面量数组，解码字符串后按换行连接，再计算与
+`CompilerFingerprint.Value()` 相同的 Murmur3 内容哈希。条目数仅用于日志显示；格式 Minor 与
+实际哈希才决定缓存身份。注释、空白、块注释里的引号及伪初始化器不构成指纹变化。
+不支持的初始化表达式或损坏的源码应报错，不能用源文件全文差异充当缓存失效的证据。

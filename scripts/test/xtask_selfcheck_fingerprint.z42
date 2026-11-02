@@ -1,0 +1,22 @@
+namespace Z42Xtask;
+using Std.IO;
+using Std.Hashing;
+
+int _selfcheckFingerprintEntries() {
+    string a = "class X { public static string[] Entries = new string[] { \"alpha\", \"beta\" }; }";
+    string comment = "/* Entries = new string[] { \"fake\" }; */\n" + a.Replace("\"beta\"", "/* \"quoted };\" */ \"beta\"") + " // changed";
+    FingerprintEntries entries = _readFingerprintEntries(comment);
+    _gateAssert(entries != null && entries.Count == 2, "comments and fake initializer do not add entries");
+    _gateAssert(entries.Value == "mmh3:" + Murmur3.Hash128Hex("alpha\nbeta"), "cache hash formula");
+    _gateAssert(!_fingerprintIdentityChanged(a, comment, "2/1/54", "2/1/54"), "comment-only edit is not invalidation");
+    _gateAssert(_fingerprintIdentityChanged(a, a.Replace("beta", "gamma"), "2/1/54", "2/1/54"), "same-count value change invalidates");
+    _gateAssert(_fingerprintIdentityChanged(a, a, "2/1/54", "2/1/55"), "format change invalidates");
+    _gateAssert(_readFingerprintEntries("Entries = new string[] { \"unterminated") == null, "malformed source is rejected");
+    _gateAssert(_readFingerprintEntries("Entries = new string[] { };").Count == 0, "empty array parsed");
+    string split = "Entries = new string[] { \"alpha\", \"beta\" };";
+    string joined = "Entries = new string[] { \"alpha\\nbeta\" };";
+    _gateAssert(!_fingerprintIdentityChanged(split, joined, "2/1/54", "1/1/54"), "display count cannot prove hash changed");
+    _gateAssert(_readFingerprintEntries("Entries = new string[] { \"a\" + \"b\" };") == null, "unsupported expressions fail closed");
+    Console.WriteLine("  ✅ compiler fingerprint: entry values, comments, format and malformed input");
+    return 0;
+}
