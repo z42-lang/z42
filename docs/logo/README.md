@@ -20,13 +20,14 @@ So the whole mark spells `z² = 4 → z42` with a single letter and a single box
 ## Layout
 
 ```
-docs/assets/logo/
-├── svg/   vector marks (the source of truth)
-├── png/   raster renders of the mark
-└── web/   standards-compliant website icon package
+docs/logo/
+├── README.md
+├── *.svg       vector marks (the source of truth)
+├── *-512.png   raster renders of the mark
+└── web/        standards-compliant website icon package
 ```
 
-### `svg/` — vector marks
+### SVG — vector marks
 
 | File | What | Where to use |
 |------|------|--------------|
@@ -40,7 +41,7 @@ docs/assets/logo/
 | `z42-logo-round-accent.svg` | Vermilion circle frame + ink z | Round, brand-colored contexts |
 | `z42-icon-round.svg` | Filled disc (dark circle, white z) | Avatars / profile pictures that get cropped to a circle |
 
-### `png/` — raster renders
+### PNG — raster renders
 
 | File | What |
 |------|------|
