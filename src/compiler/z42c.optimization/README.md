@@ -24,6 +24,8 @@
 ./xtask test e2e --dir optimization
 ```
 
+性能载体：`benches/z42c.optimization.bench.cfg.z42.toml`，Main 接收块数和重复次数；`[Benchmark]` 入口 `bench_loop_cfg_256`。稠密参考算法与稀疏结果对拍位于 emission 的 codegen 单测中。
+
 ## 关联文档
 - 机制：[优化管线](../../../docs/internals/src/runtime/optimization-pipeline.md)、[逃逸分析](../../../docs/internals/src/runtime/escape-analysis.md)
 - 命令行 / 清单开关：[z42c / z42b CLI](../../../docs/reference/src/toolchain/cli-z42c-z42b.md)
@@ -37,7 +39,7 @@
 | `src/IrPureFunctionTable.z42` | **纯函数推断**：`PureTable`（funcName 集）+ `Compute(m)` 模块**单调不动点**（与 escape 相反：乐观全纯→发现副作用/读可变/抛/调非纯→降级→收敛；StrMap 无 Remove 故每轮重建）。`pure(f)`=每指令 IsPure∪对纯函数 call∪readonly-fget 且无 throw 终结。供 CSE/LICM 判纯调用可消重/外提。无体/imported→保守非纯 |
 | `src/IrEscapeSummary.z42` | **跨过程参数逃逸摘要**：`ParamEscapeTable`（funcName→`ParamFlags(bool[ParamCount])`，参数槽含 this=槽0）+ `Compute(m)` 模块**单调不动点**（乐观全 false→逃逸的置 true→收敛）。供 IrEscapeAnalysis 把「传进静态调用的实参」从「一律逃逸」精确成「按 callee 摘要逐判」。无体 stub 不登记→调用点保守 |
 | `src/IrEscapeAnalysis.z42` | **逃逸分析栈上分配 pass**（`Opt.StackAlloc`，入 All）：CFG-free 流不敏感 may-escape 过近似——`ComputeEscapedRegs(m,f,table)`（Pass A 角色感知逃逸汇点规则表 `_markEscaping` 入种子 + Pass B copy 传递闭包）。**跨过程摘要**：`CallInstr`(args[i]→槽 i)/`ObjNew`(args[i]→ctor 槽 i+1) 实参按 `ParamEscapeTable` 逐判；VCall/CallIndirect/builtin/闭包/跨包保守全标。对象合格前提 = ctor 摘要槽 0 不逃逸（原 `_ctorLeaksThis` 并入）。不逃逸+单赋值 `ObjNew`/`ArrayNew`/`ArrayNewLit`→`StackAlloc=true`。见 book escape-analysis-stack-alloc |
-| `src/IrLoopUtil.z42` | **自然循环分析共享机件**（供 IrLicm + IrLoopAllocReuse）：`LoopCfg`（后继/前驱/支配）+ `BuildCfg`（<2 块 / 有异常表 → null）+ `Headers`（回边目标）+ `LoopBody`（并同 header 多回边体）+ `CleanPreheader`（唯一循环外 `br h` 前驱）+ `BlockIdx`。从 IrLicm 抽出，逐字节等价 |
+| `src/IrLoopUtil.z42` | **自然循环分析共享机件**（供 IrLicm + IrLoopAllocReuse）：`LoopCfg`（后继/稀疏前驱/支配）+ `BuildCfg`（<2 块 / 有异常表 → null）+ `Headers`（回边目标）+ `LoopBody`（并同 header 多回边体）+ `CleanPreheader`（唯一循环外 `br h` 前驱）+ `BlockIdx`。≥128 块时建立 first-wins 标签索引，小函数保留直接扫描 |
 | `src/IrLicm.z42` | **循环不变量外提 pass**（`Opt.Licm`，入 All）：CFG/循环机件复用 `IrLoopUtil` + 不变量（IsPure + 单赋值 dst + 操作数不在 **header 支配域**内定义）+ 外提。**跳过有异常表的函数**（`ExcCount>0`——CFG 不含异常隐式边）。`Run(f, optSet)` 增 `_isHoistableReadonlyFget` 分支（`Opt.ReadonlyLoad` 门控）——接收者 `this`（reg0 恒非空）的 readonly `field_get` + 循环体内该字段无 `field_set` → 外提。`Run(f, optSet, pureTable)` 增 `_isHoistablePureCall` 分支（`Opt.PureCall` 门控）——纯 `CallInstr`（callee 在纯表、含 no-throw）+ args 全循环不变 → 外提。见 book optimization-pipeline |
 | `src/IrLoopAllocReuse.z42` | **循环内分配 hoist + 对象复用 pass**（`Opt.LoopAllocReuse=128`，入 All；escape 之后）：复用 `IrLoopUtil`，把循环体内**迭代内可复用**的 `ObjNew`/`ArrayNew`（C1 StackAlloc + C2 前向 copy 闭包无多赋值 = 不跨迭代携带 + C3 数组 Size 循环不变 + C4 对象 ctor 单块/数组常量下标读前写全）hoist 到 pre-header 只分配一次 + 循环体重初始化（对象=空 ctor 名裸分配 + `Call ctor(%r,args)`；数组=整条移走）。无格式 bump。主正确性门=`--no-opt loop-alloc-reuse` 开/关对拍 |
 | `src/IrRegCounts.z42` | **寄存器读/写计数单一实现**（`Defs` / `DefsCap` / `Reads`，扫全函数累加 `IrOptInfo.AddDef`/`AddReads`/`AddTermReads`）；IrOptPipeline / IrDeadBranch / IrEscapeAnalysis / IrLoopAllocReuse 共用。 |

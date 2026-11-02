@@ -1,0 +1,210 @@
+// Independent dense predecessor oracle for sparse CFG regression tests.
+// DenseLoopReference —— 自然循环分析的共享机件（CFG / 支配 / 自然循环体 / 干净 pre-header）。
+//
+// 从 IrLicm 抽出，供 IrLicm（循环不变量外提）与 IrLoopAllocReuse（循环内分配 hoist+复用）共用，
+// 避免两 pass 各自重造 CFG。语义与原 IrLicm 私有实现**逐字节等价**（纯搬迁，无行为变化）。
+//
+// ── 机制（保守 v1，与 IrLicm 原注释一致）──────────────────────────────────────────────
+//   ① CFG：从各块终结子取后继（Br→1 / BrCond→2 / Ret·Throw→0），反转得前驱（predMat 位阵）。
+//   ② 支配：迭代数据流 `dom[b] = {b} ∪ (∩ dom[preds])`（entry=Blocks[0]）。
+//   ③ 回边：边 b→h 且 h 支配 b → 自然循环，header=h；循环体 = h + 从各 latch 反向可达（不过 h）。
+//   ④ pre-header（保守）：h 的**唯一**循环外前驱 `ph` 且 `ph` 终结子 = `br h` → 干净；否则 -1（调用方跳过）。
+//
+//   有异常表（try/catch/finally）→ BuildCfg 返回 null：CFG 仅从 Br/BrCond/Ret 建、不含异常隐式边，
+//   支配/循环分析会错 → 误变换 → miscompile。异常边入 CFG 后再放开。
+namespace LoopCfgRegression;
+
+using Z42.IR;
+
+// CFG 分析结果的持有者（一次建、多处用）。
+public sealed class DenseCfg {
+    public int    N;         // 块数
+    public int[]  S0;        // 后继 0（-1=无）
+    public int[]  S1;        // 后继 1（-1=无）
+    public bool[] PredMat;   // predMat[b*N+p] = p 是 b 的前驱
+    // 支配集位图：x 支配 b ⟺ `(Dom[b*DW + (x>>4)] & (1 << (x & 15))) != 0`。
+    // 原来是 bool[N*N]，改成每 **16** 个块一个 int —— 交集/写回的内层循环宽度 /16，分配量同理。
+    // ⚠ 为什么是 16 而不是 32：z42 的整数运算在运行时走 i64（`1 << 31` = 2147483648），
+    // 但 `int[]` 是 packed **i32** 存储 —— 存进去再读回来是 -2147483648。32 位/字会让第 31 位
+    // 存读不一致，迭代不动点永不收敛（实测挂死）。16 位/字让所有字值恒在 [0, 65535]，
+    // 不碰符号位，存读逐位相等。点查询只有 4 处（Headers ×2、LoopBody ×1、IrLicm ×1）。
+    public int[]  Dom;
+    public int    DW;        // = (N + 15) / 16，Dom 的行宽（字数）
+}
+
+public sealed class DenseLoopReference {
+
+    // 建 CFG（后继 / 前驱 / 支配）。返回 null 若 <2 块（无循环可能）或有异常表（CFG 不含异常边）。
+    public static DenseCfg BuildCfg(IrFunction f) {
+        int n = f.BlockCount;
+        if (n < 2) { return null; }
+        if (f.ExcCount != 0) { return null; }
+        // ① 后继（s0/s1；-1=无）
+        int[] s0 = new int[n];
+        int[] s1 = new int[n];
+        int b = 0;
+        while (b < n) { s0[b] = -1; s1[b] = -1; b = b + 1; }
+        b = 0;
+        while (b < n) {
+            IrBlock blk = f.Blocks[b];
+            if (blk.HasTerm) {
+                if (blk.Term is BrTerm) { s0[b] = DenseLoopReference.BlockIdx(f, (blk.Term as BrTerm).Label); }
+                else if (blk.Term is BrCondTerm) {
+                    BrCondTerm bc = blk.Term as BrCondTerm;
+                    s0[b] = DenseLoopReference.BlockIdx(f, bc.TrueLabel);
+                    s1[b] = DenseLoopReference.BlockIdx(f, bc.FalseLabel);
+                }
+            }
+            b = b + 1;
+        }
+        // 前驱位阵
+        bool[] predMat = new bool[n * n];
+        b = 0;
+        while (b < n) {
+            if (s0[b] >= 0 && s0[b] < n) { predMat[s0[b] * n + b] = true; }
+            if (s1[b] >= 0 && s1[b] < n) { predMat[s1[b] * n + b] = true; }
+            b = b + 1;
+        }
+        // ② 支配
+        int dw = (n + 15) / 16;
+        int[] dom = DenseLoopReference._computeDom(n, dw, predMat);
+        DenseCfg cfg = new DenseCfg();
+        cfg.N = n; cfg.S0 = s0; cfg.S1 = s1; cfg.PredMat = predMat; cfg.Dom = dom; cfg.DW = dw;
+        return cfg;
+    }
+
+    // ③ 自然循环 header 集合（回边目标 h：某边 b→h 且 h 支配 b）。
+    public static bool[] Headers(DenseCfg cfg) {
+        int n = cfg.N;
+        bool[] isHeader = new bool[n];
+        int b = 0;
+        while (b < n) {
+            if (cfg.S0[b] >= 0 && cfg.S0[b] < n && DenseLoopReference.DomHas(cfg, b, cfg.S0[b])) { isHeader[cfg.S0[b]] = true; }
+            if (cfg.S1[b] >= 0 && cfg.S1[b] < n && DenseLoopReference.DomHas(cfg, b, cfg.S1[b])) { isHeader[cfg.S1[b]] = true; }
+            b = b + 1;
+        }
+        return isHeader;
+    }
+
+    // 自然循环体（**并** header h 的所有回边）：{h} ∪ 从各 latch 反向可达（不过 h）。
+    public static bool[] LoopBody(DenseCfg cfg, int h) {
+        int n = cfg.N;
+        bool[] inLoop = new bool[n];
+        inLoop[h] = true;
+        int[] stack = new int[n + 1];
+        int top = 0;
+        int b = 0;
+        while (b < n) {
+            if ((cfg.S0[b] == h || cfg.S1[b] == h) && DenseLoopReference.DomHas(cfg, b, h) && b != h && !inLoop[b]) {
+                inLoop[b] = true; stack[top] = b; top = top + 1;
+            }
+            b = b + 1;
+        }
+        while (top > 0) {
+            top = top - 1;
+            int p = stack[top];
+            int q = 0;
+            while (q < n) {
+                if (cfg.PredMat[p * n + q] && q != h && !inLoop[q]) { inLoop[q] = true; stack[top] = q; top = top + 1; }
+                q = q + 1;
+            }
+        }
+        return inLoop;
+    }
+
+    // ④ 干净 pre-header：h 的**唯一**循环外前驱 ph 且 ph 终结子 = `br h`。返回 ph，或 -1（无干净 pre-header）。
+    public static int CleanPreheader(IrFunction f, DenseCfg cfg, int h, bool[] inLoop) {
+        int n = cfg.N;
+        int ph = -1;
+        int cnt = 0;
+        int r = 0;
+        while (r < n) {
+            if (cfg.PredMat[h * n + r] && !inLoop[r]) { cnt = cnt + 1; ph = r; }
+            r = r + 1;
+        }
+        if (cnt != 1) { return -1; }
+        IrBlock phb = f.Blocks[ph];
+        if (!phb.HasTerm) { return -1; }
+        if (!(phb.Term is BrTerm)) { return -1; }
+        if (DenseLoopReference.BlockIdx(f, (phb.Term as BrTerm).Label) != h) { return -1; }
+        return ph;
+    }
+
+    // 块 label → 索引（线性；-1=未找到）。
+    public static int BlockIdx(IrFunction f, string label) {
+        int b = 0;
+        while (b < f.BlockCount) {
+            if (f.Blocks[b].Label == label) { return b; }
+            b = b + 1;
+        }
+        return -1;
+    }
+
+    // 支配位图点查询：x 是否支配 b。
+    public static bool DomHas(DenseCfg cfg, int b, int x) {
+        return (cfg.Dom[b * cfg.DW + (x >> 4)] & (1 << (x & 15))) != 0;
+    }
+
+    // ② 支配：位图，x 支配 b ⟺ Dom 里对应位为 1。迭代 `dom[b] = {b} ∪ (∩ dom[preds])`，entry=0。
+    // 不动点结果与前驱访问序无关（交是可交换可结合的），故建表/换序不改变输出。
+    private static int[] _computeDom(int n, int dw, bool[] predMat) {
+        int[] dom = new int[n * dw];
+        dom[0] = 1;                       // entry 只被自己支配
+        int b = 1;
+        while (b < n) {
+            int x = 0;
+            while (x < dw) { dom[b * dw + x] = 65535; x = x + 1; }   // 其余先取全集（尾字的填充位永不被查询）
+            b = b + 1;
+        }
+        // 前驱邻接表（CSR）：稠密 predMat 每轮每块都要 O(n) 扫一遍才知道谁是前驱，而多数块
+        // 只有 1-2 个前驱 —— 这里只扫一次建表（O(n²) 一次性），之后每轮按表直取。
+        int[] predOff = new int[n + 1];
+        b = 0;
+        while (b < n) {
+            int c = 0;
+            int p = 0;
+            while (p < n) { if (predMat[b * n + p]) { c = c + 1; } p = p + 1; }
+            predOff[b + 1] = predOff[b] + c;
+            b = b + 1;
+        }
+        int[] preds = new int[predOff[n]];
+        b = 0;
+        while (b < n) {
+            int w = predOff[b];
+            int p = 0;
+            while (p < n) { if (predMat[b * n + p]) { preds[w] = p; w = w + 1; } p = p + 1; }
+            b = b + 1;
+        }
+        int[] inter = new int[dw];   // 提到迭代外复用：原来每块每轮 new 一个数组
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            b = 1;
+            while (b < n) {
+                int lo = predOff[b];
+                int hi = predOff[b + 1];
+                if (lo < hi) {
+                    int y = 0;
+                    int o = preds[lo] * dw;
+                    while (y < dw) { inter[y] = dom[o + y]; y = y + 1; }   // 首个前驱直接拷贝（取代「全填 true 再与」）
+                    int k = lo + 1;
+                    while (k < hi) {
+                        o = preds[k] * dw;
+                        y = 0;
+                        while (y < dw) { inter[y] = inter[y] & dom[o + y]; y = y + 1; }
+                        k = k + 1;
+                    }
+                    inter[b >> 4] = inter[b >> 4] | (1 << (b & 15));   // {b} ∪ ...
+                    o = b * dw;
+                    y = 0;
+                    while (y < dw) {
+                        if (dom[o + y] != inter[y]) { dom[o + y] = inter[y]; changed = true; }
+                        y = y + 1;
+                    }
+                }
+                b = b + 1;
+            }
+        }
+        return dom;
+    }
+}

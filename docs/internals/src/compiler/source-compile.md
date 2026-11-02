@@ -1206,3 +1206,10 @@ z42 的 IR 把**字节偏移烘焙进指令**（`struct_fget_prim %0 @8`）。�
 
 > 🔴 **待办**：`SemanticModel` 也按 CU 建（`TypeChecker.Infer(cu, …)`），所以**泛型声明与
 > 实例化跨文件**时拿不到绑定后的体 —— 登记表提到包级**不足以**解决它。
+
+## 源快照读取
+
+CLI 与 BuildSession 共用 pipeline 的 `SourceReader.Read`，返回按输入路径顺序对齐的文本与哈希。
+插件指纹非空时，哈希输入为源码加 `\n#z42c-handler-fp:` 与指纹；空指纹不追加任何内容。
+同一快照供后续解析、增量探测与产物来源信息使用，避免重复读取或重复哈希。
+并行度由调用方决定：CLI 使用 `ParallelConfig.Jobs`，HostTarget 保持串行，避免与外层批量构建超订。
