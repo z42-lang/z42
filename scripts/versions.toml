@@ -48,7 +48,7 @@ version = "0.7.0"                       # → Cargo.toml [workspace.package].ver
 
 [toolchain.rust]
 channel     = "stable"
-min_version = "1.95"                    # MSRV；cranelift 0.135 requires 1.95+; scripts/install/xtask_install.z42 的 rust 检查校它
+min_version = "1.95"                    # MSRV；cranelift 0.135 requires 1.95+; scripts/setup/xtask_install.z42 的 rust 检查校它
 components  = ["rustfmt", "clippy"]
 # rust_targets 由各 [platform.*] 汇总
 

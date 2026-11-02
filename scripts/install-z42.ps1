@@ -1,17 +1,17 @@
 # z42 installer — Windows.
 #
-#   irm https://z42-lang.github.io/z42/install.ps1 | iex
+#   irm https://z42-lang.github.io/z42/install-z42.ps1 | iex
 #
-# Installs the z42 SDK into %USERPROFILE%\.z42 (or $env:Z42_HOME) and adds it to the
-# user PATH. Re-run to update. macOS / Linux: see install.sh.
+# In a checkout: pinned SDK -> <repo>\.z42, without PATH changes.
+# Standalone / iex: SDK -> %USERPROFILE%\.z42 (or Z42_HOME), with user PATH setup. Re-run to update. macOS / Linux: see install-z42.sh.
 #
 # Parameters work when the script is saved and run directly:
-#   .\install.ps1 -Version 0.6.0 -Dest D:\z42 -NoModifyPath
+#   .\install-z42.ps1 -Version 0.6.0 -Dest D:\z42 -NoModifyPath
 # When piped into iex, use environment variables instead:
-#   $env:Z42_VERSION = "0.6.0"; irm https://z42-lang.github.io/z42/install.ps1 | iex
+#   $env:Z42_VERSION = "0.6.0"; irm https://z42-lang.github.io/z42/install-z42.ps1 | iex
 param(
-    [string]$Version = $(if ($env:Z42_VERSION) { $env:Z42_VERSION } else { "nightly" }),
-    [string]$Dest = $(if ($env:Z42_HOME) { $env:Z42_HOME } else { Join-Path $env:USERPROFILE ".z42" }),
+    [string]$Version = "",
+    [string]$Dest = "",
     [switch]$NoModifyPath,
     [string]$Archive = "",
     [switch]$Force,
@@ -26,6 +26,49 @@ $DocsUrl = "https://z42-lang.github.io/z42/learn/"
 
 function Say([string]$msg) { Write-Host "z42-install: $msg" }
 function Fail([string]$msg) { Write-Host "z42-install: error: $msg" -ForegroundColor Red; exit 1 }
+
+# A file invocation may select repository defaults; iex and cwd never do.
+$InstallMode = "user"
+$RepoRoot = ""
+$ScriptFile = $MyInvocation.MyCommand.Path
+if ($ScriptFile -and (Split-Path -Leaf $ScriptFile) -eq "install-z42.ps1") {
+    $ScriptDir = Split-Path -Parent $ScriptFile
+    $Candidate = Split-Path -Parent $ScriptDir
+    if ((Split-Path -Leaf $ScriptDir) -eq "scripts" -and
+        (Test-Path (Join-Path $ScriptDir "xtask.z42.toml") -PathType Leaf) -and
+        (Test-Path (Join-Path $Candidate "src/compiler") -PathType Container)) {
+        $InstallMode = "repository"
+        $RepoRoot = $Candidate
+    }
+}
+if ($InstallMode -eq "repository") {
+    $Pins = Join-Path $RepoRoot "scripts/versions.toml"
+    if (-not (Test-Path $Pins -PathType Leaf)) { Fail "repository versions.toml is missing" }
+    $PinnedVersion = ""
+    $InToolchain = $false
+    foreach ($Line in Get-Content -LiteralPath $Pins) {
+        if ($Line -match '^\s*\[toolchain\.z42\]\s*(#.*)?$') { $InToolchain = $true; continue }
+        if ($Line -match '^\s*\[') { $InToolchain = $false }
+        if ($InToolchain -and $Line -match '^\s*launcher\s*=\s*"([^"]+)"\s*(#.*)?$') {
+            $PinnedVersion = $Matches[1]; break
+        }
+    }
+    if (-not $PinnedVersion) { Fail "repository versions.toml has no valid toolchain.z42.launcher" }
+    if (-not $PSBoundParameters.ContainsKey("Version")) { $Version = $PinnedVersion }
+    if (-not $PSBoundParameters.ContainsKey("Dest")) { $Dest = Join-Path $RepoRoot ".z42" }
+    $NoModifyPath = $true
+} else {
+    if (-not $PSBoundParameters.ContainsKey("Version")) {
+        $Version = if ($env:Z42_VERSION) { $env:Z42_VERSION } else { "nightly" }
+    }
+    if (-not $PSBoundParameters.ContainsKey("Dest")) {
+        $Dest = if ($env:Z42_HOME) { $env:Z42_HOME } else { Join-Path $env:USERPROFILE ".z42" }
+    }
+}
+if (-not $Dest -or -not $Version) { Fail "version and install directory must not be empty" }
+Say "mode: $InstallMode"
+Say "version: $Version; install: $Dest"
+Say "modify PATH: $(-not $NoModifyPath)"
 
 $arch = $env:PROCESSOR_ARCHITECTURE
 if ($arch -ne "AMD64") { Fail "unsupported architecture $arch (supported: Windows x64)" }
@@ -79,7 +122,7 @@ try {
     if (Test-Path $Stage) { Remove-Item -Recurse -Force $Stage }
     Expand-Archive -Path $Pkg -DestinationPath $Stage
     if (-not (Test-Path (Join-Path $Stage "z42.exe"))) { Fail "archive does not look like a z42 SDK (no z42.exe)" }
-    # Same top-level list as install.sh (z42 → z42.exe); `xtask package sdk --verify` checks both against the assembled SDK.
+    # Same top-level list as install-z42.sh (z42 → z42.exe); `xtask package sdk --verify` checks both against the assembled SDK.
     foreach ($entry in @("z42.exe", "bin", "programs", "libs", "native", "plugins", "editors", "manifest.toml")) {
         $src = Join-Path $Stage $entry
         if (Test-Path $src) {

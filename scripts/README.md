@@ -21,11 +21,15 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 本目录的 `.z42` 除 `xtask_hooks.z42`（z42b build hook，`namespace Build`）外全部是 xtask 模块（含 stdlib 构建逻辑 `build/xtask_stdlib.z42`）。
 安装脚本运行在「还没有 z42 工具链」的最前端，故保持 shell / PowerShell：
 
-- **`install/install.{sh,ps1}`** —— 用户安装脚本，唯一的安装逻辑：默认 nightly、安装到 `~/.z42`、配置 PATH、
-  重新运行即更新（`sha256` 未变则跳过）。发布在 `https://z42-lang.github.io/z42/install.{sh,ps1}`。
-  参数：`--version` / `--dest` / `--no-modify-path` / `--archive <本地包>` / `--force` / `--dry-run`。
-- **`install-z42.{sh,bat,command}`** —— 仓库引导：以仓库默认值调用上面的脚本（版本取 `versions.toml`、
-  安装到 `<repo>/.z42`、不改 PATH）；其余参数原样透传。
+- **`install-z42.{sh,ps1}`** —— 唯一的 SDK 安装器。同一文件在仓库内运行时，按脚本位置识别仓库，
+  从 `versions.toml` 读取种子版本，安装到 `<repo>/.z42`，不修改 PATH；独立下载或管道运行时，
+  使用 `Z42_VERSION` / nightly、`Z42_HOME` / 用户目录 `.z42`，配置用户 PATH。当前工作目录不参与模式识别。
+  显式 `--version` / `--dest`（PowerShell：`-Version` / `-Dest`）覆盖默认值；仓库模式不受 SDK 环境变量影响。
+  参数另有 `--no-modify-path` / `--archive` / `--force` / `--dry-run`。配置损坏时报错，不降级到用户安装。
+  发布在 `https://z42-lang.github.io/z42/install-z42.{sh,ps1}`，重新运行即更新。
+- **`install-z42.{bat,command}`** —— Windows CMD / macOS Finder 的启动转发，不包含安装策略。
+- **`tests/test_installers.py`** —— 无网络安装器回归：`python3 scripts/tests/test_installers.py`；
+  验证模式、参数覆盖、版本配置错误、带空格路径及离线安装，CI 在各 host 平台运行。
 
 > **冷启动 bootstrap（鸡生蛋的真正破解点）**：`xtask.zpkg` 依赖 stdlib 才能编译，且
 > 编译它的 z42c 自身也是 z42 写的。冷树上**下载上一版已发布 nightly 的 z42c 种子**
@@ -176,16 +180,16 @@ package runtime [--rid R] [--profile P] ──► 按 RID 分类 dispatch
   ──► artifacts/packages/z42-<ver>-<rid>-<config>/ + manifest.toml + source-identity 门
 ```
 
-### `setup`（`install/`）
+### `setup`（`setup/`）
 
 ```
 setup [--os P] [--force] ──► _setupInstall   纯安装（default action）
   ├─ 无 --os       当前 host 基础（跨平台 rust/node 检查，不装交叉栈）
-  ├─ --os android  rust targets + cargo-ndk + JDK + 构建 SDK   install/xtask_install_android.z42
+  ├─ --os android  rust targets + cargo-ndk + JDK + 构建 SDK   setup/xtask_install_android.z42
   ├─ --os ios      rust targets + Xcode
   └─ --os wasm     rust targets + wasm-pack + hermetic node
-setup vscode       ──► _setupVscode    编辑器资产 → <repo>/.vscode/extensions（工作区本地扩展）install/xtask_install_vscode.z42
-setup check [--os P] ──► _setupCheck   只读在场校验（presence 仅显式 --os 时计入退出码）install/xtask_setup_check.z42
+setup vscode       ──► _setupVscode    编辑器资产 → <repo>/.vscode/extensions（工作区本地扩展）setup/xtask_install_vscode.z42
+setup check [--os P] ──► _setupCheck   只读在场校验（presence 仅显式 --os 时计入退出码）setup/xtask_setup_check.z42
 ```
 
 版本漂移（versions.toml ↔ 投影文件）与机器无关，不归 setup：`check versions`（`test/xtask_check_versions.z42`）。
@@ -315,12 +319,12 @@ scripts/
 │   ├── xtask_selfcheck_{packages_config,package_install,release}.z42
 │   │                                 清单解析 / 组件安装 / 发布归档各自的 throw-on-mismatch 自检层
 │   └── xtask_release.z42             `--archive`（包目录 → 归档）/ `package release`（desktop 合并 → SHA256SUMS → index）
-├── install/            setup：各平台依赖 / 编辑器资产
+├── setup/              setup：各平台依赖 / 编辑器资产
 │   ├── xtask_setup_cmd.z42           `setup` 族的命令类（不带子命令 = 安装）
 │   ├── xtask_install{,_android}.z42  `setup [--os]` + Android SDK·NDK·模拟器
 │   ├── xtask_setup_check.z42         `setup check`：只读在场校验
 │   └── xtask_install_vscode.z42      生成 z42.tmLanguage.json + **`check vscode-syntax` 门**
-└── check/              静态检查与引用报告（VSCode grammar 检查复用 install/ 的生成逻辑）
+└── check/              静态检查与引用报告（VSCode grammar 检查复用 setup/ 的生成逻辑）
     ├── xtask_check_cmd.z42          检查名称、说明与处理函数的统一登记和 CLI
     ├── xtask_check_{diagcodes,layout,ci_shell,proc_env,versions}.z42
     │                               诊断码 / 测试布局 / CI shell / 子进程环境 / 版本一致性
@@ -334,8 +338,8 @@ scripts/
 ### 目录分层规则
 
 `common/` 提供路径、进程、文件系统与共享索引操作，不反调命令实现。命令入口负责解析参数，
-具体处理函数按职责放在 `build/`、`test/`、`package/`、`install/`、`bench/`、`check/`。
-`test/` 负责组合构建、执行与静态检查；`check/` 的 VSCode 检查复用 `install/` 的生成逻辑。
+具体处理函数按职责放在 `build/`、`test/`、`package/`、`setup/`、`bench/`、`check/`。
+`test/` 负责组合构建、执行与静态检查；`check/` 的 VSCode 检查复用 `setup/` 的生成逻辑。
 
 被两个以上族用到的东西，就该上移到 `common/`——最底层的文件系统原语在
 `common/xtask_fs.z42`，路径布局在 `xtask_layout.z42`，外部工具探测在 `xtask_toolset.z42`。

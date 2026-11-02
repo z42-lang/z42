@@ -5,7 +5,7 @@ name: Deploy book to GitHub Pages
 #   https://z42-lang.github.io/z42/learn/       学习手册（docs/learn；代码 include 自 examples/，发布即是最新代码）
 #   https://z42-lang.github.io/z42/reference/   参考手册（docs/reference）
 #   https://z42-lang.github.io/z42/internals/   内部实现（docs/internals）
-#   https://z42-lang.github.io/z42/install.sh / install.ps1   安装脚本
+#   https://z42-lang.github.io/z42/install-z42.sh / install-z42.ps1   安装脚本
 # PR 上只构建不发布：mdBook 的 include 出错不会让构建失败（缺文件只打 ERROR），这里把 [ERROR] 判红。
 # reference 的 stdlib 包页不入库：构建前用 `xtask doc gen` 从 stdlib 源码的 `///` 现生成，所以 stdlib 源码与
 # 渲染器（z42.doc、xtask_doc.z42）的改动也触发发布。
@@ -20,7 +20,7 @@ on:
       - 'docs/reference/**'
       - 'docs/internals/**'
       - 'examples/**'
-      - 'scripts/install/**'
+      - 'scripts/install-z42.*'
       - 'src/libraries/**'
       - 'src/compiler/z42.doc/**'
       - 'scripts/build/xtask_doc.z42'
@@ -95,7 +95,7 @@ jobs:
           if grep -rlzP '<code class="language-[^"]*">\s*</code>' "$site/learn" --include='*.html'; then
             echo "::error::empty code block in the rendered learn book (missing ANCHOR?) — files above"; exit 1
           fi
-          cp scripts/install/install.sh scripts/install/install.ps1 "$site/"
+          cp scripts/install-z42.sh scripts/install-z42.ps1 "$site/"
       - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'
         with:

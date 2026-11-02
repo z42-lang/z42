@@ -171,7 +171,7 @@ git tag vY && git push origin vY           # ⑤ 触发 .github/workflows/releas
 | SDK（windows-x64） | `z42-sdk-<v>-windows-x64.zip` |
 | runtime（9 个 RID） | `z42-runtime-<v>-<rid>.tar.gz`（Windows `.zip`） |
 | workload（5 个；desktop 是 4 个 RID 合成的一份） | `z42-workload-<v>-<wl>.tar.gz` |
-| 安装脚本 | `install.sh` / `install.ps1`（同时发到 Pages 站点根） |
+| 安装脚本 | `install-z42.sh` / `install-z42.ps1`（同时发到 Pages 站点根） |
 | 校验和 / 清单 | `SHA256SUMS`（coreutils 格式）/ `release-index.json` |
 
 `release-index.json` 是 launcher 的供给契约：从 `SHA256SUMS` 反推每个 RID 有哪些包、各自的
@@ -207,6 +207,6 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 
 nightly 是 main 的最新快照，不保证稳定；生产 / 集成用 tag release。
 
-用户侧安装脚本是 `scripts/install/install.sh` / `install.ps1`（默认 nightly、装到 `~/.z42`、
-重跑即更新）。它随每个 release 上传，由 `deploy-book.yml` 发到 Pages 站点根，
+安装脚本是 `scripts/install-z42.sh` / `scripts/install-z42.ps1`。同一文件独立发布后默认 nightly、
+装到用户目录 `.z42`；在源码仓库中执行则使用仓库固定版本、装到仓库 `.z42` 且不修改 PATH。重跑即更新。它随每个 release 上传，由 `deploy-book.yml` 发到 Pages 站点根，
 `ci.yml` 的 `package-host` 会用刚打出的包对它跑一遍离线安装冒烟。

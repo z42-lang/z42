@@ -36,15 +36,15 @@ int _packageVerify(string sdkDir) {
     return _verifyDist(sdkDir);
 }
 
-// 安装脚本（scripts/install/install.{sh,ps1}）只替换 SDK 自己的顶层条目、其余（已装 workload 等）保留，所以各自
+// 安装脚本（scripts/install-z42.{sh,ps1}）只替换 SDK 自己的顶层条目、其余（已装 workload 等）保留，所以各自
 // 内嵌一份顶层清单——引导期还没有 z42，清单读不了 packages.toml。这里拿**本次真组装出的 SDK** 的顶层条目逐个
 // 对账两份脚本：SDK 新增顶层目录而脚本没跟上时当场红。
 // Windows 上 launcher 是 `z42.exe`，对账时统一去掉 `.exe`。
 int _verifyInstallScriptLists(string root, string sdkDir) {
-    string[] shList  = _installListSh(File.ReadAllText(Path.Join(root, "scripts/install/install.sh")));
-    string[] ps1List = _installListPs1(File.ReadAllText(Path.Join(root, "scripts/install/install.ps1")));
+    string[] shList  = _installListSh(File.ReadAllText(Path.Join(root, "scripts/install-z42.sh")));
+    string[] ps1List = _installListPs1(File.ReadAllText(Path.Join(root, "scripts/install-z42.ps1")));
     if (shList.Length == 0 || ps1List.Length == 0) {
-        ConsoleError.WriteLine("error: install script top-level list not found (install.sh `for entry in …; do` / install.ps1 `foreach ($entry in @(…))`)");
+        ConsoleError.WriteLine("error: install script top-level list not found (install-z42.sh `for entry in …; do` / install-z42.ps1 `foreach ($entry in @(…))`)");
         return 1;
     }
     int bad = 0;
@@ -53,15 +53,15 @@ int _verifyInstallScriptLists(string root, string sdkDir) {
         if (e.StartsWith(".")) { continue; }
         total = total + 1;
         string name = e.EndsWith(".exe") ? e.Substring(0, e.Length - 4) : e;
-        if (!_strIn(shList, name))  { ConsoleError.WriteLine("error: install.sh replace list lacks SDK top-level entry `" + e + "`");  bad = bad + 1; }
-        if (!_strIn(ps1List, name)) { ConsoleError.WriteLine("error: install.ps1 replace list lacks SDK top-level entry `" + e + "`"); bad = bad + 1; }
+        if (!_strIn(shList, name))  { ConsoleError.WriteLine("error: install-z42.sh replace list lacks SDK top-level entry `" + e + "`");  bad = bad + 1; }
+        if (!_strIn(ps1List, name)) { ConsoleError.WriteLine("error: install-z42.ps1 replace list lacks SDK top-level entry `" + e + "`"); bad = bad + 1; }
     }
     if (bad > 0) { return 1; }
-    Console.WriteLine("  ✓ install.sh / install.ps1 replace lists cover all " + total.ToString() + " SDK top-level entries");
+    Console.WriteLine("  ✓ install-z42.sh / install-z42.ps1 replace lists cover all " + total.ToString() + " SDK top-level entries");
     return 0;
 }
 
-// install.sh 的 `for entry in a b c; do` → [a, b, c]；找不到 → 空。
+// install-z42.sh 的 `for entry in a b c; do` → [a, b, c]；找不到 → 空。
 string[] _installListSh(string text) {
     foreach (var ln in text.Split("\n")) {
         string t = ln.Trim();
@@ -72,7 +72,7 @@ string[] _installListSh(string text) {
     return new string[0];
 }
 
-// install.ps1 的 `foreach ($entry in @("a", "b"))` → [a, b]（`z42.exe` → `z42`，与 sh 侧同名对账）；找不到 → 空。
+// install-z42.ps1 的 `foreach ($entry in @("a", "b"))` → [a, b]（`z42.exe` → `z42`，与 sh 侧同名对账）；找不到 → 空。
 string[] _installListPs1(string text) {
     foreach (var ln in text.Split("\n")) {
         string t = ln.Trim();
