@@ -37,7 +37,7 @@
 
 pub mod config;
 pub use config::GcConfig;
-pub mod ambient;
+pub mod to_vm;
 pub mod heap;
 pub mod arc_heap;
 pub mod mode;
@@ -48,7 +48,6 @@ pub(crate) mod side_bits;
 pub mod tlab;
 pub mod var_region;
 pub mod retention;
-pub mod safepoint;
 pub mod sampler;
 pub mod snapshot;
 pub mod soft_registry;
@@ -59,9 +58,7 @@ pub use heap::MagrGC;
 pub use sampler::Sampler;
 pub use arc_heap::ArcMagrGC;
 pub use mode::GcMode;
-pub use safepoint::{
-    check_safepoint, request_gc_pause, GcPauseGuard, GcPhase, NativeParkGuard, NativeUnparkGuard,
-};
+
 pub use snapshot::{
     build_graph_snapshot, serialize_v8_heapsnapshot, EdgeType, GraphSnapshot, NodeType,
 };

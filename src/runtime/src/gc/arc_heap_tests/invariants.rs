@@ -36,7 +36,7 @@ fn healthy_heap_validates_after_generational_mode_minor() {
         let _ = heap_dyn.alloc_object(dummy_type_desc("Eph"), vec![], NativeData::None);
     }
 
-    heap_dyn.collect_cycles_with_context(&ctx);
+    heap_dyn.collect_cycles_with_vm(&*ctx);
     // Validation runs at end of generational dispatch.
 }
 
@@ -52,7 +52,7 @@ fn healthy_heap_validates_with_cross_gen_writes_under_generational() {
         vec![Value::Null], NativeData::None);
     let _pin_owner = heap_dyn.pin_root(owner.clone());
     for _ in 0..2 {
-        heap_dyn.collect_cycles_with_context(&ctx);
+        heap_dyn.collect_cycles_with_vm(&*ctx);
     }
 
     // Cross-gen write.
@@ -65,7 +65,7 @@ fn healthy_heap_validates_with_cross_gen_writes_under_generational() {
     heap_dyn.write_barrier_field(&owner, 0, &child);
 
     // Minor collect with cross-gen reference active.
-    heap_dyn.collect_cycles_with_context(&ctx);
+    heap_dyn.collect_cycles_with_vm(&*ctx);
 }
 
 // ── Corruption detection: should_panic on violations ──────────────────────

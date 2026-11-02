@@ -93,7 +93,7 @@ pub(crate) struct IncrementalState {
 #[derive(Default)]
 struct Cycle {
     soft_revived: bool,
-    live_contexts: Option<std::collections::HashSet<crate::vm::loader::contexts::ContextId>>,
+    context_reclaim: Option<Box<dyn crate::gc::to_vm::ContextReclaimSnapshot>>,
     stage: SweepStage,
     cursor: usize,
     slices: u32,
@@ -492,10 +492,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
         crate::gc::satb::end_marking(self.epoch);
         // add-lazy-context-unload: which unloading contexts marked objects retain — read now,
         // while the marks are complete and nothing has been swept.
-        let snapshot = self.context_reclaimer.lock().as_ref()
+        let mut snapshot = self.context_reclaimer.lock().as_ref()
             .filter(|r| r.is_unloading())
             .map(|r| r.snapshot());
-        cycle.live_contexts = snapshot.as_ref().map(|s| self.scan_marked_contexts(s));
+        if let Some(snapshot) = snapshot.as_mut() { self.observe_marked_objects(snapshot.as_mut()); }
+        cycle.context_reclaim = snapshot;
         cycle.stage = SweepStage::Var;
         cycle.cursor = 0;
         self.incremental.phase.store(SWEEPING, Ordering::Relaxed);
@@ -544,11 +545,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // Sweep has cleared no marks (the epoch whitens them next cycle), so a newborn of this
         // cycle simply leaves it carrying an epoch the next one has moved past.
         self.end_alloc_black();
-        if let Some(live) = cycle.live_contexts.take() {
-            if let Some(r) = self.context_reclaimer.lock().as_ref() {
-                r.reclaim(&live);
-            }
-        }
+        if let Some(snapshot) = cycle.context_reclaim.take() { snapshot.reclaim(); }
         self.inner.lock().soft_registry.prune_dead();
         // No aging pass: minors kept running between the slices, and aging is theirs. The one
         // exception is a pending promotion-age switch, which needs a major under it.
@@ -570,9 +567,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
 /// it — otherwise every other heap's writes stay on the barrier's slow path for good.
 impl Drop for crate::gc::arc_heap::ArcMagrGC {
     fn drop(&mut self) {
-        if self.incremental.phase.load(Ordering::Relaxed) == MARKING {
-            crate::gc::satb::end_marking(self.epoch);
-        }
+        // One-shot marking can unwind before an incremental phase is installed.
+        // Unregister by heap identity; end_marking is idempotent for completed cycles.
+        crate::gc::satb::end_marking(self.epoch);
     }
 }
 

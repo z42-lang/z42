@@ -74,7 +74,7 @@ fn eviction_recomputes_correctly() {
 // a recycled address in a new heap can never return the old heap's metadata.
 #[test]
 fn cross_heap_recycled_address_no_false_hit() {
-    use crate::gc::ambient::HeapGuard;
+    use crate::vm::exec::ambient::HeapGuard;
     use crate::gc::arc_heap::ArcMagrGC;
     use crate::gc::heap::MagrGC;
 
@@ -122,7 +122,7 @@ fn ascii_bit_is_set_only_for_ascii_strings() {
 // relying on that.
 #[test]
 fn freed_dedicated_chunk_reused_address_no_false_hit() {
-    use crate::gc::ambient::HeapGuard;
+    use crate::vm::exec::ambient::HeapGuard;
     use crate::gc::arc_heap::ArcMagrGC;
     use crate::gc::heap::MagrGC;
 
@@ -151,7 +151,7 @@ fn freed_dedicated_chunk_reused_address_no_false_hit() {
 // oversized string's entry and a bump-chunk string's entry survive and keep hitting.
 #[test]
 fn freed_dedicated_chunk_drops_only_its_own_entry() {
-    use crate::gc::ambient::HeapGuard;
+    use crate::vm::exec::ambient::HeapGuard;
     use crate::gc::arc_heap::ArcMagrGC;
     use crate::gc::heap::MagrGC;
     use crate::object::Value;

@@ -5,6 +5,12 @@
 > [`docs/internals/src/runtime/tiered-execution.md`](tiered-execution.md)。
 > 本页写已实现部分：代码边界 + zpkg 运行时身份；惰性卸载（`Unload()` + GC 回收）。
 
+## GC 回收适配边界
+
+`vm/loader/context_gc.rs` 持有 VM 侧上下文关联与身份；`gc/to_vm.rs` 只定义不透明的回收快照契约。
+标记完成后，GC 将已标记对象交给本轮快照观察；完整清扫或增量 major 的最后一个清扫切片完成后，
+才调用快照回收未保留的 Unloading 上下文。快照及提供方只保存 `Weak<VmCore>`，避免堆与 VM 形成强引用环。
+
 ## 为什么需要
 
 z42 的 root 区域**没有代码边界**：`vm::loader::package::merge::merge_modules` 把所有 zpkg 塌成

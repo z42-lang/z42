@@ -102,7 +102,7 @@ fn stack_trace_written_into_an_old_exception_survives_the_next_minor() {
     let module = exception_module();
     let ctx = gen_ctx();
     // trace 字符串经 ambient heap 分配——没有它就是脱离 GC 的泄漏块，测不出任何东西。
-    let _heap = crate::gc::ambient::HeapGuard::enter(ctx.heap());
+    let _heap = crate::vm::exec::ambient::HeapGuard::enter(ctx.heap());
     let exc = crate::exception::make_stdlib_exception(&ctx, &module, "Std.Exception", "boom".into())
         .expect("constructs");
     let _pin = promote(&ctx, std::slice::from_ref(&exc));

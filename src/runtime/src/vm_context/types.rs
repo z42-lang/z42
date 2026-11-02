@@ -164,8 +164,8 @@ pub struct VmCore {
     /// **add-gc-safepoint **: cooperative-polling GC safepoint
     /// phase. Mutators read this at each `check_safepoint` and park when
     /// non-Idle. The collector flips Idle → Requested → Marking → Idle
-    /// under the protocol in [`crate::gc::safepoint`].
-    pub(crate) gc_phase:           Mutex<crate::gc::safepoint::GcPhase>,
+    /// under the protocol in [`crate::vm::threads::safepoint`].
+    pub(crate) gc_phase:           Mutex<crate::vm::threads::safepoint::GcPhase>,
     /// **add-gc-safepoint **: Condvar used by both sides —
     /// mutators wait on it to resume; the collector waits on it to learn
     /// when `parked_count` reached its threshold.
@@ -271,7 +271,7 @@ pub struct VmCore {
 
     /// **add-concurrency-probes (script-profiling P1b)**: distribution
     /// of how long mutators spend PARKED at a GC safepoint (STW stall as seen by
-    /// each stopped thread). Recorded in `gc::safepoint::park_until_idle`, which
+    /// each stopped thread). Recorded in `vm::threads::safepoint::park_until_idle`, which
     /// only runs during an actual GC pause — so this costs the hot safepoint-check
     /// path nothing (always-on). Reuses `PauseHistogram` (same shape as GC pauses).
     pub(crate) park_histogram: Mutex<crate::gc::types::PauseHistogram>,
@@ -288,7 +288,7 @@ pub struct VmCore {
     /// **add-sampling-profiler (script-profiling P2)**: safepoint
     /// sampling profiler. `Sampler::disabled()` unless `Z42_SAMPLE_HZ` is set,
     /// in which case a background timer thread flags samples that mutators
-    /// snapshot at their next safepoint (`gc::safepoint::check_safepoint_slow`
+    /// snapshot at their next safepoint (`vm::threads::safepoint::check_safepoint_slow`
     /// Idle tail). Default-off is zero-cost: no thread, one `enabled()` atomic
     /// load on the already-throttled slow path. Produces a folded flamegraph
     /// (+ optional perfetto sample-trace when `Z42_TRACE_OUT` is set).
@@ -433,7 +433,7 @@ pub struct VmContext {
     /// lifetime model as `stack_arena` (LIFO-truncated by `pop_frame`, GC-scanned at safepoint).
     pub(crate) transient_arena:   Arc<Mutex<crate::interp::transient_arena::TransientArena>>,
     /// This thread's TLAB claims while it is parked in a blocking native call
-    /// (`gc::safepoint::native_park_incr`); a collector retires them if it runs meanwhile.
+    /// (`vm::threads::safepoint::native_park_incr`); a collector retires them if it runs meanwhile.
     pub(crate) parked_tlab:       crate::gc::tlab::ParkedTlabSlot,
     /// perf interp-frame-lock-slim: published lengths of the three arenas above,
     /// mirroring their inner `Vec` len(s) (`stack_arena` has two — objs / arrs).
@@ -500,7 +500,7 @@ pub struct VmContext {
     /// throttle counter. `check_safepoint`'s fast path decrements; only
     /// when it reaches 0 does the slow path probe `gc_phase` and drain
     /// `needs_auto_collect`. Initial value comes from
-    /// [`crate::gc::safepoint::throttle_n`] (default 1024, env-overridable).
+    /// [`crate::vm::threads::safepoint::throttle_n`] (default 1024, env-overridable).
     pub(crate) safepoint_skip:    std::sync::atomic::AtomicU32,
 }
 
