@@ -32,7 +32,8 @@ jobs:
       pull-requests: read   # Docs-only PR?：读 PR 文件列表
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
-      examples: ${{ steps.filter.outputs.examples }}
+      # 同一选择结果供打包 job 与 test-host 的示例卸载共用。
+      host_package: ${{ steps.filter.outputs.platform == 'true' || steps.filter.outputs.examples == 'true' || github.event_name != 'pull_request' }}
       compiler: ${{ steps.filter.outputs.compiler }}
       vm: ${{ steps.filter.outputs.vm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
@@ -204,10 +205,9 @@ jobs:
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # examples stage 要一个带 launcher 的完整 SDK（artifacts/.z42）：bootstrap 已建好 z42c / stdlib，
-      # 这里补 apphost 发布再组装。
+      # 由本 job 重放示例时才准备开发 SDK；打包 job 会重放时直接复用其检查。
       - name: Build SDK for the examples stage
-        if: matrix.os != 'windows-latest'
+        if: matrix.os != 'windows-latest' && needs.changes.outputs.host_package != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -234,6 +234,10 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="${{ github.event.pull_request.base.sha }}"
             git fetch --no-tags --depth=1 origin "$base" || base=""
+          fi
+          # 打包 SDK 会在每个平台重放同一套示例；否则保留本 job 的 examples stage。
+          if [ "${{ needs.changes.outputs.host_package }}" = "true" ]; then
+            SKIP="$SKIP,examples"
           fi
           if [ -n "$base" ]; then
             xtask test --no-build --skip "$SKIP" --changed "$base" 2>&1 | tee artifacts/ci-logs/test-all.log
@@ -319,7 +323,7 @@ jobs:
     needs: [changes, toolchain-bootstrap]
     # `examples`：学习手册示例只在这里用打包出的 SDK 重放（含 Windows 的唯一覆盖），
     # 所以 learn / examples 改动只拉起本 job，不拉起其余 package-* / test-desktop。
-    if: ${{ needs.changes.outputs.platform == 'true' || needs.changes.outputs.examples == 'true' || github.event_name != 'pull_request' }}
+    if: needs.changes.outputs.host_package == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -354,8 +358,7 @@ jobs:
           fi
 
       - name: Learn-book examples (packaged SDK)
-        # 与 test-host 的 examples stage 同一套会话脚本，这里用打包出的 SDK 跑——最贴近用户安装形态，
-        # 也是 Windows 上唯一的覆盖。
+        # 本 job 被选中时负责各平台的示例重放；使用真实打包 SDK，Windows 也在此验证。
         shell: bash
         run: |
           set -euo pipefail

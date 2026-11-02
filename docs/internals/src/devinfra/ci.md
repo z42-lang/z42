@@ -240,6 +240,16 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
   android 四个组合没有必要：后三者 `package-*` 本就在真实目标平台上完整构建；「interp-only 不含
   cranelift」断言在 `package-wasm` 里。`.cargo/**` 并入 `platform` 过滤器（配置只有 `src/runtime/.cargo` 一份，由 `src/runtime/**` 覆盖）。
 
+学习手册示例按 `changes.outputs.host_package` 分工。它集中原有的打包选择条件：platform 或 examples flag 为 true，
+或事件不是 PR。打包 job 会执行时，每个平台只在打包 SDK 上重放会话；非 Windows 的 test-host 跳过开发 SDK 准备与
+examples stage。打包 job 不执行时，test-host 保留这两步，本地完整 `xtask test` 也保留 examples。
+两条路径调用同一个 `test docs examples`、校验同一套会话输出与退出码，打包失败仍经 `ci-ok` 挡合并。
+
+测量这段重复工作时，在同一机器预热开发 SDK 与打包 SDK 后，交替测量三组：原编排为
+`xtask test docs examples` 加 `xtask test docs examples --sdk <打包 SDK>`，复用后只执行后者。
+每次核对会话数、步骤数与成功状态。两条 CI job 可以并行，时间总和反映 runner 的执行工作量；
+整条 CI 墙钟收益要另看 Actions 的依赖与排队，不能直接用该总和替代。
+
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。PR 上另加 `--changed <PR base sha>`
 按路径分流：改动用不到的重 stage 也跳过（规则与映射表见[测试门禁](test-gate.md) §5、§7）；main push /
