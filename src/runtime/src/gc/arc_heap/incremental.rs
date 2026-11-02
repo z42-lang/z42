@@ -567,9 +567,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
 /// it — otherwise every other heap's writes stay on the barrier's slow path for good.
 impl Drop for crate::gc::arc_heap::ArcMagrGC {
     fn drop(&mut self) {
-        if self.incremental.phase.load(Ordering::Relaxed) == MARKING {
-            crate::gc::satb::end_marking(self.epoch);
-        }
+        // One-shot marking can unwind before an incremental phase is installed.
+        // Unregister by heap identity; end_marking is idempotent for completed cycles.
+        crate::gc::satb::end_marking(self.epoch);
     }
 }
 

@@ -100,4 +100,8 @@ fn panic_in_root_provider_still_drops_the_pause_token() {
     }));
     assert!(result.is_err());
     assert_eq!(*events.lock().unwrap(), vec!["pause", "resume"]);
+    let epoch = heap.heap_epoch();
+    assert!(crate::gc::satb::heap_is_marking(epoch).is_some());
+    drop(heap);
+    assert!(crate::gc::satb::heap_is_marking(epoch).is_none(), "a failed one-shot mark must not outlive its heap");
 }
