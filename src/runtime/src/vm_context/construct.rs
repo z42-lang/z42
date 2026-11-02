@@ -295,11 +295,11 @@ impl VmContext {
             // Z42_SAMPLE_HZ is set; otherwise disabled() (no thread, zero-cost).
             // Trace timeline recorded only when Z42_TRACE_OUT is also set.
             sampler: match crate::config::runtime_config().sample_hz {
-                Some(hz) => crate::gc::Sampler::start(
+                Some(hz) => crate::profiler::cpu::Sampler::start(
                     hz,
                     crate::config::runtime_config().trace_out.is_some(),
                 ),
-                None => crate::gc::Sampler::disabled(),
+                None => crate::profiler::cpu::Sampler::disabled(),
             },
             #[cfg(feature = "jit")]
             jit: std::sync::OnceLock::new(),
@@ -376,7 +376,7 @@ impl VmContext {
         {
             let core_weak = Arc::downgrade(&core);
             core.heap.set_categorized_root_scanner(Box::new(move |visit| {
-                use crate::gc::retention::RootKind;
+                use crate::gc::walk::RootKind;
                 let Some(c) = core_weak.upgrade() else { return; };
                 c.statics.scan_roots(&mut |v| visit(v, RootKind::StaticField));
                 // Interned `ConstStr` literals (VM-wide, like static fields).

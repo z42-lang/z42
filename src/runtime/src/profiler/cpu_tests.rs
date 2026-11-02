@@ -1,4 +1,4 @@
-//! Unit tests for the safepoint sampling profiler (`gc::sampler`).
+//! Unit tests for the safepoint sampling profiler (`profiler::cpu`).
 //!
 //! Cover the format-critical bits that end-to-end runs can't cheaply assert:
 //! folded aggregation + ordering, empty-stack safety, frame-tree interning

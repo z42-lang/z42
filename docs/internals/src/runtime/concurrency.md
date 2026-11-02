@@ -17,7 +17,7 @@
 
 - **VmCore / VmContext 类型层划分**：共享 8 字段 (`Arc<VmCore>`) + per-thread 4 字段（VmContext 持 `Arc<VmCore>` 加自己的 Arc<Mutex<>> 字段）
 - **句柄是 8 B 标记指针**（`ObjRef` / `ArrRef` / `VarGcRef`）：指向变长区里的块头，`borrow()` 给 `&T`、不加锁（对象跨线程共享，字段 / 元素是原子单元，见 [object-abi.md](object-abi.md) §3）
-- **Heap trait 带 Send + Sync 边界**：实施 backend `Heap` 满足
+- **具体 Heap 满足 Send + Sync**：由编译期断言和跨线程测试约束
 - **6 个编译期 Send+Sync assertion**（[src/runtime/src/gc/heap_tests/send_sync.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap_tests/send_sync.rs)）+ 3 个 cross-thread 集成测试（[src/runtime/tests/cross_thread_smoke.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/tests/cross_thread_smoke.rs)）钉死不可回归
 
 | 现状 | 描述 |
