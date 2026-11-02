@@ -2,11 +2,11 @@
 
 > 代码：`gc/tlab.rs`（Tlab + thread-local + arm 门）、
 > `gc/var_region.rs`（`VarChunkClaim` + borrow/retire/reclaim，变长块：对象、数组、字符串、闭包）、
-> `gc/arc_heap/alloc.rs`（fast path）、`gc/safepoint.rs`（retire-on-park）。
+> `gc/heap/alloc.rs`（fast path）、`vm/threads/safepoint.rs`（retire-on-park）。
 
 ## 为什么
 
-`ArcMagrGC` 是**单一共享堆**，所有 mutator 线程共用一个 `Arc<VmCore>` → 一个堆。无 TLAB 时分配热路径
+`Heap` 是**单一共享堆**，所有 mutator 线程共用一个 `Arc<VmCore>` → 一个堆。无 TLAB 时分配热路径
 （`new` / `Str::new` / …）每个块都要抢**进程级 region 锁**（`region_var` 的
 `Mutex`）。N 个线程并行分配 → 全在这把锁上排队，并行编译**越多线程越慢**。
 
@@ -21,7 +21,7 @@ borrow 来的 chunk 内存和元数据始终归属共享 region，retire 后就�
 
 ```mermaid
 flowchart TB
-  subgraph Heap["ArcMagrGC（共享单堆单 GC）"]
+  subgraph Heap["Heap（共享单堆单 GC）"]
     RV["region_var : Mutex&lt;VarRegion&gt;（object / array / string / closure）"]
     POOL["var_free_chunk_pool（全死 chunk 回收池）"]
   end
@@ -58,13 +58,13 @@ flowchart TB
 - 半活 chunk 里的死槽由 TLAB 按 size class 成批认领、无锁填回（见下「空洞复用」）；bump 只在本 class 没有
   死槽可用时才走。
 - 对象与数组块与其它块一样从 TLAB 里分配：`fill` 写好块头的 GC 字、payload 清零，堆随后写种类字（对象的类型、
-  数组的描述符）、跑泛型一步 / 写元素，建完才发布（`gc/arc_heap/alloc_object.rs`、`alloc.rs` 的 `alloc_array_block`）。bump 出来的块在 chunk retire 之前对任何遍历都不可见；
+  数组的描述符）、跑泛型一步 / 写元素，建完才发布（`gc/heap/alloc_object.rs`、`alloc.rs` 的 `alloc_array_block`）。bump 出来的块在 chunk retire 之前对任何遍历都不可见；
   填进空洞的块所在 chunk 早已发布，靠 generation 保持偶数（= 不活）到建完才写成奇数来做到同一件事。所以没人看得到建到一半的对象或数组。
 
 ### 空洞复用：TLAB 按 size class 成批认领死槽（M12）
 
 > 代码：`gc/var_region/holes.rs`（`VarHoleStash` / `take_holes` / `retire_holes` / `fill_hole`）、
-> `gc/arc_heap/alloc.rs`（`tlab_alloc_var` 快路径、`retire_thread_tlab`）、`VarGcRef::publish`。
+> `gc/heap/alloc.rs`（`tlab_alloc_var` 快路径、`retire_thread_tlab`）、`VarGcRef::publish`。
 
 **为什么。** bump claim 只认领整块新 chunk 或池里整块死透的 chunk。sweep 在**还有活块**的 chunk 里
 tombstone 出来的死槽只进 size-class free list，而只有锁路径 `VarRegion::alloc` 弹它——生产分配走 TLAB，
@@ -116,7 +116,7 @@ retire，所以 sweep / chunk 回收看到的永远是没有 stash 的 region；
   但不经 safepoint 的并发回收（`tlab_concurrent_shared_heap_stress`）会碰到——若照常处理，上一个占用者已老的槽会被
   增龄判断摘出年轻集合，填进去的新块年轻却不在集合里，没有 minor 会清扫它、清它的标记。
 - **建完才可见**：见上；`acquire_var_block` 的四个 funnel（字符串 ×2、闭包、对象）在写完 payload 后 `publish`，
-  `MagrGC::alloc_var_block`（数组元素）当场 `publish`（元素区零值合法，回收之外没有遍历读它）。
+  `Heap::alloc_var_block`（数组元素）当场 `publish`（元素区零值合法，回收之外没有遍历读它）。
 - **侧表先清**：flagged-dead 列表非空时 `take_holes`（以及锁路径的 free-list 弹槽）一个槽都不发——finalizer / 软引用 /
   记忆集按块头地址记账，新块不能在旧条目被 `process_flagged_dead` 删掉之前占到这个地址。
 - **块头标志清零**：`fill_hole` 整个重写 `type_tag`，年龄、`REMEMBERED_BIT`、`SIDE_BIT`、`ASCII_STR_BIT` / `OBJ_META_BIT` 都回到 0，
@@ -372,7 +372,7 @@ bump chunk 的回收只**还给池子**，不 `dealloc`。池子超过阈值的�
 ### 池中空 chunk 的 decommit
 
 池子是「马上还要用」的缓冲；程序过了高峰、堆缩下来以后，它就成了不再用的物理内存（实测
-`z42c` 自举构建后段三个池合计 330 MB）。每次 sweep 尾（`ArcMagrGC::trim_chunk_pools`，STW）：
+`z42c` 自举构建后段三个池合计 330 MB）。每次 sweep 尾（`Heap::trim_chunk_pools`，STW）：
 池里**已提交**的字节超过 `max(64 MB, occupied / 4)` 的部分被 decommit；设了软上限时阈值再压到
 `cap − occupied`，让池子不把真实占用带过上限（软上限本身不计池子，见
 [GC 调参 · 真实占用记账](gc-tuning.md#真实占用记账与软上限)）。交还的是 chunk 内的整页（64 KB 无论落在哪，至少含 3 个 16 KB 页）；
@@ -433,7 +433,7 @@ STW 模型（`request_gc_pause`）停所有 mutator。**关键时序**：mutator
 collector 成为 collector 后、mark 前也 retire 自己那份。collector 拿到**完整一致**的共享 region 后
 mark/sweep——与单 region 的 sweep **完全一样**。
 
-**阻塞的 native 调用不 retire，而是把 claim 寄存起来**（`native_park_incr` → `MagrGC::park_thread_tlab`）：
+**阻塞的 native 调用不 retire，而是把 claim 寄存起来**（`native_park_incr` → `Heap::park_thread_tlab`）：
 两块 chunk claim 连同空洞缓存（`VarHoleStash`，见「空洞复用」）从线程本地挪进本 `VmContext` 的 `parked_tlab`
 槽，chunk 仍是借出状态、缓存里的槽仍算在占用与年轻集合里。期间若有 collector 拿到暂停，
 它在全员 park 之后、mark 之前遍历 `vm_contexts`，把各槽里的 claim 代为 retire、空洞缓存经同一个
@@ -464,7 +464,7 @@ sequenceDiagram
 
 thread-local `TlabCell { armed: u32, tlab }`（`UnsafeCell`，owner 独占 + alloc 非重入 → 无运行期借用
 检查）。`VmContext::new*` `arm()`、`drop` `disarm()`（嵌套计数）。**无 VmContext 的线程**（cargo 直连
-`ArcMagrGC` 的 GC 单测、任何 VM 起来前的 ambient `Str::new`）**不 arm** → 走锁路径 → region 内部
+`Heap` 的 GC 单测、任何 VM 起来前的 ambient `Str::new`）**不 arm** → 走锁路径 → region 内部
 单测「alloc 后立即观测存活」行为零变化。
 
 **heap epoch 绑定**：Tlab 记当前借用所属堆的 epoch；`0`=未绑。空 Tlab 首次分配绑定当前堆；若持有他堆

@@ -103,7 +103,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
     // Nothing between `Frame::new` and this line can collect: the ref/out copy-in above only
     // reads, and `resolve_function_tokens` (which *can* run z42 static initialisers, and
     // therefore reach a safepoint) is deliberately below.
-    crate::gc::safepoint::check_safepoint(ctx);
+    crate::vm::threads::safepoint::check_safepoint(ctx);
 
     // perf-lazy-resolve-tokens : populate this function's per-site dispatch caches
     // on first execution. `resolve_module` (Vm::run) only walks the *entry* module; lazily
@@ -184,7 +184,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
             frame.set(*dst, Value::Bool(cond)); // keep dst written — safe for any other reader
             let target = if cond { *t_blk } else { *f_blk };
             if target <= block_idx {
-                crate::gc::safepoint::check_safepoint(ctx);
+                crate::vm::threads::safepoint::check_safepoint(ctx);
                 if let Some(outcome) = try_osr(ctx, &mut frame, func, target) {
                     return outcome;
                 }
@@ -215,7 +215,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                 // — block index decreasing is a loop back-edge. Check
                 // safepoint so long-running loops park promptly.
                 if target <= block_idx {
-                    crate::gc::safepoint::check_safepoint(ctx);
+                    crate::vm::threads::safepoint::check_safepoint(ctx);
                     // add-osr-loop-tiering: hot loop → hand off to native (OSR).
                     if let Some(outcome) = try_osr(ctx, &mut frame, func, target) {
                         return outcome;
@@ -233,7 +233,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                     _ => label_target(&func.block_index, if go_true { true_label } else { false_label })?,
                 };
                 if target <= block_idx {
-                    crate::gc::safepoint::check_safepoint(ctx);
+                    crate::vm::threads::safepoint::check_safepoint(ctx);
                     // add-osr-loop-tiering: hot loop → hand off to native (OSR).
                     if let Some(outcome) = try_osr(ctx, &mut frame, func, target) {
                         return outcome;

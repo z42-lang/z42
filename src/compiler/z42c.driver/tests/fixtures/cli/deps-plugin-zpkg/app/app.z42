@@ -1,0 +1,6 @@
+namespace E2ePApp;
+
+using Std.IO;
+using E2eOut;
+
+void Main() { Console.WriteLine(O.V().ToString()); }

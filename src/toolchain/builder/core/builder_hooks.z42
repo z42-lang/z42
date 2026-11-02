@@ -59,6 +59,11 @@ HookLoad _loadHooks(ProjectManifest m, string projDir, string interDir, string[]
         int f = 0;
         while (f < found.Length) { parts = _pushHooks(parts, n, found[f]); n = n + 1; f = f + 1; }
     }
+    // deps-plugin-routing：[dependencies] 分流出的 hook 插件排在显式 [plugins] 之后（同源约定：显式在前）。
+    BuildHooks[] depsHooks = _loadDepsHooks(m, projDir);
+    if (depsHooks == null) { return new HookLoad(false, null); }
+    int dh = 0;
+    while (dh < depsHooks.Length) { parts = _pushHooks(parts, n, depsHooks[dh]); n = n + 1; dh = dh + 1; }
     if (n == 0) { return new HookLoad(true, null); }
     if (n == 1) { return new HookLoad(true, parts[0]); }
     return new HookLoad(true, new CompositeBuildHooks(parts, n));
@@ -70,20 +75,49 @@ HookLoad _loadHooks(ProjectManifest m, string projDir, string interDir, string[]
 //   · `.zpkg` path：现成产物（projDir 相对）；
 //   · 工程 path：校验是插件工程且名字一致 → ICompiler 代建到 interDir。
 string[] _pluginSearchDirs() {
-    // 同 z42c PluginRefs 的口径：Z42_PLUGINS 显式 + Z42_HOME/plugins（SDK）；不做 libs 同级发现
-    //（开发树混合域毒源，见 z42c 侧注释）。
-    string[] acc = new string[2];
+    // 查找域规则唯一定义在 z42.project 的 `PluginDirs.Search()`（Z42_PLUGINS → Z42_HOME/plugins，
+    // 不做 libs 同级发现——开发树混合域毒源）；driver / z42b / pipeline 三处共用。
+    return PluginDirs.Search();
+}
+
+// deps-plugin-routing：[dependencies] 里按 zpkg 头分流的插件包 → hook 位走这条加载（名字 =
+// 插件目录按名；.zpkg path 直连；与 z42c `_pluginDepZpkgs` 同口径）。失败返回 null（诊断已打印）。
+// analyzer / generator 位的 deps 分流在 z42b 进程里由 BuildSession（in-proc 编译）处理，这里只收 hook。
+BuildHooks[] _loadDepsHooks(ProjectManifest m, string projDir) {
+    // 工具链内部工程（自举域）跳过：解析域混着种子/成员两代编译器包，插件加载链会触发双代注册
+    //（与 _loadCarriedHooks 的守卫同源）。deps 分流面向用户工程。
+    if (_isToolchainProjectName(m.Project.Name)) { return new BuildHooks[0]; }
+    BuildHooks[] acc = new BuildHooks[4];
     int n = 0;
-    string env = Environment.GetEnvironmentVariable("Z42_PLUGINS", "");
-    if (env.Length > 0) { acc[n] = env; n = n + 1; }
-    string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
-    if (home.Length > 0) {
-        string sdkPlugins = Path.Join(home, "plugins");
-        if (Directory.Exists(sdkPlugins)) { acc[n] = sdkPlugins; n = n + 1; }
-    }
-    string[] r = new string[n];
     int i = 0;
-    while (i < n) { r[i] = acc[i]; i = i + 1; }
+    while (i < m.DepCount) {
+        DepEntry e = m.Deps[i];
+        i = i + 1;
+        string zpkg = "";
+        if (e.Path.EndsWith(".zpkg")) {
+            string zp = Path.IsRooted(e.Path) ? e.Path : Path.Join(projDir, e.Path);
+            if (File.Exists(zp)) { zpkg = zp; }
+        } else if (e.Path.Length == 0) {
+            string[] dirs = _pluginSearchDirs();
+            int d = 0;
+            while (d < dirs.Length) {
+                string cand = Path.Join(dirs[d], e.Name + ".zpkg");
+                if (File.Exists(cand)) { zpkg = cand; break; }
+                d = d + 1;
+            }
+        }
+        if (zpkg.Length == 0) { continue; }
+        PluginCheck chk = _hostCompiler().InspectPlugin(zpkg, e.Name);
+        if (chk.Error.Length > 0) { ConsoleError.WriteLine("z42b: [dependencies] " + chk.Error); return null; }
+        if (!chk.HasHook) { continue; }
+        BuildHooks[] found = _hooksFromZpkg(zpkg);
+        if (found == null) { return null; }
+        int f = 0;
+        while (f < found.Length) { acc = _pushHooks(acc, n, found[f]); n = n + 1; f = f + 1; }
+    }
+    BuildHooks[] r = new BuildHooks[n];
+    int k = 0;
+    while (k < n) { r[k] = acc[k]; k = k + 1; }
     return r;
 }
 

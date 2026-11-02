@@ -9,3 +9,5 @@ pub use package::merge::merge_modules;
 pub use locate::{extract_import_namespaces, resolve_dependency, resolve_namespace};
 pub use locate::namespace_index::ZpkgCandidate;
 pub use lazy::LazyLoader;
+
+pub(crate) mod context_gc;

@@ -70,7 +70,7 @@ pub unsafe extern "C" fn jit_obj_new(
     };
 
     // The instance — zeroed fields, generic arguments, type-parameter field zeros — is built
-    // completely in its block before it is published (`MagrGC::alloc_instance`, shared with
+    // completely in its block before it is published (`Heap::alloc_instance`, shared with
     // interp `obj_new` so the two engines agree; a published object never changes its meta
     // word, object model R4 / R6). The arguments are set before the ctor runs so its `default(T)` resolves correctly.
     // SAFETY: `type_args` was baked from `TypeArgs::as_raw` at translate time.

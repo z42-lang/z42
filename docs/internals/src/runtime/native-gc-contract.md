@@ -55,7 +55,7 @@ park 还是**线程注册协议的前提**：新 `VmContext` 在标记期不注�
 - **批量写同样是覆盖**（切片拷贝、区间搬移）：先对被覆盖区间整体记录旧值，再写。
 - **不带屏障的写只有两种场景**：刚分配、还不可达的块（旧值全是 0），以及 GC 自己给死对象断边。新增这类调用点时
   在旁边写清是哪一种。
-- **新增一种「在堆里存引用」的布局**时，读旧值 + 记录必须随写入原语一起加，并照 `gc/arc_heap_tests/incremental.rs`
+- **新增一种「在堆里存引用」的布局**时，读旧值 + 记录必须随写入原语一起加，并照 `gc/heap_tests/incremental.rs`
   补一对「开屏障存活 / 关屏障被扫」的测试。
 - **不经强引用把已有堆值交给 mutator 的路径**（弱 / 软引用读取、堆遍历）一律过 `admit_resurrected`；GC 在增量周期里
   追踪已有对象时，清扫期跳过未标记条目。原因见 [增量 major「待清扫的死对象」](gc-incremental-major.md)。
@@ -66,7 +66,7 @@ park 还是**线程注册协议的前提**：新 `VmContext` 在标记期不注�
 on this platform」），整个 VM trap。编译照过、native 测试全绿，只有 nightly 的浏览器 wasm 测试能照出来。典型场景：
 time builtins、GC 计时、采样器构造时取起点（→ 每次加载 zbc 都 trap）。
 
-- **关着的探针不取时钟**：计时起点放进 `Option<Instant>`，开关打开才取（参照 `gc/phase_timer.rs`、`gc/sampler.rs`）。
+- **关着的探针不取时钟**：计时起点放进 `Option<Instant>`，开关打开才取（参照 `gc/phase_timer.rs`、`profiler/cpu.rs`）。
 - **始终要跑的计时**（每次 GC、time builtin）：`#[cfg(target_arch = "wasm32")]` 给替代实现（参照
-  `gc/arc_heap/observe.rs` 的单调计数、`corelib/bench.rs`）。
+  `gc/heap/observe.rs` 的单调计数、`corelib/bench.rs`）。
 - 只在 native 可达的路径（JIT、子进程、信号处理）不受限。

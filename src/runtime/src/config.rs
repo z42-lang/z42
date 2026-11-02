@@ -134,16 +134,16 @@ pub struct RuntimeConfig {
     /// `Z42_GC_ADAPTIVE_PROMOTION` — whether the minor sweep may lower the promotion age by
     /// one tier when that tier is measured to reclaim nothing (adaptive-promotion).
     /// Default on; `0` pins the configured age. See
-    /// `gc/arc_heap/promotion_policy.rs` for the measurements behind the rule.
+    /// `gc/heap/promotion_policy.rs` for the measurements behind the rule.
     pub gc_adaptive_promotion: bool,
     /// `Z42_GC_INCREMENTAL` — whether a generational major runs as bounded STW slices with
     /// mutators (and minors) running between them (add-incremental-major-gc M2b). Default on;
-    /// `0` runs every major in one pause. See `gc/arc_heap/incremental.rs`.
+    /// `0` runs every major in one pause. See `gc/heap/incremental.rs`.
     pub gc_incremental: bool,
     /// `Z42_GC_PAUSE_TARGET_MS` — target maximum **minor** pause in milliseconds
     /// (add-pause-budget-nursery). The nursery is sized from the measured cost of collecting it
     /// rather than being a constant; `0` turns that off, and an explicit `Z42_GC_NURSERY_BYTES`
-    /// turns it off too (manual override wins). See `gc/arc_heap/pause_budget.rs`.
+    /// turns it off too (manual override wins). See `gc/heap/pause_budget.rs`.
     pub gc_pause_target_ms: f64,
     /// `Z42_GC_SLICE_MS` — the time budget of one incremental major slice, in milliseconds
     /// (add-incremental-major-gc M2b). Default 2. Tiny values (e.g. 0.05) are a stress knob:

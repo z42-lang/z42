@@ -30,7 +30,7 @@
 //! # Allocation & the ambient heap
 //!
 //! `Str::new`/`From<&str>` carry no `&heap`, so they allocate from the **ambient
-//! heap** ([`crate::gc::ambient::current_heap`], scoped per engine entry). In the rare
+//! heap** ([`crate::vm::exec::ambient::current_heap`], scoped per engine entry). In the rare
 //! heap-less context (unit tests without a VM), they fall back to a standalone
 //! **leaked** block — never taken on a production hot path (see [`Self::new`]).
 //!
@@ -76,12 +76,12 @@ const _: () = assert!(std::mem::size_of::<Option<Str>>() == std::mem::size_of::<
 impl Str {
     /// Allocate a fresh GC string copying `s`'s UTF-8 bytes inline.
     ///
-    /// Uses the ambient heap ([`crate::gc::ambient::current_heap`]) so the ~189
+    /// Uses the ambient heap ([`crate::vm::exec::ambient::current_heap`]) so the ~189
     /// `.into()` / `From<&str>` call sites need no `&heap`. Falls back to a
     /// standalone leaked block only when no frame is executing (unit tests without
     /// a VM); production execution always has an active ambient heap.
     pub fn new(s: &str) -> Self {
-        match crate::gc::ambient::current_heap() {
+        match crate::vm::exec::ambient::current_heap() {
             Some(heap) => heap.alloc_str(s),
             None => Self::new_leaked(s),
         }
@@ -102,7 +102,7 @@ impl Str {
 
     /// Mark this string's GC block during the mark phase. Returns `true` if this
     /// call won the mark CAS. Strings are leaves (no outgoing references), so
-    /// nothing more is traced. Called from `arc_heap`'s `Value::Str` mark arm.
+    /// nothing more is traced. Called from `heap`'s `Value::Str` mark arm.
     #[inline]
     pub fn mark(&self, kind: crate::object::header::marks::MarkKind) -> bool {
         self.block.mark(kind)

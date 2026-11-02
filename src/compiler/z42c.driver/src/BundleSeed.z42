@@ -47,10 +47,18 @@ public sealed class BundleSeed {
 // 条目删了，种子改从**产物自述**取：zpkg 的 DEPS 段由编译期 usings 生成，比清单声明更真（声明了没用的
 // 不再捆绑，用了没声明的不再漏）。顺带补上 `_bundleExeDeps` 尾注记的老缺口——「按名引用的依赖没有
 // 传递闭包」的第一跳（app 自己 import 了谁）从这里就有，后续跳仍由复制循环里的 DEPS BFS 走。
-BundleSeed _bundleSeed(ProjectManifest pm, string distDir, string[] closureNames, int closureN) {
+BundleSeed _bundleSeed(ProjectManifest pm, string distDir, string[] closureNames, int closureN,
+                       string[] routedDeps, int routedN) {
     BundleSeed s = new BundleSeed(pm.DepCount);
     int pi = 0;
-    while (pi < pm.DepCount) { s.Add(pm.Deps[pi].Name, pm.Deps[pi].Deploy); pi = pi + 1; }
+    while (pi < pm.DepCount) {
+        // deps-plugin-routing：分流成插件的 [dependencies] 条目不链入产物——不播种。
+        bool routed = false;
+        int rk = 0;
+        while (rk < routedN) { if (routedDeps[rk] == pm.Deps[pi].Name) { routed = true; break; } rk = rk + 1; }
+        if (!routed) { s.Add(pm.Deps[pi].Name, pm.Deps[pi].Deploy); }
+        pi = pi + 1;
+    }
     _seedOwnDeps(pm, distDir, s);
     int ci = 0;
     while (ci < closureN) { s.Add(closureNames[ci], ""); ci = ci + 1; }
