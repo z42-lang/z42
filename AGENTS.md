@@ -14,9 +14,10 @@
 
 完整规则见 [workflow.md](docs/agent/rules/workflow.md)；本节只列触发条件 + 一行结论：
 
-1. **提交 / 合并前先确认基于最新 main**：`git fetch` 后 rebase `origin/main`，不带着落后的 base 合并
+1. **提交 / 合并前先确认基于最新 main**：`git fetch` 后同步 `origin/main`，不带着落后的 base 合并
    （workflow.md 阶段 6「合并前置」）。
-2. **rebase 冲突及时解决**：机械冲突当场解掉继续；暴露的是方案分歧时停下找 User 裁决，不硬合。
+2. **PR 冲突自动解决**：保留双方有效意图、适配调用点与测试、重新验证并推送；仅未授权的设计取舍需要裁决
+   （workflow.md 阶段 6）。
 3. **没问题自动合并**：并入最新 main 后完整 `xtask test` 全绿，即 squash 合并并清理分支 / worktree，
    无需等 User 确认（批量授权的边界仍守）。
 4. **实现功能 / 修复 bug 必须带测试用例**：无测试 = 未完成（要求表见 workflow.md「测试要求」）。
@@ -25,8 +26,10 @@
    [性能基准与回归门禁](docs/internals/src/devinfra/benchmarking.md)）。
 6. **迭代记录不进源码注释**：profile 数据、测量日期、热点归因这类一次性过程证据写进 PR 描述；
    源码注释只写代码自表达不了的不变量 / 约束（判据见 workflow.md「核心模型」）。
+7. **持续迭代、持续发起 PR**：在 User 指定目标内逐轮实施、验证、开 PR、跟进至合并，再推进下一轮；
+   不为每个 PR 重复索要「继续」（见 [持续迭代](docs/agent/rules/workflow.md#持续迭代与持续发起-pr)）。
 
 ## 跨会话记忆（memory）
 
 不入库，放哪由所用工具的自带机制决定（本地家目录、不进仓库）。续推口令怎么写、写透到什么程度，
-见 workflow.md 阶段 6 第 6 步。
+见 workflow.md 阶段 6 第 6 步；已授权工作直接继续，只在需要中断时交接。
