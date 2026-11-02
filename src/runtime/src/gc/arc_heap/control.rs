@@ -4,7 +4,6 @@
 use crate::gc::heap::MagrGC;
 use crate::object::Value;
 use crate::gc::types::{CollectStats, GcEvent, GcKind};
-use crate::gc::phase_timer::PhaseTimer;
 use super::incremental::{GenWork, SliceBudget};
 
 impl crate::gc::arc_heap::ArcMagrGC {
@@ -65,7 +64,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.open_major_cycle();
         self.mark_queue.lock().clear();
         let _newly_marked = {
-            let t = PhaseTimer::start("full mark");
+            let t = self.phase_timer("full mark");
             let n = self.mark_phase();
             t.count(n);
             n
@@ -87,7 +86,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         };
         let live_contexts = ctx_snapshot.as_ref().map(|s| self.scan_marked_contexts(s));
         let freed = {
-            let _t = PhaseTimer::start("sweep");
+            let _t = self.phase_timer("sweep");
             self.sweep_phase()
         };
         // Reclaim Unloading contexts with no live references (post-sweep, STW).
@@ -274,7 +273,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     did_major = true;
                 } else if work == GenWork::Slice || work == GenWork::Finish {
                     let o = if work == GenWork::Slice {
-                        self.run_major_slice(&mut SliceBudget::from_config())
+                        self.run_major_slice(&mut SliceBudget::from_config(self.config.slice_ms))
                     } else {
                         self.finish_major_cycle("explicit collection or soft cap")
                     };
@@ -308,7 +307,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                         let survival =
                             1.0 - (minor.reclaimed_entries as f32 / young_before as f32);
                         // M9: unless the last major already looked and found nothing.
-                        if survival >= Self::minor_escalation_threshold()
+                        if survival >= self.minor_escalation_threshold()
                             && !self.young_policy.major_was_futile()
                         {
                             // The nursery is not producing garbage, so the garbage — if any —

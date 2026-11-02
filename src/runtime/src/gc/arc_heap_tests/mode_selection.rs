@@ -7,13 +7,13 @@ use crate::gc::{GcMode, MagrGC};
 #[test]
 fn mode_default_is_generational_mark_sweep() {
     // flip-gc-default-to-generational .
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     assert_eq!(heap.mode(), GcMode::GenerationalMarkSweep);
 }
 
 #[test]
 fn set_mode_changes_observable_mode() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     assert_eq!(heap.mode(), GcMode::default());
     heap.set_mode(GcMode::StwMarkSweep);
     assert_eq!(heap.mode(), GcMode::StwMarkSweep);
@@ -25,7 +25,7 @@ fn set_mode_changes_observable_mode() {
 fn set_mode_then_collect_uses_the_new_mode() {
     // After switching to STW, a forced collect is a whole-heap mark-sweep: an unrooted
     // cycle is freed, and the mode stays as set.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
 
     // Allocate + drop a small cycle.

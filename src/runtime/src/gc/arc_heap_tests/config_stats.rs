@@ -1,10 +1,80 @@
 use super::*;
 
+#[test]
+fn independent_heap_policy_controls_mode_nursery_and_pause_window() {
+    use crate::gc::{GcConfig, GcMode};
+    let a = ArcMagrGC::new(GcConfig {
+        mode: GcMode::StwMarkSweep, nursery_bytes: Some(1024), pause_window: 2,
+        promotion_age: Some(1), minor_threshold: 0.5, ..GcConfig::default()
+    });
+    let b = ArcMagrGC::new(GcConfig {
+        nursery_bytes: Some(4096), pause_window: 5, ..GcConfig::default()
+    });
+    assert_eq!(a.mode(), GcMode::StwMarkSweep);
+    assert_eq!(b.mode(), GcMode::GenerationalMarkSweep);
+    assert_eq!(a.nursery_bytes.load(Ordering::Relaxed), 1024);
+    assert_eq!(b.nursery_bytes.load(Ordering::Relaxed), 4096);
+    assert_eq!(a.configured_promotion_age, 1);
+    assert_eq!(b.configured_promotion_age, crate::gc::PROMOTION_THRESHOLD);
+    assert_eq!(a.minor_escalation_threshold_for_test(), 0.5);
+    assert_eq!(b.minor_escalation_threshold_for_test(), 0.75);
+    for _ in 0..4 { a.collect_full(); b.collect_full(); }
+    assert_eq!(a.pause_histogram.lock().recent_pauses.len(), 2);
+    assert_eq!(b.pause_histogram.lock().recent_pauses.len(), 4);
+    a.set_mode(GcMode::GenerationalMarkSweep);
+    assert_eq!(b.mode(), GcMode::GenerationalMarkSweep);
+    assert_eq!(b.pause_histogram.lock().window_cap, 5);
+}
+
+#[test]
+fn incremental_toggle_selects_the_existing_major_paths_per_heap() {
+    use crate::gc::{arc_heap::incremental::GenWork, GcConfig};
+    let synchronous = ArcMagrGC::new(GcConfig { incremental: false, ..GcConfig::default() });
+    let sliced = ArcMagrGC::new(GcConfig::default());
+    assert!(matches!(synchronous.choose_generational_work(true), GenWork::Major));
+    assert!(matches!(sliced.choose_generational_work(true), GenWork::Slice));
+    assert!(matches!(synchronous.choose_generational_work(false), GenWork::Minor));
+}
+
+#[test]
+fn explicit_nursery_disables_adaptation_only_for_that_heap() {
+    use crate::gc::GcConfig;
+    let manual = ArcMagrGC::new(GcConfig {
+        nursery_bytes: Some(2048), ..GcConfig::default()
+    });
+    let adaptive = ArcMagrGC::new(GcConfig::default());
+    assert!(!manual.pause_budget.enabled());
+    assert_eq!(adaptive.pause_budget.enabled(), crate::pal::time::HAS_CLOCK);
+    assert_eq!(manual.allowance_unit_bytes.load(Ordering::Relaxed), 2048);
+}
+
+#[test]
+fn soft_reference_threshold_is_heap_local_for_full_and_incremental_collection() {
+    use crate::gc::GcConfig;
+    for incremental in [false, true] {
+        let keep = ArcMagrGC::new(GcConfig { soft_threshold: 1.0, ..GcConfig::default() });
+        let clear = ArcMagrGC::new(GcConfig { soft_threshold: 0.0, ..GcConfig::default() });
+        let kept = keep.alloc_object(dummy_type_desc("Kept"), vec![], NativeData::None);
+        let cleared = clear.alloc_object(dummy_type_desc("Cleared"), vec![], NativeData::None);
+        let a = keep.register_soft_ref(&kept);
+        let b = clear.register_soft_ref(&cleared);
+        assert_ne!(a, 0); assert_ne!(b, 0);
+        if incremental {
+            assert!(keep.run_major_slice_for_test(u64::MAX));
+            assert!(clear.run_major_slice_for_test(u64::MAX));
+        } else {
+            keep.collect_full(); clear.collect_full();
+        }
+        assert!(matches!(keep.soft_ref_get(a), Value::Object(_)));
+        assert!(matches!(clear.soft_ref_get(b), Value::Null));
+    }
+}
+
 // ── 6. Heap config ───────────────────────────────────────────────────────────
 
 #[test]
 fn set_max_heap_bytes_reflects_in_stats() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_max_heap_bytes(Some(1_000_000));
     assert_eq!(heap.stats().max_bytes, Some(1_000_000));
     heap.set_max_heap_bytes(None);
@@ -13,7 +83,7 @@ fn set_max_heap_bytes_reflects_in_stats() {
 
 #[test]
 fn used_bytes_increases_with_alloc() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     assert_eq!(heap.used_bytes(), 0);
     let _ = heap.alloc_array(vec![Value::I64(1); 10]);
     assert!(heap.used_bytes() > 0);
@@ -23,7 +93,7 @@ fn used_bytes_increases_with_alloc() {
 
 #[test]
 fn stats_allocations_monotonically_increases() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     assert_eq!(heap.stats().allocations, 0);
     let _ = heap.alloc_array(vec![]);
     assert_eq!(heap.stats().allocations, 1);
@@ -34,7 +104,7 @@ fn stats_allocations_monotonically_increases() {
 
 #[test]
 fn stats_gc_cycles_increments_on_collect_cycles() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     assert_eq!(heap.stats().gc_cycles, 0);
     heap.collect_cycles();
     assert_eq!(heap.stats().gc_cycles, 1);
@@ -49,7 +119,7 @@ fn stats_gc_cycles_increments_on_collect_cycles() {
 // entry points run a minor — see `collection.rs`.)
 #[test]
 fn stats_major_collections_track_non_generational_cycles() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(crate::gc::GcMode::StwMarkSweep);
     let s0 = heap.stats();
     assert_eq!((s0.minor_collections, s0.major_collections), (0, 0));
@@ -64,7 +134,7 @@ fn stats_major_collections_track_non_generational_cycles() {
 
 #[test]
 fn stats_struct_has_all_expected_fields() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let s = heap.stats();
     // Just access every field — compile time check that all fields exist
     let _ = (
@@ -89,7 +159,7 @@ fn stats_struct_has_all_expected_fields() {
 /// the runtime audit measured.
 #[test]
 fn committed_bytes_counts_the_chunks_the_regions_hold() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(crate::gc::GcMode::StwMarkSweep);
     heap.set_nursery_bytes_for_test(1 << 40);
     let before = heap.stats().committed_bytes;
@@ -119,7 +189,7 @@ fn committed_bytes_counts_the_chunks_the_regions_hold() {
 /// and credited when the object's block dies (its drop glue frees the box).
 #[test]
 fn committed_bytes_charges_extras_while_the_object_lives() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(crate::gc::GcMode::StwMarkSweep);
     heap.set_nursery_bytes_for_test(1 << 40);
     let one = heap.alloc_object(dummy_type_desc("C"), vec![], NativeData::None);

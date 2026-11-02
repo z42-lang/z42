@@ -279,7 +279,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         });
         if verdict != Verdict::Productive {
             let (mf, mp) = self.young_policy.major_reference();
-            crate::gc::phase_timer::note(format_args!(
+            self.phase_note(format_args!(
                 "yield  minor {} in {pause_us} us  {verdict:?} (major {} in {mp} us)  -> tenure x{}",
                 crate::gc::trace::human(freed), crate::gc::trace::human(mf), self.young_policy.run()));
         }
@@ -308,7 +308,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // The tenure reports the bytes of the objects and arrays it moved.
         let (blocks, promoted) = self.region_var.lock().tenure_young(doomed_unless);
         self.promoted_bytes_since_major.fetch_add(promoted, Ordering::Relaxed);
-        crate::gc::phase_timer::note(format_args!(
+        self.phase_note(format_args!(
             "tenure  blocks {blocks}  -> old {}  (run {})",
             crate::gc::trace::human(promoted), self.young_policy.run()));
         promoted

@@ -151,7 +151,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// only does `flag.store(true, Release)` — the collect itself is deferred to
     /// the next mutator `check_safepoint(ctx)` and runs inside its safepoint
     /// guard, so the root scanner never races a mutator's `regs` writes. With no
-    /// flag wired (GC unit tests constructing `ArcMagrGC::new()` directly) it
+    /// flag wired (GC unit tests constructing `ArcMagrGC::default()` directly) it
     /// falls back to the inline collect, leaving single-threaded behaviour
     /// unchanged.
     pub(super) fn maybe_auto_collect(&self) {
@@ -178,7 +178,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         if paused { return; }
         // Entry-capped units (`entry_unit.rs`): read the allocation size before any gate is.
         self.sample_entry_unit(used, total_reclaimed);
-        let cfg = crate::config::runtime_config();
+        let cfg = &self.config;
         let soft_limit = self.soft_cap();
 
         // How much did the *previous* trip's collection actually reclaim?
@@ -247,7 +247,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // `Z42_GC_PHASES`: why this collection is happening at all. The phase lines that
         // follow account for the pause; this one accounts for the *young set* the pause had to
         // chew through, which is decided here and nowhere else.
-        crate::gc::phase_timer::note(format_args!(
+        self.phase_note(format_args!(
             "trip {:<5}  gate {}{}  grown {}  (last freed {})  unit {} at {} B/alloc",
             match trip.kind { TripKind::Major => "major", TripKind::Minor => "minor", TripKind::Slice => "slice" },
             crate::gc::trace::human(trip.gate),
@@ -282,7 +282,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             return;
         }
         // Fallback: legacy inline collect — preserves GC unit-test behaviour
-        // (those tests construct ArcMagrGC::new() without VmCore wiring).
+        // (those tests construct ArcMagrGC::default() without VmCore wiring).
         self.collect_cycles();
     }
 }
@@ -413,7 +413,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         baseline: u64,
         backoff: u32,
         soft_limit: Option<SoftCap>,
-        cfg: &crate::config::RuntimeConfig,
+        cfg: &crate::gc::GcConfig,
     ) -> Option<Trip> {
         let allowance = Self::collection_allowance(baseline, self.allowance_unit(), soft_limit);
         let grown = used.saturating_sub(baseline);
@@ -427,7 +427,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // so the backoff never reached it — a live set over its cap collected once a gate,
         // forever. Judging the cap by footprint makes that case common (a heap's footprint is
         // well above its live bytes), so it has to back off for real.
-        let near_cap = self.near_soft_cap(soft_limit, cfg.gc_near_limit_ratio)
+        let near_cap = self.near_soft_cap(soft_limit, cfg.near_limit_ratio)
             && (backoff <= 1 || grown >= allowance.saturating_mul(backoff as u64));
 
         if crate::gc::MagrGC::mode(self) != crate::gc::GcMode::GenerationalMarkSweep {

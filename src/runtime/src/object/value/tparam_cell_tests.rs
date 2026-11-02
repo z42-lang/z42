@@ -91,7 +91,7 @@ fn payload_word(o: &ScriptObject, slot: usize) -> u64 {
 }
 
 fn heap() -> ArcMagrGC {
-    let h = ArcMagrGC::new();
+    let h = ArcMagrGC::default();
     h.set_mode(GcMode::StwMarkSweep);
     h
 }
