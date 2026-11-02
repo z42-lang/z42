@@ -99,12 +99,9 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`。改动集合：PR 取 PR 的文件列表，
 main push 取 `before...sha` 的 compare（新分支的全零 `before`、API 失败、到 compare 的 300 文件上限 ⇒ 当作非纯文档）。
 `docs-check` 的内容：ci-bootstrap 的 `xtask-only`
-模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（先 `doc gen` 生成不入库的
-reference stdlib 页，再查相对链接与文档结构）+ `xtask check diagcodes`（诊断码 ↔
-`error-codes.md`）+ `xtask check doc-refs`（书页代码引用；为此装一份 stable Rust，先 cargo 编 rust-index 重建 Rust
-外部索引）。gen 用的解析器是种子 SDK 的 z42c.syntax（xtask-only 的既定语义）：stdlib 用上种子还不认的语法时，下一次
-nightly 种子发布前这里可能假红（种子随每次 main push 重发，窗口很短）。doc-lints 不在这里——纯文档改动碰不到
-stdlib 的 `///`；它是 GREEN gate 的 stage，随 test-host 跑。
+模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（先生成 reference stdlib 页，
+再查相对链接与文档结构）+ `xtask check diagcodes`。符号引用报告 `xtask check doc-refs` 按需手动运行，
+docs-check 不为它安装 Rust 或编译索引器。doc-lints 随 test-host 检查源码注释。
 `test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip；
 main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SDK，见下节的 `sdk` 判定）。schedule / dispatch 不走快速通道。
 
@@ -174,11 +171,11 @@ commit 不因此挂红。publish 真失败照样红。
 
 | flag | 命中路径（节选） |
 |---|---|
-| `platform` | `src/runtime/**`、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`、`scripts/{package/**,packages.toml,install/**}`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
+| `platform` | `src/runtime/**`、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`、`scripts/{package/**,packages.toml,install/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
 | `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
 | `compiler` | `src/compiler/**`、`src/toolchain/devtools/vscode/**` |
 | `vm` | `src/runtime/**`（含 `src/runtime/.cargo/`） |
-| `stdlib` | `src/libraries/**`、`src/toolchain/builder/**`（z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42` |
+| `stdlib` | `src/libraries/**`、`src/toolchain/builder/**`（z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42`、`scripts/common/xtask_golden.z42` |
 
 `src/toolchain/builder/**` 同时在 `platform` 与 `stdlib` 里：z42b 既是 [Test] 执行器，它的 `publish`
 （apphost / iOS / Android 导出）又只在 `package-*` 里被执行。只挂 `stdlib` 时，#978 把 Windows apphost

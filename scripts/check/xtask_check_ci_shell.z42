@@ -230,7 +230,7 @@ int _csCheckFile(string path, string fileRel, int[] outBad, int[] outBlocks) {
     return 0;
 }
 
-int _testCiShell() {
+int _checkCiShell() {
     string root = _root();
     string dir = _csScanDir(root);
     Console.WriteLine("① `.github/**` 的多行 run: 块无「先用后赋」（set -u 会当场退出）");

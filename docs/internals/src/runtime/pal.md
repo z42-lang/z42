@@ -89,8 +89,8 @@ pub const OS_CAPS: OsCaps;                         // Std.Platform.Capabilities(
 Unix 后端包含 Apple、Linux/Android 等子分支。共享的宿主实现和不支持操作的哨兵放在 common，
 只在所选后端需要时编译。模块选择不产生运行期虚调用；每 VM 的 VFS 句柄保持原有抽象。
 
-平台 cfg 和 libc 的生产代码只能位于 `pal/sys/`。分层门同时检查 PAL 上层，且按完整目录前缀判断，
-相似名称的目录不能取得豁免。feature 裁剪和测试代码维持各自原有规则。
+平台 cfg 和 libc 的生产代码只放在 `pal/sys/`，通过代码 review 维护这个边界。
+feature 裁剪和测试代码维持各自原有规则。
 
 ## 各 concern 与待办
 

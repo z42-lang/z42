@@ -1,0 +1,37 @@
+// Rust 符号索引的共享构建入口，供 doc index 与引用报告使用。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Time;
+using Std.Collections;
+
+int _docIndex() {
+    string root = _root();
+    Stopwatch sw = _procStart("doc index (Rust crates → artifacts/doc/rust.idx)");
+    int c = _exec(_cargoRelease(_runtimeCargoConfig())
+        .Arg("--manifest-path").Arg("src/toolchain/devtools/rust-index/Cargo.toml"));
+    if (c != 0) { ConsoleError.WriteLine("  ✗ rust-index cargo build failed"); return c; }
+    string bin = Path.Join(_cargoOutFor(root, _detectHostRid(), "release"),
+        Platform.IsWindows() ? "z42-rust-index.exe" : "z42-rust-index");
+    Process p = new Process(bin).Arg("--root").Arg(root)
+        .Arg("--out").Arg(Path.Join(_docIndexDir(root), "rust.idx"))
+        .Arg("--regen").Arg("xtask doc index");
+    foreach (var crate in _docRustCrates(root)) { p = p.Arg(crate); }
+    c = _exec(p);
+    if (c != 0) { ConsoleError.WriteLine("  ✗ rust-index failed"); return c; }
+    _procEnd("doc index", sw);
+    return 0;
+}
+
+// 要索引的 crate：`<crate 名>=<相对仓库根的 crate 根文件>`。运行时主 crate（lib + z42vm 二进制）加
+// src/runtime/crates/ 下每个带 src/lib.rs 的子 crate（目录名的 `-` 换成 `_`，与 Rust 里引用它的写法一致）。
+string[] _docRustCrates(string root) {
+    List<string> acc = new List<string>();
+    acc.Add("z42=src/runtime/src/lib.rs");
+    acc.Add("z42vm=src/runtime/src/main.rs");
+    foreach (var d in _enumDirsSorted(Path.Join(root, "src/runtime/crates"))) {
+        string lib = "src/runtime/crates/" + d + "/src/lib.rs";
+        if (File.Exists(Path.Join(root, lib))) { acc.Add(d.Replace("-", "_") + "=" + lib); }
+    }
+    return acc.ToArray();
+}
