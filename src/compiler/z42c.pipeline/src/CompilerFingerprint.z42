@@ -172,7 +172,9 @@ public static class CompilerFingerprint {
         // type-param-markers：泛型体里以型参为目标 / 实参的类型名（`o is T` / `(T)o` / `new List<T>()` /
         // `catch (Err<T>)` / 泛型调用站点的类级型参）特化体内代换、共享体里发 `$mta:` / `$cta:` 型参标记；
         // `(T)o` 受检；类级 `new T()` 走 `__class_type_arg` + `__activator_create`；catch 目标带实参 —— 输出变化。
-        "type-param-markers"
+        "type-param-markers",
+        // 可变寄存器和参数不再登记为全函数常量，避免覆盖旧值或 ref 写入。
+        "fix-constfold-mutable-registers"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

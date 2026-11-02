@@ -89,7 +89,7 @@ public sealed class IrOptPipeline {
     private static void _passConstFold(IrFunction f, int[] defs) {
         bool[] cint = new bool[f.MaxReg + 2];
         long[] cval = new long[f.MaxReg + 2];
-        // 播种：单赋值 ConstI64
+        // 全函数常量表只接纳非参数的单赋值寄存器；参数另有调用方提供的入口初值。
         int bi = 0;
         while (bi < f.BlockCount) {
             IrBlock blk = f.Blocks[bi];
@@ -98,7 +98,7 @@ public sealed class IrOptPipeline {
                 IrInstr ins = blk.Instrs[ii];
                 if (IrOptInfo.IsConstI64(ins)) {
                     int d = IrOptInfo.DstId(ins);
-                    if (d >= 0 && d < cint.Length && defs[d] == 1) { cint[d] = true; cval[d] = IrOptInfo.ConstI64Val(ins); }
+                    if (d >= f.ParamCount && d >= 0 && d < cint.Length && defs[d] == 1) { cint[d] = true; cval[d] = IrOptInfo.ConstI64Val(ins); }
                 }
                 ii = ii + 1;
             }
@@ -115,7 +115,7 @@ public sealed class IrOptPipeline {
                     blk.Instrs[ii] = folded;
                     if (IrOptInfo.IsConstI64(folded)) {
                         int d = IrOptInfo.DstId(folded);
-                        if (d >= 0 && d < cint.Length) { cint[d] = true; cval[d] = IrOptInfo.ConstI64Val(folded); }
+                        if (d >= f.ParamCount && d >= 0 && d < cint.Length && defs[d] == 1) { cint[d] = true; cval[d] = IrOptInfo.ConstI64Val(folded); }
                     }
                 }
                 ii = ii + 1;
