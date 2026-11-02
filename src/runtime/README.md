@@ -16,7 +16,7 @@
 | `app.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
 | `boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`app::run` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
 | `lib.rs` | 库入口，re-export 公开 API |
-| `config.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config_tests.rs` |
+| `config.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`split.rs`（转换为 GC 拥有的 `GcConfig`）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config_tests.rs` |
 | `counters.rs` | `RuntimeCounters`：VM 可观测性原子计数器 |
 | `observer.rs` | `RuntimeObserver`：非 GC 运行时事件的 push 流（与 `gc::GcObserver` 对称） |
 | `signal_handler.rs` | 硬崩溃时捕获 z42 调用栈的 OS 信号 handler（调 `pal::signal`） |
@@ -26,6 +26,7 @@
 | 目录 | 职责 |
 |------|------|
 | `src/metadata/` | 静态包信息、IR、映像与静态查询（见下） |
+| `src/vm/threads/` | mutator 暂停、safepoint 与 GC 根服务适配，见 [`src/vm/threads/README.md`](src/vm/threads/README.md) |
 | `src/vm/exec/` | 引擎共享的标量指令语义，见 [`src/vm/exec/README.md`](src/vm/exec/README.md) |
 | `src/vm/loader/` | 包加载、惰性依赖、定位和加载上下文，见 [`src/vm/loader/README.md`](src/vm/loader/README.md) |
 | `src/vm/runtime/` | 每 VM 的身份、类型组装与链接缓存，见 [`src/vm/runtime/README.md`](src/vm/runtime/README.md) |
@@ -34,7 +35,7 @@
 | `src/interp/` | 字节码解释器，见 [`src/interp/README.md`](src/interp/README.md) |
 | `src/jit/` | Cranelift JIT 后端，见 [`src/jit/README.md`](src/jit/README.md) |
 | `src/corelib/` | 内置函数（builtin）实现，统一入口 `invoke_builtin` 供 interp / JIT 调用（builtin ABI v2：`corelib/abi/`），见 [`src/corelib/README.md`](src/corelib/README.md) |
-| `src/gc/` | GC 子系统（`trait MagrGC` + 分代 / STW / 并发 / 增量 major），见 [`src/gc/README.md`](src/gc/README.md) |
+| `src/gc/` | 具体 Heap 与分代 / STW / 增量 major 回收，见 [`src/gc/README.md`](src/gc/README.md) |
 | `src/vm_context/` | `VmContext`：单个 VM 实例所有可变状态的唯一持有者（静态字段（`static_table.rs`：每字段一个地址稳定、读写无锁的单元）、type / 方法解析缓存、isa cache、cctor、资源登记、native 句柄表） |
 | `src/interop/` | Tier 1 C ABI 运行时 + stdlib native 扩展加载，见 [`src/interop/README.md`](src/interop/README.md) |
 | `src/host/` | 嵌入 / 宿主 API（`z42_host.h` 的 Tier 1 C ABI 实现），见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |

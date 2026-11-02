@@ -1,4 +1,4 @@
-//! Supporting types for the [`MagrGC`](super::heap::MagrGC) trait.
+//! Supporting types for the [`Heap`](super::heap::Heap) trait.
 //!
 //! Houses every data type that the GC interface contracts on (handles, events,
 //! observer trait, profiler types, snapshots, …) so that `heap.rs` can stay
@@ -16,8 +16,8 @@ use crate::object::header::arr_ref::WeakArrRef;
 
 // ── Handles ──────────────────────────────────────────────────────────────────
 
-/// Opaque handle returned by [`MagrGC::pin_root`](super::heap::MagrGC::pin_root);
-/// pass to [`MagrGC::unpin_root`](super::heap::MagrGC::unpin_root) to release.
+/// Opaque handle returned by [`Heap::pin_root`](super::heap::Heap::pin_root);
+/// pass to [`Heap::unpin_root`](super::heap::Heap::unpin_root) to release.
 ///
 /// Modeled after V8's `Persistent<T>::Reset()` and .NET's `GCHandle.Free()` —
 /// host has explicit ownership semantics rather than RAII.
@@ -25,15 +25,15 @@ use crate::object::header::arr_ref::WeakArrRef;
 pub struct RootHandle(pub u64);
 
 /// Frame scope marker: the depth of the pin-stack at the moment of
-/// [`MagrGC::enter_frame`](super::heap::MagrGC::enter_frame). Pass to
-/// [`MagrGC::leave_frame`](super::heap::MagrGC::leave_frame) to drop every
+/// [`Heap::enter_frame`](super::heap::Heap::enter_frame). Pass to
+/// [`Heap::leave_frame`](super::heap::Heap::leave_frame) to drop every
 /// pin added inside that frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameMark(pub u32);
 
 /// Observer identity returned by
-/// [`MagrGC::add_observer`](super::heap::MagrGC::add_observer); used with
-/// [`MagrGC::remove_observer`](super::heap::MagrGC::remove_observer).
+/// [`Heap::add_observer`](super::heap::Heap::add_observer); used with
+/// [`Heap::remove_observer`](super::heap::Heap::remove_observer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ObserverId(pub u64);
 
@@ -65,7 +65,7 @@ pub enum GcEvent {
     AfterCollect       { kind: GcKind, freed_bytes: u64, pause_us: u64 },
     /// Allocation happening with heap usage at >75% of `max_bytes`.
     AllocationPressure { used_bytes: u64, limit_bytes: u64 },
-    /// Heap usage crossed >90% of `max_bytes` (deduped per ArcMagrGC instance).
+    /// Heap usage crossed >90% of `max_bytes` (deduped per Heap instance).
     NearHeapLimit      { used_bytes: u64, limit_bytes: u64 },
     /// Allocation would exceed `max_bytes`; Phase 1 still allows the allocation
     /// (RC mode does not enforce). Phase 3 tracing GC may reject.
@@ -95,18 +95,18 @@ pub enum AllocKind {
 pub struct AllocSample {
     pub kind:         AllocKind,
     pub size_bytes:   usize,
-    /// Microseconds since `ArcMagrGC::EPOCH` (process start, monotonic).
+    /// Microseconds since `Heap::EPOCH` (process start, monotonic).
     pub timestamp_us: u64,
 }
 
 /// Allocation sampler callback installed via
-/// [`MagrGC::set_alloc_sampler`](super::heap::MagrGC::set_alloc_sampler).
+/// [`Heap::set_alloc_sampler`](super::heap::Heap::set_alloc_sampler).
 pub type AllocSamplerFn = Arc<dyn Fn(&AllocSample) + Send + Sync>;
 
 // ── Finalization ─────────────────────────────────────────────────────────────
 
 /// Finalizer callback registered via
-/// [`MagrGC::register_finalizer`](super::heap::MagrGC::register_finalizer).
+/// [`Heap::register_finalizer`](super::heap::Heap::register_finalizer).
 ///
 /// **Phase 1 RC mode**: registration is recorded but the callback is never
 /// invoked (RC has no Drop hook for arbitrary objects). Phase 3 mark-sweep
@@ -115,7 +115,7 @@ pub type FinalizerFn = Arc<dyn Fn() + Send + Sync>;
 
 // ── Collection result ────────────────────────────────────────────────────────
 
-/// Result of [`MagrGC::force_collect`](super::heap::MagrGC::force_collect).
+/// Result of [`Heap::force_collect`](super::heap::Heap::force_collect).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CollectStats {
     pub freed_bytes: u64,
@@ -128,8 +128,8 @@ pub struct CollectStats {
 
 /// Weak reference to a heap value.
 ///
-/// Constructed via [`MagrGC::make_weak`](super::heap::MagrGC::make_weak);
-/// upgraded via [`MagrGC::upgrade_weak`](super::heap::MagrGC::upgrade_weak).
+/// Constructed via [`Heap::make_weak`](super::heap::Heap::make_weak);
+/// upgraded via [`Heap::upgrade_weak`](super::heap::Heap::upgrade_weak).
 ///
 /// Atomic value variants (`I64` / `F64` / `Bool` / `Char` / `Str` / `Null`)
 /// cannot be weak-referenced — `make_weak` returns `None` for them.
@@ -147,14 +147,14 @@ pub(crate) enum WeakRefInner {
 
 // ── GC handle table ──────────────────────────────────────────────────────────
 
-/// Discriminator on slots in [`MagrGC::handle_alloc`](super::heap::MagrGC::handle_alloc).
+/// Discriminator on slots in [`Heap::handle_alloc`](super::heap::Heap::handle_alloc).
 ///
 /// - **`Strong`**: slot stores a reference that anchors the target across GC
 ///   collection — equivalent to C# `GCHandleType.Normal`. In Phase 1 RC mode
 ///   this is a `Rc::clone` of the wrapped value (atomic values are stored by
 ///   value clone). The slot keeps the target alive until the slot is freed.
 /// - **`Weak`**: slot stores a non-anchoring reference; if all strong refs to
-///   the target drop, [`MagrGC::handle_target`](super::heap::MagrGC::handle_target)
+///   the target drop, [`Heap::handle_target`](super::heap::Heap::handle_target)
 ///   on the slot returns `None`. Equivalent to C# `GCHandleType.Weak`.
 ///
 /// Phase 3 tracing GC will add `Pinned` (anchor + forbid relocation) and
@@ -167,26 +167,16 @@ pub enum GcHandleKind {
 
 // ── Pause histogram ──────────────────────────────────────────────────────────
 
-/// Default capacity of the per-heap rolling pause-time window
-/// (add-gc-pause-window). Overridable via
-/// `Z42_GC_PAUSE_WINDOW`; clamped to `[1, 65536]`. The actual default +
-/// clamp live in `RuntimeConfig::gc_pause_window`. Kept as a public
-/// constant for any downstream that wants to refer to the default
-/// without going through the config singleton.
+/// Default capacity of a rolling pause-time window. The facade can pass a
+/// `Z42_GC_PAUSE_WINDOW` override through `GcConfig`; explicit capacities
+/// are bounded by `PauseHistogram::new`.
 pub const PAUSE_WINDOW_DEFAULT_CAP: usize = 1024;
 
 /// Hard ceiling on `Z42_GC_PAUSE_WINDOW` override. 65536 × 8 bytes =
 /// 512 KB per heap — generous but prevents a hostile env from
 /// allocating GB-sized deques. Reflected in
-/// `crate::config::parse_gc_pause_window`.
+/// the facade pause-window parser.
 pub const PAUSE_WINDOW_MAX_CAP: usize = 65536;
-
-/// Capacity for the per-heap pause-time window. Delegates to
-/// process-wide [`crate::config::runtime_config()`] (parsed once at
-/// startup; runtime-config-phase2).
-pub fn pause_window_cap_from_env() -> usize {
-    crate::config::runtime_config().gc_pause_window
-}
 
 /// Half-open bucket edges (µs). `BUCKET_EDGES[i]` is the lower bound of
 /// bucket `i+1`; bucket `i` covers `[BUCKET_EDGES[i-1], BUCKET_EDGES[i])`.
@@ -222,7 +212,7 @@ pub struct PauseHistogram {
     pub count:         u64,
     /// Rolling window of the last `window_cap` pause-time samples
     /// in microseconds, oldest first. Capacity is fixed at heap
-    /// construction (see `pause_window_cap_from_env`).
+    /// construction.
     pub recent_pauses: VecDeque<u64>,
     /// Fixed capacity of `recent_pauses`. Stored so callers /
     /// snapshots can self-describe (`Std.GC.PauseWindowCapacity`).
@@ -230,21 +220,20 @@ pub struct PauseHistogram {
 }
 
 impl Default for PauseHistogram {
-    fn default() -> Self {
-        let cap = pause_window_cap_from_env();
-        Self {
-            buckets:       [0; 8],
-            min_us:        u64::MAX,
-            max_us:        0,
-            total_us:      0,
-            count:         0,
-            recent_pauses: VecDeque::with_capacity(cap),
-            window_cap:    cap,
-        }
-    }
+    fn default() -> Self { Self::new(PAUSE_WINDOW_DEFAULT_CAP) }
 }
 
 impl PauseHistogram {
+    /// A bounded rolling window. Zero and oversized explicit inputs are clamped
+    /// just like values parsed by the facade.
+    pub fn new(cap: usize) -> Self {
+        let cap = cap.clamp(1, PAUSE_WINDOW_MAX_CAP);
+        Self {
+            buckets: [0; 8], min_us: u64::MAX, max_us: 0, total_us: 0,
+            count: 0, recent_pauses: VecDeque::with_capacity(cap), window_cap: cap,
+        }
+    }
+
     /// Maps a pause measurement (µs) into its bucket index (0..=7).
     ///
     /// Half-open intervals `[lower, upper)`: boundary values land in the
@@ -284,7 +273,7 @@ impl PauseHistogram {
 // ── Stats ────────────────────────────────────────────────────────────────────
 
 /// Heap-wide statistics snapshot returned by
-/// [`MagrGC::stats`](super::heap::MagrGC::stats).
+/// [`Heap::stats`](super::heap::Heap::stats).
 ///
 /// **add-gc-pause-window **: dropped `Copy` (transitive on
 /// `PauseHistogram`, which now carries a `VecDeque`). Callers that
@@ -361,7 +350,7 @@ pub struct HeapSnapshot {
     pub objects_by_type: HashMap<String, ObjectStats>,
     pub total_objects:   u64,
     pub total_bytes:     u64,
-    /// Microseconds since `ArcMagrGC::EPOCH`.
+    /// Microseconds since `Heap::EPOCH`.
     pub timestamp_us:    u64,
     pub coverage:        SnapshotCoverage,
 }

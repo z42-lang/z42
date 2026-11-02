@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
-use z42::gc::{ArcMagrGC, GcMode, MagrGC};
+use z42::gc::{Heap, GcMode};
 use z42::{
     object::{NativeData, TypeDesc, Value},
     vm::runtime::ids::tokens::TypeId,
@@ -46,7 +46,7 @@ fn make_type_desc(name: &str) -> Arc<TypeDesc> {
     })
 }
 
-fn build_cycle_heavy(heap: &dyn MagrGC, num_cycles: usize) {
+fn build_cycle_heavy(heap: &Heap, num_cycles: usize) {
     // unify-object-byte-layout (PR-2/PR-3): `ScriptObject` has no `slots`; a field is
     // written via `set_field_value` against the type's composed layout. Give `Cycle` one
     // reference field (slot 0, an 8 B reference word) so `a ⇄ b` forms a real traced cycle.
@@ -87,7 +87,7 @@ fn build_cycle_heavy(heap: &dyn MagrGC, num_cycles: usize) {
     }
 }
 
-fn build_shallow_tree(heap: &dyn MagrGC) -> Value {
+fn build_shallow_tree(heap: &Heap) -> Value {
     // 1 root → 10 children → each 10 grandchildren → each 10 great-grandchildren
     // Total = 1 + 10 + 100 + 1000 = 1111 nodes.
     let td = make_type_desc("Node");
@@ -112,7 +112,7 @@ fn build_shallow_tree(heap: &dyn MagrGC) -> Value {
     heap.alloc_object(td, vec![top_arr], NativeData::None)
 }
 
-fn build_large_array(heap: &dyn MagrGC, n: usize) -> Value {
+fn build_large_array(heap: &Heap, n: usize) -> Value {
     let td = make_type_desc("Elem");
     let elems: Vec<Value> = (0..n)
         .map(|_| heap.alloc_object(td.clone(), vec![Value::Null], NativeData::None))
@@ -124,7 +124,7 @@ fn bench_cycle_heavy_100(c: &mut Criterion) {
     c.bench_function("gc_cycle/cycle_heavy_100", |b| {
         b.iter_batched(
             || {
-                let heap = ArcMagrGC::new();
+                let heap = Heap::new(z42::config::runtime_config().gc_config());
                 heap.pause(); // disable auto-collect during setup
                 build_cycle_heavy(&heap, 100);
                 heap.resume();
@@ -143,7 +143,7 @@ fn bench_shallow_tree_1k(c: &mut Criterion) {
     c.bench_function("gc_cycle/shallow_tree_1k", |b| {
         b.iter_batched(
             || {
-                let heap = ArcMagrGC::new();
+                let heap = Heap::new(z42::config::runtime_config().gc_config());
                 heap.pause();
                 let root = build_shallow_tree(&heap);
                 let _pin = heap.pin_root(root);
@@ -163,7 +163,7 @@ fn bench_large_array_10k(c: &mut Criterion) {
     c.bench_function("gc_cycle/large_array_10k", |b| {
         b.iter_batched(
             || {
-                let heap = ArcMagrGC::new();
+                let heap = Heap::new(z42::config::runtime_config().gc_config());
                 heap.pause();
                 let arr = build_large_array(&heap, 10_000);
                 let _pin = heap.pin_root(arr);
@@ -189,7 +189,7 @@ fn bench_large_array_10k(c: &mut Criterion) {
 fn bench_alloc_throughput_10k_objects(c: &mut Criterion) {
     c.bench_function("gc_alloc/object_throughput_10k", |b| {
         b.iter_batched(
-            || ArcMagrGC::new(),
+            || Heap::new(z42::config::runtime_config().gc_config()),
             |heap| {
                 heap.pause();  // disable auto-collect during the loop
                 for _ in 0..10_000 {
@@ -210,7 +210,7 @@ fn bench_alloc_throughput_10k_objects(c: &mut Criterion) {
 fn bench_alloc_throughput_10k_arrays(c: &mut Criterion) {
     c.bench_function("gc_alloc/array_throughput_10k", |b| {
         b.iter_batched(
-            || ArcMagrGC::new(),
+            || Heap::new(z42::config::runtime_config().gc_config()),
             |heap| {
                 heap.pause();
                 for _ in 0..10_000 {
@@ -230,7 +230,7 @@ fn bench_sweep_10k_survivors(c: &mut Criterion) {
     c.bench_function("gc_sweep/10k_survivors", |b| {
         b.iter_batched(
             || {
-                let heap = ArcMagrGC::new();
+                let heap = Heap::new(z42::config::runtime_config().gc_config());
                 heap.pause();
                 let mut pins = Vec::with_capacity(10_000);
                 for _ in 0..10_000 {
@@ -259,7 +259,7 @@ fn bench_sweep_10k_garbage(c: &mut Criterion) {
     c.bench_function("gc_sweep/10k_garbage", |b| {
         b.iter_batched(
             || {
-                let heap = ArcMagrGC::new();
+                let heap = Heap::new(z42::config::runtime_config().gc_config());
                 heap.pause();
                 for _ in 0..10_000 {
                     let _ = heap.alloc_object(
@@ -305,7 +305,7 @@ fn bench_minor_only_pure_young_churn(c: &mut Criterion) {
                 ctx
             },
             |ctx| {
-                ctx.heap().collect_cycles_with_context(&ctx);
+                ctx.heap().collect_cycles_with_vm(&*ctx);
                 black_box(&ctx);
             },
             BatchSize::SmallInput,
@@ -348,7 +348,7 @@ fn bench_minor_pause_with_large_pinned_old_gen(c: &mut Criterion) {
                 (ctx, pins)
             },
             |(ctx, _pins)| {
-                ctx.heap().collect_cycles_with_context(&ctx);
+                ctx.heap().collect_cycles_with_vm(&*ctx);
                 black_box(&ctx);
             },
             BatchSize::SmallInput,
@@ -382,7 +382,7 @@ fn bench_full_collect_with_large_pinned_old_baseline(c: &mut Criterion) {
                 (ctx, pins)
             },
             |(ctx, _pins)| {
-                ctx.heap().collect_cycles_with_context(&ctx);
+                ctx.heap().collect_cycles_with_vm(&*ctx);
                 black_box(&ctx);
             },
             BatchSize::SmallInput,

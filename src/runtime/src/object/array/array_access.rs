@@ -4,7 +4,7 @@
 #![allow(unused_imports)]
 use crate::object::*;
 use std::sync::Arc;
-use crate::gc::heap::MagrGC;
+use crate::gc::Heap;
 
 // ── 批量拷贝 ──
 impl ArrayObj {
@@ -185,7 +185,7 @@ impl ArrayObj {
     /// bytes — reference words copied verbatim share their referents, exactly a shallow element
     /// copy. The source is read with atomic chunked loads (another thread may be writing it); the
     /// copy is unreachable until it is published, so no barrier is owed.
-    pub fn deep_copy(&self, heap: &dyn MagrGC) -> Value {
+    pub fn deep_copy(&self, heap: &Heap) -> Value {
         let src = self.cells();
         heap.alloc_array_with(self.desc(), self.len(), self.struct_layout(), &mut |a| {
             let n = src.len();

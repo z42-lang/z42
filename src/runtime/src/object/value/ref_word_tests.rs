@@ -1,9 +1,8 @@
 //! 8 B 自描述引用字：每个种类的编解码往返、null、种类表与 `Value` 判别值一致、基元装箱逃生口，
 //! 以及 GC 经引用字追踪 / SATB 经引用字记录（R1）。
 
-use crate::gc::MagrGC;
+use crate::gc::Heap;
 use super::*;
-use crate::gc::arc_heap::ArcMagrGC;
 use crate::object::header::BlockType;
 use crate::gc::GcMode;
 use crate::object::{
@@ -69,7 +68,7 @@ fn payload(v: &Value) -> u64 {
 }
 
 /// One live handle of every encodable kind.
-fn one_of_each(heap: &ArcMagrGC) -> Vec<(Value, u64)> {
+fn one_of_each(heap: &Heap) -> Vec<(Value, u64)> {
     let obj = crate::object::ObjRef::leak(crate::object::OwnedObject::new(plain_td("O"), 0));
     let boxed = crate::object::ObjRef::leak(crate::object::OwnedObject::new(plain_td("S"), 0));
     let Value::Array(arr) = heap.alloc_array(vec![]) else { panic!() };
@@ -86,7 +85,7 @@ fn one_of_each(heap: &ArcMagrGC) -> Vec<(Value, u64)> {
 
 #[test]
 fn every_kind_round_trips_with_its_tag_in_the_low_bits() {
-    let heap = ArcMagrGC::new();
+    let heap = Heap::default();
     for (v, kind) in one_of_each(&heap) {
         let w = encode(&v).expect("a heap reference encodes");
         assert_eq!(w & KIND_MASK, kind, "{v:?}");
@@ -126,7 +125,7 @@ fn null_is_the_zero_word() {
 /// word is 0): exactly `encode`'s word for every encodable variant, and the slow path for the rest.
 #[test]
 fn the_jit_store_table_matches_encode() {
-    let heap = ArcMagrGC::new();
+    let heap = Heap::default();
     for (v, _) in one_of_each(&heap) {
         let kind = VALUE_TAG_TO_KIND[discriminant(&v) as usize];
         assert_ne!(kind, SLOW_PATH_KIND, "{v:?}");
@@ -149,7 +148,7 @@ fn the_jit_store_table_matches_encode() {
 #[test]
 fn the_jit_kind_table_matches_decode() {
     assert_eq!(KIND_TO_VALUE_TAG[0], discriminant(&Value::Null));
-    let heap = ArcMagrGC::new();
+    let heap = Heap::default();
     for (v, kind) in one_of_each(&heap) {
         let w = encode(&v).expect("encodes");
         assert_eq!(KIND_TO_VALUE_TAG[kind as usize], discriminant(&unsafe { decode(w) }), "{v:?}");
@@ -169,8 +168,8 @@ fn values_that_do_not_fit_eight_bytes_need_a_box() {
 /// back unchanged; the tracer sees the box.
 #[test]
 fn a_boxed_primitive_reads_back_unchanged_and_traces_as_its_box() {
-    let heap = ArcMagrGC::new();
-    let _g = crate::gc::ambient::HeapGuard::enter(&heap);
+    let heap = Heap::default();
+    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap);
     for v in [Value::I64(-42), Value::F64(2.25), Value::Bool(true), Value::Char('é')] {
         let b = alloc_box_ambient(&v).expect("boxes");
         let w = encode_boxed(&b);
@@ -189,9 +188,9 @@ fn boxing_without_an_active_heap_is_an_error_not_a_crash() {
 /// reference words survive a full collection, read back intact, and die once the fields drop.
 #[test]
 fn gc_traces_through_reference_words() {
-    let heap = ArcMagrGC::new();
+    let heap = Heap::default();
     heap.set_mode(GcMode::StwMarkSweep);
-    let _g = crate::gc::ambient::HeapGuard::enter(&heap);
+    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap);
 
     let holder = heap.alloc_object(ref_cell_td(3), vec![], NativeData::None);
     let Value::Object(h) = &holder else { panic!() };

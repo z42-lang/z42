@@ -60,7 +60,7 @@ impl VarRegion {
 
     /// The owners a lowered promotion line has just made old: young-set objects / arrays
     /// ([`BlockType::may_be_remembered`]) at or past the (already lowered) [`Self::promotion_age`],
-    /// not yet remembered. Adaptive promotion asks for them (`ArcMagrGC::remember_lowered_cohort`)
+    /// not yet remembered. Adaptive promotion asks for them (`Heap::remember_lowered_cohort`)
     /// — they are the only owners that can hold an old→young edge no barrier recorded.
     ///
     /// `O(young set)`, not `O(heap)`: the young set is exact (every alive block younger than the

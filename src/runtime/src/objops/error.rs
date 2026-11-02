@@ -138,7 +138,7 @@ impl OpError {
         } else {
             Self::throw(INVALID_CAST_EXC, format!(
                 "cannot store {} into primitive field `{field}`",
-                crate::vm::exec::ops::scalar::value_kind_name(v)))
+                crate::object::value_kind_name(v)))
         }
     }
 
@@ -155,7 +155,7 @@ impl OpError {
     pub fn struct_elem_store_rejected(elem: &str, v: &Value) -> Self {
         let what = match v {
             Value::BoxedStruct(b) => format!("a boxed {}", b.borrow().type_desc.name),
-            other => crate::vm::exec::ops::scalar::value_kind_name(other).to_string(),
+            other => crate::object::value_kind_name(other).to_string(),
         };
         Self::throw(INVALID_CAST_EXC, format!("cannot store {what} into a {}[] element", elem_label(elem)))
     }

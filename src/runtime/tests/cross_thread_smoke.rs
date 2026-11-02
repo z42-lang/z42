@@ -2,12 +2,12 @@
 //! (`变更 add-multithreading-foundation/`).
 //!
 //! These integration tests don't run any z42 code — they just verify the
-//! Rust type tree (`VmContext` / `VmCore` / `GcRef` / `MagrGC`) crosses an
+//! Rust type tree (`VmContext` / `VmCore` / `GcRef` / `Heap`) crosses an
 //! `std::thread::spawn` boundary and works correctly from a worker thread.
 //!
 //! This is the **end-to-end Send/Sync proof** that complements the
 //! compile-time `assert_send_sync` assertions in
-//! `src/runtime/src/gc/arc_heap_tests/send_sync.rs`. If a future change
+//! `src/runtime/src/gc/heap_tests/send_sync.rs`. If a future change
 //! breaks Send-safety at the link level (e.g., a trait object that compiles
 //! standalone but can't actually be moved at runtime), these tests will
 //! catch it.
@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::thread;
 
 use z42::corelib;
-use z42::gc::{ArcMagrGC, MagrGC};
+use z42::gc::{Heap};
 use z42::vm::runtime::{Function, Module};
 use z42::metadata::ir::{BasicBlock, Terminator};
 use z42::metadata::ir::ExecMode;
@@ -65,8 +65,8 @@ fn vm_context_alloc_array_then_read_on_worker_thread() {
 
 // Note: VmCore field access from integration tests would require `pub fn core(&self)`
 // accessor on VmContext. Compile-time `assert_send_sync::<VmCore>()` in
-// `gc/arc_heap_tests/send_sync.rs` already proves the type-level Send+Sync;
-// this integration suite verifies the *handle* surface (GcRef, Box<dyn MagrGC>,
+// `gc/heap_tests/send_sync.rs` already proves the type-level Send+Sync;
+// this integration suite verifies the *handle* surface (GcRef, Box<Heap>,
 // VmContext) crosses threads correctly, which is the user-visible contract.
 
 #[test]
@@ -90,10 +90,10 @@ fn gc_alloc_on_one_thread_drop_on_another() {
 
 #[test]
 fn box_dyn_magr_gc_works_on_worker_thread() {
-    // Confirms `Box<dyn MagrGC>` (the type VmCore holds) can move across
-    // threads and dispatch methods. Box<dyn MagrGC> requires Send + Sync
+    // Confirms `Box<Heap>` (the type VmCore holds) can move across
+    // threads and dispatch methods. Box<Heap> requires Send + Sync
     // which Phase 3 of the spec just landed.
-    let heap: Box<dyn MagrGC> = Box::new(ArcMagrGC::new());
+    let heap: Box<Heap> = Box::new(Heap::default());
     let handle = thread::spawn(move || {
         let _ = heap.alloc_array(vec![Value::I64(123)]);
         heap.used_bytes()
@@ -163,7 +163,7 @@ fn gc_collect_with_concurrent_mutators_no_race() {
     //
     // Success criterion: completes 100 collect rounds without panic /
     // deadlock; final heap is internally consistent.
-    use z42::gc::safepoint::{check_safepoint, request_gc_pause};
+    use z42::vm::threads::safepoint::{check_safepoint, request_gc_pause};
 
     let collector = VmContext::with_module(make_void_action_module("CollectorMain"));
     let n_workers = 4usize;
@@ -223,7 +223,7 @@ fn auto_collect_triggers_via_safepoint_no_race() {
     // CAS-guarded `request_gc_pause` ensures only one becomes the
     // active collector; the others park-as-mutator → no deadlock.
     use std::sync::atomic::{AtomicUsize, Ordering as AtoOrd};
-    use z42::gc::safepoint::check_safepoint;
+    use z42::vm::threads::safepoint::check_safepoint;
 
     let main = VmContext::with_module(make_void_action_module("AutoCollectMain"));
     main.heap().set_max_heap_bytes(Some(8 * 1024));
@@ -285,7 +285,7 @@ fn concurrent_gc_collect_callers_arbitrate() {
     // atomic counter and have main loop check_safepoint until both
     // workers finish.
     use std::sync::atomic::{AtomicUsize, Ordering as AtoOrd};
-    use z42::gc::safepoint::{check_safepoint, request_gc_pause};
+    use z42::vm::threads::safepoint::{check_safepoint, request_gc_pause};
 
     let main = VmContext::with_module(make_void_action_module("ArbitrateMain"));
     let collected = Arc::new(AtomicUsize::new(0));

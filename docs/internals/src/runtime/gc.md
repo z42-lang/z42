@@ -1,12 +1,12 @@
-# z42 GC 子系统 —— MagrGC
+# z42 GC 子系统 —— Heap
 
-## 接口形状（嵌入式宿主友好版）
+## 具体堆与嵌入接口
 
-z42 VM 的 GC 抽象由 `crate::gc::MagrGC` trait 定义，全面对齐
-[MMTk](https://www.mmtk.io/) `VMBinding` porting contract（OpenJDK / V8 / Julia /
-Ruby / RustPython 的事实标准 GC 抽象）。trait 在单文件内按"能力组"组织
-~30 个方法，未来如需切割成 sub-trait（参考 MMTk 的 `ObjectModel` /
-`Scanning` / `Collection` / `ReferenceGlue` 拆分）切割面清晰。
+GC 由 `crate::gc::Heap` 具体类型提供，VM、对象构造与当前堆 TLS 直接使用它，堆实现不经过动态派发。
+状态与身份位于 `gc/heap.rs`，公开操作在 `gc/heap/api.rs`，分配、标记、屏障、策略等实现按 concern
+位于 `gc/heap/`。分代 / STW 模式仍可在运行时选择，不需要为模式选择更换堆类型。
+
+接口按以下能力组组织，原有对象布局、回收、引用和嵌入契约一致：
 
 | 能力组 | 主要方法 | 用途 |
 |-------|---------|------|
@@ -22,13 +22,29 @@ Ruby / RustPython 的事实标准 GC 抽象）。trait 在单文件内按"能力
 | 10. Profiler | `set_alloc_sampler` / `take_snapshot` / `iterate_live_objects` | 分配采样 + 堆快照 + 存活遍历 |
 | 11. Stats | `stats` | HeapStats 快照（8 字段）|
 
-`VmContext` 持有 `Box<dyn MagrGC>`（与 `statics` / `lazy_loader` 同 ownership
-模型）；所有脚本驱动分配走 `ctx.heap().alloc_*(...)`；JIT helper 通过
+`VmCore` 持有地址稳定的 `Box<Heap>`，同一 VM 的各 `VmContext` 共享它，独立 VM 使用独立堆；所有脚本驱动分配走 `ctx.heap().alloc_*(...)`；JIT helper 通过
 `vm_ctx_ref(ctx).heap().alloc_*(...)` 调用同一接口；嵌入 host 通过同一
 `heap()` 入口访问 root / observer / profiler 等所有能力。
 
-命名 **MagrGC** 取自《银河系漫游指南》中的 **Magrathea** —— 那颗专门建造
-定制行星的传奇世界，与"管理对象生命周期"主题契合。
+### 堆策略输入
+
+GC 只接收 `GcConfig` 的不可变策略快照，不解析进程设置。VM 构造时由门面
+`RuntimeConfig::gc_config` 转换已按优先级解析的值，再传给 `Heap::new`。
+独立堆用 `Heap::default()` 时采用纯默认策略；需要进程设置的调用方显式传入转换结果。
+不同堆可分别设置 nursery、软引用阈值、阶段计时和停顿窗口，互不修改或读取对方的输入。
+`set_mode` 和堆上限 API 继续控制原有可变运行状态。线程 safepoint 配置仍由线程协议消费。
+
+## GC 与 VM 的服务边界
+
+GC 只认识 `gc/to_vm.rs` 中的根、暂停和上下文回收契约。`GcRoots` 提供根访问，
+持久提供方捕获 `Weak<VmCore>`；`GcToVm` 由当前 `VmContext` 适配线程暂停，返回借用该上下文的
+RAII 令牌。`GcToVm` 的实现须保证令牌有效期间所有其他 mutator 已停止，根访问只能在暂停内进行。
+具体状态机和 root registry 遍历位于 `vm/threads`，当前堆 TLS 位于 `vm/exec/ambient.rs`。
+堆销毁按 heap epoch 幂等撤销 SATB 注册，覆盖增量标记与 one-shot 回调 unwind；不能只依赖增量 phase 判断。
+
+加载上下文回收由 `vm/loader/context_gc.rs` 适配：标记后创建 VM 拥有的关联快照，GC 把同一批
+标记对象交给它观察；清扫结束后才消费快照回收未被保留的上下文。增量 major 将这份不透明快照
+保留到最后一个清扫切片，不把 ContextId 或 VM 注册表放进 GC。
 
 ## Safepoint 协议
 
@@ -47,7 +63,7 @@ VmCore {
 enum GcPhase { Idle, Requested, Marking }
 ```
 
-**Mutator 侧**：interp dispatch loop 在三类位置调 `crate::gc::safepoint::check_safepoint(ctx)`：
+**Mutator 侧**：interp dispatch loop 在三类位置调 `crate::vm::threads::safepoint::check_safepoint(ctx)`：
 
 | 位置 | 理由 |
 |------|------|
@@ -59,7 +75,7 @@ fast path（Idle）：一次 Mutex lock + 一次 enum compare。slow path（Requ
 `parked_count.fetch_add(1)` + `gc_phase_cv.notify_all()`（唤醒等阈值的 collector）+
 `gc_phase_cv.wait()`（等回 Idle）+ `parked_count.fetch_sub(1)`。
 
-**Collector 侧**：`crate::gc::safepoint::request_gc_pause(ctx) -> GcPauseGuard`
+**Collector 侧**：`crate::vm::threads::safepoint::request_gc_pause(ctx) -> GcPauseGuard`
 RAII guard：
 
 1. 写 `gc_phase = Requested`
@@ -78,7 +94,7 @@ RAII guard：
 | 维度 | 行为 |
 |------|------|
 | JIT-mode safepoint | JIT translate 在 function entry / 后向 Br / 带后向目标的 BrCond / `Call` / `CallIndirect` 返回后共 4 类 site（5 处 call）emit safepoint 检查，与 interp 协议完全对齐；JIT-mode multi-thread workloads 不会死锁。fast path 是 `emit_safepoint_check` 内联的原生 `load+sub+store+brif`（~1-2ns/site），仅 counter 归零走 `jit_check_safepoint_slow` helper |
-| Auto-threshold (`maybe_auto_collect`) | Safepoint-aware：trip 时 set `VmCore.needs_auto_collect: Arc<AtomicBool>` flag 而非 inline `collect_cycles()`；同时把每个 mutator 的 safepoint 计数器置 1（`set_safepoint_poke` → `poke_safepoints`）；下个 `check_safepoint(ctx)` 看到 flag 即 safepoint-wrapped collect。flag **粘性**：只读不 swap，由抢到 collector 角色、拿到暂停的那个线程清（`take_collect_request`），抢输的线程不消费它。trait 有默认 no-op `set_external_needs_collect_flag`；ArcMagrGC 内部 `Mutex<Option<Arc<AtomicBool>>>`，VmCore 构造后 wire。flag 未装时 fallback inline（GC 单测路径） |
+| Auto-threshold (`maybe_auto_collect`) | Safepoint-aware：trip 时 set `VmCore.needs_auto_collect: Arc<AtomicBool>` flag 而非 inline `collect_cycles()`；同时把每个 mutator 的 safepoint 计数器置 1（`set_safepoint_poke` → `poke_safepoints`）；下个 `check_safepoint(ctx)` 看到 flag 即 safepoint-wrapped collect。flag **粘性**：只读不 swap，由抢到 collector 角色、拿到暂停的那个线程清（`take_collect_request`），抢输的线程不消费它。trait 有默认 no-op `set_external_needs_collect_flag`；Heap 内部 `Mutex<Option<Arc<AtomicBool>>>`，VmCore 构造后 wire。flag 未装时 fallback inline（GC 单测路径） |
 | 检查频率节流 | Counter-throttled fast path：`VmContext.safepoint_skip: AtomicU32`，`check_safepoint` fast path **普通 load/store 递减**（单写者故 RMW 原子性不必要，且 load/store 可被 JIT 内联为裸 mov）；每 N=1024 次（默认）才走 slow path（Mutex lock + 真正的 phase + auto-collect drain）。`Z42_SAFEPOINT_THROTTLE` env override（设 1 = disable throttling）。`VmContext::force_safepoint()` 公共 API 供 test / embedder 强制下次走 slow path。GC pause latency 上限 = N × 单 iter (~50ns) ≈ 50us，远小于实际 collect 时间 |
 | 多 collector 仲裁 | `VmCore.collector_active: AtomicBool` + `request_gc_pause` 返 `Option<GcPauseGuard>`，前置 CAS claim；失败 collector 自动 park-as-mutator 返 `None`。`GcPauseGuard::drop` 释放 collector_active 让下一个 claim 通过。`Std.GC.Collect()` / `ForceCollect()` 在另一 collector active 时静默 no-op（best-effort 语义同 C# / Java） |
 
@@ -90,7 +106,7 @@ RAII guard：
 
 ### GC mode selection
 
-`ArcMagrGC` 支持运行时选择 GC 算法（默认模式与分代模式的旋钮见 [GC 调参](gc-tuning.md)）；
+`Heap` 支持运行时选择 GC 算法（默认模式与分代模式的旋钮见 [GC 调参](gc-tuning.md)）；
 默认模式是 `GenerationalMarkSweep`；`StwMarkSweep` 为可选 opt-in。
 
 **切换方式：**
@@ -98,10 +114,10 @@ RAII guard：
 - **Env var**：进程启动前设 `Z42_GC_MODE=stw`（或 `=generational`；取值与非法值的处理见
   [运行时设置](https://z42-lang.github.io/z42/reference/toolchain/runtime-settings.html)）。
 - **API**：运行期调 `heap.set_mode(GcMode::StwMarkSweep)`。下次
-  `collect_cycles_with_context` 起生效；进行中的 collect 完成时仍按原
+  `collect_cycles_with_vm` 起生效；进行中的 collect 完成时仍按原
   模式（per spec scenario）。
 - **生产入口**：`safepoint::check_safepoint_slow` 的 auto-collect 路径
-  + `Std.GC.Collect()` builtin 都改走 `collect_cycles_with_context`，
+  + `Std.GC.Collect()` builtin 都改走 `collect_cycles_with_vm`，
   由 heap 内部按 mode 分发。
 
 **当前可选模式：**
@@ -137,7 +153,7 @@ mark bit 用 `Relaxed` 原子仍然安全：
 
 ### 标记的预取环
 
-> 代码：`gc/arc_heap/mark_ring.rs`；用在 `mark_phase`（STW / 一次性 major）、`drain_mark_queue`、
+> 代码：`gc/heap/mark_ring.rs`；用在 `mark_phase`（STW / 一次性 major）、`drain_mark_queue`、
 > `mark_phase_minor`、增量 major 的 `mark_slice`。
 
 标记是指针追逐：读到一个对象的头（标记 CAS、类型、引用字段）之前，它指向谁都不知道。一次只处理一个对象 ——
@@ -189,7 +205,7 @@ detection）。该守卫 **debug 与 release 均生效**：release 若被编译�
 
 ### GC heap backing
 
-`ArcMagrGC` 只有一个 region：`region_var: Mutex<VarRegion>`——**对象**（`Value::Object` / `Value::BoxedStruct`，对象模型 R6）、
+`Heap` 只有一个 region：`region_var: Mutex<VarRegion>`——**对象**（`Value::Object` / `Value::BoxedStruct`，对象模型 R6）、
 **数组**（`Value::Array`，R9）、字符串、闭包全是它的变长块（下一节）。
 
 **对象 = 一个变长块、一个 16 B 头**（对象模型 R8）：块头的 GC 字（generation 含存活位 / mark / `type_tag` / payload 长度）
@@ -205,7 +221,7 @@ payload 开头一个计数的 `Arc<StructTypeLayout>`，由 drop glue 的 `Array
 `long[8]` 一块 80 B（16 B 头 + 64 B 元素），`int[0]` / `object[0]` 只有 16 B 头。
 
 分配都走 `acquire_var_block`（TLAB：先无锁填同 size class 的空洞、再无锁 bump，见 [GC TLAB · 空洞复用](gc-tlab.md#空洞复用tlab-按-size-class-成批认领死槽m12)；或锁路径），
-对象与数组都在块里建好再发布（`gc/arc_heap/alloc_object.rs`、`alloc.rs` 的 `alloc_array_block`）。
+对象与数组都在块里建好再发布（`gc/heap/alloc_object.rs`、`alloc.rs` 的 `alloc_array_block`）。
 chunk 永不移动 —— 地址在块生命周期内**绝对稳定**（`ObjRef::as_ptr` / `ArrRef::as_ptr` 身份哈希契约的物理基础，
 JIT 按帧提升的字段基址、数组元素基址也依赖它）。
 
@@ -229,7 +245,7 @@ JIT 按帧提升的字段基址、数组元素基址也依赖它）。
 
 **弱引用**。`WeakObjRef` / `WeakArrRef` 除句柄外**多记一个所在 chunk 的复用 epoch**：
 变长区的地址会被重新切分——整块死掉的 bump chunk 进池后从偏移 0 重新 bump，旧地址可能落在新块的中间；
-大块的专用 chunk 死后直接还给分配器。所以 `upgrade` 由堆来做（`ArcMagrGC::upgrade_weak_object` / `upgrade_weak_array`，持变长区锁）：
+大块的专用 chunk 死后直接还给分配器。所以 `upgrade` 由堆来做（`Heap::upgrade_weak_object` / `upgrade_weak_array`，持变长区锁）：
 先比 `VarRegion::chunk_epoch(chunk)`（chunk 进池或被释放时 +1），不等就是死了、**根本不读那块内存**；
 相等才说明地址仍是这个 chunk 里的块头，再看 generation（含存活位）。弱引用不会让 chunk 推迟回收。块头不记所属 chunk：
 `downgrade` 时持变长区锁按地址查一次（`VarRegion::chunk_of`，chunk 基址的有序索引，`O(log chunk 数)`）。
@@ -240,7 +256,7 @@ liveness store（无 `heap_registry`）。清扫尾巴的 `reclaim_dead_chunks_a
 回收之后死块的头可能已被重新 bump 或还给分配器。
 
 **生命周期契约**：句柄不能 outlive 它所指 region 所属的
-`ArcMagrGC`。z42 现有架构所有句柄都活在 VmContext 范围内，契约
+`Heap`。z42 现有架构所有句柄都活在 VmContext 范围内，契约
 天然满足。Embedder 需注意 drop order。
 
 ### 变长块堆：单一 GC 堆
@@ -291,7 +307,7 @@ drop glue 只对类型掩码里的块调用（`drop_type_bit`：`Object`、`Arra
 
 **数组直接在块里构造**（[`object/array/array.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/array/array.rs)）：
 所有构造器（`alloc_filled` / `alloc_from_iter` / `alloc_typed_iter` / `alloc_struct` / `alloc_frozen` / `alloc_bytes` / `deep_copy`）
-都经一条 `MagrGC::alloc_array_with(desc, len, layout, init)`：按 `desc.payload_bytes(len)` 取一个清零块、写入描述符（与 STRUCT 的布局字）、
+都经一条 `Heap::alloc_array_with(desc, len, layout, init)`：按 `desc.payload_bytes(len)` 取一个清零块、写入描述符（与 STRUCT 的布局字）、
 在**未发布**的数组上跑 `init` 写元素，然后 `publish` 并记账——与对象的漏斗同形。`ArrayNew`（interp + JIT `jit_array_new`）/
 `Array.CreateInstance` 走 `alloc_filled`，`ArrayNewLit` / `ToCharArray` 走 `alloc_from_iter` / `alloc_typed_iter`（从源寄存器 / 迭代器直写），
 中间没有 `Vec<Value>` 暂存——峰值内存 = 目标块本身（扩容 `List<T>.EnsureCapacity` = `new T[2n]` + `Array.Copy` 时 = 旧块 + 新块）。
@@ -304,14 +320,14 @@ payload 超过块的长度上限（`u32` 字节）的数组按内存不足拒绝
 拷完对写入区间的每个引用槽发写屏障（`objops::array_bulk::barrier_after_range_store`：
 REF / MIXED / FROZEN 是元素本身，struct[] 是元素的每个引用叶子，只对真正的堆引用发、不分配），packed 目的数组不持引用、没有可扫的槽。
 
-**分配落地 = ambient 堆**（[`gc/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/ambient.rs)）：`current_heap()` +
+**分配落地 = ambient 堆**（[`vm/exec/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/exec/ambient.rs)）：`current_heap()` +
 `HeapGuard` 在引擎入口设 thread-local（ctx 栈底帧 push 时、宿主 invoke、`jit::run_fn`；见
 [vm-architecture.md](vm-architecture.md#寄存器池引擎入口-guardframe_id)），
 `Str::new`/`.into()` 走活堆分配 → **~189 处 `.into()` 站点零改动**；无堆上下文（无 VM 的单测）
 回退 `alloc_leaked`。避免了「188 处线程穿透 `&heap`」的侵入式改造（D11）。
 
-**堆 epoch（per-heap 单调标识）**：每个 `ArcMagrGC` 构造时从全局
-`AtomicU64` 领一个**永不复用**的 `epoch`（`MagrGC::heap_epoch()`），`HeapGuard` 把它随
+**堆 epoch（per-heap 单调标识）**：每个 `Heap` 构造时从全局
+`AtomicU64` 领一个**永不复用**的 `epoch`（`Heap::heap_epoch()`），`HeapGuard` 把它随
 `current_heap` 一起装进 thread-local（`current_heap_epoch()`，热路径只多一个 `u64` 读）。
 用途：**给「按 GC 块地址索引、但生命周期长于单个堆」的 thread-local 缓存做作用域**。典型即
 `object/string/str_meta` 的字符元数据缓存——它跨 `VmContext` 拆毁存活；旧堆拆毁后 `VarRegion` 的
@@ -324,7 +340,7 @@ chunk 内存还给系统 malloc，新堆可能在**同一地址**重分配块，
 所以 gen 守卫对它们够用；> 64 KB（`Z42_GC_LOH_BYTES`）的块独占一个 chunk，块一死该 chunk 就 `dealloc`，
 malloc 下一次在同址放下的块（另一个超大块，或新 bump chunk 的首块）从 `FIRST_GEN` 起——与死串的
 generation 相同，旧条目照样假命中。所以 `str_meta` 条目在块**可能**位于独占 chunk 时
-（`chunk::may_be_dedicated`）记下弱引用同款的 `(chunk, epoch)` 戳（`MagrGC::var_chunk_stamp`，
+（`chunk::may_be_dedicated`）记下弱引用同款的 `(chunk, epoch)` 戳（`Heap::var_chunk_stamp`，
 chunk 被释放时 epoch 前进）；每次查表比一次进程级的「独占 chunk 释放计数」（`chunk::dedicated_free_count`，
 一次 load；epoch 与计数都经 `ambient::cache_scope` 这一个入口取），计数变了才在 region 锁下逐条核对带戳条目、丢掉 chunk 已释放的——在读它的块头之前。
 bump chunk 里的条目从不核对，别处释放大块只让带戳条目多一次加锁、不重算。
@@ -332,7 +348,7 @@ bump chunk 里的条目从不核对，别处释放大块只让带戳条目多一
 **融合拼接分配 `alloc_str_concat2(a, b)`**：字符串 `+`
 （IR `StrConcat` / `Std.String.Concat`）若走 `alloc_str(&format!("{a}{b}"))` 是**两次堆分配**
 （中间 `String` + GC 块）+ interp 侧还各 clone 一份操作数（`str_val`）共 **4 次分配 / 3 次 O(n) 拷贝**。
-`MagrGC::alloc_str_concat2`（[`gc/heap.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs)，`ArcMagrGC` 覆写
+`Heap::alloc_str_concat2`（[`gc/heap.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs)，`Heap` 覆写
 `alloc_str_concat2_in_region`）按 `a.len()+b.len()` **一次性**分配 `BlockType::Str` 块、直接拷入两段，
 **降到 1 次分配 / 1 次拷贝**（两段皆合法 UTF-8 → 拼接合法）。interp `str_concat`/`Add` 字符串臂借
 `&str` 直传、JIT `jit_str_concat` / `jit_add` helper 同步。`Add` 的混合臂（`"k" + i`）把非串操作数
@@ -372,14 +388,14 @@ auto-collect）→ GC 从不在单条指令/builtin 的 Rust 执行中途运行 
 
 ### Write barrier contract
 
-`MagrGC` trait 包含两个 write-barrier 钩子：
+`Heap` trait 包含两个 write-barrier 钩子：
 
 ```rust
 fn write_barrier_field(&self, owner: &Value, slot: usize, new: &Value);
 fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 ```
 
-trait 默认实现（含 `ArcMagrGC` STW mark-sweep）是 no-op；分代模式 override 为
+trait 默认实现（含 `Heap` STW mark-sweep）是 no-op；分代模式 override 为
 真实逻辑：老属主（对象或数组）收到年轻引用 → 把它放进**记忆集**（见下「记忆集」）。**call-site wiring + 调用契约**与模式无关（no-op 实现下仅
 `#[cfg(test)]` 时 dispatch 到 test-only `BarrierObserver`）。
 
@@ -436,11 +452,11 @@ trait 默认实现（含 `ArcMagrGC` STW mark-sweep）是 no-op；分代模式 o
 #### 记忆集（对象模型 R6 / R9）
 
 变长区没有卡表，老年代指向年轻代的边由属主自己记：**记忆集**——「持有年轻引用的老属主（对象或数组），下一次 minor
-一定会从它重新出根」（`gc/arc_heap/remembered.rs`）：
+一定会从它重新出根」（`gc/heap/remembered.rs`）：
 
 - **入集**：写屏障看到老属主收到年轻引用，或晋升（minor 清扫、major 后的老化）让一个仍持有年轻引用的属主变老
   （`remember_newly_old`），就对块头 `type_tag` 的 `REMEMBERED_BIT`（bit 5）做一次 `fetch_or`；
-  **只有把位从 0 置成 1 的那一方**把块句柄压进 `ArcMagrGC::remembered`，所以每个属主只进一次。
+  **只有把位从 0 置成 1 的那一方**把块句柄压进 `Heap::remembered`，所以每个属主只进一次。
   mutator 路径不拿 region 锁：一次 relaxed 读代龄、一次原子 or，只有首次才在记忆集自己的锁下 push。
   能进集的是对象和能持引用的数组（`BlockType::may_be_remembered`：REF / MIXED / STRUCT / FROZEN）；
   PRIM 数组与字符串是叶子，闭包唯一的边是构造时定死的 env 数组（比闭包先分配，不会比它年轻）。
@@ -463,10 +479,10 @@ trait 默认实现（含 `ArcMagrGC` STW mark-sweep）是 no-op；分代模式 o
 #### 记忆集不变量核对（`Z42_GC_VERIFY_CARDS`）
 
 漏一个写屏障不会当场出事：年轻对象在之后某次 minor 被扫掉，症状是隔了几次回收的 UAF。
-`ArcMagrGC::verify_card_invariant`（`gc/arc_heap/card_verify.rs`）从头重算这条不变量——遍历每个活着的老对象与老数组，
+`Heap::verify_card_invariant`（`gc/heap/card_verify.rs`）从头重算这条不变量——遍历每个活着的老对象与老数组，
 持有年轻引用却不在记忆集里就报出来（带属主类型名 / 数组的元素类型与长度）。代价 O(老年代)，
 所以是开关：`Z42_GC_VERIFY_CARDS=1` 时每次 minor 开始前核对一次、不成立就 panic；单测直接调它
-（经 `MagrGC::verify_card_invariant`）。字符串、PRIM 数组与闭包都不需要：前两者是叶子，
+（经 `Heap::verify_card_invariant`）。字符串、PRIM 数组与闭包都不需要：前两者是叶子，
 闭包的引用在构造时定死，老了以后不会再长出年轻孩子。
 
 **Override 契约**:
@@ -485,7 +501,7 @@ trait 默认实现（含 `ArcMagrGC` STW mark-sweep）是 no-op；分代模式 o
 
 ### Debug invariants
 
-`ArcMagrGC::debug_validate_invariants`（[`gc/arc_heap/debug.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/arc_heap/debug.rs)）
+`Heap::debug_validate_invariants`（[`gc/heap/debug.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap/debug.rs)）
 在每次 collect 末尾检查堆级不变量，任何违反立即 panic 并附详细消息；它只在 `#[cfg(debug_assertions)]` 下编译，
 release 构建零开销。检查两条：
 
@@ -496,10 +512,10 @@ release 构建零开销。检查两条：
 变长区自己的簿记（年轻集合位图与 `young_len`、每 chunk 普查、空闲表的 epoch 戳）在各操作里以 `debug_assert!` 守住，
 年轻集合里不允许出现 hole stash 之外的死块（`young_entry_is_block`）。
 
-**触发时机**：`collect_cycles` 尾部（StwMarkSweep + GenerationalMarkSweep）与 `collect_cycles_with_context` 的分代分支末。
+**触发时机**：`collect_cycles` 尾部（StwMarkSweep + GenerationalMarkSweep）与 `collect_cycles_with_vm` 的分代分支末。
 
 **测试方法**：healthy path（典型 workload + collect + 隐式检查）与 corruption path（手动注入陈旧标记 / 残留灰队列 +
-`#[should_panic(expected = "...")]`）都在 `arc_heap_tests/invariants.rs`。
+`#[should_panic(expected = "...")]`）都在 `heap_tests/invariants.rs`。
 
 ### Stress testing
 
@@ -508,7 +524,7 @@ xorshift64 PRNG（self-contained, no crate dep），每个 test 用固定 seed
 + 2000 iters 默认。每次 `force_collect` op 后 C1 invariant 自动验证。
 失败的 panic message 嵌入 seed + iter index + op，便于复现。
 
-**3 个 tests** (in `arc_heap_tests/stress.rs`，其中 mode-switching 那条目前 `#[ignore]`):
+**3 个 tests** (in `heap_tests/stress.rs`，其中 mode-switching 那条目前 `#[ignore]`):
 
 | Test | Mode | Seed | 默认 iters |
 |------|------|------|-----------|
@@ -533,7 +549,7 @@ collect 后失效；重建后续 ops 不触碰 stale handles）。
 Z42_STRESS_SEED=12345 cargo test --lib stress_seeded_stw_short
 
 # Longer local run (10x iters)
-Z42_STRESS_ITERS=20000 cargo test --lib gc::arc_heap::arc_heap_tests::stress
+Z42_STRESS_ITERS=20000 cargo test --lib gc::heap::heap_tests::stress
 ```
 
 **Coverage gates**：每个 test 完成后 assert min op counts (≥100 allocs,
@@ -552,9 +568,9 @@ use-after-finalize panic）；STW 入口因此开新 epoch 并防御性清空 `m
 
 每次 collect 测量的 `pause_us` 逐事件只对挂了 `GcObserver` 的 host
 可见；为提供"过去 10000 次 collect 的 p95 是多少 / generational
-比 stw 是不是真的更短"这种聚合视角，`ArcMagrGC` 自维护一个
+比 stw 是不是真的更短"这种聚合视角，`Heap` 自维护一个
 **固定 8 桶对数直方图** + min / max / total / count，每次
-`collect_cycles` / `collect_cycles_with_context`（generational
+`collect_cycles` / `collect_cycles_with_vm`（generational
 arm）/ `force_collect` 末尾、`AfterCollect` event 前
 调一次 `record(pause_us)`。
 
@@ -739,11 +755,11 @@ GC 成熟后，字符串可以从 `Value::Str` primitive 进一步
 - **Risk**：site ID 在 IR 持久化、跨 zpkg 唯一性
 
 ### D1. MMTk 后端实现
-- **What**：实现 [MMTk](https://www.mmtk.io/) `VMBinding` trait，把 `ArcMagrGC` 替换为 MMTk-backed GC（多 collector 可选：SemiSpace / GenImmix / MarkSweep / Immix / GenCopy）
+- **What**：实现 [MMTk](https://www.mmtk.io/) `VMBinding` trait，把 `Heap` 替换为 MMTk-backed GC（多 collector 可选：SemiSpace / GenImmix / MarkSweep / Immix / GenCopy）
 - **Why**：MMTk 是工业级研究项目，被 OpenJDK / V8 / Julia / Ruby / RustPython 采用；享受 ~30 年 GC 算法成果
 - **Deps**：自定义 allocator 与 mark-sweep tracing 基础已就位；trait 形状已对齐 MMTk porting contract
 - **Size**：4-8 周（包括稳定 + benchmark）
-- **Risk**：高 —— 引入大型 crate 依赖；ABI 边界 careful；但 trait 抽象层可以 ABI-shield
+- **Risk**：高 —— 引入大型 crate 依赖；ABI 边界 careful；需要另行设计编译期 GC 适配边界；当前 Heap 没有运行时后端插槽
 
 ---
 

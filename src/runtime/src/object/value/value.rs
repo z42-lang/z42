@@ -21,7 +21,7 @@ pub enum Value {
     /// turns clone from O(n) byte copy into O(1) atomic refcount — the
     /// hot-path win for string-heavy interp / format / concat loops.
     /// Arc not Rc because `Value: Send + Sync` (see
-    /// `gc/arc_heap_tests/send_sync.rs::assert_send_sync::<Value>()`).
+    /// `gc/heap_tests/send_sync.rs::assert_send_sync::<Value>()`).
     Str(Str)                    = 4,
     Null                        = 5,
     /// Heap-allocated fixed-length array with reference semantics. Object model R9: an
@@ -253,9 +253,9 @@ impl Value {
     /// the GC mark phase and read-only graph enumeration (heapsnapshot / retention query) —
     /// they differ in one place, gated by `marking`:
     ///
-    /// - **`marking = Some(_)`** (mark phase, from `arc_heap`'s mark loop): surfaces a closure's
+    /// - **`marking = Some(_)`** (mark phase, from `heap`'s mark loop): surfaces a closure's
     ///   env array (`Value::Array`) as a child so the mark loop marks it too.
-    /// - **`marking = None`** (enumeration, via `ArcMagrGC::scan_object_refs`, and the
+    /// - **`marking = None`** (enumeration, via `Heap::scan_object_refs`, and the
     ///   generational inspections): descends **directly** into a closure's captured refs (the
     ///   env is internal, not surfaced as a graph node).
     ///

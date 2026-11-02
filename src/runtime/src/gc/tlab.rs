@@ -3,7 +3,7 @@
 //!
 //! # Why
 //!
-//! `ArcMagrGC` is one shared heap; every mutator thread allocates into it. The
+//! `Heap` is one shared heap; every mutator thread allocates into it. The
 //! pre-TLAB hot path took the per-region `Mutex` on **every** `new`, so N
 //! parallel mutators serialized on that lock — parallel compilation went
 //! *slower* with more threads. A TLAB gives each thread exclusive write
@@ -19,7 +19,7 @@
 //! - retire-on-park at a GC safepoint (the mutator parks *itself*),
 //! - retire at `VmContext::drop` (runs on the owner thread).
 //!
-//! This sidesteps threading a `&VmContext` through the `MagrGC::alloc_*` trait
+//! This sidesteps threading a `&VmContext` through the `Heap::alloc_*` trait
 //! boundary (which only has `&self`), and keeps `VmContext` `Send` (a `Tlab`
 //! holds raw chunk pointers and is `!Send`, but a `thread_local!` never crosses
 //! threads so that is fine).
@@ -27,7 +27,7 @@
 //! # Heap binding
 //!
 //! A `Tlab`'s live claims belong to exactly one heap (identified by
-//! [`MagrGC::heap_epoch`]). `heap_epoch == 0` means "unbound" (no live claims).
+//! [`Heap::heap_epoch`]). `heap_epoch == 0` means "unbound" (no live claims).
 //! The fast path binds an empty TLAB to the current heap; if a TLAB still holds
 //! claims for a *different* heap (only reachable in multi-heap cargo tests that
 //! don't drop their `VmContext` between heaps), the allocation falls back to the
@@ -65,7 +65,7 @@ impl Tlab {
 }
 
 /// The claims a thread set aside when it parked for a blocking native call
-/// ([`crate::gc::NativeParkGuard`]): they stay borrowed (the thread may continue filling
+/// ([`crate::vm::threads::safepoint::NativeParkGuard`]): they stay borrowed (the thread may continue filling
 /// them after the call) unless a collection begins meanwhile — then the collector retires
 /// them on the parked thread's behalf, exactly as the thread would have at a safepoint park.
 pub(crate) struct ParkedTlab {
@@ -84,7 +84,7 @@ pub(crate) struct ParkedTlab {
 unsafe impl Send for ParkedTlab {}
 
 /// Per-`VmContext` holder of its [`ParkedTlab`] while the thread is native-parked
-/// (`MagrGC::park_thread_tlab` / `unpark_thread_tlab` / `retire_parked_tlab`).
+/// (`Heap::park_thread_tlab` / `unpark_thread_tlab` / `retire_parked_tlab`).
 #[derive(Default)]
 pub struct ParkedTlabSlot {
     inner: parking_lot::Mutex<Option<ParkedTlab>>,
@@ -117,7 +117,7 @@ thread_local! {
     /// removes the per-alloc `RefCell` borrow-flag check.
     ///
     /// `armed` starts 0: threads WITHOUT a `VmContext` (cargo GC unit tests that
-    /// drive `ArcMagrGC` directly, ambient `Str::new` before any VM) stay unarmed
+    /// drive `Heap` directly, ambient `Str::new` before any VM) stay unarmed
     /// and keep the pre-TLAB locked path — so region-internal GC unit tests, which
     /// observe liveness right after `alloc` with no intervening retire/safepoint,
     /// behave exactly as before. `VmContext::new*` arms; `VmContext::drop` disarms.

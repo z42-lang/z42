@@ -37,6 +37,7 @@
 //! fix-mixed-numeric-equality 就是栽在这里：`jit_eq` / `jit_ne` 曾绕过本模块直接用
 //! `Value: PartialEq`，三路口径不一致而无人发现。**新增比较 helper 时先确认它调的是本模块。**
 
+use crate::object::value_kind_name;
 use crate::object::Value;
 use crate::vm::runtime::CmpOp;
 use anyhow::{bail, Result};
@@ -232,22 +233,6 @@ pub const NULL_REF_EXC:     &str = "Std.NullReferenceException";
 /// 单播 event 字段默认值（null）最常见的踩法。
 pub fn null_invoke_msg() -> String {
     "cannot invoke a null function value (an unassigned delegate / event field)".to_string()
-}
-
-/// 值的用户可读种类名（诊断消息用；**不是** Rust Debug 格式）。
-pub fn value_kind_name(v: &Value) -> &'static str {
-    match v {
-        Value::I64(_)          => "整数",
-        Value::F64(_)          => "浮点数",
-        Value::Bool(_)         => "bool",
-        Value::Char(_)         => "char",
-        Value::Str(_)          => "string",
-        Value::Null            => "null",
-        Value::Array(_)        => "数组",
-        Value::Object(_)       => "对象",
-        Value::BoxedStruct(_)  => "装箱值类型",
-        _                      => "值",
-    }
 }
 
 /// 目标 tag 的用户可读名。

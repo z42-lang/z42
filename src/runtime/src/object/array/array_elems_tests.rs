@@ -1,17 +1,16 @@
 //! Array element modes (object model R3): REF / MIXED / PRIM / STRUCT cells.
 
-use crate::gc::MagrGC;
+use crate::gc::Heap;
 use super::*;
 use crate::object::ArrRef;
-use crate::gc::ambient::HeapGuard;
-use crate::gc::ArcMagrGC;
+use crate::vm::exec::ambient::HeapGuard;
 use std::sync::atomic::Ordering;
 
-fn heap() -> ArcMagrGC {
-    ArcMagrGC::new()
+fn heap() -> Heap {
+    Heap::default()
 }
 
-fn obj(h: &ArcMagrGC) -> Value {
+fn obj(h: &Heap) -> Value {
     let td = std::sync::Arc::new(TypeDesc {
         class_flags: 0, visibility: 0, name: "O".into(), base_name: None, fields: Vec::new(),
         field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
@@ -21,7 +20,7 @@ fn obj(h: &ArcMagrGC) -> Value {
     h.alloc_object(td, Vec::new(), NativeData::None)
 }
 
-fn arr(_h: &ArcMagrGC, a: Value) -> crate::object::ArrRef {
+fn arr(_h: &Heap, a: Value) -> crate::object::ArrRef {
     match a {
         Value::Array(r) => r,
         other => panic!("{other:?}"),

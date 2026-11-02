@@ -189,7 +189,7 @@ impl VarGcRef {
     }
 
     /// **fix-minor-gc-skips-var-region **: generation age of the block behind
-    /// this handle. `< PROMOTION_THRESHOLD` = young. Read by `ArcMagrGC::gen_age_of` so the
+    /// this handle. `< PROMOTION_THRESHOLD` = young. Read by `Heap::gen_age_of` so the
     /// minor mark phase can skip old blocks instead of treating every one as young.
     #[inline]
     pub fn gen_age(&self) -> u8 {

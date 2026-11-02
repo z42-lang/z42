@@ -74,14 +74,13 @@ fn eviction_recomputes_correctly() {
 // a recycled address in a new heap can never return the old heap's metadata.
 #[test]
 fn cross_heap_recycled_address_no_false_hit() {
-    use crate::gc::ambient::HeapGuard;
-    use crate::gc::arc_heap::ArcMagrGC;
-    use crate::gc::heap::MagrGC;
+    use crate::vm::exec::ambient::HeapGuard;
+    use crate::gc::Heap;
 
     // Heap 1: cache a long (13-char) string's metadata, then tear the heap down so its
     // VarRegion chunk memory is freed back to the system allocator.
     {
-        let h1 = ArcMagrGC::new();
+        let h1 = Heap::default();
         let _g = HeapGuard::enter(&h1);
         let s = h1.alloc_str("ABCDEFGHIJKLM"); // 13 chars
         assert_eq!(char_len(&s), 13);
@@ -91,7 +90,7 @@ fn cross_heap_recycled_address_no_false_hit() {
     // heap 1's just-freed chunk address at generation 0. Before the epoch fix, the stale
     // gen-0 entry from heap 1 would false-hit → char_len 13 instead of 2. The epoch guard
     // drops the cache on the heap switch, so the query recomputes for the real string.
-    let h2 = ArcMagrGC::new();
+    let h2 = Heap::default();
     let _g = HeapGuard::enter(&h2);
     let s = h2.alloc_str("XY"); // 2 chars
     assert_eq!(char_len(&s), 2, "cross-heap false-hit: returned heap-1's cached length");
@@ -122,11 +121,10 @@ fn ascii_bit_is_set_only_for_ascii_strings() {
 // relying on that.
 #[test]
 fn freed_dedicated_chunk_reused_address_no_false_hit() {
-    use crate::gc::ambient::HeapGuard;
-    use crate::gc::arc_heap::ArcMagrGC;
-    use crate::gc::heap::MagrGC;
+    use crate::vm::exec::ambient::HeapGuard;
+    use crate::gc::Heap;
 
-    let h = ArcMagrGC::new();
+    let h = Heap::default();
     let _g = HeapGuard::enter(&h);
     // 80 000 bytes each (well past a 64 KB bump chunk ⇒ a dedicated chunk), non-ASCII so
     // both go through the cache, with different char counts.
@@ -151,13 +149,12 @@ fn freed_dedicated_chunk_reused_address_no_false_hit() {
 // oversized string's entry and a bump-chunk string's entry survive and keep hitting.
 #[test]
 fn freed_dedicated_chunk_drops_only_its_own_entry() {
-    use crate::gc::ambient::HeapGuard;
-    use crate::gc::arc_heap::ArcMagrGC;
-    use crate::gc::heap::MagrGC;
+    use crate::vm::exec::ambient::HeapGuard;
+    use crate::gc::Heap;
     use crate::object::Value;
 
     let cached = || CACHE.with(|c| c.borrow().iter().map(|e| (data_ptr(&e.s), e.chunk.is_some())).collect::<Vec<_>>());
-    let h = ArcMagrGC::new();
+    let h = Heap::default();
     let _g = HeapGuard::enter(&h);
     let kept = h.alloc_str(&"ü".repeat(40_000)); // 80 000 B ⇒ dedicated chunk, rooted
     let small = h.alloc_str("naïve"); // bump chunk, rooted
