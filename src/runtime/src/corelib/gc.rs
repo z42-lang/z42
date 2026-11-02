@@ -16,7 +16,7 @@ use std::io::Write as _;
 use std::sync::{Arc, OnceLock};
 
 /// `Std.GC.Collect()` —— 触发环检测（不阻断；no-op 当 paused）。
-/// 调用 `ctx.heap().collect_cycles()`，进而走 `ArcMagrGC` 的 trial-deletion 算法。
+/// 调用 `ctx.heap().collect_cycles()`，进而走 `Heap` 的 trial-deletion 算法。
 ///
 /// **add-gc-safepoint **: stop-the-world via
 /// [`crate::vm::threads::safepoint::request_gc_pause`] before mark+sweep. All other
@@ -41,7 +41,7 @@ pub fn gc_used_bytes(ctx: &VmContext) -> i64 {
     ctx.heap().used_bytes() as i64
 }
 
-/// `Std.GC.ForceCollect()` —— 强制一次**全堆** collect（分代下是 major，见 `MagrGC::collect_full`），
+/// `Std.GC.ForceCollect()` —— 强制一次**全堆** collect（分代下是 major，见 `Heap::collect_full`），
 /// 返回 `freed_bytes`（i64）。
 /// 与 `Collect()` 区别：前者是建议性（pause 时跳过），后者总是触发并返回数据。
 ///
@@ -317,7 +317,7 @@ pub fn gc_pause_window_capacity(ctx: &VmContext) -> i64 {
 
 /// `Std.GC.WriteHeapSnapshot(path)` — **add-gc-heap-snapshot-export **.
 ///
-/// Walks the live heap once via `MagrGC::iterate_live_objects` +
+/// Walks the live heap once via `Heap::iterate_live_objects` +
 /// `scan_object_refs` + `for_each_root`, builds the V8 `.heapsnapshot`
 /// graph, serialises it to JSON, and writes the result to `path`.
 /// Returns the number of bytes written (as `long`).

@@ -1,5 +1,5 @@
 use super::*;
-use crate::gc::{ArcMagrGC, GcMode, MagrGC};
+use crate::gc::{Heap, GcMode};
 
 #[test]
 fn parsed_defaults_match_standalone_heap_policy() {
@@ -52,7 +52,7 @@ fn resolved_overrides_reach_the_heap_without_changing_other_inputs() {
             pressure_ratio: 0.7,
         }
     );
-    let heap = ArcMagrGC::new(config);
+    let heap = Heap::new(config);
     assert_eq!(heap.mode(), GcMode::StwMarkSweep);
     let untouched = RuntimeConfig::from_getter(|_| None);
     assert_eq!(untouched.gc_config(), GcConfig::default());

@@ -1,5 +1,5 @@
 //! Ambient GC heap — a thread-local pointer to the active VM's heap so heap-less
-//! call sites can allocate GC blocks without threading `&dyn MagrGC` through them
+//! call sites can allocate GC blocks without threading `&Heap` through them
 //! (unify-gc-heap PR-4, design **D11**: "the heap is a first-class ambient
 //! allocation service", the CLR/JVM model).
 //!
@@ -8,7 +8,7 @@
 //! Migrating `Str` (`object/string/vstr.rs`) from a hand-rolled Arc into a GC
 //! variable-length block means `Str::new(s)` — reached from ~189 `.into()` /
 //! `From<&str>` sites — must allocate from the GC heap. Those sites do **not**
-//! carry a `&VmContext`/`&dyn MagrGC` (the whole point of `.into()` is to be
+//! carry a `&VmContext`/`&Heap` (the whole point of `.into()` is to be
 //! context-free), so rather than rewrite all of them we expose the active heap as
 //! an ambient thread-local. Every engine entry scopes the heap in via
 //! [`HeapGuard`]; `Str::new` reads it via [`current_heap`].
@@ -36,16 +36,15 @@
 use std::cell::Cell;
 use std::ptr::NonNull;
 
-use crate::gc::MagrGC;
+use crate::gc::Heap;
 
 thread_local! {
     /// The active heap for GC allocations on this thread, or `None` when no z42
-    /// frame is executing. A fat `NonNull<dyn MagrGC>` (16 B) — set/restored by
-    /// [`HeapGuard`]. Lazy (non-`const`) init: the fat-pointer niche has no cheap
-    /// null literal, and the one-time per-thread init cost is negligible.
-    static CURRENT_HEAP: Cell<Option<NonNull<dyn MagrGC>>> = const { Cell::new(None) };
+    /// frame is executing. A thin `NonNull<Heap>` — set/restored by
+    /// [`HeapGuard`]. The slot starts empty and is restored when the guard drops.
+    static CURRENT_HEAP: Cell<Option<NonNull<Heap>>> = const { Cell::new(None) };
 
-    /// **fix-wasm-string-ops**: the active heap's [`MagrGC::heap_epoch`] snapshot (0 = no heap).
+    /// **fix-wasm-string-ops**: the active heap's [`Heap::heap_epoch`] snapshot (0 = no heap).
     /// Maintained in lockstep with `CURRENT_HEAP` by [`HeapGuard`] so a cheap `u64` read
     /// ([`current_heap_epoch`]) identifies "which heap" without a per-access vtable call.
     /// Address-keyed caches ([`crate::object::string::str_meta`]) read it to detect a heap switch and
@@ -58,7 +57,7 @@ thread_local! {
 /// Nests safely: `enter` saves the previous heap, `drop` restores it, so a nested
 /// entry (VM A → native → VM B) leaves the outer heap in place on exit.
 pub struct HeapGuard {
-    prev: Option<NonNull<dyn MagrGC>>,
+    prev: Option<NonNull<Heap>>,
     /// **fix-wasm-string-ops**: the epoch to restore on drop (saved alongside `prev`).
     prev_epoch: u64,
     /// `false` when `enter` found the ambient heap already set to this same heap
@@ -71,15 +70,9 @@ pub struct HeapGuard {
 impl HeapGuard {
     /// Scope `heap` as the ambient heap until the returned guard drops.
     #[inline]
-    pub fn enter(heap: &dyn MagrGC) -> Self {
-        // `NonNull::from(&dyn)` keeps the fat pointer (data + vtable). Erase the
-        // borrow's lifetime to `'static` for storage: every read via `current_heap`
-        // is transient and completes before this guard drops (the guard lives for
-        // the whole activation), and the heap outlives the guard (it lives in `VmCore`).
-        let ptr: NonNull<dyn MagrGC> = NonNull::from(heap);
-        // SAFETY: the transmute only widens the trait object's lifetime (identical
-        // fat-pointer representation); soundness rests on the transient-use contract.
-        let ptr: NonNull<dyn MagrGC + 'static> = unsafe { std::mem::transmute(ptr) };
+    pub fn enter(heap: &Heap) -> Self {
+        // The activation guard bounds transient reads; the heap outlives the guard.
+        let ptr: NonNull<Heap> = NonNull::from(heap);
         // Engine entries nest (host invoke → bottom frame, `run_fn` → bottom
         // frame). When the SAME heap is already installed, skip both the store
         // and the drop-time restore. A genuinely different heap (cross-VM
@@ -121,10 +114,10 @@ impl Drop for HeapGuard {
 /// (`Str::new`) allocate and return an owned handle without letting the borrow
 /// escape.
 #[inline]
-pub fn current_heap() -> Option<&'static dyn MagrGC> {
+pub fn current_heap() -> Option<&'static Heap> {
     CURRENT_HEAP.with(|c| {
         c.get().map(|p| {
-            // SAFETY: a live guard set this pointer from a `&dyn MagrGC` whose heap
+            // SAFETY: a live guard set this pointer from a `&Heap` whose heap
             // outlives the guard (the heap lives in `VmCore`, the frame's ancestor);
             // the borrow is used transiently within the current call.
             unsafe { &*p.as_ptr() }
@@ -132,7 +125,7 @@ pub fn current_heap() -> Option<&'static dyn MagrGC> {
     })
 }
 
-/// **fix-wasm-string-ops**: the active heap's [`MagrGC::heap_epoch`] (0 when no z42 frame is
+/// **fix-wasm-string-ops**: the active heap's [`Heap::heap_epoch`] (0 when no z42 frame is
 /// executing). A cheap `u64` TLS read — the epoch is snapshotted into `CURRENT_EPOCH` by
 /// [`HeapGuard`] on each heap switch, so this avoids a vtable call on hot per-char callers.
 /// Used by [`crate::object::string::str_meta`] to scope its address-keyed cache to a single heap:

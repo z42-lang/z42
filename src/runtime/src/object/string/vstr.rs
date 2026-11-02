@@ -102,7 +102,7 @@ impl Str {
 
     /// Mark this string's GC block during the mark phase. Returns `true` if this
     /// call won the mark CAS. Strings are leaves (no outgoing references), so
-    /// nothing more is traced. Called from `arc_heap`'s `Value::Str` mark arm.
+    /// nothing more is traced. Called from `heap`'s `Value::Str` mark arm.
     #[inline]
     pub fn mark(&self, kind: crate::object::header::marks::MarkKind) -> bool {
         self.block.mark(kind)
