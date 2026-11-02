@@ -1,5 +1,4 @@
-// xtask — test orchestration: the GREEN gate (`test`), `test e2e`, `test runtime`, the GC-mode
-// stage, and the stage registry shared by execution and listing.
+// xtask — GREEN 与 e2e 编排，以及执行和列表共用的 stage 登记、skip 校验与计时。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -98,61 +97,6 @@ int _testE2e(TestE2eCommand c) {
     return __rc;
 }
 
-// `test runtime` — the Rust VM's own unit/integration harness (cargo test on
-// src/runtime), incl. the zbc/zpkg format strict-pin baselines (zbc_compat /
-// lazy_loader). `--test-threads=1` is REQUIRED: the --lib unit tests have a
-// cross-thread memory-corruption race that SIGSEGVs under parallel scheduling
-// (reproducible on macOS too). RUST_MIN_STACK lowers crash probability further.
-// (Suspect: GC region raw-pointer Send/Sync unsoundness with concurrent VmCores.)
-int _testRuntime() {
-    Stopwatch sw = _procStart("test runtime");
-    // --features z42-test-fixtures：build.rs 里「用 z42c 编三个 .z42 fixture + emit
-    // cfg」那块默认关闭（否则它 rerun-if-changed 到 z42c.driver.zpkg，而该文件被
-    // `xtask build compiler` 每轮重写 → 下一次 cargo 全量重编）。
-    // Rust 单测是唯一真正需要这些 fixture 的地方，故在这里按需打开——覆盖面不变，
-    // 只是把成本从「所有人的每次构建」挪到「真的要跑 Rust 单测时」。
-    // --workspace：不带它时包选择落到 Cargo.toml 的 `default-members`（只有根包 z42 +
-    // z42-compression），z42-abi / z42-repl / z42-rs / z42-macros / z42-host 的测试整批不跑。
-    // 这是全仓唯一的 `cargo test` 入口（CI 的 "Rust VM unit tests" 即此）；z42-abi 守的正是
-    // C ABI 结构体布局契约——坏了直接表现为嵌入端内存错位。
-    int __rc = _exec(_cargoCmd("test", _runtimeCargoConfig()).Arg("--locked").Arg("--workspace")
-        .Arg("--features").Arg("z42-test-fixtures")
-        .Arg("--manifest-path").Arg(_runtimeManifest())
-        .Arg("--").Arg("--test-threads=1")
-        .Env("RUST_MIN_STACK", "8388608"));
-    if (__rc == 0) { _procEnd("test runtime", sw); }
-    return __rc;
-}
-
-// GREEN 里的 Rust 单测（`test runtime` 的**窄版**）。
-//
-// 完整的 `test runtime` 不能进 GREEN：它会拉起 signal 崩溃辅助进程（`tests/signal_handler_e2e.rs`），
-// 在限制信号的沙箱里**挂住**。但「本地全绿、CI test-host 红」的典型事故都落在 lib 单测与编译失败
-// （公共 struct 加字段后 `tests/` 里的字面构造点没补）上，不需要跑那批。
-//
-// ⇒ 本 stage = `--lib`（跑）+ `--no-run`（只编所有 target、一个都不跑）。
-// 🔴 **`--lib` 排除 `tests/` 是结构性的，不是靠过滤器**：signal / loom 那几个都在 `tests/` 下，
-// `--lib` 根本到不了它们。**不用 `--skip <名字>` 这类过滤**——那种写法会随文件改名悄悄失效
-// （本仓库踩过「带过滤器跑 cargo test = 等于没跑全局门」）。
-//
-// 完整版仍保留为 `xtask test runtime` / CI 的独立 leg / `test changed`。
-int _testRuntimeUnits() {
-    string m = _runtimeManifest();
-    // `--workspace` / `--features z42-test-fixtures`：见 `_testRuntime`。
-    int rc = _exec(_cargoCmd("test", _runtimeCargoConfig()).Arg("--locked").Arg("--workspace")
-        .Arg("--features").Arg("z42-test-fixtures")
-        .Arg("--manifest-path").Arg(m)
-        .Arg("--lib")
-        .Arg("--").Arg("--test-threads=1")
-        .Env("RUST_MIN_STACK", "8388608"));
-    if (rc != 0) { return rc; }
-    // 只编不跑：抓「跨 src/ 与 tests/ 都构造的公共 struct 加了字段却没补齐」这类编译漏。
-    return _exec(_cargoCmd("test", _runtimeCargoConfig()).Arg("--locked").Arg("--workspace")
-        .Arg("--features").Arg("z42-test-fixtures")
-        .Arg("--manifest-path").Arg(m)
-        .Arg("--no-run"));
-}
-
 // regen goldens for a test stage: --toolchain active OR --no-build set → z42c+stdlib
 // already present, only regen the golden .zbc (_regenGolden, --toolchain-aware);
 // else full _regenCore (rebuild stdlib + runtime + goldens). Shared: _testE2eCore + _testAll.
@@ -200,100 +144,6 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
     try { jobsN = int.Parse(jobs); } catch (Exception e) { jobsN = 1; }
     int[] sh = _parseShard(shard);
     return _runVmGoldensF(modeList, jobsN, sh[0], sh[1], dirFilter, fileFilter);
-}
-
-// compile one real package under each GC mode, with the collector tuned to fire
-// hundreds of times, and require that it actually did.
-//
-// **Why a compiler build and not the golden suite**: golden cases are short-lived
-// programs that never collect — vacuous for GC-defect coverage; a `z42c.semantics`
-// build genuinely stresses the collector.
-//
-// **Why both modes.** `generational` is the default, so every other stage exercises it —
-// but only at the 32 MB default nursery, far too few collections to catch premature-
-// collection defects. And `stw` is exercised by nothing else — uncovered modes are where
-// such defects live for months.
-//
-// **Why these settings** — collections over one `z42c.semantics` build (`--jobs 1`, deterministic
-// across hosts):
-//
-//   default (generational), nursery 1M   ~250 collections
-//   Z42_GC_MODE=stw, budget 16M           ~35 collections   ← the knee: 8M is several hundred
-//                                                             but much longer wall time
-//
-// The stw budget tracks the live set — it drifts when object sizes change, and both counts
-// drop whenever the compiler itself allocates less — so the floors are set at roughly half the
-// observed counts. Their job is to catch a *collapse* (a flipped default, a policy change that
-// stops the collector firing), not to pin an exact number; re-baseline the two numbers above
-// when a compiler-side allocation change moves them.
-//
-// The generational leg deliberately leaves `Z42_GC_MODE` **unset**: it is testing *the
-// default*, so hard-coding the mode here would let a flipped default go unnoticed. The
-// asserted collection floor is what makes that safe — if the default changes, or a policy
-// change stops the collector firing, the count collapses and this stage goes red rather
-// than silently testing nothing.
-int _testGcModeWorkload(string label, string modeEnv, string nurseryEnv, string budgetEnv,
-                        int minCycles, int jobs) {
-    string root = _root();
-    string vm = _builtVm(root, "release");
-    string driver = _driverZpkg(root, "release");
-    string flat = _libsDir(root);   // 纯 stdlib flat；z42c.semantics 按名声明的编译器包由 driver 从编译器目录解析
-    string toml = root + "/src/compiler/z42c.semantics/z42c.semantics.z42.toml";
-    Console.WriteLine("  ▶ z42c.semantics --release --no-incremental (" + label + ")");
-    // 编译器目录由 _z42cProc* 显式指向本树刚建的 driver dist（不指时 semantics 会对着种子 SDK 里的旧编译器包编）。
-    // mode "" = 保持 z42vm 缺省模式（回收次数下限是按这个模式标定的）。
-    Process p = _z42cProcMode(vm, flat, driver, "")
-        .Arg("build").Arg(toml).Arg("--release").Arg("--no-incremental")
-        // 显式给并行度：`z42c build` 的默认值是 min(4, 核数)，而回收次数在多线程下随平台与时序
-        // 剧烈波动 ⇒ 串行腿钉 1 以保持确定性。
-        .Arg("--jobs").Arg(jobs.ToString())
-        // 产物进 runtime 的 tests/ 输出，不落 `src/compiler/z42c.semantics/dist`
-        // （这次构建只为给 GC 施压，产物本身没人用）。
-        .Arg("--output-dir").Arg(_workOut(root, "src/runtime", "gc-modes"))
-        .Env("Z42_GC_TRACE", "1");
-    if (modeEnv != "")    { p = p.Env("Z42_GC_MODE", modeEnv); }
-    if (nurseryEnv != "") { p = p.Env("Z42_GC_NURSERY_BYTES", nurseryEnv); }
-    if (budgetEnv != "")  { p = p.Env("Z42_GC_MAX_BYTES", budgetEnv); }
-    // stderr is piped so the `z42-gc:` trace lines can be counted; stdout stays inherited so
-    // build progress is still visible in the log.
-    ProcessResult r = p.Stdout(Stdio.Inherit()).Stderr(Stdio.Pipe()).Run();
-    if (r.ExitCode != 0) {
-        Console.WriteLine(r.Stderr);
-        Console.WriteLine("  x " + label + " build failed (exit " + r.ExitCode.ToString() + ")");
-        return 1;
-    }
-    int cycles = _countGcCycles(r.Stderr);
-    if (cycles < minCycles) {
-        Console.WriteLine("  x " + label + ": only " + cycles.ToString() + " GC cycles (want >= "
-            + minCycles.ToString() + ") — the collector is not being exercised, so this stage "
-            + "is not testing what it claims. Check Z42_GC_MODE's default and the auto-collect "
-            + "policy before relaxing this floor.");
-        return 1;
-    }
-    Console.WriteLine("  ok " + label + ": clean, " + cycles.ToString() + " GC cycles");
-    return 0;
-}
-
-// Count `z42-gc: <Kind> …` cycle lines in a captured `Z42_GC_TRACE=1` stderr. The other trace
-// shapes (`near heap limit`, `over budget`) are not cycles and must not be counted.
-int _countGcCycles(string stderrText) {
-    int n = 0;
-    foreach (var line in stderrText.Split("\n")) {
-        if (line.StartsWith("z42-gc: ") && line.Contains("  (cycle ")) { n = n + 1; }
-    }
-    return n;
-}
-
-int _testGcModes() {
-    // The default leg: mode UNSET on purpose — see the note above.
-    int c = _testGcModeWorkload("default mode, nursery 1M", "", "1M", "", 120, 1);
-    if (c != 0) { return c; }
-    c = _testGcModeWorkload("Z42_GC_MODE=stw, budget 16M", "stw", "", "16M", 20, 1);
-    if (c != 0) { return c; }
-    // 多线程编译腿：分代写屏障一类漏洞（年轻对象写进老对象不标脏卡）只在 `--jobs 4` + 小年轻代下
-    // 才稳定复现 —— 串行腿撞不上。回收次数在多线程下不确定（多个线程同时越过
-    // 阈值时请求会合并），下限只用来抓「回收器完全没被触发」，不追求压测强度（那由上面的串行腿保证）。
-    return _testGcModeWorkload("default mode, nursery 1M, --jobs 4", "", "1M", "", 20, 4);
 }
 
 // ── cross-zpkg harness (invoked by `test e2e`) ──────────────────────────────

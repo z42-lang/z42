@@ -274,6 +274,7 @@ scripts/
 ├── test/               test 命令族（`test compiler` / `test compiler bootstrap` 实现在 build/）
 │   ├── xtask_test_cmd.z42       `test` 族的命令类 + LibUnitsCommand（test stdlib / bench stdlib 共用）
 │   ├── xtask_test.z42           all/e2e 编排 + stage 单源登记 / 只读列表 / 计时
+│   ├── xtask_test_runtime.z42   Rust runtime 完整 / 窄版测试的共用 Cargo 配置与 GC 模式回归
 │   ├── xtask_test_vm.z42        e2e golden 跑分（+ --dir/--file 子选择）
 │   ├── xtask_fixture_build.z42  cross-zpkg / multi-exe 共用的构建、隔离 libs、产物定位与汇总
 │   ├── xtask_test_cross.z42     e2e cross-zpkg 多包
