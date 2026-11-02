@@ -42,7 +42,7 @@ using Z42.Pipeline;    // CompilerDomain（编译器域解析域，与 BuildSess
 //   ⭐ 这个缺口的**症状离原因很远**：`app → mid → leaf` 而 dist/ 只有 mid.zpkg 时，拷出去
 //      **死在 mid 的方法里**（`MissingSymbolException`）——报的像是「mid 的代码有问题」。
 [Suppress("style.fnLinesHard", "108 body lines；拆分见 code-organization.md")]
-int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, string distDir, string[] libsDirs, int libsDirsN, WsTier tier) {
+int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, string distDir, string[] libsDirs, int libsDirsN, WsTier tier, string[] routedDeps, int routedN) {
     // 复制判定（add-deployment-model 批 1）：**在不在 shipped `libs/`**（= `Z42_LIBS`）。
     // 在 → 框架，运行期从 libs/ 解析，不复制；不在 → 私有，复制进 dist。
     //
@@ -72,7 +72,7 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
     string[] frameworkDirs = _extLibDirs();
     // 待拷名单 = 直接声明 ∪ 本包 zpkg 的 DEPS 段（usings 驱动，retire-member-dep-decls 起成员 exe 的
     // 唯一种子）∪ **path 依赖闭包全体**（去重，fix-path-dep-closure）。构成与来源见 `BundleSeed.z42`。
-    BundleSeed seed = _bundleSeed(pm, distDir, closureNames, closureN);
+    BundleSeed seed = _bundleSeed(pm, distDir, closureNames, closureN, routedDeps, routedN);
     string[] names = seed.Names;
     string[] deploys = seed.Deploys;
     bool[] sdkSkip = seed.SdkSkip;   // own-DEPS 播种位（见 BundleSeed.z42）
@@ -395,6 +395,9 @@ string[] _zpkgRefDirs(ProjectManifest pm, string projectDir) {
                 + info.Name + "`——两者须一致。改清单里的 key，或指向正确的文件。");
             return null;
         }
+        // deps-plugin-routing：插件包不进运行期解析域——它的目录**不**并入 libsDirs（NSPC / glob /
+        // 包枚举会把里面的东西当普通库）。编译器侧加载走 `_pluginDepZpkgs` 的直连分流。
+        if (PluginCaps.IsPlugin(info.PluginCaps)) { continue; }
         string dir = Path.GetDirectoryName(full);
         if (dir.Length == 0) { dir = "."; }
         bool dup = false;

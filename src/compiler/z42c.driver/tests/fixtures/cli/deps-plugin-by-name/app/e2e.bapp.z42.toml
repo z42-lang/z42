@@ -1,0 +1,12 @@
+[project]
+name    = "e2e.bapp"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+# deps-plugin-routing：独立分发的插件 zpkg 按普通依赖声明——z42c 读 zpkg 头自述分流：
+# 加载进编译器进程（generator 产符号可用），但**不**链入产物、不进运行期解析域。
+"e2e.bgen" = "0.1.0"

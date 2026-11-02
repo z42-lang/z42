@@ -134,6 +134,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeHookSingleFile(root, tt);
         failed = failed + _smokeHookDir(root, tt);
         failed = failed + _smokeHookInclude(root, tt);
+        failed = failed + _smokeHookViaDeps(root, tt);
         failed = failed + _smokeHookPluginBroken(root, tt);
         failed = failed + _smokeHookCarry(root, tt);
         failed = failed + _smokeWorkspaceDefault(root, tt);
@@ -396,6 +397,51 @@ int _smokeHookDir(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ hook dir plugin: 免清单目录全收、两个 hook 类都执行");
+    return 0;
+}
+
+// deps 分流 hook 插件 smoke（deps-plugin-routing）：[dependencies] 声明的插件 zpkg ⇒ z42b 读头
+// 分流加载 BuildHooks。先把两个插件工程编出 dist 产物（消费方经 .zpkg path 引用），再编 app。
+// **两条**标记都在才判绿（声明的两个 hook 都要执行）。
+int _smokeHookViaDeps(string root, TargetTooling tt) {
+    string dir = Path.Join(tt.Z42bFixturesRoot, "hook-via-deps");
+    string toml = Path.Join(dir, "z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── hook via deps ([dependencies] 插件 zpkg 分流加载) ──");
+    int pc = 0;
+    while (pc < 2) {
+        string plug = pc == 0 ? "pluga" : "plugb";
+        ProcessResult pr = _z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+            .Arg("--").Arg("build").Arg(Path.Join(dir, plug))
+            .WorkingDirectory(root)
+            .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+        if (pr.ExitCode != 0) {
+            Console.WriteLine("  ❌ hook via deps: 插件工程 " + plug + " 构建失败（" + pr.ExitCode.ToString() + "）");
+            Console.WriteLine("    输出: " + (pr.Stdout + pr.Stderr));
+            return 1;
+        }
+        pc = pc + 1;
+    }
+    ProcessResult r = _z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("build").Arg(toml)
+        .WorkingDirectory(root)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all = r.Stdout + r.Stderr;
+    if (r.ExitCode != 0) {
+        Console.WriteLine("  ❌ hook via deps: `z42b build` exited " + r.ExitCode.ToString());
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    int ia = all.IndexOf("HOOK-PLUGIN-SMOKE: A BeforeCompile");
+    int ib = all.IndexOf("HOOK-PLUGIN-SMOKE: B BeforeCompile");
+    if (ia < 0 || ib < 0) {
+        Console.WriteLine("  ❌ hook via deps: 两个 hook 的标记行没有都出现（deps 分流加载断了？ia="
+            + ia.ToString() + ", ib=" + ib.ToString() + "）");
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    Console.WriteLine("  ✅ hook via deps: [dependencies] 的插件 zpkg 分流加载并执行");
     return 0;
 }
 

@@ -1,0 +1,39 @@
+// 插件目录的查找域 —— `[plugins]` 按名条目 / `[dependencies]` 插件分流共用的唯一答案。
+//
+// 两个来源，刻意**不含**「任意 libs 目录的同级 plugins/」（unify-plugin-packages 的查找域分离）：
+// 开发树里 libs 目录旁常躺着同代/异代编译器包，插件一加载就把它卷进进程（双代注册、类型拒用
+// ——E0601 同源）。SDK 世界由 Z42_HOME 精确给出（<sdk>/plugins）；开发树/CI 由 xtask 经
+// Z42_PLUGINS 显式指（proc 工厂注入）。
+namespace Z42.Project;
+
+using Std.IO;
+
+public static class PluginDirs {
+
+    // 候选目录（去重、只留存在的），确定性顺序：Z42_PLUGINS → Z42_HOME/plugins。空表 = 无插件目录。
+    public static string[] Search() {
+        string[] acc = new string[2];
+        int n = 0;
+        string env = Environment.GetEnvironmentVariable("Z42_PLUGINS", "");
+        if (env.Length > 0) {
+            bool dup = false;
+            int i = 0;
+            while (i < n) { if (acc[i] == env) { dup = true; break; } i = i + 1; }
+            if (!dup) { acc[n] = env; n = n + 1; }
+        }
+        string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
+        if (home.Length > 0) {
+            string sdkPlugins = Path.Join(home, "plugins");
+            if (Directory.Exists(sdkPlugins)) {
+                bool dup = false;
+                int i = 0;
+                while (i < n) { if (acc[i] == sdkPlugins) { dup = true; break; } i = i + 1; }
+                if (!dup) { acc[n] = sdkPlugins; n = n + 1; }
+            }
+        }
+        string[] r = new string[n];
+        int k = 0;
+        while (k < n) { r[k] = acc[k]; k = k + 1; }
+        return r;
+    }
+}

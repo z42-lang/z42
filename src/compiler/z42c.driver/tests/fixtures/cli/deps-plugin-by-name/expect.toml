@@ -1,0 +1,37 @@
+desc = "deps-plugin-routing：[dependencies] 名字条目在插件目录解析到插件包 ⇒ 自动分流进编译器（不链入产物/不进 libs）；非插件的按名依赖照旧报「未找到」（见 README）"
+outside_repo = true
+
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+# ① 阴性：插件目录还没有那份 zpkg（哪怕将来有人误放进 libs/ 也一样找不到）→ 名字条目判「未在插件目录找到」
+[[step]]
+args = ["build", "app/e2e.bapp.z42.toml", "--release"]
+libs = "libs"
+exit = "nonzero"
+stderr_contains = ["未找到"]
+
+# ② 编出插件产物、放进插件目录
+[[step]]
+args = ["build", "plug/e2e.bgen.z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "plug/dist/e2e.bgen.zpkg"
+to = "plugins/"
+
+# ③ 阳性：Z42_PLUGINS 指向它 → 按名解析成功、generator 产的符号可用
+[[step]]
+args = ["build", "app/e2e.bapp.z42.toml", "--release"]
+libs = "libs"
+env = { Z42_PLUGINS = "{case}/plugins" }
+exit = 0
+
+[[step]]
+tool = "run"
+target = "app/dist/e2e.bapp.zpkg"
+exit = 0
+stdout_equals = "42"
