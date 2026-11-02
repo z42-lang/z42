@@ -29,13 +29,6 @@ string _fingerprintSourceOf(string tree) {
 
 int _fpEntryCount(string tree) {
     string t = _fingerprintSourceOf(tree);
-    // 回落：很旧的 base 树（`--base <任意旧树>`）没有 CompilerFingerprint.z42，指纹还是
-    // `CacheStore.z42` 里的一个 int 常量。读出的旧整数与本树条目数不同 ⇒ 判「身份已变」，
-    // 这是事实：换表示本身就让所有旧 `.meta` 失效。
-    if (t.Length == 0) {
-        return _srcIntConst(Path.Join(tree, "src/compiler/z42c.pipeline/src/CacheStore.z42"),
-            "public static int CompilerFingerprint = ");
-    }
     FingerprintEntries entries = _readFingerprintEntries(t);
     return entries == null ? -1 : entries.Count;
 }

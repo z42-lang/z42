@@ -83,3 +83,5 @@ PR 编译器各编一遍**同一份 base stdlib 源码**，逐包比 zpkg 字节
 `CompilerFingerprint.Value()` 相同的 Murmur3 内容哈希。条目数仅用于日志显示；格式 Minor 与
 实际哈希才决定缓存身份。注释、空白、块注释里的引号及伪初始化器不构成指纹变化。
 不支持的初始化表达式或损坏的源码应报错，不能用源文件全文差异充当缓存失效的证据。
+
+base 与 head 都必须提供当前 `CompilerFingerprint.Entries` 布局，缺失时明确失败；不再回读旧整数计数器。

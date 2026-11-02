@@ -25,6 +25,10 @@ int _selfcheckFingerprintEntries() {
     _gateAssert(!_fingerprintIdentityChanged(a, raw, "2/1/54", "2/1/54"), "raw string values match decoded values");
     FingerprintEntries slash = _readFingerprintEntries(_fpFixture("\"a//b\""));
     _gateAssert(slash != null && slash.Count == 1 && slash.Value == "mmh3:" + Murmur3.Hash128Hex("a//b"), "comment marker within a string is data");
+    bool missingFailed = false;
+    try { _fingerprintIdentityChanged("", a, "-1/1/54", "2/1/54"); }
+    catch (Exception ex) { missingFailed = true; }
+    _gateAssert(missingFailed, "missing Entries source fails closed instead of legacy fallback");
     Console.WriteLine("  ✅ compiler fingerprint: entry values, comments, format and malformed input");
     return 0;
 }

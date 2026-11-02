@@ -75,16 +75,11 @@ FingerprintEntries _readFingerprintEntryBody(Lexer lex, int start) {
 }
 
 bool _fingerprintIdentityChanged(string baseSource, string headSource, string baseId, string headId) {
-    // 日志里的条目数不是缓存键；只有格式和实际指纹值可以证明缓存会失效。
-    string baseFormat = baseId.Substring(baseId.IndexOf("/"));
-    string headFormat = headId.Substring(headId.IndexOf("/"));
-    if (baseFormat != headFormat) { return true; }
-    // 任意旧 base 树仍可使用整数指纹；切换到内容哈希本身就是身份变化。
-    if (baseSource.Length == 0 || headSource.Length == 0) {
-        return baseSource.Length != headSource.Length || baseId != headId;
-    }
     FingerprintEntries a = _readFingerprintEntries(baseSource);
     FingerprintEntries b = _readFingerprintEntries(headSource);
     if (a == null || b == null) { throw new FormatException("CompilerFingerprint.Entries 必须是可解析的字符串字面量数组"); }
-    return a.Value != b.Value;
+    // 日志里的条目数不是缓存键；只有格式和实际指纹值可以证明缓存会失效。
+    string baseFormat = baseId.Substring(baseId.IndexOf("/"));
+    string headFormat = headId.Substring(headId.IndexOf("/"));
+    return baseFormat != headFormat || a.Value != b.Value;
 }
