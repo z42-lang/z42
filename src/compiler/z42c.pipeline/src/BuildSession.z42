@@ -152,14 +152,9 @@ public sealed class BuildSession {
             rep.Fail("no .z42 sources under " + o.ProjectDir);
             return BuildSession._fail(BuildExit.BuildError);
         }
-        string[] texts = new string[srcs.Length];
-        string[] hashes = new string[srcs.Length];
-        int i = 0;
-        while (i < srcs.Length) {
-            texts[i] = File.ReadAllText(srcs[i]);
-            hashes[i] = ZpkgBuilder.SourceHashHex(texts[i]);
-            i = i + 1;
-        }
+        SourceInputs sources = SourceReader.Read(srcs, "", 1);
+        string[] texts = sources.Texts;
+        string[] hashes = sources.Hashes;
         // ③ 解析域：调用方给的基础域 + SDK 库（add-sdk-libs，规则同 driver，见 SdkLibs.z42）：exe / lib 按名声明的
         //    SDK 库（+ 闭包）可见，插件工程全部可见；不放行的进扫描 tier 的 Hidden。成员工程自带的
         //    workspace 可见性：这里把成员名并进 SDK 放行集（计划非空 ⇒ 编译器目录挂载——成员清单

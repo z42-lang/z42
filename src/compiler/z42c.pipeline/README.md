@@ -37,6 +37,7 @@
 |------|------|
 | `src/Z42cCompiler.z42` | `z42.build` `ICompiler` 实现——对外编译入口。BuildSession 的薄封装（`HostTarget`）；`req.Manifest` 必填 |
 | `src/Z42cReplCompiler.z42` | `IReplCompiler` 实现：REPL 增量编译路径（累积声明 + 惰性符号世界）|
+| `src/SourceReader.z42` | CLI 与 BuildSession 共用的源读取、插件指纹混合和源哈希；调用方显式传入并行度 |
 | `src/BuildSession.z42` | 清单驱动的**一次包编译**：`BuildOptions`（清单 / 源根 / `BuildRole` / 解析域 / 产物路径）→ 旋钮决议 → 源发现 → `[plugins]` 解析（path 条目代建为 `AnalyzerChild`）→ `PackageCompile.Compile` → 写 packed + `.zsym`。**从不打印**，消息经 `IBuildReporter`（`CollectingReporter` 收集型实现）。目前由 z42b（`HostTarget`）使用；driver 共用其中的 `ManifestKnobs` 与 `CompilerDomain`，其余步骤仍在 driver 的 `Main._build`。同文件含 `CompilerDomain`（编译器域解析域）|
 | `src/PackageCompile.z42` | 单包编译核心的**顺序骨架**：② 依赖解析 → ③④ 前置线 → ⑤ 包级编译 → ⑥⑦ 诊断收口 + 错误门 → ⑧ 组装（编号同 source-compile.md）|
 | `src/FrontLine.z42` | **前置线**：③ generator（`z42c.plugin`（generator 面），含内建 `[Forward]`）→ ④ analyzer（`z42c.plugin`（analyzer 面））；只动 AST，产出 union CU + 暂存诊断（`FrontLineResult`，`HasErrors()` ⇒ 主编译线跳过代码生成）|
