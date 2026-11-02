@@ -125,8 +125,7 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | 其余文档 / artifacts | 跳过 | — |
 
 设计取向是**宁可多跑不可漏跑**：任一未识别路径即保守坍缩为完整 `test`。
-计划里的逻辑命令**在进程内重入 CLI 路由**（不 shell out），免去每命令一次进程启动；cargo 命令例外
-走子进程。
+计划里的逻辑命令统一**在进程内重入 CLI 路由**（不 shell out），免去每命令一次进程启动。
 
 ## 8. 反射 runner 的输出格式（`z42b test` / `z42b bench`）
 

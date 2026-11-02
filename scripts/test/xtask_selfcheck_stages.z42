@@ -1,4 +1,4 @@
-// stage 编排回归：必跑项、skip、首败短路、退出码传播，以及登记表元数据完整性。
+// stage 编排与改动计划回归：必跑、skip、首败、退出码、元数据，以及计划去重与保守回退。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -6,6 +6,7 @@ using Std.Collections;
 
 int _selfcheckGateStages() {
     _checkGateRegistry(_gateStages(false));
+    _checkChangedPlans();
     var calls = new List<string>();
     GateStage[] stages = new GateStage[]{
         new GateStage("", "selfcheck required", () => _recordGateCall(calls, "required", 0)),
@@ -26,8 +27,25 @@ int _selfcheckGateStages() {
     calls.Clear();
     rc = _runGateStages(stages, "not-a-stage", new StageLogZ());
     _gateAssert(rc == 2 && calls.Count == 0, "unknown skip rejected before any work");
-    Console.WriteLine("  ✅ stage runner: registry, required, skip, short circuit, exit codes");
+    Console.WriteLine("  ✅ stage runner: registry, changed plans, required, skip, short circuit, exit codes");
     return 0;
+}
+
+void _checkChangedPlans() {
+    _gateAssert(_buildChangedPlan(new string[]{ "README.md", ".gitignore" }).Length == 0,
+        "documentation-only plan is empty");
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
+        "src/libraries/z42.core/tests/a.z42", "src/runtime/tests/a.rs", "src/libraries/z42.core/tests/b.z42"
+    })) == "xtask test stdlib z42.core;xtask test runtime", "changed plan order and deduplication");
+    foreach (var full in new string[]{ "scripts/test/xtask_test.z42", "unknown.config" }) {
+        _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ "src/runtime/tests/a.rs", full }))
+            == "xtask test", "full sweep replaces prior narrow commands");
+    }
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
+        "docs/learn/src/basics.md", "src/libraries/z42.core/benches/a.z42",
+        "src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/a/source.z42"
+    })) == "xtask test docs examples --book-only;xtask bench stdlib z42.core;xtask test e2e --dir cross-zpkg",
+        "learn, benchmark and fixture routing precedence");
 }
 
 void _checkGateRegistry(GateStage[] stages) {
