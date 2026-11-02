@@ -32,6 +32,11 @@ public sealed class LoopCfg {
     public int    DW;        // = (N + 15) / 16，Dom 的行宽（字数）
 }
 
+internal sealed class CfgBlockSlot {
+    public int Index;
+    public CfgBlockSlot(int index) { this.Index = index; }
+}
+
 public sealed class IrLoopUtil {
 
     // 建 CFG（后继 / 前驱 / 支配）。返回 null 若 <2 块（无循环可能）或有异常表（CFG 不含异常边）。
@@ -39,6 +44,13 @@ public sealed class IrLoopUtil {
         int n = f.BlockCount;
         if (n < 2) { return null; }
         if (f.ExcCount != 0) { return null; }
+        // 小函数保留直接扫描，较大函数按标签建立 first-wins 索引。
+        StrMap labels = null;
+        if (n >= 128) {
+            labels = new StrMap(n);
+            int li = 0;
+            while (li < n) { labels.TryAdd(f.Blocks[li].Label, new CfgBlockSlot(li)); li = li + 1; }
+        }
         // ① 后继（s0/s1；-1=无）
         int[] s0 = new int[n];
         int[] s1 = new int[n];
@@ -48,11 +60,11 @@ public sealed class IrLoopUtil {
         while (b < n) {
             IrBlock blk = f.Blocks[b];
             if (blk.HasTerm) {
-                if (blk.Term is BrTerm) { s0[b] = IrLoopUtil.BlockIdx(f, (blk.Term as BrTerm).Label); }
+                if (blk.Term is BrTerm) { s0[b] = IrLoopUtil._cfgBlockIndex(f, labels, (blk.Term as BrTerm).Label); }
                 else if (blk.Term is BrCondTerm) {
                     BrCondTerm bc = blk.Term as BrCondTerm;
-                    s0[b] = IrLoopUtil.BlockIdx(f, bc.TrueLabel);
-                    s1[b] = IrLoopUtil.BlockIdx(f, bc.FalseLabel);
+                    s0[b] = IrLoopUtil._cfgBlockIndex(f, labels, bc.TrueLabel);
+                    s1[b] = IrLoopUtil._cfgBlockIndex(f, labels, bc.FalseLabel);
                 }
             }
             b = b + 1;
@@ -150,6 +162,12 @@ public sealed class IrLoopUtil {
         if (!(phb.Term is BrTerm)) { return -1; }
         if (IrLoopUtil.BlockIdx(f, (phb.Term as BrTerm).Label) != h) { return -1; }
         return ph;
+    }
+
+    private static int _cfgBlockIndex(IrFunction f, StrMap labels, string label) {
+        if (labels == null) { return IrLoopUtil.BlockIdx(f, label); }
+        CfgBlockSlot slot = labels.Get(label) as CfgBlockSlot;
+        return slot == null ? -1 : slot.Index;
     }
 
     // 块 label → 索引（线性；-1=未找到）。
