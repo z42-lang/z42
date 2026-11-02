@@ -15,6 +15,8 @@
 
 ## 开工：先找 README 和书
 
+分析 / 审查仓库前先同步最新版本并记录基线，见 [workflow 阶段 0](rules/workflow.md#阶段-0意图识别)。
+
 **读代码前，先按这个顺序找资料**——README 是入口，书是细节，别从源码盲搜：
 
 1. **定位目录**：查下表，或根 [README](../../README.md#repository-structure) 的 Repository Structure。
@@ -73,7 +75,7 @@
 
 | 文件 | 管什么 |
 |------|--------|
-| [code-organization.md](rules/code-organization.md) | 哪层目录要 README + 文件/函数/类型的行数限制（编译器内建 style.* lint + 源内豁免） |
+| [code-organization.md](rules/code-organization.md) | README 层级、文件 / 函数规模门禁与类型职责拆分（style.* lint + 历史源内豁免） |
 | [common-pitfalls.md](rules/common-pitfalls.md) | 跨语言共同陷阱：加载顺序非确定性、id 作用域 |
 | [compiler-z42c.md](rules/compiler-z42c.md) | z42c 代码约定：只用当前语言子集、Parser 错误处理 |
 | [runtime-rust.md](rules/runtime-rust.md) | Rust VM 代码约定：错误处理、测试组织、原生代码与 GC 的四条规则、执行模式、依赖引入 |
@@ -82,7 +84,7 @@
 
 | 文件 | 管什么 |
 |------|--------|
-| [bootstrap-seed.md](rules/bootstrap-seed.md) | 种子鸡蛋问题；**新语法 / 格式 / API support 先行、晚一个 nightly 再 use** |
+| [bootstrap-seed.md](rules/bootstrap-seed.md) | 种子替代、源码 support / use 的 nightly 边界与冷启动验证；wire 格式另见 version-bumping |
 | [version-bumping.md](rules/version-bumping.md) | zbc / zpkg 格式 bump 纪律 + 编译器语义指纹 |
 
 ## 各 AI 工具的入口

@@ -4,8 +4,8 @@
 use crate::corelib::convert::with_value_str;
 use crate::object::Value;
 // converge-vm-arith-semantics (H3): scalar rules come from the single source of
-// truth `crate::semantics` (shared with interp), not a JIT-local copy.
-use crate::semantics;
+// truth `crate::vm::exec::ops::scalar` (shared with interp), not a JIT-local copy.
+use crate::vm::exec::ops::scalar;
 use super::super::frame::JitFrame;
 use crate::vm_context::VmContext;
 use super::{set_exception, vm_ctx_ref};
@@ -76,7 +76,7 @@ pub unsafe extern "C" fn jit_add(
                     Err(e) => return stringify_failed(ctx, e),
                 }
             }
-            _ => match semantics::int_binop(va, vb, i64::wrapping_add, |x, y| x + y) {
+            _ => match scalar::int_binop(va, vb, i64::wrapping_add, |x, y| x + y) {
                 Ok(r)  => r,
                 Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
             }
@@ -102,7 +102,7 @@ macro_rules! arith_op {
             }
             let va = regs[a as usize].clone();
             let vb = regs[b as usize].clone();
-            match semantics::int_binop(&va, &vb, $int_op, $float_op) {
+            match scalar::int_binop(&va, &vb, $int_op, $float_op) {
                 Ok(r)  => { (*frame).regs[dst as usize] = r; 0 }
                 Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
             }
@@ -133,15 +133,15 @@ pub unsafe extern "C" fn jit_div(
         if *y == 0 {
             return throw_int_div_by_zero(ctx, "/");
         }
-        (*frame).regs[dst as usize] = Value::I64(semantics::int_div(*x, *y));
+        (*frame).regs[dst as usize] = Value::I64(scalar::int_div(*x, *y));
         return 0;
     }
     let va = regs[a as usize].clone();
     let vb = regs[b as usize].clone();
-    if semantics::is_int_div_by_zero(&vb) {
+    if scalar::is_int_div_by_zero(&vb) {
         return throw_int_div_by_zero(ctx, "/");
     }
-    match semantics::int_binop(&va, &vb, semantics::int_div, |x, y| x / y) {
+    match scalar::int_binop(&va, &vb, scalar::int_div, |x, y| x / y) {
         Ok(r)  => { (*frame).regs[dst as usize] = r; 0 }
         Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
     }
@@ -157,15 +157,15 @@ pub unsafe extern "C" fn jit_rem(
         if *y == 0 {
             return throw_int_div_by_zero(ctx, "%");
         }
-        (*frame).regs[dst as usize] = Value::I64(semantics::int_rem(*x, *y));
+        (*frame).regs[dst as usize] = Value::I64(scalar::int_rem(*x, *y));
         return 0;
     }
     let va = regs[a as usize].clone();
     let vb = regs[b as usize].clone();
-    if semantics::is_int_div_by_zero(&vb) {
+    if scalar::is_int_div_by_zero(&vb) {
         return throw_int_div_by_zero(ctx, "%");
     }
-    match semantics::int_binop(&va, &vb, semantics::int_rem, |x, y| x % y) {
+    match scalar::int_binop(&va, &vb, scalar::int_rem, |x, y| x % y) {
         Ok(r)  => { (*frame).regs[dst as usize] = r; 0 }
         Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
     }
@@ -179,8 +179,8 @@ unsafe fn throw_int_div_by_zero(ctx: *const VmContext, op: &str) -> u8 {
     let vm_ctx = vm_ctx_ref(ctx);
     let module = super::jit_module(ctx);
     let exc = crate::exception::make_stdlib_exception(
-        vm_ctx, module, semantics::DIV_BY_ZERO_EXC,
-        semantics::div_by_zero_msg(op),
+        vm_ctx, module, scalar::DIV_BY_ZERO_EXC,
+        scalar::div_by_zero_msg(op),
     ).unwrap_or_else(|e| Value::Str(format!("{e}").into()));
     set_exception(vm_ctx, exc);
     1
@@ -198,12 +198,12 @@ pub unsafe extern "C" fn jit_eq(
     // version cloned both operands on the non-I64 path (string / object
     // equality, very common in compiler token/name comparison).
     //
-    // fix-mixed-numeric-equality: 必须走 `semantics::numeric_eq`，不能直接用
+    // fix-mixed-numeric-equality: 必须走 `scalar::numeric_eq`，不能直接用
     // `Value: PartialEq` —— 后者没有混合数值臂，`int == double` / `char == int` 会恒假。
     // 这条 helper 正是 JIT 处理混合操作数的**唯一**落点（`is_int_cmp` / `is_f64_cmp`
     // 只在两侧静态同类时内联），所以漏掉它就等于 JIT 下 bug 依旧。
     let regs = &(*frame).regs;
-    let result = semantics::numeric_eq(&regs[a as usize], &regs[b as usize]);
+    let result = scalar::numeric_eq(&regs[a as usize], &regs[b as usize]);
     (*frame).regs[dst as usize] = Value::Bool(result);
 }
 
@@ -213,10 +213,10 @@ pub unsafe extern "C" fn jit_ne(
     dst: u32, a: u32, b: u32,
 ) {
     // Clone-free: compare by reference under a scoped borrow (see jit_eq).
-    // `!numeric_eq(..)` 而非 `!=`：与 `semantics::eval_cmp` 的 `Ne` 同一套（含加宽 +
+    // `!numeric_eq(..)` 而非 `!=`：与 `scalar::eval_cmp` 的 `Ne` 同一套（含加宽 +
     // NaN unordered），保证 interp / JIT 内联 / JIT helper 三路口径一致。
     let regs = &(*frame).regs;
-    let result = !semantics::numeric_eq(&regs[a as usize], &regs[b as usize]);
+    let result = !scalar::numeric_eq(&regs[a as usize], &regs[b as usize]);
     (*frame).regs[dst as usize] = Value::Bool(result);
 }
 
@@ -239,7 +239,7 @@ macro_rules! cmp_op {
             } else {
                 (regs[a as usize].clone(), regs[b as usize].clone())
             };
-            match semantics::numeric_lt(&va, &vb) {
+            match scalar::numeric_lt(&va, &vb) {
                 Ok(r)  => { (*frame).regs[dst as usize] = Value::Bool(if $negate { !r } else { r }); 0 }
                 Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
             }
@@ -269,7 +269,7 @@ pub unsafe extern "C" fn jit_eq_str(
 ) -> u8 {
     match (&*pa, &*pb) {
         (Value::Str(sa), Value::Str(sb)) => (sa == sb) as u8,
-        _ => semantics::numeric_eq(&*pa, &*pb) as u8,
+        _ => scalar::numeric_eq(&*pa, &*pb) as u8,
     }
 }
 
@@ -366,7 +366,7 @@ macro_rules! bitwise_op {
         ) -> u8 {
             let va = (*frame).regs[a as usize].clone();
             let vb = (*frame).regs[b as usize].clone();
-            match semantics::int_bitop(&va, &vb, $op) {
+            match scalar::int_bitop(&va, &vb, $op) {
                 Ok(r)  => { (*frame).regs[dst as usize] = r; 0 }
                 Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); 1 }
             }

@@ -2,7 +2,7 @@
 
 > z42c **用 z42 语言自身写**，编译为 zpkg。本文件只放写 z42c 代码时的约定；编译器的机制与「新增词法 / 语法 /
 > IR 指令」的改动清单在书里，入口见[开工导航](../README.md#开工先找-readme-和书)的「编译器」行。
-> 自举纪律（新语法 / 格式 support 先行、晚一个 nightly 再 use）见 [bootstrap-seed.md](bootstrap-seed.md)。
+> 源码消费新语法 / API 的种子边界见 [bootstrap-seed.md](bootstrap-seed.md)；格式升级见 [version-bumping.md](version-bumping.md)。
 
 ## 代码约定
 
