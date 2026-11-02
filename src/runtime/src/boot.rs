@@ -25,7 +25,7 @@
 //! before the entry; the host runs it once per module on the first invoke (inside the
 //! host stdout sink, so initializer output reaches the host).
 
-use crate::metadata::lazy_loader::ZpkgCandidate;
+use crate::vm::loader::lazy::ZpkgCandidate;
 use crate::vm::runtime::Module;
 use crate::vm_context::VmContext;
 use std::path::PathBuf;
@@ -60,11 +60,11 @@ pub(crate) fn boot_context(mut module: Module, plan: BootPlan) -> Pin<Box<VmCont
     //     后续 `fix-silent-symbol-resolution` 的急切校验也就不会对它抛出。
     //     `available!` 正是那条校验的唯一显式豁免通道。
     let avail_stats =
-        crate::metadata::loader::fold_availability(&*plan.vfs, &mut module, &plan.declared_candidates);
+        crate::vm::loader::availability::fold_availability(&*plan.vfs, &mut module, &plan.declared_candidates);
     if !avail_stats.is_noop() {
         // 剪枝改了块集合 → 派生侧表（block_index / branch_targets）必须按剪枝后的 CFG 重建。
-        crate::metadata::loader::build_block_indices(&mut module);
-        crate::metadata::loader::build_func_index(&mut module);
+        crate::vm::loader::package::build_block_indices(&mut module);
+        crate::vm::loader::package::build_func_index(&mut module);
         tracing::debug!("available!: {avail_stats:?}");
     }
 

@@ -183,7 +183,7 @@ pub fn make_missing_symbol_exception(
     msg: String,
 ) -> crate::object::Value {
     // add-sdk-libs D6：`${Z42_HOME}` 条目解析不到时附「是否没装 SDK」提示（无此类条目 ⇒ 原样）。
-    let msg = crate::probing::with_sdk_missing_hint(msg);
+    let msg = crate::vm::loader::locate::probing::with_sdk_missing_hint(msg);
     if let Ok(e) = make_stdlib_exception(ctx, module, "Std.MissingSymbolException", msg.clone()) {
         return e;
     }
