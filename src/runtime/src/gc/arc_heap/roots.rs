@@ -54,8 +54,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// an unload is in flight. Marks are still set (sweep clears them next).
     pub(super) fn scan_marked_contexts(
         &self,
-        snap: &crate::metadata::context::ContextLiveness,
-    ) -> std::collections::HashSet<crate::metadata::context::ContextId> {
+        snap: &crate::vm::loader::contexts::ContextLiveness,
+    ) -> std::collections::HashSet<crate::vm::loader::contexts::ContextId> {
         let mut live = std::collections::HashSet::new();
         if snap.is_empty() {
             return live;

@@ -15,7 +15,6 @@
 | `vm.rs` | `Vm`：持有执行配置，从 VmContext 取得 Module，按 `ExecMode` 分发到 interp / jit / aot |
 | `app.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
 | `boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`app::run` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
-| `probing.rs` | zpkg 依赖的额外搜索目录展开（`Z42_PROBING_PATHS` / `[runtime] probing-paths`） |
 | `lib.rs` | 库入口，re-export 公开 API |
 | `config.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config_tests.rs` |
 | `semantics.rs` | 语言标量语义（算术 / 比较 / 数值转换）的单一真相源，interp / JIT / 常量折叠共同引用 |
@@ -27,7 +26,8 @@
 ### 子模块
 | 目录 | 职责 |
 |------|------|
-| `src/metadata/` | 静态包信息与尚在此目录的链接/加载实现（见下） |
+| `src/metadata/` | 静态包信息、IR、映像与静态查询（见下） |
+| `src/vm/loader/` | 包加载、惰性依赖、定位和加载上下文，见 [`src/vm/loader/README.md`](src/vm/loader/README.md) |
 | `src/vm/runtime/` | 每 VM 的身份、类型组装与链接缓存，见 [`src/vm/runtime/README.md`](src/vm/runtime/README.md) |
 | `src/object/` | 值、类型形状、布局、对象头、句柄及存储原语，见 [`src/object/README.md`](src/object/README.md) |
 | `src/objops/` | 引擎无关的对象操作（字段 / 数组 / 静态字段 / struct 叶子的读写与错误通道），interp 与 JIT 共用，见 [`src/objops/README.md`](src/objops/README.md) |
@@ -42,7 +42,7 @@
 | `src/exception/` | 异常对象布局、传播模型与栈迹捕获 |
 | `src/thread/` | 线程支持（占位，无公开 API；线程原语在 `corelib/threading.rs` / `monitor.rs`） |
 
-### src/metadata/ — IR 元数据与加载层
+### src/metadata/ — 静态包信息
 | 文件 | 职责 |
 |------|------|
 | `format/` | `mod.rs` 的 magic 与依赖记录、`versions.rs` 的严格版本校验、`build_id.rs` 的符号配对标识 |
@@ -51,11 +51,6 @@
 | `image.rs` | `PackageImage`：可跨 VM 共享的不可变定义快照，持有模块数据与函数定义的 Arc；不持有类型表或运行期缓存 |
 | `index/` | `name` 字段/vtable 名称索引、`type_names` 类型名操作、`well_known_names` 常量与 `type_param_markers` 静态标记替换 |
 | `debug/` | `symbols` 的源位置 / 局部变量 / DBUG 记录，`frames` 的帧名与源文件查询；sidecar 定位及覆盖由 loader 执行 |
-| `loader/` | 统一加载入口 `load_artifact(fs, path)` → `Module`（从调用方给的 VFS 读）；namespace、执行索引准备与 availability；类型组装和约束验证调用 vm/runtime/types |
-| `lazy_loader.rs` + `lazy_loader/` | 惰性依赖加载（启动只载 `z42.core`，其余 zpkg 首次用到时加载：按 DEPS 引用表精确路由到定义包 `symbols.rs`，无静态引用的名字按命名空间前缀兜底 `resolve.rs`；加载与注册 `registry.rs`） |
-| `merge.rs` | 多模块合并：字符串池重映射 + 函数拼接 |
-| `context.rs` | 加载上下文模型（`AssemblyLoadContext` 对等的代码边界抽象） |
-| `namespace_index.rs` | namespace → zpkg 索引 |
 | `superinstr.rs` | 超级指令融合框架 |
 
 
@@ -71,6 +66,16 @@
 | `string/` | `Str` 与非 ASCII 字符索引 |
 
 GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管理。
+
+### src/vm/loader/ — 包与加载上下文
+
+| 目录 / 文件 | 职责 |
+|------|------|
+| `package/` | VFS 产物读取、模块合并和执行索引准备 |
+| `locate/` | namespace 候选索引、依赖路径与 probing 目录展开 |
+| `lazy/` | 按符号/namespace 路由的惰性依赖加载、注册与调试符号 |
+| `contexts.rs` | 加载上下文和 assembly 身份、惰性卸载关联 |
+| `availability.rs` | 加载期可用性折叠与不可达 CFG 剪枝 |
 
 ### src/vm/runtime/ — 每 VM 的链接状态
 

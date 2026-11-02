@@ -13,7 +13,7 @@
 //!
 //! Lands the trait + enum + registration plumbing on `VmCore` + one demo
 //! emit site (`ModuleLoaded`, fired from `main.rs` after each successful
-//! `metadata::load_artifact`). All other event variants are listed only
+//! `vm::loader::load_artifact`). All other event variants are listed only
 //! as Phase 2 placeholders; the enum carries a `Custom { source, payload }`
 //! escape hatch so experimental code can emit without bumping the public
 //! event enum.

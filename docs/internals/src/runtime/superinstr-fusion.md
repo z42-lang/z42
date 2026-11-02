@@ -3,7 +3,7 @@
 > 代码：`metadata/superinstr.rs`（框架 + 识别器）、`interp/ops.rs`（`eval_cmp` 共享原语）、
 > `interp/mod.rs`（exec 循环消费 + `Frame` 预分配）、`metadata/ir/function.rs`
 > （`Function.fused_tails` 缓存 + `Function::reg_file_len` / `Instruction::written_reg`）、
-> `metadata/loader.rs`（`build_block_indices` 回填 `func.max_reg`）。
+> `vm/loader/package/mod.rs`（`build_block_indices` 回填 `func.max_reg`）。
 
 ## 为什么
 

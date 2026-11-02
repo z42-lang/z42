@@ -8,7 +8,7 @@
 //! `src/tests/reflection/load_context/`.
 
 use crate::vm::runtime::Module;
-use crate::metadata::context::{AssemblyId, ContextId, ContextRegistry};
+use crate::vm::loader::contexts::{AssemblyId, ContextId, ContextRegistry};
 use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::TypeDesc;
 use crate::metadata::NameIndex;

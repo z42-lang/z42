@@ -24,7 +24,7 @@
 //! Not registered: transient fallback descriptors (`make_fallback_type_desc`, built per
 //! allocation, `id == UNRESOLVED`), the corelib native-handle singletons (process
 //! statics with `UNRESOLVED` ids), and types of modules held only by a load context
-//! (`metadata::context`). Name lookups still go through `Module.type_registry` and the
+//! (`vm::loader::contexts`). Name lookups still go through `Module.type_registry` and the
 //! loader's registry; this table carries ids only.
 //!
 //! **Target name keys** ([`TypeTable::name_key`]): a type test whose target names no

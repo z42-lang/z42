@@ -31,7 +31,7 @@ fn class(name: &str, base: Option<&str>, fields: &[&str]) -> ClassDesc {
     }
 }
 
-fn artifact(module_name: &str, classes: Vec<ClassDesc>) -> crate::metadata::loader::LoadedArtifact {
+fn artifact(module_name: &str, classes: Vec<ClassDesc>) -> crate::vm::loader::package::LoadedArtifact {
     let mut module = Module::new(crate::metadata::image::ModuleData {
         name: module_name.to_owned(),
         string_pool: vec![],
@@ -39,7 +39,7 @@ fn artifact(module_name: &str, classes: Vec<ClassDesc>) -> crate::metadata::load
         func_index: FxHashMap::default(),
     }, vec![], FxHashMap::default());
     crate::vm::runtime::types::build_type_registry(&mut module);
-    crate::metadata::loader::LoadedArtifact {
+    crate::vm::loader::package::LoadedArtifact {
         module,
         entry_hint: None,
         dependencies: vec![],

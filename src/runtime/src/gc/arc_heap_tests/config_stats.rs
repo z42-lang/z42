@@ -131,7 +131,7 @@ fn committed_bytes_charges_extras_while_the_object_lives() {
         .collect();
     assert_eq!(heap.stats().committed_bytes, base, "fields live in the chunk — no payload malloc");
     // Native-backed: each carries an extras box outside the chunk.
-    let native = || NativeData::LoadContextHandle(crate::metadata::context::ContextId(1));
+    let native = || NativeData::LoadContextHandle(crate::vm::loader::contexts::ContextId(1));
     let boxed: Vec<_> = (0..100)
         .map(|_| heap.pin_root(heap.alloc_object(dummy_type_desc("C"), vec![], native())))
         .collect();
