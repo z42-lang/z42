@@ -13,6 +13,19 @@
 use super::*;
 use crate::gc::GcMode;
 
+#[test]
+fn dropping_a_marking_heap_retires_its_satb_registration() {
+    let heap = ArcMagrGC::default();
+    let td = dummy_type_desc("Live");
+    let live: Vec<_> = (0..100).map(|_| heap.alloc_object(td.clone(), vec![], NativeData::None)).collect();
+    heap.pin_root(heap.alloc_array(live));
+    let epoch = heap.heap_epoch();
+    assert!(!heap.run_major_slice_for_test(1));
+    assert!(crate::gc::satb::heap_is_marking(epoch).is_some());
+    drop(heap);
+    assert!(crate::gc::satb::heap_is_marking(epoch).is_none(), "a disposed heap must not keep the process-wide mark gate open");
+}
+
 /// Binds the test thread's SATB records to `heap` for the scope (what `VmContext::new` does).
 struct Bound;
 impl Bound {
@@ -111,7 +124,7 @@ fn run_type_param_overwrite(barrier_on: bool, claimed: bool) -> bool {
     let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
-    let _ambient = crate::gc::ambient::HeapGuard::enter(&heap);
+    let _ambient = crate::vm::exec::ambient::HeapGuard::enter(&heap);
     crate::gc::satb::set_disabled_for_test(!barrier_on);
 
     let td = crate::object::value::tparam_cell::tparam_cell_tests::tparam_td(1);

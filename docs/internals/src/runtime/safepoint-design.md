@@ -10,7 +10,7 @@
 
 ---
 
-## 1. 现状（`gc/safepoint.rs`）
+## 1. 现状（`vm/threads/safepoint.rs`）
 - **协作轮询**：mutator 每次 `check_safepoint` 读 `gc_phase`，GC 要 STW 时 park（condvar + parked 计数）。
 - **节流**：per-thread 计数器，每 N 次（默认 `safepoint_throttle=1024`，env 可调）才真做 Mutex poll → 热循环近零成本。计数器 fast path 是**普通 load/store 递减**（非原子 RMW）——`safepoint_skip` 每-mutator 单写（唯一跨线程写 `force_safepoint` 是 test/embedder-only），故 RMW 原子性对正确性不必要。
 - **请求时戳醒**：GC 请求（自动回收 trip 置 `needs_auto_collect`、collector 进 `request_gc_pause`）时把**每个**已注册 mutator 的计数器置 1（`poke_safepoints`），下一次 check 就进 slow path，而不是再等最多 N 次。这一写是跨线程的普通 store，可能被 mutator 自己的递减覆盖，所以 collector 等待期间每 1 ms 再戳一遍；trip 侧的请求本身是**粘性**的（只有拿到暂停的 collector 才清），丢一次戳最多退回到节流上界。

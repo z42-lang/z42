@@ -60,7 +60,7 @@ fn snapshot_roots_includes_external_scanner_output() {
         dummy_type_desc("External"), vec![Value::Null], NativeData::None
     );
     let external_clone = external_obj.clone();
-    heap.set_external_root_scanner(Box::new(move |visit| {
+    heap.set_external_root_scanner(Box::new(move |visit: &mut dyn FnMut(&Value)| {
         visit(&external_clone);
     }));
 
@@ -132,8 +132,8 @@ fn barrier_field_no_op_in_stw_mode() {
 }
 
 #[test]
-fn collect_cycles_with_context_frees_an_unrooted_cycle_under_stw() {
-    // STW mode routes `collect_cycles_with_context` to `collect_cycles()` under a pause.
+fn collect_cycles_with_vm_frees_an_unrooted_cycle_under_stw() {
+    // STW mode routes `collect_cycles_with_vm` to `collect_cycles()` under a pause.
     // flip-gc-default-to-generational : STW is not the default, so select
     // it explicitly — this test is about the STW path, not about what the default is.
     use crate::vm_context::VmContext;
@@ -152,11 +152,11 @@ fn collect_cycles_with_context_frees_an_unrooted_cycle_under_stw() {
     }
     drop(a); drop(b);
 
-    heap_dyn.collect_cycles_with_context(&ctx);
+    heap_dyn.collect_cycles_with_vm(&*ctx);
 
     let mut n = 0;
     heap_dyn.iterate_live_objects(&mut |_| n += 1);
-    assert_eq!(n, 0, "STW path via collect_cycles_with_context still frees cycle");
+    assert_eq!(n, 0, "STW path via collect_cycles_with_vm still frees cycle");
 }
 
 // ── Marking-period allocate-black ─────────────────────────────────────────

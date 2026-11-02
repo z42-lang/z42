@@ -19,7 +19,7 @@ use std::sync::{Arc, OnceLock};
 /// 调用 `ctx.heap().collect_cycles()`，进而走 `ArcMagrGC` 的 trial-deletion 算法。
 ///
 /// **add-gc-safepoint **: stop-the-world via
-/// [`crate::gc::safepoint::request_gc_pause`] before mark+sweep. All other
+/// [`crate::vm::threads::safepoint::request_gc_pause`] before mark+sweep. All other
 /// VmContexts park at their next safepoint check; this thread runs collect;
 /// the RAII guard's Drop releases everyone.
 ///
@@ -30,9 +30,9 @@ use std::sync::{Arc, OnceLock};
 /// reclaim. Matches typical `GC.Collect()` semantics in C# / Java where
 /// concurrent calls may coalesce.
 pub fn gc_collect(ctx: &VmContext) {
-    // Dispatch via collect_cycles_with_context so the heap takes the pause
+    // Dispatch via collect_cycles_with_vm so the heap takes the pause
     // and picks the work for its current GcMode.
-    ctx.heap().collect_cycles_with_context(ctx);
+    ctx.heap().collect_cycles_with_vm(ctx);
 }
 
 /// `Std.GC.UsedBytes()` —— 返回当前 `HeapStats.used_bytes`（i64）。
@@ -53,7 +53,7 @@ pub fn gc_used_bytes(ctx: &VmContext) -> i64 {
 /// bytes (the active collector's work covers our intent). Same
 /// best-effort semantics as `builtin_gc_collect`.
 pub fn gc_force_collect(ctx: &VmContext) -> anyhow::Result<i64> {
-    if let Some(_pause) = crate::gc::safepoint::request_gc_pause(ctx) {
+    if let Some(_pause) = crate::vm::threads::safepoint::request_gc_pause(ctx) {
         let stats = ctx.heap().collect_full();
         Ok(stats.freed_bytes as i64)
     } else {

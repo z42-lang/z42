@@ -56,7 +56,7 @@ fn retention_query_waits_for_running_mutators_to_park() {
             std::thread::sleep(Duration::from_millis(200));
             while !stop.load(Ordering::Acquire) {
                 w.safepoint_skip.store(1, Ordering::Relaxed);
-                crate::gc::safepoint::check_safepoint(&w);
+                crate::vm::threads::safepoint::check_safepoint(&w);
                 std::thread::yield_now();
             }
         })

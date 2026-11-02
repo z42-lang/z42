@@ -294,7 +294,7 @@ fn a_blocking_builtin_lets_a_collection_run_while_it_waits() {
         assert!(wait_until(|| parked(&ctx) == 1), "{name}: the sleeping thread is parked");
         let t0 = std::time::Instant::now();
         {
-            let pause = crate::gc::safepoint::request_gc_pause(&ctx);
+            let pause = crate::vm::threads::safepoint::request_gc_pause(&ctx);
             assert!(pause.is_some(), "{name}: this thread becomes the collector");
             ctx.heap().collect_full();
         }

@@ -457,7 +457,7 @@ fn generational_collection_bumps_minor_counter() {
     assert_eq!(ctx.heap().stats().minor_collections, 0);
 
     // Drive one real collection via the auto-collect safepoint drain, which
-    // routes to collect_cycles_with_context → the generational minor path.
+    // routes to collect_cycles_with_vm → the generational minor path.
     ctx.safepoint_skip.store(1, Ordering::Relaxed);
     ctx.core.needs_auto_collect.store(true, Ordering::Release);
     check_safepoint(&ctx);

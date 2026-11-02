@@ -8,7 +8,8 @@ use crate::object::ClosureData;
 use crate::gc::heap::MagrGC;
 use crate::gc::types::{AllocSamplerFn, CollectStats, FinalizerFn, FrameMark, GcHandleKind, GcObserver, HeapSnapshot, HeapStats, ObserverId, RootHandle, WeakRef, WeakRefInner};
 
-use crate::gc::arc_heap::{ArcMagrGC, HandleEntry, ContextReclaimHook, ExternalRootScanner, CategorizedRootScanner};
+use crate::gc::arc_heap::{ArcMagrGC, HandleEntry, CategorizedRootScanner};
+use crate::gc::to_vm::{ContextReclaimHook, ExternalRootScanner};
 
 impl MagrGC for ArcMagrGC {
     /// **fix-wasm-string-ops**: this heap's process-unique, never-reused epoch (assigned at
@@ -278,9 +279,9 @@ impl MagrGC for ArcMagrGC {
         ArcMagrGC::finalize_now(self, value)
     }
 
-    /// VmContext-aware collect; impl in `ArcMagrGC::collect_cycles_with_context`.
-    fn collect_cycles_with_context(&self, ctx: &crate::vm_context::VmContext) {
-        ArcMagrGC::collect_cycles_with_context(self, ctx)
+    /// VmContext-aware collect; impl in `ArcMagrGC::collect_cycles_with_vm`.
+    fn collect_cycles_with_vm(&self, vm: &dyn crate::gc::to_vm::GcToVm) {
+        ArcMagrGC::collect_cycles_with_vm(self, vm)
     }
 
     fn collect_cycles(&self) {

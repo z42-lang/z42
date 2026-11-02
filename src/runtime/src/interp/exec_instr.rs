@@ -200,7 +200,7 @@ pub fn exec_instr(
             // callees pop their FrameGuard before returning here, so checking
             // upon resumption catches GC requests that arrived while we were
             // in the callee.
-            crate::gc::safepoint::check_safepoint(ctx);
+            crate::vm::threads::safepoint::check_safepoint(ctx);
         }
         Instruction::Builtin(insn) => {
             let BuiltinInsn { dst, name, args } = &**insn;
@@ -229,7 +229,7 @@ pub fn exec_instr(
             if let Some(thrown) = exec_call::call_indirect(ctx, module, frame, *dst, *callee, args)? {
                 return Ok(Some(thrown));
             }
-            crate::gc::safepoint::check_safepoint(ctx);
+            crate::vm::threads::safepoint::check_safepoint(ctx);
         }
         Instruction::MkClos(insn) => {
             let MkClosInsn { dst, fn_name, captures } = &**insn;
