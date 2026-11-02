@@ -146,7 +146,7 @@ pub(crate) extern "C" fn keyedit_trampoline(
     let line_str = unsafe { CStr::from_ptr(line) }.to_string_lossy().into_owned();
     // Fires mid-readline, inside the outer NativeParkGuard; temporarily un-park so
     // the callback runs as a normal mutator (same as the completer).
-    let _unpark = crate::gc::NativeUnparkGuard::exit(vmctx);
+    let _unpark = crate::vm::threads::safepoint::NativeUnparkGuard::exit(vmctx);
     match key_edit_via_callback(vmctx, &fqn, &key_str, &line_str, pos as i64) {
         Ok(action) if !action.is_empty() => match CString::new(action) {
             Ok(c) => c.into_raw(),

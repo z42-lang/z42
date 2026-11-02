@@ -88,7 +88,7 @@ fn frame_held_outer_with_inner_chain_protected_by_stack_scan() {
 
     {
         let fr = frame_regs.clone();
-        heap.set_external_root_scanner(Box::new(move |visit| {
+        heap.set_external_root_scanner(Box::new(move |visit: &mut dyn FnMut(&Value)| {
             for v in fr.lock().iter() {
                 visit(v);
             }
@@ -118,7 +118,7 @@ fn external_root_scanner_called_during_collect() {
     let heap = ArcMagrGC::default();
     let calls = Arc::new(AtomicUsize::new(0));
     let c = calls.clone();
-    heap.set_external_root_scanner(Box::new(move |_visit| {
+    heap.set_external_root_scanner(Box::new(move |_visit: &mut dyn FnMut(&Value)| {
         c.fetch_add(1, Ordering::SeqCst);
     }));
 
@@ -139,7 +139,7 @@ fn cycle_reachable_via_external_scanner_is_preserved() {
     // scanner 把 external 中所有 Value 暴露为 roots
     {
         let ext = external.clone();
-        heap.set_external_root_scanner(Box::new(move |visit| {
+        heap.set_external_root_scanner(Box::new(move |visit: &mut dyn FnMut(&Value)| {
             for v in ext.lock().iter() {
                 visit(v);
             }
@@ -186,7 +186,7 @@ fn cycle_unreachable_from_external_scanner_still_collected() {
     let external: StdArc<StdMutex<Vec<Value>>> = StdArc::new(StdMutex::new(Vec::new()));
     {
         let ext = external.clone();
-        heap.set_external_root_scanner(Box::new(move |visit| {
+        heap.set_external_root_scanner(Box::new(move |visit: &mut dyn FnMut(&Value)| {
             for v in ext.lock().iter() { visit(v); }
         }));
     }
@@ -275,7 +275,7 @@ fn a_strong_handle_anchors_its_target_across_a_minor() {
     assert_ne!(slot, 0, "test setup: the handle must allocate");
     drop(obj); // young, unrooted except for the handle — exactly what a minor sweeps
 
-    heap.collect_cycles_with_context(&ctx);
+    heap.collect_cycles_with_vm(&*ctx);
 
     let mut alive = 0;
     heap.iterate_live_objects(&mut |_| alive += 1);

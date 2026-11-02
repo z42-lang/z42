@@ -170,7 +170,7 @@ fn values_that_do_not_fit_eight_bytes_need_a_box() {
 #[test]
 fn a_boxed_primitive_reads_back_unchanged_and_traces_as_its_box() {
     let heap = ArcMagrGC::default();
-    let _g = crate::gc::ambient::HeapGuard::enter(&heap);
+    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap);
     for v in [Value::I64(-42), Value::F64(2.25), Value::Bool(true), Value::Char('é')] {
         let b = alloc_box_ambient(&v).expect("boxes");
         let w = encode_boxed(&b);
@@ -191,7 +191,7 @@ fn boxing_without_an_active_heap_is_an_error_not_a_crash() {
 fn gc_traces_through_reference_words() {
     let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
-    let _g = crate::gc::ambient::HeapGuard::enter(&heap);
+    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap);
 
     let holder = heap.alloc_object(ref_cell_td(3), vec![], NativeData::None);
     let Value::Object(h) = &holder else { panic!() };

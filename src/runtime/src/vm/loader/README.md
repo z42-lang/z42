@@ -11,6 +11,7 @@
 | `package/` | VFS 读取、LoadedArtifact、模块合并和执行索引准备 |
 | `locate/` | namespace 候选索引、依赖定位及 probing 展开 |
 | `lazy/` | 惰性包加载、符号路由、注册和调试符号 |
+| `context_gc.rs` | 持有上下文身份与关联快照，适配 GC 的标记后观察和清扫后回收 |
 | `contexts.rs` | ContextRegistry、assembly 身份和惰性卸载关联 |
 | `availability.rs` | 加载期可用性折叠 |
 

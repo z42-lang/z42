@@ -194,7 +194,7 @@ fn a_collection_completes_while_a_thread_is_blocked_in_a_file_read() {
     });
     assert!(wait_until(|| parked(&c) == 1), "a thread blocked in File.ReadAllText must be parked");
     {
-        let pause = crate::gc::safepoint::request_gc_pause(&c);
+        let pause = crate::vm::threads::safepoint::request_gc_pause(&c);
         assert!(pause.is_some(), "this thread becomes the collector");
         c.heap().collect_full();
     }
@@ -225,7 +225,7 @@ fn a_collection_completes_while_a_thread_is_blocked_in_a_file_read() {
     std::thread::sleep(std::time::Duration::from_millis(50));
     assert!(wait_until(|| parked(&c) == 1), "the read is parked");
     {
-        let pause = crate::gc::safepoint::request_gc_pause(&c);
+        let pause = crate::vm::threads::safepoint::request_gc_pause(&c);
         assert!(pause.is_some());
         c.heap().collect_full();
     }

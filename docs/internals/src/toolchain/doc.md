@@ -118,7 +118,7 @@ xtask doc index
 ```
 
 - **格式**：表头 `z42doc-items 1` 加可选的重建命令，之后是 `F`（文件、crate）与 `I`（条目）行，条目行与本地
-  缓存同一格式，读取复用 `IndexCache.ReadItem`。条目 id 是 Rust 路径（`z42::gc::ambient::HeapGuard::enter`）；
+  缓存同一格式，读取复用 `IndexCache.ReadItem`。条目 id 是 Rust 路径（`z42::vm::exec::ambient::HeapGuard::enter`）；
   名字解析在段边界上同样认 `::`，查询里写 `.` 也当 `::`。
 - **种类**：`module` / `struct` / `enum` / `enum-member` / `trait` / `func` / `method` / `field` / `const` / `static`
   / `type` / `macro`。`module`、`trait` 与类型一样能列轮廓；查模块名得到模块本身的轮廓。

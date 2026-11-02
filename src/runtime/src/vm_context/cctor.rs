@@ -792,7 +792,7 @@ impl crate::vm_context::VmContext {
         self.core.cctors.register(&class_fq, func);
 
         let claimed = match self.core.cctors
-            .claim_with(&class_fq, || crate::gc::safepoint::NativeParkGuard::enter(self))
+            .claim_with(&class_fq, || crate::vm::threads::safepoint::NativeParkGuard::enter(self))
         {
             Ok(None) => return Ok(()),           // 已完成 / 本线程重入 / 他线程在跑
             Ok(Some(f)) => f,

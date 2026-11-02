@@ -26,6 +26,7 @@
 | 目录 | 职责 |
 |------|------|
 | `src/metadata/` | 静态包信息、IR、映像与静态查询（见下） |
+| `src/vm/threads/` | mutator 暂停、safepoint 与 GC 根服务适配，见 [`src/vm/threads/README.md`](src/vm/threads/README.md) |
 | `src/vm/exec/` | 引擎共享的标量指令语义，见 [`src/vm/exec/README.md`](src/vm/exec/README.md) |
 | `src/vm/loader/` | 包加载、惰性依赖、定位和加载上下文，见 [`src/vm/loader/README.md`](src/vm/loader/README.md) |
 | `src/vm/runtime/` | 每 VM 的身份、类型组装与链接缓存，见 [`src/vm/runtime/README.md`](src/vm/runtime/README.md) |

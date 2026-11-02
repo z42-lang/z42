@@ -2,7 +2,7 @@
 
 > 代码：`gc/tlab.rs`（Tlab + thread-local + arm 门）、
 > `gc/var_region.rs`（`VarChunkClaim` + borrow/retire/reclaim，变长块：对象、数组、字符串、闭包）、
-> `gc/arc_heap/alloc.rs`（fast path）、`gc/safepoint.rs`（retire-on-park）。
+> `gc/arc_heap/alloc.rs`（fast path）、`vm/threads/safepoint.rs`（retire-on-park）。
 
 ## 为什么
 

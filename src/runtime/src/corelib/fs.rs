@@ -16,7 +16,7 @@
 //!   slow disk, a network file system or a FIFO. Path strings and byte payloads are copied
 //!   out before parking, results become `Value`s after unparking. The stat-only probes
 //!   (`Exists`, `GetSize`, `GetLastWriteTime`, FileStream `Length` / `Position` / `Seek`)
-//!   run unparked: a park retires the thread's allocation buffer (`gc::safepoint`), which
+//!   run unparked: a park retires the thread's allocation buffer (`vm::threads::safepoint`), which
 //!   costs more than the `stat` itself — a `File.Exists` loop ran 2.6× slower parked.
 //! - **FileStream handles** (`__file_open` …): the slot table `ctx.core.file_handles`
 //!   holds `Arc<File>`; an operation clones the `Arc` under the table lock, drops the lock,
@@ -219,7 +219,7 @@ pub(crate) fn byte_array(v: &crate::object::Value, param: &str) -> Result<crate:
         crate::object::Value::Array(rc) => Ok(*rc),
         crate::object::Value::Null => Err(BuiltinError::ArgumentNull(format!("Value cannot be null. (Parameter '{param}')"))),
         other => Err(BuiltinError::InvalidCast(format!(
-            "argument `{param}` expects a byte[], got {}", crate::vm::exec::ops::scalar::value_kind_name(other)))),
+            "argument `{param}` expects a byte[], got {}", crate::object::value_kind_name(other)))),
     }
 }
 
@@ -229,7 +229,7 @@ pub(crate) fn read_byte_range(arr: &crate::object::ArrayObj, off: usize, n: usiz
     (off..off + n).map(|i| match arr.get_boxed(i) {
         crate::object::Value::I64(b) if (0..=255).contains(&b) => Ok(b as u8),
         other => Err(BuiltinError::InvalidCast(format!(
-            "buffer element {i} is not a byte: {}", crate::vm::exec::ops::scalar::value_kind_name(&other)))),
+            "buffer element {i} is not a byte: {}", crate::object::value_kind_name(&other)))),
     }).collect()
 }
 

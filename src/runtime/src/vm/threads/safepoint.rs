@@ -152,9 +152,9 @@ pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
     // thread that loses the collector role below leaves it set for the next safepoint instead of
     // consuming it.
     if ctx.core.needs_auto_collect.load(Ordering::Acquire) {
-        // collect_cycles_with_context takes the pause (`request_gc_pause`)
+        // collect_cycles_with_vm takes the pause (`request_gc_pause`)
         // and lets the heap pick the work for its mode.
-        ctx.heap().collect_cycles_with_context(ctx);
+        ctx.heap().collect_cycles_with_vm(ctx);
     }
 
     // add-sampling-profiler (script-profiling P2): when the

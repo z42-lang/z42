@@ -32,7 +32,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             crate::gc::GcMode::GenerationalMarkSweep => {
                 // add-generational-gc P2: minor GC by default. Major
                 // GC requires the VmContext-aware entry
-                // (`collect_cycles_with_context`) for pause coord;
+                // (`collect_cycles_with_vm`) for pause coord;
                 // direct callers of `collect_cycles` (which go through
                 // `force_collect`) get a minor cycle here. Major is
                 // P3's expansion (auto-collect young pressure trigger
@@ -77,24 +77,22 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // **add-lazy-context-unload **: after mark (marks set),
         // before sweep (which clears them), scan marked objects for retained
         // collectible contexts. Gated on `is_unloading` → zero cost normally.
-        let ctx_snapshot = {
+        let mut ctx_snapshot = {
             let g = self.context_reclaimer.lock();
             match g.as_ref() {
                 Some(r) if r.is_unloading() => Some(r.snapshot()),
                 _ => None,
             }
         };
-        let live_contexts = ctx_snapshot.as_ref().map(|s| self.scan_marked_contexts(s));
+        if let Some(snapshot) = ctx_snapshot.as_mut() {
+            self.observe_marked_objects(snapshot.as_mut());
+        }
         let freed = {
             let _t = self.phase_timer("sweep");
             self.sweep_phase()
         };
         // Reclaim Unloading contexts with no live references (post-sweep, STW).
-        if let Some(live) = live_contexts {
-            if let Some(r) = self.context_reclaimer.lock().as_ref() {
-                r.reclaim(&live);
-            }
-        }
+        if let Some(snapshot) = ctx_snapshot { snapshot.reclaim(); }
         // Prune dead soft-ref entries after sweep.
         self.inner.lock().soft_registry.prune_dead();
         freed
@@ -205,10 +203,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         CollectStats { freed_bytes, pause_us, kind: Some(kind) }
     }
 
-    pub(super) fn collect_cycles_with_context(&self, ctx: &crate::vm_context::VmContext) {
+    pub(super) fn collect_cycles_with_vm(&self, vm: &dyn crate::gc::to_vm::GcToVm) {
         match self.mode() {
             crate::gc::GcMode::StwMarkSweep => {
-                if let Some(_pause) = crate::gc::safepoint::request_gc_pause(ctx) {
+                if let Some(_pause) = vm.suspend_all() {
                     self.take_collect_request();
                     self.collect_cycles();
                 }
@@ -218,7 +216,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // fix-minor-and-major-in-one-pause : one cycle runs a minor **or**
                 // a major, never both — escalation now asks for the major on the *next* cycle
                 // (see the note further down).
-                let _pause = match crate::gc::safepoint::request_gc_pause(ctx) {
+                let _pause = match vm.suspend_all() {
                     Some(p) => p,
                     None => return,
                 };

@@ -3,7 +3,7 @@
 use crate::gc::MagrGC;
 use super::*;
 use crate::object::ArrRef;
-use crate::gc::ambient::HeapGuard;
+use crate::vm::exec::ambient::HeapGuard;
 use crate::gc::ArcMagrGC;
 use std::sync::atomic::Ordering;
 
