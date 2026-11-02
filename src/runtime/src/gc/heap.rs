@@ -196,12 +196,12 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// 同一 backend 上重复调用**覆盖**之前的 scanner（仅一个 active 闭包）。
     /// 默认实现 no-op（适合不参与 cycle / external-root 的 backend；当前
     /// 仅 `ArcMagrGC` 重载）。
-    fn set_external_root_scanner(&self, _scanner: super::arc_heap::ExternalRootScanner) {}
+    fn set_external_root_scanner(&self, _scanner: super::to_vm::ExternalRootScanner) {}
 
     /// **add-lazy-context-unload **: wire the collectible-context
     /// reclaimer hook (drives `AssemblyLoadContext` unload reclamation on major
     /// GC). Default no-op; only `ArcMagrGC` overrides.
-    fn set_context_reclaimer(&self, _hook: super::arc_heap::ContextReclaimHook) {}
+    fn set_context_reclaimer(&self, _hook: super::to_vm::ContextReclaimHook) {}
 
     /// **add-heap-retention-diagnostics **: wire the categorized
     /// root scanner (for retention-query L2). Default no-op; `ArcMagrGC` overrides.
@@ -241,9 +241,9 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     ///    only does `flag.store(true, Release)` (and pokes every mutator's
     ///    safepoint, see [`Self::set_safepoint_poke`]) and returns; it does **not**
     ///    collect on the allocating thread. The next
-    ///    [`check_safepoint`](crate::gc::safepoint::check_safepoint) on any
+    ///    [`check_safepoint`](crate::vm::threads::safepoint::check_safepoint) on any
     ///    mutator that sees the flag runs a stop-the-world collect under
-    ///    [`request_gc_pause`](crate::gc::safepoint::request_gc_pause), so the
+    ///    [`request_gc_pause`](crate::vm::threads::safepoint::request_gc_pause), so the
     ///    scanner never races a mutator's live registers. The flag is **sticky**:
     ///    only the thread that wins the collector role clears it, once it holds
     ///    the pause — a thread that loses the race leaves it for the next safepoint.
@@ -385,9 +385,9 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// Default implementation falls back to the STW path: caller
     /// acquires its own pause (via `request_gc_pause`) and calls
     /// `collect_cycles()`. ArcMagrGC overrides to dispatch on `mode()`.
-    fn collect_cycles_with_context(&self, ctx: &crate::vm_context::VmContext) {
+    fn collect_cycles_with_vm(&self, vm: &dyn crate::gc::to_vm::GcToVm) {
         // Default: STW path. ArcMagrGC overrides.
-        if let Some(_pause) = super::safepoint::request_gc_pause(ctx) {
+        if let Some(_pause) = vm.suspend_all() {
             self.collect_cycles();
         }
     }

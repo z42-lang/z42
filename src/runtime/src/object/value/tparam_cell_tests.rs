@@ -186,7 +186,7 @@ fn null_into_a_primitive_cell_keeps_the_variant() {
 #[test]
 fn references_live_in_the_tag_word_without_a_box() {
     let heap = heap();
-    let _g = crate::gc::ambient::HeapGuard::enter(&heap);
+    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap);
     let td = tparam_td(1);
     let before = boxes();
     let o = new_box(&td, Some("string"));
@@ -206,7 +206,7 @@ fn references_live_in_the_tag_word_without_a_box() {
 #[test]
 fn mismatched_writes_take_the_boxed_slow_path_and_read_back_unchanged() {
     let heap = heap();
-    let _g = crate::gc::ambient::HeapGuard::enter(&heap);
+    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap);
     let td = tparam_td(1);
     let s = Value::Str(heap.alloc_str("s"));
 
@@ -245,7 +245,7 @@ fn mismatched_writes_take_the_boxed_slow_path_and_read_back_unchanged() {
 #[test]
 fn the_payload_word_only_ever_holds_the_claimed_variant() {
     let heap = heap();
-    let _g = crate::gc::ambient::HeapGuard::enter(&heap);
+    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap);
     let td = tparam_td(1);
     let o = new_box(&td, None);
     o.set_field_value(1, &Value::I64(5));
@@ -271,7 +271,7 @@ fn the_payload_word_only_ever_holds_the_claimed_variant() {
 #[test]
 fn gc_traces_through_type_parameter_cells() {
     let heap = heap();
-    let _g = crate::gc::ambient::HeapGuard::enter(&heap);
+    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap);
     let holder = heap.alloc_object(tparam_td(3), vec![], NativeData::None);
     let Value::Object(h) = &holder else { panic!() };
     let _root = heap.pin_root(holder.clone());
@@ -313,7 +313,7 @@ fn gc_traces_through_type_parameter_cells() {
 #[test]
 fn clear_refs_for_sweep_breaks_type_parameter_edges() {
     let heap = heap();
-    let _g = crate::gc::ambient::HeapGuard::enter(&heap);
+    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap);
     let leaf = heap.alloc_object(tparam_td(0), vec![], NativeData::None);
     let o = new_box(&tparam_td(2), None);
     o.set_field_value(1, &leaf);

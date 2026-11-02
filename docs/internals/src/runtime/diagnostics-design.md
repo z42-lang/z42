@@ -111,7 +111,7 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
     `xtask profile` 展示。
   - **并发探针**：ProfileSnapshot 再加两组并发字段。
     ① **park 直方图（常开）**：mutator 在 GC safepoint STW park 的时长，记进 `VmCore.park_histogram`
-    （复用 `gc::types::PauseHistogram`），埋点在 `gc::safepoint::park_until_idle`——只在真实 GC 暂停的
+    （复用 `gc::types::PauseHistogram`），埋点在 `vm::threads::safepoint::park_until_idle`——只在真实 GC 暂停的
     slow path 跑，`check_safepoint` 热路径零成本，故常开无 feature。surface `park_count`/`park_us_total`/
     `park_max_us`。② **用户锁争用（编译期 feature `profile-contention`，默认关）**：`Std.Threading.Mutex`/
     `RwLock` 的阻塞 acquire（`corelib::sync`）在 feature 下先 `try_lock`，miss=争用 → `lock_contentions`++

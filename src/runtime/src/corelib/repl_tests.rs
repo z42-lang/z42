@@ -54,7 +54,7 @@ fn complete_trampoline_callback_error_swallowed_to_null() {
     let line = CString::new("Con").unwrap();
     // Mirror `builtin_repl_readline`: park around the (would-be blocking) read; the
     // trampoline unparks/reparks internally, so `parked_count` stays balanced.
-    let park = crate::gc::NativeParkGuard::enter(&ctx);
+    let park = crate::vm::threads::safepoint::NativeParkGuard::enter(&ctx);
     let r = complete_trampoline(ctx_ptr, line.as_ptr(), 3);
     drop(park);
     assert!(r.is_null(), "module=None → callback errors → null, never crash");

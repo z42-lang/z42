@@ -137,7 +137,7 @@ fn every_array_mode_is_checked() {
 fn a_mixed_cells_kind7_box_is_checked() {
     use crate::object::{ArrayObj, ElemKind, ElemType};
     let heap = gen_heap();
-    let _g = crate::gc::ambient::HeapGuard::enter(&heap); // the box is allocated on the ambient heap
+    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap); // the box is allocated on the ambient heap
     let arr = ArrayObj::alloc_filled(&heap, ElemType::intern("T"), ElemKind::Mixed, 1, Value::Null);
     let _pin = heap.pin_root(arr.clone());
     let Value::Array(g) = &arr else { panic!() };

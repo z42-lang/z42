@@ -38,6 +38,18 @@ GC 只接收 `GcConfig` 的不可变策略快照，不解析进程设置。VM �
 命名 **MagrGC** 取自《银河系漫游指南》中的 **Magrathea** —— 那颗专门建造
 定制行星的传奇世界，与"管理对象生命周期"主题契合。
 
+## GC 与 VM 的服务边界
+
+GC 只认识 `gc/to_vm.rs` 中的根、暂停和上下文回收契约。`GcRoots` 提供根访问，
+持久提供方捕获 `Weak<VmCore>`；`GcToVm` 由当前 `VmContext` 适配线程暂停，返回借用该上下文的
+RAII 令牌。`GcToVm` 的实现须保证令牌有效期间所有其他 mutator 已停止，根访问只能在暂停内进行。
+具体状态机和 root registry 遍历位于 `vm/threads`，当前堆 TLS 位于 `vm/exec/ambient.rs`。
+堆销毁按 heap epoch 幂等撤销 SATB 注册，覆盖增量标记与 one-shot 回调 unwind；不能只依赖增量 phase 判断。
+
+加载上下文回收由 `vm/loader/context_gc.rs` 适配：标记后创建 VM 拥有的关联快照，GC 把同一批
+标记对象交给它观察；清扫结束后才消费快照回收未被保留的上下文。增量 major 将这份不透明快照
+保留到最后一个清扫切片，不把 ContextId 或 VM 注册表放进 GC。
+
 ## Safepoint 协议
 
 多线程下，GC scanner 通过 `vm_contexts` 注册表
@@ -55,7 +67,7 @@ VmCore {
 enum GcPhase { Idle, Requested, Marking }
 ```
 
-**Mutator 侧**：interp dispatch loop 在三类位置调 `crate::gc::safepoint::check_safepoint(ctx)`：
+**Mutator 侧**：interp dispatch loop 在三类位置调 `crate::vm::threads::safepoint::check_safepoint(ctx)`：
 
 | 位置 | 理由 |
 |------|------|
@@ -67,7 +79,7 @@ fast path（Idle）：一次 Mutex lock + 一次 enum compare。slow path（Requ
 `parked_count.fetch_add(1)` + `gc_phase_cv.notify_all()`（唤醒等阈值的 collector）+
 `gc_phase_cv.wait()`（等回 Idle）+ `parked_count.fetch_sub(1)`。
 
-**Collector 侧**：`crate::gc::safepoint::request_gc_pause(ctx) -> GcPauseGuard`
+**Collector 侧**：`crate::vm::threads::safepoint::request_gc_pause(ctx) -> GcPauseGuard`
 RAII guard：
 
 1. 写 `gc_phase = Requested`
@@ -106,10 +118,10 @@ RAII guard：
 - **Env var**：进程启动前设 `Z42_GC_MODE=stw`（或 `=generational`；取值与非法值的处理见
   [运行时设置](https://z42-lang.github.io/z42/reference/toolchain/runtime-settings.html)）。
 - **API**：运行期调 `heap.set_mode(GcMode::StwMarkSweep)`。下次
-  `collect_cycles_with_context` 起生效；进行中的 collect 完成时仍按原
+  `collect_cycles_with_vm` 起生效；进行中的 collect 完成时仍按原
   模式（per spec scenario）。
 - **生产入口**：`safepoint::check_safepoint_slow` 的 auto-collect 路径
-  + `Std.GC.Collect()` builtin 都改走 `collect_cycles_with_context`，
+  + `Std.GC.Collect()` builtin 都改走 `collect_cycles_with_vm`，
   由 heap 内部按 mode 分发。
 
 **当前可选模式：**
@@ -312,7 +324,7 @@ payload 超过块的长度上限（`u32` 字节）的数组按内存不足拒绝
 拷完对写入区间的每个引用槽发写屏障（`objops::array_bulk::barrier_after_range_store`：
 REF / MIXED / FROZEN 是元素本身，struct[] 是元素的每个引用叶子，只对真正的堆引用发、不分配），packed 目的数组不持引用、没有可扫的槽。
 
-**分配落地 = ambient 堆**（[`gc/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/ambient.rs)）：`current_heap()` +
+**分配落地 = ambient 堆**（[`vm/exec/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/exec/ambient.rs)）：`current_heap()` +
 `HeapGuard` 在引擎入口设 thread-local（ctx 栈底帧 push 时、宿主 invoke、`jit::run_fn`；见
 [vm-architecture.md](vm-architecture.md#寄存器池引擎入口-guardframe_id)），
 `Str::new`/`.into()` 走活堆分配 → **~189 处 `.into()` 站点零改动**；无堆上下文（无 VM 的单测）
@@ -504,7 +516,7 @@ release 构建零开销。检查两条：
 变长区自己的簿记（年轻集合位图与 `young_len`、每 chunk 普查、空闲表的 epoch 戳）在各操作里以 `debug_assert!` 守住，
 年轻集合里不允许出现 hole stash 之外的死块（`young_entry_is_block`）。
 
-**触发时机**：`collect_cycles` 尾部（StwMarkSweep + GenerationalMarkSweep）与 `collect_cycles_with_context` 的分代分支末。
+**触发时机**：`collect_cycles` 尾部（StwMarkSweep + GenerationalMarkSweep）与 `collect_cycles_with_vm` 的分代分支末。
 
 **测试方法**：healthy path（典型 workload + collect + 隐式检查）与 corruption path（手动注入陈旧标记 / 残留灰队列 +
 `#[should_panic(expected = "...")]`）都在 `arc_heap_tests/invariants.rs`。
@@ -562,7 +574,7 @@ use-after-finalize panic）；STW 入口因此开新 epoch 并防御性清空 `m
 可见；为提供"过去 10000 次 collect 的 p95 是多少 / generational
 比 stw 是不是真的更短"这种聚合视角，`ArcMagrGC` 自维护一个
 **固定 8 桶对数直方图** + min / max / total / count，每次
-`collect_cycles` / `collect_cycles_with_context`（generational
+`collect_cycles` / `collect_cycles_with_vm`（generational
 arm）/ `force_collect` 末尾、`AfterCollect` event 前
 调一次 `record(pause_us)`。
 

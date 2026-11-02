@@ -495,7 +495,7 @@ fn major_collect_via_context_clears_card_dirty() {
 
     // Run minor via context — should escalate to major (most young
     // are pinned → survive → high survival rate).
-    heap_dyn.collect_cycles_with_context(&ctx);
+    heap_dyn.collect_cycles_with_vm(&*ctx);
 
     // After major: card_dirty should be cleared on the owner's region.
     // We need to peek; ctx.heap() is &dyn MagrGC. Use the test-only
@@ -535,7 +535,7 @@ fn major_collect_via_context_full_scans_unrooted_old_entries() {
     drop(target);
 
     // Allocate many young pinned objs so survival rate is high →
-    // collect_cycles_with_context escalates to major.
+    // collect_cycles_with_vm escalates to major.
     let mut pins = Vec::new();
     for i in 0..10 {
         let v = heap_dyn.alloc_object(
@@ -551,8 +551,8 @@ fn major_collect_via_context_full_scans_unrooted_old_entries() {
     // whole heap twice in a single pause). So this takes two cycles: the first minor observes
     // the high survival rate and requests the major, the second runs it — and a `want_major`
     // cycle skips the minor entirely, since a major reclaims everything a minor would.
-    heap_dyn.collect_cycles_with_context(&ctx);   // minor → requests a major
-    heap_dyn.collect_cycles_with_context(&ctx);   // the major itself
+    heap_dyn.collect_cycles_with_vm(&*ctx);   // minor → requests a major
+    heap_dyn.collect_cycles_with_vm(&*ctx);   // the major itself
 
     // Target should have been freed by the major.
     // Survivors: 10 pinned new objs (still young or just promoted).
@@ -614,13 +614,13 @@ fn promoting_an_array_with_a_young_element_remembers_it() {
     let child = heap.alloc_array(vec![Value::I64(7)]);
     h.borrow().set_boxed(0, child); // young owner → young child: no barrier record
 
-    heap.collect_cycles_with_context(&ctx); // the minor that promotes the two arrays
+    heap.collect_cycles_with_vm(&*ctx); // the minor that promotes the two arrays
 
     assert!(ArrRef::gen_age(h) >= PROMOTION_THRESHOLD, "test setup: the holder must be old now");
     assert!(ArrRef::gen_age(p) >= PROMOTION_THRESHOLD);
     assert!(heap.is_remembered_for_test(&holder), "a newly-old array holding a young element is remembered");
     assert!(!heap.is_remembered_for_test(&prims), "a primitive array has no edge to remember");
-    heap.collect_cycles_with_context(&ctx);
+    heap.collect_cycles_with_vm(&*ctx);
     assert_eq!(h.borrow().get_boxed(0), child, "the child survives the next minor through the remembered set");
     let Value::Array(c) = child else { panic!() };
     assert_eq!(c.borrow().get_boxed(0), Value::I64(7));
@@ -664,12 +664,12 @@ fn escalation_defers_the_major_to_the_next_cycle_instead_of_running_both() {
         pins.push(heap.pin_root(v));
     }
 
-    heap.collect_cycles_with_context(&ctx);
+    heap.collect_cycles_with_vm(&*ctx);
     let s = heap.stats();
     assert_eq!((s.minor_collections, s.major_collections), (1, 0),
         "the escalating cycle runs the minor only, and *asks* for a major");
 
-    heap.collect_cycles_with_context(&ctx);
+    heap.collect_cycles_with_vm(&*ctx);
     let s = heap.stats();
     assert_eq!((s.minor_collections, s.major_collections), (1, 1),
         "the next cycle runs the major and skips the minor (a major reclaims everything a \
@@ -736,7 +736,7 @@ fn minor_collect_via_context_does_not_escalate_when_low_survival() {
             vec![], NativeData::None);
     }
 
-    heap_dyn.collect_cycles_with_context(&ctx);
+    heap_dyn.collect_cycles_with_vm(&*ctx);
 
     // All tombstoned by minor (no roots, no dirty cards).
     let mut alive = 0;

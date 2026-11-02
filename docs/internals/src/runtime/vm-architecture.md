@@ -153,7 +153,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 | GC root scanner（标记用的、retention 诊断用的分类版） | collector | `VmContext::scan_frames_parked`（`unsafe`） | 调用方是所属线程，或所属线程已 park |
 | 崩溃信号处理器 | 崩溃线程 | 自己的栈：`scan_parked`；别的线程：`published_depth` | 只读自己拥有的帧；别的线程只读深度原子 |
 
-**跨线程读为什么安全**（`scan_parked` 的前提，全部在 `gc/safepoint.rs` 与 `vm_context/construct.rs`）：
+**跨线程读为什么安全**（`scan_parked` 的前提，全部在 `vm/threads/safepoint.rs` 与 `vm_context/construct.rs`）：
 
 - mutator park 时先 `parked_count.fetch_add(AcqRel)`，再拿 `gc_phase` 锁（`park_until_idle`；阻塞型
   native 调用的 `native_park_incr` 同理）。park 期间不 push / pop：safepoint park 本身阻塞在条件变量上；
@@ -165,7 +165,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
   扫描因此先于它下一次 push / pop。
 - `Marking` 期间新线程不能注册（`VmContext::new_with_core` 在 `gc_phase` 锁下等），scanner 不会遇到没 park 的新来者。
 
-所有调用 scanner 的路径都持停顿：`collect_cycles_with_context` 的 STW / 分代两条分支都先
+所有调用 scanner 的路径都持停顿：`collect_cycles_with_vm` 的 STW / 分代两条分支都先
 `request_gc_pause`（增量 major 只在开周期的切片里快照根，之后的切片不再扫栈），`GC.ForceCollect` 同样；
 `maybe_auto_collect` 在接了 VmCore 时只置 safepoint 请求、由 safepoint 上的 collector 执行。
 `scan_frames_parked` 的 debug 断言检查「深度为 0 / 本线程拥有 / `collector_active`」三者之一。
@@ -197,7 +197,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
   `regs[0..len)`，此前每个槽都必须是合法值）；`give` 只 `clear()`（`Value` 是 `Copy`，只改长度），容量以外的
   旧位无人读取——池里的 `Vec` 不是根。上限 512 个。没进入过 `enter_frame` 的 `Frame`（入口拷参失败）直接释放。
 - **引擎入口 guard**（`vm_context/engine_guards.rs`）：两个 thread-local 要在 z42 代码运行期间指向当前 VM——
-  `gc::ambient` 的堆（`Str::new` / `.into()` 从它分配，`str_meta` 缓存按它的 epoch 作用域）和
+  `vm::exec::ambient` 的堆（`Str::new` / `.into()` 从它分配，`str_meta` 缓存按它的 epoch 作用域）和
   `native-interop` 下 `interop::exports` 的 `CURRENT_VM`（`z42_*` 导出函数经 `current_vm()` 找 VM）。
   它们在一条活动链内不变，所以只在**栈底帧** push 时安装（`push_frame` 里 `FrameStack::push` 报告深度 0→1，
   一次 load 一次分支），栈再次变空时（`pop_frame` 后深度为 0）恢复原值。嵌套帧不碰 thread-local。

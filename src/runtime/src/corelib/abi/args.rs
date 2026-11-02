@@ -85,7 +85,7 @@ impl ArgAt {
     pub fn mismatch(&self, expected: &str, got: &Value) -> BuiltinError {
         BuiltinError::InvalidCast(format!(
             "{}: argument `{}` expects {expected}, got {}",
-            self.builtin, self.param, crate::vm::exec::ops::scalar::value_kind_name(got)))
+            self.builtin, self.param, crate::object::value_kind_name(got)))
     }
 }
 

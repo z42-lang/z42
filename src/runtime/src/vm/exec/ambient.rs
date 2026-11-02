@@ -36,7 +36,7 @@
 use std::cell::Cell;
 use std::ptr::NonNull;
 
-use super::MagrGC;
+use crate::gc::MagrGC;
 
 thread_local! {
     /// The active heap for GC allocations on this thread, or `None` when no z42
@@ -161,7 +161,7 @@ impl CacheScope {
     /// the moment `s` dies; `None` for a bump-chunk block (pooled, never handed back while the
     /// region lives), or with no heap installed. `s` must be live. Takes the region lock.
     pub fn dedicated_chunk_stamp(&self, s: &crate::object::string::vstr::Str) -> Option<(u32, u32)> {
-        if !super::var_region::may_be_dedicated(s.len()) {
+        if !crate::gc::var_region::may_be_dedicated(s.len()) {
             return None;
         }
         current_heap().and_then(|h| h.var_chunk_stamp(s.var_ref()))
@@ -178,5 +178,5 @@ impl CacheScope {
 /// The current [`CacheScope`].
 #[inline]
 pub fn cache_scope() -> CacheScope {
-    CacheScope { epoch: current_heap_epoch(), dedicated_frees: super::var_region::dedicated_free_count() }
+    CacheScope { epoch: current_heap_epoch(), dedicated_frees: crate::gc::var_region::dedicated_free_count() }
 }

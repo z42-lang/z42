@@ -8,6 +8,7 @@
 
 | 入口 | 职责 |
 |---|---|
+| `ambient.rs` | 执行期当前堆 TLS、HeapGuard 嵌套恢复和堆 epoch |
 | `ops/scalar.rs` | 值级算术、比较、整数除余、数值转换与错误判据 |
 
 ## 基础用法

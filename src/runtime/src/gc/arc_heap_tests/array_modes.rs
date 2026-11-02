@@ -30,7 +30,7 @@ fn run(cut: Cut, barrier_on: bool) -> bool {
     let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
-    let _g = crate::gc::ambient::HeapGuard::enter(&heap);
+    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap);
     crate::gc::satb::set_disabled_for_test(!barrier_on);
 
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);

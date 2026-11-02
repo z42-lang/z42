@@ -138,7 +138,7 @@ pub fn run_goldens_isolated(
         // heap. The sequential branch above can't park: its nested VM allocates on this very
         // thread, and the park tripwire (`debug_assert_not_native_parked`) is per-thread.
         {
-            let _park = crate::gc::NativeParkGuard::enter(ctx);
+            let _park = crate::vm::threads::safepoint::NativeParkGuard::enter(ctx);
             for h in handles {
                 let _ = h.join();
             }

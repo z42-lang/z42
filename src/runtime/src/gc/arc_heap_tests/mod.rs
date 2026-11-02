@@ -7,6 +7,8 @@ use crate::gc::{GcEvent, GcHandleKind, GcKind, GcObserver, MagrGC, ArcMagrGC, Sn
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::object::FieldSlot;
 
+mod context_reclaim;
+
 /// unify-object-byte-layout (PR-2): a test TypeDesc with 4 **reference-typed** fields
 /// (`f0..f3`). The GC tests store arbitrary `Value`s (object refs to test reachability,
 /// or primitives) into low slots; reference fields land in `ScriptObject::refs` via the

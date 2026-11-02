@@ -170,7 +170,7 @@ fn a_hole_filled_during_an_incremental_cycle_is_allocated_black() {
     heap.debug_validate_invariants();
 }
 
-// ── a native park carries the hole stash (gc::safepoint::native_park_incr) ──────────────
+// ── a native park carries the hole stash (vm::threads::safepoint::native_park_incr) ──────────────
 
 fn census_is_exact(heap: &ArcMagrGC) {
     let r = heap.region_var_for_test().lock();
