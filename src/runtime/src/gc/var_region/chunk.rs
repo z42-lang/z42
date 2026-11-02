@@ -55,7 +55,7 @@ const MAX_CLASS: u8 = (CHUNK_BYTES.trailing_zeros() << SUB_LOG2) as u8;
 /// its own exactly-sized chunk instead of a size class inside a bump chunk (`Z42_GC_LOH_BYTES`).
 ///
 /// **Process-global on purpose.** `class_for` is called from the lock-free TLAB fast path
-/// (`arc_heap/alloc.rs`), which has no region and no heap reference at hand, so a per-heap
+/// (`heap/alloc.rs`), which has no region and no heap reference at hand, so a per-heap
 /// field is not reachable there. A process with several VMs shares one setting — the same as
 /// before this knob existed, when it was a `const`.
 ///

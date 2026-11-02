@@ -111,7 +111,7 @@ fn counters_snapshot_sums_live_and_dropped_contexts() {
 #[test]
 fn heap_is_installed_by_default() {
     let ctx = VmContext::new();
-    // Default Phase 1 backend: ArcMagrGC, alloc starts at 0.
+    // Default Phase 1 backend: Heap, alloc starts at 0.
     assert_eq!(ctx.heap().stats().allocations, 0);
 }
 

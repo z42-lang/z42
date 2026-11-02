@@ -55,7 +55,7 @@ use std::sync::{Arc, Weak};
 
 use parking_lot::{Mutex, RwLock};
 
-use crate::gc::{MagrGC, ArcMagrGC};
+use crate::gc::{Heap};
 
 mod resource_registry;
 mod types;

@@ -102,7 +102,7 @@
   每次 GC 作 **root 扫描**（`scan_roots`）。interp 与 JIT 共用同一 arena + `push_frame`/`pop_frame`
   base（JIT 经 `struct_ops::frame_id_of` 懒分配帧 id，与既有 `StructRef` 句柄同法）。
 - **GC**：arena 是 root → payload 内的句柄（`Ref` 的 Array/Field 目标、`StructRefHeap` 的 backing 数组）
-  恒被标记；故 `Value::visit_gc_children` / `arc_heap::mark_if_unmarked` 对这 3 变体是 **no-op**
+  恒被标记；故 `Value::visit_gc_children` / `heap::mark_if_unmarked` 对这 3 变体是 **no-op**
   （同 `StructRef`/`StackObject`）——GC mark 热路径无额外工作，无需写屏障（root 每次重扫）。
 - **相等 / stringify 退化**：3 变体 `==` 按 `{idx,frame_id}` 句柄相等（同 `StackObject`）；`value_to_str`
   返回通用占位串——照 `StackObject`/`StructRef` 先例（ToString 是 escape sink，这些瞬态句柄永不到达
@@ -385,13 +385,13 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
 - **批量操作对别的线程不是原子的**：`Array.Copy` / 排序 / struct 整体读写都是一串单元访问，别的线程可能看到做了一半，
   但每个单元是完整的值。没有取锁顺序问题：两条线程同时互相 `Array.Copy` 两个数组也只是逐元素竞争。
 - **需要独占的场合各有机制**，都不经句柄：
-  - 构造：对象在发布之前建好。`ObjNew` 的堆分支（interp、JIT）走 `MagrGC::alloc_instance`：取一个清零的对象块、写对象头、
+  - 构造：对象在发布之前建好。`ObjNew` 的堆分支（interp、JIT）走 `Heap::alloc_instance`：取一个清零的对象块、写对象头、
     在**还没发布**的块上跑泛型一步（`install_type_args`：驻留的实参句柄 + 型参字段零值），然后才记账（可能触发回收）并交出句柄——
     取块与发布之间不分配任何东西，所以没有回收能看到建到一半的对象。栈分支用 `OwnedObject::new_instance` 建同样的对象；
     `Activator.CreateInstance` 与带初值 / 原生底座的 `alloc_object` 先在 `OwnedObject` 里建好（写初值可能要分配装箱盒子），再
-    `MagrGC::alloc_script_object` 整块拷进新块。`set_native` / `set_type_args` 只在构造期（`&mut self`）。发布之后对象的 `meta` 字
+    `Heap::alloc_script_object` 整块拷进新块。`set_native` / `set_type_args` 只在构造期（`&mut self`）。发布之后对象的 `meta` 字
     （`NativeData`、驻留的泛型实参句柄）不再变。
-  - 数组同样在发布之前建好：所有构造器经 `MagrGC::alloc_array_with`，在未发布的块上写描述符与元素再发布。
+  - 数组同样在发布之前建好：所有构造器经 `Heap::alloc_array_with`，在未发布的块上写描述符与元素再发布。
   - 栈数组（逃逸分析）不是 `ArrayObj`：`interp::stack_alloc::StackArray` 是 stack arena 里的一个 `Vec<Value>`，在 arena 的锁下访问（`&mut`）。
   - GC：对象块被 tombstone 时由 drop glue 释放对象头（`Arc<TypeDesc>`、extras 盒子），值 struct 数组的块释放它的布局字。
     此时块已死、持 region 锁或在停顿里。
@@ -423,7 +423,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
 （`__box_prim: expected integer value, got Null` / `type mismatch in arithmetic: Null vs I64(1)`）。
 
 口径：对象分配不逐字段填默认值，而是按 `TypeDesc::object_bytes_len()`（composed layout）取一个**整块清零的对象块**
-（`gc/arc_heap/alloc_object.rs`；堆外的 `OwnedObject` 同样清零）。于是：
+（`gc/heap/alloc_object.rs`；堆外的 `OwnedObject` 同样清零）。于是：
 
 | 槽的种类 | 零值 | 为什么对 |
 |---|---|---|

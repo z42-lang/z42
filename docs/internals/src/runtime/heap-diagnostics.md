@@ -35,7 +35,7 @@ L2 retaining_roots(target)  = 从 target 沿 rev 反向 BFS，收集途经对象
 ```
 
 对象身份用块头地址（`ObjRef::as_ptr` / `ArrRef::as_ptr` as usize）作 key。反向 BFS 用 `visited` 集处理环。
-纯图逻辑在 `gc/retention.rs`（`RetentionGraph`），堆遍历在 `arc_heap.rs::build_retention_graph`。
+纯图逻辑在 `gc/retention.rs`（`RetentionGraph`），堆遍历在 `heap.rs::build_retention_graph`。
 
 ### 分类根 scanner（L2 报根的前提）
 mark 阶段的 `external_root_scanner` 只吐**匿名** Value，报不出根类别。故新增**分类根 scanner**
