@@ -1,0 +1,55 @@
+namespace ConstantTableTests;
+using Z42.IR;
+using Z42.Optimization;
+using Std.Harness;
+
+TypedReg _reg(int id) { return new TypedReg(id, IrType.I64); }
+IrBlock _fold(IrInstr[] ins, int paramsCount) {
+    var block = new IrBlock("entry", ins, ins.Length, new RetTerm(true, _reg(4)), true);
+    var f = new IrFunction("constant_table", paramsCount, "long", true, new IrBlock[] { block }, 1, 6, "Interp",
+        new string[] { "long" }, paramsCount, new int[0], 0, new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+    var m = new IrModule("constant_table", new string[] { "" }, 1, new IrClassDesc[0], 0, new IrFunction[] { f }, 1);
+    IrOptPipeline.Run(m, Opt.ConstFold);
+    return block;
+}
+
+[Test]
+void test_folded_multiwrite_register_does_not_become_global_constant() {
+    var b = _fold(new IrInstr[] {
+        new ConstI64Instr(_reg(1), "1"), new ConstI64Instr(_reg(2), "2"),
+        new AddInstr(_reg(3), _reg(1), _reg(2)), new CopyInstr(_reg(3), _reg(0)),
+        new AddInstr(_reg(4), _reg(3), _reg(2))
+    }, 1);
+    Assert.True(b.Instrs[2] is ConstI64Instr);
+    Assert.True(b.Instrs[4] is AddInstr);
+}
+
+[Test]
+void test_folded_address_taken_register_does_not_become_global_constant() {
+    var b = _fold(new IrInstr[] {
+        new ConstI64Instr(_reg(1), "1"), new ConstI64Instr(_reg(2), "2"),
+        new AddInstr(_reg(3), _reg(1), _reg(2)), new LoadLocalAddrInstr(_reg(5), _reg(3)),
+        new AddInstr(_reg(4), _reg(3), _reg(2))
+    }, 0);
+    Assert.True(b.Instrs[2] is ConstI64Instr);
+    Assert.True(b.Instrs[4] is AddInstr);
+}
+
+[Test]
+void test_parameter_write_does_not_replace_earlier_parameter_read() {
+    var b = _fold(new IrInstr[] {
+        new ConstI64Instr(_reg(1), "2"), new AddInstr(_reg(4), _reg(0), _reg(1)),
+        new ConstI64Instr(_reg(0), "3")
+    }, 1);
+    Assert.True(b.Instrs[1] is AddInstr);
+}
+
+[Test]
+void test_single_definition_constant_chain_still_propagates() {
+    var b = _fold(new IrInstr[] {
+        new ConstI64Instr(_reg(1), "1"), new ConstI64Instr(_reg(2), "2"),
+        new AddInstr(_reg(3), _reg(1), _reg(2)), new AddInstr(_reg(4), _reg(3), _reg(2))
+    }, 0);
+    Assert.True(b.Instrs[3] is ConstI64Instr);
+    Assert.Equal("5", (b.Instrs[3] as ConstI64Instr).Text);
+}
