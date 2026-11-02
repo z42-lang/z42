@@ -1,9 +1,9 @@
 //! V8 `.heapsnapshot` graph export (add-gc-heap-snapshot-export).
 //!
-//! Walks the live heap via the existing [`Heap`] trait methods
-//! ([`iterate_live_objects`](super::heap::Heap::iterate_live_objects) +
-//! [`scan_object_refs`](super::heap::Heap::scan_object_refs) +
-//! [`for_each_root`](super::heap::Heap::for_each_root)) and emits a
+//! Walks the live heap via the concrete [`Heap`] methods
+//! ([`iterate_live_objects`](crate::gc::Heap::iterate_live_objects) +
+//! [`scan_object_refs`](crate::gc::Heap::scan_object_refs) +
+//! [`for_each_root`](crate::gc::Heap::for_each_root)) and emits a
 //! flat node/edge graph serializable to the canonical V8 heap-snapshot
 //! JSON format. Chrome DevTools (Memory → Load), speedscope, and
 //! heapviewer.com all open the resulting `.heapsnapshot` directly.
@@ -23,7 +23,7 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
 
-use super::Heap;
+use crate::gc::Heap;
 use crate::object::Value;
 
 // ── Node / edge type discriminants ───────────────────────────────────────────
@@ -199,7 +199,7 @@ fn node_desc(v: &Value, heap: &Heap) -> (NodeType, String, u32) {
 ///    [`scan_object_refs`]; for refs whose target was indexed in pass
 ///    1, emit one [`EdgeRec`] of the appropriate type
 ///    (Property for object slots, Element for array indices).
-/// 3. Walk pinned + external roots via [`for_each_root`]; for each
+/// 3. Walk host-pinned roots via [`for_each_root`]; for each
 ///    rooted heap value, emit a Shortcut edge from the synthetic root
 ///    (node index 0 / id 0).
 pub fn build_graph_snapshot(heap: &Heap) -> GraphSnapshot {

@@ -292,7 +292,7 @@ pub struct VmCore {
     /// Idle tail). Default-off is zero-cost: no thread, one `enabled()` atomic
     /// load on the already-throttled slow path. Produces a folded flamegraph
     /// (+ optional perfetto sample-trace when `Z42_TRACE_OUT` is set).
-    pub(crate) sampler: crate::gc::Sampler,
+    pub(crate) sampler: crate::profiler::cpu::Sampler,
 
     /// The VM's JIT: one per VM, shared by every thread (slots table, the
     /// compiler and its code, OSR entries, tier thresholds — see

@@ -1,5 +1,4 @@
-//! `Heap` roots/retention 扫描：marked-context 扫描 + 反向引用图构建。
-//! 从 `heap.rs` 拆出（refactor-arc-heap-modularization）。
+//! 根快照、marked-context 扫描与锁内基础遍历。
 
 use super::*;
 use crate::object::Value;
@@ -62,81 +61,31 @@ impl crate::gc::Heap {
         });
     }
 
-    /// **add-heap-retention-diagnostics **: build the reverse
-    /// reference graph over the live heap (object + array regions) + categorized
-    /// roots. Callers `force_collect()` first so only reachable objects remain.
-    pub(super) fn build_retention_graph(&self) -> crate::gc::retention::RetentionGraph {
-        use crate::gc::retention::{RetainerInfo, RetainerKind};
-        // add-gc-tlab (stage 2): merge the caller's TLAB so retention analysis
-        // sees its recent allocations (callers already force_collect first, but
-        // this keeps the region view consistent regardless of entry).
-        self.retire_thread_tlab();
-        let mut g = crate::gc::retention::RetentionGraph::new();
+}
 
-        // Objects (variable-length region) → each object's heap-ref slots become reverse edges.
-        {
-            let region = self.region_var.lock();
-            region.iterate_alive_of(crate::object::header::BlockType::Object, |h, _| {
-                let handle = crate::object::ObjRef::from_var(h);
-                let self_ptr = crate::object::ObjRef::as_ptr(&handle) as usize;
-                let obj = handle.borrow();
-                let type_name = obj.type_desc.name.clone();
-                obj.visit_refs(&mut |slot: &Value| {
-                    if let Some(child) = value_heap_ptr(slot) {
-                        g.add_edge(
-                            child,
-                            RetainerInfo { kind: RetainerKind::Object, type_name: type_name.clone(), id: self_ptr },
-                        );
-                    }
-                });
-            });
-        }
-        // Arrays (object model R9: blocks too) → each array's heap-ref elements become reverse
-        // edges.
-        {
-            let region = self.region_var.lock();
-            region.iterate_alive(|h, header| {
-                let bt = header.block_type();
-                if bt == crate::object::header::BlockType::Object || !bt.is_object_or_array() {
-                    return;
-                }
-                let handle = crate::object::ArrRef::from_var(h);
-                let self_ptr = crate::object::ArrRef::as_ptr(&handle) as usize;
-                let arr = handle.borrow();
-                let type_name = format!("{}[]", &*arr.element_type());
-                // `visit_refs`: the array's reference edges (elements / struct[] reference leaves).
-                arr.visit_refs(&mut |elem: &Value| {
-                    if let Some(child) = value_heap_ptr(elem) {
-                        g.add_edge(
-                            child,
-                            RetainerInfo { kind: RetainerKind::Array, type_name: type_name.clone(), id: self_ptr },
-                        );
-                    }
-                });
-            });
-        }
-        // Pinned roots (GC-internal host pins / frame pins) + strong GC handles.
+impl crate::gc::Heap {
+    pub(crate) fn walk_diagnostic_objects(&self, visit: &mut dyn FnMut(&Value)) {
+        self.region_var.lock().iterate_alive_of(crate::object::header::BlockType::Object, |h, _| {
+            let value = Value::Object(crate::object::ObjRef::from_var(h));
+            visit(&value);
+        });
+    }
+    pub(crate) fn walk_diagnostic_arrays(&self, visit: &mut dyn FnMut(&Value)) {
+        self.region_var.lock().iterate_alive(|h, header| {
+            let bt = header.block_type();
+            if bt != crate::object::header::BlockType::Object && bt.is_object_or_array() {
+                let value = Value::Array(crate::object::ArrRef::from_var(h));
+                visit(&value);
+            }
+        });
+    }
+    pub(crate) fn walk_diagnostic_roots(&self, visit: &mut dyn FnMut(&Value, crate::gc::walk::RootKind)) {
         {
             let inner = self.inner.lock();
-            // fix-strong-handles-are-not-roots : a strong handle anchors its target,
-            // so retention analysis has to report it as a root — otherwise `Heap.WhyIsThisAlive`
-            // shows an object that is alive with no retainer, which is exactly the question the
-            // diagnostic exists to answer. Reported as `Pinned`: it is the same kind of thing —
-            // an out-of-heap reference the host holds deliberately.
-            for v in inner.roots.values().chain(&inner.handle_slab.strong_targets().collect::<Vec<_>>()) {
-                if let Some(obj) = value_heap_ptr(v) {
-                    g.add_root_edge(obj, crate::gc::retention::RootKind::Pinned);
-                }
+            for value in inner.roots.values().chain(&inner.handle_slab.strong_targets().collect::<Vec<_>>()) {
+                visit(value, crate::gc::walk::RootKind::Pinned);
             }
         }
-        // Categorized VmCore roots (static fields / stack frames / func-ref slots).
-        if let Some(scan) = self.categorized_root_scanner.lock().as_ref() {
-            scan(&mut |v, kind| {
-                if let Some(obj) = value_heap_ptr(v) {
-                    g.add_root_edge(obj, kind);
-                }
-            });
-        }
-        g
+        if let Some(scan) = self.categorized_root_scanner.lock().as_ref() { scan(visit); }
     }
 }

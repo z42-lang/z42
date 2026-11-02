@@ -66,7 +66,7 @@ park 还是**线程注册协议的前提**：新 `VmContext` 在标记期不注�
 on this platform」），整个 VM trap。编译照过、native 测试全绿，只有 nightly 的浏览器 wasm 测试能照出来。典型场景：
 time builtins、GC 计时、采样器构造时取起点（→ 每次加载 zbc 都 trap）。
 
-- **关着的探针不取时钟**：计时起点放进 `Option<Instant>`，开关打开才取（参照 `gc/phase_timer.rs`、`gc/sampler.rs`）。
+- **关着的探针不取时钟**：计时起点放进 `Option<Instant>`，开关打开才取（参照 `gc/phase_timer.rs`、`profiler/cpu.rs`）。
 - **始终要跑的计时**（每次 GC、time builtin）：`#[cfg(target_arch = "wasm32")]` 给替代实现（参照
   `gc/heap/observe.rs` 的单调计数、`corelib/bench.rs`）。
 - 只在 native 可达的路径（JIT、子进程、信号处理）不受限。

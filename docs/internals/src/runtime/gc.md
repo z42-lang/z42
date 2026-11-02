@@ -14,12 +14,12 @@ GC 由 `crate::gc::Heap` 具体类型提供，VM、对象构造与当前堆 TLS 
 | 2. Roots | `pin_root` / `unpin_root` / `enter_frame` / `leave_frame` / `for_each_root` | host pin + frame scope + GC scan |
 | 3. Write barriers | `write_barrier_field` / `write_barrier_array_elem` | 分代模式用（对象 / 数组的记忆集），默认 no-op |
 | 4. Object Model | `object_size_bytes` / `scan_object_refs` | trace / snapshot 基础设施 |
-| 5. Collection | `collect` / `collect_cycles` / `force_collect` / `collect_full` / `pause` / `resume` | GC 控制。`force_collect` 按当前模式跑一次（分代下是 minor，Rust 测试用它驱动 minor）；`collect_full` 不论模式都做全堆回收（分代下是 major），`GC.ForceCollect()` 与保留图诊断走它 |
+| 5. Collection | `collect_cycles` / `force_collect` / `collect_full` / `pause` / `resume` | GC 控制。`force_collect` 按当前模式跑一次（分代下是 minor，Rust 测试用它驱动 minor）；`collect_full` 不论模式都做全堆回收（分代下是 major），`GC.ForceCollect()` 与保留图诊断走它 |
 | 6. Heap config | `set_max_heap_bytes` / `used_bytes` | 堆上限 / 用量 |
 | 7. Finalization | `register_finalizer` / `cancel_finalizer` | 析构回调（sweep 时触发，或 `Std.GC.Finalize` 显式触发）|
 | 8. Weak refs | `make_weak` / `upgrade_weak` | 弱引用 |
 | 9. Observers | `add_observer` / `remove_observer` | GcEvent 订阅（Before/After Collect / NearHeapLimit / OOM）|
-| 10. Profiler | `set_alloc_sampler` / `take_snapshot` / `iterate_live_objects` | 分配采样 + 堆快照 + 存活遍历 |
+| 10. Tool hooks | `set_alloc_sampler` / `iterate_live_objects` | 分配采样回调与存活遍历；摘要和图工具归 `profiler/heap` |
 | 11. Stats | `stats` | HeapStats 快照（8 字段）|
 
 `VmCore` 持有地址稳定的 `Box<Heap>`，同一 VM 的各 `VmContext` 共享它，独立 VM 使用独立堆；所有脚本驱动分配走 `ctx.heap().alloc_*(...)`；JIT helper 通过
@@ -94,7 +94,7 @@ RAII guard：
 | 维度 | 行为 |
 |------|------|
 | JIT-mode safepoint | JIT translate 在 function entry / 后向 Br / 带后向目标的 BrCond / `Call` / `CallIndirect` 返回后共 4 类 site（5 处 call）emit safepoint 检查，与 interp 协议完全对齐；JIT-mode multi-thread workloads 不会死锁。fast path 是 `emit_safepoint_check` 内联的原生 `load+sub+store+brif`（~1-2ns/site），仅 counter 归零走 `jit_check_safepoint_slow` helper |
-| Auto-threshold (`maybe_auto_collect`) | Safepoint-aware：trip 时 set `VmCore.needs_auto_collect: Arc<AtomicBool>` flag 而非 inline `collect_cycles()`；同时把每个 mutator 的 safepoint 计数器置 1（`set_safepoint_poke` → `poke_safepoints`）；下个 `check_safepoint(ctx)` 看到 flag 即 safepoint-wrapped collect。flag **粘性**：只读不 swap，由抢到 collector 角色、拿到暂停的那个线程清（`take_collect_request`），抢输的线程不消费它。trait 有默认 no-op `set_external_needs_collect_flag`；Heap 内部 `Mutex<Option<Arc<AtomicBool>>>`，VmCore 构造后 wire。flag 未装时 fallback inline（GC 单测路径） |
+| Auto-threshold (`maybe_auto_collect`) | Safepoint-aware：trip 时 set `VmCore.needs_auto_collect: Arc<AtomicBool>` flag 而非 inline `collect_cycles()`；同时把每个 mutator 的 safepoint 计数器置 1（`set_safepoint_poke` → `poke_safepoints`）；下个 `check_safepoint(ctx)` 看到 flag 即 safepoint-wrapped collect。flag **粘性**：只读不 swap，由抢到 collector 角色、拿到暂停的那个线程清（`take_collect_request`），抢输的线程不消费它。`Heap::set_external_needs_collect_flag` 注入线程请求 flag；Heap 内部 `Mutex<Option<Arc<AtomicBool>>>`，VmCore 构造后 wire。flag 未装时 fallback inline（GC 单测路径） |
 | 检查频率节流 | Counter-throttled fast path：`VmContext.safepoint_skip: AtomicU32`，`check_safepoint` fast path **普通 load/store 递减**（单写者故 RMW 原子性不必要，且 load/store 可被 JIT 内联为裸 mov）；每 N=1024 次（默认）才走 slow path（Mutex lock + 真正的 phase + auto-collect drain）。`Z42_SAFEPOINT_THROTTLE` env override（设 1 = disable throttling）。`VmContext::force_safepoint()` 公共 API 供 test / embedder 强制下次走 slow path。GC pause latency 上限 = N × 单 iter (~50ns) ≈ 50us，远小于实际 collect 时间 |
 | 多 collector 仲裁 | `VmCore.collector_active: AtomicBool` + `request_gc_pause` 返 `Option<GcPauseGuard>`，前置 CAS claim；失败 collector 自动 park-as-mutator 返 `None`。`GcPauseGuard::drop` 释放 collector_active 让下一个 claim 通过。`Std.GC.Collect()` / `ForceCollect()` 在另一 collector active 时静默 no-op（best-effort 语义同 C# / Java） |
 
@@ -132,7 +132,7 @@ RAII guard：
 
 **遇到 bug 的回退路径**：`Z42_GC_MODE=stw` 强制走最简单的稳定路径（一代、无分代屏障、无增量切片）。
 生产报错优先 fallback STW 看是否复现，把 bug 定位到分代路径（minor / 记忆集 / 增量切片）还是更
-底层（trait / barrier / safepoint）。
+底层（Heap / barrier / safepoint）。
 
 ### 自动回收的运行时旋钮
 
@@ -388,14 +388,14 @@ auto-collect）→ GC 从不在单条指令/builtin 的 Rust 执行中途运行 
 
 ### Write barrier contract
 
-`Heap` trait 包含两个 write-barrier 钩子：
+`Heap` 包含两个 write-barrier 钩子：
 
 ```rust
 fn write_barrier_field(&self, owner: &Value, slot: usize, new: &Value);
 fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 ```
 
-trait 默认实现（含 `Heap` STW mark-sweep）是 no-op；分代模式 override 为
+`Heap` 的 STW 模式是 no-op；分代模式执行
 真实逻辑：老属主（对象或数组）收到年轻引用 → 把它放进**记忆集**（见下「记忆集」）。**call-site wiring + 调用契约**与模式无关（no-op 实现下仅
 `#[cfg(test)]` 时 dispatch 到 test-only `BarrierObserver`）。
 
@@ -485,12 +485,11 @@ trait 默认实现（含 `Heap` STW mark-sweep）是 no-op；分代模式 overri
 （经 `Heap::verify_card_invariant`）。字符串、PRIM 数组与闭包都不需要：前两者是叶子，
 闭包的引用在构造时定死，老了以后不会再长出年轻孩子。
 
-**Override 契约**:
+**屏障契约**:
 
 - 实现可以 `debug_assert!(new.is_heap_ref())` 检测 caller 是否漏 filter
 - 可以自由 `owner.borrow()`（对象没有锁，读字段不会与 caller 冲突）
-- default no-op 不修改 `HeapStats`；这条契约保留下来意味着
-  pure-tracing / generational override 也不应改 `HeapStats`（stats 反映
+- STW 的 no-op 与分代屏障均不修改 `HeapStats`（stats 反映
   alloc/free，不反映 barrier dispatch 次数）
 
 > **这条契约有两个消费者**：记忆集不变量（「老属主的年轻子节点
@@ -660,7 +659,7 @@ diff `RecentPauses()` 与上次调用结果也能算 incremental
 (Memory → Load)、[speedscope](https://www.speedscope.app)、
 [heapviewer.com](https://heapviewer.com) 都能直接打开。
 
-实现走 `gc/snapshot.rs` two-pass walker：
+实现走 `profiler/heap/snapshot.rs` two-pass walker：
 
 ```
 pass 1: iterate_live_objects → assign V8 node ids (odd 2k+1), emit NodeRecs
@@ -757,7 +756,7 @@ GC 成熟后，字符串可以从 `Value::Str` primitive 进一步
 ### D1. MMTk 后端实现
 - **What**：实现 [MMTk](https://www.mmtk.io/) `VMBinding` trait，把 `Heap` 替换为 MMTk-backed GC（多 collector 可选：SemiSpace / GenImmix / MarkSweep / Immix / GenCopy）
 - **Why**：MMTk 是工业级研究项目，被 OpenJDK / V8 / Julia / Ruby / RustPython 采用；享受 ~30 年 GC 算法成果
-- **Deps**：自定义 allocator 与 mark-sweep tracing 基础已就位；trait 形状已对齐 MMTk porting contract
+- **Deps**：自定义 allocator 与 mark-sweep tracing 基础已就位；堆能力已覆盖 MMTk 绑定的基础职责，接入时仍需实现对应绑定
 - **Size**：4-8 周（包括稳定 + benchmark）
 - **Risk**：高 —— 引入大型 crate 依赖；ABI 边界 careful；需要另行设计编译期 GC 适配边界；当前 Heap 没有运行时后端插槽
 
