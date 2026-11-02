@@ -65,6 +65,9 @@ jobs:
               # （launcher / devtools / interactive）——不在这里就等于没有任何 PR job 编过它们。
               - 'scripts/package/**'
               - 'scripts/packages.toml'
+              # 从 package/ 提取的共享配置与发布入口仍需覆盖打包管道。
+              - 'scripts/common/xtask_packages_config.z42'
+              - 'scripts/common/xtask_publish.z42'
               # 安装脚本：package-host 用刚打出的包离线跑一遍（Installer smoke）。
               - 'scripts/install/**'
               - 'src/toolchain/launcher/**'
