@@ -1,0 +1,47 @@
+// 真正运行退出 0 / 7 的程序，防止匹配的输出掩盖进程失败。
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _selfcheckFixtureRuns(string root, ToolsetZ ts, string mode) {
+    Console.WriteLine("── fixture runner selfcheck (expected failures below) ──");
+    string dir = _xtaskWork(root, "fixture-run-exit");
+    _resetDir(dir);
+    string main = Path.Join(dir, "case/main");
+    Directory.Create(main);
+    // exe 的 name 故意放在 project.name 前，主产物选择必须按 TOML section 读取。
+    File.WriteAllText(Path.Join(main, "z42.toml"),
+        "[[exe]]\nname = \"a_bad\"\nentry = \"FixtureExit.Bad\"\n"
+        + "[[exe]]\nname = \"z_good\"\nentry = \"FixtureExit.Good\"\n"
+        + "[project]\nname = \"fixture-exit\"\nversion = \"0.1.0\"\npack = true\n"
+        + "[sources]\ninclude = [\"source.z42\"]\n");
+    File.WriteAllText(Path.Join(main, "source.z42"),
+        "namespace FixtureExit;\nusing Std.IO;\n"
+        + "void Bad() { Console.WriteLine(\"fixture-exit\"); Environment.Exit(7); }\n"
+        + "void Good() { Console.WriteLine(\"fixture-exit\"); }\n");
+    File.WriteAllText(Path.Join(main, "expected_output.txt"), "fixture-exit\nfixture-exit\n");
+    File.WriteAllText(Path.Join(dir, "case/expected_output.txt"), "fixture-exit\n");
+    string why = _runOneMultiExe(ts.CompileVm, ts.RunVm, ts.DriverZpkg, ts.StdlibDist, main, "exit-first", mode);
+    if (why != "exit-first") { throw new Exception("fixture run: nonzero first exe accepted or build failed: " + why); }
+
+    string dist = _fixtureDist(main);
+    string bad = Path.Join(dist, "a_bad.zpkg");
+    string good = Path.Join(dist, "z_good.zpkg");
+    why = _runMultiExeZpkgs(ts.RunVm, ts.StdlibDist, main, "exit-last", mode, new string[]{ good, bad });
+    if (why != "exit-last") { throw new Exception("fixture run: nonzero last exe accepted"); }
+    why = _runMultiExeZpkgs(ts.RunVm, ts.StdlibDist, main, "exit-zero", mode, new string[]{ good, good });
+    if (why.Length > 0) { throw new Exception("fixture run: successful exes rejected"); }
+
+    // 缺少 project 同名产物时，cross 会取排序后的第一个（a_bad）。
+    string[] labels = new string[]{ "" };
+    _crossRunWave(new string[]{ "case" }, labels, dir, ts.StdlibDist, ts.RunVm, mode);
+    if (labels[0] != "case") { throw new Exception("fixture run: cross accepted nonzero exit"); }
+    // 有 project 同名产物时必须优先选它，不能误取 [[exe]].name。
+    File.Copy(good, Path.Join(dist, "fixture-exit.zpkg"));
+    labels[0] = "";
+    _crossRunWave(new string[]{ "case" }, labels, dir, ts.StdlibDist, ts.RunVm, mode);
+    if (labels[0].Length > 0) { throw new Exception("fixture run: cross project name or successful exit rejected"); }
+    Directory.Delete(dir, true);
+    Console.WriteLine("  ✅ fixture run: exit 0/7, first/last exe, cross project name");
+    return 0;
+}
