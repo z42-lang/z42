@@ -15,6 +15,8 @@
 
 ## 开工：先找 README 和书
 
+分析 / 审查仓库前先同步最新版本并记录基线，见 [workflow 阶段 0](rules/workflow.md#阶段-0意图识别)。
+
 **读代码前，先按这个顺序找资料**——README 是入口，书是细节，别从源码盲搜：
 
 1. **定位目录**：查下表，或根 [README](../../README.md#repository-structure) 的 Repository Structure。

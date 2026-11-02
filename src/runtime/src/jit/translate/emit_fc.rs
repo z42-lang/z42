@@ -21,11 +21,11 @@ pub(super) fn emit_i64_convert(
 ) {
     let si = load_int(builder, cache, promoted, regs_base, src);
 
-    // SEMANTICS: `semantics::convert_value` → `convert_from_i64` integer-narrowing
+    // SEMANTICS: `scalar::convert_value` → `convert_from_i64` integer-narrowing
     // arm — inline Cranelift mirror (ireduce+sextend / band-mask). Tag constants
-    // mirror `semantics::T_*` (Cranelift needs compile-time consts; the local copy
+    // mirror `scalar::T_*` (Cranelift needs compile-time consts; the local copy
     // is deliberate — keep in sync with the single source of truth
-    // `crate::object::TAG_*`, which `semantics::T_*` re-exports).
+    // `crate::object::TAG_*`, which `scalar::T_*` re-exports).
     const T_I8:  u8 = 0x02;
     const T_I16: u8 = 0x03;
     const T_I32: u8 = 0x04;
@@ -83,7 +83,7 @@ pub(super) fn emit_i64_convert(
 /// disqualifies any reg used as a non-int-`Convert` src, so `src` is never a
 /// resident Variable here.
 ///
-/// SEMANTICS: `semantics::convert_value` → `convert_from_i64` int→float arm
+/// SEMANTICS: `scalar::convert_value` → `convert_from_i64` int→float arm
 /// (I2F = full f64 precision, F32 target also f64). Inline Cranelift mirror.
 pub(super) fn emit_int_to_f64(
     builder: &mut FunctionBuilder,
@@ -117,7 +117,7 @@ pub(super) fn emit_int_to_f64(
 /// Variable / 2B cache / memory), so a float→int result feeding a resident
 /// accumulator stays unboxed.
 ///
-/// SEMANTICS: `semantics::convert_value` → `convert_from_f64` float→int arm
+/// SEMANTICS: `scalar::convert_value` → `convert_from_f64` float→int arm
 /// (F2I = saturate + NaN→0; `T_U64` uses signed i64 saturation). Inline mirror
 /// via `fcvt_to_sint_sat` / `fcvt_to_uint_sat`.
 pub(super) fn emit_f64_to_int(
@@ -201,8 +201,8 @@ pub(super) fn emit_f64_binop(
 /// Eq/Lt/Le/Gt/Ge and UNORDERED-or-not-equal for Ne (NaN != NaN → true),
 /// matching Rust's f64 `==`/`<`/… used by interp `numeric_lt`/`ops::compare`.
 ///
-/// SEMANTICS: `semantics::eval_cmp` (F64 arm; CMP = ordered, `Ne` unordered).
-/// The `FloatCC::NotEqual` for Ne mirrors `semantics::eval_cmp`'s `va != vb`
+/// SEMANTICS: `scalar::eval_cmp` (F64 arm; CMP = ordered, `Ne` unordered).
+/// The `FloatCC::NotEqual` for Ne mirrors `scalar::eval_cmp`'s `va != vb`
 /// on NaN (→ true). Inline Cranelift mirror; byte-identity pinned by diff tests.
 pub(super) fn emit_f64_cmp(
     builder: &mut FunctionBuilder,

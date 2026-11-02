@@ -11,7 +11,7 @@
 //!   pre-resolved [`BranchTargets`], returns the fused tail (or `None`). Adding a
 //!   new fusion = add a `SuperInstr` variant + one arm here + one backend handler.
 //! * Recognition is **backend-agnostic** and run ONCE at load
-//!   ([`Function::fused_tails`], a side table parallel to `branch_targets`), so the
+//!   ([`crate::vm::runtime::Function::fused_tails`], a side table parallel to `branch_targets`), so the
 //!   hot path is a single `Vec` index — zero per-iteration recognition cost.
 //!
 //! # Backends
@@ -20,11 +20,9 @@
 //!   (`interp::exec_function_body`) and runs the fused step via the SHARED
 //!   comparison primitive (`interp::ops::eval_cmp`), the same one the standalone
 //!   `Lt`/`Eq`/… handlers use — no duplicated comparison logic.
-//! * **JIT** already specializes `BrCond` natively (reads the bool payload +
-//!   `brif`, see `jit/translate.rs`). It could adopt this recognizer to unify the
-//!   two, but its native path is orthogonal today, so v1 wires only the interp
-//!   (which lacked any fusion). The recognizer lives here — not in `interp` — so a
-//!   future JIT unification reuses it without moving code.
+//! * **JIT** specializes `BrCond` natively (`jit/translate/term.rs`). This
+//!   recognizer prepares the interpreter plan at load time; runtime owns the
+//!   cached forms and the per-VM function side table.
 //!
 //! # v1 rule set
 //!
@@ -33,10 +31,10 @@
 //!   store→reload round-trip and one dispatch per iteration. `%t` is still written
 //!   (cheap) so any other reader of it is unaffected — no liveness analysis needed.
 
-use super::ir::{BasicBlock, BranchTargets, Instruction, Reg, Terminator};
-use super::ir::reg_type::IrType;
+use crate::metadata::ir::{BasicBlock, BranchTargets, Instruction, Reg, Terminator};
+use crate::metadata::ir::reg_type::IrType;
 
-pub use crate::vm::runtime::{CmpOp, SuperInstr};
+use crate::vm::runtime::{CmpOp, SuperInstr};
 
 impl SuperInstr {
     /// Recognizer rule table. `targets` is the block's pre-resolved branch targets

@@ -9,9 +9,6 @@ pub mod gc;
 pub mod pal;
 pub mod thread;
 pub mod exception;
-// converge-vm-arith-semantics (H3): 算术/比较/转换标量语义的唯一真相源，
-// interp 执行循环 + JIT helper 都调用它（内联 Cranelift 路径以注释锚定 + 差分测试担保）。
-pub mod semantics;
 pub mod stack_guard;
 // P1-3：引擎无关的对象操作层（字段 / 数组 / 静态字段 / struct 叶子），interp 与 JIT 共用。
 pub mod objops;
