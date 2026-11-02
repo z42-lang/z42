@@ -4,7 +4,7 @@
 // per target — the compile-once-restamp path), then run EACH produced zpkg
 // through z42vm, concatenate stdout in sorted (by zpkg path) order, and diff
 // against expected_output.txt. Build/run helpers are shared with cross-zpkg
-// (xtask_test_cross.z42).
+// (xtask_fixture_build.z42).
 namespace Z42Xtask;
 
 using Std.IO;
@@ -33,6 +33,8 @@ int _testMultiExeImpl(string mode) {
     string runVm      = ts.RunVm;
     string driverZpkg = ts.DriverZpkg;
 
+    if (_selfcheckFixtureRuns(root, ts, mode) != 0) { return 1; }
+
     int pass = 0;
     List<string> failures = new List<string>();
     foreach (var name in _enumDirsSorted(testsDir)) {
@@ -43,7 +45,7 @@ int _testMultiExeImpl(string mode) {
             if (failLabel.Length == 0) { pass = pass + 1; } else { failures.Add(failLabel); }
         }
     }
-    return _crossSummary(pass, failures.Count, failures.ToArray(), failures.Count);
+    return _fixtureSummary(pass, failures);
 }
 
 // Build the ONE project (→ dist/<exe>.zpkg per `[[exe]]`), then run each produced
@@ -63,12 +65,17 @@ string _runOneMultiExe(string compileVm, string runVm, string driverZpkg, string
     }
     _sortStrings(zpkgs);   // deterministic run order = sorted by path
 
+    return _runMultiExeZpkgs(runVm, stdlibDist, dir, name, mode, zpkgs);
+}
+
+string _runMultiExeZpkgs(string runVm, string stdlibDist, string dir, string name, string mode, string[] zpkgs) {
     // Per-run libs dir: stdlib only (multi-exe fixtures declare no local deps).
     string testLibs = File.CreateTempDir("z42-mexe-");
     _copyStdlibZpkgs(stdlibDist, testLibs);
 
     string actual = "";
-    bool runErr = false;
+    string runError = "";
+    bool ok = true;
     foreach (var z in zpkgs) {
         try {
             ProcessResult vr = _z42Proc(runVm, testLibs)
@@ -76,18 +83,21 @@ string _runOneMultiExe(string compileVm, string runVm, string driverZpkg, string
                 .Arg("--mode").Arg(mode)
                 .Run();
             actual = actual + vr.Stdout + vr.Stderr;
+            vr.EnsureSuccess();
         } catch (Exception e) {
-            runErr = true;
+            ok = false;
+            runError = Path.GetFileName(z) + ": " + e.Message;
         }
     }
     Directory.Delete(testLibs, true);
 
     string expected = File.ReadAllText(Path.Join(dir, "expected_output.txt"));
-    if (!runErr && actual == expected) {
+    if (ok && actual == expected) {
         Console.WriteLine("  PASS (" + zpkgs.Length.ToString() + " exe)");
         return "";
     }
     Console.WriteLine("  FAIL");
+    if (runError.Length > 0) { Console.WriteLine("    run: " + runError); }
     Console.WriteLine("    expected: " + _firstLines(expected, 4));
     Console.WriteLine("    actual:   " + _firstLines(actual, 4));
     return name;

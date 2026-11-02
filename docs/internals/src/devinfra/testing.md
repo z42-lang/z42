@@ -91,6 +91,12 @@ builder 的命令行行为由 [声明式夹具](fixture-harness.md)驱动；断�
 再用 VM 跑 main 入口。覆盖跨包类型解析、`impl Trait for Type` 传播、跨包泛型实例化与
 interface dispatch、`using` 的跨包 namespace 解析、同名 namespace 冲突。
 
+**multi-exe**（同级 `multi-exe/<name>/`）每个工程编译一次，按产物路径排序执行全部 exe，拼接输出。
+这两套夹具都要求每个运行进程退出码为 0，且 stdout + stderr 与 `expected_output.txt` 完全一致；
+输出相同也不能掩盖非零退出码。期望编译失败的 cross-zpkg 用例只检查构建失败与诊断，不进入运行阶段。
+构建与临时 libs 的共用助手位于 `scripts/test/xtask_fixture_build.z42`；cross 波次保持包间依赖顺序，
+波内并发独立夹具。multi-exe 开跑前通过真实退出 0 / 7 的程序自检两个 runner，并检查 project.name 的产物选择。
+
 ### stdlib `[Test]`
 
 ```bash
