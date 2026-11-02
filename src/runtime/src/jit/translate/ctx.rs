@@ -238,7 +238,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
 
     /// Emit native integer `sdiv`/`srem` with a cold guard routing `b ∈ {0,-1}`
     /// to the scalar helper (former `emit_int_divrem!`). `hr_fn` is `hr_div` or
-    /// `hr_rem`. SEMANTICS anchor: see mod.rs / `crate::semantics` (INT_DIV_ZERO,
+    /// `hr_rem`. SEMANTICS anchor: see mod.rs / `crate::vm::exec::ops::scalar` (INT_DIV_ZERO,
     /// INT_DIV_GUARD).
     pub(super) fn emit_int_divrem(&mut self, dst: u32, a: u32, b: u32, hr_fn: FuncRef, is_div: bool) {
         let a_addr = reg_addr(self.builder, self.regs_base, a);

@@ -106,7 +106,7 @@ pub(super) fn div(
     if let Some(thrown) = check_int_div_by_zero(ctx, module, &frame.regs, b, "/")? {
         return Ok(Some(thrown));
     }
-    frame.set(dst, int_binop(&frame.regs, a, b, crate::semantics::int_div, |x, y| x / y)?);
+    frame.set(dst, int_binop(&frame.regs, a, b, crate::vm::exec::ops::scalar::int_div, |x, y| x / y)?);
     Ok(None)
 }
 
@@ -116,7 +116,7 @@ pub(super) fn rem(
     if let Some(thrown) = check_int_div_by_zero(ctx, module, &frame.regs, b, "%")? {
         return Ok(Some(thrown));
     }
-    frame.set(dst, int_binop(&frame.regs, a, b, crate::semantics::int_rem, |x, y| x % y)?);
+    frame.set(dst, int_binop(&frame.regs, a, b, crate::vm::exec::ops::scalar::int_rem, |x, y| x % y)?);
     Ok(None)
 }
 
@@ -127,15 +127,15 @@ pub(super) fn rem(
 /// indicate a user exception to propagate, `Ok(None)` to continue.
 ///
 /// The zero-divisor decision + exception name + message are sourced from
-/// [`crate::semantics`] (shared with the JIT helper's `throw_int_div_by_zero`);
+/// [`crate::vm::exec::ops::scalar`] (shared with the JIT helper's `throw_int_div_by_zero`);
 /// only the `make_stdlib_exception` construction (needs ctx/module) stays here.
 fn check_int_div_by_zero(
     ctx: &VmContext, module: &Module, regs: &[Value], b: u32, op: &str,
 ) -> Result<Option<Value>> {
-    if regs.get(b as usize).is_some_and(crate::semantics::is_int_div_by_zero) {
+    if regs.get(b as usize).is_some_and(crate::vm::exec::ops::scalar::is_int_div_by_zero) {
         return Ok(Some(crate::exception::make_stdlib_exception(
-            ctx, module, crate::semantics::DIV_BY_ZERO_EXC,
-            crate::semantics::div_by_zero_msg(op),
+            ctx, module, crate::vm::exec::ops::scalar::DIV_BY_ZERO_EXC,
+            crate::vm::exec::ops::scalar::div_by_zero_msg(op),
         )?));
     }
     Ok(None)
@@ -145,7 +145,7 @@ fn check_int_div_by_zero(
 
 // interp-superinstr-fusion: all six comparisons route through the shared
 // `ops::eval_cmp` primitive (also used by the fused `CmpBr` super-instruction).
-use crate::metadata::superinstr::CmpOp;
+use crate::vm::runtime::CmpOp;
 
 pub(super) fn eq(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
     frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Eq, &frame.regs, a, b)?));
@@ -275,24 +275,24 @@ pub(super) fn to_str(
 // ── Numeric cast (spec fix-numeric-cast-lowering) ────────────
 //
 // converge-vm-arith-semantics (H3): the cast dispatch table + tag constants
-// moved to `crate::semantics::convert_value` (shared with the JIT
+// moved to `crate::vm::exec::ops::scalar::convert_value` (shared with the JIT
 // `jit_convert` helper); this handler is now just the frame read/write wrapper.
 
 /// make-hard-cast-fail-properly：硬转换失败改抛**可 catch 的真异常**。
 ///
 /// 此前直接 `convert_value(..)?`，而 `convert_value` 对非法组合是 `bail!` —— 内部错误，
 /// 不走异常机制（`catch (Exception)` 抓不到），消息还是 Rust Debug 格式。
-/// 现在先问 `semantics::hard_cast_failure`：它给出 (异常 FQ, 消息) 就走 `Ok(Some(exc))`
+/// 现在先问 `scalar::hard_cast_failure`：它给出 (异常 FQ, 消息) 就走 `Ok(Some(exc))`
 /// 抛异常通道（同 `check_int_div_by_zero` 的分工——判据+消息在 semantics、构造留在这里，
 /// 因为构造需要 ctx/module）。
 pub(super) fn convert(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, src: u32, to_tag: u8,
 ) -> Result<Option<Value>> {
     let v = frame.get(src)?.clone();
-    if let Some((exc_fq, msg)) = crate::semantics::hard_cast_failure(&v, to_tag) {
+    if let Some((exc_fq, msg)) = crate::vm::exec::ops::scalar::hard_cast_failure(&v, to_tag) {
         return Ok(Some(crate::exception::make_stdlib_exception(ctx, module, exc_fq, msg)?));
     }
-    let result = crate::semantics::convert_value(v, to_tag)?;
+    let result = crate::vm::exec::ops::scalar::convert_value(v, to_tag)?;
     frame.set(dst, result);
     Ok(None)
 }

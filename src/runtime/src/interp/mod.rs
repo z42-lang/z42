@@ -19,6 +19,7 @@
 /// • ops.rs        — register-level helpers (int_binop, collect_args, …)
 
 pub(crate) mod dispatch;
+pub mod superinstr;
 pub(crate) mod exec_instr;
 mod exec_address;
 pub(crate) mod exec_array;                 // add-struct-jit-value-path: JIT reuses try_struct_backed/pack_struct_elem
@@ -171,7 +172,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
         // last instruction + terminator, using the SHARED `ops::eval_cmp` (same
         // primitive the standalone cmp handlers use). Preserves the back-edge
         // safepoint + OSR hand-off exactly as the `BrCond` terminator does.
-        if let Some(crate::metadata::superinstr::SuperInstr::CmpBr { op, a, b, dst, t_blk, f_blk, typed }) = fused {
+        if let Some(crate::vm::runtime::SuperInstr::CmpBr { op, a, b, dst, t_blk, f_blk, typed }) = fused {
             // interp-typed-superinstr: `typed` ⇒ both operands statically I64 →
             // unchecked i64 compare (no discriminant branch). Else the dynamic
             // `eval_cmp` (same primitive the standalone cmp handlers use).
