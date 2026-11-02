@@ -26,7 +26,7 @@ pub(super) fn find_handler_entries(func: &Function, block_idx: usize) -> Vec<usi
 /// `jit_check_safepoint` helper call (~10ns) on the hot path. See
 /// `变更 inline-jit-safepoint-check/design.md`.
 ///
-/// Mirrors `gc::safepoint::check_safepoint`:
+/// Mirrors `vm::threads::safepoint::check_safepoint`:
 /// ```text
 ///   prev   = *(ctx + SAFEPOINT_SKIP_OFFSET)         // plain i32 load
 ///            *(ctx + SAFEPOINT_SKIP_OFFSET) = prev - 1

@@ -11,6 +11,7 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | 文件 | 职责 |
 |------|------|
 | `config.rs` | `GcConfig`：显式传入堆的不可变策略值，GC 不解析全局运行时设置 |
+| `to_vm.rs` | `GcRoots` / `GcToVm` / `GcPause`，以及不透明的上下文回收快照；VM 提供实现 |
 | `heap.rs` | `trait MagrGC` —— GC 抽象接口（MMTk porting contract 形态，11 能力组） |
 | `mode.rs` | `GcMode`：`GenerationalMarkSweep`（默认）/ `StwMarkSweep`，`Z42_GC_MODE` 选择 |
 | `footprint.rs` | `Footprint`：堆的真实占用（committed / pooled / occupied），三个 region 共用一份、随变随记；`malloc_size` 分配器取整模型。机制见 [book: GC 调参 · 真实占用记账](../../../../docs/internals/src/runtime/gc-tuning.md#真实占用记账与软上限) |
@@ -38,8 +39,6 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `side_bits.rs` | 字数组位集（置位 / 清位 / 逐位遍历），region 的年轻集合位图用 |
 | `satb.rs` | **SATB 删除屏障**：进程级 `MARKING_HEAPS` 快路径 + 线程本地记录缓冲，`retire_thread_tlab` 时交给堆 |
 | `tlab.rs` | thread-local `Tlab{var,holes}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/internals/src/runtime/gc-tlab.md) |
-| `safepoint.rs` | GC safepoint 协议 |
-| `ambient.rs` | thread-local 当前 VM 堆指针，供无堆参数的调用点分配 GC block |
 | `types.rs` | 支持类型 —— `RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `WeakRef` / `HeapSnapshot` / `HeapStats` / `FinalizerFn` / `AllocSamplerFn` / ... |
 | `retention.rs` / `snapshot.rs` | 堆保留诊断（反向引用图 + `whyRetained`）/ V8 `.heapsnapshot` 导出 |
 | `soft_registry.rs` | soft-reference 注册表（堆压力下可被清除的引用） |
@@ -93,7 +92,10 @@ z42 脚本端可调 `Std.GC.Collect()` / `UsedBytes()` / `ForceCollect()`（见
 `ArcMagrGC::new(config)` 显式接收 `GcConfig`，每个堆保存自己的配置快照。
 `ArcMagrGC::default()` 使用纯默认值，不读取环境或进程设置。VM 入口由门面
 `RuntimeConfig::gc_config` 转换已解析设置，继续应用原有配置优先级；独立基准同样显式转发。
-软引用阈值、阶段计时、nursery 策略与停顿窗口均取自当前堆。safepoint 的轮询节流仍由线程协议读取。
+软引用阈值、阶段计时、nursery 策略与停顿窗口均取自当前堆。safepoint 的轮询节流由 `vm/threads` 的线程协议读取。
+`collect_cycles_with_vm` 通过 `GcToVm` 申请暂停，GC 不持有线程上下文。根访问须处于暂停内，
+暂停服务的实现必须满足 `GcToVm` 的安全契约；丢弃令牌后恢复线程。加载上下文身份由 VM 回调解析，
+GC 只在标记后观察活对象，清扫结束后交回本轮不透明快照。
 
 ## 依赖关系
 

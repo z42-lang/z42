@@ -65,7 +65,7 @@ impl Tlab {
 }
 
 /// The claims a thread set aside when it parked for a blocking native call
-/// ([`crate::gc::NativeParkGuard`]): they stay borrowed (the thread may continue filling
+/// ([`crate::vm::threads::safepoint::NativeParkGuard`]): they stay borrowed (the thread may continue filling
 /// them after the call) unless a collection begins meanwhile — then the collector retires
 /// them on the parked thread's behalf, exactly as the thread would have at a safepoint park.
 pub(crate) struct ParkedTlab {

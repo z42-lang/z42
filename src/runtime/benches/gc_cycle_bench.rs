@@ -305,7 +305,7 @@ fn bench_minor_only_pure_young_churn(c: &mut Criterion) {
                 ctx
             },
             |ctx| {
-                ctx.heap().collect_cycles_with_context(&ctx);
+                ctx.heap().collect_cycles_with_vm(&*ctx);
                 black_box(&ctx);
             },
             BatchSize::SmallInput,
@@ -348,7 +348,7 @@ fn bench_minor_pause_with_large_pinned_old_gen(c: &mut Criterion) {
                 (ctx, pins)
             },
             |(ctx, _pins)| {
-                ctx.heap().collect_cycles_with_context(&ctx);
+                ctx.heap().collect_cycles_with_vm(&*ctx);
                 black_box(&ctx);
             },
             BatchSize::SmallInput,
@@ -382,7 +382,7 @@ fn bench_full_collect_with_large_pinned_old_baseline(c: &mut Criterion) {
                 (ctx, pins)
             },
             |(ctx, _pins)| {
-                ctx.heap().collect_cycles_with_context(&ctx);
+                ctx.heap().collect_cycles_with_vm(&*ctx);
                 black_box(&ctx);
             },
             BatchSize::SmallInput,

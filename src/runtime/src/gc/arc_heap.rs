@@ -238,32 +238,7 @@ impl std::fmt::Debug for RcHeapInner {
 
 // ── ArcMagrGC ─────────────────────────────────────────────────────────────────
 
-/// External root scanner type. 宿主（典型情况是 `VmCore` / `VmContext`）
-/// 通过 `set_external_root_scanner` 注册的闭包，在 mark 阶段被调用以暴露
-/// 自己持有的 Value（如 static_fields / pending_exception / interp 栈帧 regs），
-/// 让 cycle collector 不会把这些可达对象误判为 unreachable。
-///
-/// **add-multithreading-foundation Phase 3 **：要求 `Send + Sync`
-/// —— 闭包内部捕获 Arc<VmCore> Weak 等 Send-safe handle；GC 后续可能在
-/// 独立 worker 线程上跑收集。
-pub type ExternalRootScanner = Box<dyn Fn(&mut dyn FnMut(&Value)) + Send + Sync>;
-
-/// **add-lazy-context-unload **: lets the GC drive collectible
-/// `AssemblyLoadContext` reclamation. Wired by `VmCore` (captures `Weak<VmCore>`),
-/// routes to `VmCore.context_registry`. On a major STW collect: if `is_unloading`,
-/// the GC takes a `snapshot`, scans marked objects for retained contexts (see
-/// `scan_marked_contexts`), and calls `reclaim` post-sweep to free unreferenced
-/// `Unloading` contexts' arenas. `None` when no reclaimer is wired (tests).
-pub trait ContextReclaim: Send + Sync {
-    /// Cheap gate — true iff ≥1 context is in `Unloading` state (atomic read).
-    fn is_unloading(&self) -> bool;
-    /// Snapshot the context↔object association for this collect (registry lock once).
-    fn snapshot(&self) -> crate::vm::loader::contexts::ContextLiveness;
-    /// Free every `Unloading` context NOT in `live` (post-sweep, STW).
-    fn reclaim(&self, live: &std::collections::HashSet<crate::vm::loader::contexts::ContextId>);
-}
-
-pub type ContextReclaimHook = Box<dyn ContextReclaim>;
+use super::to_vm::{ContextReclaimHook, ExternalRootScanner};
 
 /// **add-heap-retention-diagnostics **: like `ExternalRootScanner`
 /// but yields each root **with its category** (`RootKind`). Used only by the
@@ -426,7 +401,7 @@ pub struct ArcMagrGC {
     satb_queue: parking_lot::Mutex<Vec<Value>>,
     /// **add-gc-pause-histogram **: aggregate pause-time
     /// histogram. Recorded into at the end of every `collect_cycles` /
-    /// `collect_cycles_with_context` / `force_collect` path, right
+    /// `collect_cycles_with_vm` / `force_collect` path, right
     /// before the `AfterCollect` event fires. Surfaced via
     /// `stats().pause_histogram` and the `Std.GC.PauseHistogram()` /
     /// `Std.GC.PauseStatsRaw()` z42 builtins. Single histogram per
@@ -500,7 +475,7 @@ pub struct ArcMagrGC {
     promoted_bytes_since_major: std::sync::atomic::AtomicU64,
     /// **add-bounded-nursery **: set by `maybe_auto_collect` when the promoted-byte
     /// gate trips, consumed (and cleared) by the generational arm of
-    /// `collect_cycles_with_context`. The auto-collect policy decides *which kind* of
+    /// `collect_cycles_with_vm`. The auto-collect policy decides *which kind* of
     /// collection it wants; the deferred safepoint path only knows "collect".
     pending_major: std::sync::atomic::AtomicBool,
     /// **add-promotion-age-knob **: minor GCs an entry must survive before it is
@@ -580,7 +555,7 @@ impl ArcMagrGC {
 }
 
 /// **fix-wasm-string-ops**: process-global monotonic source for [`ArcMagrGC::epoch`]. Starts at
-/// `1` so `0` stays the "no ambient heap" sentinel ([`crate::gc::ambient::current_heap_epoch`]).
+/// `1` so `0` stays the "no ambient heap" sentinel ([`crate::vm::exec::ambient::current_heap_epoch`]).
 static NEXT_HEAP_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 

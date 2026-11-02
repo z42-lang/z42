@@ -288,7 +288,7 @@ pub(crate) fn invoke_impl(
     // name this VM.
     #[cfg(feature = "native-interop")]
     let _vm_guard = crate::interop::exports::VmGuard::enter(ctx);
-    let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
+    let _heap_guard = crate::vm::exec::ambient::HeapGuard::enter(ctx.heap());
     // fix-host-static-init: run the merged packages' `__static_init__` once per module,
     // before the first entry — `Vm::run` does the same right before `Main`. Inside the
     // sink guard so initializer output reaches the host. `init_static_fields` clears all

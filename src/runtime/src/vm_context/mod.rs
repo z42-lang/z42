@@ -144,32 +144,6 @@ use crate::vm::loader::lazy::{LazyLoader, ZpkgCandidate};
 use crate::vm::runtime::Function;
 use crate::object::{TypeDesc, Value};
 
-/// **add-lazy-context-unload **: routes GC-driven collectible-context
-/// reclamation to `VmCore.context_registry`. Captures `Weak<VmCore>` (cycle
-/// avoidance, like the root scanner) + a clone of the unloading-count flag for a
-/// lock-free `is_unloading` gate. Registered via `heap.set_context_reclaimer`.
-struct CoreContextReclaimer {
-    core: Weak<VmCore>,
-    unloading: Arc<std::sync::atomic::AtomicUsize>,
-}
-
-impl crate::gc::arc_heap::ContextReclaim for CoreContextReclaimer {
-    fn is_unloading(&self) -> bool {
-        self.unloading.load(std::sync::atomic::Ordering::Relaxed) > 0
-    }
-    fn snapshot(&self) -> crate::vm::loader::contexts::ContextLiveness {
-        self.core
-            .upgrade()
-            .map(|c| c.context_registry.lock().liveness_snapshot())
-            .unwrap_or_default()
-    }
-    fn reclaim(&self, live: &std::collections::HashSet<crate::vm::loader::contexts::ContextId>) {
-        if let Some(c) = self.core.upgrade() {
-            c.context_registry.lock().reclaim(live);
-        }
-    }
-}
-
 #[cfg(test)]
 #[path = "../vm_context_tests.rs"]
 mod vm_context_tests;

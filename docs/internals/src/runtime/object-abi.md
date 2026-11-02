@@ -503,7 +503,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
 
 > `Value::Str` 的字节在单一 GC 堆内。`Str`（[`object/string/vstr.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/string/vstr.rs)）是 **8B `VarGcRef`**（`gc/var_region.rs` 的变长块，`BlockType::Str`，`{GcBlockHeader,
 > inline UTF-8}` 单次分配）——无 refcount，GC 管生死（mark/sweep）。分配走 **ambient 堆**
-> （`gc/ambient.rs`，引擎入口的 `HeapGuard` 设 thread-local，`Str::new`/`.into()` 无需显式堆参数）；无堆上下文
+> （`vm/exec/ambient.rs`，引擎入口的 `HeapGuard` 设 thread-local，`Str::new`/`.into()` 无需显式堆参数）；无堆上下文
 > （无 VM 的单测）回退 leaked 块。变长 payload 全部在 GC 堆内，统一堆模型闭合。
 
 - `Value::Str(VarGcRef)` = **GC 字符串对象**：8B 细指针指变长块，与 Object/Array 同一堆的
