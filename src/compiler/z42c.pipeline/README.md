@@ -26,6 +26,8 @@
 `tests/fixtures/` 放 harness 驱动的夹具工程，不是 `[Test]` 单元；约定见
 [测试用例组织规范](../../../docs/internals/src/devinfra/test-layout.md)。
 
+闭包性能载体：`benches/z42c.pipeline.bench.invalidation.z42.toml`（exe），运行参数为文件数、重复次数、`chain|sparse`；输出累计失效文件数。`[Benchmark]` 入口为 `bench_reverse_chain_256`。
+
 ## 关联文档
 - 设计 / 机制：[self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md)、[compiler-fingerprint.md](../../../docs/internals/src/compiler/compiler-fingerprint.md)、[project-model.md](../../../docs/internals/src/compiler/project-model.md)
 
@@ -57,7 +59,8 @@
 ### workspace 与增量
 | 文件 | 职责 |
 |------|------|
-| `src/IncrementalBuild.z42` | 文件级增量 probe：`ProbeFiles` 种子（hash / 条目·pin / 包级源清单）+ `Close` **名字级**失效闭包（已变名字集 → token 命中即失效 → 只有「声明面提到别人的已变名字」才继续传播）；`Z42_INCR_DEBUG` 打 `[name-changed]` / `[invalidated]` / `[spread]`；单测见 `tests/incremental/` |
+| `src/IncrementalBuild.z42` | 文件级增量 probe：`ProbeFiles` 种子（hash / 条目·pin / 包级源清单）+ `Close` **名字级**失效闭包（一轮扫描，无新增传播即结束；否则反向索引 + 工作队列）（已变名字集 → token 命中即失效 → 只有「声明面提到别人的已变名字」才继续传播）；`Z42_INCR_DEBUG` 打 `[name-changed]` / `[invalidated]` / `[spread]`；单测见 `tests/incremental/` |
+| `src/InvalidationQueue.z42` | 闭包传播的反向索引与工作队列；只在一轮扫描仍有新增传播时分配 |
 | `src/CacheStore.z42` | 增量缓存落盘（`z42.io`/`z42.encoding`）；条目 meta = 源 hash + **名字级声明面指纹 `nsurf`** + 声明面标识符 `sident` + ns/useddep/token + writer 残留 |
 | `src/DepIdentity.z42` | 依赖身份：增量缓存键里「这次编译看到的依赖」一维；每包取 BLID，无 BLID 回落整文件 Murmur3，使依赖接口变化能使消费方 cache 失效 |
 | `src/CompilerFingerprint.z42` | 编译器语义指纹：`Entries` 列表的内容哈希；每条语义变更追加一行 slug。规则见 [compiler-fingerprint.md](../../../docs/internals/src/compiler/compiler-fingerprint.md) |

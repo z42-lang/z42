@@ -433,3 +433,74 @@ ZbcFileZ _mkZbcFile(string rel, string src, CompiledModuleZ cm) {
     while (e < cm.Module.FuncCount) { exports[e] = cm.Module.Functions[e].Name; e = e + 1; }
     return new ZbcFileZ(rel, ZpkgBuilder.SourceHashHex(src), "T", exports, cm.Module.FuncCount, cm.Module);
 }
+
+[Test]
+void test_close_queue_matches_scan_graphs() {
+    int trial = 0;
+    while (trial < 100) {
+        int n = 3 + trial % 19;
+        IncrFilePlan actual = new IncrFilePlan(n);
+        IncrFilePlan expected = new IncrFilePlan(n);
+        string[] paths = new string[n];
+        NameListZ[] tokens = new NameListZ[n];
+        NameListZ[] surface = new NameListZ[n];
+        NameListZ[] names = new NameListZ[n];
+        int i = 0;
+        while (i < n) {
+            paths[i] = "f" + i.ToString();
+            names[i] = _names("N" + i.ToString(), "Shared");
+            tokens[i] = _names("N" + ((i + 1) % n).ToString(), "N" + ((i * 7 + trial) % n).ToString());
+            surface[i] = i % 3 == trial % 3 ? _names("Shared", "") : tokens[i];
+            bool fresh = i == n - 1 || (i + trial) % 7 == 0;
+            actual.Fresh[i] = fresh; expected.Fresh[i] = fresh;
+            if (fresh) { actual.FreshCount = actual.FreshCount + 1; expected.FreshCount = expected.FreshCount + 1; }
+            i = i + 1;
+        }
+        NameListZ changed = _names("N" + (n - 1).ToString(), trial % 2 == 0 ? "Shared" : "");
+        ClosureReference.Close(expected, paths, "", tokens, surface, names, changed);
+        IncrementalBuild.Close(actual, paths, "", tokens, surface, names, changed);
+        Assert.Equal(expected.FreshCount, actual.FreshCount);
+        Assert.Equal(expected.AllCached, actual.AllCached);
+        i = 0;
+        while (i < n) { Assert.Equal(expected.Fresh[i], actual.Fresh[i]); i = i + 1; }
+        trial = trial + 1;
+    }
+}
+
+[Test]
+void test_close_reverse_chain_and_repeat() {
+    int n = 256;
+    IncrFilePlan p = new IncrFilePlan(n);
+    string[] paths = new string[n];
+    NameListZ[] tokens = new NameListZ[n];
+    NameListZ[] surface = new NameListZ[n];
+    NameListZ[] names = new NameListZ[n];
+    int i = 0;
+    while (i < n) {
+        paths[i] = "f" + i.ToString();
+        names[i] = _names("N" + i.ToString(), "");
+        tokens[i] = _names("N" + (i + 1).ToString(), "");
+        surface[i] = tokens[i];
+        p.Metas[i] = new CacheMeta(paths[i]);
+        i = i + 1;
+    }
+    p.Fresh[n - 1] = true; p.FreshCount = 1; p.Metas[n - 1] = null;
+    IncrementalBuild.Close(p, paths, "", tokens, surface, names, names[n - 1]);
+    Assert.Equal(n, p.FreshCount);
+    i = 0;
+    while (i < n) { Assert.True(p.Fresh[i]); Assert.True(p.Metas[i] == null); i = i + 1; }
+    IncrementalBuild.Close(p, paths, "", tokens, surface, names, names[n - 1]);
+    Assert.Equal(n, p.FreshCount);
+}
+
+[Test]
+void test_close_empty_changes_and_null_lists() {
+    IncrFilePlan p = new IncrFilePlan(2);
+    string[] paths = new string[2];
+    NameListZ[] empty = new NameListZ[2];
+    IncrementalBuild.Close(p, paths, "", empty, empty, empty, _names("", ""));
+    Assert.True(p.AllCached);
+    IncrementalBuild.Close(p, paths, "", empty, empty, empty, _names("Absent", ""));
+    Assert.True(p.AllCached);
+    Assert.Equal(0, p.FreshCount);
+}

@@ -1,0 +1,95 @@
+// Independent scan-based oracle for queue propagation differential tests.
+namespace Z42cPipelineIncrementalTests;
+using Z42.Pipeline;
+using Z42.IR;
+using Std.IO;
+internal static class ClosureReference {
+    public static void Close(IncrFilePlan plan, string[] srcs, string projectDir,
+                             NameListZ[] tokens, NameListZ[] surfIdents, NameListZ[] names,
+                             NameListZ seedChanged) {
+        bool debug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG", "")) == "1";
+        int n = plan.Total;
+        StrMap changed = new StrMap();
+        int c = 0;
+        while (c < seedChanged.Count) { changed.Put(seedChanged.Items[c], seedChanged); c = c + 1; }
+        // spread[i]：该文件的定义名是否已整体并入 changed（每文件至多一次，保证迭代收敛）。
+        bool[] spread = new bool[n];
+        bool moved = true;
+        while (moved) {
+            moved = false;
+            int i = 0;
+            while (i < n) {
+                if (!plan.Fresh[i] && ClosureReference._hits(tokens[i], changed)) {
+                    plan.Fresh[i] = true;
+                    plan.FreshCount = plan.FreshCount + 1;
+                    plan.Metas[i] = null;
+                    moved = true;
+                    if (debug) {
+                        ConsoleError.WriteLine("  [invalidated] " + ClosureReference.Rel(projectDir, srcs[i])
+                            + " uses-changed-name " + ClosureReference._firstHit(tokens[i], changed));
+                    }
+                }
+                // 种子行与被波及行一视同仁：只有**声明面**提到了**别人**的已变名字，才把自己的
+                // 定义名并入已变集继续传（`class Foo : Bar` 这类布局透传链靠它接上；只在函数体里
+                // 用到则到此为止）。
+                // **必须排除「自己定义的名字」**：种子文件的声明面天然提到它自己刚改的那些名字，
+                // 不排除的话种子第一轮就把自己全部成员名并进已变集 —— 粒度当场退回文件级，
+                // 「加一个方法 → 全包提到 `Name` 的文件统统失效」这个症状原样复发（实测复现过）。
+                if (plan.Fresh[i] && !spread[i] && names[i] != null
+                    && ClosureReference._hitsExternal(surfIdents[i], names[i], changed)) {
+                    spread[i] = true;
+                    int k = 0;
+                    while (k < names[i].Count) {
+                        if (!changed.ContainsKey(names[i].Items[k])) {
+                            changed.Put(names[i].Items[k], seedChanged);
+                            moved = true;
+                        }
+                        k = k + 1;
+                    }
+                    if (debug) {
+                        ConsoleError.WriteLine("  [spread] " + ClosureReference.Rel(projectDir, srcs[i])
+                            + " declares against a changed name -> its own names now suspect");
+                    }
+                }
+                i = i + 1;
+            }
+        }
+        plan.AllCached = plan.FreshCount == 0;
+    }
+
+    // 命中「别人的」已变名字：跳过本文件自己定义的名字（见 spread 处的说明）。
+    private static bool _hitsExternal(NameListZ list, NameListZ own, StrMap changed) {
+        if (list == null) { return false; }
+        StrMap mine = new StrMap();
+        int k = 0;
+        while (own != null && k < own.Count) { mine.Put(own.Items[k], own); k = k + 1; }
+        int i = 0;
+        while (i < list.Count) {
+            if (!mine.ContainsKey(list.Items[i]) && changed.ContainsKey(list.Items[i])) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private static bool _hits(NameListZ list, StrMap changed) {
+        if (list == null) { return false; }
+        int i = 0;
+        while (i < list.Count) {
+            if (changed.ContainsKey(list.Items[i])) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private static string _firstHit(NameListZ list, StrMap changed) {
+        if (list == null) { return "?"; }
+        int i = 0;
+        while (i < list.Count) {
+            if (changed.ContainsKey(list.Items[i])) { return list.Items[i]; }
+            i = i + 1;
+        }
+        return "?";
+    }
+
+    public static string Rel(string projectDir, string path) { return path; }
+}
