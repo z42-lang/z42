@@ -9,6 +9,7 @@ docs/
 ├── learn/          学习手册      用 z42 写程序的人（学）
 ├── reference/      语言与库参考  用 z42 写程序的人（查）
 ├── internals/      实现内幕      改 z42 本身的人
+├── logo/           标志图片与网站图标包
 ├── agent/          AI 协作规范   给大模型的工作流程与约束
 ├── roadmap.md      项目计划与 Deferred 索引
 └── <主题>.md       临时迭代底稿（迭代完删除）
@@ -36,6 +37,7 @@ README.md           仓库门面      定位 + 上手 + 分流
 | 位置 | 是什么 |
 |---|---|
 | [`agent/`](agent/README.md) | AI 协作规范：大模型（及与之协作的人）干活的流程、判据与约束。系统知识不在这里 |
+| [`logo/`](logo/README.md) | 标志的 SVG / PNG 图片、使用说明与网站图标包 |
 | [`roadmap.md`](roadmap.md) | 项目计划与 Deferred 索引 |
 | 根目录的临时迭代底稿（当前：[`runtime-audit.md`](runtime-audit.md)） | 一轮多 PR 迭代的审计结论、证据、计划与进度；迭代完删除 |
 | [`internals/src/features.md`](internals/src/features.md) | 语言特性决策台账（决策 + 状态） |
