@@ -1,7 +1,11 @@
 """Regression coverage for runner loss, fail-closed decisions, and retry races."""
 
 import copy
+import os
 from pathlib import Path
+import subprocess
+import tempfile
+import textwrap
 import unittest
 
 from retry_runner import ACQUISITION_ERROR, retry
@@ -165,8 +169,27 @@ class RetryTests(unittest.TestCase):
                 section = text.split(f"\n  {name}:\n", 1)[1].split("\n  # ──", 1)[0]
                 self.assertIn("concurrency:\n      group:", section)
                 self.assertIn("ci-macos-arm64", section)
+                self.assertIn("needs.changes.outputs.macos_lane", section)
                 self.assertIn("queue: max", section)
                 self.assertIn("cancel-in-progress: false", section)
+
+    def test_queue_selection_uses_three_stable_lanes(self):
+        workflow = Path(__file__).parents[1] / "workflows" / "ci.yml"
+        block = workflow.read_text().split("id: macos_queue\n", 1)[1].split("\n      - ", 1)[0]
+        script = textwrap.dedent(block.split("run: |\n", 1)[1])
+        lanes = []
+        for number in [5566, 5567, 5568, 5566]:
+            with tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "output"
+                env = dict(os.environ, GITHUB_OUTPUT=str(output))
+                subprocess.run(["bash", "-euo", "pipefail", "-c",
+                                script.replace("${{ github.run_number }}", str(number))],
+                               env=env, check=True, capture_output=True)
+                line = output.read_text().strip()
+                self.assertTrue(line.startswith("lane="))
+                lanes.append(int(line.removeprefix("lane=")))
+        self.assertEqual(set(lanes[:3]), {0, 1, 2})
+        self.assertEqual(lanes[0], lanes[3])
 
 
 if __name__ == "__main__":

@@ -157,8 +157,15 @@ main 上的运行替换规则与 nightly 发布串行化分别由对应机制管
 
 ### macOS 资源队列与 runner 获取失败恢复
 
-主 CI 的 `test-host`、`package-host`、`test-stdlib-interp` 的 macOS 腿，以及 `package-ios`、`test-ios`
-共用 job 级 concurrency group `ci-macos-arm64`，同时只申请一个 macOS runner。`queue: max` 允许最多
+主 CI 在 `detect-changes` 中按 `run_number % 3` 选择 macOS 资源槽，输出 `macos_lane`（0 / 1 / 2）。
+`test-host`、`package-host`、`test-stdlib-interp` 的 macOS 腿，以及 `package-ios`、`test-ios`，
+在同一次运行中都使用对应的 job 级 concurrency group `ci-macos-arm64-<lane>`。一个槽同时只申请一个
+macOS runner，三个槽之间并行，主 CI 的 macOS 并发需求上限为 3；重跑保持原 run_number，仍使用同一个槽。
+不把全仓 macOS 工作串成单条队列，也不让每个 PR 自行扇出多个 macOS 申请。
+
+槽数的唯一配置在 ci.yml 的 `Select bounded macOS runner queue` 步骤。3 低于
+[Free / Pro / Team 默认的 macOS 并发上限 5](https://docs.github.com/en/actions/reference/limits)，
+为其它 workflow 留出余量；它不是 GitHub 容量保证。每个槽的 `queue: max` 允许最多
 100 个 job 等在 concurrency 队列中，`cancel-in-progress: false` 保留当前执行者；不能只用默认队列，
 默认只保留一个等待者、后来的 job 会取消前一个等待者。Linux / Windows 的矩阵腿按 run ID、job 类型、
 平台分组，保持并行。PR 的 workflow 级新提交取消旧运行规则仍然生效。
