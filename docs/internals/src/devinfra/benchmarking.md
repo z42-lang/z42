@@ -16,7 +16,9 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 | **z42 micro** | `[Benchmark]` + `Std.Harness.Bencher`（z42b 派发）| 各 lib 的 `benches/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ✅ 硬门禁（`bench --micro-diff` + 可疑即复测）|
 | **Rust micro** | criterion | `src/runtime/benches/gc_cycle_bench.rs` | VM 内部热路径（GC cycle / minor / sweep / alloc）| ⚠️ **只打印、不判红**（仅 `src/runtime` 有非文档改动时才测）|
 
-e2e 捕获全管线回归（启动开销 / dispatch / 整体吞吐）；micro 把回归定位到具体函数、守 stdlib 热路径。
+e2e 捕获全管线回归（启动开销 / dispatch / 整体吞吐）；micro 把回归定位到具体函数、守 stdlib 与编译器域热路径。
+`bench stdlib` 默认枚举两个 workspace 的基准；包的 `tests/` 是否采用独立编译器工程，不影响其 `benches/` 被发现。
+分片按当前 test / bench 目录中的 unit 数量估算负载。
 前两层都由[可疑即复测](#5-可疑即复测)决定最终判定——它们的共同病根是「区间低估约三倍」，
 复测把那部分方差测出来，病根即消除。
 

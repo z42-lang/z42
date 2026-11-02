@@ -278,7 +278,8 @@ scripts/
 │   ├── xtask_fixture_build.z42  cross-zpkg / multi-exe 共用的构建、隔离 libs、产物定位与汇总
 │   ├── xtask_test_cross.z42     e2e cross-zpkg 多包
 │   ├── xtask_test_multiexe.z42  e2e multi-exe（一工程 → N 个 exe zpkg）
-│   ├── xtask_test_lib.z42       stdlib [Test]/[Benchmark] 编排（per-lib + 分片）；共用 runner `_testPkgsCore`
+│   ├── xtask_test_lib.z42       stdlib / 编译器域 [Test]/[Benchmark] 按 kind 发现、分片与编排；共用 runner `_testPkgsCore`
+│   ├── xtask_selfcheck_lib_discovery.z42  test / bench 归属与分片发现回归
 │   ├── xtask_test_toolchain.z42 `test toolchain`：src/toolchain/<comp>/ 下各工程的 [Test] unit
 │   ├── xtask_test_lib_units.z42 unit 级机制（发现 / 批量编译运行 / 合成 manifest）
 │   ├── xtask_manifest_targets.z42  manifest [[test]]/[[bench]]/[[example]] target **引擎**
