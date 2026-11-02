@@ -7,7 +7,7 @@
 //!
 //! This module holds the **pure graph logic**: `RetentionGraph` records reverse
 //! edges (`child ← parent`) + root edges, and answers L1/L2. The heap walk that
-//! feeds it (iterate live regions + categorized roots) lives in `arc_heap.rs`.
+//! feeds it (iterate live regions + categorized roots) lives in `heap.rs`.
 //! Full retaining *paths* (L3) are deferred.
 
 use std::collections::{HashMap, HashSet, VecDeque};

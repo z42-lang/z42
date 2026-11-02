@@ -126,7 +126,7 @@ A/B（同机交错 ×3）总停顿 −1.4%，最大停顿在逐轮离散度之�
 每个切片都是一次普通的 STW 暂停（`request_gc_pause`），预算 `Z42_GC_SLICE_MS`（默认 2 ms；native 看时钟，
 wasm32 没有时钟改数工作量，单测也用工作量以保证交错确定）。**标记从不与 mutator 并发执行** ——
 切片之间世界照常前进，靠三条不变量跨过去：SATB（被剪的边交出旧值）、allocate-black（周期内出生即黑）、
-minor 把灰队列与 SATB 记录当根。状态机在 `gc/arc_heap/incremental.rs`（`IncrementalState` 是 `ArcMagrGC` 上的一个字段）。
+minor 把灰队列与 SATB 记录当根。状态机在 `gc/heap/incremental.rs`（`IncrementalState` 是 `Heap` 上的一个字段）。
 
 预算按「追踪一个值 = 1 单位、清扫一个 chunk = 64 单位」计；**一个超大数组算 1 单位**（`trace_children`
 一次压进全部元素），所以有一次切片会超出预算 —— 实测 `13_gc_large_heap`（5 万元素的根数组）的最长标记切片 2.2 ms。
@@ -247,7 +247,7 @@ major 的停顿与堆大小脱钩之后，剩余的最大停顿**全部来自 mi
 
 ## 测试
 
-`src/runtime/src/gc/arc_heap_tests/incremental.rs`，手工驱动周期（开周期 → 快照根 → mutator 动作 → drain → 收尾 → sweep），
+`src/runtime/src/gc/heap_tests/incremental.rs`，手工驱动周期（开周期 → 快照根 → mutator 动作 → drain → 收尾 → sweep），
 存活性一律经弱引用观察，不解引用可能已被回收的句柄：
 
 - 字段读进寄存器再清字段：开屏障存活 / **关屏障被回收**（阴性对照，证明测试能判别）

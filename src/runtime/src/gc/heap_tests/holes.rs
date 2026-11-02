@@ -1,0 +1,272 @@
+//! M12: the TLAB reuses dead slots of partially-live variable-length chunks
+//! (`var_region::holes`). These drive an **armed** thread, so allocation takes the TLAB path —
+//! the one that reuses holes — and check what reuse must preserve: weak references, finalizers,
+//! allocate-black during an incremental cycle, and the census the chunk reclaim relies on.
+
+use super::*;
+use crate::gc::GcMode;
+use std::collections::HashSet;
+use std::sync::Arc as StdArc;
+
+/// Arms the thread for the scope; retires its TLAB into `heap` and disarms on drop.
+struct Armed<'a>(&'a Heap);
+impl<'a> Armed<'a> {
+    fn new(heap: &'a Heap) -> Self {
+        crate::gc::tlab::arm();
+        Armed(heap)
+    }
+}
+impl Drop for Armed<'_> {
+    fn drop(&mut self) {
+        self.0.retire_thread_tlab();
+        crate::gc::tlab::disarm();
+    }
+}
+
+/// `n`, scaled down under Miri (these tests are about shape, not volume).
+const fn scaled(n: usize) -> usize {
+    if cfg!(miri) { n / 20 } else { n }
+}
+
+fn obj(heap: &Heap, name: &str) -> Value {
+    heap.alloc_object(dummy_type_desc(name), vec![Value::Null], NativeData::None)
+}
+
+fn addr_of(v: &Value) -> usize {
+    let Value::Object(o) = v else { panic!("object expected") };
+    o.var_ref().addr()
+}
+
+/// `n` objects, every other one pinned; after a full collection the unpinned half are holes in
+/// chunks that stay live. Returns the pins and the dead addresses.
+fn half_dead(heap: &Heap, n: usize) -> (Vec<crate::gc::RootHandle>, HashSet<usize>) {
+    let mut pins = Vec::new();
+    let mut dead = HashSet::new();
+    for i in 0..n {
+        let v = obj(heap, "H");
+        if i % 2 == 0 {
+            pins.push(heap.pin_root(v));
+        } else {
+            dead.insert(addr_of(&v));
+        }
+    }
+    heap.force_collect();
+    (pins, dead)
+}
+
+#[test]
+fn the_tlab_fills_holes_before_carving_new_chunks() {
+    let heap = Heap::default();
+    let _g = Armed::new(&heap);
+    let (_pins, dead) = half_dead(&heap, scaled(4000));
+    let chunks = heap.region_var_for_test().lock().chunk_count();
+    let again: Vec<Value> = (0..dead.len()).map(|_| obj(&heap, "H")).collect();
+    let reused = again.iter().filter(|v| dead.contains(&addr_of(v))).count();
+    assert_eq!(reused, dead.len(), "every new object of the same class lands in a hole");
+    heap.retire_thread_tlab();
+    assert_eq!(heap.region_var_for_test().lock().chunk_count(), chunks, "no chunk was added");
+    #[cfg(debug_assertions)]
+    heap.debug_validate_invariants();
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // ten full collections over 30 000 objects: a policy check, no new unsafe
+fn churn_with_survivors_reaches_a_steady_chunk_count() {
+    // A ring of long-lived objects, half of each round's allocations replacing a random member:
+    // the replaced ones die scattered over old chunks, which therefore never die whole. Without
+    // hole reuse every round carves fresh chunks and the count climbs; with it the count settles.
+    const RING: usize = 3000;
+    let heap = Heap::default();
+    let _g = Armed::new(&heap);
+    let mut ring: Vec<crate::gc::RootHandle> = (0..RING).map(|_| heap.pin_root(obj(&heap, "C"))).collect();
+    let mut seed = 12345u64;
+    let mut counts = Vec::new();
+    for _ in 0..10 {
+        for _ in 0..RING {
+            let v = obj(&heap, "C");
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            if (seed >> 33) % 2 == 0 {
+                let slot = ((seed >> 40) as usize) % RING;
+                heap.unpin_root(std::mem::replace(&mut ring[slot], heap.pin_root(v)));
+            }
+        }
+        heap.collect_full(); // a minor never reaches the ring members that died old
+        counts.push(heap.region_var_for_test().lock().chunk_count());
+    }
+    assert!(counts[9] <= counts[3], "the chunk count keeps climbing under churn: {counts:?}");
+}
+
+#[test]
+fn a_weak_reference_never_resolves_to_the_object_reusing_its_slot() {
+    let heap = Heap::default();
+    let _g = Armed::new(&heap);
+    let _keep = heap.pin_root(obj(&heap, "Neighbour")); // keeps the chunk from dying whole
+    let victim = obj(&heap, "Victim");
+    let victim_addr = addr_of(&victim);
+    let weak = heap.make_weak(&victim).unwrap();
+    // `victim` is a plain copy of the handle, not a root: the collection below reclaims it.
+    heap.force_collect();
+    assert!(heap.upgrade_weak(&weak).is_none());
+    let mut found = None;
+    for _ in 0..64 {
+        let v = obj(&heap, "Victim");
+        if addr_of(&v) == victim_addr {
+            found = Some(v);
+            break;
+        }
+    }
+    let successor = found.expect("the victim's slot is reused");
+    let _pin = heap.pin_root(successor.clone());
+    assert!(heap.upgrade_weak(&weak).is_none(), "the old weak reference stays dead");
+    let fresh = heap.make_weak(&successor).unwrap();
+    assert!(heap.upgrade_weak(&fresh).is_some());
+}
+
+#[test]
+fn a_finalized_objects_slot_is_reused_only_after_its_finalizer_ran() {
+    let heap = Heap::default();
+    let _g = Armed::new(&heap);
+    let _keep = heap.pin_root(obj(&heap, "Neighbour"));
+    let fired = StdArc::new(std::sync::atomic::AtomicUsize::new(0));
+    let victim = obj(&heap, "Victim");
+    let victim_addr = addr_of(&victim);
+    let f = fired.clone();
+    heap.register_finalizer(&victim, StdArc::new(move || {
+        f.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }));
+    // `victim` is a plain copy of the handle, not a root: the collection below reclaims it.
+    heap.force_collect();
+    assert_eq!(fired.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let successor = (0..64).map(|_| obj(&heap, "Victim")).find(|v| addr_of(v) == victim_addr)
+        .expect("the finalized object's slot is reused");
+    let Value::Object(s) = &successor else { unreachable!() };
+    assert!(heap.take_block_finalizer(s.var_ref()).is_none(), "the successor inherits no finalizer");
+    let _pin = heap.pin_root(successor.clone());
+    heap.force_collect();
+    assert_eq!(fired.load(std::sync::atomic::Ordering::SeqCst), 1, "fired once, for the dead object only");
+}
+
+#[test]
+fn a_hole_filled_during_an_incremental_cycle_is_allocated_black() {
+    let heap = Heap::default();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+    heap.set_nursery_bytes_for_test(1 << 40);
+    let _g = Armed::new(&heap);
+    let (_pins, dead) = half_dead(&heap, scaled(2000));
+    for _ in 0..scaled(700) {
+        obj(&heap, "G"); // garbage enough for a cycle that spans slices
+    }
+    assert!(!heap.run_major_slice_for_test(1));
+    assert!(heap.major_cycle_marking_for_test());
+    let born = (0..dead.len()).map(|_| obj(&heap, "Born")).find(|v| dead.contains(&addr_of(v)))
+        .expect("an allocation during the mark lands in a hole");
+    let Value::Object(b) = &born else { unreachable!() };
+    assert!(b.var_ref().is_marked(heap.major_mark_for_test()), "a reused slot is born black");
+    let weak = heap.make_weak(&born).unwrap();
+    // Unrooted from here: only its allocation color can carry it through the cycle.
+    while !heap.run_major_slice_for_test(300) {}
+    assert!(heap.upgrade_weak(&weak).is_some(), "it survives the cycle it was born in");
+    #[cfg(debug_assertions)]
+    heap.debug_validate_invariants();
+}
+
+// ── a native park carries the hole stash (vm::threads::safepoint::native_park_incr) ──────────────
+
+fn census_is_exact(heap: &Heap) {
+    let r = heap.region_var_for_test().lock();
+    let mut alive = vec![0u32; r.live_per_chunk_for_test().len()];
+    r.iterate_alive(|v, _| alive[r.chunk_of(v.addr()).expect("in a chunk")] += 1);
+    assert_eq!(r.live_per_chunk_for_test(), alive, "live_per_chunk matches a walk");
+    assert_eq!(r.live_count(), alive.iter().map(|&n| n as usize).sum::<usize>(), "live_count matches a walk");
+}
+
+/// No collection while parked: the stash comes back with the claims and the thread keeps
+/// filling the same batch.
+#[test]
+fn a_native_park_without_a_collection_hands_the_hole_stash_back() {
+    let heap = Heap::default();
+    let _g = Armed::new(&heap);
+    let (_pins, dead) = half_dead(&heap, scaled(400));
+    let first = obj(&heap, "H");
+    assert!(dead.contains(&addr_of(&first)), "the batch was taken");
+    let unused = crate::gc::tlab::with_current_tlab(|t| t.holes.unused());
+    assert!(unused > 0);
+    let slot = crate::gc::tlab::ParkedTlabSlot::default();
+    heap.park_thread_tlab(&slot);
+    assert!(crate::gc::tlab::with_current_tlab(|t| t.is_unbound() && t.holes.is_empty()), "the stash left the thread");
+    heap.unpark_thread_tlab(&slot);
+    assert_eq!(crate::gc::tlab::with_current_tlab(|t| t.holes.unused()), unused, "the same batch is back");
+    let next = obj(&heap, "H");
+    assert!(dead.contains(&addr_of(&next)), "and filling resumes from it");
+}
+
+/// A collection that runs while the thread is native-parked retires the parked stash as the
+/// thread's own retire would (`request_gc_pause` → `retire_parked_tlab`): unused slots go back
+/// on the free list once, the census is exact, nothing is lost or handed out twice, and after
+/// unparking the thread takes a fresh batch and keeps reusing holes.
+#[test]
+fn a_collection_during_a_native_park_retires_the_parked_hole_stash() {
+    let heap = Heap::default();
+    let _g = Armed::new(&heap);
+    let (_pins, dead) = half_dead(&heap, scaled(400));
+    let filled: Vec<Value> = (0..3).map(|_| obj(&heap, "H")).collect();
+    assert!(filled.iter().all(|v| dead.contains(&addr_of(v))));
+    let _filled_pins: Vec<_> = filled.iter().map(|v| heap.pin_root(v.clone())).collect();
+    assert!(crate::gc::tlab::with_current_tlab(|t| t.holes.unused()) > 0, "unused slots are stashed");
+    let slot = crate::gc::tlab::ParkedTlabSlot::default();
+    heap.park_thread_tlab(&slot);
+    // The collector, on another thread: retire every parked TLAB, then collect.
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            Heap::retire_parked_tlab(&heap, &slot);
+            heap.force_collect();
+        }).join().unwrap();
+    });
+    census_is_exact(&heap);
+    heap.unpark_thread_tlab(&slot); // nothing left to take back
+    assert!(crate::gc::tlab::with_current_tlab(|t| t.is_unbound() && t.holes.is_empty()));
+    // Every dead slot but the three filled ones is reusable exactly once.
+    let again: Vec<Value> = (0..dead.len() - 3).map(|_| obj(&heap, "H")).collect();
+    let addrs: HashSet<usize> = again.iter().map(addr_of).collect();
+    assert_eq!(addrs.len(), again.len(), "no slot handed out twice");
+    let filled_addrs: HashSet<usize> = filled.iter().map(addr_of).collect();
+    assert!(addrs.is_disjoint(&filled_addrs), "a live block's slot is not reused");
+    assert_eq!(addrs.iter().filter(|a| dead.contains(a)).count(), again.len(), "every one lands in a hole");
+    heap.retire_thread_tlab();
+    census_is_exact(&heap);
+    #[cfg(debug_assertions)]
+    heap.debug_validate_invariants();
+}
+
+/// Object model R9: a dead array's slot is reused by a block of another kind (here a string of
+/// the same size class) — the array's descriptor word left in the dead header must not survive
+/// into the new occupant, and the reused array slot reads as the new array.
+#[test]
+fn an_array_hole_is_reused_by_another_kind_of_block() {
+    let heap = Heap::default();
+    let _g = Armed::new(&heap);
+    // An untyped (MIXED) `[2]`: a 32 B payload, the same size class as a 32-byte string.
+    let mut pins = Vec::new();
+    let mut dead = HashSet::new();
+    for i in 0..scaled(2000) {
+        let v = heap.alloc_array(vec![Value::Null, Value::Null]);
+        let Value::Array(a) = &v else { panic!() };
+        if i % 2 == 0 { pins.push(heap.pin_root(v)); } else { dead.insert(a.var_ref().addr()); }
+    }
+    heap.force_collect();
+    let strs: Vec<_> = (0..dead.len()).map(|_| heap.alloc_str("0123456789abcdef0123456789abcdef")).collect();
+    let reused = strs.iter().filter(|s| dead.contains(&s.var_ref().addr())).count();
+    assert!(reused > 0, "the strings land in the dead arrays' slots");
+    assert!(strs.iter().all(|s| &**s == "0123456789abcdef0123456789abcdef"));
+    // And back: arrays into the strings' slots once those die.
+    drop(strs);
+    heap.force_collect();
+    let arrs: Vec<_> = (0..dead.len()).map(|_| heap.alloc_array(vec![Value::I64(7), Value::Null])).collect();
+    for a in &arrs {
+        let Value::Array(a) = a else { panic!() };
+        assert_eq!(a.borrow().get_boxed(0), Value::I64(7));
+    }
+    #[cfg(debug_assertions)]
+    heap.debug_validate_invariants();
+    drop(pins);
+}
