@@ -1,4 +1,4 @@
-//! **add-gc-softref **: soft-reference registry for `ArcMagrGC`.
+//! **add-gc-softref **: soft-reference registry for `Heap`.
 //!
 //! The registry tracks all live soft-reference targets (object and array blocks) in a
 //! `Vec<ErasedSoftEntry>` the GC revive pass re-marks from.
@@ -18,7 +18,7 @@
 //! # Thread safety
 //!
 //! `SoftRegistry` is `!Send + !Sync` — it lives inside
-//! `ArcMagrGC.inner: Mutex<RcHeapInner>` and is only accessed while
+//! `Heap.inner: Mutex<RcHeapInner>` and is only accessed while
 //! that lock is held (STW collect / alloc / drop). All operations are
 //! thus single-threaded at call time.
 
@@ -105,7 +105,7 @@ impl SoftRegistry {
     }
 
     /// Drop every entry whose target is the block at `key` (it died — see
-    /// `ArcMagrGC::process_flagged_dead`).
+    /// `Heap::process_flagged_dead`).
     pub(crate) fn remove_all(&mut self, key: usize) {
         self.entries.retain(|e| e.ptr_key() != key);
     }

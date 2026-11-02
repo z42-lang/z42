@@ -9,7 +9,7 @@
 //! - **stack-allocated objects** (`interp::stack_alloc`): escape analysis proved them
 //!   frame-local, so they never enter the heap;
 //! - **objects under construction** that are built before the heap sees them
-//!   (`MagrGC::alloc_script_object`: reflection's `Activator.CreateInstance`, tests). The heap
+//!   (`Heap::alloc_script_object`: reflection's `Activator.CreateInstance`, tests). The heap
 //!   copies the header and fields into a fresh block and frees this one. The hot path
 //!   (`ObjNew`) does not go through here — it builds the object directly in its heap block.
 //!
@@ -71,7 +71,7 @@ impl OwnedObject {
 
     /// A fresh instance for `ObjNew`'s stack branch: zeroed fields plus the instance's generic
     /// step ([`ScriptObject::install_type_args`]). The heap branch builds the same object in place
-    /// (`MagrGC::alloc_instance`); both must stay in lockstep, or flipping `Z42_STACKALLOC`
+    /// (`Heap::alloc_instance`); both must stay in lockstep, or flipping `Z42_STACKALLOC`
     /// changes observable values.
     pub fn new_instance(type_desc: Arc<TypeDesc>, type_args: TypeArgs) -> Self {
         let n = type_desc.object_bytes_len();

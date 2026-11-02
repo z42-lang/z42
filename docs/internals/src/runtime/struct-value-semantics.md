@@ -550,7 +550,7 @@ GC 管理 + 引用身份；基元 = 轻量 `Box`、无引用身份、非 GC 管�
 string 各留自己的 `Value` variant，不经此路）。整数标量的 **LE 字节存进盒的 `struct_bytes`**
 （宽度按 wrapper 名查 `well_known_names::int_wrapper_scalar_spec` → `Std.Int32`→4 / `Std.Byte`→1 /
 `Std.Int64`→8…），`slots`/`struct_refs` 空。**关键**：基元 wrapper（`Std.Int32` 等）是 phantom struct
-（零字段 / layout size 0），故装箱走**专用 alloc** `MagrGC::alloc_boxed_prim`（调用方按标量宽度定 `struct_bytes`
+（零字段 / layout size 0），故装箱走**专用 alloc** `Heap::alloc_boxed_prim`（调用方按标量宽度定 `struct_bytes`
 尺寸），**不**走 `type_desc.inline_regions()`（那会给零字段 wrapper 空 `struct_bytes`）→ wrapper 的 emitted
 struct_layout / zbc TYPE section 完全不动，**无格式 bump**。
 

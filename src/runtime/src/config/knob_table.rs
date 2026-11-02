@@ -82,7 +82,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "let the minor sweep lower the promotion age by one tier when that tier is measured to reclaim nothing (survival of the tier below the configured age >= 95%), and restore it when it stops being true; set 0 to pin the configured age",
         default_hint: "unset; on",
-        consumed_by: "gc/arc_heap/promotion_policy.rs, decided at each minor sweep",
+        consumed_by: "gc/heap/promotion_policy.rs, decided at each minor sweep",
         ..TUNING
     },
     KnobSpec {
@@ -91,7 +91,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "generational only: run a major collection as bounded stop-the-world slices (budget Z42_GC_SLICE_MS) with mutators and minors running in between, so the longest pause does not grow with the heap; set 0 to run each major in one pause",
         default_hint: "unset; on",
-        consumed_by: "gc/arc_heap/incremental.rs",
+        consumed_by: "gc/heap/incremental.rs",
         ..TUNING
     },
     KnobSpec {
@@ -111,7 +111,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Str,
         description: "soft heap cap: squeezes the collection allowance and adds a near-limit trip. NOT the arming switch since arm-gc-by-default — the collector's thresholds are relative and it runs without one. Accepts a byte count or a K/KB/M/MB/G/GB suffix (512MB, 2G)",
         default_hint: "unset; no cap (the collector still runs, on relative-growth thresholds)",
-        consumed_by: "vm_context/construct.rs (set_max_heap_bytes) → gc/arc_heap/alloc.rs",
+        consumed_by: "vm_context/construct.rs (set_max_heap_bytes) → gc/heap/alloc.rs",
         ..PUBLIC
     },
     KnobSpec {
@@ -120,7 +120,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Float { min: 0.0, max: 1.0 },
         description: "fraction (0.0–1.0) of young entries surviving minor GC above which the next collect escalates to major immediately",
         default_hint: "unset; defaults to 0.75 (survival ratio)",
-        consumed_by: "gc/arc_heap.rs",
+        consumed_by: "gc/heap.rs",
         ..TUNING
     },
     KnobSpec {
@@ -129,7 +129,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Enum(GC_MODES),
         description: "GC algorithm: `stw` / `generational` (with `-mark-sweep` aliases)",
         default_hint: "unset; defaults to `generational-mark-sweep`",
-        consumed_by: "config/split.rs → gc/arc_heap/construct.rs",
+        consumed_by: "config/split.rs → gc/heap/construct.rs",
         ..PUBLIC
     },
     KnobSpec {
@@ -138,7 +138,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Float { min: 0.0, max: 1.0 },
         description: "heap-used fraction (0.0–1.0) of the max-bytes limit at/above which an auto-collect trips and a NearHeapLimit event fires",
         default_hint: "unset; defaults to 0.90",
-        consumed_by: "gc/arc_heap/alloc.rs",
+        consumed_by: "gc/heap/alloc.rs",
         ..TUNING
     },
     KnobSpec {
@@ -148,7 +148,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Str,
         description: "the unit the auto-collect policy is denominated in: bytes allocated before a MINOR trips (generational), and x4 the floor under a major's allowance (both modes). Accepts a byte count or a K/KB/M/MB/G/GB suffix",
         default_hint: "unset; defaults to 16M (Mono SGen uses 4M). Moves with Z42_GC_PROMOTION_AGE — a smaller nursery promotes more eagerly",
-        consumed_by: "gc/arc_heap/auto_collect.rs",
+        consumed_by: "gc/heap/auto_collect.rs",
         ..TUNING
     },
     KnobSpec {
@@ -157,7 +157,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Float { min: 0.0, max: 1000.0 },
         description: "generational only: target maximum minor pause in milliseconds — the nursery is sized from the measured cost of collecting it instead of being a constant; 0 disables the adaptation, and an explicit Z42_GC_NURSERY_BYTES disables it too",
         default_hint: "unset; defaults to 10",
-        consumed_by: "gc/arc_heap/pause_budget.rs",
+        consumed_by: "gc/heap/pause_budget.rs",
         ..TUNING
     },
     KnobSpec {
@@ -175,7 +175,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "break each collection's pause down on stderr — one line per phase (reset marks, full mark, each half of sweep, aging) with duration and entries handled",
         default_hint: "unset; off. The timers never read the clock when off (zero cost)",
-        consumed_by: "gc/phase_timer.rs, read at each phase boundary in gc/arc_heap/",
+        consumed_by: "gc/phase_timer.rs, read at each phase boundary in gc/heap/",
         ..DEBUG_KNOB
     },
     KnobSpec {
@@ -184,7 +184,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Float { min: 0.0, max: 1.0 },
         description: "heap-used fraction (0.0–1.0) in [pressure, near) that fires an AllocationPressure event; stays below the near-limit ratio",
         default_hint: "unset; defaults to 0.75",
-        consumed_by: "gc/arc_heap/alloc.rs",
+        consumed_by: "gc/heap/alloc.rs",
         ..TUNING
     },
     KnobSpec {
@@ -202,7 +202,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Float { min: 0.01, max: 1000.0 },
         description: "time budget of one incremental major slice in milliseconds (Z42_GC_INCREMENTAL); tiny values like 0.05 are a stress setting that maximises how often mutators run mid-major",
         default_hint: "unset; defaults to 2",
-        consumed_by: "gc/arc_heap/incremental.rs",
+        consumed_by: "gc/heap/incremental.rs",
         ..TUNING
     },
     KnobSpec {
@@ -238,7 +238,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "generational only: before every minor, check from scratch that every old object holding a young reference sits on a dirty card, and panic naming the owner if not — a missing write barrier caught at the store's first minor instead of as a later use-after-free. O(old heap) per minor",
         default_hint: "unset; off",
-        consumed_by: "gc/arc_heap/card_verify.rs, at the start of each minor",
+        consumed_by: "gc/heap/card_verify.rs, at the start of each minor",
         ..DEBUG_KNOB
     },
     KnobSpec {
@@ -464,7 +464,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         tier: Tier::Internal,
         description: "iteration count for GC stress tests (test code only)",
         default_hint: "unset; defaults to 100",
-        consumed_by: "gc/arc_heap_tests/stress.rs",
+        consumed_by: "gc/heap_tests/stress.rs",
         ..PUBLIC
     },
     KnobSpec {

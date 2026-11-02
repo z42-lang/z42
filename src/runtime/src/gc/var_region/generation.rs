@@ -11,7 +11,7 @@ use crate::gc::side_bits;
 
 impl VarRegion {
     /// **adaptive-promotion **: re-point the region at a new promotion age (at the end
-    /// of a major, right before the aging pass — see `ArcMagrGC::apply_promotion_age`).
+    /// of a major, right before the aging pass — see `Heap::apply_promotion_age`).
     pub fn set_promotion_age(&mut self, age: u8) {
         self.promotion_age = age;
     }
@@ -279,7 +279,7 @@ impl VarRegion {
         (tenured, object_bytes)
     }
 
-    /// The promotion line was just lowered **between collections** (`ArcMagrGC::lower_line_after_minor`):
+    /// The promotion line was just lowered **between collections** (`Heap::lower_line_after_minor`):
     /// take every young block the new line makes old out of the set, without aging anything.
     /// Returns the objects and arrays among them (the heap remembers those with a young child).
     pub fn delist_past_line(&mut self) -> Vec<VarGcRef> {

@@ -1,5 +1,5 @@
 use super::*;
-use crate::gc::{ArcMagrGC, GcConfig, GcMode, MagrGC};
+use crate::gc::{Heap, GcConfig, GcMode};
 use std::sync::{Arc, Mutex};
 
 struct TestVm {
@@ -33,7 +33,7 @@ unsafe impl GcToVm for TestVm {
 }
 
 fn run(allow: bool) {
-    let heap = ArcMagrGC::new(GcConfig {
+    let heap = Heap::new(GcConfig {
         mode: GcMode::StwMarkSweep,
         ..GcConfig::default()
     });
@@ -84,7 +84,7 @@ fn rejected_pause_does_not_scan_or_collect() {
 
 #[test]
 fn panic_in_root_provider_still_drops_the_pause_token() {
-    let heap = ArcMagrGC::new(GcConfig {
+    let heap = Heap::new(GcConfig {
         mode: GcMode::StwMarkSweep,
         ..GcConfig::default()
     });
