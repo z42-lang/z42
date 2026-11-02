@@ -1,5 +1,5 @@
 # 源集条目（plugins-include-form）：hooks/ 两文件一源集（include glob），z42b 合成最小清单 →
-# ICompiler 代建 → 反射出全部 BuildHooks。_smokeHookInclude 断言两条标记（漏收任一文件即缺）。
+# ICompiler 代建 → 反射出全部 BuildHooks。expect.toml 断言两条标记（漏收任一文件即缺）。
 [project]
 name    = "hi.app"
 version = "0.1.0"

@@ -1,0 +1,4 @@
+desc = "父包的 syntax 配置传递给测试目标"
+args = ["test", "{case}/z42.toml"]
+exit = "nonzero"
+output_contains = ["E0301"]

@@ -1,6 +1,6 @@
 # unify-plugin-packages 后续：`[plugins]` 单文件条目——path 直接指向 hook 源文件（无插件工程清单），
 # z42b 合成最小插件清单（PluginSynth.Synth，落 interDir）并经 ICompiler 代建 → 反射出 BuildHooks 执行。
-# _smokeHookSingleFile 断言标记行出现（单文件路 = 代建 + 加载 + 执行全链）。
+# expect.toml 断言标记行出现（单文件路 = 代建 + 加载 + 执行全链）。
 [project]
 name    = "hs.app"
 version = "0.1.0"

@@ -1,0 +1,4 @@
+desc = "hook 插件编译失败必须使构建失败，不能静默跳过"
+args = ["build", "{case}/z42.toml"]
+exit = "nonzero"
+output_not_contains = ["HOOK-PLUGIN-SMOKE"]

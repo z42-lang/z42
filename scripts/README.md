@@ -254,7 +254,8 @@ scripts/
 │   ├── xtask_toolset.z42    外部工具（cargo/gh/tar/...）的存在性与定位
 │   ├── xtask_fs.z42         文件系统原语（_resetDir/_copyAll/_linkAll/_copyFile/_copyIfExists/_cleanGlob/_makeExe；写入前先断链）
 │   ├── xtask_exec_profile.z42  执行剖面词汇（tier × aot_pkgs × VM caps；test 与 bench 共用，故不随 bench/ 走）
-│   └── xtask_fixture_harness.z42  声明式夹具（`expect.toml`）的通用引擎：z42c 命令行夹具与发行包夹具共用
+│   ├── xtask_fixture_tools.z42   开发树夹具共用的 z42c / z42b / VM 进程工厂
+│   └── xtask_fixture_harness.z42  声明式夹具（`expect.toml`）的通用引擎：z42c / z42b 命令行夹具与发行包夹具共用
 ├── build/              build stdlib / compiler / runtime / golden-assets + clean + doc + 自举边界检查
 │   ├── xtask_build_cmd.z42      `build` 族的命令类
 │   ├── xtask_stdlib.z42         build stdlib（z42c build --workspace + 扁平视图）
@@ -280,6 +281,7 @@ scripts/
 │   │                            + micro bench 结果聚合 `MicroBenchAgg`（`bench stdlib --json`；消费方全在本族，故不住 bench/）
 │   ├── xtask_test_targets.z42   `test toolchain builder` / `bench targets` 入口（_testTargetsCore）
 │   │                            + fixture 工程与 tooling 准备（_prepFixtureTooling）
+│   ├── xtask_test_builder.z42   builder 命令行夹具套件（expect.toml）；状态构造与顺序检查留在 targets
 │   ├── xtask_test_example.z42   工程清单 `[[example]]` 目标的编译 / 运行
 │   ├── xtask_test_examples.z42  `test docs examples`：学习手册配套示例门（+ `xtask_examples_{book,run,transcript}.z42`：书↔examples 引用校验、`*.console` 会话重放）
 │   ├── xtask_test_embedded.z42  `test app desktop`：嵌入式 test-host 调度（desktop/wasm/ios/android）

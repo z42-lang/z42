@@ -5,7 +5,7 @@
 // path the stdlib per-lib flow uses (**转发 z42b**). This is where harness=false
 // (exit-code) targets, explicit-target overlay, 3-layer dev-deps and named selection
 // get exercised (stdlib libs declare no explicit targets, so they only exercise the
-// convention path); plus the z42b behaviour smokes (`_smoke*`) over fixtures/z42b.
+// convention path); z42b CLI assertions use the shared expect.toml fixture engine.
 //
 // Tooling prep mirrors _testLibCore (release build-tree). The example gate
 // (xtask_test_example.z42) reuses _prepFixtureTooling.
@@ -93,8 +93,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     TargetTooling tt = _prepFixtureTooling(root, noBuild);
     if (!tt.Ok) { return 2; }
     tt.FixturesRoot = _stageFixtureTree(root, "src/toolchain/builder/tests/fixtures/manifest-targets");
-    tt.Z42bFixturesRoot = Directory.Exists(Path.Join(root, "src/toolchain/builder/tests/fixtures/z42b"))
-        ? _stageFixtureTree(root, "src/toolchain/builder/tests/fixtures/z42b") : "";
+    tt.Z42bFixturesRoot = _workMirror(root, "src/toolchain/builder/tests/fixtures/z42b");
     fixRoot = tt.FixturesRoot;
     string label  = (kind == "bench") ? "bench" : "test";
     int failed = 0;
@@ -115,29 +114,18 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     // z42b behaviour smokes — only on the full (unnamed) `test` run, so bench /
     // named-target runs don't duplicate them.
     if (kind == "test" && name.Length == 0) {
+        failed = failed + _testBuilderCliFixtures(root, tt);
         failed = failed + _smokeCompileThenTest(root, tt);
         failed = failed + _smokeFallbackOutRoot(root, tt);
         failed = failed + _smokeDevTargetInternal(root, tt);
         failed = failed + _smokeReuseParentMissing(root, tt);
-        failed = failed + _smokeOrphanGuard(root, tt);
-        failed = failed + _smokeNoTests(root, tt);
-        failed = failed + _smokeListTargets(root, tt);
         failed = failed + _smokeHarnessFalse(root, tt);
         failed = failed + _smokeBundleHost(root, tt);
         failed = failed + _smokeGoldenBundleHost(root, tt);
         failed = failed + _selfcheckBundleCompileFailure(root);
         failed = failed + _selfcheckGateStages();
         failed = failed + _selfcheckDiagCodes(root);
-        failed = failed + _smokeCompileFailClean(root, tt);
-        failed = failed + _smokeManifestSections(root, tt);
-        failed = failed + _smokeBuildHooksMode(root, tt);
         failed = failed + _smokeHookPlugin(root, tt);
-        failed = failed + _smokeHookSingleFile(root, tt);
-        failed = failed + _smokeHookDir(root, tt);
-        failed = failed + _smokeHookInclude(root, tt);
-        failed = failed + _smokeHookPluginBroken(root, tt);
-        failed = failed + _smokeHookCarry(root, tt);
-        failed = failed + _smokeWorkspaceDefault(root, tt);
     }
     Console.WriteLine("");
     if (failed > 0) {
@@ -242,95 +230,13 @@ int _smokeReuseParentMissing(string root, TargetTooling tt) {
     return 0;
 }
 
-// 编译失败的**收尾姿势** smoke。守的不是「会不会红」—— 它一直会红；守的是**红得干净**：编译失败
-// 必须以一条人话报错退出，不是抛未捕获异常——否则用户拿到的是带 z42b 内部栈帧的崩溃，看起来像
-// z42b 自己崩了，而「你的清单写错了」上一行早已打印过。
-//
-// 三条断言缺一不可：① 判红（否则清单写错等于没写错）；② 输出里**没有** uncaught
-// exception / 栈帧；③ 输出里**有** `compile failed` —— 没有 ③ 的话，哪天它因为别的原因
-// 早早退出，②也会「通过」，门就悄悄失去意义——红了不等于红对了。
-int _smokeCompileFailClean(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.Z42bFixturesRoot, "empty-glob/z42.toml");
-    if (!_smokeBegin(toml, "compile-fail 收尾 (编译失败须干净退出，不得是未捕获异常)")) { return 0; }
-    ProcessResult r = _z42bRunPiped(root, tt, "test", toml, "");
-    string all = r.Stdout + r.Stderr;
-    if (r.ExitCode == 0) {
-        Console.WriteLine("  ❌ compile-fail 收尾: 清单 include 一个文件都不匹配，竟然返回 0");
-        return 1;
-    }
-    if (all.IndexOf("uncaught exception") >= 0) {
-        Console.WriteLine("  ❌ compile-fail 收尾: 以未捕获异常收场 —— 看起来像 z42b 崩了，而不是「你的清单写错了」");
-        return 1;
-    }
-    if (all.IndexOf("compile failed") < 0) {
-        Console.WriteLine("  ❌ compile-fail 收尾: 判红了，但输出里没有 `compile failed` —— 红的理由对不上，门已失去意义");
-        Console.WriteLine("    输出: " + all);
-        return 1;
-    }
-    Console.WriteLine("  ✅ compile-fail 收尾: 干净判红（rc=" + r.ExitCode.ToString() + "），无未捕获异常");
-    return 0;
-}
-
-// 清单段生效 smoke：z42b 的编译按**整份清单**决策。**预期判红**：fixture 设
-// `[syntax] ternary = false`，测试目标里用了 `?:` ⇒ 必须报 E0301。z42b 若只传平铺字段、静默忽略
-// 清单的 [syntax] / [optimize] / [lints] / [plugins]，这里会跑出绿色。
-// 断言两条：① 判红；② 红的理由是 E0301（不是别的原因早早退出——红了不等于红对了）。
-int _smokeManifestSections(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.Z42bFixturesRoot, "manifest-sections/z42.toml");   // 跑拷贝，源码树零写入
-    if (!_smokeBegin(toml, "manifest sections (z42b 按整份清单编译：[syntax] 生效且被测试目标继承)")) { return 0; }
-    ProcessResult r = _z42bRunPiped(root, tt, "test", toml, "");
-    string all = r.Stdout + r.Stderr;
-    if (r.ExitCode == 0) {
-        Console.WriteLine("  ❌ manifest sections: `[syntax] ternary = false` 下 `?:` 竟然编过 —— 清单段被 z42b 忽略");
-        return 1;
-    }
-    if (all.IndexOf("E0301") < 0) {
-        Console.WriteLine("  ❌ manifest sections: 判红了，但不是 E0301 —— 红的理由对不上");
-        Console.WriteLine("    输出: " + all);
-        return 1;
-    }
-    Console.WriteLine("  ✅ manifest sections: [syntax] 经 z42b 生效并被测试目标继承（E0301，rc=" + r.ExitCode.ToString() + "）");
-    return 0;
-}
-
-// build hooks smoke：`[build] hooks` 目录经开发树的 ICompiler 编译 → 动态实例化 → 挂进管线执行，并断言
-// hook 收到的 Target.Mode：普通 `z42b publish` 传 `publish`，`--self-contained` 传
-// `publish-self-contained`。项目 hook 靠这个值决定要不要准备 embed 产物（scripts/xtask_hooks.z42：embed apphost
-// 要把整个 VM 编成 libz42.a，普通 publish 一个字节都用不到）。两条路各断言一次，传反、传同值都会红。
-// 只看 hook 打出的那一行，不看退出码：fixture 不登记 stub / embed 产物，普通 publish 回落到假模板、
-// self-contained 报「embed apphost not available」，都与本格无关。Z42_EMBED_* 显式置空，免得外部环境让
-// self-contained 跳过 hook。
-int _smokeBuildHooksMode(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.Z42bFixturesRoot, "build-hooks/z42.toml");
-    if (!_smokeBegin(toml, "build hooks mode (publish / publish --self-contained 传给 hook 的 Target.Mode)")) { return 0; }
-    string[] flags = new string[] { "", "--self-contained" };
-    string[] want  = new string[] { "(mode=publish)", "(mode=publish-self-contained)" };
-    int i = 0;
-    while (i < flags.Length) {
-        Process p = _z42bVerb(root, tt, "publish").Arg(toml).Arg("--rid").Arg(_detectHostRid());
-        if (flags[i].Length > 0) { p = p.Arg(flags[i]); }
-        ProcessResult r = p.Env("Z42_APPHOST_TEMPLATE", tt.Vm)
-            .Env("Z42_EMBED_APPHOST", "").Env("Z42_EMBED_LIBS", "").Env("Z42_EMBED_DYLIB", "")
-            .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
-        string all = r.Stdout + r.Stderr;
-        if (all.IndexOf("BUILD-HOOKS-SMOKE: BeforeAssets ran " + want[i]) < 0) {
-            Console.WriteLine("  ❌ build hooks mode: `z42b publish " + flags[i] + "` 传给 hook 的不是 " + want[i]);
-            Console.WriteLine("    输出: " + all);
-            return 1;
-        }
-        i = i + 1;
-    }
-    Console.WriteLine("  ✅ build hooks mode: publish → publish；--self-contained → publish-self-contained");
-    return 0;
-}
-
 // hook 插件 smoke：`[plugins]` 里两个带 hook 能力位的插件工程（path 条目）→
 // z42b 反射出 BuildHooks 具体类、按声明序组合执行。断言两行标记都在**且 A 在 B 前**——只查「都在」会把
 // 组合顺序错乱判绿；只查先后（IndexOf 比大小）不查存在会把「都打了但漏断言」漏掉。
 int _smokeHookPlugin(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "hook-plugin/z42.toml");
     if (!_smokeBegin(toml, "hook plugin ([plugins] 插件加载进 z42b、按声明序执行)")) { return 0; }
-    ProcessResult r = _z42bRunPiped(root, tt, "build", toml, "");
+    ProcessResult r = _z42bVerb(root, tt, "build").Arg(toml).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
     string all = r.Stdout + r.Stderr;
     if (r.ExitCode != 0) {
         Console.WriteLine("  ❌ hook plugin: `z42b build` exited " + r.ExitCode.ToString());
@@ -350,191 +256,6 @@ int _smokeHookPlugin(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ hook plugin: 两个插件按声明序加载并执行");
-    return 0;
-}
-
-// 单文件 hook 插件 smoke：`[plugins]` 条目 path 直接指向 .z42 源文件（无插件工程
-// 清单）⇒ z42b 合成最小插件清单（PluginSynth.Synth）→ ICompiler 代建 → 反射出 BuildHooks 执行。
-// 断言标记行出现——这一条覆盖「合成 + 代建 + 加载 + 执行」全链；清单解析与组合顺序由 hook-plugin 钉。
-int _smokeHookSingleFile(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.Z42bFixturesRoot, "hook-single-file/z42.toml");
-    if (!_smokeBegin(toml, "hook single-file plugin ([plugins] 单文件条目 → 合成清单代建)")) { return 0; }
-    ProcessResult r = _z42bRunPiped(root, tt, "build", toml, "");
-    string all = r.Stdout + r.Stderr;
-    if (r.ExitCode != 0) {
-        Console.WriteLine("  ❌ hook single-file plugin: `z42b build` exited " + r.ExitCode.ToString());
-        Console.WriteLine("    输出: " + all);
-        return 1;
-    }
-    if (all.IndexOf("HOOK-SINGLE-FILE-SMOKE: BeforeCompile") < 0) {
-        Console.WriteLine("  ❌ hook single-file plugin: 单文件插件的标记行没有出现（合成/代建/加载断了？）");
-        Console.WriteLine("    输出: " + all);
-        return 1;
-    }
-    Console.WriteLine("  ✅ hook single-file plugin: 单文件条目合成清单、代建并执行");
-    return 0;
-}
-
-// 免清单目录 hook 插件 smoke：`[plugins]` 条目 path 指向**没有工程清单**的
-// 目录 ⇒ z42b 合成（include = <目录>/**/*.z42 全收）→ 代建 → 反射出包内全部 BuildHooks。两个类分住
-// 两个文件——**两条**标记都在才判绿（漏收任何一个文件即缺一条）。
-int _smokeHookDir(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.Z42bFixturesRoot, "hook-dir-no-manifest/z42.toml");
-    if (!_smokeBegin(toml, "hook dir plugin ([plugins] 免清单目录条目 → 全收代建)")) { return 0; }
-    ProcessResult r = _z42bRunPiped(root, tt, "build", toml, "");
-    string all = r.Stdout + r.Stderr;
-    if (r.ExitCode != 0) {
-        Console.WriteLine("  ❌ hook dir plugin: `z42b build` exited " + r.ExitCode.ToString());
-        Console.WriteLine("    输出: " + all);
-        return 1;
-    }
-    int ia = all.IndexOf("HOOK-DIR-SMOKE: A BeforeCompile");
-    int ib = all.IndexOf("HOOK-DIR-SMOKE: B BeforeCompile");
-    if (ia < 0 || ib < 0) {
-        Console.WriteLine("  ❌ hook dir plugin: 两个文件的标记行没有都出现（目录全收漏文件？ia="
-            + ia.ToString() + ", ib=" + ib.ToString() + "）");
-        Console.WriteLine("    输出: " + all);
-        return 1;
-    }
-    Console.WriteLine("  ✅ hook dir plugin: 免清单目录全收、两个 hook 类都执行");
-    return 0;
-}
-
-// 源集 hook 插件 smoke：`[plugins]` 条目写 include/exclude（对齐 [tests]）
-// ⇒ z42b 合成最小清单（PluginSynth.SynthSet）→ ICompiler 代建 → 反射出全部 BuildHooks。
-// 两个类分住两文件——**两条**标记都在才判绿（漏收任何一个文件即缺一条）。
-int _smokeHookInclude(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.Z42bFixturesRoot, "hook-include/z42.toml");
-    if (!_smokeBegin(toml, "hook include plugin ([plugins] 源集条目 include/exclude → 合成清单代建)")) { return 0; }
-    ProcessResult r = _z42bRunPiped(root, tt, "build", toml, "");
-    string all = r.Stdout + r.Stderr;
-    if (r.ExitCode != 0) {
-        Console.WriteLine("  ❌ hook include plugin: `z42b build` exited " + r.ExitCode.ToString());
-        Console.WriteLine("    输出: " + all);
-        return 1;
-    }
-    int ia = all.IndexOf("HOOK-INCLUDE-SMOKE: A BeforeCompile");
-    int ib = all.IndexOf("HOOK-INCLUDE-SMOKE: B BeforeCompile");
-    if (ia < 0 || ib < 0) {
-        Console.WriteLine("  ❌ hook include plugin: 两个文件的标记行没有都出现（源集漏文件？ia="
-            + ia.ToString() + ", ib=" + ib.ToString() + "）");
-        Console.WriteLine("    输出: " + all);
-        return 1;
-    }
-    Console.WriteLine("  ✅ hook include plugin: 源集 include 全收、两个 hook 类都执行");
-    return 0;
-}
-
-// 携带 hook smoke：app 零 [plugins]，依赖的 lib 经 [plugins.export] 携带
-// hook 插件 ⇒ z42b 沿闭包自动加载执行。先编插件产物（放它的 dist），再以 Z42_PLUGINS 指向 dist 编 app。
-int _smokeHookCarry(string root, TargetTooling tt) {
-    string dir = Path.Join(tt.Z42bFixturesRoot, "hook-carry");
-    string toml = Path.Join(dir, "z42.toml");
-    if (!_smokeBegin(toml, "hook carry (lib 携带的 hook 插件自动执行，app 零配置)")) { return 0; }
-    // ① 编 hook 插件（dist = <fixture>/lib/hooks/dist）
-    int rc1 = _exec(_z42bVerb(root, tt, "build").Arg(Path.Join(dir, "lib/hooks/z42.z42.toml")));
-    if (rc1 != 0) {
-        Console.WriteLine("  ❌ hook carry: hook 插件工程编不过（rc=" + rc1.ToString() + "）");
-        return 1;
-    }
-    // ② 编 app：Z42_PLUGINS 指向插件 dist，携带自动生效
-    Process p2 = _z42bVerb(root, tt, "build").Arg(toml)
-        .Env("Z42_PLUGINS", Path.Join(dir, "lib/hooks/dist"));
-    ProcessResult r = p2.Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
-    string all = r.Stdout + r.Stderr;
-    if (r.ExitCode != 0) {
-        Console.WriteLine("  ❌ hook carry: `z42b build` exited " + r.ExitCode.ToString());
-        Console.WriteLine("    输出: " + all);
-        return 1;
-    }
-    if (all.IndexOf("HOOK-CARRY-SMOKE: carried BeforeCompile ran") < 0) {
-        Console.WriteLine("  ❌ hook carry: 构建成功但携带 hook 没执行（闭包解析或加载断了？）");
-        Console.WriteLine("    输出: " + all);
-        return 1;
-    }
-    Console.WriteLine("  ✅ hook carry: lib 携带的 hook 在 app 构建里自动执行");
-    return 0;
-}
-
-// 坏 hook 插件 smoke：[plugins] 指向的插件工程编译不过 ⇒ `z42b build` 非 0 退出。代建失败若降级成
-// 「跳过该插件」，构建会静默缺 hook 照样退 0——publish 产物悄悄少东西。
-int _smokeHookPluginBroken(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.Z42bFixturesRoot, "hook-plugin-broken/z42.toml");
-    if (!_smokeBegin(toml, "broken hook plugin (插件编不过 ⇒ z42b build 判红)")) { return 0; }
-    ProcessResult r = _z42bRunPiped(root, tt, "build", toml, "");
-    string all = r.Stdout + r.Stderr;
-    if (r.ExitCode == 0) {
-        Console.WriteLine("  ❌ broken hook plugin: 插件编译失败仍退 0 —— 降级成「无 hook」了");
-        Console.WriteLine("    输出: " + all);
-        return 1;
-    }
-    if (all.IndexOf("HOOK-PLUGIN-SMOKE") >= 0) {
-        Console.WriteLine("  ❌ broken hook plugin: 判红了但坏插件的标记行竟出现（挂错夹具？）");
-        return 1;
-    }
-    Console.WriteLine("  ✅ broken hook plugin: 判红（rc=" + r.ExitCode.ToString() + "）");
-    return 0;
-}
-
-// 孤儿源守卫 smoke：**预期判红**的 fixture —— tests/ 下有 .z42 源，但默认 glob 不认领，
-// 且该子目录没有自己的 toml（有的话它就是独立工程）。守卫不在的话 z42b 会回落到「编译本包
-// 自己再跑」，而该 fixture 的 src/ 里**特意放了一个通过的 [Test]** —— 于是回落会跑出
-// 「1 passed」的绿色。这个 fixture 锁的就是那片静默。断言方向与其它 smoke 相反：rc == 0 才是失败。
-int _smokeOrphanGuard(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.Z42bFixturesRoot, "orphan-source/z42.toml");
-    if (!_smokeBegin(toml, "orphan-source guard (有源零单元必须判红)")) { return 0; }
-    int rc = _exec(_z42bVerb(root, tt, "test").Arg(toml));
-    if (rc == 0) {
-        Console.WriteLine("  ❌ orphan-source guard: 有源却零单元竟然返回 0 —— 守卫失效，「没跑」又一次等价于「全过」");
-        return 1;
-    }
-    Console.WriteLine("  ✅ orphan-source guard: 有源零单元判红（rc=" + rc.ToString() + "）");
-    return 0;
-}
-
-// 「本包压根没有测试」smoke：一个无 tests/、src/ 里零个 [Test] 的库，`z42b test` 必须
-// **退 0**（无事可做），不得判红 —— 否则 xtask 转发后全仓无测试的库会集体变红。
-// 与 compile-then-test 的区别只有「src/ 里有没有 [Test]」，那条
-// smoke 正好守着反方向（有 [Test] → 照常编+跑）。
-//
-// `bench` 动词同样要退 0：GREEN gate 的 stdlib [Benchmark]
-// stage 对无 bench 的库走的就是 `z42b bench <toml>`。fixture 的注释里故意写着 attribute 字面量，
-// 锁住「注释不算测试」这条判据。
-int _smokeNoTests(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.Z42bFixturesRoot, "no-tests/z42.toml");
-    if (!_smokeBegin(toml, "no-tests (没有测试的库不得判红)")) { return 0; }
-    foreach (var verb in new string[] { "test", "bench" }) {
-        int rc = _exec(_z42bVerb(root, tt, verb).Arg(toml));
-        if (rc != 0) {
-            Console.WriteLine("  ❌ no-tests: `z42b " + verb + "` 把无测试的库判红（rc=" + rc.ToString() + "）—— 转发后会拖红整条 stage");
-            return 1;
-        }
-        Console.WriteLine("  ✅ no-tests: `z42b " + verb + "` 无测试的库退 0（无事可做）");
-    }
-    return 0;
-}
-
-// `--list` smoke：列目标名而不编不跑。这是**转发架构的接缝** —— xtask 靠它拿单元清单后
-// 并行拉起 `z42b test <toml> --name <unit>`，发现规则只有 z42b 一份。断言：dev-target fixture 恰好列出 dirunit + internals_tests，
-// 且**没有**任何编译/运行的痕迹。
-int _smokeListTargets(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.Z42bFixturesRoot, "dev-target-internal/z42.toml");
-    if (!_smokeBegin(toml, "list targets (z42b test --list：只列不跑)")) { return 0; }
-    ProcessResult rr = _z42bVerb(root, tt, "test").Arg(toml).Arg("--list").Run();
-    if (rr.ExitCode != 0) {
-        Console.WriteLine("  ❌ list targets: rc=" + rr.ExitCode.ToString());
-        return 1;
-    }
-    string outp = rr.Stdout.Trim();
-    if (outp != "dirunit\ninternals_tests") {
-        Console.WriteLine("  ❌ list targets: 期望 `dirunit` + `internals_tests`，实得: " + outp);
-        return 1;
-    }
-    if (rr.Stdout.Contains("compiled:") || rr.Stdout.Contains("PASS")) {
-        Console.WriteLine("  ❌ list targets: --list 不该编译或运行任何东西");
-        return 1;
-    }
-    Console.WriteLine("  ✅ list targets: 2 个目标名，未编译未运行");
     return 0;
 }
 

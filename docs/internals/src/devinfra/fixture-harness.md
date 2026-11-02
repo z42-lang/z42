@@ -1,6 +1,7 @@
 # 声明式夹具（expect.toml）
 
 > 代码：`scripts/common/xtask_fixture_harness.z42`（引擎）、`scripts/build/xtask_compiler_e2e.z42`（z42c 套件）、
+> `scripts/test/xtask_test_builder.z42`（z42b 套件）、`scripts/common/xtask_fixture_tools.z42`（开发树工具）、
 > `scripts/package/xtask_package_verify.z42`（发行包套件）
 > 相关：[测试用例组织规范](test-layout.md) · [GREEN gate](test-gate.md) · [产物目录布局](artifacts-layout.md)
 
@@ -34,6 +35,7 @@
 | 套件 | 夹具目录 | 命令 | 暂存位置 | 套件 README |
 |---|---|---|---|---|
 | z42c 命令行与构建行为 | `src/compiler/z42c.driver/tests/fixtures/cli/` | `xtask test compiler` | `artifacts/intermediate/` 下的镜像 | [cli/README.md](../../../../src/compiler/z42c.driver/tests/fixtures/cli/README.md) |
+| z42b 命令行与构建行为 | `src/toolchain/builder/tests/fixtures/z42b/` | `xtask test toolchain builder` | `artifacts/intermediate/` 下的镜像 | [z42b/README.md](../../../../src/toolchain/builder/tests/fixtures/z42b/README.md) |
 | 发行包（打包出的 SDK） | `src/toolchain/launcher/tests/fixtures/package/` | `xtask package sdk --verify` | 系统临时目录（仓库外），全部通过后删除 | [package/README.md](../../../../src/toolchain/launcher/tests/fixtures/package/README.md) |
 
 每个子目录是一个用例（有 `expect.toml` 才算），按目录名排序依次跑。套件 README 写本套件的工具表、占位符和环境约定；
@@ -112,13 +114,15 @@
 
 引擎按「套件 → 用例 → 步骤 → 断言」四层展开：`_runFixtureSuite` 暂存并遍历用例、`_runFixtureCase` 分单步 / 多步、
 `_fxStep` 分派动作、`_fxCheck` / `_fxFileChecks` 判定。工具表的「怎么起进程」只有一处可覆盖：`FixtureTool.Begin`。
-基类直接起程序，不碰任何 z42 变量；z42c 套件的 `DevFixtureTool` 覆盖成 `_z42Proc` / `_z42bProc`，让子进程的
+基类直接起程序，不碰任何 z42 变量；开发树套件的 `DevFixtureTool` 覆盖成 `_z42Proc` / `_z42bProc`，让子进程的
 `Z42_LIBS` 与编译器 probing 仍只经那两个工厂设置（`xtask check` 的 proc-env 门禁守着这一条）。
 
 | 组件 | 位置 |
 |------|------|
 | 引擎：`FixtureSuite` / `FixtureTool` / 环境合并 / 判定 | `scripts/common/xtask_fixture_harness.z42` |
 | z42c 套件（开发树 z42c / z42b / z42vm） | `scripts/build/xtask_compiler_e2e.z42` 的 `_testCompilerCliFixtures` |
+| 开发树进程工厂：`DevFixtureTool` | `scripts/common/xtask_fixture_tools.z42` |
+| z42b 套件 | `scripts/test/xtask_test_builder.z42` 的 `_testBuilderCliFixtures` |
 | 发行包套件（包内 z42 / z42c / z42b / z42vm / 发布出的程序） | `scripts/package/xtask_package_verify.z42` 的 `_distFixtureSuite` |
 | 暂存（拷整棵夹具树，跳过 `artifacts/` / `dist/`） | `scripts/common/xtask_fs.z42` 的 `_stageFixtureTree` / `_copySourceTree` |
 

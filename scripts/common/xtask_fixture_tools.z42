@@ -1,0 +1,20 @@
+// 开发树夹具共用的进程工厂，供编译器与 builder 套件使用。
+namespace Z42Xtask;
+
+using Std.IO;
+
+// 开发树的工具：都由 z42vm 起，Z42_LIBS（以及 z42b 的编译器 probing）只经 `_z42Proc` / `_z42bProc` 设置。
+public sealed class DevFixtureTool : FixtureTool {
+    public bool Probing;
+    // 非空 ⇒ 这是 z42c driver：经 `_z42cProcMode` 起（编译器目录怎么落到 driver 自己的 dist 见 `_z42cProc` 头注）。
+    public string Driver;
+    public DevFixtureTool(string name, string vm, bool probing) : base(name, vm) {
+        Probing = probing;
+        Libs = true;
+        Driver = "";
+    }
+    public override Process Begin(string exe, string libs) {
+        if (Driver.Length > 0) { return _z42cProcMode(exe, libs, Driver, ""); }
+        return Probing ? _z42bProc(exe, libs) : _z42Proc(exe, libs);
+    }
+}
