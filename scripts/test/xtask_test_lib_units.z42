@@ -15,20 +15,6 @@ class DepBundle {
     public int Count { get; set; }
 }
 
-/// True iff any top-level `.z42` file in `dir` declares a `[Test]` method —
-/// the marker the z42b's runner discovers by reflection.
-/// Distinguishes dir-mode [Test] units (e.g. z42.crypto/tests/secp256k1) from
-/// Main-based golden cases (which the runner would reject with "no tests found").
-bool _dirHasTestMethods(string dir) {
-    foreach (var f in Directory.Enumerate(dir)) {
-        if (!f.EndsWith(".z42")) { continue; }
-        try {
-            if (File.ReadAllText(Path.Join(dir, f)).Contains("[Test]")) { return true; }
-        } catch (Exception) { /* unreadable → not a test source */ }
-    }
-    return false;
-}
-
 /// Serialise a synthetic mini-manifest to TOML text — used by the embedded bundle to build a
 /// dir-mode [Test] unit as a tiny project (_dirUnitManifest). Kept hand-rolled
 /// (no Std.Toml serializer round-trip) because the schema is tiny and

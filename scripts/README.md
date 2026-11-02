@@ -248,13 +248,13 @@ scripts/
 ├── common/             共享基建（非某个命令专属）
 │   ├── xtask_common.z42     _root/_exec/cargo/toolchain 选择器 + verbosity + 种子解析
 │   ├── xtask_layout.z42     构建树布局路径（per-member 读 workspace.toml 单源 + flat/runtime/build-root 约定）+ `layout` 命令
-│   ├── xtask_versions.z42   versions.toml 读取器（_vget/_vRead/...）
+│   ├── xtask_versions.z42   versions.toml 读取器 + RID / cargo target 映射
 │   ├── xtask_packages_config.z42  packages.toml 读取器（package/component 注册表）
 │   ├── xtask_components.z42  workspace 成员、工具链组件与 TOML 产物/发布路径
 │   ├── xtask_process.z42     z42 子进程工厂（stdlib、编译器 probing 与种子隔离）
 │   ├── xtask_publish.z42     共用的 z42c build / z42b publish 调用
 │   ├── xtask_doc_index.z42  Rust 符号索引生成（doc index 与 doc-refs 报告共用）
-│   ├── xtask_golden.z42     golden 枚举 / 入口推导（多 test stage + build test 复用）
+│   ├── xtask_golden.z42     golden 枚举 / 测试单元识别 / 入口推导（多 test stage + build test 复用）
 │   ├── xtask_toolset.z42    外部工具（cargo/gh/tar/...）的存在性与定位
 │   ├── xtask_fs.z42         文件系统原语（_resetDir/_copyAll/_linkAll/_copyFile/_copyIfExists/_cleanGlob/_makeExe；写入前先断链）
 │   ├── xtask_exec_profile.z42  执行剖面词汇（tier × aot_pkgs × VM caps；test 与 bench 共用，故不随 bench/ 走）

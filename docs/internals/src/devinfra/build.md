@@ -39,7 +39,8 @@
 模板（正是 `WorkspacePlan.PlanLayout` 消费的那一份）再展开，改 toml 模板 xtask 自动跟上。
 
 构建与打包共同读取 `common/xtask_packages_config.z42` 的组件注册表和 `xtask_components.z42` 的路径；
-子进程工厂及已构建产物的发布调用也在 `common/`，命令族只负责各自的流程编排。
+子进程工厂及已构建产物的发布调用也在 `common/`；RID / Cargo 路径和测试单元识别同样由共享模块提供，
+命令族只负责各自的流程编排。
 
 ## 3. `build stdlib`：三阶段自举构建
 

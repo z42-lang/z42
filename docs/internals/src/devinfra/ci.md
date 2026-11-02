@@ -171,11 +171,11 @@ commit 不因此挂红。publish 真失败照样红。
 
 | flag | 命中路径（节选） |
 |---|---|
-| `platform` | `src/runtime/**`、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`、`scripts/{package/**,packages.toml,install/**}`、`scripts/common/xtask_{packages_config,publish}.z42`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
+| `platform` | `src/runtime/**`、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`、`scripts/{package/**,packages.toml,install/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
 | `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
 | `compiler` | `src/compiler/**`、`src/toolchain/devtools/vscode/**` |
 | `vm` | `src/runtime/**`（含 `src/runtime/.cargo/`） |
-| `stdlib` | `src/libraries/**`、`src/toolchain/builder/**`（z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42` |
+| `stdlib` | `src/libraries/**`、`src/toolchain/builder/**`（z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42`、`scripts/common/xtask_golden.z42` |
 
 `src/toolchain/builder/**` 同时在 `platform` 与 `stdlib` 里：z42b 既是 [Test] 执行器，它的 `publish`
 （apphost / iOS / Android 导出）又只在 `package-*` 里被执行。只挂 `stdlib` 时，#978 把 Windows apphost
