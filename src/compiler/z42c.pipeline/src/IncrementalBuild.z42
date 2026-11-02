@@ -107,58 +107,57 @@ public static class IncrementalBuild {
     //   surfIdents[i] = 文件 i **声明面**里的标识符去重集（体已剥）—— 传播判据
     //   names[i]      = 文件 i 定义的名字集（当前源；cached 行取自上次 meta，源未变即不变）
     //   seedChanged   = 种子失效文件里指纹变了/新增/删除的名字（调用方 diff 得出）
-    // 朴素不动点迭代（包内 N 小，判据是 StrMap 命中而非 N² 边矩阵，比前身更快）。
+    // 每个变化名字仅处理一次；反向索引只访问使用它的文件。
     public static void Close(IncrFilePlan plan, string[] srcs, string projectDir,
                              NameListZ[] tokens, NameListZ[] surfIdents, NameListZ[] names,
                              NameListZ seedChanged) {
-        bool debug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG", "")) == "1";
-        int n = plan.Total;
+        if (seedChanged.Count == 0) { plan.AllCached = plan.FreshCount == 0; return; }
+        // 常见的体内修改或单跳影响无需建立全量反向索引。
+        NameListZ pending = IncrementalBuild._firstWave(plan, srcs, projectDir, tokens, surfIdents, names, seedChanged);
+        if (pending == null || plan.FreshCount == plan.Total) { plan.AllCached = plan.FreshCount == 0; return; }
+        InvalidationQueue work = new InvalidationQueue(plan, srcs, projectDir, names);
+        int i = 0;
+        while (i < plan.Total) {
+            work.Index(i, tokens[i], surfIdents[i]);
+            i = i + 1;
+        }
+        i = 0;
+        while (i < pending.Count) { work.Add(pending.Items[i]); i = i + 1; }
+        work.Run();
+        plan.AllCached = plan.FreshCount == 0;
+    }
+
+    // 先按文件顺序扫描一轮；仅新增传播名字时才需要队列继续闭包。
+    private static NameListZ _firstWave(IncrFilePlan plan, string[] srcs, string projectDir,
+                                       NameListZ[] tokens, NameListZ[] surface, NameListZ[] names,
+                                       NameListZ seedChanged) {
         StrMap changed = new StrMap();
         int c = 0;
         while (c < seedChanged.Count) { changed.Put(seedChanged.Items[c], seedChanged); c = c + 1; }
-        // spread[i]：该文件的定义名是否已整体并入 changed（每文件至多一次，保证迭代收敛）。
-        bool[] spread = new bool[n];
-        bool moved = true;
-        while (moved) {
-            moved = false;
-            int i = 0;
-            while (i < n) {
-                if (!plan.Fresh[i] && IncrementalBuild._hits(tokens[i], changed)) {
-                    plan.Fresh[i] = true;
-                    plan.FreshCount = plan.FreshCount + 1;
-                    plan.Metas[i] = null;
-                    moved = true;
-                    if (debug) {
-                        ConsoleError.WriteLine("  [invalidated] " + IncrementalBuild.Rel(projectDir, srcs[i])
-                            + " uses-changed-name " + IncrementalBuild._firstHit(tokens[i], changed));
-                    }
+        int initial = changed.Count();
+        bool debug = Environment.GetEnvironmentVariable("Z42_INCR_DEBUG", "") == "1";
+        int i = 0;
+        while (i < plan.Total) {
+            if (!plan.Fresh[i] && IncrementalBuild._hits(tokens[i], changed)) {
+                plan.Fresh[i] = true; plan.FreshCount = plan.FreshCount + 1; plan.Metas[i] = null;
+                if (debug) {
+                    ConsoleError.WriteLine("  [invalidated] " + IncrementalBuild.Rel(projectDir, srcs[i])
+                        + " uses-changed-name " + IncrementalBuild._firstHit(tokens[i], changed));
                 }
-                // 种子行与被波及行一视同仁：只有**声明面**提到了**别人**的已变名字，才把自己的
-                // 定义名并入已变集继续传（`class Foo : Bar` 这类布局透传链靠它接上；只在函数体里
-                // 用到则到此为止）。
-                // **必须排除「自己定义的名字」**：种子文件的声明面天然提到它自己刚改的那些名字，
-                // 不排除的话种子第一轮就把自己全部成员名并进已变集 —— 粒度当场退回文件级，
-                // 「加一个方法 → 全包提到 `Name` 的文件统统失效」这个症状原样复发（实测复现过）。
-                if (plan.Fresh[i] && !spread[i] && names[i] != null
-                    && IncrementalBuild._hitsExternal(surfIdents[i], names[i], changed)) {
-                    spread[i] = true;
-                    int k = 0;
-                    while (k < names[i].Count) {
-                        if (!changed.ContainsKey(names[i].Items[k])) {
-                            changed.Put(names[i].Items[k], seedChanged);
-                            moved = true;
-                        }
-                        k = k + 1;
-                    }
-                    if (debug) {
-                        ConsoleError.WriteLine("  [spread] " + IncrementalBuild.Rel(projectDir, srcs[i])
-                            + " declares against a changed name -> its own names now suspect");
-                    }
-                }
-                i = i + 1;
             }
+            if (plan.Fresh[i] && names[i] != null && IncrementalBuild._hitsExternal(surface[i], names[i], changed)) {
+                int k = 0;
+                while (k < names[i].Count) { changed.Put(names[i].Items[k], seedChanged); k = k + 1; }
+                if (debug) {
+                    ConsoleError.WriteLine("  [spread] " + IncrementalBuild.Rel(projectDir, srcs[i])
+                        + " declares against a changed name -> its own names now suspect");
+                }
+            }
+            i = i + 1;
         }
-        plan.AllCached = plan.FreshCount == 0;
+        if (changed.Count() == initial) { return null; }
+        string[] keys = changed.Keys();
+        return new NameListZ(keys, changed.Count());
     }
 
     // 命中「别人的」已变名字：跳过本文件自己定义的名字（见 spread 处的说明）。

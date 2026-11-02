@@ -1,0 +1,105 @@
+namespace Z42.Pipeline;
+using Z42.IR;
+using Std.IO;
+
+// 同一名字的使用边；声明面边必须排除本文件自己的定义名。
+internal sealed class InvalidationUse {
+    public int File;
+    public bool Surface;
+    public InvalidationUse Next;
+    public InvalidationUse(int file, bool surface, InvalidationUse next) {
+        this.File = file; this.Surface = surface; this.Next = next;
+    }
+}
+
+internal sealed class InvalidationQueue {
+    private IncrFilePlan _plan;
+    private string[] _srcs;
+    private string _projectDir;
+    private NameListZ[] _names;
+    private StrMap _uses;
+    private StrMap _changed;
+    private string[] _queue;
+    private int _count;
+    private bool[] _surfaceHit;
+    private bool[] _spread;
+    private bool _debug;
+
+    public InvalidationQueue(IncrFilePlan plan, string[] srcs, string projectDir, NameListZ[] names) {
+        this._plan = plan; this._srcs = srcs; this._projectDir = projectDir; this._names = names;
+        this._uses = new StrMap(); this._changed = new StrMap();
+        this._queue = new string[16]; this._count = 0;
+        this._surfaceHit = new bool[plan.Total]; this._spread = new bool[plan.Total];
+        this._debug = Environment.GetEnvironmentVariable("Z42_INCR_DEBUG", "") == "1";
+    }
+
+    public void Index(int file, NameListZ tokens, NameListZ surface) {
+        int i = 0;
+        while (tokens != null && i < tokens.Count) {
+            this._indexUse(tokens.Items[i], file, false); i = i + 1;
+        }
+        StrMap own = new StrMap();
+        NameListZ names = this._names[file];
+        i = 0;
+        while (names != null && i < names.Count) { own.Put(names.Items[i], names); i = i + 1; }
+        i = 0;
+        while (surface != null && i < surface.Count) {
+            if (!own.ContainsKey(surface.Items[i])) { this._indexUse(surface.Items[i], file, true); }
+            i = i + 1;
+        }
+    }
+
+    private void _indexUse(string name, int file, bool surface) {
+        InvalidationUse head = this._uses.Get(name) as InvalidationUse;
+        this._uses.Put(name, new InvalidationUse(file, surface, head));
+    }
+
+    public void Add(string name) {
+        if (this._changed.ContainsKey(name)) { return; }
+        this._changed.Put(name, this);
+        if (this._count == this._queue.Length) {
+            string[] next = new string[this._queue.Length * 2];
+            int i = 0;
+            while (i < this._count) { next[i] = this._queue[i]; i = i + 1; }
+            this._queue = next;
+        }
+        this._queue[this._count] = name; this._count = this._count + 1;
+    }
+
+    public void Run() {
+        int at = 0;
+        while (at < this._count) {
+            string name = this._queue[at];
+            InvalidationUse use = this._uses.Get(name) as InvalidationUse;
+            while (use != null) {
+                this._visit(use, name);
+                use = use.Next;
+            }
+            at = at + 1;
+        }
+    }
+
+    private void _visit(InvalidationUse use, string name) {
+        int file = use.File;
+        if (use.Surface) { this._surfaceHit[file] = true; }
+        else if (!this._plan.Fresh[file]) {
+            this._plan.Fresh[file] = true;
+            this._plan.FreshCount = this._plan.FreshCount + 1;
+            this._plan.Metas[file] = null;
+            if (this._debug) {
+                ConsoleError.WriteLine("  [invalidated] " + IncrementalBuild.Rel(this._projectDir, this._srcs[file])
+                    + " uses-changed-name " + name);
+            }
+        }
+        // 声明面命中可先于 token 命中；两项条件齐备后才能传播，每文件仅传播一次。
+        if (!this._plan.Fresh[file] || !this._surfaceHit[file] || this._spread[file]) { return; }
+        this._spread[file] = true;
+        NameListZ names = this._names[file];
+        int i = 0;
+        while (names != null && i < names.Count) { this.Add(names.Items[i]); i = i + 1; }
+        if (this._debug) {
+            ConsoleError.WriteLine("  [spread] " + IncrementalBuild.Rel(this._projectDir, this._srcs[file])
+                + " declares against a changed name -> its own names now suspect");
+        }
+    }
+}
