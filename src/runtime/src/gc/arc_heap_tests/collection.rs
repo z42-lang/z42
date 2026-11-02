@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn force_collect_returns_a_kind() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let stats = heap.force_collect();
     // Which kind depends on the mode (see `force_collect_reports_*` below).
     assert!(stats.kind.is_some());
@@ -14,7 +14,7 @@ fn force_collect_returns_a_kind() {
 
 #[test]
 fn pause_skips_force_collect() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.pause();
     let stats = heap.force_collect();
     assert_eq!(stats.kind, None);  // skipped
@@ -23,7 +23,7 @@ fn pause_skips_force_collect() {
 
 #[test]
 fn resume_after_pause_re_enables_collect() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.pause();
     heap.resume();
     let stats = heap.force_collect();
@@ -32,7 +32,7 @@ fn resume_after_pause_re_enables_collect() {
 
 #[test]
 fn nested_pause_requires_matching_resume() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.pause();
     heap.pause();
     heap.resume();
@@ -45,7 +45,7 @@ fn nested_pause_requires_matching_resume() {
 
 #[test]
 fn collect_cycles_increments_gc_cycles() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.collect_cycles();
     heap.collect_cycles();
     assert_eq!(heap.stats().gc_cycles, 2);
@@ -53,7 +53,7 @@ fn collect_cycles_increments_gc_cycles() {
 
 #[test]
 fn stats_collect_does_not_change_counters() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _ = heap.alloc_array(vec![]);
     let before = heap.stats();
     heap.collect();  // default no-op
@@ -64,7 +64,7 @@ fn stats_collect_does_not_change_counters() {
 
 #[test]
 fn auto_collect_triggers_when_over_threshold() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_max_heap_bytes(Some(2_000));  // 阈值 1800 (90%)
     let gc_before = heap.stats().gc_cycles;
 
@@ -84,7 +84,7 @@ fn auto_collect_triggers_when_over_threshold() {
 /// 所以这里显式把 nursery 调小来控制算术，而不是靠预算的百分比。
 #[test]
 fn auto_collect_throttled_by_growth_delta() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_nursery_bytes_for_test(1024);
     heap.set_max_heap_bytes(Some(10_000));
 
@@ -120,7 +120,7 @@ fn minor_major(heap: &ArcMagrGC) -> (u64, u64) {
 /// Under STW there is one generation, so every collection is a major.
 #[test]
 fn an_stw_collection_reports_major() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(crate::gc::GcMode::StwMarkSweep);
     let rec = Arc::new(KindRecorder::default());
     heap.add_observer(rec.clone());
@@ -135,7 +135,7 @@ fn an_stw_collection_reports_major() {
 /// a major that never ran.
 #[test]
 fn a_generational_force_collect_reports_the_minor_it_ran() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(crate::gc::GcMode::GenerationalMarkSweep);
     let rec = Arc::new(KindRecorder::default());
     heap.add_observer(rec.clone());
@@ -148,7 +148,7 @@ fn a_generational_force_collect_reports_the_minor_it_ran() {
 /// With an incremental cycle open, `force_collect` finishes it (a major completes) before its minor.
 #[test]
 fn a_generational_force_collect_that_finishes_a_cycle_reports_major() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(crate::gc::GcMode::GenerationalMarkSweep);
     heap.set_nursery_bytes_for_test(1 << 40);
     let root = heap.alloc_object(dummy_type_desc("Root"), vec![Value::Null], NativeData::None);

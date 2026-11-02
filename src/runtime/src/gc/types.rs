@@ -167,26 +167,16 @@ pub enum GcHandleKind {
 
 // ── Pause histogram ──────────────────────────────────────────────────────────
 
-/// Default capacity of the per-heap rolling pause-time window
-/// (add-gc-pause-window). Overridable via
-/// `Z42_GC_PAUSE_WINDOW`; clamped to `[1, 65536]`. The actual default +
-/// clamp live in `RuntimeConfig::gc_pause_window`. Kept as a public
-/// constant for any downstream that wants to refer to the default
-/// without going through the config singleton.
+/// Default capacity of a rolling pause-time window. The facade can pass a
+/// `Z42_GC_PAUSE_WINDOW` override through `GcConfig`; explicit capacities
+/// are bounded by `PauseHistogram::new`.
 pub const PAUSE_WINDOW_DEFAULT_CAP: usize = 1024;
 
 /// Hard ceiling on `Z42_GC_PAUSE_WINDOW` override. 65536 × 8 bytes =
 /// 512 KB per heap — generous but prevents a hostile env from
 /// allocating GB-sized deques. Reflected in
-/// `crate::config::parse_gc_pause_window`.
+/// the facade pause-window parser.
 pub const PAUSE_WINDOW_MAX_CAP: usize = 65536;
-
-/// Capacity for the per-heap pause-time window. Delegates to
-/// process-wide [`crate::config::runtime_config()`] (parsed once at
-/// startup; runtime-config-phase2).
-pub fn pause_window_cap_from_env() -> usize {
-    crate::config::runtime_config().gc_pause_window
-}
 
 /// Half-open bucket edges (µs). `BUCKET_EDGES[i]` is the lower bound of
 /// bucket `i+1`; bucket `i` covers `[BUCKET_EDGES[i-1], BUCKET_EDGES[i])`.
@@ -222,7 +212,7 @@ pub struct PauseHistogram {
     pub count:         u64,
     /// Rolling window of the last `window_cap` pause-time samples
     /// in microseconds, oldest first. Capacity is fixed at heap
-    /// construction (see `pause_window_cap_from_env`).
+    /// construction.
     pub recent_pauses: VecDeque<u64>,
     /// Fixed capacity of `recent_pauses`. Stored so callers /
     /// snapshots can self-describe (`Std.GC.PauseWindowCapacity`).
@@ -230,21 +220,20 @@ pub struct PauseHistogram {
 }
 
 impl Default for PauseHistogram {
-    fn default() -> Self {
-        let cap = pause_window_cap_from_env();
-        Self {
-            buckets:       [0; 8],
-            min_us:        u64::MAX,
-            max_us:        0,
-            total_us:      0,
-            count:         0,
-            recent_pauses: VecDeque::with_capacity(cap),
-            window_cap:    cap,
-        }
-    }
+    fn default() -> Self { Self::new(PAUSE_WINDOW_DEFAULT_CAP) }
 }
 
 impl PauseHistogram {
+    /// A bounded rolling window. Zero and oversized explicit inputs are clamped
+    /// just like values parsed by the facade.
+    pub fn new(cap: usize) -> Self {
+        let cap = cap.clamp(1, PAUSE_WINDOW_MAX_CAP);
+        Self {
+            buckets: [0; 8], min_us: u64::MAX, max_us: 0, total_us: 0,
+            count: 0, recent_pauses: VecDeque::with_capacity(cap), window_cap: cap,
+        }
+    }
+
     /// Maps a pause measurement (µs) into its bucket index (0..=7).
     ///
     /// Half-open intervals `[lower, upper)`: boundary values land in the

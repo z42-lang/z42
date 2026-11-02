@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn pin_root_increments_count_and_for_each_visits() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v = heap.alloc_array(vec![Value::I64(7)]);
     let _h = heap.pin_root(v);
     assert_eq!(heap.stats().roots_pinned, 1);
@@ -16,7 +16,7 @@ fn pin_root_increments_count_and_for_each_visits() {
 
 #[test]
 fn unpin_root_decrements_count() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v = heap.alloc_array(vec![]);
     let h = heap.pin_root(v);
     heap.unpin_root(h);
@@ -28,7 +28,7 @@ fn unpin_root_decrements_count() {
 
 #[test]
 fn enter_leave_frame_drops_intra_frame_pins() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let mark = heap.enter_frame();
     let _ = heap.pin_root(heap.alloc_array(vec![]));
     let _ = heap.pin_root(heap.alloc_array(vec![]));
@@ -39,7 +39,7 @@ fn enter_leave_frame_drops_intra_frame_pins() {
 
 #[test]
 fn nested_frames_unwind_correctly() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let m1 = heap.enter_frame();
     let _  = heap.pin_root(heap.alloc_array(vec![]));
     let m2 = heap.enter_frame();
@@ -54,7 +54,7 @@ fn nested_frames_unwind_correctly() {
 
 #[test]
 fn pin_outside_frame_persists() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v = heap.alloc_array(vec![]);
     let _h = heap.pin_root(v);
     let mark = heap.enter_frame();
@@ -74,7 +74,7 @@ fn frame_held_outer_with_inner_chain_protected_by_stack_scan() {
     //
     // 本测试用 set_external_root_scanner 直接模拟：把"frame regs Vec" 通过
     // Rc<RefCell> 共享给 scanner 闭包（与 vm_context.rs 中实际 raw-ptr 实现等价）。
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
 
     let inner = heap.alloc_object(dummy_type_desc("Inner"), vec![Value::I64(42)], NativeData::None);
     let outer = heap.alloc_object(dummy_type_desc("Outer"), vec![Value::Null], NativeData::None);
@@ -115,7 +115,7 @@ fn frame_held_outer_with_inner_chain_protected_by_stack_scan() {
 
 #[test]
 fn external_root_scanner_called_during_collect() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let calls = Arc::new(AtomicUsize::new(0));
     let c = calls.clone();
     heap.set_external_root_scanner(Box::new(move |_visit| {
@@ -131,7 +131,7 @@ fn cycle_reachable_via_external_scanner_is_preserved() {
     use parking_lot::Mutex as StdMutex;
     use std::sync::Arc as StdArc;
 
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
 
     // 模拟 VmContext.static_fields 风格的外部容器
     let external: StdArc<StdMutex<Vec<Value>>> = StdArc::new(StdMutex::new(Vec::new()));
@@ -182,7 +182,7 @@ fn cycle_unreachable_from_external_scanner_still_collected() {
     use parking_lot::Mutex as StdMutex;
     use std::sync::Arc as StdArc;
 
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let external: StdArc<StdMutex<Vec<Value>>> = StdArc::new(StdMutex::new(Vec::new()));
     {
         let ext = external.clone();
@@ -224,7 +224,7 @@ fn cycle_unreachable_from_external_scanner_still_collected() {
 #[test]
 fn a_strong_handle_anchors_its_target_across_a_collection() {
     use crate::gc::types::GcHandleKind;
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
 
     let obj = heap.alloc_object(dummy_type_desc("Anchored"), vec![], NativeData::None);
     let slot = heap.handle_alloc(&obj, GcHandleKind::Strong);
@@ -243,7 +243,7 @@ fn a_strong_handle_anchors_its_target_across_a_collection() {
 #[test]
 fn a_weak_handle_does_not_anchor_its_target() {
     use crate::gc::types::GcHandleKind;
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
 
     let obj = heap.alloc_object(dummy_type_desc("NotAnchored"), vec![], NativeData::None);
     let slot = heap.handle_alloc(&obj, GcHandleKind::Weak);

@@ -8,7 +8,7 @@ use crate::gc::{GcMode, MagrGC};
 
 #[test]
 fn snapshot_roots_marks_and_enqueues_pinned_roots() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
 
     let obj = heap.alloc_object(dummy_type_desc("Root"), vec![Value::Null], NativeData::None);
     let _pin = heap.pin_root(obj.clone());
@@ -24,7 +24,7 @@ fn snapshot_roots_marks_and_enqueues_pinned_roots() {
 
 #[test]
 fn snapshot_roots_idempotent_on_already_marked() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
 
     let obj = heap.alloc_object(dummy_type_desc("R"), vec![Value::Null], NativeData::None);
     let _pin = heap.pin_root(obj.clone());
@@ -42,7 +42,7 @@ fn snapshot_roots_idempotent_on_already_marked() {
 
 #[test]
 fn snapshot_roots_skips_primitive_roots() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
 
     // Pin a primitive root (legitimate but mark-irrelevant).
     let _pin = heap.pin_root(Value::I64(42));
@@ -54,7 +54,7 @@ fn snapshot_roots_skips_primitive_roots() {
 
 #[test]
 fn snapshot_roots_includes_external_scanner_output() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
 
     let external_obj = heap.alloc_object(
         dummy_type_desc("External"), vec![Value::Null], NativeData::None
@@ -73,7 +73,7 @@ fn snapshot_roots_includes_external_scanner_output() {
 
 #[test]
 fn mark_if_unmarked_returns_true_first_then_false() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let obj = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
 
     assert!(heap.mark_if_unmarked_for_test(&obj), "first call marks");
@@ -85,7 +85,7 @@ fn mark_if_unmarked_returns_true_first_then_false() {
 
 #[test]
 fn mark_if_unmarked_returns_false_for_primitives() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     assert!(!heap.mark_if_unmarked_for_test(&Value::I64(1)));
     assert!(!heap.mark_if_unmarked_for_test(&Value::Null));
     assert!(!heap.mark_if_unmarked_for_test(&Value::Bool(true)));
@@ -97,7 +97,7 @@ fn mark_if_unmarked_returns_false_for_primitives() {
 fn mark_if_unmarked_marks_string() {
     // unify-gc-heap PR-4: strings are GC blocks; the first mark wins the CAS, the
     // second fails (idempotent), exactly like Object/Closure.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let s = Value::Str("hello".into());
     assert!(heap.mark_if_unmarked_for_test(&s), "first call marks the string block");
     assert!(!heap.mark_if_unmarked_for_test(&s), "second call CAS fails");
@@ -106,7 +106,7 @@ fn mark_if_unmarked_marks_string() {
 
 #[test]
 fn mark_queue_starts_empty_in_default_heap() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     assert!(heap.mark_queue_for_test().is_empty(),
         "fresh heap has empty mark_queue regardless of mode");
 }
@@ -115,7 +115,7 @@ fn mark_queue_starts_empty_in_default_heap() {
 
 #[test]
 fn barrier_field_no_op_in_stw_mode() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);   // flip-gc-default-to-generational: opt in explicitly
     assert_eq!(heap.mode(), GcMode::StwMarkSweep);
 
@@ -181,7 +181,7 @@ fn alive_count(heap: &ArcMagrGC) -> usize {
 /// the hazard is not a race. The cycle-level model is `tests/gc_incremental_model.rs`.
 #[test]
 fn allocate_black_keeps_an_object_that_becomes_a_root_after_the_snapshot() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep); // the closing `collect_cycles` is then a whole-heap one
 
     let old = heap.alloc_object(dummy_type_desc("Old"), vec![Value::Null], NativeData::None);
@@ -224,7 +224,7 @@ fn allocate_black_keeps_an_object_that_becomes_a_root_after_the_snapshot() {
 /// shading. Without it this string is tombstoned while still rooted.
 #[test]
 fn allocate_black_covers_var_region_blocks() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
 
     heap.begin_alloc_black();
     heap.snapshot_roots_into_mark_queue_for_test();
