@@ -32,11 +32,10 @@ xtask test --list
 panic「unknown builtin」→ 全体 golden 假失败，且 regen 返回 1 早退，使 debug vm 那一步永远跑不到。
 故 `_gateBuildWave` / `_testE2eCore` 把 `_buildDebugVmAndCompression()` 排在 `_regenForTest()` 之前。
 
-**cross-zpkg 的 fixture 编译走 release z42vm、运行走 debug z42vm。** 该 stage 每个 fixture 要三阶段
-z42c 编译（target → ext → main，全跑约 40 次），debug VM 编译慢 release 一个量级，会成为
-`test-host(linux-x64)` 的 pole（约 18 min）。debug VM 的价值（overflow-checks + 内存布局
-`debug_assert!`）在**执行期**触发，编译走 debug 零覆盖价值，故 `_runOneCrossCase` 用 release VM 编
-fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖不丢，pole 消失（约 2–3 min）。
+**cross-zpkg 的 fixture 编译走 release z42vm、运行走 debug z42vm。** 包间有依赖，按
+`target` → 可选 `oldtarget` → 可选 `ext` → `main` 分波；各波并发独立夹具。
+`_crossBuildWave` 使用共用的 fixture 构建助手，`_crossRunWave` 为每例保存进程句柄与隔离 libs，
+按夹具顺序回收结果。debug VM 的 overflow-checks 与 debug assertion 覆盖保留在实际执行阶段。
 `--toolchain` 消费路径只带 release VM，编译与运行同为它。
 
 ## 4. 检查职责
