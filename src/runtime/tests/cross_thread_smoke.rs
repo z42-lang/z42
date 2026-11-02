@@ -93,7 +93,7 @@ fn box_dyn_magr_gc_works_on_worker_thread() {
     // Confirms `Box<dyn MagrGC>` (the type VmCore holds) can move across
     // threads and dispatch methods. Box<dyn MagrGC> requires Send + Sync
     // which Phase 3 of the spec just landed.
-    let heap: Box<dyn MagrGC> = Box::new(ArcMagrGC::new());
+    let heap: Box<dyn MagrGC> = Box::new(ArcMagrGC::default());
     let handle = thread::spawn(move || {
         let _ = heap.alloc_array(vec![Value::I64(123)]);
         heap.used_bytes()

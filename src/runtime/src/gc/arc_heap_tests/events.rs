@@ -14,14 +14,14 @@ impl GcObserver for CountingObserver {
 
 #[test]
 fn add_observer_increments_count() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.add_observer(Arc::new(CountingObserver::default()));
     assert_eq!(heap.stats().observers, 1);
 }
 
 #[test]
 fn observer_receives_before_and_after_on_collect_cycles() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let obs  = Arc::new(CountingObserver::default());
     heap.add_observer(obs.clone());
     heap.collect_cycles();
@@ -31,7 +31,7 @@ fn observer_receives_before_and_after_on_collect_cycles() {
 
 #[test]
 fn observer_receives_before_and_after_on_force_collect() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let obs  = Arc::new(CountingObserver::default());
     heap.add_observer(obs.clone());
     heap.force_collect();
@@ -40,7 +40,7 @@ fn observer_receives_before_and_after_on_force_collect() {
 
 #[test]
 fn remove_observer_stops_event_delivery() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let obs  = Arc::new(CountingObserver::default());
     let id = heap.add_observer(obs.clone());
     heap.remove_observer(id);
@@ -63,7 +63,7 @@ impl GcObserver for OomObserver {
 
 #[test]
 fn oom_event_fires_when_used_exceeds_limit() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let obs  = Arc::new(OomObserver::default());
     heap.add_observer(obs.clone());
     heap.set_max_heap_bytes(Some(8));  // tiny limit
@@ -75,7 +75,7 @@ fn oom_event_fires_when_used_exceeds_limit() {
 
 #[test]
 fn alloc_sampler_fires_for_each_alloc() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
     heap.set_alloc_sampler(Some(Arc::new(move |_sample| {
@@ -89,7 +89,7 @@ fn alloc_sampler_fires_for_each_alloc() {
 
 #[test]
 fn set_alloc_sampler_none_clears_sampler() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
     heap.set_alloc_sampler(Some(Arc::new(move |_| {
@@ -103,7 +103,7 @@ fn set_alloc_sampler_none_clears_sampler() {
 #[test]
 fn snapshot_coverage_is_full_after_phase_3b_registry() {
     // Phase 3b: heap registry 升级 coverage 到 Full（不依赖 host pin）。
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let snap = heap.take_snapshot();
     assert_eq!(snap.coverage, SnapshotCoverage::Full);
 }
@@ -111,7 +111,7 @@ fn snapshot_coverage_is_full_after_phase_3b_registry() {
 #[test]
 fn snapshot_includes_unpinned_alive_object() {
     // Phase 3b: 没 pin 也能在 snapshot 里看到（只要还存活）。
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _alive = heap.alloc_object(dummy_type_desc("UnpinnedFoo"), vec![], NativeData::None);
     let snap = heap.take_snapshot();
     assert!(snap.objects_by_type.contains_key("UnpinnedFoo"));
@@ -121,7 +121,7 @@ fn snapshot_includes_unpinned_alive_object() {
 #[test]
 fn iterate_live_objects_full_coverage_includes_unpinned() {
     // Phase 3b: alloc 但没 pin 的对象，iterate_live_objects 也能找到。
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _a = heap.alloc_array(vec![]);
     let _b = heap.alloc_object(dummy_type_desc("Foo"), vec![], NativeData::None);
     let mut count = 0;

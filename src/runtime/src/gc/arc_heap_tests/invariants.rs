@@ -14,7 +14,7 @@ use crate::gc::GcMode;
 
 #[test]
 fn healthy_heap_validates_after_stw_collect() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v = heap.alloc_object(dummy_type_desc("Foo"), vec![], NativeData::None);
     let _pin = heap.pin_root(v);
     heap.force_collect();
@@ -73,7 +73,7 @@ fn healthy_heap_validates_with_cross_gen_writes_under_generational() {
 #[test]
 #[should_panic(expected = "mark_queue stale post-collect")]
 fn validation_detects_stale_mark_queue() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     // Manually populate mark_queue (simulate a bug where a major's
     // mark didn't drain). The next debug_validate_invariants call
     // should panic.
@@ -91,7 +91,7 @@ fn validation_detects_stale_mark_queue() {
 #[test]
 #[should_panic(expected = "stale mark bit after sweep")]
 fn validation_detects_stale_mark_on_an_object() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v = heap.alloc_object(dummy_type_desc("MarkLeak"), vec![], NativeData::None);
     let _pin = heap.pin_root(v.clone());
     // add-incremental-major-gc M1: a stale mark is now an epoch that is neither the current one
@@ -110,7 +110,7 @@ fn validation_detects_stale_mark_on_an_object() {
 #[test]
 #[should_panic(expected = "stale mark bit after sweep")]
 fn validation_detects_stale_minor_mark_on_an_object() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v = heap.alloc_object(dummy_type_desc("MinorLeak"), vec![], NativeData::None);
     let _pin = heap.pin_root(v.clone());
     let Value::Object(gc) = &v else { panic!() };
@@ -122,7 +122,7 @@ fn validation_detects_stale_minor_mark_on_an_object() {
 /// of the last cycle holds.
 #[test]
 fn validation_accepts_current_epoch() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v = heap.alloc_object(dummy_type_desc("Survivor"), vec![], NativeData::None);
     let _pin = heap.pin_root(v.clone());
     let Value::Object(gc) = &v else { panic!() };

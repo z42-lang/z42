@@ -272,7 +272,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         if next != cur {
             self.nursery_bytes.store(next, Ordering::Relaxed);
             self.rearm_auto_collect();
-            crate::gc::phase_timer::note(format_args!(
+            self.phase_note(format_args!(
                 "nursery  {} -> {}  (want {}, {} ns/entry, {} B/entry, scanned {}, survivors {}, \
                  target {} us, promotion age {})",
                 crate::gc::trace::human(cur), crate::gc::trace::human(next),
