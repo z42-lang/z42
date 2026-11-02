@@ -69,20 +69,21 @@ public static class DepScanCache {
     // Tsig/Mods/Types 一并清空 —— 它们是旧字节的派生物。
     public static CachedZpkg Get(string path) {
         if (DepScanCache._entries == null) { DepScanCache._entries = new CachedZpkg[16]; }
-        // stat 失败（文件刚被删 / 无权限）⇒ size = -1：命中照旧返回缓存（= 守卫前的行为，不把一次
-        // 良性命中变成硬失败），未命中则照旧往下走 ReadAllBytes 由它抛。存下的 -1 与任何真实 size
-        // 都不等，故下次 stat 成功时会自动刷新，不会把「失败态」粘住。
-        long size = -1;
-        long mtime = -1;
+        // 元数据不可读时清除旧条目并传播 I/O 错误；不能把失去验证依据的条目当成命中。
+        long size;
+        long mtime;
         try {
             size = File.GetSize(path);
             mtime = File.GetLastWriteTime(path).UnixMs();
-        } catch (Exception ex) { size = -1; mtime = -1; }
+        } catch (Exception ex) {
+            DepScanCache._forget(path);
+            throw ex;
+        }
         int i = 0;
         while (i < DepScanCache._count) {
             CachedZpkg hit = DepScanCache._entries[i];
             if (hit.Path == path) {
-                if (size < 0 || (hit.Size == size && hit.MtimeMs == mtime)) { return hit; }
+                if (hit.Size == size && hit.MtimeMs == mtime) { return hit; }
                 CachedZpkg fresh = new CachedZpkg(path, ZpkgReader.Open(File.ReadAllBytes(path), path), size, mtime);
                 DepScanCache._entries[i] = fresh;
                 return fresh;
@@ -101,4 +102,21 @@ public static class DepScanCache {
         DepScanCache._count = DepScanCache._count + 1;
         return e;
     }
+    // 异常路径也移除派生缓存，避免路径恢复后复用失败前的身份与类型信息。
+    private static void _forget(string path) {
+        int i = 0;
+        while (i < DepScanCache._count) {
+            if (DepScanCache._entries[i].Path == path) {
+                int k = i + 1;
+                while (k < DepScanCache._count) {
+                    DepScanCache._entries[k - 1] = DepScanCache._entries[k]; k = k + 1;
+                }
+                DepScanCache._count = DepScanCache._count - 1;
+                DepScanCache._entries[DepScanCache._count] = null;
+                return;
+            }
+            i = i + 1;
+        }
+    }
+
 }
