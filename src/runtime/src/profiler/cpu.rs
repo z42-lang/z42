@@ -314,5 +314,5 @@ fn json_escape(s: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "sampler_tests.rs"]
-mod sampler_tests;
+#[path = "cpu_tests.rs"]
+mod cpu_tests;

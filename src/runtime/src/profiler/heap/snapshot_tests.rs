@@ -310,7 +310,7 @@ fn root_edge_count_matches_pinned_root_count() {
 /// shortcut + property edges. Includes string-table entries that exercise
 /// escape paths (newline + double-quote inside a class name to force
 /// `escape_json_str_to` through its replace branches).
-fn build_sample_snapshot_with_escapes() -> (Heap, crate::gc::GraphSnapshot, Vec<crate::gc::RootHandle>) {
+fn build_sample_snapshot_with_escapes() -> (Heap, crate::profiler::heap::snapshot::GraphSnapshot, Vec<crate::gc::RootHandle>) {
     let heap = Heap::default();
     let td = dummy_type_desc("Has\"weird\nname");
     let b = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);

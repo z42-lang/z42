@@ -196,35 +196,7 @@ impl std::fmt::Debug for RcHeapInner {
 
 use super::to_vm::{ContextReclaimHook, ExternalRootScanner};
 
-/// **add-heap-retention-diagnostics **: like `ExternalRootScanner`
-/// but yields each root **with its category** (`RootKind`). Used only by the
-/// on-demand retention query (`retention_*`) to report retaining roots at the
-/// category level — NOT on the mark hot path (mark uses the anonymous scanner).
-pub type CategorizedRootScanner =
-    Box<dyn Fn(&mut dyn FnMut(&Value, super::retention::RootKind)) + Send + Sync>;
-
-/// **add-heap-retention-diagnostics **: the heap identity (data ptr
-/// as usize) of a heap-ref `Value`, or `None` for primitives / stack refs. Used
-/// to key the reverse reference graph. Mirrors `mark_if_unmarked`'s variant set.
-fn value_heap_ptr(v: &Value) -> Option<usize> {
-    match v {
-        // Object model R6: the header address, taken from the handle (thin, whole-block provenance).
-        Value::Object(gc) => Some(ObjRef::as_ptr(gc) as usize),
-        // add-boxed-struct-identity (P4b): boxed struct is a heap object (an object block).
-        Value::BoxedStruct(gc) => Some(ObjRef::as_ptr(gc) as usize),
-        // Object model R9: an array is a block too — the header address.
-        Value::Array(gc) => Some(ArrRef::as_ptr(gc) as usize),
-        // unify-gc-heap PR-2: the closure is itself a heap object (region_var block) — its own
-        // block address is its identity.
-        Value::Closure(c) => Some(c.addr()),
-        // unify-gc-heap PR-4: strings are region_var blocks now — the block header address is
-        // their heap identity. (`FuncRef` is a `FnId` since P1-2 PR 8 — no heap identity.)
-        Value::Str(s) => Some(s.as_ptr() as usize),
-        // make-value-copy: a `Ref` handle has no stable heap identity of its own (its
-        // payload lives in the transient arena); like `StructRef`/`StackObject` → None.
-        _ => None,
-    }
-}
+use super::walk::CategorizedRootScanner;
 
 /// The payload finalizer injected into the variable-length region (which stays a pure byte
 /// allocator with no `object` dependency), dispatched by block type, and the mask of the

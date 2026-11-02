@@ -4,9 +4,10 @@ use std::sync::Arc;
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::object::OwnedObject;
 use crate::object::ClosureData;
-use crate::gc::types::{AllocSamplerFn, CollectStats, FinalizerFn, FrameMark, GcHandleKind, GcObserver, HeapSnapshot, HeapStats, ObserverId, RootHandle, WeakRef, WeakRefInner};
+use crate::gc::types::{AllocSamplerFn, CollectStats, FinalizerFn, FrameMark, GcHandleKind, GcObserver, HeapStats, ObserverId, RootHandle, WeakRef, WeakRefInner};
 
-use crate::gc::heap::{Heap, HandleEntry, CategorizedRootScanner};
+use crate::gc::heap::{Heap, HandleEntry};
+use crate::gc::walk::CategorizedRootScanner;
 use crate::gc::to_vm::{ContextReclaimHook, ExternalRootScanner};
 
 impl Heap {
@@ -49,19 +50,6 @@ impl Heap {
         *self.categorized_root_scanner.lock() = Some(scanner);
     }
 
-    /// **L1**: direct heap referrers of `target` (a heap object's data ptr).
-    /// Forces a full GC first so only reachable objects are reported.
-    pub fn retention_direct_referrers(&self, target: usize) -> Vec<crate::gc::retention::RetainerInfo> {
-        self.collect_full();
-        self.build_retention_graph().direct_referrers(target)
-    }
-
-    /// **L2**: GC roots retaining `target` (category-level), via reverse BFS.
-    /// Forces a full GC first for accuracy.
-    pub fn retention_roots(&self, target: usize) -> Vec<crate::gc::retention::RootInfo> {
-        self.collect_full();
-        self.build_retention_graph().retaining_roots(target)
-    }
 
     /// **add-gc-safepoint-auto-threshold **: wire the
     /// AtomicBool that `maybe_auto_collect` should set on pressure trip

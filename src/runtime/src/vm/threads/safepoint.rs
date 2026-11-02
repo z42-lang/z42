@@ -236,60 +236,27 @@ fn park_until_idle(ctx: &VmContext) {
 // JVM `_thread_in_native` / Go `entersyscall` transition). Same `parked_count`
 // + `gc_phase_cv` machinery as `park_until_idle`; no new synchronization.
 
-thread_local! {
-    /// **fix-alloc-inside-native-park **: how many [`NativeParkGuard`]s this
-    /// thread is inside (net of [`NativeUnparkGuard`]s). Read only by
-    /// [`debug_assert_not_native_parked`].
-    static NATIVE_PARK_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-}
-
-/// **fix-alloc-inside-native-park **: debug-build tripwire for the one rule a
-/// parked thread must keep — **no allocation until the park ends**.
-///
-/// A parked thread counts as stopped, so a collection on another thread proceeds without
-/// it. Anything this thread allocates in that window lives only in a Rust local: no frame
-/// register, no pinned root. The collector sweeps it as garbage, and the dead-edge break
-/// nulls its reference fields while the thread goes on to use it. Measured symptom:
-/// `Z42NetHttpServerThreadedTests` failing 3 runs in 40 with `BrCond expects bool, got
-/// Null` / `ArraySet index: expected non-negative integer, got Null` — both TCP connect
-/// builtins built their result tuple before their park guard dropped.
-///
-/// The race is microseconds wide and never reproduces on demand, so the check is on the
-/// rule rather than on its consequence: every allocation path (`record_alloc` and
-/// `record_alloc_fast`) calls this. Release builds compile it out.
-#[inline]
-pub(crate) fn debug_assert_not_native_parked() {
-    #[cfg(debug_assertions)]
-    NATIVE_PARK_DEPTH.with(|d| {
-        assert!(
-            d.get() == 0,
-            "GC allocation inside a NativeParkGuard region: a parked thread's new objects are \
-             not GC roots, so a concurrent collection frees them. End the park (drop the \
-             guard) before allocating — see gc/safepoint.rs"
-        );
-    });
-}
-
 /// Debug-build tripwire for the other half of that rule: a parked thread's frame stack is
 /// read by the collector without synchronization (`FrameStack::scan_parked`), so the thread
 /// must not push or pop frames until the park ends. Called by `FrameStack::push` / `pop`.
 #[inline]
 pub(crate) fn debug_assert_frame_change_not_parked() {
     #[cfg(debug_assertions)]
-    NATIVE_PARK_DEPTH.with(|d| {
+    {
+        let depth = crate::gc::to_vm::allocation_suspension_depth();
         assert!(
-            d.get() == 0,
+            depth == 0,
             "z42 frame pushed / popped inside a NativeParkGuard region: a collector may be \
              scanning this thread's frame stack. End the park (or use NativeUnparkGuard) \
-             before running z42 code — see gc/safepoint.rs"
+             before running z42 code — see vm/threads/safepoint.rs"
         );
-    });
+    }
 }
 
 /// Enter the parked state: count this ctx toward `parked_count` and wake any
 /// collector waiting for its target. Caller must NOT mutate z42 roots or
 /// allocate until the matching [`native_park_decr`] — enforced in debug builds by
-/// [`debug_assert_not_native_parked`].
+/// [`crate::gc::to_vm::debug_assert_not_native_parked`].
 fn native_park_incr(ctx: &VmContext) {
     // add-gc-tlab (stage 2, D5): a collector that runs while this thread sits in native
     // code must see no chunk borrowed by it. The claims are set aside rather than retired
@@ -300,7 +267,7 @@ fn native_park_incr(ctx: &VmContext) {
     // (`request_gc_pause`); otherwise `native_park_decr` takes them back. (The thread won't
     // allocate again until native_park_decr.)
     ctx.heap().park_thread_tlab(&ctx.parked_tlab);
-    NATIVE_PARK_DEPTH.with(|d| d.set(d.get() + 1));
+    crate::gc::to_vm::suspend_allocations();
     ctx.core.parked_count.fetch_add(1, Ordering::AcqRel);
     // Hold the phase lock across notify_all — same lost-wakeup discipline as
     // park_until_idle: a collector spinning in its wait loop must observe our
@@ -323,7 +290,7 @@ fn native_park_decr(ctx: &VmContext) {
     ctx.heap().unpark_thread_tlab(&ctx.parked_tlab);
     ctx.core.parked_count.fetch_sub(1, Ordering::AcqRel);
     drop(phase);
-    NATIVE_PARK_DEPTH.with(|d| d.set(d.get() - 1));
+    crate::gc::to_vm::resume_allocations();
 }
 
 /// RAII: marks the calling `VmContext` GC-safe for the duration of a blocking
