@@ -108,7 +108,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 >   `artifacts/intermediate/` 下 owner 的镜像（规则见 artifacts-layout.md §1、§3 与 test-layout.md §5）。
 > - **toolchain 组件的输出/publish 路径一律从各 `z42.toml` 读**（`[build].dist_dir`/`output_dir`、
 >   `[platform.desktop].publish_dir`，级联默认见 `docs/reference/src/toolchain/z42-toml.md`）——xtask 不硬编码，
->   改路径只动 toml。定位 helper：`build/xtask_toolchain.z42` 的 `_desktopPublishDir` / `_toolchainZpkg`。
+>   改路径只动 toml。定位 helper：`common/xtask_components.z42` 的 `_desktopPublishDir` / `_toolchainZpkg`。
 > - **workspace per-member 产物路径同样单源自 `z42.workspace.toml`**：`artifacts/build/{libraries,compiler}/<member>/<profile>/dist` 由
 >   `[workspace.build].output_dir` 模板经 `common/xtask_layout.z42` 的 `_memberDist`
 >   （`ManifestLoader.LoadWorkspace` + `PathTemplate.Expand`，与 `WorkspacePlan.PlanLayout`
@@ -275,6 +275,7 @@ scripts/
 │   ├── xtask_test_cmd.z42       `test` 族的命令类 + LibUnitsCommand（test stdlib / bench stdlib 共用）
 │   ├── xtask_test.z42           all/e2e 编排 + stage 单源登记 / 只读列表 / 计时
 │   ├── xtask_test_vm.z42        e2e golden 跑分（+ --dir/--file 子选择）
+│   ├── xtask_fixture_build.z42  cross-zpkg / multi-exe 共用的构建、隔离 libs、产物定位与汇总
 │   ├── xtask_test_cross.z42     e2e cross-zpkg 多包
 │   ├── xtask_test_multiexe.z42  e2e multi-exe（一工程 → N 个 exe zpkg）
 │   ├── xtask_test_lib.z42       stdlib [Test]/[Benchmark] 编排（per-lib + 分片）；共用 runner `_testPkgsCore`
@@ -292,6 +293,7 @@ scripts/
 │   ├── xtask_test_embedded_corpus.z42  语料枚举 SoT（`test app desktop` 与 `test list` 共用）
 │   ├── xtask_test_embedded_golden.z42  golden / 单元语料的 zbc/zpkg 发射
 │   ├── xtask_selfcheck_embedded.z42  bundle 构建回归（成功 / 部分失败 / 旧 manifest / 空选择），随 builder 夹具跑
+│   ├── xtask_selfcheck_fixture_runs.z42  真实进程退出码与主产物选择回归，随 multi-exe 跑
 │   ├── xtask_selfcheck_stages.z42  stage 编排回归（skip / 必跑 / 首败短路 / 退出码），随 builder 夹具跑
 │   ├── xtask_test_list.z42      `test list`：只读语料目录（pretty / json）
 │   ├── xtask_test_incremental{,_ws}.z42 增量编译暴力对账（逐文件 touch：增量产物 == 全量，逐字节；`_ws` 为 stdlib 整体读回）
