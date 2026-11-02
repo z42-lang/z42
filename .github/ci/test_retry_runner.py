@@ -122,12 +122,14 @@ class RetryTests(unittest.TestCase):
     def test_closed_or_updated_pr_is_not_retried(self):
         for changes in [dict(state="closed"), dict(head={"sha": "new"})]:
             with self.subTest(changes=changes):
+                self.setUp()
                 self.api.pr.update(changes)
                 self.check_skip()
 
     def test_unlinked_pr_or_wrong_target_is_not_retried(self):
         self.api.pr["base"]["ref"] = "release"
         self.check_skip()
+        self.setUp()
         self.api.run["pull_requests"] = []
         self.check_skip()
 
@@ -146,11 +148,12 @@ class RetryTests(unittest.TestCase):
         self.check_skip()
 
     def test_retry_or_new_push_during_inspection_is_not_retried(self):
-        for target, changes in [(self.api.run, dict(status="queued", run_attempt=2)),
-                                (self.api.pr, dict(state="closed"))]:
+        for attribute, changes in [("run", dict(status="queued", run_attempt=2)),
+                                   ("pr", dict(state="closed")),
+                                   ("pr", dict(head={"sha": "new"}))]:
             with self.subTest(changes=changes):
                 self.setUp()
-                target = self.api.run if "status" in changes else self.api.pr
+                target = getattr(self.api, attribute)
                 self.api.on_recheck = lambda: target.update(changes)
                 self.check_skip()
 
