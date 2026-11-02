@@ -182,8 +182,7 @@ jobs:
     name: test-host(${{ matrix.platform }})
     # 全量 gate 在 linux-x64 上接近 60 分钟，留余量。
     timeout-minutes: 75
-    # needs: changes so the Rust-unit steps can gate on the `vm` filter; the job
-    # itself runs on every non-docs change.
+    # 本 job 跑所有非纯文档改动；完整 Rust harness 只在 VM 相关改动或定期运行时执行。
     needs: changes
     # 纯文档改动（PR 与 main push）走 docs-check（见 changes 的 Docs-only 步骤）；本 job 被 skip 时 ci-ok 照样绿。
     if: needs.changes.outputs.docs_only != 'true'
@@ -196,6 +195,8 @@ jobs:
           - { os: macos-26,         platform: macos-arm64 }
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
+    env:
+      RUN_RUST_RUNTIME: ${{ needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - uses: actions/checkout@v7
@@ -238,6 +239,10 @@ jobs:
           SKIP="stdlib,compiler,vscode"
           if [ "${{ matrix.platform }}" != "linux-x64" ]; then
             SKIP="stdlib,cross-zpkg,bench,compiler,vscode"
+          fi
+          # 完整 runtime harness 覆盖 --lib 与所有 target 编译；只有它会执行时才卸下窄版 stage。
+          if [ "${{ env.RUN_RUST_RUNTIME }}" = "true" ]; then
+            SKIP="$SKIP,rust-units"
           fi
           # 按路径分流（只在 PR 上）：`--changed <base>` 用 `test changed` 的映射表只跑受影响的重 stage；
           # build wave、e2e goldens 与静态检查恒跑，scripts/ / ci.yml / 未知文件 / 拿不到 base ⇒ 全跑。
@@ -284,18 +289,18 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      # Rust 单测不在 `xtask test` 里（signal 测试在受限沙箱会挂），每条腿单独一步。Windows 不跑 gate，
-      # 先 `build test` 备好 zbc_compat 要的 goldens。schedule / dispatch 下 filter 恒 false，故显式放行。
+      # 完整 Rust harness 包含 signal 子进程测试，独立于本地 GREEN 的窄版 rust-units。
+      # Windows 不跑 GREEN，完整 harness 执行前先备好 zbc_compat 要的 goldens。
       - name: Build golden test assets (Windows — zbc_compat inputs)
-        if: matrix.os == 'windows-latest' && (needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: matrix.os == 'windows-latest' && env.RUN_RUST_RUNTIME == 'true'
         shell: bash
         run: |
           set -euo pipefail
           xtask build test
 
-      # 串行（--test-threads=1，_testRuntime 内设）：--lib 测试有跨线程内存竞争。按 vm filter 门控。
+      # 串行（--test-threads=1，_testRuntime 内设）：--lib 测试有跨线程内存竞争。
       - name: Rust VM unit tests (xtask test runtime)
-        if: needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        if: env.RUN_RUST_RUNTIME == 'true'
         shell: bash
         run: |
           set -euo pipefail
