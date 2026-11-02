@@ -132,8 +132,8 @@ pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const VmContex
 //
 // converge-vm-arith-semantics (H3): the scalar rules formerly duplicated here
 // (`int_binop_helper` / `int_bitop_helper` / `numeric_lt_helper` were verbatim
-// copies of `interp/ops.rs`) now live once in `crate::semantics`. Call sites in
-// `arith.rs` use `crate::semantics::{int_binop, int_bitop, numeric_lt}` directly.
+// copies of `interp/ops.rs`) now live once in `crate::vm::exec::ops::scalar`. Call sites in
+// `arith.rs` use `crate::vm::exec::ops::scalar::{int_binop, int_bitop, numeric_lt}` directly.
 
 /// A name the translator baked into the code as `(ptr, len)` (`TxCtx::str_val`).
 /// It points into a Rust `str` owned by the module's IR, which outlives the

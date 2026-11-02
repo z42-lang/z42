@@ -135,8 +135,8 @@ pub unsafe extern "C" fn jit_call_indirect(
         Value::Null => {
             let module = super::jit_module(ctx);
             let exc = crate::exception::make_stdlib_exception(
-                vm_ctx, module, crate::semantics::NULL_REF_EXC,
-                crate::semantics::null_invoke_msg(),
+                vm_ctx, module, crate::vm::exec::ops::scalar::NULL_REF_EXC,
+                crate::vm::exec::ops::scalar::null_invoke_msg(),
             ).unwrap_or_else(|e| Value::Str(format!("{e}").into()));
             set_exception(vm_ctx, exc);
             return 1;
