@@ -253,8 +253,21 @@ examples stage。打包 job 不执行时，test-host 保留这两步，本地完
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。PR 上另加 `--changed <PR base sha>`
 按路径分流：改动用不到的重 stage 也跳过（规则与映射表见[测试门禁](test-gate.md) §5、§7）；main push /
-schedule / dispatch 不分流。Windows 腿不跑
-`test`，只跑 `build test` + `xtask test runtime`。三条非 Windows 腿在 `test` 之后
+schedule / dispatch 不分流。
+
+Rust 测试用 job 环境变量 `RUN_RUST_RUNTIME` 统一决定：`vm` filter 为 true，或事件是 schedule / dispatch 时，
+独立执行完整 `xtask test runtime`；此时非 Windows 腿的 `test` 追加跳过 `rust-units`，避免重复执行 `--lib`。
+完整 harness 使用同一 workspace、feature 与串行参数，覆盖窄版的库单测和所有 target 编译，并执行集成与文档测试。
+其余事件保留窄版 stage，不会因为完整 harness 跳过而丢掉原有覆盖。本地 `xtask test` 仍运行 `rust-units`。
+Windows 腿不跑 `test`；仅在完整 harness 会执行时，先 `build test` 再 `xtask test runtime`。
+
+测量重复 Rust 阶段时，先以同一源码与 Cargo cache 预热，再交替计时三轮：原编排为
+`cargo test --lib`、`cargo test --no-run`、`cargo test --lib`，精简编排为一次 `cargo test --lib`；
+两边都带 `--locked --workspace --features z42-test-fixtures --manifest-path src/runtime/Cargo.toml` 和运行时 Cargo config，
+执行测试时带 `-- --test-threads=1` 及 `RUST_MIN_STACK=8388608`。两边共同的集成 / 文档测试不计入这个重复片段。
+核对每次库测试的数量与成功状态，整条 CI 的耗时另外从 Actions 记录读取。
+
+三条非 Windows 腿在 `test` 之后
 跑 **zbc-format 字节基线门**（`git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`；regen 就地重写了基线，
 有 diff = 提交的基线过期）——一次覆盖三个架构，失败经 `ci-ok` 挡合并。
 
