@@ -18,9 +18,9 @@ use super::*;
 /// pre-existing slot value is either `Null` (initial) or `I64`, both of
 /// which have no Drop work — raw bit-copy is sound.
 ///
-/// SEMANTICS: `semantics::int_binop` (I64 arm) — inline Cranelift mirror.
+/// SEMANTICS: `scalar::int_binop` (I64 arm) — inline Cranelift mirror.
 /// `iadd`/`isub`/`imul` are wrapping (INT_OVERFLOW_WRAPS); Shl/Shr `band 63`
-/// mirrors `semantics::SHIFT_MASK`. Byte-identity pinned by
+/// mirrors `scalar::SHIFT_MASK`. Byte-identity pinned by
 /// `translate/semantics_jit_diff_tests.rs`.
 pub(super) fn emit_i64_binop(
     builder: &mut FunctionBuilder,
@@ -111,7 +111,7 @@ pub(super) fn int_cc_for_cmp(kind: CmpKind) -> IntCC {
 /// when both `a` and `b` are statically I64. Result discriminant is `TAG_BOOL`,
 /// payload is the i8 comparison result.
 ///
-/// SEMANTICS: `semantics::eval_cmp` (I64 arm; CMP = signed ordered) — inline
+/// SEMANTICS: `scalar::eval_cmp` (I64 arm; CMP = signed ordered) — inline
 /// Cranelift mirror via signed `IntCC`. Byte-identity pinned by diff tests.
 pub(super) fn emit_i64_cmp(
     builder: &mut FunctionBuilder,

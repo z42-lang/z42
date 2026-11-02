@@ -33,7 +33,7 @@ pub(super) fn bool_val(regs: &[Value], reg: u32) -> Result<bool> {
 ///
 /// converge-vm-arith-semantics (H3): register fetch stays here (the
 /// "undefined register" error is interp-model-specific); the scalar rule +
-/// type-mismatch is [`crate::semantics::int_binop`], shared with the JIT helper.
+/// type-mismatch is [`crate::vm::exec::ops::scalar::int_binop`], shared with the JIT helper.
 pub(super) fn int_binop(
     regs: &[Value],
     a: u32,
@@ -43,11 +43,11 @@ pub(super) fn int_binop(
 ) -> Result<Value> {
     let va = regs.get(a as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{a}"))?;
     let vb = regs.get(b as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{b}"))?;
-    crate::semantics::int_binop(va, vb, int_op, float_op)
+    crate::vm::exec::ops::scalar::int_binop(va, vb, int_op, float_op)
 }
 
 /// Integer-only binary operation (bitwise/shift). Rejects floats.
-/// Scalar rule shared via [`crate::semantics::int_bitop`] (see `int_binop`).
+/// Scalar rule shared via [`crate::vm::exec::ops::scalar::int_bitop`] (see `int_binop`).
 pub(super) fn int_bitop(
     regs: &[Value],
     a: u32,
@@ -56,7 +56,7 @@ pub(super) fn int_bitop(
 ) -> Result<Value> {
     let va = regs.get(a as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{a}"))?;
     let vb = regs.get(b as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{b}"))?;
-    crate::semantics::int_bitop(va, vb, op)
+    crate::vm::exec::ops::scalar::int_bitop(va, vb, op)
 }
 
 /// Numeric less-than comparison with automatic widening.
@@ -68,15 +68,15 @@ pub(super) fn int_bitop(
 /// chars). Pre-fix, every char range check (yaml `_LooksLikeInt` etc.)
 /// bailed with "type mismatch in comparison: Char vs Char".
 /// interp-superinstr-fusion: the SHARED comparison primitive. Evaluates a
-/// [`CmpOp`](crate::metadata::superinstr::CmpOp) over two registers to a `bool`.
+/// [`CmpOp`](crate::vm::runtime::CmpOp) over two registers to a `bool`.
 /// Used by BOTH the standalone `Lt`/`Le`/`Gt`/`Ge`/`Eq`/`Ne` handlers (via
 /// `exec_value`) AND the fused `CmpBr` super-instruction, so the comparison logic
 /// lives in exactly one place (no interp/fusion duplication).
 #[inline]
-pub(super) fn eval_cmp(op: crate::metadata::superinstr::CmpOp, regs: &[Value], a: u32, b: u32) -> Result<bool> {
+pub(super) fn eval_cmp(op: crate::vm::runtime::CmpOp, regs: &[Value], a: u32, b: u32) -> Result<bool> {
     // converge-vm-arith-semantics (H3): register fetch here, comparison rule in
-    // [`crate::semantics::eval_cmp`] (shared with JIT helper `jit_lt`/`jit_eq`/…).
-    crate::semantics::eval_cmp(op, reg_ref(regs, a)?, reg_ref(regs, b)?)
+    // [`crate::vm::exec::ops::scalar::eval_cmp`] (shared with JIT helper `jit_lt`/`jit_eq`/…).
+    crate::vm::exec::ops::scalar::eval_cmp(op, reg_ref(regs, a)?, reg_ref(regs, b)?)
 }
 
 #[inline]
@@ -96,8 +96,8 @@ fn reg_ref(regs: &[Value], r: u32) -> Result<&Value> {
 /// invariant is implied by `typed`, since `is_i64(reg_types, r)` requires
 /// `r < reg_types.len() == regs.len()`).
 #[inline]
-pub(super) fn eval_cmp_i64(op: crate::metadata::superinstr::CmpOp, regs: &[Value], a: u32, b: u32) -> bool {
-    use crate::metadata::superinstr::CmpOp;
+pub(super) fn eval_cmp_i64(op: crate::vm::runtime::CmpOp, regs: &[Value], a: u32, b: u32) -> bool {
+    use crate::vm::runtime::CmpOp;
     // SAFETY: the typed super-instruction was recognized only when
     // `reg_types[a] == reg_types[b] == I64`, the same invariant the JIT's raw
     // i64 arithmetic trusts. `debug_assert` inside `as_i64_unchecked` catches a

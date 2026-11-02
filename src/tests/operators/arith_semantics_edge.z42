@@ -2,8 +2,8 @@
 // implementations (interp / JIT runtime-helper / JIT inline Cranelift) to ONE
 // behavior. Self-checking via Assert — runs under BOTH interp (default GREEN)
 // and JIT (`xtask test e2e --mode jit` / CI test-vm-jit). Any divergence in the
-// inline Cranelift path (the one that can't call `semantics.rs` at runtime) fails
-// an Assert here. Complements the scalar-rule unit tests in `semantics_tests.rs`
+// inline Cranelift path (the one that can't call `vm/exec/ops/scalar.rs` at runtime) fails
+// an Assert here. Complements the scalar-rule unit tests in `vm/exec/ops/scalar_tests.rs`
 // and the div-by-zero golden `exceptions/int_divide_by_zero`.
 //
 // Locals (not literals) are used throughout so the compiler does not const-fold

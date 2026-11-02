@@ -88,7 +88,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             if found.is_none() && child.is_heap_ref() && Self::gen_age_of(child) < threshold {
                 found = Some(format!(
                     "{} (age {})",
-                    crate::semantics::value_kind_name(child),
+                    crate::vm::exec::ops::scalar::value_kind_name(child),
                     Self::gen_age_of(child),
                 ));
             }
