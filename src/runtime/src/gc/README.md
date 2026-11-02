@@ -4,7 +4,7 @@
 
 z42 VM 的 GC 子系统：堆对象（对象 / 数组 / 字符串 / 闭包）的分配、引用追踪与
 回收能力 —— 通过具体 `Heap` 提供嵌入接口（pin roots /
-observers / profiler / weak refs / finalizers / strict OOM / ...）。
+observers / allocation sampling / weak refs / finalizers / strict OOM / ...）。
 
 ## 核心文件
 
@@ -28,8 +28,8 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `heap/card_verify.rs` | 记忆集不变量的从头核对（`verify_card_invariant`；`Z42_GC_VERIFY_CARDS` 每次 minor 前跑）——抓漏掉的写屏障。见 [book: GC · 记忆集不变量核对](../../../../docs/internals/src/runtime/gc.md#记忆集不变量核对z42_gc_verify_cards) |
 | `heap/promotion_policy.rs` / `pause_budget.rs` | 自适应晋升判定 / 停顿预算化 nursery |
 | `heap/young_policy.rs` | 年轻代策略：按回收收益（对比上一次 major）判定 minor，不划算时把 minor 换成 **tenure**（年轻代整体晋升、不标记）。机制见 [book: GC 调参 · 年轻代策略](../../../../docs/internals/src/runtime/gc-tuning.md#年轻代策略按收益判定-minor不划算就-tenure) |
-| `heap/roots.rs` | roots/retention 扫描：root 快照 + marked-context 扫描 + 反向引用图 |
-| `heap/observe.rs` | 观测：barrier observer(test) + 事件分发 + pause 计时 + snapshot/stats |
+| `heap/roots.rs` | 根快照、marked-context 扫描与锁内基础遍历 |
+| `heap/observe.rs` | 观测：barrier observer(test) + 事件分发 + pause 计时 + stats |
 | `heap/footprint.rs` | 真实占用的堆侧：region 的 payload 度量函数、`committed` / `occupied` 读数、软上限的两种单位（`SoftCap`）、sweep 尾部的 chunk 回收 + 侧表重量 |
 | `heap/incremental.rs` | **增量 major**：切片状态机（Marking / Sweeping）、切片预算、pacer、`admit_resurrected`（弱读 / 堆遍历不交出待清扫的死对象）。机制见 [book: 增量 major](../../../../docs/internals/src/runtime/gc-incremental-major.md) |
 | `heap/api.rs` | 公开固有方法；同名转发直接公开原有 concern 实现|
@@ -38,10 +38,10 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `side_bits.rs` | 字数组位集（置位 / 清位 / 逐位遍历），region 的年轻集合位图用 |
 | `satb.rs` | **SATB 删除屏障**：进程级 `MARKING_HEAPS` 快路径 + 线程本地记录缓冲，`retire_thread_tlab` 时交给堆 |
 | `tlab.rs` | thread-local `Tlab{var,holes}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/internals/src/runtime/gc-tlab.md) |
-| `types.rs` | 支持类型 —— `RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `WeakRef` / `HeapSnapshot` / `HeapStats` / `FinalizerFn` / `AllocSamplerFn` / ... |
-| `retention.rs` / `snapshot.rs` | 堆保留诊断（反向引用图 + `whyRetained`）/ V8 `.heapsnapshot` 导出 |
+| `types.rs` | 支持类型 —— `RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `WeakRef` / `HeapStats` / `FinalizerFn` / `AllocSamplerFn` / ... |
+| `walk.rs` | 存活对象、原始对象/数组和分类根遍历；工具实现位于 `profiler/` |
 | `soft_registry.rs` | soft-reference 注册表（堆压力下可被清除的引用） |
-| `sampler.rs` / `phase_timer.rs` / `trace.rs` | safepoint 采样 profiler / `Z42_GC_PHASES` 分阶段停顿计时 / `Z42_GC_TRACE` 每次 collect 的 stderr trace |
+| `phase_timer.rs` / `trace.rs` | `Z42_GC_PHASES` 分阶段停顿计时 / `Z42_GC_TRACE` 每次 collect 的 stderr trace |
 | `heap_api_tests.rs` / `heap_tests/` / `*_tests.rs` | 公开堆 API 契约测试 / `Heap` 行为单测（分配 / 收集 / 标记队列 / 分代 / 增量 / finalizer / 不变量等）/ 各模块单测 |
 
 对象头、标记位与强/弱句柄定义在 [`object/header`](../object/header)，GC 负责其分配、回收与存活判定。
@@ -50,7 +50,7 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 
 - `crate::gc::Heap` —— 具体堆的分配、根、屏障、回收、引用、观测与统计接口
 - `crate::object::ObjRef` / `crate::object::WeakObjRef` —— 对象句柄；`crate::object::ArrRef` / `crate::object::WeakArrRef` —— 数组句柄
-- 嵌入相关类型：`RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `AllocSample` / `WeakRef` / `HeapSnapshot` / `HeapStats` / ...
+- 嵌入相关类型：`RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `AllocSample` / `WeakRef` / `HeapStats` / ...
 
 ### 能力组
 
@@ -60,12 +60,12 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | 2 | Roots | `pin_root` / `unpin_root` / `enter_frame` / `leave_frame` / `for_each_root` |
 | 3 | Write barriers | `write_barrier_field` / `write_barrier_array_elem`（STW 模式不记忆，分代模式记录老到年轻引用）；`verify_card_invariant`（核对记忆集不变量）|
 | 4 | Object Model | `object_size_bytes` / `scan_object_refs` |
-| 5 | Collection | `collect` / `collect_cycles` / `force_collect` / `collect_full` / `pause` / `resume` |
+| 5 | Collection | `collect_cycles` / `force_collect` / `collect_full` / `pause` / `resume` |
 | 6 | Heap config | `set_max_heap_bytes` / `used_bytes` / `set_strict_oom` |
 | 7 | Finalization | `register_finalizer` / `cancel_finalizer` |
 | 8 | Weak refs | `make_weak` / `upgrade_weak` |
 | 9 | Observers | `add_observer` / `remove_observer` |
-| 10 | Profiler | `set_alloc_sampler` / `take_snapshot` / `iterate_live_objects` |
+| 10 | Tool hooks | `set_alloc_sampler` / `iterate_live_objects` |
 | 11 | Stats | `stats` |
 
 ### 典型使用
@@ -79,7 +79,7 @@ let h = ctx.heap().pin_root(value.clone());
 let id = ctx.heap().add_observer(Arc::new(MyTelemetry {}));
 ctx.heap().set_max_heap_bytes(Some(64 * 1024 * 1024));
 ctx.heap().set_strict_oom(true);  // 启用后越限返 Null
-let snap = ctx.heap().take_snapshot();
+let snap = crate::profiler::heap::take_snapshot(ctx.heap());
 ```
 
 z42 脚本端可调 `Std.GC.Collect()` / `UsedBytes()` / `ForceCollect()`（见
@@ -115,6 +115,4 @@ GC 只在标记后观察活对象，清扫结束后交回本轮不透明快照�
 句柄见 [`gc-handle.md`](../../../../docs/internals/src/runtime/gc-handle.md)。
 两种 `GcMode`（分代 / STW）均可用，默认分代；每次停顿都是 STW，分代模式的 major 默认拆成增量切片。
 
-## 命名
-
-**Heap** 取自《银河系漫游指南》中的 **Magrathea** —— 那颗专门建造定制行星的传奇世界。
+堆摘要、V8 导出与保留链见 [`profiler/`](../profiler/README.md)。
