@@ -48,7 +48,8 @@ xtask test toolchain builder      # tests/fixtures/{manifest-targets,z42b}/ 夹�
 xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
 ```
 
-`tests/fixtures/` 放 harness 驱动的夹具工程，不是 `[Test]` 单元；约定见
+`tests/fixtures/` 放 harness 驱动的夹具工程，不是 `[Test]` 单元。常规 CLI 断言用
+[z42b 夹具](tests/fixtures/z42b/README.md)的 `expect.toml`，复用通用引擎；状态构造与插件顺序检查保留专用代码。约定见
 [测试用例组织规范](../../../docs/internals/src/devinfra/test-layout.md)。
 
 ## 关联文档

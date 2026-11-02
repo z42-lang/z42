@@ -1,0 +1,7 @@
+desc = "没有测试或 benchmark 的库正常退出，注释不算测试声明"
+[[step]]
+args = ["test", "{case}/z42.toml"]
+exit = 0
+[[step]]
+args = ["bench", "{case}/z42.toml"]
+exit = 0

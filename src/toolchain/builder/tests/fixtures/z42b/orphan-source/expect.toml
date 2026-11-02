@@ -1,0 +1,4 @@
+desc = "有测试源却未发现任何目标时不能回落到父包测试"
+args = ["test", "{case}/z42.toml"]
+exit = "nonzero"
+output_contains = ["一个 test 目标都没发现"]

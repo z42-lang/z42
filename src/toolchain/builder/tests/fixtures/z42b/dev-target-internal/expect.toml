@@ -1,0 +1,6 @@
+desc = "只列目标名，不编译、执行或写产物"
+args = ["test", "{case}/z42.toml", "--list"]
+exit = 0
+stdout_equals = "dirunit\ninternals_tests"
+stdout_not_contains = ["compiled:", "PASS"]
+absent = ["artifacts", "dist"]

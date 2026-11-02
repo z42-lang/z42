@@ -1,0 +1,4 @@
+desc = "hook 源集经编译、加载并执行"
+args = ["build", "{case}/z42.toml"]
+exit = 0
+output_contains = ["HOOK-INCLUDE-SMOKE: A BeforeCompile", "HOOK-INCLUDE-SMOKE: B BeforeCompile"]

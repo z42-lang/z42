@@ -1,0 +1,15 @@
+// z42b 命令行与构建夹具；断言随最小工程放在 expect.toml，执行复用通用引擎。
+namespace Z42Xtask;
+
+int _testBuilderCliFixtures(string root, TargetTooling tt) {
+    DevFixtureTool builder = new DevFixtureTool("z42b", tt.Vm, true);
+    builder.Pre = new string[]{ tt.BuilderZpkg, "--mode", _z42cMode(), "--" };
+    builder.Requires = tt.BuilderZpkg;
+    FixtureSuite s = new FixtureSuite("z42b 命令行与构建夹具", "src/toolchain/builder/tests/fixtures/z42b");
+    s.DefaultTool = "z42b";
+    s.DefaultLibs = tt.Libs;
+    s.Vars = new FixturePair[]{ new FixturePair("vm", tt.Vm), new FixturePair("rid", _detectHostRid()) };
+    s.Tools = new FixtureTool[]{ builder };
+    int[] results = _runFixtureSuite(root, s);
+    return results[1];
+}

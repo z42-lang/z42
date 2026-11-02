@@ -1,5 +1,5 @@
 # unify-plugin-packages 1c：携带 hook——app 依赖 lib，lib [plugins.export] 携带 hook 插件；
-# z42b 沿依赖闭包读到 PLGS、自动加载执行（app 零 [plugins]）。_smokeHookCarry 断言标记行。
+# z42b 沿依赖闭包读到 PLGS、自动加载执行（app 零 [plugins]）。expect.toml 断言标记行。
 [project]
 name    = "hc.app"
 version = "0.1.0"
