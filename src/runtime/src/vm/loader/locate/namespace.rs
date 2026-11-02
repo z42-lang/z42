@@ -1,5 +1,8 @@
-use super::*;
-use crate::metadata::namespace_index;
+use anyhow::Result;
+use std::path::PathBuf;
+use crate::pal::fs::Vfs;
+use crate::vm::runtime::Module;
+use crate::vm::loader::locate::namespace_index;
 
 // ── Namespace resolution ──────────────────────────────────────────────────────
 
@@ -63,7 +66,7 @@ pub fn resolve_dependency(
 /// `Math.PI` 编译为 `static.get @Std.Math.Math.PI`，但 namespace 提取只看 Call/
 /// Builtin → 不发现 Std.Math 依赖 → 不 lazy-load z42.math → __static_init__ 不
 /// 跑 → 字段永远 null。
-pub(super) fn extract_import_namespaces_from_module(module: &Module) -> Vec<String> {
+pub(crate) fn extract_import_namespaces_from_module(module: &Module) -> Vec<String> {
     use crate::metadata::ir::Instruction;
     let defined: std::collections::HashSet<&str> =
         module.functions.iter().map(|f| f.name.as_str()).collect();

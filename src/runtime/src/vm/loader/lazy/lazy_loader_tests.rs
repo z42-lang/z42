@@ -289,8 +289,8 @@ fn ll_empty_module(name: &str) -> crate::vm::runtime::Module {
 
 fn ll_inmem_artifact(
     module_name: &str, pkg: Option<&str>, deps: &[&str],
-) -> crate::metadata::loader::LoadedArtifact {
-    crate::metadata::loader::LoadedArtifact {
+) -> crate::vm::loader::package::LoadedArtifact {
+    crate::vm::loader::package::LoadedArtifact {
         module: ll_empty_module(module_name),
         entry_hint: None,
         dependencies: deps
@@ -546,7 +546,7 @@ fn noting_a_collision_marks_that_name_and_only_that_name() {
     assert!(!loader.is_ambiguous_function("Demo.Shared.W"));
 
     // 进程级快门置起 —— 派发热路径靠它在常态下零成本短路。
-    assert!(crate::metadata::lazy_loader::ambiguity_seen());
+    assert!(crate::vm::loader::lazy::ambiguity_seen());
 }
 
 #[test]
@@ -704,7 +704,7 @@ fn a_differing_shape_is_still_treated_as_ambiguity() {
 
 fn ll_artifact_with_functions(
     module_name: &str, pkg: &str, fns: &[&str],
-) -> crate::metadata::loader::LoadedArtifact {
+) -> crate::vm::loader::package::LoadedArtifact {
     let mut artifact = ll_inmem_artifact(module_name, Some(pkg), &[]);
     artifact.module.functions.extend(fns.iter().map(|n| ll_stub_function(n)));
     artifact

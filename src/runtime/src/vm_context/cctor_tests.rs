@@ -142,7 +142,7 @@ fn unregistered_type_never_blocks() {
 /// single free-function call loaded the whole stdlib.
 #[test]
 fn free_function_barrier_loads_no_package() {
-    use crate::metadata::namespace_index::ZpkgCandidate;
+    use crate::vm::loader::locate::namespace_index::ZpkgCandidate;
     let zpkg = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../compiler/z42.package/tests/fixtures/zpkg-format/packed-minimal/source.zpkg");
     let ctx = crate::vm_context::VmContext::new();
