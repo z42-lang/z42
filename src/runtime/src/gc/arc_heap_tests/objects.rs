@@ -14,14 +14,14 @@ use crate::{gc::GcMode, object::ObjRef};
 use crate::object::{OwnedObject, ScriptObject};
 
 fn generational_heap() -> ArcMagrGC {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
     heap.set_nursery_bytes_for_test(1 << 40);
     heap
 }
 
 fn stw_heap() -> ArcMagrGC {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     heap.set_nursery_bytes_for_test(1 << 40);
     heap
@@ -207,9 +207,6 @@ fn lowering_the_promotion_line_remembers_the_cohort_that_holds_young_children() 
 /// reachable only through the cohort — survive the next minor.
 #[test]
 fn a_lower_promotion_line_goes_into_force_after_the_minor_that_settles_it() {
-    if !crate::config::runtime_config().gc_adaptive_promotion {
-        return;
-    }
     let heap = generational_heap();
     // root (pinned) → owner → child: `owner` is mid-graph, so only a record can re-root it.
     let root = heap.alloc_object(dummy_type_desc("Root"), vec![Value::Null], NativeData::None);

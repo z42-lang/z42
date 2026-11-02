@@ -5,7 +5,6 @@ use crate::object::header::marks::MarkKind;
 use crate::object::Value;
 use crate::object::ArrRef;
 use crate::object::header::obj_ref::ObjRef;
-use crate::gc::phase_timer::PhaseTimer;
 
 /// What one minor collection reclaimed. `reclaimed_entries` is what the escalation heuristic
 /// needs: **the number of young blocks the sweep actually tombstoned**. Survival can only be read off that — see `collect_cycles_with_context`.
@@ -77,20 +76,20 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// sweeping cycle requires everything that leaves the young set to carry its epoch, which the
     /// close does not have to reason about.
     fn lower_line_after_minor(&self) {
-        if !crate::config::runtime_config().gc_adaptive_promotion
+        if !self.config.adaptive_promotion
             || self.major_cycle_active()
             || !self.promotion_policy.apply()
         {
             return;
         }
         let lowered = self.configured_promotion_age().saturating_sub(1).max(1);
-        let t = PhaseTimer::start("promotion/lower after minor");
+        let t = self.phase_timer("promotion/lower after minor");
         self.promotion_age.store(lowered, std::sync::atomic::Ordering::Relaxed);
         self.region_var.lock().set_promotion_age(lowered);
         let owners = self.region_var.lock().delist_past_line();
         self.remember_newly_old(&owners);
         t.count(owners.len());
-        crate::gc::phase_timer::note(format_args!(
+        self.phase_note(format_args!(
             "promotion  age {} -> {lowered} after a minor  (cohort: {} objects / arrays)",
             self.configured_promotion_age(), owners.len()));
     }
@@ -173,7 +172,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let satb_n = queue.len() - pinned_n;
         let grey_old = Self::seed_cycle_queue(&mut queue, &self.mark_queue.lock(), threshold);
         let grey_n = queue.len() - pinned_n - satb_n;
-        crate::gc::phase_timer::note(format_args!(
+        self.phase_note(format_args!(
             "  minor roots  pinned+handles {pinned_n}, satb {satb_n} (skipped old {satb_old}), \
 grey {grey_n} (skipped old {grey_old})"));
         {
@@ -186,7 +185,7 @@ grey {grey_n} (skipped old {grey_old})"));
         // The remembered set: every old owner of a young reference is traced through here (its
         // young children queued), and dropped from the set once it reaches nothing young.
         let remembered = self.seed_from_remembered(&mut queue, threshold);
-        crate::gc::phase_timer::note(format_args!("  remembered seed  {remembered} blocks"));
+        self.phase_note(format_args!("  remembered seed  {remembered} blocks"));
 
         let mut marked = 0usize;
         let (mut visited, mut children, mut old_traced) = (0usize, 0usize, 0usize);
@@ -244,7 +243,7 @@ grey {grey_n} (skipped old {grey_old})"));
                 }
             });
         }
-        crate::gc::phase_timer::note(format_args!(
+        self.phase_note(format_args!(
             "  minor bfs  popped {visited} (old {old_traced}), children {children}, marked {marked}"));
         marked
     }
@@ -379,7 +378,7 @@ grey {grey_n} (skipped old {grey_old})"));
         // and arrays feed the promotion policy their survival sample, and the ones that just
         // became old come back (they may need remembering).
         {
-            let t = PhaseTimer::start("minor/var sweep");
+            let t = self.phase_timer("minor/var sweep");
             let var = self.region_var.lock().sweep_young_with(
                 promote_black,
                 observed_age,
@@ -409,11 +408,11 @@ grey {grey_n} (skipped old {grey_old})"));
         // nursery size can buy. Making it incremental (only chunks this minor touched) is the
         // next lever — see the change's design notes.
         {
-            let _t = PhaseTimer::start("minor/chunk reclaim");
+            let _t = self.phase_timer("minor/chunk reclaim");
             self.reclaim_dead_chunks_and_measure(false);
         }
         let (live, total, lowered) = self.promotion_policy.snapshot();
-        crate::gc::phase_timer::note(format_args!(
+        self.phase_note(format_args!(
             "promotion  age {threshold}  tier {observed_age} survived {live}/{total}  lowered {lowered}"));
         self.promotion_policy.settle();
         self.promoted_bytes_since_major
@@ -430,13 +429,13 @@ grey {grey_n} (skipped old {grey_old})"));
         // in a borrowed chunk skipped by iteration. Idempotent when unbound.
         self.retire_thread_tlab();
         let _newly_marked = {
-            let t = PhaseTimer::start("minor mark");
+            let t = self.phase_timer("minor mark");
             let n = self.mark_phase_minor();
             t.count(n);
             n
         };
         let swept = {
-            let _t = PhaseTimer::start("minor sweep");
+            let _t = self.phase_timer("minor sweep");
             self.sweep_phase_young_only()
         };
         // adaptive-promotion: a lower line this minor settled goes into force now, not at a major.
@@ -466,7 +465,7 @@ grey {grey_n} (skipped old {grey_old})"));
         // measured, that is five different `got Null` failures across a cold `package sdk`.
         self.apply_adaptive_promotion_after_major(false);
         {
-            let _t = PhaseTimer::start("age survivors");
+            let _t = self.phase_timer("age survivors");
             self.age_survivors_after_major();
         }
         // The remembered set is kept across the major (it is a superset of what a rebuild would
@@ -486,13 +485,13 @@ grey {grey_n} (skipped old {grey_old})"));
     /// slices), but the switch still has to be followed by one — it is what drains the entries the
     /// lowered line makes old out of the young lists. The one-shot major ages right after anyway.
     pub(super) fn apply_adaptive_promotion_after_major(&self, age_now: bool) {
-        if !(crate::config::runtime_config().gc_adaptive_promotion
+        if !(self.config.adaptive_promotion
             && self.promotion_policy.apply())
         {
             return;
         }
         let lowered = self.configured_promotion_age().saturating_sub(1).max(1);
-        crate::gc::phase_timer::note(format_args!(
+        self.phase_note(format_args!(
             "promotion  age {} -> {lowered}", self.promotion_age()));
         self.apply_promotion_age(lowered);
         if age_now {
@@ -511,17 +510,9 @@ grey {grey_n} (skipped old {grey_old})"));
         self.remember_newly_old(&newly_old);
     }
 
-    /// **add-generational-gc P3 **: escalation threshold.
-    /// If the fraction of young entries surviving a minor GC exceeds
-    /// this, the next collect is escalated to major immediately.
-    /// Default 0.75 from [`RuntimeConfig::gc_minor_threshold`]; override
-    /// via `Z42_GC_MINOR_THRESHOLD`.
-    ///
-    /// runtime-config-phase2 : centralised through
-    /// `crate::config::runtime_config()`; previous per-callsite
-    /// `OnceLock<f32>` retired.
-    #[allow(dead_code)] // wired in collect_cycles_with_context below
-    pub(super) fn minor_escalation_threshold() -> f32 {
-        crate::config::runtime_config().gc_minor_threshold
+    /// Escalation threshold captured with the heap policy.
+    #[allow(dead_code)]
+    pub(super) fn minor_escalation_threshold(&self) -> f32 {
+        self.config.minor_threshold
     }
 }

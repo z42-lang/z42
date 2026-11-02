@@ -27,6 +27,14 @@ Ruby / RustPython 的事实标准 GC 抽象）。trait 在单文件内按"能力
 `vm_ctx_ref(ctx).heap().alloc_*(...)` 调用同一接口；嵌入 host 通过同一
 `heap()` 入口访问 root / observer / profiler 等所有能力。
 
+### 堆策略输入
+
+GC 只接收 `GcConfig` 的不可变策略快照，不解析进程设置。VM 构造时由门面
+`RuntimeConfig::gc_config` 转换已按优先级解析的值，再传给 `ArcMagrGC::new`。
+独立堆用 `ArcMagrGC::default()` 时采用纯默认策略；需要进程设置的调用方显式传入转换结果。
+不同堆可分别设置 nursery、软引用阈值、阶段计时和停顿窗口，互不修改或读取对方的输入。
+`set_mode` 和堆上限 API 继续控制原有可变运行状态。线程 safepoint 配置仍由线程协议消费。
+
 命名 **MagrGC** 取自《银河系漫游指南》中的 **Magrathea** —— 那颗专门建造
 定制行星的传奇世界，与"管理对象生命周期"主题契合。
 

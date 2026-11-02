@@ -55,7 +55,7 @@ fn a_stated_byte_nursery_turns_the_cap_off() {
 #[test]
 fn the_heap_unit_follows_the_allocation_size() {
     use crate::gc::MagrGC;
-    let heap = crate::gc::ArcMagrGC::new();
+    let heap = crate::gc::ArcMagrGC::default();
     if heap.allowance_unit_bytes.load(std::sync::atomic::Ordering::Relaxed) != 16 * MIB {
         return; // a configured nursery (env) turns the cap off; nothing to check here
     }

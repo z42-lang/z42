@@ -48,7 +48,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 
 use parking_lot::Mutex;
 
-use crate::gc::phase_timer::PhaseTimer;
 use crate::object::header::marks::MarkKind;
 use crate::object::Value;
 
@@ -167,8 +166,7 @@ impl SliceBudget {
     }
 
     /// `Z42_GC_SLICE_MS`.
-    pub(super) fn from_config() -> Self {
-        let ms = crate::config::runtime_config().gc_slice_ms;
+    pub(super) fn from_config(ms: f64) -> Self {
         if !crate::pal::time::HAS_CLOCK {
             return Self::from_units((ms * UNITS_PER_MS).max(1.0) as u64);
         }
@@ -254,7 +252,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         } else {
             GenWork::Minor
         };
-        if !crate::config::runtime_config().gc_incremental && !self.major_cycle_active() {
+        if !self.config.incremental && !self.major_cycle_active() {
             return if want_major { GenWork::Major } else { policy_minor() };
         }
         if !self.major_cycle_active() {
@@ -289,7 +287,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             self.open_incremental_cycle(&mut cycle);
         }
         if self.incremental.phase.load(Ordering::Relaxed) == MARKING {
-            let t = PhaseTimer::start("slice/mark");
+            let t = self.phase_timer("slice/mark");
             let before = cycle.traced;
             if self.mark_slice(&mut cycle, budget) {
                 self.finish_incremental_marking(&mut cycle);
@@ -298,7 +296,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
         let mut out = SliceOutcome::default();
         if self.major_cycle_sweeping() {
-            let t = PhaseTimer::start("slice/sweep");
+            let t = self.phase_timer("slice/sweep");
             let before = cycle.reclaimed;
             let (freed, done) = self.sweep_slice(&mut cycle, budget);
             t.count(cycle.reclaimed - before);
@@ -314,7 +312,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         cycle.work_us += us;
         cycle.max_slice_us = cycle.max_slice_us.max(us);
         if out.finished {
-            crate::gc::phase_timer::note(format_args!(
+            self.phase_note(format_args!(
                 "major cycle {:?}: slices {}  work {:.2} ms  max slice {:.2} ms  traced {}  reclaimed {}",
                 self.major_mark(), cycle.slices, cycle.work_us as f64 / 1000.0,
                 cycle.max_slice_us as f64 / 1000.0, cycle.traced, cycle.reclaimed));
@@ -355,7 +353,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         if !self.major_cycle_active() {
             return SliceOutcome::default();
         }
-        crate::gc::phase_timer::note(format_args!("incremental: finish synchronously ({reason})"));
+        self.phase_note(format_args!("incremental: finish synchronously ({reason})"));
         let mut total = SliceOutcome::default();
         let mut budget = SliceBudget::unlimited();
         while !total.finished {
@@ -396,7 +394,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             self.promoted_bytes_since_major.load(Ordering::Relaxed), Ordering::Relaxed);
         let roots = self.snapshot_roots_into_mark_queue();
         self.incremental.phase.store(MARKING, Ordering::Relaxed);
-        crate::gc::phase_timer::note(format_args!(
+        self.phase_note(format_args!(
             "incremental: open cycle {:?}  roots {roots}  est {} units  target +{}",
             self.major_mark(), cycle.est_units, crate::gc::trace::human(cycle.target_growth)));
     }
@@ -485,7 +483,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             let inner = self.inner.lock();
             (inner.soft_registry.snapshot_entries(), inner.stats.max_bytes.unwrap_or(0))
         };
-        crate::gc::soft_registry::SoftRegistry::revive_snapshot(&entries, used, max_bytes, kind, |e| {
+        crate::gc::soft_registry::SoftRegistry::revive_snapshot(&entries, used, max_bytes, self.config.soft_threshold, kind, |e| {
             stack.push(Self::soft_entry_value(e));
         });
     }
@@ -540,7 +538,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// Everything the one-shot major does after its sweep, in the slice that completes the sweep.
     fn close_incremental_cycle(&self, cycle: &mut Cycle) {
         {
-            let _t = PhaseTimer::start("slice/chunk reclaim");
+            let _t = self.phase_timer("slice/chunk reclaim");
             self.reclaim_dead_chunks_and_measure(true);
         }
         // Sweep has cleared no marks (the epoch whitens them next cycle), so a newborn of this

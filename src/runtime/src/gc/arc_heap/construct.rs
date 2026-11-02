@@ -1,30 +1,21 @@
-//! `ArcMagrGC` 的构造：`Default` impl（`new()` 委托到它）。
-//!
-//! add-gc-runtime-knobs  从 `arc_heap.rs` 搬出 —— 那个文件此前停在
-//! 499/500 行的硬上限边缘，任何新字段都会把它顶红。构造器是一块自足的东西
-//! （30 个字段的初值 + 为什么 `mode` 必须手写而不是 derive），拆出来给主文件留出余量。
-//! 私有字段在这里可见：`arc_heap::construct` 是 `arc_heap` 的子模块。
+//! Construct a heap from immutable policy inputs supplied by its caller.
 
 use super::*;
 
-/// Manual `Default` impl so the
-/// `mode` field is initialized from `GcMode::from_env()` (reads
-/// `Z42_GC_MODE`). Other fields fall back to their own `Default`.
 impl Default for ArcMagrGC {
-    fn default() -> Self {
-        let mode = crate::gc::GcMode::from_env();
+    fn default() -> Self { Self::new(crate::gc::GcConfig::default()) }
+}
+
+impl ArcMagrGC {
+    pub(super) fn construct(config: crate::gc::GcConfig) -> Self {
+        let mode = config.mode;
         let generational = mode == crate::gc::GcMode::GenerationalMarkSweep;
-        // add-promotion-age-knob : read `Z42_GC_PROMOTION_AGE` **once, here**, and
-        // hand the value to every part that needs it. The write barrier consults it on every
-        // heap reference write, so a `runtime_config()` lookup there would be a global read on
-        // the hottest path in the VM — the reason this knob was previously "deliberately not
-        // done". A construction-time read costs nothing and keeps the value immutable for the
-        // heap's lifetime, which is also what makes the three copies below safe to cache.
-        let promotion_age = crate::gc::promotion_age_from_config();
+        let promotion_age = config.promotion_age();
         let footprint = std::sync::Arc::new(crate::gc::footprint::Footprint::default());
         let mut region_var = VarRegion::with_drop_glue_for_mode(var_payload_drop_glue(), generational, promotion_age);
         region_var.attach_footprint(footprint.clone());
         Self {
+            config,
             inner: Mutex::new(RcHeapInner::default()),
             external_root_scanner: Mutex::new(None),
             context_reclaimer: Mutex::new(None),
@@ -44,7 +35,7 @@ impl Default for ArcMagrGC {
             // See `ArcMagrGC::major_mark`.
             mark_epoch: std::sync::atomic::AtomicU8::new(1),
             satb_queue: parking_lot::Mutex::new(Vec::new()),
-            pause_histogram: Mutex::new(crate::gc::types::PauseHistogram::default()),
+            pause_histogram: Mutex::new(crate::gc::types::PauseHistogram::new(config.pause_window)),
             #[cfg(test)]
             barrier_observer: Mutex::new(None),
             // fix-wasm-string-ops: claim a fresh, never-reused epoch for this heap.
@@ -65,21 +56,19 @@ impl Default for ArcMagrGC {
             // 0 = "consult the policy on the first allocation", which then arms it properly.
             next_collect_at: std::sync::atomic::AtomicU64::new(0),
             nursery_bytes: std::sync::atomic::AtomicU64::new(
-                crate::config::runtime_config()
-                    .gc_nursery_bytes
+                config.nursery_bytes
                     .unwrap_or(super::auto_collect::DEFAULT_NURSERY_BYTES)
                     .max(1),
             ),
             // add-pause-budget-nursery: the allowance unit is the configured nursery and stays put
             // while `nursery_bytes` adapts to the pause budget (see `auto_collect::allowance_unit`).
             allowance_unit_bytes: std::sync::atomic::AtomicU64::new(
-                crate::config::runtime_config()
-                    .gc_nursery_bytes
+                config.nursery_bytes
                     .unwrap_or(super::auto_collect::DEFAULT_NURSERY_BYTES)
                     .max(1),
             ),
             // The entry cap only applies to the default gates: a configured nursery is taken as is.
-            entry_unit: entry_unit::EntryUnit::new(crate::config::runtime_config().gc_nursery_bytes.is_none()),
+            entry_unit: entry_unit::EntryUnit::new(config.nursery_bytes.is_none()),
             incremental: Default::default(),
             // M9: without a clock (wasm32) `now_us` counts ticks, so pauses are not comparable as time.
             young_policy: young_policy::YoungPolicy::new(crate::pal::time::HAS_CLOCK),
@@ -88,10 +77,10 @@ impl Default for ArcMagrGC {
             // cannot happen. Without a clock (wasm32; `now_us` counts ticks) the cost model would be
             // meaningless.
             pause_budget: pause_budget::PauseBudget::new(
-                if !crate::pal::time::HAS_CLOCK || crate::config::runtime_config().gc_nursery_bytes.is_some() {
+                if !crate::pal::time::HAS_CLOCK || config.nursery_bytes.is_some() {
                     0
                 } else {
-                    (crate::config::runtime_config().gc_pause_target_ms * 1000.0) as u64
+                    (config.pause_target_ms * 1000.0) as u64
                 },
             ),
         }

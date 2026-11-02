@@ -13,7 +13,7 @@ fn cycles(heap: &ArcMagrGC) -> u64 { heap.stats().gc_cycles }
 /// for a budget to switch on.
 #[test]
 fn no_budget_still_collects() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_nursery_bytes_for_test(64 * 1024);
     for _ in 0..4000 {
         heap.alloc_array(vec![crate::object::Value::I64(0); 16]);
@@ -27,7 +27,7 @@ fn no_budget_still_collects() {
 /// "collects constantly".
 #[test]
 fn a_heap_that_is_not_growing_does_not_collect() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_nursery_bytes_for_test(64 * 1024);
     let mut pins = Vec::new();
     for _ in 0..200 {
@@ -43,7 +43,7 @@ fn a_heap_that_is_not_growing_does_not_collect() {
 
 #[test]
 fn a_budget_arms_automatic_collection() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_nursery_bytes_for_test(16 * 1024);
     heap.set_max_heap_bytes(Some(64 * 1024));
     for _ in 0..4000 {
@@ -71,7 +71,7 @@ fn an_over_budget_live_set_does_not_re_collect_forever() {
     // at the tail of the allocation that trips the gate, so a tight gate can tombstone the
     // fresh value before the caller can root it (production defers to a safepoint, where it is
     // already a frame-reg root).
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let budget = 32 * 1024;
     heap.set_max_heap_bytes(Some(budget));
     let mut pins = Vec::new();
@@ -155,7 +155,7 @@ fn a_reclaiming_collector_keeps_collecting_as_the_heap_refills() {
     // The budget is judged by the true footprint (`gc::footprint`), so it has to clear the
     // heap's floor: one array chunk plus one 64 KB var chunk is already ~92 KB, and a cap
     // below what the heap needs just to exist is one it can only back off from.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let budget = 512 * 1024;
     heap.set_max_heap_bytes(Some(budget));
     for _ in 0..20_000 {
@@ -183,7 +183,7 @@ fn generational_trips_a_minor_on_the_nursery_gate_below_the_near_limit() {
     use crate::gc::GcMode;
     // A budget large enough that `used` never gets near `0.90 × budget`: under the old
     // single gate this workload collected zero times.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
     const BUDGET: u64 = 8 * 1024 * 1024;
     heap.set_nursery_bytes_for_test(64 * 1024);
@@ -216,7 +216,7 @@ fn generational_trips_a_minor_on_the_nursery_gate_below_the_near_limit() {
 #[test]
 fn generational_enforces_a_soft_cap_far_below_one_nursery() {
     use crate::gc::GcMode;
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
     // Deliberately does NOT touch the nursery: a budget far below the 16 MB default is exactly
     // the shape that went unenforced. (512 KB, not less: the budget is judged by the true
@@ -241,7 +241,7 @@ fn generational_enforces_a_soft_cap_far_below_one_nursery() {
 #[test]
 fn generational_collects_more_often_than_stw_on_the_same_workload() {
     fn cycles_for(generational: bool) -> u64 {
-        let heap = ArcMagrGC::new();
+        let heap = ArcMagrGC::default();
         // flip-gc-default-to-generational: both arms select their mode explicitly — leaving
         // one to the default made this compare generational against generational.
         heap.set_mode(if generational {
@@ -271,7 +271,7 @@ fn generational_collects_more_often_than_stw_on_the_same_workload() {
 #[test]
 fn one_generation_backs_off_an_unsqueezed_allowance_one_step_behind() {
     use super::super::footprint::SoftCap;
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(crate::gc::GcMode::StwMarkSweep);
     heap.set_nursery_bytes_for_test(1024 * 1024); // floor: 4 MB
     let live = 64 * 1024 * 1024;

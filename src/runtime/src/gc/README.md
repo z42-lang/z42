@@ -10,11 +10,12 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 
 | 文件 | 职责 |
 |------|------|
+| `config.rs` | `GcConfig`：显式传入堆的不可变策略值，GC 不解析全局运行时设置 |
 | `heap.rs` | `trait MagrGC` —— GC 抽象接口（MMTk porting contract 形态，11 能力组） |
 | `mode.rs` | `GcMode`：`GenerationalMarkSweep`（默认）/ `StwMarkSweep`，`Z42_GC_MODE` 选择 |
 | `footprint.rs` | `Footprint`：堆的真实占用（committed / pooled / occupied），三个 region 共用一份、随变随记；`malloc_size` 分配器取整模型。机制见 [book: GC 调参 · 真实占用记账](../../../../docs/internals/src/runtime/gc-tuning.md#真实占用记账与软上限) |
 | `arc_heap.rs` | `ArcMagrGC` 协调器 —— struct/字段、句柄表、类型别名、`Default`/`Debug` + concern 子模块声明 |
-| `arc_heap/construct.rs` | `Default` 构造（`new()` 委托到它） |
+| `arc_heap/construct.rs` | `new(GcConfig)` 构造；`Default` 只使用纯默认策略 |
 | `arc_heap/alloc.rs` | 分配尾部（TLAB / 锁路径 `acquire_var_block`、数组漏斗 `alloc_array_block`：对象模型 R9，数组 = 一个块，在块里建好再发布）+ OOM 兜底 + 内存压力检查 + size 查询（`object_size_bytes`）|
 | `arc_heap/alloc_object.rs` | 对象分配（对象模型 R6）：对象 = 一个 `BlockType::Object` 变长块，在块里建好（对象头 + 泛型一步）再发布 |
 | `arc_heap/alloc_black.rs` | 增量 major 周期内的 allocate-black |
@@ -86,6 +87,13 @@ let snap = ctx.heap().take_snapshot();
 
 z42 脚本端可调 `Std.GC.Collect()` / `UsedBytes()` / `ForceCollect()`（见
 `src/libraries/z42.core/src/GC/GC.z42`）。
+
+### 构造与配置
+
+`ArcMagrGC::new(config)` 显式接收 `GcConfig`，每个堆保存自己的配置快照。
+`ArcMagrGC::default()` 使用纯默认值，不读取环境或进程设置。VM 入口由门面
+`RuntimeConfig::gc_config` 转换已解析设置，继续应用原有配置优先级；独立基准同样显式转发。
+软引用阈值、阶段计时、nursery 策略与停顿窗口均取自当前堆。safepoint 的轮询节流仍由线程协议读取。
 
 ## 依赖关系
 

@@ -129,7 +129,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Enum(GC_MODES),
         description: "GC algorithm: `stw` / `generational` (with `-mark-sweep` aliases)",
         default_hint: "unset; defaults to `generational-mark-sweep`",
-        consumed_by: "gc/mode.rs",
+        consumed_by: "config/split.rs → gc/arc_heap/construct.rs",
         ..PUBLIC
     },
     KnobSpec {
@@ -193,7 +193,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Int { min: 1, max: 3 },
         description: "generational only: how many minor GCs an entry must survive before it is promoted to the old generation. Capped at 3 — the age is packed into two spare bits of the variable-length block header",
         default_hint: "unset; defaults to 3 — which is also the cap, so this knob can be lowered but not raised (retune-gc-nursery-and-promotion-age; was 2)",
-        consumed_by: "gc/mod.rs (promotion_age_from_config, read once per heap)",
+        consumed_by: "gc/config.rs (GcConfig::promotion_age, read once per heap)",
         ..TUNING
     },
     KnobSpec {
