@@ -434,7 +434,7 @@ pub(super) fn call_indirect(
         // Debug string no `catch` can intercept (the program died on the spot).
         Value::Null => {
             return Ok(Some(crate::exception::make_stdlib_exception(
-                ctx, module, crate::semantics::NULL_REF_EXC, crate::semantics::null_invoke_msg(),
+                ctx, module, crate::vm::exec::ops::scalar::NULL_REF_EXC, crate::vm::exec::ops::scalar::null_invoke_msg(),
             )?));
         }
         other => bail!("CallIndirect: expected FuncRef / Closure, got {:?}", other),

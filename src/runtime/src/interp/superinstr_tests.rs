@@ -4,7 +4,7 @@
 
 use crate::metadata::ir::{BasicBlock, BranchTargets, Instruction, Terminator};
 use crate::metadata::ir::reg_type::IrType;
-use super::{CmpOp, SuperInstr};
+use crate::vm::runtime::{CmpOp, SuperInstr};
 
 /// Build a block whose last instruction is `cmp dst, a, b` and whose
 /// terminator is `BrCond(dst)` — the canonical loop-condition shape.

@@ -1,8 +1,8 @@
 # 超级指令融合（super-instruction fusion）
 
-> 代码：`metadata/superinstr.rs`（框架 + 识别器）、`interp/ops.rs`（`eval_cmp` 共享原语）、
+> 代码：`interp/superinstr.rs`（识别器）、`vm/runtime/fusion.rs`（缓存形态）、`interp/ops.rs`（`eval_cmp` 共享原语）、
 > `interp/mod.rs`（exec 循环消费 + `Frame` 预分配）、`metadata/ir/function.rs`
-> （`Function.fused_tails` 缓存 + `Function::reg_file_len` / `Instruction::written_reg`）、
+> （静态 `Function::reg_file_len` / `Instruction::written_reg`）、`vm/runtime/function.rs`（`Function.fused_tails` 缓存）、
 > `vm/loader/package/mod.rs`（`build_block_indices` 回填 `func.max_reg`）。
 
 ## 为什么
@@ -16,15 +16,17 @@
 ## 框架（可扩展——"处理流程框架，便于后续补充"）
 
 ```
-metadata/superinstr.rs
+vm/runtime/fusion.rs
 ├── enum SuperInstr        // 融合形态，一个 pattern 一个 variant
 │     └── CmpBr { op,a,b,dst,t_blk,f_blk }   // v1：cmp + BrCond
 ├── enum CmpOp             // 比较算子（与 interp 标量 cmp handler 共享语义）
+
+interp/superinstr.rs
 ├── SuperInstr::recognize(block, targets) -> Option<SuperInstr>   // 规则表（加规则=加一条 arm）
 └── compute_fused_tails(blocks, branch_targets) -> Vec<Option<SuperInstr>>   // load 期一次性识别
 ```
 
-- **识别一次，热路径零成本**：`compute_fused_tails` 在 load 期（`loader.rs`，紧挨 `branch_targets`
+- **识别一次，热路径零成本**：`compute_fused_tails` 在 load 期（`vm/loader/package/indices.rs`，紧挨 `branch_targets`
   之后）算好，存进 `Function.fused_tails`（运行期缓存，**无 zbc/格式影响**）。exec
   循环只读 `fused_tails[block_idx]`（O(1)），不做 per-iteration 识别。
 - **加新规则** = ① 加一个 `SuperInstr` variant；② `recognize` 加一条 arm；③ 后端加一个 handler。
@@ -36,8 +38,7 @@ metadata/superinstr.rs
   的**前 n-1 条**指令，然后跑融合步——经**共享原语 `ops::eval_cmp`**（同一个函数也被独立的
   `Lt`/`Le`/…/`Eq`/`Ne` handler 调用，比较逻辑只有一处）算 bool、分支，**保留回边 safepoint + OSR
   交接**（与 `BrCond` 终结子逐一对齐）。跳过一次指令 dispatch + bool 重读。
-- **JIT**：已有等价的 `BrCond` 原生特化（`translate.rs`），路径正交，v1 不动。识别器**刻意放在
-  `metadata`（非 `interp`）**，将来 JIT 若要统一走这套识别，直接复用、不必搬代码。
+- **JIT**：使用 `jit/translate/term.rs` 的 `BrCond` 原生特化。融合识别属于解释器，识别结果保存在每 VM 链接函数的侧表中；静态 metadata 不依赖引擎。
 
 ## v1 规则：CmpBr
 
