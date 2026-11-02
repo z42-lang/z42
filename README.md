@@ -1,4 +1,4 @@
-# <img src="docs/assets/logo/svg/z42-icon.svg" width="32" align="absmiddle" alt="z42 logo"> z42
+# <img src="docs/logo/z42-icon.svg" width="32" align="absmiddle" alt="z42 logo"> z42
 
 A **full-stack systems programming language** designed for productivity and performance.
 
@@ -11,23 +11,20 @@ A **full-stack systems programming language** designed for productivity and perf
 
 ## Why z42?
 
-z42 combines C#'s productivity, Rust's runtime discipline, and Python's iteration speed —
-a single language spanning ad-hoc scripts to embedded systems components:
+z42 is designed to combine productive application development with an embeddable,
+performance-oriented runtime.
 
-| Dimension | z42 |
+| What matters | z42's approach |
 |---|---|
-| **Productive** | C#-style syntax, static typing with inference, automatic GC — no ownership annotations |
-| **Fast on every axis** | Compact bytecode and objects, low-pause generational GC, escape-analysis stack allocation, Cranelift JIT |
-| **Two execution modes** | Interpretation (instant startup) and JIT (peak throughput) from one bytecode, selectable per namespace |
-| **Native-first** | Embeddable Rust VM, zero-overhead `extern` FFI, C-compatible structs |
-| **Concurrent** | GC-safe multithreading |
-| **Customizable** | Turn language constructs off per project in `z42.toml` (`[syntax]`) |
-| **AI-friendly** | Familiar syntax, compile-time errors as agent feedback, docs-as-code repository |
+| **Development experience** | Familiar C#-style syntax, local type inference, and integrated build, test, and REPL tools support everyday development. |
+| **Execution performance** | A common bytecode format supports interpretation and JIT compilation; value types and escape-analysis stack allocation reduce heap allocation where applicable. |
+| **Program reliability** | Static type checking catches type errors before execution, garbage collection manages object lifetimes, and exceptions provide structured error handling. |
+| **Native integration** | A C API lets native applications load and invoke z42 code, while explicit native bindings let z42 programs use host functionality. |
+| **Code organization** | Namespaces and packages organize larger programs, while generics and interfaces support reusable libraries. |
 
-Planned but not yet implemented: AOT, structured async/await, and hot patching
-(functions/types/modules as GC-managed objects). Performance targets and trade-offs are in
-[`docs/internals/src/philosophy.md`](docs/internals/src/philosophy.md); per-feature status is in
-[`docs/internals/src/features.md`](docs/internals/src/features.md).
+z42 is under active development. AOT compilation, structured async/await, and hot reload
+are planned. See the [design philosophy](docs/internals/src/philosophy.md) for design goals
+and trade-offs, and the [roadmap](docs/roadmap.md) for planned work.
 
 ---
 
@@ -40,6 +37,9 @@ curl -fsSL https://z42-lang.github.io/z42/install.sh | sh          # Windows: ir
 z42 new hello && cd hello && z42 run
 ```
 
+Continue with the [Learn book](https://z42-lang.github.io/z42/learn/) for a guided introduction
+to projects and the language.
+
 **Work on z42 itself** — bootstrap a repo-local SDK, build the `xtask` dev CLI, run the gate
 (full steps, per-platform notes and escape hatches in
 **[docs/internals/src/devinfra/dev-setup.md](docs/internals/src/devinfra/dev-setup.md)**):
@@ -51,9 +51,6 @@ git clone https://github.com/z42-lang/z42 && cd z42
 ./xtask build all                            # compiler + VM + stdlib, all from source
 ./xtask test                                 # full GREEN gate; ./xtask auto-locates ./.z42
 ```
-
-**Editor support (VSCode)**: `./xtask setup vscode` installs `.z42` syntax highlighting
-as a repo-local workspace extension — reload the window and accept the prompt.
 
 ---
 
