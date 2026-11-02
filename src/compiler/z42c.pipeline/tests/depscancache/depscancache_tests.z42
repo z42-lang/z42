@@ -64,3 +64,40 @@ void test_untouched_zpkg_still_hits_the_cache() {
 
     Directory.Delete(dir, true);
 }
+
+[Test]
+void test_deleted_dependency_does_not_return_cached_types() {
+    string dir = File.CreateTempDir("depscan-delete");
+    string path = Path.Join(dir, "gone.zpkg");
+    File.WriteAllBytes(path, _header(ZpkgWriterZ.Major, ZpkgWriterZ.Minor, 0));
+    CachedZpkg cached = DepScanCache.Get(path);
+    cached.Identity = "obsolete";
+    cached.Tsig = new ExportedModuleZ[0];
+    File.Delete(path);
+    bool failed = false;
+    try { DepScanCache.Get(path); } catch (Exception ex) { failed = true; }
+    Assert.True(failed);
+    File.WriteAllBytes(path, _header(ZpkgWriterZ.Major, ZpkgWriterZ.Minor, 0));
+    // 即使元数据看起来与旧条目一致，失败前的类型/身份也不能复活。
+    cached.Size = File.GetSize(path);
+    cached.MtimeMs = File.GetLastWriteTime(path).UnixMs();
+    CachedZpkg restored = DepScanCache.Get(path);
+    Assert.True(restored.Z != null);
+    Assert.True(restored.Identity == null);
+    Assert.True(restored.Tsig == null);
+    Directory.Delete(dir, true);
+}
+
+[Test]
+void test_directory_replacing_dependency_is_not_a_cache_hit() {
+    string dir = File.CreateTempDir("depscan-directory");
+    string path = Path.Join(dir, "replaced.zpkg");
+    File.WriteAllBytes(path, _header(ZpkgWriterZ.Major, ZpkgWriterZ.Minor, 0));
+    DepScanCache.Get(path);
+    File.Delete(path);
+    Directory.Create(path);
+    bool failed = false;
+    try { DepScanCache.Get(path); } catch (Exception ex) { failed = true; }
+    Assert.True(failed);
+    Directory.Delete(dir, true);
+}
