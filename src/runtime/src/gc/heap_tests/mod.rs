@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::gc::{GcEvent, GcHandleKind, GcKind, GcObserver, Heap, SnapshotCoverage};
+use crate::gc::{GcEvent, GcHandleKind, GcKind, GcObserver, Heap};
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::object::FieldSlot;
 

@@ -192,22 +192,80 @@ string _pluginFromZpkgFile(string aname, string apath, string projectDir) {
 // （SDK 布局：libs 的同级即 <sdk>/plugins；开发树的 dist 目录通常没有这个同级，名字条目本就面向分发态）。
 // 失败打印诊断（含**找过哪些目录**）并返回 ""。
 string[] _pluginSearchDirs(string[] libsDirs, int libsDirsN) {
-    // 两个来源，刻意**不含**「任意 libs 目录的同级 plugins/」：开发树里 libs 目录旁常躺着同代/异代
-    // 编译器包，插件一加载就把它卷进进程（双代注册、类型拒用——E0601 同源）。SDK 世界由 Z42_HOME
-    // 精确给出（<sdk>/plugins）；开发树/CI 由 xtask 经 Z42_PLUGINS 显式指（proc 工厂注入）。
-    string[] acc = new string[2];
+    // 查找域规则唯一定义在 z42.project 的 `PluginDirs.Search()`（Z42_PLUGINS → Z42_HOME/plugins，
+    // 刻意不含 libs 同级 plugins/——理由见上注与 PluginDirs 头注）；driver / z42b / pipeline 三处共用。
+    return PluginDirs.Search();
+}
+
+// ── [dependencies] 插件分流（deps-plugin-routing）──────────────────────────────
+// `[dependencies]` 条目按 zpkg 头自述分流：lib（普通运行期依赖，照旧）或 **plugin**（加载进
+// 工具链进程：不进 libsDirs / 不链入产物 / 不参与 bundle——z42c 只收编译器侧位，hook 位归 z42b）。
+// 判据是构造保证的：能力位只在 kind = "plugin" 构建时写头（`PackageCompile._derivePluginCaps`
+// 有 kind 门），lib/exe 恒 0 ⇒ 「头里标着插件」⇔「它就是插件包」。
+//
+// 解析规则（名字条目）：
+//   · libsDirs 里先看：命中且是插件 ⇒ **报错**（插件包混进运行期解析域——查找域分离的不变量，
+//     不静默放行也不静默改道）；命中且不是插件 ⇒ 普通依赖，不归这里管。
+//   · libsDirs 没有 → 插件目录（PluginDirs.Search()）找 `<name>.zpkg`：命中且是插件 ⇒ 分流；
+//     命中但不是插件 / 哪都没有 ⇒ 留给 `_verifyDeclaredDeps` 报「未找到」（错误信息在用户熟悉的地方）。
+// path 条目：`.zpkg` 直连（开包验插件位；`.zpkg` path 的存在性/包名校验由 `_zpkgRefDirs` 先行，
+// 那里同时负责**不把**插件包的目录并进 libsDirs）；工程目录条目不归这里——`PathDepBuild`
+// 对 kind = "plugin" 的拒绝保持不变（源码形态的插件引用属于 [plugins]）。
+//
+// 返回 false = 失败（诊断已打印）；成功 → names/paths 为**全部**插件位（编译器侧过滤由调用方做，
+// 同 `_resolvePluginZpkgs` 的口径）。
+bool _pluginDepZpkgs(ProjectManifest pm, string projectDir, string[] libsDirs, int libsDirsN,
+                     ref string[] names, ref string[] paths) {
+    string[] locNames = new string[pm.DepCount > 0 ? pm.DepCount : 1];
+    string[] locPaths = new string[pm.DepCount > 0 ? pm.DepCount : 1];
     int n = 0;
-    string env = Environment.GetEnvironmentVariable("Z42_PLUGINS", "");
-    if (env.Length > 0) { acc[n] = env; n = n + 1; }
-    string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
-    if (home.Length > 0) {
-        string sdkPlugins = Path.Join(home, "plugins");
-        if (Directory.Exists(sdkPlugins)) { acc[n] = sdkPlugins; n = n + 1; }
-    }
-    string[] r = new string[n];
     int i = 0;
-    while (i < n) { r[i] = acc[i]; i = i + 1; }
-    return r;
+    while (i < pm.DepCount) {
+        DepEntry e = pm.Deps[i];
+        i = i + 1;
+        if (e.Path.Length == 0) {
+            // 名字条目：libs 先（命中插件 = 污染，报错），插件目录后。
+            string f = e.Name + ".zpkg";
+            int d = 0;
+            string libsHit = "";
+            while (d < libsDirsN) {
+                string cand = Path.Join(libsDirs[d], f);
+                if (File.Exists(cand)) { libsHit = cand; break; }
+                d = d + 1;
+            }
+            if (libsHit.Length > 0) {
+                ZpkgInfo info = null;
+                try { info = ZpkgReader.Open(File.ReadAllBytes(libsHit), libsHit); } catch (Exception ex) { info = null; }
+                if (info != null && PluginCaps.IsPlugin(info.PluginCaps)) {
+                    ConsoleError.WriteLine("z42c build: [dependencies] `" + e.Name + "`（" + libsHit
+                        + "）是插件包（" + PluginCaps.Describe(info.PluginCaps) + "）——插件包不进运行期解析域："
+                        + "把它移到插件目录（Z42_PLUGINS / <sdk>/plugins）后按名依赖，或改写到 [plugins] 段。");
+                    return false;
+                }
+                continue;   // 普通库（或读不开——留给存在性校验报）
+            }
+            string got = _pluginLookup(e.Name, libsDirs, libsDirsN, true);   // 安静：找不到不是这里的错
+            if (got.Length == 0) { continue; }
+            ZpkgInfo pi = null;
+            try { pi = ZpkgReader.Open(File.ReadAllBytes(got), got); } catch (Exception ex) { pi = null; }
+            if (pi == null || !PluginCaps.IsPlugin(pi.PluginCaps)) { continue; }   // 插件目录里的非插件：不认领
+            locNames[n] = e.Name; locPaths[n] = got; n = n + 1;
+        } else if (e.Path.EndsWith(".zpkg")) {
+            string full = Path.IsRooted(e.Path) ? e.Path : Path.Join(projectDir, e.Path);
+            ZpkgInfo pi = null;
+            try { pi = ZpkgReader.Open(File.ReadAllBytes(full), full); } catch (Exception ex) { pi = null; }
+            if (pi == null || !PluginCaps.IsPlugin(pi.PluginCaps)) { continue; }   // 普通 .zpkg 依赖照旧
+            locNames[n] = e.Name; locPaths[n] = full; n = n + 1;
+        }
+    }
+    if (n > 0) {
+        string[] n2 = new string[n];
+        string[] p2 = new string[n];
+        int x = 0;
+        while (x < n) { n2[x] = locNames[x]; p2[x] = locPaths[x]; x = x + 1; }
+        names = n2; paths = p2;
+    }
+    return true;
 }
 
 string _pluginFromLibs(string aname, string[] libsDirs, int libsDirsN) {

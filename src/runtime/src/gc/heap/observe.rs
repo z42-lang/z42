@@ -1,4 +1,4 @@
-//! `Heap` 观测：barrier observer(test) + 事件分发 + pause 计时 + snapshot/stats。
+//! `Heap` 观测：barrier observer(test) + 事件分发 + pause 计时 + stats。
 //! 从 `heap.rs` 拆出（refactor-arc-heap-modularization）。
 
 #[cfg(test)]
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::object::Value;
 #[cfg(test)]
 use crate::object::ArrRef;
-use crate::gc::types::{GcEvent, HeapSnapshot, HeapStats, SnapshotCoverage};
+use crate::gc::types::{GcEvent, HeapStats};
 
 impl crate::gc::Heap {
     /// Pause-timing clock. fix-wasm-embed-gc-time: GC pause timing runs on every
@@ -16,15 +16,6 @@ impl crate::gc::Heap {
         crate::pal::time::monotonic_us()
     }
 
-    /// 取 Value 的"类型名"（用于 snapshot 聚合）。
-    pub(super) fn type_name_of(value: &Value) -> Option<String> {
-        match value {
-            Value::Object(rc) => Some(rc.type_desc().name.clone()),
-            Value::BoxedStruct(rc) => Some(rc.type_desc().name.clone()),  // add-boxed-struct-identity (P4b)
-            Value::Array(_)   => Some("<Array>".to_string()),
-            _ => None,
-        }
-    }
 
     /// 把事件分发到所有 observer。先 snapshot observer 列表再分发，避免
     /// observer 在回调中重入 add_observer/remove_observer 引发 borrow 冲突。
@@ -85,25 +76,6 @@ impl crate::gc::Heap {
         }
     }
 
-    pub fn take_snapshot(&self) -> HeapSnapshot {
-        // Phase 3b: 直接遍历 heap_registry，覆盖范围升级为 Full（所有 alloc 过且
-        // 当前仍 strong-reachable 的对象，不依赖 host pin）。
-        let mut snapshot = HeapSnapshot {
-            coverage:     SnapshotCoverage::Full,
-            timestamp_us: Self::now_us(),
-            ..Default::default()
-        };
-        for v in self.snapshot_live_from_registry() {
-            let size = self.object_size_bytes(&v) as u64;
-            let Some(type_name) = Self::type_name_of(&v) else { continue };
-            let entry = snapshot.objects_by_type.entry(type_name).or_default();
-            entry.count += 1;
-            entry.bytes += size;
-            snapshot.total_objects += 1;
-            snapshot.total_bytes   += size;
-        }
-        snapshot
-    }
 
     /// Alive objects and arrays that still carry a finalizer (side table) — the same set
     /// `snapshot_live_from_registry` would hand out, counted in place. A block an incremental

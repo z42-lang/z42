@@ -3,7 +3,7 @@
 ## 职责
 
 `Std.*` 命名空间下的 GC 控制接口、句柄类型、堆统计。底层走 corelib
-`__gc_*` builtin → `MagrGC` trait（heap.rs）。
+`__gc_*` builtin → 具体 `Heap`（`gc/heap.rs`，公开操作见 `gc/heap/api.rs`）。
 
 | 文件 | 内容 |
 |------|------|

@@ -328,11 +328,11 @@ pub fn gc_write_heap_snapshot(ctx: &VmContext, path: &str) -> Result<i64> {
     // add-gc-snapshot-streaming : write JSON directly to
     // a BufWriter<File> via the streaming serializer — avoids the
     // ~30 MB intermediate String for large heaps.
-    let snap = crate::gc::snapshot::build_graph_snapshot(ctx.heap());
+    let snap = crate::profiler::heap::snapshot::build_graph_snapshot(ctx.heap());
     let file = std::fs::File::create(&*path)
         .map_err(|e| anyhow!("__gc_write_heap_snapshot: create {}: {}", path, e))?;
     let mut writer = std::io::BufWriter::new(file);
-    let n_bytes = crate::gc::snapshot::serialize_v8_heapsnapshot_to(&snap, &mut writer)
+    let n_bytes = crate::profiler::heap::snapshot::serialize_v8_heapsnapshot_to(&snap, &mut writer)
         .map_err(|e| anyhow!("__gc_write_heap_snapshot: write {}: {}", path, e))?;
     // Explicit flush so we surface IO errors before returning success;
     // BufWriter's Drop-flush silently drops errors otherwise.

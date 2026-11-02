@@ -34,8 +34,12 @@ public sealed class LibsDomainOut {
 }
 public sealed class PluginSetupOut {
     public int Rc;
-    public string[] AzPaths;   // 显式 [plugins] ∪ 携带链的编译器侧插件 zpkg；null = 一个都没有
+    public string[] AzPaths;   // 显式 [plugins] ∪ 携带链 ∪ 插件位 [dependencies] 分流 的编译器侧插件 zpkg；null = 一个都没有
     public string HandlerFp;   // 插件身份指纹；"" = 无插件（自举 byte-identical 路径）
+    public string[] DepNames;  // [dependencies] 里分流成插件的条目名（**全位**，含 hook-only）；null/空 = 无。
+                               // `_verifyDeclaredDeps` 跳过它们（插件从插件目录解析，不在 libsDirs 里），
+                               // `_bundleSeed` 不播种它们（插件不链入产物）。
+    public int DepNamesN;
 }
 public sealed class SrcHashesOut {
     public string[] Texts; public string[] Hashes;
@@ -84,7 +88,10 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         isRelease, noIncremental, cliAdd, cliRemove, tier);
     if (pl.Rc != 0) { return pl.Rc; }
     string[] azPaths = pl.AzPaths; string handlerFp = pl.HandlerFp;
-    // ── ④ 源文本读入 + 源 hash（per-file 并行）──
+
+
+
+// ── ④ 源文本读入 + 源 hash（per-file 并行）──
     SrcHashesOut sh = _readAndHashSources(srcs, handlerFp);
     // ── ⑤ exe / pack 决议（含 indexed 与 flat workspace / --release 的不兼容拦截）──
     PackDecisionOut pd = _decidePacked(pm, tomlPath, tier, outputDirOverride, isRelease, libsDirsCount);
@@ -101,17 +108,17 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     string depsId = _buildDepsIdentity(pm, effOptSet, isRelease, libsDirs, libsDirsN, scanTier);
     PrepareOut po = _prepareIncremental(pm, srcs, dispSrcs, sh.Texts, sh.Hashes, scanTier, projectDir, bd.EffCacheDir, depsId,
         feats, distDir, isPacked, isExe, azPaths, closureNames, closureN, libsDirs, libsDirsN, isRelease,
-        outputDirOverride, cacheDirOverride, noIncremental, LineLint.Active(kn.Lints));
+        outputDirOverride, cacheDirOverride, noIncremental, LineLint.Active(kn.Lints), pl.DepNames, pl.DepNamesN);
     if (po.Rc != -1) { return po.Rc; }   // preserved 早退已完成（Ok）或失败（诊断已打印）
     IncrPrep prep = po.Prep;
     // ── ⑨ parse-all（增量复用 prep.Cus / 全量 ParseAllTk）──
     ParseAllOut pa = _parseAllSources(srcs, dispSrcs, sh.Texts, prep, feats);
     CompilationUnit[] cus = pa.Cus; NameListZ[] metaIdents = pa.Idents; NameSurfacesZ[] metaSurfaces = pa.Surfaces;
     // ── ⑩ 编译核心：依赖存在性校验 → cached meta 回填 → CompileInputs → PackageCompile.Compile ──
-    int vdr = _verifyDeclaredDeps(pm, libsDirs, libsDirsN); if (vdr != 0) { return vdr; }
+    int vdr = _verifyDeclaredDepsRouted(pm, libsDirs, libsDirsN, pl); if (vdr != 0) { return vdr; }
     CachedNsMeta[] cachedMetas = _buildCachedMetas(prep, srcs.Length);
-    CompileInputs cin = _fillCompileInputs(pm, srcs, sh.Texts, sh.Hashes, cus, prep, cachedMetas,
-        isRelease, fix, feats, effOptSet, libsDirs, libsDirsN, scanTier, sdkPlan, azPaths, projectDir, kn, internalOf);
+    CompileInputs cin = _fillCompileInputsRouted(pm, srcs, sh.Texts, sh.Hashes, cus, prep, cachedMetas,
+        isRelease, fix, feats, effOptSet, libsDirs, libsDirsN, scanTier, sdkPlan, azPaths, projectDir, kn, internalOf, pl);
     if (cin == null) { return ExitCode.BuildError; }
     CompileArtifacts art = PackageCompile.Compile(cin);
     // ── ⑪ 诊断呈现（错误 / 警告 / entry 校验——生成 CU 与用户 CU 同口径）──
@@ -130,7 +137,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             xi = xi + 1;
         }
         // 依赖 bundling 一次（各 exe 共享同一 dist）。
-        int mbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN, tier);
+        int mbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN, tier, pl.DepNames, pl.DepNamesN);
         if (mbc != 0) { return mbc; }
         // 多 exe 同样落 cache（cache-dir-layout：此前此分支提前 return，从不写 cache）。
         if (bd.WriteCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, sh.Texts, sh.Hashes, art.Cms, art.Mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
@@ -141,7 +148,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     if (bd.WriteCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, sh.Texts, sh.Hashes, art.Cms, art.Mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
-        int bc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN, tier);
+        int bc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN, tier, pl.DepNames, pl.DepNamesN);
         if (bc != 0) { return bc; }
     }
     return ExitCode.Ok;
@@ -301,6 +308,18 @@ PluginSetupOut _resolvePluginSetup(ProjectManifest pm, string projectDir, string
     }
     if (pm.PluginCount > 0 && !_resolvePluginZpkgs(pm, projectDir, tomlPath, libsDirs, libsDirsN,
             isRelease, noIncremental, cliAdd, cliRemove, ref plNames, ref plPaths)) { o.Rc = ExitCode.BuildError; return o; }
+    // [dependencies] 插件分流（deps-plugin-routing）：按 zpkg 头自述把插件包从运行期依赖里认领出来
+    //（libs 污染在此报错）。编译器侧位并进 azPaths（指纹随之覆盖——「换了插件但源没变」仍全量失效），
+    // 全位名记 DepNames 供存在性校验 / bundling 豁免。z42c 不加载 hook 位——那是 z42b 的事。
+    string[] depNames = null; string[] depPaths = null;
+    if (!_pluginDepZpkgs(pm, projectDir, libsDirs, libsDirsN, ref depNames, ref depPaths)) { o.Rc = ExitCode.BuildError; return o; }
+    string[] mergedDeps = _mergeDepPluginPaths(depNames, depPaths, plPaths);
+    if (mergedDeps == null && depPaths != null) {
+        ConsoleError.WriteLine("z42c build: [dependencies] 分流的插件包验头失败（见 _pluginDepZpkgs 已打印的诊断）。");
+        o.Rc = ExitCode.BuildError; return o;
+    }
+    plPaths = mergedDeps;
+    o.DepNames = depNames; o.DepNamesN = depNames == null ? 0 : depNames.Length;
     // 1c/PR2：显式∪携带（两阶段，见 PluginRefs 头注）。wsMember 判据与 `_resolveLibsDomain` 同源。
     string[] azPaths = null;
     if (!_attachCarriedPaths(pm, libsDirs, libsDirsN, tier != null && tier.MembersN > 0, plPaths, ref azPaths)) { o.Rc = ExitCode.BuildError; return o; }
@@ -458,7 +477,8 @@ PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispS
                                string projectDir, string effCacheDir, string depsId, LanguageFeatures feats,
                                string distDir, bool isPacked, bool isExe, string[] azPaths,
                                string[] closureNames, int closureN, string[] libsDirs, int libsDirsN, bool isRelease,
-                               string outputDirOverride, string cacheDirOverride, bool noIncremental, bool styleLint) {
+                               string outputDirOverride, string cacheDirOverride, bool noIncremental, bool styleLint,
+                               string[] routedDeps, int routedN) {
     PrepareOut o = new PrepareOut();
     o.Rc = -1;   // -1 = 未 preserved，调用方继续正常编译
     // `[build] incremental = false` 关增量（wire-build-incremental）。此前这个键**被解析进
@@ -494,7 +514,7 @@ PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispS
         BuildLog.ProgressErr("cached: " + (srcs.Length - o.Prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         if (canPreserve && o.Prep.Plan.AllCached) {
             if (isExe) {
-                int sbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN, tier);
+                int sbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN, tier, routedDeps, routedN);
                 if (sbc != 0) { o.Rc = sbc; return o; }
                 // 🔴 侧车必须在 preserved 路径上也重写。`[profile.<n>.runtime]` 的旋钮与
                 // `[properties]` **不进源 hash**（它们不影响编译产物），于是「只改了运行时
@@ -557,10 +577,51 @@ ParseAllOut _parseAllSources(string[] srcs, string[] dispSrcs, string[] texts, I
 // 一堆**位置在别处**的 `E0443 undefined type` / `E0401 undefined`，从症状反推不回清单。
 // 判据与 `_bundleExeDeps` / `[plugins]` 解析同款：libsDirs 里有没有 `<name>.zpkg`。
 // 摸底：全仓 233 个 z42 包的 [dependencies] 无一条落空（落空的 24 条全在 Cargo.toml）⇒ 判红零误伤。
-int _verifyDeclaredDeps(ProjectManifest pm, string[] libsDirs, int libsDirsN) {
+// deps-plugin-routing 的三个 routed 感知包装：分流名单（PluginSetupOut.DepNames）从 `_build` 透传。
+int _verifyDeclaredDepsRouted(ProjectManifest pm, string[] libsDirs, int libsDirsN, PluginSetupOut pl) {
+    return _verifyDeclaredDeps(pm, libsDirs, libsDirsN, pl.DepNames, pl.DepNamesN);
+}
+
+// `_fillCompileInputs` 的 routed 版：分流名不进 DeclaredDeps（不链入产物 ⇒ 不进 zpkg DEPS 段）。
+CompileInputs _fillCompileInputsRouted(ProjectManifest pm, string[] srcs, string[] texts, string[] srcHashes,
+                                       CompilationUnit[] cus, IncrPrep prep, CachedNsMeta[] cachedMetas,
+                                       bool isRelease, bool fix, LanguageFeatures feats, int effOptSet,
+                                       string[] libsDirs, int libsDirsN, WsTier scanTier, SdkLibPlan sdkPlan,
+                                       string[] azPaths, string projectDir, KnobResult kn, string internalOf,
+                                       PluginSetupOut pl) {
+    return _fillCompileInputs(pm, srcs, texts, srcHashes, cus, prep, cachedMetas, isRelease, fix, feats, effOptSet,
+                              libsDirs, libsDirsN, scanTier, sdkPlan, azPaths, projectDir, kn, internalOf,
+                              pl.DepNames, pl.DepNamesN);
+}
+
+// deps-plugin-routing 的编译器侧合并：分流出的插件里只取 analyzer/generator 位（hook 位归 z42b），
+// 逐个验头后并进显式插件路径表（指纹随后由 azPaths 统一覆盖）。返回 null = 验头失败（调用方报）。
+string[] _mergeDepPluginPaths(string[] depNames, string[] depPaths, string[] plPaths) {
+    if (depPaths == null) { return plPaths; }
+    int dk = 0;
+    while (dk < depPaths.Length) {
+        PluginInspection dpi = PluginZpkg.Inspect(depPaths[dk], depNames[dk]);
+        if (dpi.Error.Length > 0) { return null; }
+        if (PluginCaps.ForCompiler(dpi.Caps)) {
+            string[] one = new string[1];
+            one[0] = depPaths[dk];
+            plPaths = _mergeCarriedPaths(plPaths, one);
+        }
+        dk = dk + 1;
+    }
+    return plPaths;
+}
+
+int _verifyDeclaredDeps(ProjectManifest pm, string[] libsDirs, int libsDirsN, string[] skipNames, int skipN) {
     int dvi = 0;
     while (dvi < pm.DepCount) {
         string dname = pm.Deps[dvi].Name;
+        // [dependencies] 插件分流（deps-plugin-routing）：已分流成插件的条目从插件目录解析、
+        // 不进 libsDirs——这里既不要求它「在 libs 里找得到」，也不报（libs 命中即污染，已在上游报过）。
+        bool routed = false;
+        int sk = 0;
+        while (sk < skipN) { if (skipNames[sk] == dname) { routed = true; break; } sk = sk + 1; }
+        if (routed) { dvi = dvi + 1; continue; }
         string dfile = dname + ".zpkg";
         bool dfound = false;
         string dpath = "";
@@ -571,9 +632,12 @@ int _verifyDeclaredDeps(ProjectManifest pm, string[] libsDirs, int libsDirsN) {
             dd = dd + 1;
         }
         // 插件包不能作运行期依赖：它只加载进工具链进程、永不链入产物。读头的能力位就判得出来。
+        // （未分流的路径：比如 libs 里躺着一个同名插件包但插件目录没有——分流器没认领它，这里的
+        // 污染报错仍然兜底。）
         if (dfound && PluginCaps.IsPlugin(PluginZpkg.HeaderCaps(dpath))) {
             ConsoleError.WriteLine("z42c build: [dependencies] `" + dname + "`（" + dpath + "）是插件包（"
-                + PluginCaps.Describe(PluginZpkg.HeaderCaps(dpath)) + "），不能作运行期依赖。改法：把它挪进 [plugins] 段。");
+                + PluginCaps.Describe(PluginZpkg.HeaderCaps(dpath)) + "），不能作运行期依赖。改法：把它挪进 [plugins] 段，"
+                + "或移到插件目录（Z42_PLUGINS / <sdk>/plugins）后按名依赖（deps-plugin-routing 自动分流）。");
             return ExitCode.BuildError;
         }
         if (!dfound) {
@@ -626,7 +690,8 @@ CompileInputs _fillCompileInputs(ProjectManifest pm, string[] srcs, string[] tex
                                  CompilationUnit[] cus, IncrPrep prep, CachedNsMeta[] cachedMetas,
                                  bool isRelease, bool fix, LanguageFeatures feats, int effOptSet,
                                  string[] libsDirs, int libsDirsN, WsTier scanTier, SdkLibPlan sdkPlan,
-                                 string[] azPaths, string projectDir, KnobResult kn, string internalOf) {
+                                 string[] azPaths, string projectDir, KnobResult kn, string internalOf,
+                                 string[] routedDeps, int routedN) {
     CompileInputs cin = new CompileInputs();
     // 🔴 cin.Files 必须是**真实路径**，不能换成显示名：它直接成为 `ZbcFileZ.SourceFile`
     // （PackageCompile.z42 `string rel = files[i]`）进而进入 zpkg，由 `_stabilizeSourceIdentity`
@@ -646,13 +711,21 @@ CompileInputs _fillCompileInputs(ProjectManifest pm, string[] srcs, string[] tex
     cin.OptSet = effOptSet;   // wire-optimize-manifest：上方已按 CLI > toml > profile 解出
     cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
     cin.Tier = scanTier;
+    // deps-plugin-routing：分流成插件的条目不进 DeclaredDeps——它不链入产物，也就不该出现在
+    // zpkg 的 DEPS 段（下游闭包 / bundle 由此免于「exe dep 未找到」的追问）。
     string[] declaredDeps = new string[pm.DepCount];
-    int ddi = 0;
-    while (ddi < pm.DepCount) { declaredDeps[ddi] = pm.Deps[ddi].Name; ddi = ddi + 1; }
+    int ddi = 0; int ddn = 0;
+    while (ddi < pm.DepCount) {
+        bool routed = false;
+        int rk = 0;
+        while (rk < routedN) { if (routedDeps[rk] == pm.Deps[ddi].Name) { routed = true; break; } rk = rk + 1; }
+        if (!routed) { declaredDeps[ddn] = pm.Deps[ddi].Name; ddn = ddn + 1; }
+        ddi = ddi + 1;
+    }
     // add-sdk-libs：放行的 SDK 库（传递闭包 / analyzer 免声明）也算已声明 —— DepIndex 要索引它们、E0497 要放行。
     // 同 workspace 成员名的放行在 `PackageCompile._resolveDeps` 侧并（retire-member-dep-decls）——
     // 那份不得进 zpkg DEPS，见 SdkLibs.WithMembers 头注。
-    string[] declaredAll = SdkLibs.ExtendDeclared(declaredDeps, pm.DepCount, sdkPlan);
+    string[] declaredAll = SdkLibs.ExtendDeclared(declaredDeps, ddn, sdkPlan);
     cin.DeclaredDeps = declaredAll; cin.DepCount = declaredAll.Length;
     // fix-crosspkg-ns-reachability：走到这里就是**真的读了一份 manifest**（`pm`）⇒ 执行依赖契约（E0497）。
     // REPL / 单测 / 裸 emit 不经本函数，保持默认 false——它们没有「声明」可依据。

@@ -414,7 +414,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         platforms: NOT_WASM,
         description: "safepoint sampling-profiler frequency (Hz); any value ≥1 turns z42-level CPU sampling on",
         default_hint: "unset; sampling off (zero-cost — no background thread, hot path unchanged)",
-        consumed_by: "gc/sampler.rs (via vm_context.rs)",
+        consumed_by: "profiler/cpu.rs (via vm_context.rs)",
         ..PUBLIC
     },
     KnobSpec {
@@ -424,7 +424,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         platforms: NOT_WASM,
         description: "folded-stacks output path for the sampling flamegraph (inferno format)",
         default_hint: "unset; defaults to z42-samples.folded (only written when Z42_SAMPLE_HZ set)",
-        consumed_by: "app.rs (flush) + gc/sampler.rs",
+        consumed_by: "app.rs (flush) + profiler/cpu.rs",
         ..PUBLIC
     },
     KnobSpec {
@@ -503,7 +503,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         platforms: NOT_WASM,
         description: "chrome/perfetto sample-trace JSON output path; set → also record a per-sample timeline",
         default_hint: "unset; no trace written (folded flamegraph still produced)",
-        consumed_by: "app.rs (flush) + gc/sampler.rs",
+        consumed_by: "app.rs (flush) + profiler/cpu.rs",
         ..PUBLIC
     },
 ];

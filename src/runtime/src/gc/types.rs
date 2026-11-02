@@ -1,15 +1,15 @@
-//! Supporting types for the [`Heap`](super::heap::Heap) trait.
+//! Supporting types for the [`Heap`](super::heap::Heap).
 //!
 //! Houses every data type that the GC interface contracts on (handles, events,
-//! observer trait, profiler types, snapshots, …) so that `heap.rs` can stay
-//! focused on the trait shape itself.
+//! observer trait, allocation events, …) so that `heap.rs` can stay
+//! focused on heap state and collection.
 //!
 //! Threading bounds: every callback type (`GcObserver`, `AllocSamplerFn`,
 //! `FinalizerFn`) carries `Send + Sync`. The host is expected to wire these
 //! into multi-threaded telemetry / metrics pipelines, so the bound is required
 //! even though `VmContext` itself is currently single-threaded.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use crate::object::header::arr_ref::WeakArrRef;
@@ -317,42 +317,6 @@ pub struct HeapStats {
     pub observers:          u64,
     /// Aggregate pause-time histogram (add-gc-pause-histogram).
     pub pause_histogram:    PauseHistogram,
-}
-
-// ── Heap snapshot ────────────────────────────────────────────────────────────
-
-/// Coverage discriminator on [`HeapSnapshot`].
-///
-/// Phase 1 RC mode cannot enumerate all live objects (no global Rc registry);
-/// the snapshot covers only objects reachable from currently-pinned roots.
-/// Phase 3 tracing GC will produce `Full` snapshots.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SnapshotCoverage {
-    Full,
-    ReachableFromPinnedRoots,
-}
-
-impl Default for SnapshotCoverage {
-    fn default() -> Self { Self::ReachableFromPinnedRoots }
-}
-
-/// Per-type aggregate in a [`HeapSnapshot`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ObjectStats {
-    pub count: u64,
-    pub bytes: u64,
-}
-
-/// Heap composition snapshot.
-#[derive(Debug, Clone, Default)]
-pub struct HeapSnapshot {
-    /// Per type-name aggregate.
-    pub objects_by_type: HashMap<String, ObjectStats>,
-    pub total_objects:   u64,
-    pub total_bytes:     u64,
-    /// Microseconds since `Heap::EPOCH`.
-    pub timestamp_us:    u64,
-    pub coverage:        SnapshotCoverage,
 }
 
 #[cfg(test)]
