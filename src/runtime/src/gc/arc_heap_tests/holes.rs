@@ -56,7 +56,7 @@ fn half_dead(heap: &ArcMagrGC, n: usize) -> (Vec<crate::gc::RootHandle>, HashSet
 
 #[test]
 fn the_tlab_fills_holes_before_carving_new_chunks() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = Armed::new(&heap);
     let (_pins, dead) = half_dead(&heap, scaled(4000));
     let chunks = heap.region_var_for_test().lock().chunk_count();
@@ -76,7 +76,7 @@ fn churn_with_survivors_reaches_a_steady_chunk_count() {
     // the replaced ones die scattered over old chunks, which therefore never die whole. Without
     // hole reuse every round carves fresh chunks and the count climbs; with it the count settles.
     const RING: usize = 3000;
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = Armed::new(&heap);
     let mut ring: Vec<crate::gc::RootHandle> = (0..RING).map(|_| heap.pin_root(obj(&heap, "C"))).collect();
     let mut seed = 12345u64;
@@ -98,7 +98,7 @@ fn churn_with_survivors_reaches_a_steady_chunk_count() {
 
 #[test]
 fn a_weak_reference_never_resolves_to_the_object_reusing_its_slot() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = Armed::new(&heap);
     let _keep = heap.pin_root(obj(&heap, "Neighbour")); // keeps the chunk from dying whole
     let victim = obj(&heap, "Victim");
@@ -124,7 +124,7 @@ fn a_weak_reference_never_resolves_to_the_object_reusing_its_slot() {
 
 #[test]
 fn a_finalized_objects_slot_is_reused_only_after_its_finalizer_ran() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = Armed::new(&heap);
     let _keep = heap.pin_root(obj(&heap, "Neighbour"));
     let fired = StdArc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -148,7 +148,7 @@ fn a_finalized_objects_slot_is_reused_only_after_its_finalizer_ran() {
 
 #[test]
 fn a_hole_filled_during_an_incremental_cycle_is_allocated_black() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
     heap.set_nursery_bytes_for_test(1 << 40);
     let _g = Armed::new(&heap);
@@ -184,7 +184,7 @@ fn census_is_exact(heap: &ArcMagrGC) {
 /// filling the same batch.
 #[test]
 fn a_native_park_without_a_collection_hands_the_hole_stash_back() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = Armed::new(&heap);
     let (_pins, dead) = half_dead(&heap, scaled(400));
     let first = obj(&heap, "H");
@@ -206,7 +206,7 @@ fn a_native_park_without_a_collection_hands_the_hole_stash_back() {
 /// unparking the thread takes a fresh batch and keeps reusing holes.
 #[test]
 fn a_collection_during_a_native_park_retires_the_parked_hole_stash() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = Armed::new(&heap);
     let (_pins, dead) = half_dead(&heap, scaled(400));
     let filled: Vec<Value> = (0..3).map(|_| obj(&heap, "H")).collect();
@@ -243,7 +243,7 @@ fn a_collection_during_a_native_park_retires_the_parked_hole_stash() {
 /// into the new occupant, and the reused array slot reads as the new array.
 #[test]
 fn an_array_hole_is_reused_by_another_kind_of_block() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = Armed::new(&heap);
     // An untyped (MIXED) `[2]`: a 32 B payload, the same size class as a 32-byte string.
     let mut pins = Vec::new();

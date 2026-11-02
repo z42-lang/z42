@@ -366,6 +366,7 @@ unsafe fn var_drop_glue(bt: BlockType, header: std::ptr::NonNull<crate::object::
 }
 
 pub struct ArcMagrGC {
+    config: crate::gc::GcConfig,
     inner: Mutex<RcHeapInner>,
     external_root_scanner: Mutex<Option<ExternalRootScanner>>,
     /// **add-lazy-context-unload**: collectible-context reclaimer hook. `None`
@@ -381,9 +382,8 @@ pub struct ArcMagrGC {
     /// changes don't synchronize with collect; in-progress collect
     /// completes with its original mode, next collect picks up new
     /// mode (per spec scenario "Mode switch is observable but cannot
-    /// interrupt a running collect"). Initialized from
-    /// `GcMode::from_env()` so `Z42_GC_MODE` selects the mode at
-    /// process start.
+    /// interrupt a running collect"). Initialized from the caller-supplied
+    /// `GcConfig`; the facade resolves `Z42_GC_MODE`.
     mode: std::sync::atomic::AtomicU8,
     /// The heap: one variable-length GC block region holding every managed value — objects
     /// (`Value::Object` / `Value::BoxedStruct`, object model R6), arrays (`Value::Array`, R9),
@@ -438,7 +438,7 @@ pub struct ArcMagrGC {
     /// `check_safepoint(ctx)` which runs a stop-the-world collect.
     ///
     /// `None` when not wired (e.g. GC unit tests that construct
-    /// `ArcMagrGC::new()` standalone without a VmCore) — `maybe_auto_collect`
+    /// `ArcMagrGC::default()` standalone without a VmCore) — `maybe_auto_collect`
     /// then falls back to the legacy inline `collect_cycles()` call,
     /// preserving the pre- single-threaded behaviour.
     external_needs_collect: Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>>,
@@ -657,8 +657,16 @@ mod debug;
 mod footprint;
 
 impl ArcMagrGC {
-    /// 新建默认 GC backend（`Default` 从 `Z42_GC_MODE` 选 mode + 领取 epoch）。
-    pub fn new() -> Self { Self::default() }
+    /// Construct a heap from caller-owned policy, without reading process settings.
+    pub fn new(config: crate::gc::GcConfig) -> Self { Self::construct(config) }
+
+    pub(super) fn phase_timer(&self, name: &'static str) -> crate::gc::phase_timer::PhaseTimer {
+        crate::gc::phase_timer::PhaseTimer::start(self.config.phases, name)
+    }
+
+    pub(super) fn phase_note(&self, args: std::fmt::Arguments<'_>) {
+        crate::gc::phase_timer::note(self.config.phases, args);
+    }
 }
 
 #[cfg(test)]

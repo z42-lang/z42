@@ -29,7 +29,7 @@ fn tlab_alloc_scaling_probe() {
     const PER_THREAD: usize = 200_000;
 
     fn run(threads: usize, armed: bool) -> f64 {
-        let heap = StdArc::new(ArcMagrGC::new());
+        let heap = StdArc::new(ArcMagrGC::default());
         let start = Instant::now();
         let handles: Vec<_> = (0..threads)
             .map(|_| {
@@ -98,7 +98,7 @@ fn alive_count(heap: &ArcMagrGC) -> usize {
 /// forces it) every pinned object is alive and visible.
 #[test]
 fn tlab_cross_chunk_all_pinned_alive() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = ArmGuard::new(&heap);
     let n = 5000; // 32 B each > 64 KB → at least 2 var chunks
     let mut pins = Vec::new();
@@ -118,7 +118,7 @@ fn tlab_cross_chunk_all_pinned_alive() {
 /// (guards the generation-preserving vs fresh write modes in `ChunkClaim::fill`).
 #[test]
 fn tlab_object_field_values_roundtrip() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = ArmGuard::new(&heap);
     let leaf = heap.alloc_object(dummy_type_desc("Leaf"), vec![], NativeData::None);
     let _p0 = heap.pin_root(leaf.clone());
@@ -149,7 +149,7 @@ fn tlab_object_field_values_roundtrip() {
 /// retire-before-mark hook merges the borrowed chunk so sweep sees them).
 #[test]
 fn tlab_unrooted_objects_are_collected() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = ArmGuard::new(&heap);
     for _ in 0..50 {
         let _ = heap.alloc_object(dummy_type_desc("Garbage"), vec![], NativeData::None);
@@ -163,7 +163,7 @@ fn tlab_unrooted_objects_are_collected() {
 /// unboundedly. Without reclaim the chunk count would grow every round.
 #[test]
 fn tlab_chunk_reclaim_bounds_growth() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = ArmGuard::new(&heap);
     let mut max_chunks = 0;
     let mut first_round = 0;
@@ -190,7 +190,7 @@ fn tlab_chunk_reclaim_bounds_growth() {
 /// Arrays go through the TLAB fast path too (object model R9: one var block each).
 #[test]
 fn tlab_arrays_cross_chunk_alive() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = ArmGuard::new(&heap);
     let mut pins = Vec::new();
     // `object[256]`: 16 + 2048 B blocks, ~31 to a 64 KB chunk.
@@ -209,7 +209,7 @@ fn tlab_arrays_cross_chunk_alive() {
 /// precisely refused (returns Null) with exact `used_bytes` accounting.
 #[test]
 fn tlab_strict_oom_degrades_to_ambient_refund() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = ArmGuard::new(&heap);
     // One object to measure per-object size, then cap the heap just above it.
     let v0 = heap.alloc_object(dummy_type_desc("S"), vec![], NativeData::None);
@@ -228,7 +228,7 @@ fn tlab_strict_oom_degrades_to_ambient_refund() {
 /// visible immediately after alloc with no intervening retire.
 #[test]
 fn tlab_unarmed_thread_uses_ambient_path() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     // No ArmGuard → unarmed.
     let v = heap.alloc_object(dummy_type_desc("Ambient"), vec![], NativeData::None);
     let _p = heap.pin_root(v);
@@ -242,7 +242,7 @@ fn tlab_unarmed_thread_uses_ambient_path() {
 /// collect while pinned, and read back byte-exact (guards `VarChunkClaim::fill`).
 #[test]
 fn tlab_strings_cross_chunk_roundtrip() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = ArmGuard::new(&heap);
     // ~2000 strings of ~64 bytes ≈ 128 KB payload → spans >= 2 var chunks.
     let n = 2000;
@@ -269,7 +269,7 @@ fn tlab_strings_cross_chunk_roundtrip() {
 /// through the pool (D7 for var) instead of growing unboundedly.
 #[test]
 fn tlab_var_chunk_reclaim_bounds_growth() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = ArmGuard::new(&heap);
     let mut max_chunks = 0;
     for round in 0..6 {
@@ -299,7 +299,7 @@ fn tlab_var_chunk_reclaim_bounds_growth() {
 /// `dealloc` was `VarRegion::drop`, so a dead 1 MB string held its megabyte until VM exit.
 #[test]
 fn oversized_var_blocks_are_freed_not_leaked() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = ArmGuard::new(&heap);
     let big = "L".repeat(200 * 1024); // > CHUNK_BYTES (64 KB) → dedicated chunk each time
     let mut per_round = Vec::new();
@@ -322,7 +322,7 @@ fn oversized_var_blocks_are_freed_not_leaked() {
 /// resolve to the new occupant — the per-chunk `reuse_gen` ABA guard.
 #[test]
 fn tlab_var_reuse_gen_prevents_aba() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = ArmGuard::new(&heap);
     // Fill a chunk with a string, keep a *copy* of its handle, let it die + reclaim.
     let s0 = heap.alloc_str("original-string-payload-aaaaaaaaaaaaaaaa");
@@ -351,7 +351,7 @@ fn tlab_var_reuse_gen_prevents_aba() {
 /// and their captured env survives a collect while rooted.
 #[test]
 fn tlab_closures_via_var_path() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _g = ArmGuard::new(&heap);
     // Allocate several strings then a fresh string root; a plain smoke test that the
     // var TLAB path + drop-glue region compose without corruption.
@@ -371,7 +371,7 @@ fn tlab_closures_via_var_path() {
 /// pinned root allocated on the main thread survives.
 #[test]
 fn tlab_concurrent_shared_heap_stress() {
-    let heap = StdArc::new(ArcMagrGC::new());
+    let heap = StdArc::new(ArcMagrGC::default());
     // Pin a root on the main thread (armed) so we can assert it survives.
     let main_guard = ArmGuard::new(&heap);
     let survivor = heap.alloc_object(dummy_type_desc("Survivor"), vec![], NativeData::None);

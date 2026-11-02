@@ -12,7 +12,7 @@ use crate::{gc::ArcMagrGC, object::ArrRef};
 /// unmarked.
 #[test]
 fn mark_phase_visits_reachable_only() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
 
     // Build a reachable chain: root_a → b → c (via Object slot chain).
     let c = heap.alloc_object(dummy_type_desc("C"), vec![Value::Null], NativeData::None);
@@ -52,7 +52,7 @@ fn mark_phase_visits_reachable_only() {
 fn mark_phase_idempotent_within_one_cycle() {
     // Calling mark_phase twice in a row without reset should mark 0 the
     // second time (already-marked CAS fails → no new work).
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![Value::Null], NativeData::None);
     let _root = heap.pin_root(a.clone());
 
@@ -68,7 +68,7 @@ fn mark_phase_idempotent_within_one_cycle() {
 #[test]
 fn mark_phase_handles_array_children() {
     // Array<Value> with Object elements — mark must trace into the array.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let elem1 = heap.alloc_object(dummy_type_desc("E1"), vec![Value::Null], NativeData::None);
     let elem2 = heap.alloc_object(dummy_type_desc("E2"), vec![Value::Null], NativeData::None);
     let arr = heap.alloc_array(vec![elem1.clone(), elem2.clone()]);
@@ -94,7 +94,7 @@ fn mark_phase_cyclic_unreachable_stays_unmarked() {
     // Two-node cycle (a ↔ b) with NO root → both unmarked. This is the
     // case trial-deletion needed elaborate tentative counts for; mark-sweep
     // handles it naturally because BFS never starts.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![Value::Null], NativeData::None);
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
@@ -126,7 +126,7 @@ fn mark_phase_cyclic_unreachable_stays_unmarked() {
 #[test]
 fn clear_mark_resets_state() {
     // add-incremental-major-gc M1: "clearing" a major mark is opening the next epoch.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![Value::Null], NativeData::None);
     let _root = heap.pin_root(a.clone());
 
@@ -150,7 +150,7 @@ fn alive_count(heap: &ArcMagrGC) -> usize {
 /// Mark+sweep frees a simple two-node cycle (a ↔ b), same as trial-deletion.
 #[test]
 fn mark_sweep_frees_two_node_cycle() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![Value::Null], NativeData::None);
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
@@ -172,7 +172,7 @@ fn mark_sweep_frees_two_node_cycle() {
 /// Mark+sweep frees a self-referencing cycle (a → a).
 #[test]
 fn mark_sweep_frees_self_reference_cycle() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("Self"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(a_gc) = &a else { panic!() };
@@ -189,7 +189,7 @@ fn mark_sweep_frees_self_reference_cycle() {
 /// Mark+sweep preserves rooted (reachable) objects.
 #[test]
 fn mark_sweep_preserves_rooted_chain() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let leaf = heap.alloc_object(dummy_type_desc("Leaf"), vec![Value::Null], NativeData::None);
     let mid  = heap.alloc_object(dummy_type_desc("Mid"),  vec![leaf.clone()], NativeData::None);
     let root = heap.alloc_object(dummy_type_desc("Root"), vec![mid.clone()],  NativeData::None);
@@ -213,7 +213,7 @@ fn mark_sweep_preserves_rooted_chain() {
 /// Mark+sweep frees a 3-cycle (a → b → c → a) when no root reaches it.
 #[test]
 fn mark_sweep_frees_three_node_cycle() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![Value::Null], NativeData::None);
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     let c = heap.alloc_object(dummy_type_desc("C"), vec![Value::Null], NativeData::None);
@@ -238,7 +238,7 @@ fn mark_sweep_frees_three_node_cycle() {
 /// Mark+sweep preserves a cycle that one strong external ref keeps alive.
 #[test]
 fn mark_sweep_preserves_externally_referenced_cycle() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![Value::Null], NativeData::None);
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
@@ -264,7 +264,7 @@ fn mark_sweep_preserves_externally_referenced_cycle() {
 /// Survivor marks reset after sweep so the next cycle starts clean.
 #[test]
 fn sweep_resets_marks_on_survivors() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![Value::Null], NativeData::None);
     let root_handle = heap.pin_root(a.clone());
 

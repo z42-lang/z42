@@ -100,7 +100,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// become a use-after-free, so it panics right here rather than letting the minor sweep.
     #[inline]
     pub(super) fn maybe_verify_cards_before_minor(&self) {
-        if !crate::config::runtime_config().gc_verify_cards {
+        if !self.config.verify_cards {
             return;
         }
         if let Err(msg) = self.verify_card_invariant() {

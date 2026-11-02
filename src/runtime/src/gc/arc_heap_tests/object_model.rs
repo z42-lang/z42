@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn object_size_bytes_atomic_returns_value_size() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let primitives = vec![
         Value::I64(0), Value::F64(0.0), Value::Bool(true), Value::Char('a'), Value::Null,
     ];
@@ -16,14 +16,14 @@ fn object_size_bytes_atomic_returns_value_size() {
 
 #[test]
 fn object_size_bytes_string_includes_capacity() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let s = Value::Str("hello".to_string().into());
     assert!(heap.object_size_bytes(&s) > std::mem::size_of::<Value>());
 }
 
 #[test]
 fn scan_object_refs_visits_every_slot() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![], NativeData::None);
     let v = heap.alloc_object(
         dummy_type_desc("Foo"),
@@ -39,7 +39,7 @@ fn scan_object_refs_visits_every_slot() {
 
 #[test]
 fn scan_object_refs_visits_every_array_elem() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![], NativeData::None);
     let v = heap.alloc_array(vec![a, Value::I64(1), a, Value::Null, a]);
     let mut count = 0;
@@ -50,7 +50,7 @@ fn scan_object_refs_visits_every_array_elem() {
 
 #[test]
 fn scan_object_refs_no_op_on_atomic() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let mut count = 0;
     heap.scan_object_refs(&Value::I64(42), &mut |_| count += 1);
     heap.scan_object_refs(&Value::Str("x".into()), &mut |_| count += 1);

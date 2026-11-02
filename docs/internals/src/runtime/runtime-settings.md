@@ -1,7 +1,7 @@
 # 运行时设置（旋钮登记表 / 五层优先级 / 可用性与诊断）
 
 > 代码：`src/runtime/src/config/`（`knobs.rs` 类型 · `knob_table.rs` 登记表 · `availability.rs` 求值 ·
-> `resolve.rs` 分层解析 · `source.rs` 配置文件 · `render.rs` 查询渲染 · `cli.rs` `--set`）、
+> `resolve.rs` 分层解析 · `split.rs` 子系统配置转换 · `source.rs` 配置文件 · `render.rs` 查询渲染 · `cli.rs` `--set`）、
 > `src/runtime/src/corelib/config.rs`（脚本 builtin）、
 > `src/compiler/z42c.driver/src/RuntimeConfigSidecar.z42`（侧车生成）、
 > `src/compiler/z42c.driver/src/ProfileKnobs.z42`（构建期旋钮名校验）。
@@ -54,6 +54,13 @@ flowchart TD
 > 用户一旦 `export Z42_CONFIG=my.toml`，应用侧车就会被**整份丢弃**。同理，工程
 > `[profile.debug].mode` 不能被 launcher 注入成 `Z42_MODE`——那会让工程配置落在 **L2**、
 > 反过来压过用户的 L3，与本表方向相反。
+
+### 子系统配置输入
+
+配置优先级与解析仍统一归 `RuntimeConfig`。门面通过 `config/split.rs` 中的
+`RuntimeConfig::gc_config` 为每个堆生成 GC 拥有的 `GcConfig`，GC 不反向查询全局设置。
+默认值、覆盖值和诊断继续来自同一登记与解析流程；软上限、trace observer 和进程级 LOH
+装配保持在 VM 构造处。独立 Rust 堆的默认构造不加载进程配置，调用方可显式传入转换结果。
 
 ### 谁在什么时候写 L4
 
@@ -194,7 +201,7 @@ TOML 类型。
     它们决定**读哪个文件**和**诊断有多严格**，写进配置文件会自指；
   - `Z42_STRESS_ITERS` 标 **ENV_ONLY**：GC 压力测试脚手架，进 CLI 表面等于向用户暗示
     它是个正经旋钮。
-  - 其余**全部四层可设**。消费点一律读 `runtime_config()`；若某旋钮在 `consumed_by` 处直接
+  - 其余**全部四层可设**。门面和消费点读取 `runtime_config()`，GC 的堆策略经 `RuntimeConfig::gc_config` 显式注入；若某旋钮在 `consumed_by` 处直接
     `std::env::var`，CLI 与配置文件层就到不了那行内联读取，标成"四层全收"会让 `--list-knobs`
     声称能 `--set` 而实际静默无效，**比不登记更坏**。故有一道反向门：**任何新的内联 env 读都会
     让测试变红**（`no_knob_is_read_inline_from_the_environment_any_more`）。

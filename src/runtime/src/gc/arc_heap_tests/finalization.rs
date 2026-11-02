@@ -12,7 +12,7 @@ use super::*;
 fn finalizer_fires_on_sweep_when_unreachable() {
     // Was `finalizer_fires_on_normal_rc_drop_no_cycle_no_collect`.
     // New contract: finalizer fires at next sweep, not at Drop.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let fired = Arc::new(AtomicUsize::new(0));
     let f = fired.clone();
 
@@ -34,7 +34,7 @@ fn finalizer_one_shot_across_multiple_collects() {
     // Was `finalizer_one_shot_via_drop_then_collect`. New contract:
     // first collect fires the finalizer + tombstones; subsequent
     // collects find nothing for that slot.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let fired = Arc::new(AtomicUsize::new(0));
     let f = fired.clone();
 
@@ -57,7 +57,7 @@ fn finalizers_pending_reflects_alive_with_finalizer() {
     // Stats.finalizers_pending counts currently-alive entries with
     // a registered finalizer. After P1 the count only decreases via
     // sweep (no drop-time decrement).
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v1 = heap.alloc_object(dummy_type_desc("F1"), vec![], NativeData::None);
     let v2 = heap.alloc_object(dummy_type_desc("F2"), vec![], NativeData::None);
     let _v3_pin = heap.pin_root(
@@ -85,7 +85,7 @@ fn finalizers_pending_reflects_alive_with_finalizer() {
 
 #[test]
 fn finalizer_fires_when_object_freed_via_cycle_collect() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let fired = Arc::new(AtomicUsize::new(0));
     let f = fired.clone();
 
@@ -115,7 +115,7 @@ fn finalizer_does_not_fire_when_object_kept_alive() {
     // (post-add-mark-sweep-collector), Rust-local Value strong refs are
     // NOT roots. To preserve the object across collect we must pin it
     // explicitly; otherwise sweep tombstones it and fires the finalizer.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let fired = Arc::new(AtomicUsize::new(0));
     let f = fired.clone();
     let alive = heap.alloc_object(dummy_type_desc("Alive"), vec![], NativeData::None);
@@ -134,7 +134,7 @@ fn finalizer_does_not_fire_when_object_kept_alive() {
 
 #[test]
 fn finalize_now_fires_registered_finalizer_immediately() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let fired = Arc::new(AtomicUsize::new(0));
     let f = fired.clone();
 
@@ -154,7 +154,7 @@ fn finalize_now_fires_registered_finalizer_immediately() {
 
 #[test]
 fn finalize_now_returns_false_without_finalizer() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v = heap.alloc_object(dummy_type_desc("NoFin"), vec![], NativeData::None);
 
     let returned = heap.finalize_now(&v);
@@ -164,7 +164,7 @@ fn finalize_now_returns_false_without_finalizer() {
 
 #[test]
 fn finalize_now_returns_false_on_primitive() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     assert!(!heap.finalize_now(&Value::I64(42)));
     assert!(!heap.finalize_now(&Value::Null));
     assert!(!heap.finalize_now(&Value::Str("x".into())));
@@ -172,7 +172,7 @@ fn finalize_now_returns_false_on_primitive() {
 
 #[test]
 fn finalize_now_tombstones_the_entry() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v = heap.alloc_object(dummy_type_desc("Tomb"), vec![], NativeData::None);
     let _pin = heap.pin_root(v.clone());
 
@@ -192,7 +192,7 @@ fn finalize_now_tombstones_the_entry() {
 
 #[test]
 fn finalize_now_idempotent_on_already_tombstoned() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let fired = Arc::new(AtomicUsize::new(0));
     let f = fired.clone();
     let v = heap.alloc_object(dummy_type_desc("Idem"), vec![], NativeData::None);
@@ -210,7 +210,7 @@ fn finalize_now_idempotent_on_already_tombstoned() {
 
 #[test]
 fn finalize_now_works_on_array_value() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let fired = Arc::new(AtomicUsize::new(0));
     let f = fired.clone();
     let arr = heap.alloc_array(vec![Value::I64(1), Value::I64(2)]);
@@ -225,7 +225,7 @@ fn finalize_now_works_on_array_value() {
 
 #[test]
 fn finalize_now_does_not_disturb_other_objects() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let target = heap.alloc_object(dummy_type_desc("Target"), vec![], NativeData::None);
     let other  = heap.alloc_object(dummy_type_desc("Other"),  vec![], NativeData::None);
     let _pin1 = heap.pin_root(target.clone());
@@ -248,7 +248,7 @@ fn finalize_now_does_not_disturb_other_objects() {
 
 #[test]
 fn finalizer_is_one_shot_after_fire() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let fired = Arc::new(AtomicUsize::new(0));
     let f = fired.clone();
     let a = heap.alloc_object(dummy_type_desc("F"), vec![Value::Null], NativeData::None);
@@ -271,7 +271,7 @@ fn finalizer_is_one_shot_after_fire() {
 
 #[test]
 fn register_finalizer_increments_pending_count() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v = heap.alloc_array(vec![]);
     heap.register_finalizer(&v, Arc::new(|| {}));
     assert_eq!(heap.stats().finalizers_pending, 1);
@@ -279,7 +279,7 @@ fn register_finalizer_increments_pending_count() {
 
 #[test]
 fn cancel_finalizer_decrements_pending_count() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v = heap.alloc_array(vec![]);
     heap.register_finalizer(&v, Arc::new(|| {}));
     heap.cancel_finalizer(&v);
@@ -288,7 +288,7 @@ fn cancel_finalizer_decrements_pending_count() {
 
 #[test]
 fn register_finalizer_on_atomic_value_is_noop() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.register_finalizer(&Value::I64(1), Arc::new(|| {}));
     assert_eq!(heap.stats().finalizers_pending, 0);
 }

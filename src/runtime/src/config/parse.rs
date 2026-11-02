@@ -123,7 +123,7 @@ where F: Fn(&str) -> Option<String> {
 /// `Z42_GC_PROMOTION_AGE` — minor GCs an entry must survive before promotion
 /// (add-promotion-age-knob). `None` = the compile-time default (2).
 ///
-/// Range checking + clamping lives at the use site (`gc::promotion_age_from_config`), which
+/// Range checking + clamping lives at the use site (`gc::GcConfig::promotion_age`), which
 /// is where the ceiling (`MAX_GEN_AGE`, the two spare bits in `GcBlockHeader::type_tag`) is
 /// known. Here an unparseable value simply reads as unset.
 pub(super) fn parse_gc_promotion_age<F>(get: &F) -> Option<u8>

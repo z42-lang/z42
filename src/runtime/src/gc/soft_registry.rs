@@ -22,14 +22,6 @@
 //! that lock is held (STW collect / alloc / drop). All operations are
 //! thus single-threaded at call time.
 
-/// Soft-ref GC-eligibility pressure ratio. Delegates to process-wide
-/// [`crate::config::runtime_config()`] (runtime-config-phase2);
-/// default 0.80, clamped `[0.0, 1.0]`, overridable via
-/// `Z42_GC_SOFT_THRESHOLD`.
-pub(crate) fn soft_threshold_from_env() -> f64 {
-    crate::config::runtime_config().gc_soft_threshold
-}
-
 /// The target's kind — which `Value` to rebuild from the handle.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ErasedKind {
@@ -135,10 +127,10 @@ impl SoftRegistry {
         entries: &[ErasedSoftEntry],
         used_bytes: u64,
         max_bytes: u64,
+        threshold: f64,
         major: crate::object::header::marks::MarkKind,
         mut on_revived: impl FnMut(&ErasedSoftEntry),
     ) -> usize {
-        let threshold = soft_threshold_from_env();
         let ratio = if max_bytes == 0 {
             0.0_f64
         } else {

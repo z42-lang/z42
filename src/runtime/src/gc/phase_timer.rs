@@ -20,13 +20,6 @@
 use std::cell::Cell;
 use std::time::Instant;
 
-/// 旋钮是否打开。`runtime_config()` 是一个 `OnceLock` 读，按阶段（每次回收十几次）
-/// 调用足够便宜，不需要再缓存一层。
-#[inline]
-pub fn phases_enabled() -> bool {
-    crate::config::runtime_config().gc_phases
-}
-
 /// 一个阶段的 RAII 计时器：构造时取时钟，析构时打一行。
 ///
 /// 关掉时 `start` 是 `None`，`Drop` 直接跳过——不取时钟也不输出。
@@ -42,10 +35,10 @@ impl PhaseTimer {
     /// 开一个阶段。`name` 用 `区域/阶段` 的形式（`sweep/scan objects`），
     /// 这样一次回收的输出按前缀就能折叠着看。
     #[inline]
-    pub fn start(name: &'static str) -> Self {
+    pub fn start(enabled: bool, name: &'static str) -> Self {
         PhaseTimer {
             name,
-            start: if phases_enabled() { Some(Instant::now()) } else { None },
+            start: if enabled && crate::pal::time::HAS_CLOCK { Some(Instant::now()) } else { None },
             count: Cell::new(None),
         }
     }
@@ -71,8 +64,8 @@ impl Drop for PhaseTimer {
 /// 但同样属于这次停顿的解释**用——阶段行说的是「花在哪」，它说的是「为什么是现在」。
 /// 关掉时 no-op。
 #[inline]
-pub fn note(args: std::fmt::Arguments<'_>) {
-    if phases_enabled() {
+pub fn note(enabled: bool, args: std::fmt::Arguments<'_>) {
+    if enabled {
         eprintln!("z42-gc:   {args}");
     }
 }

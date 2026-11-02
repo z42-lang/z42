@@ -7,7 +7,7 @@ use crate::gc::PROMOTION_THRESHOLD;
 use crate::gc::{GcMode, MagrGC};
 
 fn gen_heap() -> ArcMagrGC {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
     heap
 }
@@ -84,7 +84,7 @@ fn promotion_with_a_young_child_keeps_the_invariant() {
 /// No cards outside generational mode ⇒ nothing to check.
 #[test]
 fn non_generational_modes_always_pass() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let owner = heap.alloc_object(dummy_type_desc("Owner"), vec![Value::Null], NativeData::None);
     let young = heap.alloc_object(dummy_type_desc("Young"), vec![], NativeData::None);
