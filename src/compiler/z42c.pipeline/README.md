@@ -53,7 +53,7 @@
 | `src/NsIndexCache.z42` | ns 索引 sidecar 缓存：落盘缓存「每包→命名空间/类型」，命中免 open-all。指纹 + 读/写索引 + 从索引建 scan + 类型→ns 提取/回填 |
 | `src/ZpkgPathSort.z42` | zpkg 路径确定性枚举 + 排序：多目录合并 + prelude-first + Ordinal 排序 + 同名去重（`_dedupByBasename`）+ DepIndex 准入（`_allowedForIndex`）|
 | `src/DepReconcile.z42` | 惰性包加载 + 候选 reconcile 辅助：`_loadOpenedPackage`（按需 Rebuild + DepIndex 并入 scan）+ completer 候选类型追加 |
-| `src/DepScanCache.z42` | 进程级 zpkg memo：按 path 缓存打开的 `ZpkgInfo` + 该包 `TsigReconcile.Rebuild` 结果，把 workspace 逐成员重复解同一 zpkg 的 O(N²) 降成 O(N)；正确性依赖「进程内 path→内容稳定」不变式 |
+| `src/DepScanCache.z42` | 进程级 zpkg memo：按 path 缓存打开的 `ZpkgInfo` + 该包 `TsigReconcile.Rebuild` 结果，把 workspace 逐成员重复解同一 zpkg 的 O(N²) 降成 O(N)；每次命中校验 size/mtime，元数据读取失败时移除条目并传播 I/O 错误 |
 | `src/WsTier.z42` | 依赖解析分档：workspace per-member 布局下，成员 dist 档与外部档（`Z42_LIBS`）分开解析，成员 dist 里 colocate 的载荷副本不作解析源 |
 
 ### workspace 与增量
