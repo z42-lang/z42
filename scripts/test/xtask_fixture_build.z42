@@ -1,0 +1,133 @@
+// 多包与多入口夹具共用的构建、产物和隔离 libs 助手。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+
+// 汇总夹具结果；失败数从集合取得。
+int _fixtureSummary(int pass, List<string> failures) {
+    Console.WriteLine("\n══════════════════════════════════════");
+    Console.WriteLine(" Total: " + pass.ToString() + " passed, " + failures.Count.ToString() + " failed");
+    Console.WriteLine("══════════════════════════════════════");
+    if (failures.Count == 0) { return 0; }
+    Console.WriteLine("\nFailed tests:");
+    foreach (var failure in failures) { Console.WriteLine("  - " + failure); }
+    return 1;
+}
+
+// 一次 fixture build 的 spawn 句柄 + 待清理的临时 libs 目录。
+class FixtureBuildZ {
+    public ProcessHandle H { get; set; }
+    public string Libs { get; set; }   // Wait 后要删的临时 Z42_LIBS
+    public string Dir { get; set; }    // 本次 build 的工程目录（失败时随输出一起打印）
+    // 非空 = 本次 build **期望失败**，且 stderr 须含此子串。
+    // 空串 = 常规（期望成功）。只有 main 波会置它。
+    public string ExpectErr { get; set; }
+    // 非空 = 本次 build **期望成功**、且输出须含此子串（告警文本）——跨包告警行为的门
+    // （否则只能断言「编不过」或 stdout）。置它的 fixture 照常进 run 波。
+    public string ExpectWarn { get; set; }
+}
+
+// 带「期望编译失败」/「期望带告警编过」的 spawn。任一非空时**不丢弃 stdout/stderr**（要拿它比对子串）。
+FixtureBuildZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, string pkgDir, string toml,
+                         string expectErr, string expectWarn) {
+    FixtureBuildZ j = new FixtureBuildZ();
+    j.ExpectErr = expectErr;
+    j.ExpectWarn = expectWarn;
+    j.Dir = pkgDir;
+    string outDir = _fixtureDist(pkgDir);
+    // 清掉旧 colocated 依赖；VM 会优先于 Z42_LIBS 加载它们。
+    // skew 替换在构建之后发生，不受本次清理影响。
+    _resetDir(outDir);
+    string libs = File.CreateTempDir("z42-xpkg-libs-");
+    _copyStdlibZpkgs(stdlibDist, libs);
+    _copyZpkgs(Path.Join(pkgDir, "libs"), libs);
+    j.Libs = libs;
+    try {
+        j.H = _z42cProc(vmBin, libs, driverZpkg).Arg("build").Arg(toml)
+            .Arg("--output-dir").Arg(outDir).Arg("--release")
+            .WorkingDirectory(pkgDir)
+            // 一律接管输出：期望失败 / 告警的要拿它比对；常规 build 失败时把尾部打印出来。
+            .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe())
+            .Spawn();
+    } catch (Exception e) {
+        Directory.Delete(libs, true);
+    }
+    return j;
+}
+
+// Wait 一个 spawn 的 build 并清理其临时 libs。true = 成功。
+bool _awaitBuildPkg(FixtureBuildZ j) {
+    if (j.H == null) { return false; }
+    bool ok = false;
+    string outp = "";
+    int code = 0;
+    try {
+        ProcessResult r = j.H.Wait();
+        code = r.ExitCode;
+        ok = (code == 0);
+        outp = r.Stdout + r.Stderr;
+    } catch (Exception e) { ok = false; outp = "(wait failed: " + e.Message + ")"; }
+    bool expectsSomething = (j.ExpectErr != null && j.ExpectErr.Length > 0)
+        || (j.ExpectWarn != null && j.ExpectWarn.Length > 0);
+    if (!ok && !expectsSomething) { _crossPrintFailure(j.Dir, code, outp); }
+    Directory.Delete(j.Libs, true);
+    // 负例要求编译失败且命中诊断；告警用例要求编译成功且命中告警。
+    if (j.ExpectErr != null && j.ExpectErr.Length > 0) {
+        if (ok) { return false; }
+        return outp.Contains(j.ExpectErr);
+    }
+    if (j.ExpectWarn != null && j.ExpectWarn.Length > 0) {
+        if (!ok) { return false; }
+        return outp.Contains(j.ExpectWarn);
+    }
+    return ok;
+}
+
+// 常规 build 失败：打印工程目录、退出码与输出末尾若干行（stdout + stderr）。
+void _crossPrintFailure(string dir, int code, string outp) {
+    ConsoleError.WriteLine("    ✗ build failed (exit " + code.ToString() + "): " + dir);
+    string[] lines = outp.Split("\n");
+    int from = lines.Length > 20 ? lines.Length - 20 : 0;
+    int i = from;
+    while (i < lines.Length) {
+        if (lines[i].Length > 0) { ConsoleError.WriteLine("      | " + lines[i]); }
+        i = i + 1;
+    }
+}
+
+// 阻塞版（multi-exe harness 在用）：spawn + 立刻 wait，不另起一份实现。
+bool _invokeBuildCompiler(string vmBin, string driverZpkg, string stdlibDist, string pkgDir, string toml) {
+    return _awaitBuildPkg(_spawnBuildPkgE(vmBin, driverZpkg, stdlibDist, pkgDir, toml, "", ""));
+}
+
+void _copyZpkgs(string srcDir, string dstDir) {
+    _copyAll(srcDir, dstDir, "*.zpkg");
+}
+
+// stdlib 只读：临时 Z42_LIBS 用硬链接，结束后删目录只断链；不支持时 _linkAll 回落 copy。
+void _copyStdlibZpkgs(string distDir, string dstDir) {
+    _linkAll(distDir, dstDir, "*.zpkg");
+    _linkAll(distDir, dstDir, "*.zsym");
+}
+
+// <pkgDir>/artifacts/debug/dist — where a per-package z42c build lands its zpkg
+// (consumed by run/diff + downstream lib seeding).
+// pkgDir 是 build/ 镜像里的夹具**拷贝**（`_stageFixtureTree`），不是源码树。
+string _fixtureDist(string pkgDir) {
+    return Path.Join(Path.Join(Path.Join(pkgDir, "artifacts"), "debug"), "dist");
+}
+
+string _findToml(string dir) {
+    if (!Directory.Exists(dir)) return "";
+    string[] hits = Path.Glob(dir, "*.toml");
+    if (hits.Length == 0) return "";
+    return hits[0];
+}
+
+string _firstZpkg(string dir) {
+    if (!Directory.Exists(dir)) return "";
+    string[] hits = Path.Glob(dir, "*.zpkg");
+    if (hits.Length == 0) return "";
+    return hits[0];
+}
