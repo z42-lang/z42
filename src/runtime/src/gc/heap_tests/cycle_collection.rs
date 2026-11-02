@@ -189,32 +189,6 @@ fn region_prunes_dropped_objects_after_collect() {
     assert_eq!(count, 0, "sweep tombstones unrooted entry → iterate_live_objects sees none");
 }
 
-#[test]
-fn snapshot_includes_pinned_root_object() {
-    let heap = Heap::default();
-    let v = heap.alloc_object(dummy_type_desc("Foo"), vec![], NativeData::None);
-    let _h = heap.pin_root(v);
-    let snap = heap.take_snapshot();
-    assert!(snap.total_objects >= 1);
-    assert!(snap.objects_by_type.contains_key("Foo"));
-}
-
-#[test]
-fn snapshot_traverses_nested_objects() {
-    let heap = Heap::default();
-    let inner1 = heap.alloc_object(dummy_type_desc("Inner"), vec![], NativeData::None);
-    let inner2 = heap.alloc_object(dummy_type_desc("Inner"), vec![], NativeData::None);
-    let outer  = heap.alloc_object(
-        dummy_type_desc("Outer"),
-        vec![inner1, inner2],
-        NativeData::None,
-    );
-    let _h = heap.pin_root(outer);
-    let snap = heap.take_snapshot();
-    assert!(snap.total_objects >= 3);
-    assert_eq!(snap.objects_by_type.get("Outer").map(|s| s.count), Some(1));
-    assert_eq!(snap.objects_by_type.get("Inner").map(|s| s.count), Some(2));
-}
 
 #[test]
 fn iterate_live_objects_visits_root_reachable() {

@@ -1,0 +1,14 @@
+# deps-plugin-routing：独立分发的 hook 插件在 [dependencies] 里按 .zpkg path 声明——z42b 读头
+# 分流加载 BuildHooks（expect.toml 断言两条标记都在：两个 hook 都要执行）。
+[project]
+name    = "hp.app"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+# deps-plugin-routing：独立分发的 hook 插件按普通依赖声明——z42b 读 zpkg 头分流加载 BuildHooks。
+"hp.a" = { path = "pluga/dist/hp.a.zpkg" }
+"hp.b" = { path = "plugb/dist/hp.b.zpkg" }
