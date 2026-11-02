@@ -7,8 +7,8 @@ using Std.Harness;
 [Test]
 void test_sparse_cfg_matches_dense_reference() {
     int trial = 0;
-    while (trial < 80) {
-        IrFunction f = LoopCfgFixture.Make(2 + trial % 29, trial % 4);
+    while (trial < 264) {
+        IrFunction f = LoopCfgFixture.Make(2 + trial % 131, trial % 4);
         LoopCfg sparse = IrLoopUtil.BuildCfg(f);
         DenseCfg dense = DenseLoopReference.BuildCfg(f);
         Assert.Equal(dense.Dom.Length, sparse.Dom.Length);
@@ -39,4 +39,18 @@ void test_sparse_cfg_skips_exception_regions_and_tiny_functions() {
     IrFunction f = LoopCfgFixture.Make(4, 1);
     f.ExcCount = 1;
     Assert.True(IrLoopUtil.BuildCfg(f) == null);
+}
+
+[Test]
+void test_cfg_label_index_preserves_first_duplicate_and_missing_targets() {
+    IrFunction f = LoopCfgFixture.Make(128, 1);
+    f.Blocks[32].Label = "b1";
+    LoopCfg cfg = IrLoopUtil.BuildCfg(f);
+    DenseCfg dense = DenseLoopReference.BuildCfg(f);
+    Assert.Equal(1, cfg.S0[127]);
+    Assert.Equal(-1, cfg.S0[31]);
+    int i = 0;
+    while (i < cfg.N) { Assert.Equal(dense.S0[i], cfg.S0[i]); Assert.Equal(dense.S1[i], cfg.S1[i]); i = i + 1; }
+    i = 0;
+    while (i < cfg.Dom.Length) { Assert.Equal(dense.Dom[i], cfg.Dom[i]); i = i + 1; }
 }

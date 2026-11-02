@@ -39,6 +39,14 @@ public sealed class IrLoopUtil {
         int n = f.BlockCount;
         if (n < 2) { return null; }
         if (f.ExcCount != 0) { return null; }
+        // 小函数保留直接扫描，较大函数按标签建立 first-wins 索引。
+        StrIndex labels = null;
+        if (n >= 128) {
+            labels = new StrIndex();
+            // 逆序写入，最早的块覆盖同名标签，保持线性扫描的 first-wins。
+            int li = n - 1;
+            while (li >= 0) { labels.Put(f.Blocks[li].Label, li); li = li - 1; }
+        }
         // ① 后继（s0/s1；-1=无）
         int[] s0 = new int[n];
         int[] s1 = new int[n];
@@ -48,11 +56,11 @@ public sealed class IrLoopUtil {
         while (b < n) {
             IrBlock blk = f.Blocks[b];
             if (blk.HasTerm) {
-                if (blk.Term is BrTerm) { s0[b] = IrLoopUtil.BlockIdx(f, (blk.Term as BrTerm).Label); }
+                if (blk.Term is BrTerm) { s0[b] = IrLoopUtil._cfgBlockIndex(f, labels, (blk.Term as BrTerm).Label); }
                 else if (blk.Term is BrCondTerm) {
                     BrCondTerm bc = blk.Term as BrCondTerm;
-                    s0[b] = IrLoopUtil.BlockIdx(f, bc.TrueLabel);
-                    s1[b] = IrLoopUtil.BlockIdx(f, bc.FalseLabel);
+                    s0[b] = IrLoopUtil._cfgBlockIndex(f, labels, bc.TrueLabel);
+                    s1[b] = IrLoopUtil._cfgBlockIndex(f, labels, bc.FalseLabel);
                 }
             }
             b = b + 1;
@@ -150,6 +158,11 @@ public sealed class IrLoopUtil {
         if (!(phb.Term is BrTerm)) { return -1; }
         if (IrLoopUtil.BlockIdx(f, (phb.Term as BrTerm).Label) != h) { return -1; }
         return ph;
+    }
+
+    private static int _cfgBlockIndex(IrFunction f, StrIndex labels, string label) {
+        if (labels == null) { return IrLoopUtil.BlockIdx(f, label); }
+        return labels.Get(label);
     }
 
     // 块 label → 索引（线性；-1=未找到）。
