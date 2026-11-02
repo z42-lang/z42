@@ -8,7 +8,7 @@ use crate::gc::ArcMagrGC;
 use std::sync::atomic::Ordering;
 
 fn heap() -> ArcMagrGC {
-    ArcMagrGC::new()
+    ArcMagrGC::default()
 }
 
 fn obj(h: &ArcMagrGC) -> Value {

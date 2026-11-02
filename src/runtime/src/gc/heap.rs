@@ -249,7 +249,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     ///    the pause — a thread that loses the race leaves it for the next safepoint.
     /// 3. **Fallback** (flag unwired) — `maybe_auto_collect` collects inline
     ///    via `collect_cycles()`. This preserves single-threaded behaviour for
-    ///    GC unit tests that construct `ArcMagrGC::new()` without a VmCore.
+    ///    GC unit tests that construct `ArcMagrGC::default()` without a VmCore.
     ///
     /// **Who checks / when**: the flag is *set* on the allocating thread at
     /// alloc time; it is *checked and cleared* by mutator threads at their
