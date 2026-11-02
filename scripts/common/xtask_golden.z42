@@ -319,3 +319,17 @@ string _stripTrailingNewlines(string s) {
     if (end == s.Length) return s;
     return s.Substring(0, end);
 }
+
+/// True iff any top-level `.z42` file in `dir` declares a `[Test]` method —
+/// the marker the z42b's runner discovers by reflection.
+/// Distinguishes dir-mode [Test] units (e.g. z42.crypto/tests/secp256k1) from
+/// Main-based golden cases (which the runner would reject with "no tests found").
+bool _dirHasTestMethods(string dir) {
+    foreach (var f in Directory.Enumerate(dir)) {
+        if (!f.EndsWith(".z42")) { continue; }
+        try {
+            if (File.ReadAllText(Path.Join(dir, f)).Contains("[Test]")) { return true; }
+        } catch (Exception) { /* unreadable → not a test source */ }
+    }
+    return false;
+}

@@ -1,6 +1,6 @@
 # 构建编排（`xtask build`）
 
-> 代码：`scripts/build/`（`xtask_stdlib.z42` / `xtask_compiler.z42` / `xtask_golden_assets.z42` / `xtask_bootstrap_check.z42` / `xtask_toolchain.z42`）、`scripts/common/xtask_layout.z42`
+> 代码：`scripts/build/`（`xtask_stdlib.z42` / `xtask_compiler.z42` / `xtask_golden_assets.z42` / `xtask_bootstrap_check.z42` / `xtask_toolchain.z42`）、`scripts/common/xtask_layout.z42`、`xtask_components.z42`、`xtask_process.z42`、`xtask_publish.z42`
 >
 > 产物落在哪、哪个目录归谁，见[产物目录布局](artifacts-layout.md)；命令面见 `xtask build -h`。
 
@@ -25,7 +25,7 @@
 ## 2. 成员清单没有第二份副本
 
 两个 workspace 的成员列表都**派生自各自 `z42.workspace.toml` 的 `default_members`**
-（`_compilerMembers` / `_stdlibList`），不存在手维护的重复清单：
+（`common/xtask_components.z42` 的 `_compilerMembers` / `_stdlibList`），不存在手维护的重复清单：
 
 | workspace | 成员 |
 |---|---|
@@ -37,6 +37,10 @@
 
 产物路径同理不是硬编码：`scripts/common/xtask_layout.z42` 读 `[workspace.build].output_dir`
 模板（正是 `WorkspacePlan.PlanLayout` 消费的那一份）再展开，改 toml 模板 xtask 自动跟上。
+
+构建与打包共同读取 `common/xtask_packages_config.z42` 的组件注册表和 `xtask_components.z42` 的路径；
+子进程工厂及已构建产物的发布调用也在 `common/`；RID / Cargo 路径和测试单元识别同样由共享模块提供，
+命令族只负责各自的流程编排。
 
 ## 3. `build stdlib`：三阶段自举构建
 

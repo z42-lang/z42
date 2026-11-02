@@ -1,0 +1,15 @@
+desc = "workspace 默认成员、依赖顺序和全成员构建"
+[[step]]
+args = ["build", "{case}"]
+exit = 0
+output_contains = ["[1/2] ws.greet (dependency)", "[2/2] ws.hello"]
+output_not_contains = ["ws.broken"]
+[[step]]
+args = ["test", "{case}"]
+exit = 0
+output_contains = ["test_line_uses_sibling"]
+output_not_contains = ["ws.broken"]
+[[step]]
+args = ["build", "{case}", "--workspace"]
+exit = "nonzero"
+output_contains = ["member `ws.broken` failed to build"]

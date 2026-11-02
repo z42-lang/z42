@@ -1,0 +1,52 @@
+namespace InvalidationBench;
+using Z42.Pipeline;
+using Std.IO;
+using Std.Harness;
+
+NameListZ one(string value) {
+    string[] a = new string[1]; a[0] = value; return new NameListZ(a, 1);
+}
+
+// topology: reverse-chain forces propagation against file order; sparse stops after one file.
+int exercise(int n, bool chain, int repeats) {
+    string[] paths = new string[n];
+    NameListZ[] tokens = new NameListZ[n];
+    NameListZ[] surface = new NameListZ[n];
+    NameListZ[] names = new NameListZ[n];
+    int i = 0;
+    while (i < n) {
+        paths[i] = "file" + i.ToString();
+        names[i] = one("N" + i.ToString());
+        tokens[i] = one("N" + (i + 1).ToString());
+        surface[i] = chain ? tokens[i] : one("Unchanged");
+        i = i + 1;
+    }
+    int sum = 0;
+    int r = 0;
+    while (r < repeats) {
+        IncrFilePlan p = new IncrFilePlan(n);
+        p.Fresh[n - 1] = true; p.FreshCount = 1;
+        IncrementalBuild.Close(p, paths, "", tokens, surface, names, names[n - 1]);
+        sum = sum + p.FreshCount;
+        r = r + 1;
+    }
+    return sum;
+}
+
+[Benchmark]
+void bench_reverse_chain_256() {
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(exercise(256, true, 1)); });
+    b.printSummary("invalidation_reverse_chain_256");
+}
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = 32;
+    int repeats = 10;
+    bool chain = true;
+    if (args.Length > 0) { n = int.Parse(args[0]); }
+    if (args.Length > 1) { repeats = int.Parse(args[1]); }
+    if (args.Length > 2) { chain = args[2] == "chain"; }
+    Console.WriteLine(exercise(n, chain, repeats));
+}

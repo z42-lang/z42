@@ -130,7 +130,7 @@ Std.MissingSymbolException: undefined function `Z42.Build.Project.ManifestLoader
 | 面 | 按什么解析 | 依据 |
 |---|---|---|
 | 编译期 | 命名空间（`using` + FQN），**不看包文件名** | z42c 语义层的 using-scoped 解析 |
-| 运行期 | **zpkg 文件名**（消费者 `DEPS` 段记的名字），**不看命名空间** | `runtime/src/metadata/loader/namespace.rs` 的 `resolve_dependency` |
+| 运行期 | **zpkg 文件名**（消费者 `DEPS` 段记的名字），**不看命名空间** | `runtime/src/vm/loader/locate/namespace.rs` 的 `resolve_dependency` |
 
 于是别名形态跟着「改的是哪一面」走：
 
@@ -156,7 +156,7 @@ entry-dir 最优先）供运行期用。两件齐了，改名就能**一步落**
 > 「fresh member 从 workspace dist 解析、优先于快照」恰好把那个意图吃掉了。
 
 ⚠️ 验这类接线的对照实验，**命令必须真的会触碰那个符号**：懒加载没走到，撤掉兼容物也照样绿——那是空门
-（实测踩过：`xtask check stage2` 不读清单 ⇒ 对照无效，换 `package ci` 才红）。
+（纯文本扫描不能验证运行期的接口接线）。
 
 ### 运行期 libs 与编译期 libs 分离
 

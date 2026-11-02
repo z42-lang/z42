@@ -1,0 +1,11 @@
+desc = "deps-plugin-routing：[dependencies] 声明的插件 zpkg 读头分流加载 BuildHooks（两 hook 都执行）"
+[[step]]
+args = ["build", "{case}/pluga"]
+exit = 0
+[[step]]
+args = ["build", "{case}/plugb"]
+exit = 0
+[[step]]
+args = ["build", "{case}/z42.toml"]
+exit = 0
+output_contains = ["HOOK-PLUGIN-SMOKE: A BeforeCompile", "HOOK-PLUGIN-SMOKE: B BeforeCompile"]

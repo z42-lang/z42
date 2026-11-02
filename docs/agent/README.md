@@ -9,7 +9,7 @@
 **每次会话先读**：本文件 · [workflow.md](rules/workflow.md)（流程主线）· [philosophy.md](rules/philosophy.md)（判断准则）·
 [doc-system.md](rules/doc-system.md)（文档规则）。其余按下方索引「什么时候读」进。
 
-**每条规则只在唯一归属文件里定义**，其余位置只留「触发条件 + 一行结论 + 链接」。
+规范去重与冲突处理见 [philosophy.md](rules/philosophy.md#规范冲突检测必须遵守)。
 
 ---
 
@@ -24,10 +24,10 @@
    要确认对外行为（语法、API、CLI、诊断）→ reference 对应页。**reference 的标准库包页（`stdlib/` 下除
    `README.md` 外）由源码 `///` 生成、不入库：读之前先在仓库根跑 `xtask doc gen`**（秒级；目录里缺页或是旧的
    都靠它补齐）。
-4. **定位符号用 `z42 doc`，不 grep**（z42 与 Rust 都行；Rust 先跑过 `xtask doc index`，过期它会提示）：
+4. **定位符号优先用 `z42 doc`**（z42 与 Rust 都行；Rust 先跑过 `xtask doc index`，过期它会提示）：
    `z42 doc <名字>` 给签名、doc 与 `file:line`，`--members` 给类型 / 模块轮廓，
    `--search` 按名字与摘要找；读完一页书后跑 `z42 doc --page <页.md>` 把页里引用的符号一次解析成当前位置
-   （反查用 `--docs <符号>`）；拿到行号后按 offset/limit 只读那一段。仓库里跑种子 SDK 的 `.z42/z42 doc …`
+   （反查用 `--docs <符号>`）；索引不可用或需要全文 / 路径搜索时用 `rg`。仓库里跑种子 SDK 的 `.z42/z42 doc …`
    （要当前源码的版本：`xtask package dev-sdk` 后用 `artifacts/.z42/z42`）。用法见
    [`z42 doc`](../reference/src/toolchain/cli-z42.md)。
 5. **构建 / 测试 / 调试命令** → [internals · 开发基础设施](../internals/src/devinfra/README.md)
@@ -57,7 +57,7 @@
 
 | 文件 | 管什么 |
 |------|--------|
-| [workflow.md](rules/workflow.md) | 流程主线（以 PR 为单位）：隔离铁律、阶段 0–6、变更分类、Spec-First、Scope、批量授权、GREEN 门禁、并行与合并顺序、越界防护、测试要求 |
+| [workflow.md](rules/workflow.md) | 流程主线（以 PR 为单位）：隔离铁律、阶段 0–6、Spec-First、目标与 Scope、批量授权、持续迭代与发起 PR、自动解决冲突、GREEN 门禁、越界防护、测试要求 |
 | [commit-log.md](rules/commit-log.md) | 提交信息格式 `type(scope): 描述`、scope 子系统表、页脚 |
 | [philosophy.md](rules/philosophy.md) | 做选择时的判准：最终方案优先 / 根因修复 / 不做兼容 / 设计完整性 / 规范冲突检测 / 事实校正 / 延后管理 |
 
@@ -87,6 +87,5 @@
 
 ## 各 AI 工具的入口
 
-规范只在本目录维护；根 [`AGENTS.md`](../../AGENTS.md) 是统一入口文件（跨工具标准，ZCode、Codex、Cursor 等
-原生读取，Claude Code 2.x 起同样支持），只做引用 + 提交流程速查。工具专属约定（如跨会话记忆放哪）写在
-AGENTS.md；规范本体一律回本目录改。
+规范只在本目录维护；根 [`AGENTS.md`](../../AGENTS.md) 负责入口与提交流程速查，各工具的入口配置指向它。
+工具能力、记忆位置与执行权限以当前工具环境为准，仓库规范不替代工具权限设置。

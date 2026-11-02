@@ -1,0 +1,5 @@
+desc = "编译失败以普通诊断退出，不抛未捕获异常"
+args = ["test", "{case}/z42.toml"]
+exit = "nonzero"
+output_contains = ["compile failed"]
+output_not_contains = ["uncaught exception"]

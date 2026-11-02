@@ -39,215 +39,26 @@ z42c 编译（target → ext → main，全跑约 40 次），debug VM 编译慢
 fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖不丢，pole 消失（约 2–3 min）。
 `--toolchain` 消费路径只带 release VM，编译与运行同为它。
 
-## 4. 各 stage 守的是哪一类回归
+## 4. 检查职责
 
-| stage | 守什么 | 成本 / 性质 |
-|---|---|---|
-| `e2e goldens` | 端到端语义。**只跑 interp**——cranelift JIT 行为 host-independent，jit 由专门的 CI 腿覆盖，在每个 OS 腿都跑一遍是 5× 冗余 | 主力 stage |
-| `e2e cross-zpkg` / `multi-exe` | 跨包行为；一工程产 N 个 exe zpkg | 见 §3 |
-| `stdlib [Test]` | 库正确性 | 最大的一块之一 |
-| `toolchain [Test]` | 工具链组件（REPL 键位策略等）自己的 `[Test]` unit；与 stdlib 同一个 runner，单列成 stage 是因为 CI 的 host 腿 `--skip stdlib`，而这些用例多与宿主相关、应在每条 host 腿上跑 | 秒级 |
-| `stdlib [Benchmark]` | **只验语料能不能跑**，不看快慢 | 全量约 14.6 s、零噪声、host-independent |
-| `manifest targets` | 清单驱动的 `[[test]]` / `[[example]]` target 契约 | — |
-| `examples` | 学习手册示例逐条可运行且与书一致（书 ↔ 示例引用 + 用 SDK 里真实的 `z42` 重放每个 `.console`） | 完整 gate 先 `build toolchain` + `package dev-sdk`；`--no-build` 缺 SDK 即红 |
-| `docs` | 相对 markdown 链接可解析（死链一律红） | 秒级，不需要 SDK |
-| `compiler` | 编译器自举不动点 gen1 == gen2 + units（见[构建编排](build.md)）| host-independent |
-| `gc modes` | 在每种 GC 模式下、把收集器调到触发上百次，重编一个真实包（`z42c.semantics`），每模式带一个收集次数下限断言 | 三个提前回收缺陷都是这么现形的：编译器在悬垂引用上崩在半途 |
-| `vscode-syntax` | 生成产物一致性：`z42.tmLanguage.json` 必须等于「当前 Lexer 关键字表 + 模板」的重渲染 | 约一次 z42c fork |
-| `diagcodes` | 诊断码**一码一义**：每个发得出去的码在登记表里登记恰好一次，见下 | 纯文本扫描 < 1 s |
-| `stage2` | 阶段-1 过渡形态必须挂账且不超期：挂账日写在源码标记 `STAGE2-DEBT(<tag>,YYYY-MM-DD)` 里，缺日期红、超宽限红（宽限为门内常量 7 天），见 `scripts/test/xtask_test_stage2.z42` 头注 | 纯文本扫描 < 1 s |
-| `ci-shell` | `.github/**` 的多行 `run:` 块里**没有先用后赋**的变量（立门时 7 个 yml / 76 块），见下 | 纯文本扫描 < 1 s |
-| `proc-env` | xtask 子进程的 `Z42_LIBS` / `Z42_PROBING_PATHS` **只经** `_z42Proc` / `_z42bProc` / `_z42cProc` 设置，调用点不得直接 `.Env(...)`，见下 | 纯文本扫描 < 1 s |
-| `layout` | [测试用例组织规范](test-layout.md)里能机械判定的部分：`src/tests` 类别登记、能力词表 ↔ 运行期、能力声明只用已生效的名字 | 纯文本扫描，秒级 |
-| `versions` | `scripts/versions.toml` 与它的投影文件一致：`src/runtime/Cargo.toml` 的 workspace 版本、Android `build.gradle.kts` 的 minSdk / compileSdk、iOS harness `Package.swift` 的平台下限。只比文本、不看本机装了什么（那是 `xtask setup check`） | 纯文本扫描 < 1 s |
-| `layers` | 运行时源码按目标分层归到组件后，跨组件引用只朝允许的方向、平台 `cfg` 与 `libc::` 只在 pal/sys；现存违规是欠账，记在 `gates.toml [layers.*]`，只减不增，见下 | 纯文本扫描，约 1.5 s |
-| `doc-lints` | stdlib（`src/libraries/`）的 `///` 文档注释没有 W08xx 发现（显式 public 声明缺 `///` 等）；硬门、无白名单，红时逐条列出位置 | 纯文本扫描，约 3 s |
-
-**`stdlib [Benchmark]` 为什么必须在 gate 里**：bench 语料若只靠 `bench-pr.yml` 看门，
-而那个 job **不在分支保护的 required 列表里**。实例：一次把 `Failure.z42` 搬出 `z42.harness` 的改动让
-14/19 个 bench 文件当场跑不起来，门红了、PR 照合，此后连红 3 个 PR 无人过问——**会红但不挡人的门
-等价于没有门**。把它提进 required 不可行：`bench-pr.yml` 是 path-filtered，纯文档 PR 上根本不触发
-⇒ required check 恒 pending ⇒ PR 永远合不了。正确的收口是拆两层：「语料能不能跑」是确定性事实，
-归本 stage；「跑多快」留给[性能门禁](benchmarking.md)那套 A/B 判红（噪声治理是另一条线）。
-
-**`ci-shell`（`scripts/test/xtask_test_ci_shell.z42`）守的是「CI 内嵌 shell 的变量顺序」**：
-`.github/**` 的多行 `run:` 块 —— 其中包括真正的自举引导逻辑（`ci-bootstrap` 那段 260+ 行 bash）——
-都以 `set -euo pipefail` 开头 ⇒ **引用一个还没赋值的变量 = 当场 exit 1**。判据 = 每个 `run:` 块
-按行序走，用了 `$X` 而 `X` 的首次赋值在更晚的行（或根本没有）就红；`${X:-d}` 这类带默认的、
-`${{ }}` GitHub 表达式、位置参数与 runner 环境变量都刻意不判（判了就是误报）。
-
-为什么值得一道门：这类错**只在 CI 上暴露**，而且代价是一整轮 CI。B3b（`#911`）实打实付过一次——
-新插的一段用了 `$runvm`，而 `runvm=` 在它下面一行，`line 262: runvm: unbound variable`，所有依赖
-`ci-bootstrap` 的 job 在 ~2 min 处全红；而本地跑过的 `bash -n` **只查语法、查不出先用后赋**。
-⚠️ 刻意**不调 `shellcheck`**：它不在 GREEN 的依赖面里，「装了才跑、没装就过」正是假门的标准形态。
-覆盖边界（不扫单行 `run:`）与空门守卫写在该文件头注里；⭐ 立门时本想「只扫 actions，因为 workflow
-按块判会大量误报」，**数一遍发现只报 1 处、且那处是扫描器不认 `mapfile`** —— 补上之后 workflows
-零误报、覆盖面白送。「会误报所以不扫」这种话，先跑一遍数出来再说。
-
-**`proc-env`（`scripts/test/xtask_test_proc_env.z42`）守的是「xtask 子进程环境的单一入口」**：
-xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z42b 及其 fork 的子 VM 用 `_z42bProc(vm, libs)`，
-另挂编译器成员 dist 的 probing；跑 z42c driver 用 `_z42cProc(vm, libs, driver)`，driver 住在 `<sdk>/programs/z42c/` 时另设
-`Z42_HOME=<sdk>`），工厂在 `scripts/build/xtask_stdlib.z42`。两种漏设都**不在漏的地方报错**：漏
-`Z42_LIBS` 时子进程继承 xtask 自身的 `.z42/libs`（上一版 SDK），静默跑在旧 stdlib 上；漏 probing 只在 z42b 真去
-加载编译器包时才 `MissingSymbolException`——实例（#1019）：rebase 带进一个照邻居手抄、少抄了 probing
-的新 smoke，就是这么红的。本树 driver / z42b 的编译器目录不用设：`Z42_LIBS` 在开发树里，`CompilerDomain` 先取开发树档
-（见[项目模型](../compiler/project-model.md)）。`.EnvRemove(...)`（dist 测试刻意模拟用户机器）不判；夹具 `expect.toml`
-里的 `env` / `env_remove` 是夹具自己的输入，也不在扫描面内。
-
-**`layers`（`scripts/test/xtask_test_layers.z42`）守的是「运行时只朝目标分层收敛」**：
-`src/runtime/src` 的每个源文件（测试文件除外）按 `xtask_layers_rules.z42` 的映射表（路径前缀 → 组件，最长前缀胜出）
-归到目标组件：地基 pal / metadata / object / gc，VM 子系统 vm.diagnostics / vm.threads / vm.runtime / vm.loader /
-vm.exec / vm.core，引擎 interp / jit，能力与工具 corelib / interop / profiler / debugger，门面 facade 与产品 host。
-同一文件里的允许依赖矩阵规定谁能引用谁：自下而上单向，引擎之间、能力 / 工具之间、能力 / 工具与引擎之间互不引用。
-判据：`crate::` / `$crate::` / `z42::` 开头的路径（含多行 `use crate::{…}` 组），经 `pub use` 再导出解析到真正定义
-它的文件再取组件，同一行引用同一组件只计一次；`self::` / `super::` 不判；注释、字符串、`#[cfg(test)]` 条目不算。
-平台 cfg = `cfg` / `cfg!` / `cfg_attr` 的谓词里出现 `target_os` / `target_family` / `target_vendor` / `target_env` /
-`unix` / `windows` 或 `target_arch = "wasm32"`（JIT 的其他 `target_arch` 与 feature 不算）；`libc::` 按行计。
-
-基线是三张计数表：`[layers.edges]` 按「from -> to」记违规引用数，`[layers.cfg]` / `[layers.libc]` 按组件记 pal/sys 外的
-平台 cfg 与 `libc::`——这就是运行时目录迁移的欠账清单。任何一项变多、或出现基线里没有的违规边 → 红：新边逐条列
-`file:line`，已有欠账变多的项按文件汇总条数（分不出哪条是新的，对照 `git diff` 定位）；新违规要改代码消掉，不靠
-`--update` 收进基线。某项变少 → 提示「可收紧」，跑 `xtask check layers --update` 写回。文件落在映射表没登记的位置
-直接红：先回答它属于哪一层。每次运行先跑 `_lySelfTest`（映射、矩阵、词法、use 组、cfg、再导出、基线比较的构造
-用例），自测不过不信扫描结果。metadata 的 format / reader / ir / index / debug 目录与跨目录再导出都有构造用例覆盖。
-迁移挪动文件时改映射表对应的一行。
-
-**`lines` / `fnlines`（行数棘轮）已退役**：机制下沉为编译器内建 lint——``style.fileLines`` / ``style.fileLinesHard``
-（886/500 两档）与 ``style.fnLines`` / ``style.fnLinesHard``（60/40 两档）四条规则，各包清单 `[lints]` 启用并升 error
-（越限拦编译，等价于原「新越界 = 红」）；原棘轮基线（gates.toml `[lines]` / `[fnlines]` 区）退役为
-源内显式豁免——方法级 `[Suppress("style.fnLinesHard", "…")]`、文件顶部 `#suppress`（见
-[编译期扩展](../../../reference/src/toolchain/compile-time-extensions.md)「内建规则」）。取舍：被豁免的条目可以继续增长
-（原棘轮的「不许膨胀」没了），换来豁免可见、带理由、可 grep；`.rs` 侧长度纪律随之失去门禁（如需要走 clippy）。
-
-**`walkers`（AST walker 完备性对账）已退役**：语法树与绑定树的穷举遍历全部改实现 visitor 接口
-（语法包的 `IExprVisitor` 等四族、语义包的 `IBoundExprVisitor` 等三族，节点 `Accept<R, D>` 双分派）——
-新增节点子类漏接 Visit 方法直接编不过，完备性由编译器保证，不再需要
-文本对账门（ast-walker-completeness-gate 的历史：bound 树 #1282/#1318/#1319，语法树 #1331 与本变更）。
-
-**`diagcodes` 是活体对账 + 一条棘轮**（`scripts/test/xtask_test_diagcodes.z42`）。守的是
-**用户可见契约**：拿到 `E0477` 会去[诊断码全表](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)
-查它是什么意思，一码两义 ⇒ 查到的是**另一个诊断的解释**——比查不到更坏，因为它看起来是个答案。
-唯一 SoT 是 `DiagnosticCodes.z42`。规则（**不写条数**——这一页上面刚说过「不硬编码计数」，
-写死条数会自己漂）：
-
-1. 登记表内**无重复码值**；
-2. **发射出去的每个码都必须在登记表里登记**（扫 `src/**` 非 `tests/`，剥行注释后取字符串字面量）；
-3. `DiagnosticCodes.<Name>` 引用的常量名必须存在（防笔误造幽灵码）；
-4. 字面量发码站点清单 gates.toml `[diagcodes-literal]` **双向棘轮**（多一条 / 少一条都红；
-   键 = `"<码> <文件>"`，值 = 挂账日）；
-5. [诊断码全表](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)的码 ↔ 登记表**双向相等**；
-6. 清单里的每条**欠账必须按时结清**——字面量发码的正当理由（常量还没进种子）**会过期**，
-   挂账超过宽限期（3 天）即红，逼它切回 `DiagnosticCodes.<Name>`；
-7. **任何源文件的散文里都不得断言发射形态**——不准写「XX 层用字面量 `E04xx` 发码」。形态是
-   **会变的状态**（⑥ 要求它必须切回），散文不会跟着变，只会腐成假话。唯一 SoT 是 ④ 的清单；
-8. **活性 ↔ 全表状态列双向对账**——有发射面却标着 `⚠️ 零发射点` / `❌ 已退役` → 红；
-   零发射面却没这么标 → 红；
-9. **每个活码必须被至少一处测试按码断言**——否则必须在 gates.toml `[diagcodes-untested]` 的
-   `codes` 数组里记账（双向棘轮：少一条 / 多一条都红 ⇒ 只能缩短）。
-
-**第 8 条守的是另一维**：①-⑦ 盯的全是「码这个对象」（谁占号、谁发它、欠账多久、散文有没有
-乱说形态），**没有一条盯「它还活着吗」**。发射点被删之后 ②③ 只管反方向、④ 只管字面量站点、
-⑤ 只比码号集合 ⇒ **E0407 那一形**（常量在、全表写着 ✅、而发它的 pass 在迁移中一起
-丢了 528 行）能一路绿到有人手工 grep。它**不新增真相**：全表的状态列本来就记着，只是若无此门，由
-人工 grep 产生、零校验。⭐ 它同时补上 ⑤ 的盲区——**「刻意保留 / 退役」与「已经腐坏」本会长得
-一模一样**（都是「表里有、零发射」），⑤ 甚至要求零发射常量存在；⑧ 之后前者标着、对账成立，
-后者标不出来、必红。⚠️ **测试里断言一个码不算它活着**（那正是 E0407 当年的形状）；跑一次
-本门会打出账面（活 / 零发射各几个）。
-
-**第 9 条答的是另一半**：⑧ 答「它还活着吗」，⑨ 答「它活着这件事**有人验过**吗」。一个码可以有
-发射点、全表写着 ✅，而**全仓没有任何测试提到这个号** ⇒ 它的行为（报不报、报在哪、消息说什么）
-可以随下一次重构一起消失而门全绿。这是 E0407 当年**反过来**的那一半（那次是「有测试、零发射」）。
-实测 main 上 5 个：`E0103` / `E0435` / `E0436` / `E0464` / `E0493`。
-
-「被断言」判据刻意宽——码值或常量名出现在**测试面**任一处即算；测试面 = `src/**/tests/**` ∪
-`src/tests/**`（任意文本扩展名，含 `expected_build_error.txt`）∪ `examples/**` ∪ `scripts/test/**`
-∪ `docs/learn/**`（z42c 命令行夹具在 `src/compiler/z42c.driver/tests/fixtures/cli/`，已在 `src/**/tests/**` 里：
-清单层诊断就在那里按码断言）。要答的是「有没有被任何一处钉住」，不是「钉得够不够好」。
-
-> ⚠️ 两个坑都是实测踩出来的，别改回去：**注释里提到一个码不算钉住它**（`.z42` 测试面要先剥行
-> 注释——不剥的话 `E0493` 会被一句对比性注释算成已覆盖）；**本门自己的文件不算测试面**——
-> 允许清单住在 `scripts/test/` 下、正是覆盖面的一个根，算进去则**棘轮自我擦除**（清单里的码
-> 因「出现在测试面」判为已覆盖 → `--update` 删掉 → 再跑又说未覆盖，两次运行互相矛盾）。
-
-**第 4 条为什么不能省**——按实测的两次撞码逐条回放过：
-
-| 实测事件 | 哪条拦得住 |
+| 类别 | 检查内容 |
 |---|---|
-| #745 发**未登记**字面量 `"E0477"` | ② 红 → 逼它进登记表 |
-| #749 再往登记表塞一个同值常量 | ① 红 |
-| #737 发未登记字面量 `"E0474"` | ② 红 → 逼它进表 |
-| **#741 直接发一个已登记码的字面量**、根本没碰登记表 | **①②③ 全部放行**，只有 ④ 红 |
-| #752 / #747 并行各抢一个 E0478 | 两边都得改登记表 → **git 文本冲突** |
-| **保留号 / 退役号**（E0438、I0467、E0901、E0902）只占在 error-codes.md 的散文里 | **①-④ 全部放行**，只有 ⑤ 红 |
+| 语言与运行时 | golden（interp）、cross-zpkg、multi-exe；JIT 由 CI 专腿覆盖 |
+| 库与工具链 | stdlib / toolchain 单元、benchmark 语料可运行、manifest targets、学习手册会话 |
+| 编译器 | 自举不动点与单元 / CLI 夹具；真实编译负载下的 GC 模式验证 |
+| 静态一致性 | VSCode grammar 与 Lexer、CI shell 变量顺序、子进程环境入口、测试布局 / 能力、版本投影 |
+| 文档 | 相对链接与文档结构；stdlib 文档注释的 W08xx 检查 |
+| 诊断码 | 登记唯一性、字面量与常量引用有效、码表集合与活性状态一致、活码有测试按码断言 |
 
-即只有 ①②③ 的话，这道门会漏掉两次里的一次——**「看起来在守」的门比没有门更危险**。
+静态检查实现归 `scripts/check/`，单跑用 `xtask check <name>`，完整测试按执行表调用相同处理函数。
+诊断码直接读取登记表、源码、文档与测试面；允许已登记的字面量发码用于种子过渡，不维护站点白名单、
+计数快照或到期日期。测试面中的代码注释不算断言，检查器自身也不算覆盖来源。
 
-**第 5 条同理**（同样从实测事故来）。①-④ 只盯**发射出去的**码，于是「被占住但
-故意零发射点」的号——保留号、退役号——可以完全不进登记表。实测 main 上有 4 个这样的号，占用只写在
-全表的「保留编号」「已退役的编号空间」两节里 ⇒ **它们在门眼里就是空位**，下一个扫登记表找空号的人
-会拿走其中一个而①-④全绿。补上零发射点的占号常量后，复用退役号会撞 ① 的重复检测（已注入验过）。
-⑤ 的反方向同时钉住「新码必须进用户查得到的那张表」——那一步否则纯靠自觉。
+文档符号引用用 `xtask check doc-refs` 手动查看报告，不参与 CI 的通过判定。运行时的分层设计由
+[运行时审计](../../../runtime-audit.md)描述，依赖方向通过代码审查维护。
 
-> 码形态识别支持**一位小写字母后缀**（`E0908a` / `E0908b` 是登记表里的真常量）。
-> 若谓词只认长度 5，这两个常量就整个在门的视野外：不受 ①② 约束，还占着 0908 号段而门看不见。
-
-> **发射点为什么还允许用字面量**：新增的 `DiagnosticCodes` 常量**不能在同一个 PR 里被引用**
-> （上一版 z42c 的 `z42c.core` 里还没有这个常量，见
-> [编译器自举](../compiler/self-hosting.md) 的分阶段引入纪律；`GeneratorDriver`
-> 的 E0449 是走完两阶段的既有先例）。所以字面量是**过渡期形态**，清单只应缩短。
->
-> **清算是常态、不是一次性事件**：字面量会被批量切回常量，之后又会被后来者自然挂上新的。**这里不记
-> 具体条数**——写死的数字必然腐坏。要看账面跑一次门。
->
-> ⚠️ **但 ④ 不能退役**（不能换成「非 tests 源零字面量发码」）：那条更强的规则会让**新码
-> 根本无法引入**——分阶段引入纪律要求「常量进登记表」与「发射点引用它」跨一个 nightly，中间那一轮
-> 的发射点必然是字面量。所以清单的稳态不是空，而是**「上一个 nightly 以来新加的码」那么几条**；
-> ④ 是这条纪律的**常设配套**，盯的是「过渡期的字面量有没有被评审看见」。清单里的每一条都是**欠账**：
-> 它的常量随下一个 nightly 进种子后，就该切回常量并重跑 `--update`。
-
-**第 6 条：为什么欠账要有到期日**。④ 让过渡期的字面量**看得见**，但看得见不等于
-会被清掉——三次撞码（E0474 / E0477 / E0481）的共同前提正是「42 个码、100 个发射点常年挂着字面量」。
-一次性清账靠的是有人记着一条 Deferred；**记忆不是机制**，不盯着它就会重新长回来。所以每条
-清单项带一个挂账日（`[diagcodes-literal]` 条目的值；`--update` 给新条目自动填当天，**已有条目
-保留原日期**——否则每次重写区段都把欠账时钟拨回今天，⑥ 永远不会到期），超过宽限期就红。
-
-> ⚠️ **判据为什么是「挂账天数」而不是「去种子里查这个常量在不在」**：后者更精确，但**在 CI 里拿不到
-> 种子**。`xtask check diagcodes` 跑的时候 `Z42_LIBS` 指的是**自建** stdlib
-> （`artifacts/intermediate/libraries/flat/release`，里面的 `z42c.core` 含全部常量 ⇒ 每条欠账都判红，假红
-> 挡人）；而 `Z42_HOME` 在整个 `test-host` job 里**一次都没设**，nightly 种子解在 ci-bootstrap 自己的
-> `$(mktemp -d)/sdkpkg` 里、test 步骤看不见 ⇒ 只认种子就是**恒跳过的假门**。两条路都不成立。
->
-> 粗判据之所以安全，是因为**反方向已经有门**：若切早了（常量还没进种子），`xtask test compiler bootstrap`
-> 会直接红。两个方向互为对照——⑥ 说「该切了」，bootstrap 说「切早了」，中间那条缝就是正确时机。
-> 附带好处：nightly 发布链卡住时 ⑥ 会假红，而那**正是该知道的事**（上一次种子停在 #756，把这个
-> 程序卡了好几天，零信号）。
-
-**第 7 条：散文里的第二份真相会先腐坏**。①-⑥ 盯的全是「码」
-这个对象——谁占了它、谁发射它、欠账多久；而登记表的**散文**里还平行记着一份「这个码今天是字面量
-发的」。那是**会变的状态，而且 ⑥ 恰恰要求它变**。实例（#769）：100 个站点切回常量、清单如期清空，
-**30 条散文原样留着成了假话**（另有 E0466 声称字面量发码而其实零发射点），连理由里引的技术前提
-（避 core→semantics 冷启动 stale-cache）早已被修掉——没有任何门盯着，就这么腐了
-一整轮才被撞见。
-
-与 ⑤ 是同一个形状：**号只占在散文里** / **形态只写在散文里**，门都看不见，都会被后来者当真。
-⑦ 的选择是**取消**那份真相（禁止断言），而不是让两处对账——两处对账要维护两处，早晚再腐一次。
-
-> 判据只认「用字面量」与「发码」**同现**，不碰别的「字面量」用法（「实参不是字符串字面量」、
-> 「误发字面量 `E0463`」是对语言或历史的陈述，与发射点今天的形态无关）。注入验过三组：
-> 单行断言红 / 多行块首行红 / 合法的「字面量」陈述不红。
-
-> ⭐ 清单清空后 ④ 会不会变成空门？**不会**——注入验过：把一个发射点改回字面量，④ 立刻红
-> （`NEW literal emission … is not in gates.toml [diagcodes-literal]`）。清的是账，不是门。
-
-> 🔴 **⑦ 的射程是全部非 tests 源，不止登记表**：同样的断言**也写在
-> 发射点旁边**——扩到全部非 tests 源后抓出 **11 条**已腐成假话的。判据也因此放宽：不要求
-> 「用字面量」连写，只要「字面量」+「发码」同现，因为漏过两条——「用**字面量**发码」（markdown
-> 星号把词切断）与「语法层字面量发码」（没有「用」字）。**手工 grep 找到 6 条，门找到 11 条**；
-> 合法用法不会同时含这两个词（「不是字符串字面量」「误发字面量 `E0463`」都不含「发码」，注入验过）。
-
-**Rust VM 单测（`test runtime` = `cargo test`）不在 gate 内**：它的 `signal_handler_e2e` 会 spawn
-信号崩溃 helper，在信号受限的沙箱里挂住，会让这个「永远要跑」的 gate 不可用。改由每条 CI 腿单独
-一步 + 本地按需 `xtask test runtime` + `test changed` 覆盖。
+完整 Rust 测试的 signal-crash helper 不进入本地常跑门禁；完整版本由 CI 独立步骤与 `xtask test runtime` 覆盖。
+GREEN 中保留 `cargo test --lib` 与全部测试 target 的编译检查。
 
 ## 5. `--skip`：只改「在哪跑」，不改 gate 的组成
 
@@ -280,7 +91,7 @@ skip 键与 banner 名可能不同（如 `vscode` 对应 `vscode-syntax`）；�
 
 **为什么无条件打印**（而不是挂在 `-v diagnostic` 下）：`_procStart` / `_procEnd` 的耗时只在
 verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask test` 在 CI 日志里是个黑盒，只有一个
-总时长；想知道「哪个 stage 吃掉了墙钟」必须本地复现或调高 verbosity 重跑一次。stage 数是个位数、
+总时长；想知道「哪个 stage 吃掉了墙钟」必须本地复现或调高 verbosity 重跑一次。stage 数量有限、
 边界天然清晰，多打 N 行的成本远低于「排查 CI 变慢得先重跑一次」的成本。
 **构建波也计入**——它常是最大的一块，不计的话各 stage 之和对不上 TOTAL，反而误导。
 

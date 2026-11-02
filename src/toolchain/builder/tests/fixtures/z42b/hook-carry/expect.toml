@@ -1,0 +1,9 @@
+desc = "依赖库携带的 hook 在消费工程中自动加载"
+[[step]]
+args = ["build", "{case}/lib/hooks/z42.z42.toml"]
+exit = 0
+[[step]]
+args = ["build", "{case}/z42.toml"]
+env = { Z42_PLUGINS = "{case}/lib/hooks/dist" }
+exit = 0
+output_contains = ["HOOK-CARRY-SMOKE: carried BeforeCompile ran"]

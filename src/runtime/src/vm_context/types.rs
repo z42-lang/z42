@@ -71,7 +71,7 @@ pub struct VmCore {
     /// pre-populated. `collectible` contexts created via `AssemblyLoadContext.CreateCollectible`;
     /// `AssemblyLoadContext.Load` registers assemblies with private `Module` arenas.
     /// Phase 1: boundary + reflection identity only (no unload / execution).
-    pub(crate) context_registry:   Mutex<crate::metadata::context::ContextRegistry>,
+    pub(crate) context_registry:   Mutex<crate::vm::loader::contexts::ContextRegistry>,
     /// Native interop Tier 1 — registered native types keyed by `(module, type)`.
     /// **`RwLock`** (Decision 6): read-mostly path — `CallNative` dispatch /
     /// `z42_resolve_type` are pure reads, writes only happen during module

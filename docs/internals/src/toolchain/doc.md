@@ -1,7 +1,8 @@
 # 文档索引与 `z42 doc`
 
 > 代码：`src/compiler/z42.doc/src/`（引擎，含 `DocParser.z42` / `DocLint.z42` / `DocRefs.z42` / `DocMd.z42`）、`src/toolchain/devtools/core/doc_cmd.z42`（`DocCommand`）、
-> `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/build/xtask_doc.z42`（`xtask doc gen` / `doc index` / `check doc-lints` / `doc-refs`）、
+> `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/build/xtask_doc.z42`（`doc gen` / `doc index` CLI）、
+> `scripts/common/xtask_doc_index.z42`（Rust 索引构建）、`scripts/check/xtask_check_doc_lints.z42` / `xtask_check_doc_refs.z42`（检查与报告）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`_forwardZ42d`）、`src/compiler/z42c.syntax/src/DocBlock.z42`（doc 挂靠）
 >
 > 要查**怎么用**（旗标、输出、名字怎么写）→ 语言与库参考的 `z42` 命令页与 doc 注释页。
@@ -84,8 +85,7 @@ z42 doc <args>                      launcher：`doc` 原样转发
   SUMMARY 不支持锚点条目，成员级导航只能放在页内。
 - **源码位置**：每个声明一行 `file:line`。`DocMd.SourceBase` 非空时渲染成链接，点击直达仓库源码的那一行；
   基址取 book.toml 的 `git-repository-url`（`blob/main`），`Z42_DOC_SOURCE_BASE` 可覆盖（本地预览 / 镜像）。
-  生成页里的行号随每次 gen 重写，不会腐——这也是生成页不受
-  doc-refs 门禁「禁写行号」约束的原因（§8）。
+  生成页里的行号随每次 gen 重写，不参与 doc-refs 的手写页报告（§8）。
 - **同名声明合并**：partial 类型并成一页（代表声明），泛型委托按元数各一页。
 - **type-split**：太大的包一个类型一页——索引页 `<short>.md` 加每个类型的 `<short>.<Type>.md`（当前只有
   `z42.core`，清单硬编码在 xtask 里，待 `[doc] split` 清单键就绪后改读清单）。SUMMARY.md 里该包的页清单
@@ -139,22 +139,21 @@ xtask doc index
 - `z42 doc --docs <sym>`：反查，扫 `docs/**/*.md` 与 `src/**/README.md`，列出引用该符号的页与行。
 - 代码块（``` 围起来的）里的内容不算。
 
-同一套解析在 `xtask check doc-refs` 里当门禁用（§8）：改完一页先跑 `--page` 看有没有 `?` / `✗`，再跑门禁。
+同一套解析用于 `xtask check doc-refs` 的引用报告（§8）；改完一页可用 `--page` 查看 `?` / `✗`。
 
-## 8. 门禁（`xtask check`）
+## 8. 注释检查与引用报告（`xtask check`）
 
-doc-lints 是 GREEN gate 的一个 stage（改 stdlib `///` 的 PR 都会过它）；doc-refs 不在 GREEN gate 里，
-CI 只在**纯文档 PR** 的 docs-check 里跑（见 [CI 拓扑](../devinfra/ci.md)）。两道的单跑方式见[怎么跑测试](../devinfra/testing.md)。
+doc-lints 是 GREEN 的一个 stage；doc-refs 是手动引用报告，不参与 CI 通过判定。
 
-| 门 | 守什么 | 基线 |
-|---|---|---|
-| `check doc-lints` | stdlib（`src/libraries/`）各包的 doc 注释过 `DocLint` 语法级检查，任何 W08xx 发现即红并逐条列出位置 | 无（硬门、无白名单） |
-| `check doc-refs` | internals / reference 手写页与 `src/**/README.md` 三区域里的代码引用：**行号引用**（硬指标——任何新增即红）与**解析不了的多段链**（棘轮） | `scripts/test/gates.toml [doc-refs]`，每区域一个数，只降不升；`--update` 重写 |
+| 命令 | 行为 |
+|---|---|
+| `check doc-lints` | stdlib 各包的 doc 注释过 `DocLint` 语法级检查，任何 W08xx 发现即失败并列出位置 |
+| `check doc-refs` | 报告书页与 README 中的行号引用、未解析多段符号链及各区域统计，不维护数量上限 |
 
 **DocLint**（`z42.doc` 包的 `DocLint.CheckPaths`）在语法索引上做不需要语义的检查，按包分组跑（W0808
 「同一命名空间一份 `//!`」按包判）：W0801 孤立块、W0802 `@param` / `@typeparam` 名不在签名里、W0804 未知
 tag、W0805 public 声明缺 `///`、W0806 历史注记（日期 / spec 名模式）、W0807 摘要缺失或超长、W0808 重复 `//!`。
-范围只有 stdlib：编译器域的注释按 doc-system「契约不显然时写」，不适用 W0805 全覆盖棘轮。W0803（链接与
+范围只有 stdlib：编译器域的注释按 doc-system「契约不显然时写」，不要求 W0805 全覆盖。W0803（链接与
 `@throws` 类型能否解析）需要语义信息，归编译器的 DocChecker pass，不在此列。
 
 **doc-refs** 跑之前先执行 `xtask doc index` 重建 Rust 外部索引（§6），Rust 符号按当前源码解析；生成页（页首

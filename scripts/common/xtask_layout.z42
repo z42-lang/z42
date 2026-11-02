@@ -145,6 +145,15 @@ string _libsFlatDist(string root, string profile) {
 // keep the two in sync. Host builds land in <profile>/, cross builds in <triple>/<profile>/.
 string _cargoTargetDir(string root) { return Path.Join(_buildDir(root), "runtime"); }
 
+// The cargo output dir matching _cargoTargetFor: <profile> for host (no triple),
+// <triple>/<profile> for cross. All three desktop package functions read from here.
+string _cargoOutFor(string root, string rid, string profile) {
+    string t = _cargoTargetFor(rid);
+    string sub = (t.Length == 0) ? profile : (t + "/" + profile);
+    return Path.Join(_cargoTargetDir(root), sub);
+}
+
+
 // artifacts/build/runtime/<profile> — host cargo output dir for z42vm / native libs.
 string _runtimeOut(string root, string profile) {
     return Path.Join(_cargoTargetDir(root), profile);

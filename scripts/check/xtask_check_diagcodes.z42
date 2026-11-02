@@ -1,0 +1,297 @@
+// 诊断码直接校验：登记唯一、发码与常量引用有效、文档集合与活性一致、活码有测试。
+// 字面量发码允许用于种子过渡，只校验登记；不维护站点快照、白名单或日期。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Time;
+using Std.Collections;
+
+string _dcRegistryPath() { return "src/compiler/z42c.core/src/DiagnosticCodes.z42"; }
+string _dcDocPath() { return "docs/reference/src/appendix/error-codes.md"; }
+string[] _dcCoverageRoots() { return new string[]{ "examples", "scripts/test", "docs/learn" }; }
+
+// 检查器中的码号示例不构成测试覆盖；按文件名排除，避免搬家改变判据。
+bool _dcIsOwnFile(string relp) { return relp.EndsWith("xtask_check_diagcodes.z42"); }
+
+bool _dcIsTextFile(string relp) {
+    return relp.EndsWith(".z42") || relp.EndsWith(".txt") || relp.EndsWith(".console")
+        || relp.EndsWith(".md") || relp.EndsWith(".out") || relp.EndsWith(".err")
+        || relp.EndsWith(".toml") || relp.EndsWith(".json");
+}
+
+void _dcAddNew(List<string> xs, string value) { if (!xs.Contains(value)) { xs.Add(value); } }
+string _dcRead(string path) {
+    try { return File.ReadAllText(path); } catch (Exception) { return ""; }
+}
+void _dcSort(List<string> xs) { xs.Sort((a, b) => a.CompareTo(b)); }
+
+sealed class DcCovZ {
+    public List<string> Codes = new List<string>();
+    public List<string> Names = new List<string>();
+    public int Files;
+    // 源码注释不构成断言；期望文本与会话脚本原样扫描。
+    public void AddText(string text, bool z42) {
+        this.Files++;
+        foreach (var raw in text.Split("\n")) {
+            string line = z42 ? _dcStripComment(raw) : raw;
+            foreach (var code in _dcScanCodes(line)) { _dcAddNew(this.Codes, code); }
+            foreach (var name in _dcConstRefs(line)) { _dcAddNew(this.Names, name); }
+        }
+    }
+}
+
+sealed class DcScanZ {
+    public List<string> Viol = new List<string>();
+    public List<string> LitCodes = new List<string>();
+    public List<string> RefNames = new List<string>();
+    public int Files;
+    public int LiveN; public int DeadN;
+    public bool IsLive(string code, string name) { return this.LitCodes.Contains(code) || this.RefNames.Contains(name); }
+}
+
+void _dcScanCoverageTree(string root, string sub, DcCovZ cov) {
+    string dir = Path.Join(root, sub);
+    if (!Directory.Exists(dir)) { return; }
+    foreach (var r in Directory.EnumerateRecursive(dir)) {
+        string rel = r.Replace("\\", "/");
+        if (!_dcIsTextFile(rel) || rel.Contains("/artifacts/") || _dcIsOwnFile(rel)) { continue; }
+        string text = _dcRead(Path.Join(dir, rel));
+        if (text.Length > 0) { cov.AddText(text, rel.EndsWith(".z42")); }
+    }
+}
+
+int _checkDiagCodes() { return _checkDiagCodesAt(_root()); }
+
+int _checkDiagCodesAt(string root) {
+    Stopwatch sw = _procStart("check diagcodes");
+    var names = new List<string>(); var codes = new List<string>();
+    int count = _dcLoadRegistry(root, names, codes);
+    if (count <= 0) {
+        ConsoleError.WriteLine("error: no diagnostic constants found in " + _dcRegistryPath());
+        return 1;
+    }
+    DcScanZ scan = new DcScanZ();
+    for (int i = 0; i < count; i++) {
+        for (int j = i + 1; j < count; j++) {
+            if (codes[i] == codes[j]) {
+                scan.Viol.Add("duplicate code " + codes[i] + ": " + names[i] + " and " + names[j]);
+            }
+        }
+    }
+    DcCovZ coverage = new DcCovZ();
+    _dcScanSources(root, names, codes, scan, coverage);
+    string docText = _dcRead(Path.Join(root, _dcDocPath()));
+    if (docText.Length == 0) { scan.Viol.Add("cannot read " + _dcDocPath()); }
+    else {
+        _dcCheckDocTable(_dcScanCodes(docText), codes, scan.Viol);
+        _dcCheckLiveness(docText, names, codes, scan);
+    }
+    foreach (var dir in _dcCoverageRoots()) { _dcScanCoverageTree(root, dir, coverage); }
+    for (int i = 0; i < count; i++) {
+        if (scan.IsLive(codes[i], names[i]) && !coverage.Codes.Contains(codes[i]) && !coverage.Names.Contains(names[i])) {
+            scan.Viol.Add(codes[i] + " has an emission site but no test asserts its code or constant name");
+        }
+    }
+    _dcSort(scan.Viol);
+    foreach (var violation in scan.Viol) { ConsoleError.WriteLine("  ✗ " + violation); }
+    Console.WriteLine("  registry: " + count.ToString() + " codes; " + scan.Files.ToString() + " source files; "
+        + scan.LiveN.ToString() + " live / " + scan.DeadN.ToString() + " zero-emission; "
+        + scan.Viol.Count.ToString() + " violations");
+    if (scan.Viol.Count > 0) { return 1; }
+    _procEnd("check diagcodes", sw);
+    return 0;
+}
+
+void _dcScanSources(string root, List<string> names, List<string> codes, DcScanZ scan, DcCovZ coverage) {
+    string dir = Path.Join(root, "src");
+    foreach (var r in Directory.EnumerateRecursive(dir)) {
+        string rel = r.Replace("\\", "/");
+        if (rel.Contains("/artifacts/")) { continue; }
+        bool test = rel.Contains("/tests/") || rel.StartsWith("tests/");
+        if (test && _dcIsTextFile(rel) && !_dcIsOwnFile(rel)) {
+            coverage.AddText(_dcRead(Path.Join(dir, rel)), rel.EndsWith(".z42"));
+        }
+        if (rel.EndsWith(".z42") && !_dcIsExcluded(rel)) {
+            string text = _dcRead(Path.Join(dir, rel));
+            if (text.Length > 0) { _dcScanSourceFile("src/" + rel, text, scan, names, codes); }
+        }
+    }
+}
+
+void _dcScanSourceFile(string rel, string text, DcScanZ scan, List<string> names, List<string> codes) {
+    scan.Files++;
+    string[] lines = text.Split("\n");
+    for (int i = 0; i < lines.Length; i++) {
+        string line = _dcStripComment(lines[i]);
+        string at = rel + ":" + (i + 1).ToString();
+        foreach (var code in _dcStringLiterals(line)) {
+            if (!_dcLooksLikeCode(code)) { continue; }
+            _dcAddNew(scan.LitCodes, code);
+            if (!codes.Contains(code)) { scan.Viol.Add(at + ": unregistered code " + code); }
+        }
+        foreach (var name in _dcConstRefs(line)) {
+            _dcAddNew(scan.RefNames, name);
+            if (!names.Contains(name)) { scan.Viol.Add(at + ": unknown DiagnosticCodes." + name); }
+        }
+    }
+}
+
+void _dcCheckDocTable(List<string> documented, List<string> codes, List<string> violations) {
+    foreach (var code in documented) {
+        if (!codes.Contains(code)) { violations.Add(_dcDocPath() + ": unregistered documented code " + code); }
+    }
+    foreach (var code in codes) {
+        if (!documented.Contains(code)) { violations.Add(_dcDocPath() + ": missing registered code " + code); }
+    }
+}
+
+// 只取状态列对应行的第一列码号，描述中提及的其他码不参与状态判定。
+void _dcCheckLiveness(string text, List<string> names, List<string> codes, DcScanZ scan) {
+    var inactive = new List<string>();
+    foreach (var line in text.Split("\n")) {
+        if (!line.StartsWith("|") || (!line.Contains("零发射点") && !line.Contains("已退役"))) { continue; }
+        string[] columns = line.Split("|");
+        if (columns.Length < 3) { continue; }
+        foreach (var code in _dcScanCodes(columns[1])) { _dcAddNew(inactive, code); }
+    }
+    for (int i = 0; i < codes.Count; i++) {
+        bool live = scan.IsLive(codes[i], names[i]);
+        if (live) { scan.LiveN++; } else { scan.DeadN++; }
+        if (live == !inactive.Contains(codes[i])) { continue; }
+        scan.Viol.Add(codes[i] + " (" + names[i] + ") is " + (live ? "live" : "zero-emission")
+            + " but its status in " + _dcDocPath() + " disagrees");
+    }
+}
+
+// 登记表本身是码号的「声明位」，不算发射点；tests 里断言码号是正当用法。
+// `**/artifacts/` 是构建产物（`[Forward]` 生成的 augment、REPL hooks 等**生成的 .z42**）——
+// 不排掉的话扫描集会随「树是否构建过」漂移，门就不确定了。
+bool _dcIsExcluded(string relp) {
+    return relp.Contains("/tests/") || relp.StartsWith("tests/") || relp.Contains("/artifacts/")
+        || relp.EndsWith("DiagnosticCodes.z42");
+}
+
+// 解析 `public static string <Name> = "<CODE>";` → 并行列表。读不了登记表 → -1，否则条数。
+int _dcLoadRegistry(string root, List<string> outName, List<string> outCode) {
+    string text = "";
+    try { text = File.ReadAllText(Path.Join(root, _dcRegistryPath())); }
+    catch (Exception ex) { return 0 - 1; }
+    foreach (var raw in text.Split("\n")) {
+        string line = _dcStripComment(raw).Trim();
+        if (!line.StartsWith("public static string ")) { continue; }
+        string rest = line.Substring(21, line.Length - 21);
+        string name = _leadIdent(rest);
+        int eq = rest.IndexOf("=");
+        if (name == "" || eq < 0) { continue; }
+        List<string> lits = _dcStringLiterals(rest.Substring(eq, rest.Length - eq));
+        if (lits.Count >= 1 && _dcLooksLikeCode(lits[0])) { outName.Add(name); outCode.Add(lits[0]); }
+    }
+    return outName.Count;
+}
+
+// 行注释剥离（`//` 到行尾）。字符串里的 `//` 不剥——先按引号配对走。
+string _dcStripComment(string line) {
+    int i = 0; int n = line.Length;
+    bool inStr = false;
+    while (i < n) {
+        char c = line.CharAt(i);
+        if (inStr) {
+            if (c == '\\') { i = i + 2; continue; }
+            if (c == '"') { inStr = false; }
+        } else {
+            if (c == '"') { inStr = true; }
+            else if (c == '/' && i + 1 < n && line.CharAt(i + 1) == '/') { return line.Substring(0, i); }
+        }
+        i = i + 1;
+    }
+    return line;
+}
+
+// 行内全部字符串字面量的**内容**（不含引号）。
+List<string> _dcStringLiterals(string line) {
+    var lits = new List<string>();
+    int n = line.Length;
+    int i = 0;
+    while (i < n) {
+        if (line.CharAt(i) == '"') {
+            int start = i + 1;
+            int j = start;
+            while (j < n) {
+                char c = line.CharAt(j);
+                if (c == '\\') { j = j + 2; continue; }
+                if (c == '"') { break; }
+                j = j + 1;
+            }
+            if (j >= n) { return lits; }                       // 未闭合 → 放弃本行剩余
+            lits.Add(line.Substring(start, j - start));
+            i = j + 1;
+            continue;
+        }
+        i = i + 1;
+    }
+    return lits;
+}
+
+// 行内全部 `DiagnosticCodes.<Ident>` 的 Ident。
+List<string> _dcConstRefs(string line) {
+    var names = new List<string>();
+    string[] parts = line.Split("DiagnosticCodes.");
+    for (int k = 1; k < parts.Length; k++) {
+        string id = _leadIdent(parts[k]);
+        if (id != "") { names.Add(id); }
+    }
+    return names;
+}
+
+// 码形态：首字母 E|W|I + 恰好 4 位数字（`E0477` / `I0466` / `W0700`），外加**一位小写字母后缀**的
+// 子类码（`E0908a`/`E0908b` —— 登记表里的真常量；不认后缀它们就不参与校验）。
+bool _dcLooksLikeCode(string s) {
+    int n = s.Length;
+    if (n != 5 && n != 6) { return false; }
+    char c0 = s.CharAt(0);
+    if (c0 != 'E' && c0 != 'W' && c0 != 'I') { return false; }
+    int i = 1;
+    while (i < 5) {
+        char c = s.CharAt(i);
+        if (c < '0' || c > '9') { return false; }
+        i = i + 1;
+    }
+    if (n == 6) {
+        char sfx = s.CharAt(5);
+        if (sfx < 'a' || sfx > 'z') { return false; }
+    }
+    return true;
+}
+
+// 自由文本（markdown）里的全部码 token，去重。两侧必须不是标识符字符，否则 `XE0477` / `E04770`
+// 会被误读成码。
+List<string> _dcScanCodes(string text) {
+    var codes = new List<string>();
+    int n = text.Length; int i = 0;
+    while (i < n) {
+        char c = text.CharAt(i);
+        bool head = (c == 'E' || c == 'W' || c == 'I') && (i == 0 || !_isIdentChar(text.CharAt(i - 1)));
+        if (head && i + 5 <= n) {
+            int j = i + 1; bool digits = true;
+            while (j < i + 5) {
+                char d = text.CharAt(j);
+                if (d < '0' || d > '9') { digits = false; }
+                j = j + 1;
+            }
+            if (digits) {
+                int end = i + 5;
+                if (end < n) {
+                    char sfx = text.CharAt(end);
+                    if (sfx >= 'a' && sfx <= 'z') { end = end + 1; }
+                }
+                if (end >= n || !_isIdentChar(text.CharAt(end))) {
+                    _dcAddNew(codes, text.Substring(i, end - i));
+                    i = end;
+                    continue;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return codes;
+}

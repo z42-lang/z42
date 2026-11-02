@@ -1,0 +1,66 @@
+// xtask 子进程环境的单一入口门。
+//
+// ## 守的是什么
+//
+// xtask 起的「跑 z42 代码」的子进程，stdlib 世界（`Z42_LIBS`）与编译器包 probing（`Z42_PROBING_PATHS`）
+// 只能经 `_z42Proc` / `_z42bProc` / `_z42cProc`（scripts/common/xtask_process.z42）设置。调用点直接写
+// `.Env("<这两个之一>", …)` ⇒ 红；`Environment.SetEnvironmentVariable("<这两个之一>", …)` 同样红——
+// 它改的是 xtask 自身环境：同进程里后续的 gate stage 与种子解析（读 `Z42_LIBS`）都会被带偏。
+//
+// 为什么：两种漏法都**不在漏的地方报错**——
+//   · 漏 `Z42_LIBS`：子进程继承 xtask 自身的（`.z42/libs`，上一版 SDK），静默跑在旧 stdlib 上；
+//   · 漏 probing：只在 z42b 真去加载编译器包时才 `MissingSymbolException`。
+// driver 的编译器目录不用设：`Z42_LIBS` 在开发树里，编译器先取开发树档（CompilerDomain）。
+// 集中到工厂之后，新调用点照邻居抄到的是 `_z42cProc(vm, libs, driver)`，没有可漏的那一行。
+//
+// ## 不判的
+//
+//   · `.EnvRemove("Z42_LIBS")` —— dist 测试刻意清掉它，模拟用户机器；
+//   · 注释行。
+namespace Z42Xtask;
+
+using Std.IO;
+
+// 一行代码是否直接设了 `name`：子进程级 `.Env(…)` 或 xtask 进程级 `SetEnvironmentVariable(…)`。
+bool _peSetsProcEnv(string line, string name) {
+    return line.Contains(".Env(\"" + name + "\"") || line.Contains("SetEnvironmentVariable(\"" + name + "\"");
+}
+
+// 允许直接设这些变量的唯一文件（工厂所在）。
+string _peFactoryFile() { return "scripts/common/xtask_process.z42"; }
+
+int _checkProcEnv() {
+    string root = _root();
+    Console.WriteLine("① Z42_LIBS / Z42_PROBING_PATHS 只经 _z42Proc / _z42bProc / _z42cProc 设置");
+    int files = 0;
+    int bad = 0;
+    foreach (var r in Directory.EnumerateRecursive(Path.Join(root, "scripts"))) {
+        string relp = "scripts/" + r.Replace("\\", "/");
+        if (!relp.EndsWith(".z42") || relp == _peFactoryFile()) { continue; }
+        files = files + 1;
+        string[] lines = File.ReadAllText(Path.Join(root, relp)).Split("\n");
+        int i = 0;
+        while (i < lines.Length) {
+            string t = lines[i].Trim();
+            i = i + 1;
+            if (t.StartsWith("//")) { continue; }
+            if (_peSetsProcEnv(t, "Z42_LIBS") || _peSetsProcEnv(t, "Z42_PROBING_PATHS")) {
+                ConsoleError.WriteLine("  ✗ " + relp + ":" + i.ToString() + ": " + t);
+                bad = bad + 1;
+            }
+        }
+    }
+    // 空门守卫：扫描面没了（目录搬家 / 枚举出错）就别报绿。
+    if (files < 50) {
+        ConsoleError.WriteLine("  ✗ 只扫到 " + files.ToString() + " 个 .z42 —— 扫描面不对（scripts/ 搬了？）");
+        return 1;
+    }
+    if (bad > 0) {
+        ConsoleError.WriteLine("  " + bad.ToString() + " 处直接设置；改用 _z42Proc(exe, libs)（z42b 用 _z42bProc(vm, libs)，"
+            + "跑 z42c driver 用 _z42cProc(vm, libs, driver)），见 "
+            + _peFactoryFile());
+        return 1;
+    }
+    Console.WriteLine("  ✓ " + files.ToString() + " 个文件，无直接设置");
+    return 0;
+}

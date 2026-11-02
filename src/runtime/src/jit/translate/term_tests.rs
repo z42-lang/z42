@@ -69,7 +69,7 @@ fn br_cond_on_non_bool_throws_instead_of_branching() {
 fn safepoint_polls(f: Function, indexed: bool) -> u32 {
     use std::sync::atomic::Ordering;
     let mut module = module(f);
-    if indexed { crate::metadata::loader::build_block_indices(&mut module); }
+    if indexed { crate::vm::loader::package::build_block_indices(&mut module); }
     let vm = VmContext::new();
     install(&vm, &module).expect("install");
     const START: u32 = 1_000_000;

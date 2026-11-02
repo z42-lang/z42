@@ -6,8 +6,8 @@
 
 ## 代码约定
 
-- **只用当前语言子集**：遇到表达不了的写法，停下汇报——能补进语言的当次补，**禁止在编译器代码里写 workaround**。
-  现有的受限写法见[编译器自举 · 受限写法约定](../../internals/src/compiler/self-hosting.md)，沿用它们；不引入新依赖。
+- **只用种子可编译的语言子集**：沿用[编译器自举 · 受限写法约定](../../internals/src/compiler/self-hosting.md)，
+  不引入新的临时绕过或未经评估的依赖。确实需要补语言能力时，先按 workflow 处理语义方案授权，再按 bootstrap-seed 分阶段引入。
 - **编译器零 `extern` / `[Native]`**：`src/compiler/**` 不直接绑 VM builtin，需要的能力调 `z42.core`（或运行时非必需
   的独立库）的公开 API；缺 API 就先在 core 补通用原语再调用。规则见
   [包划分 · extern 落点](../../internals/src/stdlib/organization.md#extern-落点只有两处)。

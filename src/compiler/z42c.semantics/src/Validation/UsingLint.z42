@@ -9,7 +9,6 @@
 // 不判：编译器注入的 global using 副本（`Injected`）；`global using` 声明本身「全包都没用到」—— 那要全包每个文件的
 // 用法集合，而 cached 文件跳过类型检查拿不到（见 tasks）；别名 `using Id = T;`（另一个类）。
 // 本文件已有编译错误时整个跳过：解析不全，用法集合不可信，会把用得着的 using 报成多余。
-// 发射点用字面量（分阶段引入：新常量与引用它的发射点不能同 PR，见 gates.toml [diagcodes-literal]）。
 namespace Z42.Semantics;
 
 using Z42.Syntax;

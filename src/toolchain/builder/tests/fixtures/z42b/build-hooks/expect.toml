@@ -1,0 +1,10 @@
+desc = "publish 与 self-contained 的 Target.Mode 传给 hook"
+# 这里只检查 hook 输入；假 apphost 模板不保证发布成功。
+[[step]]
+args = ["publish", "{case}/z42.toml", "--rid", "{rid}"]
+env = { Z42_APPHOST_TEMPLATE = "{vm}", Z42_EMBED_APPHOST = "", Z42_EMBED_LIBS = "", Z42_EMBED_DYLIB = "" }
+output_contains = ["BUILD-HOOKS-SMOKE: BeforeAssets ran (mode=publish)"]
+[[step]]
+args = ["publish", "{case}/z42.toml", "--rid", "{rid}", "--self-contained"]
+env = { Z42_APPHOST_TEMPLATE = "{vm}", Z42_EMBED_APPHOST = "", Z42_EMBED_LIBS = "", Z42_EMBED_DYLIB = "" }
+output_contains = ["BUILD-HOOKS-SMOKE: BeforeAssets ran (mode=publish-self-contained)"]

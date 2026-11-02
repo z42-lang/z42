@@ -158,3 +158,37 @@ void _syncBuilderPins(string root) {
     if (File.Exists(path) && File.ReadAllText(path) == text) { return; }
     File.WriteAllText(path, text);
 }
+
+// ── RID + version helpers ───────────────────────────────────────────────────
+
+string _detectHostRid() {
+    string arch = Platform.Arch();
+    if (Platform.IsMacOS())   { if (arch == "x86_64") { return "macos-x64-unsupported"; } return "macos-arm64"; }
+    if (Platform.IsWindows()) { return "windows-x64"; }
+    // linux
+    if (arch == "aarch64" || arch == "arm64") { return "linux-arm64"; }
+    return "linux-x64";
+}
+
+// RID → 类别 / cargo triple：versions.toml `[rid.*]` 的唯一登记（不在表里 = unknown / ""，
+// 如 Intel mac 的 macos-x64-unsupported——versions.toml 只承诺 arm64，不支持的 host 在此止步，
+// 而不是按前缀猜一个类别继续往下走）。
+string _ridCategory(string rid) { return _vRidCategory(_root(), rid); }
+
+string _ridToCargo(string rid) { return _vRidTriple(_root(), rid); }
+
+// versions.toml [project].version; "" when versions.toml is absent.
+string _versionsGet(string root) {
+    return _vReadOr(root, "project.version", "");
+}
+
+// ── cargo wrappers ──────────────────────────────────────────────────────────
+
+// compile-once host reuse: when building for the HOST rid, pass an EMPTY target so
+// cargo reuses the default host build dir (artifacts/build/runtime/<profile>) that
+// ci-bootstrap / xtask-bootstrap-artifact already warmed (z42vm + cranelift + deps
+// compiled, Swatinem-cached) instead of recompiling everything under a redundant
+// --target <host-triple> tree. Cross RIDs (ios/android/wasm) keep their triple.
+string _cargoTargetFor(string rid) {
+    return (rid == _detectHostRid()) ? "" : _ridToCargo(rid);
+}

@@ -94,7 +94,7 @@ pub(crate) struct IncrementalState {
 #[derive(Default)]
 struct Cycle {
     soft_revived: bool,
-    live_contexts: Option<std::collections::HashSet<crate::metadata::context::ContextId>>,
+    live_contexts: Option<std::collections::HashSet<crate::vm::loader::contexts::ContextId>>,
     stage: SweepStage,
     cursor: usize,
     slices: u32,
