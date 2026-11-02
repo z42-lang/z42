@@ -16,14 +16,35 @@ FingerprintEntries _readFingerprintEntries(string source) {
     lex.Tokenize();
     if (lex.Diagnostics().HasErrors()) { return null; }
     int n = lex.TokenCount();
+    int depth = 0;
     int i = 0;
-    while (i + 6 < n) {
-        if (lex.TokenAt(i).Kind == TokenKind.Identifier && lex.TokenAt(i).Text == "Entries"
+    while (i + 1 < n) {
+        Token token = lex.TokenAt(i);
+        if (depth == 0 && token.Text == "class" && lex.TokenAt(i + 1).Text == "CompilerFingerprint") {
+            int j = i + 2;
+            while (j < n && lex.TokenAt(j).Kind != TokenKind.LBrace) { j = j + 1; }
+            return _readFingerprintClass(lex, j + 1);
+        }
+        if (token.Kind == TokenKind.LBrace) { depth = depth + 1; }
+        else if (token.Kind == TokenKind.RBrace) { depth = depth - 1; }
+        i = i + 1;
+    }
+    return null;
+}
+
+FingerprintEntries _readFingerprintClass(Lexer lex, int start) {
+    int depth = 1;
+    int i = start;
+    while (i < lex.TokenCount() && depth > 0) {
+        Token token = lex.TokenAt(i);
+        if (depth == 1 && i + 6 < lex.TokenCount() && token.Kind == TokenKind.Identifier && token.Text == "Entries"
             && lex.TokenAt(i + 1).Text == "=" && lex.TokenAt(i + 2).Text == "new"
             && lex.TokenAt(i + 3).Text == "string" && lex.TokenAt(i + 4).Text == "["
             && lex.TokenAt(i + 5).Text == "]" && lex.TokenAt(i + 6).Text == "{") {
             return _readFingerprintEntryBody(lex, i + 7);
         }
+        if (token.Kind == TokenKind.LBrace) { depth = depth + 1; }
+        else if (token.Kind == TokenKind.RBrace) { depth = depth - 1; }
         i = i + 1;
     }
     return null;

@@ -3,7 +3,7 @@ using Std.IO;
 using Std.Hashing;
 
 int _selfcheckFingerprintEntries() {
-    string a = "class X { public static string[] Entries = new string[] { \"alpha\", \"beta\" }; }";
+    string a = "class CompilerFingerprint { public static string[] Entries = new string[] { \"alpha\", \"beta\" }; }";
     string comment = "/* Entries = new string[] { \"fake\" }; */\n" + a.Replace("\"beta\"", "/* \"quoted };\" */ \"beta\"") + " // changed";
     FingerprintEntries entries = _readFingerprintEntries(comment);
     _gateAssert(entries != null && entries.Count == 2, "comments and fake initializer do not add entries");
@@ -11,12 +11,24 @@ int _selfcheckFingerprintEntries() {
     _gateAssert(!_fingerprintIdentityChanged(a, comment, "2/1/54", "2/1/54"), "comment-only edit is not invalidation");
     _gateAssert(_fingerprintIdentityChanged(a, a.Replace("beta", "gamma"), "2/1/54", "2/1/54"), "same-count value change invalidates");
     _gateAssert(_fingerprintIdentityChanged(a, a, "2/1/54", "2/1/55"), "format change invalidates");
-    _gateAssert(_readFingerprintEntries("Entries = new string[] { \"unterminated") == null, "malformed source is rejected");
-    _gateAssert(_readFingerprintEntries("Entries = new string[] { };").Count == 0, "empty array parsed");
-    string split = "Entries = new string[] { \"alpha\", \"beta\" };";
-    string joined = "Entries = new string[] { \"alpha\\nbeta\" };";
+    _gateAssert(_readFingerprintEntries(_fpFixture("\"unterminated")) == null, "malformed source is rejected");
+    _gateAssert(_readFingerprintEntries(_fpFixture("")).Count == 0, "empty array parsed");
+    string split = _fpFixture("\"alpha\", \"beta\"");
+    string joined = _fpFixture("\"alpha\\nbeta\"");
     _gateAssert(!_fingerprintIdentityChanged(split, joined, "2/1/54", "1/1/54"), "display count cannot prove hash changed");
-    _gateAssert(_readFingerprintEntries("Entries = new string[] { \"a\" + \"b\" };") == null, "unsupported expressions fail closed");
+    _gateAssert(_readFingerprintEntries(_fpFixture("\"a\" + \"b\"")) == null, "unsupported expressions fail closed");
+    string unrelated = "class Other { string[] Entries = new string[] { \"wrong\" }; }\n" + a;
+    _gateAssert(!_fingerprintIdentityChanged(a, unrelated, "2/1/54", "2/1/54"), "unrelated Entries field ignored");
+    string nested = a.Replace("public static string[] Entries", "class Nested { string[] Entries = new string[] { \"wrong\" }; } public static string[] Entries");
+    _gateAssert(!_fingerprintIdentityChanged(a, nested, "2/1/54", "2/1/54"), "nested Entries field ignored");
+    string raw = _fpFixture("\"\"\"alpha\"\"\", \"\"\"beta\"\"\"");
+    _gateAssert(!_fingerprintIdentityChanged(a, raw, "2/1/54", "2/1/54"), "raw string values match decoded values");
+    FingerprintEntries slash = _readFingerprintEntries(_fpFixture("\"a//b\""));
+    _gateAssert(slash != null && slash.Count == 1 && slash.Value == "mmh3:" + Murmur3.Hash128Hex("a//b"), "comment marker within a string is data");
     Console.WriteLine("  ✅ compiler fingerprint: entry values, comments, format and malformed input");
     return 0;
+}
+
+string _fpFixture(string items) {
+    return "class CompilerFingerprint { public static string[] Entries = new string[] { " + items + " }; }";
 }
