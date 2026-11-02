@@ -15,7 +15,6 @@ using Z42.Core;      // LanguageFeatures —— [syntax] 解出的语法特性�
 using Std.IO;
 using Z42.Syntax;
 using Z42.Semantics;
-using Z42.Package;
 using Z42.IR;
 using Z42.Project;
 using Z42.Pipeline;
@@ -28,23 +27,6 @@ static class ExitCode {
     public static int Ok = 0;          // 成功
     public static int BuildError = 1;  // 编译/构建失败（诊断已输出）
     public static int UsageError = 2;  // 命令行/工程文件用法错误（参数缺失、无 toml、无 workspace）
-}
-
-// parallelize-package-compile ★①：per-file 源读取 + SHA-256 并行（解释执行的 SHA-256 是 CPU 热点，
-// D8 增量差价主项）。每文件独立读文本 + 算 hash，写自己的 _texts[i]/_hashes[i] → 确定性、可并行。
-// handlerFp 循环前算好（与文件无关），Run 内只读。
-sealed class SrcReadHashTask : IParallelTask {
-    string[] _srcs; string[] _texts; string[] _hashes; string _handlerFp;
-    public SrcReadHashTask(string[] srcs, string[] texts, string[] hashes, string handlerFp) {
-        this._srcs = srcs; this._texts = texts; this._hashes = hashes; this._handlerFp = handlerFp;
-    }
-    public void Run(int i) {
-        string t = File.ReadAllText(this._srcs[i]);
-        this._texts[i] = t;
-        string hin = t;
-        if (this._handlerFp.Length > 0) { hin = hin + "\n#z42c-handler-fp:" + this._handlerFp; }
-        this._hashes[i] = ZpkgBuilder.SourceHashHex(hin);
-    }
 }
 
 void Main() {
