@@ -5,7 +5,6 @@ use crate::object::header::marks::MarkKind;
 use crate::object::Value;
 use crate::object::ArrRef;
 use crate::object::header::obj_ref::ObjRef;
-use crate::gc::phase_timer::PhaseTimer;
 
 impl crate::gc::arc_heap::ArcMagrGC {
     /// **add-mark-sweep-collector P3 **: mark phase of the
@@ -164,7 +163,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         {
             // fix-var-sweep-accounting: `sweep` returns the bytes that were actually charged to
             // `used_bytes` when these blocks were allocated (`VarRegion::alloc_charge_bytes`).
-            let t = PhaseTimer::start("sweep/var");
+            let t = self.phase_timer("sweep/var");
             let (reclaimed, credited) = self.region_var.lock().sweep(major);
             t.count(reclaimed);
             freed_bytes += credited;
@@ -176,7 +175,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // grow chunks unboundedly, since the TLAB path bypasses slot-level
         // free_list reuse). Runs under STW at the sweep tail, after tombstoning.
         {
-            let _t = PhaseTimer::start("sweep/chunk reclaim");
+            let _t = self.phase_timer("sweep/chunk reclaim");
             self.reclaim_dead_chunks_and_measure(true);
         }
 
@@ -211,6 +210,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             &entries,
             used_bytes,
             max_bytes,
+            self.config.soft_threshold,
             kind,
             |e| revived.push(Self::soft_entry_value(e)),
         );

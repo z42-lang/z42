@@ -50,8 +50,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// minor escalation threshold (used by tests; production reads via
     /// minor_escalation_threshold() in the dispatch path).
     #[cfg(test)]
-    pub(crate) fn minor_escalation_threshold_for_test() -> f32 {
-        Self::minor_escalation_threshold()
+    pub(crate) fn minor_escalation_threshold_for_test(&self) -> f32 {
+        self.minor_escalation_threshold()
     }
 
     /// **add-gc-debug-invariants P1 **: post-collect invariant check. Panics on the

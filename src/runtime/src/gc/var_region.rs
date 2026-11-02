@@ -92,7 +92,7 @@ use chunk::{Chunk, FreeEntry, FreeSlot, NUM_CLASSES};
 
 // The packed `gen_age` in `GcBlockHeader::type_tag` is two bits wide, so the **default**
 // promotion age has to fit in it. `Z42_GC_PROMOTION_AGE` is clamped to the same ceiling at
-// construction (`gc::promotion_age_from_config`); this guards the compile-time default.
+// construction (`gc::GcConfig::promotion_age`); this guards the compile-time default.
 const _: () = assert!(
     crate::gc::PROMOTION_THRESHOLD <= block::MAX_GEN_AGE,
     "PROMOTION_THRESHOLD exceeds the gen_age bits packed into GcBlockHeader::type_tag"

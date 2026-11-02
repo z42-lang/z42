@@ -10,7 +10,7 @@ fn alive_count(heap: &ArcMagrGC) -> usize {
 
 #[test]
 fn simple_two_node_cycle_is_freed_after_collect() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![Value::Null], NativeData::None);
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
@@ -30,7 +30,7 @@ fn simple_two_node_cycle_is_freed_after_collect() {
 
 #[test]
 fn self_reference_cycle_is_freed() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("Self"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(a_gc) = &a else { panic!() };
@@ -53,7 +53,7 @@ fn cycle_with_external_user_ref_is_not_broken_yet() {
     // a Value across `collect_cycles`, embedders MUST `pin_root` it.
     // Trial-deletion's previous behavior (Arc::strong_count > 1 implicitly
     // preserved cycle nodes) is gone — pure tracing semantics.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![Value::Null], NativeData::None);
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
@@ -81,7 +81,7 @@ fn cycle_with_external_user_ref_is_not_broken_yet() {
 
 #[test]
 fn pinned_root_cycle_is_not_broken() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![Value::Null], NativeData::None);
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
@@ -107,7 +107,7 @@ fn unrelated_alive_object_is_not_affected_by_collect() {
     // the object to be reachable from a pinned root (or external scanner
     // output) to survive. The Rust local `_alive` is NOT a root by
     // itself. Pin it explicitly to preserve through collect.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let alive = heap.alloc_object(dummy_type_desc("Alive"), vec![Value::I64(42)], NativeData::None);
     let pin = heap.pin_root(alive.clone());
 
@@ -122,7 +122,7 @@ fn unrelated_alive_object_is_not_affected_by_collect() {
 
 #[test]
 fn multiple_disjoint_cycles_all_freed() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     // 第一个环 a-b
     let a = heap.alloc_object(dummy_type_desc("A1"), vec![Value::Null], NativeData::None);
     let b = heap.alloc_object(dummy_type_desc("B1"), vec![Value::Null], NativeData::None);
@@ -151,7 +151,7 @@ fn multiple_disjoint_cycles_all_freed() {
 
 #[test]
 fn collect_cycles_freed_bytes_observable() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![Value::Null], NativeData::None);
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
@@ -177,7 +177,7 @@ fn region_prunes_dropped_objects_after_collect() {
     // sweep tombstones unreachable entries in the region directly.
     // ArrRef::drop is no-op so the scope-exit alone doesn't prune —
     // we must force a collect.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     {
         let _ephemeral = heap.alloc_array(vec![]);
         // _ephemeral 出 scope；ArrRef::drop is no-op. Entry stays alive
@@ -191,7 +191,7 @@ fn region_prunes_dropped_objects_after_collect() {
 
 #[test]
 fn snapshot_includes_pinned_root_object() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let v = heap.alloc_object(dummy_type_desc("Foo"), vec![], NativeData::None);
     let _h = heap.pin_root(v);
     let snap = heap.take_snapshot();
@@ -201,7 +201,7 @@ fn snapshot_includes_pinned_root_object() {
 
 #[test]
 fn snapshot_traverses_nested_objects() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let inner1 = heap.alloc_object(dummy_type_desc("Inner"), vec![], NativeData::None);
     let inner2 = heap.alloc_object(dummy_type_desc("Inner"), vec![], NativeData::None);
     let outer  = heap.alloc_object(
@@ -218,7 +218,7 @@ fn snapshot_traverses_nested_objects() {
 
 #[test]
 fn iterate_live_objects_visits_root_reachable() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let elems = (0..5)
         .map(|i| heap.alloc_object(dummy_type_desc("Foo"), vec![Value::I64(i)], NativeData::None))
         .collect::<Vec<_>>();
@@ -233,7 +233,7 @@ fn iterate_live_objects_visits_root_reachable() {
 
 #[test]
 fn iterate_live_objects_dedupes_cycle() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     // 自引用 cycle：obj.refs[0] = obj 自己（通过 wrap-by-clone）
     let obj = heap.alloc_object(dummy_type_desc("Cycle"), vec![Value::Null], NativeData::None);
     let Value::Object(rc) = &obj else { panic!() };
@@ -263,7 +263,7 @@ fn iterate_live_objects_dedupes_cycle() {
 /// always fires. After a full STW major collect both must survive.
 #[test]
 fn stw_softref_revive_keeps_the_targets_children() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(crate::gc::GcMode::StwMarkSweep);
 
     let child = heap.alloc_object(dummy_type_desc("Child"), vec![], NativeData::None);
@@ -296,7 +296,7 @@ fn stw_softref_revive_keeps_the_targets_children() {
 /// read unrelated bytes. A soft-referenced array must read back as alive while it is.
 #[test]
 fn soft_ref_to_an_array_reads_its_own_liveness() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(crate::gc::GcMode::StwMarkSweep);
     let arr = heap.alloc_array(vec![Value::I64(7), Value::I64(8)]);
     let key = heap.register_soft_ref(&arr);

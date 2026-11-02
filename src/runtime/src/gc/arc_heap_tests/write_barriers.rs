@@ -15,7 +15,7 @@ use crate::gc::arc_heap::{BarrierEvent, BarrierObserver};
 
 #[test]
 fn write_barrier_field_dispatches_observer() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let obs = Arc::new(BarrierObserver::new());
     heap.install_barrier_observer(obs.clone());
 
@@ -37,7 +37,7 @@ fn write_barrier_field_dispatches_observer() {
 
 #[test]
 fn write_barrier_array_elem_dispatches_observer() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let obs = Arc::new(BarrierObserver::new());
     heap.install_barrier_observer(obs.clone());
 
@@ -70,7 +70,7 @@ fn observer_records_new_is_heap_metadata_correctly() {
     // debug-asserts against. STW is the arm that tolerates it, so select it
     // explicitly; the observer fires ahead of the mode match either way, so the classification
     // under test is unaffected.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(crate::gc::GcMode::StwMarkSweep);
     let obs = Arc::new(BarrierObserver::new());
     heap.install_barrier_observer(obs.clone());
@@ -99,8 +99,8 @@ fn observer_records_new_is_heap_metadata_correctly() {
 
 #[test]
 fn observer_independent_per_heap_instance() {
-    let heap_a = ArcMagrGC::new();
-    let heap_b = ArcMagrGC::new();
+    let heap_a = ArcMagrGC::default();
+    let heap_b = ArcMagrGC::default();
     let obs_a = Arc::new(BarrierObserver::new());
     let obs_b = Arc::new(BarrierObserver::new());
     heap_a.install_barrier_observer(obs_a.clone());
@@ -122,7 +122,7 @@ fn observer_independent_per_heap_instance() {
 
 #[test]
 fn observer_clear_stops_recording() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let obs = Arc::new(BarrierObserver::new());
     heap.install_barrier_observer(obs.clone());
 
@@ -145,7 +145,7 @@ fn observer_clear_stops_recording() {
 fn barrier_install_does_not_alter_gc_collect_behavior() {
     // Sanity: installing an observer must not change collect outcomes —
     // observer is metadata-only, no side effects on heap_registry / stats.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
 
     // Baseline: build + collect a small cycle without observer.
     let baseline_stats = {

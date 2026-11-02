@@ -54,14 +54,6 @@ impl Default for GcMode {
 }
 
 impl GcMode {
-    /// Resolve the GC mode from the process-wide `RuntimeConfig`.
-    /// Unset / invalid `Z42_GC_MODE` → the default mode — the warning
-    /// lands once in `crate::config::parse_gc_mode` at first access, not
-    /// per-callsite (runtime-config-phase2).
-    pub fn from_env() -> Self {
-        crate::config::runtime_config().gc_mode
-    }
-
     /// Convert from the `u8` representation used by `AtomicU8` storage.
     /// Returns `StwMarkSweep` for unknown values — defensive default
     /// so that even corrupt storage can't crash on a `match` exhaustivity
@@ -96,8 +88,4 @@ mod mode_tests {
         assert_eq!(GcMode::from_u8(255), GcMode::StwMarkSweep);
     }
 
-    // Note: from_env() tests cannot reliably set env vars in a unit test
-    // (Rust test harness shares process state across parallel tests). The
-    // env-var path is covered by `config_tests` (parsing) and by
-    // ArcMagrGC::new() construction in `arc_heap_tests::mode_selection`.
 }

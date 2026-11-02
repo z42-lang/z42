@@ -35,6 +35,8 @@
 //! alloc 站点追踪 / pause 直方图）、C 测试质量（debug invariants / stress 压测）、
 //! D MMTk 集成（终极方向）。
 
+pub mod config;
+pub use config::GcConfig;
 pub mod ambient;
 pub mod heap;
 pub mod arc_heap;
@@ -73,26 +75,3 @@ pub use types::{
 /// bits of the block header's `type_tag`, so this default sits at the top of what fits
 /// (`crate::object::header::MAX_GEN_AGE`); `Z42_GC_PROMOTION_AGE` can lower it.
 pub const PROMOTION_THRESHOLD: u8 = 3;
-
-/// **add-promotion-age-knob **: resolve `Z42_GC_PROMOTION_AGE` for a heap being
-/// constructed. Unset → [`PROMOTION_THRESHOLD`].
-///
-/// Clamped to `1..=MAX_GEN_AGE`: 0 would promote everything on its first minor (there would
-/// be no young generation left to collect), and the age is packed into two spare bits of
-/// `GcBlockHeader::type_tag`, so 3 is the widest value that can be represented at all. An
-/// out-of-range setting warns and clamps rather than silently saturating — a saturating age
-/// would never be *reached*, so nothing would ever be promoted.
-pub fn promotion_age_from_config() -> u8 {
-    let want = crate::config::runtime_config()
-        .gc_promotion_age
-        .unwrap_or(PROMOTION_THRESHOLD);
-    let max = crate::object::header::MAX_GEN_AGE;
-    if want < 1 || want > max {
-        let clamped = want.clamp(1, max);
-        eprintln!(
-            "z42: Z42_GC_PROMOTION_AGE={want} out of range (1..={max}); using {clamped}"
-        );
-        return clamped;
-    }
-    want
-}
