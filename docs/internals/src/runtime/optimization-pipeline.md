@@ -137,6 +137,8 @@ reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不�
   经接口 `SetReadAt` / `SetReadReg`）把**全函数** dst 使用点改写为 src、再删这些已死的 copy。
   安全：src 稳定 ⇒ 其值在 dst 每个使用点相同（IR 有效=def 支配 use；src 单赋值故值恒定）。`ReplaceReads` 同为 CSE 复用。
 
+来源链解析复用已得终点，并把沿途映射登记为相同来源；解析时间为 O(R+C)（R 为寄存器槽数、C 为合格 copy 映射数），结果仍保留终点的 `TypedReg` 类型。稳定来源的有向环违反定义支配使用的前提；有界遍历检测到这种异常输入时，本次 use-site 传播不改写或删除 copy。
+
 **pass 2b CSE（公共子表达式消除，`Opt.Cse`；跑在 const-fold 后、copy-prop 前）**：**块内** value-number——
 对纯计算 op（arith/cmp/位/一元/convert）建 key `op|操作数ids`，同块同 key 复现即「重复计算」。用
 `IrOptInfo.ReplaceReads`（cascade 引入的读改写基建）把重复结果的所有使用点改写为**首个**结果、删重复指令。

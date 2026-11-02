@@ -180,7 +180,6 @@ public sealed class IrOptPipeline {
     // 对单赋值 `dst = copy src`（dst 非形参、src 稳定）建 dst→src 映射（链式解析到最终稳定 src），
     // 用 IrOptInfo.ReplaceReads 改写全函数所有 dst 使用点为 src，再删这些已死的 copy。
     // 安全：src 稳定（单赋值 temp / 从不重写的形参）→ 其值在 dst 所有使用点相同（IR 有效 = def 支配 use）。
-    [Suppress("style.fnLinesHard", "64 body lines；拆分见 code-organization.md")]
     private static void _passCopyPropUse(IrFunction f) {
         int[] defs = IrRegCounts.Defs(f);
         int pc = f.ParamCount;
@@ -203,21 +202,8 @@ public sealed class IrOptPipeline {
             }
             bi = bi + 1;
         }
-        // 链式解析：map[d] 可能又指向被映射的 id → 跟到最终
-        TypedReg[] res = new TypedReg[map.Length];
-        int r = 0;
-        while (r < map.Length) {
-            if (map[r] != null) {
-                TypedReg cur = map[r];
-                int guard = 0;
-                while (cur.Id >= 0 && cur.Id < map.Length && map[cur.Id] != null && guard < map.Length) {
-                    cur = map[cur.Id]; guard = guard + 1;
-                }
-                res[r] = cur;
-            }
-            r = r + 1;
-        }
-        if (!IrOptPipeline._anyNonNull(res)) { return; }
+        TypedReg[] res = IrOptPipeline._resolveCopySources(map);
+        if (res == null || !IrOptPipeline._anyNonNull(res)) { return; }
         // 改写所有读操作数 + 终结子
         bi = 0;
         while (bi < f.BlockCount) {
@@ -250,6 +236,33 @@ public sealed class IrOptPipeline {
             }
             bi = bi + 1;
         }
+    }
+
+    // 每条已解析路径都登记到 res；后续来源链在首次命中时直接复用终点。
+    private static TypedReg[] _resolveCopySources(TypedReg[] map) {
+        TypedReg[] res = new TypedReg[map.Length];
+        int r = 0;
+        while (r < map.Length) {
+            if (map[r] != null && res[r] == null) {
+                TypedReg cur = map[r];
+                int guard = 0;
+                while (cur.Id >= 0 && cur.Id < map.Length && map[cur.Id] != null
+                    && res[cur.Id] == null && guard < map.Length) {
+                    cur = map[cur.Id]; guard = guard + 1;
+                }
+                // 有效 IR 的稳定 copy 来源无环；损坏的环不参与改写或删除。
+                if (guard >= map.Length) { return null; }
+                if (cur.Id >= 0 && cur.Id < map.Length && res[cur.Id] != null) { cur = res[cur.Id]; }
+                int at = r;
+                while (at >= 0 && at < map.Length && map[at] != null && res[at] == null) {
+                    int next = map[at].Id;
+                    res[at] = cur;
+                    at = next;
+                }
+            }
+            r = r + 1;
+        }
+        return res;
     }
 
     // ── pass: CSE 公共子表达式消除（add-cse-pass）──────────────────────────────────
