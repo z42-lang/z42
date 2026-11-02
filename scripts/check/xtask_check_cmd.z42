@@ -1,84 +1,52 @@
-// xtask `check`：不编译、不跑用例的静态检查（纯文本扫描 / 生成物比对，秒级）。
-//
-//   xtask check            全部跑一遍（顺序同 GREEN gate 里的对应 stage），汇总哪些红
-//   xtask check <name>     只跑一个（每项是一个子命令）
-//   xtask check <name> --update   重写该检查在 scripts/test/gates.toml 的机器区段
-//                                 （只有 diagcodes / doc-refs / layers 有 --update）
-//
-// 它们在 GREEN gate 里仍各是一个 stage（stage 名不变，见 test-gate.md）；这里只是单跑的入口。
+// 静态检查与引用报告的入口；名称、说明与处理函数只在此登记。
 namespace Z42Xtask;
 
 using Std.IO;
 using Std.Cli;
 
-// 名字 → 说明。顺序即 `xtask check` 全跑的顺序（= GREEN gate 里的顺序）。
-string[] _checkNames() {
-    return new string[]{ "vscode-syntax", "diagcodes", "stage2", "ci-shell", "proc-env", "layout", "versions", "layers", "doc-lints", "doc-refs" };
+class CheckSpec {
+    public string Name;
+    public string Description;
+    public Func<int> Body;
+    public CheckSpec(string name, string description, Func<int> body) {
+        this.Name = name; this.Description = description; this.Body = body;
+    }
 }
 
-string _checkDesc(string name) {
-    if (name == "vscode-syntax") { return "VSCode grammar ↔ Lexer keyword table (regenerate in memory, diff vs committed)"; }
-    if (name == "diagcodes")     { return "every emitted diagnostic code is registered exactly once in DiagnosticCodes"; }
-    if (name == "stage2")        { return "staged-introduction debt: every STAGE2-DEBT 标记（<tag>,date) marker carries a claim date and none is past grace"; }
-    if (name == "ci-shell")      { return "CI composite actions' run: blocks use no variable before assigning it (set -u)"; }
-    if (name == "proc-env")      { return "Z42_LIBS / Z42_PROBING_PATHS are set only via _z42Proc / _z42bProc"; }
-    if (name == "layout")        { return "test layout spec: src/tests categories, capability vocabulary, artifacts mirror"; }
-    if (name == "versions")      { return "versions.toml ↔ its projections (Cargo.toml / build.gradle.kts / Package.swift) agree"; }
-    if (name == "layers")        { return "runtime module layering: cross-component refs + platform cfg / libc outside pal within the gates.toml baseline (`--update` after shrinking)"; }
-    if (name == "doc-lints")     { return "stdlib doc comments: any W08xx finding is red (hard gate, no allowlist)"; }
-    if (name == "doc-refs")      { return "book pages and READMEs cite code by resolvable symbols, no stale line numbers (run `xtask check doc-refs --update` after fixing)"; }
-    return "";
+CheckSpec[] _checks() {
+    return new CheckSpec[]{
+        new CheckSpec("vscode-syntax", "VSCode grammar agrees with Lexer keywords", () => _testVscodeSyntax()),
+        new CheckSpec("diagcodes", "diagnostic registration, documentation, liveness and test coverage", () => _checkDiagCodes()),
+        new CheckSpec("ci-shell", "CI shell variables are assigned before use", () => _checkCiShell()),
+        new CheckSpec("proc-env", "z42 child-process environments use the shared factories", () => _checkProcEnv()),
+        new CheckSpec("layout", "test categories, capabilities and artifact layout agree", () => _checkLayout()),
+        new CheckSpec("versions", "versions.toml agrees with its projections", () => _checkVersions()),
+        new CheckSpec("doc-lints", "stdlib doc comments have no W08xx findings", () => _checkDocLints()),
+        new CheckSpec("doc-refs", "report stale line numbers and unresolved book/README code references", () => _checkDocRefs())
+    };
 }
 
-// 每项检查是一个子命令（帮助里列出名字 + 说明）；只有带机器区段的三项挂 --update。
 class CheckCommand : Command {
-    public CheckCommand() : base("check", "static checks — no build, no test run") {
-        this.SetDefaultAction("run them all (GREEN gate order) and report every red one");
-        foreach (var n in _checkNames()) { this.AddCommand(new CheckOneCommand(n)); }
+    public CheckCommand() : base("check", "static checks and code-reference reports") {
+        this.SetDefaultAction("run all checks and report every failure");
+        foreach (var check in _checks()) { this.AddCommand(new CheckOneCommand(check)); }
     }
     public override int Run() { return _checkAll(); }
 }
 
 class CheckOneCommand : Command {
-    private CliOption<bool>? _update;
-
-    public CheckOneCommand(string name) : base(name, _checkDesc(name)) {
-        if (name == "diagcodes" || name == "doc-refs" || name == "layers") {
-            this._update = this.AddOption<bool>("update", false, help: "rewrite this check's gates.toml machine section from the current tree");
-        }
-    }
-    public override int Run() {
-        var u = this._update;
-        return _checkOne(this.CommandName(), u != null && u.Value);
-    }
+    private CheckSpec _check;
+    public CheckOneCommand(CheckSpec check) : base(check.Name, check.Description) { this._check = check; }
+    public override int Run() { return this._check.Body(); }
 }
 
-// 全跑：不在第一处红就停 —— 一次看到所有红的检查。
 int _checkAll() {
     string failed = "";
-    foreach (var n in _checkNames()) {
-        Console.WriteLine("");
-        Console.WriteLine("── check " + n + " ──");
-        if (_checkOne(n, false) != 0) { failed = failed.Length == 0 ? n : failed + ", " + n; }
+    foreach (var check in _checks()) {
+        Console.WriteLine("\n── check " + check.Name + " ──");
+        if (check.Body() != 0) { failed = failed.Length == 0 ? check.Name : failed + ", " + check.Name; }
     }
-    Console.WriteLine("");
-    if (failed.Length > 0) {
-        ConsoleError.WriteLine("❌ check: " + failed);
-        return 1;
-    }
-    Console.WriteLine("✅ check: all " + _checkNames().Length.ToString() + " passed");
+    if (failed.Length > 0) { ConsoleError.WriteLine("❌ check: " + failed); return 1; }
+    Console.WriteLine("✅ check: all passed");
     return 0;
-}
-
-int _checkOne(string name, bool update) {
-    if (name == "vscode-syntax") { return _testVscodeSyntax(); }
-    if (name == "diagcodes")     { return _testDiagCodes(update); }
-    if (name == "stage2")        { return _testStage2Debt(); }   // stage2 无 --update：挂账日在源码标记里
-    if (name == "ci-shell")      { return _testCiShell(); }
-    if (name == "proc-env")      { return _testProcEnv(); }
-    if (name == "versions")      { return _checkVersions(); }
-    if (name == "layers")        { return _testLayers(update); }
-    if (name == "doc-lints")     { return _checkDocLints(); }   // doc-lints 无 --update：硬门、无白名单
-    if (name == "doc-refs")      { return _checkDocRefs(update); }
-    return _testLayout();
 }

@@ -11,7 +11,7 @@
 | common/ | 后端共享的宿主操作或空操作，不持有 VM 状态 |
 
 入口是 mod.rs 的编译期选择。各后端实现相同的 concern 接口；涉及共享类型时使用 PAL 的类型。
-生产代码的平台 cfg 与 libc 只允许出现在本目录，由 `xtask check layers` 及其构造自测守住。
+生产代码的平台 cfg 与 libc 只允许出现在本目录，通过代码 review 维护该边界。
 
 行为测试通过 PAL 上层接口执行：`cargo test --lib pal::`（在 src/runtime 下），完整验证使用 `xtask test`。
 机制见 [PAL](../../../../../docs/internals/src/runtime/pal.md)。

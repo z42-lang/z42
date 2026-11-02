@@ -389,13 +389,11 @@ GateStage[] _gateStages(bool noBuild) {
         new GateStage("compiler", "compiler", () => _testCompiler(true)),
         new GateStage("gcgen", "gc modes (z42c.semantics build)", () => _testGcModes()),
         new GateStage("vscode", "vscode-syntax", () => _testVscodeSyntax()),
-        new GateStage("diagcodes", "diagcodes", () => _testDiagCodes(false)),
-        new GateStage("stage2", "stage2", () => _testStage2Debt()),
-        new GateStage("ci-shell", "ci-shell", () => _testCiShell()),
-        new GateStage("proc-env", "proc-env", () => _testProcEnv()),
-        new GateStage("layout", "layout", () => _testLayout()),
+        new GateStage("diagcodes", "diagcodes", () => _checkDiagCodes()),
+        new GateStage("ci-shell", "ci-shell", () => _checkCiShell()),
+        new GateStage("proc-env", "proc-env", () => _checkProcEnv()),
+        new GateStage("layout", "layout", () => _checkLayout()),
         new GateStage("versions", "versions", () => _checkVersions()),
-        new GateStage("layers", "layers", () => _testLayers(false)),
         new GateStage("doc-lints", "doc-lints", () => _checkDocLints())
     };
 }

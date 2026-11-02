@@ -37,7 +37,7 @@ string[] _tlCapFixtures() {
     };
 }
 
-int _testLayout() {
+int _checkLayout() {
     string root = _root();
     string docPath = _tlDocPath(root);
     if (!File.Exists(docPath)) {

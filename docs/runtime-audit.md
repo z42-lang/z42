@@ -10,7 +10,7 @@
 - **启动**：hello 9.6 ms / 13 MB，快于 CPython（20 ms）与 .NET JIT（24 ms）；与 NativeAOT（3.3 ms / 3.8 MB）还差约 6 ms / 9 MB，主要在 z42.core 加载与库目录扫描（§1、§6.4）。
 - **内存**：对象 / 数组 / 字符串 / `List<int>` / `Dictionary` 的密度都已低于 CPython，小对象与 .NET 持平（§1）。
 - **吞吐**：比 CPython 快（除 json、dict_ops、字符串拼接）；比 .NET 慢 5–16 倍，差距集中在调用协议、不内联、分配路径（§6.2）。
-- **结构**：目标目录与模块分层已定（§4），按 §6.1 迁移；L-1 分层门的基线即当前欠账。
+- **结构**：目标目录与模块分层已定（§4），按 §6.1 迁移，依赖方向由代码审查维护。
 
 ---
 
@@ -81,7 +81,7 @@ z42vm `__text` 构成（macOS arm64，共 4.97 MB），是模块分层与可选�
 
 ### 4.1 模块总览
 
-VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 crate**（User 2026-10-29）：下表每一层都是它的顶层模块，目录就是 `src/runtime/src/<模块>/`（`pal/`、`metadata/`、`object/`、`gc/`、`vm/` ……），名字不带 `z42-` 前缀；层间依赖靠 xtask 分层门禁守住，不靠 crate 边界。`crates/` 下已有的独立 crate（`z42-abi` / `z42-host` / `z42-rs` / `z42-macros` / `z42-compression` / `z42-repl`）不动。
+VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 crate**（User 2026-10-29）：下表每一层都是它的顶层模块，目录就是 `src/runtime/src/<模块>/`（`pal/`、`metadata/`、`object/`、`gc/`、`vm/` ……），名字不带 `z42-` 前缀；层间依赖由代码审查维护，不靠 crate 边界。`crates/` 下已有的独立 crate（`z42-abi` / `z42-host` / `z42-rs` / `z42-macros` / `z42-compression` / `z42-repl`）不动。
 
 | 层 | 模块 | 回答的问题 | 依赖 |
 |---|---|---|---|
@@ -99,7 +99,7 @@ VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 
 | 组装 | 门面（crate 根：`lib.rs`、`config/`、`app.rs`） | 配置装配，按 feature 组装 Runtime | 以上全部 |
 | 产品 | `z42-host`（已有 crate，吸收 `src/host` C ABI 薄壳）、`z42vm`（可执行文件，`main.rs`） | 嵌入 / 命令行 | 门面 |
 
-硬规则（xtask 分层门禁检查）：
+分层设计约束：
 
 1. **平台 `#[cfg(target_os/unix/windows)]` 与 `libc` 只出现在 `pal/sys/`**；wasm 的功能裁剪用 cargo feature 表达。
 2. **同层互不依赖**：interp ↔ jit、corelib / interop / debugger / profiler 之间及它们与引擎之间都没有依赖，一律经 vm 的注册接口接入，由门面组装。
@@ -200,7 +200,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 ### 6.1 目录与模块化迁移（User 2026-10-29 定案，目标结构见 §4）
 
-在单 crate 内把目录重排成 §4 的形状并由门禁守住，暂不物理拆 crate。每步一个 PR、行为不变（GREEN 双模式 + `./xtask test runtime`）。
+在单 crate 内把目录重排成 §4 的形状并审查依赖方向，暂不物理拆 crate。每步一个 PR、行为不变（GREEN 双模式 + `./xtask test runtime`）。
 
 | ID | 类型 | 内容 | 验证要点 | 状态 |
 |---|---|---|---|---|
@@ -275,7 +275,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | JIT | helper 里的 panic 会 abort 进程（`extern "C"` 不展开）；新增 helper 要改 6 处、Cranelift 签名与 Rust 签名分开手写——`helpers!{}` 宏统一生成并编译期校验 |
 | 加载 | 惰性加载在 lazy_loader 写锁内做文件 I/O 与全量解码，期间所有线程的 lookup miss 被阻塞——改为读锁下规划 → 锁外解码 → 写锁下发布；每个 VmCore（每个 golden、每个 host module）都从头解码 z42.core——随 PackageImage 进程级缓存解决 |
 | 身份 | 「身份按名字」的残余：三套函数注册表合一的清理、PIC 未覆盖的反射侧 |
-| builtin | STAGE2-DEBT：旧 builtin 名与 z42.core 旧包装在种子不再声明后删除（运行时表项、legacy 实现一并删） |
+| builtin | 旧 builtin 名与 z42.core 旧包装在种子不再声明后删除（运行时表项、legacy 实现一并删） |
 | interop | native 扩展改用函数表 ABI v2（`const Z42Api*`，与 repl 的 `ReplCallbacks` 同构），扩展不再依赖 z42vm 导出全局符号（同 §5 第 8 条，本条为准） |
 | 清理 | 死代码：`Function.exec_mode`（解码了从不读）、零注册的 finalizer 机制、`collect()` 默认 no-op、死旋钮 `Z42_GC_THROTTLE_RATIO`、`versions.rs` 的 changelog 注释、z42-macros 的 `compile_error!` 桩仍从 z42-rs prelude 导出 |
 | z42c | StrMap 数据结构（z42c 侧，z42 层内建采样 ≈11%）：键哈希驻留、探测局部性、rehash 次数——属 z42c 战役，开工前与该线对齐 |

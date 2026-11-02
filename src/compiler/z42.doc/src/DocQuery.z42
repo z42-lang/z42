@@ -88,7 +88,7 @@ public static class DocQuery {
         return abs;
     }
 
-    // 书页清单（docs/**/*.md + src/**/README.md）。`check doc-refs` 门禁复用同一份口径。
+    // 书页清单（docs/**/*.md + src/**/README.md）。`check doc-refs` 报告复用同一份口径。
     public static string[] BookPages(string root) {
         DocQuery._StrAcc acc = new DocQuery._StrAcc();
         string docs = Path.Join(root, "docs");

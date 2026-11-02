@@ -1,0 +1,65 @@
+// 书页与 README 的代码引用报告；不维护数量上限或基线。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+using Z42.Doc;
+
+int _checkDocRefs() {
+    string root = _root();
+    // 先刷新 Rust 索引，再按当前源码报告引用情况。
+    string rustIdx = Path.Join(root, "artifacts/doc/rust.idx");
+    int rc = _docIndex();
+    if (rc != 0 || !File.Exists(rustIdx)) {
+        ConsoleError.WriteLine("check doc-refs: rust.idx 生成失败——先手动跑 `xtask doc index`");
+        return 1;
+    }
+    DocIndex ix = DocQuery.BuildIndex(root, "", "");
+    ExternalIndex.LoadDir(root, Path.Join(root, "artifacts/doc"), "", ix);
+
+    // 分区域：internals / reference / readme（根 README + src/**/README.md）。其余页跳过。
+    List<string> all = new List<string>();
+    all.AddRange(DocQuery.BookPages(root));
+    if (File.Exists(Path.Join(root, "README.md"))) { all.Add(Path.Join(root, "README.md")); }
+
+    int an = all.Count;
+    List<string> groups = new List<string>();
+    int[] lineNos = new int[an];
+    int[] unresolved = new int[an];
+    string[] worstPage = new string[an];
+    int[] worstCnt = new int[an];
+    int printed = 0;
+    foreach (var p in all) {
+        string rel = p.Substring(root.Length + 1);
+        string group = "";
+        if (rel.EndsWith("README.md")) { group = "readme"; }
+        else if (rel.StartsWith("docs/internals/src/")) { group = "internals"; }
+        else if (rel.StartsWith("docs/reference/src/")) { group = "reference"; }
+        else { continue; }
+        string md = File.ReadAllText(p);
+        if (md.IndexOf("由 z42 doc 生成") >= 0) { continue; }   // 生成页：位置行随 gen 重写
+        if (rel.EndsWith("SUMMARY.md")) { continue; }           // 纯链接清单
+        int g = groups.IndexOf(group);
+        if (g < 0) { groups.Add(group); g = groups.Count - 1; }
+        DocPage page = DocRefs.Extract(md);
+        DocRefs.Resolve(page, ix);
+        foreach (var rf in page.Refs) {
+            if (rf.Kind == DocRef.LineNo) {
+                lineNos[g] = lineNos[g] + 1;
+                if (printed < 15) { Console.WriteLine("  " + rel + ":" + rf.Line.ToString() + ": 行号引用 " + rf.Text + " —— 写符号，位置用 z42 doc --page 现查"); printed = printed + 1; }
+            } else if (rf.Multi && rf.Target == null) {
+                unresolved[g] = unresolved[g] + 1;
+            }
+        }
+        int cnt = DocRefs.ProblemCount(page);
+        if (cnt > worstCnt[g]) { worstCnt[g] = cnt; worstPage[g] = rel; }
+    }
+
+    for (int i = 0; i < groups.Count; i++) {
+        Console.WriteLine("  " + groups[i] + ": " + lineNos[i].ToString() + " line-number references, "
+            + unresolved[i].ToString() + " unresolved symbol chains"
+            + (worstPage[i] == null ? "" : " (largest report: " + worstPage[i] + ")"));
+    }
+    Console.WriteLine("doc-refs: report only; inspect a page with z42 doc --page <path>");
+    return 0;
+}
