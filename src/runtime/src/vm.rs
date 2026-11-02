@@ -1,3 +1,4 @@
+pub mod threads;
 pub mod runtime;
 pub mod loader;
 pub mod exec;

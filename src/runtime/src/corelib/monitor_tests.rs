@@ -314,7 +314,7 @@ fn collect_while_parked(c: &VmContext) {
             "the blocked thread is parked");
     let t0 = Instant::now();
     {
-        let pause = crate::gc::safepoint::request_gc_pause(c);
+        let pause = crate::vm::threads::safepoint::request_gc_pause(c);
         assert!(pause.is_some(), "this thread becomes the collector");
         c.heap().collect_full();
     }

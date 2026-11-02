@@ -163,7 +163,7 @@ fn gc_collect_with_concurrent_mutators_no_race() {
     //
     // Success criterion: completes 100 collect rounds without panic /
     // deadlock; final heap is internally consistent.
-    use z42::gc::safepoint::{check_safepoint, request_gc_pause};
+    use z42::vm::threads::safepoint::{check_safepoint, request_gc_pause};
 
     let collector = VmContext::with_module(make_void_action_module("CollectorMain"));
     let n_workers = 4usize;
@@ -223,7 +223,7 @@ fn auto_collect_triggers_via_safepoint_no_race() {
     // CAS-guarded `request_gc_pause` ensures only one becomes the
     // active collector; the others park-as-mutator → no deadlock.
     use std::sync::atomic::{AtomicUsize, Ordering as AtoOrd};
-    use z42::gc::safepoint::check_safepoint;
+    use z42::vm::threads::safepoint::check_safepoint;
 
     let main = VmContext::with_module(make_void_action_module("AutoCollectMain"));
     main.heap().set_max_heap_bytes(Some(8 * 1024));
@@ -285,7 +285,7 @@ fn concurrent_gc_collect_callers_arbitrate() {
     // atomic counter and have main loop check_safepoint until both
     // workers finish.
     use std::sync::atomic::{AtomicUsize, Ordering as AtoOrd};
-    use z42::gc::safepoint::{check_safepoint, request_gc_pause};
+    use z42::vm::threads::safepoint::{check_safepoint, request_gc_pause};
 
     let main = VmContext::with_module(make_void_action_module("ArbitrateMain"));
     let collected = Arc::new(AtomicUsize::new(0));

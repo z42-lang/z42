@@ -80,7 +80,7 @@ pub(crate) fn collect_while_parked(ctx: &VmContext) {
     assert!(wait_until(|| parked(ctx) == 1), "the blocked thread is parked");
     let t0 = Instant::now();
     {
-        let pause = crate::gc::safepoint::request_gc_pause(ctx);
+        let pause = crate::vm::threads::safepoint::request_gc_pause(ctx);
         assert!(pause.is_some(), "this thread becomes the collector");
         ctx.heap().collect_full();
     }

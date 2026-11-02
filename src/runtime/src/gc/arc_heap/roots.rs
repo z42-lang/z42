@@ -38,41 +38,28 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // External root scanner (e.g. VmContext static_fields).
         let scanner_borrow = self.external_root_scanner.lock();
         if let Some(scan) = scanner_borrow.as_ref() {
-            scan(&mut |v| {
+            // SAFETY: mutators are paused, or this is a standalone heap.
+                unsafe { scan.visit_roots(&mut |v| {
                 if Self::mark_if_unmarked(v, kind) {
                     queue.push(v.clone());
                     count += 1;
                 }
-            });
+            }) };
         }
         count
     }
 
-    /// **add-lazy-context-unload **: after mark, walk marked
-    /// `ScriptObject`s and resolve which collectible contexts they retain
-    /// (instance `type_desc` ptr + reflection native handles). Only called when
-    /// an unload is in flight. Marks are still set (sweep clears them next).
-    pub(super) fn scan_marked_contexts(
-        &self,
-        snap: &crate::vm::loader::contexts::ContextLiveness,
-    ) -> std::collections::HashSet<crate::vm::loader::contexts::ContextId> {
-        let mut live = std::collections::HashSet::new();
-        if snap.is_empty() {
-            return live;
-        }
+    /// Observe the same marked objects before sweep; association and identities belong to VM.
+    pub(super) fn observe_marked_objects(&self, snapshot: &mut dyn crate::gc::to_vm::ContextReclaimSnapshot) {
+        if snapshot.is_empty() { return; }
         let major = self.major_mark();
         let region = self.region_var.lock();
         region.iterate_alive_of(crate::object::header::BlockType::Object, |h, header| {
             if header.is_marked(major) {
                 let obj = crate::object::ObjRef::from_var(h);
-                let obj = obj.borrow();
-                let td_ptr = std::sync::Arc::as_ptr(&obj.type_desc) as usize;
-                if let Some(cid) = snap.retained_context(td_ptr, &obj.native()) {
-                    live.insert(cid);
-                }
+                snapshot.observe_live_object(&obj.borrow());
             }
         });
-        live
     }
 
     /// **add-heap-retention-diagnostics **: build the reverse

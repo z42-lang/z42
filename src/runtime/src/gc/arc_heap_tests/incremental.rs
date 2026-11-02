@@ -111,7 +111,7 @@ fn run_type_param_overwrite(barrier_on: bool, claimed: bool) -> bool {
     let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
-    let _ambient = crate::gc::ambient::HeapGuard::enter(&heap);
+    let _ambient = crate::vm::exec::ambient::HeapGuard::enter(&heap);
     crate::gc::satb::set_disabled_for_test(!barrier_on);
 
     let td = crate::object::value::tparam_cell::tparam_cell_tests::tparam_td(1);

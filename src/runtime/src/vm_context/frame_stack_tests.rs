@@ -69,7 +69,7 @@ fn a_new_activation_chain_takes_ownership() {
 #[should_panic(expected = "inside a NativeParkGuard region")]
 fn push_inside_a_native_park_panics_in_debug() {
     let ctx = VmContext::new();
-    let _park = crate::gc::safepoint::NativeParkGuard::enter(&ctx);
+    let _park = crate::vm::threads::safepoint::NativeParkGuard::enter(&ctx);
     ctx.push_frame(frame());
 }
 

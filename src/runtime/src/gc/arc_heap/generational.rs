@@ -7,7 +7,7 @@ use crate::object::ArrRef;
 use crate::object::header::obj_ref::ObjRef;
 
 /// What one minor collection reclaimed. `reclaimed_entries` is what the escalation heuristic
-/// needs: **the number of young blocks the sweep actually tombstoned**. Survival can only be read off that — see `collect_cycles_with_context`.
+/// needs: **the number of young blocks the sweep actually tombstoned**. Survival can only be read off that — see `collect_cycles_with_vm`.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct MinorSweepResult {
     pub(crate) freed_bytes: u64,
@@ -178,7 +178,8 @@ grey {grey_n} (skipped old {grey_old})"));
         {
             let scanner = self.external_root_scanner.lock();
             if let Some(scan) = scanner.as_ref() {
-                scan(&mut |v| queue.push(v.clone()));
+                // SAFETY: mutators are paused, or this is a standalone heap.
+                unsafe { scan.visit_roots(&mut |v| queue.push(v.clone())) };
             }
         }
 

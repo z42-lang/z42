@@ -10,7 +10,7 @@
 |------|------|------|
 | P0 | `xtask profile` CLI + `z42vm --print-stats-on-exit --stats-format=json` | `scripts/bench/xtask_profile.z42`、`counters.rs` |
 | P1a | `ProfileSnapshot`：counter 快照 + 堆派生 allocations + GC 分代 | `counters.rs`、`gc/types.rs` |
-| P1b | 并发探针：safepoint park 直方图（常开）+ 用户锁争用（feature-gated）| `gc/safepoint.rs`、`corelib/sync_contention.rs` |
+| P1b | 并发探针：safepoint park 直方图（常开）+ 用户锁争用（feature-gated）| `vm/threads/safepoint.rs`、`corelib/sync_contention.rs` |
 | P1c | `Std.Diagnostics.RuntimeStats.Counters()` 暴露给 z42 脚本 | `corelib/diagnostics.rs`、`z42.diagnostics` |
 | **P2** | **safepoint 采样 profiler：z42 火焰图 + perfetto 采样 trace** | **`gc/sampler.rs`** |
 
@@ -117,7 +117,7 @@ chrome/perfetto trace 常见于「每帧 enter/exit 精确计时」的 **span �
 
 ## 3. 并发探针（P1b）与计数暴露（P1c）速览
 
-- **park 直方图**（常开）：`VmCore.park_histogram` 在 `gc::safepoint::park_until_idle` 计时——只 GC 暂停
+- **park 直方图**（常开）：`VmCore.park_histogram` 在 `vm::threads::safepoint::park_until_idle` 计时——只 GC 暂停
   slow path 跑，热 `check_safepoint` 零成本。surface `park_count`/`park_us_total`/`park_max_us`。
 - **用户锁争用**（`profile-contention` feature）：`corelib::sync` 的 `Std.Threading.Mutex`/`RwLock` acquire
   经 `try_lock` miss 判争用 → `lock_contentions`/`lock_wait_us`；默认构建 `#[cfg(not)]` 零分支。
@@ -131,5 +131,5 @@ chrome/perfetto trace 常见于「每帧 enter/exit 精确计时」的 **span �
 
 - 设计蓝图（含 span/事件流/统一总线的未实施部分）：[`docs/internals/src/runtime/diagnostics-design.md`](diagnostics-design.md)
 - 堆保留诊断（whyRetained）：[heap-diagnostics.md](heap-diagnostics.md)
-- safepoint / GC 暂停机制：[GC]() ·（`gc/safepoint.rs`）
+- safepoint / GC 暂停机制：[GC]() ·（`vm/threads/safepoint.rs`）
 - interp/JIT 语义单一真相源：[interp-jit-semantics.md](interp-jit-semantics.md)

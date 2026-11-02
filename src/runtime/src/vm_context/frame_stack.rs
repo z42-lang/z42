@@ -51,7 +51,7 @@ impl FrameStack {
     /// stack was empty).
     #[inline]
     pub(crate) fn push(&self, frame: VmFrame) -> bool {
-        crate::gc::safepoint::debug_assert_frame_change_not_parked();
+        crate::vm::threads::safepoint::debug_assert_frame_change_not_parked();
         // SAFETY: owner-thread access (module docs); no reference into
         // `frames` outlives this call.
         let frames = unsafe { &mut *self.frames.get() };
@@ -73,7 +73,7 @@ impl FrameStack {
     /// Owner only. Pop the top frame (`None` when empty).
     #[inline]
     pub(crate) fn pop(&self) -> Option<VmFrame> {
-        crate::gc::safepoint::debug_assert_frame_change_not_parked();
+        crate::vm::threads::safepoint::debug_assert_frame_change_not_parked();
         self.debug_assert_owner();
         // SAFETY: owner-thread access.
         let frames = unsafe { &mut *self.frames.get() };

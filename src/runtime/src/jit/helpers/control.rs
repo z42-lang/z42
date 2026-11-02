@@ -77,7 +77,7 @@ pub unsafe extern "C" fn jit_match_catch_type(
 /// code calls this at each safepoint insertion site — function entry,
 /// backward Br terminators, BrCond terminators, and after Call /
 /// CallIndirect helpers return. Thin trampoline into the shared
-/// `gc::safepoint::check_safepoint` so the JIT path follows the same
+/// `vm::threads::safepoint::check_safepoint` so the JIT path follows the same
 /// Idle / Requested / Marking protocol as interp.
 ///
 /// `_frame` is unused (signature kept for ABI uniformity with the rest of
@@ -91,7 +91,7 @@ pub unsafe extern "C" fn jit_check_safepoint(
     ctx:    *const VmContext,
 ) {
     let vm_ctx = vm_ctx_ref(ctx);
-    crate::gc::safepoint::check_safepoint(vm_ctx);
+    crate::vm::threads::safepoint::check_safepoint(vm_ctx);
 }
 
 /// `jit_check_safepoint_slow` (inline-jit-safepoint-check): the
@@ -100,7 +100,7 @@ pub unsafe extern "C" fn jit_check_safepoint(
 /// branches here to (1) reset the counter to [`throttle_n`] and (2) run the
 /// real Mutex + phase-check + auto-collect-drain via [`check_safepoint_slow`].
 ///
-/// This mirrors the tail of [`crate::gc::safepoint::check_safepoint`] (the part
+/// This mirrors the tail of [`crate::vm::threads::safepoint::check_safepoint`] (the part
 /// after the `prev > 1` early return) — the fast decrement itself is emitted
 /// inline by `jit::translate::emit_safepoint_check`, so this helper is called
 /// only ~0.1% of the time (once per [`throttle_n`] back-edges).
@@ -117,10 +117,10 @@ pub unsafe extern "C" fn jit_check_safepoint_slow(
 ) {
     let vm_ctx = vm_ctx_ref(ctx);
     vm_ctx.safepoint_skip.store(
-        crate::gc::safepoint::throttle_n(),
+        crate::vm::threads::safepoint::throttle_n(),
         std::sync::atomic::Ordering::Relaxed,
     );
-    crate::gc::safepoint::check_safepoint_slow(vm_ctx);
+    crate::vm::threads::safepoint::check_safepoint_slow(vm_ctx);
 }
 
 /// Prologue slow branch: the stack pointer is below the context's `JitHead::stack_limit`.
@@ -173,7 +173,7 @@ mod check_safepoint_tests {
     #[test]
     fn jit_check_safepoint_drains_pending_auto_collect() {
         // Pre-set the needs_auto_collect flag; trampoline should reach
-        // gc::safepoint::check_safepoint which atomically swaps it and
+        // vm::threads::safepoint::check_safepoint which atomically swaps it and
         // runs a stop-the-world collect.
         let ctx = VmContext::new();
         // add-gc-safepoint-counter-throttling : force the
