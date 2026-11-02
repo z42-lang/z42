@@ -127,7 +127,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
 
     /// perf-str-jit-intrinsics: both operands statically `char` (`s[i] == '7'`,
     /// `c >= '0'`) — compare the code points natively, which is what
-    /// `semantics::numeric_{eq,lt}` do for two `Value::Char`. Guarded by both
+    /// `scalar::numeric_{eq,lt}` do for two `Value::Char`. Guarded by both
     /// runtime tags being `Char`; anything else takes the helper unchanged.
     fn emit_char_cmp(&mut self, kind: CmpKind, dst: u32, a: u32, b: u32) {
         let slow_blk = self.builder.create_block();

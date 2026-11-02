@@ -99,7 +99,7 @@ impl ArrayObj {
                 "cannot store {} into a {kind} element: the value's kind does not match the \
                  array's element type (a silent zero would be indistinguishable from a \
                  legitimate write)",
-                crate::semantics::value_kind_name(&val)
+                crate::vm::exec::ops::scalar::value_kind_name(&val)
             );
         }
         self.store_elem(i, &val)

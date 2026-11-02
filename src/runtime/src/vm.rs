@@ -1,5 +1,6 @@
 pub mod runtime;
 pub mod loader;
+pub mod exec;
 
 use crate::vm::runtime::Module;
 use crate::metadata::ExecMode;

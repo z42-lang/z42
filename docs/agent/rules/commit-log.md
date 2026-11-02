@@ -1,70 +1,45 @@
 # 提交信息规范
 
-> 触发条件：任何 `git commit`。
-
----
+> 触发条件：commit 与 PR 标题。PR 生命周期、合并与清理统一见 [workflow.md](workflow.md)。
 
 ## 格式
 
-```
+```text
 type(scope): 描述
 
-[可选正文：为什么这么改，而非改了什么]
+[可选正文：原因与权衡]
 ```
 
-- **一行 summary ≤ 72 字符**，动词开头，不加句号
-- 描述用**中文**（与内部文档语种一致）
-- 正文可选；解释"为什么/权衡"，不复述 diff
+标题 ≤ 72 字符，描述用中文、动词开头、不加句号。正文解释原因与关键决策，不复述 diff。
+一个提交表达一个逻辑单元；伴随测试和文档同轮交付，PR 的拆分与 squash 要求以 workflow 为准。
 
 ## type（改动性质）
 
 | type | 用于 |
-|------|------|
-| `feat` | 新功能 / 新语法 / 新 IR 指令 / 新 API |
+|---|---|
+| `feat` | 新功能、语法、IR 或 API |
 | `fix` | Bug 修复 |
-| `refactor` | 纯重构，不改外部行为 |
+| `refactor` | 不改外部行为的重构 |
 | `perf` | 性能优化 |
-| `test` | 只动测试 |
-| `docs` | 只动文档（含 book / rules / README） |
-| `chore` | 构建脚本 / CI / 杂项 |
+| `test` | 只改测试 |
+| `docs` | 只改文档，包括 rules / README |
+| `chore` | 构建、CI 与杂项 |
 
-> 与 [workflow.md 变更分类](workflow.md)（lang/ir/vm/fix/refactor/test/docs）的关系：
-> 那是**流程**分类（决定走完整流程还是最小化）；这里是**提交** type（描述这次 commit 的性质）。
-> lang/ir/vm 类变更的提交通常是 `feat`。
+这里的 type 描述提交性质，不决定审批模式；后者按 workflow 的实际契约变化分类。
 
 ## scope（子系统）
 
 | scope | 范围 |
-|-------|------|
-| `compiler` | `src/compiler/`（z42c 自举编译器源码，用 z42 写） |
-| `runtime` | `src/runtime/`（Rust VM：interp / jit / aot / gc） |
-| `stdlib` | `src/libraries/`（.z42 标准库） |
-| `toolchain` | `src/toolchain/` + xtask dispatch |
-| `docs` | `docs/` |
+|---|---|
+| `compiler` | 自举编译器 |
+| `runtime` | Rust VM、interp / JIT / AOT / GC |
+| `stdlib` | 标准库 |
+| `toolchain` | 工具链与 xtask |
+| `docs` | 文档 |
 
-跨子系统时取主要那个，或省略 scope。这张表同时用来判断「两个 in-flight PR 是否同子系统、要不要互相知会」
-（见 [workflow.md 阶段 6](workflow.md)）。
-
-## 一个 commit = 一个逻辑单元
-
-- 一个 PR 对应一个逻辑单元，不积压、不混合多个独立功能/修复；squash 合并后 main 上**一个 PR 一个提交**（标题带 `(#N)`）
-- 伴随文档、规则变更（`docs/agent/`、各工具入口文件）属同一逻辑单元，进同一个 PR
-- squash 提交正文的写法见 [workflow.md 阶段 6](workflow.md) 第 4 步
+跨子系统取主要者，或省略 scope；不另用这张表定义 PR 依赖和并行关系。
 
 ## 页脚
 
-**AI 生成的提交**，在信息末尾附**当次工具链下发的**模型署名行；**PR 描述**末尾附同一份署名。
-
-- **格式由工具链决定**（各工具的署名形式不同），本文件不规定具体字符串，也不硬编码某个工具的示例。
-- **工具链没有下发署名时，不加**——不要自己编一个（历史提交也不必回头补）。
-
-## 示例
-
-```
-feat(compiler): <做了什么，动词开头>
-
-<为什么这么改：要解决的问题、取舍；不复述 diff>
-```
-```
-docs(<scope>): <做了什么>
-```
+AI 提交和 PR 描述附当前工具链明确下发的署名，格式服从该工具链。
+没有下发署名时不加，不自行编造，也不回填历史提交。
