@@ -312,7 +312,7 @@ impl TypeDesc {
     }
     /// Byte length of a fresh instance's field area (the cells behind the object header) — every
     /// field cell, references included (object model R3: no reference side table). Single sizing
-    /// site for every object construction (`OwnedObject::of_type`, `MagrGC::alloc_instance`).
+    /// site for every object construction (`OwnedObject::of_type`, `Heap::alloc_instance`).
     ///
     /// - **Boxed value struct** (`is_struct`): the payload IS the struct blob — the struct
     ///   layout's `size` (reference leaves are 8 B words inside it).

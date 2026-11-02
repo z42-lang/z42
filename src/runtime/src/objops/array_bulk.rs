@@ -79,7 +79,7 @@ pub fn check_untyped_store(arr: &ArrayObj, v: &Value) -> OpResult<()> {
     }
     match arr.prim_backing_kind() {
         Some(kind) if !arr.prim_backing_accepts(v) => Err(OpError::throw(INVALID_CAST_EXC, format!(
-            "cannot store {} into a {kind} element", crate::vm::exec::ops::scalar::value_kind_name(v)))),
+            "cannot store {} into a {kind} element", crate::object::value_kind_name(v)))),
         _ => Ok(()),
     }
 }
@@ -183,7 +183,7 @@ fn copy_direct(src: &ArrRef, si: usize, dst: &ArrRef, di: usize, n: usize) -> Op
                 if !d.prim_backing_accepts(&elem) {
                     return Err(OpError::throw(INVALID_CAST_EXC, format!(
                         "source element {} is {} — cannot store it into a {kind} element",
-                        si + k, crate::vm::exec::ops::scalar::value_kind_name(&elem))));
+                        si + k, crate::object::value_kind_name(&elem))));
                 }
             }
         }

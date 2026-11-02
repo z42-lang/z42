@@ -173,31 +173,42 @@ public sealed class BuildSession {
         }
         // ④ [plugins] → 编译器侧插件 zpkg 路径（名字条目查解析域；`.zpkg` path 直用；工程 path 以
         //    AnalyzerChild 代建）。只带 hook 位的插件归 z42b 的 hook 加载，这里跳过；一个编译器侧插件都没有 → null。
+        // deps-plugin-routing（④前置）：[dependencies] 分流解析一次——routedNames = 全位（含 hook-only，
+        // 供 ⑤ 豁免与 E0497 白名单排除），depAzPaths = 编译器侧位（并入 azPaths）。失败在此报。
+        bool depsFailed = false;
+        string[] routedNames = null;
+        string[] depAzPaths = this._depsPluginPaths(pm, libs, libsN, ref depsFailed, ref routedNames);
+        if (depsFailed) { return BuildSession._fail(BuildExit.BuildError); }
         string[] azPaths = null;
         if (pm.PluginCount > 0) {
             PluginPaths pp0 = this._resolvePlugins(pm, libs, libsN);
             if (pp0 == null) { return BuildSession._fail(BuildExit.BuildError); }
             if (pp0.Count > 0) { azPaths = pp0.Paths; }
         }
+        if (depAzPaths != null) { azPaths = BuildSession._mergePaths(azPaths, depAzPaths); }
         // ⑤ 声明的依赖必须在解析域里（此前 z42b 路径把解析域下所有 zpkg 都当成已声明，这条从不触发）。
+        //    deps-plugin-routing：插件包条目（读头自述）从检查里摘出去——它们经插件目录 / .zpkg path
+        //    解析进工具链、不在运行期解析域（④ 前置的 routedNames；污染拦截也在那里）。
+        string[] routedDeps = routedNames;
         string[] declared = new string[pm.DepCount];
+        int dn = 0;
         int dd = 0;
         while (dd < pm.DepCount) {
-            declared[dd] = pm.Deps[dd].Name;
-            string dpath = BuildSession._findInLibs(libs, libsN, declared[dd] + ".zpkg");
+            string dname = pm.Deps[dd].Name;
+            bool routed = false;
+            if (routedDeps != null) {
+                int rk = 0;
+                while (rk < routedDeps.Length) { if (routedDeps[rk] == dname) { routed = true; break; } rk = rk + 1; }
+            }
+            dd = dd + 1;
+            if (routed) { continue; }
+            string dpath = BuildSession._findInLibs(libs, libsN, dname + ".zpkg");
             if (dpath == "") {
-                rep.Fail("[dependencies] `" + declared[dd] + "` 未找到 " + declared[dd] + ".zpkg；已查找："
+                rep.Fail("[dependencies] `" + dname + "` 未找到 " + dname + ".zpkg；已查找："
                     + BuildSession._dirList(libs, libsN) + "。检查包名拼写，或先构建该依赖。");
                 return BuildSession._fail(BuildExit.BuildError);
             }
-            // 插件包不能作运行期依赖：它只加载进工具链进程、永不链入产物（读头的能力位判）。
-            int dcaps = PluginZpkg.HeaderCaps(dpath);
-            if (PluginCaps.IsPlugin(dcaps)) {
-                rep.Fail("[dependencies] `" + declared[dd] + "`（" + dpath + "）是插件包（" + PluginCaps.Describe(dcaps)
-                    + "），不能作运行期依赖。改法：把它挪进 [plugins] 段。");
-                return BuildSession._fail(BuildExit.BuildError);
-            }
-            dd = dd + 1;
+            declared[dn] = dname; dn = dn + 1;
         }
         // ⑥ 解析（带 [syntax] 特性门）→ 组 CompileInputs → 编译。
         CompilationUnit[] cus = new CompilationUnit[srcs.Length];
@@ -221,7 +232,7 @@ public sealed class BuildSession {
         inp.OptSet = kn.OptSet;
         inp.LibsDirs = libs; inp.LibsDirsN = libsN;
         inp.Tier = SdkLibs.MergeTier(null, sdkPlan);
-        string[] declaredAll = SdkLibs.ExtendDeclared(declared, pm.DepCount, sdkPlan);
+        string[] declaredAll = SdkLibs.ExtendDeclared(declared, dn, sdkPlan);
         inp.DeclaredDeps = declaredAll; inp.DepCount = declaredAll.Length;
         inp.EnforceDeclaredDeps = true;          // 真的读了一份清单 ⇒ 执行依赖契约（E0497），同 z42c build
         inp.ParentPkg = o.ParentPkg;
@@ -312,6 +323,91 @@ public sealed class BuildSession {
         int t = 0;
         while (t < n) { trimmed[t] = paths[t]; t = t + 1; }
         return new PluginPaths(trimmed, n);
+    }
+
+    // [dependencies] 里按 zpkg 头自述分流出的**编译器侧**插件包（deps-plugin-routing）。口径与
+    // z42c.driver `_pluginDepZpkgs` 一致：名字条目 = libs 先（命中插件 ⇒ 污染报错）、插件目录
+    //（PluginDirs.Search()）后；`.zpkg` path 直连；工程目录条目不在此（kind = "plugin" 的 path 依赖
+    // 被上游拒绝——源码形态的插件引用属于 [plugins]）。hook 位归 z42b（builder_hooks._loadDepsHooks）。
+    // 返回 null = 无编译器侧分流；routedNames = **全位**分流名（含 hook-only；null = 无）；failed = true = 诊断已报。
+    private string[] _depsPluginPaths(ProjectManifest pm, string[] libs, int libsN, ref bool failed, ref string[] routedNames) {
+        IBuildReporter rep = this._o.Reporter;
+        string[] acc = new string[pm.DepCount > 0 ? pm.DepCount : 1];
+        string[] names = new string[pm.DepCount > 0 ? pm.DepCount : 1];
+        int n = 0; int nn = 0;
+        int di = 0;
+        while (di < pm.DepCount) {
+            DepEntry de = pm.Deps[di];
+            di = di + 1;
+            string dgot = this._depPluginZpkg(de, libs, libsN, ref failed);
+            if (failed) { return null; }
+            if (dgot.Length == 0) { continue; }
+            ZpkgInfo dp = null;
+            try { dp = ZpkgReader.Open(File.ReadAllBytes(dgot), dgot); } catch (Exception ex) { dp = null; }
+            if (dp == null || !PluginCaps.IsPlugin(dp.PluginCaps)) { continue; }
+            PluginInspection dpi = PluginZpkg.Inspect(dgot, de.Name);
+            if (dpi.Error.Length > 0) { rep.Fail(dpi.Error); failed = true; return null; }
+            names[nn] = de.Name; nn = nn + 1;
+            if (PluginCaps.ForCompiler(dpi.Caps)) { acc[n] = dgot; n = n + 1; }
+        }
+        if (nn > 0) {
+            string[] rn = new string[nn];
+            int q = 0;
+            while (q < nn) { rn[q] = names[q]; q = q + 1; }
+            routedNames = rn;
+        }
+        if (n == 0) { return null; }
+        string[] r = new string[n];
+        int k = 0;
+        while (k < n) { r[k] = acc[k]; k = k + 1; }
+        return r;
+    }
+
+    // 一个 [dependencies] 条目 → 插件 zpkg 路径（"" = 不是插件 / 不归分流）；failed = 诊断已报。
+    // 名字条目：libs 先（命中插件 ⇒ 污染报错）、插件目录后；.zpkg path 直连；工程目录条目恒 ""。
+    private string _depPluginZpkg(DepEntry de, string[] libs, int libsN, ref bool failed) {
+        IBuildReporter rep = this._o.Reporter;
+        if (de.Path.Length == 0) {
+            string dfile = de.Name + ".zpkg";
+            int dd = 0;
+            while (dd < libsN) {
+                string cand = Path.Join(libs[dd], dfile);
+                if (File.Exists(cand)) {
+                    ZpkgInfo h = null;
+                    try { h = ZpkgReader.Open(File.ReadAllBytes(cand), cand); } catch (Exception ex) { h = null; }
+                    if (h != null && PluginCaps.IsPlugin(h.PluginCaps)) {
+                        rep.Fail("[dependencies] `" + de.Name + "`（" + cand + "）是插件包（"
+                            + PluginCaps.Describe(h.PluginCaps) + "）——插件包不进运行期解析域："
+                            + "把它移到插件目录（Z42_PLUGINS / <sdk>/plugins）后按名依赖，或改写到 [plugins] 段。");
+                        failed = true;
+                    }
+                    return "";   // 普通库（或读不开）：存在性归编译侧校验，不认领
+                }
+                dd = dd + 1;
+            }
+            string[] pdirs = PluginDirs.Search();
+            int pd = 0;
+            while (pd < pdirs.Length) {
+                string cand = Path.Join(pdirs[pd], dfile);
+                if (File.Exists(cand)) { return cand; }
+                pd = pd + 1;
+            }
+            return "";
+        }
+        if (!de.Path.EndsWith(".zpkg")) { return ""; }
+        string full = Path.IsRooted(de.Path) ? de.Path : Path.Join(this._o.ProjectDir, de.Path);
+        return File.Exists(full) ? full : "";
+    }
+
+    // azPaths ∪ depPaths（azPaths 可能 null）；都空 → null。
+    private static string[] _mergePaths(string[] azPaths, string[] depPaths) {
+        int a = (azPaths == null ? 0 : azPaths.Length);
+        string[] r = new string[a + depPaths.Length];
+        int i = 0;
+        while (i < a) { r[i] = azPaths[i]; i = i + 1; }
+        int j = 0;
+        while (j < depPaths.Length) { r[a + j] = depPaths[j]; j = j + 1; }
+        return r;
     }
 
     // path 条目的插件（工程目录 / 免清单目录 / 单文件）+ 源集条目（include/exclude）：定位（或合成）

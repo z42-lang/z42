@@ -17,7 +17,7 @@
 //!
 //! One more way back from the dead is a **weak / soft reference read**: an object that was only
 //! weakly reachable at the snapshot can be handed to a register. Those read paths shade their
-//! result (see `ArcMagrGC::shade_if_marking`).
+//! result (see `Heap::shade_if_marking`).
 //!
 //! # Where the barrier sits
 //!
@@ -25,7 +25,7 @@
 //! `ScriptObject::try_set_field_value` / `set_struct_ref_leaf` / `write_blob` and
 //! `ArrayObj::set_boxed` / `write_struct_elem` / `set_struct_elem_ref`), not at the ~40 call sites.
 //! The primitives have no heap in hand, which is why this module is keyed off thread-local state
-//! rather than a `&ArcMagrGC`. The raw stores (test-only `set_ref_raw_for_test`, …) skip it and are reserved for
+//! rather than a `&Heap`. The raw stores (test-only `set_ref_raw_for_test`, …) skip it and are reserved for
 //! objects that were just allocated (their old values are all `Null`) and for the GC itself
 //! (breaking edges of dead objects must not record them).
 //!
@@ -59,7 +59,7 @@ static MARKING_GEN: AtomicU64 = AtomicU64::new(1);
 static MARKING: Mutex<Vec<(u64, u8)>> = Mutex::new(Vec::new());
 
 struct ThreadSatb {
-    /// Heap this thread records for (`MagrGC::heap_epoch`); 0 = unbound, records nothing.
+    /// Heap this thread records for (`Heap::heap_epoch`); 0 = unbound, records nothing.
     heap: u64,
     /// Outer bindings, restored LIFO as nested `VmContext`s on this thread are dropped.
     outer: Vec<u64>,
@@ -208,7 +208,7 @@ fn record_slow(old: &Value) {
             return;
         }
         // Already marked this cycle ⇒ the marker has it; recording would only be extra work.
-        if crate::gc::arc_heap::ArcMagrGC::is_marked_value(old, MarkKind::Major(t.epoch)) {
+        if crate::gc::Heap::is_marked_value(old, MarkKind::Major(t.epoch)) {
             return;
         }
         t.buf.push(old.clone());

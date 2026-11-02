@@ -1,9 +1,9 @@
 //! GC mode selection.
 //!
-//! [`GcMode`] selects which collection algorithm `ArcMagrGC` uses. The default is
+//! [`GcMode`] selects which collection algorithm `Heap` uses. The default is
 //! **`GenerationalMarkSweep`** (`flip-gc-default-to-generational`);
-//! `StwMarkSweep` is opt-in via [`ArcMagrGC::set_mode`] or `Z42_GC_MODE=stw`.
-//! Both run their majors incrementally (`arc_heap/incremental.rs`) when sliced.
+//! `StwMarkSweep` is opt-in via [`Heap::set_mode`] or `Z42_GC_MODE=stw`.
+//! Both run their majors incrementally (`heap/incremental.rs`) when sliced.
 //!
 //! **Why generational is the default now.** It was not for a long time, and the reason was
 //! not caution — it genuinely lost on both axes. Four changes turned that around:
@@ -21,7 +21,7 @@
 //! Footprint *and* median pause both improve; the cost is 3.4% wall for doing 5× the
 //! collections. Max pause is unchanged — it is set by the majors, which both modes run.
 
-/// Selectable GC algorithm. Encoded as `u8` so `ArcMagrGC` can hold
+/// Selectable GC algorithm. Encoded as `u8` so `Heap` can hold
 /// the active mode in an `AtomicU8` field for lock-free mode reads on
 /// the write-barrier hot path.
 #[repr(u8)]
@@ -54,14 +54,6 @@ impl Default for GcMode {
 }
 
 impl GcMode {
-    /// Resolve the GC mode from the process-wide `RuntimeConfig`.
-    /// Unset / invalid `Z42_GC_MODE` → the default mode — the warning
-    /// lands once in `crate::config::parse_gc_mode` at first access, not
-    /// per-callsite (runtime-config-phase2).
-    pub fn from_env() -> Self {
-        crate::config::runtime_config().gc_mode
-    }
-
     /// Convert from the `u8` representation used by `AtomicU8` storage.
     /// Returns `StwMarkSweep` for unknown values — defensive default
     /// so that even corrupt storage can't crash on a `match` exhaustivity
@@ -96,8 +88,4 @@ mod mode_tests {
         assert_eq!(GcMode::from_u8(255), GcMode::StwMarkSweep);
     }
 
-    // Note: from_env() tests cannot reliably set env vars in a unit test
-    // (Rust test harness shares process state across parallel tests). The
-    // env-var path is covered by `config_tests` (parsing) and by
-    // ArcMagrGC::new() construction in `arc_heap_tests::mode_selection`.
 }

@@ -228,7 +228,7 @@ fn unresolved_was_recorded(vm: &VmContext, name: &str) -> bool {
 #[test]
 fn zero_of_every_value_type_kind() {
     let vm = vm_with_types();
-    let _heap = crate::gc::ambient::HeapGuard::enter(vm.heap());
+    let _heap = crate::vm::exec::ambient::HeapGuard::enter(vm.heap());
     assert_eq!(static_zero_value(&vm, "int"), Value::I64(0));
     assert_eq!(static_zero_value(&vm, "double"), Value::F64(0.0));
     assert_eq!(static_zero_value(&vm, "Demo.Color"), Value::I64(0), "enums are i64-backed");
@@ -244,14 +244,14 @@ fn zero_of_every_value_type_kind() {
 #[test]
 fn generic_struct_instantiation_resolves_by_its_identity_name() {
     let vm = vm_with_types();
-    let _heap = crate::gc::ambient::HeapGuard::enter(vm.heap());
+    let _heap = crate::vm::exec::ambient::HeapGuard::enter(vm.heap());
     assert_zero_box(static_zero_value(&vm, "Demo.Pair<int, long>"), "Demo.Pair<int,long>");
 }
 
 #[test]
 fn reference_types_read_null_without_probing_unresolvable_names() {
     let vm = vm_with_types();
-    let _heap = crate::gc::ambient::HeapGuard::enter(vm.heap());
+    let _heap = crate::vm::exec::ambient::HeapGuard::enter(vm.heap());
     for tag in ["string", "object", "Demo.Box", "Demo.Point[]", "unknown", "Demo.Box<int>"] {
         assert_eq!(static_zero_value(&vm, tag), Value::Null, "{tag}");
     }
@@ -265,7 +265,7 @@ fn reference_types_read_null_without_probing_unresolvable_names() {
 #[test]
 fn verify_fills_struct_statics_and_leaves_reference_and_open_type_param_statics_null() {
     let vm = vm_with_types();
-    let _heap = crate::gc::ambient::HeapGuard::enter(vm.heap());
+    let _heap = crate::vm::exec::ambient::HeapGuard::enter(vm.heap());
     let m = empty_module();
     match verify_static_field(&vm, &m, "Demo.S.P") {
         StaticNullVerdict::Default(v) => assert_zero_box(v, "Demo.Point"),

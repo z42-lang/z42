@@ -190,7 +190,7 @@ impl VmContext {
             type_lookup_cache: Mutex::new(FxHashMap::default()),
             fn_lookup_cache: Mutex::new(FxHashMap::default()),
             isa_cache: super::isa_cache::IsaCache::new(),
-            safepoint_skip: std::sync::atomic::AtomicU32::new(crate::gc::safepoint::throttle_n()),
+            safepoint_skip: std::sync::atomic::AtomicU32::new(crate::vm::threads::safepoint::throttle_n()),
             _pin: PhantomPinned,
         };
         let boxed = Box::new(ctx);
@@ -214,7 +214,7 @@ impl VmContext {
         // tests/gc_registration_race_loom.rs checks both halves.
         {
             let mut phase = boxed.core.gc_phase.lock();
-            while matches!(*phase, crate::gc::GcPhase::Marking) {
+            while matches!(*phase, crate::vm::threads::safepoint::GcPhase::Marking) {
                 boxed.core.gc_phase_cv.wait(&mut phase);
             }
             boxed.core.vm_contexts.lock().push(ptr);
@@ -253,14 +253,14 @@ impl VmContext {
             pinned_owned_buffers: Mutex::new(HashMap::new()),
             fatal:                std::sync::atomic::AtomicBool::new(false),
             processes:            ResourceRegistry::new(),
-            heap:                 Box::new(ArcMagrGC::new()),
+            heap:                 Box::new(Heap::new(crate::config::runtime_config().gc_config())),
             vm_contexts:          Mutex::new(Vec::new()),
             funcs:                Arc::new(crate::vm::runtime::ids::func_table::FuncTable::new(module.clone())),
             types:                Arc::new(crate::vm::runtime::ids::type_table::TypeTable::new(module.as_deref())),
             strings:              Arc::new(crate::vm::runtime::ids::str_table::StrTable::new(module.clone())),
             module,
             threads:              ResourceRegistry::new(),
-            gc_phase:             Mutex::new(crate::gc::safepoint::GcPhase::Idle),
+            gc_phase:             Mutex::new(crate::vm::threads::safepoint::GcPhase::Idle),
             gc_phase_cv:          parking_lot::Condvar::new(),
             parked_count:         std::sync::atomic::AtomicUsize::new(0),
             collector_active:     std::sync::atomic::AtomicBool::new(false),
@@ -288,18 +288,18 @@ impl VmContext {
             runtime_observers: crate::observer::RuntimeObserverRegistry::new(),
             // add-concurrency-probes : empty park histogram + zeroed
             // contention counters (only written under the `profile-contention` feature).
-            park_histogram: Mutex::new(crate::gc::types::PauseHistogram::default()),
+            park_histogram: Mutex::new(crate::gc::types::PauseHistogram::new(crate::config::runtime_config().gc_pause_window)),
             lock_contentions: std::sync::atomic::AtomicU64::new(0),
             lock_wait_us:     std::sync::atomic::AtomicU64::new(0),
             // add-sampling-profiler : start the sampler only when
             // Z42_SAMPLE_HZ is set; otherwise disabled() (no thread, zero-cost).
             // Trace timeline recorded only when Z42_TRACE_OUT is also set.
             sampler: match crate::config::runtime_config().sample_hz {
-                Some(hz) => crate::gc::Sampler::start(
+                Some(hz) => crate::profiler::cpu::Sampler::start(
                     hz,
                     crate::config::runtime_config().trace_out.is_some(),
                 ),
-                None => crate::gc::Sampler::disabled(),
+                None => crate::profiler::cpu::Sampler::disabled(),
             },
             #[cfg(feature = "jit")]
             jit: std::sync::OnceLock::new(),
@@ -327,7 +327,7 @@ impl VmContext {
             let core_weak = Arc::downgrade(&core);
             core.heap.set_safepoint_poke(Arc::new(move || {
                 if let Some(c) = core_weak.upgrade() {
-                    crate::gc::safepoint::poke_safepoints(&c);
+                    crate::vm::threads::safepoint::poke_safepoints(&c);
                 }
             }));
         }
@@ -356,86 +356,14 @@ impl VmContext {
             }
         }
 
-        // External GC root scanner — invoked by the cycle collector during
-        // mark phase. Walks all out-of-heap Value sources so cycles whose
-        // only roots are static fields / pending exceptions / live frame
-        // regs / per-context arenas stay alive.
-        //
-        // **add-vmcontext-registry **: scanner walks the
-        // `vm_contexts` registry to find every live VmContext on this
-        // VmCore. Each VmContext contributes its own per-thread roots
-        // (pending_exception / pending_thrown / call_stack frames). The
-        // closure captures `Weak<VmCore>` ONLY — no per-thread Arc clones.
-        {
-            let core_weak = Arc::downgrade(&core);
-            core.heap.set_external_root_scanner(Box::new(move |visit| {
-                let Some(c) = core_weak.upgrade() else { return; };
-                // 1. Shared static fields.
-                c.statics.scan_roots(visit);
-                // Interned `ConstStr` literals: after their instruction they live only in
-                // the VM's string table (`vm::runtime::ids::str_table`), which keeps them alive.
-                c.strings.scan_roots(|s| visit(&Value::Str(s)));
-                // 2-4. Per-thread roots, one VmContext per OS thread.
-                //
-                // SAFETY: each VmContextPtr was registered via
-                // `VmContext::new()` *after* its `Pin<Box<...>>` heap
-                // allocation, and `VmContext::drop` removes the entry
-                // BEFORE the Box is dealloc'd. We hold `vm_contexts.lock()`
-                // for the full walk, so a concurrent drop on another thread
-                // blocks until we release — no use-after-free possible.
-                let registry = c.vm_contexts.lock();
-                for ctx_ptr in registry.iter() {
-                    let ctx = unsafe { &*ctx_ptr.0 };
-                    // pending_exception / pending_thrown
-                    if let Some(v) = ctx.pending_exception.lock().as_ref() {
-                        visit(v);
-                    }
-                    if let Some(v) = ctx.pending_thrown.lock().as_ref() {
-                        visit(v);
-                    }
-                    // live z42 frame state — unified VmFrame entries.
-                    //
-                    // SAFETY (frame stack): the scanner runs only inside a GC
-                    // pause (`request_gc_pause` → `Marking`), where every
-                    // other registered context is parked and this one is the
-                    // collector's own — `scan_frames_parked`'s contract.
-                    // SAFETY (frame.regs): raw ptr valid for the
-                    // lifetime of the owning Rust frame (FrameGuard RAII for
-                    // interp; `enter_compiled` for JIT), which outlives the park.
-                    unsafe {
-                        ctx.scan_frames_parked(|frames| {
-                            for frame in frames {
-                                for v in (*frame.regs).iter() {
-                                    visit(v);
-                                }
-                            }
-                        });
-                    }
-                    // add-escape-analysis-stack-alloc: stack-alloc arena roots.
-                    // A stack object's slots / stack array's elements may hold heap
-                    // GcRefs that must stay marked while the stack object is live.
-                    // (The stack objects themselves are not GC-heap entries and are
-                    // freed by frame-exit truncation, not sweep.) The arena lock is
-                    // never held across a GC trigger, so this cannot deadlock.
-                    ctx.stack_arena.lock().scan_roots(visit);
-                    // add-struct-value-semantics: value-struct blobs' reference
-                    // leaves are GC roots too (no-op for pure-primitive structs;
-                    // ref-leaf scanning by type ref-bitmap lands in A-use).
-                    ctx.struct_arena.lock().scan_roots(visit);
-                    // make-value-copy: transient payloads (Ref target / StructRefHeap
-                    // backing array) hold GcRefs that must stay marked while the handle
-                    // is live; the arena is the root (handles are not traced through).
-                    ctx.transient_arena.lock().scan_roots(visit);
-                }
-            }));
-        }
+        core.heap.set_external_root_scanner(Box::new(crate::vm::threads::roots::CoreRoots(Arc::downgrade(&core))));
 
         // add-lazy-context-unload: wire the collectible-context reclaimer so a
         // major GC reclaims `Unloading` AssemblyLoadContexts with no live refs.
         // Captures `Weak<VmCore>` (cycle avoidance) + the unloading-count flag.
         {
             let unloading = core.context_registry.lock().unloading_flag();
-            core.heap.set_context_reclaimer(Box::new(CoreContextReclaimer {
+            core.heap.set_context_reclaimer(Box::new(crate::vm::loader::context_gc::CoreContextReclaimer {
                 core: Arc::downgrade(&core),
                 unloading,
             }));
@@ -448,7 +376,7 @@ impl VmContext {
         {
             let core_weak = Arc::downgrade(&core);
             core.heap.set_categorized_root_scanner(Box::new(move |visit| {
-                use crate::gc::retention::RootKind;
+                use crate::gc::walk::RootKind;
                 let Some(c) = core_weak.upgrade() else { return; };
                 c.statics.scan_roots(&mut |v| visit(v, RootKind::StaticField));
                 // Interned `ConstStr` literals (VM-wide, like static fields).
@@ -513,7 +441,7 @@ impl VmContext {
             type_lookup_cache: Mutex::new(FxHashMap::default()),
             fn_lookup_cache: Mutex::new(FxHashMap::default()),
             isa_cache: super::isa_cache::IsaCache::new(),
-            safepoint_skip: std::sync::atomic::AtomicU32::new(crate::gc::safepoint::throttle_n()),
+            safepoint_skip: std::sync::atomic::AtomicU32::new(crate::vm::threads::safepoint::throttle_n()),
             _pin: PhantomPinned,
         };
         // Heap-allocate so the address is stable for the scanner registry.

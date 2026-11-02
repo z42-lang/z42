@@ -39,7 +39,7 @@
 //!   bumped at tombstone → stale `VarGcRef` can't resolve it).
 //! - **Slow path**: bump-allocate within the current 64 KB chunk; grow a fresh chunk when
 //!   full. Blocks whose total exceeds a chunk get a dedicated exactly-sized chunk.
-//! - **TLAB** (production allocation, `arc_heap/alloc.rs`): the same free lists, taken a batch
+//! - **TLAB** (production allocation, `heap/alloc.rs`): the same free lists, taken a batch
 //!   per size class at a time and filled lock-free ([`holes`], M12), before the thread's bump
 //!   claim on a whole fresh or pooled chunk ([`chunk::VarChunkClaim`]).
 //!
@@ -47,7 +47,7 @@
 //!
 //! `iterate_alive` walks each chunk's carved prefix `[0, hwm)` header by header (every header
 //! names its size class, hence the next block's offset), skipping tombstoned blocks. Mark/sweep
-//! is driven by the heap (`ArcMagrGC`): mark survivors, `sweep` tombstones the unmarked
+//! is driven by the heap (`Heap`): mark survivors, `sweep` tombstones the unmarked
 //! (alive=false + generation bump + push to the size-class free list). The young set is a
 //! per-chunk bitmap of block starts (`generation.rs`).
 //!
@@ -92,7 +92,7 @@ use chunk::{Chunk, FreeEntry, FreeSlot, NUM_CLASSES};
 
 // The packed `gen_age` in `GcBlockHeader::type_tag` is two bits wide, so the **default**
 // promotion age has to fit in it. `Z42_GC_PROMOTION_AGE` is clamped to the same ceiling at
-// construction (`gc::promotion_age_from_config`); this guards the compile-time default.
+// construction (`gc::GcConfig::promotion_age`); this guards the compile-time default.
 const _: () = assert!(
     crate::gc::PROMOTION_THRESHOLD <= block::MAX_GEN_AGE,
     "PROMOTION_THRESHOLD exceeds the gen_age bits packed into GcBlockHeader::type_tag"
@@ -177,7 +177,7 @@ pub struct VarRegion {
     /// `GcMode::GenerationalMarkSweep`, so under any other mode the bitmaps are not allocated
     /// and alloc / tombstone skip them.
     ///
-    /// Flipped by [`Self::set_generational`], which `ArcMagrGC::set_mode` calls.
+    /// Flipped by [`Self::set_generational`], which `Heap::set_mode` calls.
     generational: bool,
     /// Count of live (alive=true) blocks, for diagnostics + auto-collect heuristics.
     live_count: usize,

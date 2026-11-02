@@ -6,7 +6,7 @@
 
 ## 功能索引
 
-- `value/`：Value、原子单元、引用字、型参单元和 struct blob。
+- `value/`：Value、原子单元、引用字、型参单元、struct blob 和纯值种类名称。
 - `types/`：TypeDesc 形状、字段、对象/struct 布局、元素类型及泛型实参句柄。
 - `header/`：区块头、标记位、强/弱句柄与 generation 快照。
 - `object/`：对象与堆外对象存储、字段访问和引用遍历。

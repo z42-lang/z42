@@ -2,8 +2,8 @@
 
 > 代码：
 > `src/libraries/z42.core/src/GC/GCHandle.z42`、`src/libraries/z42.core/src/GC/HeapStats.z42`、
-> `src/runtime/src/corelib/gc.rs`、`src/runtime/src/gc/arc_heap.rs`（`HandleSlab` / `HandleEntry`）、
-> `src/runtime/src/gc/arc_heap/interface.rs`（`handle_*` 实现）、`src/runtime/src/gc/heap.rs`（trait 声明）
+> `src/runtime/src/corelib/gc.rs`、`src/runtime/src/gc/heap.rs`（`HandleSlab` / `HandleEntry`）、
+> `src/runtime/src/gc/heap/api.rs`（`handle_*` 实现）、`src/runtime/src/gc/heap.rs`（具体堆状态）
 >
 > 收集器本体（标记 / 清扫 / 分代 / 增量 major）见 [GC 子系统](gc.md)；
 > 「谁还持有这个对象」的反查见[堆保留诊断](heap-diagnostics.md)。
@@ -21,7 +21,7 @@ slot id；`0` 是「未分配」sentinel。五个成员全是 `[Native("__gc_han
 
 | z42 成员 | builtin | 落到 |
 |---|---|---|
-| `Alloc(target, GCHandleType)` | `__gc_handle_alloc` | `MagrGC::handle_alloc` |
+| `Alloc(target, GCHandleType)` | `__gc_handle_alloc` | `Heap::handle_alloc` |
 | `Target { get; }` | `__gc_handle_target` | `handle_target` |
 | `IsAllocated { get; }` | `__gc_handle_is_alloc` | `handle_is_alloc` |
 | `Kind { get; }` | `__gc_handle_kind` | `handle_kind` |
@@ -67,7 +67,7 @@ enum HandleEntry {
 `entries[0]` 永不读写——它在第一次 `alloc` 时被懒占位成 `None`，好让「slot id 0 = 未分配」
 这个 sentinel 与真实索引不冲突。
 
-分配时的取值分支（`arc_heap/interface.rs::handle_alloc`）只有四种结果：
+分配时的取值分支（`heap/api.rs::handle_alloc`）只有四种结果：
 
 | target | Strong | Weak |
 |---|---|---|
@@ -90,22 +90,22 @@ enum HandleEntry {
 
 | 路径 | 文件 | 什么时候跑 |
 |---|---|---|
-| 全堆 STW 标记 | `arc_heap/collect.rs::mark_phase` | `collect_full`（`GC.ForceCollect()`）/ 非分代整堆回收 / 一次性 major |
-| 分代 minor 标记 | `arc_heap/generational.rs::mark_phase_minor` | 默认收集器的绝大多数停顿 |
-| 增量 major 开镜 | `arc_heap/roots.rs::snapshot_roots_into_mark_queue` | 增量 major 的根快照 |
-| 保留诊断反查 | `arc_heap/roots.rs`（retention 图） | `Heap.RetainingRoots`，报成 `RootKind::Pinned` |
+| 全堆 STW 标记 | `heap/collect.rs::mark_phase` | `collect_full`（`GC.ForceCollect()`）/ 非分代整堆回收 / 一次性 major |
+| 分代 minor 标记 | `heap/generational.rs::mark_phase_minor` | 默认收集器的绝大多数停顿 |
+| 增量 major 开镜 | `heap/roots.rs::snapshot_roots_into_mark_queue` | 增量 major 的根快照 |
+| 保留诊断反查 | `profiler/heap/retention.rs`（经 `gc/walk.rs` 扫根） | `Heap.RetainingRoots`，报成 `RootKind::Pinned` |
 
 **三条标记路径必须一起改**：只补整堆那条，默认（分代）配置下强句柄照样不保活，而分代 minor
 才是绝大多数回收。诊断那条也得跟着——否则反查会显示一个「活着但没有任何 retainer」的对象，
 正好是这个诊断存在的意义所在。
 
 弱句柄不进任何根集，这是它与强句柄**唯一**的行为差别（而不是「能不能 downgrade」）。
-`src/runtime/src/gc/arc_heap_tests/roots.rs` 里三个测试分别锁住：强句柄跨整堆回收保活、弱句柄
+`src/runtime/src/gc/heap_tests/roots.rs` 里三个测试分别锁住：强句柄跨整堆回收保活、弱句柄
 不保活、强句柄跨 minor 保活。
 
 ## 4. 读出口上的增量 major 闸门
 
-`handle_target` 先把条目拷出 `inner` 锁再求值（弱对象引用的 upgrade 要拿变长区的锁，不能嵌在 `inner` 里），读到值之后还要过 `admit_resurrected`（`arc_heap/incremental.rs`）：
+`handle_target` 先把条目拷出 `inner` 锁再求值（弱对象引用的 upgrade 要拿变长区的锁，不能嵌在 `inner` 里），读到值之后还要过 `admit_resurrected`（`heap/incremental.rs`）：
 
 - 增量 major 正在**标记**：把读出的值 shade 一次——它可能在快照时只被弱可达，而现在要进
   寄存器了；
@@ -161,7 +161,7 @@ sentinel 里 `0` 会与「上限就是 0 字节」混淆、`u64::MAX` 转 i64 �
 
 | 层 | 位置 |
 |---|---|
-| slab 行为单测（alloc / free / 复用 / 幂等 / kind） | `src/runtime/src/gc/arc_heap_tests/weak_refs.rs` |
-| 强/弱句柄作为 mark root（整堆 + minor） | `src/runtime/src/gc/arc_heap_tests/roots.rs` |
+| slab 行为单测（alloc / free / 复用 / 幂等 / kind） | `src/runtime/src/gc/heap_tests/weak_refs.rs` |
+| 强/弱句柄作为 mark root（整堆 + minor） | `src/runtime/src/gc/heap_tests/roots.rs` |
 | 端到端：强 anchor / 弱失效 / alias 共享 slot | `src/tests/gc/gc_handle.z42` |
 | 端到端：`GetStats()` 字段与 `-1` sentinel | `src/tests/gc/gc_stats.z42` |

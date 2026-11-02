@@ -46,6 +46,7 @@ mod parse;
 mod render;
 mod source;
 mod resolve;
+mod split;
 pub use availability::*;
 pub use cli::*;
 pub use knob_table::{knob_by_env_name, knob_by_key, KNOWN_KNOBS};
@@ -133,16 +134,16 @@ pub struct RuntimeConfig {
     /// `Z42_GC_ADAPTIVE_PROMOTION` — whether the minor sweep may lower the promotion age by
     /// one tier when that tier is measured to reclaim nothing (adaptive-promotion).
     /// Default on; `0` pins the configured age. See
-    /// `gc/arc_heap/promotion_policy.rs` for the measurements behind the rule.
+    /// `gc/heap/promotion_policy.rs` for the measurements behind the rule.
     pub gc_adaptive_promotion: bool,
     /// `Z42_GC_INCREMENTAL` — whether a generational major runs as bounded STW slices with
     /// mutators (and minors) running between them (add-incremental-major-gc M2b). Default on;
-    /// `0` runs every major in one pause. See `gc/arc_heap/incremental.rs`.
+    /// `0` runs every major in one pause. See `gc/heap/incremental.rs`.
     pub gc_incremental: bool,
     /// `Z42_GC_PAUSE_TARGET_MS` — target maximum **minor** pause in milliseconds
     /// (add-pause-budget-nursery). The nursery is sized from the measured cost of collecting it
     /// rather than being a constant; `0` turns that off, and an explicit `Z42_GC_NURSERY_BYTES`
-    /// turns it off too (manual override wins). See `gc/arc_heap/pause_budget.rs`.
+    /// turns it off too (manual override wins). See `gc/heap/pause_budget.rs`.
     pub gc_pause_target_ms: f64,
     /// `Z42_GC_SLICE_MS` — the time budget of one incremental major slice, in milliseconds
     /// (add-incremental-major-gc M2b). Default 2. Tiny values (e.g. 0.05) are a stress knob:
@@ -279,29 +280,30 @@ pub struct RuntimeConfig {
 
 impl Default for RuntimeConfig {
     fn default() -> Self {
+        let gc = crate::gc::GcConfig::default();
         Self {
             libs_dir: None,
             probing_paths: Vec::new(),
             log_filter: None,
             crash_dir: None,
-            gc_mode: GcMode::default(),
-            gc_minor_threshold: 0.75,
-            gc_pause_window: 1024,
-            gc_soft_threshold: 0.80,
+            gc_mode: gc.mode,
+            gc_minor_threshold: gc.minor_threshold,
+            gc_pause_window: gc.pause_window,
+            gc_soft_threshold: gc.soft_threshold,
             gc_max_bytes: None,
-            gc_nursery_bytes: None,
-            gc_promotion_age: None,
+            gc_nursery_bytes: gc.nursery_bytes,
+            gc_promotion_age: gc.promotion_age,
             gc_loh_bytes: None,
             thread_stack_bytes: None,
-            gc_adaptive_promotion: true,
-            gc_incremental: true,
-            gc_pause_target_ms: 10.0,
-            gc_slice_ms: 2.0,
-            gc_phases: false,
+            gc_adaptive_promotion: gc.adaptive_promotion,
+            gc_incremental: gc.incremental,
+            gc_pause_target_ms: gc.pause_target_ms,
+            gc_slice_ms: gc.slice_ms,
+            gc_phases: gc.phases,
             gc_trace: false,
-            gc_verify_cards: false,
-            gc_near_limit_ratio: 0.90,
-            gc_pressure_ratio: 0.75,
+            gc_verify_cards: gc.verify_cards,
+            gc_near_limit_ratio: gc.near_limit_ratio,
+            gc_pressure_ratio: gc.pressure_ratio,
             gc_throttle_ratio: 0.10,
             safepoint_throttle: 1024,
             native_search_paths: Vec::new(),

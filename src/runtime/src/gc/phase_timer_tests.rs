@@ -6,6 +6,20 @@ use super::format_phase;
 use std::time::Duration;
 
 #[test]
+fn disabled_timer_does_not_read_the_clock_or_record_counts() {
+    let timer = super::PhaseTimer::start(false, "disabled");
+    timer.count(10);
+    assert!(timer.start.is_none());
+    assert!(timer.count.get().is_none());
+}
+
+#[test]
+fn enabled_timer_uses_a_clock_only_where_supported() {
+    let timer = super::PhaseTimer::start(true, "enabled");
+    assert_eq!(timer.start.is_some(), crate::pal::time::HAS_CLOCK);
+}
+
+#[test]
 fn formats_ms_with_three_decimals() {
     let line = format_phase("full mark", Duration::from_micros(25_634), None);
     assert_eq!(line, "z42-gc:   full mark                     25.634 ms");
