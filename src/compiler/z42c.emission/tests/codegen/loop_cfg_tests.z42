@@ -1,0 +1,42 @@
+namespace LoopCfgRegression;
+using Z42.Optimization;
+using LoopCfgBench;
+using Z42.IR;
+using Std.Harness;
+
+[Test]
+void test_sparse_cfg_matches_dense_reference() {
+    int trial = 0;
+    while (trial < 80) {
+        IrFunction f = LoopCfgFixture.Make(2 + trial % 29, trial % 4);
+        LoopCfg sparse = IrLoopUtil.BuildCfg(f);
+        DenseCfg dense = DenseLoopReference.BuildCfg(f);
+        Assert.Equal(dense.Dom.Length, sparse.Dom.Length);
+        int i = 0;
+        while (i < dense.Dom.Length) { Assert.Equal(dense.Dom[i], sparse.Dom[i]); i = i + 1; }
+        bool[] a = IrLoopUtil.Headers(sparse);
+        bool[] b = DenseLoopReference.Headers(dense);
+        i = 0;
+        while (i < sparse.N) {
+            Assert.Equal(b[i], a[i]);
+            if (a[i]) {
+                bool[] sa = IrLoopUtil.LoopBody(sparse, i);
+                bool[] sb = DenseLoopReference.LoopBody(dense, i);
+                int k = 0;
+                while (k < sparse.N) { Assert.Equal(sb[k], sa[k]); k = k + 1; }
+                Assert.Equal(DenseLoopReference.CleanPreheader(f, dense, i, sb),
+                    IrLoopUtil.CleanPreheader(f, sparse, i, sa));
+            }
+            i = i + 1;
+        }
+        trial = trial + 1;
+    }
+}
+
+[Test]
+void test_sparse_cfg_skips_exception_regions_and_tiny_functions() {
+    Assert.True(IrLoopUtil.BuildCfg(LoopCfgFixture.Make(1, 0)) == null);
+    IrFunction f = LoopCfgFixture.Make(4, 1);
+    f.ExcCount = 1;
+    Assert.True(IrLoopUtil.BuildCfg(f) == null);
+}

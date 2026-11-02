@@ -152,7 +152,9 @@ reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不�
 ⓪ **有异常表（try/catch/finally，`ExcCount>0`）的函数整体跳过**——CFG 仅从 `Br/BrCond/Ret` 终结子建，
 **不含异常隐式边**（受保护区→handler/finally），支配/循环分析会错 → 误提 → miscompile（event/multicast/
 finally/div-by-zero 等 e2e 会中招）。异常边入 CFG 后再放开；
-① CFG（各块终结子取后继 Br→1/BrCond→2/Ret·Throw→0，反转得前驱位阵）；② **支配**（迭代数据流
+前驱表按源块下标升序构造，建表时间与空间均为 O(N+E)，循环体和 preheader 查询复用同一份表。支配集仍采用位图，空间为 O(N²/16)；块标签解析仍使用线性查找。
+
+① CFG（各块终结子取后继 Br→1/BrCond→2/Ret·Throw→0，直接反转得 CSR 前驱邻接表，同一源块的重复后继只登记一次）；② **支配**（迭代数据流
 `dom[b] = {b} ∪ (∩ dom[preds])`，entry=Blocks[0]）；③ **回边**（边 b→h 且 h 支配 b）→ 自然循环，body =
 h + 从 latch 反向可达（不过 h）（**并**同 header 所有回边体，多 latch 才完整）；④ **pre-header 保守判定**：
 h 的**唯一**循环外前驱 `ph` 且 `ph` 终结子 = `br h` → 干净 pre-header，否则**跳过该循环**（不做 CFG 手术造
