@@ -1664,7 +1664,7 @@ fn with_env<R>(pairs: &[(&str, Option<&str>)], f: impl FnOnce() -> R) -> R {
     // every other test in this binary (on other threads) may be the one that first touches it.
     // `ENV_LOCK` only serialises these config tests with each other — if that first read lands
     // while the env below points `Z42_CONFIG` at a file saying `gc-mode = "stw"`, the
-    // **whole test process** keeps that mode: every later `ArcMagrGC::default()` comes up
+    // **whole test process** keeps that mode: every later `Heap::default()` comes up
     // in it, and `mode_selection` / `tlab_concurrent_shared_heap_stress` fail at random
     // (3 runs in 10, measured). Pin the global to the pristine env first.
     let _ = crate::config::runtime_config();

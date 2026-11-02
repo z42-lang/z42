@@ -5,7 +5,7 @@ impl VmContext {
 
     /// Borrow the GC heap as a trait object. All script-driven allocations go
     /// through this entry point; see `docs/internals/src/runtime/gc.md`.
-    pub fn heap(&self) -> &dyn MagrGC {
+    pub fn heap(&self) -> &Heap {
         self.core.heap.as_ref()
     }
 

@@ -63,7 +63,7 @@ pub struct PinnedViewData {
 ///
 /// **unify-gc-heap PR-5** made `ClosureData` own **no heap memory outside the GC**, so the
 /// block is a POD leaf for finalization (no `BlockType::Closure` drop-glue arm, see
-/// `gc::arc_heap::var_drop_glue`). Its one edge, the `env` array, is traced by
+/// `gc::heap::var_drop_glue`). Its one edge, the `env` array, is traced by
 /// [`Value::trace_children`].
 ///
 /// **P1-2 PR 8**: the target is `fn_id`, bound once at `MkClos` (the site token makes later

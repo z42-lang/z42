@@ -1,9 +1,8 @@
 //! 型参字段的 16 B 单元（R2）：每种实例化定下的标签、各方向的不符写入（慢路）、负载字只装一种基元、
-//! GC 经标签字追踪。SATB 的那一对测试在 `gc/arc_heap_tests/incremental.rs`。
+//! GC 经标签字追踪。SATB 的那一对测试在 `gc/heap_tests/incremental.rs`。
 
-use crate::gc::MagrGC;
+use crate::gc::Heap;
 use super::*;
-use crate::gc::arc_heap::ArcMagrGC;
 use crate::gc::GcMode;
 use crate::metadata::ir::ObjectLayoutDesc;
 use crate::object::{
@@ -90,8 +89,8 @@ fn payload_word(o: &ScriptObject, slot: usize) -> u64 {
     o.cells().load_word(cell(o, slot).1 as usize, Ordering::Relaxed)
 }
 
-fn heap() -> ArcMagrGC {
-    let h = ArcMagrGC::default();
+fn heap() -> Heap {
+    let h = Heap::default();
     h.set_mode(GcMode::StwMarkSweep);
     h
 }

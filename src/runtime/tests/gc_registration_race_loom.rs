@@ -17,7 +17,7 @@
 //! 2026-06-01 "park at registration" attempt made A green and **deadlocked**
 //! `safepoint_tests::second_collector_falls_back_to_mutator_park_returns_none`.
 //!
-//! ## What is modelled (faithful to gc/safepoint.rs + arc_heap sweep/validate)
+//! ## What is modelled (faithful to gc/safepoint.rs + heap sweep/validate)
 //!
 //! - `phase`   : Idle → Requested → Marking → Idle  (gc/safepoint.rs `GcPhase`)
 //! - `num_ctx` : models `vm_contexts.len()`; the collector's handshake target is
@@ -31,7 +31,7 @@
 //! - `obj_mark`: one *alive* object's mark bit. A barrier run by the mutator shades
 //!               it (marked=1); sweep clears survivor marks back to white; the
 //!               post-sweep invariant `debug_validate_invariants` asserts no alive
-//!               object is still marked (arc_heap.rs "stale mark bit … after sweep").
+//!               object is still marked (heap.rs "stale mark bit … after sweep").
 //!
 //! ## Model A — the stale-mark race
 //!

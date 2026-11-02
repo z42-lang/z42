@@ -100,7 +100,7 @@ Active ──Unload()──▶ Unloading ──(GC 判定无引用)──▶ Rec
 
 1. **反查表**（`ContextRegistry.td_to_ctx: HashMap<*const TypeDesc, ContextId>`）：`load_into`
    时登记 collectible 类型的 `Arc::as_ptr`（root 类型不登记）。不 mutate `TypeDesc`。
-2. **保留边扫描**（`unloading_count > 0` 才激活，零回归）：major GC mark 后、sweep 前，`ArcMagrGC::scan_marked_contexts`
+2. **保留边扫描**（`unloading_count > 0` 才激活，零回归）：major GC mark 后、sweep 前，`Heap::scan_marked_contexts`
    遍历 marked `ScriptObject`，解析其**两类保留边** → 累积 `live_contexts`：
    - **活实例**：`obj.type_desc` ptr → 反查表；
    - **反射对象**：`obj.native` 为 `TypeHandle`/`AssemblyHandle`/`LoadContextHandle` 指向 collectible
