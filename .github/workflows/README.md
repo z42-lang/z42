@@ -39,7 +39,7 @@
 - **统一入口**：workflow 只调 `xtask <cmd>`，不在 yaml 里硬编码构建 / 测试命令。
 - **自举**：CI 从上一个 nightly（取不到则回退 main 上最近成功 CI 的产物）的 SDK 起步，自己编当前源码；机制见 [CI 拓扑 · 自举种子从哪来](../../docs/internals/src/devinfra/ci.md)。
 - **缓存**：Rust 依赖用 Swatinem `rust-cache`，bench 缓存由 main 上的 `bench-cache-warm` 预热。
-- **并发控制**：PR 上同一 ref 的旧 run 自动取消（`concurrency` 段）；main 的 push 运行不自动取消，由 `../ci/main-supersede.sh` 只取消不影响 SDK 的旧运行；同时在跑重 job 的 PR 运行数由 `../ci/pr-gate.sh` 限流。
+- **并发控制**：PR 上同一 ref 的旧 run 自动取消（`concurrency` 段）；main 的 push 运行不自动取消，由 `../ci/main-supersede.sh` 只取消不影响 SDK 的旧运行。job 由 GitHub 原生队列按可用 runner 调度。
 
 ## 如何测试验证
 
