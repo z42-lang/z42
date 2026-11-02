@@ -43,6 +43,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Test CI runner recovery rules
+        run: python3 -m unittest discover -s .github/ci -p 'test_*.py'
+
       # main 上的运行不互相打断（见顶部 concurrency 注释）：取消较早的、不影响 SDK 的 main push 运行，
       # 并判出本运行是否需要发布 nightly。
       - name: Supersede older main runs
@@ -196,6 +199,12 @@ jobs:
           - { os: macos-26,         platform: macos-arm64 }
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
+    # macOS jobs across PR/main/schedule share a queue before requesting a runner.
+    # Non-macOS matrix legs keep independent groups and run in parallel.
+    concurrency:
+      group: ${{ matrix.platform == 'macos-arm64' && 'ci-macos-arm64' || format('ci-test-host-{0}-{1}', github.run_id, matrix.platform) }}
+      queue: max
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v7
@@ -341,6 +350,10 @@ jobs:
           - { os: macos-26,         platform: macos-arm64 }
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
+    concurrency:
+      group: ${{ matrix.platform == 'macos-arm64' && 'ci-macos-arm64' || format('ci-package-host-{0}-{1}', github.run_id, matrix.platform) }}
+      queue: max
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
 
@@ -652,6 +665,10 @@ jobs:
     name: test-stdlib-interp(${{ matrix.platform }})
     timeout-minutes: 45
     runs-on: ${{ matrix.os }}
+    concurrency:
+      group: ${{ matrix.platform == 'macos-arm64' && 'ci-macos-arm64' || format('ci-stdlib-interp-{0}-{1}', github.run_id, matrix.platform) }}
+      queue: max
+      cancel-in-progress: false
     needs: [changes, toolchain-bootstrap]
     # vm（interp 派发）/ stdlib（测试内容 / API）/ compiler 任一改动都可能挪动结果；schedule / dispatch 全跑。
     if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
@@ -718,6 +735,10 @@ jobs:
     needs: [changes, toolchain-bootstrap]
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
     runs-on: macos-26
+    concurrency:
+      group: ci-macos-arm64
+      queue: max
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v7
@@ -1124,6 +1145,10 @@ jobs:
       matrix:
         shard: [1, 2, 3]
     runs-on: macos-26
+    concurrency:
+      group: ci-macos-arm64
+      queue: max
+      cancel-in-progress: false
     permissions:
       actions: read     # setup-z42-sdk 回退（gh run download）
       contents: read
