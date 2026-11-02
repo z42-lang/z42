@@ -55,7 +55,7 @@ fn remembered_probe(v: &Value) -> crate::object::ObjRef {
 
 #[test]
 fn generational_mode_set_observable() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     // flip-gc-default-to-generational: generational is the default now, so drive the
     // transition from an explicitly-STW heap to keep this a real mode *change*.
     heap.set_mode(GcMode::StwMarkSweep);
@@ -68,7 +68,7 @@ fn generational_mode_set_observable() {
 
 #[test]
 fn barrier_marks_card_on_old_to_young_field_write() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     // Alloc owner + child; promote owner so it counts as old.
@@ -101,7 +101,7 @@ fn barrier_marks_card_on_old_to_young_field_write() {
 /// still referenced (garbage strings under `--jobs 4` + nursery 1M).
 #[test]
 fn barrier_marks_card_on_old_to_young_string_write() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let owner = alloc_obj(&heap, "OwnerOld");
@@ -120,7 +120,7 @@ fn barrier_marks_card_on_old_to_young_string_write() {
 
 #[test]
 fn barrier_no_card_on_young_to_young_write() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let owner_young = alloc_obj(&heap, "OwnerYoung");
@@ -138,7 +138,7 @@ fn barrier_no_card_on_young_to_young_write() {
 
 #[test]
 fn barrier_no_card_on_old_to_old_write() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let owner_old = alloc_obj(&heap, "OwnerOld");
@@ -160,7 +160,7 @@ fn barrier_no_card_on_old_to_old_write() {
 fn barrier_no_op_in_stw_mode_even_under_cross_gen_setup() {
     // Even with manually-set gen_age values, the STW mode barrier
     // never marks cards. Regression guard.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);   // flip-gc-default-to-generational: opt in explicitly
     assert_eq!(heap.mode(), GcMode::StwMarkSweep);
 
@@ -180,7 +180,7 @@ fn barrier_no_op_in_stw_mode_even_under_cross_gen_setup() {
 
 #[test]
 fn barrier_array_path_remembers_the_array_on_cross_gen() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let arr_old = alloc_arr(&heap, 4);
@@ -203,7 +203,7 @@ fn barrier_array_path_remembers_the_array_on_cross_gen() {
 
 #[test]
 fn minor_gc_tombstones_unrooted_young_entry() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let _ephemeral = alloc_obj(&heap, "Ephemeral");
@@ -229,7 +229,7 @@ fn minor_gc_tombstones_unrooted_young_entry() {
 /// starting mode is now set explicitly — the scenario under test is unchanged.
 #[test]
 fn set_mode_to_generational_rebuilds_young_list_from_live_entries() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     assert_eq!(heap.mode(), GcMode::StwMarkSweep);
 
@@ -255,7 +255,7 @@ fn set_mode_to_generational_rebuilds_young_list_from_live_entries() {
 /// again rebuilds it. Guards the flag/mode invariant against a one-way flip.
 #[test]
 fn set_mode_round_trip_keeps_young_list_in_step_with_mode() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
     let _live = alloc_obj(&heap, "Live");
     assert_eq!(heap.region_var_for_test().lock().young_count(), 1);
@@ -271,7 +271,7 @@ fn set_mode_round_trip_keeps_young_list_in_step_with_mode() {
 
 #[test]
 fn minor_gc_preserves_pinned_young_entry() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let v = alloc_obj(&heap, "Pinned");
@@ -289,7 +289,7 @@ fn minor_gc_preserves_pinned_young_entry() {
 
 #[test]
 fn minor_gc_promotes_after_n_survivals() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let v = alloc_obj(&heap, "Survivor");
@@ -316,7 +316,7 @@ fn minor_gc_promotes_after_n_survivals() {
 
 #[test]
 fn minor_gc_does_not_visit_old_entries_directly() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     // Create an old entry by manually bumping gen_age (sim survived N minors).
@@ -358,7 +358,7 @@ fn minor_gc_does_not_visit_old_entries_directly() {
 
 #[test]
 fn cross_gen_write_target_survives_minor_via_dirty_card() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     // Build: old_owner.slot[0] = young_child
@@ -413,7 +413,7 @@ fn cross_gen_write_target_survives_minor_via_dirty_card() {
 
 #[test]
 fn minor_gc_does_not_clear_card_dirty_bits() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let owner = alloc_obj(&heap, "Owner");
@@ -630,7 +630,7 @@ fn promoting_an_array_with_a_young_element_remembers_it() {
 /// card table never sheds anything. `Value::Null` is what every unset reference slot holds.
 #[test]
 fn primitives_and_null_slots_do_not_count_as_young_references() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let owner = heap.alloc_object(dummy_type_desc("Owner"),
@@ -690,7 +690,7 @@ fn a_major_ages_its_survivors_so_the_young_list_still_drains() {
     // policy-requested major is incremental by default now, which has no aging pass and instead
     // never displaces a minor (see `incremental::the_pause_does_what_the_policy_asked_for`). The
     // one-shot major (`Z42_GC_INCREMENTAL=0`) still replaces one, so it still has to age.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let mut pins = Vec::new();
@@ -756,7 +756,7 @@ fn minor_escalation_threshold_env_var_overrides_default() {
     // the env-var path from a single-process test (other tests may
     // have already initialized it). Just verify the helper returns a
     // sensible value.
-    let t = ArcMagrGC::minor_escalation_threshold_for_test();
+    let t = ArcMagrGC::default().minor_escalation_threshold_for_test();
     assert!(t > 0.0 && t <= 1.0,
         "threshold within valid range (default 0.75 or env override)");
 }
@@ -767,7 +767,7 @@ fn cycle_collection_under_generational_mode_still_frees_garbage() {
     // collect should still free unrooted cycles, identical to STW
     // mode. P2 replaces with minor/major; until then we verify
     // bookkeeping doesn't break basic correctness.
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let a = alloc_obj(&heap, "A");
@@ -796,7 +796,7 @@ fn cycle_collection_under_generational_mode_still_frees_garbage() {
 /// storage, roughly 45% of RSS — used to sit out every minor and wait for a major.
 #[test]
 fn minor_gc_reclaims_unrooted_young_string_block() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let before = heap.used_bytes();
@@ -822,7 +822,7 @@ fn minor_gc_reclaims_unrooted_young_string_block() {
 /// major — while still crediting the element bytes as freed.
 #[test]
 fn minor_gc_reclaims_array_header_and_element_block_together() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let before = heap.used_bytes();
@@ -861,7 +861,7 @@ fn minor_gc_reclaims_array_header_and_element_block_together() {
 fn closure_env_survives_repeated_minors() {
     use crate::object::ClosureData;
 
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let env = heap.alloc_array(vec![Value::I64(7); 4]);
@@ -897,7 +897,7 @@ fn closure_env_survives_repeated_minors() {
 /// `gen_age_of` reported 0 for every string, so they were all treated as young forever.
 #[test]
 fn minor_gc_does_not_treat_old_strings_as_young() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let s = heap.alloc_str("survivor");
@@ -923,7 +923,7 @@ fn minor_gc_does_not_treat_old_strings_as_young() {
 /// actually released, and the auto-collect budget read a recovery that had not happened.
 #[test]
 fn minor_freed_bytes_never_exceeds_the_actual_used_bytes_drop() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     for _ in 0..32 {
@@ -959,7 +959,7 @@ fn minor_freed_bytes_never_exceeds_the_actual_used_bytes_drop() {
 /// that had to be *reached* from the owner.
 #[test]
 fn old_root_traces_its_young_children_at_every_minor() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let owner = alloc_obj(&heap, "Owner");
@@ -1003,7 +1003,7 @@ fn old_root_traces_its_young_children_at_every_minor() {
 /// nothing), and young survivors have theirs cleared by `sweep_phase_young_only`.
 #[test]
 fn minor_leaves_no_mark_on_any_entry() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let old_owner = alloc_obj(&heap, "OldOwner");
@@ -1037,7 +1037,7 @@ fn minor_leaves_no_mark_on_any_entry() {
 /// `__str_hash_code: arg 0 expected string, got Null`.
 #[test]
 fn generational_minors_keep_old_to_young_graphs_intact() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let owners: Vec<Value> = (0..8).map(|_| alloc_obj(&heap, "Owner")).collect();
@@ -1098,7 +1098,7 @@ fn pin_filler(heap: &ArcMagrGC, n: usize) -> Vec<crate::gc::types::RootHandle> {
 /// `Z42.IR.StrMap` is in the compiler.
 #[test]
 fn promoted_owner_keeps_the_young_child_it_was_holding() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let root = alloc_obj(&heap, "Root");
@@ -1146,7 +1146,7 @@ fn promoted_owner_keeps_the_young_child_it_was_holding() {
 /// The array-region twin: a promoted array header holding a young element.
 #[test]
 fn promoted_array_keeps_the_young_element_it_was_holding() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let root = alloc_obj(&heap, "Root");
@@ -1195,7 +1195,7 @@ fn promoted_array_keeps_the_young_element_it_was_holding() {
 /// the children. The card table has to be rebuilt from the surviving graph, not assumed empty.
 #[test]
 fn major_rebuilds_cards_for_surviving_cross_gen_edges() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let root = alloc_obj(&heap, "Root");
@@ -1239,7 +1239,7 @@ fn major_rebuilds_cards_for_surviving_cross_gen_edges() {
 /// budget: peak RSS 986.3 MB without the minor-tail reclaim, 607.9 MB with it.
 #[test]
 fn minor_reclaims_whole_dead_chunks() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
     // Enough unrooted arrays to fill several 64 KB chunks.
     for _ in 0..8000 {
@@ -1261,7 +1261,7 @@ fn minor_reclaims_whole_dead_chunks() {
 #[test]
 fn promotion_feeds_the_old_gen_budget_and_a_major_resets_it() {
     use std::sync::atomic::Ordering;
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
     let pins: Vec<_> = (0..64).map(|_| heap.pin_root(alloc_obj(&heap, "Kept"))).collect();
 

@@ -307,7 +307,7 @@ fn assert_coverage(state: &State, iters: usize, allow_mode_switch: bool) {
 /// embedded in the message on failure for reproducibility.
 fn gc_stress_run_seeded(seed: u64, iters: usize, mode: GcMode, allow_mode_switch: bool) {
     let mut rng = Rng::new(seed);
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(mode);
     let mut state = State::new();
 
@@ -390,7 +390,7 @@ fn rng_avoids_zero_seed_fixed_point() {
 // element block (region_var) intact. Mirrors the z42 compression-test failure.
 #[test]
 fn pr3_pinned_byte_array_survives_gc_churn() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let want: Vec<u8> = b"hello brotli gc stress test payload xyz".to_vec();
     let v = heap.alloc_bytes(want.clone());
     let _pin = heap.pin_root(v.clone());
@@ -410,7 +410,7 @@ fn pr3_pinned_byte_array_survives_gc_churn() {
 // Boxed reference-array variant: pinned Object[] whose elements are heap objects.
 #[test]
 fn pr3_pinned_ref_array_survives_gc_churn() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let td = dummy_type_desc("Elem");
     let e0 = heap.alloc_object(td.clone(), vec![Value::I64(11)], NativeData::None);
     let e1 = heap.alloc_object(td.clone(), vec![Value::I64(22)], NativeData::None);
@@ -433,7 +433,7 @@ fn pr3_pinned_ref_array_survives_gc_churn() {
 // reuse across block types (Closure vs ArrayValue vs ArrayPrim) that the real VM hits.
 #[test]
 fn pr3_mixed_region_var_churn_keeps_graph_intact() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let td = dummy_type_desc("Node");
     // Pinned nested graph: array of objects, each object holding a byte[] field-ish ref.
     let leaf0 = heap.alloc_bytes(b"leaf-zero-payload".to_vec());

@@ -8,7 +8,7 @@ use crate::gc::GcMode;
 const WHOLE: u64 = u64::MAX;
 
 fn generational_heap() -> ArcMagrGC {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
     // No inline auto-collections in the middle of a hand-driven interleaving.
     heap.set_nursery_bytes_for_test(1 << 40);

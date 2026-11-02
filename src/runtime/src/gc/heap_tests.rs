@@ -15,7 +15,7 @@ use crate::object::Value;
 
 #[test]
 fn default_write_barrier_field_is_noop() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let owner = heap.alloc_array(vec![Value::I64(1)]);
     let new   = heap.alloc_array(vec![]);
     let stats_before = heap.stats();
@@ -25,7 +25,7 @@ fn default_write_barrier_field_is_noop() {
 
 #[test]
 fn default_write_barrier_array_elem_is_noop() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let arr  = heap.alloc_array(vec![Value::I64(0); 3]);
     let new  = heap.alloc_array(vec![]);
     let stats_before = heap.stats();
@@ -35,7 +35,7 @@ fn default_write_barrier_array_elem_is_noop() {
 
 #[test]
 fn default_collect_is_noop() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     let _    = heap.alloc_array(vec![]);
     let stats_before = heap.stats();
     heap.collect();

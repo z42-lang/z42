@@ -37,7 +37,7 @@ fn is_alive(heap: &ArcMagrGC, weak: &crate::gc::WeakRef) -> bool {
 /// Rust local — a register as far as the collector is concerned, and one it already scanned) and
 /// clears the field. Returns whether `x` survived the cycle.
 fn run_moved_into_register(barrier_on: bool) -> bool {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
     crate::gc::satb::set_disabled_for_test(!barrier_on);
@@ -79,7 +79,7 @@ fn without_satb_the_same_interleaving_sweeps_a_live_object() {
 /// mark the store is a `swap` whose old word goes to the barrier.
 #[test]
 fn satb_records_through_set_field_value() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
 
@@ -108,7 +108,7 @@ fn satb_records_through_set_field_value() {
 /// once its variant is fixed (a boxed value is replaced through `publish`). Returns whether `x`
 /// survived the cycle.
 fn run_type_param_overwrite(barrier_on: bool, claimed: bool) -> bool {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
     let _ambient = crate::gc::ambient::HeapGuard::enter(&heap);
@@ -155,7 +155,7 @@ fn without_satb_an_overwritten_type_parameter_cell_loses_its_referent() {
 /// Array elements go through `ArrayObj::set_boxed`.
 #[test]
 fn satb_records_an_overwritten_array_element() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
 
@@ -180,7 +180,7 @@ fn satb_records_an_overwritten_array_element() {
 /// Outside a mark the barrier records nothing — the fast path, and no stray queue entries.
 #[test]
 fn satb_records_nothing_outside_a_mark() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
 
@@ -197,8 +197,8 @@ fn satb_records_nothing_outside_a_mark() {
 /// time must not receive it (it would grey a foreign object with its own epoch).
 #[test]
 fn satb_records_stay_with_the_writing_threads_heap() {
-    let mine = ArcMagrGC::new();
-    let other = ArcMagrGC::new();
+    let mine = ArcMagrGC::default();
+    let other = ArcMagrGC::default();
     let _bound = Bound::to(&mine);
 
     let holder = mine.alloc_object(dummy_type_desc("Holder"), vec![Value::Null], NativeData::None);
@@ -217,7 +217,7 @@ fn satb_records_stay_with_the_writing_threads_heap() {
 
 /// A weakly-reachable object handed back to a register during a mark must survive the cycle.
 fn run_weak_read(read_during_mark: bool) -> bool {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let weak_x = heap.make_weak(&x).expect("object");
@@ -248,7 +248,7 @@ fn without_the_weak_read_the_object_is_collected() {
 /// A minor that runs while a major mark is outstanding treats the SATB records as roots — a young
 /// object the barrier recorded must not be swept out from under the marker.
 fn run_minor_with_record(recorded: bool) -> bool {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
     let young = heap.alloc_object(dummy_type_desc("Young"), vec![], NativeData::None);
     let weak = heap.make_weak(&young).expect("object");
@@ -276,7 +276,7 @@ fn a_minor_collects_the_same_object_when_nothing_recorded_it() {
 /// The recorded value is what the cycle marks: it must carry the cycle's epoch afterwards.
 #[test]
 fn close_major_marking_marks_recorded_values_with_the_cycle_epoch() {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let kind = heap.open_major_cycle();
@@ -291,7 +291,7 @@ fn close_major_marking_marks_recorded_values_with_the_cycle_epoch() {
 /// it must record them like `set_boxed` does. Missed by the first barrier audit; found by the
 /// `Z42_GC_SLICE_MS=0.05` stress run of the incremental major as a SIGSEGV in the compiler.
 fn run_bulk_copy_over_live_element(barrier_on: bool) -> bool {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
     crate::gc::satb::set_disabled_for_test(!barrier_on);
@@ -332,7 +332,7 @@ fn without_satb_a_bulk_array_copy_loses_the_overwritten_reference() {
 /// and within one (`copy_elems_within`, the overlapping `Array.Copy`).
 fn run_struct_copy_over_live_leaf(barrier_on: bool, within: bool) -> bool {
     use crate::object::{ArrayObj, ElemType, StructTypeLayout, STRUCT_REF_GCREF};
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
     crate::gc::satb::set_disabled_for_test(!barrier_on);
@@ -389,7 +389,7 @@ fn without_satb_a_struct_array_copy_loses_the_overwritten_leaf() {
 const WHOLE: u64 = u64::MAX;
 
 fn generational_heap() -> ArcMagrGC {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::GenerationalMarkSweep);
     // No inline auto-collections in the middle of a hand-driven interleaving.
     heap.set_nursery_bytes_for_test(1 << 40);

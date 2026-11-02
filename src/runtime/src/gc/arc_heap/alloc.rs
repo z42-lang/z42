@@ -72,7 +72,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     ///
     /// **Pressure / auto-collect (fix cross_thread_smoke regression)**: when the
     /// heap is **unbounded** (`max_bytes` unset — the common production case, and
-    /// the `ArcMagrGC::new()` scaling benchmark) this stays fully lock-free — no
+    /// the `ArcMagrGC::default()` scaling benchmark) this stays fully lock-free — no
     /// pressure work at all. When a heap **limit is set**, it does the accurate
     /// **per-object** pressure check + deferred-collect arming (same as the locked
     /// `record_alloc` path). A retire-granularity check alone would miss the
@@ -293,7 +293,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// 阈值比率来自 `Z42_GC_NEAR_LIMIT_RATIO`（默认 0.90），与 [`Self::check_pressure`]
     /// 触发 NearHeapLimit 的同一比率——保证「发一次事件」与「重置事件闩」用同一阈值。
     pub(super) fn maybe_reset_near_limit_warned(&self) {
-        let near_ratio = crate::config::runtime_config().gc_near_limit_ratio;
+        let near_ratio = self.config.near_limit_ratio;
         let used = self.occupied_bytes(); // the cap's unit: true footprint
         let mut i = self.inner.lock();
         let Some(limit) = i.stats.max_bytes else { return };
@@ -312,9 +312,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
             (i.stats.max_bytes, i.near_limit_warned)
         };
         let Some(limit) = max else { return };
-        let cfg = crate::config::runtime_config();
-        let near_threshold     = (limit as f64 * cfg.gc_near_limit_ratio) as u64;
-        let pressure_threshold = (limit as f64 * cfg.gc_pressure_ratio) as u64;
+        let cfg = &self.config;
+        let near_threshold     = (limit as f64 * cfg.near_limit_ratio) as u64;
+        let pressure_threshold = (limit as f64 * cfg.pressure_ratio) as u64;
 
         if !near_warned && used >= near_threshold {
             self.inner.lock().near_limit_warned = true;
