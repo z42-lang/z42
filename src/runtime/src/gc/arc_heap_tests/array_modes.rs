@@ -27,7 +27,7 @@ enum Cut { RefElem, MixedElem, StructLeaf, BulkCopy }
 /// Root → array, array[0] → x. After the root snapshot the mutator moves `x` into a register and
 /// overwrites the array's only edge to it. Returns whether `x` survived the cycle.
 fn run(cut: Cut, barrier_on: bool) -> bool {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     let _bound = Bound::to(&heap);
     let _g = crate::gc::ambient::HeapGuard::enter(&heap);
@@ -90,7 +90,7 @@ fn without_satb_a_referent_cut_from_any_array_mode_is_swept() {
 // ── Object model R9: an array is one block ─────────────────────────────────────
 
 fn stw_heap() -> ArcMagrGC {
-    let heap = ArcMagrGC::new();
+    let heap = ArcMagrGC::default();
     heap.set_mode(GcMode::StwMarkSweep);
     heap
 }

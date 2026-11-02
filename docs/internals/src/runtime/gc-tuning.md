@@ -375,7 +375,7 @@ RSS 一并降下来，是因为被撑大的闸门同时也让堆 used 冲到了 
 - `check_pressure`（`alloc.rs`）：near-limit（发 `NearHeapLimit`）+ pressure（发 `AllocationPressure`）；
 - `maybe_reset_near_limit_warned`（`alloc.rs`）：near-limit（回收后 used 降到阈值下 → 复位事件闩，使下次跨阈值能再发）。
 
-三处共用 `runtime_config().gc_near_limit_ratio` 同一比率——保证「发事件」与「复位事件闩」用同一阈值、不错位。
+三处共用当前堆 `GcConfig::near_limit_ratio` 的同一比率——保证「发事件」与「复位事件闩」用同一阈值、不错位。
 
 ## 增长闸门的基线：必须是「上次回收**结束**时」，不是「上次触发时」
 
@@ -434,7 +434,7 @@ allocator 判定「该回收了」后**不在分配线程就地回收**（那会
               抢输者照常 park，flag 留给下一个 safepoint（粘性）
 
 ③ Fallback  flag 未注册 → maybe_auto_collect 直接 collect_cycles() 就地回收。
-            保留 GC 单测（直接 ArcMagrGC::new() 无 VmCore）的单线程行为。
+            保留 GC 单测（直接 ArcMagrGC::default() 无 VmCore）的单线程行为。
 ```
 
 **谁检查 / 何时**：flag 在**分配线程**、alloc 时**置位**；在**mutator 线程**的 safepoint 轮询时**检查**，
@@ -974,7 +974,7 @@ root 后面，直接 pin owner 的测试是空转的。**
 **折中：做成构造期读取**，
 而不是 write-barrier 的运行时读。
 
-- `Z42_GC_PROMOTION_AGE` 在**建堆时读一次**（`gc::promotion_age_from_config`），
+- `Z42_GC_PROMOTION_AGE` 经门面解析并传入 `GcConfig`，在**建堆时规范化一次**（`GcConfig::promotion_age`），
   值分发给 `ArcMagrGC` / `VarRegion` 各存一份 `promotion_age`；
 - 写屏障读的是 `self.promotion_age` —— 一个**普通字段**，不是原子、不是全局，
   热路径成本为零；

@@ -116,7 +116,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// pause that closes the major — 21.6–23.0 ms of a 25.5–26.9 ms slice on `13_gc_large_heap`
     /// (400 000 live objects), the benchmark's maximum pause.
     pub(super) fn remember_lowered_cohort(&self) {
-        let t = crate::gc::phase_timer::PhaseTimer::start("promotion/remember cohort");
+        let t = self.phase_timer("promotion/remember cohort");
         let cohort = self.region_var.lock().owners_past_lowered_line();
         t.count(cohort.len());
         self.remember_newly_old(&cohort);

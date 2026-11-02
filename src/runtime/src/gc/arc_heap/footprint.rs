@@ -15,14 +15,15 @@ extern crate mimalloc as _;
 /// After a major: ask mimalloc (when it is the allocator) to return the memory it is caching —
 /// what a major frees outside the GC chunks (extras boxes, the chunks of freed large objects)
 /// mimalloc otherwise purges only lazily.
-fn release_allocator_cache() {
+fn release_allocator_cache(phases: bool) {
+    let _ = phases;
     // Not under Miri: it cannot call into mimalloc (and Miri runs on its own allocator).
     #[cfg(all(feature = "mimalloc-alloc", not(miri)))]
     {
         extern "C" {
             fn mi_collect(force: bool);
         }
-        let _t = crate::gc::phase_timer::PhaseTimer::start("mi_collect");
+        let _t = crate::gc::phase_timer::PhaseTimer::start(phases, "mi_collect");
         // SAFETY: `mi_collect` has no preconditions; it only works on mimalloc's own state.
         unsafe { mi_collect(false) };
     }
@@ -98,7 +99,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
         self.trim_chunk_pools();
         if major {
-            release_allocator_cache();
+            release_allocator_cache(self.config.phases);
         }
     }
 
@@ -125,7 +126,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         if excess == 0 {
             return;
         }
-        let _t = crate::gc::phase_timer::PhaseTimer::start("chunk decommit");
+        let _t = self.phase_timer("chunk decommit");
         self.region_var.lock().decommit_pool(excess);
     }
 }

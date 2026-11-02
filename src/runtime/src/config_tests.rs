@@ -1664,7 +1664,7 @@ fn with_env<R>(pairs: &[(&str, Option<&str>)], f: impl FnOnce() -> R) -> R {
     // every other test in this binary (on other threads) may be the one that first touches it.
     // `ENV_LOCK` only serialises these config tests with each other — if that first read lands
     // while the env below points `Z42_CONFIG` at a file saying `gc-mode = "stw"`, the
-    // **whole test process** keeps that mode: every later `ArcMagrGC::new()` comes up
+    // **whole test process** keeps that mode: every later `ArcMagrGC::default()` comes up
     // in it, and `mode_selection` / `tlab_concurrent_shared_heap_stress` fail at random
     // (3 runs in 10, measured). Pin the global to the pristine env first.
     let _ = crate::config::runtime_config();
@@ -1911,7 +1911,7 @@ fn gc_promotion_age_parses_a_small_integer() {
         assert_eq!(cfg.gc_promotion_age, want, "Z42_GC_PROMOTION_AGE={raw:?}");
     }
     // Out-of-range values are *parsed* here and clamped at the use site, where the ceiling
-    // (the two spare gen_age bits) is known — see `gc::promotion_age_from_config`.
+    // (the two spare gen_age bits) is known — see `gc::GcConfig::promotion_age`.
 }
 
 #[test]
