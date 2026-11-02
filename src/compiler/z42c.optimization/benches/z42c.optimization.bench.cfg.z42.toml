@@ -3,7 +3,7 @@ name = "z42c.optimization.bench.cfg"
 version = "0.1.0"
 kind = "exe"
 [sources]
-include = ["*.z42"]
+include = ["cfg_bench.z42"]
 [dependencies]
 "z42c.optimization" = "0.1.0"
 "z42.package" = "0.1.0"
