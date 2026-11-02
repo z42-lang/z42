@@ -1,4 +1,4 @@
-//! Package formats, decoded IR, static queries and interpreter fusion.
+//! Package formats, decoded IR, static queries.
 //! Static concerns are grouped under format, reader, ir, index and debug.
 
 pub mod image;
@@ -7,7 +7,6 @@ pub mod reader;
 pub mod ir;
 pub mod index;
 pub mod debug;
-pub mod superinstr;
 
 // Re-exports: string pool typed handle (Part 5 P0 Phase A)
 // Re-exports: NameIndex (review.md Part 2 C4 / C5 P1)

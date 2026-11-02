@@ -1,6 +1,6 @@
 # 解释器 / JIT 标量语义的单一真相源
 
-> 代码：`src/runtime/src/semantics.rs`（标量真相源）、`src/runtime/src/objops/`（对象操作真相源）、`src/runtime/src/interp/ops.rs` +
+> 代码：`src/runtime/src/vm/exec/ops/scalar.rs`（标量真相源）、`src/runtime/src/objops/`（对象操作真相源）、`src/runtime/src/interp/ops.rs` +
 > `interp/exec_value.rs`（interp 消费）、`src/runtime/src/jit/helpers/arith.rs` +
 > `jit/helpers/object.rs`（JIT helper 消费）、`src/runtime/src/jit/translate/emit_int.rs` +
 > `emit_fc.rs`（JIT 内联镜像）。
@@ -21,7 +21,7 @@ z42 的算术 / 比较 / 数值转换语义，运行时有**三条执行路径**
 
 ### 路径 1 + 2：真共享（运行期同一 Rust 函数）
 
-`semantics.rs`（crate 顶层，interp / jit / 未来 AOT **对称依赖**）持**值级标量规则**：
+`vm/exec/ops/scalar.rs`（vm/exec/ops，interp / jit / 未来 AOT **对称依赖**）持**值级标量规则**：
 
 ```
 int_binop(va, vb, int_op, float_op)   numeric_lt(va, vb)   eval_cmp(op, va, vb)
@@ -30,22 +30,22 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
 ```
 
 - interp `ops.rs` 保留**寄存器取值**（「undefined register」错误是 interp 执行模型专属），
-  取到 `&Value` 后调 `semantics::*`。
-- JIT helper（`arith.rs`）不自带 `int_binop_helper`/`numeric_lt_helper` 之类副本，统一调 `semantics::*`；`jit_convert` 委托 `semantics::convert_value`。
+  取到 `&Value` 后调 `scalar::*`。
+- JIT helper（`arith.rs`）不自带 `int_binop_helper`/`numeric_lt_helper` 之类副本，统一调 `scalar::*`；`jit_convert` 委托 `scalar::convert_value`。
 
 于是路径 1、2 对同一规则只有**一份**实现。
 
-> ⚠️ **相等比较必须同样走 `semantics::*`。**
+> ⚠️ **相等比较必须同样走 `scalar::*`。**
 > `Value: PartialEq` 按变体配对、**没有混合数值臂**；若 `jit_eq` / `jit_ne`（或 interp 侧
 > `eval_cmp` 的 `Eq`/`Ne`）直接用它，`int == double` / `char == int` 会在**三路全部**恒假，
-> 而同样操作数的 `<` `<=` `>` `>=`（走 `semantics::numeric_lt`）却正确。
+> 而同样操作数的 `<` `<=` `>` `>=`（走 `scalar::numeric_lt`）却正确。
 >
 > 两条要点：
 >
-> 1. **差分测试对混合操作数是盲区。** 它比的是内联码与 `semantics.rs` 的 byte-identity，
+> 1. **差分测试对混合操作数是盲区。** 它比的是内联码与 `vm/exec/ops/scalar.rs` 的 byte-identity，
 >    而混合操作数**根本不产生内联码**（`is_int_cmp` / `is_f64_cmp` 只在两侧静态同类时内联）。
 >    混合路径只能靠 golden（`src/tests/operators/mixed_numeric_equality.z42`）+ 单测守。
-> 2. **新增 / 改动任何比较 helper 前，先确认它调的是 `semantics::*`**，而不是自己就地写一个
+> 2. **新增 / 改动任何比较 helper 前，先确认它调的是 `scalar::*`**，而不是自己就地写一个
 >    看起来等价的 `==`。「等价」在同类操作数上成立、在混合操作数上不成立，正是漏网的形状。
 
 **对象级判定同款**：标量之外，两条对象路径也已收敛到运行期同一 Rust 函数——
@@ -173,7 +173,7 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 |------|-----------|-----------|
 | `VCall`（虚 / 接口 / 本包非虚方法、属性访问器、`s.Length`） | `vcall_resolve::resolve_vcall` 开头，产出 `VCallTarget::Thrown`，两个引擎沿用既有的 `Thrown` 臂 | 零：PIC 键 `receiver_type_id(Null)` 本就是 `None`，null 只会走到未命中的慢路 |
 | 直接 `Call` 到 `[Native]` 转发桩（`s.CharAt(i)`、`s.ToCharArray()`……） | builtin 的接收者取值：旧表 `corelib::convert::this_str(args, 成员名)`（非接收者实参走 `arg_str` → `null_arg`）；类型化 builtin 由 `#[builtin(this = "成员名")]` 生成同一条消息（非接收者实参为 null 报 `ArgumentNullException`） | 零：只在既有 tag match 的失配臂里构造 |
-| `CallIndirect`（null 委托） | `semantics::null_invoke_msg`（不经 objops，见 [委托与事件](delegates-events.md)） | — |
+| `CallIndirect`（null 委托） | `scalar::null_invoke_msg`（不经 objops，见 [委托与事件](delegates-events.md)） | — |
 
 builtin 失败的出口两个引擎共用 `corelib::abi::error::raise`（interp `exec_call::builtin` 与折叠调用、
 JIT `jit_builtin` 与 `call_forward`）：类型化 builtin 的 `BuiltinError` 按种类构造异常类（ABI v2 的类型化
@@ -196,11 +196,11 @@ sealed 类去虚化后的调用）发的是 `Call`，接收者只是第 0 个实
 ### 路径 3：注释锚定 + 差分测试（无法运行期调 Rust）
 
 内联路径发的是机器码，不能在运行期 `call` 一个 Rust 标量函数（那正是它要绕开的开销）。
-故它以 **`// SEMANTICS: semantics::<fn>` 锚注释**引用对应规则，并由**边界 golden 差分测试**
+故它以 **`// SEMANTICS: scalar::<fn>` 锚注释**引用对应规则，并由**边界 golden 差分测试**
 （`src/tests/operators/arith_semantics_edge.z42`，在 interp 与 `--mode jit` 下各跑一遍、
 断言 byte-identical）把「注释担保」升级为「测试担保」。
 
-`semantics.rs` 模块文档以一张表钉住**七个易漂移的载重决策**，三路共同引用：
+`vm/exec/ops/scalar.rs` 模块文档以一张表钉住**七个易漂移的载重决策**，三路共同引用：
 
 | 决策 | 规则 | 内联镜像 |
 |------|------|---------|
@@ -214,7 +214,7 @@ sealed 类去虚化后的调用）发的是 `Call`，接收者只是第 0 个实
 
 > **为何 `MIN/-1` 守卫只在内联路径**：native `idiv` 在 x86-64 对 `i64::MIN / -1` 会 SIGFPE-trap，
 > 故内联用 `(b as u64).wrapping_add(1) <= 1` 判 `b∈{0,-1}` 冷路由到 helper；helper 与 interp
-> 都调 `semantics::int_div` / `int_rem`（`wrapping_div` / `wrapping_rem`），得 `MIN` 与 `0`。
+> 都调 `scalar::int_div` / `int_rem`（`wrapping_div` / `wrapping_rem`），得 `MIN` 与 `0`。
 > Rust 的裸 `x / y` 在这里会 panic（debug 与 release 都会），所以三路都不能写裸运算符。
 > 边界 golden `arith_semantics_edge` 钉住 `MIN/-1`、`MIN%-1`，`exceptions/int_divide_by_zero` 钉住 `/0`、`%0`。
 

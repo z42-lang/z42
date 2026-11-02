@@ -219,7 +219,7 @@ pub(crate) fn byte_array(v: &crate::object::Value, param: &str) -> Result<crate:
         crate::object::Value::Array(rc) => Ok(*rc),
         crate::object::Value::Null => Err(BuiltinError::ArgumentNull(format!("Value cannot be null. (Parameter '{param}')"))),
         other => Err(BuiltinError::InvalidCast(format!(
-            "argument `{param}` expects a byte[], got {}", crate::semantics::value_kind_name(other)))),
+            "argument `{param}` expects a byte[], got {}", crate::vm::exec::ops::scalar::value_kind_name(other)))),
     }
 }
 
@@ -229,7 +229,7 @@ pub(crate) fn read_byte_range(arr: &crate::object::ArrayObj, off: usize, n: usiz
     (off..off + n).map(|i| match arr.get_boxed(i) {
         crate::object::Value::I64(b) if (0..=255).contains(&b) => Ok(b as u8),
         other => Err(BuiltinError::InvalidCast(format!(
-            "buffer element {i} is not a byte: {}", crate::semantics::value_kind_name(&other)))),
+            "buffer element {i} is not a byte: {}", crate::vm::exec::ops::scalar::value_kind_name(&other)))),
     }).collect()
 }
 

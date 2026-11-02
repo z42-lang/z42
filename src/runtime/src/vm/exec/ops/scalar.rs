@@ -11,8 +11,8 @@
 //! `numeric_lt` / `eval_cmp` / `convert_value`），不再各写一遍（此前 `jit/helpers/mod.rs`
 //! 的 `int_binop_helper` / `numeric_lt_helper` 是 `interp/ops.rs` 的逐字副本，已删除）。
 //!
-//! 路径 3 **无法运行期调用 Rust**（它发机器码），只能以 `// SEMANTICS: semantics::<fn>`
-//! 锚注释引用本模块对应函数，并由 `jit/translate/semantics_jit_diff_tests.rs` 的**差分测试**
+//! 路径 3 **无法运行期调用 Rust**（它发机器码），只能以 `// SEMANTICS: scalar::<fn>`
+//! 锚注释引用本模块对应函数，并由 双模式 golden 的**差分验证**
 //! 跑同一批边界输入断言 byte-identical，把「注释担保」升级为「测试担保」。
 //!
 //! ## 载重语义决策（改这里 = 改语言语义，三路必须同步）
@@ -38,7 +38,7 @@
 //! `Value: PartialEq`，三路口径不一致而无人发现。**新增比较 helper 时先确认它调的是本模块。**
 
 use crate::object::Value;
-use crate::metadata::superinstr::CmpOp;
+use crate::vm::runtime::CmpOp;
 use anyhow::{bail, Result};
 
 /// 整数移位量 mask（低 6 位）—— interp `shl`/`shr` 与 JIT 内联 `Shl`/`Shr` 共用此常量。
@@ -371,5 +371,5 @@ fn convert_from_char(c: char, to_tag: u8) -> Result<Value> {
 }
 
 #[cfg(test)]
-#[path = "semantics_tests.rs"]
+#[path = "scalar_tests.rs"]
 mod semantics_tests;
