@@ -3,7 +3,7 @@
 // ## 守的是什么
 //
 // xtask 起的「跑 z42 代码」的子进程，stdlib 世界（`Z42_LIBS`）与编译器包 probing（`Z42_PROBING_PATHS`）
-// 只能经 `_z42Proc` / `_z42bProc` / `_z42cProc`（scripts/build/xtask_stdlib.z42）设置。调用点直接写
+// 只能经 `_z42Proc` / `_z42bProc` / `_z42cProc`（scripts/common/xtask_process.z42）设置。调用点直接写
 // `.Env("<这两个之一>", …)` ⇒ 红；`Environment.SetEnvironmentVariable("<这两个之一>", …)` 同样红——
 // 它改的是 xtask 自身环境：同进程里后续的 gate stage 与种子解析（读 `Z42_LIBS`）都会被带偏。
 //
@@ -27,7 +27,7 @@ bool _peSetsProcEnv(string line, string name) {
 }
 
 // 允许直接设这些变量的唯一文件（工厂所在）。
-string _peFactoryFile() { return "scripts/build/xtask_stdlib.z42"; }
+string _peFactoryFile() { return "scripts/common/xtask_process.z42"; }
 
 int _checkProcEnv() {
     string root = _root();

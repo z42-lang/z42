@@ -21,7 +21,7 @@
 //
 // `noBuild`（`publish --no-build`）保留旧的「就用现成的字节」契约，给**自己已经用
 // 特定编译器编好、且要求字节不被动**的调用方：xtask 的 SDK 组装 / 自举不动点路径
-// （`_z42bPublish`，见 scripts/package/xtask_package_desktop.z42）——那里若让 publish
+// （`_z42bPublish`，见 scripts/common/xtask_publish.z42）——那里若让 publish
 // 拿 SDK 种子 z42c 重编一遍，gen2 字节不动点当场就破了。
 //
 // 本文件独立存在的原因同 builder_publish_sidecar.z42：`builder_publish.z42` 在
