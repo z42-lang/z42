@@ -100,6 +100,7 @@ public sealed class BuildOptions {
     public string[]        Excludes;      // [sources] exclude（z42b 已并入 hooks 目录）；null = 用清单的
     public int             ExcludesCount;
     public string          ParentPkg;     // 测试 / bench 目标的父包（其 internal 可见）；"" = 普通编译
+    public bool            HarnessUnit;   // 测试 / bench 派生目标 ⇒ 产物头类型位 harness（PkgKind）
     public IBuildReporter  Reporter;
     public BuildOptions(ProjectManifest pm, string projectDir, int role, bool isRelease, IBuildReporter reporter) {
         this.Manifest = pm; this.Label = pm.Project.Name; this.ProjectDir = projectDir; this.Role = role;
@@ -231,6 +232,7 @@ public sealed class BuildSession {
         inp.DeclaredDeps = declaredAll; inp.DepCount = declaredAll.Length;
         inp.EnforceDeclaredDeps = true;          // 真的读了一份清单 ⇒ 执行依赖契约（E0497），同 z42c build
         inp.ParentPkg = o.ParentPkg;
+        inp.HarnessUnit = o.HarnessUnit;
         if (!_attachCarried(inp, pm, o, azPaths)) { return null; }   // 显式插件挂载 + 1c 携带（失败即构建失败）
         inp.Lints = kn.Lints;
         CompileArtifacts art = PackageCompile.Compile(inp);
@@ -339,7 +341,7 @@ public sealed class BuildSession {
             if (dgot.Length == 0) { continue; }
             ZpkgInfo dp = null;
             try { dp = ZpkgReader.Open(File.ReadAllBytes(dgot), dgot); } catch (Exception ex) { dp = null; }
-            if (dp == null || !PluginCaps.IsPlugin(dp.PluginCaps)) { continue; }
+            if (dp == null || !PkgKind.IsPluginPkg(dp.PkgKind, dp.PluginCaps)) { continue; }
             PluginInspection dpi = PluginZpkg.Inspect(dgot, de.Name);
             if (dpi.Error.Length > 0) { rep.Fail(dpi.Error); failed = true; return null; }
             names[nn] = de.Name; nn = nn + 1;
@@ -370,7 +372,7 @@ public sealed class BuildSession {
                 if (File.Exists(cand)) {
                     ZpkgInfo h = null;
                     try { h = ZpkgReader.Open(File.ReadAllBytes(cand), cand); } catch (Exception ex) { h = null; }
-                    if (h != null && PluginCaps.IsPlugin(h.PluginCaps)) {
+                    if (h != null && PkgKind.IsPluginPkg(h.PkgKind, h.PluginCaps)) {
                         rep.Fail("[dependencies] `" + de.Name + "`（" + cand + "）是插件包（"
                             + PluginCaps.Describe(h.PluginCaps) + "）——插件包不进运行期解析域："
                             + "把它移到插件目录（Z42_PLUGINS / <sdk>/plugins）后按名依赖，或改写到 [plugins] 段。");

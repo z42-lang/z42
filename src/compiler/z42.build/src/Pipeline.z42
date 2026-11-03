@@ -20,6 +20,8 @@ public class Pipeline {
     /// z42b-owns-test-targets：本次构建若是 `<ParentPkg>` 的测试/bench 目标，透传给编译器
     /// ⇒ 其 internal 对测试可见。`""` = 普通构建。**属性、不进 ctor**（种子 ABI，同 CompileRequest.ParentPkg）。
     public string       ParentPkg { get; set; }
+    /// 测试/bench 派生目标构建 ⇒ 产物类型位 harness（透传 CompileRequest.HarnessUnit）。
+    public bool         HarnessUnit { get; set; }
 
     public Pipeline() {
         this.Hooks    = new BuildHooks();      // 默认空 hook
@@ -83,6 +85,7 @@ public class Pipeline {
             effExcN);                       // ExcludesCount
         // 构造后赋值（body 字段，不在 ctor 签名里 —— 种子 ABI）。
         if (this.ParentPkg != null) { req.ParentPkg = this.ParentPkg; }
+        req.HarnessUnit = this.HarnessUnit;
         req.Includes = pm.Sources.Include; req.IncludesCount = pm.Sources.IncludeCount;
         req.PackageName = pm.Project.Name;
         req.Manifest = pm;   // add-build-session：实现方据此走 BuildSession（[optimize]/[syntax]/[lints]/[plugins]/entry/version/E0497）

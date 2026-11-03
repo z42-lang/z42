@@ -85,6 +85,10 @@ public sealed class ZpkgFileZ {
     public string        Name;
     public string        Version;
     public bool          IsExe;       // kind=exe（flags Exe 位 + entry 必填）
+    /// 包类型位（PkgKind 的 bit6–7；lib=0 缺省）。构造后赋值：ctor 签名是种子 ABI，不动。
+    /// exe 的既有表达是 IsExe（flags bit1，历史路径在读端独立消费）——类型位是它的超集声明，
+    /// 两处一致由 `PackageCompile` 装配时保证。
+    public int           PkgKind;
     public string        Entry;       // "" = lib 无入口
     public string[]      Namespaces;  public int NsCount;
     public ZpkgExportZ[] Exports;     public int ExportCount;
@@ -110,6 +114,7 @@ public sealed class ZpkgFileZ {
         this.Modules = modules; this.ModuleCount = moduleCount;
         this.Exported = new ExportedModuleZ[0]; this.ExportedCount = 0;
         this.PluginCaps = 0;
+        this.PkgKind = 0;
     }
 }
 
