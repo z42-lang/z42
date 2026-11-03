@@ -26,9 +26,21 @@
 //!
 //! [`Blocking`]: crate::vm::exec::call::builtin_abi::Blocking
 
-#[derive(Default)]
+/// Application data supplied by the facade. Returning owned Rust strings releases
+/// the provider's lock before the builtin allocates managed values.
+pub(crate) trait ProgramArgs: Send + Sync {
+    fn program_args(&self) -> Vec<String>;
+}
+
 pub(crate) struct State {
     slots: super::resource_registry::ResourceRegistry<FileHandleSlot>,
+    args: Arc<dyn ProgramArgs>,
+}
+
+impl State {
+    pub(crate) fn new(args: Arc<dyn ProgramArgs>) -> Self {
+        Self { slots: Default::default(), args }
+    }
 }
 
 pub(super) fn state(ctx: &crate::vm_context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
@@ -617,10 +629,10 @@ pub mod typed {
     }
 
     /// add-z42-launcher : the program arguments forwarded after `--` on the
-    /// z42vm command line (stored on `VmCore`), not the VM's own argv.
+    /// z42vm command line, read from the facade-supplied application service.
     #[builtin(name = "__env_args")]
-    pub fn env_args(ctx: &VmContext) -> Vec<String> {
-        ctx.program_args()
+    pub fn env_args(ctx: &VmContext) -> Result<Vec<String>, BuiltinError> {
+        Ok(super::state(ctx)?.args.program_args())
     }
 
     /// `process::exit` runs no destructors: report before leaving (`app::report_on_exit`).

@@ -104,6 +104,7 @@ xtask test stdlib
 - 反射能力的引入/演进：`git log -- src/runtime/src/corelib/`（需求↔迭代可追溯）
 
 进程、线程、文件及启用的 TCP/UDP/TLS 资源表由各自模块的 `State` 持有，经 `VmContext::ext` 查询。
+文件 builtin 的应用参数来自 `ProgramArgs` 服务，门面实现该服务并注入，核心库不持有门面类型。
 门面 `extension_assembly.rs` 在创建 VM 时登记，worker 共享同一状态。新增资源类别无需向 VmCore 添加具体字段。
 
 ## 核心文件

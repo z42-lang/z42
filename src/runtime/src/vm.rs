@@ -60,7 +60,7 @@ impl Vm {
             .find(|f| f.name == entry_name)
             .ok_or_else(|| anyhow::anyhow!("entry `{}` disappeared — this is a bug", entry_name))?;
 
-        let outcome = ctx.core.engines.run(self.default_mode, ctx, module, entry);
+        let outcome = ctx.core.exec.engines.run(self.default_mode, ctx, module, entry);
         // defer-class-initialization: 懒执行的 `__static_init__` 抛出时无法就地传播
         // （触发点是返回 `Option` 的查找函数），改为记录首个失败并在这里转成运行错误——
         // 与变更前 boot 期 `init_static_fields` 的 `bail!` 同等响度。程序自身的错误优先。

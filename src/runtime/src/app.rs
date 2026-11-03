@@ -13,6 +13,7 @@
 //! resolution + CLI/process concerns stay in the caller; `run` takes a resolved
 //! [`RunOpts`].
 
+pub use crate::app_state::{program_args, set_program_args};
 use crate::vm::loader::lazy::ZpkgCandidate;
 use crate::{metadata::ExecMode, vm::loader::LoadedArtifact};
 use crate::pal::fs::Vfs;
@@ -335,7 +336,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         eager_deps,
     });
     // Forward `-- <args>` to the program's GetCommandLineArgs() before vm.run.
-    ctx.set_program_args(opts.program_args.clone());
+    set_program_args(&ctx, opts.program_args.clone())?;
 
     // Replay-emit ModuleLoaded for every module loaded during boot.
     for (name, byte_size) in loaded_for_replay.drain(..) {

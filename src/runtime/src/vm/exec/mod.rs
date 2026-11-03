@@ -6,3 +6,6 @@ pub mod stack;
 pub(crate) mod engine;
 
 pub(crate) mod init;
+
+mod state;
+pub(crate) use state::ExecState;

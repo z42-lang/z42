@@ -11,20 +11,12 @@ pub struct VmCore {
     pub(crate) heap:               Box<Heap>,
     pub(crate) runtime: crate::vm::runtime::RuntimeState,
     pub(crate) loader: crate::vm::loader::LoaderState,
-    /// **add-z42-launcher **: command-line arguments passed to
-    /// the running z42 program — everything after the `--` separator on the
-    /// `z42vm` command line. Exposed to z42 code via
-    /// `Std.IO.Environment.GetCommandLineArgs()` (builtin `__env_args`).
-    /// Shared on `VmCore` so worker threads see the same argv as main.
-    /// Set once at startup by `VmContext::set_program_args`; empty by default
-    /// (bare `z42vm file entry` with no `--` → no program args).
-    pub(crate) program_args:       Mutex<Vec<String>>,
 
     /// Observation state shared by this VM; per-thread counters stay on each context.
     pub diagnostics: crate::vm::diagnostics::DiagnosticsState,
 
-    /// Per-VM engine registrations and backend-owned tier/code lifetime.
-    pub(crate) engines: crate::vm::exec::engine::EngineRegistry,
+    /// Shared execution state, including engine registrations and backend code lifetime.
+    pub(crate) exec: crate::vm::exec::ExecState,
     /// Released after the heap and engines so extension-owned resources outlive them.
     pub(crate) ext_state: crate::vm::ext::ExtensionState,
 }
@@ -78,7 +70,7 @@ impl JitHead {
             cctors: Arc::as_ptr(&core.runtime.cctors),
             #[cfg(feature = "jit")]
             jit: std::sync::atomic::AtomicPtr::new(
-                core.engines.tier().map_or(std::ptr::null_mut(), |rt| rt as *const _ as *mut _)),
+                core.exec.engines.tier().map_or(std::ptr::null_mut(), |rt| rt as *const _ as *mut _)),
         }
     }
 }

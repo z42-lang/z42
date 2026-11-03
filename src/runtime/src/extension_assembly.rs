@@ -6,9 +6,12 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     let mut defaults = VmExtensions::new();
     // Interop providers must outlive heap, engines, user state and core-library resources.
     add(&mut defaults, crate::interop::state_for_vm());
+    // The service owns only Rust arguments, never the core, so this sharing cannot form a cycle.
+    let application = crate::app_state::state_for_vm();
+    add(&mut defaults, application.clone());
     add(&mut defaults, corelib::process::State::default());
     add(&mut defaults, corelib::threading::State::default());
-    add(&mut defaults, corelib::fs::State::default());
+    add(&mut defaults, corelib::fs::State::new(application));
     #[cfg(feature = "net")]
     {
         add(&mut defaults, corelib::network::tcp::State::default());

@@ -93,7 +93,7 @@ pub(crate) fn invoke(ctx: &VmContext, module: &Module, func: &Function, args: &[
 }
 pub(crate) fn invoke_args(ctx: &VmContext, module: &Module, func: &Function,
     args: CallArgs<'_>, type_args: &[String]) -> Result<ExecOutcome> {
-    ctx.core.engines.invoke(ctx, module, func, args, type_args)
+    ctx.core.exec.engines.invoke(ctx, module, func, args, type_args)
 }
 
 impl VmContext {
@@ -107,11 +107,11 @@ impl VmContext {
             unsafe { p.as_ref() }
         }
         #[cfg(not(feature = "jit"))]
-        { self.core.engines.tier() }
+        { self.core.exec.engines.tier() }
     }
     pub(crate) fn publish_tier(&self) {
         #[cfg(feature = "jit")]
-        if let Some(tier) = self.core.engines.tier() {
+        if let Some(tier) = self.core.exec.engines.tier() {
             self.jit_head.jit.store(tier as *const TierApi as *mut TierApi, std::sync::atomic::Ordering::Relaxed);
         }
     }

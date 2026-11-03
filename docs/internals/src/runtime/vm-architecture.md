@@ -10,7 +10,7 @@
 
 ## 引擎注册与调用边界
 
-门面 `engine_assembly.rs` 按 feature 装配基线 Engine 和优化入口；`VmCore.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
+门面 `engine_assembly.rs` 按 feature 装配基线 Engine 和优化入口；`VmCore.exec.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
 
 TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入口和代码页由 JIT 自己持有；所有 worker 共享所属 core 的注册结果，其他 VM 独立。竞争安装保留首个发布实例，失败候选安全释放；所属模块校验仍由后端执行。
 
@@ -92,11 +92,15 @@ vm.run(&ctx, hint)?;
 
 `__thread_spawn`（[corelib/threading.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/threading.rs)）流程：拿到调用者 `ctx.core` 的 `Arc::clone` → `std::thread::spawn` → worker 内 `VmContext::new_with_core(core)` 构造 worker ctx → `interp::exec_function` dispatch。worker 的 per-thread 字段（pending_exception / call_stack）私有；通过 `vm_contexts` 注册让 GC scanner 看见 worker 自己的 roots。
 
-VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.engines` 是全 VM 共用的 JIT（槽表、编译器、OSR 缓存），worker 的解释器帧经混合模式分流路由到已编译函数、自己计数升层、到阈值就在 worker 线程上编译；原生码与 helper 的上下文参数就是 worker 自己的 `VmContext`（见 [jit.md](jit.md)「数据结构」「线程安全」）。
+VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.exec.engines` 是全 VM 共用的 JIT（槽表、编译器、OSR 缓存），worker 的解释器帧经混合模式分流路由到已编译函数、自己计数升层、到阈值就在 worker 线程上编译；原生码与 helper 的上下文参数就是 worker 自己的 `VmContext`（见 [jit.md](jit.md)「数据结构」「线程安全」）。
 
 ### VmCore：跨线程共享状态
 
 `VmCore` 持有 **VM 级**的状态，通过 `Arc<VmCore>` 让多个 `VmContext`（每个 OS 线程一个）共享：
+
+共享 `VmCore` 由 `threads`、`heap`、`runtime`、`loader`、`diagnostics`、`exec` 与 `ext_state` 七项组成。
+`exec` 内联持有引擎注册表。应用参数由门面 `app_state.rs` 拥有，核心库从装配的 `ProgramArgs` 服务取得快照；
+服务不持有 core，worker 共享同一应用数据，其他 VM 隔离。
 
 - `runtime.statics: StaticTable` — 用户类 static 字段（`vm/runtime/statics/table.rs`）：每个 `StaticFieldId` 一个地址稳定的 16 B 单元
   （型参单元协议，读写无锁，单元旁缓存类型初始化屏障的属主判定），外加 FQN → id 的登记表（首次用到才分配，解析期才走它的锁）。
@@ -110,7 +114,6 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.engines` 
 - 静态初始化：`runtime.cctors: Arc<CctorRegistry>`（有静态构造器的类型的初始化状态，见 [static-ctor-init.md](static-ctor-init.md)）/ `pending_type_inits` / `pending_type_init_count` / `init_batch_inflight` / `runtime.static_init_error`
 - `loader.context_registry: Mutex<ContextRegistry>` — load context / assembly 注册表（见 [load-context.md](load-context.md)）
 - `threads: ThreadState`（`vm/threads/state.rs`）— context 注册表、fatal 标记及 GC safepoint 的 `gc_phase` / `gc_phase_cv` / `parked_count` / `collector_active` / `needs_auto_collect`；每 VM 一份，worker 共享（见 [safepoint-design.md](safepoint-design.md)）
-- `program_args: Mutex<Vec<String>>` — `--` 之后的程序参数（`Std.IO.Environment.GetCommandLineArgs()`）
 - 观测：`counters`（`RuntimeCounters`，只累计已销毁 `VmContext` 的计数；各线程在自己的 `VmContext.counters` 上计，`counters_snapshot()` 汇总）/ `runtime_observers` / `park_histogram`（safepoint park 时长分布）/ `lock_contentions` + `lock_wait_us`（仅 `profile-contention` feature 写入）/ `sampler`（`Z42_SAMPLE_HZ` 开启的采样 profiler）
 
 核心库的进程、线程、文件、TCP socket/listener、UDP 和 TLS 七张资源表分别归对应模块的 `State`，

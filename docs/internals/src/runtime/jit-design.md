@@ -17,7 +17,7 @@
 ```
 vm.rs: ExecMode::Jit → 已注册优化入口 → jit::run(ctx, module, entry)
     │
-    ▼ runtime::install(ctx, module)  VmCore.engines 发布拥有 JitRuntime 的 TierApi（LazyCompiler 持 cranelift JITModule），
+    ▼ runtime::install(ctx, module)  VmCore.exec.engines 发布拥有 JitRuntime 的 TierApi（LazyCompiler 持 cranelift JITModule），
     │                                 不编译；已装则复用（每 VM 一个 JIT）
     ▼ jit::run_fn(ctx, entry)
         1. resolve_fn_by_name(ctx, entry)        —— 首次调用即编译入口
@@ -26,7 +26,7 @@ vm.rs: ExecMode::Jit → 已注册优化入口 → jit::run(ctx, module, entry)
 ```
 
 VM 的每条线程都跑 JIT：`__thread_spawn` 的 worker 用自己的 `VmContext`（`new_with_core`），共享同一个
-`VmCore.engines`；它的解释器帧经混合模式分流进入已编译函数，到阈值就在 worker 线程上编译（编译锁内）。
+`VmCore.exec.engines`；它的解释器帧经混合模式分流进入已编译函数，到阈值就在 worker 线程上编译（编译锁内）。
 
 ## 运行时数据结构（`runtime.rs` / `frame.rs`）
 
@@ -43,7 +43,7 @@ VM 的每条线程都跑 JIT：`__thread_spawn` 的 worker 用自己的 `VmConte
 `jit_head` 是 `#[repr(C)]` 的 `JitHead`（`vm_context/types.rs`），另缓存一份 `&TierApi`（后端自己的 `VmContext::jit()` 通过中立 header 识别并借用本 VM 的 JIT
 运行时；早于安装的 ctx 在下一次栈底帧 push 时补上）。
 
-**`JitRuntime`**（`VmCore.engines` 的 `TierApi` 所拥有的后端）：每 VM 一份、所有线程共享，随 VmCore 释放，helper 经
+**`JitRuntime`**（`VmCore.exec.engines` 的 `TierApi` 所拥有的后端）：每 VM 一份、所有线程共享，随 VmCore 释放，helper 经
 `ctx.jit()` 取（`helpers::jit_rt`）。主要字段：
 
 | 字段 | 作用 |
@@ -128,7 +128,7 @@ brif v, exc_block, next
 ```
 src/runtime/src/jit/
 ├── mod.rs           jit::run / run_fn
-├── runtime.rs       JitRuntime（VmCore.engines）：JitSlot 表、fn_of / id_of_func / id_by_name、resolve_fn_by_* / OSR 入口解析、install
+├── runtime.rs       JitRuntime（VmCore.exec.engines）：JitSlot 表、fn_of / id_of_func / id_by_name、resolve_fn_by_* / OSR 入口解析、install
 ├── lazy.rs          LazyCompiler：持 cranelift JITModule，compile_fn / compile_fn_osr 按需编译单函数
 ├── frame.rs         JitFrame、FnEntry
 ├── reg_access.rs    frame.regs 槽位读写的唯一出口
