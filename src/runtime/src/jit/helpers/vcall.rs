@@ -10,7 +10,9 @@
 use crate::vm::runtime::dispatch::ic::VCallIC;
 use crate::vm::runtime::Function;
 use crate::object::Value;
-use crate::interp::vcall_resolve::{resolve_vcall, vcall_ic_hit, VCallTarget};
+use crate::vm::exec::ops::vcall::resolve_vcall;
+use crate::vm::runtime::dispatch::vcall::vcall_ic_hit;
+use crate::vm::exec::ops::vcall::VCallTarget;
 
 use super::super::frame::{FnEntry, JitFrame};
 use crate::vm_context::VmContext;
@@ -96,7 +98,7 @@ unsafe fn vcall_impl(
             // The check is debug-only; keep its argument (a UTF-8 validation of the
             // method name) out of release builds, where it ran on every IC hit.
             #[cfg(debug_assertions)]
-            crate::interp::vcall_resolve::assert_pic_target(
+            crate::vm::exec::ops::vcall::assert_pic_target(
                 vm_ctx, module, &obj_val,
                 std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len)).unwrap_or("?"),
                 func);

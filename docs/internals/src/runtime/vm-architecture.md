@@ -28,6 +28,8 @@ is/as/catch 目标键及数组元素/对象泛型实参的驻留句柄。侧表�
 
 身份与 token 定义位于 `vm/runtime/ids`，类型注册表组装与约束验证位于 `vm/runtime/types`；
 `vm/runtime/resolve` 建立每函数预链接，`vm/runtime/dispatch/ic` 定义缓存和发布原语。
+`vm/runtime/dispatch` 的 receiver、functions、vcall、ctor、isa 查询只接受已注册表、描述符和值，不拿 VmContext，不执行 z42、物化异常、加载包或等待初始化。
+可能触发加载、初始化和异常的层级遍历及绑定编排由 `vm/exec/ops/{vcall,obj_new,cast}` 按原顺序执行；缓存未命中不预加载整张继承图。
 
 包定位位于 `vm/loader/locate`，VFS 读取、合并与执行准备位于 `vm/loader/package`；
 惰性路由与注册位于 `vm/loader/lazy`，加载上下文与 assembly 关联由 `vm/loader/contexts.rs` 持有。
@@ -106,7 +108,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.jit` 是�
 > **模块布局**：`vm_context/`：`mod.rs`（hub：VM_CORES / snapshot /
 > `VmContextPtr` / `CoreContextReclaimer`）+ `resource_registry.rs` + `types.rs`（VmCore/VmContext struct）+
 > `construct.rs`（构造 + Drop）+ `frame_stack.rs`（`FrameStack`，见下「帧栈的归属」）+ `resources.rs` / `native.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
-> （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）+ `cctor.rs`（静态构造器状态机）/ `isa_cache.rs`（`is`/`as`/`catch` 前置缓存）/ `symres.rs`（「确定不存在」判定）。
+> （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）+ `cctor.rs`（静态构造器状态机）（`is`/`as`/`catch` 前置缓存类型在 `vm/runtime/dispatch/isa_cache.rs`）/ `symres.rs`（「确定不存在」判定）。
 
 `VmCore` 满足 `Send + Sync`（编译期 assertion 在 `src/runtime/src/gc/heap_tests/send_sync.rs`）。
 
@@ -688,7 +690,7 @@ stdlib 里必然含有 JIT 尚未支持的 opcode —— `out`/`ref`/`in` 参数
 
 2. **调用点自动走 interp 兜底**：`Call` 永远经 `jit_call` helper 跳转，**从不**
    emit cranelift 直接调用，所以被拒绝的 callee 取不到入口 → `jit_call` 按 id 取到函数 → 解释器执行。`VCall` 的目标解析由与 interp 共用的
-   `interp::vcall_resolve::resolve_vcall` 完成，[jit/helpers/vcall.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/vcall.rs)
+   `vm::exec::ops::vcall::resolve_vcall` 完成，[jit/helpers/vcall.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/vcall.rs)
    只决定怎么调：有编译入口走原生，否则在解释器上以填好接收者的帧执行。
 
 3. **entry 也兜底**：`jit::run_fn` 在入口取不到时（被拒绝的 entry）改用 `interp::exec_function`
@@ -861,7 +863,7 @@ const_str(module, idx):
 ### ObjNew dispatch（与 VCall 对称）
 
 `Instruction::ObjNew { dst, class_name, ctor_name, args }`。类与构造器的解析是 interp 与 JIT 共用的一份
-（[obj_new_resolve.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/obj_new_resolve.rs)），
+（[obj_new_resolve.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/exec/ops/obj_new.rs)），
 两侧只决定怎么跑 ctor：
 
 ```
@@ -968,7 +970,7 @@ N > K HashMap），调用方零改动 —— `NameIndex` 的 public API 故意�
 
 ### VCall 指令执行
 
-位置：`src/runtime/src/interp/exec_vcall.rs::vcall`（PIC 命中直调；miss 时调 `interp/vcall_resolve.rs::resolve_vcall`）
+位置：`src/runtime/src/interp/exec_vcall.rs::vcall`（PIC 命中直调；miss 时调 `vm/exec/ops/vcall.rs::resolve_vcall`）
 
 对象 receiver 的解析（`resolve_vcall` 阶梯第 4 档，伪代码）：
 
@@ -1002,7 +1004,7 @@ if let Some(&slot) = type_desc.vtable_index.get(method) {
 `Std.Object` 同样中招：`ToString` override 被无视）。
 
 > 注：派发目标的**决议**集中在
-> `src/runtime/src/interp/vcall_resolve.rs`，interp 与 JIT 共用同一条阶梯（boxed primitive →
+> `src/runtime/src/vm/exec/ops/vcall.rs`，interp 与 JIT 共用同一条阶梯（boxed primitive →
 > boxed struct → primitive/array receiver → object vtable / 继承链），各自只决定「怎么调」。
 
 ### 接口调用：接口槽
@@ -1059,7 +1061,7 @@ Char → Std.Char   Str → Std.String   Array → Std.Array
 **没有引入新 IR 指令**（不需要 `StaticCallViaIface` / `InterfaceStaticCall` 之类）：binder（`ExprTyper._bindBinary`）见左操作数是型参，就去该型参的 `where` 约束接口里
 找 `static abstract op_X`，发一条**接收者驱动的普通 `VCall`**（`vcall a.op_Add(b)`）。运行期由
 `a` 的具体类决定跑哪个实现——`Value::Object` 走 TypeDesc / vtable，基元与数组走上一节的
-`primitive_class_name`，两条路都是既有阶梯（`vcall_resolve.rs`），**零新增派发机制**。
+`primitive_class_name`，两条路都是既有阶梯（`vm/exec/ops/vcall.rs`），**零新增派发机制**。
 
 代价就是一次普通函数调用：`Std.Int32.op_Add` 的 body 是 `return a + b` → 一条 `add` 指令，
 所以泛型 `a + b` ≈ 「1 次调用 + 原生加法」。
@@ -1169,7 +1171,7 @@ import metadata 内部类型；helpers/* 同样走 trait"这一**完整愿景**�
 - **`jit::run` 走 trait method**：`module.functions()` /
   `module.module_name()` 等替代直接字段访问
 - **helper 暂无 trait 消费者**：`jit_obj_new` 的类 / 构造器解析与 interp 共用
-  `interp::obj_new_resolve`，不经 `type_lookup`；raw pointer 不变
+  `vm::exec::ops::obj_new`，不经 `type_lookup`；raw pointer 不变
 - **签名保持具体类型**：`jit::runtime::install(vm, &Module)`；`JitRuntime.module:
   *const Module` 是具体类型
 
@@ -1387,7 +1389,7 @@ pub struct ResolvedTokens {
 - **Builtin**: 命中 → `corelib::invoke_builtin`（`BUILTINS[id]` 或 ext 表，实参原地从寄存器读）；`UNRESOLVED` → 同一入口按名解析（调用时重查 ext 注册表，仍解不出抛 `MissingSymbolException`）
 - **ObjNew**: 站点缓存命中 → 缓存的 `Arc<TypeDesc>` + ctor 按 `FnId` 无锁取回；未命中 → 按名解析 + 回填（见上文「ObjNew dispatch」）
 - **StaticGet/Set**: 命中 → `statics` 的第 `id` 个单元（无锁）；UNRESOLVED → name lookup + 回填
-- **VCall**: PIC 命中（4-slot 线性扫描；receiver 的 type id 匹配任一槽位的 `type_id`）→ 按载荷 `FnId` 直调（`fn_by_id`：入口函数 = `module.functions` 下标，惰性函数经 `FuncTable::get`）；miss → 走 `vcall_resolve` 的完整派发阶梯，目标有 `FnId`（本模块与惰性包的函数都有；唯一例外是非入口模块单测里的惰性目标）且实参个数匹配时通过 `vcall_ic_install` 填入第一个空槽（或 round-robin 牺牲一个槽）
+- **VCall**: PIC 命中（4-slot 线性扫描；receiver 的 type id 匹配任一槽位的 `type_id`）→ 按载荷 `FnId` 直调（`fn_by_id`：入口函数 = `module.functions` 下标，惰性函数经 `FuncTable::get`）；miss → 走 `vm/exec/ops/vcall` 的完整派发阶梯，目标有 `FnId`（本模块与惰性包的函数都有；唯一例外是非入口模块单测里的惰性目标）且实参个数匹配时通过 `vcall_ic_install` 填入第一个空槽（或 round-robin 牺牲一个槽）
 - **FieldGet/Set**: PIC 命中（4-slot 线性扫描）→ 载荷 `FieldLoc` 直接给出单元的字节偏移、宽度与种类（基元 / 引用字 / struct 根；型参单元记字段下标，回布局取负载字偏移），一次单元读写；miss → `field_index` + `field_access[slot]` 解析，通过 `field_ic_install` 填槽。JIT 生成码对 entry 0 做内联守卫（见 [jit.md](jit.md)「字段访问：原生单态字段 IC」）
 
 > **Polymorphic IC**：IC 是 4-slot polymorphic IC（每槽 `(type_id, 载荷)`）。线性扫描使用 `UNRESOLVED` sentinel 提前退出（mono 站点首槽命中即返回，0 额外开销）。超过 4 个 receiver type 的站点用 round-robin counter 牺牲槽位（`ic.round_robin.fetch_add(1, Relaxed) % 4`）。每个槽是**一个** `AtomicU64`（高 32 位 `type_id`、低 32 位载荷：VCall 是 `FnId`，Field 是 `FieldLoc` = `offset:16 | width:8 | kind:8`），安装写一次、查找读一次，`(type_id, 载荷)` 永远成对，撕裂在结构上不可能，所以 `Relaxed` 足够。惰性函数的 `FnId` 只经 `FuncTable::get` 解引用，那里对段长度和槽指针的 Acquire 与登记时的 Release 配对，槽内容的发布顺序由它保证；先看到 id、后看到登记的读者只会拿到 `None` 走慢路径。发布协议的细节见 [inline-cache-publication.md](inline-cache-publication.md)。Helpers `field_ic_lookup` / `field_ic_install` / `vcall_ic_lookup` / `vcall_ic_install` 在 `vm::runtime::resolve` 公开，供 interp + JIT helpers 共用。
@@ -1414,7 +1416,7 @@ pub struct ResolvedTokens {
 
 **做法**：`alloc_type_id_block` 从进程级 `AtomicU32` 批量发号，号段限定在
 `[0, IMPORT_BASE)`，越界即 panic（回绕会引入撞号）。debug 构建下两条 PIC
-的命中点各有一道常驻断言（`vcall_resolve::assert_pic_target` /
+的命中点各有一道常驻断言（`vm::exec::ops::vcall::assert_pic_target` /
 `resolver::assert_field_ic_slot`），任何再次违反该不变量的改动会**在误派发当场 panic**，
 而不是变成一个远在天边的崩溃或错数据；release 构建下这两道断言被编译掉，热路径不变。
 

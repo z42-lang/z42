@@ -4,23 +4,16 @@
 //! `exec_object.rs` when it crossed the 500-line hard limit; the parent
 //! re-exports so `exec_object::is_instance` / `as_cast` paths are unchanged.
 
+use crate::vm::runtime::dispatch::receiver::is_integer_class;
 use crate::vm::runtime::ids::tokens::TypeKeyCell;
 use crate::vm::runtime::Module;
 use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 
-use super::super::dispatch::{array_isa, bound_param_extra_isa, isa_object, isa_td, struct_ref_isa};
+use crate::vm::runtime::dispatch::isa::array_isa;
+use crate::vm::exec::ops::cast::{bound_param_extra_isa, isa_object, isa_td, struct_ref_isa};
 use super::super::{prim_isa, Frame};
-
-/// 整数族类名（编译器 QualifyTypeName 发 FQ 形；带非限定形兜底）。
-pub(crate) fn is_integer_class(cn: &str) -> bool {
-    matches!(cn,
-        "Std.Int32" | "Std.Int64" | "Std.Int16" | "Std.SByte"
-        | "Std.Byte" | "Std.UInt16" | "Std.UInt32" | "Std.UInt64"
-        | "Int32" | "Int64" | "Int16" | "SByte"
-        | "Byte" | "UInt16" | "UInt32" | "UInt64")
-}
 
 /// A target naming a type parameter of a shared generic body (`o is T`, `o is List<T>`) carries
 /// markers; it is substituted from this activation first and tested with a key of its own (the
@@ -42,7 +35,7 @@ pub(crate) fn is_instance(
 }
 
 /// `bound_param`: `class_name` was substituted for a type-parameter marker — the extra matches of
-/// `dispatch::bound_param_extra_isa` apply.
+/// `crate::vm::exec::ops::cast::bound_param_extra_isa` apply.
 #[allow(clippy::too_many_arguments)]
 fn is_instance_of(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
@@ -140,4 +133,3 @@ fn as_cast_to(
     frame.set(dst, if is_match { val } else { Value::Null });
     Ok(())
 }
-

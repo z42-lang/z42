@@ -22,6 +22,7 @@
 //! **只在确信时才报错。** 属主类型解析不出来时**不报**（那是另一类缺失，归 ObjNew 那个
 //! 站点管），保持既有行为。宁可漏掉一些，也不要把正常的跨包加载变成崩溃。
 
+use crate::vm::runtime::dispatch::functions::{call_arity, CallArity};
 use crate::vm::runtime::Module;
 use crate::object::TypeDesc;
 use crate::vm_context::VmContext;
@@ -211,49 +212,6 @@ pub fn missing_ctor_exception(
 
 // ── 站点 ⑤：调用目标解析到了，但签名容不下实参（构造器 + 普通方法调用）──────────
 
-/// 被调函数可接受的**物理**实参数区间：含 `this`（实例方法 / 构造器的 `param_count` 本就含它）、
-/// 含 sret 隐藏返回槽。`max == u16::MAX` ⇒ `params` 变长，无上界。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CallArity {
-    pub min: u16,
-    pub max: u16,
-}
-
-impl CallArity {
-    /// 调用方传入 `phys` 个值（含 `this`、含 sret 槽）时是否可接受。
-    #[inline]
-    pub fn accepts(&self, phys: usize) -> bool {
-        let phys = phys.min(u16::MAX as usize) as u16;
-        phys >= self.min && phys <= self.max
-    }
-}
-
-/// 从函数元数据算出可接受的物理实参数区间。
-///
-/// # 下界是 `param_count`，不是 `min_arg`（fix-call-arity-skew 实测）
-///
-/// z42 的默认参数由**调用点在编译期填满**（跨包构造器那一支由 #623 补齐）。在全量 `xtask test`
-/// 上给解释器的三个函数体入口挂探针普查：合法调用里「实参数 < 形参数」**一次都没有**。所以
-/// 任何少于 `param_count` 的调用都是 skew——典型是「被调方新加了一个可选参数」。此前
-/// 构造器用 `min_arg` 当下界，恰恰把这种 skew 放过去了；那段为 `min_arg` 两种口径并存而写的
-/// 夹取补丁也随之作废。
-///
-/// # 上界要加 sret，而且必须读元数据
-///
-/// 同一次普查里有 10 个合法站点「实参数 = 形参数 + 1」，全是返回 blob 值 struct 的函数：
-/// caller 在末尾传隐藏返回槽，而它**不计入** `param_count`。运行时本来无从得知——猜
-/// （容一 / 复刻编译器的 blob 判定）要么留洞、要么误杀——所以编译器把它写进
-/// `METHOD_FLAG_SRET`（zbc 1.40），这里读位，精确。
-///
-/// `params` 变长尾参：调用点通常已打包成数组（普查中实参数恒等于形参数），但展开形状多出的
-/// 实参同样放行 ⇒ 无上界。
-pub fn call_arity(f: &crate::vm::runtime::Function) -> CallArity {
-    let sret = (f.method_flags & crate::metadata::ir::METHOD_FLAG_SRET) != 0;
-    let expected = f.param_count.saturating_add(sret as usize).min(u16::MAX as usize) as u16;
-    let max = if f.params_from != 0xFF { u16::MAX } else { expected };
-    CallArity { min: expected, max }
-}
-
 /// 调用解析到目标**之后**的裁决：签名容不下实参数 ⇒ 抛。`Some(exc)` = 定案不匹配；`None` = 可接受。
 ///
 /// # 为什么解析成功也要查
@@ -373,7 +331,7 @@ fn ambiguous_type_exception_slow(
 ///
 /// # 判据
 ///
-/// 回落描述符（[`crate::interp::dispatch::make_fallback_type_desc`]）有一个正当用途：
+/// 回落描述符（[`crate::vm::runtime::dispatch::ctor::make_fallback_type_desc`]）有一个正当用途：
 /// 合并进来的 stdlib 模块不带预建 TypeDesc，但带 `ClassDesc`——按 `module.classes` 的
 /// 继承链现建一个，字段槽是**齐的**。判据就是这条链在不在：
 ///
