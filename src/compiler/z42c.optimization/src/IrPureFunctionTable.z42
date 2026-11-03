@@ -41,6 +41,7 @@ public sealed class IrPureFunctionTable {
         // 单调收缩不动点：反复重建——用当前 pure 集判每个函数，只保留仍纯的。集合只缩不增 →
         //   某轮无函数被降级即收敛。重建避开 StrMap 无 Remove。
         bool changed = true;
+        int rounds = 0;
         while (changed) {
             StrMap next = new StrMap();
             fi = 0;
@@ -56,8 +57,41 @@ public sealed class IrPureFunctionTable {
             // its name: another body may still supply it in this round.
             changed = next.Count() != pure.Count();
             pure = next;
+            rounds = rounds + 1;
+            // Small modules and short demotion chains avoid graph setup.
+            if (changed && rounds == 4 && m.FuncCount >= 256 && pure.Count() > 0) {
+                pure = IrPureFunctionTable._finishPure(m, pure);
+                break;
+            }
         }
         return new PureTable(pure, IrPureFunctionTable._computeSpeculatable(m, pure));
+    }
+
+    private static StrMap _finishPure(IrModule m, StrMap pure) {
+        bool[] active = new bool[m.FuncCount];
+        StrMap next = new StrMap();
+        int fi = 0;
+        while (fi < m.FuncCount) {
+            IrFunction f = m.Functions[fi];
+            active[fi] = IrPureFunctionTable._summarized(f) && pure.ContainsKey(f.Name)
+                && IrPureFunctionTable._isFuncPure(f, pure);
+            if (active[fi]) { next.Put(f.Name, "1"); }
+            fi = fi + 1;
+        }
+        if (next.Count() == pure.Count()) { return next; }
+        // Confirm short tails before paying for a reverse graph. Rejected bodies
+        // cannot become valid when the candidate name set shrinks further.
+        StrMap confirm = new StrMap();
+        fi = 0;
+        while (fi < m.FuncCount) {
+            if (active[fi]) {
+                active[fi] = IrPureFunctionTable._isFuncPure(m.Functions[fi], next);
+                if (active[fi]) { confirm.Put(m.Functions[fi].Name, "1"); }
+            }
+            fi = fi + 1;
+        }
+        if (confirm.Count() == next.Count()) { return confirm; }
+        return PurityDemotionWorklist.Finish(m, confirm, active);
     }
 
     // 参与纯度推断的函数：有体，且没要求调用方把它当黑盒。

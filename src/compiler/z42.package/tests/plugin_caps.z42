@@ -136,3 +136,44 @@ void test_plgs_section_present_when_carried() {
     Assert.True(pi.HasSection("PLGS"));
     Assert.Equal("demo.toolkit", pi.Carried[0].Name);
 }
+
+// ── 包类型位（deps-plugin-routing 第③刀）：往返 + 判别 + 旧代兜底 ────────────────
+// 复用上面 _roundtrip 的装配路径：ZpkgFileZ.PkgKind → flags bit6–7 → ZpkgInfo.PkgKind。
+int _kindRoundtrip(int kind) {
+    ZpkgFileZ z = ZpkgBuilder.BuildPacked("p", "0.1.0", false, false, "", _one(), 1);
+    z.PkgKind = kind;
+    byte[] bytes = ZpkgWriterZ.WritePacked(z, false).ToBytes();
+    ZpkgInfo info = ZpkgReader.Open(bytes, "p.zpkg");
+    Assert.NotNull(info);
+    return info.PkgKind;
+}
+
+[Test]
+void test_pkg_kind_roundtrip_all_four() {
+    Assert.Equal(PkgKind.Lib,     _kindRoundtrip(PkgKind.Lib));
+    Assert.Equal(PkgKind.Exe,     _kindRoundtrip(PkgKind.Exe));
+    Assert.Equal(PkgKind.Plugin,  _kindRoundtrip(PkgKind.Plugin));
+    Assert.Equal(PkgKind.Harness, _kindRoundtrip(PkgKind.Harness));
+}
+
+[Test]
+void test_pkg_kind_plugin_identity_and_fallback() {
+    // 新代：类型位 plugin ⇒ 插件包（即便能力位因为坏输入是 0——判别权威是类型位）。
+    Assert.True(PkgKind.IsPluginPkg(PkgKind.Plugin, 0));
+    Assert.True(PkgKind.IsPluginPkg(PkgKind.Plugin, PluginCaps.Hook));
+    // 新代 lib/exe/harness ⇒ 不是插件包，即便 caps 误非 0。
+    Assert.False(PkgKind.IsPluginPkg(PkgKind.Lib, 0));
+    Assert.False(PkgKind.IsPluginPkg(PkgKind.Exe, PluginCaps.Hook));
+    Assert.False(PkgKind.IsPluginPkg(PkgKind.Harness, PluginCaps.Hook));
+    // 旧代兜底：类型位 0（lib）但能力位非 0（旧文件只有 caps）⇒ 判插件。
+    Assert.True(PkgKind.IsPluginPkg(PkgKind.Lib, PluginCaps.Generator));
+    Assert.True(PkgKind.IsPluginPkg(PkgKind.Lib, PluginCaps.Mask(56)));
+}
+
+[Test]
+void test_pkg_kind_describe() {
+    Assert.Equal("lib", PkgKind.Describe(PkgKind.Lib));
+    Assert.Equal("exe", PkgKind.Describe(PkgKind.Exe));
+    Assert.Equal("plugin", PkgKind.Describe(PkgKind.Plugin));
+    Assert.Equal("harness", PkgKind.Describe(PkgKind.Harness));
+}

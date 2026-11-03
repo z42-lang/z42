@@ -963,7 +963,7 @@ artifacts/build/libraries/<lib>/<profile>/
 | 在哪找（按名） | 依赖目录（`Z42_LIBS` / SDK `libs/`） | **插件目录**（`Z42_PLUGINS` / 各依赖目录同级的 `plugins/`）——查找域刻意分开，插件不污染运行期解析域 |
 | `include = [...]` | 不支持 | **源集条目（推荐）**：相对本工程目录的源码 glob（须以文件模式收尾），`exclude` 同语义——与 `[tests]` 同键同配置法 |
 | `path = "..."` | 支持，z42c 代建整个**闭包** | 支持：指工程目录（代建**那一个工程**，它的依赖由它自己解析）或指 `.zpkg` 文件（不代建，直接用）；免清单地指单个 `.z42` 源文件 / 无清单源目录仍工作、已被源集条目取代（弃用中）|
-| 被引工程的 `kind` | `lib`（引 `plugin` 会被拒绝——按名也拦得住，读头能力位）| 必须是 `plugin`（引普通库会在定位阶段被拒：头里没有插件能力位）|
+| 被引工程的 `kind` | `lib`；**独立分发的插件包例外**（deps-plugin-routing）：zpkg 头自述包类型（lib/exe/plugin/harness，flags bit6–7）——插件包按名（插件目录）或 `.zpkg` path 声明即**自动分流**进工具链，不链入产物；插件**工程目录**经 `[dependencies]` 仍拒绝（源码引用属 `[plugins]`）；libs 里出现插件包 = 硬错 | 必须是 `plugin`（引普通库会在定位阶段被拒：头里没有插件能力位）|
 
 **源集条目（include/exclude，推荐）**：与 `[tests]` 同键同语义——`include` 是相对本工程目录的
 源码 glob（须以文件模式收尾，如 `hooks/**/*.z42` / `hooks/hook.z42`），`exclude` 圈掉不要的。
