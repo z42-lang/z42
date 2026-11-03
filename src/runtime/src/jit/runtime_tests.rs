@@ -181,7 +181,7 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
     install_tuned(&vm, &module, |rt| rt.jit_threshold = 1);
     // Fatal already set: an overflow below still unwinds as one, but leaves the
     // process-wide report (which other tests read) alone.
-    vm.core.fatal.store(true, Ordering::SeqCst);
+    vm.core.threads.fatal.store(true, Ordering::SeqCst);
     let main_limit = crate::stack_guard::limit();
     let core = vm.core_arc();
     let (stored, own, forced, deep) = std::thread::Builder::new()

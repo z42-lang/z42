@@ -229,7 +229,7 @@ fn two_waiters_do_not_spin_against_each_other() {
         }));
     }
     // 两个都在 wait 里 ⇔ parked_count == 2。
-    assert!(wait_until(Duration::from_secs(5), || core.parked_count.load(Ordering::Acquire) == 2));
+    assert!(wait_until(Duration::from_secs(5), || core.threads.parked_count.load(Ordering::Acquire) == 2));
     let before = wakeups.load(Ordering::SeqCst);
     std::thread::sleep(Duration::from_millis(100));
     let during_quiet = wakeups.load(Ordering::SeqCst) - before;
@@ -262,13 +262,13 @@ fn blocked_enter_is_parked_for_gc() {
         acquired2.store(1, Ordering::SeqCst);
         m2.exit().unwrap();
     });
-    assert!(wait_until(Duration::from_secs(5), || core.parked_count.load(Ordering::Acquire) == 1),
+    assert!(wait_until(Duration::from_secs(5), || core.threads.parked_count.load(Ordering::Acquire) == 1),
             "a thread blocked in Monitor::enter must be parked");
     assert_eq!(acquired.load(Ordering::SeqCst), 0);
     m.exit().unwrap();
     assert!(wait_until(Duration::from_secs(5), || acquired.load(Ordering::SeqCst) == 1));
     worker.join().unwrap();
-    assert_eq!(core.parked_count.load(Ordering::Acquire), 0, "park must be released");
+    assert_eq!(core.threads.parked_count.load(Ordering::Acquire), 0, "park must be released");
 }
 
 #[test]
@@ -277,7 +277,7 @@ fn uncontended_enter_does_not_park() {
     let c = ctx();
     let (h, _m) = new_monitor(&c);
     builtin_monitor_enter(&c, &[h.clone()]).unwrap();
-    assert_eq!(c.core.parked_count.load(Ordering::Acquire), 0);
+    assert_eq!(c.core.threads.parked_count.load(Ordering::Acquire), 0);
     builtin_monitor_exit(&c, &[h]).unwrap();
 }
 
@@ -298,19 +298,19 @@ fn waiting_thread_is_parked_for_gc() {
         }
         m2.exit().unwrap();
     });
-    assert!(wait_until(Duration::from_secs(5), || core.parked_count.load(Ordering::Acquire) == 1),
+    assert!(wait_until(Duration::from_secs(5), || core.threads.parked_count.load(Ordering::Acquire) == 1),
             "a thread blocked in Monitor::wait must be parked");
     go.store(1, Ordering::SeqCst);
     builtin_monitor_enter(&c, &[h.clone()]).unwrap();
     builtin_monitor_exit(&c, &[h]).unwrap();
     worker.join().unwrap();
-    assert_eq!(core.parked_count.load(Ordering::Acquire), 0, "park must be released");
+    assert_eq!(core.threads.parked_count.load(Ordering::Acquire), 0, "park must be released");
 }
 
 /// With one other thread parked, this thread becomes the collector and a full collection
 /// finishes without waiting for it.
 fn collect_while_parked(c: &VmContext) {
-    assert!(wait_until(Duration::from_secs(5), || c.core.parked_count.load(Ordering::Acquire) == 1),
+    assert!(wait_until(Duration::from_secs(5), || c.core.threads.parked_count.load(Ordering::Acquire) == 1),
             "the blocked thread is parked");
     let t0 = Instant::now();
     {
@@ -344,7 +344,7 @@ fn a_collection_completes_while_a_thread_is_blocked_in_enter() {
     worker.join().unwrap();
     assert_eq!(done.load(Ordering::SeqCst), 1);
     c.heap().unpin_root(root);
-    assert_eq!(c.core.parked_count.load(Ordering::Acquire), 0);
+    assert_eq!(c.core.threads.parked_count.load(Ordering::Acquire), 0);
 }
 
 #[test]
@@ -369,5 +369,5 @@ fn a_collection_completes_while_a_thread_waits_on_the_monitor() {
     builtin_monitor_exit(&c, &[h]).unwrap();
     worker.join().unwrap();
     c.heap().unpin_root(root);
-    assert_eq!(c.core.parked_count.load(Ordering::Acquire), 0);
+    assert_eq!(c.core.threads.parked_count.load(Ordering::Acquire), 0);
 }

@@ -73,7 +73,7 @@ fn stalled_handshake_is_parked_for_gc() {
         kind_of(&builtin_net_tls_connect(&w, &args).expect("call ok"))
     });
     let (peer, _) = listener.accept().expect("accept");
-    let parked = || ctx.core.parked_count.load(std::sync::atomic::Ordering::Acquire);
+    let parked = || ctx.core.threads.parked_count.load(std::sync::atomic::Ordering::Acquire);
     let t0 = std::time::Instant::now();
     while parked() != 1 && t0.elapsed() < std::time::Duration::from_secs(5) {
         std::thread::sleep(std::time::Duration::from_millis(2));

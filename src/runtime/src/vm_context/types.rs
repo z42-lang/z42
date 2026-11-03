@@ -1,24 +1,11 @@
 use super::*;
 
-/// **`VmCore`** —— state shared across all threads sharing one VM instance
-/// (add-multithreading-foundation, Phase 1 / spec
-/// `2026-05-19-add-multithreading-foundation`).
-///
-/// Holds fields that are **process-globally singular**: static fields, type
-/// registries, native interop registry, pinned buffer table, etc. Per-thread
-/// state (call stack, pending exception, frame guards, func-ref cache slots)
-/// stays directly on [`VmContext`], which references this struct through
-/// `Arc<VmCore>`.
-///
-/// It also holds the VM's lazy loader, cctor registry, native interop registry,
-/// GC heap and resource tables.
-///
-/// `VmCore` will become `Send + Sync` once the GC handle backing switches to
-/// `Arc<...>` (Phase 3 of the spec). Until then, `Mutex` is wrapped around
-/// fields that hold `Value` (which transitively contains `Rc<RefCell>` via
-/// the current `ArrRef` backing), so the API surface is already stable —
-/// Send-safety completes at Phase 3 without further VmCore API changes.
+/// State shared by all contexts of one VM, owned through `Arc<VmCore>`.
+/// Subsystems own their synchronization and teardown; contexts retain thread-local
+/// frames, pending exceptions and allocation arenas. Concrete core-library and
+/// interop resources live in frozen extension state.
 pub struct VmCore {
+    pub(crate) threads: crate::vm::threads::ThreadState,
     /// Static fields: one stable-address cell per `StaticFieldId` (read / written without a
     /// lock), plus the FQN → id registration (lazy, first use; cross-zpkg fields can be met in
     /// any order). See `vm_context::static_table`.
@@ -72,10 +59,6 @@ pub struct VmCore {
     /// `AssemblyLoadContext.Load` registers assemblies with private `Module` arenas.
     /// Phase 1: boundary + reflection identity only (no unload / execution).
     pub(crate) context_registry:   Mutex<crate::vm::loader::contexts::ContextRegistry>,
-    /// runtime-audit P0-4: a fatal VM error (stack overflow) is unwinding —
-    /// no z42 handler runs and no error becomes a z42 exception (`stack_guard`).
-    /// Per VM: every thread of this VM, no other VM in the process.
-    pub(crate) fatal: std::sync::atomic::AtomicBool,
     /// **GC subsystem**. Moved here in Phase 2.2 so it can be shared across
     /// threads (single global heap). Backing today is `Heap`; Phase 3
     /// swaps to Arc + Send + Sync. Stored as `Box<Heap>` (no inner
@@ -89,12 +72,6 @@ pub struct VmCore {
     /// pending_exception) stay captured via `Rc<RefCell>`
     /// clones from the unique VmContext.
     pub(crate) heap:               Box<Heap>,
-    /// **add-vmcontext-registry **: registry of all live
-    /// [`VmContext`] instances on this VmCore (one per OS thread).
-    /// Populated by `VmContext::new()`; cleared by `VmContext::drop()`.
-    /// The GC scanner closure walks this list under lock to find every
-    /// thread's per-thread roots. See `VmContextPtr` SAFETY block.
-    pub(crate) vm_contexts:        Mutex<Vec<VmContextPtr>>,
     /// **add-threading-stdlib **: the user's compiled Module,
     /// shared via `Arc` across all threads on this VmCore. `None` in test
     /// paths that don't need a real Module (most cargo unit tests construct
@@ -119,44 +96,6 @@ pub struct VmCore {
     /// pool. Per VM because the strings live in this VM's heap; its interned strings are GC
     /// roots. See `vm::runtime::ids::str_table`.
     pub(crate) strings:            Arc<crate::vm::runtime::ids::str_table::StrTable>,
-    /// **add-sync-primitives **: `Std.Threading.Mutex<T>`
-    /// slot table. `__mutex_new` inserts; `__mutex_unlock` keeps the
-    /// entry (Mutexes are reusable). The `Arc` lets the lock-acquire
-    /// thread keep the inner mutex alive across builtin call boundaries
-    /// via a thread-local guard registry — see `corelib/sync.rs`.
-    /// (**M2**: slot-id counter embedded in the registry.)
-    /// **add-sync-primitives **: `Std.Threading.Channel<T>`
-    /// slot table. `__channel_new` inserts; `__channel_close` flips
-    /// `sender = None` so subsequent recv sees disconnected. Entries
-    /// are never removed in v0 (no `__channel_drop` builtin) — the
-    /// Channel object's lifetime keeps the slot alive for the whole VM
-    /// run, which is acceptable for normal workloads but documented as
-    /// a Deferred for future cleanup (`add-sync-primitives-future-gc`).
-    /// (**M2**: slot-id counter embedded in the registry.)
-    /// **add-gc-safepoint **: cooperative-polling GC safepoint
-    /// phase. Mutators read this at each `check_safepoint` and park when
-    /// non-Idle. The collector flips Idle → Requested → Marking → Idle
-    /// under the protocol in [`crate::vm::threads::safepoint`].
-    pub(crate) gc_phase:           Mutex<crate::vm::threads::safepoint::GcPhase>,
-    /// **add-gc-safepoint **: Condvar used by both sides —
-    /// mutators wait on it to resume; the collector waits on it to learn
-    /// when `parked_count` reached its threshold.
-    pub(crate) gc_phase_cv:        parking_lot::Condvar,
-    /// **add-gc-safepoint **: number of mutator VmContexts
-    /// currently parked at a safepoint (excludes the collector). Used by
-    /// the collector to know when stop-the-world is in effect.
-    pub(crate) parked_count:       std::sync::atomic::AtomicUsize,
-    /// **add-multi-collector-arbitration **: exclusive
-    /// collector claim. `request_gc_pause` CAS-es false→true; only the
-    /// winner becomes the active collector for one round. Losers
-    /// park-as-mutator and return `None`. Cleared by `GcPauseGuard::drop`.
-    pub(crate) collector_active:   std::sync::atomic::AtomicBool,
-    /// **add-gc-safepoint-auto-threshold **: shared AtomicBool
-    /// that `Heap::maybe_auto_collect` sets on pressure trip;
-    /// `check_safepoint(ctx)` swaps it to `false` and takes ownership of
-    /// the round's stop-the-world collect. Cross-thread safe via the
-    /// safepoint protocol.
-    pub(crate) needs_auto_collect: Arc<std::sync::atomic::AtomicBool>,
     /// **add-z42-launcher **: command-line arguments passed to
     /// the running z42 program — everything after the `--` separator on the
     /// `z42vm` command line. Exposed to z42 code via

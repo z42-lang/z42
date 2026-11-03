@@ -9,8 +9,8 @@ use std::sync::atomic::Ordering;
 #[test]
 fn gc_phase_idle_by_default() {
     let ctx = VmContext::new();
-    assert_eq!(*ctx.core.gc_phase.lock(), GcPhase::Idle);
-    assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 0);
+    assert_eq!(*ctx.core.threads.gc_phase.lock(), GcPhase::Idle);
+    assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 0);
 }
 
 #[test]
@@ -23,8 +23,8 @@ fn check_safepoint_idle_is_no_op_fast_path() {
     for _ in 0..100 {
         check_safepoint(&ctx);
     }
-    assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 0);
-    assert_eq!(*ctx.core.gc_phase.lock(), GcPhase::Idle);
+    assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 0);
+    assert_eq!(*ctx.core.threads.gc_phase.lock(), GcPhase::Idle);
 }
 
 #[test]
@@ -34,10 +34,10 @@ fn request_gc_pause_with_only_self_proceeds_immediately() {
     let ctx = VmContext::new();
     {
         let _guard = request_gc_pause(&ctx).expect("uncontended CAS should succeed");
-        assert_eq!(*ctx.core.gc_phase.lock(), GcPhase::Marking);
+        assert_eq!(*ctx.core.threads.gc_phase.lock(), GcPhase::Marking);
     }
     // Guard dropped → released.
-    assert_eq!(*ctx.core.gc_phase.lock(), GcPhase::Idle);
+    assert_eq!(*ctx.core.threads.gc_phase.lock(), GcPhase::Idle);
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn pause_guard_drop_notifies_waiters() {
     // next time it checks. (We do it inside a scope so we don't hold the
     // lock when the mutator tries to take it.)
     {
-        *collector.core.gc_phase.lock() = GcPhase::Marking;
+        *collector.core.threads.gc_phase.lock() = GcPhase::Marking;
     }
     go_tx.send(()).expect("go");
 
@@ -87,7 +87,7 @@ fn pause_guard_drop_notifies_waiters() {
     // with a yield. parking_lot Condvar has no spurious wakes against
     // notify_all in this protocol so this poll is just for startup.
     let start = std::time::Instant::now();
-    while collector.core.parked_count.load(Ordering::Acquire) < 1 {
+    while collector.core.threads.parked_count.load(Ordering::Acquire) < 1 {
         std::thread::yield_now();
         if start.elapsed() > std::time::Duration::from_secs(5) {
             panic!("worker never parked");
@@ -95,10 +95,10 @@ fn pause_guard_drop_notifies_waiters() {
     }
 
     // Release.
-    *collector.core.gc_phase.lock() = GcPhase::Idle;
-    collector.core.gc_phase_cv.notify_all();
+    *collector.core.threads.gc_phase.lock() = GcPhase::Idle;
+    collector.core.threads.gc_phase_cv.notify_all();
     worker.join().expect("worker panicked");
-    assert_eq!(collector.core.parked_count.load(Ordering::Acquire), 0);
+    assert_eq!(collector.core.threads.parked_count.load(Ordering::Acquire), 0);
 
     // add-concurrency-probes (script-profiling P1b): the worker that
     // parked in `park_until_idle` recorded its STW stall into the shared park
@@ -124,13 +124,13 @@ fn auto_collect_flag_drained_at_next_safepoint() {
     // add-gc-safepoint-counter-throttling : bypass throttling
     // — force the first check_safepoint into the slow path.
     ctx.safepoint_skip.store(1, Ordering::Relaxed);
-    assert!(!ctx.core.needs_auto_collect.load(Ordering::Acquire));
+    assert!(!ctx.core.threads.needs_auto_collect.load(Ordering::Acquire));
     let cycles_before = ctx.heap().stats().gc_cycles;
 
-    ctx.core.needs_auto_collect.store(true, Ordering::Release);
+    ctx.core.threads.needs_auto_collect.store(true, Ordering::Release);
     check_safepoint(&ctx);
 
-    assert!(!ctx.core.needs_auto_collect.load(Ordering::Acquire),
+    assert!(!ctx.core.threads.needs_auto_collect.load(Ordering::Acquire),
         "flag should have been swapped to false by check_safepoint");
     let cycles_after = ctx.heap().stats().gc_cycles;
     assert!(cycles_after > cycles_before,
@@ -142,7 +142,7 @@ fn auto_collect_flag_idempotent_only_first_swap_runs_collect() {
     // Two consecutive check_safepoint calls with the flag set once: the
     // first drains and collects; the second sees false and is a fast no-op.
     let ctx = VmContext::new();
-    ctx.core.needs_auto_collect.store(true, Ordering::Release);
+    ctx.core.threads.needs_auto_collect.store(true, Ordering::Release);
     let cycles_before = ctx.heap().stats().gc_cycles;
 
     // add-gc-safepoint-counter-throttling : force slow path
@@ -173,7 +173,7 @@ fn request_pause_waits_for_other_mutators_to_park() {
     let core2 = collector.core_arc();
 
     // Pre-set phase to Requested so workers see it on first check.
-    *collector.core.gc_phase.lock() = GcPhase::Requested;
+    *collector.core.threads.gc_phase.lock() = GcPhase::Requested;
 
     let w1 = std::thread::spawn(move || {
         let m = VmContext::new_with_core(core1);
@@ -191,7 +191,7 @@ fn request_pause_waits_for_other_mutators_to_park() {
     // long-lived _m1 / _m2 do NOT increment parked_count (they never
     // entered check_safepoint); only the threads' fresh VmContexts do.
     let start = std::time::Instant::now();
-    while collector.core.parked_count.load(Ordering::Acquire) < 2 {
+    while collector.core.threads.parked_count.load(Ordering::Acquire) < 2 {
         std::thread::yield_now();
         if start.elapsed() > std::time::Duration::from_secs(5) {
             panic!("workers never both parked");
@@ -199,8 +199,8 @@ fn request_pause_waits_for_other_mutators_to_park() {
     }
 
     // Release.
-    *collector.core.gc_phase.lock() = GcPhase::Idle;
-    collector.core.gc_phase_cv.notify_all();
+    *collector.core.threads.gc_phase.lock() = GcPhase::Idle;
+    collector.core.threads.gc_phase_cv.notify_all();
     w1.join().expect("w1 panicked");
     w2.join().expect("w2 panicked");
 }
@@ -247,7 +247,7 @@ fn check_safepoint_slow_path_runs_when_counter_drains() {
     // Manually set counter to 1; next check_safepoint hits slow path
     // and resets counter back to `throttle_n()`.
     let ctx = VmContext::new();
-    ctx.core.needs_auto_collect.store(true, Ordering::Release);
+    ctx.core.threads.needs_auto_collect.store(true, Ordering::Release);
     ctx.safepoint_skip.store(1, Ordering::Relaxed);
     let cycles_before = ctx.heap().stats().gc_cycles;
 
@@ -258,7 +258,7 @@ fn check_safepoint_slow_path_runs_when_counter_drains() {
     assert_eq!(after, expected_reset,
         "slow path should reset counter to throttle_n() ({expected_reset}), got {after}");
     // The slow path should have observed + drained the auto_collect flag.
-    assert!(!ctx.core.needs_auto_collect.load(Ordering::Acquire),
+    assert!(!ctx.core.threads.needs_auto_collect.load(Ordering::Acquire),
         "slow path should have drained needs_auto_collect");
     assert!(ctx.heap().stats().gc_cycles > cycles_before,
         "slow path should have run a real collect");
@@ -286,14 +286,14 @@ fn check_safepoint_slow_path_pure_idle_no_op_resets_counter() {
 fn request_gc_pause_returns_some_when_uncontested() {
     // No other collector active — CAS succeeds, returns Some.
     let ctx = VmContext::new();
-    assert!(!ctx.core.collector_active.load(Ordering::Acquire));
+    assert!(!ctx.core.threads.collector_active.load(Ordering::Acquire));
 
     let guard = request_gc_pause(&ctx);
     assert!(guard.is_some(), "uncontested CAS should succeed");
-    assert!(ctx.core.collector_active.load(Ordering::Acquire));
+    assert!(ctx.core.threads.collector_active.load(Ordering::Acquire));
     drop(guard);
     // After Drop, collector_active released.
-    assert!(!ctx.core.collector_active.load(Ordering::Acquire));
+    assert!(!ctx.core.threads.collector_active.load(Ordering::Acquire));
 }
 
 #[test]
@@ -327,13 +327,13 @@ fn second_collector_falls_back_to_mutator_park_returns_none() {
     ready_rx.recv().expect("worker registered");
 
     // Simulate "another collector is active":
-    collector.core.collector_active.store(true, Ordering::Release);
-    *collector.core.gc_phase.lock() = GcPhase::Marking;
+    collector.core.threads.collector_active.store(true, Ordering::Release);
+    *collector.core.threads.gc_phase.lock() = GcPhase::Marking;
     go_tx.send(()).expect("go");
 
     // Wait until the worker has parked.
     let start = std::time::Instant::now();
-    while collector.core.parked_count.load(Ordering::Acquire) < 1 {
+    while collector.core.threads.parked_count.load(Ordering::Acquire) < 1 {
         std::thread::yield_now();
         if start.elapsed() > std::time::Duration::from_secs(5) {
             panic!("worker never parked as fallback");
@@ -341,14 +341,14 @@ fn second_collector_falls_back_to_mutator_park_returns_none() {
     }
 
     // Release: clear collector_active + phase = Idle + notify.
-    collector.core.collector_active.store(false, Ordering::Release);
-    *collector.core.gc_phase.lock() = GcPhase::Idle;
-    collector.core.gc_phase_cv.notify_all();
+    collector.core.threads.collector_active.store(false, Ordering::Release);
+    *collector.core.threads.gc_phase.lock() = GcPhase::Idle;
+    collector.core.threads.gc_phase_cv.notify_all();
 
     let got_some = worker.join().expect("worker panicked");
     assert!(!got_some,
         "losing collector should return None, got Some");
-    assert_eq!(collector.core.parked_count.load(Ordering::Acquire), 0);
+    assert_eq!(collector.core.threads.parked_count.load(Ordering::Acquire), 0);
 }
 
 #[test]
@@ -358,7 +358,7 @@ fn requested_phase_parks_mutators() {
     let collector = VmContext::new();
     let _mutator = VmContext::new_with_core(collector.core_arc());
 
-    *collector.core.gc_phase.lock() = GcPhase::Requested;
+    *collector.core.threads.gc_phase.lock() = GcPhase::Requested;
 
     let core = collector.core_arc();
     let handle = std::thread::spawn(move || {
@@ -370,15 +370,15 @@ fn requested_phase_parks_mutators() {
 
     // Wait until worker parks.
     let start = std::time::Instant::now();
-    while collector.core.parked_count.load(Ordering::Acquire) < 1 {
+    while collector.core.threads.parked_count.load(Ordering::Acquire) < 1 {
         std::thread::yield_now();
         if start.elapsed() > std::time::Duration::from_secs(2) {
             panic!("mutator never parked under Requested phase");
         }
     }
 
-    *collector.core.gc_phase.lock() = GcPhase::Idle;
-    collector.core.gc_phase_cv.notify_all();
+    *collector.core.threads.gc_phase.lock() = GcPhase::Idle;
+    collector.core.threads.gc_phase_cv.notify_all();
     handle.join().expect("worker panicked");
 }
 
@@ -395,19 +395,19 @@ fn native_park_guard_satisfies_collector_without_safepoint() {
     let parked = VmContext::new_with_core(collector.core_arc());
 
     let guard = NativeParkGuard::enter(&parked);
-    assert_eq!(collector.core.parked_count.load(Ordering::Acquire), 1,
+    assert_eq!(collector.core.threads.parked_count.load(Ordering::Acquire), 1,
         "entering the native-park guard must count toward parked_count");
 
     // Would hang forever if the native-parked ctx did NOT count (the collector
     // would wait for `parked` to reach a safepoint, which it never will).
     let g = request_gc_pause(&collector)
         .expect("uncontended CAS should succeed");
-    assert_eq!(*collector.core.gc_phase.lock(), GcPhase::Marking,
+    assert_eq!(*collector.core.threads.gc_phase.lock(), GcPhase::Marking,
         "collector should reach Marking without waiting on the native-parked ctx");
     drop(g); // world → Idle
 
     drop(guard); // Idle phase → no wait → parked_count back to 0
-    assert_eq!(collector.core.parked_count.load(Ordering::Acquire), 0);
+    assert_eq!(collector.core.threads.parked_count.load(Ordering::Acquire), 0);
     drop(parked);
 }
 
@@ -418,16 +418,16 @@ fn native_unpark_guard_round_trips_parked_count() {
     // throughout, so no waits — purely the increment/decrement balance.
     let ctx = VmContext::new();
     let park = NativeParkGuard::enter(&ctx);
-    assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 1);
+    assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 1);
     {
         let _unpark = NativeUnparkGuard::exit(&ctx);
-        assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 0,
+        assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 0,
             "un-park must drop the parked count so the completer runs as a mutator");
     }
-    assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 1,
+    assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 1,
         "leaving the completer must re-park");
     drop(park);
-    assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 0);
+    assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 0);
 }
 
 #[test]
@@ -438,11 +438,11 @@ fn release_re_enables_next_collector() {
 
     {
         let g1 = request_gc_pause(&ctx).expect("first claim");
-        assert!(ctx.core.collector_active.load(Ordering::Acquire));
+        assert!(ctx.core.threads.collector_active.load(Ordering::Acquire));
         drop(g1);
     }
     // After drop, collector_active = false. Next claim succeeds.
-    assert!(!ctx.core.collector_active.load(Ordering::Acquire));
+    assert!(!ctx.core.threads.collector_active.load(Ordering::Acquire));
     let g2 = request_gc_pause(&ctx);
     assert!(g2.is_some(), "second claim after release should succeed");
 }
@@ -459,7 +459,7 @@ fn generational_collection_bumps_minor_counter() {
     // Drive one real collection via the auto-collect safepoint drain, which
     // routes to collect_cycles_with_vm → the generational minor path.
     ctx.safepoint_skip.store(1, Ordering::Relaxed);
-    ctx.core.needs_auto_collect.store(true, Ordering::Release);
+    ctx.core.threads.needs_auto_collect.store(true, Ordering::Release);
     check_safepoint(&ctx);
 
     let s = ctx.heap().stats();
@@ -490,7 +490,7 @@ fn allocating_after_the_park_ends_is_fine() {
         let _park = NativeParkGuard::enter(&ctx);
     }
     let _ = ctx.heap().alloc_array(vec![crate::object::Value::I64(1)]);
-    assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 0);
+    assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 0);
 }
 
 /// `NativeUnparkGuard` re-enters the VM from inside a park (the REPL completer runs z42
@@ -526,7 +526,7 @@ fn a_new_context_waits_out_a_stop_the_world_pause() {
 
     let primary = VmContext::new();
     let pause = request_gc_pause(&primary).expect("the only context claims the collector role");
-    assert_eq!(*primary.core.gc_phase.lock(), GcPhase::Marking);
+    assert_eq!(*primary.core.threads.gc_phase.lock(), GcPhase::Marking);
 
     let registered = Arc::new(AtomicBool::new(false));
     let worker = {
@@ -540,7 +540,7 @@ fn a_new_context_waits_out_a_stop_the_world_pause() {
     };
     std::thread::sleep(std::time::Duration::from_millis(100));
     let joined_mid_pause = registered.load(Ordering::SeqCst);
-    let contexts_mid_pause = primary.core.vm_contexts.lock().len();
+    let contexts_mid_pause = primary.core.threads.vm_contexts.lock().len();
 
     drop(pause);
     worker.join().expect("worker");
@@ -554,15 +554,15 @@ fn a_new_context_waits_out_a_stop_the_world_pause() {
 #[test]
 fn a_new_context_may_join_while_a_pause_is_only_requested() {
     let primary = VmContext::new();
-    *primary.core.gc_phase.lock() = GcPhase::Requested;
+    *primary.core.threads.gc_phase.lock() = GcPhase::Requested;
     let core = primary.core_arc();
     std::thread::spawn(move || {
         let ctx = VmContext::new_with_core(core);
-        assert_eq!(ctx.core.vm_contexts.lock().len(), 2);
+        assert_eq!(ctx.core.threads.vm_contexts.lock().len(), 2);
     })
     .join()
     .expect("registration during Requested must not block");
-    *primary.core.gc_phase.lock() = GcPhase::Idle;
+    *primary.core.threads.gc_phase.lock() = GcPhase::Idle;
 }
 
 // ── P0-16 (gc-strategy-stopgap): a GC request is sticky and reaches every thread ─────────────
@@ -575,21 +575,21 @@ fn a_new_context_may_join_while_a_pause_is_only_requested() {
 fn an_auto_collect_request_survives_a_lost_collector_race() {
     let ctx = VmContext::new();
     let cycles_before = ctx.heap().stats().gc_cycles;
-    ctx.core.needs_auto_collect.store(true, Ordering::Release);
+    ctx.core.threads.needs_auto_collect.store(true, Ordering::Release);
 
     // Another collector holds the role (phase stays Idle, so the loser's park returns at once).
-    ctx.core.collector_active.store(true, Ordering::Release);
+    ctx.core.threads.collector_active.store(true, Ordering::Release);
     ctx.force_safepoint();
     check_safepoint(&ctx);
-    assert!(ctx.core.needs_auto_collect.load(Ordering::Acquire),
+    assert!(ctx.core.threads.needs_auto_collect.load(Ordering::Acquire),
         "the request must survive a safepoint that could not act on it");
     assert_eq!(ctx.heap().stats().gc_cycles, cycles_before);
 
     // The role is free again: the next slow path collects, and only then is the request cleared.
-    ctx.core.collector_active.store(false, Ordering::Release);
+    ctx.core.threads.collector_active.store(false, Ordering::Release);
     ctx.force_safepoint();
     check_safepoint(&ctx);
-    assert!(!ctx.core.needs_auto_collect.load(Ordering::Acquire));
+    assert!(!ctx.core.threads.needs_auto_collect.load(Ordering::Acquire));
     assert_eq!(ctx.heap().stats().gc_cycles, cycles_before + 1);
 }
 
@@ -609,7 +609,7 @@ fn a_pause_request_sends_every_mutator_to_the_slow_path_at_its_next_check() {
     });
     // Wait for the request (the collector is then blocked on `mutator` parking).
     let start = std::time::Instant::now();
-    while *mutator.core.gc_phase.lock() != GcPhase::Requested {
+    while *mutator.core.threads.gc_phase.lock() != GcPhase::Requested {
         assert!(start.elapsed() < std::time::Duration::from_secs(5), "collector never requested");
         std::thread::yield_now();
     }
@@ -645,11 +645,11 @@ fn an_auto_collect_trip_sends_every_mutator_to_the_slow_path() {
     let mut keep = Vec::new();
     for _ in 0..10_000 {
         keep.push(ctx.heap().alloc_array(vec![crate::object::Value::I64(0); 16]));
-        if ctx.core.needs_auto_collect.load(Ordering::Acquire) {
+        if ctx.core.threads.needs_auto_collect.load(Ordering::Acquire) {
             break;
         }
     }
-    assert!(ctx.core.needs_auto_collect.load(Ordering::Acquire), "test setup: the cap must trip");
+    assert!(ctx.core.threads.needs_auto_collect.load(Ordering::Acquire), "test setup: the cap must trip");
     if n > 1 {
         assert_eq!(ctx.safepoint_skip.load(Ordering::Relaxed), 1, "the tripping thread");
         assert_eq!(other.safepoint_skip.load(Ordering::Relaxed), 1, "every other thread");
