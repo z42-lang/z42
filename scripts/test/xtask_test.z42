@@ -211,7 +211,7 @@ GateStage[] _gateStages(bool noBuild) {
         new GateStage("bench", "stdlib [Benchmark]",
             () => _testLibCore("bench", new string[0], true, "", "4", "interp", null, "", "", "")),
         new GateStage("targets", "manifest targets ([[test]] + [[example]])", () => _gateTargets()),
-        new GateStage("examples", "examples (learn book transcripts)", () => _gateExamples(noBuild)),
+        new GateStage("examples", "examples (learn book transcripts)", () => _gateExamples()),
         new GateStage("docs", "docs (relative links)", () => _testDocs(_root())),
         new GateStage("compiler", "compiler", () => _testCompiler(true)),
         new GateStage("gcgen", "gc modes (z42c.semantics build)", () => _testGcModes()),
@@ -285,14 +285,16 @@ int _testAll(bool noBuild, string skip) {
     return 0;
 }
 
-// examples stage 的 body（说明见 _testAll 里该 stage 处）。
-int _gateExamples(bool noBuild) {
-    if (!noBuild) {
+// SDK 只在 stage 实际执行时准备；显式工具链直接消费，不改写它。
+// --no-build 跳过 z42c / stdlib 构建波，apphost 与开发 SDK 仍由本 stage 准备。
+int _gateExamples() {
+    string sdk = _toolchainDir(_root());
+    if (sdk.Length == 0) {
         int c = _buildToolchain(); if (c != 0) { return c; }
         c = _packageDevSdk(""); if (c != 0) { return c; }
     }
     ExamplesOptions eo = new ExamplesOptions();
-    eo.Filter = ""; eo.Sdk = ""; eo.BookOnly = false; eo.Bless = false; eo.Keep = false; eo.TimeoutS = 120;
+    eo.Filter = ""; eo.Sdk = sdk; eo.BookOnly = false; eo.Bless = false; eo.Keep = false; eo.TimeoutS = 120;
     return _testExamples(eo);
 }
 
