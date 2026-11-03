@@ -40,6 +40,10 @@ namespace Z42.Build;
     ///    （self-hosting.md 轴④「种子 ABI 残余约束」）。
     public string ParentPkg = "";
 
+    /// deps-plugin-routing 第③刀：本次编译是 [[test]] / [[bench]] 派生目标 ⇒ 产物头类型位写
+    /// harness（PkgKind.Harness）。false = 普通编译。**body 字段、不进 ctor**（种子 ABI，同上）。
+    public bool HarnessUnit = false;
+
     /// z42b-owns-test-targets：源发现的 **include glob**（相对 SourceDir）。
     /// 此前 in-process 路径把 include 硬编码成 `**/*.z42`（`Z42cCompiler.Compile` 第 22 行），
     /// 于是 `[sources] include` 形同虚设 —— 编一个「只含 tests/queue_*.z42 的目标」会把整个工程都编进去。
