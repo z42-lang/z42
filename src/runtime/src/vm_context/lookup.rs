@@ -24,17 +24,17 @@ impl VmContext {
         // fix-crosspkg-static-call-cctor：加载器在类型入表时登记 cctor，须持有同一份 registry。
         loader.set_cctor_registry(Arc::clone(&self.core.cctors));
         // 惰性包的函数登记在 VmCore 的 FuncTable 里（分配 FnId；它也是加载器的函数名表）。
-        loader.set_func_table(Arc::clone(&self.core.funcs));
+        loader.set_func_table(Arc::clone(&self.core.runtime.funcs));
         // 惰性包的类型描述符发布到 VmCore 的 TypeTable（TypeId → 描述符）。
-        loader.set_type_table(Arc::clone(&self.core.types));
+        loader.set_type_table(Arc::clone(&self.core.runtime.types));
         // 惰性包的字符串池追加到 VmCore 的 StrTable（ConstStr 操作数即其中的 id，永不复用）。
-        loader.set_str_table(Arc::clone(&self.core.strings));
+        loader.set_str_table(Arc::clone(&self.core.runtime.strings));
         // 惰性加载按需读包，走本 VM 的文件系统。
         loader.set_vfs(Arc::clone(&self.core.vfs));
         let mut state = self.core.lazy_loader.write();
         // 再次安装（只有测试会）= 新的名字空间：旧加载器登记的名字不再可见，与两张表合并前一致。
         // 旧槽位与 id 保留（id 永不复用），已缓存的 id 仍指向旧函数。
-        self.core.funcs.reset_lazy_names();
+        self.core.runtime.funcs.reset_lazy_names();
         *state = Some(loader);
         drop(state);
         // cache-ctorless-objnew: a loader swap can make an absent ctor present.
@@ -44,7 +44,7 @@ impl VmContext {
     /// Clear the lazy loader (used in tests).
     pub fn uninstall_lazy_loader(&self) {
         let mut state = self.core.lazy_loader.write();
-        self.core.funcs.reset_lazy_names();
+        self.core.runtime.funcs.reset_lazy_names();
         *state = None;
         drop(state);
         crate::vm::runtime::dispatch::ic::note_fn_registration();
@@ -477,7 +477,7 @@ impl VmContext {
     /// interpreter and the JIT helper.
     #[inline]
     pub fn const_str(&self, module: &crate::vm::runtime::Module, idx: u32) -> Option<crate::object::string::vstr::Str> {
-        let strings = &self.core.strings;
+        let strings = &self.core.runtime.strings;
         if strings.is_entry(module) {
             return strings.get_or_intern(idx, |text| self.heap().alloc_str(text));
         }
@@ -490,7 +490,7 @@ impl VmContext {
     /// context) ids are indices of whatever module created the value, which this context
     /// does not know — `None`.
     pub(crate) fn callable_fn(&self, id: crate::vm::runtime::ids::tokens::FnId) -> Option<&crate::vm::runtime::Function> {
-        self.core.module.as_ref()?;
+        self.core.runtime.module.as_ref()?;
         self.funcs().get(id)
     }
 
@@ -503,7 +503,7 @@ impl VmContext {
         if let Some(text) = module.string_pool.get(idx as usize) {
             return Some(self.heap().alloc_str(text));
         }
-        self.core.strings.get_or_intern(idx, |text| self.heap().alloc_str(text))
+        self.core.runtime.strings.get_or_intern(idx, |text| self.heap().alloc_str(text))
     }
 
     /// All namespaces declared by lazy-loadable zpkgs (for static-init scan).

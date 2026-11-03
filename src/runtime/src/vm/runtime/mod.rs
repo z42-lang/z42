@@ -14,3 +14,6 @@ pub use fusion::{CmpOp, SuperInstr};
 
 #[cfg(test)]
 mod runtime_tests;
+
+mod state;
+pub(crate) use state::RuntimeState;
