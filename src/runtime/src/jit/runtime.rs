@@ -327,7 +327,7 @@ impl JitRuntime {
         }
         // `[Native]` forwarder? (Shared with the interpreter and the cold call paths;
         // the probe never loads anything.)
-        let forward = crate::interp::forward::forward_of(vm, self.module(), func);
+        let forward = crate::vm::exec::call::forward::forward_of(vm, self.module(), func);
         let mut guard = self.lock_compiler();
         if slot.entry.get().is_none() {
             if slot.state.load(Ordering::Relaxed) == SLOT_REJECTED { return None; }

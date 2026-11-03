@@ -144,7 +144,7 @@ fn worker_reaching_the_tier_threshold_compiles_in_thread() {
             let w = VmContext::new_with_core(vm.core_arc());
             for _ in 0..3 {
                 let r = crate::interp::exec_function(&w, &module, &module.functions[0], &[]);
-                assert!(matches!(r, Ok(crate::interp::ExecOutcome::Returned(_))), "{r:?}");
+                assert!(matches!(r, Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(_))), "{r:?}");
             }
             assert_eq!(compiled_here(&w), 1, "B compiled on the worker");
             assert_eq!(w.counters().jit_native_from_interp.load(Ordering::Relaxed), 2,

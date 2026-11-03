@@ -177,11 +177,11 @@ pub(super) fn call_attribute_factories(
             None
         };
         let instance = match outcome {
-            Some(crate::interp::ExecOutcome::Returned(v)) => v,
+            Some(crate::vm::exec::call::outcome::ExecOutcome::Returned(v)) => v,
             // An attribute constructor threw: propagate it with its own type
             // through the builtin error channel (`exec_call::builtin` takes it),
             // instead of flattening it into a `Std.Exception` message.
-            Some(crate::interp::ExecOutcome::Thrown(v)) => {
+            Some(crate::vm::exec::call::outcome::ExecOutcome::Thrown(v)) => {
                 ctx.set_pending_thrown(v);
                 anyhow::bail!("attribute constructor threw an exception");
             }

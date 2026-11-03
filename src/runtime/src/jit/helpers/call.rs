@@ -186,19 +186,19 @@ unsafe fn call_interp(
         set_exception(vm, exc);
         return 1;
     }
-    // A cold `[Native]` wrapper (no compiled entry yet) folds too (`interp::forward`);
+    // A cold `[Native]` wrapper (no compiled entry yet) folds too (`vm::exec::call::forward`);
     // not for a generic site, as the interpreter's `try_fold`.
     if mta.is_empty() && arg_regs.len() == callee.param_count {
-        if let Some(id) = crate::interp::forward::forward_of(vm, module, callee) {
+        if let Some(id) = crate::vm::exec::call::forward::forward_of(vm, module, callee) {
             return super::super::forward::call_forward(frame_ref, ctx, dst, callee, id, None, arg_regs);
         }
     }
     match crate::interp::exec_function_from_regs(vm, module, callee, &frame_ref.regs, arg_regs, mta) {
-        Ok(crate::interp::ExecOutcome::Returned(ret)) => {
+        Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null);
             0
         }
-        Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm, val); 1 }
+        Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm, val); 1 }
         Err(e) => { set_exception(vm, Value::Str(e.to_string().into())); 1 }
     }
 }

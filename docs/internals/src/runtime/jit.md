@@ -190,14 +190,14 @@ VM 的每条线程都跑 JIT 代码：主线程和 `__thread_spawn` 的 worker�
 `[Native("__x")] extern` 方法的包装函数（`%d = builtin __x(%0, …); ret %d`）在两个引擎里都按函数折叠：
 调用解析到它时直接从调用者寄存器跑 builtin，不建包装函数的帧。识别规则、为什么在 VM 链接期而不在编译器里做、
 栈回溯怎样保持不变（无帧 + 失败时现算行 / 轻帧），见 [native ABI §6.4](native-abi.md)；识别与执行的代码
-在 `interp/forward.rs`，两个引擎共用。
+在 `vm/exec/call/forward.rs`，两个引擎共用。
 
 JIT 这一侧：
 
 - **已编译的包装函数**：`JitRuntime::resolve_slot_slow` 把函数自己的折叠结果（`Function::forward`，
-  `interp::forward::forward_of`）抄进 `FnEntry::forward`；`jit_call` 的 `call_compiled`（模块初始化 /
+  `vm::exec::call::forward::forward_of`）抄进 `FnEntry::forward`；`jit_call` 的 `call_compiled`（模块初始化 /
   cctor 屏障之后）与 `jit_vcall` 的 `invoke_entry` 见到它、且实参个数等于形参个数（不靠默认值补位）时，
-  经 `forward::call_forward` → `interp::forward::run_folded` 派发。
+  经 `forward::call_forward` → `vm::exec::call::forward::run_folded` 派发。
 - **冷的包装函数**（还没编译、走解释器的那条路：`call_interp` / `invoke_interp`）同样折叠。
 - 结果写 `dst`（void 写 `Null`，与包装函数 `ret` 的效果一致）；失败经 `abi::error::raise`（与解释器同一个出口）
   变成异常或致命错误，`raised_into_exception` 把它挂到 pending 槽。

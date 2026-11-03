@@ -1,6 +1,7 @@
 //! Unit tests for the blob value-type primitive codec + byte-level value semantics
 //! (add-struct-value-semantics Phase A).
 use super::*;
+use crate::object::Value;
 use crate::vm::exec::call::struct_arena::StructArena;
 use crate::object::StructTypeLayout;
 use std::sync::Arc;

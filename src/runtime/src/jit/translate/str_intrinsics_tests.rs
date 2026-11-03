@@ -7,7 +7,8 @@
 //! path never touches it. The golden `src/tests/strings/str_intrinsics_jit` covers
 //! the same members end to end through the real compiler and stdlib.
 
-use crate::jit::forward::{builtin_forward, chained_forward, ForwardLookup, StrIntrinsic};
+use crate::jit::forward::{ForwardLookup, StrIntrinsic};
+use crate::vm::exec::call::forward::{builtin_forward, chained_forward};
 use crate::jit::frame::JitFrame;
 use crate::jit::invoke::{call_entry, NativeOutcome};
 use crate::jit::runtime::install;
@@ -145,8 +146,8 @@ fn run_jit(m: &Module, idx: usize, args: &[Value], init_pending: bool) -> (Strin
 fn run_interp(m: &Module, idx: usize, args: &[Value]) -> String {
     let vm = VmContext::new();
     match crate::interp::exec_function(&vm, m, &m.functions[idx], args) {
-        Ok(crate::interp::ExecOutcome::Returned(v)) => show(v.unwrap_or(Value::Null)),
-        Ok(crate::interp::ExecOutcome::Thrown(v)) => show(v),
+        Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(v)) => show(v.unwrap_or(Value::Null)),
+        Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(v)) => show(v),
         Err(e) => thrown(&e.to_string()),
     }
 }

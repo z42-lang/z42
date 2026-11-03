@@ -51,8 +51,8 @@ pub(crate) struct Frame {
 impl Frame {
     /// What this activation binds the type-parameter markers of its body to
     /// (`$mta:N` → `method_type_args`, `$cta:N@Owner` → the receiver in reg 0).
-    pub(crate) fn type_param_env(&self) -> super::type_param_env::TypeParamEnv<'_> {
-        super::type_param_env::TypeParamEnv::new(&self.method_type_args, self.regs.first())
+    pub(crate) fn type_param_env(&self) -> crate::vm::exec::call::type_param_env::TypeParamEnv<'_> {
+        crate::vm::exec::call::type_param_env::TypeParamEnv::new(&self.method_type_args, self.regs.first())
     }
 
     /// A frame whose first registers are `args`. The register file comes from
