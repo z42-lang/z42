@@ -37,7 +37,7 @@
 | `src/interp/` | 字节码解释器，见 [`src/interp/README.md`](src/interp/README.md) |
 | `src/jit/` | Cranelift JIT 后端，见 [`src/jit/README.md`](src/jit/README.md) |
 | `src/vm/diagnostics/` | VM 共享诊断状态：已结束线程的计数、运行时观察者、暂停分布、锁争用统计与采样器；`VmContext` 的观察 API 保持统一入口 |
-| `src/corelib/` | 内置函数（builtin）实现，统一入口 `invoke_builtin` 供 interp / JIT 调用（builtin ABI v2：`corelib/abi/`），见 [`src/corelib/README.md`](src/corelib/README.md) |
+| `src/corelib/` | 内置函数（builtin）实现，统一入口 `invoke_builtin` 供 interp / JIT 调用（builtin ABI v2：`vm/exec/call/builtin_abi/`），见 [`src/corelib/README.md`](src/corelib/README.md) |
 | `src/gc/` | 具体 Heap 与分代 / STW / 增量 major 回收，见 [`src/gc/README.md`](src/gc/README.md) |
 | `src/profiler/` | CPU 采样、堆摘要、V8 快照与保留链，见 [`src/profiler/README.md`](src/profiler/README.md) |
 | `src/vm_context/` | `VmContext`：单个 VM 实例所有可变状态的唯一持有者（静态字段（`static_table.rs`：每字段一个地址稳定、读写无锁的单元）、type / 方法解析缓存、isa cache、cctor、资源登记、native 句柄表） |

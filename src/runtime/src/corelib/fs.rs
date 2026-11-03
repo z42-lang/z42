@@ -24,9 +24,9 @@
 //!   every FileStream read / write in the process serialized on it, and a thread blocked
 //!   in a read held it while unparked, stalling every collection).
 //!
-//! [`Blocking`]: crate::corelib::abi::Blocking
+//! [`Blocking`]: crate::vm::exec::call::builtin_abi::Blocking
 
-use crate::corelib::abi::{Blocking, BuiltinError};
+use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError};
 use crate::pal::fs::Vfs;
 use crate::vm_context::VmContext;
 use std::io::ErrorKind;
@@ -245,7 +245,7 @@ pub(crate) fn write_byte_range(arr: &crate::object::ArrayObj, off: usize, bytes:
 #[z42_macros::builtins]
 pub mod typed {
     use super::{check_buffer_range, check_path, fs_error, on_vfs, open_file, two_path_error, vfs_error, FileHandleSlot, PathRole};
-    use crate::corelib::abi::{Blocking, BuiltinError, Then};
+    use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
     use crate::object::Value;
     use crate::vm_context::VmContext;
     use std::io::{Read, Seek, SeekFrom, Write};

@@ -35,7 +35,7 @@ pub(crate) struct TlsSlot {
 }
 
 /// Process-wide rustls client config (root store + ring provider), built once.
-pub(crate) fn client_config() -> Result<std::sync::Arc<rustls::ClientConfig>, crate::corelib::abi::BuiltinError> {
+pub(crate) fn client_config() -> Result<std::sync::Arc<rustls::ClientConfig>, crate::vm::exec::call::builtin_abi::BuiltinError> {
     use std::sync::{Arc, OnceLock};
     static CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
     if let Some(c) = CONFIG.get() {
@@ -46,7 +46,7 @@ pub(crate) fn client_config() -> Result<std::sync::Arc<rustls::ClientConfig>, cr
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let config = rustls::ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
-        .map_err(|e| crate::corelib::abi::BuiltinError::Internal(format!("tls config: {e}")))?
+        .map_err(|e| crate::vm::exec::call::builtin_abi::BuiltinError::Internal(format!("tls config: {e}")))?
         .with_root_certificates(roots)
         .with_no_client_auth();
     // First writer wins; a concurrent racer just discards its identical copy.
@@ -55,7 +55,7 @@ pub(crate) fn client_config() -> Result<std::sync::Arc<rustls::ClientConfig>, cr
 
 mod imp {
     use super::TlsSlot;
-    use crate::corelib::abi::BuiltinError;
+    use crate::vm::exec::call::builtin_abi::BuiltinError;
     use crate::corelib::network::error::{closed, describe, slot_id, timeout_message};
     use crate::vm_context::VmContext;
     use std::sync::Arc;
@@ -113,7 +113,7 @@ mod imp {
 pub mod typed {
     use super::imp::{handshake_error, slot, still_open, stream_error};
     use super::{client_config, TlsSlot};
-    use crate::corelib::abi::{Blocking, BuiltinError, Then};
+    use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
     use crate::corelib::fs::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use crate::corelib::network::error::{check_port, resolve, slot_id, socket_error, timeout};
     use crate::object::Value;

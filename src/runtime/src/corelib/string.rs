@@ -1,7 +1,7 @@
 use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, bail, Result};
-use crate::corelib::abi::BuiltinError;
+use crate::vm::exec::call::builtin_abi::BuiltinError;
 use super::convert::{arg_str, arg_usize, this_str};
 
 /// string.ToCharArray() — bulk materialise the whole `char[]` in ONE native
@@ -37,7 +37,7 @@ pub fn str_byte_length(s: &crate::object::string::vstr::Str) -> i64 {
 /// frame when folded — the hottest `[Native]` calls of string-processing code.
 #[z42_macros::builtins]
 pub mod typed {
-    use crate::corelib::abi::BuiltinError;
+    use crate::vm::exec::call::builtin_abi::BuiltinError;
     use crate::vm_context::VmContext;
     use crate::object::string::vstr::Str;
 

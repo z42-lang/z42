@@ -31,7 +31,7 @@
 //!   after dropping it.
 //!
 
-use crate::corelib::abi::{BuiltinError, CallResult, FieldInit, IntoRet, PlainRet, RetKind};
+use crate::vm::exec::call::builtin_abi::{BuiltinError, CallResult, FieldInit, IntoRet, PlainRet, RetKind};
 use crate::object::Value;
 use crate::vm_context::VmContext;
 use std::io::{Read, Write};
@@ -364,8 +364,8 @@ pub(crate) fn drain_readers(
 fn read_pipe<R: Read + Send + 'static>(
     ctx: &VmContext, slot: i64, buffer: Value, offset: i64, count: i64,
     pick: fn(&ProcessSlot) -> Option<Pipe<R>>,
-) -> Result<crate::corelib::abi::Then<i64>, BuiltinError> {
-    use crate::corelib::abi::Blocking;
+) -> Result<crate::vm::exec::call::builtin_abi::Then<i64>, BuiltinError> {
+    use crate::vm::exec::call::builtin_abi::Blocking;
     let arr = super::fs::byte_array(&buffer, "buffer")?;
     let (off, n) = super::fs::check_buffer_range(offset, count, arr.borrow().len())?;
     let reader = ctx.with_process_slot(slot as u64, |s| pick(s)).ok_or_else(|| handle_invalid(None, slot))?;
@@ -388,7 +388,7 @@ fn read_pipe<R: Read + Send + 'static>(
 #[z42_macros::builtins]
 pub mod typed {
     use super::{handle_invalid, start_error, timeout_error, CommandSpec, MaybeExited, ProcessSlot, RunFail, RunOutput};
-    use crate::corelib::abi::{Blocking, BuiltinError, Then};
+    use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
     use crate::object::Value;
     use crate::vm_context::VmContext;
     use std::io::Write;
