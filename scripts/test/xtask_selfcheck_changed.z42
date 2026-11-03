@@ -1,0 +1,49 @@
+// 用独立 Git 仓库和索引验证真实读取失败；不接触工作树自身的索引。
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _selfcheckChangedGit() {
+    string dir = _xtaskWork(_root(), "changed-git");
+    string cwd = Environment.GetCurrentDirectory();
+    string? index = Environment.GetEnvironmentVariable("GIT_INDEX_FILE");
+    _resetDir(dir);
+    // 本自检串行运行；cwd / 环境在 finally 中恢复，后续 stage 不受影响。
+    try {
+        Environment.SetCurrentDirectory(dir);
+        string fixtureIndex = Path.Join(dir, "fixture-index");
+        Environment.SetEnvironmentVariable("GIT_INDEX_FILE", fixtureIndex);
+        _gitOutput(new string[]{ "init", "--quiet" });
+        File.WriteAllText(Path.Join(dir, ".gitignore"), "fixture-index*\n");
+        File.WriteAllText(Path.Join(dir, "README.md"), "base\n");
+        _gitOutput(new string[]{ "add", "." });
+        _gitOutput(new string[]{ "-c", "user.name=xtask", "-c", "user.email=xtask@example.invalid",
+            "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixture" });
+        _gateAssert(_changedFiles("HEAD").Length == 0, "clean Git diff remains empty");
+        _gateAssert(_changedGateSkips("HEAD") == String.Join(",", _changedScopedStages()), "clean diff skips scoped stages");
+
+        File.WriteAllText(Path.Join(dir, "README.md"), "changed\n");
+        Directory.Create(Path.Join(dir, "src/runtime/tests"));
+        File.WriteAllText(Path.Join(dir, "src/runtime/tests/new.rs"), "// untracked\n");
+        string[] files = _changedFiles("HEAD");
+        _gateAssert(String.Join(",", files) == "README.md,src/runtime/tests/new.rs", "tracked and untracked Git changes");
+        _gateAssert(!_skipHas(_changedGateSkips("HEAD"), "rust-units"), "untracked runtime test keeps Rust units");
+
+        // rev-parse 仍成功，但 diff / ls-files 会因损坏索引失败。
+        File.WriteAllText(fixtureIndex, "bad index");
+        _gateAssert(_isInGitRepo(), "bad-index fixture is still a Git repository");
+        _gateAssert(_testChangedRun("HEAD", true) == 2, "bad index must fail explicit changed command");
+        _gateAssert(_changedGateSkips("HEAD").Length == 0, "bad index must keep every stage");
+        File.Delete(fixtureIndex);
+
+        _gateAssert(_testChangedRun("xtask-missing-base", true) == 2, "invalid base must fail explicit changed command");
+        _gateAssert(_changedGateSkips("xtask-missing-base").Length == 0, "invalid base must keep every stage");
+    } finally {
+        Environment.SetCurrentDirectory(cwd);
+        if (index == null) { Environment.UnsetEnvironmentVariable("GIT_INDEX_FILE"); }
+        else { Environment.SetEnvironmentVariable("GIT_INDEX_FILE", index); }
+        Directory.Delete(dir, true);
+    }
+    Console.WriteLine("  ✅ changed Git: clean, tracked/untracked, bad index, invalid base");
+    return 0;
+}
