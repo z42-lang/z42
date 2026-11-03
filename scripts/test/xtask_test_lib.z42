@@ -35,20 +35,19 @@ bool _isCompilerFormatTests(string root, string lib) {
     return false;
 }
 
-// 参与 stdlib 跑测器的包 = 两个 workspace 的目录并集（排序稳定），减去编译器格式测试的那些。
-string[] _allTestableLibs(string root) {
+// 两个 workspace 的稳定并集；只有 test 让开编译器格式单元，bench 独立发现 benches/。
+string[] _allUnitLibs(string root, string kind) {
     List<string> r = new List<string>();
     r.AddRange(_sortedStrings(Directory.Enumerate(Path.Join(root, "src/libraries"))));
     foreach (var b in _sortedStrings(Directory.Enumerate(Path.Join(root, "src/compiler")))) {
-        if (!_isCompilerFormatTests(root, b)) { r.Add(b); }
+        if (kind == "bench" || !_isCompilerFormatTests(root, b)) { r.Add(b); }
     }
     return r.ToArray();
 }
 
-// Count a lib's [Test] units (single-file tests/*.z42 + dir-mode tests/<name>/
-// source.z42) — drives shard load balancing.
-int _libUnitCount(string root, string lib) {
-    string td = Path.Join(Path.Join(_libSrcRoot(root, lib), lib), "tests");
+// 按当前 kind 的目录估算 unit 数，用于分片负载均衡。
+int _libUnitCount(string root, string lib, string kind) {
+    string td = Path.Join(Path.Join(_libSrcRoot(root, lib), lib), kind == "bench" ? "benches" : "tests");
     if (!Directory.Exists(td)) { return 0; }
     int c = Path.Glob(td, "*.z42").Length;
     foreach (var e in Path.Glob(td, "*")) {
@@ -57,16 +56,16 @@ int _libUnitCount(string root, string lib) {
     return c;
 }
 
-// Libs assigned to shard k of n, balanced by [Test] unit count: sort libs by
+// Libs assigned to shard k of n, balanced by the selected kind's unit count: sort libs by
 // count desc, then round-robin sorted positions across shards (longest-first
 // keeps the heavy libs in distinct shards → even load).
-string[] _shardLibs(string root, int k, int n) {
-    string[] all = _allTestableLibs(root);   // 两个 workspace 并集（见 _libSrcRoot 头注）
+string[] _shardLibs(string root, string kind, int k, int n) {
+    string[] all = _allUnitLibs(root, kind);   // 两个 workspace 并集（见 _libSrcRoot 头注）
     int m = all.Length;
     int[] cnt = new int[m];
     int[] idx = new int[m];
     int i = 0;
-    while (i < m) { cnt[i] = _libUnitCount(root, all[i]); idx[i] = i; i = i + 1; }
+    while (i < m) { cnt[i] = _libUnitCount(root, all[i], kind); idx[i] = i; i = i + 1; }
     int a = 0;
     while (a < m) {
         int best = a;
@@ -86,7 +85,7 @@ int _testLib(LibUnitsCommand c, string kind, string jsonOut) {
     string[] libs;
     int[] sh = _parseShard(c.Shard);
     if (sh[1] > 0) {
-        libs = _shardLibs(_root(), sh[0], sh[1]);
+        libs = _shardLibs(_root(), kind, sh[0], sh[1]);
         Console.WriteLine("→ shard " + sh[0].ToString() + "/" + sh[1].ToString()
             + ": " + libs.Length.ToString() + " libs");
     } else if (lib.Length > 0) {
@@ -120,9 +119,9 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // toolchain (vm + z42c.driver.zpkg + flat libs dir) and skip the in-tree rebuild — the
     // micro A/B base capture (bench-pr.yml) points these at the base toolchain the e2e A/B uses.
     string root = _root();
-    // 包序必须排序（_allTestableLibs）：Directory.Enumerate 的顺序随文件系统而变，下游 first-wins
+    // 包序必须排序（_allUnitLibs）：Directory.Enumerate 的顺序随文件系统而变，下游 first-wins
     // 行为要平台稳定。
-    string[] libList = reqLibsIn.Length > 0 ? reqLibsIn : _allTestableLibs(root);
+    string[] libList = reqLibsIn.Length > 0 ? reqLibsIn : _allUnitLibs(root, kind);
     List<string> dirs = new List<string>();
     foreach (var l in libList) { dirs.Add(Path.Join(_libSrcRoot(root, l), l)); }
     return _testPkgsCore(kind, "stdlib", dirs.ToArray(), libList, noBuild, filter, jobs, mode, agg, ovVm, ovDriver, ovLibs);
@@ -153,7 +152,7 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
         // byte-identical gen2 self-build.
     }
     // compile toolchain: z42vm + z42c.driver.zpkg + Z42_LIBS = 纯 stdlib flat。driver 的 dist
-    // 自包含；编译器域的测试库（_allTestableLibs）按名声明的编译器包由 driver 从编译器目录解析；z42b 运行期
+    // 自包含；编译器域的测试库（_allUnitLibs）按名声明的编译器包由 driver 从编译器目录解析；z42b 运行期
     // 加载编译器包经 `_z42bProc`（z42b 启动点统一挂）。override（--vm/--driver/--libs，bench A/B 的
     // base 侧）照旧用调用方给的目录。
     string vm = useOverride ? ovVm : _builtVm(root, "release");
