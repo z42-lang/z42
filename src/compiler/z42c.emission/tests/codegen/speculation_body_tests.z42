@@ -1,0 +1,67 @@
+using Z42.IR;
+using Z42.Optimization;
+using SpeculationChainBench;
+using Std.Harness;
+
+[Test]
+void test_speculation_body_cache_preserves_declaration_order_results() {
+    int[] sizes = new int[] { 1, 2, 17, 128 };
+    int k = 0;
+    while (k < sizes.Length) {
+        int n = sizes[k];
+        PureTable reverse = IrPureFunctionTable.Compute(SpeculationChainFixture.Make(n, false));
+        PureTable forward = IrPureFunctionTable.Compute(SpeculationChainFixture.Make(n, true));
+        int i = 0;
+        while (i < n) {
+            string name = "f" + i.ToString();
+            Assert.True(reverse.IsPure(name));
+            Assert.True(reverse.IsSpeculatable(name));
+            Assert.True(forward.IsSpeculatable(name));
+            i = i + 1;
+        }
+        k = k + 1;
+    }
+}
+[Test]
+void test_speculation_body_cache_keeps_recursive_cycle_out() {
+    IrModule m = SpeculationChainFixture.Make(17, false);
+    m.Functions[16].Blocks[0].Instrs[0] = new CallInstr(new TypedReg(0, IrType.I64), "f0", new TypedReg[0], 0);
+    PureTable table = IrPureFunctionTable.Compute(m);
+    int i = 0;
+    while (i < 17) {
+        Assert.True(table.IsPure("f" + i.ToString()));
+        Assert.False(table.IsSpeculatable("f" + i.ToString()));
+        i = i + 1;
+    }
+}
+[Test]
+void test_speculation_body_cache_recomputes_after_cfg_mutation() {
+    IrModule m = SpeculationChainFixture.Make(17, false);
+    Assert.True(IrPureFunctionTable.Compute(m).IsSpeculatable("f0"));
+    m.Functions[16].Blocks[0].Term = new BrTerm("entry");
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.False(table.IsSpeculatable("f0"));
+    Assert.False(table.IsSpeculatable("f16"));
+    m.Functions[16].Blocks[0].Term = new RetTerm(true, new TypedReg(0, IrType.I64));
+    Assert.True(IrPureFunctionTable.Compute(m).IsSpeculatable("f0"));
+}
+[Test]
+void test_speculation_body_cache_rejects_missing_callee() {
+    IrModule m = SpeculationChainFixture.Make(17, false);
+    m.Functions[16].Blocks[0].Instrs[0] = new CallInstr(new TypedReg(0, IrType.I64), "external", new TypedReg[0], 0);
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.False(table.IsPure("f0"));
+    Assert.False(table.IsSpeculatable("f0"));
+}
+[Test]
+void test_speculation_body_cache_rejects_readonly_field_loads() {
+    var load = new FieldGetInstr(new TypedReg(1, IrType.I64), new TypedReg(0, IrType.Ref), "value");
+    load.Readonly = true;
+    var block = new IrBlock("entry", new IrInstr[] { load }, 1, new RetTerm(true, new TypedReg(1, IrType.I64)), true);
+    var f = new IrFunction("read", 1, "long", true, new IrBlock[] { block }, 1, 2, "Interp",
+        new string[0], 0, new int[0], 0, new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+    var m = new IrModule("readonly", new string[] { "" }, 1, new IrClassDesc[0], 0, new IrFunction[] { f }, 1);
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.True(table.IsPure("read"));
+    Assert.False(table.IsSpeculatable("read"));
+}
