@@ -10,4 +10,4 @@ include=["*.z42"]
 "z42c.core"="*"
 "z42c.syntax"="*"
 [build]
-output_dir="../../../../../artifacts/build/compiler/z42c.symbols/${profile}/tests/interface"
+output_dir="../../../../../artifacts/build/compiler/z42c.symbols/${profile}/tests/interface-resolution"
