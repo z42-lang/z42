@@ -7,7 +7,7 @@
 //!
 //! z42 `Process` is a pure facade: builder methods accumulate fields, `Run()` / `Spawn()`
 //! make a single `[Native]` call that decodes the field bundle ([`CommandSpec`]) into a
-//! `Command`. Live children launched by `Spawn` are kept in `VmCore.processes` keyed by a
+//! `Command`. Live children launched by `Spawn` are kept in `process::State` keyed by a
 //! monotonic slot id; the z42 `ProcessHandle` holds only that id.
 //!
 //! - **Failures throw from Rust** (the `typed` module) — no `[KIND, …]` arrays. The
@@ -30,6 +30,15 @@
 //!   locks ([`Pipe`]): a call clones the pipe out under the table lock and does the I/O
 //!   after dropping it.
 //!
+
+#[derive(Default)]
+pub(crate) struct State {
+    slots: super::resource_registry::ResourceRegistry<ProcessSlot>,
+}
+
+pub(super) fn state(ctx: &crate::vm_context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+    crate::corelib::resource_registry::state(ctx)
+}
 
 use crate::vm::exec::call::builtin_abi::{BuiltinError, CallResult, FieldInit, IntoRet, PlainRet, RetKind};
 use crate::object::Value;
@@ -368,7 +377,7 @@ fn read_pipe<R: Read + Send + 'static>(
     use crate::vm::exec::call::builtin_abi::Blocking;
     let arr = super::fs::byte_array(&buffer, "buffer")?;
     let (off, n) = super::fs::check_buffer_range(offset, count, arr.borrow().len())?;
-    let reader = ctx.with_process_slot(slot as u64, |s| pick(s)).ok_or_else(|| handle_invalid(None, slot))?;
+    let reader = state(ctx)?.slots.with_mut(slot as u64, |s| pick(s)).ok_or_else(|| handle_invalid(None, slot))?;
     let read = match reader {
         Some(r) if n > 0 => Blocking::new(move || {
             let mut tmp = vec![0u8; n];
@@ -430,13 +439,13 @@ pub mod typed {
         Blocking::new(move || {
             let child = spec.command()?.spawn().map_err(|e| start_error(&spec.program, &e))?;
             Ok(ProcessSlot::spawned(spec.program, child))
-        }).then(|ctx: &VmContext, slot| Ok(ctx.alloc_process_slot(slot) as i64))
+        }).then(|ctx: &VmContext, slot| Ok(super::state(ctx)?.slots.insert_new(slot) as i64))
     }
 
     /// `ProcessHandle.Wait()` — consumes the slot; the wait + drain run parked.
     #[builtin(name = "__process_wait")]
     pub fn process_wait(ctx: &VmContext, slot: i64) -> Result<Blocking<RunOutput>, BuiltinError> {
-        let mut s = ctx.take_process_slot(slot as u64).ok_or_else(|| handle_invalid(None, slot))?;
+        let mut s = super::state(ctx)?.slots.take(slot as u64).ok_or_else(|| handle_invalid(None, slot))?;
         let child = s.child.take().ok_or_else(|| handle_invalid(Some(&s.program), slot))?;
         // Close our stdin end first — a child reading its stdin to EOF would deadlock us.
         drop(s.stdin_writer.take());
@@ -447,12 +456,12 @@ pub mod typed {
     /// `TryWait()` — null while the child runs; once it exited, consumes the slot.
     #[builtin(name = "__process_try_wait")]
     pub fn process_try_wait(ctx: &VmContext, slot: i64) -> Result<Blocking<MaybeExited>, BuiltinError> {
-        let polled = ctx.with_process_slot(slot as u64, |s| match s.child.as_mut() {
+        let polled = super::state(ctx)?.slots.with_mut(slot as u64, |s| match s.child.as_mut() {
             None => Err(handle_invalid(Some(&s.program), slot)),
             Some(c) => c.try_wait().map_err(BuiltinError::from),
         }).ok_or_else(|| handle_invalid(None, slot))??;
         let Some(status) = polled else { return Ok(Blocking::ready(MaybeExited(None))) };
-        let mut s = ctx.take_process_slot(slot as u64).ok_or_else(|| handle_invalid(None, slot))?;
+        let mut s = super::state(ctx)?.slots.take(slot as u64).ok_or_else(|| handle_invalid(None, slot))?;
         drop(s.stdin_writer.take());
         let (out, err) = (s.stdout_reader.take(), s.stderr_reader.take());
         Ok(Blocking::new(move || {
@@ -465,7 +474,7 @@ pub mod typed {
     #[builtin(name = "__process_kill")]
     pub fn process_kill(ctx: &VmContext, slot: i64, force: bool) -> Result<(), BuiltinError> {
         let _ = force;
-        ctx.with_process_slot(slot as u64, |s| match s.child.as_mut() {
+        super::state(ctx)?.slots.with_mut(slot as u64, |s| match s.child.as_mut() {
             None => Err(handle_invalid(Some(&s.program), slot)),
             Some(c) => match c.kill() {
                 // Already exited (`InvalidInput`): kill is idempotent enough.
@@ -479,7 +488,7 @@ pub mod typed {
     /// already closed → `InvalidOperationException` (the handle stays valid).
     #[builtin(name = "__process_stdin_write")]
     pub fn process_stdin_write(ctx: &VmContext, slot: i64, bytes: Vec<u8>) -> Result<Blocking<()>, BuiltinError> {
-        let writer = ctx.with_process_slot(slot as u64, |s| s.stdin_writer.clone())
+        let writer = super::state(ctx)?.slots.with_mut(slot as u64, |s| s.stdin_writer.clone())
             .ok_or_else(|| handle_invalid(None, slot))?
             .ok_or_else(|| BuiltinError::InvalidOperation(
                 "StandardIn has not been redirected (or was already closed).".into()))?;
@@ -489,7 +498,7 @@ pub mod typed {
     /// Close our end of the child's stdin (the child sees EOF). Idempotent.
     #[builtin(name = "__process_stdin_close")]
     pub fn process_stdin_close(ctx: &VmContext, slot: i64) -> Result<(), BuiltinError> {
-        let writer = ctx.with_process_slot(slot as u64, |s| s.stdin_writer.take())
+        let writer = super::state(ctx)?.slots.with_mut(slot as u64, |s| s.stdin_writer.take())
             .ok_or_else(|| handle_invalid(None, slot))?;
         // The descriptor closes outside the table lock, once no in-flight write holds a clone.
         drop(writer);
@@ -498,7 +507,7 @@ pub mod typed {
 
     #[builtin(name = "__process_pid")]
     pub fn process_pid(ctx: &VmContext, slot: i64) -> Result<i64, BuiltinError> {
-        ctx.with_process_slot(slot as u64, |s| match &s.child {
+        super::state(ctx)?.slots.with_mut(slot as u64, |s| match &s.child {
             Some(c) => Ok(c.id() as i64),
             None => Err(handle_invalid(Some(&s.program), slot)),
         }).unwrap_or_else(|| Err(handle_invalid(None, slot)))
@@ -506,15 +515,15 @@ pub mod typed {
 
     /// `Dispose()` — idempotent; a live child is killed and reaped (parked).
     #[builtin(name = "__process_close")]
-    pub fn process_close(ctx: &VmContext, slot: i64) -> Blocking<()> {
-        match ctx.take_process_slot(slot as u64).and_then(|mut s| s.child.take()) {
+    pub fn process_close(ctx: &VmContext, slot: i64) -> Result<Blocking<()>, BuiltinError> {
+        Ok(match super::state(ctx)?.slots.take(slot as u64).and_then(|mut s| s.child.take()) {
             None => Blocking::ready(()),
             Some(mut child) => Blocking::new(move || {
                 let _ = child.kill();
                 let _ = child.wait();
                 Ok(())
             }),
-        }
+        })
     }
 
     /// `ReadStdout(buffer, offset, count) -> int` — 0 = EOF.

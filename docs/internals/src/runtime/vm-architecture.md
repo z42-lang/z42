@@ -24,6 +24,8 @@ TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入
 `VmContext::with_extensions` 消耗登记容器，复用模块链接清理和 VFS 注入，再把冻结的 `ExtensionState` 交给 `VmCore.ext_state`。
 索引使用 `FxHashMap<TypeId, usize>`，值由按登记顺序排列的 `Box<dyn Any + Send + Sync>` 数组持有；创建后不增删或替换类型，
 `ext::<T>() -> Option<&T>` 查询不增加锁。状态内部的同步和可变性由该状态自己管理，冻结不禁止已有资源表的受锁保护更新。
+门面在用户状态前登记核心库私有状态；用户登记顺序保持不变，逆序销毁时先释放用户状态，再释放服务状态。
+默认状态类型冲突属于内部装配错误；宿主的普通重复登记仍返回错误并保留原项。
 
 worker context 共享同一个 core 的状态；不同 core 拥有各自的登记容器，不用进程级类型→状态缓存。
 扩展字段的析构位置在 heap 和引擎之后，使资源提供方在堆及代码页回收期间仍存活；值显式按登记逆序释放，
@@ -105,14 +107,11 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.engines` 
 - `ext_libs_tried: Mutex<HashSet<&str>>` — 本 VM 已尝试打开的 stdlib 原生扩展库（`interop::ext::ensure_lib_for`，每个库只找一次；同上 cfg）
 - `pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>` — `Value::PinnedView` 的 owned 缓冲
 - `fatal: AtomicBool` — 致命 VM 错误（栈溢出）正在展开，见下文「原生栈预算」
-- `processes: ResourceRegistry<ProcessSlot>` — `Std.IO.Process` 子进程注册表
 - `heap: Box<Heap>` — GC 子系统接口（后端 `Heap`）
 - `module: Option<Arc<Module>>` — 用户编译后的 Module，跨线程共享；测试路径 `None`，生产路径 `Some(Arc::new(module))`
 - `funcs: Arc<FuncTable>` — VM 级函数身份表（`vm/runtime/ids/func_table.rs`）：每个函数一个 `FnId`（u32，本 VmCore 内稠密、永不复用、只存在于运行期），`get(id)` 无锁。入口模块的函数在构造 VmCore 时整块登记为 `0..n`，**等于 `module.functions` 下标**（槽位借用 `module`，表里持有同一个 `Arc`）；惰性包的函数在 `LazyLoader::insert_function` 入表时逐个追加（槽位持有 `Arc<Function>`），重名 first-wins、不分配新 id。`Function.id` 记录登记得到的 id。名字反查 `id_of` 是冷路径：先查入口模块的 `func_index`，再查惰性函数的 `by_name`。`by_name` 同时就是 lazy loader 的函数名表（加载器自己不另存一份，`probe_function` / `resolve_function` 都经 `FuncTable::lazy_fn` 读它）；惰性函数与入口函数同名时仍各有 id，`id_of` 答入口那个。再次安装 lazy loader（只有测试会）用 `reset_lazy_names` 清空名字空间，槽位与 id 保留。底层是 `vm/runtime/ids/seg_vec.rs` 的 `SegVec`：倍增分段（首段 1024 项）、段永不移动，追加持写者锁并以 Release 发布长度，读侧 Acquire 读长度。消费方：`Call` 站点 token（见下文「Call 站点 token：FnId」）、VCall PIC 载荷、ObjNew 站点的 ctor、`LoadFn` / `MkClos` 站点 token 与 `FuncRef` / 闭包值里的目标（见下文「闭包 dispatch」），以及 JIT 的槽位表——全都存同一个 `FnId`。
 - `types: Arc<TypeTable>` — VM 级类型身份表（`vm/runtime/ids/type_table.rs`）：`TypeId` → 该类型**最新版本**的描述符，`get(id)` 无锁（Acquire 读槽指针）。`TypeId` 是**进程级**的（`tokens::alloc_type_id_block` 在构建模块类型注册表时整块分配，见下「TypeId 的作用域」），一个 VM 只看到其中稀疏的一部分，所以底层是按裸 id 下标的 `SparseSegTable`（段在首次触碰时分配）。登记：入口模块的 `type_registry` 在构造 VmCore 时整体登记；lazy loader 在每个改动自己类型表的步骤之后调 `LazyLoader::publish_types` 把整张表发布一遍——包加载（继承 fixup 跑完之后，此时新描述符仍独占，fixup 原地改）、`seed_types_for_lookup`、`ensure_base_chain_loaded` 的 fixup。fixup 写时复制出的合并副本与原描述符同 id 同名，发布时槽位改指新副本；发布过的每个版本都留在表里直到表析构，借出的 `&TypeDesc` 不会悬空。同一 id 下名字不同的描述符被拒（first-wins，记 error 日志；只有发号器不变量被破坏才会发生）。重名类型由加载器 first-wins，输家从不发布。**不登记**：按对象现建的回落描述符、corelib 原生句柄单例（两者 `id == UNRESOLVED`）、只由 load context 持有的模块的类型。名字查找仍走 `Module.type_registry` 与加载器的 `type_registry`（两张名字表尚未并入本表）。另外为**类型判定的目标名**保留键（`name_key`，见 [interp-jit-semantics.md](interp-jit-semantics.md)「类型判定的缓存键」）。消费方：`isa_cache` 的键。
 - `strings: Arc<StrTable>` — VM 级字符串字面量身份表（`vm/runtime/ids/str_table.rs`）：每个 `ConstStr` 操作数都是本 VM 一个稠密、只追加、永不复用的**字符串 id**，槽位存字面量文本与驻留的 GC 字符串。入口模块的 `string_pool` 在构造 VmCore 时整块登记为 `0..n`（槽位不复制文本，从 `module` 读）；惰性包注册时加载器把它的整个池追加进来（`StrTable::append` 返回首个 id，`remap_const_str` 把包内 `ConstStr.idx` 加上它）。再次安装 lazy loader（只有测试会）接着往后编号，旧加载器的函数仍读得到自己的字面量；加载器的 `main_pool_len` 以下、表里没有文本的 id 用空槽占位（`reserve`）。驻留与 GC 根见下「ConstStr：每 VM 的字符串表」。
-- `threads: ResourceRegistry<JoinHandle<Result<()>>>` — `Std.Threading.Thread` 的 JoinHandle slot table；`__thread_spawn` 插入，`__thread_wait` take-out 后 join（parked）
-- `file_handles: ResourceRegistry<FileHandleSlot>` + `tcp_sockets` / `tcp_listeners` / `tls_sockets` / `udp_sockets`（后四者随 cargo feature `net` / `tls` 存在，`tls_sockets` 要 `tls`）— `Std.IO.FileStream` 句柄（槽里是 `Arc<File>`：表锁下只克隆句柄，读写 / seek 在锁外做）+ `Std.Net.Sockets` 各类 socket slot table
 - `vm_contexts: Mutex<Vec<VmContextPtr>>` — 本 core 上所有存活 `VmContext` 的注册表（见下「Send-safety 与 GC scanner 设计」）
 - 静态初始化：`cctors: Arc<CctorRegistry>`（有静态构造器的类型的初始化状态，见 [static-ctor-init.md](static-ctor-init.md)）/ `pending_type_inits` / `pending_type_init_count` / `init_batch_inflight` / `static_init_error`
 - `context_registry: Mutex<ContextRegistry>` — load context / assembly 注册表（见 [load-context.md](load-context.md)）
@@ -120,16 +119,17 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.engines` 
 - `program_args: Mutex<Vec<String>>` — `--` 之后的程序参数（`Std.IO.Environment.GetCommandLineArgs()`）
 - 观测：`counters`（`RuntimeCounters`，只累计已销毁 `VmContext` 的计数；各线程在自己的 `VmContext.counters` 上计，`counters_snapshot()` 汇总）/ `runtime_observers` / `park_histogram`（safepoint park 时长分布）/ `lock_contentions` + `lock_wait_us`（仅 `profile-contention` feature 写入）/ `sampler`（`Z42_SAMPLE_HZ` 开启的采样 profiler）
 
-> **`ResourceRegistry<T>`**：slot table 统一为 `ResourceRegistry<T>`（内嵌锁 + 表 + 单调 id 计数器），
-> 避免每类资源各写「表 + `next_*_id`」两个字段，「新增一类资源」只需加一个字段。API：`insert_new(v)->id`（分配+插入）/
-> `alloc_id()`（只 bump 计数器，供 `corelib::network` 先算 id 再自行上锁插入的路径）/ `take(id)` /
-> `with_mut(id, f)` / `count()` / `get_cloned(id)`（Arc-wrapped 的 Mutex/RwLock 用）/ `lock()`（逃生舱：
-> 返回裸 `MutexGuard<HashMap<u64,T>>`，供 `corelib::network`/`fs` 那种「取出→阻塞 I/O→放回」必须在单次
-> 上锁内跨多步的场景）。计数器随表进 registry，ids（含 `processes`）与其它
-> socket/handle 表一样 per-core 唯一。
+核心库的进程、线程、文件、TCP socket/listener、UDP 和 TLS 七张资源表分别归对应模块的 `State`，
+由门面 `extension_assembly.rs` 在所有 VM 构造入口创建并登记到扩展状态中；worker 共享同一个 core 的状态。
+VM 的泛型存储不依赖这些资源类型。网络与 TLS 状态保持各自 `net` / `tls` feature 边界。
+
+`corelib/resource_registry.rs` 提供 `ResourceRegistry<T>`：原有的表锁、单调计数器与取出/克隆语义组合在一起。
+每个 VM 的每类槽号从 1 开始、永不复用。阻塞 I/O 只在表锁下克隆 `Arc`，释放锁后再做系统调用；
+关闭操作移除槽项并按所属模块协议唤醒等待者。必需状态缺失走 `BuiltinError::Internal`。
+
 > **模块布局**：`vm_context/`：`mod.rs`（hub：VM_CORES / snapshot /
-> `VmContextPtr` / `CoreContextReclaimer`）+ `resource_registry.rs` + `types.rs`（VmCore/VmContext struct）+
-> `construct.rs`（构造 + Drop）+ `frame_stack.rs`（`FrameStack`，见下「帧栈的归属」）+ `resources.rs` / `native.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
+> `VmContextPtr` / `CoreContextReclaimer`）+ `types.rs`（VmCore/VmContext struct）+
+> `construct.rs`（构造 + Drop）+ `frame_stack.rs`（`FrameStack`，见下「帧栈的归属」）+ `native.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
 > （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）+ `cctor.rs`（静态构造器状态机）（`is`/`as`/`catch` 前置缓存类型在 `vm/runtime/dispatch/isa_cache.rs`）/ `symres.rs`（「确定不存在」判定）。
 
 `VmCore` 满足 `Send + Sync`（编译期 assertion 在 `src/runtime/src/gc/heap_tests/send_sync.rs`）。

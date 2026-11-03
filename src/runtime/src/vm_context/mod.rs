@@ -1,7 +1,7 @@
 //! `VmContext` — the per-thread half of one VM instance's mutable state.
 //!
 //! A VM is one shared [`VmCore`] (behind `Arc`: static fields, lazy loader, GC
-//! heap, native interop registries, OS resource tables, observers, …) plus one
+//! heap, native interop registries, extension state, observers, …) plus one
 //! `VmContext` per thread that runs z42 code. The context holds what belongs to
 //! that thread:
 //!
@@ -19,7 +19,8 @@
 //! - lookup / isa caches, the safepoint throttle counter
 //!
 //! Extension registrations are consumed at VM creation; [`VmContext::ext`] borrows
-//! the same frozen state from every context sharing that core.
+//! the same frozen state from every context sharing that core. Core-library OS
+//! resource tables live in their module extensions, installed by the facade.
 //!
 //! # Lifecycle
 //!
@@ -61,10 +62,8 @@ use parking_lot::{Mutex, RwLock};
 
 use crate::gc::{Heap};
 
-mod resource_registry;
 mod types;
 mod construct;
-mod resources;
 mod native;
 mod frames;
 mod engine_guards;
@@ -81,7 +80,6 @@ pub use types::{
     VM_CONTEXT_STACK_LIMIT_OFFSET,
 };
 pub(crate) use types::JitHead;
-pub(crate) use resource_registry::ResourceRegistry;
 
 /// Type-erased pointer to a registered [`VmContext`].
 ///

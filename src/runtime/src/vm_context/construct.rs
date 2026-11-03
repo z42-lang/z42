@@ -141,7 +141,7 @@ impl VmContext {
             module.clear_link_state();
             Arc::new(module)
         });
-        Self::new_internal(module, vfs, extensions.freeze())
+        Self::new_internal(module, vfs, crate::extension_assembly::freeze(extensions))
     }
 
     /// Borrow this VM's extension state by its exact Rust type, without a new lock.
@@ -273,14 +273,12 @@ impl VmContext {
             native_libs:        Mutex::new(Vec::new()),
             pinned_owned_buffers: Mutex::new(HashMap::new()),
             fatal:                std::sync::atomic::AtomicBool::new(false),
-            processes:            ResourceRegistry::new(),
             heap:                 Box::new(Heap::new(crate::config::runtime_config().gc_config())),
             vm_contexts:          Mutex::new(Vec::new()),
             funcs:                Arc::new(crate::vm::runtime::ids::func_table::FuncTable::new(module.clone())),
             types:                Arc::new(crate::vm::runtime::ids::type_table::TypeTable::new(module.as_deref())),
             strings:              Arc::new(crate::vm::runtime::ids::str_table::StrTable::new(module.clone())),
             module,
-            threads:              ResourceRegistry::new(),
             gc_phase:             Mutex::new(crate::vm::threads::safepoint::GcPhase::Idle),
             gc_phase_cv:          parking_lot::Condvar::new(),
             parked_count:         std::sync::atomic::AtomicUsize::new(0),
@@ -289,16 +287,7 @@ impl VmContext {
             program_args:         Mutex::new(Vec::new()),
             #[cfg(feature = "native-interop")]
             ext_libs_tried:       Mutex::new(Default::default()),
-            file_handles:         ResourceRegistry::new(),
             vfs,
-            #[cfg(feature = "net")]
-            tcp_sockets:          ResourceRegistry::new(),
-            #[cfg(feature = "net")]
-            tcp_listeners:        ResourceRegistry::new(),
-            #[cfg(feature = "tls")]
-            tls_sockets:          ResourceRegistry::new(),
-            #[cfg(feature = "net")]
-            udp_sockets:          ResourceRegistry::new(),
 
             diagnostics: crate::vm::diagnostics::DiagnosticsState {
                 counters: Arc::new(crate::counters::RuntimeCounters::new()),
