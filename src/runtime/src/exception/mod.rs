@@ -63,7 +63,7 @@ pub fn make_missing_symbol_exception(
 /// that lives in a lazily loaded package is found too.
 pub fn is_exception_subclass(desc: &TypeDesc, ctx: &VmContext, module: &Module) -> bool {
     static KEY: crate::vm::runtime::ids::tokens::TypeKeyCell = crate::vm::runtime::ids::tokens::TypeKeyCell::new();
-    crate::interp::dispatch::isa_td(ctx, &module.type_registry, desc, "Std.Exception", &KEY)
+    crate::vm::exec::ops::cast::isa_td(ctx, &module.type_registry, desc, "Std.Exception", &KEY)
 }
 
 /// Populate `value.StackTrace` with a snapshot of the current call stack

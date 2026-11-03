@@ -83,7 +83,7 @@ seqlock 协议。**打包成一个原子量让这些协议全都不必要**，�
 | 门 | 位置 | 说明 |
 |---|---|---|
 | debug 断言 | `assert_field_ic_slot`（`ic.rs`） | PIC 命中后拿权威 `field_index` 复核，不符即 panic。违例形态如 `cached at slot 4294967295` |
-| debug 断言 | `assert_pic_target`（`interp/vcall_resolve.rs`） | VCall 侧同款：命中的目标必须属于该接收者 |
+| debug 断言 | `assert_pic_target`（`vm/exec/ops/vcall.rs`） | VCall 侧同款：命中的目标必须属于该接收者 |
 | loom 模型 | `tests/ic_publication_loom.rs` | 穷举交错验证打包协议不撕裂；**自带阴性对照**（旧的双原子协议，`--ignored` 手动跑，必红） |
 | 并发压力单测 | `vm::runtime::resolve::resolver_tests` | 多写多读跑 300ms，断言命中的载荷永远配对 |
 

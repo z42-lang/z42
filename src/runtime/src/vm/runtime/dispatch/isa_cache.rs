@@ -1,5 +1,5 @@
 //! `IsaCache` — per-`VmContext` direct-mapped cache for type tests (`is` / `as` / typed
-//! `catch`), in front of the `subclass_memo` map and the chain walk (`interp::dispatch`).
+//! `catch`), in front of the `subclass_memo` map and the chain walk (`vm::exec::ops::cast`).
 //!
 //! Keyed by **ids**, never by addresses:
 //!   * `recv`   — the receiver descriptor's `TypeId`. Process-global and never reused, so a

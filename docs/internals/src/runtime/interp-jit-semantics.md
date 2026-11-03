@@ -52,8 +52,11 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
 
 | 判定 | 单一实现 | 缓存 | interp 调用侧 | JIT 调用侧 |
 |------|---------|------|--------------|-----------|
-| 虚调用目标（`VCall`） | `interp/vcall_resolve.rs::resolve_vcall` | 站点 PIC（`VCallIC`） | `exec_vcall.rs` | `helpers/vcall.rs` |
-| 类型判定（`is` / `as` / 带类型 `catch`） | `interp/dispatch.rs::isa_td` | `vm_context/isa_cache.rs`（id 键直接映射）→ `subclass_memo`（同键 memo）→ 基链/接口遍历 | `exec_object.rs`、`find_handler` | `helpers/object.rs`、`helpers/control.rs` |
+| 虚调用目标（`VCall`） | `vm/exec/ops/vcall.rs::resolve_vcall` | 站点 PIC（`VCallIC`） | `exec_vcall.rs` | `helpers/vcall.rs` |
+| 类型判定（`is` / `as` / 带类型 `catch`） | `vm/exec/ops/cast.rs::isa_td` | `vm/runtime/dispatch/isa_cache.rs`（id 键直接映射）→ `subclass_memo`（同键 memo）→ 基链/接口遍历 | `exec_object.rs`、`find_handler` | `helpers/object.rs`、`helpers/control.rs` |
+
+派发事实与缓存归 `vm/runtime/dispatch`：接收者分类、函数身份/arity、PIC/构造站点、ISA 名称谓词与 IsaCache 都不拿 VmContext。
+`vm/exec/ops/{vcall,obj_new,cast}` 保存需要加载、初始化或异常物化的逐步解析，两个后端仅适配各自帧与异常通道。ToString 的实际调用仍由 `interp/dispatch.rs` 持有。
 
 #### 类型判定的缓存键
 
@@ -64,7 +67,7 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
   （主模块里只含自身字段的那份、加载器 fixup 出的合并副本）同 id、同名、同基类链，判定相同。没有 id 的描述符
   （`UNRESOLVED`：按对象现建的回落描述符、corelib 原生句柄单例）照常走遍历作答，**不进缓存**。
 - **目标键**：`vm::runtime::Function` 侧表里的 `TypeKeyCell`（`type_key(block, instr)` / `catch_key(entry)`；
-  `is_exception_subclass` 用一个 `static`）。首次判定时由 `dispatch::target_key` 按名解析一次：名字是已登记类型
+  `is_exception_subclass` 用一个 `static`）。首次判定时由 `vm::exec::ops::cast::target_key` 按名解析一次：名字是已登记类型
   （主模块注册表，再查惰性加载器——只查不加载）→ 取它的 `TypeId`；否则（擦除名 `Demo.GBox`、arity 形 `GBox$1`、
   所在包尚未加载的接口）→ `TypeTable::name_key` 为这个**名字**保留一个 id（同一发号器，不会分给描述符）。
   两种键都进程唯一、各自只代表一个目标名，而判定只取决于「接收者类型的名字链 + 目标名」，VM 仍为每台实例保留独立的站点单元，
@@ -98,7 +101,7 @@ site: body.Run(i)            // IParallelTask 接口调用，z42.package 的 Par
 
 **不变量**：`TypeId` 由进程级发号器 `tokens::alloc_type_id_block` 批量分配、**全进程
 唯一**，号段限定 `[0, IMPORT_BASE)`，越界 panic（回绕等于引入撞号）。debug 构建在两条
-PIC 的命中点各设一道常驻断言（`vcall_resolve::assert_pic_target` 校验 callee 归属；
+PIC 的命中点各设一道常驻断言（`vm::exec::ops::vcall::assert_pic_target` 校验 callee 归属；
 `resolver::assert_field_ic_slot` 校验槽位），违反即**在误派发当场** panic；release 编译掉，
 热路径不变。
 
@@ -161,7 +164,7 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 > `Std.Array` 的无类型 / 批量原生（`CopyRange`、`GetValue`、`SetValue`）经 `objops::array_bulk`，corelib 只解析参数、
 > 用 `corelib::raise_op` 把 `OpError` 以原异常类抛出。
 >
-> 尚未进入本层的：对象分配（`interp/obj_new_resolve.rs`）、闭包环境数组、反射 builtin
+> 尚未进入本层的：对象分配（`vm/exec/ops/obj_new.rs`）、闭包环境数组、反射 builtin
 > （`FieldInfo.GetValue` / `SetValue` 等）。
 
 #### 调用的 null 接收者
@@ -171,7 +174,7 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 
 | 调用形态（编译器发什么） | 判空落在哪 | 热路径代价 |
 |------|-----------|-----------|
-| `VCall`（虚 / 接口 / 本包非虚方法、属性访问器、`s.Length`） | `vcall_resolve::resolve_vcall` 开头，产出 `VCallTarget::Thrown`，两个引擎沿用既有的 `Thrown` 臂 | 零：PIC 键 `receiver_type_id(Null)` 本就是 `None`，null 只会走到未命中的慢路 |
+| `VCall`（虚 / 接口 / 本包非虚方法、属性访问器、`s.Length`） | `vm::exec::ops::vcall::resolve_vcall` 开头，产出 `VCallTarget::Thrown`，两个引擎沿用既有的 `Thrown` 臂 | 零：PIC 键 `receiver_type_id(Null)` 本就是 `None`，null 只会走到未命中的慢路 |
 | 直接 `Call` 到 `[Native]` 转发桩（`s.CharAt(i)`、`s.ToCharArray()`……） | builtin 的接收者取值：旧表 `corelib::convert::this_str(args, 成员名)`（非接收者实参走 `arg_str` → `null_arg`）；类型化 builtin 由 `#[builtin(this = "成员名")]` 生成同一条消息（非接收者实参为 null 报 `ArgumentNullException`） | 零：只在既有 tag match 的失配臂里构造 |
 | `CallIndirect`（null 委托） | `scalar::null_invoke_msg`（不经 objops，见 [委托与事件](delegates-events.md)） | — |
 

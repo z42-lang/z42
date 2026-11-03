@@ -371,7 +371,7 @@ pub(super) fn find_handler(
     if crate::stack_guard::is_fatal(ctx) { return None; }
     // perf-vm-isa-cache: match on the thrown object's descriptor (cached by TypeId), no
     // per-throw `String` clone of its class name.
-    // The thrown object's own type arguments take part, as in `is` (`dispatch::isa_object`):
+    // The thrown object's own type arguments take part, as in `is` (`crate::vm::exec::ops::cast::isa_object`):
     // `catch (Err<int>)` must not catch an `Err<string>` of an imported generic.
     let thrown_obj = match thrown {
         Value::Object(rc) => Some((rc.type_desc(), rc.type_args())),
@@ -395,9 +395,9 @@ pub(super) fn find_handler(
                     let hit = if crate::metadata::index::type_param_markers::has_markers(target) {
                         let t = tp_env.test_target(ctx, target);
                         let key = crate::vm::runtime::ids::tokens::TypeKeyCell::new();
-                        super::dispatch::isa_object(ctx, type_registry, td, inst_args, &t, &key)
+                        crate::vm::exec::ops::cast::isa_object(ctx, type_registry, td, inst_args, &t, &key)
                     } else {
-                        super::dispatch::isa_object(ctx, type_registry, td, inst_args, target, func.catch_key(i))
+                        crate::vm::exec::ops::cast::isa_object(ctx, type_registry, td, inst_args, target, func.catch_key(i))
                     };
                     if hit {
                         return Some(i);

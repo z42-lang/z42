@@ -4,6 +4,7 @@
 /// Helpers that may propagate a user exception from a callee return
 /// `Result<Option<Value>>` (Some = thrown). Pure helpers return `Result<()>`.
 
+use crate::vm::runtime::dispatch::functions::{fn_by_id, lazy_call_id};
 use crate::vm::runtime::{Function, Module};
 use crate::object::Value;
 use crate::vm::runtime::ids::tokens::FnId;
@@ -73,31 +74,6 @@ fn try_native_static_call(
     None
 }
 
-/// P1-2: the callee a bound `Call` token or a `VCall` PIC payload names. In range of
-/// `module.functions` it is that index (for the entry module that *is* the `FnId`); past
-/// it, a lazily loaded function's `FnId` (only ever stored when `module` is the
-/// `FuncTable`'s entry module, see `ResolvedTokens::method_tokens`). Lock-free either
-/// way. `None` cannot happen for an id a call path stored once the storing thread's
-/// registration is visible; callers then fall back to binding by name.
-#[inline]
-pub(crate) fn fn_by_id<'m>(ctx: &'m VmContext, module: &'m Module, id: u32) -> Option<&'m Function> {
-    match module.functions.get(id as usize) {
-        Some(f) => Some(f),
-        None => ctx.funcs().get(crate::vm::runtime::ids::tokens::FnId(id)),
-    }
-}
-
-/// The callee's JIT id / `FnId` when the call path may cache it for `module`: a
-/// lazily loaded function only counts when `module` is the `FuncTable`'s entry
-/// module and the table holds exactly this function under the id (see
-/// `ResolvedTokens::method_tokens`).
-#[inline]
-pub(crate) fn lazy_call_id(ctx: &VmContext, module: &Module, f: &Function) -> Option<usize> {
-    let id = f.id.get()?;
-    let funcs = ctx.funcs();
-    (funcs.is_entry(module) && funcs.get(id).is_some_and(|g| std::ptr::eq(g, f))).then_some(id.0 as usize)
-}
-
 /// The cold half of [`call`]: bind `fname` by name — this module's `func_index` first,
 /// then the lazy loader (which may load the defining package) — check the signature,
 /// and store the binding into the site's token. Returns the callee and its JIT id
@@ -113,7 +89,8 @@ pub(crate) fn bind_callee<'a>(
     method_token: Option<&std::sync::atomic::AtomicU32>,
     holder: &'a mut Option<Arc<Function>>,
 ) -> Result<(&'a Function, Option<usize>), Value> {
-    use crate::vm_context::symres::{call_arity, wrong_arity_exception};
+    use crate::vm_context::symres::wrong_arity_exception;
+    use crate::vm::runtime::dispatch::functions::call_arity;
     use std::sync::atomic::Ordering;
     if let Some(&idx) = module.func_index.get(fname) {
         if let Some(f) = module.functions.get(idx) {
@@ -136,7 +113,7 @@ pub(crate) fn bind_callee<'a>(
     }
     // Cache the binding as the callee's `FnId` — only when tokens are `FnId`s for this
     // module, and only for the function the table actually holds under that id.
-    let id = lazy_call_id(ctx, module, &lazy);
+    let id = lazy_call_id((ctx).funcs(), module, &lazy);
     if let (Some(slot), Some(id)) = (method_token, id) {
         slot.store(id as u32, Ordering::Relaxed);
     }
@@ -177,7 +154,7 @@ pub(super) fn call(
     // which routes it to native code when compiled.
     let token = method_token.map_or(crate::vm::runtime::ids::tokens::UNRESOLVED, |s| s.load(Ordering::Relaxed));
     let mut lazy_holder: Option<Arc<Function>> = None;
-    let hit = if token != crate::vm::runtime::ids::tokens::UNRESOLVED { fn_by_id(ctx, module, token) } else { None };
+    let hit = if token != crate::vm::runtime::ids::tokens::UNRESOLVED { fn_by_id((ctx).funcs(), module, token) } else { None };
     let (target, callee_id): (&Function, Option<usize>) = match hit {
         Some(f) => (f, Some(token as usize)),
         None => match bind_callee(ctx, module, fname, args.len(), method_token, &mut lazy_holder) {
@@ -338,7 +315,7 @@ pub(crate) fn bind_fn_ref(
                 return Err(crate::exception::make_missing_symbol_exception(
                     ctx, module, format!("undefined function `{name}`")));
             };
-            match lazy_call_id(ctx, module, &lazy) {
+            match lazy_call_id((ctx).funcs(), module, &lazy) {
                 Some(id) => id as u32,
                 None => {
                     let msg = format!(
@@ -439,7 +416,7 @@ pub(super) fn call_indirect(
         }
         other => bail!("CallIndirect: expected FuncRef / Closure, got {:?}", other),
     };
-    let Some(cfn) = fn_by_id(ctx, module, id.0) else {
+    let Some(cfn) = fn_by_id((ctx).funcs(), module, id.0) else {
         bail!("CallIndirect: function id {} is not registered in this VM", id.0);
     };
     if let Some(res) = try_native_indirect_call(ctx, frame, dst, id.0 as usize, env_val_opt, args) {

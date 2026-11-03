@@ -66,7 +66,7 @@ pub unsafe extern "C" fn jit_match_catch_type(
     // `key` is the exception-table row's key cell, baked into the JIT code with `target`.
     let (target, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (target, &*key) };
     // The thrown object's own type arguments count, as in `is` (`catch (Err<int>)` vs `Err<string>`).
-    if crate::interp::dispatch::isa_object(vm_ctx, &module.type_registry, td, inst_args, target, key) {
+    if crate::vm::exec::ops::cast::isa_object(vm_ctx, &module.type_registry, td, inst_args, target, key) {
         1
     } else {
         0

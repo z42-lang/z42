@@ -2,7 +2,9 @@
 //! Object allocation, field access, type tests, static fields, and the
 //! generic `default(T)` runtime helper.
 
-use crate::interp::dispatch::{self, isa_object, isa_td};
+use crate::vm::runtime::dispatch::ctor::{site_for, instance_type_args};
+use crate::vm::exec::ops::cast::isa_object;
+use crate::vm::exec::ops::cast::isa_td;
 use crate::vm::runtime::dispatch::ic::ObjNewSite;
 use crate::object::Value;
 
@@ -35,7 +37,7 @@ pub unsafe extern "C" fn jit_obj_new(
     // encode-ctorless-objnew: compile-time positive ctor marker; see `missing_ctor_exception`.
     ctor_known: u8,
 ) -> u8 {
-    use crate::interp::obj_new_resolve::{instance_type_args, resolve_class, resolve_ctor, site_for};
+    use crate::vm::exec::ops::obj_new::{resolve_class, resolve_ctor};
     // Baked by `TxCtx::str_val` from the IR: valid UTF-8, no re-validation per `new`.
     let class_name = super::baked_str(cls_name_ptr, cls_name_len);
     let ctor_name = super::baked_str(ctor_name_ptr, ctor_name_len);
@@ -43,7 +45,7 @@ pub unsafe extern "C" fn jit_obj_new(
     let module    = super::jit_module(ctx);
     let frame_ref = &mut *frame;
     let vm        = vm_ctx_ref(ctx);
-    let site = site_for(vm, module, if site_ptr.is_null() { None } else { Some(&*site_ptr) });
+    let site = site_for((vm).funcs(), module, if site_ptr.is_null() { None } else { Some(&*site_ptr) });
 
     let type_desc = match resolve_class(vm, module, class_name, site) {
         Ok(td) => td,
@@ -205,10 +207,10 @@ pub unsafe extern "C" fn jit_convert(
 // ── IsInstance / AsCast ──────────────────────────────────────────────────────
 //
 // perf-vm-isa-cache : the JIT-private `is_subclass_or_eq` walk (+ its
-// `iface_reaches_mod` mirror) is gone — both helpers now call the interpreter's single
-// `dispatch::isa_td` (id-keyed `IsaCache` → shared memo → chain walk), so
+// `iface_reaches_mod` mirror) is gone — both helpers call the shared VM
+// `vm::exec::ops::cast::isa_td` (id-keyed `IsaCache` → shared memo → chain walk), so
 // there is exactly one type-test implementation for interp, JIT and typed `catch`.
-// Arrays, unboxed structs and bound type-parameter targets: `dispatch::array_isa` /
+// Arrays, unboxed structs and bound type-parameter targets: `crate::vm::runtime::dispatch::isa::array_isa` /
 // `struct_ref_isa` / `bound_param_extra_isa` (one rule for both engines, like `isa_td`).
 
 /// A type-test target carrying type-parameter markers, bound for this JIT frame (receiver in
@@ -247,22 +249,22 @@ pub unsafe extern "C" fn jit_is_instance(
     let (class_name, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (class_name, key) };
     let module = super::jit_module(ctx);
     let v = &(*frame).regs[obj as usize];
-    if dynamic.is_some() && dispatch::bound_param_extra_isa(vm_ctx_ref(ctx), &module.type_registry, v, class_name) {
+    if dynamic.is_some() && crate::vm::exec::ops::cast::bound_param_extra_isa(vm_ctx_ref(ctx), &module.type_registry, v, class_name) {
         (*frame).regs[dst as usize] = Value::Bool(true);
         return;
     }
     let result = match v {
         Value::Object(rc) => isa_object(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        Value::Array(rc)  => dispatch::array_isa(&rc.borrow().element_type(), class_name),
+        Value::Array(rc)  => crate::vm::runtime::dispatch::isa::array_isa(&rc.borrow().element_type(), class_name),
         Value::StructRef { idx, frame_id } =>
-            dispatch::struct_ref_isa(vm_ctx_ref(ctx), &module.type_registry, *idx, *frame_id, class_name),
+            crate::vm::exec::ops::cast::struct_ref_isa(vm_ctx_ref(ctx), &module.type_registry, *idx, *frame_id, class_name),
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
         // object（镜像 interp is_instance；基元盒 type_desc.name 即精确 wrapper）。
         Value::BoxedStruct(b) => class_name == "Std.Object" || class_name == "Object"
             || &*b.type_desc().name == class_name
             || isa_td(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), class_name, key),
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配（Null → None → false）。
-        other => crate::interp::prim_isa(other, class_name),
+        other => crate::vm::runtime::dispatch::receiver::prim_isa(other, class_name),
     };
     (*frame).regs[dst as usize] = Value::Bool(result);
 }
@@ -281,7 +283,7 @@ pub unsafe extern "C" fn jit_as_cast(
     let (class_name, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (class_name, key) };
     let module = super::jit_module(ctx);
     let val    = (*frame).regs[obj as usize].clone();
-    if dynamic.is_some() && dispatch::bound_param_extra_isa(vm_ctx_ref(ctx), &module.type_registry, &val, class_name) {
+    if dynamic.is_some() && crate::vm::exec::ops::cast::bound_param_extra_isa(vm_ctx_ref(ctx), &module.type_registry, &val, class_name) {
         (*frame).regs[dst as usize] = val;
         return;
     }
@@ -330,10 +332,10 @@ pub unsafe extern "C" fn jit_as_cast(
     }
     let is_match = match &val {
         Value::Object(rc) => isa_object(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        Value::Array(rc)  => dispatch::array_isa(&rc.borrow().element_type(), class_name),
+        Value::Array(rc)  => crate::vm::runtime::dispatch::isa::array_isa(&rc.borrow().element_type(), class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配。
-        other       => crate::interp::prim_isa(other, class_name),
+        other       => crate::vm::runtime::dispatch::receiver::prim_isa(other, class_name),
     };
     (*frame).regs[dst as usize] = if is_match { val } else { Value::Null };
 }
