@@ -70,7 +70,7 @@ skip 键与 banner 名可能不同（如 `vscode` 对应 `vscode-syntax`）；�
 `--changed <base>` 是 `--skip` 的自动版：按 §7 映射表的「gate stage」列，把相对 `<base>` 的改动**用不到**的
 重 stage（`rust-units` / `cross-zpkg` / `multi-exe` / `stdlib` / `toolchain` / `bench` / `targets` / `examples` /
 `compiler` / `gcgen`）追加进 skip。build wave、`e2e goldens` 与全部静态检查恒跑（后者守全仓不变量，秒级）；
-任一文件判成 full、或 base 不可解析 ⇒ 一个都不跳。判定打印在开头（`[test --changed] …`）。CI 只在 PR 的
+任一文件判成 full、base 不可解析或 Git 读取失败 ⇒ 一个都不跳。判定打印在开头（`[test --changed] …`）。CI 只在 PR 的
 `test-host` 上用它（`--changed <PR base sha>`），main push / schedule / dispatch 全跑。
 
 `--no-build`（或 `--toolchain <sdk>`）跳过构建波、直接消费既有产物——CI 正是先集中构建一次、
@@ -105,6 +105,9 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 `scripts/test/xtask_test_changed.z42`）每条规则给两列：本地 `test changed` 执行的**窄命令**（去重后的并集，
 依序执行、首败短路；`--dry-run` 只打印计划，并顺带打印下一列的分流结果），与 `xtask test --changed <base>`
 （§5）用的**受影响 gate stage**。「全集」= 所有编译 / 执行 z42 代码的重 stage（`rust-units` 除外）。
+
+`test changed` 读取 Git 失败时打印命令、退出码和诊断并返回 2；只有成功读取后的空结果才表示没有改动。
+`test --changed` 遇到同类失败则保留全部 stage，并打印回退原因，避免因索引损坏等读取错误漏跑测试。
 
 | 改动路径 | 窄命令 | gate stage |
 |---|---|---|
