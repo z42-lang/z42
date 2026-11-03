@@ -180,7 +180,7 @@ pub fn build_type_registry(module: &mut Module) {
             // build_type_registry 是**所有**模块（急切 + 跨包惰性）的统一漏斗，
             // 在这里读一次，就不必在每个 type-registry 插入点各挂一遍钩子。
             cctor_func:             desc.attributes.iter()
-                                        .find(|a| a.type_name == crate::vm_context::cctor::CCTOR_SENTINEL)
+                                        .find(|a| a.type_name == crate::vm::runtime::statics::CCTOR_SENTINEL)
                                         .map(|a| a.factory_func.as_str().into()),
             // add-reflection-static-fields: carry the class's static fields.
             static_fields:          desc.static_fields.clone(),

@@ -21,12 +21,12 @@ impl OwnedSyms {
     /// 顺带记下这一轮见到的 `$Module`（可能一个都没有，那是常态）。
     fn note_type(&mut self, desc: &std::sync::Arc<crate::object::TypeDesc>) {
         self.names.insert(desc.name.clone());
-        if crate::vm_context::cctor::is_module_pseudo_type(&desc.name) && desc.cctor_func().is_some() {
+        if crate::vm::runtime::statics::is_module_pseudo_type(&desc.name) && desc.cctor_func().is_some() {
             self.module_descs.push(std::sync::Arc::clone(desc));
         }
     }
     /// 两轮都跑完后调用：把 owner 集合交给每个 `$Module`。
-    fn finish(self, cctors: Option<&std::sync::Arc<crate::vm_context::cctor::CctorRegistry>>) {
+    fn finish(self, cctors: Option<&std::sync::Arc<crate::vm::runtime::statics::CctorRegistry>>) {
         if self.module_descs.is_empty() {
             return;
         }

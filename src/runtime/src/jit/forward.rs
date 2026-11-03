@@ -14,7 +14,7 @@ use crate::object::Value;
 use super::frame::JitFrame;
 use super::runtime::JitRuntime;
 use crate::vm_context::VmContext;
-use crate::vm_context::static_table::StaticCell;
+use crate::vm::runtime::statics::StaticCell;
 use super::helpers::vm_ctx_ref;
 
 use crate::vm::exec::call::forward::{builtin_forward, chained_forward};

@@ -10,7 +10,7 @@
 use crate::vm::runtime::ids::tokens::StaticFieldId;
 use crate::vm::runtime::Module;
 use crate::object::Value;
-use crate::vm_context::cctor::make_type_init_exception;
+use crate::vm::exec::init::make_type_init_exception;
 use crate::vm_context::symres::{verify_static_field, StaticNullVerdict};
 use crate::vm_context::VmContext;
 

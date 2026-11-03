@@ -11,7 +11,7 @@ impl VmContext {
 
     // ── Static fields ─────────────────────────────────────────────────────
     //
-    // Storage is `core.statics` (`static_table`): one stable-address cell per
+    // Storage is `core.runtime.statics` (`static_table`): one stable-address cell per
     // `StaticFieldId`, read and written without a lock; the name → id registration is
     // lazy. The dispatch hot path uses `static_get_by_id` / `static_set_by_id` with the
     // per-site id `vm::runtime::resolve` resolved; the by-name `static_get` / `static_set`
@@ -21,12 +21,12 @@ impl VmContext {
     /// static-field name. Idempotent. Called by `vm::runtime::resolve` at module
     /// load and by hot paths on cache miss (cross-zpkg lazy fields).
     pub fn resolve_static_field_id(&self, name: &str) -> crate::vm::runtime::ids::tokens::StaticFieldId {
-        self.core.statics.resolve(name)
+        self.core.runtime.statics.resolve(name)
     }
 
     /// Read a user-class static field by name. Unset fields read as `Value::Null`.
     pub fn static_get(&self, field: &str) -> Value {
-        self.core.statics.id_of(field).map_or(Value::Null, |id| self.core.statics.get(id))
+        self.core.runtime.statics.id_of(field).map_or(Value::Null, |id| self.core.runtime.statics.get(id))
     }
 
     /// Write a user-class static field by name. Lazy-allocates the id on first write.
@@ -39,7 +39,7 @@ impl VmContext {
     /// its payload for a primitive). `Value::Null` for an id never allocated.
     #[inline]
     pub fn static_get_by_id(&self, id: crate::vm::runtime::ids::tokens::StaticFieldId) -> Value {
-        self.core.statics.get(id)
+        self.core.runtime.statics.get(id)
     }
 
     /// Hot-path write by id (no lock). A value of another kind than the cell already holds is
@@ -47,7 +47,7 @@ impl VmContext {
     /// fails (a context with no frame running).
     #[inline]
     pub fn static_set_by_id(&self, id: crate::vm::runtime::ids::tokens::StaticFieldId, val: Value) -> anyhow::Result<()> {
-        self.core.statics.set(id, &val)
+        self.core.runtime.statics.set(id, &val)
     }
 
     /// **The static-field barrier** — package initializers, then the owner type's static constructor —
@@ -62,9 +62,9 @@ impl VmContext {
     /// (re)load) moves the epoch on, and the next access re-runs the full barrier.
     #[inline]
     pub fn ensure_static_field_init(&self, field: &str, field_id: Option<u32>) -> Result<(), String> {
-        let cell = field_id.and_then(|id| self.core.statics.cell(crate::vm::runtime::ids::tokens::StaticFieldId(id)));
+        let cell = field_id.and_then(|id| self.core.runtime.statics.cell(crate::vm::runtime::ids::tokens::StaticFieldId(id)));
         if let Some(c) = cell {
-            if c.barrier_ready(self.core.cctors.barrier_epoch()) {
+            if c.barrier_ready(self.core.runtime.cctors.barrier_epoch()) {
                 return Ok(());
             }
         }
@@ -73,11 +73,11 @@ impl VmContext {
 
     #[inline(never)]
     fn ensure_static_field_init_slow(
-        &self, field: &str, field_id: Option<u32>, cell: Option<&super::static_table::StaticCell>,
+        &self, field: &str, field_id: Option<u32>, cell: Option<&crate::vm::runtime::statics::StaticCell>,
     ) -> Result<(), String> {
         // Read before the barrier runs (acquire: an invalidating event published before this epoch
         // is visible below), so an event while it runs leaves the record stale instead of wrong.
-        let epoch = self.core.cctors.barrier_epoch_acquire();
+        let epoch = self.core.runtime.cctors.barrier_epoch_acquire();
         // Reading / writing a cross-package static may have just loaded that package: package
         // initializers run before the type initializer.
         self.ensure_module_inits(Some(field))?;
@@ -94,9 +94,9 @@ impl VmContext {
     /// moves: no package initializer left to run (one running on this thread re-entrantly passes but
     /// is not settled), and no static constructor pending at all, or the owner is exempt, or its
     /// initializer is done in the current generation (a re-entrant one passes but is not done).
-    fn static_barrier_settled(&self, cell: &super::static_table::StaticCell) -> bool {
-        use super::static_table::StaticOwner;
-        let cc = &self.core.cctors;
+    fn static_barrier_settled(&self, cell: &crate::vm::runtime::statics::StaticCell) -> bool {
+        use crate::vm::runtime::statics::StaticOwner;
+        let cc = &self.core.runtime.cctors;
         if cc.any_module_init_pending() {
             return false;
         }
@@ -113,8 +113,8 @@ impl VmContext {
     /// Drop every cached static-field owner answer and barrier verdict (an explicit module (re)load
     /// can redefine a type).
     pub(crate) fn forget_static_owners(&self) {
-        self.core.statics.forget_owners();
-        self.core.cctors.invalidate_barriers();
+        self.core.runtime.statics.forget_owners();
+        self.core.runtime.cctors.invalidate_barriers();
     }
 
     /// What JIT-compiled code bakes for an access to static field `id`: the cell's address (stable —
@@ -122,9 +122,9 @@ impl VmContext {
     #[cfg(feature = "jit")]
     pub(crate) fn jit_static_cell(
         &self, id: u32,
-    ) -> Option<(*const super::static_table::StaticCell, *const std::sync::atomic::AtomicU32)> {
-        let cell = self.core.statics.cell(crate::vm::runtime::ids::tokens::StaticFieldId(id))?;
-        Some((cell as *const _, self.core.cctors.barrier_epoch_ptr()))
+    ) -> Option<(*const crate::vm::runtime::statics::StaticCell, *const std::sync::atomic::AtomicU32)> {
+        let cell = self.core.runtime.statics.cell(crate::vm::runtime::ids::tokens::StaticFieldId(id))?;
+        Some((cell as *const _, self.core.runtime.cctors.barrier_epoch_ptr()))
     }
 
     /// Lazy default-initialisation of a declared value-type static field read as never written:
@@ -134,7 +134,7 @@ impl VmContext {
         &self, field: &str, field_id: Option<crate::vm::runtime::ids::tokens::StaticFieldId>, zero: &Value,
     ) -> anyhow::Result<Value> {
         let id = field_id.unwrap_or_else(|| self.resolve_static_field_id(field));
-        self.core.statics.init_default(id, zero)
+        self.core.runtime.statics.init_default(id, zero)
     }
 
     /// Drop all static fields (used by `run_with_static_init` to ensure a
@@ -143,7 +143,7 @@ impl VmContext {
     /// stable across runs (resolver-populated IDs in `Function.resolved`
     /// remain valid after re-init).
     pub fn static_fields_clear(&self) {
-        self.core.statics.clear();
+        self.core.runtime.statics.clear();
         // 槽位清零后，**已跑过的初始化器必须重跑** —— 否则那些类型已是终态、不会再被
         // 任何访问重新触发，静态字段永远停在 Null/零值。
         //
@@ -156,7 +156,7 @@ impl VmContext {
         // 那条队列随 7.4 删除；重跑改由 `reset_for_rerun()` 统一负责 —— 递增代际使所有
         // `TypeDesc` 上的快路标记一次性失效，比逐个去清散落各处的标记可靠
         // （漏一个就是静默错值：单模块 zbc 里 `class C { static int X = 7; }` 读到 0）。
-        self.core.cctors.reset_for_rerun();
+        self.core.runtime.cctors.reset_for_rerun();
     }
 
     // ── JIT exception bridge ──────────────────────────────────────────────

@@ -4,3 +4,5 @@ pub mod ambient;
 pub mod call;
 pub mod stack;
 pub(crate) mod engine;
+
+pub(crate) mod init;

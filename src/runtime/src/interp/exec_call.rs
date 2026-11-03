@@ -108,10 +108,10 @@ pub(super) fn call(
     // 拉进来，它的 `[ModuleInit]` 必须在本包任何代码（包括马上要调的这个函数）之前跑完。
     // 稳态代价 = 一次 relaxed load。
     if let Err(msg) = ctx.ensure_module_inits(Some(fname)) {
-        return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
+        return Ok(Some(crate::vm::exec::init::make_type_init_exception(ctx, module, &msg)));
     }
     if let Err(msg) = ctx.ensure_callee_owner_init(fname, &target.owner_init) {
-        return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
+        return Ok(Some(crate::vm::exec::init::make_type_init_exception(ctx, module, &msg)));
     }
 
     // runtime-jit-tiering Phase 1.5 (mixed-mode): count the callee toward its tier-up
