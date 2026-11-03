@@ -71,6 +71,52 @@ void test_strmap_first_put_does_not_leak_into_other_empty_maps() {
     while (n < 20) { Assert.True(a.ContainsKey("key" + n)); n = n + 1; }
 }
 
+// TryAdd 与 Put 的槽布局相同；碰撞链跨表尾，并覆盖扩容边界和重复键。
+[Test]
+void test_strmap_tryadd_collision_growth_and_first_wins() {
+    StrMap actual = new StrMap();
+    StrMap reference = new StrMap();
+    StrMap value = new StrMap();
+    int i = 0;
+    int found = 0;
+    string first = "";
+    while (found < 20) {
+        string key = "collision" + i.ToString();
+        i = i + 1;
+        if ((key.GetHashCode() & 15) != 15) { continue; }
+        if (found == 0) { first = key; }
+        Assert.True(actual.TryAdd(key, value));
+        reference.Put(key, value);
+        Assert.Equal(reference.Capacity(), actual.Capacity());
+        Assert.Equal(reference.Find(key), actual.Find(key));
+        Assert.True(actual.Get(key) == value);
+        int cap = actual.Capacity();
+        Assert.True(!actual.TryAdd(first, new StrMap()));
+        Assert.Equal(cap, actual.Capacity());
+        Assert.True(actual.Get(first) == value);
+        found = found + 1;
+        Assert.Equal(found, actual.Count());
+    }
+    foreach (var key in reference.Keys()) {
+        Assert.Equal(reference.Find(key), actual.Find(key));
+    }
+}
+
+[Test]
+void test_strmap_tryadd_sentinel_and_null_value() {
+    StrMap m = new StrMap();
+    StrMap empty = new StrMap();
+    Assert.True(m.TryAdd("null", null));
+    Assert.True(!m.TryAdd("null", new StrMap()));
+    Assert.True(m.ContainsKey("null"));
+    Assert.True(m.Get("null") == null);
+    Assert.Equal(1, m.Count());
+    Assert.Equal(16, m.Capacity());
+    Assert.Equal(0, empty.Count());
+    Assert.True(!empty.ContainsKey("null"));
+    Assert.Equal(1, empty.Capacity());
+}
+
 // ByteWriter：LE 宽度写入 + varint + patch（zbc 序列化底座）。
 [Test]
 void test_bytewriter_widths_and_patch() {

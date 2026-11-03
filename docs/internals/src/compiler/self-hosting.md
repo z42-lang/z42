@@ -57,6 +57,14 @@ z42c 只用当前语言子集写；子集表达不了的写法，补进语言而
 
 运行期 `Z42_LIBS` 是**单个目录**（非 colon-list），传多个会被当成一个非法路径，回退成仅 stdlib，表现为 `VCall: function not found` + 静态字段读 null。`z42c build` 编 exe 时把非 stdlib 依赖复制进输出 dist（自包含），所以 `z42c.driver` dist 自带它依赖的编译器包，跑它时 `Z42_LIBS` 只需 stdlib。xtask 的单元测试经 `Z42_PROBING_PATHS` 拿各编译器成员 dist，见 [产物布局](../devinfra/artifacts-layout.md)。
 
+## 共享查找表
+
+`z42.package` 的 `Z42.IR.StrMap` 是编译栈共用的 string→object 开放寻址表，无删除。
+`TryAdd` 保持 first-wins：键已存在时返回 false，既不覆盖值（包括 null）也不扩容。
+新键先计算一次哈希并探测空槽，容量足够时直接写入；需要增长时先重排，再按新容量重新探测。
+空表共享的只读哨兵必须在首次写入前换成独立数组。`Find` 返回的槽号只在下一次 `Put` /
+成功的 `TryAdd` / `EnsureCapacity` 之前有效，调用方不可跨可能重排的操作保存槽号。
+
 ## CLI
 
 `z42c.driver` 提供 `--dump-keywords` / `--dump-tokens` / `--dump-ast` / `--dump-bound` / `--dump-ir` / `--emit-zbc <src> <out>` / `build [<manifest>]`（含 `--workspace`、`--output-dir`）。完整列表见 `z42c --help`。

@@ -67,7 +67,7 @@ public sealed class StrMap {
     // 命中槽号（未命中 -1）。`ContainsKey(k)` 紧跟 `Get(k)` 这种成对写法要走**两次** hash +
     // 两次探测；改成 `Find` 一次拿槽号、再 `ValAt` 取值，只走一次。槽号语义与 UsedAt/KeyAt/ValAt
     // 一致，且对「值本身是 null」的键也正确（Get 的 null 返回分不清「无此键」与「值为 null」）。
-    // ⚠ 槽号只在下一次 Put 之前有效（Put 可能触发 _grow 重排整表）。
+    // ⚠ 槽号只在下一次可能扩容的 Put / TryAdd / EnsureCapacity 之前有效。
     public int Find(string key) {
         int slot = key.GetHashCode() & (this._cap - 1);
         int probes = 0;
@@ -144,8 +144,22 @@ public sealed class StrMap {
 
     // first-wins：已存在则不覆盖（返回 false）。
     public bool TryAdd(string key, object val) {
-        if (this.ContainsKey(key)) { return false; }
-        this.Put(key, val);
+        int h = key.GetHashCode();
+        int slot = h & (this._cap - 1);
+        while (this._used[slot]) {
+            if (this._keys[slot] == key) { return false; }
+            slot = (slot + 1) & (this._cap - 1);
+        }
+        // 查重必须先于扩容：重复键不改变容量；增长后旧槽号失效，沿新布局重新找空槽。
+        if ((this._count + 1) * 2 > this._cap) {
+            this._grow();
+            slot = h & (this._cap - 1);
+            while (this._used[slot]) { slot = (slot + 1) & (this._cap - 1); }
+        }
+        this._keys[slot] = key;
+        this._vals[slot] = val;
+        this._used[slot] = true;
+        this._count = this._count + 1;
         return true;
     }
 
