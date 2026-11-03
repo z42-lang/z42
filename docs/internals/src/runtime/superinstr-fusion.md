@@ -1,6 +1,6 @@
 # 超级指令融合（super-instruction fusion）
 
-> 代码：`vm/runtime/fusion.rs`（识别器）、`vm/runtime/fusion.rs`（缓存形态）、`interp/ops.rs`（`eval_cmp` 共享原语）、
+> 代码：`vm/runtime/fusion.rs`（纯识别规则）、`vm/runtime/fusion.rs`（缓存形态）、`interp/ops.rs`（`eval_cmp` 共享原语）、
 > `interp/mod.rs`（exec 循环消费 + `Frame` 预分配）、`metadata/ir/function.rs`
 > （静态 `Function::reg_file_len` / `Instruction::written_reg`）、`vm/runtime/function.rs`（`Function.fused_tails` 缓存）、
 > `vm/loader/package/mod.rs`（`build_block_indices` 回填 `func.max_reg`）。
@@ -117,3 +117,5 @@ Function::reg_file_len()  ← 权威计数（单一真相），纯函数、不�
 - 正确性：dump-bound 输出**逐行 identical** + z42c 自举 gen1==gen2 逐字节（纯运行时优化，不改任何
   emit，无格式 bump）。`reg_file_len` 三个折叠维度（param / catch reg / 写入 dst）由
   `metadata/bytecode_tests.rs` 单元测试覆盖。
+
+配置采样与调试输出由 `vm/loader/package/indices.rs` 在加载期处理；runtime 识别器只接收块、目标、寄存器类型和显式的类型化开关。
