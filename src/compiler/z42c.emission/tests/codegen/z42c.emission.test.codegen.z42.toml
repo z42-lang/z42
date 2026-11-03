@@ -5,7 +5,7 @@ version = "0.1.0"
 kind    = "lib"
 
 [sources]
-include = ["**/*.z42", "../../../z42c.optimization/benches/cfg_bench.z42"]
+include = ["**/*.z42", "../../../z42c.optimization/benches/cfg_bench.z42", "../../../z42c.optimization/benches/copy_chain_bench.z42"]
 
 [dependencies]
 "z42c.semantics" = "0.1.0"
