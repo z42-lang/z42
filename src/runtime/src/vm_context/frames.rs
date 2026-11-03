@@ -8,7 +8,7 @@ impl VmContext {
     // pairs. Atomic push of one VmFrame holds GC roots + trace metadata
     // together — caller cannot "forget half".
 
-    /// Push one [`crate::exception::VmFrame`] onto the active script frame
+    /// Push one [`crate::vm::exec::call::frames::VmFrame`] onto the active script frame
     /// chain. Pop is the caller's responsibility (typically via the
     /// interp `FrameGuard` RAII or the explicit pair in JIT helpers).
     // ── perf interp-frame-lock-slim: arena-alloc funnel ─────────────────────────
@@ -29,7 +29,7 @@ impl VmContext {
     }
 
     /// Allocate a stack array; publishes the new `arrs` length. See `stack_arr_len`.
-    pub(crate) fn stack_alloc_arr(&self, frame_id: u32, arr: crate::interp::stack_alloc::StackArray) -> u32 {
+    pub(crate) fn stack_alloc_arr(&self, frame_id: u32, arr: crate::vm::exec::call::stack_alloc::StackArray) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.stack_arena.lock();
         let idx = a.alloc_arr(frame_id, arr);
@@ -51,7 +51,7 @@ impl VmContext {
 
     /// Allocate a transient payload; publishes the new length. See `transient_len`.
     pub(crate) fn transient_alloc(
-        &self, frame_id: u32, payload: crate::interp::transient_arena::TransientPayload,
+        &self, frame_id: u32, payload: crate::vm::exec::call::transient_arena::TransientPayload,
     ) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.transient_arena.lock();
@@ -60,7 +60,7 @@ impl VmContext {
         idx
     }
 
-    pub(crate) fn push_frame(&self, mut frame: crate::exception::VmFrame) {
+    pub(crate) fn push_frame(&self, mut frame: crate::vm::exec::call::frames::VmFrame) {
         use std::sync::atomic::Ordering::Relaxed;
         // perf interp-frame-lock-slim: capture each arena's truncation base from its
         // published-length atomic — a lock-free `Relaxed` load — instead of locking
@@ -141,8 +141,8 @@ impl VmContext {
     /// Snapshot the entire call stack for stack-trace formatting at a
     /// `throw` site — names, files and line/column are resolved here.
     /// Only invoked on the throw / fatal-report path.
-    pub(crate) fn snapshot_call_stack(&self) -> Vec<crate::exception::FrameSnapshot> {
-        self.call_stack.with_frames(|frames| frames.iter().map(|f| f.snapshot()).collect())
+    pub(crate) fn snapshot_call_stack(&self) -> Vec<crate::vm::exec::stack::FrameSnapshot> {
+        self.call_stack.with_frames(crate::vm::exec::stack::snapshots)
     }
 
     /// Spec impl-ref-out-in-runtime (Decision R1): index into the frame
@@ -172,10 +172,10 @@ impl VmContext {
     /// collection (`collector_active`).
     ///
     /// # Safety
-    /// As [`super::frame_stack::FrameStack::scan_parked`]: the caller is the
+    /// As [`crate::vm::exec::call::frame_stack::FrameStack::scan_parked`]: the caller is the
     /// owner thread, or the owner is parked for the whole call.
     pub(crate) unsafe fn scan_frames_parked<R>(
-        &self, f: impl FnOnce(&[crate::exception::VmFrame]) -> R,
+        &self, f: impl FnOnce(&[crate::vm::exec::call::frames::VmFrame]) -> R,
     ) -> R {
         debug_assert!(
             self.call_stack.published_depth() == 0

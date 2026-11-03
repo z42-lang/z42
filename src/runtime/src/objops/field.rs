@@ -112,7 +112,7 @@ fn field_get_rare(ctx: &VmContext, recv: &Value, name: &str, ic: Option<&FieldIC
         }
         Value::PinnedView { idx, frame_id } => {
             let (ptr, len) = ctx.transient_arena.lock().with(*idx, *frame_id, |p| match p {
-                crate::interp::transient_arena::TransientPayload::PinView(pv) => (pv.ptr, pv.len),
+                crate::vm::exec::call::transient_arena::TransientPayload::PinView(pv) => (pv.ptr, pv.len),
                 _ => (0u64, 0u64),
             })?;
             match name {

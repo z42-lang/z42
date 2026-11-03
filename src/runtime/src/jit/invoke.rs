@@ -71,7 +71,7 @@ pub(crate) unsafe fn enter_compiled(
     vm: &VmContext, code: *const u8, func: *const Function, mut frame: JitFrame,
 ) -> NativeOutcome {
     let jit_fn: JitFn = unsafe { std::mem::transmute(code) };
-    vm.push_frame(crate::exception::VmFrame::new(func, &frame.regs as *const _));
+    vm.push_frame(crate::vm::exec::call::frames::VmFrame::new(func, &frame.regs as *const _));
     let r = unsafe { jit_fn(&mut frame, vm) };
     vm.pop_frame();
     if r != 0 {

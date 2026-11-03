@@ -11,7 +11,7 @@ use crate::object::{
 };
 use crate::object::Value;
 use crate::object::ArrRef;
-use crate::interp::transient_arena::TransientPayload;
+use crate::vm::exec::call::transient_arena::TransientPayload;
 use crate::vm_context::VmContext;
 
 use super::error::{ArrayOp, OpError, OpResult};
@@ -287,7 +287,7 @@ fn alloc(arr: Value, what: impl FnOnce() -> String) -> OpResult<Value> {
 }
 
 fn stack_array(ctx: &VmContext, frame_id: u32, elems: Vec<Value>) -> Value {
-    let idx = ctx.stack_alloc_arr(frame_id, crate::interp::stack_alloc::StackArray::new(elems));
+    let idx = ctx.stack_alloc_arr(frame_id, crate::vm::exec::call::stack_alloc::StackArray::new(elems));
     Value::StackArray { idx, frame_id }
 }
 

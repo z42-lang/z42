@@ -23,7 +23,7 @@
 //! taken with `try_lock` — on contention it writes a placeholder and
 //! continues, trading completeness for deadlock safety.
 //!
-//! A context's frame stack is owner-thread only (`vm_context/frame_stack.rs`),
+//! A context's frame stack is owner-thread only (`vm/exec/call/frame_stack.rs`),
 //! so the handler prints full frames only for the contexts **the crashing
 //! thread owns** — it runs on that thread, so reading them is an owner read.
 //! For every other context it prints just the frame count, read from the
@@ -254,7 +254,7 @@ fn write_thread_header(fd: i32, ctx_idx: usize, depth: usize, crashing: bool) {
 /// allocating: the precomputed `frame_meta` strings are written in place, and
 /// a function without them has its name written piece by piece; `line_col`
 /// is a binary search over the line table.
-fn write_frame(fd: i32, frame: &crate::exception::VmFrame) {
+fn write_frame(fd: i32, frame: &crate::vm::exec::call::frames::VmFrame) {
     let func = frame.func();
     match &func.frame_meta {
         Some((name, file)) => {

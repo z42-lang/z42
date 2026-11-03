@@ -397,23 +397,23 @@ pub struct VmContext {
     /// runtime-audit P0-15: this thread's runtime counters (its own cache line,
     /// no cross-thread contention). Totals: `VmContext::counters_snapshot`.
     pub(crate) counters: crate::counters::RuntimeCounters,
-    /// Active script frames, one [`crate::exception::VmFrame`] per interp /
+    /// Active script frames, one [`crate::vm::exec::call::frames::VmFrame`] per interp /
     /// JIT activation: GC roots (raw `regs` pointer) and
     /// stack-trace rows (`func` + `pc`) in one entry.
     ///
     /// Owner-thread only, no lock — another thread reads it only while this
     /// context is parked (GC root scanning, `scan_frames_parked`); the crash
     /// signal handler reads just its published depth. See
-    /// [`super::frame_stack`].
+    /// [`crate::vm::exec::call::frame_stack`].
     ///
     /// Raw ptrs valid only while the owning Rust frame
     /// (`interp::Frame` / `JitFrame`) is alive — `FrameGuard` RAII for
     /// interp and `jit::invoke::enter_compiled` for JIT pop before the owner
     /// returns.
-    pub(crate) call_stack:        super::frame_stack::FrameStack,
+    pub(crate) call_stack:        crate::vm::exec::call::frame_stack::FrameStack,
     /// Free-list of register files for interp `Frame`s and `JitFrame`s.
-    /// Owner-thread only, see [`super::reg_pool`].
-    pub(crate) reg_pool:          super::reg_pool::RegPool,
+    /// Owner-thread only, see [`crate::vm::exec::call::reg_pool`].
+    pub(crate) reg_pool:          crate::vm::exec::call::reg_pool::RegPool,
     /// VM / heap thread-locals installed at the bottom frame's push and
     /// restored at the last pop. Owner-thread only, see [`super::engine_guards`].
     pub(crate) engine_guards:     super::engine_guards::EngineGuards,
@@ -422,16 +422,16 @@ pub struct VmContext {
     /// LIFO-truncated by `pop_frame` to each frame's stamped base. Scanned as GC
     /// roots at safepoint (its slots may hold heap `ArrRef`s). Mutex: owner-thread
     /// accesses uncontended; GC scanner is the only cross-thread reader.
-    pub(crate) stack_arena:       Arc<Mutex<crate::interp::stack_alloc::StackArena>>,
+    pub(crate) stack_arena:       Arc<Mutex<crate::vm::exec::call::stack_alloc::StackArena>>,
     /// add-struct-value-semantics: per-thread byte arena holding value-struct blobs
     /// (`Value::StructRef` indexes it). Same lifetime model as `stack_arena`
     /// (LIFO-truncated by `pop_frame`, GC-scanned at safepoint).
-    pub(crate) struct_arena:      Arc<Mutex<crate::interp::struct_arena::StructArena>>,
+    pub(crate) struct_arena:      Arc<Mutex<crate::vm::exec::call::struct_arena::StructArena>>,
     /// make-value-copy: per-thread arena holding the payloads of the three transient,
     /// frame-scoped `Value` variants (`Ref`/`PinnedView`/`StructRefHeap`,
     /// which now carry only an 8B `{idx,frame_id}` handle so `Value` is `Copy`). Same
     /// lifetime model as `stack_arena` (LIFO-truncated by `pop_frame`, GC-scanned at safepoint).
-    pub(crate) transient_arena:   Arc<Mutex<crate::interp::transient_arena::TransientArena>>,
+    pub(crate) transient_arena:   Arc<Mutex<crate::vm::exec::call::transient_arena::TransientArena>>,
     /// This thread's TLAB claims while it is parked in a blocking native call
     /// (`vm::threads::safepoint::native_park_incr`); a collector retires them if it runs meanwhile.
     pub(crate) parked_tlab:       crate::gc::tlab::ParkedTlabSlot,

@@ -83,7 +83,7 @@ pub(super) fn obj_new(
     // its header after that (object model R4; `alloc_instance` builds it in its own block, R6),
     // and the stack branch (`OwnedObject::new_instance`) must stay in lockstep with the heap one,
     // or flipping `Z42_STACKALLOC` changes observable values.
-    let obj_val = if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
+    let obj_val = if stack_alloc && crate::vm::exec::call::stack_alloc::stack_alloc_enabled() {
         let obj = crate::object::OwnedObject::new_instance(type_desc.clone(), inst_args);
         let frame_id = frame.frame_id(ctx);
         let idx = ctx.stack_alloc_obj(frame_id, obj);

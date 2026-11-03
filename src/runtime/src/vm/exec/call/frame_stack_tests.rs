@@ -1,5 +1,5 @@
 use super::*;
-use crate::exception::VmFrame;
+use crate::vm::exec::call::frames::VmFrame;
 use crate::vm_context::VmContext;
 
 fn frame() -> VmFrame {
@@ -18,7 +18,7 @@ fn push_pop_publish_depth_and_owner() {
     s.set_top_pc(7);
     s.with_frames(|f| {
         assert_eq!(f[1].pc.get(), 7, "set_top_pc stamps the top frame");
-        assert_eq!(f[0].pc.get(), crate::exception::PC_UNSET);
+        assert_eq!(f[0].pc.get(), crate::vm::exec::call::frames::PC_UNSET);
     });
     assert!(s.pop().is_some());
     assert!(s.pop().is_some());

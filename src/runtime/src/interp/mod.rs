@@ -35,9 +35,6 @@ pub(crate) mod forward;         // runtime-audit P1-8: `[Native]` stub folding, 
 pub(crate) mod type_param_env;  // `$mta:` / `$cta:` markers of shared generic bodies, shared with the JIT helpers
 pub(crate) mod obj_new_resolve; // P1-2 PR 5: ObjNew class / ctor + site cache, shared with jit_obj_new
 mod ops;
-pub(crate) mod stack_alloc;   // add-escape-analysis-stack-alloc: per-context stack arena
-pub(crate) mod struct_arena;  // add-struct-value-semantics: per-context byte arena for value structs
-pub(crate) mod transient_arena; // make-value-copy: per-context arena for Ref/PinnedView/StructRefHeap
 
 // Re-export for cross-module callers (notably jit/helpers_object.rs).
 pub(crate) use exec_vcall::primitive_class_name;

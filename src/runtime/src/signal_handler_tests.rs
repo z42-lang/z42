@@ -62,8 +62,8 @@ fn other_threads_print_only_their_frame_count() {
 
 #[test]
 fn walk_prints_frames_only_for_the_calling_thread() {
-    use crate::exception::VmFrame;
-    let mut main = crate::exception::tests::test_function("Main", &[], Vec::new());
+    use crate::vm::exec::call::frames::VmFrame;
+    let mut main = crate::vm::exec::stack::stack_tests::test_function("Main", &[], Vec::new());
     main.frame_meta = Some(("Main".into(), "t.z42".into()));
     let ctx = crate::vm_context::VmContext::new();
     ctx.push_frame(VmFrame::new(&main, std::ptr::null()));

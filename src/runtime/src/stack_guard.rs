@@ -110,17 +110,17 @@ fn record(ctx: &crate::vm_context::VmContext, what: impl FnOnce(usize) -> String
 /// Same order as an exception's stack trace (innermost frame first). A very
 /// deep stack keeps its two ends: the innermost frames, then the outermost
 /// ones down to the entry point.
-fn format_trace(frames: &[crate::exception::FrameSnapshot]) -> String {
+fn format_trace(frames: &[crate::vm::exec::stack::FrameSnapshot]) -> String {
     const OUTER: usize = 10;
     const INNER: usize = 30;
     if frames.len() <= OUTER + INNER {
-        return crate::exception::format_stack_trace(frames);
+        return crate::vm::exec::stack::format_stack_trace(frames);
     }
     format!(
         "{}\n  ... {} frames omitted ...\n{}",
-        crate::exception::format_stack_trace(&frames[frames.len() - INNER..]),
+        crate::vm::exec::stack::format_stack_trace(&frames[frames.len() - INNER..]),
         frames.len() - OUTER - INNER,
-        crate::exception::format_stack_trace(&frames[..OUTER]),
+        crate::vm::exec::stack::format_stack_trace(&frames[..OUTER]),
     )
 }
 

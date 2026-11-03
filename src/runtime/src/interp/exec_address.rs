@@ -13,7 +13,7 @@
 use crate::object::Value;
 use crate::object::RefKind;
 use crate::vm_context::VmContext;
-use crate::interp::transient_arena::TransientPayload;
+use crate::vm::exec::call::transient_arena::TransientPayload;
 use anyhow::Result;
 
 use super::Frame;
