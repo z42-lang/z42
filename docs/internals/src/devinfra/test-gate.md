@@ -74,7 +74,9 @@ skip 键与 banner 名可能不同（如 `vscode` 对应 `vscode-syntax`）；�
 `test-host` 上用它（`--changed <PR base sha>`），main push / schedule / dispatch 全跑。
 
 `--no-build`（或 `--toolchain <sdk>`）跳过构建波、直接消费既有产物——CI 正是先集中构建一次、
-再多 job `test --no-build` 消费的形态；本地缓存后反复迭代同理。
+再多 job `test --no-build` 消费的形态；本地缓存后反复迭代同理。examples stage 实际执行时仍负责构建 apphost、
+组装当前开发 SDK（已有 z42c / stdlib 不重建）；`--toolchain <sdk>` 则直接在指定 SDK 上重放，不准备开发 SDK。
+显式 skip、改动分流跳过 examples 或只列 stage 时，均不准备 SDK。
 **这些都不构成 GREEN**：提交判定只认完整 `xtask test`。
 
 ## 6. stage 耗时归因（无条件输出）
@@ -121,7 +123,9 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | `src/toolchain/builder/tests/fixtures/` | `test toolchain builder` | `toolchain`、`targets` |
 | 其余 `src/tests/` | `test e2e` + `check layout` | —（goldens 与 layout 恒跑）|
 | `src/benches/` | `bench --quick` | —（gate 里没有它）|
-| `src/compiler/` | `test compiler` + `test e2e` | 全集 |
+| 编译器私有 `src/compiler/<member>/tests/`（上述专属 harness 夹具除外） | `test compiler` + `test stdlib`（目录工程与扁平 / `[tests]` 单元分别发现） | `compiler`、`stdlib` |
+| 编译器私有 `src/compiler/<member>/benches/` | `bench stdlib <member>` + `test compiler`（codegen 单元引用 bench helper） | `bench`、`compiler` |
+| 其余 `src/compiler/` | `test compiler` + `test e2e` | 全集 |
 | `src/toolchain/launcher/`、`src/toolchain/builder/` | `test stdlib` + `test toolchain` + `test docs examples`（命令行输出一变，手册里的会话脚本就失配）| `stdlib`、`toolchain`、`bench`、`targets`、`examples`（z42b 是这几种用例的执行器）|
 | 其余 `src/toolchain/` | `test stdlib`（工具链影响 `[Test]` 的执行方式，全库扫）+ `test toolchain` | `stdlib`、`toolchain` |
 | `examples/<part>/<chapter>/…` | `test docs examples <part>/<chapter>` | `examples` |
