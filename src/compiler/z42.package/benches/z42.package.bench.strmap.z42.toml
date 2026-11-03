@@ -6,3 +6,5 @@ kind = "exe"
 include = ["strmap_tryadd_bench.z42"]
 [dependencies]
 "z42.package" = "0.1.0"
+[build]
+output_dir = "../../../../artifacts/build/compiler/z42.package/${profile}/benches/strmap"
