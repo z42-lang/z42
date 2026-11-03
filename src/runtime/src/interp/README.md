@@ -27,7 +27,7 @@
 | `dispatch.rs` | 对象分发辅助：vtable 解析、ToString 协议、**类型判定单一入口 `isa_td`**（数组接收者走 `array_isa`：按元素类型不变地比；`is` / `as` / 带类型 `catch`，interp 与 JIT 共用；前置 `vm_context::isa_cache`（键 `(接收者 TypeId, 目标键)`，目标键缓存在站点的 `TypeKeyCell`），后置同键 memo + 基链/接口遍历）、静态字段、fallback TypeDesc |
 | `superinstr.rs` | 加载期识别融合尾部；缓存形态由 `vm/runtime/fusion.rs` 定义 |
 | `ops.rs` | 寄存器级辅助：`int_binop`、`collect_args`、`bool_val`、`str_val` |
-| `stack_alloc.rs` / `struct_arena.rs` / `transient_arena.rs` | per-`VmContext` arena：逃逸对象/数组、值 struct blob、以及 `Ref`/`PinnedView`/`StructRefHeap` 瞬态 payload（`Value` 里只留 8B `{idx,frame_id}` 句柄 → `Value: Copy`，见 `docs/internals/src/runtime/object-abi.md` §2.2）。均 LIFO 随帧 truncate + GC root 扫描 |
+| `vm/exec/call/`（共享状态） | 帧栈、寄存器池与 stack / struct / transient arena 由 VM 执行层持有；解释器仅使用每个 VmContext 的实例，随帧 LIFO 回收并经统一栈面扫描根 |
 
 ## 入口点
 - `interp::run(module, func, args)` — 执行单个函数

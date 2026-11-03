@@ -6,7 +6,7 @@
 //! that thread:
 //!
 //! - **`call_stack`** — `VmFrame`s of interp / JIT frames (GC roots + stack traces);
-//!   owner-thread only, see [`frame_stack`]
+//!   owner-thread only, see [`crate::vm::exec::call::frame_stack`]
 //! - **`reg_pool`** — free-list of frame register files (interp + JIT), and
 //!   **`engine_guards`** — the VM / heap thread-locals installed while the
 //!   stack is non-empty; both owner-thread only
@@ -63,8 +63,6 @@ mod construct;
 mod resources;
 mod native;
 mod frames;
-pub(crate) mod frame_stack;
-mod reg_pool;
 mod engine_guards;
 mod statics;
 pub(crate) mod static_table;

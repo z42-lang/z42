@@ -122,6 +122,9 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.jit` 是�
 - `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`（frame id 来源，帧惰性取号）、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_head`（`#[repr(C)]`，生成码按偏移读的本线程栈下限与 cctor 门指针，外加缓存的 `&VmCore.jit`）
 - `subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存，键 `(接收者 TypeId, 目标键)`，见 [interp-jit-semantics.md](interp-jit-semantics.md)）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
 
+帧记录归 `vm/exec/call/frames.rs`，冻结快照、格式化和寄存器根遍历归 `vm/exec/stack.rs`。
+它们读取同一条 FrameStack；每线程仍由 VmContext 持有栈、池和 arena，所属线程与 GC 暂停约束不变。
+
 每个 `VmFrame` 只有 40 B：`func`（`*const Function`）、`regs` 指针、`pc: Cell<u32>`，
 以及四个 arena（stack 对象 / stack 数组 / struct / transient）的截断 base（`u32`）。GC root scanner 扫
 regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
@@ -143,7 +146,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 ### 帧栈的归属：所属线程独占，别的线程只在它 park 时读
 
-`call_stack` 是 `FrameStack`（`vm_context/frame_stack.rs`）：`UnsafeCell<Vec<VmFrame>>` 加两个原子
+`call_stack` 是 `FrameStack`（`vm/exec/call/frame_stack.rs`）：`UnsafeCell<Vec<VmFrame>>` 加两个原子
 （发布深度 `depth`、栈底帧压栈线程 `owner`）。**谁能碰、什么时候碰**：
 
 | 读写者 | 线程 | 入口 | 条件 |
@@ -191,7 +194,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 一次调用除了 push / pop 之外的固定开销都收在 `VmContext` 上，调用路径上不碰 thread-local、不做 RMW：
 
-- **寄存器池**（`vm_context/reg_pool.rs`）：interp `Frame::new*` 与 `JitFrame::new*` 都从 `reg_pool.take(need)`
+- **寄存器池**（`vm/exec/call/reg_pool.rs`）：interp `Frame::new*` 与 `JitFrame::new*` 都从 `reg_pool.take(need)`
   取寄存器文件，`FrameGuard` / `enter_compiled` 在 pop **之后**用 `give` 还回。不变量：池里的 `Vec` 长度为 0；
   `take` 用 `resize(need, Null)` 把每个槽写一遍 `Null`（每次调用恰好一遍，不能省——帧一 push，GC 就扫
   `regs[0..len)`，此前每个槽都必须是合法值）；`give` 只 `clear()`（`Value` 是 `Copy`，只改长度），容量以外的

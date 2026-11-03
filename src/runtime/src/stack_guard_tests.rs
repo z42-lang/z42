@@ -19,7 +19,7 @@ fn limit_is_below_the_current_frame() {
 
 #[test]
 fn deep_trace_keeps_both_ends_innermost_first() {
-    let frame = |name: &str| crate::exception::FrameSnapshot {
+    let frame = |name: &str| crate::vm::exec::stack::FrameSnapshot {
         func_name: name.into(), file: "".into(), line: 0, column: 0, offset: u32::MAX,
     };
     let mut frames = vec![frame("Main")];

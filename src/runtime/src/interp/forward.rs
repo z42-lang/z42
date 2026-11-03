@@ -42,7 +42,8 @@
 //! struct arena (`as_cast` + `struct_copy`), and its one instance (`GCHandle.Alloc`) is
 //! not on any hot path.
 
-use crate::exception::{FrameSnapshot, VmFrame};
+use crate::vm::exec::stack::FrameSnapshot;
+use crate::vm::exec::call::frames::VmFrame;
 use crate::metadata::ir::{Instruction, Terminator};
 use crate::vm::runtime::Function;
 use crate::vm::runtime::ids::tokens::UNRESOLVED;

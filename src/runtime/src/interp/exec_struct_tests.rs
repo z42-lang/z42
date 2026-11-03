@@ -1,7 +1,7 @@
 //! Unit tests for the blob value-type primitive codec + byte-level value semantics
 //! (add-struct-value-semantics Phase A).
 use super::*;
-use crate::interp::struct_arena::StructArena;
+use crate::vm::exec::call::struct_arena::StructArena;
 use crate::object::StructTypeLayout;
 use std::sync::Arc;
 
@@ -207,7 +207,7 @@ fn struct_array_element_leaf_access_via_handle() {
     let mk_sr = |idx: u32| {
         let hidx = ctx.transient_alloc(
             7,
-            crate::interp::transient_arena::TransientPayload::StructElem(
+            crate::vm::exec::call::transient_arena::TransientPayload::StructElem(
                 StructArrayElem { arr: arr_gc, index: idx },
             ),
         );

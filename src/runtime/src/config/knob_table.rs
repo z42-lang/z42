@@ -31,7 +31,7 @@ const EXEC_MODES: &[&str] = &["interp", "jit", "aot"];
 /// 采样 profiler / native 扩展不适用的平台。wasm 无后台线程、无 dlopen。
 const NOT_WASM: PlatformAvail = PlatformAvail::Except(&["wasm"]);
 
-/// `Z42_STACKALLOC` 的可辨识取值（其余一切值 → on，见 interp/stack_alloc.rs）。
+/// `Z42_STACKALLOC` 的可辨识取值（其余一切值 → on，见 vm/exec/call/stack_alloc.rs）。
 const STACKALLOC_MODES: &[&str] = &["on", "off", "0", "heap", "stats"];
 
 /// 机制内部件 / 调试开关：四层可设，但默认视图隐藏。
@@ -451,7 +451,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Enum(STACKALLOC_MODES),
         description: "escape-analysis stack allocation: `off`/`0`/`heap` disables, `stats` prints per-run counts, anything else enables",
         default_hint: "unset; stack allocation on",
-        consumed_by: "interp/stack_alloc.rs",
+        consumed_by: "vm/exec/call/stack_alloc.rs",
         ..TUNING
     },
     KnobSpec {

@@ -1,4 +1,4 @@
-use crate::exception::VmFrame;
+use crate::vm::exec::call::frames::VmFrame;
 use crate::vm::exec::ambient::current_heap_epoch;
 use crate::vm_context::VmContext;
 

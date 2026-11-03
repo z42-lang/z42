@@ -19,7 +19,7 @@ use super::Frame;
 
 /// 编译器证明不逃逸、且运行期允许栈分配时，返回取帧号的闭包（帧号惰性分配）。
 fn stack_frame<'f>(ctx: &'f VmContext, frame: &'f Frame, stack_alloc: bool) -> Option<impl FnOnce() -> u32 + 'f> {
-    (stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled()).then(|| move || frame.frame_id(ctx))
+    (stack_alloc && crate::vm::exec::call::stack_alloc::stack_alloc_enabled()).then(|| move || frame.frame_id(ctx))
 }
 
 #[allow(clippy::too_many_arguments)]

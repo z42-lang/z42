@@ -2,7 +2,7 @@
 //! error — shared by the interpreter (`exec_call`) and the JIT (`jit_builtin`, the
 //! `[Native]` forward short-circuit), so both engines throw the same thing.
 
-use crate::exception::FrameSnapshot;
+use crate::vm::exec::stack::FrameSnapshot;
 use crate::vm::runtime::Module;
 use crate::object::Value;
 use crate::vm_context::VmContext;

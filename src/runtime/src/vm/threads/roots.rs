@@ -52,11 +52,7 @@ fn scan_roots(c: &VmCore, visit: &mut dyn FnMut(&Value)) {
         // interp; `enter_compiled` for JIT), which outlives the park.
         unsafe {
             ctx.scan_frames_parked(|frames| {
-                for frame in frames {
-                    for v in (*frame.regs).iter() {
-                        visit(v);
-                    }
-                }
+                crate::vm::exec::stack::visit_roots(frames, &mut *visit);
             });
         }
         // add-escape-analysis-stack-alloc: stack-alloc arena roots.

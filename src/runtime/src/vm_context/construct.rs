@@ -397,11 +397,7 @@ impl VmContext {
                     // GC pause, so other contexts are parked.
                     unsafe {
                         ctx.scan_frames_parked(|frames| {
-                            for frame in frames {
-                                for v in (*frame.regs).iter() {
-                                    visit(v, RootKind::StackFrame);
-                                }
-                            }
+                            crate::vm::exec::stack::visit_roots(frames, |v| visit(v, RootKind::StackFrame));
                         });
                     }
                     ctx.stack_arena
