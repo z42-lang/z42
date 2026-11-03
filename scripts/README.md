@@ -299,6 +299,7 @@ scripts/
 │   ├── xtask_selfcheck_embedded.z42  bundle 构建回归（成功 / 部分失败 / 旧 manifest / 空选择），随 builder 夹具跑
 │   ├── xtask_selfcheck_fixture_runs.z42  真实进程退出码与主产物选择回归，随 multi-exe 跑
 │   ├── xtask_selfcheck_stages.z42  stage 编排与改动计划回归（skip / 必跑 / 首败 / 退出码 / 去重 / 全量回退），随 builder 夹具跑
+│   ├── xtask_selfcheck_changed.z42  真实 Git 空改动、tracked / untracked、坏索引与无效 base 回归，随 stage 自检跑
 │   ├── xtask_test_list.z42      `test list`：只读语料目录（pretty / json）
 │   ├── xtask_test_incremental{,_ws}.z42 增量编译暴力对账（逐文件 touch：增量产物 == 全量，逐字节；`_ws` 为 stdlib 整体读回）
 │   ├── xtask_test_docs.z42      `test docs`：相对链接死链 + 文档分层 / README 关联文档检查
