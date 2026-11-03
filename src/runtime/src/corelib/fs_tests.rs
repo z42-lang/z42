@@ -57,7 +57,7 @@ fn env_args_reflects_last_set() {
 
 // ── P1-8 PR 2: typed errors, parked I/O, no syscall under the handle-table lock ──
 
-use crate::corelib::abi::BuiltinError;
+use crate::vm::exec::call::builtin_abi::BuiltinError;
 use crate::corelib::exec_builtin_value;
 
 fn str_v(s: &str) -> Value { Value::Str(s.into()) }

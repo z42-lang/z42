@@ -3,7 +3,7 @@
 
 #[z42_macros::builtins]
 pub mod typed {
-    use crate::corelib::abi::{Blocking, BuiltinError, RefArg};
+    use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, RefArg};
     use crate::object::Value;
     use crate::vm_context::VmContext;
 

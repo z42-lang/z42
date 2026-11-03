@@ -273,7 +273,7 @@ builtin 写成**普通的类型化 Rust 函数**，放进所在领域文件里�
 ```rust
 #[z42_macros::builtins]
 pub mod typed {
-    use crate::corelib::abi::{BuiltinError, RefArg};
+    use crate::vm::exec::call::builtin_abi::{BuiltinError, RefArg};
     use crate::vm_context::VmContext;
 
     #[builtin(name = "__int32_parse", pure)]
@@ -304,7 +304,7 @@ pub mod typed {
 - 一个 `BuiltinDesc { name, params: &[ParamKind], ret: RetKind, flags, call_regs, call_slice }`；
 - 模块尾部的 `DESCS`（编译期拼接；带 `#[cfg]` 的 builtin 随条件整条消失）。
 
-**签名约定**（`corelib/abi/`）：
+**签名约定**（`vm/exec/call/builtin_abi/`）：
 
 | 位置 | 能写什么 | 说明 |
 |---|---|---|
@@ -382,7 +382,7 @@ socket 的（OS 错误 → `SocketException` + Winsock 码 `SocketErrorCode`，�
 `AuthenticationException`，传输 / 流 → `IOException`）在 `corelib/tls.rs` 抬头；Monitor 误用 → `LockRecursionException` /
 `SynchronizationLockException`（`corelib/monitor.rs`）。
 
-**唯一的出口** `corelib::abi::error::raise`，两个引擎共用（interp `exec_call::builtin` / 折叠调用，
+**唯一的出口** `vm::exec::call::builtin_abi::error::raise`，两个引擎共用（interp `exec_call::builtin` / 折叠调用，
 JIT `jit_builtin` / `call_forward`），判定顺序：
 
 1. 回调里 z42 代码抛出的原异常（`pending_thrown`）优先，原样抛出；

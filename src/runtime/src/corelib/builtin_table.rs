@@ -8,7 +8,7 @@
 //! **一个模块一行**——模块里写了 `#[builtin]` 即登记，不再逐函数列表。加一个 builtin 的三步见
 //! `corelib/README.md`「加一个 builtin」。
 
-use super::abi;
+use crate::vm::exec::call::builtin_abi as abi;
 
 const TYPED: &[&[abi::BuiltinDesc]] = &[
     super::convert::typed::DESCS,
@@ -58,9 +58,9 @@ const TYPED: &[&[abi::BuiltinDesc]] = &[
     super::diagnostics::typed::DESCS,
     super::array::typed::DESCS,
     #[cfg(test)]
-    super::abi::test_builtins::DESCS,
+    abi::test_builtins::DESCS,
 ];
 
-const JOINED: [abi::BuiltinDesc; super::abi::descs_len(TYPED)] = super::abi::concat_descs(TYPED);
+const JOINED: [abi::BuiltinDesc; abi::descs_len(TYPED)] = abi::concat_descs(TYPED);
 
 pub(crate) const BUILTINS: &[abi::BuiltinDesc] = &JOINED;
