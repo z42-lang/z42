@@ -1,0 +1,13 @@
+[project]
+name="z42c.symbols.test.interface"
+version="0.1.0"
+kind="lib"
+[sources]
+include=["*.z42"]
+[dependencies]
+"z42c.symbols"="*"
+"z42.package"="*"
+"z42c.core"="*"
+"z42c.syntax"="*"
+[build]
+output_dir="../../../../../artifacts/build/compiler/z42c.symbols/${profile}/tests/interface"
