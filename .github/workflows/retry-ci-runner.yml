@@ -1,0 +1,43 @@
+name: Retry CI Runner Allocation
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Failed PR CI run ID to inspect and retry
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+  checks: read
+  pull-requests: read
+
+concurrency:
+  group: retry-ci-runner-${{ github.event.workflow_run.id || inputs.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # workflow_run has write permissions. Only execute the trusted workflow's
+      # revision on main; never check out the PR or download its artifacts.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/ci
+      - name: Retry only unacquired hosted runner jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RETRY_RUN_ID: ${{ inputs.run_id }}
+        run: python3 .github/ci/retry_runner.py
