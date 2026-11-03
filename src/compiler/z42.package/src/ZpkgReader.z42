@@ -18,6 +18,7 @@ public sealed class ZpkgInfo {
     public ZpkgSection[] Sections;    public int SectionCount;
     public byte[]        Data;
     public int           PluginCaps;  // 头 flags 的插件能力位（见 PluginCaps）；非插件包 0
+    public int           PkgKind;     // 头 flags 的包类型位（见 PkgKind；旧文件 0=lib）
     /// PLGS 段读出的携带插件表（1c）；无段 = 空数组（不是 null）。构造后赋值。
     public PluginCarryZ[] Carried;     public int CarriedCount;
     public ZpkgInfo(string name, string version, string entry, bool isExe, bool packed,
@@ -127,6 +128,7 @@ public static class ZpkgReader {
         int poolCount = pool.Length;
         ZpkgInfo info = new ZpkgInfo(name, version, entry, isExe, packed, pool, poolCount, secs, secCount, data);
         info.PluginCaps = PluginCaps.Mask(flags);
+        info.PkgKind = PkgKind.Code(flags);
         info.Carried = ZpkgReader.ReadCarried(info);   // 无 PLGS 段 → 空数组
         info.CarriedCount = info.Carried.Length;
         return info;
