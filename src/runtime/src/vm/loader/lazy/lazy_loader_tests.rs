@@ -751,7 +751,7 @@ fn vm_core_registers_entry_functions_and_the_loader_appends() {
     assert_eq!(ctx.module().unwrap().functions[1].id.get(), Some(FnId(1)));
 
     ctx.install_lazy_loader(None, 0);
-    ctx.core.lazy_loader.write().as_mut().unwrap()
+    ctx.core.loader.lazy_loader.write().as_mut().unwrap()
         .register_loaded_artifact(ll_artifact_with_functions("Lazy", "lazy", &["Lazy.F$0"]))
         .expect("register lazy pkg");
     assert_eq!(funcs.len(), 3);

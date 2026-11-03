@@ -156,7 +156,7 @@ fn free_function_barrier_loads_no_package() {
 
     let cell = crate::vm::runtime::OwnerInitCell::default();
     assert!(ctx.ensure_callee_owner_init("Demo.Greet$1", &cell).is_ok());
-    let loaded = ctx.core.lazy_loader.read().as_ref().map(|l| l.loaded_zpkgs.len());
+    let loaded = ctx.core.loader.lazy_loader.read().as_ref().map(|l| l.loaded_zpkgs.len());
     assert_eq!(loaded, Some(0), "the barrier for a free function must not load packages");
     assert!(matches!(cell.get(), Some(None)), "a free function is cached as exempt");
 }

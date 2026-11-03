@@ -214,7 +214,7 @@ fn lazy_loader_reads_packages_through_its_vms_file_system() {
     fs_a.mount("/pkgs/m.zpkg", std::fs::read(&fixture).expect("fixture zpkg"));
     a.install_lazy_loader(None, 0);
     b.install_lazy_loader(None, 0);
-    let load = |ctx: &VmContext| ctx.core.lazy_loader.write().as_mut().map(|l| l.load_module_from_path("/pkgs/m.zpkg"));
+    let load = |ctx: &VmContext| ctx.core.loader.lazy_loader.write().as_mut().map(|l| l.load_module_from_path("/pkgs/m.zpkg"));
     assert!(matches!(load(&a), Some(Ok(()))), "VM a loads the package mounted in its file system");
     assert!(matches!(load(&b), Some(Err(_))), "VM b's file system has no such package");
 }

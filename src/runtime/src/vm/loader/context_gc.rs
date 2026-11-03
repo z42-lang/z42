@@ -19,7 +19,7 @@ impl ContextReclaim for CoreContextReclaimer {
         let associations = self
             .core
             .upgrade()
-            .map(|c| c.context_registry.lock().liveness_snapshot())
+            .map(|c| c.loader.context_registry.lock().liveness_snapshot())
             .unwrap_or_default();
         Box::new(ContextSnapshot {
             core: self.core.clone(),
@@ -45,7 +45,7 @@ impl ContextReclaimSnapshot for ContextSnapshot {
     }
     fn reclaim(self: Box<Self>) {
         if let Some(core) = self.core.upgrade() {
-            core.context_registry.lock().reclaim(&self.live);
+            core.loader.context_registry.lock().reclaim(&self.live);
         }
     }
 }

@@ -21,7 +21,7 @@ z42 的 root 区域**没有代码边界**：`vm::loader::package::merge::merge_m
 ## 模型：root + collectible
 
 ```
-              ContextRegistry（VmCore.context_registry）
+              ContextRegistry（VmCore.loader.context_registry）
               ┌──────────────────┬───────────────────────────┐
               ▼                   ▼                           ▼
       root context(0)     collectible "A"(1)          collectible "B"(2)
@@ -59,7 +59,7 @@ z42 的 root 区域**没有代码边界**：`vm::loader::package::merge::merge_m
 ## 机制 / 实现
 
 ### ContextRegistry（`vm/loader/contexts.rs`）
-`VmCore.context_registry: Mutex<ContextRegistry>` 持两张表：`contexts`（按 `ContextId` 索引：
+`VmCore.loader.context_registry: Mutex<ContextRegistry>` 持两张表：`contexts`（按 `ContextId` 索引：
 name / is_collectible / assemblies）+ `assemblies`（按 `AssemblyId` 索引：name / context /
 owned `Module`）。root context(0) + root assembly(0) 由 `ContextRegistry::new()` 预置。
 `AssemblyLoadContext` / `Assembly` z42 对象经 `NativeData::LoadContextHandle` / `AssemblyHandle`
