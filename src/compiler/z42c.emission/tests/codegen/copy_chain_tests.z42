@@ -1,0 +1,71 @@
+namespace CopyChainTests;
+using Z42.IR;
+using Z42.Optimization;
+using CopyChainBench;
+using Std.Harness;
+
+void _run(IrFunction f) {
+    var m = new IrModule("copy_chain_test", new string[] { "" }, 1, new IrClassDesc[0], 0, new IrFunction[] { f }, 1);
+    IrOptPipeline.Run(m, Opt.CopyProp);
+}
+IrFunction _function(IrInstr[] ins, int pc, int ret, int maxReg) {
+    var b = new IrBlock("entry", ins, ins.Length, new RetTerm(true, new TypedReg(ret, IrType.I64)), true);
+    return new IrFunction("copy_chain_test", pc, "long", true, new IrBlock[] { b }, 1, maxReg, "Interp",
+        new string[] { "long" }, pc, new int[0], 0, new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+}
+TypedReg _r(int id) { return new TypedReg(id, IrType.I64); }
+
+[Test]
+void test_copy_chains_resolve_both_register_orders() {
+    int n = 0;
+    while (n < 64) {
+        int order = 0;
+        while (order < 2) {
+            var f = CopyChainFixture.Make(n, order == 1);
+            _run(f);
+            Assert.Equal(1, f.Blocks[0].InstrCount);
+            Assert.True(f.Blocks[0].Instrs[0] is ConstI64Instr);
+            Assert.Equal(f.Blocks[0].Instrs[0].DefReg().Id, (f.Blocks[0].Term as RetTerm).Reg.Id);
+            order = order + 1;
+        }
+        n = n + 1;
+    }
+}
+[Test]
+void test_long_copy_chain_keeps_the_final_type_and_return_source() {
+    var f = CopyChainFixture.Make(4096, false);
+    _run(f);
+    Assert.Equal(1, f.Blocks[0].InstrCount);
+    Assert.Equal(IrType.I64, (f.Blocks[0].Term as RetTerm).Reg.Type);
+    Assert.Equal(f.Blocks[0].Instrs[0].DefReg().Id, (f.Blocks[0].Term as RetTerm).Reg.Id);
+}
+[Test]
+void test_parameter_copy_chain_resolves_to_the_entry_value() {
+    IrInstr[] ins = new IrInstr[128];
+    int i = 0;
+    while (i < ins.Length) { ins[i] = new CopyInstr(_r(i + 1), _r(i)); i = i + 1; }
+    var f = _function(ins, 1, 128, 129);
+    _run(f);
+    Assert.Equal(0, f.Blocks[0].InstrCount);
+    Assert.Equal(0, (f.Blocks[0].Term as RetTerm).Reg.Id);
+}
+[Test]
+void test_rewritten_parameter_is_not_a_stable_copy_source() {
+    var f = _function(new IrInstr[] {
+        new ConstI64Instr(_r(1), "3"), new CopyInstr(_r(0), _r(1)),
+        new ConstI64Instr(_r(2), "7"), new CopyInstr(_r(3), _r(0))
+    }, 1, 3, 4);
+    _run(f);
+    Assert.True(f.Blocks[0].Instrs[f.Blocks[0].InstrCount - 1] is CopyInstr);
+    Assert.Equal(3, (f.Blocks[0].Term as RetTerm).Reg.Id);
+}
+[Test]
+void test_cyclic_copy_sources_are_not_removed() {
+    var f = _function(new IrInstr[] {
+        new CopyInstr(_r(0), _r(1)), new ConstI64Instr(_r(2), "7"),
+        new CopyInstr(_r(1), _r(0)), new ConstI64Instr(_r(3), "9")
+    }, 0, 0, 4);
+    _run(f);
+    Assert.Equal(4, f.Blocks[0].InstrCount);
+    Assert.Equal(0, (f.Blocks[0].Term as RetTerm).Reg.Id);
+}
