@@ -43,7 +43,7 @@ impl VmContext {
     /// concurrently (its counts move to the core under the same lock).
     pub fn counters_snapshot(&self) -> crate::counters::Snapshot {
         let registry = self.core.vm_contexts.lock();
-        let mut total = self.core.counters.snapshot();
+        let mut total = self.core.diagnostics.counters.snapshot();
         for p in registry.iter() {
             // SAFETY: registered contexts are alive while the registry lock is
             // held (`Drop` deregisters under it before the storage goes away).
@@ -57,7 +57,7 @@ impl VmContext {
     /// via [`Self::fire_runtime_event`]. Multiple observers fan-out.
     /// docs/review.md Part 4 D3 Phase 1 .
     pub fn add_runtime_observer(&self, obs: Arc<dyn crate::observer::RuntimeObserver>) {
-        self.core.runtime_observers.add(obs);
+        self.core.diagnostics.runtime_observers.add(obs);
     }
 
     /// Fire a runtime event to all registered observers. Returns the
@@ -68,11 +68,11 @@ impl VmContext {
     /// Whether a runtime observer is registered — gate for building costly events.
     #[inline]
     pub fn has_runtime_observers(&self) -> bool {
-        self.core.runtime_observers.has_observers()
+        self.core.diagnostics.runtime_observers.has_observers()
     }
 
     pub fn fire_runtime_event(&self, event: &crate::observer::RuntimeEvent) -> usize {
-        self.core.runtime_observers.fire(event)
+        self.core.diagnostics.runtime_observers.fire(event)
     }
 
     /// add-gc-safepoint-counter-throttling : force the next
@@ -279,27 +279,22 @@ impl VmContext {
             #[cfg(feature = "net")]
             udp_sockets:          ResourceRegistry::new(),
 
-            // add-runtime-counters : all-zero start; Phase 1
-            // increment site = corelib::exec_builtin (builtin_calls).
-            counters: Arc::new(crate::counters::RuntimeCounters::new()),
-            // add-runtime-observer : empty registry; embedders
-            // attach via `VmContext::add_runtime_observer`. Phase 1 emits
-            // ModuleLoaded from main.rs after each load_artifact.
-            runtime_observers: crate::observer::RuntimeObserverRegistry::new(),
-            // add-concurrency-probes : empty park histogram + zeroed
-            // contention counters (only written under the `profile-contention` feature).
-            park_histogram: Mutex::new(crate::gc::types::PauseHistogram::new(crate::config::runtime_config().gc_pause_window)),
-            lock_contentions: std::sync::atomic::AtomicU64::new(0),
-            lock_wait_us:     std::sync::atomic::AtomicU64::new(0),
-            // add-sampling-profiler : start the sampler only when
-            // Z42_SAMPLE_HZ is set; otherwise disabled() (no thread, zero-cost).
-            // Trace timeline recorded only when Z42_TRACE_OUT is also set.
-            sampler: match crate::config::runtime_config().sample_hz {
-                Some(hz) => crate::profiler::cpu::Sampler::start(
-                    hz,
-                    crate::config::runtime_config().trace_out.is_some(),
-                ),
-                None => crate::profiler::cpu::Sampler::disabled(),
+            diagnostics: crate::vm::diagnostics::DiagnosticsState {
+                counters: Arc::new(crate::counters::RuntimeCounters::new()),
+                runtime_observers: crate::observer::RuntimeObserverRegistry::new(),
+                park_histogram: Mutex::new(crate::gc::types::PauseHistogram::new(crate::config::runtime_config().gc_pause_window)),
+                lock_contentions: std::sync::atomic::AtomicU64::new(0),
+                lock_wait_us:     std::sync::atomic::AtomicU64::new(0),
+                // add-sampling-profiler : start the sampler only when
+                // Z42_SAMPLE_HZ is set; otherwise disabled() (no thread, zero-cost).
+                // Trace timeline recorded only when Z42_TRACE_OUT is also set.
+                sampler: match crate::config::runtime_config().sample_hz {
+                    Some(hz) => crate::profiler::cpu::Sampler::start(
+                        hz,
+                        crate::config::runtime_config().trace_out.is_some(),
+                    ),
+                    None => crate::profiler::cpu::Sampler::disabled(),
+                },
             },
             engines: crate::engine_assembly::registry(),
         });
@@ -495,7 +490,7 @@ impl Drop for VmContext {
             // total under the registry lock, so `counters_snapshot` never sees
             // them twice or not at all.
             let mut registry = self.core.vm_contexts.lock();
-            self.core.counters.absorb(&self.counters);
+            self.core.diagnostics.counters.absorb(&self.counters);
             registry.retain(|p| p.0 != ptr);
         }
         // Wake any collector sleeping in request_gc_pause so it

@@ -1,3 +1,4 @@
+pub mod diagnostics;
 pub mod threads;
 pub mod runtime;
 pub mod loader;

@@ -23,7 +23,7 @@ z42 的观测遵循**两层成本**原则（design §6）：
 1. **常开、原子成本**：计数器（`RuntimeCounters`：builtin/native calls、JIT 编译、异常流量）、
    GC 堆统计（`HeapStats`：allocations、分代 minor/major、reclaimed bytes）、park 直方图。
    每个计数点是一次 `Relaxed` atomic add。计数器每个 `VmContext`（即每个线程）一份，各线程只写自己的
-   缓存行、互不争用，快照时汇总（已销毁的 context 的计数并入 `VmCore.counters`）。代价不是零：
+   缓存行、互不争用，快照时汇总（已销毁的 context 的计数并入 `VmCore.diagnostics.counters`）。代价不是零：
    `builtin_calls` 在**每次** builtin 调用上加一次（`corelib::exec_builtin*`，这是热路径）；其余计数点在
    native 调用、异常、JIT 编译、GC 暂停这类本来就慢的路径上。`RuntimeObserver` 事件在没有观察者时只付
    一次 relaxed load（`has_observers`）；构造事件要分配字符串的调用点（异常抛出、native 调用）先查
@@ -117,7 +117,7 @@ chrome/perfetto trace 常见于「每帧 enter/exit 精确计时」的 **span �
 
 ## 3. 并发探针（P1b）与计数暴露（P1c）速览
 
-- **park 直方图**（常开）：`VmCore.park_histogram` 在 `vm::threads::safepoint::park_until_idle` 计时——只 GC 暂停
+- **park 直方图**（常开）：`VmCore.diagnostics.park_histogram` 在 `vm::threads::safepoint::park_until_idle` 计时——只 GC 暂停
   slow path 跑，热 `check_safepoint` 零成本。surface `park_count`/`park_us_total`/`park_max_us`。
 - **用户锁争用**（`profile-contention` feature）：`corelib::sync` 的 `Std.Threading.Mutex`/`RwLock` acquire
   经 `try_lock` miss 判争用 → `lock_contentions`/`lock_wait_us`；默认构建 `#[cfg(not)]` 零分支。
