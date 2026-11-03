@@ -397,7 +397,7 @@ string[] _zpkgRefDirs(ProjectManifest pm, string projectDir) {
         }
         // deps-plugin-routing：插件包不进运行期解析域——它的目录**不**并入 libsDirs（NSPC / glob /
         // 包枚举会把里面的东西当普通库）。编译器侧加载走 `_pluginDepZpkgs` 的直连分流。
-        if (PluginCaps.IsPlugin(info.PluginCaps)) { continue; }
+        if (PkgKind.IsPluginPkg(info.PkgKind, info.PluginCaps)) { continue; }
         string dir = Path.GetDirectoryName(full);
         if (dir.Length == 0) { dir = "."; }
         bool dup = false;
