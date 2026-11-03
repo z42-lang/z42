@@ -1,0 +1,60 @@
+namespace InlineLookupBench;
+using Z42.Optimization;
+using Z42.IR;
+using Std.IO;
+using Std.Harness;
+
+int exercise(int n) {
+    IrModule m = InlineLookupFixture.Make(n);
+    IrInline.Run(m);
+    Assert.Equal(2, m.Functions[n * 2 - 1].Blocks[0].InstrCount);
+    return m.FuncCount;
+}
+int exercise_no_calls(int n) {
+    IrModule m = InlineLookupFixture.Make(n);
+    m.FuncCount = n;
+    IrInline.Run(m);
+    Assert.Equal(1, m.Functions[n - 1].Blocks[0].InstrCount);
+    return m.FuncCount;
+}
+[Benchmark]
+void bench_inline_no_calls_512() {
+    var b = new Bencher(4, 12);
+    b.iter(() => { BenchHelpers.blackBox(exercise_no_calls(512)); });
+    b.printSummary("inline_no_calls_512");
+}
+[Benchmark]
+void bench_inline_lookup_512() {
+    var b = new Bencher(4, 12);
+    b.iter(() => { BenchHelpers.blackBox(exercise(512)); });
+    b.printSummary("inline_lookup_512");
+}
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = args.Length > 0 ? int.Parse(args[0]) : 512;
+    var b = new Bencher(4, 12);
+    b.iter(() => { BenchHelpers.blackBox(args.Length > 1 ? exercise_no_calls(n) : exercise(n)); });
+    b.printSummary("inline_lookup_" + n.ToString());
+}
+
+public static class InlineLookupFixture {
+    public static IrFunction Function(string name, IrInstr[] ins, IrTerminator term) {
+        var block = new IrBlock("entry", ins, ins.Length, term, true);
+        return new IrFunction(name, 0, "long", true, new IrBlock[] { block }, 1, 1, "Interp",
+            new string[0], 0, new int[0], 0, new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+    }
+    public static IrModule Make(int n) {
+        IrFunction[] functions = new IrFunction[n * 2];
+        int i = 0;
+        while (i < n) {
+            var reg = new TypedReg(0, IrType.I64);
+            string name = "leaf" + i.ToString();
+            functions[i] = InlineLookupFixture.Function(name,
+                new IrInstr[] { new ConstI64Instr(reg, i.ToString()) }, new RetTerm(true, reg));
+            functions[n + i] = InlineLookupFixture.Function("caller" + i.ToString(),
+                new IrInstr[] { new CallInstr(reg, name, new TypedReg[0], 0) }, new RetTerm(true, reg));
+            i = i + 1;
+        }
+        return new IrModule("inline_lookup", new string[] { "" }, 1, new IrClassDesc[0], 0, functions, functions.Length);
+    }
+}

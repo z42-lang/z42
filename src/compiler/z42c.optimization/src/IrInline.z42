@@ -84,15 +84,16 @@ public sealed class IrInline {
     // 再内联它——即沿声明序向后自然传导。结果对声明序确定（同源同序 → 同输出，自举不动点成立，D7）；
     // 每函数只处理一次 + per-caller 预算 → 终止且有界。
     public static void Run(IrModule m) {
+        InlineCallees callees = new InlineCallees(m);
         int fi = 0;
         while (fi < m.FuncCount) {
-            IrInline._inlineInto(m, m.Functions[fi]);
+            IrInline._inlineInto(m, m.Functions[fi], callees);
             fi = fi + 1;
         }
     }
 
     // 把 caller 内所有合格调用点内联：Phase A 单块 callee 就地 splice；Phase B 多块 callee split+insert。
-    private static void _inlineInto(IrModule m, IrFunction caller) {
+    private static void _inlineInto(IrModule m, IrFunction caller, InlineCallees callees) {
         if (caller.BlockCount == 0) { return; }   // 抽象/extern 桩：无体
         if (IrMethodImpl.Has(caller, IrMethodImpl.NoOptimization)) { return; }   // ⑨ 体原样保留
         InlineState st = new InlineState(caller.MaxReg);
@@ -100,15 +101,15 @@ public sealed class IrInline {
         // 在两个 Phase **之前**算：Phase B 会拆块，但 `LoadLocalAddrInstr` 只在 caller 原有块里，
         // 且内联进来的 curated 体不含取址指令（白名单里没有）⇒ 集合不会因内联而变。
         bool[] addrRegs = IrInline._addrRegsOf(caller);
-        IrInline._inlineSingleBlock(m, caller, st, addrRegs);   // Phase A
-        IrInline._inlineMultiBlock(m, caller, st, addrRegs);    // Phase B
+        IrInline._inlineSingleBlock(m, caller, st, addrRegs, callees);   // Phase A
+        IrInline._inlineMultiBlock(m, caller, st, addrRegs, callees);    // Phase B
         if (!st.Changed) { return; }
         caller.MaxReg = st.RunningMax;
         IrInline._extendRegTypes(caller, st.RunningMax, st.RecOff, st.RecFn, st.RecCount);
     }
 
     // Phase A：单块 callee 就地 splice（每块重建指令列表）。多块 callee 留给 Phase B。
-    private static void _inlineSingleBlock(IrModule m, IrFunction caller, InlineState st, bool[] addrRegs) {
+    private static void _inlineSingleBlock(IrModule m, IrFunction caller, InlineState st, bool[] addrRegs, InlineCallees callees) {
         int bi = 0;
         while (bi < caller.BlockCount) {
             IrBlock blk = caller.Blocks[bi];
@@ -118,7 +119,7 @@ public sealed class IrInline {
             int ii = 0;
             while (ii < blk.InstrCount) {
                 IrInstr ins = blk.Instrs[ii];
-                IrFunction callee = IrInline._eligibleCallee(m, caller, ins, st.Budget, addrRegs);
+                IrFunction callee = IrInline._eligibleCallee(m, caller, ins, st.Budget, addrRegs, callees);
                 if (callee != null && callee.BlockCount == 1) {
                     CallInstr call = ins as CallInstr;
                     IrBlock cb = callee.Blocks[0];
@@ -162,7 +163,7 @@ public sealed class IrInline {
 
     // Phase B：多块 callee split+insert。迭代找第一个多块合格调用点 → 拆 caller 块并插入 callee 块，
     // 直到没有多块调用点或预算耗尽。callee 体 curated（无 call）→ 插入块不含新调用点 → 终止。
-    private static void _inlineMultiBlock(IrModule m, IrFunction caller, InlineState st, bool[] addrRegs) {
+    private static void _inlineMultiBlock(IrModule m, IrFunction caller, InlineState st, bool[] addrRegs, InlineCallees callees) {
         bool progress = true;
         while (progress) {
             progress = false;
@@ -171,7 +172,7 @@ public sealed class IrInline {
                 IrBlock blk = caller.Blocks[bi];
                 int ii = 0;
                 while (ii < blk.InstrCount && !progress) {
-                    IrFunction callee = IrInline._eligibleCallee(m, caller, blk.Instrs[ii], st.Budget, addrRegs);
+                    IrFunction callee = IrInline._eligibleCallee(m, caller, blk.Instrs[ii], st.Budget, addrRegs, callees);
                     if (callee != null && callee.BlockCount > 1) {
                         IrInline._spliceMultiBlock(caller, bi, ii, blk.Instrs[ii] as CallInstr, callee, st);
                         progress = true;
@@ -342,12 +343,12 @@ public sealed class IrInline {
         return false;
     }
 
-    private static IrFunction _eligibleCallee(IrModule m, IrFunction caller, IrInstr ins, int budget, bool[] addrRegs) {
+    private static IrFunction _eligibleCallee(IrModule m, IrFunction caller, IrInstr ins, int budget, bool[] addrRegs, InlineCallees callees) {
         if (budget >= IrInline.INLINE_CALLER_BUDGET) { return null; }   // ⑦ 预算耗尽
         if (!(ins is CallInstr)) { return null; }                        // ① 仅直接调用
         CallInstr call = ins as CallInstr;
         if (IrInline._passesAddress(call, addrRegs)) { return null; }    // ⑧ ref 实参 → 不可内联
-        IrFunction callee = IrInline._findFunc(m, call.Func);
+        IrFunction callee = callees.Find(call.Func);
         if (callee == null) { return null; }                             // ② 同模块可解析
         if (callee.Name == caller.Name) { return null; }                 // ③ 非递归（curated 体无嵌套调用 → 无间接递归）
         if (callee.BlockCount < 1) { return null; }
@@ -380,16 +381,6 @@ public sealed class IrInline {
     // 可内联的终结子：Ret（→绑返回值+br cont）/ Br / BrCond（目标 relabel）。Throw 不可内联。
     private static bool _termInlinable(IrTerminator t) {
         return (t is RetTerm) || (t is BrTerm) || (t is BrCondTerm);
-    }
-
-    // 同模块按名解析 callee（线性；首个匹配，稳定序）。
-    private static IrFunction _findFunc(IrModule m, string name) {
-        int i = 0;
-        while (i < m.FuncCount) {
-            if (m.Functions[i].Name == name) { return m.Functions[i]; }
-            i = i + 1;
-        }
-        return null;
     }
 
     // 全模块 CallInstr 中 Func==name 的调用点数（单调用点恒内联判定）。
