@@ -25,8 +25,8 @@
 | `control.rs` | `throw` / `install_catch` / `match_catch_type` |
 | `call.rs` | `jit_call`、`jit_builtin` |
 | `array.rs` | 数组分配、元素访问、长度 |
-| `object.rs` | 对象分配（类 / 构造器解析与站点缓存共用 `interp::obj_new_resolve`，ctor 按 `FnId` 走槽位）、类型检查、静态字段（内联快路未放行时的 `jit_static_get` / `jit_static_set`）、`default(T)` |
-| `vcall.rs` | 虚调用的 JIT **调用侧**：PIC 命中（载荷 = `FnId`，惰性目标也在内）→ by-id tiered `FnEntry`，冷 → 按 id interp；miss → `interp::vcall_resolve::resolve_vcall`（与 interp 共用的**唯一**目标解析：装箱基元 / 装箱 struct / primitive-as-struct / vtable·层级 walk + PIC 安装）→ 编译入口或 interp 回退 |
+| `object.rs` | 对象分配（类 / 构造器解析与站点缓存共用 `vm::exec::ops::obj_new`，ctor 按 `FnId` 走槽位）、类型检查、静态字段（内联快路未放行时的 `jit_static_get` / `jit_static_set`）、`default(T)` |
+| `vcall.rs` | 虚调用的 JIT **调用侧**：PIC 命中（载荷 = `FnId`，惰性目标也在内）→ by-id tiered `FnEntry`，冷 → 按 id interp；miss → `vm::exec::ops::vcall::resolve_vcall`（与 interp 共用的**唯一**目标解析：装箱基元 / 装箱 struct / primitive-as-struct / vtable·层级 walk + PIC 安装）→ 编译入口或 interp 回退 |
 | `closure.rs` | L3 闭包：`load_fn` / `mk_clos` / `call_indirect` |
 | `object_field.rs` | 字段访问 helper（`objops::field` 的薄适配）：原生字段 IC 未命中时的 `jit_field_get` / `jit_field_set`（解析并安装站点 IC） |
 | `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，叶子读写走 `objops::struct_leaf`，分配 / 拷贝调用 `vm/exec/ops/structs` 的值级核心 |
@@ -55,5 +55,5 @@ Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每�
 - 共享转发与类型实参从 `vm/exec/call` 调用，struct 值级实现从 `vm/exec/ops/structs` 调用；执行结果使用 VM 的 `ExecOutcome`。
 - 依赖 `corelib` 的 `invoke_builtin` / `abi::error::raise` 和 `value_to_str`；`[Native]` 折叠依赖 `vm::exec::call::forward`
 - 依赖 `metadata` 的 `Module`、`Function`、`Instruction`、`Value` 等类型
-- 依赖 `interp::vcall_resolve`（vcall 目标解析单一实现）+ `interp::obj_new_resolve`（ObjNew 类 / 构造器解析与站点缓存）+ `interp::primitive_class_name`（is/as 共享判定）+ `interp::dispatch::isa_td`（is / as / catch 类型判定单一实现，含 `IsaCache`；helpers/object.rs 与 control.rs 共享，JIT 不自带基链遍历；翻译时烘焙指令 / 异常表行的 `TypeKeyCell` 指针）
+- 依赖 `vm::exec::ops::vcall`（vcall 目标解析单一实现）+ `vm::exec::ops::obj_new`（ObjNew 类 / 构造器解析与站点缓存）+ `vm::runtime::dispatch::receiver::primitive_class_name`（is/as 共享判定）+ `vm::exec::ops::cast::isa_td`（is / as / catch 类型判定单一实现，含 `IsaCache`；helpers/object.rs 与 control.rs 共享，JIT 不自带基链遍历；翻译时烘焙指令 / 异常表行的 `TypeKeyCell` 指针）
 - 外部依赖：`cranelift-codegen`、`cranelift-frontend`、`cranelift-jit`、`cranelift-module`
