@@ -42,7 +42,6 @@ public sealed class IrPureFunctionTable {
         //   某轮无函数被降级即收敛。重建避开 StrMap 无 Remove。
         bool changed = true;
         while (changed) {
-            changed = false;
             StrMap next = new StrMap();
             fi = 0;
             while (fi < m.FuncCount) {
@@ -50,10 +49,12 @@ public sealed class IrPureFunctionTable {
                 if (IrPureFunctionTable._summarized(f)) {
                     bool isP = IrPureFunctionTable._isFuncPure(f, pure);
                     if (isP) { next.Put(f.Name, "1"); }
-                    else if (pure.ContainsKey(f.Name)) { changed = true; }   // 本轮从纯降级
                 }
                 fi = fi + 1;
             }
+            // The name set only shrinks. A rejected duplicate body need not remove
+            // its name: another body may still supply it in this round.
+            changed = next.Count() != pure.Count();
             pure = next;
         }
         return new PureTable(pure, IrPureFunctionTable._computeSpeculatable(m, pure));
