@@ -12,6 +12,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 using Z42.Project;
 
 // Resolved toolchain for a manifest-target run (release build-tree paths).
@@ -97,24 +98,24 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     fixRoot = tt.FixturesRoot;
     string label  = (kind == "bench") ? "bench" : "test";
     int failed = 0;
-    int[] mref = new int[] { 0 };   // matched
-    string avail = "";
+    int matched = 0;
+    var available = new List<string>();
     foreach (var fx in _sortedStrings(Directory.Enumerate(fixRoot))) {
         string projDir = Path.Join(fixRoot, fx);
         string toml = _findToml(projDir);
         if (toml.Length == 0 || !Directory.Exists(projDir)) { continue; }
-        failed = failed + _runFixtureKind(root, fx, toml, kind, label, name, tt, mref, ref avail);
+        failed = failed + _runFixtureKind(root, fx, toml, kind, label, name, tt, ref matched, available);
     }
-    int matched = mref[0];
     if (name.Length > 0 && matched == 0) {
         ConsoleError.WriteLine("error: no " + label + " target named '" + name + "'");
-        if (avail.Length > 0) { ConsoleError.WriteLine("  available: " + avail); }
+        if (available.Count > 0) { ConsoleError.WriteLine("  available: " + String.Join(", ", available.ToArray())); }
         return 2;
     }
     // z42b behaviour smokes — only on the full (unnamed) `test` run, so bench /
     // named-target runs don't duplicate them.
     if (kind == "test" && name.Length == 0) {
         failed = failed + _testBuilderCliFixtures(root, tt);
+        failed = failed + _selfcheckFixtureTargets(root, tt);
         failed = failed + _smokeCompileThenTest(root, tt);
         failed = failed + _smokeFallbackOutRoot(root, tt);
         failed = failed + _smokeDevTargetInternal(root, tt);
@@ -331,11 +332,11 @@ int _smokeGoldenBundleHost(string root, TargetTooling tt) {
 }
 
 // 跑一个 fixture 的 `kind` 目标 —— 与 stdlib 那条路一样，**一律转发 z42b**（`--name` 对约定单元、
-// harness=true / false 三种形态是同一个入口）。把本 fixture 的目标名追加进 `avail`（点不中时的提示），
-// 命中数加到 mref[0]，返回失败数。filter 语义：name=="" → 全跑；否则精确名。
+// harness=true / false 三种形态是同一个入口）。候选名按完整名字去重（点不中时的提示），
+// 按引用累计命中数，返回失败数。filter 语义：name=="" → 全跑；否则精确名。
 int _runFixtureKind(string root, string fixName, string toml,
                     string kind, string label, string name,
-                    TargetTooling tt, int[] mref, ref string avail) {
+                    TargetTooling tt, ref int matched, List<string> available) {
     ProjectManifest man = _loadManifestOr(toml);
     RunTarget[] tgts = _explicitTargets(man, kind);
     string verr = _validateRunTargets(tgts, tgts.Length, kind);
@@ -344,21 +345,14 @@ int _runFixtureKind(string root, string fixName, string toml,
     bool ok = true;
     string[] all = _listUnitsViaZ42b(root, toml, kind, "", "interp", tt.Vm, tt.BuilderZpkg, tt.Libs, ref ok);
     if (!ok) { return 1; }
-    foreach (var u in all) { avail = _appendName(avail, u); }
+    foreach (var u in all) { if (!available.Contains(u)) { available.Add(u); } }
     string[] sel = all;   // 精确名筛选（0 或 1 个）
     if (name.Length > 0) { sel = _strIn(all, name) ? new string[] { name } : new string[0]; }
     if (sel.Length == 0) { return 0; }
-    mref[0] = mref[0] + sel.Length;
+    matched = matched + sel.Length;
     Console.WriteLine("");
     Console.WriteLine("── " + fixName + " (" + sel.Length.ToString() + " " + label + ") ──");
     // jobs=1：fixture 数量小，串行输出更好读（stdlib 那条才需要并行）。
     return _runUnitsViaZ42b(root, toml, sel, sel.Length, kind,
                             1, "interp", tt.Vm, tt.BuilderZpkg, tt.Libs, fixName, null);
-}
-
-// Append a target name to a comma-space list (for the not-found hint), deduped.
-string _appendName(string acc, string name) {
-    if (acc.Length == 0) { return name; }
-    if (acc.Contains(name)) { return acc; }
-    return acc + ", " + name;
 }
