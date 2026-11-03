@@ -250,6 +250,14 @@ _MapResult _mapFile(string f) {
     if (f.StartsWith("src/benches/"))            { return _mapCmds(new string[]{ "xtask bench --quick" }, new string[0]); }
     if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test e2e", "xtask check layout" }, new string[0]); }
 
+    // 编译器私有用例不改变生产 IR；bench helper 也可能被 codegen 单元 include，保留 compiler。
+    if (f.StartsWith("src/compiler/") && f.Contains("/tests/")) {
+        return _mapCmds(new string[]{ "xtask test compiler" }, new string[]{ "compiler" });
+    }
+    if (f.StartsWith("src/compiler/") && f.Contains("/benches/")) {
+        string lib = _segment(f, 2);
+        return _mapCmds(new string[]{ "xtask bench stdlib " + lib, "xtask test compiler" }, new string[]{ "bench", "compiler" });
+    }
     // z42c self-host compiler (src/compiler).
     // 编译器一变，一切被编译的东西都可能变 ⇒ gate 侧是全集（本地仍只跑编译器 + e2e 两条窄命令）。
     if (f.StartsWith("src/compiler/")) {

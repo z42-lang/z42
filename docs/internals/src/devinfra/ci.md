@@ -207,7 +207,8 @@ gh workflow run retry-ci-runner.yml --ref main -f run_id=<失败运行ID>
 |---|---|
 | `platform` | `src/runtime/**`、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder 排除 `tests/**`）、`scripts/{package/**,packages.toml,install/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
 | `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
-| `compiler` | `src/compiler/**`、`src/toolchain/devtools/vscode/**` |
+| `compiler` | `src/compiler/**`（排除私有 `tests/**` 与 `benches/**`） |
+| `compiler_checks` | `src/compiler/**`（含私有用例）、`src/toolchain/devtools/vscode/**` |
 | `vm` | `src/runtime/**`（含 `src/runtime/.cargo/`） |
 | `stdlib` | `src/libraries/**`、`src/toolchain/builder/**`（排除 `tests/**`；z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42`、`scripts/common/xtask_golden.z42` |
 
@@ -223,7 +224,9 @@ builder 的生产输入同时触发 `platform` 与 `stdlib`：z42b 既是 [Test]
 少了它，每日全量 sweep 里这些 job 会一个都不跑。
 
 编译器域（z42c 前后端 + `z42.project` / `z42.build` / `z42.package`）已全部在 `src/compiler/` 下，
-`compiler` 一条通配即可。`examples` 单独成 flag 而不并进 `platform`：否则改一页 learn 会拉起
+`compiler` 覆盖生产输入，驱动 VM / stdlib 的消费者一致性检查；`compiler_checks` 还包含私有测试与 benchmark，
+保留编译器单元及其引用的 bench helper 回归，不因收窄消费者专项而丢失正确性验证。
+`examples` 单独成 flag 而不并进 `platform`：否则改一页 learn 会拉起
 `package-{ios,android,wasm}` + `test-desktop`，而它们一个示例都不跑。
 
 > 只有这五个 flag。e2e golden **没有**内容级门控——真要加，得在同一个提交里把消费方
@@ -245,7 +248,7 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
 | `test-vm-jit(linux-x64) shard k` | `vm-jit-consistency` | `vm ‖ compiler` | 2 shard |
 | `test-stdlib-jit(linux-x64) shard k` | `stdlib-jit-consistency` | `vm ‖ stdlib ‖ compiler` | 2 shard |
 | `test-stdlib-interp(<plat>)` | `stdlib-interp-consistency` | `vm ‖ stdlib ‖ compiler` | 3 OS，不分片 |
-| `compiler-checks(linux-x64)` | `compiler-checks` | `compiler` | — |
+| `compiler-checks(linux-x64)` | `compiler-checks` | `compiler_checks` | — |
 | `package-host(<plat>)` | `host-package` | `platform ‖ examples ‖ 非 PR` | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
 | `package-ios(macos-arm64)` | `package-ios` | `platform ‖ 非 PR` | — |
 | `package-android(linux-x64)` | `package-android` | `platform ‖ 非 PR` | — |

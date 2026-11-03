@@ -35,6 +35,7 @@ jobs:
       # 同一选择结果供打包 job 与 test-host 的示例卸载共用。
       host_package: ${{ steps.filter.outputs.platform == 'true' || steps.filter.outputs.examples == 'true' || github.event_name != 'pull_request' }}
       compiler: ${{ steps.filter.outputs.compiler }}
+      compiler_checks: ${{ steps.filter.outputs.compiler_checks }}
       vm: ${{ steps.filter.outputs.vm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
       docs_only: ${{ steps.docsonly.outputs.docs_only }}
@@ -112,8 +113,14 @@ jobs:
               - 'examples/**'
               - 'docs/learn/**'
               - '.github/workflows/ci.yml'
-            # compiler-checks（自举不动点 + vscode 语法）。编译器域全在 src/compiler/ 下。
+            # 只有生产编译器输入会改变其他消费者的 IR；私有用例由 compiler-checks / bench 覆盖。
             compiler:
+              - 'src/compiler/**'
+              - '!src/compiler/**/tests/**'
+              - '!src/compiler/**/benches/**'
+              - '.github/workflows/ci.yml'
+            # 自举不动点、编译器单元 / CLI 夹具与 vscode 语法；保留私有 bench helper 的 codegen 回归。
+            compiler_checks:
               - 'src/compiler/**'
               # vscode 语法门比对「入库生成产物 ↔ 模板 + Lexer 关键字表」，产物与模板都在这里。
               - 'src/toolchain/devtools/vscode/**'
@@ -719,7 +726,7 @@ jobs:
     name: compiler-checks(linux-x64)
     timeout-minutes: 30
     needs: [changes, toolchain-bootstrap]
-    if: ${{ needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.compiler_checks == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
 
     steps:

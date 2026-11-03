@@ -46,6 +46,18 @@ void _checkChangedPlans() {
         "src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/a/source.z42"
     })) == "xtask test docs examples --book-only;xtask bench stdlib z42.core;xtask test e2e --dir cross-zpkg",
         "learn, benchmark and fixture routing precedence");
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
+        "src/compiler/z42c.emission/tests/codegen/a.z42",
+        "src/compiler/z42c.optimization/benches/cfg_bench.z42"
+    })) == "xtask test compiler;xtask bench stdlib z42c.optimization", "compiler private tests and bench union");
+    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.emission/tests/codegen/a.z42").stages) == "compiler",
+        "private compiler tests keep compiler coverage");
+    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.optimization/benches/cfg_bench.z42").stages) == "bench,compiler",
+        "private compiler benchmarks keep codegen consumers");
+    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.optimization/src/IrOpt.z42").stages)
+        == String.Join(",", _stagesAllZ42()), "production compiler source keeps all consumers");
+    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/a/main.z42").stages)
+        == "cross-zpkg", "compiler fixtures keep harness routing precedence");
 }
 
 void _checkGateRegistry(GateStage[] stages) {
