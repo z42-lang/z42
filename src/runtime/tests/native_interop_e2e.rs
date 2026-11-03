@@ -120,8 +120,7 @@ fn invoke_with_vm_guard<R>(ctx: &VmContext, f: impl FnOnce() -> R) -> R {
 #[test]
 fn register_counter_then_resolve() {
     let ctx = vm_with_counter_registered();
-    let ty = ctx
-        .resolve_native_type("numz42", "Counter")
+    let ty = z42::interop::resolve_native_type(&ctx, "numz42", "Counter").unwrap()
         .expect("Counter resolves after register");
     assert_eq!(ty.module(), "numz42");
     assert_eq!(ty.type_name(), "Counter");
@@ -205,8 +204,7 @@ fn vm_with_rust_counter_registered() -> std::pin::Pin<Box<VmContext>> {
 #[test]
 fn rust_counter_register_and_resolve() {
     let ctx = vm_with_rust_counter_registered();
-    let ty = ctx
-        .resolve_native_type("numz42_rs", "Counter")
+    let ty = z42::interop::resolve_native_type(&ctx, "numz42_rs", "Counter").unwrap()
         .expect("Rust Counter resolves after register");
     assert_eq!(ty.module(), "numz42_rs");
     assert_eq!(ty.type_name(), "Counter");
@@ -228,7 +226,7 @@ fn rust_counter_callnative_inc_three_times_then_get_returns_three() {
     // we expose as a static method named `alloc` (added in PoC). Since
     // C3 macro doesn't yet support static methods alongside instance
     // methods elegantly, we call descriptor.alloc() from Rust here.
-    let ty = ctx.resolve_native_type("numz42_rs", "Counter").unwrap();
+    let ty = z42::interop::resolve_native_type(&ctx, "numz42_rs", "Counter").unwrap().unwrap();
     let alloc_fn = unsafe { (*ty.descriptor_ptr()).alloc.expect("alloc set") };
     let counter_ptr = unsafe { alloc_fn() };
     let ctor_fn = unsafe { (*ty.descriptor_ptr()).ctor.expect("ctor set") };
@@ -290,11 +288,9 @@ fn c_and_rust_modules_coexist() {
     invoke_with_vm_guard(&ctx, || unsafe { numz42_register_static() });
     invoke_with_vm_guard(&ctx, || unsafe { numz42_rs_register() });
 
-    let c_ty = ctx
-        .resolve_native_type("numz42", "Counter")
+    let c_ty = z42::interop::resolve_native_type(&ctx, "numz42", "Counter").unwrap()
         .expect("C Counter present");
-    let rs_ty = ctx
-        .resolve_native_type("numz42_rs", "Counter")
+    let rs_ty = z42::interop::resolve_native_type(&ctx, "numz42_rs", "Counter").unwrap()
         .expect("Rust Counter present");
 
     // Same simple name `Counter` distinguishes by module — no clash.
@@ -512,7 +508,7 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
         .expect("byte array pin → native buflen succeeds");
     assert_eq!(result, Some(Value::I64(3)));
     assert_eq!(
-        ctx.pinned_owned_buffer_count(),
+        z42::interop::pinned_owned_buffer_count(&ctx).unwrap(),
         0,
         "owned buffer must be released by UnpinPtr"
     );

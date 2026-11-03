@@ -47,7 +47,7 @@ pub(super) fn ffi_call(
         });
     }
 
-    let ty = ctx.resolve_native_type(module_name, type_name).ok_or_else(|| {
+    let ty = crate::interop::resolve_native_type(ctx, module_name, type_name)?.ok_or_else(|| {
         anyhow::anyhow!(
             "CallNative: unknown native type {module_name}::{type_name}"
         )
@@ -86,7 +86,7 @@ pub(super) fn ffi_call(
 
     // SAFETY: cif was built from `params`/`return_type` matching the
     // native function pointer at registration time; native lib keeps
-    // the function alive via `VmContext.native_libs`. CURRENT_VM names
+    // the function alive via interop extension state. CURRENT_VM names
     // this ctx (engine guards, installed at the bottom frame) so a
     // re-entrant z42_* call finds the right ctx.
     let z_ret = unsafe {
@@ -169,7 +169,7 @@ pub(super) fn pin_ptr(
             };
             let len = bytes.len() as u64;
             let buf: Box<[u8]> = bytes.into_boxed_slice();
-            let ptr = ctx.pin_owned_buffer(buf);
+            let ptr = crate::interop::pin_owned_buffer(ctx, buf)?;
             mk_view(ctx, crate::object::PinnedViewData {
                 ptr,
                 len,
@@ -198,8 +198,8 @@ pub(super) fn unpin_ptr(ctx: &VmContext, frame: &Frame, pinned: u32) -> Result<(
                 _ => (crate::object::PinSourceKind::Str, 0),
             })?;
             if kind == crate::object::PinSourceKind::ArrayU8 {
-                // Spec C10: drop the snapshot Box<[u8]> we leaked into VmContext at PinPtr time.
-                ctx.release_owned_buffer(ptr);
+                // Spec C10: drop the snapshot Box<[u8]> owned by the interop state since PinPtr.
+                crate::interop::release_owned_buffer(ctx, ptr)?;
             }
             // Str pin: borrowed from the source String — no-op (future moving GC would
             // deregister the pin-set entry here).

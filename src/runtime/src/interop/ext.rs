@@ -54,20 +54,20 @@ pub fn load_all(ctx: &VmContext) -> Result<()> {
 
 /// Load the known library needed by a typed builtin wrapper, at most once per VM.
 /// Returns whether this call opened it; resolved symbols live in the process symbol table.
-pub fn ensure_lib_for(ctx: &VmContext, name: &str) -> bool {
+pub fn ensure_lib_for(ctx: &VmContext, name: &str) -> Result<bool> {
     #[cfg(feature = "bundled-compression")]
     {
         let _ = (ctx, name);
-        false
+        Ok(false)
     }
     #[cfg(not(feature = "bundled-compression"))]
     {
         let Some(lib) = KNOWN_EXT_LIBS.iter()
             .find(|(_, names)| names.contains(&name))
             .map(|(lib, _)| *lib)
-        else { return false };
-        if !ctx.core.ext_libs_tried.lock().insert(lib) { return false; }
-        load_by_name(ctx, lib).unwrap_or(false)
+        else { return Ok(false) };
+        if !super::state::state(ctx)?.ext_libs_tried.lock().insert(lib) { return Ok(false); }
+        Ok(load_by_name(ctx, lib).unwrap_or(false))
     }
 }
 
@@ -190,7 +190,7 @@ fn load_one(ctx: &VmContext, path: &std::path::Path, name: &str) -> Result<()> {
             tracing::warn!("ext: no symbol wiring for ext lib `{}`", other);
             // Keep the library alive for the VM lifetime. Lifetime parking
             // pattern mirrors `loader.rs`.
-            ctx.core.native_libs.lock().push(lib);
+            super::state::state(ctx)?.native_libs.lock().push(lib);
             Ok(())
         }
     }
@@ -315,7 +315,7 @@ fn loaded(ctx: &VmContext, name: &str) -> Result<&'static LoadedCompression> {
     if LOADED_COMPRESSION.get().is_none() {
         // typed 主表命中后不再经 ext 查找,装载由这里按名触发(dlopen 路径;
         // bundled 下 LOADED_COMPRESSION 已在启动时填充)。
-        ensure_lib_for(ctx, name);
+        ensure_lib_for(ctx, name)?;
     }
     LOADED_COMPRESSION.get().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", name))
 }
