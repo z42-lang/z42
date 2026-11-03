@@ -164,8 +164,8 @@ pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
     // This runs only on the already-throttled slow path (Idle tail, no GC lock
     // held — gc_phase lock was a temporary above), so it never touches the hot
     // `check_safepoint` fast path.
-    if ctx.core.sampler.enabled() {
-        ctx.core.sampler.maybe_sample(ctx);
+    if ctx.core.diagnostics.sampler.enabled() {
+        ctx.core.diagnostics.sampler.maybe_sample(ctx);
     }
 }
 
@@ -220,7 +220,7 @@ fn park_until_idle(ctx: &VmContext) {
     // Record park duration AFTER releasing the phase lock (park_histogram is a
     // distinct lock; recording here can't deadlock the collector). Saturating
     // µs cast is fine — a single park never approaches u64 µs.
-    ctx.core
+    ctx.core.diagnostics
         .park_histogram
         .lock()
         .record(park_start.elapsed().as_micros() as u64);
