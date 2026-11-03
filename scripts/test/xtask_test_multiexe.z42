@@ -52,7 +52,7 @@ int _testMultiExeImpl(string mode) {
 // zpkg and diff the concatenated (sorted-by-path) stdout against expected. The
 // expected file lists each exe's output in sorted-by-zpkg-name order.
 string _runOneMultiExe(string compileVm, string runVm, string driverZpkg, string stdlibDist, string dir, string name, string mode) {
-    string toml = _findToml(dir);
+    string toml = _fixtureManifest(dir);
     if (toml.Length == 0 || !_invokeBuildCompiler(compileVm, driverZpkg, stdlibDist, dir, toml)) {
         Console.WriteLine("    build failed");
         return name + " (build)";

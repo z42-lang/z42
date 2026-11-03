@@ -28,6 +28,8 @@
 
 性能载体：`benches/z42c.optimization.bench.copy.z42.toml`；Main 接收拷贝链长度，`[Benchmark] bench_copy_chain_1024` 测量夹具构建与复制传播。基准夹具由 emission 的 codegen 单测复用。
 
+内联查找基准：`benches/z42c.optimization.bench.inline.z42.toml`，Main 接收叶函数与调用方的对数，第二个参数可选择无调用场景。`bench_inline_lookup_512` / `bench_inline_no_calls_512` 包含模块构造与一次内联，覆盖索引收益与无调用模块的成本。
+
 ## 关联文档
 - 机制：[优化管线](../../../docs/internals/src/runtime/optimization-pipeline.md)、[逃逸分析](../../../docs/internals/src/runtime/escape-analysis.md)
 - 命令行 / 清单开关：[z42c / z42b CLI](../../../docs/reference/src/toolchain/cli-z42c-z42b.md)
@@ -46,6 +48,7 @@
 | `src/IrLoopAllocReuse.z42` | **循环内分配 hoist + 对象复用 pass**（`Opt.LoopAllocReuse=128`，入 All；escape 之后）：复用 `IrLoopUtil`，把循环体内**迭代内可复用**的 `ObjNew`/`ArrayNew`（C1 StackAlloc + C2 前向 copy 闭包无多赋值 = 不跨迭代携带 + C3 数组 Size 循环不变 + C4 对象 ctor 单块/数组常量下标读前写全）hoist 到 pre-header 只分配一次 + 循环体重初始化（对象=空 ctor 名裸分配 + `Call ctor(%r,args)`；数组=整条移走）。无格式 bump。主正确性门=`--no-opt loop-alloc-reuse` 开/关对拍 |
 | `src/IrRegCounts.z42` | **寄存器读/写计数单一实现**（`Defs` / `DefsCap` / `Reads`，扫全函数累加 `IrOptInfo.AddDef`/`AddReads`/`AddTermReads`）；IrOptPipeline / IrDeadBranch / IrEscapeAnalysis / IrLoopAllocReuse 共用。 |
 | `src/IrOptPipeline.z42` | **编译期 IR 优化管线**（IrGen.Generate 末尾）：`Run(m, optSet)` 按 `Opt.Has` 门控每 pass（`None`→整体跳过=-O0）。先模块级 inline（`IrInline.Run`，靠前产更多下游机会），再逐函数 const-fold → **licm**（`IrLicm.Run` 循环不变量外提）→ **cse**（`_passCse` 块内 value-number 去重）→ copy-prop（producer-retarget + **use-site 级联** `_passCopyPropUse`，靠 `ReplaceReads`，来源链复用已解析终点并压缩路径）→ temp-DCE。licm/cse 两 pass 的触发改为 `Licm||ReadonlyLoad` / `Cse||ReadonlyLoad`，readonly `field_get` 消重/外提分支由 `ReadonlyLoad` 位单独门控（CSE 侧 `_collectWrittenFields` 失效被写字段）。`Run` 在 per-函数 pass 前算 `IrPureFunctionTable.Compute(m)` 传下去；licm/cse 触发再加 `||PureCall`，纯 `CallInstr` 消重/外提由 `PureCall` 位门控（纯调用无需失效表）。interp-first，见 book optimization-pipeline |
+| `src/InlineCallees.z42` | Per-run lazy callee lookup: large modules index immutable names/positions, preserving first-match order and live bodies; small modules retain direct lookup. |
 | `src/IrInline.z42` | **函数内联 pass**（`Opt.Inline`）：模块级逐 caller 展开合格直接调用点。curated 集（const/copy/算术/比较/位·一元/convert/field_get），callee 非递归/无异常表·varargs/精确 arity；offset=caller.MaxReg 重映射寄存器 + reg_types 同步扩 + 稳定序（自举不动点）。**只读形参直代入实参寄存器**（`InlineCtx`/`_writtenParamsAll`，免 param copy）。**Phase A 单块就地 splice + Phase B 多块 split+insert**（`InlineState`/`_spliceMultiBlock`/`_cloneCalleeBlock`，含控制流 callee 拆块内联、唯一 relabel、Ret→续延块）。资格/展开 |
 
 ## 依赖关系

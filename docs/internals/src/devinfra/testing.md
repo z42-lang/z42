@@ -58,6 +58,10 @@ doc-refs **不在 GREEN gate 的 stage 清单里**，仅供手动查看引用报
 builder 的命令行行为由 [声明式夹具](fixture-harness.md)驱动；断言放在测试工程旁的 `expect.toml`，
 需要预置损坏产物或检查插件执行顺序的用例保留专用代码。
 
+cross-zpkg、multi-exe 与 manifest targets 通过 `ManifestLocator.FindIn` 复用
+[项目模型的清单定位](../compiler/project-model.md)，只查当前目录。`expect.toml` 等其他 TOML
+不参与工程选择，命名清单的歧义会报错。
+
 打包相关：`xtask package sdk --verify` 组装完 SDK 后先自检 `packages.toml` 的解析 / 组件安装 / 发布归档，再拿这份
 发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑[发行包夹具](fixture-harness.md)（命令行路径 / 桌面发布 /
 发布态 analyzer 与 hooks）与 golden（interp / jit；本机桌面 workload 不在会先打一份）。

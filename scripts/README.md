@@ -276,7 +276,7 @@ scripts/
 │   ├── xtask_test.z42           all/e2e 编排 + stage 单源登记 / 只读列表 / 计时
 │   ├── xtask_test_runtime.z42   Rust runtime 完整 / 窄版测试的共用 Cargo 配置与 GC 模式回归
 │   ├── xtask_test_vm.z42        e2e golden 跑分（+ --dir/--file 子选择）
-│   ├── xtask_fixture_build.z42  cross-zpkg / multi-exe 共用的构建、隔离 libs、产物定位与汇总
+│   ├── xtask_fixture_build.z42  共用工程清单定位（ManifestLocator）、构建、隔离 libs、产物定位与汇总
 │   ├── xtask_test_cross.z42     e2e cross-zpkg 多包
 │   ├── xtask_test_multiexe.z42  e2e multi-exe（一工程 → N 个 exe zpkg）
 │   ├── xtask_test_lib.z42       stdlib / 编译器域 [Test]/[Benchmark] 按 kind 发现、分片与编排；共用 runner `_testPkgsCore`
@@ -289,7 +289,7 @@ scripts/
 │   ├── xtask_test_targets.z42   `test toolchain builder` / `bench targets` 入口（_testTargetsCore）
 │   │                            + fixture 工程与 tooling 准备（_prepFixtureTooling）
 │   ├── xtask_test_builder.z42   builder 命令行夹具套件（expect.toml）；状态构造与顺序检查留在 targets
-│   ├── xtask_selfcheck_targets.z42  真实 z42b 发现链路的候选名去重与缺失选择回归
+│   ├── xtask_selfcheck_targets.z42  夹具清单定位、真实 z42b 发现链路的候选名去重与缺失选择回归
 │   ├── xtask_test_example.z42   工程清单 `[[example]]` 发现与测试编排
 │   ├── xtask_example_build.z42  example 依赖合并、合成清单与编译 / 执行
 │   ├── xtask_test_examples.z42  `test docs examples`：学习手册配套示例门（+ `xtask_examples_{book,run,transcript}.z42`：书↔examples 引用校验、`*.console` 会话重放）
