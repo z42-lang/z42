@@ -13,6 +13,9 @@ builtin」），登记进 `BUILTINS` 表（`builtin_table.rs` 把各 `#[builtins
 GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / Assert 等）都已从
 这里下沉到 stdlib 脚本，corelib 只保留真正需要 Rust 的最小面。
 
+反射调用、attribute factory 和线程 action 经 `vm::exec::engine` 的每 VM 注册槽回调脚本；
+调用参数、类型实参与 `ExecOutcome` 由 VM 调用协议承接。
+
 ## 功能索引
 
 | 功能 | 入口 / 文件 |

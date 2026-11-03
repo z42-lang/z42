@@ -39,7 +39,7 @@ pub(crate) fn read_obj_slot(v: &Value, field: &str) -> Value {
 }
 
 /// 反射重入类 builtin 的统一错误出口(P1-8 批次 6):被反射调用的 z42 代码抛了
-/// (`invoke_qualified` / `exec_function` 已 `set_pending_thrown` + bail 魔法串)→ `Thrown`
+/// (`invoke_qualified` / `engine::invoke` 已 `set_pending_thrown` + bail 魔法串)→ `Thrown`
 /// 原样传播(raise 侧再 set 回 pending,异常类型与栈不变);其余 anyhow 错误 →
 /// `Legacy`(`Std.Exception`,与旧表语义一致)。
 pub(crate) fn reentry<T>(ctx: &VmContext, r: anyhow::Result<T>) -> Result<T, BuiltinError> {
@@ -230,14 +230,14 @@ pub(super) fn invoke_qualified(
         Some(&idx) => {
             let f = &module.functions[idx];
             invoke_arity_check(qualified, f.param_count, call_args.len())?;
-            exec_function_with_type_args(ctx, module, f, call_args, method_type_args)?
+            engine::invoke_args(ctx, module, f, CallArgs::Values(call_args), method_type_args)?
         }
         None => {
             let f = ctx.try_lookup_function(qualified).ok_or_else(|| {
                 anyhow::anyhow!("reflective invoke: function `{qualified}` not found")
             })?;
             invoke_arity_check(qualified, f.param_count, call_args.len())?;
-            exec_function_with_type_args(ctx, module, f.as_ref(), call_args, method_type_args)?
+            engine::invoke_args(ctx, module, f.as_ref(), CallArgs::Values(call_args), method_type_args)?
         }
     };
 
@@ -275,14 +275,14 @@ pub fn invoke_static(ctx: &VmContext, fqn: &crate::object::string::vstr::Str) ->
         Some(&idx) => {
             let f = &module.functions[idx];
             invoke_arity_check(&qualified, f.param_count, 0)?;
-            exec_function(ctx, module, f, &[])?
+            engine::invoke(ctx, module, f, &[])?
         }
         None => {
             let f = ctx.try_lookup_function(&qualified).ok_or_else(|| {
                 anyhow::anyhow!("__invoke_static: function `{qualified}` not found")
             })?;
             invoke_arity_check(&qualified, f.param_count, 0)?;
-            exec_function(ctx, module, f.as_ref(), &[])?
+            engine::invoke(ctx, module, f.as_ref(), &[])?
         }
     };
 
@@ -446,12 +446,12 @@ fn run_first_noarg_ctor(
         let cand = cand.as_str();
         let outcome = match module.func_index.get(cand) {
             Some(&idx) if arity_ok(&module.functions[idx]) => {
-                Some(exec_function(ctx, module, &module.functions[idx], &[obj.clone()])?)
+                Some(engine::invoke(ctx, module, &module.functions[idx], &[obj.clone()])?)
             }
             Some(_) => None,
             None => match ctx.try_lookup_function(cand) {
                 Some(f) if arity_ok(f.as_ref()) => {
-                    Some(exec_function(ctx, module, f.as_ref(), &[obj.clone()])?)
+                    Some(engine::invoke(ctx, module, f.as_ref(), &[obj.clone()])?)
                 }
                 _ => None,
             },
@@ -537,14 +537,14 @@ pub fn ctor_invoke(ctx: &VmContext, ci: &Value, args_arr: &Value) -> anyhow::Res
         Some(&idx) => {
             let f = &module.functions[idx];
             invoke_arity_check(&qualified, f.param_count, call_args.len())?;
-            exec_function(ctx, module, f, &call_args)?
+            engine::invoke(ctx, module, f, &call_args)?
         }
         None => {
             let f = ctx.try_lookup_function(&qualified).ok_or_else(|| {
                 anyhow::anyhow!("ConstructorInfo.Invoke: constructor `{qualified}` not found")
             })?;
             invoke_arity_check(&qualified, f.param_count, call_args.len())?;
-            exec_function(ctx, module, f.as_ref(), &call_args)?
+            engine::invoke(ctx, module, f.as_ref(), &call_args)?
         }
     };
     match outcome {

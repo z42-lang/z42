@@ -6,11 +6,10 @@ use super::*;
 /// instances for this type's user attributes, in application order.
 ///
 /// Each attribute is built by invoking its compiler-synthesized factory
-/// `() => new T(args)` (a normal z42 function) via `run_outcome`. Attribute
+/// `() => new T(args)` (a normal z42 function) via the registered engine. Attribute
 /// construction is thus fully statically known (known class, known constructor,
 /// constant args baked into the factory body) — no runtime `Activator`/`Invoke`
-/// and no generic instantiation. Re-entering the interpreter here is safe:
-/// `exec_function` keeps all per-call state in a stack-local `Frame`.
+/// and no generic instantiation. Re-entering the registered engine keeps each activation in its own frame.
 ///
 /// z42-level `Type.GetCustomAttributes()` caches the returned array, so repeated
 /// calls on the same Type yield the same instances. Empty array for a
@@ -144,10 +143,9 @@ pub fn param_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate
 }
 
 /// Build live attribute instances by invoking each synthesized factory function
-/// (`() => new T(args)`) via `run_outcome`. Shared by the class
+/// (`() => new T(args)`) via the registered engine. Shared by the class
 /// (`__type_custom_attributes`) and method (`__method_custom_attributes`) paths.
-/// Cross-zpkg factories resolve via the lazy loader. Re-entering the interpreter
-/// here is safe — `exec_function` keeps per-call state in a stack-local `Frame`.
+/// Cross-zpkg factories resolve via the lazy loader. Re-entering the registered engine keeps each activation in its own frame.
 pub(super) fn call_attribute_factories(
     ctx: &VmContext,
     attrs: &[crate::metadata::ir::AttributeRef],
@@ -170,9 +168,9 @@ pub(super) fn call_attribute_factories(
             continue;
         }
         let outcome = if let Some(&idx) = module.func_index.get(a.factory_func.as_str()) {
-            Some(crate::interp::run_outcome(ctx, &module, &module.functions[idx], &[])?)
+            Some(crate::vm::exec::engine::invoke(ctx, &module, &module.functions[idx], &[])?)
         } else if let Some(func) = ctx.try_lookup_function(&a.factory_func) {
-            Some(crate::interp::run_outcome(ctx, &module, func.as_ref(), &[])?)
+            Some(crate::vm::exec::engine::invoke(ctx, &module, func.as_ref(), &[])?)
         } else {
             None
         };
