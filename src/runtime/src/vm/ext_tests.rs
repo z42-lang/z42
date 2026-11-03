@@ -99,3 +99,29 @@ fn module_vfs_and_default_constructors_keep_their_contracts() {
     drop(ctx);
     assert!(VmContext::new().ext::<u64>().is_none());
 }
+
+#[test]
+fn default_providers_are_released_after_user_state() {
+    let dropped = Arc::new(Mutex::new(Vec::new()));
+    let mut defaults = VmExtensions::new();
+    defaults.register(Marker::<1>(dropped.clone())).unwrap();
+    defaults.register(Marker::<2>(dropped.clone())).unwrap();
+    let mut users = VmExtensions::new();
+    users.register(Marker::<3>(dropped.clone())).unwrap();
+    users.register(Marker::<4>(dropped.clone())).unwrap();
+    let state = users.with_defaults(defaults).freeze();
+    assert!(state.get::<Marker<1>>().is_some());
+    assert!(state.get::<Marker<4>>().is_some());
+    drop(state);
+    assert_eq!(*dropped.lock().unwrap(), vec![4, 3, 2, 1]);
+}
+
+#[test]
+#[should_panic(expected = "default VM extension type was registered by a caller")]
+fn default_provider_collision_is_an_assembly_error() {
+    let mut defaults = VmExtensions::new();
+    defaults.register(1_u64).unwrap();
+    let mut users = VmExtensions::new();
+    users.register(2_u64).unwrap();
+    users.with_defaults(defaults);
+}

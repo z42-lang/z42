@@ -44,7 +44,7 @@ fn connect_to_unbound_port_returns_socket_err() {
     let args = vec![Value::Str("127.0.0.1".to_string().into()), Value::I64(1), Value::I64(0)];
     let r = builtin_net_tls_connect(&ctx, &args).expect("call ok");
     assert_eq!(kind_of(&r), Some(KIND_SOCKET_ERR), "got {:?}", r);
-    assert_eq!(ctx.tls_socket_slot_count(), 0, "failed connect must not leak a slot");
+    assert_eq!(super::state(&ctx).unwrap().slots.count(), 0, "failed connect must not leak a slot");
 }
 
 // An empty / invalid SNI host is rejected by rustls' ServerName parse before
@@ -165,5 +165,5 @@ fn real_https_handshake_and_get_round_trip() {
     }
 
     let _ = builtin_net_tls_socket_drop(&ctx, &[Value::I64(slot)]).expect("drop");
-    assert_eq!(ctx.tls_socket_slot_count(), 0);
+    assert_eq!(super::state(&ctx).unwrap().slots.count(), 0);
 }

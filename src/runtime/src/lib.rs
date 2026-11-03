@@ -64,3 +64,4 @@ pub mod observer;
 pub mod signal_handler;
 
 mod engine_assembly;
+mod extension_assembly;

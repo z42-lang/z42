@@ -103,9 +103,13 @@ xtask test stdlib
   [运行时 IR](../../../../docs/internals/src/formats/ir.md)
 - 反射能力的引入/演进：`git log -- src/runtime/src/corelib/`（需求↔迭代可追溯）
 
+进程、线程、文件及启用的 TCP/UDP/TLS 资源表由各自模块的 `State` 持有，经 `VmContext::ext` 查询。
+门面 `extension_assembly.rs` 在创建 VM 时登记，worker 共享同一状态。新增资源类别无需向 VmCore 添加具体字段。
+
 ## 核心文件
 
 | 文件 | 职责 |
+| `resource_registry.rs` | 模块资源表的锁、单调槽号与必需扩展状态查询；阻塞 I/O 的锁边界由调用模块维护 |
 |------|------|
 | `mod.rs` | 名称↔`BuiltinId` 解析 + `invoke_builtin` / `exec_builtin` 分发 |
 | `../vm/exec/call/builtin_abi/` | builtin ABI v2：`BuiltinDesc` / `FromArg` / `IntoRet` / `Blocking` / `BuiltinError` + `raise`（两引擎共用的失败出口）；`test_builtins.rs` 是 `cfg(test)` 的测试用 builtin |

@@ -1,9 +1,9 @@
 //! `Std.Threading` builtins — OS-thread spawn + join.
 //!
-//! Architecture (add-threading-stdlib):
+//! Architecture:
 //!
 //! - `__thread_spawn(action)` validates the callable, allocates a slot id from
-//!   `VmCore.threads` (a `ResourceRegistry`), spawns an `std::thread`, and
+//!   the `ResourceRegistry` in `threading::State`, spawns an `std::thread`, and
 //!   stores the `JoinHandle` in it keyed by the slot id. Returns the slot
 //!   id as `Value::I64`.
 //! - `__thread_wait(slot_id)` removes the handle from the registry, joins (parked),
@@ -15,6 +15,15 @@
 //! the parent thread. Its per-thread state (`pending_exception` / `call_stack`)
 //! is private — the worker is registered in
 //! `VmCore.vm_contexts` so the GC scanner walks both threads' roots.
+
+#[derive(Default)]
+pub(crate) struct State {
+    slots: super::resource_registry::ResourceRegistry<std::thread::JoinHandle<anyhow::Result<()>>>,
+}
+
+pub(super) fn state(ctx: &crate::vm_context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+    crate::corelib::resource_registry::state(ctx)
+}
 
 use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::object::Value;
@@ -50,7 +59,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::vm::e
     }
 
     let core_for_thread: Arc<crate::vm_context::VmCore> = Arc::clone(&ctx.core);
-    let id = ctx.core.threads.alloc_id();
+    let id = state(ctx)?.slots.alloc_id();
 
     // 🔴 **fix-spawn-env-gc-root **: root the captured environment *here*, on the
     // spawning thread, while the source closure is still live in the caller's frame.
@@ -114,7 +123,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::vm::e
         message: format!("__thread_spawn: cannot create thread: {e}"),
     })?;
 
-    ctx.core.threads.lock().insert(id, handle);
+    state(ctx)?.slots.lock().insert(id, handle);
     Ok(id as i64)
 }
 
@@ -169,19 +178,19 @@ pub mod typed {
     /// failure of its own (an unhandled worker exception ends the process there), so the
     /// z42 class stays; there is no timed join, hence no `TimeoutException`.
     #[builtin(name = "__thread_wait")]
-    pub fn thread_wait(ctx: &VmContext, slot: i64) -> Blocking<()> {
-        let handle = ctx.core.threads.lock().remove(&(slot as u64));
+    pub fn thread_wait(ctx: &VmContext, slot: i64) -> Result<Blocking<()>, BuiltinError> {
+        let handle = super::state(ctx)?.slots.lock().remove(&(slot as u64));
         let fail = |message: String| crate::vm::exec::call::builtin_abi::BuiltinError::Exception {
             class: "Std.Threading.ThreadException", message,
         };
-        Blocking::new(move || match handle {
+        Ok(Blocking::new(move || match handle {
             None => Err(fail("thread already joined".to_string())),
             Some(h) => match h.join() {
                 Ok(Ok(()))  => Ok(()),
                 Ok(Err(e))  => Err(fail(format!("{e}"))),
                 Err(_panic) => Err(fail("thread panicked".to_string())),
             },
-        })
+        }))
     }
 
 }

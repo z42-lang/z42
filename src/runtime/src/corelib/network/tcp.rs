@@ -1,7 +1,7 @@
 //! `Std.Net.Sockets` TCP builtins (builtin ABI v2): `TcpSocketNative` in z42.core,
 //! used by z42.net's `TcpClient` / `TcpListener` / `NetworkStream`.
 //!
-//! Handles are registry slot ids (`VmCore.tcp_sockets` / `tcp_listeners`). A call clones
+//! Handles are registry slot ids (`tcp::State.sockets` / `listeners`). A call clones
 //! the `Arc` out under the table lock and does the system call outside it, so a socket
 //! is full duplex and a read blocked on one thread does not stall another thread's
 //! write or close. Close = take the slot out + `shutdown`, which wakes a blocked read /
@@ -12,6 +12,16 @@
 //!   write) — `Blocking::new(..).then(..)`: the parked part sees only Rust data; the
 //!   `then` step (register the new slot, copy into the caller's `byte[]`, notice a close
 //!   that happened meanwhile) runs unparked. Option setters (`setsockopt`) do not block.
+
+#[derive(Default)]
+pub(crate) struct State {
+    sockets: crate::corelib::resource_registry::ResourceRegistry<Arc<TcpStream>>,
+    listeners: crate::corelib::resource_registry::ResourceRegistry<ListenerSlot>,
+}
+
+pub(super) fn state(ctx: &crate::vm_context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+    crate::corelib::resource_registry::state(ctx)
+}
 
 use super::error::{check_port, check_ttl, closed, out_of_range, resolve, slot_id, socket_error, timeout};
 use super::listener::{accept_wait, AcceptWait, ListenerSlot};
@@ -53,17 +63,17 @@ fn listen_on(addr: SocketAddr, reuse_addr: bool) -> std::io::Result<TcpListener>
 }
 
 pub(crate) fn stream(ctx: &VmContext, slot: i64) -> Result<Arc<TcpStream>, BuiltinError> {
-    ctx.core.tcp_sockets.get_cloned(slot_id(slot)?).ok_or_else(closed)
+    state(ctx)?.sockets.get_cloned(slot_id(slot)?).ok_or_else(closed)
 }
 
 fn listener(ctx: &VmContext, slot: i64) -> Result<ListenerSlot, BuiltinError> {
-    ctx.core.tcp_listeners.get_cloned(slot_id(slot)?).ok_or_else(closed)
+    state(ctx)?.listeners.get_cloned(slot_id(slot)?).ok_or_else(closed)
 }
 
 /// After a parked read / write: a close that happened meanwhile wins over whatever the
 /// woken system call returned (the close's `shutdown` is what woke it).
 fn still_open(ctx: &VmContext, id: u64) -> Result<(), BuiltinError> {
-    if ctx.core.tcp_sockets.lock().contains_key(&id) { Ok(()) } else { Err(closed()) }
+    if state(ctx)?.sockets.lock().contains_key(&id) { Ok(()) } else { Err(closed()) }
 }
 
 #[z42_macros::builtins]
@@ -80,7 +90,7 @@ pub mod typed {
         let port = check_port(port)?;
         let limit = timeout(timeout_ms);
         Ok(Blocking::new(move || connect_any(&resolve(&host, port)?, limit))
-            .then(|ctx: &VmContext, s: TcpStream| Ok(ctx.alloc_tcp_socket_slot(s) as i64)))
+            .then(|ctx: &VmContext, s: TcpStream| Ok(state(ctx)?.sockets.insert_new(Arc::new(s)) as i64)))
     }
 
     /// `Listen(host, port, reuseAddress) -> listener slot` (port 0 = the OS picks).
@@ -90,7 +100,7 @@ pub mod typed {
         Ok(Blocking::new(move || {
             let addr = resolve(&host, port)?[0];
             listen_on(addr, reuse_addr).map_err(|e| socket_error(&e, None))
-        }).then(|ctx: &VmContext, l: TcpListener| Ok(ctx.alloc_tcp_listener_slot(l) as i64)))
+        }).then(|ctx: &VmContext, l: TcpListener| Ok(state(ctx)?.listeners.insert_new(ListenerSlot::new(l)) as i64)))
     }
 
     /// The port a listener is bound to.
@@ -109,7 +119,7 @@ pub mod typed {
             Ok((s, _peer)) => Ok(s),
             Err(AcceptWait::Closed) => Err(closed()),
             Err(AcceptWait::Io(e)) => Err(socket_error(&e, None)),
-        }).then(|ctx: &VmContext, s: TcpStream| Ok(ctx.alloc_tcp_socket_slot(s) as i64)))
+        }).then(|ctx: &VmContext, s: TcpStream| Ok(state(ctx)?.sockets.insert_new(Arc::new(s)) as i64)))
     }
 
     /// `Read(slot, buffer, offset, count) -> n` (0 = the peer closed).
@@ -159,23 +169,25 @@ pub mod typed {
 
     /// Idempotent. Shuts the socket down so a blocked read / write wakes up.
     #[builtin(name = "__tcp_close")]
-    pub fn tcp_close(ctx: &VmContext, slot: i64) {
+    pub fn tcp_close(ctx: &VmContext, slot: i64) -> Result<(), BuiltinError> {
         if let Ok(id) = u64::try_from(slot) {
-            if let Some(s) = ctx.core.tcp_sockets.take(id) {
+            if let Some(s) = state(ctx)?.sockets.take(id) {
                 let _ = s.shutdown(std::net::Shutdown::Both);
             }
         }
+        Ok(())
     }
 
     /// Idempotent. Sets the closed flag first (a blocked accept sees it on its next poll),
     /// then takes the slot out; the fd closes with the last `Arc`.
     #[builtin(name = "__tcp_listener_close")]
-    pub fn tcp_listener_close(ctx: &VmContext, slot: i64) {
-        let Ok(id) = u64::try_from(slot) else { return };
-        if let Some(l) = ctx.core.tcp_listeners.get_cloned(id) {
+    pub fn tcp_listener_close(ctx: &VmContext, slot: i64) -> Result<(), BuiltinError> {
+        let Ok(id) = u64::try_from(slot) else { return Ok(()) };
+        if let Some(l) = state(ctx)?.listeners.get_cloned(id) {
             l.closed.store(true, std::sync::atomic::Ordering::Release);
         }
-        ctx.core.tcp_listeners.lock().remove(&id);
+        state(ctx)?.listeners.lock().remove(&id);
+        Ok(())
     }
 
     /// `millis <= 0` clears the timeout (blocking again).

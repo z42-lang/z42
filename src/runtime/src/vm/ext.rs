@@ -37,6 +37,19 @@ impl VmExtensions {
         Ok(())
     }
 
+    /// Default provider types are private to their owner and must not collide with callers.
+    /// Providers are prefixed so user state is released before the services it can use.
+    pub(crate) fn with_defaults(mut self, mut defaults: Self) -> Self {
+        assert!(self.state.indices.keys().all(|key| !defaults.state.indices.contains_key(key)),
+            "default VM extension type was registered by a caller");
+        let offset = defaults.state.values.len();
+        for (key, index) in std::mem::take(&mut self.state.indices) {
+            defaults.state.indices.insert(key, index + offset);
+        }
+        defaults.state.values.append(&mut self.state.values);
+        defaults
+    }
+
     pub(crate) fn freeze(self) -> ExtensionState { self.state }
 }
 

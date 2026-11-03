@@ -91,13 +91,6 @@ pub struct VmCore {
     /// no z42 handler runs and no error becomes a z42 exception (`stack_guard`).
     /// Per VM: every thread of this VM, no other VM in the process.
     pub(crate) fatal: std::sync::atomic::AtomicBool,
-    /// add-std-process  — live `Std.IO.Process` children
-    /// spawned via `__process_start`. Keyed by monotonic u64 slot id
-    /// that z42 `ProcessHandle` carries; removed (`take_*`) on `wait` /
-    /// `kill`+reap / explicit `drop`. **M2**: id counter now embedded in the
-    /// registry (was `VmContext::process_next_id`, per-thread) → ids are unique
-    /// per-core like every other socket/handle table.
-    pub(crate) processes:          ResourceRegistry<crate::corelib::process::ProcessSlot>,
     /// **GC subsystem**. Moved here in Phase 2.2 so it can be shared across
     /// threads (single global heap). Backing today is `Heap`; Phase 3
     /// swaps to Arc + Send + Sync. Stored as `Box<Heap>` (no inner
@@ -141,12 +134,6 @@ pub struct VmCore {
     /// pool. Per VM because the strings live in this VM's heap; its interned strings are GC
     /// roots. See `vm::runtime::ids::str_table`.
     pub(crate) strings:            Arc<crate::vm::runtime::ids::str_table::StrTable>,
-    /// **add-threading-stdlib **: live `Std.Threading.Thread`
-    /// instances keyed by monotonic u64 slot id. `__thread_spawn` inserts;
-    /// `__thread_wait` takes-out + joins. Pattern mirrors
-    /// `add-std-process` processes registry.
-    /// (**M2**: slot-id counter embedded in the registry.)
-    pub(crate) threads:            ResourceRegistry<std::thread::JoinHandle<anyhow::Result<()>>>,
     /// **add-sync-primitives **: `Std.Threading.Mutex<T>`
     /// slot table. `__mutex_new` inserts; `__mutex_unlock` keeps the
     /// entry (Mutexes are reusable). The `Arc` lets the lock-acquire
@@ -204,50 +191,11 @@ pub struct VmCore {
     /// not on every call of one of its builtins.
     #[cfg(feature = "native-interop")]
     pub(crate) ext_libs_tried:     Mutex<std::collections::HashSet<&'static str>>,
-    /// **add-z42-io-filestream **: live `Std.IO.FileStream`
-    /// handles keyed by monotonic slot id. `__file_open` inserts;
-    /// `__file_close` removes (or marks slot dead). Pattern mirrors
-    /// `processes` / `compressors` slot tables（`mutexes`/`channels`/`rwlocks` 随旧同步原语退役一并删除）。
-    /// (**M2**: slot-id counter embedded in the registry.)
-    pub(crate) file_handles:       ResourceRegistry<crate::corelib::fs::FileHandleSlot>,
     /// The file system this VM's file builtins, package loader and lazy loader read through.
     /// Given by whoever creates the VM ([`VmContext::with_module_and_vfs`] /
     /// [`VmContext::with_vfs`]); [`crate::pal::fs::default_vfs`] otherwise. Per VM, so two
     /// VMs in one process never see each other's in-memory files.
     pub(crate) vfs:                Arc<dyn crate::pal::fs::Vfs>,
-
-    // ── add-z42-net K1  ───────────────────────────────────────
-    /// live `Std.Net.Sockets.TcpClient` streams keyed by monotonic u64 slot
-    /// id. `__tcp_connect` / `__tcp_accept` insert; `__tcp_close`
-    /// removes and shuts the stream down. Read / write clone the `Arc` instead of
-    /// taking the stream out, so the socket is full duplex; the fd closes when the
-    /// last `Arc` drops. Present with the `net` feature only.
-    /// (**M2**: slot-id counter embedded in the registry.)
-    #[cfg(feature = "net")]
-    pub(crate) tcp_sockets:          ResourceRegistry<std::sync::Arc<std::net::TcpStream>>,
-    /// live `Std.Net.Sockets.TcpListener` instances keyed by monotonic u64 slot id.
-    /// (**M2**: slot-id counter embedded in the registry.)
-    #[cfg(feature = "net")]
-    pub(crate) tcp_listeners:        ResourceRegistry<crate::corelib::network::ListenerSlot>,
-
-    // ── add-z42-net-tls  ──────────────────────────────────────
-    /// live rustls client TLS streams (TCP + handshake state) keyed by
-    /// monotonic u64 slot id. `__tls_connect` inserts; `__tls_close`
-    /// removes and shuts the socket down; the fd closes when the last `Arc`
-    /// drops. Slot space is independent from `tcp_sockets`. Present with the
-    /// `tls` feature only (without it the TLS builtins throw `NetUnsupportedException`).
-    /// (**M2**: slot-id counter embedded in the registry.)
-    #[cfg(feature = "tls")]
-    pub(crate) tls_sockets:
-        ResourceRegistry<std::sync::Arc<crate::corelib::tls::TlsSlot>>,
-
-    // ── add-z42-net-udp (K2) ───────────────────────────────────
-    /// live `Std.Net.Sockets.UdpClient` sockets keyed by monotonic u64 slot id.
-    /// `__udp_bind` inserts; `__udp_close` removes. Send / recv clone the
-    /// `Arc`; the fd closes when the last `Arc` drops. Present with the `net` feature only.
-    /// (**M2**: slot-id counter embedded in the registry.)
-    #[cfg(feature = "net")]
-    pub(crate) udp_sockets:          ResourceRegistry<std::sync::Arc<std::net::UdpSocket>>,
 
     /// Observation state shared by this VM; per-thread counters stay on each context.
     pub diagnostics: crate::vm::diagnostics::DiagnosticsState,
@@ -447,9 +395,6 @@ pub struct VmContext {
 
     // native_types / native_libs / pinned_owned_buffers moved to VmCore (Phase 1.7-1.9)
 
-    // processes moved to VmCore (Phase 2.1); **M2**: the process slot-id
-    // counter moved with it, into `VmCore::processes` (ResourceRegistry) —
-    // it was the last per-thread counter for a shared table.
     /// **add-gc-safepoint-counter-throttling **: per-thread
     /// throttle counter. `check_safepoint`'s fast path decrements; only
     /// when it reaches 0 does the slow path probe `gc_phase` and drain
