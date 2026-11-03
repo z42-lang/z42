@@ -76,7 +76,7 @@ TargetTooling _prepFixtureTooling(string root, bool noBuild) {
     return t;
 }
 
-// `xtask test toolchain builder [name]` / `xtask bench targets [name]` core. kind =
+// `xtask test toolchain builder [--target name]` / `xtask bench targets [name]` core. kind =
 // "test" | "bench". name = "" → run every matching target in every fixture;
 // otherwise only the target(s) whose name == name (across fixtures); a name that
 // matches nothing → error listing the available names, non-zero exit.
