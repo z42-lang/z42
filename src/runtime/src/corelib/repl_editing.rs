@@ -56,7 +56,7 @@ pub fn repl_set_keywords(joined: &str) {
 // (wasm / no-native-interop fall back to plain stdin, no editing)
 
 #[cfg(feature = "native-interop")]
-use crate::interp::{exec_function};
+use crate::vm::exec::engine;
 use crate::vm::exec::call::outcome::ExecOutcome;
 
 /// Invoke the z42 key-editor `fqn(key, line, pos)` and return its action string.
@@ -83,14 +83,14 @@ fn key_edit_via_callback(
         Some(&idx) => {
             let f = &module.functions[idx];
             key_edit_arity_check(fqn, f.param_count)?;
-            exec_function(ctx, module, f, &call_args)?
+            engine::invoke(ctx, module, f, &call_args)?
         }
         None => {
             let f = ctx
                 .try_lookup_function(fqn)
                 .ok_or_else(|| anyhow::anyhow!("__repl_set_key_editor: key-editor `{fqn}` not found"))?;
             key_edit_arity_check(fqn, f.param_count)?;
-            exec_function(ctx, module, f.as_ref(), &call_args)?
+            engine::invoke(ctx, module, f.as_ref(), &call_args)?
         }
     };
 

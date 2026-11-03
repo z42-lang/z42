@@ -209,7 +209,7 @@ fn run_spawned_action(
     let target = thread_ctx.callable_fn(fn_id).ok_or_else(|| anyhow!(
         "spawned action: function id {} is not registered in this VM", fn_id.0
     ))?;
-    let outcome = crate::interp::exec_function(thread_ctx, module, target, &arg_vals)?;
+    let outcome = crate::vm::exec::engine::invoke(thread_ctx, module, target, &arg_vals)?;
 
     match outcome {
         ExecOutcome::Returned(_) => Ok(()),

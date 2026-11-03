@@ -178,6 +178,9 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 | 直接 `Call` 到 `[Native]` 转发桩（`s.CharAt(i)`、`s.ToCharArray()`……） | builtin 的接收者取值：旧表 `corelib::convert::this_str(args, 成员名)`（非接收者实参走 `arg_str` → `null_arg`）；类型化 builtin 由 `#[builtin(this = "成员名")]` 生成同一条消息（非接收者实参为 null 报 `ArgumentNullException`） | 零：只在既有 tag match 的失配臂里构造 |
 | `CallIndirect`（null 委托） | `scalar::null_invoke_msg`（不经 objops，见 [委托与事件](delegates-events.md)） | — |
 
+corelib 的反射调用、attribute factory 和线程 action 通过每 VM 的 Engine 注册槽调用脚本；
+泛型反射同时传递类型实参，沿用注册后端的帧、JIT backstop 与 `ExecOutcome`，不自行选择后端。
+
 builtin 失败的出口两个引擎共用 `corelib::abi::error::raise`（interp `exec_call::builtin` 与折叠调用、
 JIT `jit_builtin` 与 `call_forward`）：类型化 builtin 的 `BuiltinError` 按种类构造异常类（ABI v2 的类型化
 builtin 里接收者为 null 报 `NullReferenceException`，见 [native ABI §6.2](native-abi.md)）；旧表 builtin
