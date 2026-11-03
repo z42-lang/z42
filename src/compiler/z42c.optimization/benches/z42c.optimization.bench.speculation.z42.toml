@@ -1,0 +1,11 @@
+[project]
+name = "z42c.optimization.bench.speculation"
+version = "0.1.0"
+kind = "exe"
+[sources]
+include = ["speculation_chain_bench.z42"]
+[dependencies]
+"z42c.optimization" = "0.1.0"
+"z42.package" = "0.1.0"
+[build]
+output_dir = "../../../../artifacts/bench-speculation"

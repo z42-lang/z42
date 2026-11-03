@@ -1,0 +1,50 @@
+namespace SpeculationChainBench;
+using Z42.Optimization;
+using Z42.IR;
+using Std.IO;
+using Std.Harness;
+
+int exercise(int n, bool leafFirst) {
+    IrModule m = SpeculationChainFixture.Make(n, leafFirst);
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.True(table.IsSpeculatable("f0"));
+    Assert.True(table.IsSpeculatable("f" + (n - 1).ToString()));
+    return m.FuncCount;
+}
+[Benchmark]
+void bench_speculation_chain_128() {
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(exercise(128, false)); });
+    b.printSummary("speculation_chain_128");
+}
+[Benchmark]
+void bench_speculation_leaf_first_128() {
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(exercise(128, true)); });
+    b.printSummary("speculation_leaf_first_128");
+}
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = args.Length > 0 ? int.Parse(args[0]) : 128;
+    bool leafFirst = args.Length > 1;
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(exercise(n, leafFirst)); });
+    b.printSummary("speculation_" + n.ToString());
+}
+public static class SpeculationChainFixture {
+    public static IrModule Make(int n, bool leafFirst) {
+        IrFunction[] functions = new IrFunction[n];
+        int i = 0;
+        while (i < n) {
+            var reg = new TypedReg(0, IrType.I64);
+            IrInstr ins = new ConstI64Instr(reg, "1");
+            if (i + 1 < n) { ins = new CallInstr(reg, "f" + (i + 1).ToString(), new TypedReg[0], 0); }
+            var block = new IrBlock("entry", new IrInstr[] { ins }, 1, new RetTerm(true, reg), true);
+            var f = new IrFunction("f" + i.ToString(), 0, "long", true, new IrBlock[] { block }, 1, 1, "Interp",
+                new string[0], 0, new int[0], 0, new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+            functions[leafFirst ? n - 1 - i : i] = f;
+            i = i + 1;
+        }
+        return new IrModule("speculation", new string[] { "" }, 1, new IrClassDesc[0], 0, functions, n);
+    }
+}
