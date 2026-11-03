@@ -249,50 +249,8 @@ pub struct VmCore {
     #[cfg(feature = "net")]
     pub(crate) udp_sockets:          ResourceRegistry<std::sync::Arc<std::net::UdpSocket>>,
 
-    /// **add-runtime-counters **: atomic observation-only
-    /// counters for JIT compiles / builtin calls / native calls /
-    /// exception traffic. Surfaced via `--print-stats-on-exit` and
-    /// (future) scripted `Std.Diagnostics.RuntimeStats.Snapshot()`.
-    /// `Arc` wrapper enables cheap cloning into Phase 2 increment sites
-    /// that don't already have `&VmCore` access. docs/review.md Part 4 D6.
-    ///
-    /// runtime-audit P0-15: threads count on their own `VmContext::counters`;
-    /// this one only accumulates the counts of contexts already dropped.
-    /// Read the total with `VmContext::counters_snapshot`.
-    pub counters: Arc<crate::counters::RuntimeCounters>,
-
-    /// **add-runtime-observer **: push-based event stream
-    /// registry. Symmetric to existing `GcObserver` (which stays in the
-    /// heap) but for non-GC events (`ModuleLoaded`, future JIT compile /
-    /// exception / native call). Embedders register via
-    /// [`VmContext::add_runtime_observer`]; subsystems fire via
-    /// [`VmContext::fire_runtime_event`]. docs/review.md Part 4 D3.
-    pub runtime_observers: crate::observer::RuntimeObserverRegistry,
-
-    /// **add-concurrency-probes (script-profiling P1b)**: distribution
-    /// of how long mutators spend PARKED at a GC safepoint (STW stall as seen by
-    /// each stopped thread). Recorded in `vm::threads::safepoint::park_until_idle`, which
-    /// only runs during an actual GC pause — so this costs the hot safepoint-check
-    /// path nothing (always-on). Reuses `PauseHistogram` (same shape as GC pauses).
-    pub(crate) park_histogram: Mutex<crate::gc::types::PauseHistogram>,
-
-    /// **add-concurrency-probes **: user-lock (`Std.Threading.Mutex` /
-    /// `RwLock`) contention counters. Written ONLY when the VM is built with the
-    /// `profile-contention` cargo feature (the probe in `corelib::sync_contention` is
-    /// `#[cfg]`-gated); the default build never touches them → they stay 0.
-    /// `lock_contentions` = acquires that found the lock already held (`try_lock`
-    /// failed); `lock_wait_us` = cumulative µs blocked on those contended acquires.
-    pub(crate) lock_contentions: std::sync::atomic::AtomicU64,
-    pub(crate) lock_wait_us:     std::sync::atomic::AtomicU64,
-
-    /// **add-sampling-profiler (script-profiling P2)**: safepoint
-    /// sampling profiler. `Sampler::disabled()` unless `Z42_SAMPLE_HZ` is set,
-    /// in which case a background timer thread flags samples that mutators
-    /// snapshot at their next safepoint (`vm::threads::safepoint::check_safepoint_slow`
-    /// Idle tail). Default-off is zero-cost: no thread, one `enabled()` atomic
-    /// load on the already-throttled slow path. Produces a folded flamegraph
-    /// (+ optional perfetto sample-trace when `Z42_TRACE_OUT` is set).
-    pub(crate) sampler: crate::profiler::cpu::Sampler,
+    /// Observation state shared by this VM; per-thread counters stay on each context.
+    pub diagnostics: crate::vm::diagnostics::DiagnosticsState,
 
     /// Per-VM engine registrations and backend-owned tier/code lifetime.
     pub(crate) engines: crate::vm::exec::engine::EngineRegistry,

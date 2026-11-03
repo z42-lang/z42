@@ -104,7 +104,7 @@ fn pause_guard_drop_notifies_waiters() {
     // parked in `park_until_idle` recorded its STW stall into the shared park
     // histogram. Always-on (no feature gate) — proves the probe fires.
     assert!(
-        collector.core.park_histogram.lock().count >= 1,
+        collector.core.diagnostics.park_histogram.lock().count >= 1,
         "a safepoint park should have been recorded in park_histogram",
     );
 
