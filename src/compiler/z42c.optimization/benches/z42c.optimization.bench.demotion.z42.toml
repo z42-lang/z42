@@ -1,0 +1,11 @@
+[project]
+name="z42c.optimization.bench.demotion"
+version="0.1.0"
+kind="exe"
+[sources]
+include=["purity_demotion_bench.z42"]
+[dependencies]
+"z42c.optimization"="*"
+"z42.package"="*"
+[build]
+output_dir="../../../../artifacts/build/compiler/z42c.optimization/${profile}/benches/demotion"

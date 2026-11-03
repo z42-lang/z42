@@ -1,0 +1,131 @@
+using Z42.IR;
+using Z42.Optimization;
+using PurityDemotionBench;
+using Std.Harness;
+
+[Test]
+void test_purity_demotion_threshold_and_order() {
+    int[] sizes = new int[] { 16, 255, 256, 257 };
+    foreach (var n in sizes) {
+        IrModule m = DemotionFixture.Make(n, 0);
+        DemotionTests.AssertRejected(m);
+        int i = 0;
+        while (i < n / 2) {
+            IrFunction f = m.Functions[i]; m.Functions[i] = m.Functions[n - 1 - i]; m.Functions[n - 1 - i] = f;
+            i = i + 1;
+        }
+        DemotionTests.AssertRejected(m);
+    }
+}
+[Test]
+void test_purity_demotion_preserves_unseeded_recursive_cycle() {
+    IrModule m = DemotionFixture.Make(256, 0);
+    m.Functions[0].Blocks[0].Instrs[0] = DemotionTests.Call("f1");
+    m.Functions[1].Blocks[0].Instrs[0] = DemotionTests.Call("f0");
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.True(table.IsPure("f0")); Assert.True(table.IsPure("f1"));
+    Assert.False(table.IsSpeculatable("f0"));
+    Assert.False(table.IsPure("f2"));
+}
+[Test]
+void test_purity_demotion_invalidates_cycle_and_repeated_edges() {
+    IrModule m = DemotionFixture.Make(256, 0);
+    m.Functions[0].Blocks[0].Instrs = new IrInstr[] {
+        DemotionTests.Call("f1"), DemotionTests.Call("f2"), DemotionTests.Call("f2") };
+    m.Functions[0].Blocks[0].InstrCount = 3;
+    m.Functions[1].Blocks[0].Instrs[0] = DemotionTests.Call("f0");
+    DemotionTests.AssertRejected(m);
+}
+[Test]
+void test_purity_demotion_drops_name_only_after_last_provider() {
+    IrModule m = DemotionFixture.Make(256, 0);
+    IrFunction[] fs = new IrFunction[259];
+    int i = 0;
+    while (i < 256) { fs[i] = m.Functions[i]; i = i + 1; }
+    fs[256] = DemotionTests.Function("shared", "f0");
+    fs[257] = DemotionTests.Function("shared", "");
+    fs[258] = DemotionTests.Function("user", "shared");
+    m.Functions = fs; m.FuncCount = fs.Length;
+    Assert.True(IrPureFunctionTable.Compute(m).IsPure("user"));
+    IrFunction dependent = fs[256]; fs[256] = fs[257]; fs[257] = dependent;
+    Assert.True(IrPureFunctionTable.Compute(m).IsPure("shared"));
+    fs[256].Blocks[0].Instrs[0] = DemotionTests.Call("f0");
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.False(table.IsPure("shared")); Assert.False(table.IsPure("user"));
+}
+[Test]
+void test_purity_demotion_missing_callee_and_noinlining_recompute() {
+    IrModule m = DemotionFixture.Make(256, 3);
+    m.Functions[255].MethodFlags = IrMethodImpl.NoInlining;
+    DemotionTests.AssertRejected(m);
+    m.Functions[255].MethodFlags = 0;
+    Assert.True(IrPureFunctionTable.Compute(m).IsPure("f0"));
+    m.Functions[255].Blocks[0].Instrs[0] = DemotionTests.Call("external");
+    DemotionTests.AssertRejected(m);
+    m.Functions[255].Blocks[0].Instrs[0] = new ConstI64Instr(new TypedReg(0, IrType.I64), "1");
+    Assert.True(IrPureFunctionTable.Compute(m).IsPure("f0"));
+}
+[Test]
+void test_purity_demotion_shallow_and_local_controls() {
+    DemotionTests.AssertRejected(DemotionFixture.Make(256, 1));
+    DemotionTests.AssertRejected(DemotionFixture.Make(256, 2));
+    PureTable table = IrPureFunctionTable.Compute(DemotionFixture.Make(256, 3));
+    Assert.True(table.IsPure("f0")); Assert.True(table.IsSpeculatable("f0"));
+    int pattern = 4;
+    while (pattern <= 6) {
+        PureTable shortTail = IrPureFunctionTable.Compute(DemotionFixture.Make(256, pattern));
+        Assert.False(shortTail.IsPure("f0"));
+        Assert.True(shortTail.IsPure("f255"));
+        pattern = pattern + 1;
+    }
+}
+[Test]
+void test_purity_demotion_matches_forward_reachability_reference() {
+    int seed = 0;
+    while (seed < 6) {
+        IrModule m = DemotionFixture.Make(288, 3);
+        int[] next = new int[288]; bool[] bad = new bool[288]; int i = 0;
+        while (i < 288) {
+            next[i] = i >= 96 ? i + 1 : (i * 17 + seed * 13 + 3) % 288;
+            if (i < 96 && (i + seed) % 7 == 0) { next[i] = -1; }
+            bad[i] = i == 287 || (i < 96 && i % 11 == seed % 11);
+            if (bad[i]) { DemotionFixture.Reject(m.Functions[i]); }
+            else if (next[i] >= 0) { m.Functions[i].Blocks[0].Instrs[0] = DemotionTests.Call("f" + next[i].ToString()); }
+            else { m.Functions[i].Blocks[0].Instrs[0] = new ConstI64Instr(new TypedReg(0, IrType.I64), "1"); }
+            i = i + 1;
+        }
+        PureTable table = IrPureFunctionTable.Compute(m);
+        i = 0;
+        while (i < 288) {
+            Assert.Equal(DemotionTests.ReferencePure(i, next, bad), table.IsPure("f" + i.ToString()));
+            i = i + 1;
+        }
+        seed = seed + 1;
+    }
+}
+internal static class DemotionTests {
+    public static CallInstr Call(string name) {
+        return new CallInstr(new TypedReg(0, IrType.I64), name, new TypedReg[0], 0);
+    }
+    public static IrFunction Function(string name, string callee) {
+        IrFunction f = DemotionFixture.Make(1, 3).Functions[0]; f.Name = name;
+        if (callee != "") { f.Blocks[0].Instrs[0] = DemotionTests.Call(callee); }
+        return f;
+    }
+    public static void AssertRejected(IrModule m) {
+        PureTable table = IrPureFunctionTable.Compute(m); int i = 0;
+        while (i < m.FuncCount) {
+            Assert.False(table.IsPure(m.Functions[i].Name));
+            Assert.False(table.IsSpeculatable(m.Functions[i].Name));
+            i = i + 1;
+        }
+    }
+    public static bool ReferencePure(int at, int[] next, bool[] bad) {
+        bool[] seen = new bool[next.Length];
+        while (at >= 0 && !seen[at]) {
+            if (bad[at]) { return false; }
+            seen[at] = true; at = next[at];
+        }
+        return true;
+    }
+}
