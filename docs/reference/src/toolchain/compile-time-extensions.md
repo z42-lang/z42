@@ -59,7 +59,7 @@ demo.lint/
 ## 完整使用流程（索引）
 
 1. **写插件**：analyzer / generator / hook 三类契约与示例见下文各章；最小工程见上节。
-2. **挂插件**：消费方 `[plugins]` 五种条目（按名 / 工程路径 / `.zpkg` 路径 / 免清单目录 / 免清单单文件）；hook 经 z42b 反射执行。
+2. **挂插件**：消费方 `[plugins]` 五种条目（按名 / 工程路径 / `.zpkg` 路径 / 免清单目录 / 免清单单文件）；独立分发的插件 zpkg 也可在 `[dependencies]` 里声明（deps-plugin-routing：z42c/z42b 读 zpkg 头**自述的包类型**——lib/exe/plugin/harness——自动分流，插件不链入产物）；hook 经 z42b 反射执行。
 3. **随库分发**：lib 用 `[plugins.export]` 携带——依赖它的工程零配置自动获得（声明闭包=硬承诺、
    ambient 标准库=尽力而为）；`[plugins] "x" = false` 关闭单项。
 4. **internal 授权**：宿主在携带条目上 `internal = true`——插件以宿主同包待遇编译，可复用宿主
