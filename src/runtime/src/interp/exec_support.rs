@@ -365,7 +365,7 @@ pub(super) fn find_handler(
     type_registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::object::TypeDesc>>,
     thrown: &Value,
     // Binds the type-parameter markers of a `catch (Err<T> e)` in a shared generic body.
-    tp_env: super::type_param_env::TypeParamEnv<'_>,
+    tp_env: crate::vm::exec::call::type_param_env::TypeParamEnv<'_>,
 ) -> Option<usize> {
     // A fatal VM error (stack overflow) unwinds past every handler.
     if crate::stack_guard::is_fatal(ctx) { return None; }

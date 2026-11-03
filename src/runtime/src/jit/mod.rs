@@ -86,8 +86,8 @@ pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
             }
         };
         return match crate::interp::exec_function(ctx, module, func, &[])? {
-            crate::interp::ExecOutcome::Returned(_) => Ok(()),
-            crate::interp::ExecOutcome::Thrown(val) =>
+            crate::vm::exec::call::outcome::ExecOutcome::Returned(_) => Ok(()),
+            crate::vm::exec::call::outcome::ExecOutcome::Thrown(val) =>
                 Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, ctx, module))),
         };
     };

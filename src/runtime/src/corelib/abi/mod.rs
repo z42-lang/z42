@@ -90,7 +90,7 @@ pub struct BuiltinFlags {
     /// candidate). Informational.
     pub pure: bool,
     /// May run z42 code (callbacks, getters, initializers): a folded call of its
-    /// `[Native]` wrapper keeps the wrapper's frame (`interp::forward`), so an exception
+    /// `[Native]` wrapper keeps the wrapper's frame (`vm::exec::call::forward`), so an exception
     /// thrown in that code — or a fatal report — shows the same stack as unfolded.
     pub reenters: bool,
 }

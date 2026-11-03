@@ -171,7 +171,7 @@ pub struct FnEntry {
     /// so `jit_call`'s cctor barrier needs no name-based owner lookup.
     pub owner_init: crate::vm::runtime::OwnerInitCell,
     /// `Some(fold token)` when the function is a pure `[Native]` extern wrapper
-    /// (`interp::forward::forward_of`); the call helpers then skip the activation and
+    /// (`vm::exec::call::forward::forward_of`); the call helpers then skip the activation and
     /// dispatch the builtin directly (see [`super::forward`]).
     pub forward: Option<u32>,
     /// Call-barrier settle cell (`call.rs::call_compiled`): the barrier epoch at

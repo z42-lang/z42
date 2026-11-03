@@ -10,6 +10,8 @@
 |---|---|
 | `ambient.rs` | 执行期当前堆 TLS、HeapGuard 嵌套恢复和堆 epoch |
 | `call/` | 统一 VmFrame / FrameStack、寄存器池和三种帧作用域 arena |
+| `call/outcome.rs` / `call/forward.rs` / `call/type_param_env.rs` | 共享执行结果、Native 桩折叠和激活类型实参 |
+| `ops/structs.rs` | struct 分配、复制、拆箱和符号化字段检查，两个后端仅保留帧适配 |
 | `stack.rs` | 栈快照、栈迹格式与根遍历；沿用所属线程 / 暂停所属线程的读取约束 |
 | `ops/scalar.rs` | 值级算术、比较、整数除余、数值转换与错误判据 |
 

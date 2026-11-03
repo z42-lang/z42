@@ -225,6 +225,10 @@ sealed 类去虚化后的调用）发的是 `Call`，接收者只是第 0 个实
 （`jit/translate/unsupported.rs`）：prescan 循环调它；每个 `bail!` 臂的原因文案也源自它，两检查点
 不会漂移。须收 `&Instruction`（非静态 opcode 集）——generic `Call`/`VCall` 是**条件**不支持。
 
+
+共享调用结果定义在 `vm/exec/call/outcome.rs`；Native 桩折叠和类型实参绑定分别在同目录的 `forward.rs` 与 `type_param_env.rs`。
+struct 的帧无关分配、复制、拆箱和符号化字段检查位于 `vm/exec/ops/structs.rs`，解释器保留寄存器取写的薄适配；JIT helper 直接调用同一实现。
+
 ## 相关
 
 - JIT 内联快路径与 helper 边界：[JIT 惰性逐函数编译](jit.md)、

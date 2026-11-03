@@ -15,7 +15,7 @@ use crate::metadata::ir::ExecMode;
 use crate::object::{FieldSlot, TypeDesc};
 use crate::object::Value;
 use crate::vm_context::VmContext;
-use crate::interp::ExecOutcome;
+use crate::vm::exec::call::outcome::ExecOutcome;
 
 fn func(name: &str, params: usize, instructions: Vec<Instruction>, terminator: Terminator) -> Function {
     Function::new(crate::metadata::ir::Function {

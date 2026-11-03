@@ -204,10 +204,10 @@ fn class_type_arg_of(recv: &Value, idx: usize) -> Option<String> {
 }
 
 /// The class-level resolution itself lives with the VM's type-parameter binding
-/// (`interp::type_param_env::class_type_arg`), shared with `o is T` / `new List<T>()` in the
+/// (`vm::exec::call::type_param_env::class_type_arg`), shared with `o is T` / `new List<T>()` in the
 /// same class body — so those and `typeof(T)` read one argument.
 fn resolve_class_type_arg(ctx: &VmContext, recv: &Value, idx: usize, owner: Option<&str>) -> Option<String> {
-    crate::interp::type_param_env::class_type_arg(ctx, recv, idx, owner)
+    crate::vm::exec::call::type_param_env::class_type_arg(ctx, recv, idx, owner)
 }
 
 /// The pure name-selection half of `builtin_class_type_arg`: `(receiver, index)`

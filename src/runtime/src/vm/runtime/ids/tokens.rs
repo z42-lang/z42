@@ -187,7 +187,7 @@ impl FnIdCell {
 }
 
 /// Runtime-only cell on `Function`: whether the function is a pure `[Native]` forwarder
-/// and to which builtin (runtime-audit P1-8, `interp::forward`). Computed on the
+/// and to which builtin (runtime-audit P1-8, `vm::exec::call::forward`). Computed on the
 /// function's first call by either engine; `0` = not yet known, `1` = not a forwarder,
 /// `id + 2` = forwards to builtin `id`. A racing second computation stores the same
 /// value, so `Relaxed` suffices.

@@ -47,8 +47,8 @@ fn module_of(strings: &[&str], functions: Vec<Function>) -> Module {
 fn interp(vm: &VmContext, m: &Module, name: &str) -> Value {
     let idx = m.func_index[name];
     match crate::interp::exec_function(vm, m, &m.functions[idx], &[]).expect("runs") {
-        crate::interp::ExecOutcome::Returned(v) => v.unwrap_or(Value::Null),
-        crate::interp::ExecOutcome::Thrown(exc) => panic!("threw {exc:?}"),
+        crate::vm::exec::call::outcome::ExecOutcome::Returned(v) => v.unwrap_or(Value::Null),
+        crate::vm::exec::call::outcome::ExecOutcome::Thrown(exc) => panic!("threw {exc:?}"),
     }
 }
 
@@ -139,7 +139,7 @@ fn guarded_ordering_on_i64() {
     let vm = VmContext::new();
     let idx = m.func_index["lt_ss"];
     match crate::interp::exec_function(&vm, &m, &m.functions[idx], &[]) {
-        Ok(crate::interp::ExecOutcome::Thrown(_)) | Err(_) => {}
+        Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(_)) | Err(_) => {}
         other => panic!("expected throw, got {other:?}"),
     }
 }

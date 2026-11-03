@@ -31,8 +31,6 @@ pub(crate) mod exec_struct;   // add-struct-value-semantics: blob value-type ins
 pub(crate) mod exec_value;
 mod exec_vcall;
 pub(crate) mod vcall_resolve;   // unify-vcall-resolution: shared with jit/helpers/vcall.rs
-pub(crate) mod forward;         // runtime-audit P1-8: `[Native]` stub folding, shared with the JIT
-pub(crate) mod type_param_env;  // `$mta:` / `$cta:` markers of shared generic bodies, shared with the JIT helpers
 pub(crate) mod obj_new_resolve; // P1-2 PR 5: ObjNew class / ctor + site cache, shared with jit_obj_new
 mod ops;
 
@@ -64,7 +62,8 @@ mod frame;
 mod exec_support;
 mod exec_body_cold;
 use exec_body_cold::{callee_threw, copy_in_ref_param, label_target, locate_error, throw_here, Unwind};
-pub use entry::{ExecOutcome, run, run_returning, run_outcome, init_static_fields, run_with_static_init};
+use crate::vm::exec::call::outcome::ExecOutcome;
+pub use entry::{ run, run_returning, run_outcome, init_static_fields, run_with_static_init};
 pub(crate) use frame::*;
 pub(crate) use exec_support::*;
 

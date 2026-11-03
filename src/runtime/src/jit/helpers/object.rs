@@ -76,7 +76,7 @@ pub unsafe extern "C" fn jit_obj_new(
     // SAFETY: `type_args` was baked from `TypeArgs::as_raw` at translate time.
     let site_args = unsafe { crate::object::TypeArgs::from_raw(type_args) };
     // `new List<T>()` in a generic class body: class-level markers bound from the receiver.
-    let site_args = crate::interp::type_param_env::TypeParamEnv::new(&[], frame_ref.regs.first())
+    let site_args = crate::vm::exec::call::type_param_env::TypeParamEnv::new(&[], frame_ref.regs.first())
         .instantiate(vm, site_args);
     let inst_args = instance_type_args(site_args, &type_desc);
     let obj_val = vm.heap().alloc_instance(type_desc, inst_args);
@@ -99,8 +99,8 @@ pub unsafe extern "C" fn jit_obj_new(
                 ctor_args.push(obj_val.clone());
                 ctor_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
                 match crate::interp::exec_function(vm, module, func, &ctor_args) {
-                    Ok(crate::interp::ExecOutcome::Returned(_)) => {} // ctor mutated `this` in place
-                    Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm, val); return 1; }
+                    Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(_)) => {} // ctor mutated `this` in place
+                    Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm, val); return 1; }
                     Err(e) => { set_exception(vm, Value::Str(e.to_string().into())); return 1; }
                 }
             }
@@ -217,7 +217,7 @@ pub(super) unsafe fn dynamic_target(frame: *mut JitFrame, ctx: *const VmContext,
     if !crate::metadata::index::type_param_markers::has_markers(class_name) {
         return None;
     }
-    let env = crate::interp::type_param_env::TypeParamEnv::new(&[], (*frame).regs.first());
+    let env = crate::vm::exec::call::type_param_env::TypeParamEnv::new(&[], (*frame).regs.first());
     Some(env.test_target(vm_ctx_ref(ctx), class_name))
 }
 
@@ -227,7 +227,7 @@ pub(super) unsafe fn bind_forwarded_mta(frame: *mut JitFrame, ctx: *const VmCont
     if !mta.iter().any(|s| crate::metadata::index::type_param_markers::has_markers(s)) {
         return None;
     }
-    let env = crate::interp::type_param_env::TypeParamEnv::new(&[], (*frame).regs.first());
+    let env = crate::vm::exec::call::type_param_env::TypeParamEnv::new(&[], (*frame).regs.first());
     Some(mta.iter().map(|s| env.substitute(vm_ctx_ref(ctx), s)).collect())
 }
 
@@ -297,7 +297,7 @@ pub unsafe extern "C" fn jit_as_cast(
                 Some(n) => Value::I64(n), // 基元盒精确命中 → 裸标量
                 None => {
                     let fid = super::struct_ops::frame_id_of(frame, ctx);
-                    crate::interp::exec_struct::unbox_struct(vm_ctx_ref(ctx), fid, b)
+                    crate::vm::exec::ops::structs::unbox_struct(vm_ctx_ref(ctx), fid, b)
                         .unwrap_or(Value::Null)
                 }
             }
@@ -324,7 +324,7 @@ pub unsafe extern "C" fn jit_as_cast(
         };
         let fid = super::struct_ops::frame_id_of(frame, ctx);
         (*frame).regs[dst as usize] =
-            crate::interp::exec_struct::copy_array_elem_out(vm_ctx_ref(ctx), fid, &e)
+            crate::vm::exec::ops::structs::copy_array_elem_out(vm_ctx_ref(ctx), fid, &e)
                 .unwrap_or(Value::Null);
         return;
     }

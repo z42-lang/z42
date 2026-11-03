@@ -7,7 +7,7 @@
 //! `MethodDefault`（`interp/exec_address.rs`）、方法级类型参的 `ArrayNew`（`interp/exec_array.rs`）
 //! 与带 `$mta:N` 转发标记的泛型调用（`interp/exec_support.rs::resolve_forwarded_mta`），以及目标 /
 //! 实参里带 `$mta:N` 型参标记的 `IsInstance` / `AsCast` / `ObjNew` / typed catch
-//! （`interp/type_param_env.rs`）——
+//! （`vm/exec/call/type_param_env.rs`）——
 //! 它们全部在下表里。正因如此，一个**已编译**的 callee 可以被任何泛型调用站点直接 native 调用
 //! 而不传 mta（`jit_call_mta` / `jit_vcall_mta`、interp 的 mixed-mode 转接）：它拿到也不会看。
 //! 日后任何新增「读 mta」的指令必须同步进下表，否则这条推论即破。
