@@ -229,6 +229,7 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
   （同一处第二次调用，第一次抛/不返回就到不了），LICM 受影响（循环零迭代时原程序根本不调用）。故 LICM 另用
   `PureTable.IsSpeculatable`：纯 ∧ **不含 `FieldGet`** ∧ **块图无环** ∧ **不递归** ∧ 只调可投机函数。用**最小**不动点
   （从空集往上长：callee 全在集中才入集）⇒ 直接 / 互相递归的函数永远入不了集（正确性优先）。代价：`fib` 这类递归纯函数不外提；CSE 消重不受影响。
+  不动点计算期间函数体和纯函数集合不变，因此按函数位置惰性缓存「无字段读且 CFG 无环」的局部判据，避免等待 callee 时反复扫描函数体和分配遍历数组。缓存仅存在于本次计算；再次 `Compute` 时重算。可投机集合与调用关系的收敛条件仍逐轮判断，递归环仍不能入集。
   门：`src/tests/optimization/pure_call_no_speculation.z42`（`opt_all`）。
 - **CSE**（`IrOptInfo.CseKey` 的 `call|Func|argIds` 分支）：同 callee + 全 args 稳定的纯调用消重（纯 = 不依赖
   可变状态 → **无需失效表**，比 readonly 简单）。**LICM**（`IrLicm._isHoistablePureCall`）：全 args 循环不变的

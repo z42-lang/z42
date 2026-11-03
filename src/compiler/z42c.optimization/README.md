@@ -30,6 +30,8 @@
 
 内联查找基准：`benches/z42c.optimization.bench.inline.z42.toml`，Main 接收叶函数与调用方的对数，第二个参数可选择无调用场景。`bench_inline_lookup_512` / `bench_inline_no_calls_512` 包含模块构造与一次内联，覆盖索引收益与无调用模块的成本。
 
+可投机分析基准：`benches/z42c.optimization.bench.speculation.z42.toml`，Main 接收链长，第二个参数选择叶函数优先顺序；两个 `[Benchmark]` 入口分别覆盖需要多轮收敛的调用链和单轮完成的顺序。局部函数体判据只在一次 `Compute` 内缓存，跨调用重新计算。
+
 ## 关联文档
 - 机制：[优化管线](../../../docs/internals/src/runtime/optimization-pipeline.md)、[逃逸分析](../../../docs/internals/src/runtime/escape-analysis.md)
 - 命令行 / 清单开关：[z42c / z42b CLI](../../../docs/reference/src/toolchain/cli-z42c-z42b.md)

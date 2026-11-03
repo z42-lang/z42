@@ -76,17 +76,24 @@ public sealed class IrPureFunctionTable {
     // 优先；add-pure-call-opt 的 ~200× bench 随之回退，CSE 消重不受影响）。
     private static StrMap _computeSpeculatable(IrModule m, StrMap pure) {
         StrMap spec = new StrMap();
+        // Bodies are immutable during this fixed point. Cache only their local predicate;
+        // spec membership and callees still change each round. Recompute on every invocation.
+        int[] bodyState = new int[m.FuncCount];   // 0 unknown, 1 eligible, 2 rejected
         bool changed = true;
         while (changed) {
             changed = false;
             int fi = 0;
             while (fi < m.FuncCount) {
                 IrFunction f = m.Functions[fi];
-                if (!spec.ContainsKey(f.Name) && pure.ContainsKey(f.Name)
-                    && !IrPureFunctionTable._hasFieldGet(f) && IrPureFunctionTable._isAcyclic(f)
-                    && IrPureFunctionTable._callsOnly(f, spec)) {
-                    spec.Put(f.Name, "1");
-                    changed = true;
+                if (!spec.ContainsKey(f.Name) && pure.ContainsKey(f.Name)) {
+                    if (bodyState[fi] == 0) {
+                        bodyState[fi] = !IrPureFunctionTable._hasFieldGet(f)
+                            && IrPureFunctionTable._isAcyclic(f) ? 1 : 2;
+                    }
+                    if (bodyState[fi] == 1 && IrPureFunctionTable._callsOnly(f, spec)) {
+                        spec.Put(f.Name, "1");
+                        changed = true;
+                    }
                 }
                 fi = fi + 1;
             }
