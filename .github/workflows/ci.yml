@@ -32,7 +32,8 @@ jobs:
       pull-requests: read   # Docs-only PR?：读 PR 文件列表
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
-      examples: ${{ steps.filter.outputs.examples }}
+      # 同一选择结果供打包 job 与 test-host 的示例卸载共用。
+      host_package: ${{ steps.filter.outputs.platform == 'true' || steps.filter.outputs.examples == 'true' || github.event_name != 'pull_request' }}
       compiler: ${{ steps.filter.outputs.compiler }}
       vm: ${{ steps.filter.outputs.vm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
@@ -186,8 +187,7 @@ jobs:
     name: test-host(${{ matrix.platform }})
     # 全量 gate 在 linux-x64 上接近 60 分钟，留余量。
     timeout-minutes: 75
-    # needs: changes so the Rust-unit steps can gate on the `vm` filter; the job
-    # itself runs on every non-docs change.
+    # 本 job 跑所有非纯文档改动；完整 Rust harness 只在 VM 相关改动或定期运行时执行。
     needs: changes
     # 纯文档改动（PR 与 main push）走 docs-check（见 changes 的 Docs-only 步骤）；本 job 被 skip 时 ci-ok 照样绿。
     if: needs.changes.outputs.docs_only != 'true'
@@ -206,6 +206,8 @@ jobs:
       group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_host_lane) || format('ci-test-host-{0}-{1}', github.run_id, matrix.platform) }}
       queue: max
       cancel-in-progress: false
+    env:
+      RUN_RUST_RUNTIME: ${{ needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - uses: actions/checkout@v7
@@ -226,10 +228,9 @@ jobs:
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # examples stage 要一个带 launcher 的完整 SDK（artifacts/.z42）：bootstrap 已建好 z42c / stdlib，
-      # 这里补 apphost 发布再组装。
+      # 由本 job 重放示例时才准备开发 SDK；打包 job 会重放时直接复用其检查。
       - name: Build SDK for the examples stage
-        if: matrix.os != 'windows-latest'
+        if: matrix.os != 'windows-latest' && needs.changes.outputs.host_package != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -249,6 +250,10 @@ jobs:
           if [ "${{ matrix.platform }}" != "linux-x64" ]; then
             SKIP="stdlib,cross-zpkg,bench,compiler,vscode"
           fi
+          # 完整 runtime harness 覆盖 --lib 与所有 target 编译；只有它会执行时才卸下窄版 stage。
+          if [ "${{ env.RUN_RUST_RUNTIME }}" = "true" ]; then
+            SKIP="$SKIP,rust-units"
+          fi
           # 按路径分流（只在 PR 上）：`--changed <base>` 用 `test changed` 的映射表只跑受影响的重 stage；
           # build wave、e2e goldens 与静态检查恒跑，scripts/ / ci.yml / 未知文件 / 拿不到 base ⇒ 全跑。
           # main push / schedule / dispatch 不分流（全跑）。判定打印在日志开头（[test --changed] …）。
@@ -256,6 +261,10 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="${{ github.event.pull_request.base.sha }}"
             git fetch --no-tags --depth=1 origin "$base" || base=""
+          fi
+          # 打包 SDK 会在每个平台重放同一套示例；否则保留本 job 的 examples stage。
+          if [ "${{ needs.changes.outputs.host_package }}" = "true" ]; then
+            SKIP="$SKIP,examples"
           fi
           if [ -n "$base" ]; then
             xtask test --no-build --skip "$SKIP" --changed "$base" 2>&1 | tee artifacts/ci-logs/test-all.log
@@ -294,18 +303,18 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      # Rust 单测不在 `xtask test` 里（signal 测试在受限沙箱会挂），每条腿单独一步。Windows 不跑 gate，
-      # 先 `build test` 备好 zbc_compat 要的 goldens。schedule / dispatch 下 filter 恒 false，故显式放行。
+      # 完整 Rust harness 包含 signal 子进程测试，独立于本地 GREEN 的窄版 rust-units。
+      # Windows 不跑 GREEN，完整 harness 执行前先备好 zbc_compat 要的 goldens。
       - name: Build golden test assets (Windows — zbc_compat inputs)
-        if: matrix.os == 'windows-latest' && (needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: matrix.os == 'windows-latest' && env.RUN_RUST_RUNTIME == 'true'
         shell: bash
         run: |
           set -euo pipefail
           xtask build test
 
-      # 串行（--test-threads=1，_testRuntime 内设）：--lib 测试有跨线程内存竞争。按 vm filter 门控。
+      # 串行（--test-threads=1，_testRuntime 内设）：--lib 测试有跨线程内存竞争。
       - name: Rust VM unit tests (xtask test runtime)
-        if: needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        if: env.RUN_RUST_RUNTIME == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -341,7 +350,7 @@ jobs:
     needs: [changes, toolchain-bootstrap]
     # `examples`：学习手册示例只在这里用打包出的 SDK 重放（含 Windows 的唯一覆盖），
     # 所以 learn / examples 改动只拉起本 job，不拉起其余 package-* / test-desktop。
-    if: ${{ needs.changes.outputs.platform == 'true' || needs.changes.outputs.examples == 'true' || github.event_name != 'pull_request' }}
+    if: needs.changes.outputs.host_package == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -380,8 +389,7 @@ jobs:
           fi
 
       - name: Learn-book examples (packaged SDK)
-        # 与 test-host 的 examples stage 同一套会话脚本，这里用打包出的 SDK 跑——最贴近用户安装形态，
-        # 也是 Windows 上唯一的覆盖。
+        # 本 job 被选中时负责各平台的示例重放；使用真实打包 SDK，Windows 也在此验证。
         shell: bash
         run: |
           set -euo pipefail
