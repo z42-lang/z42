@@ -38,10 +38,26 @@ jobs:
       vm: ${{ steps.filter.outputs.vm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
       docs_only: ${{ steps.docsonly.outputs.docs_only }}
+      macos_host_lane: ${{ steps.macos_queue.outputs.host }}
+      macos_package_lane: ${{ steps.macos_queue.outputs.package }}
+      macos_checks_lane: ${{ steps.macos_queue.outputs.checks }}
       # 当前 nightly → 本 commit 的累计改动是否影响 SDK；只在 push to main 上判，其余事件为空（= 照常发布）。
       sdk: ${{ steps.supersede.outputs.sdk }}
     steps:
       - uses: actions/checkout@v7
+
+      - name: Select bounded macOS runner queue
+        id: macos_queue
+        shell: bash
+        run: |
+          lane_count=3
+          run_number=${{ github.run_number }}
+          echo "host=$((run_number % lane_count))" >> "$GITHUB_OUTPUT"
+          echo "package=$(((run_number + 1) % lane_count))" >> "$GITHUB_OUTPUT"
+          echo "checks=$(((run_number + 2) % lane_count))" >> "$GITHUB_OUTPUT"
+
+      - name: Test CI runner recovery rules
+        run: python3 -m unittest discover -s .github/ci -p 'test_*.py'
 
       # main 上的运行不互相打断（见顶部 concurrency 注释）：取消较早的、不影响 SDK 的 main push 运行，
       # 并判出本运行是否需要发布 nightly。
@@ -184,6 +200,12 @@ jobs:
           - { os: macos-26,         platform: macos-arm64 }
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
+    # Three shared lanes bound macOS demand; job classes rotate between them per run.
+    # Non-macOS matrix legs keep independent groups and run in parallel.
+    concurrency:
+      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_host_lane) || format('ci-test-host-{0}-{1}', github.run_id, matrix.platform) }}
+      queue: max
+      cancel-in-progress: false
     env:
       RUN_RUST_RUNTIME: ${{ needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
 
@@ -338,6 +360,10 @@ jobs:
           - { os: macos-26,         platform: macos-arm64 }
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
+    concurrency:
+      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_package_lane) || format('ci-package-host-{0}-{1}', github.run_id, matrix.platform) }}
+      queue: max
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
 
@@ -648,6 +674,10 @@ jobs:
     name: test-stdlib-interp(${{ matrix.platform }})
     timeout-minutes: 45
     runs-on: ${{ matrix.os }}
+    concurrency:
+      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) || format('ci-stdlib-interp-{0}-{1}', github.run_id, matrix.platform) }}
+      queue: max
+      cancel-in-progress: false
     needs: [changes, toolchain-bootstrap]
     # vm（interp 派发）/ stdlib（测试内容 / API）/ compiler 任一改动都可能挪动结果；schedule / dispatch 全跑。
     if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
@@ -714,6 +744,10 @@ jobs:
     needs: [changes, toolchain-bootstrap]
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
     runs-on: macos-26
+    concurrency:
+      group: ${{ format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) }}
+      queue: max
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v7
@@ -1111,7 +1145,7 @@ jobs:
     name: test-ios-sim(macos-arm64) shard ${{ matrix.shard }}
     # 冷构建 + 模拟器冷启动。
     timeout-minutes: 60
-    needs: toolchain-bootstrap   # `changes` 不在 needs：本 job 的 if: 只看 event_name，从不读 needs.changes.outputs.*
+    needs: [changes, toolchain-bootstrap]   # macOS 原生资源槽由 changes 输出。
     # Tier-2（浏览器 / 模拟器，慢）：只在 nightly 与手动触发时跑。
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     # 嵌入语料全量分 3 片，每片约 155 个用例，压在模拟器 60 分钟墙内；每片自己起模拟器，R1–R7 并进同一次运行。
@@ -1120,6 +1154,10 @@ jobs:
       matrix:
         shard: [1, 2, 3]
     runs-on: macos-26
+    concurrency:
+      group: ${{ format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) }}
+      queue: max
+      cancel-in-progress: false
     permissions:
       actions: read     # setup-z42-sdk 回退（gh run download）
       contents: read
