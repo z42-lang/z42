@@ -920,7 +920,7 @@ artifacts/build/libraries/<lib>/<profile>/
 | `[[test]]` / `[[bench]]` / `[[example]]` 缺 `name` | `[[test]] #1 missing required \`name\`` | `_validateRunTargets` |
 | `harness = false` 的目标缺 `entry`（反射目标 harness=true 无需 entry）| `[[test]] 'x' has harness=false but no \`entry\`` | 同上（example 豁免——它恒按 `entry` 跑 Main）|
 | 同一 kind 内 `name` 重复 | `duplicate [[test]] name 'x'` | 同上 |
-| 目标 `include` glob 无匹配文件 | example / `harness=false` 路径：`✗ <目标>: no source files match (sources glob / convention empty)`；test / bench 转发 z42b 的路径：`compile failed: no .z42 sources under <dir>` | `_compileTarget` / z42b |
+| 目标 `include` glob 无匹配文件 | example 路径：`✗ <目标>: no source files match (sources glob / convention empty)`；test / bench（含 `harness=false`）转发 z42b 的路径：`compile failed: no .z42 sources under <dir>` | `_compileExampleTarget` / z42b |
 
 三类 kind 的命名 namespace **独立** —— `[[test]] name = "x"` / `[[bench]] name = "x"` /
 `[[example]] name = "x"` 可共存（重名只在同一 kind 内判）。auto 与显式撞名以显式为准，不报错。

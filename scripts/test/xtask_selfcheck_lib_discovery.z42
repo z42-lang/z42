@@ -1,0 +1,44 @@
+namespace Z42Xtask;
+using Std.IO;
+
+bool _libListHas(string[] libs, string name) {
+    foreach (var lib in libs) { if (lib == name) { return true; } }
+    return false;
+}
+void _requireLibDiscovery(bool condition, string why) {
+    if (!condition) { throw new Exception("lib discovery: " + why); }
+}
+int _selfcheckLibDiscovery() {
+    string dir = _xtaskWork(_root(), "lib-discovery");
+    _resetDir(dir);
+    try {
+        string core = Path.Join(dir, "src/libraries/z42.core");
+        string pipe = Path.Join(dir, "src/compiler/z42c.pipeline");
+        string opt = Path.Join(dir, "src/compiler/z42c.optimization");
+        Directory.Create(Path.Join(core, "tests")); Directory.Create(Path.Join(core, "benches"));
+        Directory.Create(Path.Join(pipe, "tests/incremental"));
+        Directory.Create(Path.Join(pipe, "benches/nested"));
+        Directory.Create(Path.Join(opt, "benches"));
+        File.WriteAllText(Path.Join(core, "tests/core_tests.z42"), "using Std.Harness; [Test] void t() {}\n");
+        File.WriteAllText(Path.Join(core, "benches/core_bench.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
+        File.WriteAllText(Path.Join(pipe, "tests/incremental/unit.z42.toml"), "[project]\nname = \"pipeline.test\"\n");
+        File.WriteAllText(Path.Join(pipe, "benches/pipeline_bench.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
+        File.WriteAllText(Path.Join(pipe, "benches/nested/source.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
+        File.WriteAllText(Path.Join(opt, "benches/cfg_bench.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
+        string[] tests = _allUnitLibs(dir, "test");
+        string[] benches = _allUnitLibs(dir, "bench");
+        _requireLibDiscovery(_libListHas(tests, "z42.core"), "stdlib tests omitted");
+        _requireLibDiscovery(!_libListHas(tests, "z42c.pipeline"), "compiler project tests routed to stdlib runner");
+        _requireLibDiscovery(_libListHas(benches, "z42c.pipeline"), "compiler tests layout hid its benchmarks");
+        _requireLibDiscovery(_libListHas(benches, "z42c.optimization"), "compiler benchmark-only package omitted");
+        _requireLibDiscovery(_libUnitCount(dir, "z42c.pipeline", "test") == 0, "unexpected flat test count");
+        _requireLibDiscovery(_libUnitCount(dir, "z42c.pipeline", "bench") == 2, "bench count used tests directory");
+        string[] first = _shardLibs(dir, "bench", 1, 2);
+        string[] second = _shardLibs(dir, "bench", 2, 2);
+        _requireLibDiscovery(first.Length + second.Length == benches.Length, "shards lost packages");
+        _requireLibDiscovery(_libListHas(first, "z42c.pipeline"), "largest benchmark package not balanced first");
+        foreach (var lib in first) { _requireLibDiscovery(!_libListHas(second, lib), "duplicate shard package"); }
+    } finally { Directory.Delete(dir, true); }
+    Console.WriteLine("  lib discovery: test/bench routing and kind-specific shards passed");
+    return 0;
+}

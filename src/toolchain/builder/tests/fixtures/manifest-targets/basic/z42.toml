@@ -4,13 +4,13 @@
 #   [[test]] harness=false (exit_ok)  → z42vm <zpkg> <entry>, exit-code judged
 #   [[bench]] harness=true (micro)    → z42b reflection over [Benchmark]
 #   [[example]] test=true  (hello)    → compile gate + run (exit-code)
+#   [[example]] test=false (compile_only) → compile only; running exits 93
 # Plus tests/auto_conv.z42 — NOT declared explicitly → auto convention discovery
 # (section [tests] Auto default). unit_ok/exit_ok share a name with their file so
 # the explicit target OVERRIDES the auto unit (spec "显式覆盖同名 auto").
 #
-# Run by: `xtask test toolchain builder`, `xtask bench targets`, `xtask example`, and the
-# `manifest targets` / `examples` stages of `xtask test`. NOT built into stdlib
-# dist (lives under src/tests/, excluded from golden regen/run + packaging).
+# Run by: `xtask test toolchain builder`, `xtask bench targets`, and the
+# manifest targets stage of `xtask test`. Not included in stdlib dist or golden assets.
 [project]
 name    = "mt-basic"
 version = "0.1.0"
@@ -39,3 +39,8 @@ name    = "hello"
 test    = true
 entry   = "MtHello.Main"
 include = ["examples/hello.z42"]
+
+[[example]]
+name    = "compile_only"
+test    = false
+include = ["examples/custom/compile_only.z42"]
