@@ -1,20 +1,8 @@
-use super::*;
+use parking_lot::Mutex;
+use std::collections::HashMap;
 
-/// **M2 (refactor-vm-context-resource-registry)** — the
-/// `Mutex<HashMap<u64, T>>` + monotonic `AtomicU64` id-counter pattern shared
-/// by every per-VM resource table (processes / threads / sync primitives /
-/// file handles / TCP·TLS·UDP sockets). Bundling the lock, the table, and the
-/// id counter into one type turns "add a new resource kind" from editing
-/// [`VmCore`] in three places (table field + counter field + two `new()` init
-/// lines) into adding a single field.
-///
-/// Slot ids are monotonic, **start at 1**, and are never reused (u64 overflow
-/// is not a practical concern at ~10^19 allocations). [`lock`](Self::lock)
-/// exposes the raw guard for multi-step map operations that must run under one
-/// lock acquisition. Resources used by blocking I/O are stored as `Arc`s and
-/// cloned out with [`get_cloned`](Self::get_cloned) — never taken out of the
-/// table for the duration of the call, which would make a concurrent close a
-/// no-op and put the resource back afterwards.
+/// Per-VM resource slots: IDs start at 1, are monotonic, and are never reused.
+/// Blocking I/O clones Arc handles out under the table lock, then releases the lock.
 pub(crate) struct ResourceRegistry<T> {
     table:   Mutex<HashMap<u64, T>>,
     next_id: std::sync::atomic::AtomicU64,
@@ -22,7 +10,7 @@ pub(crate) struct ResourceRegistry<T> {
 
 impl<T> ResourceRegistry<T> {
     /// Empty registry; the id counter starts at 1 (slot 0 is never handed out,
-    /// matching the historical per-table `AtomicU64::new(1)` init).
+    /// reserved for invalid handles).
     pub(crate) fn new() -> Self {
         Self {
             table:   Mutex::new(HashMap::new()),
@@ -76,3 +64,19 @@ impl<T: Clone> ResourceRegistry<T> {
         self.table.lock().get(&id).cloned()
     }
 }
+
+impl<T> Default for ResourceRegistry<T> {
+    fn default() -> Self { Self::new() }
+}
+
+/// Mandatory state is installed by the facade before a VM can execute builtins.
+pub(super) fn state<T: std::any::Any + Send + Sync>(
+    ctx: &crate::vm_context::VmContext,
+) -> Result<&T, crate::vm::exec::call::builtin_abi::BuiltinError> {
+    ctx.ext::<T>().ok_or_else(|| crate::vm::exec::call::builtin_abi::BuiltinError::Internal(
+        format!("missing core-library VM state `{}`", std::any::type_name::<T>())))
+}
+
+#[cfg(test)]
+#[path = "resource_registry_tests.rs"]
+mod resource_registry_tests;

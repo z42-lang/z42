@@ -1,9 +1,18 @@
 //! `Std.Net.Sockets` UDP + DNS builtins (builtin ABI v2): `UdpSocketNative` /
 //! `DnsNative.Resolve` in z42.core, used by z42.net's `UdpClient` / `Dns`.
 //!
-//! Same shape as `network/tcp.rs`: slot ids into `VmCore.udp_sockets`, the `Arc` cloned
+//! Same shape as `network/tcp.rs`: slot ids into `udp::State`, the `Arc` cloned
 //! out of the table, failures thrown from Rust (`network/error.rs`), every call that can
 //! block (resolution, send, receive) parked, results built after unparking.
+
+#[derive(Default)]
+pub(crate) struct State {
+    slots: crate::corelib::resource_registry::ResourceRegistry<Arc<UdpSocket>>,
+}
+
+pub(super) fn state(ctx: &crate::vm_context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+    crate::corelib::resource_registry::state(ctx)
+}
 
 use super::error::{check_port, check_ttl, closed, resolve, slot_id, socket_error, socket_exception, timeout};
 use super::error::code;
@@ -16,7 +25,7 @@ use std::sync::Arc;
 const MAX_DATAGRAM: usize = 65_536;
 
 fn socket(ctx: &VmContext, slot: i64) -> Result<Arc<UdpSocket>, BuiltinError> {
-    ctx.core.udp_sockets.get_cloned(slot_id(slot)?).ok_or_else(closed)
+    state(ctx)?.slots.get_cloned(slot_id(slot)?).ok_or_else(closed)
 }
 
 /// `[n-or-bytes, remoteHost, remotePort]` — what both receive builtins return.
@@ -54,7 +63,7 @@ pub mod typed {
         Ok(Blocking::new(move || {
             let addr = resolve(&host, port)?[0];
             UdpSocket::bind(addr).map_err(|e| socket_error(&e, None))
-        }).then(|ctx: &VmContext, s: UdpSocket| Ok(ctx.alloc_udp_socket_slot(s) as i64)))
+        }).then(|ctx: &VmContext, s: UdpSocket| Ok(state(ctx)?.slots.insert_new(Arc::new(s)) as i64)))
     }
 
     /// The port the socket is bound to.
@@ -122,10 +131,11 @@ pub mod typed {
 
     /// Idempotent.
     #[builtin(name = "__udp_close")]
-    pub fn udp_close(ctx: &VmContext, slot: i64) {
+    pub fn udp_close(ctx: &VmContext, slot: i64) -> Result<(), BuiltinError> {
         if let Ok(id) = u64::try_from(slot) {
-            ctx.core.udp_sockets.lock().remove(&id);
+            state(ctx)?.slots.lock().remove(&id);
         }
+        Ok(())
     }
 
     /// IPv4 multicast membership; `iface` `0.0.0.0` = the OS's default interface.

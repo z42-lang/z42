@@ -18,13 +18,22 @@
 //!   (`Exists`, `GetSize`, `GetLastWriteTime`, FileStream `Length` / `Position` / `Seek`)
 //!   run unparked: a park retires the thread's allocation buffer (`vm::threads::safepoint`), which
 //!   costs more than the `stat` itself — a `File.Exists` loop ran 2.6× slower parked.
-//! - **FileStream handles** (`__file_open` …): the slot table `ctx.core.file_handles`
+//! - **FileStream handles** (`__file_open` …): the slot table in `fs::State`
 //!   holds `Arc<File>`; an operation clones the `Arc` under the table lock, drops the lock,
 //!   then does the syscall — no syscall ever runs under the global lock (it used to:
 //!   every FileStream read / write in the process serialized on it, and a thread blocked
 //!   in a read held it while unparked, stalling every collection).
 //!
 //! [`Blocking`]: crate::vm::exec::call::builtin_abi::Blocking
+
+#[derive(Default)]
+pub(crate) struct State {
+    slots: super::resource_registry::ResourceRegistry<FileHandleSlot>,
+}
+
+pub(super) fn state(ctx: &crate::vm_context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+    crate::corelib::resource_registry::state(ctx)
+}
 
 use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError};
 use crate::pal::fs::Vfs;
@@ -193,7 +202,7 @@ pub(crate) struct FileHandleSlot {
 /// An unknown or closed slot is .NET's `ObjectDisposedException` ("Cannot access a closed
 /// file.", `ObjectName` null).
 fn open_file(ctx: &crate::vm_context::VmContext, slot: i64) -> Result<Arc<std::fs::File>, BuiltinError> {
-    ctx.core.file_handles.with_mut(slot as u64, |s| s.file.clone()).flatten()
+    state(ctx)?.slots.with_mut(slot as u64, |s| s.file.clone()).flatten()
         .ok_or_else(|| BuiltinError::object_disposed(None, "Cannot access a closed file."))
 }
 
@@ -464,7 +473,7 @@ pub mod typed {
             }
             Ok(file)
         }).then(move |ctx: &VmContext, file| {
-            let id = ctx.core.file_handles.insert_new(FileHandleSlot { file: Some(std::sync::Arc::new(file)), mode });
+            let id = super::state(ctx)?.slots.insert_new(FileHandleSlot { file: Some(std::sync::Arc::new(file)), mode });
             Ok(id as i64)
         }))
     }
@@ -547,9 +556,10 @@ pub mod typed {
     /// `__file_close(slot)` — idempotent; an unknown id is a no-op. The `Arc` is taken out
     /// under the lock and dropped after it (closing the descriptor never runs under it).
     #[builtin(name = "__file_close")]
-    pub fn file_close(ctx: &VmContext, slot: i64) {
-        let file = ctx.core.file_handles.with_mut(slot as u64, |s| s.file.take()).flatten();
+    pub fn file_close(ctx: &VmContext, slot: i64) -> Result<(), BuiltinError> {
+        let file = super::state(ctx)?.slots.with_mut(slot as u64, |s| s.file.take()).flatten();
         drop(file);
+        Ok(())
     }
 
     // ── Console ───────────────────────────────────────────────────────────────
