@@ -86,7 +86,7 @@ fn compiled_count(vm: &VmContext) -> u64 {
 fn setup_compiles_nothing() {
     let module = module_of("M", vec![empty_fn("entry"), empty_fn("a"), empty_fn("b")]);
     let vm = VmContext::new();
-    install(&vm, &module).expect("install");
+    install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     assert_eq!(compiled_count(&vm), 0, "setup must not compile any function");
 }
 
@@ -94,7 +94,7 @@ fn setup_compiles_nothing() {
 fn run_entry_compiles_only_the_entry() {
     let module = module_of("M", vec![empty_fn("entry"), empty_fn("unused_a"), empty_fn("unused_b")]);
     let vm = VmContext::new();
-    install(&vm, &module).expect("install");
+    install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     run_fn(&vm, "entry").expect("run entry");
     assert_eq!(compiled_count(&vm), 1,
         "only the called entry compiles; the two unused functions stay uncompiled");
@@ -104,7 +104,7 @@ fn run_entry_compiles_only_the_entry() {
 fn second_run_does_not_recompile() {
     let module = module_of("M", vec![empty_fn("entry")]);
     let vm = VmContext::new();
-    install(&vm, &module).expect("install");
+    install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     run_fn(&vm, "entry").expect("run 1");
     run_fn(&vm, "entry").expect("run 2");
     assert_eq!(compiled_count(&vm), 1, "already-compiled entry is not recompiled on re-run");
@@ -114,7 +114,7 @@ fn second_run_does_not_recompile() {
 fn distinct_functions_each_compile_once() {
     let module = module_of("M", vec![empty_fn("a"), empty_fn("b")]);
     let vm = VmContext::new();
-    install(&vm, &module).expect("install");
+    install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     run_fn(&vm, "a").expect("run a");
     run_fn(&vm, "b").expect("run b");
     assert_eq!(compiled_count(&vm), 2, "each distinct called function compiles exactly once");
@@ -126,7 +126,7 @@ fn interp_only_function_is_not_compiled() {
     // leaving it to the interpreter fallback — and never bumps the compile count.
     let module = module_of("M", vec![interp_only_fn("f")]);
     let vm = VmContext::new();
-    let rt = install(&vm, &module).expect("install");
+    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     let resolved = rt.resolve_fn_by_id(&vm, 0);
     assert!(resolved.is_none(), "interp-only function must not resolve to a JIT entry");
     assert_eq!(compiled_count(&vm), 0, "interp-only function is never compiled");
@@ -179,7 +179,7 @@ fn concurrent_first_call_compiles_exactly_once() {
     // the same slot; the Mutex + OnceLock double-check must compile it exactly once.
     let module = module_of("M", vec![empty_fn("f")]);
     let vm = VmContext::new();
-    install(&vm, &module).expect("install");
+    install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     let first_call = || {
         let w = VmContext::new_with_core(vm.core_arc());
         w.jit().expect("shared JIT").resolve_fn_by_id(&w, 0).is_some()

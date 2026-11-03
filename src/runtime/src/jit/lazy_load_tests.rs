@@ -80,7 +80,7 @@ fn vm_with_lazy(module: Module, lazy: Vec<Function>) -> (std::pin::Pin<Box<VmCon
 }
 
 fn jit_for(vm: &VmContext) -> &JitRuntime {
-    install(vm, vm.module().expect("entry module")).expect("install")
+    install(vm, vm.module().expect("entry module"), crate::config::runtime_config().jit_config()).expect("install")
 }
 
 fn jit_for_tuned(vm: &VmContext, jit_threshold: u32) -> &JitRuntime {
@@ -91,7 +91,7 @@ fn jit_for_tuned(vm: &VmContext, jit_threshold: u32) -> &JitRuntime {
 fn id_by_name_maps_entry_function_to_its_index() {
     let module = module_of("M", vec![empty_fn("entry"), empty_fn("a"), empty_fn("b")]);
     let vm = VmContext::new();
-    let rt = install(&vm, &module).expect("install");
+    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     assert_eq!(rt.id_by_name(&vm, "entry"), Some(0));
     assert_eq!(rt.id_by_name(&vm, "a"), Some(1));
     assert_eq!(rt.id_by_name(&vm, "b"), Some(2));
@@ -103,7 +103,7 @@ fn id_by_name_maps_entry_function_to_its_index() {
 fn resolve_fn_by_name_routes_through_id_and_compiles() {
     let module = module_of("M", vec![empty_fn("a")]);
     let vm = VmContext::new();
-    let rt = install(&vm, &module).expect("install");
+    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     let e = rt.resolve_fn_by_name(&vm, "a");
     assert!(e.is_some(), "entry function resolves via name→id→entry");
     assert_eq!(compiled_count(&vm), 1);
@@ -115,7 +115,7 @@ fn unregistered_id_resolves_to_none() {
     // out-of-bounds panic, never a compile.
     let module = module_of("M", vec![empty_fn("a")]);
     let vm = VmContext::new();
-    let rt = install(&vm, &module).expect("install");
+    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     let r = rt.resolve_fn_by_id(&vm, module.functions.len() + 7);
     assert!(r.is_none(), "unregistered id → None, no panic");
     assert_eq!(compiled_count(&vm), 0);
@@ -128,7 +128,7 @@ fn id_by_name_unknown_without_loader_is_none() {
     // None — jit_call's by-name tier then raises the missing-symbol exception.
     let module = module_of("M", vec![empty_fn("a")]);
     let vm = VmContext::new();
-    let rt = install(&vm, &module).expect("install");
+    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     assert_eq!(rt.id_by_name(&vm, "nonexistent.Fn"), None);
     assert_ne!(0u32, UNRESOLVED);
 }
@@ -161,7 +161,7 @@ fn lazy_function_without_entry_module_has_no_id() {
     let vm = VmContext::new();
     let lazy = Arc::new(empty_fn("Lib.f"));
     let id = vm.funcs().register_lazy(&lazy).expect("registered").0 as usize;
-    let rt = install(&vm, &module).expect("install");
+    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     assert_eq!(rt.id_of_func(&lazy), None);
     assert_eq!(rt.id_by_name(&vm, "Lib.f"), None);
     if id >= module.functions.len() {
@@ -202,7 +202,7 @@ fn untranslatable_lazy_function_is_negative_cached() {
 fn untranslatable_entry_function_is_negative_cached() {
     let module = module_of("M", vec![interp_only_fn("f")]);
     let vm = VmContext::new();
-    let rt = install(&vm, &module).expect("install");
+    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     assert!(rt.resolve_fn_by_id(&vm, 0).is_none());
     assert!(rt.resolve_fn_by_id_tiered(&vm, 0).is_none());
     assert_eq!(rt.slot_probe(0), (0, true), "rejected on the first (non-tiered) resolve");

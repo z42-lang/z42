@@ -30,6 +30,7 @@ pub struct LazyCompiler {
     /// Read once at setup so `compile_fn` avoids a per-call env lookup; the
     /// line count is the "compiled N functions" tally the design cites.
     profile:    bool,
+    debug_promote: bool,
 }
 
 // SAFETY: the `JITModule` (which is not `Sync`) is only ever touched while the wrapping `Mutex<LazyCompiler>` is held, so
@@ -40,7 +41,7 @@ impl LazyCompiler {
     /// Build the JIT infrastructure (JITModule + helper symbols) **without**
     /// translating any user function; functions are translated later, on
     /// demand, by [`compile_fn`](Self::compile_fn).
-    pub fn setup() -> Result<Self> {
+    pub fn setup(config: super::config::JitConfig) -> Result<Self> {
         // NB(perf-vm-iteration Phase 4)：实测 `opt_level=speed` 对本 VM 无收益——
         // 紧循环/派发的成本在 opaque helper call + 每 op 一次 Value（16B）load/store，
         // Cranelift 无法跨 op 去箱来消除,故 speed 档零计算提升却多 ~4-5ms 冷编译
@@ -82,9 +83,9 @@ impl LazyCompiler {
         Ok(LazyCompiler {
             jit,
             helper_ids,
-            // `Z42_JIT_PROFILE` now flows through the central RuntimeConfig
-            // (de-straggler) so it appears in `--info` and the [runtime] layer.
-            profile: crate::config::runtime_config().jit_profile,
+            // The facade resolves profile/debug flags before backend construction.
+            profile: config.profile,
+            debug_promote: config.debug_promote,
         })
     }
 
@@ -114,7 +115,7 @@ impl LazyCompiler {
         }
 
         let max_r = translate::max_reg(func);
-        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, None, callees)?;
+        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, None, callees, self.debug_promote)?;
         // Finalize just this function's definition (relocations + mprotect).
         // Earlier finalized functions keep their code pages — cranelift-jit
         // allocates each function separately, so their pointers stay valid.
@@ -153,7 +154,7 @@ impl LazyCompiler {
         }
 
         let max_r = translate::max_reg(func);
-        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, Some(k), callees)?;
+        translate::translate_function(&mut self.jit, &self.helper_ids, func, max_r, func_id, Some(k), callees, self.debug_promote)?;
         self.jit.finalize_definitions()?;
 
         let ptr_raw = self.jit.get_finalized_function(func_id);

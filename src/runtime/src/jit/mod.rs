@@ -134,12 +134,12 @@ fn run_with_static_init(ctx: &VmContext, entry_name: &str) -> Result<()> {
 /// module **size** (`functions().len()`) and the **setup** time (not a
 /// whole-module compile time). Per-function compile events are deferred to a
 /// future observability spec (avoids one event per function).
-pub fn run(ctx: &VmContext, module: &Module, entry_name: &str) -> Result<()> {
+pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: config::JitConfig) -> Result<()> {
     // E1.P2 Phase 1 : metadata reads routed through `JitVm`.
     let function_count = module.functions().len() as u32;
     let start = std::time::Instant::now();
 
-    runtime::install(ctx, module)?;
+    runtime::install(ctx, module, config)?;
 
     let setup_us = start.elapsed().as_micros() as u64;
     ctx.fire_runtime_event(&crate::observer::RuntimeEvent::JitModuleCompiled {
@@ -150,3 +150,5 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str) -> Result<()> {
 
     run_with_static_init(ctx, entry_name)
 }
+
+pub mod config;

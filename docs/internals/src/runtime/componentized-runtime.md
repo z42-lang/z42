@@ -64,6 +64,8 @@ interp 的静态、虚、闭包和通用混合入口传入共享参数视图；T
 
 BuiltinCatalog 在 runtime 保存纯名称/ID 与折叠属性，exec 保存 callable 表并派发；门面从 corelib / interop 描述符装配两者，不让 runtime 引入执行 ABI 或具体实现。默认目录不可变，现有 native 符号按 interop 原时序加载。
 
+JIT 的安装输入为后端拥有的 JitConfig，门面负责配置转换和注册适配；分层/编译/翻译仅使用已传入的值。该内部输入是同构建 Rust API，不是动态库 ABI。
+
 ### 4.2 独立交付仍是目标设计
 
 注册边界见 [VM 总体架构](vm-architecture.md)「引擎注册与调用边界」。物理拆 crate、跨动态库的组件 ABI、自动加载和卸载尚未实现；当前 Rust trait/注册对象不是可跨版本或跨动态库使用的 ABI。以后独立交付须在这一每 VM 所有权边界上设计同构建组件 ABI，不能改成进程全局 JIT 单例。

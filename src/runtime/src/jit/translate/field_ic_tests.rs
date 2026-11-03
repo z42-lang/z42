@@ -123,7 +123,7 @@ struct Jitted<'m> {
 impl Jitted<'_> {
     fn new<'m>(vm: &'m VmContext, m: &'m Module, idx: usize) -> Jitted<'m> {
         crate::vm::runtime::resolve::resolve_function_tokens(&m.functions[idx], m, vm);
-        let rt = install(vm, m).expect("install");
+        let rt = install(vm, m, crate::config::runtime_config().jit_config()).expect("install");
         let entry = rt.compile_with(&m.functions[idx], &Lookup(vm)).expect("compile");
         Jitted { vm, entry }
     }

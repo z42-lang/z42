@@ -84,12 +84,12 @@ fn run(vm: &VmContext, entry: &crate::jit::frame::FnEntry) -> NativeOutcome {
 fn every_context_of_a_vm_sees_the_same_jit() {
     let module = module_of(vec![returns("f", 1)]);
     let vm = VmContext::new();
-    let rt = install(&vm, &module).expect("install");
+    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     let w = VmContext::new_with_core(vm.core_arc());
     assert!(std::ptr::eq(w.jit().expect("worker sees the JIT"), rt));
-    assert!(std::ptr::eq(install(&w, &module).expect("reinstall is a no-op"), rt));
+    assert!(std::ptr::eq(install(&w, &module, crate::config::runtime_config().jit_config()).expect("reinstall is a no-op"), rt));
     let other = module_of(vec![returns("g", 2)]);
-    assert!(install(&w, &other).is_err(), "one JIT per VM");
+    assert!(install(&w, &other, crate::config::runtime_config().jit_config()).is_err(), "one JIT per VM");
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn a_context_older_than_the_install_picks_the_jit_up_at_its_next_entry() {
     let module = module_of(vec![returns("f", 5)]);
     let vm = VmContext::new();
     let w = VmContext::new_with_core(vm.core_arc());
-    install(&vm, &module).expect("install");
+    install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     assert!(w.jit().is_none(), "not until its next bottom frame push");
     let regs: Vec<Value> = Vec::new();
     w.push_frame(VmFrame::new(&module.functions[0], &regs));
@@ -109,7 +109,7 @@ fn a_context_older_than_the_install_picks_the_jit_up_at_its_next_entry() {
 fn function_compiled_on_one_thread_runs_natively_on_another() {
     let module = module_of(vec![returns("f", 42)]);
     let vm = VmContext::new();
-    let rt = install(&vm, &module).expect("install");
+    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     let code = rt.resolve_fn_by_id(&vm, 0).expect("compiles on the main thread").ptr as usize;
     assert_eq!(compiled_here(&vm), 1);
     std::thread::scope(|s| {
@@ -160,7 +160,7 @@ fn worker_reaching_the_tier_threshold_compiles_in_thread() {
 fn exception_thrown_in_jit_code_on_a_worker_stays_on_the_worker() {
     let module = module_of(vec![throws("f", 13)]);
     let vm = VmContext::new();
-    let rt = install(&vm, &module).expect("install");
+    let rt = install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     rt.resolve_fn_by_id(&vm, 0).expect("compiles");
     std::thread::scope(|s| {
         s.spawn(|| {
@@ -213,4 +213,69 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
     assert_ne!(stored, main_limit, "not the main thread's");
     assert!(forced, "the prologue compares against the context's limit");
     assert!(deep.contains("stack overflow"), "{deep}");
+}
+
+#[test]
+fn explicit_configs_drive_independent_vm_tier_thresholds() {
+    let fast_config = crate::config::RuntimeConfig::from_getter(|key| match key {
+        "Z42_JIT_THRESHOLD" => Some("1".to_string()),
+        _ => None,
+    }).jit_config();
+    let slow_config = crate::config::RuntimeConfig::from_getter(|key| match key {
+        "Z42_JIT_THRESHOLD" => Some("3".to_string()),
+        _ => None,
+    }).jit_config();
+    let fast_module = module_of(vec![returns("f", 7)]);
+    let slow_module = module_of(vec![returns("f", 7)]);
+    let fast = VmContext::new();
+    let slow = VmContext::new();
+    let fast_rt = install(&fast, &fast_module, fast_config).unwrap();
+    let slow_rt = install(&slow, &slow_module, slow_config).unwrap();
+    assert!(fast_rt.resolve_fn_by_id_tiered(&fast, 0).is_some());
+    assert!(slow_rt.resolve_fn_by_id_tiered(&slow, 0).is_none());
+    assert!(slow_rt.resolve_fn_by_id_tiered(&slow, 0).is_none());
+    assert_eq!(compiled_here(&fast), 1);
+    assert_eq!(compiled_here(&slow), 0);
+    let slow_entry = slow_rt.resolve_fn_by_id_tiered(&slow, 0).unwrap();
+    assert!(matches!(run(&slow, slow_entry), NativeOutcome::Returned(Some(Value::I64(7)))));
+    assert_eq!(compiled_here(&slow), 1);
+}
+
+#[test]
+fn reinstall_keeps_the_published_config_and_tier() {
+    let config = crate::config::RuntimeConfig::from_getter(|key| match key {
+        "Z42_JIT_THRESHOLD" => Some("3".to_string()),
+        _ => None,
+    }).jit_config();
+    let module = module_of(vec![returns("f", 9)]);
+    let vm = VmContext::new();
+    let rt = install(&vm, &module, config).unwrap();
+    let mut later = config;
+    later.threshold = 1;
+    assert!(std::ptr::eq(rt, install(&vm, &module, later).unwrap()));
+    assert!(rt.resolve_fn_by_id_tiered(&vm, 0).is_none());
+    assert!(rt.resolve_fn_by_id_tiered(&vm, 0).is_none());
+    assert!(rt.resolve_fn_by_id_tiered(&vm, 0).is_some());
+    assert_eq!(compiled_here(&vm), 1);
+}
+
+#[test]
+fn explicit_mixed_entry_config_counts_before_compiling() {
+    use crate::vm::exec::engine::{TierBackend, TierTarget};
+    use crate::vm::exec::call::{args::CallArgs, outcome::ExecOutcome};
+    let config = crate::config::RuntimeConfig::from_getter(|key| match key {
+        "Z42_JIT_THRESHOLD" => Some("10".to_string()),
+        "Z42_JIT_INTERP_TIERUP" => Some("2".to_string()),
+        "Z42_OSR_THRESHOLD" => Some("7".to_string()),
+        _ => None,
+    }).jit_config();
+    let module = module_of(vec![returns("f", 11)]);
+    let vm = VmContext::new();
+    let rt = install(&vm, &module, config).unwrap();
+    assert_eq!(rt.osr_threshold(), 7);
+    assert!(rt.invoke(&vm, TierTarget::Existing(&module.functions[0]), CallArgs::Values(&[])).is_none());
+    assert_eq!(compiled_here(&vm), 0);
+    let outcome = rt.invoke(&vm, TierTarget::Existing(&module.functions[0]), CallArgs::Values(&[])).unwrap().unwrap();
+    assert!(matches!(outcome, ExecOutcome::Returned(Some(Value::I64(11)))));
+    assert_eq!(compiled_here(&vm), 1);
 }

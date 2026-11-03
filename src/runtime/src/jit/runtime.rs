@@ -107,6 +107,7 @@ pub struct JitRuntime {
     /// call (N=1 → compile-on-first-call). From the `jit-threshold` runtime knob
     /// (default 2; see `jit/mod.rs`), clamped ≥ 1.
     pub(crate) jit_threshold: u32,
+    pub(crate) interp_tierup: u32,
     /// Compiled OSR entries keyed by `(JIT id, loop-header block K)`. Keyed by K
     /// too because a function with two loops can OSR at different headers — a K1
     /// entry must not be reused for a K2 hand-off. Filled under the compiler lock,
@@ -131,9 +132,9 @@ unsafe impl Sync for JitRuntime {}
 /// The JIT is built without compiling any user function (compile-on-first-call).
 /// Racing installers build one each; the first published wins and the other is
 /// dropped unused.
-pub fn install<'a>(vm: &'a VmContext, module: &Module) -> Result<&'a JitRuntime> {
+pub fn install<'a>(vm: &'a VmContext, module: &Module, config: super::config::JitConfig) -> Result<&'a JitRuntime> {
     if vm.core.exec.engines.tier().is_none() {
-        let _ = vm.core.exec.engines.install_tier(crate::vm::exec::engine::TierApi::new(JitRuntime::new(vm, module)?));
+        let _ = vm.core.exec.engines.install_tier(crate::vm::exec::engine::TierApi::new(JitRuntime::new(vm, module, config)?));
     }
     let rt = vm.core.exec.engines.tier().and_then(|tier| tier.backend::<JitRuntime>())
         .ok_or_else(|| anyhow::anyhow!("JIT: a different tier backend is installed on this VM"))?;
@@ -153,7 +154,7 @@ pub fn install<'a>(vm: &'a VmContext, module: &Module) -> Result<&'a JitRuntime>
 pub(crate) fn install_tuned<'a>(
     vm: &'a VmContext, module: &Module, tune: impl FnOnce(&mut JitRuntime),
 ) -> &'a JitRuntime {
-    let mut rt = JitRuntime::new(vm, module).expect("JIT setup");
+    let mut rt = JitRuntime::new(vm, module, crate::config::runtime_config().jit_config()).expect("JIT setup");
     tune(&mut rt);
     assert!(vm.core.exec.engines.install_tier(crate::vm::exec::engine::TierApi::new(rt)).is_ok(), "a tier is already installed on this VM");
     let rt = vm.core.exec.engines.tier().and_then(|t| t.backend::<JitRuntime>()).expect("installed");
@@ -169,23 +170,23 @@ fn publish_to(vm: &VmContext, rt: &JitRuntime) {
 }
 
 impl JitRuntime {
-    fn new(vm: &VmContext, module: &Module) -> Result<Self> {
-        let cfg = crate::config::runtime_config();
+    fn new(vm: &VmContext, module: &Module, config: super::config::JitConfig) -> Result<Self> {
         Ok(JitRuntime {
             slots: SparseSegTable::new(),
             module: module as *const Module,
             funcs: Arc::clone(&vm.core.runtime.funcs),
             lazy_ids: vm.core.runtime.funcs.is_entry(module),
-            lazy: Mutex::new(LazyCompiler::setup()?),
+            lazy: Mutex::new(LazyCompiler::setup(config)?),
             // Tier-up threshold (`jit-threshold` knob, default 2): a function compiles on
             // its 2nd tiered call. 1 also compiled every run-once function (561 Cranelift
             // compiles ≈ 0.33 s of a 0.80 s hello-world build); larger values keep the
             // z42c pipeline — functions called a handful of times per build — on the
             // interpreter. OSR (`osr_threshold`) upgrades hot loops independently.
-            jit_threshold: cfg.jit_threshold,
+            jit_threshold: config.threshold,
+            interp_tierup: config.interp_tierup,
             osr_entries: Mutex::new(HashMap::new()),
             // Back-edge count that triggers OSR of the running interp activation.
-            osr_threshold: cfg.osr_threshold,
+            osr_threshold: config.osr_threshold,
         })
     }
 

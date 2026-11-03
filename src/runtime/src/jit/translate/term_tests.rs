@@ -58,7 +58,7 @@ fn br_cond_on_int() -> Function {
 fn br_cond_on_non_bool_throws_instead_of_branching() {
     let module = module(br_cond_on_int());
     let vm = VmContext::new();
-    install(&vm, &module).expect("install");
+    install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     let err = crate::jit::run_fn(&vm, "f").expect_err("a non-Bool condition must throw, not take a branch");
     assert!(err.to_string().contains("expected bool"), "unexpected error: {err}");
 }
@@ -71,7 +71,7 @@ fn safepoint_polls(f: Function, indexed: bool) -> u32 {
     let mut module = module(f);
     if indexed { crate::vm::loader::package::build_block_indices(&mut module); }
     let vm = VmContext::new();
-    install(&vm, &module).expect("install");
+    install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     const START: u32 = 1_000_000;
     vm.threads.safepoint_skip.store(START, Ordering::Relaxed);
     crate::jit::run_fn(&vm, "f").expect("run");

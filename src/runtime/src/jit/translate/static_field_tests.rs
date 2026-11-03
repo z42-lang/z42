@@ -100,7 +100,7 @@ fn module(functions: Vec<Function>, types: Vec<Arc<TypeDesc>>) -> Module {
 fn vm_of(build: &dyn Fn() -> Module) -> std::pin::Pin<Box<VmContext>> {
     let vm = VmContext::with_module(build());
     let m = Arc::clone(vm.module().expect("entry module"));
-    install(&vm, &m).expect("install");
+    install(&vm, &m, crate::config::runtime_config().jit_config()).expect("install");
     for td in m.type_registry.values() {
         vm.register_cctor_of(td);
     }

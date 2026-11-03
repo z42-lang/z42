@@ -127,7 +127,7 @@ fn thrown(msg: &str) -> String {
 fn run_jit(m: &Module, idx: usize, args: &[Value], init_pending: bool) -> (String, bool) {
     let vm = VmContext::new();
     crate::vm::runtime::resolve::resolve_function_tokens(&m.functions[idx], m, &vm);
-    let rt = install(&vm, m).expect("install");
+    let rt = install(&vm, m, crate::config::runtime_config().jit_config()).expect("install");
     if init_pending {
         use crate::vm::runtime::statics::CctorRegistry;
         // The counter the inline gate reads (and `jit_call`'s barrier recounts).

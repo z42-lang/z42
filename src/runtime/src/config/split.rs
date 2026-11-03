@@ -4,6 +4,18 @@ use super::RuntimeConfig;
 use crate::gc::GcConfig;
 
 impl RuntimeConfig {
+    /// Capture the resolved JIT inputs; the backend never interprets facade settings.
+    #[cfg(feature = "jit")]
+    pub fn jit_config(&self) -> crate::jit::config::JitConfig {
+        crate::jit::config::JitConfig {
+            threshold: self.jit_threshold,
+            osr_threshold: self.osr_threshold,
+            interp_tierup: self.jit_interp_tierup,
+            profile: self.jit_profile,
+            debug_promote: self.jit_debug_promote,
+        }
+    }
+
     /// Capture this runtime's heap policy without exposing the facade to GC.
     pub fn gc_config(&self) -> GcConfig {
         GcConfig {

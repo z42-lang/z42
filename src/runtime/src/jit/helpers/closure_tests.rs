@@ -113,7 +113,7 @@ fn undefined_target_throws_from_the_load_fn_helper() {
     ]);
     let vm = VmContext::with_module(module_of(vec![main]));
     vm.install_lazy_loader(None, 0);
-    install(&vm, vm.module().unwrap()).expect("install");
+    install(&vm, vm.module().unwrap(), crate::config::runtime_config().jit_config()).expect("install");
     let err = crate::jit::run_fn(&vm, "App.Main").expect_err("throws");
     assert!(err.to_string().contains("undefined function `Nowhere.F`"), "{err}");
 }
