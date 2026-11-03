@@ -185,29 +185,6 @@ bool _skipHas(string skip, string stage) {
     return skip.Length > 0 && _strIn(_splitWords(skip.Replace(",", " ")), stage);
 }
 
-// 文档里机器可读清单区 <!-- <name>:begin/end --> 的条目：每行 `- \`item\` …`，取第一对反引号里的
-// 内容，其后的文字是给人读的说明。区块缺失返回 null
-// （调用方报「标记不见了」而非「清单为空」——两种失败原因不同，混在一起会让人去改清单而不是去找
-// 被删掉的标记）。
-string[] _docListBlock(string text, string name) {
-    int b = text.IndexOf("<!-- " + name + ":begin -->");
-    int e = text.IndexOf("<!-- " + name + ":end -->");
-    if (b < 0 || e < 0 || e < b) { return null; }
-    // "\n" 而非 '\n'：z42 的 Split 无 char 重载。CRLF 下每行尾留的 \r 由下面的 Trim() 吃掉。
-    string[] lines = text.Substring(b, e - b).Split("\n");
-    var items = new List<string>();
-    foreach (var line in lines) {
-        string ln = line.Trim();
-        // 只认 "- `item`…" 形状，其余（标记行 / 空行 / 说明文字）跳过。
-        if (!ln.StartsWith("- `")) { continue; }
-        string rest = ln.Substring(3);
-        int q = rest.IndexOf("`");
-        if (q <= 0) { continue; }
-        items.Add(rest.Substring(0, q));
-    }
-    return items.ToArray();
-}
-
 // stage 的名称、skip 键与执行函数只在此登记；列表只读元数据，不调用 Body。
 class GateStage {
     public string Key;

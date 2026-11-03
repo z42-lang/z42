@@ -59,6 +59,7 @@ panic「unknown builtin」→ 全体 golden 假失败，且 regen 返回 1 早�
 完整 Rust 测试的 signal-crash helper 不进入本地常跑门禁；完整版本由 CI 独立步骤与 `xtask test runtime` 覆盖。
 GREEN 中保留 `cargo test --lib` 与全部测试 target 的编译检查。两种入口及 GC 模式回归归属
 `scripts/test/xtask_test_runtime.z42`；Cargo workspace、feature 与 manifest 配置由同一 helper 提供。
+CI 的 `vm` 过滤也包含此执行器文件，执行器改动由完整 Runtime 测试覆盖。
 
 ## 5. `--skip`：只改「在哪跑」，不改 gate 的组成
 

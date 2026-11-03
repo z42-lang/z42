@@ -30,6 +30,29 @@ using Std.Collections;
 
 string _tlDocPath(string root) { return Path.Join(root, "docs/internals/src/devinfra/test-layout.md"); }
 
+// 文档里机器可读清单区 <!-- <name>:begin/end --> 的条目：每行 `- \`item\` …`，取第一对反引号里的
+// 内容，其后的文字是给人读的说明。区块缺失返回 null
+// （调用方报「标记不见了」而非「清单为空」——两种失败原因不同，混在一起会让人去改清单而不是去找
+// 被删掉的标记）。
+string[] _tlDocListBlock(string text, string name) {
+    int b = text.IndexOf("<!-- " + name + ":begin -->");
+    int e = text.IndexOf("<!-- " + name + ":end -->");
+    if (b < 0 || e < 0 || e < b) { return null; }
+    // "\n" 而非 '\n'：z42 的 Split 无 char 重载。CRLF 下每行尾留的 \r 由下面的 Trim() 吃掉。
+    string[] lines = text.Substring(b, e - b).Split("\n");
+    var items = new List<string>();
+    foreach (var line in lines) {
+        string ln = line.Trim();
+        // 只认 "- `item`…" 形状，其余（标记行 / 空行 / 说明文字）跳过。
+        if (!ln.StartsWith("- `")) { continue; }
+        string rest = ln.Substring(3);
+        int q = rest.IndexOf("`");
+        if (q <= 0) { continue; }
+        items.Add(rest.Substring(0, q));
+    }
+    return items.ToArray();
+}
+
 // 故意使用未登记能力名的 fixture（相对仓库根的路径前缀）。
 string[] _tlCapFixtures() {
     return new string[]{
@@ -46,7 +69,7 @@ int _checkLayout() {
     }
     string doc = File.ReadAllText(docPath);
     int bad = _tlCheckCategories(root, doc);
-    string[] active = _docListBlock(doc, "caps-active");
+    string[] active = _tlDocListBlock(doc, "caps-active");
     bad = bad + _tlCheckCapVocab(root, doc, active);
     if (active != null) { bad = bad + _tlCheckCapUses(root, active); }
     bad = bad + _tlCheckBuildMirror(root);
@@ -61,8 +84,8 @@ int _checkLayout() {
 // ① src/tests 顶层类别对账。
 int _tlCheckCategories(string root, string doc) {
     Console.WriteLine("① src/tests 顶层类别 = 「语言类别」∪「待搬迁」");
-    string[] lang = _docListBlock(doc, "test-lang-categories");
-    string[] pend = _docListBlock(doc, "test-pending-moves");
+    string[] lang = _tlDocListBlock(doc, "test-lang-categories");
+    string[] pend = _tlDocListBlock(doc, "test-pending-moves");
     if (lang == null || pend == null) {
         ConsoleError.WriteLine("  ✗ test-layout.md 缺 test-lang-categories / test-pending-moves 标记区（清单的机器可读副本，不能删）");
         return 1;
@@ -137,7 +160,7 @@ string _tlQuotedAfter(string s, string key) {
 // ② 能力词表「已生效」区 ↔ 运行期实际报告的能力。
 int _tlCheckCapVocab(string root, string doc, string[] active) {
     Console.WriteLine("② 能力词表「已生效」= platform.rs 的 platform_caps");
-    string[] planned = _docListBlock(doc, "caps-planned");
+    string[] planned = _tlDocListBlock(doc, "caps-planned");
     if (active == null || planned == null) {
         ConsoleError.WriteLine("  ✗ test-layout.md 缺 caps-active / caps-planned 标记区");
         return 1;
