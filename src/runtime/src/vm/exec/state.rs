@@ -3,8 +3,9 @@ use super::engine::EngineRegistry;
 
 pub(crate) struct ExecState {
     pub(crate) engines: EngineRegistry,
+    pub(crate) builtins: &'static [super::call::builtin_abi::BuiltinDesc],
 }
 
 impl ExecState {
-    pub(crate) fn new(engines: EngineRegistry) -> Self { Self { engines } }
+    pub(crate) fn new(engines: EngineRegistry, builtins: &'static [super::call::builtin_abi::BuiltinDesc]) -> Self { Self { engines, builtins } }
 }

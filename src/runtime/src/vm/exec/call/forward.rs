@@ -54,7 +54,7 @@ use crate::vm_context::VmContext;
 /// The builtin id `func` forwards to, if `func` is exactly
 /// `%d = builtin __x(%0, …, %{n-1}); ret %d` (or `ret` void) over all of its
 /// parameters in order, with no exception table and no generic parameters.
-pub(crate) fn builtin_forward(func: &Function) -> Option<u32> {
+pub(crate) fn builtin_forward(func: &Function, builtins: &crate::vm::runtime::builtins::BuiltinCatalog) -> Option<u32> {
     if func.blocks.len() != 1 || !func.exception_table().is_empty() || !func.type_params().is_empty() {
         return None;
     }
@@ -76,7 +76,7 @@ pub(crate) fn builtin_forward(func: &Function) -> Option<u32> {
             r.builtin_tokens.get(site as usize).copied()
         })
         .filter(|&id| id != UNRESOLVED)
-        .or_else(|| crate::corelib::builtin_id_of(&insn.name).map(|b| b.0))?;
+        .or_else(|| builtins.id_of(&insn.name).map(|b| b.0))?;
     (id != UNRESOLVED).then_some(id)
 }
 
@@ -143,13 +143,13 @@ pub(crate) fn forward_of(ctx: &VmContext, module: &Module, f: &Function) -> Opti
 #[cold]
 #[inline(never)]
 fn compute_forward(ctx: &VmContext, module: &Module, f: &Function) -> Option<u32> {
-    let v = match builtin_forward(f) {
-        Some(id) if id < FRAMED => Some(if crate::corelib::folds_frameless(id) { id } else { id | FRAMED }),
+    let v = match builtin_forward(f, ctx.core.runtime.builtins) {
+        Some(id) if id < FRAMED => Some(if ctx.core.runtime.builtins.folds_frameless(id) { id } else { id | FRAMED }),
         Some(_) => None,
         // A chained forward folds only to a frameless builtin: a framed one would need
         // the inner wrapper's `Function` on every call.
-        None => chained_forward(f, |name| probe(ctx, module, name, builtin_forward).flatten())
-            .filter(|&id| id < FRAMED && crate::corelib::folds_frameless(id)),
+        None => chained_forward(f, |name| probe(ctx, module, name, |f| builtin_forward(f, ctx.core.runtime.builtins)).flatten())
+            .filter(|&id| id < FRAMED && ctx.core.runtime.builtins.folds_frameless(id)),
     };
     f.forward.set(v);
     v
@@ -201,7 +201,7 @@ pub(crate) fn run_folded<'m>(
 ) -> Result<Option<Value>, FoldFault> {
     let id = token & !FRAMED;
     if token & FRAMED == 0 {
-        return match crate::corelib::invoke_builtin_id(ctx, id, this, regs, args) {
+        return match crate::vm::exec::call::builtins::invoke_builtin_id(ctx, id, this, regs, args) {
             Ok(v) => Ok(v),
             Err(fault) => Err(FoldFault(Box::new(Failure::Unraised { id, fault }))),
         };
@@ -218,12 +218,12 @@ fn run_framed<'m>(
 ) -> Result<Option<Value>, FoldFault> {
     ctx.push_frame(VmFrame::new(wrapper, &NO_REGS));
     let _frame = LightFrame(ctx);
-    match crate::corelib::invoke_builtin_id(ctx, id, this, regs, args) {
+    match crate::vm::exec::call::builtins::invoke_builtin_id(ctx, id, this, regs, args) {
         Ok(v) => Ok(v),
         // The exception is built (and its trace taken) while the wrapper's frame is
         // still on the stack — no synthesized rows needed.
         Err(fault) => Err(FoldFault(Box::new(Failure::Raised(crate::vm::exec::call::builtin_abi::error::raise(
-            ctx, module(), crate::corelib::builtin_name(id, "?"), *fault, &[]))))),
+            ctx, module(), ctx.core.runtime.builtins.name(id, "?"), *fault, &[]))))),
     }
 }
 
@@ -245,7 +245,7 @@ impl FoldFault {
             Failure::Raised(r) => r,
             Failure::Unraised { id, fault } => {
                 let rows = wrapper_rows(ctx, module, wrapper);
-                crate::vm::exec::call::builtin_abi::error::raise(ctx, module, crate::corelib::builtin_name(id, "?"), *fault, &rows)
+                crate::vm::exec::call::builtin_abi::error::raise(ctx, module, ctx.core.runtime.builtins.name(id, "?"), *fault, &rows)
             }
         }
     }

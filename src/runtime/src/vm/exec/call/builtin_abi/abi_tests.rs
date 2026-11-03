@@ -26,7 +26,8 @@ pub(crate) fn kind(k: i64) -> BuiltinError {
     }
 }
 
-use crate::corelib::{builtin_id_of, invoke_builtin, BUILTINS};
+use crate::builtin_assembly::{CATALOG, BUILTINS};
+use crate::vm::exec::call::builtins::invoke_builtin;
 use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{FieldSlot, TypeDesc};
 use crate::vm::runtime::Module;
@@ -36,7 +37,7 @@ use std::sync::Arc;
 
 fn s(t: &str) -> Value { Value::Str(t.into()) }
 
-fn id(name: &str) -> u32 { builtin_id_of(name).unwrap_or_else(|| panic!("{name} registered")).0 }
+fn id(name: &str) -> u32 { CATALOG.id_of(name).unwrap_or_else(|| panic!("{name} registered")).0 }
 
 /// Call `name` the way the engines do: arguments read from `regs` by index.
 fn call_regs(ctx: &VmContext, name: &str, this: Option<Value>, regs: &[Value], idx: &[u32])
@@ -48,7 +49,12 @@ fn call_regs(ctx: &VmContext, name: &str, this: Option<Value>, regs: &[Value], i
 #[test]
 fn typed_builtins_are_in_the_table_once() {
     let mut seen = std::collections::HashSet::new();
-    for d in BUILTINS { assert!(seen.insert(d.name), "builtin `{}` registered twice", d.name); }
+    for (i, d) in BUILTINS.iter().enumerate() {
+        assert!(seen.insert(d.name), "builtin `{}` registered twice", d.name);
+        assert_eq!(CATALOG.id_of(d.name).unwrap().0 as usize, i, "lookup and callable order agree");
+        assert_eq!(CATALOG.name(i as u32, "?"), d.name);
+        assert_eq!(CATALOG.folds_frameless(i as u32), !d.flags.reenters);
+    }
     let d = &BUILTINS[id("__test_abi_args") as usize];
     assert_eq!(d.params, &[ParamKind::Str, ParamKind::I64, ParamKind::F64, ParamKind::Bool,
         ParamKind::Char, ParamKind::OptStr]);
@@ -94,7 +100,7 @@ fn arguments_are_read_in_place_from_the_register_file() {
     assert_eq!(r, Some(s("a|3|2.5|true|x|<null>")));
     // An `object`-typed call site boxes its integer: a boxed int reads as `i64` too
     // (exercised through the slice entry, as `exec_builtin*` callers use it).
-    let r = crate::corelib::exec_builtin_value(&ctx, "__test_abi_args",
+    let r = crate::vm::exec::call::builtins::exec_builtin_value(&ctx, "__test_abi_args",
         &[s("b"), Value::I64(-1), Value::I64(4), Value::Bool(false), Value::Char('y'), s("o")]).unwrap();
     assert_eq!(r, s("b|-1|4|false|y|o"));
 }
@@ -237,7 +243,7 @@ fn an_unloaded_class_falls_back_to_its_base() {
 fn a_typed_error_survives_the_anyhow_channel() {
     // Slice callers (`exec_builtin*`) see `anyhow`; `raise` still finds the kind.
     let ctx = VmContext::new();
-    let e = crate::corelib::exec_builtin(&ctx, "__int32_parse", &[s("x")]).unwrap_err();
+    let e = crate::vm::exec::call::builtins::exec_builtin(&ctx, "__int32_parse", &[s("x")]).unwrap_err();
     let m = module_with(&["Std.FormatException"]);
     assert_eq!(thrown_class(error::raise(&ctx, &m, "x", BuiltinError::Legacy(e), &[])), "Std.FormatException");
     // An old-table error keeps the old mapping.
@@ -289,7 +295,7 @@ fn a_blocking_builtin_lets_a_collection_run_while_it_waits() {
         let core = Arc::clone(&ctx.core);
         let sleeper = std::thread::spawn(move || {
             let w = VmContext::new_with_core(core);
-            crate::corelib::exec_builtin_value(&w, name, &[Value::I64(1500)]).unwrap()
+            crate::vm::exec::call::builtins::exec_builtin_value(&w, name, &[Value::I64(1500)]).unwrap()
         });
         assert!(wait_until(|| parked(&ctx) == 1), "{name}: the sleeping thread is parked");
         let t0 = std::time::Instant::now();

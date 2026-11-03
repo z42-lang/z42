@@ -221,7 +221,7 @@ unsafe fn call_barriers(
 
 /// `jit_builtin`: the site's pre-resolved `BuiltinId` (or `UNRESOLVED` + the name, to
 /// resolve now — which re-checks the ext registry, as the interpreter does). The
-/// arguments are read in place from this frame's registers (`corelib::invoke_builtin`);
+/// arguments are read in place from this frame's registers (`vm::exec::call::builtins::invoke_builtin`);
 /// a void builtin leaves `dst` alone (same as interp `exec_call::builtin`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_builtin(
@@ -237,12 +237,12 @@ pub unsafe extern "C" fn jit_builtin(
     let name = if builtin_id != crate::vm::runtime::ids::tokens::UNRESOLVED { "" } else {
         std::str::from_utf8(std::slice::from_raw_parts(name_ptr, name_len)).unwrap_or("<invalid>")
     };
-    match crate::corelib::invoke_builtin(vm, builtin_id, name, None, &frame_ref.regs, arg_regs) {
+    match crate::vm::exec::call::builtins::invoke_builtin(vm, builtin_id, name, None, &frame_ref.regs, arg_regs) {
         Ok(Some(v)) => { frame_ref.regs[dst as usize] = v; 0 }
         Ok(None)    => 0,
         Err(e) => {
             let module = super::jit_module(ctx);
-            let who = if name.is_empty() { crate::corelib::builtin_name(builtin_id, "?") } else { name };
+            let who = if name.is_empty() { vm.core.runtime.builtins.name(builtin_id, "?") } else { name };
             raised_into_exception(vm, crate::vm::exec::call::builtin_abi::error::raise(vm, module, who, *e, &[]))
         }
     }

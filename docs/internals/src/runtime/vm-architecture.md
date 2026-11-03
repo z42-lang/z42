@@ -1162,7 +1162,7 @@ match callee_value {
 两种后端共享：
 - `Module` / `Function` / `Instruction` 数据结构
 - `TypeDesc` / `FieldSlot` / vtable
-- corelib builtin 调度表（`corelib/builtin_table.rs`）
+- corelib builtin 调度表（`builtin_assembly.rs`）
 - LazyLoader（interp 与 JIT 都经它按需加载依赖 zpkg）
 
 ---
@@ -1406,7 +1406,7 @@ pub struct ResolvedTokens {
    - 对每个 token-bearing instruction 分配 per-kind site_idx
    - 解析能解析的 token：
      - `Call.func` → `FuncTable::id_of`（入口模块、再已登记的惰性函数）命中且签名容得下 → `FnId`，否则 `UNRESOLVED`
-     - `Builtin.name` → `corelib::builtin_id_of`（再查 per-VM ext 注册表）命中 → `BuiltinId`，否则 `UNRESOLVED`（ext 库此时可能还没加载）
+     - `Builtin.name` → 当前 VM 的 `BuiltinCatalog::id_of` 命中 → `BuiltinId`，否则 `UNRESOLVED`
      - `ObjNew` → 入口模块时预填站点缓存：`module.type_registry` 的描述符（基类未合并的除外）+ ctor 经 `FuncTable::id_of` 命中且签名容得下的 `FnId`
      - `StaticGet/Set.field` → `ctx.resolve_static_field_id(name)` 懒分配
      - `VCall` / `FieldGet/Set` → 留 IC UNRESOLVED（receiver-type-dependent）
@@ -1417,7 +1417,7 @@ pub struct ResolvedTokens {
 每条 token-bearing 指令在 `interp::exec_instr` 入口查 `resolved.site_index[block_idx][instr_idx] → site_idx`，传给对应 helper：
 
 - **Call**: 命中 → 入口函数 `module.functions[t]` / 惰性函数 `funcs.get(t)`；UNRESOLVED → 按名绑定 + 写回（见上文「Call 站点 token：FnId」）
-- **Builtin**: 命中 → `corelib::invoke_builtin`（`BUILTINS[id]` 或 ext 表，实参原地从寄存器读）；`UNRESOLVED` → 同一入口按名解析（调用时重查 ext 注册表，仍解不出抛 `MissingSymbolException`）
+- **Builtin**: 命中 → `vm::exec::call::builtins::invoke_builtin`（当前 VM 的 callable 表，实参原地从寄存器读）；`UNRESOLVED` → 同一目录按名解析，仍缺失则抛 `MissingSymbolException`
 - **ObjNew**: 站点缓存命中 → 缓存的 `Arc<TypeDesc>` + ctor 按 `FnId` 无锁取回；未命中 → 按名解析 + 回填（见上文「ObjNew dispatch」）
 - **StaticGet/Set**: 命中 → `statics` 的第 `id` 个单元（无锁）；UNRESOLVED → name lookup + 回填
 - **VCall**: PIC 命中（4-slot 线性扫描；receiver 的 type id 匹配任一槽位的 `type_id`）→ 按载荷 `FnId` 直调（`fn_by_id`：入口函数 = `module.functions` 下标，惰性函数经 `FuncTable::get`）；miss → 走 `vm/exec/ops/vcall` 的完整派发阶梯，目标有 `FnId`（本模块与惰性包的函数都有；唯一例外是非入口模块单测里的惰性目标）且实参个数匹配时通过 `vcall_ic_install` 填入第一个空槽（或 round-robin 牺牲一个槽）
@@ -1474,16 +1474,16 @@ id 永不复用，所以它也是比地址更稳的缓存键：描述符释放�
 
 ---
 
-## corelib builtin dispatch
+## builtin 查询与调用
 
-位置：`src/runtime/src/corelib/`
+位置：纯目录在 `vm/runtime/builtins.rs`，调用在 `vm/exec/call/builtins.rs`，provider 装配在 `builtin_assembly.rs`，实现由 corelib 与 interop 提供。
 
-`Builtin` IR 指令在 interp / JIT 都经 `BuiltinId`（加载期由 `corelib::builtin_id_of` 解析）索引 `corelib::BUILTINS` 表分发（`invoke_builtin`，实参原地从寄存器读；只握着实参切片的调用方用按名入口 `exec_builtin(name, args)`）。ABI 与错误模型见 [native ABI §6](native-abi.md)。
+`Builtin` IR 指令在 interp / JIT 都经 `BuiltinId`（加载期由当前 VM 的 `BuiltinCatalog::id_of` 解析）索引 `builtin_assembly::BUILTINS` 表分发（`invoke_builtin`，实参原地从寄存器读；只握着实参切片的调用方用按名入口 `exec_builtin(name, args)`）。ABI 与错误模型见 [native ABI §6](native-abi.md)。
 builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等，详见 `src/runtime/src/corelib/README.md`。
 
 **新增 builtin 三处同改（强制规则）**：
 1. `corelib/<module>.rs` — 实现
-2. `corelib/builtin_table.rs` — `BUILTINS` 表**表尾追加**一行（下标即 `BuiltinId`，不可插入中间）
+2. `builtin_assembly.rs` — 新 provider 模块在 TYPED 登记 DESCS；目录从同一表派生，ID 为本次运行的数组下标
 3. stdlib 中对应的 `[Native("__name")]` 声明 — 类型签名（`native_decl_tests.rs` 对账）
 
 ---

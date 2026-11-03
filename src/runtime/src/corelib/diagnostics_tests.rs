@@ -7,12 +7,12 @@
 //! (run under `xtask test stdlib`). Here we assert the registration
 //! discipline that Rust *can* check without stdlib types.
 
-use crate::corelib::{builtin_id_of, BUILTINS};
+use crate::builtin_assembly::{CATALOG, BUILTINS};
 
 #[test]
 fn diag_counters_is_registered() {
     // Name resolves to a valid static BuiltinId.
-    let id = builtin_id_of("__diag_counters").expect("__diag_counters must be registered");
+    let id = CATALOG.id_of("__diag_counters").expect("__diag_counters must be registered");
     assert!((id.0 as usize) < BUILTINS.len());
     // Points at the diagnostics builtin entry (name matches at that index).
     assert_eq!(BUILTINS[id.0 as usize].name, "__diag_counters");
@@ -25,7 +25,7 @@ fn diag_counters_appended_last_preserves_ids() {
     // If a later change inserts *before* it, this test still passes as long as
     // ids stay stable; the invariant we lock here is that the entry exists and
     // its id equals its array position (positional == BuiltinId).
-    let id = builtin_id_of("__diag_counters").unwrap();
+    let id = CATALOG.id_of("__diag_counters").unwrap();
     let pos = BUILTINS.iter().position(|d| d.name == "__diag_counters").unwrap();
     assert_eq!(id.0 as usize, pos, "BuiltinId must equal BUILTINS array position");
 }

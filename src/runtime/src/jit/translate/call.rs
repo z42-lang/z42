@@ -39,7 +39,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                             r.builtin_tokens.get(site as usize).copied()
                         })
                         .filter(|&id| id != crate::vm::runtime::ids::tokens::UNRESOLVED)
-                        .or_else(|| crate::corelib::builtin_id_of(name).map(|b| b.0))
+                        .or_else(|| self.callees.builtins().id_of(name).map(|b| b.0))
                         .unwrap_or(crate::vm::runtime::ids::tokens::UNRESOLVED);
                     let bid = self.builder.ins().iconst(types::I32, builtin_id as i64);
                     let inst = self.builder.ins().call(self.hr_builtin, &[self.frame_val, self.ctx_val, d, bid, np, nl, ap, al]);

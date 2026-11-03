@@ -84,7 +84,7 @@ fn null_string_receiver_is_a_null_reference() {
         assert_eq!(t.class, "Std.NullReferenceException");
         t.msg
     };
-    let typed_nre = |name: &str, args: &[Value]| match crate::corelib::exec_builtin_value(&ctx, name, args)
+    let typed_nre = |name: &str, args: &[Value]| match crate::vm::exec::call::builtins::exec_builtin_value(&ctx, name, args)
         .unwrap_err().downcast::<crate::vm::exec::call::builtin_abi::BuiltinError>() {
         Ok(crate::vm::exec::call::builtin_abi::BuiltinError::NullReference(m)) => m,
         other => panic!("expected a NullReference, got {other:?}"),
@@ -96,13 +96,13 @@ fn null_string_receiver_is_a_null_reference() {
     assert_eq!(typed_nre("__str_substring", &[Value::Null, Value::I64(0), Value::I64(0)]),
         "cannot call method `Substring` on a null reference");
     // `CompareTo(null)` is 1 (.NET: any string sorts after null); a null receiver throws.
-    assert_eq!(crate::corelib::exec_builtin_value(&ctx, "__str_compare_to", &[Value::Str("a".into()), Value::Null]).unwrap(),
+    assert_eq!(crate::vm::exec::call::builtins::exec_builtin_value(&ctx, "__str_compare_to", &[Value::Str("a".into()), Value::Null]).unwrap(),
         Value::I64(1));
-    assert!(crate::corelib::exec_builtin_value(&ctx, "__str_compare_to", &[Value::Null, Value::Str("a".into())])
+    assert!(crate::vm::exec::call::builtins::exec_builtin_value(&ctx, "__str_compare_to", &[Value::Null, Value::Str("a".into())])
         .unwrap_err().downcast_ref::<crate::vm::exec::call::builtin_abi::BuiltinError>()
         .is_some_and(|e| matches!(e, crate::vm::exec::call::builtin_abi::BuiltinError::NullReference(m) if m == "cannot call method `CompareTo` on a null reference")));
     // `Equals` 的实参 null 是合法输入（false），只有接收者 null 才抛。
-    assert_eq!(crate::corelib::exec_builtin_value(&ctx, "__str_equals", &[Value::Str("a".into()), Value::Null]).unwrap(), Value::Bool(false));
+    assert_eq!(crate::vm::exec::call::builtins::exec_builtin_value(&ctx, "__str_equals", &[Value::Str("a".into()), Value::Null]).unwrap(), Value::Bool(false));
     assert_eq!(typed_nre("__str_equals", &[Value::Null, Value::Str("a".into())]),
         "cannot call method `Equals` on a null reference");
 }
@@ -111,7 +111,7 @@ fn null_string_receiver_is_a_null_reference() {
 #[test]
 fn null_split_receiver_names_the_method() {
     let ctx = VmContext::new();
-    let e = crate::corelib::exec_builtin_value(&ctx, "__str_split", &[Value::Null, Value::Str(",".into())])
+    let e = crate::vm::exec::call::builtins::exec_builtin_value(&ctx, "__str_split", &[Value::Null, Value::Str(",".into())])
         .unwrap_err().downcast::<crate::vm::exec::call::builtin_abi::BuiltinError>().ok();
     assert!(matches!(e, Some(crate::vm::exec::call::builtin_abi::BuiltinError::NullReference(m)) if m == "cannot call method `Split` on a null reference"));
 }

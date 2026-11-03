@@ -60,7 +60,7 @@ fn file_slots_keep_one_sequence_across_threads_and_close_from_a_worker() {
     let path = std::env::temp_dir().join(format!("z42-resource-state-{}.bin", std::process::id()));
     std::fs::write(&path, b"abc").unwrap();
     let open = |ctx: &VmContext| {
-        let value = super::exec_builtin_value(ctx, "__file_open", &[
+        let value = crate::vm::exec::call::builtins::exec_builtin_value(ctx, "__file_open", &[
             Value::Str(path.to_str().unwrap().into()), Value::I64(0),
         ]).unwrap();
         let Value::I64(id) = value else { panic!("file open did not return an id") };
@@ -75,20 +75,20 @@ fn file_slots_keep_one_sequence_across_threads_and_close_from_a_worker() {
     let worker_path = path.clone();
     let next = std::thread::spawn(move || {
         let worker = VmContext::new_with_core(core);
-        super::exec_builtin(&worker, "__file_close", &[Value::I64(first)]).unwrap();
-        let value = super::exec_builtin_value(&worker, "__file_open", &[
+        crate::vm::exec::call::builtins::exec_builtin(&worker, "__file_close", &[Value::I64(first)]).unwrap();
+        let value = crate::vm::exec::call::builtins::exec_builtin_value(&worker, "__file_open", &[
             Value::Str(worker_path.to_str().unwrap().into()), Value::I64(0),
         ]).unwrap();
         let Value::I64(id) = value else { panic!("file open did not return an id") };
         id
     }).join().unwrap();
     assert_eq!(next, 2);
-    assert!(super::exec_builtin_value(&parent, "__file_length", &[Value::I64(first)]).is_err());
-    assert_eq!(super::exec_builtin_value(&parent, "__file_length", &[Value::I64(next)]).unwrap(), Value::I64(3));
-    assert_eq!(super::exec_builtin_value(&other, "__file_length", &[Value::I64(independent)]).unwrap(), Value::I64(3));
+    assert!(crate::vm::exec::call::builtins::exec_builtin_value(&parent, "__file_length", &[Value::I64(first)]).is_err());
+    assert_eq!(crate::vm::exec::call::builtins::exec_builtin_value(&parent, "__file_length", &[Value::I64(next)]).unwrap(), Value::I64(3));
+    assert_eq!(crate::vm::exec::call::builtins::exec_builtin_value(&other, "__file_length", &[Value::I64(independent)]).unwrap(), Value::I64(3));
     for (ctx, slot) in [(&parent, next), (&other, independent)] {
-        super::exec_builtin(ctx, "__file_close", &[Value::I64(slot)]).unwrap();
-        super::exec_builtin(ctx, "__file_close", &[Value::I64(slot)]).unwrap();
+        crate::vm::exec::call::builtins::exec_builtin(ctx, "__file_close", &[Value::I64(slot)]).unwrap();
+        crate::vm::exec::call::builtins::exec_builtin(ctx, "__file_close", &[Value::I64(slot)]).unwrap();
     }
     std::fs::remove_file(path).unwrap();
 }

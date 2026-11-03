@@ -62,6 +62,8 @@ interp 的静态、虚、闭包和通用混合入口传入共享参数视图；T
 
 派发纯事实与缓存归 `vm/runtime/dispatch`；可能加载、初始化或物化异常的执行编排归 `vm/exec/ops`。同一帧链与栈读取面归 VM，具体后端只持自己的激活。代码与 worker 共享的注册状态由所属 VmCore 保活，各 VM 独立。VmContext 内联组合 exec/runtime/diagnostics/threads 的每线程状态，所属线程的帧、异常槽、缓存与暂停计数不会因共享 Core 而共享。
 
+BuiltinCatalog 在 runtime 保存纯名称/ID 与折叠属性，exec 保存 callable 表并派发；门面从 corelib / interop 描述符装配两者，不让 runtime 引入执行 ABI 或具体实现。默认目录不可变，现有 native 符号按 interop 原时序加载。
+
 ### 4.2 独立交付仍是目标设计
 
 注册边界见 [VM 总体架构](vm-architecture.md)「引擎注册与调用边界」。物理拆 crate、跨动态库的组件 ABI、自动加载和卸载尚未实现；当前 Rust trait/注册对象不是可跨版本或跨动态库使用的 ABI。以后独立交付须在这一每 VM 所有权边界上设计同构建组件 ABI，不能改成进程全局 JIT 单例。

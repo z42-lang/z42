@@ -240,21 +240,13 @@ pub(crate) const BUILTINS: &[abi::BuiltinDesc] = &JOINED;
 > ⇒ 它是**单次运行内的派发令牌**，不跨进程持久化——增删表项只让下标平移，对既有产物没有影响。
 
 - 名字唯一：同一个名字只能在表里出现一次（`abi_tests::typed_builtins_are_in_the_table_once`）。
-- 名字 → id 的反查表 `BUILTIN_INDEX: OnceLock<HashMap<&str, u32>>` 首次访问时从 `BUILTINS` 现算
-  （`corelib/mod.rs`），保证单一真相。
+- 名字 → id 的索引由 `vm/runtime/builtins.rs::BuiltinCatalog` 首次查询时初始化。门面 `builtin_assembly.rs` 从同一份描述符按序派生纯名称/frameless 记录，查询目录与 callable 表编号一致。
 
-加载期由 `vm::runtime::resolve` 把每个 builtin 调用点的名字解析成 token：先查 `BUILTINS`，未命中再查
-per-VM 的 ext 表；两边都没有则留 `UNRESOLVED`，在真正调用时按名字再解一次（JIT 在 ext 库尚未加载时就
-可能走到这里）。调用时仍解不出 ⇒ 抛 `Std.MissingSymbolException`（与调用不存在的函数同一个类）。
+每 VM 的 RuntimeState 接收不可变目录，ExecState 接收匹配的 callable 描述符表；默认装配共享进程内只读数据。runtime 不保存执行 ABI 类型，也不依赖 corelib；实际调用和错误映射属于 exec。
 
-**两个引擎的调用口只有一个**：`corelib::invoke_builtin(ctx, id, name, this, regs, args)`。实参
-**原地从调用方寄存器读**——`this`（vcall 短路持有的接收者，不在寄存器里）在前，其后是 `regs[args[i]]`。
-包装器直接按下标取实参。解释器 `exec_call::builtin` 与 JIT `jit_builtin`（签名
-`(frame, ctx, dst, id, name, args_ptr, argc)`）都只做「结果写 `dst`、失败交给 §6.3」。只握着切片的
-调用方（单测、嵌入、`exec_builtin_value`）走 `exec_builtin`（按名），类型化 builtin 为它们另生成一个
-读切片的入口；**ext** builtin（dlopen / bundled，`fn(&VmContext, &[Value])`）的实参才拷进栈上缓冲区
-（≤ 6 个，超出用 `Vec`）——缓冲区原地填、不移动，实参逐个 16 字节拷贝（经 `Option<Value>` 中转或移动
-`SmallVec` 会让被调方读实参时错过 store forwarding，曾使折叠后的 ext 调用慢 25%）。
+加载期 `vm::runtime::resolve` 从当前 VM 的目录解析 BuiltinId。未知名称保留 UNRESOLVED，真正调用时按名再查，仍缺失则抛 Std.MissingSymbolException。interop 的压缩函数是同一表中的类型化 wrapper；动态装载只在 interop 内解析其原生符号，不另维护 BuiltinId 表。
+
+两个引擎使用 `vm::exec::call::builtins::invoke_builtin(ctx, id, name, this, regs, args)`。实参原地从调用方寄存器读取：this 在前，其后为 regs[args[i]]；持有切片的调用方走同模块 exec_builtin。类型化 wrapper 决定参数转换、阻塞 park 和结果映射。BuiltinCatalog 的 frameless 标记与描述符 reenters 互为否，折叠调用继续使用原有轻帧或无帧协议。
 
 ### 6.1b 有返回值 vs 无返回值
 
@@ -297,7 +289,7 @@ pub mod typed {
 三步：
 
 1. 在领域文件的 `#[builtins]` 模块里写函数（没有就建一个 `pub mod typed`）；
-2. 新模块要在 `builtin_table.rs` 的 `TYPED` 里加**一行**（模块的 `DESCS`）——模块里的函数不再逐个登记，
+2. 新模块要在 `builtin_assembly.rs` 的 `TYPED` 里加**一行**（模块的 `DESCS`）——模块里的函数不再逐个登记，
    写了 `#[builtin]` 就在表里；`#[builtin]` 写在 `#[builtins]` 模块之外是编译错误（找不到该属性）；
 3. z42 侧用 `[Native("__foo")] … extern` 声明（stdlib）。
 
