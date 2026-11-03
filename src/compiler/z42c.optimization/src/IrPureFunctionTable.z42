@@ -79,6 +79,7 @@ public sealed class IrPureFunctionTable {
         // Bodies are immutable during this fixed point. Cache only their local predicate;
         // spec membership and callees still change each round. Recompute on every invocation.
         int[] bodyState = new int[m.FuncCount];   // 0 unknown, 1 eligible, 2 rejected
+        int rounds = 0;
         bool changed = true;
         while (changed) {
             changed = false;
@@ -96,6 +97,11 @@ public sealed class IrPureFunctionTable {
                     }
                 }
                 fi = fi + 1;
+            }
+            rounds = rounds + 1;
+            if (spec.Count() == pure.Count()) { return spec; }
+            if (changed && rounds == 2 && m.FuncCount >= 64) {
+                return SpeculationWorklist.Finish(m, spec, bodyState);
             }
         }
         return spec;

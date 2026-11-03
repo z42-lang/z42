@@ -30,7 +30,7 @@
 
 内联查找基准：`benches/z42c.optimization.bench.inline.z42.toml`，Main 接收叶函数与调用方的对数，第二个参数可选择无调用场景。`bench_inline_lookup_512` / `bench_inline_no_calls_512` 包含模块构造与一次内联，覆盖索引收益与无调用模块的成本。
 
-可投机分析基准：`benches/z42c.optimization.bench.speculation.z42.toml`，Main 接收链长，第二个参数选择叶函数优先顺序；两个 `[Benchmark]` 入口分别覆盖需要多轮收敛的调用链和单轮完成的顺序。局部函数体判据只在一次 `Compute` 内缓存，跨调用重新计算。
+可投机分析基准：`benches/z42c.optimization.bench.speculation.z42.toml`，Main 接收链长，第二个参数选择叶函数优先顺序；三个 `[Benchmark]` 入口分别覆盖反向调用链、叶函数优先顺序，以及含重复调用边的扇出；第二参数 `fanout` 选择扇出场景。小模块保留扫描；至少 64 个函数且两轮后仍有进展时，按需构建反向调用图，用名字入集事件解锁等待的函数体。图与局部函数体判据都只属于一次 `Compute`，跨调用重算。
 
 ## 关联文档
 - 机制：[优化管线](../../../docs/internals/src/runtime/optimization-pipeline.md)、[逃逸分析](../../../docs/internals/src/runtime/escape-analysis.md)
@@ -43,6 +43,7 @@
 | `src/OptSet.z42` | **可独立开关的具名优化位集**（`Opt` static class）：`ConstFold=1/CopyProp=2/Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/PureCall=512/DeadBranch=1024/All=2047` + `Has`/`ByName`/`ProfileDefault(isRelease)`（debug=None/-O0、release=All）/`Resolve`（CLI>toml>profile）|
 | `src/IrDeadBranch.z42` | **常量条件死分支消除 pass**（`Opt.DeadBranch`）：单赋值 `ConstBoolInstr` 条件的 `br.cond`→无条件 `br` 折叠 + `ExcCount==0` 时可达性 BFS 移不可达块。**`ExcCount>0` 只折不移**（CFG 铁律：异常隐式边不在终结子 CFG，镜像 IrLicm 跳过）。见 book optimization-pipeline |
 | `src/IrPureFunctionTable.z42` | **纯函数推断**：`PureTable`（funcName 集）+ `Compute(m)` 模块**单调不动点**（与 escape 相反：乐观全纯→发现副作用/读可变/抛/调非纯→降级→收敛；StrMap 无 Remove 故每轮重建）。`pure(f)`=每指令 IsPure∪对纯函数 call∪readonly-fget 且无 throw 终结。供 CSE/LICM 判纯调用可消重/外提。无体/imported→保守非纯 |
+| `src/SpeculationWorklist.z42` | 可投机最小不动点的按需工作队列：每个函数体计未入集的调用次数，每个名字最多发布一次；反向边唤醒调用者，重复函数名保留任一合格函数体可发布该名的语义。 |
 | `src/IrEscapeSummary.z42` | **跨过程参数逃逸摘要**：`ParamEscapeTable`（funcName→`ParamFlags(bool[ParamCount])`，参数槽含 this=槽0）+ `Compute(m)` 模块**单调不动点**（乐观全 false→逃逸的置 true→收敛）。供 IrEscapeAnalysis 把「传进静态调用的实参」从「一律逃逸」精确成「按 callee 摘要逐判」。无体 stub 不登记→调用点保守 |
 | `src/IrEscapeAnalysis.z42` | **逃逸分析栈上分配 pass**（`Opt.StackAlloc`，入 All）：CFG-free 流不敏感 may-escape 过近似——`ComputeEscapedRegs(m,f,table)`（Pass A 角色感知逃逸汇点规则表 `_markEscaping` 入种子 + Pass B copy 传递闭包）。**跨过程摘要**：`CallInstr`(args[i]→槽 i)/`ObjNew`(args[i]→ctor 槽 i+1) 实参按 `ParamEscapeTable` 逐判；VCall/CallIndirect/builtin/闭包/跨包保守全标。对象合格前提 = ctor 摘要槽 0 不逃逸（原 `_ctorLeaksThis` 并入）。不逃逸+单赋值 `ObjNew`/`ArrayNew`/`ArrayNewLit`→`StackAlloc=true`。见 book escape-analysis-stack-alloc |
 | `src/IrLoopUtil.z42` | **自然循环分析共享机件**（供 IrLicm + IrLoopAllocReuse）：`LoopCfg`（后继/稀疏前驱/支配）+ `BuildCfg`（<2 块 / 有异常表 → null）+ `Headers`（回边目标）+ `LoopBody`（并同 header 多回边体）+ `CleanPreheader`（唯一循环外 `br h` 前驱）+ `BlockIdx`。≥128 块时建立 first-wins 标签索引，小函数保留直接扫描 |

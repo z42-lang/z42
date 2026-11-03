@@ -23,15 +23,50 @@ void bench_speculation_leaf_first_128() {
     b.iter(() => { BenchHelpers.blackBox(exercise(128, true)); });
     b.printSummary("speculation_leaf_first_128");
 }
+int exercise_fanout(int n) {
+    IrModule m = SpeculationChainFixture.MakeFanout(n);
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.True(table.IsSpeculatable("fan0"));
+    Assert.True(table.IsSpeculatable("fan" + (n - 1).ToString()));
+    return m.FuncCount;
+}
+[Benchmark]
+void bench_speculation_repeated_fanout_128() {
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(exercise_fanout(128)); });
+    b.printSummary("speculation_repeated_fanout_128");
+}
 void Main() {
     string[] args = Environment.GetCommandLineArgs();
     int n = args.Length > 0 ? int.Parse(args[0]) : 128;
     bool leafFirst = args.Length > 1;
     var b = new Bencher(2, 12);
+    if (args.Length > 1 && args[1] == "fanout") {
+        b.iter(() => { BenchHelpers.blackBox(exercise_fanout(n)); });
+        b.printSummary("speculation_fanout_" + n.ToString());
+        return;
+    }
     b.iter(() => { BenchHelpers.blackBox(exercise(n, leafFirst)); });
     b.printSummary("speculation_" + n.ToString());
 }
 public static class SpeculationChainFixture {
+    public static IrModule MakeFanout(int n) {
+        IrModule m = SpeculationChainFixture.Make(n, false);
+        IrFunction[] fs = new IrFunction[n * 2];
+        int i = 0;
+        while (i < n) {
+            fs[i] = m.Functions[i];
+            IrInstr[] calls = new IrInstr[] {
+                new CallInstr(new TypedReg(0, IrType.I64), "f0", new TypedReg[0], 0),
+                new CallInstr(new TypedReg(1, IrType.I64), "f0", new TypedReg[0], 0) };
+            var block = new IrBlock("entry", calls, 2, new RetTerm(true, new TypedReg(1, IrType.I64)), true);
+            fs[n + i] = new IrFunction("fan" + i.ToString(), 0, "long", true, new IrBlock[] { block }, 1, 2, "Interp",
+                new string[0], 0, new int[0], 0, new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+            i = i + 1;
+        }
+        m.Functions = fs; m.FuncCount = fs.Length;
+        return m;
+    }
     public static IrModule Make(int n, bool leafFirst) {
         IrFunction[] functions = new IrFunction[n];
         int i = 0;
