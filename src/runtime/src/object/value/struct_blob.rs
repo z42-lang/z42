@@ -7,7 +7,7 @@
 //! therefore byte-identical to the standalone blob of a boxed struct or a `struct[]` element —
 //! one layout, one set of offsets.
 //!
-//! The frame arena (`interp::struct_arena`) keeps the register-side form instead: `bytes` plus
+//! The frame arena (`vm::exec::call::struct_arena`) keeps the register-side form instead: `bytes` plus
 //! the reference leaves as 16 B `Value`s, in `ref_offsets` order (it is a GC root, like the
 //! registers). [`read`] / [`write`] convert between the two; every reference store goes through
 //! [`ref_word::store`] (SATB on the replaced word, a box when the value does not fit 8 B), and the

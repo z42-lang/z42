@@ -29,7 +29,7 @@ b.x = 99;       // 只改 b
 
 ## 运行时：per-context 字节 arena + 侧表引用叶子
 
-未装箱 struct 值 = per-`VmContext` **字节 arena**（`interp/struct_arena.rs`）里的一段 blob；寄存器持
+未装箱 struct 值 = per-`VmContext` **字节 arena**（`vm/exec/call/struct_arena.rs`）里的一段 blob；寄存器持
 `Value::StructRef{idx, frame_id}` 句柄（仿 `StackObject`，LIFO 随帧退出截断，`frame_id` staleness 守卫）。
 
 一个 blob（`StructSlot`）= **两部分**：

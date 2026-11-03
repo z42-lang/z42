@@ -1,7 +1,7 @@
 //! add-struct-value-semantics Phase A: interp execution of blob value-type
 //! instructions (StructAlloc / StructCopy / StructFieldGetPrim / StructFieldSetPrim).
 //!
-//! Operates on the per-context byte arena ([`super::struct_arena`]); registers
+//! Operates on the per-context byte arena ([`crate::vm::exec::call::struct_arena`]); registers
 //! hold `Value::StructRef { idx, frame_id }` handles. The primitive byte<->Value
 //! codec is `kind`-driven — `kind` is a `TypeTag` (`TAG_I32` / `TAG_F64` / …)
 //! giving the leaf's byte width and how to decode/encode it.

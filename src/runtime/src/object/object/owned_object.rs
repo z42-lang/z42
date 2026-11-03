@@ -6,7 +6,7 @@
 //! (`gc::var_region::DetachedBlock`) the value owns, so `&ScriptObject` reads identically
 //! wherever the object lives. Two kinds of objects need that:
 //!
-//! - **stack-allocated objects** (`interp::stack_alloc`): escape analysis proved them
+//! - **stack-allocated objects** (`vm::exec::call::stack_alloc`): escape analysis proved them
 //!   frame-local, so they never enter the heap;
 //! - **objects under construction** that are built before the heap sees them
 //!   (`Heap::alloc_script_object`: reflection's `Activator.CreateInstance`, tests). The heap

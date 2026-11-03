@@ -1,0 +1,75 @@
+using Z42.IR;
+using Z42.Optimization;
+using InlineLookupBench;
+using Std.Harness;
+
+[Test]
+void test_inline_lookup_small_and_large_modules() {
+    int[] sizes = new int[] { 1, 63, 64, 65, 256 };
+    int s = 0;
+    while (s < sizes.Length) {
+        int n = sizes[s];
+        IrModule m = InlineLookupFixture.Make(n);
+        IrInline.Run(m);
+        int i = 0;
+        while (i < n) {
+            IrBlock block = m.Functions[n + i].Blocks[0];
+            Assert.Equal(2, block.InstrCount);
+            Assert.Contains("const.i64 " + i.ToString(), block.Instrs[0].Dump());
+            Assert.True(block.Instrs[1] is CopyInstr);
+            i = i + 1;
+        }
+        s = s + 1;
+    }
+}
+[Test]
+void test_inline_lookup_first_duplicate_and_missing() {
+    IrModule m = InlineLookupFixture.Make(64);
+    m.Functions[0].Name = "leaf63";
+    IrInline.Run(m);
+    Assert.Contains("const.i64 0", m.Functions[127].Blocks[0].Instrs[0].Dump());
+    // leaf0 no longer exists: its caller must remain a call.
+    Assert.True(m.Functions[64].Blocks[0].Instrs[0] is CallInstr);
+}
+[Test]
+void test_inline_lookup_observes_updated_function_bodies() {
+    IrModule m = InlineLookupFixture.Make(64);
+    (m.Functions[65].Blocks[0].Instrs[0] as CallInstr).Func = "caller0";
+    IrInline.Run(m);
+    IrBlock block = m.Functions[65].Blocks[0];
+    Assert.Contains("const.i64 0", block.Instrs[0].Dump());
+    int i = 0;
+    while (i < block.InstrCount) { Assert.False(block.Instrs[i] is CallInstr); i = i + 1; }
+}
+[Test]
+void test_inline_lookup_multiblock_phase() {
+    IrModule m = InlineLookupFixture.Make(64);
+    IrFunction leaf = m.Functions[63];
+    IrBlock original = leaf.Blocks[0];
+    leaf.Blocks = new IrBlock[] {
+        new IrBlock("entry", original.Instrs, original.InstrCount, new BrTerm("exit"), true),
+        new IrBlock("exit", new IrInstr[0], 0, original.Term, true)
+    };
+    leaf.BlockCount = 2;
+    IrInline.Run(m);
+    IrFunction caller = m.Functions[127];
+    Assert.True(caller.BlockCount > 1);
+    int b = 0;
+    while (b < caller.BlockCount) {
+        int i = 0;
+        while (i < caller.Blocks[b].InstrCount) {
+            Assert.False(caller.Blocks[b].Instrs[i] is CallInstr);
+            i = i + 1;
+        }
+        b = b + 1;
+    }
+}
+
+[Test]
+void test_inline_lookup_call_free_module() {
+    IrModule m = InlineLookupFixture.Make(128);
+    m.FuncCount = 128;
+    IrInline.Run(m);
+    Assert.Equal(1, m.Functions[127].Blocks[0].InstrCount);
+    Assert.Contains("const.i64 127", m.Functions[127].Blocks[0].Instrs[0].Dump());
+}

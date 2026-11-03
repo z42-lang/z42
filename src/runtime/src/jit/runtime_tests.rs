@@ -7,7 +7,7 @@
 
 use std::sync::atomic::Ordering;
 
-use crate::exception::VmFrame;
+use crate::vm::exec::call::frames::VmFrame;
 use crate::jit::frame::JitFrame;
 use crate::jit::invoke::{call_entry, NativeOutcome};
 use crate::jit::runtime::{install, install_tuned};

@@ -135,12 +135,12 @@ fn argument_errors_are_typed() {
 
 #[test]
 fn ref_arguments_are_stored_through() {
-    use crate::interp::transient_arena::TransientPayload;
+    use crate::vm::exec::call::transient_arena::TransientPayload;
     use crate::object::RefKind;
     let ctx = VmContext::new();
     // A `ref` to slot 0 of a frame on the stack (what `LoadLocalAddr` makes).
     let target: Vec<Value> = vec![Value::I64(0)];
-    ctx.push_frame(crate::exception::VmFrame::new(std::ptr::null(), &target));
+    ctx.push_frame(crate::vm::exec::call::frames::VmFrame::new(std::ptr::null(), &target));
     let frame_id = ctx.next_frame_id();
     let h = ctx.transient_alloc(frame_id, TransientPayload::Ref(RefKind::Stack { frame_idx: 0, slot: 0 }));
     let r = Value::Ref { idx: h, frame_id };

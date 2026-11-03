@@ -58,11 +58,11 @@ fn empty_stack_produces_no_row() {
 
 #[test]
 fn maybe_sample_snapshots_call_stack() {
-    use crate::exception::VmFrame;
+    use crate::vm::exec::call::frames::VmFrame;
     let ctx = VmContext::new();
-    let mut main = crate::exception::tests::test_function("Main", &[], Vec::new());
+    let mut main = crate::vm::exec::stack::stack_tests::test_function("Main", &[], Vec::new());
     main.frame_meta = Some((Arc::from("Main"), Arc::from("t.z42")));
-    let mut foo = crate::exception::tests::test_function("foo", &[], Vec::new());
+    let mut foo = crate::vm::exec::stack::stack_tests::test_function("foo", &[], Vec::new());
     foo.frame_meta = Some((Arc::from("foo"), Arc::from("t.z42")));
     ctx.push_frame(VmFrame::new(&main, std::ptr::null()));
     ctx.push_frame(VmFrame::new(&foo, std::ptr::null()));

@@ -18,7 +18,7 @@
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::exception::VmFrame;
+use crate::vm::exec::call::frames::VmFrame;
 use crate::object::Value;
 
 /// See the module docs.
@@ -125,7 +125,7 @@ impl FrameStack {
     ///
     /// - a mutator parks with `parked_count.fetch_add(AcqRel)` and only then
     ///   takes the `gc_phase` lock (`park_until_idle`, `native_park_incr` in
-    ///   `gc/safepoint.rs`); it never pushes / pops while counted as parked
+    ///   `vm/threads/safepoint.rs`); it never pushes / pops while counted as parked
     ///   (debug-asserted for the native park);
     /// - the collector reads `parked_count` with `Acquire` and switches to
     ///   `Marking` only once every other context is counted (`request_gc_pause`).
