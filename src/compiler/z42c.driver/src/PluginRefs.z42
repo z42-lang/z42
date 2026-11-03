@@ -236,7 +236,7 @@ bool _pluginDepZpkgs(ProjectManifest pm, string projectDir, string[] libsDirs, i
             if (libsHit.Length > 0) {
                 ZpkgInfo info = null;
                 try { info = ZpkgReader.Open(File.ReadAllBytes(libsHit), libsHit); } catch (Exception ex) { info = null; }
-                if (info != null && PluginCaps.IsPlugin(info.PluginCaps)) {
+                if (info != null && PkgKind.IsPluginPkg(info.PkgKind, info.PluginCaps)) {
                     ConsoleError.WriteLine("z42c build: [dependencies] `" + e.Name + "`（" + libsHit
                         + "）是插件包（" + PluginCaps.Describe(info.PluginCaps) + "）——插件包不进运行期解析域："
                         + "把它移到插件目录（Z42_PLUGINS / <sdk>/plugins）后按名依赖，或改写到 [plugins] 段。");
@@ -248,13 +248,13 @@ bool _pluginDepZpkgs(ProjectManifest pm, string projectDir, string[] libsDirs, i
             if (got.Length == 0) { continue; }
             ZpkgInfo pi = null;
             try { pi = ZpkgReader.Open(File.ReadAllBytes(got), got); } catch (Exception ex) { pi = null; }
-            if (pi == null || !PluginCaps.IsPlugin(pi.PluginCaps)) { continue; }   // 插件目录里的非插件：不认领
+            if (pi == null || !PkgKind.IsPluginPkg(pi.PkgKind, pi.PluginCaps)) { continue; }   // 插件目录里的非插件：不认领
             locNames[n] = e.Name; locPaths[n] = got; n = n + 1;
         } else if (e.Path.EndsWith(".zpkg")) {
             string full = Path.IsRooted(e.Path) ? e.Path : Path.Join(projectDir, e.Path);
             ZpkgInfo pi = null;
             try { pi = ZpkgReader.Open(File.ReadAllBytes(full), full); } catch (Exception ex) { pi = null; }
-            if (pi == null || !PluginCaps.IsPlugin(pi.PluginCaps)) { continue; }   // 普通 .zpkg 依赖照旧
+            if (pi == null || !PkgKind.IsPluginPkg(pi.PkgKind, pi.PluginCaps)) { continue; }   // 普通 .zpkg 依赖照旧
             locNames[n] = e.Name; locPaths[n] = full; n = n + 1;
         }
     }

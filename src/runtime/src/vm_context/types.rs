@@ -254,6 +254,8 @@ pub struct VmCore {
 
     /// Per-VM engine registrations and backend-owned tier/code lifetime.
     pub(crate) engines: crate::vm::exec::engine::EngineRegistry,
+    /// Released after the heap and engines so extension-owned resources outlive them.
+    pub(crate) ext_state: crate::vm::ext::ExtensionState,
 }
 
 /// The part of a [`VmContext`] that JIT-compiled code reads at fixed offsets.

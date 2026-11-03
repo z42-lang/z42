@@ -1,0 +1,89 @@
+namespace PurityDemotionBench;
+using Z42.IR;
+using Z42.Optimization;
+using Std.Harness;
+using Std.IO;
+
+public static class DemotionFixture {
+    public static void Reject(IrFunction f) {
+        var reg = new TypedReg(0, IrType.Ref);
+        f.Blocks[0].Instrs[0] = new ConstNullInstr(reg);
+        f.Blocks[0].Term = new ThrowTerm(reg);
+    }
+    // 0: long chain; 1: shallow fanout; 2: locally rejected; 3: all pure;
+    // 4/5: short chain beside independent pure bodies / pure callers.
+    public static IrModule Make(int n, int pattern) {
+        IrFunction[] functions = new IrFunction[n];
+        int fi = 0;
+        while (fi < n) {
+            var reg = new TypedReg(0, IrType.I64);
+            IrInstr ins = new ConstI64Instr(reg, "1");
+            if (fi + 1 < n) { ins = new CallInstr(reg, "f" + (fi + 1).ToString(), new TypedReg[0], 0); }
+            var block = new IrBlock("entry", new IrInstr[] { ins }, 1, new RetTerm(true, reg), true);
+            functions[fi] = new IrFunction("f" + fi.ToString(), 0, "long", true, new IrBlock[] { block }, 1, 1, "Interp",
+                new string[0], 0, new int[0], 0, new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+            fi = fi + 1;
+        }
+        IrModule m = new IrModule("demotion", new string[] { "" }, 1, new IrClassDesc[0], 0, functions, n);
+        if (pattern >= 4) { return DemotionFixture.ShortChain(m, pattern >= 5, pattern == 6 ? 6 : 4); }
+        if (pattern == 3) { return m; }
+        if (pattern == 2) {
+            int i = 0;
+            while (i < n) { DemotionFixture.Reject(m.Functions[i]); i = i + 1; }
+        } else {
+            DemotionFixture.Reject(m.Functions[n - 1]);
+            if (pattern == 1) {
+                int i = 0;
+                while (i + 1 < n) {
+                    m.Functions[i].Blocks[0].Instrs[0] = new CallInstr(new TypedReg(0, IrType.I64),
+                        "f" + (n - 1).ToString(), new TypedReg[0], 0);
+                    i = i + 1;
+                }
+            }
+        }
+        return m;
+    }
+    private static IrModule ShortChain(IrModule m, bool liveCalls, int depth) {
+        int i = 0;
+        while (i < m.FuncCount) {
+            var reg = new TypedReg(0, IrType.I64);
+            m.Functions[i].Blocks[0].Instrs[0] = new ConstI64Instr(reg, "1");
+            if (i < depth || (liveCalls && i > depth && i + 1 < m.FuncCount)) {
+                int target = i < depth ? i + 1 : m.FuncCount - 1;
+                m.Functions[i].Blocks[0].Instrs[0] = new CallInstr(reg, "f" + target.ToString(), new TypedReg[0], 0);
+            }
+            i = i + 1;
+        }
+        DemotionFixture.Reject(m.Functions[depth]);
+        return m;
+    }
+}
+int exercise(int n, int pattern) {
+    PureTable table = IrPureFunctionTable.Compute(DemotionFixture.Make(n, pattern));
+    Assert.Equal(pattern == 3, table.IsPure("f0"));
+    Assert.Equal(pattern >= 3, table.IsPure("f" + (n - 1).ToString()));
+    return n;
+}
+void measure(int n, int pattern) {
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(exercise(n, pattern)); });
+    b.printSummary("purity_demotion_" + n.ToString() + "_" + pattern.ToString());
+}
+[Benchmark]
+void bench_purity_demotion_chain_256() { measure(256, 0); }
+[Benchmark]
+void bench_purity_demotion_shallow_256() { measure(256, 1); }
+[Benchmark]
+void bench_purity_demotion_local_256() { measure(256, 2); }
+[Benchmark]
+void bench_purity_demotion_all_pure_256() { measure(256, 3); }
+[Benchmark]
+void bench_purity_demotion_short_independent_256() { measure(256, 4); }
+[Benchmark]
+void bench_purity_demotion_short_live_calls_256() { measure(256, 5); }
+[Benchmark]
+void bench_purity_demotion_after_confirmation_256() { measure(256, 6); }
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    measure(args.Length > 0 ? int.Parse(args[0]) : 256, args.Length > 1 ? int.Parse(args[1]) : 0);
+}

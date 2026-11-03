@@ -243,15 +243,6 @@ jobs:
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 由本 job 重放示例时才准备开发 SDK；打包 job 会重放时直接复用其检查。
-      - name: Build SDK for the examples stage
-        if: matrix.os != 'windows-latest' && needs.changes.outputs.host_package != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          xtask build toolchain
-          xtask package dev-sdk
-
       - name: Test (xtask test --no-build --skip ...)
         if: matrix.os != 'windows-latest'
         shell: bash

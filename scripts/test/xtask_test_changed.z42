@@ -27,7 +27,12 @@ int _testChangedRun(string base_, bool dryRun) {
     }
     Console.WriteLine("[test-changed] base = " + base_);
 
-    string[] changed = _changedFiles(base_);
+    string[] changed;
+    try { changed = _changedFiles(base_); }
+    catch (Exception e) {
+        ConsoleError.WriteLine("[test-changed] error: " + e.Message);
+        return 2;
+    }
 
     if (changed.Length == 0) {
         Console.WriteLine("[test-changed] no changed files; nothing to run");
@@ -88,14 +93,17 @@ string[] _withStage(string[] xs, string extra) {
 
 // `xtask test --changed <base>` 的分流：返回要追加进 --skip 的重 stage（csv；"" = 一个都不跳）。
 // 任一文件判成「全跑」（scripts/、未知文件、编译器、运行时源码……）⇒ 不跳。打印判定，CI 日志里看得见为什么跳了。
-// 拿不到改动（不是 git 仓库 / base 不存在）⇒ 不跳（保守）。
+// 拿不到改动（不是 git 仓库 / base 不存在 / Git 读取失败）⇒ 不跳（保守）。
 string _changedGateSkips(string base_) {
     Console.WriteLine("[test --changed] base = " + base_);
-    if (!_isInGitRepo() || _gitOutput(new string[]{ "rev-parse", "--verify", "--quiet", base_ + "^{commit}" }).Length == 0) {
-        Console.WriteLine("[test --changed] base 不可解析 —— 全跑");
+    string[] changed;
+    try {
+        _gitOutput(new string[]{ "rev-parse", "--verify", "--quiet", base_ + "^{commit}" });
+        changed = _changedFiles(base_);
+    } catch (Exception e) {
+        Console.WriteLine("[test --changed] 无法读取改动 —— 全跑: " + e.Message);
         return "";
     }
-    string[] changed = _changedFiles(base_);
     string need = "";
     foreach (var f in changed) {
         _MapResult m = _mapFile(f);
@@ -305,16 +313,11 @@ bool _isInGitRepo() {
 }
 
 string _gitOutput(string[] args) {
-    try {
-        ProcessResult r = new Process("git")
-            .Args(args)
-            .Stderr(Stdio.Null())
-            .Run();
-        if (r.ExitCode != 0) return "";
-        return r.Stdout;
-    } catch (Exception e) {
-        return "";
+    ProcessResult r = new Process("git").Args(args).Run();
+    if (r.ExitCode != 0) {
+        throw new Exception("git " + String.Join(" ", args) + " (exit " + r.ExitCode.ToString() + "): " + r.Stderr.Trim());
     }
+    return r.Stdout;
 }
 
 // ── String / array helpers (module-private) ──────────────────────────────

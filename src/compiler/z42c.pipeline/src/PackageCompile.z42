@@ -62,6 +62,9 @@ public sealed class CompileInputs {
     // 按同包待遇（internal 可见）；"" = 普通编译。由 z42b 从真 manifest 解析目标后填。
     // （add-build-session 删掉了只写不读的 HasPkgContext 三态布尔。）
     public string ParentPkg;
+    /// deps-plugin-routing 第③刀：本次编译是 [[test]] / [[bench]] 派生目标 ⇒ 产物头类型位写
+    /// harness（PkgKind.Harness）。由 z42b 从目标上下文填；false = 普通编译。
+    public bool HarnessUnit;
     public bool IsRelease;
     // add-compiler-inlining：可独立开关的优化集（OptSet 位）。-1 = 未显式设置 → 取 profile 默认
     // （release=All / debug=None）。Z42cCompiler 解析 toml/CLI 后显式设置以覆盖。
@@ -522,6 +525,15 @@ public static class PackageCompile {
         }
     }
 
+    // 类型位决议：manifest kind → 头类型码；测试/bench 派生目标（HarnessUnit，z42b 填）⇒ harness
+    // 盖过其 lib/exe 载体 kind（派生目标 pkind 只是编译形态，产物身份是测试件）。
+    private static int _pkgKindOf(CompileInputs inp) {
+        if (inp.HarnessUnit) { return PkgKind.Harness; }
+        if (inp.Kind == "plugin") { return PkgKind.Plugin; }
+        if (inp.Kind == "exe") { return PkgKind.Exe; }
+        return PkgKind.Lib;
+    }
+
     // 插件工程：按实现的契约推导能力位（写进 zpkg 头）；一类都没有 → E0505。只在此前无错时判——
     // 有错的编译跳过了代码生成，类描述不全，判出来的「没有契约」是假的。
     private static int _derivePluginCaps(CompileInputs inp, CompiledModuleZ[] cms, int srcCount, string[] files) {
@@ -604,6 +616,7 @@ public static class PackageCompile {
         z.Exported = exported;
         z.ExportedCount = srcCount;
         z.PluginCaps = pluginCaps; if (inp.CarriedCount > 0) { z.Carried = inp.CarriedPlugins; z.CarriedCount = inp.CarriedCount; }   // 能力位 + 1c PLGS（count 0 不写段）
+        z.PkgKind = PackageCompile._pkgKindOf(inp);   // 类型位（bit6–7）：lib/exe/plugin/harness
         string entryStatus = "ok";
         if (isExe) {
             if (z.Entry == "<ambiguous>") { entryStatus = "ambiguous"; }

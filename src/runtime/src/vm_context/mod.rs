@@ -18,6 +18,9 @@
 //!   stack limit, the cctor gate)
 //! - lookup / isa caches, the safepoint throttle counter
 //!
+//! Extension registrations are consumed at VM creation; [`VmContext::ext`] borrows
+//! the same frozen state from every context sharing that core.
+//!
 //! # Lifecycle
 //!
 //! ```ignore

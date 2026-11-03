@@ -620,12 +620,13 @@ int _verifyDeclaredDeps(ProjectManifest pm, string[] libsDirs, int libsDirsN, st
             if (File.Exists(dpath)) { dfound = true; break; }
             dd = dd + 1;
         }
-        // 插件包不能作运行期依赖：它只加载进工具链进程、永不链入产物。读头的能力位就判得出来。
-        // （未分流的路径：比如 libs 里躺着一个同名插件包但插件目录没有——分流器没认领它，这里的
-        // 污染报错仍然兜底。）
-        if (dfound && PluginCaps.IsPlugin(PluginZpkg.HeaderCaps(dpath))) {
+        // 插件包不能作运行期依赖：它只加载进工具链进程、永不链入产物。类型位主判 + 能力位兜底
+        //（未分流的路径：比如 libs 里躺着一个同名插件包但插件目录没有——分流器没认领它，这里兜底）。
+        int dflags = dfound ? PluginZpkg.HeaderFlags(dpath) : 0;
+        if (dfound && PkgKind.IsPluginPkg(PkgKind.Code(dflags), PluginCaps.Mask(dflags))) {
             ConsoleError.WriteLine("z42c build: [dependencies] `" + dname + "`（" + dpath + "）是插件包（"
-                + PluginCaps.Describe(PluginZpkg.HeaderCaps(dpath)) + "），不能作运行期依赖。改法：把它挪进 [plugins] 段，"
+                + PkgKind.Describe(PkgKind.Code(dflags)) + " / " + PluginCaps.Describe(PluginCaps.Mask(dflags))
+                + "），不能作运行期依赖。改法：把它挪进 [plugins] 段，"
                 + "或移到插件目录（Z42_PLUGINS / <sdk>/plugins）后按名依赖（deps-plugin-routing 自动分流）。");
             return ExitCode.BuildError;
         }
