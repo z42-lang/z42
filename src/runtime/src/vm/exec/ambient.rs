@@ -17,7 +17,7 @@
 //!
 //! - **Bottom frame**: `VmContext::push_frame` installs a guard when a context's
 //!   frame stack goes 0 → 1 and drops it when the stack is empty again
-//!   (`vm_context/engine_guards.rs`). Every nested interp / JIT frame on that
+//!   (`vm/exec/call/engine_guards.rs`). Every nested interp / JIT frame on that
 //!   context runs under it and touches no thread-local.
 //! - **Host re-entry**: `host::ops::invoke_impl` installs one unconditionally —
 //!   the one way another VM's code can run on a thread whose stack already

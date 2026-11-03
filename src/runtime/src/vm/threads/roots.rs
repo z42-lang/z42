@@ -35,10 +35,10 @@ fn scan_roots(c: &VmCore, visit: &mut dyn FnMut(&Value)) {
     for ctx_ptr in registry.iter() {
         let ctx = unsafe { &*ctx_ptr.0 };
         // pending_exception / pending_thrown
-        if let Some(v) = ctx.pending_exception.lock().as_ref() {
+        if let Some(v) = ctx.exec.pending_exception.lock().as_ref() {
             visit(v);
         }
-        if let Some(v) = ctx.pending_thrown.lock().as_ref() {
+        if let Some(v) = ctx.exec.pending_thrown.lock().as_ref() {
             visit(v);
         }
         // live z42 frame state — unified VmFrame entries.
@@ -61,14 +61,14 @@ fn scan_roots(c: &VmCore, visit: &mut dyn FnMut(&Value)) {
         // (The stack objects themselves are not GC-heap entries and are
         // freed by frame-exit truncation, not sweep.) The arena lock is
         // never held across a GC trigger, so this cannot deadlock.
-        ctx.stack_arena.lock().scan_roots(visit);
+        ctx.exec.stack_arena.lock().scan_roots(visit);
         // add-struct-value-semantics: value-struct blobs' reference
         // leaves are GC roots too (no-op for pure-primitive structs;
         // ref-leaf scanning by type ref-bitmap lands in A-use).
-        ctx.struct_arena.lock().scan_roots(visit);
+        ctx.exec.struct_arena.lock().scan_roots(visit);
         // make-value-copy: transient payloads (Ref target / StructRefHeap
         // backing array) hold GcRefs that must stay marked while the handle
         // is live; the arena is the root (handles are not traced through).
-        ctx.transient_arena.lock().scan_roots(visit);
+        ctx.exec.transient_arena.lock().scan_roots(visit);
     }
 }

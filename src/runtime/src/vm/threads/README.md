@@ -9,7 +9,7 @@ GC 决定回收策略；本模块保证扫描期间其他线程不会改写根�
 
 | 入口 | 职责 |
 |---|---|
-| `state.rs` | `ThreadState`：每 VM 注册表、暂停握手、collector 仲裁与 fatal/自动回收请求标记 |
+| `state.rs` | `ThreadLocalState` 拥有每线程 parked TLAB 与节流计数； `ThreadState`：每 VM 注册表、暂停握手、collector 仲裁与 fatal/自动回收请求标记 |
 | `safepoint.rs` | 轮询、collector 仲裁、暂停握手、native park 与 RAII 恢复 |
 | `roots.rs` | 共享静态值、驻留串与全部线程的异常、帧和 arena 根枚举 |
 | `gc.rs` | 将当前 VmContext 的暂停协议适配为 GcToVm |

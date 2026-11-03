@@ -73,9 +73,9 @@ fn safepoint_polls(f: Function, indexed: bool) -> u32 {
     let vm = VmContext::new();
     install(&vm, &module).expect("install");
     const START: u32 = 1_000_000;
-    vm.safepoint_skip.store(START, Ordering::Relaxed);
+    vm.threads.safepoint_skip.store(START, Ordering::Relaxed);
     crate::jit::run_fn(&vm, "f").expect("run");
-    START - vm.safepoint_skip.load(Ordering::Relaxed)
+    START - vm.threads.safepoint_skip.load(Ordering::Relaxed)
 }
 
 /// `entry: br_cond true → yes / no` — both targets forward.

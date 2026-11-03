@@ -70,7 +70,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
     // path. `enter_frame` also runs the (fatal) stack-overflow check, after the push.
     // The VM / heap thread-locals (`CURRENT_VM`, the ambient heap) are scoped by the
     // context while its stack is non-empty — the bottom frame's push installs them
-    // (`vm_context/engine_guards.rs`), so a nested frame touches no thread-local.
+    // (`vm/exec/call/engine_guards.rs`), so a nested frame touches no thread-local.
     let _frame_guard = enter_frame(ctx, func, &mut frame)?;
 
     // add-gc-safepoint : every newly-entered z42 function immediately respects a

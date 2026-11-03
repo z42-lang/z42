@@ -78,7 +78,7 @@ pub(crate) fn obj_new(
     // per-context stack arena (no GC region lock / tracking / sweep). The ctor
     // runs on the stack object exactly as on a heap one — `this` is a
     // `Value::StackObject { idx, frame_id }` handle that FieldGet/FieldSet resolve
-    // through `ctx.stack_arena`, so the ctor's child frame reaches it fine.
+    // through `ctx.exec.stack_arena`, so the ctor's child frame reaches it fine.
     // `Z42_STACKALLOC=off` bypasses this at runtime (heap) for triage.
     // The instance is built completely — generic arguments, type-parameter field zeros
     // (`ScriptObject::install_type_args`) — before it is published: a heap object never changes

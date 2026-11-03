@@ -9,7 +9,7 @@
 | 入口 | 职责 |
 |---|---|
 | `statics/` | 静态字段存储、初始化事实、代际与屏障纪元；执行与等待归 exec/init |
-| `state.rs` | `RuntimeState`：入口 module、身份表与静态初始化事实，每 VM 创建、跨 worker 共享 |
+| `state.rs` | `RuntimeState`：入口 module、身份表与静态初始化事实，每 VM 创建、跨 worker 共享；`ThreadRuntimeState` 保存各线程的完整查询与 ISA 前置缓存 |
 | `Module` / `Function` | 静态定义的链接投影、写时复制和 VM 站点状态 |
 | `ids/` | token、FnId / TypeId、函数/类型/字符串表与只追加分段表 |
 | `types/` | TypeDesc 注册表组装、继承补全和约束验证 |

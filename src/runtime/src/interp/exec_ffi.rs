@@ -130,7 +130,7 @@ pub(super) fn pin_ptr(
     // make-value-copy: PinnedView payload lives in the per-context transient arena;
     // the register holds only an 8B `{idx, frame_id}` handle.
     let mk_view = |ctx: &VmContext, data: crate::object::PinnedViewData| {
-        let idx = ctx.transient_arena.lock()
+        let idx = ctx.exec.transient_arena.lock()
             .alloc(fid, crate::vm::exec::call::transient_arena::TransientPayload::PinView(data));
         Value::PinnedView { idx, frame_id: fid }
     };
@@ -193,7 +193,7 @@ pub(super) fn unpin_ptr(ctx: &VmContext, frame: &Frame, pinned: u32) -> Result<(
     match frame.get(pinned)? {
         // make-value-copy: resolve the PinnedView handle → (kind, ptr) via the arena.
         &Value::PinnedView { idx, frame_id } => {
-            let (kind, ptr) = ctx.transient_arena.lock().with(idx, frame_id, |p| match p {
+            let (kind, ptr) = ctx.exec.transient_arena.lock().with(idx, frame_id, |p| match p {
                 crate::vm::exec::call::transient_arena::TransientPayload::PinView(pv) => (pv.kind, pv.ptr),
                 _ => (crate::object::PinSourceKind::Str, 0),
             })?;

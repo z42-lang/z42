@@ -207,7 +207,7 @@ fn write_call_stacks(fd: i32) {
             // Drop). See SAFETY block at vm_context.rs::VmContextPtr.
             let ctx_ref = unsafe { &*ctx_ptr.0 };
 
-            let stack = &ctx_ref.call_stack;
+            let stack = &ctx_ref.exec.call_stack;
             if stack.owned_by_current_thread() {
                 // SAFETY: this thread owns the stack (it pushed the bottom
                 // frame and has not emptied it since), so this is an owner

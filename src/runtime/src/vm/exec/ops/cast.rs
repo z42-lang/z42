@@ -60,7 +60,7 @@ fn constructed_name_isa(
 /// Type test for a **receiver descriptor** — the single entry used by interp `is` / `as` /
 /// typed `catch` and their JIT helpers. `key` is the site's cached target key
 /// ([`TypeKeyCell`](crate::vm::runtime::ids::tokens::TypeKeyCell): instruction / exception-table row /
-/// a `static`), resolved here on first use. Then: `ctx.isa_cache` keyed by
+/// a `static`), resolved here on first use. Then: `ctx.runtime.isa_cache` keyed by
 /// `(td.id, key)` (one load on a hit) → `subclass_memo` → base/interface chain walk.
 ///
 /// Descriptors without an id (`UNRESOLVED`: transient fallbacks, native-handle singletons)
@@ -182,7 +182,7 @@ pub(crate) fn struct_ref_isa(
     if class_name == "Std.Object" || class_name == "Object" {
         return true;
     }
-    let Ok(name) = ctx.struct_arena.lock().with(idx, frame_id, |s| s.type_name.clone()) else { return false };
+    let Ok(name) = ctx.exec.struct_arena.lock().with(idx, frame_id, |s| s.type_name.clone()) else { return false };
     &*name == class_name || is_subclass_or_eq_td(ctx, registry, &name, class_name)
 }
 
@@ -195,7 +195,7 @@ fn isa_keyed(
     target: &str,
     key: u32,
 ) -> bool {
-    match ctx.isa_cache.get(td.id.0, key) {
+    match ctx.runtime.isa_cache.get(td.id.0, key) {
         Some(v) => v,
         None => isa_slow(ctx, registry, td, target, key),
     }
@@ -214,18 +214,18 @@ fn isa_slow(
     // optimize-subclass-check: the (type, target) verdict is a global, monotonic fact — a
     // loaded type's base/interface chain never changes and lazy loading only ADDs types — so it
     // is memoised. Cleared on explicit module (re)load (REPL) — see `load_module_*`.
-    let memo = ctx.subclass_memo.lock().get(&pair).copied();
+    let memo = ctx.runtime.subclass_memo.lock().get(&pair).copied();
     let v = match memo {
         Some(v) => v,
         None => {
             // `recv == key`: the key is the target's own TypeId and `td` is (a version of) it.
             let v = recv == key || td.name == target
                 || is_subclass_or_eq_td_walk(ctx, registry, &td.name, target);
-            ctx.subclass_memo.lock().insert(pair, v);
+            ctx.runtime.subclass_memo.lock().insert(pair, v);
             v
         }
     };
-    ctx.isa_cache.put(recv, key, v);
+    ctx.runtime.isa_cache.put(recv, key, v);
     v
 }
 

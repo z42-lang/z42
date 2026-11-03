@@ -16,6 +16,6 @@ pub use fusion::{CmpOp, SuperInstr};
 mod runtime_tests;
 
 mod state;
-pub(crate) use state::RuntimeState;
+pub(crate) use state::{RuntimeState, ThreadRuntimeState};
 
 pub(crate) mod statics;

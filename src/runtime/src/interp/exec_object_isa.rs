@@ -111,7 +111,7 @@ fn as_cast_to(
     // value context — e.g. `foreach (P p in arr)`) → copy the element out to a fresh current-frame
     // arena `StructRef` (value-semantics snapshot; the loop var must not alias the array).
     if let Value::StructRefHeap { idx, frame_id } = &val {
-        let e = ctx.transient_arena.lock().struct_elem(*idx, *frame_id)?;
+        let e = ctx.exec.transient_arena.lock().struct_elem(*idx, *frame_id)?;
         let out = crate::vm::exec::ops::structs::copy_array_elem_out(ctx, frame.frame_id(ctx), &e)?;
         frame.set(dst, out);
         return Ok(());

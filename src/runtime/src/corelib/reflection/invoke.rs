@@ -349,7 +349,7 @@ fn alloc_default(ctx: &VmContext, td: &Arc<TypeDesc>, type_args: crate::object::
 /// `__activator_create(type: Type) -> object` — no-arg reflective construction.
 /// Mirrors the interpreter's `ObjNew`: alloc with per-field defaults, then run the
 /// no-arg ctor (`<Class>` bare or `<Class>$0` overload-mangled) if one exists. A
-/// ctor `throw` propagates with its original type via `ctx.pending_thrown`. Only
+/// ctor `throw` propagates with its original type via `ctx.exec.pending_thrown`. Only
 /// no-arg construction (test-class instantiation for the reflective test runner);
 /// parameterised CreateInstance is deferred.
 pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {

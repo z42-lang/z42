@@ -124,7 +124,7 @@ fn concurrent_writers_never_tear_and_stay_rooted_across_collections() {
                 if i % 97 == t {
                     w.core.threads.needs_auto_collect.store(true, Ordering::Release);
                 }
-                w.safepoint_skip.store(1, Ordering::Relaxed);
+                w.threads.safepoint_skip.store(1, Ordering::Relaxed);
                 crate::vm::threads::safepoint::check_safepoint(&w);
                 match w.static_get_by_id(ints) {
                     Value::I64(v) => assert_eq!(v as u64 >> 32, v as u64 & 0xFFFF_FFFF, "torn int {v:#x}"),

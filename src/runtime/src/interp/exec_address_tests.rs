@@ -64,7 +64,7 @@ fn load_elem_addr_produces_array_ref_kind() {
     match frame.get(2).unwrap() {
         Value::Ref { idx, frame_id } => {
             assert_eq!(*frame_id, frame.frame_id(&ctx), "ref is stamped with the creating frame");
-            let kind = ctx.transient_arena.lock().ref_kind(*idx, *frame_id).unwrap();
+            let kind = ctx.exec.transient_arena.lock().ref_kind(*idx, *frame_id).unwrap();
             match kind {
                 RefKind::Array { idx: elem, .. } => assert_eq!(elem, 1),
                 other => panic!("expected RefKind::Array, got {other:?}"),
@@ -88,7 +88,7 @@ fn store_through_elem_ref_writes_back_to_the_array() {
     let Value::Ref { idx, frame_id } = frame.get(2).unwrap().clone() else {
         panic!("expected a Ref");
     };
-    let kind = ctx.transient_arena.lock().ref_kind(idx, frame_id).unwrap();
+    let kind = ctx.exec.transient_arena.lock().ref_kind(idx, frame_id).unwrap();
     crate::vm::exec::ops::references::store_thru_ref(&kind, Value::I64(11), &ctx).unwrap();
 
     match &arr {
@@ -135,7 +135,7 @@ fn load_field_addr_produces_field_ref_kind() {
 
     match frame.get(1).unwrap() {
         Value::Ref { idx, frame_id } => {
-            let kind = ctx.transient_arena.lock().ref_kind(*idx, *frame_id).unwrap();
+            let kind = ctx.exec.transient_arena.lock().ref_kind(*idx, *frame_id).unwrap();
             match kind {
                 RefKind::Field { field_name, .. } => assert_eq!(field_name, "f"),
                 other => panic!("expected RefKind::Field, got {other:?}"),
@@ -157,7 +157,7 @@ fn store_through_field_ref_writes_back_to_the_object() {
     let Value::Ref { idx, frame_id } = frame.get(1).unwrap().clone() else {
         panic!("expected a Ref");
     };
-    let kind = ctx.transient_arena.lock().ref_kind(idx, frame_id).unwrap();
+    let kind = ctx.exec.transient_arena.lock().ref_kind(idx, frame_id).unwrap();
     crate::vm::exec::ops::references::store_thru_ref(&kind, Value::I64(21), &ctx).unwrap();
 
     match &obj {
@@ -178,7 +178,7 @@ fn store_through_unknown_field_bails() {
     let Value::Ref { idx, frame_id } = frame.get(1).unwrap().clone() else {
         panic!("expected a Ref");
     };
-    let kind = ctx.transient_arena.lock().ref_kind(idx, frame_id).unwrap();
+    let kind = ctx.exec.transient_arena.lock().ref_kind(idx, frame_id).unwrap();
     let err = crate::vm::exec::ops::references::store_thru_ref(&kind, Value::I64(2), &ctx).unwrap_err();
     assert!(err.to_string().contains("not found"), "unexpected error: {err}");
 }

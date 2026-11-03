@@ -13,3 +13,9 @@ pub struct DiagnosticsState {
     pub(crate) lock_wait_us: AtomicU64,
     pub(crate) sampler: crate::profiler::cpu::Sampler,
 }
+
+/// Observation-only shard; transferred under the registry lock before deregistration.
+#[derive(Default)]
+pub(crate) struct ThreadDiagnosticsState {
+    pub(crate) counters: crate::counters::RuntimeCounters,
+}

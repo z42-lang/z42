@@ -55,7 +55,7 @@ fn retention_query_waits_for_running_mutators_to_park() {
             // Running z42 code: no safepoint for a while.
             std::thread::sleep(Duration::from_millis(200));
             while !stop.load(Ordering::Acquire) {
-                w.safepoint_skip.store(1, Ordering::Relaxed);
+                w.threads.safepoint_skip.store(1, Ordering::Relaxed);
                 crate::vm::threads::safepoint::check_safepoint(&w);
                 std::thread::yield_now();
             }

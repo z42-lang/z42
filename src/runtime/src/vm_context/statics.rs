@@ -165,12 +165,12 @@ impl VmContext {
     /// `extern "C"` return code = 1 and pulls the value via
     /// `take_exception()` to propagate as `ExecOutcome::Thrown`.
     pub fn set_exception(&self, val: Value) {
-        *self.pending_exception.lock() = Some(val);
+        *self.exec.pending_exception.lock() = Some(val);
     }
 
     /// Pop the pending exception (called once per `extern "C"` failure).
     pub fn take_exception(&self) -> Option<Value> {
-        self.pending_exception.lock().take()
+        self.exec.pending_exception.lock().take()
     }
 
     /// Peek at the pending exception without removing it. Used by JIT catch-type
@@ -179,6 +179,6 @@ impl VmContext {
     /// handler to jump to, and a later `take_exception` (via `jit_install_catch`)
     /// hands the value to the chosen catch register.
     pub fn peek_exception(&self) -> Option<Value> {
-        self.pending_exception.lock().clone()
+        self.exec.pending_exception.lock().clone()
     }
 }

@@ -257,7 +257,7 @@ fn a_reentrant_old_table_builtin_folds_under_a_light_frame() {
     assert!(folded.starts_with("Std.Exception: __load_module: argument `path` expects a string"), "{folded}");
     assert!(folded.lines().nth(1).is_some_and(|l| l.trim_start().starts_with("at T.C.Load")), "{folded}");
     assert_ne!(m.functions[idx(&m, "T.C.Load")].forward.get(), Some(Some(id)), "a framed fold token");
-    assert_eq!(vm.call_stack.depth(), 0, "the light frame is popped");
+    assert_eq!(vm.exec.call_stack.depth(), 0, "the light frame is popped");
 
     let m2 = build();
     m2.functions[idx(&m2, "T.C.Load")].forward.set(None);

@@ -62,7 +62,7 @@ fn struct_elem_handle(ctx: &VmContext, arr: ArrRef, i: usize, fid: u32) -> Value
 fn array_get_rare(ctx: &VmContext, arr: &Value, idx: &Value) -> OpResult<Value> {
     match arr {
         Value::StackArray { idx: aidx, frame_id: afid } => {
-            ctx.stack_arena.lock().with_arr(*aidx, *afid, |a| {
+            ctx.exec.stack_arena.lock().with_arr(*aidx, *afid, |a| {
                 checked_index(ArrayOp::Get, idx, a.len()).map(|i| a.get_boxed(i))
             })?
         }
@@ -90,7 +90,7 @@ pub fn array_set(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpResu
 fn array_set_rare(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpResult<()> {
     match arr {
         Value::StackArray { idx: aidx, frame_id } => {
-            ctx.stack_arena.lock().with_arr_mut(*aidx, *frame_id, |a| {
+            ctx.exec.stack_arena.lock().with_arr_mut(*aidx, *frame_id, |a| {
                 checked_index(ArrayOp::Set, idx, a.len()).map(|i| a.set(i, *v))
             })?
         }
@@ -104,7 +104,7 @@ pub fn array_len(ctx: &VmContext, arr: &Value) -> OpResult<i64> {
     match arr {
         Value::Array(rc) => Ok(rc.borrow().len() as i64),
         Value::StackArray { idx, frame_id } => {
-            Ok(ctx.stack_arena.lock().with_arr(*idx, *frame_id, |a| a.len() as i64)?)
+            Ok(ctx.exec.stack_arena.lock().with_arr(*idx, *frame_id, |a| a.len() as i64)?)
         }
         other => Err(not_an_array(ArrayOp::Len, other)),
     }
@@ -342,7 +342,7 @@ pub fn pack_struct_elem(ctx: &VmContext, arr: &ArrayObj, i: usize, v: &Value) ->
     let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = match v {
         Value::BoxedStruct(b) => b.borrow().boxed_blob(),
         Value::StructRef { idx, frame_id } =>
-            ctx.struct_arena.lock().with(*idx, *frame_id, |s| (s.bytes.to_vec(), s.refs.to_vec()))?,
+            ctx.exec.struct_arena.lock().with(*idx, *frame_id, |s| (s.bytes.to_vec(), s.refs.to_vec()))?,
         Value::Null => return Ok(()),
         other => return Err(OpError::internal(format!(
             "struct array literal element must be a struct value, got {other:?}"))),

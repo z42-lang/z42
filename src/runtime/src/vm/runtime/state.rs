@@ -30,3 +30,23 @@ impl RuntimeState {
         }
     }
 }
+
+/// Per-thread front caches contain only complete, stable lookup answers.
+/// Explicit module reload clears all four together; no cache owns its context.
+pub(crate) struct ThreadRuntimeState {
+    pub(crate) subclass_memo: parking_lot::Mutex<rustc_hash::FxHashMap<u64, bool>>,
+    pub(crate) isa_cache: super::dispatch::isa_cache::IsaCache,
+    pub(crate) type_lookup_cache: parking_lot::Mutex<rustc_hash::FxHashMap<Box<str>, Arc<crate::object::TypeDesc>>>,
+    pub(crate) fn_lookup_cache: parking_lot::Mutex<rustc_hash::FxHashMap<Box<str>, Arc<super::Function>>>,
+}
+
+impl ThreadRuntimeState {
+    pub(crate) fn new() -> Self {
+        Self {
+            subclass_memo: Default::default(),
+            isa_cache: super::dispatch::isa_cache::IsaCache::new(),
+            type_lookup_cache: Default::default(),
+            fn_lookup_cache: Default::default(),
+        }
+    }
+}

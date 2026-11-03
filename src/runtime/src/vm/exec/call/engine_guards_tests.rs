@@ -52,7 +52,7 @@ fn a_second_context_on_the_same_thread_nests_and_restores() {
 #[test]
 fn frame_ids_are_never_zero() {
     let ctx = VmContext::new();
-    ctx.next_frame_id.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
+    ctx.exec.next_frame_id.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
     assert_eq!(ctx.next_frame_id(), u32::MAX);
     assert_eq!(ctx.next_frame_id(), 1, "wraps past 0, the \"not taken\" marker");
 }

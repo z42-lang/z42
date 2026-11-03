@@ -69,7 +69,7 @@ fn pause_guard_drop_notifies_waiters() {
         // add-gc-safepoint-counter-throttling : force the
         // worker's safepoint check into the slow path immediately so
         // the test doesn't need to call check_safepoint 1024 times.
-        m.safepoint_skip.store(1, Ordering::Relaxed);
+        m.threads.safepoint_skip.store(1, Ordering::Relaxed);
         check_safepoint(&m);
     });
     ready_rx.recv().expect("worker registered");
@@ -123,7 +123,7 @@ fn auto_collect_flag_drained_at_next_safepoint() {
     let ctx = VmContext::new();
     // add-gc-safepoint-counter-throttling : bypass throttling
     // — force the first check_safepoint into the slow path.
-    ctx.safepoint_skip.store(1, Ordering::Relaxed);
+    ctx.threads.safepoint_skip.store(1, Ordering::Relaxed);
     assert!(!ctx.core.threads.needs_auto_collect.load(Ordering::Acquire));
     let cycles_before = ctx.heap().stats().gc_cycles;
 
@@ -147,13 +147,13 @@ fn auto_collect_flag_idempotent_only_first_swap_runs_collect() {
 
     // add-gc-safepoint-counter-throttling : force slow path
     // for each of the two check_safepoint calls below.
-    ctx.safepoint_skip.store(1, Ordering::Relaxed);
+    ctx.threads.safepoint_skip.store(1, Ordering::Relaxed);
     check_safepoint(&ctx);
     let cycles_after_first = ctx.heap().stats().gc_cycles;
     assert_eq!(cycles_after_first, cycles_before + 1);
 
     // Flag is false now; this call should NOT trigger another collect.
-    ctx.safepoint_skip.store(1, Ordering::Relaxed);
+    ctx.threads.safepoint_skip.store(1, Ordering::Relaxed);
     check_safepoint(&ctx);
     let cycles_after_second = ctx.heap().stats().gc_cycles;
     assert_eq!(cycles_after_second, cycles_after_first,
@@ -178,12 +178,12 @@ fn request_pause_waits_for_other_mutators_to_park() {
     let w1 = std::thread::spawn(move || {
         let m = VmContext::new_with_core(core1);
         // add-gc-safepoint-counter-throttling : force slow path.
-        m.safepoint_skip.store(1, Ordering::Relaxed);
+        m.threads.safepoint_skip.store(1, Ordering::Relaxed);
         check_safepoint(&m);
     });
     let w2 = std::thread::spawn(move || {
         let m = VmContext::new_with_core(core2);
-        m.safepoint_skip.store(1, Ordering::Relaxed);
+        m.threads.safepoint_skip.store(1, Ordering::Relaxed);
         check_safepoint(&m);
     });
 
@@ -222,7 +222,7 @@ fn check_safepoint_fast_path_decrements_counter() {
     // 5 fast-path calls decrement the counter by 5 without taking the
     // slow path (gc_cycles unchanged).
     let ctx = VmContext::new();
-    let initial = ctx.safepoint_skip.load(Ordering::Relaxed);
+    let initial = ctx.threads.safepoint_skip.load(Ordering::Relaxed);
     let cycles_before = ctx.heap().stats().gc_cycles;
 
     // Skip this test if throttle is 1 (every call is slow path — the
@@ -236,7 +236,7 @@ fn check_safepoint_fast_path_decrements_counter() {
         check_safepoint(&ctx);
     }
 
-    let after = ctx.safepoint_skip.load(Ordering::Relaxed);
+    let after = ctx.threads.safepoint_skip.load(Ordering::Relaxed);
     assert_eq!(after, initial - 5, "counter should decrement by 5");
     assert_eq!(ctx.heap().stats().gc_cycles, cycles_before,
         "fast path should not run any collect");
@@ -248,12 +248,12 @@ fn check_safepoint_slow_path_runs_when_counter_drains() {
     // and resets counter back to `throttle_n()`.
     let ctx = VmContext::new();
     ctx.core.threads.needs_auto_collect.store(true, Ordering::Release);
-    ctx.safepoint_skip.store(1, Ordering::Relaxed);
+    ctx.threads.safepoint_skip.store(1, Ordering::Relaxed);
     let cycles_before = ctx.heap().stats().gc_cycles;
 
     check_safepoint(&ctx);
 
-    let after = ctx.safepoint_skip.load(Ordering::Relaxed);
+    let after = ctx.threads.safepoint_skip.load(Ordering::Relaxed);
     let expected_reset = throttle_n();
     assert_eq!(after, expected_reset,
         "slow path should reset counter to throttle_n() ({expected_reset}), got {after}");
@@ -269,12 +269,12 @@ fn check_safepoint_slow_path_pure_idle_no_op_resets_counter() {
     // No pending GC + no auto_collect; slow path is reached but does
     // nothing. Still resets the counter — proves the reset is unconditional.
     let ctx = VmContext::new();
-    ctx.safepoint_skip.store(1, Ordering::Relaxed);
+    ctx.threads.safepoint_skip.store(1, Ordering::Relaxed);
     let cycles_before = ctx.heap().stats().gc_cycles;
 
     check_safepoint(&ctx);
 
-    let after = ctx.safepoint_skip.load(Ordering::Relaxed);
+    let after = ctx.threads.safepoint_skip.load(Ordering::Relaxed);
     assert_eq!(after, throttle_n());
     assert_eq!(ctx.heap().stats().gc_cycles, cycles_before,
         "Idle slow path should not run any collect");
@@ -363,7 +363,7 @@ fn requested_phase_parks_mutators() {
     let core = collector.core_arc();
     let handle = std::thread::spawn(move || {
         let w = VmContext::new_with_core(core);
-        w.safepoint_skip.store(1, Ordering::Relaxed);
+        w.threads.safepoint_skip.store(1, Ordering::Relaxed);
         check_safepoint(&w);
         // If parking worked, we land here only after collector flips to Idle.
     });
@@ -458,7 +458,7 @@ fn generational_collection_bumps_minor_counter() {
 
     // Drive one real collection via the auto-collect safepoint drain, which
     // routes to collect_cycles_with_vm → the generational minor path.
-    ctx.safepoint_skip.store(1, Ordering::Relaxed);
+    ctx.threads.safepoint_skip.store(1, Ordering::Relaxed);
     ctx.core.threads.needs_auto_collect.store(true, Ordering::Release);
     check_safepoint(&ctx);
 
@@ -614,7 +614,7 @@ fn a_pause_request_sends_every_mutator_to_the_slow_path_at_its_next_check() {
         std::thread::yield_now();
     }
     let poked = loop {
-        if mutator.safepoint_skip.load(Ordering::Relaxed) == 1 {
+        if mutator.threads.safepoint_skip.load(Ordering::Relaxed) == 1 {
             break true;
         }
         if start.elapsed() > std::time::Duration::from_secs(2) {
@@ -640,8 +640,8 @@ fn an_auto_collect_trip_sends_every_mutator_to_the_slow_path() {
     let other = VmContext::new_with_core(ctx.core_arc());
     ctx.heap().set_max_heap_bytes(Some(64 * 1024));
     let n = throttle_n();
-    ctx.safepoint_skip.store(n, Ordering::Relaxed);
-    other.safepoint_skip.store(n, Ordering::Relaxed);
+    ctx.threads.safepoint_skip.store(n, Ordering::Relaxed);
+    other.threads.safepoint_skip.store(n, Ordering::Relaxed);
     let mut keep = Vec::new();
     for _ in 0..10_000 {
         keep.push(ctx.heap().alloc_array(vec![crate::object::Value::I64(0); 16]));
@@ -651,8 +651,8 @@ fn an_auto_collect_trip_sends_every_mutator_to_the_slow_path() {
     }
     assert!(ctx.core.threads.needs_auto_collect.load(Ordering::Acquire), "test setup: the cap must trip");
     if n > 1 {
-        assert_eq!(ctx.safepoint_skip.load(Ordering::Relaxed), 1, "the tripping thread");
-        assert_eq!(other.safepoint_skip.load(Ordering::Relaxed), 1, "every other thread");
+        assert_eq!(ctx.threads.safepoint_skip.load(Ordering::Relaxed), 1, "the tripping thread");
+        assert_eq!(other.threads.safepoint_skip.load(Ordering::Relaxed), 1, "every other thread");
     }
     drop(keep);
 }
@@ -694,11 +694,11 @@ fn a_collection_during_a_native_park_retires_the_parked_claims() {
         let root = w.heap().pin_root(kept);
         {
             let _park = NativeParkGuard::enter(&w);
-            assert!(w.parked_tlab.take().map(|p| { w.parked_tlab.put(p); }).is_some(),
+            assert!(w.threads.parked_tlab.take().map(|p| { w.threads.parked_tlab.put(p); }).is_some(),
                 "the TLAB claims are set aside while parked");
             to_main.send(()).unwrap();
             from_main.recv().unwrap();
-            assert!(w.parked_tlab.take().is_none(), "the collector retired them");
+            assert!(w.threads.parked_tlab.take().is_none(), "the collector retired them");
         }
         let after = w.heap().alloc_str("allocated after unparking");
         let crate::object::Value::Str(k) = kept else { panic!() };

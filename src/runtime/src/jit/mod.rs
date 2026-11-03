@@ -63,7 +63,7 @@ use helpers::take_exception_error;
 pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
     let rt = ctx.jit().ok_or_else(|| anyhow::anyhow!("JIT: no JIT installed on this VM"))?;
     // Scope the heap as the ambient GC heap for this JIT run. The entry's
-    // bottom-frame push installs it too (`vm_context/engine_guards.rs`); this
+    // bottom-frame push installs it too (`vm/exec/call/engine_guards.rs`); this
     // one also covers the entry's lazy compile before that push.
     let _heap_guard = crate::vm::exec::ambient::HeapGuard::enter(ctx.heap());
     let module = rt.module();

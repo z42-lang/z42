@@ -36,7 +36,7 @@ pub(super) enum Unwind {
 pub(super) fn copy_in_ref_param(
     ctx: &VmContext, frame: &mut Frame, reg: usize, idx: u32, frame_id: u32,
 ) -> Result<()> {
-    let kind = ctx.transient_arena.lock().ref_kind(idx, frame_id)?;
+    let kind = ctx.exec.transient_arena.lock().ref_kind(idx, frame_id)?;
     frame.regs[reg] = deref_ref(&kind, ctx)?;
     frame.ref_writebacks.push((reg as u32, kind));
     Ok(())

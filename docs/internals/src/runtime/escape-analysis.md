@@ -194,7 +194,7 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 可解 `this`，无需跨帧机制。
 
 - **句柄**：`Value::StackObject { idx, frame_id }` / `Value::StackArray { idx, frame_id }`（各 8B 内联，
-  不撑大 24B `Value`）。`idx` 索引 `VmContext::stack_arena`（`Mutex<StackArena>`：owner 无竞争、GC 扫描在
+  不撑大 24B `Value`）。`idx` 索引 `VmContext.exec.stack_arena`（`Mutex<StackArena>`：owner 无竞争、GC 扫描在
   safepoint）。
 - **分配**：`obj_new`/`array_new`(stack) 构造 `OwnedObject`（与堆对象同形的脱离块）/ `StackArray`（`Vec<Value>`，堆数组的块表示不用于栈数组）push 进 arena、返回句柄。ctor 照常在
   栈对象上跑（`this` = 句柄，FieldGet/Set 经 arena 解）。

@@ -320,7 +320,7 @@ pub unsafe extern "C" fn jit_as_cast(
     // 当前帧 arena StructRef（值副本快照，镜像 interp copy_array_elem_out）。
     if let Value::StructRefHeap { idx, frame_id } = &val {
         // make-value-copy: resolve the StructRefHeap handle → StructArrayElem via the arena.
-        let e = match vm_ctx_ref(ctx).transient_arena.lock().struct_elem(*idx, *frame_id) {
+        let e = match vm_ctx_ref(ctx).exec.transient_arena.lock().struct_elem(*idx, *frame_id) {
             Ok(e) => e,
             Err(_) => { (*frame).regs[dst as usize] = Value::Null; return; }
         };
