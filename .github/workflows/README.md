@@ -21,7 +21,7 @@
 
 | job（显示名） | 何时跑 | 职责 |
 |------|------|------|
-| `changes`（detect-changes） | 总是 | 按路径过滤出 platform / examples / compiler / vm / stdlib / docs_only，给下游 `if:` 用 |
+| `changes`（detect-changes） | 总是 | 按路径分类，并输出下游测试和打包任务的选择结果 |
 | `docs-check` | 仅文档改动 | `xtask test docs links` 死链门禁 + `xtask check diagcodes` |
 | `build-and-test`（test-host） | 非纯文档 | 多平台 `xtask build` + `xtask test` |
 | `host-package`（package-host） | platform / examples 改动或非 PR | 各 host RID 的 package 产物 |
