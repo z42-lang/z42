@@ -145,8 +145,8 @@ fn interp(build: &dyn Fn() -> Module, idx: usize, args: &[Value]) -> Result<Valu
     let vm = vm_of(build);
     let m = Arc::clone(vm.module().expect("entry module"));
     match crate::interp::exec_function(&vm, &m, &m.functions[idx], args) {
-        Ok(crate::interp::ExecOutcome::Returned(v)) => Ok(v.unwrap_or(Value::Null)),
-        Ok(crate::interp::ExecOutcome::Thrown(v)) => Err(thrown_text(Some(v))),
+        Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(v)) => Ok(v.unwrap_or(Value::Null)),
+        Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(v)) => Err(thrown_text(Some(v))),
         Err(e) => panic!("interp: {e:#}"),
     }
 }

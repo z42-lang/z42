@@ -273,7 +273,7 @@ pub(super) fn raised(r: crate::corelib::abi::error::Raised) -> Result<Option<Val
 }
 
 /// A call that resolved to a `[Native]` forwarder: run its builtin straight from this
-/// frame's registers (`interp::forward`). `None` = not a forwarder (or the argument
+/// frame's registers (`vm::exec::call::forward`). `None` = not a forwarder (or the argument
 /// count differs from the wrapper's parameters) → the ordinary call.
 ///
 /// The not-a-forwarder answer (a count compare + one relaxed load) is inlined into the
@@ -284,7 +284,7 @@ pub(super) fn try_fold(
     target: &Function, this: Option<Value>, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
     if args.len() + this.is_some() as usize != target.param_count { return None; }
-    let id = super::forward::forward_of(ctx, module, target)?;
+    let id = crate::vm::exec::call::forward::forward_of(ctx, module, target)?;
     Some(run_fold(ctx, module, frame, dst, target, id, this, args))
 }
 
@@ -292,7 +292,7 @@ fn run_fold(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32,
     target: &Function, id: u32, this: Option<Value>, args: &[u32],
 ) -> Result<Option<Value>> {
-    match super::forward::run_folded(ctx, target, id, this, &frame.regs, args, || module) {
+    match crate::vm::exec::call::forward::run_folded(ctx, target, id, this, &frame.regs, args, || module) {
         Ok(Some(v)) => { frame.set(dst, v); Ok(None) }
         Ok(None) => { frame.set(dst, Value::Null); Ok(None) }
         Err(f) => raised(f.raise(ctx, module, target)),

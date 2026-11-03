@@ -7,7 +7,7 @@
 | 文件 | 职责 |
 |------|------|
 | `mod.rs` | 模块表 + 执行主循环 `exec_function_body`（入口 / Frame / 支撑函数经 `pub use` / `pub(crate) use` 全量再导出，兄弟模块 `super::X` 路径不变）|
-| `entry.rs` | 公开 API：`ExecOutcome`、`run` / `run_returning` / `run_outcome`、`init_static_fields` / `run_with_static_init` |
+| `entry.rs` | 公开执行入口（结果类型为 VM 的 `ExecOutcome`）：`run` / `run_returning` / `run_outcome`、`init_static_fields` / `run_with_static_init` |
 | `frame.rs` | `Frame`（寄存器文件按 `Function::reg_file_len` 一次性预分配——loader 回填 `func.max_reg`，见 book「超级指令融合」页；`Frame.method_type_args` 携泛型方法调用点的具体类型实参名，供 `MethodTypeArg`/`MethodDefault`——见 book「泛型方法」页）、执行循环、异常表查找
 | `exec_support.rs` | `exec_function` 族入口、`enter_frame` + `FrameGuard`（interp 帧登记 / RAII 弹出并归还寄存器文件）、OSR / 原生分流（`try_osr` / `try_native_exec`）、异常事件、`find_handler`、ref 写回 |
 | `exec_instr.rs` | 薄分发器：穷尽 match 把 `Instruction` 分派到下面各 `exec_<category>.rs`；内联进执行主循环，大而少见的分支调 `#[inline(never)]` helper（「热循环布局」，见文件头注释）|
@@ -15,11 +15,11 @@
 | `exec_value.rs` | 常量 / Copy / 算术 / 比较 / 逻辑 / 一元 / 位运算 / 字符串构造 |
 | `exec_address.rs` | `LoadLocalAddr` / `LoadElemAddr` / `LoadFieldAddr`（检查走 objops）/ `DefaultOf`（类级泛型零值）/ `MethodTypeArg`·`MethodDefault`（方法级泛型：读 `Frame.method_type_args`，见 book「泛型方法」页）|
 | `exec_call.rs` | `Call` / `Builtin` / `LoadFn` / `CallIndirect` / `MkClos`；`[Native]` 包装函数的折叠调用（`try_fold`） |
-| `forward.rs` | **`[Native]` 桩折叠单一实现**（识别转发函数、`Function::forward` 缓存、无帧 / 轻帧执行、失败时现算包装函数的 trace 行），interp `exec_call` / `exec_vcall` 与 JIT `jit/forward.rs` 共用；机制见 internals「native ABI §6.4」 |
+| `vm/exec/call/forward.rs`（共享） | **`[Native]` 桩折叠单一实现**（识别转发函数、`Function::forward` 缓存、无帧 / 轻帧执行、失败时现算包装函数的 trace 行），interp `exec_call` / `exec_vcall` 与 JIT `jit/forward.rs` 共用；机制见 internals「native ABI §6.4」 |
 | `exec_array.rs` | `ArrayNew` / `ArrayNewLit` / `ArrayGet` / `ArraySet` / `ArrayLen`：`objops::array` 的薄适配（另解析泛型型参的基元零值） |
 | `exec_object.rs` | `ObjNew`；`FieldGet` / `FieldSet` / `Static*` 是 `objops::field` / `objops::statics` 的薄适配 |
 | `exec_object_isa.rs` | `IsInstance` / `AsCast` 类型判定（`exec_object` 再导出） |
-| `exec_struct.rs` | 值 struct blob 指令：`StructAlloc` / `StructCopy` / `StructFieldGetPrim` / `StructFieldSetPrim`（作用于 `struct_arena`，寄存器持 `Value::StructRef` 句柄）；叶子读写核心在 `objops::struct_leaf` |
+| `exec_struct.rs` | 值 struct 指令的寄存器薄适配，共享值级实现位于 `vm/exec/ops/structs.rs`：`StructAlloc` / `StructCopy` / `StructFieldGetPrim` / `StructFieldSetPrim`（作用于 `struct_arena`，寄存器持 `Value::StructRef` 句柄）；叶子读写核心在 `objops::struct_leaf` |
 | `vcall_resolve.rs` | **虚调用目标解析单一实现**（装箱基元 / 装箱 struct / 基元 / 对象 vtable·层级 walk + 候选名 + PIC 安装），interp `exec_vcall` 与 JIT `helpers/vcall.rs` 共用|
 | `obj_new_resolve.rs` | **`ObjNew` 类 / 构造器解析单一实现** + 站点缓存（`ObjNewSite`：类描述符 + ctor `FnId` + ctorless 标记，命中不哈希、不拿锁），interp `exec_object::obj_new` 与 JIT `helpers/object.rs::jit_obj_new` 共用 |
 | `exec_vcall.rs` | `VCall` 的 interp 调用侧（PIC 命中 / 解析结果 → 帧执行、mixed-mode 原生分流）+ `primitive_class_name` |

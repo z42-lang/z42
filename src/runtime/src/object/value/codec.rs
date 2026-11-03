@@ -10,10 +10,7 @@ use crate::object::header::{BlockType, VarGcRef};
 // ── Value ↔ byte codec (unify-object-byte-layout PR-2) ───────────────────────
 //
 // Serialization of a primitive `Value` to/from a byte window, keyed by `ty::TAG_*`.
-// Lives in `metadata` (not `interp`) because both object byte-storage
-// (`ScriptObject::field_value`) and value-struct blobs (`interp::exec_struct`) consume
-// it, and `metadata` is the lower layer both depend on. Moved here from
-// `interp::exec_struct` by PR-2 (was `add-struct-heap-inline`).
+// Object byte storage and VM struct operations share these primitive codecs.
 
 /// Whether a leaf `ty::TAG_*` denotes a reference leaf (`string` / object / array),
 /// which lives in the blob's / object's `refs` side-slice rather than byte-packed.

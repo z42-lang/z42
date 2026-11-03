@@ -167,7 +167,7 @@ impl VmContext {
     /// An already-registered function, or `None` — **never loads a package and never
     /// runs initializers** (unlike [`Self::try_lookup_function`]). For callers that
     /// must not re-enter the VM, such as the JIT translator recognising intrinsics and
-    /// the `[Native]` forward probe (`interp::forward`).
+    /// the `[Native]` forward probe (`vm::exec::call::forward`).
     pub(crate) fn probe_loaded_function(&self, func_name: &str) -> Option<Arc<Function>> {
         self.core.lazy_loader.read().as_ref()?.probe_function(func_name)
     }

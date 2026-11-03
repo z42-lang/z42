@@ -6,7 +6,7 @@
 //! arguments through a compiled caller, and the interpreter must divert a generic call to
 //! a compiled callee (the mixed-mode path these sites were shut out of).
 
-use crate::interp::ExecOutcome;
+use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator, VCallInsn};
 use crate::metadata::ir::ExecMode;

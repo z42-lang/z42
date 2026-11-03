@@ -30,7 +30,8 @@
 //! (scripting-charter 2b).
 
 use crate::corelib::reflection::{type_members, make_type_from_name};
-use crate::interp::{exec_function, ExecOutcome};
+use crate::interp::{exec_function};
+use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};

@@ -56,7 +56,8 @@ pub fn repl_set_keywords(joined: &str) {
 // (wasm / no-native-interop fall back to plain stdin, no editing)
 
 #[cfg(feature = "native-interop")]
-use crate::interp::{exec_function, ExecOutcome};
+use crate::interp::{exec_function};
+use crate::vm::exec::call::outcome::ExecOutcome;
 
 /// Invoke the z42 key-editor `fqn(key, line, pos)` and return its action string.
 /// Mirrors `repl::complete_via_callback` but with (string, string, int) args and a

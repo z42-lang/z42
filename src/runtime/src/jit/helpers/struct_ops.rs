@@ -26,7 +26,7 @@
 //! `VmContext::next_frame_id()` the first time this frame allocates a struct. `0`
 //! means "not yet allocated"; `next_frame_id()` never returns `0`.
 
-use crate::interp::exec_struct;
+use crate::vm::exec::ops::structs;
 use crate::object::Value;
 use super::super::frame::JitFrame;
 use crate::vm_context::VmContext;
@@ -54,7 +54,7 @@ pub unsafe extern "C" fn jit_struct_alloc(
     let type_name = std::str::from_utf8(std::slice::from_raw_parts(type_ptr, type_len))
         .unwrap_or("<invalid>");
     let fid = frame_id_of(frame, ctx);
-    let v = exec_struct::struct_alloc_val(vm_ctx_ref(ctx), fid, type_name, size);
+    let v = structs::struct_alloc_val(vm_ctx_ref(ctx), fid, type_name, size);
     (*frame).regs[dst as usize] = v;
 }
 
@@ -67,7 +67,7 @@ pub unsafe extern "C" fn jit_struct_copy(
 ) -> u8 {
     let dst_val = (*frame).regs[dst as usize].clone();
     let src_val = (*frame).regs[src as usize].clone();
-    match exec_struct::struct_copy_val(vm_ctx_ref(ctx), &dst_val, &src_val, size) {
+    match structs::struct_copy_val(vm_ctx_ref(ctx), &dst_val, &src_val, size) {
         Ok(()) => 0,
         Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(format!("{e}").into())); 1 }
     }
@@ -89,7 +89,7 @@ unsafe fn root_and_path<'a>(
 /// `BoxedStruct` / `StructRefHeap` array element). Returns 0 on success,
 /// 1 (+ exception) on a bad base / layout / path.
 ///
-/// symbolic-struct-field-access P2：解析走 `exec_struct::resolve_field_path` ——
+/// symbolic-struct-field-access P2：解析走 `structs::resolve_field_path` ——
 /// 与 interp **同一个**实现。struct 路径上「判据两侧各抄一份」正是本 change 要消掉的东西，
 /// 所以这里不重写一份解析。
 #[unsafe(no_mangle)]
@@ -102,7 +102,7 @@ pub unsafe extern "C" fn jit_struct_field_get_prim(
     let (root, path) = root_and_path(root_ptr, root_len, path_ptr, path_len);
     let base_val = (*frame).regs[base as usize].clone();
     let vm = vm_ctx_ref(ctx);
-    let r = exec_struct::resolve_for_access(vm, root, path, &base_val, "StructFieldGetPrim")
+    let r = structs::resolve_for_access(vm, root, path, &base_val, "StructFieldGetPrim")
         .and_then(|off| crate::objops::struct_leaf::struct_field_get_val(vm, &base_val, off, kind));
     match r {
         Ok(v)  => { (*frame).regs[dst as usize] = v; 0 }
@@ -124,7 +124,7 @@ pub unsafe extern "C" fn jit_struct_field_set_prim(
     let base_val = (*frame).regs[base as usize].clone();
     let v        = (*frame).regs[val as usize].clone();
     let vm = vm_ctx_ref(ctx);
-    let r = exec_struct::resolve_for_access(vm, root, path, &base_val, "StructFieldSetPrim")
+    let r = structs::resolve_for_access(vm, root, path, &base_val, "StructFieldSetPrim")
         .and_then(|off| crate::objops::struct_leaf::struct_field_set_val(vm, &base_val, off, kind, &v));
     match r {
         Ok(())  => 0,

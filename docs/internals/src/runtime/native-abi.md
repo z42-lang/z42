@@ -403,7 +403,7 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 
 每个 `[Native("__x")] extern` 方法编译成一条指令的包装函数
 （`%n = builtin __x(%0…); ret %n`）。按普通协议调用它要付一整个调用帧，只为把实参原样转给 builtin。
-调用解析到这样的转发函数时，**两个引擎都直接从调用方寄存器跑它的 builtin**（`interp/forward.rs`）：
+调用解析到这样的转发函数时，**两个引擎都直接从调用方寄存器跑它的 builtin**（`vm/exec/call/forward.rs`）：
 
 - 解释器：`exec_call::call`（静态调用，在模块初始化 / 类型初始化屏障之后）与 `exec_vcall::invoke`；
 - JIT：`jit_call` / `jit_vcall` 的已编译目标（`FnEntry::forward`）与冷目标（经解释器的那条路）。

@@ -13,20 +13,6 @@ use crate::vm_context::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
-/// Outcome of executing a function.
-/// User exceptions are value-based (no heap allocation), not anyhow errors.
-///
-/// Public so embedders (test-runner, REPL) can introspect thrown exception
-/// values — necessary for [ShouldThrow<E>] type matching and TestFailure /
-/// SkipSignal classification (rewrite-z42-test-runner-compile-time S3).
-#[derive(Debug)]
-pub enum ExecOutcome {
-    /// Normal return (with optional return value).
-    Returned(Option<Value>),
-    /// User exception thrown and not caught within this function.
-    Thrown(Value),
-}
-
 // ── Public entry points ──────────────────────────────────────────────────────
 
 /// Entry point: run a function with the given arguments.
