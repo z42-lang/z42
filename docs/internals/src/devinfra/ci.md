@@ -2,7 +2,7 @@
 
 > 代码：`.github/workflows/ci.yml`、
 > `.github/actions/ci-bootstrap/`、`.github/actions/xtask-bootstrap-artifact/`、
-> `.github/workflows/{bench-pr,release,deploy-book,jit-fixpoint-check}.yml`
+> `.github/workflows/{bench-pr,release,deploy-book,jit-fixpoint-check,retry-ci-runner}.yml`、`.github/ci/retry_runner.py`
 >
 > 每个 job 具体跑哪条 `xtask` 命令见[测试怎么跑](testing.md)；gate 的 stage 组成见[测试门禁](test-gate.md)。
 >
@@ -154,6 +154,51 @@ commit 不因此挂红。publish 真失败照样红。
 `detect-changes` 完成路径分类后直接创建下游 job，由 GitHub 原生队列分配可用 runner。
 PR 之间不在运行中的 job 内轮询排队；同一 ref 的新提交通过 workflow concurrency 取消旧运行。
 main 上的运行替换规则与 nightly 发布串行化分别由对应机制管理。
+
+### macOS 资源队列与 runner 获取失败恢复
+
+主 CI 在 `detect-changes` 中为 macOS 的宿主测试、宿主打包和其余检查分别选择一个资源槽：
+按 `run_number` 加 0 / 1 / 2 后对 3 取余，输出 `macos_{host,package,checks}_lane`。
+`test-host` 的 macOS 腿使用 host 槽，`package-host` 的 macOS 腿使用 package 槽；
+`test-stdlib-interp` 的 macOS 腿、`package-ios`、`test-ios` 使用 checks 槽。
+
+job 级 concurrency group 统一为 `ci-macos-arm64-<lane>`，一个槽同时只申请一个 macOS runner。
+三个槽之间并行，主 CI 的 macOS 并发需求上限为 3；同一次运行的三个 job 类别也可以并行，
+不同运行按 run_number 轮转分配，避免某一固定类别成为全仓单一瓶颈。重跑保持原 run_number，槽位不变。
+
+槽数的唯一配置在 ci.yml 的 `Select bounded macOS runner queue` 步骤。3 低于
+[Free / Pro / Team 默认的 macOS 并发上限 5](https://docs.github.com/en/actions/reference/limits)，
+为其它 workflow 留出余量；它不是 GitHub 容量保证。每个槽的 `queue: max` 允许最多
+100 个 job 等在 concurrency 队列中，`cancel-in-progress: false` 保留当前执行者；不能只用默认队列，
+默认只保留一个等待者、后来的 job 会取消前一个等待者。Linux / Windows 的矩阵腿按 run ID、job 类型、
+平台分组，保持并行。PR 的 workflow 级新提交取消旧运行规则仍然生效。
+
+这个队列限制本仓库发给 macOS runner 池的并发需求，但不保证 GitHub 始终有可用的 hosted runner。
+GitHub 放弃获取 runner 时，job API 可能报告 `cancelled`，`needs` 矩阵结果可能为 `abandoned`；
+两者都代表测试没有完成，`ci-ok` 仍须判红。
+
+`retry-ci-runner.yml` 在 PR CI 失败后读取 API，由 `.github/ci/retry_runner.py` 决定是否重试：
+
+- 仅处理 `.github/workflows/ci.yml` 的 PR 运行，且 PR 仍开放、目标为 main、head 与该次运行一致。
+- 运行已结束且结论为 failure；不恢复手动取消、被新提交取消的运行，也不处理过期的完成事件。
+- 除作为汇总门的 `ci-ok` 外，每个失败 / 取消的 job 都必须没有 runner、没有执行步骤，且所有 failure
+  annotation 均明确说明 hosted runner 获取失败。出现任意实际编译 / 测试错误或无法识别的故障就不重试。
+- 一次 API 请求重跑失败 job 及其下游（含 `ci-ok`），复用成功 job 的产物。最多两次自动重试，总 attempt
+  上限为 3；用户手动重试也计入这个上限。请求前再次检查运行状态与 PR head，避免恢复已过期的运行。
+- 恢复 workflow 只执行自身可信 revision 的脚本，不检出 PR、不消费 PR artifacts；写权限只用于请求重跑。
+
+auto-merge 等待实际测试与 `ci-ok` 重跑通过后继续；恢复 workflow 自己成功不代表 PR 已通过。
+重试耗尽仍失败时保持阻挡，需排查 runner 容量或改用有保障的 runner。
+
+自动恢复 workflow 必须先合入默认分支才会接收事件。对已经失败、仍对应当前 PR head 的运行，可手动触发
+相同的受限恢复逻辑（仍会检查故障类型和 attempt 上限）：
+
+```bash
+gh workflow run retry-ci-runner.yml --ref main -f run_id=<失败运行ID>
+```
+
+本地回归测试：`python3 -m unittest discover -s .github/ci -p 'test_*.py'`。
+只读诊断：`GITHUB_REPOSITORY=z42-lang/z42 python3 .github/ci/retry_runner.py --run-id <ID> --dry-run`。
 
 `detect-changes` 用 `dorny/paths-filter` 输出 flag，下游 job `needs: changes` + `if:` 门控：
 
@@ -390,6 +435,7 @@ release 仍是可用的已发布状态，下一次发布会补齐。
 | `release.yml` | `verify-version` / `package-<rid>` ×9 / `publish-release` | tag 触发的正式发布，见[打包与发版](release.md) |
 | `deploy-book.yml` | `build` / `deploy` | 三本书 + 安装脚本发到 GitHub Pages；构建前 xtask-only bootstrap 后 `xtask doc gen` 现生成 reference 的 stdlib 包页（不入库），所以 stdlib 源码 / `z42.doc` / `xtask_doc.z42` 的改动也触发 |
 | `jit-fixpoint-check.yml` | `jit-fixpoint(<rid>)` | JIT 不动点实验腿 |
+| `retry-ci-runner.yml` | `retry` | PR CI 的 hosted runner 获取失败有限重试，见上文资源队列与恢复规则 |
 
 ## 5. 本地镜像 CI
 

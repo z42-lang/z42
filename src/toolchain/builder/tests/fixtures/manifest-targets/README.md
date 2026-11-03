@@ -14,14 +14,15 @@
 | harness=false 退出码 | `basic/tests/exit_ok.z42`（`entry=MtExit.Main`） |
 | [[bench]] 反射（[Benchmark]） | `basic/benches/micro.z42` |
 | [[example]] 编译门禁 + test=true 执行 | `basic/examples/hello.z42` |
+| [[example]] test=false 只编不跑 | `basic/examples/custom/compile_only.z42`（省略 entry，误运行退出 93） |
 | 显式覆盖同名 auto | `unit_ok` / `exit_ok` 目标名 == 文件 stem → 覆盖 auto 单元 |
 | compile-then-test（`z42b test <toml>`） | `compile-then-test/`——纯 test 工程（**不**声明 `[[test]]`，故被清单引擎跳过），由 fixtures stage 的 `_smokeCompileThenTest` 单独驱动，验证 toml→build→反射跑|
 
 ## 如何测试验证
-    xtask test toolchain builder            # 跑本目录所有 [[test]] 目标（harness 两态）+ example 编译门禁
+    xtask test toolchain builder            # 跑 [[test]] 目标（harness 两态）与 builder 夹具
     xtask test toolchain builder exit_ok    # 只跑名为 exit_ok 的目标（具名精确）
     xtask bench targets           # 跑所有 [[bench]] 目标
-    xtask test                    # 全 gate（含 targets stage）
+    xtask test                    # 全部阶段，含 example 编译与 test=true 执行
 
 ## 关联文档
 - 设计：`docs/reference/src/toolchain/z42-toml.md` L5b（目标模型 / harness / exit-code / 约定发现）
@@ -33,5 +34,6 @@
 | `basic/tests/*.z42` | harness 两态 + 约定 auto 单元 |
 | `basic/benches/micro.z42` | [Benchmark] 反射目标 |
 | `basic/examples/hello.z42` | example（编译门禁 + test=true 执行） |
+| `basic/examples/custom/compile_only.z42` | example（test=false，只编译） |
 | `bundle-host/pass_unit.z42` | bundle 宿主执行用的 [Test] 单元 |
 | `compile-then-test/{z42.toml, src/Tests.z42}` | z42b compile-then-test 冒烟夹具（自由函数 `[Test]`；由 `_smokeCompileThenTest` 经 `z42b test <toml>` 驱动） |

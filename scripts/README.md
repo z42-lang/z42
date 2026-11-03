@@ -279,16 +279,18 @@ scripts/
 │   ├── xtask_fixture_build.z42  cross-zpkg / multi-exe 共用的构建、隔离 libs、产物定位与汇总
 │   ├── xtask_test_cross.z42     e2e cross-zpkg 多包
 │   ├── xtask_test_multiexe.z42  e2e multi-exe（一工程 → N 个 exe zpkg）
-│   ├── xtask_test_lib.z42       stdlib [Test]/[Benchmark] 编排（per-lib + 分片）；共用 runner `_testPkgsCore`
+│   ├── xtask_test_lib.z42       stdlib / 编译器域 [Test]/[Benchmark] 按 kind 发现、分片与编排；共用 runner `_testPkgsCore`
+│   ├── xtask_selfcheck_lib_discovery.z42  test / bench 归属与分片发现回归
 │   ├── xtask_test_toolchain.z42 `test toolchain`：src/toolchain/<comp>/ 下各工程的 [Test] unit
 │   ├── xtask_test_lib_units.z42 unit 级机制（发现 / 批量编译运行 / 合成 manifest）
-│   ├── xtask_manifest_targets.z42  manifest [[test]]/[[bench]]/[[example]] target **引擎**
+│   ├── xtask_manifest_targets.z42  manifest 目标读取/校验、test/bench 编排与聚合
 │   │                            （被 lib / targets / example 三个 flow 共用，不对应任何命令）
 │   │                            + micro bench 结果聚合 `MicroBenchAgg`（`bench stdlib --json`；消费方全在本族，故不住 bench/）
 │   ├── xtask_test_targets.z42   `test toolchain builder` / `bench targets` 入口（_testTargetsCore）
 │   │                            + fixture 工程与 tooling 准备（_prepFixtureTooling）
 │   ├── xtask_test_builder.z42   builder 命令行夹具套件（expect.toml）；状态构造与顺序检查留在 targets
-│   ├── xtask_test_example.z42   工程清单 `[[example]]` 目标的编译 / 运行
+│   ├── xtask_test_example.z42   工程清单 `[[example]]` 发现与测试编排
+│   ├── xtask_example_build.z42  example 依赖合并、合成清单与编译 / 执行
 │   ├── xtask_test_examples.z42  `test docs examples`：学习手册配套示例门（+ `xtask_examples_{book,run,transcript}.z42`：书↔examples 引用校验、`*.console` 会话重放）
 │   ├── xtask_test_embedded.z42  `test app desktop`：嵌入式 test-host 调度（desktop/wasm/ios/android）
 │   ├── xtask_test_embedded_corpus.z42  语料枚举 SoT（`test app desktop` 与 `test list` 共用）

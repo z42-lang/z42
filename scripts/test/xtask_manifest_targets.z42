@@ -11,8 +11,7 @@
 // **test/bench 只有一条路：转发 z42b**（`--list` 拿清单 → 并行 `--name` 逐个跑）。
 // 约定发现、显式目标（两种 harness）、孤儿源守卫、「本包压根没有测试」的分流全部住在 z42b，
 // xtask 侧只剩：清单 lint（`_validateRunTargets`）、并行编排、bench 聚合。
-// example 是唯一还留在本文件里执行的一类 —— 它不是测试（判据是「编得过 + 可选跑得通」），
-// 走 `_runExitTarget` / `_compileTarget`。
+// example 的依赖合并、合成清单与构建执行住在 xtask_example_build.z42。
 //
 // NOTE (xtask's dependencies): `using Z42.Project` resolves because xtask.z42.toml declares
 // z42.project / z42.build as SDK libs (`deploy = "sdk"`); stdlib (`z42.*` in
@@ -49,53 +48,6 @@ RunTarget[] _explicitTargets(ProjectManifest m, string kind) {
     return m.Tests;
 }
 
-// ── three-layer dev-dep merge (target > section > project) ─────────────────────
-// 只服务 example 目标（`_targetDepsPairs`）；test/bench 的依赖合并在 z42b 里。
-
-void _bundleAddSection(DepBundle b, ProjectManifest m, string kind) {
-    if (kind == "bench")        { _bundleAddDeps(b, m.BenchSection.Deps, m.BenchSection.DepCount); }
-    else if (kind == "example") { _bundleAddDeps(b, m.ExampleSection.Deps, m.ExampleSection.DepCount); }
-    else                        { _bundleAddDeps(b, m.TestsSection.Deps, m.TestsSection.DepCount); }
-}
-
-DepBundle _newBundle() {
-    DepBundle b = new DepBundle();
-    b.Names = new string[16]; b.Versions = new string[16]; b.Count = 0;
-    return b;
-}
-
-// Insert one (name, version) into a bundle, first-wins dedup by name (grows on
-// demand). "" version → "*".
-void _bundlePut(DepBundle b, string name, string ver) {
-    int j = 0;
-    while (j < b.Count) { if (b.Names[j] == name) { return; } j = j + 1; }
-    if (b.Count == b.Names.Length) {
-        int cap = b.Names.Length * 2;
-        string[] nn = new string[cap]; string[] nv = new string[cap];
-        Array.Copy(b.Names, nn, b.Count); Array.Copy(b.Versions, nv, b.Count);
-        b.Names = nn; b.Versions = nv;
-    }
-    if (ver.Length == 0) { ver = "*"; }
-    b.Names[b.Count] = name; b.Versions[b.Count] = ver; b.Count = b.Count + 1;
-}
-
-// Append DepEntry[] into a bundle (first-wins dedup).
-void _bundleAddDeps(DepBundle b, DepEntry[] deps, int n) {
-    int i = 0;
-    while (i < n) { _bundlePut(b, deps[i].Name, deps[i].Version); i = i + 1; }
-}
-
-// Three-layer merge from raw (name, version) pairs instead of a DepEntry[] — for
-// the example runner, whose local ExampleUnit carries deps as primitive string
-// arrays (avoids an imported-type field). Priority: pairs > section > project.
-DepBundle _targetDepsPairs(ProjectManifest m, string kind, string[] names, string[] versions, int n) {
-    DepBundle b = _newBundle();
-    int i = 0;
-    while (i < n) { _bundlePut(b, names[i], versions[i]); i = i + 1; }
-    if (m != null) { _bundleAddSection(b, m, kind); _bundleAddDeps(b, m.Deps, m.DepCount); }
-    return b;
-}
-
 // ── explicit-target validation ───────────────────────────────────────────────
 
 // Returns "" when the kind's explicit targets are valid, else an error message.
@@ -119,148 +71,6 @@ string _validateRunTargets(RunTarget[] t, int n, string kind) {
         i = i + 1;
     }
     return "";
-}
-
-// ── example 目标的执行器（exit-code）───────────────────────────────────────────
-// examples 不走 z42b —— 它们不是测试，判据是「编得过（+ 可选跑得通）」。
-
-// One example target: compile to a runnable exe zpkg, and (when runAfter) run it.
-// Returns 0 pass / 1 fail. runAfter=false → compile-only gate (example default).
-int _runExitTarget(string root, string projDir, string projPrefix, string subdir,
-                   string tName, bool tHasEntry, string tEntry, string[] tSources, int tSrcCount,
-                   DepBundle deps, string vm, string driverZpkg, string libs,
-                   bool runAfter) {
-    string projName = projPrefix + "." + tName;
-    string zpkg = _compileTarget(root, vm, driverZpkg, projDir, projName, subdir, tName, tHasEntry, tEntry, tSources, tSrcCount, deps, "exe", tName, libs);
-    if (zpkg.Length == 0) { return 1; }
-    if (!runAfter) { Console.WriteLine("✓ " + tName + " (compiled)"); return 0; }
-    // The exe zpkg bakes the entry (== tEntry) → run it directly, no CLI entry arg.
-    // exit-code is the verdict (non-zero = fail, no golden).
-    ProcessResult rr = _z42Proc(vm, libs).Arg(zpkg).Run();
-    Console.Write(rr.Stdout);
-    if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
-    if (rr.ExitCode != 0) { Console.WriteLine("✗ " + tName + " (exit " + rr.ExitCode.ToString() + ")"); return 1; }
-    Console.WriteLine("✓ " + tName);
-    return 0;
-}
-
-// Compile one target's sources into a zpkg (kindStr "exe"/"lib") via a synthetic
-// mini-manifest + `z42c build`. Returns the produced zpkg path, or "" on a
-// no-source-match / compile error (message printed). Writes the synth toml at
-// projDir (globs resolve relative to it) and deletes it afterwards.
-string _compileTarget(string root, string vm, string driverZpkg, string projDir,
-                      string projName, string subdir, string tName, bool tHasEntry,
-                      string tEntry, string[] tSources, int tSrcCount, DepBundle deps,
-                      string kindStr, string label, string libs) {
-    string outDir = Path.Join(_workRootOf(root, projDir), "targets/" + projName);
-    if (Directory.Exists(outDir)) { try { Directory.Delete(outDir, true); } catch (Exception e) {} }
-    Directory.Create(Path.Join(outDir, "dist"));
-    string[] inc = _targetIncludes(projDir, subdir, tName, tSources, tSrcCount);
-    if (inc.Length == 0) {
-        ConsoleError.WriteLine("✗ " + label + ": no source files match (sources glob / convention empty)");
-        return "";
-    }
-    string synth = Path.Join(projDir, ".xtask-" + projName + ".z42.toml");
-    bool wantEntry = (kindStr == "exe") && tHasEntry;
-    File.WriteAllText(synth, _renderTargetManifest(projName, kindStr, tEntry, wantEntry, inc, outDir, deps));
-    ProcessResult br = _z42cProc(vm, libs, driverZpkg).Arg("build").Arg(synth).Run();
-    try { File.Delete(synth); } catch (Exception e) {}
-    if (br.ExitCode != 0) {
-        ConsoleError.WriteLine("✗ COMPILE ERROR: " + label);
-        Console.Write(br.Stdout); Console.Write(br.Stderr);
-        return "";
-    }
-    string zpkg = Path.Join(Path.Join(outDir, "dist"), projName + ".zpkg");
-    if (!File.Exists(zpkg)) {
-        ConsoleError.WriteLine("✗ " + label + ": no zpkg produced at " + zpkg);
-        return "";
-    }
-    return zpkg;
-}
-
-// Resolve a target's source globs to projDir-relative include patterns. Explicit
-// sources verbatim; else convention <subdir>/<name>.z42 (single) or
-// <subdir>/<name>/**/*.z42 (dir). Absent → empty (caller errors "no match").
-string[] _targetIncludes(string projDir, string subdir, string tName, string[] tSources, int tSrcCount) {
-    if (tSrcCount > 0) {
-        if (_countMatches(projDir, tSources, tSrcCount) == 0) { return new string[0]; }
-        string[] r = new string[tSrcCount];
-        int i = 0;
-        while (i < tSrcCount) { r[i] = _z42cInclude(tSources[i]); i = i + 1; }
-        return r;
-    }
-    string single = Path.Join(Path.Join(projDir, subdir), tName + ".z42");
-    if (File.Exists(single)) { return new string[]{ _z42cInclude(subdir + "/" + tName + ".z42") }; }
-    string dir = Path.Join(Path.Join(projDir, subdir), tName);
-    if (Directory.Exists(dir)) { return new string[]{ subdir + "/" + tName + "/**/*.z42" }; }
-    return new string[0];
-}
-
-// Rewrite a source include for the synth manifest: `<dir>/<base>` → `<dir>/**/<base>`
-// (recursive from <dir>, includes depth 0). Patterns already using `**` / bare basenames pass through.
-string _z42cInclude(string pattern) {
-    if (pattern.IndexOf("/**/") >= 0) { return pattern; }
-    if (pattern.StartsWith("**/")) { return pattern; }
-    int slash = pattern.LastIndexOf("/");
-    if (slash < 0) { return pattern; }
-    string dir = pattern.Substring(0, slash);
-    string base = pattern.Substring(slash + 1, pattern.Length - slash - 1);
-    return dir + "/**/" + base;
-}
-
-// Count files matching any projDir-relative glob (for no-match validation).
-int _countMatches(string projDir, string[] patterns, int n) {
-    int total = 0;
-    int i = 0;
-    while (i < n) { total = total + _expandGlob(projDir, patterns[i]).Length; i = i + 1; }
-    return total;
-}
-
-// Expand one projDir-relative glob → absolute paths. Handles `<a>/**/<suffix>`
-// (recursive), `**/<suffix>`, `<dir>/<basePat>` (single dir), and bare `<basePat>`.
-string[] _expandGlob(string projDir, string pattern) {
-    int mid = pattern.IndexOf("/**/");
-    if (mid >= 0) {
-        string prefix = pattern.Substring(0, mid);
-        string suffix = pattern.Substring(mid + 4, pattern.Length - (mid + 4));
-        return Path.GlobRecursive(Path.Join(projDir, prefix), suffix);
-    }
-    if (pattern.StartsWith("**/")) {
-        return Path.GlobRecursive(projDir, pattern.Substring(3, pattern.Length - 3));
-    }
-    int slash = pattern.LastIndexOf("/");
-    if (slash >= 0) {
-        string d = pattern.Substring(0, slash);
-        string basePat = pattern.Substring(slash + 1, pattern.Length - slash - 1);
-        return Path.Glob(Path.Join(projDir, d), basePat);
-    }
-    return Path.Glob(projDir, pattern);
-}
-
-// Hand-rolled mini-manifest: [project] name/kind, [sources] include globs (projDir-relative),
-// merged [dependencies]. 显式入口（目标的 `entry`）写成同名的单个 `[[exe]]`——
-// `[project]` 没有 `entry` 键（z42c 自动检测唯一 Main，写了报错）；`[[exe]]` 产物同样落 dist/<name>.zpkg。
-string _renderTargetManifest(string projName, string kindStr, string entry, bool hasEntry,
-                             string[] inc, string outputDir, DepBundle deps) {
-    string body = "# Auto-generated by xtask (add-tests-bench-manifest-config P2/P3).\n"
-        + "[project]\n"
-        + "name    = \"" + projName + "\"\n"
-        + "version = \"0.1.0\"\n";
-    if (!hasEntry) { body = body + "kind    = \"" + kindStr + "\"\n"; }
-    body = body + "\n[sources]\ninclude = [\"" + string.Join("\", \"", inc) + "\"]\n\n"
-        + "[build]\noutput_dir = \"" + outputDir + "\"\n"
-        + "dist_dir   = \"${output_dir}/dist\"\n"
-        + "cache_dir  = \"${output_dir}/cache\"\n\n";
-    if (hasEntry) { body = body + "\n[[exe]]\nname  = \"" + projName + "\"\nentry = \"" + entry + "\"\n"; }
-    if (deps.Count > 0) {
-        body = body + "\n[dependencies]\n";
-        int i = 0;
-        while (i < deps.Count) {
-            body = body + "\"" + deps.Names[i] + "\" = \"" + deps.Versions[i] + "\"\n";
-            i = i + 1;
-        }
-    }
-    return body;
 }
 
 // ── per-package driver (called by _testPkgsCore, xtask_test_lib.z42) ───────────
