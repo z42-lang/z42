@@ -2,7 +2,7 @@
 //!
 //! Holds the cranelift `JITModule` plus helper import ids, and compiles a single
 //! z42 function to native code on demand. A `LazyCompiler` is owned (behind a
-//! `Mutex`) by the VM's `JitRuntime` (`VmCore::jit`).
+//! `Mutex`) by the VM's `JitRuntime` (`VmCore::engines`).
 //! `JitRuntime::resolve_fn_by_id` calls [`LazyCompiler::compile_fn`] under the
 //! lock, on the calling thread, with a `OnceLock` double-check so each function
 //! compiles exactly once even under concurrent first-calls from several threads.

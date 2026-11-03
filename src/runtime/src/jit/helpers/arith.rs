@@ -24,7 +24,7 @@ use super::{set_exception, vm_ctx_ref};
 unsafe fn jit_with_str<R>(ctx: *const VmContext, v: &Value, f: impl FnOnce(&str) -> R) -> anyhow::Result<R> {
     match v {
         Value::Object(_) | Value::BoxedStruct(_) =>
-            crate::interp::dispatch::with_stringify_dispatch(vm_ctx_ref(ctx), v, f),
+            crate::vm::exec::ops::stringify::with_stringify_dispatch(vm_ctx_ref(ctx), v, f),
         other => Ok(with_value_str(other, f)),
     }
 }

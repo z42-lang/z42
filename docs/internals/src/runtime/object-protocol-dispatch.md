@@ -1,6 +1,6 @@
 # 对象协议的运行期派发（ToString / Equals / GetHashCode / GetType）
 
-> 代码：`interp/dispatch.rs`（`with_obj_str` / `obj_to_gc_str`）、`interp/vcall_resolve.rs`
+> 代码：`vm/exec/ops/stringify.rs`（`with_obj_str` / `obj_to_gc_str`）、`vm/exec/ops/vcall.rs`
 > （统一接收者阶梯）、`corelib/convert.rs`（`value_to_str` / `with_value_str`）、`corelib/object.rs`（`__obj_*` builtin）
 
 `Std.Object` 的四个协议方法在**每一种 `Value` 变体**上都必须有答案——对象、裸基元、数组、装箱盒、
@@ -14,12 +14,12 @@ reference 的[类](https://z42-lang.github.io/z42/reference/language/classes.htm
 
 | IR 指令 | 发射处 | 走哪条 |
 |---|---|---|
-| `ToStr dst, src` | 字符串插值 `$"..."` 的每个洞（ExprEmitter.z42（`VisitArrayLit`）） | interp `exec_value::to_str` → `dispatch.rs::obj_to_gc_str`；JIT `jit_to_str`（**认 vtable**）|
+| `ToStr dst, src` | 字符串插值 `$"..."` 的每个洞（ExprEmitter.z42（`VisitArrayLit`）） | interp `exec_value::to_str` → `vm/exec/ops/stringify.rs::obj_to_gc_str`；JIT `jit_to_str`（**认 vtable**）|
 | `Add dst, a, b`（操作数之一是 `Str`） | `+` 字符串拼接（OperatorEmitter.z42（`_emitBinary`），**不**发 `ToStr`）| interp `exec_value::add` → `with_obj_str`；JIT `jit_add` → `with_stringify_dispatch`（**认 vtable**）|
-| `VCall dst, recv, method, args` | 每一处 `obj.ToString()` / `.Equals(..)` / `.GetHashCode()` / `.GetType()` | `vcall_resolve.rs::resolve_vcall` 阶梯 |
+| `VCall dst, recv, method, args` | 每一处 `obj.ToString()` / `.Equals(..)` / `.GetHashCode()` / `.GetType()` | `vm/exec/ops/vcall.rs::resolve_vcall` 阶梯 |
 
 插值、拼接、`Console.WriteLine(obj)`（`stringify_dispatch`）共用同一个 `ToString` 协议
-（`dispatch.rs::tostring_result`），四条字符串化路对同一个值给同一个答案。
+（`vm/exec/ops/stringify.rs::tostring_result`），四条字符串化路对同一个值给同一个答案。
 
 **不落地中间串**：协议的结果以 `&str` 视图交给调用方（`with_obj_str(ctx, module, val, f)`）——
 用户 `ToString` 返回的 GC 串原样借用，标量（`I64`/`F64`/`Bool`/`Char`/`Null`）由
@@ -34,7 +34,7 @@ reference 的[类](https://z42-lang.github.io/z42/reference/language/classes.htm
 
 ## `ToString` 协议：`tostring_result` 的分支
 
-`dispatch.rs::tostring_result(ctx, module, val)`：
+`vm/exec/ops/stringify.rs::tostring_result(ctx, module, val)`：
 
 **`Value::Object`** —— vtable 优先，builtin 兜底：
 
@@ -86,7 +86,7 @@ i64），先查 enum 名才能让 `Console.WriteLine(Color.Blue)` 与 `((object)
 
 ## `VCall`：统一的接收者阶梯
 
-**「调谁」只在 `interp/vcall_resolve.rs::resolve_vcall` 决定一次**（接收者阶梯、候选名生成、PIC 安装规则不在两引擎各抄一份），两个引擎各自
+**「调谁」只在 `vm/exec/ops/vcall.rs::resolve_vcall` 决定一次**（接收者阶梯、候选名生成、PIC 安装规则不在两引擎各抄一份），两个引擎各自
 只决定「怎么调」（interp 帧 vs 原生 `FnEntry`，以及各自的冷路径 / 跨 zpkg 兜底）。
 
 阶梯顺序即语义，先命中者胜：
@@ -117,7 +117,7 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
 
 ### overload-suffix 重试
 
-候选名由 `resolve_by_candidates`（vcall_resolve.rs（`resolve_vcall_unchecked`））生成，每个类压三种拼法：
+候选名由 `resolve_by_candidates`（vm/exec/ops/vcall.rs（`resolve_vcall_unchecked`））生成，每个类压三种拼法：
 `{c}.{m}${arity}`、`{c}.{m}`，以及当操作数本身已是完整键（`Name$arity$types`）时的裸规范槽；
 然后对 `Std.Object` 再压同样三种。
 
@@ -143,7 +143,7 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
 
 ## `Equals` / `GetHashCode` / `GetType` 没有第二套机制
 
-它们全部走上面那条 `VCall` 阶梯，**没有**各自的 `dispatch.rs` helper。三件事值得单记：
+它们全部走上面那条 `VCall` 阶梯，**没有**各自的协议 helper。三件事值得单记：
 
 - **基元的 `Equals` / `GetHashCode` 没有 builtin**（没有 `__int32_equals` / `__double_hash_code` /
   `__char_equals` 之类），

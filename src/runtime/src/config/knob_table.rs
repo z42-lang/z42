@@ -73,7 +73,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "dump superinstruction fusion decisions to stderr",
         default_hint: "unset; no fusion dump",
-        consumed_by: "interp/superinstr.rs",
+        consumed_by: "vm/runtime/fusion.rs",
         ..DEBUG_KNOB
     },
     KnobSpec {
@@ -272,7 +272,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         requires: &["jit"],
         description: "let the interpreter's central divert tier up too: 0 = peek only (default), N = compile on the Nth interp entry",
         default_hint: "unset; 0 (off) — a workload trade, see the field doc in config.rs",
-        consumed_by: "interp/exec_support.rs",
+        consumed_by: "jit/engine.rs",
         ..TUNING
     },
     KnobSpec {
@@ -339,7 +339,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "disable interpreter superinstruction fusion (kill-switch / A-B knob)",
         default_hint: "unset; fusion enabled",
-        consumed_by: "interp/superinstr.rs",
+        consumed_by: "vm/runtime/fusion.rs",
         ..DEBUG_KNOB
     },
     KnobSpec {
@@ -348,7 +348,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "disable the type-specialised half of superinstruction fusion",
         default_hint: "unset; typed fusion enabled",
-        consumed_by: "interp/superinstr.rs",
+        consumed_by: "vm/runtime/fusion.rs",
         ..DEBUG_KNOB
     },
     KnobSpec {

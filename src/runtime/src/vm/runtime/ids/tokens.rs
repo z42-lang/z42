@@ -215,7 +215,7 @@ impl ForwardCell {
 
 /// P1-2 PR 6: per-site cell holding a **type-test target key** — the `is` / `as` /
 /// typed-`catch` target's identity in the `TypeId` space, resolved on first use
-/// (`interp::dispatch::isa_td`) and read back with one relaxed load afterwards.
+/// (`vm::exec::ops::cast::isa_td`) and read back with one relaxed load afterwards.
 ///
 /// The key is the target's `TypeId` when the name denotes a type already
 /// registered at first use, otherwise an id reserved for the *name*

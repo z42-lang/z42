@@ -603,7 +603,7 @@ is-a / `GetType` / vcall。
 | class / record / 数组 / 接口 | ❌ 恒等上转 | 本就是带 TypeDesc 的堆句柄 |
 
 > ⚠️ 「基元装箱」在 z42 里**只覆盖整数与 enum**。非整数标量不进盒这件事决定了：
-> `((object)1.5).GetType()` 答 `Double` 不是靠盒，而是靠 `vcall_resolve` 阶梯第 3 级的
+> `((object)1.5).GetType()` 答 `Double` 不是靠盒，而是靠 `vm/exec/ops/vcall.rs` 阶梯第 3 级的
 > `primitive_class_name`（见[对象协议派发](object-protocol-dispatch.md)）；
 > 而 `ReferenceEquals` 式的盒身份只对整数 / enum / struct 成立。
 
@@ -859,7 +859,7 @@ ReadSecond<P2>(t) → 2   ❌   （若只特化类型：虚派发形态读出 10
 
 两条只有实测才会知道的约束：
 
-- **特化名不沿基类链继承**（`vcall_resolve`）。一份特化按**某一个声明**所在类型的布局烘焙了偏移；
+- **特化名不沿基类链继承**（`vm/exec/ops/vcall.rs`）。一份特化按**某一个声明**所在类型的布局烘焙了偏移；
   虚派发从接收者的**运行期**类型起走链，落到基类的特化体就是**静默调错实现**。
 - **有错误时不进代码生成**（自然也不做特化）。递归泛型（`Rec<T>` 调 `Rec<G<T>>`）让类型实参逐层加深 ⇒
   工作项无限增长 ⇒ **编译器不返回**；良型却展不完的情形由工作表上限报 E0503。
@@ -950,7 +950,7 @@ fn @Demo.G<P2>.Get(1) -> T {
 
 **运行期（三处，全是「擦除名是回落、不是身份」的贯彻）**
 
-- `vcall_resolve`：擦除名回落要在基链的**每一层**做，不只接收者自己那层 ——
+- `vm/exec/ops/vcall.rs`：擦除名回落要在基链的**每一层**做，不只接收者自己那层 ——
   `class DInt : GBox<int> {}` 的基是实例化，而成员体只以擦除名存在
   （实测 `VCall: function Demo.DInt.Tag not found`）。顺序：接收者自己的擦除定义
   先于**基类**的同名方法。

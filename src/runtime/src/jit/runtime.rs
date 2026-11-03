@@ -6,9 +6,9 @@
 //! frame stack, pending exception, register pool, arenas, safepoint throttle,
 //! stack limit, counter shard — is therefore reached directly; generated code
 //! reads the few hot fields at fixed offsets (`vm_context::JitHead`,
-//! `VM_CONTEXT_*_OFFSET`). Shared JIT state lives here, on `VmCore::jit`, and a
-//! helper reaches it as `vm.jit()` (one load: the pointer is cached in the
-//! context's `JitHead`).
+//! `VM_CONTEXT_*_OFFSET`). Shared JIT state lives here, on `VmCore::engines`, and a
+//! helper borrows it through the neutral TierApi cached in the running
+//! context's `JitHead`; the backend identifies its own registered state.
 //!
 //! **What is shared.** The per-function slot table (keyed by JIT id = `FnId`,
 //! lock-free reads), the compiler (`Mutex<LazyCompiler>`, owning the cranelift
@@ -132,13 +132,11 @@ unsafe impl Sync for JitRuntime {}
 /// Racing installers build one each; the first published wins and the other is
 /// dropped unused.
 pub fn install<'a>(vm: &'a VmContext, module: &Module) -> Result<&'a JitRuntime> {
-    let rt = match vm.core.jit.get() {
-        Some(rt) => rt,
-        None => {
-            let _ = vm.core.jit.set(JitRuntime::new(vm, module)?);
-            vm.core.jit.get().expect("JIT runtime just installed")
-        }
-    };
+    if vm.core.engines.tier().is_none() {
+        let _ = vm.core.engines.install_tier(crate::vm::exec::engine::TierApi::new(JitRuntime::new(vm, module)?));
+    }
+    let rt = vm.core.engines.tier().and_then(|tier| tier.backend::<JitRuntime>())
+        .ok_or_else(|| anyhow::anyhow!("JIT: a different tier backend is installed on this VM"))?;
     publish_to(vm, rt);
     anyhow::ensure!(
         std::ptr::eq(rt.module, module),
@@ -157,8 +155,8 @@ pub(crate) fn install_tuned<'a>(
 ) -> &'a JitRuntime {
     let mut rt = JitRuntime::new(vm, module).expect("JIT setup");
     tune(&mut rt);
-    assert!(vm.core.jit.set(rt).is_ok(), "a JIT is already installed on this VM");
-    let rt = vm.core.jit.get().expect("installed");
+    assert!(vm.core.engines.install_tier(crate::vm::exec::engine::TierApi::new(rt)).is_ok(), "a tier is already installed on this VM");
+    let rt = vm.core.engines.tier().and_then(|t| t.backend::<JitRuntime>()).expect("installed");
     publish_to(vm, rt);
     rt
 }
@@ -166,7 +164,8 @@ pub(crate) fn install_tuned<'a>(
 /// Cache the runtime in the installing context's head (`VmContext::jit`). Other
 /// contexts take it at construction or at their next bottom frame push.
 fn publish_to(vm: &VmContext, rt: &JitRuntime) {
-    vm.jit_head.jit.store(rt as *const JitRuntime as *mut JitRuntime, Ordering::Relaxed);
+    let _ = rt;
+    vm.publish_tier();
 }
 
 impl JitRuntime {
@@ -425,3 +424,11 @@ fn bump_compile_counters(vm: &VmContext, t0: std::time::Instant) {
 #[cfg(test)]
 #[path = "runtime_tests.rs"]
 mod runtime_tests;
+
+impl VmContext {
+    /// Backend-local view of the neutral header. Only the registered JIT owns this state.
+    #[inline]
+    pub(crate) fn jit(&self) -> Option<&JitRuntime> {
+        self.tier()?.backend::<JitRuntime>()
+    }
+}

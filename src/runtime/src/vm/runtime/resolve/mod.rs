@@ -48,7 +48,7 @@ pub struct ResolvedTokens {
     /// two readings agree whenever both exist. Filled here by name for every
     /// callee already registered (including calls inside a lazily loaded
     /// package into itself or into any package loaded so far); the rest are
-    /// bound on first dispatch (`interp::exec_call::bind_callee`, which both
+    /// bound on first dispatch (`vm::exec::ops::call::bind_callee`, which both
     /// backends use). The JIT shares the cells: the token is its slot id
     /// (`jit::runtime`), baked into a compiled call site when already bound and
     /// read from the cell at run time otherwise.
@@ -60,11 +60,11 @@ pub struct ResolvedTokens {
     /// cache-ctorless-objnew mark — see [`ObjNewSite`]. Used only when the function runs
     /// against the VM's entry module; pre-filled here from what is already registered
     /// (the module's type registry, `FuncTable::id_of`), the rest on first dispatch
-    /// (`interp::obj_new_resolve`, which both backends use).
+    /// (`vm::exec::ops::obj_new`, which both backends use).
     pub obj_new: Vec<ObjNewSite>,
     /// `LoadFn` / `MkClos` sites (P1-2 PR 8, one numbering for both): the target's `FnId` —
     /// the id the created `Value::FuncRef` / closure carries — or `UNRESOLVED` until the first
-    /// execution binds it (`interp::exec_call::bind_fn_ref`, which loads the target's package
+    /// execution binds it (`vm::exec::ops::call::bind_fn_ref`, which loads the target's package
     /// if needed; both backends use it). Same id space and pre-fill rule as `method_tokens`,
     /// without the arity check (an indirect call is not checked against a signature).
     pub fn_ref_tokens: Vec<AtomicU32>,

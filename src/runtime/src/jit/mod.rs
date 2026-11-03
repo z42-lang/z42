@@ -18,6 +18,7 @@
 
 /// `[Native]` extern-wrapper short-circuit: call helpers dispatch the builtin directly.
 mod forward;
+mod engine;
 pub(crate) mod frame; // runtime-jit-tiering Phase 1.5: interp dispatch reaches JitFrame
 pub(crate) mod helpers;
 /// The single native-call sequence (push_frame → compiled code → pop_frame), shared by
@@ -25,7 +26,7 @@ pub(crate) mod helpers;
 pub(crate) mod invoke;
 /// Lazy per-function compilation state (lazy-per-function-jit).
 mod lazy;
-/// The VM's shared JIT state (`VmCore::jit`): slots, compiler, OSR cache.
+/// The VM's shared JIT state (`VmCore::engines`): slots, compiler, OSR cache.
 pub(crate) mod runtime;
 /// Centralized `frame.regs` slot access — the single load/store choke point
 /// (jit-unbox-regalloc Phase 2.0; foundation for the 2B/2C register cache).
@@ -85,7 +86,7 @@ pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
                 holder.as_ref()
             }
         };
-        return match crate::interp::exec_function(ctx, module, func, &[])? {
+        return match crate::vm::exec::engine::invoke(ctx, module, func, &[])? {
             crate::vm::exec::call::outcome::ExecOutcome::Returned(_) => Ok(()),
             crate::vm::exec::call::outcome::ExecOutcome::Thrown(val) =>
                 Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, ctx, module))),

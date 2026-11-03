@@ -294,14 +294,8 @@ pub struct VmCore {
     /// (+ optional perfetto sample-trace when `Z42_TRACE_OUT` is set).
     pub(crate) sampler: crate::profiler::cpu::Sampler,
 
-    /// The VM's JIT: one per VM, shared by every thread (slots table, the
-    /// compiler and its code, OSR entries, tier thresholds — see
-    /// `jit::runtime`). Set once by the first `jit::run` on this VM and kept
-    /// until the core drops, so compiled code stays valid for every thread
-    /// still holding the core. Unset ⇒ no thread of this VM runs native code
-    /// (interp mode).
-    #[cfg(feature = "jit")]
-    pub(crate) jit: std::sync::OnceLock<crate::jit::runtime::JitRuntime>,
+    /// Per-VM engine registrations and backend-owned tier/code lifetime.
+    pub(crate) engines: crate::vm::exec::engine::EngineRegistry,
 }
 
 /// The part of a [`VmContext`] that JIT-compiled code reads at fixed offsets.
@@ -315,8 +309,8 @@ pub struct VmCore {
 /// - `cctors` — the VM's cctor registry, whose package-init gate counters the
 ///   inline string intrinsics read ([`VM_CONTEXT_CCTORS_OFFSET`]).
 ///
-/// It also caches the VM's JIT runtime pointer (`jit`), so helpers and the
-/// interpreter's mixed-mode diverts reach the shared JIT state with one load.
+/// It also caches the VM's neutral tier header pointer (`jit`). Backend state
+/// remains owned by the registered tier; compiled field layout stays fixed.
 ///
 /// The safepoint throttle counter is the third JIT-read field; it stays on
 /// [`VmContext::safepoint_skip`] (the interpreter decrements it too) and is
@@ -332,13 +326,13 @@ pub(crate) struct JitHead {
     /// `Arc::as_ptr(&core.cctors)` — stable for the core's life, set at
     /// construction.
     pub(crate) cctors: *const super::cctor::CctorRegistry,
-    /// `core.jit` once installed (null until then, and always in interp mode):
-    /// taken at construction, stored by `jit::runtime::install` for the
+    /// The registered neutral tier header (null until installed):
+    /// taken at construction, published by the tier installer for the
     /// installing context, and refreshed at the bottom frame push for a context
     /// that existed before the install. Points into the core this context keeps
     /// alive. Written and read by the owner thread only.
     #[cfg(feature = "jit")]
-    pub(crate) jit: std::sync::atomic::AtomicPtr<crate::jit::runtime::JitRuntime>,
+    pub(crate) jit: std::sync::atomic::AtomicPtr<crate::vm::exec::engine::TierApi>,
 }
 
 // SAFETY: `cctors` points into the `Arc<CctorRegistry>` the context's own core
@@ -353,7 +347,7 @@ impl JitHead {
             cctors: Arc::as_ptr(&core.cctors),
             #[cfg(feature = "jit")]
             jit: std::sync::atomic::AtomicPtr::new(
-                core.jit.get().map_or(std::ptr::null_mut(), |rt| rt as *const _ as *mut _)),
+                core.engines.tier().map_or(std::ptr::null_mut(), |rt| rt as *const _ as *mut _)),
         }
     }
 }

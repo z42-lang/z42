@@ -247,7 +247,7 @@ impl VmContext {
 
     /// The `TypeId` of the type the lazy loader has registered under `class_name`, without
     /// loading anything (`None` if no loader / not registered / no id). Type-test target keys
-    /// (`interp::dispatch::target_key`) use it.
+    /// (`vm::exec::ops::cast::target_key`) use it.
     pub(crate) fn loaded_type_id(&self, class_name: &str) -> Option<crate::vm::runtime::ids::tokens::TypeId> {
         let state = self.core.lazy_loader.read();
         let id = state.as_ref()?.loaded_type(class_name)?.id;

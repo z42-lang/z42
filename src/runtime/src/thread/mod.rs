@@ -1,16 +1,5 @@
-//! Threading support — z42 coroutine / OS-thread abstractions.
+//! Reserved coroutine integration surface.
 //!
-//! **STATUS: STUB** — no public API yet.
-//!
-//! Phase 1 reality (post extend-jit-helper-abi): the VM is still
-//! single-threaded but **all** runtime-mutable state is now owned by an
-//! explicit `VmContext` (see `crate::vm_context`). The previous `thread_local!`
-//! slots `interp::dispatch::STATIC_FIELDS`, `interp::PENDING_EXCEPTION`,
-//! `jit::helpers::STATIC_FIELDS`, `jit::helpers::PENDING_EXCEPTION`, and
-//! `lazy_loader::STATE` are all gone. Multi-`VmContext` instances on the
-//! same thread now run in genuine isolation (no cross-pollination through
-//! shared thread-local store).
-//!
-//! **Future work** (L3+): introduce coroutine / OS-thread primitives backing
-//! the `async` / `await` syntax already accepted by the parser. Implementation
-//! awaits the GC (`super::gc`) so cross-thread reachability is sound.
+//! OS threads execute through `corelib::threading`; each owns its VmContext.
+//! Contexts of one VM share the core and its registered engine/code lifetime.
+//! Coroutine and async execution are not implemented in this module.
