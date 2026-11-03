@@ -1,0 +1,51 @@
+namespace StrMapTryAddBench;
+using Z42.IR;
+using Std.Harness;
+using Std.IO;
+
+string[] keys(int n) {
+    string[] result = new string[n];
+    int i = 0;
+    while (i < n) { result[i] = "Z42.Symbols.CompilerType" + i.ToString(); i = i + 1; }
+    return result;
+}
+int exercise(string[] names, bool duplicates, bool reserved) {
+    StrMap map = reserved ? new StrMap(names.Length) : new StrMap();
+    foreach (var name in names) { map.TryAdd(name, map); }
+    if (duplicates) { foreach (var name in names) { Assert.True(!map.TryAdd(name, null)); } }
+    Assert.Equal(names.Length, map.Count());
+    return map.Count();
+}
+void measure(int n, bool duplicates, bool reserved) {
+    string[] names = keys(n);
+    var b = new Bencher(4, 20);
+    b.iter(() => { BenchHelpers.blackBox(exercise(names, duplicates, reserved)); });
+    b.printSummary("strmap_tryadd_" + n.ToString());
+}
+[Benchmark]
+void bench_strmap_tryadd_growth() { measure(2048, false, false); }
+[Benchmark]
+void bench_strmap_tryadd_reserved() { measure(2048, false, true); }
+[Benchmark]
+void bench_strmap_tryadd_duplicates() { measure(2048, true, true); }
+int hit_existing(StrMap map, string[] names) {
+    int added = 0;
+    foreach (var name in names) { if (map.TryAdd(name, null)) { added = added + 1; } }
+    return added;
+}
+void measure_hits() {
+    string[] names = keys(2048);
+    StrMap map = new StrMap(names.Length);
+    foreach (var name in names) { map.TryAdd(name, map); }
+    var b = new Bencher(4, 20);
+    b.iter(() => { BenchHelpers.blackBox(hit_existing(map, names)); });
+    Assert.Equal(0, hit_existing(map, names));
+    b.printSummary("strmap_tryadd_existing_2048");
+}
+[Benchmark]
+void bench_strmap_tryadd_existing() { measure_hits(); }
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    if (args.Length > 0 && args[0] == "hits") { measure_hits(); return; }
+    measure(args.Length > 0 ? int.Parse(args[0]) : 2048, args.Length > 1 && args[1] == "duplicates", args.Length > 2 && args[2] == "reserved");
+}
