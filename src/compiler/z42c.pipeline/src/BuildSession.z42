@@ -10,6 +10,7 @@
 namespace Z42.Pipeline;
 
 using Std.IO;
+using Z42.Core;   // DiagnosticCodes（W0612 弃用提示）
 using Z42.Syntax;
 using Z42.Symbols;
 using Z42.Package;
@@ -142,6 +143,8 @@ public sealed class BuildSession {
             while (ke < kn.ErrorCount) { rep.Fail(kn.Errors[ke]); ke = ke + 1; }
             return BuildSession._fail(BuildExit.UsageError);
         }
+        int kw = 0;
+        while (kw < kn.WarningCount) { rep.Progress("warning: " + kn.Warnings[kw]); kw = kw + 1; }
         // ② 源发现（include 缺省 `**/*.z42`；exclude 由调用方给出时以调用方为准——z42b 已并入 hooks 目录）。
         string[] incs = pm.Sources.Include;
         int incN = pm.Sources.IncludeCount;
@@ -472,6 +475,9 @@ public sealed class BuildSession {
                 rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
                 return "";
             }
+            rep.Progress("warning: " + DiagnosticCodes.PluginsSourcePathDeprecated + ": [plugins] `" + aname
+                + "` 的源码 path 形态已被源集条目取代——改写为 { include = [\"<相对本清单目录的源文件>\"] }"
+                + "（对齐 [tests]，可加 exclude），行为不变（观察期）。");
             string ftoml = PluginSynth.SynthFile(cacheDir, aname, asrc);
             if (ftoml.Length == 0) {
                 rep.Fail("[plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + asrc + "）。");
@@ -481,6 +487,9 @@ public sealed class BuildSession {
         ManifestLocation aloc = ManifestLocator.FindIn(adir);
         if (aloc.Kind == ManifestLocateKind.Project) { return aloc.ManifestPath; }
         if (aloc.Kind == ManifestLocateKind.NotFound && Directory.Exists(adir)) {
+            rep.Progress("warning: " + DiagnosticCodes.PluginsSourcePathDeprecated + ": [plugins] `" + aname
+                + "` 的源码 path 形态已被源集条目取代——改写为 { include = [\"<目录>/**/*.z42\"] }"
+                + "（对齐 [tests]，可加 exclude），行为不变（观察期）。");
             string dtoml = PluginSynth.SynthDir(cacheDir, aname, adir);
             if (dtoml.Length == 0) {
                 rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + adir

@@ -399,6 +399,8 @@ KnobResult _resolveKnobs(ProjectManifest pm, string tomlPath, bool isRelease, in
         while (ke < kn.ErrorCount) { ConsoleError.WriteLine("z42c: " + kn.Errors[ke]); ke = ke + 1; }
         return null;
     }
+    int kw = 0;
+    while (kw < kn.WarningCount) { ConsoleError.WriteLine("z42c: " + kn.Warnings[kw]); kw = kw + 1; }
     return kn;
 }
 

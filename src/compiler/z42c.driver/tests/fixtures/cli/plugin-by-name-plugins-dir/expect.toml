@@ -23,12 +23,13 @@ tool = "copy"
 from = "plug/dist/e2e.bgen.zpkg"
 to = "plugins/"
 
-# ③ 阳性：Z42_PLUGINS 指向它 → 按名解析成功、generator 产的符号可用
+# ③ 阳性：Z42_PLUGINS 指向它 → 按名解析成功、generator 产的符号可用（弃用期：W0611 提示改写 [dependencies]）
 [[step]]
 args = ["build", "app/e2e.bapp.z42.toml", "--release"]
 libs = "libs"
 env = { Z42_PLUGINS = "{case}/plugins" }
 exit = 0
+stderr_contains = ["W0611"]
 
 [[step]]
 tool = "run"
