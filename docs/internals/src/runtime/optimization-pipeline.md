@@ -217,6 +217,7 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
 （`IrPureFunctionTable`），解禁纯调用的消重/外提。**无用户标注**（`pure` 关键字 Deferred）。
 - **纯度推断（模块不动点）**：`IrPureFunctionTable.Compute(m)` 对标 `IrEscapeSummary`，方向相反——**乐观全纯 →
   发现副作用降级 → 单调收缩收敛**（递归纯函数因乐观初值自然判纯；StrMap 无 Remove → 每轮重建）。
+  收敛对象是函数名字集合：某份函数体未通过但同名的另一份仍通过时，不代表名字被移除。由于集合单调收缩，比较重建前后的元素个数即可判断稳定。
   `pure(f)` ⟺ f 每条指令是「`IsPure` 白名单内」或「对纯函数的 `CallInstr`」或「**readonly 字段读**
   （`FieldGetInstr.Readonly`，**复用 readonly 标志**——`int scale(C c,int k){return k*c.f;}` 读
   readonly `c.f` 即纯）」，**且无块以 `throw` 终结**。其余（写字段/静态/数组、读非 readonly 字段·静态·数组、
