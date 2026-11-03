@@ -104,12 +104,12 @@ impl VmContext {
     /// builtin / static-field / alloc tests. Production paths use
     /// [`with_module`](Self::with_module).
     pub fn new() -> std::pin::Pin<Box<Self>> {
-        Self::new_internal(None, crate::pal::fs::default_vfs())
+        Self::with_extensions(None, crate::pal::fs::default_vfs(), Default::default())
     }
 
     /// [`new`](Self::new) on the file system `vfs` instead of the default one.
     pub fn with_vfs(vfs: Arc<dyn crate::pal::fs::Vfs>) -> std::pin::Pin<Box<Self>> {
-        Self::new_internal(None, vfs)
+        Self::with_extensions(None, vfs, Default::default())
     }
 
     /// Production entry: constructs a VmContext with the user's compiled
@@ -123,11 +123,31 @@ impl VmContext {
     /// [`with_module`](Self::with_module) on the file system `vfs`: every path-based file
     /// builtin and every package load of this VM goes through it.
     pub fn with_module_and_vfs(
-        mut module: crate::vm::runtime::Module,
+        module: crate::vm::runtime::Module,
         vfs: Arc<dyn crate::pal::fs::Vfs>,
     ) -> std::pin::Pin<Box<Self>> {
-        module.clear_link_state();
-        Self::new_internal(Some(Arc::new(module)), vfs)
+        Self::with_extensions(Some(module), vfs, Default::default())
+    }
+
+    /// Create a VM with owned extension registrations, frozen for its entire lifetime.
+    /// `None` omits the entry module, as in [`Self::new`]. Module linkage is reset
+    /// exactly as in [`Self::with_module_and_vfs`]. Worker contexts share this state.
+    pub fn with_extensions(
+        module: Option<crate::vm::runtime::Module>,
+        vfs: Arc<dyn crate::pal::fs::Vfs>,
+        extensions: crate::vm::ext::VmExtensions,
+    ) -> std::pin::Pin<Box<Self>> {
+        let module = module.map(|mut module| {
+            module.clear_link_state();
+            Arc::new(module)
+        });
+        Self::new_internal(module, vfs, extensions.freeze())
+    }
+
+    /// Borrow this VM's extension state by its exact Rust type, without a new lock.
+    /// Returns `None` when the type was not registered before VM creation.
+    pub fn ext<T: std::any::Any + Send + Sync>(&self) -> Option<&T> {
+        self.core.ext_state.get::<T>()
     }
 
     /// Instantiate shared package definitions with fresh per-VM types and caches.
@@ -230,6 +250,7 @@ impl VmContext {
     fn new_internal(
         module: Option<Arc<crate::vm::runtime::Module>>,
         vfs: Arc<dyn crate::pal::fs::Vfs>,
+        ext_state: crate::vm::ext::ExtensionState,
     ) -> std::pin::Pin<Box<Self>> {
         let pending_exception: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
 
@@ -297,6 +318,7 @@ impl VmContext {
                 },
             },
             engines: crate::engine_assembly::registry(),
+            ext_state,
         });
 
         // add-os-signal-handler : register this Arc<VmCore> into

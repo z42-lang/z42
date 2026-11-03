@@ -18,6 +18,18 @@ TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入
 
 共享 Call/FnRef 的加载绑定在 `vm/exec/ops/call.rs`；ToString 在 `vm/exec/ops/stringify.rs` 并通过 Engine 执行；加载期 fusion 识别器及缓存形态在 `vm/runtime/fusion.rs`。
 
+## 每 VM 扩展状态
+
+`vm/ext.rs` 的 `VmExtensions` 在 VM 创建前按 Rust `TypeId` 登记拥有所有权的状态；重复类型报错并保留原项。
+`VmContext::with_extensions` 消耗登记容器，复用模块链接清理和 VFS 注入，再把冻结的 `ExtensionState` 交给 `VmCore.ext_state`。
+索引使用 `FxHashMap<TypeId, usize>`，值由按登记顺序排列的 `Box<dyn Any + Send + Sync>` 数组持有；创建后不增删或替换类型，
+`ext::<T>() -> Option<&T>` 查询不增加锁。状态内部的同步和可变性由该状态自己管理，冻结不禁止已有资源表的受锁保护更新。
+
+worker context 共享同一个 core 的状态；不同 core 拥有各自的登记容器，不用进程级类型→状态缓存。
+扩展字段的析构位置在 heap 和引擎之后，使资源提供方在堆及代码页回收期间仍存活；值显式按登记逆序释放，
+未用于创建 VM 的登记容器也使用相同顺序。查询只返回随 context 借用的引用，不能在创建后注册新类型。
+容器不自动枚举其中的托管值；原生状态持有 z42 值仍须遵循 [原生代码与 GC](native-gc-contract.md) 的根管理约定。
+
 ## 包数据、静态查询与运行期链接
 
 产物格式常量与严格版本校验在 `metadata/format`；`metadata/reader` 将字节解码为
