@@ -30,7 +30,7 @@
 //! (scripting-charter 2b).
 
 use crate::corelib::reflection::{type_members, make_type_from_name};
-use crate::interp::{exec_function};
+use crate::vm::exec::engine;
 use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::object::Value;
 use crate::vm_context::VmContext;
@@ -128,14 +128,14 @@ fn complete_via_callback(ctx: &VmContext, fqn: &str, line: Value, pos: i64) -> R
         Some(&idx) => {
             let f = &module.functions[idx];
             complete_arity_check(fqn, f.param_count)?;
-            exec_function(ctx, module, f, &call_args)?
+            engine::invoke(ctx, module, f, &call_args)?
         }
         None => {
             let f = ctx
                 .try_lookup_function(fqn)
                 .ok_or_else(|| anyhow::anyhow!("__repl_complete_probe: completer `{fqn}` not found"))?;
             complete_arity_check(fqn, f.param_count)?;
-            exec_function(ctx, module, f.as_ref(), &call_args)?
+            engine::invoke(ctx, module, f.as_ref(), &call_args)?
         }
     };
 
