@@ -1,0 +1,110 @@
+using Z42.IR;
+using Z42.Optimization;
+using SpeculationChainBench;
+using Std.Harness;
+
+[Test]
+void test_speculation_worklist_threshold_preserves_order_independence() {
+    int[] sizes = new int[] { 63, 64, 65 };
+    foreach (var n in sizes) {
+        PureTable reverse = IrPureFunctionTable.Compute(SpeculationChainFixture.Make(n, false));
+        PureTable forward = IrPureFunctionTable.Compute(SpeculationChainFixture.Make(n, true));
+        int i = 0;
+        while (i < n) {
+            Assert.True(reverse.IsSpeculatable("f" + i.ToString()));
+            Assert.True(forward.IsSpeculatable("f" + i.ToString()));
+            i = i + 1;
+        }
+    }
+}
+
+[Test]
+void test_speculation_worklist_counts_repeated_callee_edges() {
+    IrModule m = SpeculationChainFixture.Make(128, false);
+    IrBlock block = m.Functions[0].Blocks[0];
+    block.Instrs = new IrInstr[] { WorklistFixture.Call("f63"), WorklistFixture.Call("f63"), WorklistFixture.Call("f127") };
+    block.InstrCount = 3;
+    PureTable table = IrPureFunctionTable.Compute(m);
+    int i = 0;
+    while (i < 128) { Assert.True(table.IsSpeculatable("f" + i.ToString())); i = i + 1; }
+}
+
+[Test]
+void test_speculation_worklist_excludes_cycles_and_their_callers() {
+    IrModule m = SpeculationChainFixture.Make(128, false);
+    m.Functions[0].Blocks[0].Instrs[0] = WorklistFixture.Call("f1");
+    m.Functions[1].Blocks[0].Instrs[0] = WorklistFixture.Call("f0");
+    m.Functions[2].Blocks[0].Instrs[0] = WorklistFixture.Call("f0");
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.True(table.IsPure("f0"));
+    Assert.False(table.IsSpeculatable("f0"));
+    Assert.False(table.IsSpeculatable("f1"));
+    Assert.False(table.IsSpeculatable("f2"));
+    Assert.True(table.IsSpeculatable("f3"));
+}
+
+[Test]
+void test_speculation_worklist_missing_callee_does_not_block_other_names() {
+    IrModule m = SpeculationChainFixture.Make(128, false);
+    m.Functions[0].Blocks[0].Instrs[0] = WorklistFixture.Call("external");
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.False(table.IsPure("f0"));
+    Assert.False(table.IsSpeculatable("f0"));
+    Assert.True(table.IsSpeculatable("f1"));
+}
+
+[Test]
+void test_speculation_worklist_recomputes_edges_after_mutation() {
+    IrModule m = SpeculationChainFixture.Make(128, false);
+    Assert.True(IrPureFunctionTable.Compute(m).IsSpeculatable("f0"));
+    m.Functions[63].Blocks[0].Instrs[0] = WorklistFixture.Call("f0");
+    PureTable cycle = IrPureFunctionTable.Compute(m);
+    Assert.False(cycle.IsSpeculatable("f0"));
+    Assert.True(cycle.IsSpeculatable("f64"));
+    m.Functions[63].Blocks[0].Instrs[0] = WorklistFixture.Call("f64");
+    Assert.True(IrPureFunctionTable.Compute(m).IsSpeculatable("f0"));
+}
+
+[Test]
+void test_speculation_worklist_duplicate_name_accepts_any_eligible_body() {
+    IrModule m = SpeculationChainFixture.Make(128, false);
+    IrFunction[] fs = new IrFunction[131];
+    int i = 0;
+    while (i < 128) { fs[i] = m.Functions[i]; i = i + 1; }
+    fs[128] = WorklistFixture.Function("shared", "shared");
+    fs[129] = WorklistFixture.Function("shared", "f0");
+    fs[130] = WorklistFixture.Function("user", "shared");
+    m.Functions = fs; m.FuncCount = fs.Length;
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.True(table.IsPure("shared"));
+    Assert.True(table.IsSpeculatable("shared"));
+    Assert.True(table.IsSpeculatable("user"));
+    // Swapping providers must not turn name admission into a first/last-body rule.
+    fs[128] = fs[129]; fs[129] = WorklistFixture.Function("shared", "shared");
+    Assert.True(IrPureFunctionTable.Compute(m).IsSpeculatable("user"));
+}
+
+[Test]
+void test_speculation_worklist_keeps_readonly_field_and_bad_cfg_out() {
+    IrModule m = SpeculationChainFixture.Make(128, false);
+    var field = new FieldGetInstr(new TypedReg(1, IrType.I64), new TypedReg(0, IrType.Ref), "value");
+    field.Readonly = true;
+    m.Functions[0].Blocks[0].Instrs[0] = field;
+    m.Functions[1].Blocks[0].Term = new BrTerm("missing");
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.True(table.IsPure("f0"));
+    Assert.False(table.IsSpeculatable("f0"));
+    Assert.False(table.IsSpeculatable("f1"));
+    Assert.True(table.IsSpeculatable("f2"));
+}
+
+internal static class WorklistFixture {
+    public static CallInstr Call(string name) {
+        return new CallInstr(new TypedReg(0, IrType.I64), name, new TypedReg[0], 0);
+    }
+    public static IrFunction Function(string name, string callee) {
+        IrFunction f = SpeculationChainFixture.Make(1, false).Functions[0];
+        f.Name = name; f.Blocks[0].Instrs[0] = WorklistFixture.Call(callee);
+        return f;
+    }
+}

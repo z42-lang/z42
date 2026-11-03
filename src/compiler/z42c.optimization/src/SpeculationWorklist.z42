@@ -1,0 +1,117 @@
+namespace Z42.Optimization;
+
+using Z42.IR;
+
+// One Compute invocation owns this graph. Admission is by name, while pending
+// counts belong to bodies: any eligible body can publish a duplicated name.
+internal sealed class SpeculationWorklist {
+    private IrModule _module;
+    private StrMap _spec;
+    private StrIndex _names;
+    private int[] _pending;
+    private int[] _heads;
+    private int[] _callers;
+    private int[] _next;
+    private int[] _queue;
+    private int _tail;
+
+    private SpeculationWorklist(IrModule m, StrMap spec, int[] bodyState) {
+        this._module = m; this._spec = spec;
+        this._names = new StrIndex();
+        this._pending = new int[m.FuncCount];
+        this._heads = new int[m.FuncCount];
+        this._queue = new int[m.FuncCount]; this._tail = 0;
+        int fi = 0;
+        while (fi < m.FuncCount) {
+            this._heads[fi] = -1;
+            this._names.Put(m.Functions[fi].Name, fi);
+            fi = fi + 1;
+        }
+        int cap = SpeculationWorklist._edgeCapacity(m, spec, bodyState);
+        this._callers = new int[cap]; this._next = new int[cap];
+        this._build(bodyState);
+    }
+
+    public static StrMap Finish(IrModule m, StrMap spec, int[] bodyState) {
+        var graph = new SpeculationWorklist(m, spec, bodyState);
+        int fi = 0;
+        while (fi < m.FuncCount) {
+            if (bodyState[fi] == 1 && graph._pending[fi] == 0) { graph._publish(fi); }
+            fi = fi + 1;
+        }
+        int head = 0;
+        while (head < graph._tail) {
+            int edge = graph._heads[graph._queue[head]];
+            head = head + 1;
+            while (edge >= 0) {
+                int caller = graph._callers[edge];
+                graph._pending[caller] = graph._pending[caller] - 1;
+                if (graph._pending[caller] == 0) { graph._publish(caller); }
+                edge = graph._next[edge];
+            }
+        }
+        return spec;
+    }
+
+    private void _publish(int fi) {
+        string name = this._module.Functions[fi].Name;
+        if (this._spec.TryAdd(name, "1")) {
+            this._queue[this._tail] = this._names.Get(name);
+            this._tail = this._tail + 1;
+        }
+    }
+
+    // Count an upper bound before allocating the reverse adjacency arrays.
+    private static int _edgeCapacity(IrModule m, StrMap spec, int[] bodyState) {
+        int count = 0; int fi = 0;
+        while (fi < m.FuncCount) {
+            IrFunction f = m.Functions[fi];
+            if (bodyState[fi] == 1 && !spec.ContainsKey(f.Name)) {
+                int bi = 0;
+                while (bi < f.BlockCount) {
+                    IrBlock block = f.Blocks[bi];
+                    int ii = 0;
+                    while (ii < block.InstrCount) {
+                        if (block.Instrs[ii] is CallInstr) { count = count + 1; }
+                        ii = ii + 1;
+                    }
+                    bi = bi + 1;
+                }
+            }
+            fi = fi + 1;
+        }
+        return count;
+    }
+
+    private void _build(int[] bodyState) {
+        int fi = 0; int edge = 0;
+        while (fi < this._module.FuncCount) {
+            IrFunction f = this._module.Functions[fi];
+            if (bodyState[fi] == 1 && !this._spec.ContainsKey(f.Name)) {
+                int bi = 0;
+                while (bi < f.BlockCount) {
+                    IrBlock block = f.Blocks[bi];
+                    int ii = 0;
+                    while (ii < block.InstrCount) {
+                        if (block.Instrs[ii] is CallInstr) {
+                            string name = (block.Instrs[ii] as CallInstr).Func;
+                            if (!this._spec.ContainsKey(name)) {
+                                this._pending[fi] = this._pending[fi] + 1;
+                                int callee = this._names.Get(name);
+                                if (callee >= 0) {
+                                    this._callers[edge] = fi;
+                                    this._next[edge] = this._heads[callee];
+                                    this._heads[callee] = edge;
+                                    edge = edge + 1;
+                                }
+                            }
+                        }
+                        ii = ii + 1;
+                    }
+                    bi = bi + 1;
+                }
+            }
+            fi = fi + 1;
+        }
+    }
+}
