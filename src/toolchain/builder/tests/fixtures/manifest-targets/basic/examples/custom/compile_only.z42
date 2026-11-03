@@ -1,0 +1,6 @@
+namespace MtCompileOnly;
+
+using Std.IO;
+
+// test=false 仍须编译；误执行会使测试失败。
+void Main() { Environment.Exit(93); }
