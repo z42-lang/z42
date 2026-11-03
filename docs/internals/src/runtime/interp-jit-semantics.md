@@ -181,7 +181,7 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 corelib 的反射调用、attribute factory 和线程 action 通过每 VM 的 Engine 注册槽调用脚本；
 泛型反射同时传递类型实参，沿用注册后端的帧、JIT backstop 与 `ExecOutcome`，不自行选择后端。
 
-builtin 失败的出口两个引擎共用 `corelib::abi::error::raise`（interp `exec_call::builtin` 与折叠调用、
+builtin 失败的出口两个引擎共用 `vm::exec::call::builtin_abi::error::raise`（interp `exec_call::builtin` 与折叠调用、
 JIT `jit_builtin` 与 `call_forward`）：类型化 builtin 的 `BuiltinError` 按种类构造异常类（ABI v2 的类型化
 builtin 里接收者为 null 报 `NullReferenceException`，见 [native ABI §6.2](native-abi.md)）；旧表 builtin
 返回 `anyhow::Result`，用户异常经 `OpError::into_builtin_error` 把 `objops::Throw` **原样装进**

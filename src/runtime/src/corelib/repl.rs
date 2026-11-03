@@ -41,7 +41,7 @@ use std::ffi::{c_char, c_void, CStr, CString};
 /// `__repl_readline` (builtin ABI v2).
 #[z42_macros::builtins]
 pub mod typed {
-    use crate::corelib::abi::BuiltinError;
+    use crate::vm::exec::call::builtin_abi::BuiltinError;
     use crate::vm_context::VmContext;
 
     /// `__repl_readline(prompt) -> string?` — read one edited whole (possibly multi-line)

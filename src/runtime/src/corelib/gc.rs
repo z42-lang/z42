@@ -7,7 +7,7 @@
 //!  expose-gc-to-scripts (Phase 3d.2): 让脚本能显式触发 cycle
 //! collection 与查询堆使用量，用于端到端验证 GC 与 host 集成应用。
 
-use crate::corelib::abi::BuiltinError;
+use crate::vm::exec::call::builtin_abi::BuiltinError;
 use crate::gc::GcHandleKind;
 use crate::object::{FieldSlot, NativeData, TypeDesc, Value};
 use crate::vm_context::VmContext;

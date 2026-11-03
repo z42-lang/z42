@@ -70,5 +70,5 @@ z42::module! {
 - `tests/expand_smoke.rs` + trybuild（`tests/fail/`）：4 个诊断 case（缺 module/name attr、非法 module 名、derive 重定向消息）
 - 运行：`(cd src/runtime && cargo test -p z42-macros)`
 - 端到端（`z42_vm` 测试 binary 内）：`tests/native_interop_e2e.rs::rust_counter_*` 验证宏生成的 descriptor 与 C 写的等价
-- `#[builtins]`：在 `z42` crate 内测（宏展开引用 VM 内部类型）——`corelib/abi/abi_tests.rs`（读参、null / 类型不符 / 个数不符、
-  错误种类 → 异常类、`blocking`）与 `corelib/abi/test_builtins.rs`（`cfg(test)` 的测试用 builtin）
+- `#[builtins]`：在 `z42` crate 内测（宏展开引用 VM 内部类型）——`vm/exec/call/builtin_abi/abi_tests.rs`（读参、null / 类型不符 / 个数不符、
+  错误种类 → 异常类、`blocking`）与 `vm/exec/call/builtin_abi/test_builtins.rs`（`cfg(test)` 的测试用 builtin）

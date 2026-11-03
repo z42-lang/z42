@@ -1,7 +1,7 @@
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
-use crate::corelib::abi::BuiltinError;
+use crate::vm::exec::call::builtin_abi::BuiltinError;
 use std::sync::Arc;
 
 // ── Object protocol ───────────────────────────────────────────────────────────

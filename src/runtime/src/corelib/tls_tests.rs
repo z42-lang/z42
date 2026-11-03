@@ -4,7 +4,7 @@
 //! `127.0.0.1`, valid until 2126), which the client must reject: it is not under the
 //! bundled roots.
 
-use crate::corelib::abi::BuiltinError;
+use crate::vm::exec::call::builtin_abi::BuiltinError;
 use crate::corelib::network::network_tests::{call, collect_while_parked, detailed};
 use crate::object::Value;
 use crate::vm_context::VmContext;

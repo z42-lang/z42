@@ -26,7 +26,7 @@ use std::sync::Arc;
 ///
 /// `action` must be a callable z42 value (`Value::FuncRef` for zero-capture
 /// lambdas, `Value::Closure` for capturing lambdas).
-pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::corelib::abi::BuiltinError> {
+pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::vm::exec::call::builtin_abi::BuiltinError> {
     // P1-2 PR 8: the target is the value's bound `FnId` — a plain integer that crosses to
     // the worker as is (the worker shares this VM's `FuncTable`).
     let (fn_id, env_vec): (crate::vm::runtime::ids::tokens::FnId, Option<Vec<Value>>) = match action {
@@ -37,14 +37,14 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::corel
         }
         // The stdlib passes `object action`; anything but a delegate value is the
         // caller's argument (a user value), so a typed argument error, not an internal one.
-        other => return Err(crate::corelib::abi::BuiltinError::Argument(format!(
+        other => return Err(crate::vm::exec::call::builtin_abi::BuiltinError::Argument(format!(
             "__thread_spawn: expected callable (Action / FuncRef / Closure), got {:?}",
             other
         ))),
     };
 
     if ctx.core.module.is_none() {
-        return Err(crate::corelib::abi::BuiltinError::Internal(
+        return Err(crate::vm::exec::call::builtin_abi::BuiltinError::Internal(
             "__thread_spawn: VmContext has no shared Module — \
              constructed via VmContext::new() instead of VmContext::with_module()".into()));
     }
@@ -109,7 +109,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::corel
             Ok(r)    => r,
             Err(_)   => Err(anyhow!("thread panicked (Rust panic; not user throw)")),
         }
-    }).map_err(|e| crate::corelib::abi::BuiltinError::Exception {
+    }).map_err(|e| crate::vm::exec::call::builtin_abi::BuiltinError::Exception {
         class: "Std.Threading.ThreadException",
         message: format!("__thread_spawn: cannot create thread: {e}"),
     })?;
@@ -142,7 +142,7 @@ impl Drop for SpawnedEnvRoot {
 /// parked, so a collection another thread starts meanwhile does not wait for them.
 #[z42_macros::builtins]
 pub mod typed {
-    use crate::corelib::abi::{Blocking, BuiltinError};
+    use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError};
     use crate::vm_context::VmContext;
 
     /// `__thread_sleep(millis)` — block the current thread. Negative values saturate to
@@ -171,7 +171,7 @@ pub mod typed {
     #[builtin(name = "__thread_wait")]
     pub fn thread_wait(ctx: &VmContext, slot: i64) -> Blocking<()> {
         let handle = ctx.core.threads.lock().remove(&(slot as u64));
-        let fail = |message: String| crate::corelib::abi::BuiltinError::Exception {
+        let fail = |message: String| crate::vm::exec::call::builtin_abi::BuiltinError::Exception {
             class: "Std.Threading.ThreadException", message,
         };
         Blocking::new(move || match handle {

@@ -177,7 +177,7 @@ fn every_declared_native_has_a_builtin() {
 fn every_builtin_is_declared_or_allowlisted() {
     let declared: BTreeSet<String> = declared_natives().into_iter().map(|(n, _)| n).collect();
     let allow: BTreeSet<&str> = UNDECLARED_ALLOWLIST.iter().map(|(n, _)| *n).collect();
-    // `__test_abi_*`: the builtin ABI's own test builtins (`corelib::abi::test_builtins`,
+    // `__test_abi_*`: the builtin ABI's own test builtins (`vm::exec::call::builtin_abi::test_builtins`,
     // registered under `cfg(test)` only).
     let undeclared: Vec<&str> = BUILTINS.iter().map(|d| d.name)
         .filter(|n| !declared.contains(*n) && !allow.contains(n) && !n.starts_with("__test_abi_"))
@@ -208,7 +208,7 @@ fn every_builtin_is_declared_or_allowlisted() {
 #[test]
 fn declared_voidness_matches_the_builtin_table() {
     let table: std::collections::BTreeMap<&str, bool> =
-        BUILTINS.iter().map(|d| (d.name, d.ret == super::abi::RetKind::Void)).collect();
+        BUILTINS.iter().map(|d| (d.name, d.ret == crate::vm::exec::call::builtin_abi::RetKind::Void)).collect();
     let mut bad = Vec::new();
     for (name, decl_void, where_) in declared_natives_full() {
         let Some(&tbl_void) = table.get(name.as_str()) else { continue };  // 名字那条门管这格
