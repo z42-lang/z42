@@ -11,15 +11,12 @@
 /// • exec_call.rs    — Call / Builtin / LoadFn / CallIndirect / MkClos
 /// • exec_array.rs   — ArrayNew / ArrayNewLit / ArrayGet / ArraySet / ArrayLen
 /// • exec_object.rs  — ObjNew / FieldGet / FieldSet / IsInstance / AsCast / Static*
-/// • vcall_resolve.rs — VCall target resolution (shared with jit/helpers/vcall.rs)
-/// • obj_new_resolve.rs — ObjNew class / ctor resolution + site cache (shared with jit_obj_new)
-/// • exec_vcall.rs   — VCall invoke side + primitive_class_name
+/// • exec_vcall.rs   — VCall frame adaptation
 /// • exec_ffi.rs  — CallNative / CallNativeVtable / PinPtr / UnpinPtr
-/// • dispatch.rs   — object dispatch helpers (vtable, ToString, static fields)
+/// • engine.rs     — registered baseline engine adapter
 /// • ops.rs        — register-level helpers (int_binop, collect_args, …)
 
-pub(crate) mod dispatch;
-pub mod superinstr;
+pub(crate) mod engine;
 pub(crate) mod exec_instr;
 mod exec_address;
 pub(crate) mod exec_array;                 // add-struct-jit-value-path: JIT reuses try_struct_backed/pack_struct_elem
@@ -32,12 +29,7 @@ pub(crate) mod exec_value;
 pub(crate) mod exec_vcall;
 mod ops;
 
-// Re-export for cross-module callers (notably jit/helpers_object.rs).
-#[cfg(feature = "jit")]
-pub(crate) use exec_call::bind_callee;   // P1-2: jit_call binds by name through the same path
-// P1-2 PR 8: function-reference targets bind through one path (LoadFn / MkClos in both
-// backends, `__make_closure`).
-pub(crate) use exec_call::fn_ref_id;
+
 // JIT primitive-receiver VCall IC (add-jit-primitive-vcall-ic): jit_vcall keys its
 // inline cache on primitives via the same synthetic PRIM_TYPE_* ids interp uses.
 

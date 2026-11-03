@@ -59,9 +59,7 @@ impl EngineGuards {
         ctx.jit_head.stack_limit.store(crate::stack_guard::limit(), std::sync::atomic::Ordering::Relaxed);
         #[cfg(feature = "jit")]
         if ctx.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed).is_null() {
-            if let Some(rt) = ctx.core.jit.get() {
-                ctx.jit_head.jit.store(rt as *const _ as *mut _, std::sync::atomic::Ordering::Relaxed);
-            }
+            ctx.publish_tier();
         }
         // SAFETY: the context outlives its guards — they are dropped at the
         // last pop or, at the latest, with the context itself.

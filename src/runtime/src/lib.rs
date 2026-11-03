@@ -62,3 +62,5 @@ pub mod observer;
 // story (Phase 1 = main.rs install_panic_hook). Windows VEH = Phase 2.1.
 // Spec: 变更 add-os-signal-handler/.
 pub mod signal_handler;
+
+mod engine_assembly;

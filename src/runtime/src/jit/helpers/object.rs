@@ -16,7 +16,7 @@ use super::{set_exception, vm_ctx_ref};
 // ── Object allocation ────────────────────────────────────────────────────────
 
 /// `ObjNew`. Class and ctor resolution is shared with the interpreter
-/// (`interp::obj_new_resolve`); after the first allocation at a site both come from the
+/// (`vm::exec::ops::obj_new`); after the first allocation at a site both come from the
 /// site cache — no name hashing, no locks, a cross-package class / ctor included. The
 /// ctor runs natively once compiled (counted toward its tier-up by `FnId`), else on the
 /// interpreter.
@@ -100,7 +100,7 @@ pub unsafe extern "C" fn jit_obj_new(
                 let mut ctor_args: Vec<Value> = Vec::with_capacity(argc + 1);
                 ctor_args.push(obj_val.clone());
                 ctor_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
-                match crate::interp::exec_function(vm, module, func, &ctor_args) {
+                match crate::vm::exec::engine::invoke(vm, module, func, &ctor_args) {
                     Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(_)) => {} // ctor mutated `this` in place
                     Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm, val); return 1; }
                     Err(e) => { set_exception(vm, Value::Str(e.to_string().into())); return 1; }

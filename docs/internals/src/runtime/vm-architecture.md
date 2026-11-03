@@ -8,6 +8,16 @@
 
 ---
 
+## 引擎注册与调用边界
+
+门面 `engine_assembly.rs` 按 feature 装配基线 Engine 和优化入口；`VmCore.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
+
+TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入口和代码页由 JIT 自己持有；所有 worker 共享所属 core 的注册结果，其他 VM 独立。竞争安装保留首个发布实例，失败候选安全释放；所属模块校验仍由后端执行。
+
+`JitHead.jit` 缓存中立 header 指针，字段大小、对齐及编译码读取的偏移不变。构造、安装及早于安装的 context 在底帧入栈时刷新，保持 owner-thread 规则。OSR 后跳计数和阈值比较内联，实际交接才调用注册方法；ref/out 拒绝、frame_id、已有双帧记录和 jit_native_from_interp 增长条件保持。
+
+共享 Call/FnRef 的加载绑定在 `vm/exec/ops/call.rs`；ToString 在 `vm/exec/ops/stringify.rs` 并通过 Engine 执行；加载期 fusion 识别器及缓存形态在 `vm/runtime/fusion.rs`。
+
 ## 包数据、静态查询与运行期链接
 
 产物格式常量与严格版本校验在 `metadata/format`；`metadata/reader` 将字节解码为
@@ -68,7 +78,7 @@ vm.run(&ctx, hint)?;
 
 `__thread_spawn`（[corelib/threading.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/threading.rs)）流程：拿到调用者 `ctx.core` 的 `Arc::clone` → `std::thread::spawn` → worker 内 `VmContext::new_with_core(core)` 构造 worker ctx → `interp::exec_function` dispatch。worker 的 per-thread 字段（pending_exception / call_stack）私有；通过 `vm_contexts` 注册让 GC scanner 看见 worker 自己的 roots。
 
-VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.jit` 是全 VM 共用的 JIT（槽表、编译器、OSR 缓存），worker 的解释器帧经混合模式分流路由到已编译函数、自己计数升层、到阈值就在 worker 线程上编译；原生码与 helper 的上下文参数就是 worker 自己的 `VmContext`（见 [jit.md](jit.md)「数据结构」「线程安全」）。
+VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.engines` 是全 VM 共用的 JIT（槽表、编译器、OSR 缓存），worker 的解释器帧经混合模式分流路由到已编译函数、自己计数升层、到阈值就在 worker 线程上编译；原生码与 helper 的上下文参数就是 worker 自己的 `VmContext`（见 [jit.md](jit.md)「数据结构」「线程安全」）。
 
 ### VmCore：跨线程共享状态
 
@@ -121,7 +131,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.jit` 是�
 - `pending_thrown: Mutex<Option<Value>>` — callback 型 builtin（反射 `MethodInfo.Invoke`）把原异常值带出 builtin 边界的槽位；每线程一份，GC 根
 - `call_stack: FrameStack` — 当前线程帧栈，只由所属线程无锁读写（见下「帧栈的归属」）
 - `reg_pool: RegPool` — interp `Frame` 与 `JitFrame` 共用的寄存器文件 free-list；`engine_guards` — 栈非空期间装好的 VM / 堆 thread-local（见下「寄存器池、引擎入口 guard、frame_id」）。两者都只由所属线程无锁访问
-- `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`（frame id 来源，帧惰性取号）、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_head`（`#[repr(C)]`，生成码按偏移读的本线程栈下限与 cctor 门指针，外加缓存的 `&VmCore.jit`）
+- `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`（frame id 来源，帧惰性取号）、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_head`（`#[repr(C)]`，生成码按偏移读的本线程栈下限与 cctor 门指针，外加缓存的 `&TierApi`）
 - `subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存，键 `(接收者 TypeId, 目标键)`，见 [interp-jit-semantics.md](interp-jit-semantics.md)）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
 
 帧记录归 `vm/exec/call/frames.rs`，冻结快照、格式化和寄存器根遍历归 `vm/exec/stack.rs`。
@@ -863,7 +873,7 @@ const_str(module, idx):
 ### ObjNew dispatch（与 VCall 对称）
 
 `Instruction::ObjNew { dst, class_name, ctor_name, args }`。类与构造器的解析是 interp 与 JIT 共用的一份
-（[obj_new_resolve.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/exec/ops/obj_new.rs)），
+（[obj_new.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/exec/ops/obj_new.rs)），
 两侧只决定怎么跑 ctor：
 
 ```
@@ -1099,7 +1109,7 @@ match callee_value {
 - **错误时机**：目标名解析不到，`LoadFn` / `MkClos` 当场抛 `Std.MissingSymbolException`（`undefined function `…``），
   而不是等第一次调用；目标所在的包在创建时加载。
 - **身份与反射**：`FuncRef` 相等 = id 相等；闭包相等 = `fn_id` 相等且 env 是同一数组。`__delegate_fn_name`、显示
-  （`<fn 名字>` / `<closure 名字>`，`interp::dispatch::tostring_result`）从 id 指向的 `Function` 取名字；没有 ctx 的
+  （`<fn 名字>` / `<closure 名字>`，`vm::exec::ops::stringify::tostring_result`）从 id 指向的 `Function` 取名字；没有 ctx 的
   `value_to_str` 只能打印 `<fn #id>`。`__make_closure` 把传入的名字走同一条 `fn_ref_id` 绑定。
 - **值不再是堆引用**：`FuncRef` 的载荷是 4 B 的 id，`ClosureData` 里也没有名字串——GC 不追踪、写屏障不触发，
   PR 7 的每线程函数名驻留表（`fn_name_cache`）随之删除。`Value` 仍是 16 B。线程 `spawn` 把 id 原样交给 worker
@@ -1494,7 +1504,7 @@ builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等
 
 > JIT 端所有 extern "C" helper 签名都带 `ctx: *const VmContext` 第 2 参——**运行线程自己的**上下文，
 > 即编译码被调用时收到的那个（`jit::invoke::enter_compiled` 传入）；Cranelift translate 在调用点插入 `ctx_val`。
-> helper 用 `vm_ctx_ref(ctx)` 直接解引用，共享的 JIT 状态经 `ctx.jit()`（缓存的 `&VmCore.jit`，`jit_rt(ctx)`）取。
+> helper 用 `vm_ctx_ref(ctx)` 直接解引用，共享的 JIT 状态经 `ctx.jit()`（缓存的 `&TierApi`，`jit_rt(ctx)`）取。
 >
 > 寄存器池也在 `VmContext` 上（`reg_pool`）。`VmContext` 是所有 runtime-mutable 状态的唯一规范来源；
 > 仍是 thread-local 的只有引擎入口 guard 维护的 `CURRENT_VM` 与 ambient 堆指针（供拿不到 ctx 的

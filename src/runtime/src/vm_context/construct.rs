@@ -301,8 +301,7 @@ impl VmContext {
                 ),
                 None => crate::profiler::cpu::Sampler::disabled(),
             },
-            #[cfg(feature = "jit")]
-            jit: std::sync::OnceLock::new(),
+            engines: crate::engine_assembly::registry(),
         });
 
         // add-os-signal-handler : register this Arc<VmCore> into

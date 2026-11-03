@@ -51,7 +51,7 @@ pub enum Value {
     /// bound once when the value is created (`LoadFn` — the per-site token makes later
     /// executions of the same site a single load), instead of the function's name as a GC
     /// string resolved again by every `CallIndirect`. The id lives in the space `Call`
-    /// tokens use (`interp::exec_call::fn_by_id`): in every production run the VM's
+    /// tokens use (`vm::runtime::dispatch::functions::fn_by_id`): in every production run the VM's
     /// `FuncTable` id (entry functions `0..n`, lazily loaded ones after); against a module
     /// that is not the `FuncTable`'s entry module (unit tests on a bare `VmContext`), only
     /// that module's indices. Not a heap reference — no GC edge, no write barrier. Equal

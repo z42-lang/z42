@@ -144,7 +144,7 @@ pub unsafe extern "C" fn jit_to_str(
     let heap = vm_ctx_ref(ctx).heap();
     if matches!(val, Value::Object(_) | Value::BoxedStruct(_)) {
         let v = *val;
-        match crate::interp::dispatch::stringify_dispatch_gc(vm_ctx_ref(ctx), &v) {
+        match crate::vm::exec::ops::stringify::stringify_dispatch_gc(vm_ctx_ref(ctx), &v) {
             Ok(s) => (*frame).regs[dst as usize] = Value::Str(s),
             Err(e) => return super::arith::stringify_failed(ctx, e),
         }

@@ -154,7 +154,7 @@ pub fn make_closure(ctx: &VmContext, fn_name: &Value, env: &Value) -> Result<Val
         return Err(BuiltinError::Internal(format!(
             "__make_closure: no entry module to resolve `{}` against", &**fn_name)));
     };
-    let fn_id = crate::interp::fn_ref_id(ctx, module, fn_name, None).map_err(BuiltinError::Thrown)?;
+    let fn_id = crate::vm::exec::ops::call::fn_ref_id(ctx, module, fn_name, None).map_err(BuiltinError::Thrown)?;
     // 把 Array 里的元素拷贝到 Vec<Value>，再走 heap.alloc_array 拿到新的 ArrRef。
     // 与 jit_mk_clos 同款路径：env 是 GC 管理的 Array → Closure 持其 ArrRef。
     let env_vec: Vec<Value> = env_arr.borrow().iter_boxed().collect();
