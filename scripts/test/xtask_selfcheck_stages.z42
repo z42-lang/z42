@@ -7,6 +7,7 @@ using Std.Collections;
 int _selfcheckGateStages() {
     _checkGateRegistry(_gateStages(false));
     _checkChangedPlans();
+    _selfcheckExamplesStage();
     _selfcheckChangedGit();
     var calls = new List<string>();
     GateStage[] stages = new GateStage[]{

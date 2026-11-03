@@ -290,7 +290,8 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
 
 学习手册示例按 `changes.outputs.host_package` 分工。它集中原有的打包选择条件：platform 或 examples flag 为 true，
 或事件不是 PR。打包 job 会执行时，每个平台只在打包 SDK 上重放会话；非 Windows 的 test-host 跳过开发 SDK 准备与
-examples stage。打包 job 不执行时，test-host 保留这两步，本地完整 `xtask test` 也保留 examples。
+examples stage。打包 job 不执行时，test-host 用 `--changed` 决定是否执行 examples；开发 SDK 的准备属于该 stage，
+只有实际执行时才构建 apphost 并组装，不再由 workflow 提前准备。本地完整 `xtask test` 也保留 examples。
 两条路径调用同一个 `test docs examples`、校验同一套会话输出与退出码，打包失败仍经 `ci-ok` 挡合并。
 
 测量这段重复工作时，在同一机器预热开发 SDK 与打包 SDK 后，交替测量三组：原编排为

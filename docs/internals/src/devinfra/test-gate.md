@@ -74,7 +74,9 @@ skip 键与 banner 名可能不同（如 `vscode` 对应 `vscode-syntax`）；�
 `test-host` 上用它（`--changed <PR base sha>`），main push / schedule / dispatch 全跑。
 
 `--no-build`（或 `--toolchain <sdk>`）跳过构建波、直接消费既有产物——CI 正是先集中构建一次、
-再多 job `test --no-build` 消费的形态；本地缓存后反复迭代同理。
+再多 job `test --no-build` 消费的形态；本地缓存后反复迭代同理。examples stage 实际执行时仍负责构建 apphost、
+组装当前开发 SDK（已有 z42c / stdlib 不重建）；`--toolchain <sdk>` 则直接在指定 SDK 上重放，不准备开发 SDK。
+显式 skip、改动分流跳过 examples 或只列 stage 时，均不准备 SDK。
 **这些都不构成 GREEN**：提交判定只认完整 `xtask test`。
 
 ## 6. stage 耗时归因（无条件输出）
