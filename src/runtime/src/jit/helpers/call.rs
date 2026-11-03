@@ -107,7 +107,7 @@ unsafe fn call_impl(
         .unwrap_or("<invalid>");
     let site = if ic_ptr.is_null() { None } else { Some(&*ic_ptr) };
     let mut holder: Option<std::sync::Arc<crate::vm::runtime::Function>> = None;
-    let (callee, id) = match crate::interp::bind_callee(vm, module, name, argc, site, &mut holder) {
+    let (callee, id) = match crate::vm::exec::ops::call::bind_callee(vm, module, name, argc, site, &mut holder) {
         Ok(bound) => bound,
         Err(exc) => { set_exception(vm, exc); return 1; }
     };
@@ -193,7 +193,7 @@ unsafe fn call_interp(
             return super::super::forward::call_forward(frame_ref, ctx, dst, callee, id, None, arg_regs);
         }
     }
-    match crate::interp::exec_function_from_regs(vm, module, callee, &frame_ref.regs, arg_regs, mta) {
+    match crate::vm::exec::engine::invoke_args(vm, module, callee, crate::vm::exec::call::args::CallArgs::Registers { regs: &frame_ref.regs, indices: arg_regs }, mta) {
         Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null);
             0

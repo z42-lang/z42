@@ -1,7 +1,7 @@
 /// Virtual dispatch (`VCall`): the interpreter's **invoke** side.
 ///
 /// unify-vcall-resolution : *what* to call is decided by
-/// `vcall_resolve::resolve_vcall` (shared with `jit/helpers/vcall.rs::jit_vcall`);
+/// `vm::exec::ops::vcall::resolve_vcall` (shared with `jit/helpers/vcall.rs::jit_vcall`);
 /// this file only keeps the interpreter-specific pieces — the receiver-kind
 /// helpers (`primitive_class_name` / `value_synthetic_type_id`),
 /// the mixed-mode divert to an already-compiled native method, and running the
@@ -26,23 +26,12 @@ fn try_native_method_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize,
     receiver: &Value, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
-    let rt = ctx.jit()?;
-    // runtime-jit-tiering Phase 1.5 safety: never marshal a `Ref(Stack)` (out/ref
-    // address, which only an INTERP frame can hold) into native code — see
-    // `exec_call::try_native_static_call` for the full rationale. Guard receiver + args.
+    let tier = ctx.tier()?;
     if matches!(receiver, Value::Ref { .. })
-        || args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) {
-        return None;
-    }
-    let (max_reg, ptr, callee_fn) = {
-        let entry = rt.resolve_fn_by_id_tiered(ctx, id)?;
-        (entry.max_reg, entry.ptr, entry.func)
-    };
-    ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let callee = crate::jit::frame::JitFrame::new_method_args_from(
-        ctx, max_reg, receiver.clone(), &frame.regs, args);
-    let outcome = unsafe { crate::jit::invoke::enter_compiled(ctx, ptr, callee_fn, callee) };
-    Some(Ok(super::exec_call::native_result_to_dst(ctx, frame, dst, outcome)))
+        || args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
+    tier.invoke(ctx, crate::vm::exec::engine::TierTarget::Site(id),
+        crate::vm::exec::call::args::CallArgs::Receiver { receiver: receiver.clone(), regs: &frame.regs, indices: args })
+        .map(|result| result.map(|outcome| super::exec_call::native_result_to_dst(frame, dst, outcome)))
 }
 
 #[cfg(not(feature = "jit"))]

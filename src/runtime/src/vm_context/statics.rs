@@ -173,20 +173,6 @@ impl VmContext {
         self.pending_exception.lock().take()
     }
 
-    /// The VM's JIT runtime, once `jit::run` installed it (`None` in interp
-    /// mode). Every thread of the VM sees the same one; the interpreter's
-    /// mixed-mode diverts route already-hot callees to native code through it.
-    /// One relaxed load of this context's cached pointer (`JitHead::jit`); a
-    /// context that predates the install picks it up at its next bottom frame push.
-    #[cfg(feature = "jit")]
-    #[inline]
-    pub(crate) fn jit(&self) -> Option<&crate::jit::runtime::JitRuntime> {
-        let p = self.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed);
-        // SAFETY: non-null only once it points into `self.core.jit`, which the
-        // core — kept alive by this context — never clears.
-        if p.is_null() { None } else { Some(unsafe { &*p }) }
-    }
-
     /// Peek at the pending exception without removing it. Used by JIT catch-type
     /// dispatch (catch-by-generic-type): the throw helper has set the
     /// exception, the dispatch helper inspects its class to decide which catch

@@ -56,7 +56,7 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
 | 类型判定（`is` / `as` / 带类型 `catch`） | `vm/exec/ops/cast.rs::isa_td` | `vm/runtime/dispatch/isa_cache.rs`（id 键直接映射）→ `subclass_memo`（同键 memo）→ 基链/接口遍历 | `exec_object.rs`、`find_handler` | `helpers/object.rs`、`helpers/control.rs` |
 
 派发事实与缓存归 `vm/runtime/dispatch`：接收者分类、函数身份/arity、PIC/构造站点、ISA 名称谓词与 IsaCache 都不拿 VmContext。
-`vm/exec/ops/{vcall,obj_new,cast}` 保存需要加载、初始化或异常物化的逐步解析，两个后端仅适配各自帧与异常通道。ToString 的实际调用仍由 `interp/dispatch.rs` 持有。
+`vm/exec/ops/{vcall,obj_new,cast}` 保存需要加载、初始化或异常物化的逐步解析，两个后端仅适配各自帧与异常通道。ToString 的协议和格式化由 `vm/exec/ops/stringify.rs` 持有，实际调用经 VM 已注册的 Engine。
 
 #### 类型判定的缓存键
 

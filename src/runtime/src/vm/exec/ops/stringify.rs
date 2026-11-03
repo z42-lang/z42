@@ -56,11 +56,11 @@ enum ToStringResult {
 }
 
 fn tostring_result(ctx: &VmContext, module: &Module, val: &Value) -> Result<ToStringResult> {
-    fn outcome(ctx: &VmContext, o: super::ExecOutcome) -> Result<ToStringResult> {
+    fn outcome(ctx: &VmContext, o: crate::vm::exec::call::outcome::ExecOutcome) -> Result<ToStringResult> {
         match o {
-            super::ExecOutcome::Returned(Some(v)) => Ok(ToStringResult::Value(v)),
-            super::ExecOutcome::Returned(None)    => Ok(ToStringResult::Empty),
-            super::ExecOutcome::Thrown(v)         => Err(tostring_threw(ctx, v)),
+            crate::vm::exec::call::outcome::ExecOutcome::Returned(Some(v)) => Ok(ToStringResult::Value(v)),
+            crate::vm::exec::call::outcome::ExecOutcome::Returned(None)    => Ok(ToStringResult::Empty),
+            crate::vm::exec::call::outcome::ExecOutcome::Thrown(v)         => Err(tostring_threw(ctx, v)),
         }
     }
     if let Value::Object(rc) = val {
@@ -72,7 +72,7 @@ fn tostring_result(ctx: &VmContext, module: &Module, val: &Value) -> Result<ToSt
             let callee = module.func_index.get(func_name.as_str())
                 .and_then(|&idx| module.functions.get(idx));
             if let Some(callee) = callee {
-                return outcome(ctx, super::exec_function(ctx, module, callee, &[val.clone()])?);
+                return outcome(ctx, crate::vm::exec::engine::invoke(ctx, module, callee, &[val.clone()])?);
             }
         }
         // Fallback: the Rust default ToString (unqualified type name), as the
@@ -102,7 +102,7 @@ fn tostring_result(ctx: &VmContext, module: &Module, val: &Value) -> Result<ToSt
             crate::vm::exec::ops::vcall::VCallTarget::Immediate(v) => Ok(ToStringResult::Value(v)),
             crate::vm::exec::ops::vcall::VCallTarget::Thrown(v) => Err(tostring_threw(ctx, v)),
             crate::vm::exec::ops::vcall::VCallTarget::Local { func, .. } =>
-                outcome(ctx, super::exec_function(ctx, module, func, &[r.this.clone()])?),
+                outcome(ctx, crate::vm::exec::engine::invoke(ctx, module, func, &[r.this.clone()])?),
         };
     }
     Ok(ToStringResult::NotDispatched)

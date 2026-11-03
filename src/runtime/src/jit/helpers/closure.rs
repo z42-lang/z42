@@ -24,7 +24,7 @@ use super::{set_exception, vm_ctx_ref};
 // ── LoadFn ────────────────────────────────────────────────────────────────────
 
 /// Bind a function reference's target (P1-2 PR 8): the site token when bound, else
-/// `interp::exec_call::bind_fn_ref` (loads the target's package if needed and stores the
+/// `vm::exec::ops::call::bind_fn_ref` (loads the target's package if needed and stores the
 /// token). `tok` is the site's `ResolvedTokens::fn_ref_tokens` cell, or null when the
 /// function was compiled without a token table (then binding runs on every execution).
 /// `Err(())` = the exception is already set.
@@ -36,7 +36,7 @@ unsafe fn bind_target(
     let vm_ctx = vm_ctx_ref(ctx);
     let module = super::jit_module(ctx);
     let name = super::baked_str(name_ptr, name_len);
-    crate::interp::fn_ref_id(vm_ctx, module, name, tok.as_ref())
+    crate::vm::exec::ops::call::fn_ref_id(vm_ctx, module, name, tok.as_ref())
         .map_err(|exc| set_exception(vm_ctx, exc))
 }
 
@@ -169,7 +169,7 @@ pub unsafe extern "C" fn jit_call_indirect(
             args.extend(env_val_opt);
             args.extend(user_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
             vm_ctx.set_top_frame_pc(caller_offset);
-            return match crate::interp::exec_function(vm_ctx, module, callee, &args) {
+            return match crate::vm::exec::engine::invoke(vm_ctx, module, callee, &args) {
                 Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(ret)) => {
                     frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0
                 }

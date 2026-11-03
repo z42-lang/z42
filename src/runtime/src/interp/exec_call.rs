@@ -4,6 +4,7 @@
 /// Helpers that may propagate a user exception from a callee return
 /// `Result<Option<Value>>` (Some = thrown). Pure helpers return `Result<()>`.
 
+use crate::vm::exec::ops::call::{bind_callee, fn_ref_id};
 use crate::vm::runtime::dispatch::functions::{fn_by_id, lazy_call_id};
 use crate::vm::runtime::{Function, Module};
 use crate::object::Value;
@@ -28,29 +29,11 @@ use super::{ExecOutcome, Frame};
 fn try_native_static_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
-    let rt = ctx.jit()?;
-    // runtime-jit-tiering Phase 1.5 safety: an INTERP frame can hold a
-    // `Ref(Stack)` (an out/ref-param address from `LoadLocalAddr`) in a register;
-    // a JIT frame never can (ref-using functions are untranslatable). Native code
-    // treats registers as plain values, so passing a Ref into a native callee
-    // corrupts it (later surfaces as "Ref vs I64" in arithmetic). This cannot arise
-    // from `jit_call` (JIT callers hold no Refs) — it is mixed-mode-specific. Never
-    // route when an arg is a Ref; stay on the interpreter (always correct).
-    if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) {
-        return None;
-    }
-    // Copy the small entry fields out so no borrow of the runtime's slot is held
-    // across the native call. `resolve_fn_by_id_tiered` uses interior mutability
-    // (OnceLock/Mutex) and may compile-on-threshold on this thread — same as
-    // `jit_call`.
-    let (max_reg, ptr, callee_fn) = {
-        let entry = rt.resolve_fn_by_id_tiered(ctx, id)?;
-        (entry.max_reg, entry.ptr, entry.func)
-    };
-    ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let callee = crate::jit::frame::JitFrame::new_args_from(ctx, max_reg, &frame.regs, args);
-    let outcome = unsafe { crate::jit::invoke::enter_compiled(ctx, ptr, callee_fn, callee) };
-    Some(Ok(native_result_to_dst(ctx, frame, dst, outcome)))
+    let tier = ctx.tier()?;
+    if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
+    tier.invoke(ctx, crate::vm::exec::engine::TierTarget::Site(id),
+        crate::vm::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args })
+        .map(|result| result.map(|outcome| native_result_to_dst(frame, dst, outcome)))
 }
 
 /// Shared tail of the two per-site native diverts (`try_native_static_call` /
@@ -58,9 +41,9 @@ fn try_native_static_call(
 /// void), a throw is taken off the context and propagated as `Some(exception)`.
 #[cfg(feature = "jit")]
 pub(super) fn native_result_to_dst(
-    ctx: &VmContext, frame: &mut Frame, dst: u32, outcome: crate::jit::invoke::NativeOutcome,
+    frame: &mut Frame, dst: u32, outcome: ExecOutcome,
 ) -> Option<Value> {
-    match outcome.into_exec(ctx) {
+    match outcome {
         ExecOutcome::Returned(ret) => { frame.set(dst, ret.unwrap_or(Value::Null)); None }
         ExecOutcome::Thrown(exc) => Some(exc),
     }
@@ -72,52 +55,6 @@ fn try_native_static_call(
     _ctx: &VmContext, _frame: &mut Frame, _dst: u32, _id: usize, _args: &[u32],
 ) -> Option<Result<Option<Value>>> {
     None
-}
-
-/// The cold half of [`call`]: bind `fname` by name — this module's `func_index` first,
-/// then the lazy loader (which may load the defining package) — check the signature,
-/// and store the binding into the site's token. Returns the callee and its JIT id
-/// (`None` only for a lazily loaded callee that has no id under `module`). `Err`
-/// carries the exception to throw. Shared with `jit_call`'s by-name tier.
-///
-/// fix-call-arity-skew：首次绑定点。resolver 预填时已拒绝过签名对不上的站点，所以它们每次都会
-/// 走到这里 —— 判定在此抛，且**不写回**（写回就等于把错的绑定缓存下来）。判定先于 cctor 屏障
-/// （fix-crosspkg-static-call-cctor 的顺序）：签名对不上的调用本身非法，不应触发类型初始化。
-#[inline(never)]
-pub(crate) fn bind_callee<'a>(
-    ctx: &'a VmContext, module: &'a Module, fname: &str, argc: usize,
-    method_token: Option<&std::sync::atomic::AtomicU32>,
-    holder: &'a mut Option<Arc<Function>>,
-) -> Result<(&'a Function, Option<usize>), Value> {
-    use crate::vm_context::symres::wrong_arity_exception;
-    use crate::vm::runtime::dispatch::functions::call_arity;
-    use std::sync::atomic::Ordering;
-    if let Some(&idx) = module.func_index.get(fname) {
-        if let Some(f) = module.functions.get(idx) {
-            if let Some(exc) = wrong_arity_exception(ctx, module, fname, call_arity(f), argc) {
-                return Err(exc);
-            }
-            if let Some(slot) = method_token { slot.store(idx as u32, Ordering::Relaxed); }
-            return Ok((f, Some(idx)));
-        }
-    }
-    // fix-silent-symbol-resolution：所有回落（本模块 func_index → 惰性加载器）都穷尽了 ⇒
-    // **确定不存在**，抛可 catch 的类型化 MissingSymbolException（不是 `bail!`——那条走
-    // anyhow Err，不经 find_handler，用户 `catch` 抓不到）。与 JIT 侧同一场景统一。
-    let Some(lazy) = ctx.try_lookup_function(fname) else {
-        return Err(crate::exception::make_missing_symbol_exception(
-            ctx, module, format!("undefined function `{fname}`")));
-    };
-    if let Some(exc) = wrong_arity_exception(ctx, module, fname, call_arity(lazy.as_ref()), argc) {
-        return Err(exc);
-    }
-    // Cache the binding as the callee's `FnId` — only when tokens are `FnId`s for this
-    // module, and only for the function the table actually holds under that id.
-    let id = lazy_call_id((ctx).funcs(), module, &lazy);
-    if let (Some(slot), Some(id)) = (method_token, id) {
-        slot.store(id as u32, Ordering::Relaxed);
-    }
-    Ok((&**holder.insert(lazy), id))
 }
 
 pub(super) fn call(
@@ -278,58 +215,6 @@ fn run_fold(
 
 // ── Function references (P1-2 PR 8) ─────────────────────────────────────────────
 
-/// The target id a `LoadFn` / `MkClos` site creates its value with: the site's token
-/// (`ResolvedTokens::fn_ref_tokens`) when bound — one relaxed load, no hashing — else
-/// [`bind_fn_ref`]. `Err` carries the exception to throw.
-#[inline]
-pub(crate) fn fn_ref_id(
-    ctx: &VmContext, module: &Module, name: &str, token: Option<&std::sync::atomic::AtomicU32>,
-) -> Result<FnId, Value> {
-    if let Some(t) = token {
-        let id = t.load(std::sync::atomic::Ordering::Relaxed);
-        if id != crate::vm::runtime::ids::tokens::UNRESOLVED { return Ok(FnId(id)); }
-    }
-    bind_fn_ref(ctx, module, name, token)
-}
-
-/// The cold half of [`fn_ref_id`]: resolve a function reference's target by name, once,
-/// when the value is created — this module's `func_index` first, then the lazy loader
-/// (which loads the defining package) — and store the id into the site's token. The same
-/// precedence `CallIndirect` used to apply on every call, and the same id space as `Call`
-/// tokens ([`fn_by_id`] reads it back).
-///
-/// Errors surface here, at creation, instead of at the first invocation (runtime-audit
-/// §7 P1-2 decision): an unknown name throws a catchable `MissingSymbolException`
-/// (`undefined function `…``, the `Call` path's wording) where `CallIndirect` used to
-/// fail with an internal error. A lazily loaded target is only representable when
-/// `module` is the `FuncTable`'s entry module (every production run); against any
-/// other module (unit tests on a bare `VmContext`) it throws instead.
-#[inline(never)]
-pub(crate) fn bind_fn_ref(
-    ctx: &VmContext, module: &Module, name: &str, token: Option<&std::sync::atomic::AtomicU32>,
-) -> Result<FnId, Value> {
-    let id = match module.func_index.get(name) {
-        Some(&idx) if idx < module.functions.len() => idx as u32,
-        _ => {
-            let Some(lazy) = ctx.try_lookup_function(name) else {
-                return Err(crate::exception::make_missing_symbol_exception(
-                    ctx, module, format!("undefined function `{name}`")));
-            };
-            match lazy_call_id((ctx).funcs(), module, &lazy) {
-                Some(id) => id as u32,
-                None => {
-                    let msg = format!(
-                        "cannot reference `{name}`: a lazily loaded function has no id outside the VM's entry module");
-                    return Err(crate::exception::make_stdlib_exception(ctx, module, "Std.Exception", msg.clone())
-                        .unwrap_or_else(|_| Value::Str(msg.into())));
-                }
-            }
-        }
-    };
-    if let Some(t) = token { t.store(id, std::sync::atomic::Ordering::Relaxed); }
-    Ok(FnId(id))
-}
-
 /// L2 no-capture lambda / free-function method group: `dst = FuncRef(target)`, the target
 /// bound by [`fn_ref_id`]. Returns the exception to throw when the target cannot be bound.
 // Kept out of line: `exec_instr`'s dispatch match stays the same size as before P1-2 PR 8
@@ -351,22 +236,14 @@ pub(super) fn load_fn(
 fn try_native_indirect_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize, env: Option<Value>, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
-    let rt = ctx.jit()?;
-    // Same Ref guard as `try_native_static_call` (an interp frame may hold a `Ref`).
-    if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) {
-        return None;
-    }
-    let (max_reg, ptr, callee_fn) = {
-        let entry = rt.resolve_fn_by_id_tiered(ctx, id)?;
-        (entry.max_reg, entry.ptr, entry.func)
+    let tier = ctx.tier()?;
+    if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
+    let view = match env {
+        Some(receiver) => crate::vm::exec::call::args::CallArgs::Receiver { receiver, regs: &frame.regs, indices: args },
+        None => crate::vm::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args },
     };
-    ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let callee = match env {
-        Some(env) => crate::jit::frame::JitFrame::new_method_args_from(ctx, max_reg, env, &frame.regs, args),
-        None => crate::jit::frame::JitFrame::new_args_from(ctx, max_reg, &frame.regs, args),
-    };
-    let outcome = unsafe { crate::jit::invoke::enter_compiled(ctx, ptr, callee_fn, callee) };
-    Some(Ok(native_result_to_dst(ctx, frame, dst, outcome)))
+    tier.invoke(ctx, crate::vm::exec::engine::TierTarget::Site(id), view)
+        .map(|result| result.map(|outcome| native_result_to_dst(frame, dst, outcome)))
 }
 
 #[cfg(not(feature = "jit"))]

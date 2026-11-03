@@ -58,25 +58,7 @@ impl Vm {
             .find(|f| f.name == entry_name)
             .ok_or_else(|| anyhow::anyhow!("entry `{}` disappeared — this is a bug", entry_name))?;
 
-        let outcome = match self.default_mode {
-            ExecMode::Interp => crate::interp::run_with_static_init(ctx, module, entry),
-            // add-runtime-feature-flags (P4.1): JIT path is feature-gated.
-            // When `jit` feature is off, fall through to a friendly bail so old zbc
-            // files with `exec_mode = Jit` produce a clear "recompile with --features jit"
-            // message instead of an opaque link error.
-            #[cfg(feature = "jit")]
-            ExecMode::Jit    => crate::jit::run(ctx, module, &entry_name),
-            #[cfg(not(feature = "jit"))]
-            ExecMode::Jit    => bail!(
-                "JIT mode requested but the runtime was built without the `jit` feature. \
-                 Recompile with `--features jit` (default), or run the bytecode in `--mode interp`."
-            ),
-            ExecMode::Aot    => bail!(
-                "AOT mode is not implemented yet (planned: roadmap M9 — L3 \
-                 phase, LLVM/inkwell). Switch to `--mode interp` or \
-                 `--mode jit`."
-            ),
-        };
+        let outcome = ctx.core.engines.run(self.default_mode, ctx, module, entry);
         // defer-class-initialization: 懒执行的 `__static_init__` 抛出时无法就地传播
         // （触发点是返回 `Option` 的查找函数），改为记录首个失败并在这里转成运行错误——
         // 与变更前 boot 期 `init_static_fields` 的 `bail!` 同等响度。程序自身的错误优先。

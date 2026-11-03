@@ -21,11 +21,11 @@ pub const IC_SLOTS: usize = 4;
 /// P1-2 PR 4: the payload is the callee's `FnId` under the site's module — entry-module
 /// functions `0..n` (numerically their `module.functions` index, so merged dispatch is
 /// unchanged), lazily loaded functions the ids after that. Read it back with
-/// `interp::exec_call::fn_by_id` / `JitRuntime::fn_of`; it is also the JIT slot id.
+/// `vm::runtime::dispatch::functions::fn_by_id` / `JitRuntime::fn_of`; it is also the JIT slot id.
 ///
 /// fix-field-ic-publication-race : 拆成两个独立原子量会撕裂，见
 /// [`pack`] 上方的说明。承载的 vtable slot 已删——它是死载荷：唯一的消费点
-/// `interp::vcall_resolve::vcall_ic_hit` 写的是 `let (_slot, fn_id) = …`，
+/// `vm::exec::ops::vcall::vcall_ic_hit` 写的是 `let (_slot, fn_id) = …`，
 /// JIT 侧共用同一个 `vcall_ic_hit`。留着它就得凑 96 位、没法单原子发布。
 #[derive(Debug)]
 pub struct VCallICEntry {
@@ -213,7 +213,7 @@ pub fn vcall_ic_install(ic: &VCallIC, recv_type: u32, fn_id: u32) {
 ///
 /// Both halves are only installed — and only read — when the function runs against the
 /// VM's entry module (`FuncTable::is_entry`, every production run; see
-/// `interp::obj_new_resolve`). That is what lets a lazily loaded class and its ctor cache
+/// `vm::exec::ops::obj_new`). That is what lets a lazily loaded class and its ctor cache
 /// exactly like an entry-module one: `ctor` holds a `FnId` (same id space as
 /// `ResolvedTokens::method_tokens`), not a `module.functions` index.
 ///

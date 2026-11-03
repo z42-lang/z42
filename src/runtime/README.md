@@ -5,6 +5,8 @@
 执行 z42 编译产物（`.zbc` / `.zpkg`）。后端：解释器（interp）+ Cranelift JIT（desktop 默认，惰性逐函数编译）；AOT 为桩。
 不含编译器（在 `src/compiler/`）与标准库（在 `src/libraries/`）。
 
+门面 `engine_assembly.rs` 按 feature 注册基线 Engine 与优化入口；每 VM 的 TierApi 归执行层，后端拥有编译器和代码页。
+
 ## 目录结构与核心文件
 
 ### 顶层（`src/`）
@@ -12,7 +14,7 @@
 |------|------|
 | `main.rs` | `z42vm` CLI 入口，加载产物并交给 `Vm` 执行 |
 | `startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
-| `vm.rs` | `Vm`：持有执行配置，从 VmContext 取得 Module，按 `ExecMode` 分发到 interp / jit / aot |
+| `vm.rs` | `Vm`：持有执行配置，从 VmContext 取得 Module，按 `ExecMode` 调用已注册引擎入口 |
 | `app.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
 | `boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`app::run` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
 | `lib.rs` | 库入口，re-export 公开 API |
