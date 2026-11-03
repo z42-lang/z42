@@ -228,7 +228,7 @@ pub fn repl_member_names(ctx: &VmContext, fqn: &str) -> anyhow::Result<Value> {
         // unify Phase 2 R3: 装箱值类型（struct 或基元）→ 精确类型名（type_desc.name）。
         Value::BoxedStruct(b) => b.type_desc().name.to_string(),
         v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)) => {
-            match crate::interp::primitive_class_name(v) {
+            match crate::vm::runtime::dispatch::receiver::primitive_class_name(v) {
                 Some(cn) => cn.to_string(),
                 None => return Ok(ctx.heap().alloc_array(Vec::new())),
             }

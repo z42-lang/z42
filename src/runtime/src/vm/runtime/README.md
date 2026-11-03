@@ -12,12 +12,12 @@
 | `ids/` | token、FnId / TypeId、函数/类型/字符串表与只追加分段表 |
 | `types/` | TypeDesc 注册表组装、继承补全和约束验证 |
 | `resolve/` | 每函数预链接与 ResolvedTokens 侧表 |
-| `dispatch/ic.rs` | VCall / Field IC、构造站点及原子发布原语 |
+| `dispatch/` | VCall / Field IC、IsaCache、接收者与函数身份/arity、构造/ISA 的纯事实查询及原子发布 |
 
 ## 基础用法
 
 身份表从 `z42::vm::runtime::ids` 导入；运行期 token 位于其 `tokens` 模块。
-加载编排调用 types 模块的 `build_type_registry` 和 `verify_constraints`，执行准备调用 `resolve::resolve_module`；加载时序由调用方保持。
+加载编排调用 types 模块的 `build_type_registry` 和 `verify_constraints`，执行准备调用 `resolve::resolve_module`；加载时序由调用方保持。派发查询传入显式表、描述符或缓存引用；不接受 VmContext，不执行代码、物化异常、加载包或等待初始化。
 
 ## 如何测试验证
 

@@ -7,7 +7,7 @@
 //!   · 「实参数 = 形参数 + 1」有 10 个合法站点，全是返回 blob 值 struct 的函数（sret）。运行时靠
 //!     `METHOD_FLAG_SRET`（zbc 1.40）精确识别，而不是容一或猜。
 
-use super::symres::call_arity;
+use crate::vm::runtime::dispatch::functions::call_arity;
 use crate::vm::runtime::Function;
 use crate::metadata::ir::{BasicBlock, Terminator, METHOD_FLAG_SRET, METHOD_FLAG_VIRTUAL};
 use crate::metadata::ir::ExecMode;

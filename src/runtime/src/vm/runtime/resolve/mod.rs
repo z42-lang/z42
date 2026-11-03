@@ -232,7 +232,7 @@ pub fn resolve_function_tokens(
                         .and_then(|&idx| Some((idx as u32, module.functions.get(idx)?)))
                 };
                 AtomicU32::new(match bound {
-                    Some((tok, f)) if crate::vm_context::symres::call_arity(f).accepts(argc) => tok,
+                    Some((tok, f)) if crate::vm::runtime::dispatch::functions::call_arity(f).accepts(argc) => tok,
                     _ => UNRESOLVED,
                 })
             })
@@ -274,7 +274,7 @@ pub fn resolve_function_tokens(
                         let _ = site.class.set(td.clone());
                     }
                     let ctor = funcs.id_of(ctor_name).filter(|&id| funcs.get(id)
-                        .is_some_and(|f| crate::vm_context::symres::call_arity(f).accepts(argc)));
+                        .is_some_and(|f| crate::vm::runtime::dispatch::functions::call_arity(f).accepts(argc)));
                     if let Some(id) = ctor {
                         site.ctor.store(id.0, std::sync::atomic::Ordering::Relaxed);
                     }

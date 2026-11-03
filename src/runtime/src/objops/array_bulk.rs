@@ -156,7 +156,7 @@ fn holds_box_of(ctx: &VmContext, holder: &str, strukt: &str) -> bool {
     }
     let Some(m) = ctx.module() else { return true };
     let known = m.type_registry.contains_key(holder) || ctx.try_lookup_type(holder).is_some();
-    !known || crate::interp::dispatch::is_subclass_or_eq_td(ctx, &m.type_registry, strukt, holder)
+    !known || crate::vm::exec::ops::cast::is_subclass_or_eq_td(ctx, &m.type_registry, strukt, holder)
 }
 
 /// 值必须是元素类型 `elem` 的装箱 struct。

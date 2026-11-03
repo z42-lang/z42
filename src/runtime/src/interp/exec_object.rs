@@ -2,12 +2,14 @@
 /// to its size). Covers: ObjNew (allocate + ctor), FieldGet / FieldSet,
 /// IsInstance / AsCast (runtime type checks), StaticGet / StaticSet.
 
+use crate::vm::runtime::dispatch::ctor::{site_for, instance_type_args};
+use crate::vm::runtime::dispatch::receiver::prim_isa;
 use crate::vm::runtime::Module;
 use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 
-use super::dispatch::isa_td;
+use crate::vm::exec::ops::cast::isa_td;
 use super::ops::collect_args;
 use super::Frame;
 
@@ -21,7 +23,7 @@ use super::Frame;
 /// anyhow error (separate from user exceptions). A throwing ctor never writes the
 /// partially constructed object into `dst`.
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
-pub(super) fn obj_new(
+pub(crate) fn obj_new(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, class_name: &str, ctor_name: &str, args: &[u32],
     // The site's interned type-arguments (`ObjNewInsn::type_args`).
@@ -32,11 +34,11 @@ pub(super) fn obj_new(
     // encode-ctorless-objnew: compile-time positive marker; see `missing_ctor_exception`.
     ctor_known: bool,
 ) -> Result<Option<Value>> {
-    use super::obj_new_resolve::{instance_type_args, resolve_class, resolve_ctor, site_for};
+    use crate::vm::exec::ops::obj_new::{resolve_class, resolve_ctor};
     // `new List<T>()` in a shared generic body: the site's arguments carry type-parameter
     // markers, bound per activation (one flag test for every other site).
     let type_args = frame.type_param_env().instantiate(ctx, type_args);
-    let site = site_for(ctx, module, site);
+    let site = site_for((ctx).funcs(), module, site);
     let type_desc = match resolve_class(ctx, module, class_name, site) {
         Ok(td) => td,
         Err(exc) => return Ok(Some(exc)),
@@ -160,29 +162,9 @@ pub(super) fn field_set(
     }
 }
 
-/// fix-boxed-primitive-is-as: 基元值是否 is-a `class_name`。z42 不装箱基元，故 `object o = "hi"`
-/// 里 o 仍是裸 `Value::Str` —— `is`/`as` 须按其 stdlib 类名（`primitive_class_name`，如
-/// `Std.String`）匹配，外加 `Std.Object` 基类（所有基元 is-a object）。编译器 `QualifyTypeName`
-/// 发 FQ 形（`Std.String`/`Std.Int32`/`Std.Object`），此处直接比 FQ。
-pub(crate) fn prim_isa(val: &Value, class_name: &str) -> bool {
-    // 所有基元 is-a object。
-    if class_name == "Std.Object" || class_name == "Object" {
-        return super::exec_vcall::primitive_class_name(val).is_some();
-    }
-    match val {
-        // 整数宽度不可辨：z42 运行时用单一 Value::I64 表示 int/long/short/byte/…（boxed 后
-        // 无宽度信息），故一个 boxed 整数 is-a **任意整数类型**——值的声明类型永不假阴，
-        // 跨宽度松匹配是该表示的必然（`9L is long` / `(byte)7 is byte` 才不会误判 false）。
-        Value::I64(_) => is_integer_class(class_name),
-        // 非整数基元：精确匹配其 stdlib 类名（string/double/bool/char）。
-        other => super::exec_vcall::primitive_class_name(other) == Some(class_name),
-    }
-}
-
 #[path = "exec_object_isa.rs"]
 mod isa;
 pub(super) use isa::{as_cast, is_instance};
-use isa::is_integer_class;
 
 /// `StaticGet` — adapter over [`crate::objops::statics::static_get`] (init barrier,
 /// lazy zero-init of never-assigned value-type statics, missing-symbol check).

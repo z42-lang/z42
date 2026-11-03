@@ -85,7 +85,7 @@ GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管�
 | `ids/` | token 与函数、类型、字符串身份表，读无锁的分段存储 |
 | `types/` | 类型注册表组装、继承补全及约束验证 |
 | `resolve/` | 每函数 ResolvedTokens 的预链接 |
-| `dispatch/` | VCall / Field IC、构造站点与原子发布 |
+| `dispatch/` | VCall / Field IC、IsaCache、函数/接收者/类型的纯派发查询与原子发布 |
 
 
 `Module` / `Function` 共享 `PackageImage` 的静态定义，分别持有类型注册表与 FnId、解析、初始化、转发和站点缓存。

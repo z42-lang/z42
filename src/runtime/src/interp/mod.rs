@@ -26,16 +26,13 @@ pub(crate) mod exec_array;                 // add-struct-jit-value-path: JIT reu
 mod exec_call;
 #[cfg(feature = "native-interop")]
 mod exec_ffi;
-mod exec_object;
+pub(crate) mod exec_object;
 pub(crate) mod exec_struct;   // add-struct-value-semantics: blob value-type instruction exec (JIT helpers reuse the *_val cores)
 pub(crate) mod exec_value;
-mod exec_vcall;
-pub(crate) mod vcall_resolve;   // unify-vcall-resolution: shared with jit/helpers/vcall.rs
-pub(crate) mod obj_new_resolve; // P1-2 PR 5: ObjNew class / ctor + site cache, shared with jit_obj_new
+pub(crate) mod exec_vcall;
 mod ops;
 
 // Re-export for cross-module callers (notably jit/helpers_object.rs).
-pub(crate) use exec_vcall::primitive_class_name;
 #[cfg(feature = "jit")]
 pub(crate) use exec_call::bind_callee;   // P1-2: jit_call binds by name through the same path
 // P1-2 PR 8: function-reference targets bind through one path (LoadFn / MkClos in both
@@ -43,7 +40,6 @@ pub(crate) use exec_call::bind_callee;   // P1-2: jit_call binds by name through
 pub(crate) use exec_call::fn_ref_id;
 // JIT primitive-receiver VCall IC (add-jit-primitive-vcall-ic): jit_vcall keys its
 // inline cache on primitives via the same synthetic PRIM_TYPE_* ids interp uses.
-pub(crate) use exec_object::prim_isa;   // fix-boxed-primitive-is-as: JIT is/as 复用
 
 pub use crate::corelib::convert::value_to_str;
 use crate::vm::runtime::{Function, Module};
@@ -247,3 +243,5 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
         }
     }
 }
+
+use crate::vm::runtime::dispatch::receiver::{primitive_class_name, prim_isa};

@@ -67,7 +67,6 @@ mod engine_guards;
 mod statics;
 pub(crate) mod static_table;
 mod lookup;
-pub(crate) mod isa_cache;
 // add-static-constructors：cctor 的按类型初始化状态机（含无锁 pending 门）。
 pub(crate) mod cctor;
 // fix-silent-symbol-resolution：「确定不存在」的判定（两后端共用）。
@@ -145,7 +144,5 @@ use crate::object::{TypeDesc, Value};
 #[cfg(test)]
 #[path = "../vm_context_tests.rs"]
 mod vm_context_tests;
-#[cfg(test)]
-mod isa_cache_tests;
 #[cfg(test)]
 mod symres_tests;

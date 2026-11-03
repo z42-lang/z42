@@ -101,7 +101,7 @@ fn lazy_class_and_ctor_are_cached_by_identity() {
     let (ctx, td, f) = lazy_pkg_ctx();
     let entry = Arc::clone(ctx.module().unwrap());
     let site = ObjNewSite::default();
-    let s = site_for(&ctx, &entry, Some(&site));
+    let s = site_for((&ctx).funcs(), &entry, Some(&site));
     assert!(s.is_some(), "entry module uses the cache");
 
     let got = resolve_class(&ctx, &entry, "Pkg.Foo", s).unwrap();
@@ -118,7 +118,7 @@ fn lazy_class_and_ctor_are_cached_by_identity() {
     let ctx2 = VmContext::new_with_core(Arc::clone(&ctx.core));
     assert!(ctx2.try_lookup_function("Pkg.Foo..ctor$0").is_none());
     assert!(ctx2.try_lookup_type("Pkg.Foo").is_none());
-    let s = site_for(&ctx2, &entry, Some(&site));
+    let s = site_for((&ctx2).funcs(), &entry, Some(&site));
     assert!(Arc::ptr_eq(&resolve_class(&ctx2, &entry, "Pkg.Foo", s).unwrap(), &td));
     let mut holder = None;
     let r = resolve_ctor(&ctx2, &entry, "Pkg.Foo", "Pkg.Foo..ctor$0", 1, true, s, &mut holder);
@@ -134,7 +134,7 @@ fn interp_obj_new_hits_the_site_cache() {
     let site = ObjNewSite::default();
     let run = |ctx: &VmContext| {
         let mut frame = Frame::new(ctx, &[], 4);
-        let thrown = super::super::exec_object::obj_new(
+        let thrown = crate::interp::exec_object::obj_new(
             ctx, &entry, &mut frame, 1, "Pkg.Foo", "Pkg.Foo..ctor$0", &[], crate::object::TypeArgs::empty(), Some(&site), false, true,
         ).unwrap();
         assert!(thrown.is_none());
@@ -158,7 +158,7 @@ fn entry_ctor_payload_is_its_index() {
     ));
     let entry = Arc::clone(ctx.module().unwrap());
     let site = ObjNewSite::default();
-    let s = site_for(&ctx, &entry, Some(&site));
+    let s = site_for((&ctx).funcs(), &entry, Some(&site));
     assert!(Arc::ptr_eq(&resolve_class(&ctx, &entry, "Entry.Foo", s).unwrap(), &td));
     let mut holder = None;
     let r = resolve_ctor(&ctx, &entry, "Entry.Foo", "Entry.Foo..ctor$0", 1, true, s, &mut holder);
@@ -173,7 +173,7 @@ fn arity_mismatch_is_not_cached() {
     let (ctx, _td, _f) = lazy_pkg_ctx();
     let entry = Arc::clone(ctx.module().unwrap());
     let site = ObjNewSite::default();
-    let s = site_for(&ctx, &entry, Some(&site));
+    let s = site_for((&ctx).funcs(), &entry, Some(&site));
     let mut holder = None;
     let r = resolve_ctor(&ctx, &entry, "Pkg.Foo", "Pkg.Foo..ctor$0", 2, true, s, &mut holder);
     assert!(r.is_err(), "wrong arity throws");
@@ -187,7 +187,7 @@ fn ctorless_site_resolves_again_after_a_registration() {
     let (ctx, _td, _f) = lazy_pkg_ctx();
     let entry = Arc::clone(ctx.module().unwrap());
     let site = ObjNewSite::default();
-    let s = site_for(&ctx, &entry, Some(&site));
+    let s = site_for((&ctx).funcs(), &entry, Some(&site));
     let mut holder = None;
     let r = resolve_ctor(&ctx, &entry, "Pkg.Bar", "Pkg.Bar..ctor$0", 1, false, s, &mut holder);
     assert_eq!(ctor_of(&r), None);
@@ -214,13 +214,13 @@ fn fallback_and_unmerged_descriptors_are_not_cached() {
     let entry = Arc::clone(ctx.module().unwrap());
 
     let site = ObjNewSite::default();
-    let s = site_for(&ctx, &entry, Some(&site));
+    let s = site_for((&ctx).funcs(), &entry, Some(&site));
     let td = resolve_class(&ctx, &entry, "Local", s).expect("fallback for a dotless local class");
     assert_eq!(td.name, "Local");
     assert!(site.class.get().is_none(), "fallback descriptor not cached");
 
     let site = ObjNewSite::default();
-    let s = site_for(&ctx, &entry, Some(&site));
+    let s = site_for((&ctx).funcs(), &entry, Some(&site));
     assert!(resolve_class(&ctx, &entry, "Entry.Half", s).is_err(), "missing base throws");
     assert!(site.class.get().is_none());
 }
@@ -236,7 +236,7 @@ fn non_entry_module_never_uses_the_cache() {
     let f = register_lazy_fn(&ctx, ctor("Pkg.Foo..ctor$0", 1));
     let m = module("M", vec![ctor("M.Other..ctor$0", 1)], vec![]);
     let site = ObjNewSite::default();
-    let s = site_for(&ctx, &m, Some(&site));
+    let s = site_for((&ctx).funcs(), &m, Some(&site));
     assert!(s.is_none());
     assert!(Arc::ptr_eq(&resolve_class(&ctx, &m, "Pkg.Foo", s).unwrap(), &td));
     let mut holder = None;

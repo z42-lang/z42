@@ -96,7 +96,7 @@ fn lazy_target_is_installed_in_the_pic_by_fn_id() {
     let r = resolve_vcall(&ctx, &entry, &obj, "Run$0", 0, Some(&ic)).unwrap();
     assert_eq!(local(&r.target), (Arc::as_ptr(&run), Some(id)));
     assert_eq!(vcall_ic_hit(Some(&ic), &obj), Some(id), "the lazy FnId entered the PIC");
-    let back = super::super::exec_call::fn_by_id(&ctx, &entry, id as u32).unwrap();
+    let back = crate::vm::runtime::dispatch::functions::fn_by_id((&ctx).funcs(), &entry, id as u32).unwrap();
     assert!(std::ptr::eq(back, &*run));
 }
 
@@ -114,7 +114,7 @@ fn interp_vcall_hits_the_pic_for_a_lazy_target() {
 
     let mut frame = Frame::new(&ctx, &[], 4);
     frame.set(0, obj.clone());
-    let thrown = super::super::exec_vcall::vcall(&ctx, &entry, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
+    let thrown = crate::interp::exec_vcall::vcall(&ctx, &entry, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
     assert!(thrown.is_none());
     assert!(matches!(frame.get(1).unwrap(), Value::I64(7)));
 
@@ -125,7 +125,7 @@ fn interp_vcall_hits_the_pic_for_a_lazy_target() {
     assert!(ctx2.try_lookup_function("Pkg.Foo.Run$0").is_none());
     let mut frame = Frame::new(&ctx2, &[], 4);
     frame.set(0, obj);
-    let thrown = super::super::exec_vcall::vcall(&ctx2, &entry, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
+    let thrown = crate::interp::exec_vcall::vcall(&ctx2, &entry, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
     assert!(thrown.is_none());
     assert!(matches!(frame.get(1).unwrap(), Value::I64(7)), "dispatched off the PIC by FnId");
 }
@@ -179,7 +179,7 @@ fn non_entry_module_never_caches_a_lazy_target() {
 
     let mut frame = Frame::new(&ctx, &[], 4);
     frame.set(0, obj);
-    super::super::exec_vcall::vcall(&ctx, &m, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
+    crate::interp::exec_vcall::vcall(&ctx, &m, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
     assert!(matches!(frame.get(1).unwrap(), Value::I64(7)));
     assert_eq!(vcall_ic_hit(Some(&ic), &frame.get(0).unwrap().clone()), None);
 }

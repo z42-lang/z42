@@ -285,7 +285,7 @@ pub fn type_is_assignable_from(ctx: &VmContext, this: &Value, c: &Value) -> bool
     }
     match (type_handle_of(this), type_handle_of(c)) {
         (Some(_), Some(_)) => match ctx.module() {
-            Some(m) => crate::interp::dispatch::is_subclass_or_eq_td(
+            Some(m) => crate::vm::exec::ops::cast::is_subclass_or_eq_td(
                 ctx, &m.type_registry, &c_name, &this_name,
             ),
             None => c_name == this_name,

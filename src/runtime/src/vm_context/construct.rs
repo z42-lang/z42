@@ -189,7 +189,7 @@ impl VmContext {
             subclass_memo: Mutex::new(FxHashMap::default()),
             type_lookup_cache: Mutex::new(FxHashMap::default()),
             fn_lookup_cache: Mutex::new(FxHashMap::default()),
-            isa_cache: super::isa_cache::IsaCache::new(),
+            isa_cache: crate::vm::runtime::dispatch::isa_cache::IsaCache::new(),
             safepoint_skip: std::sync::atomic::AtomicU32::new(crate::vm::threads::safepoint::throttle_n()),
             _pin: PhantomPinned,
         };
@@ -436,7 +436,7 @@ impl VmContext {
             subclass_memo: Mutex::new(FxHashMap::default()),
             type_lookup_cache: Mutex::new(FxHashMap::default()),
             fn_lookup_cache: Mutex::new(FxHashMap::default()),
-            isa_cache: super::isa_cache::IsaCache::new(),
+            isa_cache: crate::vm::runtime::dispatch::isa_cache::IsaCache::new(),
             safepoint_skip: std::sync::atomic::AtomicU32::new(crate::vm::threads::safepoint::throttle_n()),
             _pin: PhantomPinned,
         };
