@@ -89,7 +89,7 @@ fn store_through_elem_ref_writes_back_to_the_array() {
         panic!("expected a Ref");
     };
     let kind = ctx.transient_arena.lock().ref_kind(idx, frame_id).unwrap();
-    crate::interp::frame::store_thru_ref(&kind, Value::I64(11), &ctx).unwrap();
+    crate::vm::exec::ops::references::store_thru_ref(&kind, Value::I64(11), &ctx).unwrap();
 
     match &arr {
         Value::Array(rc) => assert_eq!(rc.borrow().get_boxed(0), Value::I64(11)),
@@ -158,7 +158,7 @@ fn store_through_field_ref_writes_back_to_the_object() {
         panic!("expected a Ref");
     };
     let kind = ctx.transient_arena.lock().ref_kind(idx, frame_id).unwrap();
-    crate::interp::frame::store_thru_ref(&kind, Value::I64(21), &ctx).unwrap();
+    crate::vm::exec::ops::references::store_thru_ref(&kind, Value::I64(21), &ctx).unwrap();
 
     match &obj {
         Value::Object(rc) => assert_eq!(rc.borrow().field_value(0), Value::I64(21)),
@@ -179,7 +179,7 @@ fn store_through_unknown_field_bails() {
         panic!("expected a Ref");
     };
     let kind = ctx.transient_arena.lock().ref_kind(idx, frame_id).unwrap();
-    let err = crate::interp::frame::store_thru_ref(&kind, Value::I64(2), &ctx).unwrap_err();
+    let err = crate::vm::exec::ops::references::store_thru_ref(&kind, Value::I64(2), &ctx).unwrap_err();
     assert!(err.to_string().contains("not found"), "unexpected error: {err}");
 }
 

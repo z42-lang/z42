@@ -10,8 +10,9 @@ use crate::vm_context::VmContext;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 
+use crate::vm::exec::ops::references::deref_ref;
 use super::{
-    deref_ref, find_handler, fire_exception_caught, fire_exception_thrown,
+    find_handler, fire_exception_caught, fire_exception_thrown,
     run_ref_writebacks, Frame,
 };
 

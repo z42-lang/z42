@@ -23,7 +23,7 @@ pub struct JitFrame {
     /// `regs.as_mut_ptr()`, set by every constructor once `regs` is sized. The
     /// register file is never resized while the frame exists (sized to the
     /// function's `max_reg + 1` up front; JIT code and helpers only index it —
-    /// and the one cross-frame resize, `interp::frame::store_thru_ref`, can't
+    /// and the one cross-frame resize, `vm::exec::ops::references::store_thru_ref`, can't
     /// reach a JIT frame: `LoadLocalAddr` is JIT-unsupported, and a slot index
     /// is always `<= max_reg` anyway), so the buffer never moves and this stays
     /// valid until [`JitFrame::recycle`] hands `regs` back to the pool. Moving the
