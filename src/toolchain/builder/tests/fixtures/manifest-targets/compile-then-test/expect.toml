@@ -1,0 +1,18 @@
+desc = "直接构建反射测试工程；零目标回退也遵守 --out-root"
+
+[[step]]
+args = ["test", "{case}/z42.toml"]
+exit = 0
+stdout_contains = ["PASS CompileThenTest.it_compiles_and_runs", "PASS CompileThenTest.string_concat_works"]
+
+[[step]]
+tool = "remove"
+paths = ["artifacts", "dist", "out"]
+absent = ["artifacts", "dist", "out"]
+
+[[step]]
+args = ["test", "{case}/z42.toml", "--out-root", "{case}/out"]
+exit = 0
+stdout_contains = ["PASS CompileThenTest.it_compiles_and_runs", "PASS CompileThenTest.string_concat_works"]
+exists = ["out/compile-then-test/debug/dist/compile-then-test.zpkg"]
+absent = ["artifacts", "dist"]

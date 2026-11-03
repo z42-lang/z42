@@ -55,7 +55,8 @@ gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比�
 doc-refs **不在 GREEN gate 的 stage 清单里**，仅供手动查看引用报告。doc-lints 在 GREEN gate 里，改了 stdlib `///` 的 PR 走的正是它。reference 的 stdlib 生成页
 不入库、没有对账门（发布时现生成）。两道的机制见[文档索引与 `z42 doc`](../toolchain/doc.md)。
 
-builder 的命令行行为由 [声明式夹具](fixture-harness.md)驱动；断言放在测试工程旁的 `expect.toml`，
+builder 的命令行与常规构建 smoke 由 [声明式夹具](fixture-harness.md)驱动，覆盖 `z42b/` 与
+`manifest-targets/` 两套夹具；断言放在测试工程旁的 `expect.toml`。
 需要预置损坏产物或检查插件执行顺序的用例保留专用代码。
 
 cross-zpkg、multi-exe 与 manifest targets 通过 `ManifestLocator.FindIn` 复用

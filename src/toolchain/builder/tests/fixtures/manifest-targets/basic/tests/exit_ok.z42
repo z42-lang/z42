@@ -13,4 +13,5 @@ void Main() {
         Environment.Exit(1);
     }
     Console.WriteLine("exit_ok: pass");
+    Environment.Exit(0);
 }
