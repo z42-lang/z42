@@ -27,7 +27,7 @@
 //! drive control flow — they're observation-only — so weak ordering is
 //! fine. **One `RuntimeCounters` per `VmContext`** (per thread), so threads
 //! increment their own cache line instead of contending on one shared line
-//! (runtime-audit P0-15). `VmCore.counters` holds what contexts that have
+//! (runtime-audit P0-15). `VmCore.diagnostics.counters` holds what contexts that have
 //! already been dropped counted; `VmContext::counters_snapshot` adds that to
 //! every live context's counts.
 //!
@@ -247,7 +247,7 @@ impl ProfileSnapshot {
     }
 
     /// add-concurrency-probes (P1b): attach safepoint-park + user-lock-contention
-    /// numbers. `park_*` come from `VmCore.park_histogram` (count / total_us /
+    /// numbers. `park_*` come from `VmCore.diagnostics.park_histogram` (count / total_us /
     /// max_us); `lock_*` from the feature-gated `VmCore.lock_*` atomics (0 in the
     /// default build). Separate setter so `new`'s arg list stays small.
     pub fn with_concurrency(
