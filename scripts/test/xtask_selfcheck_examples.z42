@@ -1,0 +1,43 @@
+// 验证实际 examples stage 的跳过与外部 SDK 消费路径不触发工具链构建。
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _selfcheckExamplesStage() {
+    string root = _root();
+    string dir = _xtaskWork(root, "examples-stage");
+    string? home = Environment.GetEnvironmentVariable("Z42_HOME");
+    _resetDir(dir);
+    try {
+        RepoRoot.Value = dir;
+        Environment.UnsetEnvironmentVariable("Z42_HOME");
+        bool found = false;
+        foreach (var stage in _gateStages(true)) {
+            if (stage.Key != "examples") { continue; }
+            found = true;
+            _gateAssert(_runGateStages(new GateStage[]{ stage }, "examples", new StageLogZ()) == 0,
+                "skipped examples must not prepare SDK");
+        }
+        _gateAssert(found, "examples stage is registered");
+        _gateAssert(!Directory.Exists(Path.Join(dir, "artifacts")), "listing and skipping stages must not build");
+
+        // 空手册无 transcript；SDK 标记足以锁住入口选择，无须再启动编译器。
+        Directory.Create(Path.Join(dir, "docs/learn/src"));
+        File.WriteAllText(Path.Join(dir, "docs/learn/src/SUMMARY.md"), "# Summary\n");
+        Directory.Create(Path.Join(dir, "examples"));
+        string sdk = Path.Join(dir, "external-sdk");
+        Directory.Create(Path.Join(sdk, "programs/launcher"));
+        File.WriteAllText(Path.Join(sdk, Platform.IsWindows() ? "z42.exe" : "z42"), "external SDK marker");
+        File.WriteAllText(Path.Join(sdk, "programs/launcher/launcher.zpkg"), "external SDK marker");
+        Environment.SetEnvironmentVariable("Z42_HOME", sdk);
+        _gateAssert(_gateExamples() == 0, "examples must consume explicit SDK");
+        _gateAssert(!Directory.Exists(Path.Join(dir, "artifacts")), "explicit SDK must not prepare local SDK");
+    } finally {
+        RepoRoot.Value = root;
+        if (home == null) { Environment.UnsetEnvironmentVariable("Z42_HOME"); }
+        else { Environment.SetEnvironmentVariable("Z42_HOME", home); }
+        Directory.Delete(dir, true);
+    }
+    Console.WriteLine("  ✅ examples stage: skip and explicit SDK without local build");
+    return 0;
+}
