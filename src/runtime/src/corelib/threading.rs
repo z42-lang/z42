@@ -16,7 +16,7 @@
 //! is private — the worker is registered in
 //! `VmCore.vm_contexts` so the GC scanner walks both threads' roots.
 
-use crate::interp::ExecOutcome;
+use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, bail, Result};

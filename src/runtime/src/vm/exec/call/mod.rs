@@ -5,3 +5,6 @@ pub(crate) mod reg_pool;
 pub(crate) mod stack_alloc;
 pub(crate) mod struct_arena;
 pub(crate) mod transient_arena;
+pub mod outcome;
+pub(crate) mod forward;
+pub(crate) mod type_param_env;

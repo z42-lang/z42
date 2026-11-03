@@ -79,7 +79,7 @@ pub fn populate_stack_trace(value: &Value, ctx: &VmContext, module: &Module) {
 
 /// [`populate_stack_trace`] with `extra` appended as the innermost rows — the
 /// `[Native]` wrapper rows of a builtin call that skipped the wrapper's activation
-/// (`interp::forward`), so the trace reads as if the wrapper had run.
+/// (`vm::exec::call::forward`), so the trace reads as if the wrapper had run.
 pub fn populate_stack_trace_with(value: &Value, ctx: &VmContext, module: &Module, extra: &[FrameSnapshot]) {
     let rc = match value {
         Value::Object(rc) => rc,

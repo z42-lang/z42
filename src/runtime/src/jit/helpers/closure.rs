@@ -170,10 +170,10 @@ pub unsafe extern "C" fn jit_call_indirect(
             args.extend(user_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
             vm_ctx.set_top_frame_pc(caller_offset);
             return match crate::interp::exec_function(vm_ctx, module, callee, &args) {
-                Ok(crate::interp::ExecOutcome::Returned(ret)) => {
+                Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(ret)) => {
                     frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0
                 }
-                Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
+                Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
                 Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); 1 }
             };
         }

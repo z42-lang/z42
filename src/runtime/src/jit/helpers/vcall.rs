@@ -157,19 +157,19 @@ unsafe fn invoke_interp(
 ) -> u8 {
     let module  = super::jit_module(ctx);
     let vm_ctx  = vm_ctx_ref(ctx);
-    // A cold `[Native]` wrapper folds too (`interp::forward`); not on a generic site.
+    // A cold `[Native]` wrapper folds too (`vm::exec::call::forward`); not on a generic site.
     if mta.is_empty() && arg_regs.len() + 1 == func.param_count {
-        if let Some(id) = crate::interp::forward::forward_of(vm_ctx, module, func) {
+        if let Some(id) = crate::vm::exec::call::forward::forward_of(vm_ctx, module, func) {
             return unsafe { super::super::forward::call_forward(frame_ref, ctx, dst, func, id, Some(this), arg_regs) };
         }
     }
     match crate::interp::exec_function_from_receiver_regs(
         vm_ctx, module, func, &this, &frame_ref.regs, arg_regs, mta)
     {
-        Ok(crate::interp::ExecOutcome::Returned(ret)) => {
+        Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0
         }
-        Ok(crate::interp::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
+        Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
         Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); 1 }
     }
 }

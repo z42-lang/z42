@@ -289,7 +289,7 @@ impl<'a> FromArg<'a> for crate::object::ArrRef {
 /// inside a z42 method would.
 ///
 /// The builtin sees the caller's reference only when its `[Native]` wrapper is folded
-/// (`interp::forward` — every direct and virtual call is). A wrapper that does run (a
+/// (`vm::exec::call::forward` — every direct and virtual call is). A wrapper that does run (a
 /// reflective `Invoke`, an embedder calling it) receives plain values — reflection has
 /// no `ref` locations — and a store then goes nowhere, exactly as an unfolded wrapper
 /// could not have written it back either.

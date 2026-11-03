@@ -1,11 +1,11 @@
 //! The JIT side of `[Native]` stub folding (runtime-audit P1-8; the shapes, the
-//! rationale and the shared pieces live in [`crate::interp::forward`]).
+//! rationale and the shared pieces live in [`crate::vm::exec::call::forward`]).
 //!
 //! A compiled entry whose function is a pure forwarder records the builtin's id
 //! ([`FnEntry::forward`](super::frame::FnEntry)); `jit_call` (after its barriers) and
 //! `jit_vcall`'s `invoke_entry` then run the builtin straight from the caller's
 //! registers ([`call_forward`]). Cold callees (no compiled entry yet) fold the same way
-//! through the function's own cache (`interp::forward::forward_of`). The translator
+//! through the function's own cache (`vm::exec::call::forward::forward_of`). The translator
 //! also reads the forward of a call target to inline string intrinsics.
 
 use crate::vm::runtime::Function;
@@ -17,9 +17,9 @@ use crate::vm_context::VmContext;
 use crate::vm_context::static_table::StaticCell;
 use super::helpers::vm_ctx_ref;
 
-pub(crate) use crate::interp::forward::{builtin_forward, chained_forward};
+use crate::vm::exec::call::forward::{builtin_forward, chained_forward};
 
-/// Run the folded call of `wrapper` (fold `token`, `interp::forward::forward_of`) with `this` (vcall receiver, if any)
+/// Run the folded call of `wrapper` (fold `token`, `vm::exec::call::forward::forward_of`) with `this` (vcall receiver, if any)
 /// followed by the caller's `arg_regs`, storing the result into `regs[dst]` (`Null`
 /// for a void builtin — what the wrapper's `ret` would have produced). Returns the JIT
 /// helper status: 0 = ok, 1 = exception pending.
@@ -34,7 +34,7 @@ pub(crate) unsafe fn call_forward(
     let vm = unsafe { vm_ctx_ref(ctx) };
     let wrapper = unsafe { &*wrapper };
     let module = || unsafe { super::helpers::jit_module(ctx) };
-    match crate::interp::forward::run_folded(vm, wrapper, token, this, &frame.regs, arg_regs, module) {
+    match crate::vm::exec::call::forward::run_folded(vm, wrapper, token, this, &frame.regs, arg_regs, module) {
         Ok(Some(v)) => { frame.regs[dst as usize] = v; 0 }
         Ok(None) => { frame.regs[dst as usize] = Value::Null; 0 }
         Err(f) => super::helpers::call::raised_into_exception(vm, f.raise(vm, module(), wrapper)),

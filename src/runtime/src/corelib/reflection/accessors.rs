@@ -135,7 +135,7 @@ pub(super) fn snapshot_struct_leaf(
 pub(crate) fn boxed_struct_field_get(
     ctx: &VmContext, gc: &crate::object::ObjRef, name: &str,
 ) -> Result<Value> {
-    use crate::interp::exec_struct::prim_width;
+    use crate::object::prim_width;
     let type_name = gc.type_desc().name.to_string();
     let resolve = |n: &str| ctx.try_lookup_type(n);
     let comp = crate::corelib::struct_reflect::compute(&resolve, &type_name)?;
@@ -313,7 +313,7 @@ pub(super) fn boxed_struct_field_set(
     ctx: &VmContext, base_val: &Value,
     gc: &crate::object::ObjRef, name: &str, value: &Value,
 ) -> Result<Value> {
-    use crate::interp::exec_struct::prim_width;
+    use crate::object::prim_width;
     let type_name = gc.type_desc().name.to_string();
     let resolve = |n: &str| ctx.try_lookup_type(n);
     let comp = crate::corelib::struct_reflect::compute(&resolve, &type_name)?;

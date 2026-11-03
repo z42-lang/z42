@@ -37,11 +37,11 @@ impl NativeOutcome {
     }
 
     /// Interpreter shape: a throw takes the pending exception off the context.
-    pub(crate) fn into_exec(self, vm: &VmContext) -> crate::interp::ExecOutcome {
+    pub(crate) fn into_exec(self, vm: &VmContext) -> crate::vm::exec::call::outcome::ExecOutcome {
         match self {
-            NativeOutcome::Returned(ret) => crate::interp::ExecOutcome::Returned(ret),
+            NativeOutcome::Returned(ret) => crate::vm::exec::call::outcome::ExecOutcome::Returned(ret),
             NativeOutcome::Threw =>
-                crate::interp::ExecOutcome::Thrown(vm.take_exception().unwrap_or(Value::Null)),
+                crate::vm::exec::call::outcome::ExecOutcome::Thrown(vm.take_exception().unwrap_or(Value::Null)),
         }
     }
 }

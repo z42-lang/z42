@@ -23,7 +23,8 @@
 //!
 
 use crate::corelib::abi::BuiltinError;
-use crate::interp::{exec_function, exec_function_with_type_args, ExecOutcome};
+use crate::interp::{exec_function, exec_function_with_type_args};
+use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::metadata::index::well_known_names;
 use crate::vm_context::VmContext;

@@ -2,7 +2,7 @@
 ///
 /// Every builtin is reachable through the `BUILTINS` table (`builtin_table.rs`): the
 /// engines call [`invoke_builtin`] (interp `Instruction::Builtin`, JIT `jit_builtin`, and
-/// the `[Native]` wrapper short-circuit of both — `interp::forward`), reading the
+/// the `[Native]` wrapper short-circuit of both — `vm::exec::call::forward`), reading the
 /// arguments in place from the caller's registers; callers that hold the arguments as a
 /// slice use [`exec_builtin`]. A builtin is a typed Rust function (builtin ABI v2,
 /// [`abi`]) — arguments and errors are typed by its Rust signature.
@@ -147,7 +147,7 @@ fn invoke_by_name(
 }
 
 /// Whether a folded call of builtin `id`'s `[Native]` wrapper may skip the wrapper's
-/// frame entirely (`interp::forward`): the builtin never runs z42 code — a typed one
+/// frame entirely (`vm::exec::call::forward`): the builtin never runs z42 code — a typed one
 /// without `reenters`. Decided once per wrapper, when its forward is computed.
 pub(crate) fn folds_frameless(id: u32) -> bool {
     BUILTINS.get(id as usize).is_some_and(|d| !d.flags.reenters)
