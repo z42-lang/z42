@@ -12,7 +12,9 @@ use crate::object::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 
-use super::vcall_resolve::{resolve_vcall, vcall_ic_hit, VCallTarget};
+use crate::vm::exec::ops::vcall::resolve_vcall;
+use crate::vm::runtime::dispatch::vcall::vcall_ic_hit;
+use crate::vm::exec::ops::vcall::VCallTarget;
 use super::{ExecOutcome, Frame};
 
 /// runtime-jit-tiering Phase 1.5 (mixed-mode): receiver-aware analogue of
@@ -52,68 +54,7 @@ fn try_native_method_call(
     None
 }
 
-/// L3-G4b primitive-as-struct: maps a primitive `Value` variant to its stdlib
-/// struct's qualified class name (e.g. `Value::I64` → `"Std.Int32"`). The VM
-/// dispatches primitive method calls by constructing `{class}.{method}` and
-/// looking up the function in `module.func_index` — replacing the old
-/// hardcoded `(Value, method)` → builtin-name switch.
-///
-/// Returns None for non-primitive values (objects, null, etc.).
-pub(crate) fn primitive_class_name(obj: &Value) -> Option<&'static str> {
-    use crate::metadata::index::well_known_names::*;
-    match obj {
-        // ⚠️ These are derived from the *runtime* `Value`, which cannot tell a `ulong` from a
-        // `long` from an `int` (all `Value::I64`), nor a `float` from a `double` (both `F64`).
-        // So an instance method declared on Std.{SByte,Int16,Byte,UInt16,UInt32,UInt64,Int64}
-        // or Std.Single is **never reached through this path** — it lands on Int32/Double's
-        // same-named method instead.
-        //
-        // fix-narrow-prim-instance-dispatch : the compiler now emits a **static
-        // Call** to the wrapper's method for exactly those 8 receiver types (primitives are
-        // sealed value types — there is no virtual dispatch to preserve), so they reach their
-        // own implementations. This table stays as the fallback for everything else.
-        //
-        // The previous note here claimed "narrow int / long values are tagged with class FQN
-        // at compile-time in VCall instructions" — that was never true: `vcall()` takes no
-        // receiver-type argument. It read as if the gap were covered, which is why the two
-        // live symptoms (UInt64.ToString printing negatives above i64::MAX, Single.GetHashCode
-        // silently using Double's fold) went unnoticed for months.
-        Value::I64(_)  => Some(STD_INT32),
-        Value::F64(_)  => Some(STD_DOUBLE),
-        Value::Bool(_) => Some(STD_BOOLEAN),
-        Value::Char(_) => Some(STD_CHAR),
-        Value::Str(_)  => Some(STD_STRING),
-        // add-array-base-class: T[] dispatches to Std.Array methods
-        // (Clone / GetType / ToString / Equals / GetHashCode). The lookup path
-        // tries `Std.Array.<method>` first, then falls through to base
-        // `Std.Object.<method>` via the primitive overload retry logic.
-        Value::Array(_) => Some(STD_ARRAY),
-        _ => None,
-    }
-}
-
-/// refactor-vcall-ic-primitives : synthetic TypeId for IC keying.
-/// Primitives don't have a real `TypeDesc.id` (they're built-in runtime values,
-/// not user-defined classes). Returning a stable `PRIM_TYPE_*` lets `VCallIC`
-/// cache them with the same `cached_type_id` mechanism used for object
-/// receivers — no extra slot, no separate cache path.
-///
-/// Returns None for objects (which use real `type_desc.id.0`) and `Value::Null`.
-#[inline]
-pub(crate) fn value_synthetic_type_id(obj: &Value) -> Option<u32> {
-    use crate::vm::runtime::ids::tokens::*;
-    match obj {
-        Value::I64(_)   => Some(PRIM_TYPE_I64),
-        Value::F64(_)   => Some(PRIM_TYPE_F64),
-        Value::Bool(_)  => Some(PRIM_TYPE_BOOL),
-        Value::Char(_)  => Some(PRIM_TYPE_CHAR),
-        Value::Str(_)   => Some(PRIM_TYPE_STR),
-        Value::Array(_) => Some(PRIM_TYPE_ARRAY),
-        _ => None,
-    }
-}
-
-pub(super) fn vcall(
+pub(crate) fn vcall(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, obj: u32, method: &str, args: &[u32],
     // vcall_ic: per-site polymorphic inline cache (TypeId → callee FnId), populated by
@@ -141,8 +82,8 @@ pub(super) fn vcall(
     // while another thread's registration of the cached id is not yet visible here (see
     // `vcall_ic_hit`) — then the slow path below resolves by name, as on a miss.
     if let Some(id) = vcall_ic_hit(vcall_ic, &obj_val) {
-        if let Some(func) = super::exec_call::fn_by_id(ctx, module, id as u32) {
-            super::vcall_resolve::assert_pic_target(ctx, module, &obj_val, method, func);
+        if let Some(func) = crate::vm::runtime::dispatch::functions::fn_by_id((ctx).funcs(), module, id as u32) {
+            crate::vm::exec::ops::vcall::assert_pic_target(ctx, module, &obj_val, method, func);
             return invoke(ctx, module, frame, dst, func, Some(id), &obj_val, args, method_type_args);
         }
     }

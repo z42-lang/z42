@@ -172,7 +172,7 @@ fn name_only_entry_memoises_by_ids() {
     assert!(!is_subclass_or_eq_td(&ctx, &entry.type_registry, "No.Such", "Pkg.Leaf"));
     let leaf = lazy(&ctx, "Pkg.Leaf");
     let shape = lazy(&ctx, "Pkg.IShape");
-    let pair = crate::vm_context::isa_cache::pair_key(leaf.id.0, shape.id.0);
+    let pair = crate::vm::runtime::dispatch::isa_cache::pair_key(leaf.id.0, shape.id.0);
     assert_eq!(ctx.subclass_memo.lock().get(&pair).copied(), Some(true));
 }
 
@@ -327,3 +327,5 @@ fn arrays_test_by_element_type_and_are_invariant() {
     assert!(array_isa("", "string[]"));
     assert!(!array_isa("", "Demo.Box"));
 }
+
+use crate::vm::runtime::dispatch::ctor::make_fallback_type_desc;

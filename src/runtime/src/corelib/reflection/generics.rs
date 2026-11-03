@@ -13,7 +13,7 @@ pub(super) fn resolve_td(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
 /// via the VM's canonical subclass walk. Handle-less names compare by identity.
 pub(super) fn type_name_assignable(ctx: &VmContext, derived: &str, target: &str) -> bool {
     match ctx.module() {
-        Some(m) => crate::interp::dispatch::is_subclass_or_eq_td(ctx, &m.type_registry, derived, target),
+        Some(m) => crate::vm::exec::ops::cast::is_subclass_or_eq_td(ctx, &m.type_registry, derived, target),
         None => derived == target,
     }
 }

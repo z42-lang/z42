@@ -471,7 +471,7 @@ pub struct VmContext {
     /// perf-vm-isa-cache: direct-mapped front cache for `is` / `as` / typed `catch` in front of
     /// `subclass_memo`, keyed by `(receiver TypeId, target key)` — a hit is one relaxed load,
     /// no lock, no hashing. See `isa_cache.rs` for the key contract; cleared with the memo.
-    pub(crate) isa_cache:         super::isa_cache::IsaCache,
+    pub(crate) isa_cache:         crate::vm::runtime::dispatch::isa_cache::IsaCache,
     /// parallel-parse-and-cache : per-context front caches for
     /// `try_lookup_type` / `try_lookup_function` hits. The shared `lazy_loader`
     /// RwLock was the top contention point under parallel `--jobs` compile

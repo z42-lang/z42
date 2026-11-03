@@ -1,38 +1,7 @@
-//! Shared virtual-dispatch **target resolution** for the interpreter (`exec_vcall::vcall`)
-//! and the JIT helper (`jit/helpers/vcall.rs::jit_vcall`).
-//!
-//! unify-vcall-resolution : before this module the two engines each carried a
-//! full copy of the receiver-kind ladder (boxed primitive → boxed struct → primitive-as-struct
-//! → object vtable / hierarchy walk), the candidate-name generation and the PIC install rules —
-//! ~900 lines that had to be kept in lock-step by hand (the JIT copy even had its own
-//! `resolve_virtual` doing a linear scan over `module.functions`). Now *what* to call is
-//! decided here exactly once; each engine only decides *how* to invoke the returned target
-//! (interp frame vs. native `FnEntry`, with the engine-specific cold / cross-zpkg fallbacks).
-//!
-//! Resolution ladder (order is semantic — earlier rungs win):
-//!   0. **Null receiver**: `objops::OpError::null_call` → catchable `NullReferenceException`
-//!      (`VCallTarget::Thrown`). Null never has a PIC key, so this only runs after a miss.
-//!   1. **Boxed primitive** (`BoxedStruct` whose payload is a scalar): `GetType` with no args is
-//!      answered natively (the box keeps the precise wrapper class); anything else unboxes `this`
-//!      to the scalar and resolves `{wrapper}.{m}` / `Std.Object.{m}` candidates.
-//!   2. **Boxed struct**: `GetType` / `GetHashCode` / non-record `ToString` (no args) are native
-//!      intercepts; otherwise resolve `{struct}.{m}` / `Std.Object.{m}` with `this = box`.
-//!   3. **Primitive / array receiver** (`primitive_class_name`): resolve `{Std.Int32|…}.{m}` /
-//!      `Std.Object.{m}` with `this = value`; a miss falls through to rung 4, which reports the
-//!      non-object receiver.
-//!   4. **Object**: `vtable_index` → `dispatch::resolve_virtual` (module classes) → lazy
-//!      hierarchy walk through `ctx.try_lookup_type` (cross-zpkg bases).
-//!
-//! PIC install: whenever the resolved callee has a `FnId` under `module` and the receiver has a
-//! type id (real `TypeDesc.id` for objects, synthetic `PRIM_TYPE_*` for primitives; boxes have
-//! none), the `(type_id, FnId)` pair is written to the site's `VCallIC` so the next call with
-//! that receiver type takes `vcall_ic_hit` and never reaches this module.
-//!
-//! P1-2 PR 4: the PIC payload is the callee's `FnId` — entry-module functions `0..n` (= their
-//! `module.functions` index, so merged behaviour is unchanged), functions of lazily loaded
-//! packages the ids after that. A cross-package virtual call therefore caches exactly like a
-//! module-local one; before, its target (`VCallTarget::Lazy`) never entered the PIC and every
-//! call re-walked the vtable by string, missed `func_index` and hit `try_lookup_function`.
+//! Virtual-call resolution with loading and exception materialization.
+//! The receiver ladder and candidate order are semantic. Pure PIC/slot/name
+//! facts are queried through runtime/dispatch; a miss may load a package here.
+//! The caller retains responsibility for invoking the resolved target.
 
 use anyhow::{bail, Result};
 
@@ -42,8 +11,8 @@ use crate::vm::runtime::{Function, Module};
 use crate::object::Value;
 use crate::vm_context::VmContext;
 
-use super::dispatch::resolve_virtual;
-use super::exec_vcall::{primitive_class_name, value_synthetic_type_id};
+use crate::vm::runtime::dispatch::vcall::{resolve_virtual, receiver_type_id, vcall_ic_hit, iface_slot_method, erased_iface_slot_key};
+use crate::vm::runtime::dispatch::receiver::{primitive_class_name, value_synthetic_type_id};
 
 /// What a virtual call resolved to. The engine decides how to run it.
 pub(crate) enum VCallTarget<'a> {
@@ -69,34 +38,6 @@ pub(crate) struct ResolvedVCall<'a> {
     pub this: Value,
 }
 
-/// Receiver type id used to key the PIC: real `TypeDesc.id` for objects, synthetic id for
-/// primitives / arrays; `None` for boxes and null (not cacheable).
-#[inline]
-pub(crate) fn receiver_type_id(obj_val: &Value) -> Option<u32> {
-    match obj_val {
-        Value::Object(rc) => Some(rc.type_desc().id.0),
-        other => value_synthetic_type_id(other),
-    }
-}
-
-/// PIC fast path shared by both engines: hit → the callee's `FnId` under the site's module
-/// (resolve it with `exec_call::fn_by_id` / `JitRuntime::fn_of`, both lock-free). `None` on
-/// miss, on a non-cacheable receiver, or when the cached target is `UNRESOLVED`.
-///
-/// Publication: the PIC entry is read `Relaxed`. A lazily loaded `FnId` is only usable through
-/// `FuncTable::get`, whose Acquire loads (published length, then the slot's function pointer)
-/// pair with the registration's Release stores — that, not the IC, orders the slot contents.
-/// A reader that sees the id before the registration is visible gets `None` from the table and
-/// takes the slow path; it can never read a half-built slot.
-#[inline]
-pub(crate) fn vcall_ic_hit(ic: Option<&VCallIC>, obj_val: &Value) -> Option<usize> {
-    let ic = ic?;
-    let recv_type = receiver_type_id(obj_val)?;
-    let fn_id = vcall_ic_lookup(ic, recv_type)?;
-    if fn_id == UNRESOLVED { return None; }
-    Some(fn_id as usize)
-}
-
 /// fix-crosspkg-typeid-collision : tripwire for "the PIC handed back a callee
 /// that does not belong to this receiver".
 ///
@@ -119,7 +60,7 @@ pub(crate) fn assert_pic_target(
     let td = rc.type_desc();
     let callee = callee.name.as_str();
     let Some(declaring) = crate::metadata::index::type_names::last_top_dot(callee).map(|p| &callee[..p]) else { return };
-    if super::dispatch::is_subclass_or_eq_td(ctx, &module.type_registry, &td.name, declaring) {
+    if crate::vm::exec::ops::cast::is_subclass_or_eq_td(ctx, &module.type_registry, &td.name, declaring) {
         return;
     }
     panic!(
@@ -172,33 +113,13 @@ pub(crate) fn resolve_vcall<'a>(
     let phys = arity + 1;   // + receiver
     let (name, sig) = match &resolved.target {
         VCallTarget::Local { func, .. } =>
-            (func.name.as_str(), crate::vm_context::symres::call_arity(func)),
+            (func.name.as_str(), crate::vm::runtime::dispatch::functions::call_arity(func)),
         VCallTarget::Immediate(_) | VCallTarget::Thrown(_) => return Ok(resolved),
     };
     if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(ctx, module, name, sig, phys) {
         return Ok(ResolvedVCall { target: VCallTarget::Thrown(exc), this: resolved.this });
     }
     Ok(resolved)
-}
-
-/// The interface method name of an interface-slot key (`Demo.IFoo<int>#Get` → `Get`);
-/// `None` for an ordinary method key. `#` never occurs in a type name or a method key
-/// (overload mangling uses `$`, specializations `:`, nested types `+`), so its presence is
-/// the whole test.
-#[inline]
-pub(crate) fn iface_slot_method(method: &str) -> Option<&str> {
-    method.rfind('#').map(|i| &method[i + 1..])
-}
-
-/// The erased form of an interface-slot key: type arguments dropped from the interface part
-/// (`Demo.IFoo<int>#Get` → `Demo.IFoo#Get`). `None` when the key carries none. A class that
-/// implements a generic interface whose arguments mention its own type parameters only
-/// registers the erased key, and a shared generic body calling through `IFoo<T>` only emits
-/// it.
-pub(crate) fn erased_iface_slot_key(key: &str) -> Option<String> {
-    let hash = key.rfind('#')?;
-    let lt = key[..hash].find('<')?;
-    Some(format!("{}{}", &key[..lt], &key[hash..]))
 }
 
 /// fix-interface-overload-dispatch: the vtable key of the method implementing interface slot
@@ -213,8 +134,7 @@ pub(crate) fn resolve_iface_slot(
     let erased = erased_iface_slot_key(key);
     let lookup = |name: &str| module.type_registry.get(name).cloned().or_else(|| ctx.try_lookup_type(name));
     let probe = |td: &crate::object::TypeDesc| -> Option<String> {
-        let at = |k: &str| td.vtable_index.get(k).and_then(|&slot| td.vtable.get(slot)).map(|(simple, _)| simple.clone());
-        at(key).or_else(|| erased.as_deref().and_then(at))
+        crate::vm::runtime::dispatch::vcall::iface_slot_implementation(td, key, erased.as_deref())
     };
     let probe_with_def = |td: &crate::object::TypeDesc| -> Option<String> {
         probe(td).or_else(|| {
@@ -513,7 +433,7 @@ fn target_by_name<'a>(ctx: &'a VmContext, module: &'a Module, name: &str) -> Opt
     let func = id.and_then(|id| ctx.funcs().get(id)).filter(|g| std::ptr::eq(*g, &*lazy));
     debug_assert!(func.is_some(), "VCall: lazily loaded `{name}` is not registered in the FuncTable");
     let func = func?;
-    Some(VCallTarget::Local { func, id: super::exec_call::lazy_call_id(ctx, module, func) })
+    Some(VCallTarget::Local { func, id: crate::vm::runtime::dispatch::functions::lazy_call_id((ctx).funcs(), module, func) })
 }
 
 /// Install a PIC entry — **only** for a target with a `FnId` under the site's module and whose
@@ -523,11 +443,11 @@ fn target_by_name<'a>(ctx: &'a VmContext, module: &'a Module, name: &str) -> Opt
 #[inline]
 fn install_ic(ic: Option<&VCallIC>, arity: usize, recv_type: u32, target: &VCallTarget<'_>) {
     let (Some(ic), VCallTarget::Local { func, id: Some(id) }) = (ic, target) else { return };
-    if crate::vm_context::symres::call_arity(func).accepts(arity + 1) {
+    if crate::vm::runtime::dispatch::functions::call_arity(func).accepts(arity + 1) {
         vcall_ic_install(ic, recv_type, *id as u32);
     }
 }
 
 #[cfg(test)]
-#[path = "vcall_resolve_tests.rs"]
-mod vcall_resolve_tests;
+#[path = "vcall_tests.rs"]
+mod vcall_tests;

@@ -1,25 +1,7 @@
-//! Shared `ObjNew` **target resolution** for the interpreter (`exec_object::obj_new`) and
-//! the JIT helper (`jit/helpers/object.rs::jit_obj_new`): which class descriptor to
-//! allocate and which constructor to run. Each engine only decides how to run the ctor.
-//!
-//! P1-2 PR 5: the site cache (`ResolvedTokens::obj_new`, [`ObjNewSite`]) stores resolved
-//! identities — the class `Arc<TypeDesc>` and the ctor's `FnId` (same id space as `Call`
-//! tokens: entry-module functions `0..n`, lazily loaded functions after that). After the
-//! first allocation at a site, neither the class name nor the ctor name is hashed and no
-//! lock is taken; a class / ctor in a lazily loaded package caches exactly like an
-//! entry-module one. Before, every `new` hashed the class name (module registry, then the
-//! loader), the ctor name (`func_index`, then the loader's read lock + hash for a
-//! cross-package ctor; the JIT a third time through its slot lookup by name).
-//!
-//! The cache is only used when the function runs against the VM's entry module
-//! ([`site_for`]) — every production run. Against another module (unit tests on a bare
-//! `VmContext`) every allocation resolves by name, as before.
-//!
-//! Order of the checks is unchanged: class (registry → loader → definite-missing /
-//! fallback descriptor → base-merged copy) → ambiguous type → missing base; then the
-//! caller runs the package / type initializer barriers; then the ctor (module → loader,
-//! arity check on first binding, definite-missing ctor). The ambiguous-type check and the
-//! initializer barriers run on every allocation — cache hit or not.
+//! Object-construction target resolution with loading and typed failures.
+//! Check class completeness and ambiguity on every allocation, including cache
+//! hits. The caller runs initialization barriers before constructor resolution.
+//! Only complete registered descriptors and valid same-module FnIds are cached.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -31,29 +13,8 @@ use crate::object::{TypeDesc, Value};
 use crate::vm_context::symres;
 use crate::vm_context::VmContext;
 
-use super::exec_call::{fn_by_id, lazy_call_id};
-
-/// The site cache to use for `module`: `site` when `module` is the VM's entry module (the
-/// id space `ctor` is stored in), else `None` (resolve by name, cache nothing).
-#[inline]
-pub(crate) fn site_for<'s>(
-    ctx: &VmContext, module: &Module, site: Option<&'s ObjNewSite>,
-) -> Option<&'s ObjNewSite> {
-    site.filter(|_| ctx.funcs().is_entry(module))
-}
-
-/// The new instance's generic type-arguments: the site's own (`ObjNewInsn::type_args`),
-/// else — complete-generic-class-identity P1: an instantiation's class name already carries
-/// its arguments (`Demo.Box<int>`), so the compiler ships no second copy on the instruction —
-/// the ones the registry parsed off the name. Both are interned handles (decode / registration
-/// time), so this is a pointer pick: every instance of an instantiation shares one entry.
-/// Both engines hand the result to `ScriptObject::install_type_args` before the ctor runs.
-#[inline]
-pub(crate) fn instance_type_args(
-    site_args: crate::object::TypeArgs, class: &TypeDesc,
-) -> crate::object::TypeArgs {
-    if site_args.is_empty() { class.type_args_handle() } else { site_args }
-}
+use crate::vm::runtime::dispatch::functions::{fn_by_id, lazy_call_id};
+use crate::vm::runtime::dispatch::ctor::{site_for, instance_type_args, make_fallback_type_desc};
 
 /// The class to allocate. `Err` carries the exception to throw (missing type, ambiguous
 /// type, missing base). Hit: the cached descriptor, no hashing.
@@ -91,7 +52,7 @@ fn resolve_class_slow(
             if let Some(exc) = symres::missing_type_exception(ctx, module, class_name) {
                 return Err(exc);
             }
-            (Arc::new(super::dispatch::make_fallback_type_desc(module, class_name)), false)
+            (Arc::new(make_fallback_type_desc(module, class_name)), false)
         }
     };
     // fix-crosspkg-base-fields-in-eager-module：急切加载的主模块注册表在**构建期**合不进跨包
@@ -140,7 +101,7 @@ pub(crate) fn resolve_ctor<'a>(
     if let Some(s) = site {
         let id = s.ctor.load(Ordering::Relaxed);
         if id != UNRESOLVED {
-            if let Some(f) = fn_by_id(ctx, module, id) {
+            if let Some(f) = fn_by_id((ctx).funcs(), module, id) {
                 return Ok(Some((f, Some(id as usize))));
             }
         } else if ctorless_hit(Some(&s.ctorless), ctx.fn_registration_mark()) {
@@ -170,7 +131,7 @@ fn bind_ctor<'a>(
         // 站点 ⑤ fix-ctor-arity-skew：解析**成功**也要查——裸键在版本 skew 下会命中**错的**
         // 构造器（单构造器必是 primary、必占裸键），而建帧不做 arity 校验。不符不缓存。
         if let Some(exc) = symres::wrong_arity_exception(
-            ctx, module, ctor_name, symres::call_arity(f), phys_argc,
+            ctx, module, ctor_name, crate::vm::runtime::dispatch::functions::call_arity(f), phys_argc,
         ) {
             return Err(exc);
         }
@@ -181,11 +142,11 @@ fn bind_ctor<'a>(
         Some(lazy) => {
             // 站点 ⑤：惰性加载来的构造器同样查（跨包构造器正是 skew 的主战场）。
             if let Some(exc) = symres::wrong_arity_exception(
-                ctx, module, ctor_name, symres::call_arity(lazy.as_ref()), phys_argc,
+                ctx, module, ctor_name, crate::vm::runtime::dispatch::functions::call_arity(lazy.as_ref()), phys_argc,
             ) {
                 return Err(exc);
             }
-            let id = lazy_call_id(ctx, module, &lazy);
+            let id = lazy_call_id((ctx).funcs(), module, &lazy);
             if let (Some(s), Some(id)) = (site, id) { s.ctor.store(id as u32, Ordering::Relaxed); }
             Ok(Some((&**holder.insert(lazy), id)))
         }
@@ -205,5 +166,5 @@ fn bind_ctor<'a>(
 }
 
 #[cfg(test)]
-#[path = "obj_new_resolve_tests.rs"]
-mod obj_new_resolve_tests;
+#[path = "obj_new_tests.rs"]
+mod obj_new_tests;

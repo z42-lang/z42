@@ -16,7 +16,7 @@
 //!
 //! This module is the pure half — finding and substituting markers; what a marker resolves to
 //! is the caller's (`vm::exec::call::type_param_env`). A marker that cannot be resolved stays verbatim:
-//! it reads as an open type argument (`dispatch::is_open_type_arg`), which is what the literal
+//! it reads as an open type argument (`crate::vm::runtime::dispatch::isa::is_open_type_arg`), which is what the literal
 //! `T` meant before.
 
 /// Prefix of a method-level type-parameter marker (`$mta:N`).

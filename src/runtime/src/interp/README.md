@@ -20,11 +20,11 @@
 | `exec_object.rs` | `ObjNew`；`FieldGet` / `FieldSet` / `Static*` 是 `objops::field` / `objops::statics` 的薄适配 |
 | `exec_object_isa.rs` | `IsInstance` / `AsCast` 类型判定（`exec_object` 再导出） |
 | `exec_struct.rs` | 值 struct 指令的寄存器薄适配，共享值级实现位于 `vm/exec/ops/structs.rs`：`StructAlloc` / `StructCopy` / `StructFieldGetPrim` / `StructFieldSetPrim`（作用于 `struct_arena`，寄存器持 `Value::StructRef` 句柄）；叶子读写核心在 `objops::struct_leaf` |
-| `vcall_resolve.rs` | **虚调用目标解析单一实现**（装箱基元 / 装箱 struct / 基元 / 对象 vtable·层级 walk + 候选名 + PIC 安装），interp `exec_vcall` 与 JIT `helpers/vcall.rs` 共用|
-| `obj_new_resolve.rs` | **`ObjNew` 类 / 构造器解析单一实现** + 站点缓存（`ObjNewSite`：类描述符 + ctor `FnId` + ctorless 标记，命中不哈希、不拿锁），interp `exec_object::obj_new` 与 JIT `helpers/object.rs::jit_obj_new` 共用 |
+| `vm/exec/ops/vcall.rs` | **虚调用目标解析单一实现**（装箱基元 / 装箱 struct / 基元 / 对象 vtable·层级 walk + 候选名 + PIC 安装），interp `exec_vcall` 与 JIT `helpers/vcall.rs` 共用|
+| `vm/exec/ops/obj_new.rs` | **`ObjNew` 类 / 构造器解析单一实现** + 站点缓存（`ObjNewSite`：类描述符 + ctor `FnId` + ctorless 标记，命中不哈希、不拿锁），interp `exec_object::obj_new` 与 JIT `helpers/object.rs::jit_obj_new` 共用 |
 | `exec_vcall.rs` | `VCall` 的 interp 调用侧（PIC 命中 / 解析结果 → 帧执行、mixed-mode 原生分流）+ `primitive_class_name` |
 | `exec_ffi.rs` | `CallNative` / `CallNativeVtable` / `PinPtr` / `UnpinPtr` |
-| `dispatch.rs` | 对象分发辅助：vtable 解析、ToString 协议、**类型判定单一入口 `isa_td`**（数组接收者走 `array_isa`：按元素类型不变地比；`is` / `as` / 带类型 `catch`，interp 与 JIT 共用；前置 `vm_context::isa_cache`（键 `(接收者 TypeId, 目标键)`，目标键缓存在站点的 `TypeKeyCell`），后置同键 memo + 基链/接口遍历）、静态字段、fallback TypeDesc |
+| `dispatch.rs` | ToString 协议执行和格式化；类型判定的加载编排在 `vm/exec/ops/cast.rs`，纯谓词与 IsaCache 在 `vm/runtime/dispatch/` |
 | `superinstr.rs` | 加载期识别融合尾部；缓存形态由 `vm/runtime/fusion.rs` 定义 |
 | `ops.rs` | 寄存器级辅助：`int_binop`、`collect_args`、`bool_val`、`str_val` |
 | `vm/exec/call/`（共享状态） | 帧栈、寄存器池与 stack / struct / transient arena 由 VM 执行层持有；解释器仅使用每个 VmContext 的实例，随帧 LIFO 回收并经统一栈面扫描根 |

@@ -13,6 +13,7 @@
 | `call/outcome.rs` / `call/forward.rs` / `call/type_param_env.rs` | 共享执行结果、Native 桩折叠和激活类型实参 |
 | `ops/structs.rs` | struct 分配、复制、拆箱和符号化字段检查，两个后端仅保留帧适配 |
 | `stack.rs` | 栈快照、栈迹格式与根遍历；沿用所属线程 / 暂停所属线程的读取约束 |
+| `ops/vcall.rs` / `ops/obj_new.rs` / `ops/cast.rs` | 共享派发、构造与类型判定的加载/初始化/异常编排，纯事实查询来自 runtime/dispatch |
 | `ops/scalar.rs` | 值级算术、比较、整数除余、数值转换与错误判据 |
 
 ## 基础用法

@@ -46,7 +46,7 @@ fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
         Value::BoxedStruct(b) => Ok(instance_type(ctx, b.type_desc_arc().clone(), b.type_args())),
         // 未装箱裸基元 → canonical stdlib 类（I64→Std.Int32；装箱后走上面精确类）。
         v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)) => {
-            match crate::interp::primitive_class_name(v) {
+            match crate::vm::runtime::dispatch::receiver::primitive_class_name(v) {
                 Some(cn) => Ok(make_type_from_name(ctx, cn)),
                 None => bail!("__obj_get_type: expected an object"),
             }
