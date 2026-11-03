@@ -31,7 +31,9 @@
 
 ```
 VmCore（每 VM 一份，所有线程共享）
-└── jit: OnceLock<JitRuntime>                          // 首个 jit::run 装上，随 VmCore 一起释放
+└── engines: EngineRegistry
+    └── tier: OnceLock<TierApi>
+        └── JitRuntime                                // 后端拥有代码，随 VmCore 一起释放
         ├── slots: SparseSegTable<JitSlot>             // 按 JIT id 索引
         │        └─ JitSlot { entry: OnceLock<FnEntry>, count: AtomicU32, state: Untried | Rejected }
         ├── module: *const Module                      // JIT id 相对的模块（生产即 VmCore.module）
@@ -45,7 +47,7 @@ VmContext（每线程一份）
 ├── jit_head: JitHead (#[repr(C)])                     // 生成码按偏移读
 │        ├── stack_limit   // 驱动本 ctx 的线程的栈下限，栈底帧 push 时写入
 │        ├── cctors        // VM 的 CctorRegistry（包初始化门计数）
-│        └── jit           // 缓存的 &VmCore.jit（未装 JIT 时为空）
+│        └── jit           // 缓存的 &TierApi（未装 JIT 时为空）
 └── safepoint_skip                                     // safepoint 节流计数，生成码按偏移读写
 ```
 
@@ -54,7 +56,7 @@ VmContext（每线程一份）
 传入）。于是帧栈、待抛异常、寄存器池、arena、计数器分片、safepoint 计数、栈下限都直接是本线程的；生成码按
 `offset_of!` 常量读 `VM_CONTEXT_STACK_LIMIT_OFFSET` / `VM_CONTEXT_CCTORS_OFFSET` / `VM_CONTEXT_SAFEPOINT_SKIP_OFFSET`，
 helper 与解释器分流经 `VmContext::jit()` 取共享的 `JitRuntime`（`helpers::jit_rt` / `jit_module`）：一次 relaxed load
-读本 ctx 缓存的 `jit_head.jit`。缓存在构造时取自 `core.jit`、由 `install` 写给安装它的 ctx；早于安装就存在的 ctx
+读本 ctx 缓存的 `jit_head.jit`。缓存在构造时取自 `core.engines.tier()`、由 `install` 写给安装它的 ctx；早于安装就存在的 ctx
 在下一次栈底帧 push 时补上（在那之前它的解释器帧照常解释执行）。这与 HotSpot / .NET 的「线程寄存器」
 同构：共享的是代码和槽表，可变的执行状态一律跟线程走。
 
@@ -137,7 +139,7 @@ fn resolve_fn_by_id_thr(&self, vm, id, thr) -> Option<&FnEntry> {
 
 ## 线程安全
 
-VM 的每条线程都跑 JIT 代码：主线程和 `__thread_spawn` 的 worker（`VmContext::new_with_core`）共用 `VmCore.jit`，
+VM 的每条线程都跑 JIT 代码：主线程和 `__thread_spawn` 的 worker（`VmContext::new_with_core`）共用 `VmCore.engines`，
 各自以自己的 `VmContext` 作上下文参数。
 
 - **编译**：在调用线程上、`Mutex<LazyCompiler>` 锁内进行，`OnceLock` 双重检查 → 同一函数只 `define` 一次、
@@ -169,7 +171,7 @@ VM 的每条线程都跑 JIT 代码：主线程和 `__thread_spawn` 的 worker�
 | id 空间 | 复用 FnId，不另编号 | interp token、JIT 烘焙常量、站点缓存三者同值；惰性函数也能烘焙 |
 | by-name 表 | 无，冷路径经 `id_by_name` 路由回 by-id | 消除第二套内部可变结构 |
 | 计数器 | `jit_methods_compiled` = **实际编译数** | 更真实；`JitModuleCompiled` 事件仍每模块一次（报模块规模 + setup 耗时） |
-| 上下文参数 | **运行线程自己的 `VmContext`**；共享 JIT 状态放 `VmCore.jit` | 任何线程都能跑原生码，不经共享的单一 `vm_ctx` 指针；热字段按偏移读，少一次间接 |
+| 上下文参数 | **运行线程自己的 `VmContext`**；共享 JIT 状态放 `VmCore.engines` | 任何线程都能跑原生码，不经共享的单一 `vm_ctx` 指针；热字段按偏移读，少一次间接 |
 | 编译在哪 | 调用线程、编译锁内 | 不引入后台编译线程；批量 / 后台编译是 runtime-audit 待办 X-13 的事 |
 
 ## 覆盖不变（与 interp 的关系）
@@ -314,7 +316,7 @@ Str+int 拼接、Str 与 int 排序比较）逐例双引擎对照。
 - **`jit_vcall`/`jit_call_indirect`/`jit_obj_new`（方法/闭包/构造）**：把**所有**冷函数→`None`
   要求这三者的兜底健壮。各自如下：
   - `jit_vcall`：vtable 路径 `None`-臂本已健壮 interp（receiver+args）→ PIC + vtable 两 resolve site 切
-    > `jit_vcall` 与 interp `vcall` 的**目标解析**合一为 `interp/vcall_resolve.rs`（接收者阶梯 / 候选名 / PIC 安装），两侧只剩调用侧。PIC 载荷就是 JIT 槽位 id（`FnId`），惰性目标同样进 PIC：命中 → `resolve_fn_by_id_tiered(id)`，冷 / 不可编 → `fn_of(id)` 取函数直接 interp（不重新解析，每次调用只计一次数）；慢路径的 `Local { func, id }` 同理，无 id → interp `func`。
+    > `jit_vcall` 与 interp `vcall` 的**目标解析**合一为 `vm/exec/ops/vcall.rs`（接收者阶梯 / 候选名 / PIC 安装），两侧只剩调用侧。PIC 载荷就是 JIT 槽位 id（`FnId`），惰性目标同样进 PIC：命中 → `resolve_fn_by_id_tiered(id)`，冷 / 不可编 → `fn_of(id)` 取函数直接 interp（不重新解析，每次调用只计一次数）；慢路径的 `Local { func, id }` 同理，无 id → interp `func`。
     `resolve_fn_by_id_tiered`。
     - **primitive 接收者也进 IC（镜像 interp）**：
       IC 快路径的 `recv_type` 对 object 取 `TypeDesc.id`、对 primitive（string/int/…）取
@@ -324,7 +326,7 @@ Str+int 拼接、Str 与 int 排序比较）逐例双引擎对照。
       dict e2e jit 从慢 interp 3.1× 追平；string-heavy 反超）。Boxed / `Null` 仍返回 `None` 落慢路径，
       与 interp 一致。
   - `jit_call_indirect`：`None`-臂走 interp（env 前置 + args）。
-  - `jit_obj_new`：类与 ctor 的解析与 interp 共用 `interp/obj_new_resolve.rs`，站点缓存（烘焙进代码的
+  - `jit_obj_new`：类与 ctor 的解析与 interp 共用 `vm/exec/ops/obj_new.rs`，站点缓存（烘焙进代码的
     `ObjNewSite` 指针）命中即得描述符与 ctor 的 `FnId`。已编译 → 原生（`this` 进 reg 0、实参直接从调用方寄存器取）；
     冷 / 不可编 / 无 id 的 `None`-臂按 `&Function` 走 interp 跑 ctor（原地改 `this`），不能静默跳过 ctor（字段未初始化）。
   三态负缓存两路径通用。
@@ -351,8 +353,7 @@ Str+int 拼接、Str 与 int 排序比较）逐例双引擎对照。
 调用的所有子函数——**即便已编译为原生**——也全在 interp 跑。混合模式打破它:**interp 的调用分发也路由到
 已编译的原生码**。
 
-**结构**：interp 帧经 `VmContext::jit()`（本 ctx 缓存的 `core.jit` 指针）拿到本 VM 的 `JitRuntime`；VM 装了 JIT（`--mode jit`）
-就在任何线程上路由，interp 模式下恒为 `None`。
+**结构**：interp 帧经 `VmContext::tier()` 读取中立 TierApi，静态/虚/闭包调用向其传入借用参数视图。TierBackend 的 JIT 实现选择原来的 tiered/peek 路径并构造自己的 JitFrame；interp 不认识 JitRuntime。没有已安装 tier 时继续解释执行。
 
 **分发 hook**（`interp/exec_call.rs::try_native_static_call` / `try_native_indirect_call` /
 `exec_vcall.rs::try_native_method_call`）：解析出 callee 的 JIT id（`Call` 的 token；VCall 的 PIC 载荷或解析结果里的
@@ -378,13 +379,13 @@ push/pop_frame 复制即安全。
 上面的 per-site hook（`try_native_static_call` / `try_native_indirect_call` / `try_native_method_call`）只覆盖
 interp 的**静态 Call、`CallIndirect` 与 IC 虚 VCall 热路径**。「interp 会执行函数体」的入口里还有多条绕过它们、直接经 `exec_function`
 跑函数体：**构造函数**（`exec_object`）、**`ToString` 派发**
-（`interp/dispatch.rs`）、**非 IC / vtable / base-fallback 的虚调用路径**、**跨包静态调用**、以及最隐蔽的
+（`vm/exec/ops/stringify.rs`）、**非 IC / vtable / base-fallback 的虚调用路径**、**跨包静态调用**、以及最隐蔽的
 **builtin 回调**（传给 stdlib 原生方法的比较器/谓词，被调够多次编译后又经 `exec_function` 解释执行）。
 
 只靠逐点补全，「已编译函数永不被 interp 执行」这条前提**不成立**——任何新增调用点都可能重开缺口。
 解法是**单一 choke point**：三个入口变体（`exec_function` / `exec_function_from_regs` /
-`exec_function_from_receiver_regs`）都汇到 `exec_function_body`。故在 `exec_function` 入口加
-`try_native_exec`（`id_of_func` → `peek_fn_by_id`，已编译即建 `JitFrame::new` 调原生、marshal 成
+`exec_function_from_receiver_regs`）都汇到 `exec_function_body`。故在 `exec_function` 入口经注册 TierApi 执行
+`try_native_exec`（JIT 内部 `id_of_func` → `peek_fn_by_id`，已编译即建 `JitFrame::new` 调原生、marshal 成
 `ExecOutcome`；只看不计数，计数归各主调用点），**一拦对所有路径成立**。
 两 `_from_regs` 变体只被已 hook 的热路径以**冷 callee** 调用（compiled 的先被 per-site hook 拦走），故
 backstop 完备。同样带 `Ref(Stack)` 守卫（arg 为 Ref → 不路由）。

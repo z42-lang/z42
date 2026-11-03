@@ -1,6 +1,6 @@
 # 超级指令融合（super-instruction fusion）
 
-> 代码：`interp/superinstr.rs`（识别器）、`vm/runtime/fusion.rs`（缓存形态）、`interp/ops.rs`（`eval_cmp` 共享原语）、
+> 代码：`vm/runtime/fusion.rs`（识别器）、`vm/runtime/fusion.rs`（缓存形态）、`interp/ops.rs`（`eval_cmp` 共享原语）、
 > `interp/mod.rs`（exec 循环消费 + `Frame` 预分配）、`metadata/ir/function.rs`
 > （静态 `Function::reg_file_len` / `Instruction::written_reg`）、`vm/runtime/function.rs`（`Function.fused_tails` 缓存）、
 > `vm/loader/package/mod.rs`（`build_block_indices` 回填 `func.max_reg`）。
@@ -21,7 +21,7 @@ vm/runtime/fusion.rs
 │     └── CmpBr { op,a,b,dst,t_blk,f_blk }   // v1：cmp + BrCond
 ├── enum CmpOp             // 比较算子（与 interp 标量 cmp handler 共享语义）
 
-interp/superinstr.rs
+vm/runtime/fusion.rs
 ├── SuperInstr::recognize(block, targets) -> Option<SuperInstr>   // 规则表（加规则=加一条 arm）
 └── compute_fused_tails(blocks, branch_targets) -> Vec<Option<SuperInstr>>   // load 期一次性识别
 ```

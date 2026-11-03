@@ -1,6 +1,6 @@
 # 对象协议的运行期派发（ToString / Equals / GetHashCode / GetType）
 
-> 代码：`interp/dispatch.rs`（`with_obj_str` / `obj_to_gc_str`）、`interp/vcall_resolve.rs`
+> 代码：`vm/exec/ops/stringify.rs`（`with_obj_str` / `obj_to_gc_str`）、`vm/exec/ops/vcall.rs`
 > （统一接收者阶梯）、`corelib/convert.rs`（`value_to_str` / `with_value_str`）、`corelib/object.rs`（`__obj_*` builtin）
 
 `Std.Object` 的四个协议方法在**每一种 `Value` 变体**上都必须有答案——对象、裸基元、数组、装箱盒、
@@ -86,7 +86,7 @@ i64），先查 enum 名才能让 `Console.WriteLine(Color.Blue)` 与 `((object)
 
 ## `VCall`：统一的接收者阶梯
 
-**「调谁」只在 `interp/vcall_resolve.rs::resolve_vcall` 决定一次**（接收者阶梯、候选名生成、PIC 安装规则不在两引擎各抄一份），两个引擎各自
+**「调谁」只在 `vm/exec/ops/vcall.rs::resolve_vcall` 决定一次**（接收者阶梯、候选名生成、PIC 安装规则不在两引擎各抄一份），两个引擎各自
 只决定「怎么调」（interp 帧 vs 原生 `FnEntry`，以及各自的冷路径 / 跨 zpkg 兜底）。
 
 阶梯顺序即语义，先命中者胜：

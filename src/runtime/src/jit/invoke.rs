@@ -64,7 +64,7 @@ impl NativeOutcome {
 /// before the call (no borrow of the runtime's slot held across it).
 ///
 /// # Safety
-/// `code` must be a compiled `JitFn` of `vm`'s VM JIT (`VmCore::jit`), and `vm`
+/// `code` must be a compiled `JitFn` of `vm`'s VM JIT (`VmCore::engines`), and `vm`
 /// must be driven by the calling thread. `func` must stay alive for the call (an
 /// `FnEntry`'s `func` always does — see [`FnEntry::func`]).
 pub(crate) unsafe fn enter_compiled(

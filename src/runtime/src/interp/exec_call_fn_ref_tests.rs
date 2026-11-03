@@ -203,7 +203,7 @@ fn delegate_equality_and_name_follow_the_bound_id() {
     let rebuilt = crate::corelib::exec_builtin_value(&ctx, "__make_closure", &[Value::Str("Lazy.G$0".into()), env]).unwrap();
     assert_eq!(rebuilt.callable_id(), r(2).callable_id());
     // Display names the function (the ctx-aware path interpolation / WriteLine use).
-    let shown = crate::interp::dispatch::stringify_dispatch(&ctx, &r(2)).unwrap();
+    let shown = crate::vm::exec::ops::stringify::stringify_dispatch(&ctx, &r(2)).unwrap();
     assert_eq!(shown, "<fn Lazy.G$0>");
 }
 

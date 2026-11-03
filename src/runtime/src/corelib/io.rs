@@ -183,7 +183,7 @@ pub mod typed {
     /// produce — a user `ToString` is dispatched (boxed structs, record synthesis, enum
     /// member names), the short type name only without one.
     fn stringify(ctx: &VmContext, value: &Value) -> Result<String, BuiltinError> {
-        crate::interp::dispatch::stringify_dispatch(ctx, value).map_err(BuiltinError::Legacy)
+        crate::vm::exec::ops::stringify::stringify_dispatch(ctx, value).map_err(BuiltinError::Legacy)
     }
 
     #[builtin(name = "__println", reenters)]

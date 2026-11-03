@@ -9,6 +9,8 @@
 | 入口 | 职责 |
 |---|---|
 | `ambient.rs` | 执行期当前堆 TLS、HeapGuard 嵌套恢复和堆 epoch |
+| `engine.rs` | Engine / TierApi 注册、共享调用边界和 OSR 交接；门面按 feature 装配，后端持有代码及激活 |
+| `ops/call.rs` / `ops/stringify.rs` | 冷 Call/FnRef 绑定及 ToString 协议执行，调用经已注册 Engine |
 | `call/` | 统一 VmFrame / FrameStack、寄存器池和三种帧作用域 arena |
 | `call/outcome.rs` / `call/forward.rs` / `call/type_param_env.rs` | 共享执行结果、Native 桩折叠和激活类型实参 |
 | `ops/structs.rs` | struct 分配、复制、拆箱和符号化字段检查，两个后端仅保留帧适配 |

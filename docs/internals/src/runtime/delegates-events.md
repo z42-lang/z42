@@ -87,7 +87,7 @@ delegate 类型自身在 IR 里由 `StubEmitter._emitDelegateInvoke`
 ⭐ **那个 `<FQ>.Invoke` 桩不是、也不能是 `.Invoke` 的派发目标** —— 这是最容易走错的一步：
 桩是 virtual（`method_flags` bit0）且**体为 `ret null`**，而 VCall 按**接收者运行期类型的
 TypeDesc** 索引 vtable；委托值在 VM 里是 `FuncRef` / `Closure`，**根本没有
-TypeDesc**（`interp/vcall_resolve.rs` 直接 bail）。所以桩永远派发不到，它只服务**反射签名
+TypeDesc**（`vm/exec/ops/vcall.rs` 直接 bail）。所以桩永远派发不到，它只服务**反射签名
 与跨包元数据重建**。
 
 ⚠️ 若不在绑定期脱糖，`.Invoke` 会走到 VCall 那条死路上：`_bindInstanceMemberCall` 没有

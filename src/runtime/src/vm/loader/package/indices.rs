@@ -7,7 +7,7 @@ pub fn build_block_indices(module: &mut Module) {
         let ready = !func.blocks.is_empty() && func.branch_targets.len() == func.blocks.len();
         func.prepare();
         if !ready || func.fused_tails.len() != func.blocks.len() {
-            func.fused_tails = crate::interp::superinstr::compute_fused_tails(
+            func.fused_tails = crate::vm::runtime::compute_fused_tails(
                 &func.blocks, &func.branch_targets, &func.reg_types);
         }
     }

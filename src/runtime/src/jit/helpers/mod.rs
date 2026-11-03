@@ -58,7 +58,7 @@ pub const VM_JIT_INTERFACE_VERSION: u32 = 3;
 // Every JIT helper receives the running thread's `*const VmContext` as its 2nd
 // parameter (after `*mut JitFrame`) — the same pointer the compiled caller got.
 // Per-thread state (frame stack, pending exception, arenas, register pool,
-// counters) is a field of it; the VM's shared JIT state is `vm.jit()` (`VmCore::jit`,
+// counters) is a field of it; the VM's shared JIT state is `vm.jit()` (`VmCore::engines`,
 // cached in the context's `JitHead`).
 
 /// Borrow the running thread's context for the duration of the helper call.

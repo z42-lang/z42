@@ -3,7 +3,7 @@
 //!
 //! unify-vcall-resolution : target resolution (boxed primitive / boxed
 //! struct / primitive-as-struct / object vtable + hierarchy walk, candidate spellings,
-//! PIC install) lives in `interp::vcall_resolve` and is shared with the interpreter —
+//! PIC install) lives in `vm::exec::ops::vcall` and is shared with the interpreter —
 //! this helper only decides how to run the resolved target: a compiled `FnEntry` when
 //! the JIT has one (tiered), otherwise the interpreter on a receiver-filled frame.
 
@@ -165,8 +165,7 @@ unsafe fn invoke_interp(
             return unsafe { super::super::forward::call_forward(frame_ref, ctx, dst, func, id, Some(this), arg_regs) };
         }
     }
-    match crate::interp::exec_function_from_receiver_regs(
-        vm_ctx, module, func, &this, &frame_ref.regs, arg_regs, mta)
+    match crate::vm::exec::engine::invoke_args(vm_ctx, module, func, crate::vm::exec::call::args::CallArgs::Receiver { receiver: this, regs: &frame_ref.regs, indices: arg_regs }, mta)
     {
         Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0

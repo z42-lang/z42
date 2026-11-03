@@ -812,13 +812,13 @@ impl crate::vm_context::VmContext {
         // 实测：`C.C$0` 当 entry 能正常跑，屏障里却查不到。
         let run = |f: &crate::vm::runtime::Function,
                    module: &crate::vm::runtime::Module| -> Option<String> {
-            match crate::interp::exec_function(self, module, f, &[]) {
+            match crate::vm::exec::engine::invoke(self, module, f, &[]) {
                 Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(_)) => None,
                 // 取异常对象的 Message 字段；非异常值（裸抛）才回落到值的文本形式。
                 // 直接 value_to_str 会得到 `Std.Exception{...}` 这种对象转储，不是消息。
                 Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(v)) => Some(
                     crate::exception::read_message(&v, self, module)
-                        .unwrap_or_else(|| crate::interp::value_to_str(&v))),
+                        .unwrap_or_else(|| crate::corelib::convert::value_to_str(&v))),
                 Err(e) => Some(format!("{e:#}")),
             }
         };
