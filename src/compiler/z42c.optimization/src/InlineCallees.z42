@@ -1,0 +1,29 @@
+namespace Z42.Optimization;
+using Z42.IR;
+
+// One lookup scope per inline run. Function identities stay fixed; bodies remain live.
+public sealed class InlineCallees {
+    private IrModule _module;
+    private StrIndex _byName;
+    public InlineCallees(IrModule module) { this._module = module; }
+
+    public IrFunction Find(string name) {
+        if (this._module.FuncCount >= 128) {
+            // Build only when a call needs resolution; call-free modules need no index.
+            if (this._byName == null) {
+                this._byName = new StrIndex();
+                int at = this._module.FuncCount - 1;
+                // Reverse insertion preserves the linear lookup's first matching name.
+                while (at >= 0) { this._byName.Put(this._module.Functions[at].Name, at); at = at - 1; }
+            }
+            int at = this._byName.Get(name);
+            return at >= 0 ? this._module.Functions[at] : null;
+        }
+        int i = 0;
+        while (i < this._module.FuncCount) {
+            if (this._module.Functions[i].Name == name) { return this._module.Functions[i]; }
+            i = i + 1;
+        }
+        return null;
+    }
+}
