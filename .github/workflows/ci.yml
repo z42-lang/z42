@@ -140,7 +140,7 @@ jobs:
           echo "docs_only=$docs_only"
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
 
-  # ── 纯文档改动的全部门禁：死链与文档结构、诊断码文档对账。不需要 SDK
+  # ── 纯文档改动的检查：死链与文档结构、诊断码和测试布局对账。不需要 SDK
   #    构建树，xtask 用种子 z42c 编出即可。doc-lints 不在这里：纯文档改动碰不到 stdlib
   #    的 `///`（那是 src/）；它是 `xtask test` 的一个 stage，随 build-and-test 跑。
   docs-check:
@@ -166,6 +166,7 @@ jobs:
           set -euo pipefail
           xtask test docs links
           xtask check diagcodes
+          xtask check layout
 
   build-and-test:
     name: test-host(${{ matrix.platform }})
