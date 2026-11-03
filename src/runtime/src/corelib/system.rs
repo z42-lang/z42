@@ -11,7 +11,7 @@ use crate::object::Value;
 use crate::pal;
 use crate::vm_context::VmContext;
 use anyhow::Result;
-use crate::corelib::abi::BuiltinError;
+use crate::vm::exec::call::builtin_abi::BuiltinError;
 
 pub fn system_pid() -> i64 {
     pal::system::pid() as i64

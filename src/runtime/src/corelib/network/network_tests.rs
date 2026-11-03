@@ -3,7 +3,7 @@
 //! read / receive. Loopback only.
 
 use super::error::code;
-use crate::corelib::abi::BuiltinError;
+use crate::vm::exec::call::builtin_abi::BuiltinError;
 use crate::object::Value;
 use crate::vm_context::VmContext;
 use std::sync::Arc;
@@ -43,7 +43,7 @@ fn int(ctx: &VmContext, name: &str, args: &[Value]) -> i64 {
 pub(crate) fn detailed(e: &BuiltinError) -> (&'static str, Option<i64>) {
     match e {
         BuiltinError::Detailed(d) => (d.classes[0], d.fields.iter().find_map(|(n, v)| match (n, v) {
-            (&"SocketErrorCode", crate::corelib::abi::FieldInit::I64(c)) => Some(*c),
+            (&"SocketErrorCode", crate::vm::exec::call::builtin_abi::FieldInit::I64(c)) => Some(*c),
             _ => None,
         })),
         other => panic!("expected a Detailed exception, got {other:?}"),

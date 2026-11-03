@@ -243,7 +243,7 @@ pub unsafe extern "C" fn jit_builtin(
         Err(e) => {
             let module = super::jit_module(ctx);
             let who = if name.is_empty() { crate::corelib::builtin_name(builtin_id, "?") } else { name };
-            raised_into_exception(vm, crate::corelib::abi::error::raise(vm, module, who, *e, &[]))
+            raised_into_exception(vm, crate::vm::exec::call::builtin_abi::error::raise(vm, module, who, *e, &[]))
         }
     }
 }
@@ -254,9 +254,9 @@ pub unsafe extern "C" fn jit_builtin(
 /// leaves the error text: while the fatal flag is set the catch dispatch declines every
 /// handler, so it unwinds to the entry, which reports it.
 pub(crate) fn raised_into_exception(
-    vm: &crate::vm_context::VmContext, r: crate::corelib::abi::error::Raised,
+    vm: &crate::vm_context::VmContext, r: crate::vm::exec::call::builtin_abi::error::Raised,
 ) -> u8 {
-    use crate::corelib::abi::error::Raised;
+    use crate::vm::exec::call::builtin_abi::error::Raised;
     let exc = match r {
         Raised::Throw(v) => v,
         Raised::Fatal(e) | Raised::Raw(e) => Value::Str(e.to_string().into()),

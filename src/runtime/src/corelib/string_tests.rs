@@ -85,8 +85,8 @@ fn null_string_receiver_is_a_null_reference() {
         t.msg
     };
     let typed_nre = |name: &str, args: &[Value]| match crate::corelib::exec_builtin_value(&ctx, name, args)
-        .unwrap_err().downcast::<crate::corelib::abi::BuiltinError>() {
-        Ok(crate::corelib::abi::BuiltinError::NullReference(m)) => m,
+        .unwrap_err().downcast::<crate::vm::exec::call::builtin_abi::BuiltinError>() {
+        Ok(crate::vm::exec::call::builtin_abi::BuiltinError::NullReference(m)) => m,
         other => panic!("expected a NullReference, got {other:?}"),
     };
     assert_eq!(typed_nre("__str_length", &[Value::Null]), "cannot read property `Length` of a null reference");
@@ -99,8 +99,8 @@ fn null_string_receiver_is_a_null_reference() {
     assert_eq!(crate::corelib::exec_builtin_value(&ctx, "__str_compare_to", &[Value::Str("a".into()), Value::Null]).unwrap(),
         Value::I64(1));
     assert!(crate::corelib::exec_builtin_value(&ctx, "__str_compare_to", &[Value::Null, Value::Str("a".into())])
-        .unwrap_err().downcast_ref::<crate::corelib::abi::BuiltinError>()
-        .is_some_and(|e| matches!(e, crate::corelib::abi::BuiltinError::NullReference(m) if m == "cannot call method `CompareTo` on a null reference")));
+        .unwrap_err().downcast_ref::<crate::vm::exec::call::builtin_abi::BuiltinError>()
+        .is_some_and(|e| matches!(e, crate::vm::exec::call::builtin_abi::BuiltinError::NullReference(m) if m == "cannot call method `CompareTo` on a null reference")));
     // `Equals` 的实参 null 是合法输入（false），只有接收者 null 才抛。
     assert_eq!(crate::corelib::exec_builtin_value(&ctx, "__str_equals", &[Value::Str("a".into()), Value::Null]).unwrap(), Value::Bool(false));
     assert_eq!(typed_nre("__str_equals", &[Value::Null, Value::Str("a".into())]),
@@ -112,8 +112,8 @@ fn null_string_receiver_is_a_null_reference() {
 fn null_split_receiver_names_the_method() {
     let ctx = VmContext::new();
     let e = crate::corelib::exec_builtin_value(&ctx, "__str_split", &[Value::Null, Value::Str(",".into())])
-        .unwrap_err().downcast::<crate::corelib::abi::BuiltinError>().ok();
-    assert!(matches!(e, Some(crate::corelib::abi::BuiltinError::NullReference(m)) if m == "cannot call method `Split` on a null reference"));
+        .unwrap_err().downcast::<crate::vm::exec::call::builtin_abi::BuiltinError>().ok();
+    assert!(matches!(e, Some(crate::vm::exec::call::builtin_abi::BuiltinError::NullReference(m)) if m == "cannot call method `Split` on a null reference"));
 }
 
 // ── P1-8 批次 10 性能形态钉(CI bench 抓过两笔回归,此处钉实现形态不被改回) ──
@@ -159,7 +159,7 @@ fn split_returns_a_ref_backed_string_array() {
 #[test]
 fn substring_out_of_range_is_argument_out_of_range() {
     let e = str_substring(&"hello".into(), 3, 5).unwrap_err();
-    assert!(matches!(e, crate::corelib::abi::BuiltinError::ArgumentOutOfRange(ref m)
+    assert!(matches!(e, crate::vm::exec::call::builtin_abi::BuiltinError::ArgumentOutOfRange(ref m)
         if m.contains("range [3, 8) out of bounds (length 5)")), "{e:?}");
 }
 

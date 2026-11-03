@@ -4,7 +4,7 @@
 //! synthesized for a frameless builtin, a light frame for an old-table one). Internal
 //! builtin errors are fatal in both engines.
 //!
-//! The builtins are the test-only ones of `corelib::abi::test_builtins`.
+//! The builtins are the test-only ones of `vm::exec::call::builtin_abi::test_builtins`.
 
 use std::sync::Arc;
 
@@ -309,9 +309,9 @@ fn no_exception_is_built_while_a_fatal_error_unwinds() {
     let vm = VmContext::new();
     let _ = crate::stack_guard::fatal_error(&vm, "test: already unwinding");
     let _ = crate::stack_guard::take_report();
-    match crate::corelib::abi::error::raise(&vm, &m, "__test_abi_fail",
-        crate::corelib::abi::BuiltinError::Format("x".into()), &[]) {
-        crate::corelib::abi::error::Raised::Fatal(_) => {}
+    match crate::vm::exec::call::builtin_abi::error::raise(&vm, &m, "__test_abi_fail",
+        crate::vm::exec::call::builtin_abi::BuiltinError::Format("x".into()), &[]) {
+        crate::vm::exec::call::builtin_abi::error::Raised::Fatal(_) => {}
         _ => panic!("expected the raw fatal error"),
     }
 }

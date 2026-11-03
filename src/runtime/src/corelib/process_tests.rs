@@ -4,7 +4,7 @@
 //! POSIX coreutils assumed (`sh` / `true` / `cat` / `sleep`).
 
 use super::*;
-use crate::corelib::abi::{BuiltinError, FieldInit};
+use crate::vm::exec::call::builtin_abi::{BuiltinError, FieldInit};
 use crate::corelib::{exec_builtin, exec_builtin_value};
 
 fn s(v: &str) -> Value { Value::Str(v.into()) }

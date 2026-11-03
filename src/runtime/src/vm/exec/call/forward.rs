@@ -222,7 +222,7 @@ fn run_framed<'m>(
         Ok(v) => Ok(v),
         // The exception is built (and its trace taken) while the wrapper's frame is
         // still on the stack — no synthesized rows needed.
-        Err(fault) => Err(FoldFault(Box::new(Failure::Raised(crate::corelib::abi::error::raise(
+        Err(fault) => Err(FoldFault(Box::new(Failure::Raised(crate::vm::exec::call::builtin_abi::error::raise(
             ctx, module(), crate::corelib::builtin_name(id, "?"), *fault, &[]))))),
     }
 }
@@ -232,20 +232,20 @@ fn run_framed<'m>(
 pub(crate) struct FoldFault(Box<Failure>);
 
 enum Failure {
-    Unraised { id: u32, fault: crate::corelib::abi::Fault },
-    Raised(crate::corelib::abi::error::Raised),
+    Unraised { id: u32, fault: crate::vm::exec::call::builtin_abi::Fault },
+    Raised(crate::vm::exec::call::builtin_abi::error::Raised),
 }
 
 impl FoldFault {
     /// What the engine propagates. A frameless call's exception gets the wrapper's rows.
     #[cold]
     #[inline(never)]
-    pub(crate) fn raise(self, ctx: &VmContext, module: &Module, wrapper: &Function) -> crate::corelib::abi::error::Raised {
+    pub(crate) fn raise(self, ctx: &VmContext, module: &Module, wrapper: &Function) -> crate::vm::exec::call::builtin_abi::error::Raised {
         match *self.0 {
             Failure::Raised(r) => r,
             Failure::Unraised { id, fault } => {
                 let rows = wrapper_rows(ctx, module, wrapper);
-                crate::corelib::abi::error::raise(ctx, module, crate::corelib::builtin_name(id, "?"), *fault, &rows)
+                crate::vm::exec::call::builtin_abi::error::raise(ctx, module, crate::corelib::builtin_name(id, "?"), *fault, &rows)
             }
         }
     }

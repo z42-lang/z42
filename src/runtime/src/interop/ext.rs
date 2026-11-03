@@ -34,7 +34,7 @@ use std::sync::OnceLock;
 
 use anyhow::Result;
 
-use crate::corelib::abi::BuiltinError;
+use crate::vm::exec::call::builtin_abi::BuiltinError;
 use crate::vm_context::VmContext;
 
 // ── Entry point ──────────────────────────────────────────────────────────────
