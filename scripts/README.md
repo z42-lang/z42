@@ -274,6 +274,7 @@ scripts/
 ├── test/               test 命令族（`test compiler` / `test compiler bootstrap` 实现在 build/）
 │   ├── xtask_test_cmd.z42       `test` 族的命令类 + LibUnitsCommand（test stdlib / bench stdlib 共用）
 │   ├── xtask_test.z42           all/e2e 编排 + stage 单源登记 / 只读列表 / 计时
+│   ├── xtask_test_runtime.z42   Rust runtime 完整 / 窄版测试的共用 Cargo 配置与 GC 模式回归
 │   ├── xtask_test_vm.z42        e2e golden 跑分（+ --dir/--file 子选择）
 │   ├── xtask_fixture_build.z42  cross-zpkg / multi-exe 共用的构建、隔离 libs、产物定位与汇总
 │   ├── xtask_test_cross.z42     e2e cross-zpkg 多包
@@ -288,6 +289,7 @@ scripts/
 │   ├── xtask_test_targets.z42   `test toolchain builder` / `bench targets` 入口（_testTargetsCore）
 │   │                            + fixture 工程与 tooling 准备（_prepFixtureTooling）
 │   ├── xtask_test_builder.z42   builder 命令行夹具套件（expect.toml）；状态构造与顺序检查留在 targets
+│   ├── xtask_selfcheck_targets.z42  真实 z42b 发现链路的候选名去重与缺失选择回归
 │   ├── xtask_test_example.z42   工程清单 `[[example]]` 发现与测试编排
 │   ├── xtask_example_build.z42  example 依赖合并、合成清单与编译 / 执行
 │   ├── xtask_test_examples.z42  `test docs examples`：学习手册配套示例门（+ `xtask_examples_{book,run,transcript}.z42`：书↔examples 引用校验、`*.console` 会话重放）
@@ -296,7 +298,7 @@ scripts/
 │   ├── xtask_test_embedded_golden.z42  golden / 单元语料的 zbc/zpkg 发射
 │   ├── xtask_selfcheck_embedded.z42  bundle 构建回归（成功 / 部分失败 / 旧 manifest / 空选择），随 builder 夹具跑
 │   ├── xtask_selfcheck_fixture_runs.z42  真实进程退出码与主产物选择回归，随 multi-exe 跑
-│   ├── xtask_selfcheck_stages.z42  stage 编排回归（skip / 必跑 / 首败短路 / 退出码），随 builder 夹具跑
+│   ├── xtask_selfcheck_stages.z42  stage 编排与改动计划回归（skip / 必跑 / 首败 / 退出码 / 去重 / 全量回退），随 builder 夹具跑
 │   ├── xtask_test_list.z42      `test list`：只读语料目录（pretty / json）
 │   ├── xtask_test_incremental{,_ws}.z42 增量编译暴力对账（逐文件 touch：增量产物 == 全量，逐字节；`_ws` 为 stdlib 整体读回）
 │   ├── xtask_test_docs.z42      `test docs`：相对链接死链 + 文档分层 / README 关联文档检查

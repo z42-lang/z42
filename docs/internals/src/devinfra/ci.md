@@ -100,7 +100,8 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 main push 取 `before...sha` 的 compare（新分支的全零 `before`、API 失败、到 compare 的 300 文件上限 ⇒ 当作非纯文档）。
 `docs-check` 的内容：ci-bootstrap 的 `xtask-only`
 模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（先生成 reference stdlib 页，
-再查相对链接与文档结构）+ `xtask check diagcodes`。符号引用报告 `xtask check doc-refs` 按需手动运行，
+再查相对链接与文档结构）+ `xtask check diagcodes` + `xtask check layout`（测试类别与能力词表等机器清单对账）。
+布局检查读取仓库文件，保留种子 xtask 的轻量路径。符号引用报告 `xtask check doc-refs` 按需手动运行，
 docs-check 不为它安装 Rust 或编译索引器。doc-lints 随 test-host 检查源码注释。
 `test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip；
 main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SDK，见下节的 `sdk` 判定）。schedule / dispatch 不走快速通道。
@@ -285,11 +286,34 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
   android 四个组合没有必要：后三者 `package-*` 本就在真实目标平台上完整构建；「interp-only 不含
   cranelift」断言在 `package-wasm` 里。`.cargo/**` 并入 `platform` 过滤器（配置只有 `src/runtime/.cargo` 一份，由 `src/runtime/**` 覆盖）。
 
+学习手册示例按 `changes.outputs.host_package` 分工。它集中原有的打包选择条件：platform 或 examples flag 为 true，
+或事件不是 PR。打包 job 会执行时，每个平台只在打包 SDK 上重放会话；非 Windows 的 test-host 跳过开发 SDK 准备与
+examples stage。打包 job 不执行时，test-host 保留这两步，本地完整 `xtask test` 也保留 examples。
+两条路径调用同一个 `test docs examples`、校验同一套会话输出与退出码，打包失败仍经 `ci-ok` 挡合并。
+
+测量这段重复工作时，在同一机器预热开发 SDK 与打包 SDK 后，交替测量三组：原编排为
+`xtask test docs examples` 加 `xtask test docs examples --sdk <打包 SDK>`，复用后只执行后者。
+每次核对会话数、步骤数与成功状态。两条 CI job 可以并行，时间总和反映 runner 的执行工作量；
+整条 CI 墙钟收益要另看 Actions 的依赖与排队，不能直接用该总和替代。
+
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。PR 上另加 `--changed <PR base sha>`
 按路径分流：改动用不到的重 stage 也跳过（规则与映射表见[测试门禁](test-gate.md) §5、§7）；main push /
-schedule / dispatch 不分流。Windows 腿不跑
-`test`，只跑 `build test` + `xtask test runtime`。三条非 Windows 腿在 `test` 之后
+schedule / dispatch 不分流。
+
+Rust 测试用 job 环境变量 `RUN_RUST_RUNTIME` 统一决定：`vm` filter 为 true，或事件是 schedule / dispatch 时，
+独立执行完整 `xtask test runtime`；此时非 Windows 腿的 `test` 追加跳过 `rust-units`，避免重复执行 `--lib`。
+完整 harness 使用同一 workspace、feature 与串行参数，覆盖窄版的库单测和所有 target 编译，并执行集成与文档测试。
+其余事件保留窄版 stage，不会因为完整 harness 跳过而丢掉原有覆盖。本地 `xtask test` 仍运行 `rust-units`。
+Windows 腿不跑 `test`；仅在完整 harness 会执行时，先 `build test` 再 `xtask test runtime`。
+
+测量重复 Rust 阶段时，先以同一源码与 Cargo cache 预热，再交替计时三轮：原编排为
+`cargo test --lib`、`cargo test --no-run`、`cargo test --lib`，精简编排为一次 `cargo test --lib`；
+两边都带 `--locked --workspace --features z42-test-fixtures --manifest-path src/runtime/Cargo.toml` 和运行时 Cargo config，
+执行测试时带 `-- --test-threads=1` 及 `RUST_MIN_STACK=8388608`。两边共同的集成 / 文档测试不计入这个重复片段。
+核对每次库测试的数量与成功状态，整条 CI 的耗时另外从 Actions 记录读取。
+
+三条非 Windows 腿在 `test` 之后
 跑 **zbc-format 字节基线门**（`git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`；regen 就地重写了基线，
 有 diff = 提交的基线过期）——一次覆盖三个架构，失败经 `ci-ok` 挡合并。
 
