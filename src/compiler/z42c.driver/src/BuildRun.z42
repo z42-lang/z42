@@ -41,9 +41,6 @@ public sealed class PluginSetupOut {
                                // `_bundleSeed` 不播种它们（插件不链入产物）。
     public int DepNamesN;
 }
-public sealed class SrcHashesOut {
-    public string[] Texts; public string[] Hashes;
-}
 public sealed class PackDecisionOut {
     public int Rc;
     public bool IsExe; public bool IsPacked;
@@ -88,11 +85,8 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         isRelease, noIncremental, cliAdd, cliRemove, tier);
     if (pl.Rc != 0) { return pl.Rc; }
     string[] azPaths = pl.AzPaths; string handlerFp = pl.HandlerFp;
-
-
-
-// ── ④ 源文本读入 + 源 hash（per-file 并行）──
-    SrcHashesOut sh = _readAndHashSources(srcs, handlerFp);
+    // ── ④ 源文本读入 + 源 hash（per-file 并行）──
+    SourceInputs sh = _readAndHashSources(srcs, handlerFp);
     // ── ⑤ exe / pack 决议（含 indexed 与 flat workspace / --release 的不兼容拦截）──
     PackDecisionOut pd = _decidePacked(pm, tomlPath, tier, outputDirOverride, isRelease, libsDirsCount);
     if (pd.Rc != 0) { return pd.Rc; }
@@ -332,13 +326,8 @@ PluginSetupOut _resolvePluginSetup(ProjectManifest pm, string projectDir, string
 
 // ── ④ 源文本读入 + 源 hash（probe / ZbcFileZ / meta 三处复用；SHA-256 解释执行曾是
 //    D8 增量差价主项）。parallelize-package-compile ★①：per-file 读+哈希并行（各写独立槽，确定性）。
-SrcHashesOut _readAndHashSources(string[] srcs, string handlerFp) {
-    SrcHashesOut o = new SrcHashesOut();
-    o.Texts = new string[srcs.Length];
-    o.Hashes = new string[srcs.Length];
-    ParallelFor.Run(srcs.Length, ParallelConfig.Jobs(srcs.Length),
-        new SrcReadHashTask(srcs, o.Texts, o.Hashes, handlerFp));
-    return o;
+SourceInputs _readAndHashSources(string[] srcs, string handlerFp) {
+    return SourceReader.Read(srcs, handlerFp, ParallelConfig.Jobs(srcs.Length));
 }
 
 // ── ⑤ exe / pack 决议 ────────────────────────────────────────────────────────────

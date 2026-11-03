@@ -1,10 +1,10 @@
 // IrLoopUtil —— 自然循环分析的共享机件（CFG / 支配 / 自然循环体 / 干净 pre-header）。
 //
-// 从 IrLicm 抽出，供 IrLicm（循环不变量外提）与 IrLoopAllocReuse（循环内分配 hoist+复用）共用，
-// 避免两 pass 各自重造 CFG。语义与原 IrLicm 私有实现**逐字节等价**（纯搬迁，无行为变化）。
+// 供 IrLicm（循环不变量外提）与 IrLoopAllocReuse（循环内分配 hoist+复用）共用。
+// 前驱直接从显式后继构造为稀疏邻接表，各分析复用同一份 CFG。
 //
-// ── 机制（保守 v1，与 IrLicm 原注释一致）──────────────────────────────────────────────
-//   ① CFG：从各块终结子取后继（Br→1 / BrCond→2 / Ret·Throw→0），反转得前驱（predMat 位阵）。
+// ── 分析步骤与安全边界──────────────────────────────────────────────
+//   ① CFG：从各块终结子取后继（Br→1 / BrCond→2 / Ret·Throw→0），反转得前驱稀疏邻接表。
 //   ② 支配：迭代数据流 `dom[b] = {b} ∪ (∩ dom[preds])`（entry=Blocks[0]）。
 //   ③ 回边：边 b→h 且 h 支配 b → 自然循环，header=h；循环体 = h + 从各 latch 反向可达（不过 h）。
 //   ④ pre-header（保守）：h 的**唯一**循环外前驱 `ph` 且 `ph` 终结子 = `br h` → 干净；否则 -1（调用方跳过）。
@@ -20,7 +20,8 @@ public sealed class LoopCfg {
     public int    N;         // 块数
     public int[]  S0;        // 后继 0（-1=无）
     public int[]  S1;        // 后继 1（-1=无）
-    public bool[] PredMat;   // predMat[b*N+p] = p 是 b 的前驱
+    public int[] PredOff;   // 块 b 的前驱区间 [PredOff[b], PredOff[b+1])
+    public int[] Preds;     // 各区间按源块下标升序，同一源块只登记一次
     // 支配集位图：x 支配 b ⟺ `(Dom[b*DW + (x>>4)] & (1 << (x & 15))) != 0`。
     // 原来是 bool[N*N]，改成每 **16** 个块一个 int —— 交集/写回的内层循环宽度 /16，分配量同理。
     // ⚠ 为什么是 16 而不是 32：z42 的整数运算在运行时走 i64（`1 << 31` = 2147483648），
@@ -38,6 +39,14 @@ public sealed class IrLoopUtil {
         int n = f.BlockCount;
         if (n < 2) { return null; }
         if (f.ExcCount != 0) { return null; }
+        // 小函数保留直接扫描，较大函数按标签建立 first-wins 索引。
+        StrIndex labels = null;
+        if (n >= 128) {
+            labels = new StrIndex();
+            // 逆序写入，最早的块覆盖同名标签，保持线性扫描的 first-wins。
+            int li = n - 1;
+            while (li >= 0) { labels.Put(f.Blocks[li].Label, li); li = li - 1; }
+        }
         // ① 后继（s0/s1；-1=无）
         int[] s0 = new int[n];
         int[] s1 = new int[n];
@@ -47,29 +56,49 @@ public sealed class IrLoopUtil {
         while (b < n) {
             IrBlock blk = f.Blocks[b];
             if (blk.HasTerm) {
-                if (blk.Term is BrTerm) { s0[b] = IrLoopUtil.BlockIdx(f, (blk.Term as BrTerm).Label); }
+                if (blk.Term is BrTerm) { s0[b] = IrLoopUtil._cfgBlockIndex(f, labels, (blk.Term as BrTerm).Label); }
                 else if (blk.Term is BrCondTerm) {
                     BrCondTerm bc = blk.Term as BrCondTerm;
-                    s0[b] = IrLoopUtil.BlockIdx(f, bc.TrueLabel);
-                    s1[b] = IrLoopUtil.BlockIdx(f, bc.FalseLabel);
+                    s0[b] = IrLoopUtil._cfgBlockIndex(f, labels, bc.TrueLabel);
+                    s1[b] = IrLoopUtil._cfgBlockIndex(f, labels, bc.FalseLabel);
                 }
             }
             b = b + 1;
         }
-        // 前驱位阵
-        bool[] predMat = new bool[n * n];
-        b = 0;
+        LoopCfg cfg = new LoopCfg();
+        cfg.N = n; cfg.S0 = s0; cfg.S1 = s1;
+        IrLoopUtil._buildPreds(cfg);
+        int dw = (n + 15) / 16;
+        cfg.DW = dw;
+        cfg.Dom = IrLoopUtil._computeDom(n, dw, cfg.PredOff, cfg.Preds);
+        return cfg;
+    }
+
+    // 从至多两条后继边直接建立 CSR，免去 N×N 矩阵及再次扫描矩阵。
+    private static void _buildPreds(LoopCfg cfg) {
+        int n = cfg.N;
+        int[] off = new int[n + 1];
+        int b = 0;
         while (b < n) {
-            if (s0[b] >= 0 && s0[b] < n) { predMat[s0[b] * n + b] = true; }
-            if (s1[b] >= 0 && s1[b] < n) { predMat[s1[b] * n + b] = true; }
+            int a = cfg.S0[b]; int c = cfg.S1[b];
+            if (a >= 0 && a < n) { off[a + 1] = off[a + 1] + 1; }
+            if (c >= 0 && c < n && c != a) { off[c + 1] = off[c + 1] + 1; }
             b = b + 1;
         }
-        // ② 支配
-        int dw = (n + 15) / 16;
-        int[] dom = IrLoopUtil._computeDom(n, dw, predMat);
-        LoopCfg cfg = new LoopCfg();
-        cfg.N = n; cfg.S0 = s0; cfg.S1 = s1; cfg.PredMat = predMat; cfg.Dom = dom; cfg.DW = dw;
-        return cfg;
+        b = 0;
+        while (b < n) { off[b + 1] = off[b + 1] + off[b]; b = b + 1; }
+        int[] preds = new int[off[n]];
+        int[] cursor = new int[n];
+        b = 0;
+        while (b < n) { cursor[b] = off[b]; b = b + 1; }
+        b = 0;
+        while (b < n) {
+            int a = cfg.S0[b]; int c = cfg.S1[b];
+            if (a >= 0 && a < n) { preds[cursor[a]] = b; cursor[a] = cursor[a] + 1; }
+            if (c >= 0 && c < n && c != a) { preds[cursor[c]] = b; cursor[c] = cursor[c] + 1; }
+            b = b + 1;
+        }
+        cfg.PredOff = off; cfg.Preds = preds;
     }
 
     // ③ 自然循环 header 集合（回边目标 h：某边 b→h 且 h 支配 b）。
@@ -102,10 +131,11 @@ public sealed class IrLoopUtil {
         while (top > 0) {
             top = top - 1;
             int p = stack[top];
-            int q = 0;
-            while (q < n) {
-                if (cfg.PredMat[p * n + q] && q != h && !inLoop[q]) { inLoop[q] = true; stack[top] = q; top = top + 1; }
-                q = q + 1;
+            int k = cfg.PredOff[p];
+            while (k < cfg.PredOff[p + 1]) {
+                int q = cfg.Preds[k];
+                if (q != h && !inLoop[q]) { inLoop[q] = true; stack[top] = q; top = top + 1; }
+                k = k + 1;
             }
         }
         return inLoop;
@@ -116,10 +146,11 @@ public sealed class IrLoopUtil {
         int n = cfg.N;
         int ph = -1;
         int cnt = 0;
-        int r = 0;
-        while (r < n) {
-            if (cfg.PredMat[h * n + r] && !inLoop[r]) { cnt = cnt + 1; ph = r; }
-            r = r + 1;
+        int k = cfg.PredOff[h];
+        while (k < cfg.PredOff[h + 1]) {
+            int r = cfg.Preds[k];
+            if (!inLoop[r]) { cnt = cnt + 1; ph = r; }
+            k = k + 1;
         }
         if (cnt != 1) { return -1; }
         IrBlock phb = f.Blocks[ph];
@@ -127,6 +158,11 @@ public sealed class IrLoopUtil {
         if (!(phb.Term is BrTerm)) { return -1; }
         if (IrLoopUtil.BlockIdx(f, (phb.Term as BrTerm).Label) != h) { return -1; }
         return ph;
+    }
+
+    private static int _cfgBlockIndex(IrFunction f, StrIndex labels, string label) {
+        if (labels == null) { return IrLoopUtil.BlockIdx(f, label); }
+        return labels.Get(label);
     }
 
     // 块 label → 索引（线性；-1=未找到）。
@@ -146,32 +182,13 @@ public sealed class IrLoopUtil {
 
     // ② 支配：位图，x 支配 b ⟺ Dom 里对应位为 1。迭代 `dom[b] = {b} ∪ (∩ dom[preds])`，entry=0。
     // 不动点结果与前驱访问序无关（交是可交换可结合的），故建表/换序不改变输出。
-    private static int[] _computeDom(int n, int dw, bool[] predMat) {
+    private static int[] _computeDom(int n, int dw, int[] predOff, int[] preds) {
         int[] dom = new int[n * dw];
         dom[0] = 1;                       // entry 只被自己支配
         int b = 1;
         while (b < n) {
             int x = 0;
             while (x < dw) { dom[b * dw + x] = 65535; x = x + 1; }   // 其余先取全集（尾字的填充位永不被查询）
-            b = b + 1;
-        }
-        // 前驱邻接表（CSR）：稠密 predMat 每轮每块都要 O(n) 扫一遍才知道谁是前驱，而多数块
-        // 只有 1-2 个前驱 —— 这里只扫一次建表（O(n²) 一次性），之后每轮按表直取。
-        int[] predOff = new int[n + 1];
-        b = 0;
-        while (b < n) {
-            int c = 0;
-            int p = 0;
-            while (p < n) { if (predMat[b * n + p]) { c = c + 1; } p = p + 1; }
-            predOff[b + 1] = predOff[b] + c;
-            b = b + 1;
-        }
-        int[] preds = new int[predOff[n]];
-        b = 0;
-        while (b < n) {
-            int w = predOff[b];
-            int p = 0;
-            while (p < n) { if (predMat[b * n + p]) { preds[w] = p; w = w + 1; } p = p + 1; }
             b = b + 1;
         }
         int[] inter = new int[dw];   // 提到迭代外复用：原来每块每轮 new 一个数组
