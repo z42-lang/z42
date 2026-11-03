@@ -116,11 +116,8 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     if (kind == "test" && name.Length == 0) {
         failed = failed + _testBuilderCliFixtures(root, tt);
         failed = failed + _selfcheckFixtureTargets(root, tt);
-        failed = failed + _smokeCompileThenTest(root, tt);
-        failed = failed + _smokeFallbackOutRoot(root, tt);
         failed = failed + _smokeDevTargetInternal(root, tt);
         failed = failed + _smokeReuseParentMissing(root, tt);
-        failed = failed + _smokeHarnessFalse(root, tt);
         failed = failed + _smokeBundleHost(root, tt);
         failed = failed + _smokeGoldenBundleHost(root, tt);
         failed = failed + _selfcheckBundleCompileFailure(root);
@@ -136,55 +133,6 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         return 1;
     }
     Console.WriteLine("  ✅ manifest-target " + label + ": all passed (" + matched.ToString() + " target(s))");
-    return 0;
-}
-
-// compile-then-test smoke: build + run the compile-then-test fixture through the
-// single `z42b test <z42.toml>` entry — the project-manifest → _buildProject →
-// Runner.RunModule path (distinct from the already-compiled-artifact path the
-// stdlib/compiler stages cover). Returns 0 pass / 1 fail; skips cleanly (0) when
-// the fixture is absent.
-int _smokeCompileThenTest(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.FixturesRoot, "compile-then-test/z42.toml");
-    if (!_smokeBegin(toml, "compile-then-test (z42b test <z42.toml>)")) { return 0; }
-    int rc = _exec(_z42bVerb(root, tt, "test").Arg(toml));
-    if (rc != 0) {
-        Console.WriteLine("  ❌ compile-then-test: `z42b test <toml>` exited " + rc.ToString());
-        return 1;
-    }
-    Console.WriteLine("  ✅ compile-then-test: `z42b test <toml>` passed");
-    return 0;
-}
-
-// 零目标回落也认 `--out-root`：compile-then-test 夹具没声明任何 [[test]]、源里自带 [Test] ⇒ 走
-// `_buildProject` 回落；out-root 必须对这条路同样生效，否则产物写回清单目录旁（夹具在源码树里就写进源码树）。
-// 断言三条：① 通过；② 清单目录旁**没有** artifacts/ 与 dist/；③ out-root 下**有**建出的 zpkg（证明产物去了那儿，
-// 而不是压根没写 —— 没有 ③ 的话 ② 在「什么都没建」时也成立）。
-int _smokeFallbackOutRoot(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.FixturesRoot, "compile-then-test/z42.toml");
-    if (!_smokeBegin(toml, "fallback --out-root (零目标回落：产物落 --out-root，不落清单目录旁)")) { return 0; }
-    string projDir = Path.GetDirectoryName(toml);
-    string[] beside = new string[] { Path.Join(projDir, "artifacts"), Path.Join(projDir, "dist") };
-    // 上一个 smoke（不带 --out-root）在拷贝旁留下的产物先清掉，否则 ② 判不出来。
-    foreach (var d in beside) { if (Directory.Exists(d)) { Directory.Delete(d, true); } }
-    string outRoot = _workOut(root, "src/toolchain/builder", "z42b-fallback-out-root");
-    if (Directory.Exists(outRoot)) { Directory.Delete(outRoot, true); }
-    int rc = _exec(_z42bVerb(root, tt, "test").Arg(toml).Arg("--out-root").Arg(outRoot));
-    if (rc != 0) {
-        Console.WriteLine("  ❌ fallback --out-root: `z42b test <toml> --out-root` exited " + rc.ToString());
-        return 1;
-    }
-    foreach (var d in beside) {
-        if (Directory.Exists(d)) {
-            Console.WriteLine("  ❌ fallback --out-root: 清单目录旁仍然出现了 " + d + " —— 回落路径无视了 --out-root");
-            return 1;
-        }
-    }
-    if (!Directory.Exists(outRoot) || Path.GlobRecursive(outRoot, "compile-then-test.zpkg").Length == 0) {
-        Console.WriteLine("  ❌ fallback --out-root: " + outRoot + " 下没有 compile-then-test.zpkg —— 产物去哪了？");
-        return 1;
-    }
-    Console.WriteLine("  ✅ fallback --out-root: 产物落在 --out-root 下，清单目录旁零写入");
     return 0;
 }
 
@@ -259,25 +207,6 @@ int _smokeHookPlugin(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ hook plugin: 两个插件按声明序加载并执行");
-    return 0;
-}
-
-// harness=false smoke：z42b 直接跑「自带 Main、退出码即判定」的目标。
-//
-// 必须 fork 子进程而非 in-process：这类目标的 Main 通常自己调 `Environment.Exit(code)`，
-// in-process 会把 z42b 一并带走、后面的目标全不跑。本条守着那个分叉真的走了子进程。
-//
-// 顺带覆盖「纯测试工程」形态：该 fixture 整个包只有 [[test]] 目标、**没有自己的源**，
-// 所以 z42b 必须跳过父包构建（无条件建会撞「no .z42 sources under <projdir>」）。
-int _smokeHarnessFalse(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.FixturesRoot, "basic/z42.toml");
-    if (!_smokeBegin(toml, "harness=false (z42b 直接跑自驱 Main，退出码判定)")) { return 0; }
-    int rc = _exec(_z42bVerb(root, tt, "test").Arg(toml).Arg("--name").Arg("exit_ok"));
-    if (rc != 0) {
-        Console.WriteLine("  ❌ harness=false: `z42b test --name exit_ok` exited " + rc.ToString());
-        return 1;
-    }
-    Console.WriteLine("  ✅ harness=false: 自驱 Main 经子进程跑通，退出码判定生效");
     return 0;
 }
 

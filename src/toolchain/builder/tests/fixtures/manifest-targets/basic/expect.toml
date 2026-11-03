@@ -1,0 +1,5 @@
+desc = "harness=false 目标经子进程退出后，父 runner 继续确认结果"
+args = ["test", "{case}/z42.toml", "--name", "exit_ok"]
+env = { Z42_PORTABLE_VM = "{vm}" }
+exit = 0
+stdout_contains = ["exit_ok: pass", "✓ exit_ok (harness=false, exit 0)"]

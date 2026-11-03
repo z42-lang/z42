@@ -73,6 +73,7 @@ jobs:
       - uses: dorny/paths-filter@v4
         id: filter
         with:
+          predicate-quantifier: some-with-excludes
           filters: |
             platform:
               - 'src/runtime/**'
@@ -93,6 +94,8 @@ jobs:
               - 'src/toolchain/interactive/**'
               # z42b 的 publish（apphost / iOS / Android 导出）只在 package-* 里被执行。
               - 'src/toolchain/builder/**'
+              # 私有测试工程只由 host 的 builder 夹具检查消费，不参与发布。
+              - '!src/toolchain/builder/tests/**'
               - 'scripts/common/xtask_fixture_harness.z42'
               - 'scripts/test/xtask_test_platform.z42'
               - 'scripts/test/xtask_test_app.z42'
@@ -125,6 +128,7 @@ jobs:
             stdlib:
               - 'src/libraries/**'
               - 'src/toolchain/builder/**'
+              - '!src/toolchain/builder/tests/**'
               - 'scripts/test/xtask_test_lib*.z42'
               - 'scripts/common/xtask_golden.z42'
               - '.github/workflows/ci.yml'

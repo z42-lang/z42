@@ -288,7 +288,7 @@ scripts/
 │   │                            + micro bench 结果聚合 `MicroBenchAgg`（`bench stdlib --json`；消费方全在本族，故不住 bench/）
 │   ├── xtask_test_targets.z42   `test toolchain builder` / `bench targets` 入口（_testTargetsCore）
 │   │                            + fixture 工程与 tooling 准备（_prepFixtureTooling）
-│   ├── xtask_test_builder.z42   builder 命令行夹具套件（expect.toml）；状态构造与顺序检查留在 targets
+│   ├── xtask_test_builder.z42   builder 命令行与 manifest 目标声明式夹具套件；损坏状态与插件顺序检查留在 targets
 │   ├── xtask_selfcheck_targets.z42  夹具清单定位、真实 z42b 发现链路的候选名去重与缺失选择回归
 │   ├── xtask_test_example.z42   工程清单 `[[example]]` 发现与测试编排
 │   ├── xtask_example_build.z42  example 依赖合并、合成清单与编译 / 执行
