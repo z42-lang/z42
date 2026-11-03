@@ -290,6 +290,7 @@
 # 嵌入
 
 - [概览](embedding/README.md)
+- [Rust VM 扩展状态](embedding/vm-extensions.md)
 - [C ABI 契约](embedding/c-abi.md)
 - [原生互操作（native interop）](embedding/native-interop.md)
 

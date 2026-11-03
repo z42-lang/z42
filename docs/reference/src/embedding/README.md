@@ -8,3 +8,4 @@
 
 - [C ABI 契约](c-abi.md)
 - [原生互操作（native interop）](native-interop.md)
+- [Rust VM 扩展状态](vm-extensions.md)
