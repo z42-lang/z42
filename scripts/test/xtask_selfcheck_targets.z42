@@ -1,0 +1,34 @@
+// 实际 z42b 发现链路：候选名完整匹配去重，缺失名称不执行目标。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+
+int _selfcheckFixtureTargets(string root, TargetTooling tt) {
+    string dir = _xtaskWork(root, "fixture-target-selection");
+    _resetDir(dir);
+    File.WriteAllText(Path.Join(dir, "source.z42"),
+        "namespace FixtureSelection;\nusing Std.IO;\nvoid Main() { Environment.Exit(97); }\n");
+    foreach (var kind in new string[]{ "test", "bench" }) {
+        string toml = Path.Join(dir, "z42.toml");
+        string manifest = "[project]\nname = \"fixture-selection\"\nversion = \"0.1.0\"\nkind = \"lib\"\n"
+            + "[tests]\nauto = false\n[benches]\nauto = false\n";
+        foreach (var name in new string[]{ "exit_ok", "ok" }) {
+            manifest = manifest + "[[" + kind + "]]\nname = \"" + name + "\"\n"
+                + "harness = false\nentry = \"FixtureSelection.Main\"\ninclude = [\"source.z42\"]\n";
+        }
+        File.WriteAllText(toml, manifest);
+        int matched = 0;
+        var available = new List<string>();
+        // 两个夹具可以暴露同名目标；重复发现不应重复提示，也不能吞掉名称的子串。
+        foreach (var fixture in new string[]{ "first", "second" }) {
+            int failed = _runFixtureKind(root, fixture, toml, kind, kind, "missing", tt, ref matched, available);
+            if (failed != 0 || matched != 0 || String.Join(", ", available.ToArray()) != "exit_ok, ok") {
+                throw new Exception("fixture targets: " + kind + " candidate names, deduplication or missing selection");
+            }
+        }
+    }
+    Directory.Delete(dir, true);
+    Console.WriteLine("  ✅ fixture targets: test/bench, exact names, deduplication, missing selection");
+    return 0;
+}
