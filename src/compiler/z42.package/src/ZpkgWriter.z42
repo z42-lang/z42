@@ -241,6 +241,7 @@ public static class ZpkgWriterZ {
         int flags = 1;                       // FlagPacked
         if (zpkg.IsExe) { flags = flags | 2; }   // FlagExe
         flags = flags | PluginCaps.Mask(zpkg.PluginCaps);   // 插件能力位（bit3–5）
+        flags = PkgKind.Put(flags, zpkg.PkgKind);            // 包类型位（bit6–7；0=lib 与旧文件兼容）
         return new ZpkgSectionList(tags, datas, secCount, flags);
     }
 

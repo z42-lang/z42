@@ -59,6 +59,17 @@ public static class PluginZpkg {
         return new PluginInspection(info.PluginCaps, "");
     }
 
+    /// 只读文件头的完整 flags（不解析段）；读不出（缺文件 / 太短）→ 0。类型位/能力位都从它取。
+    public static int HeaderFlags(string zpkgPath) {
+        try {
+            byte[] d = File.ReadAllBytes(zpkgPath);
+            if (d.Length < 10) { return 0; }
+            return (int)d[8] | (((int)d[9]) << 8);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     /// 只读文件头的插件能力位（不解析段）；读不出（缺文件 / 太短）→ 0。
     public static int HeaderCaps(string zpkgPath) {
         try {
@@ -68,5 +79,37 @@ public static class PluginZpkg {
         } catch (Exception e) {
             return 0;
         }
+    }
+}
+
+// ── 包类型位（pkg-kind，deps-plugin-routing 第③刀）──────────────────────────────
+// 头 flags 的 bit6–7（此前恒 0 的闲置位）：lib=0 / exe=1 / plugin=2 / harness=3（test/bench
+// 派生目标产物）。与能力位互补：能力位答「实现了哪几类契约」（宿主路由用），类型位答「这个包
+// **是什么**」（声明性身份，分流/诊断用）。加位不 bump 版本（同 0.53 能力位先例：旧 reader 忽略
+// 高位；旧文件两位读 0=lib ⇒ 判插件走 IsPluginPkg 的能力位兜底）。
+public static class PkgKind {
+    public static int Lib     = 0;
+    public static int Exe     = 1;
+    public static int Plugin  = 2;
+    public static int Harness = 3;   // [[test]] / [[bench]] 派生目标的产物
+
+    public static int Mask = 192;    // bit6–7
+
+    /// 从头 flags 取类型码。
+    public static int Code(int flags) { return (flags & PkgKind.Mask) >> 6; }
+
+    /// 头 flags 里写入类型码（调用方在已含 packed/exe/caps 的 flags 上叠位）。
+    public static int Put(int flags, int kind) { return (flags & ~PkgKind.Mask) | (kind << 6); }
+
+    /// 「是插件包」的**判别权威**：类型位主判（plugin）；旧代文件两位为 0（读作 lib）但能力位
+    /// 非 0 ⇒ 兜底判 plugin（能力位只在 kind=plugin 构建写头，构造保证见 _derivePluginCaps）。
+    public static bool IsPluginPkg(int kind, int caps) { return kind == PkgKind.Plugin || (kind == PkgKind.Lib && caps != 0); }
+
+    /// 诊断用可读名。
+    public static string Describe(int kind) {
+        if (kind == PkgKind.Exe) { return "exe"; }
+        if (kind == PkgKind.Plugin) { return "plugin"; }
+        if (kind == PkgKind.Harness) { return "harness"; }
+        return "lib";
     }
 }
