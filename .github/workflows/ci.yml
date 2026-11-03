@@ -134,6 +134,8 @@ jobs:
             # stdlib [Test]（interp + jit）：stdlib 源码，加上 [Test] 的执行器（z42b、xtask 的 test-lib 编排）。
             stdlib:
               - 'src/libraries/**'
+              # 编译器域的扁平 / [tests] 单元也归 stdlib runner；目录工程另由 compiler-checks 跑。
+              - 'src/compiler/**/tests/**'
               - 'src/toolchain/builder/**'
               - '!src/toolchain/builder/tests/**'
               - 'scripts/test/xtask_test_lib*.z42'

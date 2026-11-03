@@ -210,7 +210,7 @@ gh workflow run retry-ci-runner.yml --ref main -f run_id=<失败运行ID>
 | `compiler` | `src/compiler/**`（排除私有 `tests/**` 与 `benches/**`） |
 | `compiler_checks` | `src/compiler/**`（含私有用例）、`src/toolchain/devtools/vscode/**` |
 | `vm` | `src/runtime/**`（含 `src/runtime/.cargo/`） |
-| `stdlib` | `src/libraries/**`、`src/toolchain/builder/**`（排除 `tests/**`；z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42`、`scripts/common/xtask_golden.z42` |
+| `stdlib` | `src/libraries/**`、`src/compiler/**/tests/**`、`src/toolchain/builder/**`（排除 builder 的 `tests/**`；z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42`、`scripts/common/xtask_golden.z42` |
 
 builder 的生产输入同时触发 `platform` 与 `stdlib`：z42b 既是 [Test] 执行器，它的 `publish`
 （apphost / iOS / Android 导出）又只在 `package-*` 里被执行，不能只跑标准库专项。
@@ -226,6 +226,8 @@ builder 的生产输入同时触发 `platform` 与 `stdlib`：z42b 既是 [Test]
 编译器域（z42c 前后端 + `z42.project` / `z42.build` / `z42.package`）已全部在 `src/compiler/` 下，
 `compiler` 覆盖生产输入，驱动 VM / stdlib 的消费者一致性检查；`compiler_checks` 还包含私有测试与 benchmark，
 保留编译器单元及其引用的 bench helper 回归，不因收窄消费者专项而丢失正确性验证。
+编译器私有 tests 同时触发 `stdlib`：该执行器负责扁平单元与显式 `[tests]` 源集，compiler-checks 只发现目录工程；
+两种发现格式都保留覆盖。私有 benches 不触发无关的 VM / stdlib 消费者专项。
 `examples` 单独成 flag 而不并进 `platform`：否则改一页 learn 会拉起
 `package-{ios,android,wasm}` + `test-desktop`，而它们一个示例都不跑。
 

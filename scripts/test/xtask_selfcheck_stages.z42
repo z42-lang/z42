@@ -49,9 +49,11 @@ void _checkChangedPlans() {
     _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
         "src/compiler/z42c.emission/tests/codegen/a.z42",
         "src/compiler/z42c.optimization/benches/cfg_bench.z42"
-    })) == "xtask test compiler;xtask bench stdlib z42c.optimization", "compiler private tests and bench union");
-    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.emission/tests/codegen/a.z42").stages) == "compiler",
-        "private compiler tests keep compiler coverage");
+    })) == "xtask test compiler;xtask test stdlib;xtask bench stdlib z42c.optimization", "compiler private tests and bench union");
+    foreach (var member in new string[]{ "z42c.emission", "z42.package", "z42.scripting" }) {
+        _gateAssert(String.Join(",", _mapFile("src/compiler/" + member + "/tests/unit/a.z42").stages) == "compiler,stdlib",
+            "compiler private tests keep both discovery formats");
+    }
     _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.optimization/benches/cfg_bench.z42").stages) == "bench,compiler",
         "private compiler benchmarks keep codegen consumers");
     _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.optimization/src/IrOpt.z42").stages)
