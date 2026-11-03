@@ -16,6 +16,9 @@
 ///   `object`      — obj_get_type / obj_ref_eq / obj_hash_code
 
 mod symavail;
+mod resource_registry;
+#[cfg(test)]
+mod resource_state_tests;
 use crate::vm::exec::call::builtin_abi as abi;
 pub mod convert;
 pub mod io;

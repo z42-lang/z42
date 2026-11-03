@@ -2,7 +2,7 @@
 //! `TlsSocketNative` in z42.core, used by z42.net's `TlsClient` / `TlsStream`.
 //!
 //! Same handle model as the TCP builtins (`network/tcp.rs`): a slot id into
-//! `VmCore.tls_sockets`; the table holds an `Arc<TlsSlot>` that calls clone. The rustls
+//! `tls::State`; the table holds an `Arc<TlsSlot>` that calls clone. The rustls
 //! session needs `&mut` for reads and writes alike, so it sits behind a lock, with a dup
 //! of the TCP socket beside it for shutdown and timeouts. Read and write are therefore
 //! serialized: while one thread is blocked in a read, another thread's write waits for
@@ -26,6 +26,15 @@
 //! Connect (resolution + connect + handshake), read and write run parked
 //! (`Blocking::new(..).then(..)`); the results are built after unparking.
 //!
+#[derive(Default)]
+pub(crate) struct State {
+    pub(super) slots: super::resource_registry::ResourceRegistry<std::sync::Arc<TlsSlot>>,
+}
+
+pub(super) fn state(ctx: &crate::vm_context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+    crate::corelib::resource_registry::state(ctx)
+}
+
 /// One TLS connection. `stream` holds the TLS session plus the socket; `sock` is a dup
 /// of the same socket, used to shut it down on close — waking a read blocked inside
 /// `stream`'s lock — and to set timeouts without waiting for that lock.
@@ -61,11 +70,11 @@ mod imp {
     use std::sync::Arc;
 
     pub(super) fn slot(ctx: &VmContext, slot: i64) -> Result<Arc<TlsSlot>, BuiltinError> {
-        ctx.core.tls_sockets.get_cloned(slot_id(slot)?).ok_or_else(closed)
+        super::state(ctx)?.slots.get_cloned(slot_id(slot)?).ok_or_else(closed)
     }
 
     pub(super) fn still_open(ctx: &VmContext, id: u64) -> Result<(), BuiltinError> {
-        if ctx.core.tls_sockets.lock().contains_key(&id) { Ok(()) } else { Err(closed()) }
+        if super::state(ctx)?.slots.lock().contains_key(&id) { Ok(()) } else { Err(closed()) }
     }
 
     /// The rustls error inside an I/O error (rustls reports protocol failures as
@@ -164,7 +173,7 @@ pub mod typed {
             }
             let sock = stream.sock.try_clone().map_err(|e| socket_error(&e, None))?;
             Ok(TlsSlot { stream: parking_lot::Mutex::new(stream), sock })
-        }).then(|ctx: &VmContext, s: TlsSlot| Ok(ctx.alloc_tls_socket_slot(s) as i64)))
+        }).then(|ctx: &VmContext, s: TlsSlot| Ok(super::state(ctx)?.slots.insert_new(std::sync::Arc::new(s)) as i64)))
     }
 
     /// `Read(slot, buffer, offset, count) -> n` decrypted bytes (0 = end of stream).
@@ -223,12 +232,13 @@ pub mod typed {
 
     /// Idempotent. Shuts the socket down so a read blocked on another thread wakes up.
     #[builtin(name = "__tls_close")]
-    pub fn tls_close(ctx: &VmContext, slot_arg: i64) {
+    pub fn tls_close(ctx: &VmContext, slot_arg: i64) -> Result<(), BuiltinError> {
         if let Ok(id) = u64::try_from(slot_arg) {
-            if let Some(s) = ctx.core.tls_sockets.take(id) {
+            if let Some(s) = super::state(ctx)?.slots.take(id) {
                 let _ = s.sock.shutdown(std::net::Shutdown::Both);
             }
         }
+        Ok(())
     }
 
     /// `millis <= 0` clears the timeout. Goes through the socket dup: does not wait for a
