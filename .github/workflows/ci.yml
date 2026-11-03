@@ -115,10 +115,11 @@ jobs:
               # vscode 语法门比对「入库生成产物 ↔ 模板 + Lexer 关键字表」，产物与模板都在这里。
               - 'src/toolchain/devtools/vscode/**'
               - '.github/workflows/ci.yml'
-            # Rust VM 单测（cargo test）+ JIT 一致性门；只有 src/runtime 改动能影响它们。
+            # Rust VM 完整测试与 JIT 一致性；运行时或专项执行器变更时验证。
             vm:
               # （含 src/runtime/.cargo/config.toml：target-dir 与 wasm rustflags）
               - 'src/runtime/**'
+              - 'scripts/test/xtask_test_runtime.z42'
               - '.github/workflows/ci.yml'
             # stdlib [Test]（interp + jit）：stdlib 源码，加上 [Test] 的执行器（z42b、xtask 的 test-lib 编排）。
             stdlib:
