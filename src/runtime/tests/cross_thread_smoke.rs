@@ -133,10 +133,10 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
     // Second wait on the same slot → ThreadException (handle consumed).
     let second = corelib::exec_builtin(&ctx, "__thread_wait", &[Value::I64(slot_id)])
         .expect_err("second wait on the same slot must fail");
-    let err = second.downcast::<corelib::abi::BuiltinError>()
+    let err = second.downcast::<z42::vm::exec::call::builtin_abi::BuiltinError>()
         .expect("a typed builtin error");
     match err {
-        corelib::abi::BuiltinError::Exception { class, message } => {
+        z42::vm::exec::call::builtin_abi::BuiltinError::Exception { class, message } => {
             assert_eq!(class, "Std.Threading.ThreadException");
             assert_eq!(message, "thread already joined");
         }

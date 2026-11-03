@@ -7,7 +7,7 @@
 
 use super::error::{check_port, check_ttl, closed, resolve, slot_id, socket_error, socket_exception, timeout};
 use super::error::code;
-use crate::corelib::abi::BuiltinError;
+use crate::vm::exec::call::builtin_abi::BuiltinError;
 use crate::vm_context::VmContext;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
@@ -43,7 +43,7 @@ fn multicast_group(group: &str) -> Result<Ipv4Addr, BuiltinError> {
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
-    use crate::corelib::abi::{Blocking, Then};
+    use crate::vm::exec::call::builtin_abi::{Blocking, Then};
     use crate::corelib::fs::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use crate::object::Value;
 

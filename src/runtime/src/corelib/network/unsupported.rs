@@ -10,7 +10,7 @@
 #[cfg(not(feature = "net"))]
 #[z42_macros::builtins]
 pub mod net {
-    use crate::corelib::abi::BuiltinError;
+    use crate::vm::exec::call::builtin_abi::BuiltinError;
     use crate::corelib::network::error::unsupported;
     use crate::object::Value;
 
@@ -74,7 +74,7 @@ pub mod net {
 
 #[z42_macros::builtins]
 pub mod tls {
-    use crate::corelib::abi::BuiltinError;
+    use crate::vm::exec::call::builtin_abi::BuiltinError;
     use crate::corelib::network::error::unsupported;
     use crate::object::Value;
 

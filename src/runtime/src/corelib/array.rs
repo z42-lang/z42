@@ -70,7 +70,7 @@ fn type_name_of(v: &Value) -> Option<String> {
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
-    use crate::corelib::abi::BuiltinError;
+    use crate::vm::exec::call::builtin_abi::BuiltinError;
 
     /// `Array.CreateInstance(Type elementType, int length)` — allocate an `elemType[]`
     /// of length `n`, default-initialised. Primitive element types pack (`int` → a PRIM

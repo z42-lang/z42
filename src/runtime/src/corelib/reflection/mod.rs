@@ -22,7 +22,7 @@
 //! the public API (`reflection::builtin_*` / `make_type_*` / `read_obj_slot`).
 //!
 
-use crate::corelib::abi::BuiltinError;
+use crate::vm::exec::call::builtin_abi::BuiltinError;
 use crate::interp::{exec_function, exec_function_with_type_args};
 use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::object::{NativeData, TypeDesc, Value};

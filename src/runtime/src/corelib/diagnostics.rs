@@ -7,7 +7,7 @@
 //! `RootRef` objects. All three builtins are pure queries from the caller's
 //! viewpoint — the world stop is an implementation detail, no z42 code runs.
 
-use crate::corelib::abi::BuiltinError;
+use crate::vm::exec::call::builtin_abi::BuiltinError;
 use crate::gc::walk::RootKind;
 use crate::object::NativeData;
 use crate::object::Value;

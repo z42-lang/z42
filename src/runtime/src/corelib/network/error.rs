@@ -11,7 +11,7 @@
 //! | port / TTL / keep-alive argument out of range | `ArgumentOutOfRangeException` |
 //! | the build has no sockets (`net` / `tls` feature off, e.g. wasm32) | `Std.Net.NetUnsupportedException : Std.PlatformNotSupportedException : NotSupportedException` |
 
-use crate::corelib::abi::{BuiltinError, FieldInit};
+use crate::vm::exec::call::builtin_abi::{BuiltinError, FieldInit};
 
 /// `SocketException`, then fallbacks (the builtins are only reachable through z42.net,
 /// which declares the first one).

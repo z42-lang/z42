@@ -19,7 +19,7 @@
 //! ```ignore
 //! #[z42_macros::builtins]
 //! pub(crate) mod parse {
-//!     use crate::corelib::abi::*;
+//!     use crate::vm::exec::call::builtin_abi::*;
 //!     #[builtin(name = "__int32_parse")]
 //!     pub fn int32_parse(s: &str) -> Result<i64, BuiltinError> { … }
 //!     #[builtin(name = "__thread_sleep", blocking)]
@@ -179,7 +179,7 @@ fn expand_fn(f: &mut ItemFn, args: BuiltinArgs) -> syn::Result<(TokenStream2, sy
 
     let name = &args.name;
     let n = params.len();
-    let abi = quote!(crate::corelib::abi);
+    let abi = quote!(crate::vm::exec::call::builtin_abi);
     let inner = format_ident!("__z42b_call_{}", fname);
     let regs_fn = format_ident!("__z42b_regs_{}", fname);
     let slice_fn = format_ident!("__z42b_slice_{}", fname);
@@ -311,7 +311,7 @@ fn expand2(attr: TokenStream2, item: TokenStream2) -> syn::Result<TokenStream2> 
     let Some((_, items)) = module.content.as_mut() else {
         return Err(syn::Error::new(module.span(), "builtins: needs an inline module (`mod x { ... }`)"));
     };
-    let abi = quote!(crate::corelib::abi);
+    let abi = quote!(crate::vm::exec::call::builtin_abi);
     let mut generated = Vec::new();
     let mut slots = Vec::new();
     for it in items.iter_mut() {

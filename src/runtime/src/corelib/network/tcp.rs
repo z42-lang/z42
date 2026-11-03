@@ -15,7 +15,7 @@
 
 use super::error::{check_port, check_ttl, closed, out_of_range, resolve, slot_id, socket_error, timeout};
 use super::listener::{accept_wait, AcceptWait, ListenerSlot};
-use crate::corelib::abi::BuiltinError;
+use crate::vm::exec::call::builtin_abi::BuiltinError;
 use crate::vm_context::VmContext;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
@@ -69,7 +69,7 @@ fn still_open(ctx: &VmContext, id: u64) -> Result<(), BuiltinError> {
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
-    use crate::corelib::abi::{Blocking, Then};
+    use crate::vm::exec::call::builtin_abi::{Blocking, Then};
     use crate::corelib::fs::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use crate::object::Value;
     use std::io::{Read, Write};
