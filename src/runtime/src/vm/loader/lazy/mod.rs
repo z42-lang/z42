@@ -103,7 +103,7 @@ pub struct LazyLoader {
     ///
     /// Why record-and-check rather than "don't register it": several callers treat
     /// a `None` from `try_lookup_*` as a **benign** signal — `interp::obj_new` reads
-    /// "no ctor for this class, that's fine", `vcall_resolve` / `dispatch` walk
+    /// "no ctor for this class, that's fine", `vm::exec::ops::vcall` / `vm::exec::ops::cast` walk
     /// candidate chains with `.or_else(...)`. Making resolution fail for an ambiguous
     /// name would turn "ambiguous" into "silently skipped the constructor", which is
     /// worse than today. So resolution is untouched and the check lives at the few

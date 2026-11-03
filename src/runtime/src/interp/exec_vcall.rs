@@ -1,7 +1,7 @@
 /// Virtual dispatch (`VCall`): the interpreter's **invoke** side.
 ///
 /// unify-vcall-resolution : *what* to call is decided by
-/// `vcall_resolve::resolve_vcall` (shared with `jit/helpers/vcall.rs::jit_vcall`);
+/// `vm::exec::ops::vcall::resolve_vcall` (shared with `jit/helpers/vcall.rs::jit_vcall`);
 /// this file only keeps the interpreter-specific pieces — the receiver-kind
 /// helpers (`primitive_class_name` / `value_synthetic_type_id`),
 /// the mixed-mode divert to an already-compiled native method, and running the

@@ -54,39 +54,19 @@
 
 ## 4. 依赖反转与无环
 
-### 4.1 两处环
-当前（单 crate）实测依赖：
-- **后端 → core**：大量直接边。jit 侧约 40 处直接引用 `crate::interp::*`（`exec_function` 回退、`vcall_resolve` / `isa_td` 等共享判定），helpers 调 core，共享 `VmContext`。
-- **core → jit**：模式派发一条——[src/runtime/src/vm.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm.rs) 的 `ExecMode::Jit => crate::jit::run(...)`。
-- **interp → jit**：混合模式带来的 4 个入口，十余处引用：`exec_call::try_native_static_call`、`exec_vcall::try_native_method_call`（被调方已编译就直接跑原生码）、`exec_support::try_native_exec`（`exec_function` 处按名转入原生码）、`exec_support::try_osr`（回边 OSR）。它们经 `VmContext::jit()` 取 `VmCore` 上的 `JitRuntime`，直接读其字段（`osr_threshold`）、调其解析方法、构造 `JitFrame`，再经 `jit::invoke::enter_compiled` 把入口指针 transmute 成 `JitFn` 调用。
+### 4.1 当前单 crate 的注册边界
 
-拆分后 `libz42`（含 vm.rs 派发与 interp）若仍直调 jit → `libz42 → libz42_jit → libz42` 成环。**Cargo 在 crate 层禁止循环依赖**，会直接编译失败，所以这两类边都**必须**反转。interp → jit 这一类目前直接依赖 `JitRuntime` / `JitFrame` 的内部布局，反转前要先把它收敛成槽上的少数几个函数（如「调用已编译函数」「尝试 OSR」）。
+当前运行时保持一个 crate。门面 `engine_assembly.rs` 按 feature 装配 Engine 与优化入口；`VmCore.engines` 持有每 VM 注册表和一次发布的 TierApi。VM 的模式分发、初始化执行及共享 ToString 调用均通过注册能力，不静态选择具体后端。
 
-### 4.2 反转：注册槽（即 ext.rs 既有模式）
-core 不静态调后端，改持注册槽；后端在加载/初始化时把自己注册进来：
+interp 的静态、虚、闭包和通用混合入口传入共享参数视图；TierBackend 的 JIT 实现拥有 JitRuntime、JitFrame、编译器与代码。OSR 的计数和阈值比较留在解释器热循环，实际交接经 TierApi。JIT 的冷/不可翻译调用经已注册 Engine 回落，两个后端的生产代码互不引用。
 
-```rust
-// libz42（core）—— 不引用任何后端 crate
-static JIT: OnceLock<BackendApi> = OnceLock::new();
-pub fn register_jit(api: BackendApi) { let _ = JIT.set(api); }
+派发纯事实与缓存归 `vm/runtime/dispatch`；可能加载、初始化或物化异常的执行编排归 `vm/exec/ops`。同一帧链与栈读取面归 VM，具体后端只持自己的激活。代码与 worker 共享的注册状态由所属 VmCore 保活，各 VM 独立。
 
-// vm.rs 派发永远只这么写：
-ExecMode::Jit => match JIT.get() {
-    Some(b) => (b.run)(ctx, module, entry),
-    None    => bail!("JIT backend not available; dlopen libz42_jit or link --features jit"),
-}
-```
-```rust
-// libz42_jit —— 依赖 libz42，反向注册
-pub fn register() -> BackendApi { BackendApi { run: jit_run, compile: jit_compile, /* … */ } }
-#[no_mangle] pub extern "C" fn z42_register_jit() { z42::register_jit(register()); }
-```
+### 4.2 独立交付仍是目标设计
 
-结果：**jit → core 直接；core → 后端走抽象槽（不静态依赖后端 crate）→ 无环**，Cargo 通过。
+注册边界见 [VM 总体架构](vm-architecture.md)「引擎注册与调用边界」。物理拆 crate、跨动态库的组件 ABI、自动加载和卸载尚未实现；当前 Rust trait/注册对象不是可跨版本或跨动态库使用的 ABI。以后独立交付须在这一每 VM 所有权边界上设计同构建组件 ABI，不能改成进程全局 JIT 单例。
 
-这与 [src/runtime/src/interop/ext.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs) 现对 native 扩展的做法（core 持函数指针表、扩展库按需填入）**同构**；调试钩子复用 [src/runtime/src/observer.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/observer.rs)（JIT 编译事件已 fire observer）。框架地基已有雏形。
-
-> interp→jit 的 tier-up / OSR 边收敛后也走同一注册槽 → 无环。
+目标依赖仍是组件依赖 core，core 经中立注册能力调用组件。现有模块化注册不表示 `libz42_jit` 已可独立 dlopen。
 
 ---
 
@@ -117,7 +97,7 @@ interp 是基座基线（近乎永远可用）；jit/aot/debug 是可选可切�
 
 | 粒度 | 槽何时/如何填 | 可用集定于 | 可切？ | 调用成本 |
 |---|---|---|---|---|
-| **static 静态链接** | 启动时 linked-in 的 init 调 `register()`（无 dlopen） | 构建/链接期 | 只在已链入的之间按 `--mode` 选 | 槽 1 次间接（模块入口粒度，忽略） |
+| **static 静态链接** | 启动时 linked-in 的 init 调 `register()`（无 dlopen） | 构建/链接期 | 只在已链入的之间按 `--mode` 选 | 入口及跨后端 / OSR 边界的注册调用，开销以 A/B 验收 |
 | **dynlink 动态链接（load-time dep）** | dylib 进程启动自动加载，其构造器/init 注册 | 链接期（独立 .dylib 文件） | 按设置选用；换同名 .dylib 即换实现 | 同上 + load-time 解析 |
 | **dlopen 运行时按需** | 用到时 core `dlopen` + 查 `z42_register_*` → 注册 | 运行时（看磁盘有无） | 最灵活，部署后丢 dylib 即增减 | 首次 dlopen 开销，之后同上 |
 
@@ -125,10 +105,10 @@ interp 是基座基线（近乎永远可用）；jit/aot/debug 是可选可切�
 
 ### 6.1 「静态=直接调用」的诚实说明
 因为 jit/aot 是**独立 crate**，core 不能写 `crate::jit::run` 字面直调（否则重现 §4 的环）。所以**即使静态链接，也经注册槽调**：
-- 槽间接**只在模块入口粒度**（每次 `Vm::run`，非每指令）→ 可忽略；
+- 注册调用用于模式入口、跨后端回落与 tier / OSR 交接；原生同后端调用继续自己的 ABI；
 - 真正热路径「编译代码 → helper」是 cranelift finalize 时 **baked 地址**，三种粒度下都是直调，不受影响。
 
-故「静态直接调用」的实际收益是**省 dlopen / load-time 解析**，而非省那一次槽间接。要字面零间接只能把组件并回 core（放弃拆分），不划算。
+故「静态直接调用」的实际收益是**省 dlopen / load-time 解析**，而非消除注册边界的调用。要字面零间接只能把组件并回 core（放弃拆分），不划算。
 
 ### 6.2 每组件独立选粒度（构建配置）
 ```

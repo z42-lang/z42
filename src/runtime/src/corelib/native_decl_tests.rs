@@ -50,7 +50,7 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // source, and there is no z42-callable surface for it (the index is a compile-time fact).
     ("__class_type_arg", "compiler-emitted: fix-class-level-typeof"),
     ("__class_default", "compiler-emitted: 继承链按声明类寻址（类级 default(T)）"),
-    // Invoked by the VM itself (boxed-struct `GetHashCode` protocol intercept in vcall_resolve).
+    // Invoked by the VM itself (boxed-struct `GetHashCode` protocol intercept in vm/exec/ops/vcall).
     ("__struct_hash_code", "VM-internal: boxed struct GetHashCode"),
     // Host-only surfaces (REPL line editor) wired by their hosts.
     ("__repl_readline",       "host-only: z42-repl cdylib"),

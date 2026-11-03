@@ -272,7 +272,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         requires: &["jit"],
         description: "let the interpreter's central divert tier up too: 0 = peek only (default), N = compile on the Nth interp entry",
         default_hint: "unset; 0 (off) — a workload trade, see the field doc in config.rs",
-        consumed_by: "interp/exec_support.rs",
+        consumed_by: "jit/engine.rs",
         ..TUNING
     },
     KnobSpec {

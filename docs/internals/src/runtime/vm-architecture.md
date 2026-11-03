@@ -873,7 +873,7 @@ const_str(module, idx):
 ### ObjNew dispatch（与 VCall 对称）
 
 `Instruction::ObjNew { dst, class_name, ctor_name, args }`。类与构造器的解析是 interp 与 JIT 共用的一份
-（[obj_new_resolve.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/exec/ops/obj_new.rs)），
+（[obj_new.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/exec/ops/obj_new.rs)），
 两侧只决定怎么跑 ctor：
 
 ```

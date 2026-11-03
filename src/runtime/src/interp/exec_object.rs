@@ -15,7 +15,7 @@ use super::Frame;
 
 /// `ObjNew` dispatch. Class and ctor come from the site cache (`site`, P1-2 PR 5) once the
 /// first allocation resolved them — no name hashing, no locks; the resolution itself is
-/// shared with the JIT (`obj_new_resolve`).
+/// shared with the JIT (`vm::exec::ops::obj_new`).
 ///
 /// Return `Ok(Some(val))` when the ctor `throw`s a user exception (or a symbol check
 /// throws), so the caller's `try`/`catch` can match — mirrors the `Call` / `Builtin`

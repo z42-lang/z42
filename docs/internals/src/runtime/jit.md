@@ -55,10 +55,7 @@ VmContext（每线程一份）
 `fn(frame: *mut JitFrame, ctx: *const VmContext, …)`，`ctx` 就是调用它的那条线程的上下文（`invoke::enter_compiled`
 传入）。于是帧栈、待抛异常、寄存器池、arena、计数器分片、safepoint 计数、栈下限都直接是本线程的；生成码按
 `offset_of!` 常量读 `VM_CONTEXT_STACK_LIMIT_OFFSET` / `VM_CONTEXT_CCTORS_OFFSET` / `VM_CONTEXT_SAFEPOINT_SKIP_OFFSET`，
-helper 与解释器分流经 `VmContext::jit()` 取共享的 `JitRuntime`（`helpers::jit_rt` / `jit_module`）：一次 relaxed load
-读本 ctx 缓存的 `jit_head.jit`。缓存在构造时取自 `core.engines.tier()`、由 `install` 写给安装它的 ctx；早于安装就存在的 ctx
-在下一次栈底帧 push 时补上（在那之前它的解释器帧照常解释执行）。这与 HotSpot / .NET 的「线程寄存器」
-同构：共享的是代码和槽表，可变的执行状态一律跟线程走。
+helper 由后端自己的 `VmContext::jit()` 经中立 TierApi 识别并借用 JitRuntime；解释器分流直接使用 `VmContext::tier()` 的注册调用能力。header 指针以 relaxed load 读取，构造和安装从 core 的已发布注册槽取得；早于安装的 context 在下一次底帧入栈时刷新。共享状态发布仍经 OnceLock，代码随 core 保活。
 
 - **JIT id = `FnId`**（`VmCore.funcs`，见 [vm-architecture.md](vm-architecture.md)「Call 站点 token：FnId」）：
   入口模块的函数是 `0..n`（= `module.functions` 下标），惰性加载包的函数是之后的 id。interp `Call` 站点的

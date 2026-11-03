@@ -7,8 +7,8 @@
 //! stack limit, counter shard — is therefore reached directly; generated code
 //! reads the few hot fields at fixed offsets (`vm_context::JitHead`,
 //! `VM_CONTEXT_*_OFFSET`). Shared JIT state lives here, on `VmCore::engines`, and a
-//! helper reaches it as `vm.jit()` (one load: the pointer is cached in the
-//! context's `JitHead`).
+//! helper borrows it through the neutral TierApi cached in the running
+//! context's `JitHead`; the backend identifies its own registered state.
 //!
 //! **What is shared.** The per-function slot table (keyed by JIT id = `FnId`,
 //! lock-free reads), the compiler (`Mutex<LazyCompiler>`, owning the cranelift
