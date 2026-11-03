@@ -172,14 +172,14 @@ pub(super) fn builtin(
             Ok(None)
         }
         Ok(None) => Ok(None),
-        Err(e) => raised(crate::corelib::abi::error::raise(ctx, module, name, *e, &[])),
+        Err(e) => raised(crate::vm::exec::call::builtin_abi::error::raise(ctx, module, name, *e, &[])),
     }
 }
 
 /// `raise`'s verdict in the interpreter's channels: a thrown value, or an `Err`.
 #[cold]
-pub(super) fn raised(r: crate::corelib::abi::error::Raised) -> Result<Option<Value>> {
-    use crate::corelib::abi::error::Raised;
+pub(super) fn raised(r: crate::vm::exec::call::builtin_abi::error::Raised) -> Result<Option<Value>> {
+    use crate::vm::exec::call::builtin_abi::error::Raised;
     match r {
         Raised::Throw(v) => Ok(Some(v)),
         Raised::Fatal(e) | Raised::Raw(e) => Err(e),

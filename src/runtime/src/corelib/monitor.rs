@@ -45,7 +45,7 @@ use std::thread::ThreadId;
 
 use parking_lot::{Condvar, Mutex};
 
-use crate::corelib::abi::{Blocking, BuiltinError, IntoRet};
+use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, IntoRet};
 use crate::object::{NativeData, TypeDesc};
 use crate::object::Value;
 use crate::vm_context::VmContext;
@@ -248,7 +248,7 @@ fn not_a_monitor(h: &Value) -> BuiltinError {
 #[z42_macros::builtins]
 pub mod typed {
     use super::{monitor_handle_type_desc, monitor_ref, Monitor};
-    use crate::corelib::abi::{Blocking, BuiltinError};
+    use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError};
     use crate::object::NativeData;
     use crate::object::Value;
     use crate::vm_context::VmContext;
