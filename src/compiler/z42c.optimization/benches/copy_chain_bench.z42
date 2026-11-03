@@ -1,0 +1,45 @@
+namespace CopyChainBench;
+using Z42.Optimization;
+using Z42.IR;
+using Std.IO;
+using Std.Harness;
+
+int exercise(int n) {
+    var f = CopyChainFixture.Make(n, false);
+    var m = new IrModule("copy_chain", new string[] { "" }, 1, new IrClassDesc[0], 0, new IrFunction[] { f }, 1);
+    IrOptPipeline.Run(m, Opt.CopyProp);
+    Assert.Equal(1, f.Blocks[0].InstrCount);
+    return f.Blocks[0].InstrCount;
+}
+[Benchmark]
+void bench_copy_chain_1024() {
+    var b = new Bencher(10, 20);
+    b.iter(() => { BenchHelpers.blackBox(exercise(1024)); });
+    b.printSummary("copy_chain_1024");
+}
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    int n = args.Length > 0 ? int.Parse(args[0]) : 1024;
+    var b = new Bencher(10, 20);
+    b.iter(() => { BenchHelpers.blackBox(exercise(n)); });
+    b.printSummary("copy_chain_" + n.ToString());
+}
+
+public static class CopyChainFixture {
+    public static IrFunction Make(int n, bool reverse) {
+        IrInstr[] ins = new IrInstr[n + 1];
+        int first = reverse ? n : 0;
+        ins[0] = new ConstI64Instr(new TypedReg(first, IrType.I64), "1");
+        int i = 1;
+        while (i <= n) {
+            int dst = reverse ? n - i : i;
+            int src = reverse ? n - i + 1 : i - 1;
+            ins[i] = new CopyInstr(new TypedReg(dst, IrType.I64), new TypedReg(src, IrType.I64));
+            i = i + 1;
+        }
+        int ret = reverse ? 0 : n;
+        var block = new IrBlock("entry", ins, ins.Length, new RetTerm(true, new TypedReg(ret, IrType.I64)), true);
+        return new IrFunction("copy_chain", 0, "long", true, new IrBlock[] { block }, 1, n + 1, "Interp",
+            new string[0], 0, new int[0], 0, new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+    }
+}
