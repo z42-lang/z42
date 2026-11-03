@@ -8,4 +8,4 @@ include = ["cfg_bench.z42"]
 "z42c.optimization" = "0.1.0"
 "z42.package" = "0.1.0"
 [build]
-output_dir = "../../../../artifacts/bench-cfg"
+output_dir = "../../../../artifacts/build/compiler/z42c.optimization/${profile}/benches/cfg"
