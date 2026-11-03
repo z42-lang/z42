@@ -53,6 +53,7 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir,
                  string parentPkg, string[] extraDepDirs, int extraN) {
     Pipeline p = new Pipeline();
     p.ParentPkg = parentPkg;
+    p.HarnessUnit = parentPkg.Length > 0;   // z42b 里 parentPkg 非空 ⟺ 派生 test/bench 目标 ⇒ 类型位 harness
     p.Compiler = _hostCompiler();                  // 共享 z42c 编译实现（ICompiler），in-process
     p.Workload = _selectWorkload(target.Family);   // 标准平台 workload 库
 
