@@ -215,7 +215,7 @@ class CrossRunZ {
 CrossRunZ _spawnCrossRun(string dir, string stdlibDist, string runVm, string mode) {
     string mainDir = Path.Join(dir, "main");
     string mainDist = _fixtureDist(mainDir);
-    string toml = _findToml(mainDir);
+    string toml = _fixtureManifest(mainDir);
     string name = toml.Length > 0 ? _tomlField(toml, "project.name", "") : "";
     // packed exe 的 dist 还含依赖；优先按工程名取主包，避免误运行依赖。
     string zpkg = name.Length > 0 ? Path.Join(mainDist, name + ".zpkg") : "";
@@ -351,5 +351,5 @@ string _prepPkgLibs(string pkgDir, string srcLibsDir) {
     if (Directory.Exists(pkgLibs)) { Directory.Delete(pkgLibs, true); }
     Directory.Create(pkgLibs);
     if (srcLibsDir.Length > 0) { _copyZpkgs(srcLibsDir, pkgLibs); }
-    return _findToml(pkgDir);
+    return _fixtureManifest(pkgDir);
 }
