@@ -3,6 +3,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Collections;
+using Z42.Project;
 
 // 汇总夹具结果；失败数从集合取得。
 int _fixtureSummary(int pass, List<string> failures) {
@@ -118,11 +119,12 @@ string _fixtureDist(string pkgDir) {
     return Path.Join(Path.Join(Path.Join(pkgDir, "artifacts"), "debug"), "dist");
 }
 
-string _findToml(string dir) {
-    if (!Directory.Exists(dir)) return "";
-    string[] hits = Path.Glob(dir, "*.toml");
-    if (hits.Length == 0) return "";
-    return hits[0];
+string _fixtureManifest(string dir) {
+    ManifestLocation found = ManifestLocator.FindIn(dir);
+    if (found.Kind == ManifestLocateKind.Ambiguous) {
+        throw new Exception(ManifestLocator.ErrorText(found, dir));
+    }
+    return found.IsFound() ? found.ManifestPath : "";
 }
 
 string _firstZpkg(string dir) {

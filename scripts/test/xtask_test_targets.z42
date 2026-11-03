@@ -102,7 +102,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     var available = new List<string>();
     foreach (var fx in _sortedStrings(Directory.Enumerate(fixRoot))) {
         string projDir = Path.Join(fixRoot, fx);
-        string toml = _findToml(projDir);
+        string toml = _fixtureManifest(projDir);
         if (toml.Length == 0 || !Directory.Exists(projDir)) { continue; }
         failed = failed + _runFixtureKind(root, fx, toml, kind, label, name, tt, ref matched, available);
     }
