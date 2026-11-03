@@ -1,0 +1,53 @@
+using Z42.IR;
+using Z42.Optimization;
+using SpeculationChainBench;
+using Std.Harness;
+
+[Test]
+void test_pure_name_converges_with_pure_and_throwing_providers() {
+    IrFunction good = PureNameFixture.Provider(false);
+    IrFunction bad = PureNameFixture.Provider(true);
+    IrFunction caller = PureNameFixture.Caller();
+    var m = new IrModule("duplicate", new string[] { "" }, 1, new IrClassDesc[0], 0,
+        new IrFunction[] { good, bad, caller }, 3);
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.True(table.IsPure("shared"));
+    Assert.True(table.IsPure("caller"));
+    Assert.True(table.IsSpeculatable("caller"));
+    m.Functions[0] = bad; m.Functions[1] = good;
+    Assert.True(IrPureFunctionTable.Compute(m).IsPure("shared"));
+}
+
+[Test]
+void test_pure_name_removes_all_rejected_providers_and_dependents() {
+    IrFunction good = PureNameFixture.Provider(false);
+    IrFunction bad = PureNameFixture.Provider(true);
+    IrFunction caller = PureNameFixture.Caller();
+    var m = new IrModule("duplicate", new string[] { "" }, 1, new IrClassDesc[0], 0,
+        new IrFunction[] { good, bad, caller }, 3);
+    Assert.True(IrPureFunctionTable.Compute(m).IsPure("caller"));
+    m.Functions[0] = PureNameFixture.Provider(true);
+    PureTable table = IrPureFunctionTable.Compute(m);
+    Assert.False(table.IsPure("shared"));
+    Assert.False(table.IsPure("caller"));
+    Assert.False(table.IsSpeculatable("caller"));
+}
+
+internal static class PureNameFixture {
+    public static IrFunction Caller() {
+        IrFunction f = PureNameFixture.Provider(false);
+        f.Name = "caller";
+        f.Blocks[0].Instrs[0] = new CallInstr(new TypedReg(0, IrType.I64), "shared", new TypedReg[0], 0);
+        return f;
+    }
+    public static IrFunction Provider(bool bad) {
+        IrFunction f = SpeculationChainFixture.Make(1, false).Functions[0];
+        f.Name = "shared";
+        if (bad) {
+            var reg = new TypedReg(0, IrType.Ref);
+            f.Blocks[0].Instrs[0] = new ConstNullInstr(reg);
+            f.Blocks[0].Term = new ThrowTerm(reg);
+        }
+        return f;
+    }
+}
