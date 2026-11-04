@@ -55,7 +55,9 @@ public class Stack<T> : IBasicCollection<T> {
             throw new Exception("Stack.Pop: stack is empty");
         }
         this.count = this.count - 1;
-        return this.items[this.count];
+        T item = this.items[this.count];
+        this.items[this.count] = default(T);
+        return item;
     }
 
     /// 只看栈顶不弹出；空栈抛 Exception。
@@ -66,8 +68,13 @@ public class Stack<T> : IBasicCollection<T> {
         return this.items[this.count - 1];
     }
 
-    /// 清空（幂等）。
+    /// 清空并释放元素引用，保留容量；幂等，O(n)。
     public void Clear() {
+        int i = 0;
+        while (i < this.count) {
+            this.items[i] = default(T);
+            i = i + 1;
+        }
         this.count = 0;
     }
 

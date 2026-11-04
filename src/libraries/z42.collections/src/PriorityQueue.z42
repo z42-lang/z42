@@ -46,6 +46,7 @@ public class PriorityQueue<T> : IBasicCollection<T> where T: IComparable {
             this.items[0] = this.items[this.count];
             this.SiftDown(0);
         }
+        this.items[this.count] = default(T);
         return root;
     }
 
@@ -57,8 +58,15 @@ public class PriorityQueue<T> : IBasicCollection<T> where T: IComparable {
         return this.items[0];
     }
 
-    /// 清空所有元素，保留已分配容量。
-    public void Clear() { this.count = 0; }
+    /// 清空并释放元素引用，保留已分配容量，O(n)。
+    public void Clear() {
+        int i = 0;
+        while (i < this.count) {
+            this.items[i] = default(T);
+            i = i + 1;
+        }
+        this.count = 0;
+    }
 
     // ── 内部实现 ──────────────────────────────────────────────────────────
 
