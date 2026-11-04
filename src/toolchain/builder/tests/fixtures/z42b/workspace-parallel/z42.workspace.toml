@@ -1,0 +1,8 @@
+[workspace]
+members = ["a", "b", "c", "d"]
+default_members = ["demo.a"]
+[workspace.build.graph]
+"demo.a" = ["demo.b", "demo.c"]
+"demo.b" = ["demo.d"]
+"demo.c" = ["demo.d"]
+"demo.d" = []

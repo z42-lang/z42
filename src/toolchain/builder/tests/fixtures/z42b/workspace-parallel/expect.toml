@@ -1,0 +1,44 @@
+desc = "complete diamond graph builds the shared leaf once and reuses completed products"
+[[step]]
+args = ["build", "{case}", "--package-jobs", "1"]
+exit = 0
+stdout_count = [["] demo.d: succeeded", "1"], [": succeeded", "4"]]
+exists = ["artifacts/demo.a/debug/dist/demo.a.zpkg", "artifacts/demo.a/debug/dist/demo.d.zpkg"]
+[[step]]
+tool = "copy"
+from = "artifacts/demo.a/debug/dist"
+to = "reference"
+[[step]]
+tool = "remove"
+paths = ["artifacts"]
+[[step]]
+args = ["build", "{case}", "--package-jobs", "2"]
+exit = 0
+stdout_count = [["] demo.d: succeeded", "1"], [": succeeded", "4"]]
+same_bytes = [["reference/demo.a.zpkg", "artifacts/demo.a/debug/dist/demo.a.zpkg"], ["reference/demo.b.zpkg", "artifacts/demo.a/debug/dist/demo.b.zpkg"], ["reference/demo.c.zpkg", "artifacts/demo.a/debug/dist/demo.c.zpkg"], ["reference/demo.d.zpkg", "artifacts/demo.a/debug/dist/demo.d.zpkg"]]
+[[step]]
+args = ["build", "{case}", "--package-jobs", "0"]
+exit = "nonzero"
+output_contains = ["--package-jobs must be positive"]
+[[step]]
+tool = "remove"
+paths = ["artifacts"]
+[[step]]
+tool = "copy"
+from = "replacements/broken.z42"
+to = "d/src/D.z42"
+[[step]]
+args = ["build", "{case}", "--package-jobs", "2"]
+exit = "nonzero"
+stdout_count = [["] demo.d: failed", "1"], [": blocked", "3"]]
+stdout_not_contains = [": succeeded"]
+absent = ["artifacts/demo.a/debug/dist/demo.a.zpkg", "artifacts/demo.b/debug/dist/demo.b.zpkg", "artifacts/demo.c/debug/dist/demo.c.zpkg"]
+[[step]]
+tool = "copy"
+from = "replacements/cycle.toml"
+to = "z42.workspace.toml"
+[[step]]
+args = ["build", "{case}", "--package-jobs", "2"]
+exit = "nonzero"
+output_contains = ["circular member dependency"]
+output_not_contains = [": succeeded", ": failed", ": blocked"]

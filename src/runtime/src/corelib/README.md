@@ -13,6 +13,8 @@ builtin」），登记进 `BUILTINS` 表（`builtin_assembly.rs` 把各 `#[built
 GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / Assert 等）都已从
 这里下沉到 stdlib 脚本，corelib 只保留真正需要 Rust 的最小面。
 
+纯值格式化和盒装值哈希由 object/value 定义；corelib 保留 builtin 调用、参数检查与装箱编排，原公开格式化路径直接再导出同一实现。
+
 反射调用、attribute factory 和线程 action 经 `vm::exec::engine` 的每 VM 注册槽回调脚本；
 调用参数、类型实参与 `ExecOutcome` 由 VM 调用协议承接。
 
@@ -23,7 +25,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | 隔离应用执行 / 退出报告 | `application.rs` 私有服务，由门面创建前注入；worker 只复制函数指针，不引用门面 RunOpts |
 | builtin 实现与登记 | 各功能模块生成 DESCS；门面 `builtin_assembly.rs` 编译期装配。名称/ID 查询在 `vm/runtime/builtins.rs`，分发在 `vm/exec/call/builtins.rs` |
 | builtin ABI v2：类型化实参 / 返回值、`BuiltinError` 与异常类、`blocking` | **`vm/exec/call/builtin_abi/`**（`args.rs` / `ret.rs` / `error.rs`；宏在 `crates/z42-macros/src/builtins_attr.rs`） |
-| 值转换 / 解析（`Parse` / `TryParse`）/ to-string / 装箱 | `convert.rs`（`typed` 模块，ABI v2） |
+| 值转换 / 解析（`Parse` / `TryParse`）/ to-string / 装箱 | `convert.rs`（`typed` 模块，ABI v2）；纯值格式化从 object/value 直接再导出 |
 | 控制台 IO（print / readline：`typed` 模块，ABI v2；写进程 stdout / stderr 与读 stdin 都 park）/ TestIO 捕获（sink 栈） | `io.rs` |
 | 字符串操作 / 字符（含 bulk 原语 `__str_to_chars` / `__str_substring` / `__str_concat_parts` / `__str_split` / `__str_join`：Substring / StringBuilder.ToString / Join / Concat / Split 的底座，一次拷贝取代逐字符 builtin 派发）| `string.rs` / `str_meta.rs` / `char.rs` |
 | 数学 | `math.rs` |

@@ -10,6 +10,7 @@
 namespace Z42.Pipeline;
 
 using Std.IO;
+using Z42.Core;   // DiagnosticCodes（W0612 弃用提示）
 using Z42.Syntax;
 using Z42.Symbols;
 using Z42.Package;
@@ -87,6 +88,7 @@ public sealed class CollectingReporter : IBuildReporter {
 }
 
 public sealed class BuildOptions {
+    public WorkspaceCompileDomain WorkspaceDomain = null;
     public ProjectManifest Manifest;
     public string          Label;         // 错误行里的清单名（toml 路径 / 派生清单的包名）
     public string          ProjectDir;    // 源根（[sources] glob 相对它）
@@ -126,9 +128,21 @@ public sealed class BuildSession {
     // retire-member-dep-decls 阶段 2：SDK 计划的成员感知版——本工程若是某 workspace 的成员，成员名
     // 并入放行集（计划非空 ⇒ 编译器目录挂载；成员清单空声明后这是唯一挂载通道，原先借清单条目当
     // 种子）。只动 plan（编译域），不回写 pm——那会污染 zpkg DEPS。
-    private static SdkLibPlan _memberAwarePlan(ProjectManifest pm, string projectDir, string[] libs, int libsN) {
+    private static SdkLibPlan _memberAwarePlan(ProjectManifest pm, string projectDir, string[] libs, int libsN, WorkspaceCompileDomain domain) {
+        if (domain != null) { return SdkLibs.Plan(pm, libs, libsN, pm.Project.IsPlugin()); }
         return SdkLibs.PlanForMembers(pm, libs, libsN, pm.Project.IsPlugin(),
                                       WorkspaceMemberDeps.EnclosingMemberNames(projectDir));
+    }
+
+    private static WsTier _workspaceTier(WorkspaceCompileDomain domain, SdkLibPlan sdk) {
+        WsTier tier = null;
+        if (domain != null) {
+            tier = new WsTier(); tier.Members = domain.Members; tier.MembersN = domain.Members.Length;
+            tier.Hidden = domain.Hidden; tier.HiddenN = domain.Hidden.Length;
+            tier.MemberDirs = domain.MemberDirectoryCount;
+            tier.OwnedMembers = domain.Members;
+        }
+        return SdkLibs.MergeTier(tier, sdk);
     }
 
     [Suppress("style.fnLinesHard", "122 body lines；拆分见 code-organization.md")]
@@ -143,6 +157,8 @@ public sealed class BuildSession {
             while (ke < kn.ErrorCount) { rep.Fail(kn.Errors[ke]); ke = ke + 1; }
             return BuildSession._fail(BuildExit.UsageError);
         }
+        int kw = 0;
+        while (kw < kn.WarningCount) { rep.Progress("warning: " + kn.Warnings[kw]); kw = kw + 1; }
         // ② 源发现（include 缺省 `**/*.z42`；exclude 由调用方给出时以调用方为准——z42b 已并入 hooks 目录）。
         string[] incs = pm.Sources.Include;
         int incN = pm.Sources.IncludeCount;
@@ -163,7 +179,8 @@ public sealed class BuildSession {
         //    空声明后这是唯一挂载通道）；扫描 tier 的成员放行与 E0497 契约在 `PackageCompile._resolveDeps`。
         string[] libs = o.BaseLibs;
         int libsN = o.BaseLibsN;
-        SdkLibPlan sdkPlan = BuildSession._memberAwarePlan(pm, o.ProjectDir, libs, libsN);
+        SdkLibPlan sdkPlan = BuildSession._memberAwarePlan(pm, o.ProjectDir, libs, libsN, o.WorkspaceDomain);
+        WsTier tier = BuildSession._workspaceTier(o.WorkspaceDomain, sdkPlan);
         if (sdkPlan.DirsN > 0) {
             libs = SdkLibs.AppendDirs(libs, libsN, sdkPlan);
             libsN = libsN + sdkPlan.DirsN;
@@ -209,7 +226,7 @@ public sealed class BuildSession {
         }
         // Reuse per-file IR only; package checks and diagnostics still run on every build.
         BuildSessionIncremental incremental = BuildSessionIncremental.Prepare(o, kn, srcs, texts, hashes,
-            libs, libsN, SdkLibs.MergeTier(null, sdkPlan), azPaths != null || routedNames != null || pm.PluginCount > 0);
+            libs, libsN, tier, azPaths != null || routedNames != null || pm.PluginCount > 0);
         CompilationUnit[] cus = incremental != null ? incremental.Prep.Cus : null;
         if (incremental == null) { cus = BuildSession._parseSources(texts, srcs, kn); }
         CompileInputs inp = new CompileInputs();
@@ -223,7 +240,7 @@ public sealed class BuildSession {
         inp.Features = kn.Features;
         inp.OptSet = kn.OptSet;
         inp.LibsDirs = libs; inp.LibsDirsN = libsN;
-        inp.Tier = SdkLibs.MergeTier(null, sdkPlan);
+        inp.Tier = tier;
         string[] declaredAll = SdkLibs.ExtendDeclared(declared, dn, sdkPlan);
         inp.DeclaredDeps = declaredAll; inp.DepCount = declaredAll.Length;
         inp.EnforceDeclaredDeps = true;          // 真的读了一份清单 ⇒ 执行依赖契约（E0497），同 z42c build
@@ -481,6 +498,9 @@ public sealed class BuildSession {
                 rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
                 return "";
             }
+            rep.Progress("warning: " + DiagnosticCodes.PluginsSourcePathDeprecated + ": [plugins] `" + aname
+                + "` 的源码 path 形态已被源集条目取代——改写为 { include = [\"<相对本清单目录的源文件>\"] }"
+                + "（对齐 [tests]，可加 exclude），行为不变（观察期）。");
             string ftoml = PluginSynth.SynthFile(cacheDir, aname, asrc);
             if (ftoml.Length == 0) {
                 rep.Fail("[plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + asrc + "）。");
@@ -490,6 +510,9 @@ public sealed class BuildSession {
         ManifestLocation aloc = ManifestLocator.FindIn(adir);
         if (aloc.Kind == ManifestLocateKind.Project) { return aloc.ManifestPath; }
         if (aloc.Kind == ManifestLocateKind.NotFound && Directory.Exists(adir)) {
+            rep.Progress("warning: " + DiagnosticCodes.PluginsSourcePathDeprecated + ": [plugins] `" + aname
+                + "` 的源码 path 形态已被源集条目取代——改写为 { include = [\"<目录>/**/*.z42\"] }"
+                + "（对齐 [tests]，可加 exclude），行为不变（观察期）。");
             string dtoml = PluginSynth.SynthDir(cacheDir, aname, adir);
             if (dtoml.Length == 0) {
                 rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + adir

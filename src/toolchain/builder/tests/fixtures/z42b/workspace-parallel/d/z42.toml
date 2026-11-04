@@ -1,0 +1,4 @@
+[project]
+name = "demo.d"
+version = "0.1.0"
+kind = "lib"

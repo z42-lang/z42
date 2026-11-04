@@ -1,0 +1,96 @@
+namespace Z42CollectionsSortedSetComparisonTests;
+
+using Std.Collections;
+using Std.Harness;
+
+class RankedItem : IComparable, IEquatable {
+    public int Key;
+    public int Id;
+    public RankedItem(int key, int id) { this.Key = key; this.Id = id; }
+    public int CompareTo(RankedItem other) { return this.Key - other.Key; }
+    public bool Equals(RankedItem other) { return this.Id == other.Id; }
+    public int GetHashCode() { return this.Id; }
+}
+
+[Test]
+void test_add_uses_order_equivalence_and_keeps_original() {
+    var set = new SortedSet<RankedItem>();
+    var first = new RankedItem(10, 1);
+    Assert.True(set.Add(first));
+    Assert.False(set.Add(new RankedItem(10, 2)));
+    Assert.Equal(1, set.Count());
+    Assert.Equal(1, set.Min().Id);
+}
+
+[Test]
+void test_contains_uses_order_equivalence() {
+    var set = new SortedSet<RankedItem>();
+    set.Add(new RankedItem(10, 1));
+    Assert.True(set.Contains(new RankedItem(10, 2)));
+    Assert.False(set.Contains(new RankedItem(9, 1)));
+    Assert.False(set.Contains(new RankedItem(11, 1)));
+}
+
+[Test]
+void test_remove_uses_order_equivalence_and_preserves_neighbors() {
+    var set = new SortedSet<RankedItem>();
+    set.Add(new RankedItem(10, 1));
+    set.Add(new RankedItem(20, 2));
+    set.Add(new RankedItem(30, 3));
+    Assert.True(set.Remove(new RankedItem(20, 99)));
+    Assert.Equal(2, set.Count());
+    Assert.Equal(10, set.Min().Key);
+    Assert.Equal(30, set.Max().Key);
+    Assert.False(set.Remove(new RankedItem(20, 2)));
+}
+
+[Test]
+void test_equal_objects_with_different_keys_do_not_alias() {
+    var set = new SortedSet<RankedItem>();
+    Assert.True(set.Add(new RankedItem(10, 1)));
+    Assert.True(set.Add(new RankedItem(30, 1)));
+    Assert.False(set.Contains(new RankedItem(20, 1)));
+    Assert.False(set.Remove(new RankedItem(20, 1)));
+    Assert.Equal(2, set.Count());
+    Assert.Equal(10, set.Min().Key);
+    Assert.Equal(30, set.Max().Key);
+}
+
+[Test]
+void test_distinct_order_keys_stay_sorted() {
+    var set = new SortedSet<RankedItem>();
+    set.Add(new RankedItem(30, 1));
+    set.Add(new RankedItem(10, 1));
+    set.Add(new RankedItem(20, 1));
+    RankedItem[] values = set.ToArray();
+    Assert.Equal(3, values.Length);
+    Assert.Equal(10, values[0].Key);
+    Assert.Equal(20, values[1].Key);
+    Assert.Equal(30, values[2].Key);
+}
+
+[Test]
+void test_empty_set_lookup_and_remove_are_stable() {
+    var set = new SortedSet<RankedItem>();
+    Assert.False(set.Contains(new RankedItem(10, 1)));
+    Assert.False(set.Remove(new RankedItem(10, 1)));
+    Assert.Equal(0, set.Count());
+}
+
+class OrderOnly : IComparable {
+    public int Key;
+    public OrderOnly(int key) { this.Key = key; }
+    public int CompareTo(OrderOnly other) { return this.Key - other.Key; }
+}
+
+[Test]
+void test_order_only_type_needs_no_equatable_implementation() {
+    var set = new SortedSet<OrderOnly>();
+    Assert.True(set.Add(new OrderOnly(20)));
+    Assert.True(set.Add(new OrderOnly(10)));
+    Assert.False(set.Add(new OrderOnly(20)));
+    Assert.True(set.Contains(new OrderOnly(10)));
+    Assert.True(set.Remove(new OrderOnly(10)));
+    Assert.Equal(1, set.Count());
+    Assert.Equal(20, set.Min().Key);
+}

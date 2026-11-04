@@ -1,0 +1,105 @@
+namespace Z42.Build;
+
+using Std.IO;
+using Std.Threading;
+using Z42.Project;
+
+/// Bounded, parent-owned package execution. Compiler state stays inside isolated children.
+public static class PackageScheduler {
+    public static PackageRunResult Run(WorkspaceMembers graph, PackageWorker[] workers, int limit) {
+        if (limit < 1) { throw new Exception("package worker limit must be positive"); }
+        if (workers.Length != graph.Count) { throw new Exception("package worker count does not match graph"); }
+        int i = 0;
+        while (i < workers.Length) {
+            if (workers[i] == null || workers[i].Command == null) { throw new Exception("package worker command is required"); }
+            int j = 0;
+            while (j < i) {
+                if (workers[j].Command == workers[i].Command) { throw new Exception("package tasks must own distinct commands"); }
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        PackageSchedulerRun run = new PackageSchedulerRun(graph, workers, limit);
+        try { return run.Execute(); }
+        catch (Exception e) { run.Close(); Directory.Delete(run.Result.LogDir, true); throw e; }
+        finally { run.Close(); }
+    }
+}
+
+sealed class PackageSchedulerRun {
+    public PackageRunResult Result;
+    private PackageTaskState _state;
+    private PackageWorker[] _workers;
+    private ProcessHandle[] _handles;
+    private int _limit;
+    private int _active;
+
+    public PackageSchedulerRun(WorkspaceMembers graph, PackageWorker[] workers, int limit) {
+        this._state = new PackageTaskState(graph);
+        this._workers = workers; this._handles = new ProcessHandle[workers.Length];
+        this._limit = limit; this._active = 0;
+        this.Result = new PackageRunResult(workers.Length);
+    }
+
+    public PackageRunResult Execute() {
+        while (!this._state.IsComplete()) {
+            this._fill();
+            if (this._state.IsComplete()) { break; }
+            if (this._active == 0) { throw new Exception("package graph has unfinished tasks but no active worker"); }
+            if (!this._poll()) { Thread.Sleep(5); }
+        }
+        int i = 0;
+        while (i < this._state.Count()) {
+            this.Result.Statuses[i] = this._state.Status(i);
+            if (this.Result.Statuses[i] == "failed" && this.Result.Code == 0) {
+                this.Result.Code = this.Result.ExitCodes[i];
+            }
+            i = i + 1;
+        }
+        return this.Result;
+    }
+
+    private void _fill() {
+        while (this._active < this._limit) {
+            int node = this._state.TakeReady();
+            if (node < 0) { return; }
+            try {
+                Process command = this._workers[node].Command;
+                command.Stdout(Stdio.ToFile(this.Result.StdoutPath(node)));
+                command.Stderr(Stdio.ToFile(this.Result.StderrPath(node)));
+                this._handles[node] = command.Spawn();
+                this._active = this._active + 1; this.Result.Started = this.Result.Started + 1;
+                if (this._active > this.Result.MaxActive) { this.Result.MaxActive = this._active; }
+            } catch (Exception e) {
+                File.WriteAllText(this.Result.StderrPath(node), e.Message);
+                this.Result.ExitCodes[node] = 1;
+                this._state.Complete(node, false);
+            }
+        }
+    }
+
+    private bool _poll() {
+        bool completed = false;
+        int i = 0;
+        while (i < this._handles.Length) {
+            if (this._handles[i] != null) {
+                ProcessResult? result = this._handles[i].TryWait();
+                if (result != null) {
+                    this._handles[i] = null; this._active = this._active - 1;
+                    this.Result.ExitCodes[i] = result.ExitCode;
+                    this._state.Complete(i, result.ExitCode == 0); completed = true;
+                }
+            }
+            i = i + 1;
+        }
+        return completed;
+    }
+
+    public void Close() {
+        int i = 0;
+        while (i < this._handles.Length) {
+            if (this._handles[i] != null) { this._handles[i].Dispose(); this._handles[i] = null; }
+            i = i + 1;
+        }
+    }
+}

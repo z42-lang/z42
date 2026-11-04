@@ -1,0 +1,246 @@
+namespace Z42CollectionsRetentionTests;
+
+using Std.Collections;
+using Std.Harness;
+
+class RetainedItem : IComparable, IEquatable {
+    public int Key;
+    public RetainedItem(int key) { this.Key = key; }
+    public int CompareTo(RetainedItem other) { return this.Key - other.Key; }
+    public int GetHashCode() { return this.Key; }
+    public bool Equals(RetainedItem other) { return this.Key == other.Key; }
+}
+
+struct RefValue {
+    public RetainedItem Item;
+    public RefValue(RetainedItem item) { this.Item = item; }
+}
+
+// Targets are created in a separate frame so test locals cannot keep them alive.
+WeakHandle FillQueue(Queue<RetainedItem> q) {
+    var item = new RetainedItem(1);
+    q.Enqueue(item);
+    return WeakHandle.MakeWeak(item);
+}
+
+WeakHandle DrainQueue(Queue<RetainedItem> q) {
+    var item = new RetainedItem(1);
+    var weak = WeakHandle.MakeWeak(item);
+    q.Enqueue(item);
+    Assert.Equal(1, q.Dequeue().Key);
+    return weak;
+}
+
+WeakHandle FillStack(Stack<RetainedItem> s) {
+    var item = new RetainedItem(1);
+    s.Push(item);
+    return WeakHandle.MakeWeak(item);
+}
+
+WeakHandle DrainStack(Stack<RetainedItem> s) {
+    var item = new RetainedItem(1);
+    var weak = WeakHandle.MakeWeak(item);
+    s.Push(item);
+    Assert.Equal(1, s.Pop().Key);
+    return weak;
+}
+
+WeakHandle FillHeap(PriorityQueue<RetainedItem> q) {
+    var item = new RetainedItem(1);
+    q.Enqueue(item);
+    return WeakHandle.MakeWeak(item);
+}
+
+WeakHandle DrainHeap(PriorityQueue<RetainedItem> q) {
+    var item = new RetainedItem(1);
+    var weak = WeakHandle.MakeWeak(item);
+    q.Enqueue(item);
+    Assert.Equal(1, q.Dequeue().Key);
+    return weak;
+}
+
+WeakHandle FillSet(SortedSet<RetainedItem> s) {
+    var item = new RetainedItem(1);
+    s.Add(item);
+    return WeakHandle.MakeWeak(item);
+}
+
+WeakHandle DrainSet(SortedSet<RetainedItem> s) {
+    var item = new RetainedItem(1);
+    var weak = WeakHandle.MakeWeak(item);
+    s.Add(item);
+    Assert.True(s.Remove(item));
+    return weak;
+}
+
+[Test]
+void test_queue_dequeue_releases_target() {
+    var q = new Queue<RetainedItem>();
+    var weak = DrainQueue(q);
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(0, q.Count());
+    q.Enqueue(new RetainedItem(2));
+    Assert.Equal(2, q.Dequeue().Key);
+}
+
+[Test]
+void test_stack_pop_releases_target() {
+    var s = new Stack<RetainedItem>();
+    var weak = DrainStack(s);
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(0, s.Count());
+}
+
+[Test]
+void test_heap_dequeue_releases_target() {
+    var q = new PriorityQueue<RetainedItem>();
+    var weak = DrainHeap(q);
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(0, q.Count());
+}
+
+[Test]
+void test_set_remove_releases_target() {
+    var s = new SortedSet<RetainedItem>();
+    var weak = DrainSet(s);
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(0, s.Count());
+}
+
+[Test]
+void test_queue_clear_releases_wrapped_targets() {
+    var q = new Queue<RetainedItem>();
+    for (int i = 0; i < 3; i++) {
+        q.Enqueue(new RetainedItem(i));
+        q.Dequeue();
+    }
+    var first = FillQueue(q);
+    var second = FillQueue(q);
+    q.Clear();
+    q.Clear();
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(first) == null);
+    Assert.True(WeakHandle.Upgrade(second) == null);
+    Assert.Equal(0, q.Count());
+    q.Enqueue(new RetainedItem(9));
+    Assert.Equal(9, q.Dequeue().Key);
+}
+
+[Test]
+void test_stack_clear_releases_target() {
+    var s = new Stack<RetainedItem>();
+    var weak = FillStack(s);
+    s.Clear();
+    s.Clear();
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(0, s.Count());
+}
+
+[Test]
+void test_heap_clear_releases_target() {
+    var q = new PriorityQueue<RetainedItem>();
+    var weak = FillHeap(q);
+    q.Clear();
+    q.Clear();
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(0, q.Count());
+}
+
+[Test]
+void test_set_clear_releases_target() {
+    var s = new SortedSet<RetainedItem>();
+    var weak = FillSet(s);
+    s.Clear();
+    s.Clear();
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(0, s.Count());
+}
+
+WeakHandle DrainStructQueue(Queue<RefValue> q) {
+    var item = new RetainedItem(7);
+    var weak = WeakHandle.MakeWeak(item);
+    q.Enqueue(new RefValue(item));
+    Assert.Equal(7, q.Dequeue().Item.Key);
+    return weak;
+}
+
+[Test]
+void test_queue_dequeue_releases_struct_reference_leaf() {
+    var q = new Queue<RefValue>();
+    var weak = DrainStructQueue(q);
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(0, q.Count());
+}
+
+[Test]
+void test_heap_dequeue_preserves_surviving_references() {
+    var q = new PriorityQueue<RetainedItem>();
+    q.Enqueue(new RetainedItem(3));
+    q.Enqueue(new RetainedItem(1));
+    q.Enqueue(new RetainedItem(2));
+    Assert.Equal(1, q.Dequeue().Key);
+    GC.ForceCollect();
+    Assert.Equal(2, q.Dequeue().Key);
+    GC.ForceCollect();
+    Assert.Equal(3, q.Dequeue().Key);
+}
+
+[Test]
+void test_set_remove_preserves_shifted_references() {
+    var s = new SortedSet<RetainedItem>();
+    s.Add(new RetainedItem(3));
+    s.Add(new RetainedItem(1));
+    s.Add(new RetainedItem(2));
+    Assert.True(s.Remove(new RetainedItem(2)));
+    GC.ForceCollect();
+    Assert.Equal(1, s.Min().Key);
+    Assert.Equal(3, s.Max().Key);
+    Assert.Equal(2, s.Count());
+}
+
+WeakHandle FillStructStack(Stack<RefValue> s) {
+    var item = new RetainedItem(8);
+    s.Push(new RefValue(item));
+    return WeakHandle.MakeWeak(item);
+}
+
+[Test]
+void test_stack_clear_releases_struct_reference_leaf() {
+    var s = new Stack<RefValue>();
+    var weak = FillStructStack(s);
+    s.Clear();
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(0, s.Count());
+}
+
+[Test]
+void test_primitive_and_reference_queue_policies_are_independent() {
+    var numbers = new Queue<int>();
+    numbers.Enqueue(42);
+    var references = new Queue<RetainedItem>();
+    var weak = DrainQueue(references);
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(42, numbers.Dequeue());
+}
+
+[Test]
+void test_primitive_and_reference_stack_policies_are_independent() {
+    var numbers = new Stack<int>();
+    numbers.Push(42);
+    var references = new Stack<RefValue>();
+    var weak = FillStructStack(references);
+    references.Clear();
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(42, numbers.Pop());
+}

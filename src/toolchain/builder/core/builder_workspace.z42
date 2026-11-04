@@ -96,6 +96,12 @@ int _wsRunVerb(ParseResult r, string verb, string wsToml) {
         ConsoleError.WriteLine("z42 " + verb + ": " + e.Message);
         return 2;
     }
+    if (verb == "build" && plan.Graph != null) { return _builderGraphRun(r, wsToml, profile); }
+    if (verb == "build") {
+        try {
+            if (_builderPackageJobs(r) > 1) { throw new Exception("--package-jobs requires workspace.build.graph"); }
+        } catch (Exception e) { ConsoleError.WriteLine(e.Message); return 2; }
+    }
     // WS032：成员清单按名声明同 workspace 成员依赖 → 纯提示（同 z42c build --workspace；构建序由
     // default_members 决定，声明只剩冗余）。clean 也照打——它是清单卫生问题，与动词无关。
     string[] wsWarns = WorkspaceMemberDeps.RedundantDepWarnings(wsToml);

@@ -42,6 +42,12 @@ public class Z42cCompiler : ICompiler {
             d = d + 1;
         }
         CollectingReporter rep = new CollectingReporter();
+        if (req.WorkspaceDomain != null) {
+            if (req.Manifest.Project.Name != req.WorkspaceDomain.Target) {
+                return new CompileResult("", "", false, "workspace request does not match its planned package");
+            }
+            libs = req.WorkspaceDomain.Directories; libsN = libs.Length;
+        }
         BuildOptions o = new BuildOptions(req.Manifest, req.SourceDir, BuildRole.HostTarget, req.Profile == "release", rep);
         if (req.PackageName != "") { o.Label = req.PackageName; }
         o.BaseLibs = libs; o.BaseLibsN = libsN;
@@ -50,6 +56,7 @@ public class Z42cCompiler : ICompiler {
         o.ParentPkg = req.ParentPkg;
         o.HarnessUnit = req.HarnessUnit;   // 类型位 harness（deps-plugin-routing 第③刀）
         o.Incremental = req.Incremental;
+        o.WorkspaceDomain = req.WorkspaceDomain;
         BuildResult br = new BuildSession(o).Run();
         CompileResult res = new CompileResult(br.OutZpkg, br.OutZsym, br.Code == BuildExit.Ok, rep.ErrorsText());
         res.Warnings = rep.WarningsText();

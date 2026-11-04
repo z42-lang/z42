@@ -7,6 +7,40 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> {
     VmContext::new()
 }
 
+fn may_contain_refs(ctx: &VmContext, array: &Value) -> anyhow::Result<Value> {
+    crate::vm::exec::call::builtins::exec_builtin_value(ctx, "__array_may_contain_refs", std::slice::from_ref(array))
+}
+
+#[test]
+fn reference_probe_reads_storage_mode_not_contents() {
+    let ctx = ctx();
+    for (tag, expected) in [("int", false), ("long", false), ("byte", false),
+        ("bool", false), ("char", false), ("double", false),
+        ("string", true), ("object", true), ("T", true)] {
+        for length in [0, 3] {
+            let array = ArrayObj::alloc_typed_filled(ctx.heap(), crate::object::ElemType::intern(tag),
+                length, default_value_for(tag));
+            assert!(matches!(may_contain_refs(&ctx, &array).unwrap(), Value::Bool(v) if v == expected), "{tag}[{length}]");
+        }
+    }
+    let frozen = Value::Array(ArrayObj::leaked(vec![Value::I64(7)]));
+    assert!(matches!(may_contain_refs(&ctx, &frozen).unwrap(), Value::Bool(true)));
+}
+
+#[test]
+fn reference_probe_rejects_null() {
+    let ctx = ctx();
+    let error = may_contain_refs(&ctx, &Value::Null).unwrap_err();
+    assert!(error.to_string().contains("ArgumentNullException"), "{error}");
+}
+
+#[test]
+fn reference_probe_rejects_wrong_kind() {
+    let ctx = ctx();
+    let error = may_contain_refs(&ctx, &Value::I64(3)).unwrap_err();
+    assert!(error.to_string().contains("an array"), "{error}");
+}
+
 // The builtin surface is driven through the table like the stdlib does, so these tests
 // also cover the typed registration (null / wrong-kind / arity errors come from the ABI).
 fn clone(ctx: &VmContext, this: &Value) -> anyhow::Result<Value> {

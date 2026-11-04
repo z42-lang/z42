@@ -67,7 +67,7 @@ public partial class List<T> {
         return true;
     }
 
-    /// 原地移除所有满足 `match` 的元素（稳定压缩），返回移除个数。
+    /// 原地移除所有满足 `match` 的元素（稳定压缩），释放废弃槽引用并返回移除个数。
     public int RemoveAll(Predicate<T> match) {
         int w = 0;
         int r = 0;
@@ -79,6 +79,11 @@ public partial class List<T> {
             r = r + 1;
         }
         int removed = this.Count - w;
+        int i = w;
+        while (i < this.Count) {
+            this.items[i] = default(T);
+            i = i + 1;
+        }
         this.Count = w;
         return removed;
     }
@@ -93,8 +98,10 @@ public partial class List<T> {
         return -1;
     }
 
-    /// 返回 [index, index+count) 子区间的新 List（浅拷贝，保持顺序）。
+    /// 返回 [index, index+count) 子区间的新 List（浅拷贝，保持顺序）；区间必须位于 [0, Count] 内。
     public List<T> GetRange(int index, int count) {
+        if (index < 0 || index > this.Count) throw new ArgumentOutOfRangeException("List.GetRange: index out of range");
+        if (count < 0 || count > this.Count - index) throw new ArgumentOutOfRangeException("List.GetRange: count out of range");
         List<T> result = new List<T>(count);
         int i = 0;
         while (i < count) {

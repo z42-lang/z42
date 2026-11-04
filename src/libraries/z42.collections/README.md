@@ -18,7 +18,7 @@ z42 **次级集合类型**（FIFO / LIFO / 有序 / 专用场景容器）。
 | `Queue.z42` | `Queue<T>` | 队列（FIFO） |
 | `Stack.z42` | `Stack<T>` | 栈（LIFO） |
 | `LinkedList.z42` | `LinkedList<T>` / `LinkedListNode<T>` | 双向链表（O(1) 端点 / O(n) Find） |
-| `SortedSet.z42` | `SortedSet<T> where T: IComparable + IEquatable` | 有序集合 |
+| `SortedSet.z42` | `SortedSet<T> where T: IComparable` | 有序集合，CompareTo == 0 判定成员等价 |
 | `PriorityQueue.z42` | `PriorityQueue<T> where T: IComparable` | 最小堆优先队列（O(log n) Enqueue/Dequeue / O(1) Peek） |
 
 ## Namespace

@@ -13,7 +13,7 @@
 //! - 没有预分配容量的构造器：五个类型都只有无参构造器。
 //! - 不能从既有集合 / 数组构造：没有 new Queue<T>(items) 这类构造器，只能逐个加。
 //! - 没有自定义比较器：顺序固定由元素的 CompareTo（PriorityQueue / SortedSet）、
-//!   相等固定由 Equals（LinkedList / SortedSet）决定，构造器不接受比较器。
+//!   SortedSet 的成员等价由 CompareTo == 0 决定；LinkedList 的相等由 Equals 决定，构造器不接受比较器。
 //! - SortedSet<T> 没有区间视图（GetViewBetween / Reverse() / 前驱后继查询）。
 //! - 没有 SortedDictionary<K,V>、没有并发集合、没有 Deque 两端队列。
 //! - Grow()（Stack / Queue / SortedSet）虽然是 public，属于容量管理入口，正常使用不需要调用。
@@ -26,12 +26,14 @@ public class Stack<T> : IBasicCollection<T> {
     T[] items;
     int count;
     int capacity;
+    bool clearSlots;
 
     /// 创建空栈。
     public Stack() {
         this.capacity = 4;
         this.items = new T[4];
         this.count = 0;
+        this.clearSlots = Array.MayContainReferences(this.items);
     }
 
     /// 返回元素个数（方法，不是字段）。
@@ -55,7 +57,9 @@ public class Stack<T> : IBasicCollection<T> {
             throw new Exception("Stack.Pop: stack is empty");
         }
         this.count = this.count - 1;
-        return this.items[this.count];
+        T item = this.items[this.count];
+        if (this.clearSlots) this.items[this.count] = default(T);
+        return item;
     }
 
     /// 只看栈顶不弹出；空栈抛 Exception。
@@ -66,8 +70,15 @@ public class Stack<T> : IBasicCollection<T> {
         return this.items[this.count - 1];
     }
 
-    /// 清空（幂等）。
+    /// 清空并释放元素引用，保留容量；幂等，O(n)。
     public void Clear() {
+        if (this.clearSlots) {
+            int i = 0;
+            while (i < this.count) {
+                this.items[i] = default(T);
+                i = i + 1;
+            }
+        }
         this.count = 0;
     }
 

@@ -219,7 +219,7 @@ fn resolve_vcall_unchecked<'a>(
                 return Ok(ResolvedVCall { target: VCallTarget::Immediate(ty), this: obj_val.clone() });
             }
             if method == "GetHashCode" {
-                let h = Value::I64(crate::corelib::convert::struct_hash_code(b));
+                let h = Value::I64(crate::object::value::boxed_hash::struct_hash_code(b));
                 return Ok(ResolvedVCall { target: VCallTarget::Immediate(h), this: obj_val.clone() });
             }
             // 短类型名只是 **没有真实现时** 的兜底（C# ValueType 默认行为）。record 的合成

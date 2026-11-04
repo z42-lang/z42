@@ -154,7 +154,7 @@ pub fn format_uncaught(value: &Value, ctx: &VmContext, module: &Module) -> Strin
                 format!("uncaught exception: {}: {}", rc.type_desc().name, msg),
             _ => format!("uncaught exception: {}", msg),
         },
-        None      => format!("uncaught exception: {}", crate::corelib::convert::value_to_str(value)),
+        None      => format!("uncaught exception: {}", crate::object::value::format::value_to_str(value)),
     };
     match read_stack_trace(value, ctx, module) {
         Some(trace) => format!("{header}\n{trace}"),

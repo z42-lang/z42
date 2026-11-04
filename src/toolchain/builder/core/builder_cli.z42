@@ -13,7 +13,9 @@ using Z42.Project;   // ManifestLoader / BuildLayout（clean）
 // exe 入口。standalone（`z42vm z42.builder.zbc -- <verb> ...`）与 launcher 透传
 // （`z42 <verb> ...`）都经 Environment.GetCommandLineArgs() 拿到动词起的 argv。
 void Main() {
-    Environment.Exit(_runBuilderGuarded(Environment.GetCommandLineArgs()));
+    string[] args = Environment.GetCommandLineArgs();
+    if (args.Length > 0 && args[0] == "--package-worker") { Environment.Exit(_builderWorkspaceWorker(args)); return; }
+    Environment.Exit(_runBuilderGuarded(args));
 }
 
 // 清单写错（TOML 语法 / 值类型）⇒ 一行错误 + 退出码 1（同 z42c build），不甩未捕获异常的栈。
@@ -62,6 +64,7 @@ SubcommandRouter _builderRoot() {
     build.AddFlag("workspace", "", "build every workspace member (default: default_members)");
     build.AddOption("rid", "", "target RID (default: host)", "");
     build.AddFlag("release", "", "release profile (default: debug)");
+    build.AddOption("package-jobs", "", "isolated package workers (requires workspace.build.graph)", "1");
     root.Add("build", "compile to a platform-agnostic app.zpkg", build);
 
     ArgParser pub = new ArgParser("z42b publish", "produce a release deployable (desktop apphost)");

@@ -60,6 +60,7 @@ class ClosurePlan {
 ClosurePlan _buildPathDepClosure(string tomlPath, Target t) {
     ClosurePlan r = new ClosurePlan();
     r.Rc = 0; r.Dists = new string[0]; r.Names = new string[0]; r.Count = 0;
+    if (BuilderWorkspaceState.Current() != null) { return r; }
     // 🔴 `Resolve` 会抛（依赖成环 / 目录里不是恰一份 manifest）——异常消息本身是好的，
     // 接住只打消息，别让用户拿到一串 z42b 内部栈帧（同 driver 那处）。
     PathDepClosure closure;
@@ -120,6 +121,9 @@ ClosurePlan _buildPathDepClosure(string tomlPath, Target t) {
 int _cmdBuild(ParseResult r) {
     int wrc = _wsDispatch(r, "build");
     if (wrc >= 0) { return wrc; }
+    try {
+        if (_builderPackageJobs(r) > 1) { throw new Exception("--package-jobs requires an explicit workspace graph"); }
+    } catch (Exception e) { ConsoleError.WriteLine(e.Message); return 2; }
     return _runVerb(r, "");
 }
 int _cmdPublish(ParseResult r) { return _runVerb(r, BuildMode.Publish); }
@@ -186,6 +190,7 @@ BuildOutcome _buildProjectAt(ParseResult r, string mode, string outRoot, string 
             Directory.Create(dirs.Dist);
             string distZpkg = Path.Join(dirs.Dist, m.Project.Name + ".zpkg");
             File.Copy(builtZpkg, distZpkg);
+            _builderCopySidecar(dirs.Dist, m.Project.Name);
             // path 闭包成员随产物走：名单直接来自上面刚建的闭包，**不是**去源码树
             // 按名搜。少了这一步，闭包只买到「能编」——拷出去运行会死在中间那个包的方法里
             // （实测 `MissingSymbolException: OoMid.Mid.Call`）。

@@ -288,6 +288,26 @@ mtime 恰好相同。大小与毫秒 mtime 都未变化的原地覆写仍无法�
 和稀疏依赖基准。基准的 `Main` 接收文件数、重复次数、`chain|sparse`，输出累计失效文件数；
 同机比较两版 pipeline，保持 VM、基准字节码和其余依赖相同。
 
+### 显式图的隔离调度
+
+`WorkspaceGraph` 解析完整成员图，`Bind` 保留清单已有依赖约束，默认目标投影包含其前置闭包。
+`PackageTaskState` 克隆图并集中管理 pending/running/succeeded/failed/blocked；领取就绪节点时即标为运行，
+不会因共享前置边或重复轮询再次领取。`PackageScheduler` 在父进程维护有界子进程集合，标准输出和错误写入
+独立文件，完成后按节点顺序回放，避免管道缓冲阻塞。异常收尾负责终止并回收仍存活的子进程。
+
+driver 与 builder 复用图、状态机和进程运行器，各自保留单包构建入口。无显式图仍走原串行路径；
+不能把隐式顺序中的缺边当作并行机会。隔离进程避免共享 `DepScanCache`、`WorkspaceMemberDeps`、
+`WsSiblings` 等过程状态，同时也失去跨成员 memo 复用，并引入启动成本；吞吐收益须以真实工作负载验证。
+
+builder 将完整 `WorkspaceCompileDomain` 经 `Pipeline`、`CompileRequest` 传给 HostTarget：全成员身份包含
+未选中成员，只有前置闭包可见。`WsTier.OwnedMembers` 将每个成员目录限定为该成员的主包，运行期并置的
+依赖副本不能充当编译输入；SDK 同名旧包也不能补上缺失边。相同扫描域用于缓存身份和实际编译，前置成员
+并入依赖契约白名单。没有此上下文的请求保留原 SDK 和成员发现行为。
+
+父进程在启动前用 `OutputOwnership` 的临时物理目录标记检查重叠、别名和共享子树；探针在 worker 启动前清除。
+worker 复用已成功前置成员的产物，绕过递归源码闭包和装配时的代建。主包 sidecar 采用编译结果返回路径，
+没有 sidecar 时删除旧副本；依赖主包及配套 sidecar 从完成目录复制，不能把目录中偶然存在的旧包当作完成凭据。
+
 ### HostTarget 的增量边界
 
 构建器经 `Z42cCompiler.Compile` 将 `CompileRequest.Incremental` 传入 `BuildOptions`。
@@ -336,6 +356,19 @@ UsedNs 和 per-CU 警告。损坏 IR/meta 退回 fresh；全局 using 影响整�
 **过度失效是安全方向**：依赖名单按清单顺序折入，所以重排 `[dependencies]` 会多触发一次全量；
 `DepIdentity` 同理不按 `declaredDeps` 过滤（`Z42_LIBS` 里任何包重建都让全部消费方失效）。
 两处都是刻意的——漏失效产出错产物，过度失效只是慢。
+
+HostTarget 的文件缓存可使用另一种依赖观测：没有编译期插件且消费者至少有八个源文件时，packed lib 的完整 SIGS 和 TYPE
+经现有 zbc writer 重新规范化，再与包名、版本、类型位、命名空间和依赖文件名单合成身份。
+它不是只取 public ABI：默认参数、泛型约束、属性、枚举值和结构布局等导入元数据都保留；
+原字符串池编号、源路径、调试信息及函数体不属于这条导入路径的输入。
+全部可见包和扫描顺序仍进入键，不按“上次实际调用了谁”缩小解析世界。
+indexed 包、插件及携带插件的包、非空跨包 IMPL、未知段均使用完整身份，不能省略尚未建模的输入。
+CLI 可沿用整个产物的早退路径继续使用完整 BLID/字节身份；本节的 HostTarget 投影只用于复用文件 IR，
+不绕过包级检查、lint、插件策略或产物装配。投影按 DepScanCache 相同的文件陈旧守卫 memo。
+较小消费者保留完整依赖身份，避免规范化整个依赖世界的固定成本；源文件数跨过门槛时重新验证全部缓存。
+HostTarget 缓存目录内的 `dependency-surface.key` 只缓存这个纯投影：完整依赖身份、编译器指纹、
+格式 pin 和内容校验和同时匹配才复用；任何损坏或不匹配重新计算，写入失败不影响计算出的身份。
+它不是编译成功的证明，源码/IR/meta 的校验与失效闭包仍独立执行。
 
 门禁是 z42c.driver 的 CLI 夹具 `manifest-identity-cache-key`（`xtask test compiler`）：**两格判据**，① 改
 `[project].version` ⇒ 产物字节必须变；② 加一条不存在的 `[dependencies]` ⇒ 构建必须判红。

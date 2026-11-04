@@ -153,3 +153,29 @@ fn with_value_str_matches_value_to_str() {
         assert_eq!(got, value_to_str(v), "with_value_str diverged for {v:?}");
     }
 }
+
+#[test]
+fn public_fmt_buf_keeps_exact_inline_boundary() {
+    use crate::corelib::convert::FmtBuf;
+    use std::fmt::Write;
+    let mut buf = FmtBuf::default();
+    assert_eq!(buf.as_str(), "");
+    buf.write_str(&"a".repeat(64)).unwrap();
+    buf.write_str("").unwrap();
+    assert_eq!(buf.as_str(), "a".repeat(64));
+    buf.write_str("中").unwrap();
+    assert_eq!(buf.as_str(), format!("{}中", "a".repeat(64)));
+}
+
+#[test]
+fn public_fmt_buf_preserves_fragmented_utf8_after_spill() {
+    use crate::corelib::convert::FmtBuf;
+    use std::fmt::Write;
+    let mut buf = FmtBuf::new();
+    buf.write_str(&"é".repeat(31)).unwrap();
+    buf.write_str("🦀").unwrap();
+    buf.write_str("").unwrap();
+    buf.write_str("中文").unwrap();
+    write!(buf, ":{}", -42).unwrap();
+    assert_eq!(buf.as_str(), format!("{}🦀中文:-42", "é".repeat(31)));
+}

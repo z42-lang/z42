@@ -9,6 +9,7 @@ public class Queue<T> : IBasicCollection<T> {
     int tail;
     int count;
     int capacity;
+    bool clearSlots;
 
     /// 创建空队列。
     public Queue() {
@@ -17,6 +18,7 @@ public class Queue<T> : IBasicCollection<T> {
         this.head = 0;
         this.tail = 0;
         this.count = 0;
+        this.clearSlots = Array.MayContainReferences(this.items);
     }
 
     /// 返回元素个数（方法，不是字段）。
@@ -41,6 +43,7 @@ public class Queue<T> : IBasicCollection<T> {
             throw new Exception("Queue.Dequeue: queue is empty");
         }
         T item = this.items[this.head];
+        if (this.clearSlots) this.items[this.head] = default(T);
         this.head = (this.head + 1) % this.capacity;
         this.count = this.count - 1;
         return item;
@@ -54,8 +57,17 @@ public class Queue<T> : IBasicCollection<T> {
         return this.items[this.head];
     }
 
-    /// 清空（幂等）。
+    /// 清空并释放元素引用，保留容量；幂等，O(n)。
     public void Clear() {
+        if (this.clearSlots) {
+            int i = this.head;
+            int remaining = this.count;
+            while (remaining > 0) {
+                this.items[i] = default(T);
+                i = (i + 1) % this.capacity;
+                remaining = remaining - 1;
+            }
+        }
         this.head = 0;
         this.tail = 0;
         this.count = 0;

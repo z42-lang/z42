@@ -124,6 +124,7 @@ public static class SdkLibs {
         t.Hidden = h; t.HiddenN = baseHidden + plan.HiddenN;
         if (tier != null) {
             t.Members = tier.Members; t.MembersN = tier.MembersN; t.MemberDirs = tier.MemberDirs;
+            t.OwnedMembers = tier.OwnedMembers;
         } else {
             t.Members = new string[0]; t.MembersN = 0; t.MemberDirs = 0;
         }

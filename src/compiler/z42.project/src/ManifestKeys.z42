@@ -49,7 +49,7 @@ public static class ManifestKeys {
     public static string WasmKeys()      { return "title"; }
     public static string WsRootKeys()    { return "workspace"; }
     public static string WorkspaceKeys() { return "members/exclude/default_members/build/dependencies"; }
-    public static string WsBuildKeys()   { return "output_dir/cache_dir"; }
+    public static string WsBuildKeys()   { return "output_dir/cache_dir/graph"; }
 
     /// 单项目清单：返回审计结果（`Unknown()` 错误行，不含清单路径前缀）。
     public static KeyAudit AuditProject(TomlValue root) {

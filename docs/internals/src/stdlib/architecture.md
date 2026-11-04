@@ -74,6 +74,11 @@ native 库依赖；它已是纯脚本（`z42.text`，基于 `List<string>` + `St
 | `File.ReadAllText` | builtin | syscall |
 | `"abc".CharAt(1)` | builtin | UTF-8 codepoint 访问 |
 | `new List<T>().Add(x)` | 脚本 | `T[]` 之上可表达 |
+| `Array.MayContainReferences(array)` | builtin | 只读数组存储模式；打包基元返回 false，其余布局保守返回 true，不扫描元素或构造反射对象 |
+
+数组引用探针读取不可变的 `ArrayMode`，不分配、不写堆，也不调用脚本。REF/MIXED/STRUCT/FROZEN
+均保守返回 true，包括空引用数组和没有引用字段的 struct 数组；不能把“当前元素都是 null”当成无引用布局。
+容器可在创建 backing array 后缓存结果，跳过基元废弃槽的无用写入；非基元的清槽和 GC 写屏障仍由既有数组赋值承接。
 
 ## 3. `[Native]` 的两种形态
 
