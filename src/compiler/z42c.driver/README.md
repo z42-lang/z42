@@ -46,15 +46,15 @@ z42vm <out.zbc> Main        # 执行产物
 | `src/WorkspaceBuild.z42` | workspace 构建编排（`_buildWorkspace*` / `_findWorkspaceToml`）：按 `[workspace.build].output_dir` 展开成员布局，成员产物落各自 dist，兄弟解析扫全成员 dist + Z42_LIBS |
 | `src/ExeDeps.z42` | exe 产物的兄弟包依赖 bundling（`_bundleExeDeps`）：非框架依赖的已构建 zpkg（+ `.zsym`）复制进 exe dist |
 | `src/DepDecls.z42` | `[dependencies]` 声明 lint：声明了框架包（stdlib）报 W0610（判据与 `_bundleExeDeps` 同源：从外部档解析到） |
-| `src/BuildCache.z42` | 构建 cache 落盘：逐文件写 fullMode `.zbc` + meta + 包级源清单（单产物与多 exe 共用）|
+| `src/BuildCache.z42` | CLI 缓存路径与日志；委托 pipeline 的共享持久化实现 |
 | `src/BuildLog.z42` | 进度行开关（`--quiet` 抑制 `cached:` / `wrote ->` / `cache ->`；诊断不受影响）|
 | `src/PathDepBuild.z42` | path 依赖闭包代建（`_buildPathDepClosure`）：`PathDepPlan.Resolve` 叶子在前的闭包 → 逐个 `_build` + 累积 libsDirs，结果经 `PathClosureOut` 回给调用方 |
 | `src/IndexedDist.z42` | indexed dist 投影：散装 zbc 原样落盘（字节相等不触碰→最小 patch）+ FILE 主文件 + 孤儿清理 |
 | `src/BuildPaths.z42` | pack 模式守卫（`_distModeMatches`：packed↔indexed 切换使 preserved 失效）+ handler 指纹 + 可复现 build_id；dist/cache 目录解析在 z42.project `BuildLayout` |
 | `src/ProfileKnobs.z42` | 构建期旋钮名校验：`_validateProfileKnobs` 在 `_build` 早期扫全部 `[profile.<n>.runtime]`——未知名 → warning + 最近邻建议（全集问 `Std.Runtime.RuntimeConfig.Names()`，不留第二份清单）；`[profile.<n>]` 下直接写键 → 致命，库工程同样管 |
 | `src/RuntimeConfigSidecar.z42` | `dist/<name>.runtimeconfig.toml` 侧车生成（`[runtime]` 旋钮 + `[properties]` 应用属性，分表）|
-| `src/IncrementalDriver.z42` | 文件级增量编排：`Prepare`（种子 → parse-all → **名字级指纹 diff** → 失效闭包 → cached zbc 读回 + meta 残留回填，失败降级 fresh）/ `WriteMetas`（meta + 包级源清单落 cache）/ `_writeCacheZbc`。**`Prepare(..., canPreserve)`**：`canPreserve` 由调用方按「dist 主文件在 + pack 模式一致 + 非多 exe」预先算好——只有它为真时，全命中才可廉价早退（调用方马上 preserved、用不到 IrModule）；为假时**必须**把 cached zbc 读回来，否则调用方装配 dist 时拿不到模块只能全部重编 |
-| `src/SurfaceHash.z42` | **名字级**声明面指纹：token 流剥掉方法/属性/索引器**体内** token 后，按「上一个声明的收尾符」切片，逐名字（类型/enum/自由函数/成员方法/成员字段/enum 成员）各出一个指纹 + 该文件声明面标识符集。增量闭包的判据来源——「改注释 / 改函数体」零波及、「新增类型 / 新增函数」只波及真正提到新名字的文件 |
+| pipeline 共享增量引擎 | `../z42c.pipeline/src/IncrementalCompilation.z42` 验证并恢复文件级缓存；`IncrementalCacheWriter.z42` 统一写 IR/meta。driver 保留 dist 布局与呈现策略 |
+| pipeline 声明面指纹 | `../z42c.pipeline/src/SurfaceHash.z42` 计算名字级声明面；全局 using 上下文变化使整包重编 |
 | `tests/fixtures/cli/` | `z42c` 命令行与构建行为夹具：每个子目录一个最小工程（或 workspace / 几个互相依赖的工程）+ `expect.toml`（单步或 `[[step]]` 多步：构建 / 跑产物 / 拷贝；断言退出码、输出、产物有无与字节对照），由 `xtask test compiler` 跑（格式见该目录 README） |
 
 ## 依赖关系

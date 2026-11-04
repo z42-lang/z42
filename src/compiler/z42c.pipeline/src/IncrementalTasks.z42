@@ -1,0 +1,99 @@
+// Independent per-file parsing and metadata persistence tasks.
+namespace Z42.Pipeline;
+using Std.IO;
+using Z42.Syntax;
+using Z42.Symbols;
+using Z42.IR;
+using Z42.Core;
+using Z42.Package;
+using Z42.Emission;
+
+// 第 i 个文件的解析（ParseAllTk 的并行体）。只读输入、只写第 i 个槽；`SurfaceHash.Of` 不碰静态状态。
+sealed class ParseFileTask : IParallelTask {
+    private string[] _texts; private string[] _names; private bool[] _want; private LanguageFeatures _feats;
+    private CompilationUnit[] _cus; private NameListZ[] _idents; private NameSurfacesZ[] _surfaces;
+    public ParseFileTask(string[] texts, string[] names, bool[] want, LanguageFeatures feats,
+                         CompilationUnit[] cus, NameListZ[] idents, NameSurfacesZ[] surfaces) {
+        this._texts = texts; this._names = names; this._want = want; this._feats = feats;
+        this._cus = cus; this._idents = idents; this._surfaces = surfaces;
+    }
+    public void Run(int i) {
+        var pp = new Parser(this._texts[i], this._names[i]);
+        pp._features = this._feats;
+        CompilationUnit raw = pp.ParseCompilationUnit();
+        if (this._want != null && this._want[i]) {
+            this._idents[i] = IncrementalCompilation._identsOf(pp.Tokens());
+            this._surfaces[i] = SurfaceHash.Of(raw, pp.Tokens());
+        }
+        this._cus[i] = HandlerRegistry.RunAst(raw);   // attribute-handler-registry：AST-phase 单一入口（内建 Generator + store-meta 合成）
+    }
+}
+
+// 第 i 个源文件的 cache meta（`IncrementalCompilation.WriteMetas` 的并行体）。只读入参、只写第 i 个文件；
+// 失败记下首条消息，由调用方整体放弃本次 cache。
+sealed class WriteMetaTask : IParallelTask {
+    private string _cacheDir; private string[] _srcs; private string[] _texts; private string[] _hashes;
+    private CompiledModuleZ[] _cms; private ZbcFileZ[] _mods; private IncrFilePlan _plan; private NameListZ[] _idents;
+    private NameSurfacesZ[] _surfaces; private LanguageFeatures _feats; private CuDiagSnapshot[] _cuDiags;
+    private string[] _zbcHashes; private string[] _rels;
+    public string Error;
+    public WriteMetaTask(string cacheDir, string[] srcs, string[] texts, string[] hashes, CompiledModuleZ[] cms,
+                         ZbcFileZ[] mods, IncrFilePlan plan, NameListZ[] idents, NameSurfacesZ[] surfaces,
+                         LanguageFeatures feats, CuDiagSnapshot[] cuDiags, string[] zbcHashes, string[] rels) {
+        this._cacheDir = cacheDir; this._srcs = srcs; this._texts = texts; this._hashes = hashes; this._cms = cms;
+        this._mods = mods; this._plan = plan; this._idents = idents; this._surfaces = surfaces; this._feats = feats;
+        this._cuDiags = cuDiags; this._zbcHashes = zbcHashes; this._rels = rels; this.Error = "";
+    }
+    public void Run(int i) {
+        if (this._plan != null && !this._plan.Fresh[i]) { return; }
+        try { this._write(i); }
+        catch (Exception e) { if (this.Error == "") { this.Error = e.Message; } }
+    }
+    private void _write(int i) {
+        CacheMeta m = new CacheMeta(this._rels[i]);
+        m.SourceHash = this._hashes[i];
+        m.ZbcHash = this._zbcHashes[i];
+        m.Namespace = this._mods[i].Namespace;
+        m.UsedDepNs = this._cms[i].UsedDepNs; m.UsedDepNsCount = this._cms[i].UsedDepNsCount;
+        // using-csharp-rules 2.9b：本文件用到的全部 ns 也入 meta（E0436 / global using 告警的判据另一半；见 CachedNsMeta.UsedNs）。
+        if (this._cms[i].UsedNs != null) { m.UsedNs = this._cms[i].UsedNs; m.UsedNsCount = this._cms[i].UsedNs.Length; }
+        // parse 时已捕获（D8 修正）；无捕获（异常路径）才兜底 lex 一次。
+        NameListZ tk = (this._idents != null && this._idents[i] != null)
+            ? this._idents[i] : IncrementalCompilation._tokensOf(this._texts[i], this._srcs[i]);
+        m.Tokens = tk.Items; m.TokenCount = tk.Count;
+        // 名字级声明面：parse 时已算（或从上次 meta 沿用）；无捕获（异常路径 / 全量
+        // 且未落 want）才兜底重 parse 一次。
+        NameSurfacesZ ns = (this._surfaces != null && this._surfaces[i] != null)
+            ? this._surfaces[i] : IncrementalCompilation._surfaceOfText(this._texts[i], this._srcs[i], this._feats);
+        m.NsNames = ns.Names; m.NsHashes = ns.Hashes; m.NsCount = ns.Count;
+        m.SurfIdents = ns.SurfIdents; m.SurfIdentCount = ns.SurfIdentCount;
+        IrModule irm = this._cms[i].Module;
+        string[] pool = new string[irm.StringCount > 1 ? irm.StringCount - 1 : 0];
+        int p = 1;
+        while (p < irm.StringCount) { pool[p - 1] = irm.StringPool[p]; p = p + 1; }
+        m.Pool = pool; m.PoolCount = pool.Length;
+        string[] fl = new string[irm.FuncCount];
+        int f = 0;
+        while (f < irm.FuncCount) {
+            IrFunction fd = irm.Functions[f];
+            string[] lp = new string[fd.BlockCount * 2];
+            int lk = 0;
+            int b = 0;
+            while (b < fd.BlockCount) {
+                if (b > 0) { lp[lk] = " "; lk = lk + 1; }
+                lp[lk] = CacheStore.HexEnc(fd.Blocks[b].Label); lk = lk + 1;
+                b = b + 1;
+            }
+            fl[f] = String.ConcatParts(lp, lk);
+            f = f + 1;
+        }
+        m.FnLabels = fl; m.FnLabelsCount = irm.FuncCount;
+        // per-CU typecheck 诊断（warnings-survive-cache）。取 **pipeline 的快照**，不是
+        // `cms[i].DiagMsgs` —— 后者到这一步已经被 E0436 与 analyzer 那两层追加过，
+        // 而那两层每次构建都会重新发，存进来会在 cached 命中时重复打印。
+        if (this._cuDiags != null && i < this._cuDiags.Length && this._cuDiags[i] != null) {
+            m.Diags = this._cuDiags[i].Msgs; m.DiagCount = this._cuDiags[i].Count;
+        }
+        CacheStore.Save(this._cacheDir, m);
+    }
+}

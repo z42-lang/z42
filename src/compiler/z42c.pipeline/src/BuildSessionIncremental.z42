@@ -1,0 +1,47 @@
+// HostTarget owns a separate cache projection; CLI indexed/preserved state is never consumed here.
+namespace Z42.Pipeline;
+using Std.IO;
+using Z42.Project;
+
+public sealed class BuildSessionIncremental {
+    public IncrPrep Prep;
+    private BuildOptions _options;
+    private KnobResult _knobs;
+    private string[] _sources;
+    private string[] _texts;
+    private string[] _hashes;
+    private string _cacheDir;
+    private string _identity;
+
+    public static BuildSessionIncremental Prepare(BuildOptions o, KnobResult kn, string[] srcs,
+        string[] texts, string[] hashes, string[] libs, int libsN, WsTier tier, bool hasPlugins) {
+        if (!o.Incremental || !o.Manifest.Build.Incremental || o.Role != BuildRole.HostTarget || hasPlugins) { return null; }
+        BuildSessionIncremental state = new BuildSessionIncremental();
+        state._options = o; state._knobs = kn;
+        state._sources = srcs; state._texts = texts; state._hashes = hashes;
+        state._cacheDir = Path.Join(BuildLayout.Resolve(o.Manifest, o.ProjectDir, o.IsRelease).CacheDir, "host-target");
+        state._identity = BuildCacheIdentity.Of(o.Manifest, kn.OptSet, o.IsRelease, libs, libsN, tier)
+            + "|host:" + o.ParentPkg + ":" + (o.HarnessUnit ? "harness" : "normal") + ":" + (kn.Strip ? "strip" : "full");
+        if (kn.Lints != null) {
+            state._identity = state._identity + "|wae:" + (kn.Lints.WarningsAsErrors ? "1" : "0");
+            int li = 0;
+            while (li < kn.Lints.Count) {
+                state._identity = state._identity + "|lint:" + kn.Lints.Keys[li] + "=" + kn.Lints.Sevs[li];
+                li = li + 1;
+            }
+        }
+        // No preserved shortcut: line lints, package scopes and products remain live.
+        state.Prep = IncrementalCompilation.Prepare(srcs, srcs, texts, hashes, srcs.Length,
+            o.ProjectDir, state._cacheDir, state._identity, false, kn.Features, false);
+        return state;
+    }
+
+    public CachedNsMeta[] Metas() { return IncrementalMetadata.From(this.Prep, this._sources.Length); }
+
+    public void Save(CompileArtifacts art, IBuildReporter reporter) {
+        string error = IncrementalCacheWriter.Write(this._cacheDir, this._options.ProjectDir,
+            this._sources, this._texts, this._hashes, art.Cms, art.Mods, this.Prep,
+            this.Prep.Idents, this.Prep.Surfaces, this._identity, this._knobs.Features, art.CuDiags);
+        if (error != "") { reporter.Progress("cache write skipped (non-fatal): " + error); }
+    }
+}

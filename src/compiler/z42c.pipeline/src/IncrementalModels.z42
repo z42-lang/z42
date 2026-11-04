@@ -1,0 +1,35 @@
+namespace Z42.Pipeline;
+using Z42.Syntax;
+using Z42.IR;
+
+// 增量准备结论：plan + 复用的 CU + cached IrModule（残留已回填；Fresh[i] 处 null）
+// + fresh 行的标识符集（parse 时捕获，WriteMetas 消费——零第二遍 lex，D8 修正）。
+public sealed class IncrPrep {
+    public IncrFilePlan       Plan;
+    public CompilationUnit[]  Cus;
+    public IrModule[]         Cached;
+    public NameListZ[]        Idents;
+    public NameSurfacesZ[]    Surfaces;   // fresh 行的名字级声明面（WriteMetas 消费）；其余 null
+    public IncrPrep(IncrFilePlan plan, CompilationUnit[] cus, IrModule[] cached) {
+        this.Plan = plan; this.Cus = cus; this.Cached = cached;
+        this.Idents = null;
+        this.Surfaces = null;
+    }
+}
+
+// parse-all 产物束：CU + 按需捕获的标识符集与声明面指纹（want[i] 为真才提取）。
+public sealed class ParsedPkg {
+    public CompilationUnit[] Cus;
+    public NameListZ[]       Idents;
+    public NameSurfacesZ[]   Surfaces;
+    public ParsedPkg(CompilationUnit[] cus, NameListZ[] idents, NameSurfacesZ[] surfaces) {
+        this.Cus = cus; this.Idents = idents; this.Surfaces = surfaces;
+    }
+}
+
+// int 装箱（StrMap value 用；z42 object 槽放原生 int 不便）。
+public sealed class IntBoxZ {
+    public int Value;
+    public IntBoxZ(int v) { this.Value = v; }
+}
+
