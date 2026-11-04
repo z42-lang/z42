@@ -85,6 +85,10 @@ cross-zpkg、multi-exe 与 manifest targets 通过 `ManifestLocator.FindIn` 复�
 代码不真实——假绿和假红都出过。`--no-rebuild` 只在**确认上一次重建是新的**、且正在反复迭代
 同一个用例时用。
 
+`test e2e`、`test stdlib`、`bench stdlib` 与 `test app` 的 `--shard k/n` 必须满足
+`1 <= k <= n`；非法参数在构建前报错并返回 2，不退回全量运行。e2e 分片只选择 golden，
+不能与 `--dir cross-zpkg` 或 `--dir multi-exe` 同用；`test app --zbc` 点名单个产物，也不能同时分片。
+
 单跑一个已编好的 golden 可以直接调 VM：
 
 ```bash
@@ -116,6 +120,10 @@ interface dispatch、`using` 的跨包 namespace 解析、同名 namespace 冲�
 
 默认库枚举包含 stdlib 与编译器域；采用独立 `tests/<unit>/*.z42.toml` 的编译器包由 `test compiler` 跑，不重复进入 `test stdlib`。
 这项测试归属规则不用于 benchmark：`bench stdlib` 仍发现这些包的 `benches/`，并按基准 unit 数估算分片负载。
+
+`test stdlib --shard k/n` 与 `bench stdlib --shard k/n` 选择全库中的分片，不能同时点名单库。
+分片数大于包数时允许空分片：它成功退出，不构建工具链、不执行其他库；`bench stdlib --json <path>`
+仍写出 `benchmarks` 为空数组的报告。未指定分片、也未点名单库时才选择全部库。
 
 **什么算一个 unit**：`tests/` 下的单个 `.z42` 文件，或者一个**目录内任一 `.z42` 声明了
 `[Test]`** 的目录（目录里 `**/*.z42` 全部编进同一个 unit）。目录判据**只看有没有 `[Test]`**，

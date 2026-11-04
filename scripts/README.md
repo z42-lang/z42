@@ -281,6 +281,7 @@ scripts/
 │   ├── xtask_test_multiexe.z42  e2e multi-exe（一工程 → N 个 exe zpkg）
 │   ├── xtask_test_lib.z42       stdlib / 编译器域 [Test]/[Benchmark] 按 kind 发现、分片与编排；共用 runner `_testPkgsCore`
 │   ├── xtask_selfcheck_lib_discovery.z42  test / bench 归属与分片发现回归
+│   ├── xtask_selfcheck_shards.z42  分片参数、冲突选择与空分片零构建 / 空 benchmark 报告回归，随 stage 自检跑
 │   ├── xtask_selfcheck_selfhost.z42  不动点比较的 BLID 排除与业务段差异回归，随 compiler 测试跑
 │   ├── xtask_test_toolchain.z42 `test toolchain`：src/toolchain/<comp>/ 下各工程的 [Test] unit
 │   ├── xtask_test_lib_units.z42 unit 级机制（发现 / 批量编译运行 / 合成 manifest）

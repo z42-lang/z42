@@ -1,0 +1,70 @@
+// 分片参数与空分片回归：选择为空不能扩大为全库，也不能准备工具链。
+namespace Z42Xtask;
+
+using Std.Cli;
+using Std.IO;
+using Std.Json;
+
+int _selfcheckShards() {
+    int[] none = _parseShard("");
+    _shardAssert(none[0] == 0 && none[1] == 0, "no shard selects all");
+    int[] one = _parseShard("1/1");
+    _shardAssert(one[0] == 1 && one[1] == 1, "single shard");
+    int[] last = _parseShard("3/3");
+    _shardAssert(last[0] == 3 && last[1] == 3, "last shard");
+    foreach (var bad in new string[]{ "1", "/2", "1/", "0/2", "3/2", "1/0", "-1/2", "1/-2", "a/2", "1/2/3", "999999999999/2" }) {
+        bool rejected = false;
+        try { _parseShard(bad); } catch (CliException e) { rejected = true; }
+        _shardAssert(rejected, "invalid shard accepted: " + bad);
+    }
+
+    string root = _root();
+    string dir = _xtaskWork(root, "shards");
+    _resetDir(dir);
+    try {
+        RepoRoot.Value = dir;
+        Directory.Create(Path.Join(dir, "src/libraries/only-lib"));
+        Directory.Create(Path.Join(dir, "src/compiler"));
+        foreach (var args in new string[]{
+            "test e2e --shard 0/2", "test stdlib --shard 3/2", "bench stdlib --shard nope",
+            "test app desktop --shard 1/0", "test stdlib only-lib --shard 1/2",
+            "test app desktop --zbc missing.zbc --shard 1/2",
+            "test e2e --dir cross-zpkg --shard 1/2", "test e2e --dir multi-exe --shard 1/2"
+        }) {
+            RepoRoot.Value = root;
+            XtaskCommand cli = new XtaskCommand();
+            RepoRoot.Value = dir;
+            _shardAssert(cli.Invoke(_splitWords(args)) == 2, "CLI must reject before build: " + args);
+            _shardAssert(!Directory.Exists(Path.Join(dir, "artifacts")), "invalid CLI prepared tooling");
+        }
+        foreach (var kind in new string[]{ "test", "bench" }) {
+            _shardAssert(_shardLibs(dir, kind, 2, 2).Length == 0, "sparse shard must stay empty");
+            // 不设 NoBuild；若空选择落入全库或构建前置，这棵没有工具链的树必定报错。
+            LibUnitsCommand c = new LibUnitsCommand(kind, "shard regression");
+            c.Shard = "2/2";
+            string json = kind == "bench" ? "report.json" : "";
+            _shardAssert(_testLib(c, kind, json) == 0, "empty shard must succeed without tooling");
+            _shardAssert(!Directory.Exists(Path.Join(dir, "artifacts")), "empty shard prepared tooling");
+            if (kind == "bench") {
+                _shardAssert(File.Exists(Path.Join(dir, json)), "empty bench shard must write its report");
+                _shardAssert(JsonValue.Parse(File.ReadAllText(Path.Join(dir, json))).Get("benchmarks").Length() == 0,
+                    "empty bench report");
+            }
+        }
+        LibUnitsCommand conflict = new LibUnitsCommand("test", "shard regression");
+        conflict.Lib = "only-lib";
+        conflict.Shard = "1/2";
+        bool rejected = false;
+        try { _testLib(conflict, "test", ""); } catch (CliException e) { rejected = true; }
+        _shardAssert(rejected, "lib selection must not be silently discarded by shard");
+    } finally {
+        RepoRoot.Value = root;
+        Directory.Delete(dir, true);
+    }
+    Console.WriteLine("  ✅ shards: invalid input rejected, empty selection preserved without tooling");
+    return 0;
+}
+
+void _shardAssert(bool condition, string why) {
+    if (!condition) { throw new Exception("shards: " + why); }
+}

@@ -13,6 +13,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Cli;
 
 int _testApp(TestAppCommand c) {
     string which = c.Platform.Value;
@@ -21,6 +22,9 @@ int _testApp(TestAppCommand c) {
     string format = c.Format;
     string zbc = c.Zbc;
     int[] sh = _parseShard(c.Shard);
+    if (zbc.Length > 0 && sh[1] > 0) {
+        throw new CliException("--shard cannot be combined with --zbc");
+    }
     // which 已由 choices 校验（versions.toml [workload].members + all）。
     string[] plats = which == "all" ? _vWorkloads(_root()) : new string[]{ which };
     if (step.Length > 0 && which == "all") {
