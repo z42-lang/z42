@@ -1,0 +1,124 @@
+namespace HostIncrementalTests;
+using Std.IO;
+using Std.Harness;
+using Z42.Build;
+using Z42.Project;
+using Z42.Pipeline;
+using Z42.Package;
+using Z42.IR;
+
+BuildOptions _options(string name, string text) {
+    string dir = File.CreateTempDir("host-incremental-" + name);
+    Directory.Create(Path.Join(dir, "src"));
+    File.WriteAllText(Path.Join(dir, "src/lib.z42"), text);
+    File.WriteAllText(Path.Join(dir, "z42.toml"),
+        "[project]\nname = \"host." + name + "\"\nversion = \"0.1.0\"\nkind = \"lib\"\n");
+    ProjectManifest pm = ManifestLoader.Load(Path.Join(dir, "z42.toml"));
+    BuildOptions o = new BuildOptions(pm, dir, BuildRole.HostTarget, false, new CollectingReporter());
+    o.OutputZpkg = Path.Join(dir, "out/app.zpkg");
+    o.Incremental = true;
+    return o;
+}
+
+BuildSessionIncremental _probe(BuildOptions o) {
+    string[] inc = new string[1]; inc[0] = "src/**/*.z42";
+    string[] srcs = SourceDiscovery.DiscoverWithExclude(o.ProjectDir, inc, 1, new string[0], 0);
+    SourceInputs sh = SourceReader.Read(srcs, "", 1);
+    KnobResult kn = ManifestKnobs.Resolve(o.Manifest, o.Label, o.IsRelease, 0, 0, true);
+    SdkLibPlan sdk = SdkLibs.PlanForMembers(o.Manifest, o.BaseLibs, o.BaseLibsN, o.Manifest.Project.IsPlugin(),
+        WorkspaceMemberDeps.EnclosingMemberNames(o.ProjectDir));
+    string[] libs = SdkLibs.AppendDirs(o.BaseLibs, o.BaseLibsN, sdk);
+    return BuildSessionIncremental.Prepare(o, kn, srcs, sh.Texts, sh.Hashes,
+        libs, o.BaseLibsN + sdk.DirsN, SdkLibs.MergeTier(null, sdk), false);
+}
+
+string _hash(BuildOptions o) { return Std.Hashing.Murmur3.Hash128Hex(File.ReadAllBytes(o.OutputZpkg)); }
+string _cache(BuildOptions o) { return Path.Join(BuildLayout.Resolve(o.Manifest, o.ProjectDir, o.IsRelease).CacheDir, "host-target"); }
+void _ok(BuildOptions o) { Assert.Equal(BuildExit.Ok, new BuildSession(o).Run().Code); }
+
+[Test]
+void test_host_reuses_ir_and_matches_fresh_products() {
+    BuildOptions o = _options("reuse", "int Value() { return 1; }\n");
+    _ok(o);
+    string first = _hash(o);
+    BuildSessionIncremental state = _probe(o);
+    Assert.Equal(0, state.Prep.Plan.FreshCount);
+    Assert.True(state.Prep.Cached[0] != null);
+    _ok(o);
+    Assert.Equal(first, _hash(o));
+    o.Incremental = false;
+    _ok(o);
+    Assert.Equal(first, _hash(o));
+    Directory.Delete(o.ProjectDir, true);
+}
+
+[Test]
+void test_host_request_manifest_and_role_disable_cache() {
+    BuildOptions o = _options("policy", "int Value() { return 1; }\n");
+    o.Incremental = false;
+    Assert.True(_probe(o) == null);
+    _ok(o);
+    Assert.False(Directory.Exists(_cache(o)));
+    o.Incremental = true; o.Manifest.Build.Incremental = false;
+    Assert.True(_probe(o) == null);
+    _ok(o);
+    Assert.False(Directory.Exists(_cache(o)));
+    o.Manifest.Build.Incremental = true; o.Role = BuildRole.AnalyzerChild;
+    Assert.True(_probe(o) == null);
+    o.Role = BuildRole.HostTarget;
+    string[] srcs = new string[0];
+    KnobResult kn = ManifestKnobs.Resolve(o.Manifest, o.Label, false, 0, 0, true);
+    Assert.True(BuildSessionIncremental.Prepare(o, kn, srcs, srcs, srcs, srcs, 0, null, true) == null);
+    Directory.Delete(o.ProjectDir, true);
+}
+
+[Test]
+void test_host_body_edit_reuses_other_file_and_api_change_reports_error() {
+    BuildOptions o = _options("surface", "int Value() { return 1; }\n");
+    File.WriteAllText(Path.Join(o.ProjectDir, "src/use.z42"), "int Read() { return Value(); }\n");
+    _ok(o);
+    File.WriteAllText(Path.Join(o.ProjectDir, "src/lib.z42"), "int Value() { return 2; }\n");
+    Assert.Equal(1, _probe(o).Prep.Plan.FreshCount);
+    _ok(o);
+    string changed = _hash(o);
+    o.Incremental = false; _ok(o);
+    Assert.Equal(changed, _hash(o));
+    o.Incremental = true;
+    File.WriteAllText(Path.Join(o.ProjectDir, "src/lib.z42"), "int Value(int x) { return x; }\n");
+    Assert.Equal(2, _probe(o).Prep.Plan.FreshCount);
+    CollectingReporter cached = new CollectingReporter(); o.Reporter = cached;
+    Assert.Equal(BuildExit.BuildError, new BuildSession(o).Run().Code);
+    CollectingReporter fresh = new CollectingReporter(); o.Reporter = fresh; o.Incremental = false;
+    Assert.Equal(BuildExit.BuildError, new BuildSession(o).Run().Code);
+    Assert.Equal(fresh.ErrorsText(), cached.ErrorsText());
+    Directory.Delete(o.ProjectDir, true);
+}
+
+[Test]
+void test_host_corrupt_cache_and_missing_output_rebuild() {
+    BuildOptions o = _options("corrupt", "int Value() { return 1; }\n");
+    _ok(o); string expected = _hash(o);
+    File.WriteAllText(CacheStore.ZbcPath(_cache(o), "src/lib.z42"), "broken");
+    Assert.Equal(1, _probe(o).Prep.Plan.FreshCount);
+    _ok(o); Assert.Equal(expected, _hash(o));
+    File.Delete(o.OutputZpkg);
+    _ok(o); Assert.Equal(expected, _hash(o));
+    Assert.Equal(0, _probe(o).Prep.Plan.FreshCount);
+    Directory.Delete(o.ProjectDir, true);
+}
+
+[Test]
+void test_compiler_request_incremental_flag_is_consumed() {
+    BuildOptions o = _options("request", "int Value() { return 1; }\n");
+    CompileRequest req = new CompileRequest(o.ProjectDir, o.OutputZpkg, new string[0],
+        "debug", false, false, "lib", new string[0], 0);
+    req.Manifest = o.Manifest;
+    Z42cCompiler compiler = new Z42cCompiler();
+    Assert.True(compiler.Compile(req).Ok);
+    Assert.False(Directory.Exists(_cache(o)));
+    req.Incremental = true;
+    Assert.True(compiler.Compile(req).Ok);
+    Assert.True(Directory.Exists(_cache(o)));
+    Assert.Equal(0, _probe(o).Prep.Plan.FreshCount);
+    Directory.Delete(o.ProjectDir, true);
+}

@@ -47,7 +47,7 @@
 // 用 **raw CU**（`HandlerRegistry.RunAst` 之前）取体起点与声明起点：attribute handler 合成出来的
 // 成员没有真实 token 区间，拿它们的 Span 去切会切错位置。handler 身份已由
 // `Main._handlerFingerprint` 揉进每个文件的源 hash，不需要在这里体现。
-namespace Z42.Driver;
+namespace Z42.Pipeline;
 
 using Z42.Core;     // Span（token / 声明的 byte offset [Start, End)）
 using Z42.Syntax;
@@ -156,6 +156,7 @@ sealed class SurviveZ {
 }
 
 public static class SurfaceHash {
+    internal static string GlobalImports = "$global-imports";
 
     // CU 的名字级声明面。lx = 该 CU 的词法器（token 流，parse 后固定不变）。
     [Suppress("style.fnLinesHard", "95 body lines；拆分见 code-organization.md")]
@@ -255,6 +256,11 @@ public static class SurfaceHash {
             me = me + 1;
         }
         SurfaceSlotsZ slots = new SurfaceSlotsZ();
+        string globals = SurfaceHash._globalUsings(raw);
+        if (globals != "") {
+            int gs = slots.SlotOf(SurfaceHash.GlobalImports);
+            slots.Bufs[gs].Put(globals);
+        }
         int tc = 0;
         int mc = 0;
         int si = 0;
@@ -282,6 +288,19 @@ public static class SurfaceHash {
             q = q + 1;
         }
         return new NameSurfacesZ(names, hashes, slots.N, idents, identN);
+    }
+
+    private static string _globalUsings(CompilationUnit raw) {
+        string value = "";
+        int i = 0;
+        while (i < raw.DeclCount) {
+            if (raw.Decls[i] is UsingDecl) {
+                UsingDecl u = raw.Decls[i] as UsingDecl;
+                if (u.IsGlobal) { value = value + u.Name.Length.ToString() + ":" + u.Name + ";"; }
+            }
+            i = i + 1;
+        }
+        return value;
     }
 
     // 单条活 token 的编码：`kind:len:text` —— 带长度前缀，任何 token 文本（含 raw string /

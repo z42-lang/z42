@@ -1,9 +1,9 @@
-// 文件级增量的 driver 侧编排（add-file-level-incremental 阶段 4；Main._build 调用）。
+// Shared file-level incremental preparation for CLI and in-process builds.
 // 职责：token/定义名提取（D3 保守边输入）→ ProbeFiles+Close → cached zbc 读回 +
 // meta 残留回填（D5a：块 label / 模块池原序）→ 失败降级 fresh（含其
 // 依赖方重闭包）→ fresh 落 cache（zbc + meta + 包级源清单）。
-// Main.z42 只留编排调用（500 行硬限）；本文件承载全部增量细节。
-namespace Z42.Driver;
+// Entry points retain output layout and reporting policy.
+namespace Z42.Pipeline;
 
 using Std.IO;
 using Z42.Syntax;
@@ -12,35 +12,9 @@ using Z42.Symbols;
 using Z42.Package;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
-using Z42.Pipeline;
 using Z42.Emission;
 
-// 增量准备结论：plan + 复用的 CU + cached IrModule（残留已回填；Fresh[i] 处 null）
-// + fresh 行的标识符集（parse 时捕获，WriteMetas 消费——零第二遍 lex，D8 修正）。
-public sealed class IncrPrep {
-    public IncrFilePlan       Plan;
-    public CompilationUnit[]  Cus;
-    public IrModule[]         Cached;
-    public NameListZ[]        Idents;
-    public NameSurfacesZ[]    Surfaces;   // fresh 行的名字级声明面（WriteMetas 消费）；其余 null
-    public IncrPrep(IncrFilePlan plan, CompilationUnit[] cus, IrModule[] cached) {
-        this.Plan = plan; this.Cus = cus; this.Cached = cached;
-        this.Idents = null;
-        this.Surfaces = null;
-    }
-}
-
-// parse-all 产物束：CU + 按需捕获的标识符集与声明面指纹（want[i] 为真才提取）。
-public sealed class ParsedPkg {
-    public CompilationUnit[] Cus;
-    public NameListZ[]       Idents;
-    public NameSurfacesZ[]   Surfaces;
-    public ParsedPkg(CompilationUnit[] cus, NameListZ[] idents, NameSurfacesZ[] surfaces) {
-        this.Cus = cus; this.Idents = idents; this.Surfaces = surfaces;
-    }
-}
-
-public static class IncrementalDriver {
+public static class IncrementalCompilation {
 
     // 全文件 parse（+ AttributeSynth，镜像 IrDump.ParseAll）+ 按需标识符 / 声明面捕获：
     // want[i] 为真的文件从 Parser 已 lex 的 token 流提取标识符集与声明面指纹（D8 修正——
@@ -65,7 +39,7 @@ public static class IncrementalDriver {
     }
 
     // 全流程：种子 → parse-all（顺手捕获 fresh 行标识符）→ 闭包 → cached 读回+回填
-    //（失败降级 fresh + 重闭包）。noIncremental / workspace 路径由调用方拦截，不进本函数。
+    //（失败降级 fresh + 重闭包）。是否复用由调用方策略决定；此处只执行验证与恢复。
     //
     // canPreserve = 调用方**已经确认**「一旦全命中就直接沿用上次 dist、不再装配」（dist 主文件在、
     // pack 模式一致、非多 exe）。只有此时全命中才可以廉价早退——因为调用方压根不会用到 IrModule。
@@ -76,7 +50,7 @@ public static class IncrementalDriver {
     [Suppress("style.fnLinesHard", "85 body lines；拆分见 code-organization.md")]
     public static IncrPrep Prepare(string[] srcs, string[] dispSrcs, string[] texts, string[] hashes, int n,
                                    string projectDir, string cacheDir, string depsId, bool canPreserve,
-                                   LanguageFeatures feats) {
+                                   LanguageFeatures feats, bool reportDegradation = true) {
         IncrFilePlan plan = IncrementalBuild.ProbeFiles(srcs, hashes, n, projectDir, cacheDir, depsId);
         IrModule[] cached = new IrModule[n];
         if (plan.AllCached && canPreserve) { return new IncrPrep(plan, null, cached); }   // 调用方马上 preserved → 不必读回
@@ -87,7 +61,7 @@ public static class IncrementalDriver {
         int i = 0;
         while (i < n) { metas0[i] = plan.Metas[i]; i = i + 1; }
 
-        ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, dispSrcs, n, plan.Fresh, feats);
+        ParsedPkg pk = IncrementalCompilation.ParseAllTk(texts, dispSrcs, n, plan.Fresh, feats);
         CompilationUnit[] cus = pk.Cus;
         bool incrDebug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG", "")) == "1";
 
@@ -118,7 +92,8 @@ public static class IncrementalDriver {
 
         // 种子已变名字：逐名字 diff 当前指纹 vs 上次 meta（新增 / 删除 / 指纹变 三者都算变）。
         // 没有上次条目（首建 / 换 meta 版本）→ 该文件当前全部名字计入，保守。
-        NameListZ seedChanged = IncrementalDriver._seedChangedNames(plan, pk.Surfaces, n, srcs, projectDir, incrDebug);
+        NameListZ seedChanged = IncrementalCompilation._seedChangedNames(plan, pk.Surfaces, n, srcs, projectDir, incrDebug);
+        IncrementalCompilation._invalidateGlobalContext(plan, seedChanged);
         IncrementalBuild.Close(plan, srcs, projectDir, tokens, surfIdents, names, seedChanged);
 
         // cached 读回 + 残留回填；任一失败 → 该文件 fresh + 重闭包（依赖方连带失效）。
@@ -136,9 +111,9 @@ public static class IncrementalDriver {
                         // （崩溃留下的新旧混搭）→ 按不可读处理，走下方同一条降级（该文件 fresh）。
                         if (Std.Hashing.Murmur3.Hash128Hex(zbc) == plan.Metas[i].ZbcHash) { m = ZbcReader.Read(zbc); }
                     } catch (Exception e) { m = null; }
-                    if (m != null && !IncrementalDriver._applyResidue(m, plan.Metas[i])) { m = null; }
+                    if (m != null && !IncrementalCompilation._applyResidue(m, plan.Metas[i])) { m = null; }
                     if (m == null) {
-                        ConsoleError.WriteLine("  [degrade/unreadable-cache] " + rel + " -> fresh");
+                        if (reportDegradation) { ConsoleError.WriteLine("  [degrade/unreadable-cache] " + rel + " -> fresh"); }
                         plan.Fresh[i] = true; plan.FreshCount = plan.FreshCount + 1;
                         // 降级只因 zbc 读不回来——源、声明面均未变 → 不引入任何已变名字
                         //（否则「缓存坏一个」会退化成全包重编）。重跑闭包只为让**已有**的已变名字
@@ -186,7 +161,25 @@ public static class IncrementalDriver {
         return prep;
     }
 
-    // fresh 文件落 cache（zbc 由 Main._writeCacheZbc 已写）：meta（hash/ns/usedDepNs +
+    private static void _invalidateGlobalContext(IncrFilePlan plan, NameListZ changed) {
+        int i = 0;
+        while (i < changed.Count) {
+            if (changed.Items[i] == SurfaceHash.GlobalImports) {
+                // Global imports affect all files, including files whose source and declared names did not change.
+                int j = 0;
+                while (j < plan.Total) {
+                    if (!plan.Fresh[j]) { plan.Fresh[j] = true; plan.FreshCount = plan.FreshCount + 1; }
+                    plan.Metas[j] = null;
+                    j = j + 1;
+                }
+                plan.AllCached = false;
+                return;
+            }
+            i = i + 1;
+        }
+    }
+
+    // fresh 文件落 cache（zbc 由 WriteCacheZbc 已写）：meta（hash/ns/usedDepNs +
     // 残留 pool/labels）+ 包级源清单。任何写失败由调用方 try/catch 吞（cache 非致命）。
     // perf-parallel-write-metas：逐文件 meta 互不依赖（各写自己的 meta 文件），并行（jobs=1 时 ParallelFor 内联）；
     // 包级源清单在全部 meta 之后串行写。任一文件失败照旧整体失败（抛出首条消息）。
@@ -226,12 +219,12 @@ public static class IncrementalDriver {
                 if (blk.HasTerm) {
                     if (blk.Term is BrTerm) {
                         BrTerm t = blk.Term as BrTerm;
-                        t.Label = IncrementalDriver._renameBl(t.Label, real, fd.BlockCount);
+                        t.Label = IncrementalCompilation._renameBl(t.Label, real, fd.BlockCount);
                     }
                     if (blk.Term is BrCondTerm) {
                         BrCondTerm t = blk.Term as BrCondTerm;
-                        t.TrueLabel = IncrementalDriver._renameBl(t.TrueLabel, real, fd.BlockCount);
-                        t.FalseLabel = IncrementalDriver._renameBl(t.FalseLabel, real, fd.BlockCount);
+                        t.TrueLabel = IncrementalCompilation._renameBl(t.TrueLabel, real, fd.BlockCount);
+                        t.FalseLabel = IncrementalCompilation._renameBl(t.FalseLabel, real, fd.BlockCount);
                     }
                 }
                 b = b + 1;
@@ -239,9 +232,9 @@ public static class IncrementalDriver {
             int x = 0;
             while (x < fd.ExcCount) {
                 IrExcEntry e = fd.ExcTable[x];
-                e.TryStart = IncrementalDriver._renameBl(e.TryStart, real, fd.BlockCount);
-                e.TryEnd = IncrementalDriver._renameBl(e.TryEnd, real, fd.BlockCount);
-                e.CatchLabel = IncrementalDriver._renameBl(e.CatchLabel, real, fd.BlockCount);
+                e.TryStart = IncrementalCompilation._renameBl(e.TryStart, real, fd.BlockCount);
+                e.TryEnd = IncrementalCompilation._renameBl(e.TryEnd, real, fd.BlockCount);
+                e.CatchLabel = IncrementalCompilation._renameBl(e.CatchLabel, real, fd.BlockCount);
                 x = x + 1;
             }
             f = f + 1;
@@ -266,7 +259,7 @@ public static class IncrementalDriver {
                 while (k < blk.InstrCount) {
                     if (blk.Instrs[k] is ConstStrInstr) {
                         ConstStrInstr cs = blk.Instrs[k] as ConstStrInstr;
-                        int ni = IncrementalDriver._poolLookup(poolIdx, irm, cs.Idx);
+                        int ni = IncrementalCompilation._poolLookup(poolIdx, irm, cs.Idx);
                         if (ni < 0) { return false; }
                         cs.Idx = ni;
                     }
@@ -339,7 +332,7 @@ public static class IncrementalDriver {
                              || (prevH.Get(cur.Names[k]) as string) != cur.Hashes[k];
                     if (diff && !seen.ContainsKey(cur.Names[k])) {
                         seen.Put(cur.Names[k], cur);
-                        cnt = IncrementalDriver._add(items, cnt, cur.Names[k]); items = IncrementalDriver._last;
+                        cnt = IncrementalCompilation._add(items, cnt, cur.Names[k]); items = IncrementalCompilation._last;
                         if (debug) {
                             ConsoleError.WriteLine("  [name-changed] " + IncrementalBuild.Rel(projectDir, srcs[i])
                                 + " :: " + cur.Names[k]);
@@ -352,7 +345,7 @@ public static class IncrementalDriver {
                     while (q < prev.NsCount) {
                         if (!curH.ContainsKey(prev.NsNames[q]) && !seen.ContainsKey(prev.NsNames[q])) {
                             seen.Put(prev.NsNames[q], cur);
-                            cnt = IncrementalDriver._add(items, cnt, prev.NsNames[q]); items = IncrementalDriver._last;
+                            cnt = IncrementalCompilation._add(items, cnt, prev.NsNames[q]); items = IncrementalCompilation._last;
                             if (debug) {
                                 ConsoleError.WriteLine("  [name-removed] " + IncrementalBuild.Rel(projectDir, srcs[i])
                                     + " :: " + prev.NsNames[q]);
@@ -370,7 +363,7 @@ public static class IncrementalDriver {
     internal static NameListZ _tokensOf(string text, string file) {
         var lx = new Lexer(text, file);
         lx.Tokenize();
-        return IncrementalDriver._identsOf(lx);
+        return IncrementalCompilation._identsOf(lx);
     }
 
     // 声明面指纹的兜底重算（需要 AST 定体边界 → 重 parse 一次；正常路径走 ParseAllTk 的捕获）。
@@ -414,121 +407,22 @@ public static class IncrementalDriver {
             items = b;
         }
         items[n] = v;
-        IncrementalDriver._last = items;
+        IncrementalCompilation._last = items;
         return n + 1;
     }
-}
+    public static string WriteCacheZbc(string cacheDir, string projectDir, string src, IrModule irm) {
+        // 走 IncrementalBuild.Rel（此前这里内联复制了一份同样的前缀剥离逻辑）——它负责分隔符归一
+        // （Windows 的 `\` 不归一会让 StartsWith 失配 → rel 留成带盘符的绝对路径 → zbcPath 畸形 →
+        // File.WriteAllBytes "cannot find the path specified"），也负责**工程目录之外的源文件**去掉根
+        // 前缀（否则 Path.Join 遇 rooted 第二段直接返回它 ⇒ .zbc 写到用户源文件旁边，单文件运行实测踩到）。
+        string rel = IncrementalBuild.Rel(projectDir, src);
+        if (rel.EndsWith(".z42")) { rel = rel.Substring(0, rel.Length - 4); }
+        string zbcPath = Path.Join(cacheDir, rel + ".zbc");
+        string parent = Path.GetDirectoryName(zbcPath);
+        if (parent.Length > 0) { Directory.Create(parent); }
+        byte[] bytes = ZbcWriter.Write(irm).ToBytes();
+        File.WriteAllBytes(zbcPath, bytes);   // 缓存写非原子：坏 zbc 由 meta 的 zbchash 配对校验兜底（坏=按 fresh 重建，IncrementalCompilation 读端全量重算哈希），不依赖落盘顺序
+        return Std.Hashing.Murmur3.Hash128Hex(bytes);   // native-hash(bytes)：与写端同源
+    }
 
-// int 装箱（StrMap value 用；z42 object 槽放原生 int 不便）。
-public sealed class IntBoxZ {
-    public int Value;
-    public IntBoxZ(int v) { this.Value = v; }
-}
-
-// 单文件 fullMode .zbc 落盘到 cache（自 Main.z42 迁入，500 行硬限；镜像 C# BuildTarget
-// 的 cache 写出：`<cache>/<rel 去 .z42 换 .zbc>`）。仅单工程模式调用。
-// 返回写入内容的 Murmur3-128 hex，供 meta 记 `zbchash`（zbc↔meta 配对校验，fix-cache-atomic-writes）。
-string _writeCacheZbc(string cacheDir, string projectDir, string src, IrModule irm) {
-    // 走 IncrementalBuild.Rel（此前这里内联复制了一份同样的前缀剥离逻辑）——它负责分隔符归一
-    // （Windows 的 `\` 不归一会让 StartsWith 失配 → rel 留成带盘符的绝对路径 → zbcPath 畸形 →
-    // File.WriteAllBytes "cannot find the path specified"），也负责**工程目录之外的源文件**去掉根
-    // 前缀（否则 Path.Join 遇 rooted 第二段直接返回它 ⇒ .zbc 写到用户源文件旁边，单文件运行实测踩到）。
-    string rel = IncrementalBuild.Rel(projectDir, src);
-    if (rel.EndsWith(".z42")) { rel = rel.Substring(0, rel.Length - 4); }
-    string zbcPath = Path.Join(cacheDir, rel + ".zbc");
-    string parent = Path.GetDirectoryName(zbcPath);
-    if (parent.Length > 0) { Directory.Create(parent); }
-    byte[] bytes = ZbcWriter.Write(irm).ToBytes();
-    File.WriteAllBytes(zbcPath, bytes);   // 缓存写非原子：坏 zbc 由 meta 的 zbchash 配对校验兜底（坏=按 fresh 重建，IncrementalDriver 读端全量重算哈希），不依赖落盘顺序
-    return Std.Hashing.Murmur3.Hash128Hex(bytes);   // native-hash(bytes)：与写端同源
-}
-
-// 第 i 个文件的解析（ParseAllTk 的并行体）。只读输入、只写第 i 个槽；`SurfaceHash.Of` 不碰静态状态。
-sealed class ParseFileTask : IParallelTask {
-    private string[] _texts; private string[] _names; private bool[] _want; private LanguageFeatures _feats;
-    private CompilationUnit[] _cus; private NameListZ[] _idents; private NameSurfacesZ[] _surfaces;
-    public ParseFileTask(string[] texts, string[] names, bool[] want, LanguageFeatures feats,
-                         CompilationUnit[] cus, NameListZ[] idents, NameSurfacesZ[] surfaces) {
-        this._texts = texts; this._names = names; this._want = want; this._feats = feats;
-        this._cus = cus; this._idents = idents; this._surfaces = surfaces;
-    }
-    public void Run(int i) {
-        var pp = new Parser(this._texts[i], this._names[i]);
-        pp._features = this._feats;
-        CompilationUnit raw = pp.ParseCompilationUnit();
-        if (this._want != null && this._want[i]) {
-            this._idents[i] = IncrementalDriver._identsOf(pp.Tokens());
-            this._surfaces[i] = SurfaceHash.Of(raw, pp.Tokens());
-        }
-        this._cus[i] = HandlerRegistry.RunAst(raw);   // attribute-handler-registry：AST-phase 单一入口（内建 Generator + store-meta 合成）
-    }
-}
-
-// 第 i 个源文件的 cache meta（`IncrementalDriver.WriteMetas` 的并行体）。只读入参、只写第 i 个文件；
-// 失败记下首条消息，由调用方整体放弃本次 cache。
-sealed class WriteMetaTask : IParallelTask {
-    private string _cacheDir; private string[] _srcs; private string[] _texts; private string[] _hashes;
-    private CompiledModuleZ[] _cms; private ZbcFileZ[] _mods; private IncrFilePlan _plan; private NameListZ[] _idents;
-    private NameSurfacesZ[] _surfaces; private LanguageFeatures _feats; private CuDiagSnapshot[] _cuDiags;
-    private string[] _zbcHashes; private string[] _rels;
-    public string Error;
-    public WriteMetaTask(string cacheDir, string[] srcs, string[] texts, string[] hashes, CompiledModuleZ[] cms,
-                         ZbcFileZ[] mods, IncrFilePlan plan, NameListZ[] idents, NameSurfacesZ[] surfaces,
-                         LanguageFeatures feats, CuDiagSnapshot[] cuDiags, string[] zbcHashes, string[] rels) {
-        this._cacheDir = cacheDir; this._srcs = srcs; this._texts = texts; this._hashes = hashes; this._cms = cms;
-        this._mods = mods; this._plan = plan; this._idents = idents; this._surfaces = surfaces; this._feats = feats;
-        this._cuDiags = cuDiags; this._zbcHashes = zbcHashes; this._rels = rels; this.Error = "";
-    }
-    public void Run(int i) {
-        if (this._plan != null && !this._plan.Fresh[i]) { return; }
-        try { this._write(i); }
-        catch (Exception e) { if (this.Error == "") { this.Error = e.Message; } }
-    }
-    private void _write(int i) {
-        CacheMeta m = new CacheMeta(this._rels[i]);
-        m.SourceHash = this._hashes[i];
-        m.ZbcHash = this._zbcHashes[i];
-        m.Namespace = this._mods[i].Namespace;
-        m.UsedDepNs = this._cms[i].UsedDepNs; m.UsedDepNsCount = this._cms[i].UsedDepNsCount;
-        // using-csharp-rules 2.9b：本文件用到的全部 ns 也入 meta（E0436 / global using 告警的判据另一半；见 CachedNsMeta.UsedNs）。
-        if (this._cms[i].UsedNs != null) { m.UsedNs = this._cms[i].UsedNs; m.UsedNsCount = this._cms[i].UsedNs.Length; }
-        // parse 时已捕获（D8 修正）；无捕获（异常路径）才兜底 lex 一次。
-        NameListZ tk = (this._idents != null && this._idents[i] != null)
-            ? this._idents[i] : IncrementalDriver._tokensOf(this._texts[i], this._srcs[i]);
-        m.Tokens = tk.Items; m.TokenCount = tk.Count;
-        // 名字级声明面：parse 时已算（或从上次 meta 沿用）；无捕获（异常路径 / 全量
-        // 且未落 want）才兜底重 parse 一次。
-        NameSurfacesZ ns = (this._surfaces != null && this._surfaces[i] != null)
-            ? this._surfaces[i] : IncrementalDriver._surfaceOfText(this._texts[i], this._srcs[i], this._feats);
-        m.NsNames = ns.Names; m.NsHashes = ns.Hashes; m.NsCount = ns.Count;
-        m.SurfIdents = ns.SurfIdents; m.SurfIdentCount = ns.SurfIdentCount;
-        IrModule irm = this._cms[i].Module;
-        string[] pool = new string[irm.StringCount > 1 ? irm.StringCount - 1 : 0];
-        int p = 1;
-        while (p < irm.StringCount) { pool[p - 1] = irm.StringPool[p]; p = p + 1; }
-        m.Pool = pool; m.PoolCount = pool.Length;
-        string[] fl = new string[irm.FuncCount];
-        int f = 0;
-        while (f < irm.FuncCount) {
-            IrFunction fd = irm.Functions[f];
-            string[] lp = new string[fd.BlockCount * 2];
-            int lk = 0;
-            int b = 0;
-            while (b < fd.BlockCount) {
-                if (b > 0) { lp[lk] = " "; lk = lk + 1; }
-                lp[lk] = CacheStore.HexEnc(fd.Blocks[b].Label); lk = lk + 1;
-                b = b + 1;
-            }
-            fl[f] = String.ConcatParts(lp, lk);
-            f = f + 1;
-        }
-        m.FnLabels = fl; m.FnLabelsCount = irm.FuncCount;
-        // per-CU typecheck 诊断（warnings-survive-cache）。取 **pipeline 的快照**，不是
-        // `cms[i].DiagMsgs` —— 后者到这一步已经被 E0436 与 analyzer 那两层追加过，
-        // 而那两层每次构建都会重新发，存进来会在 cached 命中时重复打印。
-        if (this._cuDiags != null && i < this._cuDiags.Length && this._cuDiags[i] != null) {
-            m.Diags = this._cuDiags[i].Msgs; m.DiagCount = this._cuDiags[i].Count;
-        }
-        CacheStore.Save(this._cacheDir, m);
-    }
 }

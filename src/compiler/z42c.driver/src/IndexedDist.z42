@@ -1,4 +1,4 @@
-// indexed dist 投影（add-indexed-zpkg-min-patch；自 IncrementalDriver.z42 拆出守 500 行硬限）。
+// indexed dist 投影（add-indexed-zpkg-min-patch；自 IncrementalCompilation.z42 拆出守 500 行硬限）。
 // 散装 zbc = cache/内存字节原样落盘 + FILE 目录主文件；详见各函数注释。
 namespace Z42.Driver;
 

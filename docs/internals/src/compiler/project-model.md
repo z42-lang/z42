@@ -288,14 +288,28 @@ mtime 恰好相同。大小与毫秒 mtime 都未变化的原地覆写仍无法�
 和稀疏依赖基准。基准的 `Main` 接收文件数、重复次数、`chain|sparse`，输出累计失效文件数；
 同机比较两版 pipeline，保持 VM、基准字节码和其余依赖相同。
 
+### HostTarget 的增量边界
+
+构建器经 `Z42cCompiler.Compile` 将 `CompileRequest.Incremental` 传入 `BuildOptions`。
+请求和清单 `[build].incremental` 必须同时开启才读取缓存；AnalyzerChild 和带插件的构建保留全量路径。
+HostTarget 的缓存位于清单解析出的 cache 目录下的 `host-target/`，不与 CLI 的 indexed/preserved 投影混用。
+包级身份另含宿主/测试上下文、strip 与 lint 决策，依赖身份采用与实际解析相同的目录和可见性分档。
+
+两入口共享文件级准备和写出引擎：验证源码、源清单、语义指纹及依赖后恢复 IR，同时恢复 UsedDepNs、
+UsedNs 和 per-CU 警告。损坏 IR/meta 退回 fresh；全局 using 影响整个包，因此其指纹变化使全部文件重编，
+包括没有声明名字的 imports-only 文件。普通文件仍按名字级失效闭包处理。
+编译或产物写出失败时不发布新缓存；缓存写入失败只影响下次复用，不使本次成功编译失败。
+首次建立缓存需要额外解析声明面和写盘，不能把无改动复用的收益当作所有构建的收益。
+
 ### 包级缓存身份（`depsId`）
 
 增量探测有两级：**文件级**（每个源文件的哈希 + 名字级 surface）与**包级**。包级那一级就是
-`depsId` —— 一个字符串，不符即整包当全量。它在 `z42c.driver/src/Main.z42` 拼出，随后交给
-`IncrementalDriver.Prepare`，并写进 `package.meta`。
+`depsId` —— 一个字符串，不符即整包当全量。它由 pipeline 的 `BuildCacheIdentity.Of` 拼出，随后交给
+`IncrementalCompilation.Prepare`，并写进 `package.meta`。CLI 与 HostTarget 共享组成规则。
 
-**它必须涵盖「一切影响产物的输入」**，因为 `depsId` 相符 + 全部源文件命中会走一条
-**早退**路径：打印 `no changes; preserved` 后直接返回，本次编译的后续检查一条都不跑。
+**它必须涵盖「一切影响产物的输入」**。CLI 仅在产物布局、插件和 lint 等守卫允许时，
+才可在 `depsId` 相符且全部文件命中后沿用产物并早退；HostTarget 不走这条捷径，
+缓存只替代文件级类型检查与代码生成，包级检查、lint 和产物写出仍执行。
 所以漏一项的后果不是「慢一点」，而是两种静默错误：
 
 | 漏的输入 | 后果 |
@@ -392,7 +406,7 @@ zbc、meta、`package.meta` 的**写盘是普通写**（`File.Write*`）：缓�
 |--------|---------|
 | 工程模型 | `z42.project/src/ManifestLoader.z42`、`ProjectManifest.z42`、`SourceDiscovery.z42`；`z42.package/src/PackageTypes.z42` |
 | 清单键审计 | `z42.project/src/ManifestKeys.z42`；呈现：`z42c.pipeline/src/ManifestKnobs.z42`、`z42.project/src/WorkspacePlan.z42`、`z42c.driver/src/WorkspaceBuild.z42` |
-| 包级缓存身份 | `z42c.driver/src/BuildRun.z42`（`_buildDepsIdentity` 拼 `depsId`）、`z42c.pipeline/src/DepIdentity.z42`、`IncrementalDriver.z42`、`CacheStore.z42` |
+| 包级缓存身份 | `z42c.pipeline/src/BuildCacheIdentity.z42`、`DepIdentity.z42`、`IncrementalCompilation.z42`、`CacheStore.z42` |
 | 依赖扫描 | `z42c.pipeline/src/DepScan.z42`；跨成员 memo：`DepScanCache.z42`（F2） |
 | 依赖索引 | `z42.package/src/DependencyIndex.z42` |
 | 跨包符号加载（TSIG） | `z42c.symbols/src/Symbols/ImportedSymbolLoader.z42`；调和：`z42.package/src/TsigReconcile.z42` |

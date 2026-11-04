@@ -1,0 +1,31 @@
+// Cached semantic observations must accompany reused IR in both entry points.
+namespace Z42.Pipeline;
+using Z42.Package;
+
+public static class IncrementalMetadata {
+    public static CachedNsMeta[] From(IncrPrep prep, int srcCount) {
+        CachedNsMeta[] cachedMetas = null;
+        if (prep != null && prep.Cached != null && prep.Plan != null) {
+            cachedMetas = new CachedNsMeta[srcCount];
+            int mi = 0;
+            while (mi < srcCount) {
+                if (prep.Plan.Metas[mi] != null) {
+                    cachedMetas[mi] = new CachedNsMeta(prep.Plan.Metas[mi].UsedDepNs, prep.Plan.Metas[mi].UsedDepNsCount);
+                    // warnings-survive-cache：cached CU 的诊断也随 meta 回来（否则警告只在冷构建可见）。
+                    cachedMetas[mi].Diags = prep.Plan.Metas[mi].Diags;
+                    cachedMetas[mi].DiagCount = prep.Plan.Metas[mi].DiagCount;
+                    // using-csharp-rules 2.9b：cached CU 的 `UsedNs` 也随 meta 回来（包级「global using 全包没用到」要看到它）。
+                    // meta 读回的数组按 2 倍扩容带空槽，消费方按 `.Length` 遍历 ⇒ 截成精确长度。
+                    // ⚠️ 别叫 `pm`：调用链上层已有 `ProjectManifest pm`，z42c 目前不报内层同名局部（C# CS0136）且会覆盖外层槽位。
+                    CacheMeta cmeta = prep.Plan.Metas[mi];
+                    string[] uns = new string[cmeta.UsedNsCount];
+                    int ui = 0;
+                    while (ui < cmeta.UsedNsCount) { uns[ui] = cmeta.UsedNs[ui]; ui = ui + 1; }
+                    cachedMetas[mi].UsedNs = uns;
+                }
+                mi = mi + 1;
+            }
+        }
+        return cachedMetas;
+    }
+}
