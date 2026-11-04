@@ -6,6 +6,7 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Time;
 using Std.Collections;
+using Std.Cli;
 
 // 包的源码根 —— **两个 workspace 都要认**：用户 stdlib（`Std.*`）在 `src/libraries/`；编译器域库
 // 在 `src/compiler/`。🔴 只扫 `src/libraries/` 会让编译器域库的扁平 `tests/*.z42` 单元静默停跑——
@@ -84,6 +85,9 @@ int _testLib(LibUnitsCommand c, string kind, string jsonOut) {
     string lib = c.Lib;
     string[] libs;
     int[] sh = _parseShard(c.Shard);
+    if (sh[1] > 0 && lib.Length > 0) {
+        throw new CliException("--shard cannot be combined with a single library");
+    }
     if (sh[1] > 0) {
         libs = _shardLibs(_root(), kind, sh[0], sh[1]);
         Console.WriteLine("→ shard " + sh[0].ToString() + "/" + sh[1].ToString()
@@ -91,7 +95,7 @@ int _testLib(LibUnitsCommand c, string kind, string jsonOut) {
     } else if (lib.Length > 0) {
         libs = new string[] { lib };
     } else {
-        libs = new string[0];
+        libs = _allUnitLibs(_root(), kind);
     }
     // `bench stdlib --json <out>` → capture aggregated bench_stats into a baseline file
     // (median_ns primary metric). Only for bench; the test path passes "".
@@ -108,7 +112,7 @@ int _testLib(LibUnitsCommand c, string kind, string jsonOut) {
     return __rc;
 }
 
-int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, string jobs, string mode, MicroBenchAgg agg,
+int _testLibCore(string kind, string[] libList, bool noBuild, string filter, string jobs, string mode, MicroBenchAgg agg,
                  string ovVm, string ovDriver, string ovLibs) {
     // kind = "test" → discover <lib>/tests/, merge [tests.dependencies], emit
     // <lib>.test.<unit> to <lib>/release/tests/. "bench" → <lib>/benches/,
@@ -118,10 +122,12 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // ovVm/ovDriver/ovLibs (empty = derive from in-tree): when all set, use that PROVIDED
     // toolchain (vm + z42c.driver.zpkg + flat libs dir) and skip the in-tree rebuild — the
     // micro A/B base capture (bench-pr.yml) points these at the base toolchain the e2e A/B uses.
+    // 调用方已完成全库 / 单库 / 分片选择；空集合是合法空分片，不能扩大或准备工具链。
+    if (libList.Length == 0) {
+        Console.WriteLine("  no libraries selected; nothing to run");
+        return 0;
+    }
     string root = _root();
-    // 包序必须排序（_allUnitLibs）：Directory.Enumerate 的顺序随文件系统而变，下游 first-wins
-    // 行为要平台稳定。
-    string[] libList = reqLibsIn.Length > 0 ? reqLibsIn : _allUnitLibs(root, kind);
     List<string> dirs = new List<string>();
     foreach (var l in libList) { dirs.Add(Path.Join(_libSrcRoot(root, l), l)); }
     return _testPkgsCore(kind, "stdlib", dirs.ToArray(), libList, noBuild, filter, jobs, mode, agg, ovVm, ovDriver, ovLibs);

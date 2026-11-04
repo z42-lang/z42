@@ -9,6 +9,7 @@ int _selfcheckGateStages() {
     _checkChangedPlans();
     _selfcheckExamplesStage();
     _selfcheckChangedGit();
+    _selfcheckShards();
     var calls = new List<string>();
     GateStage[] stages = new GateStage[]{
         new GateStage("", "selfcheck required", () => _recordGateCall(calls, "required", 0)),
