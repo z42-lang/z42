@@ -1,0 +1,80 @@
+// Complete in-process host requests; source setup and the first build are outside timed samples.
+namespace HostSessionBench;
+using Std.IO;
+using Std.Harness;
+using Z42.Build;
+using Z42.Project;
+using Z42.Pipeline;
+
+public sealed class HostFixture {
+    public string Root;
+    private CompileRequest _request;
+    private Z42cCompiler _compiler;
+
+    public HostFixture(int files, bool release, bool incremental) {
+        this.Root = File.CreateTempDir("host-session-bench");
+        Directory.Create(Path.Join(this.Root, "src"));
+        int i = 0;
+        while (i < files) {
+            string name = "Item" + i.ToString();
+            File.WriteAllText(Path.Join(this.Root, "src/" + name + ".z42"),
+                "namespace Example;\npublic sealed class " + name + " {\n"
+                + "    public int Value;\n    public " + name + "(int value) { this.Value = value; }\n"
+                + "    public int Read() { return this.Value; }\n}\n");
+            i = i + 1;
+        }
+        File.WriteAllText(Path.Join(this.Root, "z42.toml"),
+            "[project]\nname = \"bench.host.session\"\nversion = \"0.1.0\"\nkind = \"lib\"\n");
+        ProjectManifest pm = ManifestLoader.Load(Path.Join(this.Root, "z42.toml"));
+        this._request = new CompileRequest(this.Root, Path.Join(this.Root, "out/app.zpkg"),
+            new string[0], release ? "release" : "debug", release, incremental, "lib", new string[0], 0);
+        this._request.Manifest = pm;
+        this._compiler = new Z42cCompiler();
+    }
+
+    public void Build() {
+        CompileResult result = this._compiler.Compile(this._request);
+        if (!result.Ok) { throw new Exception(result.Diagnostics); }
+    }
+
+    public string Hash() {
+        string value = Std.Hashing.Murmur3.Hash128Hex(File.ReadAllBytes(this._request.OutputZpkg));
+        if (this._request.Profile == "release") {
+            string path = this._request.OutputZpkg;
+            string sidecar = path.Substring(0, path.Length - 5) + ".zsym";
+            value = value + Std.Hashing.Murmur3.Hash128Hex(File.ReadAllBytes(sidecar));
+        }
+        return value;
+    }
+}
+
+void exercise(int files, bool release, bool incremental, string label) {
+    HostFixture fixture = new HostFixture(files, release, incremental);
+    try {
+        fixture.Build();
+        string expected = fixture.Hash();
+        var b = new Bencher(2, 8);
+        b.iter(() => { fixture.Build(); });
+        if (fixture.Hash() != expected) { throw new Exception("host request changed unchanged-source products"); }
+        b.printSummary(label);
+    } finally { Directory.Delete(fixture.Root, true); }
+}
+
+[Benchmark]
+void bench_host_noop_8_files() { exercise(8, false, true, "host_noop_8_files"); }
+
+[Benchmark]
+void bench_host_noop_release_8_files() { exercise(8, true, true, "host_noop_release_8_files"); }
+
+[Benchmark]
+void bench_host_noop_1_file() { exercise(1, false, true, "host_noop_1_file"); }
+
+[Benchmark]
+void bench_host_forced_fresh_8_files() { exercise(8, false, false, "host_forced_fresh_8_files"); }
+
+void Main() {
+    bench_host_noop_8_files();
+    bench_host_noop_release_8_files();
+    bench_host_noop_1_file();
+    bench_host_forced_fresh_8_files();
+}

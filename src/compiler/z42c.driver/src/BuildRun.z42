@@ -99,7 +99,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     if (kn == null) { return ExitCode.UsageError; }
     int effOptSet = kn.OptSet; LanguageFeatures feats = kn.Features;
     // ── ⑧ 依赖身份（缓存键扩展）+ 增量 probe；全命中 → preserved 早退 ──
-    string depsId = _buildDepsIdentity(pm, effOptSet, isRelease, libsDirs, libsDirsN, scanTier);
+    string depsId = BuildCacheIdentity.Of(pm, effOptSet, isRelease, libsDirs, libsDirsN, scanTier);
     PrepareOut po = _prepareIncremental(pm, srcs, dispSrcs, sh.Texts, sh.Hashes, scanTier, projectDir, bd.EffCacheDir, depsId,
         feats, distDir, isPacked, isExe, azPaths, closureNames, closureN, libsDirs, libsDirsN, isRelease,
         outputDirOverride, cacheDirOverride, noIncremental, LineLint.Active(kn.Lints), pl.DepNames, pl.DepNamesN);
@@ -110,7 +110,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     CompilationUnit[] cus = pa.Cus; NameListZ[] metaIdents = pa.Idents; NameSurfacesZ[] metaSurfaces = pa.Surfaces;
     // ── ⑩ 编译核心：依赖存在性校验 → cached meta 回填 → CompileInputs → PackageCompile.Compile ──
     int vdr = _verifyDeclaredDepsRouted(pm, libsDirs, libsDirsN, pl); if (vdr != 0) { return vdr; }
-    CachedNsMeta[] cachedMetas = _buildCachedMetas(prep, srcs.Length);
+    CachedNsMeta[] cachedMetas = IncrementalMetadata.From(prep, srcs.Length);
     CompileInputs cin = _fillCompileInputsRouted(pm, srcs, sh.Texts, sh.Hashes, cus, prep, cachedMetas,
         isRelease, fix, feats, effOptSet, libsDirs, libsDirsN, scanTier, sdkPlan, azPaths, projectDir, kn, internalOf, pl);
     if (cin == null) { return ExitCode.BuildError; }
@@ -406,57 +406,6 @@ KnobResult _resolveKnobs(ProjectManifest pm, string tomlPath, bool isRelease, in
 // 输入维度：依赖目录内容哈希 + 优化集 + [syntax] 显式项 + 清单自身（name/version/kind/entry/profile）
 // + 声明依赖名单。全部都是「只改 toml、源码一字未动」时也必须令缓存失效的输入——漏一个就是
 // 「probe 全命中 ⇒ 早退 preserved ⇒ 改动没进产物，而构建报成功」。
-string _buildDepsIdentity(ProjectManifest pm, int effOptSet, bool isRelease, string[] libsDirs, int libsDirsN, WsTier scanTier) {
-    string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, scanTier);
-    // wire-optimize-manifest：**优化集并进包级缓存身份**。它此前不在任何 cache key 里——那时无害
-    // （`[optimize]` 整段被忽略，optSet 只由 CLI/profile 决定，而这两者不会在「源没变」时悄悄变）。
-    // 接线之后就有害了：改一行 toml 不碰源码 ⇒ probe 全命中 ⇒ **旋钮全量构建生效、增量构建被忽略**
-    // （实测：改成 `inline=false` 后 `cached: 1/1`、产物仍 960 字节）。那种「有时生效」比「从不
-    // 生效」更难查。并进这里而不是新加一行 meta：`depsId` 本就是「包级身份，不符即整包全量」，
-    // 优化集确实属于同一维度，且零签名改动（下游四处原样继承）。
-    depsId = depsId + "|opt" + effOptSet.ToString();
-    // 🔴 **特性集也必须进包级缓存身份**，同上一行的理由：改一行 toml 不碰源码 ⇒ probe 全命中
-    // ⇒ 旋钮「全量生效、增量被忽略」。只折**被 toml 显式改动过的**那些（默认 profile 不进 key，
-    // 免得将来给 profile 加特性就把所有人的缓存作废）。
-    int sd = 0;
-    while (sd < pm.SyntaxCount) {
-        depsId = depsId + "|syn:" + pm.SyntaxNames[sd] + "=" + (pm.SyntaxValues[sd] ? "1" : "0");
-        sd = sd + 1;
-    }
-    // 🔴 **清单自身的身份也必须进包级缓存身份**（fix-cache-key-manifest-inputs）。
-    //
-    // 这是 `|opt` / `|syn:` 同一族的第三、四次：**「只改 toml、源码一字未动」恰好全命中缓存
-    // ⇒ 早退 preserved ⇒ 改动没进产物，而构建报成功**。前两次的处置是在 preserved 路径上各打
-    // 一个补偿补丁（`_writeRuntimeConfigSidecar` 与 `_bundleExeDeps` 就是那两个），
-    // 这次改为**扩键**——补偿补丁只能救已知的那一个产出物，扩键才是「缓存键涵盖全部影响
-    // 产物的输入」这条前置条件本身。
-    //
-    // 逐项为什么在这里（都是**会进产物字节或会改诊断**的输入，而此前一项都不在任何 key 里）：
-    //   · Name / Version / Entry —— `ZpkgWriterZ._buildMeta` 把三者写进 zpkg 的 META 段。
-    //     `DepIdentity.Of` 的 `excludeName` 只用来**把自身排除出依赖集**，不进哈希 ⇒ 连改包名
-    //     都不失效。实测形态：改 `[project].version` 重建，报 `no changes; preserved`，
-    //     **发布出去的 zpkg 里还是旧版本号**。
-    //   · Kind —— `exe` / `lib` / `analyzer` 决定 zpkg 头的 FlagExe 与装配路径。
-    //   · 声明依赖名单 —— `DepScan` 拿它当过滤白名单、`E0497`（用了没声明）据它发码、DEPS 段
-    //     据它写。按名依赖删掉一条**不改变 libsDirs 里 zpkg 的集合与内容** ⇒ `DepIdentity.Of`
-    //     不变 ⇒ 全命中 ⇒ DEPS 段陈旧（#849 的传递闭包据此建）+ 本该报的 E0497 静默消失。
-    //   · isRelease —— 默认 cache 目录模板含 `${profile}`，所以通常被目录隔开；但 manifest
-    //     可以把 `cache_dir` 配成不含 `${profile}` 的路径，那时两个 profile 共用一份条目。
-    //
-    // 代价：本次提交后全仓所有包的既有缓存条目一次性失效（键变了 ⇒ 当 fresh），此后自愈。
-    // 依赖名单按**清单顺序**折入：重排 `[dependencies]` 会多触发一次全量，而漏失效是错产物
-    // ——过度失效是安全方向（同 `DepIdentity` 不按 declaredDeps 过滤那条的取舍）。
-    depsId = depsId + "|mf:" + pm.Project.Name + "@" + pm.Project.Version
-           + "/" + pm.Project.Kind
-           + "/" + (pm.Project.HasEntry ? pm.Project.Entry : "-")
-           + "/" + (isRelease ? "rel" : "dbg");
-    int mdi = 0;
-    while (mdi < pm.DepCount) {
-        depsId = depsId + "|dep:" + pm.Deps[mdi].Name;
-        mdi = mdi + 1;
-    }
-    return depsId;
-}
 
 // ── ⑧b 文件级增量 probe；全命中 → preserved 早退 ─────────────────────────────────
 // 文件级增量（add-file-level-incremental）：种子 + token 保守边闭包 + cached 读回。
@@ -499,7 +448,7 @@ PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispS
         // 代价只落在带 analyzer / style lint 的工程：全命中时多一次装配 + analyzer 遍历（cached CU 不重做 typecheck）。
         bool canPreserve = pm.ExeCount == 0 && azPaths == null && !styleLint
             && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked);
-        o.Prep = IncrementalDriver.Prepare(srcs, dispSrcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve, feats);
+        o.Prep = IncrementalCompilation.Prepare(srcs, dispSrcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve, feats);
         BuildLog.ProgressErr("cached: " + (srcs.Length - o.Prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         if (canPreserve && o.Prep.Plan.AllCached) {
             if (isExe) {
@@ -551,7 +500,7 @@ ParseAllOut _parseAllSources(string[] srcs, string[] dispSrcs, string[] texts, I
         bool[] want = new bool[srcs.Length];
         int wi = 0;
         while (wi < srcs.Length) { want[wi] = true; wi = wi + 1; }
-        ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, dispSrcs, srcs.Length, want, feats);
+        ParsedPkg pk = IncrementalCompilation.ParseAllTk(texts, dispSrcs, srcs.Length, want, feats);
         o.Cus = pk.Cus;
         o.Idents = pk.Idents;
         o.Surfaces = pk.Surfaces;
@@ -649,31 +598,6 @@ int _verifyDeclaredDeps(ProjectManifest pm, string[] libsDirs, int libsDirsN, st
 }
 
 // ── ⑩b cached meta 回填（增量条目的 per-file 元数据 → CachedNsMeta）──────────────
-CachedNsMeta[] _buildCachedMetas(IncrPrep prep, int srcCount) {
-    CachedNsMeta[] cachedMetas = null;
-    if (prep != null && prep.Cached != null && prep.Plan != null) {
-        cachedMetas = new CachedNsMeta[srcCount];
-        int mi = 0;
-        while (mi < srcCount) {
-            if (prep.Plan.Metas[mi] != null) {
-                cachedMetas[mi] = new CachedNsMeta(prep.Plan.Metas[mi].UsedDepNs, prep.Plan.Metas[mi].UsedDepNsCount);
-                // warnings-survive-cache：cached CU 的诊断也随 meta 回来（否则警告只在冷构建可见）。
-                cachedMetas[mi].Diags = prep.Plan.Metas[mi].Diags;
-                cachedMetas[mi].DiagCount = prep.Plan.Metas[mi].DiagCount;
-                // using-csharp-rules 2.9b：cached CU 的 `UsedNs` 也随 meta 回来（包级「global using 全包没用到」要看到它）。
-                // meta 读回的数组按 2 倍扩容带空槽，消费方按 `.Length` 遍历 ⇒ 截成精确长度。
-                // ⚠️ 别叫 `pm`：调用链上层已有 `ProjectManifest pm`，z42c 目前不报内层同名局部（C# CS0136）且会覆盖外层槽位。
-                CacheMeta cmeta = prep.Plan.Metas[mi];
-                string[] uns = new string[cmeta.UsedNsCount];
-                int ui = 0;
-                while (ui < cmeta.UsedNsCount) { uns[ui] = cmeta.UsedNs[ui]; ui = ui + 1; }
-                cachedMetas[mi].UsedNs = uns;
-            }
-            mi = mi + 1;
-        }
-    }
-    return cachedMetas;
-}
 
 // ── ⑩c CompileInputs 装填。null = 失败（诊断已打印）─────────────────────────────
 CompileInputs _fillCompileInputs(ProjectManifest pm, string[] srcs, string[] texts, string[] srcHashes,
