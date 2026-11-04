@@ -14,7 +14,7 @@
 //! so it shares `static_fields` / `heap` / `lazy_loader` / `native_libs` with
 //! the parent thread. Its per-thread state (`pending_exception` / `call_stack`)
 //! is private — the worker is registered in
-//! `VmCore.vm_contexts` so the GC scanner walks both threads' roots.
+//! `VmCore.threads.vm_contexts` so the GC scanner walks both threads' roots.
 
 #[derive(Default)]
 pub(crate) struct State {

@@ -153,7 +153,7 @@ fn write_banner(fd: i32) {
 /// crashing thread's own contexts (see the module docs).
 ///
 /// **Note**: VM_CORES uses `std::sync::Mutex` (const fn for static init);
-/// `core.vm_contexts` uses `parking_lot::Mutex` whose `try_lock` returns
+/// `core.threads.vm_contexts` uses `parking_lot::Mutex` whose `try_lock` returns
 /// `Option<MutexGuard>` (not `Result`). Each `match` arm is shaped to its
 /// mutex type.
 fn write_call_stacks(fd: i32) {
@@ -188,7 +188,7 @@ fn write_call_stacks(fd: i32) {
         sigsafe::write_str(fd, b" --\n");
 
         // parking_lot::Mutex::try_lock returns Option<MutexGuard>
-        let contexts = match core.vm_contexts.try_lock() {
+        let contexts = match core.threads.vm_contexts.try_lock() {
             Some(g) => g,
             None => {
                 sigsafe::write_str(fd, b"  <vm_contexts lock contended>\n");

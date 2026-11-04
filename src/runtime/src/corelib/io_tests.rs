@@ -153,5 +153,5 @@ fn console_write_to_a_capture_sink_does_not_park() {
     install_stdout();
     builtin_println(&c, &[s("captured")]).unwrap();
     assert_eq!(take_stdout(), "captured\n");
-    assert_eq!(c.core.parked_count.load(std::sync::atomic::Ordering::Acquire), 0);
+    assert_eq!(c.core.threads.parked_count.load(std::sync::atomic::Ordering::Acquire), 0);
 }

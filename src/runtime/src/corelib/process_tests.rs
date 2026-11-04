@@ -157,7 +157,7 @@ fn streaming_reads_until_eof_then_try_wait() {
 }
 
 fn parked(ctx: &VmContext) -> usize {
-    ctx.core.parked_count.load(std::sync::atomic::Ordering::Acquire) as usize
+    ctx.core.threads.parked_count.load(std::sync::atomic::Ordering::Acquire) as usize
 }
 
 fn wait_until(mut cond: impl FnMut() -> bool) -> bool {

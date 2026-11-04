@@ -181,13 +181,13 @@ mod check_safepoint_tests {
         // throttle counter would skip it).
         ctx.safepoint_skip.store(1, Ordering::Relaxed);
         let cycles_before = ctx.heap().stats().gc_cycles;
-        ctx.core.needs_auto_collect.store(true, Ordering::Release);
+        ctx.core.threads.needs_auto_collect.store(true, Ordering::Release);
 
         let mut frame = make_frame(&ctx);
         unsafe {
             jit_check_safepoint(&mut frame as *mut JitFrame, &*ctx as *const VmContext);
         }
-        assert!(!ctx.core.needs_auto_collect.load(Ordering::Acquire),
+        assert!(!ctx.core.threads.needs_auto_collect.load(Ordering::Acquire),
             "trampoline should have drained the flag");
         assert!(ctx.heap().stats().gc_cycles > cycles_before,
             "trampoline should have run a real collect");

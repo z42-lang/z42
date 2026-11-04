@@ -48,7 +48,7 @@ const REPOKE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1)
 pub(crate) fn poke_safepoints(core: &VmCore) {
     // SAFETY: see `VmContextPtr` — an entry is live while it is registered, and we hold the
     // registry lock for the walk. The counter is an atomic.
-    for p in core.vm_contexts.lock().iter() {
+    for p in core.threads.vm_contexts.lock().iter() {
         unsafe { &*p.0 }.safepoint_skip.store(1, Ordering::Relaxed);
     }
 }
@@ -142,7 +142,7 @@ pub fn check_safepoint(ctx: &VmContext) {
 /// fast path) can call it directly after resetting the throttle counter.
 #[inline(never)]
 pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
-    let phase = *ctx.core.gc_phase.lock();
+    let phase = *ctx.core.threads.gc_phase.lock();
     if matches!(phase, GcPhase::Requested | GcPhase::Marking) {
         park_until_idle(ctx);
         return;
@@ -151,7 +151,7 @@ pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
     // *read* here; the collector clears it once it holds the pause (`take_collect_request`), so a
     // thread that loses the collector role below leaves it set for the next safepoint instead of
     // consuming it.
-    if ctx.core.needs_auto_collect.load(Ordering::Acquire) {
+    if ctx.core.threads.needs_auto_collect.load(Ordering::Acquire) {
         // collect_cycles_with_vm takes the pause (`request_gc_pause`)
         // and lets the heap pick the work for its mode.
         ctx.heap().collect_cycles_with_vm(ctx);
@@ -184,7 +184,7 @@ fn park_until_idle(ctx: &VmContext) {
     // the collector is only waiting on parked_count here (holds no region lock),
     // so no deadlock. Idempotent when the TLAB is already unbound.
     ctx.heap().retire_thread_tlab();
-    ctx.core.parked_count.fetch_add(1, Ordering::AcqRel);
+    ctx.core.threads.parked_count.fetch_add(1, Ordering::AcqRel);
     // Acquire the phase lock BEFORE calling notify_all.
     //
     // parking_lot::Condvar does NOT buffer notifications: if notify_all
@@ -204,10 +204,10 @@ fn park_until_idle(ctx: &VmContext) {
     //       If it calls wait(), we acquire the lock, notify, and wake it.
     //
     // In both cases the notification is never lost.
-    let mut phase = ctx.core.gc_phase.lock();
-    ctx.core.gc_phase_cv.notify_all();
+    let mut phase = ctx.core.threads.gc_phase.lock();
+    ctx.core.threads.gc_phase_cv.notify_all();
     while matches!(*phase, GcPhase::Requested | GcPhase::Marking) {
-        ctx.core.gc_phase_cv.wait(&mut phase);
+        ctx.core.threads.gc_phase_cv.wait(&mut phase);
     }
     // Decrement BEFORE releasing the phase lock. Decrementing after
     // drop(phase) would let the next collector's `request_gc_pause` observe
@@ -215,7 +215,7 @@ fn park_until_idle(ctx: &VmContext) {
     // this thread is still resuming (between drop and fetch_sub).
     // Decrementing under the lock serializes the count update against the
     // collector's next re-check.
-    ctx.core.parked_count.fetch_sub(1, Ordering::AcqRel);
+    ctx.core.threads.parked_count.fetch_sub(1, Ordering::AcqRel);
     drop(phase);
     // Record park duration AFTER releasing the phase lock (park_histogram is a
     // distinct lock; recording here can't deadlock the collector). Saturating
@@ -268,12 +268,12 @@ fn native_park_incr(ctx: &VmContext) {
     // allocate again until native_park_decr.)
     ctx.heap().park_thread_tlab(&ctx.parked_tlab);
     crate::gc::to_vm::suspend_allocations();
-    ctx.core.parked_count.fetch_add(1, Ordering::AcqRel);
+    ctx.core.threads.parked_count.fetch_add(1, Ordering::AcqRel);
     // Hold the phase lock across notify_all — same lost-wakeup discipline as
     // park_until_idle: a collector spinning in its wait loop must observe our
     // increment.
-    let _phase = ctx.core.gc_phase.lock();
-    ctx.core.gc_phase_cv.notify_all();
+    let _phase = ctx.core.threads.gc_phase.lock();
+    ctx.core.threads.gc_phase_cv.notify_all();
 }
 
 /// Leave the parked state. If a STW window is in progress, wait it out BEFORE
@@ -281,14 +281,14 @@ fn native_park_incr(ctx: &VmContext) {
 /// drop our parked count. Decrement under the phase lock closes the same
 /// stale-count race documented in `park_until_idle`.
 fn native_park_decr(ctx: &VmContext) {
-    let mut phase = ctx.core.gc_phase.lock();
+    let mut phase = ctx.core.threads.gc_phase.lock();
     while matches!(*phase, GcPhase::Requested | GcPhase::Marking) {
-        ctx.core.gc_phase_cv.wait(&mut phase);
+        ctx.core.threads.gc_phase_cv.wait(&mut phase);
     }
     // Still counted parked and holding the phase lock: no collector can be retiring our
     // set-aside claims now, nor start to before we are unparked.
     ctx.heap().unpark_thread_tlab(&ctx.parked_tlab);
-    ctx.core.parked_count.fetch_sub(1, Ordering::AcqRel);
+    ctx.core.threads.parked_count.fetch_sub(1, Ordering::AcqRel);
     drop(phase);
     crate::gc::to_vm::resume_allocations();
 }
@@ -370,7 +370,7 @@ pub fn request_gc_pause(ctx: &VmContext) -> Option<GcPauseGuard<'_>> {
     // (so we see its heap changes); Release side pairs with our
     // subsequent `gc_phase = Requested` store (so workers seeing
     // Requested also see our collector_active = true).
-    if ctx.core.collector_active
+    if ctx.core.threads.collector_active
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
         .is_err()
     {
@@ -388,7 +388,7 @@ pub fn request_gc_pause(ctx: &VmContext) -> Option<GcPauseGuard<'_>> {
     // when they park (park_until_idle) below.
     ctx.heap().retire_thread_tlab();
 
-    *ctx.core.gc_phase.lock() = GcPhase::Requested;
+    *ctx.core.threads.gc_phase.lock() = GcPhase::Requested;
 
     // Wait for everyone-but-self to park. Re-read vm_contexts.len() on
     // each wakeup so a freshly-registered VmContext (which will see
@@ -398,15 +398,15 @@ pub fn request_gc_pause(ctx: &VmContext) -> Option<GcPauseGuard<'_>> {
     // P0-16: every mutator is poked into its slow path first, and again each
     // `REPOKE_INTERVAL` the wait goes on — a poke can be lost to a racing
     // decrement, and a newcomer registers with a full throttle counter.
-    let mut phase = ctx.core.gc_phase.lock();
+    let mut phase = ctx.core.threads.gc_phase.lock();
     loop {
-        let total = ctx.core.vm_contexts.lock().len();
+        let total = ctx.core.threads.vm_contexts.lock().len();
         let need  = total.saturating_sub(1);
-        if ctx.core.parked_count.load(Ordering::Acquire) >= need {
+        if ctx.core.threads.parked_count.load(Ordering::Acquire) >= need {
             break;
         }
         poke_safepoints(&ctx.core);
-        ctx.core.gc_phase_cv.wait_for(&mut phase, REPOKE_INTERVAL);
+        ctx.core.threads.gc_phase_cv.wait_for(&mut phase, REPOKE_INTERVAL);
     }
     *phase = GcPhase::Marking;
     drop(phase);
@@ -415,7 +415,7 @@ pub fn request_gc_pause(ctx: &VmContext) -> Option<GcPauseGuard<'_>> {
     // (`native_park_incr`): retire those now, before marking, as their owners would have
     // at a safepoint park. Safepoint-parked threads retired their own already (their slot
     // is empty), and none of them can unpark before the pause ends.
-    for p in ctx.core.vm_contexts.lock().iter() {
+    for p in ctx.core.threads.vm_contexts.lock().iter() {
         // SAFETY: see `VmContextPtr` — live while registered; we hold the registry lock.
         let other = unsafe { &*p.0 };
         ctx.heap().retire_parked_tlab(&other.parked_tlab);
@@ -426,12 +426,12 @@ pub fn request_gc_pause(ctx: &VmContext) -> Option<GcPauseGuard<'_>> {
 
 impl Drop for GcPauseGuard<'_> {
     fn drop(&mut self) {
-        *self.ctx.core.gc_phase.lock() = GcPhase::Idle;
-        self.ctx.core.gc_phase_cv.notify_all();
+        *self.ctx.core.threads.gc_phase.lock() = GcPhase::Idle;
+        self.ctx.core.threads.gc_phase_cv.notify_all();
         // add-multi-collector-arbitration : release the
         // exclusive collector claim. Release ordering so the next
         // collector's compare_exchange Acquire sees our final heap state.
-        self.ctx.core.collector_active.store(false, Ordering::Release);
+        self.ctx.core.threads.collector_active.store(false, Ordering::Release);
     }
 }
 

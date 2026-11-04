@@ -100,7 +100,7 @@ pub fn fatal_error(ctx: &crate::vm_context::VmContext, what: &str) -> anyhow::Er
 
 /// Set the fatal flag; the first fatal error of the VM keeps its report.
 fn record(ctx: &crate::vm_context::VmContext, what: impl FnOnce(usize) -> String) {
-    if !ctx.core.fatal.swap(true, Ordering::SeqCst) {
+    if !ctx.core.threads.fatal.swap(true, Ordering::SeqCst) {
         let frames = ctx.snapshot_call_stack();
         let report = format!("{FATAL_PREFIX}{}\n{}", what(frames.len()), format_trace(&frames));
         *REPORT.lock().unwrap_or_else(|e| e.into_inner()) = Some(report);
@@ -128,7 +128,7 @@ fn format_trace(frames: &[crate::vm::exec::stack::FrameSnapshot]) -> String {
 /// that would otherwise run a z42 handler or turn an error into a z42 exception.
 #[inline(always)]
 pub fn is_fatal(ctx: &crate::vm_context::VmContext) -> bool {
-    ctx.core.fatal.load(Ordering::Relaxed)
+    ctx.core.threads.fatal.load(Ordering::Relaxed)
 }
 
 /// Unit tests that raise a fatal error serialize on this: the report is process-wide,
