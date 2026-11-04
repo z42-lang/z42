@@ -25,6 +25,14 @@ public sealed class Array {
     [Native("__array_clone")]
     public extern Object Clone();
 
+    /// 数组存储是否可能包含引用；打包基元数组返回 false，其余布局保守返回 true。
+    ///
+    /// 不扫描元素，空引用数组也返回 true；struct（即使没有引用字段）同样保守返回 true。
+    /// 可用于决定是否清理容器废弃槽；不修改数组或构造反射 Type。
+    /// array 为 null 时抛 ArgumentNullException。
+    [Native("__array_may_contain_refs")]
+    public static extern bool MayContainReferences(Array array);
+
     // ── 反射式建/读写 ─────────────────────────────────────────────────────────
     // 照搬 C# System.Array：以运行期 Type 建数组、以实例方法读写元素，供反射式
     // (de)serialization 在编译期不知元素类型时操作数组。native 绑既有 builtin。

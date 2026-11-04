@@ -1,0 +1,41 @@
+namespace Z42CoreArrayReferenceLayoutTests;
+
+using Std.Harness;
+
+class Leaf { public int Number; }
+struct Plain { public int Number; }
+struct WithReference { public Leaf Value; }
+
+[Test]
+void test_packed_primitive_arrays_are_reference_free() {
+    Assert.False(Array.MayContainReferences(new int[0]));
+    Assert.False(Array.MayContainReferences(new int[3]));
+    Assert.False(Array.MayContainReferences(new long[1]));
+    Assert.False(Array.MayContainReferences(new byte[1]));
+    Assert.False(Array.MayContainReferences(new bool[1]));
+    Assert.False(Array.MayContainReferences(new char[1]));
+    Assert.False(Array.MayContainReferences(new double[1]));
+}
+
+[Test]
+void test_reference_arrays_remain_conservative_when_empty_or_null() {
+    Assert.True(Array.MayContainReferences(new string[0]));
+    Assert.True(Array.MayContainReferences(new string[2]));
+    Assert.True(Array.MayContainReferences(new object[0]));
+    Assert.True(Array.MayContainReferences(new Leaf[2]));
+}
+
+[Test]
+void test_struct_arrays_are_conservative_with_or_without_reference_fields() {
+    Assert.True(Array.MayContainReferences(new Plain[0]));
+    Assert.True(Array.MayContainReferences(new Plain[2]));
+    Assert.True(Array.MayContainReferences(new WithReference[0]));
+    Assert.True(Array.MayContainReferences(new WithReference[2]));
+}
+
+[Test]
+void test_nested_array_storage_can_hold_references() {
+    Array[] arrays = new Array[1];
+    arrays[0] = new int[2];
+    Assert.True(Array.MayContainReferences(arrays));
+}
