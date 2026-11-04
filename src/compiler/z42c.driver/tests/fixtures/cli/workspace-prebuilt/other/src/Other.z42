@@ -1,0 +1,2 @@
+namespace ProbeOther;
+public static class Other { public static int Read() { return 99; } }
