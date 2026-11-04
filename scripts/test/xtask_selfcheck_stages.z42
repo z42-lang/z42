@@ -9,6 +9,7 @@ int _selfcheckGateStages() {
     _checkChangedPlans();
     _selfcheckExamplesStage();
     _selfcheckChangedGit();
+    _selfcheckShards();
     var calls = new List<string>();
     GateStage[] stages = new GateStage[]{
         new GateStage("", "selfcheck required", () => _recordGateCall(calls, "required", 0)),
@@ -62,6 +63,14 @@ void _checkChangedPlans() {
         == String.Join(",", _stagesAllZ42()), "production compiler source keeps all consumers");
     _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/a/main.z42").stages)
         == "cross-zpkg", "compiler fixtures keep harness routing precedence");
+    foreach (var file in new string[]{ "native_interop_e2e.rs", "data/numz42-c/numz42.c", "data/embedding_hello/source.z42" }) {
+        _MapResult m = _mapFile("src/runtime/tests/" + file);
+        _gateAssert(String.Join(",", m.stages) == "rust-units", "private runtime tests keep Rust coverage");
+        _gateAssert(String.Join(";", m.commands) == "xtask test runtime", "private runtime tests use full harness");
+    }
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
+        "src/runtime/tests/native_interop_e2e.rs", "src/runtime/src/lib.rs"
+    })) == "xtask test runtime;xtask test e2e", "mixed runtime inputs keep production consumers");
 }
 
 void _checkGateRegistry(GateStage[] stages) {

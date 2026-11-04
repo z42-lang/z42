@@ -4,6 +4,7 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Time;
 using Std.Collections;
+using Std.Cli;
 
 // stage 耗时无条件输出，便于默认 verbosity 的 CI 日志定位瓶颈。
 
@@ -71,7 +72,10 @@ int _testE2e(TestE2eCommand c) {
     bool noBuild = c.NoBuild;
     string[] mw = _splitWords(modes);
     string xmode = mw.Length > 0 ? mw[0] : "interp";   // cross-zpkg runs a single mode
-    string shardOpt = c.Shard;
+    int[] shard = _parseShard(c.Shard);
+    if (shard[1] > 0 && (dir == "cross-zpkg" || dir == "multi-exe")) {
+        throw new CliException("--shard selects golden cases, not cross-zpkg or multi-exe fixtures");
+    }
     int __rc;
     if (dir == "cross-zpkg") {
         // cross-zpkg only: build unless the caller opted out (--no-rebuild/--no-build)
@@ -80,7 +84,7 @@ int _testE2e(TestE2eCommand c) {
         // multi-exe only: same build/consume prep as cross-zpkg.
         __rc = _testMultiExeCore(xmode, noBuild || !rebuild);
     } else {
-        __rc = _testE2eCore(modes, rebuild, noBuild, c.Jobs, shardOpt, dir, file);
+        __rc = _testE2eCore(modes, rebuild, noBuild, c.Jobs, shard, dir, file);
         // default (no --dir/--file narrowing, and NOT sharded) also runs the cross-zpkg +
         // multi-exe harnesses once; the golden run above already built the toolchain (or --no-rebuild
         // was set), so cross-zpkg consumes it (noBuild=true) rather than rebuilding.
@@ -88,7 +92,7 @@ int _testE2e(TestE2eCommand c) {
         // multi-package set, NOT sharded, so running it per-shard is Nx redundant — the
         // CI drives it once via an explicit `--dir cross-zpkg` step. Local full runs
         // (`xtask test e2e`, unsharded) still get it.
-        if (__rc == 0 && dir.Length == 0 && file.Length == 0 && shardOpt.Length == 0) {
+        if (__rc == 0 && dir.Length == 0 && file.Length == 0 && shard[1] == 0) {
             __rc = _testCrossZpkgCore(xmode, true);
             if (__rc == 0) { __rc = _testMultiExeCore(xmode, true); }
         }
@@ -121,7 +125,7 @@ int _buildDebugVmAndCompression() {
     return _exec(_cargoCmd("build", _runtimeCargoConfig()).Arg("-q").Arg("--manifest-path").Arg("src/runtime/crates/z42-compression/Cargo.toml"));
 }
 
-int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string shard, string dirFilter, string fileFilter) {
+int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, int[] shard, string dirFilter, string fileFilter) {
     if (jobs.Length == 0) { jobs = "1"; }
     // --toolchain / --no-build: consume an already-built z42c+stdlib → regen goldens
     // only; else full rebuild.
@@ -142,8 +146,7 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
     string[] modeList = _splitWords(modes);
     int jobsN = 1;
     try { jobsN = int.Parse(jobs); } catch (Exception e) { jobsN = 1; }
-    int[] sh = _parseShard(shard);
-    return _runVmGoldensF(modeList, jobsN, sh[0], sh[1], dirFilter, fileFilter);
+    return _runVmGoldensF(modeList, jobsN, shard[0], shard[1], dirFilter, fileFilter);
 }
 
 // ── cross-zpkg harness (invoked by `test e2e`) ──────────────────────────────
@@ -201,15 +204,15 @@ GateStage[] _gateStages(bool noBuild) {
         new GateStage("rust-units", "rust units (cargo test --lib + --no-run)", () => _testRuntimeUnits()),
         // interp 本地必跑；JIT 由独立 CI job 覆盖。
         new GateStage("", "e2e goldens (interp; jit → vm-jit-consistency)",
-            () => _testE2eCore("interp", false, false, "4", "", "", "")),
+            () => _testE2eCore("interp", false, false, "4", new int[2], "", "")),
         new GateStage("cross-zpkg", "e2e cross-zpkg", () => _testCrossZpkgCore("interp", true)),
         new GateStage("multi-exe", "e2e multi-exe", () => _testMultiExeCore("interp", true)),
         new GateStage("stdlib", "stdlib [Test]",
-            () => _testLibCore("test", new string[0], true, "", "4", "interp", null, "", "", "")),
+            () => _testLibCore("test", _allUnitLibs(_root(), "test"), true, "", "4", "interp", null, "", "", "")),
         new GateStage("toolchain", "toolchain [Test]", () => _testToolchainCore("", true, "", false)),
         // 只验 benchmark 语料能跑；时间回归由 bench-pr.yml 的 A/B 判定。
         new GateStage("bench", "stdlib [Benchmark]",
-            () => _testLibCore("bench", new string[0], true, "", "4", "interp", null, "", "", "")),
+            () => _testLibCore("bench", _allUnitLibs(_root(), "bench"), true, "", "4", "interp", null, "", "", "")),
         new GateStage("targets", "manifest targets ([[test]] + [[example]])", () => _gateTargets()),
         new GateStage("examples", "examples (learn book transcripts)", () => _gateExamples()),
         new GateStage("docs", "docs (relative links)", () => _testDocs(_root())),
@@ -300,19 +303,18 @@ int _gateExamples() {
 
 // ── shard parsing (shared: _testE2eCore + the test-lib harness) ──────────────
 
-// Parse a `--shard k/n` spec → [k, n]; returns [0,0] for empty/invalid (= no
-// sharding). Used to split the slow jit suites across N parallel CI machines.
+// 空参数表示不分片；显式参数必须为 1 <= k <= n，错误须在任何构建前交给 CLI 返回 2。
 int[] _parseShard(string s) {
     int[] r = new int[2]; r[0] = 0; r[1] = 0;
     if (s.Length == 0) { return r; }
-    int slash = s.IndexOf("/");
-    if (slash <= 0) { return r; }
-    if (slash >= s.Length - 1) { return r; }
-    try {
-        int k = int.Parse(s.Substring(0, slash));
-        int n = int.Parse(s.Substring(slash + 1, s.Length - slash - 1));
-        if (k >= 1 && n >= 1 && k <= n) { r[0] = k; r[1] = n; }
-    } catch (Exception e) { r[0] = 0; r[1] = 0; }
+    string[] parts = s.Split("/");
+    if (parts.Length == 2) {
+        try { r[0] = int.Parse(parts[0]); r[1] = int.Parse(parts[1]); }
+        catch (Exception e) { r[1] = 0; }
+    }
+    if (r[0] < 1 || r[1] < 1 || r[0] > r[1]) {
+        throw new CliException("invalid --shard '" + s + "' (expected k/n with 1 <= k <= n)");
+    }
     return r;
 }
 

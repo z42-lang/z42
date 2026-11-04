@@ -37,6 +37,7 @@ jobs:
       compiler: ${{ steps.filter.outputs.compiler }}
       compiler_checks: ${{ steps.filter.outputs.compiler_checks }}
       vm: ${{ steps.filter.outputs.vm }}
+      runtime_checks: ${{ steps.filter.outputs.runtime_checks }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
       docs_only: ${{ steps.docsonly.outputs.docs_only }}
       macos_host_lane: ${{ steps.macos_queue.outputs.host }}
@@ -78,6 +79,8 @@ jobs:
           filters: |
             platform:
               - 'src/runtime/**'
+              # Rust 集成测试与数据只由完整 runtime harness 消费，不发布到 SDK。
+              - '!src/runtime/tests/**'
               - 'src/toolchain/workload/**'
               # 打包管道自身、它的注册表 / CLI 面、消费包的 e2e，以及只在 package sdk 里被编译的工具链组件
               # （launcher / devtools / interactive）——不在这里就等于没有任何 PR job 编过它们。
@@ -127,9 +130,14 @@ jobs:
               # vscode 语法门比对「入库生成产物 ↔ 模板 + Lexer 关键字表」，产物与模板都在这里。
               - 'src/toolchain/devtools/vscode/**'
               - '.github/workflows/ci.yml'
-            # Rust VM 完整测试与 JIT 一致性；运行时或专项执行器变更时验证。
+            # 只有生产 VM 输入会改变 z42 消费者；私有集成测试保留完整 Rust harness。
             vm:
               # （含 src/runtime/.cargo/config.toml：target-dir 与 wasm rustflags）
+              - 'src/runtime/**'
+              - '!src/runtime/tests/**'
+              - 'scripts/test/xtask_test_runtime.z42'
+              - '.github/workflows/ci.yml'
+            runtime_checks:
               - 'src/runtime/**'
               - 'scripts/test/xtask_test_runtime.z42'
               - '.github/workflows/ci.yml'
@@ -224,7 +232,7 @@ jobs:
       queue: max
       cancel-in-progress: false
     env:
-      RUN_RUST_RUNTIME: ${{ needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+      RUN_RUST_RUNTIME: ${{ needs.changes.outputs.runtime_checks == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - uses: actions/checkout@v7
