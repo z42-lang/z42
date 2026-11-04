@@ -39,6 +39,7 @@
 
 - **统一入口**：workflow 只调 `xtask <cmd>`，不在 yaml 里硬编码构建 / 测试命令。
 - **夹具触发范围**：builder 的私有 `tests/` 走宿主夹具检查；路径筛选使用 `some-with-excludes`，从 platform / stdlib 排除它们，生产输入与 CI 自身改动仍触发相应专项。
+- **Runtime 私有测试**：顶层 Rust 测试与已确认的纯测试数据由四个平台的完整 Rust harness 覆盖；`runtime_checks` 保留它们，`vm` / `platform` 排除它们。build.rs 使用的 `numz42-c`、未知数据、生产输入、混合改动及定期全量继续保留消费者。
 - **自举**：CI 从上一个 nightly（取不到则回退 main 上最近成功 CI 的产物）的 SDK 起步，自己编当前源码；机制见 [CI 拓扑 · 自举种子从哪来](../../docs/internals/src/devinfra/ci.md)。
 - **缓存**：Rust 依赖用 Swatinem `rust-cache`，bench 缓存由 main 上的 `bench-cache-warm` 预热。
 - **并发控制**：PR 上同一 ref 的旧 run 自动取消（`concurrency` 段）；main 的 push 运行不自动取消，由 `../ci/main-supersede.sh` 只取消不影响 SDK 的旧运行。job 由 GitHub 原生队列按可用 runner 调度。
