@@ -311,9 +311,10 @@ public sealed partial class SymbolTable {
     }
 
     // 接口名 → 接口。与 `_resolveClass` 逐步同构（A5b-2c 之前接口这一侧只有「FQN → 裸名表」两步）。
-    private Z42InterfaceType _resolveIface(string name) {
+    // scopeStart 为 0 或已查完整条链后的 ScopeChain.Length；查询期间作用域保持不变。
+    private Z42InterfaceType _resolveIface(string name, int scopeStart) {
         if (name == null) { return null; }
-        int ci = 0;
+        int ci = scopeStart;
         while (ci < this.ScopeChain.Length) {
             int s = this.InterfacesByFqn.Find(this.ScopeChain[ci] + "." + name);
             if (s >= 0) { return this.InterfacesByFqn.ValAt(s) as Z42InterfaceType; }

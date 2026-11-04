@@ -1,0 +1,89 @@
+namespace InterfaceResolutionTests;
+using Z42.Symbols;
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR;
+using Std.Harness;
+
+NamedType named(string name) { return new NamedType(name, new TypeExpr[0], 0, new Span(0, 0, 1, 1, "<test>")); }
+Z42Type resolve(SymbolTable table, string name) { return table.ResolveTypeP(named(name), new string[0], 0); }
+Z42InterfaceType add(SymbolTable table, string key) {
+    var iface = new Z42InterfaceType(key);
+    table.InterfacesByFqn.Put(key, iface);
+    return iface;
+}
+[Test]
+void test_interface_scope_precedence() {
+    var t = new SymbolTable();
+    t.ScopeChain = new string[] { "Inner", "Outer" };
+    t.ScopeUsings = new string[] { "Imported" }; t.ScopeUsingCount = 1;
+    add(t, "Std.Target"); add(t, "Imported.Target"); var global = add(t, "Target");
+    var outer = add(t, "Outer.Target"); var nearest = add(t, "Inner.Target");
+    Assert.Equal(true, resolve(t, "Target") == nearest);
+    t.ScopeChain = new string[] { "Outer" };
+    Assert.Equal(true, resolve(t, "Target") == outer);
+    t.ScopeChain = new string[0];
+    Assert.Equal(true, resolve(t, "Target") == global);
+}
+[Test]
+void test_interface_generic_after_scope() {
+    int scenario = 0;
+    while (scenario < 3) {
+        var t = new SymbolTable();
+        t.ScopeChain = new string[] { "Missing.Inner", "Missing" };
+        t.ScopeUsings = new string[] { "Imported" }; t.ScopeUsingCount = 1;
+        string key = scenario == 0 ? "Imported.Target" : (scenario == 1 ? "Target" : "Std.Target");
+        var def = add(t, key);
+        def.TypeParamNames = new string[] { "T" }; def.TypeParamCount = 1;
+        t.CurrentAliases = new StrMap(); t.CurrentAliases.Put("Alias", named("int"));
+        var expr = new NamedType("Target", new TypeExpr[] { named("Alias") }, 1, named("x").Span);
+        var inst = t.ResolveTypeP(expr, new string[0], 0) as Z42InstantiatedInterfaceType;
+        Assert.Equal(true, inst != null); Assert.Equal(true, inst.Def == def);
+        Assert.Equal("int", inst.TypeArgs[0].Name());
+        scenario = scenario + 1;
+    }
+}
+[Test]
+void test_interface_using_and_prelude() {
+    var t = new SymbolTable();
+    t.ScopeChain = new string[] { "Missing.Inner", "Missing" };
+    var prelude = add(t, "Std.Target"); var imported = add(t, "Imported.Target");
+    imported.IsImported = true;
+    t.ScopeUsings = new string[] { "Imported" }; t.ScopeUsingCount = 1;
+    Assert.Equal(true, resolve(t, "Target") == imported);
+    t.ScopeUsingCount = 0;
+    Assert.Equal(true, resolve(t, "Target") == prelude);
+    Assert.Equal(true, resolve(t, "Imported.Target") == imported);
+}
+[Test]
+void test_interface_generic_alias_and_parameter() {
+    var t = new SymbolTable();
+    t.ScopeChain = new string[] { "Inner", "Outer" };
+    var def = add(t, "Outer.Target");
+    def.TypeParamNames = new string[] { "T" }; def.TypeParamCount = 1;
+    t.CurrentAliases = new StrMap(); t.CurrentAliases.Put("Alias", named("int"));
+    var expr = new NamedType("Target", new TypeExpr[] { named("Alias") }, 1, named("x").Span);
+    var inst = t.ResolveTypeP(expr, new string[0], 0) as Z42InstantiatedInterfaceType;
+    Assert.Equal(true, inst != null); Assert.Equal(true, inst.Def == def);
+    Assert.Equal(1, inst.ArgCount); Assert.Equal("int", inst.TypeArgs[0].Name());
+    t.CurrentAliases.Put("Face", named("Target"));
+    Assert.Equal(true, resolve(t, "Face") == def);
+    var param = t.ResolveTypeP(named("Target"), new string[] { "Target" }, 1);
+    Assert.Equal(true, param is Z42GenericParamType);
+}
+[Test]
+void test_interface_queries_observe_mutation_and_fallback() {
+    var t = new SymbolTable();
+    t.ScopeChain = new string[] { "Inner" };
+    Assert.Equal(true, resolve(t, "Absent") is Z42UnknownType);
+    var added = add(t, "Inner.Absent");
+    Assert.Equal(true, resolve(t, "Absent") == added);
+    var replacement = add(t, "Inner.Absent");
+    Assert.Equal(true, resolve(t, "Absent") == replacement);
+    var cls = new Z42ClassType("OnlyClass", false, "");
+    t.ClassesByFqn.Put("Inner.OnlyClass", cls);
+    Assert.Equal(true, resolve(t, "OnlyClass") == cls);
+    t.ScopeChain = new string[] { "Other" };
+    Assert.Equal(true, resolve(t, "Absent") is Z42UnknownType);
+    Assert.Equal(true, resolve(t, "OnlyClass") is Z42UnknownType);
+}
