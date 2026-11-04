@@ -19,14 +19,20 @@ bool _isCompilerFormatTests(string projectDir) {
 
 // 两个 workspace 的全部成员；test 让开独立编译器工程，bench 仍独立发现 benches/。
 string[] _allUnitProjects(string root, string kind) {
+    string[] libraries = _workspaceProjects(_libsWsToml(root));
+    string[] compiler = _workspaceProjects(_compilerWsToml(root));
     List<string> projects = new List<string>();
-    projects.AddRange(_workspaceProjects(_libsWsToml(root)));
-    foreach (var toml in _workspaceProjects(_compilerWsToml(root))) {
-        if (kind == "bench" || !_isCompilerFormatTests(Path.GetDirectoryName(toml))) { projects.Add(toml); }
-    }
+    projects.AddRange(libraries);
+    projects.AddRange(compiler);
     string[] all = projects.ToArray();
     _requireUniqueProjects(all);
-    return all;
+    if (kind == "bench") { return all; }
+    List<string> tests = new List<string>();
+    tests.AddRange(libraries);
+    foreach (var toml in compiler) {
+        if (!_isCompilerFormatTests(Path.GetDirectoryName(toml))) { tests.Add(toml); }
+    }
+    return tests.ToArray();
 }
 
 string _selectUnitProject(string[] projects, string name) {

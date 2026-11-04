@@ -86,12 +86,17 @@ void _writeDiscoveryProjects(string dir) {
 void _checkDuplicateProjectNames(string dir) {
     string extra = Path.Join(dir, "src/libraries/units/extra/named.z42.toml");
     string saved = File.ReadAllText(extra);
-    File.WriteAllText(extra, saved.Replace("z42.extra", "z42c.optimization"));
-    bool rejected = false;
-    try { _allUnitProjects(dir, "bench"); }
-    catch (Exception e) { rejected = e.Message.Contains("z42c.optimization"); }
-    finally { File.WriteAllText(extra, saved); }
-    _requireLibDiscovery(rejected, "duplicate package identity across workspaces accepted");
+    foreach (var name in new string[]{ "z42c.optimization", "z42c.symbols" }) {
+        File.WriteAllText(extra, saved.Replace("z42.extra", name));
+        try {
+            foreach (var kind in new string[]{ "test", "bench" }) {
+                bool rejected = false;
+                try { _allUnitProjects(dir, kind); }
+                catch (Exception e) { rejected = e.Message.Contains(name); }
+                _requireLibDiscovery(rejected, "duplicate identity hidden by " + kind + " routing");
+            }
+        } finally { File.WriteAllText(extra, saved); }
+    }
 }
 
 void _checkCompilerProjectAmbiguity(string dir) {
