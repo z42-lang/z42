@@ -42,10 +42,16 @@ public partial class List<T> : IEnumerable<T> {
     /// 接口静态类型 / 泛型约束持有的调用点。
     public ListEnumerator<T> GetEnumerator() { return new ListEnumerator<T>(this); }
 
-    /// 读写第 `i` 个元素。
+    /// 读写第 `i` 个元素；`i` 必须位于 `[0, Count)`。
     public T this[int i] {
-        get { return this.items[i]; }
-        set { this.items[i] = value; }
+        get {
+            if (i < 0 || i >= this.Count) throw new ArgumentOutOfRangeException("List: index out of range");
+            return this.items[i];
+        }
+        set {
+            if (i < 0 || i >= this.Count) throw new ArgumentOutOfRangeException("List: index out of range");
+            this.items[i] = value;
+        }
     }
 
     /// 追加元素。
@@ -86,16 +92,18 @@ public partial class List<T> : IEnumerable<T> {
         return result;
     }
 
-    /// 在 `index` 处插入，其后元素右移。
+    /// 在 `[0, Count]` 内的 `index` 处插入，其后元素右移；越界抛 ArgumentOutOfRangeException。
     public void Insert(int index, T item) {
+        if (index < 0 || index > this.Count) throw new ArgumentOutOfRangeException("List.Insert: index out of range");
         if (this.Count == this.capacity) this.Grow();
         Array.Copy(this.items, index, this.items, index + 1, this.Count - index);
         this.items[index] = item;
         this.Count = this.Count + 1;
     }
 
-    /// 删除 `index` 处元素，其后元素左移。
+    /// 删除 `[0, Count)` 内的 `index` 处元素，其后元素左移；越界抛 ArgumentOutOfRangeException。
     public void RemoveAt(int index) {
+        if (index < 0 || index >= this.Count) throw new ArgumentOutOfRangeException("List.RemoveAt: index out of range");
         Array.Copy(this.items, index + 1, this.items, index, this.Count - index - 1);
         this.Count = this.Count - 1;
         this.items[this.Count] = default(T);   // 清尾槽引用（镜像 C# List.RemoveAt）
