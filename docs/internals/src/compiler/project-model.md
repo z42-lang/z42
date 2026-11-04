@@ -165,8 +165,9 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 开发树排在 SDK 前，是因为 `Z42_LIBS` 是显式给的编译期依赖面，而两个 SDK 变量常是从外层继承来的：xtask 经 SDK
 apphost 启动，`Z42_PORTABLE_VM` 传给它起的每个子进程。SDK 档在前时，开发树里的 driver / z42b 解析按名声明的编译器包
 （`deploy = "sdk"` / `"shared"`、编译器单元测试）会落到**种子 SDK 里的上一版**，直到某次挪包 / 改命名空间才编不过。
-SDK 安装态 `Z42_LIBS = <sdk>/libs`，上溯找不到开发树，① 落空。不在这两种布局里的编译器目录没有逃生口：要用就摆成
-`<x>/programs/z42c/` 并设 `Z42_HOME=<x>`（`sdk-lib-explicit-ref` 夹具就是这么拼假 SDK 的）。
+SDK 安装态 `Z42_LIBS = <sdk>/libs`，上溯找不到开发树，① 落空。没有上述目录，或目录仅有 driver 主程序而没有
+pipeline 组件时，追加 `ModuleSearch.Dirs()` 中实际包含 `z42c.pipeline.zpkg` 的目录。这样 program-only 入口可以
+通过声明的 runtime probing 定位编译器组件；已有完整开发树或 SDK 编译器目录仍保持优先，不把任意运行时目录当作 SDK 库。
 
 **可见性规则**（实现在 `z42c.pipeline/src/SdkLibs.z42`，driver 与 BuildSession 共用）：
 
@@ -460,3 +461,7 @@ zbc、meta、`package.meta` 的**写盘是普通写**（`File.Write*`）：缓�
 - `ImportedSymbolLoader` 的 `impl` 块合并、接口 / 委托 / 枚举支持。
 
 索引见 `docs/roadmap.md` Deferred Backlog。
+
+显式工作区图的 builder worker 对 hook 的 `Inputs.Deps` 采用相同成员边界：图前置成员仅取其所属目录的主产物；
+外部框架目录中与任何工作区成员同名的副本都排除。未选择成员的旧部署包不能借框架目录进入 hook 输入，
+已完成前置成员的复制品也不能覆盖本轮主产物。
