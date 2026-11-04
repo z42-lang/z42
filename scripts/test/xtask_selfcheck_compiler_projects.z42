@@ -1,0 +1,28 @@
+// 编译器测试工程走真实编译 / 反射 runner，消费清单布局，忽略目录里的旧包。
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _selfcheckCompilerProjects(string root, string vm, string flat, string driver, string builder) {
+    string dir = _xtaskWork(root, "compiler-projects");
+    _resetDir(dir);
+    try {
+        string toml = Path.Join(dir, "z42.toml");
+        File.WriteAllText(toml, "[project]\nname = \"compiler-project-smoke\"\nversion = \"0.1.0\"\nkind = \"lib\"\n"
+            + "[sources]\ninclude = [\"source.z42\"]\n[build]\noutput_dir = \"out\"\ndist_dir = \"${output_dir}/payload\"\n");
+        File.WriteAllText(Path.Join(dir, "source.z42"),
+            "namespace CompilerProjectSmoke;\nusing Std.Harness;\n[Test] void test_selected_project() {}\n");
+        string dist = Path.Join(dir, "out/payload");
+        Directory.Create(dist);
+        string stale = Path.Join(dist, "old.zpkg");
+        File.WriteAllText(stale, "this stale package must never be executed");
+        if (_runCompilerTestProject(root, vm, flat, driver, builder, _fixtureManifest(dir)) != 0) {
+            throw new Exception("compiler projects: canonical manifest, declared layout or main product selection");
+        }
+        if (!File.Exists(stale) || !File.Exists(Path.Join(dist, "compiler-project-smoke.zpkg"))) {
+            throw new Exception("compiler projects: expected main product beside retained stale package");
+        }
+    } finally { Directory.Delete(dir, true); }
+    Console.WriteLine("  ✅ compiler projects: canonical manifest, custom dist, primary package only");
+    return 0;
+}
