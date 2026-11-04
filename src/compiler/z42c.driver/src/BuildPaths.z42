@@ -30,7 +30,7 @@ bool _distModeMatches(string zpkgPath, bool isPacked) {
     }
 }
 
-// _writeCacheZbc（单文件 fullMode .zbc 落盘）已迁 IncrementalDriver.z42（500 行硬限）。
+// Cache persistence is shared through pipeline IncrementalCacheWriter.
 
 // byte[] 内容指纹：长度 + 溢出安全的模多项式滚动哈希（z42 int≡Int32；base 31、模 33554393 使
 // `h*31+255 < 2^31` 不溢出）。长度 + 滚动哈希双要素 → 内容变几乎必变指纹（用于缓存失效，宁多编不漏）。

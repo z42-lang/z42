@@ -49,6 +49,7 @@ public class Z42cCompiler : ICompiler {
         o.Excludes = req.Excludes; o.ExcludesCount = req.ExcludesCount;
         o.ParentPkg = req.ParentPkg;
         o.HarnessUnit = req.HarnessUnit;   // 类型位 harness（deps-plugin-routing 第③刀）
+        o.Incremental = req.Incremental;
         BuildResult br = new BuildSession(o).Run();
         CompileResult res = new CompileResult(br.OutZpkg, br.OutZsym, br.Code == BuildExit.Ok, rep.ErrorsText());
         res.Warnings = rep.WarningsText();

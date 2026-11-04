@@ -1213,3 +1213,15 @@ CLI 与 BuildSession 共用 pipeline 的 `SourceReader.Read`，返回按输入�
 插件指纹非空时，哈希输入为源码加 `\n#z42c-handler-fp:` 与指纹；空指纹不追加任何内容。
 同一快照供后续解析、增量探测与产物来源信息使用，避免重复读取或重复哈希。
 并行度由调用方决定：CLI 使用 `ParallelConfig.Jobs`，HostTarget 保持串行，避免与外层批量构建超订。
+
+
+## HostTarget 文件级复用
+
+CLI 与进程内 `BuildSession` 使用 pipeline 的 `IncrementalCompilation`、`SurfaceHash`、
+`IncrementalMetadata` 和 `IncrementalCacheWriter` 共享缓存算法，入口只保留策略和布局。
+HostTarget 的启用条件、独立目录及语义输入见 [工程模型](project-model.md#hosttarget-的增量边界)。
+
+命中缓存只跳过对应 CU 的类型检查/代码生成；当前源码仍解析并参与全包符号收集。
+缓存的 UsedNs/UsedDepNs/per-CU 警告必须在文件级 using 校验之前恢复，后续包检查与 lint 每次重跑。
+全局 using 变动改变所有 CU 的解析环境，按整包失效处理；局部 IR 不能携带旧全局环境穿过这道边界。
+IR 校验失败的降级由入口决定是否呈现，HostTarget 保持诊断通过 reporter 返回。

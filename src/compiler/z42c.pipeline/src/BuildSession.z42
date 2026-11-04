@@ -1,7 +1,7 @@
 // 包构建会话（add-build-session）：「读清单 → 决议全部旋钮 → 组 CompileInputs → PackageCompile → 写产物」
 // 这一层的唯一实现。今天它服务 z42b 的 `ICompiler` 路径（`Z42cCompiler`，Role = HostTarget）；第二步
 // `unify-driver-on-build-session` 让 z42c CLI 的 `Main._build` 也变成它的薄封装，届时补齐其余角色
-// （增量 / indexed dist / path 闭包 / 多 exe 目标）。设计见 变更 add-build-session/design.md。
+// （indexed dist / path 闭包 / 多 exe 目标）。文件级增量由 pipeline 共享引擎承载。
 //
 // 两条纪律：
 //   · **不打印**：诊断、进度一律经 `IBuildReporter`。z42c 与 z42b 的呈现通道不同（stderr + `z42c build:` 前缀
@@ -23,7 +23,7 @@ public static class BuildRole {
     public static int WsMember      = 2;   // workspace per-member 成员
     public static int ClosureChild  = 3;   // path 依赖闭包代建
     public static int AnalyzerChild = 4;   // [plugins] 工程 path 条目代建
-    public static int HostTarget    = 5;   // z42b ICompiler：packed 单产物、不解析 path 闭包、不增量
+    public static int HostTarget    = 5;   // z42b ICompiler：packed 单产物、不解析 path 闭包、按请求复用文件级 IR
 }
 
 // `_resolvePlugins` 的结果：编译器侧插件 zpkg 路径（长度恰为 Count）。
@@ -101,6 +101,7 @@ public sealed class BuildOptions {
     public int             ExcludesCount;
     public string          ParentPkg;     // 测试 / bench 目标的父包（其 internal 可见）；"" = 普通编译
     public bool            HarnessUnit;   // 测试 / bench 派生目标 ⇒ 产物头类型位 harness（PkgKind）
+    public bool            Incremental;   // HostTarget request policy; manifest false also disables reuse
     public IBuildReporter  Reporter;
     public BuildOptions(ProjectManifest pm, string projectDir, int role, bool isRelease, IBuildReporter reporter) {
         this.Manifest = pm; this.Label = pm.Project.Name; this.ProjectDir = projectDir; this.Role = role;
@@ -206,21 +207,16 @@ public sealed class BuildSession {
             }
             declared[dn] = dname; dn = dn + 1;
         }
-        // ⑥ 解析（带 [syntax] 特性门）→ 组 CompileInputs → 编译。
-        CompilationUnit[] cus = new CompilationUnit[srcs.Length];
-        int pi = 0;
-        while (pi < srcs.Length) {
-            Parser pp = new Parser(texts[pi], srcs[pi]);
-            pp._features = kn.Features;
-            // AST 相位单一入口（store-meta 合成）——与 driver `ParseAllTk`、
-            // `IrDump.ParseAll` 同款。漏掉它字段 / 参数 / 属性上的自定义 attribute 就进不了产物元数据
-            // （stdlib reflection / json 的 [JsonProperty] 单测实测判红）。
-            cus[pi] = HandlerRegistry.RunAst(pp.ParseCompilationUnit());
-            pi = pi + 1;
-        }
+        // Reuse per-file IR only; package checks and diagnostics still run on every build.
+        BuildSessionIncremental incremental = BuildSessionIncremental.Prepare(o, kn, srcs, texts, hashes,
+            libs, libsN, SdkLibs.MergeTier(null, sdkPlan), azPaths != null || routedNames != null || pm.PluginCount > 0);
+        CompilationUnit[] cus = incremental != null ? incremental.Prep.Cus : null;
+        if (incremental == null) { cus = BuildSession._parseSources(texts, srcs, kn); }
         CompileInputs inp = new CompileInputs();
         inp.Texts = texts; inp.Files = srcs; inp.SrcHashes = hashes; inp.SrcCount = srcs.Length;
-        inp.Cus = cus; inp.CachedMods = null; inp.CachedMetas = null;
+        inp.Cus = cus;
+        inp.CachedMods = incremental != null ? incremental.Prep.Cached : null;
+        inp.CachedMetas = incremental != null ? incremental.Metas() : null;
         inp.Name = pm.Project.Name; inp.Version = pm.Project.Version; inp.Kind = pm.Project.Kind;
         inp.HasEntry = pm.Project.HasEntry; inp.Entry = pm.Project.Entry;
         inp.IsRelease = o.IsRelease;
@@ -277,7 +273,20 @@ public sealed class BuildSession {
             File.WriteAllBytes(zsym, wres.Sidecar);
         }
         rep.Progress("wrote -> " + outZpkg);
+        if (incremental != null) { incremental.Save(art, rep); }
         return new BuildResult(BuildExit.Ok, outZpkg, zsym);
+    }
+
+    private static CompilationUnit[] _parseSources(string[] texts, string[] srcs, KnobResult kn) {
+        CompilationUnit[] cus = new CompilationUnit[srcs.Length];
+        int pi = 0;
+        while (pi < srcs.Length) {
+            Parser pp = new Parser(texts[pi], srcs[pi]);
+            pp._features = kn.Features;
+            cus[pi] = HandlerRegistry.RunAst(pp.ParseCompilationUnit());
+            pi = pi + 1;
+        }
+        return cus;
     }
 
     // [plugins] 条目 → 编译器侧插件 zpkg 路径（按清单顺序）；失败经 reporter 报错并返回 null。
