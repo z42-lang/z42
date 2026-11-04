@@ -68,9 +68,10 @@ public class BufferedStream : Stream {
     /// 缓冲读；从写切到读会先 flush 待写字节。
     public override int Read(byte[] buffer, int offset, int count) {
         this.EnsureOpen();
-        if (offset < 0 || count < 0 || offset + count > buffer.Length) {
+        if (offset < 0 || count < 0 || offset > buffer.Length || count > buffer.Length - offset) {
             throw new ArgumentException("Read: buffer / offset / count out of range");
         }
+        if (!this._inner.CanRead()) throw new NotSupportedException("Read: inner stream is not readable");
         if (count == 0) { return 0; }
         // 切到读模式 —— 先 flush 待写字节。
         if (this._mode == 2) {  // MODE_WRITING
@@ -106,17 +107,16 @@ public class BufferedStream : Stream {
 
     // ── 写 ────────────────────────────────────────────────────
 
-    /// 缓冲写；从读切到写会丢弃未消费的读缓冲。
+    /// 缓冲写；从读切写时回退未消费的预读字节。不可定位且仍有未读数据时抛 NotSupportedException。
     public override void Write(byte[] buffer, int offset, int count) {
         this.EnsureOpen();
-        if (offset < 0 || count < 0 || offset + count > buffer.Length) {
+        if (offset < 0 || count < 0 || offset > buffer.Length || count > buffer.Length - offset) {
             throw new ArgumentException("Write: buffer / offset / count out of range");
         }
+        if (!this._inner.CanWrite()) throw new NotSupportedException("Write: inner stream is not writable");
         if (count == 0) { return; }
-        // 切到写模式 —— 丢弃读缓冲（调用方正在覆盖；位置一致性是调用方使用 Seek 时的责任）。
         if (this._mode == 1) {  // MODE_READING
-            this._readPos = 0;
-            this._readLen = 0;
+            this.ClearReadBufferBeforeWrite();
         }
         this._mode = 2;  // MODE_WRITING
 
@@ -143,9 +143,10 @@ public class BufferedStream : Stream {
 
     // ── 位置 / 长度 / 定位 ── flush 后转发 ────────────────────
 
-    /// 长度；关闭后抛 InvalidOperationException，否则转发给内层流。
+    /// 提交待写缓冲后返回内层流长度；关闭后抛 InvalidOperationException。
     public override long Length() {
         this.EnsureOpen();
+        if (this._mode == 2) { this.FlushWriteBuffer(); }
         return this._inner.Length();
     }
 
@@ -162,16 +163,27 @@ public class BufferedStream : Stream {
         return innerPos;
     }
 
-    /// 先 flush 待写数据、丢弃读缓冲，再转发给内层流定位。
+    /// 相对逻辑位置定位；先提交待写数据，成功后清除读缓冲。不可定位时抛 NotSupportedException。
     public override long Seek(long offset, int origin) {
         this.EnsureOpen();
+        if (origin != SeekOrigin.Begin && origin != SeekOrigin.Current && origin != SeekOrigin.End) {
+            throw new ArgumentException("Seek: unknown origin " + origin.ToString());
+        }
+        if (!this._inner.CanSeek()) throw new NotSupportedException("Seek: inner stream is not seekable");
+        long adjusted = offset;
+        if (this._mode == 1 && origin == SeekOrigin.Current) {
+            long unread = (long)(this._readLen - this._readPos);
+            if (offset < Int64.MinValue + unread) throw new ArgumentOutOfRangeException("Seek: offset underflow");
+            adjusted = offset - unread;
+        }
         if (this._mode == 2) {  // MODE_WRITING
             this.FlushWriteBuffer();
         }
+        long position = this._inner.Seek(adjusted, origin);
         this._readPos = 0;
         this._readLen = 0;
         this._mode    = 0;  // MODE_IDLE
-        return this._inner.Seek(offset, origin);
+        return position;
     }
 
     // ── Flush / Close ─────────────────────────────────────────
@@ -201,6 +213,15 @@ public class BufferedStream : Stream {
         if (this._closed) {
             throw new InvalidOperationException("BufferedStream: stream is closed");
         }
+    }
+
+    private void ClearReadBufferBeforeWrite() {
+        if (this._readPos < this._readLen) {
+            if (!this._inner.CanSeek()) throw new NotSupportedException("Write: unread data on a non-seekable stream");
+            this._inner.Seek((long)(this._readPos - this._readLen), SeekOrigin.Current);
+        }
+        this._readPos = 0;
+        this._readLen = 0;
     }
 
     private void FlushWriteBuffer() {
