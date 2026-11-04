@@ -208,7 +208,7 @@ gh workflow run retry-ci-runner.yml --ref main -f run_id=<失败运行ID>
 | `platform` | `src/runtime/**`（排除顶层 Rust 测试与纯测试数据）、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder 排除 `tests/**`）、`scripts/{package/**,packages.toml,install/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
 | `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
 | `compiler` | `src/compiler/**`（排除私有 `tests/**` 与 `benches/**`） |
-| `compiler_checks` | `src/compiler/**`（含私有用例）、`src/toolchain/devtools/vscode/**` |
+| `compiler_checks` | `src/compiler/**`（含私有用例）、`scripts/build/xtask_compiler*.z42`、`scripts/test/xtask_selfcheck_selfhost.z42`、`src/toolchain/devtools/vscode/**` |
 | `vm` | `src/runtime/**`（含 `.cargo/`，排除顶层 Rust 测试与纯测试数据）、`scripts/test/xtask_test_runtime.z42` |
 | `runtime_checks` | `src/runtime/**`（含私有集成测试与数据）、`scripts/test/xtask_test_runtime.z42`；控制四个平台的完整 Rust harness |
 | `stdlib` | `src/libraries/**`、`src/compiler/**/tests/**`、`src/toolchain/builder/**`（排除 builder 的 `tests/**`；z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42`、`scripts/common/xtask_golden.z42` |

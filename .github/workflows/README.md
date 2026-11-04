@@ -28,7 +28,7 @@
 | `toolchain-bootstrap`（compile-toolchain） | 非纯文档 | 编译 toolchain（z42c / stdlib / xtask zpkg）供下游 job 消费 |
 | `assemble-current-sdk` / `consume-current-sdk` | 随 CI | 当前源码组装 SDK、再消费它跑测试 |
 | `vm-jit-consistency` / `stdlib-jit-consistency` / `stdlib-interp-consistency` | vm / stdlib / compiler 改动或 schedule / dispatch | VM / 标准库在 JIT 与 interp 下的一致性，分 shard |
-| `compiler-checks` | compiler 改动或 schedule / dispatch | 编译器专项检查 |
+| `compiler-checks` | compiler / 专项执行器改动或 schedule / dispatch | 编译器专项检查 |
 | `package-ios` / `package-android` / `package-wasm` | platform 改动或非 PR | 移动 / wasm 平台包 |
 | `test-wasm` / `test-ios` / `test-android` | 仅 schedule / dispatch | Tier 2 平台测试（浏览器 / iOS 模拟器 / Android 模拟器），分 shard |
 | `test-desktop` | platform 改动或 schedule / dispatch | 桌面 C ABI 测试 |
