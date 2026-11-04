@@ -1,0 +1,265 @@
+namespace Z42IoBufferedStreamPositionsTests;
+
+using Std.IO;
+using Std.Harness;
+
+byte[] Data() {
+    byte[] values = new byte[6];
+    for (int i = 0; i < values.Length; i++) { values[i] = (byte)(i + 1); }
+    return values;
+}
+
+MemoryStream WritableData() {
+    var stream = new MemoryStream();
+    stream.Write(Data(), 0, 6);
+    stream.Seek(0L, SeekOrigin.Begin);
+    return stream;
+}
+
+class ProbeStream : Stream {
+    public MemoryStream Inner;
+    public bool Readable = true;
+    public bool Writable = true;
+    public bool Seekable = true;
+    public bool FailSeek;
+    public int Reads;
+    public int Writes;
+    public int Seeks;
+
+    public ProbeStream() { this.Inner = WritableData(); }
+    public override bool CanRead() { return this.Readable; }
+    public override bool CanWrite() { return this.Writable; }
+    public override bool CanSeek() { return this.Seekable; }
+    public override long Position() { return this.Inner.Position(); }
+    public override long Length() { return this.Inner.Length(); }
+    public override int Read(byte[] buffer, int offset, int count) {
+        this.Reads = this.Reads + 1;
+        if (!this.Readable) throw new NotSupportedException("probe read disabled");
+        return this.Inner.Read(buffer, offset, count);
+    }
+    public override void Write(byte[] buffer, int offset, int count) {
+        this.Writes = this.Writes + 1;
+        if (!this.Writable) throw new NotSupportedException("probe write disabled");
+        this.Inner.Write(buffer, offset, count);
+    }
+    public override long Seek(long offset, int origin) {
+        this.Seeks = this.Seeks + 1;
+        if (!this.Seekable) throw new NotSupportedException("probe seek disabled");
+        if (this.FailSeek) throw new IOException("probe seek failed");
+        return this.Inner.Seek(offset, origin);
+    }
+}
+
+[Test]
+void test_read_then_write_uses_logical_position() {
+    var inner = WritableData();
+    var stream = new BufferedStream(inner, 4);
+    byte[] one = new byte[1];
+    Assert.Equal(1, stream.Read(one, 0, 1));
+    one[0] = (byte)9;
+    stream.Write(one, 0, 1);
+    stream.Flush();
+    byte[] result = inner.ToArray();
+    Assert.Equal(9, (int)result[1]);
+    Assert.Equal(5, (int)result[4]);
+    Assert.Equal(2L, stream.Position());
+}
+
+[Test]
+void test_seek_current_zero_preserves_logical_position() {
+    var stream = new BufferedStream(WritableData(), 4);
+    byte[] one = new byte[1];
+    stream.Read(one, 0, 1);
+    Assert.Equal(1L, stream.Seek(0L, SeekOrigin.Current));
+    stream.Read(one, 0, 1);
+    Assert.Equal(2, (int)one[0]);
+}
+
+[Test]
+void test_seek_current_negative_uses_logical_position() {
+    var stream = new BufferedStream(WritableData(), 4);
+    byte[] one = new byte[1];
+    stream.Read(one, 0, 1);
+    Assert.Equal(0L, stream.Seek(-1L, SeekOrigin.Current));
+    stream.Read(one, 0, 1);
+    Assert.Equal(1, (int)one[0]);
+}
+
+[Test]
+void test_seek_begin_and_end_keep_their_origins() {
+    var stream = new BufferedStream(WritableData(), 4);
+    byte[] one = new byte[1];
+    stream.Read(one, 0, 1);
+    Assert.Equal(2L, stream.Seek(2L, SeekOrigin.Begin));
+    stream.Read(one, 0, 1);
+    Assert.Equal(3, (int)one[0]);
+    Assert.Equal(5L, stream.Seek(-1L, SeekOrigin.End));
+    stream.Read(one, 0, 1);
+    Assert.Equal(6, (int)one[0]);
+}
+
+[Test]
+void test_failed_seek_preserves_unread_data() {
+    var inner = new ProbeStream();
+    var stream = new BufferedStream(inner, 4);
+    byte[] one = new byte[1];
+    stream.Read(one, 0, 1);
+    inner.FailSeek = true;
+    bool caught = false;
+    try { stream.Seek(0L, SeekOrigin.Begin); } catch (IOException e) { caught = true; }
+    Assert.True(caught);
+    Assert.Equal(1L, stream.Position());
+    stream.Read(one, 0, 1);
+    Assert.Equal(2, (int)one[0]);
+}
+
+[Test]
+void test_invalid_origin_does_not_flush_pending_writes() {
+    var inner = new ProbeStream();
+    var stream = new BufferedStream(inner, 4);
+    byte[] one = new byte[1];
+    stream.Write(one, 0, 1);
+    bool caught = false;
+    try { stream.Seek(0L, 99); } catch (ArgumentException e) { caught = true; }
+    Assert.True(caught);
+    Assert.Equal(0, inner.Writes);
+    Assert.Equal(1L, stream.Position());
+}
+
+[Test]
+void test_nonseekable_read_to_write_preserves_unread_data() {
+    var inner = new ProbeStream();
+    inner.Seekable = false;
+    var stream = new BufferedStream(inner, 4);
+    byte[] one = new byte[1];
+    stream.Read(one, 0, 1);
+    bool caught = false;
+    try { stream.Write(one, 0, 1); } catch (NotSupportedException e) { caught = true; }
+    Assert.True(caught);
+    Assert.Equal(0, inner.Writes);
+    stream.Read(one, 0, 1);
+    Assert.Equal(2, (int)one[0]);
+}
+
+[Test]
+void test_nonseekable_consumed_read_buffer_can_switch_to_write() {
+    var inner = new ProbeStream();
+    inner.Seekable = false;
+    var stream = new BufferedStream(inner, 4);
+    byte[] one = new byte[1];
+    for (int i = 0; i < 4; i++) { stream.Read(one, 0, 1); }
+    one[0] = (byte)9;
+    stream.Write(one, 0, 1);
+    stream.Flush();
+    Assert.Equal(0, inner.Seeks);
+    Assert.Equal(9, (int)inner.Inner.ToArray()[4]);
+}
+
+[Test]
+void test_length_includes_pending_writes() {
+    var inner = new MemoryStream();
+    var stream = new BufferedStream(inner, 8);
+    stream.Write(Data(), 0, 3);
+    Assert.Equal(3L, stream.Length());
+    Assert.Equal(3L, inner.Length());
+}
+
+[Test]
+void test_unsupported_read_does_not_flush_or_call_inner() {
+    var inner = new ProbeStream();
+    inner.Readable = false;
+    var stream = new BufferedStream(inner, 4);
+    byte[] one = new byte[1];
+    stream.Write(one, 0, 1);
+    bool caught = false;
+    try { stream.Read(one, 0, 1); } catch (NotSupportedException e) { caught = true; }
+    Assert.True(caught);
+    Assert.Equal(0, inner.Reads);
+    Assert.Equal(0, inner.Writes);
+}
+
+[Test]
+void test_unsupported_write_is_rejected_before_buffering() {
+    var inner = new ProbeStream();
+    inner.Writable = false;
+    var stream = new BufferedStream(inner, 4);
+    byte[] one = new byte[1];
+    bool caught = false;
+    try { stream.Write(one, 0, 1); } catch (NotSupportedException e) { caught = true; }
+    Assert.True(caught);
+    Assert.Equal(0, inner.Writes);
+    Assert.Equal(0L, stream.Position());
+}
+
+[Test]
+void test_current_offset_underflow_is_rejected_without_seek() {
+    var inner = new ProbeStream();
+    var stream = new BufferedStream(inner, 4);
+    byte[] one = new byte[1];
+    stream.Read(one, 0, 1);
+    bool caught = false;
+    try { stream.Seek(Int64.MinValue, SeekOrigin.Current); } catch (ArgumentException e) { caught = true; }
+    Assert.True(caught);
+    Assert.Equal(0, inner.Seeks);
+    stream.Read(one, 0, 1);
+    Assert.Equal(2, (int)one[0]);
+}
+
+[Test]
+void test_invalid_ranges_do_not_flush_pending_writes() {
+    var inner = new ProbeStream();
+    var stream = new BufferedStream(inner, 4);
+    byte[] one = new byte[1];
+    stream.Write(one, 0, 1);
+    bool readCaught = false;
+    bool writeCaught = false;
+    try { stream.Read(one, 2147483647, 2147483647); } catch (ArgumentException e) { readCaught = true; }
+    try { stream.Write(one, 0, -1); } catch (ArgumentException e) { writeCaught = true; }
+    Assert.True(readCaught);
+    Assert.True(writeCaught);
+    Assert.Equal(0, inner.Reads);
+    Assert.Equal(0, inner.Writes);
+    Assert.Equal(1L, stream.Position());
+}
+
+[Test]
+void test_zero_count_write_preserves_read_direction() {
+    var inner = new ProbeStream();
+    var stream = new BufferedStream(inner, 4);
+    byte[] one = new byte[1];
+    stream.Read(one, 0, 1);
+    stream.Write(one, one.Length, 0);
+    Assert.Equal(0, inner.Seeks);
+    stream.Read(one, 0, 1);
+    Assert.Equal(2, (int)one[0]);
+}
+
+[Test]
+void test_unsupported_seek_preserves_read_buffer() {
+    var inner = new ProbeStream();
+    inner.Seekable = false;
+    var stream = new BufferedStream(inner, 4);
+    byte[] one = new byte[1];
+    stream.Read(one, 0, 1);
+    bool caught = false;
+    try { stream.Seek(0L, SeekOrigin.Begin); } catch (NotSupportedException e) { caught = true; }
+    Assert.True(caught);
+    Assert.Equal(0, inner.Seeks);
+    stream.Read(one, 0, 1);
+    Assert.Equal(2, (int)one[0]);
+}
+
+[Test]
+void test_failed_read_to_write_seek_preserves_read_buffer() {
+    var inner = new ProbeStream();
+    var stream = new BufferedStream(inner, 4);
+    byte[] one = new byte[1];
+    stream.Read(one, 0, 1);
+    inner.FailSeek = true;
+    bool caught = false;
+    try { stream.Write(one, 0, 1); } catch (IOException e) { caught = true; }
+    Assert.True(caught);
+    Assert.Equal(0, inner.Writes);
+    stream.Read(one, 0, 1);
+    Assert.Equal(2, (int)one[0]);
+}
