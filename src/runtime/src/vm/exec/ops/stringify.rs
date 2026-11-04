@@ -77,7 +77,7 @@ fn tostring_result(ctx: &VmContext, module: &Module, val: &Value) -> Result<ToSt
         }
         // Fallback: the Rust default ToString (unqualified type name), as the
         // `__obj_to_str` builtin behind the vtable slot would answer.
-        return crate::corelib::object::obj_to_str(val)
+        return (ctx.core.exec.object_protocol.default_to_string)(val)
             .map(|name| ToStringResult::Value(Value::Str(name.into())))
             .map_err(|e| e.into_anyhow(ctx));
     }

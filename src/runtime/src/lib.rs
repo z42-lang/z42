@@ -67,3 +67,4 @@ mod engine_assembly;
 mod extension_assembly;
 
 mod builtin_assembly;
+mod object_protocol_assembly;
