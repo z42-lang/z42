@@ -41,6 +41,7 @@ int _selfcheckLibDiscovery() {
         foreach (var toml in first) {
             foreach (var other in second) { _requireLibDiscovery(toml != other, "duplicate shard project"); }
         }
+        _checkWorkspaceMirrorOwners(dir);
         _checkDuplicateProjectNames(dir);
         _checkCompilerProjectAmbiguity(Path.Join(dir, "src/compiler/symbols-dir"));
     } finally { Directory.Delete(dir, true); }
@@ -109,4 +110,17 @@ void _checkCompilerProjectAmbiguity(string dir) {
     try { _isCompilerFormatTests(dir); }
     catch (Exception e) { rejected = e.Message.Contains("a.z42.toml") && e.Message.Contains("b.z42.toml"); }
     _requireLibDiscovery(rejected, "ambiguous compiler test project must name both candidates");
+}
+
+void _checkWorkspaceMirrorOwners(string root) {
+    string build = _buildDir(root);
+    Directory.Create(Path.Join(build, "libraries/z42.core"));
+    Directory.Create(Path.Join(build, "compiler/z42.doc"));
+    _requireLibDiscovery(_tlCheckBuildMirror(root) == 0, "valid workspace identity rejected as an output owner");
+    _requireLibDiscovery(!_tlHasBuildOwner(root, "libraries", "ignored"), "excluded member accepted as a logical owner");
+    string stale = Path.Join(build, "libraries/stale-project");
+    Directory.Create(stale);
+    Console.WriteLine("  (expected stale workspace output rejection follows)");
+    _requireLibDiscovery(_tlCheckBuildMirror(root) == 1, "unowned output accepted");
+    Directory.Delete(stale, true);
 }

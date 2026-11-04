@@ -70,6 +70,7 @@ builder 的命令行与常规构建 smoke 由 [声明式夹具](fixture-harness.
 发现真实工程，按 `project.name` 点名和分片，不把目录名当包名。`default_members` 只决定默认构建集合，
 不缩小测试集合（例如 compiler 域的 `z42.doc`）。独立编译器测试工程仍由 `test compiler` 执行；
 同包的 benchmark 继续按 `benches/` 发现。未知包名在准备工具链前报错，空分片不扩大为全量。
+layout 检查同样按 workspace 的声明包名识别产物 owner，允许成员目录名与包名不同，仍拒绝无 owner 的残留目录。
 
 打包相关：`xtask package sdk --verify` 组装完 SDK 后先自检 `packages.toml` 的解析 / 组件安装 / 发布归档，再拿这份
 发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑[发行包夹具](fixture-harness.md)（命令行路径 / 桌面发布 /

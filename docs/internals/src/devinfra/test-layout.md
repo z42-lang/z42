@@ -293,7 +293,7 @@ stdlib、`bundle` 组嵌入语料并放进宿主、`run` 在宿主 / 设备上�
 | ① | `src/tests/` 的顶层目录 = §2「语言类别」∪「待搬迁」，两张清单不重叠 | 新类别：是语言特性就登记，否则放进所属组件；搬走的：从「待搬迁」删掉 |
 | ② | §4「已生效」能力 = `platform.rs` 里 `builtin_platform_caps` 实际 `push` 的能力 | 运行期加了能力就登记，删了就移除 |
 | ③ | `src/**/*.z42` 里的 `// requires-caps:` 与 `[Skip(feature: "…")]` 只用「已生效」的名字 | 改成已生效的名字；需要新能力就先让运行期报告它 |
-| ④ | `build/` 的一级目录、`build/{compiler,libraries,toolchain}/` 的二级目录、`intermediate/` 的一级目录，在 `src/` 下都有同名目录（不存在的跳过） | 编译产物改到 `build/` 镜像（`_buildMirror`），其余改到 `intermediate/` 镜像（`_workOut` 等）；旧布局残留按报错给的 `rm -rf` 删掉 |
+| ④ | `build/` 与 `intermediate/` 一级目录对应 `src/` 目录；`build/{compiler,libraries,toolchain}/` 的二级 owner 对应源目录或 workspace 成员的 `project.name`（不存在的跳过） | 编译产物改到 `build/` 镜像（`_buildMirror`），其余改到 `intermediate/` 镜像（`_workOut` 等）；旧布局残留按报错给的 `rm -rf` 删掉 |
 | ⑤ | `src/tests/<类别>/` 与 `src/libraries/<lib>/tests/` 里，`<x>.z42` 与 `<x>/` 不同名（两者用例名相同，app bundle 按用例名落盘会互相覆盖，一个静默不跑） | 给其中一个改名 |
 
 ③ 豁免故意写未知能力名的 fixture（`_tlCapFixtures()`）：`z42.harness` 的 `skip_platform_demo.z42`（deny-by-default 演示）。④ 的例外只有 `intermediate/xtask`（xtask 不在 `src/` 下）。
