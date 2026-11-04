@@ -264,6 +264,7 @@ scripts/
 │   ├── xtask_build_cmd.z42      `build` 族的命令类
 │   ├── xtask_stdlib.z42         build stdlib（z42c build --workspace + 扁平视图）
 │   ├── xtask_compiler.z42       build/test compiler（自建 + 不动点 + units）
+│   ├── xtask_compiler_selfhost.z42 自举不动点重建与包比较（包头字段、段集合 / 数据、BLID 排除、目录范围校验）
 │   ├── xtask_compiler_e2e.z42   `test compiler` 的 e2e 段：z42c 命令行与构建夹具套件（用例在 `src/compiler/z42c.driver/tests/fixtures/cli/`）
 │   ├── xtask_runtime.z42        build runtime（cargo z42vm）
 │   ├── xtask_toolchain.z42      build workload / build toolchain [z42b]（apphost publish，路径从各 toml 读）
@@ -281,7 +282,7 @@ scripts/
 │   ├── xtask_test_multiexe.z42  e2e multi-exe（一工程 → N 个 exe zpkg）
 │   ├── xtask_test_lib.z42       stdlib / 编译器域 [Test]/[Benchmark] 按 kind 发现、分片与编排；共用 runner `_testPkgsCore`
 │   ├── xtask_selfcheck_lib_discovery.z42  test / bench 归属与分片发现回归
-│   ├── xtask_selfcheck_selfhost.z42  不动点比较的 BLID 排除与业务段差异回归，随 compiler 测试跑
+│   ├── xtask_selfcheck_selfhost.z42  不动点比较的 BLID 排除、包头 / 业务段差异与损坏目录回归，随 compiler 测试跑
 │   ├── xtask_test_toolchain.z42 `test toolchain`：src/toolchain/<comp>/ 下各工程的 [Test] unit
 │   ├── xtask_test_lib_units.z42 unit 级机制（发现 / 批量编译运行 / 合成 manifest）
 │   ├── xtask_manifest_targets.z42  manifest 目标读取/校验、test/bench 编排与聚合

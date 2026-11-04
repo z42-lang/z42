@@ -122,6 +122,8 @@ jobs:
             # 自举不动点、编译器单元 / CLI 夹具与 vscode 语法；保留私有 bench helper 的 codegen 回归。
             compiler_checks:
               - 'src/compiler/**'
+              - 'scripts/build/xtask_compiler*.z42'
+              - 'scripts/test/xtask_selfcheck_selfhost.z42'
               # vscode 语法门比对「入库生成产物 ↔ 模板 + Lexer 关键字表」，产物与模板都在这里。
               - 'src/toolchain/devtools/vscode/**'
               - '.github/workflows/ci.yml'

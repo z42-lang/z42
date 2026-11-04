@@ -25,8 +25,37 @@ int _selfcheckSelfHostSections() {
     _selfHostAssert(!_sectionsEqualIgnoreBlid(noBlid, extra), "extra section in want");
     _selfHostAssert(!_sectionsEqualIgnoreBlid(new byte[0], first), "missing got header");
     _selfHostAssert(!_sectionsEqualIgnoreBlid(first, new byte[0]), "missing want header");
-    Console.WriteLine("  ✅ self-host sections: BLID ignored, payload and section-set differences rejected");
+    foreach (var offset in new int[]{ 0, 3, 4, 6, 8, 9, 12 }) {
+        byte[] changed = _selfHostSectionFixture(true, 11);
+        changed[offset] = 64;
+        _selfHostAssert(!_sectionsEqualIgnoreBlid(first, changed), "changed header byte " + offset.ToString());
+        _selfHostAssert(!_sectionsEqualIgnoreBlid(changed, first), "changed got header byte " + offset.ToString());
+    }
+    foreach (var offset in new int[]{ 10, 20, 24, 32 }) {
+        byte[] broken = _selfHostSectionFixture(true, 11);
+        broken[offset] = 255;
+        _selfHostRejectMalformed(broken, first, "out-of-range directory or payload");
+    }
+    foreach (var offset in new int[]{ 23, 27 }) {
+        byte[] broken = _selfHostSectionFixture(true, 11);
+        broken[offset] = 128;
+        _selfHostRejectMalformed(broken, first, "unsigned offset or size exceeds supported range");
+    }
+    byte[] overlappingHeader = _selfHostSectionFixture(true, 11);
+    overlappingHeader[20] = 0;
+    _selfHostRejectMalformed(overlappingHeader, first, "payload overlaps directory");
+    byte[] duplicate = _selfHostSectionFixture(true, 11);
+    duplicate[28] = 77; duplicate[29] = 79; duplicate[30] = 68; duplicate[31] = 83;
+    duplicate[36] = 1; duplicate[41] = 7;
+    _selfHostRejectMalformed(duplicate, first, "duplicate section tags with identical payloads");
+    Console.WriteLine("  ✅ self-host packages: BLID ignored, headers and sections compared, malformed ranges rejected");
     return 0;
+}
+
+void _selfHostRejectMalformed(byte[] broken, byte[] good, string why) {
+    _selfHostAssert(!_sectionsEqualIgnoreBlid(broken, good), why + " (got)");
+    _selfHostAssert(!_sectionsEqualIgnoreBlid(good, broken), why + " (want)");
+    _selfHostAssert(!_sectionsEqualIgnoreBlid(broken, broken), why + " (both)");
 }
 
 byte[] _selfHostSectionFixture(bool withBlid, byte buildId) {
