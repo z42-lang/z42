@@ -1,0 +1,108 @@
+desc = "graph workers reuse prebuilt generator/hook inputs and hide stale unrelated members"
+[[step]]
+tool = "copy"
+from = "toolgen/src/Generator.z42"
+to = "reference/Generator.z42"
+[[step]]
+tool = "copy"
+from = "app/src/Main.z42"
+to = "reference/Main.z42"
+[[step]]
+tool = "copy"
+from = "app/z42.toml"
+to = "reference/app.toml"
+[[step]]
+args = ["build", "toolgen/z42.toml", "--release"]
+exit = 0
+[[step]]
+args = ["build", "toolhook/z42.toml", "--release"]
+exit = 0
+[[step]]
+args = ["build", "--workspace", "--package-jobs", "2", "--release"]
+exit = 0
+stdout_count = [[": succeeded", "3"]]
+[[step]]
+tool = "run"
+target = "artifacts/probe.app/release/dist/probe.app.zpkg"
+env_remove = ["Z42_PROBING_PATHS"]
+exit = 0
+stdout_equals = "43"
+[[step]]
+tool = "copy"
+from = "variants/Generator7.z42"
+to = "toolgen/src/Generator.z42"
+[[step]]
+args = ["build", "toolgen/z42.toml", "--release"]
+exit = 0
+[[step]]
+args = ["build", "--workspace", "--package-jobs", "2", "--release"]
+exit = 0
+[[step]]
+tool = "run"
+target = "artifacts/probe.app/release/dist/probe.app.zpkg"
+env_remove = ["Z42_PROBING_PATHS"]
+exit = 0
+stdout_equals = "8"
+[[step]]
+tool = "copy"
+from = "reference/Generator.z42"
+to = "toolgen/src/Generator.z42"
+[[step]]
+args = ["build", "toolgen/z42.toml", "--release"]
+exit = 0
+[[step]]
+tool = "copy"
+from = "variants/OtherBroken.z42"
+to = "other/src/Other.z42"
+[[step]]
+tool = "z42b"
+args = ["build", "{case}", "--package-jobs", "2", "--release"]
+exit = 0
+stdout_count = [[": succeeded", "2"], ["PREBUILT-GRAPH-HOOK: probe.app", "1"]]
+output_not_contains = ["probe.other: succeeded"]
+[[step]]
+tool = "run"
+target = "artifacts/probe.app/release/dist/probe.app.zpkg"
+env_remove = ["Z42_PROBING_PATHS"]
+exit = 0
+stdout_equals = "43"
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "framework/"
+[[step]]
+tool = "copy"
+from = "artifacts/probe.other/release/dist/probe.other.zpkg"
+to = "framework/probe.other.zpkg"
+[[step]]
+tool = "z42b"
+args = ["build", "{case}", "--package-jobs", "2", "--release"]
+libs = "framework"
+exit = 0
+stdout_count = [["PREBUILT-GRAPH-HOOK: probe.app", "1"], [": succeeded", "2"]]
+[[step]]
+tool = "copy"
+from = "variants/AppUsesOther.z42"
+to = "app/src/Main.z42"
+[[step]]
+tool = "z42b"
+args = ["build", "{case}", "--package-jobs", "2", "--release"]
+libs = "framework"
+exit = "nonzero"
+output_contains = ["ProbeOther", "probe.app: failed"]
+output_not_contains = ["unrelated member leaked into hook inputs"]
+[[step]]
+tool = "copy"
+from = "variants/AppSourcePlugin.toml"
+to = "app/z42.toml"
+[[step]]
+args = ["build", "--workspace", "--package-jobs", "2", "--release"]
+exit = "nonzero"
+output_contains = ["require prebuilt plugin inputs"]
+output_not_contains = [": succeeded", ": failed"]
+[[step]]
+tool = "z42b"
+args = ["build", "{case}", "--package-jobs", "2", "--release"]
+exit = "nonzero"
+output_contains = ["require prebuilt plugin inputs"]
+output_not_contains = [": succeeded", ": failed"]
