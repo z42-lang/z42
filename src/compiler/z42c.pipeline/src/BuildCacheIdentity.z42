@@ -1,0 +1,25 @@
+// Dependency bytes, effective options, explicit syntax and manifest identity all affect cached IR.
+namespace Z42.Pipeline;
+using Z42.Project;
+
+public static class BuildCacheIdentity {
+    public static string Of(ProjectManifest pm, int effOptSet, bool isRelease, string[] libsDirs, int libsDirsN, WsTier scanTier) {
+        string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, scanTier);
+        depsId = depsId + "|opt" + effOptSet.ToString();
+        int sd = 0;
+        while (sd < pm.SyntaxCount) {
+            depsId = depsId + "|syn:" + pm.SyntaxNames[sd] + "=" + (pm.SyntaxValues[sd] ? "1" : "0");
+            sd = sd + 1;
+        }
+        depsId = depsId + "|mf:" + pm.Project.Name + "@" + pm.Project.Version
+               + "/" + pm.Project.Kind
+               + "/" + (pm.Project.HasEntry ? pm.Project.Entry : "-")
+               + "/" + (isRelease ? "rel" : "dbg");
+        int mdi = 0;
+        while (mdi < pm.DepCount) {
+            depsId = depsId + "|dep:" + pm.Deps[mdi].Name;
+            mdi = mdi + 1;
+        }
+        return depsId;
+    }
+}

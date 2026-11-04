@@ -170,7 +170,9 @@ public static class CompilerFingerprint {
         // `(T)o` 受检；类级 `new T()` 走 `__class_type_arg` + `__activator_create`；catch 目标带实参 —— 输出变化。
         "type-param-markers",
         // 可变寄存器和参数不再登记为全函数常量，避免覆盖旧值或 ref 写入。
-        "fix-constfold-mutable-registers"
+        "fix-constfold-mutable-registers",
+        "share-hosttarget-incremental-cache",
+        "invalidate-global-using-context"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

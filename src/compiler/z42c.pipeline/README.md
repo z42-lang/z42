@@ -26,6 +26,8 @@
 `tests/fixtures/` 放 harness 驱动的夹具工程，不是 `[Test]` 单元；约定见
 [测试用例组织规范](../../../docs/internals/src/devinfra/test-layout.md)。
 
+完整 HostTarget 请求基准：`benches/z42c.pipeline.bench.host-session.z42.toml`，规范产物为 `artifacts/build/compiler/z42c.pipeline/<profile>/benches/host-session/`。四个 `[Benchmark]` 覆盖 8 文件 debug/release 无改动、1 文件小控制和显式关闭增量的完整请求；夹具与初建不计入 Bencher，计时后核对产物并清理。它不含 VM 启动和 workspace 编排，也不代表首次建立缓存的代价。
+
 闭包性能载体：`benches/z42c.pipeline.bench.invalidation.z42.toml`（exe），运行参数为文件数、重复次数、`chain|sparse`；输出累计失效文件数。`[Benchmark]` 入口为 `bench_reverse_chain_256`。
 
 ## 关联文档
@@ -60,6 +62,12 @@
 ### workspace 与增量
 | 文件 | 职责 |
 |------|------|
+| `src/BuildSessionIncremental.z42` | HostTarget 的请求/清单增量策略、独立 `host-target` 缓存身份与生命周期；带插件及 AnalyzerChild 保持全量，命中也执行包检查、lint 和产物写出 |
+| `src/IncrementalCompilation.z42` | CLI/HostTarget 共用的解析、名字失效闭包、IR 校验与恢复；`IncrementalModels.z42` 承载状态，`IncrementalTasks.z42` 承载独立文件任务 |
+| `src/SurfaceHash.z42` | 名字级声明面与全局 using 上下文指纹；全局上下文变化使整包重编 |
+| `src/IncrementalMetadata.z42` | 缓存 UsedDepNs、UsedNs 和 per-CU 警告投影，避免命中后丢失诊断观测 |
+| `src/IncrementalCacheWriter.z42` | 两入口共享 IR/meta/源清单持久化，先 IR 后 meta；失败非致命 |
+| `src/BuildCacheIdentity.z42` | 两入口共享依赖、opt、syntax 与清单身份；HostTarget 另附角色和 lint 决策 |
 | `src/IncrementalBuild.z42` | 文件级增量 probe：`ProbeFiles` 种子（hash / 条目·pin / 包级源清单）+ `Close` **名字级**失效闭包（一轮扫描，无新增传播即结束；否则反向索引 + 工作队列）（已变名字集 → token 命中即失效 → 只有「声明面提到别人的已变名字」才继续传播）；`Z42_INCR_DEBUG` 打 `[name-changed]` / `[invalidated]` / `[spread]`；单测见 `tests/incremental/` |
 | `src/InvalidationQueue.z42` | 闭包传播的反向索引与工作队列；只在一轮扫描仍有新增传播时分配 |
 | `src/CacheStore.z42` | 增量缓存落盘（`z42.io`/`z42.encoding`）；条目 meta = 源 hash + **名字级声明面指纹 `nsurf`** + 声明面标识符 `sident` + ns/useddep/token + writer 残留 |
