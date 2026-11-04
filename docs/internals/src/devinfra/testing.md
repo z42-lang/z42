@@ -66,6 +66,11 @@ builder 的命令行与常规构建 smoke 由 [声明式夹具](fixture-harness.
 允许目录名、命名清单文件名与包名不同；工作区本身不作为反射测试包。
 工具链自身的测试由桌面宿主执行，不需要逐用例声明平台或 tier。
 
+`test stdlib` 与 `bench stdlib` 从 stdlib / compiler 两个 workspace 的 `members` / `exclude`
+发现真实工程，按 `project.name` 点名和分片，不把目录名当包名。`default_members` 只决定默认构建集合，
+不缩小测试集合（例如 compiler 域的 `z42.doc`）。独立编译器测试工程仍由 `test compiler` 执行；
+同包的 benchmark 继续按 `benches/` 发现。未知包名在准备工具链前报错，空分片不扩大为全量。
+
 打包相关：`xtask package sdk --verify` 组装完 SDK 后先自检 `packages.toml` 的解析 / 组件安装 / 发布归档，再拿这份
 发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑[发行包夹具](fixture-harness.md)（命令行路径 / 桌面发布 /
 发布态 analyzer 与 hooks）与 golden（interp / jit；本机桌面 workload 不在会先打一份）。

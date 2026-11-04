@@ -246,7 +246,7 @@ scripts/
 │   ├── xtask_bench_pause.z42   GC 停顿指标解析（bench 场景头 `// gc-pause: report`）
 │   └── xtask_profile.z42       profile 单脚本性能（cpu/heap/threads/e2e；samply/dhat/hyperfine + counter JSON）
 ├── common/             共享基建（非某个命令专属）
-│   ├── xtask_projects.z42    共享目录清单定位，复用 ManifestLocator 并统一拒绝歧义
+│   ├── xtask_projects.z42    共享目录 / workspace 成员定位，复用项目模型并拒绝歧义 / 包名冲突
 │   ├── xtask_common.z42     _root/_exec/cargo/toolchain 选择器 + verbosity + 种子解析
 │   ├── xtask_layout.z42     构建树布局路径（per-member 读 workspace.toml 单源 + flat/runtime/build-root 约定）+ `layout` 命令
 │   ├── xtask_versions.z42   versions.toml 读取器 + RID / cargo target 映射
@@ -282,8 +282,9 @@ scripts/
 │   ├── xtask_fixture_build.z42  夹具构建、隔离 libs、产物定位与汇总
 │   ├── xtask_test_cross.z42     e2e cross-zpkg 多包
 │   ├── xtask_test_multiexe.z42  e2e multi-exe（一工程 → N 个 exe zpkg）
-│   ├── xtask_test_lib.z42       stdlib / 编译器域 [Test]/[Benchmark] 按 kind 发现、分片与编排；共用 runner `_testPkgsCore`
-│   ├── xtask_selfcheck_lib_discovery.z42  test / bench 归属与分片发现回归
+│   ├── xtask_test_lib.z42       stdlib / 编译器域 [Test]/[Benchmark] 命令与编排；共用 runner `_testPkgsCore`
+│   ├── xtask_unit_projects.z42  workspace 真实工程集合、声明包名选择与按 kind 分片
+│   ├── xtask_selfcheck_lib_discovery.z42  workspace members/exclude、声明包名、非默认成员与 test / bench 分片回归
 │   ├── xtask_selfcheck_test_projects.z42  工具链工程发现、声明包名与标准 / 命名清单的真实 runner 回归
 │   ├── xtask_selfcheck_compiler_projects.z42  真实编译器测试工程的标准清单、自定义 dist 与旧包干扰回归
 │   ├── xtask_selfcheck_shards.z42  分片参数、冲突选择与空分片零构建 / 空 benchmark 报告回归，随 stage 自检跑

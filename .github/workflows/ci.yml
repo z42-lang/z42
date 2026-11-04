@@ -158,6 +158,7 @@ jobs:
               - '!src/toolchain/builder/tests/**'
               - 'scripts/test/xtask_test_lib*.z42'
               - 'scripts/test/xtask_manifest_targets.z42'
+              - 'scripts/test/xtask_unit_projects.z42'
               - 'scripts/common/xtask_projects.z42'
               - 'scripts/common/xtask_golden.z42'
               - '.github/workflows/ci.yml'

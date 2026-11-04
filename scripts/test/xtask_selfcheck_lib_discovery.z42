@@ -1,56 +1,107 @@
 namespace Z42Xtask;
-using Std.IO;
 
-bool _libListHas(string[] libs, string name) {
-    foreach (var lib in libs) { if (lib == name) { return true; } }
+using Std.IO;
+using Z42.Project;
+
+bool _projectListHas(string[] projects, string name) {
+    foreach (var toml in projects) { if (ManifestLoader.Load(toml).Project.Name == name) { return true; } }
     return false;
 }
 void _requireLibDiscovery(bool condition, string why) {
     if (!condition) { throw new Exception("lib discovery: " + why); }
 }
+
 int _selfcheckLibDiscovery() {
     string dir = _xtaskWork(_root(), "lib-discovery");
     _resetDir(dir);
     try {
-        string core = Path.Join(dir, "src/libraries/z42.core");
-        string pipe = Path.Join(dir, "src/compiler/z42c.pipeline");
-        string opt = Path.Join(dir, "src/compiler/z42c.optimization");
-        string symbols = Path.Join(dir, "src/compiler/z42c.symbols/tests/interface");
-        Directory.Create(Path.Join(core, "tests")); Directory.Create(Path.Join(core, "benches"));
-        Directory.Create(Path.Join(pipe, "tests/incremental"));
-        Directory.Create(Path.Join(pipe, "benches/nested"));
-        Directory.Create(Path.Join(opt, "benches"));
-        Directory.Create(symbols);
-        File.WriteAllText(Path.Join(symbols, "z42.toml"), "[project]\nname = \"symbols.test\"\n");
-        File.WriteAllText(Path.Join(core, "tests/core_tests.z42"), "using Std.Harness; [Test] void t() {}\n");
-        File.WriteAllText(Path.Join(core, "benches/core_bench.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
-        File.WriteAllText(Path.Join(pipe, "tests/incremental/unit.z42.toml"), "[project]\nname = \"pipeline.test\"\n");
-        File.WriteAllText(Path.Join(pipe, "benches/pipeline_bench.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
-        File.WriteAllText(Path.Join(pipe, "benches/nested/source.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
-        File.WriteAllText(Path.Join(opt, "benches/cfg_bench.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
-        string[] tests = _allUnitLibs(dir, "test");
-        string[] benches = _allUnitLibs(dir, "bench");
-        _requireLibDiscovery(_libListHas(tests, "z42.core"), "stdlib tests omitted");
-        _requireLibDiscovery(!_libListHas(tests, "z42c.pipeline"), "compiler project tests routed to stdlib runner");
-        _requireLibDiscovery(!_libListHas(tests, "z42c.symbols"), "canonical compiler project routed to stdlib runner");
-        _requireLibDiscovery(_libListHas(benches, "z42c.pipeline"), "compiler tests layout hid its benchmarks");
-        _requireLibDiscovery(_libListHas(benches, "z42c.optimization"), "compiler benchmark-only package omitted");
-        _requireLibDiscovery(_libUnitCount(dir, "z42c.pipeline", "test") == 0, "unexpected flat test count");
-        _requireLibDiscovery(_libUnitCount(dir, "z42c.pipeline", "bench") == 2, "bench count used tests directory");
-        string[] first = _shardLibs(dir, "bench", 1, 2);
-        string[] second = _shardLibs(dir, "bench", 2, 2);
-        _requireLibDiscovery(first.Length + second.Length == benches.Length, "shards lost packages");
-        _requireLibDiscovery(_libListHas(first, "z42c.pipeline"), "largest benchmark package not balanced first");
-        foreach (var lib in first) { _requireLibDiscovery(!_libListHas(second, lib), "duplicate shard package"); }
-        File.WriteAllText(Path.Join(symbols, "a.z42.toml"), "");
-        File.WriteAllText(Path.Join(symbols, "b.z42.toml"), "");
-        _requireLibDiscovery(_isCompilerFormatTests(dir, "z42c.symbols"), "canonical manifest lost priority");
-        File.Delete(Path.Join(symbols, "z42.toml"));
-        bool rejected = false;
-        try { _isCompilerFormatTests(dir, "z42c.symbols"); }
-        catch (Exception e) { rejected = e.Message.Contains("a.z42.toml") && e.Message.Contains("b.z42.toml"); }
-        _requireLibDiscovery(rejected, "ambiguous compiler project must name both candidates");
+        _writeDiscoveryProjects(dir);
+        string[] tests = _allUnitProjects(dir, "test");
+        string[] benches = _allUnitProjects(dir, "bench");
+        _requireLibDiscovery(tests.Length == 4 && benches.Length == 6, "non-members or non-project entries included");
+        _requireLibDiscovery(_projectListHas(tests, "z42.core"), "nested canonical stdlib member omitted");
+        _requireLibDiscovery(_projectListHas(tests, "z42.extra") && _projectListHas(tests, "z42.doc"),
+            "default_members must not narrow the test collection");
+        _requireLibDiscovery(!_projectListHas(tests, "z42c.pipeline") && !_projectListHas(tests, "z42c.symbols"),
+            "independent compiler tests routed to stdlib runner");
+        _requireLibDiscovery(_projectListHas(benches, "z42c.pipeline") && _projectListHas(benches, "z42c.optimization"),
+            "compiler test layout hid its benchmarks");
+        string doc = Path.Join(dir, "src/compiler/renamed-doc/custom.z42.toml");
+        _requireLibDiscovery(_selectUnitProject(tests, "z42.doc") == doc, "package identity inferred from directory or manifest name");
+        bool missing = false;
+        try { _selectUnitProject(tests, "renamed-doc"); } catch (Exception e) { missing = true; }
+        _requireLibDiscovery(missing, "unknown package name must be rejected");
+        string pipe = Path.Join(dir, "src/compiler/z42c.pipeline/z42.toml");
+        _requireLibDiscovery(_projectUnitCount(pipe, "test") == 0 && _projectUnitCount(pipe, "bench") == 2,
+            "unit estimate must use the selected kind");
+        string[] first = _shardUnitProjects(dir, "bench", 1, 2);
+        string[] second = _shardUnitProjects(dir, "bench", 2, 2);
+        _requireLibDiscovery(first.Length + second.Length == benches.Length, "shards lost projects");
+        _requireLibDiscovery(_projectListHas(first, "z42c.pipeline"), "largest benchmark project not balanced first");
+        foreach (var toml in first) {
+            foreach (var other in second) { _requireLibDiscovery(toml != other, "duplicate shard project"); }
+        }
+        _checkDuplicateProjectNames(dir);
+        _checkCompilerProjectAmbiguity(Path.Join(dir, "src/compiler/symbols-dir"));
     } finally { Directory.Delete(dir, true); }
-    Console.WriteLine("  lib discovery: test/bench routing and kind-specific shards passed");
+    Console.WriteLine("  lib discovery: workspace members/exclude, declared names, non-default members and shards passed");
     return 0;
+}
+
+void _writeDiscoveryProjects(string dir) {
+    string libs = Path.Join(dir, "src/libraries");
+    string compiler = Path.Join(dir, "src/compiler");
+    Directory.Create(libs); Directory.Create(compiler);
+    File.WriteAllText(_libsWsToml(dir), "[workspace]\nmembers = [\"units/*\"]\nexclude = [\"units/ignored\"]\ndefault_members = [\"z42.core\"]\n");
+    File.WriteAllText(_compilerWsToml(dir), "[workspace]\nmembers = [\"*\"]\ndefault_members = [\"z42c.pipeline\"]\n");
+    File.WriteAllText(Path.Join(libs, "README.md"), "not a project");
+    string core = Path.Join(libs, "units/core-dir");
+    _writeTestProject(core, "z42.toml", "z42.core");
+    Directory.Create(Path.Join(core, "benches"));
+    File.WriteAllText(Path.Join(core, "benches/core_bench.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
+    _writeTestProject(Path.Join(libs, "units/extra"), "named.z42.toml", "z42.extra");
+    _writeTestProject(Path.Join(libs, "units/ignored"), "z42.toml", "ignored");
+    _writeTestProject(Path.Join(libs, "outside"), "z42.toml", "outside");
+    string pipe = Path.Join(compiler, "z42c.pipeline");
+    _writeTestProject(pipe, "z42.toml", "z42c.pipeline");
+    File.Delete(Path.Join(pipe, "tests/discovered.z42"));
+    Directory.Create(Path.Join(pipe, "tests/incremental"));
+    File.WriteAllText(Path.Join(pipe, "tests/incremental/unit.z42.toml"), "[project]\nname = \"pipeline.test\"\n");
+    Directory.Create(Path.Join(pipe, "benches/nested"));
+    File.WriteAllText(Path.Join(pipe, "benches/pipeline_bench.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
+    File.WriteAllText(Path.Join(pipe, "benches/nested/source.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
+    string opt = Path.Join(compiler, "z42c.optimization");
+    _writeTestProject(opt, "z42.toml", "z42c.optimization");
+    File.Delete(Path.Join(opt, "tests/discovered.z42"));
+    Directory.Create(Path.Join(opt, "benches"));
+    File.WriteAllText(Path.Join(opt, "benches/cfg_bench.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
+    string symbols = Path.Join(compiler, "symbols-dir");
+    _writeTestProject(symbols, "z42.toml", "z42c.symbols");
+    File.Delete(Path.Join(symbols, "tests/discovered.z42"));
+    Directory.Create(Path.Join(symbols, "tests/interface"));
+    File.WriteAllText(Path.Join(symbols, "tests/interface/z42.toml"), "[project]\nname = \"symbols.test\"\n");
+    _writeTestProject(Path.Join(compiler, "renamed-doc"), "custom.z42.toml", "z42.doc");
+}
+
+void _checkDuplicateProjectNames(string dir) {
+    string extra = Path.Join(dir, "src/libraries/units/extra/named.z42.toml");
+    string saved = File.ReadAllText(extra);
+    File.WriteAllText(extra, saved.Replace("z42.extra", "z42c.optimization"));
+    bool rejected = false;
+    try { _allUnitProjects(dir, "bench"); }
+    catch (Exception e) { rejected = e.Message.Contains("z42c.optimization"); }
+    finally { File.WriteAllText(extra, saved); }
+    _requireLibDiscovery(rejected, "duplicate package identity across workspaces accepted");
+}
+
+void _checkCompilerProjectAmbiguity(string dir) {
+    string unit = Path.Join(dir, "tests/interface");
+    File.WriteAllText(Path.Join(unit, "a.z42.toml"), "");
+    File.WriteAllText(Path.Join(unit, "b.z42.toml"), "");
+    _requireLibDiscovery(_isCompilerFormatTests(dir), "canonical compiler test manifest lost priority");
+    File.Delete(Path.Join(unit, "z42.toml"));
+    bool rejected = false;
+    try { _isCompilerFormatTests(dir); }
+    catch (Exception e) { rejected = e.Message.Contains("a.z42.toml") && e.Message.Contains("b.z42.toml"); }
+    _requireLibDiscovery(rejected, "ambiguous compiler test project must name both candidates");
 }

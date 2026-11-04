@@ -1,0 +1,65 @@
+// stdlib / compiler 域的单元工程选择与分片：传递真实清单，不从目录名推断包名。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+using Std.Cli;
+using Z42.Project;
+
+// 独立编译器测试工程归 test compiler；不能按发现到的 [Test] 数量屏蔽孤儿源。
+bool _isCompilerFormatTests(string projectDir) {
+    string td = Path.Join(projectDir, "tests");
+    if (!Directory.Exists(td)) { return false; }
+    foreach (var e in Directory.Enumerate(td)) {
+        string unitDir = Path.Join(td, e);
+        if (Directory.Exists(unitDir) && _findManifest(unitDir).ManifestPath.Length > 0) { return true; }
+    }
+    return false;
+}
+
+// 两个 workspace 的全部成员；test 让开独立编译器工程，bench 仍独立发现 benches/。
+string[] _allUnitProjects(string root, string kind) {
+    List<string> projects = new List<string>();
+    projects.AddRange(_workspaceProjects(_libsWsToml(root)));
+    foreach (var toml in _workspaceProjects(_compilerWsToml(root))) {
+        if (kind == "bench" || !_isCompilerFormatTests(Path.GetDirectoryName(toml))) { projects.Add(toml); }
+    }
+    string[] all = projects.ToArray();
+    _requireUniqueProjects(all);
+    return all;
+}
+
+string _selectUnitProject(string[] projects, string name) {
+    foreach (var toml in projects) {
+        if (ManifestLoader.Load(toml).Project.Name == name) { return toml; }
+    }
+    throw new CliException("no library project matches '" + name + "'");
+}
+
+// 当前 kind 的源单元数，只用于分片负载估算，目标发现仍由 z42b 负责。
+int _projectUnitCount(string toml, string kind) {
+    string td = Path.Join(Path.GetDirectoryName(toml), kind == "bench" ? "benches" : "tests");
+    if (!Directory.Exists(td)) { return 0; }
+    int count = Path.Glob(td, "*.z42").Length;
+    foreach (var e in Path.Glob(td, "*")) {
+        if (File.Exists(Path.Join(e, "source.z42"))) { count = count + 1; }
+    }
+    return count;
+}
+
+// 单元多的包优先，按排序位置轮转分配；每个真实成员只进入一个分片。
+string[] _shardUnitProjects(string root, string kind, int k, int n) {
+    string[] all = _allUnitProjects(root, kind);
+    int m = all.Length;
+    int[] cnt = new int[m];
+    int[] idx = new int[m];
+    for (int i = 0; i < m; i = i + 1) { cnt[i] = _projectUnitCount(all[i], kind); idx[i] = i; }
+    for (int a = 0; a < m; a = a + 1) {
+        int best = a;
+        for (int b = a + 1; b < m; b = b + 1) { if (cnt[idx[b]] > cnt[idx[best]]) { best = b; } }
+        int t = idx[a]; idx[a] = idx[best]; idx[best] = t;
+    }
+    List<string> picked = new List<string>();
+    for (int p = k - 1; p < m; p = p + n) { picked.Add(all[idx[p]]); }
+    return picked.ToArray();
+}

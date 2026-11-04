@@ -2,6 +2,7 @@
 namespace Z42Xtask;
 
 using Z42.Project;
+using Std.IO;
 
 ManifestLocation _findManifest(string dir) {
     ManifestLocation found = ManifestLocator.FindIn(dir);
@@ -9,4 +10,22 @@ ManifestLocation _findManifest(string dir) {
         throw new Exception(ManifestLocator.ErrorText(found, dir));
     }
     return found;
+}
+
+// 全部真实成员，按 workspace 的 members / exclude 发现；default_members 仅控制默认构建目标。
+string[] _workspaceProjects(string toml) {
+    WorkspaceManifest ws = ManifestLoader.LoadWorkspace(toml);
+    WorkspacePlan.RejectUnknownKeys(ws, toml);
+    WorkspaceMembers members = WorkspacePlan.DiscoverMembers(Path.GetDirectoryName(toml), ws);
+    string[] projects = new string[members.Count];
+    for (int i = 0; i < members.Count; i = i + 1) { projects[i] = members.Tomls[i]; }
+    return projects;
+}
+
+void _requireUniqueProjects(string[] projects) {
+    string[] names = new string[projects.Length];
+    for (int i = 0; i < projects.Length; i = i + 1) {
+        names[i] = ManifestLoader.Load(projects[i]).Project.Name;
+    }
+    WorkspacePlan.CheckUniqueNames(projects, names, projects.Length);
 }
