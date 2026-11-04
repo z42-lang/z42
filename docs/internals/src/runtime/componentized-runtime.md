@@ -66,6 +66,8 @@ BuiltinCatalog 在 runtime 保存纯名称/ID 与折叠属性，exec 保存 call
 
 JIT 的安装输入为后端拥有的 JitConfig，门面负责配置转换和注册适配；分层/编译/翻译仅使用已传入的值。该内部输入是同构建 Rust API，不是动态库 ABI。
 
+VM 的内部构造输入为 `vm/config.rs` 的 `VmConfig`，由门面从已决议的 `RuntimeConfig` 捕获 GC、预算、采样与 trace 设置。内部构造消费纯值，不解析环境变量或门面旋钮；既有构造入口负责转换。`process_loh_bytes` 明确表示构造期应用的进程级 LOH 覆盖，仍在 core 建立后应用，不提供每 VM LOH 隔离；safepoint 与 stackalloc 的进程策略也保持独立。该输入不存入 VmCore，不改变线程视图布局。
+
 ### 4.2 独立交付仍是目标设计
 
 注册边界见 [VM 总体架构](vm-architecture.md)「引擎注册与调用边界」。物理拆 crate、跨动态库的组件 ABI、自动加载和卸载尚未实现；当前 Rust trait/注册对象不是可跨版本或跨动态库使用的 ABI。以后独立交付须在这一每 VM 所有权边界上设计同构建组件 ABI，不能改成进程全局 JIT 单例。
