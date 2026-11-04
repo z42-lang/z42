@@ -1,0 +1,59 @@
+namespace Z42.Project;
+
+using Std.IO;
+
+/// An explicit build worker's immutable-by-convention compile world, separate from runtime probing.
+public sealed class WorkspaceCompileDomain {
+    public string Target;
+    public string[] Members;
+    public string[] Hidden;
+    public bool[] Visible;
+    public string[] Directories;
+    public int MemberDirectoryCount;
+
+    /// Requires the complete layout, including members not selected as build targets.
+    public WorkspaceCompileDomain(WorkspaceLayoutPlan complete, int node, string[] external) {
+        if (complete.Graph == null || complete.Count != complete.Names.Length || complete.Graph.Count != complete.Count) {
+            throw new Exception("workspace compile domain requires the complete explicit graph");
+        }
+        if (node < 0 || node >= complete.Count) { throw new Exception("workspace compile domain: invalid target"); }
+        this.Visible = WorkspaceGraph.Prerequisites(complete.Graph, node);
+        this.Target = complete.Names[node];
+        this.MemberDirectoryCount = complete.Count;
+        this.Members = new string[complete.Count];
+        this.Directories = new string[complete.Count + external.Length];
+        int hidden = 0;
+        int i = 0;
+        while (i < complete.Count) {
+            this.Members[i] = complete.Names[i]; this.Directories[i] = complete.DistDirs[i];
+            if (!this.Visible[i]) { hidden = hidden + 1; }
+            i = i + 1;
+        }
+        this.Hidden = new string[hidden];
+        hidden = 0; i = 0;
+        while (i < complete.Count) {
+            if (!this.Visible[i]) { this.Hidden[hidden] = this.Members[i]; hidden = hidden + 1; }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < external.Length) { this.Directories[complete.Count + i] = external[i]; i = i + 1; }
+    }
+
+    public string PrerequisiteDist(string name) {
+        int index = WorkspacePlan.IndexOfName(this.Members, this.Members.Length, name);
+        return index >= 0 && this.Visible[index] ? this.Directories[index] : "";
+    }
+
+    public string[] PrerequisiteNames() {
+        int count = 0;
+        int i = 0;
+        while (i < this.Visible.Length) { if (this.Visible[i]) { count = count + 1; } i = i + 1; }
+        string[] names = new string[count];
+        int used = 0; i = 0;
+        while (i < this.Visible.Length) {
+            if (this.Visible[i]) { names[used] = this.Members[i]; used = used + 1; }
+            i = i + 1;
+        }
+        return names;
+    }
+}

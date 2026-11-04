@@ -63,6 +63,8 @@ namespace Z42.Build;
     /// null ⇒ 退回上面的平铺字段（旧调用方）。传**对象**而非路径：z42b 测试目标的清单是在内存里派生的。
     /// **body 字段、不进 ctor**（种子 ABI，同 ParentPkg）。
     public Z42.Project.ProjectManifest Manifest = null;
+    /// Explicit worker domain; null preserves normal SDK/member discovery. Constructor ABI is unchanged.
+    public Z42.Project.WorkspaceCompileDomain WorkspaceDomain = null;
 }
 
 /// 编译结果。Zsym 为 "" 表示无 split-debug sidecar；Ok=false 时 Diagnostics 含错误文本。

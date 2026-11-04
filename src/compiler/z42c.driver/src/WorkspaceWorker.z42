@@ -106,6 +106,7 @@ WsTier _workspaceWorkerTier(WorkspaceLayoutPlan plan, int node) {
     bool[] needed = WorkspaceGraph.Prerequisites(plan.Graph, node);
     WsTier tier = new WsTier();
     tier.Members = plan.Names; tier.MembersN = plan.Count; tier.MemberDirs = plan.Count;
+    tier.OwnedMembers = plan.Names;
     tier.Hidden = new string[plan.Count]; tier.HiddenN = 0;
     int i = 0;
     while (i < plan.Count) {

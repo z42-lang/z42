@@ -1,0 +1,210 @@
+namespace Z42Builder;
+
+using Std.IO;
+using Std.Cli;
+using Std.Hashing;
+using Z42.Project;
+using Z42.Build;
+
+// One isolated worker owns this state. Access through methods before assigning static fields.
+static class BuilderWorkspaceState {
+    static WorkspaceCompileDomain _domain = null;
+    static string _sidecar = "";
+    public static WorkspaceCompileDomain Current() { return BuilderWorkspaceState._domain; }
+    public static void Set(WorkspaceCompileDomain domain) { BuilderWorkspaceState._domain = domain; BuilderWorkspaceState._sidecar = ""; }
+    public static void Capture(string sidecar) { BuilderWorkspaceState._sidecar = sidecar; }
+    public static string Sidecar() { return BuilderWorkspaceState._sidecar; }
+}
+
+WorkspaceLayoutPlan _builderGraphPlan(string ws, string profile, bool all) {
+    WorkspaceLayoutPlan plan = all ? WorkspacePlan.PlanLayout(ws, profile) : WorkspacePlan.PlanDefault(ws, profile);
+    int i = 0;
+    while (i < plan.Count) {
+        ProjectManifest pm = ManifestLoader.Load(plan.Tomls[i]);
+        Dirs dirs = _computeDirs(pm, Path.GetDirectoryName(plan.Tomls[i]), profile);
+        plan.DistDirs[i] = dirs.Dist; plan.CacheDirs[i] = dirs.Cache; i = i + 1;
+    }
+    return plan;
+}
+
+int _builderPackageJobs(ParseResult r) {
+    int jobs = Int32.Parse(r.GetOption("package-jobs"));
+    if (jobs < 1) { throw new Exception("--package-jobs must be positive"); }
+    return jobs;
+}
+
+string _builderWorkerProgram() {
+    string[] dirs = ModuleSearch.Dirs();
+    int i = 0;
+    while (i < dirs.Length) {
+        string path = Path.Join(dirs[i], "z42.builder.zpkg");
+        if (File.Exists(path)) { return path; }
+        i = i + 1;
+    }
+    throw new Exception("cannot locate this builder's package worker program");
+}
+
+string _builderWorkerVm() {
+    string vm = OperatingSystem.ExecutablePath();
+    string name = Path.GetFileName(vm);
+    if ((name == "z42vm" || name == "z42vm.exe") && File.Exists(vm)) { return vm; }
+    vm = _hostVmPath();
+    if (vm.Length == 0) { throw new Exception("cannot locate package worker VM"); }
+    return vm;
+}
+
+int _builderGraphRun(ParseResult r, string ws, string profile) {
+    try {
+        WorkspaceLayoutPlan plan = _builderGraphPlan(ws, profile, r.GetFlag("workspace"));
+        int jobs = _builderPackageJobs(r);
+        _builderValidateWorkers(plan, profile);
+        string absolute = Path.Normalize(Path.IsRooted(ws) ? ws : Path.Join(Environment.GetCurrentDirectory(), ws));
+        string pin = Murmur3.Hash128Hex(File.ReadAllBytes(absolute));
+        string vm = _builderWorkerVm(); string program = _builderWorkerProgram();
+        PackageWorker[] workers = new PackageWorker[plan.Count];
+        int i = 0;
+        while (i < plan.Count) {
+            Process command = new Process(vm);
+            string? mode = RuntimeConfig.Get("mode");
+            if (mode != null) { command.Arg("--mode").Arg(mode); }
+            command.Arg(program).Arg("--").Arg("--package-worker").Arg("builder-workspace-v1")
+                .Arg(absolute).Arg(pin).Arg(plan.Names[i]).Arg(profile).Arg(r.GetOption("rid"));
+            workers[i] = new PackageWorker(command); i = i + 1;
+        }
+        PackageRunResult result = PackageScheduler.Run(plan.Graph, workers, jobs);
+        try { return _builderReplayWorkers(plan, result); }
+        finally { Directory.Delete(result.LogDir, true); }
+    } catch (Exception e) { ConsoleError.WriteLine("z42 build workspace: " + e.Message); return 1; }
+}
+
+int _builderReplayWorkers(WorkspaceLayoutPlan plan, PackageRunResult result) {
+    int i = 0;
+    while (i < plan.Count) {
+        Console.WriteLine("[" + (i + 1).ToString() + "/" + plan.Count.ToString() + "] " + plan.Names[i] + ": " + result.Statuses[i]);
+        if (File.Exists(result.StdoutPath(i))) { Console.Write(File.ReadAllText(result.StdoutPath(i))); }
+        if (File.Exists(result.StderrPath(i))) { ConsoleError.Write(File.ReadAllText(result.StderrPath(i))); }
+        i = i + 1;
+    }
+    return result.Code;
+}
+
+void _builderValidateWorkers(WorkspaceLayoutPlan plan, string profile) {
+    string[] roots = new string[plan.Count * 3];
+    int[] owners = new int[roots.Length];
+    int i = 0;
+    while (i < plan.Count) {
+        ProjectManifest pm = ManifestLoader.Load(plan.Tomls[i]);
+        _builderValidateWorkerInputs(plan, i, pm);
+        Dirs dirs = _computeDirs(pm, Path.GetDirectoryName(plan.Tomls[i]), profile);
+        roots[i * 3] = Path.GetDirectoryName(dirs.Intermediate);
+        roots[i * 3 + 1] = dirs.Dist; roots[i * 3 + 2] = dirs.Cache;
+        owners[i * 3] = i; owners[i * 3 + 1] = i; owners[i * 3 + 2] = i;
+        i = i + 1;
+    }
+    OutputOwnership.Validate(roots, owners);
+}
+
+void _builderValidateWorkerInputs(WorkspaceLayoutPlan plan, int node, ProjectManifest pm) {
+    int p = 0;
+    while (p < pm.PluginCount) {
+        DepEntry plugin = pm.Plugins[p];
+        if (plugin.IncludeCount > 0 || (plugin.Path.Length > 0 && !plugin.Path.EndsWith(".zpkg"))) {
+            throw new Exception("package graph workers require prebuilt plugin inputs: " + plugin.Name);
+        }
+        p = p + 1;
+    }
+    PathDepClosure closure = PathDepPlan.Resolve(plan.Tomls[node]);
+    int j = 0;
+    while (j < closure.Count) {
+        ProjectManifest dep = ManifestLoader.Load(closure.Tomls[j]);
+        int member = WorkspacePlan.IndexOfName(plan.Names, plan.Count, dep.Project.Name);
+        if (member < 0 || _builderAbsolute(plan.Tomls[member]) != _builderAbsolute(closure.Tomls[j])) {
+            throw new Exception("package graph requires source dependencies to be workspace members: " + dep.Project.Name);
+        }
+        j = j + 1;
+    }
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    j = 0;
+    while (j < pm.DepCount) {
+        string name = pm.Deps[j].Name; j = j + 1;
+        if (WorkspacePlan.IndexOfName(plan.Names, plan.Count, name) < 0 && !File.Exists(Path.Join(libs, name + ".zpkg"))) {
+            throw new Exception("builder graph external dependencies must already be framework inputs: " + name);
+        }
+    }
+}
+
+string _builderAbsolute(string path) {
+    return Path.Normalize(Path.IsRooted(path) ? path : Path.Join(Environment.GetCurrentDirectory(), path));
+}
+
+int _builderWorkspaceWorker(string[] args) {
+    try {
+        if (args.Length != 7 || args[1] != "builder-workspace-v1") { throw new Exception("invalid builder package worker protocol"); }
+        if (Murmur3.Hash128Hex(File.ReadAllBytes(args[2])) != args[3]) { throw new Exception("workspace changed after package planning"); }
+        if (args[5] != "debug" && args[5] != "release") { throw new Exception("invalid builder worker profile"); }
+        WorkspaceLayoutPlan plan = _builderGraphPlan(args[2], args[5], true);
+        int node = WorkspacePlan.IndexOfName(plan.Names, plan.Count, args[4]);
+        if (node < 0 || plan.Graph == null) { throw new Exception("invalid builder worker graph node"); }
+        string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+        string[] external = new string[libs.Length > 0 ? 1 : 0];
+        if (external.Length > 0) { external[0] = libs; }
+        WorkspaceCompileDomain domain = new WorkspaceCompileDomain(plan, node, external);
+        _builderSeedPrerequisites(domain);
+        BuilderWorkspaceState.Set(domain);
+        Z42.Package.ParallelConfig.SetJobs(1);
+        string[] command = new string[args[5] == "release" ? 5 : 4];
+        command[0] = "build"; command[1] = plan.Tomls[node]; command[2] = "--rid"; command[3] = args[6];
+        if (command.Length == 5) { command[4] = "--release"; }
+        return _runBuilderGuarded(command);
+    } catch (Exception e) { ConsoleError.WriteLine("z42b package worker: " + e.Message); return 1; }
+    finally { BuilderWorkspaceState.Set(null); }
+}
+
+void _builderSeedPrerequisites(WorkspaceCompileDomain domain) {
+    int i = 0;
+    while (i < domain.Members.Length) {
+        if (domain.Visible[i]) {
+            string dist = domain.Directories[i]; string name = domain.Members[i];
+            if (!File.Exists(Path.Join(dist, name + ".zpkg"))) { throw new Exception("missing completed prerequisite: " + name); }
+            WsSiblings.Note(name, dist);
+        }
+        i = i + 1;
+    }
+}
+
+Inputs _builderDomainInputs(WorkspaceCompileDomain domain) {
+    string[] deps = new string[0];
+    int i = 0;
+    while (i < domain.Members.Length) {
+        if (domain.Visible[i]) {
+            string[] one = new string[1]; one[0] = Path.Join(domain.Directories[i], domain.Members[i] + ".zpkg");
+            deps = _concat(deps, one);
+        }
+        i = i + 1;
+    }
+    while (i < domain.Directories.Length) { deps = _concat(deps, Path.Glob(domain.Directories[i], "*.zpkg")); i = i + 1; }
+    return new Inputs("", "", deps);
+}
+
+int _builderBundleCompleted(string payload) {
+    WorkspaceCompileDomain domain = BuilderWorkspaceState.Current();
+    int i = 0;
+    while (i < domain.Members.Length) {
+        if (domain.Visible[i]) {
+            string name = domain.Members[i]; string dist = domain.Directories[i];
+            string source = Path.Join(dist, name + ".zpkg");
+            if (!File.Exists(source)) { ConsoleError.WriteLine("missing completed package: " + name); return 1; }
+            File.Copy(source, Path.Join(payload, name + ".zpkg"));
+            string sym = Path.Join(dist, name + ".zsym"); string dest = Path.Join(payload, name + ".zsym");
+            if (File.Exists(sym)) { File.Copy(sym, dest); } else if (File.Exists(dest)) { File.Delete(dest); }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+void _builderCopySidecar(string dist, string name) {
+    if (BuilderWorkspaceState.Current() == null) { return; }
+    string source = BuilderWorkspaceState.Sidecar(); string dest = Path.Join(dist, name + ".zsym");
+    if (source.Length > 0) { File.Copy(source, dest); } else if (File.Exists(dest)) { File.Delete(dest); }
+}

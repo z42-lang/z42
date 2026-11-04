@@ -87,6 +87,7 @@ public sealed class CollectingReporter : IBuildReporter {
 }
 
 public sealed class BuildOptions {
+    public WorkspaceCompileDomain WorkspaceDomain = null;
     public ProjectManifest Manifest;
     public string          Label;         // 错误行里的清单名（toml 路径 / 派生清单的包名）
     public string          ProjectDir;    // 源根（[sources] glob 相对它）
@@ -126,9 +127,21 @@ public sealed class BuildSession {
     // retire-member-dep-decls 阶段 2：SDK 计划的成员感知版——本工程若是某 workspace 的成员，成员名
     // 并入放行集（计划非空 ⇒ 编译器目录挂载；成员清单空声明后这是唯一挂载通道，原先借清单条目当
     // 种子）。只动 plan（编译域），不回写 pm——那会污染 zpkg DEPS。
-    private static SdkLibPlan _memberAwarePlan(ProjectManifest pm, string projectDir, string[] libs, int libsN) {
+    private static SdkLibPlan _memberAwarePlan(ProjectManifest pm, string projectDir, string[] libs, int libsN, WorkspaceCompileDomain domain) {
+        if (domain != null) { return SdkLibs.Plan(pm, libs, libsN, pm.Project.IsPlugin()); }
         return SdkLibs.PlanForMembers(pm, libs, libsN, pm.Project.IsPlugin(),
                                       WorkspaceMemberDeps.EnclosingMemberNames(projectDir));
+    }
+
+    private static WsTier _workspaceTier(WorkspaceCompileDomain domain, SdkLibPlan sdk) {
+        WsTier tier = null;
+        if (domain != null) {
+            tier = new WsTier(); tier.Members = domain.Members; tier.MembersN = domain.Members.Length;
+            tier.Hidden = domain.Hidden; tier.HiddenN = domain.Hidden.Length;
+            tier.MemberDirs = domain.MemberDirectoryCount;
+            tier.OwnedMembers = domain.Members;
+        }
+        return SdkLibs.MergeTier(tier, sdk);
     }
 
     [Suppress("style.fnLinesHard", "122 body lines；拆分见 code-organization.md")]
@@ -163,7 +176,8 @@ public sealed class BuildSession {
         //    空声明后这是唯一挂载通道）；扫描 tier 的成员放行与 E0497 契约在 `PackageCompile._resolveDeps`。
         string[] libs = o.BaseLibs;
         int libsN = o.BaseLibsN;
-        SdkLibPlan sdkPlan = BuildSession._memberAwarePlan(pm, o.ProjectDir, libs, libsN);
+        SdkLibPlan sdkPlan = BuildSession._memberAwarePlan(pm, o.ProjectDir, libs, libsN, o.WorkspaceDomain);
+        WsTier tier = BuildSession._workspaceTier(o.WorkspaceDomain, sdkPlan);
         if (sdkPlan.DirsN > 0) {
             libs = SdkLibs.AppendDirs(libs, libsN, sdkPlan);
             libsN = libsN + sdkPlan.DirsN;
@@ -209,7 +223,7 @@ public sealed class BuildSession {
         }
         // Reuse per-file IR only; package checks and diagnostics still run on every build.
         BuildSessionIncremental incremental = BuildSessionIncremental.Prepare(o, kn, srcs, texts, hashes,
-            libs, libsN, SdkLibs.MergeTier(null, sdkPlan), azPaths != null || routedNames != null || pm.PluginCount > 0);
+            libs, libsN, tier, azPaths != null || routedNames != null || pm.PluginCount > 0);
         CompilationUnit[] cus = incremental != null ? incremental.Prep.Cus : null;
         if (incremental == null) { cus = BuildSession._parseSources(texts, srcs, kn); }
         CompileInputs inp = new CompileInputs();
@@ -223,8 +237,12 @@ public sealed class BuildSession {
         inp.Features = kn.Features;
         inp.OptSet = kn.OptSet;
         inp.LibsDirs = libs; inp.LibsDirsN = libsN;
-        inp.Tier = SdkLibs.MergeTier(null, sdkPlan);
+        inp.Tier = tier;
         string[] declaredAll = SdkLibs.ExtendDeclared(declared, dn, sdkPlan);
+        if (o.WorkspaceDomain != null) {
+            string[] prerequisites = o.WorkspaceDomain.PrerequisiteNames();
+            declaredAll = SdkLibs.WithMembers(declaredAll, declaredAll.Length, prerequisites, prerequisites.Length);
+        }
         inp.DeclaredDeps = declaredAll; inp.DepCount = declaredAll.Length;
         inp.EnforceDeclaredDeps = true;          // 真的读了一份清单 ⇒ 执行依赖契约（E0497），同 z42c build
         inp.ParentPkg = o.ParentPkg;

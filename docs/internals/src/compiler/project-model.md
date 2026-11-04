@@ -288,6 +288,26 @@ mtime 恰好相同。大小与毫秒 mtime 都未变化的原地覆写仍无法�
 和稀疏依赖基准。基准的 `Main` 接收文件数、重复次数、`chain|sparse`，输出累计失效文件数；
 同机比较两版 pipeline，保持 VM、基准字节码和其余依赖相同。
 
+### 显式图的隔离调度
+
+`WorkspaceGraph` 解析完整成员图，`Bind` 保留清单已有依赖约束，默认目标投影包含其前置闭包。
+`PackageTaskState` 克隆图并集中管理 pending/running/succeeded/failed/blocked；领取就绪节点时即标为运行，
+不会因共享前置边或重复轮询再次领取。`PackageScheduler` 在父进程维护有界子进程集合，标准输出和错误写入
+独立文件，完成后按节点顺序回放，避免管道缓冲阻塞。异常收尾负责终止并回收仍存活的子进程。
+
+driver 与 builder 复用图、状态机和进程运行器，各自保留单包构建入口。无显式图仍走原串行路径；
+不能把隐式顺序中的缺边当作并行机会。隔离进程避免共享 `DepScanCache`、`WorkspaceMemberDeps`、
+`WsSiblings` 等过程状态，同时也失去跨成员 memo 复用，并引入启动成本；吞吐收益须以真实工作负载验证。
+
+builder 将完整 `WorkspaceCompileDomain` 经 `Pipeline`、`CompileRequest` 传给 HostTarget：全成员身份包含
+未选中成员，只有前置闭包可见。`WsTier.OwnedMembers` 将每个成员目录限定为该成员的主包，运行期并置的
+依赖副本不能充当编译输入；SDK 同名旧包也不能补上缺失边。相同扫描域用于缓存身份和实际编译，前置成员
+并入依赖契约白名单。没有此上下文的请求保留原 SDK 和成员发现行为。
+
+父进程在启动前用 `OutputOwnership` 的临时物理目录标记检查重叠、别名和共享子树；探针在 worker 启动前清除。
+worker 复用已成功前置成员的产物，绕过递归源码闭包和装配时的代建。主包 sidecar 采用编译结果返回路径，
+没有 sidecar 时删除旧副本；依赖主包及配套 sidecar 从完成目录复制，不能把目录中偶然存在的旧包当作完成凭据。
+
 ### HostTarget 的增量边界
 
 构建器经 `Z42cCompiler.Compile` 将 `CompileRequest.Incremental` 传入 `BuildOptions`。

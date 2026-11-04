@@ -4,6 +4,42 @@ using Z42.Project;
 using Std.Harness;
 using Std.IO;
 
+[Test]
+void test_compile_domain_clones_member_world_and_exposes_only_prerequisites() {
+    WorkspaceMembers members = _graph("a=['b','c']\nb=['d']\nc=['d']\nd=[]\n").Bind(_members());
+    string[] dirs = new string[4];
+    dirs[0] = "a/dist"; dirs[1] = "b/dist"; dirs[2] = "c/dist"; dirs[3] = "d/dist";
+    WorkspaceLayoutPlan plan = new WorkspaceLayoutPlan(new string[4], members.Names, dirs,
+        new string[4], new bool[4], 4);
+    plan.Graph = members;
+    string[] external = new string[1]; external[0] = "sdk/libs";
+    WorkspaceCompileDomain domain = new WorkspaceCompileDomain(plan, 1, external);
+    Assert.Equal("b", domain.Target);
+    Assert.Equal(3, domain.Hidden.Length);
+    Assert.Equal("d/dist", domain.PrerequisiteDist("d"));
+    Assert.Equal("", domain.PrerequisiteDist("c"));
+    Assert.Equal("", domain.PrerequisiteDist("b"));
+    Assert.Equal("", domain.PrerequisiteDist("unknown"));
+    dirs[3] = "mutated"; external[0] = "mutated"; members.Names[1] = "mutated";
+    Assert.Equal("d/dist", domain.PrerequisiteDist("d"));
+    Assert.Equal("b", domain.Members[1]);
+    Assert.Equal("sdk/libs", domain.Directories[4]);
+}
+
+[Test]
+void test_compile_domain_rejects_implicit_plan_and_invalid_target() {
+    WorkspaceLayoutPlan plan = new WorkspaceLayoutPlan(new string[4], _members().Names,
+        new string[4], new string[4], new bool[4], 4);
+    string error = "";
+    try { new WorkspaceCompileDomain(plan, 0, new string[0]); }
+    catch (Exception e) { error = e.Message; }
+    Assert.True(error.Contains("complete explicit graph"));
+    plan.Graph = _members(); error = "";
+    try { new WorkspaceCompileDomain(plan, 4, new string[0]); }
+    catch (Exception e) { error = e.Message; }
+    Assert.True(error.Contains("invalid target"));
+}
+
 WorkspaceMembers _members() {
     string[] names = new string[4];
     names[0] = "a"; names[1] = "b"; names[2] = "c"; names[3] = "d";

@@ -1191,6 +1191,28 @@ z42c build --release            # release profile
 z42c build --workspace --output-dir out   # flat 产物：全部成员写进同一个目录
 ```
 
+#### 显式构建图与包级并行
+
+没有 `[workspace.build.graph]` 时，工作区保持逐成员串行构建和既有解析顺序；没有依赖声明不表示两个成员独立。
+显式图必须为每个发现的成员列出完整的直接前置成员，包含未选为默认目标的成员：
+
+```toml
+[workspace.build.graph]
+"demo.a" = ["demo.b", "demo.c"]
+"demo.b" = ["demo.c"]
+"demo.c" = []
+```
+
+`z42 build <workspace> --package-jobs 2` 构建默认目标及其前置闭包；加 `--workspace` 构建全部成员。
+`z42c build --workspace --package-jobs 2` 也支持显式图，始终构建全部成员。默认包级预算为 `1`。
+每个成员最多执行一次，前置成员全部成功后才可启动；失败会阻断其下游，已运行的独立成员会完成并收尾。
+日志按规划顺序输出。缺失成员、未知边、重复边、自环和环图均在启动 worker 前报错。
+
+图模式使用隔离进程，编译时只看前置成员自己的主产物，其他成员和旧 SDK 副本不可见。
+打包复用已完成的依赖，不递归重编共享成员。输出和缓存目录必须独占；不支持共享 flat 输出布局。
+源码 path 依赖必须纳入工作区图；插件须预先编译，不能在 worker 内代建插件源码。
+builder 图模式的外部运行期依赖还须预先位于 `Z42_LIBS`；普通无图构建不受这些图模式限制。
+
 #### 拓扑编译顺序
 
 ```
@@ -1262,7 +1284,7 @@ workspace 模式下，所有 member 产物**集中**到 workspace 根下的 `art
 output_dir = "out/${project_name}/${profile}"   # 模板示例：按成员名 + profile 分流
 ```
 
-`[workspace.build]` 只接受 `output_dir` / `cache_dir`；成员的 dist / publish 目录跟随 `${output_dir}`，
+`[workspace.build]` 接受目录键 `output_dir` / `cache_dir` 和可选的 `graph` 子表；成员的 dist / publish 目录跟随 `${output_dir}`，
 不能在 workspace 层单独设置（写 `dist_dir` / `publish_dir` 报未知键）。
 
 ---
@@ -1418,7 +1440,7 @@ default_members = []
 [workspace.dependencies]         # 表形式只认 version / path / deploy
 # "pkg-name" = { path = "...", version = "0.1.0" }
 
-[workspace.build]                # 只认这两个键
+[workspace.build]                # 目录键；可选 graph 子表见 L6.4
 # output_dir = "artifacts/${project_name}/${profile}"
 # cache_dir  = "${output_dir}/.cache"
 ```

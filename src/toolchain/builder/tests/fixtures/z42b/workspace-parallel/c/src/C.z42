@@ -1,0 +1,3 @@
+namespace DemoC;
+using DemoD;
+public static class BranchC { public static int Read() { return Leaf.Read() + 2; } }

@@ -28,6 +28,7 @@ src/toolchain/builder/core/*.z42  →  z42b.zpkg  →  apphost z42b
 |------|-----------|
 | 命令路由（new / test / bench / clean / publish / build / export） | `core/builder_cli.z42` |
 | 工作区根逐成员 build / test / bench / clean（`default_members`，`--workspace` = 全部） | `core/builder_workspace.z42` |
+| 显式图 build 的隔离 worker 与完成产物复用 | `core/builder_workspace_worker.z42`，`--package-jobs` |
 | 管线编排与编译器注入 | `core/builder.z42` 的 `_orchestrate` / `_hostCompiler` |
 | 反射式 `[Test]` / `[Benchmark]` 运行 | `core/builder_test.z42` |
 | desktop publish（apphost + payload） | `core/builder_publish.z42`、`core/builder_apphost.z42` |
@@ -47,6 +48,11 @@ z42 build / z42 publish / z42 test     # 经 launcher 转发到 z42b
 xtask test toolchain builder      # tests/fixtures/{manifest-targets,z42b}/ 夹具：[[test]] / [[example]] / [[bench]] target、清单段、build hook、孤儿源守卫
 xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
 ```
+
+`benches/z42.builder.bench.package-graph.z42.toml` 是独立的真实四包菱形构建基准，规范产物目录为
+`artifacts/build/toolchain/builder/<profile>/benches/package-graph/`。夹具与串行参考构建不计时；每次测量包含
+父进程及 worker 启动，full-reset 场景还包含清除夹具产物。通过 `Z42_PACKAGE_BENCH_BUILDER` 可固定被测 builder；
+未设置时从当前模块搜索目录定位。基准按串行参考核对主包及 release sidecar 哈希，不代替真实工程整体 A/B。
 
 `tests/fixtures/` 放 harness 驱动的夹具工程，不是 `[Test]` 单元。常规 CLI 断言用
 [z42b 夹具](tests/fixtures/z42b/README.md)的 `expect.toml`，复用通用引擎；状态构造与插件顺序检查保留专用代码。约定见

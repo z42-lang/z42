@@ -52,6 +52,7 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir,
 int _orchestrate(ProjectManifest manifest, Target target, string sourceDir,
                  string parentPkg, string[] extraDepDirs, int extraN) {
     Pipeline p = new Pipeline();
+    p.WorkspaceDomain = BuilderWorkspaceState.Current();
     p.ParentPkg = parentPkg;
     p.HarnessUnit = parentPkg.Length > 0;   // z42b 里 parentPkg 非空 ⟺ 派生 test/bench 目标 ⇒ 类型位 harness
     p.Compiler = _hostCompiler();                  // 共享 z42c 编译实现（ICompiler），in-process
@@ -70,7 +71,9 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir,
     ctx.Dirs        = dirs;
     ctx.Inputs      = _initialInputs(manifest, extraDepDirs, extraN);
     ctx.WorkloadDir = "";                          // 实现期：选中 workload 的安装目录
-    return p.Run(ctx);
+    int code = p.Run(ctx);
+    if (code == 0 && p.WorkspaceDomain != null) { BuilderWorkspaceState.Capture(ctx.Inputs.Zsym); }
+    return code;
 }
 
 // ── 注入点 ───────────────────────────────────────────────────────────────────
@@ -182,6 +185,8 @@ Inputs _initialInputs(ProjectManifest m) { return _initialInputs(m, ""); }
 // workspace 逐成员构建：本轮已建成员的 dist（WsSiblings）排在 Z42_LIBS 前，后续成员按名依赖兄弟成员
 // 时从这里解析（同 z42c workspace 构建「成员 dist 在前」）；已在 extraDepDirs 里的不重复加。
 Inputs _initialInputs(ProjectManifest m, string[] extraDepDirs, int extraN) {
+    WorkspaceCompileDomain domain = BuilderWorkspaceState.Current();
+    if (domain != null) { return _builderDomainInputs(domain); }
     string[] acc = new string[0];
     int s = 0;
     while (s < WsSiblings.Count()) {

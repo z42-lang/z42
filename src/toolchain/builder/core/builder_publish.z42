@@ -409,6 +409,7 @@ bool _pubContains(string[] xs, int count, string v) {
 // 存在的意义（`z42 build` 是转发给 z42c 的，构建系统里也没有谁用 `z42b build`）。
 // 记在 add-deployment-model/tasks.md 批 2.3。
 int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir, bool noBuild) {
+    if (BuilderWorkspaceState.Current() != null) { return _builderBundleCompleted(payloadDir); }
     string srcRoot = _pubSrcRoot(tomlPath);
     string libsDir = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     string ownName = _pubTomlStr(toml, "project", "name", "");

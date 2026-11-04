@@ -30,12 +30,15 @@ public class WsTier {
     public string[] Hidden; public int HiddenN;
     // 本 workspace 的全部成员名 + `libsDirs` 里**前多少个**是成员 dist。
     public string[] Members; public int MembersN; public int MemberDirs;
+    // Explicit isolated graph workers pin each directory to one primary package, excluding copied payloads.
+    public string[] OwnedMembers = null;
 
     // 某个目录（第 di 个）里名为 name 的 zpkg，这次编译该不该看见。
     public bool Admits(int di, string name) {
         if (WsTier._nameIn(name, this.Hidden, this.HiddenN)) { return false; }
         if (this.MemberDirs <= 0) { return true; }
         bool isMember = WsTier._nameIn(name, this.Members, this.MembersN);
+        if (di < this.MemberDirs && this.OwnedMembers != null) { return name == this.OwnedMembers[di]; }
         return di < this.MemberDirs ? isMember : !isMember;
     }
 

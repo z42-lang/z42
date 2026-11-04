@@ -57,6 +57,7 @@ cache -> ./artifacts/debug/.cache (1 files)
 | `--opt <name>` | 开启一项优化（可重复） |
 | `--no-opt <name>` | 关闭一项优化（可重复） |
 | `--jobs <n>` | 包内文件级并行编译度，默认 `min(4, CPU 核数)`；`1` = 串行。产物与并行度无关、逐字节一致 |
+| `--package-jobs <n>` | 显式 `workspace.build.graph` 的包级进程预算，默认 `1`。图 worker 的文件级预算默认 `1`；包级预算大于 `1` 时不接受同时启用文件级多并行。普通单工程或无图工作区不支持大于 `1` 的包级预算 |
 | `--fix` | 把 analyzer 携带的代码修复就地写回源文件 |
 | `-q` / `--quiet` | 不输出进度行，诊断照常打印 |
 | `-h` / `--help` | 显示帮助 |
@@ -159,6 +160,9 @@ z42b 编译为 `z42.builder.zpkg`，用户通过 launcher 到达它的命令：
 直接敲 `z42b <verb>` 时旗标与 `z42 <verb>` 一致，只有 `publish` / `export` 两处差别：
 `z42b publish` 的 `--rid` 不会默认到宿主（要默认得走 `z42 publish`），`z42b export`
 只认 `--rid` 与 `--release`、不接受 `--bundle-id` / `--app-id` / `--entry` 那组旗标。
+
+`z42b build <workspace> --package-jobs <n>` 与工作区的 `z42 build` 共用显式图和预算规则；
+默认 `n=1`，每个图 worker 的文件级预算为 `1`。`test` / `bench` / `clean` 保持逐成员执行。
 
 ### z42b 编译时认清单的哪些段
 

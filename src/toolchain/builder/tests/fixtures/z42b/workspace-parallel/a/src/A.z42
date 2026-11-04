@@ -1,0 +1,5 @@
+namespace DemoA;
+using DemoB;
+using DemoC;
+using Std.IO;
+void Main() { Console.WriteLine((BranchB.Read() + BranchC.Read()).ToString()); }

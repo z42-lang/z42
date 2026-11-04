@@ -22,6 +22,7 @@
 | `no-tests`、`dev-target-internal` | 无测试正常退出；只列目标、不编译执行 |
 | `build-hooks`、`hook-*` | hook 输入、源集编译加载、依赖携带与插件构建失败 |
 | `workspace-default` | 默认成员、依赖顺序与 `--workspace` 全成员构建 |
+| `workspace-parallel` | 完整菱形图、共享叶子一次、预算、串并行字节一致、失败阻断与环图拒绝 |
 
 ## 如何测试验证
 
