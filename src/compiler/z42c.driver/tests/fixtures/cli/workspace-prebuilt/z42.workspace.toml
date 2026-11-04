@@ -1,0 +1,7 @@
+[workspace]
+members = ["app", "lib", "other"]
+default_members = ["probe.app"]
+[workspace.build.graph]
+"probe.app" = ["probe.lib"]
+"probe.lib" = []
+"probe.other" = []

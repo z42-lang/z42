@@ -183,3 +183,27 @@ void test_compiler_domain_sdk_libs_skip_dev_tree() {
     Assert.Equal(1, d.Length);
     Assert.Equal(sdk, d[0]);
 }
+
+[Test]
+void test_compiler_domain_uses_loaded_component_when_explicit_roots_are_absent() {
+    string root = _cdRoot();
+    try {
+        string[] dirs = _domainWith(_mkDir(Path.Join(root, "libs")), "", "");
+        Assert.True(dirs.Length > 0);
+        foreach (string dir in dirs) { Assert.True(File.Exists(Path.Join(dir, "z42c.pipeline.zpkg"))); }
+    } finally { Directory.Delete(root, true); }
+}
+
+[Test]
+void test_compiler_domain_program_only_entry_keeps_root_and_appends_component() {
+    string root = _cdRoot();
+    try {
+        string entry = _mkDir(Path.Join(root, "sdk/programs/z42c"));
+        File.WriteAllText(Path.Join(entry, "z42c.driver.zpkg"), "location marker, not a loaded package");
+        string[] dirs = _domainWith(_mkDir(Path.Join(root, "sdk/libs")), Path.Join(root, "sdk"), "");
+        Assert.True(dirs.Length > 1);
+        Assert.Equal(entry, dirs[0]);
+        int i = 1;
+        while (i < dirs.Length) { Assert.True(File.Exists(Path.Join(dirs[i], "z42c.pipeline.zpkg"))); i = i + 1; }
+    } finally { Directory.Delete(root, true); }
+}
