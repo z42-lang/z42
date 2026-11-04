@@ -318,7 +318,9 @@ scripts/
 │   ├── xtask_package_install.z42     组件安装：按 packages.toml include + kind 直接装进包目录（无暂存）
 │   ├── xtask_package_test.z42        **`package workload test`**：打 payload-only 的 test workload
 │   │                                 （与 _desktop/_ios/_android/_wasm 同族：`test` 是 workload 名）
-│   ├── xtask_package_verify.z42      `package sdk --verify`：入口 + 发行包夹具套件（用例在 `src/toolchain/launcher/tests/fixtures/package/`）+ golden 腿
+│   ├── xtask_package_verify.z42      `package sdk --verify` 入口与发行包夹具套件（用例在 `src/toolchain/launcher/tests/fixtures/package/`）
+│   ├── xtask_package_goldens.z42     发行包 golden 编译 / 分模式运行，输出与退出码共同判定
+│   ├── xtask_selfcheck_dist_goldens.z42  真实退出 0 / 7、输出不符和编译失败回归，随发行包 golden 跑
 │   ├── xtask_package_selfcheck.z42   packages.toml 三层自检的聚合（`--verify` 的第一步）
 │   ├── xtask_selfcheck_{packages_config,package_install,release}.z42
 │   │                                 清单解析 / 组件安装 / 发布归档各自的 throw-on-mismatch 自检层
