@@ -4,6 +4,7 @@ desc = "[plugins] 的单文件条目：path 直接指向 .z42 源文件 ⇒ z42c
 [[step]]
 args = ["build", "app/e2e.sapp.z42.toml", "--release"]
 exit = 0
+stderr_contains = ["W0612"]
 
 # ② 生成符号经消费方产物可用
 [[step]]

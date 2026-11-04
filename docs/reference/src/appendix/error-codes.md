@@ -392,6 +392,8 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | W0608 | 重复的 `using`（对标 C# CS0105）：同一文件里写了两次；或包里已有同名 `global using` | ✅ `UsingLint.z42` | `using A; using A;` |
 | W0609 | ❌ 已退役：原「`[dependencies]` 的 `path` 用了 `${compiler_libs}` 路径宏」过渡期 warning。宏已删除，旧写法当场报错并给出按名写法；编号不复用（占号常量 `RetiredCompilerLibsMacroDeprecated`） | ❌ | — |
 | W0610 | 清单 `[dependencies]` 声明了标准库包。stdlib 总是可用（从 SDK 的 `libs/` 解析），不需要声明；照常构建，只提示删掉这一行。`path` 依赖、`deploy = "copy"`（要把它复制进 exe 自包含）与 workspace 成员之间的依赖不报 | ✅ driver `DepDecls.z42` | `[dependencies]` 里写 `"z42.io" = "0.1.0"` |
+| W0611 | 插件引用统一后的超期形态：`[plugins]` 的**按名**条目与 `.zpkg` path 条目已被 `[dependencies]` 取代（deps-plugin-routing：读 zpkg 头自述包类型自动分流，不链入产物）。照常构建，只提示改写。`[plugins.export]`（携带）不受影响 | ⚠️ 观察期 warning，发射点 `ManifestKnobs`（两宿主单源） | `[plugins]` 里写 `"demo.gen" = "0.1.0"` 或 `{ path = "../x.zpkg" }` |
+| W0612 | 同上：`[plugins]` 的**源码 path** 形态（path 指单个 `.z42` 源文件 / 无清单源目录）已被源集条目（`include`/`exclude`，对齐 `[tests]`）取代。照常构建，只提示改写 | ⚠️ 观察期 warning，发射点三处 toml 解析点（PluginRefs / BuildSession / builder_hooks）的合成分支 | `[plugins]` 里写 `{ path = "hooks/hook.z42" }` |
 | W0700 | `switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支，且没有 `default` | ✅ ExhaustCheck.z42（`_report` / `_reportClosedHierarchy`） | `switch (b) { case true: ... }`，`b` 是 `bool` |
 | W0701 | 解构声明的绑定名遮蔽了当前类的字段 / 属性：`(A, B) = (a, b);`（花括号体里）声明的是两个**新局部**，随即离开作用域，一个成员都没动。局部遮蔽字段本身合法，单看语法挑不出毛病——只能靠「遮蔽了同名成员」这个信号拦。仅在有 `this` 的上下文里查。表达式位置的同一写法由 **E0482** 直接报错 | ✅ `StmtBinder.z42`（发 `DiagnosticCodes.DeconstructShadowsMember`） | `class C { int A; void M(int a) { (A, _) = (a, 0); } }` |
 | W0801 | 孤立的 doc 注释块：`///` / `//!` 后面没有声明认领它（方法体里的 `///`、文件中段的 `//!`、悬空块） | ✅ `DocLint.z42`（`xtask check doc-lints`） | 方法体里写 `/// 说明` |

@@ -17,6 +17,7 @@
 namespace Z42.Driver;
 
 using Std.IO;
+using Z42.Core;   // DiagnosticCodes（W0612 弃用提示）
 using Z42.Package;
 using Z42.Project;
 
@@ -109,6 +110,9 @@ string _pluginToml(ProjectManifest pm, DepEntry e, string projectDir, bool isRel
             ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
             return "";
         }
+        ConsoleError.WriteLine("z42c build: " + DiagnosticCodes.PluginsSourcePathDeprecated + ": [plugins] `" + aname
+                + "` 的源码 path 形态已被源集条目取代——改写为 { include = [\"<相对本清单目录的源文件>\"] }"
+                + "（对齐 [tests]，可加 exclude），行为不变。");
         string ftoml = PluginSynth.SynthFile(cacheDir, aname, asrc);
         if (ftoml.Length == 0) {
             ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + asrc
@@ -119,6 +123,9 @@ string _pluginToml(ProjectManifest pm, DepEntry e, string projectDir, bool isRel
     ManifestLocation aloc = ManifestLocator.FindIn(adir);
     if (aloc.Kind == ManifestLocateKind.Project) { return aloc.ManifestPath; }
     if (aloc.Kind == ManifestLocateKind.NotFound && Directory.Exists(adir)) {
+        ConsoleError.WriteLine("z42c build: " + DiagnosticCodes.PluginsSourcePathDeprecated + ": [plugins] `" + aname
+                + "` 的源码 path 形态已被源集条目取代——改写为 { include = [\"<目录>/**/*.z42\"] }"
+                + "（对齐 [tests]，可加 exclude），行为不变。");
         string dtoml = PluginSynth.SynthDir(cacheDir, aname, adir);
         if (dtoml.Length == 0) {
             ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指向 " + adir

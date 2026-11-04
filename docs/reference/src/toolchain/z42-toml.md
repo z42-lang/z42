@@ -948,8 +948,8 @@ artifacts/build/libraries/<lib>/<profile>/
 [plugins]
 "demo.hook"         = { include = ["hooks/**/*.z42"], exclude = ["hooks/skip/**"] }   # 源集（推荐，对齐 [tests]）：include/exclude 圈源码，合成最小清单后代建
 "demo.gen"          = { path = "../gen" }     # 按工程路径：z42c 代建该工程，取其 dist
-"demo.noemptycatch" = "0.1.0"                 # 按名：在插件目录找 demo.noemptycatch.zpkg
-"demo.local"        = { path = "../x.zpkg" }  # 按 zpkg 路径：现成产物，读头校验后直接用
+"demo.noemptycatch" = "0.1.0"                 # 按名（⚠️ 弃用中 W0611）：改写 [dependencies]（deps-plugin-routing 自动分流）
+"demo.local"        = { path = "../x.zpkg" }  # 按 zpkg 路径（⚠️ 弃用中 W0611）：改写 [dependencies]
 "noisy.lint"        = false                   # 关闭携带进来的插件（见 [plugins.export]）
 ```
 
@@ -984,7 +984,7 @@ hook 进 z42b）。改了插件的源码，消费方下次构建会重编（指�
 **字节**变了就失效缓存。住在工程目录里的 path 插件目录会自动排除出本工程的源发现，不会被 `**/*.z42`
 扫进 app 产物。
 
-**path 条目（免清单，弃用中）**：`path` 以 `.z42` 结尾指**一个源文件**；指目录且目录里**没有**
+**path 条目（免清单，弃用中 W0612）**：`path` 以 `.z42` 结尾指**一个源文件**；指目录且目录里**没有**
 工程清单时递归全收（`<目录>/**/*.z42`）。两种形态工具链同样合成最小清单后代建，但语义靠 path
 后缀猜——**已被源集条目取代**（新代码用 `include`）。空目录 / 目录里没有任何 `.z42` → 明确报错。
 

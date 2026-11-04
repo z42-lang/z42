@@ -264,6 +264,9 @@ string _hookPluginToml(DepEntry e, string projDir, string interDir, ref ProjectM
             ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
             return "";
         }
+        ConsoleError.WriteLine("z42b: W0612: [plugins] `" + aname
+            + "` 的源码 path 形态已被源集条目取代——改写为 { include = [\"<相对本清单目录的源文件>\"] }"
+            + "（对齐 [tests]，可加 exclude），行为不变。");
         string atoml = PluginSynth.SynthFile(Path.Join(interDir, "synth"), aname, asrc);
         if (atoml.Length == 0) {
             ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + asrc + "）。");
@@ -284,6 +287,9 @@ string _hookPluginToml(DepEntry e, string projDir, string interDir, ref ProjectM
         return loc.ManifestPath;
     }
     if (loc.Kind == ManifestLocateKind.NotFound && Directory.Exists(asrc)) {
+        ConsoleError.WriteLine("z42b: W0612: [plugins] `" + aname
+            + "` 的源码 path 形态已被源集条目取代——改写为 { include = [\"<目录>/**/*.z42\"] }"
+            + "（对齐 [tests]，可加 exclude），行为不变。");
         string atoml = PluginSynth.SynthDir(Path.Join(interDir, "synth"), aname, asrc);
         if (atoml.Length == 0) {
             ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的 path 指向 " + asrc
