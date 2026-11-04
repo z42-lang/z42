@@ -205,7 +205,12 @@ xtask 仍按上一 nightly 的规则计算路径，xtask 侧的跟进要放到�
 | 门 | 干什么 | 守 |
 |---|---|---|
 | forward-bootstrap：CI composite action `ci-bootstrap`，由 `build-and-test`（test-host ×4 OS）与 `toolchain-bootstrap`（compile-toolchain）两个 job 的 Bootstrap 步骤调用 | 下载上一 nightly SDK 作种子 → 编当前 xtask → xtask 自建 z42c + stdlib → 验证工具链；zpkg minor 与种子不同时先走两代自举 | INV-1 |
-| self-host 不动点：`compiler-checks` job 的 `xtask test compiler` 步骤（仅 z42c 源变动 / schedule / 手动触发才跑，test-host 跳过它）| 先验全成员 zpkg 在、z42c `[Test]` 单元、e2e，再 `_testSelfHostByteIdentical`：快照现有 dist（gen1）→ 用其 driver 同参再 `build --workspace` 一遍（gen2）→ 逐成员比 zpkg 各段（BLID 段不比，其余段的集合与内容须一致）| INV-3 |
+| self-host 不动点：`compiler-checks` job 的 `xtask test compiler` 步骤（仅 z42c 源变动 / schedule / 手动触发才跑，test-host 跳过它）| 先验全成员 zpkg 在、z42c `[Test]` 单元、e2e，再 `_testSelfHostByteIdentical`：快照现有 dist（gen1）→ 用其 driver 同参再 `build --workspace` 一遍（gen2）→ 比较包头与各段（BLID 段不比，其余段的集合与内容须一致）| INV-3 |
+
+不动点实现位于 `scripts/build/xtask_compiler_selfhost.z42`。比较前校验 magic、段目录完整性、
+tag 唯一性与各段的数据范围，损坏快照直接判不等；版本、flags（包括包类型 / 插件能力）与 reserved
+头字段必须一致。BLID 可只存在于任意一代、身份值可不同，因此段数和目录偏移不直接逐字节比较，
+而是按 tag 比较非 BLID 段的集合、长度与内容。
 | 本地 `xtask test compiler bootstrap`（CI 不调用；下载 nightly 需 `gh` 已登录）| 上一 nightly z42c 编当前源，越界立即红；经同一个 `_ensureBootstrapSelfDepLibs`，所以只守语法 / 格式 / 非自依赖 stdlib 轴，不验运行期自依赖 | INV-1（改 parser / codegen / 格式后必跑）|
 
 INV-2（测试全绿）由 `test-host` 的 `xtask test` 守。
