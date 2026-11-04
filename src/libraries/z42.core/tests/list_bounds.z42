@@ -1,0 +1,85 @@
+namespace Z42CoreListBoundsTests;
+
+using Std.Collections;
+using Std.Harness;
+
+[Test]
+void test_empty_list_indexer_rejects_capacity_slot() {
+    var list = new List<int>(8);
+    bool readThrew = false;
+    bool writeThrew = false;
+    try { int value = list[0]; } catch (ArgumentOutOfRangeException e) { readThrew = true; }
+    try { list[0] = 9; } catch (ArgumentOutOfRangeException e) { writeThrew = true; }
+    Assert.True(readThrew);
+    Assert.True(writeThrew);
+    Assert.Equal(0, list.Count);
+}
+
+[Test]
+void test_list_indexer_rejects_negative_and_count() {
+    var list = new List<int>(8);
+    list.Add(42);
+    bool negative = false;
+    bool atCount = false;
+    try { int value = list[-1]; } catch (ArgumentOutOfRangeException e) { negative = true; }
+    try { list[list.Count] = 9; } catch (ArgumentOutOfRangeException e) { atCount = true; }
+    Assert.True(negative);
+    Assert.True(atCount);
+    Assert.Equal(42, list[0]);
+    list[0] = 7;
+    Assert.Equal(7, list[0]);
+    Assert.Equal(1, list.Count);
+}
+
+[Test]
+void test_list_insert_invalid_leaves_contents_unchanged() {
+    var list = new List<int>(8);
+    list.Add(42);
+    bool negative = false;
+    bool pastEnd = false;
+    try { list.Insert(-1, 9); } catch (ArgumentOutOfRangeException e) { negative = true; }
+    try { list.Insert(2, 9); } catch (ArgumentOutOfRangeException e) { pastEnd = true; }
+    Assert.True(negative);
+    Assert.True(pastEnd);
+    Assert.Equal(1, list.Count);
+    Assert.Equal(42, list[0]);
+    list.Insert(list.Count, 9);
+    Assert.Equal(9, list[1]);
+}
+
+[Test]
+void test_list_remove_invalid_leaves_contents_unchanged() {
+    var list = new List<int>(8);
+    list.Add(42);
+    bool negative = false;
+    bool atCount = false;
+    try { list.RemoveAt(-1); } catch (ArgumentOutOfRangeException e) { negative = true; }
+    try { list.RemoveAt(1); } catch (ArgumentOutOfRangeException e) { atCount = true; }
+    Assert.True(negative);
+    Assert.True(atCount);
+    Assert.Equal(1, list.Count);
+    Assert.Equal(42, list[0]);
+    list.RemoveAt(0);
+    Assert.Equal(0, list.Count);
+}
+
+[Test]
+void test_list_getrange_rejects_invalid_ranges() {
+    var list = new List<int>(8);
+    list.Add(42);
+    bool negativeIndex = false;
+    bool negativeCount = false;
+    bool pastEnd = false;
+    bool oversized = false;
+    try { list.GetRange(-1, 0); } catch (ArgumentOutOfRangeException e) { negativeIndex = true; }
+    try { list.GetRange(0, -1); } catch (ArgumentOutOfRangeException e) { negativeCount = true; }
+    try { list.GetRange(2, 0); } catch (ArgumentOutOfRangeException e) { pastEnd = true; }
+    try { list.GetRange(1, 2147483647); } catch (ArgumentOutOfRangeException e) { oversized = true; }
+    Assert.True(negativeIndex);
+    Assert.True(negativeCount);
+    Assert.True(pastEnd);
+    Assert.True(oversized);
+    Assert.Equal(0, list.GetRange(1, 0).Count);
+    Assert.Equal(42, list.GetRange(0, 1)[0]);
+    Assert.Equal(1, list.Count);
+}
