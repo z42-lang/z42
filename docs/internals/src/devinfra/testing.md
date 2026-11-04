@@ -114,7 +114,9 @@ interface dispatch、`using` 的跨包 namespace 解析、同名 namespace 冲�
 ./xtask test stdlib --vm <p> --driver <p> --libs <p>   # 完全用外部预建产物
 ```
 
-默认库枚举包含 stdlib 与编译器域；采用独立 `tests/<unit>/*.z42.toml` 的编译器包由 `test compiler` 跑，不重复进入 `test stdlib`。
+默认库枚举包含 stdlib 与编译器域；采用独立 `tests/<unit>/` 工程的编译器包由 `test compiler` 跑，不重复进入 `test stdlib`。
+清单选择复用 `ManifestLocator`：支持标准 `z42.toml` 与唯一命名清单，标准名优先，命名清单歧义报错。
+编译后按工程的 `BuildLayout` 与 `project.name` 执行主 zpkg，不扫描执行目录里的旧包或依赖包。
 这项测试归属规则不用于 benchmark：`bench stdlib` 仍发现这些包的 `benches/`，并按基准 unit 数估算分片负载。
 
 **什么算一个 unit**：`tests/` 下的单个 `.z42` 文件，或者一个**目录内任一 `.z42` 声明了

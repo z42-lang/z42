@@ -9,17 +9,17 @@ using Std.Collections;
 
 // 包的源码根 —— **两个 workspace 都要认**：用户 stdlib（`Std.*`）在 `src/libraries/`；编译器域库
 // 在 `src/compiler/`。🔴 只扫 `src/libraries/` 会让编译器域库的扁平 `tests/*.z42` 单元静默停跑——
-// `xtask test compiler` 只认 `tests/<unit>/*.z42.toml` 目录单元，接不住它们。
+// `xtask test compiler` 运行 `tests/<unit>/` 的独立工程，接不住这些扁平单元。
 string _libSrcRoot(string root, string lib) {
     string a = Path.Join(root, "src/libraries");
     if (Directory.Exists(Path.Join(a, lib))) { return a; }
     return Path.Join(root, "src/compiler");
 }
 
-// 一个包的 `tests/` 是不是**编译器格式**（`tests/<unit>/*.z42.toml` 独立工程）—— 那种归
+// 一个包的 `tests/` 是不是**编译器格式**（`tests/<unit>/` 独立工程）—— 那种归
 // `xtask test compiler` 跑，本跑测器必须让开。
 //
-// 🔴 **判据刻意是「有没有 *.z42.toml」而不是「找到几个单元」**：
+// 🔴 **判据刻意是「有没有工程清单」而不是「找到几个单元」**：
 //   · 不能指望「找到 0 个就自然跳过」—— 清单感知的发现会去编**包本体**，然后报
 //     `no [Test] or [Benchmark] found`，算失败；
 //   · 也不能「单元数为 0 就排除」—— 有源却零约定单元的包必须继续被枚举，孤儿源守卫打的那行
@@ -30,7 +30,7 @@ bool _isCompilerFormatTests(string root, string lib) {
     foreach (var e in Directory.Enumerate(td)) {
         string unitDir = Path.Join(td, e);
         if (!Directory.Exists(unitDir)) { continue; }
-        if (Path.Glob(unitDir, "*.z42.toml").Length > 0) { return true; }
+        if (_fixtureManifest(unitDir).Length > 0) { return true; }
     }
     return false;
 }

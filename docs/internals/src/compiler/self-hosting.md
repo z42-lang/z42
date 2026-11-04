@@ -210,7 +210,10 @@ xtask 仍按上一 nightly 的规则计算路径，xtask 侧的跟进要放到�
 
 INV-2（测试全绿）由 `test-host` 的 `xtask test` 守。
 
-测试单元布局 `src/compiler/<member>/tests/<unit>/{<name>.z42.toml(kind=lib) + *.z42}`，经 z42b 运行；`z42.harness` 自动可用，不在 toml 声明。`xtask test` 含 compiler。
+测试单元位于 `src/compiler/<member>/tests/<unit>/`，清单为标准 `z42.toml` 或唯一命名的 `<name>.z42.toml`，
+kind=lib，经 z42b 运行；`z42.harness` 自动可用，不在 toml 声明。清单发现与 test / bench 归属判断共用
+`ManifestLocator`，歧义不能靠文件枚举顺序消解；编译后按清单的 `BuildLayout` 与 `project.name` 定位主产物，
+缺失即失败，旧包与 colocated 依赖不能补位。`scripts/build/xtask_compiler_tests.z42` 负责该编排，`xtask test` 含 compiler。
 
 ## Deferred / Future Work
 
