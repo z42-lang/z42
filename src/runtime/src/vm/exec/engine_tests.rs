@@ -88,7 +88,7 @@ fn worker_contexts_share_their_vm_tier_and_refresh_only_at_entry() {
     let a = VmContext::new(); let b = VmContext::new();
     let worker = VmContext::new_with_core(a.core.clone());
     assert!(a.tier().is_none() && b.tier().is_none() && worker.tier().is_none());
-    assert!(a.core.engines.install_tier(TierApi::new(ProbeTier { id: 5,
+    assert!(a.core.exec.engines.install_tier(TierApi::new(ProbeTier { id: 5,
         dropped: Arc::new(AtomicUsize::new(0)) })).is_ok());
     a.publish_tier();
     #[cfg(feature = "jit")]

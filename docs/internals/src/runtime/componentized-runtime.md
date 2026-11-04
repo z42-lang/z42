@@ -56,7 +56,7 @@
 
 ### 4.1 当前单 crate 的注册边界
 
-当前运行时保持一个 crate。门面 `engine_assembly.rs` 按 feature 装配 Engine 与优化入口；`VmCore.engines` 持有每 VM 注册表和一次发布的 TierApi。VM 的模式分发、初始化执行及共享 ToString 调用均通过注册能力，不静态选择具体后端。
+当前运行时保持一个 crate。门面 `engine_assembly.rs` 按 feature 装配 Engine 与优化入口；`VmCore.exec.engines` 持有每 VM 注册表和一次发布的 TierApi。VM 的模式分发、初始化执行及共享 ToString 调用均通过注册能力，不静态选择具体后端。
 
 interp 的静态、虚、闭包和通用混合入口传入共享参数视图；TierBackend 的 JIT 实现拥有 JitRuntime、JitFrame、编译器与代码。OSR 的计数和阈值比较留在解释器热循环，实际交接经 TierApi。JIT 的冷/不可翻译调用经已注册 Engine 回落，两个后端的生产代码互不引用。
 

@@ -132,10 +132,10 @@ unsafe impl Sync for JitRuntime {}
 /// Racing installers build one each; the first published wins and the other is
 /// dropped unused.
 pub fn install<'a>(vm: &'a VmContext, module: &Module) -> Result<&'a JitRuntime> {
-    if vm.core.engines.tier().is_none() {
-        let _ = vm.core.engines.install_tier(crate::vm::exec::engine::TierApi::new(JitRuntime::new(vm, module)?));
+    if vm.core.exec.engines.tier().is_none() {
+        let _ = vm.core.exec.engines.install_tier(crate::vm::exec::engine::TierApi::new(JitRuntime::new(vm, module)?));
     }
-    let rt = vm.core.engines.tier().and_then(|tier| tier.backend::<JitRuntime>())
+    let rt = vm.core.exec.engines.tier().and_then(|tier| tier.backend::<JitRuntime>())
         .ok_or_else(|| anyhow::anyhow!("JIT: a different tier backend is installed on this VM"))?;
     publish_to(vm, rt);
     anyhow::ensure!(
@@ -155,8 +155,8 @@ pub(crate) fn install_tuned<'a>(
 ) -> &'a JitRuntime {
     let mut rt = JitRuntime::new(vm, module).expect("JIT setup");
     tune(&mut rt);
-    assert!(vm.core.engines.install_tier(crate::vm::exec::engine::TierApi::new(rt)).is_ok(), "a tier is already installed on this VM");
-    let rt = vm.core.engines.tier().and_then(|t| t.backend::<JitRuntime>()).expect("installed");
+    assert!(vm.core.exec.engines.install_tier(crate::vm::exec::engine::TierApi::new(rt)).is_ok(), "a tier is already installed on this VM");
+    let rt = vm.core.exec.engines.tier().and_then(|t| t.backend::<JitRuntime>()).expect("installed");
     publish_to(vm, rt);
     rt
 }

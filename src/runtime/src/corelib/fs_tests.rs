@@ -27,7 +27,7 @@ fn builtin_env_args(c: &VmContext, args: &[Value]) -> anyhow::Result<Value> {
 }
 
 // add-z42-launcher : __env_args returns the program arguments
-// passed after `--` on the z42vm command line (stored on VmCore via
+// passed after `--` on the z42vm command line (stored by the application facade via
 // set_program_args), NOT the VM's own raw process argv.
 
 #[test]
@@ -41,7 +41,7 @@ fn env_args_empty_by_default() {
 #[test]
 fn env_args_returns_set_program_args_in_order() {
     let c = ctx();
-    c.set_program_args(vec!["alpha".into(), "beta".into(), "gamma".into()]);
+    crate::app::set_program_args(&c, vec!["alpha".into(), "beta".into(), "gamma".into()]).unwrap();
     let r = builtin_env_args(&c, &[]).unwrap();
     assert_eq!(extract_strings(r), vec!["alpha", "beta", "gamma"]);
 }
@@ -49,8 +49,8 @@ fn env_args_returns_set_program_args_in_order() {
 #[test]
 fn env_args_reflects_last_set() {
     let c = ctx();
-    c.set_program_args(vec!["x".into()]);
-    c.set_program_args(vec!["y".into(), "z".into()]);
+    crate::app::set_program_args(&c, vec!["x".into()]).unwrap();
+    crate::app::set_program_args(&c, vec!["y".into(), "z".into()]).unwrap();
     let r = builtin_env_args(&c, &[]).unwrap();
     assert_eq!(extract_strings(r), vec!["y", "z"]);
 }

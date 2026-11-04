@@ -85,20 +85,6 @@ impl VmContext {
         self.safepoint_skip.store(1, std::sync::atomic::Ordering::Relaxed);
     }
 
-    /// **add-z42-launcher **: install the running program's
-    /// command-line arguments (the tokens after `--` on the `z42vm`
-    /// invocation). Read back by the `__env_args` builtin →
-    /// `Std.IO.Environment.GetCommandLineArgs()`. Called once at startup
-    /// from `main.rs`; safe to call from any context sharing this `VmCore`.
-    pub fn set_program_args(&self, args: Vec<String>) {
-        *self.core.program_args.lock() = args;
-    }
-
-    /// **add-z42-launcher **: snapshot the program argv.
-    pub fn program_args(&self) -> Vec<String> {
-        self.core.program_args.lock().clone()
-    }
-
     /// Standard test entry: constructs a VmContext with `VmCore.module = None`.
     /// Cargo unit tests use this — they don't need a real Module for
     /// builtin / static-field / alloc tests. Production paths use
@@ -263,7 +249,6 @@ impl VmContext {
             loader: crate::vm::loader::LoaderState::new(vfs),
             heap:                 Box::new(Heap::new(crate::config::runtime_config().gc_config())),
             runtime: crate::vm::runtime::RuntimeState::new(module),
-            program_args:         Mutex::new(Vec::new()),
 
             diagnostics: crate::vm::diagnostics::DiagnosticsState {
                 counters: Arc::new(crate::counters::RuntimeCounters::new()),
@@ -282,7 +267,7 @@ impl VmContext {
                     None => crate::profiler::cpu::Sampler::disabled(),
                 },
             },
-            engines: crate::engine_assembly::registry(),
+            exec: crate::vm::exec::ExecState::new(crate::engine_assembly::registry()),
             ext_state,
         });
 

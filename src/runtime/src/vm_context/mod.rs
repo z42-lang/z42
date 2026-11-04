@@ -45,7 +45,7 @@
 //! Every compiled function and JIT helper takes the running thread's own
 //! context as its `extern "C"` context parameter (`*const VmContext`), so JIT
 //! code on any thread reaches that thread's state directly; the VM's shared JIT
-//! is owned by a registered TierApi on `VmCore::engines`; this module holds
+//! is owned by a registered TierApi on `VmCore::exec`; this module holds
 //! only the neutral header and does not select a concrete backend.
 //!
 //! See `docs/internals/src/runtime/vm-architecture.md` "VmContext —— 运行时状态归口" 段 for
