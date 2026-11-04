@@ -30,6 +30,7 @@ pub mod vm;
 pub mod vm_context;
 pub mod app;
 mod app_state;
+mod app_services;
 pub(crate) mod boot;
 #[cfg(test)]
 #[path = "app_tests.rs"]
