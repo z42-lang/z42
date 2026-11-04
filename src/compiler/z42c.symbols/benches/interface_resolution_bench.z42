@@ -1,0 +1,77 @@
+namespace InterfaceResolutionBench;
+using Z42.Symbols;
+using Z42.Syntax;
+using Z42.Core;
+using Std.Harness;
+using Std.IO;
+
+public static class InterfaceFixture {
+    public static SymbolTable Make(int depth, int pattern) {
+        var table = new SymbolTable();
+        table.ScopeChain = new string[depth];
+        int i = 0;
+        while (i < depth) { table.ScopeChain[i] = "Scope" + i.ToString(); i = i + 1; }
+        table.ScopeUsings = new string[] { "Imported" }; table.ScopeUsingCount = 1;
+        var iface = new Z42InterfaceType("Target");
+        iface.Namespace = "Imported"; iface.IsImported = true;
+        string key = "Imported.Target";
+        if (pattern == 2 && depth > 0) { key = table.ScopeChain[depth - 1] + ".Target"; }
+        if ((pattern == 3 || pattern == 9) && depth > 0) { key = table.ScopeChain[0] + ".Target"; }
+        if (pattern == 4) { key = "Target"; }
+        if (pattern == 0) {
+            string ck = depth > 0 ? table.ScopeChain[0] + ".Target" : "Target";
+            table.ClassesByFqn.Put(ck, new Z42ClassType("Target", false, ""));
+        } else if (pattern != 5 && pattern != 6) { table.InterfacesByFqn.Put(key, iface); }
+        return table;
+    }
+    public static NamedType Expr(int pattern) {
+        var span = new Span(0, 0, 1, 1, "<bench>");
+        TypeExpr[] args = new TypeExpr[0];
+        if (pattern == 7) { args = new TypeExpr[] { new NamedType("int", new TypeExpr[0], 0, span) }; }
+        return new NamedType(pattern == 5 ? "int" : "Target", args, args.Length, span);
+    }
+    public static Z42Type Run(SymbolTable table, NamedType expr) {
+        Z42Type result = null;
+        int i = 0;
+        while (i < 256) { result = table.ResolveTypeP(expr, new string[0], 0); i = i + 1; }
+        return result;
+    }
+    public static Z42Type Direct(SymbolTable table) {
+        Z42Type result = null;
+        int i = 0;
+        while (i < 256) { result = table.GetInterface("Target"); i = i + 1; }
+        return result;
+    }
+}
+void measure(int depth, int pattern) {
+    var table = InterfaceFixture.Make(depth, pattern);
+    var expr = InterfaceFixture.Expr(pattern);
+    var b = new Bencher(2, 12);
+    if (pattern >= 8) { b.iter(() => { BenchHelpers.blackBox(InterfaceFixture.Direct(table)); }); }
+    else { b.iter(() => { BenchHelpers.blackBox(InterfaceFixture.Run(table, expr)); }); }
+    b.printSummary("interface_resolution_" + depth.ToString() + "_" + pattern.ToString());
+}
+[Benchmark]
+void bench_interface_class_fallback() { measure(4, 0); }
+[Benchmark]
+void bench_interface_using() { measure(4, 1); }
+[Benchmark]
+void bench_interface_outer_hit() { measure(4, 2); }
+[Benchmark]
+void bench_interface_inner_hit() { measure(4, 3); }
+[Benchmark]
+void bench_interface_global() { measure(4, 4); }
+[Benchmark]
+void bench_interface_primitive() { measure(4, 5); }
+[Benchmark]
+void bench_interface_missing() { measure(4, 6); }
+[Benchmark]
+void bench_interface_generic() { measure(4, 7); }
+[Benchmark]
+void bench_interface_direct_using() { measure(4, 8); }
+[Benchmark]
+void bench_interface_direct_inner_hit() { measure(4, 9); }
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    measure(args.Length > 0 ? int.Parse(args[0]) : 4, args.Length > 1 ? int.Parse(args[1]) : 0);
+}

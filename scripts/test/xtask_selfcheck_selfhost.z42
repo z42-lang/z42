@@ -1,0 +1,52 @@
+// 不动点比较只排除 BLID；其余段的集合、长度与内容都必须相同。
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _selfcheckSelfHostSections() {
+    byte[] first = _selfHostSectionFixture(true, 11);
+    byte[] second = _selfHostSectionFixture(true, 22);
+    byte[] noBlid = _selfHostSectionFixture(false, 0);
+    _selfHostAssert(_sectionsEqualIgnoreBlid(first, second), "different BLID payloads");
+    _selfHostAssert(_sectionsEqualIgnoreBlid(first, noBlid), "BLID only in got");
+    _selfHostAssert(_sectionsEqualIgnoreBlid(noBlid, first), "BLID only in want");
+    _selfHostAssert(_sectionsEqualIgnoreBlid(noBlid, noBlid), "identical section payloads");
+
+    second[40] = 99;
+    _selfHostAssert(!_sectionsEqualIgnoreBlid(first, second), "changed non-BLID payload");
+    second[40] = 7;
+    second[24] = 0;
+    _selfHostAssert(!_sectionsEqualIgnoreBlid(first, second), "changed non-BLID size");
+
+    // 将第二段变成普通段，锁住两个方向的段集合检查。
+    byte[] extra = _selfHostSectionFixture(true, 11);
+    extra[28] = 77; extra[29] = 79; extra[30] = 82; extra[31] = 69;
+    _selfHostAssert(!_sectionsEqualIgnoreBlid(extra, noBlid), "extra section in got");
+    _selfHostAssert(!_sectionsEqualIgnoreBlid(noBlid, extra), "extra section in want");
+    _selfHostAssert(!_sectionsEqualIgnoreBlid(new byte[0], first), "missing got header");
+    _selfHostAssert(!_sectionsEqualIgnoreBlid(first, new byte[0]), "missing want header");
+    Console.WriteLine("  ✅ self-host sections: BLID ignored, payload and section-set differences rejected");
+    return 0;
+}
+
+byte[] _selfHostSectionFixture(bool withBlid, byte buildId) {
+    int payload = withBlid ? 40 : 28;
+    byte[] data = new byte[withBlid ? 57 : 29];
+    data[0] = 90; data[1] = 80; data[2] = 75;
+    data[10] = (byte)(withBlid ? 2 : 1);
+    data[16] = 77; data[17] = 79; data[18] = 68; data[19] = 83;
+    data[20] = (byte)payload;
+    data[24] = 1;
+    data[payload] = 7;
+    if (withBlid) {
+        data[28] = 66; data[29] = 76; data[30] = 73; data[31] = 68;
+        data[32] = 41;
+        data[36] = 16;
+        for (int i = 41; i < 57; i = i + 1) { data[i] = buildId; }
+    }
+    return data;
+}
+
+void _selfHostAssert(bool condition, string what) {
+    if (!condition) { throw new Exception("self-host sections: " + what); }
+}
