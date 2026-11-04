@@ -1,10 +1,21 @@
-// Dependency bytes, effective options, explicit syntax and manifest identity all affect cached IR.
+// Entry-specific dependency observations plus effective options, syntax and manifest identity guard cached IR.
 namespace Z42.Pipeline;
 using Z42.Project;
 
 public static class BuildCacheIdentity {
     public static string Of(ProjectManifest pm, int effOptSet, bool isRelease, string[] libsDirs, int libsDirsN, WsTier scanTier) {
         string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, scanTier);
+        return BuildCacheIdentity._context(pm, effOptSet, isRelease, depsId);
+    }
+
+    public static string ForHost(ProjectManifest pm, int effOptSet, bool isRelease, string[] libsDirs, int libsDirsN, WsTier scanTier, string cacheDir, bool useSurface) {
+        if (!useSurface) { return BuildCacheIdentity._context(pm, effOptSet, isRelease,
+            "host-bytes:" + DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, scanTier)); }
+        string depsId = DependencySurfaceCache.Of(libsDirs, libsDirsN, pm.Project.Name, scanTier, cacheDir);
+        return BuildCacheIdentity._context(pm, effOptSet, isRelease, "host-surface:" + depsId);
+    }
+
+    private static string _context(ProjectManifest pm, int effOptSet, bool isRelease, string depsId) {
         depsId = depsId + "|opt" + effOptSet.ToString();
         int sd = 0;
         while (sd < pm.SyntaxCount) {

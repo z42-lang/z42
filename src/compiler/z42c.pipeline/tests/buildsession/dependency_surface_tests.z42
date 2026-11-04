@@ -1,0 +1,160 @@
+namespace HostIncrementalTests;
+using Std.IO;
+using Std.Harness;
+using Z42.Pipeline;
+using Z42.Package;
+
+void _surfaceOk(BuildOptions o) {
+    CollectingReporter reporter = new CollectingReporter(); o.Reporter = reporter;
+    BuildResult result = new BuildSession(o).Run();
+    if (result.Code != BuildExit.Ok) { throw new Exception(reporter.ErrorsText()); }
+}
+
+void _replaceDependency(BuildOptions dep, string text) {
+    File.WriteAllText(Path.Join(dep.ProjectDir, "src/lib.z42"), text);
+    _ok(dep);
+}
+
+void _surfacePadding(BuildOptions o, int count) {
+    int i = 0;
+    while (i < count) {
+        File.WriteAllText(Path.Join(o.ProjectDir, "src/surface_pad" + i.ToString() + ".z42"),
+            "namespace App;\npublic sealed class SurfacePad" + i.ToString() + " { }\n");
+        i = i + 1;
+    }
+}
+
+[Test]
+void test_host_dependency_body_change_reuses_ir_and_matches_fresh() {
+    BuildOptions dep = _dependency("body_surface", "namespace Dep;\npublic static class Provider { public static int Value() { return 1; } }\n");
+    BuildOptions o = _options("body_surface_use", "namespace App;\nusing Dep;\npublic static class Use { public static int Read() { return Provider.Value(); } }\n");
+    try {
+        _surfacePadding(o, 7);
+        _useDependency(o, dep); _ok(o);
+        string cliBefore = DepIdentity.Of(o.BaseLibs, 1, o.Manifest.Project.Name, null);
+        _replaceDependency(dep, "namespace Dep;\npublic static class Provider { public static int Value() { string extra = \"body-only-pool-change\"; return extra.Length; } }\n");
+        Assert.True(cliBefore != DepIdentity.Of(o.BaseLibs, 1, o.Manifest.Project.Name, null));
+        Assert.Equal(0, _probe(o).Prep.Plan.FreshCount);
+        _ok(o); _freshMatches(o);
+    } finally { Directory.Delete(o.ProjectDir, true); Directory.Delete(dep.ProjectDir, true); }
+}
+
+[Test]
+void test_host_dependency_default_and_constant_changes_invalidate() {
+    string prefix = "namespace Dep;\npublic enum Color { K = ";
+    string suffix = " }\npublic static class Provider { public static int Value(int n = ";
+    BuildOptions dep = _dependency("constant_surface", prefix + "1" + suffix + "3) { return n; } }\n");
+    BuildOptions o = _options("constant_surface_use", "namespace App;\nusing Dep;\npublic static class Use { public static int Read() { return (int)Color.K + Provider.Value(); } }\n");
+    try {
+        _surfacePadding(o, 7);
+        _useDependency(o, dep); _surfaceOk(o); string original = _hash(o);
+        _replaceDependency(dep, prefix + "2" + suffix + "3) { return n; } }\n");
+        Assert.Equal(8, _probe(o).Prep.Plan.FreshCount); _ok(o); _freshMatches(o);
+        original = _hash(o);
+        _replaceDependency(dep, prefix + "2" + suffix + "4) { return n; } }\n");
+        Assert.Equal(8, _probe(o).Prep.Plan.FreshCount); _ok(o); _freshMatches(o);
+        Assert.True(original != _hash(o));
+    } finally { Directory.Delete(o.ProjectDir, true); Directory.Delete(dep.ProjectDir, true); }
+}
+
+[Test]
+void test_host_dependency_generic_signature_and_layout_changes_invalidate() {
+    string initial = "namespace Dep;\npublic struct Value { public int X; }\npublic static class Provider { public static T Id<T>(T x) { return x; } }\n";
+    BuildOptions dep = _dependency("generic_surface", initial);
+    BuildOptions o = _options("generic_surface_use", "namespace App;\nusing Dep;\npublic static class Use { public static int Read() { return Provider.Id<int>(1); } }\n");
+    try {
+        _surfacePadding(o, 7);
+        _useDependency(o, dep); _ok(o);
+        _replaceDependency(dep, initial.Replace("return x;", "T copy = x; return copy;"));
+        Assert.Equal(0, _probe(o).Prep.Plan.FreshCount); _ok(o); _freshMatches(o);
+        _replaceDependency(dep, initial.Replace("public int X;", "public int X; public long Y;"));
+        Assert.Equal(8, _probe(o).Prep.Plan.FreshCount); _ok(o); _freshMatches(o);
+        _replaceDependency(dep, initial.Replace("Id<T>(T x)", "Id<T>(T x, int extra)"));
+        Assert.Equal(8, _probe(o).Prep.Plan.FreshCount);
+        o.Reporter = new CollectingReporter();
+        BuildResult cached = new BuildSession(o).Run();
+        string diagnostics = ((CollectingReporter)o.Reporter).ErrorsText();
+        o.Incremental = false; o.Reporter = new CollectingReporter();
+        BuildResult fresh = new BuildSession(o).Run();
+        Assert.Equal(fresh.Code, cached.Code);
+        Assert.Equal(((CollectingReporter)o.Reporter).ErrorsText(), diagnostics);
+    } finally { Directory.Delete(o.ProjectDir, true); Directory.Delete(dep.ProjectDir, true); }
+}
+
+[Test]
+void test_dependency_surface_rejects_executable_or_unmodeled_inputs() {
+    BuildOptions dep = _dependency("surface_policy", "namespace Dep;\npublic static class Provider { public static int Value() { return 1; } }\n");
+    try {
+        byte[] bytes = File.ReadAllBytes(dep.OutputZpkg);
+        ZpkgInfo z = ZpkgReader.Open(bytes, dep.OutputZpkg);
+        Assert.True(DependencySurfaceIdentity.Of(new CachedZpkg(dep.OutputZpkg, z, bytes.Length, 0)) != "");
+        z.PluginCaps = PluginCaps.Analyzer;
+        Assert.Equal("", DependencySurfaceIdentity.Of(new CachedZpkg(dep.OutputZpkg, z, bytes.Length, 0)));
+        z.PluginCaps = 0; z.Packed = false;
+        Assert.Equal("", DependencySurfaceIdentity.Of(new CachedZpkg(dep.OutputZpkg, z, bytes.Length, 0)));
+        z.Packed = true; z.IsExe = true;
+        Assert.Equal("", DependencySurfaceIdentity.Of(new CachedZpkg(dep.OutputZpkg, z, bytes.Length, 0)));
+        z.IsExe = false;
+        ZpkgSection[] sections = new ZpkgSection[z.SectionCount + 1];
+        int i = 0;
+        while (i < z.SectionCount) { sections[i] = z.Sections[i]; i = i + 1; }
+        sections[i] = new ZpkgSection("FUTR", 0, 0);
+        z.Sections = sections; z.SectionCount = z.SectionCount + 1;
+        Assert.Equal("", DependencySurfaceIdentity.Of(new CachedZpkg(dep.OutputZpkg, z, bytes.Length, 0)));
+    } finally { Directory.Delete(dep.ProjectDir, true); }
+}
+
+[Test]
+void test_dependency_surface_memo_rejects_bad_checksum_and_pin() {
+    BuildOptions o = _options("surface_memo", "int Read() { return 1; }\n");
+    try {
+        _surfacePadding(o, 7);
+        _ok(o);
+        string path = Path.Join(_cache(o), "dependency-surface.key");
+        string valid = File.ReadAllText(path);
+        File.WriteAllText(path, valid.Replace("dependency-surface-2:", "dependency-surface-1:"));
+        Assert.Equal(0, _probe(o).Prep.Plan.FreshCount);
+        Assert.Equal(valid, File.ReadAllText(path));
+        string[] lines = valid.Split("\n");
+        File.WriteAllText(path, lines[0] + "\n" + lines[1] + "\n00000000000000000000000000000000\n" + lines[3]);
+        Assert.Equal(0, _probe(o).Prep.Plan.FreshCount);
+        Assert.Equal(valid, File.ReadAllText(path));
+        File.WriteAllText(path, "truncated");
+        _ok(o); _freshMatches(o);
+    } finally { Directory.Delete(o.ProjectDir, true); }
+}
+
+[Test]
+void test_dependency_surface_memo_io_failure_does_not_change_identity() {
+    string dir = File.CreateTempDir("surface-memo-blocked");
+    try {
+        string blocked = Path.Join(dir, "blocked"); File.WriteAllText(blocked, "not a directory");
+        string[] empty = new string[0];
+        Assert.Equal(DepIdentity.SurfaceOf(empty, 0, "", null),
+            DependencySurfaceCache.Of(empty, 0, "", null, blocked));
+    } finally { Directory.Delete(dir, true); }
+}
+
+[Test]
+void test_host_dependency_surface_policy_boundaries_and_shrink() {
+    string before = "namespace Dep;\npublic static class Provider { public static int Value() { return 1; } }\n";
+    BuildOptions dep = _dependency("surface_boundary", before);
+    BuildOptions o = _options("surface_boundary_use", "namespace App;\nusing Dep;\npublic static class Use { public static int Read() { return Provider.Value(); } }\n");
+    try {
+        _surfacePadding(o, 6); _useDependency(o, dep); _ok(o);
+        Assert.False(File.Exists(Path.Join(_cache(o), "dependency-surface.key")));
+        _replaceDependency(dep, before.Replace("return 1;", "return 2;"));
+        Assert.Equal(7, _probe(o).Prep.Plan.FreshCount); _ok(o); _freshMatches(o);
+        _surfacePadding(o, 7); _ok(o);
+        _replaceDependency(dep, before.Replace("return 1;", "return 3;"));
+        Assert.Equal(0, _probe(o).Prep.Plan.FreshCount); _ok(o); _freshMatches(o);
+        _surfacePadding(o, 8); _ok(o);
+        _replaceDependency(dep, before.Replace("return 1;", "return 4;"));
+        Assert.Equal(0, _probe(o).Prep.Plan.FreshCount); _ok(o); _freshMatches(o);
+        File.Delete(Path.Join(o.ProjectDir, "src/surface_pad6.z42"));
+        File.Delete(Path.Join(o.ProjectDir, "src/surface_pad7.z42"));
+        _ok(o);
+        _replaceDependency(dep, before.Replace("return 1;", "return 5;"));
+        Assert.Equal(7, _probe(o).Prep.Plan.FreshCount); _ok(o); _freshMatches(o);
+    } finally { Directory.Delete(o.ProjectDir, true); Directory.Delete(dep.ProjectDir, true); }
+}
