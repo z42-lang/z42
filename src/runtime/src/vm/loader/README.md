@@ -8,6 +8,7 @@
 
 | 入口 | 职责 |
 |---|---|
+| `state.rs` | `LoaderState`：每 VM 惰性加载器、上下文、初始化队列与 VFS 依赖 |
 | `package/` | VFS 读取、LoadedArtifact、模块合并和执行索引准备 |
 | `locate/` | namespace 候选索引、依赖定位及 probing 展开 |
 | `lazy/` | 惰性包加载、符号路由、注册和调试符号 |

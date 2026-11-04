@@ -30,8 +30,8 @@ impl VmContext {
         // 惰性包的字符串池追加到 VmCore 的 StrTable（ConstStr 操作数即其中的 id，永不复用）。
         loader.set_str_table(Arc::clone(&self.core.runtime.strings));
         // 惰性加载按需读包，走本 VM 的文件系统。
-        loader.set_vfs(Arc::clone(&self.core.vfs));
-        let mut state = self.core.lazy_loader.write();
+        loader.set_vfs(Arc::clone(&self.core.loader.vfs));
+        let mut state = self.core.loader.lazy_loader.write();
         // 再次安装（只有测试会）= 新的名字空间：旧加载器登记的名字不再可见，与两张表合并前一致。
         // 旧槽位与 id 保留（id 永不复用），已缓存的 id 仍指向旧函数。
         self.core.runtime.funcs.reset_lazy_names();
@@ -43,7 +43,7 @@ impl VmContext {
 
     /// Clear the lazy loader (used in tests).
     pub fn uninstall_lazy_loader(&self) {
-        let mut state = self.core.lazy_loader.write();
+        let mut state = self.core.loader.lazy_loader.write();
         self.core.runtime.funcs.reset_lazy_names();
         *state = None;
         drop(state);
@@ -72,7 +72,7 @@ impl VmContext {
         types: &FxHashMap<String, Arc<TypeDesc>>,
         func_names: &[String],
     ) {
-        let mut state = self.core.lazy_loader.write();
+        let mut state = self.core.loader.lazy_loader.write();
         if let Some(loader) = state.as_mut() {
             loader.seed_types_for_lookup(types, func_names);
         }
@@ -82,7 +82,7 @@ impl VmContext {
     /// from an eagerly-loaded artifact (main zpkg / eagerly-loaded deps) into
     /// the lazy loader's impls registry. Companion of `seed_lazy_loader_types`.
     pub fn seed_lazy_loader_impls(&self, pairs: &[(String, String)]) {
-        let mut state = self.core.lazy_loader.write();
+        let mut state = self.core.loader.lazy_loader.write();
         if let Some(loader) = state.as_mut() {
             loader.seed_impls(pairs);
         }
@@ -92,7 +92,7 @@ impl VmContext {
     /// eagerly merged artifacts' DEPS symbol lists. Companion of `seed_lazy_loader_impls`.
     pub fn seed_lazy_loader_symbol_owners(&self, deps: &[crate::metadata::format::ZpkgDep]) {
         if deps.is_empty() { return; }
-        let mut state = self.core.lazy_loader.write();
+        let mut state = self.core.loader.lazy_loader.write();
         if let Some(loader) = state.as_mut() {
             loader.note_symbol_owners(deps);
         }
@@ -101,7 +101,7 @@ impl VmContext {
     /// precise-pkg-refs: the unique referenced full name for a simple type name, if any
     /// (reflection's dotless lookups — see `make_type_from_name`).
     pub fn referenced_full_name(&self, short: &str) -> Option<String> {
-        self.core.lazy_loader.read().as_ref().and_then(|l| l.full_name_for_short(short))
+        self.core.loader.lazy_loader.read().as_ref().and_then(|l| l.full_name_for_short(short))
     }
 
     /// Look up a function by FQ name; triggers lazy load if needed.
@@ -124,7 +124,7 @@ impl VmContext {
         self.type_lookup_cache.lock().clear();
         self.fn_lookup_cache.lock().clear();
         self.forget_static_owners();
-        let mut state = self.core.lazy_loader.write();
+        let mut state = self.core.loader.lazy_loader.write();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadModule: no lazy loader installed (cannot register loaded module)")
         })?;
@@ -153,7 +153,7 @@ impl VmContext {
         self.type_lookup_cache.lock().clear();
         self.fn_lookup_cache.lock().clear();
         self.forget_static_owners();
-        let mut state = self.core.lazy_loader.write();
+        let mut state = self.core.loader.lazy_loader.write();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadBytecodeInMemory: no lazy loader installed (cannot register loaded module)")
         })?;
@@ -169,7 +169,7 @@ impl VmContext {
     /// must not re-enter the VM, such as the JIT translator recognising intrinsics and
     /// the `[Native]` forward probe (`vm::exec::call::forward`).
     pub(crate) fn probe_loaded_function(&self, func_name: &str) -> Option<Arc<Function>> {
-        self.core.lazy_loader.read().as_ref()?.probe_function(func_name)
+        self.core.loader.lazy_loader.read().as_ref()?.probe_function(func_name)
     }
 
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {
@@ -187,7 +187,7 @@ impl VmContext {
         // 就是查负缓存并直接返回 `None`（热点是无构造函数类合成的 `..ctor$0`，每次 `new` 查一次）——
         // 那是一次纯记忆化的「否」，却要付一次独占锁并堵住所有读者。这里在读锁下先答掉。
         let fast = {
-            let state = self.core.lazy_loader.read();
+            let state = self.core.loader.lazy_loader.read();
             match state.as_ref() {
                 Some(loader) => {
                     match loader.probe_function(func_name) {
@@ -208,7 +208,7 @@ impl VmContext {
             return resolved;
         }
         let (result, newly_loaded) = {
-            let mut state = self.core.lazy_loader.write();
+            let mut state = self.core.loader.lazy_loader.write();
             let loader = state.as_mut()?;
             // reduce-lazy-lookup-alloc: drain the loader's `newly_loaded` scratch
             // buffer around the resolve, instead of cloning + diffing the whole
@@ -235,13 +235,13 @@ impl VmContext {
     /// runtime-ambiguous-use-site: 这个函数名是否被两个已加载 zpkg 各自声明过。
     /// **调用方须先用 `lazy_loader::ambiguity_seen()` 挡一道**——本方法要拿读锁。
     pub fn is_ambiguous_function(&self, name: &str) -> bool {
-        let state = self.core.lazy_loader.read();
+        let state = self.core.loader.lazy_loader.read();
         match state.as_ref() { Some(l) => l.is_ambiguous_function(name), None => false }
     }
 
     /// 类型侧孪生，见 [`Self::is_ambiguous_function`]。
     pub fn is_ambiguous_type(&self, name: &str) -> bool {
-        let state = self.core.lazy_loader.read();
+        let state = self.core.loader.lazy_loader.read();
         match state.as_ref() { Some(l) => l.is_ambiguous_type(name), None => false }
     }
 
@@ -249,7 +249,7 @@ impl VmContext {
     /// loading anything (`None` if no loader / not registered / no id). Type-test target keys
     /// (`vm::exec::ops::cast::target_key`) use it.
     pub(crate) fn loaded_type_id(&self, class_name: &str) -> Option<crate::vm::runtime::ids::tokens::TypeId> {
-        let state = self.core.lazy_loader.read();
+        let state = self.core.loader.lazy_loader.read();
         let id = state.as_ref()?.loaded_type(class_name)?.id;
         id.is_resolved().then_some(id)
     }
@@ -269,7 +269,7 @@ impl VmContext {
         // fix-negative-cache-under-read-lock：同 try_lookup_function —— 已知解析不出来的类名
         // （`obj_new` 每次分配都要探一次）也在读锁下答掉，别为一个记忆化的「否」拿独占锁。
         let fast = {
-            let state = self.core.lazy_loader.read();
+            let state = self.core.loader.lazy_loader.read();
             match state.as_ref() {
                 Some(loader) => {
                     match loader.probe_type(class_name) {
@@ -293,7 +293,7 @@ impl VmContext {
             return resolved;
         }
         let (result, newly_loaded) = {
-            let mut state = self.core.lazy_loader.write();
+            let mut state = self.core.loader.lazy_loader.write();
             let loader = state.as_mut()?;
             // reduce-lazy-lookup-alloc: drain scratch buffer (see try_lookup_function).
             loader.newly_loaded.clear();
@@ -325,8 +325,8 @@ impl VmContext {
     fn static_init_drain_is_noop(&self, newly_loaded: &[String]) -> bool {
         use std::sync::atomic::Ordering;
         newly_loaded.is_empty()
-            && self.core.pending_type_init_count.load(Ordering::Relaxed) == 0
-            && self.core.init_batch_inflight.load(Ordering::Acquire) == 0
+            && self.core.loader.pending_type_init_count.load(Ordering::Relaxed) == 0
+            && self.core.loader.init_batch_inflight.load(Ordering::Acquire) == 0
     }
     /// 排空「待加载类型」队列（静态字段引用触发点 T3）。
     ///
@@ -364,14 +364,14 @@ impl VmContext {
         loop {
             // 取队列**之前**先宣告在飞：从这一刻起到本批处理完，别的线程都不会把
             // 「队列与计数都是零」误读成「已静止」（见 `init_batch_inflight`）。
-            self.core.init_batch_inflight.fetch_add(1, std::sync::atomic::Ordering::Release);
+            self.core.loader.init_batch_inflight.fetch_add(1, std::sync::atomic::Ordering::Release);
             let types: Vec<String> = {
-                let mut q = self.core.pending_type_inits.lock();
-                self.core.pending_type_init_count
+                let mut q = self.core.loader.pending_type_inits.lock();
+                self.core.loader.pending_type_init_count
                     .store(0, std::sync::atomic::Ordering::Relaxed);
                 std::mem::take(&mut *q)
             };
-            self.core.init_batch_inflight.fetch_sub(1, std::sync::atomic::Ordering::Release);
+            self.core.loader.init_batch_inflight.fetch_sub(1, std::sync::atomic::Ordering::Release);
             if types.is_empty() { return; }
             for class_fq in &types {
                 let _ = self.try_lookup_type(class_fq);
@@ -383,7 +383,7 @@ impl VmContext {
     /// defer-class-initialization: 该类是否已在 registry 中（即所属包已加载 + 初始化过）。
     /// 只读，不触发任何加载——供 T3 入队前的快速过滤。
     pub fn has_loaded_type(&self, class_fq: &str) -> bool {
-        let state = self.core.lazy_loader.read();
+        let state = self.core.loader.lazy_loader.read();
         match state.as_ref() {
             Some(loader) => loader.has_type(class_fq),
             None => false,
@@ -393,10 +393,10 @@ impl VmContext {
     /// defer-class-initialization: 入队一个「静态字段所属类」，等待 `run_pending_static_inits`
     /// 触发其所属包的加载 + 初始化。由 `vm::runtime::resolve` 在解析静态字段名时调用。
     pub fn enqueue_type_init(&self, class_fq: &str) {
-        let mut q = self.core.pending_type_inits.lock();
+        let mut q = self.core.loader.pending_type_inits.lock();
         if !q.iter().any(|c| c == class_fq) {
             q.push(class_fq.to_string());
-            self.core.pending_type_init_count
+            self.core.loader.pending_type_init_count
                 .store(q.len(), std::sync::atomic::Ordering::Relaxed);
         }
     }
@@ -412,7 +412,7 @@ impl VmContext {
     /// resolved from already-loaded types. See `LazyLoader::force_load_all`.
     pub fn force_load_all_packages(&self) {
         let newly = {
-            let mut state = self.core.lazy_loader.write();
+            let mut state = self.core.loader.lazy_loader.write();
             match state.as_mut() {
                 Some(loader) => {
                     loader.newly_loaded.clear();
@@ -436,7 +436,7 @@ impl VmContext {
     /// package's IMPL section (returns owned Vec — the registry lives behind
     /// the lazy-loader lock). Empty when no loader / no impls.
     pub fn impl_traits_for(&self, target_fq: &str) -> Vec<String> {
-        let state = self.core.lazy_loader.read();
+        let state = self.core.loader.lazy_loader.read();
         match state.as_ref() {
             Some(loader) => loader.impl_traits_for(target_fq).to_vec(),
             None => Vec::new(),
@@ -457,7 +457,7 @@ impl VmContext {
             }
         }
         {
-            let state = self.core.lazy_loader.read();
+            let state = self.core.loader.lazy_loader.read();
             if let Some(loader) = state.as_ref() {
                 for name in loader.iter_type_names() {
                     set.insert(name.clone());
@@ -508,7 +508,7 @@ impl VmContext {
 
     /// All namespaces declared by lazy-loadable zpkgs (for static-init scan).
     pub fn declared_namespaces(&self) -> Vec<String> {
-        let state = self.core.lazy_loader.read();
+        let state = self.core.loader.lazy_loader.read();
         match state.as_ref() {
             Some(loader) => loader.declared_namespaces(),
             None         => Vec::new(),

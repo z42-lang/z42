@@ -54,7 +54,7 @@ fn register_pair(vm: &VmContext) {
         id: TypeId::UNRESOLVED,
     });
     vm.install_lazy_loader(None, 0);
-    if let Some(l) = vm.core.lazy_loader.write().as_mut() {
+    if let Some(l) = vm.core.loader.lazy_loader.write().as_mut() {
         l.insert_type(PAIR.to_string(), td);
     }
 }

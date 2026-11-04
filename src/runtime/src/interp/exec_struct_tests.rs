@@ -404,7 +404,7 @@ fn symbolization_cost_by_path_depth() {
     for depth in 1..=4usize {
         let vm = VmContext::new();
         vm.install_lazy_loader(None, 0);
-        if let Some(l) = vm.core.lazy_loader.write().as_mut() {
+        if let Some(l) = vm.core.loader.lazy_loader.write().as_mut() {
             for i in 0..depth {
                 let nest = if i + 1 < depth { Some(format!("Bench.L{}", i + 1)) } else { None };
                 l.insert_type(format!("Bench.L{i}"), struct_desc(&format!("Bench.L{i}"), 4, nest.as_deref()));

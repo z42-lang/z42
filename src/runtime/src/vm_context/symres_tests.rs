@@ -195,7 +195,7 @@ fn vm_with_types() -> std::pin::Pin<Box<VmContext>> {
             ..Default::default()
         }),
     ];
-    if let Some(l) = vm.core.lazy_loader.write().as_mut() {
+    if let Some(l) = vm.core.loader.lazy_loader.write().as_mut() {
         for td in types { l.insert_type(td.name.clone(), td); }
     }
     vm
@@ -222,7 +222,7 @@ fn assert_zero_box(v: Value, type_name: &str) {
 }
 
 fn unresolved_was_recorded(vm: &VmContext, name: &str) -> bool {
-    vm.core.lazy_loader.read().as_ref().is_some_and(|l| l.known_unresolved_type_ro(name))
+    vm.core.loader.lazy_loader.read().as_ref().is_some_and(|l| l.known_unresolved_type_ro(name))
 }
 
 #[test]

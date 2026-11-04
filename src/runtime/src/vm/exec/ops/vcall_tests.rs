@@ -49,7 +49,7 @@ fn module(name: &str, functions: Vec<Function>) -> Module {
 
 fn register_lazy(ctx: &VmContext, f: Function) -> Arc<Function> {
     let f = Arc::new(f);
-    let mut state = ctx.core.lazy_loader.write();
+    let mut state = ctx.core.loader.lazy_loader.write();
     assert!(state.as_mut().unwrap().insert_function(f.name.clone(), Arc::clone(&f)));
     f
 }
