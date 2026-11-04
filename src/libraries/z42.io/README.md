@@ -23,7 +23,7 @@
 | `FileMode.z42` / `SeekOrigin.z42` | 常量类 | `FileStream` 构造模式（Read / Write / Append）/ `Seek` origin（Begin / Current / End） |
 | `TextReader.z42` / `TextWriter.z42` | `TextReader` / `TextWriter` | 字符读写基类（`IDisposable`） |
 | `StringReader.z42` / `StringWriter.z42` | `StringReader` / `StringWriter` | 内存字符串读 / 累积写 |
-| `StreamReader.z42` / `StreamWriter.z42` | `StreamReader` / `StreamWriter` | 字节 Stream 之上经 `Encoding` 的字符读写 |
+| `StreamReader.z42` / `StreamWriter.z42` | `StreamReader` / `StreamWriter` | 字节 Stream 之上经 `Encoding` 的字符读写（Reader 有限缓冲、严格 UTF-8） |
 | `BinaryReader.z42` / `BinaryWriter.z42` | `BinaryReader` / `BinaryWriter`（namespace `Std.IO.Binary`） | 低层二进制读 / 写；`new …` 或 `OverStream(stream)` |
 | `BinaryException.z42` | `BinaryException`（namespace `Std`） | 二进制越界 / 非法参数 |
 | `Process.z42` | `Process` | 子进程 builder + 启动；`Which`；`ShareProcessGroup()` 让子进程留在调用方进程组（交互式 tty 透传必需；默认独立进程组以便超时树杀） |
@@ -38,6 +38,9 @@
 ```bash
 xtask test stdlib z42.io    # 本库全部 [Test]（含 core/IO 门面的 console / file / directory / path 等用例）
 ```
+
+StreamReader 的分块、首结果与生命周期回归位于 `tests/stream_reader_buffered.z42`，
+基类互操作位于 `tests/stream_reader_text_base.z42`；吞吐与首行基准位于 `benches/stream_reader_bench.z42`。
 
 ## 关联文档
 

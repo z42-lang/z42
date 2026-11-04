@@ -9,6 +9,7 @@
 //!
 //! - 没有 async：不存在 ReadAsync / WriteAsync 等异步读写。
 //! - Stream 本身不实现 Std.IDisposable（只有 Close()）；TextReader / TextWriter 名义实现了 Std.IDisposable。
+//! - StreamReader 固定有限缓冲预读，不可与底层裸读交替；只支持严格 UTF-8，不探测 BOM。
 //! - 没有超时旋钮：ReadTimeout / WriteTimeout 不存在。
 //! - BinaryReader / BinaryWriter 没有无符号读写，也没有 Close() / Dispose()，生命周期归底层 Stream。
 //! - 子进程不经 shell，Timeout 只管 Run()，Stdio.ToFile 不能用于 stdin。
