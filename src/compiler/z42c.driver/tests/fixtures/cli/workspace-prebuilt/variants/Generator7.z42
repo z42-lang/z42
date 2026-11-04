@@ -1,0 +1,9 @@
+namespace ProbeGenerator;
+using Z42.Generators;
+public sealed class Generator : ModuleGenerator {
+    public void Generate(GenContext ctx, GenSink sink) {
+        sink.AddSource("probe", "namespace Generated; public static class Value { public static int Read() { return 7; } }");
+    }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
+}
