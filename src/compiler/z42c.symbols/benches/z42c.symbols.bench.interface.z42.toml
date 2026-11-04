@@ -1,0 +1,13 @@
+[project]
+name="z42c.symbols.bench.interface"
+version="0.1.0"
+kind="exe"
+[sources]
+include=["interface_resolution_bench.z42"]
+[dependencies]
+"z42c.symbols"="*"
+"z42.package"="*"
+"z42c.core"="*"
+"z42c.syntax"="*"
+[build]
+output_dir="../../../../artifacts/build/compiler/z42c.symbols/${profile}/benches/interface"
