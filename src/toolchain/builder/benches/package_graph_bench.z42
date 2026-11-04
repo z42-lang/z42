@@ -1,0 +1,122 @@
+namespace PackageGraphBench;
+
+using Std.IO;
+using Std.Harness;
+using Std.Hashing;
+
+// The fixture and serial reference are outside timed samples. Child startup remains inside each build.
+public sealed class PackageGraphFixture {
+    public string Root;
+    private string _vm;
+    private string _builder;
+    private int _jobs;
+    private bool _release;
+
+    public PackageGraphFixture(int jobs, bool release) {
+        this._vm = OperatingSystem.ExecutablePath();
+        string name = Path.GetFileName(this._vm);
+        if (name != "z42vm" && name != "z42vm.exe") { this._vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", ""); }
+        if (!File.Exists(this._vm)) { throw new Exception("package benchmark requires the executing z42vm"); }
+        this._builder = PackageGraphFixture._program();
+        this._jobs = jobs; this._release = release;
+        this.Root = File.CreateTempDir("package-graph-bench");
+    }
+
+    private static string _program() {
+        string programPath = Environment.GetEnvironmentVariable("Z42_PACKAGE_BENCH_BUILDER", "");
+        if (programPath.Length > 0) {
+            if (!File.Exists(programPath)) { throw new Exception("missing pinned package benchmark builder: " + programPath); }
+            return programPath;
+        }
+        string[] dirs = ModuleSearch.Dirs();
+        int i = 0;
+        while (i < dirs.Length) {
+            string path = Path.Join(dirs[i], "z42.builder.zpkg");
+            if (File.Exists(path)) { return path; }
+            i = i + 1;
+        }
+        throw new Exception("set Z42_PACKAGE_BENCH_BUILDER to the builder under measurement");
+    }
+
+    public void Initialize() {
+        File.WriteAllText(Path.Join(this.Root, "z42.workspace.toml"),
+            "[workspace]\nmembers=['a','b','c','d']\ndefault_members=['bench.graph.a']\n"
+            + "[workspace.build.graph]\n'bench.graph.a'=['bench.graph.b','bench.graph.c']\n"
+            + "'bench.graph.b'=['bench.graph.d']\n'bench.graph.c'=['bench.graph.d']\n'bench.graph.d'=[]\n");
+        this._project("d", "lib", "namespace GraphD;\npublic class Leaf { public static int Read() { return 1; } }\n");
+        this._project("b", "lib", "namespace GraphB;\nusing GraphD;\npublic class BranchB { public static int Read() { return Leaf.Read()+1; } }\n");
+        this._project("c", "lib", "namespace GraphC;\nusing GraphD;\npublic class BranchC { public static int Read() { return Leaf.Read()+2; } }\n");
+        this._project("a", "exe", "using GraphB;\nusing GraphC;\nusing Std.IO;\nvoid Main() { Console.WriteLine(BranchB.Read()+BranchC.Read()); }\n");
+        this._run(1);
+    }
+
+    private void _project(string member, string kind, string source) {
+        string root = Path.Join(this.Root, member); Directory.Create(Path.Join(root, "src"));
+        File.WriteAllText(Path.Join(root, "src/main.z42"), source);
+        File.WriteAllText(Path.Join(root, "z42.toml"), "[project]\nname='bench.graph." + member + "'\nversion='0.1.0'\nkind='" + kind + "'\n");
+    }
+
+    private void _run(int jobs) {
+        Process command = new Process(this._vm);
+        string? mode = RuntimeConfig.Get("mode");
+        if (mode != null) { command.Arg("--mode").Arg(mode); }
+        command.Arg(this._builder).Arg("--").Arg("build").Arg(Path.Join(this.Root, "z42.workspace.toml"))
+            .Arg("--package-jobs").Arg(jobs.ToString());
+        if (this._release) { command.Arg("--release"); }
+        ProcessResult result = command.Run();
+        if (result.ExitCode != 0) { throw new Exception("package build failed: " + result.Stdout + result.Stderr); }
+    }
+
+    public void Build(bool reset) {
+        string artifacts = Path.Join(this.Root, "artifacts");
+        if (reset && Directory.Exists(artifacts)) { Directory.Delete(artifacts, true); }
+        this._run(this._jobs);
+    }
+
+    public string Hash() {
+        string value = "";
+        string[] members = new string[]{ "a", "b", "c", "d" };
+        foreach (string member in members) {
+            string name = "bench.graph." + member;
+            string root = Path.Join(Path.Join(Path.Join(this.Root, "artifacts/" + name), this._release ? "release" : "debug"), "dist");
+            value = value + Murmur3.Hash128Hex(File.ReadAllBytes(Path.Join(root, name + ".zpkg")));
+            if (this._release) { value = value + Murmur3.Hash128Hex(File.ReadAllBytes(Path.Join(root, name + ".zsym"))); }
+        }
+        return value;
+    }
+}
+
+void exercise(int jobs, bool release, bool reset, string label) {
+    PackageGraphFixture fixture = new PackageGraphFixture(jobs, release);
+    try {
+        fixture.Initialize();
+        string expected = fixture.Hash();
+        var b = new Bencher(1, 3);
+        b.iter(() => { fixture.Build(reset); });
+        if (expected != fixture.Hash()) { throw new Exception("parallel package products differ from the serial reference"); }
+        b.printSummary(label);
+    } finally { Directory.Delete(fixture.Root, true); }
+}
+
+[Benchmark]
+void bench_package_full_1() { exercise(1, false, true, "package_full_reset_1"); }
+[Benchmark]
+void bench_package_full_2() { exercise(2, false, true, "package_full_reset_2"); }
+[Benchmark]
+void bench_package_full_4() { exercise(4, false, true, "package_full_reset_4"); }
+[Benchmark]
+void bench_package_noop_1() { exercise(1, false, false, "package_noop_1"); }
+[Benchmark]
+void bench_package_noop_2() { exercise(2, false, false, "package_noop_2"); }
+[Benchmark]
+void bench_package_noop_4() { exercise(4, false, false, "package_noop_4"); }
+[Benchmark]
+void bench_package_release_full_2() { exercise(2, true, true, "package_release_full_reset_2"); }
+[Benchmark]
+void bench_package_release_noop_2() { exercise(2, true, false, "package_release_noop_2"); }
+
+void Main() {
+    bench_package_full_1(); bench_package_full_2(); bench_package_full_4();
+    bench_package_noop_1(); bench_package_noop_2(); bench_package_noop_4();
+    bench_package_release_full_2(); bench_package_release_noop_2();
+}

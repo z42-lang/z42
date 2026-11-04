@@ -22,6 +22,7 @@ public class Pipeline {
     public string       ParentPkg { get; set; }
     /// 测试/bench 派生目标构建 ⇒ 产物类型位 harness（透传 CompileRequest.HarnessUnit）。
     public bool         HarnessUnit { get; set; }
+    public WorkspaceCompileDomain WorkspaceDomain = null;
 
     public Pipeline() {
         this.Hooks    = new BuildHooks();      // 默认空 hook
@@ -89,6 +90,7 @@ public class Pipeline {
         req.Includes = pm.Sources.Include; req.IncludesCount = pm.Sources.IncludeCount;
         req.PackageName = pm.Project.Name;
         req.Manifest = pm;   // add-build-session：实现方据此走 BuildSession（[optimize]/[syntax]/[lints]/[plugins]/entry/version/E0497）
+        req.WorkspaceDomain = this.WorkspaceDomain;
         CompileResult res = this.Compiler.Compile(req);
         // 警告经 ctx.Warn 呈现（stderr；User 裁决）。此前成功时警告被整体丢弃。
         if (res.Warnings != null && res.Warnings.Length > 0) {
@@ -102,6 +104,7 @@ public class Pipeline {
             return false;
         }
         ctx.Log("compiled: " + res.Zpkg);
+        ctx.Inputs.Zpkg = res.Zpkg; ctx.Inputs.Zsym = res.Zsym;
         return true;
     }
 

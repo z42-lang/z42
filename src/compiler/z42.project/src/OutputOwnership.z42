@@ -1,0 +1,97 @@
+namespace Z42.Project;
+
+using Std.IO;
+
+/// Check physical output ownership before starting workers, including aliased directories.
+public static class OutputOwnership {
+    public static void Validate(string[] roots, int[] owners) {
+        if (roots.Length != owners.Length) { throw new Exception("output ownership count mismatch"); }
+        string nonce = File.CreateTempDir("package-ownership");
+        string marker = "." + Path.GetFileName(nonce);
+        string[] created = new string[roots.Length];
+        int count = 0;
+        OutputOwnershipProbe probe = new OutputOwnershipProbe(marker);
+        try {
+            int i = 0;
+            while (i < roots.Length) {
+                if (roots[i].Length == 0) { throw new Exception("package output root is empty"); }
+                Directory.Create(roots[i]);
+                string tag = Path.Join(roots[i], marker);
+                string owner = owners[i].ToString();
+                if (File.Exists(tag)) {
+                    if (File.ReadAllText(tag) != owner) { throw new Exception("package output directories overlap: " + roots[i]); }
+                } else {
+                    File.WriteAllText(tag, owner); created[count] = tag; count = count + 1;
+                }
+                i = i + 1;
+            }
+            i = 0;
+            while (i < roots.Length) {
+                probe.Check(roots[i], owners[i].ToString());
+                i = i + 1;
+            }
+        } finally {
+            probe.Close();
+            int i = 0;
+            while (i < count) { if (File.Exists(created[i])) { File.Delete(created[i]); } i = i + 1; }
+            Directory.Delete(nonce, true);
+        }
+    }
+}
+
+// Physical directory markers bound traversal even when output subtrees contain alias cycles.
+sealed class OutputOwnershipProbe {
+    private string _ownerTag;
+    private string _visitTag;
+    private string[] _created;
+    private int _count;
+
+    public OutputOwnershipProbe(string marker) {
+        this._ownerTag = marker; this._visitTag = marker + "-visited";
+        this._created = new string[16]; this._count = 0;
+    }
+
+    public void Check(string root, string owner) {
+        string[] pending = new string[16]; pending[0] = root;
+        int head = 0; int count = 1;
+        while (head < count) {
+            string dir = pending[head]; head = head + 1;
+            string marker = Path.Join(dir, this._ownerTag);
+            if (File.Exists(marker) && File.ReadAllText(marker) != owner) {
+                throw new Exception("package output directories overlap: " + root);
+            }
+            string visited = Path.Join(dir, this._visitTag);
+            if (File.Exists(visited)) {
+                if (File.ReadAllText(visited) != owner) { throw new Exception("package output directories overlap: " + root); }
+                continue;
+            }
+            File.WriteAllText(visited, owner);
+            this._created = this._add(this._created, this._count, visited); this._count = this._count + 1;
+            string[] entries = WorkspacePlan.SortStrings(Directory.Enumerate(dir));
+            int i = 0;
+            while (i < entries.Length) {
+                string path = Path.Join(dir, entries[i]); i = i + 1;
+                if (Directory.Exists(path)) { pending = this._add(pending, count, path); count = count + 1; }
+                else if (!File.Exists(path)) { throw new Exception("package output entry is not resolvable: " + path); }
+            }
+        }
+    }
+
+    private string[] _add(string[] entries, int count, string path) {
+        if (count == entries.Length) {
+            string[] grown = new string[entries.Length * 2];
+            Array.Copy(entries, grown, count); entries = grown;
+        }
+        entries[count] = path;
+        return entries;
+    }
+
+    public void Close() {
+        int i = 0;
+        while (i < this._count) {
+            if (File.Exists(this._created[i])) { File.Delete(this._created[i]); }
+            i = i + 1;
+        }
+        this._count = 0;
+    }
+}

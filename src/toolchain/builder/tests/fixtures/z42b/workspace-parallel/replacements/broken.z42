@@ -1,0 +1,2 @@
+namespace DemoD;
+public static class Leaf { public static int Read() { return missingValue; } }

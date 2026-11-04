@@ -1,0 +1,99 @@
+namespace HostWorkspaceDomainTests;
+
+using Std.IO;
+using Std.Harness;
+using Z42.Build;
+using Z42.Project;
+using Z42.Pipeline;
+using Z42.Package;
+
+ProjectManifest _manifest(string root, string name, string text) {
+    Directory.Create(Path.Join(root, "src"));
+    File.WriteAllText(Path.Join(root, "src/lib.z42"), text);
+    File.WriteAllText(Path.Join(root, "z42.toml"),
+        "[project]\nname='" + name + "'\nversion='0.1.0'\nkind='lib'\n");
+    return ManifestLoader.Load(Path.Join(root, "z42.toml"));
+}
+
+WorkspaceCompileDomain _domain(string root, bool visible) {
+    string[] names = new string[2]; names[0] = "ctx.consumer"; names[1] = "ctx.provider";
+    string[] dirs = new string[2]; dirs[0] = Path.Join(root, "consumer/dist"); dirs[1] = Path.Join(root, "provider/dist");
+    string[] deps = new string[visible ? 1 : 0];
+    if (visible) { deps[0] = names[1]; }
+    int[] offsets = new int[2]; offsets[1] = deps.Length;
+    int[] lengths = new int[2]; lengths[0] = deps.Length;
+    WorkspaceMembers graph = new WorkspaceMembers(new string[2], names, deps, offsets, lengths, 2);
+    WorkspaceLayoutPlan plan = new WorkspaceLayoutPlan(new string[2], names, dirs, new string[2], new bool[2], 2);
+    plan.Graph = graph;
+    return new WorkspaceCompileDomain(plan, 0, new string[0]);
+}
+
+CompileRequest _request(string root, ProjectManifest pm) {
+    CompileRequest req = new CompileRequest(root, Path.Join(root, "dist/ctx.consumer.zpkg"),
+        new string[0], "debug", false, true, "lib", new string[0], 0);
+    req.Manifest = pm; req.PackageName = pm.Project.Name;
+    return req;
+}
+
+void _compileOk(Z42cCompiler compiler, CompileRequest req) {
+    CompileResult result = compiler.Compile(req);
+    if (!result.Ok) { throw new Exception("visible prerequisite compilation: " + result.Diagnostics); }
+}
+
+[Test]
+void test_host_domain_hides_existing_nonancestor_and_invalidates_warm_cache() {
+    string root = File.CreateTempDir("host-workspace-domain");
+    try {
+        string provider = Path.Join(root, "provider");
+        ProjectManifest dep = _manifest(provider, "ctx.provider",
+            "namespace CtxDep;\npublic class Calc { public static int Value() { return 7; } }\n");
+        CollectingReporter reporter = new CollectingReporter();
+        BuildOptions o = new BuildOptions(dep, provider, BuildRole.HostTarget, false, reporter);
+        o.OutputZpkg = Path.Join(provider, "dist/ctx.provider.zpkg");
+        BuildResult built = new BuildSession(o).Run();
+        if (built.Code != BuildExit.Ok) { throw new Exception("provider build: " + reporter.ErrorsText()); }
+        string consumer = Path.Join(root, "consumer");
+        ProjectManifest pm = _manifest(consumer, "ctx.consumer", "using CtxDep;\nint Read() { return Calc.Value(); }\n");
+        CompileRequest req = _request(consumer, pm);
+        Z42cCompiler compiler = new Z42cCompiler();
+        req.WorkspaceDomain = _domain(root, true);
+        _compileOk(compiler, req);
+        File.Copy(o.OutputZpkg, Path.Join(consumer, "dist/ctx.provider.zpkg"));
+        File.WriteAllText(Path.Join(provider, "src/lib.z42"),
+            "namespace CtxDep;\npublic class Calc { public static int Extra() { return 9; } }\n");
+        Assert.Equal(BuildExit.Ok, new BuildSession(o).Run().Code);
+        File.WriteAllText(Path.Join(consumer, "src/lib.z42"), "using CtxDep;\nint Read() { return Calc.Extra(); }\n");
+        _compileOk(compiler, req);
+        string expected = Std.Hashing.Murmur3.Hash128Hex(File.ReadAllBytes(req.OutputZpkg));
+        req.WorkspaceDomain = _domain(root, false);
+        CompileResult cached = compiler.Compile(req);
+        Assert.False(cached.Ok);
+        req.Incremental = false;
+        CompileResult fresh = compiler.Compile(req);
+        Assert.False(fresh.Ok);
+        if (fresh.Diagnostics != cached.Diagnostics) {
+            throw new Exception("domain cached/fresh diagnostics: " + cached.Diagnostics + " / " + fresh.Diagnostics);
+        }
+        req.WorkspaceDomain = _domain(root, true); req.Incremental = true;
+        _compileOk(compiler, req);
+        string restored = Std.Hashing.Murmur3.Hash128Hex(File.ReadAllBytes(req.OutputZpkg));
+        if (expected != restored) { throw new Exception("restored domain changed product: " + expected + " / " + restored); }
+        File.WriteAllText(Path.Join(consumer, "src/lib.z42"), "int Read() { return 1; }\n");
+        _compileOk(compiler, req);
+        string[] runtimeDeps = ZpkgReader.ReadDependencies(ZpkgReader.Open(File.ReadAllBytes(req.OutputZpkg)));
+        foreach (string dependency in runtimeDeps) { Assert.False(dependency == "ctx.provider.zpkg"); }
+    } finally { Directory.Delete(root, true); }
+}
+
+[Test]
+void test_host_domain_rejects_request_for_different_member() {
+    string root = File.CreateTempDir("host-workspace-mismatch");
+    try {
+        ProjectManifest pm = _manifest(root, "ctx.other", "int Value() { return 1; }\n");
+        CompileRequest req = _request(root, pm); req.WorkspaceDomain = _domain(root, true);
+        CompileResult result = new Z42cCompiler().Compile(req);
+        Assert.False(result.Ok);
+        Assert.True(result.Diagnostics.Contains("planned package"));
+        Assert.False(File.Exists(req.OutputZpkg));
+    } finally { Directory.Delete(root, true); }
+}

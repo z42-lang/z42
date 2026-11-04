@@ -13,6 +13,7 @@ z42 项目「编译 → 发布」管线的**框架库**（全 z42 实现）。�
 - `ICompiler` —— 编译抽象；编排器注入编译器库实现（与 `z42c.driver` 同一份），Compile 相位 in-process 调用
 - `WorkloadBase` / `BuildHooks` —— workload 与项目的继承扩展点
 - `IPipelineContext` —— 相位与外界交互的唯一契约
+- `PackageScheduler` / `PackageWorker` —— 显式图的有界隔离进程运行器与确定日志收尾
 
 ## 设计要点（三层继承链）
 ```
@@ -29,10 +30,11 @@ class iOSBuild         class iOSWorkload            class WorkloadBase
   依赖倒置：z42.build 定接口，编译器库（z42c）`: ICompiler` 实现它（z42c → z42.build，无环）。
 
 ## 如何测试验证
-本库无独立 `tests/`，随编译器 workspace 构建，编译通过即接口契约成立；`ICompiler` 的实现由 `z42c.pipeline` 的测试覆盖：
+`tests/package_scheduler_tests.z42` 覆盖进程预算、共享节点一次执行、失败阻断和启动失败收尾；`ICompiler` 的实现由 `z42c.pipeline` 的测试覆盖：
 ```bash
 ./xtask build compiler        # 编译器域全部包（含本库）
 ./xtask test compiler         # z42c 自举不动点 + smoke
+./xtask test stdlib z42.build  # 进程运行器回归
 ```
 
 ## 关联文档

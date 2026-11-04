@@ -21,6 +21,8 @@ schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为�
 | 清单定位 | `ManifestLocator.FindUp` / `FindIn` |
 | 产物目录解析 | `BuildLayout.Resolve(manifest, projectDir, isRelease)` |
 | workspace 规划 | `WorkspacePlan.Plan` / `PlanLayout`（全部成员）/ `PlanDefault`（`default_members` + 依赖闭包）/ `SingleDefault` |
+| 显式构建图与就绪状态 | `WorkspaceGraph` / `PackageTaskState`；无图保留隐式串行顺序 |
+| worker 解析域与目录所有权 | `WorkspaceCompileDomain` / `OutputOwnership` |
 
 ## 如何测试验证
 ```bash

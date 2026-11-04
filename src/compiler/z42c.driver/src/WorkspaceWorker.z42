@@ -1,0 +1,141 @@
+namespace Z42.Driver;
+
+using Std.IO;
+using Std.Runtime;
+using Std.Hashing;
+using Z42.Project;
+using Z42.Pipeline;
+using Z42.Build;
+
+int _runWorkspaceGraph(string wsToml, WorkspaceLayoutPlan plan, bool release, int add, int remove, bool noIncremental, int jobs, int fileJobs) {
+    try {
+        _validateWorkspaceWorkers(plan);
+        string vm = _workspaceWorkerVm();
+        string program = _workspaceWorkerProgram();
+        string absolute = Path.Normalize(Path.IsRooted(wsToml) ? wsToml : Path.Join(Environment.GetCurrentDirectory(), wsToml));
+        string pin = Murmur3.Hash128Hex(File.ReadAllBytes(absolute));
+        PackageWorker[] workers = new PackageWorker[plan.Count];
+        int i = 0;
+        while (i < plan.Count) {
+            Process command = new Process(vm);
+            string? mode = RuntimeConfig.Get("mode");
+            if (mode != null) { command.Arg("--mode").Arg(mode); }
+            command.Arg(program).Arg("--").Arg("--package-worker").Arg("workspace-worker-v1")
+                .Arg(absolute).Arg(pin).Arg(i.ToString()).Arg(release ? "release" : "debug")
+                .Arg(noIncremental ? "1" : "0").Arg(add.ToString()).Arg(remove.ToString()).Arg(fileJobs.ToString());
+            workers[i] = new PackageWorker(command); i = i + 1;
+        }
+        PackageRunResult result = PackageScheduler.Run(plan.Graph, workers, jobs);
+        try {
+            i = 0;
+            while (i < plan.Count) {
+                BuildLog.Progress("[" + (i + 1).ToString() + "/" + plan.Count.ToString() + "] " + plan.Names[i] + ": " + result.Statuses[i]);
+                if (File.Exists(result.StdoutPath(i))) { BuildLog.Progress(File.ReadAllText(result.StdoutPath(i))); }
+                if (File.Exists(result.StderrPath(i))) { ConsoleError.Write(File.ReadAllText(result.StderrPath(i))); }
+                i = i + 1;
+            }
+            return result.Code;
+        } finally { Directory.Delete(result.LogDir, true); }
+    } catch (Exception e) {
+        ConsoleError.WriteLine("z42c build --workspace: " + e.Message);
+        return ExitCode.BuildError;
+    }
+}
+
+void _validateWorkspaceWorkers(WorkspaceLayoutPlan plan) {
+    string[] roots = new string[plan.Count * 2];
+    int[] owners = new int[roots.Length];
+    int i = 0;
+    while (i < plan.Count) {
+        ProjectManifest pm = ManifestLoader.Load(plan.Tomls[i]);
+        int p = 0;
+        while (p < pm.PluginCount) {
+            DepEntry plugin = pm.Plugins[p];
+            if (plugin.IncludeCount > 0 || (plugin.Path.Length > 0 && !plugin.Path.EndsWith(".zpkg"))) {
+                throw new Exception("package graph workers require prebuilt plugin inputs: " + plugin.Name);
+            }
+            p = p + 1;
+        }
+        PathDepClosure closure = PathDepPlan.Resolve(plan.Tomls[i]);
+        int j = 0;
+        while (j < closure.Count) {
+            ProjectManifest dep = ManifestLoader.Load(closure.Tomls[j]);
+            int member = WorkspacePlan.IndexOfName(plan.Names, plan.Count, dep.Project.Name);
+            if (member < 0 || !_samePath(plan.Tomls[member], closure.Tomls[j])) {
+                throw new Exception("package graph requires source dependencies to be workspace members: " + dep.Project.Name);
+            }
+            j = j + 1;
+        }
+        roots[i * 2] = Path.GetDirectoryName(plan.DistDirs[i]); owners[i * 2] = i;
+        roots[i * 2 + 1] = plan.CacheDirs[i]; owners[i * 2 + 1] = i;
+        i = i + 1;
+    }
+    OutputOwnership.Validate(roots, owners);
+}
+
+int _workspaceWorkerMain(string[] args) {
+    try {
+        if (args.Length != 10 || args[1] != "workspace-worker-v1") { throw new Exception("invalid package worker protocol"); }
+        if (Murmur3.Hash128Hex(File.ReadAllBytes(args[2])) != args[3]) { throw new Exception("workspace changed after package planning"); }
+        if ((args[5] != "release" && args[5] != "debug") || (args[6] != "0" && args[6] != "1")) {
+            throw new Exception("invalid package worker profile or incremental policy");
+        }
+        bool release = args[5] == "release";
+        WorkspaceLayoutPlan plan = WorkspacePlan.PlanLayout(args[2], release ? "release" : "debug");
+        int node = Int32.Parse(args[4]);
+        if (plan.Graph == null || node < 0 || node >= plan.Count) { throw new Exception("invalid package worker graph node"); }
+        int fileJobs = Int32.Parse(args[9]);
+        if (fileJobs < 1) { throw new Exception("invalid package worker file budget"); }
+        Z42.Package.ParallelConfig.SetJobs(fileJobs);
+        WsTier tier = _workspaceWorkerTier(plan, node);
+        string[] external = _extLibDirs();
+        string[] dirs = new string[plan.Count + external.Length];
+        int i = 0;
+        while (i < plan.Count) { dirs[i] = plan.DistDirs[i]; i = i + 1; }
+        int e = 0;
+        while (e < external.Length) { dirs[i] = external[e]; i = i + 1; e = e + 1; }
+        return _build(plan.Tomls[node], release, plan.DistDirs[node], plan.CacheDirs[node], dirs, dirs.Length,
+            args[6] == "1", Int32.Parse(args[7]), Int32.Parse(args[8]), false, tier, "");
+    } catch (Exception e) {
+        ConsoleError.WriteLine("z42c package worker: " + e.Message);
+        return ExitCode.BuildError;
+    }
+}
+
+WsTier _workspaceWorkerTier(WorkspaceLayoutPlan plan, int node) {
+    bool[] needed = WorkspaceGraph.Prerequisites(plan.Graph, node);
+    WsTier tier = new WsTier();
+    tier.Members = plan.Names; tier.MembersN = plan.Count; tier.MemberDirs = plan.Count;
+    tier.OwnedMembers = plan.Names;
+    tier.Hidden = new string[plan.Count]; tier.HiddenN = 0;
+    int i = 0;
+    while (i < plan.Count) {
+        if (!needed[i]) { tier.Hidden[tier.HiddenN] = plan.Names[i]; tier.HiddenN = tier.HiddenN + 1; }
+        i = i + 1;
+    }
+    return tier;
+}
+
+string _workspaceWorkerVm() {
+    string vm = OperatingSystem.ExecutablePath();
+    string name = Path.GetFileName(vm);
+    if ((name == "z42vm" || name == "z42vm.exe") && File.Exists(vm)) { return vm; }
+    vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
+    if (vm.Length > 0 && File.Exists(vm)) { return vm; }
+    string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
+    string candidate = Path.Join(home, "bin/z42vm");
+    if (home.Length > 0 && File.Exists(candidate)) { return candidate; }
+    if (home.Length > 0 && File.Exists(candidate + ".exe")) { return candidate + ".exe"; }
+    throw new Exception("cannot locate the package worker VM");
+}
+
+string _workspaceWorkerProgram() {
+    string[] dirs = ModuleSearch.Dirs();
+    int i = 0;
+    while (i < dirs.Length) {
+        string path = Path.Join(dirs[i], "z42c.driver.zpkg");
+        if (File.Exists(path)) { return path; }
+        i = i + 1;
+    }
+    throw new Exception("cannot locate z42c.driver.zpkg for package workers");
+}

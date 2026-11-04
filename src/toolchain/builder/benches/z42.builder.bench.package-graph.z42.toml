@@ -1,0 +1,8 @@
+[project]
+name = "z42.builder.bench.package-graph"
+version = "0.1.0"
+kind = "exe"
+[sources]
+include = ["package_graph_bench.z42"]
+[build]
+output_dir = "../../../../artifacts/build/toolchain/builder/${profile}/benches/package-graph"

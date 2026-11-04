@@ -36,6 +36,7 @@ public sealed class WorkspaceMembers {
 //   CacheDirs[i] = 成员 i 的 cache 目录（[workspace.build].cache_dir，缺省 "${output_dir}/.cache"）
 //   Selected[i]  = 成员 i 是被选中的目标；false = 只因被选中成员（传递）依赖而入计划，需先建、不作目标
 public sealed class WorkspaceLayoutPlan {
+    public WorkspaceMembers Graph = null;
     public string[] Tomls;
     public string[] Names;
     public string[] DistDirs;
@@ -150,7 +151,9 @@ public static class WorkspacePlan {
             caches[n] = WorkspaceLayout.MemberCacheDir(ws, wsDir, memberDir, name, profile, outAbs);
             n = n + 1;
         }
-        return new WorkspaceLayoutPlan(tomls, names, dists, caches, selected, n);
+        WorkspaceLayoutPlan plan = new WorkspaceLayoutPlan(tomls, names, dists, caches, selected, n);
+        if (ws.Graph != null) { plan.Graph = WorkspaceGraph.Select(m, names, n); }
+        return plan;
     }
 
     // pick ∪ 它们在 workspace 内的传递依赖（按成员索引）。
@@ -289,7 +292,8 @@ public static class WorkspacePlan {
             depLen[i] = len;
             i = i + 1;
         }
-        return new WorkspaceMembers(tomls, names, depFlat, depOff, depLen, count);
+        WorkspaceMembers result = new WorkspaceMembers(tomls, names, depFlat, depOff, depLen, count);
+        return ws.Graph != null ? ws.Graph.Bind(result) : result;
     }
 
     // WS001：成员逻辑名 = [project].name，产物按包名落盘——重名成员会静默互相覆盖，必须拦下。

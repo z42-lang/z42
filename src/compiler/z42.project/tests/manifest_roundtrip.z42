@@ -248,6 +248,6 @@ void test_workspace_unknown_keys_collected() {
     WorkspaceManifest w = ManifestLoader.ParseWorkspaceText(toml);
     Assert.Equal(3, w.UnknownKeys.Length);
     Assert.Equal("unknown key `project` in [workspace] (known: members, exclude, default_members, build, dependencies)", w.UnknownKeys[0]);
-    Assert.Equal("unknown key `dist_dir` in [workspace.build] (known: output_dir, cache_dir)", w.UnknownKeys[1]);
+    Assert.Equal("unknown key `dist_dir` in [workspace.build] (known: output_dir, cache_dir, graph)", w.UnknownKeys[1]);
     Assert.Equal("unknown key `features` in [workspace.dependencies.x] (known: version, path, deploy)", w.UnknownKeys[2]);
 }
