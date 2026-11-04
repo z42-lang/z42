@@ -4,6 +4,7 @@ using Std.Encoding;
 using Std.Text;
 
 /// 有限缓冲的严格 UTF-8 字符读取器；构造不读取源，内部工作空间不随输入总长度增长。
+///
 /// 预读最多 4096 字节，不能与底层裸读交替使用；Close/Dispose 留源流打开。
 /// 格式错误后不可继续读取；源 I/O 异常保留未解码数据，已消费字符不回滚。
 /// 不提供同实例的并发读取保证。
@@ -56,6 +57,7 @@ public class StreamReader : TextReader {
     }
 
     /// 读取当前可用字符，允许短读；0 表示 EOF 或 count 为 0。零 count 不读源。
+    ///
     /// null 抛 ArgumentNullException，非法区间抛 ArgumentException；关闭/格式失败后不可读。
     public int Read(char[] buffer, int offset, int count) {
         this.EnsureOpen();
@@ -73,6 +75,7 @@ public class StreamReader : TextReader {
     }
 
     /// 读取一行，去掉 LF、CR 或 CRLF；EOF 返回 null。块末 CR 不等待下一块。
+    ///
     /// 长行需要与结果大小成比例的空间；非法 UTF-8 按预读块严格报错。
     public string? ReadLine() {
         this.EnsureOpen();
@@ -100,6 +103,7 @@ public class StreamReader : TextReader {
     }
 
     /// 返回剩余全部内容；EOF 返回空串。结果所需空间与返回文本大小成比例。
+    ///
     /// 在固定字节缓冲内合并短读，再按块严格解码；格式错误可能等待本块填满或 EOF。
     public string ReadToEnd() {
         this.EnsureOpen();
