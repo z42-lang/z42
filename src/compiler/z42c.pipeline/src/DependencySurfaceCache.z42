@@ -1,0 +1,37 @@
+// This memo saves metadata normalization, not compilation or diagnostics.
+namespace Z42.Pipeline;
+using Std.IO;
+using Z42.Package;
+
+public static class DependencySurfaceCache {
+    public static string Of(string[] dirs, int count, string self, WsTier tier, string cacheDir) {
+        string pin = "dependency-surface-2:" + CompilerFingerprint.Value()
+            + ":" + ZpkgWriterZ.Major.ToString() + "." + ZpkgWriterZ.Minor.ToString();
+        string full = DepIdentity.Of(dirs, count, self, tier);
+        string path = Path.Join(cacheDir, "dependency-surface.key");
+        string saved = DependencySurfaceCache._read(path, pin, full);
+        if (saved != "") { return saved; }
+        string surface = DepIdentity.SurfaceOf(dirs, count, self, tier);
+        string body = pin + "\n" + full + "\n" + surface;
+        string content = body + "\n" + Std.Hashing.Murmur3.Hash128Hex(body);
+        try {
+            Directory.Create(cacheDir);
+            File.WriteAllText(path, content);
+        } catch (Exception e) {
+            // The computed identity remains authoritative when this disposable memo cannot be persisted.
+            return surface;
+        }
+        return surface;
+    }
+
+    private static string _read(string path, string pin, string full) {
+        try {
+            if (!File.Exists(path)) { return ""; }
+            string[] lines = File.ReadAllText(path).Split("\n");
+            if (lines.Length != 4 || lines[0] != pin || lines[1] != full || lines[2].Length != 32) { return ""; }
+            string body = lines[0] + "\n" + lines[1] + "\n" + lines[2];
+            if (lines[3] != Std.Hashing.Murmur3.Hash128Hex(body)) { return ""; }
+            return lines[2];
+        } catch (Exception e) { return ""; }
+    }
+}

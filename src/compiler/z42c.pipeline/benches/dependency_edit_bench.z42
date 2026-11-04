@@ -1,0 +1,77 @@
+// Complete provider-body edit plus consumer request; fixture creation and initial builds are untimed.
+namespace DependencyEditBench;
+using Std.IO;
+using Std.Harness;
+using Z42.Build;
+using Z42.Project;
+using Z42.Pipeline;
+
+public sealed class DependencyEditFixture {
+    public string Root;
+    private CompileRequest _provider;
+    private CompileRequest _consumer;
+    private Z42cCompiler _compiler;
+    private int _generation;
+
+    public DependencyEditFixture(int consumerFiles) {
+        this.Root = File.CreateTempDir("dependency-edit-bench");
+        string dep = Path.Join(this.Root, "provider");
+        string use = Path.Join(this.Root, "consumer");
+        Directory.Create(Path.Join(dep, "src")); Directory.Create(Path.Join(use, "src"));
+        File.WriteAllText(Path.Join(dep, "z42.toml"),
+            "[project]\nname = \"bench.dep.provider\"\nversion = \"0.1.0\"\nkind = \"lib\"\n");
+        File.WriteAllText(Path.Join(use, "z42.toml"),
+            "[project]\nname = \"bench.dep.consumer\"\nversion = \"0.1.0\"\nkind = \"lib\"\n"
+            + "[dependencies]\n\"bench.dep.provider\" = \"0.1.0\"\n");
+        int i = 0;
+        while (i < consumerFiles) {
+            string name = "Item" + i.ToString();
+            File.WriteAllText(Path.Join(use, "src/" + name + ".z42"),
+                "namespace Consumer;\nusing Provider;\npublic sealed class " + name
+                + " { public int Read() { return Value.Read(); } }\n");
+            i = i + 1;
+        }
+        string output = Path.Join(dep, "out/bench.dep.provider.zpkg");
+        this._provider = new CompileRequest(dep, output, new string[0], "debug", false, false, "lib", new string[0], 0);
+        this._provider.Manifest = ManifestLoader.Load(Path.Join(dep, "z42.toml"));
+        this._consumer = new CompileRequest(use, Path.Join(use, "out/consumer.zpkg"),
+            new string[] { output }, "debug", false, true, "lib", new string[0], 0);
+        this._consumer.Manifest = ManifestLoader.Load(Path.Join(use, "z42.toml"));
+        this._compiler = new Z42cCompiler(); this._generation = 0;
+    }
+
+    public void EditAndBuild() {
+        this._generation = 1 - this._generation;
+        File.WriteAllText(Path.Join(this._provider.SourceDir, "src/lib.z42"),
+            "namespace Provider;\npublic static class Value { public static int Read() { return "
+            + this._generation.ToString() + "; } }\n");
+        CompileResult dep = this._compiler.Compile(this._provider);
+        if (!dep.Ok) { throw new Exception(dep.Diagnostics); }
+        CompileResult use = this._compiler.Compile(this._consumer);
+        if (!use.Ok) { throw new Exception(use.Diagnostics); }
+    }
+
+    public string Hash() {
+        return Std.Hashing.Murmur3.Hash128Hex(File.ReadAllBytes(this._consumer.OutputZpkg));
+    }
+}
+
+void exercise(int files) {
+    DependencyEditFixture fixture = new DependencyEditFixture(files);
+    try {
+        fixture.EditAndBuild();
+        string expected = fixture.Hash();
+        var b = new Bencher(2, 8);
+        b.iter(() => { fixture.EditAndBuild(); });
+        if (fixture.Hash() != expected) { throw new Exception("body edit changed consumer products"); }
+        b.printSummary("dependency_body_edit_" + files.ToString());
+    } finally { Directory.Delete(fixture.Root, true); }
+}
+
+[Benchmark]
+void bench_dependency_body_edit_8_files() { exercise(8); }
+
+[Benchmark]
+void bench_dependency_body_edit_1_file() { exercise(1); }
+
+void Main() { bench_dependency_body_edit_8_files(); bench_dependency_body_edit_1_file(); }
