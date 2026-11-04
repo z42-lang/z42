@@ -4,6 +4,7 @@ pub mod threads;
 pub mod runtime;
 pub mod loader;
 pub mod exec;
+pub(crate) mod config;
 
 use crate::vm::runtime::Module;
 use crate::metadata::ExecMode;

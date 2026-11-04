@@ -23,12 +23,13 @@
 | `app_state.rs` | 门面拥有的应用参数，经核心库服务接口提供快照 |
 | `vm/exec/thread_state.rs` | `ThreadExecState` 组合每线程帧、arena、异常槽和中立 JIT 头 |
 | `vm/exec/state.rs` | `ExecState` 组合每 VM 的引擎注册与代码寿命 |
+| `vm/config.rs` | `VmConfig`：门面捕获的构造输入，包含 heap 与采样设置；LOH 覆盖仍应用到进程策略 |
 | `vm/ext.rs` | `VmExtensions` 创建前登记与冻结的每 VM Rust 扩展状态，`VmContext::ext` 借用查询 |
 | `vm.rs` | `Vm`：持有执行配置，从 VmContext 取得 Module，按 `ExecMode` 调用已注册引擎入口 |
 | `app.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
 | `boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`app::run` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
 | `lib.rs` | 库入口，re-export 公开 API |
-| `config.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`split.rs`（转换为子系统拥有的 `GcConfig` / `JitConfig`）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config_tests.rs` |
+| `config.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`split.rs`（转换为子系统拥有的 `GcConfig` / `JitConfig` / `VmConfig`）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config_tests.rs` |
 | `counters.rs` | `RuntimeCounters`：VM 可观测性原子计数器 |
 | `observer.rs` | `RuntimeObserver`：非 GC 运行时事件的 push 流（与 `gc::GcObserver` 对称） |
 | `signal_handler.rs` | 硬崩溃时捕获 z42 调用栈的 OS 信号 handler（调 `pal::signal`） |

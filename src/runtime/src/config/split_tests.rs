@@ -2,6 +2,38 @@ use super::*;
 use crate::gc::{Heap, GcMode};
 
 #[test]
+fn vm_inputs_capture_resolved_units_and_optional_trace_state() {
+    let values = [
+        ("Z42_GC_MODE", "stw"),
+        ("Z42_GC_MAX_BYTES", "64M"),
+        ("Z42_GC_LOH_BYTES", "96K"),
+        ("Z42_GC_TRACE", "1"),
+        ("Z42_SAMPLE_HZ", "37"),
+        ("Z42_TRACE_OUT", "trace.json"),
+        ("Z42_GC_PAUSE_WINDOW", "3"),
+    ];
+    let mut runtime = RuntimeConfig::from_getter(|key| {
+        values.iter().find(|(name, _)| *name == key).map(|(_, value)| value.to_string())
+    });
+    let captured = runtime.vm_config();
+    assert_eq!(captured.gc.mode, GcMode::StwMarkSweep);
+    assert_eq!(captured.gc.pause_window, 3);
+    assert_eq!(captured.gc_max_bytes, Some(64 * 1024 * 1024));
+    assert_eq!(captured.process_loh_bytes, Some(96 * 1024));
+    assert!(captured.gc_trace);
+    assert_eq!(captured.sample_hz, Some(37));
+    assert!(captured.trace_timeline);
+
+    runtime.sample_hz = None;
+    runtime.trace_out = None;
+    assert_eq!(captured.sample_hz, Some(37));
+    assert!(captured.trace_timeline);
+    assert!(!runtime.vm_config().trace_timeline);
+    runtime.trace_out = Some("".into());
+    assert!(runtime.vm_config().trace_timeline);
+}
+
+#[test]
 fn parsed_defaults_match_standalone_heap_policy() {
     let runtime = RuntimeConfig::from_getter(|_| None);
     assert_eq!(runtime.gc_config(), GcConfig::default());

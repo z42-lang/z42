@@ -4,6 +4,18 @@ use super::RuntimeConfig;
 use crate::gc::GcConfig;
 
 impl RuntimeConfig {
+    /// Capture construction inputs without exposing facade settings to the VM builder.
+    pub(crate) fn vm_config(&self) -> crate::vm::config::VmConfig {
+        crate::vm::config::VmConfig {
+            gc: self.gc_config(),
+            gc_max_bytes: self.gc_max_bytes,
+            gc_trace: self.gc_trace,
+            sample_hz: self.sample_hz,
+            trace_timeline: self.trace_out.is_some(),
+            process_loh_bytes: self.gc_loh_bytes,
+        }
+    }
+
     /// Capture the resolved JIT inputs; the backend never interprets facade settings.
     #[cfg(feature = "jit")]
     pub fn jit_config(&self) -> crate::jit::config::JitConfig {

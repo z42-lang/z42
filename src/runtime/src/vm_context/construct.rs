@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "config_input_tests.rs"]
+mod config_input_tests;
+
 impl VmContext {
     /// Public accessor for the shared compiled Module installed by
     /// [`with_module`](Self::with_module). Returns `None` if VmContext was
@@ -127,7 +131,10 @@ impl VmContext {
             module.clear_link_state();
             Arc::new(module)
         });
-        Self::new_internal(module, vfs, crate::extension_assembly::freeze(extensions))
+        Self::new_internal(
+            module, vfs, crate::extension_assembly::freeze(extensions),
+            crate::config::runtime_config().vm_config(),
+        )
     }
 
     /// Borrow this VM's extension state by its exact Rust type, without a new lock.
@@ -218,6 +225,7 @@ impl VmContext {
         module: Option<Arc<crate::vm::runtime::Module>>,
         vfs: Arc<dyn crate::pal::fs::Vfs>,
         ext_state: crate::vm::ext::ExtensionState,
+        config: crate::vm::config::VmConfig,
     ) -> std::pin::Pin<Box<Self>> {
         // Construct VmCore with heap embedded; scanner is installed AFTER
         // wrapping in Arc so the closure can capture Weak<VmCore> (cycle
@@ -226,22 +234,22 @@ impl VmContext {
         let core: Arc<VmCore> = Arc::new(VmCore {
             threads: crate::vm::threads::ThreadState::new(),
             loader: crate::vm::loader::LoaderState::new(vfs),
-            heap:                 Box::new(Heap::new(crate::config::runtime_config().gc_config())),
+            heap:                 Box::new(Heap::new(config.gc)),
             runtime: crate::vm::runtime::RuntimeState::new(module, &crate::builtin_assembly::CATALOG),
 
             diagnostics: crate::vm::diagnostics::DiagnosticsState {
                 counters: Arc::new(crate::counters::RuntimeCounters::new()),
                 runtime_observers: crate::observer::RuntimeObserverRegistry::new(),
-                park_histogram: Mutex::new(crate::gc::types::PauseHistogram::new(crate::config::runtime_config().gc_pause_window)),
+                park_histogram: Mutex::new(crate::gc::types::PauseHistogram::new(config.gc.pause_window)),
                 lock_contentions: std::sync::atomic::AtomicU64::new(0),
                 lock_wait_us:     std::sync::atomic::AtomicU64::new(0),
                 // add-sampling-profiler : start the sampler only when
                 // Z42_SAMPLE_HZ is set; otherwise disabled() (no thread, zero-cost).
                 // Trace timeline recorded only when Z42_TRACE_OUT is also set.
-                sampler: match crate::config::runtime_config().sample_hz {
+                sampler: match config.sample_hz {
                     Some(hz) => crate::profiler::cpu::Sampler::start(
                         hz,
-                        crate::config::runtime_config().trace_out.is_some(),
+                        config.trace_timeline,
                     ),
                     None => crate::profiler::cpu::Sampler::disabled(),
                 },
@@ -285,18 +293,17 @@ impl VmContext {
         // without it they are inert. Unset keeps the historical behaviour
         // (collect only on an explicit `Std.GC.Collect()`).
         {
-            let cfg = crate::config::runtime_config();
-            if let Some(max) = cfg.gc_max_bytes {
+            if let Some(max) = config.gc_max_bytes {
                 core.heap.set_max_heap_bytes(Some(max));
             }
-            if cfg.gc_trace {
+            if config.gc_trace {
                 core.heap.add_observer(Arc::new(crate::gc::trace::GcTracer::default()));
             }
             // add-loh-bytes-knob : process-global, not per-heap — `class_for` is
             // called from the lock-free TLAB fast path, which has no heap reference. Applied
             // here (rather than read in `class_for`) so the allocation path keeps paying only
             // one relaxed load of a static rather than a `runtime_config()` lookup.
-            if let Some(n) = cfg.gc_loh_bytes {
+            if let Some(n) = config.process_loh_bytes {
                 crate::gc::var_region::set_loh_bytes(n as usize);
             }
         }
