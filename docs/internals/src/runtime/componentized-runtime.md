@@ -68,6 +68,8 @@ JIT 的安装输入为后端拥有的 JitConfig，门面负责配置转换和注
 
 VM 的内部构造输入为 `vm/config.rs` 的 `VmConfig`，由门面从已决议的 `RuntimeConfig` 捕获 GC、预算、采样与 trace 设置。内部构造消费纯值，不解析环境变量或门面旋钮；既有构造入口负责转换。`process_loh_bytes` 明确表示构造期应用的进程级 LOH 覆盖，仍在 core 建立后应用，不提供每 VM LOH 隔离；safepoint 与 stackalloc 的进程策略也保持独立。该输入不存入 VmCore，不改变线程视图布局。
 
+主 VM 构造由 crate 根 `context_assembly.rs` 实现既有 `VmContext` 入口，负责配置捕获、组件选择与 core 接线。`vm_context/construct.rs` 保留线程状态访问、共享 core 的 worker 加入和 Drop；worker 不重新选择组件或重建扩展。主构造的弱引用扫描器、native 扩展加载、固定地址登记及 TLAB/SATB 顺序保持一致，扩展资源随最后一个持有 core 的上下文释放。
+
 ### 4.2 独立交付仍是目标设计
 
 注册边界见 [VM 总体架构](vm-architecture.md)「引擎注册与调用边界」。物理拆 crate、跨动态库的组件 ABI、自动加载和卸载尚未实现；当前 Rust trait/注册对象不是可跨版本或跨动态库使用的 ABI。以后独立交付须在这一每 VM 所有权边界上设计同构建组件 ABI，不能改成进程全局 JIT 单例。
