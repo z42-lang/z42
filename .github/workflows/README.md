@@ -48,7 +48,7 @@
 
 CI 只能在 GitHub 上跑；本地对应的门禁是 `xtask test docs links`（文档）与 `xtask test`（全量）。改动 workflow 后以 PR 上 `ci-ok` 为绿为准。
 
-夜间资产上传由 `../ci/upload_release_assets.py` 逐项执行，仅瞬时 GitHub/连接错误做有界退避重试；权限/参数错误及重试耗尽仍让发布失败。
+夜间资产上传由 `../ci/upload_release_assets.py` 逐项执行，每项核对远端摘要、大小与上传状态；瞬时 GitHub/连接错误及收据缺失或不一致做有界退避重试；权限/参数错误及重试耗尽仍让发布失败。
 
 恢复规则与上传重试回归测试：`python3 -m unittest discover -s .github/ci -p 'test_*.py'`，PR 的 `detect-changes` 同样执行。
 
