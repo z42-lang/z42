@@ -446,10 +446,12 @@ minor 不一致就会把所有 job 推进两代自举那条已知会挂的路。
 
 ### 发布方式：原地更新，从不删除重建
 
-`publish-nightly` 对 `nightly` release **只做原地更新**：① `gh release upload --clobber` 逐个覆盖资产 →
+`publish-nightly` 对 `nightly` release **只做原地更新**：① `.github/ci/upload_release_assets.py` 调 `gh release upload --clobber` 串行覆盖资产 →
 ② 删掉本次不再产出的旧资产 → ③ `PATCH git/refs/tags/nightly` 把 tag 移到本次 commit →
 ④ `gh release edit` 改标题 / 说明 / target。release 对象与 tag 从不消失；只有仓库里一个 nightly 都没有时才
 `gh release create`。发布后校验三件事：非 draft、tag 指向本次 commit、资产齐全。
+
+单项上传遇到 HTTP 5xx、EOF 或瞬时连接错误时最多尝试 5 次，间隔 1/2/4/8 秒。每次重新解析并覆盖该资产，允许前次删除已生效但响应失败；成功的前序资产不在同一调用内重复上传。HTTP 4xx 等非瞬时错误或预算耗尽保留失败状态，后续 tag/metadata 更新与最终验证不执行，发布门禁仍为红。
 
 不能「先删后建」：删掉再立刻重建**同名 tag**，在 GitHub 一侧是有竞态的——旧 tag 的删除可能在新 tag
 建好**之后**几分钟才生效，把新 tag 一起删掉；tag 一没，release 就自动退回 draft，此时发布步骤自己的
