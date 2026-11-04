@@ -5,6 +5,13 @@
 `package sdk --verify` 的执行器与 packages.toml 自检。验证刚组装出的桌面 SDK，覆盖安装清单、发行包命令行与 apphost 夹具，以及 interp / jit golden。
 生产打包实现位于 `scripts/package/`；这里的代码不参与设备或浏览器包的构建。
 
+## 功能索引
+
+| 功能 | 入口 |
+|---|---|
+| 验证本次 SDK 的发行包夹具与 golden | `xtask_package_verify.z42` 的 `_packageVerify` |
+| 校验包配置、组件安装与发布归档 | `xtask_package_selfcheck.z42` 的 `_pkgSelfCheck` |
+
 ## 如何测试验证
 
 ```bash
