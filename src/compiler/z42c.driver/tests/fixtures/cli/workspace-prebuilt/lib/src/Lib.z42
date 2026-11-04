@@ -1,0 +1,2 @@
+namespace ProbeLib;
+public static class Library { public static int Read() { return 1; } }

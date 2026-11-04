@@ -1,0 +1,6 @@
+[project]
+name = "probe.hook"
+version = "0.1.0"
+kind = "plugin"
+[dependencies]
+"z42.build" = "0.1.0"
