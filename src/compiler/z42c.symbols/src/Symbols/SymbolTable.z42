@@ -416,8 +416,8 @@ public sealed partial class SymbolTable {
     // 此前它们是「FQN 不中就查裸名表」，**没有作用域这一层**，裸名表在替它们兜「外围 ns 的短名」。
     // 改口径前探针实测（stdlib + 编译器全量）：三者在带作用域的视图上与旧答案**零分歧**。
     public bool HasClass(string name) { return this._resolveClass(name) != null; }
-    public bool HasInterface(string name) { return this._resolveIface(name) != null; }
-    public Z42InterfaceType GetInterface(string name) { return this._resolveIface(name); }
+    public bool HasInterface(string name) { return this._resolveIface(name, 0) != null; }
+    public Z42InterfaceType GetInterface(string name) { return this._resolveIface(name, 0); }
 
     // class（含 base 链）是否实现接口（可赋性 class→iface）。
     //
@@ -626,10 +626,9 @@ public sealed partial class SymbolTable {
                 }
                 _ich = _ich + 1;
             }
-            // A5b-2d：再走完整的作用域解析（FQN → using → prelude；与 `GetInterface` 同一出口）。此前这里只有
-            // 「外围链 → 短名表」两步 ⇒ 凡经 `using` / prelude 引入的接口名都靠短名表 first-wins 赢家兜着，
-            // 同短名跨 ns 时可能答错；限定写法 `D.IF` 也只能剥成短名再撞（下方 G19b）。
-            Z42InterfaceType sci = this._resolveIface(n);
+            // 外围链已完整查过；只继续 FQN → using → prelude，不重查外围链。
+            // 命中后的类型实参解析与上方快路径保持一致。
+            Z42InterfaceType sci = this._resolveIface(n, this.ScopeChain.Length);
             if (sci != null) {
                 if (nt.ArgCount > 0) {
                     Z42Type[] scargs = new Z42Type[nt.ArgCount];
@@ -716,7 +715,7 @@ public sealed partial class SymbolTable {
                 }
                 string plusKey = n.Replace(".", "+");
                 string _ekp = this.EnumKey(plusKey); if (_ekp != null) { return this.EnumType(_ekp); }   // make-enum-distinct-type：嵌套 enum 同款
-                Z42InterfaceType pift = this._resolveIface(plusKey); if (pift != null) { return pift; }   // A5b-2d：嵌套键也走作用域解析
+                Z42InterfaceType pift = this._resolveIface(plusKey, 0); if (pift != null) { return pift; }   // A5b-2d：嵌套键也走作用域解析
                 // fix-nested-delegate-decl（bug B1）：嵌套 delegate `Outer.Inner` → `Outer+Inner` 键。
                 // 与上面嵌套 enum / 接口的 plusKey 兜底同款（NestedFlatten 已按 `+` 名注册）。
                 string _dkp = this.DelegateKey(plusKey); if (_dkp != null) { return this.Delegates.Get(_dkp) as Z42FuncType; }
