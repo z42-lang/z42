@@ -26,6 +26,7 @@
 | `exec_ffi.rs` | `CallNative` / `CallNativeVtable` / `PinPtr` / `UnpinPtr` |
 | `engine.rs` | VM 注册的基线 Engine；借用参数视图转入本后端原有 callee 帧构造入口 |
 | `vm/runtime/fusion.rs`（共享） | 加载期融合识别规则与缓存形态；本后端只执行计划 |
+| `vm/exec/ops/references.rs`（共享） | ref/out/in 位置读取与写回；帧只保留寄存器适配和 copy-in/copy-out 记录 |
 | `ops.rs` | 寄存器级辅助：`int_binop`、`collect_args`、`bool_val`、`str_val` |
 | `vm/exec/call/`（共享状态） | 帧栈、寄存器池与 stack / struct / transient arena 由 VM 执行层持有；解释器仅使用每个 VmContext 的实例，随帧 LIFO 回收并经统一栈面扫描根 |
 

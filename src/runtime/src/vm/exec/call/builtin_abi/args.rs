@@ -304,7 +304,7 @@ impl RefArg<'_> {
         let Some(&Value::Ref { idx, frame_id }) = self.handle else { return Ok(()) };
         let kind = ctx.transient_arena.lock().ref_kind(idx, frame_id)
             .map_err(|e| BuiltinError::Internal(e.to_string()))?;
-        crate::interp::store_thru_ref(&kind, val, ctx).map_err(|e| BuiltinError::Internal(e.to_string()))
+        crate::vm::exec::ops::references::store_thru_ref(&kind, val, ctx).map_err(|e| BuiltinError::Internal(e.to_string()))
     }
 }
 

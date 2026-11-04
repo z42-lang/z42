@@ -109,6 +109,10 @@ PIC 的命中点各设一道常驻断言（`vm::exec::ops::vcall::assert_pic_tar
 > bug。要么把发号范围提升到比较范围（本系统的选择），要么改用天然全局的身份。指针看似天然全局，
 > 但对象释放后地址会被复用，只在「元数据永不释放」的前提下成立——可回收 load context 正好打破它。
 
+### 引用位置读写
+
+`vm/exec/ops/references.rs` 统一读取和写入 RefKind 指向的栈、数组及字段位置。解释器的参数 copy-in/copy-out 与 builtin ABI 的 RefArg 使用这份实现；栈引用仍要求目标帧存活，数组和字段访问委托 objops，保持类型检查与写屏障。JIT 的指令支持范围不因共享这些操作而改变。
+
 ### 对象操作：objops
 
 字段、数组、静态字段、值 struct 叶子的**读写语义**收在 `src/runtime/src/objops/`，两个引擎都只做适配：

@@ -4,6 +4,7 @@
 
 #![allow(unused_imports)]
 use super::*;
+use crate::vm::exec::ops::references::store_thru_ref;
 use crate::vm::runtime::{Function, Module};
 use crate::{
     metadata::{BranchTargets, Terminator},
