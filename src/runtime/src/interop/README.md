@@ -10,7 +10,8 @@
 
 | 文件 | 职责 |
 |------|------|
-| `mod.rs` | 模块入口；re-export 公开 API |
+| `mod.rs` | 模块入口；re-export 公开 API；native 子模块按 `native-interop` 开关 |
+| `state.rs` | 每 VM 类型/库/buffer 状态；Rust 状态操作返回 `Result`，pin/unpin 在所有平台可用 |
 | `registry.rs` | `RegisteredType` + `MethodEntry`：解析 `Z42TypeDescriptor_v1`，预构建 libffi `Cif` |
 | `marshal.rs` | z42 `Value` ↔ `Z42Value` 双向转换（blittable 子集）|
 | `dispatch.rs` | `SigType` 枚举 + 签名解析 + libffi `Cif::new` / `Cif::call` 包装 |
@@ -23,7 +24,7 @@
 ## 入口点
 
 - `interop::exports::z42_register_type` / `z42_resolve_type` / `z42_invoke` / `z42_last_error`：本目录 `exports.rs` 提供 `#[no_mangle]` 实现
-- `VmContext::register_native_type` / `resolve_native_type` / `load_native_library`：z42 内部调用入口
+- `interop::register_native_type` / `resolve_native_type` / `loader::load_library`：z42 内部调用入口
 - `Instruction::CallNative` IR dispatch：在 `interp/exec_instr.rs` → `exec_ffi.rs` 调 `RegisteredType::method` + `dispatch::call`
 
 ## 能力范围
@@ -44,7 +45,7 @@
   - `z42_abi` crate（ABI 类型镜像）
   - `libffi = "3.2"`（cif 构造 + dispatch）
   - `libloading = "0.8"`（dlopen 库句柄）
-- 平级：`crate::vm_context::VmContext` 持有 `native_types` / `native_libs`
+- VM 仅提供冻结的扩展状态查询；`interop::State` 持有类型表、库句柄、已尝试加载集合及 owned pin buffer，门面在创建 VM 时装配。
 
 ## 如何测试验证
 

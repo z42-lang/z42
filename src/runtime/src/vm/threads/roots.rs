@@ -31,7 +31,7 @@ fn scan_roots(c: &VmCore, visit: &mut dyn FnMut(&Value)) {
     // BEFORE the Box is dealloc'd. We hold `vm_contexts.lock()`
     // for the full walk, so a concurrent drop on another thread
     // blocks until we release — no use-after-free possible.
-    let registry = c.vm_contexts.lock();
+    let registry = c.threads.vm_contexts.lock();
     for ctx_ptr in registry.iter() {
         let ctx = unsafe { &*ctx_ptr.0 };
         // pending_exception / pending_thrown

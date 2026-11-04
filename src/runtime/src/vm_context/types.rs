@@ -1,24 +1,11 @@
 use super::*;
 
-/// **`VmCore`** —— state shared across all threads sharing one VM instance
-/// (add-multithreading-foundation, Phase 1 / spec
-/// `2026-05-19-add-multithreading-foundation`).
-///
-/// Holds fields that are **process-globally singular**: static fields, type
-/// registries, native interop registry, pinned buffer table, etc. Per-thread
-/// state (call stack, pending exception, frame guards, func-ref cache slots)
-/// stays directly on [`VmContext`], which references this struct through
-/// `Arc<VmCore>`.
-///
-/// It also holds the VM's lazy loader, cctor registry, native interop registry,
-/// GC heap and resource tables.
-///
-/// `VmCore` will become `Send + Sync` once the GC handle backing switches to
-/// `Arc<...>` (Phase 3 of the spec). Until then, `Mutex` is wrapped around
-/// fields that hold `Value` (which transitively contains `Rc<RefCell>` via
-/// the current `ArrRef` backing), so the API surface is already stable —
-/// Send-safety completes at Phase 3 without further VmCore API changes.
+/// State shared by all contexts of one VM, owned through `Arc<VmCore>`.
+/// Subsystems own their synchronization and teardown; contexts retain thread-local
+/// frames, pending exceptions and allocation arenas. Concrete core-library and
+/// interop resources live in frozen extension state.
 pub struct VmCore {
+    pub(crate) threads: crate::vm::threads::ThreadState,
     /// Static fields: one stable-address cell per `StaticFieldId` (read / written without a
     /// lock), plus the FQN → id registration (lazy, first use; cross-zpkg fields can be met in
     /// any order). See `vm_context::static_table`.
@@ -72,25 +59,6 @@ pub struct VmCore {
     /// `AssemblyLoadContext.Load` registers assemblies with private `Module` arenas.
     /// Phase 1: boundary + reflection identity only (no unload / execution).
     pub(crate) context_registry:   Mutex<crate::vm::loader::contexts::ContextRegistry>,
-    /// Native interop Tier 1 — registered native types keyed by `(module, type)`.
-    /// **`RwLock`** (Decision 6): read-mostly path — `CallNative` dispatch /
-    /// `z42_resolve_type` are pure reads, writes only happen during module
-    /// load / `z42_register_type`. Concurrent reads from multiple threads
-    /// not serialized.
-    #[cfg(feature = "native-interop")]
-    pub(crate) native_types:       RwLock<HashMap<(String, String), Arc<crate::interop::RegisteredType>>>,
-    /// Loaded native libraries kept alive for VM lifetime so function
-    /// pointers stored in `native_types` stay valid. Lock contention low
-    /// (only `dlopen` adds entries) → plain Mutex.
-    #[cfg(feature = "native-interop")]
-    pub(crate) native_libs:        Mutex<Vec<crate::pal::dynlib::Library>>,
-    /// Spec C10 — owned byte buffers backing `Value::PinnedView` instances.
-    /// Keyed by buffer data pointer so `UnpinPtr` can drop the entry.
-    pub(crate) pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>,
-    /// runtime-audit P0-4: a fatal VM error (stack overflow) is unwinding —
-    /// no z42 handler runs and no error becomes a z42 exception (`stack_guard`).
-    /// Per VM: every thread of this VM, no other VM in the process.
-    pub(crate) fatal: std::sync::atomic::AtomicBool,
     /// **GC subsystem**. Moved here in Phase 2.2 so it can be shared across
     /// threads (single global heap). Backing today is `Heap`; Phase 3
     /// swaps to Arc + Send + Sync. Stored as `Box<Heap>` (no inner
@@ -104,12 +72,6 @@ pub struct VmCore {
     /// pending_exception) stay captured via `Rc<RefCell>`
     /// clones from the unique VmContext.
     pub(crate) heap:               Box<Heap>,
-    /// **add-vmcontext-registry **: registry of all live
-    /// [`VmContext`] instances on this VmCore (one per OS thread).
-    /// Populated by `VmContext::new()`; cleared by `VmContext::drop()`.
-    /// The GC scanner closure walks this list under lock to find every
-    /// thread's per-thread roots. See `VmContextPtr` SAFETY block.
-    pub(crate) vm_contexts:        Mutex<Vec<VmContextPtr>>,
     /// **add-threading-stdlib **: the user's compiled Module,
     /// shared via `Arc` across all threads on this VmCore. `None` in test
     /// paths that don't need a real Module (most cargo unit tests construct
@@ -134,44 +96,6 @@ pub struct VmCore {
     /// pool. Per VM because the strings live in this VM's heap; its interned strings are GC
     /// roots. See `vm::runtime::ids::str_table`.
     pub(crate) strings:            Arc<crate::vm::runtime::ids::str_table::StrTable>,
-    /// **add-sync-primitives **: `Std.Threading.Mutex<T>`
-    /// slot table. `__mutex_new` inserts; `__mutex_unlock` keeps the
-    /// entry (Mutexes are reusable). The `Arc` lets the lock-acquire
-    /// thread keep the inner mutex alive across builtin call boundaries
-    /// via a thread-local guard registry — see `corelib/sync.rs`.
-    /// (**M2**: slot-id counter embedded in the registry.)
-    /// **add-sync-primitives **: `Std.Threading.Channel<T>`
-    /// slot table. `__channel_new` inserts; `__channel_close` flips
-    /// `sender = None` so subsequent recv sees disconnected. Entries
-    /// are never removed in v0 (no `__channel_drop` builtin) — the
-    /// Channel object's lifetime keeps the slot alive for the whole VM
-    /// run, which is acceptable for normal workloads but documented as
-    /// a Deferred for future cleanup (`add-sync-primitives-future-gc`).
-    /// (**M2**: slot-id counter embedded in the registry.)
-    /// **add-gc-safepoint **: cooperative-polling GC safepoint
-    /// phase. Mutators read this at each `check_safepoint` and park when
-    /// non-Idle. The collector flips Idle → Requested → Marking → Idle
-    /// under the protocol in [`crate::vm::threads::safepoint`].
-    pub(crate) gc_phase:           Mutex<crate::vm::threads::safepoint::GcPhase>,
-    /// **add-gc-safepoint **: Condvar used by both sides —
-    /// mutators wait on it to resume; the collector waits on it to learn
-    /// when `parked_count` reached its threshold.
-    pub(crate) gc_phase_cv:        parking_lot::Condvar,
-    /// **add-gc-safepoint **: number of mutator VmContexts
-    /// currently parked at a safepoint (excludes the collector). Used by
-    /// the collector to know when stop-the-world is in effect.
-    pub(crate) parked_count:       std::sync::atomic::AtomicUsize,
-    /// **add-multi-collector-arbitration **: exclusive
-    /// collector claim. `request_gc_pause` CAS-es false→true; only the
-    /// winner becomes the active collector for one round. Losers
-    /// park-as-mutator and return `None`. Cleared by `GcPauseGuard::drop`.
-    pub(crate) collector_active:   std::sync::atomic::AtomicBool,
-    /// **add-gc-safepoint-auto-threshold **: shared AtomicBool
-    /// that `Heap::maybe_auto_collect` sets on pressure trip;
-    /// `check_safepoint(ctx)` swaps it to `false` and takes ownership of
-    /// the round's stop-the-world collect. Cross-thread safe via the
-    /// safepoint protocol.
-    pub(crate) needs_auto_collect: Arc<std::sync::atomic::AtomicBool>,
     /// **add-z42-launcher **: command-line arguments passed to
     /// the running z42 program — everything after the `--` separator on the
     /// `z42vm` command line. Exposed to z42 code via
@@ -180,17 +104,6 @@ pub struct VmCore {
     /// Set once at startup by `VmContext::set_program_args`; empty by default
     /// (bare `z42vm file entry` with no `--` → no program args).
     pub(crate) program_args:       Mutex<Vec<String>>,
-    /// **add-sync-primitives-rwlock **: `Std.Threading.RwLock<T>`
-    /// slot table. Multiple shared (read) holders OR a single exclusive
-    /// (write) holder. Same Arc-+-thread-local-guard parking pattern as
-    /// Mutex, with an additional Read/Write variant tracked per slot so
-    /// release picks the correct unlock path.
-    /// (**M2**: slot-id counter embedded in the registry.)
-    /// Stdlib ext libraries this VM already tried to open
-    /// (`interop::ext::ensure_lib_for`), so a missing one is looked for once,
-    /// not on every call of one of its builtins.
-    #[cfg(feature = "native-interop")]
-    pub(crate) ext_libs_tried:     Mutex<std::collections::HashSet<&'static str>>,
     /// The file system this VM's file builtins, package loader and lazy loader read through.
     /// Given by whoever creates the VM ([`VmContext::with_module_and_vfs`] /
     /// [`VmContext::with_vfs`]); [`crate::pal::fs::default_vfs`] otherwise. Per VM, so two
@@ -392,8 +305,6 @@ pub struct VmContext {
     /// [`VmCore::vm_contexts`] stays valid for the entire lifetime.
     pub(crate) _pin: PhantomPinned,
     // heap moved to VmCore (Phase 2.2)
-
-    // native_types / native_libs / pinned_owned_buffers moved to VmCore (Phase 1.7-1.9)
 
     /// **add-gc-safepoint-counter-throttling **: per-thread
     /// throttle counter. `check_safepoint`'s fast path decrements; only

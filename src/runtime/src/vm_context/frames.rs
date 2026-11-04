@@ -180,7 +180,7 @@ impl VmContext {
         debug_assert!(
             self.call_stack.published_depth() == 0
                 || self.call_stack.owned_by_current_thread()
-                || self.core.collector_active.load(std::sync::atomic::Ordering::Acquire),
+                || self.core.threads.collector_active.load(std::sync::atomic::Ordering::Acquire),
             "another thread's frame stack scanned outside a GC pause"
         );
         // SAFETY: the caller's contract.

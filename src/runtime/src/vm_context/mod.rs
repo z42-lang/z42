@@ -1,7 +1,7 @@
 //! `VmContext` — the per-thread half of one VM instance's mutable state.
 //!
 //! A VM is one shared [`VmCore`] (behind `Arc`: static fields, lazy loader, GC
-//! heap, native interop registries, extension state, observers, …) plus one
+//! heap, thread coordination, extension state, observers, …) plus one
 //! `VmContext` per thread that runs z42 code. The context holds what belongs to
 //! that thread:
 //!

@@ -2,3 +2,6 @@
 mod gc;
 pub(crate) mod roots;
 pub mod safepoint;
+
+mod state;
+pub(crate) use state::ThreadState;

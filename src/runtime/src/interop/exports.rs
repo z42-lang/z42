@@ -140,7 +140,14 @@ pub unsafe extern "C" fn z42_register_type(
     };
 
     let arc = Arc::new(registered);
-    if !vm.register_native_type(arc.clone()) {
+    let inserted = match super::register_native_type(vm, arc.clone()) {
+        Ok(inserted) => inserted,
+        Err(e) => {
+            error::set(TYPE_REGISTRATION_FAILURE, format!("{e:#}"));
+            return NULL_TYPE_REF;
+        }
+    };
+    if !inserted {
         error::set(
             TYPE_REGISTRATION_FAILURE,
             format!(
@@ -175,9 +182,13 @@ pub unsafe extern "C" fn z42_resolve_type(
         Err(_) => return NULL_TYPE_REF,
     };
 
-    match vm.resolve_native_type(m, n) {
-        Some(rc) => type_ref_from_rc(&rc),
-        None => NULL_TYPE_REF,
+    match super::resolve_native_type(vm, m, n) {
+        Ok(Some(rc)) => type_ref_from_rc(&rc),
+        Ok(None) => NULL_TYPE_REF,
+        Err(e) => {
+            error::set(TYPE_REGISTRATION_FAILURE, format!("{e:#}"));
+            NULL_TYPE_REF
+        }
     }
 }
 

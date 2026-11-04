@@ -227,7 +227,7 @@ fn gc_pause_does_not_wait_for_a_thread_waiting_on_a_cctor() {
         })
     };
     let start = std::time::Instant::now();
-    while collector.core.parked_count.load(Ordering::Acquire) < 1 {
+    while collector.core.threads.parked_count.load(Ordering::Acquire) < 1 {
         assert!(start.elapsed() < std::time::Duration::from_secs(5), "等待者没有 park");
         std::thread::yield_now();
     }

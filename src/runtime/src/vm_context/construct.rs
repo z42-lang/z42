@@ -42,7 +42,7 @@ impl VmContext {
     /// The registry lock makes it exact with respect to a context dropping
     /// concurrently (its counts move to the core under the same lock).
     pub fn counters_snapshot(&self) -> crate::counters::Snapshot {
-        let registry = self.core.vm_contexts.lock();
+        let registry = self.core.threads.vm_contexts.lock();
         let mut total = self.core.diagnostics.counters.snapshot();
         for p in registry.iter() {
             // SAFETY: registered contexts are alive while the registry lock is
@@ -177,10 +177,10 @@ impl VmContext {
     /// Spawned-thread entry: build a VmContext that **shares** an existing
     /// `Arc<VmCore>` instead of creating a new one. Used by
     /// `__thread_spawn`'s spawned closure so the worker thread sees the
-    /// same module / static_fields / heap / lazy_loader / native_libs
+    /// same module / static_fields / heap / lazy_loader / extension state
     /// state as the parent thread.
     ///
-    /// The new VmContext registers itself in `core.vm_contexts` for GC root
+    /// The new VmContext registers itself in `core.threads.vm_contexts` for GC root
     /// scanning, so the worker's per-thread roots (`pending_exception` /
     /// `call_stack`) are visible to the cycle collector.
     /// On drop, the entry is removed under the same Mutex discipline as
@@ -233,11 +233,11 @@ impl VmContext {
         // VM is parked (`NativeParkGuard`, see docs/internals/src/runtime/native-gc-contract.md). loom model B′ in
         // tests/gc_registration_race_loom.rs checks both halves.
         {
-            let mut phase = boxed.core.gc_phase.lock();
+            let mut phase = boxed.core.threads.gc_phase.lock();
             while matches!(*phase, crate::vm::threads::safepoint::GcPhase::Marking) {
-                boxed.core.gc_phase_cv.wait(&mut phase);
+                boxed.core.threads.gc_phase_cv.wait(&mut phase);
             }
-            boxed.core.vm_contexts.lock().push(ptr);
+            boxed.core.threads.vm_contexts.lock().push(ptr);
         }
         // add-gc-tlab (stage 2): arm this thread for TLAB allocation (balanced
         // in Drop). A spawned worker allocates into the TLAB fast path.
@@ -259,6 +259,7 @@ impl VmContext {
         // avoidance: heap owns the scanner, scanner refs core, core owns
         // heap → strong-Arc loop = leak). Weak.upgrade() per call.
         let core: Arc<VmCore> = Arc::new(VmCore {
+            threads: crate::vm::threads::ThreadState::new(),
             statics:            Default::default(),
             lazy_loader:        RwLock::new(None),
             pending_type_inits: Mutex::new(Vec::new()),
@@ -267,26 +268,12 @@ impl VmContext {
             init_batch_inflight:     std::sync::atomic::AtomicUsize::new(0),
             static_init_error:  Mutex::new(None),
             context_registry:   Mutex::new(crate::vm::loader::contexts::ContextRegistry::new()),
-            #[cfg(feature = "native-interop")]
-            native_types:       RwLock::new(HashMap::new()),
-            #[cfg(feature = "native-interop")]
-            native_libs:        Mutex::new(Vec::new()),
-            pinned_owned_buffers: Mutex::new(HashMap::new()),
-            fatal:                std::sync::atomic::AtomicBool::new(false),
             heap:                 Box::new(Heap::new(crate::config::runtime_config().gc_config())),
-            vm_contexts:          Mutex::new(Vec::new()),
             funcs:                Arc::new(crate::vm::runtime::ids::func_table::FuncTable::new(module.clone())),
             types:                Arc::new(crate::vm::runtime::ids::type_table::TypeTable::new(module.as_deref())),
             strings:              Arc::new(crate::vm::runtime::ids::str_table::StrTable::new(module.clone())),
             module,
-            gc_phase:             Mutex::new(crate::vm::threads::safepoint::GcPhase::Idle),
-            gc_phase_cv:          parking_lot::Condvar::new(),
-            parked_count:         std::sync::atomic::AtomicUsize::new(0),
-            collector_active:     std::sync::atomic::AtomicBool::new(false),
-            needs_auto_collect:   Arc::new(std::sync::atomic::AtomicBool::new(false)),
             program_args:         Mutex::new(Vec::new()),
-            #[cfg(feature = "native-interop")]
-            ext_libs_tried:       Mutex::new(Default::default()),
             vfs,
 
             diagnostics: crate::vm::diagnostics::DiagnosticsState {
@@ -325,7 +312,7 @@ impl VmContext {
         // path defers to the next safepoint check instead of collecting
         // inline (the inline path has no &VmContext and would race with
         // concurrent mutators' frame.regs writes).
-        core.heap.set_external_needs_collect_flag(Arc::clone(&core.needs_auto_collect));
+        core.heap.set_external_needs_collect_flag(Arc::clone(&core.threads.needs_auto_collect));
         // P0-16: and let it send every mutator to the slow path when it raises that flag, so the
         // collection does not wait out the safepoint throttle. `Weak`, like the root scanner.
         {
@@ -386,7 +373,7 @@ impl VmContext {
                 c.statics.scan_roots(&mut |v| visit(v, RootKind::StaticField));
                 // Interned `ConstStr` literals (VM-wide, like static fields).
                 c.strings.scan_roots(|s| visit(&Value::Str(s), RootKind::StaticField));
-                let registry = c.vm_contexts.lock();
+                let registry = c.threads.vm_contexts.lock();
                 for ctx_ptr in registry.iter() {
                     // SAFETY: same invariant as the anonymous root scanner —
                     // entries are removed in `VmContext::drop` before dealloc,
@@ -447,11 +434,11 @@ impl VmContext {
         };
         // Heap-allocate so the address is stable for the scanner registry.
         let boxed = Box::new(ctx);
-        // SAFETY: VmContext registers its OWN address into VmCore.vm_contexts
+        // SAFETY: VmContext registers its OWN address into VmCore.threads.vm_contexts
         // here and removes the entry in Drop (running BEFORE Box dealloc).
         // The Pin wrapper + PhantomPinned prevents any subsequent move-out.
         let ptr = VmContextPtr(&*boxed as *const VmContext);
-        boxed.core.vm_contexts.lock().push(ptr);
+        boxed.core.threads.vm_contexts.lock().push(ptr);
 
         // add-z42-compression : register ext builtins that need no
         // I/O (the bundled wasm build). The dlopen build loads a library on the
@@ -478,7 +465,7 @@ impl VmContext {
 
 impl Drop for VmContext {
     /// **add-vmcontext-registry **: deregister this `VmContext`
-    /// from `VmCore.vm_contexts` so the GC scanner stops trying to walk a
+    /// from `VmCore.threads.vm_contexts` so the GC scanner stops trying to walk a
     /// soon-to-be-freed allocation. Runs BEFORE the underlying `Box` storage
     /// is released (Rust drop order: contents → Box dealloc), so any GC
     /// scan racing this Drop will block on the registry lock and see the
@@ -500,7 +487,7 @@ impl Drop for VmContext {
             // runtime-audit P0-15: move this thread's counts into the core's
             // total under the registry lock, so `counters_snapshot` never sees
             // them twice or not at all.
-            let mut registry = self.core.vm_contexts.lock();
+            let mut registry = self.core.threads.vm_contexts.lock();
             self.core.diagnostics.counters.absorb(&self.counters);
             registry.retain(|p| p.0 != ptr);
         }
@@ -509,7 +496,7 @@ impl Drop for VmContext {
         // may lower vm_contexts.len()-1 below the current parked_count,
         // satisfying the wait condition. Must hold gc_phase lock to prevent
         // a missed-wakeup between the condition re-check and the wait call.
-        let _g = self.core.gc_phase.lock();
-        self.core.gc_phase_cv.notify_all();
+        let _g = self.core.threads.gc_phase.lock();
+        self.core.threads.gc_phase_cv.notify_all();
     }
 }

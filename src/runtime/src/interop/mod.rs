@@ -1,34 +1,37 @@
-//! Interop runtime — Tier 1 C ABI implementation (calling external C libraries).
-//!
-//! See `docs/design/language/interop.md` and spec C2 (`impl-tier1-c-abi`). This
-//! module wires together:
-//!
-//! - [`registry`] — `RegisteredType` + per-VM type table
-//! - [`marshal`] — `Z42Value` ↔ `Value` conversion (blittable subset)
-//! - [`dispatch`] — libffi cif construction + `extern "C"` invocation
-//! - [`loader`] — `dlopen` + library-handle lifetime management
-//! - [`error`] — thread-local last-error slot for `z42_last_error()`
-//! - [`exports`] — `#[unsafe(no_mangle)]` `z42_*` ABI entry points
-//!
-//! Only `CallNative` (0x53) is wired to real dispatch in this spec; the
-//! other three C1-scaffold opcodes (`CallNativeVtable`, `PinPtr`,
-//! `UnpinPtr`) keep their trap behaviour until specs C4/C5 land.
+//! Interop-owned per-VM buffers and optional Tier 1 native ABI support.
+//! Buffer pinning is available on every target. External type registration,
+//! libffi dispatch and dynamic loading require `native-interop`.
+mod state;
+pub use state::{pin_owned_buffer, release_owned_buffer, pinned_owned_buffer_count};
+#[cfg(feature = "native-interop")]
+pub use state::{register_native_type, resolve_native_type, native_type_count};
 
+#[cfg(feature = "native-interop")]
 pub mod dispatch;
+#[cfg(feature = "native-interop")]
 pub mod error;
+#[cfg(feature = "native-interop")]
 pub mod exports;
+#[cfg(feature = "native-interop")]
 pub mod ext;
+#[cfg(feature = "native-interop")]
 pub mod loader;
+#[cfg(feature = "native-interop")]
 pub mod marshal;
+#[cfg(feature = "native-interop")]
 pub mod registry;
 
-#[cfg(test)]
-mod registry_tests;
-#[cfg(test)]
-mod marshal_tests;
-#[cfg(test)]
-mod dispatch_tests;
-#[cfg(test)]
-mod ext_tests;
-
+#[cfg(feature = "native-interop")]
 pub use registry::{MethodEntry, RegisteredType};
+#[cfg(all(test, feature = "native-interop"))]
+mod registry_tests;
+#[cfg(all(test, feature = "native-interop"))]
+mod marshal_tests;
+#[cfg(all(test, feature = "native-interop"))]
+mod dispatch_tests;
+#[cfg(all(test, feature = "native-interop"))]
+mod ext_tests;
+#[cfg(test)]
+mod state_tests;
+
+pub(crate) fn state_for_vm() -> state::State { state::State::default() }

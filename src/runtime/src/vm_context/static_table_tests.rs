@@ -122,7 +122,7 @@ fn concurrent_writers_never_tear_and_stay_rooted_across_collections() {
                 let obj = w.heap().alloc_object(Arc::clone(&td), vec![Value::I64(n)], NativeData::None);
                 w.static_set_by_id(refs, obj).unwrap(); // rooted before the next safepoint
                 if i % 97 == t {
-                    w.core.needs_auto_collect.store(true, Ordering::Release);
+                    w.core.threads.needs_auto_collect.store(true, Ordering::Release);
                 }
                 w.safepoint_skip.store(1, Ordering::Relaxed);
                 crate::vm::threads::safepoint::check_safepoint(&w);

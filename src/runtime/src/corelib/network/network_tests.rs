@@ -62,7 +62,7 @@ fn bytes(ctx: &VmContext, n: usize) -> Value {
 }
 
 fn parked(ctx: &VmContext) -> usize {
-    ctx.core.parked_count.load(std::sync::atomic::Ordering::Acquire) as usize
+    ctx.core.threads.parked_count.load(std::sync::atomic::Ordering::Acquire) as usize
 }
 
 fn wait_until(mut cond: impl FnMut() -> bool) -> bool {

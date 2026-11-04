@@ -143,7 +143,7 @@ fn pin_array_u8_snapshots_bytes() {
     assert_eq!(out, Some(Value::I64(2)));
     // After UnpinPtr the owned-buffer table should be empty.
     assert_eq!(
-        ctx.pinned_owned_buffer_count(),
+        z42::interop::pinned_owned_buffer_count(&ctx).unwrap(),
         0,
         "UnpinPtr must release the owned Box<[u8]>"
     );

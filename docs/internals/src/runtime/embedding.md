@@ -14,6 +14,8 @@
 
 反方向（native 代码把类型**注册进** z42）是另一套：见 [native-abi.md](native-abi.md)。
 两者复用同一份 `Z42Value` / `Z42Args` / `Z42Error`，在同一棵头文件树下并行，不重叠。
+门面在创建每个 VM 时装配核心库与 interop 扩展状态；宿主启动入口同样经过该构造路径。
+owned pin buffer 在非 native 平台也保留，native 库句柄则活到其他 VM 资源销毁之后。
 
 ---
 

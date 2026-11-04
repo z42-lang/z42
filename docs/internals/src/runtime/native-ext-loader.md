@@ -223,8 +223,10 @@ is the right tool once spec C5 (byte[] / String marshal) lands.
 | Performance | One libffi `cif` call (~30 ns overhead) | Direct fn ptr call (~5 ns) + Value↔bytes marshal |
 | Lifecycle | `<libname>_register` entry calls `z42_register_type` | `register_<basename>_builtins`-style dispatch (no z42 API surface for cdylib to call) |
 
-The two paths share `VmCore.native_libs` for library handle lifetime
-management but otherwise don't overlap.
+Tier 1 keeps library handles in `interop::State.native_libs`, accessed through the VM's
+extension state. The compression ext table owns its library process-wide; other ext
+libraries retained per VM use that same interop state. The state outlives the VM heap,
+engines and other extension resources.
 
 ## Migration of existing stdlib natives
 

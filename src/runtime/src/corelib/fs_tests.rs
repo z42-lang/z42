@@ -152,7 +152,7 @@ fn file_stream_round_trip_and_closed_handle() {
 }
 
 fn parked(c: &VmContext) -> usize {
-    c.core.parked_count.load(std::sync::atomic::Ordering::Acquire) as usize
+    c.core.threads.parked_count.load(std::sync::atomic::Ordering::Acquire) as usize
 }
 
 fn wait_until(mut cond: impl FnMut() -> bool) -> bool {

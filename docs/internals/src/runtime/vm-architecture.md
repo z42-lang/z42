@@ -102,26 +102,25 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.engines` 
   （型参单元协议，读写无锁，单元旁缓存类型初始化屏障的属主判定），外加 FQN → id 的登记表（首次用到才分配，解析期才走它的锁）。
   布局与内存序见 [object-abi.md](object-abi.md)「字段单元的内存序」
 - `lazy_loader: RwLock<Option<LazyLoader>>` — 按需 zpkg 加载器（**RwLock**：符号查找稳态下是纯读，只有真正加载 zpkg 才取写锁）
-- `native_types: RwLock<HashMap<(String,String), Arc<RegisteredType>>>` — Tier 1 native interop 注册表（**RwLock**，读多写少：dispatch 是纯读，写仅在 module 加载期；`#[cfg(feature="native-interop")]`）
-- `native_libs: Mutex<Vec<libloading::Library>>` — 已加载的 native 库句柄（同上 cfg）
-- `ext_libs_tried: Mutex<HashSet<&str>>` — 本 VM 已尝试打开的 stdlib 原生扩展库（`interop::ext::ensure_lib_for`，每个库只找一次；同上 cfg）
-- `pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>` — `Value::PinnedView` 的 owned 缓冲
-- `fatal: AtomicBool` — 致命 VM 错误（栈溢出）正在展开，见下文「原生栈预算」
 - `heap: Box<Heap>` — GC 子系统接口（后端 `Heap`）
 - `module: Option<Arc<Module>>` — 用户编译后的 Module，跨线程共享；测试路径 `None`，生产路径 `Some(Arc::new(module))`
 - `funcs: Arc<FuncTable>` — VM 级函数身份表（`vm/runtime/ids/func_table.rs`）：每个函数一个 `FnId`（u32，本 VmCore 内稠密、永不复用、只存在于运行期），`get(id)` 无锁。入口模块的函数在构造 VmCore 时整块登记为 `0..n`，**等于 `module.functions` 下标**（槽位借用 `module`，表里持有同一个 `Arc`）；惰性包的函数在 `LazyLoader::insert_function` 入表时逐个追加（槽位持有 `Arc<Function>`），重名 first-wins、不分配新 id。`Function.id` 记录登记得到的 id。名字反查 `id_of` 是冷路径：先查入口模块的 `func_index`，再查惰性函数的 `by_name`。`by_name` 同时就是 lazy loader 的函数名表（加载器自己不另存一份，`probe_function` / `resolve_function` 都经 `FuncTable::lazy_fn` 读它）；惰性函数与入口函数同名时仍各有 id，`id_of` 答入口那个。再次安装 lazy loader（只有测试会）用 `reset_lazy_names` 清空名字空间，槽位与 id 保留。底层是 `vm/runtime/ids/seg_vec.rs` 的 `SegVec`：倍增分段（首段 1024 项）、段永不移动，追加持写者锁并以 Release 发布长度，读侧 Acquire 读长度。消费方：`Call` 站点 token（见下文「Call 站点 token：FnId」）、VCall PIC 载荷、ObjNew 站点的 ctor、`LoadFn` / `MkClos` 站点 token 与 `FuncRef` / 闭包值里的目标（见下文「闭包 dispatch」），以及 JIT 的槽位表——全都存同一个 `FnId`。
 - `types: Arc<TypeTable>` — VM 级类型身份表（`vm/runtime/ids/type_table.rs`）：`TypeId` → 该类型**最新版本**的描述符，`get(id)` 无锁（Acquire 读槽指针）。`TypeId` 是**进程级**的（`tokens::alloc_type_id_block` 在构建模块类型注册表时整块分配，见下「TypeId 的作用域」），一个 VM 只看到其中稀疏的一部分，所以底层是按裸 id 下标的 `SparseSegTable`（段在首次触碰时分配）。登记：入口模块的 `type_registry` 在构造 VmCore 时整体登记；lazy loader 在每个改动自己类型表的步骤之后调 `LazyLoader::publish_types` 把整张表发布一遍——包加载（继承 fixup 跑完之后，此时新描述符仍独占，fixup 原地改）、`seed_types_for_lookup`、`ensure_base_chain_loaded` 的 fixup。fixup 写时复制出的合并副本与原描述符同 id 同名，发布时槽位改指新副本；发布过的每个版本都留在表里直到表析构，借出的 `&TypeDesc` 不会悬空。同一 id 下名字不同的描述符被拒（first-wins，记 error 日志；只有发号器不变量被破坏才会发生）。重名类型由加载器 first-wins，输家从不发布。**不登记**：按对象现建的回落描述符、corelib 原生句柄单例（两者 `id == UNRESOLVED`）、只由 load context 持有的模块的类型。名字查找仍走 `Module.type_registry` 与加载器的 `type_registry`（两张名字表尚未并入本表）。另外为**类型判定的目标名**保留键（`name_key`，见 [interp-jit-semantics.md](interp-jit-semantics.md)「类型判定的缓存键」）。消费方：`isa_cache` 的键。
 - `strings: Arc<StrTable>` — VM 级字符串字面量身份表（`vm/runtime/ids/str_table.rs`）：每个 `ConstStr` 操作数都是本 VM 一个稠密、只追加、永不复用的**字符串 id**，槽位存字面量文本与驻留的 GC 字符串。入口模块的 `string_pool` 在构造 VmCore 时整块登记为 `0..n`（槽位不复制文本，从 `module` 读）；惰性包注册时加载器把它的整个池追加进来（`StrTable::append` 返回首个 id，`remap_const_str` 把包内 `ConstStr.idx` 加上它）。再次安装 lazy loader（只有测试会）接着往后编号，旧加载器的函数仍读得到自己的字面量；加载器的 `main_pool_len` 以下、表里没有文本的 id 用空槽占位（`reserve`）。驻留与 GC 根见下「ConstStr：每 VM 的字符串表」。
-- `vm_contexts: Mutex<Vec<VmContextPtr>>` — 本 core 上所有存活 `VmContext` 的注册表（见下「Send-safety 与 GC scanner 设计」）
 - 静态初始化：`cctors: Arc<CctorRegistry>`（有静态构造器的类型的初始化状态，见 [static-ctor-init.md](static-ctor-init.md)）/ `pending_type_inits` / `pending_type_init_count` / `init_batch_inflight` / `static_init_error`
 - `context_registry: Mutex<ContextRegistry>` — load context / assembly 注册表（见 [load-context.md](load-context.md)）
-- GC safepoint 协议：`gc_phase` / `gc_phase_cv` / `parked_count` / `collector_active` / `needs_auto_collect`（见 [safepoint-design.md](safepoint-design.md)）
+- `threads: ThreadState`（`vm/threads/state.rs`）— context 注册表、fatal 标记及 GC safepoint 的 `gc_phase` / `gc_phase_cv` / `parked_count` / `collector_active` / `needs_auto_collect`；每 VM 一份，worker 共享（见 [safepoint-design.md](safepoint-design.md)）
 - `program_args: Mutex<Vec<String>>` — `--` 之后的程序参数（`Std.IO.Environment.GetCommandLineArgs()`）
 - 观测：`counters`（`RuntimeCounters`，只累计已销毁 `VmContext` 的计数；各线程在自己的 `VmContext.counters` 上计，`counters_snapshot()` 汇总）/ `runtime_observers` / `park_histogram`（safepoint park 时长分布）/ `lock_contentions` + `lock_wait_us`（仅 `profile-contention` feature 写入）/ `sampler`（`Z42_SAMPLE_HZ` 开启的采样 profiler）
 
 核心库的进程、线程、文件、TCP socket/listener、UDP 和 TLS 七张资源表分别归对应模块的 `State`，
 由门面 `extension_assembly.rs` 在所有 VM 构造入口创建并登记到扩展状态中；worker 共享同一个 core 的状态。
 VM 的泛型存储不依赖这些资源类型。网络与 TLS 状态保持各自 `net` / `tls` feature 边界。
+
+`interop/state.rs` 持有 native 类型表、库句柄、已尝试扩展库集合与 owned pin buffer。
+门面先登记 interop 状态，其他模块与宿主状态后登记；逆序释放使库句柄晚于 heap、引擎和其他扩展销毁。
+interop 状态内部先释放类型和 buffer，最后释放库句柄。buffer 始终存在，native 表与加载器仍受 `native-interop` 约束。
+Rust 查询/注册/pin 操作经 interop 模块函数访问冻结扩展状态，内部缺失通过 `Result` 报错。
 
 `corelib/resource_registry.rs` 提供 `ResourceRegistry<T>`：原有的表锁、单调计数器与取出/克隆语义组合在一起。
 每个 VM 的每类槽号从 1 开始、永不复用。阻塞 I/O 只在表锁下克隆 `Arc`，释放锁后再做系统调用；
@@ -281,8 +280,8 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
 实测：前端 typecheck 4.757→4.617s = **2.9%**，`--dump-bound` 逐字节一致，`push_frame` 197→125 /
 `pop_frame` 151→110 samples，无格式/wire/语义变更。
 
-**Native interop 入口**：`VmContext::register_native_type(Arc<RegisteredType>)` /
-`resolve_native_type(module, name)` / `load_native_library(path)`；后者打开 `.dylib`
+**Native interop 入口**：`interop::register_native_type(ctx, Arc<RegisteredType>)` /
+`resolve_native_type(ctx, module, name)` / `loader::load_library(ctx, path)`；后者打开 `.dylib`
 /`.so`/`.dll` 并调用其 `<basename>_register` 入口（约定）让 native 库通过
 `z42_register_type` 把类型推入 `native_types`。栈底帧 push 时安装 thread-local
 `CURRENT_VM`（见上「寄存器池、引擎入口 guard、frame_id」）让 native callback 能找回 VM；详见
@@ -302,7 +301,7 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
   `VmContext`，值在栈底帧 push 时按该线程写入），越界调 `jit_stack_overflow` 后返回「已抛出」。每条线程（含 worker）
   都按自己的栈检查。
 
-越界时记下 z42 调用栈、置 `VmCore.fatal`（每个 VM 一份，同一 VM 的所有线程共享）。之后：
+越界时记下 z42 调用栈、置 `VmCore.threads.fatal`（每个 VM 一份，同一 VM 的所有线程共享）。之后：
 
 - interp 的 `find_handler` 与 JIT 的 catch 分发（`jit_fatal_pending`）一律不进 handler，`finally` 也不跑；
 - builtin 错误不再转成 `Std.Exception`（`exec_call::builtin`）；

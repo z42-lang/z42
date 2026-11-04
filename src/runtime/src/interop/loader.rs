@@ -1,7 +1,7 @@
 //! Native library loader: `dlopen` + invoke the library's `<basename>_register`
 //! entry point so its types land in the VM's `TypeRegistry`.
 //!
-//! The library handle is stored on `VmContext.native_libs` for the VM's
+//! The library handle is stored on interop extension state for the VM's
 //! lifetime, keeping every `fn_ptr` referenced by a `RegisteredType` valid
 //! until VM drop.
 
@@ -54,10 +54,10 @@ pub fn load_library(ctx: &VmContext, path: &Path) -> Result<()> {
 
     // Call the entry. The library is expected to invoke `z42_register_type`
     // for each of its types; those calls flow through `exports::z42_register_type`
-    // → `VmContext::register_native_type` on the current thread.
+    // → `interop::register_native_type` on the current thread.
     unsafe { register() };
 
-    ctx.core.native_libs.lock().push(lib);
+    super::state::state(ctx)?.native_libs.lock().push(lib);
     Ok(())
 }
 

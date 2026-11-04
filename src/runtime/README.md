@@ -14,7 +14,8 @@
 |------|------|
 | `main.rs` | `z42vm` CLI 入口，加载产物并交给 `Vm` 执行 |
 | `startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
-| `extension_assembly.rs` | 门面装配核心库每 VM 资源状态，所有构造入口共用 |
+| `extension_assembly.rs` | 门面装配 interop 与核心库每 VM 资源状态，保留库句柄到最后释放，所有构造入口共用 |
+| `vm/threads/state.rs` | `ThreadState` 拥有每 VM 线程注册、暂停握手与 fatal 状态，VmCore 组合持有 |
 | `vm/ext.rs` | `VmExtensions` 创建前登记与冻结的每 VM Rust 扩展状态，`VmContext::ext` 借用查询 |
 | `vm.rs` | `Vm`：持有执行配置，从 VmContext 取得 Module，按 `ExecMode` 调用已注册引擎入口 |
 | `app.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|

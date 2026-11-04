@@ -4,6 +4,8 @@ use crate::vm::ext::{ExtensionState, VmExtensions};
 
 pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     let mut defaults = VmExtensions::new();
+    // Interop providers must outlive heap, engines, user state and core-library resources.
+    add(&mut defaults, crate::interop::state_for_vm());
     add(&mut defaults, corelib::process::State::default());
     add(&mut defaults, corelib::threading::State::default());
     add(&mut defaults, corelib::fs::State::default());
