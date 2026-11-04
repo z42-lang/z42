@@ -260,10 +260,7 @@ impl VmContext {
         // heap → strong-Arc loop = leak). Weak.upgrade() per call.
         let core: Arc<VmCore> = Arc::new(VmCore {
             threads: crate::vm::threads::ThreadState::new(),
-            statics:            Default::default(),
             loader: crate::vm::loader::LoaderState::new(vfs),
-            cctors:             Arc::new(super::cctor::CctorRegistry::default()),
-            static_init_error:  Mutex::new(None),
             heap:                 Box::new(Heap::new(crate::config::runtime_config().gc_config())),
             runtime: crate::vm::runtime::RuntimeState::new(module),
             program_args:         Mutex::new(Vec::new()),
@@ -362,7 +359,7 @@ impl VmContext {
             core.heap.set_categorized_root_scanner(Box::new(move |visit| {
                 use crate::gc::walk::RootKind;
                 let Some(c) = core_weak.upgrade() else { return; };
-                c.statics.scan_roots(&mut |v| visit(v, RootKind::StaticField));
+                c.runtime.statics.scan_roots(&mut |v| visit(v, RootKind::StaticField));
                 // Interned `ConstStr` literals (VM-wide, like static fields).
                 c.runtime.strings.scan_roots(|s| visit(&Value::Str(s), RootKind::StaticField));
                 let registry = c.threads.vm_contexts.lock();

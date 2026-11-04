@@ -17,3 +17,5 @@ mod runtime_tests;
 
 mod state;
 pub(crate) use state::RuntimeState;
+
+pub(crate) mod statics;

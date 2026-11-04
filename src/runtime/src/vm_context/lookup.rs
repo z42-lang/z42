@@ -22,7 +22,7 @@ impl VmContext {
     ) {
         let mut loader = LazyLoader::new(search_dirs, main_pool_len, declared, initially_loaded);
         // fix-crosspkg-static-call-cctor：加载器在类型入表时登记 cctor，须持有同一份 registry。
-        loader.set_cctor_registry(Arc::clone(&self.core.cctors));
+        loader.set_cctor_registry(Arc::clone(&self.core.runtime.cctors));
         // 惰性包的函数登记在 VmCore 的 FuncTable 里（分配 FnId；它也是加载器的函数名表）。
         loader.set_func_table(Arc::clone(&self.core.runtime.funcs));
         // 惰性包的类型描述符发布到 VmCore 的 TypeTable（TypeId → 描述符）。
@@ -403,7 +403,7 @@ impl VmContext {
 
     /// defer-class-initialization: 取走首个懒初始化失败（若有）。`Vm::run` 在入口返回后检查。
     pub fn take_static_init_error(&self) -> Option<String> {
-        self.core.static_init_error.lock().take()
+        self.core.runtime.static_init_error.lock().take()
     }
 
     /// Force-load every not-yet-loaded declared package (one-time eager load).

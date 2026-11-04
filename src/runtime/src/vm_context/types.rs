@@ -6,31 +6,8 @@ use super::*;
 /// interop resources live in frozen extension state.
 pub struct VmCore {
     pub(crate) threads: crate::vm::threads::ThreadState,
-    /// Static fields: one stable-address cell per `StaticFieldId` (read / written without a
-    /// lock), plus the FQN → id registration (lazy, first use; cross-zpkg fields can be met in
-    /// any order). See `vm_context::static_table`.
-    pub(crate) statics: super::static_table::StaticTable,
-    /// add-static-constructors：有静态构造器的类型的按类型初始化状态。**只登记有 cctor
-    /// 的类型**；热路径通过其无锁 `pending` 计数短路（`== 0` ⇒ 全程序无待初始化 cctor
-    /// ⇒ 屏障免费）。详见 `vm_context/cctor.rs` 模块注释。
-    /// fix-crosspkg-static-call-cctor：`Arc` 是为了让惰性加载器也持有一份——它在类型入表的那一刻
-    /// 登记 cctor（见 `LazyLoader::insert_type`）。
-    pub(crate) cctors: Arc<super::cctor::CctorRegistry>,
-    /// defer-class-initialization: 懒执行的 `__static_init__` 抛出/出错时记录首个失败，
-    /// 由 `Vm::run` 在入口返回后转成运行错误（对齐变更前 boot 期 `bail!` 的响度）。
-    pub(crate) static_init_error:  Mutex<Option<String>>,
-    /// **GC subsystem**. Moved here in Phase 2.2 so it can be shared across
-    /// threads (single global heap). Backing today is `Heap`; Phase 3
-    /// swaps to Arc + Send + Sync. Stored as `Box<Heap>` (no inner
-    /// lock) because all `Heap` methods take `&self` and the impl handles
-    /// its own interior mutability.
-    ///
-    /// **Scanner cycle avoidance**: the external root scanner closure
-    /// captures `Weak<VmCore>` (not `Arc<VmCore>`) for static_fields access
-    /// — otherwise `VmCore` → heap → scanner → Arc<VmCore> forms a cycle
-    /// and the core never drops. Per-thread roots (call_stack /
-    /// pending_exception) stay captured via `Rc<RefCell>`
-    /// clones from the unique VmContext.
+    /// Owned heap. Its root providers keep Weak<VmCore> to avoid ownership cycles.
+    /// Metadata and interop providers remain alive until after heap teardown.
     pub(crate) heap:               Box<Heap>,
     pub(crate) runtime: crate::vm::runtime::RuntimeState,
     pub(crate) loader: crate::vm::loader::LoaderState,
@@ -77,9 +54,9 @@ pub(crate) struct JitHead {
     /// runs on it. `0` until then (`sp < 0` never holds: no check). Written and
     /// read by the owner thread only; atomic only to keep the context `Sync`.
     pub(crate) stack_limit: std::sync::atomic::AtomicUsize,
-    /// `Arc::as_ptr(&core.cctors)` — stable for the core's life, set at
+    /// `Arc::as_ptr(&core.runtime.cctors)` — stable for the core's life, set at
     /// construction.
-    pub(crate) cctors: *const super::cctor::CctorRegistry,
+    pub(crate) cctors: *const crate::vm::runtime::statics::CctorRegistry,
     /// The registered neutral tier header (null until installed):
     /// taken at construction, published by the tier installer for the
     /// installing context, and refreshed at the bottom frame push for a context
@@ -98,7 +75,7 @@ impl JitHead {
     pub(crate) fn new(core: &VmCore) -> Self {
         JitHead {
             stack_limit: std::sync::atomic::AtomicUsize::new(0),
-            cctors: Arc::as_ptr(&core.cctors),
+            cctors: Arc::as_ptr(&core.runtime.cctors),
             #[cfg(feature = "jit")]
             jit: std::sync::atomic::AtomicPtr::new(
                 core.engines.tier().map_or(std::ptr::null_mut(), |rt| rt as *const _ as *mut _)),

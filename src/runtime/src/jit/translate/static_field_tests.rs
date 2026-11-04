@@ -293,7 +293,7 @@ fn the_first_compiled_access_runs_the_static_constructor_exactly_once() {
     assert_eq!(interp(&build, 0, &[]), Ok(Value::I64(7)));
 
     // A newly registered static constructor elsewhere moves the epoch: one helper pass, then native.
-    vm.core.cctors.register("Other.D", "Other.D.$cctor");
+    vm.core.runtime.cctors.register("Other.D", "Other.D.$cctor");
     assert_eq!(run_on(&vm, 0, &[]), (Ok(Value::I64(7)), 1));
     assert_eq!(run_on(&vm, 0, &[]), (Ok(Value::I64(7)), 0));
 

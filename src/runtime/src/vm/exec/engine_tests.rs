@@ -112,7 +112,7 @@ fn neutral_tier_pointer_preserves_compiled_context_head_layout() {
     #[repr(C)]
     struct ExpectedHead {
         stack_limit: std::sync::atomic::AtomicUsize,
-        cctors: *const crate::vm_context::cctor::CctorRegistry,
+        cctors: *const crate::vm::runtime::statics::CctorRegistry,
         #[cfg(feature = "jit")]
         jit: std::sync::atomic::AtomicPtr<()>,
     }

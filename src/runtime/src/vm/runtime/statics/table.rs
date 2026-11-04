@@ -260,5 +260,5 @@ impl StaticTable {
 }
 
 #[cfg(test)]
-#[path = "static_table_tests.rs"]
-mod static_table_tests;
+#[path = "table_tests.rs"]
+mod table_tests;

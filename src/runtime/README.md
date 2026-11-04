@@ -18,6 +18,7 @@
 | `vm/threads/state.rs` | `ThreadState` 拥有每 VM 线程注册、暂停握手与 fatal 状态，VmCore 组合持有 |
 | `vm/runtime/state.rs` | `RuntimeState` 组合入口 module 与运行时身份表，保留每 VM 链接隔离 |
 | `vm/loader/state.rs` | `LoaderState` 组合每 VM 加载上下文、初始化队列与 VFS |
+| `vm/runtime/statics/` / `vm/exec/init.rs` | 静态存储/初始化事实与执行/等待的职责边界 |
 | `vm/ext.rs` | `VmExtensions` 创建前登记与冻结的每 VM Rust 扩展状态，`VmContext::ext` 借用查询 |
 | `vm.rs` | `Vm`：持有执行配置，从 VmContext 取得 Module，按 `ExecMode` 调用已注册引擎入口 |
 | `app.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
