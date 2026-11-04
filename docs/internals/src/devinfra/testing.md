@@ -390,8 +390,9 @@ fixture `.zbc` + 收 stdlib zpkg 进平台 bundle；`run` 跑测试（C ABI harn
 用例源码声明的 `// requires-caps:` 随 bundle 下发，目标 VM 缺其中任一能力时该用例记为 skipped、不加载；
 `test list` 能先查每个用例声明了什么。两种覆盖模式：
 
-- **默认（无 `--shard`）**：带 cap 的类别 round-robin 采样——每个类别都有代表用例、不偏向字母序
-  靠前的类。定位是「验嵌入执行路径通不通」，本地/ 手动快速跑。
+- **默认（无 `--shard`）**：桌面全量；非桌面按语料类别 round-robin 采样至 60 例，避免偏向字母序
+  靠前的类。平台角色读取 `scripts/versions.toml` 的 `[rid.*].category`，不按 RID 名称猜测，也不按 CI tier
+  判断。省略 RID 的桌面调用保持全量；未登记的 RID 报错。采样用于本地 / 手动验证嵌入执行路径。
 - **`--shard k/n`**：不设 cap，取能力门控后的第 k/n 片（`index%n` 分区，n 片并集 = 全集、
   零重叠、确定）。受限平台的单个 job 有时间墙（wasm 的 Playwright、android 的 emulator），
   提 cap 会撞墙，分片把编译 + 跑摊到 n 个 runner 上，墙不动而覆盖到 100%。CI 的

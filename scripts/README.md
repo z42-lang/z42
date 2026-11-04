@@ -301,7 +301,7 @@ scripts/
 │   ├── xtask_test_embedded.z42  `test app desktop`：嵌入式 test-host 调度（desktop/wasm/ios/android）
 │   ├── xtask_test_embedded_corpus.z42  语料枚举 SoT（`test app desktop` 与 `test list` 共用）
 │   ├── xtask_test_embedded_golden.z42  golden / 单元语料的 zbc/zpkg 发射
-│   ├── xtask_selfcheck_embedded.z42  bundle 构建回归（成功 / 部分失败 / 旧 manifest / 空选择），随 builder 夹具跑
+│   ├── xtask_selfcheck_embedded.z42  bundle 回归（RID 类别采样 / 分片全覆盖 / 编译失败 / 旧 manifest），随 builder 夹具跑
 │   ├── xtask_selfcheck_fixture_runs.z42  真实进程退出码与主产物选择回归，随 multi-exe 跑
 │   ├── xtask_selfcheck_stages.z42  stage 编排与改动计划回归（skip / 必跑 / 首败 / 退出码 / 去重 / 全量回退），随 builder 夹具跑
 │   ├── xtask_selfcheck_examples.z42  examples stage 跳过与显式 SDK 消费回归，随 stage 自检跑

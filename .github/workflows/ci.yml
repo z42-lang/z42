@@ -110,7 +110,7 @@ jobs:
               - 'scripts/test/xtask_test_ios.z42'
               - 'scripts/test/xtask_test_android.z42'
               - 'scripts/test/xtask_test_desktop.z42'
-              - 'scripts/test/xtask_test_embedded.z42'
+              - 'scripts/test/xtask_test_embedded*.z42'
               - 'scripts/versions.toml'
               - '.github/workflows/ci.yml'
             # 学习手册示例：只有 package-host 用打包出的 SDK（含 Windows）重放。单独成 flag：并进 platform 会让改一页
