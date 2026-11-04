@@ -1,7 +1,7 @@
 # z42c — z42 自举编译器
 
 ## 职责
-用 z42 编写的自举编译器：源码全 z42，端到端 `build` 跑通、自编译为 zpkg。z42c 是唯一编译器。编译器域的全部包都在 `src/compiler/` 这一个 workspace 里（`z42.workspace.toml` 为准，`default_members` 即全部十四个包）。不放用户 stdlib（`Std.*`，在 `src/libraries/`）。
+用 z42 编写的自举编译器：源码全 z42，端到端 `build` 跑通、自编译为 zpkg。z42c 是唯一编译器。编译器域的全部包都在 `src/compiler/` 这一个 workspace 里（`z42.workspace.toml` 为准，`default_members` 为十三个包，`z42.doc` 独立构建）。不放用户 stdlib（`Std.*`，在 `src/libraries/`）。
 
 物理位置即「这是编译器域」的声明：普通工程的解析域只有 shipped `libs/`，看不到本 workspace 的包；要用得在 `[dependencies]` 里按名声明。
 
@@ -25,7 +25,7 @@
 
 包间依赖经 `z42c build --workspace` 的拓扑序 + 同 workspace dist 自动发现解析；冷启动由 `_ensureBootstrapSelfDepLibs` 破 z42c ⇄ z42.package 环预建，见 [self-hosting.md](../../docs/internals/src/compiler/self-hosting.md) 轴 ④。
 
-用户入口：`z42c.driver.zpkg`（exe）= `z42c` 命令别名，路由 `build` 等命令（`z42c.driver/src/Main.z42`，增量构建 `IncrementalDriver.z42`）。
+用户入口：`z42c.driver.zpkg`（exe）= `z42c` 命令别名，路由 `build` 等命令（`z42c.driver/src/Main.z42`）。CLI 与 HostTarget 共享 `z42c.pipeline/src/IncrementalCompilation.z42` 的文件增量引擎，各自保留入口策略。
 
 ## 基础用法
 ```bash

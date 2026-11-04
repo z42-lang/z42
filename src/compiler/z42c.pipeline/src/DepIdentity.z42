@@ -1,13 +1,6 @@
-// 依赖身份（add-dep-identity-to-cache-key）：增量缓存键里「这次编译看到的依赖」那一维。
-//
-// 此前缓存键只有本包源哈希 + 编译器版本号 + 格式版本，**没有依赖**：path 依赖 foo 把
-// `Answer()` 改成 `Answer(int)`，消费方 bar 源码没动 ⇒ probe 全命中 ⇒ preserved 旧产物 ⇒
-// 运行期 `undefined function Foo.Answer$0`（本应在编译期报错）。
-//
-// 口径 = 编译**实际扫描**的全部依赖 zpkg（DepScan.ScanDirs 扫的就是 libsDirs 下全部 *.zpkg，
-// 编译结果是它们的函数），排除自身。每包身份取 BLID（#654 起可复现：依赖重编但输出未变 ⇒
-// 身份不变 ⇒ 下游照样命中）；无 BLID（debug / indexed / 非 strip）回落整文件 Murmur3。
-// 粒度是包级：任一依赖变 ⇒ 本包全量。按命名空间细分是后续优化，不影响正确性。
+// Both identities observe the complete deterministic dependency scan set, excluding self.
+// CLI preserved products require executable identity (BLID, or complete bytes without BLID).
+// HostTarget only substitutes file IR, and may use its validated import-surface projection.
 namespace Z42.Pipeline;
 
 using Std.IO;
@@ -17,6 +10,14 @@ public static class DepIdentity {
     // 32 hex；没有任何依赖 zpkg 时也返回确定值（空集的哈希）。
     // hidden：与编译期扫描同一份不可见名单（口径必须一致——身份描述的就是编译看得见的那些包）。
     public static string Of(string[] dirs, int dirCount, string excludeName, WsTier tier) {
+        return DepIdentity._of(dirs, dirCount, excludeName, tier, false);
+    }
+
+    public static string SurfaceOf(string[] dirs, int dirCount, string excludeName, WsTier tier) {
+        return DepIdentity._of(dirs, dirCount, excludeName, tier, true);
+    }
+
+    private static string _of(string[] dirs, int dirCount, string excludeName, WsTier tier, bool surface) {
         string[] paths = ZpkgPathSort._sortedZpkgsMulti(dirs, dirCount, tier);
         string self = excludeName + ".zpkg";
         string[] parts = new string[paths.Length * 4];
@@ -27,7 +28,9 @@ public static class DepIdentity {
             if (basename != self) {
                 parts[k] = basename; k = k + 1;
                 parts[k] = "="; k = k + 1;
-                parts[k] = DepIdentity._idOf(DepScanCache.Get(paths[i])); k = k + 1;
+                CachedZpkg ce = DepScanCache.Get(paths[i]);
+                string id = surface ? DependencySurfaceIdentity.Of(ce) : "";
+                parts[k] = id != "" ? id : DepIdentity._idOf(ce); k = k + 1;
                 parts[k] = "\n"; k = k + 1;
             }
             i = i + 1;

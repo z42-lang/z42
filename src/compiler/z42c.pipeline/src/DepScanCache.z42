@@ -48,6 +48,7 @@ public sealed class CachedZpkg {
                                        // 首次某成员把它当 allowed-非-self 扫到时 ReadModuleSigs + 存，其余成员命中零重解）。
     public ZpkgModuleTypes[] Types;    // perf-tsig-reconcile-index：整包 TYPE（ReadModuleTypes）memo，与 Mods 同款纯函数。
     public string Identity;            // add-dep-identity-to-cache-key：DepIdentity 的每包身份 memo（null = 未算）
+    public string SurfaceIdentity;     // null = not computed; empty = requires executable-byte identity
     public long Size;                  // 陈旧守卫：缓存时刻的文件字节数
     public long MtimeMs;               // 陈旧守卫：缓存时刻的 mtime（unix epoch 毫秒）
     public CachedZpkg(string path, ZpkgInfo z, long size, long mtimeMs) {

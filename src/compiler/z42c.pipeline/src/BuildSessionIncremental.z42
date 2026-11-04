@@ -20,7 +20,8 @@ public sealed class BuildSessionIncremental {
         state._options = o; state._knobs = kn;
         state._sources = srcs; state._texts = texts; state._hashes = hashes;
         state._cacheDir = Path.Join(BuildLayout.Resolve(o.Manifest, o.ProjectDir, o.IsRelease).CacheDir, "host-target");
-        state._identity = BuildCacheIdentity.Of(o.Manifest, kn.OptSet, o.IsRelease, libs, libsN, tier)
+        // Small consumers retain byte identity to bound the fixed cost of normalizing a dependency world.
+        state._identity = BuildCacheIdentity.ForHost(o.Manifest, kn.OptSet, o.IsRelease, libs, libsN, tier, state._cacheDir, srcs.Length >= 8)
             + "|host:" + o.ParentPkg + ":" + (o.HarnessUnit ? "harness" : "normal") + ":" + (kn.Strip ? "strip" : "full");
         if (kn.Lints != null) {
             state._identity = state._identity + "|wae:" + (kn.Lints.WarningsAsErrors ? "1" : "0");
