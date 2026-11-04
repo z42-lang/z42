@@ -31,7 +31,7 @@ bool _isCompilerFormatTests(string root, string lib) {
     foreach (var e in Directory.Enumerate(td)) {
         string unitDir = Path.Join(td, e);
         if (!Directory.Exists(unitDir)) { continue; }
-        if (_fixtureManifest(unitDir).Length > 0) { return true; }
+        if (_findManifest(unitDir).ManifestPath.Length > 0) { return true; }
     }
     return false;
 }
@@ -130,12 +130,12 @@ int _testLibCore(string kind, string[] libList, bool noBuild, string filter, str
     string root = _root();
     List<string> dirs = new List<string>();
     foreach (var l in libList) { dirs.Add(Path.Join(_libSrcRoot(root, l), l)); }
-    return _testPkgsCore(kind, "stdlib", dirs.ToArray(), libList, noBuild, filter, jobs, mode, agg, ovVm, ovDriver, ovLibs);
+    return _testPkgsCore(kind, "stdlib", dirs.ToArray(), noBuild, filter, jobs, mode, agg, ovVm, ovDriver, ovLibs);
 }
 
-// 共用的 [Test] / [Benchmark] 跑测器：给定一组包（目录 + 包名，清单 = <dir>/<name>.z42.toml），先备工具链
+// 共用的 [Test] / [Benchmark] 跑测器：给定一组包（目录，工程清单按 ManifestLocator 定位），先备工具链
 // （z42vm + stdlib + z42b），再逐包转发给 z42b。`suite` 只用于汇总行（stdlib / toolchain）。
-int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool noBuild, string filter,
+int _testPkgsCore(string kind, string suite, string[] dirs, bool noBuild, string filter,
                   string jobs, string mode, MicroBenchAgg agg, string ovVm, string ovDriver, string ovLibs) {
     string label  = (kind == "bench") ? "bench" : "test";
     if (jobs.Length == 0) { jobs = "1"; }   // forwarded to z42b
@@ -188,7 +188,7 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
     // forwards to z42b (discovery: [tests]/[benches] section + explicit [[test]]/[[bench]]).
     int pi = 0;
     while (pi < dirs.Length) {
-        int f = _runLibKind(root, dirs[pi], names[pi], kind, label, filter,
+        int f = _runLibKind(root, dirs[pi], kind, label, filter,
                             builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
                             ref totalFiles, ref libsTested);
         if (f < 0) { return 2; }

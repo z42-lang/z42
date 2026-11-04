@@ -1,0 +1,12 @@
+// 目录清单定位：工程和工作区共用项目模型的规则；歧义必须报错。
+namespace Z42Xtask;
+
+using Z42.Project;
+
+ManifestLocation _findManifest(string dir) {
+    ManifestLocation found = ManifestLocator.FindIn(dir);
+    if (found.Kind == ManifestLocateKind.Ambiguous) {
+        throw new Exception(ManifestLocator.ErrorText(found, dir));
+    }
+    return found;
+}

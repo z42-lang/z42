@@ -59,9 +59,12 @@ builder 的命令行与常规构建 smoke 由 [声明式夹具](fixture-harness.
 `manifest-targets/` 两套夹具；断言放在测试工程旁的 `expect.toml`。
 需要预置损坏产物或检查插件执行顺序的用例保留专用代码。
 
-cross-zpkg、multi-exe 与 manifest targets 通过 `ManifestLocator.FindIn` 复用
+工具链测试包、库的 test / bench、编译器独立工程、cross-zpkg、multi-exe 与 manifest targets 通过
+`common/xtask_projects.z42` 中的 `ManifestLocator.FindIn` 复用
 [项目模型的清单定位](../compiler/project-model.md)，只查当前目录。`expect.toml` 等其他 TOML
-不参与工程选择，命名清单的歧义会报错。
+不参与工程选择，命名清单的歧义会报错。测试包的身份取 `project.name`，
+允许目录名、命名清单文件名与包名不同；工作区本身不作为反射测试包。
+工具链自身的测试由桌面宿主执行，不需要逐用例声明平台或 tier。
 
 打包相关：`xtask package sdk --verify` 组装完 SDK 后先自检 `packages.toml` 的解析 / 组件安装 / 发布归档，再拿这份
 发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑[发行包夹具](fixture-harness.md)（命令行路径 / 桌面发布 /
