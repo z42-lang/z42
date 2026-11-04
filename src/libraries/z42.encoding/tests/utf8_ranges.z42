@@ -11,7 +11,7 @@ void decoding_ignores_invalid_bytes_outside_the_slice() {
 }
 
 [Test]
-void slice_bounds_reject_integer_overflow_before_reading() {
+void slice_bounds_reject_large_indices_before_reading() {
     Encoding encoding = Encoding.GetUtf8();
     byte[] data = new byte[2];
     Assert.Throws("ArgumentException", () => encoding.GetString(data, 2147483647, 1));
