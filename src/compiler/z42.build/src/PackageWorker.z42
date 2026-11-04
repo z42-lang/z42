@@ -1,0 +1,29 @@
+namespace Z42.Build;
+
+using Std.IO;
+
+/// One process command owned by a package task. The scheduler owns its standard streams.
+public sealed class PackageWorker {
+    public Process Command;
+    public PackageWorker(Process command) { this.Command = command; }
+}
+
+/// Completed package-run diagnostics, indexed by graph node rather than completion time.
+/// The caller owns LogDir and removes it after replaying or archiving the diagnostics.
+public sealed class PackageRunResult {
+    public string LogDir;
+    public string[] Statuses;
+    public int[] ExitCodes;
+    public int Code;
+    public int Started;
+    public int MaxActive;
+
+    public PackageRunResult(int count) {
+        this.LogDir = File.CreateTempDir("package-workers");
+        this.Statuses = new string[count]; this.ExitCodes = new int[count];
+        this.Code = 0; this.Started = 0; this.MaxActive = 0;
+    }
+
+    public string StdoutPath(int node) { return Path.Join(this.LogDir, node.ToString() + ".stdout"); }
+    public string StderrPath(int node) { return Path.Join(this.LogDir, node.ToString() + ".stderr"); }
+}

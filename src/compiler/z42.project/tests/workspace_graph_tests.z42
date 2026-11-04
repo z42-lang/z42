@@ -1,0 +1,142 @@
+namespace Z42ProjectWorkspaceGraphTests;
+
+using Z42.Project;
+using Std.Harness;
+
+WorkspaceMembers _members() {
+    string[] names = new string[4];
+    names[0] = "a"; names[1] = "b"; names[2] = "c"; names[3] = "d";
+    return new WorkspaceMembers(new string[4], names, new string[0], new int[4], new int[4], 4);
+}
+
+WorkspaceGraph _graph(string rows) {
+    WorkspaceManifest ws = ManifestLoader.ParseWorkspaceText("[workspace.build.graph]\n" + rows);
+    Assert.Equal(0, ws.UnknownKeys.Length);
+    return ws.Graph;
+}
+
+void _reject(string rows, string expected) {
+    string message = "";
+    try { _graph(rows).Bind(_members()); }
+    catch (Exception e) { message = e.Message; }
+    Assert.True(message.Contains(expected));
+}
+
+[Test]
+void test_explicit_graph_diamond_binds_once_in_dependency_order() {
+    WorkspaceMembers m = _graph("a=['b','c']\nb=['d']\nc=['d']\nd=[]\n").Bind(_members());
+    int[] order = WorkspacePlan.TopoOrder(m);
+    Assert.Equal(4, order.Length);
+    Assert.Equal("d", m.Names[order[0]]);
+    Assert.Equal("a", m.Names[order[3]]);
+    Assert.Equal(2, m.DepLen[0]);
+    Assert.Equal(4, m.DepFlat.Length);
+}
+
+[Test]
+void test_explicit_graph_rejects_missing_unknown_duplicate_and_self_edges() {
+    _reject("a=[]\nb=[]\nc=[]\n", "every discovered member");
+    _reject("a=['outside']\nb=[]\nc=[]\nd=[]\n", "unknown prerequisite");
+    _reject("a=['b','b']\nb=[]\nc=[]\nd=[]\n", "duplicate prerequisite");
+    _reject("a=['a']\nb=[]\nc=[]\nd=[]\n", "self dependency");
+    _reject("a=[]\nb=[]\nc=[]\noutside=[]\n", "missing member");
+}
+
+[Test]
+void test_explicit_graph_rejects_cycles_and_malformed_rows() {
+    _reject("a=['b']\nb=['a']\nc=[]\nd=[]\n", "circular member dependency");
+    _reject("a=1\nb=[]\nc=[]\nd=[]\n", "expected an array");
+    _reject("a=[1]\nb=[]\nc=[]\nd=[]\n", "prerequisite must be a string");
+}
+
+[Test]
+void test_explicit_graph_cannot_drop_manifest_prerequisite() {
+    WorkspaceMembers m = _members();
+    m.DepFlat = new string[1]; m.DepFlat[0] = "b";
+    m.DepLen[0] = 1; m.DepOff[1] = 1; m.DepOff[2] = 1; m.DepOff[3] = 1;
+    string message = "";
+    try { _graph("a=[]\nb=[]\nc=[]\nd=[]\n").Bind(m); }
+    catch (Exception e) { message = e.Message; }
+    Assert.True(message.Contains("omits declared prerequisite"));
+}
+
+[Test]
+void test_legacy_workspace_has_no_explicit_graph() {
+    WorkspaceManifest ws = ManifestLoader.ParseWorkspaceText("[workspace]\nmembers=['*']\n");
+    Assert.True(ws.Graph == null);
+    Assert.Equal(0, ws.UnknownKeys.Length);
+}
+
+[Test]
+void test_package_tasks_claim_shared_leaf_once_and_wait_for_both_branches() {
+    PackageTaskState state = new PackageTaskState(_graph("a=['b','c']\nb=['d']\nc=['d']\nd=[]\n").Bind(_members()));
+    Assert.Equal(3, state.TakeReady());
+    Assert.Equal(-1, state.TakeReady());
+    state.Complete(3, true);
+    Assert.Equal(1, state.TakeReady());
+    Assert.Equal(2, state.TakeReady());
+    Assert.Equal(-1, state.TakeReady());
+    state.Complete(2, true);
+    Assert.Equal(-1, state.TakeReady());
+    state.Complete(1, true);
+    Assert.Equal(0, state.TakeReady());
+    state.Complete(0, true);
+    Assert.True(state.IsComplete());
+    Assert.Equal(-1, state.TakeReady());
+}
+
+[Test]
+void test_package_tasks_failure_blocks_dependents_but_drains_running_sibling() {
+    PackageTaskState state = new PackageTaskState(_graph("a=['b','c']\nb=['d']\nc=['d']\nd=[]\n").Bind(_members()));
+    state.TakeReady(); state.Complete(3, true);
+    state.TakeReady(); state.TakeReady();
+    state.Complete(1, false);
+    Assert.Equal("failed", state.Status(1));
+    Assert.Equal("blocked", state.Status(0));
+    Assert.Equal("running", state.Status(2));
+    Assert.False(state.IsComplete());
+    Assert.Equal(-1, state.TakeReady());
+    state.Complete(2, true);
+    Assert.True(state.IsComplete());
+}
+
+[Test]
+void test_package_tasks_reject_completion_without_claim_or_duplicate_completion() {
+    string[] one = new string[1]; one[0] = "leaf";
+    PackageTaskState state = new PackageTaskState(new WorkspaceMembers(one, one, new string[0], new int[1], new int[1], 1));
+    string message = "";
+    try { state.Complete(0, true); } catch (Exception e) { message = e.Message; }
+    Assert.True(message.Contains("requires a running task"));
+    Assert.Equal(0, state.TakeReady()); state.Complete(0, true);
+    message = "";
+    try { state.Complete(0, true); } catch (Exception e) { message = e.Message; }
+    Assert.True(message.Contains("requires a running task"));
+    Assert.True(state.IsComplete());
+}
+
+[Test]
+void test_package_tasks_snapshot_graph_and_propagate_leaf_failure() {
+    WorkspaceMembers graph = _graph("a=['b','c']\nb=['d']\nc=['d']\nd=[]\n").Bind(_members());
+    PackageTaskState state = new PackageTaskState(graph);
+    graph.DepFlat[0] = "unrelated"; graph.Names[3] = "renamed";
+    Assert.Equal(3, state.TakeReady()); state.Complete(3, false);
+    Assert.True(state.IsComplete());
+    Assert.Equal("blocked", state.Status(0));
+    Assert.Equal("blocked", state.Status(1));
+    Assert.Equal("blocked", state.Status(2));
+    Assert.Equal(-1, state.TakeReady());
+}
+
+[Test]
+void test_package_graph_selection_requires_prerequisite_closure() {
+    WorkspaceMembers graph = _graph("a=['b','c']\nb=['d']\nc=['d']\nd=[]\n").Bind(_members());
+    string[] selected = new string[1]; selected[0] = "d";
+    PackageTaskState state = new PackageTaskState(WorkspaceGraph.Select(graph, selected, 1));
+    Assert.Equal(1, state.Count());
+    Assert.Equal(0, state.TakeReady()); state.Complete(0, true);
+    Assert.True(state.IsComplete());
+    selected[0] = "a";
+    string message = "";
+    try { WorkspaceGraph.Select(graph, selected, 1); } catch (Exception e) { message = e.Message; }
+    Assert.True(message.Contains("omits a prerequisite"));
+}

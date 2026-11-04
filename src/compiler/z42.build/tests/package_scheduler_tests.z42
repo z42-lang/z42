@@ -1,0 +1,98 @@
+namespace Z42PackageSchedulerTests;
+
+using Std.IO;
+using Std.Harness;
+using Z42.Project;
+using Z42.Build;
+
+WorkspaceMembers _diamond() {
+    string[] names = new string[4];
+    names[0] = "a"; names[1] = "b"; names[2] = "c"; names[3] = "d";
+    WorkspaceMembers members = new WorkspaceMembers(names, names, new string[0], new int[4], new int[4], 4);
+    return ManifestLoader.ParseWorkspaceText("[workspace.build.graph]\na=['b','c']\nb=['d']\nc=['d']\nd=[]\n").Graph.Bind(members);
+}
+
+string _vm() {
+    string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
+    if (vm.Length > 0 && File.Exists(vm)) { return vm; }
+    if (File.Exists(".z42/bin/z42vm")) { return ".z42/bin/z42vm"; }
+    if (File.Exists(".z42/bin/z42vm.exe")) { return ".z42/bin/z42vm.exe"; }
+    throw new Exception("package process tests require the test toolchain VM");
+}
+
+PackageWorker[] _commands() {
+    PackageWorker[] workers = new PackageWorker[4];
+    int i = 0;
+    while (i < workers.Length) { workers[i] = new PackageWorker(new Process(_vm()).Arg("--help")); i = i + 1; }
+    return workers;
+}
+
+[Test]
+void test_package_scheduler_real_process_diamond_respects_worker_bound() {
+    PackageRunResult result = PackageScheduler.Run(_diamond(), _commands(), 2);
+    try {
+        Assert.Equal(0, result.Code);
+        Assert.Equal(4, result.Started);
+        Assert.Equal(2, result.MaxActive);
+        int i = 0;
+        while (i < 4) {
+            Assert.Equal("succeeded", result.Statuses[i]);
+            Assert.True(File.Exists(result.StdoutPath(i)));
+            i = i + 1;
+        }
+    } finally { Directory.Delete(result.LogDir, true); }
+}
+
+[Test]
+void test_package_scheduler_one_worker_remains_serial() {
+    PackageRunResult result = PackageScheduler.Run(_diamond(), _commands(), 1);
+    try {
+        Assert.Equal(0, result.Code);
+        Assert.Equal(4, result.Started);
+        Assert.Equal(1, result.MaxActive);
+    } finally { Directory.Delete(result.LogDir, true); }
+}
+
+[Test]
+void test_package_scheduler_failed_leaf_never_starts_consumers() {
+    PackageWorker[] workers = _commands();
+    workers[3] = new PackageWorker(new Process(_vm()).Arg("--package-scheduler-invalid-option"));
+    PackageRunResult result = PackageScheduler.Run(_diamond(), workers, 4);
+    try {
+        Assert.True(result.Code != 0);
+        Assert.Equal(1, result.Started);
+        Assert.Equal("failed", result.Statuses[3]);
+        Assert.Equal("blocked", result.Statuses[0]);
+        Assert.Equal("blocked", result.Statuses[1]);
+        Assert.Equal("blocked", result.Statuses[2]);
+        Assert.False(File.Exists(result.StdoutPath(0)));
+    } finally { Directory.Delete(result.LogDir, true); }
+}
+
+[Test]
+void test_package_scheduler_spawn_failure_is_a_task_failure() {
+    PackageWorker[] workers = _commands();
+    string root = File.CreateTempDir("missing-package-worker");
+    try {
+        workers[3] = new PackageWorker(new Process(Path.Join(root, "missing-executable")));
+        PackageRunResult result = PackageScheduler.Run(_diamond(), workers, 2);
+        try {
+            Assert.Equal(1, result.Code);
+            Assert.Equal(0, result.Started);
+            Assert.Equal("blocked", result.Statuses[0]);
+            Assert.True(File.ReadAllText(result.StderrPath(3)).Length > 0);
+        } finally { Directory.Delete(result.LogDir, true); }
+    } finally { Directory.Delete(root, true); }
+}
+
+[Test]
+void test_package_scheduler_rejects_invalid_budget_and_shared_command() {
+    PackageWorker[] workers = _commands();
+    string message = "";
+    try { PackageScheduler.Run(_diamond(), workers, 0); } catch (Exception e) { message = e.Message; }
+    Assert.True(message.Contains("must be positive"));
+    workers[1] = workers[0];
+    message = "";
+    try { PackageScheduler.Run(_diamond(), workers, 2); } catch (Exception e) { message = e.Message; }
+    Assert.True(message.Contains("distinct commands"));
+}

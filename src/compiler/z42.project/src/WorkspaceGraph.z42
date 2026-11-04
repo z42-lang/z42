@@ -1,0 +1,120 @@
+namespace Z42.Project;
+
+using Std.Toml;
+
+/// Complete, explicit workspace prerequisite graph. Absence preserves implicit-order builds.
+public sealed class WorkspaceGraph {
+    public string[] Names;
+    public string[] Dependencies;
+    public int[] Offsets;
+    public int[] Lengths;
+
+    public WorkspaceGraph(string[] names, string[] dependencies, int[] offsets, int[] lengths) {
+        this.Names = names; this.Dependencies = dependencies;
+        this.Offsets = offsets; this.Lengths = lengths;
+    }
+
+    public static WorkspaceGraph Parse(TomlValue table) {
+        if (!table.IsTable()) { throw new Exception("workspace.build.graph must be a table"); }
+        string[] names = WorkspacePlan.SortStrings(table.Keys());
+        int total = 0;
+        int i = 0;
+        while (i < names.Length) {
+            TomlValue row = table.Get(names[i]);
+            if (!row.IsArray()) { throw new Exception("workspace.build.graph: expected an array for " + names[i]); }
+            total = total + row.Count(); i = i + 1;
+        }
+        string[] deps = new string[total];
+        int[] offsets = new int[names.Length];
+        int[] lengths = new int[names.Length];
+        int used = 0;
+        i = 0;
+        while (i < names.Length) {
+            TomlValue row = table.Get(names[i]);
+            offsets[i] = used; lengths[i] = row.Count();
+            int j = 0;
+            while (j < row.Count()) {
+                TomlValue dep = row.At(j);
+                if (!dep.IsString()) { throw new Exception("workspace.build.graph: prerequisite must be a string"); }
+                string name = dep.AsString();
+                if (name == names[i]) { throw new Exception("workspace.build.graph: self dependency: " + name); }
+                if (WorkspacePlan.IndexOfName(names, names.Length, name) < 0) {
+                    throw new Exception("workspace.build.graph: unknown prerequisite: " + name);
+                }
+                int k = offsets[i];
+                while (k < used) {
+                    if (deps[k] == name) { throw new Exception("workspace.build.graph: duplicate prerequisite: " + name); }
+                    k = k + 1;
+                }
+                deps[used] = name; used = used + 1; j = j + 1;
+            }
+            i = i + 1;
+        }
+        return new WorkspaceGraph(names, deps, offsets, lengths);
+    }
+
+    /// Bind names to discovered projects without dropping existing manifest prerequisites.
+    public WorkspaceMembers Bind(WorkspaceMembers members) {
+        if (this.Names.Length != members.Count) {
+            throw new Exception("workspace.build.graph must name every discovered member exactly once");
+        }
+        string[] deps = new string[this.Dependencies.Length];
+        int[] offsets = new int[members.Count];
+        int[] lengths = new int[members.Count];
+        int used = 0;
+        int i = 0;
+        while (i < members.Count) {
+            int row = WorkspacePlan.IndexOfName(this.Names, this.Names.Length, members.Names[i]);
+            if (row < 0) { throw new Exception("workspace.build.graph: missing member: " + members.Names[i]); }
+            offsets[i] = used; lengths[i] = this.Lengths[row];
+            int j = 0;
+            while (j < this.Lengths[row]) {
+                deps[used] = this.Dependencies[this.Offsets[row] + j];
+                used = used + 1; j = j + 1;
+            }
+            j = 0;
+            while (j < members.DepLen[i]) {
+                string required = members.DepFlat[members.DepOff[i] + j];
+                bool found = false;
+                int k = offsets[i];
+                while (k < used) { if (deps[k] == required) { found = true; } k = k + 1; }
+                if (!found) { throw new Exception("workspace.build.graph omits declared prerequisite: " + required); }
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        WorkspaceMembers result = new WorkspaceMembers(members.Tomls, members.Names, deps, offsets, lengths, members.Count);
+        result.DefaultOrder = members.DefaultOrder; result.DefaultOrderN = members.DefaultOrderN;
+        WorkspacePlan.TopoOrder(result);
+        return result;
+    }
+
+    /// Keep the selected target closure, retaining edges and plan order for dispatch.
+    public static WorkspaceMembers Select(WorkspaceMembers members, string[] names, int count) {
+        string[] tomls = new string[count];
+        string[] selected = new string[count];
+        string[] deps = new string[members.DepFlat.Length];
+        int[] offsets = new int[count];
+        int[] lengths = new int[count];
+        int used = 0;
+        int i = 0;
+        while (i < count) {
+            int row = WorkspacePlan.IndexOfName(members.Names, members.Count, names[i]);
+            if (row < 0) { throw new Exception("package graph selection contains an unknown member"); }
+            selected[i] = names[i]; tomls[i] = members.Tomls[row];
+            offsets[i] = used; lengths[i] = members.DepLen[row];
+            int j = 0;
+            while (j < lengths[i]) {
+                string dep = members.DepFlat[members.DepOff[row] + j];
+                if (WorkspacePlan.IndexOfName(names, count, dep) < 0) {
+                    throw new Exception("package graph selection omits a prerequisite: " + dep);
+                }
+                deps[used] = dep; used = used + 1; j = j + 1;
+            }
+            i = i + 1;
+        }
+        WorkspaceMembers result = new WorkspaceMembers(tomls, selected, deps, offsets, lengths, count);
+        result.DefaultOrder = selected; result.DefaultOrderN = count;
+        return result;
+    }
+}

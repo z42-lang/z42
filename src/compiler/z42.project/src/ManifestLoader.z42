@@ -214,6 +214,7 @@ public static class ManifestLoader {
         bool hasOut = false; string outDir = "";
         bool hasCache = false; string cacheDir = "";
         DepEntry[] wdeps = new DepEntry[0];
+        WorkspaceGraph graph = null;
         TomlValue w = null;
         TomlValue tv = null;   // 取子树用的共用出参（下同：一个函数一个，避免每行一个临时量）
         if (root.TryGet("workspace", ref w)) {
@@ -224,6 +225,8 @@ public static class ManifestLoader {
             if (w.TryGet("build", ref wb)) {
                 hasOut   = wb.TryGetValue<string>("output_dir", ref outDir);
                 hasCache = wb.TryGetValue<string>("cache_dir",  ref cacheDir);
+                TomlValue graphTable = null;
+                if (wb.TryGet("graph", ref graphTable)) { graph = WorkspaceGraph.Parse(graphTable); }
             }
             wdeps = ManifestLoader._parseDeps(w, "dependencies");
         }
@@ -232,6 +235,7 @@ public static class ManifestLoader {
                                      hasOut, outDir, hasCache, cacheDir,
                                      wdeps, wdeps.Length);
         wm.UnknownKeys = ManifestKeys.AuditWorkspace(root).Unknown();
+        wm.Graph = graph;
         return wm;
     }
 

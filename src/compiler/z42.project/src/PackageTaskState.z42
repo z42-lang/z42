@@ -1,0 +1,118 @@
+namespace Z42.Project;
+
+/// Parent-owned dispatch state. A running task cannot be claimed or completed twice.
+public sealed class PackageTaskState {
+    private WorkspaceMembers _graph;
+    private int[] _order;
+    private int[] _states; // pending, running, succeeded, failed, blocked
+    private int _finished;
+
+    public PackageTaskState(WorkspaceMembers graph) {
+        this._graph = PackageTaskState._snapshot(graph);
+        this._order = WorkspacePlan.TopoOrder(this._graph);
+        this._states = new int[graph.Count];
+        this._finished = 0;
+    }
+
+    public int Count() { return this._graph.Count; }
+    public bool IsComplete() { return this._finished == this._graph.Count; }
+
+    public string Status(int index) {
+        this._checkIndex(index);
+        int state = this._states[index];
+        if (state == 0) { return "pending"; }
+        if (state == 1) { return "running"; }
+        if (state == 2) { return "succeeded"; }
+        return state == 3 ? "failed" : "blocked";
+    }
+
+    /// Claim the first ready task in deterministic plan order, or -1 if none is ready.
+    public int TakeReady() {
+        int i = 0;
+        while (i < this._order.Length) {
+            int node = this._order[i]; i = i + 1;
+            if (this._states[node] != 0) { continue; }
+            bool ready = true;
+            int j = 0;
+            while (j < this._graph.DepLen[node]) {
+                int dep = this._dependency(node, j);
+                if (this._states[dep] != 2) { ready = false; break; }
+                j = j + 1;
+            }
+            if (ready) { this._states[node] = 1; return node; }
+        }
+        return -1;
+    }
+
+    public void Complete(int index, bool success) {
+        this._checkIndex(index);
+        if (this._states[index] != 1) { throw new Exception("package task completion requires a running task"); }
+        this._states[index] = success ? 2 : 3;
+        this._finished = this._finished + 1;
+        if (!success) { this._blockDependents(); }
+    }
+
+    private int _dependency(int node, int edge) {
+        string name = this._graph.DepFlat[this._graph.DepOff[node] + edge];
+        return WorkspacePlan.IndexOfName(this._graph.Names, this._graph.Count, name);
+    }
+
+    private void _checkIndex(int index) {
+        if (index < 0 || index >= this._graph.Count) { throw new Exception("package task index out of range"); }
+    }
+
+    private void _blockDependents() {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            int i = 0;
+            while (i < this._graph.Count) {
+                if (this._states[i] == 0) {
+                    int j = 0;
+                    while (j < this._graph.DepLen[i]) {
+                        int state = this._states[this._dependency(i, j)];
+                        if (state == 3 || state == 4) {
+                            this._states[i] = 4; this._finished = this._finished + 1;
+                            changed = true; break;
+                        }
+                        j = j + 1;
+                    }
+                }
+                i = i + 1;
+            }
+        }
+    }
+
+    private static WorkspaceMembers _snapshot(WorkspaceMembers graph) {
+        WorkspacePlan.CheckUniqueNames(graph.Tomls, graph.Names, graph.Count);
+        string[] names = new string[graph.Count];
+        string[] tomls = new string[graph.Count];
+        string[] deps = new string[graph.DepFlat.Length];
+        int[] offsets = new int[graph.Count];
+        int[] lengths = new int[graph.Count];
+        int i = 0;
+        while (i < graph.Count) {
+            names[i] = graph.Names[i]; tomls[i] = graph.Tomls[i];
+            offsets[i] = graph.DepOff[i]; lengths[i] = graph.DepLen[i];
+            if (offsets[i] < 0 || lengths[i] < 0 || offsets[i] > deps.Length - lengths[i]) {
+                throw new Exception("package graph edge range out of bounds");
+            }
+            int j = 0;
+            while (j < lengths[i]) {
+                string dep = graph.DepFlat[offsets[i] + j];
+                if (WorkspacePlan.IndexOfName(graph.Names, graph.Count, dep) < 0) {
+                    throw new Exception("package graph contains an unknown prerequisite: " + dep);
+                }
+                deps[offsets[i] + j] = dep; j = j + 1;
+            }
+            i = i + 1;
+        }
+        WorkspaceMembers copy = new WorkspaceMembers(tomls, names, deps, offsets, lengths, graph.Count);
+        if (graph.DefaultOrder != null) {
+            copy.DefaultOrder = new string[graph.DefaultOrderN];
+            Array.Copy(graph.DefaultOrder, copy.DefaultOrder, graph.DefaultOrderN);
+            copy.DefaultOrderN = graph.DefaultOrderN;
+        }
+        return copy;
+    }
+}
