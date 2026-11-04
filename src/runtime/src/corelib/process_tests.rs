@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::vm::exec::call::builtin_abi::{BuiltinError, FieldInit};
-use crate::corelib::{exec_builtin, exec_builtin_value};
+use crate::vm::exec::call::builtins::{exec_builtin, exec_builtin_value};
 
 fn s(v: &str) -> Value { Value::Str(v.into()) }
 fn i(n: i64) -> Value { Value::I64(n) }

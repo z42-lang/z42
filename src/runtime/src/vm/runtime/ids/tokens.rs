@@ -118,10 +118,9 @@ define_token!(
 );
 
 define_token!(
-    /// Identifies one builtin function in the global `BUILTINS` static table
-    /// (cross-module / per-process). Resolved at load by
-    /// `corelib::dispatch_table::builtin_id_of(name)`. Resolution is mandatory
-    /// (closed set); a miss is a bug (unknown builtin name).
+    /// Identifies a builtin in the VM catalog and its matching callable table.
+    /// Resolved by BuiltinCatalog::id_of at load time; absent names stay
+    /// UNRESOLVED until execution reports MissingSymbolException. Not persisted.
     BuiltinId
 );
 

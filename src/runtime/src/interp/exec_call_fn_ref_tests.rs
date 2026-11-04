@@ -187,7 +187,7 @@ fn delegate_equality_and_name_follow_the_bound_id() {
     super::load_fn(&ctx, &entry, &mut frame, 4, "Entry.B$0", None);
     super::mk_clos(&ctx, &entry, &mut frame, 5, "Entry.A$0", &[], None).unwrap();
     let r = |i: u32| *frame.get(i).unwrap();
-    let eq = |a: Value, b: Value| crate::corelib::exec_builtin_value(&ctx, "__delegate_eq", &[a, b]).unwrap();
+    let eq = |a: Value, b: Value| crate::vm::exec::call::builtins::exec_builtin_value(&ctx, "__delegate_eq", &[a, b]).unwrap();
     assert_eq!(eq(r(0), r(1)), Value::Bool(true), "same entry function, two sites");
     assert_eq!(eq(r(2), r(3)), Value::Bool(true), "same lazy function, two sites");
     assert_eq!(eq(r(0), r(4)), Value::Bool(false));
@@ -195,12 +195,12 @@ fn delegate_equality_and_name_follow_the_bound_id() {
     assert_eq!(eq(r(0), r(5)), Value::Bool(false), "FuncRef vs closure");
     assert!(r(0) == r(1), "`==` agrees");
 
-    let name = |v: Value| crate::corelib::exec_builtin_value(&ctx, "__delegate_fn_name", &[v]).unwrap();
+    let name = |v: Value| crate::vm::exec::call::builtins::exec_builtin_value(&ctx, "__delegate_fn_name", &[v]).unwrap();
     assert_eq!(name(r(2)), Value::Str("Lazy.G$0".into()));
     assert_eq!(name(r(5)), Value::Str("Entry.A$0".into()));
     // `__make_closure` (WeakRef<TD>.Get) binds the name it is given.
     let env = ctx.heap().alloc_array(vec![]);
-    let rebuilt = crate::corelib::exec_builtin_value(&ctx, "__make_closure", &[Value::Str("Lazy.G$0".into()), env]).unwrap();
+    let rebuilt = crate::vm::exec::call::builtins::exec_builtin_value(&ctx, "__make_closure", &[Value::Str("Lazy.G$0".into()), env]).unwrap();
     assert_eq!(rebuilt.callable_id(), r(2).callable_id());
     // Display names the function (the ctx-aware path interpolation / WriteLine use).
     let shown = crate::vm::exec::ops::stringify::stringify_dispatch(&ctx, &r(2)).unwrap();

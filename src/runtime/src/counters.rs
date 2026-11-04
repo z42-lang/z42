@@ -7,7 +7,7 @@
 //!
 //! # Increment sites (current)
 //!
-//! - `builtin_calls`         ← `corelib::exec_builtin`
+//! - `builtin_calls`         ← `vm::exec::call::builtins::exec_builtin`
 //! - `native_calls`          ← `interp::exec_ffi::ffi_call`
 //! - `jit_methods_compiled`  ← `jit::frame` tier-up compile
 //! - `jit_native_from_interp`← `interp::exec_call` / `exec_vcall` native routing
@@ -46,7 +46,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[derive(Debug, Default)]
 pub struct RuntimeCounters {
     /// Builtin functions invoked (e.g. `__str_length`, `__print`, ...).
-    /// Incremented at top of `corelib::exec_builtin`.
+    /// Incremented at top of `vm::exec::call::builtins::exec_builtin`.
     pub builtin_calls:        AtomicU64,
 
     /// Native FFI calls dispatched (e.g. user `[Native("...")]` extern methods).

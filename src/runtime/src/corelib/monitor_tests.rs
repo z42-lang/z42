@@ -19,12 +19,12 @@ fn new_monitor(c: &VmContext) -> (Value, Arc<Monitor>) {
 }
 
 fn builtin_monitor_new(c: &VmContext) -> Value {
-    crate::corelib::exec_builtin_value(c, "__monitor_new", &[]).unwrap()
+    crate::vm::exec::call::builtins::exec_builtin_value(c, "__monitor_new", &[]).unwrap()
 }
 
 /// The builtins by name, as the engines call them (typed errors come back as `BuiltinError`).
 fn call(c: &VmContext, name: &str, args: &[Value]) -> Result<(), BuiltinError> {
-    crate::corelib::exec_builtin(c, name, args).map(|_| ()).map_err(|e| e.downcast::<BuiltinError>().expect("typed error"))
+    crate::vm::exec::call::builtins::exec_builtin(c, name, args).map(|_| ()).map_err(|e| e.downcast::<BuiltinError>().expect("typed error"))
 }
 fn builtin_monitor_enter(c: &VmContext, args: &[Value]) -> Result<(), BuiltinError> { call(c, "__monitor_enter", args) }
 fn builtin_monitor_exit(c: &VmContext, args: &[Value]) -> Result<(), BuiltinError> { call(c, "__monitor_exit", args) }

@@ -21,7 +21,7 @@ z42 脚本          Platform.IsMacOS() / OperatingSystem.Hostname()
    ▼  z42.core 的两个静态类：[Native("__…")] 名字映射 + 纯 z42 的便利谓词，无平台分支
    │    Platform.z42            Std.Platform / Std.OSKind / Std.ArchKind
    │    OperatingSystem.z42     Std.OperatingSystem
-   ▼  builtin 分发表：corelib/builtin_table.rs 的 TYPED（platform::typed / system::typed 模块，P1-8 批次 12a 迁入）
+   ▼  builtin 分发表：builtin_assembly.rs 的 TYPED（platform::typed / system::typed 模块，P1-8 批次 12a 迁入）
    │
    ▼  corelib/platform.rs   ← std::env::consts::{OS,ARCH,FAMILY}（编译期常量）+ cfg(feature)
       corelib/system.rs     ← std::process / std::env / std::thread + pal::system
@@ -153,7 +153,7 @@ OS-neutral 函数。
 - **环境变量 / 进程**：`Std.Environment`（`src/libraries/z42.core/src/IO/Environment.z42`）的
   `__env_get` / `__env_set` / `__env_unset` / `__env_vars` / `__env_args` /
   `__env_get_cwd` / `__env_set_cwd` 实现与注册都在 `corelib/fs.rs` 的 `typed` 模块
-  （经 `builtin_table.rs` 的 TYPED 登记）。
+  （经 `builtin_assembly.rs` 的 TYPED 登记）。
 - **文件系统**：`corelib/fs.rs` 的路径型 builtin 一律走**本 VM 的** `Vfs` 句柄（`VmContext::vfs`，
   trait 在 `pal/fs.rs`），两个实现在 `pal/vfs/`——`LocalFs`（`std::fs`）与 `MemoryFs`（`path → bytes`
   的内存 VFS，宿主挂载 zpkg）。句柄由创建 VM 的一方给（`VmContext::with_vfs` / `RunOpts::vfs` /

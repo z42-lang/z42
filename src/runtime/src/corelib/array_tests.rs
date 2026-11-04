@@ -10,7 +10,7 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> {
 // The builtin surface is driven through the table like the stdlib does, so these tests
 // also cover the typed registration (null / wrong-kind / arity errors come from the ABI).
 fn clone(ctx: &VmContext, this: &Value) -> anyhow::Result<Value> {
-    crate::corelib::exec_builtin_value(ctx, "__array_clone", std::slice::from_ref(this))
+    crate::vm::exec::call::builtins::exec_builtin_value(ctx, "__array_clone", std::slice::from_ref(this))
 }
 
 #[test]
@@ -103,14 +103,14 @@ fn read(v: &Value) -> Vec<i64> {
 }
 
 fn copy(ctx: &VmContext, src: &Value, si: i64, dst: &Value, di: i64, n: i64) -> anyhow::Result<()> {
-    crate::corelib::exec_builtin(
+    crate::vm::exec::call::builtins::exec_builtin(
         ctx, "__array_copy",
         &[src.clone(), Value::I64(si), dst.clone(), Value::I64(di), Value::I64(n)],
     ).map(|_| ())
 }
 
 fn set(ctx: &VmContext, arr: &Value, value: &Value, i: i64) -> anyhow::Result<()> {
-    crate::corelib::exec_builtin(ctx, "__array_set", &[arr.clone(), value.clone(), Value::I64(i)]).map(|_| ())
+    crate::vm::exec::call::builtins::exec_builtin(ctx, "__array_set", &[arr.clone(), value.clone(), Value::I64(i)]).map(|_| ())
 }
 
 #[test]

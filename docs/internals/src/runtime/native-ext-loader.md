@@ -32,7 +32,7 @@ extra.
 ```
 z42 user code                         z42vm binary
 [Native(lib="z42_compression",        ┌──────────────────────────────┐
-        entry="__deflate_compress")]  │ corelib::BUILTINS[]          │
+        entry="__deflate_compress")]  │ builtin_assembly::BUILTINS[]          │
        ↓                              │   … small in-VM natives      │
 compiler short-circuit                │   … interop::ext::typed      │
 (lib + entry without type=)           │       (__deflate_compress …) │

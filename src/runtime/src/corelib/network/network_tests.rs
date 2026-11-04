@@ -19,7 +19,7 @@ fn s(v: &str) -> Value {
 
 /// Call a builtin by name; the error comes back as the typed `BuiltinError`.
 pub(crate) fn call(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Option<Value>, BuiltinError> {
-    crate::corelib::exec_builtin(ctx, name, args).map_err(|e| match e.downcast::<BuiltinError>() {
+    crate::vm::exec::call::builtins::exec_builtin(ctx, name, args).map_err(|e| match e.downcast::<BuiltinError>() {
         Ok(b) => b,
         Err(e) => panic!("`{name}` failed with a non-typed error: {e}"),
     })

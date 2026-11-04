@@ -58,7 +58,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         if !STR_INTRINSICS_SUPPORTED || !insn.method_type_args.is_empty() { return None; }
         let mid = method_id_at(self.func, self.block_idx, self.instr_idx);
         if mid == crate::vm::runtime::ids::tokens::UNRESOLVED { return None; }
-        let k = StrIntrinsic::of_builtin(self.callees.forward_of_id(mid)?)?;
+        let k = StrIntrinsic::of_builtin(self.callees.forward_of_id(mid)?, self.callees.builtins())?;
         self.str_operands_ok(k, &insn.args).then_some(k)
     }
 
@@ -70,7 +70,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
             return None;
         }
         let target = format!("{}.{}", crate::metadata::index::well_known_names::STD_STRING, insn.method);
-        let k = StrIntrinsic::of_builtin(self.callees.forward_of_name(&target)?)?;
+        let k = StrIntrinsic::of_builtin(self.callees.forward_of_name(&target)?, self.callees.builtins())?;
         // Receiver + arguments, as the builtin sees them.
         (insn.args.len() + 1 == k.argc()
             && insn.args.first().is_none_or(|&i| idx_int_ok(self.func, i))).then_some(k)

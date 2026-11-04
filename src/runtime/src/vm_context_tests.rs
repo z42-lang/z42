@@ -158,12 +158,12 @@ fn lazy_loader_two_contexts_independent() {
 
 fn vfs_call(ctx: &VmContext, name: &str, args: &[&str]) -> anyhow::Result<Value> {
     let args: Vec<Value> = args.iter().map(|s| Value::Str((*s).into())).collect();
-    crate::corelib::exec_builtin_value(ctx, name, &args)
+    crate::vm::exec::call::builtins::exec_builtin_value(ctx, name, &args)
 }
 
 fn vfs_do(ctx: &VmContext, name: &str, args: &[&str]) {
     let args: Vec<Value> = args.iter().map(|s| Value::Str((*s).into())).collect();
-    crate::corelib::exec_builtin(ctx, name, &args).unwrap();
+    crate::vm::exec::call::builtins::exec_builtin(ctx, name, &args).unwrap();
 }
 
 fn memory_vm() -> (std::sync::Arc<crate::pal::vfs::MemoryFs>, std::pin::Pin<Box<VmContext>>) {

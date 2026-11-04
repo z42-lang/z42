@@ -20,7 +20,7 @@ fn no_module_ctx() -> std::pin::Pin<Box<VmContext>> {
 
 fn spawn(c: &VmContext, args: &[Value]) -> crate::vm::exec::call::builtin_abi::BuiltinError {
     // Drive through the table so the tests also cover the typed registration.
-    let e = crate::corelib::exec_builtin(c, "__thread_spawn", args).unwrap_err();
+    let e = crate::vm::exec::call::builtins::exec_builtin(c, "__thread_spawn", args).unwrap_err();
     e.downcast::<crate::vm::exec::call::builtin_abi::BuiltinError>().expect("a typed builtin error")
 }
 
@@ -61,7 +61,7 @@ fn typed_err(e: anyhow::Error) -> crate::vm::exec::call::builtin_abi::BuiltinErr
 #[test]
 fn thread_wait_unknown_slot_throws_thread_exception() {
     let ctx = no_module_ctx();
-    let e = typed_err(crate::corelib::exec_builtin(&ctx, "__thread_wait", &[Value::I64(999_999)]).unwrap_err());
+    let e = typed_err(crate::vm::exec::call::builtins::exec_builtin(&ctx, "__thread_wait", &[Value::I64(999_999)]).unwrap_err());
     match e {
         crate::vm::exec::call::builtin_abi::BuiltinError::Exception { class, message } => {
             assert_eq!(class, "Std.Threading.ThreadException");

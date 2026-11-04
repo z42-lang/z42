@@ -5,7 +5,7 @@
 z42 VM 的**原生 builtin 层**：为 z42 标准库（`Std.*`）里那些无法用纯 z42 表达、
 必须落到 Rust 的能力（IO、文件系统、反射、进程/线程/网络、加密、GC 控制…）提供
 native 实现。builtin 一律写成类型化 Rust 函数（builtin ABI v2，`#[builtin]`，见下「加一个
-builtin」），登记进 `BUILTINS` 表（`builtin_table.rs` 把各 `#[builtins]` 模块的描述符编译期拼接），
+builtin」），登记进 `BUILTINS` 表（`builtin_assembly.rs` 把各 `#[builtins]` 模块的描述符编译期拼接），
 由解释器 `Instruction::Builtin`、JIT `jit_builtin` 和 `[Native]` 包装函数的折叠调用经
 `invoke_builtin` 调用——实参原地从调用方寄存器读。
 
@@ -20,7 +20,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 
 | 功能 | 入口 / 文件 |
 |------|-----------|
-| builtin 注册表 + 名称↔id 解析 + 分发 | `mod.rs` 的 `invoke_builtin`（引擎）/ `exec_builtin`（按名，测试/嵌入/ToString 回落）；`builtin_table.rs` 的 `BUILTINS` 表（`TYPED` 列出 `#[builtins]` 模块，一行一个） |
+| builtin 实现与登记 | 各功能模块生成 DESCS；门面 `builtin_assembly.rs` 编译期装配。名称/ID 查询在 `vm/runtime/builtins.rs`，分发在 `vm/exec/call/builtins.rs` |
 | builtin ABI v2：类型化实参 / 返回值、`BuiltinError` 与异常类、`blocking` | **`vm/exec/call/builtin_abi/`**（`args.rs` / `ret.rs` / `error.rs`；宏在 `crates/z42-macros/src/builtins_attr.rs`） |
 | 值转换 / 解析（`Parse` / `TryParse`）/ to-string / 装箱 | `convert.rs`（`typed` 模块，ABI v2） |
 | 控制台 IO（print / readline：`typed` 模块，ABI v2；写进程 stdout / stderr 与读 stdin 都 park）/ TestIO 捕获（sink 栈） | `io.rs` |
@@ -64,7 +64,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
    **VM 自身的缺陷**才用 `BuiltinError::Internal`（致命，不可 catch）。会阻塞的 builtin 加 `blocking`
    （整段 park 运行，只收发纯 Rust 数据）或返回 `Blocking::new(..)`；会执行 z42 代码的加 `reenters`。
    完整约定见 internals「native ABI §6」。
-2. 新建的 `#[builtins]` 模块在 `builtin_table.rs` 的 `TYPED` 里加**一行**（模块的 `DESCS`）——之后模块里每加一个
+2. 新建的 `#[builtins]` 模块在 `builtin_assembly.rs` 的 `TYPED` 里加**一行**（模块的 `DESCS`）——之后模块里每加一个
    `#[builtin]` 函数就自动登记，无需再碰表。
 3. z42 侧用 `[Native("__foo_bar")]` 声明对应外部函数（stdlib）。
 
@@ -114,7 +114,7 @@ xtask test stdlib
 |------|------|
 | `mod.rs` | 名称↔`BuiltinId` 解析 + `invoke_builtin` / `exec_builtin` 分发 |
 | `../vm/exec/call/builtin_abi/` | builtin ABI v2：`BuiltinDesc` / `FromArg` / `IntoRet` / `Blocking` / `BuiltinError` + `raise`（两引擎共用的失败出口）；`test_builtins.rs` 是 `cfg(test)` 的测试用 builtin |
-| `builtin_table.rs` | `BUILTINS`：各 `#[builtins]` 模块的 `DESCS` 经 `abi::concat_descs` 编译期拼接（下标即 `BuiltinId`，不跨进程持久化） |
+| `builtin_assembly.rs` | `BUILTINS`：各 `#[builtins]` 模块的 `DESCS` 经 `abi::concat_descs` 编译期拼接（下标即 `BuiltinId`，不跨进程持久化） |
 | `reflection/mod.rs` | 反射 hub —— 导入 + 共享常量 + 私有 re-glob 各 concern 子模块（兄弟经 `use super::*` 互见）+ `pub use` 保留公开 API |
 | `reflection/type_object.rs` | `Std.Type` 对象构造（`make_type_object` / `make_type_from_name` / `make_constructed_type`）+ handle/slot 辅助 |
 | `reflection/type_query.rs` | 类型查询谓词（base / interfaces / members / nested / is_abstract·sealed·value·record·interface·class·primitive·generic / assignable_from / visibility）|

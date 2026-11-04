@@ -256,7 +256,7 @@ pub fn resolve_function_tokens(
                 // A name not in `BUILTINS` stays `UNRESOLVED` rather than panicking (this
                 // can run at JIT compile time, where a panic aborts the VM); the call
                 // site then resolves it by name and throws `MissingSymbolException`.
-                crate::corelib::builtin_id_of(name)
+                ctx.core.runtime.builtins.id_of(name)
                     .map_or(crate::vm::runtime::ids::tokens::UNRESOLVED, |b| b.0)
             })
             .collect();

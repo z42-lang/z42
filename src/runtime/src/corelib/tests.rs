@@ -1,4 +1,5 @@
 use super::*;
+use crate::vm::exec::call::builtins::{exec_builtin, exec_builtin_value};
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::vm_context::VmContext;
 use std::sync::Arc;
@@ -546,7 +547,7 @@ fn make_closure_returns_null_for_invalid_args() {
 
 #[test]
 fn builtin_table_join_preserves_order_and_has_no_holes() {
-    use super::BUILTINS;
+    use crate::builtin_assembly::BUILTINS;
     // 没有被填充值漏下来的空洞（padding 的名字是空串）。
     assert!(BUILTINS.iter().all(|d| !d.name.is_empty()),
         "a padding slot leaked into BUILTINS — the const join left a hole");
@@ -556,7 +557,7 @@ fn builtin_table_join_preserves_order_and_has_no_holes() {
     names.sort_unstable();
     names.dedup();
     assert_eq!(names.len(), total, "duplicate builtin name in BUILTINS");
-    // 拼接保持模块注册顺序：`builtin_table.rs` 的 TYPED 首模块（convert）在表头，
+    // 拼接保持模块注册顺序：`builtin_assembly.rs` 的 TYPED 首模块（convert）在表头，
     // 最后一个真实模块（batch 12b 收官的 array）在 cfg(test) 的测试 builtin 之前。
     let idx = |n: &str| BUILTINS.iter().position(|d| d.name == n).unwrap();
     assert_eq!(BUILTINS[0].name, "__mmh3_hex_str", "the first module (convert) heads the table");

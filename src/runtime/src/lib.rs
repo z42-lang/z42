@@ -63,3 +63,5 @@ pub mod signal_handler;
 
 mod engine_assembly;
 mod extension_assembly;
+
+mod builtin_assembly;

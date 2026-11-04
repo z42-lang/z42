@@ -227,7 +227,7 @@ impl VmContext {
             threads: crate::vm::threads::ThreadState::new(),
             loader: crate::vm::loader::LoaderState::new(vfs),
             heap:                 Box::new(Heap::new(crate::config::runtime_config().gc_config())),
-            runtime: crate::vm::runtime::RuntimeState::new(module),
+            runtime: crate::vm::runtime::RuntimeState::new(module, &crate::builtin_assembly::CATALOG),
 
             diagnostics: crate::vm::diagnostics::DiagnosticsState {
                 counters: Arc::new(crate::counters::RuntimeCounters::new()),
@@ -246,7 +246,7 @@ impl VmContext {
                     None => crate::profiler::cpu::Sampler::disabled(),
                 },
             },
-            exec: crate::vm::exec::ExecState::new(crate::engine_assembly::registry()),
+            exec: crate::vm::exec::ExecState::new(crate::engine_assembly::registry(), crate::builtin_assembly::BUILTINS),
             ext_state,
         });
 

@@ -11,7 +11,7 @@
 //! - a `BuiltinDesc` (name, parameter kinds, return kind, flags, the two entries);
 //!
 //! and once per module `DESCS: &[BuiltinDesc]`, which the VM's builtin table
-//! (`corelib::builtin_table`) concatenates — a builtin is registered by being written
+//! (`builtin_assembly`) concatenates — a builtin is registered by being written
 //! here, the table lists modules, not functions.
 //!
 //! The expansion names VM items by `crate::` paths: the macro is for the `z42` crate.

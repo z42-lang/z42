@@ -154,7 +154,7 @@ pub(super) fn call(
 
 /// `Builtin`: the site's resolved `BuiltinId` (`None` / `UNRESOLVED` → by name, which
 /// re-checks the ext registry). The arguments are read in place from this frame's
-/// registers (`corelib::invoke_builtin`); a void builtin leaves `dst` alone.
+/// registers (`vm::exec::call::builtins::invoke_builtin`); a void builtin leaves `dst` alone.
 ///
 /// A failure becomes what `abi::error::raise` says (shared with `jit_builtin`): the
 /// builtin's typed exception — catchable, `StackTrace` filled at the builtin —, or, for
@@ -166,7 +166,7 @@ pub(super) fn builtin(
     builtin_id: Option<u32>,
 ) -> Result<Option<Value>> {
     let id = builtin_id.unwrap_or(crate::vm::runtime::ids::tokens::UNRESOLVED);
-    match crate::corelib::invoke_builtin(ctx, id, name, None, &frame.regs, args) {
+    match crate::vm::exec::call::builtins::invoke_builtin(ctx, id, name, None, &frame.regs, args) {
         Ok(Some(v)) => {
             frame.set(dst, v);
             Ok(None)
