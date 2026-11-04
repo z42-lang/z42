@@ -339,7 +339,7 @@ impl crate::vm_context::VmContext {
                 // 直接 value_to_str 会得到 `Std.Exception{...}` 这种对象转储，不是消息。
                 Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(v)) => Some(
                     crate::exception::read_message(&v, self, module)
-                        .unwrap_or_else(|| crate::corelib::convert::value_to_str(&v))),
+                        .unwrap_or_else(|| crate::object::value::format::value_to_str(&v))),
                 Err(e) => Some(format!("{e:#}")),
             }
         };

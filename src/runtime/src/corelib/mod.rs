@@ -9,7 +9,7 @@
 /// `vm::exec::call::builtin_abi`) — arguments and errors are typed by its Rust signature.
 ///
 /// Submodules are organised by functional category (≈ CoreCLR `classlibnative/`):
-///   `convert`     — value_to_str, parse / try_parse / to_string, boxing
+///   `convert`     — parse / try_parse / to_string, boxing; re-exports object value formatting
 ///   `io`          — println, print, readline, TestIO sinks
 ///   `string`      — str_length/char_at/substring/split/join/format …
 ///   `math`        — abs/max/min/pow/sqrt/trig …

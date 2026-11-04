@@ -15,13 +15,13 @@ use anyhow::{bail, Result};
 /// `__obj_to_str` builtin (simple name). Boxed receivers go through `resolve_vcall`. All
 /// other value types use `value_to_str` rules. A user `ToString`'s returned GC string is passed
 /// through as-is (no copy); scalars are formatted into a stack buffer
-/// ([`with_value_str`](crate::corelib::convert::with_value_str)) — no heap allocation.
+/// ([`with_value_str`](crate::object::value::format::with_value_str)) — no heap allocation.
 /// `"k" + i` / `$"{x}"` build their result straight from this view. Same dispatch, same
 /// result text and exception propagation for every caller (concat, interpolation, `WriteLine`).
 pub fn with_obj_str<R>(
     ctx: &VmContext, module: &Module, val: &Value, f: impl FnOnce(&str) -> R,
 ) -> Result<R> {
-    use crate::corelib::convert::with_value_str;
+    use crate::object::value::format::with_value_str;
     let out = match tostring_result(ctx, module, val)? {
         ToStringResult::Value(Value::Str(s)) => f(&s),
         ToStringResult::Value(other) => with_value_str(&other, f),
@@ -35,7 +35,7 @@ pub fn with_obj_str<R>(
 /// `ToString`'s returned string is used as-is — no copy (the JIT's native `jit_to_str` path
 /// does the same); everything else is formatted straight into one fresh GC block.
 pub fn obj_to_gc_str(ctx: &VmContext, module: &Module, val: &Value) -> Result<crate::object::string::vstr::Str> {
-    use crate::corelib::convert::with_value_str;
+    use crate::object::value::format::with_value_str;
     let heap = ctx.heap();
     Ok(match tostring_result(ctx, module, val)? {
         ToStringResult::Value(Value::Str(s)) => s,
@@ -140,7 +140,7 @@ pub fn stringify_dispatch_gc(ctx: &VmContext, val: &Value) -> Result<crate::obje
             let m = m.clone();
             obj_to_gc_str(ctx, m.as_ref(), val)
         }
-        None => Ok(crate::corelib::convert::with_value_str(val, |t| ctx.heap().alloc_str(t))),
+        None => Ok(crate::object::value::format::with_value_str(val, |t| ctx.heap().alloc_str(t))),
     }
 }
 
@@ -151,7 +151,7 @@ pub fn with_stringify_dispatch<R>(ctx: &VmContext, val: &Value, f: impl FnOnce(&
             let m = m.clone();
             with_obj_str(ctx, m.as_ref(), val, f)
         }
-        None => Ok(crate::corelib::convert::with_value_str(val, f)),
+        None => Ok(crate::object::value::format::with_value_str(val, f)),
     }
 }
 

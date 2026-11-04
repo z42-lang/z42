@@ -1,7 +1,7 @@
 #![allow(dangerous_implicit_autorefs)]
 //! Arithmetic, comparison, logical, unary, and bitwise helpers.
 
-use crate::corelib::convert::with_value_str;
+use crate::object::value::format::with_value_str;
 use crate::object::Value;
 // converge-vm-arith-semantics (H3): scalar rules come from the single source of
 // truth `crate::vm::exec::ops::scalar` (shared with interp), not a JIT-local copy.

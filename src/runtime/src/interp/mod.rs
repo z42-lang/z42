@@ -33,7 +33,7 @@ mod ops;
 // JIT primitive-receiver VCall IC (add-jit-primitive-vcall-ic): jit_vcall keys its
 // inline cache on primitives via the same synthetic PRIM_TYPE_* ids interp uses.
 
-pub use crate::corelib::convert::value_to_str;
+pub use crate::object::value::format::value_to_str;
 use crate::vm::runtime::{Function, Module};
 use crate::{
     metadata::{BranchTargets, Terminator},
