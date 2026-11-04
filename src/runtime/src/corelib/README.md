@@ -20,6 +20,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 
 | 功能 | 入口 / 文件 |
 |------|-----------|
+| 隔离应用执行 / 退出报告 | `application.rs` 私有服务，由门面创建前注入；worker 只复制函数指针，不引用门面 RunOpts |
 | builtin 实现与登记 | 各功能模块生成 DESCS；门面 `builtin_assembly.rs` 编译期装配。名称/ID 查询在 `vm/runtime/builtins.rs`，分发在 `vm/exec/call/builtins.rs` |
 | builtin ABI v2：类型化实参 / 返回值、`BuiltinError` 与异常类、`blocking` | **`vm/exec/call/builtin_abi/`**（`args.rs` / `ret.rs` / `error.rs`；宏在 `crates/z42-macros/src/builtins_attr.rs`） |
 | 值转换 / 解析（`Parse` / `TryParse`）/ to-string / 装箱 | `convert.rs`（`typed` 模块，ABI v2） |
@@ -105,7 +106,7 @@ xtask test stdlib
 
 进程、线程、文件及启用的 TCP/UDP/TLS 资源表由各自模块的 `State` 持有，经 `VmContext::ext` 查询。
 文件 builtin 的应用参数来自 `ProgramArgs` 服务，门面实现该服务并注入，核心库不持有门面类型。
-门面 `extension_assembly.rs` 在创建 VM 时登记，worker 共享同一状态。新增资源类别无需向 VmCore 添加具体字段。
+门面 `extension_assembly.rs` 在创建 VM 时登记，worker 共享同一状态。隔离应用执行和退出报告也消费 `application.rs` 服务，门面负责创建 `RunOpts` 与报告策略，核心库保留输出捕获、并行 join 的 park 以及 report-before-exit 顺序。新增资源类别无需向 VmCore 添加具体字段。
 
 ## 核心文件
 
