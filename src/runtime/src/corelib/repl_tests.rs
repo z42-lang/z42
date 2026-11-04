@@ -47,7 +47,7 @@ fn complete_trampoline_callback_error_swallowed_to_null() {
     let _g = SERIAL.lock().unwrap();
     let ctx = VmContext::new();
     // Register a completer so we pass the "no FQN" gate and actually re-enter; a
-    // fresh ctx has `core.module == None`, so `complete_via_callback` errors — the
+    // fresh ctx has `core.runtime.module == None`, so `complete_via_callback` errors — the
     // trampoline must swallow that to null, not propagate/panic.
     repl_set_completer("Repl.NoSuchCompleter");
     let ctx_ptr = &*ctx as *const VmContext as *mut c_void;

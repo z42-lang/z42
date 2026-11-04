@@ -14,7 +14,7 @@ use anyhow::{bail, Result};
 /// the appropriate backend.
 ///
 /// **add-threading-stdlib **: the user's compiled `Module` moved
-/// from `Vm` into `VmCore` (accessed via `ctx.core.module`). This lets a
+/// from `Vm` into `VmCore` (accessed via `ctx.core.runtime.module`). This lets a
 /// spawned thread share the same Module without a Vm clone. Vm is now a
 /// thin run-config wrapper.
 pub struct Vm {
@@ -29,7 +29,7 @@ impl Vm {
     /// Execute the module's entry point.
     ///
     /// `ctx` carries the runtime-mutable state (static fields, lazy loader,
-    /// pending exception) AND the user's compiled Module via `ctx.core.module`.
+    /// pending exception) AND the user's compiled Module via `ctx.core.runtime.module`.
     /// Caller is responsible for constructing `VmContext` with
     /// [`VmContext::with_module`](crate::vm_context::VmContext::with_module),
     /// and for `ctx.install_lazy_loader` before calling `run` if dependencies
@@ -42,7 +42,7 @@ impl Vm {
     /// can override with the positional `[entry]` arg on `z42vm`. No
     /// silent fallback chain — missing entry → hard error.
     pub fn run(&self, ctx: &VmContext, hint: Option<&str>) -> Result<()> {
-        let module = ctx.core.module.as_ref().ok_or_else(|| {
+        let module = ctx.core.runtime.module.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
                 "Vm::run requires the VmContext to carry a Module — \
                  construct via `VmContext::with_module(module)` instead of \

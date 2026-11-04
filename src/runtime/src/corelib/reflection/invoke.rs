@@ -220,7 +220,7 @@ pub(super) fn invoke_qualified(
 ) -> Result<Value> {
     let module_arc = ctx
         .core
-        .module
+        .runtime.module
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("reflective invoke: VmCore.module is None"))?
         .clone();
@@ -265,7 +265,7 @@ pub fn invoke_static(ctx: &VmContext, fqn: &crate::object::string::vstr::Str) ->
     let qualified = fqn.to_string();
     let module_arc = ctx
         .core
-        .module
+        .runtime.module
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("__invoke_static: VmCore.module is None"))?
         .clone();
@@ -395,7 +395,7 @@ pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
 
     let module_arc = ctx
         .core
-        .module
+        .runtime.module
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Activator.CreateInstance: VmCore.module is None"))?
         .clone();
@@ -528,7 +528,7 @@ pub fn ctor_invoke(ctx: &VmContext, ci: &Value, args_arr: &Value) -> anyhow::Res
     }
     let module_arc = ctx
         .core
-        .module
+        .runtime.module
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("ConstructorInfo.Invoke: VmCore.module is None"))?
         .clone();

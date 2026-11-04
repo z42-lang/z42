@@ -8,6 +8,7 @@
 
 | 入口 | 职责 |
 |---|---|
+| `state.rs` | `RuntimeState`：入口 module 与 FnId/TypeId/StrId 表，每 VM 创建、跨 worker 共享 |
 | `Module` / `Function` | 静态定义的链接投影、写时复制和 VM 站点状态 |
 | `ids/` | token、FnId / TypeId、函数/类型/字符串表与只追加分段表 |
 | `types/` | TypeDesc 注册表组装、继承补全和约束验证 |

@@ -127,7 +127,7 @@ fn tostring_threw(ctx: &VmContext, thrown: Value) -> anyhow::Error {
 /// `&VmContext` 的 native 落点用（`Console.WriteLine` 一族 builtin、字符串拼接的混合臂）。
 ///
 /// 此前这些落点直接用无 ctx 的 `value_to_str` ⇒ 对象一律打 `类型名{...}`，于是同一个对象
-/// 「插值对、`WriteLine` 错」。`module` 从 `ctx.core.module` 取（与 `reflection/invoke.rs`
+/// 「插值对、`WriteLine` 错」。`module` 从 `ctx.core.runtime.module` 取（与 `reflection/invoke.rs`
 /// 的取法同源）；取不到（未装载模块的宿主场景）就回落 `value_to_str`，不为展示路径制造失败。
 pub fn stringify_dispatch(ctx: &VmContext, val: &Value) -> Result<String> {
     with_stringify_dispatch(ctx, val, |s| s.to_string())
@@ -135,7 +135,7 @@ pub fn stringify_dispatch(ctx: &VmContext, val: &Value) -> Result<String> {
 
 /// perf-str-concat-direct: [`stringify_dispatch`] as a GC string (see [`obj_to_gc_str`]).
 pub fn stringify_dispatch_gc(ctx: &VmContext, val: &Value) -> Result<crate::object::string::vstr::Str> {
-    match ctx.core.module.as_ref() {
+    match ctx.core.runtime.module.as_ref() {
         Some(m) => {
             let m = m.clone();
             obj_to_gc_str(ctx, m.as_ref(), val)
@@ -146,7 +146,7 @@ pub fn stringify_dispatch_gc(ctx: &VmContext, val: &Value) -> Result<crate::obje
 
 /// perf-str-concat-direct: [`stringify_dispatch`] as a `&str` view (see [`with_obj_str`]).
 pub fn with_stringify_dispatch<R>(ctx: &VmContext, val: &Value, f: impl FnOnce(&str) -> R) -> Result<R> {
-    match ctx.core.module.as_ref() {
+    match ctx.core.runtime.module.as_ref() {
         Some(m) => {
             let m = m.clone();
             with_obj_str(ctx, m.as_ref(), val, f)

@@ -22,7 +22,7 @@ fn scan_roots(c: &VmCore, visit: &mut dyn FnMut(&Value)) {
     c.statics.scan_roots(visit);
     // Interned `ConstStr` literals: after their instruction they live only in
     // the VM's string table (`vm::runtime::ids::str_table`), which keeps them alive.
-    c.strings.scan_roots(|s| visit(&Value::Str(s)));
+    c.runtime.strings.scan_roots(|s| visit(&Value::Str(s)));
     // 2-4. Per-thread roots, one VmContext per OS thread.
     //
     // SAFETY: each VmContextPtr was registered via

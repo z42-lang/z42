@@ -5,19 +5,19 @@ impl VmContext {
     /// [`with_module`](Self::with_module). Returns `None` if VmContext was
     /// built via [`new`](Self::new) (test path).
     pub fn module(&self) -> Option<&Arc<crate::vm::runtime::Module>> {
-        self.core.module.as_ref()
+        self.core.runtime.module.as_ref()
     }
 
     /// The VM's function table (process-level `FnId`s; see `vm::runtime::ids::func_table`).
     #[inline]
     pub(crate) fn funcs(&self) -> &crate::vm::runtime::ids::func_table::FuncTable {
-        &self.core.funcs
+        &self.core.runtime.funcs
     }
 
     /// The VM's type table (process-global `TypeId`s; see `vm::runtime::ids::type_table`).
     #[inline]
     pub(crate) fn types(&self) -> &crate::vm::runtime::ids::type_table::TypeTable {
-        &self.core.types
+        &self.core.runtime.types
     }
 
     /// Clone the shared `Arc<VmCore>` — needed by external integration
@@ -269,10 +269,7 @@ impl VmContext {
             static_init_error:  Mutex::new(None),
             context_registry:   Mutex::new(crate::vm::loader::contexts::ContextRegistry::new()),
             heap:                 Box::new(Heap::new(crate::config::runtime_config().gc_config())),
-            funcs:                Arc::new(crate::vm::runtime::ids::func_table::FuncTable::new(module.clone())),
-            types:                Arc::new(crate::vm::runtime::ids::type_table::TypeTable::new(module.as_deref())),
-            strings:              Arc::new(crate::vm::runtime::ids::str_table::StrTable::new(module.clone())),
-            module,
+            runtime: crate::vm::runtime::RuntimeState::new(module),
             program_args:         Mutex::new(Vec::new()),
             vfs,
 
@@ -372,7 +369,7 @@ impl VmContext {
                 let Some(c) = core_weak.upgrade() else { return; };
                 c.statics.scan_roots(&mut |v| visit(v, RootKind::StaticField));
                 // Interned `ConstStr` literals (VM-wide, like static fields).
-                c.strings.scan_roots(|s| visit(&Value::Str(s), RootKind::StaticField));
+                c.runtime.strings.scan_roots(|s| visit(&Value::Str(s), RootKind::StaticField));
                 let registry = c.threads.vm_contexts.lock();
                 for ctx_ptr in registry.iter() {
                     // SAFETY: same invariant as the anonymous root scanner —
