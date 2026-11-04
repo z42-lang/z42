@@ -61,6 +61,7 @@ pub mod observer;
 // Spec: 变更 add-os-signal-handler/.
 pub mod signal_handler;
 
+mod context_assembly;
 mod engine_assembly;
 mod extension_assembly;
 
