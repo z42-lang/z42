@@ -205,11 +205,11 @@ gh workflow run retry-ci-runner.yml --ref main -f run_id=<失败运行ID>
 
 | flag | 命中路径（节选） |
 |---|---|
-| `platform` | `src/runtime/**`（排除顶层 `tests/**`）、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder 排除 `tests/**`）、`scripts/{package/**,packages.toml,install/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
+| `platform` | `src/runtime/**`（排除顶层 Rust 测试与纯测试数据）、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder 排除 `tests/**`）、`scripts/{package/**,packages.toml,install/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
 | `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
 | `compiler` | `src/compiler/**`（排除私有 `tests/**` 与 `benches/**`） |
 | `compiler_checks` | `src/compiler/**`（含私有用例）、`scripts/build/xtask_compiler*.z42`、`scripts/test/xtask_selfcheck_selfhost.z42`、`src/toolchain/devtools/vscode/**` |
-| `vm` | `src/runtime/**`（含 `.cargo/`，排除顶层 `tests/**`）、`scripts/test/xtask_test_runtime.z42` |
+| `vm` | `src/runtime/**`（含 `.cargo/`，排除顶层 Rust 测试与纯测试数据）、`scripts/test/xtask_test_runtime.z42` |
 | `runtime_checks` | `src/runtime/**`（含私有集成测试与数据）、`scripts/test/xtask_test_runtime.z42`；控制四个平台的完整 Rust harness |
 | `stdlib` | `src/libraries/**`、`src/compiler/**/tests/**`、`src/toolchain/builder/**`（排除 builder 的 `tests/**`；z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42`、`scripts/common/xtask_golden.z42` |
 
@@ -221,11 +221,12 @@ builder 的生产输入同时触发 `platform` 与 `stdlib`：z42b 既是 [Test]
 
 每个 filter 都额外包含 `.github/workflows/ci.yml` 自身 → **改 CI 保底全跑**。
 
-`src/runtime/tests/**` 的 Rust 集成测试与 `tests/data/` 夹具只由完整 Runtime harness 消费，
-不进入发布包。仅改这些文件时，`runtime_checks` 保留四个平台的 `test runtime`，`platform` / `vm`
-不拉起各平台打包与未改动 VM 的 JIT / stdlib 消费者。宿主自举、golden 与静态检查仍按既有规则执行。
-生产源码、Cargo 配置、build.rs，以及与私有测试混合的生产改动仍保留全部消费者；不按文件名猜测
-`src/` 内的 `*_tests.rs` 是否为私有输入，也不排除 workspace 子 crate 的测试目录。
+Runtime 顶层 `tests/*.rs`、`tests/data/` 的三个 manifest JSON 夹具、`tests/data/embedding_hello/` 与
+`tests/data/z42_native_e2e/` 只由完整 Runtime harness 消费。仅改这些文件时，`runtime_checks`
+保留四个平台的 `test runtime`，`platform` / `vm` 不拉起未改变的消费者与打包。
+`tests/data/numz42-c/` 仍是 build.rs 在非 wasm、native-interop 构建中的输入，保留全部检查；
+不能仅凭“不装进包”就把构建依赖排除。未知测试数据、生产源码、Cargo 配置、build.rs、嵌套 crate
+测试与混合生产改动继续保留消费者。宿主自举、golden 与静态检查按既有规则执行。
 `schedule` / `workflow_dispatch` 下 paths-filter 没有 before-sha 可比、几乎恒 false，所以每条
 门控的 `if:` 都显式带 `|| github.event_name == 'schedule' || ... == 'workflow_dispatch'` 逃生口；
 少了它，每日全量 sweep 里这些 job 会一个都不跑。

@@ -79,8 +79,11 @@ jobs:
           filters: |
             platform:
               - 'src/runtime/**'
-              # Rust 集成测试与数据只由完整 runtime harness 消费，不发布到 SDK。
-              - '!src/runtime/tests/**'
+              # Rust 测试与已确认的纯测试数据不发布；build.rs 无条件编译的 C PoC 保留。
+              - '!src/runtime/tests/*.rs'
+              - '!src/runtime/tests/data/{example-manifest,invalid-manifest-missing-types,manifest-with-extra-fields}.json'
+              - '!src/runtime/tests/data/embedding_hello/**'
+              - '!src/runtime/tests/data/z42_native_e2e/**'
               - 'src/toolchain/workload/**'
               # 打包管道自身、它的注册表 / CLI 面、消费包的 e2e，以及只在 package sdk 里被编译的工具链组件
               # （launcher / devtools / interactive）——不在这里就等于没有任何 PR job 编过它们。
@@ -134,7 +137,10 @@ jobs:
             vm:
               # （含 src/runtime/.cargo/config.toml：target-dir 与 wasm rustflags）
               - 'src/runtime/**'
-              - '!src/runtime/tests/**'
+              - '!src/runtime/tests/*.rs'
+              - '!src/runtime/tests/data/{example-manifest,invalid-manifest-missing-types,manifest-with-extra-fields}.json'
+              - '!src/runtime/tests/data/embedding_hello/**'
+              - '!src/runtime/tests/data/z42_native_e2e/**'
               - 'scripts/test/xtask_test_runtime.z42'
               - '.github/workflows/ci.yml'
             runtime_checks:
