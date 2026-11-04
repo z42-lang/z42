@@ -51,6 +51,12 @@ graph TD
     driver[driver·exe·z42c 命令] --> pipeline & emission & semantics & symbols & optimization & ir & core
 ```
 
+## 接口类型解析
+
+`SymbolTable.ResolveTypeP` 的接口分支先从内到外查外围作用域链，直接处理命中的定义；失败后调用 `_resolveIface`，将作用域搜索起点设为链长，继续查全限定键、文件 using，最后查 prelude。`GetInterface` 和 `HasInterface` 从起点 0 开始，仍查完整条链。跳过外围链的前提是已经查完整条链，且期间没有修改作用域或接口表。选定定义后才解析类型实参，构造实例化接口；没有接口命中时继续类等既有分支。查询不保存跨调用缓存，因此后续作用域、别名或符号表变化在下一次解析时可见。
+
+类分支另外需要处理每层作用域内的泛型 arity 键优先级，不能按接口分支简单合并查找循环。接口解析的回归与成本控制入口见 [符号包 README](../../../../src/compiler/z42c.symbols/README.md)。
+
 ## z42b 的构建阶段
 
 z42b 位于 `src/toolchain/builder/`（`z42b.zpkg`），由 launcher 分发（`build` / `publish` / `run --rid` …），驱动一条固定的构建流水线（框架位于 `src/compiler/z42.build/`），平台相关逻辑由各 workload 以 `: WorkloadBase` 注入：
