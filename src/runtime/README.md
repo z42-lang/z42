@@ -21,6 +21,7 @@
 | `vm/runtime/state.rs` | `RuntimeState` 组合入口 module 与运行时身份表，保留每 VM 链接隔离 |
 | `vm/loader/state.rs` | `LoaderState` 组合每 VM 加载上下文、初始化队列与 VFS |
 | `vm/runtime/statics/` / `vm/exec/init.rs` | 静态存储/初始化事实与执行/等待的职责边界 |
+| `app_services.rs` | 门面适配隔离应用执行与退出报告，经冻结扩展服务注入 corelib |
 | `app_state.rs` | 门面拥有的应用参数，经核心库服务接口提供快照 |
 | `vm/exec/thread_state.rs` | `ThreadExecState` 组合每线程帧、arena、异常槽和中立 JIT 头 |
 | `vm/exec/state.rs` | `ExecState` 组合每 VM 的引擎注册与代码寿命 |

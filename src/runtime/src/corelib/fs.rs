@@ -635,11 +635,10 @@ pub mod typed {
         Ok(super::state(ctx)?.args.program_args())
     }
 
-    /// `process::exit` runs no destructors: report before leaving (`app::report_on_exit`).
+    /// `process::exit` runs no destructors: report through the installed application service first.
     #[builtin(name = "__process_exit")]
-    pub fn process_exit(ctx: &VmContext, code: i64) {
-        crate::app::report_on_exit(ctx);
-        std::process::exit(code as i32);
+    pub fn process_exit(ctx: &VmContext, code: i64) -> Result<(), BuiltinError> {
+        crate::corelib::application::state(ctx)?.exit(ctx, code as i32)
     }
 
     #[builtin(name = "__time_now_ms")]
