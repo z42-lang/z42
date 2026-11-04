@@ -136,8 +136,9 @@ compare:       逐成员 _sectionsEqualIgnoreBlid(gen1, gen2)
    胖扁平 `Z42_LIBS`」会与 gen1 分歧：单包胖-flat 构建从目录里拉入的依赖闭包更大、扫描顺序又非确定，
    于是 gen2 ≠ gen1 且逐次漂移。**不动点两代必须同路径**，否则测的是「两条不同构建是否巧合一致」，
    而不是「编译器能否复现自身」。这一条由 `_z42cWorkspaceBuild` 这个单一封装从注释纪律固化成代码。
-2. **忽略 BLID**：zpkg 末尾 16 B 是 MurmurHash3 x86_128 build-id（内容哈希尾），天然每次不同；
-   比对在 section 级别做、跳过 BLID，只验代码与元数据段一致。
+2. **忽略 BLID**：zpkg 的 BLID 段保存 16 B 内容哈希。比对在 section 级别做，两个方向都跳过
+   BLID，允许它缺失或内容不同；其余段的集合、长度和每个字节仍必须一致。
+   `_selfcheckSelfHostSections` 随 `test compiler` 校验这一边界，避免构建标识差异误报或业务段差异漏报。
 
 ### z42c 的执行模式：默认 jit
 
