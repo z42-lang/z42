@@ -174,8 +174,8 @@ impl JitRuntime {
         Ok(JitRuntime {
             slots: SparseSegTable::new(),
             module: module as *const Module,
-            funcs: Arc::clone(&vm.core.funcs),
-            lazy_ids: vm.core.funcs.is_entry(module),
+            funcs: Arc::clone(&vm.core.runtime.funcs),
+            lazy_ids: vm.core.runtime.funcs.is_entry(module),
             lazy: Mutex::new(LazyCompiler::setup()?),
             // Tier-up threshold (`jit-threshold` knob, default 2): a function compiles on
             // its 2nd tiered call. 1 also compiled every run-once function (561 Cranelift

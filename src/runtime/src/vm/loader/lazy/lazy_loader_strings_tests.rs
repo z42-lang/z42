@@ -96,7 +96,7 @@ fn package_pools_are_appended_and_operands_shifted_into_the_vm_id_space() {
     let ctx = entry_ctx();
     register(&ctx, package("P1", &["a", "b"], vec![const_str_fn("P1.F$0", 1)]));
     register(&ctx, package("P2", &["c"], vec![const_str_fn("P2.F$0", 0)]));
-    let strings = &ctx.core.strings;
+    let strings = &ctx.core.runtime.strings;
     assert_eq!(strings.len(), 5, "entry 2 + P1 2 + P2 1");
     let p1 = ctx.try_lookup_function("P1.F$0").expect("registered");
     let p2 = ctx.try_lookup_function("P2.F$0").expect("registered");
@@ -121,8 +121,8 @@ fn lazy_and_entry_literals_are_interned_once_and_then_hit() {
     let e2 = run(&ctx, entry_fn);
     assert_eq!(e1.as_str(), "e1");
     assert!(same(e1, e2));
-    assert_eq!(ctx.core.strings.interned_count(), 2, "one per executed id");
-    assert!(same(ctx.core.strings.get(3).expect("interned"), l1));
+    assert_eq!(ctx.core.runtime.strings.interned_count(), 2, "one per executed id");
+    assert!(same(ctx.core.runtime.strings.get(3).expect("interned"), l1));
 }
 
 #[test]
@@ -168,10 +168,10 @@ fn threads_of_one_vm_share_a_literal_and_two_vms_do_not() {
     let sb = b.const_str(&mb, 0).expect("in range");
     assert!(!same(sa, sb), "a VM interns into its own heap");
     assert_eq!(sb.as_str(), "lit");
-    assert_eq!(a.core.strings.interned_count(), 1);
-    assert_eq!(b.core.strings.interned_count(), 1);
+    assert_eq!(a.core.runtime.strings.interned_count(), 1);
+    assert_eq!(b.core.runtime.strings.interned_count(), 1);
     // `b` cannot reach `a`'s module through its table.
-    assert!(!b.core.strings.is_entry(&ma));
+    assert!(!b.core.runtime.strings.is_entry(&ma));
 }
 
 #[test]
@@ -183,7 +183,7 @@ fn a_module_other_than_the_entry_reads_its_own_pool_uncached() {
     let s2 = ctx.const_str(&foreign, 0).expect("in its pool");
     assert_eq!(s1.as_str(), "own");
     assert!(!same(s1, s2), "no cache key for a foreign module's own pool");
-    assert_eq!(ctx.core.strings.interned_count(), 0);
+    assert_eq!(ctx.core.runtime.strings.interned_count(), 0);
 
     // Past its pool: a lazily loaded package's id, interned in the table.
     register(&ctx, package("P1", &["pkg"], vec![]));

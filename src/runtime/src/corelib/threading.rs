@@ -52,7 +52,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::vm::e
         ))),
     };
 
-    if ctx.core.module.is_none() {
+    if ctx.core.runtime.module.is_none() {
         return Err(crate::vm::exec::call::builtin_abi::BuiltinError::Internal(
             "__thread_spawn: VmContext has no shared Module — \
              constructed via VmContext::new() instead of VmContext::with_module()".into()));
@@ -202,7 +202,7 @@ fn run_spawned_action(
     fn_id:      crate::vm::runtime::ids::tokens::FnId,
     env_vec:    Option<Vec<Value>>,
 ) -> Result<()> {
-    let module_arc = thread_ctx.core.module.as_ref()
+    let module_arc = thread_ctx.core.runtime.module.as_ref()
         .ok_or_else(|| anyhow!("__thread_spawn worker: VmCore.module is None"))?
         .clone();
     let module = module_arc.as_ref();

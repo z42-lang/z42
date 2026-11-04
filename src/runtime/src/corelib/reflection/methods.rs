@@ -103,7 +103,7 @@ pub fn type_constructors(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinEr
         Some(t) => t,
         None => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
-    let module_arc = match ctx.core.module.as_ref() {
+    let module_arc = match ctx.core.runtime.module.as_ref() {
         Some(m) => m.clone(),
         None => return Ok(ctx.heap().alloc_array(Vec::new())),
     };

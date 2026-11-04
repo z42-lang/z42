@@ -745,7 +745,7 @@ fn vm_core_registers_entry_functions_and_the_loader_appends() {
         module.func_index.insert(n.to_string(), i);
     }
     let ctx = crate::vm_context::VmContext::with_module(module);
-    let funcs = Arc::clone(&ctx.core.funcs);
+    let funcs = Arc::clone(&ctx.core.runtime.funcs);
     assert_eq!(funcs.entry_len(), 2);
     assert_eq!(funcs.id_of("Entry.Helper$0"), Some(FnId(1)));
     assert_eq!(ctx.module().unwrap().functions[1].id.get(), Some(FnId(1)));

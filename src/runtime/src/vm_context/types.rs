@@ -72,30 +72,7 @@ pub struct VmCore {
     /// pending_exception) stay captured via `Rc<RefCell>`
     /// clones from the unique VmContext.
     pub(crate) heap:               Box<Heap>,
-    /// **add-threading-stdlib **: the user's compiled Module,
-    /// shared via `Arc` across all threads on this VmCore. `None` in test
-    /// paths that don't need a real Module (most cargo unit tests construct
-    /// VmContext via `VmContext::new()` 0-arg which leaves this `None`).
-    /// Production paths use `VmContext::with_module(module)` to populate.
-    /// `__thread_spawn` requires this to be `Some` (panics in test paths if
-    /// missing, which is acceptable since tests don't spawn threads).
-    pub(crate) module:             Option<Arc<crate::vm::runtime::Module>>,
-    /// Process-level function identity (`FnId` → `Function`, lock-free reads).
-    /// Entry-module functions are registered at construction as ids `0..n`
-    /// (= `module.functions` index); the lazy loader appends each package's
-    /// functions as they register. Only registers today — no lookup path reads
-    /// it yet. See `vm::runtime::ids::func_table`.
-    pub(crate) funcs:              Arc<crate::vm::runtime::ids::func_table::FuncTable>,
-    /// Process-level type identity (`TypeId` → latest `TypeDesc` version, lock-free reads).
-    /// Entry-module types are registered at construction; the lazy loader publishes its
-    /// registry after every change. Also reserves type-test keys for target names that
-    /// name no registered type. See `vm::runtime::ids::type_table`.
-    pub(crate) types:              Arc<crate::vm::runtime::ids::type_table::TypeTable>,
-    /// String-literal identity (`ConstStr` id → text + interned GC string, lock-free reads
-    /// once interned). Entry-module pool = ids `0..n`; the lazy loader appends each package's
-    /// pool. Per VM because the strings live in this VM's heap; its interned strings are GC
-    /// roots. See `vm::runtime::ids::str_table`.
-    pub(crate) strings:            Arc<crate::vm::runtime::ids::str_table::StrTable>,
+    pub(crate) runtime: crate::vm::runtime::RuntimeState,
     /// **add-z42-launcher **: command-line arguments passed to
     /// the running z42 program — everything after the `--` separator on the
     /// `z42vm` command line. Exposed to z42 code via
