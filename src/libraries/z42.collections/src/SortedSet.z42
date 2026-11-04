@@ -2,8 +2,9 @@ namespace Std.Collections;
 
 /// 按升序维护的去重集合：O(log n) 查找，Add / Remove 的元素搬移是 O(n)。
 ///
-/// where T: IComparable + IEquatable。
-public class SortedSet<T> : IBasicCollection<T> where T: IComparable + IEquatable {
+/// 顺序与成员等价均由 CompareTo 决定：返回 0 即同一成员，不调用 Equals。
+/// where T: IComparable。
+public class SortedSet<T> : IBasicCollection<T> where T: IComparable {
     // 底层用有序 T[] 存储，Contains/Remove 二分查找，Add 二分定位 + O(n) 搬移。
     T[] items;
     int count;
@@ -26,7 +27,7 @@ public class SortedSet<T> : IBasicCollection<T> where T: IComparable + IEquatabl
     /// 新元素返回 true；已存在返回 false 且不改变集合。
     public bool Add(T item) {
         int idx = this.LowerBound(item);
-        if (idx < this.count && this.items[idx].Equals(item)) {
+        if (idx < this.count && this.items[idx].CompareTo(item) == 0) {
             return false;
         }
         if (this.count == this.capacity) this.Grow();
@@ -46,13 +47,13 @@ public class SortedSet<T> : IBasicCollection<T> where T: IComparable + IEquatabl
     /// 二分查找是否存在。
     public bool Contains(T item) {
         int idx = this.LowerBound(item);
-        return idx < this.count && this.items[idx].Equals(item);
+        return idx < this.count && this.items[idx].CompareTo(item) == 0;
     }
 
     /// 删除并返回 true；本就不在返回 false。
     public bool Remove(T item) {
         int idx = this.LowerBound(item);
-        if (idx >= this.count || !this.items[idx].Equals(item)) {
+        if (idx >= this.count || this.items[idx].CompareTo(item) != 0) {
             return false;
         }
         int i = idx;

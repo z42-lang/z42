@@ -13,7 +13,7 @@
 //! - 没有预分配容量的构造器：五个类型都只有无参构造器。
 //! - 不能从既有集合 / 数组构造：没有 new Queue<T>(items) 这类构造器，只能逐个加。
 //! - 没有自定义比较器：顺序固定由元素的 CompareTo（PriorityQueue / SortedSet）、
-//!   相等固定由 Equals（LinkedList / SortedSet）决定，构造器不接受比较器。
+//!   SortedSet 的成员等价由 CompareTo == 0 决定；LinkedList 的相等由 Equals 决定，构造器不接受比较器。
 //! - SortedSet<T> 没有区间视图（GetViewBetween / Reverse() / 前驱后继查询）。
 //! - 没有 SortedDictionary<K,V>、没有并发集合、没有 Deque 两端队列。
 //! - Grow()（Stack / Queue / SortedSet）虽然是 public，属于容量管理入口，正常使用不需要调用。
