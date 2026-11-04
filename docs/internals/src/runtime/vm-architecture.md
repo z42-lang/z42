@@ -102,10 +102,6 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.engines` 
   （型参单元协议，读写无锁，单元旁缓存类型初始化屏障的属主判定），外加 FQN → id 的登记表（首次用到才分配，解析期才走它的锁）。
   布局与内存序见 [object-abi.md](object-abi.md)「字段单元的内存序」
 - `lazy_loader: RwLock<Option<LazyLoader>>` — 按需 zpkg 加载器（**RwLock**：符号查找稳态下是纯读，只有真正加载 zpkg 才取写锁）
-- `native_types: RwLock<HashMap<(String,String), Arc<RegisteredType>>>` — Tier 1 native interop 注册表（**RwLock**，读多写少：dispatch 是纯读，写仅在 module 加载期；`#[cfg(feature="native-interop")]`）
-- `native_libs: Mutex<Vec<libloading::Library>>` — 已加载的 native 库句柄（同上 cfg）
-- `ext_libs_tried: Mutex<HashSet<&str>>` — 本 VM 已尝试打开的 stdlib 原生扩展库（`interop::ext::ensure_lib_for`，每个库只找一次；同上 cfg）
-- `pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>` — `Value::PinnedView` 的 owned 缓冲
 - `fatal: AtomicBool` — 致命 VM 错误（栈溢出）正在展开，见下文「原生栈预算」
 - `heap: Box<Heap>` — GC 子系统接口（后端 `Heap`）
 - `module: Option<Arc<Module>>` — 用户编译后的 Module，跨线程共享；测试路径 `None`，生产路径 `Some(Arc::new(module))`
@@ -122,6 +118,11 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.engines` 
 核心库的进程、线程、文件、TCP socket/listener、UDP 和 TLS 七张资源表分别归对应模块的 `State`，
 由门面 `extension_assembly.rs` 在所有 VM 构造入口创建并登记到扩展状态中；worker 共享同一个 core 的状态。
 VM 的泛型存储不依赖这些资源类型。网络与 TLS 状态保持各自 `net` / `tls` feature 边界。
+
+`interop/state.rs` 持有 native 类型表、库句柄、已尝试扩展库集合与 owned pin buffer。
+门面先登记 interop 状态，其他模块与宿主状态后登记；逆序释放使库句柄晚于 heap、引擎和其他扩展销毁。
+interop 状态内部先释放类型和 buffer，最后释放库句柄。buffer 始终存在，native 表与加载器仍受 `native-interop` 约束。
+Rust 查询/注册/pin 操作经 interop 模块函数访问冻结扩展状态，内部缺失通过 `Result` 报错。
 
 `corelib/resource_registry.rs` 提供 `ResourceRegistry<T>`：原有的表锁、单调计数器与取出/克隆语义组合在一起。
 每个 VM 的每类槽号从 1 开始、永不复用。阻塞 I/O 只在表锁下克隆 `Arc`，释放锁后再做系统调用；
@@ -281,8 +282,8 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
 实测：前端 typecheck 4.757→4.617s = **2.9%**，`--dump-bound` 逐字节一致，`push_frame` 197→125 /
 `pop_frame` 151→110 samples，无格式/wire/语义变更。
 
-**Native interop 入口**：`VmContext::register_native_type(Arc<RegisteredType>)` /
-`resolve_native_type(module, name)` / `load_native_library(path)`；后者打开 `.dylib`
+**Native interop 入口**：`interop::register_native_type(ctx, Arc<RegisteredType>)` /
+`resolve_native_type(ctx, module, name)` / `loader::load_library(ctx, path)`；后者打开 `.dylib`
 /`.so`/`.dll` 并调用其 `<basename>_register` 入口（约定）让 native 库通过
 `z42_register_type` 把类型推入 `native_types`。栈底帧 push 时安装 thread-local
 `CURRENT_VM`（见上「寄存器池、引擎入口 guard、frame_id」）让 native callback 能找回 VM；详见

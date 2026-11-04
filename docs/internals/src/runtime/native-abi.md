@@ -43,7 +43,7 @@
 │    跨语言可移植；上面两层最终都落到这里                        │
 └──────────────────────────────────────────────────────────────┘
                               ↓
-                    VmCore.native_types
+                    interop::State.native_types
 ```
 
 **分层原则**：上层能表达的，手写下层都能得到。由此保证三件事——Tier 1 保持小而稳定；Tier 2/3 可以独立
@@ -87,15 +87,19 @@
 | 路径 | 内容 |
 |---|---|
 | [`src/runtime/include/z42_abi.h`](https://github.com/z42-lang/z42/blob/main/src/runtime/include/z42_abi.h) | Tier 1 C 头（与 `z42_host.h` 平行） |
-| [`src/runtime/src/interop/`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/interop) | Tier 1 在 VM 内的实现（`registry` / `marshal` / `dispatch` / `loader` / `error` / `exports` / `ext`） |
+| [`src/runtime/src/interop/`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/interop) | Tier 1 在 VM 内的实现（`state` / `registry` / `marshal` / `dispatch` / `loader` / `error` / `exports` / `ext`） |
 | [`src/runtime/crates/z42-abi`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi) | Tier 1 的 Rust 镜像（结构体 + 冻结 tag 常量 + `extern "C"` 声明） |
 | [`src/runtime/crates/z42-rs`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-rs) | 面向用户的门面 crate（`Z42Type` trait + helper） |
 | [`src/runtime/crates/z42-macros`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-macros) | proc macro：`methods_attr` / `module_macro` / `shim` / `signature`（Tier 2）；`builtins_attr`（VM 自己的 builtin ABI，§6.2） |
 | `src/compiler/z42c.emission/src/Emission/StubEmitter.z42` | 编译器侧：`[Native]` → `CallNativeInstr` / `BuiltinInstr` 的分流 |
 
 整条通路由 cargo feature **`native-interop`** 门控（`= ["dep:libffi", "dep:libloading"]`，在默认
-feature 集里）。wasm 构建关掉它后，`VmContext` 上的 `register_native_type` / `resolve_native_type`
-连同背后的字段一起消失。
+feature 集里）。关闭该 feature 后，`interop::register_native_type` / `resolve_native_type` 与 native 子模块、
+状态字段一起消失；portable pin buffer 状态及 `pin_owned_buffer` / `release_owned_buffer` 仍可用。
+
+类型与库表归 `interop::State`，门面在 VM 创建时登记为冻结扩展状态，worker 共享同一份。
+类型表保留 `RwLock`，库表与 pin buffer 保留各自的 `Mutex`。Rust 状态操作接受 `&VmContext`、
+经 `ext` 查询并返回 `Result`；C ABI 的符号、值布局、空 type ref 和 last-error 协议保持原样。
 
 ### 2.1 宏各自展开出什么
 
@@ -122,9 +126,9 @@ native 库                      z42vm
                              registry::RegisteredType::from_descriptor
                                ↓  读 methods[]，逐个 parse_signature
                                ↓  预建 libffi Cif（每方法一份）
-                             VmContext::register_native_type
+                             interop::register_native_type
                                ↓  key = (module_name, type_name)
-                             VmCore.native_types: RwLock<HashMap<..>>
+                             interop::State.native_types: RwLock<HashMap<..>>
 ```
 
 要点：
@@ -135,7 +139,7 @@ native 库                      z42vm
 - **描述符指针只留作诊断**。`RegisteredType` 注册完就不再回读 `descriptor_ptr` 指向的内存；调用方必须
   保证描述符及其所有字符串/函数指针是 `'static`。这条契约是 `unsafe impl Send + Sync` 的全部依据。
 - **`fields` / `trait_impls` 不落库**。`RegisteredType` 只存 `methods: HashMap<String, MethodEntry>`。
-- **库句柄挂在 `VmContext.native_libs` 上**，保证所有 `fn_ptr` 活到 VM drop。
+- **库句柄挂在 `interop::State.native_libs` 上**，保证所有 `fn_ptr` 活到 VM drop。
 
 `loader::load_library` 按文件名反推入口符号：`libnumz42.dylib` → `numz42_register`。⚠️ **VM 内部没有
 任何地方调 `load_native_library`**——typed 通路的库今天只能靠静态链接 + 宿主显式调注册入口进来。启动时
@@ -152,7 +156,7 @@ native 库                      z42vm
 
 ```
 计数 native_calls + 发 NativeCallEntered 事件
-  → ctx.resolve_native_type(module, type)        未命中 → unknown native type
+  → interop::resolve_native_type(ctx, module, type)        未命中 → unknown native type
   → ty.method(symbol)                            未命中 → unknown method
   → 实参个数 vs 签名参数个数                       不符  → arity mismatch
   → marshal::Arena::new()                        持有本次调用的临时（CString 等）

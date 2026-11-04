@@ -21,10 +21,7 @@ pub mod interp;
 pub mod jit;
 #[cfg(feature = "aot")]
 pub mod aot;
-// add-platform-wasm Stage 0: native interop (Tier 1 ABI for native
-// code registering types into z42) requires libffi + dlopen which the wasm
-// sandbox cannot provide. Gated on the `native-interop` feature.
-#[cfg(feature = "native-interop")]
+// Portable pin state is always available; interop gates its native ABI modules.
 pub mod interop;
 // Embedding API (Tier 1 C ABI for host applications). Spec:
 // docs/internals/src/runtime/embedding.md, 变更 add-embedding-api/.

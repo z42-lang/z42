@@ -177,7 +177,7 @@ impl VmContext {
     /// Spawned-thread entry: build a VmContext that **shares** an existing
     /// `Arc<VmCore>` instead of creating a new one. Used by
     /// `__thread_spawn`'s spawned closure so the worker thread sees the
-    /// same module / static_fields / heap / lazy_loader / native_libs
+    /// same module / static_fields / heap / lazy_loader / extension state
     /// state as the parent thread.
     ///
     /// The new VmContext registers itself in `core.vm_contexts` for GC root
@@ -267,11 +267,6 @@ impl VmContext {
             init_batch_inflight:     std::sync::atomic::AtomicUsize::new(0),
             static_init_error:  Mutex::new(None),
             context_registry:   Mutex::new(crate::vm::loader::contexts::ContextRegistry::new()),
-            #[cfg(feature = "native-interop")]
-            native_types:       RwLock::new(HashMap::new()),
-            #[cfg(feature = "native-interop")]
-            native_libs:        Mutex::new(Vec::new()),
-            pinned_owned_buffers: Mutex::new(HashMap::new()),
             fatal:                std::sync::atomic::AtomicBool::new(false),
             heap:                 Box::new(Heap::new(crate::config::runtime_config().gc_config())),
             vm_contexts:          Mutex::new(Vec::new()),
@@ -285,8 +280,6 @@ impl VmContext {
             collector_active:     std::sync::atomic::AtomicBool::new(false),
             needs_auto_collect:   Arc::new(std::sync::atomic::AtomicBool::new(false)),
             program_args:         Mutex::new(Vec::new()),
-            #[cfg(feature = "native-interop")]
-            ext_libs_tried:       Mutex::new(Default::default()),
             vfs,
 
             diagnostics: crate::vm::diagnostics::DiagnosticsState {

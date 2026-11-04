@@ -52,7 +52,7 @@ fn native_search_paths_includes_exec_dir_fallback() {
 #[test]
 fn unknown_builtin_names_never_trigger_a_library_load() {
     let ctx = crate::vm_context::VmContext::new();
-    assert!(!ensure_lib_for(&ctx, "__no_such_builtin"));
+    assert!(!ensure_lib_for(&ctx, "__no_such_builtin").unwrap());
 }
 
 #[cfg(not(feature = "bundled-compression"))]
@@ -64,8 +64,8 @@ fn a_library_is_looked_for_once_per_vm() {
     let ctx = crate::vm_context::VmContext::new();
     // P1-8 批次 9:压缩 builtin 迁主表后不再进 ext 表,装载成功的可见信号是
     // 进程级 fn ptr 表已填充(typed 内部 `loaded` 读它)。
-    if ensure_lib_for(&ctx, "__deflate_compress") {
+    if ensure_lib_for(&ctx, "__deflate_compress").unwrap() {
         assert!(crate::interop::ext::compression_loaded_for_test());
     }
-    assert!(!ensure_lib_for(&ctx, "__zstd_compress"), "second miss for the same library must not retry");
+    assert!(!ensure_lib_for(&ctx, "__zstd_compress").unwrap(), "second miss for the same library must not retry");
 }
