@@ -176,7 +176,7 @@ fn jit_layout_matches_the_accessors() {
     c.mark_barrier_ready(0x1234_5678);
     assert_eq!(raw32(c, StaticCell::JIT_READY_OFFSET), 0x1234_5678);
     assert!(c.barrier_ready(0x1234_5678));
-    let reg = &ctx.core.cctors;
+    let reg = &ctx.core.runtime.cctors;
     assert_eq!(unsafe { (*reg.barrier_epoch_ptr()).load(Ordering::Relaxed) }, reg.barrier_epoch());
 }
 

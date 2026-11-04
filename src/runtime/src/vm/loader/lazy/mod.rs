@@ -123,7 +123,7 @@ pub struct LazyLoader {
     ///
     /// Set by `VmContext::install_lazy_loader_with_deps` (the only production construction
     /// path); `None` only for loaders built directly in unit tests.
-    cctors: Option<Arc<crate::vm_context::cctor::CctorRegistry>>,
+    cctors: Option<Arc<crate::vm::runtime::statics::CctorRegistry>>,
 
     /// **precise-pkg-refs**: symbol key (type / free-function full name) → zpkg file that defines
     /// it, from the DEPS symbol lists of the entry artifact and of every loaded package. See
@@ -235,7 +235,7 @@ impl LazyLoader {
                 // `z42c build --workspace stdlib` failure (`undefined function
                 // Std.IO.Environment.GetCommandLineArgs$0`). Keep the blast radius at
                 // exactly the pseudo-type this feature needs.
-                if crate::vm_context::cctor::is_module_pseudo_type(&td.name) {
+                if crate::vm::runtime::statics::is_module_pseudo_type(&td.name) {
                     if let (Some(reg), Some(func)) = (self.cctors.as_ref(), td.cctor_func()) {
                         reg.register(&td.name, func);
                         // 登记推迟到循环之后：owner 集合要整包齐了才算得准。
@@ -400,7 +400,7 @@ impl LazyLoader {
     }
 
     /// fix-crosspkg-static-call-cctor: attach the context's cctor registry (see the field doc).
-    pub(crate) fn set_cctor_registry(&mut self, reg: Arc<crate::vm_context::cctor::CctorRegistry>) {
+    pub(crate) fn set_cctor_registry(&mut self, reg: Arc<crate::vm::runtime::statics::CctorRegistry>) {
         self.cctors = Some(reg);
     }
 

@@ -128,9 +128,9 @@ fn run_jit(m: &Module, idx: usize, args: &[Value], init_pending: bool) -> (Strin
     crate::vm::runtime::resolve::resolve_function_tokens(&m.functions[idx], m, &vm);
     let rt = install(&vm, m).expect("install");
     if init_pending {
-        use crate::vm_context::cctor::CctorRegistry;
+        use crate::vm::runtime::statics::CctorRegistry;
         // The counter the inline gate reads (and `jit_call`'s barrier recounts).
-        let reg = std::sync::Arc::as_ptr(&vm.core.cctors) as *const u8;
+        let reg = std::sync::Arc::as_ptr(&vm.core.runtime.cctors) as *const u8;
         let pending = unsafe { &*(reg.add(CctorRegistry::MODULE_PENDING_OFFSET) as *const std::sync::atomic::AtomicUsize) };
         pending.store(1, std::sync::atomic::Ordering::Relaxed);
     }

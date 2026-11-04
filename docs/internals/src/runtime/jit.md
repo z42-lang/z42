@@ -553,7 +553,7 @@ PRIM 数组的读写内联（`packed_data`）不变。
 ## 静态字段：内联的 `StaticGet` / `StaticSet`
 
 > 代码：`src/runtime/src/jit/translate/static_field.rs`；屏障 `vm_context/statics.rs` 的 `ensure_static_field_init`；
-> 单元 `vm_context/static_table.rs`。
+> 单元 `vm/runtime/statics/table.rs`。
 
 ### 为什么
 

@@ -8,6 +8,7 @@
 
 | 入口 | 职责 |
 |---|---|
+| `init.rs` | 类型与包初始化屏障、执行、parked 等待及异常构造 |
 | `ambient.rs` | 执行期当前堆 TLS、HeapGuard 嵌套恢复和堆 epoch |
 | `engine.rs` | Engine / TierApi 注册、共享调用边界和 OSR 交接；门面按 feature 装配，后端持有代码及激活；corelib 的反射、attribute 和线程回调也经此入口 |
 | `ops/call.rs` / `ops/stringify.rs` | 冷 Call/FnRef 绑定及 ToString 协议执行，调用经已注册 Engine |

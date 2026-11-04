@@ -587,7 +587,7 @@ fn type_desc_with_cctor(name: &str, cctor: Option<&str>) -> Arc<TypeDesc> {
 #[test]
 fn inserting_a_loaded_type_registers_its_static_ctor() {
     // 修前惰性类型只在 `try_lookup_type` 登记；跨包静态方法调用只查函数 ⇒ 门读到 0、屏障被跳过。
-    let reg = Arc::new(crate::vm_context::cctor::CctorRegistry::default());
+    let reg = Arc::new(crate::vm::runtime::statics::CctorRegistry::default());
     let mut loader = LazyLoader::new(Vec::new(), 0, Vec::new(), Vec::new());
     loader.set_cctor_registry(Arc::clone(&reg));
     assert!(!reg.any_pending());

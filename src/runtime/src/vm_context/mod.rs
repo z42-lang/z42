@@ -68,10 +68,7 @@ mod native;
 mod frames;
 mod engine_guards;
 mod statics;
-pub(crate) mod static_table;
 mod lookup;
-// add-static-constructors：cctor 的按类型初始化状态机（含无锁 pending 门）。
-pub(crate) mod cctor;
 // fix-silent-symbol-resolution：「确定不存在」的判定（两后端共用）。
 pub(crate) mod symres;
 

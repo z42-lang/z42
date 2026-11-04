@@ -49,10 +49,10 @@ pub(crate) fn obj_new(
     // 不需要 `pending` 门。
     // add-module-init-hook：跨包 `new` 同样可能刚拉进一个包 —— 其包初始化器先跑。
     if let Err(msg) = ctx.ensure_module_inits(Some(type_desc.name.as_str())) {
-        return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
+        return Ok(Some(crate::vm::exec::init::make_type_init_exception(ctx, module, &msg)));
     }
     if let Err(msg) = ctx.ensure_type_init(&type_desc) {
-        return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
+        return Ok(Some(crate::vm::exec::init::make_type_init_exception(ctx, module, &msg)));
     }
 
     // The ctor is bound before the object exists: binding may load a package (and run its

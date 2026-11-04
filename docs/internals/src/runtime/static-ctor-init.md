@@ -1,7 +1,10 @@
 # 静态构造函数的按类型初始化
 
 > 语义面见[静态构造函数](https://z42-lang.github.io/z42/reference/language/static-constructors.html)。本页讲实现。
-> 代码：`src/runtime/src/vm_context/cctor.rs`；启动路径共用步骤 `src/runtime/src/boot.rs`。
+> 代码：`src/runtime/src/vm/runtime/statics/cctor.rs`（数据）、`src/runtime/src/vm/exec/init.rs`（执行与等待）；启动路径共用步骤 `src/runtime/src/boot.rs`。
+
+RuntimeState 组合静态表、初始化状态与错误记录；执行层共享同一份 Arc registry，
+保留 claim/finish、park 和 Condvar 协议。heap 先于这些数据与类型拥有者释放。
 
 ## 为什么不能照抄 C#
 
@@ -36,7 +39,7 @@ if any_pending() { ensure_type_init(...) }   // 热路径的全部代价
   基类链还没合并的类型不进缓存：加载器要靠 `Arc::get_mut` 原地补布局，多一份引用就补不动。
 - **类型本身**：`TypeDesc` 上的初始化代际标记（`init_done_in(gen)`），初始化跑完后两次 relaxed load 放行。
 
-- **静态字段**：属主判定缓存在该字段的静态单元旁（`vm_context/static_table.rs` 的 `StaticCell::owner`，整个 VM 共享、
+- **静态字段**：属主判定缓存在该字段的静态单元旁（`vm/runtime/statics/table.rs` 的 `StaticCell::owner`，整个 VM 共享、
   读无锁）。第一次仍按名推属主，并走会加载的 `try_lookup_type`——跨包读静态字段时，属主所在的包可能确实还没加载；
   之后一次 acquire load 命中：无 cctor 的属主记为免检，有 cctor 的交给上一条的代际标记。基类链未合并的属主不缓存；
   显式模块（重）加载清空全部缓存答案（`VmContext::forget_static_owners`）。槽号未解析的站点（少见）仍每次按名推。
@@ -85,8 +88,7 @@ sequenceDiagram
 > 「依赖包类型的第一次使用是调静态方法」时 cctor 不执行——连带注入其体首的静态字段初始化器也不执行——而且
 > 结果随「之前有没有别的类型被查过」而变。
 >
-> 代价：已加载但从未使用的 cctor 类型会让门常开（此后每次静态访问多一次查表）。急切路径一直如此；标准库与
-> 编译器里没有静态构造器，代价只落在真正写了静态构造器的用户代码上。
+> 代价：已加载但从未使用的 cctor 类型会让门常开（此后每次静态访问多一次查表）。按对象缓存的快路负责避免稳态反复查表。
 
 ## 状态机
 
@@ -102,7 +104,7 @@ stateDiagram-v2
 ```
 
 **他线程正在跑（`Running(别的线程)`）时，本线程阻塞到终态**，与 C# 一致：每个类型恰好初始化一次，
-其他线程看到的一定是初始化完成后的状态。实现要点（`CctorRegistry::claim_with`）：
+其他线程看到的一定是初始化完成后的状态。实现要点（`vm::exec::init::claim_with`）：
 
 - 等在与 `map` 配对的 Condvar 上，`finish` 推到终态时唤醒；不轮询。
 - 等待期间持有 `NativeParkGuard`，本线程算作已 park。否则跑 cctor 的线程一旦触发 GC，GC 握手就要等

@@ -19,7 +19,7 @@ impl GcRoots for VmContext {
 }
 fn scan_roots(c: &VmCore, visit: &mut dyn FnMut(&Value)) {
     // 1. Shared static fields.
-    c.statics.scan_roots(visit);
+    c.runtime.statics.scan_roots(visit);
     // Interned `ConstStr` literals: after their instruction they live only in
     // the VM's string table (`vm::runtime::ids::str_table`), which keeps them alive.
     c.runtime.strings.scan_roots(|s| visit(&Value::Str(s)));

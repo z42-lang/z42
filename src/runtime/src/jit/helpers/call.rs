@@ -137,8 +137,8 @@ unsafe fn call_compiled(
     // (`callee_barrier_settled`), the entry records the epoch — read BEFORE the
     // barrier ran, so an event while it ran leaves the record stale (re-checked
     // next call), never wrong. The gate is then one acquire + one relaxed load.
-    if !entry.init_ready_eq(vm.core.cctors.barrier_epoch()) {
-        let epoch = vm.core.cctors.barrier_epoch_acquire();
+    if !entry.init_ready_eq(vm.core.runtime.cctors.barrier_epoch()) {
+        let epoch = vm.core.runtime.cctors.barrier_epoch_acquire();
         if vm.module_init_gate_open() || vm.any_cctor_pending() {
             if let Some(exc) = call_barriers(vm, ctx, &*entry.func, &entry.owner_init) {
                 set_exception(vm, exc);
@@ -211,10 +211,10 @@ unsafe fn call_barriers(
 ) -> Option<Value> {
     let module = super::jit_module(ctx);
     if let Err(msg) = vm.ensure_module_inits(Some(&callee.name)) {
-        return Some(crate::vm_context::cctor::make_type_init_exception(vm, module, &msg));
+        return Some(crate::vm::exec::init::make_type_init_exception(vm, module, &msg));
     }
     if let Err(msg) = vm.ensure_callee_owner_init(&callee.name, owner) {
-        return Some(crate::vm_context::cctor::make_type_init_exception(vm, module, &msg));
+        return Some(crate::vm::exec::init::make_type_init_exception(vm, module, &msg));
     }
     None
 }

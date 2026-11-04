@@ -145,7 +145,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     /// cctor registry are zero. The registry pointer is read off the context
     /// parameter (`JitHead::cctors`, set at the context's construction — never null).
     fn emit_module_init_gate(&mut self, slow_blk: cranelift_codegen::ir::Block) {
-        use crate::vm_context::cctor::CctorRegistry;
+        use crate::vm::runtime::statics::CctorRegistry;
         let flags = MemFlagsData::trusted();
         let reg = self.builder.ins().load(self.ptr, flags, self.ctx_val,
             crate::vm_context::VM_CONTEXT_CCTORS_OFFSET as i32);

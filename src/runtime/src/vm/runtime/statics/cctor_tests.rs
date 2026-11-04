@@ -1,6 +1,7 @@
 //! Unit tests for `vm_context::cctor`.
 
 use super::*;
+use crate::vm::exec::init::{claim, claim_with};
 
 // add-module-init-hook：失败语义（失败是终态、不重试、每次重抛）已由既有的
 // `failed_type_reports_error_on_every_later_access` 覆盖 —— 包初始化器复用同一套
@@ -80,7 +81,7 @@ fn register_makes_pending_and_finish_clears_it() {
     let r = CctorRegistry::default();
     r.register("A.C", "A.C.C$0");
     assert!(r.any_pending(), "登记后必须待初始化");
-    let claimed = r.claim("A.C").unwrap();
+    let claimed = claim(&r, "A.C").unwrap();
     assert_eq!(claimed.as_deref(), Some("A.C.C$0"), "认领应交回 cctor 函数名");
     r.finish("A.C", None);
     assert!(!r.any_pending(), "全部跑完后计数归零 ⇒ 屏障重新免费");
@@ -101,9 +102,9 @@ fn register_is_idempotent() {
 fn second_claim_after_done_is_noop() {
     let r = CctorRegistry::default();
     r.register("A.C", "f");
-    assert!(r.claim("A.C").unwrap().is_some());
+    assert!(claim(&r, "A.C").unwrap().is_some());
     r.finish("A.C", None);
-    assert!(r.claim("A.C").unwrap().is_none(), "已 Done 的类型不得再跑一次");
+    assert!(claim(&r, "A.C").unwrap().is_none(), "已 Done 的类型不得再跑一次");
 }
 
 #[test]
@@ -111,8 +112,8 @@ fn reentrant_claim_on_same_thread_is_allowed() {
     // C# 语义：cctor 递归触发自身 → 放行（可能看到部分初始化），不死锁。
     let r = CctorRegistry::default();
     r.register("A.C", "f");
-    assert!(r.claim("A.C").unwrap().is_some());
-    assert!(r.claim("A.C").unwrap().is_none(), "同线程重入必须放行而非阻塞");
+    assert!(claim(&r, "A.C").unwrap().is_some());
+    assert!(claim(&r, "A.C").unwrap().is_none(), "同线程重入必须放行而非阻塞");
 }
 
 #[test]
@@ -120,20 +121,20 @@ fn failed_type_reports_error_on_every_later_access() {
     // C# 语义：cctor 抛异常 → 类型不可用，后续访问一律报错（不重试）。
     let r = CctorRegistry::default();
     r.register("A.C", "f");
-    assert!(r.claim("A.C").unwrap().is_some());
+    assert!(claim(&r, "A.C").unwrap().is_some());
     r.finish("A.C", Some("boom".to_string()));
     assert!(r.any_pending(),
         "失败的类型必须让门继续开着——否则屏障短路、Failed 分支永远检查不到，\
          失败类型会静默变回可用");
-    assert_eq!(r.claim("A.C").unwrap_err(), "boom");
-    assert_eq!(r.claim("A.C").unwrap_err(), "boom", "失败态必须稳定，不得重试");
+    assert_eq!(claim(&r, "A.C").unwrap_err(), "boom");
+    assert_eq!(claim(&r, "A.C").unwrap_err(), "boom", "失败态必须稳定，不得重试");
 }
 
 #[test]
 fn unregistered_type_never_blocks() {
     let r = CctorRegistry::default();
     r.register("A.C", "f");
-    assert!(r.claim("A.Other").unwrap().is_none(), "没有 cctor 的类型不进表 ⇒ 不受影响");
+    assert!(claim(&r, "A.Other").unwrap().is_none(), "没有 cctor 的类型不进表 ⇒ 不受影响");
 }
 
 /// runtime-audit A.5: a free function's derived "owner" is its namespace.
@@ -152,7 +153,7 @@ fn free_function_barrier_loads_no_package() {
         Vec::new(),
     );
     // Some type with a pending static constructor keeps the global gate open.
-    ctx.core.cctors.register("Other.C", "Other.C.$cctor");
+    ctx.core.runtime.cctors.register("Other.C", "Other.C.$cctor");
 
     let cell = crate::vm::runtime::OwnerInitCell::default();
     assert!(ctx.ensure_callee_owner_init("Demo.Greet$1", &cell).is_ok());
@@ -174,15 +175,15 @@ fn owner_class_split() {
 fn static_barrier_caches_the_owner_answer_per_field_id() {
     let ctx = crate::vm_context::VmContext::new();
     // Some type with a pending static constructor keeps the global gate open.
-    ctx.core.cctors.register("Other.C", "Other.C.$cctor");
+    ctx.core.runtime.cctors.register("Other.C", "Other.C.$cctor");
     let other = ctx.resolve_static_field_id("Demo.Holder.Other");
     let id = ctx.resolve_static_field_id("Demo.Holder.Count");
     assert!(ctx.ensure_static_owner_init("Demo.Holder.Count", Some(id.0)).is_ok());
-    use crate::vm_context::static_table::StaticOwner;
-    let owner = |id| ctx.core.statics.cell(id).map(|c| c.owner());
+    use crate::vm::runtime::statics::StaticOwner;
+    let owner = |id| ctx.core.runtime.statics.cell(id).map(|c| c.owner());
     assert!(matches!(owner(id), Some(StaticOwner::Exempt)), "owner without a cctor is cached as exempt");
     assert!(matches!(owner(other), Some(StaticOwner::Unknown)), "other ids stay unknown");
-    ctx.core.statics.forget_owners();
+    ctx.core.runtime.statics.forget_owners();
     assert!(matches!(owner(id), Some(StaticOwner::Unknown)), "a module reload forgets the answers");
 }
 
@@ -192,12 +193,12 @@ fn waiting_claim_parks_and_wakes_on_finish() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let r = Arc::new(CctorRegistry::default());
     r.register("A.C", "A.C.$cctor");
-    assert!(r.claim("A.C").unwrap().is_some(), "本线程认领");
+    assert!(claim(&r, "A.C").unwrap().is_some(), "本线程认领");
 
     let parks = Arc::new(AtomicUsize::new(0));
     let waiter = {
         let (r, parks) = (Arc::clone(&r), Arc::clone(&parks));
-        std::thread::spawn(move || r.claim_with("A.C", || { parks.fetch_add(1, Ordering::SeqCst); }))
+        std::thread::spawn(move || claim_with(&r, "A.C", || { parks.fetch_add(1, Ordering::SeqCst); }))
     };
     let start = std::time::Instant::now();
     while parks.load(Ordering::SeqCst) == 0 {
@@ -216,14 +217,14 @@ fn gc_pause_does_not_wait_for_a_thread_waiting_on_a_cctor() {
     use crate::vm_context::VmContext;
     let collector = VmContext::new();
     let core = collector.core_arc();
-    core.cctors.register("A.C", "A.C.$cctor");
-    assert!(core.cctors.claim("A.C").unwrap().is_some(), "收集者线程正在跑 A.C 的 cctor");
+    core.runtime.cctors.register("A.C", "A.C.$cctor");
+    assert!(claim(&core.runtime.cctors, "A.C").unwrap().is_some(), "收集者线程正在跑 A.C 的 cctor");
 
     let waiter = {
         let core = Arc::clone(&core);
         std::thread::spawn(move || {
             let w = VmContext::new_with_core(Arc::clone(&core));
-            core.cctors.claim_with("A.C", || crate::vm::threads::safepoint::NativeParkGuard::enter(&w))
+            claim_with(&core.runtime.cctors, "A.C", || crate::vm::threads::safepoint::NativeParkGuard::enter(&w))
         })
     };
     let start = std::time::Instant::now();
@@ -233,7 +234,7 @@ fn gc_pause_does_not_wait_for_a_thread_waiting_on_a_cctor() {
     }
     let pause = crate::vm::threads::safepoint::request_gc_pause(&collector).expect("uncontended");
     drop(pause);
-    collector.core.cctors.finish("A.C", None);
+    collector.core.runtime.cctors.finish("A.C", None);
     assert_eq!(waiter.join().unwrap(), Ok(None));
 }
 
@@ -245,7 +246,7 @@ fn barrier_epoch_moves_on_every_invalidating_event() {
     let moved = |f: &dyn Fn()| { let e = r.barrier_epoch(); f(); r.barrier_epoch() != e };
     assert!(moved(&|| r.register("A.C", "A.C.$cctor")), "a static constructor registered");
     assert!(!moved(&|| r.register("A.C", "A.C.$cctor")), "re-registering is a no-op");
-    assert!(r.claim("A.C").unwrap().is_some());
+    assert!(claim(&r, "A.C").unwrap().is_some());
     assert!(!moved(&|| r.finish("A.C", None)), "a type finishing only makes barriers cheaper");
     assert!(moved(&|| r.reset_for_rerun()), "a re-run generation");
     let m = Arc::new(crate::object::TypeDesc {
@@ -256,7 +257,7 @@ fn barrier_epoch_moves_on_every_invalidating_event() {
     });
     assert!(moved(&|| r.register_module_init(&m, FxHashSet::default())), "a package initializer registered");
     r.register("Demo.$Module", "Demo.$Module.$init");
-    assert!(r.claim("Demo.$Module").unwrap().is_some());
+    assert!(claim(&r, "Demo.$Module").unwrap().is_some());
     r.finish("Demo.$Module", Some("boom".to_string()));
     assert!(moved(&|| r.refresh_module_pending()), "a package initializer failed");
     assert!(!moved(&|| r.refresh_module_pending()), "nothing changed since");
@@ -267,21 +268,21 @@ fn barrier_epoch_moves_on_every_invalidating_event() {
 fn static_field_barrier_records_only_a_settled_verdict() {
     let ctx = crate::vm_context::VmContext::new();
     let id = ctx.resolve_static_field_id("Demo.Holder.Count");
-    let cell = || ctx.core.statics.cell(id).unwrap();
+    let cell = || ctx.core.runtime.statics.cell(id).unwrap();
     // No static constructor pending at all: settled.
     assert!(ctx.ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
-    assert!(cell().barrier_ready(ctx.core.cctors.barrier_epoch()));
+    assert!(cell().barrier_ready(ctx.core.runtime.cctors.barrier_epoch()));
     // A constructor registered elsewhere invalidates the record; the owner (no cctor) is exempt.
-    ctx.core.cctors.register("Other.C", "Other.C.$cctor");
-    assert!(!cell().barrier_ready(ctx.core.cctors.barrier_epoch()));
+    ctx.core.runtime.cctors.register("Other.C", "Other.C.$cctor");
+    assert!(!cell().barrier_ready(ctx.core.runtime.cctors.barrier_epoch()));
     assert!(ctx.ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
-    assert!(cell().barrier_ready(ctx.core.cctors.barrier_epoch()));
+    assert!(cell().barrier_ready(ctx.core.runtime.cctors.barrier_epoch()));
     // An explicit module (re)load forgets owners and verdicts.
     ctx.forget_static_owners();
-    assert!(!cell().barrier_ready(ctx.core.cctors.barrier_epoch()));
+    assert!(!cell().barrier_ready(ctx.core.runtime.cctors.barrier_epoch()));
     // A site without a resolved id passes and records nothing.
     assert!(ctx.ensure_static_field_init("Demo.Holder.Count", None).is_ok());
-    assert!(!cell().barrier_ready(ctx.core.cctors.barrier_epoch()));
+    assert!(!cell().barrier_ready(ctx.core.runtime.cctors.barrier_epoch()));
     // A package initializer still to run (here: running on this thread, so the barrier passes
     // re-entrantly) is not settled.
     let m = Arc::new(crate::object::TypeDesc {
@@ -290,11 +291,11 @@ fn static_field_barrier_records_only_a_settled_verdict() {
         vtable_index: crate::metadata::NameIndex::new(), cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
-    ctx.core.cctors.register_module_init(&m, FxHashSet::default());
-    ctx.core.cctors.register("Demo.$Module", "Demo.$Module.$init");
-    assert!(ctx.core.cctors.claim("Demo.$Module").unwrap().is_some());
+    ctx.core.runtime.cctors.register_module_init(&m, FxHashSet::default());
+    ctx.core.runtime.cctors.register("Demo.$Module", "Demo.$Module.$init");
+    assert!(claim(&ctx.core.runtime.cctors, "Demo.$Module").unwrap().is_some());
     assert!(ctx.ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
-    assert!(!cell().barrier_ready(ctx.core.cctors.barrier_epoch()), "re-entrant pass is not settled");
+    assert!(!cell().barrier_ready(ctx.core.runtime.cctors.barrier_epoch()), "re-entrant pass is not settled");
 }
 
 /// `callee_barrier_settled` (the call-barrier twin of the static-field settle
@@ -309,7 +310,7 @@ fn callee_barrier_settled_tracks_the_same_events_as_the_epoch() {
     assert!(ctx.callee_barrier_settled(&owner));
     // A static constructor pending elsewhere + this callee's owner unresolved:
     // not settled (the full barrier resolves the owner cell first).
-    ctx.core.cctors.register("Other.C", "Other.C.$cctor");
+    ctx.core.runtime.cctors.register("Other.C", "Other.C.$cctor");
     assert!(!ctx.callee_barrier_settled(&owner));
     // Owner resolved to "no static constructor" (a free function's steady
     // state): exempt for good.
@@ -322,6 +323,6 @@ fn callee_barrier_settled_tracks_the_same_events_as_the_epoch() {
         vtable_index: crate::metadata::NameIndex::new(), cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
-    ctx.core.cctors.register_module_init(&m, FxHashSet::default());
+    ctx.core.runtime.cctors.register_module_init(&m, FxHashSet::default());
     assert!(!ctx.callee_barrier_settled(&owner));
 }

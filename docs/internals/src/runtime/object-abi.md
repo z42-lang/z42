@@ -401,7 +401,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
   `Std.Threading` 的 `Mutex<T>` / `RwLock<T>`，底座是对象自己的 `NativeData::Monitor`），所以去掉每对象锁不需要过渡机制。
   对任意对象加锁的语义由 R5 的 Monitor 侧表提供（首次加锁才膨胀，按对象地址索引，GC 停顿时清理）。
 
-**静态字段**用同一套单元：每个静态字段一个地址稳定的 16 B 型参单元（`vm_context/static_table.rs`，`VmCore.statics`，
+**静态字段**用同一套单元：每个静态字段一个地址稳定的 16 B 型参单元（`vm/runtime/statics/table.rs`，`VmCore.runtime.statics`，
 `SegVec` 分段只追加、id 即下标），读写不拿锁，内存序与实例字段相同。按名登记时不知道声明类型，型参单元什么 `Value` 都装得下：
 基元首写时认领种类、之后只改负载字；引用就是标签字；种类不符的写装箱。值 struct 类型的静态字段由编译器装箱存放，单元里只有一个
 引用字，所以不需要 seqlock。静态字段是 GC 根（每次回收扫一遍标签字），写入不需要分代屏障，SATB 由单元协议负责。单元旁边缓存
