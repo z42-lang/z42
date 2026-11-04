@@ -1,0 +1,90 @@
+// `test compiler`：产物存在性、独立测试工程、CLI 夹具与自举不动点的编排。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Time;
+
+// 产物存在性 smoke + [Test] 单元 + e2e 夹具 + 自举不动点。成员清单取 workspace 的 default_members（单一事实源，
+// 同 _stdlibList）。noBuild=true：调用方（`test`）已在构建波里建过 z42c，跳过重建；单独 `test compiler` 传 false。
+int _testCompiler(bool noBuild) {
+    Stopwatch sw = _procStart("test compiler");
+    _selfcheckSelfHostSections();
+    if (!noBuild) {
+        int tc = _ensureCompilerTooling();
+        if (tc != 0) { return tc; }
+        int bc = _buildCompiler();
+        if (bc != 0) { return bc; }
+    }
+
+    string root = _root();
+    string profile = "release";
+    string[] members = _compilerMembers(root);
+
+    int fail = _verifyMemberZpkgs(_compilerWsToml(root), members, profile);
+    int ok = members.Length - fail;
+
+    Console.WriteLine("");
+    Console.WriteLine("test compiler: " + ok.ToString() + "/"
+        + members.Length.ToString() + " zpkg present");
+    if (fail > 0) { return 1; }
+
+    // ── z42c [Test] units ────────────────────────────────────────────────
+    int __rc = _testCompilerUnits(root, profile, members);
+    if (__rc == 0) { __rc = _testCompilerE2e(root, _builtVm(root, profile), _libsDir(root)); }
+    if (__rc == 0) { __rc = _testSelfHostByteIdentical(root, _builtVm(root, profile), members, profile); }
+    if (__rc == 0) { _procEnd("test compiler", sw); }
+    return __rc;
+}
+
+// 独立工程的选择使用同一份 ManifestLocator；产物使用工程自己的 BuildLayout 与 project.name。
+int _testCompilerUnits(string root, string profile, string[] members) {
+    string flat = _libsDir(root);
+    string vm = _builtVm(root, "release");
+    string driverZpkg = _driverZpkg(root, profile);
+    string builderZpkg = _toolchainZpkg(root, _z42bToml());
+    int bc = _buildZ42bWith(root, vm, driverZpkg, flat);
+    if (bc != 0) { return bc; }
+    _selfcheckCompilerProjects(root, vm, flat, driverZpkg, builderZpkg);
+
+    int failed = 0;
+    int total = 0;
+    foreach (var member in members) {
+        string testsDir = Path.Join(root, "src/compiler/" + member + "/tests");
+        if (!Directory.Exists(testsDir)) { continue; }
+        foreach (var unit in _sortedStrings(Directory.Enumerate(testsDir))) {
+            string unitDir = Path.Join(testsDir, unit);
+            if (!Directory.Exists(unitDir)) { continue; }
+            string toml = _fixtureManifest(unitDir);
+            if (toml.Length == 0) { continue; }
+            total = total + 1;
+            Console.WriteLine("\n── z42c test: " + member + " / " + unit + " ──");
+            if (_runCompilerTestProject(root, vm, flat, driverZpkg, builderZpkg, toml) != 0) {
+                failed = failed + 1;
+            }
+        }
+    }
+    Console.WriteLine("");
+    if (failed > 0) {
+        Console.WriteLine("❌ z42c [Test]: " + failed.ToString() + " unit(s) failed (of " + total.ToString() + ")");
+        return 1;
+    }
+    Console.WriteLine("✅ z42c [Test]: all " + total.ToString() + " unit(s) passed (compiled + run)");
+    return 0;
+}
+
+int _runCompilerTestProject(string root, string vm, string flat, string driverZpkg, string builderZpkg, string toml) {
+    // 单元按名声明的编译器包从本树 driver 目录解析，Z42_LIBS 只提供 stdlib。
+    ProcessResult build = _z42cProc(vm, flat, driverZpkg)
+        .Arg("build").Arg(toml).Arg("--release")
+        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
+    if (build.ExitCode != 0) { return build.ExitCode; }
+    string zpkg = _toolchainZpkg(root, toml);
+    // 只认刚编的工程主产物；旧包和 colocated 依赖均不能代替缺失的测试包。
+    if (!File.Exists(zpkg)) {
+        ConsoleError.WriteLine("  ✗ no test zpkg produced at " + zpkg);
+        return 1;
+    }
+    return _z42bProc(vm, flat).Arg("--mode").Arg(_z42cMode()).Arg(builderZpkg)
+        .Arg("--").Arg("test").Arg(zpkg)
+        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
+}

@@ -260,7 +260,7 @@ _MapResult _mapFile(string f) {
 
     // 编译器私有用例不改变生产 IR；bench helper 也可能被 codegen 单元 include，保留 compiler。
     if (f.StartsWith("src/compiler/") && f.Contains("/tests/")) {
-        // tests/<unit>/*.z42.toml 与扁平 / [tests] 单元分别由两个执行器发现，均保留。
+        // tests/<unit>/ 独立工程与扁平 / [tests] 单元分别由两个执行器发现，均保留。
         return _mapCmds(new string[]{ "xtask test compiler", "xtask test stdlib" }, new string[]{ "compiler", "stdlib" });
     }
     if (f.StartsWith("src/compiler/") && f.Contains("/benches/")) {
