@@ -1,0 +1,156 @@
+namespace HostIncrementalTests;
+using Std.IO;
+using Std.Harness;
+using Z42.Project;
+using Z42.Pipeline;
+using Z42.Package;
+
+void _reload(BuildOptions o, string text) {
+    File.WriteAllText(Path.Join(o.ProjectDir, "z42.toml"), text);
+    o.Manifest = ManifestLoader.Load(Path.Join(o.ProjectDir, "z42.toml"));
+}
+
+void _freshMatches(BuildOptions o) {
+    string expected = _hash(o);
+    o.Incremental = false; _ok(o);
+    Assert.Equal(expected, _hash(o));
+    o.Incremental = true;
+}
+
+[Test]
+void test_host_cached_line_warning_and_changed_wae_remain_live() {
+    string source = "int Value() {\n    int x = 0;\n";
+    int i = 0;
+    while (i < 80) { source = source + "    x = x + 1;\n"; i = i + 1; }
+    source = source + "    return x;\n}\n";
+    BuildOptions o = _options("lint", source);
+    string text = File.ReadAllText(Path.Join(o.ProjectDir, "z42.toml"))
+        + "\n[lints]\n\"style.fnLinesHard\" = \"warning\"\n";
+    _reload(o, text);
+    CollectingReporter first = new CollectingReporter(); o.Reporter = first; _ok(o);
+    Assert.True(first.WarningsText().Contains("style.fnLinesHard"));
+    Assert.Equal(0, _probe(o).Prep.Plan.FreshCount);
+    CollectingReporter cached = new CollectingReporter(); o.Reporter = cached; _ok(o);
+    Assert.Equal(first.WarningsText(), cached.WarningsText());
+    _reload(o, text + "warnings_as_errors = true\n");
+    CollectingReporter changed = new CollectingReporter(); o.Reporter = changed;
+    Assert.Equal(BuildExit.BuildError, new BuildSession(o).Run().Code);
+    Assert.True(changed.ErrorsText().Contains("style.fnLinesHard"));
+    o.Incremental = false;
+    CollectingReporter fresh = new CollectingReporter(); o.Reporter = fresh;
+    Assert.Equal(BuildExit.BuildError, new BuildSession(o).Run().Code);
+    Assert.Equal(fresh.ErrorsText(), changed.ErrorsText());
+    Directory.Delete(o.ProjectDir, true);
+}
+
+[Test]
+void test_host_source_add_remove_and_manifest_version_match_fresh() {
+    BuildOptions o = _options("source_set", "int Value() { return 1; }\n");
+    _ok(o); string original = _hash(o);
+    string extra = Path.Join(o.ProjectDir, "src/extra.z42");
+    File.WriteAllText(extra, "int Extra() { return 3; }\n");
+    Assert.Equal(2, _probe(o).Prep.Plan.FreshCount);
+    _ok(o); _freshMatches(o);
+    File.Delete(extra);
+    _ok(o); Assert.Equal(original, _hash(o));
+    string manifest = File.ReadAllText(Path.Join(o.ProjectDir, "z42.toml"));
+    _reload(o, manifest.Replace("0.1.0", "0.2.0"));
+    Assert.Equal(1, _probe(o).Prep.Plan.FreshCount);
+    _ok(o); Assert.True(original != _hash(o)); _freshMatches(o);
+    Directory.Delete(o.ProjectDir, true);
+}
+
+[Test]
+void test_host_optimize_and_syntax_inputs_invalidate_cached_ir() {
+    BuildOptions o = _options("knobs", "int Pick(bool b) { return b ? 1 : 2; }\n");
+    string manifest = File.ReadAllText(Path.Join(o.ProjectDir, "z42.toml"));
+    _ok(o);
+    _reload(o, manifest + "\n[optimize]\ninline = true\n");
+    Assert.Equal(1, _probe(o).Prep.Plan.FreshCount);
+    _ok(o); _freshMatches(o);
+    _reload(o, manifest + "\n[syntax]\nternary = false\n");
+    CollectingReporter cached = new CollectingReporter(); o.Reporter = cached;
+    Assert.Equal(BuildExit.BuildError, new BuildSession(o).Run().Code);
+    Assert.True(cached.ErrorsText().Contains("E0301"));
+    o.Incremental = false;
+    CollectingReporter fresh = new CollectingReporter(); o.Reporter = fresh;
+    Assert.Equal(BuildExit.BuildError, new BuildSession(o).Run().Code);
+    Assert.Equal(fresh.ErrorsText(), cached.ErrorsText());
+    Directory.Delete(o.ProjectDir, true);
+}
+
+[Test]
+void test_host_broken_meta_and_cache_writer_failure_are_safe() {
+    BuildOptions o = _options("broken_meta", "int Value() { return 1; }\n");
+    _ok(o); string original = _hash(o);
+    File.WriteAllText(CacheStore.MetaPath(_cache(o), "src/lib.z42"), "truncated");
+    Assert.Equal(1, _probe(o).Prep.Plan.FreshCount);
+    _ok(o); Assert.Equal(original, _hash(o));
+    Directory.Delete(_cache(o), true);
+    File.WriteAllText(_cache(o), "a file cannot be used as a cache directory");
+    _ok(o); Assert.Equal(original, _hash(o));
+    Directory.Delete(o.ProjectDir, true);
+}
+
+BuildOptions _dependency(string name, string source) {
+    BuildOptions dep = _options(name, source);
+    dep.OutputZpkg = Path.Join(dep.ProjectDir, "out/host." + name + ".zpkg");
+    _ok(dep);
+    return dep;
+}
+
+void _useDependency(BuildOptions o, BuildOptions dep) {
+    o.BaseLibs = new string[1]; o.BaseLibs[0] = Path.GetDirectoryName(dep.OutputZpkg); o.BaseLibsN = 1;
+    string text = File.ReadAllText(Path.Join(o.ProjectDir, "z42.toml"));
+    _reload(o, text + "\n[dependencies]\n\"" + dep.Manifest.Project.Name + "\" = \"0.1.0\"\n");
+}
+
+[Test]
+void test_host_dependency_signature_change_is_not_hidden_by_cache() {
+    BuildOptions dep = _dependency("provider", "namespace Dep;\npublic static class Provider { public static int Value() { return 1; } }\n");
+    BuildOptions o = _options("consumer", "namespace App;\nusing Dep;\npublic static class Use { public static int Read() { return Provider.Value(); } }\n");
+    _useDependency(o, dep); _ok(o);
+    Assert.Equal(0, _probe(o).Prep.Plan.FreshCount);
+    File.WriteAllText(Path.Join(dep.ProjectDir, "src/lib.z42"),
+        "namespace Dep;\npublic static class Provider { public static int Value(int x) { return x; } }\n");
+    _ok(dep);
+    Assert.Equal(1, _probe(o).Prep.Plan.FreshCount);
+    CollectingReporter cached = new CollectingReporter(); o.Reporter = cached;
+    Assert.Equal(BuildExit.BuildError, new BuildSession(o).Run().Code);
+    o.Incremental = false;
+    CollectingReporter fresh = new CollectingReporter(); o.Reporter = fresh;
+    Assert.Equal(BuildExit.BuildError, new BuildSession(o).Run().Code);
+    Assert.Equal(fresh.ErrorsText(), cached.ErrorsText());
+    Directory.Delete(o.ProjectDir, true); Directory.Delete(dep.ProjectDir, true);
+}
+
+[Test]
+void test_host_global_using_edits_rebuild_sibling_ir_like_fresh() {
+    BuildOptions dep = _dependency("nsdep", "namespace Dep;\npublic sealed class Provider { }\n");
+    BuildOptions o = _options("nsconsumer", "namespace App;\npublic class Use { public Provider Make() { return new Provider(); } }\n");
+    File.WriteAllText(Path.Join(o.ProjectDir, "src/imports.z42"), "namespace App;\nglobal using Dep;\n");
+    _useDependency(o, dep); _ok(o);
+    Assert.Equal(0, _probe(o).Prep.Plan.FreshCount);
+    File.WriteAllText(Path.Join(o.ProjectDir, "src/imports.z42"), "namespace App;\nusing Dep;\n");
+    Assert.Equal(2, _probe(o).Prep.Plan.FreshCount);
+    CollectingReporter cached = new CollectingReporter(); o.Reporter = cached;
+    BuildResult cachedResult = new BuildSession(o).Run();
+    string cachedHash = cachedResult.Code == BuildExit.Ok ? _hash(o) : "";
+    o.Incremental = false;
+    CollectingReporter fresh = new CollectingReporter(); o.Reporter = fresh;
+    BuildResult freshResult = new BuildSession(o).Run();
+    Assert.Equal(freshResult.Code, cachedResult.Code);
+    Assert.Equal(fresh.ErrorsText(), cached.ErrorsText());
+    if (freshResult.Code == BuildExit.Ok) { Assert.Equal(cachedHash, _hash(o)); }
+    o.Incremental = true;
+    File.WriteAllText(Path.Join(o.ProjectDir, "src/imports.z42"), "namespace App;\n");
+    Assert.Equal(2, _probe(o).Prep.Plan.FreshCount);
+    o.Reporter = new CollectingReporter();
+    cachedResult = new BuildSession(o).Run();
+    cachedHash = cachedResult.Code == BuildExit.Ok ? _hash(o) : "";
+    o.Incremental = false;
+    freshResult = new BuildSession(o).Run();
+    Assert.Equal(freshResult.Code, cachedResult.Code);
+    if (freshResult.Code == BuildExit.Ok) { Assert.Equal(cachedHash, _hash(o)); }
+    Directory.Delete(o.ProjectDir, true); Directory.Delete(dep.ProjectDir, true);
+}
