@@ -80,6 +80,10 @@ native 库依赖；它已是纯脚本（`z42.text`，基于 `List<string>` + `St
 均保守返回 true，包括空引用数组和没有引用字段的 struct 数组；不能把“当前元素都是 null”当成无引用布局。
 容器可在创建 backing array 后缓存结果，跳过基元废弃槽的无用写入；非基元的清槽和 GC 写屏障仍由既有数组赋值承接。
 
+脚本层同样负责临时数据的持有周期。Regex 在活跃匹配期间绑定输入和字符缓冲，Find / FindAll 的
+finally 在正常返回、未匹配和异常路径都解除这两个引用；捕获位置的整数缓冲继续复用。
+返回的 Match 独立持有输入字符串与捕获位置快照，清理 Regex 不会使结果失效，也不会保留仅用于扫描的字符副本。
+
 ## 3. `[Native]` 的两种形态
 
 `[Native]` 是编译器原生封闭集里的 **directive**（`HandlerRegistry.IsNativeDirective`），不走
