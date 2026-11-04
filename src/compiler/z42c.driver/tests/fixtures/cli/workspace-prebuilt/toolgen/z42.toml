@@ -1,0 +1,6 @@
+[project]
+name = "probe.generator"
+version = "0.1.0"
+kind = "plugin"
+[dependencies]
+"z42c.plugin" = "0.1.0"

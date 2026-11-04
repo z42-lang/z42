@@ -29,3 +29,8 @@
 `outside_repo = true` 的用例拷到 `/tmp/z42c-e2e-<树名>-cli-<用例>` 再跑。
 
 加用例 = 加一个目录。断言写不进现有的键时，给引擎加一个通用的键（并补进格式页），不在 xtask 里写专项检查。
+
+## 显式图与预编译插件
+
+`workspace-prebuilt/` 覆盖 generator 字节变化、builder hook 输入域、未选择成员的旧框架副本，以及 source plugin
+在 worker 启动前被拒绝。工具工程先由普通 driver 编译；图构建只加载既有插件产物，不递归代建插件。
