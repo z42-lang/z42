@@ -51,3 +51,8 @@ IR 由 `z42c.emission` 的 IrGen 构建；本库只提供模型 + 序列化。
 
 ## 依赖关系
 `z42.core`（prelude）+ `z42.encoding`（Utf8）+ `z42.io`（zpkg 文件）+ `z42.crypto`（`ZpkgBuilder` 的 Sha256Hex 入口）+ `z42.threading`（`ParallelFor` 工作池）。**无** `z42c.*` 反依赖（叶子）。
+
+`benches/z42.package.bench.wire-decode.z42.toml` 覆盖游标 UTF-8 切片和完整 STRS 池解码，
+规范输出为 `artifacts/build/compiler/z42.package/<profile>/benches/wire-decode/`。
+输入构造与逐项结果核对在 Bencher 计时外；通过 `./xtask bench stdlib z42.package` 发现。
+游标非空切片使用既有数组区间复制原语，空切片不访问后备数组；UTF-8 严格校验仍由 `Utf8.GetString` 负责。

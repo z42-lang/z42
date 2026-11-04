@@ -70,8 +70,8 @@ public sealed class ZpkgCursor {
         byte[] b = new byte[len];
         byte[] d = this.Data;
         int p = this.Pos;
-        int i = 0;
-        while (i < len) { b[i] = d[p + i]; i = i + 1; }
+        // An empty slice never touches Data, including an exhausted cursor.
+        if (len > 0) { Array.CopyRange(d, p, b, 0, len); }
         this.Pos = p + len;
         return Utf8.GetString(b);
     }

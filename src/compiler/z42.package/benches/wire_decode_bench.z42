@@ -1,0 +1,46 @@
+namespace WireDecodeBench;
+using Std.Harness;
+using Std.Encoding;
+using Z42.Package;
+using Z42.IR.BinaryFormat;
+
+string repeated(string value) {
+    string result = "";
+    int i = 0;
+    while (i < 32) { result = result + value; i = i + 1; }
+    return result;
+}
+
+void measure_slice(string text, string label) {
+    byte[] bytes = Utf8.GetBytes("!" + text + "?");
+    var b = new Bencher(3, 12);
+    b.iter(() => {
+        var c = new ZpkgCursor(bytes, 1);
+        BenchHelpers.blackBox(c.Str(bytes.Length - 2));
+    });
+    var check = new ZpkgCursor(bytes, 1);
+    Assert.Equal(text, check.Str(bytes.Length - 2));
+    Assert.Equal(bytes.Length - 1, check.Pos);
+    b.printSummary(label);
+}
+
+[Benchmark]
+void bench_wire_slice_ascii() { measure_slice(repeated("CompilerDependencyMetadataToken"), "wire_slice_ascii"); }
+[Benchmark]
+void bench_wire_slice_unicode() { measure_slice(repeated("编译器😀é"), "wire_slice_unicode"); }
+
+[Benchmark]
+void bench_wire_strs_decode() {
+    var pool = new ZbcStringPool();
+    int i = 0;
+    while (i < 2048) { pool.Intern("Compiler.Namespace.Symbol" + i.ToString()); i = i + 1; }
+    byte[] bytes = ZbcWriter.BuildStrs(pool).ToBytes();
+    var b = new Bencher(3, 12);
+    b.iter(() => { BenchHelpers.blackBox(StrsCodec.Decode(bytes, 0)); });
+    string[] decoded = StrsCodec.Decode(bytes, 0);
+    Assert.Equal(pool.Count(), decoded.Length);
+    i = 0;
+    while (i < decoded.Length) { Assert.Equal(pool.At(i), decoded[i]); i = i + 1; }
+    b.printSummary("wire_strs_decode_2048");
+}
+void Main() { bench_wire_slice_ascii(); bench_wire_slice_unicode(); bench_wire_strs_decode(); }
