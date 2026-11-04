@@ -33,7 +33,7 @@
 //! # 与既有 `defer-class-initialization` 的区别
 //!
 //! 既有机制把「静态字段引用触发类初始化」放在**名字→id 解析**这条每名一次的冷路径上，
-//! 理由写在 `VmCore::pending_type_inits` 的注释里：热路径 `static_get_by_id` 因
+//! 理由写在 `vm::loader::LoaderState::pending_type_inits` 的注释里：热路径 `static_get_by_id` 因
 //! `Value::Null` 是合法值而**无法区分「未初始化」**。
 //!
 //! 本状态机不靠值推断状态——状态是显式的——所以可以把屏障放在**真正的访问点**，
@@ -762,7 +762,7 @@ impl crate::vm_context::VmContext {
         if let Some(td) = self.module().and_then(|m| m.type_registry.get(name)) {
             return Some(Arc::clone(td));
         }
-        self.core.lazy_loader.read().as_ref().and_then(|l| l.loaded_type(name))
+        self.core.loader.lazy_loader.read().as_ref().and_then(|l| l.loaded_type(name))
     }
 
     /// **cctor 屏障**：确保 `td` 这个类型的静态构造器已经跑过（C# 的「首次使用前」）。

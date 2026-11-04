@@ -45,7 +45,7 @@ fn module(name: &str, classes: Vec<ClassDesc>) -> Module {
 
 /// Register `pkg`'s types with the context's lazy loader, as a package load does.
 fn load_lazily(ctx: &VmContext, pkg: Module) {
-    let mut state = ctx.core.lazy_loader.write();
+    let mut state = ctx.core.loader.lazy_loader.write();
     let loader = state.as_mut().expect("loader installed");
     for (name, td) in pkg.type_registry {
         loader.insert_type(name, td);

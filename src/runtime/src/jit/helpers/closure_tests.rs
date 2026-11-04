@@ -61,7 +61,7 @@ fn vm_with_lazy_target(main: Function) -> (std::pin::Pin<Box<VmContext>>, Arc<Fu
     let vm = VmContext::with_module(module_of(vec![main]));
     vm.install_lazy_loader(None, 0);
     let f = Arc::new(func("Lib.F", vec![]));
-    assert!(vm.core.lazy_loader.write().as_mut().unwrap().insert_function(f.name.clone(), Arc::clone(&f)));
+    assert!(vm.core.loader.lazy_loader.write().as_mut().unwrap().insert_function(f.name.clone(), Arc::clone(&f)));
     (vm, f)
 }
 

@@ -171,7 +171,7 @@ impl VmContext {
 
     /// The file system this VM reads and writes through.
     pub fn vfs(&self) -> &Arc<dyn crate::pal::fs::Vfs> {
-        &self.core.vfs
+        &self.core.loader.vfs
     }
 
     /// Spawned-thread entry: build a VmContext that **shares** an existing
@@ -261,17 +261,12 @@ impl VmContext {
         let core: Arc<VmCore> = Arc::new(VmCore {
             threads: crate::vm::threads::ThreadState::new(),
             statics:            Default::default(),
-            lazy_loader:        RwLock::new(None),
-            pending_type_inits: Mutex::new(Vec::new()),
+            loader: crate::vm::loader::LoaderState::new(vfs),
             cctors:             Arc::new(super::cctor::CctorRegistry::default()),
-            pending_type_init_count: std::sync::atomic::AtomicUsize::new(0),
-            init_batch_inflight:     std::sync::atomic::AtomicUsize::new(0),
             static_init_error:  Mutex::new(None),
-            context_registry:   Mutex::new(crate::vm::loader::contexts::ContextRegistry::new()),
             heap:                 Box::new(Heap::new(crate::config::runtime_config().gc_config())),
             runtime: crate::vm::runtime::RuntimeState::new(module),
             program_args:         Mutex::new(Vec::new()),
-            vfs,
 
             diagnostics: crate::vm::diagnostics::DiagnosticsState {
                 counters: Arc::new(crate::counters::RuntimeCounters::new()),
@@ -351,7 +346,7 @@ impl VmContext {
         // major GC reclaims `Unloading` AssemblyLoadContexts with no live refs.
         // Captures `Weak<VmCore>` (cycle avoidance) + the unloading-count flag.
         {
-            let unloading = core.context_registry.lock().unloading_flag();
+            let unloading = core.loader.context_registry.lock().unloading_flag();
             core.heap.set_context_reclaimer(Box::new(crate::vm::loader::context_gc::CoreContextReclaimer {
                 core: Arc::downgrade(&core),
                 unloading,

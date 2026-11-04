@@ -10,55 +10,15 @@ pub struct VmCore {
     /// lock), plus the FQN → id registration (lazy, first use; cross-zpkg fields can be met in
     /// any order). See `vm_context::static_table`.
     pub(crate) statics: super::static_table::StaticTable,
-    /// On-demand zpkg loader. `None` until `install_lazy_loader[_with_deps]`
-    /// is called (typically from `bootstrap.rs`). Shared across threads
-    /// since zpkg resolution + module loading is a process-global operation.
-    ///
-    /// **fix-lazy-lookup-contention **: `RwLock`, not `Mutex`. 符号查找
-    /// （ConstStr / 函数 / 类型）在**稳态下是纯读** —— registry 已命中就不碰任何可变状态，
-    /// 只有真要加载 zpkg 才需要独占。原来一律取独占锁，导致多线程编译时所有 worker 在
-    /// 这里串行化：`--jobs 8` 的原生采样里 7662 个阻塞样本落在 `try_lookup_string` /
-    /// `try_lookup_function` / `try_lookup_type` 上，而 GC 分配锁只有 6 个。
-    pub(crate) lazy_loader:        RwLock<Option<LazyLoader>>,
-    /// defer-class-initialization: 待初始化的**所属类** FQN 队列。由
-    /// `vm::runtime::resolve` 解析 `StaticGet`/`StaticSet` 时入队（字段名去掉最后一段），
-    /// 在 `VmContext::run_pending_static_inits` 里逐个 `try_lookup_type` 触发所属包加载
-    /// + 初始化。这是「静态字段引用触发类初始化」的落点：热路径
-    /// `static_get_by_id` 因 `Value::Null` 是合法值而无法区分「未初始化」，
-    /// 故触发点前移到「名字→id 解析」这一每名一次的冷路径。
-    pub(crate) pending_type_inits: Mutex<Vec<String>>,
     /// add-static-constructors：有静态构造器的类型的按类型初始化状态。**只登记有 cctor
     /// 的类型**；热路径通过其无锁 `pending` 计数短路（`== 0` ⇒ 全程序无待初始化 cctor
     /// ⇒ 屏障免费）。详见 `vm_context/cctor.rs` 模块注释。
     /// fix-crosspkg-static-call-cctor：`Arc` 是为了让惰性加载器也持有一份——它在类型入表的那一刻
     /// 登记 cctor（见 `LazyLoader::insert_type`）。
     pub(crate) cctors: Arc<super::cctor::CctorRegistry>,
-    /// **cache-failed-name-resolution**: lock-free mirrors of "how much static-init
-    /// work is outstanding", so `try_lookup_*` can prove the drain would be a no-op
-    /// **without** taking two more mutexes and scanning `static_init_state` on every
-    /// single lookup. `pending_type_init_count` mirrors `pending_type_inits.len()`;
-    /// both are maintained at the mutation sites, under the same lock as the state
-    /// they mirror, and are only ever trusted for the `== 0` ("provably nothing to
-    /// do") direction.
-    pub(crate) pending_type_init_count: std::sync::atomic::AtomicUsize,
-    /// fix-static-init-claim-window：**有线程正在处理一批初始化工作**（从两个队列
-    /// 取走内容起，到这批处理完为止）。
-    ///
-    /// 光有 `pending_type_init_count` / `pending_static_inits` / `running_static_inits`
-    /// 不够：`run_pending_static_inits` 把类型队列 `mem::take` 走并把计数清零之后，要等
-    /// `try_lookup_type` 触发所属包加载，才会有新的 `__static_init__` 入队。这中间三个
-    /// 指标全是零，别的线程据此判定「初始化已静止」→ 读到未赋值的静态字段。
-    /// 本计数在**取队列之前**自增、整批处理完才自减，把这段窗口盖住。
-    pub(crate) init_batch_inflight: std::sync::atomic::AtomicUsize,
     /// defer-class-initialization: 懒执行的 `__static_init__` 抛出/出错时记录首个失败，
     /// 由 `Vm::run` 在入口返回后转成运行错误（对齐变更前 boot 期 `bail!` 的响度）。
     pub(crate) static_init_error:  Mutex<Option<String>>,
-    /// **add-load-context-model **: registry of load contexts +
-    /// assemblies (dotnet ALC 地基). Root context (id 0) + root assembly (id 0)
-    /// pre-populated. `collectible` contexts created via `AssemblyLoadContext.CreateCollectible`;
-    /// `AssemblyLoadContext.Load` registers assemblies with private `Module` arenas.
-    /// Phase 1: boundary + reflection identity only (no unload / execution).
-    pub(crate) context_registry:   Mutex<crate::vm::loader::contexts::ContextRegistry>,
     /// **GC subsystem**. Moved here in Phase 2.2 so it can be shared across
     /// threads (single global heap). Backing today is `Heap`; Phase 3
     /// swaps to Arc + Send + Sync. Stored as `Box<Heap>` (no inner
@@ -73,6 +33,7 @@ pub struct VmCore {
     /// clones from the unique VmContext.
     pub(crate) heap:               Box<Heap>,
     pub(crate) runtime: crate::vm::runtime::RuntimeState,
+    pub(crate) loader: crate::vm::loader::LoaderState,
     /// **add-z42-launcher **: command-line arguments passed to
     /// the running z42 program — everything after the `--` separator on the
     /// `z42vm` command line. Exposed to z42 code via
@@ -81,11 +42,6 @@ pub struct VmCore {
     /// Set once at startup by `VmContext::set_program_args`; empty by default
     /// (bare `z42vm file entry` with no `--` → no program args).
     pub(crate) program_args:       Mutex<Vec<String>>,
-    /// The file system this VM's file builtins, package loader and lazy loader read through.
-    /// Given by whoever creates the VM ([`VmContext::with_module_and_vfs`] /
-    /// [`VmContext::with_vfs`]); [`crate::pal::fs::default_vfs`] otherwise. Per VM, so two
-    /// VMs in one process never see each other's in-memory files.
-    pub(crate) vfs:                Arc<dyn crate::pal::fs::Vfs>,
 
     /// Observation state shared by this VM; per-thread counters stay on each context.
     pub diagnostics: crate::vm::diagnostics::DiagnosticsState,

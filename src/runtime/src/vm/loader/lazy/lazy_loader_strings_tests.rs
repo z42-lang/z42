@@ -59,7 +59,7 @@ fn package(name: &str, pool: &[&str], functions: Vec<Function>) -> LoadedArtifac
 }
 
 fn register(ctx: &VmContext, artifact: LoadedArtifact) {
-    ctx.core.lazy_loader.write().as_mut().expect("loader installed")
+    ctx.core.loader.lazy_loader.write().as_mut().expect("loader installed")
         .register_loaded_artifact(artifact)
         .expect("register package");
 }

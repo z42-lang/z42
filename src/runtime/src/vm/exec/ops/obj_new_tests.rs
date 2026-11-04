@@ -66,13 +66,13 @@ fn module(name: &str, functions: Vec<Function>, types: Vec<Arc<TypeDesc>>) -> Mo
 
 fn register_lazy_fn(ctx: &VmContext, f: Function) -> Arc<Function> {
     let f = Arc::new(f);
-    let mut state = ctx.core.lazy_loader.write();
+    let mut state = ctx.core.loader.lazy_loader.write();
     assert!(state.as_mut().unwrap().insert_function(f.name.clone(), Arc::clone(&f)));
     f
 }
 
 fn register_lazy_type(ctx: &VmContext, td: &Arc<TypeDesc>) {
-    let mut state = ctx.core.lazy_loader.write();
+    let mut state = ctx.core.loader.lazy_loader.write();
     state.as_mut().unwrap().insert_type(td.name.clone(), Arc::clone(td));
 }
 
