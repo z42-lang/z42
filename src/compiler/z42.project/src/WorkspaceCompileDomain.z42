@@ -1,7 +1,5 @@
 namespace Z42.Project;
 
-using Std.IO;
-
 /// An explicit build worker's immutable-by-convention compile world, separate from runtime probing.
 public sealed class WorkspaceCompileDomain {
     public string Target;

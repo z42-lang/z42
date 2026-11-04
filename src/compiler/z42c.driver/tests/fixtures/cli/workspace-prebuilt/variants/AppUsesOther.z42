@@ -1,0 +1,2 @@
+using ProbeOther;
+void Main() { Other.Read(); }
