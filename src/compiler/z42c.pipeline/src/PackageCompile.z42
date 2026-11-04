@@ -335,7 +335,9 @@ public static class PackageCompile {
         // （SDK 可见性由计划级承担——driver/BuildSession 均走 PlanForMembers）。成员声明为空 ⇒
         // DepIndex 过滤本来就关。
         string[] wsMembers = new string[0];
-        if (inp.EnforceDeclaredDeps && inp.SrcCount > 0 && inp.Files != null && inp.Files.Length > 0) {
+        if (inp.EnforceDeclaredDeps && inp.Tier != null && inp.Tier.OwnedMembers != null) {
+            wsMembers = inp.Tier.VisibleMembers();
+        } else if (inp.EnforceDeclaredDeps && inp.SrcCount > 0 && inp.Files != null && inp.Files.Length > 0) {
             string firstDir = Path.GetDirectoryName(inp.Files[0]);
             if (firstDir.Length == 0) { firstDir = "."; }
             wsMembers = WorkspaceMemberDeps.EnclosingMemberNames(firstDir);

@@ -239,10 +239,6 @@ public sealed class BuildSession {
         inp.LibsDirs = libs; inp.LibsDirsN = libsN;
         inp.Tier = tier;
         string[] declaredAll = SdkLibs.ExtendDeclared(declared, dn, sdkPlan);
-        if (o.WorkspaceDomain != null) {
-            string[] prerequisites = o.WorkspaceDomain.PrerequisiteNames();
-            declaredAll = SdkLibs.WithMembers(declaredAll, declaredAll.Length, prerequisites, prerequisites.Length);
-        }
         inp.DeclaredDeps = declaredAll; inp.DepCount = declaredAll.Length;
         inp.EnforceDeclaredDeps = true;          // 真的读了一份清单 ⇒ 执行依赖契约（E0497），同 z42c build
         inp.ParentPkg = o.ParentPkg;

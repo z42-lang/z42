@@ -44,16 +44,4 @@ public sealed class WorkspaceCompileDomain {
         return index >= 0 && this.Visible[index] ? this.Directories[index] : "";
     }
 
-    public string[] PrerequisiteNames() {
-        int count = 0;
-        int i = 0;
-        while (i < this.Visible.Length) { if (this.Visible[i]) { count = count + 1; } i = i + 1; }
-        string[] names = new string[count];
-        int used = 0; i = 0;
-        while (i < this.Visible.Length) {
-            if (this.Visible[i]) { names[used] = this.Members[i]; used = used + 1; }
-            i = i + 1;
-        }
-        return names;
-    }
 }

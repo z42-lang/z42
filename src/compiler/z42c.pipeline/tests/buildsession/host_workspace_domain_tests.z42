@@ -5,6 +5,7 @@ using Std.Harness;
 using Z42.Build;
 using Z42.Project;
 using Z42.Pipeline;
+using Z42.Package;
 
 ProjectManifest _manifest(string root, string name, string text) {
     Directory.Create(Path.Join(root, "src"));
@@ -77,6 +78,10 @@ void test_host_domain_hides_existing_nonancestor_and_invalidates_warm_cache() {
         _compileOk(compiler, req);
         string restored = Std.Hashing.Murmur3.Hash128Hex(File.ReadAllBytes(req.OutputZpkg));
         if (expected != restored) { throw new Exception("restored domain changed product: " + expected + " / " + restored); }
+        File.WriteAllText(Path.Join(consumer, "src/lib.z42"), "int Read() { return 1; }\n");
+        _compileOk(compiler, req);
+        string[] runtimeDeps = ZpkgReader.ReadDependencies(ZpkgReader.Open(File.ReadAllBytes(req.OutputZpkg)));
+        foreach (string dependency in runtimeDeps) { Assert.False(dependency == "ctx.provider.zpkg"); }
     } finally { Directory.Delete(root, true); }
 }
 
