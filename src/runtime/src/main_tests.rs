@@ -70,3 +70,47 @@ fn the_three_introspection_commands_are_distinguishable() {
     assert!(help.contains("有哪些旋钮"), "--list-knobs 该说清它列的是 schema");
     assert!(help.contains("当前是什么值"), "--show-config 该说清它列的是生效值");
 }
+
+#[test]
+fn explicit_mode_is_resolved_above_environment_and_sidecar() {
+    use clap::Parser;
+    use z42::config::{BuildCtx, Inputs, Layer, RuntimeConfig};
+    let app: toml::Table = toml::from_str(r#"mode = "interp""#).unwrap();
+    for mode in ["interp", "jit"] {
+        let cli = Cli::try_parse_from(["z42vm", "--mode", mode]).unwrap();
+        let knobs = super::cli_knob_inputs(&cli).unwrap();
+        let (cfg, res) = RuntimeConfig::resolve_with(
+            &|name: &str| (name == "Z42_MODE").then(|| "interp".to_string()),
+            &Inputs { cli: knobs, app_config: Some(&app), ..Default::default() },
+            &BuildCtx::current(),
+        );
+        assert_eq!(cfg.mode.as_deref(), Some(mode));
+        assert_eq!(res.get("Z42_MODE").unwrap().source, Layer::Cli);
+    }
+}
+
+#[test]
+fn mode_set_spelling_and_conflict_share_cli_assembly() {
+    use clap::Parser;
+    let cli = Cli::try_parse_from(["z42vm", "--set", "mode=interp"]).unwrap();
+    assert_eq!(super::cli_knob_inputs(&cli).unwrap().get("Z42_MODE").map(String::as_str), Some("interp"));
+    for mode in ["interp", "jit"] {
+        let cli = Cli::try_parse_from(["z42vm", "--mode", mode, "--set", "mode=interp"]).unwrap();
+        assert!(super::cli_knob_inputs(&cli).unwrap_err().contains("same precedence layer"));
+    }
+}
+
+#[test]
+fn absent_mode_keeps_lower_priority_configuration() {
+    use clap::Parser;
+    use z42::config::{BuildCtx, Inputs, Layer, RuntimeConfig};
+    let cli = Cli::try_parse_from(["z42vm"]).unwrap();
+    let knobs = super::cli_knob_inputs(&cli).unwrap();
+    assert!(!knobs.contains_key("Z42_MODE"));
+    let (cfg, res) = RuntimeConfig::resolve_with(
+        &|name: &str| (name == "Z42_MODE").then(|| "interp".to_string()),
+        &Inputs { cli: knobs, ..Default::default() }, &BuildCtx::current(),
+    );
+    assert_eq!(cfg.mode.as_deref(), Some("interp"));
+    assert_eq!(res.get("Z42_MODE").unwrap().source, Layer::Env);
+}
