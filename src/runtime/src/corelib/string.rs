@@ -69,6 +69,17 @@ pub mod typed {
     #[builtin(name = "__str_byte_length", this = "get_ByteLength", pure)]
     pub fn byte_length(s: &crate::object::string::vstr::Str) -> i64 { super::str_byte_length(s) }
 
+    #[builtin(name = "__str_copy_utf8", this = "CopyUtf8To")]
+    pub fn copy_utf8(s: &str, source_byte_index: i64, destination: crate::object::ArrRef,
+        destination_index: i64, byte_count: i64) -> Result<(), BuiltinError> {
+        super::str_copy_utf8(s, source_byte_index, destination, destination_index, byte_count)
+    }
+
+    #[builtin(name = "__str_from_utf8")]
+    pub fn from_utf8(source: crate::object::ArrRef, offset: i64, count: i64) -> Result<String, BuiltinError> {
+        super::str_from_utf8(source, offset, count)
+    }
+
     #[builtin(name = "__str_substring", this = "Substring")]
     pub fn substring(
         s: &crate::object::string::vstr::Str, start: i64, len: i64,
@@ -298,3 +309,43 @@ pub fn str_hash_code(s: &crate::object::string::vstr::Str) -> i64 {
 #[cfg(test)]
 #[path = "string_tests.rs"]
 mod string_tests;
+
+// Range validation precedes every snapshot allocation or destination write, including empty ranges.
+fn utf8_range(start: i64, count: i64, len: usize) -> Result<std::ops::Range<usize>, BuiltinError> {
+    let invalid = || BuiltinError::ArgumentOutOfRange("UTF-8 byte range is out of bounds".into());
+    let start = usize::try_from(start).map_err(|_| invalid())?;
+    let count = usize::try_from(count).map_err(|_| invalid())?;
+    let end = start.checked_add(count).filter(|end| *end <= len).ok_or_else(invalid)?;
+    Ok(start..end)
+}
+
+pub fn str_copy_utf8(s: &str, source_byte_index: i64, destination: crate::object::ArrRef,
+    destination_index: i64, byte_count: i64) -> Result<(), BuiltinError> {
+    let source = utf8_range(source_byte_index, byte_count, s.len())?;
+    let dst = destination.borrow();
+    let range = utf8_range(destination_index, byte_count, dst.len())?;
+    if dst.mode() != crate::object::ArrayMode::Bytes {
+        return Err(BuiltinError::InvalidCast("destination must be a byte[]".into()));
+    }
+    // Existing atomic chunk stores, never a plain slice over concurrently writable heap bytes.
+    if !dst.write_byte_range(range.start, &s.as_bytes()[source]) {
+        return Err(BuiltinError::Internal("validated UTF-8 destination range changed".into()));
+    }
+    Ok(())
+}
+
+pub fn str_from_utf8(source: crate::object::ArrRef, offset: i64, count: i64) -> Result<String, BuiltinError> {
+    let src = source.borrow();
+    let range = utf8_range(offset, count, src.len())?;
+    if src.mode() != crate::object::ArrayMode::Bytes {
+        return Err(BuiltinError::InvalidCast("source must be a byte[]".into()));
+    }
+    let bytes = src.byte_range(range.start, range.len())
+        .ok_or_else(|| BuiltinError::Internal("validated UTF-8 source range changed".into()))?;
+    // Validate and construct from the SAME owned snapshot; a second read would race a writer.
+    String::from_utf8(bytes).map_err(|_| BuiltinError::Format("invalid UTF-8 byte sequence".into()))
+}
+
+#[cfg(test)]
+#[path = "string_utf8_tests.rs"]
+mod string_utf8_tests;
