@@ -72,6 +72,12 @@ pub mod typed {
     use super::*;
     use crate::vm::exec::call::builtin_abi::BuiltinError;
 
+    /// Conservative storage query: only packed primitive arrays are known reference-free.
+    #[builtin(name = "__array_may_contain_refs", pure)]
+    pub fn may_contain_refs(array: ArrRef) -> bool {
+        !array.borrow().mode().is_prim()
+    }
+
     /// `Array.CreateInstance(Type elementType, int length)` — allocate an `elemType[]`
     /// of length `n`, default-initialised. Primitive element types pack (`int` → a PRIM
     /// array of 4 B elements, etc.); reference types get a REF / MIXED array. The array

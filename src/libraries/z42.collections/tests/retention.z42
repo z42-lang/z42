@@ -221,3 +221,26 @@ void test_stack_clear_releases_struct_reference_leaf() {
     Assert.True(WeakHandle.Upgrade(weak) == null);
     Assert.Equal(0, s.Count());
 }
+
+[Test]
+void test_primitive_and_reference_queue_policies_are_independent() {
+    var numbers = new Queue<int>();
+    numbers.Enqueue(42);
+    var references = new Queue<RetainedItem>();
+    var weak = DrainQueue(references);
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(42, numbers.Dequeue());
+}
+
+[Test]
+void test_primitive_and_reference_stack_policies_are_independent() {
+    var numbers = new Stack<int>();
+    numbers.Push(42);
+    var references = new Stack<RefValue>();
+    var weak = FillStructStack(references);
+    references.Clear();
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(42, numbers.Pop());
+}
