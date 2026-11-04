@@ -1,0 +1,4 @@
+using Generated;
+using ProbeLib;
+using Std.IO;
+void Main() { Console.WriteLine(Value.Read() + Library.Read()); }

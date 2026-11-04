@@ -1,0 +1,15 @@
+namespace ProbeHook;
+using Std.IO;
+using Z42.Build;
+public class Hook : BuildHooks {
+    public override void BeforeCompile(IPipelineContext ctx) {
+        foreach (string dependency in ctx.Inputs.Deps) {
+            if (Path.GetFileName(dependency) == "probe.other.zpkg") {
+                throw new Exception("unrelated member leaked into hook inputs");
+            }
+        }
+        Console.WriteLine("PREBUILT-GRAPH-HOOK: " + ctx.Project.Name);
+        string? mode = RuntimeConfig.Get("mode");
+        if (mode != null) { Console.WriteLine("PREBUILT-WORKER-MODE: " + mode); }
+    }
+}
