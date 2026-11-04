@@ -454,18 +454,20 @@ minor 不一致就会把所有 job 推进两代自举那条已知会挂的路。
 
 ### 发布方式：原地更新，从不删除重建
 
-`publish-nightly` 对 `nightly` release **只做原地更新**：① `gh release upload --clobber` 逐个覆盖资产 →
+`publish-nightly` 对 `nightly` release **只做原地更新**：① `.github/ci/upload_release_assets.py` 调 `gh release upload --clobber` 串行覆盖并核对每项 SHA256 / 字节数 / uploaded 状态 →
 ② 删掉本次不再产出的旧资产 → ③ `PATCH git/refs/tags/nightly` 把 tag 移到本次 commit →
 ④ `gh release edit` 改标题 / 说明 / target。release 对象与 tag 从不消失；只有仓库里一个 nightly 都没有时才
 `gh release create`。发布后校验三件事：非 draft、tag 指向本次 commit、资产齐全。
+
+单项上传遇到 HTTP 5xx、EOF 或瞬时连接错误，或者上传返回成功但远端资产收据缺失 / 摘要、大小、状态不符时，最多尝试 5 次，间隔 1/2/4/8 秒。每次上传返回成功后用 release 的资产元数据核对本地内容，确认交付才继续下一项。每次重新解析并覆盖该资产，允许前次删除已生效但响应失败；成功的前序资产不在同一调用内重复上传。HTTP 4xx 等非瞬时错误或预算耗尽保留失败状态，后续 tag/metadata 更新与最终验证不执行，发布门禁仍为红。
 
 不能「先删后建」：删掉再立刻重建**同名 tag**，在 GitHub 一侧是有竞态的——旧 tag 的删除可能在新 tag
 建好**之后**几分钟才生效，把新 tag 一起删掉；tag 一没，release 就自动退回 draft，此时发布步骤自己的
 「非 draft」校验早已通过。原地更新没有「不存在」的窗口，这条竞态无从发生。
 
 剩余的小窗口：某个资产正在 `--clobber` 上传的那几秒，下载方可能拿不到它（或拿到上一版的完整归档）；
-`setup-z42-sdk` 的 10 次重试覆盖它。整个 run 被新 push 取消时，最坏情况是资产已换新、tag 尚未移动——
-release 仍是可用的已发布状态，下一次发布会补齐。
+`setup-z42-sdk` 的 10 次重试覆盖它。发布中断或外部服务持续失败可能留下新旧资产并存或个别资产缺失；失败发布不能当作完整快照，
+下一次发布重新覆盖并验证全部资产，下载方仍按自举种子回退机制恢复。
 
 ## 4. 其它 workflow
 

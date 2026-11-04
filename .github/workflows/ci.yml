@@ -1053,8 +1053,8 @@ jobs:
           assets=(artifacts/packages/SHA256SUMS artifacts/packages/release-index.json
                   artifacts/packages/z42-* scripts/install/install.sh scripts/install/install.ps1)
           if gh release view nightly >/dev/null 2>&1; then
-            # (1) assets first — same names, --clobber replaces each one
-            gh release upload nightly "${assets[@]}" --clobber
+            # (1) assets first — sequential --clobber with verified receipts and bounded retries
+            python3 .github/ci/upload_release_assets.py nightly "${assets[@]}"
             # (2) drop assets this build no longer ships (e.g. a renamed package)
             keep=" "
             for f in "${assets[@]}"; do keep="${keep}$(basename "$f") "; done
