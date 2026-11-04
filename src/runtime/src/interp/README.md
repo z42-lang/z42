@@ -35,7 +35,7 @@
 - `interp::run_with_static_init(module, func)` — 初始化静态字段后执行
 
 ## 依赖关系
-- 依赖 `corelib` 模块的 `invoke_builtin` / `abi::error::raise` 和 `value_to_str`
+- 依赖 `corelib` 模块的 `invoke_builtin` / `abi::error::raise`；纯值格式化直接依赖 `object/value`
 - `metadata` 提供静态 IR，`vm/runtime` 提供链接后的 `Module` / `Function` 与执行计划，`object` 提供 `Value`。
 - 标量运算调用 `vm/exec/ops/scalar`；融合识别留在本后端。
 

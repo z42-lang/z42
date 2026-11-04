@@ -12,5 +12,8 @@ pub use value_aux::*;
 pub use codec::*;
 pub use cells::Cells;
 
+pub(crate) mod format;
+pub(crate) mod boxed_hash;
+
 mod kind;
 pub use kind::value_kind_name;

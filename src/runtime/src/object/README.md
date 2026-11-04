@@ -6,7 +6,7 @@
 
 ## 功能索引
 
-- `value/`：Value、原子单元、引用字、型参单元、struct blob 和纯值种类名称。
+- `value/`：Value、原子单元、引用字、型参单元、struct blob、纯值种类名称，以及 context-free 格式化和盒装值哈希。
 - `types/`：TypeDesc 形状、字段、对象/struct 布局、元素类型及泛型实参句柄。
 - `header/`：区块头、标记位、强/弱句柄与 generation 快照。
 - `object/`：对象与堆外对象存储、字段访问和引用遍历。
@@ -16,6 +16,7 @@
 ## 基础用法
 
 公共值词汇可从 `crate::object::{Value, TypeDesc, ScriptObject, ArrayObj, Str, ObjRef, ArrRef}` 导入；区块布局从 `z42::object::header` 导入。
+格式化与哈希的 crate 内部实现位于 `value/format.rs` 与 `value/boxed_hash.rs`，由执行层和 builtin 共同消费。
 GC 仍负责 chunk 分配、回收、代数及弱句柄的 chunk epoch 校验；需要堆或运行期服务的既有调用由分层基线持续约束。
 
 ## 如何测试验证

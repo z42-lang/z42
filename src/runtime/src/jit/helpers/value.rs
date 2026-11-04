@@ -3,7 +3,7 @@
 //! glue op `get_bool`. (`Ret` and the prologue's register-file pointer are
 //! inline loads/stores on `JitFrame` — see `JIT_FRAME_*_OFFSET`.)
 
-use crate::corelib::convert::with_value_str;
+use crate::object::value::format::with_value_str;
 use crate::object::Value;
 use super::super::frame::JitFrame;
 use crate::vm_context::VmContext;

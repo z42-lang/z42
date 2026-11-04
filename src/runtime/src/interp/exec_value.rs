@@ -8,7 +8,7 @@ use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
 use crate::vm::exec::ops::stringify::{obj_to_gc_str, with_obj_str};
-use crate::corelib::convert::with_value_str;
+use crate::object::value::format::with_value_str;
 use super::ops::{bool_val, int_binop, int_bitop};
 use super::Frame;
 
