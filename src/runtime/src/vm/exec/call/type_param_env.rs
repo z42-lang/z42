@@ -138,7 +138,7 @@ fn receiver_parts(ctx: &VmContext, recv: &Value) -> Option<(String, crate::objec
             let o = rc.borrow();
             Some((o.type_desc.name.to_string(), o.type_args_handle()))
         }
-        Value::StackObject { idx, frame_id } => ctx.stack_arena.lock()
+        Value::StackObject { idx, frame_id } => ctx.exec.stack_arena.lock()
             .with_obj(*idx, *frame_id, |o| (o.type_desc.name.to_string(), o.type_args_handle()))
             .ok(),
         _ => None,

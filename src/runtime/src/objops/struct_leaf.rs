@@ -37,11 +37,11 @@ pub(crate) fn struct_field_get_val(
         Value::Object(gc) | Value::BoxedStruct(gc) => leaf_get(&gc.borrow(), byte_off, kind),
         // The same, for an object escape analysis put in the stack arena.
         Value::StackObject { idx, frame_id } => {
-            ctx.stack_arena.lock().with_obj(*idx, *frame_id, |obj| leaf_get(obj, byte_off, kind))?
+            ctx.exec.stack_arena.lock().with_obj(*idx, *frame_id, |obj| leaf_get(obj, byte_off, kind))?
         }
         // Leaf of a struct[] element `arr[index]`.
         Value::StructRefHeap { idx, frame_id } => {
-            let e = ctx.transient_arena.lock().struct_elem(*idx, *frame_id)?;
+            let e = ctx.exec.transient_arena.lock().struct_elem(*idx, *frame_id)?;
             let arr = e.arr.borrow();
             let i = e.index as usize;
             if is_ref_tag(kind) {
@@ -53,11 +53,11 @@ pub(crate) fn struct_field_get_val(
         _ => {
             let (idx, fid) = as_struct_ref(base_val, "StructFieldGetPrim base")?;
             if is_ref_tag(kind) {
-                ctx.struct_arena.lock().get_ref(idx, fid, byte_off)
+                ctx.exec.struct_arena.lock().get_ref(idx, fid, byte_off)
             } else {
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
-                ctx.struct_arena.lock().with(idx, fid, |s| decode_prim(&s.bytes, off, w, kind))?
+                ctx.exec.struct_arena.lock().with(idx, fid, |s| decode_prim(&s.bytes, off, w, kind))?
             }
         }
     }
@@ -92,7 +92,7 @@ pub(crate) fn struct_field_set_val(
         // 🔴 **No write barrier** for a stack object, mirroring `field_set`: it is not a heap
         // slot, its references are kept live by root-scanning the arena every cycle.
         Value::StackObject { idx, frame_id } => {
-            ctx.stack_arena.lock().with_obj_mut(*idx, *frame_id, |obj| {
+            ctx.exec.stack_arena.lock().with_obj_mut(*idx, *frame_id, |obj| {
                 if is_ref_tag(kind) {
                     obj.set_struct_ref_leaf(byte_off, v).map(|_| ())
                 } else {
@@ -102,7 +102,7 @@ pub(crate) fn struct_field_set_val(
         }
         // Leaf write into a struct[] element.
         Value::StructRefHeap { idx, frame_id } => {
-            let e = ctx.transient_arena.lock().struct_elem(*idx, *frame_id)?;
+            let e = ctx.exec.transient_arena.lock().struct_elem(*idx, *frame_id)?;
             let i = e.index as usize;
             if is_ref_tag(kind) {
                 let wrote = e.arr.borrow().set_struct_elem_ref(i, byte_off, v)?;
@@ -116,11 +116,11 @@ pub(crate) fn struct_field_set_val(
         _ => {
             let (idx, fid) = as_struct_ref(base_val, "StructFieldSetPrim base")?;
             if is_ref_tag(kind) {
-                return ctx.struct_arena.lock().set_ref(idx, fid, byte_off, *v);
+                return ctx.exec.struct_arena.lock().set_ref(idx, fid, byte_off, *v);
             }
             let off = byte_off as usize;
             let w = prim_width(kind)?;
-            ctx.struct_arena.lock().with_mut(idx, fid, |s| encode_prim(&mut s.bytes, off, w, kind, v))?
+            ctx.exec.struct_arena.lock().with_mut(idx, fid, |s| encode_prim(&mut s.bytes, off, w, kind, v))?
         }
     }
 }

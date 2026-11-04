@@ -49,7 +49,7 @@ pub(crate) fn poke_safepoints(core: &VmCore) {
     // SAFETY: see `VmContextPtr` — an entry is live while it is registered, and we hold the
     // registry lock for the walk. The counter is an atomic.
     for p in core.threads.vm_contexts.lock().iter() {
-        unsafe { &*p.0 }.safepoint_skip.store(1, Ordering::Relaxed);
+        unsafe { &*p.0 }.threads.safepoint_skip.store(1, Ordering::Relaxed);
     }
 }
 
@@ -115,14 +115,14 @@ pub enum GcPhase {
 pub fn check_safepoint(ctx: &VmContext) {
     // Fast path: plain (non-RMW) relaxed decrement. If the counter was > 1
     // before, we still have work to do before probing the real state.
-    let prev = ctx.safepoint_skip.load(Ordering::Relaxed);
-    ctx.safepoint_skip.store(prev.wrapping_sub(1), Ordering::Relaxed);
+    let prev = ctx.threads.safepoint_skip.load(Ordering::Relaxed);
+    ctx.threads.safepoint_skip.store(prev.wrapping_sub(1), Ordering::Relaxed);
     if prev > 1 {
         return;
     }
     // Slow path: counter just hit 0 (or wrapped to u32::MAX in a
     // theoretical overflow — saturating reset below restores invariant).
-    ctx.safepoint_skip.store(throttle_n(), Ordering::Relaxed);
+    ctx.threads.safepoint_skip.store(throttle_n(), Ordering::Relaxed);
     check_safepoint_slow(ctx);
 }
 
@@ -266,7 +266,7 @@ fn native_park_incr(ctx: &VmContext) {
     // used enough to collect. A collector beginning meanwhile retires them on our behalf
     // (`request_gc_pause`); otherwise `native_park_decr` takes them back. (The thread won't
     // allocate again until native_park_decr.)
-    ctx.heap().park_thread_tlab(&ctx.parked_tlab);
+    ctx.heap().park_thread_tlab(&ctx.threads.parked_tlab);
     crate::gc::to_vm::suspend_allocations();
     ctx.core.threads.parked_count.fetch_add(1, Ordering::AcqRel);
     // Hold the phase lock across notify_all — same lost-wakeup discipline as
@@ -287,7 +287,7 @@ fn native_park_decr(ctx: &VmContext) {
     }
     // Still counted parked and holding the phase lock: no collector can be retiring our
     // set-aside claims now, nor start to before we are unparked.
-    ctx.heap().unpark_thread_tlab(&ctx.parked_tlab);
+    ctx.heap().unpark_thread_tlab(&ctx.threads.parked_tlab);
     ctx.core.threads.parked_count.fetch_sub(1, Ordering::AcqRel);
     drop(phase);
     crate::gc::to_vm::resume_allocations();
@@ -418,7 +418,7 @@ pub fn request_gc_pause(ctx: &VmContext) -> Option<GcPauseGuard<'_>> {
     for p in ctx.core.threads.vm_contexts.lock().iter() {
         // SAFETY: see `VmContextPtr` — live while registered; we hold the registry lock.
         let other = unsafe { &*p.0 };
-        ctx.heap().retire_parked_tlab(&other.parked_tlab);
+        ctx.heap().retire_parked_tlab(&other.threads.parked_tlab);
     }
 
     Some(GcPauseGuard { ctx })

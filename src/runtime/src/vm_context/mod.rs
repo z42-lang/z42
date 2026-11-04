@@ -5,22 +5,10 @@
 //! `VmContext` per thread that runs z42 code. The context holds what belongs to
 //! that thread:
 //!
-//! - **`call_stack`** — `VmFrame`s of interp / JIT frames (GC roots + stack traces);
-//!   owner-thread only, see [`crate::vm::exec::call::frame_stack`]
-//! - **`reg_pool`** — free-list of frame register files (interp + JIT), and
-//!   **`engine_guards`** — the VM / heap thread-locals installed while the
-//!   stack is non-empty; both owner-thread only
-//! - **`pending_exception`** / **`pending_thrown`** — exception hand-off slots
-//! - **`stack_arena`** / **`struct_arena`** / **`transient_arena`** — frame-scoped
-//!   payloads behind `{idx, frame_id}` handles
-//! - **`counters`** — this thread's `RuntimeCounters` shard
-//! - **`jit_head`** — what compiled code reads at fixed offsets (this thread's
-//!   stack limit, the cctor gate)
-//! - lookup / isa caches, the safepoint throttle counter
-//!
-//! Extension registrations are consumed at VM creation; [`VmContext::ext`] borrows
-//! the same frozen state from every context sharing that core. Core-library OS
-//! resource tables live in their module extensions, installed by the facade.
+//! - **exec**: frames, register pool, activation guards, arenas and exception slots;
+//! - **runtime**: per-thread lookup and ISA caches;
+//! - **diagnostics**: the thread's counter shard;
+//! - **threads**: parked TLAB and safepoint throttle.
 //!
 //! # Lifecycle
 //!
@@ -36,7 +24,7 @@
 //! the `unsafe impl Sync` frame stack), but each context is driven by the one
 //! thread that runs z42 code through it. A VM-created thread gets its own
 //! context via [`VmContext::new_with_core`], sharing the same `VmCore`. Other
-//! threads reach a context only through `VmCore::vm_contexts` (GC root
+//! threads reach a context only through `VmCore.threads.vm_contexts` (GC root
 //! scanning, under the registry lock — and the frame stack only while its
 //! owner is parked).
 //!
@@ -45,8 +33,7 @@
 //! Every compiled function and JIT helper takes the running thread's own
 //! context as its `extern "C"` context parameter (`*const VmContext`), so JIT
 //! code on any thread reaches that thread's state directly; the VM's shared JIT
-//! is owned by a registered TierApi on `VmCore::exec`; this module holds
-//! only the neutral header and does not select a concrete backend.
+//! is owned by a registered TierApi on `VmCore::exec`; the neutral per-thread header belongs to exec, with no concrete backend selection.
 //!
 //! See `docs/internals/src/runtime/vm-architecture.md` "VmContext —— 运行时状态归口" 段 for
 //! the full state-collapse rationale.
@@ -66,7 +53,6 @@ mod types;
 mod construct;
 mod native;
 mod frames;
-mod engine_guards;
 mod statics;
 mod lookup;
 // fix-silent-symbol-resolution：「确定不存在」的判定（两后端共用）。
@@ -76,11 +62,10 @@ pub use types::{
     VmCore, VmContext, VM_CONTEXT_CCTORS_OFFSET, VM_CONTEXT_SAFEPOINT_SKIP_OFFSET,
     VM_CONTEXT_STACK_LIMIT_OFFSET,
 };
-pub(crate) use types::JitHead;
 
 /// Type-erased pointer to a registered [`VmContext`].
 ///
-/// Stored in [`VmCore::vm_contexts`] so the GC scanner can walk every thread's
+/// Stored in `VmCore.threads.vm_contexts` so the GC scanner can walk every thread's
 /// per-thread state (call stack / pending exception / func-ref slots) during
 /// mark phase. Without this registry, the scanner could only see the first
 /// VmContext it was given a clone of — multi-threading would silently miss

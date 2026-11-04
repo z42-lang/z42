@@ -42,7 +42,7 @@ pub enum Value {
     /// inline `Value` size — `PinnedView` is created on the rare
     /// `PinPtr` opcode and immediately consumed by the next native
     /// call, so the heap-alloc cost is dominated by the FFI it enables.
-    /// make-value-copy: 8B handle into `VmContext::transient_arena` (payload `PinnedViewData`).
+    /// make-value-copy: 8B handle into `VmContext.exec.transient_arena` (payload `PinnedViewData`).
     PinnedView { idx: u32, frame_id: u32 } = 8,
     /// Function reference value: a no-capture lambda or a method group bound to a free
     /// function (`LoadFn`). `CallIndirect` dispatches to the function it names.
@@ -89,7 +89,7 @@ pub enum Value {
     /// is 32 B (Field variant) — biggest cold-path payload after
     /// Closure. Refs only live in registers for a single call's
     /// duration, so the box alloc is a tiny fraction of the call cost.
-    /// make-value-copy: 8B handle into `VmContext::transient_arena` (payload `RefKind`).
+    /// make-value-copy: 8B handle into `VmContext.exec.transient_arena` (payload `RefKind`).
     Ref { idx: u32, frame_id: u32 } = 12,
     // discriminant 13 retired by unify Phase 2 R3（装箱统一）：基元装箱不再走
     // `Value::Boxed(Box<BoxedPrim>)`——整数标量装进堆 `ScriptObject` 的 `struct_bytes` 并以
@@ -109,7 +109,7 @@ pub enum Value {
     /// 语义同 `StackObject`。
     StackArray { idx: u32, frame_id: u32 } = 15,
     /// add-struct-value-semantics Phase A: blob 值类型（多字段 struct）句柄。`idx` 索引 per-context
-    /// 字节 arena（`VmContext::struct_arena`）里的 blob 条目；`frame_id` = 创建帧单调 id（staleness
+    /// 字节 arena（`VmContext.exec.struct_arena`）里的 blob 条目；`frame_id` = 创建帧单调 id（staleness
     /// guard，同 `StackObject`）。未装箱 struct 值以此句柄在寄存器间流转；字节 blob 存 arena。
     /// blob 内引用叶子由 arena 的 root scanner 按 TypeDesc 引用位图扫描（trace_children 视为叶子，
     /// 避免双计）。
@@ -135,7 +135,7 @@ pub enum Value {
     /// this handle and a following `StructFieldGetPrim/SetPrim` reads/writes a leaf of
     /// element `index` (routing byte/ref access through the value-struct array's
     /// element). Payload boxed (8 B pointer) so `Value` stays 24 B. GC follows `arr`.
-    /// make-value-copy: 8B handle into `VmContext::transient_arena` (payload `StructArrayElem`).
+    /// make-value-copy: 8B handle into `VmContext.exec.transient_arena` (payload `StructArrayElem`).
     StructRefHeap { idx: u32, frame_id: u32 } = 18,
 }
 

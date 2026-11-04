@@ -114,7 +114,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.exec.engi
 - 静态初始化：`runtime.cctors: Arc<CctorRegistry>`（有静态构造器的类型的初始化状态，见 [static-ctor-init.md](static-ctor-init.md)）/ `pending_type_inits` / `pending_type_init_count` / `init_batch_inflight` / `runtime.static_init_error`
 - `loader.context_registry: Mutex<ContextRegistry>` — load context / assembly 注册表（见 [load-context.md](load-context.md)）
 - `threads: ThreadState`（`vm/threads/state.rs`）— context 注册表、fatal 标记及 GC safepoint 的 `gc_phase` / `gc_phase_cv` / `parked_count` / `collector_active` / `needs_auto_collect`；每 VM 一份，worker 共享（见 [safepoint-design.md](safepoint-design.md)）
-- 观测：`counters`（`RuntimeCounters`，只累计已销毁 `VmContext` 的计数；各线程在自己的 `VmContext.counters` 上计，`counters_snapshot()` 汇总）/ `runtime_observers` / `park_histogram`（safepoint park 时长分布）/ `lock_contentions` + `lock_wait_us`（仅 `profile-contention` feature 写入）/ `sampler`（`Z42_SAMPLE_HZ` 开启的采样 profiler）
+- 观测：`counters`（`RuntimeCounters`，只累计已销毁 `VmContext` 的计数；各线程在自己的 `VmContext.diagnostics.counters` 上计，`counters_snapshot()` 汇总）/ `runtime_observers` / `park_histogram`（safepoint park 时长分布）/ `lock_contentions` + `lock_wait_us`（仅 `profile-contention` feature 写入）/ `sampler`（`Z42_SAMPLE_HZ` 开启的采样 profiler）
 
 核心库的进程、线程、文件、TCP socket/listener、UDP 和 TLS 七张资源表分别归对应模块的 `State`，
 由门面 `extension_assembly.rs` 在所有 VM 构造入口创建并登记到扩展状态中；worker 共享同一个 core 的状态。
@@ -145,15 +145,15 @@ heap 先释放，之后才释放 loader 状态，VFS 在其加载器与上下文
 
 ### VmContext：per-thread 视图
 
-每个 OS 线程拿一个 `VmContext`，它持有：
+每个 OS 线程拿一个固定地址的 `VmContext`，它内联组合：
 
-- `core: Arc<VmCore>` — 指向 VmCore 共享状态
-- `pending_exception: Arc<Mutex<Option<Value>>>` — JIT extern "C" 边界异常槽位
-- `pending_thrown: Mutex<Option<Value>>` — callback 型 builtin（反射 `MethodInfo.Invoke`）把原异常值带出 builtin 边界的槽位；每线程一份，GC 根
-- `call_stack: FrameStack` — 当前线程帧栈，只由所属线程无锁读写（见下「帧栈的归属」）
-- `reg_pool: RegPool` — interp `Frame` 与 `JitFrame` 共用的寄存器文件 free-list；`engine_guards` — 栈非空期间装好的 VM / 堆 thread-local（见下「寄存器池、引擎入口 guard、frame_id」）。两者都只由所属线程无锁访问
-- `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`（frame id 来源，帧惰性取号）、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_head`（`#[repr(C)]`，生成码按偏移读的本线程栈下限与 cctor 门指针，外加缓存的 `&TierApi`）
-- `subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存，键 `(接收者 TypeId, 目标键)`，见 [interp-jit-semantics.md](interp-jit-semantics.md)）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
+- `core: Arc<VmCore>`：VM 共享状态。
+- `exec: ThreadExecState`：pending_exception / pending_thrown 异常根、FrameStack、寄存器池、激活 guard、三个 arena 及其发布长度、frame id 来源与中立 JitHead。
+- `runtime: ThreadRuntimeState`：subclass_memo / IsaCache 和类型、函数前置缓存；仅缓存完整答案，显式模块重载时一同清空。
+- `diagnostics: ThreadDiagnosticsState`：独立的 RuntimeCounters 分片，销毁时在注册表锁下转入共享总数。
+- `threads: ThreadLocalState`：parked TLAB 槽与 safepoint 节流计数；collector 只在原有暂停协议下访问。
+
+这些组合不增加锁或堆分配。每个上下文保留 PhantomPinned，注册到 Core 后地址稳定；生成码的栈下限、cctor 指针和节流偏移使用嵌套 offset_of!，随实际 Rust 布局计算。销毁仍先退休 TLAB/SATB，再在注册表锁下转移计数和注销，最后唤醒等待 collector。
 
 帧记录归 `vm/exec/call/frames.rs`，冻结快照、格式化和寄存器根遍历归 `vm/exec/stack.rs`。
 它们读取同一条 FrameStack；每线程仍由 VmContext 持有栈、池和 arena，所属线程与 GC 暂停约束不变。
@@ -232,7 +232,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
   `take` 用 `resize(need, Null)` 把每个槽写一遍 `Null`（每次调用恰好一遍，不能省——帧一 push，GC 就扫
   `regs[0..len)`，此前每个槽都必须是合法值）；`give` 只 `clear()`（`Value` 是 `Copy`，只改长度），容量以外的
   旧位无人读取——池里的 `Vec` 不是根。上限 512 个。没进入过 `enter_frame` 的 `Frame`（入口拷参失败）直接释放。
-- **引擎入口 guard**（`vm_context/engine_guards.rs`）：两个 thread-local 要在 z42 代码运行期间指向当前 VM——
+- **引擎入口 guard**（`vm/exec/call/engine_guards.rs`）：两个 thread-local 要在 z42 代码运行期间指向当前 VM——
   `vm::exec::ambient` 的堆（`Str::new` / `.into()` 从它分配，`str_meta` 缓存按它的 epoch 作用域）和
   `native-interop` 下 `interop::exports` 的 `CURRENT_VM`（`z42_*` 导出函数经 `current_vm()` 找 VM）。
   它们在一条活动链内不变，所以只在**栈底帧** push 时安装（`push_frame` 里 `FrameStack::push` 报告深度 0→1，

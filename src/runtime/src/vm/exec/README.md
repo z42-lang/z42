@@ -9,10 +9,12 @@
 | 入口 | 职责 |
 |---|---|
 | `init.rs` | 类型与包初始化屏障、执行、parked 等待及异常构造 |
+| `thread_state.rs` | `ThreadExecState` 的帧、池、arena、异常槽与 JIT 中立头；每线程独立 |
 | `state.rs` | `ExecState` 内联组合每 VM 引擎注册表，门面提供具体注册 |
 | `ambient.rs` | 执行期当前堆 TLS、HeapGuard 嵌套恢复和堆 epoch |
 | `engine.rs` | Engine / TierApi 注册、共享调用边界和 OSR 交接；门面按 feature 装配，后端持有代码及激活；corelib 的反射、attribute 和线程回调也经此入口 |
 | `ops/call.rs` / `ops/stringify.rs` | 冷 Call/FnRef 绑定及 ToString 协议执行，调用经已注册 Engine |
+| `call/engine_guards.rs` | 栈底激活安装 VM / heap TLS，最后一帧退出恢复；支持嵌套宿主重入 |
 | `call/` | 统一 VmFrame / FrameStack、寄存器池和三种帧作用域 arena |
 | `call/builtin_abi/` | builtin 参数、返回值、阻塞调用协议及错误映射；corelib 与 interop 只提供实现 |
 | `call/outcome.rs` / `call/forward.rs` / `call/type_param_env.rs` | 共享执行结果、Native 桩折叠和激活类型实参 |

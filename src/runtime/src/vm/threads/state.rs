@@ -34,3 +34,18 @@ impl ThreadState {
         }
     }
 }
+
+/// Mutator-local pause/allocation state, shared with the collector only while parked.
+pub(crate) struct ThreadLocalState {
+    pub(crate) parked_tlab: crate::gc::tlab::ParkedTlabSlot,
+    pub(crate) safepoint_skip: std::sync::atomic::AtomicU32,
+}
+
+impl ThreadLocalState {
+    pub(crate) fn new() -> Self {
+        Self {
+            parked_tlab: Default::default(),
+            safepoint_skip: std::sync::atomic::AtomicU32::new(super::safepoint::throttle_n()),
+        }
+    }
+}

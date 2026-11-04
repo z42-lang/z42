@@ -44,11 +44,11 @@ VmCore（每 VM 一份，所有线程共享）
         └── osr_entries: Mutex<HashMap<(id, K), FnEntry>>
 
 VmContext（每线程一份）
-├── jit_head: JitHead (#[repr(C)])                     // 生成码按偏移读
+├── exec.jit_head: JitHead (#[repr(C)])                     // 生成码按偏移读
 │        ├── stack_limit   // 驱动本 ctx 的线程的栈下限，栈底帧 push 时写入
 │        ├── cctors        // VM 的 CctorRegistry（包初始化门计数）
 │        └── jit           // 缓存的 &TierApi（未装 JIT 时为空）
-└── safepoint_skip                                     // safepoint 节流计数，生成码按偏移读写
+└── threads.safepoint_skip                                     // safepoint 节流计数，生成码按偏移读写
 ```
 
 **上下文参数 = 运行线程自己的 `VmContext`**。每个编译出的函数和每个 helper 的签名都是

@@ -302,7 +302,7 @@ impl RefArg<'_> {
     /// Store `val` into the location the caller passed (nothing, when it passed none).
     pub fn store(&self, ctx: &VmContext, val: Value) -> Result<(), BuiltinError> {
         let Some(&Value::Ref { idx, frame_id }) = self.handle else { return Ok(()) };
-        let kind = ctx.transient_arena.lock().ref_kind(idx, frame_id)
+        let kind = ctx.exec.transient_arena.lock().ref_kind(idx, frame_id)
             .map_err(|e| BuiltinError::Internal(e.to_string()))?;
         crate::vm::exec::ops::references::store_thru_ref(&kind, val, ctx).map_err(|e| BuiltinError::Internal(e.to_string()))
     }

@@ -33,7 +33,7 @@ const ABI_VERSION_MISMATCH:      u32 = 906;
 thread_local! {
     /// `*const VmContext` for the VM currently running z42 code on this
     /// thread. Set via [`VmGuard`] when a context pushes its bottom frame
-    /// (`vm_context/engine_guards.rs`) and on host invoke; restored when that
+    /// (`vm/exec/call/engine_guards.rs`) and on host invoke; restored when that
     /// activation ends.
     static CURRENT_VM: Cell<*const VmContext> = const { Cell::new(ptr::null()) };
 }

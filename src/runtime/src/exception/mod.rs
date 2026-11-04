@@ -5,7 +5,7 @@
 //!
 //! - **interp**: exceptions flow as `ExecOutcome::Thrown(Value)`; no
 //!   thread_local intermediary.
-//! - **JIT**: in-flight exception lives in `VmContext::pending_exception`,
+//! - **JIT**: in-flight exception lives in `VmContext.exec.pending_exception`,
 //!   reached by a JIT helper through its context parameter (the thread's `VmContext`).
 //!
 //! All previously-existing thread_local exception slots
@@ -16,7 +16,7 @@
 //!
 //! ## Stack-trace capture (exception-stack-trace)
 //!
-//! `VmContext.call_stack` holds one [`crate::vm::exec::call::frames::VmFrame`] per active script frame,
+//! `VmContext.exec.call_stack` holds one [`crate::vm::exec::call::frames::VmFrame`] per active script frame,
 //! pushed by `interp::exec_support::enter_frame` / `jit::invoke::enter_compiled`.
 //! Caller frames record the code offset of the call site before they invoke a
 //! callee, so a snapshot at throw time produces a complete

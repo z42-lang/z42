@@ -35,7 +35,7 @@ impl VmContext {
     /// This thread's counters — increment sites use these. For a total across
     /// the VM's threads use [`Self::counters_snapshot`].
     pub fn counters(&self) -> &crate::counters::RuntimeCounters {
-        &self.counters
+        &self.diagnostics.counters
     }
 
     /// The VM-wide totals: every live context plus those already dropped.
@@ -47,7 +47,7 @@ impl VmContext {
         for p in registry.iter() {
             // SAFETY: registered contexts are alive while the registry lock is
             // held (`Drop` deregisters under it before the storage goes away).
-            total = total.add(unsafe { &*p.0 }.counters.snapshot());
+            total = total.add(unsafe { &*p.0 }.diagnostics.counters.snapshot());
         }
         total
     }
@@ -82,7 +82,7 @@ impl VmContext {
     /// this (the throttle counter caps GC pause latency at N iterations
     /// which is small enough in practice).
     pub fn force_safepoint(&self) {
-        self.safepoint_skip.store(1, std::sync::atomic::Ordering::Relaxed);
+        self.threads.safepoint_skip.store(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Standard test entry: constructs a VmContext with `VmCore.module = None`.
@@ -172,31 +172,12 @@ impl VmContext {
     /// On drop, the entry is removed under the same Mutex discipline as
     /// the primary path.
     pub fn new_with_core(core: Arc<VmCore>) -> std::pin::Pin<Box<Self>> {
-        let pending_exception: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
-
         let ctx = Self {
-            jit_head: JitHead::new(&core),
+            exec: crate::vm::exec::ThreadExecState::new(&core.runtime.cctors, &core.exec.engines),
             core,
-            pending_exception,
-            pending_thrown: Mutex::new(None),
-            counters: Default::default(),
-            call_stack: Default::default(),
-            reg_pool: Default::default(),
-            engine_guards: Default::default(),
-            stack_arena: Arc::new(Mutex::new(Default::default())),
-            struct_arena: Arc::new(Mutex::new(Default::default())),
-            transient_arena: Arc::new(Mutex::new(Default::default())),
-            parked_tlab: Default::default(),
-            stack_obj_len: std::sync::atomic::AtomicUsize::new(0),
-            stack_arr_len: std::sync::atomic::AtomicUsize::new(0),
-            struct_len: std::sync::atomic::AtomicUsize::new(0),
-            transient_len: std::sync::atomic::AtomicUsize::new(0),
-            next_frame_id: std::sync::atomic::AtomicU32::new(1),
-            subclass_memo: Mutex::new(FxHashMap::default()),
-            type_lookup_cache: Mutex::new(FxHashMap::default()),
-            fn_lookup_cache: Mutex::new(FxHashMap::default()),
-            isa_cache: crate::vm::runtime::dispatch::isa_cache::IsaCache::new(),
-            safepoint_skip: std::sync::atomic::AtomicU32::new(crate::vm::threads::safepoint::throttle_n()),
+            diagnostics: Default::default(),
+            runtime: crate::vm::runtime::ThreadRuntimeState::new(),
+            threads: crate::vm::threads::ThreadLocalState::new(),
             _pin: PhantomPinned,
         };
         let boxed = Box::new(ctx);
@@ -238,8 +219,6 @@ impl VmContext {
         vfs: Arc<dyn crate::pal::fs::Vfs>,
         ext_state: crate::vm::ext::ExtensionState,
     ) -> std::pin::Pin<Box<Self>> {
-        let pending_exception: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
-
         // Construct VmCore with heap embedded; scanner is installed AFTER
         // wrapping in Arc so the closure can capture Weak<VmCore> (cycle
         // avoidance: heap owns the scanner, scanner refs core, core owns
@@ -353,10 +332,10 @@ impl VmContext {
                     // entries are removed in `VmContext::drop` before dealloc,
                     // and we hold `vm_contexts.lock()` for the whole walk.
                     let ctx = unsafe { &*ctx_ptr.0 };
-                    if let Some(v) = ctx.pending_exception.lock().as_ref() {
+                    if let Some(v) = ctx.exec.pending_exception.lock().as_ref() {
                         visit(v, RootKind::StackFrame);
                     }
-                    if let Some(v) = ctx.pending_thrown.lock().as_ref() {
+                    if let Some(v) = ctx.exec.pending_thrown.lock().as_ref() {
                         visit(v, RootKind::StackFrame);
                     }
                     // SAFETY: as in the mark scanner above — callers hold the
@@ -366,15 +345,15 @@ impl VmContext {
                             crate::vm::exec::stack::visit_roots(frames, |v| visit(v, RootKind::StackFrame));
                         });
                     }
-                    ctx.stack_arena
+                    ctx.exec.stack_arena
                         .lock()
                         .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
                     // add-struct-value-semantics: value-struct blob reference leaves.
-                    ctx.struct_arena
+                    ctx.exec.struct_arena
                         .lock()
                         .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
                     // make-value-copy: transient payloads' GC leaves.
-                    ctx.transient_arena
+                    ctx.exec.transient_arena
                         .lock()
                         .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
                 }
@@ -382,28 +361,11 @@ impl VmContext {
         }
 
         let ctx = Self {
-            jit_head: JitHead::new(&core),
+            exec: crate::vm::exec::ThreadExecState::new(&core.runtime.cctors, &core.exec.engines),
             core,
-            pending_exception,
-            pending_thrown: Mutex::new(None),
-            counters: Default::default(),
-            call_stack: Default::default(),
-            reg_pool: Default::default(),
-            engine_guards: Default::default(),
-            stack_arena: Arc::new(Mutex::new(Default::default())),
-            struct_arena: Arc::new(Mutex::new(Default::default())),
-            transient_arena: Arc::new(Mutex::new(Default::default())),
-            parked_tlab: Default::default(),
-            stack_obj_len: std::sync::atomic::AtomicUsize::new(0),
-            stack_arr_len: std::sync::atomic::AtomicUsize::new(0),
-            struct_len: std::sync::atomic::AtomicUsize::new(0),
-            transient_len: std::sync::atomic::AtomicUsize::new(0),
-            next_frame_id: std::sync::atomic::AtomicU32::new(1),
-            subclass_memo: Mutex::new(FxHashMap::default()),
-            type_lookup_cache: Mutex::new(FxHashMap::default()),
-            fn_lookup_cache: Mutex::new(FxHashMap::default()),
-            isa_cache: crate::vm::runtime::dispatch::isa_cache::IsaCache::new(),
-            safepoint_skip: std::sync::atomic::AtomicU32::new(crate::vm::threads::safepoint::throttle_n()),
+            diagnostics: Default::default(),
+            runtime: crate::vm::runtime::ThreadRuntimeState::new(),
+            threads: crate::vm::threads::ThreadLocalState::new(),
             _pin: PhantomPinned,
         };
         // Heap-allocate so the address is stable for the scanner registry.
@@ -451,7 +413,7 @@ impl Drop for VmContext {
         // objects to other threads). Runs on the owning thread; leaves the
         // thread-local TLAB unbound for the next context. No-op if unbound.
         self.core.heap.retire_thread_tlab();
-        self.core.heap.retire_parked_tlab(&self.parked_tlab);
+        self.core.heap.retire_parked_tlab(&self.threads.parked_tlab);
         // add-gc-tlab (stage 2): balance the arm() from construction.
         crate::gc::tlab::disarm();
         // add-incremental-major-gc M2a: the retire above handed this thread's SATB buffer over.
@@ -462,7 +424,7 @@ impl Drop for VmContext {
             // total under the registry lock, so `counters_snapshot` never sees
             // them twice or not at all.
             let mut registry = self.core.threads.vm_contexts.lock();
-            self.core.diagnostics.counters.absorb(&self.counters);
+            self.core.diagnostics.counters.absorb(&self.diagnostics.counters);
             registry.retain(|p| p.0 != ptr);
         }
         // Wake any collector sleeping in request_gc_pause so it

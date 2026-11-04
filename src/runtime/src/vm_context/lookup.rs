@@ -119,10 +119,10 @@ impl VmContext {
         // optimize-subclass-check: an explicit (re)load can redefine a type (REPL), which
         // could invalidate a cached subclass answer. Lazy-load ADDs (monotonic) are safe and
         // don't clear; only these explicit loads do.
-        self.subclass_memo.lock().clear();
-        self.isa_cache.clear();
-        self.type_lookup_cache.lock().clear();
-        self.fn_lookup_cache.lock().clear();
+        self.runtime.subclass_memo.lock().clear();
+        self.runtime.isa_cache.clear();
+        self.runtime.type_lookup_cache.lock().clear();
+        self.runtime.fn_lookup_cache.lock().clear();
         self.forget_static_owners();
         let mut state = self.core.loader.lazy_loader.write();
         let loader = state.as_mut().ok_or_else(|| {
@@ -148,10 +148,10 @@ impl VmContext {
     pub fn load_module_bytes_into_vm(
         &self, raw: &[u8],
     ) -> anyhow::Result<()> {
-        self.subclass_memo.lock().clear();   // optimize-subclass-check: REPL redefinition safety
-        self.isa_cache.clear();
-        self.type_lookup_cache.lock().clear();
-        self.fn_lookup_cache.lock().clear();
+        self.runtime.subclass_memo.lock().clear();   // optimize-subclass-check: REPL redefinition safety
+        self.runtime.isa_cache.clear();
+        self.runtime.type_lookup_cache.lock().clear();
+        self.runtime.fn_lookup_cache.lock().clear();
         self.forget_static_owners();
         let mut state = self.core.loader.lazy_loader.write();
         let loader = state.as_mut().ok_or_else(|| {
@@ -174,7 +174,7 @@ impl VmContext {
 
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {
         // parallel-parse-and-cache：线程本地前置缓存，命中不碰共享锁（见 `fn_lookup_cache`）。
-        if let Some(f) = self.fn_lookup_cache.lock().get(func_name).cloned() {
+        if let Some(f) = self.runtime.fn_lookup_cache.lock().get(func_name).cloned() {
             if !self.static_init_drain_is_noop(&[]) {
                 self.run_pending_static_inits();
             }
@@ -201,7 +201,7 @@ impl VmContext {
         };
         // `resolved` 已经是最终答案（`Some` = 命中，`None` = 负缓存里的确定性「否」）。
         if let Some(resolved) = fast {
-            if let Some(f) = &resolved { self.fn_lookup_cache.lock().insert(func_name.into(), Arc::clone(f)); }
+            if let Some(f) = &resolved { self.runtime.fn_lookup_cache.lock().insert(func_name.into(), Arc::clone(f)); }
             if !self.static_init_drain_is_noop(&[]) {
                 self.run_pending_static_inits();
             }
@@ -258,7 +258,7 @@ impl VmContext {
     /// Same `ModuleLoaded` emit semantics as `try_lookup_function`.
     pub fn try_lookup_type(&self, class_name: &str) -> Option<Arc<TypeDesc>> {
         // parallel-parse-and-cache：线程本地前置缓存，命中不碰共享锁（见 `type_lookup_cache`）。
-        if let Some(td) = self.type_lookup_cache.lock().get(class_name).cloned() {
+        if let Some(td) = self.runtime.type_lookup_cache.lock().get(class_name).cloned() {
             if !self.static_init_drain_is_noop(&[]) {
                 self.run_pending_static_inits();
             }
@@ -285,7 +285,7 @@ impl VmContext {
         if let Some(resolved) = fast {
             // 只缓存基类链已合并的完整描述符（`probe_type` 只交出完整的，这里再守一道）。
             if let Some(td) = &resolved {
-                if !td.base_unmerged() { self.type_lookup_cache.lock().insert(class_name.into(), Arc::clone(td)); }
+                if !td.base_unmerged() { self.runtime.type_lookup_cache.lock().insert(class_name.into(), Arc::clone(td)); }
             }
             if !self.static_init_drain_is_noop(&[]) {
                 self.run_pending_static_inits();

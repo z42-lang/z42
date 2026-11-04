@@ -101,7 +101,7 @@ impl VmContext {
     pub(crate) fn tier(&self) -> Option<&TierApi> {
         #[cfg(feature = "jit")]
         {
-            let p = self.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed);
+            let p = self.exec.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed);
             // Only the owner thread refreshes this pointer. Publication came through
             // OnceLock, and this context keeps the owning core (and tier) alive.
             unsafe { p.as_ref() }
@@ -112,7 +112,7 @@ impl VmContext {
     pub(crate) fn publish_tier(&self) {
         #[cfg(feature = "jit")]
         if let Some(tier) = self.core.exec.engines.tier() {
-            self.jit_head.jit.store(tier as *const TierApi as *mut TierApi, std::sync::atomic::Ordering::Relaxed);
+            self.exec.jit_head.jit.store(tier as *const TierApi as *mut TierApi, std::sync::atomic::Ordering::Relaxed);
         }
     }
 }

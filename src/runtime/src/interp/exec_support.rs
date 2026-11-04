@@ -30,7 +30,7 @@ impl Drop for FrameGuard<'_> {
         // SAFETY: `regs` points into the live `Frame` (see the field); nothing
         // else borrows it while the guard drops. The frame keeps an empty Vec.
         let regs = std::mem::take(unsafe { &mut *self.regs });
-        self.ctx.reg_pool.give(regs);
+        self.ctx.exec.reg_pool.give(regs);
     }
 }
 

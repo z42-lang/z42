@@ -98,13 +98,13 @@ fn lazy_receiver_and_target_are_keyed_by_type_id() {
     let key = TypeKeyCell::new();
     assert!(isa(&ctx, &leaf, "Pkg.Base", &key));
     assert_eq!(key.get(), Some(base.id.0), "registered target ⇒ its TypeId");
-    assert_eq!(ctx.isa_cache.get(leaf.id.0, base.id.0), Some(true));
+    assert_eq!(ctx.runtime.isa_cache.get(leaf.id.0, base.id.0), Some(true));
     // Interface reached through the base, and a miss.
     assert!(isa(&ctx, &leaf, "Pkg.IShape", &TypeKeyCell::new()));
     let thing_key = TypeKeyCell::new();
     assert!(!isa(&ctx, &leaf, "App.Thing", &thing_key));
     let thing_id = ctx.module().unwrap().type_registry["App.Thing"].id.0;
-    assert_eq!(ctx.isa_cache.get(leaf.id.0, thing_id), Some(false));
+    assert_eq!(ctx.runtime.isa_cache.get(leaf.id.0, thing_id), Some(false));
     // An entry-module receiver whose base lives in the lazy package.
     let thing = Arc::clone(&ctx.module().unwrap().type_registry["App.Thing"]);
     assert!(isa(&ctx, &thing, "Pkg.IShape", &TypeKeyCell::new()));
@@ -133,7 +133,7 @@ fn generic_instantiation_tests_use_reserved_keys_for_erased_names() {
     assert!(isa(&ctx, &boxed, "Pkg.Box", &erased));
     let k = erased.get().unwrap();
     assert!(ctx.types().get(TypeId(k)).is_none(), "reserved for the name, not a descriptor");
-    assert_eq!(ctx.isa_cache.get(boxed.id.0, k), Some(true));
+    assert_eq!(ctx.runtime.isa_cache.get(boxed.id.0, k), Some(true));
     assert!(isa(&ctx, &boxed, "Pkg.Box$1", &TypeKeyCell::new()));
     assert!(!isa(&ctx, &boxed, "Pkg.Box<string>", &TypeKeyCell::new()));
     assert!(isa(&ctx, &boxed, "Pkg.Box<int>", &TypeKeyCell::new()));
@@ -173,7 +173,7 @@ fn name_only_entry_memoises_by_ids() {
     let leaf = lazy(&ctx, "Pkg.Leaf");
     let shape = lazy(&ctx, "Pkg.IShape");
     let pair = crate::vm::runtime::dispatch::isa_cache::pair_key(leaf.id.0, shape.id.0);
-    assert_eq!(ctx.subclass_memo.lock().get(&pair).copied(), Some(true));
+    assert_eq!(ctx.runtime.subclass_memo.lock().get(&pair).copied(), Some(true));
 }
 
 /// Descriptors without an id (transient fallbacks) are answered by the walk, never cached.
@@ -187,7 +187,7 @@ fn id_less_descriptors_are_answered_but_not_cached() {
     assert!(isa(&ctx, &fallback, "Local", &key));
     assert!(!isa(&ctx, &fallback, "Pkg.Base", &key));
     assert_eq!(key.get(), None, "no key resolved for an uncached test");
-    assert!(ctx.subclass_memo.lock().is_empty());
+    assert!(ctx.runtime.subclass_memo.lock().is_empty());
 }
 
 /// Explicit module (re)load clears both caches; ids stay.
@@ -198,8 +198,8 @@ fn explicit_reload_clears_the_caches() {
     let key = TypeKeyCell::new();
     assert!(isa(&ctx, &leaf, "Pkg.Base", &key));
     let _ = ctx.load_module_bytes_into_vm(&[]); // fails to parse, still clears first
-    assert_eq!(ctx.isa_cache.get(leaf.id.0, key.get().unwrap()), None);
-    assert!(ctx.subclass_memo.lock().is_empty());
+    assert_eq!(ctx.runtime.isa_cache.get(leaf.id.0, key.get().unwrap()), None);
+    assert!(ctx.runtime.subclass_memo.lock().is_empty());
 }
 
 /// An imported generic instantiated in another package carries the **definition's** descriptor

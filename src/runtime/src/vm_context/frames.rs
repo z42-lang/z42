@@ -14,7 +14,7 @@ impl VmContext {
     // ── perf interp-frame-lock-slim: arena-alloc funnel ─────────────────────────
     // Every arena allocation MUST route through one of these four wrappers so the
     // published length atomic stays in lock-step with the inner Vec. A raw
-    // `ctx.stack_arena.lock().alloc_obj(..)` that bypassed the wrapper would leave
+    // `ctx.exec.stack_arena.lock().alloc_obj(..)` that bypassed the wrapper would leave
     // `stack_obj_len` stale → `pop_frame` would wrongly skip a needed truncate (an
     // arena leak, not a crash — the `frame_id` staleness check still guards reads).
     // The length store happens UNDER the arena lock (single-writer publish).
@@ -22,18 +22,18 @@ impl VmContext {
     /// Allocate a stack object; publishes the new `objs` length. See `stack_obj_len`.
     pub(crate) fn stack_alloc_obj(&self, frame_id: u32, obj: crate::object::OwnedObject) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
-        let mut a = self.stack_arena.lock();
+        let mut a = self.exec.stack_arena.lock();
         let idx = a.alloc_obj(frame_id, obj);
-        self.stack_obj_len.store(idx as usize + 1, Relaxed);
+        self.exec.stack_obj_len.store(idx as usize + 1, Relaxed);
         idx
     }
 
     /// Allocate a stack array; publishes the new `arrs` length. See `stack_arr_len`.
     pub(crate) fn stack_alloc_arr(&self, frame_id: u32, arr: crate::vm::exec::call::stack_alloc::StackArray) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
-        let mut a = self.stack_arena.lock();
+        let mut a = self.exec.stack_arena.lock();
         let idx = a.alloc_arr(frame_id, arr);
-        self.stack_arr_len.store(idx as usize + 1, Relaxed);
+        self.exec.stack_arr_len.store(idx as usize + 1, Relaxed);
         idx
     }
 
@@ -43,9 +43,9 @@ impl VmContext {
         layout: std::sync::Arc<crate::object::StructTypeLayout>,
     ) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
-        let mut a = self.struct_arena.lock();
+        let mut a = self.exec.struct_arena.lock();
         let idx = a.alloc(frame_id, type_name, layout);
-        self.struct_len.store(idx as usize + 1, Relaxed);
+        self.exec.struct_len.store(idx as usize + 1, Relaxed);
         idx
     }
 
@@ -54,9 +54,9 @@ impl VmContext {
         &self, frame_id: u32, payload: crate::vm::exec::call::transient_arena::TransientPayload,
     ) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
-        let mut a = self.transient_arena.lock();
+        let mut a = self.exec.transient_arena.lock();
         let idx = a.alloc(frame_id, payload);
-        self.transient_len.store(idx as usize + 1, Relaxed);
+        self.exec.transient_len.store(idx as usize + 1, Relaxed);
         idx
     }
 
@@ -67,22 +67,22 @@ impl VmContext {
         // the three arenas. This is the mutator thread (the sole writer of these
         // atomics), so the load observes its own latest publish; `pop_frame`
         // LIFO-truncates each arena back to the base captured here.
-        frame.stack_obj_base = arena_base(self.stack_obj_len.load(Relaxed));
-        frame.stack_arr_base = arena_base(self.stack_arr_len.load(Relaxed));
-        frame.struct_base = arena_base(self.struct_len.load(Relaxed));
-        frame.transient_base = arena_base(self.transient_len.load(Relaxed));
-        if self.call_stack.push(frame) {
+        frame.stack_obj_base = arena_base(self.exec.stack_obj_len.load(Relaxed));
+        frame.stack_arr_base = arena_base(self.exec.stack_arr_len.load(Relaxed));
+        frame.struct_base = arena_base(self.exec.struct_len.load(Relaxed));
+        frame.transient_base = arena_base(self.exec.transient_len.load(Relaxed));
+        if self.exec.call_stack.push(frame) {
             // Bottom frame: a new activation chain on this thread. Scope this
             // context's VM / heap into the thread-locals until the stack is empty
             // again; nested frames run under them (see `engine_guards`).
-            self.engine_guards.install(self);
+            self.exec.engine_guards.install(self);
         }
     }
 
     /// Pop the most recently pushed frame. No-op when empty (defensive).
     pub(crate) fn pop_frame(&self) {
         use std::sync::atomic::Ordering::Relaxed;
-        let popped = self.call_stack.pop();
+        let popped = self.exec.call_stack.pop();
         if let Some(f) = popped {
             let (obj_base, arr_base) = (f.stack_obj_base as usize, f.stack_arr_base as usize);
             let (struct_base, transient_base) = (f.struct_base as usize, f.transient_base as usize);
@@ -91,27 +91,27 @@ impl VmContext {
             // call-heavy common case allocates nothing on these arenas, so all three
             // comparisons short-circuit and pop_frame takes no lock at all.
             // Re-publish the post-truncate length under the arena lock.
-            if self.stack_obj_len.load(Relaxed) != obj_base
-                || self.stack_arr_len.load(Relaxed) != arr_base
+            if self.exec.stack_obj_len.load(Relaxed) != obj_base
+                || self.exec.stack_arr_len.load(Relaxed) != arr_base
             {
-                let mut a = self.stack_arena.lock();
+                let mut a = self.exec.stack_arena.lock();
                 a.truncate(obj_base, arr_base);
                 let (o, r) = a.bases();
-                self.stack_obj_len.store(o, Relaxed);
-                self.stack_arr_len.store(r, Relaxed);
+                self.exec.stack_obj_len.store(o, Relaxed);
+                self.exec.stack_arr_len.store(r, Relaxed);
             }
-            if self.struct_len.load(Relaxed) != struct_base {
-                let mut a = self.struct_arena.lock();
+            if self.exec.struct_len.load(Relaxed) != struct_base {
+                let mut a = self.exec.struct_arena.lock();
                 a.truncate(struct_base);
-                self.struct_len.store(a.base(), Relaxed);
+                self.exec.struct_len.store(a.base(), Relaxed);
             }
-            if self.transient_len.load(Relaxed) != transient_base {
-                let mut a = self.transient_arena.lock();
+            if self.exec.transient_len.load(Relaxed) != transient_base {
+                let mut a = self.exec.transient_arena.lock();
                 a.truncate(transient_base);
-                self.transient_len.store(a.base(), Relaxed);
+                self.exec.transient_len.store(a.base(), Relaxed);
             }
-            if self.call_stack.depth() == 0 {
-                self.engine_guards.release();
+            if self.exec.call_stack.depth() == 0 {
+                self.exec.engine_guards.release();
             }
         }
     }
@@ -122,9 +122,9 @@ impl VmContext {
     /// plain load + store, no read-modify-write.
     pub(crate) fn next_frame_id(&self) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
-        let id = self.next_frame_id.load(Relaxed);
+        let id = self.exec.next_frame_id.load(Relaxed);
         let next = id.wrapping_add(1);
-        self.next_frame_id.store(if next == 0 { 1 } else { next }, Relaxed);
+        self.exec.next_frame_id.store(if next == 0 { 1 } else { next }, Relaxed);
         id
     }
 
@@ -135,14 +135,14 @@ impl VmContext {
     /// resolved from it only when a stack trace is built.
     #[inline]
     pub(crate) fn set_top_frame_pc(&self, pc: u32) {
-        self.call_stack.set_top_pc(pc);
+        self.exec.call_stack.set_top_pc(pc);
     }
 
     /// Snapshot the entire call stack for stack-trace formatting at a
     /// `throw` site — names, files and line/column are resolved here.
     /// Only invoked on the throw / fatal-report path.
     pub(crate) fn snapshot_call_stack(&self) -> Vec<crate::vm::exec::stack::FrameSnapshot> {
-        self.call_stack.with_frames(crate::vm::exec::stack::snapshots)
+        self.exec.call_stack.with_frames(crate::vm::exec::stack::snapshots)
     }
 
     /// Spec impl-ref-out-in-runtime (Decision R1): index into the frame
@@ -156,7 +156,7 @@ impl VmContext {
     /// escape the call stack — popped frames cannot be referenced). Like every
     /// frame-stack accessor here, it runs on the context's owner thread.
     pub(crate) fn frame_state_at(&self, idx: usize) -> Option<*const Vec<Value>> {
-        self.call_stack.regs_at(idx)
+        self.exec.call_stack.regs_at(idx)
     }
 
     /// Current depth of the frame chain. `frame_state_at(depth - 1)` is
@@ -164,7 +164,7 @@ impl VmContext {
     /// to produce a `RefKind::Stack { frame_idx }` referencing the
     /// current frame at emission time.
     pub(crate) fn frame_stack_depth(&self) -> usize {
-        self.call_stack.depth()
+        self.exec.call_stack.depth()
     }
 
     /// Read this context's frames from the GC root scanners. Panics in debug
@@ -178,13 +178,13 @@ impl VmContext {
         &self, f: impl FnOnce(&[crate::vm::exec::call::frames::VmFrame]) -> R,
     ) -> R {
         debug_assert!(
-            self.call_stack.published_depth() == 0
-                || self.call_stack.owned_by_current_thread()
+            self.exec.call_stack.published_depth() == 0
+                || self.exec.call_stack.owned_by_current_thread()
                 || self.core.threads.collector_active.load(std::sync::atomic::Ordering::Acquire),
             "another thread's frame stack scanned outside a GC pause"
         );
         // SAFETY: the caller's contract.
-        unsafe { self.call_stack.scan_parked(f) }
+        unsafe { self.exec.call_stack.scan_parked(f) }
     }
 }
 

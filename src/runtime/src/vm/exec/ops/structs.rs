@@ -44,7 +44,7 @@ pub(crate) fn unbox_struct(
     let (type_name, bytes, refs) = crate::objops::struct_leaf::snapshot_box(gc);
     let layout = resolve_layout(ctx, &type_name, bytes.len() as u32);
     let idx = ctx.struct_alloc(frame_id, type_name, layout);
-    ctx.struct_arena.lock().with_mut(idx, frame_id, |s| {
+    ctx.exec.struct_arena.lock().with_mut(idx, frame_id, |s| {
         let n = bytes.len().min(s.bytes.len());
         s.bytes[..n].copy_from_slice(&bytes[..n]);
         let rn = refs.len().min(s.refs.len());
@@ -58,7 +58,7 @@ pub(crate) fn unbox_struct(
 pub(crate) fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::StructArrayElem) -> Result<Value> {
     let (src_bytes, src_refs, layout, tname) = crate::objops::struct_leaf::snapshot_elem(e)?;
     let idx = ctx.struct_alloc(frame_id, tname, layout);
-    ctx.struct_arena.lock().with_mut(idx, frame_id, |s| {
+    ctx.exec.struct_arena.lock().with_mut(idx, frame_id, |s| {
         let n = src_bytes.len().min(s.bytes.len());
         s.bytes[..n].copy_from_slice(&src_bytes[..n]);
         let rn = src_refs.len().min(s.refs.len());
@@ -74,7 +74,7 @@ pub(crate) fn struct_copy_val(
 ) -> Result<()> {
     let (d_idx, d_fid) = as_struct_ref(dst_val, "StructCopy dst")?;
     let (s_idx, s_fid) = as_struct_ref(src_val, "StructCopy src")?;
-    ctx.struct_arena.lock().copy_into(d_idx, d_fid, s_idx, s_fid, size as usize)
+    ctx.exec.struct_arena.lock().copy_into(d_idx, d_fid, s_idx, s_fid, size as usize)
 }
 
 

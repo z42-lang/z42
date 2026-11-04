@@ -116,7 +116,7 @@ pub unsafe extern "C" fn jit_check_safepoint_slow(
     ctx:    *const VmContext,
 ) {
     let vm_ctx = vm_ctx_ref(ctx);
-    vm_ctx.safepoint_skip.store(
+    vm_ctx.threads.safepoint_skip.store(
         crate::vm::threads::safepoint::throttle_n(),
         std::sync::atomic::Ordering::Relaxed,
     );
@@ -179,7 +179,7 @@ mod check_safepoint_tests {
         // add-gc-safepoint-counter-throttling : force the
         // first check_safepoint into the slow path (otherwise the
         // throttle counter would skip it).
-        ctx.safepoint_skip.store(1, Ordering::Relaxed);
+        ctx.threads.safepoint_skip.store(1, Ordering::Relaxed);
         let cycles_before = ctx.heap().stats().gc_cycles;
         ctx.core.threads.needs_auto_collect.store(true, Ordering::Release);
 

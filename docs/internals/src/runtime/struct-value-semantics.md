@@ -493,7 +493,7 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 
 STRUCT 模式的数组（C# inline `struct[]`）：一个块里先是元素布局字（计数的 `Arc<StructTypeLayout>`），再是 `len` 个元素
 blob 紧凑排列，每个元素就是独立 blob 的布局，引用叶子是元素内的引用字（数组块的形状见 [object-abi.md](object-abi.md)「数组元素」）。`arr[i]` 元素 offset 运行期定 → 需**堆 base 句柄**
-`Value::StructRefHeap{idx, frame_id}`（指向 `VmContext::transient_arena` 里的 `StructArrayElem{arr, index}`；arena `StructRef` 热路径不动；仅数组需句柄）。GC：
+`Value::StructRefHeap{idx, frame_id}`（指向 `VmContext.exec.transient_arena` 里的 `StructArrayElem{arr, index}`；arena `StructRef` 热路径不动；仅数组需句柄）。GC：
 `ArrayObj::visit_refs` 逐元素解码引用叶子供扫描；元素引用叶子写触发 `write_barrier_array_elem`，
 整元素写与批量写之后按 `elem_ref_slots` 对每个引用叶子发屏障。
 

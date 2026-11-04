@@ -124,7 +124,7 @@ fn function_compiled_on_one_thread_runs_natively_on_another() {
                 NativeOutcome::Threw => panic!("threw {:?}", w.take_exception()),
             }
             assert_eq!(compiled_here(&w), 0, "nothing compiled on the worker");
-            assert_eq!(w.call_stack.depth(), 0, "the native frame was pushed on and popped off the worker's stack");
+            assert_eq!(w.exec.call_stack.depth(), 0, "the native frame was pushed on and popped off the worker's stack");
         }).join().expect("worker");
     });
     assert_eq!(vm.counters_snapshot().jit_methods_compiled, 1, "compiled exactly once VM-wide");
@@ -168,7 +168,7 @@ fn exception_thrown_in_jit_code_on_a_worker_stays_on_the_worker() {
             let e = w.jit().unwrap().resolve_fn_by_id(&w, 0).expect("compiled");
             assert!(matches!(run(&w, e), NativeOutcome::Threw));
             assert!(matches!(w.take_exception(), Some(Value::I64(13))), "pending on the worker");
-            assert_eq!(w.call_stack.depth(), 0, "unwound");
+            assert_eq!(w.exec.call_stack.depth(), 0, "unwound");
         }).join().expect("worker");
     });
     assert!(vm.peek_exception().is_none(), "the main thread's pending slot is untouched");
@@ -192,13 +192,13 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
             let f = rt.resolve_fn_by_id(&w, 0).expect("compiled");
             // The bottom push stores this thread's limit; the call succeeds.
             assert!(matches!(run(&w, f), NativeOutcome::Returned(Some(Value::I64(1)))));
-            let stored = w.jit_head.stack_limit.load(Ordering::Relaxed);
+            let stored = w.exec.jit_head.stack_limit.load(Ordering::Relaxed);
             // Under an outer frame (so no bottom push resets it), a limit above every
             // stack address makes the prologue report an overflow: it reads the
             // context's own head.
             let regs: Vec<Value> = Vec::new();
             w.push_frame(VmFrame::new(f.func, &regs));
-            w.jit_head.stack_limit.store(usize::MAX, Ordering::Relaxed);
+            w.exec.jit_head.stack_limit.store(usize::MAX, Ordering::Relaxed);
             let forced = matches!(run(&w, f), NativeOutcome::Threw)
                 && matches!(w.take_exception(), Some(Value::Str(s)) if s.as_str().contains("stack overflow"));
             w.pop_frame();
