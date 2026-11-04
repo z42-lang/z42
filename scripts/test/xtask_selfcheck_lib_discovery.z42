@@ -15,10 +15,13 @@ int _selfcheckLibDiscovery() {
         string core = Path.Join(dir, "src/libraries/z42.core");
         string pipe = Path.Join(dir, "src/compiler/z42c.pipeline");
         string opt = Path.Join(dir, "src/compiler/z42c.optimization");
+        string symbols = Path.Join(dir, "src/compiler/z42c.symbols/tests/interface");
         Directory.Create(Path.Join(core, "tests")); Directory.Create(Path.Join(core, "benches"));
         Directory.Create(Path.Join(pipe, "tests/incremental"));
         Directory.Create(Path.Join(pipe, "benches/nested"));
         Directory.Create(Path.Join(opt, "benches"));
+        Directory.Create(symbols);
+        File.WriteAllText(Path.Join(symbols, "z42.toml"), "[project]\nname = \"symbols.test\"\n");
         File.WriteAllText(Path.Join(core, "tests/core_tests.z42"), "using Std.Harness; [Test] void t() {}\n");
         File.WriteAllText(Path.Join(core, "benches/core_bench.z42"), "using Std.Harness; [Benchmark] void b() {}\n");
         File.WriteAllText(Path.Join(pipe, "tests/incremental/unit.z42.toml"), "[project]\nname = \"pipeline.test\"\n");
@@ -29,6 +32,7 @@ int _selfcheckLibDiscovery() {
         string[] benches = _allUnitLibs(dir, "bench");
         _requireLibDiscovery(_libListHas(tests, "z42.core"), "stdlib tests omitted");
         _requireLibDiscovery(!_libListHas(tests, "z42c.pipeline"), "compiler project tests routed to stdlib runner");
+        _requireLibDiscovery(!_libListHas(tests, "z42c.symbols"), "canonical compiler project routed to stdlib runner");
         _requireLibDiscovery(_libListHas(benches, "z42c.pipeline"), "compiler tests layout hid its benchmarks");
         _requireLibDiscovery(_libListHas(benches, "z42c.optimization"), "compiler benchmark-only package omitted");
         _requireLibDiscovery(_libUnitCount(dir, "z42c.pipeline", "test") == 0, "unexpected flat test count");
@@ -38,6 +42,14 @@ int _selfcheckLibDiscovery() {
         _requireLibDiscovery(first.Length + second.Length == benches.Length, "shards lost packages");
         _requireLibDiscovery(_libListHas(first, "z42c.pipeline"), "largest benchmark package not balanced first");
         foreach (var lib in first) { _requireLibDiscovery(!_libListHas(second, lib), "duplicate shard package"); }
+        File.WriteAllText(Path.Join(symbols, "a.z42.toml"), "");
+        File.WriteAllText(Path.Join(symbols, "b.z42.toml"), "");
+        _requireLibDiscovery(_isCompilerFormatTests(dir, "z42c.symbols"), "canonical manifest lost priority");
+        File.Delete(Path.Join(symbols, "z42.toml"));
+        bool rejected = false;
+        try { _isCompilerFormatTests(dir, "z42c.symbols"); }
+        catch (Exception e) { rejected = e.Message.Contains("a.z42.toml") && e.Message.Contains("b.z42.toml"); }
+        _requireLibDiscovery(rejected, "ambiguous compiler project must name both candidates");
     } finally { Directory.Delete(dir, true); }
     Console.WriteLine("  lib discovery: test/bench routing and kind-specific shards passed");
     return 0;

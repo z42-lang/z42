@@ -24,7 +24,7 @@
 
 ## 验证
 
-`tests/interface-resolution/` 覆盖接口的外围作用域、限定名、using / prelude、泛型实参与别名，以及查询间符号表变化。完整门禁使用仓库根的 `./xtask test`。
+[`tests/interface-resolution/z42.toml`](tests/interface-resolution/z42.toml) 覆盖接口的外围作用域、限定名、using / prelude、泛型实参与别名，以及查询间符号表变化。完整门禁使用仓库根的 `./xtask test`。
 
 独立基准清单为 `benches/z42c.symbols.bench.interface.z42.toml`；产物落在 `artifacts/build/compiler/z42c.symbols/<profile>/benches/interface/`。十个 `[Benchmark]` 入口覆盖类回落、using 接口、内外层接口命中、全局接口、基元、未解析名字和泛型接口，另含直接 `GetInterface` 的 using 与内层命中控制。可执行入口接受作用域深度与场景编号（0–9），每次迭代解析同一类型表达式 256 次，符号表与表达式的创建不计入测量。
 
