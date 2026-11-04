@@ -165,6 +165,17 @@ fn resolve_config_mode(mode: Option<&str>) -> Option<z42::metadata::ExecMode> {
     }
 }
 
+// The backend selector and RuntimeConfig queries must observe the same CLI layer.
+fn cli_knob_inputs(cli: &Cli) -> std::result::Result<std::collections::BTreeMap<&'static str, String>, String> {
+    let mut knobs = z42::config::parse_set_args(&cli.set)?;
+    let mode = cli.mode.as_ref().map(exec_mode_name);
+    z42::config::reject_flag_conflict(&knobs, "Z42_MODE", "--mode", mode)?;
+    if let Some(mode) = mode {
+        knobs.insert("Z42_MODE", mode.to_string());
+    }
+    Ok(knobs)
+}
+
 fn main() -> Result<()> {
     // Heap profiling (script-profiling P0, `xtask profile --heap`): the dhat
     // profiler must outlive the whole run — held here so it flushes `dhat-heap.json`
@@ -188,17 +199,10 @@ fn main() -> Result<()> {
 
     // CLI layer (complete-runtime-settings P2) — parsed before anything reads the
     // config, since `--set log=...` has to be visible to init_tracing below.
-    let cli_knobs = match z42::config::parse_set_args(&cli.set) {
+    let cli_knobs = match cli_knob_inputs(&cli) {
         Ok(m) => m,
         Err(msg) => { eprintln!("{msg}"); std::process::exit(2); }
     };
-    // `--mode` and `--set mode=` are the same precedence layer; refuse to guess.
-    if let Err(msg) = z42::config::reject_flag_conflict(
-        &cli_knobs, "Z42_MODE", "--mode", cli.mode.as_ref().map(exec_mode_name)
-    ) {
-        eprintln!("{msg}");
-        std::process::exit(2);
-    }
 
     // Two independent file layers: the user's own (`Z42_CONFIG`) and the app's
     // build-generated sidecar (`Z42_APP_CONFIG`). They merge per key with the user

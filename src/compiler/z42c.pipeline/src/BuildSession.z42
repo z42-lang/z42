@@ -594,6 +594,18 @@ public static class CompilerDomain {
             string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
             n = CompilerDomain._add(found, n, Path.Join(sdk, Path.Join("programs", "z42c")));
         }
+        if (CompilerDomain._needsRuntime(found, n)) {
+            string[] runtime = ModuleSearch.Dirs();
+            string[] expanded = new string[n + runtime.Length];
+            Array.Copy(found, expanded, n); found = expanded;
+            int di = 0;
+            while (di < runtime.Length) {
+                if (File.Exists(Path.Join(runtime[di], "z42c.pipeline.zpkg"))) {
+                    n = CompilerDomain._add(found, n, runtime[di]);
+                }
+                di = di + 1;
+            }
+        }
         string[] r = new string[n];
         int i = 0; while (i < n) { r[i] = found[i]; i = i + 1; }
         return r;
@@ -605,6 +617,18 @@ public static class CompilerDomain {
         while (i < n) { if (found[i] == dir) { return n; } i = i + 1; }
         found[n] = dir;
         return n + 1;
+    }
+
+    // A program-only entry can resolve its compiler component through declared runtime probing.
+    private static bool _needsRuntime(string[] found, int n) {
+        if (n == 0) { return true; }
+        bool programOnly = false; int i = 0;
+        while (i < n) {
+            if (File.Exists(Path.Join(found[i], "z42c.pipeline.zpkg"))) { return false; }
+            if (File.Exists(Path.Join(found[i], "z42c.driver.zpkg"))) { programOnly = true; }
+            i = i + 1;
+        }
+        return programOnly;
     }
 }
 
