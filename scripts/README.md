@@ -312,19 +312,20 @@ scripts/
 │   ├── xtask_test_app.z42       `test app`：设备测试一条命令（+ `xtask_test_device_host.z42` 宿主工程暂存）
 │   ├── xtask_test_fingerprint.z42  编译器语义指纹检查
 │   ├── xtask_test_changed.z42   按改动文件挑 stage
-│   └── xtask_test_{platform,wasm,ios,android,desktop}.z42  平台 3 段测试（build/assets/run）
+│   ├── xtask_test_{platform,wasm,ios,android,desktop}.z42  平台 3 段测试（build/assets/run）
 │                                platform 是 dispatcher + 共享 phase②；其余四个是 backend 类
-├── package/            package 各 RID 类别 + 开发态组装 + 发行档组装 + packages.toml 三层自检
+│   └── sdk/                桌面 SDK 验证：`package sdk --verify` 的执行器与自检
+│       ├── xtask_package_verify.z42      `package sdk --verify`：入口 + 发行包夹具套件（用例在 `src/toolchain/launcher/tests/fixtures/package/`）+ golden 腿
+│       ├── xtask_package_selfcheck.z42   packages.toml 三层自检的聚合（`--verify` 的第一步）
+│       └── xtask_selfcheck_{packages_config,package_install,release}.z42
+│                                         清单解析 / 组件安装 / 发布归档各自的 throw-on-mismatch 自检层
+├── package/            package 各 RID 类别 + 开发态组装 + 发行档组装
 │   ├── xtask_package_cmd.z42         `package` 族的命令类
 │   ├── xtask_package{,_desktop,_ios,_android,_wasm}.z42   分类入口与各 RID 实现
 │   ├── xtask_package_dev.z42         `package dev-sdk` / `package ci`（只组装已编好的产物）
 │   ├── xtask_package_install.z42     组件安装：按 packages.toml include + kind 直接装进包目录（无暂存）
 │   ├── xtask_package_test.z42        **`package workload test`**：打 payload-only 的 test workload
 │   │                                 （与 _desktop/_ios/_android/_wasm 同族：`test` 是 workload 名）
-│   ├── xtask_package_verify.z42      `package sdk --verify`：入口 + 发行包夹具套件（用例在 `src/toolchain/launcher/tests/fixtures/package/`）+ golden 腿
-│   ├── xtask_package_selfcheck.z42   packages.toml 三层自检的聚合（`--verify` 的第一步）
-│   ├── xtask_selfcheck_{packages_config,package_install,release}.z42
-│   │                                 清单解析 / 组件安装 / 发布归档各自的 throw-on-mismatch 自检层
 │   └── xtask_release.z42             `--archive`（包目录 → 归档）/ `package release`（desktop 合并 → SHA256SUMS → index）
 ├── install/            setup：各平台依赖 / 编辑器资产
 │   ├── xtask_setup_cmd.z42           `setup` 族的命令类（不带子命令 = 安装）
@@ -366,7 +367,7 @@ scripts/
 | `test <x>` 命令的实现 | `xtask_test_<x>.z42` | `test/xtask_test_vm.z42`、`test/xtask_test_docs.z42` |
 | `<族> <x>` 命令的实现（族 ≠ test） | `xtask_<x>.z42` / `xtask_<族>_<x>.z42` | `build/xtask_stdlib.z42`、`package/xtask_package_wasm.z42` |
 | 被多个命令共用的**引擎**（不对应任何命令） | `xtask_<领域>_<名>.z42`，**不带 `test_` 前缀** | `test/xtask_manifest_targets.z42` |
-| 某模块的 throw-on-mismatch **自检层** | `xtask_selfcheck_<模块>.z42` | `package/xtask_selfcheck_packages_config.z42` |
+| 某模块的 throw-on-mismatch **自检层** | `xtask_selfcheck_<模块>.z42` | `test/sdk/xtask_selfcheck_packages_config.z42` |
 
 > `package/xtask_package_test.z42` 与 `_desktop`/`_ios`/`_android`/`_wasm` 同族——`test` 是 workload 名而非「测试」。
 
