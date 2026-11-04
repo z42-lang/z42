@@ -1,0 +1,78 @@
+// HostTarget imports signatures and TYPE metadata, not dependency executable bodies.
+namespace Z42.Pipeline;
+using Std.IO;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+using Z42.Package;
+
+public static class DependencySurfaceIdentity {
+    // Empty means the caller must retain its full-byte identity. No projection of executable plugins.
+    public static string Of(CachedZpkg ce) {
+        if (ce.SurfaceIdentity != null) { return ce.SurfaceIdentity; }
+        ce.SurfaceIdentity = "";
+        ZpkgInfo z = ce.Z;
+        if (z == null || !z.Packed || z.IsExe || PkgKind.IsPluginPkg(z.PkgKind, z.PluginCaps)
+            || z.CarriedCount != 0 || !z.HasSection("SIGS") || !z.HasSection("MODS")) { return ""; }
+        int si = 0;
+        while (si < z.SectionCount) {
+            string tag = z.Sections[si].Tag;
+            if (tag != "META" && tag != "STRS" && tag != "NSPC" && tag != "DEPS"
+                && tag != "SIGS" && tag != "MODS" && tag != "IMPL" && tag != "BLID") { return ""; }
+            si = si + 1;
+        }
+        if (!DependencySurfaceIdentity._emptyImpl(z)) { return ""; }
+        if (ce.Mods == null) { ce.Mods = ZpkgReader.ReadModuleSigs(z); }
+        if (ce.Types == null) { ce.Types = ZpkgReader.ReadModuleTypes(z, Path.GetDirectoryName(ce.Path)); }
+        if (ce.Mods.Length != ce.Types.Length) { return ""; }
+        var w = new ByteWriter();
+        w.WriteStr(z.Name); w.WriteStr(z.Version); w.WriteStr(z.Entry); w.WriteU32(z.PkgKind);
+        DependencySurfaceIdentity._strings(w, ZpkgReader.ReadNamespaces(z));
+        DependencySurfaceIdentity._strings(w, ZpkgReader.ReadDependencies(z));
+        w.WriteU32(ce.Mods.Length);
+        int i = 0;
+        while (i < ce.Mods.Length) {
+            ZpkgModuleSigs sig = ce.Mods[i];
+            ZpkgModuleTypes types = ce.Types[i];
+            if (sig.Namespace != types.Namespace) { return ""; }
+            // Re-intern only imported metadata: original pool indexes and source/body strings are unstable.
+            // Retain all signatures, attributes, constraints, defaults, enum values and TYPE layout, not just public names.
+            w.WriteStr(sig.Namespace);
+            var module = new IrModule(sig.Namespace, new string[] { "" }, 1,
+                types.Classes, types.ClassCount, sig.Functions, sig.FuncCount);
+            var pool = new ZbcStringPool();
+            ZbcWriter.InternPoolStrings(module, pool, new int[1]);
+            DependencySurfaceIdentity._part(w, ZbcWriter.BuildStrs(pool));
+            DependencySurfaceIdentity._part(w, ZbcWriter.BuildType(types.Classes, types.ClassCount, pool));
+            DependencySurfaceIdentity._part(w, ZbcWriter.BuildSigs(sig.Functions, sig.FuncCount, pool));
+            i = i + 1;
+        }
+        ce.SurfaceIdentity = "surface:" + Std.Hashing.Murmur3.Hash128Hex(w.ToBytes());
+        return ce.SurfaceIdentity;
+    }
+
+    private static void _strings(ByteWriter w, string[] values) {
+        w.WriteU32(values.Length);
+        int i = 0;
+        while (i < values.Length) { w.WriteStr(values[i]); i = i + 1; }
+    }
+
+    private static void _part(ByteWriter target, ByteWriter part) {
+        target.WriteU32(part.Len());
+        target.AppendWriter(part);
+    }
+
+    // Nonempty cross-package impl metadata needs its own canonical projection before this path can reuse it.
+    private static bool _emptyImpl(ZpkgInfo z) {
+        ZpkgSection section = z.Section("IMPL");
+        if (section == null) { return true; }
+        var c = new ZpkgCursor(z.Data, section.Offset);
+        int count = c.U16();
+        int i = 0;
+        while (i < count) {
+            c.U32();
+            if (c.U16() != 0) { return false; }
+            i = i + 1;
+        }
+        return true;
+    }
+}
