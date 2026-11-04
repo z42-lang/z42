@@ -136,7 +136,7 @@ fn thrown_text(vm: &VmContext, m: &Module, exc: &Value) -> String {
 #[cfg(feature = "jit")]
 fn jit(vm: &VmContext, m: &Module, name: &str) -> Result<Value, String> {
     use crate::jit::invoke::{call_entry, NativeOutcome};
-    let rt = crate::jit::runtime::install(vm, m).expect("install");
+    let rt = crate::jit::runtime::install(vm, m, crate::config::runtime_config().jit_config()).expect("install");
     // Compile every function eagerly: the wrappers then fold through their compiled
     // entries (`FnEntry::forward`), the caller through `jit_call`.
     for i in 0..m.functions.len() { rt.resolve_fn_by_id(vm, i); }

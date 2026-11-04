@@ -128,6 +128,7 @@ brif v, exc_block, next
 ```
 src/runtime/src/jit/
 ├── mod.rs           jit::run / run_fn
+├── config.rs        后端拥有的 JitConfig 输入
 ├── runtime.rs       JitRuntime（VmCore.exec.engines）：JitSlot 表、fn_of / id_of_func / id_by_name、resolve_fn_by_* / OSR 入口解析、install
 ├── lazy.rs          LazyCompiler：持 cranelift JITModule，compile_fn / compile_fn_osr 按需编译单函数
 ├── frame.rs         JitFrame、FnEntry
@@ -138,3 +139,5 @@ src/runtime/src/jit/
 ```
 
 加 helper 的步骤见 `src/runtime/src/jit/README.md` 的「Helper 边界」。
+
+配置转换与安装边界见 [惰性逐函数 JIT · 配置输入](jit.md#配置输入)。

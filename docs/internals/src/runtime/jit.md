@@ -3,6 +3,12 @@
 > 代码：`src/runtime/src/jit/`
 > （`runtime.rs` / `lazy.rs` / `frame.rs` / `mod.rs` / `helpers/call.rs` / `helpers/vcall.rs`）。
 
+## 配置输入
+
+JIT 接收后端拥有的 `jit/config.rs::JitConfig`。门面 `RuntimeConfig::jit_config` 转换已解析的调用阈值、OSR 阈值、解释器入口升层阈值、profile 与 promotion-debug 标记；`engine_assembly` 的注册适配函数在原运行边界传入。解析、默认值和配置优先级仍集中在门面，后端不读取全局 RuntimeConfig。
+
+`runtime::install(ctx, module, config)` 保持每 VM 一个 tier，首次发布后重装沿用同一对象；后续 config 参数不会热改已有 tier。JitRuntime 保存分层输入，LazyCompiler 保存输出/翻译选项，翻译器显式接收 debug 标记。配置归属调整不改变编译阈值、OSR、支持的指令或回落协议。
+
 ## 为什么
 
 `--mode jit` 下，VM 先把入口程序的**整个传递依赖闭包**（stdlib 全体）合并成一个

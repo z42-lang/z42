@@ -133,7 +133,7 @@ fn the_interpreter_threads_a_sites_type_args() {
 #[cfg(feature = "jit")]
 fn jit(vm: &VmContext, m: &Module, name: &str) -> Value {
     use crate::jit::invoke::{call_entry, NativeOutcome};
-    let rt = crate::jit::runtime::install(vm, m).expect("install");
+    let rt = crate::jit::runtime::install(vm, m, crate::config::runtime_config().jit_config()).expect("install");
     for i in 0..m.functions.len() { rt.resolve_fn_by_id(vm, i); }
     let entry = rt.resolve_fn_by_id(vm, idx(m, name)).expect("the caller compiles");
     match unsafe { call_entry(vm, entry, crate::jit::frame::JitFrame::new(vm, entry.max_reg, &[])) } {
@@ -177,7 +177,7 @@ fn the_interpreter_diverts_a_generic_call_to_a_compiled_callee() {
     use std::sync::atomic::Ordering;
     let m = test_module();
     let vm = VmContext::new();
-    let rt = crate::jit::runtime::install(&vm, &m).expect("install");
+    let rt = crate::jit::runtime::install(&vm, &m, crate::config::runtime_config().jit_config()).expect("install");
     assert!(rt.resolve_fn_by_id(&vm, idx(&m, "T.Id")).is_some(), "callee compiled up front");
     let before = vm.counters().jit_native_from_interp.load(Ordering::Relaxed);
     assert_eq!(interp(&vm, &m, "T.CallId"), Value::I64(7));

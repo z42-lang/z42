@@ -105,6 +105,7 @@ pub fn translate_function(
     // perf-str-jit-intrinsics: what a call site's target forwards to (string
     // `Length` / `CharAt` are emitted inline — see `str_intrinsics`).
     callees:      &dyn super::forward::ForwardLookup,
+    debug_promote: bool,
 ) -> Result<()> {
     let ptr     = jit.target_config().pointer_type();
 
@@ -258,7 +259,7 @@ pub fn translate_function(
     // under `Z42_OSR_THRESHOLD=1` (forces every loop through OSR).
     let promoted = compute_promotable_regs(z42_func, true);
     let any_promoted = promoted.iter().any(|&p| p);
-    if crate::config::runtime_config().jit_debug_promote {
+    if debug_promote {
         let cnt = promoted.iter().filter(|&&p| p).count();
         eprintln!("[2C] {} promoted {}/{} int regs (osr={})",
             z42_func.name, cnt, promoted.len(), osr_entry.is_some());

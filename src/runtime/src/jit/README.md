@@ -6,9 +6,10 @@
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
+| `config.rs` | `JitConfig`：后端拥有的五项已解析输入，由门面转换并传入；不读取全局 RuntimeConfig |
 | `mod.rs` | 公开 API（`jit::run` 装 JIT 并执行入口、`jit::run_fn` 先编入口再执行） |
 | `engine.rs` | TierBackend 适配器：保留原 tiered/peek、原生 callee 帧和 OSR 交接，返回共享 ExecOutcome |
-| `runtime.rs` | `JitRuntime`：VM 唯一的 JIT（注册在 `VmCore.engines` 的 TierApi，所有线程共享）——按 `FnId` 索引的 `JitSlot` 表（编译槽 + tier-up 计数 + Rejected 负缓存）、编译器 `Mutex<LazyCompiler>`、OSR 入口缓存、阈值；集中解析器 `resolve_fn_by_id` / `resolve_fn_by_name`，热路径零锁、只有编译拿锁（在调用线程上编）；`install` |
+| `runtime.rs` | `JitRuntime`：VM 唯一的 JIT（注册在 `VmCore.exec.engines` 的 TierApi，所有线程共享）——按 `FnId` 索引的 `JitSlot` 表（编译槽 + tier-up 计数 + Rejected 负缓存）、编译器 `Mutex<LazyCompiler>`、OSR 入口缓存、阈值；集中解析器 `resolve_fn_by_id` / `resolve_fn_by_name`，热路径零锁、只有编译拿锁（在调用线程上编）；`install` |
 | `lazy.rs` | `LazyCompiler`：持 cranelift `JITModule` + helper ids；`setup`（建基础设施）+ `compile_fn` / `compile_fn_osr`（按需编译单函数 / OSR 变体）。Mutex 守护，`Z42_JIT_PROFILE` 逐函数打印 |
 | `invoke.rs` | `enter_compiled` / `call_entry`：唯一的原生调用序列（`push_frame` → 编译码 → `pop_frame` → 回收 `JitFrame`），返回 `NativeOutcome`。`run_fn`、调用类 helper 与已注册的 tier 分流都经它 |
 | `forward.rs` | `[Native]` extern 包装函数短路的 JIT 一侧（识别与执行在 `vm/exec/call/forward.rs`，两引擎共用）：`call_forward`（`jit_call` / `jit_vcall` 命中 `FnEntry::forward` 时直接从调用者寄存器派发 builtin）；另给翻译器提供 `ForwardLookup`（调用点目标转发到哪个 builtin）与 `StrIntrinsic` |
@@ -19,6 +20,7 @@
 ### `helpers/` 子目录
 | 文件 | 职责 |
 |------|------|
+| `config.rs` | `JitConfig`：后端拥有的五项已解析输入，由门面转换并传入；不读取全局 RuntimeConfig |
 | `mod.rs` | 共享工具（`vm_ctx_ref` / `jit_rt` / `jit_module` / `set_exception` / `raise`（objops 错误 → pending 异常）/ 数值 helper / `JitFn`）+ `VM_JIT_INTERFACE_VERSION`。每个 helper 的 `ctx` 参数是运行线程自己的 `VmContext` |
 | `registry.rs` | **中央 helper 注册表**：`HelperIds` 结构、`register_symbols`（→ JITBuilder）、`declare_imports`（→ JITModule） |
 | `value.rs` | 常量加载、Copy、字符串、`get_bool` |
@@ -33,7 +35,7 @@
 | `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，叶子读写走 `objops::struct_leaf`，分配 / 拷贝调用 `vm/exec/ops/structs` 的值级核心 |
 
 ## 入口点
-- `jit::run(ctx, module, entry)` → `runtime::install`（每 VM 一个 JIT，不编译任何用户函数）+ 静态初始化 + `run_fn`
+- `jit::run(ctx, module, entry, config)` → `runtime::install`（每 VM 一个 JIT，不编译任何用户函数）+ 静态初始化 + `run_fn`
 - `jit::run_fn(ctx, entry_name)` → 先编入口函数，再执行；其余函数首次调用时经 `resolve_fn_by_id` 惰性编译
 - 编译码 / helper 的上下文参数是运行线程自己的 `VmContext`；worker 线程（`new_with_core`）经 `ctx.jit()` 共用同一个 JIT
 

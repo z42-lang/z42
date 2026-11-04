@@ -13,7 +13,7 @@ impl TierBackend for JitRuntime {
         let entry = match target {
             TierTarget::Site(id) => self.resolve_fn_by_id_tiered(ctx, id)?,
             TierTarget::Existing(func) => {
-                let dthr = crate::config::runtime_config().jit_interp_tierup;
+                let dthr = self.interp_tierup;
                 let id = self.id_of_func(func)?;
                 if dthr == 0 { self.peek_fn_by_id(id)? }
                 else { self.resolve_fn_by_id_thr(ctx, id, dthr)? }
