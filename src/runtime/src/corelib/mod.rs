@@ -18,6 +18,7 @@
 
 pub(crate) mod symavail;
 mod resource_registry;
+pub(crate) mod application;
 #[cfg(test)]
 mod resource_state_tests;
 pub mod convert;
