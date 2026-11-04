@@ -31,6 +31,10 @@ static class ExitCode {
 
 void Main() {
     string[] argv = Environment.GetCommandLineArgs();
+    if (argv.Length > 0 && argv[0] == "--package-worker") {
+        Environment.Exit(_workspaceWorkerMain(argv));
+        return;
+    }
     // 无 file 参数的动词在 argv≥2 守卫之前分发。
     if (argv.Length >= 1 && argv[0] == "--dump-keywords") {
         Console.Write(DumpTool.DumpKeywords());

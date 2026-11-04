@@ -14,7 +14,7 @@ using Z42.Pipeline;
 // 兄弟解析扫全成员 dist 列表 + Z42_LIBS（外部 stdlib）。镜像 C# WorkspaceBuildOrchestrator
 // 的 workspaceLibDirs（成员 EffectiveDistDir 透传）。
 // noIncremental：CLI `--no-incremental` 透传到每个成员（此前 workspace 恒全量，现在默认读 cache）。
-int _buildWorkspace(bool isRelease, string outputDir, int cliAdd, int cliRemove, bool noIncremental) {
+int _buildWorkspace(bool isRelease, string outputDir, int cliAdd, int cliRemove, bool noIncremental, int packageJobs, int fileJobs) {
     string cwd = Environment.GetCurrentDirectory();
     string wsToml = _findWorkspaceToml(cwd);
     if (wsToml == "") {
@@ -22,9 +22,13 @@ int _buildWorkspace(bool isRelease, string outputDir, int cliAdd, int cliRemove,
         return ExitCode.UsageError;
     }
     if (outputDir != "") {
+        if (packageJobs != 1 || ManifestLoader.LoadWorkspace(wsToml).Graph != null) {
+            ConsoleError.WriteLine("z42c build: explicit package graphs require isolated per-member output directories");
+            return ExitCode.UsageError;
+        }
         return _buildWorkspaceFlat(wsToml, isRelease, outputDir, cliAdd, cliRemove, noIncremental);
     }
-    return _buildWorkspacePerMember(wsToml, isRelease, cliAdd, cliRemove, noIncremental);
+    return _buildWorkspacePerMember(wsToml, isRelease, cliAdd, cliRemove, noIncremental, packageJobs, fileJobs);
 }
 
 // Milestone 1：flat dist（显式 --output-dir）。
@@ -65,11 +69,16 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int cli
 }
 
 // Milestone 2：per-member 布局（drop-in 替代 C# stdlib build）。
-int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliRemove, bool noIncremental) {
+int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliRemove, bool noIncremental, int packageJobs, int fileJobs) {
     string profile = isRelease ? "release" : "debug";
     WorkspaceLayoutPlan plan;
     try { plan = WorkspacePlan.PlanLayout(wsToml, profile); }   // 同 flat：抛出的消息直接呈现
     catch (Exception pe) { ConsoleError.WriteLine("z42c build --workspace: " + pe.Message); return ExitCode.BuildError; }
+    if (plan.Graph != null) { return _runWorkspaceGraph(wsToml, plan, isRelease, cliAdd, cliRemove, noIncremental, packageJobs, fileJobs); }
+    if (packageJobs != 1) {
+        ConsoleError.WriteLine("z42c build: --package-jobs requires workspace.build.graph");
+        return ExitCode.UsageError;
+    }
     _warnRedundantMemberDeps(wsToml);
     // libsDirs = 全成员 dist + **编译期外部包目录**（`_extLibDirs()` = `Z42_LIBS`；stdlib，如 z42c.* → z42.core）。
     string[] ext = _extLibDirs();

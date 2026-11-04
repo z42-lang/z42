@@ -2,6 +2,7 @@ namespace Z42ProjectWorkspaceGraphTests;
 
 using Z42.Project;
 using Std.Harness;
+using Std.IO;
 
 WorkspaceMembers _members() {
     string[] names = new string[4];
@@ -139,4 +140,78 @@ void test_package_graph_selection_requires_prerequisite_closure() {
     string message = "";
     try { WorkspaceGraph.Select(graph, selected, 1); } catch (Exception e) { message = e.Message; }
     Assert.True(message.Contains("omits a prerequisite"));
+}
+
+[Test]
+void test_package_graph_prerequisites_include_transitive_shared_leaf() {
+    WorkspaceMembers graph = _graph("a=['b','c']\nb=['d']\nc=['d']\nd=[]\n").Bind(_members());
+    bool[] needed = WorkspaceGraph.Prerequisites(graph, 0);
+    Assert.False(needed[0]);
+    Assert.True(needed[1] && needed[2] && needed[3]);
+    needed = WorkspaceGraph.Prerequisites(graph, 3);
+    Assert.False(needed[0] || needed[1] || needed[2] || needed[3]);
+}
+
+void _ownershipRejected(string first, string second) {
+    string[] roots = new string[2]; roots[0] = first; roots[1] = second;
+    int[] owners = new int[2]; owners[0] = 0; owners[1] = 1;
+    string message = "";
+    try { OutputOwnership.Validate(roots, owners); } catch (Exception e) { message = e.Message; }
+    Assert.True(message.Contains("directories overlap"));
+}
+
+[Test]
+void test_output_ownership_allows_own_cache_and_removes_probe_files() {
+    string root = File.CreateTempDir("package-output-test");
+    try {
+        string[] roots = new string[3];
+        roots[0] = Path.Join(root, "a"); roots[1] = Path.Join(root, "a/cache"); roots[2] = Path.Join(root, "b");
+        int[] owners = new int[3]; owners[0] = 0; owners[1] = 0; owners[2] = 1;
+        OutputOwnership.Validate(roots, owners);
+        Assert.Equal(3, Directory.EnumerateRecursive(root).Length);
+    } finally { Directory.Delete(root, true); }
+}
+
+[Test]
+void test_output_ownership_rejects_nested_and_lexically_aliased_roots() {
+    string root = File.CreateTempDir("package-output-alias");
+    try {
+        _ownershipRejected(Path.Join(root, "a"), Path.Join(root, "a/child"));
+        _ownershipRejected(Path.Join(root, "a/../b"), Path.Join(root, "b"));
+        string[] entries = Directory.EnumerateRecursive(root);
+        int i = 0;
+        while (i < entries.Length) {
+            Assert.False(Path.GetFileName(entries[i]).StartsWith(".package-ownership")); i = i + 1;
+        }
+    } finally { Directory.Delete(root, true); }
+}
+
+[Test]
+[Skip(platform: "windows", reason: "File.SymLink is not supported by the Windows filesystem API")]
+void test_output_ownership_rejects_symlink_to_another_tasks_descendant() {
+    string root = File.CreateTempDir("package-output-symlink");
+    try {
+        string parent = Path.Join(root, "real");
+        Directory.Create(Path.Join(parent, "child"));
+        string alias = Path.Join(root, "alias");
+        File.SymLink(Path.Join(parent, "child"), alias);
+        _ownershipRejected(parent, alias);
+    } finally { Directory.Delete(root, true); }
+}
+
+[Test]
+[Skip(platform: "windows", reason: "File.SymLink is not supported by the Windows filesystem API")]
+void test_output_ownership_bounds_alias_cycles_and_detects_shared_subtree() {
+    string root = File.CreateTempDir("package-output-cycle");
+    try {
+        string a = Path.Join(root, "a"); string b = Path.Join(root, "b");
+        string shared = Path.Join(root, "shared");
+        Directory.Create(a); Directory.Create(b); Directory.Create(shared);
+        File.SymLink(a, Path.Join(a, "cycle"));
+        string[] own = new string[1]; own[0] = a;
+        OutputOwnership.Validate(own, new int[1]);
+        File.SymLink(shared, Path.Join(a, "shared"));
+        File.SymLink(shared, Path.Join(b, "shared"));
+        _ownershipRejected(a, b);
+    } finally { Directory.Delete(root, true); }
 }
