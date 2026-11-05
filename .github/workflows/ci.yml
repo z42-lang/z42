@@ -240,6 +240,8 @@ jobs:
       cancel-in-progress: false
     env:
       RUN_RUST_RUNTIME: ${{ needs.changes.outputs.runtime_checks == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+      XTASK_PR_BASE: ${{ github.event.pull_request.base.sha }}
+      XTASK_PUSH_BEFORE: ${{ github.event.before }}
 
     steps:
       - uses: actions/checkout@v7
@@ -277,14 +279,10 @@ jobs:
           if [ "${{ env.RUN_RUST_RUNTIME }}" = "true" ]; then
             SKIP="$SKIP,rust-units"
           fi
-          # 按路径分流（只在 PR 上）：`--changed <base>` 用 `test changed` 的映射表只跑受影响的重 stage；
+          # PR 和 main push 按路径分流：`--changed <base>` 用 `test changed` 的映射表只跑受影响的重 stage；
           # build wave、e2e goldens 与静态检查恒跑，scripts/ / ci.yml / 未知文件 / 拿不到 base ⇒ 全跑。
-          # main push / schedule / dispatch 不分流（全跑）。判定打印在日志开头（[test --changed] …）。
-          base=""
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base="${{ github.event.pull_request.base.sha }}"
-            git fetch --no-tags --depth=1 origin "$base" || base=""
-          fi
+          # schedule / dispatch、初次 push 或无法读取 base 保留全量；发布仍使用 nightly 的累计差异。
+          base="$(bash .github/ci/changed-base.sh)"
           # 打包 SDK 会在每个平台重放同一套示例；否则保留本 job 的 examples stage。
           if [ "${{ needs.changes.outputs.host_package }}" = "true" ]; then
             SKIP="$SKIP,examples"
