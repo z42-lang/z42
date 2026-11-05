@@ -37,7 +37,9 @@ public sealed class Type : MemberInfo {
     [Native("__type_get_type")]
     public static extern Type GetType(string fqn);
 
-    /// 数组 Type 创建时解析的元素类型（`typeof(int[]).GetElementType()` → `typeof(int)`）。
+    /// 返回数组 Type 创建时解析的元素类型。
+    ///
+    /// 例如 `typeof(int[]).GetElementType()` 返回 `typeof(int)`。
     /// 非数组或没有元素标签的数组返回 null。
     [Native("__type_element")]
     public extern Type GetElementType();
