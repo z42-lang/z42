@@ -8,3 +8,7 @@ include = ["*.z42"]
 
 [build]
 incremental = false
+
+# This fixture exercises preserved output without compiler-side analyzers.
+[plugins]
+"z42.harness.lint" = false
