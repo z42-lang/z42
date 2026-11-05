@@ -56,7 +56,7 @@ public class JsonMember {
 
 /// 成员集合构建：从 Type 收集 public 实例字段 + public 属性，解析键名 / 忽略。
 public static class JsonMembers {
-    /// 收集 t 的可序列化成员（public 非 static 字段 + 属性；[JsonIgnore] 排除）。
+    /// 收集公开实例字段和属性访问器，排除标注 [JsonIgnore] 的成员。
     public static JsonMember[] For(Type t) {
         FieldInfo[] fs = t.GetFields();
         PropertyInfo[] ps = t.GetProperties();
@@ -74,8 +74,13 @@ public static class JsonMembers {
         i = 0;
         while (i < ps.Length) {
             PropertyInfo p = ps[i];
-            if (!JsonMembers._propIgnored(p)) {
-                buf[n] = JsonMember.OfProperty(p, JsonMembers._propKey(p));
+            bool canRead = p.CanReadPublicInstance;
+            bool canWrite = p.CanWritePublicInstance;
+            if ((canRead || canWrite) && !JsonMembers._propIgnored(p)) {
+                JsonMember member = JsonMember.OfProperty(p, JsonMembers._propKey(p));
+                member.CanRead = canRead;
+                member.CanWrite = canWrite;
+                buf[n] = member;
                 n = n + 1;
             }
             i = i + 1;
