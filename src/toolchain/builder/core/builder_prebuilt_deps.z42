@@ -112,6 +112,18 @@ sealed class BuilderPrebuiltCopies {
         this._targets = new string[16];
     }
 
+    public void Reserve(string dir, string file) {
+        this._claim(file, _builderAbsolute(Path.Join(dir, file)));
+    }
+
+    private bool _claim(string rel, string source) {
+        if (this._owners.TryAdd(rel, source)) { return true; }
+        if ((this._owners.Get(rel) as string) != source) {
+            throw new Exception("prebuilt payload collision: " + rel);
+        }
+        return false;
+    }
+
     public void Add(string dir, string rel) {
         if (Path.IsRooted(rel) || rel.IndexOf("\\") >= 0 || rel.IndexOf(":") >= 0
             || Path.Normalize(rel) != rel || rel == ".." || rel.StartsWith("../")) {
@@ -119,12 +131,7 @@ sealed class BuilderPrebuiltCopies {
         }
         string source = _builderAbsolute(Path.Join(dir, rel));
         if (!File.Exists(source)) { throw new Exception("prebuilt payload missing: " + source); }
-        if (this._owners.ContainsKey(rel)) {
-            string owner = this._owners.Get(rel) as string;
-            if (owner != source) { throw new Exception("prebuilt payload collision: " + rel); }
-            return;
-        }
-        this._owners.Put(rel, source);
+        if (!this._claim(rel, source)) { return; }
         if (this._count == this._sources.Length) {
             string[] sources = new string[this._count * 2];
             string[] targets = new string[this._count * 2];
@@ -206,28 +213,49 @@ string[] _builderPlanPrebuiltCopy(BuilderPrebuiltCopies copies, string dir, stri
     return ZpkgReader.ReadDependencies(info);
 }
 
-int _builderBundlePrebuilt(ProjectManifest manifest, string sourceDir, string dist, string[] extraDirs, int extraCount) {
-    if (manifest.Project.Kind != "exe" || BuilderWorkspaceState.Current() != null) { return 0; }
+void _builderPlanPrebuilt(BuilderPrebuiltCopies copies, ProjectManifest manifest, string sourceDir,
+                         string[] extraDirs, int extraCount) {
     string[] paths = _builderPrebuiltLibs(manifest, sourceDir);
-    if (paths == null) { return 1; }
-    if (paths.Length == 0) { return 0; }
+    if (paths == null) { throw new Exception("cannot plan prebuilt dependencies for " + manifest.Project.Name); }
+    if (paths.Length == 0) { return; }
     string[] dirs = _builderInputDirectories(_concat(paths, _initialInputs(manifest, extraDirs, extraCount).Deps));
-    BuilderPrebuiltCopies copies = new BuilderPrebuiltCopies(dist, manifest.Project.Name + ".zpkg");
     StrMap seen = new StrMap();
     string[] queue = new string[paths.Length];
     int i = 0;
     while (i < paths.Length) { queue[i] = Path.GetFileName(paths[i]); i = i + 1; }
+    int head = 0;
+    while (head < queue.Length) {
+        string file = queue[head]; head = head + 1;
+        if (file != Path.GetFileName(file) || !file.EndsWith(".zpkg") || file.IndexOf(":") >= 0) {
+            throw new Exception("invalid prebuilt dependency name: " + file);
+        }
+        if (!seen.TryAdd(file, "")) { continue; }
+        string dir = _builderFindPrebuiltDir(dirs, file);
+        if (!_builderCopyPrebuilt(_builderPrebuiltDeploy(manifest, file), dir, file)) { continue; }
+        queue = _concat(queue, _builderPlanPrebuiltCopy(copies, dir, file));
+    }
+}
+
+int _builderBundlePrebuilt(ProjectManifest manifest, string sourceDir, string dist, ClosurePlan closure) {
+    if (manifest.Project.Kind != "exe" || BuilderWorkspaceState.Current() != null) { return 0; }
+    BuilderPrebuiltCopies copies = new BuilderPrebuiltCopies(dist, manifest.Project.Name + ".zpkg");
     try {
-        int head = 0;
-        while (head < queue.Length) {
-            string file = queue[head]; head = head + 1;
-            if (file != Path.GetFileName(file) || !file.EndsWith(".zpkg") || file.IndexOf(":") >= 0) {
-                throw new Exception("invalid prebuilt dependency name: " + file);
-            }
-            if (!seen.TryAdd(file, "")) { continue; }
-            string dir = _builderFindPrebuiltDir(dirs, file);
-            if (!_builderCopyPrebuilt(_builderPrebuiltDeploy(manifest, file), dir, file)) { continue; }
-            queue = _concat(queue, _builderPlanPrebuiltCopy(copies, dir, file));
+        // Existing source outputs also own their destination names.
+        int i = 0;
+        while (i < closure.Count) {
+            string file = closure.Names[i] + ".zpkg";
+            string dir = closure.Dists[i];
+            if (File.Exists(Path.Join(dir, file))) { copies.Reserve(dir, file); }
+            i = i + 1;
+        }
+        _builderPlanPrebuilt(copies, manifest, sourceDir, closure.Dists, closure.Count);
+        i = 0;
+        while (i < closure.Count) {
+            // Resolve relative file paths and sibling packages in the declaring member's input domain.
+            string toml = closure.Tomls[i];
+            string dir = Path.GetDirectoryName(toml);
+            _builderPlanPrebuilt(copies, ManifestLoader.Load(toml), dir.Length > 0 ? dir : ".", closure.Dists, i);
+            i = i + 1;
         }
         copies.Copy();
     } catch (Exception ex) {

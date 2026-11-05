@@ -1,0 +1,5 @@
+[project]
+name = "bd.leaf"
+kind = "lib"
+[sources]
+include = ["api.z42"]

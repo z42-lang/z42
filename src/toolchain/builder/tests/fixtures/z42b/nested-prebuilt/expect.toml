@@ -1,0 +1,15 @@
+desc = "A source dependency's prebuilt library is deployed with the executable"
+[[step]]
+args = ["build", "{case}/leaf"]
+exit = 0
+
+[[step]]
+args = ["build", "{case}/app"]
+exit = 0
+exists = ["app/dist/bd.mid.zpkg", "app/dist/bd.leaf.zpkg"]
+
+[[step]]
+tool = "run"
+target = "app/dist/bd.app.zpkg"
+exit = 0
+stdout_equals = "42"
