@@ -88,9 +88,8 @@ public class JsonValue {
 
     // ── Stream 重载 ──
     //
-    // 字符串变体的薄封装：ParseStream 经 StreamReader（UTF-8）读空源，
-    // WriteTo 经 StreamWriter（UTF-8）写出。两者都不关闭底层 Stream——
-    // 生命周期归调用方（与其余 Stream 生态的约定一致）。
+    // ParseStream 读至 EOF。WriteTo 完成遍历后一次交付 UTF-8 字节。
+    // 底层流的生命周期归调用方。
 
     /// 从 UTF-8 字节流解析 JSON；读至 EOF，不关闭传入的流。
     // 独立命名 `ParseStream`（而非 `Parse(Stream)` 重载）以规避 z42 重载解析的限制：
@@ -113,16 +112,19 @@ public class JsonValue {
 
     /// 以 UTF-8 字节写出紧凑 JSON；不关闭 `dest`（生命周期归调用方）。缩进输出用 `WriteToPretty`。
     public static void WriteTo(Stream dest, JsonValue v) {
-        StreamWriter w = new StreamWriter(dest);
-        w.Write(JsonValue.Stringify(v));
-        w.Flush();
+        JsonValue.WriteUtf8To(dest, v, false);
     }
 
     /// 以 UTF-8 字节写出缩进 JSON；生命周期语义见 `WriteTo`。
     public static void WriteToPretty(Stream dest, JsonValue v) {
-        StreamWriter w = new StreamWriter(dest);
-        w.Write(JsonValue.StringifyPretty(v));
-        w.Flush();
+        JsonValue.WriteUtf8To(dest, v, true);
+    }
+
+    private static void WriteUtf8To(Stream dest, JsonValue v, bool pretty) {
+        JsonWriteBuffer writer = new JsonWriteBuffer(pretty);
+        byte[] bytes = writer.WriteUtf8(v);
+        dest.Write(bytes, 0, bytes.Length);
+        dest.Flush();
     }
 
     // ── Factories ────────────────────────────────────────────────────────

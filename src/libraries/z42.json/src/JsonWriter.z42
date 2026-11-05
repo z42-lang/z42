@@ -42,6 +42,12 @@ internal class JsonWriteBuffer {
         return String.ConcatParts(this._parts, this._n);
     }
 
+    /// 遍历一个值并拼接 UTF-8 字节。每个缓冲实例调用一次。
+    internal byte[] WriteUtf8(JsonValue v) {
+        this.WriteValue(v);
+        return String.ConcatPartsUtf8(this._parts, this._n);
+    }
+
     private void Put(string s) {
         int n = this._n;
         if (n == this._parts.Length) {

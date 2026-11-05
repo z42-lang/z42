@@ -91,6 +91,11 @@ pub mod typed {
         super::str_concat_parts(ctx, parts, count)
     }
 
+    #[builtin(name = "__str_concat_parts_utf8")]
+    pub fn concat_parts_utf8(parts: crate::object::ArrRef, count: i64) -> Result<Vec<u8>, BuiltinError> {
+        super::concat_part_storage(&parts, count).map(String::into_bytes)
+    }
+
     /// replace-fastpath：单字符 → 单字符的整体替换。零命中时**原样返回**（Arc clone，零分配零拷贝）；
     /// 命中才构建新串。z42 侧 `String.Replace` 的单字符分支唯一消费（消除 POSIX 路径
     /// `Replace("\\","/")` 每调一次物化整串的 4.3% jobs1 热点）。
@@ -177,12 +182,18 @@ pub fn str_substring(
 /// stores null parts, so a null here is a caller bug worth surfacing).
 /// args: [parts: string[], count: int]
 pub fn str_concat_parts(
-    ctx: &VmContext, parts: &Value, count: i64,
+    _ctx: &VmContext, parts: &Value, count: i64,
 ) -> Result<String, BuiltinError> {
-    let count = count as usize;
     let Value::Array(arr) = parts else {
         return Err(BuiltinError::Internal("__str_concat_parts: expected string[]".into()));
     };
+    concat_part_storage(arr, count)
+}
+
+fn concat_part_storage(arr: &crate::object::ArrRef, count: i64) -> Result<String, BuiltinError> {
+    let count = usize::try_from(count).map_err(|_| {
+        BuiltinError::Argument(format!("__str_concat_parts: invalid count {count}"))
+    })?;
     let b = arr.borrow();
     if count > b.len() {
         return Err(BuiltinError::Argument(format!(

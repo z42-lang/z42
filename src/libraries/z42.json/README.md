@@ -70,10 +70,14 @@ User back = JsonSerializer.Deserialize<User>(json);  // 反射构造 + 按名回
 ctor → `Activator` + 按名 `SetValue`；否则按参数名映射 JSON 键 `ConstructorInfo.Invoke`（record / 只读
 auto-prop）。不支持：Dict 非字符串键 / Set / enum / nullable。
 
+`JsonValue.WriteTo` 和 `WriteToPretty` 完成文档遍历后，将片段拼接为独立的 UTF-8 字节数组。
+底层流接收一次 Write，成功后刷新，由调用方管理底层流。
+
 ## 如何测试验证
 
 ```bash
 xtask test stdlib z42.json    # 本库全部 [Test]（DOM / JsonPath / serde / stream）
+xtask bench stdlib z42.json -k json_stream_write_bench
 ```
 
 ## 关联文档
@@ -82,5 +86,5 @@ xtask test stdlib z42.json    # 本库全部 [Test]（DOM / JsonPath / serde / s
 - 设计 / 机制（实现内幕）：[标准库三层架构](../../../docs/internals/src/stdlib/architecture.md) · [包划分与 interop 归属](../../../docs/internals/src/stdlib/organization.md) · [JSON serde 的反射底座](../../../docs/internals/src/stdlib/json-serde.md)
 
 ## 依赖关系
-依赖 `z42.core` + `z42.text`（StringBuilder for stringify 缓冲）+ `z42.io`（`ParseStream` / `WriteTo` 的 Stream 重载）。
+依赖 `z42.core` + `z42.text`（解析字符串转义时的 StringBuilder）+ `z42.io`（`ParseStream` / `WriteTo` 的 Stream 重载）。
 
