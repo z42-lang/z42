@@ -27,7 +27,7 @@ internal class JsonWriteBuffer {
     private int _n;
     private bool _pretty;
     private int _depth;
-    private static readonly string _escapeChars = JsonWriter.MakeEscapeChars();
+    private static readonly string _escapeChars = JsonWriteBuffer.MakeEscapeChars();
 
     private static string MakeEscapeChars() {
         char[] chars = new char[34];
@@ -133,7 +133,7 @@ internal class JsonWriteBuffer {
     // otherwise ordinary runs are flushed as bulk Substrings between escapes.
     private void PutQuoted(string s) {
         this.Put("\"");
-        int firstEscape = s.IndexOfAnyAscii(JsonWriter._escapeChars);
+        int firstEscape = s.IndexOfAnyAscii(JsonWriteBuffer._escapeChars);
         if (firstEscape < 0) {
             this.Put(s);
             this.Put("\"");
