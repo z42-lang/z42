@@ -22,61 +22,49 @@ using Std.Harness;
 
 [Benchmark]
 void bench_string_concat() {
-    var b = new Bencher(2, 20);
-    b.iter(() => {
-        string s = String.Concat("hello, ", "world");
-        BenchHelpers.blackBox(s);
-    });
-    b.printSummary("string_concat");
+    string s = String.Concat("hello, ", "world");
+    BenchHelpers.blackBox(s);
 }
 
 [Benchmark]
-void bench_string_contains() {
-    var b = new Bencher(2, 20);
+void bench_string_contains(Bencher b) {
     string haystack = "the quick brown fox jumps over the lazy dog";
     b.iter(() => {
         bool hit = haystack.Contains("lazy");
         BenchHelpers.blackBox(hit);
     });
-    b.printSummary("string_contains");
 }
 
 [Benchmark]
-void bench_string_replace() {
-    var b = new Bencher(2, 20);
+void bench_string_replace(Bencher b) {
     string text = "a-b-c-d-e-f-g";
     b.iter(() => {
         string r = text.Replace("-", "_");
         BenchHelpers.blackBox(r);
     });
-    b.printSummary("string_replace");
 }
 
 [Benchmark]
-void bench_string_split_join() {
-    var b = new Bencher(2, 20);
+void bench_string_split_join(Bencher b) {
     string csv = "alpha,beta,gamma,delta,epsilon";
     b.iter(() => {
         string[] parts = csv.Split(",");
         string rejoined = String.Join("|", parts);
         BenchHelpers.blackBox(rejoined);
     });
-    b.printSummary("string_split_join");
 }
 
 // ── Arithmetic workload (Bencher-arg form, default 10/100 samples) ────
 
 [Benchmark]
-void bench_integer_sum_loop(Bencher b) {
-    b.iter(() => {
-        long total = 0L;
-        int i = 0;
-        while (i < 1000) {
-            total = total + i;
-            i = i + 1;
-        }
-        BenchHelpers.blackBox(total);
-    });
+void bench_integer_sum_loop() {
+    long total = 0L;
+    int i = 0;
+    while (i < 1000) {
+        total = total + i;
+        i = i + 1;
+    }
+    BenchHelpers.blackBox(total);
 }
 
 // ── Sanity test: the example benchmarks actually measured something ───

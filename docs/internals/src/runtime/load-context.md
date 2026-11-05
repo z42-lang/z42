@@ -82,6 +82,9 @@ root 走现有 `merge_modules`（不动）；collectible 走 `AssemblyLoadContex
 `loader::load_artifact` 解析 zpkg → 存入该 context 的 `AssemblyEntry.module`，**不 merge 进
 root**。`GetTypes()` 按 FQ 名有序返回（`assembly_types` sort，避免 HashMap 非确定序）。
 
+根上下文的类型描述符记录各自声明的实例构造器。构造器反射按 TypeId 取得已注册描述符，入口包和
+惰性加载包共用该清单。仅存于隔离上下文的类型走反射可见性边界，构造器枚举返回空集合。
+
 ## 卸载 / 回收
 
 `AssemblyLoadContext.Unload()` 标记 collectible context 为 **Unloading**，由 GC 惰性回收其

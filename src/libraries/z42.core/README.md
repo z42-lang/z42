@@ -20,6 +20,8 @@
 | 反射 / 动态加载 / 运行时配置 | `src/Reflection/` / `src/Runtime/` |
 | 控制台 / 文件 / 路径 / 环境（native 语义层） | `src/IO/` / `src/Native/` |
 
+`List<T>.Count` 是公开只读属性，当前元素数由列表的修改操作维护。
+
 ## 如何测试验证
 
 ```bash

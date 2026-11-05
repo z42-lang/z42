@@ -174,6 +174,9 @@ xtask 的 `--jobs N` 是**上层 unit 级**批宽（每批 N 个 unit 同时 com
 (cd src/runtime && cargo test <substr>)  # 按名过滤
 ```
 
+已构建当前源码的 release VM、编译器和标准库时，可用 `xtask test compiler --no-build` 复用它们。
+测试仍编译并运行单元与 CLI 夹具，并强制重建 gen2，与已有 gen1 对账。此选项用于默认编译器测试套件。
+
 CI 只在 Windows 腿跑 `cargo test`，容易静默腐烂——改 ClassDesc / 反射 / 版本相关代码后
 **本地必跑**；版本 bump 还要更新 `reader/reader_tests.rs` 里的 version-pin 测试。
 

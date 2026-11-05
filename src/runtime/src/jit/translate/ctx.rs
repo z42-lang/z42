@@ -161,6 +161,13 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         (rptr, rlen)
     }
 
+    /// Continue in a fresh block if the guard succeeds.
+    pub(super) fn continue_if(&mut self, cond: Value, otherwise: cranelift_codegen::ir::Block) {
+        let next = self.builder.create_block();
+        self.builder.ins().brif(cond, next, &[], otherwise, &[]);
+        self.builder.switch_to_block(next);
+    }
+
     /// After a helper call returning u8: branch to catch dispatch or return 1 on
     /// error (former `check!`). Blocks are NOT sealed here; `seal_all_blocks()`
     /// runs once after all edges are established.

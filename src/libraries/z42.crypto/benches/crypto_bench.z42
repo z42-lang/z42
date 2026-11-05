@@ -15,44 +15,36 @@ byte[] _mkPayload(int n) {
 }
 
 [Benchmark]
-void bench_sha256_small() {
+void bench_sha256_small(Bencher b) {
     byte[] msg = _mkPayload(64);
-    var b = new Bencher(2, 20);
     b.iter(() => {
         BenchHelpers.blackBox(Sha256.Hash(msg));
     });
-    b.printSummary("sha256_small");
 }
 
 [Benchmark]
-void bench_sha256_4k() {
+void bench_sha256_4k(Bencher b) {
     byte[] msg = _mkPayload(4096);
-    var b = new Bencher(2, 10);
     b.iter(() => {
         BenchHelpers.blackBox(Sha256.Hash(msg));
     });
-    b.printSummary("sha256_4k");
 }
 
 [Benchmark]
-void bench_blake3_small() {
+void bench_blake3_small(Bencher b) {
     byte[] msg = _mkPayload(64);
-    var b = new Bencher(2, 20);
     b.iter(() => {
         BenchHelpers.blackBox(Blake3.Hash(msg));
     });
-    b.printSummary("blake3_small");
 }
 
 [Benchmark]
-void bench_blake3_4k_multichunk() {
+void bench_blake3_4k_multichunk(Bencher b) {
     // >1024B input drives the multi-chunk tree path (fix-blake3-multichunk-root-flag).
     byte[] msg = _mkPayload(4096);
-    var b = new Bencher(2, 10);
     b.iter(() => {
         BenchHelpers.blackBox(Blake3.Hash(msg));
     });
-    b.printSummary("blake3_4k_multichunk");
 }
 
 // Smoke [Test] — bench bodies run.
@@ -77,28 +69,24 @@ byte[] _mkKey(int n) {
 }
 
 [Benchmark]
-void bench_aes_cbc_roundtrip_4k() {
+void bench_aes_cbc_roundtrip_4k(Bencher b) {
     byte[] key = _mkKey(16);
     byte[] iv = _mkKey(16);
     byte[] msg = _mkPayload(4096);
-    var b = new Bencher(2, 10);
     b.iter(() => {
         byte[] ct = Aes.EncryptCbcPkcs7(key, iv, msg);
         BenchHelpers.blackBox(Aes.DecryptCbcPkcs7(key, iv, ct).Length);
     });
-    b.printSummary("aes_cbc_roundtrip_4k");
 }
 
 [Benchmark]
-void bench_aes_gcm_roundtrip_4k() {
+void bench_aes_gcm_roundtrip_4k(Bencher b) {
     byte[] key = _mkKey(16);
     byte[] iv = _mkKey(12);
     byte[] aad = new byte[0];
     byte[] msg = _mkPayload(4096);
-    var b = new Bencher(2, 10);
     b.iter(() => {
         byte[] ct = Aes.EncryptGcm(key, iv, aad, msg);
         BenchHelpers.blackBox(Aes.DecryptGcm(key, iv, aad, ct).Length);
     });
-    b.printSummary("aes_gcm_roundtrip_4k");
 }
