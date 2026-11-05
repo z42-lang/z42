@@ -48,6 +48,7 @@
 | 工具链某组件（launcher / builder / interactive / workload …） | `src/toolchain/<comp>/tests/` | `xtask test toolchain [<comp>]` |
 | 打包 SDK 的命令、布局、安装或发布行为 | `src/toolchain/launcher/tests/fixtures/package/`；包元数据自检追加到现有 SDK 验证器 | `xtask package sdk --verify` |
 | xtask 的改动计划、分片、调度与错误传播 | 对应的 `scripts/test/xtask_selfcheck_*.z42`，接入现有自检调用点 | 当前随 `xtask test toolchain builder` 执行 |
+| CI 的供种、runner 恢复、上传等基础设施 | `.github/ci/test_*.py` | `python3 -B -m unittest discover -s .github/ci -p 'test_*.py'` |
 | VM 内部（Rust） | 同模块 `*_tests.rs`；集成测试在 `src/runtime/tests/` | `xtask test runtime` |
 | 原生宿主与嵌入 ABI（C / Swift / Kotlin / 浏览器壳） | `src/toolchain/workload/<platform>/` 的现有原生测试套件 | `xtask test app <platform>`；不要复制一份标准库用例 |
 | 整程序性能场景 | `src/benches/scenarios/` | `xtask bench` |
@@ -68,11 +69,11 @@
 3. **复用工程声明。** 放进既有测试源集；需要独立源集时写在所属工程现有 TOML 的 `[tests]` / `[benches]` 声明中。
    共享 helper 按实际被哪些源集引用归属，不能仅凭目录名认定它不影响生产或 benchmark。
    不为单条用例追加 CI 名单、`tiers` 字段或一份独立 gate 配置。
-4. **确认执行器实际发现它。** 跑上表的窄命令，检查输出中的用例名和非零执行数量；负向夹具检查预期错误或退出码。
+4. **确认执行器实际发现它。** 跑上表的窄命令，检查具体用例名、非零执行数量或对应自检的执行记录；负向夹具检查预期错误或退出码。
    `test list` 只查询 app 语料，不是全仓用例清单；工具链夹具、Rust 测试和 xtask 自检不出现在其中属于正常情况。
 5. **处理平台和输出。** 工具链测试天然归桌面宿主；会进入 app 的用例按 §4 声明真实能力。
    产物按 §5 镜像到 `artifacts/`；清单中的 `output_dir` 相对项目目录，`dist_dir` 等字段遵守各自的级联规则，
-   见[项目模型的布局解析](../compiler/project-model.md)。不提交本机绝对路径或使用共享 scratch。
+   见[工程配置的构建目录字段](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html)。不提交本机绝对路径或使用共享 scratch。
 6. **核对 CI 归属。** 先看所属组件的执行器与 [CI 的选择边界](ci.md#构建测试与发布的选择边界)，
    分清私有测试、生产输入和跨组件契约。新增 harness / 目录职责时同步目录 README 的入口与验证命令。
 
