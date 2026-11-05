@@ -29,6 +29,12 @@ public static class JsonSerializer {
     // object → JsonValue（按运行期类型分派）。
     private static JsonValue _toJson(object o, JsonOperationPlans plans) {
         if (o == null) { return JsonValue.OfNull(); }
+        int scalar = Type.__JsonScalarKind(o);
+        if (scalar == 1) { return JsonValue.OfLong((long)(int)o); }
+        if (scalar == 2) { return JsonValue.OfLong((long)o); }
+        if (scalar == 3) { return JsonValue.OfDouble((double)o); }
+        if (scalar == 4) { return JsonValue.OfBool((bool)o); }
+        if (scalar == 5) { return JsonValue.OfString((string)o); }
         Type t = (Type)o.GetType();   // 跨包 imported 返回类型须 cast（footgun）
         string fn = t.FullName;
         if (fn == "Std.Int32")   { return JsonValue.OfLong((long)(int)o); }

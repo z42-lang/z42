@@ -72,3 +72,5 @@ pub use self::methodof::*;
 #[cfg(test)]
 #[path = "reflection_tests.rs"]
 mod reflection_tests;
+
+pub(in crate::corelib) use type_object::resolve_named_type;

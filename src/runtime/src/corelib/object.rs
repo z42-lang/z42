@@ -56,6 +56,41 @@ fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
     }
 }
 
+/// Classify the scalar names used by JSON without allocating a reflection object.
+fn json_scalar_kind(ctx: &VmContext, value: &Value) -> i64 {
+    use crate::metadata::index::well_known_names::*;
+    use crate::vm::runtime::dispatch::receiver::primitive_class_name;
+
+    let (name, boxed) = match value {
+        Value::BoxedStruct(b) if b.type_args().is_empty() => (b.type_desc_arc().name.as_str(), true),
+        _ => match primitive_class_name(value) {
+            Some(name) => (name, false),
+            None => return 0,
+        },
+    };
+    let kind = match name {
+        STD_INT32 => 1,
+        STD_INT64 => 2,
+        STD_DOUBLE => 3,
+        STD_BOOLEAN => 4,
+        STD_STRING => 5,
+        _ => return 0,
+    };
+    // Keep GetType's lookup order. A lookup can load a package or run pending
+    // initializers, even though JSON only needs the name of the result.
+    if !boxed {
+        if let Some(td) = crate::corelib::reflection::resolve_named_type(ctx, name) {
+            if td.name != name {
+                return 0;
+            }
+        }
+    }
+    match ctx.try_lookup_type(STD_TYPE) {
+        Some(td) if td.field_index.contains_key("__fullName") => kind,
+        _ => 0,
+    }
+}
+
 /// The `Std.Type` of a heap instance with descriptor `td` and per-instance type arguments
 /// `args`: see `obj_get_type_impl`.
 fn instance_type(ctx: &VmContext, td: std::sync::Arc<crate::object::TypeDesc>, args: &[String]) -> Value {
@@ -304,6 +339,11 @@ pub mod typed {
     #[builtin(name = "__obj_get_type", this = "GetType")]
     pub fn get_type(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
         obj_get_type(ctx, this)
+    }
+
+    #[builtin(name = "__obj_json_scalar_kind")]
+    pub fn get_json_scalar_kind(ctx: &VmContext, value: &Value) -> i64 {
+        json_scalar_kind(ctx, value)
     }
 
     #[builtin(name = "__obj_ref_eq", pure)]

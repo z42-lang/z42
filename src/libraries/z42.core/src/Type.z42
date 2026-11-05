@@ -41,6 +41,10 @@ public sealed class Type : MemberInfo, IEquatable {
     [Native("__type_reflection_revision")]
     public static extern long __ReflectionRevision();
 
+    /// JSON 内部分派。0 使用反射，1–5 对应 Int32、Int64、Double、Boolean、String。
+    [Native("__obj_json_scalar_kind")]
+    public static extern int __JsonScalarKind(object value);
+
     /// 返回数组 Type 创建时解析的元素类型。
     ///
     /// 例如 `typeof(int[]).GetElementType()` 返回 `typeof(int)`。

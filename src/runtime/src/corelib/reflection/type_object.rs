@@ -128,7 +128,7 @@ pub(super) fn make_array_type(ctx: &VmContext, element_name: &str, element: Valu
     )
 }
 
-fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
+pub(in crate::corelib) fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
     // Main module's own types first: the user program's classes live in the
     // main module's `type_registry`; the lazy loader below only covers
     // zpkg / stdlib types. (make-typeof-return-type — lets `typeof(UserClass)`
