@@ -135,11 +135,11 @@ pub fn type_constructors(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinEr
 /// (`<ClassFQN>.<SimpleName>[$N]`). Reuses `build_param_infos`; a constructor is never
 /// static, has no return type, and its user-facing `Name` is the class simple name.
 pub(super) fn build_ctor_info(
-    ctx: &VmContext, qualified: &str, owner: &str, subst: Option<&(Vec<String>, Vec<String>)>,
+    ctx: &VmContext, qualified: &str, owner: &str, subst: Option<&MemberSubst>,
 ) -> Result<Value> {
     let simple_full = simple_method_name(qualified);
     let simple = simple_full.split('$').next().unwrap_or(simple_full);
-    let (params, _is_static, _ret, _vis, _mf, _sig_found) = build_param_infos_ex(ctx, qualified, false, subst)?;
+    let (params, _is_static, _ret, _vis, _mf, _sig_found) = build_param_infos_ex(ctx, qualified, false, subst, &[])?;
     let params_arr = ctx.heap().alloc_array(params);
     alloc_named(
         ctx,
@@ -166,7 +166,8 @@ fn build_param_infos_ex(
     ctx: &VmContext,
     qualified: &str,
     receiverless: bool,
-    subst: Option<&(Vec<String>, Vec<String>)>,
+    subst: Option<&MemberSubst>,
+    shadowed: &[String],
 ) -> Result<(Vec<Value>, bool, String, u8, u8, bool)> {
     match resolve_func_sig(ctx, qualified) {
         Some((param_count, ret_type, fn_is_static0, param_types, param_names, vis, mf, min_arg, params_from, param_defaults)) => {
@@ -210,7 +211,7 @@ fn build_param_infos_ex(
                     STD_REFLECTION_PARAMINFO,
                     &[
                         ("Name", Value::Str(name.into())),
-                        ("ParameterType", make_type_from_name(ctx, &subst_tag(tag, subst))),
+                        ("ParameterType", signature_type(ctx, tag, qualified, subst, shadowed)),
                         ("Position", Value::I64(pos)),
                         ("IsOptional", Value::Bool(is_optional)),
                         ("IsParams", Value::Bool(is_params)),
@@ -222,7 +223,7 @@ fn build_param_infos_ex(
                     ],
                 )?);
             }
-            Ok((params, fn_is_static, subst_tag(&ret_type, subst), vis, mf, true))
+            Ok((params, fn_is_static, ret_type, vis, mf, true))
         }
         None => Ok((Vec::new(), false, "void".to_string(), 0, 0, false)),
     }
@@ -250,7 +251,7 @@ fn build_method_info_ex(
     qualified: &str,
     is_virtual: bool,
     receiverless: bool,
-    subst: Option<&(Vec<String>, Vec<String>)>,
+    subst: Option<&MemberSubst>,
 ) -> Result<Value> {
     // stabilize-dispatch-keys (方案A): dispatch keys now carry a
     // full `$N$types` mangle suffix for every method (vtable slots + own_methods
@@ -258,8 +259,9 @@ fn build_method_info_ex(
     // Reflection presents the source-level name — strip the mangle suffix for
     // the user-facing `MethodInfo.Name` (dispatch still uses `qualified`).
     let simple = simple.split('$').next().unwrap_or(simple);
+    let type_param_names = resolve_func_type_params(ctx, qualified);
     let (params, is_static, ret_tag, visibility, method_flags, sig_found) =
-        build_param_infos_ex(ctx, qualified, receiverless, subst)?;
+        build_param_infos_ex(ctx, qualified, receiverless, subst, &type_param_names)?;
     // add-method-modifiers (unify P1-c): IsVirtual authoritative from the flag
     // (bit0) WHEN a SIGS entry was resolved — z42 lists every method (virtual or
     // not) in the vtable, so vtable-presence alone over-reports. Fall back to the
@@ -278,7 +280,6 @@ fn build_method_info_ex(
     // type params; MakeGenericMethod produces a *constructed* MethodInfo (sets __typeArgs
     // + clears IsGenericMethodDefinition). __typeParamNames backs GetGenericArguments()
     // for the definition (placeholder Types built from the names).
-    let type_param_names = resolve_func_type_params(ctx, qualified);
     let is_generic_method = !type_param_names.is_empty();
     let tp_name_values: Vec<Value> = type_param_names
         .iter()
@@ -291,7 +292,7 @@ fn build_method_info_ex(
         STD_REFLECTION_METHODINFO,
         &[
             ("Name", Value::Str(simple.to_string().into())),
-            ("ReturnType", make_type_from_name(ctx, &ret_tag)),
+            ("ReturnType", signature_type(ctx, &ret_tag, qualified, subst, &type_param_names)),
             ("IsStatic", Value::Bool(is_static)),
             ("IsVirtual", Value::Bool(is_virtual_flag)),
             // add-method-modifiers (unify P1-c): abstract methods (bit1).
