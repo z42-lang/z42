@@ -176,23 +176,18 @@ pub(super) fn field_prim_kind(func: &Function, reg: u32) -> Option<FieldPrim> {
 /// (jit-inline-i32-arrays). Returns `(val_tag, arr_width)`:
 /// - `val_tag`: the `Value` tag written into the 16-byte register (0=I64, 1=F64).
 ///   `int` is stored as `Value::I64`, so I32 uses tag 0.
-/// - `arr_width`: the packed slot width in bytes (4 for I32, 8 for I64/F64).
+/// - `mode`: the expected backing mode for a packed read.
 ///
-/// Reliable **only** for a register whose IR type equals the array element type
-/// — i.e. an ArrayGet `dst` (the compiler types the result as the element type).
-/// It is NOT reliable for an ArraySet `val`, which can be wider than the element
-/// on a narrowing store; the set path consults the runtime width instead and
-/// uses this only as a "worth attempting to inline" gate.
-pub(super) fn arr_prim_elem(func: &Function, reg: u32) -> Option<(i64, i64)> {
+/// The destination type of an ArrayGet is the expected element type. The
+/// stored value of an ArraySet can be wider than the element on a narrowing
+/// store, so stores use this only as an eligibility predicate.
+pub(super) fn arr_prim_elem(func: &Function, reg: u32) -> Option<(u8, crate::object::ArrayMode)> {
+    use crate::object::ArrayMode;
     match func.reg_types.get(reg as usize).copied() {
-        Some(IrType::I64) => Some((0, 8)),
-        Some(IrType::F64) => Some((1, 8)),
-        Some(IrType::I32) => Some((0, 4)),
-        // jit-inline-char-arrays: `char` → `Value::Char` tag (3), width-4 slot.
-        // The width-4 load sign-extends, but a valid `char` (≤ 0x10FFFF) has bit
-        // 31 clear so sext == zext; the register store writes the codepoint into
-        // the low 4 payload bytes + tag 3, mirroring `emit_const_char`.
-        Some(IrType::Char) => Some((3, 4)),
+        Some(IrType::I64) => Some((TAG_I64, ArrayMode::I64)),
+        Some(IrType::F64) => Some((TAG_F64, ArrayMode::F64)),
+        Some(IrType::I32) => Some((TAG_I64, ArrayMode::I32)),
+        Some(IrType::Char) => Some((TAG_CHAR, ArrayMode::Chars)),
         _ => None,
     }
 }
