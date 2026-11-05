@@ -110,3 +110,63 @@ void test_write_does_not_close_dest() {
     byte[] back = ms.ToArray();
     Assert.True(back.Length > 0);
 }
+
+class JsonOutputTrace : Stream {
+    public int Writes;
+    public int Flushes;
+    public int Closes;
+    public bool FailWrite;
+    public byte[] Bytes;
+
+    public override void Write(byte[] buffer, int offset, int count) {
+        this.Writes = this.Writes + 1;
+        if (this.FailWrite) { throw new InvalidOperationException("write failed"); }
+        Assert.Equal(0, offset);
+        Assert.Equal(buffer.Length, count);
+        this.Bytes = buffer;
+    }
+
+    public override void Flush() { this.Flushes = this.Flushes + 1; }
+    public override void Close() { this.Closes = this.Closes + 1; }
+}
+
+[Test]
+void json_stream_delivers_one_complete_document() {
+    JsonValue value = JsonValue.OfObject();
+    value.Set("é中", JsonValue.OfString("😀\n\\\""));
+    JsonOutputTrace sink = new JsonOutputTrace();
+    JsonValue.WriteTo(sink, value);
+    Assert.Equal(JsonValue.Stringify(value), _decode(sink.Bytes));
+    Assert.Equal(1, sink.Writes);
+    Assert.Equal(1, sink.Flushes);
+    byte[] compact = sink.Bytes;
+    JsonValue.WriteToPretty(sink, value);
+    Assert.Equal(JsonValue.StringifyPretty(value), _decode(sink.Bytes));
+    Assert.Equal(JsonValue.Stringify(value), _decode(compact));
+    Assert.Equal(2, sink.Writes);
+    Assert.Equal(2, sink.Flushes);
+    Assert.Equal(0, sink.Closes);
+}
+
+[Test]
+void invalid_nested_value_leaves_output_stream_untouched() {
+    JsonOutputTrace sink = new JsonOutputTrace();
+    JsonValue value = JsonValue.OfArray();
+    value.Add(JsonValue.OfLong(42L));
+    value.Add(null);
+    Assert.Throws("NullReferenceException", () => JsonValue.WriteTo(sink, value));
+    Assert.Throws("NullReferenceException", () => JsonValue.WriteToPretty(sink, value));
+    Assert.Equal(0, sink.Writes);
+    Assert.Equal(0, sink.Flushes);
+    Assert.Equal(0, sink.Closes);
+}
+
+[Test]
+void json_stream_propagates_write_failure_before_flush() {
+    JsonOutputTrace sink = new JsonOutputTrace();
+    sink.FailWrite = true;
+    Assert.Throws("InvalidOperationException", () => JsonValue.WriteTo(sink, JsonValue.OfNull()));
+    Assert.Equal(1, sink.Writes);
+    Assert.Equal(0, sink.Flushes);
+    Assert.Equal(0, sink.Closes);
+}

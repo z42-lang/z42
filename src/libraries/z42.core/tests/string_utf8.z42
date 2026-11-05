@@ -74,6 +74,28 @@ void byte_arrays_from_generics_and_reflection_use_the_same_storage_api() {
 }
 
 [Test]
+void concat_parts_utf8_copies_a_unicode_prefix_to_independent_bytes() {
+    string[] parts = new string[] { "é", "", "中😀", null };
+    byte[] bytes = String.ConcatPartsUtf8(parts, 3);
+    Assert.Equal(9, bytes.Length);
+    Assert.Equal("é中😀", String.FromUtf8(bytes, 0, bytes.Length));
+    bytes[0] = (byte)0;
+    byte[] again = String.ConcatPartsUtf8(parts, 3);
+    Assert.Equal("é中😀", String.FromUtf8(again, 0, again.Length));
+}
+
+[Test]
+void concat_parts_utf8_checks_count_and_selected_slots() {
+    string[] parts = new string[] { "x", null };
+    byte[] empty = String.ConcatPartsUtf8(parts, 0);
+    Assert.Equal(0, empty.Length);
+    Assert.Throws("ArgumentException", () => String.ConcatPartsUtf8(parts, -1));
+    Assert.Throws("ArgumentException", () => String.ConcatPartsUtf8(parts, 2));
+    Assert.Throws("ArgumentException", () => String.ConcatPartsUtf8(parts, 3));
+    Assert.Throws("ArgumentNullException", () => String.ConcatPartsUtf8(null, 0));
+}
+
+[Test]
 void index_of_any_ascii_returns_the_first_scalar_index() {
     Assert.Equal(3, "é中😀ab".IndexOfAnyAscii("baa"));
     Assert.Equal(1, "é\0😀".IndexOfAnyAscii("\0"));

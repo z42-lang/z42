@@ -261,6 +261,13 @@ public sealed partial class String : IComparable, IEquatable {
     /// 把 `parts[0..count)` 一次拼接；`count` 越界或元素非 string 由 VM 报错。
     [Native("__str_concat_parts")] public static extern string ConcatParts(string[] parts, int count);
 
+    /// 将前 count 个片段拼接为独立的 UTF-8 字节数组。
+    ///
+    /// count 为零返回空数组。计数越界或前缀含 null 抛 ArgumentException。
+    /// parts 为 null 抛 ArgumentNullException。
+    [Native("__str_concat_parts_utf8")]
+    public static extern byte[] ConcatPartsUtf8(string[] parts, int count);
+
     /// 裁掉首尾空白。
     public string Trim() {
         int n = this.Length;
