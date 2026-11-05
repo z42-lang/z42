@@ -1,0 +1,40 @@
+// [Setup]/[Teardown] 的定向形态（lifecycle-targeting）：`[Setup(target: "…")]` 只对名单里的
+// 测试/基准执行；非定向（无 target）仍对本 namespace 每条执行，且**先于**定向跑（公共环境先于
+// 专属环境）。用计数器断言执行次数——定向 setup 只在两条目标前各跑一次（共 2），非定向在三条
+// 测试前各跑一次（共 3），未点名的测试看不到定向 setup 的效果。
+namespace Z42TestLifecycleTargeting;
+
+using Std.Harness;
+
+static class Counters {
+    public static int Common;
+    public static int Targeted;
+}
+
+[Setup]
+void setup_common() { Counters.Common = Counters.Common + 1; }
+
+[Setup(target: "test_targeted_a, test_targeted_b")]
+void setup_targeted() { Counters.Targeted = Counters.Targeted + 1; }
+
+// 执行序 = 全限定名排序（发现层保证）：not_targeted → targeted_a → targeted_b。
+[Test]
+void test_not_targeted() {
+    // 第一条（未点名）：非定向跑了 1 次，定向**没跑**。
+    Assert.Equal(1, Counters.Common);
+    Assert.Equal(0, Counters.Targeted);
+}
+
+[Test]
+void test_targeted_a() {
+    // 第一条目标：非定向累计 2，定向首次跑（1）。
+    Assert.Equal(2, Counters.Common);
+    Assert.Equal(1, Counters.Targeted);
+}
+
+[Test]
+void test_targeted_b() {
+    // 第二条目标：非定向累计 3，定向累计 2。
+    Assert.Equal(3, Counters.Common);
+    Assert.Equal(2, Counters.Targeted);
+}
