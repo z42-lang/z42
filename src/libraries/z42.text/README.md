@@ -37,7 +37,7 @@ method header；待后续 parser 修复后可以切换。
 xtask test stdlib z42.text    # 本库全部 [Test]
 ```
 
-`tests/stringbuilder_retention.z42` 覆盖清空、编辑收敛后的片段回收，以及 Unicode 与快照独立性。
+`tests/stringbuilder_retention.z42` 检查清空和编辑收敛后的片段数组尾槽，并验证 Unicode 与快照独立性。
 
 ## 关联文档
 
