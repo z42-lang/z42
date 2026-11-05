@@ -56,6 +56,8 @@ FromJson(t, v):
 `CanWrite`。公开的只读实例属性仅参与序列化。一般反射仍可查看属性及其访问器，JSON 使用公开实例资格。
 
 键名 = `[JsonProperty].Name`，否则成员名；`[JsonIgnore]` 直接排除。继承字段沿基类链读取声明处的特性。
+整数属性经反射写入时，VM 按 setter 的参数表示把整数盒转换为标量，使解释器与已编译的 JIT setter
+看到同一种参数。
 
 > **auto-property 脱糖成私有背后字段 `__prop_X`，而 `GetFields()` 有意排除它**
 > （`corelib/reflection/fields.rs::is_backing_field`）。所以属性只能经 `GetProperties()` 看到——两条
