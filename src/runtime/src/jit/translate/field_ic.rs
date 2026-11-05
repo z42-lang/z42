@@ -119,7 +119,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         let FieldGetInsn { dst, obj, field_name } = insn;
         let ic = field_ic_ptr_at(self.func, self.block_idx, self.instr_idx);
         let cell = InlineCell::of_reg(self.func, *dst).filter(|_| !ic.is_null());
-        let Some(cell) = cell else { return self.field_get_helper(insn, ic) };
+        let Some(cell) = cell else { return self.field_get_slow(insn, ic) };
 
         let fast = cell_block(self.builder);
         let slow = self.builder.create_block();
@@ -164,9 +164,17 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         self.builder.ins().jump(done, &[]);
 
         self.builder.switch_to_block(slow);
-        self.field_get_helper(insn, ic);
+        self.field_get_slow(insn, ic);
         self.builder.ins().jump(done, &[]);
         self.builder.switch_to_block(done);
+    }
+
+    fn field_get_slow(&mut self, insn: &FieldGetInsn, ic: *const FieldIC) {
+        #[cfg(target_pointer_width = "64")]
+        if matches!(insn.field_name.as_str(), "Length" | "Count") {
+            return self.emit_array_length(insn.dst, insn.obj, |cx| cx.field_get_helper(insn, ic));
+        }
+        self.field_get_helper(insn, ic);
     }
 
     /// `FieldSet` — see [`Self::emit_field_get`].
