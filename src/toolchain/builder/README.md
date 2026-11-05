@@ -16,7 +16,7 @@ src/toolchain/builder/core/*.z42  →  z42b.zpkg  →  apphost z42b
 ```
 
 **不做**：
-- **编译本身** —— 经 `z42.build` 的 `ICompiler` 接口**在进程内**调编译器库（z42c）。
+- **编译本身** —— 经 `z42.compiler.contracts` 的 `ICompiler` 接口（定义于 `z42.compiler.contracts`）**在进程内**调编译器库（z42c）。
   与独立 `z42c.driver` CLI **引用同一份实现，不 fork z42c 子进程**；本模块只编排 + 注入。
 - **平台专属实现** —— 住各 workload 的 `*.workload.zpkg`（`: WorkloadBase` 子类）。
 - **管线接口/相位流程定义** —— 住 [`src/compiler/z42.build/`](../../compiler/z42.build/)

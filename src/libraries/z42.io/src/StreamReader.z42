@@ -1,98 +1,239 @@
 namespace Std.IO;
 
 using Std.Encoding;
+using Std.Text;
 
-/// 字节流 ↔ 字符的桥；首次读时一次性抽干源流并整体解码，默认 UTF-8，行为与 StringReader 一致。
-public class StreamReader {
-    private Stream       _source;
-    private Encoding     _encoding;
-    private StringReader _inner;     // 首次读时惰性构建
-    private bool         _drained;
-    private bool         _closed;
+/// 有限缓冲的严格 UTF-8 字符读取器；构造不读取源，内部工作空间不随输入总长度增长。
+///
+/// 预读最多 4096 字节，不能与底层裸读交替使用；Close/Dispose 留源流打开。
+/// 格式错误后不可继续读取；源 I/O 异常保留未解码数据，已消费字符不回滚。
+/// 不提供同实例的并发读取保证。
+public class StreamReader : TextReader {
+    private Stream _source;
+    private Encoding _encoding;
+    private byte[] _bytes;
+    private string _text;
+    private char[] _chars;
+    private int _pos;
+    private int _length;
+    private int _byteCount;
+    private bool _skipLf;
+    private bool _eof;
+    private bool _closed;
+    private bool _failed;
 
-    /// 默认 UTF-8 编码。
+    /// 默认严格 UTF-8；拒绝 null 或不可读源，构造不读源。
     public StreamReader(Stream source) {
-        this._source   = source;
-        this._encoding = Encoding.GetUtf8();
-        this._drained  = false;
-        this._closed   = false;
+        this.Initialize(source, Encoding.GetUtf8());
     }
 
-    /// 指定编码。
+    /// 指定编码；目前 Encoding 只支持严格 UTF-8，null 参数抛 ArgumentNullException。
     public StreamReader(Stream source, Encoding encoding) {
-        this._source   = source;
+        this.Initialize(source, encoding);
+    }
+
+    private void Initialize(Stream source, Encoding encoding) {
+        if (source == null) { throw new ArgumentNullException("source"); }
+        if (encoding == null) { throw new ArgumentNullException("encoding"); }
+        if (!source.CanRead()) { throw new NotSupportedException("StreamReader: source not readable"); }
+        this._source = source;
         this._encoding = encoding;
-        this._drained  = false;
-        this._closed   = false;
     }
 
-    // ── 单字符 ───────────────────────────────────────────────
-
-    /// 窥视下一个字符码；EOF 返回 -1。
-    public int Peek() {
-        this.EnsureOpen();
-        this.EnsureDrained();
-        return this._inner.Peek();
+    /// 窥视下一个 Unicode 标量，不推进游标；EOF 返回 -1。
+    public override int Peek() {
+        if (this._closed || this._failed) { throw new InvalidOperationException("StreamReader: unavailable"); }
+        if ((this._skipLf || this._pos >= this._length) && !this.EnsureChars()) { return -1; }
+        return (int)this._chars[this._pos];
     }
 
-    /// 消费一个字符码；EOF 返回 -1。
-    public int Read() {
-        this.EnsureOpen();
-        this.EnsureDrained();
-        return this._inner.Read();
+    /// 消费一个 Unicode 标量；EOF 返回 -1。
+    public override int Read() {
+        if (this._closed || this._failed) { throw new InvalidOperationException("StreamReader: unavailable"); }
+        if ((this._skipLf || this._pos >= this._length) && !this.EnsureChars()) { return -1; }
+        int c = (int)this._chars[this._pos];
+        this._pos = this._pos + 1;
+        return c;
     }
 
-    // ── 批量读 ───────────────────────────────────────────────
-
-    /// 填充 buffer[offset..offset+count]，返回实际填入数，0 = EOF。
+    /// 读取当前可用字符，允许短读；0 表示 EOF 或 count 为 0。零 count 不读源。
+    ///
+    /// null 抛 ArgumentNullException，非法区间抛 ArgumentException；关闭/格式失败后不可读。
     public int Read(char[] buffer, int offset, int count) {
         this.EnsureOpen();
-        this.EnsureDrained();
-        return this._inner.Read(buffer, offset, count);
+        if (buffer == null) { throw new ArgumentNullException("buffer"); }
+        if (offset < 0 || count < 0 || offset > buffer.Length || count > buffer.Length - offset) {
+            throw new ArgumentException("Read: buffer / offset / count out of range");
+        }
+        if (count == 0) { return 0; }
+        if (!this.EnsureChars()) { return 0; }
+        int n = this._length - this._pos;
+        if (n > count) { n = count; }
+        Array.CopyRange(this._chars, this._pos, buffer, offset, n);
+        this._pos = this._pos + n;
+        return n;
     }
 
-    // ── 行读取 ───────────────────────────────────────────────
-
-    /// 读一行（不含终止符），EOF 返回 null。
+    /// 读取一行，去掉 LF、CR 或 CRLF；EOF 返回 null。块末 CR 不等待下一块。
+    ///
+    /// 长行需要与结果大小成比例的空间；非法 UTF-8 按预读块严格报错。
     public string? ReadLine() {
         this.EnsureOpen();
-        this.EnsureDrained();
-        return this._inner.ReadLine();
+        StringBuilder parts = null;
+        while (this.EnsureChars()) {
+            int start = this._pos;
+            int end = start;
+            while (end < this._length && this._chars[end] != '\r' && this._chars[end] != '\n') {
+                end = end + 1;
+            }
+            string piece = this._text.Substring(start, end - start);
+            this._pos = end;
+            if (end < this._length) {
+                this._skipLf = this._chars[end] == '\r';
+                this._pos = end + 1;
+                if (parts == null) { return piece; }
+                parts.Append(piece);
+                return parts.ToString();
+            }
+            if (parts == null) { parts = new StringBuilder(); }
+            parts.Append(piece);
+        }
+        if (parts == null) { return null; }
+        return parts.ToString();
     }
 
-    /// 返回剩余全部内容；EOF 返回 ""。
+    /// 返回剩余全部内容；EOF 返回空串。结果所需空间与返回文本大小成比例。
+    ///
+    /// 在固定字节缓冲内合并短读，再按块严格解码；格式错误可能等待本块填满或 EOF。
     public string ReadToEnd() {
         this.EnsureOpen();
-        this.EnsureDrained();
-        return this._inner.ReadToEnd();
-    }
-
-    // ── 生命周期 ─────────────────────────────────────────────
-
-    /// 标记关闭并释放缓存字符串；不关闭被包装的源流。
-    public void Close() {
-        if (this._closed) { return; }
-        this._closed = true;
-        if (this._inner != null) {
-            this._inner.Close();
-            this._inner = null;
+        StringBuilder parts = new StringBuilder();
+        while (this.EnsureChars(true)) {
+            if (this._pos == 0) { parts.Append(this._text); }
+            else { parts.Append(this._text.Substring(this._pos)); }
+            this._pos = this._length;
         }
+        return parts.ToString();
     }
 
-    // ── 内部 ────────────────────────────────────────────────
+    /// 幂等释放工作缓冲与源引用，不关闭源流；Dispose 沿基类调用此方法。
+    public override void Close() {
+        this._closed = true;
+        this.Release();
+    }
 
     private void EnsureOpen() {
-        if (this._closed) {
-            throw new InvalidOperationException("StreamReader: reader is closed");
+        if (this._closed || this._failed) { throw new InvalidOperationException("StreamReader: unavailable"); }
+    }
+
+    private void Release() {
+        this._source = null;
+        this._encoding = null;
+        this._bytes = null;
+        this._text = null;
+        this._chars = null;
+        this._pos = 0;
+        this._length = 0;
+        this._byteCount = 0;
+    }
+
+    private bool EnsureChars() { return this.EnsureChars(false); }
+
+    private bool EnsureChars(bool drain) {
+        while (true) {
+            if (this._pos >= this._length && !this.Fill(drain)) { return false; }
+            if (!this._skipLf) { return true; }
+            this._skipLf = false;
+            if (this._chars[this._pos] != '\n') { return true; }
+            this._pos = this._pos + 1;
+        }
+        return false;
+    }
+
+    private bool Fill(bool drain) {
+        this._text = null;
+        this._chars = null;
+        this._pos = 0;
+        this._length = 0;
+        // 源异常可能留下尚未解码的成功短读；先交付其中完整字符。
+        if (this._byteCount > 0 && this.DecodeBuffered()) { return true; }
+        if (this._eof) { this.Release(); return false; }
+        if (this._bytes == null) { this._bytes = new byte[4096]; }
+        while (true) {
+            this.ReadBytes(drain);
+            if (this._byteCount == 0) { this.Release(); return false; }
+            if (this.DecodeBuffered()) { return true; }
+        }
+        return false;
+    }
+
+    private void ReadBytes(bool drain) {
+        byte[] bytes = this._bytes;
+        Stream source = this._source;
+        int used = this._byteCount;
+        int capacity = bytes.Length;
+        try {
+            while (used < capacity) {
+                int room = capacity - used;
+                int n = source.Read(bytes, used, room);
+                if (n < 0 || n > room) {
+                    this._failed = true;
+                    throw new InvalidOperationException("StreamReader: invalid source byte count");
+                }
+                if (n == 0) { this._eof = true; break; }
+                used = used + n;
+                if (!drain) { break; }
+            }
+        } finally {
+            // 即使后一次源读取抛异常，此前成功返回的数据仍属于 reader。
+            if (this._failed) { this.Release(); }
+            else { this._byteCount = used; }
         }
     }
 
-    // 首次调用时一次性抽干源流并整体解码；后续调用 O(1)。
-    private void EnsureDrained() {
-        if (this._drained) { return; }
-        byte[] all = this._source.ReadAllBytes();
-        string text = this._encoding.GetString(all);
-        this._inner   = new StringReader(text);
-        this._drained = true;
+    private bool DecodeBuffered() {
+        try {
+            int tail = this.IncompleteTail(this._byteCount);
+            int complete = this._byteCount - tail;
+            if (this._eof && tail > 0) { throw new FormatException("StreamReader: truncated UTF-8"); }
+            if (complete == 0) { return false; }
+            this._text = this._encoding.GetString(this._bytes, 0, complete);
+            this._chars = this._text.ToCharArray();
+            this._length = this._chars.Length;
+            if (tail > 0) { Array.CopyRange(this._bytes, complete, this._bytes, 0, tail); }
+            this._byteCount = tail;
+            return true;
+        } catch (Exception e) {
+            this._failed = true;
+            this.Release();
+            throw e;
+        }
+        return false;
+    }
+
+    // 只保留合法但不完整的 UTF-8 尾前缀；完整部分交严格解码器验证。
+    private int IncompleteTail(int total) {
+        int start = total - 1;
+        int continuations = 0;
+        while (start >= 0 && ((int)this._bytes[start] & 0xC0) == 0x80 && continuations < 3) {
+            start = start - 1;
+            continuations = continuations + 1;
+        }
+        if (start < 0) { return 0; }
+        int lead = (int)this._bytes[start];
+        int width = 0;
+        if (lead >= 0xC2 && lead <= 0xDF) { width = 2; }
+        else if (lead >= 0xE0 && lead <= 0xEF) { width = 3; }
+        else if (lead >= 0xF0 && lead <= 0xF4) { width = 4; }
+        int have = total - start;
+        if (width == 0 || have >= width) { return 0; }
+        if (have > 1) {
+            int second = (int)this._bytes[start + 1];
+            if ((lead == 0xE0 && second < 0xA0) || (lead == 0xED && second >= 0xA0)
+                || (lead == 0xF0 && second < 0x90) || (lead == 0xF4 && second >= 0x90)) {
+                throw new FormatException("StreamReader: invalid UTF-8 prefix");
+            }
+        }
+        return have;
     }
 }

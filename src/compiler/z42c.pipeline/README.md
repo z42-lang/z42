@@ -39,7 +39,7 @@
 ### 编译入口与会话
 | 文件 | 职责 |
 |------|------|
-| `src/Z42cCompiler.z42` | `z42.build` `ICompiler` 实现——对外编译入口。BuildSession 的薄封装（`HostTarget`）；`req.Manifest` 必填 |
+| `src/Z42cCompiler.z42` | `z42.compiler.contracts` `ICompiler` 实现——对外编译入口。BuildSession 的薄封装（`HostTarget`）；`req.Manifest` 必填 |
 | `src/Z42cReplCompiler.z42` | `IReplCompiler` 实现：REPL 增量编译路径（累积声明 + 惰性符号世界）|
 | `src/SourceReader.z42` | CLI 与 BuildSession 共用的源读取、插件指纹混合和源哈希；调用方显式传入并行度 |
 | `src/BuildSession.z42` | 清单驱动的**一次包编译**：`BuildOptions`（清单 / 源根 / `BuildRole` / 解析域 / 产物路径）→ 旋钮决议 → 源发现 → `[plugins]` 解析（path 条目代建为 `AnalyzerChild`）→ `PackageCompile.Compile` → 写 packed + `.zsym`。**从不打印**，消息经 `IBuildReporter`（`CollectingReporter` 收集型实现）。目前由 z42b（`HostTarget`）使用；driver 共用其中的 `ManifestKnobs` 与 `CompilerDomain`，其余步骤仍在 driver 的 `Main._build`。同文件含 `CompilerDomain`（编译器域解析域）|
@@ -79,4 +79,4 @@
 | `src/CompilerFingerprint.z42` | 编译器语义指纹：`Entries` 列表的内容哈希；每条语义变更追加一行 slug。规则见 [compiler-fingerprint.md](../../../docs/internals/src/compiler/compiler-fingerprint.md) |
 
 ## 依赖关系
-`z42c.core`、`z42c.syntax`、`z42c.semantics`、`z42c.emission`（`IrDump` / `CompiledModuleZ`）、`z42c.optimization`（`Opt` 开关解析）、`z42.package`、`z42.project`、`z42.build`（`ICompiler` / `IReplCompiler` 接口，无环）、`z42.io` + `z42.encoding`（CacheStore）。stdlib 自动可用。
+`z42c.core`、`z42c.syntax`、`z42c.semantics`、`z42c.emission`（`IrDump` / `CompiledModuleZ`）、`z42c.optimization`（`Opt` 开关解析）、`z42.package`、`z42.project`、`z42.compiler.contracts`（`ICompiler` / `IReplCompiler` 接口，无环）、`z42.io` + `z42.encoding`（CacheStore）。stdlib 自动可用。

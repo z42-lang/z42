@@ -109,19 +109,17 @@ void test_read_line_no_terminator_at_eof() {
     Assert.True(r.ReadLine() == null);
 }
 
-// ── Lazy drain semantics ────────────────────────────────────────────────
+// ── Lazy construction ────────────────────────────────────────────────
 
 [Test]
 void test_constructor_does_not_consume_source() {
-    // Building the StreamReader must not eagerly drain — only the
-    // first Read* call should. We assert by reading from the source
-    // independently before any StreamReader op (round-trip after).
+    // Construction and closing must leave the source cursor untouched.
     MemoryStream ms = new MemoryStream(_utf8("xy"));
     StreamReader r = new StreamReader(ms);
     // Don't touch r; just close.
     r.Close();
-    // No assertion needed — absence of a thrown exception is the test
-    // (we already exercise lazy-then-drain elsewhere).
+    Assert.Equal(0L, ms.Position());
+    Assert.Equal((int)'x', ms.ReadByte());
 }
 
 // ── Close ───────────────────────────────────────────────────────────────

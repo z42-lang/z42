@@ -1,0 +1,12 @@
+# 实现中立的编译/REPL 契约；不包含构建管线与进程调度实现。
+[project]
+name = "z42.compiler.contracts"
+version = "0.1.0"
+kind = "lib"
+[lints]
+"style.fnLinesHard" = "error"
+[dependencies]
+# 请求含 ProjectManifest/WorkspaceCompileDomain；path 边用于 workspace 外的源码闭包。
+"z42.project" = { path = "../z42.project", version = "0.1.0" }
+[sources]
+include = ["src/**/*.z42"]

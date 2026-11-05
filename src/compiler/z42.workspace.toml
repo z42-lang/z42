@@ -36,7 +36,8 @@ members = ["*"]
 #   z42c.syntax           → z42c.core
 #   z42.package           → stdlib(core/encoding/io/crypto)
 #   z42.project           → stdlib(core/io/toml)
-#   z42.build             → z42.project（唯一保留下来的 path 依赖：喂 PathDepPlan 的闭包图，见其清单头注）
+#   z42.compiler.contracts → z42.project（实现中立的编译/REPL 契约）
+#   z42.build             → z42.compiler.contracts, z42.project（唯一保留下来的 path 依赖：喂 PathDepPlan 的闭包图，见其清单头注）
 #   z42c.symbols          → z42c.core, z42c.syntax, z42.package（semantics-split 拆出；命名空间 Z42.Symbols）
 #   z42c.optimization     → z42c.symbols, z42.package（IR → IR 优化管线）
 #   z42c.semantics        → z42c.core, z42c.syntax, z42.package, z42c.symbols（符号 / 绑定 / 检查）
@@ -56,6 +57,7 @@ default_members = [
     "z42c.syntax",
     "z42.package",
     "z42.project",
+    "z42.compiler.contracts",
     "z42.build",
     "z42c.symbols",
     "z42c.optimization",

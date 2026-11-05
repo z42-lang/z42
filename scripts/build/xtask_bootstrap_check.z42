@@ -138,7 +138,7 @@ int _bootstrapCheck(string ridArg) {
 
 // Compile the current z42c workspace (members in topo order) with a given seed
 // (vm + driver + stdlib) into an ISOLATED output tree (not the repo's canonical dist).
-// Each member is a single-project build against Z42_LIBS=runlibs; each freshly-built
+// Each member uses an isolated manifest against Z42_LIBS=runlibs; each freshly-built
 // sibling is accumulated into runlibs so later members resolve the CURRENT-source
 // (seed-compiled) version, not the seed's own bundled copy. Per-member `--output-dir`
 // (not workspace-flat `--output-dir`) is required: the compiler members have deep
@@ -149,27 +149,31 @@ int _bcRunWorkspace(string root, string label, string vm, string driver, string 
     Console.WriteLine("── [" + label + "] compiling current z42c workspace ──");
     string runlibs = Path.Join(work, label + "-runlibs");
     _resetDir(runlibs);
-    _copyAll(stdlibDir, runlibs, "*.zpkg");
-    _copyAll(Path.GetDirectoryName(driver), runlibs, "*.zpkg");
+    foreach (var lib in _stdlibList(root)) { _copyZpkgPair(stdlibDir, runlibs, lib); }
     // Mirror the REAL `build compiler` path (`_buildCompilerViaZ42c`): break the axis-④ self-dependency
     // ring by pre-building the CURRENT-source self-dep libs with this seed before compiling the workspace
     // (otherwise the nightly's older self-dep libs make z42c source using their new APIs false-red).
-    // `runlibs` is both the prebuild output dir and the compile surface (Z42_LIBS), which keeps this check
+    // Compile-libs contains only shipped stdlib and fresh prebuilds/siblings, never seed compiler members; this keeps the check
     // isolated; the seed driver's own runtime libs are snapshotted first (`bcSeedRun`, mounted as probing),
     // since the prebuild overwrites runlibs with current-source libs the seed generation can't load
     // (same split as `_buildCompilerViaZ42c` / `_z42cProcSeed`).
     string bcSeedRun = Path.Join(work, label + "-seedrun");
     _resetDir(bcSeedRun);
-    _copyAll(runlibs, bcSeedRun, "*.zpkg");
-    _copyAll(runlibs, bcSeedRun, "*.zsym");
+    _copyAll(stdlibDir, bcSeedRun, "*.zpkg");
+    _copyAll(stdlibDir, bcSeedRun, "*.zsym");
+    _copyAll(Path.GetDirectoryName(driver), bcSeedRun, "*.zpkg");
+    _copyAll(Path.GetDirectoryName(driver), bcSeedRun, "*.zsym");
     if (_ensureBootstrapSelfDepLibs(root, vm, driver, runlibs, bcSeedRun) != 0) { return 1; }
     string outRoot = Path.Join(work, label + "-out");
     _resetDir(outRoot);
     int fail = 0;
     foreach (var m in members) {
         string outDir = Path.Join(outRoot, m);
-        int rc = _z42cProcMode(vm, runlibs, driver, "interp")
-            .Arg("build").Arg(Path.Join(root, "src/compiler/" + m + "/" + m + ".z42.toml"))
+        Directory.Create(outDir);
+        string source = Path.Join(root, "src/compiler/" + m + "/" + m + ".z42.toml");
+        string input = _bootstrapInputManifest(source, outDir, runlibs);
+        int rc = _z42cProcSeed(vm, runlibs, bcSeedRun, driver, "interp")
+            .Arg("build").Arg(input)
             .Arg("--release").Arg("--output-dir").Arg(outDir)
             .Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
         string produced = Path.Join(outDir, m + ".zpkg");
