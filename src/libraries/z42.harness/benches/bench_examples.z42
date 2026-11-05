@@ -21,11 +21,9 @@ using Std.Harness;
 // ── String workloads (zero-arg form, custom sample count) ─────────────
 
 [Benchmark]
-void bench_string_concat(Bencher b) {
-    b.iter(() => {
-        string s = String.Concat("hello, ", "world");
-        BenchHelpers.blackBox(s);
-    });
+void bench_string_concat() {
+    string s = String.Concat("hello, ", "world");
+    BenchHelpers.blackBox(s);
 }
 
 [Benchmark]
@@ -59,16 +57,14 @@ void bench_string_split_join(Bencher b) {
 // ── Arithmetic workload (Bencher-arg form, default 10/100 samples) ────
 
 [Benchmark]
-void bench_integer_sum_loop(Bencher b) {
-    b.iter(() => {
-        long total = 0L;
-        int i = 0;
-        while (i < 1000) {
-            total = total + i;
-            i = i + 1;
-        }
-        BenchHelpers.blackBox(total);
-    });
+void bench_integer_sum_loop() {
+    long total = 0L;
+    int i = 0;
+    while (i < 1000) {
+        total = total + i;
+        i = i + 1;
+    }
+    BenchHelpers.blackBox(total);
 }
 
 // ── Sanity test: the example benchmarks actually measured something ───

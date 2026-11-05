@@ -10,18 +10,16 @@ using Std.Harness;
 using Std.Collections;
 
 [Benchmark]
-void bench_sortedset_add(Bencher b) {
-    b.iter(() => {
-        var s = new SortedSet<int>();
-        int i = 0;
-        while (i < 64) {
-            // SortedSet.Add returns bool (false on dup); consume it via
-            // blackBox so we don't rely on z42 allowing a discarded return.
-            BenchHelpers.blackBox(s.Add(i * 7 % 101));   // collisions + ordering work
-            i = i + 1;
-        }
-        BenchHelpers.blackBox(s.Count());
-    });
+void bench_sortedset_add() {
+    var s = new SortedSet<int>();
+    int i = 0;
+    while (i < 64) {
+        // SortedSet.Add returns bool (false on dup); consume it via
+        // blackBox so we don't rely on z42 allowing a discarded return.
+        BenchHelpers.blackBox(s.Add(i * 7 % 101));   // collisions + ordering work
+        i = i + 1;
+    }
+    BenchHelpers.blackBox(s.Count());
 }
 
 [Benchmark]
@@ -48,40 +46,34 @@ void test_collection_bench_bodies_run() {
 }
 
 [Benchmark]
-void bench_queue_stack_cycle(Bencher b) {
-    b.iter(() => {
-        var q = new Queue<int>();
-        var st = new Stack<int>();
-        int i = 0;
-        while (i < 64) { q.Enqueue(i); i = i + 1; }
-        while (q.Count() > 0) { st.Push(q.Dequeue()); }
-        int sum = 0;
-        while (st.Count() > 0) { sum = sum + st.Pop(); }
-        BenchHelpers.blackBox(sum);
-    });
+void bench_queue_stack_cycle() {
+    var q = new Queue<int>();
+    var st = new Stack<int>();
+    int i = 0;
+    while (i < 64) { q.Enqueue(i); i = i + 1; }
+    while (q.Count() > 0) { st.Push(q.Dequeue()); }
+    int sum = 0;
+    while (st.Count() > 0) { sum = sum + st.Pop(); }
+    BenchHelpers.blackBox(sum);
 }
 
 [Benchmark]
-void bench_priority_queue(Bencher b) {
-    b.iter(() => {
-        var pq = new PriorityQueue<int>();
-        int i = 0;
-        while (i < 64) { pq.Enqueue((i * 37) % 101); i = i + 1; }
-        int sum = 0;
-        while (pq.Count() > 0) { sum = sum + pq.Dequeue(); }
-        BenchHelpers.blackBox(sum);
-    });
+void bench_priority_queue() {
+    var pq = new PriorityQueue<int>();
+    int i = 0;
+    while (i < 64) { pq.Enqueue((i * 37) % 101); i = i + 1; }
+    int sum = 0;
+    while (pq.Count() > 0) { sum = sum + pq.Dequeue(); }
+    BenchHelpers.blackBox(sum);
 }
 
 [Benchmark]
-void bench_linked_list(Bencher b) {
-    b.iter(() => {
-        var ll = new LinkedList<int>();
-        int i = 0;
-        while (i < 64) { ll.AddLast(i); i = i + 1; }
-        bool hit = ll.Contains(63);
-        int drained = 0;
-        while (drained < 64) { ll.RemoveFirst(); drained = drained + 1; }
-        BenchHelpers.blackBox(hit);
-    });
+void bench_linked_list() {
+    var ll = new LinkedList<int>();
+    int i = 0;
+    while (i < 64) { ll.AddLast(i); i = i + 1; }
+    bool hit = ll.Contains(63);
+    int drained = 0;
+    while (drained < 64) { ll.RemoveFirst(); drained = drained + 1; }
+    BenchHelpers.blackBox(hit);
 }

@@ -8,19 +8,15 @@ namespace Z42MathBench;
 using Std.Harness;
 
 [Benchmark]
-void bench_sqrt(Bencher b) {
-    b.iter(() => {
-        double r = Math.Sqrt(2.0) + Math.Sqrt(3.0) + Math.Sqrt(5.0);
-        BenchHelpers.blackBox(r);
-    });
+void bench_sqrt() {
+    double r = Math.Sqrt(2.0) + Math.Sqrt(3.0) + Math.Sqrt(5.0);
+    BenchHelpers.blackBox(r);
 }
 
 [Benchmark]
-void bench_pow(Bencher b) {
-    b.iter(() => {
-        double r = Math.Pow(2.0, 10.0);
-        BenchHelpers.blackBox(r);
-    });
+void bench_pow() {
+    double r = Math.Pow(2.0, 10.0);
+    BenchHelpers.blackBox(r);
 }
 
 [Benchmark]

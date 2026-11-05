@@ -60,12 +60,10 @@ void bench_parse_object(Bencher b) {
 }
 
 [Benchmark]
-void bench_parse_scalar_access(Bencher b) {
-    b.iter(() => {
-        var v = JsonValue.Parse("42");
-        long n = v.AsLong();
-        BenchHelpers.blackBox(n);
-    });
+void bench_parse_scalar_access() {
+    var v = JsonValue.Parse("42");
+    long n = v.AsLong();
+    BenchHelpers.blackBox(n);
 }
 
 [Test]

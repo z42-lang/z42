@@ -187,8 +187,30 @@ public static class Runner {
 
     // Invoke the entry. In json mode, capture its stdout (so the benchmark's
     // `bench[...]` line can be parsed and is not echoed into the JSON stream).
+    //
+    // 零参 [Benchmark]（bench-zero-boilerplate）：runner 计时**整个函数体**（JMH / BenchmarkDotNet
+    // 式）——预热 2 + 采样 20 由这里包办，摘要按函数名自动打。体里就是被测工作本身，一个 harness
+    // 符号都不用出现。要把 setup 挡在计时外（Go / Rust 式显式边界）用 `void f(Bencher b)` 形态：
+    // setup 写在 b.iter 之前、只把工作放进闭包。自建档（自定采样档/标签）不再用 [Benchmark]，
+    // 写成 [Test] 自己 new Bencher（见 benches/bench_demo.z42 三形态展示）。
     static InvokeOutcome _invoke(TestCase e, bool json) {
         InvokeOutcome o = new InvokeOutcome();
+        if (e.IsBenchmark() && !e.TakesBencher()) {
+            if (json) {
+                try {
+                    o.Captured = TestIO.captureStdout(() => { Runner._runTimed(e); });
+                } catch (Exception ex) {
+                    Type tt = ex.GetType(); o.Threw = true; o.ErrMsg = ex.Message; o.Thrown = tt; o.ErrType = tt.FullName;
+                }
+            } else {
+                try {
+                    Runner._runTimed(e);
+                } catch (Exception ex) {
+                    Type tt = ex.GetType(); o.Threw = true; o.ErrMsg = ex.Message; o.Thrown = tt; o.ErrType = tt.FullName;
+                }
+            }
+            return o;
+        }
         if (json) {
             try {
                 o.Captured = TestIO.captureStdout(() => { e.Invoke(); });
@@ -203,6 +225,14 @@ public static class Runner {
             }
         }
         return o;
+    }
+
+    // 零参基准的计时壳：与注入形态同一固定档（2, 20）、同一摘要行格式（按函数名）——两条路唯一
+    // 的差别是计时边界（整个函数体 vs b.iter 闭包）。异常按原类型传出（由 _runOne 统一判失败）。
+    static void _runTimed(TestCase e) {
+        Bencher b = new Bencher(2, 20);
+        b.iter(() => { e.Invoke(); });
+        b.printSummary(e.Method.Name);
     }
 
     // Build a passed TestResult; for a benchmark in json mode, parse its captured

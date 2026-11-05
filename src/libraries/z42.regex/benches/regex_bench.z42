@@ -7,11 +7,9 @@ using Std.Harness;
 using Std.Regex;
 
 [Benchmark]
-void bench_regex_compile(Bencher b) {
-    b.iter(() => {
-        var re = Regex.Compile("[a-z0-9._]+@[a-z0-9-]+\\.[a-z]+");
-        BenchHelpers.blackBox(re);
-    });
+void bench_regex_compile() {
+    var re = Regex.Compile("[a-z0-9._]+@[a-z0-9-]+\\.[a-z]+");
+    BenchHelpers.blackBox(re);
 }
 
 [Benchmark]

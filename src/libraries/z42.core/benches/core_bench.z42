@@ -11,16 +11,14 @@ using Std.Collections;   // List<T> / Dictionary<K,V> —— 此前漏写；旧�
 using Std.Harness;
 
 [Benchmark]
-void bench_string_concat(Bencher b) {
-    b.iter(() => {
-        string s = "";
-        int i = 0;
-        while (i < 32) {
-            s = s + "ab";
-            i = i + 1;
-        }
-        BenchHelpers.blackBox(s);
-    });
+void bench_string_concat() {
+    string s = "";
+    int i = 0;
+    while (i < 32) {
+        s = s + "ab";
+        i = i + 1;
+    }
+    BenchHelpers.blackBox(s);
 }
 
 [Benchmark]
@@ -56,39 +54,35 @@ void bench_string_split(Bencher b) {
 }
 
 [Benchmark]
-void bench_list_add_index(Bencher b) {
-    b.iter(() => {
-        var xs = new List<int>();
-        int i = 0;
-        while (i < 64) {
-            xs.Add(i * 2);
-            i = i + 1;
-        }
-        int sum = 0;
-        int j = 0;
-        while (j < xs.Count) {
-            sum = sum + xs[j];
-            j = j + 1;
-        }
-        BenchHelpers.blackBox(sum);
-    });
+void bench_list_add_index() {
+    var xs = new List<int>();
+    int i = 0;
+    while (i < 64) {
+        xs.Add(i * 2);
+        i = i + 1;
+    }
+    int sum = 0;
+    int j = 0;
+    while (j < xs.Count) {
+        sum = sum + xs[j];
+        j = j + 1;
+    }
+    BenchHelpers.blackBox(sum);
 }
 
 // Sort a freshly-scrambled 256-element list each iteration. Exercises the
 // merge sort (O(n log n)); the pseudo-scatter `(i*137+89) % 251` keeps the
 // input unsorted (and with duplicates) so every run does real work.
 [Benchmark]
-void bench_list_sort(Bencher b) {
-    b.iter(() => {
-        var xs = new List<int>();
-        int i = 0;
-        while (i < 256) {
-            xs.Add((i * 137 + 89) % 251);
-            i = i + 1;
-        }
-        xs.Sort();
-        BenchHelpers.blackBox(xs[0] + xs[255]);
-    });
+void bench_list_sort() {
+    var xs = new List<int>();
+    int i = 0;
+    while (i < 256) {
+        xs.Add((i * 137 + 89) % 251);
+        i = i + 1;
+    }
+    xs.Sort();
+    BenchHelpers.blackBox(xs[0] + xs[255]);
 }
 
 // Smoke [Test] — confirms the benchmark bodies actually run (Bencher wired,
@@ -105,37 +99,33 @@ void test_core_bench_bodies_run() {
 }
 
 [Benchmark]
-void bench_dict_set_get(Bencher b) {
-    b.iter(() => {
-        var d = new Dictionary<string, int>();
-        int i = 0;
-        while (i < 64) {
-            d["key" + i.ToString()] = i * i;
-            i = i + 1;
-        }
-        int hits = 0;
-        int j = 0;
-        while (j < 64) {
-            string k = "key" + j.ToString();
-            if (d.ContainsKey(k)) { hits = hits + d[k]; }
-            j = j + 1;
-        }
-        BenchHelpers.blackBox(hits);
-    });
+void bench_dict_set_get() {
+    var d = new Dictionary<string, int>();
+    int i = 0;
+    while (i < 64) {
+        d["key" + i.ToString()] = i * i;
+        i = i + 1;
+    }
+    int hits = 0;
+    int j = 0;
+    while (j < 64) {
+        string k = "key" + j.ToString();
+        if (d.ContainsKey(k)) { hits = hits + d[k]; }
+        j = j + 1;
+    }
+    BenchHelpers.blackBox(hits);
 }
 
 [Benchmark]
-void bench_int_tostring_parse(Bencher b) {
-    b.iter(() => {
-        long acc = 0;
-        int i = 0;
-        while (i < 64) {
-            string s = (i * 7919).ToString();
-            acc = acc + long.Parse(s);
-            i = i + 1;
-        }
-        BenchHelpers.blackBox(acc);
-    });
+void bench_int_tostring_parse() {
+    long acc = 0;
+    int i = 0;
+    while (i < 64) {
+        string s = (i * 7919).ToString();
+        acc = acc + long.Parse(s);
+        i = i + 1;
+    }
+    BenchHelpers.blackBox(acc);
 }
 
 [Benchmark]
@@ -149,14 +139,12 @@ void bench_string_join(Bencher b) {
 }
 
 [Benchmark]
-void bench_string_format(Bencher b) {
-    b.iter(() => {
-        string acc = "";
-        int i = 0;
-        while (i < 16) {
-            acc = String.Format("{0}={1}/{2}", "key" + i.ToString(), i, i * 2);
-            i = i + 1;
-        }
-        BenchHelpers.blackBox(acc);
-    });
+void bench_string_format() {
+    string acc = "";
+    int i = 0;
+    while (i < 16) {
+        acc = String.Format("{0}={1}/{2}", "key" + i.ToString(), i, i * 2);
+        i = i + 1;
+    }
+    BenchHelpers.blackBox(acc);
 }

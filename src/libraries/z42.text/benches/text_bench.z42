@@ -9,34 +9,28 @@ using Std.Harness;
 using Std.Text;
 
 [Benchmark]
-void bench_stringbuilder_append(Bencher b) {
-    b.iter(() => {
-        var sb = new StringBuilder();
-        int i = 0;
-        while (i < 128) {
-            sb.Append("ab");
-            i = i + 1;
-        }
-        BenchHelpers.blackBox(sb.ToString());
-    });
+void bench_stringbuilder_append() {
+    var sb = new StringBuilder();
+    int i = 0;
+    while (i < 128) {
+        sb.Append("ab");
+        i = i + 1;
+    }
+    BenchHelpers.blackBox(sb.ToString());
 }
 
 [Benchmark]
-void bench_levenshtein(Bencher b) {
-    b.iter(() => {
-        int d = Levenshtein.Distance("benchmark structures", "benchmark structure!")
-              + Levenshtein.Distance("kitten", "sitting");
-        BenchHelpers.blackBox(d);
-    });
+void bench_levenshtein() {
+    int d = Levenshtein.Distance("benchmark structures", "benchmark structure!")
+          + Levenshtein.Distance("kitten", "sitting");
+    BenchHelpers.blackBox(d);
 }
 
 [Benchmark]
-void bench_strings_repeat_pad(Bencher b) {
-    b.iter(() => {
-        string r = Strings.Repeat("xy", 32);
-        string p = Strings.PadLeft("42", 16, '0');
-        BenchHelpers.blackBox(r + p);
-    });
+void bench_strings_repeat_pad() {
+    string r = Strings.Repeat("xy", 32);
+    string p = Strings.PadLeft("42", 16, '0');
+    BenchHelpers.blackBox(r + p);
 }
 
 // Smoke [Test] — bench bodies actually run, independent of timing.

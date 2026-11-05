@@ -8,13 +8,11 @@ using Std.Harness;
 using Std.Time;
 
 [Benchmark]
-void bench_parse_iso8601(Bencher b) {
-    b.iter(() => {
-        var d1 = DateTime.ParseIso8601("2026-07-19T12:34:56.789Z");
-        var d2 = DateTime.ParseIso8601("1999-12-31T23:59:59.999Z");
-        BenchHelpers.blackBox(d1);
-        BenchHelpers.blackBox(d2);
-    });
+void bench_parse_iso8601() {
+    var d1 = DateTime.ParseIso8601("2026-07-19T12:34:56.789Z");
+    var d2 = DateTime.ParseIso8601("1999-12-31T23:59:59.999Z");
+    BenchHelpers.blackBox(d1);
+    BenchHelpers.blackBox(d2);
 }
 
 [Benchmark]

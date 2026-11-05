@@ -1,50 +1,44 @@
-// add-benchmark-runner-dispatch (2026-05-31) — in-tree e2e demo of
-// runner-dispatched `[Benchmark]` methods + regression test that the
-// pre-spec "Bencher inside [Test]" workaround still works.
+// bench-zero-boilerplate 的三形态展示（样例 + 回归钉）：
 //
-// Output (pretty): test wave shows `✓ bench:bench_addition_demo (Nms)`
-// for the benchmark and `✓ test_bencher_inside_test_still_works (Mms)`
-// for the regression test. Both also write a `bench[label] min=...`
-// line to stdout from `printSummary`.
+//   ① 零参 [Benchmark]（推荐，纯工作基准）——runner 计时整个函数体（JMH / BenchmarkDotNet 式），
+//      预热/采样/摘要全由 runner 包办，体里一个 harness 符号都不用出现；
+//   ② void f(Bencher b)（setup 要挡在计时外时）——Go / Rust 式显式边界：setup 写在 b.iter 之前；
+//   ③ [Test] + 自建 Bencher（自定采样档/标签的逃生口）——[Benchmark] 的零参语义已归 runner，
+//      自建档不再是 [Benchmark] 的一种。
+//
+// 三条都打 `bench[...] min=...` 摘要行（runner 按函数名 / 自己指定标签）。
 
 namespace Z42TestBenchDemo;
 
 using Std.Harness;
 
-// ── [Benchmark] runner-dispatched form ────────────────────────────────
+// ── ① 零参形态（推荐）：体里只有工作本身 ────────────────────────────
 
 [Benchmark]
-void bench_addition_demo(Bencher b) {
-    // 注入形态的样例：预热/采样/摘要全由 runner 承担（固定档 2/20——见下），体里只写 b.iter。
-    b.iter(() => {
-        int x = 1 + 2 + 3;
-        BenchHelpers.blackBox(x);
-    });
-    // Sanity check on the injected Bencher — if iter didn't run, Samples
-    // would be the ctor value 20 but Min/Max/Median would be 0 (no
-    // measurement). We assert both counters and stats moved to confirm
-    // the body actually executed.
-    Assert.Equal(20, b.Samples);
-    Assert.True(b.TotalNs > 0L);
+void bench_add_zeroarg() {
+    int x = 1 + 2 + 3;
+    BenchHelpers.blackBox(x);
 }
 
-// ── Bencher-arg form (add-benchmark-bencher-arg-trampoline, 2026-05-31) ──
-// The compiler desugars `[Benchmark] void f(Bencher b)` into a zero-arg
-// wrapper that constructs the Bencher + calls this body + printSummary("f").
-// The runner dispatches `bench_add_argform` and captures its stats.
+// ── ② Bencher 形参形态：setup（构造表）在计时外、工作在闭包内 ──────
 
 [Benchmark]
 void bench_add_argform(Bencher b) {
+    var table = new int[8];   // setup：写在 b.iter 之前，不在采样计时内
+    int k = 0;
+    while (k < 8) { table[k] = k; k = k + 1; }
     b.iter(() => {
-        int x = 1 + 2 + 3;
-        BenchHelpers.blackBox(x);
+        int acc = 0;
+        int j = 0;
+        while (j < 8) { acc = acc + table[j]; j = j + 1; }
+        BenchHelpers.blackBox(acc);
     });
 }
 
-// ── Regression: Bencher inside [Test] still works (pre-spec pattern) ──
+// ── ③ 逃生口：[Test] + 自建 Bencher（自定档 2/5 + 自定标签）─────────
 
 [Test]
-void test_bencher_inside_test_still_works() {
+void test_bencher_custom_profile_still_works() {
     var b = new Bencher(2, 5);
     b.iter(() => {
         int y = 4 + 5 + 6;
