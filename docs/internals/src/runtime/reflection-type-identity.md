@@ -53,8 +53,9 @@
 
 - **`GetType()`**：实例化描述符 → 以其名字构造（不再把实参拼两遍）；定义 + 实例实参 →
   `type_names::constructed`（定义名 + 实参）再构造。两种表示因此得到相等的 Type，也等于 `typeof`。
-- **`BaseType` / `GetInterfaces()`**：定义的基类 / 接口表不带实参，于是先查**以规范名注册的实例化描述符**
-  （`instantiation_desc`：任一已加载包里有就用它，`Sub<int>` → `Box<int>` / `IFoo<int>`），没有才退回定义。
+- **`BaseType`**：优先从开放基类表达式 `$ReflectionBase` 投影实际实参。布局和派发继续使用注册键。
+  无法投影时沿实例化描述符、定义描述符的顺序查找。
+- **`GetInterfaces()`**：先查按规范名注册的实例化描述符，再退回定义。
 - **`GetFields()` / `GetProperties()` / `GetMethods()` / `GetConstructors()`**：类声明的成员按定义型参
   投影实际的 Type，包括嵌套数组和泛型。方法自己的型参保留其作用域。继承字段仍可从实例化描述符取得。
 - **`IsAssignableFrom`**：两侧都按规范名走 `is_subclass_or_eq_td`；名字没有描述符（导入泛型的实例化）时
