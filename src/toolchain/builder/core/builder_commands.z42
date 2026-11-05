@@ -206,7 +206,8 @@ BuildOutcome _buildProjectAt(ParseResult r, string mode, string outRoot, string 
             //
             // 📌 它现在只还剩**按名依赖**那半（在 repo 内按 srcRoot 搜源码树）。path 依赖那半已由
             // 上面的闭包名单接管 —— 那份走 srcRoot 的实现在 repo 外恒为空转（见 #852）。
-            rc = _pubBundleProjectDeps(tomlPath, toml, dirs.Dist, false);
+            rc = _pubBundleProjectDeps(tomlPath, toml, m, dirs.Dist, false);
+            if (rc == 0) { rc = _builderBundlePrebuilt(m, sourceDir, dirs.Dist, closureDists, closureDistN); }
             if (rc == 0) { o.Dist = distZpkg; WsSiblings.Note(m.Project.Name, dirs.Dist); }
         }
     }

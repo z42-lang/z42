@@ -408,7 +408,7 @@ bool _pubContains(string[] xs, int count, string v) {
 // ⇒ 这里**不值得**照 z42c 那份去改（读 DEPS 段建闭包）：先要裁的是这条比 `z42c build` 弱的编排路
 // 存在的意义（`z42 build` 是转发给 z42c 的，构建系统里也没有谁用 `z42b build`）。
 // 记在 add-deployment-model/tasks.md 批 2.3。
-int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir, bool noBuild) {
+int _pubBundleProjectDeps(string tomlPath, TomlValue toml, ProjectManifest manifest, string payloadDir, bool noBuild) {
     if (BuilderWorkspaceState.Current() != null) { return _builderBundleCompleted(payloadDir); }
     string srcRoot = _pubSrcRoot(tomlPath);
     string libsDir = Environment.GetEnvironmentVariable("Z42_LIBS", "");
@@ -424,6 +424,7 @@ int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir, bo
     }
     while (qh < qt) {
         string name = queue[qh]; qh = qh + 1;
+        if (_builderIsFileReference(manifest, name)) { continue; }
         // 真·stdlib 成员：框架、只依赖框架 → 不复制、不递归（省遍历）。
         if (srcRoot.Length > 0 && Directory.Exists(Path.Join(Path.Join(srcRoot, "libraries"), name))) { continue; }
         // 定位依赖 toml（读它的依赖以递归 + resolve zpkg）。

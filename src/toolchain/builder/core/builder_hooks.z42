@@ -107,6 +107,11 @@ BuildHooks[] _loadDepsHooks(ProjectManifest m, string projDir) {
             }
         }
         if (zpkg.Length == 0) { continue; }
+        // Only a readable ordinary package leaves hook routing. Keep strict inspection for
+        // plugin candidates and unreadable packages so bad plugin declarations still fail.
+        ZpkgInfo info = null;
+        try { info = ZpkgReader.Open(File.ReadAllBytes(zpkg), zpkg); } catch (Exception ex) { info = null; }
+        if (info != null && !PkgKind.IsPluginPkg(info.PkgKind, info.PluginCaps)) { continue; }
         PluginCheck chk = _hostCompiler().InspectPlugin(zpkg, e.Name);
         if (chk.Error.Length > 0) { ConsoleError.WriteLine("z42b: [dependencies] " + chk.Error); return null; }
         if (!chk.HasHook) { continue; }
