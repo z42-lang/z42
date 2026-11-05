@@ -24,6 +24,8 @@ python3 -B -m unittest discover -s .github/ci -p 'test_*.py'
 
 `test_changed_base.py` 使用临时本地 Git 仓库与 origin，检查真实 fetch / diff，并执行 workflow 的实际 Bash 测试步骤。
 SDK、编译器和 Runtime 不是这些基线选择测试的前置。新控制行为的用例追加到对应 `test_*.py`，确认被 discover 执行。
+`test_main_supersede.py` 用 GitHub 文件列表夹具执行 nightly 差异判断和 workflow 的纯文档检查，
+覆盖重命名跨越生产、私有测试及文档边界。
 改动事件或调用点后还要跟进 GitHub CI；`xtask check ci-shell` 检查 composite action 的 shell 变量约束。
 
 ## 关联文档

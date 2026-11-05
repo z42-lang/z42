@@ -1,0 +1,57 @@
+namespace Z42JsonCollectionBindingTests;
+using Std.Collections;
+using Std.Json;
+using Std.Harness;
+
+[Test]
+void nested_lists_keep_independent_arguments() {
+    List<List<int>> rows = JsonSerializer.Deserialize<List<List<int>>>("[[1,2],[],[3,4,5]]");
+    Assert.Equal(3, rows.Count);
+    Assert.Equal(0, rows[1].Count);
+    Assert.Equal(5, rows[2][2]);
+    Assert.Equal("[[1,2],[],[3,4,5]]", JsonSerializer.Serialize(rows));
+}
+
+[Test]
+void nested_dictionaries_keep_outer_keys() {
+    Dictionary<string, Dictionary<string, int>> map = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, int>>>("{\"left\":{\"a\":1,\"b\":2},\"right\":{\"c\":3}}");
+    Assert.Equal(2, map["left"]["b"]);
+    Assert.Equal(3, map["right"]["c"]);
+    JsonValue v = JsonValue.Parse(JsonSerializer.Serialize(map));
+    Assert.Equal(1L, v.Get("left").Get("a").AsLong());
+    Assert.Equal(3L, v.Get("right").Get("c").AsLong());
+}
+
+[Test]
+void closed_generic_bindings_stay_distinct() {
+    List<object> values = new List<object>();
+    List<int> ints = new List<int>(); ints.Add(7); ints.Add(8);
+    List<string> strings = new List<string>(); strings.Add("x"); strings.Add(null);
+    values.Add(ints); values.Add(strings); values.Add(ints);
+    Assert.Equal("[[7,8],[\"x\",null],[7,8]]", JsonSerializer.Serialize(values));
+    List<string> back = JsonSerializer.Deserialize<List<string>>("[\"one\",null,\"two\"]");
+    Assert.Equal(3, back.Count);
+    Assert.Equal("two", back[2]);
+    Assert.True(Object.ReferenceEquals(back[1], null));
+}
+
+[Test]
+void dictionaries_of_lists_roundtrip() {
+    Dictionary<string, List<int>> map = JsonSerializer.Deserialize<Dictionary<string, List<int>>>("{\"empty\":[],\"numbers\":[10,20]}");
+    Assert.Equal(0, map["empty"].Count);
+    Assert.Equal(20, map["numbers"][1]);
+    JsonValue v = JsonValue.Parse(JsonSerializer.Serialize(map));
+    Assert.Equal(0, v.Get("empty").Count());
+    Assert.Equal(20L, v.Get("numbers").At(1).AsLong());
+}
+
+[Test]
+void operations_do_not_share_mutable_arguments() {
+    List<int> first = JsonSerializer.Deserialize<List<int>>("[11,12]");
+    List<int> second = JsonSerializer.Deserialize<List<int>>("[21,22,23]");
+    Assert.Equal("[11,12]", JsonSerializer.Serialize(first));
+    Assert.Equal("[21,22,23]", JsonSerializer.Serialize(second));
+    Assert.Equal("[11,12]", JsonSerializer.Serialize(first));
+    Dictionary<string, int> empty = JsonSerializer.Deserialize<Dictionary<string, int>>("{}");
+    Assert.Equal("{}", JsonSerializer.Serialize(empty));
+}

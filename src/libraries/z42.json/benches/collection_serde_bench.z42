@@ -1,0 +1,80 @@
+namespace Z42JsonCollectionBench;
+using Std.Collections;
+using Std.Json;
+using Std.Harness;
+
+List<int> _numbers() {
+    List<int> values = new List<int>();
+    int i = 0;
+    while (i < 128) { values.Add(i); i = i + 1; }
+    return values;
+}
+
+Dictionary<string, int> _scores() {
+    Dictionary<string, int> values = new Dictionary<string, int>();
+    int i = 0;
+    while (i < 64) { values["k" + i.ToString()] = i; i = i + 1; }
+    return values;
+}
+
+[Benchmark]
+void bench_serde_list_write() {
+    List<int> values = _numbers();
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Serialize(values)); });
+    b.printSummary("serde_list_write_128");
+}
+
+[Benchmark]
+void bench_serde_list_read() {
+    string doc = JsonSerializer.Serialize(_numbers());
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Deserialize<List<int>>(doc)); });
+    b.printSummary("serde_list_read_128");
+}
+
+[Benchmark]
+void bench_serde_dict_write() {
+    Dictionary<string, int> values = _scores();
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Serialize(values)); });
+    b.printSummary("serde_dict_write_64");
+}
+
+[Benchmark]
+void bench_serde_dict_read() {
+    string doc = JsonSerializer.Serialize(_scores());
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Deserialize<Dictionary<string, int>>(doc)); });
+    b.printSummary("serde_dict_read_64");
+}
+
+[Benchmark]
+void bench_serde_list_write_one() {
+    List<int> values = new List<int>(); values.Add(1);
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Serialize(values)); });
+    b.printSummary("serde_list_write_1");
+}
+
+[Benchmark]
+void bench_serde_list_read_one() {
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Deserialize<List<int>>("[1]")); });
+    b.printSummary("serde_list_read_1");
+}
+
+[Benchmark]
+void bench_serde_dict_write_one() {
+    Dictionary<string, int> values = new Dictionary<string, int>(); values["a"] = 1;
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Serialize(values)); });
+    b.printSummary("serde_dict_write_1");
+}
+
+[Benchmark]
+void bench_serde_dict_read_one() {
+    var b = new Bencher(2, 12);
+    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Deserialize<Dictionary<string, int>>("{\"a\":1}")); });
+    b.printSummary("serde_dict_read_1");
+}

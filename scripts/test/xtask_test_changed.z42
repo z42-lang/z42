@@ -27,8 +27,12 @@ int _testChangedRun(string base_, bool dryRun) {
     }
     Console.WriteLine("[test-changed] base = " + base_);
 
+    string root;
     string[] changed;
-    try { changed = _changedFiles(base_); }
+    try {
+        root = _changedGitRoot();
+        changed = _changedFiles(base_, root);
+    }
     catch (Exception e) {
         ConsoleError.WriteLine("[test-changed] error: " + e.Message);
         return 2;
@@ -43,7 +47,7 @@ int _testChangedRun(string base_, bool dryRun) {
     foreach (var f in changed) { Console.WriteLine("  " + f); }
 
     // ── Map → de-duped plan ──────────────────────────────────────────────
-    string[] plan = _buildChangedPlan(changed);
+    string[] plan = _buildChangedPlan(changed, root);
     if (dryRun) { _changedGateSkips(base_); }   // 同一张表的另一列：`xtask test --changed` 会怎么分流
     if (plan.Length == 0) {
         Console.WriteLine("[test-changed] only documentation / spec / config touched; no tests to run");
@@ -65,10 +69,16 @@ int _testChangedRun(string base_, bool dryRun) {
 }
 
 // 相对 base 的改动文件（已跟踪的 diff + 未跟踪的新文件），去重排序。
-string[] _changedFiles(string base_) {
-    string tracked   = _gitOutput(new string[]{ "diff", "--name-only", base_, "--" });
-    string untracked = _gitOutput(new string[]{ "ls-files", "--others", "--exclude-standard" });
-    return _dedupeNonEmpty(_splitLines(tracked + "\n" + untracked));
+string _changedGitRoot() {
+    return _gitOutput(new string[]{ "rev-parse", "--show-toplevel" }).Trim();
+}
+
+string[] _changedFiles(string base_, string root = "") {
+    if (root.Length == 0) { root = _changedGitRoot(); }
+    // 将 rename 视为删旧路径和加新路径，旧 owner 也参与选测。
+    string tracked = _gitOutput(new string[]{ "-C", root, "diff", "--no-relative", "--no-renames", "--name-only", "-z", base_, "--" });
+    string untracked = _gitOutput(new string[]{ "-C", root, "ls-files", "--others", "--exclude-standard", "-z" });
+    return _dedupeNonEmpty((tracked + untracked).Split("\0"));
 }
 
 // gate 里按改动分流的「重」stage（skip 短名）。其余 stage 恒跑：build wave 与 e2e goldens（不可 skip，
@@ -96,17 +106,20 @@ string[] _withStage(string[] xs, string extra) {
 // 拿不到改动（不是 git 仓库 / base 不存在 / Git 读取失败）⇒ 不跳（保守）。
 string _changedGateSkips(string base_) {
     Console.WriteLine("[test --changed] base = " + base_);
+    string root;
     string[] changed;
     try {
         _gitOutput(new string[]{ "rev-parse", "--verify", "--quiet", base_ + "^{commit}" });
-        changed = _changedFiles(base_);
+        root = _changedGitRoot();
+        changed = _changedFiles(base_, root);
     } catch (Exception e) {
         Console.WriteLine("[test --changed] 无法读取改动 —— 全跑: " + e.Message);
         return "";
     }
     string need = "";
+    var owners = new _ChangedOwners(root);
     foreach (var f in changed) {
-        _MapResult m = _mapFile(f);
+        _MapResult m = _mapFile(f, owners);
         if (m.needsFull) {
             Console.WriteLine("[test --changed] " + f + " ⇒ 全跑");
             return "";
@@ -126,12 +139,13 @@ string _changedGateSkips(string base_) {
 
 // Map every changed file (_mapFile) into a de-duped plan. needsFull on any file
 // replaces covered commands with the full gate; checks outside GREEN remain required.
-string[] _buildChangedPlan(string[] changed) {
+string[] _buildChangedPlan(string[] changed, string root = "") {
     var plan = new List<string>();
     var outside = new List<string>();
+    var owners = new _ChangedOwners(root.Length == 0 ? _root() : root);
     bool full = false;
     foreach (var f in changed) {
-        _MapResult m = _mapFile(f);
+        _MapResult m = _mapFile(f, owners);
         full = full || m.needsFull;
         foreach (var cmd in m.commands) {
             if (cmd.Length == 0) { continue; }
@@ -230,21 +244,7 @@ _MapResult _mapFull() {
 }
 _MapResult _mapSkip() { return new _MapResult(); }
 
-// src/libraries/<lib>/... → lib [+ vm] tests. Non-src/test/bench/toml paths inside
-// a lib (workspace.toml at root, README inside lib root, etc.) → no test impact.
-// `/benches/` 不能落 `_mapSkip()`（bench-regression 不在 required 列表，跳了就零验证）：
-// 映射到 `bench stdlib <lib>`（与 gate 的 `stdlib [Benchmark]` stage 同一条流水，只是收窄到本库）。
-_MapResult _mapLibraryFile(string f) {
-    string lib = _segment(f, 2);
-    // 库源码 / 清单一变，所有编译、执行 z42 代码的 stage 都可能受影响（编译器自身也链 stdlib）。
-    if (f.Contains("/src/"))   { return _mapCmds(new string[]{ "xtask test stdlib " + lib, "xtask test e2e" }, _stagesAllZ42()); }
-    if (f.Contains("/tests/")) { return _mapCmds(new string[]{ "xtask test stdlib " + lib }, new string[]{ "stdlib" }); }
-    if (f.Contains("/benches/")) { return _mapCmds(new string[]{ "xtask bench stdlib " + lib }, new string[]{ "bench" }); }
-    if (f.EndsWith(".toml"))   { return _mapCmds(new string[]{ "xtask test stdlib " + lib }, _stagesAllZ42()); }
-    return _mapSkip();
-}
-
-_MapResult _mapFile(string f) {
+_MapResult _mapFile(string f, _ChangedOwners owners) {
     // 学习手册与配套示例：必须排在「.md / docs/ 一律跳过」之前，
     // 否则 examples 里的 README / 手册页改动会被当成纯文档跳过。
     if (f.StartsWith("examples/")) {
@@ -259,7 +259,7 @@ _MapResult _mapFile(string f) {
         || f == ".gitignore" || f == ".gitattributes"
         || f.StartsWith("LICENSE") || f.StartsWith("README")) { return _mapSkip(); }
 
-    if (f.StartsWith("src/libraries/")) { return _mapLibraryFile(f); }
+    if (f.StartsWith("src/libraries/")) { return _mapLibraryFile(f, owners); }
 
     // Runtime (Rust VM).
     if (f.StartsWith("src/runtime/src/") || f == "src/runtime/Cargo.toml"
@@ -290,20 +290,7 @@ _MapResult _mapFile(string f) {
     if (f.StartsWith("src/benches/"))            { return _mapOutsideGate("xtask bench --quick"); }
     if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test e2e", "xtask check layout" }, new string[0]); }
 
-    // 编译器私有用例不改变生产 IR；bench helper 也可能被 codegen 单元 include，保留 compiler。
-    if (f.StartsWith("src/compiler/") && f.Contains("/tests/")) {
-        // tests/<unit>/ 独立工程与扁平 / [tests] 单元分别由两个执行器发现，均保留。
-        return _mapCmds(new string[]{ "xtask test compiler", "xtask test stdlib" }, new string[]{ "compiler", "stdlib" });
-    }
-    if (f.StartsWith("src/compiler/") && f.Contains("/benches/")) {
-        string lib = _segment(f, 2);
-        return _mapCmds(new string[]{ "xtask bench stdlib " + lib, "xtask test compiler" }, new string[]{ "bench", "compiler" });
-    }
-    // z42c self-host compiler (src/compiler).
-    // 编译器一变，一切被编译的东西都可能变 ⇒ gate 侧是全集（本地仍只跑编译器 + e2e 两条窄命令）。
-    if (f.StartsWith("src/compiler/")) {
-        return _mapCmds(new string[]{ "xtask test compiler", "xtask test e2e" }, _stagesAllZ42());
-    }
+    if (f.StartsWith("src/compiler/")) { return _mapCompilerFile(f, owners); }
     // Toolchain (incl. z42b — the z42.builder test/bench host). A toolchain change
     // can affect how [Test]/[Benchmark] units run, so sweep the stdlib suite.
     // launcher / z42b 的命令行输出直接出现在学习手册的会话脚本里 → 追加 examples。
@@ -358,12 +345,6 @@ string _gitOutput(string[] args) {
 string _segment(string path, int n) {
     string[] parts = path.Split("/");
     return n < parts.Length ? parts[n] : "";
-}
-
-string[] _splitLines(string s) {
-    var r = new List<string>();
-    foreach (var line in s.Split("\n")) { if (line.Length > 0) { r.Add(line); } }
-    return r.ToArray();
 }
 
 string[] _dedupeNonEmpty(string[] xs) {

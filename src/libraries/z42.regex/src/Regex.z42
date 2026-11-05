@@ -27,6 +27,7 @@ namespace Std.Regex;
 /// 编译后的 pattern：解析为 AST，提供匹配 / 查找 / 替换 / 切分方法。
 ///
 /// 线程内复用；同一个 `Regex` 实例不要跨线程并发调用（匹配过程写实例字段）。
+/// 调用退出时释放临时输入绑定和字符缓冲；返回的 Match 独立持有输入与捕获快照。
 public class Regex {
     private RegexNode[] _seq;
     private int _seqCount;
@@ -141,35 +142,45 @@ public class Regex {
 
     /// 返回第一个 match；无匹配返回 null。`^` 开头（且未开 `(?m)`）时只尝试位置 0。
     public Match Find(string input) {
-        this._BindInput(input);
-        return this.ScanFrom(0);
+        try {
+            this._BindInput(input);
+            return this.ScanFrom(0);
+        } finally {
+            this._input = null;
+            this._chars = null;
+        }
     }
 
     /// 返回所有非重叠 match（可能为空数组）；空匹配也计入，每遇空匹配起点前进一格。
     public Match[] FindAll(string input) {
-        Match[] buf = new Match[8];
-        int n = 0;
-        int pos = 0;
-        this._BindInput(input);
-        while (pos <= input.Length) {
-            Match m = this.ScanFrom(pos);
-            if (m == null) { break; }
-            if (n >= buf.Length) {
-                Match[] grown = new Match[buf.Length * 2];
-                int i = 0;
-                while (i < n) { grown[i] = buf[i]; i = i + 1; }
-                buf = grown;
+        try {
+            Match[] buf = new Match[8];
+            int n = 0;
+            int pos = 0;
+            this._BindInput(input);
+            while (pos <= input.Length) {
+                Match m = this.ScanFrom(pos);
+                if (m == null) { break; }
+                if (n >= buf.Length) {
+                    Match[] grown = new Match[buf.Length * 2];
+                    int i = 0;
+                    while (i < n) { grown[i] = buf[i]; i = i + 1; }
+                    buf = grown;
+                }
+                buf[n] = m;
+                n = n + 1;
+                // 推进至少一格（避免空匹配死循环）
+                if (m.End() == pos) { pos = pos + 1; }
+                else { pos = m.End(); }
             }
-            buf[n] = m;
-            n = n + 1;
-            // 推进至少一格（避免空匹配死循环）
-            if (m.End() == pos) { pos = pos + 1; }
-            else { pos = m.End(); }
+            Match[] result = new Match[n];
+            int j = 0;
+            while (j < n) { result[j] = buf[j]; j = j + 1; }
+            return result;
+        } finally {
+            this._input = null;
+            this._chars = null;
         }
-        Match[] result = new Match[n];
-        int j = 0;
-        while (j < n) { result[j] = buf[j]; j = j + 1; }
-        return result;
     }
 
     /// 替换所有非重叠 match；replacement 支持 `$0` / `$1`…`$9` 占位符与 `$$`（字面 `$`）。
@@ -288,6 +299,7 @@ public class Regex {
         return null;
     }
 
+    // Find / FindAll own this binding only until their finally blocks; Match owns its input.
     // Materialise the subject once per public call, not once per scan position: an
     // unanchored scan calls ResetState at every start position, and FindAll (hence Replace /
     // Split) calls ScanFrom once per match on the same subject.

@@ -14,12 +14,16 @@ ManifestLocation _findManifest(string dir) {
 
 // 全部真实成员，按 workspace 的 members / exclude 发现；default_members 仅控制默认构建目标。
 string[] _workspaceProjects(string toml) {
-    WorkspaceManifest ws = ManifestLoader.LoadWorkspace(toml);
-    WorkspacePlan.RejectUnknownKeys(ws, toml);
-    WorkspaceMembers members = WorkspacePlan.DiscoverMembers(Path.GetDirectoryName(toml), ws);
+    WorkspaceMembers members = _discoverWorkspaceMembers(toml);
     string[] projects = new string[members.Count];
     for (int i = 0; i < members.Count; i = i + 1) { projects[i] = members.Tomls[i]; }
     return projects;
+}
+
+WorkspaceMembers _discoverWorkspaceMembers(string toml) {
+    WorkspaceManifest ws = ManifestLoader.LoadWorkspace(toml);
+    WorkspacePlan.RejectUnknownKeys(ws, toml);
+    return WorkspacePlan.DiscoverMembers(Path.GetDirectoryName(toml), ws);
 }
 
 void _requireUniqueProjects(string[] projects) {

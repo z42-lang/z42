@@ -8,8 +8,7 @@
 >
 > DOM 层（`JsonValue` 的 parse / stringify）不在本页范围——serde 只是站在 DOM 之上的一层反射绑定。
 
-`JsonSerializer` 一共 104 行，`JsonBinder` 150 行。整套 serde **没有代码生成、没有缓存、没有
-schema**——每次调用现场走反射。理解它只需要抓住四个决策。
+serde 没有代码生成或全局 schema 缓存。对象成员每次现场收集；集合在一次遍历内绑定方法并复用调用参数数组。
 
 ## 1. 分派轴：目标 Type，而非 JSON kind
 
@@ -126,12 +125,13 @@ serde 用到的反射能力分两批：
 | 辅助 | 实现 |
 |---|---|
 | `GenericArg(t, idx)` | `t.GetGenericArguments()[idx]` |
-| `ListCount` / `ListGet` / `ListAdd` | 反射读 `Count` 公开字段；`get_Item(i)` / `Add(item)` 反射调用 |
-| `DictKeys` / `DictGet` / `DictSet` | `Keys()` / `get_Item(k)` / `set_Item(k, v)` 反射调用 |
+| `ListCount` | 每次列表遍历反射读一次 `Count` 公开字段 |
+| `BindMethod` | 按名称、完整参数类型、public 实例及非泛型形态绑定唯一方法；缺失或多义抛 `JsonException` |
 
-**为什么要 `_findMethod` / `_findField` 这两个线性扫描**：z42 反射目前没有 `GetMethod(name)` /
-`GetField(name)`，只能 `GetMethods()` 整表遍历按名取首个匹配。这是 serde 每次调用的固定成本，也是这
-套实现最明显的优化空间。
+集合循环之前绑定 `get_Item` / `Add` / `Keys` / `set_Item`，循环内仅更新同一个参数数组并 Invoke。
+构造泛型的反射参数类型已经替换为实际类型实参。绑定及参数数组归当前集合遍历所有，递归进入子集合会建立
+独立的局部状态，因此嵌套调用不会覆盖外层参数，也不会跨操作或加载上下文复用反射对象。
+空列表无需绑定元素方法；空字典序列化仅绑定 `Keys`。对象成员、构造器的操作内类型计划仍待实现。
 
 > 两处跨包反射 footgun，全库随处可见：① 跨包读 imported 反射成员的引用类型返回值必须显式 cast
 > （`Type elem = (Type)t.GetElementType();`）；② 反射调用要用 local receiver。

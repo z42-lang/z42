@@ -1,0 +1,69 @@
+namespace Z42RegexRetentionTests;
+using Std.Regex;
+using Std.Harness;
+
+string _subject() {
+    char[] data = new char[262144];
+    int i = 0;
+    while (i < data.Length) { data[i] = 'a'; i = i + 1; }
+    return String.FromChars(data);
+}
+
+// 创建输入的帧必须先退出，再做全堆回收。
+void _exercise(Regex regex, int mode) {
+    string input = _subject();
+    if (mode == 0) { Assert.False(regex.IsMatch(input)); }
+    if (mode == 1) { Assert.Null(regex.Find(input)); }
+    if (mode == 2) { Assert.Equal(0, regex.FindAll(input).Length); }
+    if (mode == 3) { regex.Replace(input, "x"); regex.Split(input); }
+    if (mode == 4) {
+        Assert.False(regex.IsMatch(input));
+        Assert.Throws("NullReferenceException", () => regex.Find(null));
+    }
+}
+
+long _usedAfterCollect() {
+    GC.ForceCollect();
+    GC.ForceCollect();
+    return GC.UsedBytes();
+}
+
+void _checkNoSubjectRetention(int mode) {
+    Regex regex = Regex.Compile("^z");
+    long before = _usedAfterCollect();
+    _exercise(regex, mode);
+    long retained = _usedAfterCollect() - before;
+    if (retained > 131072L) {
+        throw new TestFailure("compiled Regex retained managed bytes: " + retained.ToString());
+    }
+    // 后续使用保持 Regex 自身存活，不重新绑定输入。
+    Assert.Equal(-1, regex.GroupIndexOf("missing"));
+}
+
+[Test]
+void compiled_regex_releases_subject_after_is_match() { _checkNoSubjectRetention(0); }
+[Test]
+void compiled_regex_releases_subject_after_find_miss() { _checkNoSubjectRetention(1); }
+[Test]
+void compiled_regex_releases_subject_after_find_all_miss() { _checkNoSubjectRetention(2); }
+[Test]
+void compiled_regex_releases_subject_after_replace_and_split() { _checkNoSubjectRetention(3); }
+[Test]
+void failed_rebind_does_not_keep_previous_character_buffer() { _checkNoSubjectRetention(4); }
+
+Match _findAndReturn(Regex regex) { return regex.Find(_subject()); }
+
+[Test]
+void returned_match_keeps_its_subject_and_capture_values() {
+    Regex regex = Regex.Compile("^(?<lead>a)");
+    long before = _usedAfterCollect();
+    Match match = _findAndReturn(regex);
+    long retained = _usedAfterCollect() - before;
+    // 返回的 Match 可以保留 256KiB 输入，但不应保留额外的 1MiB 字符缓冲。
+    if (retained < 262144L || retained > 786432L) {
+        throw new TestFailure("unexpected Match subject footprint: " + retained.ToString());
+    }
+    Assert.Equal("a", match.Value());
+    Assert.Equal("a", match.GroupByName("lead"));
+    Assert.Equal(1, regex.GroupIndexOf("lead"));
+}

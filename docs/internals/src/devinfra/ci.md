@@ -125,6 +125,7 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 **纯文档快速通道**：改动**全部**是 `docs/**` 或 `*.md`（`docs/learn/**`、`examples/**` 除外——学习手册的
 示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`。改动集合：PR 取 PR 的文件列表，
 main push 取 `before...sha` 的 compare（新分支的全零 `before`、API 失败、到 compare 的 300 文件上限 ⇒ 当作非纯文档）。
+重命名的旧路径和新路径都参与分类。生产文件或学习手册页移入普通文档时，旧路径仍保留对应检查。
 `docs-check` 的内容：ci-bootstrap 的 `xtask-only`
 模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（先生成 reference stdlib 页，
 再查相对链接与文档结构）+ `xtask check diagcodes` + `xtask check layout`（测试类别与能力词表等机器清单对账）。
@@ -146,6 +147,7 @@ nightly 再 use」（见[编译器自举](../compiler/self-hosting.md)）的后�
 3. 同样判出本运行自己的 `sdk`，作为 `detect-changes` 的输出；`sdk == false` 时 `publish-nightly` skip（没有新东西可发）。
 
 按**累计**改动判、而不是只看那一个 commit：nightly 还没收进的 SDK 改动，后面每个运行都带着，它们也得能发布。
+重命名同时检查 `filename` 与 `previous_filename`。生产文件移入私有测试目录时，其删除仍影响 SDK。
 
 「不影响 SDK」= 改动的文件**全部**落在下面这些路径里；其余一律算影响（含 xtask 的 build / package / common /
 install、`ci.yml`、`.github/actions/`——它们决定 SDK 里装什么或怎么装）。拿不到 nightly、compare 结果被截断
