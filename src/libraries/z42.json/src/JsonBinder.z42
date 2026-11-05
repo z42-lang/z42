@@ -50,9 +50,13 @@ public static class JsonBinder {
         Type elem = JsonReflect.GenericArg(t, 0);
         object list = Activator.CreateInstance(t);
         int n = v.Count();
+        if (n == 0) { return list; }
+        MethodInfo add = JsonReflect.BindMethod(t, "Add", new Type[] { elem });
+        object[] args = new object[1];
         int i = 0;
         while (i < n) {
-            JsonReflect.ListAdd(list, JsonBinder.FromJson(elem, v.At(i)));
+            args[0] = JsonBinder.FromJson(elem, v.At(i));
+            add.Invoke(list, args);
             i = i + 1;
         }
         return list;
@@ -68,10 +72,15 @@ public static class JsonBinder {
         Type valT = JsonReflect.GenericArg(t, 1);
         object dict = Activator.CreateInstance(t);
         string[] keys = v.Keys();
+        if (keys.Length == 0) { return dict; }
+        MethodInfo setter = JsonReflect.BindMethod(t, "set_Item", new Type[] { keyT, valT });
+        object[] args = new object[2];
         int i = 0;
         while (i < keys.Length) {
             string k = keys[i];
-            JsonReflect.DictSet(dict, k, JsonBinder.FromJson(valT, v.Get(k)));
+            args[0] = k;
+            args[1] = JsonBinder.FromJson(valT, v.Get(k));
+            setter.Invoke(dict, args);
             i = i + 1;
         }
         return dict;

@@ -1,4 +1,5 @@
 namespace Std.Json;
+using Std.Reflection;
 
 /// 对象 ↔ JSON 序列化：经反射在用户对象与 JSON 文本之间直转。
 ///
@@ -41,31 +42,41 @@ public static class JsonSerializer {
         string baseFn = fn;
         int lt = fn.IndexOf("<");
         if (lt >= 0) { baseFn = fn.Substring(0, lt); }
-        if (baseFn == "Std.Collections.List")       { return JsonSerializer._listToJson(o); }
-        if (baseFn == "Std.Collections.Dictionary") { return JsonSerializer._dictToJson(o); }
+        if (baseFn == "Std.Collections.List")       { return JsonSerializer._listToJson(o, t); }
+        if (baseFn == "Std.Collections.Dictionary") { return JsonSerializer._dictToJson(o, t); }
         return JsonSerializer._objectToJson(o, t);
     }
 
     // List<T> → JSON array（反射 Count + get_Item 遍历，元素按运行期类型递归）。
-    private static JsonValue _listToJson(object o) {
+    private static JsonValue _listToJson(object o, Type t) {
         JsonValue arr = JsonValue.OfArray();
-        int n = JsonReflect.ListCount(o);
+        int n = JsonReflect.ListCount(o, t);
+        if (n == 0) { return arr; }
+        MethodInfo getter = JsonReflect.BindMethod(t, "get_Item", new Type[] { typeof(int) });
+        object[] args = new object[1];
         int i = 0;
         while (i < n) {
-            arr.Add(JsonSerializer._toJson(JsonReflect.ListGet(o, i)));
+            args[0] = i;
+            arr.Add(JsonSerializer._toJson(getter.Invoke(o, args)));
             i = i + 1;
         }
         return arr;
     }
 
     // Dictionary<string,V> → JSON object（反射 Keys + get_Item，键为字符串）。
-    private static JsonValue _dictToJson(object o) {
+    private static JsonValue _dictToJson(object o, Type t) {
         JsonValue obj = JsonValue.OfObject();
-        string[] keys = JsonReflect.DictKeys(o);
+        MethodInfo keysMethod = JsonReflect.BindMethod(t, "Keys", new Type[0]);
+        string[] keys = (string[])keysMethod.Invoke(o, new object[0]);
+        if (keys.Length == 0) { return obj; }
+        Type keyType = JsonReflect.GenericArg(t, 0);
+        MethodInfo getter = JsonReflect.BindMethod(t, "get_Item", new Type[] { keyType });
+        object[] args = new object[1];
         int i = 0;
         while (i < keys.Length) {
             string k = keys[i];
-            obj.Set(k, JsonSerializer._toJson(JsonReflect.DictGet(o, k)));
+            args[0] = k;
+            obj.Set(k, JsonSerializer._toJson(getter.Invoke(o, args)));
             i = i + 1;
         }
         return obj;

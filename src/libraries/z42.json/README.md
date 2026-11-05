@@ -24,7 +24,7 @@ JSON RFC 8259 reader / writer + **对象 ↔ JSON serde**（`JsonSerializer`）�
 | `src/JsonSerializer.z42` | 公开 serde API（`Serialize` / `SerializePretty` / `Deserialize<T>` / `Deserialize(Type,...)`）+ 序列化核 `_toJson` |
 | `src/JsonBinder.z42` | 反序列化反射核 `_fromJson`（按目标 Type 递归）+ 构造绑定（无参 ctor / 带参 ctor）|
 | `src/JsonMember.z42` | 字段 + 属性统一成员抽象 + 键名/忽略解析（`JsonMembers.For`）|
-| `src/JsonReflect.z42` | serde 反射底座（`__array_*` / `__property_custom_attributes` 的库自有 extern；自举 gen0-safe，见文件头注）|
+| `src/JsonReflect.z42` | 集合反射绑定（按完整参数签名查找、遍历内复用 MethodInfo 与调用参数；零 extern）|
 | `src/JsonPropertyAttribute.z42` / `src/JsonIgnoreAttribute.z42` | `[JsonProperty("name")]` / `[JsonIgnore]` |
 
 ## 入口点
