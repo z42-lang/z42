@@ -15,6 +15,12 @@ public class PropertyInfo : MemberInfo {
     /// 是否有 setter（`set_<Name>`）。
     public bool CanWrite;
 
+    /// 是否有公开的实例 getter。
+    public bool CanReadPublicInstance;
+
+    /// 是否有公开的实例 setter。
+    public bool CanWritePublicInstance;
+
     /// getter（`get_<Name>`）的全限定名（VM 在 __type_properties 里盖章）；无 getter 时为 null。
     ///
     /// GetValue 据此解析要调的函数。
