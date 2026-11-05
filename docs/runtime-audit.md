@@ -147,7 +147,7 @@ vm/
 
 **runtime 的「四不」**：不执行 z42 代码、不抛 z42 异常、不触发加载、不等待其他线程——只返回结果或「未加载 / 不存在」，由 exec 的慢路径请 loader 加载后重查。这是 runtime 不依赖 exec 的保证（现 resolver「查询时加载包、排空初始化队列」的环由此消除）。按此标准：类型初始化的**状态**归 `runtime/statics`、**执行**归 `exec/init`；字段偏移、派发目标、子类型判定等**查询与缓存**归 `runtime/dispatch`，指令的**执行语义**归 `exec/ops`。
 
-现 `VmCore` 39 个字段的去向：身份类（module、funcs、types、strings）、加载类（lazy_loader、context_registry、pending_type_inits 等）、初始化类（statics、cctors、static_init_error）分别进 runtime / loader；线程类（vm_contexts、gc_phase、parked_count、collector_active 等）进 threads；counters、observers、sampler、锁统计进 diagnostics；builtin 注册表归 runtime；jit 变成 exec 的引擎槽；**移出 vm**：processes / file_handles / tcp / tls / udp 七个 OS 资源表进 corelib 各模块的扩展状态，native_types / native_libs / pinned_owned_buffers 进 interop 的扩展状态，program_args 进门面。
+`VmCore` 组合线程协调、堆、运行时身份与静态状态、加载、诊断、执行和扩展状态。核心库的文件、进程和网络资源表与 interop 的原生资源由各自的扩展状态持有。门面在构造主 VM 时装配这些状态，并持有应用参数。
 
 ### 4.4 引擎、能力、工具、门面
 
@@ -158,7 +158,7 @@ vm/
 - **`debugger/`**：VM 进程内的调试代理（同 Node inspector / JVM JDWP 代理）。`engine/`（断点表——源位置经 metadata 行号表映射到 (FnId, pc)、条件与异常断点；step in / over / out；**默认全体暂停**，经 vm/threads 的 `suspend_all`，即路线图 Q14 的建议答案；帧 / 局部变量 / 对象检查；表达式求值复用 REPL 编译通道）+ `adapter/`（DAP：stdio / TCP 传输、会话分派，`z42vm --debug` 时起服务线程，feature `dap`）。前端（`z42d dbg`、VS Code 插件）不在 runtime 目录。前置：编译器把局部变量名与作用域写进 .zsym。
 - **`profiler/`**：`cpu/`（safepoint 采样，现 `profiler/cpu.rs`）、`alloc/`（TLAB 每满 N KB 采一次栈，对标 .NET AllocationTick / JFR）、`locks/`（锁争用探针，现 `corelib/sync_contention.rs`）、`heap/`（堆快照、保留链，现 `profiler/heap/snapshot.rs` / `profiler/heap/retention.rs`，遍历用 `gc/walk.rs`）、`coverage/`、`jitmap/`（perf map / jitdump）、`export/`（folded、chrome / perfetto trace、V8 heapsnapshot、pprof）。`Std.Diagnostics` 的剖析类 builtin 由它自己登记。
 - **监控 API（vm/diagnostics/monitor）**：工具槽 DEBUGGER / PROFILER / COVERAGE；事件含函数进出、行 / pc 单步、分支、异常抛出与捕获、分配采样、safepoint 采样、线程起止、模块加载与卸载、JIT 编译、GC 阶段；按函数开关，未开启的函数零成本，开启后解释器走插桩分派、JIT 函数回退解释器（deopt）。对标 CPython PEP 669、CoreCLR ICorDebug / ICorProfiler、JVMTI。
-- **门面（crate 根）**：`lib.rs`（Runtime、RuntimeBuilder）、`config/`（现 `config.rs` + `config/*`，`split.rs` 将门面设置转换为 GcConfig，VmConfig / JitConfig 随 L-7 拆分）、`app.rs`（现 app / boot / startup / vm）、`crash.rs`（现 `signal_handler.rs`，可选安装）。feature：jit、interop、debugger、profiler、net、tls、process、repl、mimalloc；平台预设是 feature 组合。
+- **门面（crate 根）**：`lib.rs`（Runtime、RuntimeBuilder）、`config/`（现 `config.rs` + `config/*`，`split.rs` 将门面设置转换为各子系统拥有的 `GcConfig` / `VmConfig` / `JitConfig`）、`app.rs`（现 app / boot / startup / vm）、`crash.rs`（现 `signal_handler.rs`，可选安装）。feature：jit、interop、debugger、profiler、net、tls、process、repl、mimalloc；平台预设是 feature 组合。
 - **hot-reload** 不设模块：loader 重载新版本包、runtime 做函数与类型的版本映射、exec/engine 负责 deopt 与替换，与调试器共用 deopt 和全体暂停。
 - 删除：`aot.rs`、`thread/`（空桩）。
 
@@ -204,11 +204,11 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 | ID | 类型 | 内容 | 验证要点 | 状态 |
 |---|---|---|---|---|
-| L-7 | refactor | VmCore 按子系统重组为状态组合；corelib 收尾（builtin ABI 移 vm/exec/call、OS 资源表移进扩展状态、corelib 不再引用 interp）；配置与启动编排移到门面层 | VmCore 无散字段；z42-host 嵌入与 C ABI 测试 | ⬜ |
 | L-8 | — | 物理拆 crate：暂不做，VM 保持单 crate、各层是 `src/runtime/src/<模块>/`（User 2026-10-29）；以后是否拆另议 | — | ⏸ |
 | L-9 | feature | 监控 API（vm/diagnostics/monitor）→ debugger（0.8.x，前置：.zsym 局部变量信息）→ profiler 的分配采样与覆盖率；AOT（M9）时拆出 codegen | 各自立项，动工前出方案 | ⬜ |
 
-依赖与顺序：L-7 基于已有 object、runtime、loader 分层及 Engine / TierApi 注册边界继续收敛。
+现有的 VM 状态组合、组件注册与门面装配见[组件化运行时](internals/src/runtime/componentized-runtime.md)，
+宿主与应用共用的启动步骤见[嵌入宿主](internals/src/runtime/embedding.md)。
 
 以下 6.2–6.4 依据 §1 与 2026-10-28 一轮只读代码审读。排序按预期收益；「结构性」项属阶段 2，动工前需 User 确认方案。行号对应审读时的 main `bd14a4958`。
 
