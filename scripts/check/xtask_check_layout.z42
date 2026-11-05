@@ -14,7 +14,8 @@
 //      不红、不报，只是从此没人跑它。typo 和「规划中、运行期还没报」的能力名都是这个下场。
 //   ④ build/ 只放编译产物、逐路径镜像 src/；其余中间物在 intermediate/，同样镜像 src/
 //      （artifacts-layout.md §1）。机械可判的部分：
-//        · build/ 的一级目录、以及 build/{compiler,libraries,toolchain}/ 的二级目录，都在 src/ 下有同名目录
+//        · build/ 的一级目录在 src/ 下有同名目录；compiler/libraries/toolchain 的二级 owner
+//          对应源目录名或 workspace 成员的 project.name
 //          —— 谁再往 build/ 下随手建一个工作目录或快照目录，当场红。
 //        · intermediate/ 的一级目录 ⊆ src/ 一级目录 ∪ {xtask}。
 //      不存在的目录（新克隆、只跑本门）跳过。
@@ -27,6 +28,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Collections;
+using Z42.Project;
 
 string _tlDocPath(string root) { return Path.Join(root, "docs/internals/src/devinfra/test-layout.md"); }
 
@@ -258,7 +260,7 @@ int _tlCheckBuildMirror(string root) {
             if (d != "compiler" && d != "libraries" && d != "toolchain") { continue; }
             foreach (var e in _enumDirsSorted(Path.Join(build, d))) {
                 checkedDirs = checkedDirs + 1;
-                if (!Directory.Exists(Path.Join(Path.Join(src, d), e))) { bad = bad + _tlMirrorBad(root, Path.Join(Path.Join(build, d), e)); }
+                if (!_tlHasBuildOwner(root, d, e)) { bad = bad + _tlMirrorBad(root, Path.Join(Path.Join(build, d), e)); }
             }
         }
     }
@@ -274,9 +276,21 @@ int _tlCheckBuildMirror(string root) {
     return bad;
 }
 
+// workspace 的产物可按 project.name 命名，成员源码目录名不必相同。
+bool _tlHasBuildOwner(string root, string group, string name) {
+    string source = Path.Join(Path.Join(root, "src"), group);
+    if (Directory.Exists(Path.Join(source, name))) { return true; }
+    string workspace = Path.Join(source, "z42.workspace.toml");
+    if (!File.Exists(workspace)) { return false; }
+    foreach (var toml in _workspaceProjects(workspace)) {
+        if (ManifestLoader.Load(toml).Project.Name == name) { return true; }
+    }
+    return false;
+}
+
 int _tlMirrorBad(string root, string dir) {
     string rel = _layoutRel(root, dir, true);
-    ConsoleError.WriteLine("  ✗ artifacts/" + rel + " 在 src/ 下没有对应目录 —— build/ 只放编译产物，其余放 intermediate/，"
+    ConsoleError.WriteLine("  ✗ artifacts/" + rel + " 没有对应源目录或 workspace 成员 —— build/ 只放编译产物，其余放 intermediate/，"
         + "都镜像 owner 在 src/ 下的位置（_buildMirror / _workOut / _compilerWsWork，见 scripts/common/xtask_layout.z42）。"
         + "旧布局的残留直接删掉：rm -rf artifacts/" + rel);
     return 1;

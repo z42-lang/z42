@@ -125,17 +125,27 @@ string _changedGateSkips(string base_) {
 }
 
 // Map every changed file (_mapFile) into a de-duped plan. needsFull on any file
-// collapses the whole plan to the full gate ("xtask test").
+// replaces covered commands with the full gate; checks outside GREEN remain required.
 string[] _buildChangedPlan(string[] changed) {
     var plan = new List<string>();
+    var outside = new List<string>();
+    bool full = false;
     foreach (var f in changed) {
         _MapResult m = _mapFile(f);
-        if (m.needsFull) { return new string[]{ "xtask test" }; }
+        full = full || m.needsFull;
         foreach (var cmd in m.commands) {
-            if (cmd.Length > 0 && !plan.Contains(cmd)) { plan.Add(cmd); }
+            if (cmd.Length == 0) { continue; }
+            if (!plan.Contains(cmd)) { plan.Add(cmd); }
+        }
+        foreach (var cmd in m.outsideCommands) {
+            if (cmd.Length > 0 && !outside.Contains(cmd)) { outside.Add(cmd); }
         }
     }
-    return plan.ToArray();
+    if (!full) { return plan.ToArray(); }
+    var all = new List<string>();
+    all.Add("xtask test");
+    all.AddRange(outside.ToArray());
+    return all.ToArray();
 }
 
 // Run each plan command in order; first failure short-circuits. Returns the
@@ -179,11 +189,13 @@ class _MapResult {
     public string[] commands;
     public string[] stages;   // 受影响的 gate stage（skip 短名；见 _changedScopedStages）
     public bool needsFull;
+    public string[] outsideCommands; // 完整 GREEN 未覆盖的命令，全量回退时仍须执行。
 
     public _MapResult() {
         this.commands = new string[0];
         this.stages = new string[0];
         this.needsFull = false;
+        this.outsideCommands = new string[0];
     }
 }
 
@@ -194,6 +206,22 @@ _MapResult _mapCmds(string[] cmds, string[] stages) {
     r.commands = cmds;
     r.stages = stages;
     return r;
+}
+_MapResult _mapOutsideGate(string command) {
+    return _mapOutsideGate(command, new string[0], new string[0]);
+}
+_MapResult _mapOutsideGate(string command, string[] covered, string[] stages) {
+    var commands = new List<string>();
+    commands.Add(command);
+    commands.AddRange(covered);
+    _MapResult r = _mapCmds(commands.ToArray(), stages);
+    r.outsideCommands = new string[]{ command };
+    return r;
+}
+_MapResult _mapRuntimeChange(bool production) {
+    string[] covered = production ? new string[]{ "xtask test e2e" } : new string[0];
+    string[] stages = production ? _withStage(_stagesAllZ42(), "rust-units") : new string[]{ "rust-units" };
+    return _mapOutsideGate("xtask test runtime", covered, stages);
 }
 _MapResult _mapFull() {
     var r = new _MapResult();
@@ -237,16 +265,20 @@ _MapResult _mapFile(string f) {
     if (f.StartsWith("src/runtime/src/") || f == "src/runtime/Cargo.toml"
         || f == "src/runtime/Cargo.lock" || f == "src/runtime/build.rs") {
         // VM 一变，每个执行 z42 代码的 stage 都受影响（gate 侧全集 + Rust 单测；本地仍是两条窄命令）。
-        return _mapCmds(new string[]{ "xtask test runtime", "xtask test e2e" }, _withStage(_stagesAllZ42(), "rust-units"));
+        return _mapRuntimeChange(true);
     }
     if (f.StartsWith("src/runtime/tests/")) {
-        return _mapCmds(new string[]{ "xtask test runtime" }, new string[]{ "rust-units" });
+        return _mapRuntimeChange(false);
     }
     // harness 驱动的夹具（`<component>/tests/fixtures/<suite>/`，见 test-layout.md）只喂自己的 harness，
     // 必须排在下面 src/compiler/ 与 src/toolchain/ 的整组件映射之前。
     if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }, new string[]{ "cross-zpkg" }); }
     if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/multi-exe/"))  { return _mapCmds(new string[]{ "xtask test e2e --dir multi-exe" }, new string[]{ "multi-exe" }); }
     if (f.StartsWith("src/toolchain/builder/tests/fixtures/"))                 { return _mapCmds(new string[]{ "xtask test toolchain builder" }, new string[]{ "toolchain", "targets" }); }
+    // 桌面 SDK 验证归 package sdk --verify，不属于 GREEN 的任何 stage。
+    if (f.StartsWith("scripts/test/sdk/") || f.StartsWith("src/toolchain/launcher/tests/fixtures/package/")) {
+        return _mapOutsideGate("xtask package sdk --verify");
+    }
     // src/benches/ — whole-program timing scenarios, probe, schema, verdict fixtures.
     // Not `test e2e` (they're not goldens) and not _mapSkip: a scenario broken by an
     // edit (won't compile, Main moved) would otherwise stay invisible until bench-pr.yml
@@ -255,7 +287,7 @@ _MapResult _mapFile(string f) {
     // subtree: probe/ and the schema feed the same pipeline, and over-matching only
     // costs one quick run.
     // gate 里没有 src/benches 的 stage（bench 场景归 bench-pr.yml）；e2e goldens 与 layout 恒跑。
-    if (f.StartsWith("src/benches/"))            { return _mapCmds(new string[]{ "xtask bench --quick" }, new string[0]); }
+    if (f.StartsWith("src/benches/"))            { return _mapOutsideGate("xtask bench --quick"); }
     if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test e2e", "xtask check layout" }, new string[0]); }
 
     // 编译器私有用例不改变生产 IR；bench helper 也可能被 codegen 单元 include，保留 compiler。
@@ -285,8 +317,8 @@ _MapResult _mapFile(string f) {
         return _mapCmds(new string[]{ "xtask test stdlib", "xtask test toolchain" }, new string[]{ "stdlib", "toolchain" });
     }
 
-    // All xtask CLI source is ONE compiled xtask.zpkg, so any script change rebuilds the
-    // whole CLI → full sweep. Shell install scripts + workspace config too.
+    // 共享脚本与未细分脚本影响整个 CLI，保留全量；SDK 私有验证已按职责单独映射。
+    // Shell install scripts + workspace config too.
     if (f.StartsWith("scripts/") || f.EndsWith(".workspace.toml")) { return _mapFull(); }
     // Anything else under src/ → full sweep (defensive).
     if (f.StartsWith("src/")) { return _mapFull(); }

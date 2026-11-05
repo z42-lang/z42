@@ -29,6 +29,8 @@ int _selfcheckChangedGit() {
         _gateAssert(String.Join(",", files) == "README.md,src/runtime/tests/new.rs", "tracked and untracked Git changes");
         _gateAssert(!_skipHas(_changedGateSkips("HEAD"), "rust-units"), "untracked runtime test keeps Rust units");
 
+        _checkSdkChangedGit(dir);
+
         // rev-parse 仍成功，但 diff / ls-files 会因损坏索引失败。
         File.WriteAllText(fixtureIndex, "bad index");
         _gateAssert(_isInGitRepo(), "bad-index fixture is still a Git repository");
@@ -46,4 +48,24 @@ int _selfcheckChangedGit() {
     }
     Console.WriteLine("  ✅ changed Git: clean, tracked/untracked, bad index, invalid base");
     return 0;
+}
+
+void _checkSdkChangedGit(string dir) {
+    File.WriteAllText(Path.Join(dir, "README.md"), "base\n");
+    File.Delete(Path.Join(dir, "src/runtime/tests/new.rs"));
+    string sdk = Path.Join(dir, "scripts/test/sdk");
+    Directory.Create(sdk);
+    File.WriteAllText(Path.Join(sdk, "new.z42"), "// untracked SDK verifier\n");
+    string fixture = Path.Join(dir, "src/toolchain/launcher/tests/fixtures/package/case");
+    Directory.Create(fixture);
+    File.WriteAllText(Path.Join(fixture, "expect.toml"), "# SDK fixture\n");
+    _gateAssert(String.Join(";", _buildChangedPlan(_changedFiles("HEAD"))) == "xtask package sdk --verify",
+        "real Git SDK roles select one verification command");
+    _gateAssert(_changedGateSkips("HEAD") == String.Join(",", _changedScopedStages()),
+        "SDK verification does not claim GREEN stages");
+    Directory.Create(Path.Join(dir, "scripts/common"));
+    File.WriteAllText(Path.Join(dir, "scripts/common/shared.z42"), "// untracked shared script\n");
+    _gateAssert(String.Join(";", _buildChangedPlan(_changedFiles("HEAD"))) == "xtask test;xtask package sdk --verify",
+        "real Git full fallback preserves SDK verification");
+    _gateAssert(_testChangedRun("HEAD", true) == 0, "mixed SDK dry run");
 }

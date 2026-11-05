@@ -6,7 +6,7 @@
 这些：发布态的解析路径（`Z42_HOME`、`programs/z42c/`、launcher 由自己的位置找 SDK）和开发树是不同的几档。
 
 每个子目录是一个用例：最小工程 + `expect.toml`；原因不显然的用例目录里另有 README。由 `xtask package sdk --verify` 跑
-（定义在 `scripts/package/xtask_package_verify.z42` 的 `_distFixtureSuite`）：整棵目录暂存到系统临时目录（**仓库外**，
+（定义在 `scripts/test/sdk/xtask_package_verify.z42` 的 `_distFixtureSuite`）：整棵目录暂存到系统临时目录（**仓库外**，
 用户工程不会在 z42 仓库里），全部通过后删掉，有失败时保留并打印路径。
 
 `expect.toml` 的格式（单步 / 多步、`copy` / `remove` / `check`、`os`、全部断言键、`tags`、通用占位符 `{case}` /

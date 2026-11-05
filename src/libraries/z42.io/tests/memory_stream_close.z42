@@ -1,0 +1,146 @@
+namespace Z42IoMemoryStreamCloseTests;
+
+using Std.IO;
+using Std.Harness;
+
+[Test]
+void test_closed_writable_stream_has_no_capabilities() {
+    var stream = new MemoryStream();
+    stream.Close();
+    Assert.False(stream.CanRead());
+    Assert.False(stream.CanWrite());
+    Assert.False(stream.CanSeek());
+}
+
+[Test]
+void test_closed_readonly_stream_has_no_capabilities() {
+    var stream = new MemoryStream(new byte[2]);
+    stream.Close();
+    Assert.False(stream.CanRead());
+    Assert.False(stream.CanWrite());
+    Assert.False(stream.CanSeek());
+}
+
+[Test]
+void test_closed_stream_rejects_read_even_at_eof_and_zero_count() {
+    var stream = new MemoryStream();
+    stream.Close();
+    byte[] buffer = new byte[1];
+    bool read = false;
+    bool empty = false;
+    try { stream.Read(buffer, 0, 1); } catch (InvalidOperationException e) { read = true; }
+    try { stream.Read(buffer, 0, 0); } catch (InvalidOperationException e) { empty = true; }
+    Assert.True(read);
+    Assert.True(empty);
+}
+
+[Test]
+void test_closed_stream_rejects_write_even_with_zero_count() {
+    var stream = new MemoryStream();
+    stream.Close();
+    byte[] buffer = new byte[1];
+    bool write = false;
+    bool empty = false;
+    try { stream.Write(buffer, 0, 1); } catch (InvalidOperationException e) { write = true; }
+    try { stream.Write(buffer, 0, 0); } catch (InvalidOperationException e) { empty = true; }
+    Assert.True(write);
+    Assert.True(empty);
+}
+
+[Test]
+void test_closed_readonly_stream_reports_closed_before_readonly() {
+    var stream = new MemoryStream(new byte[1]);
+    stream.Close();
+    bool caught = false;
+    try { stream.Write(new byte[1], 0, 1); } catch (InvalidOperationException e) { caught = true; }
+    Assert.True(caught);
+}
+
+[Test]
+void test_closed_stream_rejects_position_length_and_seek() {
+    var stream = new MemoryStream();
+    stream.Close();
+    bool position = false;
+    bool length = false;
+    bool seek = false;
+    try { stream.Position(); } catch (InvalidOperationException e) { position = true; }
+    try { stream.Length(); } catch (InvalidOperationException e) { length = true; }
+    try { stream.Seek(0L, SeekOrigin.Begin); } catch (InvalidOperationException e) { seek = true; }
+    Assert.True(position);
+    Assert.True(length);
+    Assert.True(seek);
+}
+
+[Test]
+void test_closed_stream_rejects_new_snapshot_but_keeps_existing_copy() {
+    var stream = new MemoryStream();
+    stream.WriteByte((byte)7);
+    byte[] snapshot = stream.ToArray();
+    stream.Close();
+    bool caught = false;
+    try { stream.ToArray(); } catch (InvalidOperationException e) { caught = true; }
+    Assert.True(caught);
+    Assert.Equal(1, snapshot.Length);
+    Assert.Equal(7, (int)snapshot[0]);
+}
+
+[Test]
+void test_close_and_flush_are_repeatable() {
+    var stream = new MemoryStream();
+    stream.Close();
+    stream.Flush();
+    stream.Close();
+    stream.Close();
+    Assert.False(stream.CanRead());
+}
+
+[Test]
+void test_closing_readonly_view_preserves_callers_array() {
+    byte[] data = new byte[2];
+    data[0] = (byte)7;
+    var stream = new MemoryStream(data);
+    stream.Close();
+    Assert.Equal(7, (int)data[0]);
+    data[1] = (byte)9;
+    Assert.Equal(9, (int)data[1]);
+}
+
+WeakHandle BorrowSource(MemoryStream[] holder) {
+    byte[] data = new byte[32];
+    data[0] = (byte)7;
+    var weak = WeakHandle.MakeWeak(data);
+    holder[0] = new MemoryStream(data);
+    return weak;
+}
+
+[Test]
+void test_close_releases_the_borrowed_backing_array() {
+    MemoryStream[] holder = new MemoryStream[1];
+    var weak = BorrowSource(holder);
+    Assert.True(weak != null);
+    Assert.Equal(7, holder[0].ReadByte());
+    holder[0].Close();
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.False(holder[0].CanRead());
+}
+
+[Test]
+void test_writer_close_keeps_underlying_memory_stream_open() {
+    var stream = new MemoryStream();
+    var writer = new StreamWriter(stream);
+    writer.Write("hello");
+    writer.Close();
+    Assert.True(stream.CanWrite());
+    Assert.Equal(5, stream.ToArray().Length);
+}
+
+[Test]
+void test_buffered_close_keeps_underlying_memory_stream_open() {
+    var stream = new MemoryStream();
+    var buffered = new BufferedStream(stream, 4);
+    buffered.Write(new byte[2], 0, 2);
+    buffered.Close();
+    Assert.True(stream.CanWrite());
+    Assert.Equal(2L, stream.Length());
+}

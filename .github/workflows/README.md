@@ -24,7 +24,7 @@
 | `changes`（detect-changes） | 总是 | 按路径分类，并输出下游测试和打包任务的选择结果 |
 | `docs-check` | 仅文档改动 | `xtask test docs links` 死链门禁 + `xtask check diagcodes` + `xtask check layout` |
 | `build-and-test`（test-host） | 非纯文档 | 多平台 `xtask build` + `xtask test` |
-| `host-package`（package-host） | platform / examples 改动或非 PR | 各 host RID 的 package 产物 |
+| `host-package`（package-host） | platform / sdk_checks / examples 改动或非 PR | 各 host RID 的 package 产物 |
 | `toolchain-bootstrap`（compile-toolchain） | 非纯文档 | 编译 toolchain（z42c / stdlib / xtask zpkg）供下游 job 消费 |
 | `assemble-current-sdk` / `consume-current-sdk` | 随 CI | 当前源码组装 SDK、再消费它跑测试 |
 | `vm-jit-consistency` / `stdlib-jit-consistency` / `stdlib-interp-consistency` | vm / stdlib / compiler 改动或 schedule / dispatch | VM / 标准库在 JIT 与 interp 下的一致性，分 shard |
@@ -39,7 +39,9 @@
 
 - **用例归属与选测**：新增用例按[测试用例组织规范](../../docs/internals/src/devinfra/test-layout.md#1-用例放哪)选择目录、形态和本地执行器；修改 workflow 时分别核对[构建前提、测试与发布边界](../../docs/internals/src/devinfra/ci.md#构建测试与发布的选择边界)，工程归属与用例能力不在 YAML 里另抄一份名单。
 - **统一入口**：workflow 只调 `xtask <cmd>`，不在 yaml 里硬编码构建 / 测试命令。
+- **测试基线**：PR 使用 PR base，main push 使用事件的 `before`；初次 push、无法验证基线、定期 / 手动运行保留全量。基线选择与回归在 [CI 控制目录](../ci/README.md)，发布仍使用 nightly 的累计 SDK 差异。
 - **夹具触发范围**：builder 的私有 `tests/` 走宿主夹具检查；路径筛选使用 `some-with-excludes`，从 platform / stdlib 排除它们，生产输入与 CI 自身改动仍触发相应专项。
+- **SDK 验证**：`scripts/test/sdk/` 与 launcher 的发行包私有夹具只选择四个桌面 host package；打包生产实现继续选择设备 / 浏览器消费者，无需逐用例平台配置。
 - **Runtime 私有测试**：顶层 Rust 测试与已确认的纯测试数据由四个平台的完整 Rust harness 覆盖；`runtime_checks` 保留它们，`vm` / `platform` 排除它们。build.rs 使用的 `numz42-c`、未知数据、生产输入、混合改动及定期全量继续保留消费者。
 - **自举**：CI 从上一个 nightly（取不到则回退 main 上最近成功 CI 的产物）的 SDK 起步，自己编当前源码；机制见 [CI 拓扑 · 自举种子从哪来](../../docs/internals/src/devinfra/ci.md)。
 - **缓存**：Rust 依赖用 Swatinem `rust-cache`，bench 缓存由 main 上的 `bench-cache-warm` 预热。
@@ -52,7 +54,8 @@ CI 只能在 GitHub 上跑；本地对应的门禁是 `xtask test docs links`（
 
 夜间资产上传由 `../ci/upload_release_assets.py` 逐项执行，每项核对远端摘要、大小与上传状态；瞬时 GitHub/连接错误及收据缺失或不一致做有界退避重试；权限/参数错误及重试耗尽仍让发布失败。
 
-恢复规则与上传重试回归测试：`python3 -m unittest discover -s .github/ci -p 'test_*.py'`，PR 的 `detect-changes` 同样执行。
+CI 供种、恢复规则与上传重试回归测试：`python3 -B -m unittest discover -s .github/ci -p 'test_*.py'`，PR 的 `detect-changes` 同样执行。
+`test_ci_bootstrap.py` 执行 composite action 的实际 Bash 块，以 SDK 命令探针检查轻量 / 完整模式的构建边界、格式代差和编译失败。
 
 ## 关联文档
 

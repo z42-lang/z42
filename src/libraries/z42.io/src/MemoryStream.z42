@@ -2,6 +2,8 @@ namespace Std.IO;
 
 
 /// byte[] 支撑的内存流，支持「空且可增长可写」与「对已有数组的只读视图」两种构造模式。
+///
+/// Close 后释放缓冲引用；读写、定位、长度/位置查询和 ToArray 抛 InvalidOperationException。
 public class MemoryStream : Stream {
     private byte[] _buffer;
     private int    _length;
@@ -26,17 +28,18 @@ public class MemoryStream : Stream {
 
     // ── 能力 ───────────────────────────────────────────────────
 
-    /// 是否可读；恒为 true。
-    public override bool CanRead()  { return true; }
-    /// 是否可写；只读视图为 false。
-    public override bool CanWrite() { return this._writable; }
-    /// 是否可定位；恒为 true。
-    public override bool CanSeek()  { return true; }
+    /// 是否可读；关闭后为 false。
+    public override bool CanRead()  { return this._buffer != null; }
+    /// 是否可写；只读视图或关闭后为 false。
+    public override bool CanWrite() { return this._buffer != null && this._writable; }
+    /// 是否可定位；关闭后为 false。
+    public override bool CanSeek()  { return this._buffer != null; }
 
     // ── 读 ─────────────────────────────────────────────────────
 
     /// 从当前位置填充 buffer[offset..offset+count]，返回实际读到的字节数，0 = EOF。
     public override int Read(byte[] buffer, int offset, int count) {
+        if (this._buffer == null) throw new InvalidOperationException("MemoryStream: stream is closed");
         if (offset < 0 || count < 0 || offset + count > buffer.Length) {
             throw new ArgumentException("Read: buffer / offset / count out of range");
         }
@@ -57,6 +60,7 @@ public class MemoryStream : Stream {
 
     /// 从当前位置写入 buffer[offset..offset+count]；只读视图抛 NotSupportedException。
     public override void Write(byte[] buffer, int offset, int count) {
+        if (this._buffer == null) throw new InvalidOperationException("MemoryStream: stream is closed");
         if (!this._writable) {
             throw new NotSupportedException("Write: MemoryStream is read-only");
         }
@@ -82,16 +86,19 @@ public class MemoryStream : Stream {
 
     /// 当前内容的字节长度。
     public override long Length() {
+        if (this._buffer == null) throw new InvalidOperationException("MemoryStream: stream is closed");
         return (long)this._length;
     }
 
     /// 当前读写位置。
     public override long Position() {
+        if (this._buffer == null) throw new InvalidOperationException("MemoryStream: stream is closed");
         return (long)this._position;
     }
 
     /// 相对 origin 定位；结果位置为负或超过 int 上限时抛 ArgumentException。
     public override long Seek(long offset, int origin) {
+        if (this._buffer == null) throw new InvalidOperationException("MemoryStream: stream is closed");
         long basePos;
         if (origin == SeekOrigin.Begin) {
             basePos = 0L;
@@ -121,15 +128,20 @@ public class MemoryStream : Stream {
     public override void Flush() {
     }
 
-    /// 关闭并释放内部缓冲引用；此后读写将抛错。
+    /// 关闭并释放内部缓冲引用；幂等。
+    ///
+    /// 此后访问方法抛 InvalidOperationException，Flush 仍为空操作。
     public override void Close() {
-        // 丢弃缓冲引用以便 GC 回收；后续读写通过标准空引用路径抛错。
+        this._buffer = null;
     }
 
     // ── MemoryStream 专属扩展 ────────────────────────────────
 
     /// 返回当前 [0, Length) 内容的独立副本，与内部存储互不影响。
+    ///
+    /// 关闭后抛 InvalidOperationException；关闭前生成的快照仍可使用。
     public byte[] ToArray() {
+        if (this._buffer == null) throw new InvalidOperationException("MemoryStream: stream is closed");
         byte[] result = new byte[this._length];
         int i = 0;
         while (i < this._length) {
