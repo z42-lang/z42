@@ -1,6 +1,6 @@
 # 解释器 / JIT 标量语义的单一真相源
 
-> 代码：`src/runtime/src/vm/exec/ops/scalar.rs`（标量真相源）、`src/runtime/src/objops/`（对象操作真相源）、`src/runtime/src/interp/ops.rs` +
+> 代码：`src/runtime/src/vm/exec/ops/scalar.rs`（标量真相源）、`src/runtime/src/vm/exec/ops/object/`（对象操作真相源）、`src/runtime/src/interp/ops.rs` +
 > `interp/exec_value.rs`（interp 消费）、`src/runtime/src/jit/helpers/arith.rs` +
 > `jit/helpers/object.rs`（JIT helper 消费）、`src/runtime/src/jit/translate/emit_int.rs` +
 > `emit_fc.rs`（JIT 内联镜像）。
@@ -115,7 +115,7 @@ PIC 的命中点各设一道常驻断言（`vm::exec::ops::vcall::assert_pic_tar
 
 ### 对象操作：objops
 
-字段、数组、静态字段、值 struct 叶子的**读写语义**收在 `src/runtime/src/objops/`，两个引擎都只做适配：
+字段、数组、静态字段、值 struct 叶子的**读写语义**收在 `src/runtime/src/vm/exec/ops/object/`，两个引擎都只做适配：
 
 ```
 interp exec_*            ┐                       ┌ Ok(v)  → 写 dst 寄存器
@@ -138,7 +138,7 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 
 **错误通道只有一个**：`objops::OpError`。
 
-- `Throw { class, msg }`：用户可 `catch` 的异常。类与消息**只在 `objops/error.rs` 里写**：
+- `Throw { class, msg }`：用户可 `catch` 的异常。类与消息**只在 `vm/exec/ops/object/error.rs` 里写**：
 
   | 情形 | 异常类 | 消息 |
   |------|-------|------|

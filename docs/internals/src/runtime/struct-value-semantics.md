@@ -527,7 +527,7 @@ blob 紧凑排列，每个元素就是独立 blob 的布局，引用叶子是元
   + `FieldInfo.GetValue/SetValue` 反射装箱 struct 字段（见下「装箱引用身份 + struct 字段反射」节）。
 - **对象内联 struct 字段反射**：反射 `GetValue/SetValue` 读写
   `class C { Point pt; }` 的内联 struct 字段（复刻类级内联布局，见下同名节）。
-- **`Std.Array` 的无类型 / 批量原生**（`objops/array_bulk.rs`）：`get_boxed` / `set_boxed` 没有堆、对
+- **`Std.Array` 的无类型 / 批量原生**（`vm/exec/ops/object/array_bulk.rs`）：`get_boxed` / `set_boxed` 没有堆、对
   STRUCT 数组只有断言，所以这几个原生按两侧的模式选路——同一 struct 的两个数组之间 `CopyRange` 逐元素拷 blob
   （引用叶子经引用字写原语，同数组按 memmove 方向）；struct[] → 引用数组逐元素 `box_struct_blob`；引用数组 → struct[] 先整段校验是该
   struct 的装箱再逐元素拷入；`GetValue` 装箱元素快照；`SetValue` 只收该 struct 的装箱；`CreateInstance` 走

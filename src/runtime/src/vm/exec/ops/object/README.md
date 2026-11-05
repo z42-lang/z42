@@ -1,4 +1,4 @@
-# objops — 引擎无关的对象操作
+# VM object operations — 引擎无关的对象操作
 
 ## 职责
 
@@ -47,14 +47,14 @@ match objops::field::field_get(vm_ctx_ref(ctx), recv, name, ic) {
 ## 如何测试验证
 
 ```bash
-(cd src/runtime && cargo test --features z42-test-fixtures --lib objops)   # 本模块单测
+(cd src/runtime && cargo test --features z42-test-fixtures --lib vm::exec::ops::object::)   # 本模块单测
 ./xtask test e2e --dir exceptions        # objops_errors.z42 / null_receiver_call.z42：interp 与 JIT 逐条对照异常类与消息
 ./xtask test runtime                     # 含两侧适配层的映射单测
 ```
 
 ## 关联文档
 
-- 机制：[interp / JIT 语义单一真相源 · 对象操作：objops](../../../../docs/internals/src/runtime/interp-jit-semantics.md#对象操作objops)
+- 机制：[interp / JIT 语义单一真相源 · 对象操作：objops](../../../../../../../docs/internals/src/runtime/interp-jit-semantics.md#对象操作objops)
 - 对象模型改造（R0–R9）的计划：`docs/runtime-audit.md` §7「对象模型（M10 + M11）已定方案」
 
 ## 待办
