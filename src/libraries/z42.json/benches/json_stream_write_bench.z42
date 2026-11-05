@@ -1,0 +1,60 @@
+namespace Z42JsonStreamWriteBench;
+using Std.IO;
+using Std.Json;
+using Std.Harness;
+
+class CountingJsonSink : Stream {
+    public int Bytes;
+
+    public override void Write(byte[] buffer, int offset, int count) {
+        this.Bytes = this.Bytes + count;
+    }
+
+    public override void Flush() {}
+}
+
+void MeasureJsonWrites(string name, JsonValue value, bool pretty, int iterations) {
+    CountingJsonSink sink = new CountingJsonSink();
+    var bench = new Bencher(4, 24);
+    bench.iter(() => {
+        sink.Bytes = 0;
+        for (int i = 0; i < iterations; i++) {
+            if (pretty) { JsonValue.WriteToPretty(sink, value); }
+            else { JsonValue.WriteTo(sink, value); }
+        }
+        BenchHelpers.blackBox(sink.Bytes);
+    });
+    bench.printSummary(name);
+}
+
+JsonValue WideObject() {
+    JsonValue value = JsonValue.OfObject();
+    for (int i = 0; i < 200; i++) {
+        value.Set("key" + i.ToString(), JsonValue.OfLong((long)i));
+    }
+    return value;
+}
+
+[Benchmark]
+void json_stream_short() {
+    MeasureJsonWrites("json_stream_short", JsonValue.OfString("é中😀"), false, 256);
+}
+
+[Benchmark]
+void json_stream_wide() {
+    MeasureJsonWrites("json_stream_wide", WideObject(), false, 8);
+}
+
+[Benchmark]
+void json_stream_unicode_large() {
+    char[] chars = new char[16384];
+    for (int i = 0; i < chars.Length; i++) { chars[i] = '中'; }
+    MeasureJsonWrites("json_stream_unicode_large", JsonValue.OfString(String.FromChars(chars)), false, 4);
+}
+
+[Benchmark]
+void json_stream_pretty() {
+    JsonValue root = JsonValue.OfArray();
+    root.Add(WideObject());
+    MeasureJsonWrites("json_stream_pretty", root, true, 8);
+}
