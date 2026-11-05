@@ -36,6 +36,7 @@ int _selfcheckGateStages() {
 }
 
 void _checkChangedPlans() {
+    var owners = new _ChangedOwners(_root());
     _gateAssert(_buildChangedPlan(new string[]{ "README.md", ".gitignore" }).Length == 0,
         "documentation-only plan is empty");
     _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
@@ -55,17 +56,17 @@ void _checkChangedPlans() {
         "src/compiler/z42c.optimization/benches/cfg_bench.z42"
     })) == "xtask test compiler;xtask test stdlib;xtask bench stdlib z42c.optimization", "compiler private tests and bench union");
     foreach (var member in new string[]{ "z42c.emission", "z42.package", "z42.scripting" }) {
-        _gateAssert(String.Join(",", _mapFile("src/compiler/" + member + "/tests/unit/a.z42").stages) == "compiler,stdlib",
+        _gateAssert(String.Join(",", _mapFile("src/compiler/" + member + "/tests/unit/a.z42", owners).stages) == "compiler,stdlib",
             "compiler private tests keep both discovery formats");
     }
-    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.optimization/benches/cfg_bench.z42").stages) == "bench,compiler",
+    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.optimization/benches/cfg_bench.z42", owners).stages) == "bench,compiler",
         "private compiler benchmarks keep codegen consumers");
-    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.optimization/src/IrOpt.z42").stages)
+    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.optimization/src/IrOpt.z42", owners).stages)
         == String.Join(",", _stagesAllZ42()), "production compiler source keeps all consumers");
-    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/a/main.z42").stages)
+    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/a/main.z42", owners).stages)
         == "cross-zpkg", "compiler fixtures keep harness routing precedence");
     foreach (var file in new string[]{ "native_interop_e2e.rs", "data/numz42-c/numz42.c", "data/embedding_hello/source.z42" }) {
-        _MapResult m = _mapFile("src/runtime/tests/" + file);
+        _MapResult m = _mapFile("src/runtime/tests/" + file, owners);
         _gateAssert(String.Join(",", m.stages) == "rust-units", "private runtime tests keep Rust coverage");
         _gateAssert(String.Join(";", m.commands) == "xtask test runtime", "private runtime tests use full harness");
     }
@@ -75,10 +76,11 @@ void _checkChangedPlans() {
 }
 
 void _checkOutsideGatePlans() {
+    var owners = new _ChangedOwners(_root());
     string sdk = "scripts/test/sdk/xtask_package_verify.z42";
     string fixture = "src/toolchain/launcher/tests/fixtures/package/case/expect.toml";
     foreach (var path in new string[]{ sdk, fixture, "scripts/test/sdk/future.z42" }) {
-        _MapResult m = _mapFile(path);
+        _MapResult m = _mapFile(path, owners);
         _gateAssert(!m.needsFull && m.outsideCommands.Length == 1 && m.stages.Length == 0, "SDK verification belongs outside GREEN");
         _gateAssert(String.Join(";", m.commands) == "xtask package sdk --verify", "SDK role selects actual verification");
     }
@@ -98,8 +100,8 @@ void _checkOutsideGatePlans() {
         _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ runtime, "unknown.config" }))
             == "xtask test;xtask test runtime", "full GREEN does not replace runtime integration/doctests");
     }
-    _gateAssert(_mapFile("scripts/package/xtask_package_desktop.z42").needsFull, "production packaging keeps full coverage");
-    _gateAssert(_mapFile("scripts/test/sdk/README.md").commands.Length == 0, "SDK docs keep documentation routing");
+    _gateAssert(_mapFile("scripts/package/xtask_package_desktop.z42", owners).needsFull, "production packaging keeps full coverage");
+    _gateAssert(_mapFile("scripts/test/sdk/README.md", owners).commands.Length == 0, "SDK docs keep documentation routing");
 }
 
 void _checkGateRegistry(GateStage[] stages) {
