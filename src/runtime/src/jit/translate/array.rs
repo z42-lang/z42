@@ -226,15 +226,26 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     }
                 }
                 Instruction::ArrayLen { dst, arr } => {
-                    let d = self.ri(*dst); let a = self.ri(*arr);
-                    let inst = self.builder.ins().call(self.hr_array_len, &[self.frame_val, self.ctx_val, d, a]);
-                    let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                    #[cfg(target_pointer_width = "64")]
+                    self.emit_array_length(*dst, *arr, |cx| cx.array_len_helper(*dst, *arr));
+                    #[cfg(not(target_pointer_width = "64"))]
+                    self.array_len_helper(*dst, *arr);
                 }
 
                 // Objects
             _ => anyhow::bail!("tr_array: unexpected opcode in category dispatch"),
         }
         Ok(())
+    }
+
+    fn array_len_helper(&mut self, dst: u32, arr: u32) {
+        let dst = self.ri(dst);
+        let arr = self.ri(arr);
+        let call = self.builder.ins().call(
+            self.hr_array_len, &[self.frame_val, self.ctx_val, dst, arr],
+        );
+        let status = self.builder.inst_results(call)[0];
+        self.check(status);
     }
 }
 

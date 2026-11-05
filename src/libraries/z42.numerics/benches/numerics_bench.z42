@@ -9,35 +9,27 @@ using Std.Numerics;
 
 [Benchmark]
 void bench_bigint_parse() {
-    var b = new Bencher(2, 20);
-    b.iter(() => {
-        var v = BigInt.Parse("123456789012345678901234567890123456789012345678901234567890");
-        BenchHelpers.blackBox(v);
-    });
-    b.printSummary("bigint_parse");
+    var v = BigInt.Parse("123456789012345678901234567890123456789012345678901234567890");
+    BenchHelpers.blackBox(v);
 }
 
 [Benchmark]
-void bench_bigint_mul_add() {
+void bench_bigint_mul_add(Bencher b) {
     var a = BigInt.Parse("123456789012345678901234567890");
     var c = BigInt.Parse("987654321098765432109876543210");
-    var b = new Bencher(2, 20);
     b.iter(() => {
         BenchHelpers.blackBox(a.Multiply(c).Add(BigInt.One));
     });
-    b.printSummary("bigint_mul_add");
 }
 
 [Benchmark]
-void bench_bigint_modpow() {
+void bench_bigint_modpow(Bencher b) {
     var base_ = BigInt.Parse("1234567891");
     var exp = new BigInt(65537L);
     var mod = BigInt.Parse("9999999999999999961");
-    var b = new Bencher(2, 10);
     b.iter(() => {
         BenchHelpers.blackBox(base_.ModPow(exp, mod));
     });
-    b.printSummary("bigint_modpow");
 }
 
 // Smoke [Test] — bench bodies run + arithmetic sanity.
@@ -52,11 +44,9 @@ void test_numerics_bench_bodies_run() {
 }
 
 [Benchmark]
-void bench_bigint_tostring() {
+void bench_bigint_tostring(Bencher b) {
     var n = BigInt.Parse("123456789012345678901234567890123456789012345678901234567890");
-    var b = new Bencher(2, 20);
     b.iter(() => {
         BenchHelpers.blackBox(n.ToString());
     });
-    b.printSummary("bigint_tostring");
 }
