@@ -234,19 +234,21 @@ gh workflow run retry-ci-runner.yml --ref main -f run_id=<失败运行ID>
 
 | flag | 命中路径（节选） |
 |---|---|
-| `platform` | `src/runtime/**`（排除顶层 Rust 测试与纯测试数据）、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder 排除 `tests/**`）、`scripts/{package/**,packages.toml,install/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
+| `platform` | `src/runtime/**`（排除顶层 Rust 测试与纯测试数据）、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder、interactive、launcher 排除私有 `tests/`）、`scripts/{package/**,packages.toml,install/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{app,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
+| `sdk_checks` | `scripts/test/sdk/**`、`src/toolchain/launcher/tests/fixtures/package/**`（桌面发行包验证） |
 | `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
 | `compiler` | `src/compiler/**`（排除私有 `tests/**` 与 `benches/**`） |
 | `compiler_checks` | `src/compiler/**`（含私有用例）、`scripts/build/xtask_compiler*.z42`、`scripts/test/xtask_selfcheck_{selfhost,compiler_projects}.z42`、`src/toolchain/devtools/vscode/**` |
 | `vm` | `src/runtime/**`（含 `.cargo/`，排除顶层 Rust 测试与纯测试数据）、`scripts/test/xtask_test_runtime.z42` |
 | `runtime_checks` | `src/runtime/**`（含私有集成测试与数据）、`scripts/test/xtask_test_runtime.z42`；控制四个平台的完整 Rust harness |
-| `stdlib` | `src/libraries/**`、`src/compiler/**/tests/**`、`src/toolchain/builder/**`（排除 builder 的 `tests/**`；z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42`、`scripts/common/xtask_golden.z42` |
+| `stdlib` | `src/libraries/**`、`src/compiler/**/tests/**`、`src/toolchain/builder/**`（排除 builder 私有 `tests/`；z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42`、`scripts/common/xtask_golden.z42` |
 
 builder 的生产输入同时触发 `platform` 与 `stdlib`：z42b 既是 [Test] 执行器，它的 `publish`
 （apphost / iOS / Android 导出）又只在 `package-*` 里被执行，不能只跑标准库专项。
-私有 `src/toolchain/builder/tests/**` 不在发布源集中；PR 上由宿主的 builder 夹具检查覆盖，
-不触发无关的打包与标准库专项。路径筛选使用 `some-with-excludes`，仍是任一正向规则命中，
-但同一文件命中排除规则时剔除；混合修改里包含生产输入时，相关专项照常执行。
+builder、interactive、launcher 的私有 `tests/` 由桌面职责覆盖。REPL 单测走宿主的 toolchain 阶段，
+builder 夹具走宿主的 manifest targets 阶段，launcher 的发行包夹具由 `sdk_checks` 选择桌面 SDK 验证。
+平台宿主与编辑器资源仍按其打包输入选择。路径筛选使用 `some-with-excludes`，对每个文件分别判断正向和排除规则，
+混合改动中的生产输入仍选择对应专项。
 
 每个 filter 都额外包含 `.github/workflows/ci.yml` 自身 → **改 CI 保底全跑**。
 

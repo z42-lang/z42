@@ -97,14 +97,12 @@ jobs:
               # 安装脚本：package-host 用刚打出的包离线跑一遍（Installer smoke）。
               - 'scripts/install/**'
               - 'src/toolchain/launcher/**'
-              # SDK 私有夹具由桌面发行包验证消费，不触发设备 / 浏览器打包。
-              - '!src/toolchain/launcher/tests/fixtures/package/**'
               - 'src/toolchain/devtools/**'
               - 'src/toolchain/interactive/**'
               # z42b 的 publish（apphost / iOS / Android 导出）只在 package-* 里被执行。
               - 'src/toolchain/builder/**'
-              # 私有测试工程只由 host 的 builder 夹具检查消费，不参与发布。
-              - '!src/toolchain/builder/tests/**'
+              # 私有测试由宿主检查或 sdk_checks 消费。workload 与编辑器资源有独立的打包输入。
+              - '!src/toolchain/{builder,interactive,launcher}/**/tests/**'
               - 'scripts/common/xtask_fixture_harness.z42'
               - 'scripts/test/xtask_test_platform.z42'
               - 'scripts/test/xtask_test_app.z42'
@@ -162,7 +160,7 @@ jobs:
               # 编译器域的扁平 / [tests] 单元也归 stdlib runner；目录工程另由 compiler-checks 跑。
               - 'src/compiler/**/tests/**'
               - 'src/toolchain/builder/**'
-              - '!src/toolchain/builder/tests/**'
+              - '!src/toolchain/builder/**/tests/**'
               - 'scripts/test/xtask_test_lib*.z42'
               - 'scripts/test/xtask_manifest_targets.z42'
               - 'scripts/test/xtask_unit_projects.z42'
