@@ -8,6 +8,39 @@ use crate::gc::Heap;
 
 // ── 批量拷贝 ──
 impl ArrayObj {
+    /// Clear a checked range. MIXED and FROZEN use the caller's ordinary stores.
+    pub(crate) fn try_clear_elems(&self, index: usize, length: usize) -> anyhow::Result<bool> {
+        let mode = self.mode();
+        let range = index..index + length;
+        if mode.is_prim() {
+            let cells = self.cells();
+            let width = self.width();
+            for i in range {
+                cells.store_bits(i * width, width, 0);
+            }
+            return Ok(true);
+        }
+        match mode {
+            ArrayMode::Ref => {
+                let cells = self.cells();
+                for i in range {
+                    ref_word::store_word_recorded(&cells, i * REF_STRIDE, 0);
+                }
+            }
+            ArrayMode::Struct => {
+                let (cells, layout) = self.struct_cells()
+                    .ok_or_else(|| anyhow::anyhow!("missing struct array layout"))?;
+                let zeros = vec![0; layout.size];
+                for i in range {
+                    struct_blob::write(&cells, i * layout.size, layout.size, &zeros, &[],
+                        &layout.ref_offsets, &mut |_| {})?;
+                }
+            }
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
     /// Materialise all elements as a `Vec<Value>` (reflection, conversions).
     pub fn to_boxed_vec(&self) -> Vec<Value> {
         (0..self.len()).map(|i| self.get_boxed(i)).collect()

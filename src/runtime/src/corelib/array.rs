@@ -180,6 +180,21 @@ pub mod typed {
         Ok(())
     }
 
+    #[builtin(name = "__array_try_clear_range")]
+    pub fn try_clear_range(array: &Value, index: i64, length: i64) -> Result<bool, BuiltinError> {
+        let Value::Array(array) = array else { return Ok(false) };
+        let index = non_negative("__array_try_clear_range", "index", index)?;
+        let length = non_negative("__array_try_clear_range", "length", length)?;
+        let a = array.borrow();
+        let len = a.len();
+        if index > len || length > len - index {
+            return Err(BuiltinError::ArgumentOutOfRange(format!(
+                "__array_try_clear_range: index {index}, length {length}, array length {len}",
+            )));
+        }
+        a.try_clear_elems(index, length).map_err(|err| BuiltinError::Internal(err.to_string()))
+    }
+
     /// `List<T>.Sort()` / `Array.Sort<T>(T[])` 的基元快路径 — stable-sort
     /// `array[0, count)` natively when every element there is one primitive kind
     /// (int-like / double / char / string), in exactly the order the elements' own

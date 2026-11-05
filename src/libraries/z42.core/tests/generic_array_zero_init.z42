@@ -166,3 +166,13 @@ void test_erased_clear_resets_struct_leaves() {
     Assert.Equal(22, pairs[1].Count);
     Assert.Equal("留", pairs[1].Name);
 }
+
+[Test]
+void test_erased_clear_preserves_primitive_default() {
+    int[] values = Make<int>(2);
+    values[0] = 11;
+    values[1] = 22;
+    Array.Clear<int>(values, 1, 1);
+    Assert.Equal(11, values[0]);
+    Assert.Equal(0, values[1]);
+}
