@@ -28,6 +28,7 @@ internal class JsonWriteBuffer {
     private bool _pretty;
     private int _depth;
 
+    /// 为单次遍历初始化片段数组和排版配置。
     public JsonWriteBuffer(bool pretty) {
         this._parts = new string[64];
         this._n = 0;
@@ -35,6 +36,7 @@ internal class JsonWriteBuffer {
         this._depth = 0;
     }
 
+    /// 遍历一个值并拼接完整文档。每个缓冲实例调用一次。
     public string Write(JsonValue v) {
         this.WriteValue(v);
         return String.ConcatParts(this._parts, this._n);
