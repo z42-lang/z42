@@ -1,7 +1,8 @@
-// embedded bundle 构建回归：部分编译失败必须使整包失败，且不能留下上一轮的 manifest。
+// embedded bundle 回归：RID 类别选样、分片全覆盖、编译失败不发布旧 manifest。
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Cli;
 using Std.Json;
 
 int _selfcheckBundleCompileFailure(string root) {
@@ -47,4 +48,56 @@ _CorpusCase _bundleCompileCase(string dir, string name) {
     c.name = name; c.kind = "golden"; c.dir = dir;
     c.src = Path.Join(dir, "source.z42");
     return c;
+}
+
+int _selfcheckBundleSelection(string root) {
+    string fixture = _xtaskWork(root, "bundle-selection");
+    _resetDir(fixture);
+    Directory.Create(Path.Join(fixture, "scripts"));
+    File.WriteAllText(_versionsPath(fixture),
+        "[rid.desktop-ios-name]\ncategory = \"desktop\"\n"
+        + "[rid.simulator]\ncategory = \"ios\"\n"
+        + "[rid.handset]\ncategory = \"android\"\n"
+        + "[rid.sandbox]\ncategory = \"wasm\"\n");
+    _CorpusCase[] cases = new _CorpusCase[80];
+    for (int i = 0; i < cases.Length; i++) {
+        _CorpusCase c = new _CorpusCase();
+        c.name = i.ToString(); c.bucket = (i / 20).ToString(); cases[i] = c;
+    }
+    foreach (var rid in new string[]{ "", "desktop-ios-name", "simulator", "handset", "sandbox" }) {
+        bool desktop = rid.Length == 0 || rid == "desktop-ios-name";
+        _CorpusCase[] selected = _selectBundleCorpus(fixture, cases, rid, 0, 0);
+        if (selected.Length != (desktop ? 80 : 60)) {
+            ConsoleError.WriteLine("  ❌ bundle selection: category ignored for " + rid); return 1;
+        }
+        // Four equal buckets each retain a representative 15-case sample, in corpus order.
+        for (int j = 0; j < selected.Length; j++) {
+            int expected = desktop ? j : (j / 15) * 20 + j % 15;
+            if (selected[j].name != expected.ToString()) {
+                ConsoleError.WriteLine("  ❌ bundle selection: unstable or unbalanced sample"); return 1;
+            }
+        }
+        bool[] seen = new bool[cases.Length];
+        int total = 0;
+        for (int k = 1; k <= 3; k++) {
+            _CorpusCase[] shard = _selectBundleCorpus(fixture, cases, rid, k, 3);
+            foreach (var c in shard) {
+                int index = int.Parse(c.name);
+                if (seen[index] || index % 3 != k - 1) {
+                    ConsoleError.WriteLine("  ❌ bundle selection: overlapping or misplaced shard"); return 1;
+                }
+                seen[index] = true; total = total + 1;
+            }
+        }
+        if (total != cases.Length || _selectBundleCorpus(fixture, cases, rid, 1, 1).Length != cases.Length) {
+            ConsoleError.WriteLine("  ❌ bundle selection: shard was smoke-capped"); return 1;
+        }
+    }
+    if (_selectBundleCorpus(fixture, new _CorpusCase[0], "sandbox", 0, 0).Length != 0) { return 1; }
+    bool rejected = false;
+    try { _selectBundleCorpus(fixture, cases, "unregistered-wasm", 0, 0); }
+    catch (CliException e) { rejected = e.Message.Contains("unregistered-wasm"); }
+    if (!rejected) { ConsoleError.WriteLine("  ❌ bundle selection: unregistered RID accepted"); return 1; }
+    Console.WriteLine("  ✅ bundle selection: registered categories, stable sampling, full disjoint shards, unknown RID");
+    return 0;
 }

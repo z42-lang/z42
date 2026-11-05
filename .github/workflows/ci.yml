@@ -112,7 +112,7 @@ jobs:
               - 'scripts/test/xtask_test_ios.z42'
               - 'scripts/test/xtask_test_android.z42'
               - 'scripts/test/xtask_test_desktop.z42'
-              - 'scripts/test/xtask_test_embedded.z42'
+              - 'scripts/test/xtask_test_embedded*.z42'
               - 'scripts/versions.toml'
               - '.github/workflows/ci.yml'
             # 桌面 SDK 的验证执行器与私有夹具：保留四个 host package，不选择设备 / 浏览器消费者。
