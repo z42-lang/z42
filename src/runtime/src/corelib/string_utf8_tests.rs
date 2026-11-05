@@ -80,3 +80,24 @@ fn typed_abi_rejects_null_wrong_kinds_and_other_array_storage() {
     let Value::Array(a) = ints else { panic!("expected array") };
     assert!(matches!(a.borrow().get_boxed(0), Value::I64(65)));
 }
+
+#[test]
+fn concat_parts_utf8_returns_packed_bytes_for_the_requested_prefix() {
+    let ctx = VmContext::new();
+    let parts = ctx.heap().alloc_array(vec![
+        Value::Str("é".into()),
+        Value::Str("中😀".into()),
+        Value::Null,
+    ]);
+    let concat = |count| {
+        exec_builtin_value(&ctx, "__str_concat_parts_utf8", &[parts, Value::I64(count)])
+    };
+    assert_eq!(snapshot(concat(2).unwrap()), "é中😀".as_bytes());
+    assert!(snapshot(concat(0).unwrap()).is_empty());
+    for count in [-1, 3, 4, i64::MAX] {
+        assert!(concat(count).unwrap_err().to_string().contains("ArgumentException"));
+    }
+    let err = exec_builtin_value(&ctx, "__str_concat_parts_utf8", &[Value::Null, Value::I64(0)])
+        .unwrap_err();
+    assert!(err.to_string().contains("ArgumentNullException"));
+}

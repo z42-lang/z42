@@ -26,6 +26,12 @@ public sealed class JsonWriter {
         return String.ConcatParts(this._parts, this._n);
     }
 
+    /// 写出一个文档的 UTF-8 字节，供流入口持有的单次调用 writer 使用。
+    internal byte[] WriteUtf8(JsonValue v) {
+        this.WriteValue(v);
+        return String.ConcatPartsUtf8(this._parts, this._n);
+    }
+
     private void Put(string s) {
         int n = this._n;
         if (n == this._parts.Length) {
