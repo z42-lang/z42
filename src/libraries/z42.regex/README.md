@@ -69,13 +69,17 @@ m2.Group(2);   // "alice"
 | `(?i)` `(?m)` | 仅 pattern 开头的内联 flag |
 | Replace 中 `$0`–`$9` / `$$` | 捕获组引用 |
 
+转义后的 ASCII 字母/数字只接受上表已经实现的形式；字符类内仅接受 `\n` / `\t` / `\r`。
+其它保留转义在 Compile 时抛 `RegexException`，而标点、反斜杠与非 ASCII 字符可按字面转义。
+直接写字面字母/数字即可匹配它们；实际控制字符也可作为字面量。replacement 的 `$N` 规则独立于 pattern 转义。
+
 ## 不支持
 
-详见 `docs/reference/src/stdlib/regex.md`「不支持」节与「静默按字面量处理的写法」：
+详见 `docs/reference/src/stdlib/regex.md`「不支持」节：
 
 - lookahead / lookbehind、原子组、占有量词
-- backreference `\1`（静默退化为字面量）
-- 字符类内的 `\d` `\w` `\s`（退化为字面字母）
+- backreference `\1`（Compile 抛 RegexException）
+- 字符类内的 `\d` `\w` `\s` `\b` `\B`（Compile 抛 RegexException）
 - Unicode property classes `\p{L}`
 - `(?s)` / `(?x)` / 作用域 flag；`\x41` / `\u0041` 数值转义
 - group 内部的选择不回溯：`(a|ab)c` 匹配不上 `"abc"`
