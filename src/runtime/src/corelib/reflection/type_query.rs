@@ -385,6 +385,9 @@ pub fn type_visibility(ty: &Value) -> i64 {
 pub mod typed {
     use super::*;
 
+    #[builtin(name = "__type_reflection_revision")]
+    pub fn reflection_revision(ctx: &VmContext) -> i64 { ctx.reflection_revision() }
+
     #[builtin(name = "__type_full_name")]
     pub fn full_name(ty: &Value) -> Value { type_full_name(ty) }
 

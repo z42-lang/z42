@@ -12,6 +12,10 @@ public static class JsonBinder {
     /// 基元 / string 直接转换；数组、List、Dictionary（键须为 string，否则抛
     /// JsonException）逐元素递归；其余对象按类注释的构造模型创建。
     public static object FromJson(Type t, JsonValue v) {
+        return JsonBinder._bind(t, v, null);
+    }
+
+    private static object _bind(Type t, JsonValue v, JsonOperationPlans plans) {
         if (v.IsNull()) { return null; }
         string fn = t.FullName;
         // 基元目标：fix-type-reflection-names 起，反射 FieldType/PropertyType 与 typeof(T)/
@@ -22,31 +26,32 @@ public static class JsonBinder {
         if (fn == "double" || fn == "Std.Double")  { return v.AsDouble(); }
         if (fn == "bool"   || fn == "Std.Boolean") { return v.AsBool(); }
         if (fn == "string" || fn == "Std.String")  { return v.AsString(); }
-        if (t.IsArray) { return JsonBinder._fromArray(t, v); }
+        if (plans == null) { plans = new JsonOperationPlans(); }
+        if (t.IsArray) { return JsonBinder._fromArray(t, v, plans); }
         // add-collection-serde：集合检测先于通用对象构造。fix-type-reflection-names 起构造型
         // 泛型 FullName 含实参（`Std.Collections.List<Std.Int32>`），故按去实参的**基名**匹配。
         string baseFn = fn;
         int lt = fn.IndexOf("<");
         if (lt >= 0) { baseFn = fn.Substring(0, lt); }
-        if (baseFn == "Std.Collections.List")       { return JsonBinder._fromList(t, v); }
-        if (baseFn == "Std.Collections.Dictionary") { return JsonBinder._fromDict(t, v); }
-        return JsonBinder._fromObject(t, v);
+        if (baseFn == "Std.Collections.List")       { return JsonBinder._fromList(t, v, plans); }
+        if (baseFn == "Std.Collections.Dictionary") { return JsonBinder._fromDict(t, v, plans); }
+        return JsonBinder._fromObject(t, v, plans);
     }
 
-    private static object _fromArray(Type t, JsonValue v) {
+    private static object _fromArray(Type t, JsonValue v, JsonOperationPlans plans) {
         Type elem = (Type)t.GetElementType();   // 跨包 imported 返回类型须 cast（footgun）
         int n = v.Count();
         Array arr = Array.CreateInstance(elem, n);
         int i = 0;
         while (i < n) {
-            arr.SetValue(JsonBinder.FromJson(elem, v.At(i)), i);   // C# 顺序：value 先、index 后
+            arr.SetValue(JsonBinder._bind(elem, v.At(i), plans), i);   // C# 顺序：value 先、index 后
             i = i + 1;
         }
         return arr;
     }
 
     // JSON array → List<T>：反射构造（非泛型 Activator 作用于构造泛型 Type）+ 逐元素反射 Add。
-    private static object _fromList(Type t, JsonValue v) {
+    private static object _fromList(Type t, JsonValue v, JsonOperationPlans plans) {
         Type elem = JsonReflect.GenericArg(t, 0);
         object list = Activator.CreateInstance(t);
         int n = v.Count();
@@ -55,7 +60,7 @@ public static class JsonBinder {
         object[] args = new object[1];
         int i = 0;
         while (i < n) {
-            args[0] = JsonBinder.FromJson(elem, v.At(i));
+            args[0] = JsonBinder._bind(elem, v.At(i), plans);
             add.Invoke(list, args);
             i = i + 1;
         }
@@ -63,7 +68,7 @@ public static class JsonBinder {
     }
 
     // JSON object → Dictionary<string,V>：键必为 string；逐键反射 set_Item。
-    private static object _fromDict(Type t, JsonValue v) {
+    private static object _fromDict(Type t, JsonValue v, JsonOperationPlans plans) {
         Type keyT = JsonReflect.GenericArg(t, 0);
         string kf = keyT.FullName;
         if (kf != "string" && kf != "Std.String") {
@@ -79,55 +84,38 @@ public static class JsonBinder {
         while (i < keys.Length) {
             string k = keys[i];
             args[0] = k;
-            args[1] = JsonBinder.FromJson(valT, v.Get(k));
+            args[1] = JsonBinder._bind(valT, v.Get(k), plans);
             setter.Invoke(dict, args);
             i = i + 1;
         }
         return dict;
     }
 
-    private static object _fromObject(Type t, JsonValue v) {
-        ConstructorInfo[] ctors = t.GetConstructors();
-        ConstructorInfo paramCtor = null;
-        ParameterInfo[] ctorParams = null;
-        int mostParams = 0;
-        bool hasNoArg = (ctors.Length == 0);          // 无 ctor → Activator 默认构造
-        int i = 0;
-        while (i < ctors.Length) {
-            ConstructorInfo c = ctors[i];
-            ParameterInfo[] ps = c.GetParameters();
-            int pc = ps.Length;
-            if (pc == 0) {
-                hasNoArg = true;
-            } else if (pc > mostParams) {
-                paramCtor = c;
-                ctorParams = ps;
-                mostParams = pc;
-            }
-            i = i + 1;
+    private static object _fromObject(Type t, JsonValue v, JsonOperationPlans plans) {
+        JsonTypePlan plan = plans.For(t);
+        if (!plan.ConstructorResolved) { plan.ResolveConstructor(t); }
+        if (plan.Constructor == null) {
+            return JsonBinder._viaActivator(t, v, plans);
         }
-        if (hasNoArg || paramCtor == null) {
-            return JsonBinder._viaActivator(t, v);
-        }
-        return JsonBinder._viaCtor(t, v, paramCtor, ctorParams);
+        return JsonBinder._viaCtor(t, v, plan.Constructor, plan.Parameters, plans);
     }
 
-    private static object _viaActivator(Type t, JsonValue v) {
+    private static object _viaActivator(Type t, JsonValue v, JsonOperationPlans plans) {
         object obj = Activator.CreateInstance(t);
-        JsonMember[] members = JsonMembers.For(t);
+        JsonMember[] members = plans.GetMembers(t);
         int i = 0;
         while (i < members.Length) {
             JsonMember m = members[i];
             if (m.CanWrite) {
                 int slot = v.FindObjectSlot(m.JsonKey);
-                if (slot >= 0) { m.Set(obj, JsonBinder.FromJson(m.MemberType, v._objectValues[slot])); }
+                if (slot >= 0) { m.Set(obj, JsonBinder._bind(m.MemberType, v._objectValues[slot], plans)); }
             }
             i = i + 1;
         }
         return obj;
     }
 
-    private static object _viaCtor(Type t, JsonValue v, ConstructorInfo ctor, ParameterInfo[] ps) {
+    private static object _viaCtor(Type t, JsonValue v, ConstructorInfo ctor, ParameterInfo[] ps, JsonOperationPlans plans) {
         object[] args = new object[ps.Length];
         int i = 0;
         while (i < ps.Length) {
@@ -135,24 +123,24 @@ public static class JsonBinder {
             Type pt = (Type)p.ParameterType;   // 跨包 imported 返回类型须 cast（footgun）
             int slot = v.FindObjectSlot(p.Name);
             if (slot >= 0) {
-                args[i] = JsonBinder.FromJson(pt, v._objectValues[slot]);
+                args[i] = JsonBinder._bind(pt, v._objectValues[slot], plans);
             } else if (p.IsOptional) {
                 args[i] = p.DefaultValue;
             } else {
-                args[i] = JsonBinder.FromJson(pt, JsonValue.OfNull());
+                args[i] = JsonBinder._bind(pt, JsonValue.OfNull(), plans);
             }
             i = i + 1;
         }
         object obj = ctor.Invoke(args);
         // 构造后补齐 JSON 中剩余、非 ctor 参数覆盖的可写成员。
-        JsonMember[] members = JsonMembers.For(t);
+        JsonMember[] members = plans.GetMembers(t);
         int j = 0;
         while (j < members.Length) {
             JsonMember m = members[j];
             if (m.CanWrite) {
                 int slot = v.FindObjectSlot(m.JsonKey);
                 if (slot >= 0 && !JsonBinder._isCtorParam(m.JsonKey, ps)) {
-                    m.Set(obj, JsonBinder.FromJson(m.MemberType, v._objectValues[slot]));
+                    m.Set(obj, JsonBinder._bind(m.MemberType, v._objectValues[slot], plans));
                 }
             }
             j = j + 1;

@@ -1,0 +1,63 @@
+namespace Std.Json.Tests;
+using Std.Harness;
+
+public class PlannedRow { public int Id; public string Label; }
+public class PlannedOther { public int Code; }
+
+public class PlannedCtor {
+    public string Label;
+    public string Note = "initial";
+    public PlannedCtor(string Label) { this.Label = Label; }
+}
+
+public class ObservePlanAttribute : Attribute {
+    public static int Calls;
+    public ObservePlanAttribute() {
+        ObservePlanAttribute.Calls = ObservePlanAttribute.Calls + 1;
+    }
+}
+
+public class AttributedPlanRow {
+    [ObservePlan] [JsonProperty("id")] public int Id;
+    [ObservePlan] [JsonIgnore] public int Secret;
+}
+
+[Test]
+void test_operation_plans_reuse_matching_types_and_keep_distinct_types() {
+    PlannedRow a = new PlannedRow();
+    a.Id = 1;
+    a.Label = "a";
+    PlannedOther b = new PlannedOther();
+    b.Code = 9;
+    object[] mixed = new object[] { a, b, a };
+    Assert.Equal("[{\"Id\":1,\"Label\":\"a\"},{\"Code\":9},{\"Id\":1,\"Label\":\"a\"}]",
+        JsonSerializer.Serialize(mixed));
+
+    PlannedCtor[] result = JsonSerializer.Deserialize<PlannedCtor[]>(
+        "[{\"Label\":\"a\"},{\"Label\":\"b\",\"Note\":null},{\"Label\":\"c\",\"Note\":\"changed\"}]");
+    Assert.Equal("a", result[0].Label);
+    Assert.Equal("initial", result[0].Note);
+    Assert.Equal("b", result[1].Label);
+    Assert.True(result[1].Note == null);
+    Assert.Equal("c", result[2].Label);
+    Assert.Equal("changed", result[2].Note);
+}
+
+[Test]
+void test_operation_plans_preserve_attribute_factories_per_object() {
+    AttributedPlanRow a = new AttributedPlanRow();
+    a.Id = 1;
+    a.Secret = 7;
+    AttributedPlanRow b = new AttributedPlanRow();
+    b.Id = 2;
+    b.Secret = 8;
+    ObservePlanAttribute.Calls = 0;
+    Assert.Equal("[{\"id\":1},{\"id\":2}]", JsonSerializer.Serialize(new AttributedPlanRow[] { a, b }));
+    Assert.Equal(4, ObservePlanAttribute.Calls);
+    AttributedPlanRow[] rows = JsonSerializer.Deserialize<AttributedPlanRow[]>(
+        "[{\"id\":3,\"Secret\":9},{\"id\":4,\"Secret\":9}]");
+    Assert.Equal(8, ObservePlanAttribute.Calls);
+    Assert.Equal(3, rows[0].Id);
+    Assert.Equal(4, rows[1].Id);
+    Assert.Equal(0, rows[0].Secret);
+}
