@@ -77,11 +77,13 @@ public class StreamWriter {
         this._dest.Flush();
     }
 
-    /// 先 Flush 再标记关闭；不关闭被包装的目标流。
+    /// 成功 Flush 后标记关闭并解除目标/编码引用；不关闭目标流，Flush 失败可重试。
     public void Close() {
         if (this._closed) { return; }
         this.Flush();
         this._closed = true;
+        this._dest = null;
+        this._encoding = null;
     }
 
     // ── 内部 ────────────────────────────────────────────────
