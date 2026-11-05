@@ -133,13 +133,6 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         self.builder.switch_to_block(done_blk);
     }
 
-    /// Branch to `otherwise` unless `cond` is non-zero; continue in a fresh block.
-    fn continue_if(&mut self, cond: cranelift_codegen::ir::Value, otherwise: cranelift_codegen::ir::Block) {
-        let next = self.builder.create_block();
-        self.builder.ins().brif(cond, next, &[], otherwise, &[]);
-        self.builder.switch_to_block(next);
-    }
-
     /// `jit_call`'s package-init barrier is a no-op ⇔ no package initializer is
     /// pending or failed: take `slow_blk` unless both counters of the running VM's
     /// cctor registry are zero. The registry pointer is read off the context

@@ -64,26 +64,26 @@ int exercise(int n, int pattern) {
     Assert.Equal(pattern >= 3, table.IsPure("f" + (n - 1).ToString()));
     return n;
 }
-void measure(int n, int pattern) {
-    var b = new Bencher(2, 12);
+void measure(Bencher b, int n, int pattern) {
     b.iter(() => { BenchHelpers.blackBox(exercise(n, pattern)); });
-    b.printSummary("purity_demotion_" + n.ToString() + "_" + pattern.ToString());
 }
 [Benchmark]
-void bench_purity_demotion_chain_256() { measure(256, 0); }
+void bench_purity_demotion_chain_256(Bencher b) { measure(b, 256, 0); }
 [Benchmark]
-void bench_purity_demotion_shallow_256() { measure(256, 1); }
+void bench_purity_demotion_shallow_256(Bencher b) { measure(b, 256, 1); }
 [Benchmark]
-void bench_purity_demotion_local_256() { measure(256, 2); }
+void bench_purity_demotion_local_256(Bencher b) { measure(b, 256, 2); }
 [Benchmark]
-void bench_purity_demotion_all_pure_256() { measure(256, 3); }
+void bench_purity_demotion_all_pure_256(Bencher b) { measure(b, 256, 3); }
 [Benchmark]
-void bench_purity_demotion_short_independent_256() { measure(256, 4); }
+void bench_purity_demotion_short_independent_256(Bencher b) { measure(b, 256, 4); }
 [Benchmark]
-void bench_purity_demotion_short_live_calls_256() { measure(256, 5); }
+void bench_purity_demotion_short_live_calls_256(Bencher b) { measure(b, 256, 5); }
 [Benchmark]
-void bench_purity_demotion_after_confirmation_256() { measure(256, 6); }
+void bench_purity_demotion_after_confirmation_256(Bencher b) { measure(b, 256, 6); }
 void Main() {
+    // 手跑（CLI 一把梭）自建档：Main 不经 runner，注入形态到不了这里。
     string[] args = Environment.GetCommandLineArgs();
-    measure(args.Length > 0 ? int.Parse(args[0]) : 256, args.Length > 1 ? int.Parse(args[1]) : 0);
+    measure(new Bencher(2, 12), args.Length > 0 ? int.Parse(args[0]) : 256,
+            args.Length > 1 ? int.Parse(args[1]) : 0);
 }
