@@ -39,7 +39,8 @@ sdk_between() {
   # compare 最多返回 300 个文件；到顶就当截断 ⇒ 保守。
   n=$(printf '%s' "$json" | jq '.files | length')
   if [ "$n" -ge 300 ]; then echo true; return; fi
-  if printf '%s' "$json" | jq -r '.files[].filename' | touches_sdk; then echo true; else echo false; fi
+  # 重命名也删除旧路径。生产文件移入测试目录仍改变 SDK。
+  if printf '%s' "$json" | jq -r '.files[] | .filename, (.previous_filename // empty)' | touches_sdk; then echo true; else echo false; fi
 }
 
 nightly_sha() {

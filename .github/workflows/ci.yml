@@ -183,12 +183,13 @@ jobs:
           set -euo pipefail
           files=""
           before="${{ github.event.before }}"
+          # 重命名的旧路径也参与判断，例如从代码目录移到 docs/。
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files" -q '.[].filename')
+            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files" -q '.[] | .filename, (.previous_filename // empty)')
           elif [ -n "$before" ] && [ "$before" != "0000000000000000000000000000000000000000" ] \
                && json=$(gh api "repos/$GITHUB_REPOSITORY/compare/$before...$GITHUB_SHA" 2>/dev/null); then
             n=$(printf '%s' "$json" | jq '.files | length')
-            if [ "$n" -lt 300 ]; then files=$(printf '%s' "$json" | jq -r '.files[].filename'); fi
+            if [ "$n" -lt 300 ]; then files=$(printf '%s' "$json" | jq -r '.files[] | .filename, (.previous_filename // empty)'); fi
           fi
           # 非文档 = 既不在 docs/ 下、也不是 .md；学习手册与示例 = 算作非文档的例外。两者都为空才是纯文档。
           nondoc=$(printf '%s\n' "$files" | grep -v '^$' | grep -Ev '^docs/' | grep -Ev '\.md$' || true)
