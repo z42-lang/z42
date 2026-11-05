@@ -115,8 +115,8 @@ EOF 永久化并解除源和工作缓冲引用，Close/Dispose 同样解除引�
 有参 `StreamWriter.WriteLine` 将文本编码到独立目标数组，再在末尾写入 UTF-8 的 LF 字节。
 整行通过一次底层 Write 交付。目标数组的字节偏移和容量由 `Encoding.GetBytes` 的目标数组重载校验。
 
-JSON 流输出在遍历完成后通过 `String.ConcatPartsUtf8` 拼接 UTF-8。该入口与字符串输出复用同一拼接逻辑，
-typed ABI 将拼接结果交付为独立的 packed byte[]。流入口一次写入完整文档，写入成功后刷新，底层流由调用方管理。
+JSON 流输出在遍历完成后通过 `String.ConcatPartsUtf8` 拼接 UTF-8。运行时逐槽读取选定的字符串片段，
+以同一组句柄计算长度并填充尚未发布的 packed byte[]。流入口一次写入完整文档，成功后刷新，由调用方管理底层流。
 
 ## 3. `[Native]` 的两种形态
 
