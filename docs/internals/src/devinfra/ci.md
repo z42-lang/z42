@@ -108,7 +108,7 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 “源码编成同一个 zpkg”不定义测试影响范围。测试计划中没有被所选套件覆盖的验证义务（例如 SDK 验证、
 整程序 benchmark）也要保留，不能被一次完整 GREEN 的选择静默覆盖。
 
-**当前自动选择范围**见下面的路径表和 job 表：PR 的 test-host 使用 `--changed`，main push 不使用；
+**当前自动选择范围**见下面的路径表和 job 表：PR 和 main push 的 test-host 使用 `--changed`；
 完整 GREEN 的构建波与 interp goldens 仍是必跑阶段，xtask 的计划等自检当前随 builder 夹具执行。
 这些执行入口与本节的归属判据分别描述“现在怎么跑”和“调整路由时要核对什么”。
 定期全量测试用于补全覆盖，nightly 发布则按标签到 HEAD 的累计差异判定；不能用单个 push 的 diff
@@ -341,14 +341,17 @@ examples stage。打包 job 不执行时，test-host 用 `--changed` 决定是�
 整条 CI 墙钟收益要另看 Actions 的依赖与排队，不能直接用该总和替代。
 
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
-其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。PR 上另加 `--changed <PR base sha>`
-按路径分流：改动用不到的重 stage 也跳过（规则与映射表见[测试门禁](test-gate.md) §5、§7）；main push /
-schedule / dispatch 不分流。
+其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。PR 另加 `--changed <PR base sha>`，
+main push 另加 `--changed <github.event.before>`，沿用同一份阶段映射跳过不受影响的重 stage
+（见[测试门禁](test-gate.md) §5、§7）。`.github/ci/changed-base.sh` 获取并验证对应 commit，
+只把 SHA 写到 stdout；首次 push、缺失 / 无法获取基线时返回空结果，退回全量。schedule / dispatch 保留全量。
+测试基线只用于本次提交的选测；`publish-nightly` 仍按 nightly 到 HEAD 的累计 SDK 差异决定，不受此基线替换。
 
-Rust 测试用 job 环境变量 `RUN_RUST_RUNTIME` 统一决定：`vm` filter 为 true，或事件是 schedule / dispatch 时，
+完整 Rust 测试用 job 环境变量 `RUN_RUST_RUNTIME` 统一决定：`runtime_checks` filter 为 true，或事件是 schedule / dispatch 时，
 独立执行完整 `xtask test runtime`；此时非 Windows 腿的 `test` 追加跳过 `rust-units`，避免重复执行 `--lib`。
 完整 harness 使用同一 workspace、feature 与串行参数，覆盖窄版的库单测和所有 target 编译，并执行集成与文档测试。
-其余事件保留窄版 stage，不会因为完整 harness 跳过而丢掉原有覆盖。本地 `xtask test` 仍运行 `rust-units`。
+其余情况下，窄版 `rust-units` 是否执行由改动映射决定：例如仅标准库改动不选 Rust 阶段，
+未知输入或无法读取基线则保留保守的全量路径。本地不带改动分流的 `xtask test` 仍运行 `rust-units`。
 Windows 腿不跑 `test`；仅在完整 harness 会执行时，先 `build test` 再 `xtask test runtime`。
 
 测量重复 Rust 阶段时，先以同一源码与 Cargo cache 预热，再交替计时三轮：原编排为
