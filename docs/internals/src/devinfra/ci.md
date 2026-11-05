@@ -36,10 +36,10 @@ regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-ubuntu-late
 取的是同一份（只有 z42vm 按宿主 cargo 现编）。
 
 `compile-toolchain` 另传一份 `z42vm-linux-x64`（z42vm + 同目录的 cdylib）。linux-x64 上**之后不调 cargo**
-的消费方（`compile-test-assets`、`test stdlib --no-build` 两类 job、`publish-nightly`）用 `xtask-bootstrap-artifact` 的
+的消费方（`compile-test-assets`、`compiler-checks`、`test stdlib --no-build` 两类 job、`publish-nightly`）用 `xtask-bootstrap-artifact` 的
 `prebuilt-vm: "true"` 直接拿它，省掉 Rust 准备与 `cargo build`：rust-cache 只缓存**依赖**，即使 key 精确命中，
 z42 crate 本身仍要 fat-LTO 重链一遍，实测约 95 s / job。**会调 cargo 的 job 不能开**——target 目录里没有
-cargo 指纹，它会把整个 crate 冷编一遍（`compiler-checks` 的 `test compiler`、`test-vm-jit` 的 debug VM 都属此类），所以这两个 job 只留 linux 一条腿——
+cargo 指纹，它会把整个 crate 冷编一遍（例如 `test-vm-jit` 的 debug VM）。两个产物构建 job 只留 linux 一条腿——
 再加一条 macOS 腿只会产出等价的 artifact，却让所有 `needs:` 它们的 linux 下游陪着等整个 matrix。
 
 `compile-test-assets` **故意从 `compile-toolchain` 里拆出来**：golden regen 很慢，留在里面会卡住
@@ -329,7 +329,8 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
 
 - **没有专门的「种子自举边界」job**：「上一版 nightly 能编当前源」由每个跑 `ci-bootstrap` 的
   job（`test-host` ×4 OS、`compile-toolchain`）顺带实测，且它们会真的**运行**刚建出的 gen1 z42c
-  （编 stdlib + golden）；in-tree 不动点 gen1==gen2 在 `compiler-checks`。再单设一个
+  （编 stdlib + golden）；`compiler-checks` 用 `xtask test compiler --no-build` 消费同轮 release VM、gen1 和 stdlib，
+  执行编译器单元和 CLI 夹具，并实际重建 gen2 进行不动点对账。再单设一个
   `ci-bootstrap` + `test compiler` 的 job 两半都与上述重复。
 - **没有专门的 feature 组合 job**：host 上 `cargo check` interp-only / wasm / ios /
   android 四个组合没有必要：后三者 `package-*` 本就在真实目标平台上完整构建；「interp-only 不含

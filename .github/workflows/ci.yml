@@ -752,14 +752,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
+      # 复用同轮 release VM、gen1 和 stdlib，仍由测试重建 gen2。
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          prebuilt-vm: "true"
 
-      - name: z42c self-host fixpoint (xtask test compiler)
+      - name: z42c self-host fixpoint, units and CLI fixtures
         shell: bash
         run: |
           set -euo pipefail
-          xtask test compiler
+          xtask test compiler --no-build
 
       - name: VSCode grammar ↔ Lexer keyword sync (xtask check vscode-syntax)
         shell: bash
