@@ -369,6 +369,7 @@ public sealed partial class ExprParser {
         if (k == TokenKind.Minus || k == TokenKind.Bang || k == TokenKind.Tilde || k == TokenKind.Plus) { return true; }
         if (k == TokenKind.PlusPlus || k == TokenKind.MinusMinus) { return true; }
         if (k == TokenKind.Typeof || k == TokenKind.Methodof || k == TokenKind.New || k == TokenKind.Default) { return true; }
+        if (k == TokenKind.Fieldof || k == TokenKind.Propertyof) { return true; }   // add-field-property-reference
         if (k == TokenKind.IntLiteral || k == TokenKind.CharLiteral || k == TokenKind.FloatLiteral) { return true; }
         if (k == TokenKind.StringLiteral || k == TokenKind.RawStringLiteral || k == TokenKind.InterpolatedStringLiteral) { return true; }
         if (k == TokenKind.True || k == TokenKind.False || k == TokenKind.Null) { return true; }
@@ -411,6 +412,13 @@ public sealed partial class ExprParser {
             this._p._advance();
             this._p._expect(TokenKind.LParen, "(");
             return this._p._methodOfP._parseTarget(t.Span);
+        }
+        // fieldof(Type.Field) / propertyof(Type.Prop)（add-field-property-reference）——
+        // 与 methodof 同族但无签名列表，括号内只有 Qualified '.' Member。
+        if (k == TokenKind.Fieldof || k == TokenKind.Propertyof) {
+            this._p._advance();
+            this._p._expect(TokenKind.LParen, "(");
+            return this._p._methodOfP._parseDataMember(t.Text, k == TokenKind.Propertyof, t.Span);
         }
         // new 家族（target-typed / 数组字面量初始化 / 带 size 数组 / ctor 实参 + 对象初始化器）
         // ——见 Prefix 分片 `_parseNewPrefix`。

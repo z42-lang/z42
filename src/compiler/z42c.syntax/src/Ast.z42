@@ -463,6 +463,35 @@ public sealed class MethodOfExpr : Expr {
     }
 }
 
+// fieldof(Type.Field) / propertyof(Type.Prop) → Std.Reflection.FieldInfo / PropertyInfo
+// （add-field-property-reference）。与 MethodOfExpr 同家族，但**没有签名列表**——字段与属性
+// 无重载，名字即身份；于是括号内连「签名语法」都不剩，只有 `Qualified '.' Member`。
+//
+// 单节点 + IsProperty 而非两个节点：符号表早就把属性建模成带 IsProp 标志的 FieldSymbol
+// （`FieldSymbol.IsProp`，见 Symbol.z42），这里沿用同一口径——两个关键字共享同一解析、
+// 同一绑定走查、同一发射形态，差别只在过滤条件 / 结果类型 / builtin 名。
+//
+// OwnerName 保 AST 原始拼写（镜像 MethodOfExpr）；MemberSpan 收窄到成员名自身，诊断下划线用。
+public sealed class FieldOfExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitFieldOfExpr(this, d); }
+    public string     OwnerName;     // owner 类型的 AST 原始限定名（"Box" / "Demo.Box"）
+    public Span       OwnerSpan;
+    public string     Member;        // 字段名 / 属性名（末段）
+    public Span       MemberSpan;    // 成员名**自身**的 span（诊断下划线收窄到成员名，非整个表达式）
+    public bool       IsProperty;    // true = propertyof（找 IsProp 的 FieldSymbol）；false = fieldof
+    public FieldOfExpr(string ownerName, Span ownerSpan, string member, Span memberSpan,
+                       bool isProperty, Span span) {
+        this.Span = span;
+        this.OwnerName = ownerName; this.OwnerSpan = ownerSpan;
+        this.Member = member; this.MemberSpan = memberSpan;
+        this.IsProperty = isProperty;
+    }
+    public override string Dump() {
+        string kw = this.IsProperty ? "propertyof" : "fieldof";
+        return "(" + kw + " " + this.OwnerName + "." + this.Member + ")";
+    }
+}
+
 // C 风格强制转换 (Type)expr（G3；数值转换，区别于 as 的引用 cast）。
 public sealed class CastExpr : Expr {
     public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitCastExpr(this, d); }
