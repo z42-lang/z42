@@ -111,7 +111,8 @@ public sealed class JsonWriter {
     // otherwise ordinary runs are flushed as bulk Substrings between escapes.
     private void PutQuoted(string s) {
         this.Put("\"");
-        if (!s.ContainsAnyAscii(JsonWriter._escapeChars)) {
+        int firstEscape = s.IndexOfAnyAscii(JsonWriter._escapeChars);
+        if (firstEscape < 0) {
             this.Put(s);
             this.Put("\"");
             return;
@@ -119,7 +120,7 @@ public sealed class JsonWriter {
         char[] cs = s.ToCharArray();
         int n = cs.Length;
         int runStart = 0;   // start of the current run of ordinary (unescaped) chars
-        for (int i = 0; i < n; i++) {
+        for (int i = firstEscape; i < n; i++) {
             int cc = (int)cs[i];
             if (cc >= 32 && cc != 34 && cc != 92) { continue; }
             string esc = "";

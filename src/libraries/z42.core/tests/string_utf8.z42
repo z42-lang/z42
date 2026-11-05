@@ -74,20 +74,21 @@ void byte_arrays_from_generics_and_reflection_use_the_same_storage_api() {
 }
 
 [Test]
-void contains_any_ascii_matches_only_candidate_bytes() {
-    Assert.True("é中😀a".ContainsAnyAscii("zaa"));
-    Assert.True("é\0😀".ContainsAnyAscii("\0"));
-    Assert.True(String.FromChars(new char[] { (char)127 }).ContainsAnyAscii(String.FromChars(new char[] { (char)127 })));
-    Assert.False("é中😀".ContainsAnyAscii("zaa\0"));
-    Assert.False("a".ContainsAnyAscii(""));
-    Assert.False("".ContainsAnyAscii("a"));
+void index_of_any_ascii_returns_the_first_scalar_index() {
+    Assert.Equal(3, "é中😀ab".IndexOfAnyAscii("baa"));
+    Assert.Equal(1, "é\0😀".IndexOfAnyAscii("\0"));
+    string del = String.FromChars(new char[] { (char)127 });
+    Assert.Equal(1, ("a" + del).IndexOfAnyAscii(del));
+    Assert.Equal(-1, "é中😀".IndexOfAnyAscii("zaa\0"));
+    Assert.Equal(-1, "a".IndexOfAnyAscii(""));
+    Assert.Equal(-1, "".IndexOfAnyAscii("a"));
 }
 
 [Test]
-void contains_any_ascii_checks_the_whole_candidate_set() {
-    Assert.Throws("ArgumentNullException", () => "a".ContainsAnyAscii(null));
-    Assert.Throws("ArgumentException", () => "a".ContainsAnyAscii("aé"));
-    Assert.Throws("ArgumentException", () => "".ContainsAnyAscii("😀"));
+void index_of_any_ascii_checks_the_whole_candidate_set() {
+    Assert.Throws("ArgumentNullException", () => "a".IndexOfAnyAscii(null));
+    Assert.Throws("ArgumentException", () => "a".IndexOfAnyAscii("aé"));
+    Assert.Throws("ArgumentException", () => "".IndexOfAnyAscii("😀"));
     string missing = null;
-    Assert.Throws("NullReferenceException", () => missing.ContainsAnyAscii("a"));
+    Assert.Throws("NullReferenceException", () => missing.IndexOfAnyAscii("a"));
 }

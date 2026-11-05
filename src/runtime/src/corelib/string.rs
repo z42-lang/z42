@@ -69,8 +69,8 @@ pub mod typed {
     #[builtin(name = "__str_byte_length", this = "get_ByteLength", pure)]
     pub fn byte_length(s: &crate::object::string::vstr::Str) -> i64 { super::str_byte_length(s) }
 
-    #[builtin(name = "__str_contains_any_ascii", this = "ContainsAnyAscii", pure)]
-    pub fn contains_any_ascii(text: &str, candidates: &str) -> Result<bool, BuiltinError> {
+    #[builtin(name = "__str_index_of_any_ascii", this = "IndexOfAnyAscii", pure)]
+    pub fn index_of_any_ascii(text: &str, candidates: &str) -> Result<i64, BuiltinError> {
         let mut mask = 0u128;
         for byte in candidates.bytes() {
             if !byte.is_ascii() {
@@ -78,8 +78,10 @@ pub mod typed {
             }
             mask |= 1u128 << byte;
         }
-        // ASCII bytes cannot occur within a multibyte UTF-8 scalar.
-        Ok(mask != 0 && text.bytes().any(|byte| byte.is_ascii() && mask & (1u128 << byte) != 0))
+        if mask == 0 { return Ok(-1); }
+        // A matched ASCII byte is always on a scalar boundary.
+        let index = text.bytes().position(|byte| byte.is_ascii() && mask & (1u128 << byte) != 0);
+        Ok(index.map_or(-1, |i| text[..i].chars().count() as i64))
     }
 
     #[builtin(name = "__str_copy_utf8", this = "CopyUtf8To")]

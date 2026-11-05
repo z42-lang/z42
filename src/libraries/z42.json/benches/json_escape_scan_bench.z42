@@ -61,3 +61,11 @@ void json_escape_scan_late_escape() {
 void json_escape_scan_dense() {
     MeasureJsonEscapeScan("json_escape_scan_dense", JsonValue.OfString(LongText(true)), false, 4);
 }
+
+[Benchmark]
+void json_escape_scan_late_ascii() {
+    char[] chars = new char[16384];
+    for (int i = 0; i < chars.Length; i++) { chars[i] = 'a'; }
+    chars[chars.Length - 1] = '\\';
+    MeasureJsonEscapeScan("json_escape_scan_late_ascii", JsonValue.OfString(String.FromChars(chars)), false, 4);
+}
