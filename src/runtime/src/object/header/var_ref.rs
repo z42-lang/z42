@@ -9,7 +9,7 @@ use crate::gc::var_region::chunk::{class_for, CHUNK_ALIGN};
 
 /// Mask isolating the 48-bit header address from a tagged handle (64-bit targets).
 #[cfg(target_pointer_width = "64")]
-const ADDR_BITS: u32 = 48;
+pub(crate) const ADDR_BITS: u32 = 48;
 #[cfg(target_pointer_width = "64")]
 const ADDR_MASK: usize = (1usize << ADDR_BITS) - 1;
 

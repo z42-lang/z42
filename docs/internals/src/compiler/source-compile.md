@@ -1080,7 +1080,7 @@ z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控
 `foreach (T x in coll)` 按目标静态类型走**三-path 决策树**（`StmtBinder._bindForeach`，优先级从上到下、首个命中即用）：
 
 1. **数组**（`coll` 是 `Z42ArrayType`）→ `ArrayLen` 求长 + `ConstI32` 计数器 + `ArrayGet` 取元素（`_emitForeach` 计数器循环）。
-2. **索引鸭子**（类有 `get_Item` **且** `Count` 字段/方法）→ `Count` + `get_Item(i)` VCall（`List` 等；比 C# 更快，省 enumerator 构造 + 每步两次 VCall）。
+2. **索引鸭子**（类有 `get_Item` **且** `Count` 字段、方法或属性）→ 循环前读取 `Count`，再以 `get_Item(i)` 访问元素（`List` 等；比 C# 更快，省 enumerator 构造 + 每步两次 VCall）。
 3. **IEnumerable 协议**（既非数组、也无 `get_Item`+`Count`，但有 `GetEnumerator()`）→ **binder 脱糖**（`_bindForeachEnumerable`）成既有 AST：
    ```
    { var __e = <coll>.GetEnumerator();
