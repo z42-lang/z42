@@ -207,3 +207,20 @@ void read_to_end_source_failure_keeps_successful_short_reads() {
     try { r.ReadToEnd(); } catch (InvalidOperationException e) { bad = true; }
     Assert.True(bad); Assert.Equal((int)'a', r.Read()); Assert.Equal("b😀cd", r.ReadToEnd());
 }
+
+[Test]
+void drain_after_cr_handles_optional_lf_in_the_next_block() {
+    StreamReader withLf = new StreamReader(source("head\r\n😀", 1));
+    Assert.Equal("head", withLf.ReadLine());
+    Assert.Equal("😀", withLf.ReadToEnd());
+    Assert.Equal(-1, withLf.Peek());
+
+    StreamReader withoutLf = new StreamReader(source("head\r中", 1));
+    Assert.Equal("head", withoutLf.ReadLine());
+    Assert.Equal("中", withoutLf.ReadToEnd());
+
+    StreamReader eof = new StreamReader(source("head\r\n", 1));
+    Assert.Equal("head", eof.ReadLine());
+    Assert.Equal("", eof.ReadToEnd());
+    Assert.Equal(-1, eof.Read());
+}
