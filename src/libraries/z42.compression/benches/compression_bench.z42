@@ -22,36 +22,30 @@ byte[] _mkPayload(int n) {
 }
 
 [Benchmark]
-void bench_gzip_roundtrip_4k() {
+void bench_gzip_roundtrip_4k(Bencher b) {
     byte[] msg = _mkPayload(4096);
-    var b = new Bencher(2, 10);
     b.iter(() => {
         byte[] c = Gzip.Compress(msg);
         BenchHelpers.blackBox(Gzip.Decompress(c).Length);
     });
-    b.printSummary("gzip_roundtrip_4k");
 }
 
 [Benchmark]
-void bench_deflate_roundtrip_4k() {
+void bench_deflate_roundtrip_4k(Bencher b) {
     byte[] msg = _mkPayload(4096);
-    var b = new Bencher(2, 10);
     b.iter(() => {
         byte[] c = Deflate.Compress(msg);
         BenchHelpers.blackBox(Deflate.Decompress(c).Length);
     });
-    b.printSummary("deflate_roundtrip_4k");
 }
 
 [Benchmark]
-void bench_zstd_roundtrip_4k() {
+void bench_zstd_roundtrip_4k(Bencher b) {
     byte[] msg = _mkPayload(4096);
-    var b = new Bencher(2, 10);
     b.iter(() => {
         byte[] c = Zstd.Compress(msg);
         BenchHelpers.blackBox(Zstd.Decompress(c).Length);
     });
-    b.printSummary("zstd_roundtrip_4k");
 }
 
 // Smoke [Test] — bench bodies run *and* the round-trip is lossless.

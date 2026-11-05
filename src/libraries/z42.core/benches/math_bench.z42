@@ -9,22 +9,14 @@ using Std.Harness;
 
 [Benchmark]
 void bench_sqrt() {
-    var b = new Bencher(2, 20);
-    b.iter(() => {
-        double r = Math.Sqrt(2.0) + Math.Sqrt(3.0) + Math.Sqrt(5.0);
-        BenchHelpers.blackBox(r);
-    });
-    b.printSummary("sqrt");
+    double r = Math.Sqrt(2.0) + Math.Sqrt(3.0) + Math.Sqrt(5.0);
+    BenchHelpers.blackBox(r);
 }
 
 [Benchmark]
 void bench_pow() {
-    var b = new Bencher(2, 20);
-    b.iter(() => {
-        double r = Math.Pow(2.0, 10.0);
-        BenchHelpers.blackBox(r);
-    });
-    b.printSummary("pow");
+    double r = Math.Pow(2.0, 10.0);
+    BenchHelpers.blackBox(r);
 }
 
 [Benchmark]
