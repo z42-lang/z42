@@ -339,10 +339,10 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0911 | `[Test]` 违反五条规则之一 | ✅ TestAttrEnforcer.z42（`_teCode`） | `[Test] int t() { return 0; }` |
+| E0911 | `[Test]` 违反五条规则之一；含 `[Case]` 三查（只贴 `[Test]` / 贴了须有形参 / 每行套数 = 形参数） | ✅ TestAttrEnforcer.z42（`_teCode`） | `[Test] [Case(1, 2)] void t(int a) {}` |
 | E0912 | `[Benchmark]` 违反同五条规则（**脱糖后**判定：form-2 `void f(Bencher b)` 合法） | ✅ TestAttrEnforcer.z42（`_teCode`） | — |
 | E0913 | `[ShouldThrow]` 缺类型实参，或该类型**可解析但基类链到不了 `Exception`**。⚠️ 类型解析不到时**刻意不报**（跨包 / 符号表不完整会误伤） | ✅ TestAttrEnforcer.z42（`_tsCheck`） | `[ShouldThrow(typeof(int))]` |
-| E0914 | `[Skip]` 缺 `reason` 或 reason 为空串；或 `[Skip]`/`[Ignore]` **孤儿使用**（同声明上没有 `[Test]`/`[Benchmark]`） | ✅ TestAttrEnforcer.z42（`_teArgChecks` / `_teOrphanCheck`） | `[Skip] void t() {}` |
+| E0914 | `[Skip]` 缺 `reason` 或 reason 为空串；或 `[Skip]`/`[Ignore]`/`[Case]` **孤儿使用**（同声明上没有 kind attr） | ✅ TestAttrEnforcer.z42（`_teArgChecks` / `_teOrphanCheck`） | `[Skip] void t() {}` |
 | E0915 | `[Setup]` / `[Teardown]` 违反同五条规则 | ✅ TestAttrEnforcer.z42（`_teCode`） | — |
 | E0917 | `[Timeout]` 缺 `milliseconds`（或该实参非整数字面量），或其值 ≤ 0 | ✅ TestAttrEnforcer.z42（`_teArgChecks`） | `[Timeout(0)] [Test] void t() {}` |
 

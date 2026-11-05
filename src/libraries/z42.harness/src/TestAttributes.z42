@@ -65,6 +65,20 @@ public sealed class TeardownAttribute : Attribute {
     public TeardownAttribute() { }
 }
 
+/// 一行参数化用例数据（data-driven test）：与 `[Test]` 同贴、可叠多份。
+///
+/// 每份一行，runner 把方法按行展开成多条用例（名字带实参后缀）。实参是**编译期常量**
+/// （E0500 白名单），逐位对应形参；套数 = 形参数是编译期检查，类型勘合（整数族装箱摆平）
+/// 在运行期。要运行期生成的数据不归 attribute——写成普通 `[Test]` 自己循环断言。
+public sealed class CaseAttribute : Attribute {
+    /// 本行实参（params 展开）。
+    public object[] Args;
+    /// 实参即本行数据（params 展开；字面量最常见）。
+    public CaseAttribute(params object[] args) {
+        this.Args = args;
+    }
+}
+
 /// 跳过本条。`reason` 必填（E0914）；`platform` / `feature` 是可选门。
 ///
 /// 给 `platform` ⇒ 仅在该平台跳过；给 `feature` ⇒ 运行时缺这项能力才跳过
