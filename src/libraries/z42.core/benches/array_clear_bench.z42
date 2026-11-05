@@ -1,6 +1,7 @@
 namespace Z42ArrayClearBench;
 
 using Std.Harness;
+using Std.Collections;
 
 [Record]
 public struct Entry(int Count, string Name) { }
@@ -48,6 +49,17 @@ void array_clear_structs(Bencher b) {
         Array.Clear<Entry>(values, 0, values.Length);
         Assert.Equal(0, values[8192].Count);
         Assert.True(values[8192].Name == null);
+        BenchHelpers.blackBox(values);
+    });
+}
+
+[Benchmark]
+void list_clear_reuse_refs(Bencher b) {
+    List<string> values = new List<string>(4096);
+    b.iter(() => {
+        for (int i = 0; i < 4096; i++) { values.Add("é"); }
+        values.Clear();
+        Assert.Equal(0, values.Count);
         BenchHelpers.blackBox(values);
     });
 }

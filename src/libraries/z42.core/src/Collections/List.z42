@@ -133,11 +133,16 @@ public partial class List<T> : IEnumerable<T> {
     }
 
     /// 清空列表（Count 归零）。
-    // 实现：逐槽清引用（镜像 C# List.Clear 的 Array.Clear），否则已移除对象在槽被覆盖前
-    // 仍被 GC 视为可达。
     public void Clear() {
-        int i = 0;
-        while (i < this._count) { this.items[i] = default(T); i = i + 1; }
+        int count = this._count;
+        if (count == 0) return;
+        T[] items = this.items;
+        // 默认容量内直接写槽，省去 native 分派。较长的基元 backing 不持有引用。
+        if (count <= 4) {
+            for (int i = 0; i < count; i++) { items[i] = default(T); }
+        } else if (Array.MayContainReferences(items)) {
+            Array.Clear<T>(items, 0, count);
+        }
         this._count = 0;
     }
 
