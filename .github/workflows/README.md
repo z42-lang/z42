@@ -37,6 +37,7 @@
 
 ## 设计约定
 
+- **用例归属与选测**：新增用例按[测试用例组织规范](../../docs/internals/src/devinfra/test-layout.md#1-用例放哪)选择目录、形态和本地执行器；修改 workflow 时分别核对[构建前提、测试与发布边界](../../docs/internals/src/devinfra/ci.md#构建测试与发布的选择边界)，工程归属与用例能力不在 YAML 里另抄一份名单。
 - **统一入口**：workflow 只调 `xtask <cmd>`，不在 yaml 里硬编码构建 / 测试命令。
 - **夹具触发范围**：builder 的私有 `tests/` 走宿主夹具检查；路径筛选使用 `some-with-excludes`，从 platform / stdlib 排除它们，生产输入与 CI 自身改动仍触发相应专项。
 - **SDK 验证**：`scripts/test/sdk/` 与 launcher 的发行包私有夹具只选择四个桌面 host package；打包生产实现继续选择设备 / 浏览器消费者，无需逐用例平台配置。
