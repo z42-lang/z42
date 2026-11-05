@@ -20,6 +20,19 @@ void bench_stringbuilder_append() {
 }
 
 [Benchmark]
+void bench_stringbuilder_append_char() {
+    var b = new Bencher(4, 24);
+    b.iter(() => {
+        var sb = new StringBuilder();
+        for (int i = 0; i < 256; i = i + 1) {
+            sb.Append('a').Append('é').Append('中').Append('😀');
+        }
+        BenchHelpers.blackBox(sb.ToString());
+    });
+    b.printSummary("stringbuilder_append_char");
+}
+
+[Benchmark]
 void bench_levenshtein() {
     int d = Levenshtein.Distance("benchmark structures", "benchmark structure!")
           + Levenshtein.Distance("kitten", "sitting");
