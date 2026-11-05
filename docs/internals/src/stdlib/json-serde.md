@@ -49,13 +49,13 @@ FromJson(t, v):
 | 来源 | 收集方式 | 过滤 |
 |---|---|---|
 | 字段 | `t.GetFields()` | `!IsStatic && IsPublic` |
-| 属性 | `t.GetProperties()` | 无额外过滤 |
+| 属性 | `t.GetProperties()` | 按公开实例 getter 与 setter 分别筛选 |
 
 `JsonMember` 里藏一个 `FieldInfo` 或一个 `PropertyInfo`（二者其一非 null），对外只暴露
 `JsonKey` / `MemberType` / `CanRead` / `CanWrite` / `Get` / `Set`。序列化只看 `CanRead`，反序列化只看
-`CanWrite`——于是**只读的计算属性会被序列化出去，但不参与反序列化**，不需要在引擎里写任何特判。
+`CanWrite`。公开的只读实例属性仅参与序列化。一般反射仍可查看属性及其访问器，JSON 使用公开实例资格。
 
-键名 = `[JsonProperty].Name`，否则成员名；`[JsonIgnore]` 直接排除。
+键名 = `[JsonProperty].Name`，否则成员名；`[JsonIgnore]` 直接排除。继承字段沿基类链读取声明处的特性。
 
 > **auto-property 脱糖成私有背后字段 `__prop_X`，而 `GetFields()` 有意排除它**
 > （`corelib/reflection/fields.rs::is_backing_field`）。所以属性只能经 `GetProperties()` 看到——两条
