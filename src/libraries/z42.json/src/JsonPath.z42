@@ -10,7 +10,7 @@ namespace Std.Json;
 /// `[start:end]` 切片、函数调用。
 ///
 /// 路径任一步走不通（键缺失、下标越界、kind 不符）返回 `null`；仅路径语法本身非法才抛
-/// `JsonException`。
+/// `JsonException`。对于非空根值，即使前面的路径走不通，也会检查剩余路径的语法。
 public static class JsonPath {
 
     [Suppress("style.fnLinesHard", "79 body lines；拆分见 code-organization.md")]
@@ -47,7 +47,6 @@ public static class JsonPath {
                         + Int32.ToString(start));
                 }
                 cur = _stepObject(cur, key);
-                if (cur == null) return null;
             } else if (c == '[') {
                 // [N] or ["name"]
                 i = i + 1;
@@ -73,7 +72,6 @@ public static class JsonPath {
                     }
                     i = i + 1;
                     cur = _stepObject(cur, key);
-                    if (cur == null) return null;
                 } else {
                     // [N] form
                     int kstart = i;
@@ -92,7 +90,6 @@ public static class JsonPath {
                     i = i + 1;
                     int idx = Int32.Parse(idxStr);
                     cur = _stepArray(cur, idx);
-                    if (cur == null) return null;
                 }
             } else if (c == ' ' || c == '\t') {
                 // tolerate whitespace between segments

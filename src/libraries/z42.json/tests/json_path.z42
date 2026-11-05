@@ -130,3 +130,12 @@ void test_select_unsupported_wildcard_throws() {
     }
     Assert.True(caught);
 }
+
+[Test]
+void missing_value_does_not_hide_invalid_path_suffix() {
+    JsonValue root = _sample();
+    Assert.Throws("JsonException", () => JsonPath.Select(root, "$.missing.*"));
+    Assert.Throws("JsonException", () => JsonPath.Select(root, "$[\"missing\"]["));
+    Assert.Throws("JsonException", () => JsonPath.Select(root, "$.api.users[99]..name"));
+    Assert.Null(JsonPath.Select(root, "$.missing[0].name"));
+}
