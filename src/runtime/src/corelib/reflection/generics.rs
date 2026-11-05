@@ -225,7 +225,7 @@ pub(super) fn class_type_arg_name(recv: &Value, idx: usize) -> Option<String> {
 
 /// `__type_make_generic(defType, Type[] argTypes) -> Std.Type` — construct a
 /// generic type at runtime (`typeof(List<>).MakeGenericType(typeof(int))` →
-/// `List<int>`). Reuses `make_constructed_type` (z42's reified type-erasure means
+/// `List<int>`). Preserves the resolved argument Types (z42's reified type-erasure means
 /// no monomorphization/codegen). Validates arg count + `where` constraints
 /// (Q3 safety) before constructing.
 pub fn type_make_generic(ctx: &VmContext, def: &Value, arg_types_arr: &Value) -> Result<Value, BuiltinError> {
@@ -262,7 +262,7 @@ pub fn type_make_generic(ctx: &VmContext, def: &Value, arg_types_arr: &Value) ->
                 .map_err(BuiltinError::Legacy)?;
         }
     }
-    Ok(make_constructed_type(ctx, &def_td.name, &arg_names))
+    Ok(make_constructed_type_from_values(ctx, &def_td.name, arg_types))
 }
 
 /// 泛型反射合成迁 builtin ABI v2(P1-8 批次 5)。三个都是纯合成 / 查表——
