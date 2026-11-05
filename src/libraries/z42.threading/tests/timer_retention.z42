@@ -1,0 +1,91 @@
+// requires-caps: threads
+namespace Z42ThreadingTimerRetentionTests;
+
+using Std.Harness;
+using Std.Threading;
+
+class Payload {
+    public int Calls;
+}
+
+class TimerSample {
+    public Timer Worker;
+    public WeakHandle Target;
+}
+
+TimerSample startTimer(bool once) {
+    Payload payload = new Payload();
+    TimerSample sample = new TimerSample();
+    sample.Target = WeakHandle.MakeWeak(payload);
+    Action callback = () => { payload.Calls = payload.Calls + 1; };
+    sample.Worker = once ? Timer.StartOnce(0, callback) : Timer.StartPeriodic(60000, callback);
+    return sample;
+}
+
+bool targetAlive(WeakHandle target) {
+    return WeakHandle.Upgrade(target) != null;
+}
+
+void assertReleased(TimerSample sample) {
+    GC.ForceCollect();
+    Assert.False(targetAlive(sample.Target));
+    Assert.False(sample.Worker.IsRunning());
+}
+
+[Test]
+void test_once_releases_callback_after_firing() {
+    TimerSample sample = startTimer(true);
+    for (int i = 0; i < 500 && sample.Worker.IsRunning(); i = i + 1) {
+        Thread.Sleep(10);
+    }
+    bool finished = !sample.Worker.IsRunning();
+    sample.Worker.StopAndJoin();
+    Assert.True(finished);
+    assertReleased(sample);
+}
+
+[Test]
+void test_periodic_releases_callback_after_cancel() {
+    TimerSample sample = startTimer(false);
+    sample.Worker.StopAndJoin();
+    assertReleased(sample);
+}
+
+TimerSample startBlockedTimer(bool[] entered, Channel<int> proceed, bool[] finished) {
+    Payload payload = new Payload();
+    TimerSample sample = new TimerSample();
+    sample.Target = WeakHandle.MakeWeak(payload);
+    bool[] callbackEntered = entered;
+    Channel<int> callbackProceed = proceed;
+    bool[] callbackFinished = finished;
+    sample.Worker = Timer.StartOnce(0, () => {
+        callbackEntered[0] = true;
+        callbackProceed.Recv();
+        payload.Calls = payload.Calls + 1;
+        callbackFinished[0] = payload.Calls == 1;
+    });
+    return sample;
+}
+
+[Test]
+void test_stop_releases_callback_after_inflight_call_finishes() {
+    bool[] entered = new bool[1];
+    bool[] finished = new bool[1];
+    Channel<int> proceed = new Channel<int>(1);
+    TimerSample sample = startBlockedTimer(entered, proceed, finished);
+    try {
+        for (int i = 0; i < 500 && !entered[0]; i = i + 1) {
+            Thread.Sleep(10);
+        }
+        Assert.True(entered[0]);
+        sample.Worker.Stop();
+        Assert.False(sample.Worker.IsRunning());
+        GC.ForceCollect();
+        Assert.True(targetAlive(sample.Target));
+    } finally {
+        proceed.Send(1);
+        sample.Worker.StopAndJoin();
+    }
+    Assert.True(finished[0]);
+    assertReleased(sample);
+}
