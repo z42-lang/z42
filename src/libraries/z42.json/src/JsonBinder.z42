@@ -88,23 +88,28 @@ public static class JsonBinder {
 
     private static object _fromObject(Type t, JsonValue v) {
         ConstructorInfo[] ctors = t.GetConstructors();
-        ConstructorInfo paramCtor = null;             // 参数最多的 ctor（无无参 ctor 时用）
+        ConstructorInfo paramCtor = null;
+        ParameterInfo[] ctorParams = null;
+        int mostParams = 0;
         bool hasNoArg = (ctors.Length == 0);          // 无 ctor → Activator 默认构造
         int i = 0;
         while (i < ctors.Length) {
             ConstructorInfo c = ctors[i];
-            int pc = c.GetParameters().Length;
+            ParameterInfo[] ps = c.GetParameters();
+            int pc = ps.Length;
             if (pc == 0) {
                 hasNoArg = true;
-            } else if (paramCtor == null || pc > paramCtor.GetParameters().Length) {
+            } else if (pc > mostParams) {
                 paramCtor = c;
+                ctorParams = ps;
+                mostParams = pc;
             }
             i = i + 1;
         }
         if (hasNoArg || paramCtor == null) {
             return JsonBinder._viaActivator(t, v);
         }
-        return JsonBinder._viaCtor(t, v, paramCtor);
+        return JsonBinder._viaCtor(t, v, paramCtor, ctorParams);
     }
 
     private static object _viaActivator(Type t, JsonValue v) {
@@ -122,8 +127,7 @@ public static class JsonBinder {
         return obj;
     }
 
-    private static object _viaCtor(Type t, JsonValue v, ConstructorInfo ctor) {
-        ParameterInfo[] ps = ctor.GetParameters();
+    private static object _viaCtor(Type t, JsonValue v, ConstructorInfo ctor, ParameterInfo[] ps) {
         object[] args = new object[ps.Length];
         int i = 0;
         while (i < ps.Length) {
