@@ -70,11 +70,12 @@ skip 键与 banner 名可能不同（如 `vscode` 对应 `vscode-syntax`）；�
 `--changed <base>` 是 `--skip` 的自动版：按 §7 映射表的「gate stage」列，把相对 `<base>` 的改动**用不到**的
 重 stage（`rust-units` / `cross-zpkg` / `multi-exe` / `stdlib` / `toolchain` / `bench` / `targets` / `examples` /
 `compiler` / `gcgen`）追加进 skip。build wave、`e2e goldens` 与全部静态检查恒跑（后者守全仓不变量，秒级）；
-任一文件判成 full、base 不可解析或 Git 读取失败 ⇒ 一个都不跳。判定打印在开头（`[test --changed] …`）。CI 只在 PR 的
-`test-host` 上用它（`--changed <PR base sha>`），main push / schedule / dispatch 全跑。
+任一文件判成 full、base 不可解析或 Git 读取失败 ⇒ 一个都不跳。判定打印在开头（`[test --changed] …`）。CI 的
+`test-host` 在 PR 上使用 PR base SHA，在 main push 上使用 `github.event.before`；首次 push 或无法取得基线时全跑，
+schedule / dispatch 保留全量。测试差异基线不替代 nightly 发布的累计 SDK 差异判定。
 
-`--no-build`（或 `--toolchain <sdk>`）跳过构建波、直接消费既有产物——CI 正是先集中构建一次、
-再多 job `test --no-build` 消费的形态；本地缓存后反复迭代同理。examples stage 实际执行时仍负责构建 apphost、
+`--no-build` 复用已有 z42c / stdlib；完整 `test` 仍确保本地 debug VM 并重生 golden。
+专项 e2e 在指定 `--toolchain <sdk>` 时直接使用该工具链的 VM。examples stage 实际执行时仍负责构建 apphost、
 组装当前开发 SDK（已有 z42c / stdlib 不重建）；`--toolchain <sdk>` 则直接在指定 SDK 上重放，不准备开发 SDK。
 显式 skip、改动分流跳过 examples 或只列 stage 时，均不准备 SDK。
 **这些都不构成 GREEN**：提交判定只认完整 `xtask test`。
