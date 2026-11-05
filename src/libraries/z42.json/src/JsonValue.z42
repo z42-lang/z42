@@ -76,13 +76,13 @@ public class JsonValue {
 
     /// 序列化为紧凑 JSON（无空白）。
     public static string Stringify(JsonValue v) {
-        JsonWriter w = new JsonWriter(false);
+        JsonWriteBuffer w = new JsonWriteBuffer(false);
         return w.Write(v);
     }
 
     /// 序列化为缩进 JSON（2 空格缩进 + 换行）。
     public static string StringifyPretty(JsonValue v) {
-        JsonWriter w = new JsonWriter(true);
+        JsonWriteBuffer w = new JsonWriteBuffer(true);
         return w.Write(v);
     }
 
@@ -121,7 +121,7 @@ public class JsonValue {
     }
 
     private static void WriteUtf8To(Stream dest, JsonValue v, bool pretty) {
-        JsonWriter writer = new JsonWriter(pretty);
+        JsonWriteBuffer writer = new JsonWriteBuffer(pretty);
         byte[] bytes = writer.WriteUtf8(v);
         dest.Write(bytes, 0, bytes.Length);
         dest.Flush();
@@ -230,6 +230,12 @@ public class JsonValue {
             throw new JsonException("key not found: " + key);
         }
         return this._objectValues[slot];
+    }
+
+    /// 供绑定器一次查找后按槽读取，非 object 或缺键返回 -1。
+    internal int FindObjectSlot(string key) {
+        if (this._kind != 6) { return -1; }
+        return this._slotOf(key);
     }
 
     // Slot of `key` in the object arrays, or -1. Linear scan up to 8 keys,

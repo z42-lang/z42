@@ -18,16 +18,12 @@ int exercise_no_calls(int n) {
     return m.FuncCount;
 }
 [Benchmark]
-void bench_inline_no_calls_512() {
-    var b = new Bencher(4, 12);
+void bench_inline_no_calls_512(Bencher b) {
     b.iter(() => { BenchHelpers.blackBox(exercise_no_calls(512)); });
-    b.printSummary("inline_no_calls_512");
 }
 [Benchmark]
-void bench_inline_lookup_512() {
-    var b = new Bencher(4, 12);
+void bench_inline_lookup_512(Bencher b) {
     b.iter(() => { BenchHelpers.blackBox(exercise(512)); });
-    b.printSummary("inline_lookup_512");
 }
 void Main() {
     string[] args = Environment.GetCommandLineArgs();

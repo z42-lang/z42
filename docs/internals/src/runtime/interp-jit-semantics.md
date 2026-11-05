@@ -131,6 +131,8 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 | `StructFieldGetPrim` / `SetPrim` | `struct_leaf::struct_field_{get,set}_val` | `exec_struct.rs` | `helpers/struct_ops.rs` |
 | `LoadElemAddr` / `LoadFieldAddr` 与经 `ref` 读写 | `array::check_elem_addr` / `elem_{load,store}`、`field::check_field_addr` / `{load,store}_named` | `exec_address.rs`、`frame.rs` | （JIT 不翻译，见 `unsupported_reason`） |
 
+在 64 位 JIT 中，`ArrayLen` 和 `FieldGet` 的数组 `Length` / `Count` 共用定宽堆数组长度读取。机器码验证接收者 tag 和句柄代数，再按存储模式把头部的载荷字节数转换为元素数。接收者在帧寄存器中保活，读取区间没有 safepoint。结构体数组、栈数组和错误输入由对应指令的 helper 处理，普通对象继续使用字段缓存。
+
 **错误通道只有一个**：`objops::OpError`。
 
 - `Throw { class, msg }`：用户可 `catch` 的异常。类与消息**只在 `objops/error.rs` 里写**：

@@ -29,7 +29,7 @@ public sealed class DirsOut {
 public sealed class LibsDomainOut {
     public int Rc;
     public string[] LibsDirs; public int LibsDirsN;
-    public string[] ClosureNames; public int ClosureN;
+    public PathClosureOut Closure;
     public WsTier ScanTier; public SdkLibPlan SdkPlan;
 }
 public sealed class PluginSetupOut {
@@ -70,16 +70,22 @@ public sealed class ParseAllOut {
 // 本函数原为 386 行整块（fnlines 棘轮账本头名），现只剩相位编排（fnlines 只降不升）；
 // 各相位的实现与叙事注释随相位走（下方 `_resolve*` / `_prepare*` / `_report*` / `_write*`）。
 int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int cliAdd, int cliRemove, bool fix, WsTier tier, string internalOf) {
+    return _build(tomlPath, isRelease, outputDirOverride, cacheDirOverride, libsDirsOverride, libsDirsCount,
+                  noIncremental, cliAdd, cliRemove, fix, tier, internalOf, null);
+}
+
+int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount,
+           bool noIncremental, int cliAdd, int cliRemove, bool fix, WsTier tier, string internalOf, BundleDomain memberDomain) {
     // ── ① manifest 校验 + 源发现（旋钮 / deploy 清单级 fail-fast 都在编译前）──
     BuildSourcesOut sr = _resolveBuildSources(tomlPath, tier);
     if (sr.Rc != 0) { return sr.Rc; }
     ProjectManifest pm = sr.Pm; string[] srcs = sr.Srcs; string[] dispSrcs = sr.DispSrcs; string projectDir = sr.ProjectDir;
     // ── ② 依赖域组装（Z42_LIBS / path 闭包 / vendored zpkg / SDK 库可见性 → 扫描档）──
     LibsDomainOut ld = _resolveLibsDomain(pm, tomlPath, projectDir, isRelease, noIncremental, cliAdd, cliRemove,
-        libsDirsOverride, libsDirsCount, tier);
+        libsDirsOverride, libsDirsCount, tier, memberDomain);
     if (ld.Rc != 0) { return ld.Rc; }
     string[] libsDirs = ld.LibsDirs; int libsDirsN = ld.LibsDirsN; SdkLibPlan sdkPlan = ld.SdkPlan;
-    string[] closureNames = ld.ClosureNames; int closureN = ld.ClosureN; WsTier scanTier = ld.ScanTier;
+    WsTier scanTier = ld.ScanTier;
     // ── ③ 编译器侧插件解析（显式 [plugins] ∪ 携带链）+ 身份指纹 ──
     PluginSetupOut pl = _resolvePluginSetup(pm, projectDir, tomlPath, libsDirs, libsDirsN,
         isRelease, noIncremental, cliAdd, cliRemove, tier);
@@ -101,7 +107,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // ── ⑧ 依赖身份（缓存键扩展）+ 增量 probe；全命中 → preserved 早退 ──
     string depsId = BuildCacheIdentity.Of(pm, effOptSet, isRelease, libsDirs, libsDirsN, scanTier);
     PrepareOut po = _prepareIncremental(pm, srcs, dispSrcs, sh.Texts, sh.Hashes, scanTier, projectDir, bd.EffCacheDir, depsId,
-        feats, distDir, isPacked, isExe, azPaths, closureNames, closureN, libsDirs, libsDirsN, isRelease,
+        feats, distDir, isPacked, isExe, azPaths, ld.Closure, libsDirs, libsDirsN, isRelease,
         outputDirOverride, cacheDirOverride, noIncremental, LineLint.Active(kn.Lints), pl.DepNames, pl.DepNamesN);
     if (po.Rc != -1) { return po.Rc; }   // preserved 早退已完成（Ok）或失败（诊断已打印）
     IncrPrep prep = po.Prep;
@@ -126,23 +132,23 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     if (pm.ExeCount > 0) {
         int xi = 0;
         while (xi < pm.ExeCount) {
-            int xr = _writeExeTarget(pm, pm.Exes[xi], art, distDir, isPacked, isRelease, bd.EffCacheDir, projectDir, srcs, prep);
+            int xr = _writeExeTarget(pm.Exes[xi], art, distDir, isPacked, isRelease, bd.EffCacheDir, projectDir, srcs, prep);
             if (xr != 0) { return xr; }
             xi = xi + 1;
         }
         // 依赖 bundling 一次（各 exe 共享同一 dist）。
-        int mbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN, tier, pl.DepNames, pl.DepNamesN);
+        int mbc = _finishExeDeployment(pm, ld.Closure, distDir, libsDirs, libsDirsN, tier, pl.DepNames, pl.DepNamesN, isRelease);
         if (mbc != 0) { return mbc; }
         // 多 exe 同样落 cache（cache-dir-layout：此前此分支提前 return，从不写 cache）。
         if (bd.WriteCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, sh.Texts, sh.Hashes, art.Cms, art.Mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
         return ExitCode.Ok;
     }
-    int wor = _writeSingleOutput(pm, art, distDir, isPacked, isExe, isRelease, bd.EffCacheDir, projectDir, srcs, prep);
+    int wor = _writeSingleOutput(pm, art, distDir, isPacked, isRelease, bd.EffCacheDir, projectDir, srcs, prep);
     if (wor != 0) { return wor; }
     if (bd.WriteCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, sh.Texts, sh.Hashes, art.Cms, art.Mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
-        int bc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN, tier, pl.DepNames, pl.DepNamesN);
+        int bc = _finishExeDeployment(pm, ld.Closure, distDir, libsDirs, libsDirsN, tier, pl.DepNames, pl.DepNamesN, isRelease);
         if (bc != 0) { return bc; }
     }
     return ExitCode.Ok;
@@ -178,9 +184,8 @@ BuildSourcesOut _resolveBuildSources(string tomlPath, WsTier tier) {
 
 // ── ② 依赖域组装 ─────────────────────────────────────────────────────────────────
 LibsDomainOut _resolveLibsDomain(ProjectManifest pm, string tomlPath, string projectDir, bool isRelease, bool noIncremental,
-                                 int cliAdd, int cliRemove, string[] libsDirsOverride, int libsDirsCount, WsTier tier) {
+                                 int cliAdd, int cliRemove, string[] libsDirsOverride, int libsDirsCount, WsTier tier, BundleDomain memberDomain) {
     LibsDomainOut o = new LibsDomainOut();
-    o.ClosureNames = new string[0]; o.ClosureN = 0;
     // ── 跨包依赖（CI-4）：libsDirs 扫描 → DepIndex + nsMap + TSIG 池；usings 聚合决定激活集 ──
     // workspace build 传 libsDirsOverride：Milestone 1 = [flat dist]（单元素）；
     // Milestone 2 = 全成员 dist 列表（per-member 布局，解析兄弟）+ Z42_LIBS（外部 stdlib）。
@@ -202,12 +207,13 @@ LibsDomainOut _resolveLibsDomain(ProjectManifest pm, string tomlPath, string pro
         PathClosureOut pco = _buildPathDepClosure(tomlPath, isRelease, noIncremental, cliAdd, cliRemove,
                                                   o.LibsDirs, o.LibsDirsN, wsMember ? tier : null);
         if (pco.Rc != 0) { o.Rc = pco.Rc; return o; }
-        o.ClosureNames = pco.Names; o.ClosureN = pco.NamesN;
+        o.Closure = pco;
         o.LibsDirs = pco.LibsDirs; o.LibsDirsN = pco.LibsDirsN;
     }
     // vendored zpkg 引用目录并入解析域（`_appendZpkgRefDirs`，在 path 闭包之后、SDK 库之前）。
     DirsOut zr = _appendZpkgRefDirs(pm, projectDir, o.LibsDirs, o.LibsDirsN);
     if (zr == null) { o.Rc = ExitCode.BuildError; return o; }
+    bool hasVendoredDirs = zr.N > o.LibsDirsN;
     o.LibsDirs = zr.Dirs; o.LibsDirsN = zr.N;
     // 声明了 stdlib ⇒ W0610（DepDecls.z42）。此刻 libsDirs = path 闭包 / vendored zpkg + 外部档，正是判「从哪解析到」的那一份。
     _warnStdlibDeps(pm, tomlPath, o.LibsDirs, o.LibsDirsN, tier);
@@ -223,6 +229,10 @@ LibsDomainOut _resolveLibsDomain(ProjectManifest pm, string tomlPath, string pro
     }
     // 只用于扫描与缓存身份；`tier` 本身的 workspace 语义（成员 / 闭包代建 / packed / generated）不受影响。
     o.ScanTier = SdkLibs.MergeTier(tier, o.SdkPlan);
+    if (memberDomain != null && hasVendoredDirs) {
+        memberDomain.Dirs = o.LibsDirs;
+        memberDomain.Count = o.LibsDirsN;
+    }
     return o;
 }
 
@@ -416,7 +426,7 @@ KnobResult _resolveKnobs(ProjectManifest pm, string tomlPath, bool isRelease, in
 PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispSrcs, string[] texts, string[] srcHashes, WsTier tier,
                                string projectDir, string effCacheDir, string depsId, LanguageFeatures feats,
                                string distDir, bool isPacked, bool isExe, string[] azPaths,
-                               string[] closureNames, int closureN, string[] libsDirs, int libsDirsN, bool isRelease,
+                               PathClosureOut closure, string[] libsDirs, int libsDirsN, bool isRelease,
                                string outputDirOverride, string cacheDirOverride, bool noIncremental, bool styleLint,
                                string[] routedDeps, int routedN) {
     PrepareOut o = new PrepareOut();
@@ -454,16 +464,8 @@ PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispS
         BuildLog.ProgressErr("cached: " + (srcs.Length - o.Prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         if (canPreserve && o.Prep.Plan.AllCached) {
             if (isExe) {
-                int sbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN, tier, routedDeps, routedN);
+                int sbc = _finishExeDeployment(pm, closure, distDir, libsDirs, libsDirsN, tier, routedDeps, routedN, isRelease);
                 if (sbc != 0) { o.Rc = sbc; return o; }
-                // 🔴 侧车必须在 preserved 路径上也重写。`[profile.<n>.runtime]` 的旋钮与
-                // `[properties]` **不进源 hash**（它们不影响编译产物），于是「只改了运行时
-                // 配置、源码一字未动」恰好全命中缓存 ⇒ 早退 ⇒ 侧车留在上一次的值：用户改了
-                // 旋钮、构建报成功、产物里还是旧配置。实测复现（把 probing-paths 从
-                // `../../shared` 改成 `../../CHANGED`，重建后侧车仍是 `../../shared`）。
-                // 写出是幂等的（值没变就写回同样的字节），代价是一次 TOML 序列化。
-                int rcp = _writeRuntimeConfigSidecar(pm, distDir, pm.Project.Name, isRelease);
-                if (rcp != 0) { o.Rc = rcp; return o; }
             }
             // 🔴 警告必须在 preserved 路径上也打印（warnings-survive-cache），理由与上面侧车
             // 那条**一模一样**：早退跳过了用户仍然需要看见的东西。实测：带 W0700 的工程连续
@@ -788,7 +790,7 @@ int _writeGeneratedSources(ProjectManifest pm, string projectDir, bool isRelease
 // 此处按 exe 重烤 name/entry（共享字节，只改 META）后各写一份，复用现有单入口烘焙链。
 // 非破坏：ExeCount==0 落到单产物路径（z42c 自身源无 [[exe]] → 自举 gen1==gen2 不受扰）。
 // 首切：exe 专属 src 子集 + 增量 preserved 后置，多 exe 一律全量、共享 [sources]。
-int _writeExeTarget(ProjectManifest pm, ExeTarget ex, CompileArtifacts art, string distDir, bool isPacked, bool isRelease,
+int _writeExeTarget(ExeTarget ex, CompileArtifacts art, string distDir, bool isPacked, bool isRelease,
                     string effCacheDir, string projectDir, string[] srcs, IncrPrep prep) {
     if (ex.SrcCount > 0) {
         ConsoleError.WriteLine("z42c build: [[exe]] `" + ex.Name + "` 声明了独立 `src` 子集——per-exe 源集尚未支持（当前所有 exe 共享 [sources]）；移除 `src` 或拆成独立工程");
@@ -818,17 +820,14 @@ int _writeExeTarget(ProjectManifest pm, ExeTarget ex, CompileArtifacts art, stri
             BuildLog.Progress("wrote -> " + BuildLayout.Display(symX));
         }
     }
-    // 运行配置侧车（complete-runtime-settings P5）：每个产物一份。
-    return _writeRuntimeConfigSidecar(pm, distDir, ex.Name, isRelease);
+    return ExitCode.Ok;
 }
 
-// ── ⑬b 单产物写出（zpkg 主文件 + 侧车）──────────────────────────────────────────
+// ── ⑬b 单产物写出（zpkg 主文件 + 符号侧车）──────────────────────────────────────────
 // indexed（开发态，add-indexed-zpkg-min-patch）：散装自包含 zbc（字节稳定投影）
 // + FILE 目录主文件。cache 目录供 cached 文件字节原样复制（增量未启时不消费）。
 // packed：strip-symbols —— 主 zpkg（MODS dbug_len=0 + BLID）+ .zsym sidecar（split-debug）。
-// 运行配置侧车（complete-runtime-settings P5）：只对 exe 产物；无 [profile.*]
-// 旋钮时不产文件（非破坏——从前没有侧车的工程 dist 内容逐字节不变）。
-int _writeSingleOutput(ProjectManifest pm, CompileArtifacts art, string distDir, bool isPacked, bool isExe, bool isRelease,
+int _writeSingleOutput(ProjectManifest pm, CompileArtifacts art, string distDir, bool isPacked, bool isRelease,
                        string effCacheDir, string projectDir, string[] srcs, IncrPrep prep) {
     string outPath = Path.Join(distDir, pm.Project.Name + ".zpkg");
     // 循环上界同 _writeExeTarget：indexed dist 必须用 union 模块数（art.ModCount），不能 srcs.Length。
@@ -845,10 +844,7 @@ int _writeSingleOutput(ProjectManifest pm, CompileArtifacts art, string distDir,
             BuildLog.Progress("wrote -> " + BuildLayout.Display(symPath));
         }
     }
-    if (isExe) {
-        return _writeRuntimeConfigSidecar(pm, distDir, pm.Project.Name, isRelease);
-    }
-    return 0;
+    return ExitCode.Ok;
 }
 
 // 1c/PR2：携带闭包解析（两阶段，见 PluginRefs 头注）并进显式集，刷 azPaths。
