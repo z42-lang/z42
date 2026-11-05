@@ -320,7 +320,9 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
 - `platform_package` 在 `platform` 验证、定期 / 手动运行和需要发布的 main push 上选择全部平台包。
   `host_package` 也响应 `sdk_checks` 和 `examples`，用打包的桌面 SDK 验证夹具与示例。
   main push 使用 nightly 的累计 SDK 差异。确认 `sdk=false` 时只按验证职责打包，未知结果保留发布所需的归档。
-  SDK 验证使用刚打出的包，在桌面执行命令行、apphost 与 interp / jit golden，不需要移动 / wasm 打包或桌面 C ABI 消费者。
+  `package-host` 始终构建并验证桌面 SDK，使用其归档离线安装，并用打包后的 SDK 重放手册示例。
+  桌面 runtime / workload 归档与链接 runtime 包的 C 宿主检查由 `platform_package` 选择。
+  只选择桌面 SDK 的 main 运行仍上传 SDK 归档，供 CI 种子回退使用。
   修改生产打包实现、混合生产输入、CI 配置及定期 / 手动事件均保留对应覆盖。
   执行失败经 `ci-ok` 挡合并；被职责选择跳过的 job 由 `ci-ok` 接受 skipped。
 - **`publish-nightly` 的 `needs` 故意不含两条 jit 腿**：那些 job 在

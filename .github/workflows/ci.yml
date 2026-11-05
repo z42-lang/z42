@@ -379,10 +379,8 @@ jobs:
   host-package:
     name: package-host(${{ matrix.platform }})
     timeout-minutes: 45
-    # package-* 的产物只给 publish-nightly 用；PR 上它们只是「还能不能打包」，只在 platform 改动时跑。
     needs: [changes, toolchain-bootstrap]
-    # `examples`：学习手册示例只在这里用打包出的 SDK 重放（含 Windows 的唯一覆盖），
-    # 所以 learn / examples 改动只拉起本 job，不拉起其余 package-* / test-desktop。
+    # SDK 验证和示例重放也需要桌面 SDK（包括 Windows）。runtime / workload 包按平台打包职责选择。
     if: needs.changes.outputs.host_package == 'true'
     strategy:
       fail-fast: false
@@ -405,7 +403,7 @@ jobs:
         with:
           cache-key: package-host-v2
 
-      - name: Package host RID + verify (xtask package)
+      - name: Package host SDK + verify
         shell: bash
         run: |
           set -euo pipefail
@@ -413,6 +411,12 @@ jobs:
           # --archive：在本 runner 上出归档（保留可执行位；Windows 出 zip）。PR 上也出——下面的 Installer smoke 装的就是它。
           # --verify：在这份 SDK 上跑 packages.toml 自检 + 发行包夹具 + golden（每条腿都必须跑到）。
           xtask package sdk --no-build --archive --label nightly --verify
+
+      - name: Package host runtime and workloads
+        if: needs.changes.outputs.platform_package == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
           xtask package runtime --no-build --archive --label nightly
           xtask package workload --archive --label nightly
           # test workload = payload-only, platform-agnostic → build once on macos-arm64
@@ -463,7 +467,7 @@ jobs:
         # 静态一遍、动态一遍（经 rpath 找 libz42.{dylib,so}）——install name / SONAME 坏了，动态那遍就加载不了。
         # 打包模式只跑 R1–R7：嵌入语料用的是构建树的 VM，与包无关，归 test-desktop-cabi。
         # Windows 没有 `cc`，上一步按文件检查 import lib。
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && needs.changes.outputs.platform_package == 'true'
         shell: bash
         run: |
           set -euo pipefail

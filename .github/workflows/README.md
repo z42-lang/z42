@@ -24,7 +24,7 @@
 | `changes`（detect-changes） | 总是 | 按路径分类，并输出下游测试和打包任务的选择结果 |
 | `docs-check` | 仅文档改动 | `xtask test docs links` 死链门禁 + `xtask check diagcodes` + `xtask check layout` |
 | `build-and-test`（test-host） | 非纯文档 | 多平台 `xtask build` + `xtask test` |
-| `host-package`（package-host） | platform / sdk_checks / examples 验证，或有发布输入，或定期 / 手动运行 | 各 host RID 的 package 产物 |
+| `host-package`（package-host） | platform / sdk_checks / examples 验证，或有发布输入，或定期 / 手动运行 | 各 host RID 的 SDK 打包与验证。平台打包时还构建 runtime / workload |
 | `toolchain-bootstrap`（compile-toolchain） | 非纯文档 | 编译 toolchain（z42c / stdlib / xtask zpkg）供下游 job 消费 |
 | `assemble-current-sdk` / `consume-current-sdk` | 随 CI | 当前源码组装 SDK、再消费它跑测试 |
 | `vm-jit-consistency` / `stdlib-jit-consistency` / `stdlib-interp-consistency` | vm / stdlib / compiler 改动或 schedule / dispatch | VM / 标准库在 JIT 与 interp 下的一致性，分 shard |
