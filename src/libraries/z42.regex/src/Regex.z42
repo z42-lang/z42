@@ -178,9 +178,8 @@ public class Regex {
                 }
                 buf[n] = m;
                 n = n + 1;
-                // 推进至少一格（避免空匹配死循环）
-                if (m.End() == pos) { pos = pos + 1; }
-                else { pos = m.End(); }
+                int end = m.End();
+                pos = end == m.Start() ? end + 1 : end;
             }
             Match[] result = new Match[n];
             int j = 0;
