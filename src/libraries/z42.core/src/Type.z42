@@ -4,25 +4,24 @@ using Std.Reflection;
 /// 运行期类型描述符，由 `Object.GetType()` 返回（C# System.Type 对标）。
 ///
 /// 携带 native 句柄指向真实 VM `TypeDesc`；基元（int / long / bool / …）解析到其真实
-/// `Std.*` 包装结构体句柄——`typeof(int)` 与 `(5).GetType()` **值相等**（按 FullName，见
+/// `Std.*` 包装结构体句柄——`typeof(int)` 与 `(5).GetType()` **值相等**（按运行时身份，见
 /// `operator ==`），Name 为 `Int32`、FullName 为 `Std.Int32`、IsValueType true、成员可枚举。
 /// 只有数组返回无句柄的合成体（Name/FullName 已填，成员查询为空）。不能从用户代码构造。
 ///
-/// 注：「相等」是值相等（按 FullName），不是同一个对象——每次 typeof / GetType() 都新建，
+/// 注：相等的 Type 可以是独立的反射对象。每次 typeof / GetType() 都新建，
 /// `ReferenceEquals` 恒为假。
-public sealed class Type : MemberInfo {
+public sealed class Type : MemberInfo, IEquatable {
     /// VM 写入的短名（优先用继承的 `Name` 属性；此处保留给底层 golden 测试与 z42.harness 直读）。
     public string __name;
     /// VM 写入的全限定名（优先用 `FullName` 属性）。
     public string __fullName;
 
-    /// VM 写入：是否数组类型；`__elementName` 存元素类型的 FQ 名。
-    ///
-    /// `typeof(int[])`、数组字段/参数类型、`arr.GetType()` 为 true；
-    /// `GetElementType()` 解析为 `Type`（缺省 null）。
+    /// VM 写入：`typeof(int[])`、数组字段/参数类型、`arr.GetType()` 为 true。
     public bool IsArray;
-    /// 数组元素类型的 FQ 名（非数组为 ""）。
+    /// VM 种子布局使用的元素名字（非数组为 ""）。
     public string __elementName;
+    // VM 在数组 Type 创建时写入已解析的元素投影。
+    private Type? __elementType;
 
     /// VM 写入：定义该类型的 assembly 的 AssemblyId（0 = root）。内部（`__` 前缀），非用户读取。
     public long __asmId;
@@ -30,15 +29,18 @@ public sealed class Type : MemberInfo {
     /// VM 写入：构造泛型（`typeof(Box<int>)`）的实参 `Type[]`；开放定义与非泛型为 null。
     ///
     /// 非 null 标记该类型为构造类型，故 `IsGenericTypeDefinition` false、
-    /// `GetGenericArguments()` 返回这些。
-    public Type[] __typeArgs;
+    /// `GetGenericArguments()` 返回它的快照。
+    private Type[] __typeArgs;
 
     /// 按全限定名解析 Type（如 `"Demo.Point"`）；未知返回 null。补足 typeof(T) / obj.GetType()
     /// 之外的反射查找路径。
     [Native("__type_get_type")]
     public static extern Type GetType(string fqn);
 
-    /// 数组类型的元素类型（`typeof(int[]).GetElementType()` → `typeof(int)`）；非数组为 null。
+    /// 返回数组 Type 创建时解析的元素类型。
+    ///
+    /// 例如 `typeof(int[]).GetElementType()` 返回 `typeof(int)`。
+    /// 非数组或没有元素标签的数组返回 null。
     [Native("__type_element")]
     public extern Type GetElementType();
 
@@ -46,36 +48,26 @@ public sealed class Type : MemberInfo {
     [Native("__type_full_name")]
     public extern string FullName { get; }
 
-    // ── 值相等 ────────────────────────────────────────────────────────────────
-    //
-    // 身份判据 = FullName。`Type` 在 z42 里的身份就是 FQ 名；数组等无句柄的合成体也有填好的
-    // FullName。判空用 Object.ReferenceEquals 而非 `a == null`，否则会递归派发回本运算符。
+    [Native("__type_identity_equals")]
+    private static extern bool SameIdentity(Type a, Type b);
 
-    /// 按 FullName 比较相等（两侧皆 null 才相等；一侧 null 为不等）。
-    public static bool operator ==(Type a, Type b) {
-        bool an = Object.ReferenceEquals(a, null);
-        bool bn = Object.ReferenceEquals(b, null);
-        if (an || bn) { return an && bn; }
-        return a.FullName == b.FullName;
-    }
+    [Native("__type_identity_hash")]
+    private extern int IdentityHash();
 
-    /// 按 FullName 判断不等。
-    public static bool operator !=(Type a, Type b) {
-        bool an = Object.ReferenceEquals(a, null);
-        bool bn = Object.ReferenceEquals(b, null);
-        if (an || bn) { return !(an && bn); }
-        return a.FullName != b.FullName;
-    }
+    /// 比较运行时类型身份（两侧皆 null 时相等）。
+    public static bool operator ==(Type a, Type b) { return Type.SameIdentity(a, b); }
 
-    /// 与 `==` 同一判据（FullName），保证与 GetHashCode 口径一致。
-    public override bool Equals(object other) {
-        Type t = other as Type;
-        if (t == null) { return false; }
-        return this.FullName == t.FullName;
-    }
+    /// 判断运行时类型身份是否不同。
+    public static bool operator !=(Type a, Type b) { return !Type.SameIdentity(a, b); }
 
-    /// FullName 的哈希码。
-    public override int GetHashCode() { return this.FullName.GetHashCode(); }
+    /// 按与 `==` 相同的运行时身份比较。
+    public override bool Equals(object other) { return Type.SameIdentity(this, other as Type); }
+
+    /// 比较同类 Type 的运行时身份。
+    public bool Equals(Type other) { return Type.SameIdentity(this, other); }
+
+    /// 与运行时类型身份对应的哈希码。
+    public override int GetHashCode() { return this.IdentityHash(); }
 
     /// 基类类型；无显式基类的类为 `Std.Object`；`Std.Object` 自身与无句柄 Type（基元/数组）为 null。
     [Native("__type_base")]
@@ -197,7 +189,7 @@ public sealed class Type : MemberInfo {
     [Native("__type_properties")]
     public extern Std.Reflection.PropertyInfo[] GetProperties();
 
-    /// 构造泛型的实参（`typeof(Box<int>)` → [int]）。开放定义与非泛型为空。
+    /// 构造泛型的实参数组快照（`typeof(Box<int>)` → [int]）。开放定义与非泛型为空。
     [Native("__type_generic_args")]
     public extern Type[] GetGenericArguments();
 
