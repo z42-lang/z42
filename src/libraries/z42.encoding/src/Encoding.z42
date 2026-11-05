@@ -52,20 +52,11 @@ public class Encoding {
 
     /// 解码切片 `bytes[offset..offset+count]`；`count == 0` 返回 `""`，越界抛 `ArgumentException`。
     public string GetString(byte[] bytes, int offset, int count) {
-        if (offset < 0 || count < 0 || offset + count > bytes.Length) {
+        if (offset < 0 || count < 0 || offset > bytes.Length || count > bytes.Length - offset) {
             throw new ArgumentException("Encoding.GetString: offset / count out of range");
         }
         if (count == 0) { return ""; }
-        if (offset == 0 && count == bytes.Length) {
-            return Utf8.GetString(bytes);
-        }
-        byte[] slice = new byte[count];
-        int i = 0;
-        while (i < count) {
-            slice[i] = bytes[offset + i];
-            i = i + 1;
-        }
-        return Utf8.GetString(slice);
+        return String.FromUtf8(bytes, offset, count);
     }
 }
 
