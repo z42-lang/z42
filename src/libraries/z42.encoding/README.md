@@ -20,6 +20,9 @@ byte ↔ text 编码三件套：Hex / Base64 / UTF-8。脚本实现（本包零 
 ## 入口点
 公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/encoding.md)（由源码 doc 注释生成）。
 
+使用 `Encoding.GetByteCount` 计算目标空间，用 `GetBytes(s, destination, offset)` 写入已有数组。
+目标区间和异常行为由 `tests/encoding_destination.z42` 覆盖。
+
 ## 依赖关系
 
 → `z42.core`（byte / char / string / Exception / FormatException）。本包零 extern；UTF-8 经 core 的存储复制/严格字符串构造实现。

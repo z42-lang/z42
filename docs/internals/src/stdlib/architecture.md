@@ -112,6 +112,9 @@ EOF 永久化并解除源和工作缓冲引用，Close/Dispose 同样解除引�
 编码引用，调用方仍可继续使用自己持有的目标流。刷新失败时保持 writer 打开并保留目标，允许修复源错误后重试；
 重复 Close 或关闭后的 Flush 不再访问目标。
 
+有参 `StreamWriter.WriteLine` 将文本编码到独立目标数组，再在末尾写入 UTF-8 的 LF 字节。
+整行通过一次底层 Write 交付。目标数组的字节偏移和容量由 `Encoding.GetBytes` 的目标数组重载校验。
+
 ## 3. `[Native]` 的两种形态
 
 `[Native]` 是编译器原生封闭集里的 **directive**（`HandlerRegistry.IsNativeDirective`），不走

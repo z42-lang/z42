@@ -1,0 +1,47 @@
+namespace Z42StreamWriterLineBench;
+using Std.IO;
+using Std.Harness;
+
+class CountingLineStream : Stream {
+    public int Bytes;
+
+    public override void Write(byte[] buffer, int offset, int count) {
+        this.Bytes = this.Bytes + count;
+    }
+}
+
+void MeasureLines(string name, string line, int iterations) {
+    CountingLineStream stream = new CountingLineStream();
+    StreamWriter writer = new StreamWriter(stream);
+    var bench = new Bencher(4, 24);
+    bench.iter(() => {
+        stream.Bytes = 0;
+        for (int i = 0; i < iterations; i++) {
+            writer.WriteLine(line);
+        }
+        BenchHelpers.blackBox(stream.Bytes);
+    });
+    bench.printSummary(name);
+}
+
+[Benchmark]
+void writer_line_ascii_short() {
+    MeasureLines("writer_line_ascii_short", "short log message", 1024);
+}
+
+[Benchmark]
+void writer_line_unicode_short() {
+    MeasureLines("writer_line_unicode_short", "é中😀", 1024);
+}
+
+[Benchmark]
+void writer_line_empty() {
+    MeasureLines("writer_line_empty", "", 1024);
+}
+
+[Benchmark]
+void writer_line_ascii_4k() {
+    char[] chars = new char[4096];
+    for (int i = 0; i < chars.Length; i++) { chars[i] = 'x'; }
+    MeasureLines("writer_line_ascii_4k", String.FromChars(chars), 128);
+}
