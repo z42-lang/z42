@@ -49,14 +49,14 @@ FromJson(t, v):
 | 来源 | 收集方式 | 过滤 |
 |---|---|---|
 | 字段 | `t.GetFields()` | `!IsStatic && IsPublic` |
-| 属性 | `t.GetProperties()` | 无额外过滤 |
+| 属性 | `t.GetProperties()` | 按公开实例 getter 与 setter 分别筛选 |
 
 `JsonMember` 里藏一个 `FieldInfo` 或一个 `PropertyInfo`（二者其一非 null），对外只暴露
 `JsonKey` / `MemberType` / `CanRead` / `CanWrite` / `Get` / `Set`。序列化只看 `CanRead`，反序列化只看
-`CanWrite`——于是**只读的计算属性会被序列化出去，但不参与反序列化**，不需要在引擎里写任何特判。
+`CanWrite`。公开的只读实例属性仅参与序列化。一般反射仍可查看属性及其访问器，JSON 使用公开实例资格。
 
-键名 = `[JsonProperty].Name`，否则成员名；`[JsonIgnore]` 直接排除。整数属性经反射写入时，VM 按 setter 的
-参数表示把整数盒转换为标量，使解释器与已编译的 JIT setter 看到同一种参数。
+键名 = `[JsonProperty].Name`，否则成员名；`[JsonIgnore]` 直接排除。继承字段沿基类链读取声明处的特性。
+整数属性经反射写入时，VM 按 setter 的参数表示把整数盒转换为标量，使解释器与已编译的 JIT setter 看到同一种参数。
 
 > **auto-property 脱糖成私有背后字段 `__prop_X`，而 `GetFields()` 有意排除它**
 > （`corelib/reflection/fields.rs::is_backing_field`）。所以属性只能经 `GetProperties()` 看到——两条
@@ -72,6 +72,9 @@ ctors = t.GetConstructors()
   → 选参数最多的那个 ctor，按**参数名**映射 JSON 键（递归 FromJson 到参数类型）→ Invoke
   → 再补齐剩余的可写成员（覆盖 record / 只读 auto-prop 的场景）
 ```
+
+构造器扫描一次收集每个签名，选中带参构造器后复用该参数数组。成员与参数绑定在 JSON 对象上各查一次键，
+命中后直接读同一槽位。缺键、JSON null 和非对象的判断沿用原绑定契约。
 
 「按参数名映射」是这套设计的关键取舍：它让 record 与只读 auto-property 免配置就能反序列化，代价是
 **ctor 的参数名成了外部契约**——改参数名会静默改变能接受的 JSON 形状。

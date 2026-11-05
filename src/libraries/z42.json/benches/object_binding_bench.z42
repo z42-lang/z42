@@ -1,0 +1,41 @@
+namespace Z42JsonObjectBindingBench;
+
+using Std.Json;
+using Std.Harness;
+using Std.Reflection;
+
+class BindingRow {
+    public int A;
+    public int B;
+    public int C;
+    public int D;
+    public int E;
+    public int F;
+    public int G;
+    public int H;
+    public int I;
+    public int J;
+}
+
+class CtorBindingRow : BindingRow {
+    public CtorBindingRow(int A) { this.A = A; }
+    public CtorBindingRow(int A, int B) { this.A = A; this.B = B; }
+    public CtorBindingRow(int A, int B, int C) { this.A = A; this.B = B; this.C = C; }
+}
+
+void _benchObjectBinding(Type target, string name) {
+    JsonValue row = JsonValue.Parse("{\"A\":1,\"B\":2,\"C\":3,\"D\":4,\"E\":5,\"F\":6,\"G\":7,\"H\":8,\"I\":9,\"J\":10}");
+    var b = new Bencher(3, 24);
+    b.iter(() => {
+        for (int i = 0; i < 32; i++) {
+            BenchHelpers.blackBox(JsonBinder.FromJson(target, row));
+        }
+    });
+    b.printSummary(name);
+}
+
+[Benchmark]
+void bind_fields() { _benchObjectBinding(typeof(BindingRow), "bind_fields"); }
+
+[Benchmark]
+void bind_constructor_and_fields() { _benchObjectBinding(typeof(CtorBindingRow), "bind_constructor_and_fields"); }
