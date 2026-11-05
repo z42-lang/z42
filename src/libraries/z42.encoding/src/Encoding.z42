@@ -45,6 +45,23 @@ public class Encoding {
         return Utf8.GetBytes(s);
     }
 
+    /// 返回编码所需的字节数。s 为 null 时抛 ArgumentNullException。
+    public int GetByteCount(string s) {
+        if (s == null) { throw new ArgumentNullException("s"); }
+        return s.ByteLength;
+    }
+
+    /// 编码到目标数组的字节偏移并返回写入字节数。
+    ///
+    /// 空字符串可写到数组末尾。空引用抛 ArgumentNullException。
+    /// 目标区间非法时抛 ArgumentOutOfRangeException，数组保持原值。
+    public int GetBytes(string s, byte[] destination, int offset) {
+        if (s == null) { throw new ArgumentNullException("s"); }
+        int count = s.ByteLength;
+        s.CopyUtf8To(0, destination, offset, count);
+        return count;
+    }
+
     /// 按当前编码把 `bytes` 解码为字符串，严格校验；等价于 `Utf8.GetString(bytes)`。
     public string GetString(byte[] bytes) {
         return Utf8.GetString(bytes);

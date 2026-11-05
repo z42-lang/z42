@@ -64,8 +64,12 @@ public class StreamWriter {
     /// 写 s + "\n"。
     public void WriteLine(string s) {
         this.EnsureOpen();
-        // 一次编码（比两次 Write 更省）以服务常见的日志行输出。
-        byte[] bytes = this._encoding.GetBytes(s + "\n");
+        string text = s == null ? "null" : s;
+        int count = text.ByteLength;
+        byte[] bytes = new byte[count + 1];
+        this._encoding.GetBytes(text, bytes, 0);
+        // Encoding 当前只支持 UTF-8，LF 占一个字节。
+        bytes[count] = (byte)10;
         this._dest.Write(bytes, 0, bytes.Length);
     }
 

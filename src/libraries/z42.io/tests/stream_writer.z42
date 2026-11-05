@@ -156,3 +156,53 @@ void test_close_does_not_close_dest() {
     byte[] back = ms.ToArray();
     Assert.Equal("alive", _utf8_decode(back));
 }
+
+class LineCaptureStream : Stream {
+    public int Calls;
+    public byte[] First;
+    public byte[] Last;
+    public bool Fail;
+
+    public override void Write(byte[] buffer, int offset, int count) {
+        this.Calls = this.Calls + 1;
+        if (this.Fail) { throw new InvalidOperationException("write failed"); }
+        Assert.Equal(0, offset);
+        Assert.Equal(buffer.Length, count);
+        if (this.First == null) { this.First = buffer; }
+        this.Last = buffer;
+    }
+}
+
+[Test]
+void write_line_passes_one_independent_buffer_per_call() {
+    LineCaptureStream stream = new LineCaptureStream();
+    StreamWriter writer = new StreamWriter(stream);
+    writer.WriteLine("é中😀");
+    writer.WriteLine("different");
+    Assert.Equal(2, stream.Calls);
+    Assert.Equal("é中😀\n", _utf8_decode(stream.First));
+    Assert.Equal("different\n", _utf8_decode(stream.Last));
+}
+
+[Test]
+void write_line_preserves_null_and_empty_output() {
+    MemoryStream stream = new MemoryStream();
+    StreamWriter writer = new StreamWriter(stream);
+    writer.WriteLine(null);
+    writer.WriteLine("");
+    writer.WriteLine();
+    Assert.Equal("null\n\n\n", _utf8_decode(stream.ToArray()));
+}
+
+[Test]
+void write_line_propagates_write_error_and_can_retry() {
+    LineCaptureStream stream = new LineCaptureStream();
+    StreamWriter writer = new StreamWriter(stream);
+    stream.Fail = true;
+    Assert.Throws("InvalidOperationException", () => writer.WriteLine("x"));
+    Assert.Equal(1, stream.Calls);
+    stream.Fail = false;
+    writer.WriteLine("x");
+    Assert.Equal(2, stream.Calls);
+    Assert.Equal("x\n", _utf8_decode(stream.Last));
+}

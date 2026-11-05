@@ -1,0 +1,42 @@
+namespace Z42EncodingDestinationTests;
+using Std.Encoding;
+using Std.Harness;
+
+[Test]
+void writes_utf8_at_byte_offset() {
+    Encoding encoding = Encoding.GetUtf8();
+    byte[] dest = new byte[11];
+    dest[0] = (byte)91;
+    dest[10] = (byte)93;
+    Assert.Equal(9, encoding.GetByteCount("é中😀"));
+    Assert.Equal(9, encoding.GetBytes("é中😀", dest, 1));
+    Assert.Equal("[é中😀]", encoding.GetString(dest));
+}
+
+[Test]
+void empty_string_fits_at_array_end() {
+    Encoding encoding = Encoding.GetUtf8();
+    byte[] dest = new byte[] { (byte)65 };
+    Assert.Equal(0, encoding.GetByteCount(""));
+    Assert.Equal(0, encoding.GetBytes("", dest, 1));
+    Assert.Equal((byte)65, dest[0]);
+    Assert.Equal(0, encoding.GetBytes("", new byte[0], 0));
+}
+
+[Test]
+void rejected_ranges_leave_destination_intact() {
+    Encoding encoding = Encoding.GetUtf8();
+    byte[] dest = new byte[] { (byte)65, (byte)66, (byte)67 };
+    Assert.Throws("ArgumentOutOfRangeException", () => encoding.GetBytes("é", dest, 2));
+    Assert.Throws("ArgumentOutOfRangeException", () => encoding.GetBytes("", dest, -1));
+    Assert.Throws("ArgumentOutOfRangeException", () => encoding.GetBytes("", dest, 2147483647));
+    Assert.Equal("ABC", encoding.GetString(dest));
+}
+
+[Test]
+void rejects_null_arguments() {
+    Encoding encoding = Encoding.GetUtf8();
+    Assert.Throws("ArgumentNullException", () => encoding.GetByteCount(null));
+    Assert.Throws("ArgumentNullException", () => encoding.GetBytes(null, new byte[0], 0));
+    Assert.Throws("ArgumentNullException", () => encoding.GetBytes("", null, 0));
+}
