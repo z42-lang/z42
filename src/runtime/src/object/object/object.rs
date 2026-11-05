@@ -7,6 +7,24 @@ use crate::object::string::vstr::Str;
 use crate::object::header::{BlockType, GcBlockHeader, GcWord, VarGcRef};
 use std::ptr::NonNull;
 
+/// Stable reflection identity. The shape contains no managed object references.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum ReflectedTypeKey {
+    Definition(crate::vm::runtime::ids::tokens::TypeId),
+    Symbol(Arc<str>),
+    Array(Option<Arc<ReflectedTypeKey>>),
+    Constructed {
+        definition: Arc<ReflectedTypeKey>,
+        arguments: Arc<[ReflectedTypeKey]>,
+    },
+}
+
+#[derive(Debug)]
+pub struct ReflectedTypeShape {
+    pub(crate) definition: Option<Arc<TypeDesc>>,
+    pub(crate) key: ReflectedTypeKey,
+}
+
 /// Native backing data for built-in classes.
 ///
 /// Used by `ScriptObject` to hold VM-managed state that should not be
@@ -25,6 +43,8 @@ pub enum NativeData {
     /// `__type_base` / `__type_generic_args`）据此枚举成员。基础类型/数组的
     /// synthetic Type 无此句柄（`NativeData::None`），成员查询退化为空。
     TypeHandle(Arc<TypeDesc>),
+    /// Constructed, array, or symbolic Type, with its immutable identity snapshot.
+    TypeShape(Arc<ReflectedTypeShape>),
     /// add-load-context-model：`Std.Runtime.LoadContext` 对象携带的
     /// 上下文句柄（root = `ContextId::ROOT`）。`__lctx_*` builtins 据此查
     /// `VmCore.context_registry`。

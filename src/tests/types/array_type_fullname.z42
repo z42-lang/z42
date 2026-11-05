@@ -1,7 +1,7 @@
 // fix-value-type-object-methods ④：数组 Type 携**全路径**元素名——FullName = "{elemFullName}[]"、
 // Name = "{elemName}[]"（此前是元素-擦除的合成 "Std.Array"/"Array"）。元素经 make_type_from_name
 // 递归解析（含 change A 的 int→Std.Int32），jagged 递归到任意深度。`typeof(T[])` 与运行期 `arr.GetType()`
-// 一致。GetElementType 不变（读 __elementName）。
+// 一致。GetElementType 返回构造时解析的元素。
 namespace Test;
 
 class Box { public int V; }
@@ -34,9 +34,13 @@ void Main() {
     int[] empty = new int[0];
     Assert.Equal("Std.Int32[]", empty.GetType().FullName);
 
-    // GetElementType 仍解析出元素 Type（typeof 与运行期两路）
+    // GetElementType 读取已解析的元素 Type（typeof 与运行期两路）
     Assert.Equal("Std.Int32", typeof(int[]).GetElementType().FullName);
     Assert.Equal("Std.Int32", xs.GetType().GetElementType().FullName);
     // jagged 元素是数组 Type
-    Assert.Equal("Std.Int32[]", typeof(int[][]).GetElementType().FullName);
+    Type nestedArray = typeof(int[][]);
+    Type elementArray = nestedArray.GetElementType();
+    Assert.Equal("Std.Int32[]", elementArray.FullName);
+    Assert.True(Object.ReferenceEquals(elementArray, nestedArray.GetElementType()));
+    Assert.Equal("Std.Int32", elementArray.GetElementType().FullName);
 }
