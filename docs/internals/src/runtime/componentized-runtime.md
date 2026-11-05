@@ -74,6 +74,8 @@ VM 的内部构造输入为 `vm/config.rs` 的 `VmConfig`，由门面从已决�
 
 值的无上下文格式化与盒装 struct 哈希由 `object/value` 的 crate 内部叶子模块定义，VM、解释器、JIT 与异常展示直接消费。`corelib::convert` 的既有公开格式化路径直接再导出同一定义；typed builtin 保留参数检查、错误和装箱编排。64 字节栈缓冲、UTF8 完整片段、spill、标量文本、FNV 顺序与盒装值借用边界保持一致；用户 ToString 协议和托管对象物化不属于这些纯值原语。
 
+执行层的对象协议由 `vm/exec/object_protocol.rs` 定义，门面 `object_protocol_assembly.rs` 将核心库既有 GetType 和默认 ToString 函数直接绑定到每 core 的不可变服务。服务只存函数指针，不持有 VM 或托管值，worker 共享同一注册。装箱 GetType 在原派发分支内传入完整接收者，反射实现仍在调用时物化托管对象；引用对象的默认 ToString 返回 Rust String，执行调用方仍在原位置分配托管字符串并处理 BuiltinError。用户 override、纯值格式化和普通 builtin 的派发路径不经此默认回落。
+
 ### 4.2 独立交付仍是目标设计
 
 注册边界见 [VM 总体架构](vm-architecture.md)「引擎注册与调用边界」。物理拆 crate、跨动态库的组件 ABI、自动加载和卸载尚未实现；当前 Rust trait/注册对象不是可跨版本或跨动态库使用的 ABI。以后独立交付须在这一每 VM 所有权边界上设计同构建组件 ABI，不能改成进程全局 JIT 单例。
