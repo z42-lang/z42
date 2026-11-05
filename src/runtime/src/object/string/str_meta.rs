@@ -207,8 +207,8 @@ pub fn byte_range(s: &Str, start: usize, len: usize) -> Option<(usize, usize)> {
         if end > m.char_len { return None; }
         if m.ascii { return Some((start, end)); }
         let offs = m.offsets.as_ref()?;
-        let b0 = offs[start] as usize;
         let b1 = if end == m.char_len { m.s.len() } else { offs[end] as usize };
+        let b0 = if start == end { b1 } else { offs[start] as usize };
         Some((b0, b1))
     })
 }

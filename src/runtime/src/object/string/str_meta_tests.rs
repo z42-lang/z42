@@ -193,3 +193,11 @@ fn length_defers_index_offsets_until_first_index() {
         assert_eq!(m.offsets.as_deref(), Some(&[0, 1, 3, 6][..]));
     });
 }
+
+#[test]
+fn non_ascii_empty_byte_range_at_end() {
+    let s = Str::from("aé中😀");
+    assert_eq!(byte_range(&s, 4, 0), Some((10, 10)));
+    assert_eq!(byte_range(&s, 2, 0), Some((3, 3)));
+    assert_eq!(byte_range(&s, 5, 0), None);
+}
