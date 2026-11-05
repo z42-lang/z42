@@ -55,7 +55,7 @@ FromJson(t, v):
 `JsonKey` / `MemberType` / `CanRead` / `CanWrite` / `Get` / `Set`。序列化只看 `CanRead`，反序列化只看
 `CanWrite`——于是**只读的计算属性会被序列化出去，但不参与反序列化**，不需要在引擎里写任何特判。
 
-键名 = `[JsonProperty].Name`，否则成员名；`[JsonIgnore]` 直接排除。
+键名 = `[JsonProperty].Name`，否则成员名；`[JsonIgnore]` 直接排除。继承字段沿基类链读取声明处的特性。
 
 > **auto-property 脱糖成私有背后字段 `__prop_X`，而 `GetFields()` 有意排除它**
 > （`corelib/reflection/fields.rs::is_backing_field`）。所以属性只能经 `GetProperties()` 看到——两条
