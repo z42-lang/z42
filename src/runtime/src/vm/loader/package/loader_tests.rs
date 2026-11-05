@@ -556,6 +556,159 @@ fn indexed_zpkg_bytes_only_load_is_rejected() {
     assert!(format!("{err:#}").contains("load it by path"), "{err:#}");
 }
 
+#[test]
+fn fusion_inputs_follow_function_preparation_eligibility() {
+    use crate::vm::loader::fusion_inputs::FusionInputs;
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
+    static READS: AtomicUsize = AtomicUsize::new(0);
+    fn inputs() -> FusionInputs {
+        READS.fetch_add(1, Relaxed);
+        FusionInputs { no_fusion: true, no_typed_fusion: false, fusion_debug: true }
+    }
+
+    let raw = std::fs::read(indexed_fixture_dir().join("source.zbc")).unwrap();
+    let mut module = Module::from_ir(read_zbc(&raw).unwrap());
+    let mut function = module.functions.pop().expect("fixture has a function");
+    module.functions.clear();
+    build_block_indices_with_fusion(&mut module, inputs);
+    assert_eq!(READS.load(Relaxed), 0);
+
+    assert!(!function.blocks.is_empty());
+    module.functions.push(function);
+    build_block_indices_with_fusion(&mut module, inputs);
+    assert_eq!(READS.load(Relaxed), 1);
+    assert_eq!(module.functions[0].fused_tails.len(), module.functions[0].blocks.len());
+    assert!(module.functions[0].fused_tails.iter().all(Option::is_none));
+    build_block_indices_with_fusion(&mut module, inputs);
+    assert_eq!(READS.load(Relaxed), 1);
+
+    module.functions[0].fused_tails.clear();
+    build_block_indices_with_fusion(&mut module, inputs);
+    assert_eq!(READS.load(Relaxed), 2);
+
+    function = module.functions.pop().unwrap();
+    function.blocks.clear();
+    module.functions.push(function);
+    build_block_indices_with_fusion(&mut module, inputs);
+    build_block_indices_with_fusion(&mut module, inputs);
+    assert_eq!(READS.load(Relaxed), 4);
+}
+
+#[test]
+fn fusion_input_polarity_preserves_cmp_branch_recognition() {
+    use crate::metadata::ir::{BasicBlock, Instruction, Terminator, reg_type::IrType};
+    use crate::vm::loader::fusion_inputs::FusionInputs;
+    use crate::vm::runtime::SuperInstr;
+
+    let raw = std::fs::read(indexed_fixture_dir().join("source.zbc")).unwrap();
+    let mut module = Module::from_ir(read_zbc(&raw).unwrap());
+    module.functions.truncate(1);
+    let function = &mut module.functions[0];
+    function.reg_types = Box::new([IrType::I64, IrType::I64, IrType::Bool]);
+    function.blocks = vec![
+        BasicBlock {
+            label: "entry".into(),
+            instructions: vec![Instruction::Lt { dst: 2, a: 0, b: 1 }],
+            terminator: Terminator::BrCond { cond: 2, true_label: "done".into(), false_label: "done".into() },
+        },
+        BasicBlock { label: "done".into(), instructions: vec![], terminator: Terminator::Ret { reg: None } },
+    ];
+
+    build_block_indices_with_fusion(&mut module, || FusionInputs {
+        no_fusion: false, no_typed_fusion: false, fusion_debug: true,
+    });
+    assert!(matches!(module.functions[0].fused_tails[0], Some(SuperInstr::CmpBr { typed: true, .. })));
+    module.functions[0].fused_tails.clear();
+    build_block_indices_with_fusion(&mut module, || FusionInputs {
+        no_fusion: false, no_typed_fusion: true, fusion_debug: false,
+    });
+    assert!(matches!(module.functions[0].fused_tails[0], Some(SuperInstr::CmpBr { typed: false, .. })));
+    module.functions[0].fused_tails.clear();
+    build_block_indices_with_fusion(&mut module, || FusionInputs {
+        no_fusion: true, no_typed_fusion: false, fusion_debug: true,
+    });
+    assert!(module.functions[0].fused_tails.iter().all(Option::is_none));
+}
+
+#[test]
+fn artifact_fusion_inputs_are_read_only_after_successful_decode() {
+    use crate::pal::vfs::MemoryFs;
+    use crate::vm::loader::fusion_inputs::FusionInputs;
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
+    static READS: AtomicUsize = AtomicUsize::new(0);
+    fn inputs() -> FusionInputs {
+        READS.fetch_add(1, Relaxed);
+        FusionInputs { no_fusion: true, no_typed_fusion: false, fusion_debug: false }
+    }
+
+    let fs = MemoryFs::new();
+    assert!(load_artifact_with_fusion(&fs, "missing.zbc", inputs).is_err());
+    assert!(load_artifact_from_bytes_with_fusion(&ZBC_MAGIC, inputs).is_err());
+    let indexed = std::fs::read(indexed_fixture_dir().join("source.zpkg")).unwrap();
+    assert!(load_artifact_from_bytes_with_fusion(&indexed, inputs).is_err());
+    assert_eq!(READS.load(Relaxed), 0);
+
+    let raw = std::fs::read(indexed_fixture_dir().join("source.zbc")).unwrap();
+    let art = load_artifact_from_bytes_with_fusion(&raw, inputs).unwrap();
+    let count = art.module.functions.len();
+    assert!(count > 0);
+    assert_eq!(READS.load(Relaxed), count);
+    fs.mount("source.zbc", raw);
+    fs.mount("source.zpkg", indexed);
+    let art = load_artifact_with_fusion(&fs, "source.zpkg", inputs).unwrap();
+    assert_eq!(art.module.functions.len(), count);
+    assert_eq!(READS.load(Relaxed), 2 * count);
+
+    let packed = std::fs::read(indexed_fixture_dir().join("../packed-minimal/source.zpkg")).unwrap();
+    let art = load_artifact_from_bytes_with_fusion(&packed, inputs).unwrap();
+    let packed_count = art.module.functions.len();
+    assert!(packed_count > 0);
+    assert_eq!(READS.load(Relaxed), 2 * count + packed_count);
+    fs.mount("packed.zpkg", packed);
+    let art = load_artifact_with_fusion(&fs, "packed.zpkg", inputs).unwrap();
+    assert_eq!(art.module.functions.len(), packed_count);
+    assert_eq!(READS.load(Relaxed), 2 * (count + packed_count));
+}
+
+#[test]
+fn public_fusion_provider_preserves_process_config_first_read() {
+    use crate::config::{RuntimeConfig, init_runtime_config};
+    use crate::vm::loader::LazyLoader;
+
+    // A fresh test process isolates the process-wide OnceLock from other tests.
+    const CHILD_MODE: &str = "Z42_TEST_FUSION_FIRST_READ_CHILD";
+    if let Ok(mode) = std::env::var(CHILD_MODE) {
+        let mut loader = LazyLoader::new(vec![], 0, vec![], vec![]);
+        assert!(loader.load_module_from_bytes(b"invalid").is_err());
+        let raw = std::fs::read(indexed_fixture_dir().join("source.zbc")).unwrap();
+        let config = RuntimeConfig { no_fusion: true, ..RuntimeConfig::default() };
+        match mode.as_str() {
+            "initialize-before-load" => {
+                assert!(init_runtime_config(config).is_ok());
+                assert!(load_artifact_from_bytes(&raw).is_ok());
+            }
+            "load-before-initialize" => {
+                assert!(load_artifact_from_bytes(&raw).is_ok());
+                assert!(init_runtime_config(config).is_err());
+            }
+            _ => panic!("unexpected child mode: {mode}"),
+        }
+        return;
+    }
+
+    for mode in ["initialize-before-load", "load-before-initialize"] {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "vm::loader::package::tests::public_fusion_provider_preserves_process_config_first_read"])
+            .env(CHILD_MODE, mode)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{mode}: {}", String::from_utf8_lossy(&output.stdout));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"), "{mode}: child test did not run");
+    }
+}
+
 // ── unify-object-byte-layout (PR-2, task 2.0): composed object layout ─────────
 //
 // These verify that `build_type_registry` / `try_fixup_inheritance` compose a

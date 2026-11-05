@@ -20,7 +20,9 @@ impl VmContext {
         declared: Vec<(String, ZpkgCandidate)>,
         initially_loaded: Vec<String>,
     ) {
-        let mut loader = LazyLoader::new(search_dirs, main_pool_len, declared, initially_loaded);
+        let mut loader = LazyLoader::with_fusion_inputs(
+            search_dirs, main_pool_len, declared, initially_loaded, self.core.loader.fusion_inputs,
+        );
         // fix-crosspkg-static-call-cctor：加载器在类型入表时登记 cctor，须持有同一份 registry。
         loader.set_cctor_registry(Arc::clone(&self.core.runtime.cctors));
         // 惰性包的函数登记在 VmCore 的 FuncTable 里（分配 FnId；它也是加载器的函数名表）。

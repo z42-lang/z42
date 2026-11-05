@@ -16,6 +16,7 @@
 | `startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
 | `builtin_assembly.rs` | 门面按既定 provider 顺序装配 builtin 描述符及纯名称/ID 目录 |
 | `object_protocol_assembly.rs` | 门面将核心库 GetType 和默认 ToString 绑定到执行层私有协议；保留调用方的物化与错误边界 |
+| `loader_assembly.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
 | `context_assembly.rs` | 门面实现既有 VmContext 主构造入口，装配配置、引擎、builtin 与扩展；worker 加入和 Drop 机制留在 vm_context |
 | `extension_assembly.rs` | 门面装配 interop 与核心库每 VM 资源状态，保留库句柄到最后释放，所有构造入口共用 |
 | `vm/threads/state.rs` | `ThreadState` 拥有每 VM 线程注册、暂停握手与 fatal 状态，VmCore 组合持有 |

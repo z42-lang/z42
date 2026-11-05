@@ -35,7 +35,8 @@ use anyhow::Result;
 
 use crate::vm::runtime::Function;
 use crate::metadata::ir::Instruction;
-use crate::vm::loader::package::{load_artifact, load_artifact_from_bytes, LoadedArtifact};
+use crate::vm::loader::package::{load_artifact_with_fusion, load_artifact_from_bytes_with_fusion, LoadedArtifact};
+use super::fusion_inputs::FusionInputSource;
 use crate::object::TypeDesc;
 use crate::vm::loader::locate::namespace_index;
 
@@ -49,6 +50,7 @@ pub use crate::vm::loader::locate::namespace_index::ZpkgCandidate;
 
 /// Lazy-loaded dependency state. Owned by `VmContext::lazy_loader`.
 pub struct LazyLoader {
+    fusion_inputs: FusionInputSource,
     /// Directories searched (in order) to resolve a transitive dep zpkg by
     /// file name. Typically `[entry-zpkg-dir, stdlib-libs-dir]` so an apphost's
     /// colocated package deps resolve alongside the stdlib
@@ -279,11 +281,12 @@ impl LazyLoader {
         self.impls.get(target_fq).map(|v| v.as_slice()).unwrap_or(&[])
     }
 
-    pub fn new(
+    pub(crate) fn with_fusion_inputs(
         search_dirs: Vec<PathBuf>,
         main_pool_len: usize,
         declared: Vec<(String, ZpkgCandidate)>,
         initially_loaded: Vec<String>,
+        fusion_inputs: FusionInputSource,
     ) -> Self {
         let loaded_zpkgs: FxHashSet<String> = initially_loaded.into_iter().collect();
         let declared_zpkgs: FxHashMap<String, ZpkgCandidate> = declared
@@ -293,6 +296,7 @@ impl LazyLoader {
         let strings = crate::vm::runtime::ids::str_table::StrTable::new(None);
         strings.reserve(main_pool_len);
         Self {
+            fusion_inputs,
             search_dirs,
             vfs: crate::pal::fs::default_vfs(),
             loaded_zpkgs,
