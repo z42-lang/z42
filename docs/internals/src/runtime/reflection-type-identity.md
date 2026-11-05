@@ -48,7 +48,7 @@
 ### 构造类型的 `Type`
 
 名字入口 `make_type_from_name` 解析 `<…>` 中的实参。`MakeGenericType` 已持有实参 Type，校验通过后
-将这些对象放入新实参数组。两条路径共用构造逻辑，`__typeArgs` 保存 Type 引用，`GetGenericArguments()`
+直接使用接收者的定义句柄，将这些对象放入新实参数组。两条路径共用对象分配与比较键构造，`__typeArgs` 保存 Type 引用，`GetGenericArguments()`
 据此保留实参的程序集归属。结果句柄用于泛型定义，FullName 用于名称显示及按名派发。
 
 - **`GetType()`**：实例化描述符 → 以其名字构造（不再把实参拼两遍）；定义 + 实例实参 →
