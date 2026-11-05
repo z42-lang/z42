@@ -1,0 +1,6 @@
+namespace NestedVendorApp;
+
+using Std.IO;
+using NestedVendorMid;
+
+void Main() { Console.WriteLine(CallVendored()); }

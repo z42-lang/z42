@@ -1,0 +1,13 @@
+[project]
+name = "nested-vendor.mid"
+version = "0.1.0"
+kind = "lib"
+
+[sources]
+include = ["api.z42"]
+
+[dependencies]
+"ncmid" = { path = "../vendor/ncmid.zpkg", deploy = "shared" }
+
+[plugins]
+"z42.harness.lint" = false
