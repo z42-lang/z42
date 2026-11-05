@@ -72,3 +72,83 @@ void test_resize_tail_zero_no_workaround() {
     Assert.Equal(0, r[3]);   // 新增尾部
     Assert.Equal(0, r[4]);
 }
+
+struct Pair {
+    public int Count;
+    public string Name;
+}
+
+static T Read<T>(T[] array, int index) {
+    return array[index];
+}
+
+static void Write<T>(T[] array, int index, T value) {
+    array[index] = value;
+}
+
+[Test]
+void test_generic_struct_default_is_independent_per_slot() {
+    Pair[] pairs = Make<Pair>(2);
+    Assert.Equal(0, pairs[0].Count);
+    Assert.True(pairs[0].Name == null);
+    pairs[0].Count = 9;
+    pairs[0].Name = "é";
+    Assert.Equal(9, pairs[0].Count);
+    Assert.Equal("é", pairs[0].Name);
+    Assert.Equal(0, pairs[1].Count);
+    Assert.True(pairs[1].Name == null);
+}
+
+[Test]
+void test_generic_struct_default_survives_erased_return() {
+    Pair[] pairs = Make<Pair>(2);
+    Pair copy = Read<Pair>(pairs, 0);
+    Assert.Equal(0, copy.Count);
+    copy.Count = 17;
+    Write<Pair>(pairs, 1, copy);
+    copy.Count = 23;
+    Assert.Equal(0, pairs[0].Count);
+    Assert.Equal(17, pairs[1].Count);
+}
+
+[Test]
+void test_generic_class_array_returns_default_struct() {
+    Box<Pair> box = new Box<Pair>(2);
+    Pair value = box.Get(1);
+    Assert.Equal(0, value.Count);
+    Assert.True(value.Name == null);
+}
+
+[Test]
+void test_resize_struct_tail_is_default() {
+    Pair first = new Pair();
+    first.Count = 4;
+    first.Name = "中";
+    Pair[] pairs = Array.Resize<Pair>(new Pair[] { first }, 2);
+    Assert.Equal(4, pairs[0].Count);
+    Assert.Equal("中", pairs[0].Name);
+    Assert.Equal(0, pairs[1].Count);
+    Assert.True(pairs[1].Name == null);
+}
+
+class Exposed<T> {
+    public T[] Values;
+    public Exposed() { this.Values = new T[2]; }
+}
+
+class Derived<T> : Exposed<Pair> {
+    public Derived() : base() { }
+}
+
+[Test]
+void test_inherited_array_uses_the_declaring_class_argument() {
+    Derived<string> derived = new Derived<string>();
+    Assert.Equal(0, derived.Values[0].Count);
+    Assert.True(derived.Values[0].Name == null);
+}
+
+[Test]
+void test_stack_receiver_keeps_primitive_array_type_arguments() {
+    int[] values = new Exposed<int>().Values;
+    Assert.Equal(0, values[1]);
+}

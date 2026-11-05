@@ -109,7 +109,7 @@ fn chained_target(func: &Function) -> Option<&str> {
 }
 
 /// `Ns.Type` of a function key `Ns.Type.Method[$arity$sig…]`.
-fn owner_type(name: &str) -> Option<&str> {
+pub(crate) fn owner_type(name: &str) -> Option<&str> {
     let base = name.split(['$', ':']).next()?;
     base.rsplit_once('.').map(|(owner, _)| owner)
 }
