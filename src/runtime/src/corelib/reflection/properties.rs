@@ -58,6 +58,8 @@ pub fn type_properties(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinErro
                 ("PropertyType", property_type),
                 ("CanRead", Value::Bool(p.getter_type.is_some())),
                 ("CanWrite", Value::Bool(p.setter_type.is_some())),
+                ("CanReadPublicInstance", Value::Bool(p.getter_public_instance)),
+                ("CanWritePublicInstance", Value::Bool(p.setter_public_instance)),
                 ("__getterQualified", getter_q),
                 ("__setterQualified", setter_q),
             ],
@@ -71,6 +73,8 @@ pub(super) struct PropAccum {
     name: String,
     getter_type: Option<String>,
     setter_type: Option<String>,
+    getter_public_instance: bool,
+    setter_public_instance: bool,
     /// Qualified name of the `get_<Name>` accessor (for reflective GetValue).
     getter_qualified: Option<String>,
     /// Qualified name of the `set_<Name>` accessor (for reflective SetValue).
@@ -93,31 +97,34 @@ pub(super) fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str
     }
     let sig = resolve_func_sig(ctx, qualified);
     if is_get {
-        let ty = match &sig {
-            Some((pc, ret, is_static, _, _, _, _, _, _, _)) => {
+        let (ty, public_instance) = match &sig {
+            Some((pc, ret, is_static, _, _, visibility, _, _, _, _)) => {
                 if pc.saturating_sub(if *is_static { 0 } else { 1 }) != 0 {
                     return; // get_X(args) — a regular method, not a property
                 }
-                ret.clone()
+                (ret.clone(), !*is_static && *visibility == 0)
             }
-            None => "?".to_string(),
+            None => ("?".to_string(), false),
         };
         let p = upsert_prop(props, prop_name);
         p.getter_type = Some(ty);
+        p.getter_public_instance = public_instance;
         p.getter_qualified = Some(qualified.to_string());
     } else {
-        let ty = match &sig {
-            Some((pc, _, is_static, ptypes, _, _, _, _, _, _)) => {
+        let (ty, public_instance) = match &sig {
+            Some((pc, _, is_static, ptypes, _, visibility, _, _, _, _)) => {
                 let base = if *is_static { 0 } else { 1 };
                 if pc.saturating_sub(base) != 1 {
                     return; // set_X with != 1 value param — a regular method
                 }
-                ptypes.get(base).cloned().unwrap_or_else(|| "?".to_string())
+                let ty = ptypes.get(base).cloned().unwrap_or_else(|| "?".to_string());
+                (ty, !*is_static && *visibility == 0)
             }
-            None => "?".to_string(),
+            None => ("?".to_string(), false),
         };
         let p = upsert_prop(props, prop_name);
         p.setter_type = Some(ty);
+        p.setter_public_instance = public_instance;
         p.setter_qualified = Some(qualified.to_string());
     }
 }
@@ -131,6 +138,8 @@ pub(super) fn upsert_prop<'a>(props: &'a mut Vec<PropAccum>, name: &str) -> &'a 
         name: name.to_string(),
         getter_type: None,
         setter_type: None,
+        getter_public_instance: false,
+        setter_public_instance: false,
         getter_qualified: None,
         setter_qualified: None,
     });

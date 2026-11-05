@@ -82,13 +82,14 @@ pub fn build_type_registry(module: &mut Module) {
         // the simple vtable-slot name is re-derived at merge time via
         // `TypeDesc::derive_simple_method_name`.
         let mut own_methods: Vec<Box<str>> = Vec::new();
+        let mut own_constructors: Vec<Box<str>> = Vec::new();
         // fix-value-type-object-methods ③: index-aligned is_static per own method,
         // so `merge_with_base` can keep statics out of the instance vtable.
         let mut own_static: Vec<bool> = Vec::new();
         for &fi in members_of(class_name) {
             let func = &module.functions[fi];
             let method = &func.name[class_name.len() + 1..];
-            // Skip constructors and __static_init__.
+            // Keep constructors in their own index, outside the vtable. Skip __static_init__.
             //
             // fix-nested-ctor-key: the ctor test is `TypeDesc::is_ctor_member`, shared with
             // reflection's `GetConstructors()`. It used to be spelled out here as
@@ -100,10 +101,19 @@ pub fn build_type_registry(module: &mut Module) {
             //     the constructor body over its fields;
             //   · **every** ctor of a nested type, whose FQN separates the declaring type
             //     with `+` (`Outer+Inner` is not the simple name `Inner`).
-            if TypeDesc::is_ctor_member(class_name, method) || method.starts_with("__") { continue; }
+            if TypeDesc::is_ctor_member(class_name, method) {
+                if !func.is_static {
+                    own_constructors.push(func.name.clone().into_boxed_str());
+                }
+                continue;
+            }
+            if method.starts_with("__") { continue; }
             own_methods.push(func.name.clone().into_boxed_str());
             own_static.push(func.is_static);
         }
+        own_constructors.sort_unstable();
+        own_constructors.dedup();
+
         // fix-generic-subclass-of-base: a constructed instantiation (`Demo.G<int>`) declares
         // **every** member its definition declares, but only the layout-specialized ones are
         // emitted under its own name — the rest exist solely under the erased definition
@@ -156,6 +166,7 @@ pub fn build_type_registry(module: &mut Module) {
             init_gen:               Default::default(),
             own_fields:             own_fields.into(),
             own_methods:            own_methods.into(),
+            own_constructors:       own_constructors.into(),
             own_static_flags:       own_static.into(),
             own_iface_slots,
             type_params:            desc.type_params.clone(),
@@ -280,6 +291,7 @@ pub fn build_type_registry(module: &mut Module) {
         };
         let cold = if cold_inner.own_fields.is_empty()
             && cold_inner.own_methods.is_empty()
+            && cold_inner.own_constructors.is_empty()
             && cold_inner.own_iface_slots.is_empty()
             && cold_inner.type_params.is_empty()
             // An instantiation's interned arguments live here too (`type_args_handle`).
