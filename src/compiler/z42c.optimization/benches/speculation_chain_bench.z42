@@ -12,16 +12,12 @@ int exercise(int n, bool leafFirst) {
     return m.FuncCount;
 }
 [Benchmark]
-void bench_speculation_chain_128() {
-    var b = new Bencher(2, 12);
+void bench_speculation_chain_128(Bencher b) {
     b.iter(() => { BenchHelpers.blackBox(exercise(128, false)); });
-    b.printSummary("speculation_chain_128");
 }
 [Benchmark]
-void bench_speculation_leaf_first_128() {
-    var b = new Bencher(2, 12);
+void bench_speculation_leaf_first_128(Bencher b) {
     b.iter(() => { BenchHelpers.blackBox(exercise(128, true)); });
-    b.printSummary("speculation_leaf_first_128");
 }
 int exercise_fanout(int n) {
     IrModule m = SpeculationChainFixture.MakeFanout(n);
@@ -31,10 +27,8 @@ int exercise_fanout(int n) {
     return m.FuncCount;
 }
 [Benchmark]
-void bench_speculation_repeated_fanout_128() {
-    var b = new Bencher(2, 12);
+void bench_speculation_repeated_fanout_128(Bencher b) {
     b.iter(() => { BenchHelpers.blackBox(exercise_fanout(128)); });
-    b.printSummary("speculation_repeated_fanout_128");
 }
 void Main() {
     string[] args = Environment.GetCommandLineArgs();

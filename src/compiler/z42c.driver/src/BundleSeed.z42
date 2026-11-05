@@ -4,38 +4,64 @@
 namespace Z42.Driver;
 
 using Std.IO;
-using Z42.IR;
 using Z42.Package;
 using Z42.Project;
 
-// bundling 的工作名单（可变持有者：z42 无 out 参，扩容靠改自身字段而不是换调用方的数组引用）。
-public sealed class BundleSeed {
-    public string[] Names;
-    public string[] Deploys;   // 与 Names 平行：该依赖清单声明的 deploy（没声明 = ""，走默认判据）
-    public bool[]   SdkSkip;   // 与 Names 平行：own-DEPS 播种的条目 = true——未声明而解析自编译器
-                               // 目录时按 SDK 语义跳过；清单声明 / path 闭包 / BFS 级联（已拷包的
-                               // 传递依赖，自包含链必须跟随）= false，走既有默认
-    public int      N;
-    public BundleSeed(int cap) {
-        this.Names = new string[cap + 8];
-        this.Deploys = new string[cap + 8];
-        this.SdkSkip = new bool[cap + 8];
-        this.N = 0;
-    }
-    // 追加（重名跳过——先到的赢：直接声明 > 自身 DEPS / path 闭包）。满则倍增扩容。
-    public void Add(string name, string deploy) { BundleSeed._add(this, name, deploy, false); }
-    public void AddSdkSkip(string name) { BundleSeed._add(this, name, "", true); }
-    private static void _add(BundleSeed s, string name, string deploy, bool sdkSkip) {
-        int q = 0;
-        while (q < s.N) { if (s.Names[q] == name) { return; } q = q + 1; }
-        if (s.N == s.Names.Length) {
-            string[] nb = new string[s.Names.Length * 2];
-            string[] db = new string[s.Names.Length * 2];
-            bool[]   kb = new bool[s.Names.Length * 2];
-            int c = 0; while (c < s.N) { nb[c] = s.Names[c]; db[c] = s.Deploys[c]; kb[c] = s.SdkSkip[c]; c = c + 1; }
-            s.Names = nb; s.Deploys = db; s.SdkSkip = kb;
+// Only source members with vendored inputs need a separate deployment domain.
+public sealed class BundleDomain {
+    public ProjectManifest Manifest;
+    public string[] Dirs;
+    public int Count;
+    public BundleDomain(ProjectManifest manifest) { this.Manifest = manifest; }
+
+    public string Deploy(string name) {
+        int i = 0;
+        while (i < this.Manifest.DepCount) {
+            DepEntry dep = this.Manifest.Deps[i];
+            if (dep.Name == name) { return dep.Deploy; }
+            i = i + 1;
         }
-        s.Names[s.N] = name; s.Deploys[s.N] = deploy; s.SdkSkip[s.N] = sdkSkip; s.N = s.N + 1;
+        return "";
+    }
+}
+
+public sealed class BundleItem {
+    public string Name;
+    public string Deploy;
+    public bool SdkSkip;
+    public BundleDomain Domain;
+    public BundleItem(string name, string deploy, bool sdkSkip, BundleDomain domain) {
+        this.Name = name; this.Deploy = deploy; this.SdkSkip = sdkSkip; this.Domain = domain;
+    }
+}
+
+public sealed class BundleSeed {
+    public BundleItem[] Items;
+    public int N;
+    public bool NeedsSdk;
+    public BundleSeed(int cap) { this.Items = new BundleItem[cap + 8]; }
+
+    public int IndexOf(string name) {
+        int i = 0;
+        while (i < this.N) {
+            if (this.Items[i].Name == name) { return i; }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    public void Add(string name, string deploy, bool sdkSkip) {
+        if (this.IndexOf(name) < 0) { this.Append(new BundleItem(name, deploy, sdkSkip, null)); }
+    }
+
+    public void Append(BundleItem item) {
+        if (this.N == this.Items.Length) {
+            BundleItem[] next = new BundleItem[this.N * 2];
+            Array.Copy(this.Items, next, this.N);
+            this.Items = next;
+        }
+        this.Items[this.N] = item;
+        this.N = this.N + 1;
     }
 }
 
@@ -47,7 +73,7 @@ public sealed class BundleSeed {
 // 条目删了，种子改从**产物自述**取：zpkg 的 DEPS 段由编译期 usings 生成，比清单声明更真（声明了没用的
 // 不再捆绑，用了没声明的不再漏）。顺带补上 `_bundleExeDeps` 尾注记的老缺口——「按名引用的依赖没有
 // 传递闭包」的第一跳（app 自己 import 了谁）从这里就有，后续跳仍由复制循环里的 DEPS BFS 走。
-BundleSeed _bundleSeed(ProjectManifest pm, string distDir, string[] closureNames, int closureN,
+BundleSeed _bundleSeed(ProjectManifest pm, string distDir, PathClosureOut closure,
                        string[] routedDeps, int routedN) {
     BundleSeed s = new BundleSeed(pm.DepCount);
     int pi = 0;
@@ -56,12 +82,12 @@ BundleSeed _bundleSeed(ProjectManifest pm, string distDir, string[] closureNames
         bool routed = false;
         int rk = 0;
         while (rk < routedN) { if (routedDeps[rk] == pm.Deps[pi].Name) { routed = true; break; } rk = rk + 1; }
-        if (!routed) { s.Add(pm.Deps[pi].Name, pm.Deps[pi].Deploy); }
+        if (!routed) { s.Add(pm.Deps[pi].Name, pm.Deps[pi].Deploy, false); }
         pi = pi + 1;
     }
     _seedOwnDeps(pm, distDir, s);
     int ci = 0;
-    while (ci < closureN) { s.Add(closureNames[ci], ""); ci = ci + 1; }
+    while (closure != null && ci < closure.NamesN) { s.Add(closure.Names[ci], "", false); ci = ci + 1; }
     return s;
 }
 
@@ -88,7 +114,7 @@ void _seedOwnDeps(ProjectManifest pm, string distDir, BundleSeed s) {
             d = d + 1;
             if (!df.EndsWith(".zpkg")) { continue; }   // DEPS 段存文件名（同 ExeDeps / SdkLibs 的约定）
             string dn = df.Substring(0, df.Length - 5);
-            if (dn != pm.Project.Name) { s.AddSdkSkip(dn); }
+            if (dn != pm.Project.Name) { s.Add(dn, "", true); }
         }
     }
 }
