@@ -25,8 +25,12 @@ int _selfcheckShards() {
         RepoRoot.Value = dir;
         Directory.Create(Path.Join(dir, "src/libraries/only-lib"));
         Directory.Create(Path.Join(dir, "src/compiler"));
+        File.WriteAllText(_libsWsToml(dir), "[workspace]\nmembers = [\"*\"]\n");
+        File.WriteAllText(_compilerWsToml(dir), "[workspace]\nmembers = [\"*\"]\n");
+        File.WriteAllText(Path.Join(dir, "src/libraries/only-lib/z42.toml"), "[project]\nname = \"only-lib\"\n");
         foreach (var args in new string[]{
             "test e2e --shard 0/2", "test stdlib --shard 3/2", "bench stdlib --shard nope",
+            "test stdlib unknown-project", "bench stdlib unknown-project",
             "test app desktop --shard 1/0", "test stdlib only-lib --shard 1/2",
             "test app desktop --zbc missing.zbc --shard 1/2",
             "test e2e --dir cross-zpkg --shard 1/2", "test e2e --dir multi-exe --shard 1/2"
@@ -38,7 +42,7 @@ int _selfcheckShards() {
             _shardAssert(!Directory.Exists(Path.Join(dir, "artifacts")), "invalid CLI prepared tooling");
         }
         foreach (var kind in new string[]{ "test", "bench" }) {
-            _shardAssert(_shardLibs(dir, kind, 2, 2).Length == 0, "sparse shard must stay empty");
+            _shardAssert(_shardUnitProjects(dir, kind, 2, 2).Length == 0, "sparse shard must stay empty");
             // 不设 NoBuild；若空选择落入全库或构建前置，这棵没有工具链的树必定报错。
             LibUnitsCommand c = new LibUnitsCommand(kind, "shard regression");
             c.Shard = "2/2";

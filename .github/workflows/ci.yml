@@ -33,7 +33,7 @@ jobs:
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
       # 同一选择结果供打包 job 与 test-host 的示例卸载共用。
-      host_package: ${{ steps.filter.outputs.platform == 'true' || steps.filter.outputs.examples == 'true' || github.event_name != 'pull_request' }}
+      host_package: ${{ steps.filter.outputs.platform == 'true' || steps.filter.outputs.sdk_checks == 'true' || steps.filter.outputs.examples == 'true' || github.event_name != 'pull_request' }}
       compiler: ${{ steps.filter.outputs.compiler }}
       compiler_checks: ${{ steps.filter.outputs.compiler_checks }}
       vm: ${{ steps.filter.outputs.vm }}
@@ -85,7 +85,7 @@ jobs:
               - '!src/runtime/tests/data/embedding_hello/**'
               - '!src/runtime/tests/data/z42_native_e2e/**'
               - 'src/toolchain/workload/**'
-              # 打包管道自身、它的注册表 / CLI 面、消费包的 e2e，以及只在 package sdk 里被编译的工具链组件
+              # 打包管道自身、它的注册表 / CLI 面，以及只在 package sdk 里被编译的工具链组件
               # （launcher / devtools / interactive）——不在这里就等于没有任何 PR job 编过它们。
               - 'scripts/package/**'
               - 'scripts/packages.toml'
@@ -97,6 +97,8 @@ jobs:
               # 安装脚本：package-host 用刚打出的包离线跑一遍（Installer smoke）。
               - 'scripts/install/**'
               - 'src/toolchain/launcher/**'
+              # SDK 私有夹具由桌面发行包验证消费，不触发设备 / 浏览器打包。
+              - '!src/toolchain/launcher/tests/fixtures/package/**'
               - 'src/toolchain/devtools/**'
               - 'src/toolchain/interactive/**'
               # z42b 的 publish（apphost / iOS / Android 导出）只在 package-* 里被执行。
@@ -112,6 +114,11 @@ jobs:
               - 'scripts/test/xtask_test_desktop.z42'
               - 'scripts/test/xtask_test_embedded.z42'
               - 'scripts/versions.toml'
+              - '.github/workflows/ci.yml'
+            # 桌面 SDK 的验证执行器与私有夹具：保留四个 host package，不选择设备 / 浏览器消费者。
+            sdk_checks:
+              - 'scripts/test/sdk/**'
+              - 'src/toolchain/launcher/tests/fixtures/package/**'
               - '.github/workflows/ci.yml'
             # 学习手册示例：只有 package-host 用打包出的 SDK（含 Windows）重放。单独成 flag：并进 platform 会让改一页
             # learn 就拉起 package-{ios,android,wasm} + test-desktop。
@@ -131,6 +138,7 @@ jobs:
               - 'scripts/build/xtask_compiler*.z42'
               - 'scripts/test/xtask_selfcheck_selfhost.z42'
               - 'scripts/test/xtask_selfcheck_compiler_projects.z42'
+              - 'scripts/common/xtask_projects.z42'
               # vscode 语法门比对「入库生成产物 ↔ 模板 + Lexer 关键字表」，产物与模板都在这里。
               - 'src/toolchain/devtools/vscode/**'
               - '.github/workflows/ci.yml'
@@ -156,6 +164,9 @@ jobs:
               - 'src/toolchain/builder/**'
               - '!src/toolchain/builder/tests/**'
               - 'scripts/test/xtask_test_lib*.z42'
+              - 'scripts/test/xtask_manifest_targets.z42'
+              - 'scripts/test/xtask_unit_projects.z42'
+              - 'scripts/common/xtask_projects.z42'
               - 'scripts/common/xtask_golden.z42'
               - '.github/workflows/ci.yml'
 
