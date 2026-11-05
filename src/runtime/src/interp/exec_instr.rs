@@ -253,7 +253,7 @@ pub fn exec_instr(
             }
         }
         Instruction::ArrayGet { dst, arr, idx } => {
-            let erased = func.reg_types.get(*dst as usize) == Some(&crate::metadata::ir::reg_type::IrType::Unknown);
+            let erased = func.array_get_erased(*dst);
             if let Some(thrown) = exec_array::array_get(ctx, module, frame, *dst, *arr, *idx, erased)? {
                 return Ok(Some(thrown));
             }

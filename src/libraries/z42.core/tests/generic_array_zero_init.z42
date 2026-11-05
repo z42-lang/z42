@@ -152,3 +152,17 @@ void test_stack_receiver_keeps_primitive_array_type_arguments() {
     int[] values = new Exposed<int>().Values;
     Assert.Equal(0, values[1]);
 }
+
+[Test]
+void test_erased_clear_resets_struct_leaves() {
+    Pair[] pairs = Make<Pair>(2);
+    pairs[0].Count = 11;
+    pairs[0].Name = "清";
+    pairs[1].Count = 22;
+    pairs[1].Name = "留";
+    Array.Clear<Pair>(pairs, 0, 1);
+    Assert.Equal(0, pairs[0].Count);
+    Assert.True(pairs[0].Name == null);
+    Assert.Equal(22, pairs[1].Count);
+    Assert.Equal("留", pairs[1].Name);
+}

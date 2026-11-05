@@ -82,6 +82,10 @@ pub fn array_set(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpResu
         let (i, wrote) = {
             let a = rc.borrow();
             let i = checked_index(ArrayOp::Set, idx, a.len())?;
+            // Erased default(T) in existing bytecode can be Null for a value struct.
+            if matches!(v, Value::Null) && a.mode() == ArrayMode::Struct {
+                return Ok(a.clear_struct_elem(i)?);
+            }
             (i, a.set_boxed(i, *v))   // 打包基元在这里拆箱；引用编成引用字 / 型参单元
         };
         barrier_elem(ctx, rc, i, wrote, v);

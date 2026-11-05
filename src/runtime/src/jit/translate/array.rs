@@ -38,7 +38,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let ret = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::ArrayGet { dst, arr, idx } => {
-                    let erased = self.func.reg_types.get(*dst as usize) == Some(&IrType::Unknown);
+                    let erased = self.func.array_get_erased(*dst);
                     let erased_arg = self.builder.ins().iconst(types::I8, i64::from(erased));
                     // jit-inline-fastpaths: when the element (`dst`) and index are
                     // statically i64, do a NATIVE bounds-check + element load +
