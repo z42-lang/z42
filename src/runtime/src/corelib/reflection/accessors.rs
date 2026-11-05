@@ -29,7 +29,7 @@ pub fn property_set_value(ctx: &VmContext, pi: &Value, target: &Value, value: &V
         _ => bail!("PropertyInfo.SetValue: property has no setter (read-only)"),
     };
     // setter 是 void：结果不该被当值用（split-null-sentinel-channels ④）。
-    invoke_qualified(ctx, &setter, &[target, value], &[]).map(|_| ())
+    invoke_property_setter(ctx, &setter, target, value)
 }
 
 /// `__field_get_value(field: FieldInfo, target: object) -> object` — read an
