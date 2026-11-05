@@ -208,11 +208,11 @@ GateStage[] _gateStages(bool noBuild) {
         new GateStage("cross-zpkg", "e2e cross-zpkg", () => _testCrossZpkgCore("interp", true)),
         new GateStage("multi-exe", "e2e multi-exe", () => _testMultiExeCore("interp", true)),
         new GateStage("stdlib", "stdlib [Test]",
-            () => _testLibCore("test", _allUnitLibs(_root(), "test"), true, "", "4", "interp", null, "", "", "")),
+            () => _testLibCore("test", _allUnitProjects(_root(), "test"), true, "", "4", "interp", null, "", "", "")),
         new GateStage("toolchain", "toolchain [Test]", () => _testToolchainCore("", true, "", false)),
         // 只验 benchmark 语料能跑；时间回归由 bench-pr.yml 的 A/B 判定。
         new GateStage("bench", "stdlib [Benchmark]",
-            () => _testLibCore("bench", _allUnitLibs(_root(), "bench"), true, "", "4", "interp", null, "", "", "")),
+            () => _testLibCore("bench", _allUnitProjects(_root(), "bench"), true, "", "4", "interp", null, "", "", "")),
         new GateStage("targets", "manifest targets ([[test]] + [[example]])", () => _gateTargets()),
         new GateStage("examples", "examples (learn book transcripts)", () => _gateExamples()),
         new GateStage("docs", "docs (relative links)", () => _testDocs(_root())),

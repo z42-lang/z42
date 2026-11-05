@@ -29,7 +29,7 @@ int _testManifestExamples(bool noBuild) {
         if (!Directory.Exists(r)) { continue; }
         foreach (var proj in _sortedStrings(Directory.Enumerate(r))) {
             string projDir = Path.Join(r, proj);
-            string toml = _fixtureManifest(projDir);
+            string toml = _findManifest(projDir).ManifestPath;
             if (toml.Length > 0 && Directory.Exists(projDir)) {
                 _exampleRunProject(root, projDir, proj, toml, tt, counts);
             }

@@ -4,7 +4,7 @@
 //
 // 名字里没有 `xtask_test_` 前缀是有意的：那个前缀专表「`test <x>` 命令的实现」，
 // 本文件是被三个消费者共用的**引擎**、不对应任何命令。
-// Reads a project's `<name>.z42.toml` via Z42.Project's ManifestLoader (no hand-rolled
+// Reads a project's manifest via Z42.Project's ManifestLoader (no hand-rolled
 // TOML) and turns `[tests]`/`[benches]`/`[examples]` + `[[test]]`/`[[bench]]`/`[[example]]`
 // into runnable units.
 //
@@ -80,16 +80,18 @@ string _validateRunTargets(RunTarget[] t, int n, string kind) {
 // 返回该 lib 的失败数，或 -1 表示目标声明有误（调用方中止整个 stage）。
 // totalFiles / libsTested 按引用更新。
 //
-// File.Exists(parentToml)：`src/libraries` 的枚举里混着 README.md 之类的非工程条目，须显式跳过。
-int _runLibKind(string root, string projDir, string lib, string kind,
+// 非工程条目不执行；清单路径与包名分别由 ManifestLocator 和 project.name 决定。
+int _runLibKind(string root, string projDir, string kind,
                 string label, string filter, string builderZpkg, int jobsN, string mode,
                 string vm, string driverZpkg, string libs, MicroBenchAgg agg,
                 ref int totalFiles, ref int libsTested) {
-    string parentToml = Path.Join(projDir, lib + ".z42.toml");
-    if (!File.Exists(parentToml)) { return 0; }
+    ManifestLocation found = _findManifest(projDir);
+    if (found.Kind != ManifestLocateKind.Project) { return 0; }
+    string parentToml = found.ManifestPath;
     // 清单 lint（名字缺失 / 重名 / harness=false 缺 entry）留在 xtask 侧：z42b 对
     // HasEntry=false 是「自动探测入口」而不是错误，这条 lint 它不复制。
-    ProjectManifest man = _loadManifestOr(parentToml);
+    ProjectManifest man = ManifestLoader.Load(parentToml);
+    string lib = man.Project.Name;
     RunTarget[] tgts = _explicitTargets(man, kind);
     string verr = _validateRunTargets(tgts, tgts.Length, kind);
     if (verr.Length > 0) { ConsoleError.WriteLine("error: " + lib + ": " + verr); return -1; }

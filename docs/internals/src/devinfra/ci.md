@@ -313,9 +313,10 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
   就变了；`test-host` 的 interp golden 只覆盖新 `.zbc` 的解释执行，不覆盖它的 JIT lowering。
 - **wasm / iOS / Android 的 Tier-2 测试只在 nightly 跑**：每个 15~25 分钟且要模拟器，
   挂在 per-push 上会把 runner 池打满。
-- **`package-*` 在 PR 上只有 `platform` 改动才跑**：它们的产物只被 `publish-nightly` 消费，
-  而打包机制只受 platform 类改动影响。非-platform PR 因此少 7 个 job，给满负荷跑腾并发余量。
-  跑了就算数：失败经 `ci-ok` 挡合并；被 `if:` skip 时 `ci-ok` 照样绿。
+- **打包按生产输入与宿主验证职责选择**：PR 的 `platform` 改动选择全部平台包；`sdk_checks`（`scripts/test/sdk/` 与 launcher 发行包私有夹具）只选择四个桌面 SDK 包，`examples` 同样只需桌面 SDK。
+  SDK 验证使用刚打出的包，在桌面执行命令行、apphost 与 interp / jit golden，不需要移动 / wasm 打包或桌面 C ABI 消费者。
+  修改生产打包实现、混合输入、CI 配置或非 PR 事件仍保留对应全量覆盖。
+  执行失败经 `ci-ok` 挡合并；被职责选择跳过的 job 由 `ci-ok` 接受 skipped。
 - **`publish-nightly` 的 `needs` 故意不含两条 jit 腿**：那些 job 在
   zbc/zpkg 格式 bump 那一轮会暂时红（要等一个兼容的 nightly），gate 上去就是死锁。
   「行为正确」由在 `needs` 里的 `test-host` + `package-*` 保证。
@@ -328,7 +329,7 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
   android 四个组合没有必要：后三者 `package-*` 本就在真实目标平台上完整构建；「interp-only 不含
   cranelift」断言在 `package-wasm` 里。`.cargo/**` 并入 `platform` 过滤器（配置只有 `src/runtime/.cargo` 一份，由 `src/runtime/**` 覆盖）。
 
-学习手册示例按 `changes.outputs.host_package` 分工。它集中原有的打包选择条件：platform 或 examples flag 为 true，
+学习手册示例按 `changes.outputs.host_package` 分工。它集中原有的打包选择条件：platform、sdk_checks 或 examples flag 为 true，
 或事件不是 PR。打包 job 会执行时，每个平台只在打包 SDK 上重放会话；非 Windows 的 test-host 跳过开发 SDK 准备与
 examples stage。打包 job 不执行时，test-host 用 `--changed` 决定是否执行 examples；开发 SDK 的准备属于该 stage，
 只有实际执行时才构建 apphost 并组装，不再由 workflow 提前准备。本地完整 `xtask test` 也保留 examples。
@@ -410,6 +411,10 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 **每个**跑 xtask 的 job（`ci-bootstrap` 与 `xtask-bootstrap-artifact` 两条路径都一样）都要先经
 [`setup-z42-sdk`](https://github.com/z42-lang/z42/blob/main/.github/actions/setup-z42-sdk/action.yml) 拿一份上一版 SDK，装进 `.z42/`。
 它既是 xtask 运行所在的 SDK，也是 **z42c 种子**：用它编当前源码，xtask 的 `_seedSdkDir` 会自己找到 `./.z42`。
+`ci-bootstrap` 的 `xtask-only=true` 只用这份 SDK 编译并运行当前 xtask 及其工具依赖，不暂存产品种子、
+不读取当前产品的格式常量，也不执行产品格式的两代自举。xtask 的编译器、输出格式与执行 VM 均属于同一份 SDK；
+当前产品格式和 SDK 不同时，文档 / 源码检查也不必先构建当前编译器和 stdlib。
+普通模式仍检查格式差异并在需要时执行两代自举，再构建当前产品。
 取用顺序如下：
 
 ```

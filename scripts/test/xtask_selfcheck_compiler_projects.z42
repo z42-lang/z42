@@ -18,7 +18,7 @@ int _selfcheckCompilerProjects(string root, string vm, string flat, string drive
         Directory.Create(dist);
         string stale = Path.Join(dist, "old.zpkg");
         File.WriteAllText(stale, "this stale package must never be executed");
-        if (_runCompilerTestProject(root, vm, flat, driver, builder, _fixtureManifest(dir)) != 0) {
+        if (_runCompilerTestProject(root, vm, flat, driver, builder, _findManifest(dir).ManifestPath) != 0) {
             throw new Exception("compiler projects: canonical manifest, declared layout or main product selection");
         }
         if (!File.Exists(stale) || !File.Exists(Path.Join(dist, "compiler-project-smoke.zpkg"))) {

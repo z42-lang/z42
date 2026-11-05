@@ -1,0 +1,70 @@
+// 测试包发现与实际 z42b 转发：清单文件名、目录名和 project.name 可以不同。
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _selfcheckTestProjects(string root, TargetTooling tt) {
+    string dir = _xtaskWork(root, "test-projects");
+    _resetDir(dir);
+    try {
+        string tc = Path.Join(dir, "src/toolchain");
+        string bare = Path.Join(tc, "canonical");
+        string named = Path.Join(tc, "nested/renamed");
+        _writeTestProject(bare, "z42.toml", "test.project.canonical");
+        _writeTestProject(named, "other.z42.toml", "test.project.named");
+        // fixtures 中的工程不应被递归发现，单独的 workspace 也不是测试包。
+        _writeTestProject(Path.Join(bare, "tests/fixtures/hidden"), "z42.toml", "hidden");
+        string workspace = Path.Join(tc, "workspace");
+        Directory.Create(Path.Join(workspace, "tests"));
+        File.WriteAllText(Path.Join(workspace, "z42.workspace.toml"), "[workspace]\nmembers = [\"*\"]\n");
+        string fixturesOnly = Path.Join(tc, "fixtures-only");
+        Directory.Create(Path.Join(fixturesOnly, "tests/fixtures"));
+        File.WriteAllText(Path.Join(fixturesOnly, "z42.toml"), "[project]\nname = \"fixtures.only\"\n");
+        string samples = Path.Join(tc, "samples");
+        Directory.Create(samples);
+        File.WriteAllText(Path.Join(samples, "a.z42.toml"), "");
+        File.WriteAllText(Path.Join(samples, "b.z42.toml"), "");
+        string[] dirs = _toolchainTestPkgs(dir);
+        _requireLibDiscovery(dirs.Length == 2 && dirs[0] == bare && dirs[1] == named,
+            "toolchain discovery must select only real test projects in stable order");
+        _requireLibDiscovery(_toolchainPkgName(bare) == "test.project.canonical"
+            && _toolchainPkgName(named) == "test.project.named", "project names inferred from file names");
+        _requireLibDiscovery(_toolchainPkgMatches(dir, named, "nested")
+            && _toolchainPkgMatches(dir, named, "test.project.named"), "component or package selection lost");
+        _checkTestProjectRun(root, tt, bare);
+        _checkTestProjectRun(root, tt, named);
+        _checkTestProjectAmbiguity(named);
+    } finally { Directory.Delete(dir, true); }
+    Console.WriteLine("  test projects: canonical/named manifests, declared names and real runner passed");
+    return 0;
+}
+
+void _writeTestProject(string dir, string file, string name) {
+    Directory.Create(Path.Join(dir, "tests"));
+    File.WriteAllText(Path.Join(dir, file), "[project]\nname = \"" + name
+        + "\"\nversion = \"0.1.0\"\nkind = \"lib\"\n[sources]\ninclude = [\"source.z42\"]\n"
+        + "[build]\noutput_dir = \"out\"\ndist_dir = \"${output_dir}/payload\"\n");
+    File.WriteAllText(Path.Join(dir, "source.z42"), "namespace TestProject;\npublic class Value {}\n");
+    File.WriteAllText(Path.Join(dir, "tests/discovered.z42"),
+        "namespace TestProject.Tests;\nusing Std.Harness;\n[Test] void test_discovered() {}\n");
+}
+
+void _checkTestProjectRun(string root, TargetTooling tt, string dir) {
+    int files = 0;
+    int tested = 0;
+    int failed = _runLibKind(root, dir, "test", "test", "",
+        tt.BuilderZpkg, 1, "interp", tt.Vm, tt.DriverZpkg, tt.Libs, null, ref files, ref tested);
+    _requireLibDiscovery(failed == 0 && files == 1 && tested == 1,
+        "valid test project silently skipped or failed: " + dir);
+}
+
+void _checkTestProjectAmbiguity(string dir) {
+    File.WriteAllText(Path.Join(dir, "second.z42.toml"), "");
+    bool rejected = false;
+    try { _toolchainPkgName(dir); }
+    catch (Exception e) { rejected = e.Message.Contains("other.z42.toml") && e.Message.Contains("second.z42.toml"); }
+    _requireLibDiscovery(rejected, "ambiguous toolchain manifests must name both candidates");
+    // 标准清单优先于多个命名清单，且不从文件名推导工程名。
+    _writeTestProject(dir, "z42.toml", "preferred.project");
+    _requireLibDiscovery(_toolchainPkgName(dir) == "preferred.project", "canonical manifest lost priority");
+}
