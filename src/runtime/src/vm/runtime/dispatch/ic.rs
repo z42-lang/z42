@@ -56,6 +56,8 @@ impl Default for VCallICEntry {
 #[derive(Debug)]
 pub struct VCallIC {
     pub entries:     [VCallICEntry; IC_SLOTS],
+    // Independent of the dispatch entries: one complete (TypeId, FieldLoc) word.
+    pub(crate) field_reader: FieldICEntry,
     pub round_robin: AtomicU32,
 }
 
@@ -63,6 +65,7 @@ impl Default for VCallIC {
     fn default() -> Self {
         Self {
             entries:     std::array::from_fn(|_| VCallICEntry::default()),
+            field_reader: FieldICEntry::default(),
             round_robin: AtomicU32::new(0),
         }
     }
@@ -150,6 +153,26 @@ pub fn field_ic_lookup(ic: &FieldIC, recv_type: u32) -> Option<FieldLoc> {
         if tid == UNRESOLVED { return None; }  // early exit: rest are empty
     }
     None
+}
+
+impl FieldICEntry {
+    /// The scalar coordinate, but only for the receiver type published with it.
+    #[inline]
+    pub(crate) fn reader_location(&self, recv_type: u32) -> Option<FieldLoc> {
+        let (type_id, loc) = unpack(self.packed.load(std::sync::atomic::Ordering::Relaxed));
+        (type_id != UNRESOLVED && type_id == recv_type).then(|| FieldLoc::from_bits(loc))
+    }
+
+    /// Copy a scalar field coordinate from a getter's ordinary FieldGet cache.
+    /// The first valid receiver stays the native path. Other types keep using the VCall PIC.
+    pub(crate) fn remember_reader(&self, recv_type: u32, getter_ic: &FieldIC) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let empty = pack(UNRESOLVED, UNRESOLVED);
+        if self.packed.load(Relaxed) != empty { return; }
+        let Some(loc) = field_ic_lookup(getter_ic, recv_type) else { return };
+        if crate::object::prim_cell_width(loc.kind).is_none() { return; }
+        let _ = self.packed.compare_exchange(empty, pack(recv_type, loc.to_bits()), Relaxed, Relaxed);
+    }
 }
 
 /// PIC install for `FieldIC`. Finds the first `UNRESOLVED` slot; if all
