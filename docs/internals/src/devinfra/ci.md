@@ -30,7 +30,8 @@ flowchart TD
 核心思想：**平台无关的东西编一次、下游消费**。`compile-toolchain` 把当前源编成一套
 `{z42c, stdlib, xtask}` zpkg 上传成 `toolchain-ubuntu-latest` artifact；`compile-test-assets` 再消费它
 regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-ubuntu-latest`。下游测试 job 下载这些产物
-`--no-build` 跑，自己不自举、也不重复 regen。
+直接运行。`goldens.tar` 同时保存 `artifacts/build/tests/` 下的语言 golden 和各库 `release/tests/` 下的 golden，
+路径相对 `artifacts/build/`。Interp 消费验证和 JIT 分片解包回同一镜像，使用 `--no-rebuild` 运行。
 
 这两个 job **只有 linux 一条腿**：产物全是 zpkg，与宿主无关，macOS / Windows 的消费方
 取的是同一份（只有 z42vm 按宿主 cargo 现编）。

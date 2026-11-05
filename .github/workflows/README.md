@@ -26,7 +26,7 @@
 | `build-and-test`（test-host） | 非纯文档 | 多平台 `xtask build` + `xtask test` |
 | `host-package`（package-host） | platform / sdk_checks / examples 验证，或有发布输入，或定期 / 手动运行 | 各 host RID 的 SDK 打包与验证。平台打包时还构建 runtime / workload |
 | `toolchain-bootstrap`（compile-toolchain） | 非纯文档 | 编译 toolchain（z42c / stdlib / xtask zpkg）供下游 job 消费 |
-| `assemble-current-sdk` / `consume-current-sdk` | 随 CI | 当前源码组装 SDK、再消费它跑测试 |
+| `assemble-current-sdk` / `consume-current-sdk` | 随 CI | 组装当前 SDK 与共享 golden 产物，再下载执行语言和标准库 golden |
 | `vm-jit-consistency` / `stdlib-jit-consistency` / `stdlib-interp-consistency` | vm / stdlib / compiler 改动或 schedule / dispatch | VM / 标准库在 JIT 与 interp 下的一致性，分 shard |
 | `compiler-checks` | compiler / 专项执行器改动或 schedule / dispatch | 编译器专项检查 |
 | `package-ios` / `package-android` / `package-wasm` | platform 验证，或有发布输入，或定期 / 手动运行 | 移动 / wasm 平台包 |

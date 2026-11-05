@@ -27,6 +27,7 @@ SDK、编译器和 Runtime 不是这些基线选择测试的前置。新控制�
 `test_main_supersede.py` 用 GitHub 文件列表夹具执行 nightly 差异判断和 workflow 的纯文档检查，
 覆盖重命名跨越生产、私有测试及文档边界。
 `test_package_selection.py` 核对实际 workflow 的打包与发布条件，覆盖 PR、main push、定期和手动事件，以及桌面 SDK 与完整平台打包各自的步骤。
+`test_golden_artifacts.py` 执行实际归档与解包步骤，核对语言和标准库 golden 的镜像路径及缺包时的失败。
 改动事件或调用点后还要跟进 GitHub CI；`xtask check ci-shell` 检查 composite action 的 shell 变量约束。
 
 ## 关联文档
