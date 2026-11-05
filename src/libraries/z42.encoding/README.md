@@ -2,7 +2,7 @@
 
 ## 职责
 
-byte ↔ text 编码三件套：Hex / Base64 / UTF-8。纯脚本实现（无 VM native）。
+byte ↔ text 编码三件套：Hex / Base64 / UTF-8。脚本实现（本包零 extern，UTF-8 复用 core 的字符串存储原语）。
 
 ## 核心文件
 
@@ -12,7 +12,7 @@ byte ↔ text 编码三件套：Hex / Base64 / UTF-8。纯脚本实现（无 VM 
 | `src/Base64.z42` | `Std.Encoding.Base64` — RFC 4648 §4 标准 Base64（含 `=` padding） |
 | `src/Base64Url.z42` | `Std.Encoding.Base64Url` — RFC 4648 §5 URL-safe Base64 |
 | `src/Base32.z42` / `src/Base32Hex.z42` / `src/Base32Crockford.z42` | Base32 三个字母表变体（RFC 4648 标准 / Extended Hex / Crockford） |
-| `src/Utf8.z42` | `Std.Encoding.Utf8` — GetBytes / GetString，严格校验 UTF-8 |
+| `src/Utf8.z42` | `Std.Encoding.Utf8` — GetBytes / GetString，复用 String.CopyUtf8To / FromUtf8，严格校验 UTF-8 |
 | `src/Utf16.z42` | `Std.Encoding.Utf16` — `GetBytesLE/BE` + `GetStringLE/BE`；surrogate pair + 严格校验 |
 | `src/Utf32.z42` | `Std.Encoding.Utf32` — `GetBytesLE/BE` + `GetStringLE/BE`；定宽 4 bytes/codepoint，拒 surrogate / >U+10FFFF |
 | `src/Encoding.z42` | `Std.Encoding.Encoding` — 编码对象（目前仅 UTF-8，`StreamReader` / `StreamWriter` 按它编解码） |
@@ -22,7 +22,7 @@ byte ↔ text 编码三件套：Hex / Base64 / UTF-8。纯脚本实现（无 VM 
 
 ## 依赖关系
 
-→ `z42.core`（byte / char / string / Exception / FormatException）。纯脚本，无 VM native。
+→ `z42.core`（byte / char / string / Exception / FormatException）。本包零 extern；UTF-8 经 core 的存储复制/严格字符串构造实现。
 
 ## 错误处理
 

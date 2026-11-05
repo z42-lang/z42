@@ -1,0 +1,33 @@
+namespace Z42Utf8RangeTests;
+using Std.Encoding;
+using Std.Harness;
+
+[Test]
+void decoding_ignores_invalid_bytes_outside_the_slice() {
+    byte[] data = new byte[] { (byte)255, (byte)195, (byte)169, (byte)255 };
+    Encoding encoding = Encoding.GetUtf8();
+    Assert.Equal("é", encoding.GetString(data, 1, 2));
+    Assert.Throws("FormatException", () => encoding.GetString(data, 2, 1));
+}
+
+[Test]
+void slice_bounds_reject_large_indices_before_reading() {
+    Encoding encoding = Encoding.GetUtf8();
+    byte[] data = new byte[2];
+    Assert.Throws("ArgumentException", () => encoding.GetString(data, 2147483647, 1));
+    Assert.Throws("ArgumentException", () => encoding.GetString(data, -1, 1));
+    Assert.Throws("ArgumentException", () => encoding.GetString(data, 1, 2));
+    Assert.Equal("", encoding.GetString(data, 2, 0));
+}
+
+[Test]
+void utf8_conversion_copies_both_directions() {
+    string text = "é中😀";
+    byte[] data = Utf8.GetBytes(text);
+    string result = Utf8.GetString(data);
+    data[0] = (byte)65;
+    Assert.Equal(text, result);
+    Assert.Equal(text, Utf8.GetString(Utf8.GetBytes(text)));
+    Assert.Throws("NullReferenceException", () => Utf8.GetBytes(null));
+    Assert.Throws("NullReferenceException", () => Utf8.GetString(null));
+}
