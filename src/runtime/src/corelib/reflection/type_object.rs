@@ -227,6 +227,12 @@ pub(super) fn make_constructed_type_from_values(
         || canonical_type_name(type_name),
         |td| td.name.clone(),
     );
+    build_constructed_type(ctx, definition, base_full, arg_types)
+}
+
+pub(super) fn build_constructed_type(
+    ctx: &VmContext, definition: Option<Arc<TypeDesc>>, base_full: String, arg_types: Vec<Value>,
+) -> Value {
     let simple = type_simple_name(&base_full);
     let definition_key = definition.as_ref().map_or_else(
         || ReflectedTypeKey::Symbol(base_full.as_str().into()),
