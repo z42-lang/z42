@@ -1,89 +1,53 @@
 namespace Std.Json;
 using Std.Reflection;
 
-// serde 反射底座。
-//
-// 反射式数组建/读写与属性 attribute 已下沉为 `Std.Array` 与 `Std.Reflection.PropertyInfo` 的
-// 公开反射 API，本库不再自带对应 extern；此处仅保留**集合反射辅助**——它们封装的是已公开的
-// 反射 API（`GetGenericArguments` / `Activator` / `MethodInfo.Invoke` / `FieldInfo.GetValue`），
-// z42 反射尚无 `GetMethod(name)` / `GetField(name)`，故本库以「遍历按名取首个匹配」补齐。
+// 集合绑定仅在当前遍历内存活；不以 FullName 缓存跨加载上下文的反射对象。
 internal static class JsonReflect {
-    // ── 集合反射（List<T> / Dictionary<string,V>，add-collection-serde）─────────────
-    // 反射-only：复用既有反射 native（GetGenericArguments / Activator / MethodInfo.Invoke /
-    // FieldInfo.GetValue）。z42 反射无 GetMethod(name)/GetField(name) → 遍历按名取首个匹配。
-    // 跨包 imported 反射返回引用类型（Type/MethodInfo/FieldInfo）逐处 cast + local receiver（footgun）。
-
-    /// 取泛型类型的第 `idx` 个类型实参（List→T、Dict→K/V）；越界返回 null。
+    /// 取构造泛型的类型实参。
     public static Type GenericArg(Type t, int idx) {
         Type[] ga = t.GetGenericArguments();
-        if (idx < ga.Length) { Type g = ga[idx]; return g; }
-        return null;
+        if (idx >= 0 && idx < ga.Length) { Type g = ga[idx]; return g; }
+        throw new JsonException("Missing collection type argument: " + t.FullName);
     }
 
-
-    private static MethodInfo _findMethod(Type t, string name) {
+    /// 按名称、实例/非泛型形态及完整参数类型绑定唯一 public 方法。
+    public static MethodInfo BindMethod(Type t, string name, Type[] parameterTypes) {
         MethodInfo[] ms = t.GetMethods();
+        MethodInfo found = null;
         int i = 0;
         while (i < ms.Length) {
             MethodInfo m = ms[i];
-            if (m.Name == name) { return m; }
+            if (m.Name == name && m.IsPublic && !m.IsStatic && !m.IsGenericMethod) {
+                ParameterInfo[] ps = m.GetParameters();
+                bool matches = ps.Length == parameterTypes.Length;
+                int j = 0;
+                while (matches && j < ps.Length) {
+                    Type pt = (Type)ps[j].ParameterType;
+                    matches = pt == parameterTypes[j];
+                    j = j + 1;
+                }
+                if (matches) {
+                    if (found != null) throw new JsonException("Ambiguous collection method: " + name);
+                    found = m;
+                }
+            }
             i = i + 1;
         }
-        return null;
+        if (found == null) throw new JsonException("Missing collection method: " + name);
+        return found;
     }
 
-    private static FieldInfo _findField(Type t, string name) {
+    /// 读取当前 List 的 Count；每次遍历只调用一次。
+    public static int ListCount(object list, Type t) {
         FieldInfo[] fs = t.GetFields();
         int i = 0;
         while (i < fs.Length) {
             FieldInfo f = fs[i];
-            if (f.Name == name) { return f; }
+            if (f.Name == "Count" && f.IsPublic && !f.IsStatic) {
+                return (int)f.GetValue(list);
+            }
             i = i + 1;
         }
-        return null;
-    }
-
-    /// 反射读 `Count` 公开字段，返回 List<T> 的元素个数。
-    public static int ListCount(object list) {
-        Type t = (Type)list.GetType();
-        FieldInfo cf = JsonReflect._findField(t, "Count");
-        object v = cf.GetValue(list);
-        return (int)v;
-    }
-    /// 反射调 `get_Item(i)`（indexer）取 List<T> 第 `i` 个元素。
-    public static object ListGet(object list, int i) {
-        Type t = (Type)list.GetType();
-        MethodInfo gm = JsonReflect._findMethod(t, "get_Item");
-        object[] args = new object[1]; args[0] = i;
-        return gm.Invoke(list, args);
-    }
-    /// 反射调 `Add(item)` 向 List<T> 追加一个元素。
-    public static void ListAdd(object list, object item) {
-        Type t = (Type)list.GetType();
-        MethodInfo am = JsonReflect._findMethod(t, "Add");
-        object[] args = new object[1]; args[0] = item;
-        am.Invoke(list, args);
-    }
-
-    /// 反射调 `Keys()` 取 Dictionary<string,V> 键的 string[] 快照。
-    public static string[] DictKeys(object dict) {
-        Type t = (Type)dict.GetType();
-        MethodInfo km = JsonReflect._findMethod(t, "Keys");
-        object r = km.Invoke(dict, new object[0]);
-        return (string[])r;
-    }
-    /// 反射调 `get_Item(key)` 按键取 Dictionary<string,V> 的值。
-    public static object DictGet(object dict, string key) {
-        Type t = (Type)dict.GetType();
-        MethodInfo gm = JsonReflect._findMethod(t, "get_Item");
-        object[] args = new object[1]; args[0] = key;
-        return gm.Invoke(dict, args);
-    }
-    /// 反射调 `set_Item(key, val)` 按键写 Dictionary<string,V> 的值。
-    public static void DictSet(object dict, string key, object val) {
-        Type t = (Type)dict.GetType();
-        MethodInfo sm = JsonReflect._findMethod(t, "set_Item");
-        object[] args = new object[2]; args[0] = key; args[1] = val;
-        sm.Invoke(dict, args);
+        throw new JsonException("Missing collection field: Count");
     }
 }
