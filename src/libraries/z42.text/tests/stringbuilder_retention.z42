@@ -1,0 +1,63 @@
+namespace Z42StringBuilderRetentionTests;
+using Std.Text;
+using Std.Harness;
+
+string _largePart() {
+    char[] chars = new char[65536];
+    int i = 0;
+    while (i < chars.Length) { chars[i] = '中'; i = i + 1; }
+    return String.FromChars(chars);
+}
+
+void _exercise(StringBuilder builder, int mode) {
+    for (int i = 0; i < 8; i++) { builder.Append(_largePart()); }
+    if (mode == 0) { builder.Clear(); }
+    if (mode == 1) { builder.Clear().Append("new"); }
+    if (mode == 2) { builder.Remove(0, builder.Length); }
+    if (mode == 3) { builder.Remove(1, builder.Length - 1); }
+    if (mode == 4) { builder.Replace(builder.ToString(), "x"); }
+}
+
+long _usedAfterCollect() {
+    GC.ForceCollect();
+    GC.ForceCollect();
+    return GC.UsedBytes();
+}
+
+void _checkReleased(int mode, string expected) {
+    StringBuilder builder = new StringBuilder();
+    long before = _usedAfterCollect();
+    // 输入创建与编辑帧先退出；采样后继续使用 builder，保证持有者仍存活。
+    _exercise(builder, mode);
+    long retained = _usedAfterCollect() - before;
+    if (retained > 131072L) {
+        throw new TestFailure("StringBuilder retained obsolete managed bytes: " + retained.ToString());
+    }
+    Assert.Equal(expected, builder.ToString());
+    Assert.Equal(expected + "!", builder.Append("!").ToString());
+}
+
+[Test]
+void clear_releases_all_parts_after_growth() { _checkReleased(0, ""); }
+[Test]
+void clear_then_append_does_not_retain_old_tail() { _checkReleased(1, "new"); }
+[Test]
+void remove_all_releases_obsolete_parts() { _checkReleased(2, ""); }
+[Test]
+void shrink_to_one_scalar_releases_obsolete_parts() { _checkReleased(3, "中"); }
+[Test]
+void replace_all_releases_obsolete_parts() { _checkReleased(4, "x"); }
+
+[Test]
+void snapshots_and_unicode_cursor_survive_clear_and_edit() {
+    StringBuilder builder = new StringBuilder();
+    builder.Append("aé").Append("中😀");
+    string snapshot = builder.ToString();
+    builder.Remove(0, 3);
+    Assert.Equal("😀", builder.ToString());
+    Assert.Equal("aé中😀", snapshot);
+    builder.Clear().Clear().Append("新").Replace("新", "好");
+    builder[0] = '中';
+    Assert.Equal("中", builder.ToString());
+    Assert.Equal(1, builder.Length);
+}
