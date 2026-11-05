@@ -25,12 +25,9 @@ pub fn type_element(ctx: &VmContext, ty: &Value) -> Value {
 /// classes with no explicit base; `null` for `Std.Object` itself / no handle.
 pub fn type_base(ctx: &VmContext, ty: &Value) -> Value {
     let definition = type_handle_of(ty);
-    let template = definition.as_ref().and_then(|td| {
-        td.custom_attributes().iter().find(|a| a.type_name == "$ReflectionBase")
-    });
-    if let Some(template) = template {
+    if let Some(definition) = &definition {
         if let Some(subst) = member_subst(ty) {
-            if let Some(base) = projected_member_type(ctx, &template.factory_func, &subst, &[]) {
+            if let Some(base) = projected_base_type(ctx, definition, &subst) {
                 return base;
             }
         }

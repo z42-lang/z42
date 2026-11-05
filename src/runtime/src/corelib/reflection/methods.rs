@@ -11,13 +11,15 @@ pub fn type_methods(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> 
     };
     let mut seen: HashSet<String> = HashSet::new();
     let mut out = Vec::new();
-    // A constructed Type (`typeof(Box<int>)`) reports signatures with its arguments substituted.
-    let subst = member_subst(ty);
-    let subst = subst.as_ref();
+    let scopes = MemberScopes::new(ctx, ty, &td);
+    let mut roots = ProjectionRoots::new(ctx);
     // Virtual / inherited methods carry their simple name in the vtable.
     for (simple, qualified) in &td.vtable {
         if seen.insert(qualified.clone()) {
-            out.push(build_method_info_ex(ctx, simple, qualified, true, false, subst).map_err(BuiltinError::Legacy)?);
+            let subst = scopes.for_method(qualified).or_else(|| scopes.leaf());
+            let info = build_method_info_ex(ctx, simple, qualified, true, false, subst)
+                .map_err(BuiltinError::Legacy)?;
+            out.push(if scopes.has_inherited() { roots.pin(info) } else { info });
         }
     }
     // Declared non-virtual methods (qualified names only). Constructors are not among
@@ -26,7 +28,10 @@ pub fn type_methods(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> 
         let q = qualified.to_string();
         if seen.insert(q.clone()) {
             let simple = simple_method_name(&q).to_string();
-            out.push(build_method_info_ex(ctx, &simple, &q, false, false, subst).map_err(BuiltinError::Legacy)?);
+            let subst = scopes.for_method(&q).or_else(|| scopes.leaf());
+            let info = build_method_info_ex(ctx, &simple, &q, false, false, subst)
+                .map_err(BuiltinError::Legacy)?;
+            out.push(if scopes.has_inherited() { roots.pin(info) } else { info });
         }
     }
     // add-interface-member-reflection: an interface carries its declared method
@@ -517,7 +522,7 @@ pub(super) fn resolve_func_type_params(ctx: &VmContext, qualified: &str) -> Vec<
 pub mod typed {
     use super::*;
 
-    #[builtin(name = "__type_methods")]
+    #[builtin(name = "__type_methods", reenters)]
     pub fn methods_of(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
         type_methods(ctx, ty)
     }
