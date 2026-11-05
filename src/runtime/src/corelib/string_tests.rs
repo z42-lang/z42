@@ -1,6 +1,22 @@
 use super::*;
 use crate::object::Value;
 
+#[test]
+fn ascii_search_from_uses_scalar_offsets() {
+    let find = |s: &str, start| typed::index_of_any_ascii_from(&s.into(), "\r\n", start).unwrap();
+    assert_eq!(find("x\r\ny", 1), 1);
+    assert_eq!(find("x\r\ny", 2), 2);
+    assert_eq!(find("é\n😀中\r", 2), 4);
+    assert_eq!(find("é\n😀中\r", 4), 4);
+    assert_eq!(find("é\n😀中\r", 5), -1);
+    assert_eq!(find("x😀", 0), -1);
+    assert_eq!(find("", 0), -1);
+    assert_eq!(typed::index_of_any_ascii_from(&"é\n".into(), "", 0).unwrap(), -1);
+    assert!(typed::index_of_any_ascii_from(&"é".into(), "x", 2).is_err());
+    assert!(typed::index_of_any_ascii_from(&"é".into(), "x", -1).is_err());
+    assert!(typed::index_of_any_ascii_from(&"é".into(), "é", 1).is_err());
+}
+
 // __str_to_chars: bulk materialise the whole char[] in one native call — the
 // array-view primitive backing script-side string ops (String.ToCharArray →
 // IndexOf/…). Must yield Unicode scalars (chars), not bytes.
