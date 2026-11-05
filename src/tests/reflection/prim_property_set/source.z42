@@ -1,0 +1,46 @@
+namespace Demo;
+using Std.IO;
+using Std.Json;
+using Std.Reflection;
+
+public class Probe {
+    public int First { get; set; }
+    public long Second { get; set; }
+    public object Ref { get; set; }
+
+    public Probe() {
+        this.First = 1;
+        this.Second = 9L;
+    }
+}
+
+void Main() {
+    Probe warm = new Probe();
+    for (int i = 0; i < 8; i = i + 1) {
+        warm.First = i;
+        warm.Second = 10L;
+        warm.Ref = "warm";
+    }
+
+    Array numbers = new int[] { -123 };
+    object boxed = numbers.GetValue(0);
+    foreach (PropertyInfo property in typeof(Probe).GetProperties()) {
+        if (property.Name == "First" || property.Name == "Ref") {
+            property.SetValue(warm, boxed);
+        }
+    }
+    Assert.Equal(-123, warm.First);
+    Assert.Equal(-123, (int)warm.Ref);
+    object token = new object();
+    foreach (PropertyInfo property in typeof(Probe).GetProperties()) {
+        if (property.Name == "Ref") { property.SetValue(warm, token); }
+    }
+    Assert.True(Object.ReferenceEquals(token, warm.Ref));
+
+    for (int i = 0; i < 8; i = i + 1) {
+        Probe parsed = JsonSerializer.Deserialize<Probe>("{\"First\":3,\"Second\":5000000000}");
+        Assert.Equal(3, parsed.First);
+        Assert.Equal(5000000000L, parsed.Second);
+    }
+    Console.WriteLine("reflective property arguments ok");
+}
