@@ -131,6 +131,10 @@ pub(super) fn call(
     }
     // runtime-audit P1-8: a `[Native]` forwarder runs its builtin directly.
     if method_type_args.is_empty() {
+        if let Some(value) = crate::vm::exec::call::forward::try_direct_field_read(ctx, target, &frame.regs, args) {
+            frame.set(dst, value);
+            return Ok(None);
+        }
         if let Some(res) = try_fold(ctx, module, frame, dst, target, None, args) {
             return res;
         }
