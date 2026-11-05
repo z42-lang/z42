@@ -1,0 +1,70 @@
+namespace Z42RegexEscapeErrorsTests;
+using Std.Regex;
+using Std.Harness;
+
+[Test]
+void numeric_pattern_escapes_are_rejected() {
+    Assert.Throws("RegexException", () => Regex.Compile("(a)\\1"));
+    Assert.Throws("RegexException", () => Regex.Compile("\\0"));
+    Assert.Throws("RegexException", () => Regex.Compile("\\9"));
+}
+
+[Test]
+void unimplemented_named_numeric_and_unknown_letter_escapes_are_rejected() {
+    string[] patterns = new string[] { "\\x41", "\\u0041", "\\p", "\\P", "\\k<name>", "\\q", "\\A", "\\z", "\\f", "\\v" };
+    int i = 0;
+    while (i < patterns.Length) {
+        string pattern = patterns[i];
+        Assert.Throws("RegexException", () => Regex.Compile(pattern));
+        i = i + 1;
+    }
+}
+
+[Test]
+void character_classes_reject_unimplemented_semantic_escapes() {
+    string[] patterns = new string[] { "[\\d]", "[\\D]", "[\\w]", "[\\W]", "[\\s]", "[\\S]", "[\\b]", "[\\B]", "[\\1]", "[\\x41]", "[\\q]" };
+    int i = 0;
+    while (i < patterns.Length) {
+        string pattern = patterns[i];
+        Assert.Throws("RegexException", () => Regex.Compile(pattern));
+        i = i + 1;
+    }
+}
+
+[Test]
+void supported_escapes_keep_their_meaning() {
+    Assert.True(Regex.Compile("^\\d\\w\\s$").IsMatch("1a "));
+    Assert.True(Regex.Compile("^\\D\\W\\S$").IsMatch("a!x"));
+    Assert.True(Regex.Compile("\\bword\\b").IsMatch(" word "));
+    Assert.True(Regex.Compile("a\\Bb").IsMatch("ab"));
+    Assert.True(Regex.Compile("^[\\n\\t\\r]+$").IsMatch("\n\t\r"));
+}
+
+[Test]
+void punctuation_backslash_and_non_ascii_escapes_remain_literal() {
+    Assert.True(Regex.Compile("^\\.\\+\\?\\(\\)\\[\\]\\{\\}\\|\\^\\$\\-$").IsMatch(".+?()[]{}|^$-"));
+    Assert.True(Regex.Compile("^\\\\$").IsMatch("\\"));
+    Assert.True(Regex.Compile("^[\\-\\]\\\\]+$").IsMatch("-]\\"));
+    Assert.True(Regex.Compile("^\\中\\😀$").IsMatch("中😀"));
+    Assert.True(Regex.Compile("^\\ \\#\\_$").IsMatch(" #_"));
+}
+
+[Test]
+void unsupported_escape_reports_its_scalar_position() {
+    bool rejected = false;
+    try {
+        Regex.Compile("é\\q");
+    } catch (RegexException e) {
+        rejected = true;
+        Assert.Contains("pos 1", e.Message);
+    }
+    Assert.True(rejected);
+}
+
+[Test]
+void literal_letters_digits_and_replacement_references_still_work() {
+    Assert.True(Regex.Compile("^[dwbx01]+$").IsMatch("dwbbx001"));
+    Assert.Equal("[aa]", Regex.Compile("(a+)").Replace("aa", "[$1]"));
+    Assert.Throws("RegexException", () => Regex.Compile("\\"));
+    Assert.Throws("RegexException", () => Regex.Compile("[\\"));
+}
