@@ -42,6 +42,8 @@ xtask test stdlib z42.io    # 本库全部 [Test]（含 core/IO 门面的 consol
 StringReader 的标量游标与批量写入边界由 `tests/string_reader.z42` 覆盖；
 批量拷贝、单字符和零 count 的基准位于 `benches/string_reader_copy_bench.z42`。
 
+StreamWriter 的行写入基准位于 `benches/stream_writer_line_bench.z42`。
+
 StreamReader 的分块、首结果与生命周期回归位于 `tests/stream_reader_buffered.z42`，
 基类互操作位于 `tests/stream_reader_text_base.z42`；吞吐与首行基准位于 `benches/stream_reader_bench.z42`。
 
