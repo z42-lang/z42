@@ -562,11 +562,10 @@ jobs:
         run: |
           set -euo pipefail
           xtask package dev-sdk --out "$RUNNER_TEMP/z42sdk"
-          # bundle the prebuilt golden .zbc into current-sdk so consumers run them
-          # with --no-build (shared compiled asset across interp/jit).
-          if [ -d artifacts/build/tests ]; then
-            cp -r artifacts/build/tests "$RUNNER_TEMP/z42sdk/tests"
-          fi
+          # Keep the build mirror paths so both consumers find language and library goldens.
+          cd artifacts/build
+          shopt -s nullglob
+          tar -cf "$RUNNER_TEMP/z42sdk/goldens.tar" tests libraries/*/release/tests
 
       - name: Upload current-sdk-ubuntu-latest
         uses: actions/upload-artifact@v7
@@ -612,12 +611,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -d .z42-dl/tests ]; then
-            mkdir -p artifacts/build/tests
-            cp -r .z42-dl/tests/. artifacts/build/tests/
-          else
-            echo "::error::current-sdk has no bundled goldens (tests/) — assemble-current-sdk regen step?"; exit 1
-          fi
+          mkdir -p artifacts/build
+          tar -xf .z42-dl/goldens.tar -C artifacts/build
       # 无筛选的 e2e 已包含 cross-zpkg 与 multi-exe；golden 消费共享字节，夹具使用下载的工具链编跑一次。
       - name: Run INTERP e2e (shared goldens + cross-zpkg + multi-exe)
         shell: bash
@@ -657,12 +652,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -d .z42-dl/tests ]; then
-            mkdir -p artifacts/build/tests
-            cp -r .z42-dl/tests/. artifacts/build/tests/
-          else
-            echo "::error::current-sdk has no bundled goldens (tests/) — assemble-current-sdk regen step?"; exit 1
-          fi
+          mkdir -p artifacts/build
+          tar -xf .z42-dl/goldens.tar -C artifacts/build
 
       - name: VM goldens — JIT mode (shard ${{ matrix.shard }}/2)
         shell: bash
