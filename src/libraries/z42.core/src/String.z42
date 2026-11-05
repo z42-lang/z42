@@ -102,6 +102,12 @@ public sealed partial class String : IComparable, IEquatable {
         return this.IndexOf(value) >= 0;
     }
 
+    /// 是否包含 candidates 中任一 ASCII 字符。空集合返回 false。
+    ///
+    /// candidates 为 null 抛 ArgumentNullException，含非 ASCII 字符抛 ArgumentException。
+    [Native("__str_contains_any_ascii")]
+    public extern bool ContainsAnyAscii(string candidates);
+
     /// 是否以 `prefix` 开头。空前缀恒 true。
     public bool StartsWith(string prefix) {
         int pn = prefix.Length;

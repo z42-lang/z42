@@ -68,10 +68,14 @@ User back = JsonSerializer.Deserialize<User>(json);  // 反射构造 + 按名回
 ctor → `Activator` + 按名 `SetValue`；否则按参数名映射 JSON 键 `ConstructorInfo.Invoke`（record / 只读
 auto-prop）。不支持：Dict 非字符串键 / Set / enum / nullable。
 
+字符串键和值先在 UTF-8 存储中检查转义字符。无需转义的字符串直接作为输出片段，
+含转义字符的字符串按原有规则逐标量处理。
+
 ## 如何测试验证
 
 ```bash
 xtask test stdlib z42.json    # 本库全部 [Test]（DOM / JsonPath / serde / stream）
+xtask bench stdlib z42.json -k json_escape_scan_bench
 ```
 
 ## 关联文档

@@ -72,3 +72,22 @@ void byte_arrays_from_generics_and_reflection_use_the_same_storage_api() {
     "中".CopyUtf8To(0, reflected, 0, 3);
     Assert.Equal("中", String.FromUtf8(reflected, 0, 3));
 }
+
+[Test]
+void contains_any_ascii_matches_only_candidate_bytes() {
+    Assert.True("é中😀a".ContainsAnyAscii("zaa"));
+    Assert.True("é\0😀".ContainsAnyAscii("\0"));
+    Assert.True(String.FromChars(new char[] { (char)127 }).ContainsAnyAscii(String.FromChars(new char[] { (char)127 })));
+    Assert.False("é中😀".ContainsAnyAscii("zaa\0"));
+    Assert.False("a".ContainsAnyAscii(""));
+    Assert.False("".ContainsAnyAscii("a"));
+}
+
+[Test]
+void contains_any_ascii_checks_the_whole_candidate_set() {
+    Assert.Throws("ArgumentNullException", () => "a".ContainsAnyAscii(null));
+    Assert.Throws("ArgumentException", () => "a".ContainsAnyAscii("aé"));
+    Assert.Throws("ArgumentException", () => "".ContainsAnyAscii("😀"));
+    string missing = null;
+    Assert.Throws("NullReferenceException", () => missing.ContainsAnyAscii("a"));
+}

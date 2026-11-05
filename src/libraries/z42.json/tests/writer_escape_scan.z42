@@ -1,0 +1,27 @@
+namespace Z42JsonWriterEscapeScanTests;
+
+using Std.Harness;
+using Std.Json;
+
+[Test]
+void writer_escapes_all_c0_characters_between_unicode_scalars() {
+    char[] chars = new char[34];
+    chars[0] = '中';
+    for (int i = 0; i < 32; i++) { chars[i + 1] = (char)i; }
+    chars[33] = 'é';
+    string text = String.FromChars(chars);
+    string rendered = JsonValue.Stringify(JsonValue.OfString(text));
+    Assert.Equal("\"中\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000B\\f\\r\\u000E\\u000F\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001A\\u001B\\u001C\\u001D\\u001E\\u001Fé\"", rendered);
+    Assert.Equal(text, JsonValue.Parse(rendered).AsString());
+}
+
+[Test]
+void writer_preserves_unicode_and_del_and_escapes_quotes_and_backslashes() {
+    string text = "é中😀" + String.FromChars(new char[] { (char)127 });
+    Assert.Equal("\"" + text + "\"", JsonValue.Stringify(JsonValue.OfString(text)));
+    Assert.Equal("\"\"", JsonValue.Stringify(JsonValue.OfString("")));
+    JsonValue obj = JsonValue.OfObject();
+    obj.Set("中\"😀", JsonValue.OfString(text + "\\"));
+    Assert.Equal("{\"中\\\"😀\":\"" + text + "\\\\\"}", JsonValue.Stringify(obj));
+    Assert.Equal(text + "\\", JsonValue.Parse(JsonValue.StringifyPretty(obj)).Get("中\"😀").AsString());
+}

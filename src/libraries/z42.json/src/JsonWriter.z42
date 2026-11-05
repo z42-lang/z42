@@ -11,6 +11,15 @@ public sealed class JsonWriter {
     private int _n;
     private bool _pretty;
     private int _depth;
+    private static readonly string _escapeChars = JsonWriter.MakeEscapeChars();
+
+    private static string MakeEscapeChars() {
+        char[] chars = new char[34];
+        for (int i = 0; i < 32; i++) { chars[i] = (char)i; }
+        chars[32] = '"';
+        chars[33] = '\\';
+        return String.FromChars(chars);
+    }
 
     /// `pretty=true` 输出换行 + 两空格缩进，否则单行紧凑格式。
     public JsonWriter(bool pretty) {
@@ -102,6 +111,11 @@ public sealed class JsonWriter {
     // otherwise ordinary runs are flushed as bulk Substrings between escapes.
     private void PutQuoted(string s) {
         this.Put("\"");
+        if (!s.ContainsAnyAscii(JsonWriter._escapeChars)) {
+            this.Put(s);
+            this.Put("\"");
+            return;
+        }
         char[] cs = s.ToCharArray();
         int n = cs.Length;
         int runStart = 0;   // start of the current run of ordinary (unescaped) chars
@@ -121,8 +135,7 @@ public sealed class JsonWriter {
             this.Put(esc);
             runStart = i + 1;
         }
-        if (runStart == 0) { this.Put(s); }
-        else if (n > runStart) { this.Put(s.Substring(runStart, n - runStart)); }
+        if (n > runStart) { this.Put(s.Substring(runStart, n - runStart)); }
         this.Put("\"");
     }
 

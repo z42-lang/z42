@@ -69,6 +69,19 @@ pub mod typed {
     #[builtin(name = "__str_byte_length", this = "get_ByteLength", pure)]
     pub fn byte_length(s: &crate::object::string::vstr::Str) -> i64 { super::str_byte_length(s) }
 
+    #[builtin(name = "__str_contains_any_ascii", this = "ContainsAnyAscii", pure)]
+    pub fn contains_any_ascii(text: &str, candidates: &str) -> Result<bool, BuiltinError> {
+        let mut mask = 0u128;
+        for byte in candidates.bytes() {
+            if !byte.is_ascii() {
+                return Err(BuiltinError::Argument("candidates must contain only ASCII characters".into()));
+            }
+            mask |= 1u128 << byte;
+        }
+        // ASCII bytes cannot occur within a multibyte UTF-8 scalar.
+        Ok(mask != 0 && text.bytes().any(|byte| byte.is_ascii() && mask & (1u128 << byte) != 0))
+    }
+
     #[builtin(name = "__str_copy_utf8", this = "CopyUtf8To")]
     pub fn copy_utf8(s: &str, source_byte_index: i64, destination: crate::object::ArrRef,
         destination_index: i64, byte_count: i64) -> Result<(), BuiltinError> {
