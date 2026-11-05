@@ -113,8 +113,9 @@ public static class JsonBinder {
         int i = 0;
         while (i < members.Length) {
             JsonMember m = members[i];
-            if (m.CanWrite && v.ContainsKey(m.JsonKey)) {
-                m.Set(obj, JsonBinder.FromJson(m.MemberType, v.Get(m.JsonKey)));
+            if (m.CanWrite) {
+                int slot = v.FindObjectSlot(m.JsonKey);
+                if (slot >= 0) { m.Set(obj, JsonBinder.FromJson(m.MemberType, v._objectValues[slot])); }
             }
             i = i + 1;
         }
@@ -128,8 +129,9 @@ public static class JsonBinder {
         while (i < ps.Length) {
             ParameterInfo p = ps[i];
             Type pt = (Type)p.ParameterType;   // 跨包 imported 返回类型须 cast（footgun）
-            if (v.ContainsKey(p.Name)) {
-                args[i] = JsonBinder.FromJson(pt, v.Get(p.Name));
+            int slot = v.FindObjectSlot(p.Name);
+            if (slot >= 0) {
+                args[i] = JsonBinder.FromJson(pt, v._objectValues[slot]);
             } else if (p.IsOptional) {
                 args[i] = p.DefaultValue;
             } else {
@@ -143,8 +145,11 @@ public static class JsonBinder {
         int j = 0;
         while (j < members.Length) {
             JsonMember m = members[j];
-            if (m.CanWrite && v.ContainsKey(m.JsonKey) && !JsonBinder._isCtorParam(m.JsonKey, ps)) {
-                m.Set(obj, JsonBinder.FromJson(m.MemberType, v.Get(m.JsonKey)));
+            if (m.CanWrite) {
+                int slot = v.FindObjectSlot(m.JsonKey);
+                if (slot >= 0 && !JsonBinder._isCtorParam(m.JsonKey, ps)) {
+                    m.Set(obj, JsonBinder.FromJson(m.MemberType, v._objectValues[slot]));
+                }
             }
             j = j + 1;
         }
