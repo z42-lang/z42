@@ -5,6 +5,7 @@ namespace Z42.Driver;
 using Std.IO;
 using Std.Crypto;
 using Z42.Package;
+using Z42.IR;
 using Z42.IR.BinaryFormat;
 using Z42.Pipeline;
 using Z42.Project;   // BuildLayout.Display —— 进度行里的路径相对当前目录呈现
@@ -56,27 +57,25 @@ int _writeIndexedDist(string distDir, string cacheDir, string projectDir, string
         i = i + 1;
     }
     byte[] main = ZpkgIndexedWriter.WriteIndexedMain(z, zbcHashes, srcRels).ToBytes();
-    File.WriteAllBytes(Path.Join(distDir, z.Name + ".zpkg"), main);
+    string output = Path.Join(distDir, z.Name + ".zpkg");
+    _cleanOrphanZbc(output, distDir, rels);
+    File.WriteAllBytes(output, main);
     BuildLog.Progress("wrote -> " + BuildLayout.Display(Path.Join(distDir, z.Name + ".zpkg")) + " (indexed, " + n.ToString() + " zbc)");
-    _cleanOrphanZbc(distDir, rels, n);
     return 0;
 }
 
-// dist 下不在当前文件集的 .zbc = 源清单缩减残留 → 删除（FILE 目录是装载 SoT，孤儿不会
-// 被装载，但残留会污染「dist = 当前源的投影」不变量与分发面）。
-void _cleanOrphanZbc(string distDir, string[] rels, int n) {
-    string[] found = Path.GlobRecursive(distDir, "*.zbc");
-    string distFwd = distDir.Replace("\\", "/");
-    string prefix = distFwd.EndsWith("/") ? distFwd : distFwd + "/";
-    int i = 0;
-    while (i < found.Length) {
-        string rel = found[i].Replace("\\", "/");
-        if (rel.StartsWith(prefix)) { rel = rel.Substring(prefix.Length); }
-        bool keep = false;
-        int j = 0;
-        while (j < n) { if (rels[j] == rel) { keep = true; } j = j + 1; }
-        if (!keep) { File.Delete(found[i]); }
-        i = i + 1;
+// The prior FILE table identifies this package's outputs. Other loose files can
+// belong to a bundled dependency or to another package sharing this directory.
+void _cleanOrphanZbc(string output, string distDir, string[] rels) {
+    if (!File.Exists(output)) { return; }
+    ZpkgInfo previous = ZpkgReader.Open(File.ReadAllBytes(output), output);
+    if (previous == null || previous.Packed) { return; }
+    StrMap keep = new StrMap();
+    foreach (var rel in rels) { keep.Put(rel, ""); }
+    foreach (var rel in ZpkgReader.ReadIndexedZbcRels(previous)) {
+        if (keep.ContainsKey(rel) || !_bundlePayloadRel(rel) || !rel.EndsWith(".zbc")) { continue; }
+        string path = Path.Join(distDir, rel);
+        if (File.Exists(path) && !Directory.Exists(path)) { File.Delete(path); }
     }
 }
 
