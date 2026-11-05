@@ -36,7 +36,7 @@
 use super::*;
 use super::ctx::TxCtx;
 use cranelift_codegen::ir::{Block, BlockArg, Value as CValue};
-use crate::vm::runtime::dispatch::ic::{FieldIC, FIELD_IC_GUARD_MASK};
+use crate::vm::runtime::dispatch::ic::{FieldIC, FieldICEntry, FIELD_IC_GUARD_MASK};
 use crate::object::{ref_word, FieldLoc};
 
 /// The inline layout (`obj_jit_layout`) is spelled for 64-bit handles only.
@@ -78,7 +78,7 @@ pub(super) type HoistedFields = std::collections::HashMap<(u32, String, u8), (CV
 /// → jump to `hit(hdr, off)`; anything else jumps to `miss`. Leaves the builder in no block.
 pub(super) fn emit_guard(
     b: &mut FunctionBuilder, ptr: cranelift_codegen::ir::Type, regs_base: CValue, obj: u32,
-    ic: *const FieldIC, kind: u8, hit: Block, miss: Block,
+    entry: *const FieldICEntry, kind: u8, hit: Block, miss: Block,
 ) {
     use crate::object::obj_jit_layout as ol;
     let flags = MemFlagsData::trusted();
@@ -92,7 +92,7 @@ pub(super) fn emit_guard(
     let hdr = b.ins().band_imm_s(bits, ol::HANDLE_ADDR_MASK as i64);
     let td = b.ins().load(types::I64, flags, hdr, ol::TYPE_DESC_OFFSET);
     let tid = b.ins().uload32(flags, td, ol::type_id_offset());
-    let icp = b.ins().iconst(ptr, ic as i64);
+    let icp = b.ins().iconst(ptr, entry as i64);
     // One relaxed load of the packed (TypeId, FieldLoc) word — the pair is never torn.
     let entry = b.ins().load(types::I64, flags, icp, 0);
     let masked = b.ins().band_imm_s(entry, FIELD_IC_GUARD_MASK as i64);
@@ -134,16 +134,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         let flags = MemFlagsData::trusted();
         let fields_off = crate::object::obj_jit_layout::FIELDS_OFFSET;
         match cell {
-            InlineCell::Prim(fk) => {
-                let raw = self.builder.ins().load(fk.load_ty, flags, cell_addr, fields_off);
-                let payload = match fk.ext {
-                    FieldExt::Sext => self.builder.ins().sextend(types::I64, raw),
-                    FieldExt::Uext => self.builder.ins().uextend(types::I64, raw),
-                    FieldExt::Keep | FieldExt::Float => raw, // I64 / F64 as-is
-                };
-                let tag = self.builder.ins().iconst(types::I8, fk.reg_tag);
-                store_tagged(self.builder, dst_addr, tag, payload);
-            }
+            InlineCell::Prim(fk) => self.emit_primitive_field_load(fk, cell_addr, dst_addr),
             InlineCell::Ref => {
                 // Acquire-load the word, decode its kind; kind 7 (a boxed value) → helper.
                 let word_addr = self.builder.ins().iadd_imm_s(cell_addr, fields_off as i64);
@@ -167,6 +158,50 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         self.field_get_slow(insn, ic);
         self.builder.ins().jump(done, &[]);
         self.builder.switch_to_block(done);
+    }
+
+    /// Inline a previously resolved scalar field reader, falling back to ordinary VCall.
+    pub(super) fn emit_virtual_field_read(&mut self, insn: &VCallInsn) {
+        if !FIELD_IC_SUPPORTED || !insn.args.is_empty() || !insn.method_type_args.is_empty() {
+            return self.emit_vcall_helper(insn);
+        }
+        let Some(cell) = field_prim_kind(self.func, insn.dst) else {
+            return self.emit_vcall_helper(insn);
+        };
+        let ic = vcall_ic_ptr_at(self.func, self.block_idx, self.instr_idx);
+        // The entry lives as long as the compiled code, just like the ordinary FieldIC.
+        let Some(ic) = (unsafe { ic.as_ref() }) else {
+            return self.emit_vcall_helper(insn);
+        };
+        let fast = cell_block(self.builder);
+        let slow = self.builder.create_block();
+        let done = self.builder.create_block();
+        emit_guard(self.builder, self.ptr, self.regs_base, insn.obj, &ic.field_reader, cell.field_tag, fast, slow);
+        self.builder.switch_to_block(fast);
+        let hdr = self.builder.block_params(fast)[0];
+        let off = self.builder.block_params(fast)[1];
+        let addr = self.builder.ins().iadd(hdr, off);
+        let dst = reg_addr(self.builder, self.regs_base, insn.dst);
+        self.emit_primitive_field_load(cell, addr, dst);
+        self.builder.ins().jump(done, &[]);
+
+        self.builder.switch_to_block(slow);
+        self.emit_vcall_helper(insn);
+        self.builder.ins().jump(done, &[]);
+        self.builder.switch_to_block(done);
+    }
+
+    fn emit_primitive_field_load(&mut self, cell: FieldPrim, addr: CValue, dst: CValue) {
+        let flags = MemFlagsData::trusted();
+        let offset = crate::object::obj_jit_layout::FIELDS_OFFSET;
+        let raw = self.builder.ins().load(cell.load_ty, flags, addr, offset);
+        let payload = match cell.ext {
+            FieldExt::Sext => self.builder.ins().sextend(types::I64, raw),
+            FieldExt::Uext => self.builder.ins().uextend(types::I64, raw),
+            FieldExt::Keep | FieldExt::Float => raw,
+        };
+        let tag = self.builder.ins().iconst(types::I8, cell.reg_tag);
+        store_tagged(self.builder, dst, tag, payload);
     }
 
     fn field_get_slow(&mut self, insn: &FieldGetInsn, ic: *const FieldIC) {
@@ -236,7 +271,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
             self.builder.ins().brif(missed, guard, &[], fast, &[BlockArg::Value(hdr), BlockArg::Value(off)]);
             self.builder.switch_to_block(guard);
         }
-        emit_guard(self.builder, self.ptr, self.regs_base, obj, ic, kind, fast, slow);
+        emit_guard(self.builder, self.ptr, self.regs_base, obj, ic.cast(), kind, fast, slow);
     }
 
     /// The reference store's fast path, at `cell_addr + FIELDS_OFFSET` of the owner at `hdr`; the
