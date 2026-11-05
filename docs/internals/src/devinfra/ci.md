@@ -37,7 +37,7 @@ regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-ubuntu-late
 取的是同一份（只有 z42vm 按宿主 cargo 现编）。
 
 `xtask-bootstrap-artifact` 按消费方选择 VM 准备方式。默认 `vm: build` 在本机编 release VM 和原生库。
-只消费现成 release VM 的 job（`compile-test-assets`、`test stdlib --no-build`、`publish-nightly`）使用 `vm: prebuilt`，
+只消费现成 release VM 的 job（`compile-test-assets`、`compiler-checks`、`test stdlib --no-build`、`publish-nightly`）使用 `vm: prebuilt`，
 Linux x64 直接取 `compile-toolchain` 上传的 `z42vm-linux-x64`（VM 和同目录的 cdylib），其他宿主仍在本机编译。
 预编译 artifact 只有运行文件，后续调用 Cargo 的 job 需要自己的 Rust 环境和依赖缓存。
 `test-vm-jit` 使用 `vm: deferred` 准备 Rust 和 debug 依赖缓存，由 `xtask test e2e` 构建 debug VM 和压缩库，
@@ -332,7 +332,8 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
 
 - **没有专门的「种子自举边界」job**：「上一版 nightly 能编当前源」由每个跑 `ci-bootstrap` 的
   job（`test-host` ×4 OS、`compile-toolchain`）顺带实测，且它们会真的**运行**刚建出的 gen1 z42c
-  （编 stdlib + golden）；in-tree 不动点 gen1==gen2 在 `compiler-checks`。再单设一个
+  （编 stdlib + golden）；`compiler-checks` 用 `xtask test compiler --no-build` 消费同轮 release VM、gen1 和 stdlib，
+  执行编译器单元和 CLI 夹具，并实际重建 gen2 进行不动点对账。再单设一个
   `ci-bootstrap` + `test compiler` 的 job 两半都与上述重复。
 - **没有专门的 feature 组合 job**：host 上 `cargo check` interp-only / wasm / ios /
   android 四个组合没有必要：后三者 `package-*` 本就在真实目标平台上完整构建；「interp-only 不含
