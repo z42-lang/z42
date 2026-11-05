@@ -225,7 +225,7 @@ fn unbox_into(src: &ArrRef, si: usize, dst: &ArrRef, d: &Shape, di: usize, n: us
 fn box_struct(ctx: &VmContext, elem: ElemType, bytes: &[u8], refs: &[Value]) -> OpResult<Value> {
     let name: &str = &elem;
     let name = if ctx.try_lookup_type(name).is_some() { name } else { name.split('<').next().unwrap_or(name) };
-    match crate::corelib::convert::box_struct_blob(ctx, name, bytes, refs)? {
+    match crate::objops::struct_leaf::box_struct_blob(ctx, name, bytes, refs)? {
         Value::Null => Err(OpError::oom(format!("a boxed {name}"))),
         v => Ok(v),
     }

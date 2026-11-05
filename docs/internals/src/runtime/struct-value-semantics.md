@@ -740,7 +740,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 ### struct 字段反射（`FieldInfo.GetValue/SetValue`）
 
 反射按**字段名**读值需 per-field 字节 offset + tag，但 runtime `StructTypeLayout` 只有 size + 无名引用位图。
-解 = **Rust 复刻编译器 `StructLayout._compute`**（`corelib/struct_reflect.rs`，方案 B——格式中立、warm 本地可验，
+解 = **Rust 复刻编译器 `StructLayout._compute`**（`object/types/named_struct_layout.rs`，方案 B——格式中立、warm 本地可验，
 非格式 bump 写偏移表）：
 
 - 用 `TypeDesc.fields` 的 `(name, type_tag)` 逐字段自然对齐累积 offset，映射 `字段名 → (byte_off, tag, is_ref,
