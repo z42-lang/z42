@@ -70,7 +70,7 @@ cross-zpkg、multi-exe 与 manifest targets 通过 `ManifestLocator.FindIn` 复�
 发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑[发行包夹具](fixture-harness.md)（命令行路径 / 桌面发布 /
 发布态 analyzer 与 hooks）与 golden（interp / jit；本机桌面 workload 不在会先打一份）。
 
-发行包 golden 的编译 / 执行由 `scripts/package/xtask_package_goldens.z42` 负责：同一份源只编译一次，
+发行包 golden 的编译 / 执行由 `scripts/test/sdk/xtask_package_goldens.z42` 负责：同一份源只编译一次，
 各模式复用该产物；进程必须退出 0，且 stdout + stderr 与期望输出匹配，才计为通过。
 输出相同不能掩盖非零退出；编译失败、进程启动 / 等待失败同样判红。该 runner 先用真实退出 0 / 7
 的程序自检，再运行发行包语料。
