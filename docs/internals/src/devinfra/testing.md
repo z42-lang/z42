@@ -62,13 +62,27 @@ builder 的命令行与常规构建 smoke 由 [声明式夹具](fixture-harness.
 `manifest-targets/` 两套夹具；断言放在测试工程旁的 `expect.toml`。
 需要预置损坏产物或检查插件执行顺序的用例保留专用代码。
 
-cross-zpkg、multi-exe 与 manifest targets 通过 `ManifestLocator.FindIn` 复用
+工具链测试包、库的 test / bench、编译器独立工程、cross-zpkg、multi-exe 与 manifest targets 通过
+`common/xtask_projects.z42` 中的 `ManifestLocator.FindIn` 复用
 [项目模型的清单定位](../compiler/project-model.md)，只查当前目录。`expect.toml` 等其他 TOML
-不参与工程选择，命名清单的歧义会报错。
+不参与工程选择，命名清单的歧义会报错。测试包的身份取 `project.name`，
+允许目录名、命名清单文件名与包名不同；工作区本身不作为反射测试包。
+工具链自身的测试由桌面宿主执行，不需要逐用例声明平台或 tier。
+
+`test stdlib` 与 `bench stdlib` 从 stdlib / compiler 两个 workspace 的 `members` / `exclude`
+发现真实工程，按 `project.name` 点名和分片，不把目录名当包名。`default_members` 只决定默认构建集合，
+不缩小测试集合（例如 compiler 域的 `z42.doc`）。独立编译器测试工程仍由 `test compiler` 执行；
+同包的 benchmark 继续按 `benches/` 发现。未知包名在准备工具链前报错，空分片不扩大为全量。
+layout 检查同样按 workspace 的声明包名识别产物 owner，允许成员目录名与包名不同，仍拒绝无 owner 的残留目录。
 
 打包相关：`xtask package sdk --verify` 组装完 SDK 后先自检 `packages.toml` 的解析 / 组件安装 / 发布归档，再拿这份
 发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑[发行包夹具](fixture-harness.md)（命令行路径 / 桌面发布 /
 发布态 analyzer 与 hooks）与 golden（interp / jit；本机桌面 workload 不在会先打一份）。
+
+发行包 golden 的编译 / 执行由 `scripts/test/sdk/xtask_package_goldens.z42` 负责：同一份源只编译一次，
+各模式复用该产物；进程必须退出 0，且 stdout + stderr 与期望输出匹配，才计为通过。
+输出相同不能掩盖非零退出；编译失败、进程启动 / 等待失败同样判红。该 runner 先用真实退出 0 / 7
+的程序自检，再运行发行包语料。
 
 ## 2. 各层的单跑姿势
 
@@ -393,8 +407,9 @@ fixture `.zbc` + 收 stdlib zpkg 进平台 bundle；`run` 跑测试（C ABI harn
 用例源码声明的 `// requires-caps:` 随 bundle 下发，目标 VM 缺其中任一能力时该用例记为 skipped、不加载；
 `test list` 能先查每个用例声明了什么。两种覆盖模式：
 
-- **默认（无 `--shard`）**：带 cap 的类别 round-robin 采样——每个类别都有代表用例、不偏向字母序
-  靠前的类。定位是「验嵌入执行路径通不通」，本地/ 手动快速跑。
+- **默认（无 `--shard`）**：桌面全量；非桌面按语料类别 round-robin 采样至 60 例，避免偏向字母序
+  靠前的类。平台角色读取 `scripts/versions.toml` 的 `[rid.*].category`，不按 RID 名称猜测，也不按 CI tier
+  判断。省略 RID 的桌面调用保持全量；未登记的 RID 报错。采样用于本地 / 手动验证嵌入执行路径。
 - **`--shard k/n`**：不设 cap，取能力门控后的第 k/n 片（`index%n` 分区，n 片并集 = 全集、
   零重叠、确定）。受限平台的单个 job 有时间墙（wasm 的 Playwright、android 的 emulator），
   提 cap 会撞墙，分片把编译 + 跑摊到 n 个 runner 上，墙不动而覆盖到 100%。CI 的

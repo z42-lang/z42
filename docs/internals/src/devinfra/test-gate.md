@@ -70,11 +70,12 @@ skip 键与 banner 名可能不同（如 `vscode` 对应 `vscode-syntax`）；�
 `--changed <base>` 是 `--skip` 的自动版：按 §7 映射表的「gate stage」列，把相对 `<base>` 的改动**用不到**的
 重 stage（`rust-units` / `cross-zpkg` / `multi-exe` / `stdlib` / `toolchain` / `bench` / `targets` / `examples` /
 `compiler` / `gcgen`）追加进 skip。build wave、`e2e goldens` 与全部静态检查恒跑（后者守全仓不变量，秒级）；
-任一文件判成 full、base 不可解析或 Git 读取失败 ⇒ 一个都不跳。判定打印在开头（`[test --changed] …`）。CI 只在 PR 的
-`test-host` 上用它（`--changed <PR base sha>`），main push / schedule / dispatch 全跑。
+任一文件判成 full、base 不可解析或 Git 读取失败 ⇒ 一个都不跳。判定打印在开头（`[test --changed] …`）。CI 的
+`test-host` 在 PR 上使用 PR base SHA，在 main push 上使用 `github.event.before`；首次 push 或无法取得基线时全跑，
+schedule / dispatch 保留全量。测试差异基线不替代 nightly 发布的累计 SDK 差异判定。
 
-`--no-build`（或 `--toolchain <sdk>`）跳过构建波、直接消费既有产物——CI 正是先集中构建一次、
-再多 job `test --no-build` 消费的形态；本地缓存后反复迭代同理。examples stage 实际执行时仍负责构建 apphost、
+`--no-build` 复用已有 z42c / stdlib；完整 `test` 仍确保本地 debug VM 并重生 golden。
+专项 e2e 在指定 `--toolchain <sdk>` 时直接使用该工具链的 VM。examples stage 实际执行时仍负责构建 apphost、
 组装当前开发 SDK（已有 z42c / stdlib 不重建）；`--toolchain <sdk>` 则直接在指定 SDK 上重放，不准备开发 SDK。
 显式 skip、改动分流跳过 examples 或只列 stage 时，均不准备 SDK。
 **这些都不构成 GREEN**：提交判定只认完整 `xtask test`。
@@ -121,6 +122,7 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` | `test e2e --dir cross-zpkg` | `cross-zpkg` |
 | `src/compiler/z42c.pipeline/tests/fixtures/multi-exe/` | `test e2e --dir multi-exe` | `multi-exe` |
 | `src/toolchain/builder/tests/fixtures/` | `test toolchain builder` | `toolchain`、`targets` |
+| `scripts/test/sdk/`、`src/toolchain/launcher/tests/fixtures/package/` | `package sdk --verify` | —（SDK 验证在 GREEN 外；CI 由四个 host package 执行）|
 | 其余 `src/tests/` | `test e2e` + `check layout` | —（goldens 与 layout 恒跑）|
 | `src/benches/` | `bench --quick` | —（gate 里没有它）|
 | 编译器私有 `src/compiler/<member>/tests/`（上述专属 harness 夹具除外） | `test compiler` + `test stdlib`（目录工程与扁平 / `[tests]` 单元分别发现） | `compiler`、`stdlib` |
@@ -130,10 +132,13 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | 其余 `src/toolchain/` | `test stdlib`（工具链影响 `[Test]` 的执行方式，全库扫）+ `test toolchain` | `stdlib`、`toolchain` |
 | `examples/<part>/<chapter>/…` | `test docs examples <part>/<chapter>` | `examples` |
 | `docs/learn/` | `test docs examples --book-only` | `examples` |
-| `scripts/`、`*.workspace.toml`、其余 `src/`、未识别路径 | **full**（坍缩为 `test`）| **full**（不跳）|
+| 其余 `scripts/`、`*.workspace.toml`、其余 `src/`、未识别路径 | **full**（坍缩为 `test`）| **full**（不跳）|
 | 其余文档 / artifacts | 跳过 | — |
 
-设计取向是**宁可多跑不可漏跑**：任一未识别路径即保守坍缩为完整 `test`。
+设计取向是**宁可多跑不可漏跑**：任一未识别路径即保守选择完整 `test`，
+但它不能覆盖的 SDK 验证、完整 Rust harness、整程序 benchmark 冒烟继续保留在后面，分别去重并依序执行。
+GREEN 的 Rust stage 只执行库单测并编译集成测试，`test runtime` 还执行集成与 doctests，不能被前者替代。
+SDK 私有执行器和夹具按目录职责选择实际发行包验证，不需要逐用例声明平台。
 计划里的逻辑命令统一**在进程内重入 CLI 路由**（不 shell out），免去每命令一次进程启动。
 
 ## 8. 反射 runner 的输出格式（`z42b test` / `z42b bench`）

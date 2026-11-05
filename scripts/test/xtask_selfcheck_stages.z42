@@ -7,6 +7,7 @@ using Std.Collections;
 int _selfcheckGateStages() {
     _checkGateRegistry(_gateStages(false));
     _checkChangedPlans();
+    _checkOutsideGatePlans();
     _selfcheckExamplesStage();
     _selfcheckChangedGit();
     _selfcheckShards();
@@ -41,7 +42,7 @@ void _checkChangedPlans() {
         "src/libraries/z42.core/tests/a.z42", "src/runtime/tests/a.rs", "src/libraries/z42.core/tests/b.z42"
     })) == "xtask test stdlib z42.core;xtask test runtime", "changed plan order and deduplication");
     foreach (var full in new string[]{ "scripts/test/xtask_test.z42", "unknown.config" }) {
-        _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ "src/runtime/tests/a.rs", full }))
+        _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ "src/libraries/z42.core/tests/a.z42", full }))
             == "xtask test", "full sweep replaces prior narrow commands");
     }
     _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
@@ -71,6 +72,34 @@ void _checkChangedPlans() {
     _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
         "src/runtime/tests/native_interop_e2e.rs", "src/runtime/src/lib.rs"
     })) == "xtask test runtime;xtask test e2e", "mixed runtime inputs keep production consumers");
+}
+
+void _checkOutsideGatePlans() {
+    string sdk = "scripts/test/sdk/xtask_package_verify.z42";
+    string fixture = "src/toolchain/launcher/tests/fixtures/package/case/expect.toml";
+    foreach (var path in new string[]{ sdk, fixture, "scripts/test/sdk/future.z42" }) {
+        _MapResult m = _mapFile(path);
+        _gateAssert(!m.needsFull && m.outsideCommands.Length == 1 && m.stages.Length == 0, "SDK verification belongs outside GREEN");
+        _gateAssert(String.Join(";", m.commands) == "xtask package sdk --verify", "SDK role selects actual verification");
+    }
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ sdk, fixture, sdk }))
+        == "xtask package sdk --verify", "SDK checks deduplicate");
+    foreach (var full in new string[]{ "scripts/common/xtask_common.z42", "unknown.config" }) {
+        foreach (var files in new string[]{ "first", "last" }) {
+            string[] paths = files == "first" ? new string[]{ full, sdk } : new string[]{ sdk, full };
+            _gateAssert(String.Join(";", _buildChangedPlan(paths)) == "xtask test;xtask package sdk --verify",
+                "full fallback retains SDK verification in either input order");
+        }
+    }
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
+        "src/benches/scenarios/case.z42", "scripts/common/xtask_common.z42", sdk, fixture
+    })) == "xtask test;xtask bench --quick;xtask package sdk --verify", "full gate retains each external check once");
+    foreach (var runtime in new string[]{ "src/runtime/tests/native.rs", "src/runtime/src/lib.rs" }) {
+        _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ runtime, "unknown.config" }))
+            == "xtask test;xtask test runtime", "full GREEN does not replace runtime integration/doctests");
+    }
+    _gateAssert(_mapFile("scripts/package/xtask_package_desktop.z42").needsFull, "production packaging keeps full coverage");
+    _gateAssert(_mapFile("scripts/test/sdk/README.md").commands.Length == 0, "SDK docs keep documentation routing");
 }
 
 void _checkGateRegistry(GateStage[] stages) {

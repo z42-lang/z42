@@ -2,8 +2,10 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Toml;
 
 int _selfcheckCompilerProjects(string root, string vm, string flat, string driver, string builder) {
+    _selfcheckBootstrapInput(root);
     string dir = _xtaskWork(root, "compiler-projects");
     _resetDir(dir);
     try {
@@ -16,7 +18,7 @@ int _selfcheckCompilerProjects(string root, string vm, string flat, string drive
         Directory.Create(dist);
         string stale = Path.Join(dist, "old.zpkg");
         File.WriteAllText(stale, "this stale package must never be executed");
-        if (_runCompilerTestProject(root, vm, flat, driver, builder, _fixtureManifest(dir)) != 0) {
+        if (_runCompilerTestProject(root, vm, flat, driver, builder, _findManifest(dir).ManifestPath) != 0) {
             throw new Exception("compiler projects: canonical manifest, declared layout or main product selection");
         }
         if (!File.Exists(stale) || !File.Exists(Path.Join(dist, "compiler-project-smoke.zpkg"))) {
@@ -25,4 +27,49 @@ int _selfcheckCompilerProjects(string root, string vm, string flat, string drive
     } finally { Directory.Delete(dir, true); }
     Console.WriteLine("  ✅ compiler projects: canonical manifest, custom dist, primary package only");
     return 0;
+}
+
+// Exercise metadata staging through the same executor used by compiler project checks.
+void _selfcheckBootstrapInput(string root) {
+    string dir = _xtaskWork(root, "bootstrap-input");
+    _resetDir(dir);
+    try {
+        string source = Path.Join(dir, "source");
+        string staged = Path.Join(dir, "staged");
+        string libs = Path.Join(dir, "libs");
+        Directory.Create(source); Directory.Create(staged); Directory.Create(libs);
+        File.WriteAllText(Path.Join(source, "keep.z42"), "public int Answer() { return 7; }");
+        File.WriteAllText(Path.Join(source, "skip.z42"), "excluded by source pattern");
+        File.WriteAllText(Path.Join(source, "hook.z42"), "owned by plugin source partition");
+        string toml = Path.Join(source, "z42.toml");
+        File.WriteAllText(toml, "[project]\nname=\"bootstrap.input\"\nversion=\"0.1.0\"\nkind=\"lib\"\npack=true\n"
+            + "[sources]\ninclude=[\"*.z42\"]\nexclude=[\"skip.z42\"]\n"
+            + "[plugins]\n\"input.hook\"={include=[\"hook.z42\"]}\n"
+            + "[dependencies]\n\"input.dep\"={path=\"../dep\",version=\"*\",deploy=\"sdk\"}\n"
+            + "[build]\nincremental=false\n");
+        string prerequisite = Path.Join(libs, "input.dep.zpkg");
+        File.WriteAllText(prerequisite, "existence guard fixture; never compiled or loaded");
+        string input = _bootstrapInputManifest(toml, staged, libs);
+        TomlValue parsed = TomlValue.Parse(File.ReadAllText(input));
+        TomlValue includes = parsed.Get("sources").Get("include");
+        if (includes.Count() != 1 || includes.At(0).AsString() != Path.Join(source, "keep.z42")) {
+            throw new Exception("bootstrap input: original source root and effective excludes");
+        }
+        TomlValue dep = parsed.Get("dependencies").Get("input.dep");
+        if (dep.ContainsKey("path") || dep.Get("version").AsString() != "*" || dep.Get("deploy").AsString() != "sdk"
+            || !parsed.Get("project").Get("pack").AsBool() || parsed.Get("build").Get("incremental").AsBool()) {
+            throw new Exception("bootstrap input: preserve options and name-only prerequisite");
+        }
+        File.Delete(prerequisite);
+        _selfcheckBootstrapRejected(toml, staged, libs, "prerequisite was not prebuilt");
+        _selfcheckBootstrapRejected(toml, Path.Join(root, "src/compiler/z42c.core"), libs, "outside a source workspace");
+    } finally { Directory.Delete(dir, true); }
+    Console.WriteLine("  ✅ bootstrap input: effective sources, options, prerequisites and isolated staging");
+}
+
+void _selfcheckBootstrapRejected(string toml, string staging, string libs, string expected) {
+    bool rejected = false;
+    try { _bootstrapInputManifest(toml, staging, libs); }
+    catch (Exception e) { rejected = e.Message.Contains(expected); }
+    if (!rejected) { throw new Exception("bootstrap input: missing expected rejection: " + expected); }
 }

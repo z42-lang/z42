@@ -62,6 +62,10 @@ concern：
 **「Rust 内部优化」也不是理由。** `StringBuilder` 用 Rust 可变 `String` 加速属于内部优化，不是
 native 库依赖；它已是纯脚本（`z42.text`，基于 `List<string>` + `String.FromChars`）。
 
+字符串内部为 UTF-8。`String.CopyUtf8To` 复制现有存储字节，`String.FromUtf8` 从独立快照严格构造合法字符串；
+它们属于存储边界，供纯脚本 encoding 组合使用，不暴露可变视图。可变 byte[] 经已有原子分块区间原语读写，
+不能对并发数组直接 memcpy。构造时校验与发布使用同一份快照，避免校验后再次读取可变数组。
+
 落点判断的若干实例：
 
 | 调用 | 落点 | 理由 |
@@ -83,6 +87,19 @@ native 库依赖；它已是纯脚本（`z42.text`，基于 `List<string>` + `St
 内存字符源 `StringReader` 保留一次物化的 `char[]` 作为标量游标；批量读取的源/目标区间均以 Unicode 标量元素计数，
 脚本层处理区间检查、EOF 与游标提交，实际搬移调用 `Array.CopyRange`。不把字符偏移解释成 UTF-8 字节偏移，
 也不绕过数组存储原语的原子元素访问契约。
+
+### 文本流的有限缓冲
+
+`StreamReader` 继承 `TextReader` 的单字符核心和生命周期接口，自有批量与按行读取路径。
+固定 4096 字节缓冲中的完整 UTF-8 前缀经 `Encoding.GetString` 严格解码；最多三个合法但不完整的尾字节
+移到缓冲开头等待后续数据。当前块的不可变字符串用于按块输出，Unicode 标量数组用于 O(1) 游标访问。
+Peek/Read/ReadLine 已取得完整字符便返回，不等待缓冲填满或源 EOF；ReadToEnd 在同一固定缓冲内合并短读再解码，
+避免每标量转换。源异常时保留本块已经成功取得的字节供后续操作继续；正常解码后最多保留三个尾字节。
+跨块 CRLF 的 LF 延迟到下一次操作跳过，避免首行额外等待。
+
+EOF 永久化并解除源和工作缓冲引用，Close/Dispose 同样解除引用而不关闭源；预读内容不回退底层位置。
+解码失败进入不可继续读取状态；抛异常的那次源 Read 不提交字节，此前成功返回的字节与尾前缀保持可重试。
+内部工作缓冲固定有界，ReadToEnd 和跨块长行的输出空间仍与结果长度成比例。
 
 包装流的持有周期与底层流的打开状态分开管理。`StreamWriter.Close` 成功刷新后标记关闭并解除目标流、
 编码引用，调用方仍可继续使用自己持有的目标流。刷新失败时保持 writer 打开并保留目标，允许修复源错误后重试；
@@ -129,39 +146,22 @@ public static extern long Spawn(object action);
 （不一致时调用即报内部错误，靠测试发现）。命名约定（`__<area>_<verb>`）与 area 清单在
 [native ABI §6.5](../runtime/native-abi.md)。
 
-## 5. 全仓 native 表面（实测）
+## 5. native 表面与对账
 
-VM 注册表 `BUILTINS` 共 **331** 个条目（桌面 arm64），全部是 ABI v2 的 `#[builtins]` 模块
-（P1-8 批次 12b 后旧表清零，`builtin_table.rs` 只做 `DESCS` 拼接）。stdlib 侧
-`[Native("__…")]` 声明的**不同符号** **310** 个，全部能在表里找到。
+VM 注册表由各 `#[builtins]` 模块的 `DESCS` 组合，实际数量随构建 feature 变化。
+`corelib/native_decl_tests.rs` 对源码声明、注册符号、豁免项及返回类型做双向检查；新增接口须在同一次变更中满足对账。
+在 `src/runtime/` 运行 `cargo test --lib native_decl_tests` 可验证当前构建的实际表面。
 
-按包分布：
-
-| 包 | 声明文件数 | 不同 `__` 符号 | 性质 |
-|---|---|---|---|
-| `z42.core` | 52 | 303 | 语义汇聚核 |
-| `z42.harness` | 1 | 4 | 运行时非必需（②，`lib = "z42_harness"`；实现暂在 VM 主 builtin 表） |
-| `z42.diagnostics` | 2 | 3 | 运行时非必需（②，`lib = "z42_diagnostics"`；实现暂在 VM 主 builtin 表） |
-| `z42.compression` | 8 | 12 个 `entry =`（`lib = "z42_compression"`） | 运行时非必需（②，外部 cdylib） |
-
-compression 那 12 个**不在** `BUILTINS` 里——它们由 cdylib 在加载时注册进 per-VM 的 ext 表
-（见 [native ABI §6.6](../runtime/native-abi.md)）。
-
-其余 **全部为零**：`io` / `net` / `threading` / `json` / `text` / `collections` / `encoding` /
-`toml` / `yaml` / `uri` / `regex` / `cli` / `random` / `numerics` / `crypto` / `build` / `project`
-/ `ir`，以及 `src/compiler/` 的全部包（`z42c.*` / `z42.package` / `z42.scripting` …，见[落点规则](organization.md#extern-落点只有两处)）。`z42.crypto` 的全部哈希、HMAC、椭圆曲线都是纯 z42。
-
-`z42.core` 内部 303 个符号的来源（前几名）：
-
-| 文件 | 符号数 | 领域 |
+| 包 | native 归属 | 性质 |
 |---|---|---|
-| `Native/NetNative.z42` | 34 | TCP / UDP / TLS / DNS |
-| `Type.z42` | 33 | 反射类型对象 |
-| `Math.z42` | 20 | libm |
-| `IO/File.z42` | 18 | 文件 syscall |
-| `IO/ProcessNative.z42` | 12 | 子进程 |
-| `GC/GC.z42` | 12 | GC 控制与内省 |
-| `String.z42` | 10 | UTF-8 访问 |
+| `z42.core` | 执行基座、平台语义层及字符串/数组/类型元数据存储原语 | 语义汇聚核 |
+| `z42.harness` | `lib = "z42_harness"` | 运行时非必需，实现在 VM builtin 表 |
+| `z42.diagnostics` | `lib = "z42_diagnostics"` | 运行时非必需，实现在 VM builtin 表 |
+| `z42.compression` | `lib = "z42_compression"` 的 `entry` | 运行时非必需，独立 cdylib |
+
+compression 由 cdylib 加载时注册到 per-VM ext 表，见 [native ABI §6.6](../runtime/native-abi.md)。
+其余能力库保持零 extern，需要存储或平台能力时经 core 或独立能力库公开接口调用；具体落点见
+[包划分规则](organization.md#extern-落点只有两处)。
 
 ### 表里没有 stdlib 声明的条目
 

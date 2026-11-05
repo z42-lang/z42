@@ -1,0 +1,209 @@
+namespace Z42BufferedReaderTests;
+using Std.IO;
+using Std.Encoding;
+using Std.Harness;
+
+class ChunkSource : Stream {
+    public byte[] Data;
+    public int Chunk;
+    public int Pos;
+    public int Calls;
+    public int StopAfter;
+    public int FailOn;
+    public int BadCount;
+    public int Total;
+    public bool Closed;
+    public ChunkSource(byte[] data, int chunk) { this.Data = data; this.Chunk = chunk; }
+    public override bool CanRead() { return true; }
+    public override void Close() { this.Closed = true; }
+    public override int Read(byte[] buffer, int offset, int count) {
+        this.Calls = this.Calls + 1;
+        if (this.StopAfter > 0 && this.Calls > this.StopAfter) { throw new InvalidOperationException("unexpected extra read"); }
+        if (this.Calls == this.FailOn) { throw new InvalidOperationException("source failure"); }
+        if (this.BadCount != 0) { return this.BadCount; }
+        int length = this.Total;
+        if (this.Data != null) { length = this.Data.Length; }
+        int n = length - this.Pos;
+        if (n > count) { n = count; }
+        if (n > this.Chunk) { n = this.Chunk; }
+        int i = 0;
+        while (i < n) {
+            if (this.Data == null) { buffer[offset + i] = (byte)97; }
+            else { buffer[offset + i] = this.Data[this.Pos + i]; }
+            i = i + 1;
+        }
+        this.Pos = this.Pos + n;
+        return n;
+    }
+}
+ChunkSource source(string text, int chunk) { return new ChunkSource(Encoding.GetUtf8().GetBytes(text), chunk); }
+
+[Test]
+void first_line_does_not_wait_for_eof() {
+    ChunkSource s = source("first\n", 4096); s.StopAfter = 1;
+    StreamReader r = new StreamReader(s);
+    Assert.Equal(0, s.Calls);
+    Assert.Equal("first", r.ReadLine());
+    Assert.Equal(1, s.Calls);
+}
+[Test]
+void cr_defers_lf_lookahead_until_next_read() {
+    ChunkSource s = source("one\r\ntwo", 4); s.StopAfter = 1;
+    StreamReader r = new StreamReader(s);
+    Assert.Equal("one", r.ReadLine()); Assert.Equal(1, s.Calls);
+    Assert.Equal(0, r.Read(new char[1], 0, 0)); Assert.Equal(1, s.Calls);
+    s.StopAfter = 0;
+    Assert.Equal((int)'t', r.Peek()); Assert.Equal("two", r.ReadToEnd());
+}
+[Test]
+void all_utf8_chunk_sizes_preserve_scalars_and_bom_nul() {
+    string text = "aé中😀\0﻿z";
+    int chunk = 1;
+    while (chunk <= 4) {
+        StreamReader r = new StreamReader(source(text, chunk));
+        char[] chars = text.ToCharArray(); int i = 0;
+        while (i < chars.Length) {
+            Assert.Equal((int)chars[i], r.Peek()); Assert.Equal((int)chars[i], r.Peek());
+            Assert.Equal((int)chars[i], r.Read()); i = i + 1;
+        }
+        Assert.Equal(-1, r.Read()); Assert.Equal(-1, r.Peek()); chunk = chunk + 1;
+    }
+}
+[Test]
+void bulk_read_returns_available_short_block() {
+    ChunkSource s = source("abcdef", 2);
+    StreamReader r = new StreamReader(s); char[] chars = new char[8];
+    Assert.Equal(2, r.Read(chars, 1, 6)); Assert.Equal(1, s.Calls);
+    Assert.Equal('a', chars[1]); Assert.Equal('b', chars[2]);
+    Assert.Equal("cdef", r.ReadToEnd());
+}
+[Test]
+void invalid_and_zero_ranges_do_not_read_source() {
+    ChunkSource s = source("x", 1); StreamReader r = new StreamReader(s);
+    char[] chars = new char[2];
+    Assert.Equal(0, r.Read(chars, 2, 0));
+    bool bad = false; try { r.Read(chars, 1, 2); } catch (ArgumentException e) { bad = true; }
+    Assert.True(bad); bad = false;
+    try { r.Read(null, 0, 0); } catch (ArgumentNullException e) { bad = true; }
+    Assert.True(bad); Assert.Equal(0, s.Calls);
+}
+[Test]
+void lines_cross_blocks_and_keep_mixed_cursor() {
+    StreamReader r = new StreamReader(source("é\r\n\n中\rx\nlast", 1));
+    Assert.Equal("é", r.ReadLine()); Assert.Equal("", r.ReadLine());
+    Assert.Equal("中", r.ReadLine()); Assert.Equal((int)'x', r.Read());
+    Assert.Equal("", r.ReadLine()); Assert.Equal("last", r.ReadLine());
+    Assert.True(r.ReadLine() == null); Assert.Equal("", r.ReadToEnd());
+}
+[Test]
+void long_line_crosses_multiple_buffers() {
+    char[] chars = new char[10000]; int i = 0;
+    while (i < chars.Length) { chars[i] = '中'; i = i + 1; }
+    string text = String.FromChars(chars);
+    StreamReader r = new StreamReader(source(text + "\r\nend", 4096));
+    Assert.Equal(text, r.ReadLine()); Assert.Equal("end", r.ReadToEnd());
+}
+void rejects(byte[] bytes, int chunk) {
+    StreamReader r = new StreamReader(new ChunkSource(bytes, chunk)); bool bad = false;
+    try { r.ReadToEnd(); } catch (FormatException e) { bad = true; }
+    Assert.True(bad); bad = false;
+    try { r.Read(); } catch (InvalidOperationException e) { bad = true; }
+    Assert.True(bad); r.Close(); r.Close();
+}
+[Test]
+void invalid_and_truncated_utf8_fail_strictly() {
+    rejects(new byte[] { 0xC0, 0x80 }, 1);
+    rejects(new byte[] { 0xED, 0xA0, 0x80 }, 1);
+    rejects(new byte[] { 0xF4, 0x90, 0x80, 0x80 }, 2);
+    rejects(new byte[] { 0xE0, 0x80 }, 2);
+    rejects(new byte[] { 0x80 }, 1);
+    rejects(new byte[] { 0xF0, 0x9F, 0x98 }, 1);
+    rejects(new byte[] { 0xFF }, 1);
+}
+[Test]
+void provably_invalid_prefix_does_not_request_more_bytes() {
+    ChunkSource s = new ChunkSource(new byte[] { 0xE0, 0x80 }, 2); s.StopAfter = 1;
+    StreamReader r = new StreamReader(s); bool bad = false;
+    try { r.Read(); } catch (FormatException e) { bad = true; }
+    Assert.True(bad); Assert.Equal(1, s.Calls);
+}
+[Test]
+void source_failure_preserves_pending_prefix_for_retry() {
+    ChunkSource s = source("😀!", 1); s.FailOn = 2;
+    StreamReader r = new StreamReader(s); bool bad = false;
+    try { r.Read(); } catch (InvalidOperationException e) { bad = true; }
+    Assert.True(bad); Assert.Equal("😀!", r.ReadToEnd());
+}
+[Test]
+void later_invalid_block_keeps_already_returned_data() {
+    ChunkSource s = new ChunkSource(new byte[] { 97, 0xFF }, 1);
+    StreamReader r = new StreamReader(s); Assert.Equal((int)'a', r.Read());
+    bool bad = false; try { r.Read(); } catch (FormatException e) { bad = true; } Assert.True(bad);
+}
+[Test]
+void eof_is_permanent_and_close_leaves_source_open() {
+    ChunkSource s = source("x", 1); StreamReader r = new StreamReader(s);
+    Assert.Equal("x", r.ReadToEnd()); int calls = s.Calls;
+    Assert.Equal(-1, r.Read()); Assert.Equal(0, r.Read(new char[1], 0, 1)); Assert.Equal(calls, s.Calls);
+    r.Close(); r.Close(); Assert.True(!s.Closed);
+    bool bad = false; try { r.Read(new char[1], 0, 0); } catch (InvalidOperationException e) { bad = true; } Assert.True(bad);
+}
+[Test]
+void constructor_rejects_null_and_unreadable_sources() {
+    bool bad = false; try { new StreamReader(null); } catch (ArgumentNullException e) { bad = true; } Assert.True(bad);
+    bad = false; try { new StreamReader(source("", 1), null); } catch (ArgumentNullException e) { bad = true; } Assert.True(bad);
+    bad = false; try { new StreamReader(new Stream()); } catch (NotSupportedException e) { bad = true; } Assert.True(bad);
+}
+[Test]
+void invalid_source_counts_are_rejected() {
+    ChunkSource s = source("x", 1); s.BadCount = -1; StreamReader r = new StreamReader(s);
+    bool bad = false; try { r.Read(); } catch (InvalidOperationException e) { bad = true; } Assert.True(bad);
+    s = source("x", 1); s.BadCount = 4097; r = new StreamReader(s); bad = false;
+    try { r.Read(); } catch (InvalidOperationException e) { bad = true; } Assert.True(bad);
+}
+void first_read(StreamReader r) { Assert.Equal((int)'a', r.Peek()); }
+[Test]
+void first_character_uses_bounded_input_and_retained_memory() {
+    ChunkSource s = new ChunkSource(null, 4096); s.Total = 1048576;
+    StreamReader r = new StreamReader(s);
+    GC.ForceCollect(); GC.ForceCollect(); long before = GC.UsedBytes();
+    first_read(r);
+    GC.ForceCollect(); GC.ForceCollect(); long after = GC.UsedBytes();
+    Assert.True(after - before < 131072);
+    Assert.Equal(4096, s.Pos); Assert.Equal(1, s.Calls); Assert.Equal((int)'a', r.Read());
+}
+
+class ReaderLifetimeProbe {
+    public StreamReader Reader;
+    public WeakHandle Source;
+}
+ReaderLifetimeProbe released_source(int mode) {
+    ChunkSource s = source("x", 1);
+    if (mode == 2) { s.Data = new byte[] { 0xFF }; }
+    ReaderLifetimeProbe probe = new ReaderLifetimeProbe();
+    probe.Source = WeakHandle.MakeWeak(s); probe.Reader = new StreamReader(s);
+    if (mode == 0) { probe.Reader.Peek(); probe.Reader.Close(); }
+    if (mode == 1) { probe.Reader.ReadToEnd(); }
+    if (mode == 2) { try { probe.Reader.Read(); } catch (FormatException e) {} }
+    return probe;
+}
+[Test]
+void close_eof_and_format_failure_release_source_reference() {
+    int mode = 0;
+    while (mode < 3) {
+        ReaderLifetimeProbe probe = released_source(mode);
+        GC.ForceCollect(); GC.ForceCollect();
+        Assert.True(WeakHandle.Upgrade(probe.Source) == null);
+        if (mode == 1) { Assert.Equal(-1, probe.Reader.Read()); }
+        else { probe.Reader.Close(); }
+        mode = mode + 1;
+    }
+}
+
+[Test]
+void read_to_end_source_failure_keeps_successful_short_reads() {
+    ChunkSource s = source("ab😀cd", 1); s.FailOn = 5;
+    StreamReader r = new StreamReader(s); bool bad = false;
+    try { r.ReadToEnd(); } catch (InvalidOperationException e) { bad = true; }
+    Assert.True(bad); Assert.Equal((int)'a', r.Read()); Assert.Equal("b😀cd", r.ReadToEnd());
+}

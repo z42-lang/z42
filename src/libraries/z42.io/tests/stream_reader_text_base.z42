@@ -1,0 +1,13 @@
+namespace Z42ReaderBaseTests;
+using Std.IO;
+using Std.Encoding;
+using Std.Harness;
+[Test]
+void stream_reader_supports_text_reader_and_dispose() {
+    MemoryStream source = new MemoryStream(Encoding.GetUtf8().GetBytes("abc"));
+    StreamReader concrete = new StreamReader(source); TextReader r = concrete;
+    Assert.Equal((int)'a', r.Read()); char[] chars = new char[1];
+    Assert.Equal(1, r.ReadBufferBase(chars, 0, 1)); Assert.Equal('b', chars[0]);
+    r.Dispose(); Assert.True(source.CanRead());
+    bool bad = false; try { concrete.Read(); } catch (InvalidOperationException e) { bad = true; } Assert.True(bad);
+}

@@ -1,0 +1,74 @@
+namespace Z42StringUtf8StorageTests;
+using Std.Harness;
+
+T[] _one<T>(T value) {
+    T[] result = new T[1]; result[0] = value; return result;
+}
+
+[Test]
+void copy_byte_ranges_preserves_destination_guards() {
+    string source = "A中😀Z";
+    byte[] dst = new byte[9];
+    int i = 0; while (i < dst.Length) { dst[i] = (byte)127; i = i + 1; }
+    source.CopyUtf8To(1, dst, 1, 7);
+    Assert.Equal((byte)127, dst[0]); Assert.Equal((byte)127, dst[8]);
+    Assert.Equal("中😀", String.FromUtf8(dst, 1, 7));
+    Assert.Equal(4, source.Length); Assert.Equal(9, source.ByteLength);
+}
+
+[Test]
+void copy_can_split_a_scalar_but_constructor_rejects_the_fragment() {
+    byte[] dst = new byte[2];
+    "中".CopyUtf8To(1, dst, 0, 2);
+    Assert.Equal((byte)184, dst[0]); Assert.Equal((byte)173, dst[1]);
+    Assert.Throws("FormatException", () => String.FromUtf8(dst, 0, 2));
+}
+
+[Test]
+void invalid_copy_ranges_leave_target_unchanged() {
+    byte[] dst = new byte[] { (byte)7, (byte)8 };
+    Assert.Throws("ArgumentOutOfRangeException", () => "ab".CopyUtf8To(-1, dst, 0, 1));
+    Assert.Throws("ArgumentOutOfRangeException", () => "ab".CopyUtf8To(0, dst, -1, 1));
+    Assert.Throws("ArgumentOutOfRangeException", () => "ab".CopyUtf8To(0, dst, 0, -1));
+    Assert.Throws("ArgumentOutOfRangeException", () => "ab".CopyUtf8To(2147483647, dst, 0, 1));
+    Assert.Throws("ArgumentOutOfRangeException", () => "ab".CopyUtf8To(0, dst, 2147483647, 1));
+    Assert.Throws("ArgumentOutOfRangeException", () => "ab".CopyUtf8To(0, dst, 0, 3));
+    Assert.Equal((byte)7, dst[0]); Assert.Equal((byte)8, dst[1]);
+}
+
+[Test]
+void empty_ranges_allow_exact_end_only() {
+    byte[] dst = new byte[2];
+    "ab".CopyUtf8To(2, dst, 2, 0);
+    Assert.Equal("", String.FromUtf8(dst, 2, 0));
+    Assert.Equal("", String.FromUtf8(new byte[0], 0, 0));
+    Assert.Throws("ArgumentOutOfRangeException", () => "ab".CopyUtf8To(3, dst, 0, 0));
+    Assert.Throws("ArgumentOutOfRangeException", () => String.FromUtf8(dst, 3, 0));
+    Assert.Throws("ArgumentOutOfRangeException", () => String.FromUtf8(dst, 2147483647, 1));
+}
+
+[Test]
+void constructed_string_is_independent_and_ignores_bytes_outside_range() {
+    byte[] src = new byte[] { (byte)255, (byte)65, (byte)66, (byte)255 };
+    string value = String.FromUtf8(src, 1, 2);
+    src[1] = (byte)88;
+    Assert.Equal("AB", value);
+}
+
+[Test]
+void null_arguments_follow_typed_builtin_contract() {
+    string missing = null;
+    byte[] dst = new byte[0];
+    Assert.Throws("NullReferenceException", () => missing.CopyUtf8To(0, dst, 0, 0));
+    Assert.Throws("ArgumentNullException", () => "".CopyUtf8To(0, null, 0, 0));
+    Assert.Throws("ArgumentNullException", () => String.FromUtf8(null, 0, 0));
+}
+
+[Test]
+void byte_arrays_from_generics_and_reflection_use_the_same_storage_api() {
+    byte[] generic = _one<byte>((byte)65);
+    Assert.Equal("A", String.FromUtf8(generic, 0, 1));
+    byte[] reflected = (byte[])Array.CreateInstance(typeof(byte), 3);
+    "中".CopyUtf8To(0, reflected, 0, 3);
+    Assert.Equal("中", String.FromUtf8(reflected, 0, 3));
+}
