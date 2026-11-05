@@ -16,11 +16,14 @@ int _selfcheckChangedGit() {
         _gitOutput(new string[]{ "init", "--quiet" });
         File.WriteAllText(Path.Join(dir, ".gitignore"), "fixture-index*\n");
         File.WriteAllText(Path.Join(dir, "README.md"), "base\n");
+        _writeChangedWorkspaces(dir);
         _gitOutput(new string[]{ "add", "." });
         _gitOutput(new string[]{ "-c", "user.name=xtask", "-c", "user.email=xtask@example.invalid",
             "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixture" });
         _gateAssert(_changedFiles("HEAD").Length == 0, "clean Git diff remains empty");
         _gateAssert(_changedGateSkips("HEAD") == String.Join(",", _changedScopedStages()), "clean diff skips scoped stages");
+
+        _checkWorkspaceChangedGit(dir);
 
         File.WriteAllText(Path.Join(dir, "README.md"), "changed\n");
         Directory.Create(Path.Join(dir, "src/runtime/tests"));
@@ -46,8 +49,55 @@ int _selfcheckChangedGit() {
         else { Environment.SetEnvironmentVariable("GIT_INDEX_FILE", index); }
         Directory.Delete(dir, true);
     }
-    Console.WriteLine("  ✅ changed Git: clean, tracked/untracked, bad index, invalid base");
+    Console.WriteLine("  ✅ changed Git: workspace owners, rename, tracked/untracked, bad index, invalid base");
     return 0;
+}
+
+void _writeChangedWorkspaces(string root) {
+    _writeTestProject(Path.Join(root, "src/libraries/groups/src/renamed"), "named.z42.toml", "lib.declared");
+    _writeTestProject(Path.Join(root, "src/libraries/groups/src/ignored"), "z42.toml", "lib.ignored");
+    File.WriteAllText(_libsWsToml(root),
+        "[workspace]\nmembers = [\"groups/src/*\"]\nexclude = [\"groups/src/ignored\"]\n");
+    _writeTestProject(Path.Join(root, "src/compiler/groups/tests/other"), "z42.toml", "compiler.declared");
+    File.WriteAllText(_compilerWsToml(root), "[workspace]\nmembers = [\"groups/tests/*\"]\n");
+}
+
+void _checkWorkspaceChangedGit(string root) {
+    string lib = "src/libraries/groups/src/renamed";
+    string newTest = lib + "/tests/é case.z42";
+    File.WriteAllText(Path.Join(root, newTest), "// test input\n");
+    _gateAssert(String.Join(";", _changedFiles("HEAD")) == newTest, "Git preserves literal paths");
+    _gateAssert(String.Join(";", _buildChangedPlan(_changedFiles("HEAD"), root)) == "xtask test stdlib lib.declared",
+        "nested member uses the declared name");
+    string skip = _changedGateSkips("HEAD");
+    _gateAssert(!_skipHas(skip, "stdlib") && _skipHas(skip, "compiler") && _skipHas(skip, "rust-units"),
+        "private library tests stay narrow even under a workspace directory named src");
+    File.Delete(Path.Join(root, newTest));
+
+    string ws = _libsWsToml(root);
+    string saved = File.ReadAllText(ws);
+    File.WriteAllText(ws, saved + "# modified\n");
+    _gateAssert(String.Join(";", _buildChangedPlan(_changedFiles("HEAD"), root)) == "xtask test stdlib;xtask test e2e",
+        "workspace manifest chooses the library domain without a package argument");
+    File.WriteAllText(ws, saved);
+
+    _gitOutput(new string[]{ "mv", lib + "/source.z42", lib + "/tests/renamed.z42" });
+    string[] renamed = _changedFiles("HEAD");
+    _gateAssert(String.Join(";", renamed) == lib + "/source.z42;" + lib + "/tests/renamed.z42",
+        "rename selects both the former source and the new test");
+    _gateAssert(String.Join(";", _buildChangedPlan(renamed, root)) == "xtask test",
+        "custom source outside conventional directories preserves full coverage after rename");
+    _gitOutput(new string[]{ "restore", "--staged", "--worktree", "--", lib });
+
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ "src/compiler/groups/tests/other/benches/case.z42" }, root))
+        == "xtask bench stdlib compiler.declared;xtask test compiler", "compiler bench uses owner-relative path and declared name");
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ "src/libraries/groups/src/ignored/tests/case.z42" }, root))
+        == "xtask test", "excluded project cannot become a named test command");
+    Directory.Delete(Path.Join(root, lib), true);
+    _gateAssert(String.Join(";", _buildChangedPlan(_changedFiles("HEAD"), root)) == "xtask test",
+        "removed member falls back to full coverage");
+    _gitOutput(new string[]{ "restore", "--worktree", "--", lib });
+    _gateAssert(_changedFiles("HEAD").Length == 0, "workspace fixture restored");
 }
 
 void _checkSdkChangedGit(string dir) {

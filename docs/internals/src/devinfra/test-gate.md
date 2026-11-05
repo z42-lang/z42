@@ -104,7 +104,7 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 
 ## 7. `test changed`：按改动挑测试（命令计划 + gate 分流共用一张表）
 
-对未提交改动（相对 `BASE`，默认 `HEAD`；含 untracked）逐文件分类。映射表（`_mapFile`，
+对工作区相对 `BASE`（默认 `HEAD`）的差异与未跟踪文件逐一分类。重命名按旧路径和新路径分别选测。映射表（`_mapFile`，
 `scripts/test/xtask_test_changed.z42`）每条规则给两列：本地 `test changed` 执行的**窄命令**（去重后的并集，
 依序执行、首败短路；`--dry-run` 只打印计划，并顺带打印下一列的分流结果），与 `xtask test --changed <base>`
 （§5）用的**受影响 gate stage**。「全集」= 所有编译 / 执行 z42 代码的重 stage（`rust-units` 除外）。
@@ -112,11 +112,16 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 `test changed` 读取 Git 失败时打印命令、退出码和诊断并返回 2；只有成功读取后的空结果才表示没有改动。
 `test --changed` 遇到同类失败则保留全部 stage，并打印回退原因，避免因索引损坏等读取错误漏跑测试。
 
+库和编译器成员通过各自清单的 `members` / `exclude` 发现。路径归入包含它的最深成员，命令使用
+`[project].name`，下表的 `src/`、`tests/`、`benches/` 均相对成员目录。成员被删除、被排除或
+无法从当前工作区确认归属时回退到完整 `test`。
+
 | 改动路径 | 窄命令 | gate stage |
 |---|---|---|
-| `src/libraries/<lib>/src/`、该库 `.toml` | `test stdlib <lib>`（`src/` 另加 `test e2e`）| 全集 |
-| `src/libraries/<lib>/tests/` | `test stdlib <lib>` | `stdlib` |
-| `src/libraries/<lib>/benches/` | `bench stdlib <lib>` | `bench` |
+| `src/libraries/z42.workspace.toml` | `test stdlib` + `test e2e` | 全集 |
+| 标准库成员的 `src/`、工程清单 | `test stdlib <包名>`（`src/` 另加 `test e2e`）| 全集 |
+| 标准库成员的 `tests/` | `test stdlib <包名>` | `stdlib` |
+| 标准库成员的 `benches/` | `bench stdlib <包名>` | `bench` |
 | `src/runtime/src/`、`Cargo.toml/lock`、`build.rs` | `test runtime` + `test e2e` | 全集 + `rust-units` |
 | `src/runtime/tests/` | `test runtime` | `rust-units` |
 | `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` | `test e2e --dir cross-zpkg` | `cross-zpkg` |
@@ -125,9 +130,10 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | `scripts/test/sdk/`、`src/toolchain/launcher/tests/fixtures/package/` | `package sdk --verify` | —（SDK 验证在 GREEN 外；CI 由四个 host package 执行）|
 | 其余 `src/tests/` | `test e2e` + `check layout` | —（goldens 与 layout 恒跑）|
 | `src/benches/` | `bench --quick` | —（gate 里没有它）|
-| 编译器私有 `src/compiler/<member>/tests/`（上述专属 harness 夹具除外） | `test compiler` + `test stdlib`（目录工程与扁平 / `[tests]` 单元分别发现） | `compiler`、`stdlib` |
-| 编译器私有 `src/compiler/<member>/benches/` | `bench stdlib <member>` + `test compiler`（codegen 单元引用 bench helper） | `bench`、`compiler` |
-| 其余 `src/compiler/` | `test compiler` + `test e2e` | 全集 |
+| 编译器成员的 `tests/`（上述专属 harness 夹具除外） | `test compiler` + `test stdlib`（目录工程与扁平 / `[tests]` 单元分别发现） | `compiler`、`stdlib` |
+| 编译器成员的 `benches/` | `bench stdlib <包名>` + `test compiler`（codegen 单元引用 bench helper） | `bench`、`compiler` |
+| `src/compiler/z42.workspace.toml` | `test compiler` + `test stdlib` + `test e2e` | 全集 |
+| 编译器成员其余改动 | `test compiler` + `test e2e` | 全集 |
 | `src/toolchain/launcher/`、`src/toolchain/builder/` | `test stdlib` + `test toolchain` + `test docs examples`（命令行输出一变，手册里的会话脚本就失配）| `stdlib`、`toolchain`、`bench`、`targets`、`examples`（z42b 是这几种用例的执行器）|
 | 其余 `src/toolchain/` | `test stdlib`（工具链影响 `[Test]` 的执行方式，全库扫）+ `test toolchain` | `stdlib`、`toolchain` |
 | `examples/<part>/<chapter>/…` | `test docs examples <part>/<chapter>` | `examples` |

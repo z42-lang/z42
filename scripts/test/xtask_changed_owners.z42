@@ -1,0 +1,88 @@
+// 改动选测与单包 runner 使用同一份 workspace 成员发现结果。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+using Z42.Project;
+
+class _ChangedOwner {
+    public string Name;
+    public string RelativePath;
+
+    public _ChangedOwner(string name, string relativePath) {
+        this.Name = name;
+        this.RelativePath = relativePath;
+    }
+}
+
+class _ChangedOwners {
+    public string Root;
+    private Dictionary<string, WorkspaceMembers> workspaces = new Dictionary<string, WorkspaceMembers>();
+
+    public _ChangedOwners(string root) { this.Root = Path.Normalize(root); }
+
+    public _ChangedOwner Find(string file, string workspace) {
+        if (!this.workspaces.ContainsKey(workspace)) {
+            this.workspaces[workspace] = _changedWorkspaceMembers(workspace);
+        }
+        WorkspaceMembers members = this.workspaces[workspace];
+        if (members == null) { return null; }
+        string path = Path.Join(this.Root, file);
+        int best = -1;
+        int length = 0;
+        for (int i = 0; i < members.Count; i = i + 1) {
+            string prefix = Path.Normalize(Path.GetDirectoryName(members.Tomls[i])) + "/";
+            if (prefix.Length > length && path.StartsWith(prefix)) {
+                best = i;
+                length = prefix.Length;
+            }
+        }
+        return best < 0 ? null : new _ChangedOwner(members.Names[best], path.Substring(length, path.Length - length));
+    }
+}
+
+WorkspaceMembers _changedWorkspaceMembers(string workspace) {
+    try { return _discoverWorkspaceMembers(workspace); }
+    catch (Exception e) {
+        Console.WriteLine("[test changed] workspace 无法发现成员，保留全量覆盖: " + e.Message);
+        return null;
+    }
+}
+
+_MapResult _mapLibraryFile(string file, _ChangedOwners owners) {
+    string workspace = _libsWsToml(owners.Root);
+    if (Path.Join(owners.Root, file) == workspace) {
+        return _mapCmds(new string[]{ "xtask test stdlib", "xtask test e2e" }, _stagesAllZ42());
+    }
+    _ChangedOwner owner = owners.Find(file, workspace);
+    if (owner == null) { return _mapFull(); }
+    string rel = owner.RelativePath;
+    string test = "xtask test stdlib " + owner.Name;
+    if (rel.StartsWith("src/")) {
+        return _mapCmds(new string[]{ test, "xtask test e2e" }, _stagesAllZ42());
+    }
+    if (rel.StartsWith("tests/")) { return _mapCmds(new string[]{ test }, new string[]{ "stdlib" }); }
+    if (rel.StartsWith("benches/")) {
+        return _mapCmds(new string[]{ "xtask bench stdlib " + owner.Name }, new string[]{ "bench" });
+    }
+    if (rel.EndsWith(".toml")) { return _mapCmds(new string[]{ test }, _stagesAllZ42()); }
+    return _mapFull();
+}
+
+_MapResult _mapCompilerFile(string file, _ChangedOwners owners) {
+    string workspace = _compilerWsToml(owners.Root);
+    if (Path.Join(owners.Root, file) == workspace) {
+        return _mapCmds(new string[]{ "xtask test compiler", "xtask test stdlib", "xtask test e2e" }, _stagesAllZ42());
+    }
+    _ChangedOwner owner = owners.Find(file, workspace);
+    if (owner == null) { return _mapFull(); }
+    if (owner.RelativePath.StartsWith("tests/")) {
+        // 独立工程与扁平 / [tests] 单元由不同执行器发现。
+        return _mapCmds(new string[]{ "xtask test compiler", "xtask test stdlib" }, new string[]{ "compiler", "stdlib" });
+    }
+    if (owner.RelativePath.StartsWith("benches/")) {
+        // Codegen 单元也可能引用 bench helper。
+        return _mapCmds(new string[]{ "xtask bench stdlib " + owner.Name, "xtask test compiler" }, new string[]{ "bench", "compiler" });
+    }
+    return _mapCmds(new string[]{ "xtask test compiler", "xtask test e2e" }, _stagesAllZ42());
+}
