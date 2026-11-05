@@ -59,7 +59,7 @@ public static class JsonSerializer {
         JsonValue arr = JsonValue.OfArray();
         int n = JsonReflect.ListCount(o, t);
         if (n == 0) { return arr; }
-        MethodInfo getter = JsonReflect.BindMethod(t, "get_Item", new Type[] { typeof(int) });
+        MethodInfo getter = plans.For(t).GetListItem(t);
         object[] args = new object[1];
         int i = 0;
         while (i < n) {
@@ -73,11 +73,10 @@ public static class JsonSerializer {
     // Dictionary<string,V> → JSON object（反射 Keys + get_Item，键为字符串）。
     private static JsonValue _dictToJson(object o, Type t, JsonOperationPlans plans) {
         JsonValue obj = JsonValue.OfObject();
-        MethodInfo keysMethod = JsonReflect.BindMethod(t, "Keys", new Type[0]);
+        MethodInfo keysMethod = plans.For(t).GetDictionaryKeys(t);
         string[] keys = (string[])keysMethod.Invoke(o, new object[0]);
         if (keys.Length == 0) { return obj; }
-        Type keyType = JsonReflect.GenericArg(t, 0);
-        MethodInfo getter = JsonReflect.BindMethod(t, "get_Item", new Type[] { keyType });
+        MethodInfo getter = plans.For(t).GetDictionaryItem(t);
         object[] args = new object[1];
         int i = 0;
         while (i < keys.Length) {

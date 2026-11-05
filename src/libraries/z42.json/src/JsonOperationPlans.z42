@@ -12,6 +12,35 @@ internal class JsonTypePlan {
     /// 已选有参构造器的参数。
     public ParameterInfo[] Parameters;
 
+    private MethodInfo _listItem;
+    private MethodInfo _dictionaryKeys;
+    private MethodInfo _dictionaryItem;
+
+    /// 绑定非空 List 的索引 getter。
+    public MethodInfo GetListItem(Type t) {
+        if (this._listItem == null) {
+            this._listItem = JsonReflect.BindMethod(t, "get_Item", new Type[] { typeof(int) });
+        }
+        return this._listItem;
+    }
+
+    /// 绑定用于读取当前 Dictionary 键的 Keys 方法。
+    public MethodInfo GetDictionaryKeys(Type t) {
+        if (this._dictionaryKeys == null) {
+            this._dictionaryKeys = JsonReflect.BindMethod(t, "Keys", new Type[0]);
+        }
+        return this._dictionaryKeys;
+    }
+
+    /// 按实际键类型绑定非空 Dictionary 的索引 getter。
+    public MethodInfo GetDictionaryItem(Type t) {
+        if (this._dictionaryItem == null) {
+            Type keyType = JsonReflect.GenericArg(t, 0);
+            this._dictionaryItem = JsonReflect.BindMethod(t, "get_Item", new Type[] { keyType });
+        }
+        return this._dictionaryItem;
+    }
+
     /// 按现有无参优先和最长签名规则选取构造器。
     public void ResolveConstructor(Type t) {
         ConstructorInfo[] ctors = t.GetConstructors();
