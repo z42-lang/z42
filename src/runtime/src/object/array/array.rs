@@ -504,6 +504,24 @@ impl ArrayObj {
         })
     }
 
+    /// A packed byte array assembled directly from immutable UTF-8 fragments.
+    pub(crate) fn alloc_byte_str_parts(heap: &Heap, len: usize, parts: &[Str]) -> Value {
+        let desc = ElemType::byte().array_desc(ArrayMode::Bytes, 0);
+        Self::alloc(heap, desc, len, None, &mut |array| {
+            let dst = array.elems_ptr();
+            let mut offset = 0;
+            for part in parts {
+                let bytes = part.as_bytes();
+                assert!(bytes.len() <= len - offset, "UTF-8 fragments exceed the allocated array");
+                // SAFETY: this byte array is unpublished during initialization. The checked range
+                // is within its element storage and disjoint from the immutable string block.
+                unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst.add(offset), bytes.len()) };
+                offset += bytes.len();
+            }
+            assert_eq!(offset, len, "UTF-8 fragments do not fill the allocated array");
+        })
+    }
+
     /// A zeroed value-struct array `Point[len]` (zero = the default struct, every reference leaf
     /// `null`).
     pub fn alloc_struct(heap: &Heap, element_type: ElemType, len: usize, layout: Arc<StructTypeLayout>) -> Value {

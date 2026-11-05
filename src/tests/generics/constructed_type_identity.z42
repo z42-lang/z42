@@ -87,8 +87,27 @@ void Main() {
     Assert.False(inv is Box<int>);
     Assert.True(inv.GetType() == typeof(Box<string>));
     // 实参本身是构造类型：不丢内层实参
-    Type nested = typeof(Box<int>).GetGenericTypeDefinition().MakeGenericType(typeof(List<int>));
+    Type inner = typeof(List<int>);
+    Type[] args = new Type[] { inner };
+    Type nested = typeof(Box<int>).GetGenericTypeDefinition().MakeGenericType(args);
+    args[0] = typeof(string);
     Assert.True(nested == typeof(Box<List<int>>));
+    Assert.True(Object.ReferenceEquals(inner, nested.GetGenericArguments()[0]));
+    Type sameNested = typeof(Box<List<int>>);
+    int nestedHash = nested.GetHashCode();
+    Assert.Equal(nestedHash, sameNested.GetHashCode());
+    Dictionary<Type, int> cached = new Dictionary<Type, int>();
+    cached.Set(nested, 42);
+    Assert.Equal(42, cached.GetValueOrDefault(sameNested, -1));
+    Type[] projection = nested.GetGenericArguments();
+    projection[0] = typeof(string);
+    Assert.True(Object.ReferenceEquals(inner, nested.GetGenericArguments()[0]));
+    Assert.Equal(inner.FullName, nested.GetFields()[0].FieldType.FullName);
+    Assert.True(nested.Equals(sameNested));
+    Assert.False(nested == typeof(Box<string>));
+    Assert.Equal(nestedHash, nested.GetHashCode());
+    Assert.Equal(42, cached.GetValueOrDefault(sameNested, -1));
+    Assert.Equal(-1, cached.GetValueOrDefault(typeof(Box<string>), -1));
 
     // ── ③ 构造类型的反射：基类 / 接口 / 成员类型 / 可赋值性按实参 ────────────
     Type st = new Sub<int>(1).GetType();

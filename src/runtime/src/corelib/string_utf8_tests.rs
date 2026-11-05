@@ -101,3 +101,20 @@ fn concat_parts_utf8_returns_packed_bytes_for_the_requested_prefix() {
         .unwrap_err();
     assert!(err.to_string().contains("ArgumentNullException"));
 }
+
+
+#[test]
+fn concat_parts_utf8_copies_many_fragments_into_independent_arrays() {
+    let ctx = VmContext::new();
+    let parts = ctx.heap().alloc_array(
+        (0..64).map(|i| Value::Str(if i % 2 == 0 { "é".into() } else { "中😀".into() })).collect(),
+    );
+    let concat = || exec_builtin_value(&ctx, "__str_concat_parts_utf8", &[parts, Value::I64(64)]).unwrap();
+    let first = concat();
+    let second = concat();
+    let expected = "é中😀".repeat(32);
+    assert_eq!(snapshot(first), expected.as_bytes());
+    assert_eq!(snapshot(second), expected.as_bytes());
+    let (Value::Array(a), Value::Array(b)) = (first, second) else { panic!("expected packed arrays") };
+    assert!(!crate::object::ArrRef::ptr_eq(&a, &b));
+}
