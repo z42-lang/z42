@@ -43,8 +43,8 @@ pub fn method_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crat
 
 /// `__field_custom_attributes(qualified) -> Std.Attribute[]` — live attribute
 /// instances for the field named by "<Class>.<Field>" (FieldInfo passes its
-/// hidden `__qualified`). Resolves the class TypeDesc, finds the field in
-/// `cold.field_attributes`, and calls each factory. add-field-attribute-reflection.
+/// hidden `__qualified`). Instance fields can be listed on a derived class,
+/// so use the declaring class's attribute table before calling each factory.
 pub fn field_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
     let qualified = qualified.to_string();
     // Split "<Class>.<Field>" at the last dot.
@@ -53,21 +53,29 @@ pub fn field_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate
         None => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
     let (class, field) = (&qualified[..dot], &qualified[dot + 1..]);
-    let td = ctx
-        .module()
-        .and_then(|m| m.type_registry.get(class).cloned())
-        .or_else(|| ctx.try_lookup_type(class));
-    let attrs: Vec<crate::metadata::ir::AttributeRef> = td
-        .as_ref()
-        .map(|td| {
-            td.field_attributes()
-                .iter()
-                .find(|(n, _)| n.as_ref() == field)
-                .map(|(_, refs)| refs.to_vec())
-                .unwrap_or_default()
-        })
-        .unwrap_or_default();
-    call_attribute_factories(ctx, &attrs).map_err(BuiltinError::Legacy)
+    let resolve = |name: &str| {
+        ctx.module()
+            .and_then(|m| m.type_registry.get(name).cloned())
+            .or_else(|| ctx.try_lookup_type(name))
+    };
+    let mut current = resolve(class);
+    let mut seen = HashSet::new();
+    while let Some(td) = current {
+        if let Some((_, refs)) = td.field_attributes().iter().find(|(name, _)| name.as_ref() == field) {
+            return call_attribute_factories(ctx, refs).map_err(BuiltinError::Legacy);
+        }
+        let Some(base) = td.base_name.as_deref().filter(|name| *name != STD_OBJECT) else {
+            break;
+        };
+        if td.own_fields().iter().any(|slot| slot.name.as_ref() == field)
+            || td.static_fields().iter().any(|slot| slot.name == field)
+            || !seen.insert(td.name.clone())
+        {
+            break;
+        }
+        current = resolve(base);
+    }
+    Ok(ctx.heap().alloc_array(Vec::new()))
 }
 
 /// `__property_custom_attributes(qualified) -> Std.Attribute[]` — live attribute

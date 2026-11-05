@@ -55,7 +55,7 @@ FromJson(t, v):
 `JsonKey` / `MemberType` / `CanRead` / `CanWrite` / `Get` / `Set`。序列化只看 `CanRead`，反序列化只看
 `CanWrite`。公开的只读实例属性仅参与序列化。一般反射仍可查看属性及其访问器，JSON 使用公开实例资格。
 
-键名 = `[JsonProperty].Name`，否则成员名；`[JsonIgnore]` 直接排除。
+键名 = `[JsonProperty].Name`，否则成员名；`[JsonIgnore]` 直接排除。继承字段沿基类链读取声明处的特性。
 
 > **auto-property 脱糖成私有背后字段 `__prop_X`，而 `GetFields()` 有意排除它**
 > （`corelib/reflection/fields.rs::is_backing_field`）。所以属性只能经 `GetProperties()` 看到——两条
