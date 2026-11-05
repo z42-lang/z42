@@ -353,3 +353,26 @@ fn field_read_fold_loads_current_value_and_rejects_ineligible_calls() {
     getter.blocks[0].terminator = Terminator::Ret { reg: Some(0) };
     assert!(super::try_direct_field_read(&vm, &getter, &[recv], &[0]).is_none());
 }
+
+#[test]
+fn virtual_field_reader_cache_keeps_the_first_scalar_receiver() {
+    use crate::object::{FieldLoc, TAG_I32};
+    use crate::vm::runtime::dispatch::ic::{FieldIC, VCallIC, field_ic_install};
+
+    let fields = FieldIC::default();
+    let site = VCallIC::default();
+    let reference = FieldLoc { offset: 0, width: 8, kind: FieldLoc::KIND_REF };
+    let first = FieldLoc { offset: 8, width: 4, kind: TAG_I32 };
+    let second = FieldLoc { offset: 16, width: 4, kind: TAG_I32 };
+    field_ic_install(&fields, 1, reference);
+    field_ic_install(&fields, 2, first);
+    field_ic_install(&fields, 3, second);
+
+    assert_eq!(site.field_reader.reader_location(2), None);
+    site.field_reader.remember_reader(1, &fields);
+    assert_eq!(site.field_reader.reader_location(1), None);
+    site.field_reader.remember_reader(2, &fields);
+    site.field_reader.remember_reader(3, &fields);
+    assert_eq!(site.field_reader.reader_location(2), Some(first));
+    assert_eq!(site.field_reader.reader_location(3), None);
+}

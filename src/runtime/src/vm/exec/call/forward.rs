@@ -64,7 +64,16 @@ pub(crate) fn try_direct_field_read(
 /// Only heap objects take this path, so receiver errors retain the ordinary call frame.
 #[inline]
 pub(crate) fn try_field_read(ctx: &VmContext, func: &Function, recv: &Value) -> Option<Value> {
-    if !matches!(recv, Value::Object(_)) || !*func.field_forward.get_or_init(|| is_field_reader(func)) {
+    try_field_read_cached(ctx, func, recv, None)
+}
+
+#[inline(always)]
+pub(crate) fn try_field_read_cached(
+    ctx: &VmContext, func: &Function, recv: &Value,
+    site: Option<&crate::vm::runtime::dispatch::ic::FieldICEntry>,
+) -> Option<Value> {
+    let Value::Object(object) = recv else { return None };
+    if !*func.field_forward.get_or_init(|| is_field_reader(func)) {
         return None;
     }
     let Instruction::FieldGet(insn) = &func.blocks[0].instructions[0] else {
@@ -74,7 +83,14 @@ pub(crate) fn try_field_read(ctx: &VmContext, func: &Function, recv: &Value) -> 
         let site = *tokens.site_index.first()?.first()?;
         tokens.field_ic.get(site as usize)
     });
-    crate::objops::field::field_get(ctx, recv, &insn.field_name, ic).ok()
+    let result = crate::objops::field::field_get(ctx, recv, &insn.field_name, ic).ok()?;
+    if let (Some(site), Some(ic)) = (site, ic) {
+        let td = object.type_desc();
+        if !td.base_unmerged() && td.composed_object_layout_ref().is_some() {
+            site.remember_reader(td.id.0, ic);
+        }
+    }
+    Some(result)
 }
 
 fn is_field_reader(func: &Function) -> bool {

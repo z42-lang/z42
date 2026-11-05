@@ -102,7 +102,7 @@ unsafe fn vcall_impl(
                 vm_ctx, module, &obj_val,
                 std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len)).unwrap_or("?"),
                 func);
-            if let Some(value) = read_resolved_field(vm_ctx, func, &obj_val, arg_regs, mta) {
+            if let Some(value) = read_resolved_field(vm_ctx, func, &obj_val, arg_regs, mta, ic) {
                 frame_ref.regs[dst as usize] = value;
                 return 0;
             }
@@ -129,7 +129,9 @@ unsafe fn vcall_impl(
         // native; cold / untranslatable (interp-only opcode such as `LoadLocalAddr`) / no
         // `FnId` → interp, mirroring `jit_call`'s cross-zpkg-via-interp fallback.
         VCallTarget::Local { func, id } => {
-            if let Some(value) = read_resolved_field(vm_ctx, func, &resolved.this, arg_regs, mta) {
+            // Some resolution fallbacks deliberately leave the dispatch PIC empty.
+            let reader_ic = ic.filter(|_| id.is_some() && vcall_ic_hit(ic, &obj_val) == id);
+            if let Some(value) = read_resolved_field(vm_ctx, func, &resolved.this, arg_regs, mta, reader_ic) {
                 frame_ref.regs[dst as usize] = value;
                 return 0;
             }
@@ -144,10 +146,10 @@ unsafe fn vcall_impl(
 // The PIC has already selected the target. A field reader needs no JIT tier lookup.
 #[inline]
 fn read_resolved_field(
-    ctx: &VmContext, func: &Function, this: &Value, args: &[u32], mta: &[String],
+    ctx: &VmContext, func: &Function, this: &Value, args: &[u32], mta: &[String], ic: Option<&VCallIC>,
 ) -> Option<Value> {
     if !args.is_empty() || !mta.is_empty() { return None; }
-    crate::vm::exec::call::forward::try_field_read(ctx, func, this)
+    crate::vm::exec::call::forward::try_field_read_cached(ctx, func, this, ic.map(|site| &site.field_reader))
 }
 
 /// Run a compiled entry: receiver in reg 0, args read straight from the caller's

@@ -17,6 +17,7 @@ class AlternateFieldReader : FieldReaderBase {
 }
 
 int ReadVirtual(FieldReaderBase reader) { return reader.Read(); }
+FieldReaderBase MissingReader() { return null; }
 
 void Main() {
     FieldReaderBase first = new FieldReaderBase();
@@ -27,10 +28,19 @@ void Main() {
 
     int i = 0;
     while (i < 64) {
-        first.Number = i;
-        Assert.Equal(i, ReadVirtual(first));
+        first.Number = -i;
+        Assert.Equal(-i, ReadVirtual(first));
         Assert.Equal(30, ReadVirtual(second));
         Assert.Equal(40, ReadVirtual(third));
         i = i + 1;
     }
+
+    bool nullCaught = false;
+    try {
+        ReadVirtual(MissingReader());
+    } catch (NullReferenceException e) {
+        nullCaught = true;
+    }
+    Assert.True(nullCaught);
+    Assert.Equal(-63, ReadVirtual(first));
 }
