@@ -35,12 +35,12 @@ regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-ubuntu-late
 这两个 job **只有 linux 一条腿**：产物全是 zpkg，与宿主无关，macOS / Windows 的消费方
 取的是同一份（只有 z42vm 按宿主 cargo 现编）。
 
-`compile-toolchain` 另传一份 `z42vm-linux-x64`（z42vm + 同目录的 cdylib）。linux-x64 上**之后不调 cargo**
-的消费方（`compile-test-assets`、`test stdlib --no-build` 两类 job、`publish-nightly`）用 `xtask-bootstrap-artifact` 的
-`prebuilt-vm: "true"` 直接拿它，省掉 Rust 准备与 `cargo build`：rust-cache 只缓存**依赖**，即使 key 精确命中，
-z42 crate 本身仍要 fat-LTO 重链一遍，实测约 95 s / job。**会调 cargo 的 job 不能开**——target 目录里没有
-cargo 指纹，它会把整个 crate 冷编一遍（`compiler-checks` 的 `test compiler`、`test-vm-jit` 的 debug VM 都属此类），所以这两个 job 只留 linux 一条腿——
-再加一条 macOS 腿只会产出等价的 artifact，却让所有 `needs:` 它们的 linux 下游陪着等整个 matrix。
+`xtask-bootstrap-artifact` 按消费方选择 VM 准备方式。默认 `vm: build` 在本机编 release VM 和原生库。
+只消费现成 release VM 的 job（`compile-test-assets`、`test stdlib --no-build`、`publish-nightly`）使用 `vm: prebuilt`，
+Linux x64 直接取 `compile-toolchain` 上传的 `z42vm-linux-x64`（VM 和同目录的 cdylib），其他宿主仍在本机编译。
+预编译 artifact 只有运行文件，后续调用 Cargo 的 job 需要自己的 Rust 环境和依赖缓存。
+`test-vm-jit` 使用 `vm: deferred` 准备 Rust 和 debug 依赖缓存，由 `xtask test e2e` 构建 debug VM 和压缩库，
+保留 debug 断言及溢出检查，并跳过 release 链接。
 
 `compile-test-assets` **故意从 `compile-toolchain` 里拆出来**：golden regen 很慢，留在里面会卡住
 `package-*` → `publish-nightly` 这条关键路径，而打包根本不消费测试资产。
@@ -74,7 +74,7 @@ apphost 做的事：`.z42/bin/z42vm`（Windows 带 `.exe`）+ `Z42_LIBS=.z42/lib
 - **Windows 不需要「从拷贝启动」**。xtask 跑在 SDK 的 VM 上，cargo 碰不到它；若垫片跑构建树的 `z42vm.exe`，`package` 等命令让 cargo 重链它时会
   撞上「不能覆盖正在运行的 exe」。
 
-构建树的 z42vm（cargo 现编 / `prebuilt-vm`）仍然要有：那是**被测对象**，xtask 构建、测试当前源码时由它自己去
+构建树的 z42vm（Cargo 现编或同轮预编译产物）仍然要有：那是**被测对象**，xtask 构建、测试当前源码时由它自己去
 定位，与本地相同。
 
 `xtask-bootstrap-artifact` 消费的 xtask.zpkg 来自 `compile-toolchain`，是用**那个 job** 装到的 SDK 编的，
@@ -408,6 +408,7 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 | `test-host-v1` | `test-host` | release + debug + test profile |
 | `host-v2` | `compile-toolchain` | release（ci-bootstrap） |
 | `artifact-host-v1` | `xtask-bootstrap-artifact` 默认 | release workspace |
+| `vm-jit-debug-v1` | `test-vm-jit` | debug VM + 压缩库 |
 | `package-host-v2` / `ios-v2` / `android-v2` / `wasm-v2` | 各打包 job | + cdylib / staticlib / 交叉编译 |
 
 ⚠️ target 目录由 `src/runtime/.cargo/config.toml` 重定向到 `artifacts/build/runtime`（toolchain 平台 crate

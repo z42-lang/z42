@@ -519,7 +519,7 @@ jobs:
           xtask build toolchain z42b
           xtask package ci "$RUNNER_TEMP/tc"
 
-      # 只跑 xtask、不调 cargo 的 linux-x64 消费方（xtask-bootstrap-artifact 的 `prebuilt-vm`）直接用这份 z42vm。
+      # 只跑 xtask、不调 cargo 的 linux-x64 消费方（`vm: prebuilt`）直接用这份 z42vm。
       # cdylib（libz42_compression.so 等）一起带上：VM 在自己旁边解析 `[Native(lib = …)]`。
       - name: Upload z42vm-linux-x64
         uses: actions/upload-artifact@v7
@@ -553,7 +553,7 @@ jobs:
       # 只编 z42 测试资产与组装 SDK，直接复用同轮已建的 release VM，无需再调 cargo。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          prebuilt-vm: "true"
+          vm: prebuilt
 
       # golden .zbc 只在这里编一次，下游 interp / jit 跑同一份字节（.zbc 与执行模式无关）。
       - name: Build golden .zbc test assets (compile shared assets once)
@@ -648,8 +648,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # 吃 toolchain artifact，不在每个分片重新自举（rust toolchain + cache 由 action 自带）。
+      # `test e2e` 自建 debug VM 与压缩库，保留断言覆盖。
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          vm: deferred
+          cache-key: vm-jit-debug-v1
 
       # 共享 golden .zbc 解到规范镜像位置（.zbc 与执行模式无关、z42c 输出确定，等价于本地重生）。
       - name: Download shared golden .zbc (compiled once)
@@ -695,7 +698,7 @@ jobs:
       # 吃 toolchain artifact，不在每个分片重新自举（rust toolchain + cache 由 action 自带）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（非 linux-x64 腿照常自建）
+          vm: prebuilt
 
       - name: stdlib [Test] — JIT mode (shard ${{ matrix.shard }}/2)
         shell: bash
@@ -733,7 +736,7 @@ jobs:
       # 吃与架构无关的 toolchain artifact，本机 cargo 编 z42vm（rust toolchain + cache 由 action 自带）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（非 linux-x64 腿照常自建）
+          vm: prebuilt
 
       - name: stdlib [Test] — INTERP mode (full)
         shell: bash
@@ -988,7 +991,7 @@ jobs:
         if: steps.stale.outputs.stale != 'true'
         uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（非 linux-x64 腿照常自建）
+          vm: prebuilt
 
       # 各 package job 已在自己的 runner 上用 `--archive` 出好归档——upload-artifact 不保留可执行位，
       # 所以不能下载包目录到这里再打。
