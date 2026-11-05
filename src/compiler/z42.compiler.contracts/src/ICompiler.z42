@@ -1,0 +1,53 @@
+namespace Z42.Build;
+/// 编译请求；构造参数与既有调用 ABI 保持一致。Manifest 必须由宿主提供。
+[Record] public class CompileRequest(
+    string   SourceDir,
+    string   OutputZpkg,
+    string[] Deps,
+    string   Profile,
+    bool     StripSymbols,
+    bool     Incremental,
+    string   Kind,
+    string[] Excludes,
+    int      ExcludesCount)
+{
+    public string ParentPkg = "";
+    public bool HarnessUnit = false;
+    public string[] Includes = new string[0];
+    public int      IncludesCount = 0;
+    public string PackageName = "";
+    public Z42.Project.ProjectManifest Manifest = null;
+    public Z42.Project.WorkspaceCompileDomain WorkspaceDomain = null;
+}
+/// 编译结果；错误在 Diagnostics，成功时的警告在 Warnings。
+[Record] public class CompileResult(
+    string Zpkg,
+    string Zsym,
+    bool   Ok,
+    string Diagnostics)
+{
+    public string Warnings = "";
+}
+/// 插件检查结果，由编译器实现判定能力与诊断。
+public sealed class PluginCheck {
+    public string Error;
+    public bool   HasHook;
+    public string Kinds;
+    public PluginCheck(string error, bool hasHook, string kinds) {
+        this.Error = error; this.HasHook = hasHook; this.Kinds = kinds;
+    }
+}
+/// 同进程编译契约；实现由宿主注入，契约本身不执行构建编排。
+public interface ICompiler {
+    CompileResult Compile(CompileRequest req);
+    PluginCheck InspectPlugin(string zpkgPath, string expectedName);
+}
+/// 无编译器组件时的失败实现。
+public class NoCompiler : ICompiler {
+    public CompileResult Compile(CompileRequest req) {
+        return new CompileResult("", "", false, "no compiler injected");
+    }
+    public PluginCheck InspectPlugin(string zpkgPath, string expectedName) {
+        return new PluginCheck("no compiler injected", false, "");
+    }
+}

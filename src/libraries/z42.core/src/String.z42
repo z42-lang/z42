@@ -51,6 +51,20 @@ public sealed partial class String : IComparable, IEquatable {
     /// 由 `char[]` 建串。空数组 → 空串。
     [Native("__str_from_chars")] public static extern string FromChars(char[] chars);
 
+    /// 复制内部 UTF-8 字节区间到 destination；索引按字节，可切开码点。
+    ///
+    /// 任一区间非法抛 ArgumentOutOfRangeException，目标不变；末尾零长度合法。
+    /// destination 为 null 抛 ArgumentNullException。不暴露内部可变视图。
+    [Native("__str_copy_utf8")]
+    public extern void CopyUtf8To(int sourceByteIndex, byte[] destination, int destinationIndex, int byteCount);
+
+    /// 从指定 UTF-8 字节区间的独立快照构造不可变字符串；空区间返回空串。
+    ///
+    /// 非法 UTF-8 抛 FormatException；null 抛 ArgumentNullException；区间非法抛
+    /// ArgumentOutOfRangeException。并发写入时校验和构造使用同一快照，不保证整体原子读取。
+    [Native("__str_from_utf8")]
+    public static extern string FromUtf8(byte[] source, int offset, int count);
+
     // replace-fastpath：单字符整体替换的 native 底座（零命中原样返回）。仅 Replace 内部使用。
     [Native("__str_replace_char")] private static extern string _replaceChar(string s, char oldChar, char newChar);
 

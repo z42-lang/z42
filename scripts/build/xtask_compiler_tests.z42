@@ -54,7 +54,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
         foreach (var unit in _sortedStrings(Directory.Enumerate(testsDir))) {
             string unitDir = Path.Join(testsDir, unit);
             if (!Directory.Exists(unitDir)) { continue; }
-            string toml = _fixtureManifest(unitDir);
+            string toml = _findManifest(unitDir).ManifestPath;
             if (toml.Length == 0) { continue; }
             total = total + 1;
             Console.WriteLine("\n── z42c test: " + member + " / " + unit + " ──");

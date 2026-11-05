@@ -5,3 +5,7 @@ kind = "lib"
 
 [sources]
 include = ["*.z42"]
+
+# This fixture exercises preserved output without compiler-side analyzers.
+[plugins]
+"z42.harness.lint" = false
