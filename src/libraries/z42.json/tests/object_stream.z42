@@ -1,0 +1,162 @@
+namespace Z42JsonObjectStreamTests;
+using Std.IO;
+using Std.Json;
+using Std.Encoding;
+using Std.Harness;
+using Std.Collections;
+
+class Record {
+    public int Id;
+    public string Label = "é中😀";
+    public bool Ready = true;
+}
+
+class Trace {
+    public static string Calls = "";
+}
+
+class Observed {
+    private string _tag;
+    public Observed(string tag) { this._tag = tag; }
+    public string Value { get { Trace.Calls = Trace.Calls + this._tag; return this._tag; } }
+}
+
+class Collision {
+    [JsonProperty("id")] public Observed First = new Observed("a");
+    public Observed Other = new Observed("b");
+    [JsonProperty("id")] public Observed Last = new Observed("c");
+}
+
+class BrokenValue {
+    public int Error { get { Trace.Calls = Trace.Calls + "a"; throw new InvalidOperationException("nested getter"); } }
+}
+
+class BrokenCollision {
+    [JsonProperty("id")] public BrokenValue First = new BrokenValue();
+    [JsonProperty("id")] public Observed Last = new Observed("c");
+}
+
+class NullKey {
+    [JsonProperty(null)] public int First = 1;
+    public Observed Last = new Observed("z");
+}
+
+class Sink : Stream {
+    public int Bytes;
+    public int Writes;
+    public int Flushes;
+    public bool Closed;
+    public bool FailWrite;
+    public bool FailFlush;
+    public override void Write(byte[] buffer, int offset, int count) {
+        this.Writes = this.Writes + 1;
+        if (this.FailWrite) { throw new InvalidOperationException("sink write"); }
+        this.Bytes = this.Bytes + count;
+    }
+    public override void Flush() {
+        this.Flushes = this.Flushes + 1;
+        if (this.FailFlush) { throw new InvalidOperationException("sink flush"); }
+    }
+    public override void Close() { this.Closed = true; }
+}
+
+object rows(int n) {
+    Record[] values = new Record[n];
+    for (int i = 0; i < n; i = i + 1) {
+        Record r = new Record();
+        r.Id = i;
+        values[i] = r;
+    }
+    return values;
+}
+
+string toText(object value, bool pretty) {
+    MemoryStream stream = new MemoryStream();
+    if (pretty) { JsonSerializer.SerializeToPretty(stream, value); }
+    else { JsonSerializer.SerializeTo(stream, value); }
+    return Encoding.GetUtf8().GetString(stream.ToArray());
+}
+
+[Test]
+void test_object_stream_matches_serializer() {
+    List<int> list = new List<int>();
+    list.Add(7);
+    Dictionary<string, int> dictionary = new Dictionary<string, int>();
+    dictionary["x"] = 9;
+    object[] mixed = new object[] { rows(3), null, "a\tb", list, dictionary, new int[0] };
+    Assert.Equal(JsonSerializer.Serialize(mixed), toText(mixed, false));
+    Assert.Equal(JsonSerializer.SerializePretty(mixed), toText(mixed, true));
+    for (int i = 0; i < 12; i = i + 1) { dictionary["k" + i.ToString()] = i; }
+    Assert.Equal(JsonSerializer.Serialize(dictionary), toText(dictionary, false));
+    Assert.Equal(JsonSerializer.SerializePretty(dictionary), toText(dictionary, true));
+    Assert.Equal("null", toText(null, false));
+    Assert.Equal("5000000000", toText(5000000000L, false));
+}
+
+[Test]
+void test_object_stream_duplicate_keys_keep_evaluation_order() {
+    Trace.Calls = "";
+    Assert.Equal("{\"id\":{\"Value\":\"c\"},\"Other\":{\"Value\":\"b\"}}", toText(new Collision(), false));
+    Assert.Equal("abc", Trace.Calls);
+
+    Sink sink = new Sink();
+    Trace.Calls = "";
+    Assert.ThrowsAny(() => JsonSerializer.SerializeTo(sink, new BrokenCollision()));
+    Assert.Equal("a", Trace.Calls);
+    Assert.Equal(0, sink.Writes);
+    Assert.Equal(0, sink.Flushes);
+    Assert.False(sink.Closed);
+}
+
+[Test]
+void test_object_stream_defers_formatting_failure_until_after_getters() {
+    Sink sink = new Sink();
+    Trace.Calls = "";
+    Assert.Throws("NullReferenceException", () => JsonSerializer.SerializeTo(sink, new NullKey()));
+    Assert.Equal("z", Trace.Calls);
+    Assert.Equal(0, sink.Writes);
+    Assert.Equal(0, sink.Flushes);
+    Trace.Calls = "";
+    object[] nullThenValue = new object[] { new NullKey(), new Observed("y") };
+    Assert.Throws("NullReferenceException", () => JsonSerializer.SerializeTo(sink, nullThenValue));
+    Assert.Equal("zy", Trace.Calls);
+    Assert.Equal(0, sink.Writes);
+    Assert.Equal(0, sink.Flushes);
+
+    Trace.Calls = "";
+    object[] nullThenError = new object[] { new NullKey(), new BrokenValue() };
+    Assert.Throws("InvalidOperationException", () => JsonSerializer.SerializeTo(sink, nullThenError));
+    Assert.Equal("za", Trace.Calls);
+    Assert.Equal(0, sink.Writes);
+    Assert.Equal(0, sink.Flushes);
+
+    Trace.Calls = "";
+    Assert.Throws("NullReferenceException", () => JsonSerializer.SerializePretty(nullThenValue));
+    Assert.Equal("zy", Trace.Calls);
+    Trace.Calls = "";
+    Assert.Throws("InvalidOperationException", () => JsonSerializer.Serialize(nullThenError));
+    Assert.Equal("za", Trace.Calls);
+}
+
+[Test]
+void test_object_stream_propagates_sink_failures() {
+    Sink sink = new Sink();
+    JsonSerializer.SerializeTo(sink, rows(1));
+    Assert.Equal(1, sink.Writes);
+    Assert.Equal(1, sink.Flushes);
+    Assert.False(sink.Closed);
+
+    Sink badWrite = new Sink();
+    badWrite.FailWrite = true;
+    Assert.Throws("InvalidOperationException", () => JsonSerializer.SerializeTo(badWrite, rows(1)));
+    Assert.Equal(1, badWrite.Writes);
+    Assert.Equal(0, badWrite.Flushes);
+    Assert.False(badWrite.Closed);
+
+    Sink badFlush = new Sink();
+    badFlush.FailFlush = true;
+    Assert.Throws("InvalidOperationException", () => JsonSerializer.SerializeTo(badFlush, rows(1)));
+    Assert.Equal(1, badFlush.Writes);
+    Assert.Equal(1, badFlush.Flushes);
+    Assert.False(badFlush.Closed);
+}

@@ -27,6 +27,8 @@ internal class JsonWriteBuffer {
     private int _n;
     private bool _pretty;
     private int _depth;
+    private bool _deferNullQuoted;
+    private bool _sawNullQuoted;
 
     /// 为单次遍历初始化片段数组和排版配置。
     public JsonWriteBuffer(bool pretty) {
@@ -48,7 +50,49 @@ internal class JsonWriteBuffer {
         return String.ConcatPartsUtf8(this._parts, this._n);
     }
 
-    private void Put(string s) {
+    internal void DeferNullQuotedValues() {
+        this._deferNullQuoted = true;
+    }
+
+    internal string FinishText() {
+        this.CheckQuotedValues();
+        return String.ConcatParts(this._parts, this._n);
+    }
+
+    internal byte[] FinishUtf8() {
+        this.CheckQuotedValues();
+        return String.ConcatPartsUtf8(this._parts, this._n);
+    }
+
+    private void CheckQuotedValues() {
+        if (this._sawNullQuoted) {
+            this._deferNullQuoted = false;
+            this.PutQuoted(null);
+        }
+    }
+
+    internal void StartContainer(string open) {
+        this.Put(open);
+        this._depth = this._depth + 1;
+    }
+
+    internal void StartEntry(bool first) {
+        if (!first) { this.Put(","); }
+        if (this._pretty) { this.PutNewlineIndent(); }
+    }
+
+    internal void EndContainer(string close) {
+        this._depth = this._depth - 1;
+        if (this._pretty) { this.PutNewlineIndent(); }
+        this.Put(close);
+    }
+
+    internal void WriteKey(string key) {
+        this.PutQuoted(key);
+        this.Put(this._pretty ? ": " : ":");
+    }
+
+    internal void Put(string s) {
         int n = this._n;
         if (n == this._parts.Length) {
             string[] bigger = new string[n * 2];
@@ -59,7 +103,7 @@ internal class JsonWriteBuffer {
         this._n = n + 1;
     }
 
-    private void WriteValue(JsonValue v) {
+    internal void WriteValue(JsonValue v) {
         int k = v._kind;
         if (k == 4) { this.PutQuoted(v._str); return; }
         if (k == 2) { this.Put(v.AsLong().ToString()); return; }
@@ -122,7 +166,12 @@ internal class JsonWriteBuffer {
     // passes through as raw UTF-8 (RFC 8259 §7 allows this). A string with
     // nothing to escape (the usual case) is emitted as-is between the quotes;
     // otherwise ordinary runs are flushed as bulk Substrings between escapes.
-    private void PutQuoted(string s) {
+    internal void PutQuoted(string s) {
+        // Object serialization finishes reflection before reporting a formatting error.
+        if (s == null && this._deferNullQuoted) {
+            this._sawNullQuoted = true;
+            return;
+        }
         this.Put("\"");
         char[] cs = s.ToCharArray();
         int n = cs.Length;

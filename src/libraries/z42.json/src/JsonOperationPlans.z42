@@ -14,6 +14,8 @@ internal class JsonTypePlan {
 
     private MethodInfo _listItem;
     private MethodInfo _dictionaryItem;
+    // -2 is unknown, -1 requires the DOM's key replacement rules.
+    private int _directMemberCount = -2;
 
     /// 已绑定的字典 Keys 方法。
     public MethodInfo DictionaryKeys;
@@ -36,6 +38,42 @@ internal class JsonTypePlan {
             this._dictionaryItem = JsonReflect.BindMethod(methods, "get_Item", new Type[] { keyType });
         }
         return this._dictionaryItem;
+    }
+
+    /// 取得可复用的成员，或按当前类型查询。
+    public JsonMember[] GetMembers(Type t) {
+        if (this.Members != null) { return this.Members; }
+        return JsonMembers.Build(t, this);
+    }
+
+    /// 返回可直接输出的成员数，负数表示须保留 DOM 对象槽位。
+    public int DirectMemberCount(JsonMember[] members) {
+        bool cacheable = Object.ReferenceEquals(this.Members, members);
+        if (cacheable && this._directMemberCount != -2) { return this._directMemberCount; }
+        int count = JsonTypePlan.CountUniqueMembers(members);
+        if (cacheable) { this._directMemberCount = count; }
+        return count;
+    }
+
+    private static int CountUniqueMembers(JsonMember[] members) {
+        HashSet<string> seen = null;
+        if (members.Length > 8) { seen = new HashSet<string>(); }
+        int count = 0;
+        for (int i = 0; i < members.Length; i = i + 1) {
+            JsonMember member = members[i];
+            if (!member.CanRead) { continue; }
+            string key = member.JsonKey;
+            if (key == null) { return -1; }
+            if (seen != null) {
+                if (!seen.Add(key)) { return -1; }
+            } else {
+                for (int j = 0; j < i; j = j + 1) {
+                    if (members[j].CanRead && members[j].JsonKey == key) { return -1; }
+                }
+            }
+            count = count + 1;
+        }
+        return count;
     }
 
     /// 按现有无参优先和最长签名规则选取构造器。
@@ -100,8 +138,6 @@ internal class JsonOperationPlans {
 
     /// 取得可复用的成员，或按当前类型查询。
     public JsonMember[] GetMembers(Type t) {
-        JsonTypePlan plan = this.For(t);
-        if (plan.Members != null) { return plan.Members; }
-        return JsonMembers.Build(t, plan);
+        return this.For(t).GetMembers(t);
     }
 }
