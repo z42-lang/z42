@@ -51,6 +51,45 @@ use crate::vm::runtime::Module;
 use crate::object::Value;
 use crate::vm_context::VmContext;
 
+/// Try the field-reader shape for a direct call carrying the receiver as its only argument.
+#[inline]
+pub(crate) fn try_direct_field_read(
+    ctx: &VmContext, func: &Function, regs: &[Value], args: &[u32],
+) -> Option<Value> {
+    let [arg] = args else { return None };
+    try_field_read(ctx, func, regs.get(*arg as usize)?)
+}
+
+/// Try a resolved field reader without a callee frame.
+/// Only heap objects take this path, so receiver errors retain the ordinary call frame.
+#[inline]
+pub(crate) fn try_field_read(ctx: &VmContext, func: &Function, recv: &Value) -> Option<Value> {
+    if !matches!(recv, Value::Object(_)) || !*func.field_forward.get_or_init(|| is_field_reader(func)) {
+        return None;
+    }
+    let Instruction::FieldGet(insn) = &func.blocks[0].instructions[0] else {
+        unreachable!("cached field-reader shape changed")
+    };
+    let ic = func.resolved.get().and_then(|tokens| {
+        let site = *tokens.site_index.first()?.first()?;
+        tokens.field_ic.get(site as usize)
+    });
+    crate::objops::field::field_get(ctx, recv, &insn.field_name, ic).ok()
+}
+
+fn is_field_reader(func: &Function) -> bool {
+    use crate::metadata::ir::{METHOD_FLAG_NO_INLINING, METHOD_FLAG_SRET};
+    if func.is_static || func.param_count != 1
+        || func.method_flags & (METHOD_FLAG_NO_INLINING | METHOD_FLAG_SRET) != 0
+        || !func.type_params().is_empty() || !func.exception_table().is_empty()
+    {
+        return false;
+    }
+    let [block] = func.blocks.as_slice() else { return false };
+    let [Instruction::FieldGet(insn)] = block.instructions.as_slice() else { return false };
+    insn.obj == 0 && matches!(block.terminator, Terminator::Ret { reg: Some(r) } if r == insn.dst)
+}
+
 /// The builtin id `func` forwards to, if `func` is exactly
 /// `%d = builtin __x(%0, …, %{n-1}); ret %d` (or `ret` void) over all of its
 /// parameters in order, with no exception table and no generic parameters.

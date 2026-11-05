@@ -1,0 +1,43 @@
+namespace Z42FieldReaderBench;
+
+using Std.Harness;
+
+class Reader {
+    int _value;
+
+    public Reader(int value) { this._value = value; }
+    public virtual int Read() { return this._value; }
+    public virtual int ReadAdjusted() { return this._value + 1; }
+}
+
+[Benchmark]
+void virtual_field_reader() {
+    Reader reader = new Reader(7);
+    var b = new Bencher(3, 24);
+    b.iter(() => {
+        int total = 0;
+        int i = 0;
+        while (i < 8192) {
+            total = total + reader.Read();
+            i = i + 1;
+        }
+        BenchHelpers.blackBox(total);
+    });
+    b.printSummary("virtual_field_reader");
+}
+
+[Benchmark]
+void virtual_adjusted_reader() {
+    Reader reader = new Reader(7);
+    var b = new Bencher(3, 24);
+    b.iter(() => {
+        int total = 0;
+        int i = 0;
+        while (i < 8192) {
+            total = total + reader.ReadAdjusted();
+            i = i + 1;
+        }
+        BenchHelpers.blackBox(total);
+    });
+    b.printSummary("virtual_adjusted_reader");
+}

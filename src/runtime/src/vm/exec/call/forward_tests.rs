@@ -315,3 +315,41 @@ fn no_exception_is_built_while_a_fatal_error_unwinds() {
         _ => panic!("expected the raw fatal error"),
     }
 }
+
+#[test]
+fn field_read_fold_loads_current_value_and_rejects_ineligible_calls() {
+    use crate::metadata::ir::{FieldGetInsn, METHOD_FLAG_NO_INLINING};
+    use crate::object::NativeData;
+
+    let vm = VmContext::new();
+    let recv = vm.heap().alloc_object(
+        exception_type("Demo.Payload", None),
+        vec![Value::Str("first".into()), Value::Null, Value::Null],
+        NativeData::None,
+    );
+    let mut getter = func(
+        "Demo.Payload.get_Message",
+        1,
+        vec![Instruction::FieldGet(Box::new(FieldGetInsn {
+            dst: 1,
+            obj: 0,
+            field_name: "Message".to_string(),
+        }))],
+        Terminator::Ret { reg: Some(1) },
+    );
+    getter.is_static = false;
+
+    let first = super::try_direct_field_read(&vm, &getter, &[recv], &[0]);
+    assert!(matches!(first, Some(Value::Str(s)) if s.as_ref() == "first"));
+    crate::objops::field::field_set(&vm, &recv, "Message", &Value::Str("second".into()), None).unwrap();
+    let second = super::try_direct_field_read(&vm, &getter, &[recv], &[0]);
+    assert!(matches!(second, Some(Value::Str(s)) if s.as_ref() == "second"));
+    assert!(super::try_direct_field_read(&vm, &getter, &[Value::Null], &[0]).is_none());
+    assert!(super::try_direct_field_read(&vm, &getter, &[recv], &[]).is_none());
+
+    getter.method_flags = METHOD_FLAG_NO_INLINING;
+    assert!(super::try_direct_field_read(&vm, &getter, &[recv], &[0]).is_none());
+    getter.method_flags = 0;
+    getter.blocks[0].terminator = Terminator::Ret { reg: Some(0) };
+    assert!(super::try_direct_field_read(&vm, &getter, &[recv], &[0]).is_none());
+}
