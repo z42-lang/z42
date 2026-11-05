@@ -118,13 +118,15 @@ public class StringBuilder {
 
     // 重置为单个逻辑部分 `s`。`_capacity` 恒 ≥ 4，槽 0 无需扩容即可写。
     void _setSingle(string s) {
+        if (this._count > 1) { Array.Clear(this._parts, 1, this._count - 1); }
         this._parts[0] = s;
         this._count = 1;
         this._length = s.Length;
     }
 
-    /// 清空（`Length` 归 0），保留已分配的容量。
+    /// 清空并解除已用片段引用（`Length` 归 0），保留已分配的容量。
     public StringBuilder Clear() {
+        Array.Clear(this._parts, 0, this._count);
         this._count = 0;
         this._length = 0;
         return this;
