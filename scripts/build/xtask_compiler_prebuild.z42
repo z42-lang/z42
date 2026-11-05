@@ -1,0 +1,48 @@
+// Bootstrap inputs must not inherit the source workspace's implicit SDK member visibility.
+namespace Z42Xtask;
+using Std.IO;
+using Std.Toml;
+using Z42.Project;
+
+string _bootstrapInputManifest(string toml, string staging, string compileLibs) {
+    if (WorkspaceMemberDeps.EnclosingMemberNames(staging).Length != 0) {
+        throw new Exception("bootstrap input staging must be outside a source workspace: " + staging);
+    }
+    ProjectManifest manifest = ManifestLoader.Load(toml);
+    string sourceDir = Path.GetDirectoryName(toml);
+    string[] includes = manifest.Sources.Include;
+    int count = manifest.Sources.IncludeCount;
+    if (count == 0) { includes = new string[] { "**/*.z42" }; count = 1; }
+    string[] sources = SourceDiscovery.DiscoverWithExclude(sourceDir, includes, count,
+        manifest.Sources.Exclude, manifest.Sources.ExcludeCount);
+    if (sources.Length == 0) { throw new Exception("bootstrap source set is empty: " + toml); }
+    TomlValue root = TomlValue.Parse(File.ReadAllText(toml));
+    TomlValue sourceTable = root.ContainsKey("sources") ? root.Get("sources") : TomlValue.OfTable();
+    TomlValue exact = TomlValue.OfArray();
+    foreach (var source in sources) { exact.Add(TomlValue.OfString(source)); }
+    sourceTable.Set("include", exact);
+    sourceTable.Set("exclude", TomlValue.OfArray());
+    root.Set("sources", sourceTable);
+    _bootstrapNameOnlyDeps(root, compileLibs);
+    string input = Path.Join(staging, manifest.Project.Name + ".z42.toml");
+    File.WriteAllText(input, TomlValue.Stringify(root));
+    return input;
+}
+
+// All path prerequisites have already been prebuilt into compile-libs in dependency order.
+void _bootstrapNameOnlyDeps(TomlValue root, string compileLibs) {
+    if (!root.ContainsKey("dependencies")) { return; }
+    TomlValue deps = root.Get("dependencies");
+    foreach (var name in deps.Keys()) {
+        TomlValue entry = deps.Get(name);
+        if (!entry.IsTable() || !entry.ContainsKey("path")) { continue; }
+        if (!File.Exists(Path.Join(compileLibs, name + ".zpkg"))) {
+            throw new Exception("bootstrap prerequisite was not prebuilt: " + name);
+        }
+        TomlValue named = TomlValue.OfTable();
+        foreach (var key in entry.Keys()) {
+            if (key != "path") { named.Set(key, entry.Get(key)); }
+        }
+        deps.Set(name, named);
+    }
+}

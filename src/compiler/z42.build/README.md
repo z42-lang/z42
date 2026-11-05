@@ -1,7 +1,7 @@
 # z42.build
 
 ## 职责
-z42 项目「编译 → 发布」管线的**框架库**（全 z42 实现）。提供：固定的相位流程引擎、
+z42 项目「编译 → 发布」管线的**框架库**（全 z42 实现）。编译/REPL 契约由 [`z42.compiler.contracts`](../z42.compiler.contracts/) 提供。本库提供：固定的相位流程引擎、
 传给各相位的 `IPipelineContext` 契约、以及 workload 与项目 `build/` 脚本继承扩展的
 基类（`WorkloadBase` / `BuildHooks`）。
 
@@ -10,7 +10,7 @@ z42 项目「编译 → 发布」管线的**框架库**（全 z42 实现）。�
 
 ## 功能索引
 - `Pipeline.Run(ctx)` —— 由编排器（`z42b`）/ driver 构造（注入 Compiler/Hooks/Workload）后调用
-- `ICompiler` —— 编译抽象；编排器注入编译器库实现（与 `z42c.driver` 同一份），Compile 相位 in-process 调用
+- `ICompiler` —— 编译抽象；编排器注入编译器库实现（接口在 `z42.compiler.contracts`），Compile 相位 in-process 调用
 - `WorkloadBase` / `BuildHooks` —— workload 与项目的继承扩展点
 - `IPipelineContext` —— 相位与外界交互的唯一契约
 - `PackageScheduler` / `PackageWorker` —— 显式图的有界隔离进程运行器与确定日志收尾
@@ -43,7 +43,6 @@ class iOSBuild         class iOSWorkload            class WorkloadBase
 
 ## 待办
 - `IPipelineContext` 的 Sign / Archive / Hash / ProbeVersion / Download 对应的原生 builtin（toolchain 侧 Rust 实现）；`PipelineContext` 的 Exec 与平台原语仍为 extern / stub
-- 编译相关接口（`ICompiler` + CompileRequest/CompileResult）独立到中立微库，使编译器核心与编排器只依赖该微库而非整个 build 框架
 
 ## 核心文件
 | 文件 | 职责 |
@@ -52,14 +51,13 @@ class iOSBuild         class iOSWorkload            class WorkloadBase
 | `src/WorkloadBase.z42` | 平台尾相位扩展点（Preflight/Configure/GenerateProject/NativeBuild/Package） |
 | `src/BuildHooks.z42` | 平台无关头相位 hook 扩展点（Before/After × Compile/Trim/Assets）+ `ProvideNative`（专用窄相位：产本包私有 native 库） |
 | `src/IPipelineContext.z42` | **相位上下文契约**：项目模型 + 能力受限 fs + exec + 日志 + 产物登记 + 平台原语 + preflight 原语 |
-| `src/ICompiler.z42` | **编译抽象**：Compile 头相位经此**在进程内**调编译器库（不 fork z42c）；`z42b` 与 `z42c.driver` 引用同一实现。含 CompileRequest / CompileResult 记录 + NoCompiler 兜底。**计划后续抽到中立微库**（见下） |
 | `src/PipelineContext.z42` | `IPipelineContext` 的 SDK 实现（骨架）—— 受限 fs / exec / 平台原语 / 产物登记的落地点。编排器构造它注入 ctx。**归属本库** |
-| `src/IReplCompiler.z42` | **REPL 编译门面**：opaque 会话句柄 + 粗粒度查询（`ReplCompileResult`）；`Z42.Scripting` 只依赖本接口，实现 `Z42cReplCompiler` 在 `z42c.pipeline`，运行期经反射注入 |
 | `src/BuildLog.z42` | 构建进度输出去向开关（进程级，进度走 stderr 以保 `--format json` 的 stdout 纯净） |
 | `src/Models.z42` | 管线运行期记录（Target/Dirs/Inputs/Output/ExecResult；项目模型在 z42.project） |
 | `src/BuildKinds.z42` | 常量：TargetFamily / BuildMode / Phase（用 const，避开 enum） |
 
 ## 依赖关系
 - 依赖 `z42.project`（项目清单模型 ProjectInfo / ProjectManifest / PlatformSet + typed 平台配置，path 依赖）、`z42.core`、`z42.io`
-- **被依赖**：`z42c.pipeline`（`Z42cCompiler : ICompiler`、`Z42cReplCompiler : IReplCompiler`，仅接口、无环）、
-  `z42.scripting`（`IReplCompiler`）、编排器 `z42b`（`src/toolchain/builder/`）与各 workload appbuilder。
+- **被依赖**：编排器 `z42b`（`src/toolchain/builder/`）与各 workload appbuilder。
+
+契约依赖为 `z42.compiler.contracts`；编译核心与 scripting 通过它使用接口，不依赖本库的编排实现。

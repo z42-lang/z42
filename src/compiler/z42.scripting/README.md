@@ -3,7 +3,7 @@
 ## 职责
 REPL / 脚本场景的**跨平台编译+执行内核**（scripting-charter Form B）：把一段 z42 源即时编译成内存 zpkg、加载进 live VM、反射调用求值，并提供补全与输入完整性判定。是 `z42.interactive`（z42i）的引擎，playground / 用户代码也可 import。**不做**终端行编辑（tty）——那在 [z42.repl](../../toolchain/interactive/repl/)。
 
-**编译期只依赖 stdlib**：编译经 `z42.build` 的 `IReplCompiler` 门面（把「有状态增量编译世界」封成 opaque 句柄），实现 `Z42cReplCompiler` 住 `z42c.pipeline`，由 `ReplCompilerHost` 运行期反射注入（apphost 不静态 bundle 编译器，运行期动态加载 `z42c.pipeline` 组件）。前端 `z42c.core` / `z42c.syntax`（Lexer/Parser/Span）为库依赖。机制详见 [repl.md「编译门面 + 运行期注入」](../../../docs/internals/src/toolchain/repl.md)。
+**编译期只依赖 stdlib**：编译经 `z42.compiler.contracts` 的 `IReplCompiler` 门面（把「有状态增量编译世界」封成 opaque 句柄），实现 `Z42cReplCompiler` 住 `z42c.pipeline`，由 `ReplCompilerHost` 运行期反射注入（apphost 不静态 bundle 编译器，运行期动态加载 `z42c.pipeline` 组件）。前端 `z42c.core` / `z42c.syntax`（Lexer/Parser/Span）为库依赖。机制详见 [repl.md「编译门面 + 运行期注入」](../../../docs/internals/src/toolchain/repl.md)。
 
 ## 功能索引
 命名空间 `Z42.Scripting`（编译器域统一 `Z42.*`；`Std.*` 只属用户 stdlib）。
@@ -58,4 +58,4 @@ EvalResult r2 = Script.Eval(s, "add(4, 5)");       // 跨轮裸调 → r2.Value 
 | `Playground.z42` | WASM playground 入口 `evalFromVfs` |
 
 ## 依赖关系
-`z42.core`（String / Reflection）、`z42.io`（Environment / File / Path / Console，组件定位 + Z42_LIBS）、`z42.build`（`IReplCompiler` 门面）、`z42c.core` / `z42c.syntax`（Span / Lexer / Parser）、`z42.threading`（预热 worker）。编译器后端不静态依赖，运行期经反射注入。
+`z42.core`（String / Reflection）、`z42.io`（Environment / File / Path / Console，组件定位 + Z42_LIBS）、`z42.compiler.contracts`（`IReplCompiler` 门面）、`z42c.core` / `z42c.syntax`（Span / Lexer / Parser）、`z42.threading`（预热 worker）。编译器后端不静态依赖，运行期经反射注入。

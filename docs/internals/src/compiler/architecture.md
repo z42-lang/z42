@@ -18,7 +18,7 @@ graph LR
 
 ## z42c 的组成
 
-z42c 按依赖顺序分成十一个逻辑包；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：全部在 `src/compiler/` 这一个 workspace 里——可移植前端 `z42c.core` / `z42c.syntax`，符号层 `z42c.symbols`（符号收集 / 符号表 / 跨包导入装载 / 类型模型 / struct 布局；物理上独立成包，命名空间 `Z42.Symbols`），语义层 `z42c.semantics`（绑定 / 类型检查 / 校验 / 导出抽取），后端四包 `z42c.optimization` / `z42c.emission` / `z42c.pipeline` / `z42c.driver`，编译期扩展 `z42c.plugin`（一个包双命名空间：`Z42.Analyzers` analyzer 契约 + 引擎只读 AST；`Z42.Generators` generator 契约 + 多轮引擎改写源码结构），IR·后端库 `z42.package`（含 zbc/zpkg 后端），清单模型 `z42.project`。依赖单向无环，各包细节见后续各章。符号层与语义层零引用代码生成层（`emission`：Bound → IR + 编译编排），代码生成只对无错误的程序运行。同一 workspace 还住着三个不属于 z42c 本体的编译器域库：`z42.build`（z42b 构建框架，见下）、`z42.doc`（文档索引与 `z42 doc`，见[文档索引与 `z42 doc`](../toolchain/doc.md)）、`z42.scripting`（REPL / 脚本引擎，见 [REPL](../toolchain/repl.md)）。
+z42c 按职责与依赖顺序分层；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：全部在 `src/compiler/` 这一个 workspace 里——可移植前端 `z42c.core` / `z42c.syntax`，符号层 `z42c.symbols`（符号收集 / 符号表 / 跨包导入装载 / 类型模型 / struct 布局；物理上独立成包，命名空间 `Z42.Symbols`），语义层 `z42c.semantics`（绑定 / 类型检查 / 校验 / 导出抽取），后端四包 `z42c.optimization` / `z42c.emission` / `z42c.pipeline` / `z42c.driver`，编译期扩展 `z42c.plugin`（一个包双命名空间：`Z42.Analyzers` analyzer 契约 + 引擎只读 AST；`Z42.Generators` generator 契约 + 多轮引擎改写源码结构），IR·后端库 `z42.package`（含 zbc/zpkg 后端），清单模型 `z42.project`。依赖单向无环，各包细节见后续各章。符号层与语义层零引用代码生成层（`emission`：Bound → IR + 编译编排），代码生成只对无错误的程序运行。同一 workspace 还住着三个不属于 z42c 本体的编译器域库：`z42.build`（z42b 构建框架，见下）、`z42.doc`（文档索引与 `z42 doc`，见[文档索引与 `z42 doc`](../toolchain/doc.md)）、`z42.scripting`（REPL / 脚本引擎，见 [REPL](../toolchain/repl.md)）。
 
 | 包 | 职责 | 关键文件 |
 |------|------|---------|
@@ -81,3 +81,9 @@ graph LR
 - z42.build 框架接口先行，部分实现体为桩，按 spec-first 落地。
 - z42b CLI：`test` / `bench` / `clean` / `publish` 已可用；`new` / `build` / `export` 待接入。
 - `ICompiler` 拟抽为中立微库，让 z42c 与 z42b 都只依赖它。索引见 `docs/roadmap.md` Deferred Backlog。
+
+## 编译服务契约边界
+
+`z42.compiler.contracts` 拥有编译/REPL 接口和请求结果；pipeline 实现它，scripting 调用它。
+编排框架 `z42.build` 消费契约并提供 Pipeline/PackageScheduler，driver 与 builder 仍依赖这些实际实现。
+共享 `Z42.Build` 命名空间不等于相同包归属；契约仍依赖 project 的清单与 workspace 域模型。

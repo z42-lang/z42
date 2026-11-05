@@ -6,7 +6,7 @@ kind = "exe"
 include = ["host_session_bench.z42"]
 [dependencies]
 "z42c.pipeline" = "0.1.0"
-"z42.build" = "0.1.0"
+"z42.compiler.contracts" = "0.1.0"
 "z42.project" = "0.1.0"
 [build]
 output_dir = "../../../../artifacts/build/compiler/z42c.pipeline/${profile}/benches/host-session"

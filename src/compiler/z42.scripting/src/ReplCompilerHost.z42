@@ -1,6 +1,6 @@
 // REPL 编译器组件的运行期反射注入（sink-repl-compile-facade）——mirror builder.z42 `_hostCompiler`。
 //
-// scripting 编译期只依赖 z42.build 的 `IReplCompiler` 接口（stdlib-only，前端 z42c.core/syntax 亦已
+// scripting 编译期只依赖 z42.compiler.contracts 的 `IReplCompiler` 接口（stdlib-only，前端 z42c.core/syntax 亦已
 // 是 stdlib）；此处经 `ModuleLoader.Load` 把编译器组件 zpkg（z42c.pipeline，含 `Z42cReplCompiler :
 // IReplCompiler` + 6 个 z42c.* 兄弟依赖闭包）加载进 live VM → `Type.GetType` 反射实例化 → 接口 cast。
 // 与 z42b 的 ICompiler 注入同构（wire-z42b-dynamic-injection-preference）。换/升级编译器 = 替换 zpkg，

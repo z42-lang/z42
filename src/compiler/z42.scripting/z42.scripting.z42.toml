@@ -1,5 +1,5 @@
 # z42.scripting — REPL 编译+执行层（scripting-charter Form B）。
-# sink-repl-compile-facade：编译期 **stdlib-only**——编译走 z42.build 的 `IReplCompiler` 门面
+# sink-repl-compile-facade：编译期只依赖前端与中立契约——编译走 z42.compiler.contracts 的 `IReplCompiler` 门面
 # （实现 Z42cReplCompiler 住 z42c.pipeline，运行期经 ModuleLoader 反射注入，见 ReplCompilerHost）；
 # 前端 z42c.core/syntax 已是 stdlib（PR-A）。不再静态依赖 z42c.semantics/z42c.pipeline（编译器后端）
 # → apphost 不再静态链编译器，运行期动态加载 z42c.pipeline 组件。

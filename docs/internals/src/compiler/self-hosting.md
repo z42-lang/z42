@@ -15,7 +15,8 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 | `z42c.syntax` | lib | Lexer + Parser + AST | core |
 | `z42.package` | lib | IR 模型 + zbc/zpkg 读写后端 | — |
 | `z42.project` | lib | 工程清单模型 | — |
-| `z42.build` | lib | 构建管线接口（`ICompiler` / `IReplCompiler`） | project |
+| `z42.compiler.contracts` | lib | 编译/REPL 契约 | project |
+| `z42.build` | lib | 构建编排与进程调度 | project, compiler.contracts |
 | `z42c.optimization` | lib | IR → IR 优化管线 + `Opt` 开关 | package |
 | `z42c.semantics` | lib | 符号收集 + 绑定 + TypeCheck（不含代码生成）| core, syntax, package |
 | `z42c.emission` | lib | Codegen（Bound → IR）+ 单文件 / 包编译编排 | core, syntax, package, optimization, semantics |
@@ -23,7 +24,7 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 | `z42c.driver` | exe | `z42c` 命令入口 | pipeline, semantics, emission, optimization, syntax, core, package, project |
 | `z42.scripting` | lib | eval 内核 | core, syntax, build |
 
-各包另依赖 stdlib（`z42.core` / `z42.io` / `z42.toml` 等，自动可用）。`z42.package` / `z42.project` / `z42.build` / `z42c.core` / `z42c.syntax` 与 `z42.core` 合称**自依赖库**：z42c 运行期与编译期都要用它们，而它们又由 z42c 构建（见轴 ④）。普通工程的解析域只有 shipped `libs/`，要用编译器域库须在 `[dependencies]` 按名声明。
+各包另依赖 stdlib（`z42.core` / `z42.io` / `z42.toml` 等，自动可用）。`z42.package` / `z42.project` / `z42.compiler.contracts` / `z42.build` / `z42c.core` / `z42c.syntax` 与 `z42.core` 合称**自依赖库**：z42c 运行期与编译期都要用它们，而它们又由 z42c 构建（见轴 ④）。普通工程的解析域只有 shipped `libs/`，要用编译器域库须在 `[dependencies]` 按名声明。
 
 依赖解析：成员从**当前 workspace** 解析 toml 声明的兄弟依赖，与输出位置无关；除 stdlib 外的依赖必须在 `[dependencies]` 声明。远程依赖（registry / git URL）见 [Deferred](#deferred--future-work)。
 
@@ -109,7 +110,7 @@ z42c / stdlib / xtask (z42)  ──互为前置──►  自举环
 
 ### 轴 ④ 的破环预建
 
-`_ensureBootstrapSelfDepLibs`（`xtask_compiler.z42`）在 workspace 自建**前**，用当前 driver（冷启动 = 上一 nightly 种子）把**当前源**的 `z42.core` → `z42.project` → `z42.build` → `z42.package` → `z42c.core` → `z42c.syntax` 依次编进 flat（顺序即依赖序，先于其消费者）。理由：z42c 源若消费这些库的新 API 而 flat 里是种子带来的旧版，自建会 `unknown type` / `no field`；若 fresh z42c emit 的调用钉在旧库上，运行期加载真库时解析不到（`undefined function`）。
+`_ensureBootstrapSelfDepLibs`（`xtask_compiler.z42`）在 workspace 自建**前**，用当前 driver（冷启动 = 上一 nightly 种子）把**当前源**的 `z42.core` → `z42.project` → `z42.compiler.contracts` → `z42.build` → `z42.package` → `z42c.core` → `z42c.syntax` 依次编进 flat（顺序即依赖序，先于其消费者）。理由：z42c 源若消费这些库的新 API 而 flat 里是种子带来的旧版，自建会 `unknown type` / `no field`；若 fresh z42c emit 的调用钉在旧库上，运行期加载真库时解析不到（`undefined function`）。
 
 - **不 warm-skip**：「已在 flat 就跳过」等价于「z42c 不消费这些库的新 API」，不成立；源未变时增量缓存近零成本，源变了本就该重建。
 - **推论**：对这 6 个自依赖库，「z42c 源用它们的新 API」由预建自动破环，可同 commit 加成员并消费，无需等 nightly。轴 ③ 的「晚一个 nightly」只约束**其余 stdlib 库**（`z42.collections` / `z42.threading` / …）与 **xtask 源**（xtask 用种子 SDK 编，不受预建保护）。
@@ -254,3 +255,10 @@ kind=lib，经 z42b 运行；`z42.harness` 自动可用，不在 toml 声明。�
 - **前置依赖**：给 `Z42FuncType` 加 `MinArgCount` + 构造点透传 + `ImportedSymbolLoader` 从 TSIG 读回
 - **触发条件**：出现「子类继承其它包默认参数方法并 re-export」且被第三包省略默认实参调用时
 - **当前 workaround**：此类方法在 TSIG 中标全必填；调用方显式传全部实参，或在定义类直接覆写
+
+编译契约包在 build 框架之前预建；旧种子中的框架副本不得遮盖 flat 当前定义。
+验证须核对接口全名/签名、唯一导出与动态注入类型身份，并在新默认成员集上执行不动点对账。
+
+预建输入在 artifacts 下使用独立清单，不继承源码 workspace 的隐式 SDK 成员准入。清单保留原选项，
+include 是按原根目录与排除规则展开的精确绝对源列表，诊断仍指向真实源码；path 前置只按名称解析，
+它们已由预建顺序写入 compile-libs。运行期 seed/probing 独立且不改写，避免迁移契约时导入旧 owner 的同名定义。
