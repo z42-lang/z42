@@ -170,3 +170,27 @@ void json_stream_propagates_write_failure_before_flush() {
     Assert.Equal(0, sink.Flushes);
     Assert.Equal(0, sink.Closes);
 }
+
+[Test]
+void test_pretty_indent_crosses_chunk_boundaries() {
+    JsonValue value = JsonValue.OfString("é中😀");
+    for (int depth = 0; depth < 18; depth = depth + 1) {
+        JsonValue outer = JsonValue.OfArray();
+        outer.Add(value);
+        value = outer;
+    }
+    string expected = "[";
+    string indent = "";
+    for (int depth = 1; depth <= 18; depth = depth + 1) {
+        indent = indent + "  ";
+        expected = expected + "\n" + indent + (depth == 18 ? "\"é中😀\"" : "[");
+    }
+    for (int depth = 17; depth >= 0; depth = depth - 1) {
+        indent = indent.Substring(0, depth * 2);
+        expected = expected + "\n" + indent + "]";
+    }
+    Assert.Equal(expected, JsonValue.StringifyPretty(value));
+    MemoryStream stream = new MemoryStream();
+    JsonValue.WriteToPretty(stream, value);
+    Assert.Equal(expected, _decode(stream.ToArray()));
+}
