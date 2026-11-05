@@ -42,18 +42,42 @@
 
 | 契约属于 | 放哪 | 由谁跑 |
 |---|---|---|
-| 语言 / VM 特性（语法、类型系统、派发、GC、优化 pass、OSR） | `src/tests/<category>/` | `xtask test e2e` |
+| 语言 / VM 特性（语法、类型系统、派发、GC、优化后的可观察语义、OSR） | `src/tests/<category>/` | `xtask test e2e` |
 | 某个库的 API | `src/libraries/<lib>/tests/`（即使该 API 由 VM builtin 实现） | `xtask test stdlib <lib>` |
-| 编译器某成员（含**期望编译报错**：写成 `[Test]` + `SemanticDump`） | `src/compiler/<member>/tests/` | `xtask test compiler` |
+| 编译器某成员的算法、IR 变换或诊断（含**期望编译报错**：写成 `[Test]` + `SemanticDump`） | `src/compiler/<member>/tests/` | `xtask test compiler`；扁平 / `[tests]` 单元另由 `xtask test stdlib <member>` 跑 |
 | 工具链某组件（launcher / builder / interactive / workload …） | `src/toolchain/<comp>/tests/` | `xtask test toolchain [<comp>]` |
+| 打包 SDK 的命令、布局、安装或发布行为 | `src/toolchain/launcher/tests/fixtures/package/`；包元数据自检追加到现有 SDK 验证器 | `xtask package sdk --verify` |
+| xtask 的改动计划、分片、调度与错误传播 | 对应的 `scripts/test/xtask_selfcheck_*.z42`，接入现有自检调用点 | 当前随 `xtask test toolchain builder` 执行 |
 | VM 内部（Rust） | 同模块 `*_tests.rs`；集成测试在 `src/runtime/tests/` | `xtask test runtime` |
+| 原生宿主与嵌入 ABI（C / Swift / Kotlin / 浏览器壳） | `src/toolchain/workload/<platform>/` 的现有原生测试套件 | `xtask test app <platform>`；不要复制一份标准库用例 |
 | 整程序性能场景 | `src/benches/scenarios/` | `xtask bench` |
+| 库或编译器成员的微基准 | 所属工程的 `benches/`，复用清单已有的 benchmark 源集 | `xtask bench stdlib <project>` |
 
 拿不准时的三个常见误判：
 
 - 测 `String.Trim`、`Enum.Parse`、`List<T>` 这类 API 的是**库**用例，不是语言用例。
 - 测多包编译、`.zpkg` / `.zbc` 字节格式、清单解析的是**编译器 / 工具链**用例，不是语言用例。
 - 学习手册的 `examples/` 不是测试语料，覆盖一律写进上表的位置。
+
+**新增用例按以下步骤收口：**
+
+1. **写清失败契约，再选 owner。** `List<T>` 的行为放库里，即使实现调用了 VM；IR pass 的输入输出放编译器成员里；
+   优化后的程序结果放语言 golden；命令的参数、退出码、文件布局放所属工具链夹具。
+2. **选判定方式。** 断言 API 行为用 unit，程序执行语义用 golden，真实命令与工程树用 fixture（§3）。
+   新的 CLI / 构建用例优先复用已有 `expect.toml` harness；只有需要预置损坏状态、检查执行顺序等行为时才写专用代码。
+3. **复用工程声明。** 放进既有测试源集；需要独立源集时写在所属工程现有 TOML 的 `[tests]` / `[benches]` 声明中。
+   共享 helper 按实际被哪些源集引用归属，不能仅凭目录名认定它不影响生产或 benchmark。
+   不为单条用例追加 CI 名单、`tiers` 字段或一份独立 gate 配置。
+4. **确认执行器实际发现它。** 跑上表的窄命令，检查输出中的用例名和非零执行数量；负向夹具检查预期错误或退出码。
+   `test list` 只查询 app 语料，不是全仓用例清单；工具链夹具、Rust 测试和 xtask 自检不出现在其中属于正常情况。
+5. **处理平台和输出。** 工具链测试天然归桌面宿主；会进入 app 的用例按 §4 声明真实能力。
+   产物按 §5 镜像到 `artifacts/`，清单中的自定义路径按该清单所在目录解析，不使用本机绝对路径或共享 scratch。
+6. **核对 CI 归属。** 先看所属组件的执行器与 [CI 的选择边界](ci.md#构建测试与发布的选择边界)，
+   分清私有测试、生产输入和跨组件契约。新增 harness / 目录职责时同步目录 README 的入口与验证命令。
+
+`xtask` 作为执行工具与作为被测对象是两件事：标准库用例通过它启动，不会因此变成 xtask 用例；
+修改改动计划、参数解析或退出码处理时，才在对应自检中验证这些行为。自检必须有实际调用点，
+仅把函数编进 `xtask.zpkg` 不会自动执行它。
 
 ### 2. `src/tests/` 的类别清单
 
@@ -143,9 +167,13 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 
 | 层 | 写法 | 适用 |
 |---|---|---|
-| ① 目录 | 不用写。app 语料只收 `src/tests/**` 的 golden 与库、编译器成员 `tests/` 下的 `[Test]` 单元；工具链组件的用例与各处 `tests/fixtures/` 不进语料，天然只在 host 跑 | 所有用例。例如 REPL 的用例放进 `src/toolchain/interactive/repl/tests/` 就自动是 host-only |
+| ① 目录 | 不用写。当前 app 语料收 `src/tests/**` 的 golden 与 `src/libraries/<lib>/tests/` 下的单元、库 golden；工具链组件的用例与各处 `tests/fixtures/` 不进语料，天然只在 host 跑 | 所有用例。例如 REPL 的用例放进 `src/toolchain/interactive/repl/tests/` 就自动是 host-only |
 | ② 能力 | golden：源码头注释 `// requires-caps: threads, socket`；`[Test]`：`[Skip(feature: "threads", reason: "…")]` | 会进 app 语料、但需要某种能力的用例 |
 | ③ 平台名 | `[Skip(platform: "windows", reason: "…")]` | 能力词表表达不了的真实 OS 差异，例如 pty 只在 unix 上有 |
+
+当前 app 枚举器不收 `src/compiler/<member>/tests/`。这描述的是现有执行器的收集范围，
+不表示编译器库的纯算法单元天然依赖桌面。CI tier 表达覆盖承诺，不替代目录职责或运行时能力，
+也不需要每条工具链用例重复声明“仅桌面”。
 
 匹配规则：用例声明的能力 ⊆ 目标 VM 的能力集时才跑，否则记为 skipped。能力集是 VM 的**运行期真值**
 （`Std.Platform.Capabilities()`），未知名字一律视为「缺」（deny-by-default）。
