@@ -290,10 +290,10 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
 | `test-stdlib-jit(linux-x64) shard k` | `stdlib-jit-consistency` | `vm ‖ stdlib ‖ compiler` | 2 shard |
 | `test-stdlib-interp(<plat>)` | `stdlib-interp-consistency` | `vm ‖ stdlib ‖ compiler` | 3 OS，不分片 |
 | `compiler-checks(linux-x64)` | `compiler-checks` | `compiler_checks` | — |
-| `package-host(<plat>)` | `host-package` | `platform ‖ examples ‖ 非 PR` | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
-| `package-ios(macos-arm64)` | `package-ios` | `platform ‖ 非 PR` | — |
-| `package-android(linux-x64)` | `package-android` | `platform ‖ 非 PR` | — |
-| `package-wasm(linux-x64)` | `package-wasm` | `platform ‖ 非 PR` | — |
+| `package-host(<plat>)` | `host-package` | `host_package` | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
+| `package-ios(macos-arm64)` | `package-ios` | `platform_package` | — |
+| `package-android(linux-x64)` | `package-android` | `platform_package` | — |
+| `package-wasm(linux-x64)` | `package-wasm` | `platform_package` | — |
 | `test-desktop-cabi(linux-x64)` | `test-desktop` | `platform ‖ schedule ‖ dispatch` | — |
 | `test-wasm-browser(linux-x64) shard k` | `test-wasm` | **仅** schedule ‖ dispatch | 3 shard |
 | `test-ios-sim(macos-arm64) shard k` | `test-ios` | **仅** schedule ‖ dispatch | 3 shard |
@@ -317,9 +317,11 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
   就变了；`test-host` 的 interp golden 只覆盖新 `.zbc` 的解释执行，不覆盖它的 JIT lowering。
 - **wasm / iOS / Android 的 Tier-2 测试只在 nightly 跑**：每个 15~25 分钟且要模拟器，
   挂在 per-push 上会把 runner 池打满。
-- **打包按生产输入与宿主验证职责选择**：PR 的 `platform` 改动选择全部平台包；`sdk_checks`（`scripts/test/sdk/` 与 launcher 发行包私有夹具）只选择四个桌面 SDK 包，`examples` 同样只需桌面 SDK。
+- `platform_package` 在 `platform` 验证、定期 / 手动运行和需要发布的 main push 上选择全部平台包。
+  `host_package` 也响应 `sdk_checks` 和 `examples`，用打包的桌面 SDK 验证夹具与示例。
+  main push 使用 nightly 的累计 SDK 差异。确认 `sdk=false` 时只按验证职责打包，未知结果保留发布所需的归档。
   SDK 验证使用刚打出的包，在桌面执行命令行、apphost 与 interp / jit golden，不需要移动 / wasm 打包或桌面 C ABI 消费者。
-  修改生产打包实现、混合输入、CI 配置或非 PR 事件仍保留对应全量覆盖。
+  修改生产打包实现、混合生产输入、CI 配置及定期 / 手动事件均保留对应覆盖。
   执行失败经 `ci-ok` 挡合并；被职责选择跳过的 job 由 `ci-ok` 接受 skipped。
 - **`publish-nightly` 的 `needs` 故意不含两条 jit 腿**：那些 job 在
   zbc/zpkg 格式 bump 那一轮会暂时红（要等一个兼容的 nightly），gate 上去就是死锁。

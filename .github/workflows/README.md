@@ -24,12 +24,12 @@
 | `changes`（detect-changes） | 总是 | 按路径分类，并输出下游测试和打包任务的选择结果 |
 | `docs-check` | 仅文档改动 | `xtask test docs links` 死链门禁 + `xtask check diagcodes` + `xtask check layout` |
 | `build-and-test`（test-host） | 非纯文档 | 多平台 `xtask build` + `xtask test` |
-| `host-package`（package-host） | platform / sdk_checks / examples 改动或非 PR | 各 host RID 的 package 产物 |
+| `host-package`（package-host） | platform / sdk_checks / examples 验证，或有发布输入，或定期 / 手动运行 | 各 host RID 的 package 产物 |
 | `toolchain-bootstrap`（compile-toolchain） | 非纯文档 | 编译 toolchain（z42c / stdlib / xtask zpkg）供下游 job 消费 |
 | `assemble-current-sdk` / `consume-current-sdk` | 随 CI | 当前源码组装 SDK、再消费它跑测试 |
 | `vm-jit-consistency` / `stdlib-jit-consistency` / `stdlib-interp-consistency` | vm / stdlib / compiler 改动或 schedule / dispatch | VM / 标准库在 JIT 与 interp 下的一致性，分 shard |
 | `compiler-checks` | compiler / 专项执行器改动或 schedule / dispatch | 编译器专项检查 |
-| `package-ios` / `package-android` / `package-wasm` | platform 改动或非 PR | 移动 / wasm 平台包 |
+| `package-ios` / `package-android` / `package-wasm` | platform 验证，或有发布输入，或定期 / 手动运行 | 移动 / wasm 平台包 |
 | `test-wasm` / `test-ios` / `test-android` | 仅 schedule / dispatch | Tier 2 平台测试（浏览器 / iOS 模拟器 / Android 模拟器），分 shard |
 | `test-desktop` | platform 改动或 schedule / dispatch | 桌面 C ABI 测试 |
 | `publish-nightly` | push / dispatch 到 main | 汇总各 RID package → 覆盖 `nightly` GitHub Release（prerelease，URL 稳定） |
