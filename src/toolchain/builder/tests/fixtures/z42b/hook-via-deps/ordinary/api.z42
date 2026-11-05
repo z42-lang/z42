@@ -1,0 +1,5 @@
+namespace Hp.Lib;
+
+using Hp.Leaf;
+
+public static class Api { public static int Value() { return Leaf.Value(); } }
