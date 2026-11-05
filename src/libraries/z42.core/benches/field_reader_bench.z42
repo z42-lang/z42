@@ -11,9 +11,8 @@ class Reader {
 }
 
 [Benchmark]
-void virtual_field_reader() {
+void virtual_field_reader(Bencher b) {
     Reader reader = new Reader(7);
-    var b = new Bencher(3, 24);
     b.iter(() => {
         int total = 0;
         int i = 0;
@@ -23,13 +22,11 @@ void virtual_field_reader() {
         }
         BenchHelpers.blackBox(total);
     });
-    b.printSummary("virtual_field_reader");
 }
 
 [Benchmark]
-void virtual_adjusted_reader() {
+void virtual_adjusted_reader(Bencher b) {
     Reader reader = new Reader(7);
-    var b = new Bencher(3, 24);
     b.iter(() => {
         int total = 0;
         int i = 0;
@@ -39,5 +36,4 @@ void virtual_adjusted_reader() {
         }
         BenchHelpers.blackBox(total);
     });
-    b.printSummary("virtual_adjusted_reader");
 }
