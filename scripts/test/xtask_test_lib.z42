@@ -8,100 +8,28 @@ using Std.Time;
 using Std.Collections;
 using Std.Cli;
 
-// 包的源码根 —— **两个 workspace 都要认**：用户 stdlib（`Std.*`）在 `src/libraries/`；编译器域库
-// 在 `src/compiler/`。🔴 只扫 `src/libraries/` 会让编译器域库的扁平 `tests/*.z42` 单元静默停跑——
-// `xtask test compiler` 运行 `tests/<unit>/` 的独立工程，接不住这些扁平单元。
-string _libSrcRoot(string root, string lib) {
-    string a = Path.Join(root, "src/libraries");
-    if (Directory.Exists(Path.Join(a, lib))) { return a; }
-    return Path.Join(root, "src/compiler");
-}
-
-// 一个包的 `tests/` 是不是**编译器格式**（`tests/<unit>/` 独立工程）—— 那种归
-// `xtask test compiler` 跑，本跑测器必须让开。
-//
-// 🔴 **判据刻意是「有没有工程清单」而不是「找到几个单元」**：
-//   · 不能指望「找到 0 个就自然跳过」—— 清单感知的发现会去编**包本体**，然后报
-//     `no [Test] or [Benchmark] found`，算失败；
-//   · 也不能「单元数为 0 就排除」—— 有源却零约定单元的包必须继续被枚举，孤儿源守卫打的那行
-//     ⚠ 是有意保留的欠债信号，滤掉就等于悄悄消音。
-bool _isCompilerFormatTests(string root, string lib) {
-    string td = Path.Join(Path.Join(root, "src/compiler"), Path.Join(lib, "tests"));
-    if (!Directory.Exists(td)) { return false; }
-    foreach (var e in Directory.Enumerate(td)) {
-        string unitDir = Path.Join(td, e);
-        if (!Directory.Exists(unitDir)) { continue; }
-        if (_fixtureManifest(unitDir).Length > 0) { return true; }
-    }
-    return false;
-}
-
-// 两个 workspace 的稳定并集；只有 test 让开编译器格式单元，bench 独立发现 benches/。
-string[] _allUnitLibs(string root, string kind) {
-    List<string> r = new List<string>();
-    r.AddRange(_sortedStrings(Directory.Enumerate(Path.Join(root, "src/libraries"))));
-    foreach (var b in _sortedStrings(Directory.Enumerate(Path.Join(root, "src/compiler")))) {
-        if (kind == "bench" || !_isCompilerFormatTests(root, b)) { r.Add(b); }
-    }
-    return r.ToArray();
-}
-
-// 按当前 kind 的目录估算 unit 数，用于分片负载均衡。
-int _libUnitCount(string root, string lib, string kind) {
-    string td = Path.Join(Path.Join(_libSrcRoot(root, lib), lib), kind == "bench" ? "benches" : "tests");
-    if (!Directory.Exists(td)) { return 0; }
-    int c = Path.Glob(td, "*.z42").Length;
-    foreach (var e in Path.Glob(td, "*")) {
-        if (File.Exists(Path.Join(e, "source.z42"))) { c = c + 1; }
-    }
-    return c;
-}
-
-// Libs assigned to shard k of n, balanced by the selected kind's unit count: sort libs by
-// count desc, then round-robin sorted positions across shards (longest-first
-// keeps the heavy libs in distinct shards → even load).
-string[] _shardLibs(string root, string kind, int k, int n) {
-    string[] all = _allUnitLibs(root, kind);   // 两个 workspace 并集（见 _libSrcRoot 头注）
-    int m = all.Length;
-    int[] cnt = new int[m];
-    int[] idx = new int[m];
-    int i = 0;
-    while (i < m) { cnt[i] = _libUnitCount(root, all[i], kind); idx[i] = i; i = i + 1; }
-    int a = 0;
-    while (a < m) {
-        int best = a;
-        int b = a + 1;
-        while (b < m) { if (cnt[idx[b]] > cnt[idx[best]]) { best = b; } b = b + 1; }
-        int t = idx[a]; idx[a] = idx[best]; idx[best] = t;
-        a = a + 1;
-    }
-    List<string> picked = new List<string>();
-    for (int p = k - 1; p < m; p = p + n) { picked.Add(all[idx[p]]); }
-    return picked.ToArray();
-}
-
 int _testLib(LibUnitsCommand c, string kind, string jsonOut) {
     Stopwatch sw = _procStart((kind == "bench") ? "bench stdlib" : "test stdlib");
     string lib = c.Lib;
-    string[] libs;
+    string[] projects;
     int[] sh = _parseShard(c.Shard);
     if (sh[1] > 0 && lib.Length > 0) {
         throw new CliException("--shard cannot be combined with a single library");
     }
     if (sh[1] > 0) {
-        libs = _shardLibs(_root(), kind, sh[0], sh[1]);
+        projects = _shardUnitProjects(_root(), kind, sh[0], sh[1]);
         Console.WriteLine("→ shard " + sh[0].ToString() + "/" + sh[1].ToString()
-            + ": " + libs.Length.ToString() + " libs");
+            + ": " + projects.Length.ToString() + " projects");
     } else if (lib.Length > 0) {
-        libs = new string[] { lib };
+        projects = new string[] { _selectUnitProject(_allUnitProjects(_root(), kind), lib) };
     } else {
-        libs = _allUnitLibs(_root(), kind);
+        projects = _allUnitProjects(_root(), kind);
     }
     // `bench stdlib --json <out>` → capture aggregated bench_stats into a baseline file
     // (median_ns primary metric). Only for bench; the test path passes "".
     MicroBenchAgg agg = (jsonOut.Length > 0) ? new MicroBenchAgg() : null;
     // --vm/--driver/--libs: optional explicit toolchain override (see _testLibCore).
-    int __rc = _testLibCore(kind, libs, c.NoBuild, c.Filter, c.Jobs, c.Mode, agg, c.Vm, c.Driver, c.Libs);
+    int __rc = _testLibCore(kind, projects, c.NoBuild, c.Filter, c.Jobs, c.Mode, agg, c.Vm, c.Driver, c.Libs);
     if (agg != null) {
         string outPath = _absUnder(_root(), jsonOut);
         Directory.Create(Path.GetDirectoryName(outPath));   // 结果目录（reports/benches）可能还不存在
@@ -112,30 +40,25 @@ int _testLib(LibUnitsCommand c, string kind, string jsonOut) {
     return __rc;
 }
 
-int _testLibCore(string kind, string[] libList, bool noBuild, string filter, string jobs, string mode, MicroBenchAgg agg,
+int _testLibCore(string kind, string[] projects, bool noBuild, string filter, string jobs, string mode, MicroBenchAgg agg,
                  string ovVm, string ovDriver, string ovLibs) {
-    // kind = "test" → discover <lib>/tests/, merge [tests.dependencies], emit
-    // <lib>.test.<unit> to <lib>/release/tests/. "bench" → <lib>/benches/,
-    // [bench.dependencies], <lib>.bench.<unit> to <lib>/release/benches/. The
-    // z42b runs both [Test] and [Benchmark] regardless.
-    //
+    // 已选中的真实工程清单；test / bench 目标由 z42b 按同一份清单发现与执行。
     // ovVm/ovDriver/ovLibs (empty = derive from in-tree): when all set, use that PROVIDED
     // toolchain (vm + z42c.driver.zpkg + flat libs dir) and skip the in-tree rebuild — the
     // micro A/B base capture (bench-pr.yml) points these at the base toolchain the e2e A/B uses.
     // 调用方已完成全库 / 单库 / 分片选择；空集合是合法空分片，不能扩大或准备工具链。
-    if (libList.Length == 0) {
+    if (projects.Length == 0) {
         Console.WriteLine("  no libraries selected; nothing to run");
         return 0;
     }
-    string root = _root();
     List<string> dirs = new List<string>();
-    foreach (var l in libList) { dirs.Add(Path.Join(_libSrcRoot(root, l), l)); }
-    return _testPkgsCore(kind, "stdlib", dirs.ToArray(), libList, noBuild, filter, jobs, mode, agg, ovVm, ovDriver, ovLibs);
+    foreach (var toml in projects) { dirs.Add(Path.GetDirectoryName(toml)); }
+    return _testPkgsCore(kind, "stdlib", dirs.ToArray(), noBuild, filter, jobs, mode, agg, ovVm, ovDriver, ovLibs);
 }
 
-// 共用的 [Test] / [Benchmark] 跑测器：给定一组包（目录 + 包名，清单 = <dir>/<name>.z42.toml），先备工具链
+// 共用的 [Test] / [Benchmark] 跑测器：给定一组包（目录，工程清单按 ManifestLocator 定位），先备工具链
 // （z42vm + stdlib + z42b），再逐包转发给 z42b。`suite` 只用于汇总行（stdlib / toolchain）。
-int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool noBuild, string filter,
+int _testPkgsCore(string kind, string suite, string[] dirs, bool noBuild, string filter,
                   string jobs, string mode, MicroBenchAgg agg, string ovVm, string ovDriver, string ovLibs) {
     string label  = (kind == "bench") ? "bench" : "test";
     if (jobs.Length == 0) { jobs = "1"; }   // forwarded to z42b
@@ -158,7 +81,7 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
         // byte-identical gen2 self-build.
     }
     // compile toolchain: z42vm + z42c.driver.zpkg + Z42_LIBS = 纯 stdlib flat。driver 的 dist
-    // 自包含；编译器域的测试库（_allUnitLibs）按名声明的编译器包由 driver 从编译器目录解析；z42b 运行期
+    // 自包含；编译器域的测试库（_allUnitProjects）按名声明的编译器包由 driver 从编译器目录解析；z42b 运行期
     // 加载编译器包经 `_z42bProc`（z42b 启动点统一挂）。override（--vm/--driver/--libs，bench A/B 的
     // base 侧）照旧用调用方给的目录。
     string vm = useOverride ? ovVm : _builtVm(root, "release");
@@ -188,7 +111,7 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
     // forwards to z42b (discovery: [tests]/[benches] section + explicit [[test]]/[[bench]]).
     int pi = 0;
     while (pi < dirs.Length) {
-        int f = _runLibKind(root, dirs[pi], names[pi], kind, label, filter,
+        int f = _runLibKind(root, dirs[pi], kind, label, filter,
                             builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
                             ref totalFiles, ref libsTested);
         if (f < 0) { return 2; }

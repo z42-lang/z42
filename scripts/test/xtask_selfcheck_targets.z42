@@ -37,28 +37,28 @@ int _selfcheckFixtureTargets(string root, TargetTooling tt) {
 void _selfcheckFixtureManifest(string root) {
     string dir = _xtaskWork(root, "fixture-manifest-selection");
     _resetDir(dir);
-    if (_fixtureManifest(Path.Join(dir, "missing")) != "" || _fixtureManifest(dir) != "") {
+    if (_findManifest(Path.Join(dir, "missing")).ManifestPath != "" || _findManifest(dir).ManifestPath != "") {
         throw new Exception("fixture manifest: absent project must not select a parent");
     }
     File.WriteAllText(Path.Join(dir, "expect.toml"), "exit = 0\n");
     File.WriteAllText(Path.Join(dir, "Cargo.toml"), "[package]\n");
-    if (_fixtureManifest(dir) != "") { throw new Exception("fixture manifest: unrelated TOML selected as a project"); }
+    if (_findManifest(dir).ManifestPath != "") { throw new Exception("fixture manifest: unrelated TOML selected as a project"); }
     string a = Path.Join(dir, "a.z42.toml");
     string b = Path.Join(dir, "b.z42.toml");
     File.WriteAllText(a, "");
-    if (_fixtureManifest(dir) != a) { throw new Exception("fixture manifest: unique named project not selected"); }
+    if (_findManifest(dir).ManifestPath != a) { throw new Exception("fixture manifest: unique named project not selected"); }
     File.WriteAllText(b, "");
     bool rejected = false;
-    try { _fixtureManifest(dir); }
+    try { _findManifest(dir); }
     catch (Exception e) { rejected = e.Message.Contains("a.z42.toml") && e.Message.Contains("b.z42.toml"); }
     if (!rejected) { throw new Exception("fixture manifest: ambiguous projects must list both candidates"); }
     string bare = Path.Join(dir, "z42.toml");
     File.WriteAllText(bare, "");
-    if (_fixtureManifest(dir) != bare) { throw new Exception("fixture manifest: bare project must take precedence"); }
+    if (_findManifest(dir).ManifestPath != bare) { throw new Exception("fixture manifest: bare project must take precedence"); }
     File.Delete(bare); File.Delete(a); File.Delete(b);
     string workspace = Path.Join(dir, "z42.workspace.toml");
     File.WriteAllText(workspace, "");
-    if (_fixtureManifest(dir) != workspace) { throw new Exception("fixture manifest: workspace not selected"); }
+    if (_findManifest(dir).ManifestPath != workspace) { throw new Exception("fixture manifest: workspace not selected"); }
     Directory.Delete(dir, true);
     Console.WriteLine("  ✅ fixture manifest: missing, unrelated TOML, named, ambiguous, bare priority, workspace");
 }
