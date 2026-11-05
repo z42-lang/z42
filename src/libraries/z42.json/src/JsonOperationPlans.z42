@@ -13,8 +13,10 @@ internal class JsonTypePlan {
     public ParameterInfo[] Parameters;
 
     private MethodInfo _listItem;
-    private MethodInfo _dictionaryKeys;
     private MethodInfo _dictionaryItem;
+
+    /// 已绑定的字典 Keys 方法。
+    public MethodInfo DictionaryKeys;
 
     /// 绑定非空 List 的索引 getter。
     public MethodInfo GetListItem(Type t) {
@@ -24,19 +26,14 @@ internal class JsonTypePlan {
         return this._listItem;
     }
 
-    /// 绑定用于读取当前 Dictionary 键的 Keys 方法。
-    public MethodInfo GetDictionaryKeys(Type t) {
-        if (this._dictionaryKeys == null) {
-            this._dictionaryKeys = JsonReflect.BindMethod(t, "Keys", new Type[0]);
-        }
-        return this._dictionaryKeys;
-    }
-
     /// 按实际键类型绑定非空 Dictionary 的索引 getter。
-    public MethodInfo GetDictionaryItem(Type t) {
+    public MethodInfo GetDictionaryItem(Type t, JsonTypePlan keysPlan, MethodInfo[] methods) {
         if (this._dictionaryItem == null) {
             Type keyType = JsonReflect.GenericArg(t, 0);
-            this._dictionaryItem = JsonReflect.BindMethod(t, "get_Item", new Type[] { keyType });
+            if (methods == null || !Object.ReferenceEquals(this, keysPlan)) {
+                methods = t.GetMethods();
+            }
+            this._dictionaryItem = JsonReflect.BindMethod(methods, "get_Item", new Type[] { keyType });
         }
         return this._dictionaryItem;
     }

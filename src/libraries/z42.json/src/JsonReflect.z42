@@ -12,7 +12,11 @@ internal static class JsonReflect {
 
     /// 按名称、实例/非泛型形态及完整参数类型绑定唯一 public 方法。
     public static MethodInfo BindMethod(Type t, string name, Type[] parameterTypes) {
-        MethodInfo[] ms = t.GetMethods();
+        return JsonReflect.BindMethod(t.GetMethods(), name, parameterTypes);
+    }
+
+    /// 按现有签名规则从同一轮已枚举的元数据查找方法。
+    public static MethodInfo BindMethod(MethodInfo[] ms, string name, Type[] parameterTypes) {
         MethodInfo found = null;
         int i = 0;
         while (i < ms.Length) {
