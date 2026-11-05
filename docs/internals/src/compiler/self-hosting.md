@@ -20,13 +20,26 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 | `z42c.optimization` | lib | IR → IR 优化管线 + `Opt` 开关 | package |
 | `z42c.semantics` | lib | 符号收集 + 绑定 + TypeCheck（不含代码生成）| core, syntax, package |
 | `z42c.emission` | lib | Codegen（Bound → IR）+ 单文件 / 包编译编排 | core, syntax, package, optimization, semantics |
-| `z42c.pipeline` | lib | 编排（workspace 构建、依赖扫描、缓存）| core, syntax, semantics, emission, optimization, package, project, build |
-| `z42c.driver` | exe | `z42c` 命令入口 | pipeline, semantics, emission, optimization, syntax, core, package, project |
-| `z42.scripting` | lib | eval 内核 | core, syntax, build |
+| `z42c.pipeline` | lib | 编排（workspace 构建、依赖扫描、缓存）| core, syntax, semantics, emission, optimization, package, project, compiler.contracts |
+| `z42c.driver` | exe | `z42c` 命令入口 | pipeline, semantics, emission, optimization, syntax, core, package, project, build |
+| `z42.scripting` | lib | eval 内核 | core, syntax, compiler.contracts |
 
 各包另依赖 stdlib（`z42.core` / `z42.io` / `z42.toml` 等，自动可用）。`z42.package` / `z42.project` / `z42.compiler.contracts` / `z42.build` / `z42c.core` / `z42c.syntax` 与 `z42.core` 合称**自依赖库**：z42c 运行期与编译期都要用它们，而它们又由 z42c 构建（见轴 ④）。普通工程的解析域只有 shipped `libs/`，要用编译器域库须在 `[dependencies]` 按名声明。
 
 依赖解析：成员从**当前 workspace** 解析 toml 声明的兄弟依赖，与输出位置无关；除 stdlib 外的依赖必须在 `[dependencies]` 声明。远程依赖（registry / git URL）见 [Deferred](#deferred--future-work)。
+
+### 编译契约与预建解析域
+
+编译契约包在 build 框架之前预建；旧种子中的框架副本不得遮盖 flat 当前定义。
+验证须核对接口全名/签名、唯一导出与动态注入类型身份，并在新默认成员集上执行不动点对账。
+
+预建输入在 artifacts 下使用独立清单，不继承源码 workspace 的隐式 SDK 成员准入。清单保留原选项，
+include 是按原根目录与排除规则展开的精确绝对源列表，诊断仍指向真实源码；path 前置只按名称解析，
+它们已由预建顺序写入 compile-libs。运行期 seed/probing 独立且不改写，避免迁移契约时导入旧 owner 的同名定义。
+
+`test compiler bootstrap` 的 nightly/repo 双轨使用同一隔离输入规则：种子 compiler bundle 只进入运行期快照，
+编译期先仅复制当前 shipped stdlib 名单中的包，再累加 fresh 前置和成员；不能把旧 framework 定义当作编译前置。
+双轨仍按 interp 编译，其 seed runtime probing 与 compile-libs 分开。
 
 ## 受限写法约定
 
@@ -255,10 +268,3 @@ kind=lib，经 z42b 运行；`z42.harness` 自动可用，不在 toml 声明。�
 - **前置依赖**：给 `Z42FuncType` 加 `MinArgCount` + 构造点透传 + `ImportedSymbolLoader` 从 TSIG 读回
 - **触发条件**：出现「子类继承其它包默认参数方法并 re-export」且被第三包省略默认实参调用时
 - **当前 workaround**：此类方法在 TSIG 中标全必填；调用方显式传全部实参，或在定义类直接覆写
-
-编译契约包在 build 框架之前预建；旧种子中的框架副本不得遮盖 flat 当前定义。
-验证须核对接口全名/签名、唯一导出与动态注入类型身份，并在新默认成员集上执行不动点对账。
-
-预建输入在 artifacts 下使用独立清单，不继承源码 workspace 的隐式 SDK 成员准入。清单保留原选项，
-include 是按原根目录与排除规则展开的精确绝对源列表，诊断仍指向真实源码；path 前置只按名称解析，
-它们已由预建顺序写入 compile-libs。运行期 seed/probing 独立且不改写，避免迁移契约时导入旧 owner 的同名定义。

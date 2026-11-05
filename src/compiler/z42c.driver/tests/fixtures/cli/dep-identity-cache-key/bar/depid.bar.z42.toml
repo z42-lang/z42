@@ -9,3 +9,7 @@ include = ["*.z42"]
 
 [dependencies]
 "depid.foo" = { path = "../foo" }
+
+# This fixture exercises preserved output without compiler-side analyzers.
+[plugins]
+"z42.harness.lint" = false

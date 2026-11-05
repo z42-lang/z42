@@ -13,8 +13,8 @@ string _bootstrapInputManifest(string toml, string staging, string compileLibs) 
     string[] includes = manifest.Sources.Include;
     int count = manifest.Sources.IncludeCount;
     if (count == 0) { includes = new string[] { "**/*.z42" }; count = 1; }
-    string[] sources = SourceDiscovery.DiscoverWithExclude(sourceDir, includes, count,
-        manifest.Sources.Exclude, manifest.Sources.ExcludeCount);
+    string[] excludes = manifest.EffectiveSourceExcludes();
+    string[] sources = SourceDiscovery.DiscoverWithExclude(sourceDir, includes, count, excludes, excludes.Length);
     if (sources.Length == 0) { throw new Exception("bootstrap source set is empty: " + toml); }
     TomlValue root = TomlValue.Parse(File.ReadAllText(toml));
     TomlValue sourceTable = root.ContainsKey("sources") ? root.Get("sources") : TomlValue.OfTable();
