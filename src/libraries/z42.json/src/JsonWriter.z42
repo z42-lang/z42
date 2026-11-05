@@ -27,6 +27,10 @@ internal class JsonWriteBuffer {
     private int _n;
     private bool _pretty;
     private int _depth;
+    // One newline prefix for each remainder of an eight-level indentation block.
+    private static string[] _indentPrefixes = new string[] {
+        "\n", "\n  ", "\n    ", "\n      ", "\n        ", "\n          ", "\n            ", "\n              "
+    };
     private static readonly string _escapeChars = JsonWriteBuffer.MakeEscapeChars();
 
     private static string MakeEscapeChars() {
@@ -123,8 +127,9 @@ internal class JsonWriteBuffer {
     }
 
     private void PutNewlineIndent() {
-        this.Put("\n");
-        for (int i = 0; i < this._depth; i++) { this.Put("  "); }
+        int depth = this._depth;
+        this.Put(JsonWriteBuffer._indentPrefixes[depth & 7]);
+        for (int blocks = depth >> 3; blocks > 0; blocks = blocks - 1) { this.Put("                "); }
     }
 
     // `"s"` with JSON string escapes: control chars and `"` / `\`. Non-ASCII

@@ -108,12 +108,19 @@ public class StreamReader : TextReader {
     public string ReadToEnd() {
         this.EnsureOpen();
         StringBuilder parts = new StringBuilder();
-        while (this.EnsureChars(true)) {
-            if (this._pos == 0) { parts.Append(this._text); }
-            else { parts.Append(this._text.Substring(this._pos)); }
-            this._pos = this._length;
+        try {
+            while (this.EnsureChars(true)) {
+                if (this._pos == 0) { parts.Append(this._text); }
+                else { parts.Append(this._text.Substring(this._pos)); }
+                this._pos = this._length;
+            }
+            return parts.ToString();
+        } finally {
+            // 恢复尚未消费的字符块，供随后逐字符读取。
+            if (this._chars == null && this._pos < this._length) {
+                this._chars = this._text.ToCharArray();
+            }
         }
-        return parts.ToString();
     }
 
     /// 幂等释放工作缓冲与源引用，不关闭源流；Dispose 沿基类调用此方法。
@@ -144,7 +151,8 @@ public class StreamReader : TextReader {
             if (this._pos >= this._length && !this.Fill(drain)) { return false; }
             if (!this._skipLf) { return true; }
             this._skipLf = false;
-            if (this._chars[this._pos] != '\n') { return true; }
+            char current = this._chars == null ? this._text.CharAt(this._pos) : this._chars[this._pos];
+            if (current != '\n') { return true; }
             this._pos = this._pos + 1;
         }
         return false;
@@ -156,13 +164,13 @@ public class StreamReader : TextReader {
         this._pos = 0;
         this._length = 0;
         // 源异常可能留下尚未解码的成功短读；先交付其中完整字符。
-        if (this._byteCount > 0 && this.DecodeBuffered()) { return true; }
+        if (this._byteCount > 0 && this.DecodeBuffered(drain)) { return true; }
         if (this._eof) { this.Release(); return false; }
         if (this._bytes == null) { this._bytes = new byte[4096]; }
         while (true) {
             this.ReadBytes(drain);
             if (this._byteCount == 0) { this.Release(); return false; }
-            if (this.DecodeBuffered()) { return true; }
+            if (this.DecodeBuffered(drain)) { return true; }
         }
         return false;
     }
@@ -191,15 +199,19 @@ public class StreamReader : TextReader {
         }
     }
 
-    private bool DecodeBuffered() {
+    private bool DecodeBuffered(bool drain) {
         try {
             int tail = this.IncompleteTail(this._byteCount);
             int complete = this._byteCount - tail;
             if (this._eof && tail > 0) { throw new FormatException("StreamReader: truncated UTF-8"); }
             if (complete == 0) { return false; }
             this._text = this._encoding.GetString(this._bytes, 0, complete);
-            this._chars = this._text.ToCharArray();
-            this._length = this._chars.Length;
+            if (drain) {
+                this._length = this._text.Length;
+            } else {
+                this._chars = this._text.ToCharArray();
+                this._length = this._chars.Length;
+            }
             if (tail > 0) { Array.CopyRange(this._bytes, complete, this._bytes, 0, tail); }
             this._byteCount = tail;
             return true;

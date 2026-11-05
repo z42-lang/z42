@@ -87,8 +87,12 @@ void Main() {
     Assert.False(inv is Box<int>);
     Assert.True(inv.GetType() == typeof(Box<string>));
     // 实参本身是构造类型：不丢内层实参
-    Type nested = typeof(Box<int>).GetGenericTypeDefinition().MakeGenericType(typeof(List<int>));
+    Type inner = typeof(List<int>);
+    Type[] args = new Type[] { inner };
+    Type nested = typeof(Box<int>).GetGenericTypeDefinition().MakeGenericType(args);
+    args[0] = typeof(string);
     Assert.True(nested == typeof(Box<List<int>>));
+    Assert.True(Object.ReferenceEquals(inner, nested.GetGenericArguments()[0]));
 
     // ── ③ 构造类型的反射：基类 / 接口 / 成员类型 / 可赋值性按实参 ────────────
     Type st = new Sub<int>(1).GetType();
