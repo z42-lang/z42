@@ -5,6 +5,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Cli;
 using Std.Collections;
 
 // One enumerated corpus case (structural descriptor, rid-independent). Shared SoT
@@ -183,6 +184,15 @@ _CorpusCase[] _shardCorpus(_CorpusCase[] cases, int k, int n) {
     return outc.ToArray();
 }
 
+// Empty RID is the desktop caller; named targets use the existing RID registry.
+// CI tier describes coverage, while category determines the local smoke policy.
+_CorpusCase[] _selectBundleCorpus(string root, _CorpusCase[] cases, string rid, int shardK, int shardN) {
+    string category = rid.Length == 0 ? "desktop" : _vRidCategory(root, rid);
+    if (category == "unknown") { throw new CliException("unknown test bundle RID: " + rid); }
+    if (shardN > 0) { return _shardCorpus(cases, shardK, shardN); }
+    return _sampleCorpus(cases, category == "desktop" ? 0 : 60);
+}
+
 // Build the test bundle. Returns the manifest.json path ("" if no cases matched).
 // Pipeline: enumerate full corpus → SELECT (shard slice OR per-category smoke
 // sample) → compile the selection. Platform capability gating is NOT done here:
@@ -190,21 +200,18 @@ _CorpusCase[] _shardCorpus(_CorpusCase[] cases, int k, int n) {
 // runner (Std.Harness.BundleRunner) skips it when the target VM's Capabilities()
 // lack one — the runtime is the ground truth, there is no per-rid table to drift.
 //
-// Two select modes on tier-2 (wasm/ios/android):
+// Two select modes on non-desktop targets:
 //   • shardN>0  → full-coverage slice k/n (_shardCorpus, NO cap). Nightly CI
 //     fans out n parallel shard jobs; their union = 100% of the runnable corpus.
 //   • shardN==0 → per-category smoke sample to embedCap=60 (_sampleCorpus) — the fast
 //     local default; the whole corpus would blow the emulator/browser job wall.
 string _buildTestBundle(string root, string filter, string rid, int shardK, int shardN) {
     string bundleDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "bundle");
-    int embedCap = (rid.Contains("wasm") || rid.Contains("ios") || rid.Contains("android")) ? 60 : 0;
 
     _CorpusCase[] included = _enumerateCorpus(root, filter);
     int ni = included.Length;
     // --shard k/n wins over the smoke cap: run the full 1/n slice, no cap.
-    _CorpusCase[] sel;
-    if (shardN > 0) { sel = _shardCorpus(included, shardK, shardN); }
-    else            { sel = _sampleCorpus(included, embedCap); }
+    _CorpusCase[] sel = _selectBundleCorpus(root, included, rid, shardK, shardN);
     int capped = (shardN > 0) ? 0 : (ni - sel.Length);
 
     if (shardN > 0) {
@@ -215,7 +222,7 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
     }
     if (capped > 0) {
         Console.WriteLine("  (embed smoke: sampled " + sel.Length.ToString() + " of "
-            + ni.ToString() + " per-category (cap " + embedCap.ToString() + "); skipped "
+            + ni.ToString() + " per-category (cap " + sel.Length.ToString() + "); skipped "
             + capped.ToString() + " — full coverage runs on desktop or via --shard)");
     }
     string mpath = _compileTestBundle(root, sel, bundleDir);
