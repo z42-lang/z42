@@ -39,7 +39,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | 运行时诊断 / 计数器 / profile | `diagnostics.rs` |
 | 运行时设置只读查询 / 应用自定义属性 | `config.rs`（`Std.Runtime.RuntimeConfig`）/ `appprops.rs`（`Std.Runtime.AppProperties`） |
 | `available!(X)` 运行期回落 | `symavail.rs` |
-| 数组内建 | `array.rs` |
+| 数组内建（含基元与字符串区间查找） | `array.rs` |
 | GC 控制（collect / 阈值 / 快照） | `gc.rs` |
 | 基准计时 | `bench.rs` |
 | 子进程（`typed` 模块，ABI v2：失败从 Rust 抛、等子进程一律 park）/ 平台 / 系统信息 | `process.rs` / `platform.rs` / `system.rs` |
