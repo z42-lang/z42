@@ -5,10 +5,9 @@ using Std.Harness;
 [Record]
 public struct Entry(int Count, string Name) { }
 
-void measureInts(int size, int repeats, string name) {
+void measureInts(int size, int repeats, Bencher b) {
     int[] input = new int[size];
     input[size - 1] = 71;
-    var b = new Bencher(4, 24);
     b.iter(() => {
         for (int i = 0; i < repeats; i = i + 1) {
             int[] resized = Array.Resize<int>(input, size + 1);
@@ -17,35 +16,30 @@ void measureInts(int size, int repeats, string name) {
             BenchHelpers.blackBox(resized);
         }
     });
-    b.printSummary(name);
 }
 
 [Benchmark]
-void array_resize_small() { measureInts(8, 128, "array_resize_small"); }
+void array_resize_small(Bencher b) { measureInts(8, 128, b); }
 [Benchmark]
-void array_resize_ints() { measureInts(8192, 4, "array_resize_ints"); }
+void array_resize_ints(Bencher b) { measureInts(8192, 4, b); }
 [Benchmark]
-void array_resize_refs() {
+void array_resize_refs(Bencher b) {
     string[] input = new string[8192];
     Array.Fill<string>(input, "é😀");
-    var b = new Bencher(4, 24);
     b.iter(() => {
         string[] resized = Array.Resize<string>(input, 4096);
         Assert.Equal("é😀", resized[4095]);
         BenchHelpers.blackBox(resized);
     });
-    b.printSummary("array_resize_refs");
 }
 [Benchmark]
-void array_resize_structs() {
+void array_resize_structs(Bencher b) {
     Entry[] input = new Entry[4096];
     Array.Fill<Entry>(input, new Entry(7, "é"));
-    var b = new Bencher(4, 24);
     b.iter(() => {
         Entry[] resized = Array.Resize<Entry>(input, 8192);
         Assert.Equal(7, resized[4095].Count);
         Assert.Equal("é", resized[4095].Name);
         BenchHelpers.blackBox(resized);
     });
-    b.printSummary("array_resize_structs");
 }
