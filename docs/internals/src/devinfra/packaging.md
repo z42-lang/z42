@@ -209,7 +209,7 @@ source-identity 只比「拷进来的东西和源一不一致」，管不到「�
 | 移动 / 浏览器管道 | `xtask_package_{ios,android,wasm}.z42` | native 产物 + 平台 facade（SwiftPM / Gradle / npm）|
 | 能力 workload | `xtask_package_test.z42` | 见 §4 |
 | 发布归档 / 索引 | `xtask_release.z42` | 打包命令的 `--archive`（本次产出的包目录 → 同目录下的归档，命名规则唯一出处）、`package release`（合并 desktop workload → `SHA256SUMS` → `release-index.json`，launcher 的供给契约）|
-| 自检 + 端到端 | `scripts/test/sdk/` 中的自检与 `xtask_package_verify.z42`，入口 `package sdk --verify` | 解析 / 组件安装 / 发布归档三层自检，再在这份 SDK 上跑发行包夹具 + golden |
+| 自检 + 端到端 | `scripts/test/sdk/` 中的自检、`xtask_package_verify.z42` 与 `xtask_package_goldens.z42`，入口 `package sdk --verify` | 解析 / 组件安装 / 发布归档三层自检，再在这份 SDK 上跑发行包夹具 + golden；golden 要求退出 0 且输出匹配 |
 
 ## 7. 边界与限制
 

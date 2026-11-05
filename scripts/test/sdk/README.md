@@ -10,6 +10,8 @@
 | 功能 | 入口 |
 |---|---|
 | 验证本次 SDK 的发行包夹具与 golden | `xtask_package_verify.z42` 的 `_packageVerify` |
+| 编译并执行发行包 golden，同时检查退出码与输出 | `xtask_package_goldens.z42` |
+| 回归真实退出 0 / 7、输出不符与编译失败 | `xtask_selfcheck_dist_goldens.z42` 的 `_selfcheckDistGoldens` |
 | 校验包配置、组件安装与发布归档 | `xtask_package_selfcheck.z42` 的 `_pkgSelfCheck` |
 
 ## 如何测试验证
