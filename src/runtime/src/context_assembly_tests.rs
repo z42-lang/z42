@@ -14,12 +14,14 @@ fn captured_vm_inputs_choose_independent_heap_modes() {
         crate::pal::fs::default_vfs(),
         crate::extension_assembly::freeze(Default::default()),
         stw,
+        crate::object_protocol_assembly::services(),
     );
     let second = VmContext::new_internal(
         None,
         crate::pal::fs::default_vfs(),
         crate::extension_assembly::freeze(Default::default()),
         generational,
+        crate::object_protocol_assembly::services(),
     );
     assert_eq!(first.heap().mode(), GcMode::StwMarkSweep);
     assert_eq!(second.heap().mode(), GcMode::GenerationalMarkSweep);
@@ -54,4 +56,144 @@ fn worker_retains_facade_resources_until_last_context_drop() {
     drop(worker);
     assert!(core.upgrade().is_none());
     assert_eq!(drops.load(Ordering::SeqCst), 1);
+}
+
+use crate::object::{NativeData, TypeDesc, Value};
+use crate::vm::exec::call::builtin_abi::BuiltinError;
+use crate::vm::exec::object_protocol::ObjectProtocol;
+use crate::vm::exec::ops::{stringify::with_obj_str, vcall::{resolve_vcall, VCallTarget}};
+use std::{cell::Cell, sync::Arc};
+
+thread_local! { static PROTOCOL_CALLS: Cell<usize> = const { Cell::new(0) }; }
+
+fn protocol_context(protocol: ObjectProtocol) -> std::pin::Pin<Box<VmContext>> {
+    VmContext::new_internal(
+        None, crate::pal::fs::default_vfs(),
+        crate::extension_assembly::freeze(Default::default()),
+        RuntimeConfig::from_getter(|_| None).vm_config(), protocol,
+    )
+}
+
+fn protocol_module() -> crate::vm::runtime::Module {
+    crate::vm::runtime::Module::new(crate::metadata::image::ModuleData {
+        name: "ProtocolTest".into(), string_pool: vec![], classes: vec![],
+        func_index: Default::default(),
+    }, vec![], Default::default())
+}
+
+fn protocol_type(name: &str) -> Arc<TypeDesc> {
+    Arc::new(TypeDesc {
+        class_flags: 0, visibility: 0, name: name.into(), base_name: None,
+        fields: vec![], field_index: Default::default(), vtable: vec![],
+        vtable_index: Default::default(), cold: None,
+        id: crate::vm::runtime::ids::tokens::TypeId(
+            crate::vm::runtime::ids::tokens::alloc_type_id_block(1)),
+    })
+}
+
+fn protocol_box(ctx: &VmContext, name: &str) -> Value {
+    let Value::Object(obj) = ctx.heap().alloc_boxed_prim(
+        protocol_type(name), 42i64.to_le_bytes().to_vec().into_boxed_slice(),
+    ) else { panic!("expected allocated object") };
+    Value::BoxedStruct(obj)
+}
+
+fn registered_get_type(ctx: &VmContext, value: &Value) -> Result<Value, BuiltinError> {
+    PROTOCOL_CALLS.with(|calls| calls.set(calls.get() + 1));
+    let Value::BoxedStruct(obj) = value else { panic!("receiver must remain boxed") };
+    assert!(ctx.module().is_none(), "the consumer must pass its own context");
+    Ok(Value::I64(if obj.type_desc().name == "Std.Int64" { 64 } else { 42 }))
+}
+
+fn registered_string(value: &Value) -> Result<String, BuiltinError> {
+    PROTOCOL_CALLS.with(|calls| calls.set(calls.get() + 1));
+    assert!(matches!(value, Value::Object(_)));
+    Ok("registered default".into())
+}
+
+#[test]
+fn object_protocol_boxed_get_type_consumes_registration_for_both_receiver_kinds() {
+    PROTOCOL_CALLS.with(|calls| calls.set(0));
+    let ctx = protocol_context(ObjectProtocol {
+        get_type: registered_get_type, ..crate::object_protocol_assembly::services()
+    });
+    let module = protocol_module();
+    for (name, expected) in [("Std.Int64", 64), ("Demo.Pair", 42)] {
+        let boxed = protocol_box(&ctx, name);
+        let root = ctx.heap().pin_root(boxed.clone());
+        let result = resolve_vcall(&ctx, &module, &boxed, "GetType", 0, None).unwrap();
+        assert!(matches!(result.target, VCallTarget::Immediate(Value::I64(n)) if n == expected));
+        let (Value::BoxedStruct(before), Value::BoxedStruct(after)) = (&boxed, result.this) else {
+            panic!("resolved receiver must remain boxed")
+        };
+        assert!(crate::object::ObjRef::ptr_eq(before, &after));
+        ctx.heap().unpin_root(root);
+    }
+    assert_eq!(PROTOCOL_CALLS.with(Cell::get), 2);
+}
+
+#[test]
+fn object_protocol_string_fallback_uses_registration_but_scalars_bypass_it() {
+    PROTOCOL_CALLS.with(|calls| calls.set(0));
+    let ctx = protocol_context(ObjectProtocol {
+        default_to_string: registered_string, ..crate::object_protocol_assembly::services()
+    });
+    let module = protocol_module();
+    let object = ctx.heap().alloc_object(protocol_type("Demo.Plain"), vec![], NativeData::None);
+    let root = ctx.heap().pin_root(object.clone());
+    assert_eq!(with_obj_str(&ctx, &module, &object, str::to_owned).unwrap(), "registered default");
+    assert_eq!(with_obj_str(&ctx, &module, &Value::I64(19), str::to_owned).unwrap(), "19");
+    assert_eq!(PROTOCOL_CALLS.with(Cell::get), 1);
+    ctx.heap().unpin_root(root);
+}
+
+#[test]
+fn object_protocol_consumer_errors_keep_the_original_channels() {
+    fn get_type(_: &VmContext, _: &Value) -> Result<Value, BuiltinError> {
+        Err(BuiltinError::Internal("registered GetType failure".into()))
+    }
+    fn default_to_string(_: &Value) -> Result<String, BuiltinError> {
+        Err(BuiltinError::Internal("registered ToString failure".into()))
+    }
+    let ctx = protocol_context(ObjectProtocol { get_type, default_to_string });
+    let module = protocol_module();
+    let boxed = protocol_box(&ctx, "Std.Int64");
+    let root = ctx.heap().pin_root(boxed.clone());
+    let Err(error) = resolve_vcall(&ctx, &module, &boxed, "GetType", 0, None) else {
+        panic!("registered error must propagate")
+    };
+    assert!(error.to_string().contains("registered GetType failure"));
+    ctx.heap().unpin_root(root);
+    let object = ctx.heap().alloc_object(protocol_type("Demo.Plain"), vec![], NativeData::None);
+    let root = ctx.heap().pin_root(object.clone());
+    let error = with_obj_str(&ctx, &module, &object, str::to_owned).unwrap_err();
+    assert!(error.to_string().contains("registered ToString failure"));
+    assert!(ctx.take_pending_thrown().is_none());
+    ctx.heap().unpin_root(root);
+}
+
+#[test]
+fn object_protocol_default_services_are_shared_with_workers_without_retaining_the_core() {
+    let primary = VmContext::new();
+    let other = VmContext::with_vfs(crate::pal::fs::default_vfs());
+    let worker = VmContext::new_with_core(primary.core_arc());
+    assert!(std::ptr::eq(&primary.core.exec.object_protocol, &worker.core.exec.object_protocol));
+    assert!(!std::ptr::eq(&primary.core.exec.object_protocol, &other.core.exec.object_protocol));
+    let weak = Arc::downgrade(&primary.core_arc());
+    drop(primary);
+    let protocol = worker.core.exec.object_protocol;
+    assert_eq!((protocol.default_to_string)(&Value::Null).unwrap(), "null");
+    // Reflection needs the Std.Type shell; a bare VM deliberately returns null.
+    worker.install_lazy_loader(None, 0);
+    worker.core.loader.lazy_loader.write().as_mut().unwrap()
+        .insert_type("Std.Type".into(), protocol_type("Std.Type"));
+    let receiver = protocol_box(&worker, "Std.Int64");
+    let root = worker.heap().pin_root(receiver);
+    let reflected = (protocol.get_type)(&worker, &receiver).unwrap();
+    let Value::Object(ty) = reflected else { panic!("registered provider must materialize Std.Type") };
+    assert_eq!(ty.type_desc().name, "Std.Type");
+    worker.heap().unpin_root(root);
+    assert!(matches!((protocol.get_type)(&worker, &Value::Null), Err(BuiltinError::Legacy(_))));
+    drop(worker);
+    assert!(weak.upgrade().is_none());
 }

@@ -49,11 +49,8 @@ public class StringReader {
         if (remaining <= 0) { return 0; }
         int n = count;
         if (n > remaining) { n = remaining; }
-        int i = 0;
-        while (i < n) {
-            buffer[offset + i] = this._chars[this._pos + i];
-            i = i + 1;
-        }
+        if (n == 1) { buffer[offset] = this._chars[this._pos]; }
+        else { Array.CopyRange(this._chars, this._pos, buffer, offset, n); }
         this._pos = this._pos + n;
         return n;
     }
