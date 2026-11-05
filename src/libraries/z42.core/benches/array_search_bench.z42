@@ -3,39 +3,31 @@ using Std.Harness;
 using Std.Collections;
 
 [Benchmark]
-void ArrayInts() {
+void ArrayInts(Bencher b) {
     int[] a = new int[1024];
     a[1023] = 9;
-    var b = new Bencher(5, 24);
     b.iter(() => { BenchHelpers.blackBox(Array.IndexOf<int>(a, 9)); });
-    b.printSummary("search_array_int_1024");
 }
 
 [Benchmark]
-void ArrayStrings() {
+void ArrayStrings(Bencher b) {
     string[] a = new string[1024];
     Array.Fill<string>(a, "skip");
     a[1023] = "hit";
-    var b = new Bencher(5, 24);
     b.iter(() => { BenchHelpers.blackBox(Array.IndexOf<string>(a, "hit")); });
-    b.printSummary("search_array_string_1024");
 }
 
 [Benchmark]
-void ListInts() {
+void ListInts(Bencher b) {
     var a = new List<int>(1024);
     for (int i = 0; i < 1024; i = i + 1) { a.Add(i); }
-    var b = new Bencher(5, 24);
     b.iter(() => { BenchHelpers.blackBox(a.IndexOf(1023)); });
-    b.printSummary("search_list_int_1024");
 }
 
 [Benchmark]
-void ListStrings() {
+void ListStrings(Bencher b) {
     var a = new List<string>(1024);
     for (int i = 0; i < 1023; i = i + 1) { a.Add("skip"); }
     a.Add("hit");
-    var b = new Bencher(5, 24);
     b.iter(() => { BenchHelpers.blackBox(a.IndexOf("hit")); });
-    b.printSummary("search_list_string_1024");
 }
