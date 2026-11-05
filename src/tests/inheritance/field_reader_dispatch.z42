@@ -1,0 +1,46 @@
+namespace Demo;
+
+using Std;
+
+class FieldReaderBase {
+    public int Number;
+    public virtual int Read() { return this.Number; }
+}
+
+class FieldReaderOverride : FieldReaderBase {
+    public override int Read() { return this.Number + 10; }
+}
+
+class AlternateFieldReader : FieldReaderBase {
+    public int Other;
+    public override int Read() { return this.Other; }
+}
+
+int ReadVirtual(FieldReaderBase reader) { return reader.Read(); }
+FieldReaderBase MissingReader() { return null; }
+
+void Main() {
+    FieldReaderBase first = new FieldReaderBase();
+    FieldReaderBase second = new FieldReaderOverride();
+    AlternateFieldReader third = new AlternateFieldReader();
+    second.Number = 20;
+    third.Other = 40;
+
+    int i = 0;
+    while (i < 64) {
+        first.Number = -i;
+        Assert.Equal(-i, ReadVirtual(first));
+        Assert.Equal(30, ReadVirtual(second));
+        Assert.Equal(40, ReadVirtual(third));
+        i = i + 1;
+    }
+
+    bool nullCaught = false;
+    try {
+        ReadVirtual(MissingReader());
+    } catch (NullReferenceException e) {
+        nullCaught = true;
+    }
+    Assert.True(nullCaught);
+    Assert.Equal(-63, ReadVirtual(first));
+}

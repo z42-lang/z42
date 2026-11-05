@@ -13,6 +13,7 @@ use crate::vm_context::VmContext;
 use anyhow::Result;
 
 use crate::vm::exec::ops::vcall::resolve_vcall;
+use crate::vm::runtime::dispatch::ic::{FieldICEntry, VCallIC};
 use crate::vm::runtime::dispatch::vcall::vcall_ic_hit;
 use crate::vm::exec::ops::vcall::VCallTarget;
 use super::{ExecOutcome, Frame};
@@ -48,7 +49,7 @@ pub(crate) fn vcall(
     dst: u32, obj: u32, method: &str, args: &[u32],
     // vcall_ic: per-site polymorphic inline cache (TypeId → callee FnId), populated by
     // `resolve_vcall` on a miss; hits go straight to the callee.
-    vcall_ic: Option<&crate::vm::runtime::dispatch::ic::VCallIC>,
+    vcall_ic: Option<&VCallIC>,
     // add-generic-methods: resolved FQ type-arg names for a generic instance-method
     // call (empty for non-generic). Threaded into the callee frame's method_type_args.
     method_type_args: &[String],
@@ -65,6 +66,20 @@ pub(crate) fn vcall(
     };
 
     let obj_val = frame.get(obj)?.clone();
+    let reader_site = if args.is_empty() && method_type_args.is_empty() {
+        vcall_ic.map(|ic| &ic.field_reader)
+    } else {
+        None
+    };
+    if let (Some(site), Value::Object(object)) = (reader_site, obj_val) {
+        if let Some(loc) = site.reader_location(object.type_desc().id.0) {
+            let object = object.borrow();
+            if let Some(access) = object.access_at(loc) {
+                frame.set(dst, object.load_access(access));
+                return Ok(None);
+            }
+        }
+    }
 
     // ── PIC hit: straight to the callee by `FnId` (no name work at all) ─────────────
     // Module-local and lazily loaded callees alike (P1-2 PR 4). `fn_by_id` is `None` only
@@ -73,7 +88,7 @@ pub(crate) fn vcall(
     if let Some(id) = vcall_ic_hit(vcall_ic, &obj_val) {
         if let Some(func) = crate::vm::runtime::dispatch::functions::fn_by_id((ctx).funcs(), module, id as u32) {
             crate::vm::exec::ops::vcall::assert_pic_target(ctx, module, &obj_val, method, func);
-            return invoke(ctx, module, frame, dst, func, Some(id), &obj_val, args, method_type_args);
+            return invoke(ctx, module, frame, dst, func, Some(id), &obj_val, args, method_type_args, reader_site);
         }
     }
 
@@ -86,8 +101,10 @@ pub(crate) fn vcall(
         VCallTarget::Immediate(v) => { frame.set(dst, v); Ok(None) }
         // fix-call-arity-skew: signature mismatch under the site's key → catchable throw.
         VCallTarget::Thrown(exc) => Ok(Some(exc)),
-        VCallTarget::Local { func, id } =>
-            invoke(ctx, module, frame, dst, func, id, &resolved.this, args, method_type_args),
+        VCallTarget::Local { func, id } => {
+            let reader_site = reader_site.filter(|_| id.is_some() && vcall_ic_hit(vcall_ic, &obj_val) == id);
+            invoke(ctx, module, frame, dst, func, id, &resolved.this, args, method_type_args, reader_site)
+        }
     }
 }
 
@@ -100,9 +117,15 @@ pub(crate) fn vcall(
 fn invoke(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32,
     func: &Function, id: Option<usize>,
-    this: &Value, args: &[u32], method_type_args: &[String],
+    this: &Value, args: &[u32], method_type_args: &[String], reader_site: Option<&FieldICEntry>,
 ) -> Result<Option<Value>> {
     if method_type_args.is_empty() {
+        if args.is_empty() {
+            if let Some(value) = crate::vm::exec::call::forward::try_field_read_cached(ctx, func, this, reader_site) {
+                frame.set(dst, value);
+                return Ok(None);
+            }
+        }
         // runtime-audit P1-8: a `[Native]` forwarder (`string.Length`, `s[i]`) runs its
         // builtin directly, the receiver passed alongside the registers.
         if let Some(res) = super::exec_call::try_fold(ctx, module, frame, dst, func, Some(*this), args) {
