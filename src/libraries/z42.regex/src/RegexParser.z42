@@ -294,11 +294,20 @@ public class RegexParser {
             s[3] = 13; f[3] = 13;   // \r
             return RegexNode.Charset(e == 'S', s, f, 4);
         }
-        // 零宽词边界断言。`[...]` 内仍走 ParseCharsetChar，`\b` 保持字面 `b`。
+        // 零宽词边界断言仅用于字符类外。
         if (e == 'b') { return RegexNode.WordBoundary(); }
         if (e == 'B') { return RegexNode.WordNonBoundary(); }
-        // metachar literal escape：\. \\ \* 等
+        this.CheckLiteralEscape(e);
         return RegexNode.Lit((int)e);
+    }
+
+    // 字母/数字保留给已定义的语义转义；其余字符可按字面转义。
+    private void CheckLiteralEscape(char e) {
+        if ((e >= 'a' && e <= 'z') || (e >= 'A' && e <= 'Z') || (e >= '0' && e <= '9')) {
+            int at = this._pos - 2;
+            throw new RegexException("unsupported escape " + this._src.Substring(at, 2)
+                + " at pos " + at.ToString());
+        }
     }
 
     private RegexNode ParseCharset() {
@@ -348,7 +357,8 @@ public class RegexParser {
             if (e == 'n')  { return 10; }
             if (e == 't')  { return 9; }
             if (e == 'r')  { return 13; }
-            return (int)e;  // literal escape
+            this.CheckLiteralEscape(e);
+            return (int)e;
         }
         this.Advance();
         return (int)c;
