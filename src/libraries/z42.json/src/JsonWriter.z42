@@ -119,7 +119,7 @@ internal class JsonWriteBuffer {
 
     private void PutNewlineIndent() {
         int depth = this._depth;
-        this.Put(JsonWriter._indentPrefixes[depth & 7]);
+        this.Put(JsonWriteBuffer._indentPrefixes[depth & 7]);
         for (int blocks = depth >> 3; blocks > 0; blocks = blocks - 1) { this.Put("                "); }
     }
 
