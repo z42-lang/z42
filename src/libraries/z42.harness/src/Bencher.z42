@@ -10,8 +10,9 @@ using Std.IO;
 ///     b.iter(() => doWork());
 ///     b.printSummary("doWork");           // bench[doWork] min=... median=... max=...
 ///
-/// `[Benchmark]` 基准两种签名等价：零参（自己 new Bencher + printSummary），
-/// 或唯一形参 `Bencher`（runner 传入并在跑完时按函数名自动打摘要行）。
+/// `[Benchmark]` 基准两种签名：**推荐**唯一形参 `void f(Bencher b)`——runner 建固定档
+/// (2, 20) 的 Bencher 传入并在跑完时按函数名自动打摘要行，基准体只写 `b.iter(() => …)`；
+/// 零参形态（自己 new Bencher + printSummary）留给要自定采样档 / 自定标签 / 自适应预算的场合。
 ///
 /// @warning 计时是单线程墙钟（`Clock.MonoNanos()`），不是 CPU 时间；被并发干扰的
 ///     基准会反映为 max 偏大，而不是报错。

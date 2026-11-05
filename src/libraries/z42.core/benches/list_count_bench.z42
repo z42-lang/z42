@@ -1,0 +1,55 @@
+namespace Z42ListCountBench;
+
+using Std.Collections;
+using Std.Harness;
+
+List<int> MakeList(int n) {
+    List<int> list = new List<int>(n);
+    for (int i = 0; i < n; i++) { list.Add(i); }
+    return list;
+}
+
+[Benchmark]
+void list_count_repeated() {
+    List<int> left = MakeList(8);
+    List<int> right = MakeList(16);
+    var bench = new Bencher(4, 24);
+    bench.iter(() => {
+        int sum = 0;
+        for (int i = 0; i < 8192; i++) {
+            List<int> list = i % 2 == 0 ? left : right;
+            sum = sum + list.Count;
+        }
+        BenchHelpers.blackBox(sum);
+    });
+    bench.printSummary("list_count_repeated");
+}
+
+[Benchmark]
+void list_count_index_foreach() {
+    List<int> list = MakeList(256);
+    var bench = new Bencher(4, 24);
+    bench.iter(() => {
+        int sum = 0;
+        for (int i = 0; i < 32; i++) {
+            foreach (int value in list) { sum = sum + value; }
+        }
+        BenchHelpers.blackBox(sum);
+    });
+    bench.printSummary("list_count_index_foreach");
+}
+
+[Benchmark]
+void list_count_concrete_enumerator() {
+    List<int> list = MakeList(256);
+    var bench = new Bencher(4, 24);
+    bench.iter(() => {
+        int sum = 0;
+        for (int i = 0; i < 32; i++) {
+            var iter = list.GetEnumerator();
+            while (iter.MoveNext()) { sum = sum + iter.Current; }
+        }
+        BenchHelpers.blackBox(sum);
+    });
+    bench.printSummary("list_count_concrete_enumerator");
+}

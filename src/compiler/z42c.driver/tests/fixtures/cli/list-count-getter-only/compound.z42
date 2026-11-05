@@ -1,0 +1,6 @@
+using Std.Collections;
+
+void Main() {
+    List<int> list = new List<int>();
+    list.Count += 5;
+}

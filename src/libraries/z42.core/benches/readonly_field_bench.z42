@@ -30,12 +30,10 @@ class RoScaler {
 }
 
 [Benchmark]
-void bench_readonly_field_hot_loop() {
+void bench_readonly_field_hot_loop(Bencher b) {
     var sc = new RoScaler(7);
-    var b = new Bencher(3, 30);
     b.iter(() => {
         long r = sc.Sum(4000);
         BenchHelpers.blackBox(r);
     });
-    b.printSummary("readonly_field_hot_loop");
 }

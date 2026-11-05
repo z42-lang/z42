@@ -47,9 +47,9 @@
 
 ### 构造类型的 `Type`
 
-`make_type_from_name` 是唯一的构造入口：名字带 `<…>` ⇒ `make_constructed_type(定义名, 实参)`，
-句柄是**泛型定义**（成员、构造器、`GetGenericTypeDefinition` 从它读），`__typeArgs` 是实参的 Type，
-FullName 是展示形。
+名字入口 `make_type_from_name` 解析 `<…>` 中的实参。`MakeGenericType` 已持有实参 Type，校验通过后
+将这些对象放入新实参数组。两条路径共用构造逻辑，`__typeArgs` 保存 Type 引用，`GetGenericArguments()`
+据此保留实参的程序集归属。结果句柄用于泛型定义，FullName 用于名称显示及现有的比较与派发。
 
 - **`GetType()`**：实例化描述符 → 以其名字构造（不再把实参拼两遍）；定义 + 实例实参 →
   `type_names::constructed`（定义名 + 实参）再构造。两种表示因此得到相等的 Type，也等于 `typeof`。

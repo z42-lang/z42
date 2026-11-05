@@ -105,6 +105,8 @@ pub struct TypeDescCold {
     /// [`TypeDesc::derive_simple_method_name`] given the owning class
     /// name. Saves one heap allocation + 16–24 B per method.
     pub own_methods: Box<[Box<str>]>,
+    /// Qualified names of instance constructors declared by this type, in lexical order.
+    pub own_constructors: Box<[Box<str>]>,
     /// fix-interface-overload-dispatch: this class's own interface-slot table
     /// (`ClassDesc::iface_slots`) — `(slot key, implementing method's vtable key)`.
     /// Kept so the cross-zpkg fixup can re-apply the aliases after rebuilding the vtable
@@ -346,6 +348,11 @@ impl TypeDesc {
     #[inline]
     pub fn cold_mut(&mut self) -> &mut TypeDescCold {
         self.cold.get_or_insert_with(|| Box::new(TypeDescCold::default()))
+    }
+
+    /// The type's declared constructor keys, independent of how its package was loaded.
+    pub(crate) fn own_constructors(&self) -> &[Box<str>] {
+        self.cold.as_ref().map_or(&[], |cold| &cold.own_constructors)
     }
 
     /// A class's **constructor member name**: its simple name in source spelling, which is

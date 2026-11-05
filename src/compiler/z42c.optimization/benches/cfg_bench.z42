@@ -17,10 +17,8 @@ int exercise(int n, int repeats) {
     return sum;
 }
 [Benchmark]
-void bench_loop_cfg_256() {
-    var b = new Bencher(2, 12);
+void bench_loop_cfg_256(Bencher b) {
     b.iter(() => { BenchHelpers.blackBox(exercise(256, 1)); });
-    b.printSummary("loop_cfg_256");
 }
 void Main() {
     string[] args = Environment.GetCommandLineArgs();

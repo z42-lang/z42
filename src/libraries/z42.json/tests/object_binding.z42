@@ -1,0 +1,16 @@
+namespace Z42JsonObjectBindingTests;
+
+using Std.Json;
+using Std.Harness;
+
+class WithDefault {
+    public string Label = "initial";
+}
+
+[Test]
+void test_object_binding_distinguishes_missing_and_null_members() {
+    WithDefault missing = JsonSerializer.Deserialize<WithDefault>("{}");
+    WithDefault explicitNull = JsonSerializer.Deserialize<WithDefault>("{\"Label\":null}");
+    Assert.Equal("initial", missing.Label);
+    Assert.True(explicitNull.Label == null);
+}

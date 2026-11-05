@@ -39,15 +39,12 @@ internal static class JsonReflect {
 
     /// 读取当前 List 的 Count；每次遍历只调用一次。
     public static int ListCount(object list, Type t) {
-        FieldInfo[] fs = t.GetFields();
-        int i = 0;
-        while (i < fs.Length) {
-            FieldInfo f = fs[i];
-            if (f.Name == "Count" && f.IsPublic && !f.IsStatic) {
-                return (int)f.GetValue(list);
+        PropertyInfo[] properties = t.GetProperties();
+        foreach (PropertyInfo property in properties) {
+            if (property.Name == "Count" && property.CanRead) {
+                return (int)property.GetValue(list);
             }
-            i = i + 1;
         }
-        throw new JsonException("Missing collection field: Count");
+        throw new JsonException("Missing collection property: Count");
     }
 }
