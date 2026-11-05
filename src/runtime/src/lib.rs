@@ -68,3 +68,4 @@ mod extension_assembly;
 
 mod builtin_assembly;
 mod object_protocol_assembly;
+mod loader_assembly;

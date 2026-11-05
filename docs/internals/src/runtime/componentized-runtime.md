@@ -68,6 +68,8 @@ JIT 的安装输入为后端拥有的 JitConfig，门面负责配置转换和注
 
 VM 的内部构造输入为 `vm/config.rs` 的 `VmConfig`，由门面从已决议的 `RuntimeConfig` 捕获 GC、预算、采样与 trace 设置。内部构造消费纯值，不解析环境变量或门面旋钮；既有构造入口负责转换。`process_loh_bytes` 明确表示构造期应用的进程级 LOH 覆盖，仍在 core 建立后应用，不提供每 VM LOH 隔离；safepoint 与 stackalloc 的进程策略也保持独立。该输入不存入 VmCore，不改变线程视图布局。
 
+Loader 拥有私有 `FusionInputs`，由门面的惰性函数指针在每次实际计算融合侧表时提供。它沿用进程级 `RuntimeConfig` 的首次读取语义。公开加载入口、可用性探测以及每 VM 的惰性加载和可回收程序集上下文使用同一配置来源。装配只传递指针，模块就绪判断、解码错误和融合识别顺序保持原样。
+
 主 VM 构造由 crate 根 `context_assembly.rs` 实现既有 `VmContext` 入口，负责配置捕获、组件选择与 core 接线。`vm_context/construct.rs` 保留线程状态访问、共享 core 的 worker 加入和 Drop；worker 不重新选择组件或重建扩展。主构造的弱引用扫描器、native 扩展加载、固定地址登记及 TLAB/SATB 顺序保持一致，扩展资源随最后一个持有 core 的上下文释放。
 
 核心库的隔离应用执行与退出报告经 `corelib/application.rs` 的私有服务接入，门面 `app_services.rs` 负责应用选项与报告策略。冻结前注入的服务只含函数指针，不拥有 VM 或托管值；并行用例只复制服务值与 Rust 路径/VFS。核心库仍负责 stdout sink 栈、按输入排序和 join 时 park，进程退出仍先报告再终止且不运行析构。

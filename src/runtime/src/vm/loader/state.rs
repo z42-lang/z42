@@ -2,9 +2,10 @@
 use parking_lot::{Mutex, RwLock};
 use std::sync::{Arc, atomic::AtomicUsize};
 use crate::pal::fs::Vfs;
-use super::{LazyLoader, contexts::ContextRegistry};
+use super::{LazyLoader, contexts::ContextRegistry, fusion_inputs::FusionInputSource};
 
 pub(crate) struct LoaderState {
+    pub(crate) fusion_inputs: FusionInputSource,
     /// Shared reads are sufficient after symbol registration; loading takes the write lock.
     pub(crate) lazy_loader: RwLock<Option<LazyLoader>>,
     /// Owner type names queued by resolution, drained before use.
@@ -20,8 +21,9 @@ pub(crate) struct LoaderState {
 }
 
 impl LoaderState {
-    pub(crate) fn new(vfs: Arc<dyn Vfs>) -> Self {
+    pub(crate) fn new(vfs: Arc<dyn Vfs>, fusion_inputs: FusionInputSource) -> Self {
         Self {
+            fusion_inputs,
             lazy_loader: RwLock::new(None),
             pending_type_inits: Mutex::new(Vec::new()),
             pending_type_init_count: AtomicUsize::new(0),
