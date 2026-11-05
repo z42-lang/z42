@@ -168,7 +168,7 @@ fn hoist_fields(
         builder.append_block_param(join, types::I64);
         builder.append_block_param(join, types::I64);
         let miss = builder.create_block();
-        emit_guard(builder, ptr, regs_base, obj, ic, kind, join, miss);
+        emit_guard(builder, ptr, regs_base, obj, ic.cast(), kind, join, miss);
         builder.switch_to_block(miss);
         let zero = builder.ins().iconst(types::I64, 0);
         let none = builder.ins().iconst(types::I64, -1);

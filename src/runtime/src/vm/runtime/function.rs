@@ -15,6 +15,7 @@ pub struct Function {
     pub owner_init: OwnerInitCell,
     pub id: FnIdCell,
     pub forward: ForwardCell,
+    pub(crate) field_forward: OnceLock<bool>,
     pub fused_tails: Vec<Option<SuperInstr>>,
     sites: OnceLock<Box<CodeSites>>,
 }
@@ -29,6 +30,7 @@ impl Function {
             owner_init: Default::default(),
             id: Default::default(),
             forward: Default::default(),
+            field_forward: OnceLock::new(),
             fused_tails: Vec::new(),
             sites: OnceLock::new(),
         }
@@ -70,6 +72,7 @@ impl Function {
         }
         self.id = Default::default();
         self.forward = Default::default();
+        self.field_forward.take();
         self.sites.take();
     }
     /// Rebase string literals without invalidating control-flow or frame metadata.
