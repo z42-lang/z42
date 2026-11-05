@@ -192,3 +192,13 @@ void test_edit_chain_returns_this() {
     sb.Append("xyz").Insert(1, "AB").Remove(0, 1).Replace("z", "Z");
     Assert.Equal("AByZ", sb.ToString());
 }
+
+[Test]
+void test_append_chars_preserve_scalar_length_and_nul() {
+    var sb = new StringBuilder();
+    sb.Append("prefix:").Append('é').Append('中').Append('😀').Append((char)0);
+    Assert.Equal(11, sb.Length);
+    Assert.Equal('😀', sb[9]);
+    Assert.Equal((char)0, sb[10]);
+    Assert.Equal("prefix:é中😀" + String.FromChars(new char[1]), sb.ToString());
+}

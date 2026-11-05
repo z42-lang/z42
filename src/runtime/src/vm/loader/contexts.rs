@@ -139,6 +139,8 @@ impl ContextLiveness {
             NativeData::TypeHandle(td) => {
                 self.td_to_ctx.get(&(Arc::as_ptr(td) as usize)).copied()
             }
+            NativeData::TypeShape(shape) => shape.definition.as_ref()
+                .and_then(|td| self.td_to_ctx.get(&(Arc::as_ptr(td) as usize)).copied()),
             NativeData::AssemblyHandle(aid) => self.asm_to_ctx.get(&aid.0).copied(),
             NativeData::LoadContextHandle(cid) => {
                 self.collectible.contains(&cid.0).then_some(*cid)
