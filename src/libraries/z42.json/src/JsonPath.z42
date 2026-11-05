@@ -4,7 +4,7 @@ namespace Std.Json;
 /// 单值 JSONPath 子集：按路径在 JSON 值树中取单个值。
 ///
 /// 支持的路径语法：`$` 根锚点（可省略）、`.name` 对象键、`["name"]` / `['name']` 对象键、
-/// `[n]` 数组下标（非负十进制），段间空格 / 制表符容忍。
+/// `[n]` 数组下标（非负十进制，超出可用下标范围视作越界），段间空格 / 制表符容忍。
 ///
 /// 不支持：`..` 递归下降、`*` 通配（显式抛异常，不静默返回 null）、`?(...)` 过滤、
 /// `[start:end]` 切片、函数调用。
@@ -88,8 +88,8 @@ public static class JsonPath {
                     }
                     string idxStr = path.Substring(kstart, i - kstart);
                     i = i + 1;
-                    int idx = Int32.Parse(idxStr);
-                    cur = _stepArray(cur, idx);
+                    int idx = 0;
+                    cur = Int32.TryParse(idxStr, ref idx) ? _stepArray(cur, idx) : null;
                 }
             } else if (c == ' ' || c == '\t') {
                 // tolerate whitespace between segments
