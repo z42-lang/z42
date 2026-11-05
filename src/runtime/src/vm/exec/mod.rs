@@ -4,6 +4,7 @@ pub mod ambient;
 pub mod call;
 pub mod stack;
 pub(crate) mod engine;
+pub(crate) mod object_protocol;
 
 pub(crate) mod init;
 
