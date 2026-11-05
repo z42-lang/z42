@@ -4,6 +4,7 @@ namespace Z42.Driver;
 
 using Std.IO;
 using Z42.Project;
+using Z42.IR;
 using Z42.Pipeline;   // WsTier
 
 // 闭包代建的结果（z42 函数只能返回一个值）：Rc != 0 = 失败（诊断已打印）；Names = 闭包成员名单（交给
@@ -12,6 +13,7 @@ public sealed class PathClosureOut {
     public int      Rc;
     public string[] Names;    public int NamesN;
     public string[] LibsDirs; public int LibsDirsN;
+    public StrMap BundleDomains;
     public PathClosureOut(string[] libsDirs, int libsDirsN) {
         this.Rc = 0; this.Names = new string[0]; this.NamesN = 0;
         this.LibsDirs = libsDirs; this.LibsDirsN = libsDirsN;
@@ -74,8 +76,13 @@ PathClosureOut _buildPathDepClosure(string tomlPath, bool isRelease, bool noIncr
             int depOverrideN = accN;
             int bi = 0;
             while (bi < libsDirsN) { depOverride[depOverrideN] = libsDirs[bi]; depOverrideN = depOverrideN + 1; bi = bi + 1; }
-            int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, cliAdd, cliRemove, false, null, "");
+            BundleDomain memberDomain = new BundleDomain(depPm);
+            int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, cliAdd, cliRemove, false, null, "", memberDomain);
             if (dbc != 0) { o.Rc = dbc; return o; }
+            if (memberDomain.Dirs != null) {
+                if (o.BundleDomains == null) { o.BundleDomains = new StrMap(); }
+                o.BundleDomains.Put(_normPath(Path.Join(depDist, depPm.Project.Name + ".zpkg")), memberDomain);
+            }
             accum[accN] = depDist; accN = accN + 1;
             o.Names[o.NamesN] = depPm.Project.Name; o.NamesN = o.NamesN + 1;
         }

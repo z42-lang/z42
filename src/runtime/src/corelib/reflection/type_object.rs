@@ -200,7 +200,15 @@ pub fn make_constructed_type(ctx: &VmContext, type_name: &str, type_args: &[Stri
     }
     // Resolve args first and keep them rooted in the Vec while `base` allocates
     // (same alloc ordering as `builtin_type_generic_args`).
-    let arg_types: Vec<Value> = type_args.iter().map(|a| make_type_from_name(ctx, a)).collect();
+    let arg_types = type_args.iter().map(|a| make_type_from_name(ctx, a)).collect();
+    make_constructed_type_from_values(ctx, type_name, arg_types)
+}
+
+/// Compose a Type from arguments that are already resolved. Their handles may
+/// refer to types outside the executing VM's name registry.
+pub(super) fn make_constructed_type_from_values(
+    ctx: &VmContext, type_name: &str, arg_types: Vec<Value>,
+) -> Value {
     // fix-type-reflection-names: compose the display FullName with args, e.g.
     // `Std.Collections.List<Std.Int32>`. Each arg's FullName is read off its
     // resolved Type (already `Std.Int32` post primitive-handle resolution); nested

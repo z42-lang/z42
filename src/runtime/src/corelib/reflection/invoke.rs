@@ -218,6 +218,37 @@ pub(super) fn invoke_qualified(
     call_args: &[Value],
     method_type_args: &[String],
 ) -> Result<Value> {
+    invoke_qualified_with(ctx, qualified, method_type_args, |_| call_args)
+}
+
+pub(super) fn invoke_property_setter(
+    ctx: &VmContext, qualified: &str, receiver: Value, value: Value,
+) -> Result<()> {
+    use crate::metadata::ir::reg_type::IrType;
+
+    invoke_qualified_with(ctx, qualified, &[], |setter| {
+        let value = if matches!(value, Value::BoxedStruct(_)) {
+            let integer = match setter.reg_types.get(1).copied() {
+                Some(ty) if ty != IrType::Unknown => ty.is_integer(),
+                _ => setter.param_types().get(1)
+                    .and_then(|tag| primitive_fqn(tag))
+                    .and_then(well_known_names::int_wrapper_scalar_spec)
+                    .is_some(),
+            };
+            if integer { unbox_reflective_arg(value) } else { value }
+        } else {
+            value
+        };
+        [receiver, value]
+    }).map(|_| ())
+}
+
+fn invoke_qualified_with<A: AsRef<[Value]>>(
+    ctx: &VmContext,
+    qualified: &str,
+    method_type_args: &[String],
+    prepare: impl FnOnce(&crate::vm::runtime::Function) -> A,
+) -> Result<Value> {
     let module_arc = ctx
         .core
         .runtime.module
@@ -226,20 +257,20 @@ pub(super) fn invoke_qualified(
         .clone();
     let module = module_arc.as_ref();
 
-    let outcome = match module.func_index.get(qualified) {
-        Some(&idx) => {
-            let f = &module.functions[idx];
-            invoke_arity_check(qualified, f.param_count, call_args.len())?;
-            engine::invoke_args(ctx, module, f, CallArgs::Values(call_args), method_type_args)?
-        }
+    let lazy;
+    let func = match module.func_index.get(qualified) {
+        Some(&idx) => &module.functions[idx],
         None => {
-            let f = ctx.try_lookup_function(qualified).ok_or_else(|| {
+            lazy = ctx.try_lookup_function(qualified).ok_or_else(|| {
                 anyhow::anyhow!("reflective invoke: function `{qualified}` not found")
             })?;
-            invoke_arity_check(qualified, f.param_count, call_args.len())?;
-            engine::invoke_args(ctx, module, f.as_ref(), CallArgs::Values(call_args), method_type_args)?
+            lazy.as_ref()
         }
     };
+    let call_args = prepare(func);
+    let call_args = call_args.as_ref();
+    invoke_arity_check(qualified, func.param_count, call_args.len())?;
+    let outcome = engine::invoke_args(ctx, module, func, CallArgs::Values(call_args), method_type_args)?;
 
     match outcome {
         ExecOutcome::Returned(Some(v)) => Ok(v),

@@ -58,3 +58,14 @@ void json_stream_pretty() {
     root.Add(WideObject());
     MeasureJsonWrites("json_stream_pretty", root, true, 8);
 }
+
+[Benchmark]
+void json_stream_pretty_nested() {
+    JsonValue root = WideObject();
+    for (int depth = 0; depth < 40; depth = depth + 1) {
+        JsonValue outer = JsonValue.OfArray();
+        outer.Add(root);
+        root = outer;
+    }
+    MeasureJsonWrites("json_stream_pretty_nested", root, true, 8);
+}

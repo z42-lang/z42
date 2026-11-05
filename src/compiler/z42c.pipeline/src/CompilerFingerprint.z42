@@ -175,7 +175,8 @@ public static class CompilerFingerprint {
         "invalidate-global-using-context",
         "host-dependency-surface-identity",
         "explicit-workspace-compile-domain",
-        "compiler-domain-runtime-probe-fallback"
+        "compiler-domain-runtime-probe-fallback",
+        "bind-constructed-count-members"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

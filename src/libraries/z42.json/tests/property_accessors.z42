@@ -1,0 +1,44 @@
+namespace Std.Json.Tests;
+using Std.Harness;
+using Std.Reflection;
+
+public class JsonPropertyAccessorProbe {
+    public string Visible { get; set; }
+    private string Hidden { get; set; }
+    public static string Shared { get; set; }
+    public string ReadOnly { get { return "fixed"; } }
+
+    public JsonPropertyAccessorProbe() {
+        this.Visible = "before";
+        this.Hidden = "kept";
+    }
+
+    public string HiddenValue() { return this.Hidden; }
+}
+
+[Test]
+void test_serde_uses_only_public_instance_accessors() {
+    JsonPropertyAccessorProbe.Shared = "shared";
+    JsonPropertyAccessorProbe value = new JsonPropertyAccessorProbe();
+    JsonValue encoded = JsonValue.Parse(JsonSerializer.Serialize(value));
+    Assert.Equal("before", encoded.Get("Visible").AsString());
+    Assert.Equal("fixed", encoded.Get("ReadOnly").AsString());
+    Assert.False(encoded.ContainsKey("Hidden"));
+    Assert.False(encoded.ContainsKey("Shared"));
+
+    JsonPropertyAccessorProbe decoded = JsonSerializer.Deserialize<JsonPropertyAccessorProbe>(
+        "{\"Visible\":\"after\",\"Hidden\":\"changed\",\"Shared\":\"changed\",\"ReadOnly\":\"changed\"}");
+    Assert.Equal("after", decoded.Visible);
+    Assert.Equal("kept", decoded.HiddenValue());
+    Assert.Equal("shared", JsonPropertyAccessorProbe.Shared);
+    Assert.Equal("fixed", decoded.ReadOnly);
+
+    int ordinary = 0;
+    foreach (PropertyInfo p in typeof(JsonPropertyAccessorProbe).GetProperties()) {
+        if (p.Name == "Hidden" || p.Name == "Shared") {
+            Assert.True(p.CanRead && p.CanWrite);
+            ordinary = ordinary + 1;
+        }
+    }
+    Assert.Equal(2, ordinary);
+}
