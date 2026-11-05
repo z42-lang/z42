@@ -87,3 +87,23 @@ void bench_regex_anchored_literal() {
     });
     b.printSummary("regex_anchored_literal");
 }
+
+[Benchmark]
+void bench_regex_replace_many_literal() {
+    MeasureManyReplacements("regex_replace_many_literal", "x", "中😀");
+}
+
+[Benchmark]
+void bench_regex_replace_many_captures() {
+    MeasureManyReplacements("regex_replace_many_captures", "(x)", "中$1$$");
+}
+
+void MeasureManyReplacements(string name, string pattern, string replacement) {
+    var regex = Regex.Compile(pattern);
+    string[] input = new string[512];
+    Array.Fill<string>(input, "éx");
+    string text = String.ConcatParts(input, input.Length);
+    var b = new Bencher(4, 24);
+    b.iter(() => { BenchHelpers.blackBox(regex.Replace(text, replacement)); });
+    b.printSummary(name);
+}
