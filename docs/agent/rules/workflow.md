@@ -236,4 +236,8 @@ force-push、删他人分支等未授权动作需确认；本轮合并与清理�
 | 性能优化（`perf`） | 被优化的路径必须有 bench 覆盖：已有 e2e scenario / `[Benchmark]` 覆盖 → 附同 runner A/B 结论；没有 → 同一 PR 补一条（怎么加、怎么判红见[性能基准与回归门禁](../../internals/src/devinfra/benchmarking.md)）。**PR 描述必须记录优化前后的数据**（scenario × mode 的 base/pr 均值与结论）——证据进 PR 描述，不进源码注释 |
 | refactor | 确保已有测试仍覆盖（不必新增，但不得删除测试） |
 
-用例放哪（「被测对象在哪，测试就在哪」）见[怎么跑测试 · 用例放哪](../../internals/src/devinfra/testing.md)。
+新增用例必须先按[测试用例组织规范 §1](../../internals/src/devinfra/test-layout.md#1-用例放哪)确定被测对象、归属和执行器，
+复用已有工程源集与夹具 harness；不为单条用例新增 CI 名单、逐用例 tier 配置或独立 gate 登记表。
+验证必须确认用例实际被发现并执行（负向夹具确认预期错误或退出码），编译成功或零用例退出 0 不能代替测试通过。
+修改 CI 路由时分别核对[构建前提、测试范围与发布范围](../../internals/src/devinfra/ci.md#构建测试与发布的选择边界)，
+不能因为调用了 xtask 就选择全部产品测试，也不能在收窄时漏掉相关契约的验证。
