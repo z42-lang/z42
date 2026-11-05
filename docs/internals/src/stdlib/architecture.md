@@ -84,6 +84,10 @@ native 库依赖；它已是纯脚本（`z42.text`，基于 `List<string>` + `St
 finally 在正常返回、未匹配和异常路径都解除这两个引用；捕获位置的整数缓冲继续复用。
 返回的 Match 独立持有输入字符串与捕获位置快照，清理 Regex 不会使结果失效，也不会保留仅用于扫描的字符副本。
 
+包装流的持有周期与底层流的打开状态分开管理。`StreamWriter.Close` 成功刷新后标记关闭并解除目标流、
+编码引用，调用方仍可继续使用自己持有的目标流。刷新失败时保持 writer 打开并保留目标，允许修复源错误后重试；
+重复 Close 或关闭后的 Flush 不再访问目标。
+
 ## 3. `[Native]` 的两种形态
 
 `[Native]` 是编译器原生封闭集里的 **directive**（`HandlerRegistry.IsNativeDirective`），不走

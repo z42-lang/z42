@@ -10,6 +10,8 @@
 > [参考手册](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html)。
 
 这页回答三个问题：有哪几层测试、各层**单跑时**有哪些旗标、**我改了 X 该验什么**。
+新增用例从[归属表与新增步骤](test-layout.md#1-用例放哪)开始：确定被测对象、选择 unit / golden / fixture、
+确认执行器实际发现它，再核对平台能力与输出位置。CI 的构建、选测与发布边界见[CI 拓扑](ci.md#构建测试与发布的选择边界)。
 
 ## 1. 命令怎么分
 
@@ -32,8 +34,9 @@
 | 文档 | `xtask test docs [links\|examples]` | 相对链接可解析（死链一律红，无基线）+ 学习手册会话脚本用真实 SDK 重放 |
 | 查询 | `xtask test list` | 用例目录（只读） |
 
-裸 `test` 先跑一个重建波（debug VM + stdlib + z42c 自建 + golden `.zbc` 基线），
-`--no-build` 跳过它、消费已有产物。GREEN 包含 Rust `cargo test --lib` 与全部测试 target 的编译检查；
+裸 `test` 先确保 debug VM，再自建 z42c / stdlib 并重生 golden `.zbc` 基线。
+`--no-build` 复用已有 z42c / stdlib，仍确保 debug VM 并重生 golden，不是跳过整个构建波。
+GREEN 包含 Rust `cargo test --lib` 与全部测试 target 的编译检查；
 完整 `cargo test` 因 signal-crash helper 在 CI 每条腿单列一步。
 `--skip` 的完整键表用 `xtask test --list` 查询，编排规则见[测试门禁 §5](test-gate.md)。
 
