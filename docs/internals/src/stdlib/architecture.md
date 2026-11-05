@@ -87,6 +87,9 @@ native 库依赖；它已是纯脚本（`z42.text`，基于 `List<string>` + `St
 `StringBuilder` 的片段数组在逻辑范围外不持有废弃引用。Clear 清空已用片段并保留数组容量。
 编辑收敛为单段时清除旧尾槽。此前返回的字符串快照继续有效。
 
+`JsonWriter` 保存格式配置。每次 Write 的片段数组与缩进深度由该次遍历的内部缓冲持有。
+`JsonValue.Stringify` 和 `StringifyPretty` 直接创建内部缓冲。
+
 脚本层同样负责临时数据的持有周期。Regex 在活跃匹配期间绑定输入和字符缓冲，Find / FindAll 的
 finally 在正常返回、未匹配和异常路径都解除这两个引用；捕获位置的整数缓冲继续复用。
 返回的 Match 独立持有输入字符串与捕获位置快照，清理 Regex 不会使结果失效，也不会保留仅用于扫描的字符副本。

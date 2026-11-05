@@ -2,6 +2,22 @@ namespace Std.Json;
 
 /// JSON 序列化器（紧凑或缩进）。
 public sealed class JsonWriter {
+    private bool _pretty;
+
+    /// `pretty=true` 输出换行 + 两空格缩进，否则单行紧凑格式。
+    public JsonWriter(bool pretty) {
+        this._pretty = pretty;
+    }
+
+    /// 每次调用写出一个独立 JSON 文档。遍历失败的异常向调用方传播。
+    public string Write(JsonValue v) {
+        JsonWriteBuffer buffer = new JsonWriteBuffer(this._pretty);
+        return buffer.Write(v);
+    }
+}
+
+// Each buffer belongs to one traversal, including its partial output on failure.
+internal class JsonWriteBuffer {
     // Output pieces are collected in a private `string[]` and joined once with
     // `String.ConcatParts` — the same scheme as `StringBuilder`, minus a method call
     // and a length update per piece. Values are read straight from JsonValue's
@@ -12,15 +28,13 @@ public sealed class JsonWriter {
     private bool _pretty;
     private int _depth;
 
-    /// `pretty=true` 输出换行 + 两空格缩进，否则单行紧凑格式。
-    public JsonWriter(bool pretty) {
+    public JsonWriteBuffer(bool pretty) {
         this._parts = new string[64];
         this._n = 0;
         this._pretty = pretty;
         this._depth = 0;
     }
 
-    /// 把 `v` 写成 JSON 文本并返回（一次性拼接全部片段）。
     public string Write(JsonValue v) {
         this.WriteValue(v);
         return String.ConcatParts(this._parts, this._n);

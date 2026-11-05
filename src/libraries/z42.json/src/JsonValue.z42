@@ -76,13 +76,13 @@ public class JsonValue {
 
     /// 序列化为紧凑 JSON（无空白）。
     public static string Stringify(JsonValue v) {
-        JsonWriter w = new JsonWriter(false);
+        JsonWriteBuffer w = new JsonWriteBuffer(false);
         return w.Write(v);
     }
 
     /// 序列化为缩进 JSON（2 空格缩进 + 换行）。
     public static string StringifyPretty(JsonValue v) {
-        JsonWriter w = new JsonWriter(true);
+        JsonWriteBuffer w = new JsonWriteBuffer(true);
         return w.Write(v);
     }
 
