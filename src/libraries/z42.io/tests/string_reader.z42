@@ -186,3 +186,25 @@ void test_close_then_read_line_throws() {
     }
     Assert.True(threw);
 }
+
+[Test]
+void test_bulk_unicode_scalar_cursor_and_destination_bounds() {
+    StringReader r = new StringReader("é😀中尾");
+    char[] chars = new char[] { '!', '!', '!', '!' };
+    Assert.Equal((int)'é', r.Read());
+    Assert.Equal(2, r.Read(chars, 1, 2));
+    Assert.Equal('!', chars[0]); Assert.Equal('😀', chars[1]);
+    Assert.Equal('中', chars[2]); Assert.Equal('!', chars[3]);
+    Assert.Equal((int)'尾', r.Peek());
+    Assert.Equal(0, r.Read(chars, 4, 0));
+    Assert.Equal(1, r.Read(chars, 0, 4)); Assert.Equal('尾', chars[0]);
+    Assert.Equal(0, r.Read(chars, 0, 4)); Assert.Equal(-1, r.Read());
+}
+[Test]
+void test_bulk_read_keeps_line_and_single_read_cursor() {
+    StringReader r = new StringReader("é😀\n中尾");
+    Assert.Equal((int)'é', r.Read()); char[] chars = new char[2];
+    Assert.Equal(2, r.Read(chars, 0, 2));
+    Assert.Equal('😀', chars[0]); Assert.Equal('\n', chars[1]);
+    Assert.Equal("中尾", r.ReadLine()); Assert.True(r.ReadLine() == null);
+}

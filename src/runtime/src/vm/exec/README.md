@@ -10,7 +10,8 @@
 |---|---|
 | `init.rs` | 类型与包初始化屏障、执行、parked 等待及异常构造 |
 | `thread_state.rs` | `ThreadExecState` 的帧、池、arena、异常槽与 JIT 中立头；每线程独立 |
-| `state.rs` | `ExecState` 内联组合每 VM 引擎注册表，门面提供具体注册 |
+| `state.rs` | `ExecState` 内联组合每 VM 引擎注册表与对象协议服务，门面提供具体注册 |
+| `object_protocol.rs` | 私有 GetType / 默认 ToString 函数指针契约；worker 共享不可变服务，默认文本仍以 Rust String 返回给调用方 |
 | `ambient.rs` | 执行期当前堆 TLS、HeapGuard 嵌套恢复和堆 epoch |
 | `engine.rs` | Engine / TierApi 注册、共享调用边界和 OSR 交接；门面按 feature 装配，后端持有代码及激活；corelib 的反射、attribute 和线程回调也经此入口 |
 | `ops/call.rs` / `ops/stringify.rs` | 冷 Call/FnRef 绑定及 ToString 协议执行，调用经已注册 Engine |
