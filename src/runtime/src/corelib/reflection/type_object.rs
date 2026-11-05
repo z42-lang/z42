@@ -69,12 +69,12 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
         // names — Name = "{elemName}[]", FullName = "{elemFullName}[]" (was the
         // element-erased synthetic "Array"/"Std.Array"). The element Type is resolved
         // recursively so `int[]` → "Int32[]" / "Std.Int32[]" (element name via change A's
-        // int→Std.Int32) and `int[][]` → "Int32[][]" / "Std.Int32[][]". `__elementName`
-        // still records the raw element tag (unchanged; `GetElementType()` reads it).
+        // int→Std.Int32) and `int[][]` → "Int32[][]" / "Std.Int32[][]".
+        // Keep the element used to compose these names.
         // Element-less arrays (empty tag) keep the old synthetic name (no element to name).
         if elem.is_empty() {
             return build_type_ex(
-                ctx, "Array", well_known_names::STD_ARRAY, NativeData::None, true, elem,
+                ctx, "Array", well_known_names::STD_ARRAY, NativeData::None, true, elem, Value::Null,
             );
         }
         let elem_ty = make_type_from_name(ctx, elem);
@@ -89,7 +89,7 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
         let arr_name = format!("{elem_name}[]");
         let arr_full = format!("{elem_full}[]");
         return build_type_ex(
-            ctx, &arr_name, &arr_full, NativeData::None, true, elem,
+            ctx, &arr_name, &arr_full, NativeData::None, true, elem, elem_ty,
         );
     }
     // add-reflection-nested-generic-args: a constructed-generic arg name carries angle
@@ -262,25 +262,31 @@ pub(super) fn canonical_type_name(tag: &str) -> String {
 /// `field_index` and attaching `native`. Uses the real `Std.Type` TypeDesc so
 /// the object responds to reflection methods.
 pub(super) fn build_type(ctx: &VmContext, simple: &str, full: &str, native: NativeData) -> Value {
-    build_type_ex(ctx, simple, full, native, false, "")
+    build_type_ex(ctx, simple, full, native, false, "", Value::Null)
 }
 
-/// add-reflection-array-element-type: like `build_type`, but also records whether
-/// this is an array type and (if so) its element type FQ name, written to the
-/// `Std.Type` `IsArray` / `__elementName` slots (VM-written, same mechanism as
-/// `__name` / `__fullName`). `GetElementType()` reads `__elementName` lazily.
-pub(super) fn build_type_ex(
+/// Build a Type with its already-resolved array element, if present.
+fn build_type_ex(
     ctx: &VmContext, simple: &str, full: &str, native: NativeData,
-    is_array: bool, element: &str,
+    is_array: bool, element_name: &str, element: Value,
 ) -> Value {
-    match ctx.try_lookup_type(well_known_names::STD_TYPE) {
+    let type_td = match &element {
+        // An element Type already supplies the Std.Type descriptor. Reusing it
+        // avoids a lazy lookup while that fresh object is only in native locals.
+        Value::Object(rc) => Some(rc.type_desc_arc().clone()),
+        _ => ctx.try_lookup_type(well_known_names::STD_TYPE),
+    };
+    match type_td {
         Some(type_td) => {
             let mut slots = vec![Value::Null; type_td.fields.len()];
             if let Some(&i) = type_td.field_index.get("IsArray") {
                 slots[i] = Value::Bool(is_array);
             }
+            if let Some(&i) = type_td.field_index.get("__elementType") {
+                slots[i] = element;
+            }
             if let Some(&i) = type_td.field_index.get("__elementName") {
-                slots[i] = Value::Str(element.to_string().into());
+                slots[i] = Value::Str(element_name.to_string().into());
             }
             // align-type-memberinfo-hierarchy: `Name` is inherited from
             // `Std.Reflection.MemberInfo` (Type's base) — populate that slot so

@@ -16,13 +16,12 @@ public sealed class Type : MemberInfo {
     /// VM 写入的全限定名（优先用 `FullName` 属性）。
     public string __fullName;
 
-    /// VM 写入：是否数组类型；`__elementName` 存元素类型的 FQ 名。
-    ///
-    /// `typeof(int[])`、数组字段/参数类型、`arr.GetType()` 为 true；
-    /// `GetElementType()` 解析为 `Type`（缺省 null）。
+    /// VM 写入：`typeof(int[])`、数组字段/参数类型、`arr.GetType()` 为 true。
     public bool IsArray;
-    /// 数组元素类型的 FQ 名（非数组为 ""）。
+    /// VM 种子布局使用的元素名字（非数组为 ""）。
     public string __elementName;
+    // VM 在数组 Type 创建时写入已解析的元素投影。
+    private Type? __elementType;
 
     /// VM 写入：定义该类型的 assembly 的 AssemblyId（0 = root）。内部（`__` 前缀），非用户读取。
     public long __asmId;
@@ -38,7 +37,8 @@ public sealed class Type : MemberInfo {
     [Native("__type_get_type")]
     public static extern Type GetType(string fqn);
 
-    /// 数组类型的元素类型（`typeof(int[]).GetElementType()` → `typeof(int)`）；非数组为 null。
+    /// 数组 Type 创建时解析的元素类型（`typeof(int[]).GetElementType()` → `typeof(int)`）。
+    /// 非数组或没有元素标签的数组返回 null。
     [Native("__type_element")]
     public extern Type GetElementType();
 

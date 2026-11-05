@@ -5,10 +5,14 @@ pub fn type_full_name(ty: &Value) -> Value {
     read_type_slot_of(ty, "__fullName")
 }
 
-/// `__type_element(typeObj) -> Type | null` — the element type of an array Type
-/// (`Type.GetElementType()`), or null for a non-array Type. add-reflection-array-
-/// element-type: reads the VM-written `__elementName` slot and resolves it.
+/// The element Type captured when this array Type was built.
 pub fn type_element(ctx: &VmContext, ty: &Value) -> Value {
+    if let Value::Object(rc) = ty {
+        if let Some(&slot) = rc.type_desc().field_index.get("__elementType") {
+            return rc.borrow().field_value(slot);
+        }
+    }
+    // A prebuilt bootstrap seed has only the name slot.
     match read_type_slot_of(ty, "__elementName") {
         Value::Str(s) if !s.is_empty() => make_type_from_name(ctx, &s),
         _ => Value::Null,
@@ -379,7 +383,7 @@ pub mod typed {
     #[builtin(name = "__type_full_name")]
     pub fn full_name(ty: &Value) -> Value { type_full_name(ty) }
 
-    #[builtin(name = "__type_element")]
+    #[builtin(name = "__type_element", reenters)]
     pub fn element(ctx: &VmContext, ty: &Value) -> Value { type_element(ctx, ty) }
 
     #[builtin(name = "__type_base")]

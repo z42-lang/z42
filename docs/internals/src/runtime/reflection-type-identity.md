@@ -114,7 +114,8 @@ index 对齐，构建时从 `Function.is_static` 采）。`merge_with_base` 跳�
 - `int[][]` → 元素 `int[]` 再递归 → `Int32[][]` / `Std.Int32[][]`（任意深度）。
 - 用户类 `Box[]` → `Test.Box[]`。
 - **空元素标签**（少数无元素信息的数组）保留合成名 `Std.Array`。
-- `__elementName` 不变（`GetElementType()` 仍读它）。
+- 数组 Type 的内部引用槽保留生成名称所用的元素 Type。`GetElementType()` 返回这个投影，后续加载仅影响
+  新创建的数组 Type。旧种子布局通过 `__elementName` 解析。
 
 `typeof(T[])` 与运行期 `arr.GetType()` 走**同一** `make_type_from_name`（后者经
 `builtin_obj_get_type` 用数组值的 `element_type`）→ 两路名字一致。
