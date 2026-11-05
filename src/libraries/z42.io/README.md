@@ -39,6 +39,9 @@
 xtask test stdlib z42.io    # 本库全部 [Test]（含 core/IO 门面的 console / file / directory / path 等用例）
 ```
 
+StringReader 的标量游标与批量写入边界由 `tests/string_reader.z42` 覆盖；
+批量拷贝、单字符和零 count 的基准位于 `benches/string_reader_copy_bench.z42`。
+
 ## 关联文档
 
 - 用法与规则（参考手册）：[文件与控制台（z42.core）](../../../docs/reference/src/stdlib/core.File.md) · [流式 I/O 与子进程（z42.io）](../../../docs/reference/src/stdlib/io.md)
