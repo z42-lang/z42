@@ -1,0 +1,4 @@
+namespace BoundaryApp;
+using Std.IO;
+using BoundaryMid;
+void Main() { Console.WriteLine(Mid.Value().ToString()); }

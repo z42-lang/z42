@@ -1,0 +1,7 @@
+[project]
+name = "bd.app"
+kind = "exe"
+[sources]
+include = ["main.z42"]
+[dependencies]
+"bd.mid" = { path = "../mid" }

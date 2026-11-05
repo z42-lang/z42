@@ -70,6 +70,7 @@ xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
 | `core/builder.z42` | **编排核心**：`_orchestrate` 选路径 → 构造 `Pipeline`（注入 `ICompiler` + workload + hooks）+ `PipelineContext` → `Run`；`_hostCompiler` 运行时加载 `programs/z42c/z42c.pipeline.zpkg` 注入编译器（缺失则 `NoCompiler` 兜底）|
 | `core/builder_commands.z42` | **命令处理**：build / export / publish 共用 `_runVerb`（ManifestLoader → Target → `_orchestrate`）|
 | `core/builder_hooks.z42` | 项目 build hook 注入：`[plugins]` 里带 hook 位的插件（工程条目经 ICompiler 代建）反射全部 `BuildHooks` 具体类，多者经 `CompositeBuildHooks` 按声明序调用；`[dependencies]` 的预构建包先按包类型分流，普通库进入编译解析域，exe 按 deploy 策略装配其产物与 DEPS 闭包，插件候选仍经严格检查；旧 `[build] hooks` 目录写法已删除（1b） |
+| `core/builder_prebuilt_deps.z42` | 普通预构建依赖按声明所在工程解析。构建独立 exe 时，根工程和源码 path 闭包成员的预构建运行依赖共同装配，使用各自的 deploy 策略与同一份目标路径冲突检查。 |
 | `core/builder_new.z42` | **`new` 脚手架**：生成 z42.toml + src 模板（exe/lib）+ .gitignore + README；工程名校验、`--path` 为父目录 |
 | `core/builder_test.z42` | **test / bench**：反射式 `[Test]`/`[Benchmark]` 运行器。target 双形态：已编译 `.zbc/.zpkg` 直跑 / 工程 `z42.toml`（或无 target）→ compile-then-test |
 | `core/builder_workspace.z42` | **工作区根**：`_wsDispatch` 判目标、按 `WorkspacePlan.PlanDefault` / `PlanLayout` 逐成员跑；`WsSiblings` 登记本轮已建成员（编译期排在 Z42_LIBS 前、path 闭包复用、测试产物旁并置）|
