@@ -1,0 +1,238 @@
+namespace Z42Builder;
+
+using Std.IO;
+using Z42.IR;
+using Z42.Package;
+using Z42.Project;
+
+// Resolve file references before passing them to the directory-based compiler input.
+string[] _builderPrebuiltLibs(ProjectManifest manifest, string sourceDir) {
+    string[] paths = new string[manifest.DepCount];
+    int count = 0;
+    int i = 0;
+    while (i < manifest.DepCount) {
+        DepEntry dep = manifest.Deps[i];
+        i = i + 1;
+        if (!dep.Path.EndsWith(".zpkg")) { continue; }
+        string path = _builderAbsolute(Path.IsRooted(dep.Path) ? dep.Path : Path.Join(sourceDir, dep.Path));
+        ZpkgInfo info = null;
+        try { info = ZpkgReader.Open(File.ReadAllBytes(path), path); } catch (Exception ex) { info = null; }
+        if (info == null) {
+            ConsoleError.WriteLine("z42b: [dependencies] cannot read zpkg " + path);
+            return null;
+        }
+        if (PkgKind.IsPluginPkg(info.PkgKind, info.PluginCaps)) { continue; }
+        if (info.Name != dep.Name || Path.GetFileName(path) != dep.Name + ".zpkg") {
+            ConsoleError.WriteLine("z42b: [dependencies] package and file name must match " + dep.Name + ": " + path);
+            return null;
+        }
+        paths[count] = path;
+        count = count + 1;
+    }
+    string[] result = new string[count];
+    int j = 0;
+    while (j < count) { result[j] = paths[j]; j = j + 1; }
+    return _builderCheckPrebuiltOrder(result) ? result : null;
+}
+
+// Compiler inputs select the first directory containing the package name. Reject
+// references that would resolve to a sibling of an earlier reference instead.
+bool _builderCheckPrebuiltOrder(string[] paths) {
+    int i = 0;
+    while (i < paths.Length) {
+        string path = paths[i];
+        string name = Path.GetFileName(path);
+        int j = 0;
+        while (j < i) {
+            string other = Path.Join(Path.GetDirectoryName(paths[j]), name);
+            if (other != path && File.Exists(other)) {
+                ConsoleError.WriteLine("z42b: [dependencies] " + path + " is shadowed by " + other);
+                return false;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+bool _builderCheckPrebuiltDomain(string[] paths, WorkspaceCompileDomain domain, string[] inputs) {
+    if (domain == null) { return true; }
+    int i = 0;
+    while (i < paths.Length) {
+        bool found = false;
+        int j = 0;
+        while (j < inputs.Length) {
+            if (_builderAbsolute(inputs[j]) == paths[i]) { found = true; break; }
+            j = j + 1;
+        }
+        if (!found) {
+            ConsoleError.WriteLine("z42b: [dependencies] prebuilt package is outside the workspace input domain: " + paths[i]);
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+bool _builderIsFileReference(ProjectManifest manifest, string name) {
+    int i = 0;
+    while (i < manifest.DepCount) {
+        DepEntry dep = manifest.Deps[i];
+        if (dep.Name == name) { return dep.Path.EndsWith(".zpkg"); }
+        i = i + 1;
+    }
+    return false;
+}
+
+string _builderPrebuiltDeploy(ProjectManifest manifest, string file) {
+    string name = Path.GetFileNameWithoutExtension(file);
+    int i = 0;
+    while (i < manifest.DepCount) {
+        if (manifest.Deps[i].Name == name) { return manifest.Deps[i].Deploy; }
+        i = i + 1;
+    }
+    return "";
+}
+
+// Plan copies before writing so invalid or conflicting closure entries do not
+// leave a partly copied dependency set.
+sealed class BuilderPrebuiltCopies {
+    private string _dist;
+    private StrMap _owners;
+    private string[] _sources;
+    private string[] _targets;
+    private int _count;
+
+    public BuilderPrebuiltCopies(string dist, string mainName) {
+        this._dist = _builderAbsolute(dist);
+        this._owners = new StrMap();
+        this._owners.Put(mainName, "");
+        this._sources = new string[16];
+        this._targets = new string[16];
+    }
+
+    public void Add(string dir, string rel) {
+        if (Path.IsRooted(rel) || rel.IndexOf("\\") >= 0 || rel.IndexOf(":") >= 0
+            || Path.Normalize(rel) != rel || rel == ".." || rel.StartsWith("../")) {
+            throw new Exception("unsafe prebuilt payload path: " + rel);
+        }
+        string source = _builderAbsolute(Path.Join(dir, rel));
+        if (!File.Exists(source)) { throw new Exception("prebuilt payload missing: " + source); }
+        if (this._owners.ContainsKey(rel)) {
+            string owner = this._owners.Get(rel) as string;
+            if (owner != source) { throw new Exception("prebuilt payload collision: " + rel); }
+            return;
+        }
+        this._owners.Put(rel, source);
+        if (this._count == this._sources.Length) {
+            string[] sources = new string[this._count * 2];
+            string[] targets = new string[this._count * 2];
+            Array.Copy(this._sources, sources, this._count);
+            Array.Copy(this._targets, targets, this._count);
+            this._sources = sources;
+            this._targets = targets;
+        }
+        this._sources[this._count] = source;
+        this._targets[this._count] = Path.Join(this._dist, rel);
+        this._count = this._count + 1;
+    }
+
+    public void Copy() {
+        int i = 0;
+        while (i < this._count) {
+            if (this._sources[i] != this._targets[i]) {
+                Directory.Create(Path.GetDirectoryName(this._targets[i]));
+                File.Copy(this._sources[i], this._targets[i]);
+            }
+            i = i + 1;
+        }
+    }
+}
+
+string[] _builderInputDirectories(string[] paths) {
+    StrMap seen = new StrMap();
+    string[] dirs = new string[paths.Length];
+    int n = 0;
+    int i = 0;
+    while (i < paths.Length) {
+        string dir = _builderAbsolute(Path.GetDirectoryName(paths[i]));
+        if (seen.TryAdd(dir, "")) { dirs[n] = dir; n = n + 1; }
+        i = i + 1;
+    }
+    string[] result = new string[n];
+    Array.Copy(dirs, result, n);
+    return result;
+}
+
+string _builderFindPrebuiltDir(string[] dirs, string file) {
+    int i = 0;
+    while (i < dirs.Length) {
+        if (File.Exists(Path.Join(dirs[i], file))) { return dirs[i]; }
+        i = i + 1;
+    }
+    return "";
+}
+
+bool _builderCopyPrebuilt(string deploy, string dir, string file) {
+    if (deploy == "shared") { return false; }
+    if (dir.Length == 0) { throw new Exception("prebuilt dependency not found: " + file); }
+    if (deploy == "sdk") {
+        string compiler = _findCompilerZpkg();
+        if (compiler.Length == 0 || dir != _builderAbsolute(Path.GetDirectoryName(compiler))) {
+            throw new Exception("deploy = sdk requires a package from the compiler SDK: " + file);
+        }
+        return false;
+    }
+    if (deploy != "" && deploy != "copy") { throw new Exception("invalid deploy policy: " + deploy); }
+    string framework = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    return deploy == "copy" || framework.Length == 0 || dir != _builderAbsolute(framework);
+}
+
+string[] _builderPlanPrebuiltCopy(BuilderPrebuiltCopies copies, string dir, string file) {
+    string path = Path.Join(dir, file);
+    ZpkgInfo info = ZpkgReader.Open(File.ReadAllBytes(path), path);
+    if (info == null || info.Name + ".zpkg" != file || PkgKind.IsPluginPkg(info.PkgKind, info.PluginCaps)) {
+        throw new Exception("invalid runtime dependency: " + path);
+    }
+    copies.Add(dir, file);
+    if (!info.Packed) {
+        string[] loose = ZpkgReader.ReadIndexedZbcRels(info);
+        int i = 0;
+        while (i < loose.Length) { copies.Add(dir, loose[i]); i = i + 1; }
+    }
+    string symbols = info.Name + ".zsym";
+    if (File.Exists(Path.Join(dir, symbols))) { copies.Add(dir, symbols); }
+    return ZpkgReader.ReadDependencies(info);
+}
+
+int _builderBundlePrebuilt(ProjectManifest manifest, string sourceDir, string dist, string[] extraDirs, int extraCount) {
+    if (manifest.Project.Kind != "exe" || BuilderWorkspaceState.Current() != null) { return 0; }
+    string[] paths = _builderPrebuiltLibs(manifest, sourceDir);
+    if (paths == null) { return 1; }
+    if (paths.Length == 0) { return 0; }
+    string[] dirs = _builderInputDirectories(_concat(paths, _initialInputs(manifest, extraDirs, extraCount).Deps));
+    BuilderPrebuiltCopies copies = new BuilderPrebuiltCopies(dist, manifest.Project.Name + ".zpkg");
+    StrMap seen = new StrMap();
+    string[] queue = new string[paths.Length];
+    int i = 0;
+    while (i < paths.Length) { queue[i] = Path.GetFileName(paths[i]); i = i + 1; }
+    try {
+        int head = 0;
+        while (head < queue.Length) {
+            string file = queue[head]; head = head + 1;
+            if (file != Path.GetFileName(file) || !file.EndsWith(".zpkg") || file.IndexOf(":") >= 0) {
+                throw new Exception("invalid prebuilt dependency name: " + file);
+            }
+            if (!seen.TryAdd(file, "")) { continue; }
+            string dir = _builderFindPrebuiltDir(dirs, file);
+            if (!_builderCopyPrebuilt(_builderPrebuiltDeploy(manifest, file), dir, file)) { continue; }
+            queue = _concat(queue, _builderPlanPrebuiltCopy(copies, dir, file));
+        }
+        copies.Copy();
+    } catch (Exception ex) {
+        ConsoleError.WriteLine("z42b: " + ex.Message);
+        return 1;
+    }
+    return 0;
+}

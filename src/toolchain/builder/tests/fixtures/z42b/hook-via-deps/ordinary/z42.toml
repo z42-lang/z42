@@ -1,0 +1,10 @@
+[project]
+name = "hp.lib"
+version = "0.1.0"
+kind = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"hp.leaf" = { path = "../leaf/dist/hp.leaf.zpkg" }

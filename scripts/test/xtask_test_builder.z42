@@ -5,13 +5,15 @@ int _testBuilderCliFixtures(string root, TargetTooling tt) {
     DevFixtureTool builder = new DevFixtureTool("z42b", tt.Vm, true);
     builder.Pre = new string[]{ tt.BuilderZpkg, "--mode", _z42cMode(), "--" };
     builder.Requires = tt.BuilderZpkg;
+    DevFixtureTool run = new DevFixtureTool("run", tt.Vm, false);
+    run.Target = true;
     int failed = 0;
     foreach (var fixtures in new string[]{ "z42b", "manifest-targets" }) {
         FixtureSuite s = new FixtureSuite("z42b 命令行与构建夹具", "src/toolchain/builder/tests/fixtures/" + fixtures);
         s.DefaultTool = "z42b";
         s.DefaultLibs = tt.Libs;
         s.Vars = new FixturePair[]{ new FixturePair("vm", tt.Vm), new FixturePair("rid", _detectHostRid()) };
-        s.Tools = new FixtureTool[]{ builder };
+        s.Tools = new FixtureTool[]{ builder, run };
         int[] results = _runFixtureSuite(root, s);
         failed = failed + results[1];
     }

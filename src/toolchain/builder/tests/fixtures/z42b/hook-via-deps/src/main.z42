@@ -1,3 +1,6 @@
 namespace Hp.App;
 
-void Main() { }
+using Std.IO;
+using Hp.Lib;
+
+void Main() { Console.WriteLine(Api.Value().ToString()); }

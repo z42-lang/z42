@@ -12,3 +12,4 @@ include = ["src/**/*.z42"]
 # deps-plugin-routing：独立分发的 hook 插件按普通依赖声明——z42b 读 zpkg 头分流加载 BuildHooks。
 "hp.a" = { path = "pluga/dist/hp.a.zpkg" }
 "hp.b" = { path = "plugb/dist/hp.b.zpkg" }
+"hp.lib" = { path = "ordinary/dist/hp.lib.zpkg" }

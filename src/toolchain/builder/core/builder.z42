@@ -69,7 +69,11 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir,
     ctx.Manifest    = manifest;
     ctx.Target      = target;
     ctx.Dirs        = dirs;
-    ctx.Inputs      = _initialInputs(manifest, extraDepDirs, extraN);
+    Inputs inputs = _initialInputs(manifest, extraDepDirs, extraN);
+    string[] prebuilt = _builderPrebuiltLibs(manifest, sourceDir);
+    if (prebuilt == null || !_builderCheckPrebuiltDomain(prebuilt, p.WorkspaceDomain, inputs.Deps)) { return 1; }
+    if (p.WorkspaceDomain == null && prebuilt.Length > 0) { inputs.Deps = _concat(prebuilt, inputs.Deps); }
+    ctx.Inputs      = inputs;
     ctx.WorkloadDir = "";                          // 实现期：选中 workload 的安装目录
     int code = p.Run(ctx);
     if (code == 0 && p.WorkspaceDomain != null) { BuilderWorkspaceState.Capture(ctx.Inputs.Zsym); }

@@ -1,4 +1,4 @@
-desc = "deps-plugin-routing：[dependencies] 声明的插件 zpkg 读头分流加载 BuildHooks（两 hook 都执行）"
+desc = "deps-plugin-routing：[dependencies] 声明的插件 zpkg 读头分流加载 BuildHooks，普通 .zpkg 继续用于编译依赖（两 hook 都执行）"
 [[step]]
 args = ["build", "{case}/pluga"]
 exit = 0
@@ -6,6 +6,24 @@ exit = 0
 args = ["build", "{case}/plugb"]
 exit = 0
 [[step]]
+args = ["build", "{case}/leaf"]
+exit = 0
+[[step]]
+args = ["build", "{case}/ordinary"]
+exit = 0
+[[step]]
+tool = "copy"
+from = "leaf/dist/hp.leaf.zpkg"
+to = "ordinary/dist/"
+[[step]]
 args = ["build", "{case}/z42.toml"]
 exit = 0
 output_contains = ["HOOK-PLUGIN-SMOKE: A BeforeCompile", "HOOK-PLUGIN-SMOKE: B BeforeCompile"]
+exists = ["dist/hp.lib.zpkg", "dist/hp.leaf.zpkg"]
+absent = ["dist/hp.a.zpkg", "dist/hp.b.zpkg"]
+
+[[step]]
+tool = "run"
+target = "dist/hp.app.zpkg"
+exit = 0
+stdout_equals = "42"
