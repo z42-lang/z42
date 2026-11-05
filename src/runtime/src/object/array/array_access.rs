@@ -197,6 +197,17 @@ impl ArrayObj {
         })
     }
 
+    /// Snapshot an in-bounds REF range without decoding and re-encoding its reference words.
+    pub(crate) fn snapshot_ref_range(&self, heap: &Heap, start: usize, len: usize) -> Value {
+        debug_assert_eq!(self.mode(), ArrayMode::Ref);
+        let src = self.cells();
+        heap.alloc_array_with(self.desc(), len, None, &mut |copy| {
+            // SAFETY: the new REF block is unpublished and sized for len reference words.
+            let dst = unsafe { std::slice::from_raw_parts_mut(copy.elems_ptr(), len * REF_STRIDE) };
+            src.copy_out(start * REF_STRIDE, dst);
+        })
+    }
+
     /// Snapshot `n` elements of a packed `byte[]` from element `off` on — an atomic chunked copy
     /// ([`Cells::copy_out`]), never a plain slice over memory another thread may be writing.
     /// `None` when this is not a `byte[]` or the range is out of bounds (FFI / I/O send paths).

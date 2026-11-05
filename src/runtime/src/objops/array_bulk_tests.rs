@@ -205,3 +205,26 @@ fn a_struct_copy_within_an_old_array_remembers_it() {
     assert!(ctx.heap().is_remembered_for_test(&owner), "the moved young leaf must remember the array");
 }
 
+
+#[test]
+fn checked_copy_writes_the_validated_snapshot_after_source_changes() {
+    let ctx = VmContext::new();
+    let child = marker(&ctx, 7);
+    let Value::Array(src) = ctx.heap().alloc_array(vec![child, Value::Null]) else { panic!() };
+    let Value::Array(dst) = ctx.heap().alloc_array(vec![Value::Null; 2]) else { panic!() };
+    let src_root = ctx.heap().pin_root(Value::Array(src));
+    let dst_root = ctx.heap().pin_root(Value::Array(dst));
+
+    copy_checked(&ctx, &src, 0, &dst, 0, 2, |value| {
+        if matches!(value, Value::Null) {
+            src.borrow().set_boxed(0, Value::Null);
+            ctx.heap().force_collect();
+        }
+        Ok(())
+    }).expect("checked copy");
+
+    assert_eq!(marker_val(&dst.borrow().get_boxed(0)), 7);
+    assert_eq!(src.borrow().get_boxed(0), Value::Null);
+    ctx.heap().unpin_root(src_root);
+    ctx.heap().unpin_root(dst_root);
+}
