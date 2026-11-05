@@ -86,7 +86,7 @@ impl ArrayMode {
     /// The mode from the low bits of an array's kind word ([`ArrayDesc::kind_word`]).
     #[inline(always)]
     fn from_bits(b: usize) -> Self {
-        match b & 15 {
+        match b & MODE_MASK {
             0 => Self::Bool, 1 => Self::Bytes, 2 => Self::I32, 3 => Self::I64, 4 => Self::Chars,
             5 => Self::F64, 6 => Self::Ref, 7 => Self::Mixed, 8 => Self::Frozen, _ => Self::Struct,
         }
@@ -97,6 +97,38 @@ impl ArrayMode {
 /// MIXED zero kind (next 3), so the hot paths read an array's shape from its own header without a
 /// dependent load of the descriptor.
 const KIND_TAG_MASK: usize = 127;
+const MODE_MASK: usize = 15;
+
+/// Array header fields and mode encoding used by native length reads.
+#[cfg(all(feature = "jit", target_pointer_width = "64"))]
+pub(crate) mod jit_len_layout {
+    use super::{ArrayMode, MODE_MASK};
+    use crate::object::header;
+
+    pub(crate) const HANDLE_ADDR_MASK: u64 = header::HANDLE_ADDR_MASK;
+    pub(crate) const HANDLE_GEN_SHIFT: u32 = header::ADDR_BITS;
+    pub(crate) const GEN_OFFSET: i32 = std::mem::offset_of!(header::GcWord, generation) as i32;
+    pub(crate) const SIZE_OFFSET: i32 = header::HEADER_SIZE_OFFSET as i32;
+    pub(crate) const KIND_OFFSET: i32 = header::KIND_WORD_OFFSET as i32;
+    pub(crate) const MODE_MASK_BITS: i64 = MODE_MASK as i64;
+    pub(crate) const STRUCT_MODE: i64 = ArrayMode::Struct as i64;
+
+    // One nibble per mode, using the same width calculation as ArrayObj::len.
+    pub(crate) const PACKED_SHIFTS: i64 = {
+        let modes = [
+            ArrayMode::Bool, ArrayMode::Bytes, ArrayMode::I32, ArrayMode::I64,
+            ArrayMode::Chars, ArrayMode::F64, ArrayMode::Ref, ArrayMode::Mixed,
+            ArrayMode::Frozen,
+        ];
+        let mut shifts = 0;
+        let mut i = 0;
+        while i < modes.len() {
+            shifts |= (modes[i].shift() as i64) << (4 * modes[i] as u8);
+            i += 1;
+        }
+        shifts
+    };
+}
 
 /// What an array's kind word points at: element type, mode and MIXED zero kind. Interned per
 /// element type and mode (`ElemType::array_desc`), never freed — the block header holds a plain
