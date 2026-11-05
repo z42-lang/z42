@@ -53,7 +53,8 @@ CI 只能在 GitHub 上跑；本地对应的门禁是 `xtask test docs links`（
 
 夜间资产上传由 `../ci/upload_release_assets.py` 逐项执行，每项核对远端摘要、大小与上传状态；瞬时 GitHub/连接错误及收据缺失或不一致做有界退避重试；权限/参数错误及重试耗尽仍让发布失败。
 
-恢复规则与上传重试回归测试：`python3 -m unittest discover -s .github/ci -p 'test_*.py'`，PR 的 `detect-changes` 同样执行。
+CI 供种、恢复规则与上传重试回归测试：`python3 -B -m unittest discover -s .github/ci -p 'test_*.py'`，PR 的 `detect-changes` 同样执行。
+`test_ci_bootstrap.py` 执行 composite action 的实际 Bash 块，以 SDK 命令探针检查轻量 / 完整模式的构建边界、格式代差和编译失败。
 
 ## 关联文档
 

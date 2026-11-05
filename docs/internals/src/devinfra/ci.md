@@ -411,6 +411,10 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 **每个**跑 xtask 的 job（`ci-bootstrap` 与 `xtask-bootstrap-artifact` 两条路径都一样）都要先经
 [`setup-z42-sdk`](https://github.com/z42-lang/z42/blob/main/.github/actions/setup-z42-sdk/action.yml) 拿一份上一版 SDK，装进 `.z42/`。
 它既是 xtask 运行所在的 SDK，也是 **z42c 种子**：用它编当前源码，xtask 的 `_seedSdkDir` 会自己找到 `./.z42`。
+`ci-bootstrap` 的 `xtask-only=true` 只用这份 SDK 编译并运行当前 xtask 及其工具依赖，不暂存产品种子、
+不读取当前产品的格式常量，也不执行产品格式的两代自举。xtask 的编译器、输出格式与执行 VM 均属于同一份 SDK；
+当前产品格式和 SDK 不同时，文档 / 源码检查也不必先构建当前编译器和 stdlib。
+普通模式仍检查格式差异并在需要时执行两代自举，再构建当前产品。
 取用顺序如下：
 
 ```
