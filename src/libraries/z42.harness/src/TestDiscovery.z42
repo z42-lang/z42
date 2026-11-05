@@ -58,12 +58,13 @@ public class TestCase {
 
     /// 调用（无接收者）。被调函数里抛出的异常按原类型传出。
     ///
-    /// 零参形态直接调（`[Test]` / `[Setup]` / `[Teardown]` 及自建 [`Bencher`] 的
-    /// `[Benchmark]`）；`[Benchmark] void f(Bencher b)` 形态由这里建 [`Bencher`] 传入，
-    /// 跑完按函数名打摘要行（与自建形态手写 `b.printSummary("f")` 输出同一行）。
+    /// 零参形态直接调（`[Test]` / `[Setup]` / `[Teardown]` 及要自定采样档/标签的
+    /// `[Benchmark]`）；**推荐**的 `[Benchmark] void f(Bencher b)` 形态由这里建固定档
+    /// (2, 20) 的 [`Bencher`] 传入，跑完按函数名自动打摘要行——基准体只写 `b.iter(() => …)`，
+    /// 预热/采样/摘要全是 runner 的事。
     public void Invoke() {
         if (this.TakesBencher()) {
-            Bencher b = new Bencher();
+            Bencher b = new Bencher(2, 20);   // 事实标准固定档：确定性采样数，正确性波/CI A/B 的现状口径
             object[] args = new object[1];
             args[0] = b;
             this.Method.Invoke(null, args);

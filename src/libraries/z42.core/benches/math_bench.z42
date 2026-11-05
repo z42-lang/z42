@@ -8,23 +8,19 @@ namespace Z42MathBench;
 using Std.Harness;
 
 [Benchmark]
-void bench_sqrt() {
-    var b = new Bencher(2, 20);
+void bench_sqrt(Bencher b) {
     b.iter(() => {
         double r = Math.Sqrt(2.0) + Math.Sqrt(3.0) + Math.Sqrt(5.0);
         BenchHelpers.blackBox(r);
     });
-    b.printSummary("sqrt");
 }
 
 [Benchmark]
-void bench_pow() {
-    var b = new Bencher(2, 20);
+void bench_pow(Bencher b) {
     b.iter(() => {
         double r = Math.Pow(2.0, 10.0);
         BenchHelpers.blackBox(r);
     });
-    b.printSummary("pow");
 }
 
 [Benchmark]

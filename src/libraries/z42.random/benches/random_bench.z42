@@ -8,8 +8,7 @@ using Std.Harness;
 using Std.Random;
 
 [Benchmark]
-void bench_next_int_range() {
-    var b = new Bencher(2, 20);
+void bench_next_int_range(Bencher b) {
     b.iter(() => {
         var rng = new Random(12345L);
         int acc = 0;
@@ -20,12 +19,10 @@ void bench_next_int_range() {
         }
         BenchHelpers.blackBox(acc);
     });
-    b.printSummary("next_int_range");
 }
 
 [Benchmark]
-void bench_next_double() {
-    var b = new Bencher(2, 20);
+void bench_next_double(Bencher b) {
     b.iter(() => {
         var rng = new Random(6789L);
         double acc = 0.0;
@@ -36,7 +33,6 @@ void bench_next_double() {
         }
         BenchHelpers.blackBox(acc);
     });
-    b.printSummary("next_double");
 }
 
 // Smoke [Test] — bench bodies run + seeded determinism sanity.

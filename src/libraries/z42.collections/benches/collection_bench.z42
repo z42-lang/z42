@@ -10,8 +10,7 @@ using Std.Harness;
 using Std.Collections;
 
 [Benchmark]
-void bench_sortedset_add() {
-    var b = new Bencher(2, 20);
+void bench_sortedset_add(Bencher b) {
     b.iter(() => {
         var s = new SortedSet<int>();
         int i = 0;
@@ -23,12 +22,10 @@ void bench_sortedset_add() {
         }
         BenchHelpers.blackBox(s.Count());
     });
-    b.printSummary("sortedset_add_64");
 }
 
 [Benchmark]
-void bench_sortedset_contains() {
-    var b = new Bencher(2, 20);
+void bench_sortedset_contains(Bencher b) {
     var s = new SortedSet<int>();
     int n = 0;
     while (n < 64) { BenchHelpers.blackBox(s.Add(n)); n = n + 1; }
@@ -36,7 +33,6 @@ void bench_sortedset_contains() {
         bool hit = s.Contains(48);
         BenchHelpers.blackBox(hit);
     });
-    b.printSummary("sortedset_contains");
 }
 
 [Test]
@@ -52,8 +48,7 @@ void test_collection_bench_bodies_run() {
 }
 
 [Benchmark]
-void bench_queue_stack_cycle() {
-    var b = new Bencher(2, 20);
+void bench_queue_stack_cycle(Bencher b) {
     b.iter(() => {
         var q = new Queue<int>();
         var st = new Stack<int>();
@@ -64,12 +59,10 @@ void bench_queue_stack_cycle() {
         while (st.Count() > 0) { sum = sum + st.Pop(); }
         BenchHelpers.blackBox(sum);
     });
-    b.printSummary("queue_stack_cycle");
 }
 
 [Benchmark]
-void bench_priority_queue() {
-    var b = new Bencher(2, 20);
+void bench_priority_queue(Bencher b) {
     b.iter(() => {
         var pq = new PriorityQueue<int>();
         int i = 0;
@@ -78,12 +71,10 @@ void bench_priority_queue() {
         while (pq.Count() > 0) { sum = sum + pq.Dequeue(); }
         BenchHelpers.blackBox(sum);
     });
-    b.printSummary("priority_queue");
 }
 
 [Benchmark]
-void bench_linked_list() {
-    var b = new Bencher(2, 20);
+void bench_linked_list(Bencher b) {
     b.iter(() => {
         var ll = new LinkedList<int>();
         int i = 0;
@@ -93,5 +84,4 @@ void bench_linked_list() {
         while (drained < 64) { ll.RemoveFirst(); drained = drained + 1; }
         BenchHelpers.blackBox(hit);
     });
-    b.printSummary("linked_list");
 }

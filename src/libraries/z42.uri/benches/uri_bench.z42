@@ -7,26 +7,22 @@ using Std.Harness;
 using Std.Uri;
 
 [Benchmark]
-void bench_uri_parse() {
-    var b = new Bencher(2, 20);
+void bench_uri_parse(Bencher b) {
     b.iter(() => {
         var u1 = Uri.Parse("https://user@example.com:8443/api/v1/items?page=2&sort=name#top");
         var u2 = Uri.Parse("ftp://files.example.org/pub/archive.tar.gz");
         BenchHelpers.blackBox(u1);
         BenchHelpers.blackBox(u2);
     });
-    b.printSummary("uri_parse");
 }
 
 [Benchmark]
-void bench_encode_decode_component() {
-    var b = new Bencher(2, 20);
+void bench_encode_decode_component(Bencher b) {
     b.iter(() => {
         string enc = Uri.EncodeComponent("a b/c?d=e&f=100% 中文");
         string dec = Uri.DecodeComponent(enc);
         BenchHelpers.blackBox(dec);
     });
-    b.printSummary("encode_decode_component");
 }
 
 // Smoke [Test] — bench bodies run + roundtrip sanity.

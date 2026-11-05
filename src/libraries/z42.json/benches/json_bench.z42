@@ -29,51 +29,43 @@ string _bigObjectDoc(int keys) {
 }
 
 [Benchmark]
-void bench_parse_large_object() {
+void bench_parse_large_object(Bencher b) {
     string doc = _bigObjectDoc(200);          // >1 KB, 200 members
-    var b = new Bencher(2, 10);
     b.iter(() => {
         var v = JsonValue.Parse(doc);
         BenchHelpers.blackBox(v.Count());
     });
-    b.printSummary("parse_large_object_200");
 }
 
 [Benchmark]
-void bench_stringify_large_object() {
+void bench_stringify_large_object(Bencher b) {
     var obj = JsonValue.OfObject();
     int i = 0;
     while (i < 200) {
         obj.Set("key" + i.ToString(), JsonValue.OfLong((long)i));
         i = i + 1;
     }
-    var b = new Bencher(2, 10);
     b.iter(() => {
         BenchHelpers.blackBox(JsonValue.Stringify(obj));   // WriteObject Get-per-key now O(n)
     });
-    b.printSummary("stringify_large_object_200");
 }
 
 [Benchmark]
-void bench_parse_object() {
-    var b = new Bencher(2, 20);
+void bench_parse_object(Bencher b) {
     string doc = "{\"name\":\"alice\",\"age\":30,\"active\":true,\"tags\":[1,2,3]}";
     b.iter(() => {
         var v = JsonValue.Parse(doc);
         BenchHelpers.blackBox(v);
     });
-    b.printSummary("parse_object");
 }
 
 [Benchmark]
-void bench_parse_scalar_access() {
-    var b = new Bencher(2, 20);
+void bench_parse_scalar_access(Bencher b) {
     b.iter(() => {
         var v = JsonValue.Parse("42");
         long n = v.AsLong();
         BenchHelpers.blackBox(n);
     });
-    b.printSummary("parse_scalar_access");
 }
 
 [Test]

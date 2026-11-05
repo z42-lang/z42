@@ -17,7 +17,10 @@ public sealed class TestAttribute : Attribute {
     public TestAttribute() { }
 }
 
-/// 一条基准：零参，或唯一参数为 [`Bencher`]（`void f(Bencher b)`——runner 传入并自动打摘要行）。
+/// 一条基准：推荐 `void f(Bencher b)`（runner 传固定档并自动打摘要行）。
+///
+/// 体里只写 `b.iter(() => …)`——预热/采样/摘要全是 runner 的事；零参自建形态
+/// （自己 new Bencher + printSummary）留给要自定采样档 / 自定标签 / 自适应预算的场合。
 public sealed class BenchmarkAttribute : Attribute {
     /// 无实参（签名约束由编译期校验）。
     public BenchmarkAttribute() { }

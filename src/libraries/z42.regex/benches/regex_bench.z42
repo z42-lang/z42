@@ -7,36 +7,30 @@ using Std.Harness;
 using Std.Regex;
 
 [Benchmark]
-void bench_regex_compile() {
-    var b = new Bencher(2, 20);
+void bench_regex_compile(Bencher b) {
     b.iter(() => {
         var re = Regex.Compile("[a-z0-9._]+@[a-z0-9-]+\\.[a-z]+");
         BenchHelpers.blackBox(re);
     });
-    b.printSummary("regex_compile");
 }
 
 [Benchmark]
-void bench_regex_is_match() {
+void bench_regex_is_match(Bencher b) {
     var re = Regex.Compile("[a-z0-9._]+@[a-z0-9-]+\\.[a-z]+");
-    var b = new Bencher(2, 20);
     b.iter(() => {
         bool hit = re.IsMatch("contact us at team.lead@example-corp.com for details")
                  && !re.IsMatch("no email here, just words and 12345 numbers");
         BenchHelpers.blackBox(hit);
     });
-    b.printSummary("regex_is_match");
 }
 
 [Benchmark]
-void bench_regex_find_all() {
+void bench_regex_find_all(Bencher b) {
     var re = Regex.Compile("[0-9]+");
     string hay = "order 12 shipped 345 units to 6789 customers in 10 regions over 2026 days";
-    var b = new Bencher(2, 20);
     b.iter(() => {
         BenchHelpers.blackBox(re.FindAll(hay));
     });
-    b.printSummary("regex_find_all");
 }
 
 // Smoke [Test] — bench bodies run + match sanity.
@@ -53,12 +47,10 @@ void test_regex_bench_bodies_run() {
 }
 
 [Benchmark]
-void bench_regex_replace() {
+void bench_regex_replace(Bencher b) {
     var re = Regex.Compile("[0-9]+");
     string hay = "id 12 x 345 y 6789 z 10 w 2026 done";
-    var b = new Bencher(2, 20);
     b.iter(() => {
         BenchHelpers.blackBox(re.Replace(hay, "#"));
     });
-    b.printSummary("regex_replace");
 }
