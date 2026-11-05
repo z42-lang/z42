@@ -121,6 +121,7 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` | `test e2e --dir cross-zpkg` | `cross-zpkg` |
 | `src/compiler/z42c.pipeline/tests/fixtures/multi-exe/` | `test e2e --dir multi-exe` | `multi-exe` |
 | `src/toolchain/builder/tests/fixtures/` | `test toolchain builder` | `toolchain`、`targets` |
+| `scripts/test/sdk/`、`src/toolchain/launcher/tests/fixtures/package/` | `package sdk --verify` | —（SDK 验证在 GREEN 外；CI 由四个 host package 执行）|
 | 其余 `src/tests/` | `test e2e` + `check layout` | —（goldens 与 layout 恒跑）|
 | `src/benches/` | `bench --quick` | —（gate 里没有它）|
 | 编译器私有 `src/compiler/<member>/tests/`（上述专属 harness 夹具除外） | `test compiler` + `test stdlib`（目录工程与扁平 / `[tests]` 单元分别发现） | `compiler`、`stdlib` |
@@ -130,10 +131,13 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | 其余 `src/toolchain/` | `test stdlib`（工具链影响 `[Test]` 的执行方式，全库扫）+ `test toolchain` | `stdlib`、`toolchain` |
 | `examples/<part>/<chapter>/…` | `test docs examples <part>/<chapter>` | `examples` |
 | `docs/learn/` | `test docs examples --book-only` | `examples` |
-| `scripts/`、`*.workspace.toml`、其余 `src/`、未识别路径 | **full**（坍缩为 `test`）| **full**（不跳）|
+| 其余 `scripts/`、`*.workspace.toml`、其余 `src/`、未识别路径 | **full**（坍缩为 `test`）| **full**（不跳）|
 | 其余文档 / artifacts | 跳过 | — |
 
-设计取向是**宁可多跑不可漏跑**：任一未识别路径即保守坍缩为完整 `test`。
+设计取向是**宁可多跑不可漏跑**：任一未识别路径即保守选择完整 `test`，
+但它不能覆盖的 SDK 验证、完整 Rust harness、整程序 benchmark 冒烟继续保留在后面，分别去重并依序执行。
+GREEN 的 Rust stage 只执行库单测并编译集成测试，`test runtime` 还执行集成与 doctests，不能被前者替代。
+SDK 私有执行器和夹具按目录职责选择实际发行包验证，不需要逐用例声明平台。
 计划里的逻辑命令统一**在进程内重入 CLI 路由**（不 shell out），免去每命令一次进程启动。
 
 ## 8. 反射 runner 的输出格式（`z42b test` / `z42b bench`）

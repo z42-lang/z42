@@ -1,0 +1,39 @@
+// 真正执行同输出、退出 0 / 7 的程序，发行包 golden 不能只按输出报绿。
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _selfcheckDistGoldens(string root, string z42c, string vm, string libs, string[] modes) {
+    Console.WriteLine("── distribution golden selfcheck (expected failures below) ──");
+    string dir = _xtaskWork(root, "dist-golden-exit");
+    _resetDir(dir);
+    try {
+        string expected = Path.Join(dir, "expected.txt");
+        string good = Path.Join(dir, "good.z42");
+        string bad = Path.Join(dir, "bad.z42");
+        string prefix = "namespace DistGoldenExit;\nusing Std.IO;\nvoid Main() { Console.WriteLine(\"dist-exit\"); Environment.Exit(";
+        File.WriteAllText(good, prefix + "0); }\n");
+        File.WriteAllText(bad, prefix + "7); }\n");
+        _DistCase[] cases = new _DistCase[]{
+            new _DistCase("exit-zero", good, expected, "DistGoldenExit.Main", false, false),
+            new _DistCase("exit-seven", bad, expected, "DistGoldenExit.Main", false, false)
+        };
+        string[] zbcs = new string[]{ Path.Join(dir, "good.zbc"), Path.Join(dir, "bad.zbc") };
+        bool[] compiled = _distCompileAll(cases, zbcs, true, z42c, libs);
+        if (!compiled[0] || !compiled[1]) { throw new Exception("distribution golden selfcheck: fixture compilation"); }
+        foreach (var mode in modes) {
+            File.WriteAllText(expected, "dist-exit\n");
+            int[] result = _distRunMode(mode, cases, zbcs, compiled, vm, libs);
+            if (result[0] != 1 || result[1] != 1) {
+                throw new Exception("distribution golden selfcheck: nonzero exit accepted (" + mode + ")");
+            }
+            File.WriteAllText(expected, "different output\n");
+            result = _distRunMode(mode, new _DistCase[]{ cases[0] }, new string[]{ zbcs[0] }, new bool[]{ true }, vm, libs);
+            if (result[0] != 0 || result[1] != 1) { throw new Exception("distribution golden selfcheck: output mismatch accepted"); }
+            result = _distRunMode(mode, new _DistCase[]{ cases[0] }, new string[]{ zbcs[0] }, new bool[]{ false }, vm, libs);
+            if (result[0] != 0 || result[1] != 1) { throw new Exception("distribution golden selfcheck: compile failure accepted"); }
+        }
+    } finally { Directory.Delete(dir, true); }
+    Console.WriteLine("  ✅ distribution goldens: exit 0/7, output mismatch and compile failure");
+    return 0;
+}
