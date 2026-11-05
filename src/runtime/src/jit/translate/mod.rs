@@ -39,6 +39,8 @@ mod compare;
 mod convert;
 mod call;
 mod array;
+#[cfg(target_pointer_width = "64")]
+mod array_length;
 mod object;
 mod structs;
 mod term;

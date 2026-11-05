@@ -451,7 +451,8 @@ fn value_discriminants_pinned() {
     assert_eq!(tag(&Value::Char('\0')),                        3, "Char tag");
     assert_eq!(tag(&Value::Str(crate::object::string::vstr::Str::from(""))),     4, "Str tag");
     assert_eq!(tag(&Value::Null),                              5, "Null tag");
-    // Heap variants (Array/Object tags 6/7) need a ArrRef — skip cheap test.
+    let array = Value::Array(crate::object::ArrayObj::leaked(vec![]));
+    assert_eq!(tag(&array), 6, "Array tag");
     assert_eq!(tag(&Value::PinnedView { idx: 0, frame_id: 1 }), 8, "PinnedView tag");
     assert_eq!(tag(&Value::FuncRef(crate::vm::runtime::ids::tokens::FnId(0))), 9, "FuncRef tag");
     // Closure tag 10 — needs ArrRef, skip.

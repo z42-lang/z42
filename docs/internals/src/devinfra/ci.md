@@ -30,17 +30,18 @@ flowchart TD
 核心思想：**平台无关的东西编一次、下游消费**。`compile-toolchain` 把当前源编成一套
 `{z42c, stdlib, xtask}` zpkg 上传成 `toolchain-ubuntu-latest` artifact；`compile-test-assets` 再消费它
 regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-ubuntu-latest`。下游测试 job 下载这些产物
-`--no-build` 跑，自己不自举、也不重复 regen。
+直接运行。`goldens.tar` 同时保存 `artifacts/build/tests/` 下的语言 golden 和各库 `release/tests/` 下的 golden，
+路径相对 `artifacts/build/`。Interp 消费验证和 JIT 分片解包回同一镜像，使用 `--no-rebuild` 运行。
 
 这两个 job **只有 linux 一条腿**：产物全是 zpkg，与宿主无关，macOS / Windows 的消费方
 取的是同一份（只有 z42vm 按宿主 cargo 现编）。
 
-`compile-toolchain` 另传一份 `z42vm-linux-x64`（z42vm + 同目录的 cdylib）。linux-x64 上**之后不调 cargo**
-的消费方（`compile-test-assets`、`test stdlib --no-build` 两类 job、`publish-nightly`）用 `xtask-bootstrap-artifact` 的
-`prebuilt-vm: "true"` 直接拿它，省掉 Rust 准备与 `cargo build`：rust-cache 只缓存**依赖**，即使 key 精确命中，
-z42 crate 本身仍要 fat-LTO 重链一遍，实测约 95 s / job。**会调 cargo 的 job 不能开**——target 目录里没有
-cargo 指纹，它会把整个 crate 冷编一遍（`compiler-checks` 的 `test compiler`、`test-vm-jit` 的 debug VM 都属此类），所以这两个 job 只留 linux 一条腿——
-再加一条 macOS 腿只会产出等价的 artifact，却让所有 `needs:` 它们的 linux 下游陪着等整个 matrix。
+`xtask-bootstrap-artifact` 按消费方选择 VM 准备方式。默认 `vm: build` 在本机编 release VM 和原生库。
+只消费现成 release VM 的 job（`compile-test-assets`、`compiler-checks`、`test stdlib --no-build`、`publish-nightly`）使用 `vm: prebuilt`，
+Linux x64 直接取 `compile-toolchain` 上传的 `z42vm-linux-x64`（VM 和同目录的 cdylib），其他宿主仍在本机编译。
+预编译 artifact 只有运行文件，后续调用 Cargo 的 job 需要自己的 Rust 环境和依赖缓存。
+`test-vm-jit` 使用 `vm: deferred` 准备 Rust 和 debug 依赖缓存，由 `xtask test e2e` 构建 debug VM 和压缩库，
+保留 debug 断言及溢出检查，并跳过 release 链接。
 
 `compile-test-assets` **故意从 `compile-toolchain` 里拆出来**：golden regen 很慢，留在里面会卡住
 `package-*` → `publish-nightly` 这条关键路径，而打包根本不消费测试资产。
@@ -74,7 +75,7 @@ apphost 做的事：`.z42/bin/z42vm`（Windows 带 `.exe`）+ `Z42_LIBS=.z42/lib
 - **Windows 不需要「从拷贝启动」**。xtask 跑在 SDK 的 VM 上，cargo 碰不到它；若垫片跑构建树的 `z42vm.exe`，`package` 等命令让 cargo 重链它时会
   撞上「不能覆盖正在运行的 exe」。
 
-构建树的 z42vm（cargo 现编 / `prebuilt-vm`）仍然要有：那是**被测对象**，xtask 构建、测试当前源码时由它自己去
+构建树的 z42vm（Cargo 现编或同轮预编译产物）仍然要有：那是**被测对象**，xtask 构建、测试当前源码时由它自己去
 定位，与本地相同。
 
 `xtask-bootstrap-artifact` 消费的 xtask.zpkg 来自 `compile-toolchain`，是用**那个 job** 装到的 SDK 编的，
@@ -320,7 +321,9 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
 - `platform_package` 在 `platform` 验证、定期 / 手动运行和需要发布的 main push 上选择全部平台包。
   `host_package` 也响应 `sdk_checks` 和 `examples`，用打包的桌面 SDK 验证夹具与示例。
   main push 使用 nightly 的累计 SDK 差异。确认 `sdk=false` 时只按验证职责打包，未知结果保留发布所需的归档。
-  SDK 验证使用刚打出的包，在桌面执行命令行、apphost 与 interp / jit golden，不需要移动 / wasm 打包或桌面 C ABI 消费者。
+  `package-host` 始终构建并验证桌面 SDK，使用其归档离线安装，并用打包后的 SDK 重放手册示例。
+  桌面 runtime / workload 归档与链接 runtime 包的 C 宿主检查由 `platform_package` 选择。
+  只选择桌面 SDK 的 main 运行仍上传 SDK 归档，供 CI 种子回退使用。
   修改生产打包实现、混合生产输入、CI 配置及定期 / 手动事件均保留对应覆盖。
   执行失败经 `ci-ok` 挡合并；被职责选择跳过的 job 由 `ci-ok` 接受 skipped。
 - **`publish-nightly` 的 `needs` 故意不含两条 jit 腿**：那些 job 在
@@ -329,7 +332,8 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
 
 - **没有专门的「种子自举边界」job**：「上一版 nightly 能编当前源」由每个跑 `ci-bootstrap` 的
   job（`test-host` ×4 OS、`compile-toolchain`）顺带实测，且它们会真的**运行**刚建出的 gen1 z42c
-  （编 stdlib + golden）；in-tree 不动点 gen1==gen2 在 `compiler-checks`。再单设一个
+  （编 stdlib + golden）；`compiler-checks` 用 `xtask test compiler --no-build` 消费同轮 release VM、gen1 和 stdlib，
+  执行编译器单元和 CLI 夹具，并实际重建 gen2 进行不动点对账。再单设一个
   `ci-bootstrap` + `test compiler` 的 job 两半都与上述重复。
 - **没有专门的 feature 组合 job**：host 上 `cargo check` interp-only / wasm / ios /
   android 四个组合没有必要：后三者 `package-*` 本就在真实目标平台上完整构建；「interp-only 不含
@@ -406,6 +410,7 @@ Swatinem `rust-cache` 用 `shared-key` 跨 job 共享；**一个 key 命中后�
 | `test-host-v1` | `test-host` | release + debug + test profile |
 | `host-v2` | `compile-toolchain` | release（ci-bootstrap） |
 | `artifact-host-v1` | `xtask-bootstrap-artifact` 默认 | release workspace |
+| `vm-jit-debug-v1` | `test-vm-jit` | debug VM + 压缩库 |
 | `package-host-v2` / `ios-v2` / `android-v2` / `wasm-v2` | 各打包 job | + cdylib / staticlib / 交叉编译 |
 
 ⚠️ target 目录由 `src/runtime/.cargo/config.toml` 重定向到 `artifacts/build/runtime`（toolchain 平台 crate
