@@ -159,9 +159,9 @@ public static class Runner {
         }
 
         string ns = e.DeclaringType();
-        Runner._runLifecycle(all, ns, 3);   // [Setup]
+        Runner._runLifecycle(all, ns, 3, e);   // [Setup]（非定向每条前跑；定向只对 target 命中的跑）
         InvokeOutcome o = Runner._invoke(e, json);
-        Runner._runLifecycle(all, ns, 4);   // [Teardown] (always)
+        Runner._runLifecycle(all, ns, 4, e);   // [Teardown] (always)
 
         if (e.HasShouldThrow()) {
             if (o.Threw && Runner._typeMatches(o.Thrown, e.Expected)) {
@@ -243,18 +243,54 @@ public static class Runner {
         return new TestResult(e.Qualified, "passed", isBench, null, stats);
     }
 
-    // Run all [Setup] (kind 3) or [Teardown] (kind 4) functions declared in the
-    // same namespace `ns` as the test. (z42 free-function fixtures have no shared
-    // instance; same-namespace grouping preserves locality.)
-    static void _runLifecycle(TestCase[] all, string ns, int kind) {
+    // Run [Setup] (kind 3) or [Teardown] (kind 4) functions declared in the same
+    // namespace `ns` as the test. (z42 free-function fixtures have no shared instance;
+    // same-namespace grouping preserves locality.)
+    //
+    // 定向（`[Setup(target: "f, g")]`）：只对 `target` 命中的测试执行——按逗号分段、去空白后
+    // 与 `forWhom.Method.Name` 精确匹配（源码方法名，不带 namespace 前缀）。非定向（无 target）
+    // 对本组每条测试执行。执行序：非定向先（声明序），定向随后（声明序）——非定向承担「全组公共
+    // 环境」，定向承担「本测试专属」，公共先于专属是自然的叠加序。
+    static void _runLifecycle(TestCase[] all, string ns, int kind, TestCase forWhom) {
         int i = 0;
         while (i < all.Length) {
             TestCase e = all[i];
             if (e.Kind == kind && e.DeclaringType() == ns) {
-                try { e.Invoke(); } catch (Exception ex) { }
+                if (Runner._lifecycleApplies(e, forWhom)) {
+                    try { e.Invoke(); } catch (Exception ex) { }
+                }
             }
             i = i + 1;
         }
+    }
+
+    // 定向条目只对 target 名单里的测试生效；非定向条目对一切生效。
+    static bool _lifecycleApplies(TestCase e, TestCase forWhom) {
+        string? raw = e.LifecycleTarget;
+        if (raw is string list) {
+            return Runner._nameInList(list, forWhom.Method.Name);
+        }
+        return true;
+        return false;
+    }
+
+    // 逗号分段（去空白）与 want 精确匹配。
+    static bool _nameInList(string list, string want) {
+        int segStart = 0;
+        while (segStart <= list.Length) {
+            int comma = -1;
+            int k = segStart;
+            while (k < list.Length) {
+                if (list.CharAt(k) == ',') { comma = k; break; }
+                k = k + 1;
+            }
+            int segEnd = comma < 0 ? list.Length : comma;
+            string one = list.Substring(segStart, segEnd - segStart).Trim();
+            if (one == want) { return true; }
+            if (comma < 0) { break; }
+            segStart = comma + 1;
+        }
+        return false;
     }
 
     // Does this [Skip] apply on the current host? Unconditional skip → yes.
