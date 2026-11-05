@@ -347,6 +347,8 @@ scripts/
 `common/` 提供路径、进程、文件系统与共享索引操作，不反调命令实现。命令入口负责解析参数，
 具体处理函数按职责放在 `build/`、`test/`、`package/`、`install/`、`bench/`、`check/`。
 `test/` 负责组合构建、执行与静态检查；`check/` 的 VSCode 检查复用 `install/` 的生成逻辑。
+`test/` 中的执行器与 `xtask_selfcheck_*` 自检按被测职责区分：产品用例放回所属组件，
+xtask 的计划 / 调度回归接入对应自检。新增用例的位置、执行器和确认步骤见[测试用例组织规范](../docs/internals/src/devinfra/test-layout.md#1-用例放哪)。
 
 被两个以上族用到的东西，就该上移到 `common/`——最底层的文件系统原语在
 `common/xtask_fs.z42`，路径布局在 `xtask_layout.z42`，外部工具探测在 `xtask_toolset.z42`。
