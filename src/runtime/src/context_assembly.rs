@@ -52,6 +52,7 @@ impl VmContext {
         Self::new_internal(
             module, vfs, crate::extension_assembly::freeze(extensions),
             crate::config::runtime_config().vm_config(),
+            crate::object_protocol_assembly::services(),
         )
     }
 
@@ -79,6 +80,7 @@ impl VmContext {
         vfs: Arc<dyn crate::pal::fs::Vfs>,
         ext_state: crate::vm::ext::ExtensionState,
         config: crate::vm::config::VmConfig,
+        object_protocol: crate::vm::exec::object_protocol::ObjectProtocol,
     ) -> std::pin::Pin<Box<Self>> {
         // Construct VmCore with heap embedded; scanner is installed AFTER
         // wrapping in Arc so the closure can capture Weak<VmCore> (cycle
@@ -107,7 +109,9 @@ impl VmContext {
                     None => crate::profiler::cpu::Sampler::disabled(),
                 },
             },
-            exec: crate::vm::exec::ExecState::new(crate::engine_assembly::registry(), crate::builtin_assembly::BUILTINS),
+            exec: crate::vm::exec::ExecState::new(
+                crate::engine_assembly::registry(), crate::builtin_assembly::BUILTINS, object_protocol,
+            ),
             ext_state,
         });
 
