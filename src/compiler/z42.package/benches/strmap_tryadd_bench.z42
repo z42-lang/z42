@@ -16,36 +16,34 @@ int exercise(string[] names, bool duplicates, bool reserved) {
     Assert.Equal(names.Length, map.Count());
     return map.Count();
 }
-void measure(int n, bool duplicates, bool reserved) {
+void measure(Bencher b, int n, bool duplicates, bool reserved) {
     string[] names = keys(n);
-    var b = new Bencher(4, 20);
     b.iter(() => { BenchHelpers.blackBox(exercise(names, duplicates, reserved)); });
-    b.printSummary("strmap_tryadd_" + n.ToString());
 }
 [Benchmark]
-void bench_strmap_tryadd_growth() { measure(2048, false, false); }
+void bench_strmap_tryadd_growth(Bencher b) { measure(b, 2048, false, false); }
 [Benchmark]
-void bench_strmap_tryadd_reserved() { measure(2048, false, true); }
+void bench_strmap_tryadd_reserved(Bencher b) { measure(b, 2048, false, true); }
 [Benchmark]
-void bench_strmap_tryadd_duplicates() { measure(2048, true, true); }
+void bench_strmap_tryadd_duplicates(Bencher b) { measure(b, 2048, true, true); }
 int hit_existing(StrMap map, string[] names) {
     int added = 0;
     foreach (var name in names) { if (map.TryAdd(name, null)) { added = added + 1; } }
     return added;
 }
-void measure_hits() {
+void measure_hits(Bencher b) {
     string[] names = keys(2048);
     StrMap map = new StrMap(names.Length);
     foreach (var name in names) { map.TryAdd(name, map); }
-    var b = new Bencher(4, 20);
     b.iter(() => { BenchHelpers.blackBox(hit_existing(map, names)); });
     Assert.Equal(0, hit_existing(map, names));
-    b.printSummary("strmap_tryadd_existing_2048");
 }
 [Benchmark]
-void bench_strmap_tryadd_existing() { measure_hits(); }
+void bench_strmap_tryadd_existing(Bencher b) { measure_hits(b); }
 void Main() {
     string[] args = Environment.GetCommandLineArgs();
-    if (args.Length > 0 && args[0] == "hits") { measure_hits(); return; }
-    measure(args.Length > 0 ? int.Parse(args[0]) : 2048, args.Length > 1 && args[1] == "duplicates", args.Length > 2 && args[2] == "reserved");
+    // 手跑（CLI 一把梭）保留自建档：Main 不经 runner，注入形态到不了这里。
+    if (args.Length > 0 && args[0] == "hits") { measure_hits(new Bencher(4, 20)); return; }
+    measure(new Bencher(4, 20), args.Length > 0 ? int.Parse(args[0]) : 2048,
+            args.Length > 1 && args[1] == "duplicates", args.Length > 2 && args[2] == "reserved");
 }

@@ -1,0 +1,34 @@
+namespace Z42JsonWriterReuseTests;
+using Std.Json;
+using Std.Harness;
+
+[Test]
+void compact_writes_return_independent_documents() {
+    JsonWriter writer = new JsonWriter(false);
+    string first = writer.Write(JsonValue.OfLong(7L));
+    Assert.Equal("false", writer.Write(JsonValue.OfBool(false)));
+    Assert.Equal("7", first);
+}
+
+[Test]
+void pretty_writes_start_at_root_depth() {
+    JsonWriter writer = new JsonWriter(true);
+    JsonValue array = JsonValue.OfArray();
+    array.Add(JsonValue.OfString("é"));
+    string first = writer.Write(array);
+    Assert.Equal("{}", writer.Write(JsonValue.OfObject()));
+    Assert.Equal("[\n  \"é\"\n]", first);
+}
+
+[Test]
+void failed_nested_write_leaves_next_document_clean() {
+    JsonWriter writer = new JsonWriter(true);
+    JsonValue invalid = JsonValue.OfArray();
+    invalid.Add(JsonValue.OfLong(7L));
+    invalid.Add(null);
+    Assert.Throws("NullReferenceException", () => writer.Write(invalid));
+
+    JsonValue valid = JsonValue.OfArray();
+    valid.Add(JsonValue.OfBool(true));
+    Assert.Equal("[\n  true\n]", writer.Write(valid));
+}

@@ -1,0 +1,30 @@
+namespace Std.Json.Tests;
+using Std.Harness;
+
+public class InheritedFieldAttributeBase {
+    [JsonIgnore] public int Secret;
+    [JsonProperty("label")] public int Name;
+}
+public class InheritedFieldAttributeMiddle : InheritedFieldAttributeBase { }
+public class InheritedFieldAttributeLeaf : InheritedFieldAttributeMiddle {
+    public int Visible;
+}
+
+[Test]
+void test_serde_uses_attributes_on_inherited_field_declarations() {
+    InheritedFieldAttributeLeaf value = new InheritedFieldAttributeLeaf();
+    value.Secret = 42;
+    value.Name = 7;
+    value.Visible = 3;
+    JsonValue encoded = JsonValue.Parse(JsonSerializer.Serialize(value));
+    Assert.False(encoded.ContainsKey("Secret"));
+    Assert.False(encoded.ContainsKey("Name"));
+    Assert.Equal(7L, encoded.Get("label").AsLong());
+    Assert.Equal(3L, encoded.Get("Visible").AsLong());
+
+    InheritedFieldAttributeLeaf decoded = JsonSerializer.Deserialize<InheritedFieldAttributeLeaf>(
+        "{\"Secret\":42,\"label\":7,\"Visible\":3}");
+    Assert.Equal(0, decoded.Secret);
+    Assert.Equal(7, decoded.Name);
+    Assert.Equal(3, decoded.Visible);
+}

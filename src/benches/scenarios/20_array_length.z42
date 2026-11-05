@@ -1,0 +1,20 @@
+// tier: full
+//
+// Repeated Length reads on heap arrays with different element widths.
+// The arrays are allocated outside the timed loop. Expected output: 80000000.
+
+namespace Bench.ArrayLength;
+
+using Std.IO;
+
+long SumLengths(int[] ints, byte[] bytes, long iterations) {
+    long total = 0L;
+    for (long i = 0L; i < iterations; i = i + 1L) {
+        total = total + (long)ints.Length + (long)bytes.Length;
+    }
+    return total;
+}
+
+void Main() {
+    Console.WriteLine(SumLengths(new int[3], new byte[5], 10000000L).ToString());
+}

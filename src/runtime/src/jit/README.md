@@ -1,7 +1,7 @@
 # jit — Cranelift JIT backend
 
 ## 职责
-将 z42 SSA 字节码编译为原生机器码执行。所有值操作通过 `extern "C"` helper 函数实现，Cranelift 只生成控制流（分支、跳转、函数入口/出口）。**编译是惰性的**：函数在**首次被调用**时才编译（compile-on-first-call），不在加载时全量编译——机制见 [book: 惰性逐函数 JIT](../../../../docs/internals/src/runtime/jit.md)。
+将 z42 SSA 字节码编译为原生机器码执行。Cranelift 生成控制流和常见值操作的快路，通用语义由 `extern "C"` helper 实现。**编译是惰性的**：函数在**首次被调用**时才编译（compile-on-first-call），不在加载时全量编译——机制见 [book: 惰性逐函数 JIT](../../../../docs/internals/src/runtime/jit.md)。
 
 ## 核心文件
 | 文件 | 职责 |
@@ -16,6 +16,8 @@
 | `frame.rs` | `JitFrame`（寄存器文件）、`FnEntry`（一个已编译函数） |
 | `translate/` | z42 指令 → Cranelift IR（`translate_function` 取单 `FuncId`）；`HelperIds` 重导出自 `helpers`。按职责拆为子模块：`mod.rs`（驱动：函数序言 + 逐块循环 + `TxCtx` 构造 + 按类别分发）、`ctx.rs`（`TxCtx` 每块上下文 + 6 个前置局部宏转成的方法 `ri`/`str_val`/`regs_val`/`check`/`dispatch_to_catch_or_return`/`emit_int_divrem`）、`hoist.rs`（循环不变量提升：数组数据指针；循环内、接收者不变的字段 IC 守卫）、`field_ic`（原生单态字段 IC：对站点 `FieldIC` entry 0 的内联守卫 + 单元读写，引用写内联屏障判定，未命中回落 helper）、`static_field`（`StaticGet` / `StaticSet` 内联：单元里的屏障放行记录与屏障纪元比较一次，再按型参单元协议读写，未放行 / 冷形态回落 helper）、指令 handler `value`/`arith`/`compare`/`convert`/`call`/`array`/`object`/`structs`/`term`（各 `impl TxCtx { fn tr_* }`）、Cranelift 发射 `emit_int`/`emit_fc`、谓词 `predicates`、分析 `analysis`、寄存器变量 `reg_var`、站点缓存 `ic`、控制流 `control`、不支持指令表 `unsupported`、字符串原语内联 `str_intrinsics`（`s.Length` / `s[i]` / `CharAt` 对全 ASCII 串直接 load，慢路径即原 helper 序列；`compare` 对两个 `char` 原生比较）。语义锚：`emit_*` 以 `// SEMANTICS: scalar::<fn>` 引用 `crate::vm::exec::ops::scalar` |
 | `helpers/` | `extern "C"` helper 集合（按指令类别拆分；与 `interp/exec_*.rs` 命名对称）。查表统一经 `resolve_fn_*`（含惰性 hook） |
+
+`translate/array_length.rs` 为 `ArrayLen` 与数组字段读取共享定宽堆数组的长度快路。
 
 ### `helpers/` 子目录
 | 文件 | 职责 |

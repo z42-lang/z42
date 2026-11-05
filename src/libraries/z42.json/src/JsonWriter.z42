@@ -2,6 +2,22 @@ namespace Std.Json;
 
 /// JSON 序列化器（紧凑或缩进）。
 public sealed class JsonWriter {
+    private bool _pretty;
+
+    /// `pretty=true` 输出换行 + 两空格缩进，否则单行紧凑格式。
+    public JsonWriter(bool pretty) {
+        this._pretty = pretty;
+    }
+
+    /// 每次调用写出一个独立 JSON 文档。遍历失败的异常向调用方传播。
+    public string Write(JsonValue v) {
+        JsonWriteBuffer buffer = new JsonWriteBuffer(this._pretty);
+        return buffer.Write(v);
+    }
+}
+
+// Each buffer belongs to one traversal, including its partial output on failure.
+internal class JsonWriteBuffer {
     // Output pieces are collected in a private `string[]` and joined once with
     // `String.ConcatParts` — the same scheme as `StringBuilder`, minus a method call
     // and a length update per piece. Values are read straight from JsonValue's
@@ -11,22 +27,26 @@ public sealed class JsonWriter {
     private int _n;
     private bool _pretty;
     private int _depth;
+    // One newline prefix for each remainder of an eight-level indentation block.
+    private static string[] _indentPrefixes = new string[] {
+        "\n", "\n  ", "\n    ", "\n      ", "\n        ", "\n          ", "\n            ", "\n              "
+    };
 
-    /// `pretty=true` 输出换行 + 两空格缩进，否则单行紧凑格式。
-    public JsonWriter(bool pretty) {
+    /// 为单次遍历初始化片段数组和排版配置。
+    public JsonWriteBuffer(bool pretty) {
         this._parts = new string[64];
         this._n = 0;
         this._pretty = pretty;
         this._depth = 0;
     }
 
-    /// 把 `v` 写成 JSON 文本并返回（一次性拼接全部片段）。
+    /// 遍历一个值并拼接完整文档。每个缓冲实例调用一次。
     public string Write(JsonValue v) {
         this.WriteValue(v);
         return String.ConcatParts(this._parts, this._n);
     }
 
-    /// 写出一个文档的 UTF-8 字节，供流入口持有的单次调用 writer 使用。
+    /// 遍历一个值并拼接 UTF-8 字节。每个缓冲实例调用一次。
     internal byte[] WriteUtf8(JsonValue v) {
         this.WriteValue(v);
         return String.ConcatPartsUtf8(this._parts, this._n);
@@ -98,8 +118,9 @@ public sealed class JsonWriter {
     }
 
     private void PutNewlineIndent() {
-        this.Put("\n");
-        for (int i = 0; i < this._depth; i++) { this.Put("  "); }
+        int depth = this._depth;
+        this.Put(JsonWriter._indentPrefixes[depth & 7]);
+        for (int blocks = depth >> 3; blocks > 0; blocks = blocks - 1) { this.Put("                "); }
     }
 
     // `"s"` with JSON string escapes: control chars and `"` / `\`. Non-ASCII

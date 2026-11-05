@@ -34,10 +34,8 @@ int exercise(int n, bool chain, int repeats) {
 }
 
 [Benchmark]
-void bench_reverse_chain_256() {
-    var b = new Bencher(2, 12);
+void bench_reverse_chain_256(Bencher b) {
     b.iter(() => { BenchHelpers.blackBox(exercise(256, true, 1)); });
-    b.printSummary("invalidation_reverse_chain_256");
 }
 
 void Main() {

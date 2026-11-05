@@ -1,0 +1,26 @@
+namespace Z42JsonObjectCtorBindingTests;
+
+using Std.Json;
+
+class WithOverloads {
+    public string Label;
+    public string Note = "initial";
+    public int Selected;
+
+    public WithOverloads(int unused) { this.Selected = 1; }
+    public WithOverloads(int unused, string Label) {
+        this.Label = Label;
+        this.Selected = 2;
+    }
+}
+
+void Main() {
+    WithOverloads missing = JsonSerializer.Deserialize<WithOverloads>("{\"unused\":0,\"Label\":\"from ctor\"}");
+    WithOverloads explicitNull = JsonSerializer.Deserialize<WithOverloads>("{\"unused\":0,\"Label\":null,\"Note\":null}");
+    Assert.Equal(2, missing.Selected);
+    Assert.Equal("from ctor", missing.Label);
+    Assert.Equal("initial", missing.Note);
+    Assert.Equal(2, explicitNull.Selected);
+    Assert.True(explicitNull.Label == null);
+    Assert.True(explicitNull.Note == null);
+}

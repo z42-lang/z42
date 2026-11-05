@@ -76,57 +76,19 @@ pub fn type_methods(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> 
     Ok(ctx.heap().alloc_array(out))
 }
 
-/// True iff `qualified` — a `<ClassFQN>.<member>[$…]` function key — names a
-/// **constructor** of `class_fq`: the segment after the class prefix, up to the first
-/// `$`, equals the class's simple name (ctors are ordinary functions named like the
-/// class, source spelling, with a `$N$types` overload-mangle suffix on the 2nd..Nth).
-///
-/// fix-nested-ctor-key: the member test itself lives in `TypeDesc::is_ctor_member` — the
-/// loader needs the same answer (it must keep ctors out of `own_methods`), and the two
-/// used to disagree. This wrapper only peels the `<ClassFQN>.` prefix off a `func_index`
-/// key. `GetConstructors()` on a nested type returned **0** before that convergence, so
-/// `ConstructorInfo.Invoke` / `Activator.CreateInstance` could not run its constructor.
-pub(super) fn is_ctor_key(class_fq: &str, qualified: &str) -> bool {
-    qualified
-        .strip_prefix(class_fq)
-        .and_then(|rest| rest.strip_prefix('.'))
-        .is_some_and(|member| crate::object::TypeDesc::is_ctor_member(class_fq, member))
-}
-
-/// `__type_constructors(typeObj) -> ConstructorInfo[]` (add-reflective-invoke).
-/// Constructors live in the module's `func_index` (NOT in the type's `own_methods`/vtable
-/// — a single non-overloaded constructor is absent there). Scan it with `is_ctor_key`;
-/// dedup by function index (a constructor may be registered under bare + mangled
-/// dispatch keys), sorted for a deterministic order.
+/// `__type_constructors(typeObj) -> ConstructorInfo[]` enumerates the declaration's
+/// constructor keys from its runtime descriptor, including lazily loaded root packages.
 pub fn type_constructors(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
-    let td = match type_handle_of(ty) {
-        Some(t) => t,
-        None => return Ok(ctx.heap().alloc_array(Vec::new())),
-    };
-    let module_arc = match ctx.core.runtime.module.as_ref() {
-        Some(m) => m.clone(),
-        None => return Ok(ctx.heap().alloc_array(Vec::new())),
-    };
-    let module = module_arc.as_ref();
-    // Collect (key, func-index) for constructor-named entries, sorted by key for a
-    // stable order (load-order determinism rule: never rely on HashMap iteration order).
-    let mut ctor_keys: Vec<(&String, usize)> = module
-        .func_index
-        .iter()
-        .filter(|(k, _)| is_ctor_key(&td.name, k))
-        .map(|(k, &idx)| (k, idx))
-        .collect();
-    ctor_keys.sort_by(|a, b| a.0.cmp(b.0));
-    let mut seen_idx: HashSet<usize> = HashSet::new();
-    let mut out = Vec::new();
-    // A constructed Type's constructors build *that* instantiation (`ConstructorInfo.Invoke`
-    // reads `__owner`) and take its substituted parameter types.
+    // Only types registered in the executing VM may use its qualified function lookup.
+    // A Type from a collectible assembly can share a name with an unrelated root type.
+    let td = type_handle_of(ty).and_then(|td| ctx.types().get(td.id));
+    let Some(td) = td else { return Ok(ctx.heap().alloc_array(Vec::new())); };
+
     let subst = member_subst(ty);
     let owner = type_value_name(ty).unwrap_or_else(|| td.name.clone());
-    for (key, idx) in ctor_keys {
-        if seen_idx.insert(idx) {
-            out.push(build_ctor_info(ctx, key, &owner, subst.as_ref()).map_err(BuiltinError::Legacy)?);
-        }
+    let mut out = Vec::with_capacity(td.own_constructors().len());
+    for key in td.own_constructors() {
+        out.push(build_ctor_info(ctx, key, &owner, subst.as_ref()).map_err(BuiltinError::Legacy)?);
     }
     Ok(ctx.heap().alloc_array(out))
 }
