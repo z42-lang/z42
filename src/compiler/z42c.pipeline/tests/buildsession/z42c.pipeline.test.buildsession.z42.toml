@@ -9,7 +9,7 @@ include = ["**/*.z42"]
 
 [dependencies]
 "z42c.pipeline"  = "0.1.0"
-"z42.build"      = "0.1.0"
+"z42.compiler.contracts"      = "0.1.0"
 "z42.project"    = "0.1.0"   # add-build-session：ProjectManifest / ManifestLoader
 "z42.package"        = "0.1.0"   # converge-z42c-ir-metadata: IR+zbc+zpkg 后端
 "z42c.semantics" = "0.1.0"

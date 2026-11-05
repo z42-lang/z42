@@ -450,7 +450,6 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 完整 JIT 指令映射 + 性能基准 | jit.md 待补 | [runtime/jit.md](internals/src/runtime/jit-design.md) |
 | GC handle Phase 3+ | Pinned / WeakTrackResurrection / 多线程 barrier | [runtime/gc-handle.md](internals/src/runtime/gc-handle.md) |
 | z42c 裸脚本→Exe-zpkg | 原 launcher phase 0.5；现以 mini-project(`kind="exe"` toml) workaround，ROI 低 | [runtime/launcher.md](internals/src/toolchain/launcher.md) |
-| `ICompiler` 抽中立微库 | z42b 编译接口暂置 `z42.build`；后抽中立微库使编译器核心（z42c）不依赖整个 build 框架 | [toolchain/build-orchestrator.md](internals/src/toolchain/z42b.md) |
 | z42c stdlib 构建 jit 加速 | S3（z42c 接管 build stdlib，当前阻塞未落地）落地后：interp 重编 ~30s，jit 加速待实测 22 库 jit==interp 等价 | [compiler/self-hosting.md](internals/src/compiler/self-hosting.md#deferred--future-work) |
 | z42c 继承默认参数方法 TSIG arity | 直接定义方法已修（requiredCount 读 Param.Default）；继承自其它包的默认参数方法 re-export 需 `Z42FuncType.MinArgCount`（import 时丢失），当前 stdlib 未触发 | [compiler/self-hosting.md](internals/src/compiler/self-hosting.md#deferred--future-work) |
 | S3 剩余 2 个 z42c codegen bug | dogfood S3 余 4 stdlib test：① blake3 多块 z42c codegen ② 静态字段 mutation 不持久（diagnostics）。已修 6 bug（含 cross-ns 静态调用） | [compiler/self-hosting.md](internals/src/compiler/self-hosting.md#deferred--future-work) |

@@ -1,4 +1,4 @@
-// z42c 编译器的 ICompiler 实现（wire-z42b D2）。z42b 构建编排器经 z42.build 的 ICompiler 接口
+// z42c 编译器的 ICompiler 实现（wire-z42b D2）。z42b 构建编排器经 z42.compiler.contracts 的 ICompiler 接口
 // **在进程内**调本类（不 fork z42c 子进程、不依赖 z42vm 在 PATH、诊断以结构返回）。
 //
 // drop-legacy-compile-request：本类只是 BuildSession 的薄封装（Role = HostTarget）——编译决策全部来自

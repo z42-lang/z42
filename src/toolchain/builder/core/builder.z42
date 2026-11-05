@@ -1,12 +1,12 @@
 // z42b — 构建编排器（build orchestrator）。wire-z42b 2b 已接入编译。
 //
-// 职责：读 z42.toml/--rid → 构造 z42.build 管线（注入 编译器 + workload + hooks）→ 跑。
+// 职责：读 z42.toml/--rid → 构造 z42.compiler.contracts 管线（注入 编译器 + workload + hooks）→ 跑。
 //   build   → tail no-op（产平台无关 app.zpkg）
 //   export  → 跑到 GenerateProject 停（原生 IDE 工程，ios/android）
 //   publish → 一路到 Package（可分发件 apphost/.ipa/.aab/wasm）
 //
-// 关键设计（与 z42c 共享编译实现，见 z42.build/src/ICompiler.z42）：
-//   Compile 头相位经 z42.build 的 `ICompiler` 接口**在进程内**调编译器库——和独立 z42c
+// 关键设计（与 z42c 共享编译实现，见 z42.compiler.contracts/src/ICompiler.z42）：
+//   Compile 头相位经 z42.compiler.contracts 的 `ICompiler` 接口**在进程内**调编译器库——和独立 z42c
 //   CLI 调的是同一份实现，**不 fork z42c 子进程**。实现由 _hostCompiler **运行时动态注入**
 //   （加载 programs/z42c/z42c.pipeline.zpkg 反射实例化 Z42cCompiler——z42b 编译期零 z42c 依赖，
 //   见 dynamic-component-registration design）。_selectWorkload 暂返 WorkloadBase（平台 workload 后续）。
@@ -79,7 +79,7 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir,
 // ── 注入点 ───────────────────────────────────────────────────────────────────
 
 // 共享编译实现入口（wire-z42b 2b，dynamic-component-registration）：**运行时动态注入**——
-// z42b 编译期只依赖 z42.build 的 ICompiler 接口（零 z42c 编译期依赖，独立 exe +
+// z42b 编译期只依赖 z42.compiler.contracts 的 ICompiler 接口（零 z42c 编译期依赖，独立 exe +
 // stdlib-only 可构建不破）；此处经 ModuleLoader.Load 把编译器组件 zpkg（z42c.pipeline，
 // 含 Z42cCompiler : ICompiler）加载进 live VM → 反射实例化 → 接口 cast 注入。
 // 与 z42c.driver CLI 共享同一编译实现（PackageCompile 核心），不 fork z42c 子进程。

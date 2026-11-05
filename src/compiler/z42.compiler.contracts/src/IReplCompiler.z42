@@ -1,0 +1,37 @@
+namespace Z42.Build;
+/// REPL 编译轮结果；Bytes 为 packed 包，Diagnostics 不做宿主行号回映。
+public class ReplCompileResult {
+    public byte[]   Bytes;
+    public int      ErrorCount;
+    public string[] Diagnostics;
+    public int      DiagCount;
+    public ReplCompileResult(byte[] bytes, int errorCount, string[] diagnostics, int diagCount) {
+        this.Bytes = bytes;
+        this.ErrorCount = errorCount;
+        this.Diagnostics = diagnostics;
+        this.DiagCount = diagCount;
+    }
+}
+/// 不透明增量世界与补全门面；宿主不引用编译器内部类型。
+public interface IReplCompiler {
+    object CreateWorld(string[] libsDirs, int libsDirsN, string[] declaredDeps, int depCount);
+    ReplCompileResult CompileRound(object world, string name, string src, string[] usings, int usingsCount);
+    void ExtendWorld(object world, byte[] bytes, string pkgName);
+    string[] NamespaceNames(object world);
+    string[] ScopeTypeNames(object world, string[] activeNs, int nsCount);
+    string[] StaticMembersOf(object world, string typeName, string[] activeNs, int nsCount);
+}
+/// 无 REPL 编译器组件时返回失败与空补全集。
+public class NoReplCompiler : IReplCompiler {
+    public object CreateWorld(string[] libsDirs, int libsDirsN, string[] declaredDeps, int depCount) {
+        return null;
+    }
+    public ReplCompileResult CompileRound(object world, string name, string src, string[] usings, int usingsCount) {
+        string[] d = new string[1]; d[0] = "error: no repl compiler component injected";
+        return new ReplCompileResult(new byte[0], 1, d, 1);
+    }
+    public void ExtendWorld(object world, byte[] bytes, string pkgName) { }
+    public string[] NamespaceNames(object world) { return new string[0]; }
+    public string[] ScopeTypeNames(object world, string[] activeNs, int nsCount) { return new string[0]; }
+    public string[] StaticMembersOf(object world, string typeName, string[] activeNs, int nsCount) { return new string[0]; }
+}

@@ -235,7 +235,7 @@ void _purgeBootstrapPrebuildsFromFlat(string root, string stdlibFlat) {
 // z42.project；z42c.syntax 依赖 z42c.core；z42.package 与 z42.project / z42.build 互不依赖（相对序可换）。
 // 各包真实 import 关系见 src/compiler/z42.workspace.toml 头注。
 string[] _bootstrapPrebuilds() {
-    return new string[]{ "z42.core", "z42.project", "z42.build", "z42.package", "z42c.core", "z42c.syntax" };
+    return new string[]{ "z42.core", "z42.project", "z42.compiler.contracts", "z42.build", "z42.package", "z42c.core", "z42c.syntax" };
 }
 
 // 破环预建成员的 toml，按目录约定探测：stdlib 域在 src/libraries/，编译器域在 src/compiler/
@@ -279,7 +279,8 @@ int _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string st
 int _prebuildOne(string vm, string driver, string toml, string name, string runLibs, string stdlibFlat) {
     string tmp = Path.Join(Path.GetDirectoryName(stdlibFlat), ".prebuild-" + name);
     _resetDir(tmp);
-    int rc = _z42cBuildPackage(vm, driver, toml, stdlibFlat, tmp, runLibs);
+    string input = _bootstrapInputManifest(toml, tmp, stdlibFlat);
+    int rc = _z42cBuildPackage(vm, driver, input, stdlibFlat, tmp, runLibs);
     string built = Path.Join(tmp, name + ".zpkg");
     if (!File.Exists(built)) {
         ConsoleError.WriteLine("  ✗ bootstrap: build " + name + " failed (" + rc.ToString() + ") — no " + name + ".zpkg produced");
