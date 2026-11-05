@@ -136,18 +136,14 @@ void test_word_boundary_around_quantified_pattern() {
     Assert.Equal("world", all[1].Group(0));
 }
 
-// ── Charset literal `b` retained inside `[...]` ────────────────────────
-
+// 字符类内 b/B 不提供语义转义，实际控制字符可以作为字面量。
 [Test]
-void test_charset_b_still_literal() {
-    // Inside `[...]`, `\b` is parsed by ParseCharsetChar → still literal `b`.
-    // (PCRE differs — treats it as ASCII BS 0x08 — but z42 v0 keeps the
-    //  pre-existing literal behaviour to avoid silent breakage.)
-    Regex r = Regex.Compile("[\\b]");
-    Assert.True(r.IsMatch("b"));
-    // Build a 1-char string of ASCII BS (0x08); no `\u` escape in z42.
+void test_charset_b_rejected_and_literal_backspace_supported() {
+    Assert.Throws("RegexException", () => Regex.Compile("[\\b]"));
     char[] bsChars = new char[1];
     bsChars[0] = (char)8;
     string bs = String.FromChars(bsChars);
-    Assert.True(r.Find(bs) == null);
+    Regex r = Regex.Compile("[" + bs + "]");
+    Assert.True(r.IsMatch(bs));
+    Assert.False(r.IsMatch("b"));
 }
