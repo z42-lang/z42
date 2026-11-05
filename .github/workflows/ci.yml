@@ -32,8 +32,10 @@ jobs:
       pull-requests: read   # Docs-only PR?：读 PR 文件列表
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
-      # 同一选择结果供打包 job 与 test-host 的示例卸载共用。
-      host_package: ${{ steps.filter.outputs.platform == 'true' || steps.filter.outputs.sdk_checks == 'true' || steps.filter.outputs.examples == 'true' || github.event_name != 'pull_request' }}
+      # 非 PR 运行只在确认没有待发布 SDK 改动时收窄。空结果包含定期、手动与无法判定的情况。
+      platform_package: ${{ steps.filter.outputs.platform == 'true' || (github.event_name != 'pull_request' && steps.supersede.outputs.sdk != 'false') }}
+      # 宿主还负责 SDK 验证与示例重放。test-host 也使用此结果决定是否卸下示例阶段。
+      host_package: ${{ steps.filter.outputs.platform == 'true' || steps.filter.outputs.sdk_checks == 'true' || steps.filter.outputs.examples == 'true' || (github.event_name != 'pull_request' && steps.supersede.outputs.sdk != 'false') }}
       compiler: ${{ steps.filter.outputs.compiler }}
       compiler_checks: ${{ steps.filter.outputs.compiler_checks }}
       vm: ${{ steps.filter.outputs.vm }}
@@ -97,14 +99,12 @@ jobs:
               # 安装脚本：package-host 用刚打出的包离线跑一遍（Installer smoke）。
               - 'scripts/install/**'
               - 'src/toolchain/launcher/**'
-              # SDK 私有夹具由桌面发行包验证消费，不触发设备 / 浏览器打包。
-              - '!src/toolchain/launcher/tests/fixtures/package/**'
               - 'src/toolchain/devtools/**'
               - 'src/toolchain/interactive/**'
               # z42b 的 publish（apphost / iOS / Android 导出）只在 package-* 里被执行。
               - 'src/toolchain/builder/**'
-              # 私有测试工程只由 host 的 builder 夹具检查消费，不参与发布。
-              - '!src/toolchain/builder/tests/**'
+              # 私有测试由宿主检查或 sdk_checks 消费。workload 与编辑器资源有独立的打包输入。
+              - '!src/toolchain/{builder,interactive,launcher}/**/tests/**'
               - 'scripts/common/xtask_fixture_harness.z42'
               - 'scripts/test/xtask_test_platform.z42'
               - 'scripts/test/xtask_test_app.z42'
@@ -162,7 +162,7 @@ jobs:
               # 编译器域的扁平 / [tests] 单元也归 stdlib runner；目录工程另由 compiler-checks 跑。
               - 'src/compiler/**/tests/**'
               - 'src/toolchain/builder/**'
-              - '!src/toolchain/builder/tests/**'
+              - '!src/toolchain/builder/**/tests/**'
               - 'scripts/test/xtask_test_lib*.z42'
               - 'scripts/test/xtask_manifest_targets.z42'
               - 'scripts/test/xtask_unit_projects.z42'
@@ -775,7 +775,7 @@ jobs:
     timeout-minutes: 45
     # PR 上只在 platform 改动时跑（同 host-package）。
     needs: [changes, toolchain-bootstrap]
-    if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
+    if: needs.changes.outputs.platform_package == 'true'
     runs-on: macos-26
     concurrency:
       group: ${{ format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) }}
@@ -817,7 +817,7 @@ jobs:
     timeout-minutes: 45
     # PR 上只在 platform 改动时跑（同 host-package）。
     needs: [changes, toolchain-bootstrap]
-    if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
+    if: needs.changes.outputs.platform_package == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -871,7 +871,7 @@ jobs:
     timeout-minutes: 40
     # PR 上只在 platform 改动时跑（同 host-package）。
     needs: [changes, toolchain-bootstrap]
-    if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
+    if: needs.changes.outputs.platform_package == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -934,7 +934,7 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-  # ── nightly 滚动预发布：main 的每次 push 把 9 个 RID 的归档原地更新到同一个 `nightly` Release（URL 稳定：
+  # ── nightly 滚动预发布：main 的 SDK 改动把 9 个 RID 的归档原地更新到同一个 `nightly` Release（URL 稳定：
   #   https://github.com/<owner>/z42/releases/download/nightly/z42-sdk-nightly-<rid>.{tar.gz,zip}）。不签名，--prerelease。
   publish-nightly:
     name: publish-nightly

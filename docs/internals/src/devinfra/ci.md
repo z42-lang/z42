@@ -234,19 +234,21 @@ gh workflow run retry-ci-runner.yml --ref main -f run_id=<失败运行ID>
 
 | flag | 命中路径（节选） |
 |---|---|
-| `platform` | `src/runtime/**`（排除顶层 Rust 测试与纯测试数据）、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder 排除 `tests/**`）、`scripts/{package/**,packages.toml,install/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{dist,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
+| `platform` | `src/runtime/**`（排除顶层 Rust 测试与纯测试数据）、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder、interactive、launcher 排除私有 `tests/`）、`scripts/{package/**,packages.toml,install/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{app,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
+| `sdk_checks` | `scripts/test/sdk/**`、`src/toolchain/launcher/tests/fixtures/package/**`（桌面发行包验证） |
 | `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
 | `compiler` | `src/compiler/**`（排除私有 `tests/**` 与 `benches/**`） |
 | `compiler_checks` | `src/compiler/**`（含私有用例）、`scripts/build/xtask_compiler*.z42`、`scripts/test/xtask_selfcheck_{selfhost,compiler_projects}.z42`、`src/toolchain/devtools/vscode/**` |
 | `vm` | `src/runtime/**`（含 `.cargo/`，排除顶层 Rust 测试与纯测试数据）、`scripts/test/xtask_test_runtime.z42` |
 | `runtime_checks` | `src/runtime/**`（含私有集成测试与数据）、`scripts/test/xtask_test_runtime.z42`；控制四个平台的完整 Rust harness |
-| `stdlib` | `src/libraries/**`、`src/compiler/**/tests/**`、`src/toolchain/builder/**`（排除 builder 的 `tests/**`；z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42`、`scripts/common/xtask_golden.z42` |
+| `stdlib` | `src/libraries/**`、`src/compiler/**/tests/**`、`src/toolchain/builder/**`（排除 builder 私有 `tests/`；z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42`、`scripts/common/xtask_golden.z42` |
 
 builder 的生产输入同时触发 `platform` 与 `stdlib`：z42b 既是 [Test] 执行器，它的 `publish`
 （apphost / iOS / Android 导出）又只在 `package-*` 里被执行，不能只跑标准库专项。
-私有 `src/toolchain/builder/tests/**` 不在发布源集中；PR 上由宿主的 builder 夹具检查覆盖，
-不触发无关的打包与标准库专项。路径筛选使用 `some-with-excludes`，仍是任一正向规则命中，
-但同一文件命中排除规则时剔除；混合修改里包含生产输入时，相关专项照常执行。
+builder、interactive、launcher 的私有 `tests/` 由桌面职责覆盖。REPL 单测走宿主的 toolchain 阶段，
+builder 夹具走宿主的 manifest targets 阶段，launcher 的发行包夹具由 `sdk_checks` 选择桌面 SDK 验证。
+平台宿主与编辑器资源仍按其打包输入选择。路径筛选使用 `some-with-excludes`，对每个文件分别判断正向和排除规则，
+混合改动中的生产输入仍选择对应专项。
 
 每个 filter 都额外包含 `.github/workflows/ci.yml` 自身 → **改 CI 保底全跑**。
 
@@ -288,10 +290,10 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
 | `test-stdlib-jit(linux-x64) shard k` | `stdlib-jit-consistency` | `vm ‖ stdlib ‖ compiler` | 2 shard |
 | `test-stdlib-interp(<plat>)` | `stdlib-interp-consistency` | `vm ‖ stdlib ‖ compiler` | 3 OS，不分片 |
 | `compiler-checks(linux-x64)` | `compiler-checks` | `compiler_checks` | — |
-| `package-host(<plat>)` | `host-package` | `platform ‖ examples ‖ 非 PR` | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
-| `package-ios(macos-arm64)` | `package-ios` | `platform ‖ 非 PR` | — |
-| `package-android(linux-x64)` | `package-android` | `platform ‖ 非 PR` | — |
-| `package-wasm(linux-x64)` | `package-wasm` | `platform ‖ 非 PR` | — |
+| `package-host(<plat>)` | `host-package` | `host_package` | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
+| `package-ios(macos-arm64)` | `package-ios` | `platform_package` | — |
+| `package-android(linux-x64)` | `package-android` | `platform_package` | — |
+| `package-wasm(linux-x64)` | `package-wasm` | `platform_package` | — |
 | `test-desktop-cabi(linux-x64)` | `test-desktop` | `platform ‖ schedule ‖ dispatch` | — |
 | `test-wasm-browser(linux-x64) shard k` | `test-wasm` | **仅** schedule ‖ dispatch | 3 shard |
 | `test-ios-sim(macos-arm64) shard k` | `test-ios` | **仅** schedule ‖ dispatch | 3 shard |
@@ -315,9 +317,11 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
   就变了；`test-host` 的 interp golden 只覆盖新 `.zbc` 的解释执行，不覆盖它的 JIT lowering。
 - **wasm / iOS / Android 的 Tier-2 测试只在 nightly 跑**：每个 15~25 分钟且要模拟器，
   挂在 per-push 上会把 runner 池打满。
-- **打包按生产输入与宿主验证职责选择**：PR 的 `platform` 改动选择全部平台包；`sdk_checks`（`scripts/test/sdk/` 与 launcher 发行包私有夹具）只选择四个桌面 SDK 包，`examples` 同样只需桌面 SDK。
+- `platform_package` 在 `platform` 验证、定期 / 手动运行和需要发布的 main push 上选择全部平台包。
+  `host_package` 也响应 `sdk_checks` 和 `examples`，用打包的桌面 SDK 验证夹具与示例。
+  main push 使用 nightly 的累计 SDK 差异。确认 `sdk=false` 时只按验证职责打包，未知结果保留发布所需的归档。
   SDK 验证使用刚打出的包，在桌面执行命令行、apphost 与 interp / jit golden，不需要移动 / wasm 打包或桌面 C ABI 消费者。
-  修改生产打包实现、混合输入、CI 配置或非 PR 事件仍保留对应全量覆盖。
+  修改生产打包实现、混合生产输入、CI 配置及定期 / 手动事件均保留对应覆盖。
   执行失败经 `ci-ok` 挡合并；被职责选择跳过的 job 由 `ci-ok` 接受 skipped。
 - **`publish-nightly` 的 `needs` 故意不含两条 jit 腿**：那些 job 在
   zbc/zpkg 格式 bump 那一轮会暂时红（要等一个兼容的 nightly），gate 上去就是死锁。

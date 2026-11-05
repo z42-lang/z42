@@ -10,6 +10,7 @@ use anyhow::{bail, Context, Result};
 // wasm host that mounts test zbcs / stdlib zpkgs into a `MemoryFs` loads them exactly
 // as files on disk.
 use crate::pal::fs::Vfs;
+use super::fusion_inputs::FusionInputSource;
 
 use crate::vm::runtime::Module;
 use crate::vm::loader::locate::namespace::extract_import_namespaces_from_module;
@@ -25,8 +26,11 @@ pub mod merge;
 mod artifact;
 mod indices;
 
-pub use crate::vm::loader::package::artifact::*;
-pub use crate::vm::loader::package::indices::*;
+pub use crate::loader_assembly::{build_block_indices, load_artifact, load_artifact_from_bytes};
+pub use artifact::LoadedArtifact;
+pub use indices::build_func_index;
+pub(crate) use artifact::{load_artifact_with_fusion, load_artifact_from_bytes_with_fusion};
+pub(crate) use indices::build_block_indices_with_fusion;
 
 
 #[cfg(test)]

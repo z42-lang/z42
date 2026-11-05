@@ -25,16 +25,10 @@ pub struct LoadedArtifact {
     pub package_name: Option<String>,
 }
 
-/// Load a compiler output artifact from `path` on `fs`, returning a `LoadedArtifact`.
-/// The `.zsym` sidecar and an indexed zpkg's scattered zbcs are read from `fs` too.
-///
-/// Format is determined by file extension (case-insensitive):
-/// - `.zbc`  → binary zbc (full mode)
-/// - `.zpkg` → binary zpkg (packed mode)
-pub fn load_artifact(fs: &dyn Vfs, path: &str) -> Result<LoadedArtifact> {
+pub(crate) fn load_artifact_with_fusion(fs: &dyn Vfs, path: &str, fusion_inputs: FusionInputSource) -> Result<LoadedArtifact> {
     match Path::new(path).extension().and_then(|e| e.to_str()) {
-        Some("zbc")  => load_zbc(fs, path),
-        Some("zpkg") => load_zpkg(fs, path),
+        Some("zbc")  => load_zbc(fs, path, fusion_inputs),
+        Some("zpkg") => load_zpkg(fs, path, fusion_inputs),
         ext => bail!(
             "unrecognised artifact extension {:?} in `{}`; expected .zbc or .zpkg",
             ext, path
@@ -42,25 +36,15 @@ pub fn load_artifact(fs: &dyn Vfs, path: &str) -> Result<LoadedArtifact> {
     }
 }
 
-/// Load a compiler output artifact from in-memory bytes, returning a
-/// `LoadedArtifact`. Format is detected by magic bytes.
-///
-/// Used by the embedding API (`z42_host_load_zbc`) where the host hands
-/// the runtime raw bytes rather than a filesystem path. Behaviour
-/// mirrors [`load_artifact`] modulo the source of the byte stream;
-/// the same registry / verification / index passes run.
-///
-/// Spec: docs/internals/src/runtime/embedding.md §4.4 (z42_host_load_zbc),
-///       变更 add-embedding-api/.
-pub fn load_artifact_from_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
+pub(crate) fn load_artifact_from_bytes_with_fusion(raw: &[u8], fusion_inputs: FusionInputSource) -> Result<LoadedArtifact> {
     if raw.len() < 4 {
         bail!("artifact byte buffer is too short ({} bytes); expected at least 4 magic bytes", raw.len());
     }
     let magic = &raw[0..4];
     if magic == ZBC_MAGIC {
-        load_zbc_bytes(raw)
+        load_zbc_bytes(raw, fusion_inputs)
     } else if magic == ZPKG_MAGIC {
-        load_zpkg_bytes(raw)
+        load_zpkg_bytes(raw, fusion_inputs)
     } else {
         bail!(
             "unrecognised artifact magic {:02x?}; expected ZBC ({:02x?}) or ZPKG ({:02x?})",
@@ -73,9 +57,9 @@ pub fn load_artifact_from_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
 
 // ── Format-specific loaders ───────────────────────────────────────────────────
 
-fn load_zbc(fs: &dyn Vfs, path: &str) -> Result<LoadedArtifact> {
+fn load_zbc(fs: &dyn Vfs, path: &str, fusion_inputs: FusionInputSource) -> Result<LoadedArtifact> {
     let raw = fs.read(path).with_context(|| format!("cannot read `{path}`"))?;
-    let mut artifact = load_zbc_bytes(&raw).with_context(|| format!("cannot parse binary zbc `{path}`"))?;
+    let mut artifact = load_zbc_bytes(&raw, fusion_inputs).with_context(|| format!("cannot parse binary zbc `{path}`"))?;
 
     // 1.2 split-debug-symbols: probe `<basename>.zsym` adjacent to the main file
     // and merge debug info when build_id matches.
@@ -83,7 +67,7 @@ fn load_zbc(fs: &dyn Vfs, path: &str) -> Result<LoadedArtifact> {
     if let Some(sp) = sidecar_path.to_str() {
         if let Ok(sym_raw) = fs.read(sp) {
             apply_zbc_sidecar(&mut artifact.module, &raw, &sym_raw, &sidecar_path);
-            build_block_indices(&mut artifact.module);
+            build_block_indices_with_fusion(&mut artifact.module, fusion_inputs);
         }
     }
 
@@ -141,7 +125,7 @@ fn apply_zbc_sidecar(
     }
 }
 
-fn load_zbc_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
+fn load_zbc_bytes(raw: &[u8], fusion_inputs: FusionInputSource) -> Result<LoadedArtifact> {
     if raw.len() < 4 || &raw[0..4] != ZBC_MAGIC {
         bail!("not a binary zbc payload: expected ZBC magic bytes");
     }
@@ -151,7 +135,7 @@ fn load_zbc_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
     build_type_registry(&mut module);
     verify_constraints(&module)
         .with_context(|| format!("constraint verification failed for module `{}`", module.name))?;
-    build_block_indices(&mut module);
+    build_block_indices_with_fusion(&mut module, fusion_inputs);
     build_func_index(&mut module);
 
     let import_namespaces = extract_import_namespaces_from_module(&module);
@@ -166,7 +150,7 @@ fn load_zbc_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
     })
 }
 
-fn load_zpkg(fs: &dyn Vfs, path: &str) -> Result<LoadedArtifact> {
+fn load_zpkg(fs: &dyn Vfs, path: &str, fusion_inputs: FusionInputSource) -> Result<LoadedArtifact> {
     let raw = fs.read(path).with_context(|| format!("cannot read `{path}`"))?;
 
     // add-indexed-zpkg-min-patch (zpkg 0.24): indexed main file (flags bit0
@@ -175,7 +159,7 @@ fn load_zpkg(fs: &dyn Vfs, path: &str) -> Result<LoadedArtifact> {
     if raw.len() >= 10 {
         let flags = u16::from_le_bytes([raw[8], raw[9]]);
         if (flags & 0x01) == 0 && (flags & 0x04) == 0 {
-            return load_zpkg_indexed(fs, path, &raw)
+            return load_zpkg_indexed(fs, path, &raw, fusion_inputs)
                 .with_context(|| format!("cannot load indexed zpkg `{path}`"));
         }
     }
@@ -187,7 +171,7 @@ fn load_zpkg(fs: &dyn Vfs, path: &str) -> Result<LoadedArtifact> {
     let sidecar_path = Path::new(path).with_extension("zsym");
     let sidecar_raw = sidecar_path.to_str().and_then(|sp| fs.read(sp).ok());
 
-    load_zpkg_bytes_with_sidecar(&raw, sidecar_raw.as_deref(), Some(&sidecar_path))
+    load_zpkg_bytes_with_sidecar(&raw, sidecar_raw.as_deref(), Some(&sidecar_path), fusion_inputs)
         .with_context(|| format!("cannot parse zpkg `{path}`"))
 }
 
@@ -196,7 +180,7 @@ fn load_zpkg(fs: &dyn Vfs, path: &str) -> Result<LoadedArtifact> {
 /// main file's directory, verify its BLAKE3-128 content hash against the
 /// index, then run the same aggregation pipeline as packed. No `.zsym`
 /// pairing — indexed is dev-mode (DBUG inline in each scattered zbc).
-fn load_zpkg_indexed(fs: &dyn Vfs, path: &str, raw: &[u8]) -> Result<LoadedArtifact> {
+fn load_zpkg_indexed(fs: &dyn Vfs, path: &str, raw: &[u8], fusion_inputs: FusionInputSource) -> Result<LoadedArtifact> {
     let meta = read_zpkg_meta(raw).context("cannot read zpkg metadata")?;
     let entries = read_zpkg_file_entries(raw).context("cannot read indexed FILE directory")?;
     let base = Path::new(path)
@@ -230,7 +214,7 @@ fn load_zpkg_indexed(fs: &dyn Vfs, path: &str, raw: &[u8]) -> Result<LoadedArtif
     }
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
         crate::metadata::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
-        Some(meta.name))
+        Some(meta.name), fusion_inputs)
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
@@ -245,6 +229,7 @@ fn load_zpkg_bytes_with_sidecar(
     raw: &[u8],
     sym_raw: Option<&[u8]>,
     sym_path: Option<&Path>,
+    fusion_inputs: FusionInputSource,
 ) -> Result<LoadedArtifact> {
     if raw.len() < 4 || &raw[0..4] != ZPKG_MAGIC {
         bail!("not a binary zpkg payload: expected ZPKG magic bytes");
@@ -262,7 +247,7 @@ fn load_zpkg_bytes_with_sidecar(
 
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
         crate::metadata::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
-        Some(meta.name))
+        Some(meta.name), fusion_inputs)
 }
 
 /// Shared tail of every zpkg load path (packed by path / packed by bytes /
@@ -274,6 +259,7 @@ fn assemble_zpkg_artifact(
     module_pairs: Vec<(Module, String)>,
     impl_pairs: Vec<(String, String)>,
     package_name: Option<String>,
+    fusion_inputs: FusionInputSource,
 ) -> Result<LoadedArtifact> {
     let modules: Vec<Module> = module_pairs.into_iter().map(|(m, _)| m).collect();
     let mut module = merge_modules(modules).context("merging zpkg modules")?;
@@ -281,7 +267,7 @@ fn assemble_zpkg_artifact(
     build_type_registry(&mut module);
     verify_constraints(&module)
         .with_context(|| format!("constraint verification failed for module `{}`", module.name))?;
-    build_block_indices(&mut module);
+    build_block_indices_with_fusion(&mut module, fusion_inputs);
     build_func_index(&mut module);
 
     Ok(LoadedArtifact {
@@ -355,7 +341,7 @@ fn apply_zpkg_sidecar(
     }
 }
 
-fn load_zpkg_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
+fn load_zpkg_bytes(raw: &[u8], fusion_inputs: FusionInputSource) -> Result<LoadedArtifact> {
     if raw.len() < 4 || &raw[0..4] != ZPKG_MAGIC {
         bail!("not a binary zpkg payload: expected ZPKG magic bytes");
     }
@@ -365,5 +351,5 @@ fn load_zpkg_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
         .into_iter().map(|(m, ns)| (Module::from_ir(m), ns)).collect::<Vec<_>>();
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
         crate::metadata::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
-        Some(meta.name))
+        Some(meta.name), fusion_inputs)
 }

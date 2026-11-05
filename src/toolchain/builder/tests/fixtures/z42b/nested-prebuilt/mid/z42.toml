@@ -1,0 +1,7 @@
+[project]
+name = "bd.mid"
+kind = "lib"
+[sources]
+include = ["api.z42"]
+[dependencies]
+"bd.leaf" = { path = "../leaf/dist/bd.leaf.zpkg" }

@@ -1,0 +1,2 @@
+namespace BoundaryLeaf;
+public static class Api { public static int Value() { return 42; } }

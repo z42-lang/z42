@@ -758,3 +758,34 @@ fn vm_core_registers_entry_functions_and_the_loader_appends() {
     assert_eq!(funcs.id_of("Lazy.F$0"), Some(FnId(2)));
     assert_eq!(funcs.get(FnId(2)).unwrap().name, "Lazy.F$0");
 }
+
+#[test]
+fn lazy_load_uses_registered_fusion_input_source_at_preparation() {
+    use crate::pal::vfs::MemoryFs;
+    use crate::vm::loader::fusion_inputs::FusionInputs;
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
+    static READS: AtomicUsize = AtomicUsize::new(0);
+    fn inputs() -> FusionInputs {
+        READS.fetch_add(1, Relaxed);
+        FusionInputs { no_fusion: true, no_typed_fusion: false, fusion_debug: false }
+    }
+
+    let mut loader = LazyLoader::with_fusion_inputs(vec![], 0, vec![], vec![], inputs);
+    let fs = Arc::new(MemoryFs::new());
+    loader.set_vfs(fs.clone());
+    assert!(loader.load_module_from_path("missing.zbc").is_err());
+    assert!(loader.load_module_from_bytes(b"bad").is_err());
+    assert_eq!(READS.load(Relaxed), 0);
+
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../compiler/z42.package/tests/fixtures/zpkg-format/indexed-minimal/source.zbc");
+    let raw = std::fs::read(path).unwrap();
+    loader.load_module_from_bytes(&raw).unwrap();
+    let count = READS.load(Relaxed);
+    assert!(count > 0);
+
+    fs.mount("source.zbc", raw);
+    loader.load_module_from_path("source.zbc").unwrap();
+    assert_eq!(READS.load(Relaxed), 2 * count);
+}

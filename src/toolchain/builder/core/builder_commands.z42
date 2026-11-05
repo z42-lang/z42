@@ -47,6 +47,7 @@ class ClosurePlan {
     public int      Rc    { get; set; }
     public string[] Dists { get; set; }
     public string[] Names { get; set; }
+    public string[] Tomls { get; set; }
     public int      Count { get; set; }
 }
 
@@ -59,7 +60,7 @@ class ClosurePlan {
 // 每个成员的依赖扫描面 = **已建成员的 dist**（post-order ⇒ 它的依赖都已在内）+ Z42_LIBS。
 ClosurePlan _buildPathDepClosure(string tomlPath, Target t) {
     ClosurePlan r = new ClosurePlan();
-    r.Rc = 0; r.Dists = new string[0]; r.Names = new string[0]; r.Count = 0;
+    r.Rc = 0; r.Dists = new string[0]; r.Names = new string[0]; r.Tomls = new string[0]; r.Count = 0;
     if (BuilderWorkspaceState.Current() != null) { return r; }
     // 🔴 `Resolve` 会抛（依赖成环 / 目录里不是恰一份 manifest）——异常消息本身是好的，
     // 接住只打消息，别让用户拿到一串 z42b 内部栈帧（同 driver 那处）。
@@ -112,7 +113,7 @@ ClosurePlan _buildPathDepClosure(string tomlPath, Target t) {
         dists[dn] = dd.Dist; names[dn] = depPm.Project.Name; dn = dn + 1;
         WsSiblings.Note(depPm.Project.Name, dd.Dist);
     }
-    r.Dists = dists; r.Names = names; r.Count = dn;
+    r.Dists = dists; r.Names = names; r.Tomls = closure.Tomls; r.Count = dn;
     return r;
 }
 
@@ -207,7 +208,7 @@ BuildOutcome _buildProjectAt(ParseResult r, string mode, string outRoot, string 
             // 📌 它现在只还剩**按名依赖**那半（在 repo 内按 srcRoot 搜源码树）。path 依赖那半已由
             // 上面的闭包名单接管 —— 那份走 srcRoot 的实现在 repo 外恒为空转（见 #852）。
             rc = _pubBundleProjectDeps(tomlPath, toml, m, dirs.Dist, false);
-            if (rc == 0) { rc = _builderBundlePrebuilt(m, sourceDir, dirs.Dist, closureDists, closureDistN); }
+            if (rc == 0) { rc = _builderBundlePrebuilt(m, sourceDir, dirs.Dist, cp); }
             if (rc == 0) { o.Dist = distZpkg; WsSiblings.Note(m.Project.Name, dirs.Dist); }
         }
     }

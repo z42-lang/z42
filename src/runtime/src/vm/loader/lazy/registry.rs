@@ -63,7 +63,7 @@ impl LazyLoader {
         self.mark_zpkg_loaded_both(file_name);
 
         let path_str = file_path.to_string_lossy().into_owned();
-        let mut artifact = load_artifact(&*self.vfs, &path_str)?;
+        let mut artifact = load_artifact_with_fusion(&*self.vfs, &path_str, self.fusion_inputs)?;
 
         // add-crosspkg-impl-reflection: register this package's
         // `impl Trait for Type` pairs (backs GetInterfaces cross-pkg traits).
@@ -241,7 +241,7 @@ impl LazyLoader {
                 self.search_dirs.push(dir);
             }
         }
-        let artifact = load_artifact(&*self.vfs, path)?;
+        let artifact = load_artifact_with_fusion(&*self.vfs, path, self.fusion_inputs)?;
         self.register_loaded_artifact(artifact)
     }
 
@@ -256,7 +256,7 @@ impl LazyLoader {
     /// 静态初始化器现已是**每类型的类型初始化器**、按首次使用惰性触发 —— 本轮的
     /// `Vars{N}` 在被读/写时自然初始化，且天然只初始化本轮的类型，不再需要这条通道。
     pub fn load_module_from_bytes(&mut self, raw: &[u8]) -> Result<()> {
-        let artifact = load_artifact_from_bytes(raw)?;
+        let artifact = load_artifact_from_bytes_with_fusion(raw, self.fusion_inputs)?;
         self.register_loaded_artifact(artifact)
     }
 

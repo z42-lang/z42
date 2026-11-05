@@ -9,6 +9,7 @@
 | 入口 | 职责 |
 |---|---|
 | `state.rs` | `LoaderState`：每 VM 惰性加载器、上下文、初始化队列与 VFS 依赖 |
+| `fusion_inputs.rs` | 私有融合输入与惰性输入来源 |
 | `package/` | VFS 读取、LoadedArtifact、模块合并和执行索引准备 |
 | `locate/` | namespace 候选索引、依赖定位及 probing 展开 |
 | `lazy/` | 惰性包加载、符号路由、注册和调试符号 |
@@ -19,6 +20,8 @@
 ## 基础用法
 
 常用入口为 `load_artifact`、`load_artifact_from_bytes`、`merge_modules` 和 `LazyLoader`，从 `z42::vm::loader` 导入。调用方仍提供 VFS 与搜索目录；公开入口只汇总拥有者，不在 metadata 中保留加载别名。
+
+块索引准备在实际重算每个函数的融合侧表时才调用输入来源。门面绑定进程配置，文件、字节、可用性探测与惰性加载共用该读取策略。每 VM 的加载状态只保存函数指针，构造和解码阶段不因这项注入提前读取融合配置。
 
 ## 如何测试验证
 

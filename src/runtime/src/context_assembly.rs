@@ -88,7 +88,7 @@ impl VmContext {
         // heap → strong-Arc loop = leak). Weak.upgrade() per call.
         let core: Arc<VmCore> = Arc::new(VmCore {
             threads: crate::vm::threads::ThreadState::new(),
-            loader: crate::vm::loader::LoaderState::new(vfs),
+            loader: crate::vm::loader::LoaderState::new(vfs, crate::loader_assembly::FUSION_INPUTS),
             heap:                 Box::new(Heap::new(config.gc)),
             runtime: crate::vm::runtime::RuntimeState::new(module, &crate::builtin_assembly::CATALOG),
 

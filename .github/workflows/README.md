@@ -24,12 +24,12 @@
 | `changes`（detect-changes） | 总是 | 按路径分类，并输出下游测试和打包任务的选择结果 |
 | `docs-check` | 仅文档改动 | `xtask test docs links` 死链门禁 + `xtask check diagcodes` + `xtask check layout` |
 | `build-and-test`（test-host） | 非纯文档 | 多平台 `xtask build` + `xtask test` |
-| `host-package`（package-host） | platform / sdk_checks / examples 改动或非 PR | 各 host RID 的 package 产物 |
+| `host-package`（package-host） | platform / sdk_checks / examples 验证，或有发布输入，或定期 / 手动运行 | 各 host RID 的 package 产物 |
 | `toolchain-bootstrap`（compile-toolchain） | 非纯文档 | 编译 toolchain（z42c / stdlib / xtask zpkg）供下游 job 消费 |
 | `assemble-current-sdk` / `consume-current-sdk` | 随 CI | 当前源码组装 SDK、再消费它跑测试 |
 | `vm-jit-consistency` / `stdlib-jit-consistency` / `stdlib-interp-consistency` | vm / stdlib / compiler 改动或 schedule / dispatch | VM / 标准库在 JIT 与 interp 下的一致性，分 shard |
 | `compiler-checks` | compiler / 专项执行器改动或 schedule / dispatch | 编译器专项检查 |
-| `package-ios` / `package-android` / `package-wasm` | platform 改动或非 PR | 移动 / wasm 平台包 |
+| `package-ios` / `package-android` / `package-wasm` | platform 验证，或有发布输入，或定期 / 手动运行 | 移动 / wasm 平台包 |
 | `test-wasm` / `test-ios` / `test-android` | 仅 schedule / dispatch | Tier 2 平台测试（浏览器 / iOS 模拟器 / Android 模拟器），分 shard |
 | `test-desktop` | platform 改动或 schedule / dispatch | 桌面 C ABI 测试 |
 | `publish-nightly` | push / dispatch 到 main | 汇总各 RID package → 覆盖 `nightly` GitHub Release（prerelease，URL 稳定） |
@@ -40,7 +40,7 @@
 - **用例归属与选测**：新增用例按[测试用例组织规范](../../docs/internals/src/devinfra/test-layout.md#1-用例放哪)选择目录、形态和本地执行器；修改 workflow 时分别核对[构建前提、测试与发布边界](../../docs/internals/src/devinfra/ci.md#构建测试与发布的选择边界)，工程归属与用例能力不在 YAML 里另抄一份名单。
 - **统一入口**：workflow 只调 `xtask <cmd>`，不在 yaml 里硬编码构建 / 测试命令。
 - **测试基线**：PR 使用 PR base，main push 使用事件的 `before`；初次 push、无法验证基线、定期 / 手动运行保留全量。基线选择与回归在 [CI 控制目录](../ci/README.md)，发布仍使用 nightly 的累计 SDK 差异。
-- **夹具触发范围**：builder 的私有 `tests/` 走宿主夹具检查；路径筛选使用 `some-with-excludes`，从 platform / stdlib 排除它们，生产输入与 CI 自身改动仍触发相应专项。
+- **工具链私有测试**：builder、interactive、launcher 的私有 `tests/` 由宿主测试或 SDK 验证消费，路径筛选从 `platform` 排除这些目录。builder 的私有测试也从 `stdlib` 排除。混合改动逐文件判定，生产输入仍选择对应专项。
 - **SDK 验证**：`scripts/test/sdk/` 与 launcher 的发行包私有夹具只选择四个桌面 host package；打包生产实现继续选择设备 / 浏览器消费者，无需逐用例平台配置。
 - **Runtime 私有测试**：顶层 Rust 测试与已确认的纯测试数据由四个平台的完整 Rust harness 覆盖；`runtime_checks` 保留它们，`vm` / `platform` 排除它们。build.rs 使用的 `numz42-c`、未知数据、生产输入、混合改动及定期全量继续保留消费者。
 - **自举**：CI 从上一个 nightly（取不到则回退 main 上最近成功 CI 的产物）的 SDK 起步，自己编当前源码；机制见 [CI 拓扑 · 自举种子从哪来](../../docs/internals/src/devinfra/ci.md)。

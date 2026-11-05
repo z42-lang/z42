@@ -145,7 +145,9 @@ pub fn lctx_load(ctx: &VmContext, this: &Value, path: &crate::object::string::vs
         return Err(BuiltinError::InvalidOperation(
             "AssemblyLoadContext.Load: context is unloading (cannot load new assemblies)".into()));
     }
-    let artifact = crate::vm::loader::package::load_artifact(&**ctx.vfs(), path)
+    let artifact = crate::vm::loader::package::load_artifact_with_fusion(
+        &**ctx.vfs(), path, ctx.core.loader.fusion_inputs,
+    )
         .map_err(|e| BuiltinError::Legacy(anyhow::anyhow!("AssemblyLoadContext.Load(\"{path}\"): {e}")))?;
     let name = assembly_name_from_path(path);
     let aid = ctx

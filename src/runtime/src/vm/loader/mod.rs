@@ -11,6 +11,7 @@ pub use locate::namespace_index::ZpkgCandidate;
 pub use lazy::LazyLoader;
 
 pub(crate) mod context_gc;
+pub(crate) mod fusion_inputs;
 
 mod state;
 pub(crate) use state::LoaderState;
