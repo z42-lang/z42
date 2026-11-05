@@ -1,0 +1,64 @@
+namespace Z42WriterRetentionTests;
+using Std.IO;
+using Std.Harness;
+
+class Destination : Stream {
+    public int Flushes;
+    public int Writes;
+    public int Bytes;
+    public bool FailFlush;
+    public bool Closed;
+    public override bool CanWrite() { return true; }
+    public override void Write(byte[] bytes, int offset, int count) {
+        this.Writes = this.Writes + 1; this.Bytes = this.Bytes + count;
+    }
+    public override void Flush() {
+        this.Flushes = this.Flushes + 1;
+        if (this.FailFlush) { throw new InvalidOperationException("flush failed"); }
+    }
+    public override void Close() { this.Closed = true; }
+}
+class Probe {
+    public StreamWriter Writer;
+    public WeakHandle Destination;
+}
+Probe closed_writer(bool retry) {
+    Destination dest = new Destination();
+    Probe p = new Probe(); p.Destination = WeakHandle.MakeWeak(dest); p.Writer = new StreamWriter(dest);
+    p.Writer.Write("payload");
+    if (retry) {
+        dest.FailFlush = true;
+        try { p.Writer.Close(); } catch (InvalidOperationException e) {}
+        dest.FailFlush = false;
+    }
+    p.Writer.Close();
+    return p;
+}
+[Test]
+void successful_close_releases_destination_reference() {
+    Probe p = closed_writer(false); GC.ForceCollect(); GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(p.Destination) == null);
+    p.Writer.Close(); p.Writer.Flush();
+}
+[Test]
+void retried_close_releases_destination_reference() {
+    Probe p = closed_writer(true); GC.ForceCollect(); GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(p.Destination) == null);
+    p.Writer.Close();
+}
+[Test]
+void failed_flush_keeps_writer_open_and_can_retry_close() {
+    Destination dest = new Destination(); StreamWriter w = new StreamWriter(dest);
+    dest.FailFlush = true; bool bad = false;
+    try { w.Close(); } catch (InvalidOperationException e) { bad = true; }
+    Assert.True(bad); w.Write("x"); Assert.Equal(1, dest.Bytes);
+    dest.FailFlush = false; w.Close(); Assert.Equal(2, dest.Flushes);
+    w.Close(); w.Flush(); Assert.Equal(2, dest.Flushes); Assert.True(!dest.Closed);
+    bad = false; try { w.Write("x"); } catch (InvalidOperationException e) { bad = true; } Assert.True(bad);
+}
+[Test]
+void successful_close_leaves_external_destination_open() {
+    Destination dest = new Destination(); StreamWriter w = new StreamWriter(dest);
+    w.Write("a"); w.Close(); Assert.Equal(1, dest.Flushes); Assert.True(!dest.Closed);
+    dest.Write(new byte[] { 98 }, 0, 1); Assert.Equal(2, dest.Bytes);
+}
