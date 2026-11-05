@@ -1,0 +1,71 @@
+namespace Z42RegexGroupBacktrackingTests;
+
+using Std.Harness;
+using Std.Regex;
+
+[Test]
+void test_group_retries_alternative_after_suffix_failure() {
+    Match captured = Regex.Compile("^(a|ab)c$").Find("abc");
+    Assert.True(captured != null);
+    Assert.Equal("ab", captured.Group(1));
+    Assert.True(Regex.Compile("^(?:a|ab)c$").IsMatch("abc"));
+
+    Match first = Regex.Compile("^(a|ab)").Find("ab");
+    Assert.True(first != null);
+    Assert.Equal("a", first.Group(1));
+}
+
+[Test]
+void test_abandoned_alternative_restores_nested_capture() {
+    Match hit = Regex.Compile("^((a)|ab)c$").Find("abc");
+    Assert.True(hit != null);
+    Assert.Equal("ab", hit.Group(1));
+    Assert.Equal("", hit.Group(2));
+}
+
+[Test]
+void test_repeat_retries_choices_inside_an_iteration() {
+    Match hit = Regex.Compile("^(a|ab)+c$").Find("aabc");
+    Assert.True(hit != null);
+    Assert.Equal("ab", hit.Group(1));
+    Assert.Equal(4, hit.End());
+}
+
+[Test]
+void test_group_retries_greedy_and_lazy_repeat_lengths() {
+    Match greedy = Regex.Compile("^(a*)ab$").Find("aaab");
+    Match lazy = Regex.Compile("^(a*?)ab$").Find("aaab");
+    Assert.True(greedy != null);
+    Assert.True(lazy != null);
+    Assert.Equal("aa", greedy.Group(1));
+    Assert.Equal("aa", lazy.Group(1));
+}
+
+[Test]
+void test_repeat_can_retry_a_consuming_branch_after_an_empty_one() {
+    Assert.True(Regex.Compile("^(?:|a)*b$").IsMatch("aab"));
+    Assert.True(Regex.Compile("^(?:a?){2}b$").IsMatch("b"));
+}
+
+[Test]
+void test_lazy_repeat_captures_the_complete_winning_iteration() {
+    Match hit = Regex.Compile("^(a|ab)*?$").Find("ab");
+    Assert.True(hit != null);
+    Assert.Equal("ab", hit.Group(1));
+}
+
+[Test]
+void test_atom_repeat_retries_suffix_and_restores_captures() {
+    Match hit = Regex.Compile("^(a*)(a|ab)c$").Find("aaabc");
+    Assert.True(hit != null);
+    Assert.Equal("aa", hit.Group(1));
+    Assert.Equal("ab", hit.Group(2));
+}
+
+[Test]
+void test_long_repeated_alternatives_use_explicit_backtracking() {
+    char[] input = new char[8193];
+    Array.Fill<char>(input, 'a');
+    input[input.Length - 1] = 'b';
+    Assert.True(Regex.Compile("^(?:ab|a)+b$").IsMatch(String.FromChars(input)));
+}
