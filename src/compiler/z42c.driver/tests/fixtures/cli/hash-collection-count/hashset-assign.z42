@@ -1,0 +1,6 @@
+using Std.Collections;
+
+void Main() {
+    var collection = new HashSet<int>();
+    collection.Count = 1;
+}

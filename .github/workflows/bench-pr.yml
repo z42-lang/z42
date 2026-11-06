@@ -505,7 +505,8 @@ jobs:
       # ── criterion(Rust) tier A/B — informational, never fails (benchmarking.md §7) ──
       # Only when the PR touched src/runtime (VM unchanged ⇒ result cannot move).
       # criterion's NATIVE baseline compare: base tree SAVES, PR tree COMPARES; a shared
-      # CRITERION_HOME lets the two trees' runs meet. Its bootstrap CI is within-run and
+      # CRITERION_HOME lets the two trees' runs meet. New or renamed cases are measured
+      # without a comparison until their baseline exists. Its bootstrap CI is within-run and
       # blind to between-run drift, so it only prints. ⚠️ 别删测量：它是 GC 内部热路径
       # 唯一的观测点；要重新硬门禁需先量出跑间漂移，不是调阈值。
       - name: Criterion(Rust) A/B (informational — never fails; only if src/runtime changed)
@@ -527,7 +528,7 @@ jobs:
           echo "── pr: compare against 'ab-base' (this tree) ──"
           ( cd src/runtime && CRITERION_HOME="$CRITERION_HOME" \
             cargo bench --locked \
-              --bench gc_cycle_bench -- --baseline ab-base )
+              --bench gc_cycle_bench -- --baseline-lenient ab-base )
           echo "── informational: 整个 95% 区间在 +25% 之上（lower_bound > thr）= 标记，但不 fail ──"
           python3 - "$CRITERION_HOME" <<'PY'
           # 标记条件是**整个区间**在阈值之上（lower_bound > thr），不是「点估计过阈值 + 下界 > 0」
