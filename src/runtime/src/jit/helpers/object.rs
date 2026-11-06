@@ -242,13 +242,14 @@ pub(super) unsafe fn dynamic_target(frame: *mut JitFrame, ctx: *const VmContext,
     Some(env.test_target(vm_ctx_ref(ctx), class_name))
 }
 
-/// A generic call site's `method_type_args` with class-level markers bound for this JIT frame;
-/// `None` = none to bind (the baked constant is used as is).
+/// Bind a generic call site's method and class markers against the caller's frame.
+/// `None` means the site already carries concrete arguments.
 pub(super) unsafe fn bind_forwarded_mta(frame: *mut JitFrame, ctx: *const VmContext, mta: &[String]) -> Option<Vec<String>> {
     if !mta.iter().any(|s| crate::metadata::index::type_param_markers::has_markers(s)) {
         return None;
     }
-    let env = crate::vm::exec::call::type_param_env::TypeParamEnv::new(&[], (*frame).regs.first());
+    let frame = &*frame;
+    let env = crate::vm::exec::call::type_param_env::TypeParamEnv::new(frame.method_type_args, frame.regs.first());
     Some(mta.iter().map(|s| env.substitute(vm_ctx_ref(ctx), s)).collect())
 }
 

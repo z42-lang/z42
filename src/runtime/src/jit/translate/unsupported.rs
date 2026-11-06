@@ -3,8 +3,8 @@
 //! Split out of `translate/mod.rs` by refactor-jit-translate-split (H2).
 //!
 //! Compiled frames carry bound method arguments for MethodTypeArg and MethodDefault.
-//! The table below still rejects instructions that need method marker substitution
-//! or method-parameter array allocation until those helpers can use the carrier.
+//! Static and virtual calls also substitute method markers from the caller frame.
+//! Other operations still fall back until their helpers use the same carrier.
 
 use super::*;
 
@@ -43,8 +43,8 @@ pub(crate) fn jit_unsupported_reason(func: &Function) -> Option<&'static str> {
 /// `bail!` arm sources its message from here (`unsupported_reason(instr).expect(..)`),
 /// so the two checkpoints can never drift.
 ///
-/// Must take `&Instruction` (not a flat opcode set): the two generic cases are
-/// *conditional* on `method_type_args` — a non-generic `Call`/`VCall` DOES JIT.
+/// The instruction's operands decide whether operations such as array allocation
+/// and type tests need unsupported method-parameter handling.
 pub(crate) fn unsupported_reason(instr: &Instruction) -> Option<&'static str> {
     Some(match instr {
         Instruction::CallNative(_)           => "CallNative",
@@ -54,10 +54,6 @@ pub(crate) fn unsupported_reason(instr: &Instruction) -> Option<&'static str> {
         Instruction::LoadLocalAddr { .. }    => "LoadLocalAddr",
         Instruction::LoadElemAddr { .. }     => "LoadElemAddr",
         Instruction::LoadFieldAddr(_)        => "LoadFieldAddr",
-        // Concrete generic call sites compile. Forwarding markers still need
-        // substitution against the caller's activation before the call.
-        Instruction::Call(insn)  if forwards_caller_mta(&insn.method_type_args) => "generic Call forwarding the caller's type args ($mta:)",
-        Instruction::VCall(insn) if forwards_caller_mta(&insn.method_type_args) => "generic VCall forwarding the caller's type args ($mta:)",
         Instruction::ArrayNew(insn) if insn.type_param_kind > 2 => "unknown ArrayNew type-param kind",
         // `o is T` / `o as T` / `new List<T>()` on a method-level `T` in a shared generic body:
         // the target / arguments carry `$mta:N` markers bound from method_type_args. Class-level
@@ -71,11 +67,3 @@ pub(crate) fn unsupported_reason(instr: &Instruction) -> Option<&'static str> {
 }
 
 use crate::metadata::index::type_param_markers::has_method_markers;
-
-/// Whether a call site's `method_type_args` contain a `$mta:N` forwarding marker, bare or inside
-/// a constructed argument (resolved against the caller frame at run time —
-/// `interp::resolve_forwarded_mta`). Class-level `$cta:` markers bind from reg 0 and JIT
-/// (`jit_call_mta` / `jit_vcall_mta`).
-pub(crate) fn forwards_caller_mta(mta: &[String]) -> bool {
-    mta.iter().any(|s| has_method_markers(s))
-}

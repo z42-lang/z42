@@ -2,13 +2,16 @@ use super::*;
 
 /// Class parameters paired with the exact Type values in the constructed Type.
 pub(super) struct MemberSubst {
-    definition: Arc<TypeDesc>,
+    pub(super) definition: Arc<TypeDesc>,
     arguments: Vec<Value>,
 }
 
 impl MemberSubst {
     pub(super) fn applies_to(&self, qualified: &str) -> bool {
         TypeDesc::derive_simple_method_name(&self.definition.name, qualified) != qualified
+            || qualified.strip_prefix(self.definition.name.as_str()).is_some_and(|suffix| {
+                suffix.starts_with('<') && suffix.contains(">.")
+            })
     }
 
     fn argument(&self, tag: &str, shadowed: &[String]) -> Option<Value> {
@@ -33,6 +36,81 @@ pub(super) fn member_subst(ty: &Value) -> Option<MemberSubst> {
     (arguments.len() == params.len()).then_some(MemberSubst { definition: td, arguments })
 }
 
+pub(super) fn projected_base_type(
+    ctx: &VmContext, definition: &TypeDesc, subst: &MemberSubst,
+) -> Option<Value> {
+    let template = definition.custom_attributes().iter().find(|a| a.type_name == "$ReflectionBase")?;
+    projected_member_type(ctx, &template.factory_func, subst, &[])
+}
+
+/// Member signatures must use the arguments of the class that declared them.
+pub(super) struct MemberScopes<'a> {
+    leaf: Option<MemberSubst>,
+    inherited: Vec<MemberSubst>,
+    roots: ProjectionRoots<'a>,
+}
+
+impl<'a> MemberScopes<'a> {
+    pub(super) fn new(ctx: &'a VmContext, ty: &Value, definition: &Arc<TypeDesc>) -> Self {
+        let mut scopes = Self {
+            leaf: member_subst(ty),
+            inherited: Vec::new(),
+            roots: ProjectionRoots::new(ctx),
+        };
+        let mut seen = HashSet::new();
+        let mut base = base_declaration(ctx, definition, scopes.leaf.as_ref(), &mut scopes.roots);
+        while let Some((td, subst)) = base {
+            if Arc::ptr_eq(&td, definition) || !seen.insert(Arc::as_ptr(&td)) {
+                break;
+            }
+            base = base_declaration(ctx, &td, subst.as_ref(), &mut scopes.roots);
+            scopes.inherited.extend(subst);
+        }
+        scopes
+    }
+
+    pub(super) fn leaf(&self) -> Option<&MemberSubst> {
+        self.leaf.as_ref()
+    }
+
+    pub(super) fn iter(&self) -> impl DoubleEndedIterator<Item = &MemberSubst> {
+        self.leaf.iter().chain(&self.inherited)
+    }
+
+    pub(super) fn for_method(&self, qualified: &str) -> Option<&MemberSubst> {
+        self.iter().find(|scope| scope.applies_to(qualified))
+    }
+
+    pub(super) fn for_class(&self, td: &Arc<TypeDesc>) -> Option<&MemberSubst> {
+        self.iter().find(|scope| {
+            Arc::ptr_eq(td, &scope.definition)
+                || TypeDesc::erased_definition_name(&td.name) == Some(scope.definition.name.as_str())
+        })
+    }
+
+    pub(super) fn has_inherited(&self) -> bool {
+        !self.inherited.is_empty()
+    }
+}
+
+fn base_declaration(
+    ctx: &VmContext, td: &TypeDesc, subst: Option<&MemberSubst>, roots: &mut ProjectionRoots<'_>,
+) -> Option<(Arc<TypeDesc>, Option<MemberSubst>)> {
+    let name = td.base_name.as_deref()?;
+    if name == STD_OBJECT {
+        return None;
+    }
+    let projected = subst.and_then(|scope| projected_base_type(ctx, td, scope));
+    if let Some(base) = projected.or_else(|| name.contains('<').then(|| make_type_from_name(ctx, name))) {
+        let definition = type_handle_of(&base)?;
+        roots.pin(base);
+        return Some((definition, member_subst(&base)));
+    }
+    let definition = ctx.module().and_then(|m| m.type_registry.get(name).cloned())
+        .or_else(|| ctx.try_lookup_type(name))?;
+    Some((definition, None))
+}
+
 /// Project a declaration's Type expression without resolving substituted names again.
 pub(super) fn projected_member_type(
     ctx: &VmContext, tag: &str, subst: &MemberSubst, shadowed: &[String],
@@ -49,7 +127,7 @@ pub(super) fn projected_member_type(
     let (definition, arguments) = tag.strip_suffix('>')?.split_once('<')?;
     let args = split_generic_args(arguments);
     // Resolving a sibling or the generic definition may run a lazy initializer.
-    let mut roots = ProjectionRoots { heap: ctx.heap(), handles: Vec::new() };
+    let mut roots = ProjectionRoots::new(ctx);
     let projections: Vec<_> = args.iter().map(|arg| {
         projected_member_type(ctx, arg, subst, shadowed).map(|value| roots.pin(value))
     }).collect();
@@ -93,13 +171,17 @@ pub(super) fn signature_type(
     make_type_from_name(ctx, tag)
 }
 
-struct ProjectionRoots<'a> {
+pub(super) struct ProjectionRoots<'a> {
     heap: &'a crate::gc::Heap,
     handles: Vec<crate::gc::RootHandle>,
 }
 
-impl ProjectionRoots<'_> {
-    fn pin(&mut self, value: Value) -> Value {
+impl<'a> ProjectionRoots<'a> {
+    pub(super) fn new(ctx: &'a VmContext) -> Self {
+        Self { heap: ctx.heap(), handles: Vec::new() }
+    }
+
+    pub(super) fn pin(&mut self, value: Value) -> Value {
         self.handles.push(self.heap.pin_root(value));
         value
     }

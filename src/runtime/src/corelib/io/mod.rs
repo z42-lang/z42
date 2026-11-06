@@ -1,3 +1,6 @@
+pub(crate) mod buffer;
+pub mod fs;
+
 use crate::vm::exec::call::builtin_abi::Blocking;
 use std::cell::{Cell, RefCell};
 use std::os::raw::{c_char, c_void};
@@ -261,5 +264,4 @@ pub fn take_stderr_sink() -> Vec<u8> {
 }
 
 #[cfg(test)]
-#[path = "io_tests.rs"]
 mod io_tests;

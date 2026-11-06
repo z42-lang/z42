@@ -30,10 +30,14 @@ pub fn type_properties(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinErro
             accumulate_property(ctx, &simple, &q, &mut props);
         }
     }
-    let subst = member_subst(ty);
+    let scopes = MemberScopes::new(ctx, ty, &td);
+    let mut roots = ProjectionRoots::new(ctx);
     let mut out = Vec::with_capacity(props.len());
     for p in &props {
-        out.push(alloc_property_info(ctx, &td.name, p, &subst).map_err(BuiltinError::Legacy)?);
+        let subst = p.getter_qualified.as_deref().or(p.setter_qualified.as_deref())
+            .and_then(|key| scopes.for_method(key));
+        let info = alloc_property_info(ctx, &td.name, p, subst).map_err(BuiltinError::Legacy)?;
+        out.push(if scopes.has_inherited() { roots.pin(info) } else { info });
     }
     Ok(ctx.heap().alloc_array(out))
 }
@@ -44,12 +48,10 @@ pub fn type_properties(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinErro
 /// including the `__qualified` identity (`<class>.<prop>`) that value
 /// equality (`PropertyInfo.==`) is defined on.
 ///
-/// `subst` carries the queried type's generic substitution (a constructed
-/// Type reports member types with its arguments substituted); `__propertyof`
-/// references the **definition** (no type arguments accepted), so it passes
-/// `&None` and gets the definition tag, mirroring the shared emission.
+/// `subst` carries the accessor's declaring type arguments as seen from the
+/// queried Type. `__propertyof` references the definition and passes `None`.
 pub(super) fn alloc_property_info(
-    ctx: &VmContext, class: &str, p: &PropAccum, subst: &Option<MemberSubst>,
+    ctx: &VmContext, class: &str, p: &PropAccum, subst: Option<&MemberSubst>,
 ) -> Result<Value> {
     let type_tag = p
         .getter_type
@@ -64,9 +66,7 @@ pub(super) fn alloc_property_info(
         Some(q) => Value::Str(q.clone().into()),
         None => Value::Null,
     };
-    let projected = p.getter_qualified.as_ref().or(p.setter_qualified.as_ref())
-        .and_then(|key| subst.as_ref().filter(|subst| subst.applies_to(key)))
-        .and_then(|subst| projected_member_type(ctx, type_tag, subst, &[]));
+    let projected = subst.and_then(|subst| projected_member_type(ctx, type_tag, subst, &[]));
     let property_type = projected.unwrap_or_else(|| make_type_from_name(ctx, type_tag));
     alloc_named(
         ctx,
@@ -171,7 +171,7 @@ pub(super) fn upsert_prop<'a>(props: &'a mut Vec<PropAccum>, name: &str) -> &'a 
 pub mod typed {
     use super::*;
 
-    #[builtin(name = "__type_properties")]
+    #[builtin(name = "__type_properties", reenters)]
     pub fn properties_of(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
         type_properties(ctx, ty)
     }
@@ -237,7 +237,7 @@ pub fn propertyof(ctx: &VmContext, qualified: &crate::object::string::vstr::Str)
     }
     // One property name ⇒ at most one accumulator (upsert by name). No type
     // substitution: propertyof references the definition (no type arguments).
-    alloc_property_info(ctx, &td.name, &props[0], &None).map_err(BuiltinError::Legacy)
+    alloc_property_info(ctx, &td.name, &props[0], None).map_err(BuiltinError::Legacy)
 }
 
 /// `simple` is the `get_<X>` / `set_<X>` accessor of property `prop`?

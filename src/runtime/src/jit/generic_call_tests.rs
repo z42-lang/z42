@@ -1,5 +1,5 @@
 //! Generic call sites pass the bound method arguments to both tiers.
-//! Direct reads compile, while method-parameter forwarding still falls back.
+//! Direct reads and forwarded method arguments both compile.
 
 use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::vm::runtime::{Function, Module};
@@ -91,6 +91,11 @@ fn test_module() -> Module {
         ], Some(1)),
         func("T.Fwd", 0, true, vec![call(0, "T.Def", &[], &["$mta:0"])], Some(0)),
         func("T.CallFwd", 0, true, vec![call(0, "T.Fwd", &[], &["Std.Boolean"])], Some(0)),
+        func("T.VFwd", 0, true, vec![
+            Instruction::ConstI64 { dst: 0, val: 5 },
+            vcall(1, 0, "Def", &["$mta:0"]),
+        ], Some(1)),
+        func("T.CallVFwd", 0, true, vec![call(0, "T.VFwd", &[], &["Std.Boolean"])], Some(0)),
         func("T.CallMissing", 0, true, vec![call(0, "T.Def", &[], &[])], Some(0)),
     ])
 }
@@ -105,14 +110,14 @@ fn interp(vm: &VmContext, m: &Module, name: &str) -> Value {
 }
 
 #[test]
-fn type_arg_reads_compile_but_forwarding_does_not() {
+fn type_arg_reads_and_forwarding_compile() {
     let m = test_module();
     assert_eq!(jit_unsupported_reason(&m.functions[idx(&m, "T.CallDef")]), None, "generic Call site");
     assert_eq!(jit_unsupported_reason(&m.functions[idx(&m, "T.VCallDef")]), None, "generic VCall site");
     assert_eq!(jit_unsupported_reason(&m.functions[idx(&m, "T.Id")]), None, "a generic body blind to its type args");
     assert_eq!(jit_unsupported_reason(&m.functions[idx(&m, "T.Def")]), None);
-    assert!(jit_unsupported_reason(&m.functions[idx(&m, "T.Fwd")]).unwrap().contains("$mta:"));
-    assert!(unsupported_reason(&vcall(0, 0, "M", &["$mta:1"])).unwrap().contains("forwarding"));
+    assert_eq!(jit_unsupported_reason(&m.functions[idx(&m, "T.Fwd")]), None);
+    assert_eq!(unsupported_reason(&vcall(0, 0, "M", &["$mta:1"])), None);
 }
 
 /// Without a JIT the interpreter threads the site's type args (the baseline both engines
@@ -154,11 +159,15 @@ fn compiled_static_and_virtual_sites_pass_bound_type_args() {
 
 #[cfg(feature = "jit")]
 #[test]
-fn native_calls_preserve_forwarding_fallback_and_missing_args() {
+fn native_calls_bind_forwarded_type_args_and_preserve_missing_args() {
     let m = test_module();
     let vm = VmContext::new();
     assert_eq!(jit(&vm, &m, "T.CallFwd"), Value::Bool(false));
-    assert!(vm.jit().unwrap().resolve_fn_by_id(&vm, idx(&m, "T.Fwd")).is_none());
+    assert!(vm.jit().unwrap().resolve_fn_by_id(&vm, idx(&m, "T.Fwd")).is_some());
+
+    let vm = VmContext::new();
+    assert_eq!(jit(&vm, &m, "T.CallVFwd"), Value::Bool(false));
+    assert!(vm.jit().unwrap().resolve_fn_by_id(&vm, idx(&m, "T.VFwd")).is_some());
 
     let vm = VmContext::new();
     assert_eq!(jit(&vm, &m, "T.CallMissing"), Value::Null);
