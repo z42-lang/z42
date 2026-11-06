@@ -1,0 +1,60 @@
+namespace Z42StringIndexCacheBench;
+
+using Std.Harness;
+
+string[] makeStrings(int count, int size) {
+    char[] seed = new char[4096];
+    for (int i = 0; i < seed.Length; i = i + 1) {
+        seed[i] = i % 2 == 0 ? 'a' : '中';
+    }
+    string part = String.FromChars(seed);
+    string[] parts = new string[size / seed.Length];
+    for (int i = 0; i < parts.Length; i = i + 1) {
+        parts[i] = part;
+    }
+    string[] inputs = new string[count];
+    for (int i = 0; i < inputs.Length; i = i + 1) {
+        inputs[i] = String.ConcatParts(parts, parts.Length);
+    }
+    return inputs;
+}
+
+void lengthBench(int count, string name) {
+    int size = 65536;
+    string[] inputs = makeStrings(count, size);
+    var b = new Bencher(4, 24);
+    b.iter(() => {
+        int sum = 0;
+        for (int i = 0; i < inputs.Length; i = i + 1) {
+            sum = sum + inputs[i].Length;
+        }
+        Assert.Equal(size * count, sum);
+        BenchHelpers.blackBox(sum);
+    });
+    b.printSummary(name);
+}
+
+void indexBench(int count, string name) {
+    int size = 65536;
+    string[] inputs = makeStrings(count, size);
+    var b = new Bencher(4, 24);
+    b.iter(() => {
+        int sum = 0;
+        for (int i = 0; i < inputs.Length; i = i + 1) {
+            string s = inputs[i];
+            if (s.CharAt(s.Length - 1) == '中') { sum = sum + 1; }
+        }
+        Assert.Equal(count, sum);
+        BenchHelpers.blackBox(sum);
+    });
+    b.printSummary(name);
+}
+
+[Benchmark]
+void string_length_cached() { lengthBench(8, "string_length_cached"); }
+[Benchmark]
+void string_length_interleaved() { lengthBench(9, "string_length_interleaved"); }
+[Benchmark]
+void string_index_cached() { indexBench(8, "string_index_cached"); }
+[Benchmark]
+void string_index_interleaved() { indexBench(9, "string_index_interleaved"); }

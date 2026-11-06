@@ -160,6 +160,12 @@ unsafe fn call_compiled(
             return super::super::forward::call_forward(frame_ref, ctx, dst, entry.func, id, None, arg_regs);
         }
     }
+    if mta.is_empty() {
+        if let Some(value) = crate::vm::exec::call::forward::try_direct_field_read(vm, &*entry.func, &frame_ref.regs, arg_regs) {
+            frame_ref.regs[dst as usize] = value;
+            return 0;
+        }
+    }
     let callee_frame = JitFrame::new_args_from(vm, entry.max_reg, &frame_ref.regs, arg_regs);
     call_entry(vm, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }
@@ -191,6 +197,12 @@ unsafe fn call_interp(
     if mta.is_empty() && arg_regs.len() == callee.param_count {
         if let Some(id) = crate::vm::exec::call::forward::forward_of(vm, module, callee) {
             return super::super::forward::call_forward(frame_ref, ctx, dst, callee, id, None, arg_regs);
+        }
+    }
+    if mta.is_empty() {
+        if let Some(value) = crate::vm::exec::call::forward::try_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
+            frame_ref.regs[dst as usize] = value;
+            return 0;
         }
     }
     match crate::vm::exec::engine::invoke_args(vm, module, callee, crate::vm::exec::call::args::CallArgs::Registers { regs: &frame_ref.regs, indices: arg_regs }, mta) {
