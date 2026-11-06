@@ -80,4 +80,6 @@ public static class TokenKind {
     public static int DotDotEq = 153;      // ..= 闭区间范围模式（模式匹配 A2；值仅需互异、不入 zbc）
     public static int With = 154;          // with 表达式（模式匹配 D：record 非破坏式更新；值仅需互异、不入 zbc）
     public static int Methodof = 155;      // methodof(Type.Member(签名)) 方法引用（add-method-reference；值仅需互异、不入 zbc）
+    public static int Fieldof = 156;       // fieldof(Type.Field) 字段引用（add-field-property-reference；值仅需互异、不入 zbc）
+    public static int Propertyof = 157;    // propertyof(Type.Prop) 属性引用（add-field-property-reference；值仅需互异、不入 zbc）
 }

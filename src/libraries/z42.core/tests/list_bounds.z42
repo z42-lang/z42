@@ -83,3 +83,64 @@ void test_list_getrange_rejects_invalid_ranges() {
     Assert.Equal(42, list.GetRange(0, 1)[0]);
     Assert.Equal(1, list.Count);
 }
+
+class ClearTarget { }
+
+struct ClearEntry {
+    public ClearTarget Target;
+    public ClearEntry(ClearTarget target) { this.Target = target; }
+}
+
+WeakHandle AddClearTarget(List<ClearTarget> list) {
+    var target = new ClearTarget();
+    list.Add(target);
+    return WeakHandle.MakeWeak(target);
+}
+
+WeakHandle AddClearEntry(List<ClearEntry> list) {
+    var target = new ClearTarget();
+    list.Add(new ClearEntry(target));
+    return WeakHandle.MakeWeak(target);
+}
+
+[Test]
+void test_list_clear_releases_references_in_large_backing() {
+    var list = new List<ClearTarget>();
+    for (int i = 0; i < 8; i++) { list.Add(new ClearTarget()); }
+    var weak = AddClearTarget(list);
+    list.Clear();
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(0, list.Count);
+    var next = new ClearTarget();
+    list.Add(next);
+    Assert.True(list[0] == next);
+}
+
+[Test]
+void test_list_clear_releases_struct_reference_leaves() {
+    var list = new List<ClearEntry>();
+    for (int i = 0; i < 8; i++) { list.Add(new ClearEntry(new ClearTarget())); }
+    var weak = AddClearEntry(list);
+    list.Clear();
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.Equal(0, list.Count);
+    var next = new ClearTarget();
+    list.Add(new ClearEntry(next));
+    Assert.True(list[0].Target == next);
+}
+
+[Test]
+void test_list_clear_reuses_primitive_backing_without_old_values() {
+    var list = new List<int>();
+    for (int i = 0; i < 9; i++) { list.Add(i + 1); }
+    list.Clear();
+    Assert.Equal(0, list.Count);
+    list.Add(42);
+    list.Insert(0, 17);
+    int[] values = list.ToArray();
+    Assert.Equal(2, values.Length);
+    Assert.Equal(17, values[0]);
+    Assert.Equal(42, values[1]);
+}

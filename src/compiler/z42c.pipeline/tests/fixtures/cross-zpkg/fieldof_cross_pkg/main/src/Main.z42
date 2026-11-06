@@ -1,0 +1,36 @@
+namespace Fp.App;
+using Fp.Base;
+using Fp.Ext;
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+void Main() {
+    Leaf leaf = new Leaf();
+    leaf.Mark = 5;
+    leaf.Own = 6;
+    leaf.Label = "lab";
+
+    // ① 🔴 关键用例：跨包**继承**字段。TSIG 把基类实例字段展平进 Leaf 的导出（OwnField*
+    //    一并展平）⇒ 跨包没有「谁声明」的信号，fieldof 以**点名的类**落名——与
+    //    typeof(Leaf).GetFields() 对同一字段的报告口径一致（那里也盖 Leaf 章）。
+    //    存储解析不受影响：Leaf 的字段表已并入 Mark。
+    FieldInfo fm = fieldof(Leaf.Mark);
+    Console.WriteLine("mark=" + (fm.GetValue(leaf) as object).ToString());
+    Console.WriteLine("mark-decl=" + fm.__qualified);
+
+    // ② 派生类自己声明的字段
+    FieldInfo fo = fieldof(Leaf.Own);
+    Console.WriteLine("own=" + (fo.GetValue(leaf) as object).ToString());
+    Console.WriteLine("own-decl=" + fo.__qualified);
+
+    // ③ 跨包属性（auto-property，经访问器往返）
+    PropertyInfo pl = propertyof(Leaf.Label);
+    Console.WriteLine("label=" + (pl.GetValue(leaf) as string));
+    pl.SetValue(leaf, "new");
+    Console.WriteLine("label-set=" + leaf.Label);
+
+    // ④ 不经派生直接指代基类自己的成员（对照组：点名 Tagged ⇒ Tagged 章）
+    Console.WriteLine("direct=" + (fieldof(Tagged.Mark).GetValue(leaf) as object).ToString());
+    Console.WriteLine("direct-decl=" + fieldof(Tagged.Mark).__qualified);
+}

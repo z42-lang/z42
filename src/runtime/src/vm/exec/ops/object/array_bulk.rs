@@ -10,13 +10,22 @@
 //! | struct[] → 引用数组（`object[]` / 接口数组） | 逐元素装箱 | 目的元素类型装不下这个 struct → `ArrayTypeMismatchException` |
 //! | 引用数组 → struct[] | 先逐元素校验是该 struct 的装箱，再逐元素拆进去 | 数组类型不兼容 → `ArrayTypeMismatchException`；某个元素不是（含 null）→ `InvalidCastException` |
 //! | struct[] ↔ 基元数组 | — | `ArrayTypeMismatchException` |
+//! | 引用数组窄化或接口转换 | 校验并拷贝同一份值快照 | 类型不兼容或元素不可转换 |
 //! | 其余（基元 / 引用之间） | `ArrayObj::copy_elems_from`（同种 PRIM backing 一次切片拷贝，REF → REF 逐字） | 元素种类不符 → `InvalidCastException` |
 //!
 //! 抛异常时目的数组不动。写入之后对写入区间里**每个引用槽**（REF / MIXED / FROZEN 的元素、struct[] 元素的每个
 //! 引用叶子）里的堆引用发 `write_barrier_array_elem`；覆盖前的旧引用由各写入原语交给 SATB。
 
+use crate::gc::{Heap, RootHandle};
+use crate::metadata::index::type_names::{builtin_fqn, erased};
 use crate::object::ArrRef;
-use crate::object::{ArrayObj, ElemType};
+use crate::vm::exec::ops::cast::{bound_param_extra_isa, isa_object, isa_td, is_subclass_or_eq_td};
+use crate::vm::runtime::dispatch::{
+    isa::{array_isa, is_open_type_arg, is_open_type_arg_name},
+    receiver::{prim_isa, primitive_class_name},
+};
+use crate::vm::runtime::ids::tokens::TypeKeyCell;
+use crate::object::{ArrayMode, ArrayObj, ElemType};
 use crate::object::Value;
 use crate::vm_context::VmContext;
 
@@ -34,7 +43,7 @@ pub fn copy_range(
         {
             let a = dst.borrow();
             let len = a.len();
-            if si + n > len || di + n > len {
+            if n > len || si > len - n || di > len - n {
                 return Err(OpError::copy_range_out_of_bounds(len, si, len, di, n));
             }
             a.copy_elems_within(si, di, n);
@@ -43,15 +52,24 @@ pub fn copy_range(
         return Ok(());
     }
     let (s, d) = (Shape::of(&src.borrow()), Shape::of(&dst.borrow()));
-    if si + n > s.len || di + n > d.len {
+    if n > s.len || n > d.len || si > s.len - n || di > d.len - n {
         return Err(OpError::copy_range_out_of_bounds(s.len, si, d.len, di, n));
     }
     // 类型判定会查类型表（可能触发惰性加载）。数组没有锁（对象模型 R4）：两条线程同时互相拷贝
     // 两个数组只是逐元素竞争，没有取锁顺序问题。
     match plan(ctx, &s, &d)? {
-        Plan::Direct => copy_direct(src, si, dst, di, n)?,
+        Plan::Direct => dst.borrow().copy_elems_from(&src.borrow(), si, di, n),
         Plan::Box => box_into(ctx, src, &s, si, dst, di, n)?,
-        Plan::Unbox => unbox_into(src, si, dst, &d, di, n)?,
+        Plan::Unbox => return copy_checked(ctx, src, si, dst, di, n, |v| check_struct_box(&d.elem, v)),
+        Plan::CheckedPrimitive => {
+            let array = dst.borrow();
+            return copy_checked(ctx, src, si, dst, di, n, |v| check_untyped_store(ctx, &array, v));
+        }
+        Plan::Checked => {
+            let key = TypeKeyCell::new();
+            let target = type_name(&d.elem);
+            return copy_checked(ctx, src, si, dst, di, n, |v| check_reference(ctx, target, v, &key));
+        }
     }
     barrier_after_range_store(ctx, dst, di, n);
     Ok(())
@@ -72,15 +90,19 @@ pub fn elem_get_boxed(ctx: &VmContext, arr: &ArrRef, i: usize) -> OpResult<Value
 
 /// 无类型写入（`Array.SetValue`）前的校验，不符 → `InvalidCastException`（同 C#），数组不动：
 /// 值 struct 数组只收该 struct 的装箱（null 也不行）；基元数组只收同种值（`prim_backing_accepts`，
-/// 不拓宽）；引用数组什么都收。
-pub fn check_untyped_store(arr: &ArrayObj, v: &Value) -> OpResult<()> {
+/// 不拓宽）；引用数组按声明的元素类型校验。
+pub fn check_untyped_store(ctx: &VmContext, arr: &ArrayObj, v: &Value) -> OpResult<()> {
     if arr.struct_layout().is_some() {
         return check_struct_box(&arr.element_type(), v);
     }
     match arr.prim_backing_kind() {
-        Some(kind) if !arr.prim_backing_accepts(v) => Err(OpError::throw(INVALID_CAST_EXC, format!(
-            "cannot store {} into a {kind} element", crate::object::value_kind_name(v)))),
-        _ => Ok(()),
+        Some(kind) if !arr.prim_backing_accepts(v) => Err(OpError::array_elem_store_rejected(kind, v)),
+        Some(_) => Ok(()),
+        None => {
+            let elem = arr.element_type();
+            if matches!(v, Value::Null) || accepts_any(ctx, &elem) { return Ok(()); }
+            check_reference(ctx, type_name(&elem), v, &TypeKeyCell::new())
+        }
     }
 }
 
@@ -126,7 +148,7 @@ impl Shape {
     }
 }
 
-enum Plan { Direct, Box, Unbox }
+enum Plan { Direct, Box, Unbox, CheckedPrimitive, Checked }
 
 fn plan(ctx: &VmContext, s: &Shape, d: &Shape) -> OpResult<Plan> {
     let mismatch = || OpError::array_type_mismatch(s.kind(), d.kind());
@@ -142,8 +164,81 @@ fn plan(ctx: &VmContext, s: &Shape, d: &Shape) -> OpResult<Plan> {
         (Some(_), None) if d.prim.is_none() && holds_box_of(ctx, &d.elem, &s.elem) => Ok(Plan::Box),
         (None, Some(_)) if s.prim.is_none() && holds_box_of(ctx, &s.elem, &d.elem) => Ok(Plan::Unbox),
         (Some(_), None) | (None, Some(_)) => Err(mismatch()),
-        (None, None) => Ok(Plan::Direct),
+        (None, None) if d.prim.is_some() => Ok(if s.prim == d.prim { Plan::Direct } else { Plan::CheckedPrimitive }),
+        (None, None) if s.elem == d.elem || accepts_any(ctx, &d.elem) => Ok(Plan::Direct),
+        (None, None) if assignable_name(ctx, &s.elem, &d.elem) => Ok(Plan::Direct),
+        (None, None) if !has_open_arguments(&s.elem) && known_class(ctx, &s.elem)
+            && known_class(ctx, &d.elem) && !assignable_name(ctx, &d.elem, &s.elem) => Err(mismatch()),
+        (None, None) => Ok(Plan::Checked),
     }
+}
+
+fn type_name(name: &str) -> &str {
+    match name {
+        "Object" => "Std.Object",
+        "Array" => "Std.Array",
+        other => builtin_fqn(other).unwrap_or(other),
+    }
+}
+
+fn accepts_any(ctx: &VmContext, name: &str) -> bool {
+    name.is_empty() || type_name(name) == "Std.Object"
+        || has_open_arguments(name)
+        || is_open_type_arg_name(name) && lookup_desc(ctx, name).is_none()
+}
+
+fn has_open_arguments(name: &str) -> bool {
+    crate::metadata::index::type_param_markers::has_markers(name)
+        || name.contains(['<', '[']) && is_open_type_arg(name)
+}
+
+fn known_class(ctx: &VmContext, name: &str) -> bool {
+    if name.ends_with("[]") || matches!(type_name(name), "Std.String" | "Std.Object" | "Std.Array") {
+        return true;
+    }
+    lookup_desc(ctx, erased(type_name(name)))
+        .is_some_and(|td| td.class_flags & crate::metadata::ir::CLASS_FLAG_INTERFACE == 0)
+}
+
+fn lookup_desc(ctx: &VmContext, name: &str) -> Option<std::sync::Arc<crate::object::TypeDesc>> {
+    ctx.module().and_then(|m| m.type_registry.get(name).cloned())
+        .or_else(|| ctx.try_lookup_type(name))
+}
+
+fn assignable_name(ctx: &VmContext, src: &str, dst: &str) -> bool {
+    let (src, dst) = (type_name(src), type_name(dst));
+    if src == dst || dst == "Std.Object" {
+        return true;
+    }
+    // The general type-test wildcard for erased arguments does not prove a bulk upcast safe.
+    if has_open_arguments(src) {
+        return false;
+    }
+    if let Some(elem) = src.strip_suffix("[]") {
+        return array_isa(elem, dst);
+    }
+    ctx.module().is_some_and(|m| is_subclass_or_eq_td(ctx, &m.type_registry, src, dst))
+}
+
+fn check_reference(ctx: &VmContext, target: &str, value: &Value, key: &TypeKeyCell) -> OpResult<()> {
+    let matches = match value {
+        Value::Null => true,
+        Value::Array(a) => array_isa(&a.borrow().element_type(), target),
+        _ if prim_isa(value, target) => true,
+        _ => ctx.module().is_some_and(|m| {
+            let registry = &m.type_registry;
+            match value {
+                Value::Object(o) => isa_object(ctx, registry, o.type_desc(), o.type_args(), target, key),
+                Value::BoxedStruct(b) => isa_td(ctx, registry, b.type_desc(), target, key),
+                _ => bound_param_extra_isa(ctx, registry, value, target)
+                    || primitive_class_name(value).is_some_and(|src| is_subclass_or_eq_td(ctx, registry, src, target)),
+            }
+        }),
+    };
+    if matches {
+        return Ok(());
+    }
+    Err(OpError::array_elem_store_rejected(target, value))
 }
 
 /// 元素类型为 `holder` 的引用数组能不能装 `strukt` 的装箱：`object` / 未知（Rust 合成的数组、
@@ -166,30 +261,7 @@ fn check_struct_box(elem: &str, v: &Value) -> OpResult<()> {
             return Ok(());
         }
     }
-    Err(OpError::struct_elem_store_rejected(elem, v))
-}
-
-// ── 三条路线 ─────────────────────────────────────────────────────────────────
-
-/// 同种 backing / 同一 struct：`copy_elems_from`。基元 ↔ 引用这种混搭先逐元素校验种类，不符就整段拒绝。
-fn copy_direct(src: &ArrRef, si: usize, dst: &ArrRef, di: usize, n: usize) -> OpResult<()> {
-    let s = src.borrow();
-    let d = dst.borrow();
-    // 两侧 backing 同种 ⇒ 不可能不符，零成本跳过（真实用法几乎全在这条）。
-    if s.prim_backing_kind() != d.prim_backing_kind() {
-        if let Some(kind) = d.prim_backing_kind() {
-            for k in 0..n {
-                let elem = s.get_boxed(si + k);
-                if !d.prim_backing_accepts(&elem) {
-                    return Err(OpError::throw(INVALID_CAST_EXC, format!(
-                        "source element {} is {} — cannot store it into a {kind} element",
-                        si + k, crate::object::value_kind_name(&elem))));
-                }
-            }
-        }
-    }
-    d.copy_elems_from(&s, si, di, n);
-    Ok(())
+    Err(OpError::array_elem_store_rejected(elem, v))
 }
 
 /// struct[] → 引用数组：逐元素装箱。
@@ -208,15 +280,43 @@ fn box_into(
     Ok(())
 }
 
-/// 引用数组 → struct[]：先整段校验（不符就抛、目的地不动），再逐元素把装箱的字节与引用叶子拷进去。
-fn unbox_into(src: &ArrRef, si: usize, dst: &ArrRef, d: &Shape, di: usize, n: usize) -> OpResult<()> {
-    let s = src.borrow();
-    let a = dst.borrow();
-    for k in 0..n {
-        check_struct_box(&d.elem, &s.get_boxed(si + k))?;
+/// The snapshot is one GC root even if a checked range contains many references.
+struct SnapshotRoot<'a>(&'a Heap, RootHandle);
+
+impl Drop for SnapshotRoot<'_> {
+    fn drop(&mut self) {
+        self.0.unpin_root(self.1);
     }
-    for k in 0..n {
-        let _ = a.set_boxed(di + k, s.get_boxed(si + k));   // STRUCT 臂：拷 blob（SATB 记旧叶子）；屏障由调用方整段发
+}
+
+fn copy_checked(
+    ctx: &VmContext, src: &ArrRef, si: usize, dst: &ArrRef, di: usize, n: usize,
+    check: impl Fn(&Value) -> OpResult<()>,
+) -> OpResult<()> {
+    let heap = ctx.heap();
+    let source = src.borrow();
+    let direct_refs = source.mode() == ArrayMode::Ref && dst.borrow().mode() == ArrayMode::Ref;
+    let snapshot = if direct_refs {
+        source.snapshot_ref_range(heap, si, n)
+    } else {
+        ArrayObj::alloc_frozen_from(heap, n, |i| source.get_boxed(si + i))
+    };
+    let Value::Array(values) = snapshot else {
+        return Err(OpError::oom("Array.CopyRange snapshot".into()));
+    };
+    let _root = SnapshotRoot(heap, heap.pin_root(snapshot));
+    for value in values.borrow().iter_boxed() {
+        check(&value)?;
+    }
+    if direct_refs {
+        dst.borrow().copy_elems_from(&values.borrow(), 0, di, n);
+        barrier_after_range_store(ctx, dst, di, n);
+        return Ok(());
+    }
+    for (i, value) in values.borrow().iter_boxed().enumerate() {
+        let wrote = dst.borrow().try_set_boxed(di + i, value)
+            .map_err(|e| OpError::throw(INVALID_CAST_EXC, e.to_string()))?;
+        super::array::barrier_elem(ctx, dst, di + i, wrote, &value);
     }
     Ok(())
 }

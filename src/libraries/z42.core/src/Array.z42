@@ -55,6 +55,9 @@ public sealed class Array {
     [Native("__array_copy")]
     public static extern void CopyRange(Array source, int sourceIndex, Array destination, int destinationIndex, int length);
 
+    [Native("__array_try_clear_range")]
+    private static extern bool TryClearRange(Array array, int index, int length);
+
     // `Sort()` 的基元快路径：`array[0, count)` 全是同一种基元时原生稳定排序并返回 true；
     // 否则原样不动返回 false，调用方照常跑脚本归并排序。
     [Native("__array_sort_prims")]
@@ -319,9 +322,11 @@ public sealed class Array {
 
     /// 把 `[index, index+length)` 置为 default(T)。越界抛异常。
     public static void Clear<T>(T[] array, int index, int length) {
-        if (index < 0 || length < 0 || index + length > array.Length) {
-            throw new Exception($"Array.Clear: range [{index}, {index + length}) out of bounds (len={array.Length})");
+        int n = array.Length;
+        if (index < 0 || length < 0 || index > n || length > n - index) {
+            throw new Exception($"Array.Clear: range [{index}, {index + length}) out of bounds (len={n})");
         }
+        if (length == 0 || Array.TryClearRange(array, index, length)) return;
         for (int i = 0; i < length; i++) { array[index + i] = default(T); }
     }
 
