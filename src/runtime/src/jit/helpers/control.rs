@@ -152,7 +152,7 @@ mod check_safepoint_tests {
     use super::*;
     use std::sync::atomic::Ordering;
 
-    fn make_frame(vm_ctx: &VmContext) -> JitFrame {
+    fn make_frame(vm_ctx: &VmContext) -> JitFrame<'static> {
         JitFrame::new(vm_ctx, 0, &[])
     }
 

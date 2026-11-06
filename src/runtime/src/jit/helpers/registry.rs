@@ -88,6 +88,8 @@ pub struct HelperIds {
     pub static_set:     FuncId,
     // D-8b-3 Phase 2: generic-T `default(T)` runtime resolution
     pub default_of:     FuncId,
+    pub method_type_arg: FuncId,
+    pub method_default: FuncId,
     // vcall
     pub vcall:          FuncId,
     pub vcall_mta:      FuncId,
@@ -152,6 +154,8 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_obj_new",       object::jit_obj_new);
     reg!("jit_typeof",        object::jit_typeof);
     reg!("jit_default_of",    object::jit_default_of);
+    reg!("jit_method_type_arg", object::jit_method_type_arg);
+    reg!("jit_method_default", object::jit_method_default);
     reg!("jit_convert",       object::jit_convert);
     reg!("jit_field_get",     object_field::jit_field_get);
     reg!("jit_field_set",     object_field::jit_field_set);
@@ -279,6 +283,8 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         call_indirect:  decl!("jit_call_indirect", [ptr, ptr, i32t, i32t, ptr, i64t, i32t], [i8t]),
         // jit_default_of(frame, ctx, dst, param_index) -> u8
         default_of:     decl!("jit_default_of",     [ptr, ptr, i32t, i32t],                      [i8t]),
+        method_type_arg: decl!("jit_method_type_arg", [ptr, ptr, i32t, i32t], []),
+        method_default: decl!("jit_method_default", [ptr, i32t, i32t], []),
         // jit_convert(frame, ctx, dst, src, to_tag) -> u8  (spec fix-numeric-cast-lowering)
         convert:        decl!("jit_convert",        [ptr, ptr, i32t, i32t, i32t],                [i8t]),
         // add-struct-jit-value-path (P5): blob value-type instruction helpers.
