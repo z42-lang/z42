@@ -83,7 +83,7 @@ See `src/compiler/z42c.emission/src/Emission/StubEmitter.z42` (`_emitNativeStub`
 
 ### Native search path
 
-[`src/runtime/src/interop/ext.rs::native_search_paths`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs)
+[`src/runtime/src/interop/ext/mod.rs::native_search_paths`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext/mod.rs)
 returns a `Vec<PathBuf>` in priority order:
 
 1. **`$Z42_NATIVE_PATH`** env var (colon-separated on Unix, semicolon
@@ -102,7 +102,7 @@ Nothing is loaded at VM startup (the bundled wasm build fills
 involves no I/O). The builtins themselves are ordinary typed builtins in
 `BUILTINS` (`interop::ext::typed`), so they always resolve; the first call
 whose library is not loaded yet goes to
-[`ensure_lib_for`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs)
+[`ensure_lib_for`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext/mod.rs)
 maps the builtin name to its library through `KNOWN_EXT_LIBS`
 (`[("compression", COMPRESSION_BUILTINS)]`), probes each search path for
 exactly `{DLL_PREFIX}z42_<lib>{DLL_SUFFIX}` — no directory listing — and
@@ -118,7 +118,7 @@ Before this, every VM listed every search directory and dlopened
 
 ### dlopen + registration
 
-For the library found, [`load_one`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs)
+For the library found, [`load_one`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext/mod.rs)
 runs:
 
 1. `libloading::Library::new(path)` — opens the cdylib
@@ -208,7 +208,7 @@ and z42vm auto-discovers it" path — the symbol resolution + wrapper
 functions are hardcoded per lib. This is intentional for stdlib's
 curated finite set; for user-extensible plugins, the existing Tier 1
 type-registry path
-([`src/runtime/src/interop/loader.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/loader.rs))
+([`src/runtime/src/interop/tier1/loader.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/tier1/loader.rs))
 is the right tool once spec C5 (byte[] / String marshal) lands.
 
 ## Relationship to Tier 1 native interop
