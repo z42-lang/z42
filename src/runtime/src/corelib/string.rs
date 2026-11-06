@@ -69,6 +69,54 @@ pub mod typed {
     #[builtin(name = "__str_byte_length", this = "get_ByteLength", pure)]
     pub fn byte_length(s: &crate::object::string::vstr::Str) -> i64 { super::str_byte_length(s) }
 
+    #[builtin(name = "__str_index_of_any_ascii", this = "IndexOfAnyAscii", pure)]
+    pub fn index_of_any_ascii(text: &str, candidates: &str) -> Result<i64, BuiltinError> {
+        let mask = ascii_mask(candidates)?;
+        if mask == 0 { return Ok(-1); }
+        // A matched ASCII byte is always on a scalar boundary.
+        let index = ascii_match(text.as_bytes(), mask);
+        Ok(index.map_or(-1, |i| text[..i].chars().count() as i64))
+    }
+
+    fn ascii_mask(candidates: &str) -> Result<u128, BuiltinError> {
+        let mut mask = 0u128;
+        for byte in candidates.bytes() {
+            if !byte.is_ascii() {
+                return Err(BuiltinError::Argument("candidates must contain only ASCII characters".into()));
+            }
+            mask |= 1u128 << byte;
+        }
+        Ok(mask)
+    }
+
+    fn ascii_match(bytes: &[u8], mask: u128) -> Option<usize> {
+        bytes.iter().position(|&byte| byte.is_ascii() && mask & (1u128 << byte) != 0)
+    }
+
+    /// Start and result are Unicode scalar indices, even when the scan uses UTF-8 bytes.
+    #[builtin(name = "__str_index_of_any_ascii_from", this = "IndexOfAnyAscii", pure)]
+    pub fn index_of_any_ascii_from(text: &Str, candidates: &str, start: i64) -> Result<i64, BuiltinError> {
+        use crate::object::string::str_meta;
+
+        let mask = ascii_mask(candidates)?;
+        let length = str_meta::char_len(text);
+        let start = usize::try_from(start).ok().filter(|&i| i <= length).ok_or_else(|| {
+            BuiltinError::ArgumentOutOfRange(format!("ASCII search start {start}, string length {length}"))
+        })?;
+        if start == length || mask == 0 {
+            return Ok(-1);
+        }
+        if text.is_known_ascii() {
+            return Ok(ascii_match(&text.as_bytes()[start..], mask)
+                .map_or(-1, |i| (start + i) as i64));
+        }
+        let (start_byte, _) = str_meta::byte_range(text, start, 0)
+            .ok_or_else(|| BuiltinError::Internal("ASCII search cursor has no UTF-8 offset".into()))?;
+        let suffix = &text[start_byte..];
+        Ok(ascii_match(suffix.as_bytes(), mask)
+            .map_or(-1, |i| (start + suffix[..i].chars().count()) as i64))
+    }
+
     #[builtin(name = "__str_copy_utf8", this = "CopyUtf8To")]
     pub fn copy_utf8(s: &str, source_byte_index: i64, destination: crate::object::ArrRef,
         destination_index: i64, byte_count: i64) -> Result<(), BuiltinError> {

@@ -57,7 +57,7 @@ pub fn load_library(ctx: &VmContext, path: &Path) -> Result<()> {
     // → `interop::register_native_type` on the current thread.
     unsafe { register() };
 
-    super::state::state(ctx)?.native_libs.lock().push(lib);
+    super::super::state::retain_library(ctx, lib)?;
     Ok(())
 }
 

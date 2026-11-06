@@ -80,22 +80,8 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
                 TypeProjection::Array { element_name: elem, element: Value::Null },
             );
         }
-        let elem_ty = make_type_from_name(ctx, elem);
-        let elem_name = match read_type_str_slot(std::slice::from_ref(&elem_ty), "__name") {
-            Value::Str(s) => s.to_string(),
-            _ => elem.to_string(),
-        };
-        let elem_full = match read_type_str_slot(std::slice::from_ref(&elem_ty), "__fullName") {
-            Value::Str(s) => s.to_string(),
-            _ => elem.to_string(),
-        };
-        let arr_name = format!("{elem_name}[]");
-        let arr_full = format!("{elem_full}[]");
-        return build_type_ex(
-            ctx, &arr_name, &arr_full,
-            type_shape(None, ReflectedTypeKey::Array(reflected_type_key(&elem_ty).map(Arc::new))),
-            TypeProjection::Array { element_name: elem, element: elem_ty },
-        );
+        let element = make_type_from_name(ctx, elem);
+        return make_array_type(ctx, elem, element);
     }
     // add-reflection-nested-generic-args: a constructed-generic arg name carries angle
     // brackets (`Box<Pair<int,string>>` — z42c `_typeofArgName` emits the full nested
@@ -124,6 +110,22 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
     let simple = type_simple_name(&canon);
     let native = type_shape(None, ReflectedTypeKey::Symbol(canon.as_str().into()));
     build_type(ctx, &simple, &canon, native)
+}
+
+pub(super) fn make_array_type(ctx: &VmContext, element_name: &str, element: Value) -> Value {
+    let name = match read_type_slot_of(&element, "__name") {
+        Value::Str(s) => s.to_string(),
+        _ => element_name.to_string(),
+    };
+    let full = match read_type_slot_of(&element, "__fullName") {
+        Value::Str(s) => s.to_string(),
+        _ => element_name.to_string(),
+    };
+    let native = type_shape(None, ReflectedTypeKey::Array(reflected_type_key(&element).map(Arc::new)));
+    build_type_ex(
+        ctx, &format!("{name}[]"), &format!("{full}[]"), native,
+        TypeProjection::Array { element_name, element },
+    )
 }
 
 fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
@@ -225,6 +227,12 @@ pub(super) fn make_constructed_type_from_values(
         || canonical_type_name(type_name),
         |td| td.name.clone(),
     );
+    build_constructed_type(ctx, definition, base_full, arg_types)
+}
+
+pub(super) fn build_constructed_type(
+    ctx: &VmContext, definition: Option<Arc<TypeDesc>>, base_full: String, arg_types: Vec<Value>,
+) -> Value {
     let simple = type_simple_name(&base_full);
     let definition_key = definition.as_ref().map_or_else(
         || ReflectedTypeKey::Symbol(base_full.as_str().into()),
@@ -375,16 +383,7 @@ fn build_type_ex(
 /// and never mis-bind. Shared by `make_type_from_name`'s add-json-serde /
 /// add-collection-serde dotless fallback (with an optional force-load retry).
 pub(super) fn resolve_dotless_simple(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
-    let mut hit: Option<String> = None;
-    for key in ctx.loaded_type_names() {
-        if type_simple_name(&key) == name {
-            if hit.is_some() {
-                return None; // ambiguous
-            }
-            hit = Some(key);
-        }
-    }
-    let fq = hit?;
+    let fq = ctx.unique_loaded_full_name(name)?;
     if let Some(m) = ctx.module() {
         if let Some(td) = m.type_registry.get(&fq) {
             return Some(td.clone());
@@ -425,30 +424,6 @@ pub(super) fn instantiation_desc(ctx: &VmContext, ty: &Value) -> Option<Arc<Type
     ctx.module()
         .and_then(|m| m.type_registry.get(&name).cloned())
         .or_else(|| ctx.try_lookup_type(&name))
-}
-
-/// Type-parameter substitution for a constructed `Std.Type`'s member signatures: the
-/// definition's parameter names paired with the Type's canonical argument names
-/// (`typeof(Box<int>)` → `(["T"], ["int"])`). `None` for anything else (no rewrite).
-pub(super) fn member_subst(ty: &Value) -> Option<(Vec<String>, Vec<String>)> {
-    let td = type_handle_of(ty)?;
-    let params = td.type_params().to_vec();
-    if params.is_empty() {
-        return None;
-    }
-    let args: Vec<String> = match read_type_slot_of(ty, "__typeArgs") {
-        Value::Array(rc) => rc.borrow().iter_boxed().filter_map(|t| type_value_arg_name(&t)).collect(),
-        _ => return None,
-    };
-    (args.len() == params.len()).then_some((params, args))
-}
-
-/// A member's type tag under [`member_subst`] (`T` → `int` on `Box<int>`); unchanged without one.
-pub(super) fn subst_tag(tag: &str, subst: Option<&(Vec<String>, Vec<String>)>) -> String {
-    match subst {
-        Some((p, a)) => crate::metadata::index::type_names::substitute(tag, p, a),
-        None => tag.to_string(),
-    }
 }
 
 pub(super) fn type_handle(args: &[Value]) -> Option<Arc<TypeDesc>> {

@@ -330,7 +330,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         platforms: NOT_WASM,
         description: "search path for native .dylib/.so/.dll modules (platform-separated)",
         default_hint: "unset; falls back to package-relative search",
-        consumed_by: "interop/ext.rs",
+        consumed_by: "interop/ext/mod.rs",
         ..PUBLIC
     },
     KnobSpec {

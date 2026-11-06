@@ -135,7 +135,7 @@ vm/
   exec/            执行：会执行代码、抛异常、触发加载、等待的都在这里
     engine.rs      Engine trait、注册槽、分层 / OSR / deopt 交接
     call/          调用协议：frames、frame_stack、reg_pool、forward、builtin_abi/（参数、返回值、错误种类、invoke）
-    ops/           指令语义：scalar、field、array、statics、struct_ops、vcall、obj_new、cast
+    ops/           指令语义：scalar、object/（字段、数组、静态字段、struct 叶子）、vcall、obj_new、cast
                    （检查 → 查 runtime → 调 object 原语 → 屏障 → 抛异常）
     init.rs        类型初始化的执行：认领 / 等待、执行 cctor、失败包装
     exception.rs   异常对象与传播
@@ -233,7 +233,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 |---|---|---|---|---|---|
 | M15 | perf/gc | **对象类型字不计数**：`Arc<TypeDesc>` → arena 持有的 `*const TypeDesc`。现状每次 `new` 一次 `Arc::clone`（`interp/obj_new_resolve.rs`），每个死对象经 drop glue 一次 fetch_sub + 间接调用；多线程分配同类时争同一条 refcount 缓存行。改后 Object 块是纯 POD，是 X-12、M18 的前提。风险：可回收加载上下文卸载时须保证无活实例（`context_reclaimer` 钩子） | .NET MethodTable* 不计数 | 每次分配 / 死亡各省 1 次竞争原子 RMW | ⬜ |
 | M16 | perf/gc | **分配记账下沉到 TLAB + 热字段缓存行隔离**：`record_alloc_fast`（`gc/heap/alloc.rs`）每次分配两次共享 fetch_add；`used_bytes` / `allocations` 与 JIT 屏障常读的 `mode` / `promotion_age` 同结构体无 padding（推断伪共享）。改法：claim 时按 cursor 差值记账，回收闸门做成 claim 的 limit 指针 | .NET alloc_limit：只在换缓冲时记账 | 单线程每次分配省 2 次 RMW；多线程扩展性（gc-tlab 实测 24 线程仅 2.76×） | ⬜ |
-| M17 | perf/gc | **引用实参的泛型数组 REF 打包**（M13 延伸）：`objops/array.rs` 只为基元实参打包，`List<string>` / `List<Node>` / 字典键数组仍是 16 B 一格的 MIXED | .NET 8 B / 元素 | 每元素 −8 B | ⬜ |
+| M17 | perf/gc | **引用实参的泛型数组 REF 打包**（M13 延伸）：`vm/exec/ops/object/array.rs` 只为基元实参打包，`List<string>` / `List<Node>` / 字典键数组仍是 16 B 一格的 MIXED | .NET 8 B / 元素 | 每元素 −8 B | ⬜ |
 | M18 | perf/gc | **免清扫 nursery**（移动式 nursery 的中间步，依赖 M15）：`sweep_young_with` 对每个死的年轻块做 tombstone / CAS / drop / 位图 / free-list push，minor 成本 ∝ 分配量。改法：标记时按 chunk 计存活，零存活 chunk 整块入池，半活 chunk 交给空洞补货时惰性清扫（Immix 式） | .NET gen0 成本 ∝ 存活量 | minor 时间 ÷2–4（推断） | ⬜ |
 | M19 | perf/gc | **标记内核**：单线程 BFS，队列元素 16 B `Value`，每条边一次 `&mut dyn FnMut`，经 `Arc<TypeDesc>` 多跳取引用偏移。改法：TypeDesc 热区放引用偏移位图（GCDesc 式），标记栈 8 B 头指针；之后用已 park 线程并行标记（阶段 3） | .NET GCDesc + 并行标记 | 单核 1.3–2×（推断） | ⬜ |
 | M20 | perf/gc | **大数组卡表**：记忆集按属主整个重扫，100 万元素老 `object[]` 每次 minor ≈6 ms。≥1–4 KB 数组配逐区间卡字节，屏障置 `idx >> k` | .NET / HotSpot card table | 去掉记忆集穿透的停顿地板 | ⬜ |

@@ -125,8 +125,15 @@ public partial class List<T> : IEnumerable<T> {
     /// 首个等于 `item` 的下标，未命中 -1。
     public int IndexOf(T item) {
         int i = 0;
+        int result = Array.SearchPrimitives(this.items, item, 0, this._count, false);
+        if (result >= -1) return result;
         while (i < this._count) {
-            if (this.items[i].Equals(item)) return i;
+            T element = this.items[i];
+            if (element != null) {
+                if (element.Equals(item)) return i;
+            } else if (item == null) {
+                return i;
+            }
             i = i + 1;
         }
         return -1;

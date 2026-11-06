@@ -174,6 +174,16 @@ impl ArrayObj {
         Ok(())
     }
 
+    /// Reset an erased IR store of default(T). Missing source refs clear the leaves via SATB.
+    pub(crate) fn clear_struct_elem(&self, i: usize) -> anyhow::Result<()> {
+        let (cells, layout) = self.struct_cells()
+            .ok_or_else(|| anyhow::anyhow!("default store on a non-struct array"))?;
+        struct_blob::write(
+            &cells, i * layout.size, layout.size, &vec![0; layout.size], &[],
+            &layout.ref_offsets, &mut |_| {},
+        )
+    }
+
     /// Whole-element store from a `BoxedStruct` source (the box's blob is the element's layout).
     /// A frame-scoped `StructRef` source needs the struct arena and is handled at the exec layer.
     fn store_struct_elem_boxed(&self, i: usize, val: &Value) -> anyhow::Result<FieldWrite> {

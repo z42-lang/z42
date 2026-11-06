@@ -160,13 +160,13 @@ fn array_roundtrip_heap_and_stack() {
     let vm = VmContext::new();
     let a = long_array(&vm, &[10, 20, 30]);
     array_set(&vm, &a, &Value::I64(1), &Value::I64(21)).unwrap();
-    assert_eq!(array_get(&vm, &a, &Value::I64(1), no_fid).unwrap(), Value::I64(21));
+    assert_eq!(array_get(&vm, &a, &Value::I64(1), false, no_fid).unwrap(), Value::I64(21));
     assert_eq!(array_len(&vm, &a).unwrap(), 3);
 
     let s = array_new(&vm, &Value::I64(2), 0, ElemType::intern("long"), false, None, None, Some(|| 4u32)).unwrap();
     assert!(matches!(s, Value::StackArray { frame_id: 4, .. }));
     array_set(&vm, &s, &Value::I64(0), &Value::I64(5)).unwrap();
-    assert_eq!(array_get(&vm, &s, &Value::I64(0), no_fid).unwrap(), Value::I64(5));
+    assert_eq!(array_get(&vm, &s, &Value::I64(0), false, no_fid).unwrap(), Value::I64(5));
     assert_eq!(array_len(&vm, &s).unwrap(), 2);
 }
 
@@ -175,7 +175,7 @@ fn null_array_throws_null_reference() {
     let vm = VmContext::new();
     let n = Value::Null;
     let cases = [
-        (array_get(&vm, &n, &Value::I64(0), no_fid).map(|_| ()).unwrap_err(), "cannot read an element of a null array"),
+        (array_get(&vm, &n, &Value::I64(0), false, no_fid).map(|_| ()).unwrap_err(), "cannot read an element of a null array"),
         (array_set(&vm, &n, &Value::I64(0), &Value::I64(1)).unwrap_err(), "cannot write an element of a null array"),
         (array_len(&vm, &n).map(|_| ()).unwrap_err(), "cannot read the length of a null array"),
     ];
@@ -189,7 +189,7 @@ fn null_array_throws_null_reference() {
 #[test]
 fn null_check_comes_before_the_index_check() {
     let vm = VmContext::new();
-    let t = thrown(array_get(&vm, &Value::Null, &Value::I64(-1), no_fid).unwrap_err());
+    let t = thrown(array_get(&vm, &Value::Null, &Value::I64(-1), false, no_fid).unwrap_err());
     assert_eq!(t.class, "Std.NullReferenceException");
 }
 
@@ -199,14 +199,14 @@ fn out_of_range_index_throws_index_out_of_range() {
     for a in [long_array(&vm, &[1, 2, 3]), array_new(&vm, &Value::I64(3), 0, ElemType::intern("long"), false, None, None, Some(|| 2u32)).unwrap()] {
         for (i, msg) in [(3, "index 3 is out of range for an array of length 3"),
                          (-1, "index -1 is out of range for an array of length 3")] {
-            let t = thrown(array_get(&vm, &a, &Value::I64(i), no_fid).unwrap_err());
+            let t = thrown(array_get(&vm, &a, &Value::I64(i), false, no_fid).unwrap_err());
             assert_eq!((t.class, t.msg.as_str()), ("Std.IndexOutOfRangeException", msg));
             let t = thrown(array_set(&vm, &a, &Value::I64(i), &Value::I64(0)).unwrap_err());
             assert_eq!((t.class, t.msg.as_str()), ("Std.IndexOutOfRangeException", msg));
         }
     }
     let a = long_array(&vm, &[1]);
-    assert_eq!(internal(array_get(&vm, &a, &Value::Str("0".into()), no_fid).unwrap_err()),
+    assert_eq!(internal(array_get(&vm, &a, &Value::Str("0".into()), false, no_fid).unwrap_err()),
         "ArrayGet: array index must be an integer, got Str(\"0\")");
     assert_eq!(internal(array_len(&vm, &Value::I64(0)).unwrap_err()), "ArrayLen: expected array, got I64(0)");
 }

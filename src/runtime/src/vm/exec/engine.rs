@@ -20,13 +20,14 @@ pub(crate) enum TierTarget<'a> { Site(usize), Existing(&'a Function) }
 
 pub(crate) struct OsrState<'a> {
     pub regs: &'a [Value],
+    pub method_type_args: &'a [String],
     pub frame_id: u32,
     pub has_ref_writebacks: bool,
 }
 
 pub(crate) trait TierBackend: Any + Send + Sync {
     fn osr_threshold(&self) -> u32;
-    fn invoke(&self, ctx: &VmContext, target: TierTarget<'_>, args: CallArgs<'_>)
+    fn invoke(&self, ctx: &VmContext, target: TierTarget<'_>, args: CallArgs<'_>, method_type_args: &[String])
         -> Option<Result<ExecOutcome>>;
     fn osr(&self, ctx: &VmContext, func: &Function, header: usize, state: OsrState<'_>)
         -> Option<Result<ExecOutcome>>;
@@ -48,8 +49,8 @@ impl TierApi {
         (&*self.backend as &dyn Any).downcast_ref()
     }
     #[inline]
-    pub fn invoke(&self, ctx: &VmContext, target: TierTarget<'_>, args: CallArgs<'_>)
-        -> Option<Result<ExecOutcome>> { self.backend.invoke(ctx, target, args) }
+    pub fn invoke(&self, ctx: &VmContext, target: TierTarget<'_>, args: CallArgs<'_>, method_type_args: &[String])
+        -> Option<Result<ExecOutcome>> { self.backend.invoke(ctx, target, args, method_type_args) }
     pub fn osr(&self, ctx: &VmContext, func: &Function, header: usize, state: OsrState<'_>)
         -> Option<Result<ExecOutcome>> { self.backend.osr(ctx, func, header, state) }
 }

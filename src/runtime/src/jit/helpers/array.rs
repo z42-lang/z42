@@ -11,7 +11,7 @@ use super::{raise, vm_ctx_ref};
 
 /// `class_tp`: for `new T[n]` on a **class-level** type parameter, its index (else -1).
 /// The receiver (reg 0) carries the concrete type args, so a primitive `T` packs the array at
-/// its width — resolved by the same `objops::array::class_type_param_elem` interp uses (M13).
+/// its width — resolved by the same `objops::array::class_type_param_array_args` interp uses (M13).
 /// (A method-level `T` has no JIT carrier → `unsupported_reason`.) The JIT never
 /// stack-allocates, so no frame id.
 #[unsafe(no_mangle)]
@@ -24,16 +24,16 @@ pub unsafe extern "C" fn jit_array_new(
     class_tp: i32,
     // the instruction's `type_param_kind` (non-zero = element is a type parameter; a primitive
     // argument packs, anything else stays MIXED).
-    tp_kind: u8,
+    tp_kind: u8, owner_ptr: *const u8, owner_len: usize,
 ) -> u8 {
     let element_type = ElemType::from_raw(et);
     let len = (*frame).regs[size as usize];
-    let tp_prim = if class_tp >= 0 {
-        crate::objops::array::class_type_param_elem((*frame).regs.first(), class_tp as usize)
-    } else { None };
-    let bound = if class_tp >= 0 {
-        crate::objops::array::class_type_param_bound((*frame).regs.first(), class_tp as usize)
-    } else { None };
+    let (tp_prim, bound) = if class_tp >= 0 {
+        let owner = (owner_len != 0).then(|| std::str::from_utf8_unchecked(std::slice::from_raw_parts(owner_ptr, owner_len)));
+        crate::objops::array::class_type_param_array_args(vm_ctx_ref(ctx), (*frame).regs.first(), class_tp as usize, owner)
+    } else {
+        (None, None)
+    };
     let r = crate::objops::array::array_new(
         vm_ctx_ref(ctx), &len, elem_tag, element_type, tp_kind != 0, tp_prim, bound, None::<fn() -> u32>);
     match r {
@@ -95,12 +95,12 @@ pub unsafe extern "C" fn jit_array_ref_data_opt(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_get(
     frame: *mut JitFrame, ctx: *const VmContext,
-    dst: u32, arr: u32, idx: u32,
+    dst: u32, arr: u32, idx: u32, erased: u8,
 ) -> u8 {
     let (a, i) = ((*frame).regs[arr as usize], (*frame).regs[idx as usize]);
     // A value-struct element becomes a `StructRefHeap` handle in the transient arena,
     // stamped with this frame's (lazily assigned) id.
-    match crate::objops::array::array_get(vm_ctx_ref(ctx), &a, &i, || super::struct_ops::frame_id_of(frame, ctx)) {
+    match crate::objops::array::array_get(vm_ctx_ref(ctx), &a, &i, erased != 0, || super::struct_ops::frame_id_of(frame, ctx)) {
         Ok(v) => { (*frame).regs[dst as usize] = v; 0 }
         Err(e) => raise(ctx, e),
     }

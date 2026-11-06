@@ -21,7 +21,12 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let class_tp = if insn.type_param_kind == 2 { insn.type_param_index } else { -1 };
                     let tp = self.builder.ins().iconst(types::I32, class_tp as i64);
                     let tpk = self.builder.ins().iconst(types::I8, insn.type_param_kind as i64);
-                    let inst = self.builder.ins().call(self.hr_array_new, &[self.frame_val, self.ctx_val, d, s, t, et, tp, tpk]);
+                    let owner = if class_tp >= 0 {
+                        crate::vm::exec::call::forward::owner_type(&self.func.name).unwrap_or("")
+                    } else { "" };
+                    let owner_ptr = self.builder.ins().iconst(self.ptr, owner.as_ptr() as i64);
+                    let owner_len = self.builder.ins().iconst(types::I64, owner.len() as i64);
+                    let inst = self.builder.ins().call(self.hr_array_new, &[self.frame_val, self.ctx_val, d, s, t, et, tp, tpk, owner_ptr, owner_len]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::ArrayNewLit(insn) => {
@@ -33,14 +38,16 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let ret = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::ArrayGet { dst, arr, idx } => {
+                    let erased = self.func.array_get_erased(*dst);
+                    let erased_arg = self.builder.ins().iconst(types::I8, i64::from(erased));
                     if let (Some((tag, mode)), true) =
                         (arr_prim_elem(self.func, *dst), idx_int_ok(self.func, *idx))
                     {
-                        self.tr_array_get_packed(*dst, *arr, *idx, tag, mode);
+                        self.tr_array_get_packed(*dst, *arr, *idx, tag, mode, erased_arg);
                     } else if arr_ref_elem(self.func, *dst) && idx_int_ok(self.func, *idx) {
-                        self.tr_array_get_ref(*dst, *arr, *idx);
+                        self.tr_array_get_ref(*dst, *arr, *idx, erased_arg);
                     } else {
-                        self.array_get_helper(*dst, *arr, *idx);
+                        self.array_get_helper(*dst, *arr, *idx, erased_arg);
                     }
                 }
                 Instruction::ArraySet { arr, idx, val } => {
@@ -133,6 +140,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
 
     fn tr_array_get_packed(
         &mut self, dst: u32, arr: u32, idx: u32, tag: u8, mode: crate::object::ArrayMode,
+        erased_arg: cranelift_codegen::ir::Value,
     ) {
         let slow = self.builder.create_block();
         let done = self.builder.create_block();
@@ -171,17 +179,17 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         self.builder.ins().jump(done, &[]);
 
         self.builder.switch_to_block(slow);
-        self.array_get_helper(dst, arr, idx);
+        self.array_get_helper(dst, arr, idx, erased_arg);
         self.builder.ins().jump(done, &[]);
         self.builder.switch_to_block(done);
     }
 
-    fn array_get_helper(&mut self, dst: u32, arr: u32, idx: u32) {
+    fn array_get_helper(&mut self, dst: u32, arr: u32, idx: u32, erased_arg: cranelift_codegen::ir::Value) {
         let dst = self.ri(dst);
         let arr = self.ri(arr);
         let idx = self.ri(idx);
         let call = self.builder.ins().call(
-            self.hr_array_get, &[self.frame_val, self.ctx_val, dst, arr, idx],
+            self.hr_array_get, &[self.frame_val, self.ctx_val, dst, arr, idx, erased_arg],
         );
         let status = self.builder.inst_results(call)[0];
         self.check(status);
@@ -235,7 +243,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     /// - otherwise a MIXED marker: `NULL(k)` → `null`; `PRIM(k)` → `{PRIM_KIND_TO_VALUE_TAG[k],
     ///   payload word}` (loaded after the tag word's acquire, so it is the published payload).
     /// Stride 0 (any other array) and an out-of-range index take `jit_array_get` (same exception).
-    fn tr_array_get_ref(&mut self, dst: u32, arr: u32, idx: u32) {
+    fn tr_array_get_ref(&mut self, dst: u32, arr: u32, idx: u32, erased_arg: cranelift_codegen::ir::Value) {
         use cranelift_codegen::ir::condcodes::IntCC;
         use crate::object::value::ref_word::{KIND_MASK, KIND_TO_VALUE_TAG, SLOW_PATH_TAG};
         use crate::object::value::tparam_cell::PRIM_KIND_TO_VALUE_TAG;
@@ -310,7 +318,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         // Helper: a box, any other array, or the exception.
         self.builder.switch_to_block(helper_blk);
         let d = self.ri(dst); let a = self.ri(arr); let i = self.ri(idx);
-        let inst = self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d, a, i]);
+        let inst = self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d, a, i, erased_arg]);
         let ret = self.builder.inst_results(inst)[0];
         self.check(ret);
         self.builder.ins().jump(done_blk, &[]);

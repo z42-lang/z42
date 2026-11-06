@@ -8,14 +8,15 @@ namespace Std.Collections;
 /// 索引器 ⇒ 支持 foreach。无泛型约束：Contains / IndexOf 用 `Object.Equals`，任意 `T[]` 都能包装。
 public sealed class ReadOnlyCollection<T> {
     T[] items;
+    private readonly int _count;
 
-    /// 元素个数（公开字段）。
-    public int Count;
+    /// 底层数组的固定长度。
+    public int Count { get { return this._count; } }
 
     /// 包装既有数组（按引用，不复制）。array 不应为 null。
     public ReadOnlyCollection(T[] array) {
         this.items = array;
-        this.Count = array.Length;
+        this._count = array.Length;
     }
 
     /// 只读索引访问；越界由底层数组抛 IndexOutOfRangeException。
@@ -25,7 +26,7 @@ public sealed class ReadOnlyCollection<T> {
 
     /// 是否包含 value（按 Object.Equals 线性查找）。
     public bool Contains(T value) {
-        for (int i = 0; i < this.Count; i++) {
+        for (int i = 0; i < this._count; i++) {
             if (this.items[i].Equals(value)) return true;
         }
         return false;
@@ -33,7 +34,7 @@ public sealed class ReadOnlyCollection<T> {
 
     /// 首个等于 value 的下标（按 Object.Equals），未命中返回 -1。
     public int IndexOf(T value) {
-        for (int i = 0; i < this.Count; i++) {
+        for (int i = 0; i < this._count; i++) {
             if (this.items[i].Equals(value)) return i;
         }
         return -1;
@@ -41,15 +42,15 @@ public sealed class ReadOnlyCollection<T> {
 
     /// 将全部元素拷贝到 array，从 arrayIndex 处起。
     public void CopyTo(T[] array, int arrayIndex) {
-        for (int i = 0; i < this.Count; i++) {
+        for (int i = 0; i < this._count; i++) {
             array[arrayIndex + i] = this.items[i];
         }
     }
 
     /// 返回元素的新数组副本（防御性快照）。
     public T[] ToArray() {
-        T[] result = new T[this.Count];
-        for (int i = 0; i < this.Count; i++) {
+        T[] result = new T[this._count];
+        for (int i = 0; i < this._count; i++) {
             result[i] = this.items[i];
         }
         return result;

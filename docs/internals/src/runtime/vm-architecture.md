@@ -67,6 +67,11 @@ is/as/catch 目标键及数组元素/对象泛型实参的驻留句柄。侧表�
 对象表示集中在 `object/{value,types,header,object,array,string}`：Value、类型形状与布局、区块头和
 句柄、对象/数组存储及字符串索引。`gc/var_region` 管理分配、回收和弱句柄的 chunk epoch 校验；
 静态 PackageImage 不持有这些对象表示或 GC 状态。对象与字段的内存契约见 [object-abi.md](object-abi.md)。
+泛型数组分配从声明类型或方法实参解析元素。绑定到值 struct 时使用连续零值布局。
+擦除泛型的元素读取返回装箱快照，具体 struct 的字段访问仍可原地读写。
+旧字节码缺少寄存器类型时，VM 依据结构体指令识别原地元素访问，其余读取返回快照。
+旧泛型代码把未装箱的默认值写入连续 struct 槽时重置其基元字节和引用叶子。
+
 字符串的线程局部缓存记录 Unicode 标量计数，非 ASCII 字符串首次需要按标量索引时才构建字节偏移表。
 
 ## VmContext / VmCore —— 运行时状态归口
@@ -296,7 +301,7 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
 /`.so`/`.dll` 并调用其 `<basename>_register` 入口（约定）让 native 库通过
 `z42_register_type` 把类型推入 `native_types`。栈底帧 push 时安装 thread-local
 `CURRENT_VM`（见上「寄存器池、引擎入口 guard、frame_id」）让 native callback 能找回 VM；详见
-`src/runtime/src/interop/exports.rs` 的 `VmGuard`。
+`src/runtime/src/interop/tier1/exports.rs` 的 `VmGuard`。
 
 ---
 
