@@ -18,8 +18,10 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
     internal int _used;         // entries 已用槽数（含 tombstone）
     internal int _version;      // 新增键 / Clear / 压实时递增，枚举器据此检测修改
 
-    /// 元素个数（公开字段，可读可写）。
-    public int Count;
+    private int _count;
+
+    /// 当前存活元素的个数。
+    public int Count { get { return this._count; } }
 
     /// 新建空字典。
     public Dictionary() { this._alloc(8); }
@@ -30,11 +32,11 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         this._keys = new TKey[cap];
         this._values = new TValue[cap];
         this._used = 0;
-        this.Count = 0;
+        this._count = 0;
     }
 
     /// 是否为空。
-    public bool IsEmpty() { return this.Count == 0; }
+    public bool IsEmpty() { return this._count == 0; }
 
     /// 返回按插入顺序遍历的枚举器。
     public DictionaryEnumerator<TKey, TValue> GetEnumerator() { return new DictionaryEnumerator<TKey, TValue>(this); }
@@ -86,7 +88,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
             // 开销约占两成）。
             int i = this._used;
             if (i == hs.Length) {
-                this._resize(HashIndex.NextCapacity(this.Count, i));
+                this._resize(HashIndex.NextCapacity(this._count, i));
                 index = this._index;
                 hs = this._hashes;
                 i = this._used;
@@ -97,7 +99,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
             this._values[i] = value;
             index[s] = i + 1;
             this._used = i + 1;
-            this.Count = this.Count + 1;
+            this._count = this._count + 1;
             this._version = this._version + 1;
         }
     }
@@ -161,7 +163,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         this._hashes[i] = -1;
         this._keys[i] = default(TKey);
         this._values[i] = default(TValue);
-        this.Count = this.Count - 1;
+        this._count = this._count - 1;
         return true;
     }
 
@@ -169,7 +171,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
     // 已重置的表复用存储；_used 包括仍需清理索引的 tombstone。
     public void Clear() {
         if (this._used == 0) {
-            this.Count = 0;
+            this._count = 0;
         } else {
             this._alloc(this._hashes.Length);
         }
@@ -180,10 +182,10 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
 
     /// 返回长度为 Count 的键快照数组（每次调用新建），按插入顺序。
     public TKey[] Keys() {
-        TKey[] result = new TKey[this.Count];
+        TKey[] result = new TKey[this._count];
         int[] hs = this._hashes;
         int used = this._used;
-        if (this.Count == used) {
+        if (this._count == used) {
             Array.CopyRange(this._keys, 0, result, 0, used);
             return result;
         }
@@ -199,10 +201,10 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
 
     /// 返回长度为 Count 的值快照数组（每次调用新建），按插入顺序。
     public TValue[] Values() {
-        TValue[] result = new TValue[this.Count];
+        TValue[] result = new TValue[this._count];
         int[] hs = this._hashes;
         int used = this._used;
-        if (this.Count == used) {
+        if (this._count == used) {
             Array.CopyRange(this._values, 0, result, 0, used);
             return result;
         }
@@ -218,7 +220,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
 
     /// 返回键值对快照数组（每次调用新建），按插入顺序。
     public KeyValuePair<TKey, TValue>[] Entries() {
-        KeyValuePair<TKey, TValue>[] result = new KeyValuePair<TKey, TValue>[this.Count];
+        KeyValuePair<TKey, TValue>[] result = new KeyValuePair<TKey, TValue>[this._count];
         int[] hs = this._hashes;
         int used = this._used;
         int w = 0;
@@ -262,7 +264,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         int slot = s;
         int i = this._used;
         if (i == this._hashes.Length) {
-            this._resize(HashIndex.NextCapacity(this.Count, i));
+            this._resize(HashIndex.NextCapacity(this._count, i));
             i = this._used;
             slot = HashIndex.FreeSlot(this._index, h);
         }
@@ -271,7 +273,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         this._values[i] = value;
         this._index[slot] = i + 1;
         this._used = i + 1;
-        this.Count = this.Count + 1;
+        this._count = this._count + 1;
         this._version = this._version + 1;
     }
 
@@ -292,7 +294,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
             nv = new TValue[newCap];
         }
         int live = used;
-        if (this.Count == used && !inPlace) {
+        if (this._count == used && !inPlace) {
             // 无 tombstone：原生批量拷贝。
             Array.CopyRange(oh, 0, nh, 0, used);
             Array.CopyRange(ok, 0, nk, 0, used);

@@ -94,3 +94,23 @@ void concat_parts_utf8_checks_count_and_selected_slots() {
     Assert.Throws("ArgumentException", () => String.ConcatPartsUtf8(parts, 3));
     Assert.Throws("ArgumentNullException", () => String.ConcatPartsUtf8(null, 0));
 }
+
+[Test]
+void index_of_any_ascii_returns_the_first_scalar_index() {
+    Assert.Equal(3, "é中😀ab".IndexOfAnyAscii("baa"));
+    Assert.Equal(1, "é\0😀".IndexOfAnyAscii("\0"));
+    string del = String.FromChars(new char[] { (char)127 });
+    Assert.Equal(1, ("a" + del).IndexOfAnyAscii(del));
+    Assert.Equal(-1, "é中😀".IndexOfAnyAscii("zaa\0"));
+    Assert.Equal(-1, "a".IndexOfAnyAscii(""));
+    Assert.Equal(-1, "".IndexOfAnyAscii("a"));
+}
+
+[Test]
+void index_of_any_ascii_checks_the_whole_candidate_set() {
+    Assert.Throws("ArgumentNullException", () => "a".IndexOfAnyAscii(null));
+    Assert.Throws("ArgumentException", () => "a".IndexOfAnyAscii("aé"));
+    Assert.Throws("ArgumentException", () => "".IndexOfAnyAscii("😀"));
+    string missing = null;
+    Assert.Throws("NullReferenceException", () => missing.IndexOfAnyAscii("a"));
+}
