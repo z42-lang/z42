@@ -2,7 +2,7 @@
 
 > 代码：
 > `src/libraries/z42.core/src/Platform.z42`、`src/libraries/z42.core/src/OperatingSystem.z42`、
-> `src/runtime/src/corelib/platform.rs`、`src/runtime/src/corelib/system.rs`、
+> `src/runtime/src/corelib/os/platform.rs`、`src/runtime/src/corelib/os/system.rs`、
 > `src/runtime/src/pal/system.rs`
 >
 > Rust 侧 `#[cfg]` 该收敛到哪里 → [PAL 平台抽象层](pal.md)；
@@ -13,7 +13,7 @@
 里各写了一份**、wasm 那个唯一不能直通的常量，以及能力查询（`Capabilities()` / `ExecModes()`）
 凭什么是「这个二进制的事实」而不是猜。加一个 OS、加一个能力位、或者动这些 builtin 之前读本页。
 
-## 1. 链路：facade 零分支，分支全在 corelib
+## 1. 从脚本到 builtin 与 PAL
 
 ```
 z42 脚本          Platform.IsMacOS() / OperatingSystem.Hostname()
@@ -21,10 +21,10 @@ z42 脚本          Platform.IsMacOS() / OperatingSystem.Hostname()
    ▼  z42.core 的两个静态类：[Native("__…")] 名字映射 + 纯 z42 的便利谓词，无平台分支
    │    Platform.z42            Std.Platform / Std.OSKind / Std.ArchKind
    │    OperatingSystem.z42     Std.OperatingSystem
-   ▼  builtin 分发表：builtin_assembly.rs 的 TYPED（platform::typed / system::typed 模块，P1-8 批次 12a 迁入）
+   ▼  builtin 分发表：builtin_assembly.rs 的 TYPED（`os::platform::typed` / `os::system::typed`）
    │
-   ▼  corelib/platform.rs   ← std::env::consts::{OS,ARCH,FAMILY}（编译期常量）+ cfg(feature)
-      corelib/system.rs     ← std::process / std::env / std::thread + pal::system
+   ▼  corelib/os/platform.rs   ← pal::system::os_name()、架构与系统族常量、cfg(feature)
+      corelib/os/system.rs     ← pal::system（进程环境、系统信息、可用并行度）
                                  │
                                  ▼  pal/system.rs：hostname() / os_version() 的 unix·wasm·其他三分支
 ```
@@ -53,7 +53,7 @@ if (Platform.IsMacOS()) { … }                 // 谓词
 ## 3. 整数契约双写，改一处必须改两处
 
 `OSKind` / `ArchKind` 的值在 z42 侧（`Platform.z42` 的两个静态类）和 Rust 侧
-（`corelib/platform.rs` 的两个 `match`）**各硬编码一份**：
+（`corelib/os/platform.rs` 的两个 `match`）**各硬编码一份**：
 
 | `OSKind` | 值 | `HOST_OS` |
 |---|---|---|
@@ -84,7 +84,7 @@ if (Platform.IsMacOS()) { … }                 // 谓词
 ## 4. wasm：唯一不能直通的那个常量
 
 其余平台 `Platform.OS()` 就是 `std::env::consts::OS`，**wasm32 例外**——
-`wasm32-unknown-unknown` 的 `consts::OS` 是空串而不是 `"wasm"`。所以 `corelib/platform.rs`
+`wasm32-unknown-unknown` 的 `consts::OS` 是空串而不是 `"wasm"`。所以 `corelib/os/platform.rs`
 顶上有一个覆写常量：
 
 ```rust
@@ -140,11 +140,7 @@ Windows 的 `hostname` / `os_version` 留着 `None` / `""` 是有意的：引入
 Windows CI runner 验证，等于把未验证代码塞进 PAL；等 runner 到位再补
 `GetComputerNameW` / `RtlGetVersion`，`pal::system` 的签名不用动。
 
-⚠️ 分支位置不齐：`hostname` / `os_version` 老老实实走 `pal::system`，但 `pid` / `exe_path` /
-`cwd` / `set_cwd` 的 wasm 分支是**就地写在 `corelib/system.rs` 里的** `#[cfg]` 块（wasm 上
-这四个 `std` 调用会 panic "not supported"，必须挡）。这与 PAL 的「consumer 零 cfg」不变量
-相抵；要收，应该往 `pal::system` 里加 `pid()` / `exe_path()` / `cwd()` / `set_cwd()` 四个
-OS-neutral 函数。
+系统查询统一经 `pal::system`。`CpuCount()` 与隔离 golden runner 的默认 worker 数共用同一并行度查询，查询失败时取 1。
 
 ## 7. 相邻的环境变量与文件系统
 
@@ -163,7 +159,7 @@ OS-neutral 函数。
 ## 8. 加一个 OS / 加一个能力
 
 - **加 OS 或 arch**：`Platform.z42` 的 `OSKind` / `ArchKind` 静态类加常量 →
-  `corelib/platform.rs` 对应 `match` 加分支（值必须一致）→ 需要谓词就在 `Platform.z42` 加
+  `corelib/os/platform.rs` 对应 `match` 加分支（值必须一致）→ 需要谓词就在 `Platform.z42` 加
   `IsXxx()`，属于 unix 家族的还要进 `IsUnix()` 的或链。
 - **加能力位**：`builtin_platform_caps` 里按 cfg push 一个新字符串（feature 用
   `#[cfg(feature=…)]`，非 feature 的真实能力用 `#[cfg(target_arch=…)]` 这类直接判定）→

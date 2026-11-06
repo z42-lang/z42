@@ -43,7 +43,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | 数组内建（含基元与字符串区间查找） | `array.rs` |
 | GC 控制（collect / 阈值 / 快照） | `gc.rs` |
 | 基准计时 | `bench.rs` |
-| 子进程（`typed` 模块，ABI v2：失败从 Rust 抛、等子进程一律 park）/ 平台 / 系统信息 | `process.rs` / `platform.rs` / `system.rs` |
+| 子进程（`typed` 模块，ABI v2：失败从 Rust 抛、等子进程一律 park）/ 平台 / 系统信息 | `os/process.rs` / `os/platform.rs` / `os/system.rs` |
 | 线程 / 同步原语底座 Monitor（不含值，Mutex/RwLock/Channel 由 z42 写在其上；`typed` 模块，ABI v2：误用抛 `LockRecursionException` / `SynchronizationLockException`，争用时的等待 park）/ 锁争用探针 | `threading.rs` / `monitor.rs` / `sync_contention.rs`；机制见 [sync-primitives.md](../../../../docs/internals/src/runtime/sync-primitives.md) |
 | 网络（ABI v2：`__tcp_*` / `__udp_*` / `__dns_lookup`，.NET 口径的 `SocketException` 等从 Rust 抛、会阻塞的一律 park）/ 种子兼容的旧 `__net_*` 数组形状 | `network.rs`（hub）+ `network/{tcp, udp, error, listener, unsupported}.rs` / `network/legacy.rs` + `network/legacy/` |
 | TLS（ABI v2：`__tls_*`，握手被拒 → `AuthenticationException`、传输 / 流 → `IOException`）/ 加密 | `tls.rs` / `crypto.rs` |

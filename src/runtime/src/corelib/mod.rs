@@ -14,6 +14,7 @@
 ///   `string`      — str_length/char_at/substring/split/join/format …
 ///   `math`        — abs/max/min/pow/sqrt/trig …
 ///   `object`      — obj_get_type / obj_ref_eq / obj_hash_code
+///   `os`          — processes, platform capabilities, and system queries
 
 pub(crate) mod symavail;
 mod resource_registry;
@@ -41,9 +42,8 @@ pub mod config;
 pub mod char;
 pub mod gc;
 pub mod bench;
-pub mod process;
-pub mod platform;
-pub mod system;
+pub mod os;
+pub use os::{platform, process, system};
 pub mod threading;
 pub mod monitor;
 // add-concurrency-probes (P1b): 用户锁争用探针（`profile-contention` gated，默认零开销）。

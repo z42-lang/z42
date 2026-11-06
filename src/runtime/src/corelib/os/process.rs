@@ -33,7 +33,7 @@
 
 #[derive(Default)]
 pub(crate) struct State {
-    slots: super::resource_registry::ResourceRegistry<ProcessSlot>,
+    slots: crate::corelib::resource_registry::ResourceRegistry<ProcessSlot>,
 }
 
 pub(super) fn state(ctx: &crate::vm_context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
@@ -163,7 +163,7 @@ fn stdio_for_output(mode: i64, path: Option<&str>, which: &str) -> Result<Stdio,
                 "Value cannot be null. (Parameter '{which}Path')")))?;
             std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(p)
                 .map(Stdio::from)
-                .map_err(|e| super::io::fs::fs_error(e, p, super::io::fs::PathRole::Create))
+                .map_err(|e| crate::corelib::io::fs::fs_error(e, p, crate::corelib::io::fs::PathRole::Create))
         }
         _ => Err(mode_out_of_range(which, mode)),
     }
@@ -375,8 +375,8 @@ fn read_pipe<R: Read + Send + 'static>(
     pick: fn(&ProcessSlot) -> Option<Pipe<R>>,
 ) -> Result<crate::vm::exec::call::builtin_abi::Then<i64>, BuiltinError> {
     use crate::vm::exec::call::builtin_abi::Blocking;
-    let arr = super::io::buffer::byte_array(&buffer, "buffer")?;
-    let (off, n) = super::io::buffer::check_buffer_range(offset, count, arr.borrow().len())?;
+    let arr = crate::corelib::io::buffer::byte_array(&buffer, "buffer")?;
+    let (off, n) = crate::corelib::io::buffer::check_buffer_range(offset, count, arr.borrow().len())?;
     let reader = state(ctx)?.slots.with_mut(slot as u64, |s| pick(s)).ok_or_else(|| handle_invalid(None, slot))?;
     let read = match reader {
         Some(r) if n > 0 => Blocking::new(move || {
@@ -388,7 +388,7 @@ fn read_pipe<R: Read + Send + 'static>(
         _ => Blocking::ready(Vec::new()),
     };
     Ok(read.then(move |_ctx: &VmContext, bytes: Vec<u8>| {
-        super::io::buffer::write_byte_range(&arr.borrow(), off, &bytes);
+        crate::corelib::io::buffer::write_byte_range(&arr.borrow(), off, &bytes);
         Ok(bytes.len() as i64)
     }))
 }

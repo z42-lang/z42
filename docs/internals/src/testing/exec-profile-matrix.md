@@ -3,7 +3,7 @@
 > 代码：
 > `scripts/common/xtask_exec_profile.z42`（共享模块：`_epProbe` / `_epCellStatus` /
 > `_epModeLabel` / `_epProfileJson` / `_epScenarioRequiredCaps` / `_epCapsMissing`）、
-> `src/runtime/src/corelib/platform.rs`（`__platform_caps` / `__platform_exec_modes` builtin）、
+> `src/runtime/src/corelib/os/platform.rs`（`__platform_caps` / `__platform_exec_modes` builtin）、
 > `src/libraries/z42.core/src/Platform.z42`（`Capabilities()` / `ExecModes()` 门面）、
 > `src/benches/probe/capabilities.z42`（探针）、`src/benches/baseline-schema.json`（schema v2）、
 > `scripts/bench/xtask_bench.z42`（消费方）。
@@ -61,7 +61,7 @@ mode = { tiers: [...], aot_pkgs: [...] }
 `caps` **不静态推断**，而是 `Std.Platform.Capabilities()` 在**被测 VM 二进制**下返回的真实能力
 （当前：`jit` / `native-interop` / `bundled-compression` / `threads` / `socket`）。
 `Std.Platform.ExecModes()` 另报可派发后端（`interp` 恒在，`jit` / `aot` 按 cfg）。
-两者由 `corelib/platform.rs` 的 `__platform_caps` / `__platform_exec_modes` 背书，
+两者由 `corelib/os/platform.rs` 的 `__platform_caps` / `__platform_exec_modes` 背书，
 读 `cfg!(feature = …)`，`threads` / `socket` 另按 `cfg!(not(wasm32))` 补。
 
 > **caps ⟂ mode 正交**：caps 回答「这个二进制**能**做哪些后端」；mode 回答「这次**用了**什么」。
@@ -158,7 +158,7 @@ harness 对**要测量的那个 VM 二进制**跑一次探针，缓存 `VmCaps`�
 
 | 要改什么 | 改哪 |
 |---|---|
-| 加一种 cap | `corelib/platform.rs::builtin_platform_caps`（cfg 分支）；消费侧自动跟随 |
+| 加一种 cap | `corelib/os/platform.rs::builtin_platform_caps`（cfg 分支）；消费侧自动跟随 |
 | 加一种 exec mode | `builtin_platform_exec_modes` + `_epCellStatus` 的策略覆盖分支 |
 | mode_label 拼法 | `_epModeLabel`（**它是 diff 键，改了等于让历史基线对不上**） |
 | profile 进结果的形状 | `_epProfileJson` + `src/benches/baseline-schema.json`（要 bump `schema_version`） |

@@ -2,7 +2,7 @@ namespace Std.IO;
 
 /// 子进程三路标准流各自的配置：四个模式常量（Null / Inherit / Pipe / File）+ 可选路径，不是 enum。
 public sealed class Stdio {
-    // 模式常量 —— 与 src/runtime/src/corelib/process.rs 保持一致。
+    // 模式常量 —— 与 src/runtime/src/corelib/os/process.rs 保持一致。
     /// 丢弃（/dev/null）。
     public static int ModeNull    = 0;
     /// 直接继承调用方的 fd。

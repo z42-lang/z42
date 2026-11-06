@@ -139,7 +139,7 @@ SkipFeature  != null → skip iff !Capabilities().contains(SkipFeature)
 ```
 
 **能力集是运行期真值，不是静态推断**：`Std.Platform.Capabilities()` 背后是
-`corelib/platform.rs::builtin_platform_caps`，按 cfg 拼出这个二进制**实际编译进了什么**：
+`corelib/os/platform.rs::builtin_platform_caps`，按 cfg 拼出这个二进制**实际编译进了什么**：
 
 | cap | 何时出现 |
 |---|---|
