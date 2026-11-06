@@ -127,7 +127,7 @@ pub struct MemoryFs;                      // 实例自有 path → bytes；mount
 - **不走 VFS 的**：FileStream 句柄、临时文件 / 目录、硬链接 / 符号链接、权限位、`Stdio.ToFile`——它们是
   OS 操作，直接用标准库的文件 API / 下面的 OS 调用。
 
-VFS 之外的 OS 调用承接 `corelib/fs.rs` 的 2 个 `#[cfg(unix)]` 块（`make_executable` / `symlink`）：
+PAL 为 `corelib/io/fs.rs` 提供 VFS 之外的两个 OS 操作。
 
 ```rust
 // pal/fs.rs
@@ -135,8 +135,7 @@ pub fn make_executable(path: &str) -> Result<()>;  // unix: mode|0o111；非 uni
 pub fn symlink(src: &str, dst: &str) -> Result<()>; // unix symlink；非 unix bail
 ```
 
-`corelib/fs.rs::builtin_file_make_executable` / `builtin_file_symlink` call
-`crate::pal::fs::*`，零 cfg。
+`corelib/io/fs.rs` 的 `typed::file_make_executable` 和 `typed::file_symlink` 调用 `crate::pal::fs`。
 
 > `read_permissions` / `set_permissions` 是 make_executable 的 building
 > block——当前无独立 consumer，按 YAGNI 折进 `make_executable`（read+modify+set 一体），
