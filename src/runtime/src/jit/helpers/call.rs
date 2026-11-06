@@ -166,7 +166,8 @@ unsafe fn call_compiled(
             return 0;
         }
     }
-    let callee_frame = JitFrame::new_args_from(vm, entry.max_reg, &frame_ref.regs, arg_regs);
+    let mut callee_frame = JitFrame::new_args_from(vm, entry.max_reg, &frame_ref.regs, arg_regs);
+    callee_frame.method_type_args = mta;
     call_entry(vm, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }
 
