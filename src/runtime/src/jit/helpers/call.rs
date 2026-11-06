@@ -38,11 +38,8 @@ pub unsafe extern "C" fn jit_call(
 }
 
 /// `jit_call` for a method-level generic call site. `mta_ptr/len` is the site's
-/// `method_type_args` (FQ type-name strings; a compile-time constant of the site, baked by
-/// codegen — it points into the instruction the Module owns). It is threaded into the
-/// callee frame only when the callee runs on the interpreter; a **compiled** callee never
-/// observes it (`translate::unsupported`'s invariant: a function that could read its type
-/// args does not compile), so the native path is the plain `jit_call` one.
+/// `method_type_args` (type names baked by codegen from the Module-owned
+/// instruction). The callee receives the bound arguments in either tier.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_call_mta(
     frame: *mut JitFrame, ctx: *const VmContext,

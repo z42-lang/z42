@@ -40,8 +40,8 @@ pub unsafe extern "C" fn jit_vcall(
 }
 
 /// `jit_vcall` for a method-level generic call site (`e.Accept<R, A>(...)`): `mta_ptr/len`
-/// is the site's `method_type_args`, threaded into the callee frame only when the callee
-/// runs on the interpreter — a compiled callee cannot observe it (see `jit_call_mta`).
+/// is the site's `method_type_args`. The callee receives the bound arguments
+/// in either tier, as with `jit_call_mta`.
 /// Resolution and the PIC are the same as the non-generic site: generics are erased,
 /// one `FnId` serves every instantiation.
 #[unsafe(no_mangle)]
