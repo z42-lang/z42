@@ -1,4 +1,4 @@
-//! add-boxed-struct-identity (P4b): struct field layout replication for reflection.
+//! Recover named value-struct fields from type descriptors and validate the delivered layout.
 //!
 //! Reflection reads a value struct's fields **by name**, which needs each field's byte
 //! offset + type tag. The runtime only carries a value struct's `StructTypeLayout`
@@ -85,7 +85,7 @@ impl ComputedLayout {
         if self.size as usize != delivered.size {
             bail!(
                 "struct field reflection: computed size {} != delivered layout size {} for `{type_name}` \
-                 (Rust layout replication drifted — see corelib/struct_reflect.rs)",
+                 (Rust layout replication drifted — see object/types/named_struct_layout.rs)",
                 self.size, delivered.size
             );
         }
@@ -383,5 +383,5 @@ fn align_up(off: u32, align: u32) -> u32 {
 }
 
 #[cfg(test)]
-#[path = "struct_reflect_tests.rs"]
-mod struct_reflect_tests;
+#[path = "named_struct_layout_tests.rs"]
+mod named_struct_layout_tests;
