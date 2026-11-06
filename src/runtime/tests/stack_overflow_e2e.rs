@@ -5,36 +5,32 @@
 
 #![cfg(z42_have_embedding_hello)]
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::Command;
 
-fn libs_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../artifacts/build/libraries/dist/release")
-}
-
-fn run_deep(mode: &str) -> (Option<i32>, String, String) {
-    let zbc = PathBuf::from(env!("OUT_DIR")).join("embedding_hello.zbc");
+fn assert_fatal(mode: &str) {
+    let libs = Path::new(env!("Z42_EMBEDDING_TEST_LIBS"));
+    let corelib = libs.join("z42.core.zpkg");
+    assert!(
+        corelib.is_file(),
+        "embedding fixture needs {}; run `xtask build stdlib`",
+        corelib.display()
+    );
+    let zbc = Path::new(env!("OUT_DIR")).join("embedding_hello.zbc");
     let out = Command::new(env!("CARGO_BIN_EXE_z42vm"))
         .args(["--mode", mode])
         .arg(&zbc)
         .arg("Embedding.Hello.DeepMain")
-        .env("Z42_LIBS", libs_dir())
+        .env("Z42_LIBS", libs)
         .output()
         .expect("spawn z42vm");
-    (
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
         out.status.code(),
-        String::from_utf8_lossy(&out.stdout).into_owned(),
-        String::from_utf8_lossy(&out.stderr).into_owned(),
-    )
-}
-
-fn assert_fatal(mode: &str) {
-    if !libs_dir().join("z42.core.zpkg").is_file() {
-        eprintln!("skipping: stdlib not built");
-        return;
-    }
-    let (code, stdout, stderr) = run_deep(mode);
-    assert_eq!(code, Some(z42::stack_guard::EXIT_CODE), "{mode}: stdout:\n{stdout}\nstderr:\n{stderr}");
+        Some(z42::stack_guard::EXIT_CODE),
+        "{mode}: stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
     assert!(stderr.contains("fatal error: stack overflow"), "{mode}: stderr:\n{stderr}");
     assert!(stderr.contains("Embedding.Hello.Down"), "{mode}: no z42 frames in:\n{stderr}");
     assert!(stderr.contains("Embedding.Hello.DeepMain"), "{mode}: entry frame missing in:\n{stderr}");

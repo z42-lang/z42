@@ -1,0 +1,8 @@
+namespace Fp.Ext;
+using Fp.Base;
+using Std;
+
+// Leaf 自己**不声明** Mark/Label —— 两者都是从 fp.base 继承来的。
+public class Leaf : Tagged {
+    public int Own;
+}

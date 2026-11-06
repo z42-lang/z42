@@ -30,42 +30,59 @@ pub fn type_properties(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinErro
             accumulate_property(ctx, &simple, &q, &mut props);
         }
     }
-    let subst = member_subst(ty);
+    let scopes = MemberScopes::new(ctx, ty, &td);
+    let mut roots = ProjectionRoots::new(ctx);
     let mut out = Vec::with_capacity(props.len());
     for p in &props {
-        let type_tag = p
-            .getter_type
-            .as_deref()
-            .or(p.setter_type.as_deref())
-            .unwrap_or("?");
-        let getter_q = match &p.getter_qualified {
-            Some(q) => Value::Str(q.clone().into()),
-            None => Value::Null,
-        };
-        let setter_q = match &p.setter_qualified {
-            Some(q) => Value::Str(q.clone().into()),
-            None => Value::Null,
-        };
-        let projected = p.getter_qualified.as_ref().or(p.setter_qualified.as_ref())
-            .and_then(|key| subst.as_ref().filter(|subst| subst.applies_to(key)))
-            .and_then(|subst| projected_member_type(ctx, type_tag, subst, &[]));
-        let property_type = projected.unwrap_or_else(|| make_type_from_name(ctx, type_tag));
-        out.push(alloc_named(
-            ctx,
-            STD_REFLECTION_PROPERTYINFO,
-            &[
-                ("Name", Value::Str(p.name.clone().into())),
-                ("PropertyType", property_type),
-                ("CanRead", Value::Bool(p.getter_type.is_some())),
-                ("CanWrite", Value::Bool(p.setter_type.is_some())),
-                ("CanReadPublicInstance", Value::Bool(p.getter_public_instance)),
-                ("CanWritePublicInstance", Value::Bool(p.setter_public_instance)),
-                ("__getterQualified", getter_q),
-                ("__setterQualified", setter_q),
-            ],
-        ).map_err(BuiltinError::Legacy)?);
+        let subst = p.getter_qualified.as_deref().or(p.setter_qualified.as_deref())
+            .and_then(|key| scopes.for_method(key));
+        let info = alloc_property_info(ctx, &td.name, p, subst).map_err(BuiltinError::Legacy)?;
+        out.push(if scopes.has_inherited() { roots.pin(info) } else { info });
     }
     Ok(ctx.heap().alloc_array(out))
+}
+
+/// Materialise one `PropertyInfo` for property `p` declared on `class`.
+/// Shared by `__type_properties` (GetProperties) and `__propertyof`
+/// (add-field-property-reference) so both stamp identical fields —
+/// including the `__qualified` identity (`<class>.<prop>`) that value
+/// equality (`PropertyInfo.==`) is defined on.
+///
+/// `subst` carries the accessor's declaring type arguments as seen from the
+/// queried Type. `__propertyof` references the definition and passes `None`.
+pub(super) fn alloc_property_info(
+    ctx: &VmContext, class: &str, p: &PropAccum, subst: Option<&MemberSubst>,
+) -> Result<Value> {
+    let type_tag = p
+        .getter_type
+        .as_deref()
+        .or(p.setter_type.as_deref())
+        .unwrap_or("?");
+    let getter_q = match &p.getter_qualified {
+        Some(q) => Value::Str(q.clone().into()),
+        None => Value::Null,
+    };
+    let setter_q = match &p.setter_qualified {
+        Some(q) => Value::Str(q.clone().into()),
+        None => Value::Null,
+    };
+    let projected = subst.and_then(|subst| projected_member_type(ctx, type_tag, subst, &[]));
+    let property_type = projected.unwrap_or_else(|| make_type_from_name(ctx, type_tag));
+    alloc_named(
+        ctx,
+        STD_REFLECTION_PROPERTYINFO,
+        &[
+            ("Name", Value::Str(p.name.clone().into())),
+            ("PropertyType", property_type),
+            ("CanRead", Value::Bool(p.getter_type.is_some())),
+            ("CanWrite", Value::Bool(p.setter_type.is_some())),
+            ("CanReadPublicInstance", Value::Bool(p.getter_public_instance)),
+            ("CanWritePublicInstance", Value::Bool(p.setter_public_instance)),
+            ("__getterQualified", getter_q),
+            ("__setterQualified", setter_q),
+            ("__qualified", Value::Str(format!("{class}.{}", p.name).into())),
+        ],
+    )
 }
 
 /// Accumulator for merging a property's getter + setter into one PropertyInfo.
@@ -154,8 +171,79 @@ pub(super) fn upsert_prop<'a>(props: &'a mut Vec<PropAccum>, name: &str) -> &'a 
 pub mod typed {
     use super::*;
 
-    #[builtin(name = "__type_properties")]
+    #[builtin(name = "__type_properties", reenters)]
     pub fn properties_of(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
         type_properties(ctx, ty)
     }
+
+    #[builtin(name = "__propertyof")]
+    pub fn property_of(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
+        propertyof(ctx, qualified)
+    }
+}
+
+/// `__propertyof("<declaring FQN>.<Prop>") -> Std.Reflection.PropertyInfo`
+/// (add-field-property-reference, sibling of `__methodof` / `__fieldof`).
+///
+/// The compiler resolves the property's declaring class at bind time; here we
+/// re-derive the PropertyInfo exactly the way `GetProperties()` would on that
+/// class: same vtable + own_methods scan, same accessor arity validation
+/// (a `get_X(args)` regular method doesn't count), getter + setter merged.
+/// A miss (no class, or no accessor pair for that name) is a compiler bug —
+/// loud `Internal`, never a half-populated object.
+pub fn propertyof(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
+    let qualified = qualified.to_string();
+    let (class, prop) = match qualified.rsplit_once('.') {
+        Some((c, p)) => (c, p),
+        None => (qualified.as_str(), ""),
+    };
+    let td = ctx
+        .module()
+        .and_then(|m| m.type_registry.get(class).cloned())
+        .or_else(|| ctx.try_lookup_type(class));
+    let td = match td {
+        Some(t) => t,
+        None => {
+            return Err(BuiltinError::Internal(format!(
+                "__propertyof: no type named `{class}` — the compiler emitted a property \
+                 reference that does not resolve (this is a z42c bug, not a source error)"
+            )));
+        }
+    };
+    // Same scan + dedup + accumulation as `type_properties`, filtered to this
+    // one property's accessors (`get_<prop>` / `set_<prop>`).
+    let mut props: Vec<PropAccum> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for (simple, qualified) in &td.vtable {
+        if is_accessor_of(simple, prop) && seen.insert(qualified.clone()) {
+            accumulate_property(ctx, simple, qualified, &mut props);
+        }
+    }
+    for qualified in td.own_methods() {
+        let q = qualified.to_string();
+        if seen.insert(q.clone()) {
+            let simple = simple_method_name(&q).to_string();
+            if is_accessor_of(&simple, prop) {
+                accumulate_property(ctx, &simple, &q, &mut props);
+            }
+        }
+    }
+    if props.is_empty() {
+        return Err(BuiltinError::Internal(format!(
+            "__propertyof: no accessor pair named `{prop}` on `{class}` — the compiler \
+             emitted a property reference that does not resolve (this is a z42c bug, not a \
+             source error)"
+        )));
+    }
+    // One property name ⇒ at most one accumulator (upsert by name). No type
+    // substitution: propertyof references the definition (no type arguments).
+    alloc_property_info(ctx, &td.name, &props[0], None).map_err(BuiltinError::Legacy)
+}
+
+/// `simple` is the `get_<X>` / `set_<X>` accessor of property `prop`?
+fn is_accessor_of(simple: &str, prop: &str) -> bool {
+    simple
+        .strip_prefix("get_")
+        .or_else(|| simple.strip_prefix("set_"))
+        .is_some_and(|n| n == prop)
 }

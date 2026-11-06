@@ -132,6 +132,7 @@ fn main() {
             let out = PathBuf::from(&out_dir).join("embedding_hello.zbc");
             if z42c_emit_zbc(vm.as_ref().unwrap(), &driver, &home, &emb_src, &out) {
                 println!("cargo:rustc-cfg=z42_have_embedding_hello");
+                println!("cargo:rustc-env=Z42_EMBEDDING_TEST_LIBS={}", home.display());
             }
         }
     }

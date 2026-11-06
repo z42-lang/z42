@@ -24,6 +24,37 @@ public class FieldInfo : MemberInfo {
     /// 声明为 private。`protected` 字段两者皆 false（镜像 C#）。
     public bool IsPrivate;
 
+    // ── 值相等 ────────────────────────────────────────────────────────────────
+    // 与 MethodInfo 同款（add-field-property-reference 把 fieldof 并进 member-of 家族，
+    // 相等语义两边刻意一致）：身份判据是 __qualified（`<声明类>.<字段名>`，绑定期已定）。
+    // 判空必须用 Object.ReferenceEquals：写 `a == null` 会递归派发回本运算符（栈溢出）。
+    // 不驻留：`ReferenceEquals(fieldof(X.F), fieldof(X.F))` 仍为假。
+    /// 按 `__qualified`（声明类全名 + 字段名）判断两个 `FieldInfo` 是否指向同一字段。
+    public static bool operator ==(FieldInfo a, FieldInfo b) {
+        bool an = Object.ReferenceEquals(a, null);
+        bool bn = Object.ReferenceEquals(b, null);
+        if (an || bn) { return an && bn; }
+        return a.__qualified == b.__qualified;
+    }
+
+    /// 不等运算符，等价于 `!(a == b)`。
+    public static bool operator !=(FieldInfo a, FieldInfo b) {
+        bool an = Object.ReferenceEquals(a, null);
+        bool bn = Object.ReferenceEquals(b, null);
+        if (an || bn) { return !(an && bn); }
+        return a.__qualified != b.__qualified;
+    }
+
+    /// 值相等：`other` 为 `FieldInfo` 且 `__qualified` 相同才为真（与 `==` 一致）。
+    public override bool Equals(object other) {
+        FieldInfo f = other as FieldInfo;
+        if (Object.ReferenceEquals(f, null)) { return false; }
+        return this.__qualified == f.__qualified;
+    }
+
+    /// 哈希码取自 `__qualified`，与 Equals 的判据一致。
+    public override int GetHashCode() { return this.__qualified.GetHashCode(); }
+
     // ── 自定义 attribute ─────────────────────────────────────────────────────
 
     /// 字段的全限定名（VM 写入，形如 `<Class>.<Field>`），用于解析本字段的 attribute 工厂。

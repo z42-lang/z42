@@ -18,6 +18,15 @@ int _bundleExeDeps(BundleSeed seed, PathClosureOut closure, ProjectManifest pm, 
     string[] frameworkDirs = _extLibDirs();
     StrMap ownZbc = _ownLooseZbc(pm, distDir);
     StrMap copiedZbc = new StrMap();
+    BundleCopies copies = new BundleCopies(distDir, pm.Project.Name, ownZbc);
+    copies.Keep(pm.Project.Name + ".zpkg");
+    copies.Keep(pm.Project.Name + ".zsym");
+    int entry = 0;
+    while (entry < pm.ExeCount) {
+        copies.Keep(pm.Exes[entry].Name + ".zpkg");
+        copies.Keep(pm.Exes[entry].Name + ".zsym");
+        entry = entry + 1;
+    }
     StrMap memberDomains = closure == null ? null : closure.BundleDomains;
     int i = 0;
     while (i < seed.N) {
@@ -43,8 +52,9 @@ int _bundleExeDeps(BundleSeed seed, PathClosureOut closure, ProjectManifest pm, 
         if (item.Deploy != "copy" && _inDirs(frameworkDirs, dir)) { continue; }
         if (item.SdkSkip && _isCompilerDomainDir(dir) && !_bundleMemberDir(tier, libsDirs, dir)) { continue; }
         string candidate = Path.Join(dir, file);
-        ZpkgInfo info = ZpkgReader.Open(File.ReadAllBytes(candidate), candidate);
-        int rc = _copyExeDependency(item.Name, dir, distDir, info, ownZbc, copiedZbc);
+        byte[] bytes = File.ReadAllBytes(candidate);
+        ZpkgInfo info = ZpkgReader.Open(bytes, candidate);
+        int rc = _planExeDependency(item.Name, dir, distDir, info, bytes, ownZbc, copiedZbc, copies);
         if (rc != ExitCode.Ok) { return rc; }
         if (info != null) {
             BundleDomain domain = item.Domain;
@@ -57,6 +67,7 @@ int _bundleExeDeps(BundleSeed seed, PathClosureOut closure, ProjectManifest pm, 
             }
         }
     }
+    copies.Apply();
     return ExitCode.Ok;
 }
 
@@ -75,23 +86,26 @@ string _bundleFindDir(BundleDomain domain, string[] dirs, int count, string file
     return _firstDirHaving(dirs, count, file);
 }
 
-int _copyExeDependency(string name, string dir, string distDir, ZpkgInfo info, StrMap ownZbc, StrMap copiedZbc) {
+int _planExeDependency(string name, string dir, string distDir, ZpkgInfo info, byte[] bytes,
+                       StrMap ownZbc, StrMap copiedZbc, BundleCopies copies) {
     string file = name + ".zpkg";
     string source = Path.Join(dir, file);
-    string target = Path.Join(distDir, file);
-    if (source == target) { return ExitCode.Ok; }
+    string symbols = name + ".zsym";
+    if (_samePath(dir, distDir)) {
+        copies.Keep(file);
+        copies.Keep(symbols);
+        if (info != null && !info.Packed) {
+            foreach (var rel in ZpkgReader.ReadIndexedZbcRels(info)) { copies.Keep(rel); }
+        }
+        return ExitCode.Ok;
+    }
     if (info != null && !info.Packed) {
-        int rc = _bundleLooseZbc(name, dir, distDir, ZpkgReader.ReadIndexedZbcRels(info), ownZbc, copiedZbc);
+        int rc = _bundleLooseZbc(name, dir, distDir, ZpkgReader.ReadIndexedZbcRels(info), ownZbc, copiedZbc, copies);
         if (rc != ExitCode.Ok) { return rc; }
     }
-    if (File.Exists(target)) { File.Delete(target); }
-    File.Copy(source, target);
-    string symbols = Path.Join(dir, name + ".zsym");
-    if (File.Exists(symbols)) {
-        string targetSymbols = Path.Join(distDir, name + ".zsym");
-        if (File.Exists(targetSymbols)) { File.Delete(targetSymbols); }
-        File.Copy(symbols, targetSymbols);
-    }
+    copies.Add(file, source, bytes);
+    string symSource = Path.Join(dir, symbols);
+    if (File.Exists(symSource)) { copies.Add(symbols, symSource, File.ReadAllBytes(symSource)); }
     return ExitCode.Ok;
 }
 
@@ -332,7 +346,7 @@ StrMap _ownLooseZbc(ProjectManifest pm, string distDir) {
 
 // 把 indexed 依赖 `dep` 的散装 zbc 从 fromDir 拷到 distDir（保持相对路径）。与本包自己的 zbc、或本轮另一个
 // 依赖的 zbc 撞名 ⇒ 报错（同一路径只能有一份，加载器按路径找）。
-int _bundleLooseZbc(string dep, string fromDir, string distDir, string[] rels, StrMap ownZbc, StrMap copiedZbc) {
+int _bundleLooseZbc(string dep, string fromDir, string distDir, string[] rels, StrMap ownZbc, StrMap copiedZbc, BundleCopies copies) {
     int r = 0;
     while (r < rels.Length) {
         string rel = rels[r];
@@ -346,17 +360,17 @@ int _bundleLooseZbc(string dep, string fromDir, string distDir, string[] rels, S
                 + ". Rename one of the source files, or build `" + dep + "` packed (`pack = true` in its [project]).");
             return ExitCode.BuildError;
         }
+        if (!_bundlePayloadRel(rel) || !rel.EndsWith(".zbc")) {
+            ConsoleError.WriteLine("z42c build: unsafe indexed dependency payload path: " + rel);
+            return ExitCode.BuildError;
+        }
         string src = Path.Join(fromDir, rel);
-        string dst = Path.Join(distDir, rel);
         if (!File.Exists(src)) {
             ConsoleError.WriteLine("z42c build: indexed dependency `" + dep + "` is missing its loose file `" + src
                 + "` (its dist is incomplete — rebuild it)");
             return ExitCode.BuildError;
         }
-        string parent = Path.GetDirectoryName(dst);
-        if (parent.Length > 0) { Directory.Create(parent); }
-        if (File.Exists(dst)) { File.Delete(dst); }
-        File.Copy(src, dst);
+        copies.Add(rel, src, File.ReadAllBytes(src));
         copiedZbc.Put(rel, dep);
     }
     return 0;

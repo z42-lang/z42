@@ -44,6 +44,11 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // bind time and lowered to `__methodof("<declaring FQN>.<RegKey>")`, so the name never
     // appears in stdlib source — the same shape as `__box_prim`/`__box_struct`.
     ("__methodof", "compiler-emitted: add-method-reference"),
+    // Emitted by the compiler for `fieldof(Type.Field)` / `propertyof(Type.Prop)`. The
+    // member is resolved at bind time and lowered to `__fieldof("<declaring FQN>.<Name>")`
+    // / `__propertyof("<declaring FQN>.<Name>")` — same shape as `__methodof`.
+    ("__fieldof",   "compiler-emitted: add-field-property-reference"),
+    ("__propertyof","compiler-emitted: add-field-property-reference"),
     // Emitted by the compiler for a **class-level** `typeof(T)` — lowered to
     // `__class_type_arg(this, <classParamIndex>)`, reading the receiver's per-instance
     // `type_args`. Same shape as `__box_prim`/`__methodof`: the name never appears in stdlib

@@ -33,7 +33,7 @@ pub(crate) trait ProgramArgs: Send + Sync {
 }
 
 pub(crate) struct State {
-    slots: super::resource_registry::ResourceRegistry<FileHandleSlot>,
+    slots: crate::corelib::resource_registry::ResourceRegistry<FileHandleSlot>,
     args: Arc<dyn ProgramArgs>,
 }
 
@@ -218,54 +218,10 @@ fn open_file(ctx: &crate::vm_context::VmContext, slot: i64) -> Result<Arc<std::f
         .ok_or_else(|| BuiltinError::object_disposed(None, "Cannot access a closed file."))
 }
 
-/// .NET `Stream.Read` / `Write` argument checks against a buffer of `len` bytes.
-pub(crate) fn check_buffer_range(offset: i64, count: i64, len: usize) -> Result<(usize, usize), BuiltinError> {
-    if offset < 0 {
-        return Err(BuiltinError::ArgumentOutOfRange("Non-negative number required. (Parameter 'offset')".into()));
-    }
-    if count < 0 {
-        return Err(BuiltinError::ArgumentOutOfRange("Non-negative number required. (Parameter 'count')".into()));
-    }
-    let (off, n) = (offset as usize, count as usize);
-    if off.checked_add(n).is_none_or(|end| end > len) {
-        return Err(BuiltinError::Argument(
-            "Offset and length were out of bounds for the array or count is greater than the number of \
-             elements from index to the end of the source collection.".into()));
-    }
-    Ok((off, n))
-}
-
-pub(crate) fn byte_array(v: &crate::object::Value, param: &str) -> Result<crate::object::ArrRef, BuiltinError> {
-    match v {
-        crate::object::Value::Array(rc) => Ok(*rc),
-        crate::object::Value::Null => Err(BuiltinError::ArgumentNull(format!("Value cannot be null. (Parameter '{param}')"))),
-        other => Err(BuiltinError::InvalidCast(format!(
-            "argument `{param}` expects a byte[], got {}", crate::object::value_kind_name(other)))),
-    }
-}
-
-/// `buf[off..off + n]` copied out (packed `byte[]`: one atomic chunked copy).
-pub(crate) fn read_byte_range(arr: &crate::object::ArrayObj, off: usize, n: usize) -> Result<Vec<u8>, BuiltinError> {
-    if let Some(b) = arr.byte_range(off, n) { return Ok(b); }
-    (off..off + n).map(|i| match arr.get_boxed(i) {
-        crate::object::Value::I64(b) if (0..=255).contains(&b) => Ok(b as u8),
-        other => Err(BuiltinError::InvalidCast(format!(
-            "buffer element {i} is not a byte: {}", crate::object::value_kind_name(&other)))),
-    }).collect()
-}
-
-/// Store `bytes` into `buf` from `off` on.
-pub(crate) fn write_byte_range(arr: &crate::object::ArrayObj, off: usize, bytes: &[u8]) {
-    if !arr.write_byte_range(off, bytes) {
-        for (i, b) in bytes.iter().enumerate() {
-            arr.set_boxed(off + i, crate::object::Value::I64(*b as i64));
-        }
-    }
-}
-
 #[z42_macros::builtins]
 pub mod typed {
-    use super::{check_buffer_range, check_path, fs_error, on_vfs, open_file, two_path_error, vfs_error, FileHandleSlot, PathRole};
+    use crate::corelib::io::buffer::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
+    use super::{check_path, fs_error, on_vfs, open_file, two_path_error, vfs_error, FileHandleSlot, PathRole};
     use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
     use crate::object::Value;
     use crate::vm_context::VmContext;
@@ -495,7 +451,7 @@ pub mod typed {
     /// `byte[]` after unparking.
     #[builtin(name = "__file_read")]
     pub fn file_read(ctx: &VmContext, slot: i64, buffer: Value, offset: i64, count: i64) -> Result<Then<i64>, BuiltinError> {
-        let arr = super::byte_array(&buffer, "buffer")?;
+        let arr = byte_array(&buffer, "buffer")?;
         let (off, n) = check_buffer_range(offset, count, arr.borrow().len())?;
         let file = open_file(ctx, slot)?;
         let read = if n == 0 {
@@ -509,7 +465,7 @@ pub mod typed {
             })
         };
         Ok(read.then(move |_ctx: &VmContext, bytes: Vec<u8>| {
-            super::write_byte_range(&arr.borrow(), off, &bytes);
+            write_byte_range(&arr.borrow(), off, &bytes);
             Ok(bytes.len() as i64)
         }))
     }
@@ -517,11 +473,11 @@ pub mod typed {
     /// `__file_write(slot, buf, offset, count)` — the range is copied out, written parked.
     #[builtin(name = "__file_write")]
     pub fn file_write(ctx: &VmContext, slot: i64, buffer: &Value, offset: i64, count: i64) -> Result<Blocking<()>, BuiltinError> {
-        let arr = super::byte_array(buffer, "buffer")?;
+        let arr = byte_array(buffer, "buffer")?;
         let bytes = {
             let a = arr.borrow();
             let (off, n) = check_buffer_range(offset, count, a.len())?;
-            super::read_byte_range(&a, off, n)?
+            read_byte_range(&a, off, n)?
         };
         let file = open_file(ctx, slot)?;
         if bytes.is_empty() {

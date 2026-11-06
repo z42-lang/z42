@@ -1,6 +1,6 @@
 // FileStream 的 native 语义层（slot-based 文件句柄原语）。FileStream 应用层（Stream 状态机）
 // 留 z42.io，其 __file_* 原语上移 core（原为 FileStream 内 private static extern，抽出后
-// public 供 z42.io 调用）。命名空间保持 Std.IO 不变。native 实现镜像 src/runtime/src/corelib/fs.rs。
+// public 供 z42.io 调用）。命名空间保持 Std.IO 不变。native 实现镜像 src/runtime/src/corelib/io/fs.rs。
 namespace Std.IO;
 
 /// 文件句柄的 native 原语，供 z42.io 的 `FileStream` 调用。

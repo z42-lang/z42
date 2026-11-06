@@ -18,30 +18,38 @@ pub fn type_fields(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
         Some(t) => t,
         None => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
-    // Declared fields use the exact arguments of the constructed Type. An
-    // instantiation descriptor can supply specialized tags for inherited fields.
-    let subst = member_subst(ty);
-    let subst = subst.as_ref();
+    let scopes = MemberScopes::new(ctx, ty, &td);
     let inst = instantiation_desc(ctx, ty);
-    let own_fields = subst.map(|_| {
-        td.own_fields().iter().map(|field| field.name.as_ref()).collect::<HashSet<&str>>()
-    });
-    let field_type = |i: usize, f: &crate::object::FieldSlot| {
-        if let Some(subst) = subst {
-            if own_fields.as_ref().is_some_and(|names| names.contains(f.name.as_ref())) {
-                if let Some(projected) = projected_member_type(ctx, &f.type_tag, subst, &[]) {
-                    return projected;
+    // Field layout is base-first. Use declaration tags for exact substitution,
+    // and keep the existing specialized layout fallback for legacy packages.
+    let mut field_scopes = Vec::new();
+    for scope in scopes.iter().rev() {
+        for declared in scope.definition.own_fields() {
+            if let Some(&index) = td.field_index.get(declared.name.as_ref()) {
+                if field_scopes.is_empty() {
+                    field_scopes.resize(td.fields.len(), None);
                 }
+                if field_scopes[index].is_none() {
+                    field_scopes[index] = Some((declared, scope));
+                }
+            }
+        }
+    }
+    let field_type = |i: usize, f: &crate::object::FieldSlot| {
+        if let Some(Some((declared, scope))) = field_scopes.get(i) {
+            if let Some(projected) = projected_member_type(ctx, &declared.type_tag, scope, &[]) {
+                return projected;
             }
         }
         if let Some(g) = inst.as_ref().and_then(|d| d.fields.get(i)).filter(|g| g.name == f.name) {
             return make_type_from_name(ctx, &g.type_tag);
         }
-        match subst {
+        match scopes.leaf().filter(|_| field_scopes.get(i).is_none_or(Option::is_none)) {
             Some(subst) => inherited_member_type(ctx, &f.type_tag, subst, &[]),
             None => make_type_from_name(ctx, &f.type_tag),
         }
     };
+    let mut roots = ProjectionRoots::new(ctx);
     let mut out = Vec::with_capacity(td.fields.len() + td.static_fields().len());
     // Instance fields (already base-first — cross-zpkg fixup merges inherited
     // instance fields into `td.fields`; IsStatic = false). Auto-property backing
@@ -52,7 +60,9 @@ pub fn type_fields(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
         if is_autoprop_backing(&f.name) {
             continue;
         }
-        out.push(build_field_info(ctx, &td.name, &f.name, field_type(i, f), false, f.visibility).map_err(BuiltinError::Legacy)?);
+        let info = build_field_info(ctx, &td.name, &f.name, field_type(i, f), false, f.visibility)
+            .map_err(BuiltinError::Legacy)?;
+        out.push(if scopes.has_inherited() { roots.pin(info) } else { info });
     }
     // add-reflection-inherited-static-fields: static fields are stored per
     // declaring class (no instance-field-style fixup), so walk the base chain
@@ -68,10 +78,12 @@ pub fn type_fields(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
                 continue;
             }
             if seen.insert(f.name.clone()) {
-                let projected = subst.filter(|_| Arc::ptr_eq(&c, &td))
+                let projected = scopes.for_class(&c)
                     .and_then(|subst| projected_member_type(ctx, &f.type_tag, subst, &[]));
                 let ftype = projected.unwrap_or_else(|| make_type_from_name(ctx, &f.type_tag));
-                out.push(build_field_info(ctx, &c.name, &f.name, ftype, true, f.visibility).map_err(BuiltinError::Legacy)?);
+                let info = build_field_info(ctx, &c.name, &f.name, ftype, true, f.visibility)
+                    .map_err(BuiltinError::Legacy)?;
+                out.push(if scopes.has_inherited() { roots.pin(info) } else { info });
             }
         }
         cur = c.base_name.as_ref().and_then(|b| {
@@ -110,14 +122,80 @@ pub(super) fn build_field_info(
     )
 }
 
-/// 成员列举迁 builtin ABI v2(P1-8 批次 5):纯合成(FieldInfo / MethodInfo /
-/// ConstructorInfo / PropertyInfo 数组),不执行 z42 代码,不压轻帧。
+/// Field enumeration can resolve generic ancestors through the lazy loader.
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
 
-    #[builtin(name = "__type_fields")]
+    #[builtin(name = "__type_fields", reenters)]
     pub fn fields_of(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
         type_fields(ctx, ty)
     }
+
+    #[builtin(name = "__fieldof")]
+    pub fn field_of(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
+        fieldof(ctx, qualified)
+    }
+}
+
+/// `__fieldof("<declaring FQN>.<Field>") -> Std.Reflection.FieldInfo`
+/// (add-field-property-reference, the field/property sibling of `__methodof`).
+///
+/// The compiler resolves the member **entirely at bind time** (most-derived
+/// declaration wins, mirroring how field access resolves) and emits that one
+/// name, so this builtin does no lookup policy: resolve the class, find the
+/// field, materialise the reflection object. Auto-property backing fields
+/// (`__prop_*`) are skipped exactly like `GetFields()`.
+///
+/// Like `__methodof`, a miss here is a **compiler bug, not user error** — loud
+/// `Internal`, never a half-populated FieldInfo. The base-chain walk is
+/// belt-and-suspenders: the compiler already names the declaring class
+/// (inherited instance fields arrive in a derived class's `Fields` map as
+/// flattened copies), so the walk normally ends at the first class.
+pub fn fieldof(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
+    let qualified = qualified.to_string();
+    let (class, field) = match qualified.rsplit_once('.') {
+        Some((c, f)) => (c, f),
+        None => (qualified.as_str(), ""),
+    };
+    let td = ctx
+        .module()
+        .and_then(|m| m.type_registry.get(class).cloned())
+        .or_else(|| ctx.try_lookup_type(class));
+    let td = match td {
+        Some(t) => t,
+        None => {
+            return Err(BuiltinError::Internal(format!(
+                "__fieldof: no type named `{class}` — the compiler emitted a field reference \
+                 that does not resolve (this is a z42c bug, not a source error)"
+            )));
+        }
+    };
+    // Instance fields first (already base-first within one td), then statics
+    // (stored per declaring class — same ordering as `type_fields`), then up
+    // the base chain. Dedup is implicit: first hit wins, most-derived first.
+    let mut cur = Some(td);
+    while let Some(c) = cur {
+        if let Some(f) = c.fields.iter().find(|f| f.name.as_ref() == field && !is_autoprop_backing(&f.name)) {
+            // No substitution: fieldof references the definition (no type
+            // arguments accepted), mirroring the shared field layout.
+            let ftype = make_type_from_name(ctx, &f.type_tag);
+            return build_field_info(ctx, &c.name, &f.name, ftype, false, f.visibility)
+                .map_err(BuiltinError::Legacy);
+        }
+        if let Some(f) = c.static_fields().iter().find(|f| &*f.name == field && !is_autoprop_backing(&f.name)) {
+            let ftype = make_type_from_name(ctx, &f.type_tag);
+            return build_field_info(ctx, &c.name, &f.name, ftype, true, f.visibility)
+                .map_err(BuiltinError::Legacy);
+        }
+        cur = c.base_name.as_ref().and_then(|b| {
+            ctx.module()
+                .and_then(|m| m.type_registry.get(b).cloned())
+                .or_else(|| ctx.try_lookup_type(b))
+        });
+    }
+    Err(BuiltinError::Internal(format!(
+        "__fieldof: no field named `{field}` on `{class}` or its base chain — the compiler \
+         emitted a field reference that does not resolve (this is a z42c bug, not a source error)"
+    )))
 }

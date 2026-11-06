@@ -130,6 +130,18 @@ public static class DiagnosticCodes {
     // 字段 / 属性读与下标不报（按名取无歧义）；已报过错的值（ErrorType）不再级联报本码。
     public static string UnknownReceiverType = "E0506";
 
+    // add-field-property-reference（fieldof/propertyof，methodof E0459-E0462 的同族）：
+    //
+    // 字段与属性**没有重载**，名字即身份 —— 于是 methodof 那套「E0459 不存在 / E0460 多义」
+    // 的两分法在这里塌缩成一条「找不到那个名字」（E0507/E0509），外加一条共享的形态错（E0508）。
+    // 诊断**必须列出该类型上可用的同族成员名**（同 E0459 的逃生口约定：用户不该只知道错了，
+    // 还要知道该写什么）。跨族点名（fieldof 点了属性名 / propertyof 点了字段名）与 const
+    // 字段（编译期折叠、无槽）都归「目标不存在」一族，但消息要给出**正确的关键字**而不是
+    // 一句空泛的「没有这个成员」。
+    public static string FieldOfTargetNotFound  = "E0507";  // `fieldof(T.F)` 的目标不是本包可见的实例/静态字段：不存在 / 其实是属性（应 `propertyof`）/ 是 `const`（编译期折叠、无运行期槽，GetFields 也从不列出它）。列出可用字段名。
+    public static string MemberOfMalformed      = "E0508";  // `fieldof(...)` / `propertyof(...)` 括号内形态错：缺 `Type.Member`、任何一段带类型实参（泛型类共享一份字段布局，区分无意义）、或成员后带参数列表（字段/属性无重载，名字即身份）。
+    public static string PropertyOfTargetNotFound = "E0509"; // `propertyof(T.P)` 的目标不是属性：不存在 / 其实是字段（应 `fieldof`）。列出可用属性名。
+
     // IrGen
     public static string UnsupportedSyntax   = "E0501";
 

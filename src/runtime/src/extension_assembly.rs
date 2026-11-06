@@ -12,7 +12,7 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     add(&mut defaults, application.clone());
     add(&mut defaults, corelib::process::State::default());
     add(&mut defaults, corelib::threading::State::default());
-    add(&mut defaults, corelib::fs::State::new(application));
+    add(&mut defaults, corelib::io::fs::State::new(application));
     #[cfg(feature = "net")]
     {
         add(&mut defaults, corelib::network::tcp::State::default());

@@ -177,4 +177,5 @@ factoryFuncName)` 两个字符串，运行时 `GetCustomAttributes` 调该函数
 - **IDE 的 Find All References / rename 跟随**：z42 目前没有 LSP 实现，`z42-lsp` 在
   roadmap 0.5.7。`methodof` 交付的是**编译期报错**（改名 / 删除 / 签名漂移 → 引用点变红），
   这一半是完整的；IDE 那一半依赖 LSP 里程碑。
-- `fieldof` / `propertyof`：同家族，等 `methodof` 稳定后按各自收益立案。
+- `fieldof` / `propertyof`：已按同族落地，见[字段与属性引用](fieldof.md)（属性访问器仍可按方法名
+  `methodof(X.get_P)` 指代，两者指代的对象类型不同：`MethodInfo` vs `PropertyInfo`）。

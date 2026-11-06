@@ -121,8 +121,8 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         let off_val = self.builder.ins().iconst(types::I32, self.func.linear_offset(self.block_idx as u32, self.instr_idx as u32) as i64);
         // A method-level generic site (jit-generic-call-sites): the site's type args are a
         // constant of the instruction — bake their address like `Typeof`'s type_args (the
-        // Module owns the instruction for as long as this code can run). `$mta:` forwarding
-        // sites never get here (`unsupported::forwards_caller_mta`).
+        // Module owns the instruction for as long as this code can run). The helper
+        // binds any forwarding markers against the caller activation.
         let inst = if method_type_args.is_empty() {
             self.builder.ins().call(self.hr_call, &[self.frame_val, self.ctx_val, d, mid_val, np, nl, ap, al, ic_val, off_val])
         } else {

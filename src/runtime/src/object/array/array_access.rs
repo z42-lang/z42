@@ -8,6 +8,39 @@ use crate::gc::Heap;
 
 // ── 批量拷贝 ──
 impl ArrayObj {
+    /// Clear a checked range. MIXED and FROZEN use the caller's ordinary stores.
+    pub(crate) fn try_clear_elems(&self, index: usize, length: usize) -> anyhow::Result<bool> {
+        let mode = self.mode();
+        let range = index..index + length;
+        if mode.is_prim() {
+            let cells = self.cells();
+            let width = self.width();
+            for i in range {
+                cells.store_bits(i * width, width, 0);
+            }
+            return Ok(true);
+        }
+        match mode {
+            ArrayMode::Ref => {
+                let cells = self.cells();
+                for i in range {
+                    ref_word::store_word_recorded(&cells, i * REF_STRIDE, 0);
+                }
+            }
+            ArrayMode::Struct => {
+                let (cells, layout) = self.struct_cells()
+                    .ok_or_else(|| anyhow::anyhow!("missing struct array layout"))?;
+                let zeros = vec![0; layout.size];
+                for i in range {
+                    struct_blob::write(&cells, i * layout.size, layout.size, &zeros, &[],
+                        &layout.ref_offsets, &mut |_| {})?;
+                }
+            }
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
     /// Materialise all elements as a `Vec<Value>` (reflection, conversions).
     pub fn to_boxed_vec(&self) -> Vec<Value> {
         (0..self.len()).map(|i| self.get_boxed(i)).collect()
@@ -194,6 +227,17 @@ impl ArrayObj {
             // long as the source's — same descriptor, same length, same layout.
             let dst = unsafe { std::slice::from_raw_parts_mut(a.elems_ptr(), n) };
             src.copy_out(0, dst);
+        })
+    }
+
+    /// Snapshot an in-bounds REF range without decoding and re-encoding its reference words.
+    pub(crate) fn snapshot_ref_range(&self, heap: &Heap, start: usize, len: usize) -> Value {
+        debug_assert_eq!(self.mode(), ArrayMode::Ref);
+        let src = self.cells();
+        heap.alloc_array_with(self.desc(), len, None, &mut |copy| {
+            // SAFETY: the new REF block is unpublished and sized for len reference words.
+            let dst = unsafe { std::slice::from_raw_parts_mut(copy.elems_ptr(), len * REF_STRIDE) };
+            src.copy_out(start * REF_STRIDE, dst);
         })
     }
 

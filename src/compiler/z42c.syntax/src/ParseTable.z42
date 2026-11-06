@@ -170,8 +170,8 @@ public static class ParseTable {
     // 挡掉 or-模式的 `|`（`x is 1 | 2` 里 `|` 必须留给模式引擎续 or-链），允许 `^` / `&` / 算术。
     public static int BetweenOrAndXor() { return ParseTable.LeftBp(TokenKind.Pipe) + 1; }
 
-    // 同步门用：需要遍历的 token kind 上界（`TokenKind.Methodof` = 155 是当前最大值）。
-    public static int MaxKind() { return 156; }
+    // 同步门用：需要遍历的 token kind 上界（`TokenKind.Propertyof` = 157 是当前最大值）。
+    public static int MaxKind() { return 158; }
 }
 
 // ── 语句位的**步骤**（顺序即数据）────────────────────────────────────────────

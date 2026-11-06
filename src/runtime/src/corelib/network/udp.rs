@@ -53,7 +53,7 @@ fn multicast_group(group: &str) -> Result<Ipv4Addr, BuiltinError> {
 pub mod typed {
     use super::*;
     use crate::vm::exec::call::builtin_abi::{Blocking, Then};
-    use crate::corelib::fs::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
+    use crate::corelib::io::buffer::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use crate::object::Value;
 
     /// `Bind(host, port) -> slot` (port 0 = the OS picks).
