@@ -79,7 +79,7 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
     // `try_native_method_call`) remain the hot-path fast lane; the two
     // `exec_function_from_*regs` variants are only reached from those hooked paths
     // (cold callees only), so this name-based backstop completes the coverage.
-    if let Some(outcome) = try_native_exec(ctx, func, args) {
+    if let Some(outcome) = try_native_exec(ctx, func, args, &[]) {
         return outcome;
     }
     let frame = Frame::new(ctx, args, func.max_reg);
@@ -110,9 +110,7 @@ pub(super) fn has_forwarded_mta(mta: &[String]) -> bool {
 /// `typeof(T)`/`new T()`/`default(T)` via the M1 `frame.method_type_args` slot —
 /// identical to a direct `Foo<T>()` call. An empty slice is behaviourally identical
 /// to `exec_function` (same JIT backstop + frame), so non-generic reflective invokes
-/// keep their exact prior path. With type args this stays on the interpreter (a generic
-/// body that reads them never compiles anyway — `jit::translate::unsupported`; one that
-/// does not read them would be safe to run native, but reflection is not a hot path).
+/// keep their prior path. The native entry receives the same bound type arguments.
 pub(crate) fn exec_function_with_type_args(
     ctx: &VmContext,
     module: &Module,
@@ -122,10 +120,8 @@ pub(crate) fn exec_function_with_type_args(
 ) -> Result<ExecOutcome> {
     // fix-callee-entry-safepoint-drops-args: safepoint moved into `exec_function_body` —
     // see `exec_function`.
-    if method_type_args.is_empty() {
-        if let Some(outcome) = try_native_exec(ctx, func, args) {
-            return outcome;
-        }
+    if let Some(outcome) = try_native_exec(ctx, func, args, method_type_args) {
+        return outcome;
     }
     let mut frame = Frame::new(ctx, args, func.max_reg);
     if !method_type_args.is_empty() {
@@ -143,16 +139,16 @@ pub(crate) fn exec_function_with_type_args(
 /// compiled hit it runs the native code and marshals the result into an
 /// `ExecOutcome`, mirroring `try_native_static_call`.
 #[cfg(feature = "jit")]
-pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) -> Option<Result<ExecOutcome>> {
+pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value], method_type_args: &[String]) -> Option<Result<ExecOutcome>> {
     let tier = ctx.tier()?;
     if args.iter().any(|a| matches!(a, Value::Ref { .. })) { return None; }
     tier.invoke(ctx, crate::vm::exec::engine::TierTarget::Existing(func),
-        crate::vm::exec::call::args::CallArgs::Values(args))
+        crate::vm::exec::call::args::CallArgs::Values(args), method_type_args)
 }
 
 #[cfg(not(feature = "jit"))]
 #[inline]
-pub(super) fn try_native_exec(_ctx: &VmContext, _func: &Function, _args: &[Value]) -> Option<Result<ExecOutcome>> {
+pub(super) fn try_native_exec(_ctx: &VmContext, _func: &Function, _args: &[Value], _method_type_args: &[String]) -> Option<Result<ExecOutcome>> {
     None
 }
 
@@ -180,6 +176,7 @@ pub(super) fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_
     if frame.back_edge_count != tier.osr_threshold { return None; }
     tier.osr(ctx, func, loop_header, crate::vm::exec::engine::OsrState {
         regs: &frame.regs, frame_id: frame.frame_id_if_taken(),
+        method_type_args: &frame.method_type_args,
         has_ref_writebacks: !frame.ref_writebacks.is_empty(),
     })
 }

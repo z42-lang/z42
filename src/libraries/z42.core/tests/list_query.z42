@@ -119,3 +119,48 @@ void test_find_on_strings() {
     Assert.Equal(2, xs.FindIndex((string s) => s == "cherry"));
     Assert.True(xs.Exists((string s) => s == "apple"));
 }
+
+[Test]
+void test_index_search_and_remove_handle_null_elements() {
+    var values = new List<string>(8);
+    values.Add(null);
+    values.Add("ok");
+    values.Add(null);
+    Assert.Equal(0, values.IndexOf(null));
+    Assert.Equal(1, values.IndexOf("ok"));
+    Assert.Equal(2, values.LastIndexOf(null));
+    Assert.True(values.Contains(null));
+    Assert.False(values.Contains("absent"));
+    Assert.True(values.Remove(null));
+    Assert.Equal("ok", values[0]);
+    Assert.Equal(1, values.IndexOf(null));
+    Assert.True(values.Remove(null));
+    Assert.Equal(-1, values.IndexOf(null));
+    Assert.False(values.Remove(null));
+}
+
+class SearchKey {
+    int code;
+    public SearchKey(int code) { this.code = code; }
+    override bool Equals(object other) {
+        if (other is SearchKey key) { return this.code == key.code; }
+        return false;
+    }
+}
+
+[Test]
+void test_index_search_preserves_custom_equality() {
+    var needle = new SearchKey(7);
+    var values = new List<SearchKey>();
+    values.Add(null);
+    values.Add(new SearchKey(7));
+    values.Add(new SearchKey(7));
+    Assert.Equal(1, values.IndexOf(needle));
+    Assert.Equal(2, values.LastIndexOf(needle));
+    Assert.True(values.Remove(needle));
+    Assert.Equal(1, values.IndexOf(needle));
+
+    SearchKey[] array = new SearchKey[] { null, new SearchKey(7), new SearchKey(7) };
+    Assert.Equal(1, Array.IndexOf<SearchKey>(array, needle));
+    Assert.Equal(2, Array.LastIndexOf<SearchKey>(array, needle));
+}
