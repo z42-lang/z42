@@ -25,13 +25,13 @@ use super::{ExecOutcome, Frame};
 #[cfg(feature = "jit")]
 fn try_native_method_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize,
-    receiver: &Value, args: &[u32],
+    receiver: &Value, args: &[u32], method_type_args: &[String],
 ) -> Option<Result<Option<Value>>> {
     let tier = ctx.tier()?;
     if matches!(receiver, Value::Ref { .. })
         || args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
     tier.invoke(ctx, crate::vm::exec::engine::TierTarget::Site(id),
-        crate::vm::exec::call::args::CallArgs::Receiver { receiver: receiver.clone(), regs: &frame.regs, indices: args })
+        crate::vm::exec::call::args::CallArgs::Receiver { receiver: receiver.clone(), regs: &frame.regs, indices: args }, method_type_args)
         .map(|result| result.map(|outcome| super::exec_call::native_result_to_dst(frame, dst, outcome)))
 }
 
@@ -39,7 +39,7 @@ fn try_native_method_call(
 #[inline]
 fn try_native_method_call(
     _ctx: &VmContext, _frame: &mut Frame, _dst: u32, _id: usize,
-    _receiver: &Value, _args: &[u32],
+    _receiver: &Value, _args: &[u32], _method_type_args: &[String],
 ) -> Option<Result<Option<Value>>> {
     None
 }
@@ -109,10 +109,8 @@ pub(crate) fn vcall(
 }
 
 /// Run `func` with `this` in reg 0. With a `FnId` (module-local and lazily loaded callees
-/// alike) it counts toward its tier-up and goes native once compiled (mixed-mode divert) —
-/// a generic call too: a callee that could read its `method_type_args` never compiles
-/// (`jit::translate::unsupported`'s invariant), so a compiled one does not need them in
-/// its frame. Otherwise, or while cold / untranslatable, interp (type args threaded).
+/// alike) it counts toward its tier-up and goes native once compiled (mixed-mode divert)
+/// with the same bound method type arguments used by the interpreter fallback.
 #[allow(clippy::too_many_arguments)]
 fn invoke(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32,
@@ -133,7 +131,7 @@ fn invoke(
         }
     }
     if let Some(id) = id {
-        if let Some(res) = try_native_method_call(ctx, frame, dst, id, this, args) {
+        if let Some(res) = try_native_method_call(ctx, frame, dst, id, this, args, method_type_args) {
             return res;
         }
     }
