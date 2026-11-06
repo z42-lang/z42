@@ -450,3 +450,43 @@ void test_e0500_directive_attrs_exempt() {
     Assert.Equal(false, teHas(d, "E0500"));
     Assert.Equal(false, teHas(teDiags("[Test] void t() { }"), "E0500"));
 }
+
+// ── [Case]（data-driven test，parameterize-tests）─────────────────────────────
+
+// R3 放宽：[Test] + [Case] ⇒ 允许形参（无 Case 的零参规则不变，别处已钉）。
+[Test]
+void test_case_allows_params() {
+    DiagnosticBag d = teDiags("[Test]\n[Case(1, 2)]\nvoid t(int a, int b) { }");
+    Assert.False(teHas(d, "E0911"));
+}
+
+// Case 只能与 [Test] 同贴（贴 [Benchmark] 上报该 kind 的签名码——Benchmark 是 E0912）。
+[Test]
+void test_case_on_benchmark_rejected() {
+    DiagnosticBag d = teDiags("[Benchmark]\n[Case(1)]\nvoid b(Bencher x) { }");
+    Assert.True(teHas(d, "E0912"));
+    Assert.True(teMsg(d, "E0912").Contains("Case"));
+}
+
+// 贴了 [Case] 的 [Test] 必须有形参。
+[Test]
+void test_case_requires_params() {
+    DiagnosticBag d = teDiags("[Test]\n[Case(1)]\nvoid t() { }");
+    Assert.True(teHas(d, "E0911"));
+    Assert.True(teMsg(d, "E0911").Contains("形参"));
+}
+
+// 每行套数 = 形参数（3 给 2）。
+[Test]
+void test_case_arity_mismatch() {
+    DiagnosticBag d = teDiags("[Test]\n[Case(1, 2, 3)]\nvoid t(int a, int b) { }");
+    Assert.True(teHas(d, "E0911"));
+    Assert.True(teMsg(d, "E0911").Contains("形参数"));
+}
+
+// 孤儿 [Case]（无 kind attr）→ E0914。
+[Test]
+void test_case_orphan() {
+    DiagnosticBag d = teDiags("[Case(1)]\nvoid t(int a) { }");
+    Assert.True(teHas(d, "E0914"));
+}
