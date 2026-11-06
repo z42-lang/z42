@@ -54,9 +54,16 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let inst = self.builder.ins().call(self.hr_default_of, &[self.frame_val, self.ctx_val, d, pi]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
-                // add-generic-methods: unreachable — jit_unsupported_reason routes any
-                // function containing these (method-generic body) to the interpreter
-                // before translation. Kept for match exhaustiveness.
+                Instruction::MethodTypeArg { dst, param_index } => {
+                    let dst = self.ri(*dst);
+                    let index = self.builder.ins().iconst(types::I32, i64::from(*param_index));
+                    self.builder.ins().call(self.hr_method_type_arg, &[self.frame_val, self.ctx_val, dst, index]);
+                }
+                Instruction::MethodDefault { dst, param_index } => {
+                    let dst = self.ri(*dst);
+                    let index = self.builder.ins().iconst(types::I32, i64::from(*param_index));
+                    self.builder.ins().call(self.hr_method_default, &[self.frame_val, dst, index]);
+                }
             _ => anyhow::bail!("tr_structs: unexpected opcode in category dispatch"),
         }
         Ok(())
