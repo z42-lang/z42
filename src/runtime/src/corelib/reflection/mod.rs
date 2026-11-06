@@ -40,6 +40,7 @@ const STD_REFLECTION_PARAMINFO: &str = "Std.Reflection.ParameterInfo";
 const STD_REFLECTION_PROPERTYINFO: &str = "Std.Reflection.PropertyInfo";
 
 mod type_object;
+mod member_types;
 pub(crate) mod enums;
 pub(crate) mod type_query;
 pub(crate) mod fields;
@@ -55,6 +56,7 @@ pub(crate) mod accessors;
 pub(crate) mod module_load;
 
 pub use self::type_object::*;
+use self::member_types::*;
 pub use self::fields::*;
 pub use self::attributes::*;
 pub use self::methods::*;
