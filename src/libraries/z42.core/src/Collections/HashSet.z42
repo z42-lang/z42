@@ -98,8 +98,14 @@ public class HashSet<T> where T: IEquatable {
     }
 
     /// 清空集合，保留容量。
-    // 实现：换一组同容量的新数组（VM 原生零初始化）。
-    public void Clear() { this._alloc(this._hashes.Length); }
+    // 已重置的表复用存储；_used 包括仍需清理索引的 tombstone。
+    public void Clear() {
+        if (this._used == 0) {
+            this.Count = 0;
+        } else {
+            this._alloc(this._hashes.Length);
+        }
+    }
 
     /// 元素快照数组，按插入顺序。
     public T[] ToArray() {
