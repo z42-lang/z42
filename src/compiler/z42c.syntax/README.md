@@ -61,7 +61,7 @@
 | `src/DeclParser.z42` / `src/MemberParser.z42` | 顶层声明（class·struct·interface/enum/delegate/顶层 func/field）与类成员（method/ctor/property/类型位置参数 `Foo(int X)`/泛型形参与 where/前置 attribute/`partial`/用户转换运算符 `implicit`·`explicit operator`/事件合成）|
 | `src/TypeParser.z42` | 类型位置解析 |
 | `src/PatternParser.z42` | 模式子解析器 `_parsePattern`：名字形状分流；is 结构化前瞻 `_isPatternLead` |
-| `src/MethodOfParser.z42` | `methodof(...)` 括号内的签名语法解析 |
+| `src/MethodOfParser.z42` | member-of 家族括号内解析：`methodof(...)` 签名语法 + `fieldof`/`propertyof(...)` 的 `Type.Member`（`_parseDataMember`） |
 
 ### 其它
 | 文件 | 职责 |

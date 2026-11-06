@@ -1,0 +1,65 @@
+namespace Z42ArrayClearBench;
+
+using Std.Harness;
+using Std.Collections;
+
+[Record]
+public struct Entry(int Count, string Name) { }
+
+[Benchmark]
+void array_clear_small(Bencher b) {
+    int[] values = new int[4];
+    b.iter(() => {
+        for (int i = 0; i < 128; i++) {
+            values[2] = i + 1;
+            Array.Clear<int>(values, 0, values.Length);
+            Assert.Equal(0, values[2]);
+        }
+        BenchHelpers.blackBox(values);
+    });
+}
+
+[Benchmark]
+void array_clear_ints(Bencher b) {
+    int[] values = new int[16384];
+    b.iter(() => {
+        values[8192] = 8;
+        Array.Clear<int>(values, 0, values.Length);
+        Assert.Equal(0, values[8192]);
+        BenchHelpers.blackBox(values);
+    });
+}
+
+[Benchmark]
+void array_clear_refs(Bencher b) {
+    string[] values = new string[16384];
+    b.iter(() => {
+        values[8192] = "é";
+        Array.Clear<string>(values, 0, values.Length);
+        Assert.True(values[8192] == null);
+        BenchHelpers.blackBox(values);
+    });
+}
+
+[Benchmark]
+void array_clear_structs(Bencher b) {
+    Entry[] values = new Entry[16384];
+    b.iter(() => {
+        values[8192] = new Entry(8, "é");
+        Array.Clear<Entry>(values, 0, values.Length);
+        Assert.Equal(0, values[8192].Count);
+        Assert.True(values[8192].Name == null);
+        BenchHelpers.blackBox(values);
+    });
+}
+
+[Benchmark]
+void list_clear_reuse_refs(Bencher b) {
+    List<string> values = new List<string>(4096);
+    b.iter(() => {
+        for (int i = 0; i < 4096; i++) { values.Add("é"); }
+        values.Clear();
+        Assert.Equal(0, values.Count);
+        BenchHelpers.blackBox(values);
+    });
+}

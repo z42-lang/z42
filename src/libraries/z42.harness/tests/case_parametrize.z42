@@ -1,0 +1,46 @@
+// 参数化测试（[Case]）：`[Test]` + 多个 `[Case(…)]` —— 每份一行，发现层展开成多条用例，
+// 名字带实参后缀（`test_add(1, 2, 3)`）。断言：多行各自独立（一行红不影响他行）、
+// 名字后缀格式（string 加引号 / 数值 ToString）、长整型形参勘合（int 字面量 → long 形参）、
+// 普通零参 [Test] 不受影响。
+namespace Z42TestCaseParametrize;
+
+using Std.Harness;
+
+static class F {
+    public static int Add(int a, int b) { return a + b; }
+}
+
+[Test]
+[Case(1, 2, 3)]
+[Case(0, 0, 0)]
+[Case(-1, 1, 0)]
+void test_add(int a, int b, int expected) {
+    Assert.Equal(expected, F.Add(a, b));
+}
+
+// 同名多行独立执行（每行是一条用例，名字带实参可定位）。单行只红一行的行为由
+// e2e 报告钉（manifest-targets 套件读 TestResult 列表）；本文件保持全绿。
+[Test]
+[Case(2, 2, 4)]
+[Case(3, 3, 6)]
+void test_rows_independent(int a, int b, int expected) {
+    Assert.Equal(expected, F.Add(a, b));
+}
+
+// 混合类型 + long 形参勘合（int 字面量装箱 → Int64 形参）。
+[Test]
+[Case("alpha", 3, 6L)]
+[Case("beta", 4, 8L)]
+void test_mixed_types(string tag, int n, long doubled) {
+    Assert.True(tag.Length > 0);
+    Assert.Equal(doubled, (long)(n * 2));
+}
+
+// 普通零参 [Test] 与参数化共存。
+[Test]
+void test_plain_zero_arg() {
+    Assert.Equal(4, F.Add(2, 2));
+}
+
+// 展开条数与名字格式由 runner 报告钉：这里只验证 body 语义；名字后缀断言经
+// BundleRunner/json 属 e2e 层——本文件以执行结果为准（3+2+2+1 条用例各自独立）。

@@ -40,7 +40,7 @@ mod convert;
 mod call;
 mod array;
 #[cfg(target_pointer_width = "64")]
-mod array_length;
+mod array_layout;
 mod object;
 mod structs;
 mod term;

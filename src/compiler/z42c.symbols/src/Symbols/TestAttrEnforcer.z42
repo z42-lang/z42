@@ -85,10 +85,36 @@ internal sealed class TestAttrEnforcer {
             this._sc.Diags.Error(code,
                 use + " must return `void` (got: `" + md.RetType.Dump() + "`)", kind.Span);
         }
-        if (md.ParamCount != 0 && !(kind.Name == "Benchmark" && this._teIsBencherParam(md))) {
+        bool hasCase = this._teHasCase(ad);
+        if (md.ParamCount != 0 && !(kind.Name == "Benchmark" && this._teIsBencherParam(md))
+            && !(kind.Name == "Test" && hasCase)) {
             string want = " must take no parameters (got: ";
             if (kind.Name == "Benchmark") { want = " must take no parameters or a single `Bencher` (got: "; }
             this._sc.Diags.Error(code, use + want + md.ParamCount.ToString() + ")", kind.Span);
+        }
+        // [Case]（data-driven test）三条：只贴 [Test]；贴了就须有形参；每行套数 = 形参数。
+        // 套数按 attr 实参个数（params 展开前就是实参列表）——纯语法，不查类型；类型勘合在
+        // 运行期（runner 装箱勘合，不匹配的失败消息指向具体行）。
+        if (hasCase) {
+            if (kind.Name != "Test") {
+                this._sc.Diags.Error(code,
+                    "`[Case]` 只能与 `[Test]` 同贴（got: `[" + kind.Name + "]`）——数据行是测试的，"
+                        + "不是基准 / fixture 的", kind.Span);
+            } else if (md.ParamCount == 0) {
+                this._sc.Diags.Error(code,
+                    use + " 贴了 `[Case]` 就必须有形参（每行实参逐位对应形参）", kind.Span);
+            } else {
+                int a2 = 0;
+                while (a2 < ad.AttrCount) {
+                    Attr at2 = ad.Attrs[a2];
+                    if (at2.Name == "Case" && at2.ArgCount != md.ParamCount) {
+                        this._sc.Diags.Error(code,
+                            "`[Case]` 的实参数（" + at2.ArgCount.ToString() + "）须等于测试形参数（"
+                                + md.ParamCount.ToString() + "）——逐位对应", at2.Span);
+                    }
+                    a2 = a2 + 1;
+                }
+            }
         }
         if (md.TypeParams.Count != 0) {
             this._sc.Diags.Error(code, use + " cannot be applied to a generic method", kind.Span);
@@ -140,7 +166,7 @@ internal sealed class TestAttrEnforcer {
         int a = 0;
         while (a < ad.AttrCount) {
             string n = ad.Attrs[a].Name;
-            if (n == "Skip" || n == "Ignore") {
+            if (n == "Skip" || n == "Ignore" || n == "Case") {
                 this._sc.Diags.Error(DiagnosticCodes.SkipReasonMissing,
                     "`[" + n + "]` requires `[Test]` or `[Benchmark]` on the same declaration",
                     ad.Attrs[a].Span);
@@ -213,6 +239,16 @@ internal sealed class TestAttrEnforcer {
         if (!(pt is NamedType)) { return false; }
         string n = (pt as NamedType).Name;
         return n == "Bencher" || n == "Std.Harness.Bencher";
+    }
+
+    // 同一声明上是否贴了 `[Case]`（参数化数据行）。
+    private bool _teHasCase(AttributedDecl ad) {
+        int a = 0;
+        while (a < ad.AttrCount) {
+            if (ad.Attrs[a].Name == "Case") { return true; }
+            a = a + 1;
+        }
+        return false;
     }
 
     private string _teCode(string name) {

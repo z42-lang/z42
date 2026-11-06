@@ -256,6 +256,217 @@ public sealed class TypeOpTyper {
             return new BoundMethodOf(mx.OwnerName, ownerCt, chosenOwnerFq, chosenKey, chosen, resultT, mx.Span);
     }
 
+    // fieldof(Type.Field) / propertyof(Type.Prop) → Std.Reflection.FieldInfo / PropertyInfo
+    // （add-field-property-reference）。镜像 _bindMethodOfExpr，但**没有签名消歧**——
+    // 字段与属性无重载，名字即身份；歧义面只剩「名字解析到哪一份」。
+    //
+    // 🔴 **第一个同名符号即终点（own-wins）**：`_passInheritFields` 把基类实例字段展平进派生类
+    // Fields 表时已按 own-wins 去重，静态字段不展平——沿基链**派生优先**取第一个命中，与字段
+    // 访问解析（`derivedObj.F` 看到的那份）同一口径。命中后**不再**往基类找同名的另一份：
+    // 找了就会与访问语义分叉。命中符号的**族别**不符（fieldof 撞属性 / propertyof 撞字段）报
+    // E0507/E0509 并给出**正确的关键字**——这正是「写错族」而不是「不存在」。
+    //
+    // 跨包属性走**访问器回落**：TSIG 不带属性名字段，属性以 `get_X`/`set_X` 访问器方法过界
+    // （`BindStaticMember` 对静态属性的同一条约定）。本地类有 IsProp 的 FieldSymbol，导入类
+    // 只能在 Methods 里认访问器——运行期 `__propertyof` 正是按访问器派生 PropertyInfo 的，
+    // 两端同一口径。
+    [Suppress("style.fnLinesHard", "78 body lines；候选走查与声明类定位一体两面的判定，拆分见 code-organization.md")]
+    internal BoundExpr _bindFieldOfExpr(FieldOfExpr fx, TypeEnv env) {
+            // 结果类型用 **FQ 名**解析（同 methodof：无需 using、无需声明依赖）。
+            string rn = fx.IsProperty ? "Std.Reflection.PropertyInfo" : "Std.Reflection.FieldInfo";
+            Z42Type resultT = env.ResolveType(NamedType.Synth(rn, new TypeExpr[0], 0, fx.Span));
+            // 语法层已就缺 `.Member` / 带类型实参 / 带参数列表报过 E0508 —— 不再追加噪声。
+            if (fx.Member == "") { return new BoundError("memberof malformed", new Z42ErrorType(), fx.Span); }
+            string kw = fx.IsProperty ? "propertyof" : "fieldof";
+            Z42Type ownerT = env.ResolveType(new NamedType(fx.OwnerName, new TypeExpr[0], 0, fx.OwnerSpan));
+            if (!(ownerT is Z42ClassType)) {
+                this._tc._diags.Error(DiagnosticCodes.UndefinedType,
+                    kw + ": undefined type `" + fx.OwnerName + "`", fx.OwnerSpan);
+                return new BoundError("memberof owner unresolved", new Z42ErrorType(), fx.Span);
+            }
+            Z42ClassType ownerCt = ownerT as Z42ClassType;
+            this._tc._chkTypeRef(ownerT, env, fx.OwnerSpan);   // enforce-class-access：owner 类型引用
+
+            // ── 沿基链找第一个同名符号（派生优先 = own-wins，见抬头）─────────────────
+            FieldSymbol hit = null;
+            Z42ClassType hitAt = null;
+            Z42ClassType cur = ownerCt;
+            int hops = 0;
+            while (cur != null) {
+                FieldSymbol fs = cur.Fields.Get(fx.Member) as FieldSymbol;
+                if (fs != null) { hit = fs; hitAt = cur; break; }
+                if (!cur.HasBase) { break; }
+                cur = env.Symbols.BaseOf(cur);   // A5：走句柄
+                hops = SymbolTable.NextBaseHop(hops);
+            }
+            if (hit == null) {
+                // 跨包属性回落：导入类的 Fields 表只有 __prop_ 后备字段，属性身份在 Methods 里
+                //（get_/set_ 访问器，TSIG 展平同方法）。派生优先，第一个命中的类即运行期
+                // `__propertyof` 能解析出 PropertyInfo 的那份（其方法表已并继承访问器）。
+                if (fx.IsProperty) {
+                    Z42ClassType acc = TypeOpTyper._findAccessorProp(ownerCt, fx.Member, env);
+                    if (acc != null) {
+                        return new BoundFieldOf(fx.OwnerName, ownerCt, acc.Fqn(), fx.Member, null, true, resultT, fx.Span);
+                    }
+                }
+                string code = fx.IsProperty ? DiagnosticCodes.PropertyOfTargetNotFound : DiagnosticCodes.FieldOfTargetNotFound;
+                this._tc._diags.Error(code,
+                    kw + ": type `" + ownerCt.Fqn() + "` has no " + (fx.IsProperty ? "property" : "field")
+                    + " named `" + fx.Member + "`" + TypeOpTyper._availableMemberNames(ownerCt, env, fx.IsProperty), fx.MemberSpan);
+                return new BoundError("memberof target not found", new Z42ErrorType(), fx.Span);
+            }
+            // 跨族点名：给**正确的关键字**，而不是一句空泛的「不存在」。
+            if (hit.IsProp != fx.IsProperty) {
+                string other = fx.IsProperty ? "fieldof" : "propertyof";
+                string kind = fx.IsProperty ? "a field" : "a property";
+                string code = fx.IsProperty ? DiagnosticCodes.PropertyOfTargetNotFound : DiagnosticCodes.FieldOfTargetNotFound;
+                this._tc._diags.Error(code,
+                    kw + ": `" + fx.Member + "` on `" + ownerCt.Fqn() + "` is " + kind
+                    + " — write `" + other + "(" + fx.OwnerName + "." + fx.Member + ")` instead", fx.MemberSpan);
+                return new BoundError("memberof wrong kind", new Z42ErrorType(), fx.Span);
+            }
+            // const 字段编译期折叠、无槽（ClassDescBuilder 不进字段元数据）⇒ 运行期无从物化。
+            // 与 E0461「运算符指不了」同位：说清**为什么**，而非含糊的「不存在」。
+            if (!fx.IsProperty && hit.IsConst) {
+                this._tc._diags.Error(DiagnosticCodes.FieldOfTargetNotFound,
+                    "fieldof: `" + fx.Member + "` is a `const` field — consts are compile-time folded and have "
+                    + "no runtime slot, so there is no FieldInfo to reference (GetFields never lists it either); "
+                    + "reference the constant value directly instead", fx.MemberSpan);
+                return new BoundError("fieldof const", new Z42ErrorType(), fx.Span);
+            }
+
+            // ── 声明类定位：实例字段会被 TSIG 展平进派生类 Fields 表（导入类尤甚，那里的
+            // ContainingTypeName 记的是**被装载的类**、不是真声明者）——自有字段有序表
+            // OwnFieldNames 才是「本类声明了它」的权威信号（本地=MemberCollector 自有条目；
+            // 导入=TSIG own-only 导出）。不在自有表 ⇒ 沿基链找第一个自有声明；找不到退回
+            // 命中层 Fqn()（运行期 __fieldof 自会沿基链兜底存储，只是 attribute 解析在那
+            // 个退化形态下可能落空）。属性不走这条：OwnFieldNames 记的是 `__prop_X` 后备名、
+            // 不是源名 X，拿它判属性会误伤「基类有同名字段」的形态；本地属性恒由本类声明。
+            string declFq = hitAt.Fqn();
+            if (!fx.IsProperty && !hit.IsStatic && !TypeOpTyper._ownFieldHas(hitAt, hit.Name)) {
+                Z42ClassType up = hitAt;
+                int uhops = 0;
+                while (up != null) {
+                    if (TypeOpTyper._ownFieldHas(up, hit.Name)) { declFq = up.Fqn(); break; }
+                    if (!up.HasBase) { break; }
+                    up = env.Symbols.BaseOf(up);
+                    uhops = SymbolTable.NextBaseHop(uhops);
+                }
+            }
+            return new BoundFieldOf(fx.OwnerName, ownerCt, declFq, fx.Member, hit, fx.IsProperty, resultT, fx.Span);
+    }
+
+    // 类的自有实例字段表（OwnFieldNames，声明序）里是否声明了 `name`。静态不入此表
+    //（MemberCollector/ImportedSymbolLoader 同口径）——静态从不展平，无须它判。
+    private static bool _ownFieldHas(Z42ClassType ct, string name) {
+        int i = 0;
+        while (i < ct.OwnFieldCount) {
+            if (ct.OwnFieldNames[i] == name) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // 目标压根不存在时，列出该类型沿基链**同族**成员名（去重、排序、最多 12 个）——
+    // 与 methodof 的 _availableNames 同一张逃生口约定。字段族排除 const（fieldof 永远
+    // 指不了它，列出来只会引出第二个错误）与 `__prop_` 后备（不是源码名字）。属性族在
+    // 导入类上没有 IsProp 符号——回落到访问器方法名（get_/set_ 前缀，arity 与运行期
+    // accumulate_property 同口径），跨包诊断才有逃生口。
+    private static string _availableMemberNames(Z42ClassType ct, TypeEnv env, bool wantProp) {
+        string[] names = new string[32];
+        int n = 0;
+        Z42ClassType cur = ct;
+        int hops = 0;
+        while (cur != null) {
+            string[] keys = cur.Fields.Keys();
+            TypeOpTyper._sortStr(keys);
+            int i = 0;
+            while (i < keys.Length) {
+                FieldSymbol fs = cur.Fields.Get(keys[i]) as FieldSymbol;
+                if (fs != null && fs.IsProp == wantProp && !fs.IsConst
+                    && !TypeOpTyper._startsWith(fs.Name, "__prop_") && !TypeOpTyper._hasStr(names, n, fs.Name)) {
+                    if (n == names.Length) {
+                        string[] b = new string[names.Length * 2];
+                        Array.Copy(names, b, n);
+                        names = b;
+                    }
+                    names[n] = fs.Name; n = n + 1;
+                }
+                i = i + 1;
+            }
+            if (!cur.HasBase) { break; }
+            cur = env.Symbols.BaseOf(cur);   // A5：走句柄
+            hops = SymbolTable.NextBaseHop(hops);
+        }
+        if (n == 0 && wantProp) { n = TypeOpTyper._accessorPropNames(ct, env, names, n); }
+        if (n == 0) { return ""; }
+        string[] shown = new string[n];
+        Array.Copy(names, shown, n);
+        TypeOpTyper._sortStr(shown);
+        string s = "\n  available " + (wantProp ? "properties" : "fields") + ":";
+        int j = 0;
+        while (j < n && j < 12) { s = s + " " + shown[j]; j = j + 1; }
+        if (n > 12) { s = s + " … (" + n.ToString() + " total)"; }
+        return s;
+    }
+
+    // 导入类的属性名收集：沿基链扫 get_/set_ 访问器（Signature 不含 this ⇒ getter 零参、
+    // setter 一参），剥前缀得属性名。派生优先去重（override 的 getter 先入表）。
+    private static int _accessorPropNames(Z42ClassType ct, TypeEnv env, string[] names, int n) {
+        Z42ClassType cur = ct;
+        int hops = 0;
+        while (cur != null) {
+            string[] keys = cur.Methods.Keys();
+            TypeOpTyper._sortStr(keys);
+            int i = 0;
+            while (i < keys.Length) {
+                MethodSymbol ms = cur.Methods.Get(keys[i]) as MethodSymbol;
+                if (ms != null && ms.Signature != null) {
+                    string pn = TypeOpTyper._accessorPropName(ms);
+                    if (pn != "" && !TypeOpTyper._hasStr(names, n, pn)) {
+                        if (n == names.Length) {
+                            string[] b = new string[names.Length * 2];
+                            Array.Copy(names, b, n);
+                            names = b;
+                        }
+                        names[n] = pn; n = n + 1;
+                    }
+                }
+                i = i + 1;
+            }
+            if (!cur.HasBase) { break; }
+            cur = env.Symbols.BaseOf(cur);   // A5：走句柄
+            hops = SymbolTable.NextBaseHop(hops);
+        }
+        return n;
+    }
+
+    // `get_X`（零参）/ `set_X`（一参）→ 属性名 X；其余（普通方法恰叫 get_/set_ 前缀）→ ""。
+    private static string _accessorPropName(MethodSymbol ms) {
+        string nm = ms.Name;
+        int pc = ms.Signature.ParamCount;
+        if (TypeOpTyper._startsWith(nm, "get_") && pc == 0) { return nm.Substring(4, nm.Length - 4); }
+        if (TypeOpTyper._startsWith(nm, "set_") && pc == 1) { return nm.Substring(4, nm.Length - 4); }
+        return "";
+    }
+
+    // 跨包属性回落的走查：沿基链找第一个声明 `get_<name>`（零参）或 `set_<name>`（一参）
+    // 访问器的类（Signature 不含 this，口径与 _accessorPropName / 运行期一致）。
+    private static Z42ClassType _findAccessorProp(Z42ClassType ct, string name, TypeEnv env) {
+        Z42ClassType cur = ct;
+        int hops = 0;
+        while (cur != null) {
+            MethodSymbol g = cur.Methods.Get("get_" + name) as MethodSymbol;
+            if (g != null && g.Signature != null && g.Signature.ParamCount == 0) { return cur; }
+            MethodSymbol s = cur.Methods.Get("set_" + name) as MethodSymbol;
+            if (s != null && s.Signature != null && s.Signature.ParamCount == 1) { return cur; }
+            if (!cur.HasBase) { break; }
+            cur = env.Symbols.BaseOf(cur);   // A5：走句柄
+            hops = SymbolTable.NextBaseHop(hops);
+        }
+        return null;
+    }
+
     // ── methodof 诊断/匹配用的小工具（纯叶子，无状态）────────────────────────────
     // 形参签名是否与用户给的类型列表逐位相等（派发口径 TypeKey；见 _bindMethodOfExpr 抬头）。
     private static bool _sigMatches(MethodSymbol ms, Z42Type[] want, int wantCount) {
