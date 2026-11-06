@@ -179,3 +179,25 @@ fn freed_dedicated_chunk_drops_only_its_own_entry() {
     assert_eq!(char_len(&kept), 40_000);
     assert_eq!(char_at(&kept, 39_999), Some('ü'));
 }
+
+#[test]
+fn length_defers_index_offsets_until_first_index() {
+    let s = Str::from("aé中😀");
+    assert_eq!(char_len(&s), 4);
+    with_meta(&s, Query::Length, |m| assert!(m.offsets.is_none()));
+
+    assert_eq!(byte_range(&s, 1, 2), Some((1, 6)));
+    assert_eq!(char_at(&s, 3), Some('😀'));
+    assert_eq!(byte_range(&s, 4, 1), None);
+    with_meta(&s, Query::Length, |m| {
+        assert_eq!(m.offsets.as_deref(), Some(&[0, 1, 3, 6][..]));
+    });
+}
+
+#[test]
+fn non_ascii_empty_byte_range_at_end() {
+    let s = Str::from("aé中😀");
+    assert_eq!(byte_range(&s, 4, 0), Some((10, 10)));
+    assert_eq!(byte_range(&s, 2, 0), Some((3, 3)));
+    assert_eq!(byte_range(&s, 5, 0), None);
+}

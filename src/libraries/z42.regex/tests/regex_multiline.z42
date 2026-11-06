@@ -107,9 +107,9 @@ void test_multiline_trailing_newline_dollar_matches_before_and_at_end() {
     // Pattern $ matches both before the trailing \n AND at input end.
     Regex r = Regex.Compile("(?m)$");
     Match[] all = r.FindAll("a\n");
-    // Engine guarantees non-overlapping advance, so we get one $ match per
-    // distinct end position (pos=1 before \n, pos=2 at end).
-    Assert.True(all.Length >= 1);
+    Assert.Equal(2, all.Length);
+    Assert.Equal(1, all[0].Start());
+    Assert.Equal(2, all[1].Start());
 }
 
 // ── Combined (?im) / (?mi) ────────────────────────────────────────────
