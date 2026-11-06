@@ -308,6 +308,41 @@ public sealed class BoundMethodOf : BoundExpr {
     public override string Dump() { return "(methodof " + this.OwnerName + "." + this.MethodKey + " :" + this._t.Name() + ")"; }
 }
 
+// fieldof(Type.Field) / propertyof(Type.Prop) → Std.Reflection.FieldInfo / PropertyInfo
+// （add-field-property-reference）。与 BoundMethodOf 对称：名字在绑定期就沿基链解析成
+// `<声明类 FQN>.<成员名>`，落到 IR 只剩一个串池索引。
+//
+// 🔴 DeclOwnerFq 必须是**声明类**（不是 receiver 类）——运行期 `__fieldof` 按它定位类型
+// 描述符，`FieldInfo.__qualified` 也按它解析 attribute 工厂（字段 attribute 挂在声明类的
+// zpkg 元数据里）。TSIG 会把继承实例字段**展平**进派生类 Fields 表，绑定端按 OwnFieldNames
+// 自有表回溯真声明类（见 TypeOpTyper._bindFieldOfExpr）。跨包属性无 FieldSymbol，走
+// get_/set_ 访问器回落（Field=null），DeclOwnerFq=首个持有访问器的类——运行期按访问器
+// 派生 PropertyInfo，口径一致。
+//
+// Field 存选中符号供诊断/后续使用；IsProperty 与 AST 节点同义（镜像 FieldSymbol.IsProp 的
+// 建模口径：属性在符号表就是带标志的 FieldSymbol）。
+public sealed class BoundFieldOf : BoundExpr {
+    public string       OwnerName;     // AST 原始限定名
+    public Z42ClassType OwnerCt;       // 解析后的 owner 类（receiver 视角）
+    public string       DeclOwnerFq;   // 声明类 FQ 名（""=用 OwnerCt 拼）
+    public string       MemberName;    // 字段名 / 属性名
+    public FieldSymbol  Field;         // 选中的 FieldSymbol（IsProp 分流）
+    public bool         IsProperty;    // true = propertyof → PropertyInfo
+    private Z42Type _t;
+    public BoundFieldOf(string ownerName, Z42ClassType ownerCt, string declOwnerFq,
+                        string memberName, FieldSymbol field, bool isProperty, Z42Type t, Span span) {
+        this.Span = span;
+        this.OwnerName = ownerName; this.OwnerCt = ownerCt; this.DeclOwnerFq = declOwnerFq;
+        this.MemberName = memberName; this.Field = field; this.IsProperty = isProperty; this._t = t;
+    }
+    public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitFieldOf(this, d); }
+    public override string Dump() {
+        string kw = this.IsProperty ? "propertyof" : "fieldof";
+        return "(" + kw + " " + this.OwnerName + "." + this.MemberName + " :" + this._t.Name() + ")";
+    }
+}
+
 public sealed class BoundCast : BoundExpr {
     public BoundExpr E;
     private Z42Type _type;

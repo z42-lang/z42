@@ -1,0 +1,54 @@
+// fieldof / propertyof 在 attribute 实参位置（add-field-property-reference）——
+// methodof_in_attribute 的同族用例：序列化字段选择器 / 列映射这类「attribute 记录
+// 哪个成员」的场景，字符串方案改名即静默失效，这里是编译错误。
+//
+// 白名单（enforce-attribute-const-args，E0500）：fieldof / propertyof 与 typeof / methodof
+// 同在名单里——成员定位全在编译期完成。
+namespace Demo;
+
+using Std;
+using Std.Reflection;
+
+class ColumnAttribute : Attribute {
+    public FieldInfo Target;
+    public ColumnAttribute(FieldInfo target) { this.Target = target; }
+}
+
+class LabelAttribute : Attribute {
+    public PropertyInfo Target;
+    public LabelAttribute(PropertyInfo target) { this.Target = target; }
+}
+
+class Row {
+    public int Total;
+    public string Title { get; set; }
+}
+
+[Column(fieldof(Row.Total))]
+class Sheet { }
+
+[Label(propertyof(Row.Title))]
+class Report { }
+
+void Main() {
+    Row row = new Row();
+    row.Total = 30;
+    row.Title = "q3";
+
+    // 类上的 attribute：读回 FieldInfo / PropertyInfo 并往返值
+    Attribute ca = typeof(Sheet).GetAttribute(typeof(ColumnAttribute));
+    ColumnAttribute col = (ColumnAttribute) ca;
+    Assert.NotNull(col);
+    Assert.Equal("Total", col.Target.Name);
+    Assert.Equal("30", col.Target.GetValue(row).ToString());
+    col.Target.SetValue(row, 31);
+    Assert.Equal(31, row.Total);
+
+    Attribute la = typeof(Report).GetAttribute(typeof(LabelAttribute));
+    LabelAttribute lab = (LabelAttribute) la;
+    Assert.NotNull(lab);
+    Assert.Equal("Title", lab.Target.Name);
+    Assert.Equal("q3", lab.Target.GetValue(row) as string);
+    lab.Target.SetValue(row, "q4");
+    Assert.Equal("q4", row.Title);
+}
