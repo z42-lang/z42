@@ -11,8 +11,8 @@ pub mod pal;
 pub mod thread;
 pub mod exception;
 pub mod stack_guard;
-// P1-3：引擎无关的对象操作层（字段 / 数组 / 静态字段 / struct 叶子），interp 与 JIT 共用。
-pub mod objops;
+// Public entry for the engine-independent object operations.
+pub use vm::exec::ops::object as objops;
 pub mod interp;
 // add-runtime-feature-flags (P4.1): jit / aot are feature-gated.
 // `default = ["jit"]` keeps backward compat; platforms (wasm / ios / android)

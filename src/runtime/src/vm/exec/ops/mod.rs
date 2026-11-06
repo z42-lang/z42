@@ -1,4 +1,5 @@
 //! Engine-independent instruction operations.
+pub mod object;
 pub mod scalar;
 pub(crate) mod structs;
 pub(crate) mod vcall;
