@@ -118,6 +118,31 @@ void test_clear_out_of_range() {
 }
 
 [Test]
+void test_clear_reference_range_and_empty_end() {
+    string[] xs = new string[]{ "left", "清", "right" };
+    Array.Clear<string>(xs, 1, 1);
+    Array.Clear<string>(xs, xs.Length, 0);
+    Assert.Equal("left", xs[0]);
+    Assert.True(xs[1] == null);
+    Assert.Equal("right", xs[2]);
+}
+
+[Test]
+void test_clear_oversized_range_leaves_elements_unchanged() {
+    int[] xs = new int[]{ 1, 2, 3 };
+    bool threw = false;
+    try {
+        Array.Clear<int>(xs, 1, int.MaxValue);
+    } catch (Exception e) {
+        threw = true;
+    }
+    Assert.True(threw);
+    Assert.Equal(1, xs[0]);
+    Assert.Equal(2, xs[1]);
+    Assert.Equal(3, xs[2]);
+}
+
+[Test]
 void test_resize() {
     int[] xs = new int[]{ 1, 2, 3 };
     int[] grown = Array.Resize<int>(xs, 5);
