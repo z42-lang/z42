@@ -95,6 +95,22 @@ void lines_cross_blocks_and_keep_mixed_cursor() {
     Assert.Equal("", r.ReadLine()); Assert.Equal("last", r.ReadLine());
     Assert.True(r.ReadLine() == null); Assert.Equal("", r.ReadToEnd());
 }
+
+[Test]
+void line_scan_keeps_scalar_cursor_across_read_modes() {
+    var s = source("pré😀\r\n甲乙\néfin", 4096);
+    var r = new StreamReader(s);
+    Assert.Equal((int)'p', r.Read());
+    Assert.Equal("ré😀", r.ReadLine());
+    Assert.Equal(1, s.Calls);
+    Assert.Equal((int)'甲', r.Peek());
+    char[] chars = new char[3];
+    Assert.Equal(1, r.Read(chars, 1, 1));
+    Assert.Equal('甲', chars[1]);
+    Assert.Equal("乙", r.ReadLine());
+    Assert.Equal(1, s.Calls);
+    Assert.Equal("éfin", r.ReadToEnd());
+}
 [Test]
 void long_line_crosses_multiple_buffers() {
     char[] chars = new char[10000]; int i = 0;
