@@ -227,6 +227,12 @@ pub(super) fn make_constructed_type_from_values(
         || canonical_type_name(type_name),
         |td| td.name.clone(),
     );
+    build_constructed_type(ctx, definition, base_full, arg_types)
+}
+
+pub(super) fn build_constructed_type(
+    ctx: &VmContext, definition: Option<Arc<TypeDesc>>, base_full: String, arg_types: Vec<Value>,
+) -> Value {
     let simple = type_simple_name(&base_full);
     let definition_key = definition.as_ref().map_or_else(
         || ReflectedTypeKey::Symbol(base_full.as_str().into()),
@@ -377,16 +383,7 @@ fn build_type_ex(
 /// and never mis-bind. Shared by `make_type_from_name`'s add-json-serde /
 /// add-collection-serde dotless fallback (with an optional force-load retry).
 pub(super) fn resolve_dotless_simple(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
-    let mut hit: Option<String> = None;
-    for key in ctx.loaded_type_names() {
-        if type_simple_name(&key) == name {
-            if hit.is_some() {
-                return None; // ambiguous
-            }
-            hit = Some(key);
-        }
-    }
-    let fq = hit?;
+    let fq = ctx.unique_loaded_full_name(name)?;
     if let Some(m) = ctx.module() {
         if let Some(td) = m.type_registry.get(&fq) {
             return Some(td.clone());

@@ -242,7 +242,8 @@ pub fn exec_instr(
 
         // ── Arrays ───────────────────────────────────────────────────────────
         Instruction::ArrayNew(insn) => {
-            if let Some(thrown) = exec_array::array_new(ctx, module, frame, insn.dst, insn.size, insn.elem_tag, func.array_type(block_idx, instr_idx), insn.stack_alloc, insn.type_param_kind, insn.type_param_index)? {
+            let owner = (insn.type_param_kind == 2).then(|| crate::vm::exec::call::forward::owner_type(&func.name)).flatten();
+            if let Some(thrown) = exec_array::array_new(ctx, module, frame, insn.dst, insn.size, insn.elem_tag, func.array_type(block_idx, instr_idx), insn.stack_alloc, insn.type_param_kind, insn.type_param_index, owner)? {
                 return Ok(Some(thrown));
             }
         }
@@ -252,7 +253,8 @@ pub fn exec_instr(
             }
         }
         Instruction::ArrayGet { dst, arr, idx } => {
-            if let Some(thrown) = exec_array::array_get(ctx, module, frame, *dst, *arr, *idx)? {
+            let erased = func.array_get_erased(*dst);
+            if let Some(thrown) = exec_array::array_get(ctx, module, frame, *dst, *arr, *idx, erased)? {
                 return Ok(Some(thrown));
             }
         }

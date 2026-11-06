@@ -1,5 +1,6 @@
 namespace Std.Net.WebSockets;
 
+using Std.Collections;
 using Std.IO;
 using Std.Crypto;
 using Std.Encoding;
@@ -96,7 +97,8 @@ public class WebSocketClient : IDisposable {
         }
         // Accumulate fragmented frames (RFC §5.4). v0: single message at a
         // time; multi-frame messages get assembled here.
-        byte[] body = new byte[0];
+        List<byte[]> fragments = null;
+        long payloadLength = 0L;
         int messageOpcode = -1;
         while (true) {
             _DecodedFrame frame = _FrameCodec.ReadFrame(this._stream);
@@ -136,8 +138,10 @@ public class WebSocketClient : IDisposable {
                 throw new WebSocketProtocolException(
                     "unknown opcode: " + Int32.ToString(frame.Opcode));
             }
-            // Append frame payload to body.
-            body = WebSocketClient._concatBytes(body, frame.Payload);
+            payloadLength = payloadLength + (long)frame.Payload.Length;
+            if (payloadLength > 2147483647L) {
+                throw new OverflowException("WebSocket message is too large for a byte array");
+            }
             if (frame.Fin) {
                 int messageType;
                 if (messageOpcode == _FrameCodec.OpText) {
@@ -145,7 +149,12 @@ public class WebSocketClient : IDisposable {
                 } else {
                     messageType = WebSocketMessageType.Binary;
                 }
+                byte[] body = WebSocketClient._assembleFragments(fragments, frame.Payload, (int)payloadLength);
                 return new WebSocketMessage(messageType, body);
+            }
+            if (frame.Payload.Length > 0) {
+                if (fragments == null) { fragments = new List<byte[]>(); }
+                fragments.Add(frame.Payload);
             }
         }
         // Unreachable.
@@ -335,13 +344,16 @@ public class WebSocketClient : IDisposable {
 
     // ── Byte / string helpers ────────────────────────────────────────────
 
-    static byte[] _concatBytes(byte[] a, byte[] b) {
-        byte[] r = new byte[a.Length + b.Length];
-        int i = 0;
-        while (i < a.Length) { r[i] = a[i]; i = i + 1; }
-        int j = 0;
-        while (j < b.Length) { r[a.Length + j] = b[j]; j = j + 1; }
-        return r;
+    static byte[] _assembleFragments(List<byte[]> fragments, byte[] tail, int length) {
+        if (fragments == null) { return tail; }
+        byte[] body = new byte[length];
+        int offset = 0;
+        foreach (byte[] fragment in fragments) {
+            Array.CopyRange(fragment, 0, body, offset, fragment.Length);
+            offset = offset + fragment.Length;
+        }
+        Array.CopyRange(tail, 0, body, offset, tail.Length);
+        return body;
     }
 
     static int _indexOf(string s, string needle, int start) {
