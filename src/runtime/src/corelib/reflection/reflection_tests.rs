@@ -74,6 +74,53 @@ fn type_handle_extracts_arc_for_typehandle_object() {
 }
 
 #[test]
+fn make_generic_type_preserves_same_named_definition_handles() {
+    use crate::object::{FieldSlot, TypeDescCold};
+
+    let c = ctx();
+    let mut shell = bare_td("Std.Type");
+    let shape = Arc::get_mut(&mut shell).unwrap();
+    for (i, name) in ["__fullName", "__typeArgs"].iter().enumerate() {
+        shape.field_index.insert((*name).to_string(), i);
+        shape.fields.push(FieldSlot {
+            name: (*name).into(),
+            type_tag: "object".into(),
+            visibility: 0,
+        });
+    }
+    let definition = |id| {
+        let mut td = bare_td("Plugin.Box");
+        let desc = Arc::get_mut(&mut td).unwrap();
+        desc.id = TypeId(id);
+        desc.cold = Some(Box::new(TypeDescCold {
+            type_params: vec!["T".into()].into_boxed_slice(),
+            ..Default::default()
+        }));
+        c.heap().alloc_object(
+            shell.clone(),
+            vec![Value::Str("Plugin.Box".into()), Value::Null],
+            NativeData::TypeHandle(td),
+        )
+    };
+    let left = definition(1);
+    let right = definition(2);
+    let int = c.heap().alloc_object(
+        shell,
+        vec![Value::Str("Std.Int32".into()), Value::Null],
+        NativeData::TypeHandle(bare_td("Std.Int32")),
+    );
+    let args = c.heap().alloc_array(vec![int]);
+    let first = type_make_generic(&c, &left, &args).unwrap();
+    let second = type_make_generic(&c, &right, &args).unwrap();
+    let repeated = type_make_generic(&c, &right, &args).unwrap();
+
+    assert_eq!(type_handle_of(&first).unwrap().id, TypeId(1));
+    assert_eq!(type_handle_of(&second).unwrap().id, TypeId(2));
+    assert_ne!(reflected_type_key(&first), reflected_type_key(&second));
+    assert_eq!(reflected_type_key(&second), reflected_type_key(&repeated));
+}
+
+#[test]
 fn type_handle_none_for_primitive_plain_object_and_empty() {
     let c = ctx();
     assert!(type_handle(&[Value::I64(1)]).is_none());
