@@ -119,9 +119,8 @@ unsafe fn call_impl(
 
 /// Run a compiled callee: module-init and cctor barriers (keyed by the callee's own
 /// name — nothing to decode), then the native call with the callee frame filled
-/// straight from the caller's registers. `mta` (a generic site's type args) is not
-/// passed on — a compiled callee cannot read it — it only keeps a `[Native]` wrapper
-/// from folding, as the interpreter's `try_fold` does for generic sites.
+/// straight from the caller's registers. The callee activation borrows the
+/// bound method type arguments for the duration of the call.
 #[inline]
 unsafe fn call_compiled(
     frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
