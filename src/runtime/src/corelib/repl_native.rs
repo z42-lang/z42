@@ -1,24 +1,13 @@
 //! Lazy dlopen loader + callback wiring for the host-only REPL editor cdylib
 //! (`libz42_repl`, crate `z42-repl`). (extract-repl-native-cdylib)
 //!
-//! # Why a separate loader from `interop/ext.rs`
+//! # Why a separate loader from `interop/ext/mod.rs`
 //!
-//! The compression ext loader (`interop/ext.rs`) is **eager** (all `libz42_*` in
-//! `<sdk>/native/` are dlopen'd at VM startup) and **one-directional** (VM → native).
-//! The REPL editor is different on both axes:
-//!   - **Lazy**: dlopen'd on the *first* `__repl_readline`, so a non-interactive run
-//!     (script / test) never touches it and startup stays untouched.
-//!   - **Bidirectional**: the editor calls *back* into the VM mid-`readline` (Tab
-//!     completion, indent-aware keys) via the C function pointers in `ReplCallbacks`.
-//!   - **Host-only toolchain, isolated from `bin/` and `<sdk>/native/`**: the SDK ships
-//!     it in `<sdk>/programs/z42i/` (beside the interactive apphost payload — a *colocated
-//!     native dependency*); dev drops it in the cargo target dir beside `z42vm`. Found by
-//!     *this* repl-specific probe (`candidates()`, via the shared `ext::resolve_native_beside`
-//!     colocated-lib resolver), never `ext::native_search_paths()`. The eager ext scanner
-//!     leaves it alone because it filters on `ext::KNOWN_EXT_LIBS` before dlopen — *not*
-//!     because of where the file sits: in a dev tree the cargo target dir is itself a
-//!     search path, so `libz42_repl.dylib` is in plain sight of the scanner.
-//!     wasm/mobile never load it (plain fallback).
+//! The standard-library loader resolves one-way compression calls from SDK
+//! native paths. The REPL editor opens on its first `__repl_readline` and calls
+//! back into the VM for completion and editing. It uses the shared colocated
+//! library resolver to find the editor beside the interactive apphost payload
+//! (or beside `z42vm` in a development build). wasm and mobile use the plain fallback.
 //!
 //! # Boundary invariant
 //!

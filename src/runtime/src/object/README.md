@@ -27,6 +27,8 @@ GC 仍负责 chunk 分配、回收、代数及弱句柄的 chunk epoch 校验；
 (cd src/runtime && cargo test object:: -- --test-threads=1)
 ```
 
+命名 struct 字段的布局查询在 `types/named_struct_layout.rs`，按类型描述重建字段偏移并核对已交付的布局。
+
 ## 关联文档
 
 内存契约见 [对象与值的表示 ABI](../../../../docs/internals/src/runtime/object-abi.md)，分配与句柄存活协议见 [GC 子系统](../../../../docs/internals/src/runtime/gc.md)。

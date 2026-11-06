@@ -7,30 +7,14 @@ pub use state::{pin_owned_buffer, release_owned_buffer, pinned_owned_buffer_coun
 pub use state::{register_native_type, resolve_native_type, native_type_count};
 
 #[cfg(feature = "native-interop")]
-pub mod dispatch;
-#[cfg(feature = "native-interop")]
-pub mod error;
-#[cfg(feature = "native-interop")]
-pub mod exports;
-#[cfg(feature = "native-interop")]
 pub mod ext;
 #[cfg(feature = "native-interop")]
-pub mod loader;
-#[cfg(feature = "native-interop")]
-pub mod marshal;
-#[cfg(feature = "native-interop")]
-pub mod registry;
+mod tier1;
 
 #[cfg(feature = "native-interop")]
+pub use tier1::{dispatch, error, exports, loader, marshal, registry};
+#[cfg(feature = "native-interop")]
 pub use registry::{MethodEntry, RegisteredType};
-#[cfg(all(test, feature = "native-interop"))]
-mod registry_tests;
-#[cfg(all(test, feature = "native-interop"))]
-mod marshal_tests;
-#[cfg(all(test, feature = "native-interop"))]
-mod dispatch_tests;
-#[cfg(all(test, feature = "native-interop"))]
-mod ext_tests;
 #[cfg(test)]
 mod state_tests;
 

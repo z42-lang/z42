@@ -47,7 +47,7 @@ pub fn field_get_value(ctx: &VmContext, fi: &Value, target: &Value) -> anyhow::R
         // add-boxed-struct-identity (P4b): reflect a value struct's own fields off its
         // shared box object — the field data lives byte-packed in `struct_bytes` +
         // reference-leaf side-table `struct_refs`, not in `slots`.
-        Value::BoxedStruct(gc) => boxed_struct_field_get(ctx, gc, &name),
+        Value::BoxedStruct(gc) => crate::objops::struct_leaf::boxed_struct_field_get(ctx, gc, &name),
         Value::Object(rc) => {
             // add-object-inline-struct-reflection (P4b-B): an inline value-struct field
             // (`class C { Point pt; }`) has a dead placeholder slot — its bytes live in the
@@ -68,7 +68,7 @@ pub fn field_get_value(ctx: &VmContext, fi: &Value, target: &Value) -> anyhow::R
 /// object (`class C { Point pt; }`). The field's slot is a dead `Null` placeholder (P3b); the
 /// real value is byte-packed in the object's `struct_bytes` + `struct_refs` at an
 /// object-relative offset recovered by replicating the **class** inline layout
-/// (`struct_reflect::compute_class_inline`, validated against the delivered `inline_layout`).
+/// (`named_struct_layout::compute_class_inline`, validated against the delivered `inline_layout`).
 /// Returns `Ok(None)` when `name` is not an inline struct field → caller reads the plain slot.
 pub(super) fn object_inline_struct_field_get(
     ctx: &VmContext, rc: &crate::object::ObjRef, name: &str,
@@ -77,7 +77,7 @@ pub(super) fn object_inline_struct_field_get(
     let resolve = |n: &str| ctx.try_lookup_type(n);
     // `struct_field_fq` returns the field type's **fully-qualified** struct name (or
     // `None` for a primitive / reference field → ordinary slot path).
-    let struct_type = match crate::corelib::struct_reflect::struct_field_fq(&resolve, &class_name, name) {
+    let struct_type = match crate::object::types::named_struct_layout::struct_field_fq(&resolve, &class_name, name) {
         Some(fq) => fq,
         None => return Ok(None),
     };
@@ -94,69 +94,14 @@ pub(super) fn object_inline_struct_field_get(
     let fa = *col.field_access.get(slot).ok_or_else(|| {
         anyhow::anyhow!("FieldInfo.GetValue: field `{name}` slot {slot} not in object layout")
     })?;
-    let nested = crate::corelib::struct_reflect::compute(&resolve, &struct_type)?;
+    let nested = crate::object::types::named_struct_layout::compute(&resolve, &struct_type)?;
     // The inline struct keeps its standalone blob layout: reference leaves are reference words
     // at `fa.offset + nested.ref_offsets` (all of them in the composed `ref_cells`).
     if let Some(&nro) = nested.ref_offsets.iter().find(|&&nro| !col.is_ref_cell(fa.offset + nro)) {
         bail!("object inline struct ref leaf offset {} not in composed layout", fa.offset + nro);
     }
     let (bytes, refs) = rc.borrow().read_blob(fa.offset as usize, fa.width as usize, &nested.ref_offsets);
-    Ok(Some(crate::corelib::convert::box_struct_blob(ctx, &struct_type, &bytes, &refs)?))
-}
-
-/// Snapshot a nested/inline value-struct `leaf` out of a heap object's byte region into a
-/// fresh boxed struct (value semantics — mutating the returned box does not touch the parent).
-/// Shared by the boxed-struct nested-field path (P4b) and the object-inline struct-field path
-/// (P4b-B): both read from a `ScriptObject`'s `struct_bytes`/`struct_refs` given the *parent*
-/// computed layout + the struct leaf (`parent.ref_index` maps a nested ref leaf's
-/// object-relative offset to its `struct_refs` slot).
-pub(super) fn snapshot_struct_leaf(
-    ctx: &VmContext,
-    o: &crate::object::ScriptObject,
-    parent: &crate::corelib::struct_reflect::ComputedLayout,
-    leaf: &crate::corelib::struct_reflect::FieldLeaf,
-) -> Result<Value> {
-    let resolve = |n: &str| ctx.try_lookup_type(n);
-    let nested = crate::corelib::struct_reflect::compute(&resolve, &leaf.type_name)?;
-    if nested.ref_offsets.iter().any(|&nro| parent.ref_index(leaf.byte_off + nro).is_none()) {
-        bail!("struct field reflection: nested ref leaf offset not in parent bitmap");
-    }
-    let (bytes, refs) = o.read_blob(leaf.byte_off as usize, leaf.size as usize, &nested.ref_offsets);
-    crate::corelib::convert::box_struct_blob(ctx, &leaf.type_name, &bytes, &refs)
-}
-
-/// add-boxed-struct-identity (P4b): read field `name` out of a boxed value struct. Replicates
-/// the struct's byte layout (`struct_reflect::compute`, validated against the delivered
-/// `struct_layout`), then decodes the leaf: primitive → `decode_prim` off `struct_bytes`;
-/// reference → the `struct_refs` side-table; nested struct → a fresh boxed snapshot (value
-/// semantics — mutating the returned box does not touch the parent).
-/// accept-boxed-struct-field-get: 也被 `field_get` 的 `BoxedStruct` 臂复用（interp + JIT）——
-/// 值 struct 经擦除返回位流出泛型函数时接收者就是这种盒，按名取叶子的逻辑与反射完全同一件事。
-pub(crate) fn boxed_struct_field_get(
-    ctx: &VmContext, gc: &crate::object::ObjRef, name: &str,
-) -> Result<Value> {
-    use crate::object::prim_width;
-    let type_name = gc.type_desc().name.to_string();
-    let resolve = |n: &str| ctx.try_lookup_type(n);
-    let comp = crate::corelib::struct_reflect::compute(&resolve, &type_name)?;
-    if let Some(sl) = gc.type_desc().struct_layout() {
-        comp.validate_against(&sl, &type_name)?;
-    } else {
-        bail!("FieldInfo.GetValue: type `{type_name}` has no delivered struct layout");
-    }
-    let leaf = comp.field(name).ok_or_else(|| {
-        anyhow::anyhow!("FieldInfo.GetValue: field `{name}` not present on `{type_name}`")
-    })?;
-    if leaf.is_struct {
-        // Nested value-struct field → boxed snapshot (shared with the object-inline path).
-        let o = gc.borrow();
-        snapshot_struct_leaf(ctx, &o, &comp, leaf)
-    } else if leaf.is_ref {
-        gc.borrow().struct_ref_leaf(leaf.byte_off)
-    } else {
-        let w = prim_width(leaf.tag)?;
-        gc.borrow().prim_leaf(leaf.byte_off as usize, w, leaf.tag)
-    }
+    Ok(Some(crate::objops::struct_leaf::box_struct_blob(ctx, &struct_type, &bytes, &refs)?))
 }
 
 /// `__field_set_value(field: FieldInfo, target: object, value: object)` — write
@@ -213,7 +158,7 @@ pub(super) fn object_inline_struct_field_set(
     let class_name = rc.type_desc().name.to_string();
     let resolve = |n: &str| ctx.try_lookup_type(n);
     // `struct_field_fq` returns the field type's fully-qualified struct name.
-    let struct_type = match crate::corelib::struct_reflect::struct_field_fq(&resolve, &class_name, name) {
+    let struct_type = match crate::object::types::named_struct_layout::struct_field_fq(&resolve, &class_name, name) {
         Some(fq) => fq,
         None => return Ok(None), // primitive / reference field → ordinary slot
     };
@@ -258,7 +203,7 @@ pub(super) fn object_inline_struct_field_set(
     let fa = *col.field_access.get(slot).ok_or_else(|| {
         anyhow::anyhow!("FieldInfo.SetValue: field `{name}` slot {slot} not in object layout")
     })?;
-    let nested = crate::corelib::struct_reflect::compute(&resolve, &struct_type)?;
+    let nested = crate::object::types::named_struct_layout::compute(&resolve, &struct_type)?;
     if nested.ref_offsets.iter().any(|&nro| !col.is_ref_cell(fa.offset + nro)) {
         bail!("FieldInfo.SetValue: inline struct `{name}` ref leaf not in the composed layout");
     }
@@ -282,12 +227,12 @@ pub(super) fn object_inline_struct_field_set(
 pub(super) fn write_struct_leaf(
     ctx: &VmContext, base_val: &Value,
     gc: &crate::object::ObjRef,
-    parent: &crate::corelib::struct_reflect::ComputedLayout,
-    leaf: &crate::corelib::struct_reflect::FieldLeaf,
+    parent: &crate::object::types::named_struct_layout::ComputedLayout,
+    leaf: &crate::object::types::named_struct_layout::FieldLeaf,
     src: &crate::object::ObjRef,
 ) -> Result<()> {
     let resolve = |n: &str| ctx.try_lookup_type(n);
-    let nested = crate::corelib::struct_reflect::compute(&resolve, &leaf.type_name)?;
+    let nested = crate::object::types::named_struct_layout::compute(&resolve, &leaf.type_name)?;
     if nested.ref_offsets.iter().any(|&nro| parent.ref_index(leaf.byte_off + nro).is_none()) {
         bail!("struct field reflection: nested ref leaf offset not in parent bitmap");
     }
@@ -316,7 +261,7 @@ pub(super) fn boxed_struct_field_set(
     use crate::object::prim_width;
     let type_name = gc.type_desc().name.to_string();
     let resolve = |n: &str| ctx.try_lookup_type(n);
-    let comp = crate::corelib::struct_reflect::compute(&resolve, &type_name)?;
+    let comp = crate::object::types::named_struct_layout::compute(&resolve, &type_name)?;
     if let Some(sl) = gc.type_desc().struct_layout() {
         comp.validate_against(&sl, &type_name)?;
     } else {
@@ -336,7 +281,7 @@ pub(super) fn boxed_struct_field_set(
         // `Std.Int32`（一个合法的 `BoxedStruct`）⇒ 通过该门后按叶子宽度拷字节，
         // 实测把 `Line.a` 从 `(11,22)` **静默改成 `(42,22)`**。
         // 期望类型经同一个 `struct_field_fq` 取（`FieldLeaf` 只有 `is_struct`、不带类型名）。
-        let want = crate::corelib::struct_reflect::struct_field_fq(&resolve, &type_name, name)
+        let want = crate::object::types::named_struct_layout::struct_field_fq(&resolve, &type_name, name)
             .ok_or_else(|| anyhow::anyhow!(
                 "FieldInfo.SetValue: field `{name}` on `{type_name}` is a value struct but its \
                  type could not be resolved"

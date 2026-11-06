@@ -250,7 +250,7 @@ pub const fn prim_cell_width(tag: u8) -> Option<u32> {
 }
 
 /// unify-object-byte-layout (PR-2): map a field's declared `type_tag` string to its
-/// exact `ty::TAG_*`. Mirrors `corelib::struct_reflect::tag_from_name` (kept here so
+/// exact `ty::TAG_*`. Mirrors `named_struct_layout::tag_from_name` (kept here so
 /// the loader can build the access table without a corelib dependency). Post-unify
 /// canonical primitive names (`int`/`i32`, `long`/`i64`, …) and struct/ref types.
 pub fn tag_from_type_name(t: &str) -> u8 {
