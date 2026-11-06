@@ -59,7 +59,7 @@ struct ProbeTier { id: usize, dropped: Arc<AtomicUsize> }
 impl Drop for ProbeTier { fn drop(&mut self) { self.dropped.fetch_add(1, Ordering::Relaxed); } }
 impl TierBackend for ProbeTier {
     fn osr_threshold(&self) -> u32 { 77 }
-    fn invoke(&self, _ctx: &VmContext, _target: TierTarget<'_>, _args: CallArgs<'_>)
+    fn invoke(&self, _ctx: &VmContext, _target: TierTarget<'_>, _args: CallArgs<'_>, _method_type_args: &[String])
         -> Option<Result<ExecOutcome>> { Some(Ok(ExecOutcome::Returned(Some(Value::I64(self.id as i64))))) }
     fn osr(&self, _ctx: &VmContext, _func: &Function, _header: usize, _state: OsrState<'_>)
         -> Option<Result<ExecOutcome>> { None }

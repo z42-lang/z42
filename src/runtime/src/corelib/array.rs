@@ -200,6 +200,45 @@ pub mod typed {
         Ok(sorted.is_some())
     }
 
+    /// Search built-in equality representations without issuing per-element virtual calls.
+    /// -2 leaves custom equality and exceptional ranges to the script loop.
+    #[builtin(name = "__array_search_prims")]
+    pub fn search_prims(array: &Value, value: &Value, start: i64, stop: i64, backwards: bool) -> i64 {
+        const DECLINED: i64 = -2;
+        let Value::Array(array) = array else { return DECLINED };
+        let array = array.borrow();
+        let (Ok(start), Ok(stop)) = (usize::try_from(start), usize::try_from(stop)) else {
+            return DECLINED;
+        };
+        let mut range = if backwards {
+            if start >= array.len() || stop > start { return DECLINED; }
+            stop..start + 1
+        } else {
+            if stop > array.len() || start > stop { return DECLINED; }
+            start..stop
+        };
+        let mode = array.mode();
+        let is_string = matches!(mode, crate::object::ArrayMode::Ref | crate::object::ArrayMode::Mixed)
+            && elem_tag(&array.element_type()) == "string"
+            && matches!(value, Value::Null | Value::Str(_));
+        if !(is_string || mode.is_prim() && array.prim_backing_accepts(value)) {
+            return DECLINED;
+        }
+        let find = |index| {
+            let element = array.get_boxed(index);
+            if is_string && !matches!(element, Value::Null | Value::Str(_)) {
+                // Untyped writes in existing packages can populate a string array with other values.
+                return Some(DECLINED);
+            }
+            (element == *value).then_some(index as i64)
+        };
+        if backwards {
+            range.rev().find_map(find).unwrap_or(-1)
+        } else {
+            range.find_map(find).unwrap_or(-1)
+        }
+    }
+
     /// `Array.Clone()` — shallow copy of the receiver array. Reference-type elements
     /// are shared (the new array's slots reference the same heap objects). Empty arrays
     /// return another empty array (not the same reference).

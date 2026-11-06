@@ -1,0 +1,23 @@
+// A cold generic call can tier up inside its loop. The continuation must
+// see the type arguments bound before the interpreter entered the loop.
+namespace OsrTest.MethodTypeArgs;
+
+void ReadAfterLoop<T>(int limit, Type expectedType, object expectedDefault) {
+    int count = 0;
+    while (count < limit) {
+        count = count + 1;
+    }
+    Assert.Equal(limit, count);
+    Assert.Equal(expectedType, typeof(T));
+    object actualDefault = default(T);
+    if (expectedDefault == null) {
+        Assert.True(actualDefault == null);
+    } else {
+        Assert.Equal(expectedDefault, actualDefault);
+    }
+}
+
+void Main() {
+    ReadAfterLoop<int>(50000, typeof(int), 0);
+    ReadAfterLoop<string>(50000, typeof(string), null);
+}
