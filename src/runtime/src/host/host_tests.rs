@@ -338,11 +338,18 @@ fn project_root() -> std::path::PathBuf {
 
 /// `CString` form of the libs dir; `OnceLock` so the search-paths array
 /// in `Z42HostConfig` can hold a stable pointer.
+#[cfg(z42_have_embedding_hello)]
 fn libs_dir_cstring() -> &'static CString {
     static LIBS_DIR: OnceLock<CString> = OnceLock::new();
     LIBS_DIR.get_or_init(|| {
-        let p = project_root().join("artifacts/intermediate/libraries/flat/release");
-        CString::new(p.to_string_lossy().as_bytes()).expect("libs dir contains no NUL")
+        let libs = env!("Z42_EMBEDDING_TEST_LIBS");
+        let corelib = std::path::Path::new(libs).join("z42.core.zpkg");
+        assert!(
+            corelib.is_file(),
+            "embedding fixture needs {}; run `xtask build stdlib`",
+            corelib.display()
+        );
+        CString::new(libs).expect("libs dir contains no NUL")
     })
 }
 
@@ -1208,14 +1215,9 @@ unsafe extern "C" fn host_shutdown_sink(_bytes: *const c_char, _length: usize, _
 fn sink_callback_can_shut_down_the_host_mid_invoke() {
     let _g = test_lock();
     reset_host();
-    if !project_root().join("artifacts/build/libraries/dist/release/z42.core.zpkg").is_file() {
-        eprintln!("skipping: corelib zpkg not available");
-        return;
-    }
-
+    let libs_path = libs_dir_cstring();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let libs_path = libs_dir_cstring();
         let search_paths: [*const c_char; 2] = [libs_path.as_ptr(), ptr::null()];
         let mut cfg = default_config();
         cfg.stdout_sink = Some(host_shutdown_sink);
@@ -1255,10 +1257,6 @@ fn invoke_deep_recursion_is_fatal() {
     let _g = test_lock();
     let _f = crate::stack_guard::FATAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     reset_host();
-    if !project_root().join("artifacts/build/libraries/dist/release/z42.core.zpkg").is_file() {
-        eprintln!("skipping: corelib zpkg not available");
-        return;
-    }
 
     let capture: Mutex<Vec<u8>> = Mutex::new(Vec::new());
     with_hello_session(&capture, |host, module| {
