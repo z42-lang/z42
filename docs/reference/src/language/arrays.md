@@ -118,7 +118,11 @@ int[] back = (int[])a;       // Array → T[] 是下转，运行期受检
 | `SetValue` | `void SetValue(Object value, int index)` —— 形参就是 `Object` |
 | `CopyRange` | `void CopyRange(Array source, int, Array destination, int, int)` —— 两侧元素类型可不同 |
 
-**口径是严格的：值的种类必须与元素类型同种，否则抛，且目标数组保持原样。** 抛哪个异常与 C# 相同：
+基元槽要求值的种类匹配。引用槽接受可赋给元素类型的值，包括 null、派生类实例和实现目标接口的实例。
+闭合泛型会核对类型实参，数组作为元素仍遵守数组的不变性。
+拷贝需要检查实际值时，先验证整个区间，再写入已验证的值。类型校验失败时目标数组保持原样。
+
+异常类型如下。
 
 | 情形 | 异常 |
 |---|---|

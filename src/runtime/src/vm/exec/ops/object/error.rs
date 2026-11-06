@@ -149,10 +149,9 @@ impl OpError {
             "cannot copy {}[] elements into a {}[] array", elem_label(src_elem), elem_label(dst_elem)))
     }
 
-    /// 无类型写入（`Array.CopyRange` 拆箱 / `Array.SetValue`）的值不是值 struct 数组元素类型的装箱
-    /// （含 null）。拆箱失败与 C# 一样是 `InvalidCastException`，目的地不动。
+    /// 无类型写入的实际值不能存进目的数组。类型校验失败时目的地不动。
     #[cold]
-    pub fn struct_elem_store_rejected(elem: &str, v: &Value) -> Self {
+    pub fn array_elem_store_rejected(elem: &str, v: &Value) -> Self {
         let what = match v {
             Value::BoxedStruct(b) => format!("a boxed {}", b.borrow().type_desc.name),
             other => crate::object::value_kind_name(other).to_string(),

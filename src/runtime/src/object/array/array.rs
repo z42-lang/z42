@@ -481,11 +481,16 @@ impl ArrayObj {
     /// A FROZEN array: `elems` written once, read-only afterwards (closure environments, the
     /// `ref_word` kind-7 value box — which may hold a stack handle no cell can encode).
     pub fn alloc_frozen(heap: &Heap, elems: &[Value]) -> Value {
+        Self::alloc_frozen_from(heap, elems.len(), |i| elems[i])
+    }
+
+    /// Capture values directly into an unpublished frozen array. The reader must not safepoint.
+    pub(crate) fn alloc_frozen_from(heap: &Heap, len: usize, read: impl Fn(usize) -> Value) -> Value {
         let desc = ElemType::empty().array_desc(ArrayMode::Frozen, 0);
-        Self::alloc(heap, desc, elems.len(), None, &mut |a| {
-            for (i, v) in elems.iter().enumerate() {
-                // SAFETY: a fresh FROZEN block sized for `elems.len()` Values; nothing reads it yet.
-                unsafe { a.frozen_slot(i).write(*v) };
+        Self::alloc(heap, desc, len, None, &mut |a| {
+            for i in 0..len {
+                // SAFETY: a fresh FROZEN block sized for `len` Values; nothing reads it yet.
+                unsafe { a.frozen_slot(i).write(read(i)) };
             }
         })
     }
