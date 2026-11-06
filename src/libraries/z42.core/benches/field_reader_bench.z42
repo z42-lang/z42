@@ -7,6 +7,7 @@ class Reader {
 
     public Reader(int value) { this._value = value; }
     public virtual int Read() { return this._value; }
+    public int ReadDirect() { return this._value; }
     public virtual int ReadAdjusted() { return this._value + 1; }
 }
 
@@ -32,6 +33,20 @@ void virtual_adjusted_reader(Bencher b) {
         int i = 0;
         while (i < 8192) {
             total = total + reader.ReadAdjusted();
+            i = i + 1;
+        }
+        BenchHelpers.blackBox(total);
+    });
+}
+
+[Benchmark]
+void direct_field_reader(Bencher b) {
+    Reader reader = new Reader(7);
+    b.iter(() => {
+        int total = 0;
+        int i = 0;
+        while (i < 8192) {
+            total = total + reader.ReadDirect();
             i = i + 1;
         }
         BenchHelpers.blackBox(total);

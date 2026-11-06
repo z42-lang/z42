@@ -180,6 +180,11 @@ pub fn ambiguity_seen() -> bool {
     AMBIGUITY_SEEN.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+#[cfg(feature = "jit")]
+pub(crate) fn ambiguity_seen_ptr() -> *const std::sync::atomic::AtomicBool {
+    &AMBIGUITY_SEEN
+}
+
 /// cache-failed-name-resolution: the negative resolve cache, held behind a `Box`
 /// so `LazyLoader` itself stays the size it was. Valid only while
 /// `LazyLoader::registry_fingerprint` is unchanged.

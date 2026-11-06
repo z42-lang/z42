@@ -130,7 +130,6 @@ impl LazyCompiler {
             // Filled by the caller (`JitRuntime::resolve_slot_slow`, from the function's
             // own forward cell — `vm::exec::call::forward::forward_of`).
             forward: None,
-            init_ready: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
         })
     }
 
@@ -164,7 +163,6 @@ impl LazyCompiler {
             func:    func as *const Function,
             owner_init: std::sync::Arc::clone(&func.owner_init),
             forward: None,
-            init_ready: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
         })
     }
 }

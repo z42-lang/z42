@@ -5,6 +5,7 @@ use crate::vm::runtime::resolve::ResolvedTokens;
 use crate::vm::runtime::ids::tokens::{FnIdCell, ForwardCell, TypeKeyCell};
 use crate::{metadata::ir, object::TypeDesc};
 use std::ops::{Deref, DerefMut};
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, OnceLock};
 
 pub type OwnerInitCell = Arc<OnceLock<Option<Arc<TypeDesc>>>>;
@@ -16,6 +17,10 @@ pub struct Function {
     pub id: FnIdCell,
     pub forward: ForwardCell,
     pub(crate) field_forward: OnceLock<bool>,
+    /// The first scalar layout seen by a native direct reader, shared by its callers.
+    pub(crate) direct_reader: OnceLock<super::dispatch::ic::FieldICEntry>,
+    /// Epoch at which the normal module-init and owner-cctor barriers were settled.
+    pub(crate) call_init_ready: AtomicU32,
     pub fused_tails: Vec<Option<SuperInstr>>,
     sites: OnceLock<Box<CodeSites>>,
 }
@@ -31,6 +36,8 @@ impl Function {
             id: Default::default(),
             forward: Default::default(),
             field_forward: OnceLock::new(),
+            direct_reader: OnceLock::new(),
+            call_init_ready: AtomicU32::new(0),
             fused_tails: Vec::new(),
             sites: OnceLock::new(),
         }
@@ -73,6 +80,8 @@ impl Function {
         self.id = Default::default();
         self.forward = Default::default();
         self.field_forward.take();
+        self.direct_reader.take();
+        *self.call_init_ready.get_mut() = 0;
         self.sites.take();
     }
     /// Rebase string literals without invalidating control-flow or frame metadata.

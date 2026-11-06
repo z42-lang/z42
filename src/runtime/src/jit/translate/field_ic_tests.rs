@@ -190,6 +190,79 @@ fn primitive_get_and_set_go_native_once_the_ic_is_warm() {
 }
 
 #[test]
+fn direct_reader_warms_before_getter_compilation_and_rechecks_its_guards() {
+    use crate::jit::forward::{CompileLookup, DirectFieldReader};
+    use crate::jit::helpers::call::CALL_HELPER_HITS;
+    use crate::jit::runtime::install_tuned;
+    use crate::metadata::ir::CallInsn;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct TestLookup<'a> {
+        vm: CompileLookup<'a>,
+        ambiguous: &'a AtomicBool,
+    }
+    impl ForwardLookup for TestLookup<'_> {
+        fn builtins(&self) -> &crate::vm::runtime::builtins::BuiltinCatalog { self.vm.builtins() }
+        fn forward_of_id(&self, _: u32) -> Option<u32> { None }
+        fn forward_of_name(&self, _: &str) -> Option<u32> { None }
+        fn direct_field_reader(&self, id: u32) -> Option<DirectFieldReader> {
+            let mut site = self.vm.direct_field_reader(id)?;
+            site.ambiguous = self.ambiguous;
+            Some(site)
+        }
+    }
+
+    let mut getter = func("T.Read", 1, &[IrType::Ref, IrType::I64], vec![
+        block("entry", vec![get(1, 0, "n")], ret(1)),
+    ]);
+    getter.is_static = false;
+    let m = module(vec![func("T.Call", 1, &[IrType::Ref, IrType::I64], vec![
+        block("entry", vec![Instruction::Call(Box::new(CallInsn {
+            dst: 1, func: "T.Read".into(), args: Box::new([0]), method_type_args: Box::new([]),
+        }))], ret(1)),
+    ]), getter]);
+    let vm = VmContext::new();
+    let rt = install_tuned(&vm, &m, |rt| rt.jit_threshold = 1);
+    let ambiguous = AtomicBool::new(false);
+    let lookup = TestLookup { vm: CompileLookup { rt, vm: &vm }, ambiguous: &ambiguous };
+    crate::vm::runtime::resolve::resolve_function_tokens(&m.functions[0], &m, &vm);
+    assert!(m.functions[1].resolved.get().is_none(), "getter starts without tokens");
+    let entry = rt.compile_with(&m.functions[0], &lookup).expect("compile caller");
+    let j = Jitted { vm: &vm, entry };
+    assert!(rt.peek_fn_by_id(1).is_none(), "getter is still cold");
+
+    let a = class("A", 0x7100_0011, &[("n", F::I64), ("m", F::I64)]);
+    let b = class("B", 0x7100_0012, &[("m", F::I64), ("n", F::I64)]);
+    let (oa, ob) = (new_obj(&vm, &a, 2), new_obj(&vm, &b, 2));
+    crate::objops::field::field_set(&vm, &oa, "n", &Value::I64(7), None).unwrap();
+    crate::objops::field::field_set(&vm, &ob, "n", &Value::I64(13), None).unwrap();
+    let run = |value| {
+        let before = CALL_HELPER_HITS.with(|hits| hits.get());
+        let result = j.run(&[value]).0;
+        (result, CALL_HELPER_HITS.with(|hits| hits.get()) - before)
+    };
+
+    assert_eq!(run(oa), (Ok(Value::I64(7)), 1), "cold call warms the cache");
+    assert_eq!(run(oa), (Ok(Value::I64(7)), 0), "warm call reads n natively");
+    assert_eq!(run(ob), (Ok(Value::I64(13)), 1), "different layout falls back");
+    let (error, calls) = run(Value::Null);
+    assert!(error.is_err());
+    assert_eq!(calls, 1);
+
+    let cctors = &vm.core.runtime.cctors;
+    let epoch = cctors.barrier_epoch();
+    cctors.register("Other.Type", "Other.Type..cctor");
+    assert_ne!(epoch, cctors.barrier_epoch());
+    assert_eq!(run(oa), (Ok(Value::I64(7)), 1), "new epoch falls back");
+
+    assert_eq!(run(oa), (Ok(Value::I64(7)), 0), "the helper settled the new epoch");
+    cctors.finish("Other.Type", None);
+    assert_eq!(run(oa), (Ok(Value::I64(7)), 0), "unrelated successful init keeps the proof valid");
+    ambiguous.store(true, Ordering::Relaxed);
+    assert_eq!(run(oa), (Ok(Value::I64(7)), 1), "ambiguity leaves the native path");
+}
+
+#[test]
 fn reference_get_and_set_go_native_and_decode_like_the_interpreter() {
     let vm = VmContext::new();
     let a = class("A", 0x7100_0002, &[("n", F::I64), ("s", F::Ref)]);
