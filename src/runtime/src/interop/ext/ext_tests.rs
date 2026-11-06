@@ -1,6 +1,6 @@
 //! Unit tests for `interop::ext` — search path resolution + lazy library loading.
 
-use super::ext::*;
+use super::*;
 
 #[test]
 fn native_search_paths_includes_default_sdk_layout() {

@@ -14,13 +14,83 @@
 //! | `StructRefHeap`（`struct[]` 元素） | struct 布局 × 元素下标 | `write_barrier_array_elem` |
 //! | `StructRef`（帧内 arena blob） | struct 布局 | 无（arena 是根） |
 
+use crate::object::types::named_struct_layout;
 use crate::object::{
-    decode_prim, encode_prim, is_ref_tag, prim_width, ScriptObject, StructArrayElem,
+    decode_prim, encode_prim, is_ref_tag, prim_width, NativeData, ScriptObject, StructArrayElem,
     StructTypeLayout, Value,
 };
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
+
+/// Copy a struct blob into a fresh heap object with boxed identity.
+/// A fresh box is unreachable until returned, so its initial writes need no barrier.
+pub(crate) fn box_struct_blob(
+    ctx: &VmContext, type_name: &str, bytes: &[u8], refs: &[Value],
+) -> Result<Value> {
+    let td = ctx.try_lookup_type(type_name).ok_or_else(|| {
+        anyhow::anyhow!("__box_struct: unknown struct type `{type_name}`")
+    })?;
+    let obj_val = ctx.heap().alloc_object(td, Vec::new(), NativeData::None);
+    match obj_val {
+        Value::Object(gc) => {
+            {
+                let o = gc.borrow();
+                let size = o.payload_len();
+                // A fresh box (young, unreachable until returned): no barrier owed.
+                let offs = o.type_desc.struct_layout().map(|sl| sl.ref_offsets.clone()).unwrap_or_default();
+                o.write_blob(0, size, bytes, refs, &offs, &mut |_| {})?;
+            }
+            Ok(Value::BoxedStruct(gc))
+        }
+        // alloc_object returns Null under strict-OOM refusal.
+        other => Ok(other),
+    }
+}
+
+/// Read a nested field into its own value snapshot.
+fn snapshot_struct_leaf(
+    ctx: &VmContext,
+    o: &crate::object::ScriptObject,
+    parent: &named_struct_layout::ComputedLayout,
+    leaf: &named_struct_layout::FieldLeaf,
+) -> Result<Value> {
+    let resolve = |n: &str| ctx.try_lookup_type(n);
+    let nested = named_struct_layout::compute(&resolve, &leaf.type_name)?;
+    if nested.ref_offsets.iter().any(|&nro| parent.ref_index(leaf.byte_off + nro).is_none()) {
+        bail!("struct field reflection: nested ref leaf offset not in parent bitmap");
+    }
+    let (bytes, refs) = o.read_blob(leaf.byte_off as usize, leaf.size as usize, &nested.ref_offsets);
+    box_struct_blob(ctx, &leaf.type_name, &bytes, &refs)
+}
+
+/// Read a named field from an erased struct box. Reflection and FieldGet share
+/// layout validation and copy nested struct values into a fresh box.
+pub(crate) fn boxed_struct_field_get(
+    ctx: &VmContext, gc: &crate::object::ObjRef, name: &str,
+) -> Result<Value> {
+    use crate::object::prim_width;
+    let type_name = gc.type_desc().name.to_string();
+    let resolve = |n: &str| ctx.try_lookup_type(n);
+    let comp = named_struct_layout::compute(&resolve, &type_name)?;
+    if let Some(sl) = gc.type_desc().struct_layout() {
+        comp.validate_against(&sl, &type_name)?;
+    } else {
+        bail!("FieldInfo.GetValue: type `{type_name}` has no delivered struct layout");
+    }
+    let leaf = comp.field(name).ok_or_else(|| {
+        anyhow::anyhow!("FieldInfo.GetValue: field `{name}` not present on `{type_name}`")
+    })?;
+    if leaf.is_struct {
+        let o = gc.borrow();
+        snapshot_struct_leaf(ctx, &o, &comp, leaf)
+    } else if leaf.is_ref {
+        gc.borrow().struct_ref_leaf(leaf.byte_off)
+    } else {
+        let w = prim_width(leaf.tag)?;
+        gc.borrow().prim_leaf(leaf.byte_off as usize, w, leaf.tag)
+    }
+}
 
 /// Frame-agnostic core of `StructFieldGetPrim` — read the leaf at `byte_off` of the
 /// `base_val` struct. Shared by interp and the JIT struct helpers.

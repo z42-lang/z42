@@ -34,7 +34,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | 文件系统 / FileStream 句柄 / env / 时间（`typed` 模块，ABI v2：.NET 口径的 IO 异常 `fs_error`、文件 I/O 一律 park、句柄表锁外做系统调用；路径型操作走本 VM 的 `pal::fs::Vfs` 句柄 `VmContext::vfs`，返回 `io::Error`） | `fs.rs` |
 | 对象内建（GetType / RefEq / HashCode） | `object.rs` |
 | **反射**（`Std.Type` / `Std.Reflection.*`：枚举成员、attribute、反射调用、Activator、模块加载） | **`reflection/`**（子目录，见下「核心文件」） |
-| 值类型 struct 字段布局复现（反射读写内联/装箱 struct） | `struct_reflect.rs` |
+| 值类型 struct 字段布局复现（反射读写内联/装箱 struct） | `object/types/named_struct_layout.rs` |
 | 程序集加载上下文（`AssemblyLoadContext`） | `assemblyloadcontext.rs` |
 | 运行时诊断 / 计数器 / profile | `diagnostics.rs` |
 | 运行时设置只读查询 / 应用自定义属性 | `config.rs`（`Std.Runtime.RuntimeConfig`）/ `appprops.rs`（`Std.Runtime.AppProperties`） |
@@ -134,5 +134,5 @@ xtask test stdlib
 | `reflection/methodof.rs` | `methodof(Type.Member(sig))` 运行期支持（编译期已绑定重载，运行期按签名取 `MethodInfo`） |
 | `reflection/module_load.rs` | 运行期加载模块/字节码（REPL、test 宿主）+ `__run_goldens_isolated` |
 | `convert.rs` / `io.rs` / `string.rs` / `math.rs` / `fs.rs` | 各类别 builtin 实现（见「功能索引」）|
-| `struct_reflect.rs` | 值类型 struct 字段布局复现（供 `reflection/accessors.rs` 读写内联/装箱 struct）|
+| `object/types/named_struct_layout.rs` | 值类型 struct 字段布局复现（供 `reflection/accessors.rs` 读写内联/装箱 struct）|
 | `<mod>_tests.rs` | 各模块 Rust 单元测试（`reflection` 的在 `reflection/reflection_tests.rs`）|
