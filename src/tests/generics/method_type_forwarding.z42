@@ -1,0 +1,37 @@
+// Exercise the same forwarded call site with different type arguments.
+namespace MethodTypeForwarding;
+using Std.Collections;
+
+T Zero<T>() { return default(T); }
+Type Actual<T>() { return typeof(T); }
+T ForwardStatic<T>() { return Zero<T>(); }
+Type ForwardNested<T>() { return Actual<List<T>>(); }
+
+class Target {
+    public virtual T Zero<T>() { return default(T); }
+}
+
+class Derived : Target {
+    public override T Zero<T>() { return default(T); }
+}
+
+T ForwardVirtual<T>(Target receiver) { return receiver.Zero<T>(); }
+
+class ClassArgument<U> {
+    public Type ForwardMixed<T>() { return Actual<Dictionary<U,T>>(); }
+}
+
+void Main() {
+    Assert.Equal(0, ForwardStatic<int>());
+    Assert.True(ForwardStatic<string>() == null);
+    Assert.Equal(false, ForwardStatic<bool>());
+
+    Target receiver = new Derived();
+    Assert.Equal(0, ForwardVirtual<int>(receiver));
+    Assert.True(ForwardVirtual<string>(receiver) == null);
+    Assert.Equal(false, ForwardVirtual<bool>(receiver));
+
+    Assert.Equal(typeof(List<int>), ForwardNested<int>());
+    Assert.Equal(typeof(List<string>), ForwardNested<string>());
+    Assert.Equal(typeof(Dictionary<string,int>), new ClassArgument<string>().ForwardMixed<int>());
+}

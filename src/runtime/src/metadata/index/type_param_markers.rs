@@ -39,8 +39,7 @@ pub fn has_markers(s: &str) -> bool {
     s.contains('$') && (s.contains(METHOD_MARKER) || s.contains(CLASS_MARKER))
 }
 
-/// Does `s` contain a **method-level** marker? Those read `frame.method_type_args`, which a JIT
-/// frame does not carry (see `jit::translate::unsupported`).
+/// Does `s` contain a method-level marker bound by the current frame?
 #[inline]
 pub fn has_method_markers(s: &str) -> bool {
     s.contains(METHOD_MARKER)

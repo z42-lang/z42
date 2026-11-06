@@ -54,8 +54,7 @@ pub unsafe extern "C" fn jit_vcall_mta(
     mta_ptr: *const String, mta_len: usize,
 ) -> u8 {
     let mta = std::slice::from_raw_parts(mta_ptr, mta_len);
-    // Class-level type params forwarded by the site (`$cta:N@Owner`) bind from the receiver
-    // (reg 0); a method-level one keeps the caller out of the JIT (`forwards_caller_mta`).
+    // Keep any temporary bound arguments alive for the callee activation.
     let bound;
     let mta = match super::object::bind_forwarded_mta(frame, ctx, mta) {
         Some(v) => { bound = v; &bound[..] }
