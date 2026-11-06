@@ -1,0 +1,50 @@
+namespace Demo;
+
+struct Triple {
+    public int X;
+    public int Y;
+    public int Z;
+}
+
+class BufferInfo {
+    public int Length;
+}
+
+int CountInts(int[] values) {
+    int count = 0;
+    foreach (int value in values) { count = count + 1; }
+    return count;
+}
+
+void Main() {
+    int[] ints = new int[3];
+    Assert.Equal(3, ints.Length);
+    Assert.Equal(3, CountInts(ints));
+    Assert.Equal(3, CountInts(ints));
+    Assert.Equal(0, CountInts(new int[0]));
+
+    byte[] bytes = new byte[5];
+    long[] longs = new long[6];
+    string[] strings = new string[7];
+    object[] objects = new object[8];
+    Assert.Equal(5, bytes.Length);
+    Assert.Equal(6, longs.Length);
+    Assert.Equal(7, strings.Length);
+    Assert.Equal(8, objects.Length);
+
+    Triple[] triples = new Triple[4];
+    Assert.Equal(4, triples.Length);
+    int structCount = 0;
+    foreach (Triple value in triples) { structCount = structCount + 1; }
+    Assert.Equal(4, structCount);
+
+    BufferInfo info = new BufferInfo();
+    info.Length = 123;
+    Assert.Equal(123, info.Length);
+
+    int[] missing = null;
+    bool caught = false;
+    try { CountInts(missing); }
+    catch (NullReferenceException e) { caught = true; }
+    Assert.True(caught);
+}

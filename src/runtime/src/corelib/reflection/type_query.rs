@@ -5,10 +5,14 @@ pub fn type_full_name(ty: &Value) -> Value {
     read_type_slot_of(ty, "__fullName")
 }
 
-/// `__type_element(typeObj) -> Type | null` — the element type of an array Type
-/// (`Type.GetElementType()`), or null for a non-array Type. add-reflection-array-
-/// element-type: reads the VM-written `__elementName` slot and resolves it.
+/// The element Type captured when this array Type was built.
 pub fn type_element(ctx: &VmContext, ty: &Value) -> Value {
+    if let Value::Object(rc) = ty {
+        if let Some(&slot) = rc.type_desc().field_index.get("__elementType") {
+            return rc.borrow().field_value(slot);
+        }
+    }
+    // A prebuilt bootstrap seed has only the name slot.
     match read_type_slot_of(ty, "__elementName") {
         Value::Str(s) if !s.is_empty() => make_type_from_name(ctx, &s),
         _ => Value::Null,
@@ -41,14 +45,11 @@ pub fn type_base(ctx: &VmContext, ty: &Value) -> Value {
 /// `__type_generic_args(typeObj) -> Type[]` — instantiated generic type args
 /// (`Box<int>` → `[typeof(int)]`); empty for non-generic / open types.
 pub fn type_generic_args(ctx: &VmContext, ty: &Value) -> Value {
-    // add-reflection-generic-type-definition: a *constructed* type built from
-    // `typeof(Box<int>)` carries the resolved arg `Std.Type`s in its `__typeArgs`
-    // slot — return them directly. (Fixes `typeof(Box<int>).GetGenericArguments()`
-    // which previously returned empty because the typeof resolves to the
-    // definition TypeDesc whose `type_args` is empty.)
-    let slot = read_type_slot_of(ty, "__typeArgs");
-    if matches!(slot, Value::Array(_)) {
-        return slot;
+    // The backing array also feeds member substitution. Give callers their
+    // own array so a write cannot change the type's projected arguments.
+    if let Value::Array(arguments) = read_type_slot_of(ty, "__typeArgs") {
+        let snapshot = arguments.borrow().iter_boxed().collect();
+        return ctx.heap().alloc_array(snapshot);
     }
     // Fallback: `TypeDesc.type_args` — the `new Box<int>()` instance path
     // (`obj.GetType().GetGenericArguments()`), unchanged.
@@ -379,7 +380,31 @@ pub mod typed {
     #[builtin(name = "__type_full_name")]
     pub fn full_name(ty: &Value) -> Value { type_full_name(ty) }
 
-    #[builtin(name = "__type_element")]
+    #[builtin(name = "__type_identity_equals")]
+    pub fn identity_equals(a: &Value, b: &Value) -> bool {
+        match (a, b) {
+            (Value::Null, Value::Null) => true,
+            (Value::Object(a_ref), Value::Object(b_ref)) => {
+                if crate::object::ObjRef::ptr_eq(a_ref, b_ref) { return true; }
+                match (reflected_type_key(a), reflected_type_key(b)) {
+                    (Some(a_key), Some(b_key)) => a_key == b_key,
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    #[builtin(name = "__type_identity_hash")]
+    pub fn identity_hash(ty: &Value) -> i64 {
+        use std::hash::{Hash, Hasher};
+        let Some(key) = reflected_type_key(ty) else { return 0 };
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut hash);
+        (hash.finish() as i32) as i64
+    }
+
+    #[builtin(name = "__type_element", reenters)]
     pub fn element(ctx: &VmContext, ty: &Value) -> Value { type_element(ctx, ty) }
 
     #[builtin(name = "__type_base")]

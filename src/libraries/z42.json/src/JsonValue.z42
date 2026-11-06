@@ -232,6 +232,12 @@ public class JsonValue {
         return this._objectValues[slot];
     }
 
+    /// 供绑定器一次查找后按槽读取，非 object 或缺键返回 -1。
+    internal int FindObjectSlot(string key) {
+        if (this._kind != 6) { return -1; }
+        return this._slotOf(key);
+    }
+
     // Slot of `key` in the object arrays, or -1. Linear scan up to 8 keys,
     // one dictionary probe above.
     private int _slotOf(string key) {

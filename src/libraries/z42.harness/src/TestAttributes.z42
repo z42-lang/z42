@@ -17,22 +17,39 @@ public sealed class TestAttribute : Attribute {
     public TestAttribute() { }
 }
 
-/// 一条基准：零参，或唯一参数为 [`Bencher`]（`void f(Bencher b)`——runner 传入并自动打摘要行）。
+/// 一条基准：推荐 `void f(Bencher b)`（runner 传固定档并自动打摘要行）。
+///
+/// 体里只写 `b.iter(() => …)`——预热/采样/摘要全是 runner 的事；零参自建形态
+/// （自己 new Bencher + printSummary）留给要自定采样档 / 自定标签 / 自适应预算的场合。
 public sealed class BenchmarkAttribute : Attribute {
     /// 无实参（签名约束由编译期校验）。
     public BenchmarkAttribute() { }
 }
 
 /// 同命名空间（或同一类型）里每条测试之前执行。
+///
+/// 定向形态 `[Setup(target: "bench_x")]`（可逗号列多个，如 `"test_a, test_b"`）：只在这些
+/// 测试之前执行；缺省（无 target）仍对本 namespace（或本类型）里**每条**测试执行。名字按
+/// 源码方法名匹配（不带 namespace 前缀）；定向与非定向可以并存——非定向先跑，定向按声明序随后。
 public sealed class SetupAttribute : Attribute {
-    /// 无实参（签名约束由编译期校验）。
-    public SetupAttribute() { }
+    /// 定向目标：逗号分隔方法名；空 = 本组每条测试之前都执行。
+    public string Target;
+    /// `target` 缺省空 = 非定向（本组每条测试之前都执行）。
+    public SetupAttribute(string target = "") {
+        this.Target = target;
+    }
 }
 
 /// 同命名空间（或同一类型）里每条测试之后执行（测试失败也执行）。
+///
+/// 定向形态同 `[Setup(target: …)]`：只在这些测试之后执行；缺省对本组每条测试执行。
 public sealed class TeardownAttribute : Attribute {
-    /// 无实参（签名约束由编译期校验）。
-    public TeardownAttribute() { }
+    /// 定向目标：逗号分隔方法名；空 = 本组每条测试之后都执行。
+    public string Target;
+    /// `target` 缺省空 = 非定向（本组每条测试之后都执行）。
+    public TeardownAttribute(string target = "") {
+        this.Target = target;
+    }
 }
 
 /// 跳过本条。`reason` 必填（E0914）；`platform` / `feature` 是可选门。
