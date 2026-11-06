@@ -21,6 +21,7 @@
 | 控制台 / 文件 / 路径 / 环境（native 语义层） | `src/IO/` / `src/Native/` |
 
 `List<T>.Count` 是公开只读属性，当前元素数由列表的修改操作维护。
+`Dictionary<TKey,TValue>.Count` 和 `HashSet<T>.Count` 也是公开只读属性，返回当前存活元素数。此前按字段访问这两个成员的字节码需要重编。
 
 ## 如何测试验证
 
