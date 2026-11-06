@@ -195,7 +195,7 @@ public sealed partial class ClassDescBuilder {
     }
 
     [Suppress("style.fnLinesHard", "173 body lines；拆分见 code-organization.md")]
-    internal IrClassDesc _classDesc(ClassDecl c, bool hasRecord, IrAttrRef[] declarationAttrs) {   // add-record-attribute：hasRecord 由 IrGen 从原始 AttributedDecl 判（[Record]）
+    internal IrClassDesc _classDesc(ClassDecl c, bool hasRecord) {   // add-record-attribute：hasRecord 由 IrGen 从原始 AttributedDecl 判（[Record]）
         // 镜像 C# EmitClassDesc：struct 无默认基类；Std.Object 自身无基类；其余默认 "Std.Object"。
         // add-record-attribute（N+1，keyword 已删）：`[Record] class` 走 class（Kind=="class"）→ 自然拿回
         // Std.Object 基；`[Record] struct` 走 struct → 无基。基类语义随底层 Kind 归位，attribute 不加特例。
@@ -203,7 +203,6 @@ public sealed partial class ClassDescBuilder {
         bool isRoot = c.Name == "Object";
         bool hasBase = !(isStruct || isRoot);
         string baseName = hasBase ? "Std.Object" : "";
-        string reflectionBase = "";
         int bi2 = 0;
         while (bi2 < c.BaseCount) {       // 基表判别（port-z42c-interface）：跳过接口，取首个类
             string bn = c.Bases[bi2].Dump();
@@ -236,9 +235,6 @@ public sealed partial class ClassDescBuilder {
                 } else {
                     baseName = barebn;
                     baseName = this._qDecl(baseName);
-                    if (declarationAttrs != null && ltIdx >= 0 && c.TypeParams.Count > 0) {
-                        reflectionBase = this._qInst(this._reflectionTypeName(c.Bases[bi2], c));
-                    }
                 }
                 hasBase = true;
                 bi2 = c.BaseCount;        // 取首个类即止
@@ -335,11 +331,6 @@ public sealed partial class ClassDescBuilder {
             j = j + 1;
         }
         IrClassDesc cd2 = new IrClassDesc(this._g._q(this._g._classIrShortName(c)), hasBase, baseName, fields, fcount);
-        if (declarationAttrs != null) {
-            cd2.Attrs = reflectionBase == "" ? declarationAttrs :
-                ClassDescBuilder._appendAttrRef(declarationAttrs, "$ReflectionBase", reflectionBase);
-            cd2.AttrCount = cd2.Attrs.Length;
-        }
         cd2.StaticFields = sfields; cd2.StaticFieldCount = sfcount;
         if (ctd != null && ctd.InterfaceCount > 0) {   // TYPE 接口块（zbc 1.20：FQ 名，镜像 C# InterfaceTypeName→QualifyClassName）
             // add-reflection-transitive-interfaces：展开间接继承（IB:IA → 类含 IA）。

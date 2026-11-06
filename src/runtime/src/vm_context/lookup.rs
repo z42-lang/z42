@@ -61,16 +61,6 @@ impl VmContext {
         crate::vm::runtime::dispatch::ic::fn_registration_mark()
     }
 
-    /// A loader snapshot for operation-local reflection plans. Pending
-    /// initialization must still take the ordinary resolution path.
-    pub(crate) fn reflection_revision(&self) -> i64 {
-        let loader = self.core.loader.lazy_loader.read();
-        if !self.static_init_drain_is_noop(&[]) {
-            return 0;
-        }
-        loader.as_ref().map_or(0, |loader| loader.reflection_revision() as i64)
-    }
-
     /// fix-cross-pkg-subclass-fields : seed the lazy loader's
     /// `type_registry` with TypeDescs from eagerly-loaded modules (e.g. the
     /// merged main module). Used by both the z42vm CLI and the in-process

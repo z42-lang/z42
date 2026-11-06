@@ -29,7 +29,7 @@
 //! methods delegate here; tests can construct the loader directly.
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::PathBuf;
-use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
+use std::sync::Arc;
 
 use anyhow::Result;
 
@@ -48,11 +48,8 @@ pub use crate::vm::loader::locate::namespace_index::ZpkgCandidate;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-static NEXT_REFLECTION_REVISION: AtomicU64 = AtomicU64::new(1);
-
 /// Lazy-loaded dependency state. Owned by `VmContext::lazy_loader`.
 pub struct LazyLoader {
-    reflection_revision: u64,
     fusion_inputs: FusionInputSource,
     /// Directories searched (in order) to resolve a transitive dep zpkg by
     /// file name. Typically `[entry-zpkg-dir, stdlib-libs-dir]` so an apphost's
@@ -248,7 +245,6 @@ impl LazyLoader {
                     }
                 }
                 self.type_registry.insert(name.clone(), Arc::clone(td));
-                self.note_reflection_change();
             }
         }
         self.publish_types();
@@ -300,7 +296,6 @@ impl LazyLoader {
         let strings = crate::vm::runtime::ids::str_table::StrTable::new(None);
         strings.reserve(main_pool_len);
         Self {
-            reflection_revision: NEXT_REFLECTION_REVISION.fetch_add(1, Ordering::Relaxed),
             fusion_inputs,
             search_dirs,
             vfs: crate::pal::fs::default_vfs(),
@@ -320,14 +315,6 @@ impl LazyLoader {
         }
     }
 
-    pub(crate) fn reflection_revision(&self) -> u64 {
-        self.reflection_revision
-    }
-
-    fn note_reflection_change(&mut self) {
-        self.reflection_revision = NEXT_REFLECTION_REVISION.fetch_add(1, Ordering::Relaxed);
-    }
-
     /// Insert `name` into `loaded_zpkgs`; if it was genuinely new (not already
     /// resident), also record it in `newly_loaded` so a `try_lookup_*` caller can
     /// fire `ModuleLoaded` without cloning + diffing the whole set. Mirrors the
@@ -335,7 +322,6 @@ impl LazyLoader {
     fn mark_zpkg_loaded(&mut self, name: String) {
         if self.loaded_zpkgs.insert(name.clone()) {
             self.newly_loaded.push(name);
-            self.note_reflection_change();
         }
     }
 
@@ -411,13 +397,9 @@ impl LazyLoader {
     /// unchanged entries cost one pointer compare. Call after every step that changes
     /// `type_registry` — after the fixup pass, so a fresh descriptor is still uniquely owned
     /// while the fixup mutates it.
-    pub(crate) fn publish_types(&mut self) {
-        let mut changed = false;
+    pub(crate) fn publish_types(&self) {
         for td in self.type_registry.values() {
-            changed |= self.types.publish(td);
-        }
-        if changed {
-            self.note_reflection_change();
+            self.types.publish(td);
         }
     }
 
@@ -453,7 +435,6 @@ impl LazyLoader {
             // `register_module_init` 的 owned 参数是必填的，所以漏接的路径编译期就过不去。
         }
         self.type_registry.insert(name, desc);
-        self.note_reflection_change();
     }
 
     /// cache-ctorless-objnew: **the single funnel** for growing the function registry (`funcs`).
@@ -468,7 +449,6 @@ impl LazyLoader {
             return false;
         }
         crate::vm::runtime::dispatch::ic::note_fn_registration();
-        self.note_reflection_change();
         true
     }
 

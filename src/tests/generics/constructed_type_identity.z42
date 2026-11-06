@@ -43,20 +43,6 @@ class Sub<U> : Box<U>, IFoo<U> {
 
 class DInt : Box<int> { }
 
-class ProjectedBase<P> { }
-class ProjectedChild<Q> : ProjectedBase<Pair<string, Q[]>> { }
-
-class MemberBase<P> {
-    public P Item;
-    public static P Shared;
-    public P Prop { get; set; }
-    public P Read(P value) { return value; }
-    public P Open<P>(P value) { return value; }
-}
-class MemberMiddle<Q> : MemberBase<Pair<string, Q[]>> { }
-class MemberLeaf<P> : MemberMiddle<P> { }
-class ConcreteLeaf : MemberBase<int> { }
-
 T Make<T>() where T : new() { return new T(); }
 
 ConstructorInfo OneArgCtor(Type t) {
@@ -67,35 +53,6 @@ ConstructorInfo OneArgCtor(Type t) {
         i = i + 1;
     }
     return null;
-}
-
-void CheckInheritedMembers(Type leaf, Type expected) {
-    int fields = 0;
-    foreach (FieldInfo f in leaf.GetFields()) {
-        if (f.Name == "Item" || f.Name == "Shared") {
-            Assert.True(f.FieldType.Equals(expected));
-            Assert.Equal(f.Name == "Shared", f.IsStatic);
-            fields = fields + 1;
-        }
-    }
-    Assert.Equal(2, fields);
-    PropertyInfo[] props = leaf.GetProperties();
-    Assert.Equal(1, props.Length);
-    Assert.True(props[0].PropertyType.Equals(expected));
-    int methods = 0;
-    foreach (MethodInfo m in leaf.GetMethods()) {
-        if (m.Name == "Read") {
-            Assert.True(m.ReturnType.Equals(expected));
-            Assert.True(m.GetParameters()[0].ParameterType.Equals(expected));
-            methods = methods + 1;
-        }
-        if (m.Name == "Open") {
-            Assert.Equal("P", m.ReturnType.FullName);
-            Assert.Equal("P", m.GetParameters()[0].ParameterType.FullName);
-            methods = methods + 1;
-        }
-    }
-    Assert.Equal(2, methods);
 }
 
 void Main() {
@@ -183,20 +140,6 @@ void Main() {
     Assert.Equal("Demo.Box<Std.Int32>", st.BaseType.FullName);
     Assert.Equal("Demo.IFoo<Std.Int32>", st.GetInterfaces()[0].FullName);
     Assert.Equal("Demo.Box<Std.Int32>", typeof(DInt).BaseType.FullName);
-    Type childDefinition = typeof(ProjectedChild<>);
-    Type projectedChild = childDefinition.MakeGenericType(inner);
-    Type projectedBase = projectedChild.BaseType;
-    Assert.True(projectedBase.IsGenericType);
-    Type[] basePair = projectedBase.GetGenericArguments()[0].GetGenericArguments();
-    Assert.True(basePair[0].Equals(typeof(string)));
-    Assert.True(Object.ReferenceEquals(inner, basePair[1].GetElementType()));
-    Assert.True(childDefinition.BaseType.IsGenericTypeDefinition);
-    Assert.Equal(0, childDefinition.GetCustomAttributes().Length);
-    Type leaf = typeof(MemberLeaf<>).MakeGenericType(inner);
-    Type leafExpected = leaf.BaseType.BaseType.GetGenericArguments()[0];
-    Assert.True(Object.ReferenceEquals(inner, leafExpected.GetGenericArguments()[1].GetElementType()));
-    CheckInheritedMembers(leaf, leafExpected);
-    CheckInheritedMembers(typeof(ConcreteLeaf), typeof(int));
     FieldInfo[] fs = typeof(Box<int>).GetFields();
     Assert.Equal("Std.Int32", fs[0].FieldType.FullName);
     Assert.Equal("Std.Int32[]", typeof(List<int>).GetFields()[0].FieldType.FullName);

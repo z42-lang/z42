@@ -12,11 +12,7 @@ internal static class JsonReflect {
 
     /// 按名称、实例/非泛型形态及完整参数类型绑定唯一 public 方法。
     public static MethodInfo BindMethod(Type t, string name, Type[] parameterTypes) {
-        return JsonReflect.BindMethod(t.GetMethods(), name, parameterTypes);
-    }
-
-    /// 按现有签名规则从同一轮已枚举的元数据查找方法。
-    public static MethodInfo BindMethod(MethodInfo[] ms, string name, Type[] parameterTypes) {
+        MethodInfo[] ms = t.GetMethods();
         MethodInfo found = null;
         int i = 0;
         while (i < ms.Length) {
@@ -43,15 +39,12 @@ internal static class JsonReflect {
 
     /// 读取当前 List 的 Count；每次遍历只调用一次。
     public static int ListCount(object list, Type t) {
-        FieldInfo[] fs = t.GetFields();
-        int i = 0;
-        while (i < fs.Length) {
-            FieldInfo f = fs[i];
-            if (f.Name == "Count" && f.IsPublic && !f.IsStatic) {
-                return (int)f.GetValue(list);
+        PropertyInfo[] properties = t.GetProperties();
+        foreach (PropertyInfo property in properties) {
+            if (property.Name == "Count" && property.CanRead) {
+                return (int)property.GetValue(list);
             }
-            i = i + 1;
         }
-        throw new JsonException("Missing collection field: Count");
+        throw new JsonException("Missing collection property: Count");
     }
 }

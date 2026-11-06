@@ -96,13 +96,6 @@ fn set_type_asm_id(tv: &Value, aid: AssemblyId) {
     }
 }
 
-pub(super) fn copy_type_asm_id(source: &Value, target: &Value) {
-    let aid = type_asm_id(std::slice::from_ref(source));
-    if aid != AssemblyId::ROOT {
-        set_type_asm_id(target, aid);
-    }
-}
-
 fn ctx_handle_of(this: &Value) -> Result<ContextId, BuiltinError> {
     ctx_handle(std::slice::from_ref(this)).map_err(BuiltinError::Legacy)
 }

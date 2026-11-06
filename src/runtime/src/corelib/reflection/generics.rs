@@ -262,10 +262,7 @@ pub fn type_make_generic(ctx: &VmContext, def: &Value, arg_types_arr: &Value) ->
                 .map_err(BuiltinError::Legacy)?;
         }
     }
-    let name = def_td.name.clone();
-    let constructed = build_constructed_type(ctx, Some(def_td), name, arg_types);
-    crate::corelib::assemblyloadcontext::copy_type_asm_id(def, &constructed);
-    Ok(constructed)
+    Ok(make_constructed_type_from_values(ctx, &def_td.name, arg_types))
 }
 
 /// 泛型反射合成迁 builtin ABI v2(P1-8 批次 5)。三个都是纯合成 / 查表——

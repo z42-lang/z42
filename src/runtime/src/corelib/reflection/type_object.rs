@@ -128,7 +128,7 @@ pub(super) fn make_array_type(ctx: &VmContext, element_name: &str, element: Valu
     )
 }
 
-pub(in crate::corelib) fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
+fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
     // Main module's own types first: the user program's classes live in the
     // main module's `type_registry`; the lazy loader below only covers
     // zpkg / stdlib types. (make-typeof-return-type — lets `typeof(UserClass)`
@@ -227,12 +227,6 @@ pub(super) fn make_constructed_type_from_values(
         || canonical_type_name(type_name),
         |td| td.name.clone(),
     );
-    build_constructed_type(ctx, definition, base_full, arg_types)
-}
-
-pub(super) fn build_constructed_type(
-    ctx: &VmContext, definition: Option<Arc<TypeDesc>>, base_full: String, arg_types: Vec<Value>,
-) -> Value {
     let simple = type_simple_name(&base_full);
     let definition_key = definition.as_ref().map_or_else(
         || ReflectedTypeKey::Symbol(base_full.as_str().into()),

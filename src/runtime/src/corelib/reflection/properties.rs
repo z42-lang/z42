@@ -30,8 +30,7 @@ pub fn type_properties(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinErro
             accumulate_property(ctx, &simple, &q, &mut props);
         }
     }
-    let scopes = MemberScopes::new(ctx, ty, &td);
-    let mut roots = ProjectionRoots::new(ctx);
+    let subst = member_subst(ty);
     let mut out = Vec::with_capacity(props.len());
     for p in &props {
         let type_tag = p
@@ -48,10 +47,10 @@ pub fn type_properties(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinErro
             None => Value::Null,
         };
         let projected = p.getter_qualified.as_ref().or(p.setter_qualified.as_ref())
-            .and_then(|key| scopes.for_method(key))
+            .and_then(|key| subst.as_ref().filter(|subst| subst.applies_to(key)))
             .and_then(|subst| projected_member_type(ctx, type_tag, subst, &[]));
         let property_type = projected.unwrap_or_else(|| make_type_from_name(ctx, type_tag));
-        let info = alloc_named(
+        out.push(alloc_named(
             ctx,
             STD_REFLECTION_PROPERTYINFO,
             &[
@@ -64,8 +63,7 @@ pub fn type_properties(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinErro
                 ("__getterQualified", getter_q),
                 ("__setterQualified", setter_q),
             ],
-        ).map_err(BuiltinError::Legacy)?;
-        out.push(if scopes.has_inherited() { roots.pin(info) } else { info });
+        ).map_err(BuiltinError::Legacy)?);
     }
     Ok(ctx.heap().alloc_array(out))
 }
@@ -156,7 +154,7 @@ pub(super) fn upsert_prop<'a>(props: &'a mut Vec<PropAccum>, name: &str) -> &'a 
 pub mod typed {
     use super::*;
 
-    #[builtin(name = "__type_properties", reenters)]
+    #[builtin(name = "__type_properties")]
     pub fn properties_of(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
         type_properties(ctx, ty)
     }

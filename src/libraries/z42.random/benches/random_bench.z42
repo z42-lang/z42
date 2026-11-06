@@ -9,34 +9,26 @@ using Std.Random;
 
 [Benchmark]
 void bench_next_int_range() {
-    var b = new Bencher(2, 20);
-    b.iter(() => {
-        var rng = new Random(12345L);
-        int acc = 0;
-        int i = 0;
-        while (i < 256) {
-            acc = acc + rng.NextIntRange(0, 100);
-            i = i + 1;
-        }
-        BenchHelpers.blackBox(acc);
-    });
-    b.printSummary("next_int_range");
+    var rng = new Random(12345L);
+    int acc = 0;
+    int i = 0;
+    while (i < 256) {
+        acc = acc + rng.NextIntRange(0, 100);
+        i = i + 1;
+    }
+    BenchHelpers.blackBox(acc);
 }
 
 [Benchmark]
 void bench_next_double() {
-    var b = new Bencher(2, 20);
-    b.iter(() => {
-        var rng = new Random(6789L);
-        double acc = 0.0;
-        int i = 0;
-        while (i < 256) {
-            acc = acc + rng.NextDouble();
-            i = i + 1;
-        }
-        BenchHelpers.blackBox(acc);
-    });
-    b.printSummary("next_double");
+    var rng = new Random(6789L);
+    double acc = 0.0;
+    int i = 0;
+    while (i < 256) {
+        acc = acc + rng.NextDouble();
+        i = i + 1;
+    }
+    BenchHelpers.blackBox(acc);
 }
 
 // Smoke [Test] — bench bodies run + seeded determinism sanity.

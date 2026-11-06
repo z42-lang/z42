@@ -1,0 +1,5 @@
+namespace NestedVendorMid;
+
+using NcMid;
+
+public string CallVendored() { return new Mid().Call(); }

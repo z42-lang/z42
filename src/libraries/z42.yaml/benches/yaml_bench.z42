@@ -25,13 +25,11 @@ string _doc() {
 }
 
 [Benchmark]
-void bench_yaml_parse() {
+void bench_yaml_parse(Bencher b) {
     string doc = _doc();
-    var b = new Bencher(2, 20);
     b.iter(() => {
         BenchHelpers.blackBox(YamlValue.Parse(doc));
     });
-    b.printSummary("yaml_parse");
 }
 
 // Smoke [Test] — bench body runs + parse sanity.

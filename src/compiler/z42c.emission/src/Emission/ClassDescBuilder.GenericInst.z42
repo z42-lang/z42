@@ -66,29 +66,6 @@ public sealed partial class ClassDescBuilder {
         return StructLayout.InstName(this._declTypeKey(nt.Name, nt.ArgCount), an, nt.ArgCount);
     }
 
-    // Keep class parameters symbolic while qualifying the other names in a reflection template.
-    private string _reflectionTypeName(TypeExpr t, ClassDecl owner) {
-        if (t is ArrayType) { return this._reflectionTypeName((t as ArrayType).Elem, owner) + "[]"; }
-        if (t is NullableType) { return this._reflectionTypeName((t as NullableType).Inner, owner); }
-        if (!(t is NamedType)) { return t.Dump(); }
-        NamedType named = t as NamedType;
-        if (named.ArgCount == 0) {
-            int i = 0;
-            while (i < owner.TypeParams.Count) {
-                if (owner.TypeParams.Names[i] == named.Name) { return named.Name; }
-                i = i + 1;
-            }
-            return this._declTypeKey(named.Name, 0);
-        }
-        string[] arguments = new string[named.ArgCount];
-        int j = 0;
-        while (j < arguments.Length) {
-            arguments[j] = this._reflectionTypeName(named.Args[j], owner);
-            j = j + 1;
-        }
-        return StructLayout.InstName(this._declTypeKey(named.Name, named.ArgCount), arguments, arguments.Length);
-    }
-
     // 声明里写的类型名 → 布局键（`LayoutKey`）：基元 → 关键字；类 / 接口按声明方作用域解析成全名；
     // 解析不到原样（规范化基元拼写）。
     private string _declTypeKey(string name, int arity) {
@@ -169,7 +146,7 @@ public sealed partial class ClassDescBuilder {
         string fqInst = this._qDecl(instName);   // 实例化名的基名已是定义的全名（`LayoutKey`），原样
         StrMap subst = ClassDescBuilder._instSubstOf(cdef, instName);
         // ── 定义那条描述符（字段集合与顺序的唯一来源）──────────────────────────
-        IrClassDesc cd = this._classDesc(cdef, HandlerRegistry.HasRecord(rawDef), null);
+        IrClassDesc cd = this._classDesc(cdef, HandlerRegistry.HasRecord(rawDef));
         cd.Name = fqInst;
         // complete-generic-class-identity P3：**静态字段按闭合类型各一份**（对齐 C#）。
         // P1 期这里是清空的（那时发射端仍按擦除名拼键，声明了也没人写）；P3 让两侧同时换成

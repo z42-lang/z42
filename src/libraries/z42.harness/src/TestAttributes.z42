@@ -1,3 +1,5 @@
+using Std.Reflection;   // MethodInfo —— [Test(setup: methodof(…))] 的声明成员
+
 namespace Std.Harness;
 
 // ── 测试 / bench attribute：作者与 runner 共享的契约 ───────────────────────────
@@ -12,24 +14,52 @@ namespace Std.Harness;
 // z42c.semantics 的 `Testing/TestAttrEnforcer`；这里的构造器只决定「写法能不能编过」与「runner 读到什么」。
 
 /// 一条测试：零参、返回 void 的自由函数或静态方法。
+///
+/// 定向 fixture（强类型）：`[Test(setup: methodof(Fix.setup_x))]` 声明本条测试专属的 setup，
+/// 在**非定向** `[Setup]`（本组公共）之后执行；`teardown` 反序（声明先、公共后）。引用是
+/// `methodof`（编译期解析）——目标改名/拼错在引用点直接编译错误（E0459），不再是字符串的
+/// 静默失效。目标须是静态类的零参 void 方法（`methodof` 的 owner 是类型，自由函数指不了）。
 public sealed class TestAttribute : Attribute {
-    /// 无实参（签名约束由编译期校验）。
-    public TestAttribute() { }
+    /// 本条测试专属 setup（`methodof(...)`）；null = 无。
+    public MethodInfo Setup;
+    /// 本条测试专属 teardown（`methodof(...)`）；null = 无。
+    public MethodInfo Teardown;
+    /// 裸 `[Test]` = 无专属 fixture；`setup:` / `teardown:` 按名赋参。
+    public TestAttribute(MethodInfo setup = null, MethodInfo teardown = null) {
+        this.Setup = setup;
+        this.Teardown = teardown;
+    }
 }
 
-/// 一条基准：零参，或唯一参数为 [`Bencher`]（`void f(Bencher b)`——runner 传入并自动打摘要行）。
+/// 一条基准：推荐 `void f(Bencher b)`（runner 传固定档并自动打摘要行）。
+///
+/// 体里只写 `b.iter(() => …)`——预热/采样/摘要全是 runner 的事；零参自建形态
+/// （自己 new Bencher + printSummary）留给要自定采样档 / 自定标签 / 自适应预算的场合。
+/// 定向 fixture 同 `[Test(setup: …)]`（test/bench 同一 runner 入口，机制共享）。
 public sealed class BenchmarkAttribute : Attribute {
-    /// 无实参（签名约束由编译期校验）。
-    public BenchmarkAttribute() { }
+    /// 本条基准专属 setup（`methodof(...)`）；null = 无。
+    public MethodInfo Setup;
+    /// 本条基准专属 teardown（`methodof(...)`）；null = 无。
+    public MethodInfo Teardown;
+    /// 裸 `[Benchmark]` = 无专属 fixture。
+    public BenchmarkAttribute(MethodInfo setup = null, MethodInfo teardown = null) {
+        this.Setup = setup;
+        this.Teardown = teardown;
+    }
 }
 
-/// 同命名空间（或同一类型）里每条测试之前执行。
+/// 同命名空间（或同一类型）里**每条**测试之前执行（公共环境）。
+///
+/// 要「只给某条测试」的专属 setup，不在本 attribute 上写目标（字符串会静默失效），改在
+/// 测试/基准那一侧强类型声明：`[Test(setup: methodof(Fix.setup_x))]`。
 public sealed class SetupAttribute : Attribute {
     /// 无实参（签名约束由编译期校验）。
     public SetupAttribute() { }
 }
 
-/// 同命名空间（或同一类型）里每条测试之后执行（测试失败也执行）。
+/// 同命名空间（或同一类型）里**每条**测试之后执行（测试失败也执行）。
+///
+/// 专属 teardown 同理：`[Test(teardown: methodof(Fix.teardown_x))]`。
 public sealed class TeardownAttribute : Attribute {
     /// 无实参（签名约束由编译期校验）。
     public TeardownAttribute() { }

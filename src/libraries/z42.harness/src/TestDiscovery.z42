@@ -25,6 +25,13 @@ public class TestCase {
     /// 期望抛出的异常类型（`[ShouldThrow<E>]` 的 E）；漏写类型实参为 null。
     public Type? Expected;
 
+    /// 测试/基准声明的专属 setup（`[Test(setup: methodof(…))]`）；null = 无。
+    ///
+    /// 执行序：非定向 [Setup]（公共）之后。
+    public MethodInfo? DeclaredSetup;
+    /// 同上，teardown：非定向 [Teardown]（公共）之前（专属先、公共后）。
+    public MethodInfo? DeclaredTeardown;
+
     /// 装配一条用例：名字 / kind / 函数取实参，skip 与期望异常等一律先置默认，
     /// 由发现层（`_fromMethod`）读 attribute 后补写。
     public TestCase(string qualified, int kind, MethodInfo method) {
@@ -32,6 +39,7 @@ public class TestCase {
         this.Skipped = false; this.Ignored = false;
         this.SkipReason = null; this.SkipPlatform = null; this.SkipFeature = null;
         this.ShouldThrow = false; this.Expected = null;
+        this.DeclaredSetup = null; this.DeclaredTeardown = null;
     }
 
     /// 是否 `[Test]`（Kind == 1）。
@@ -58,12 +66,13 @@ public class TestCase {
 
     /// 调用（无接收者）。被调函数里抛出的异常按原类型传出。
     ///
-    /// 零参形态直接调（`[Test]` / `[Setup]` / `[Teardown]` 及自建 [`Bencher`] 的
-    /// `[Benchmark]`）；`[Benchmark] void f(Bencher b)` 形态由这里建 [`Bencher`] 传入，
-    /// 跑完按函数名打摘要行（与自建形态手写 `b.printSummary("f")` 输出同一行）。
+    /// 零参形态直接调（`[Test]` / `[Setup]` / `[Teardown]` 及要自定采样档/标签的
+    /// `[Benchmark]`）；**推荐**的 `[Benchmark] void f(Bencher b)` 形态由这里建固定档
+    /// (2, 20) 的 [`Bencher`] 传入，跑完按函数名自动打摘要行——基准体只写 `b.iter(() => …)`，
+    /// 预热/采样/摘要全是 runner 的事。
     public void Invoke() {
         if (this.TakesBencher()) {
-            Bencher b = new Bencher();
+            Bencher b = new Bencher(2, 20);   // 事实标准固定档：确定性采样数，正确性波/CI A/B 的现状口径
             object[] args = new object[1];
             args[0] = b;
             this.Method.Invoke(null, args);
@@ -156,6 +165,14 @@ public static class TestDiscovery {
                 tc.SkipFeature = TestDiscovery._orNull(s.Feature);
             } else if (at is IgnoreAttribute) {
                 tc.Ignored = true;
+            } else if (at is TestAttribute) {
+                TestAttribute ta = at as TestAttribute;
+                tc.DeclaredSetup = ta.Setup;
+                tc.DeclaredTeardown = ta.Teardown;
+            } else if (at is BenchmarkAttribute) {
+                BenchmarkAttribute ba = at as BenchmarkAttribute;
+                tc.DeclaredSetup = ba.Setup;
+                tc.DeclaredTeardown = ba.Teardown;
             } else if (at is IExpectsException) {
                 tc.ShouldThrow = true;
                 tc.Expected = (at as IExpectsException).ExceptionType();

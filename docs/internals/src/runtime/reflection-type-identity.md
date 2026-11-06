@@ -48,17 +48,15 @@
 ### 构造类型的 `Type`
 
 名字入口 `make_type_from_name` 解析 `<…>` 中的实参。`MakeGenericType` 已持有实参 Type，校验通过后
-直接使用接收者的定义句柄，将这些对象放入新实参数组。两条路径共用对象分配与比较键构造，`__typeArgs` 保存 Type 引用，`GetGenericArguments()`
+将这些对象放入新实参数组。两条路径共用构造逻辑，`__typeArgs` 保存 Type 引用，`GetGenericArguments()`
 据此保留实参的程序集归属。结果句柄用于泛型定义，FullName 用于名称显示及按名派发。
 
 - **`GetType()`**：实例化描述符 → 以其名字构造（不再把实参拼两遍）；定义 + 实例实参 →
   `type_names::constructed`（定义名 + 实参）再构造。两种表示因此得到相等的 Type，也等于 `typeof`。
-- **`BaseType`**：优先从开放基类表达式 `$ReflectionBase` 投影实际实参。布局和派发继续使用注册键。
-  无法投影时沿实例化描述符、定义描述符的顺序查找。
-- **`GetInterfaces()`**：先查按规范名注册的实例化描述符，再退回定义。
+- **`BaseType` / `GetInterfaces()`**：定义的基类 / 接口表不带实参，于是先查**以规范名注册的实例化描述符**
+  （`instantiation_desc`：任一已加载包里有就用它，`Sub<int>` → `Box<int>` / `IFoo<int>`），没有才退回定义。
 - **`GetFields()` / `GetProperties()` / `GetMethods()` / `GetConstructors()`**：类声明的成员按定义型参
-  投影实际的 Type，包括嵌套数组和泛型。继承成员沿基类链查找声明类的实参。方法自己的型参保留其作用域，
-  缺少基类表达式的产物仍可使用已有实例化描述符。
+  投影实际的 Type，包括嵌套数组和泛型。方法自己的型参保留其作用域。继承字段仍可从实例化描述符取得。
 - **`IsAssignableFrom`**：两侧都按规范名走 `is_subclass_or_eq_td`；名字没有描述符（导入泛型的实例化）时
   按「定义 + 这些实参」回答，与 `isa_object` 对这种实例的回答一致。
 

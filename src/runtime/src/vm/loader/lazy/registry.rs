@@ -279,7 +279,6 @@ impl LazyLoader {
         // (which covered both); without the namespace path a test calling
         // `SortedSet.Add` (a dep's instance method) hits "VCall not found".
         self.note_symbol_owners(&artifact.dependencies);   // precise-pkg-refs
-        let declared_before = self.declared_zpkgs.len();
         if !self.search_dirs.is_empty() {
             let dirs = self.search_dirs.clone();
             for dep in &artifact.dependencies {
@@ -328,10 +327,6 @@ impl LazyLoader {
                     self.declared_zpkgs.insert(file, cand.clone());
                 }
             }
-        }
-
-        if declared_before != self.declared_zpkgs.len() {
-            self.note_reflection_change();
         }
 
         // Idempotent: a re-load of the same module is a no-op.
