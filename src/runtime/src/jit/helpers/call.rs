@@ -166,7 +166,7 @@ unsafe fn call_compiled(
         }
     }
     if mta.is_empty() {
-        if let Some(value) = crate::vm::exec::call::forward::try_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
+        if let Some(value) = crate::vm::exec::call::forward::try_jit_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
             frame_ref.regs[dst as usize] = value;
             return 0;
         }
@@ -206,7 +206,7 @@ unsafe fn call_interp(
         }
     }
     if mta.is_empty() {
-        if let Some(value) = crate::vm::exec::call::forward::try_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
+        if let Some(value) = crate::vm::exec::call::forward::try_jit_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
             frame_ref.regs[dst as usize] = value;
             return 0;
         }

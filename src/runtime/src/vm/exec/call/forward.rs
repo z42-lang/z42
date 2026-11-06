@@ -57,6 +57,16 @@ pub(crate) fn try_direct_field_read(
     ctx: &VmContext, func: &Function, regs: &[Value], args: &[u32],
 ) -> Option<Value> {
     let [arg] = args else { return None };
+    try_field_read_cached(ctx, func, regs.get(*arg as usize)?, None)
+}
+
+/// Warm the native caller's field cache when its direct call takes the helper.
+#[cfg(feature = "jit")]
+#[inline]
+pub(crate) fn try_jit_direct_field_read(
+    ctx: &VmContext, func: &Function, regs: &[Value], args: &[u32],
+) -> Option<Value> {
+    let [arg] = args else { return None };
     try_field_read_cached(ctx, func, regs.get(*arg as usize)?, func.direct_reader.get())
 }
 
