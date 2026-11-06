@@ -24,6 +24,8 @@
 //! - **并发复用同一个 `Regex`**：匹配状态存在实例字段上，多线程共享会互相踩
 namespace Std.Regex;
 
+using Std.Collections;
+
 /// 编译后的 pattern：解析为 AST，提供匹配 / 查找 / 替换 / 切分方法。
 ///
 /// 线程内复用；同一个 `Regex` 实例不要跨线程并发调用（匹配过程写实例字段）。
@@ -194,71 +196,74 @@ public class Regex {
     public string Replace(string input, string replacement) {
         Match[] matches = this.FindAll(input);
         if (matches.Length == 0) { return input; }
-        // replacement 可含 `$0`/`$1`/.../`$9` 占位符（整个 match / 组 N）与 `$$`（字面 `$`）；
-        // 不含 `$` 时输出即 replacement 字面量。
-        string acc = "";
-        int cursor = 0;
-        int i = 0;
-        while (i < matches.Length) {
-            Match m = matches[i];
-            acc = acc + input.Substring(cursor, m.Start() - cursor);
-            acc = acc + this._ExpandReplacement(replacement, m);
-            cursor = m.End();
-            i = i + 1;
+        int firstDollar = replacement.IndexOf('$');
+        string[] tokens = null;
+        int[] captures = null;
+        if (firstDollar >= 0) {
+            var literals = new List<string>();
+            var dynamicTokens = new List<int>();
+            this._ParseReplacement(replacement, firstDollar, literals, dynamicTokens);
+            tokens = literals.ToArray();
+            if (dynamicTokens.Count == 0) {
+                replacement = String.ConcatParts(tokens, tokens.Length);
+            } else {
+                captures = dynamicTokens.ToArray();
+            }
         }
-        acc = acc + input.Substring(cursor, input.Length - cursor);
-        return acc;
+        var parts = new List<string>();
+        int cursor = 0;
+        for (int i = 0; i < matches.Length; i = i + 1) {
+            Match m = matches[i];
+            int start = m.Start();
+            if (cursor < start) {
+                parts.Add(input.Substring(cursor, start - cursor));
+            }
+            if (captures != null) {
+                for (int j = 0; j < captures.Length; j = j + 2) {
+                    tokens[captures[j]] = m.Group(captures[j + 1]);
+                }
+                parts.Add(tokens.Length == 1 ? tokens[0] : String.ConcatParts(tokens, tokens.Length));
+            } else {
+                parts.Add(replacement);
+            }
+            cursor = m.End();
+        }
+        if (cursor < input.Length) {
+            parts.Add(input.Substring(cursor, input.Length - cursor));
+        }
+        return String.ConcatParts(parts.ToArray(), parts.Count);
     }
 
-    // 把 replacement 里的 `$N` 替换为 m.Group(N)：`$0` → 整个 match；`$1`..`$9` → 捕获组 N；
-    // `$$` → 字面 `$`。`$` 后跟其他字符按字面 `$X` 原样输出（对齐 .NET 行为，避免误伤纯文本里的 `$`）。
-    private string _ExpandReplacement(string replacement, Match m) {
-        // Fast path: no `$` anywhere → literal.
-        int probe = 0;
-        bool hasDollar = false;
-        while (probe < replacement.Length) {
-            if (replacement.CharAt(probe) == '$') { hasDollar = true; break; }
-            probe = probe + 1;
-        }
-        if (!hasDollar) { return replacement; }
-        string acc = "";
-        int i = 0;
-        while (i < replacement.Length) {
-            char c = replacement.CharAt(i);
-            if (c != '$' || i + 1 >= replacement.Length) {
-                char[] one = new char[1]; one[0] = c;
-                acc = acc + String.FromChars(one);
-                i = i + 1;
+    // Store ordinary text in runs. Only $$ and a single in-range group digit
+    // consume a token, while unrecognized two-character sequences stay literal.
+    private void _ParseReplacement(string replacement, int firstDollar, List<string> literals, List<int> dynamicTokens) {
+        int length = replacement.Length;
+        int literalStart = 0;
+        int pos = firstDollar;
+        while (pos + 1 < length) {
+            if (replacement.CharAt(pos) != '$') {
+                pos = pos + 1;
                 continue;
             }
-            char nx = replacement.CharAt(i + 1);
-            if (nx == '$') {
-                acc = acc + "$";
-                i = i + 2;
-                continue;
-            }
-            int code = (int)nx;
-            if (code >= 48 && code <= 57) {
-                int groupIdx = code - 48;
-                if (groupIdx <= this.GroupCount()) {
-                    acc = acc + m.Group(groupIdx);
-                    i = i + 2;
-                    continue;
+            char next = replacement.CharAt(pos + 1);
+            int group = (int)next - 48;
+            bool dollar = next == '$';
+            if (dollar || (group >= 0 && group <= 9 && group <= this.GroupCount())) {
+                if (literalStart < pos) {
+                    literals.Add(replacement.Substring(literalStart, pos - literalStart));
                 }
-                // Out-of-range group index → emit literally (`.NET` policy).
-                char[] dollar = new char[1]; dollar[0] = '$';
-                char[] digit  = new char[1]; digit[0]  = nx;
-                acc = acc + String.FromChars(dollar) + String.FromChars(digit);
-                i = i + 2;
-                continue;
+                if (!dollar) {
+                    dynamicTokens.Add(literals.Count);
+                    dynamicTokens.Add(group);
+                }
+                literals.Add(dollar ? "$" : null);
+                literalStart = pos + 2;
             }
-            // `$` followed by non-digit, non-`$` → emit `$` + char literally.
-            char[] dollar = new char[1]; dollar[0] = '$';
-            char[] other  = new char[1]; other[0]  = nx;
-            acc = acc + String.FromChars(dollar) + String.FromChars(other);
-            i = i + 2;
+            pos = pos + 2;
         }
-        return acc;
+        if (literalStart < length) {
+            literals.Add(replacement.Substring(literalStart, length - literalStart));
+        }
     }
 
     /// 按 match 切分；无匹配返回 [input]，空输入返回 [""]。
