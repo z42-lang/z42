@@ -3,6 +3,7 @@
 mod field;
 mod type_desc;
 mod layout;
+pub mod named_struct_layout;
 mod elem_type;
 mod type_args;
 pub use field::*;
