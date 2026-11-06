@@ -128,7 +128,7 @@ fn field_get_rare(ctx: &VmContext, recv: &Value, name: &str, ic: Option<&FieldIC
         // 反射 `GetValue` 是同一件事，复用 `boxed_struct_field_get`，不另写一份布局复刻。
         // `field_set` 刻意不跟：写进临时盒是静默丢弃写，正解是编译期拒绝。
         Value::BoxedStruct(gc) => {
-            Ok(crate::corelib::reflection::accessors::boxed_struct_field_get(ctx, gc, name)?)
+            Ok(super::struct_leaf::boxed_struct_field_get(ctx, gc, name)?)
         }
         other => Err(OpError::internal(format!(
             "FieldGet: expected object, got {other:?} (field `{name}`)"))),
