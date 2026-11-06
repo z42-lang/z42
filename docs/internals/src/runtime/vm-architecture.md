@@ -301,7 +301,7 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
 /`.so`/`.dll` 并调用其 `<basename>_register` 入口（约定）让 native 库通过
 `z42_register_type` 把类型推入 `native_types`。栈底帧 push 时安装 thread-local
 `CURRENT_VM`（见上「寄存器池、引擎入口 guard、frame_id」）让 native callback 能找回 VM；详见
-`src/runtime/src/interop/exports.rs` 的 `VmGuard`。
+`src/runtime/src/interop/tier1/exports.rs` 的 `VmGuard`。
 
 ---
 
