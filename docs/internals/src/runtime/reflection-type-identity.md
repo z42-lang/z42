@@ -48,13 +48,14 @@
 ### 构造类型的 `Type`
 
 名字入口 `make_type_from_name` 解析 `<…>` 中的实参。`MakeGenericType` 已持有实参 Type，校验通过后
-将这些对象放入新实参数组。两条路径共用构造逻辑，`__typeArgs` 保存 Type 引用，`GetGenericArguments()`
+直接使用接收者的定义句柄，将这些对象放入新实参数组。两条路径共用对象分配与比较键构造，`__typeArgs` 保存 Type 引用，`GetGenericArguments()`
 据此保留实参的程序集归属。结果句柄用于泛型定义，FullName 用于名称显示及按名派发。
 
 - **`GetType()`**：实例化描述符 → 以其名字构造（不再把实参拼两遍）；定义 + 实例实参 →
   `type_names::constructed`（定义名 + 实参）再构造。两种表示因此得到相等的 Type，也等于 `typeof`。
-- **`BaseType` / `GetInterfaces()`**：定义的基类 / 接口表不带实参，于是先查**以规范名注册的实例化描述符**
-  （`instantiation_desc`：任一已加载包里有就用它，`Sub<int>` → `Box<int>` / `IFoo<int>`），没有才退回定义。
+- **`BaseType`**：优先从开放基类表达式 `$ReflectionBase` 投影实际实参。布局和派发继续使用注册键。
+  无法投影时沿实例化描述符、定义描述符的顺序查找。
+- **`GetInterfaces()`**：先查按规范名注册的实例化描述符，再退回定义。
 - **`GetFields()` / `GetProperties()` / `GetMethods()` / `GetConstructors()`**：类声明的成员按定义型参
   投影实际的 Type，包括嵌套数组和泛型。方法自己的型参保留其作用域。继承字段仍可从实例化描述符取得。
 - **`IsAssignableFrom`**：两侧都按规范名走 `is_subclass_or_eq_td`；名字没有描述符（导入泛型的实例化）时
@@ -133,3 +134,8 @@ index 对齐，构建时从 `Function.is_static` 采）。`merge_with_base` 跳�
 `MemberResolver._bindInstanceMemberCall` 对 `Z42ArrayType` 收者委托给 `BindArrayInstanceCall`（`MemberResolver.Prim.z42`）：数组继承 Object 四方法，查 `Object` 取**真实返回类型**（`GetType`→`Std.Type`），镜像
 `Z42GenericParamType` 分支；`Std.Array` 的实例方法（`Clone` / `GetValue` / `SetValue`）照旧松绑定；两处都没有的名字报 `E0401`。若落到松绑定，返回类型是 `Z42UnknownType` → 链式 `xs.GetType().FullName` 退化成 `FieldGet "FullName"` → `null`。运行期数组值上的 VCall 仍走 `builtin_obj_get_type` 数组特化，OwnerClass
 与兜底同名、不改派发——只把 receiver 结果的静态类型定为 `Std.Type`，让链式属性正确绑定。
+
+
+## 短类型名的反射查找
+
+直接查找未命中时，反射从入口模块与惰性加载器的已加载全名中查找唯一短名。两个来源里的相同全名只算一次，多个不同全名匹配时保留原有歧义处理。扫描直接借用类型表中的名称，普通名称按切片比较，只在需要时按既有规则解析构造类型名。
