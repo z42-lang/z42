@@ -105,9 +105,9 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 >   只要有 path 依赖就运行期 `undefined function`：indexed 主文件被拷进 dist，它的散装 zbc 没跟过去。门：z42c.driver 的 CLI 夹具 `path-dep-closure` / `path-dep-ext-libs`。
 > - **其余来源的 indexed 依赖（workspace lib 成员等）连散装 zbc 一起装配**：`ZpkgReader.ReadIndexedZbcRels` 列出依赖 FILE 目录里的散装 zbc，按原相对布局
 >   拷进 exe 的 dist（加载器按「主文件所在目录 + rel」找）。与**本包自己的**散装 zbc、或**本轮另一个依赖**拷入的
->   同路径文件撞名 ⇒ 构建期报错（上一轮拷来的旧副本直接覆盖）。exe 的孤儿清理会先删掉这些副本、装配再拷回，
->   fresh 构建的终态一致；preserved 路径只装配不清理。门：z42c.driver 的 CLI 夹具 `bundle-indexed-deps` /
->   `bundle-indexed-name-clash`（workspace exe + lib 成员 debug 能跑 / 同名 `x.z42` 撞车报错）。
+>   同路径文件撞名 ⇒ 构建期报错（上一轮拷来的旧副本直接覆盖）。exe 构建记录已复制文件的路径和内容指纹。下次构建完成依赖解析后，复制当前闭包并移除已不再需要且内容未被改动的旧副本。
+>   packed 主包、indexed 散装 zbc 和符号文件采用同一规则。未登记的文件与当前项目产物不会被依赖清理移除。
+>   indexed 项目按上一份主包的 FILE 表识别自己的旧散装文件。fresh 与 preserved 构建共用依赖装配流程。
 
 #### 按名/产物引用的依赖也建闭包
 
