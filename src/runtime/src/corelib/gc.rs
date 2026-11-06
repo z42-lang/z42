@@ -209,7 +209,7 @@ fn extract_gc_handle_slot(ctx: &VmContext, arg: &Value) -> u64 {
 /// 造不出来（`Std.GCHandle` 的类型尚未装载等）→ 回落旧的单槽对象表示，不让 GC 句柄整条路崩。
 fn make_gc_handle(ctx: &VmContext, slot: u64) -> Value {
     let bytes = (slot as i64).to_le_bytes();
-    match crate::corelib::convert::box_struct_blob(ctx, "Std.GCHandle", &bytes, &[]) {
+    match crate::objops::struct_leaf::box_struct_blob(ctx, "Std.GCHandle", &bytes, &[]) {
         Ok(v) => v,
         Err(_) => ctx.heap().alloc_object(
             gc_handle_type_desc(),

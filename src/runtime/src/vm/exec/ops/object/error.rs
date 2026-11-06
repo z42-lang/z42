@@ -198,7 +198,7 @@ impl OpError {
     }
 
     /// builtin（签名返回 `anyhow::Result`）里抛用户异常：`Throw` 原样装进 `anyhow::Error`，
-    /// 两个引擎的 builtin 错误出口（`corelib::builtin_error_exception`）把它取回来按类构造。
+    /// 两个引擎的 builtin 错误出口（`vm/exec/call/builtin_abi/error.rs`）把它取回来按类构造。
     /// 其余变体同 [`OpError::into_anyhow`]。
     #[cold]
     pub fn into_builtin_error(self) -> anyhow::Error {
