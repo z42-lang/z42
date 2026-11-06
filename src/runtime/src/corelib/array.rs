@@ -128,23 +128,28 @@ pub mod typed {
     #[builtin(name = "__array_set", this = "SetValue")]
     pub fn set(ctx: &VmContext, this: ArrRef, value: &Value, index: i64) -> Result<(), BuiltinError> {
         let i = index.try_into().map_err(|_| index_oob("__array_set", index, &this))?;
-        // Unbox a boxed integer primitive to its raw `I64` so packed backings store it;
-        // non-boxed values (F64 / Bool / Char / Str / Object) pass through to `set_boxed`.
-        let raw = match value {
-            Value::BoxedStruct(s) => match s.borrow().boxed_prim_i64() {
-                Some(n) => Value::I64(n),
-                None => Value::BoxedStruct(s.clone()),
-            },
-            other => other.clone(),
-        };
-        let wrote = {
+        let raw = {
             let a = this.borrow();
             if i >= a.len() {
                 return Err(index_oob("__array_set", index, &this));
             }
-            // 值不是元素类型（基元不同种 / 值 struct 数组收到别的东西）→ InvalidCastException（同 C#），
-            // 数组不动。
-            objops::array_bulk::check_untyped_store(&a, &raw)?;
+            match value {
+                Value::BoxedStruct(s) => {
+                    let elem = a.element_type();
+                    let scalar = crate::metadata::index::type_names::builtin_keyword(&elem)
+                        .is_some_and(|kind| !matches!(kind, "object" | "string"));
+                    if scalar || a.zero() != 0 || s.type_desc().is_enum() && &*s.type_desc().name == &*elem {
+                        s.borrow().boxed_prim_i64().map(Value::I64).unwrap_or(*value)
+                    } else {
+                        *value
+                    }
+                }
+                _ => *value,
+            }
+        };
+        objops::array_bulk::check_untyped_store(ctx, &this.borrow(), &raw)?;
+        let wrote = {
+            let a = this.borrow();
             // fix-silent-array-elem-zero：走会报错的那版。此前是 `set_boxed`（release 静默存 0）
             // ⇒ `a.SetValue(objNull, 0)` 把 `int[0]` 从 9 变成 0、不抛、报成功。
             // 形参声明是 `Object` ⇒ 没有编译器站点能先转换，值是**用户**给的
@@ -178,6 +183,21 @@ pub mod typed {
         let n = non_negative("__array_copy", "length", length)?;
         objops::array_bulk::copy_range(ctx, &src, si, &dst, di, n)?;
         Ok(())
+    }
+
+    #[builtin(name = "__array_try_clear_range")]
+    pub fn try_clear_range(array: &Value, index: i64, length: i64) -> Result<bool, BuiltinError> {
+        let Value::Array(array) = array else { return Ok(false) };
+        let index = non_negative("__array_try_clear_range", "index", index)?;
+        let length = non_negative("__array_try_clear_range", "length", length)?;
+        let a = array.borrow();
+        let len = a.len();
+        if index > len || length > len - index {
+            return Err(BuiltinError::ArgumentOutOfRange(format!(
+                "__array_try_clear_range: index {index}, length {length}, array length {len}",
+            )));
+        }
+        a.try_clear_elems(index, length).map_err(|err| BuiltinError::Internal(err.to_string()))
     }
 
     /// `List<T>.Sort()` / `Array.Sort<T>(T[])` 的基元快路径 — stable-sort

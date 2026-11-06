@@ -54,6 +54,7 @@ void Demo() {
   | `const` 字段（限定名，或同类内的裸名）| `K.MAX` / `MAX` / `K.MAX + 1` |
   | `typeof(T)` | `typeof(UserService)` |
   | [`methodof(X.M(..))`](methodof.md) | `methodof(Api.Get(string))` |
+  | [`fieldof(X.F)`](fieldof.md) / [`propertyof(X.P)`](fieldof.md) | `fieldof(Row.Total)` / `propertyof(Row.Title)` |
   | 以上元素构成的数组 | `new string[]{ "a", "b" }` / `new Type[]{ typeof(int) }` |
 
   拒掉的是**依赖运行期状态**的写法——方法调用（`K.Make()`）、可变静态字段（`K.Mutable`）、
@@ -138,7 +139,7 @@ foreach (PropertyInfo p in t.GetProperties()) { p.GetCustomAttributes(); }
 | 4 | 实例可变（正是 #3 必须每次复制的根因）| **实例在 ctor 内一次写定**，缓存因此安全 |
 | 5 | `AttributeUsage` 是自循环的元属性 + 反直觉默认值 | **暂不提供**；将来做成一等声明子句，不做元属性 |
 
-**刻意保留的 C# 约束**：实参限编译期常量（安全 + 「attribute 是数据不是行为」的心智模型，见上；z42 在此之上多收了 `methodof`）；
+**刻意保留的 C# 约束**：实参限编译期常量（安全 + 「attribute 是数据不是行为」的心智模型，见上；z42 在此之上多收了 member-of 家族：`methodof` / `fieldof` / `propertyof`）；
 attribute 是被动的——它只是数据，不会主动改写被注解的声明。
 
 **暂未提供**：`AttributeUsage` 式的 target / 重复性限制（attribute 可以贴在任何支持的位置）；

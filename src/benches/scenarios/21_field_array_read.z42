@@ -1,0 +1,26 @@
+// tier: full
+
+// Read a packed array through a field on each loop iteration. Expected output: 10000000.
+
+namespace Bench.FieldArrayProbe;
+
+using Std.IO;
+
+class Buffer {
+    private int[] _items;
+    public Buffer(int[] items) { this._items = items; }
+
+    public long Sum(int n) {
+        long sum = 0L;
+        for (int i = 0; i < n; i = i + 1) {
+            sum = sum + this._items[i & 3];
+        }
+        return sum;
+    }
+}
+
+void Main() {
+    Buffer buffer = new Buffer(new int[] { 1, 2, 3, 4 });
+    Assert.Equal(1L, buffer.Sum(1));
+    Console.WriteLine(buffer.Sum(4000000).ToString());
+}

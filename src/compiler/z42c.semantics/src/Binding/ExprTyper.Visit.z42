@@ -48,6 +48,7 @@ public sealed partial class ExprTyper {
     public BoundExpr VisitAsExpr(AsExpr n, TypeEnv env) { return this._typeop._bindAsExpr(n, env); }
     public BoundExpr VisitTypeofExpr(TypeofExpr n, TypeEnv env) { return this._typeop._bindTypeofExpr(n, env); }
     public BoundExpr VisitMethodOfExpr(MethodOfExpr n, TypeEnv env) { return this._typeop._bindMethodOfExpr(n, env); }
+    public BoundExpr VisitFieldOfExpr(FieldOfExpr n, TypeEnv env) { return this._typeop._bindFieldOfExpr(n, env); }
     public BoundExpr VisitCastExpr(CastExpr n, TypeEnv env) { return this._typeop._bindCastExpr(n, env); }
     public BoundExpr VisitObjNewExpr(ObjNewExpr n, TypeEnv env) {
         return this._construct._bindNew(n, env, null);   // 无目标上下文 → target-typed 会报 E0437

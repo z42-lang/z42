@@ -1,0 +1,75 @@
+namespace Z42CoreArrayReferenceStoresTests;
+
+using Std.Harness;
+
+class Unrelated { }
+interface ITagged { int Tag(); }
+class Parent { }
+class Child : Parent, ITagged {
+    public int Tag() { return 7; }
+}
+class Box<T> { }
+
+[Test]
+void test_set_value_rejects_wrong_reference() {
+    string[] dst = new string[] { "old" };
+    Assert.Throws("InvalidCastException", () => dst.SetValue(new Unrelated(), 0));
+    Assert.Equal("old", dst[0]);
+    dst.SetValue(null, 0);
+    Assert.Null(dst[0]);
+}
+
+[Test]
+void test_set_value_checks_closed_generic_arguments() {
+    Box<string>[] dst = new Box<string>[1];
+    Assert.Throws("InvalidCastException", () => dst.SetValue(new Box<int>(), 0));
+    Assert.Null(dst[0]);
+    var value = new Box<string>();
+    dst.SetValue(value, 0);
+    Assert.True(Object.ReferenceEquals(value, dst[0]));
+}
+
+[Test]
+void test_set_value_checks_nested_array_invariance() {
+    int[] expected = new int[] { 8 };
+    int[][] dst = new int[][] { expected };
+    dst.SetValue(expected, 0);
+    Assert.Throws("InvalidCastException", () => dst.SetValue(new long[1], 0));
+    Assert.True(Object.ReferenceEquals(expected, dst[0]));
+}
+
+[Test]
+void test_copy_checks_entire_narrowing_range_before_writing() {
+    object[] src = new object[] { "new", new Unrelated() };
+    string[] dst = new string[] { "old", "keep" };
+    Assert.Throws("InvalidCastException", () => Array.CopyRange(src, 0, dst, 0, 2));
+    Assert.Equal("old", dst[0]);
+    Assert.Equal("keep", dst[1]);
+    src[1] = null;
+    Array.CopyRange(src, 0, dst, 0, 2);
+    Assert.Equal("new", dst[0]);
+    Assert.Null(dst[1]);
+}
+
+[Test]
+void test_copy_rejects_unrelated_class_arrays() {
+    Child[] src = new Child[] { new Child() };
+    var keep = new Unrelated();
+    Unrelated[] dst = new Unrelated[] { keep };
+    Assert.Throws("ArrayTypeMismatchException", () => Array.CopyRange(src, 0, dst, 0, 1));
+    Assert.True(Object.ReferenceEquals(keep, dst[0]));
+}
+
+[Test]
+void test_copy_and_set_preserve_assignable_references() {
+    Child child = new Child();
+    Parent[] parents = new Parent[1];
+    parents.SetValue(child, 0);
+    Assert.True(Object.ReferenceEquals(child, parents[0]));
+    ITagged[] tags = new ITagged[1];
+    Array.CopyRange(new Child[] { child }, 0, tags, 0, 1);
+    Assert.Equal(7, tags[0].Tag());
+    Child[] children = new Child[1];
+    Array.CopyRange(parents, 0, children, 0, 1);
+    Assert.True(Object.ReferenceEquals(child, children[0]));
+}

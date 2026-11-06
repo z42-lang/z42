@@ -99,9 +99,9 @@ impl ArrayMode {
 const KIND_TAG_MASK: usize = 127;
 const MODE_MASK: usize = 15;
 
-/// Array header fields and mode encoding used by native length reads.
+/// Array header fields and mode encoding used by native array reads.
 #[cfg(all(feature = "jit", target_pointer_width = "64"))]
-pub(crate) mod jit_len_layout {
+pub(crate) mod jit_layout {
     use super::{ArrayMode, MODE_MASK};
     use crate::object::header;
 
@@ -109,6 +109,7 @@ pub(crate) mod jit_len_layout {
     pub(crate) const HANDLE_GEN_SHIFT: u32 = header::ADDR_BITS;
     pub(crate) const GEN_OFFSET: i32 = std::mem::offset_of!(header::GcWord, generation) as i32;
     pub(crate) const SIZE_OFFSET: i32 = header::HEADER_SIZE_OFFSET as i32;
+    pub(crate) const DATA_OFFSET: i64 = header::GcBlockHeader::DATA_OFFSET as i64;
     pub(crate) const KIND_OFFSET: i32 = header::KIND_WORD_OFFSET as i32;
     pub(crate) const MODE_MASK_BITS: i64 = MODE_MASK as i64;
     pub(crate) const STRUCT_MODE: i64 = ArrayMode::Struct as i64;
@@ -480,11 +481,16 @@ impl ArrayObj {
     /// A FROZEN array: `elems` written once, read-only afterwards (closure environments, the
     /// `ref_word` kind-7 value box — which may hold a stack handle no cell can encode).
     pub fn alloc_frozen(heap: &Heap, elems: &[Value]) -> Value {
+        Self::alloc_frozen_from(heap, elems.len(), |i| elems[i])
+    }
+
+    /// Capture values directly into an unpublished frozen array. The reader must not safepoint.
+    pub(crate) fn alloc_frozen_from(heap: &Heap, len: usize, read: impl Fn(usize) -> Value) -> Value {
         let desc = ElemType::empty().array_desc(ArrayMode::Frozen, 0);
-        Self::alloc(heap, desc, elems.len(), None, &mut |a| {
-            for (i, v) in elems.iter().enumerate() {
-                // SAFETY: a fresh FROZEN block sized for `elems.len()` Values; nothing reads it yet.
-                unsafe { a.frozen_slot(i).write(*v) };
+        Self::alloc(heap, desc, len, None, &mut |a| {
+            for i in 0..len {
+                // SAFETY: a fresh FROZEN block sized for `len` Values; nothing reads it yet.
+                unsafe { a.frozen_slot(i).write(read(i)) };
             }
         })
     }

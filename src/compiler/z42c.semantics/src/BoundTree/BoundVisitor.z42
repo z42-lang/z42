@@ -39,6 +39,7 @@ public interface IBoundExprVisitor<R, D> {
     R VisitIsPatternExpr(BoundIsPatternExpr n, D d);
     R VisitTypeof(BoundTypeof n, D d);
     R VisitMethodOf(BoundMethodOf n, D d);
+    R VisitFieldOf(BoundFieldOf n, D d);
     R VisitCast(BoundCast n, D d);
     R VisitConvert(BoundConvert n, D d);
     R VisitBox(BoundBox n, D d);
