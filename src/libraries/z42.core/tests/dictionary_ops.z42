@@ -114,3 +114,25 @@ void test_snapshots_empty_dict() {
     Assert.Equal(0, d.Values().Length);
     Assert.Equal(0, d.Entries().Length);
 }
+
+[Test]
+void test_clear_already_empty_preserves_count_and_enumerator_contract() {
+    var d = new Dictionary<int, int>();
+    var iter = d.GetEnumerator();
+    Assert.False(iter.MoveNext());
+    d.Count = 1;
+    d.Clear();
+    Assert.Equal(0, d.Count);
+    bool invalidated = false;
+    try {
+        iter.MoveNext();
+    } catch (InvalidOperationException e) {
+        invalidated = true;
+    }
+    Assert.True(invalidated);
+    d[7] = 11;
+    Assert.Equal(11, d[7]);
+    d.Count = 0;
+    d.Clear();
+    Assert.False(d.ContainsKey(7));
+}

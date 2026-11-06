@@ -83,6 +83,9 @@ pub(super) fn signature_type(
             if let Some(projected) = projected_member_type(ctx, tag, subst, shadowed) {
                 return projected;
             }
+            // Keep the canonical spelling used by name-based substitution when
+            // this signature does not reference a constructed type argument.
+            return make_type_from_name(ctx, &crate::metadata::index::type_names::canonical(tag));
         } else {
             return inherited_member_type(ctx, tag, subst, shadowed);
         }
