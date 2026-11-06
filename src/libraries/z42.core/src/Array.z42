@@ -336,7 +336,7 @@ public sealed class Array {
         T[] result = new T[newSize];
         int copy = array.Length;
         if (newSize < copy) { copy = newSize; }
-        for (int i = 0; i < copy; i++) { result[i] = array[i]; }
+        if (copy > 0) { Array.CopyRange(array, 0, result, 0, copy); }
         return result;
     }
 

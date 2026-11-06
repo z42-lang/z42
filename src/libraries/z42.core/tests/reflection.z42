@@ -768,3 +768,10 @@ void test_delegate_metadata() {
     }
     Assert.True(sawInvoke);
 }
+
+[Test]
+void test_get_type_resolves_short_names_and_primitive_aliases() {
+    Assert.Equal(typeof(Adder), Type.GetType("Adder"));
+    Assert.Equal(typeof(int), Type.GetType("int"));
+    Assert.Equal("MissingReflectionShortName", Type.GetType("MissingReflectionShortName").FullName);
+}

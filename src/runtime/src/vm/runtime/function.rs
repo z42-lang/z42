@@ -61,6 +61,12 @@ impl Function {
     pub fn catch_key(&self, entry: usize) -> &TypeKeyCell {
         &self.sites().catch_keys[entry]
     }
+    pub(crate) fn array_get_erased(&self, dst: u32) -> bool {
+        match self.reg_types.get(dst as usize) {
+            Some(ty) => *ty == ir::reg_type::IrType::Unknown,
+            None => !self.sites().legacy_struct_views.contains(&dst),
+        }
+    }
     fn sites(&self) -> &CodeSites {
         self.sites
             .get_or_init(|| Box::new(CodeSites::new(&self.definition)))

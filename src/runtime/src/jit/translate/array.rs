@@ -21,7 +21,12 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let class_tp = if insn.type_param_kind == 2 { insn.type_param_index } else { -1 };
                     let tp = self.builder.ins().iconst(types::I32, class_tp as i64);
                     let tpk = self.builder.ins().iconst(types::I8, insn.type_param_kind as i64);
-                    let inst = self.builder.ins().call(self.hr_array_new, &[self.frame_val, self.ctx_val, d, s, t, et, tp, tpk]);
+                    let owner = if class_tp >= 0 {
+                        crate::vm::exec::call::forward::owner_type(&self.func.name).unwrap_or("")
+                    } else { "" };
+                    let owner_ptr = self.builder.ins().iconst(self.ptr, owner.as_ptr() as i64);
+                    let owner_len = self.builder.ins().iconst(types::I64, owner.len() as i64);
+                    let inst = self.builder.ins().call(self.hr_array_new, &[self.frame_val, self.ctx_val, d, s, t, et, tp, tpk, owner_ptr, owner_len]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::ArrayNewLit(insn) => {
@@ -33,6 +38,8 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let ret = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::ArrayGet { dst, arr, idx } => {
+                    let erased = self.func.array_get_erased(*dst);
+                    let erased_arg = self.builder.ins().iconst(types::I8, i64::from(erased));
                     // jit-inline-fastpaths: when the element (`dst`) and index are
                     // statically i64, do a NATIVE bounds-check + element load +
                     // unboxed store — no per-element `Value` round-trip through the
@@ -86,7 +93,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         // helper fallback: identical to the non-inline path.
                         self.builder.switch_to_block(helper_blk);
                         let d = self.ri(*dst); let a = self.ri(*arr); let i = self.ri(*idx);
-                        let hinst = self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d, a, i]);
+                        let hinst = self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d, a, i, erased_arg]);
                         let hret  = self.builder.inst_results(hinst)[0];
                         self.check(hret);
                         self.builder.ins().jump(done_blk, &[]);
@@ -101,7 +108,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         let d_c = self.builder.ins().iconst(types::I32, *dst as i64);
                         let a_c2 = self.builder.ins().iconst(types::I32, *arr as i64);
                         let i_c = self.builder.ins().iconst(types::I32, *idx as i64);
-                        self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d_c, a_c2, i_c]);
+                        self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d_c, a_c2, i_c, erased_arg]);
                         self.dispatch_to_catch_or_return();
                         // in-bounds: native element load + unboxed store. The packed
                         // array buffer is contiguous `arr_width`-byte slots with NO
@@ -126,10 +133,10 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         self.builder.ins().jump(done_blk, &[]);
                         self.builder.switch_to_block(done_blk);
                     } else if arr_ref_elem(self.func, *dst) && idx_int_ok(self.func, *idx) {
-                        self.tr_array_get_ref(*dst, *arr, *idx);
+                        self.tr_array_get_ref(*dst, *arr, *idx, erased_arg);
                     } else {
                         let d = self.ri(*dst); let a = self.ri(*arr); let i = self.ri(*idx);
-                        let inst = self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d, a, i]);
+                        let inst = self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d, a, i, erased_arg]);
                         let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                     }
                 }
@@ -262,7 +269,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     /// - otherwise a MIXED marker: `NULL(k)` → `null`; `PRIM(k)` → `{PRIM_KIND_TO_VALUE_TAG[k],
     ///   payload word}` (loaded after the tag word's acquire, so it is the published payload).
     /// Stride 0 (any other array) and an out-of-range index take `jit_array_get` (same exception).
-    fn tr_array_get_ref(&mut self, dst: u32, arr: u32, idx: u32) {
+    fn tr_array_get_ref(&mut self, dst: u32, arr: u32, idx: u32, erased_arg: cranelift_codegen::ir::Value) {
         use cranelift_codegen::ir::condcodes::IntCC;
         use crate::object::value::ref_word::{KIND_MASK, KIND_TO_VALUE_TAG, SLOW_PATH_TAG};
         use crate::object::value::tparam_cell::PRIM_KIND_TO_VALUE_TAG;
@@ -337,7 +344,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         // Helper: a box, any other array, or the exception.
         self.builder.switch_to_block(helper_blk);
         let d = self.ri(dst); let a = self.ri(arr); let i = self.ri(idx);
-        let inst = self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d, a, i]);
+        let inst = self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d, a, i, erased_arg]);
         let ret = self.builder.inst_results(inst)[0];
         self.check(ret);
         self.builder.ins().jump(done_blk, &[]);

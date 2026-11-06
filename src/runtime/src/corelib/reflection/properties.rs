@@ -97,14 +97,15 @@ pub(super) fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str
     if prop_name.is_empty() {
         return;
     }
-    let sig = resolve_func_sig(ctx, qualified);
+    let function = resolve_reflected_function(ctx, qualified);
+    let sig = function.as_ref().map(AsRef::as_ref);
     if is_get {
-        let (ty, public_instance) = match &sig {
-            Some((pc, ret, is_static, _, _, visibility, _, _, _, _)) => {
-                if pc.saturating_sub(if *is_static { 0 } else { 1 }) != 0 {
+        let (ty, public_instance) = match sig {
+            Some(f) => {
+                if f.param_count.saturating_sub(usize::from(!f.is_static)) != 0 {
                     return; // get_X(args) — a regular method, not a property
                 }
-                (ret.clone(), !*is_static && *visibility == 0)
+                (f.ret_type.clone(), !f.is_static && f.visibility == 0)
             }
             None => ("?".to_string(), false),
         };
@@ -113,14 +114,14 @@ pub(super) fn accumulate_property(ctx: &VmContext, simple: &str, qualified: &str
         p.getter_public_instance = public_instance;
         p.getter_qualified = Some(qualified.to_string());
     } else {
-        let (ty, public_instance) = match &sig {
-            Some((pc, _, is_static, ptypes, _, visibility, _, _, _, _)) => {
-                let base = if *is_static { 0 } else { 1 };
-                if pc.saturating_sub(base) != 1 {
+        let (ty, public_instance) = match sig {
+            Some(f) => {
+                let base = usize::from(!f.is_static);
+                if f.param_count.saturating_sub(base) != 1 {
                     return; // set_X with != 1 value param — a regular method
                 }
-                let ty = ptypes.get(base).cloned().unwrap_or_else(|| "?".to_string());
-                (ty, !*is_static && *visibility == 0)
+                let ty = f.param_types().get(base).cloned().unwrap_or_else(|| "?".to_string());
+                (ty, !f.is_static && f.visibility == 0)
             }
             None => ("?".to_string(), false),
         };
