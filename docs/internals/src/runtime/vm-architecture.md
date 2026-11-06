@@ -67,6 +67,7 @@ is/as/catch 目标键及数组元素/对象泛型实参的驻留句柄。侧表�
 对象表示集中在 `object/{value,types,header,object,array,string}`：Value、类型形状与布局、区块头和
 句柄、对象/数组存储及字符串索引。`gc/var_region` 管理分配、回收和弱句柄的 chunk epoch 校验；
 静态 PackageImage 不持有这些对象表示或 GC 状态。对象与字段的内存契约见 [object-abi.md](object-abi.md)。
+字符串的线程局部缓存记录 Unicode 标量计数，非 ASCII 字符串首次需要按标量索引时才构建字节偏移表。
 
 ## VmContext / VmCore —— 运行时状态归口
 
