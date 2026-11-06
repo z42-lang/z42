@@ -1,0 +1,12 @@
+desc = "内建大小成员只读，数组元素和用户同名字段仍可写"
+
+[[step]]
+args = ["--emit-zbc", "bad.z42", "bad.zbc"]
+exit = "nonzero"
+output_contains = ["20 error(s)", "E0482", "E0470"]
+absent = ["bad.zbc"]
+
+[[step]]
+args = ["--emit-zbc", "read.z42", "read.zbc"]
+exit = "zero"
+exists = ["read.zbc"]

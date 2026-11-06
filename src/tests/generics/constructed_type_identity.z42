@@ -22,10 +22,14 @@ class Entry { }
 
 class Box<T> {
     public T V;
+    public T[][] Matrix;
+    public T Property { get; set; }
     public Box() { }
     public Box(T v) { this.V = v; }
     public T Get() { return this.V; }
     public void Set(T v) { this.V = v; }
+    public Pair<T, T[]> MakePair(T v) { return null; }
+    public T Shadow<T>(T v) { return v; }
 }
 
 class Pair<A, B> { public A X; public B Y; }
@@ -38,6 +42,9 @@ class Sub<U> : Box<U>, IFoo<U> {
 }
 
 class DInt : Box<int> { }
+
+class ProjectedBase<P> { }
+class ProjectedChild<Q> : ProjectedBase<Pair<string, Q[]>> { }
 
 T Make<T>() where T : new() { return new T(); }
 
@@ -93,12 +100,58 @@ void Main() {
     args[0] = typeof(string);
     Assert.True(nested == typeof(Box<List<int>>));
     Assert.True(Object.ReferenceEquals(inner, nested.GetGenericArguments()[0]));
+    Type sameNested = typeof(Box<List<int>>);
+    int nestedHash = nested.GetHashCode();
+    Assert.Equal(nestedHash, sameNested.GetHashCode());
+    Dictionary<Type, int> cached = new Dictionary<Type, int>();
+    cached.Set(nested, 42);
+    Assert.Equal(42, cached.GetValueOrDefault(sameNested, -1));
+    Type[] projection = nested.GetGenericArguments();
+    projection[0] = typeof(string);
+    Assert.True(Object.ReferenceEquals(inner, nested.GetGenericArguments()[0]));
+    FieldInfo[] nestedFields = nested.GetFields();
+    Assert.True(Object.ReferenceEquals(inner, nestedFields[0].FieldType));
+    Assert.True(Object.ReferenceEquals(inner, nestedFields[1].FieldType.GetElementType().GetElementType()));
+    Assert.True(Object.ReferenceEquals(inner, nested.GetProperties()[0].PropertyType));
+    Assert.True(Object.ReferenceEquals(inner, OneArgCtor(nested).GetParameters()[0].ParameterType));
+    MethodInfo[] nestedMethods = nested.GetMethods();
+    int checked = 0;
+    for (int j = 0; j < nestedMethods.Length; j = j + 1) {
+        MethodInfo m = nestedMethods[j];
+        if (m.Name == "MakePair") {
+            Assert.True(Object.ReferenceEquals(inner, m.GetParameters()[0].ParameterType));
+            Type[] pairArgs = m.ReturnType.GetGenericArguments();
+            Assert.True(Object.ReferenceEquals(inner, pairArgs[0]));
+            Assert.True(Object.ReferenceEquals(inner, pairArgs[1].GetElementType()));
+            checked = checked + 1;
+        }
+        if (m.Name == "Shadow") {
+            Assert.Equal("T", m.ReturnType.FullName);
+            Assert.Equal("T", m.GetParameters()[0].ParameterType.FullName);
+            checked = checked + 1;
+        }
+    }
+    Assert.Equal(2, checked);
+    Assert.True(nested.Equals(sameNested));
+    Assert.False(nested == typeof(Box<string>));
+    Assert.Equal(nestedHash, nested.GetHashCode());
+    Assert.Equal(42, cached.GetValueOrDefault(sameNested, -1));
+    Assert.Equal(-1, cached.GetValueOrDefault(typeof(Box<string>), -1));
 
     // ── ③ 构造类型的反射：基类 / 接口 / 成员类型 / 可赋值性按实参 ────────────
     Type st = new Sub<int>(1).GetType();
     Assert.Equal("Demo.Box<Std.Int32>", st.BaseType.FullName);
     Assert.Equal("Demo.IFoo<Std.Int32>", st.GetInterfaces()[0].FullName);
     Assert.Equal("Demo.Box<Std.Int32>", typeof(DInt).BaseType.FullName);
+    Type childDefinition = typeof(ProjectedChild<>);
+    Type projectedChild = childDefinition.MakeGenericType(inner);
+    Type projectedBase = projectedChild.BaseType;
+    Assert.True(projectedBase.IsGenericType);
+    Type[] basePair = projectedBase.GetGenericArguments()[0].GetGenericArguments();
+    Assert.True(basePair[0].Equals(typeof(string)));
+    Assert.True(Object.ReferenceEquals(inner, basePair[1].GetElementType()));
+    Assert.True(childDefinition.BaseType.IsGenericTypeDefinition);
+    Assert.Equal(0, childDefinition.GetCustomAttributes().Length);
     FieldInfo[] fs = typeof(Box<int>).GetFields();
     Assert.Equal("Std.Int32", fs[0].FieldType.FullName);
     Assert.Equal("Std.Int32[]", typeof(List<int>).GetFields()[0].FieldType.FullName);

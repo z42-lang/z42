@@ -1,0 +1,9 @@
+namespace Fp.Base;
+using Std;
+
+// 基类的字段与属性**只在本包发射**；TSIG 会把基类实例字段展平进 Leaf 的导出。跨包属性
+// 以 get_/set_ 访问器方法过界（propertyof 的绑定回落按访问器认，见 TypeOpTyper）。
+public class Tagged {
+    public int Mark;
+    public string Label { get; set; }
+}

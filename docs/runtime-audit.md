@@ -135,7 +135,7 @@ vm/
   exec/            执行：会执行代码、抛异常、触发加载、等待的都在这里
     engine.rs      Engine trait、注册槽、分层 / OSR / deopt 交接
     call/          调用协议：frames、frame_stack、reg_pool、forward、builtin_abi/（参数、返回值、错误种类、invoke）
-    ops/           指令语义：scalar、field、array、statics、struct_ops、vcall、obj_new、cast
+    ops/           指令语义：scalar、object/（字段、数组、静态字段、struct 叶子）、vcall、obj_new、cast
                    （检查 → 查 runtime → 调 object 原语 → 屏障 → 抛异常）
     init.rs        类型初始化的执行：认领 / 等待、执行 cctor、失败包装
     exception.rs   异常对象与传播
@@ -218,7 +218,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 |---|---|---|---|---|---|
 | X-7 | perf/jit | **JIT 第二档：以 VCall PIC 为画像做守卫去虚化 + 内联**。现状：`emit_vcall_helper`（`jit/translate/object.rs`）一律调 helper，JIT 不内联任何 z42 callee；编译器 `IrInline` 只内联同包、直接调用、单块的函数体。改法：热函数按站点 PIC entry0 重编，生成「TypeId 守卫 → 内联 callee」，守卫失败回落 helper（不需要 deopt）；callee 寄存器映射到调用方寄存器文件的 `+max_reg` 窗口，栈回溯靠内联 pc 表 | CoreCLR tier1 + PGO 守卫去虚化 | 单态 getter / setter 调用 ≈22 → 1–2 ns；list_ops、vcall、z42c visitor | ⏸ 结构性 |
 | X-8 | perf/vm | **JIT→JIT 直接调用 + 每线程连续 Value 栈**（即阶段 2 第 2 项、X-5 后方向 2）。现状：JIT 帧是堆上寄存器数组，一次调用经 `jit_call`（10 参）→ 槽表 → 屏障 → `new_args_from` → `enter_compiled` 约 6 层 Rust 调用、2 次 safepoint 轮询 | CoreCLR 机器栈直接 call；CPython 3.11 连续帧栈零分配 | 每次调用 ≈20 → 3–5 ns | ⏸ 结构性 |
-| X-9 | perf/jit | **数组访问全内联**：显式 `arr.Length` 编译为 `FieldGet`，数组 `foreach` 在进入循环前发出 `ArrayLen`。两条 JIT 路径均经 helper 读取数组长度。首轮让这两条路径共享堆数组长度快路，保留各自的异常路径、栈数组处理和结构体数组布局计算。后续再处理 `this._items[i]` 的 data 指针、引用 / T 元素写屏障及 `i < arr.Length` 的边界检查消除 | CoreCLR 内联长度、内联写屏障、BCE | 集合密集代码 1.3–2× | ⬜ |
+| X-9 | perf/jit | **数组访问全内联**：显式 `arr.Length` 编译为 `FieldGet`，数组 `foreach` 在进入循环前发出 `ArrayLen`。两条 JIT 路径共用定宽堆数组长度快路。`this._items[i]` 等无法提升形状的定宽数组读取从当次接收者计算元素地址。后续处理数组写入的形状、引用 / T 元素写屏障及 `i < arr.Length` 的边界检查消除 | CoreCLR 内联长度、内联写屏障、BCE | 集合密集代码 1.3–2× | ⬜ |
 | X-10 | perf/jit | **is / as 内联**：`IsInstance` / `AsCast` 恒调 helper 再查 `isa_cache` 哈希。改法：TypeDesc 加 Cohen display（深度 + 祖先数组），类目标 O(1) 内联判定；接口目标用站点单态 memo | CoreCLR 精确类型比较 + cast cache | 类型判定密集代码该部分 3–5× | ⬜ |
 | X-11 | perf/jit | **方法级泛型函数体可 JIT + 方法类型实参驻留**：mta 是 `Box<[String]>`，解释器每次泛型调用深拷贝（`interp/exec_support.rs`）；读 T 的函数体被整函数拒译（`translate/unsupported.rs`）。改法：mta 改为驻留 `TypeArgs` 句柄（M14 同法）放进 Frame / JitFrame，`MethodTypeArg` 等经 helper 读句柄，`$mta` 转发直接传句柄 | CoreCLR 共享规范代码 + 泛型字典参数 | 最后一类泛型解释回落消失、泛型调用零分配 | ⬜ |
 | X-12 | perf/vm | **分配快路**（依赖 M15、M16）：`jit_obj_new` 是 11 参 helper，每次经过具体 `Heap`、2 次 TLS、全局原子记账、`Arc<TypeDesc>` clone，ctor 再走完整调用协议；解释器 `new` 还为 ctor 实参 malloc 一个 Vec。改法：TLAB cursor / limit 挪进 VmContext，站点稳定后用纪元门（同 X-4）跳过屏障，生成码直接 bump、写头、清零；空洞复用只走慢路 | CoreCLR 每线程分配上下文 + 内联 bump（≈10 条指令、0 原子） | 09_alloc_ctorless 1.5–2×；z42c `jit_obj_new` 14.5% inclusive | ⬜ |
@@ -233,7 +233,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 |---|---|---|---|---|---|
 | M15 | perf/gc | **对象类型字不计数**：`Arc<TypeDesc>` → arena 持有的 `*const TypeDesc`。现状每次 `new` 一次 `Arc::clone`（`interp/obj_new_resolve.rs`），每个死对象经 drop glue 一次 fetch_sub + 间接调用；多线程分配同类时争同一条 refcount 缓存行。改后 Object 块是纯 POD，是 X-12、M18 的前提。风险：可回收加载上下文卸载时须保证无活实例（`context_reclaimer` 钩子） | .NET MethodTable* 不计数 | 每次分配 / 死亡各省 1 次竞争原子 RMW | ⬜ |
 | M16 | perf/gc | **分配记账下沉到 TLAB + 热字段缓存行隔离**：`record_alloc_fast`（`gc/heap/alloc.rs`）每次分配两次共享 fetch_add；`used_bytes` / `allocations` 与 JIT 屏障常读的 `mode` / `promotion_age` 同结构体无 padding（推断伪共享）。改法：claim 时按 cursor 差值记账，回收闸门做成 claim 的 limit 指针 | .NET alloc_limit：只在换缓冲时记账 | 单线程每次分配省 2 次 RMW；多线程扩展性（gc-tlab 实测 24 线程仅 2.76×） | ⬜ |
-| M17 | perf/gc | **引用实参的泛型数组 REF 打包**（M13 延伸）：`objops/array.rs` 只为基元实参打包，`List<string>` / `List<Node>` / 字典键数组仍是 16 B 一格的 MIXED | .NET 8 B / 元素 | 每元素 −8 B | ⬜ |
+| M17 | perf/gc | **引用实参的泛型数组 REF 打包**（M13 延伸）：`vm/exec/ops/object/array.rs` 只为基元实参打包，`List<string>` / `List<Node>` / 字典键数组仍是 16 B 一格的 MIXED | .NET 8 B / 元素 | 每元素 −8 B | ⬜ |
 | M18 | perf/gc | **免清扫 nursery**（移动式 nursery 的中间步，依赖 M15）：`sweep_young_with` 对每个死的年轻块做 tombstone / CAS / drop / 位图 / free-list push，minor 成本 ∝ 分配量。改法：标记时按 chunk 计存活，零存活 chunk 整块入池，半活 chunk 交给空洞补货时惰性清扫（Immix 式） | .NET gen0 成本 ∝ 存活量 | minor 时间 ÷2–4（推断） | ⬜ |
 | M19 | perf/gc | **标记内核**：单线程 BFS，队列元素 16 B `Value`，每条边一次 `&mut dyn FnMut`，经 `Arc<TypeDesc>` 多跳取引用偏移。改法：TypeDesc 热区放引用偏移位图（GCDesc 式），标记栈 8 B 头指针；之后用已 park 线程并行标记（阶段 3） | .NET GCDesc + 并行标记 | 单核 1.3–2×（推断） | ⬜ |
 | M20 | perf/gc | **大数组卡表**：记忆集按属主整个重扫，100 万元素老 `object[]` 每次 minor ≈6 ms。≥1–4 KB 数组配逐区间卡字节，屏障置 `idx >> k` | .NET / HotSpot card table | 去掉记忆集穿透的停顿地板 | ⬜ |

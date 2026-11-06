@@ -38,11 +38,8 @@ pub unsafe extern "C" fn jit_call(
 }
 
 /// `jit_call` for a method-level generic call site. `mta_ptr/len` is the site's
-/// `method_type_args` (FQ type-name strings; a compile-time constant of the site, baked by
-/// codegen — it points into the instruction the Module owns). It is threaded into the
-/// callee frame only when the callee runs on the interpreter; a **compiled** callee never
-/// observes it (`translate::unsupported`'s invariant: a function that could read its type
-/// args does not compile), so the native path is the plain `jit_call` one.
+/// `method_type_args` (type names baked by codegen from the Module-owned
+/// instruction). The callee receives the bound arguments in either tier.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_call_mta(
     frame: *mut JitFrame, ctx: *const VmContext,
@@ -119,9 +116,8 @@ unsafe fn call_impl(
 
 /// Run a compiled callee: module-init and cctor barriers (keyed by the callee's own
 /// name — nothing to decode), then the native call with the callee frame filled
-/// straight from the caller's registers. `mta` (a generic site's type args) is not
-/// passed on — a compiled callee cannot read it — it only keeps a `[Native]` wrapper
-/// from folding, as the interpreter's `try_fold` does for generic sites.
+/// straight from the caller's registers. The callee activation borrows the
+/// bound method type arguments for the duration of the call.
 #[inline]
 unsafe fn call_compiled(
     frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
@@ -160,7 +156,14 @@ unsafe fn call_compiled(
             return super::super::forward::call_forward(frame_ref, ctx, dst, entry.func, id, None, arg_regs);
         }
     }
-    let callee_frame = JitFrame::new_args_from(vm, entry.max_reg, &frame_ref.regs, arg_regs);
+    if mta.is_empty() {
+        if let Some(value) = crate::vm::exec::call::forward::try_direct_field_read(vm, &*entry.func, &frame_ref.regs, arg_regs) {
+            frame_ref.regs[dst as usize] = value;
+            return 0;
+        }
+    }
+    let mut callee_frame = JitFrame::new_args_from(vm, entry.max_reg, &frame_ref.regs, arg_regs);
+    callee_frame.method_type_args = mta;
     call_entry(vm, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }
 
@@ -191,6 +194,12 @@ unsafe fn call_interp(
     if mta.is_empty() && arg_regs.len() == callee.param_count {
         if let Some(id) = crate::vm::exec::call::forward::forward_of(vm, module, callee) {
             return super::super::forward::call_forward(frame_ref, ctx, dst, callee, id, None, arg_regs);
+        }
+    }
+    if mta.is_empty() {
+        if let Some(value) = crate::vm::exec::call::forward::try_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
+            frame_ref.regs[dst as usize] = value;
+            return 0;
         }
     }
     match crate::vm::exec::engine::invoke_args(vm, module, callee, crate::vm::exec::call::args::CallArgs::Registers { regs: &frame_ref.regs, indices: arg_regs }, mta) {

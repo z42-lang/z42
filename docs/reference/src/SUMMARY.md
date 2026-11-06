@@ -29,6 +29,7 @@
 - [委托与事件](language/delegates-events.md)
 - [闭包与捕获](language/closures.md)
 - [`methodof`（方法引用表达式）](language/methodof.md)
+- [`fieldof` / `propertyof`（字段与属性引用表达式）](language/fieldof.md)
 
 # 语言 · 类型定义
 

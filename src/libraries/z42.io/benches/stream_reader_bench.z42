@@ -2,6 +2,7 @@ namespace Z42StreamReaderBench;
 using Std.IO;
 using Std.Encoding;
 using Std.Harness;
+using Std.Text;
 
 byte[] payload(int length, bool unicode) {
     char[] chars = new char[length]; int i = 0;
@@ -18,6 +19,30 @@ void first_line_64k() {
     byte[] data = payload(65536, false); var b = new Bencher(2, 12);
     b.iter(() => { StreamReader r = new StreamReader(new MemoryStream(data)); BenchHelpers.blackBox(r.ReadLine()); r.Close(); });
     b.printSummary("reader_first_line_64k");
+}
+
+[Benchmark]
+void read_line_ascii_64k(Bencher b) {
+    byte[] data = Encoding.GetUtf8().GetBytes("x".PadRight(65536, 'x') + "\n");
+    b.iter(() => {
+        var reader = new StreamReader(new MemoryStream(data));
+        Assert.Equal(65536, reader.ReadLine().Length);
+        reader.Close();
+    });
+}
+
+[Benchmark]
+void read_short_crlf_lines(Bencher b) {
+    var text = new StringBuilder();
+    for (int i = 0; i < 1024; i++) { text.Append("ok\r\n"); }
+    byte[] data = Encoding.GetUtf8().GetBytes(text.ToString());
+    b.iter(() => {
+        var reader = new StreamReader(new MemoryStream(data));
+        int count = 0;
+        while (reader.ReadLine() != null) { count = count + 1; }
+        Assert.Equal(1024, count);
+        reader.Close();
+    });
 }
 [Benchmark]
 void read_to_end_ascii_64k() {

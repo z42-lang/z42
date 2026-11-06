@@ -1,0 +1,31 @@
+void Set(ref int value) { value = 0; }
+
+void Main() {
+    int[] vector = [1, 2];
+    Std.Array array = vector;
+    string text = "ab";
+
+    vector.Length = 0;
+    vector.Length += 1;
+    --vector.Length;
+    vector.Length++;
+    Set(ref vector.Length);
+
+    vector.Count = 0;
+    vector.Count += 1;
+    --vector.Count;
+    vector.Count++;
+    Set(ref vector.Count);
+
+    array.Length = 0;
+    array.Length += 1;
+    --array.Length;
+    array.Length++;
+    Set(ref array.Length);
+
+    text.Length = 0;
+    text.Length += 1;
+    --text.Length;
+    text.Length++;
+    Set(ref text.Length);
+}

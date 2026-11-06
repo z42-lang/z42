@@ -25,10 +25,16 @@ public class TestCase {
     /// 期望抛出的异常类型（`[ShouldThrow<E>]` 的 E）；漏写类型实参为 null。
     public Type? Expected;
 
-    /// 定向生命周期条目的目标名单（逗号分隔方法名）。
+    /// 测试/基准声明的专属 setup（`[Test(setup: methodof(…))]`）；null = 无。
     ///
-    /// null = 非定向（本组每条测试前/后都执行）。
-    public string? LifecycleTarget;
+    /// 执行序：非定向 [Setup]（公共）之后。
+    public MethodInfo? DeclaredSetup;
+    /// 同上，teardown：非定向 [Teardown]（公共）之前（专属先、公共后）。
+    public MethodInfo? DeclaredTeardown;
+    /// `[Case(…)]` 的实参（参数化测试展开后本条对应的那行）；null = 非参数化。
+    public object[] Args;
+    /// 发现期暂存：本方法的全部 `[Case]` 行（null = 无）——Discover 收齐后展开成多条用例。
+    public object[] CaseRows;   // 元素是 object[]（一行 Case）
 
     /// 装配一条用例：名字 / kind / 函数取实参，skip 与期望异常等一律先置默认，
     /// 由发现层（`_fromMethod`）读 attribute 后补写。
@@ -37,7 +43,8 @@ public class TestCase {
         this.Skipped = false; this.Ignored = false;
         this.SkipReason = null; this.SkipPlatform = null; this.SkipFeature = null;
         this.ShouldThrow = false; this.Expected = null;
-        this.LifecycleTarget = null;
+        this.DeclaredSetup = null; this.DeclaredTeardown = null;
+        this.Args = null; this.CaseRows = null;
     }
 
     /// 是否 `[Test]`（Kind == 1）。
@@ -69,6 +76,10 @@ public class TestCase {
     /// (2, 20) 的 [`Bencher`] 传入，跑完按函数名自动打摘要行——基准体只写 `b.iter(() => …)`，
     /// 预热/采样/摘要全是 runner 的事。
     public void Invoke() {
+        if (this.Args != null) {
+            this.Method.Invoke(null, TestCase._coerceArgs(this.Method, this.Args));
+            return;
+        }
         if (this.TakesBencher()) {
             Bencher b = new Bencher(2, 20);   // 事实标准固定档：确定性采样数，正确性波/CI A/B 的现状口径
             object[] args = new object[1];
@@ -87,6 +98,73 @@ public class TestCase {
         Type pt = ps[0].ParameterType;
         if (pt is Type t) { return t.FullName == "Std.Harness.Bencher"; }
         return false;
+    }
+
+    /// 展开出一行参数化用例：浅拷贝、带 Args、名字加实参后缀。
+    ///
+    /// Skip/ShouldThrow/声明 fixture 照抄——方法级，对每行同样生效。
+    public TestCase CloneForCase(object[] row) {
+        TestCase c = new TestCase(this.Qualified + "(" + TestCase._fmtArgs(row) + ")", this.Kind, this.Method);
+        c.Skipped = this.Skipped; c.Ignored = this.Ignored;
+        c.SkipReason = this.SkipReason; c.SkipPlatform = this.SkipPlatform; c.SkipFeature = this.SkipFeature;
+        c.ShouldThrow = this.ShouldThrow; c.Expected = this.Expected;
+        c.DeclaredSetup = this.DeclaredSetup; c.DeclaredTeardown = this.DeclaredTeardown;
+        c.Args = row;
+        return c;
+    }
+
+    /// 交错数组增长一档（`new object[n][]` 语法不可用：逐行分配再拷）。
+    public static object[] _growRows(object[] old) {
+        int n = old == null ? 0 : old.Length;
+        object[] r = new object[n + 1];
+        int i = 0;
+        while (i < n) { r[i] = old[i]; i = i + 1; }
+        return r;
+    }
+
+    // 实参列表的可读形（报告/名字用）：null → null；string 加引号；其余 ToString。
+    static string _fmtArgs(object[] row) {
+        string acc = "";
+        int i = 0;
+        while (i < row.Length) {
+            if (i > 0) { acc = acc + ", "; }
+            object v = row[i];
+            if (v == null) { acc = acc + "null"; }
+            else if (v is string sv) { acc = acc + "\"" + sv + "\""; }
+            else { acc = acc + v.ToString(); }
+            i = i + 1;
+        }
+        return acc;
+    }
+
+    // 数值族勘合：字面量装箱（Int32）vs 形参类型（Int64/Double…）在反射 Invoke 前摆平；
+    // 非数值（string/bool/null）精确匹配直传。按形参**短名**分发——反射侧的参数类型名
+    // 是表面拼写（Int32/Int64/Double/Boolean/String），与 [Case] 字面量的装箱族一一对上。
+    static object[] _coerceArgs(MethodInfo m, object[] args) {
+        ParameterInfo[] ps = m.GetParameters();
+        object[] r = new object[args.Length];
+        int i = 0;
+        while (i < args.Length) {
+            r[i] = TestCase._coerceOne(args[i], ps[i].ParameterType);
+            i = i + 1;
+        }
+        return r;
+    }
+
+    // 勘合一个实参：形参类型名（反射侧准确：Std.Int32/Int64/Double/String/Boolean）对装箱值。
+    // 整数族装箱统一报 Std.Int32（VM 反射限制），实测 (long)v / (double)v 按目标类型正确转换，
+    // 故整数字面量 → Int64/Double 形参按 want 走；非数值族不匹配的原样交回——Invoke 的失败
+    // 消息比这里猜一个转换诚实。
+    static object _coerceOne(object v, Type pt) {
+        if (v == null) { return null; }
+        string want = pt.FullName;
+        string got = v.GetType().FullName;
+        if (got == want) { return v; }
+        if (got == "Std.Int32") {
+            if (want == "Std.Int64") { return (long)v; }
+            if (want == "Std.Double") { return (double)v; }
+        }
+        return v;
     }
 }
 
@@ -110,7 +188,19 @@ public static class TestDiscovery {
         int i = 0;
         while (i < fs.Length) {
             TestCase tc = TestDiscovery._fromMethod(fs[i]);
-            if (tc != null) { found = TestDiscovery._push(found, n, tc); n = n + 1; }
+            if (tc != null) {
+                object[] rows = tc.CaseRows;
+                if (rows == null) {
+                    found = TestDiscovery._push(found, n, tc); n = n + 1;
+                } else {
+                    int r = 0;
+                    while (r < rows.Length) {
+                        TestCase one = tc.CloneForCase(rows[r] as object[]);
+                        found = TestDiscovery._push(found, n, one); n = n + 1;
+                        r = r + 1;
+                    }
+                }
+            }
             i = i + 1;
         }
         Type[] types = asm.GetTypes();
@@ -123,7 +213,19 @@ public static class TestDiscovery {
                 while (k < ms.Length) {
                     if (ms[k].IsStatic) {
                         TestCase mc = TestDiscovery._fromMethod(ms[k]);
-                        if (mc != null) { found = TestDiscovery._push(found, n, mc); n = n + 1; }
+                        if (mc != null) {
+                            object[] rows = mc.CaseRows;
+                            if (rows == null) {
+                                found = TestDiscovery._push(found, n, mc); n = n + 1;
+                            } else {
+                                int r = 0;
+                                while (r < rows.Length) {
+                                    TestCase one = mc.CloneForCase(rows[r] as object[]);
+                                    found = TestDiscovery._push(found, n, one); n = n + 1;
+                                    r = r + 1;
+                                }
+                            }
+                        }
                     }
                     k = k + 1;
                 }
@@ -163,12 +265,19 @@ public static class TestDiscovery {
                 tc.SkipFeature = TestDiscovery._orNull(s.Feature);
             } else if (at is IgnoreAttribute) {
                 tc.Ignored = true;
-            } else if (at is SetupAttribute) {
-                SetupAttribute su = at as SetupAttribute;
-                tc.LifecycleTarget = TestDiscovery._orNull(su.Target);
-            } else if (at is TeardownAttribute) {
-                TeardownAttribute te = at as TeardownAttribute;
-                tc.LifecycleTarget = TestDiscovery._orNull(te.Target);
+            } else if (at is TestAttribute) {
+                TestAttribute ta = at as TestAttribute;
+                tc.DeclaredSetup = ta.Setup;
+                tc.DeclaredTeardown = ta.Teardown;
+            } else if (at is CaseAttribute) {
+                CaseAttribute ca = at as CaseAttribute;
+                object[] grown = TestCase._growRows(tc.CaseRows);
+                grown[grown.Length - 1] = ca.Args;
+                tc.CaseRows = grown;
+            } else if (at is BenchmarkAttribute) {
+                BenchmarkAttribute ba = at as BenchmarkAttribute;
+                tc.DeclaredSetup = ba.Setup;
+                tc.DeclaredTeardown = ba.Teardown;
             } else if (at is IExpectsException) {
                 tc.ShouldThrow = true;
                 tc.Expected = (at as IExpectsException).ExceptionType();

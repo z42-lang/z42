@@ -269,6 +269,10 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
 
     // fix-ref-lvalue-addressing：ref/out 实参的左值校验（报 E0470）。
     private void _chkRefArgLvalue(BoundExpr inner, Span sp) {
+        if (AssignTyper.IsReadOnlySizeMember(inner)) {
+            this._tc._diags.Error(DiagnosticCodes.RefArgNotAddressable, "cannot pass a read-only size member by reference", sp);
+            return;
+        }
         if (inner is BoundIdent) { return; }                      // 局部 / 形参 / owner 字段裸名
         if (inner is BoundIndex) {
             BoundIndex bi = inner as BoundIndex;
@@ -753,6 +757,11 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
         BoundExpr operand = this._bindExpr(u.Operand, env);
         Z42Type ot = operand.Type();
         if (ot is Z42ErrorType) {
+            return new BoundUnary(u.Op, operand, new Z42ErrorType(), u.Span);
+        }
+        if ((u.Op == "++" || u.Op == "--" || u.Op == "pre++" || u.Op == "pre--") &&
+            AssignTyper.IsReadOnlySizeMember(operand)) {
+            this._tc._diags.Error(DiagnosticCodes.AssignTargetNotLvalue, "cannot modify a read-only size member", u.Span);
             return new BoundUnary(u.Op, operand, new Z42ErrorType(), u.Span);
         }
         BinaryRule rule = BinaryTypeTable.LookupUnary(u.Op);

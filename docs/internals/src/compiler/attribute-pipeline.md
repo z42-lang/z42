@@ -95,6 +95,7 @@ attr-ref 块存的是两个字符串引用，所以**任何**「每个成员一�
 |---|---|---|
 | `$Deprecated` | 类 / 字段 / 方法 / 自由函数 | `[Deprecated]` + 消息（`FactoryFunc`）|
 | `$Cctor` | 类级 | 静态构造器的发射函数名 |
+| `$ReflectionBase` | 类级 | 开放泛型基类的反射类型表达式 |
 | `$Default` / `$Caller:<kind>` | 形参级 | 默认值 ConstBlob / caller 宏种类 |
 | `$ByRef` / `$RefSig` | 形参级 | `ref` 形参 + **完备性**标记 |
 | `$Nullable` / `$RetNullable` | 形参级 / 方法级 / 字段级 | `?` 标记（形参、返回位、字段与属性）|

@@ -14,8 +14,10 @@ public class HashSet<T> where T: IEquatable {
     T[] _elems;
     int _used;          // entries 已用槽数（含 tombstone）
 
-    /// 元素个数（公开字段，可读可写）。
-    public int Count;
+    private int _count;
+
+    /// 当前存活元素的个数。
+    public int Count { get { return this._count; } }
 
     /// 新建空集合。
     public HashSet() { this._alloc(8); }
@@ -25,11 +27,11 @@ public class HashSet<T> where T: IEquatable {
         this._hashes = new int[cap];
         this._elems = new T[cap];
         this._used = 0;
-        this.Count = 0;
+        this._count = 0;
     }
 
     /// 是否为空。
-    public bool IsEmpty() { return this.Count == 0; }
+    public bool IsEmpty() { return this._count == 0; }
 
     /// 加入元素；已存在返回 false（不重复、位置不变），新增返回 true 并追加到末尾。
     public bool Add(T item) {
@@ -50,7 +52,7 @@ public class HashSet<T> where T: IEquatable {
         }
         int i = this._used;
         if (i == hs.Length) {
-            this._resize(HashIndex.NextCapacity(this.Count, i));
+            this._resize(HashIndex.NextCapacity(this._count, i));
             index = this._index;
             hs = this._hashes;
             i = this._used;
@@ -60,7 +62,7 @@ public class HashSet<T> where T: IEquatable {
         this._elems[i] = item;
         index[s] = i + 1;
         this._used = i + 1;
-        this.Count = this.Count + 1;
+        this._count = this._count + 1;
         return true;
     }
 
@@ -93,20 +95,26 @@ public class HashSet<T> where T: IEquatable {
         this._index[s] = -1;
         this._hashes[i] = -1;
         this._elems[i] = default(T);
-        this.Count = this.Count - 1;
+        this._count = this._count - 1;
         return true;
     }
 
     /// 清空集合，保留容量。
-    // 实现：换一组同容量的新数组（VM 原生零初始化）。
-    public void Clear() { this._alloc(this._hashes.Length); }
+    // 已重置的表复用存储；_used 包括仍需清理索引的 tombstone。
+    public void Clear() {
+        if (this._used == 0) {
+            this._count = 0;
+        } else {
+            this._alloc(this._hashes.Length);
+        }
+    }
 
     /// 元素快照数组，按插入顺序。
     public T[] ToArray() {
-        T[] result = new T[this.Count];
+        T[] result = new T[this._count];
         int[] hs = this._hashes;
         int used = this._used;
-        if (this.Count == used) {
+        if (this._count == used) {
             Array.CopyRange(this._elems, 0, result, 0, used);
             return result;
         }
@@ -170,7 +178,7 @@ public class HashSet<T> where T: IEquatable {
             ne = new T[newCap];
         }
         int live = used;
-        if (this.Count == used && !inPlace) {
+        if (this._count == used && !inPlace) {
             Array.CopyRange(oh, 0, nh, 0, used);
             Array.CopyRange(oe, 0, ne, 0, used);
         } else {

@@ -252,3 +252,28 @@ fn debug_overlay_reprepares_static_metadata_without_mutating_the_image() {
     assert_eq!(&*module.functions[0].frame_name_file().1, "overlay.z42");
     assert!(original.function(0).unwrap().line_table().is_empty());
 }
+
+#[test]
+fn legacy_array_reads_keep_views_only_for_structural_uses() {
+    let mut definition = definition(
+        "Pkg.ArrayReads",
+        vec![
+            Instruction::ArrayGet { dst: 2, arr: 0, idx: 1 },
+            Instruction::ArrayGet { dst: 3, arr: 0, idx: 1 },
+            Instruction::Copy { dst: 4, src: 2 },
+            Instruction::StructCopy { dst: 4, src: 5, size: 4 },
+        ],
+    );
+    definition.blocks[0].terminator = Terminator::Ret { reg: Some(3) };
+
+    let legacy = Function::new(definition.clone());
+    assert!(!legacy.array_get_erased(2));
+    assert!(legacy.array_get_erased(3));
+
+    use ir::reg_type::IrType;
+    definition.reg_types = vec![IrType::Ref; 6].into_boxed_slice();
+    definition.reg_types[2] = IrType::Unknown;
+    let typed = Function::new(definition);
+    assert!(typed.array_get_erased(2));
+    assert!(!typed.array_get_erased(3));
+}

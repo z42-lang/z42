@@ -31,6 +31,15 @@ internal class JsonWriteBuffer {
     private static string[] _indentPrefixes = new string[] {
         "\n", "\n  ", "\n    ", "\n      ", "\n        ", "\n          ", "\n            ", "\n              "
     };
+    private static readonly string _escapeChars = JsonWriteBuffer.MakeEscapeChars();
+
+    private static string MakeEscapeChars() {
+        char[] chars = new char[34];
+        for (int i = 0; i < 32; i++) { chars[i] = (char)i; }
+        chars[32] = '"';
+        chars[33] = '\\';
+        return String.FromChars(chars);
+    }
 
     /// 为单次遍历初始化片段数组和排版配置。
     public JsonWriteBuffer(bool pretty) {
@@ -119,7 +128,7 @@ internal class JsonWriteBuffer {
 
     private void PutNewlineIndent() {
         int depth = this._depth;
-        this.Put(JsonWriter._indentPrefixes[depth & 7]);
+        this.Put(JsonWriteBuffer._indentPrefixes[depth & 7]);
         for (int blocks = depth >> 3; blocks > 0; blocks = blocks - 1) { this.Put("                "); }
     }
 
@@ -129,10 +138,16 @@ internal class JsonWriteBuffer {
     // otherwise ordinary runs are flushed as bulk Substrings between escapes.
     private void PutQuoted(string s) {
         this.Put("\"");
+        int firstEscape = s.IndexOfAnyAscii(JsonWriteBuffer._escapeChars);
+        if (firstEscape < 0) {
+            this.Put(s);
+            this.Put("\"");
+            return;
+        }
         char[] cs = s.ToCharArray();
         int n = cs.Length;
         int runStart = 0;   // start of the current run of ordinary (unescaped) chars
-        for (int i = 0; i < n; i++) {
+        for (int i = firstEscape; i < n; i++) {
             int cc = (int)cs[i];
             if (cc >= 32 && cc != 34 && cc != 92) { continue; }
             string esc = "";
@@ -148,8 +163,7 @@ internal class JsonWriteBuffer {
             this.Put(esc);
             runStart = i + 1;
         }
-        if (runStart == 0) { this.Put(s); }
-        else if (n > runStart) { this.Put(s.Substring(runStart, n - runStart)); }
+        if (n > runStart) { this.Put(s.Substring(runStart, n - runStart)); }
         this.Put("\"");
     }
 

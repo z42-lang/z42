@@ -30,6 +30,38 @@ public class PropertyInfo : MemberInfo {
     /// SetValue 据此解析要调的函数。
     public string __setterQualified;
 
+    /// 属性的全限定名（`<声明类>.<属性名>`，VM 写入）。值相等的身份判据（见下方 operator ==）。
+    public string __qualified;
+
+    // ── 值相等 ────────────────────────────────────────────────────────────────
+    // 与 MethodInfo / FieldInfo 同款（add-field-property-reference）：身份判据是 __qualified。
+    // 判空必须用 Object.ReferenceEquals：写 `a == null` 会递归派发回本运算符（栈溢出）。
+    /// 按 `__qualified`（声明类全名 + 属性名）判断两个 `PropertyInfo` 是否指向同一属性。
+    public static bool operator ==(PropertyInfo a, PropertyInfo b) {
+        bool an = Object.ReferenceEquals(a, null);
+        bool bn = Object.ReferenceEquals(b, null);
+        if (an || bn) { return an && bn; }
+        return a.__qualified == b.__qualified;
+    }
+
+    /// 不等运算符，等价于 `!(a == b)`。
+    public static bool operator !=(PropertyInfo a, PropertyInfo b) {
+        bool an = Object.ReferenceEquals(a, null);
+        bool bn = Object.ReferenceEquals(b, null);
+        if (an || bn) { return !(an && bn); }
+        return a.__qualified != b.__qualified;
+    }
+
+    /// 值相等：`other` 为 `PropertyInfo` 且 `__qualified` 相同才为真（与 `==` 一致）。
+    public override bool Equals(object other) {
+        PropertyInfo p = other as PropertyInfo;
+        if (Object.ReferenceEquals(p, null)) { return false; }
+        return this.__qualified == p.__qualified;
+    }
+
+    /// 哈希码取自 `__qualified`，与 Equals 的判据一致。
+    public override int GetHashCode() { return this.__qualified.GetHashCode(); }
+
     /// 经 getter 从 `obj` 读出本属性值。只写属性（无 getter）抛 `Std.Exception`。
     [Native("__property_get_value")]
     public extern object GetValue(object obj);

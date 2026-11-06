@@ -6,7 +6,7 @@
 > instance 同名撞车）、一个在**运行期 Type 名合成**（数组元素名擦除）。值类型（struct/enum）的 Object
 > 方法派发见 [struct 值语义 §编译器派发](struct-value-semantics.md)。
 
-## 构造类型：一个规范名，一种 Type
+## 构造类型的名称与比较键
 
 ### 实例的两种表示
 
@@ -20,7 +20,7 @@
 
 ### 规范名（`metadata/type_names.rs`）
 
-身份就是一个名字，比较一律逐字比：
+布局注册、按名派发和实例类型测试共用以下规范名：
 
 - 类按全名（例如 Demo.Box），实参递归；无空白；
 - 顶层的内建类型写全名（`Std.Int32`、`Std.Object` —— 描述符的注册键）；
@@ -28,7 +28,7 @@
 - 函数类型作实参写成委托名：`Std.Func<int,int>` / `Std.Action<string>`。
 
 `Type.FullName` 是它的**展示形**（`type_names::display`：内建类型处处写全名，
-`Std.Collections.List<Std.Int32>`），`Type ==` 按 FullName 比，于是与规范名一一对应。
+`Std.Collections.List<Std.Int32>`）。反射 Type 的比较另用创建时确定的键。
 
 **谁产出规范名**：编译器发射时就按它写（`LayoutKey` 是唯一的拼写出口：实例化描述符名、`ObjNew` 的实参、
 `is_instance` 目标、特化函数名）；运行期**从 `Type` 对象取名**的地方——`MakeGenericType`、
@@ -48,17 +48,26 @@
 ### 构造类型的 `Type`
 
 名字入口 `make_type_from_name` 解析 `<…>` 中的实参。`MakeGenericType` 已持有实参 Type，校验通过后
-将这些对象放入新实参数组。两条路径共用构造逻辑，`__typeArgs` 保存 Type 引用，`GetGenericArguments()`
-据此保留实参的程序集归属。结果句柄用于泛型定义，FullName 用于名称显示及现有的比较与派发。
+直接使用接收者的定义句柄，将这些对象放入新实参数组。两条路径共用对象分配与比较键构造，`__typeArgs` 保存 Type 引用，`GetGenericArguments()`
+据此保留实参的程序集归属。结果句柄用于泛型定义，FullName 用于名称显示及按名派发。
 
 - **`GetType()`**：实例化描述符 → 以其名字构造（不再把实参拼两遍）；定义 + 实例实参 →
   `type_names::constructed`（定义名 + 实参）再构造。两种表示因此得到相等的 Type，也等于 `typeof`。
-- **`BaseType` / `GetInterfaces()`**：定义的基类 / 接口表不带实参，于是先查**以规范名注册的实例化描述符**
-  （`instantiation_desc`：任一已加载包里有就用它，`Sub<int>` → `Box<int>` / `IFoo<int>`），没有才退回定义。
-- **`GetFields()` / `GetMethods()` / `GetConstructors()`**：成员类型按「定义的型参 → 实参」代换
-  （`type_names::substitute`，按整词替换，`T[]` → `int[]`）；实例字段优先读实例化描述符的类型名。
+- **`BaseType`**：优先从开放基类表达式 `$ReflectionBase` 投影实际实参。布局和派发继续使用注册键。
+  无法投影时沿实例化描述符、定义描述符的顺序查找。
+- **`GetInterfaces()`**：先查按规范名注册的实例化描述符，再退回定义。
+- **`GetFields()` / `GetProperties()` / `GetMethods()` / `GetConstructors()`**：类声明的成员按定义型参
+  投影实际的 Type，包括嵌套数组和泛型。方法自己的型参保留其作用域。继承字段仍可从实例化描述符取得。
 - **`IsAssignableFrom`**：两侧都按规范名走 `is_subclass_or_eq_td`；名字没有描述符（导入泛型的实例化）时
   按「定义 + 这些实参」回答，与 `isa_object` 对这种实例的回答一致。
+
+### 反射 Type 的不可变比较键
+
+普通声明用运行时 TypeId。构造泛型组合定义和有序实参键，数组组合创建时的元素键。无句柄的符号类型
+用其规范名称，同名的真实声明另有 TypeId。比较和哈希只读取保存的键。泛型和数组的 native backing
+保存 Rust 结构，实参及元素投影走已有 GC 字段。`GetGenericArguments()` 返回数组快照，写入该数组
+与键、后续投影及成员代换互相隔离。`Type` 实现
+`IEquatable`，因此可直接用作 `Dictionary` 和 `HashSet` 的键。
 
 ### 反射构造得到与 `new` 相同的表示
 
@@ -114,7 +123,8 @@ index 对齐，构建时从 `Function.is_static` 采）。`merge_with_base` 跳�
 - `int[][]` → 元素 `int[]` 再递归 → `Int32[][]` / `Std.Int32[][]`（任意深度）。
 - 用户类 `Box[]` → `Test.Box[]`。
 - **空元素标签**（少数无元素信息的数组）保留合成名 `Std.Array`。
-- `__elementName` 不变（`GetElementType()` 仍读它）。
+- 数组 Type 的内部引用槽保留生成名称所用的元素 Type。`GetElementType()` 返回这个投影，后续加载仅影响
+  新创建的数组 Type。旧种子布局通过 `__elementName` 解析。
 
 `typeof(T[])` 与运行期 `arr.GetType()` 走**同一** `make_type_from_name`（后者经
 `builtin_obj_get_type` 用数组值的 `element_type`）→ 两路名字一致。
@@ -124,3 +134,8 @@ index 对齐，构建时从 `Function.is_static` 采）。`merge_with_base` 跳�
 `MemberResolver._bindInstanceMemberCall` 对 `Z42ArrayType` 收者委托给 `BindArrayInstanceCall`（`MemberResolver.Prim.z42`）：数组继承 Object 四方法，查 `Object` 取**真实返回类型**（`GetType`→`Std.Type`），镜像
 `Z42GenericParamType` 分支；`Std.Array` 的实例方法（`Clone` / `GetValue` / `SetValue`）照旧松绑定；两处都没有的名字报 `E0401`。若落到松绑定，返回类型是 `Z42UnknownType` → 链式 `xs.GetType().FullName` 退化成 `FieldGet "FullName"` → `null`。运行期数组值上的 VCall 仍走 `builtin_obj_get_type` 数组特化，OwnerClass
 与兜底同名、不改派发——只把 receiver 结果的静态类型定为 `Std.Type`，让链式属性正确绑定。
+
+
+## 短类型名的反射查找
+
+直接查找未命中时，反射从入口模块与惰性加载器的已加载全名中查找唯一短名。两个来源里的相同全名只算一次，多个不同全名匹配时保留原有歧义处理。扫描直接借用类型表中的名称，普通名称按切片比较，只在需要时按既有规则解析构造类型名。
