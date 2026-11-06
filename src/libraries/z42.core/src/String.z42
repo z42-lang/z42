@@ -108,6 +108,12 @@ public sealed partial class String : IComparable, IEquatable {
     [Native("__str_index_of_any_ascii")]
     public extern int IndexOfAnyAscii(string candidates);
 
+    /// 从 Unicode 标量索引 `start` 开始查找。
+    ///
+    /// 越界抛 ArgumentOutOfRangeException。候选字符和返回值遵循无起点重载的规则。
+    [Native("__str_index_of_any_ascii_from")]
+    public extern int IndexOfAnyAscii(string candidates, int start);
+
     /// 是否以 `prefix` 开头。空前缀恒 true。
     public bool StartsWith(string prefix) {
         int pn = prefix.Length;
