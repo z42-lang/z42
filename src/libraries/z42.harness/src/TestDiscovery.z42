@@ -25,10 +25,12 @@ public class TestCase {
     /// 期望抛出的异常类型（`[ShouldThrow<E>]` 的 E）；漏写类型实参为 null。
     public Type? Expected;
 
-    /// 定向生命周期条目的目标名单（逗号分隔方法名）。
+    /// 测试/基准声明的专属 setup（`[Test(setup: methodof(…))]`）；null = 无。
     ///
-    /// null = 非定向（本组每条测试前/后都执行）。
-    public string? LifecycleTarget;
+    /// 执行序：非定向 [Setup]（公共）之后。
+    public MethodInfo? DeclaredSetup;
+    /// 同上，teardown：非定向 [Teardown]（公共）之前（专属先、公共后）。
+    public MethodInfo? DeclaredTeardown;
 
     /// 装配一条用例：名字 / kind / 函数取实参，skip 与期望异常等一律先置默认，
     /// 由发现层（`_fromMethod`）读 attribute 后补写。
@@ -37,7 +39,7 @@ public class TestCase {
         this.Skipped = false; this.Ignored = false;
         this.SkipReason = null; this.SkipPlatform = null; this.SkipFeature = null;
         this.ShouldThrow = false; this.Expected = null;
-        this.LifecycleTarget = null;
+        this.DeclaredSetup = null; this.DeclaredTeardown = null;
     }
 
     /// 是否 `[Test]`（Kind == 1）。
@@ -163,12 +165,14 @@ public static class TestDiscovery {
                 tc.SkipFeature = TestDiscovery._orNull(s.Feature);
             } else if (at is IgnoreAttribute) {
                 tc.Ignored = true;
-            } else if (at is SetupAttribute) {
-                SetupAttribute su = at as SetupAttribute;
-                tc.LifecycleTarget = TestDiscovery._orNull(su.Target);
-            } else if (at is TeardownAttribute) {
-                TeardownAttribute te = at as TeardownAttribute;
-                tc.LifecycleTarget = TestDiscovery._orNull(te.Target);
+            } else if (at is TestAttribute) {
+                TestAttribute ta = at as TestAttribute;
+                tc.DeclaredSetup = ta.Setup;
+                tc.DeclaredTeardown = ta.Teardown;
+            } else if (at is BenchmarkAttribute) {
+                BenchmarkAttribute ba = at as BenchmarkAttribute;
+                tc.DeclaredSetup = ba.Setup;
+                tc.DeclaredTeardown = ba.Teardown;
             } else if (at is IExpectsException) {
                 tc.ShouldThrow = true;
                 tc.Expected = (at as IExpectsException).ExceptionType();
