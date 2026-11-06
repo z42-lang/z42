@@ -29,7 +29,7 @@
 //!   standalone leaked block. Production execution always has an active guard, so
 //!   the fallback is not taken on any hot path.
 //!
-//! Distinct from `interop/exports.rs`'s `CURRENT_VM` (which scopes a `*const
+//! Distinct from `interop/tier1/exports.rs`'s `CURRENT_VM` (which scopes a `*const
 //! VmContext` only for native-interop callbacks): that is feature-gated and
 //! carries the whole VM; this carries just the heap and is always compiled.
 

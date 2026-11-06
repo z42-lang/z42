@@ -7,9 +7,9 @@
 //! `[Native(lib="<basename>", entry="...")]`) are ordinary typed builtins in
 //! the main `BUILTINS` table ([`typed`]); their bodies call through that table.
 //!
-//! # Difference vs Tier 1 (`loader.rs`)
+//! # Difference vs Tier 1 (`tier1/loader.rs`)
 //!
-//! - **Tier 1** (`loader.rs`): general-purpose user-supplied native types
+//! - **Tier 1** (`tier1/loader.rs`): general-purpose user-supplied native types
 //!   with libffi-based marshal. Requires `Z42_VALUE_TAG_OBJECT` /
 //!   `_STR` marshal (spec C5, not yet done).
 //! - **Ext loader** (this file): curated stdlib native extensions with
@@ -66,7 +66,7 @@ pub fn ensure_lib_for(ctx: &VmContext, name: &str) -> Result<bool> {
             .find(|(_, names)| names.contains(&name))
             .map(|(lib, _)| *lib)
         else { return Ok(false) };
-        if !super::state::state(ctx)?.ext_libs_tried.lock().insert(lib) { return Ok(false); }
+        if !super::state::claim_extension_load(ctx, lib)? { return Ok(false); }
         Ok(load_by_name(ctx, lib).unwrap_or(false))
     }
 }
@@ -190,7 +190,7 @@ fn load_one(ctx: &VmContext, path: &std::path::Path, name: &str) -> Result<()> {
             tracing::warn!("ext: no symbol wiring for ext lib `{}`", other);
             // Keep the library alive for the VM lifetime. Lifetime parking
             // pattern mirrors `loader.rs`.
-            super::state::state(ctx)?.native_libs.lock().push(lib);
+            super::state::retain_library(ctx, lib)?;
             Ok(())
         }
     }
@@ -662,7 +662,7 @@ mod abi_handshake_tests {
         assert_eq!(
             super::EXPECTED_COMPRESSION_ABI,
             z42_compression::Z42_COMPRESSION_ABI_VERSION,
-            "interop/ext.rs EXPECTED_COMPRESSION_ABI is out of sync with \
+            "interop/ext EXPECTED_COMPRESSION_ABI is out of sync with \
              z42-compression's Z42_COMPRESSION_ABI_VERSION — bump both together",
         );
         assert_eq!(
@@ -738,3 +738,6 @@ pub mod typed {
     #[builtin(name = "__compressor_dispose")]
     pub fn compressor_dispose(slot_id: i64) { super::compressor_dispose(slot_id) }
 }
+
+#[cfg(test)]
+mod ext_tests;
