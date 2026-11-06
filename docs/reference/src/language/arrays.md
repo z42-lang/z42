@@ -65,7 +65,7 @@ rows[1].Length;   // 3
 - **索引越界抛 `IndexOutOfRangeException`**（含负下标），消息形如
   `index 5 is out of range for an array of length 3`，可以按类型 `catch`。
 - **数组为 null** 时读写元素、取 `.Length` 抛 `NullReferenceException`；`new T[n]` 的 `n` 为负抛 `OverflowException`。
-- **`.Length` 返回 `int`。**
+- **`.Length` 返回 `int`。** `T[].Length`、`T[].Count` 和 `Std.Array.Length` 都返回固定长度，只能读取。
 - **元素类型编译期检查**：`arr[i] = v` 中 `v` 必须可赋给元素类型。
 - **数组不变（无协变）**：`Dog[]` **不**可赋给 `Animal[]`。
 
