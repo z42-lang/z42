@@ -7,12 +7,12 @@
 //! We can't change the (byte-identical) compiler source, so the VM must make
 //! these O(1).
 //!
-//! Design: a small thread-local cache keyed by `Arc<str>` **identity** (data
+//! Design: a small thread-local cache keyed by string **identity** (data
 //! pointer). For each distinct string we compute, once:
 //!   - `char_len`  — the Unicode scalar count (what `Length` returns);
 //!   - `ascii`     — whether every byte is < 0x80 (then char index == byte index);
-//!   - `offsets`   — for non-ASCII strings, the byte offset of each char, so
-//!                   `CharAt(i)` is an O(1) table lookup instead of O(i).
+//!   - `offsets`   — built when a non-ASCII string first needs indexing. Each offset
+//!                   makes subsequent `CharAt(i)` calls O(1) instead of O(i).
 //!
 //! Soundness (unify-gc-heap PR-4): strings are GC blocks now, so a cache entry's
 //! held `Str` clone is **not** a GC root — the block can be swept (its slot bumped
@@ -71,13 +71,12 @@ use std::cell::{Cell, RefCell};
 use crate::object::string::vstr::Str;
 
 struct StrMeta {
-    /// Keeps the string alive (so its identity pointer stays a valid key) and provides
-    /// the bytes for `CharAt`. unify-object-byte-layout PR-4: `Str` (8B thin) not `Arc<str>`.
+    /// Non-root handle for the identity key and the bytes used by `CharAt`.
     s:        Str,
     char_len: usize,
     ascii:    bool,
-    /// `Some` only for non-ASCII strings: `offsets[i]` is the byte offset of
-    /// the i-th char. ASCII strings index bytes directly (offset == index).
+    /// `Some` for non-ASCII strings that have needed indexing. ASCII strings
+    /// index bytes directly.
     offsets:  Option<Box<[u32]>>,
     /// D7: `Some((chunk, epoch))` when `s` may sit in a dedicated chunk, whose memory goes back
     /// to the allocator when `s` dies — see the module's freed-chunk note. `None` for a block in
@@ -107,16 +106,24 @@ fn data_ptr(s: &Str) -> *const u8 {
     s.as_ptr()
 }
 
+#[derive(Clone, Copy)]
+enum Query {
+    Length,
+    Index,
+}
+
 /// `chunk`: D7's stamp for `s` (`CacheScope::dedicated_chunk_stamp`).
-fn compute(s: &Str, chunk: Option<(u32, u32)>) -> StrMeta {
-    let bytes = s.as_bytes();
-    if bytes.is_ascii() {
-        StrMeta { s: s.clone(), char_len: bytes.len(), ascii: true, offsets: None, chunk }
-    } else {
-        let offsets: Vec<u32> = s.char_indices().map(|(b, _)| b as u32).collect();
-        let char_len = offsets.len();
-        StrMeta { s: s.clone(), char_len, ascii: false, offsets: Some(offsets.into_boxed_slice()), chunk }
-    }
+fn compute(s: &Str, chunk: Option<(u32, u32)>, query: Query) -> StrMeta {
+    let ascii = s.as_bytes().is_ascii();
+    let (char_len, offsets) = match query {
+        _ if ascii => (s.len(), None),
+        Query::Length => (s.chars().count(), None),
+        Query::Index => {
+            let offsets: Vec<u32> = s.char_indices().map(|(byte, _)| byte as u32).collect();
+            (offsets.len(), Some(offsets.into_boxed_slice()))
+        }
+    };
+    StrMeta { s: s.clone(), char_len, ascii, offsets, chunk }
 }
 
 /// D7: drop every entry whose dedicated chunk was freed since it was stamped — its header
@@ -127,7 +134,7 @@ fn drop_entries_in_freed_chunks(cache: &mut Vec<StrMeta>, unchanged: impl Fn(u32
 }
 
 /// Run `f` against `s`'s cached metadata, computing + caching on first sight.
-fn with_meta<R>(s: &Str, f: impl FnOnce(&StrMeta) -> R) -> R {
+fn with_meta<R>(s: &Str, query: Query, f: impl FnOnce(&StrMeta) -> R) -> R {
     // fix-wasm-string-ops: scope the cache to a single heap's address space. The entries are
     // keyed by GC block ADDRESS (+ generation), but a torn-down heap's addresses get recycled
     // by the next VM's allocator, and a fresh block's generation resets to 0 — so a gen-0 entry
@@ -158,12 +165,18 @@ fn with_meta<R>(s: &Str, f: impl FnOnce(&StrMeta) -> R) -> R {
                 let e = cache.remove(pos);
                 cache.insert(0, e);
             }
-            return f(&cache[0]);
+            let meta = &mut cache[0];
+            if matches!(query, Query::Index) && !meta.ascii && meta.offsets.is_none() {
+                let mut offsets = Vec::with_capacity(meta.char_len);
+                offsets.extend(s.char_indices().map(|(byte, _)| byte as u32));
+                meta.offsets = Some(offsets.into_boxed_slice());
+            }
+            return f(meta);
         }
         // D7: stamp a block that may live in a dedicated chunk (`s` is live here, so the stamp
         // names its chunk). One region lock, only past the large-object threshold — whose offsets
         // table is a ≥ 64 KB walk anyway.
-        let meta = compute(s, scope.dedicated_chunk_stamp(s));
+        let meta = compute(s, scope.dedicated_chunk_stamp(s), query);
         cache.insert(0, meta);
         if cache.len() > CACHE_CAP {
             cache.pop();
@@ -175,7 +188,7 @@ fn with_meta<R>(s: &Str, f: impl FnOnce(&StrMeta) -> R) -> R {
 /// O(1) (amortised) Unicode scalar count — backs `Std.String.Length`.
 pub fn char_len(s: &Str) -> usize {
     if s.is_known_ascii() { return s.len(); }
-    with_meta(s, |m| m.char_len)
+    with_meta(s, Query::Length, |m| m.char_len)
 }
 
 /// O(1) (amortised) char at scalar index `i` — backs `Std.String.CharAt`.
@@ -189,20 +202,20 @@ pub fn byte_range(s: &Str, start: usize, len: usize) -> Option<(usize, usize)> {
         let end = start.checked_add(len)?;
         return (end <= s.len()).then_some((start, end));
     }
-    with_meta(s, |m| {
+    with_meta(s, Query::Index, |m| {
         let end = start.checked_add(len)?;
         if end > m.char_len { return None; }
         if m.ascii { return Some((start, end)); }
         let offs = m.offsets.as_ref()?;
-        let b0 = offs[start] as usize;
         let b1 = if end == m.char_len { m.s.len() } else { offs[end] as usize };
+        let b0 = if start == end { b1 } else { offs[start] as usize };
         Some((b0, b1))
     })
 }
 
 pub fn char_at(s: &Str, i: usize) -> Option<char> {
     if s.is_known_ascii() { return s.as_bytes().get(i).map(|&b| b as char); }
-    with_meta(s, |m| {
+    with_meta(s, Query::Index, |m| {
         if m.ascii {
             m.s.as_bytes().get(i).map(|&b| b as char)
         } else {
