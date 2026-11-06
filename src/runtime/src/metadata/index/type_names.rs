@@ -49,15 +49,26 @@ pub fn simple(full: &str) -> String {
     strip(full, true)
 }
 
+/// Compare a reflection short name without allocating for an ordinary type name.
+pub(crate) fn simple_matches(full: &str, expected: &str) -> bool {
+    if full.ends_with('>') && full.contains('<') {
+        expected.contains('<') && simple(full) == expected
+    } else {
+        unqualified_base(full, true) == expected
+    }
+}
+
+fn unqualified_base(base: &str, drop_outer: bool) -> &str {
+    let base = base.rsplit('.').next().unwrap_or(base);
+    if drop_outer { base.rsplit('+').next().unwrap_or(base) } else { base }
+}
+
 fn strip(full: &str, drop_outer: bool) -> String {
     let (base, args) = match full.find('<') {
         Some(i) if full.ends_with('>') => (&full[..i], Some(&full[i + 1..full.len() - 1])),
         _ => (full, None),
     };
-    let mut b = base.rsplit('.').next().unwrap_or(base);
-    if drop_outer {
-        b = b.rsplit('+').next().unwrap_or(b);
-    }
+    let b = unqualified_base(base, drop_outer);
     match args {
         None => b.to_string(),
         Some(a) => {

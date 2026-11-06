@@ -24,12 +24,19 @@ pub fn type_element(ctx: &VmContext, ty: &Value) -> Value {
 /// `__type_base(typeObj) -> Type | null` — base class Type; `Std.Object` for
 /// classes with no explicit base; `null` for `Std.Object` itself / no handle.
 pub fn type_base(ctx: &VmContext, ty: &Value) -> Value {
-    // A constructed Type's handle is its definition, whose base names no arguments; the
-    // instantiation descriptor carries the substituted one (`Sub<int>` → `Box<int>`).
-    let td = match instantiation_desc(ctx, ty).or_else(|| type_handle_of(ty)) {
-        Some(t) => t,
-        None => return Value::Null,
-    };
+    let definition = type_handle_of(ty);
+    let template = definition.as_ref().and_then(|td| {
+        td.custom_attributes().iter().find(|a| a.type_name == "$ReflectionBase")
+    });
+    if let Some(template) = template {
+        if let Some(subst) = member_subst(ty) {
+            if let Some(base) = projected_member_type(ctx, &template.factory_func, &subst, &[]) {
+                return base;
+            }
+        }
+    }
+    // Older definitions rely on the specialized descriptor for a closed base name.
+    let Some(td) = instantiation_desc(ctx, ty).or(definition) else { return Value::Null };
     match &td.base_name {
         Some(b) => make_type_from_name(ctx, b),
         None => {
@@ -85,7 +92,11 @@ pub fn type_is_generic_definition(ty: &Value) -> bool {
 /// `InvalidOperationException` for non-generic types, matching C#.
 pub fn type_generic_definition(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
     match type_handle_of(ty) {
-        Some(td) if !td.type_params().is_empty() => Ok(make_type_object(ctx, td)),
+        Some(td) if !td.type_params().is_empty() => {
+            let definition = make_type_object(ctx, td);
+            crate::corelib::assemblyloadcontext::copy_type_asm_id(ty, &definition);
+            Ok(definition)
+        }
         _ => Err(BuiltinError::InvalidOperation(
             "GetGenericTypeDefinition: type is not a generic type".to_string())),
     }
@@ -407,7 +418,7 @@ pub mod typed {
     #[builtin(name = "__type_element", reenters)]
     pub fn element(ctx: &VmContext, ty: &Value) -> Value { type_element(ctx, ty) }
 
-    #[builtin(name = "__type_base")]
+    #[builtin(name = "__type_base", reenters)]
     pub fn base(ctx: &VmContext, ty: &Value) -> Value { type_base(ctx, ty) }
 
     #[builtin(name = "__type_generic_args")]

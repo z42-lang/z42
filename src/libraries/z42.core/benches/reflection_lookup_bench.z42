@@ -1,0 +1,28 @@
+namespace Z42ReflectionLookupBench;
+using Std.Harness;
+
+class LookupTarget {}
+
+void measure_type_lookup(Bencher b, string name, Type expected) {
+    Assert.Equal(expected, Type.GetType(name));
+    b.iter(() => {
+        for (int i = 0; i < 128; i = i + 1) {
+            BenchHelpers.blackBox(Type.GetType(name));
+        }
+    });
+}
+
+[Benchmark]
+void primitive_alias_lookup(Bencher b) {
+    measure_type_lookup(b, "int", typeof(int));
+}
+
+[Benchmark]
+void unique_short_name_lookup(Bencher b) {
+    measure_type_lookup(b, "LookupTarget", typeof(LookupTarget));
+}
+
+[Benchmark]
+void qualified_name_lookup(Bencher b) {
+    measure_type_lookup(b, "Z42ReflectionLookupBench.LookupTarget", typeof(LookupTarget));
+}
