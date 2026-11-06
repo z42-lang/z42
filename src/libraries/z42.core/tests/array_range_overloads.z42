@@ -126,3 +126,25 @@ void test_binarysearch_comparer() {
     Assert.Equal(-3, Array.BinarySearch<int>(xs, 4, (a, b) => a - b));  // ~2
     Assert.Equal(-1, Array.BinarySearch<int>(xs, 0, (a, b) => a - b));  // ~0
 }
+
+[Test]
+void test_index_search_handles_null_elements() {
+    string[] values = new string[] { null, "ok", null, "ok" };
+    Assert.Equal(0, Array.IndexOf<string>(values, null));
+    Assert.Equal(1, Array.IndexOf<string>(values, "ok"));
+    Assert.Equal(2, Array.IndexOf<string>(values, null, 1));
+    Assert.Equal(3, Array.IndexOf<string>(values, "ok", 2, 2));
+    Assert.Equal(-1, Array.IndexOf<string>(values, null, 1, 1));
+    Assert.Equal(2, Array.LastIndexOf<string>(values, null));
+    Assert.Equal(1, Array.LastIndexOf<string>(values, "ok", 2));
+    Assert.True(Array.Contains<string>(values, null));
+    Assert.False(Array.Contains<string>(values, "absent"));
+}
+
+[Test]
+void test_index_search_preserves_float_equality() {
+    double[] values = new double[] { Double.NaN, -0.0, 1.5, 0.0 };
+    Assert.Equal(-1, Array.IndexOf<double>(values, Double.NaN));
+    Assert.Equal(1, Array.IndexOf<double>(values, 0.0));
+    Assert.Equal(3, Array.LastIndexOf<double>(values, -0.0));
+}
