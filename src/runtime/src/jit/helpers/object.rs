@@ -3,6 +3,7 @@
 //! generic `default(T)` runtime helper.
 
 use crate::vm::runtime::dispatch::ctor::{site_for, instance_type_args};
+use crate::vm::exec::call::type_param_env::{method_default_value, method_type_value};
 use crate::vm::exec::ops::cast::isa_object;
 use crate::vm::exec::ops::cast::isa_td;
 use crate::vm::runtime::dispatch::ic::ObjNewSite;
@@ -156,6 +157,24 @@ pub unsafe extern "C" fn jit_default_of(
     };
     frame_ref.regs[dst as usize] = val;
     0
+}
+
+/// Materialize the method type argument in the destination register.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_method_type_arg(
+    frame: *mut JitFrame, ctx: *const VmContext, dst: u32, param_index: u32,
+) {
+    let frame = &mut *frame;
+    frame.regs[dst as usize] = method_type_value(vm_ctx_ref(ctx), frame.method_type_args, param_index as usize);
+}
+
+/// Store the method type argument's default value in the destination register.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_method_default(
+    frame: *mut JitFrame, dst: u32, param_index: u32,
+) {
+    let frame = &mut *frame;
+    frame.regs[dst as usize] = method_default_value(frame.method_type_args, param_index as usize);
 }
 
 /// spec fix-numeric-cast-lowering : explicit numeric type

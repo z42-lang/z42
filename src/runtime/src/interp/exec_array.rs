@@ -58,8 +58,8 @@ fn generic_bound_elem(frame: &Frame, kind: u8, index: i32) -> Option<ElemType> {
 ///
 /// Reference / struct params and unresolvable sites keep the erased cell-backed array (generic
 /// containers store structs by reference; a reference `T` is `Mixed` by [`ElemKind::of_type_param`]).
-/// The class-level resolution is shared with the JIT (`objops::array::class_type_param_elem`); a
-/// method-level site never JITs (`unsupported_reason`: the JIT frame has no `method_type_args`).
+/// The class-level resolution is shared with the JIT (`objops::array::class_type_param_elem`).
+/// Method-level array allocation still falls back until JIT lowering uses the frame's type arguments.
 /// Method-level names are not interned — the match runs per allocation; the sites are generic
 /// static methods (`Array.Sort<T>`'s scratch), low-rate by construction.
 fn generic_prim_elem(frame: &Frame, kind: u8, index: i32) -> Option<objops::array::TypeParamElem> {
