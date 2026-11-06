@@ -1,0 +1,115 @@
+namespace Std.Regex;
+
+internal enum RegexOperation {
+    /// 匹配完整表达式。
+    Accept,
+    /// 匹配一个字面字符。
+    Literal,
+    /// 匹配字符类、通配符或零宽断言。
+    Atom,
+    /// 按顺序尝试两个分支。
+    Branch,
+    /// 记录捕获起点。
+    CaptureStart,
+    /// 记录捕获终点。
+    CaptureEnd,
+    /// 扫描单字符量词的连续可选终点。
+    RepeatAtom,
+    /// 进入量词时重置重复计数。
+    RepeatInit,
+    /// 按量词优先级选择继续或退出。
+    RepeatChoice,
+    /// 记录本次重复的起点。
+    RepeatBody,
+    /// 完成本次重复并检查输入是否前进。
+    RepeatEnd
+}
+
+// Next is the preferred successor; Other is the alternative of a branch or repeat choice.
+internal class RegexInstruction {
+    /// 当前指令种类。
+    public RegexOperation Operation;
+    /// 由原子或量词指令读取的 AST 数据。
+    public RegexNode Node;
+    /// 顺序执行位置或首选分支。
+    public RegexInstruction Next;
+    /// 备用分支或量词退出位置。
+    public RegexInstruction Other;
+    /// 捕获或量词在匹配工作区中的编号。
+    public int Slot;
+
+    /// 创建指定种类和顺序后继的指令。
+    public RegexInstruction(RegexOperation operation, RegexInstruction next) {
+        this.Operation = operation;
+        this.Next = next;
+    }
+}
+
+internal class RegexProgram {
+    /// 从此处尝试一次匹配。
+    public RegexInstruction Entry;
+    /// 需要通用重复状态的量词数量。
+    public int RepeatCount;
+
+    /// 将已解析的序列降低为续接指令。
+    public RegexProgram(RegexNode[] nodes, int count) {
+        this.Entry = this.LowerSequence(nodes, count, new RegexInstruction(RegexOperation.Accept, null));
+    }
+
+    private RegexInstruction LowerSequence(RegexNode[] nodes, int count, RegexInstruction next) {
+        for (int i = count - 1; i >= 0; i = i - 1) {
+            next = this.LowerNode(nodes[i], next);
+        }
+        return next;
+    }
+
+    private RegexInstruction LowerNode(RegexNode node, RegexInstruction next) {
+        if (node._kind == 6) {
+            var branch = new RegexInstruction(RegexOperation.Branch,
+                this.LowerSequence(node._leftSeq, node._leftCount, next));
+            branch.Other = this.LowerSequence(node._rightSeq, node._rightCount, next);
+            return branch;
+        }
+        if (node._kind == 7) {
+            return this.LowerRepeat(node, next);
+        }
+        if (node._kind == 8) {
+            if (node._groupIndex < 0) {
+                return this.LowerSequence(node._childSeq, node._childCount, next);
+            }
+            var end = new RegexInstruction(RegexOperation.CaptureEnd, next);
+            end.Slot = node._groupIndex;
+            var start = new RegexInstruction(RegexOperation.CaptureStart,
+                this.LowerSequence(node._childSeq, node._childCount, end));
+            start.Slot = node._groupIndex;
+            return start;
+        }
+        var atom = new RegexInstruction(node._kind == 1 ? RegexOperation.Literal : RegexOperation.Atom, next);
+        atom.Node = node;
+        return atom;
+    }
+
+    private RegexInstruction LowerRepeat(RegexNode node, RegexInstruction next) {
+        if (node._childCount == 1 && node._childSeq[0]._kind <= 3) {
+            var atom = new RegexInstruction(RegexOperation.RepeatAtom, next);
+            atom.Node = node;
+            return atom;
+        }
+        int slot = this.RepeatCount;
+        this.RepeatCount = slot + 1;
+        var choice = new RegexInstruction(RegexOperation.RepeatChoice, null);
+        choice.Node = node;
+        choice.Other = next;
+        choice.Slot = slot;
+        var end = new RegexInstruction(RegexOperation.RepeatEnd, choice);
+        end.Node = node;
+        end.Slot = slot;
+        var body = new RegexInstruction(RegexOperation.RepeatBody,
+            this.LowerSequence(node._childSeq, node._childCount, end));
+        body.Slot = slot;
+        choice.Next = body;
+        var init = new RegexInstruction(RegexOperation.RepeatInit, choice);
+        init.Slot = slot;
+        return init;
+    }
+}
