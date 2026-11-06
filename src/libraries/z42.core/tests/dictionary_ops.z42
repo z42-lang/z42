@@ -120,7 +120,6 @@ void test_clear_already_empty_preserves_count_and_enumerator_contract() {
     var d = new Dictionary<int, int>();
     var iter = d.GetEnumerator();
     Assert.False(iter.MoveNext());
-    d.Count = 1;
     d.Clear();
     Assert.Equal(0, d.Count);
     bool invalidated = false;
@@ -132,7 +131,12 @@ void test_clear_already_empty_preserves_count_and_enumerator_contract() {
     Assert.True(invalidated);
     d[7] = 11;
     Assert.Equal(11, d[7]);
-    d.Count = 0;
+    Assert.True(d.Remove(7));
+    d[8] = 12;
+    Assert.Equal(1, d.Count);
     d.Clear();
+    Assert.Equal(0, d.Count);
+    Assert.Equal(0, d.Keys().Length);
     Assert.False(d.ContainsKey(7));
+    Assert.False(d.ContainsKey(8));
 }
