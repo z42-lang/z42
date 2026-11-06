@@ -177,6 +177,7 @@ public static class CompilerFingerprint {
         "explicit-workspace-compile-domain",
         "compiler-domain-runtime-probe-fallback",
         "bind-constructed-count-members",
+        "preserve-generic-base-projection",
         "reject-intrinsic-size-writes"
     };
 
