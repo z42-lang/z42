@@ -137,16 +137,19 @@ void test_except_with() {
 }
 
 [Test]
-void test_clear_already_empty_resets_public_count_and_allows_reuse() {
+void test_clear_empty_and_tombstoned_set_allows_reuse() {
     var set = new HashSet<int>();
-    set.Count = 1;
     set.Clear();
     set.Clear();
     Assert.Equal(0, set.Count);
     Assert.True(set.Add(7));
     Assert.False(set.Add(7));
     Assert.Equal(1, set.Count);
-    set.Count = 0;
+    Assert.True(set.Remove(7));
+    Assert.Equal(0, set.Count);
     set.Clear();
     Assert.False(set.Contains(7));
+    Assert.True(set.Add(7));
+    Assert.Equal(1, set.Count);
+    Assert.Equal(7, set.ToArray()[0]);
 }
