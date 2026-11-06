@@ -43,6 +43,9 @@ class Sub<U> : Box<U>, IFoo<U> {
 
 class DInt : Box<int> { }
 
+class ProjectedBase<P> { }
+class ProjectedChild<Q> : ProjectedBase<Pair<string, Q[]>> { }
+
 T Make<T>() where T : new() { return new T(); }
 
 ConstructorInfo OneArgCtor(Type t) {
@@ -140,6 +143,15 @@ void Main() {
     Assert.Equal("Demo.Box<Std.Int32>", st.BaseType.FullName);
     Assert.Equal("Demo.IFoo<Std.Int32>", st.GetInterfaces()[0].FullName);
     Assert.Equal("Demo.Box<Std.Int32>", typeof(DInt).BaseType.FullName);
+    Type childDefinition = typeof(ProjectedChild<>);
+    Type projectedChild = childDefinition.MakeGenericType(inner);
+    Type projectedBase = projectedChild.BaseType;
+    Assert.True(projectedBase.IsGenericType);
+    Type[] basePair = projectedBase.GetGenericArguments()[0].GetGenericArguments();
+    Assert.True(basePair[0].Equals(typeof(string)));
+    Assert.True(Object.ReferenceEquals(inner, basePair[1].GetElementType()));
+    Assert.True(childDefinition.BaseType.IsGenericTypeDefinition);
+    Assert.Equal(0, childDefinition.GetCustomAttributes().Length);
     FieldInfo[] fs = typeof(Box<int>).GetFields();
     Assert.Equal("Std.Int32", fs[0].FieldType.FullName);
     Assert.Equal("Std.Int32[]", typeof(List<int>).GetFields()[0].FieldType.FullName);
