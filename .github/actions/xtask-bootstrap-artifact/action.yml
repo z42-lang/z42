@@ -2,7 +2,7 @@ name: xtask-bootstrap-artifact
 description: >
   Bootstrap by CONSUMING the `toolchain-ubuntu-latest` artifact produced by the
   toolchain-bootstrap job (z42c dist + stdlib dist + xtask.zpkg), plus a host
-  `cargo build` for z42vm + native cdylibs (the build-tree VM the tests exercise), plus the
+  build-tree VM when requested, plus the
   previous nightly SDK in `.z42` that xtask itself runs on (same as local `./xtask`). After this, drive work via
   `xtask <cmd>` (the .github/ci/xtask shim, put on PATH here) exactly like ci-bootstrap.
   The consuming job MUST `needs: toolchain-bootstrap` and `actions/checkout` first
@@ -19,9 +19,8 @@ inputs:
     description: >
       Swatinem rust-cache `shared-key`. Default `artifact-host-v1` = the shared
       full-workspace (incl. cdylib) cache for every job whose cargo invocation is
-      byte-identical to the one below. Override ONLY when the job builds strictly
-      MORE than this action does — e.g. host-package's package step additionally
-      builds cdylib/staticlib/apphost, so it owns `package-host-v2`.
+      byte-identical to the one below. Override when the job uses a different
+      build set, such as packaging with cdylib/staticlib/apphost or debug-only JIT.
       Kept separate from ci-bootstrap's `host-v2`: the two bootstrap paths do different
       work afterwards. Keep the cache config here (not copied into each job) so the
       key always matches what this action builds.
@@ -33,35 +32,32 @@ inputs:
       jobs that cross-compile after bootstrapping. Empty = host only.
     required: false
     default: ""
-  prebuilt-vm:
+  vm:
     description: >
-      "true" = on a Linux X64 runner, take z42vm + native cdylibs from the `z42vm-linux-x64`
-      artifact (uploaded by compile-toolchain, built by the very same `cargo build --release`
-      command below) instead of cargo-building them. Saves ~95s per job: rust-cache only caches
-      DEPENDENCIES, so even on an exact cache hit the z42 crate itself is re-linked with fat LTO.
-      🔴 Only for jobs whose later steps never invoke cargo (they'd find a target dir with no
-      fingerprints and rebuild the whole crate cold) — today: compile-test-assets,
-      `test stdlib --no-build` jobs and publish-nightly. Ignored on other hosts (they always build their own z42vm).
+      build: build the host release VM and native libraries.
+      prebuilt: restore the same release outputs on Linux X64 without setting up Cargo;
+      on other hosts, build them locally. Use for consumers that do not invoke Cargo afterwards.
+      deferred: set up Rust and its cache so the calling command can build the profile it needs.
     required: false
-    default: "false"
+    default: build
 runs:
   using: composite
   steps:
     - name: Setup Rust
-      if: ${{ !(inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64') }}
+      if: ${{ !(inputs.vm == 'prebuilt' && runner.os == 'Linux' && runner.arch == 'X64') }}
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: ${{ inputs.rust-targets }}
 
     - name: Cache Rust deps (Swatinem)
-      if: ${{ !(inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64') }}
+      if: ${{ !(inputs.vm == 'prebuilt' && runner.os == 'Linux' && runner.arch == 'X64') }}
       uses: Swatinem/rust-cache@v2
       with:
         workspaces: src/runtime -> ../../artifacts/build/runtime
         shared-key: ${{ inputs.cache-key }}
 
     - name: Download prebuilt z42vm (linux-x64)
-      if: ${{ inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64' }}
+      if: ${{ inputs.vm == 'prebuilt' && runner.os == 'Linux' && runner.arch == 'X64' }}
       uses: actions/download-artifact@v8
       with:
         name: z42vm-linux-x64
@@ -69,7 +65,7 @@ runs:
 
     # upload-artifact 不保留可执行位。
     - name: Restore exec bit
-      if: ${{ inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64' }}
+      if: ${{ inputs.vm == 'prebuilt' && runner.os == 'Linux' && runner.arch == 'X64' }}
       shell: bash
       run: chmod +x artifacts/build/runtime/release/z42vm && artifacts/build/runtime/release/z42vm --version
 
@@ -115,6 +111,6 @@ runs:
     # artifacts/build/runtime/release/z42vm the zpkg artifact expects. Runs after the
     # shim so every cargo invocation goes through xtask (one place owns the cargo config).
     - name: Build z42vm + native libs (release)
-      if: ${{ !(inputs.prebuilt-vm == 'true' && runner.os == 'Linux' && runner.arch == 'X64') }}
+      if: ${{ inputs.vm != 'deferred' && !(inputs.vm == 'prebuilt' && runner.os == 'Linux' && runner.arch == 'X64') }}
       shell: bash
       run: xtask build runtime

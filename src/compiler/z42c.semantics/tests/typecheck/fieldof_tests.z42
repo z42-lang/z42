@@ -1,0 +1,139 @@
+// fieldof / propertyof 的**诊断面**单测（add-field-property-reference）。
+//
+// 与 methodof_tests.z42 同构：诊断码 + 消息文本 + 下划线位置三样都要断言（e2e 只比对
+// stdout）。本特性的价值同 methodof——名字写错 / 写错族 / 指了 const 都必须是编译错误，
+// 且诊断给出可照抄的下一步。
+namespace Z42cSemanticsFieldOfTests;
+
+using Z42.Semantics;
+using Std.Harness;
+
+// 一个类放全四种成员形态：实例字段 / 静态字段 / const / 属性，供各用例复用。
+string _src(string expr) {
+    return "class Logger { public int Level; public static int Port; public const int MAX = 3; "
+         + "public int Prop { get { return 1; } } "
+         + "object Take() { return " + expr + "; } }";
+}
+
+// ── 正例 ───────────────────────────────────────────────────────────────────
+[Test]
+void test_fieldof_unique_field() {
+    Assert.Equal(0, SemanticDump.ErrorCount(_src("fieldof(Logger.Level)")));
+}
+
+[Test]
+void test_fieldof_static_field() {
+    Assert.Equal(0, SemanticDump.ErrorCount(_src("fieldof(Logger.Port)")));
+}
+
+[Test]
+void test_fieldof_inherited_field() {
+    string src = "class Base { public int Tag; } class Derived : Base { "
+               + "object Take() { return fieldof(Derived.Tag); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_propertyof_property() {
+    Assert.Equal(0, SemanticDump.ErrorCount(_src("propertyof(Logger.Prop)")));
+}
+
+[Test]
+void test_propertyof_inherited_property() {
+    string src = "class Base { public int Tag { get { return 1; } } } class Derived : Base { "
+               + "object Take() { return propertyof(Derived.Tag); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 负例：每一条都必须报，且必须给出可照抄的下一步 ──────────────────────────
+[Test]
+void test_fieldof_unknown_member_is_error() {
+    string src = _src("fieldof(Logger.Nope)");
+    Assert.Equal("E0507", SemanticDump.FirstErrorCode(src));
+    // 逃生口：列出可用的字段名（const 不列——fieldof 永远指不了它）
+    Assert.Contains("available fields", SemanticDump.FirstErrorMessage(src));
+    Assert.Contains("Level", SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_fieldof_on_property_says_propertyof() {
+    // 跨族点名：给**正确的关键字**，而不是一句空泛的「不存在」。
+    string src = _src("fieldof(Logger.Prop)");
+    Assert.Equal("E0507", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("is a property", SemanticDump.FirstErrorMessage(src));
+    Assert.Contains("propertyof(Logger.Prop)", SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_fieldof_on_const_is_rejected_with_reason() {
+    // const 编译期折叠、无槽 —— 说清**为什么**指不了（同 methodof 的 E0461 精神）。
+    string src = _src("fieldof(Logger.MAX)");
+    Assert.Equal("E0507", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("const", SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_propertyof_on_field_says_fieldof() {
+    string src = _src("propertyof(Logger.Level)");
+    Assert.Equal("E0509", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("is a field", SemanticDump.FirstErrorMessage(src));
+    Assert.Contains("fieldof(Logger.Level)", SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_propertyof_unknown_member_is_error() {
+    string src = _src("propertyof(Logger.Nope)");
+    Assert.Equal("E0509", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("available properties", SemanticDump.FirstErrorMessage(src));
+    Assert.Contains("Prop", SemanticDump.FirstErrorMessage(src));
+}
+
+// ── 形态错（E0508）────────────────────────────────────────────────────────
+[Test]
+void test_fieldof_requires_type_dot_member() {
+    string src = _src("fieldof(Logger)");
+    Assert.Equal("E0508", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("Type.Member", SemanticDump.FirstErrorMessage(src));
+    // 一个错误只报一条：不得再追加「没有名为 `` 的字段」的噪声
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_fieldof_generic_owner_is_rejected() {
+    // 泛型类共享一份字段布局 ⇒ Box<int>.V 与 Box<string>.V 是同一个槽。
+    string src = "class Box<T> { public T Item; } class C { object T() { return fieldof(Box<int>.Item); } }";
+    Assert.Equal("E0508", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("fieldof(Box.Item)", SemanticDump.FirstErrorMessage(src));
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_fieldof_param_list_is_rejected() {
+    // 字段/属性无重载，名字即身份——带参数列表只会让人误以为有消歧这回事。
+    string src = _src("fieldof(Logger.Level(int))");
+    Assert.Equal("E0508", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("no parameter list", SemanticDump.FirstErrorMessage(src));
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_propertyof_param_list_is_rejected() {
+    string src = _src("propertyof(Logger.Prop())");
+    Assert.Equal("E0508", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("propertyof(Logger.Prop)", SemanticDump.FirstErrorMessage(src));
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_fieldof_undefined_owner_type() {
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode(_src("fieldof(Nope.Whatever)")));
+}
+
+// ── 下划线位置：必须落在**成员名本身**，不是整个 fieldof 表达式 ─────────────
+[Test]
+void test_fieldof_error_underlines_the_member_name() {
+    string src = "class Logger { public int Level; object T() { return fieldof(Logger.Nope); } }";
+    // 三个候选位置（1-based 列）：`fieldof` 起于 54、owner `Logger` 起于 62、成员 `Nope` 起于 69。
+    // 断言必须是 69 —— 退回「整个表达式」(54) 或「owner」(62) 都会立刻变红。
+    Assert.Equal("1:69", SemanticDump.FirstErrorPos(src));
+}

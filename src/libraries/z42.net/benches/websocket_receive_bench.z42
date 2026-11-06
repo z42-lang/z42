@@ -1,0 +1,101 @@
+// requires-caps: socket-listen
+namespace Z42WebSocketReceiveBench;
+
+using Std.Crypto;
+using Std.Encoding;
+using Std.Harness;
+using Std.Net.Sockets;
+using Std.Net.WebSockets;
+using Std.Threading;
+
+byte[] binaryMessage(int payloadLength, int fragments) {
+    // Each case uses a 16-bit frame length and has the same total payload.
+    int chunk = payloadLength / fragments;
+    byte[] encoded = new byte[payloadLength + 4 * fragments];
+    for (int i = 0; i < fragments; i = i + 1) {
+        int offset = i * (chunk + 4);
+        int opcode = i == 0 ? 2 : 0;
+        encoded[offset] = (byte)(opcode + (i == fragments - 1 ? 128 : 0));
+        encoded[offset + 1] = (byte)126;
+        encoded[offset + 2] = (byte)(chunk >> 8);
+        encoded[offset + 3] = (byte)(chunk & 255);
+        encoded[offset + 4] = (byte)73;
+        encoded[offset + 3 + chunk] = (byte)89;
+    }
+    return encoded;
+}
+
+void handshake(NetworkStream stream) {
+    byte[] request = new byte[4096];
+    int used = 0;
+    string header = "";
+    while (used < request.Length) {
+        int read = stream.Read(request, used, request.Length - used);
+        if (read == 0) { break; }
+        used = used + read;
+        if (used >= 4 && request[used - 4] == (byte)13 && request[used - 3] == (byte)10
+            && request[used - 2] == (byte)13 && request[used - 1] == (byte)10) {
+            header = String.FromUtf8(request, 0, used);
+            break;
+        }
+    }
+    string label = "Sec-WebSocket-Key:";
+    int field = header.IndexOf(label);
+    Assert.True(field >= 0);
+    string keyLine = header.Substring(field + label.Length);
+    string key = keyLine.Substring(0, keyLine.IndexOf("\r\n")).Trim();
+    string accept = Base64.Encode(Sha1.HashString(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"));
+    byte[] response = Utf8.GetBytes("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+        + "Sec-WebSocket-Accept: " + accept + "\r\n\r\n");
+    stream.Write(response, 0, response.Length);
+}
+
+void receiveBinary(int fragments, string label) {
+    int length = 32768;
+    var bencher = new Bencher(2, 12);
+    int repetitions = bencher.WarmupIters + bencher.Samples;
+    byte[] encoded = binaryMessage(length, fragments);
+
+    var listener = new TcpListener();
+    listener.Bind("127.0.0.1", 0);
+    string url = "ws://127.0.0.1:" + Int32.ToString(listener.LocalPort()) + "/";
+    Thread sender = Thread.Start(() => {
+        var peer = listener.AcceptTcpClient();
+        try {
+            var stream = peer.GetStream();
+            handshake(stream);
+            for (int i = 0; i < repetitions; i = i + 1) {
+                stream.Write(encoded, 0, encoded.Length);
+            }
+        } finally {
+            peer.Dispose();
+        }
+    });
+
+    var client = new WebSocketClient();
+    try {
+        client.Connect(url);
+        bencher.iter(() => {
+            WebSocketMessage message = client.Receive();
+            Assert.True(message.IsBinary());
+            Assert.Equal(length, message.Buffer.Length);
+            Assert.Equal(73, (int)message.Buffer[0]);
+            Assert.Equal(89, (int)message.Buffer[length - 1]);
+            BenchHelpers.blackBox(message.Buffer);
+        });
+        bencher.printSummary(label);
+    } finally {
+        client.Dispose();
+        listener.Stop();
+        sender.Join();
+    }
+}
+
+[Benchmark]
+void receive_binary_32k_single_frame() { receiveBinary(1, "ws_receive_binary_32k_single"); }
+
+[Benchmark]
+void receive_binary_32k_sixteen_frames() { receiveBinary(16, "ws_receive_binary_32k_16_frames"); }
+
+[Benchmark]
+void receive_binary_32k_256_frames() { receiveBinary(256, "ws_receive_binary_32k_256_frames"); }

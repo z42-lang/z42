@@ -189,6 +189,29 @@ public sealed class TypeOpEmitter {
         return dst;
     }
 
+    // fieldof(...) / propertyof(...) → `__fieldof` / `__propertyof` builtin（add-field-property-reference）。
+    //
+    // 与 _emitMethodOf 同一范式：无新 IR 指令、无格式 bump（ConstStr 进串池 + BuiltinInstr）。
+    // 名字 = `<声明类 FQN>.<成员名>`——绑定期已沿基链定位声明类（`_passInheritFields` 展平进
+    // 派生类 Fields 表的副本保留原 ContainingTypeName，据此回溯真声明类），这里只拼接。
+    // 与 methodof 不同，**无须** ResolveMethodOfTarget 那道 Deps 校验：字段的存储挂在类型
+    // 描述符上（不是独立发射的函数），运行期 `__fieldof` 自己沿基链兜底查表。
+    internal TypedReg _emitFieldOf(BoundFieldOf e) {
+        string owner = e.DeclOwnerFq;
+        if (owner == "") {
+            owner = (e.OwnerCt != null) ? e.OwnerCt.Fqn() : this._ctx.QualifyClass(e.OwnerName);
+        }
+        string qualified = owner + "." + e.MemberName;
+        int idx = this._ctx.Gen.Intern(qualified);
+        TypedReg nameReg = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ConstStrInstr(nameReg, idx));
+        TypedReg[] args = new TypedReg[1];
+        args[0] = nameReg;
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new BuiltinInstr(dst, e.IsProperty ? "__propertyof" : "__fieldof", args, 1));
+        return dst;
+    }
+
     // x as T → as_cast（结果 ref）。目标类型名用 AST 原始名经 QualifyClass 解析（镜像 _emitIs）——
     // 不用 resolved 类型名：imported 接口/内建类 ResolveType 得 Unknown → "<unknown>" 会致目标失配
     // （跨包接口 `as` 恒 null）。含 Array/Object 内建根类归一（同 _emitIs）。

@@ -479,6 +479,21 @@ impl VmContext {
         set.into_iter().collect()
     }
 
+    /// The unique loaded full name matching a short name. Identical full names
+    /// in the entry module and lazy loader count once, as in loaded_type_names.
+    pub(crate) fn unique_loaded_full_name(&self, simple: &str) -> Option<String> {
+        let state = self.core.loader.lazy_loader.read();
+        let entry_names = self.module().into_iter().flat_map(|module| module.type_registry.keys());
+        let lazy_names = state.as_ref().into_iter().flat_map(|loader| loader.iter_type_names());
+        let mut matches = entry_names.chain(lazy_names)
+            .filter(|name| crate::metadata::index::type_names::simple_matches(name, simple));
+        let first = matches.next()?;
+        if matches.any(|name| name != first) {
+            return None;
+        }
+        Some(first.clone())
+    }
+
     /// The string a `ConstStr idx` in a function running against `module` loads: the
     /// interned GC string of string id `idx` (P1-2 PR 7). `None` = out of range.
     ///

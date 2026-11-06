@@ -1,0 +1,6 @@
+using Std.Collections;
+
+void Main() {
+    ReadOnlyCollection<int> view = Array.AsReadOnly<int>([1, 2, 3]);
+    view.Count = 0;
+}

@@ -357,7 +357,8 @@ public sealed partial class MemberResolver {
         if (m.Name == "Length" && ((tt is Z42ArrayType) || ((tt is Z42ClassType) && tt.CanonName() == "string"))) {
             return new BoundMember(target, m.Name, Z42ClassType.Builtin("int"), m.Span);
         }
-        if (m.Name == "Count") {
+        // A constructed type has a real member table. Keep Count on the normal field/getter path.
+        if (m.Name == "Count" && !(tt is Z42InstantiatedType)) {
             return new BoundMember(target, m.Name, Z42ClassType.Builtin("int"), m.Span);
         }
         if ((tt is Z42ErrorType) || (tt is Z42UnknownType)) {

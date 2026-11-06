@@ -1,0 +1,36 @@
+namespace Z42CoreArrayReferenceCopyBench;
+
+using Std.Harness;
+
+[Benchmark]
+void CopyInts(Bencher b) {
+    int[] src = new int[4096];
+    int[] dst = new int[4096];
+    src[4095] = 5;
+    b.iter(() => {
+        Array.CopyRange(src, 0, dst, 0, 4096);
+        BenchHelpers.blackBox(dst);
+    });
+}
+
+[Benchmark]
+void CopyStrings(Bencher b) {
+    string[] src = new string[4096];
+    string[] dst = new string[4096];
+    Array.Fill<string>(src, "é");
+    b.iter(() => {
+        Array.CopyRange(src, 0, dst, 0, 4096);
+        BenchHelpers.blackBox(dst);
+    });
+}
+
+[Benchmark]
+void CopyNarrowStrings(Bencher b) {
+    object[] src = new object[4096];
+    string[] dst = new string[4096];
+    Array.Fill<object>(src, "é");
+    b.iter(() => {
+        Array.CopyRange(src, 0, dst, 0, 4096);
+        BenchHelpers.blackBox(dst);
+    });
+}

@@ -1,6 +1,6 @@
 # 解释器 / JIT 标量语义的单一真相源
 
-> 代码：`src/runtime/src/vm/exec/ops/scalar.rs`（标量真相源）、`src/runtime/src/objops/`（对象操作真相源）、`src/runtime/src/interp/ops.rs` +
+> 代码：`src/runtime/src/vm/exec/ops/scalar.rs`（标量真相源）、`src/runtime/src/vm/exec/ops/object/`（对象操作真相源）、`src/runtime/src/interp/ops.rs` +
 > `interp/exec_value.rs`（interp 消费）、`src/runtime/src/jit/helpers/arith.rs` +
 > `jit/helpers/object.rs`（JIT helper 消费）、`src/runtime/src/jit/translate/emit_int.rs` +
 > `emit_fc.rs`（JIT 内联镜像）。
@@ -115,7 +115,7 @@ PIC 的命中点各设一道常驻断言（`vm::exec::ops::vcall::assert_pic_tar
 
 ### 对象操作：objops
 
-字段、数组、静态字段、值 struct 叶子的**读写语义**收在 `src/runtime/src/objops/`，两个引擎都只做适配：
+字段、数组、静态字段、值 struct 叶子的**读写语义**收在 `src/runtime/src/vm/exec/ops/object/`，两个引擎都只做适配：
 
 ```
 interp exec_*            ┐                       ┌ Ok(v)  → 写 dst 寄存器
@@ -131,9 +131,16 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 | `StructFieldGetPrim` / `SetPrim` | `struct_leaf::struct_field_{get,set}_val` | `exec_struct.rs` | `helpers/struct_ops.rs` |
 | `LoadElemAddr` / `LoadFieldAddr` 与经 `ref` 读写 | `array::check_elem_addr` / `elem_{load,store}`、`field::check_field_addr` / `{load,store}_named` | `exec_address.rs`、`frame.rs` | （JIT 不翻译，见 `unsupported_reason`） |
 
+在 64 位 JIT 中，`ArrayLen` 和 `FieldGet` 的数组 `Length` / `Count` 共用定宽堆数组长度读取。机器码验证接收者 tag 和句柄代数，再按存储模式把头部的载荷字节数转换为元素数。接收者在帧寄存器中保活，读取区间没有 safepoint。结构体数组、栈数组和错误输入由对应指令的 helper 处理，普通对象继续使用字段缓存。
+
+不能提升形状的定宽 `ArrayGet` 复用头部检查，并核对实际存储模式和目标寄存器类型。匹配时直接从数组头计算元素地址和长度，再检查下标。每次访问使用当次接收者，因而字段替换数组后会读取新数组。其它存储模式与异常输入由 `jit_array_get` 处理。
+
+反射和 `FieldGet` 通过 `objops::struct_leaf` 读取装箱 struct 的命名字段。字段布局由
+`object/types/named_struct_layout.rs` 根据类型描述计算，嵌套 struct 的快照与装箱在执行侧完成。
+
 **错误通道只有一个**：`objops::OpError`。
 
-- `Throw { class, msg }`：用户可 `catch` 的异常。类与消息**只在 `objops/error.rs` 里写**：
+- `Throw { class, msg }`：用户可 `catch` 的异常。类与消息**只在 `vm/exec/ops/object/error.rs` 里写**：
 
   | 情形 | 异常类 | 消息 |
   |------|-------|------|

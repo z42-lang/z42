@@ -21,7 +21,12 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let class_tp = if insn.type_param_kind == 2 { insn.type_param_index } else { -1 };
                     let tp = self.builder.ins().iconst(types::I32, class_tp as i64);
                     let tpk = self.builder.ins().iconst(types::I8, insn.type_param_kind as i64);
-                    let inst = self.builder.ins().call(self.hr_array_new, &[self.frame_val, self.ctx_val, d, s, t, et, tp, tpk]);
+                    let owner = if class_tp >= 0 {
+                        crate::vm::exec::call::forward::owner_type(&self.func.name).unwrap_or("")
+                    } else { "" };
+                    let owner_ptr = self.builder.ins().iconst(self.ptr, owner.as_ptr() as i64);
+                    let owner_len = self.builder.ins().iconst(types::I64, owner.len() as i64);
+                    let inst = self.builder.ins().call(self.hr_array_new, &[self.frame_val, self.ctx_val, d, s, t, et, tp, tpk, owner_ptr, owner_len]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::ArrayNewLit(insn) => {
@@ -33,104 +38,16 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let ret = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::ArrayGet { dst, arr, idx } => {
-                    // jit-inline-fastpaths: when the element (`dst`) and index are
-                    // statically i64, do a NATIVE bounds-check + element load +
-                    // unboxed store — no per-element `Value` round-trip through the
-                    // `jit_array_get` helper. The array data self.ptr+len come either
-                    // from the loop-invariant HOIST (方案 B: never-reassigned array
-                    // ⇒ zero per-iteration call, approaching the native ceiling) or
-                    // a per-get `jit_array_data_opt` (方案 A). Cold OOB path reuses
-                    // `jit_array_get` so the exception is identical; a null / non-packed
-                    // array reports width 0, routing every access to the helper too.
-                    if let (Some((val_tag, arr_width)), true) =
+                    let erased = self.func.array_get_erased(*dst);
+                    let erased_arg = self.builder.ins().iconst(types::I8, i64::from(erased));
+                    if let (Some((tag, mode)), true) =
                         (arr_prim_elem(self.func, *dst), idx_int_ok(self.func, *idx))
                     {
-                        // jit-inline-i32-arrays: `dst`'s IR type reliably equals the
-                        // array element type, so `arr_width` (4=int / 8=long·double)
-                        // is a compile-time constant here — no runtime-width branch.
-                        use cranelift_codegen::ir::condcodes::IntCC;
-                        use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
-                        let (data_ptr, len, width) = if let Some(&(hptr, hlen, hw)) = self.hoisted_arrays.get(arr) {
-                            (hptr, hlen, hw) // 方案 B: loop-invariant, hoisted in entry block
-                        } else {
-                            let ss_ptr = self.builder.create_sized_stack_slot(
-                                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
-                            let ss_len = self.builder.create_sized_stack_slot(
-                                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
-                            let ss_width = self.builder.create_sized_stack_slot(
-                                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
-                            let ptr_addr = self.builder.ins().stack_addr(self.ptr, ss_ptr, 0);
-                            let len_addr = self.builder.ins().stack_addr(self.ptr, ss_len, 0);
-                            let width_addr = self.builder.ins().stack_addr(self.ptr, ss_width, 0);
-                            let a_c = self.builder.ins().iconst(types::I32, *arr as i64);
-                            // never throws: not-a-packed-array (incl. null) → width 0 → helper.
-                            self.builder.ins().call(self.hr_array_data,
-                                &[self.frame_val, self.ctx_val, a_c, ptr_addr, len_addr, width_addr]);
-                            let dp = self.builder.ins().stack_load(self.ptr, self.ptr, ss_ptr, 0);
-                            let dl = self.builder.ins().stack_load(self.ptr, types::I64, ss_len, 0);
-                            let dw = self.builder.ins().stack_load(self.ptr, types::I64, ss_width, 0);
-                            (dp, dl, dw)
-                        };
-                        // idx payload (i64) from regs[idx]
-                        let idx_addr = reg_addr(self.builder, self.regs_base, *idx);
-                        let idx_v = load_payload_i64(self.builder, idx_addr);
-                        // width==0 → non-packed backing (`Boxed`/`Bytes`/…), e.g. a
-                        // closure env array read with a primitive-typed `dst`, or an
-                        // `object[]` — the fast-path self.ptr is null there, so route to
-                        // the `jit_array_get` helper (`get_boxed` returns the value).
-                        let width_zero = self.builder.ins().icmp_imm_s(IntCC::Equal, width, 0);
-                        let helper_blk = self.builder.create_block();
-                        let fast_blk   = self.builder.create_block();
-                        let done_blk   = self.builder.create_block();
-                        self.builder.ins().brif(width_zero, helper_blk, &[], fast_blk, &[]);
-                        // helper fallback: identical to the non-inline path.
-                        self.builder.switch_to_block(helper_blk);
-                        let d = self.ri(*dst); let a = self.ri(*arr); let i = self.ri(*idx);
-                        let hinst = self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d, a, i]);
-                        let hret  = self.builder.inst_results(hinst)[0];
-                        self.check(hret);
-                        self.builder.ins().jump(done_blk, &[]);
-                        // packed fast path: bounds-check, then native element load.
-                        self.builder.switch_to_block(fast_blk);
-                        let oob = self.builder.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx_v, len);
-                        let oob_blk = self.builder.create_block();
-                        let in_blk  = self.builder.create_block();
-                        self.builder.ins().brif(oob, oob_blk, &[], in_blk, &[]);
-                        // cold OOB: reuse jit_array_get to set the identical exception.
-                        self.builder.switch_to_block(oob_blk);
-                        let d_c = self.builder.ins().iconst(types::I32, *dst as i64);
-                        let a_c2 = self.builder.ins().iconst(types::I32, *arr as i64);
-                        let i_c = self.builder.ins().iconst(types::I32, *idx as i64);
-                        self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d_c, a_c2, i_c]);
-                        self.dispatch_to_catch_or_return();
-                        // in-bounds: native element load + unboxed store. The packed
-                        // array buffer is contiguous `arr_width`-byte slots with NO
-                        // per-element tag; when width!=0 the runtime backing matches
-                        // the compile-time `arr_width` (dst = element type). width-4
-                        // (`int[]`) sign-extends into the i64 payload; width-8
-                        // (`long[]`/`double[]`) is a raw load. Tag = static `val_tag`.
-                        self.builder.switch_to_block(in_blk);
-                        let stride_c = self.builder.ins().iconst(types::I64, arr_width);
-                        let elem_off = self.builder.ins().imul(idx_v, stride_c);
-                        let elem_addr = self.builder.ins().iadd(data_ptr, elem_off);
-                        let elem = if arr_width == 4 {
-                            let e32 = self.builder.ins().load(types::I32, MemFlagsData::trusted(), elem_addr, 0);
-                            self.builder.ins().sextend(types::I64, e32)
-                        } else {
-                            self.builder.ins().load(types::I64, MemFlagsData::trusted(), elem_addr, 0)
-                        };
-                        // store into the 16-byte register `Value` (tag + payload).
-                        let dst_addr = reg_addr(self.builder, self.regs_base, *dst);
-                        let tag_c = self.builder.ins().iconst(types::I8, val_tag); // I64=0 / F64=1
-                        store_tagged(self.builder, dst_addr, tag_c, elem);
-                        self.builder.ins().jump(done_blk, &[]);
-                        self.builder.switch_to_block(done_blk);
+                        self.tr_array_get_packed(*dst, *arr, *idx, tag, mode, erased_arg);
                     } else if arr_ref_elem(self.func, *dst) && idx_int_ok(self.func, *idx) {
-                        self.tr_array_get_ref(*dst, *arr, *idx);
+                        self.tr_array_get_ref(*dst, *arr, *idx, erased_arg);
                     } else {
-                        let d = self.ri(*dst); let a = self.ri(*arr); let i = self.ri(*idx);
-                        let inst = self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d, a, i]);
-                        let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                        self.array_get_helper(*dst, *arr, *idx, erased_arg);
                     }
                 }
                 Instruction::ArraySet { arr, idx, val } => {
@@ -149,27 +66,10 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         // 4 (`int[]`), 8 (`long[]`/`double[]`), or 0 (non-packed →
                         // fall back to the helper, which narrows/boxes + write-barriers).
                         use cranelift_codegen::ir::condcodes::IntCC;
-                        use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
-                        let (data_ptr, len, width) = if let Some(&(hptr, hlen, hw)) = self.hoisted_arrays.get(arr) {
-                            (hptr, hlen, hw)
+                        let (data_ptr, len, width) = if let Some(&shape) = self.hoisted_arrays.get(arr) {
+                            shape
                         } else {
-                            let ss_ptr = self.builder.create_sized_stack_slot(
-                                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
-                            let ss_len = self.builder.create_sized_stack_slot(
-                                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
-                            let ss_width = self.builder.create_sized_stack_slot(
-                                StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
-                            let ptr_addr = self.builder.ins().stack_addr(self.ptr, ss_ptr, 0);
-                            let len_addr = self.builder.ins().stack_addr(self.ptr, ss_len, 0);
-                            let width_addr = self.builder.ins().stack_addr(self.ptr, ss_width, 0);
-                            let a_c = self.builder.ins().iconst(types::I32, *arr as i64);
-                            // never throws: not-a-packed-array (incl. null) → width 0 → helper.
-                            self.builder.ins().call(self.hr_array_data,
-                                &[self.frame_val, self.ctx_val, a_c, ptr_addr, len_addr, width_addr]);
-                            let dp = self.builder.ins().stack_load(self.ptr, self.ptr, ss_ptr, 0);
-                            let dl = self.builder.ins().stack_load(self.ptr, types::I64, ss_len, 0);
-                            let dw = self.builder.ins().stack_load(self.ptr, types::I64, ss_width, 0);
-                            (dp, dl, dw)
+                            self.packed_array_data(*arr)
                         };
                         let idx_addr = reg_addr(self.builder, self.regs_base, *idx);
                         let idx_v = load_payload_i64(self.builder, idx_addr);
@@ -226,15 +126,107 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     }
                 }
                 Instruction::ArrayLen { dst, arr } => {
-                    let d = self.ri(*dst); let a = self.ri(*arr);
-                    let inst = self.builder.ins().call(self.hr_array_len, &[self.frame_val, self.ctx_val, d, a]);
-                    let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                    #[cfg(target_pointer_width = "64")]
+                    self.emit_array_length(*dst, *arr, |cx| cx.array_len_helper(*dst, *arr));
+                    #[cfg(not(target_pointer_width = "64"))]
+                    self.array_len_helper(*dst, *arr);
                 }
 
                 // Objects
             _ => anyhow::bail!("tr_array: unexpected opcode in category dispatch"),
         }
         Ok(())
+    }
+
+    fn tr_array_get_packed(
+        &mut self, dst: u32, arr: u32, idx: u32, tag: u8, mode: crate::object::ArrayMode,
+        erased_arg: cranelift_codegen::ir::Value,
+    ) {
+        let slow = self.builder.create_block();
+        let done = self.builder.create_block();
+        let (data, len) = if let Some(&(data, len, width)) = self.hoisted_arrays.get(&arr) {
+            self.continue_if(width, slow);
+            (data, len)
+        } else {
+            #[cfg(target_pointer_width = "64")]
+            { self.packed_read_data(arr, mode, slow) }
+            #[cfg(not(target_pointer_width = "64"))]
+            {
+                let (data, len, width) = self.packed_array_data(arr);
+                self.continue_if(width, slow);
+                (data, len)
+            }
+        };
+
+        let index = reg_addr(self.builder, self.regs_base, idx);
+        let index = load_payload_i64(self.builder, index);
+        // Unsigned comparison also rejects negative indices.
+        let in_bounds = self.builder.ins().icmp(IntCC::UnsignedLessThan, index, len);
+        self.continue_if(in_bounds, slow);
+
+        let offset = self.builder.ins().ishl_imm_u(index, mode.shift() as i64);
+        let address = self.builder.ins().iadd(data, offset);
+        let flags = MemFlagsData::trusted();
+        let element = if mode.shift() == 2 {
+            // Packed char values fit in 21 bits, so the same extension serves int and char.
+            let raw = self.builder.ins().load(types::I32, flags, address, 0);
+            self.builder.ins().sextend(types::I64, raw)
+        } else {
+            self.builder.ins().load(types::I64, flags, address, 0)
+        };
+        let dest = reg_addr(self.builder, self.regs_base, dst);
+        store_const_tag(self.builder, dest, tag, element);
+        self.builder.ins().jump(done, &[]);
+
+        self.builder.switch_to_block(slow);
+        self.array_get_helper(dst, arr, idx, erased_arg);
+        self.builder.ins().jump(done, &[]);
+        self.builder.switch_to_block(done);
+    }
+
+    fn array_get_helper(&mut self, dst: u32, arr: u32, idx: u32, erased_arg: cranelift_codegen::ir::Value) {
+        let dst = self.ri(dst);
+        let arr = self.ri(arr);
+        let idx = self.ri(idx);
+        let call = self.builder.ins().call(
+            self.hr_array_get, &[self.frame_val, self.ctx_val, dst, arr, idx, erased_arg],
+        );
+        let status = self.builder.inst_results(call)[0];
+        self.check(status);
+    }
+
+    // Unhoisted stores use the runtime width, including narrowing stores.
+    fn packed_array_data(
+        &mut self, arr: u32,
+    ) -> (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value, cranelift_codegen::ir::Value) {
+        use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
+        let mut slot = || self.builder.create_sized_stack_slot(
+            StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+        let ptr_slot = slot();
+        let len_slot = slot();
+        let width_slot = slot();
+        let ptr_out = self.builder.ins().stack_addr(self.ptr, ptr_slot, 0);
+        let len_out = self.builder.ins().stack_addr(self.ptr, len_slot, 0);
+        let width_out = self.builder.ins().stack_addr(self.ptr, width_slot, 0);
+        let arr = self.ri(arr);
+        self.builder.ins().call(
+            self.hr_array_data, &[self.frame_val, self.ctx_val, arr, ptr_out, len_out, width_out],
+        );
+        (
+            self.builder.ins().stack_load(self.ptr, self.ptr, ptr_slot, 0),
+            self.builder.ins().stack_load(self.ptr, types::I64, len_slot, 0),
+            self.builder.ins().stack_load(self.ptr, types::I64, width_slot, 0),
+        )
+    }
+
+    fn array_len_helper(&mut self, dst: u32, arr: u32) {
+        let dst = self.ri(dst);
+        let arr = self.ri(arr);
+        let call = self.builder.ins().call(
+            self.hr_array_len, &[self.frame_val, self.ctx_val, dst, arr],
+        );
+        let status = self.builder.inst_results(call)[0];
+        self.check(status);
     }
 }
 
@@ -251,7 +243,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     /// - otherwise a MIXED marker: `NULL(k)` → `null`; `PRIM(k)` → `{PRIM_KIND_TO_VALUE_TAG[k],
     ///   payload word}` (loaded after the tag word's acquire, so it is the published payload).
     /// Stride 0 (any other array) and an out-of-range index take `jit_array_get` (same exception).
-    fn tr_array_get_ref(&mut self, dst: u32, arr: u32, idx: u32) {
+    fn tr_array_get_ref(&mut self, dst: u32, arr: u32, idx: u32, erased_arg: cranelift_codegen::ir::Value) {
         use cranelift_codegen::ir::condcodes::IntCC;
         use crate::object::value::ref_word::{KIND_MASK, KIND_TO_VALUE_TAG, SLOW_PATH_TAG};
         use crate::object::value::tparam_cell::PRIM_KIND_TO_VALUE_TAG;
@@ -326,7 +318,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         // Helper: a box, any other array, or the exception.
         self.builder.switch_to_block(helper_blk);
         let d = self.ri(dst); let a = self.ri(arr); let i = self.ri(idx);
-        let inst = self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d, a, i]);
+        let inst = self.builder.ins().call(self.hr_array_get, &[self.frame_val, self.ctx_val, d, a, i, erased_arg]);
         let ret = self.builder.inst_results(inst)[0];
         self.check(ret);
         self.builder.ins().jump(done_blk, &[]);

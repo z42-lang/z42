@@ -65,7 +65,7 @@ rows[1].Length;   // 3
 - **索引越界抛 `IndexOutOfRangeException`**（含负下标），消息形如
   `index 5 is out of range for an array of length 3`，可以按类型 `catch`。
 - **数组为 null** 时读写元素、取 `.Length` 抛 `NullReferenceException`；`new T[n]` 的 `n` 为负抛 `OverflowException`。
-- **`.Length` 返回 `int`。**
+- **`.Length` 返回 `int`。** `T[].Length`、`T[].Count` 和 `Std.Array.Length` 都返回固定长度，只能读取。
 - **元素类型编译期检查**：`arr[i] = v` 中 `v` 必须可赋给元素类型。
 - **数组不变（无协变）**：`Dog[]` **不**可赋给 `Animal[]`。
 
@@ -118,7 +118,11 @@ int[] back = (int[])a;       // Array → T[] 是下转，运行期受检
 | `SetValue` | `void SetValue(Object value, int index)` —— 形参就是 `Object` |
 | `CopyRange` | `void CopyRange(Array source, int, Array destination, int, int)` —— 两侧元素类型可不同 |
 
-**口径是严格的：值的种类必须与元素类型同种，否则抛，且目标数组保持原样。** 抛哪个异常与 C# 相同：
+基元槽要求值的种类匹配。引用槽接受可赋给元素类型的值，包括 null、派生类实例和实现目标接口的实例。
+闭合泛型会核对类型实参，数组作为元素仍遵守数组的不变性。
+拷贝需要检查实际值时，先验证整个区间，再写入已验证的值。类型校验失败时目标数组保持原样。
+
+异常类型如下。
 
 | 情形 | 异常 |
 |---|---|

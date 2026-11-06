@@ -12,34 +12,27 @@ using Std.Harness;
 
 [Benchmark]
 void bench_string_concat() {
-    var b = new Bencher(2, 20);
-    b.iter(() => {
-        string s = "";
-        int i = 0;
-        while (i < 32) {
-            s = s + "ab";
-            i = i + 1;
-        }
-        BenchHelpers.blackBox(s);
-    });
-    b.printSummary("string_concat");
+    string s = "";
+    int i = 0;
+    while (i < 32) {
+        s = s + "ab";
+        i = i + 1;
+    }
+    BenchHelpers.blackBox(s);
 }
 
 [Benchmark]
-void bench_string_index_of() {
+void bench_string_index_of(Bencher b) {
     string hay = "the quick brown fox jumps over the lazy dog, then rests";
-    var b = new Bencher(2, 20);
     b.iter(() => {
         int r = hay.IndexOf("lazy") + hay.IndexOf("fox") + hay.IndexOf("zzz");
         BenchHelpers.blackBox(r);
     });
-    b.printSummary("string_index_of");
 }
 
 [Benchmark]
-void bench_string_substring() {
+void bench_string_substring(Bencher b) {
     string src = "0123456789abcdefghijklmnopqrstuvwxyz";
-    var b = new Bencher(2, 20);
     b.iter(() => {
         string acc = "";
         int i = 0;
@@ -49,39 +42,32 @@ void bench_string_substring() {
         }
         BenchHelpers.blackBox(acc);
     });
-    b.printSummary("string_substring");
 }
 
 [Benchmark]
-void bench_string_split() {
+void bench_string_split(Bencher b) {
     string csv = "a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p";
-    var b = new Bencher(2, 20);
     b.iter(() => {
         string[] parts = csv.Split(",");
         BenchHelpers.blackBox(parts.Length);
     });
-    b.printSummary("string_split");
 }
 
 [Benchmark]
 void bench_list_add_index() {
-    var b = new Bencher(2, 20);
-    b.iter(() => {
-        var xs = new List<int>();
-        int i = 0;
-        while (i < 64) {
-            xs.Add(i * 2);
-            i = i + 1;
-        }
-        int sum = 0;
-        int j = 0;
-        while (j < xs.Count) {
-            sum = sum + xs[j];
-            j = j + 1;
-        }
-        BenchHelpers.blackBox(sum);
-    });
-    b.printSummary("list_add_index");
+    var xs = new List<int>();
+    int i = 0;
+    while (i < 64) {
+        xs.Add(i * 2);
+        i = i + 1;
+    }
+    int sum = 0;
+    int j = 0;
+    while (j < xs.Count) {
+        sum = sum + xs[j];
+        j = j + 1;
+    }
+    BenchHelpers.blackBox(sum);
 }
 
 // Sort a freshly-scrambled 256-element list each iteration. Exercises the
@@ -89,18 +75,14 @@ void bench_list_add_index() {
 // input unsorted (and with duplicates) so every run does real work.
 [Benchmark]
 void bench_list_sort() {
-    var b = new Bencher(2, 20);
-    b.iter(() => {
-        var xs = new List<int>();
-        int i = 0;
-        while (i < 256) {
-            xs.Add((i * 137 + 89) % 251);
-            i = i + 1;
-        }
-        xs.Sort();
-        BenchHelpers.blackBox(xs[0] + xs[255]);
-    });
-    b.printSummary("list_sort_256");
+    var xs = new List<int>();
+    int i = 0;
+    while (i < 256) {
+        xs.Add((i * 137 + 89) % 251);
+        i = i + 1;
+    }
+    xs.Sort();
+    BenchHelpers.blackBox(xs[0] + xs[255]);
 }
 
 // Smoke [Test] — confirms the benchmark bodies actually run (Bencher wired,
@@ -118,65 +100,51 @@ void test_core_bench_bodies_run() {
 
 [Benchmark]
 void bench_dict_set_get() {
-    var b = new Bencher(2, 20);
-    b.iter(() => {
-        var d = new Dictionary<string, int>();
-        int i = 0;
-        while (i < 64) {
-            d["key" + i.ToString()] = i * i;
-            i = i + 1;
-        }
-        int hits = 0;
-        int j = 0;
-        while (j < 64) {
-            string k = "key" + j.ToString();
-            if (d.ContainsKey(k)) { hits = hits + d[k]; }
-            j = j + 1;
-        }
-        BenchHelpers.blackBox(hits);
-    });
-    b.printSummary("dict_set_get");
+    var d = new Dictionary<string, int>();
+    int i = 0;
+    while (i < 64) {
+        d["key" + i.ToString()] = i * i;
+        i = i + 1;
+    }
+    int hits = 0;
+    int j = 0;
+    while (j < 64) {
+        string k = "key" + j.ToString();
+        if (d.ContainsKey(k)) { hits = hits + d[k]; }
+        j = j + 1;
+    }
+    BenchHelpers.blackBox(hits);
 }
 
 [Benchmark]
 void bench_int_tostring_parse() {
-    var b = new Bencher(2, 20);
-    b.iter(() => {
-        long acc = 0;
-        int i = 0;
-        while (i < 64) {
-            string s = (i * 7919).ToString();
-            acc = acc + long.Parse(s);
-            i = i + 1;
-        }
-        BenchHelpers.blackBox(acc);
-    });
-    b.printSummary("int_tostring_parse");
+    long acc = 0;
+    int i = 0;
+    while (i < 64) {
+        string s = (i * 7919).ToString();
+        acc = acc + long.Parse(s);
+        i = i + 1;
+    }
+    BenchHelpers.blackBox(acc);
 }
 
 [Benchmark]
-void bench_string_join() {
+void bench_string_join(Bencher b) {
     string[] parts = new string[16];
     int i = 0;
     while (i < 16) { parts[i] = "seg" + i.ToString(); i = i + 1; }
-    var b = new Bencher(2, 20);
     b.iter(() => {
         BenchHelpers.blackBox(String.Join(",", parts));
     });
-    b.printSummary("string_join");
 }
 
 [Benchmark]
 void bench_string_format() {
-    var b = new Bencher(2, 20);
-    b.iter(() => {
-        string acc = "";
-        int i = 0;
-        while (i < 16) {
-            acc = String.Format("{0}={1}/{2}", "key" + i.ToString(), i, i * 2);
-            i = i + 1;
-        }
-        BenchHelpers.blackBox(acc);
-    });
-    b.printSummary("string_format");
+    string acc = "";
+    int i = 0;
+    while (i < 16) {
+        acc = String.Format("{0}={1}/{2}", "key" + i.ToString(), i, i * 2);
+        i = i + 1;
+    }
+    BenchHelpers.blackBox(acc);
 }

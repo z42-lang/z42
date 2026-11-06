@@ -379,10 +379,8 @@ jobs:
   host-package:
     name: package-host(${{ matrix.platform }})
     timeout-minutes: 45
-    # package-* 的产物只给 publish-nightly 用；PR 上它们只是「还能不能打包」，只在 platform 改动时跑。
     needs: [changes, toolchain-bootstrap]
-    # `examples`：学习手册示例只在这里用打包出的 SDK 重放（含 Windows 的唯一覆盖），
-    # 所以 learn / examples 改动只拉起本 job，不拉起其余 package-* / test-desktop。
+    # SDK 验证和示例重放也需要桌面 SDK（包括 Windows）。runtime / workload 包按平台打包职责选择。
     if: needs.changes.outputs.host_package == 'true'
     strategy:
       fail-fast: false
@@ -405,7 +403,7 @@ jobs:
         with:
           cache-key: package-host-v2
 
-      - name: Package host RID + verify (xtask package)
+      - name: Package host SDK + verify
         shell: bash
         run: |
           set -euo pipefail
@@ -413,6 +411,12 @@ jobs:
           # --archive：在本 runner 上出归档（保留可执行位；Windows 出 zip）。PR 上也出——下面的 Installer smoke 装的就是它。
           # --verify：在这份 SDK 上跑 packages.toml 自检 + 发行包夹具 + golden（每条腿都必须跑到）。
           xtask package sdk --no-build --archive --label nightly --verify
+
+      - name: Package host runtime and workloads
+        if: needs.changes.outputs.platform_package == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
           xtask package runtime --no-build --archive --label nightly
           xtask package workload --archive --label nightly
           # test workload = payload-only, platform-agnostic → build once on macos-arm64
@@ -463,7 +467,7 @@ jobs:
         # 静态一遍、动态一遍（经 rpath 找 libz42.{dylib,so}）——install name / SONAME 坏了，动态那遍就加载不了。
         # 打包模式只跑 R1–R7：嵌入语料用的是构建树的 VM，与包无关，归 test-desktop-cabi。
         # Windows 没有 `cc`，上一步按文件检查 import lib。
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && needs.changes.outputs.platform_package == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -515,7 +519,7 @@ jobs:
           xtask build toolchain z42b
           xtask package ci "$RUNNER_TEMP/tc"
 
-      # 只跑 xtask、不调 cargo 的 linux-x64 消费方（xtask-bootstrap-artifact 的 `prebuilt-vm`）直接用这份 z42vm。
+      # 只跑 xtask、不调 cargo 的 linux-x64 消费方（`vm: prebuilt`）直接用这份 z42vm。
       # cdylib（libz42_compression.so 等）一起带上：VM 在自己旁边解析 `[Native(lib = …)]`。
       - name: Upload z42vm-linux-x64
         uses: actions/upload-artifact@v7
@@ -549,7 +553,7 @@ jobs:
       # 只编 z42 测试资产与组装 SDK，直接复用同轮已建的 release VM，无需再调 cargo。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          prebuilt-vm: "true"
+          vm: prebuilt
 
       # golden .zbc 只在这里编一次，下游 interp / jit 跑同一份字节（.zbc 与执行模式无关）。
       - name: Build golden .zbc test assets (compile shared assets once)
@@ -562,11 +566,10 @@ jobs:
         run: |
           set -euo pipefail
           xtask package dev-sdk --out "$RUNNER_TEMP/z42sdk"
-          # bundle the prebuilt golden .zbc into current-sdk so consumers run them
-          # with --no-build (shared compiled asset across interp/jit).
-          if [ -d artifacts/build/tests ]; then
-            cp -r artifacts/build/tests "$RUNNER_TEMP/z42sdk/tests"
-          fi
+          # Keep the build mirror paths so both consumers find language and library goldens.
+          cd artifacts/build
+          shopt -s nullglob
+          tar -cf "$RUNNER_TEMP/z42sdk/goldens.tar" tests libraries/*/release/tests
 
       - name: Upload current-sdk-ubuntu-latest
         uses: actions/upload-artifact@v7
@@ -612,12 +615,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -d .z42-dl/tests ]; then
-            mkdir -p artifacts/build/tests
-            cp -r .z42-dl/tests/. artifacts/build/tests/
-          else
-            echo "::error::current-sdk has no bundled goldens (tests/) — assemble-current-sdk regen step?"; exit 1
-          fi
+          mkdir -p artifacts/build
+          tar -xf .z42-dl/goldens.tar -C artifacts/build
       # 无筛选的 e2e 已包含 cross-zpkg 与 multi-exe；golden 消费共享字节，夹具使用下载的工具链编跑一次。
       - name: Run INTERP e2e (shared goldens + cross-zpkg + multi-exe)
         shell: bash
@@ -644,8 +643,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # 吃 toolchain artifact，不在每个分片重新自举（rust toolchain + cache 由 action 自带）。
+      # `test e2e` 自建 debug VM 与压缩库，保留断言覆盖。
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          vm: deferred
+          cache-key: vm-jit-debug-v1
 
       # 共享 golden .zbc 解到规范镜像位置（.zbc 与执行模式无关、z42c 输出确定，等价于本地重生）。
       - name: Download shared golden .zbc (compiled once)
@@ -657,12 +659,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -d .z42-dl/tests ]; then
-            mkdir -p artifacts/build/tests
-            cp -r .z42-dl/tests/. artifacts/build/tests/
-          else
-            echo "::error::current-sdk has no bundled goldens (tests/) — assemble-current-sdk regen step?"; exit 1
-          fi
+          mkdir -p artifacts/build
+          tar -xf .z42-dl/goldens.tar -C artifacts/build
 
       - name: VM goldens — JIT mode (shard ${{ matrix.shard }}/2)
         shell: bash
@@ -691,7 +689,7 @@ jobs:
       # 吃 toolchain artifact，不在每个分片重新自举（rust toolchain + cache 由 action 自带）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（非 linux-x64 腿照常自建）
+          vm: prebuilt
 
       - name: stdlib [Test] — JIT mode (shard ${{ matrix.shard }}/2)
         shell: bash
@@ -729,7 +727,7 @@ jobs:
       # 吃与架构无关的 toolchain artifact，本机 cargo 编 z42vm（rust toolchain + cache 由 action 自带）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（非 linux-x64 腿照常自建）
+          vm: prebuilt
 
       - name: stdlib [Test] — INTERP mode (full)
         shell: bash
@@ -752,14 +750,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
+      # 复用同轮 release VM、gen1 和 stdlib，仍由测试重建 gen2。
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          vm: prebuilt
 
-      - name: z42c self-host fixpoint (xtask test compiler)
+      - name: z42c self-host fixpoint, units and CLI fixtures
         shell: bash
         run: |
           set -euo pipefail
-          xtask test compiler
+          xtask test compiler --no-build
 
       - name: VSCode grammar ↔ Lexer keyword sync (xtask check vscode-syntax)
         shell: bash
@@ -984,7 +984,7 @@ jobs:
         if: steps.stale.outputs.stale != 'true'
         uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（非 linux-x64 腿照常自建）
+          vm: prebuilt
 
       # 各 package job 已在自己的 runner 上用 `--archive` 出好归档——upload-artifact 不保留可执行位，
       # 所以不能下载包目录到这里再打。

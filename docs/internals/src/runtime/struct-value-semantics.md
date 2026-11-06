@@ -527,7 +527,7 @@ blob 紧凑排列，每个元素就是独立 blob 的布局，引用叶子是元
   + `FieldInfo.GetValue/SetValue` 反射装箱 struct 字段（见下「装箱引用身份 + struct 字段反射」节）。
 - **对象内联 struct 字段反射**：反射 `GetValue/SetValue` 读写
   `class C { Point pt; }` 的内联 struct 字段（复刻类级内联布局，见下同名节）。
-- **`Std.Array` 的无类型 / 批量原生**（`objops/array_bulk.rs`）：`get_boxed` / `set_boxed` 没有堆、对
+- **`Std.Array` 的无类型 / 批量原生**（`vm/exec/ops/object/array_bulk.rs`）：`get_boxed` / `set_boxed` 没有堆、对
   STRUCT 数组只有断言，所以这几个原生按两侧的模式选路——同一 struct 的两个数组之间 `CopyRange` 逐元素拷 blob
   （引用叶子经引用字写原语，同数组按 memmove 方向）；struct[] → 引用数组逐元素 `box_struct_blob`；引用数组 → struct[] 先整段校验是该
   struct 的装箱再逐元素拷入；`GetValue` 装箱元素快照；`SetValue` 只收该 struct 的装箱；`CreateInstance` 走
@@ -740,7 +740,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 ### struct 字段反射（`FieldInfo.GetValue/SetValue`）
 
 反射按**字段名**读值需 per-field 字节 offset + tag，但 runtime `StructTypeLayout` 只有 size + 无名引用位图。
-解 = **Rust 复刻编译器 `StructLayout._compute`**（`corelib/struct_reflect.rs`，方案 B——格式中立、warm 本地可验，
+解 = **Rust 复刻编译器 `StructLayout._compute`**（`object/types/named_struct_layout.rs`，方案 B——格式中立、warm 本地可验，
 非格式 bump 写偏移表）：
 
 - 用 `TypeDesc.fields` 的 `(name, type_tag)` 逐字段自然对齐累积 offset，映射 `字段名 → (byte_off, tag, is_ref,

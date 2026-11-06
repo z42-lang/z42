@@ -33,7 +33,7 @@ pub mod math;
 pub mod fs;
 pub mod object;
 pub mod reflection;
-pub mod struct_reflect;   // add-boxed-struct-identity (P4b): value-struct field layout replication
+pub use crate::object::types::named_struct_layout as struct_reflect;
 pub mod assemblyloadcontext;
 pub mod diagnostics;
 pub mod appprops;
