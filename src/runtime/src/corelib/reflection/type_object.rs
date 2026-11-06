@@ -377,16 +377,7 @@ fn build_type_ex(
 /// and never mis-bind. Shared by `make_type_from_name`'s add-json-serde /
 /// add-collection-serde dotless fallback (with an optional force-load retry).
 pub(super) fn resolve_dotless_simple(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
-    let mut hit: Option<String> = None;
-    for key in ctx.loaded_type_names() {
-        if type_simple_name(&key) == name {
-            if hit.is_some() {
-                return None; // ambiguous
-            }
-            hit = Some(key);
-        }
-    }
-    let fq = hit?;
+    let fq = ctx.unique_loaded_full_name(name)?;
     if let Some(m) = ctx.module() {
         if let Some(td) = m.type_registry.get(&fq) {
             return Some(td.clone());

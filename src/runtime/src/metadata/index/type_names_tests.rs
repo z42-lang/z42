@@ -31,6 +31,20 @@ fn simple_and_unqualified_strip_args_recursively() {
 }
 
 #[test]
+fn borrowed_short_name_comparison_matches_reflection_spelling() {
+    for name in [
+        "Demo.Row", "Nest.Outer+Inner", "Row", "Demo.P[]", "Demo.行",
+        "Demo.Pair<Demo.A.P,int>", "Demo.Pair<Demo.Pair<Demo.B.P,long>, string>",
+        "Demo.Outer+Inner<Demo.A.P>", "Demo.Invalid<Demo.Item",
+    ] {
+        let expected = simple(name);
+        assert!(simple_matches(name, &expected), "{name}");
+        assert!(!simple_matches(name, &(expected + "x")), "{name}");
+    }
+    assert!(!simple_matches("Demo.Box<Demo.A.Row>", "Row"));
+}
+
+#[test]
 fn builtin_spellings_map_to_one_keyword_and_fqn() {
     for s in ["int", "i32", "Std.Int32"] {
         assert_eq!(builtin_keyword(s), Some("int"));
