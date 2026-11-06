@@ -38,13 +38,17 @@ fn not_an_array(op: ArrayOp, v: &Value) -> OpError {
 
 /// `ArrayGet`。值 struct 数组（STRUCT）的元素以 `StructRefHeap` 句柄返回（指向数组字节，
 /// 支持原地 `arr[i].x`），句柄载荷进 transient arena，`frame_id` 按需取（惰性分配）。
+/// 擦除型参读取的值可以跨帧传输，返回独立装箱快照。
 #[inline(always)]
-pub fn array_get<F: FnOnce() -> u32>(ctx: &VmContext, arr: &Value, idx: &Value, frame_id: F) -> OpResult<Value> {
+pub fn array_get<F: FnOnce() -> u32>(ctx: &VmContext, arr: &Value, idx: &Value, erased: bool, frame_id: F) -> OpResult<Value> {
     if let Value::Array(rc) = arr {
         let a = rc.borrow();
         let i = checked_index(ArrayOp::Get, idx, a.len())?;
         if a.mode() != ArrayMode::Struct {
             return Ok(a.get_boxed(i));   // 打包基元在这里装回 Value
+        }
+        if erased {
+            return super::array_bulk::elem_get_boxed(ctx, rc, i);
         }
         return Ok(struct_elem_handle(ctx, *rc, i, frame_id()));
     }
@@ -78,6 +82,10 @@ pub fn array_set(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpResu
         let (i, wrote) = {
             let a = rc.borrow();
             let i = checked_index(ArrayOp::Set, idx, a.len())?;
+            // Erased default(T) in existing bytecode can be Null for a value struct.
+            if matches!(v, Value::Null) && a.mode() == ArrayMode::Struct {
+                return Ok(a.clear_struct_elem(i)?);
+            }
             (i, a.set_boxed(i, *v))   // 打包基元在这里拆箱；引用编成引用字 / 型参单元
         };
         barrier_elem(ctx, rc, i, wrote, v);
@@ -194,11 +202,9 @@ pub fn array_size(len: &Value) -> OpResult<usize> {
 ///
 /// - 元素是 blob 值 struct → STRUCT 堆数组（不走栈分配）。
 /// - `tp_prim`：泛型型参在运行期解析成**基元**实参时的（打包种类, 零值）——数组按该宽度打包
-///   （M13;`List<int>` 的 backing 每元素 4 B）。引用 / struct / 未解析的型参 → `None`，
-///   擦除 MIXED（现状）。方法级型参只有 interp 会解析（JIT 不翻译这种站点）。
-/// - `bound`：`new T[n]` 里 `T` 在运行期绑定的实参（[`type_param_bound_elem`]）——数组**报告**的
-///   元素类型（`GetType()`、`Array.GetValue` 的装箱）是它而非字面 `T`；backing 的种类仍按上面
-///   擦除口径选（共享泛型体里的 `T[]` 一律按擦除形态存取）。
+///   （M13，`List<int>` 的 backing 每元素 4 B）。方法级型参由 interp 解析。
+/// - `bound`：`new T[n]` 在运行期绑定的实参。已绑定的 blob struct 使用连续布局；
+///   引用和未绑定的型参使用擦除存储。反射报告实际绑定的元素类型。
 /// - `stack`：编译器证明不逃逸且运行期允许时给出栈帧号，数组进栈 arena。
 #[allow(clippy::too_many_arguments)]
 pub fn array_new<F: FnOnce() -> u32>(
@@ -206,6 +212,13 @@ pub fn array_new<F: FnOnce() -> u32>(
     type_param: bool, tp_prim: Option<TypeParamElem>, bound: Option<ElemType>, stack: Option<F>,
 ) -> OpResult<Value> {
     let n = array_size(len)?;
+    if type_param && tp_prim.is_none() {
+        if let Some(elem) = bound {
+            if let ElemMode::Struct(layout) = elem_mode(ctx, elem, false) {
+                return alloc(ArrayObj::alloc_struct(ctx.heap(), elem, n, layout), || format!("struct array[{n}]"));
+            }
+        }
+    }
     let kind = match tp_prim {
         Some(p) => p.kind, // M13: 基元实参按其宽度打包,element_type 名字保持擦除（反射读 "T"）
         None => match elem_mode(ctx, element_type, type_param) {
@@ -228,11 +241,43 @@ pub fn type_param_bound_elem(arg: Option<&str>) -> Option<ElemType> {
     arg.filter(|a| !a.is_empty() && !crate::metadata::index::type_param_markers::has_markers(a)).map(ElemType::intern)
 }
 
-/// The class-level argument `index` on `receiver` (the carrier [`class_type_param_elem`] reads).
-pub fn class_type_param_bound(receiver: Option<&Value>, index: usize) -> Option<ElemType> {
-    let Some(Value::Object(rc)) = receiver else { return None };
-    let ta = rc.borrow().type_args_handle();
-    type_param_bound_elem(ta.get(index).map(String::as_str))
+/// Resolve a class-level array element on a heap or stack receiver.
+pub fn class_type_param_array_args(
+    ctx: &VmContext, receiver: Option<&Value>, index: usize, owner: Option<&str>,
+) -> (Option<TypeParamElem>, Option<ElemType>) {
+    let Some(receiver) = receiver else { return (None, None) };
+    let own_args = |object: &crate::object::ScriptObject| {
+        let name = &object.type_desc.name;
+        let definition = crate::object::TypeDesc::erased_definition_name(name).unwrap_or(name);
+        owner.is_none_or(|owner| definition == owner).then(|| object.type_args_handle())
+    };
+    let args = match receiver {
+        Value::Object(rc) => own_args(&rc.borrow()),
+        Value::StackObject { idx, frame_id } => {
+            ctx.exec.stack_arena.lock().with_obj(*idx, *frame_id, own_args).ok().flatten()
+        }
+        _ => return (None, None),
+    };
+    if let Some(args) = args {
+        return type_param_array_args(args.get(index).map(String::as_str), args.elem_kind(index));
+    }
+    // A derived receiver carries its own arguments. Resolve the parameter at the
+    // base level whose code issued ArrayNew.
+    let arg = crate::vm::exec::call::type_param_env::class_type_arg(ctx, receiver, index, owner);
+    let kind = arg.as_deref().map(ElemKind::of_type_param).unwrap_or(ElemKind::Mixed);
+    type_param_array_args(arg.as_deref(), kind)
+}
+
+pub(crate) fn type_param_array_args(arg: Option<&str>, kind: ElemKind) -> (Option<TypeParamElem>, Option<ElemType>) {
+    let bound = type_param_bound_elem(arg);
+    let prim = if kind.is_prim() {
+        arg.map(crate::object::default_value_for)
+            .filter(|zero| !matches!(zero, Value::Null))
+            .map(|zero| TypeParamElem { kind, zero })
+    } else {
+        None
+    };
+    (prim, bound)
 }
 
 /// `ArrayNewLit`：由 `elems` 构成的数组（blob 值 struct 字面量逐个打包进 STRUCT 数组）。
@@ -257,19 +302,6 @@ pub fn array_new_lit<F: FnOnce() -> u32>(
         return Ok(stack_array(ctx, frame_id(), elems.collect()));
     }
     alloc(ArrayObj::alloc_from_iter(ctx.heap(), element_type, kind, n, elems), || format!("array literal[{n}]"))
-}
-
-/// 类级泛型型参 `T`（`new T[n]`，`T` 是接收者类的型参）在运行期解析成**基元**实参时的
-/// 打包种类与零值（M13）。引用 / struct 实参、非对象接收者、越界下标 → `None`
-/// （擦除 MIXED 数组，元素零值按 `elem_tag`）。interp 与 JIT 共用（方法级型参只有 interp
-/// 的帧带着，见 `interp::exec_array`）。
-pub fn class_type_param_elem(receiver: Option<&Value>, index: usize) -> Option<TypeParamElem> {
-    let Some(Value::Object(rc)) = receiver else { return None };
-    let ta = rc.borrow().type_args_handle();
-    let kind = ta.elem_kind(index);
-    if !kind.is_prim() { return None; }
-    let zero = crate::object::default_value_for(ta.get(index)?);
-    (!matches!(zero, Value::Null)).then_some(TypeParamElem { kind, zero })
 }
 
 /// 一个解析成基元实参的型参（M13）：数组按 `kind` 的宽度打包，`zero` 是每个元素的默认值。
