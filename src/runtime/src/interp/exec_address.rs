@@ -14,6 +14,7 @@ use crate::object::Value;
 use crate::object::RefKind;
 use crate::vm_context::VmContext;
 use crate::vm::exec::call::transient_arena::TransientPayload;
+use crate::vm::exec::call::type_param_env::{method_default_value, method_type_value};
 use anyhow::Result;
 
 use super::Frame;
@@ -97,10 +98,7 @@ pub(super) fn default_of(frame: &mut Frame, dst: u32, param_index: u8) {
 /// named "T" (graceful, mirrors the class-level Typeof placeholder path).
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn method_type_arg(ctx: &VmContext, frame: &mut Frame, dst: u32, param_index: u8) {
-    let val = match frame.method_type_args.get(param_index as usize) {
-        Some(name) => crate::corelib::reflection::make_type_from_name(ctx, name),
-        None => crate::corelib::reflection::make_constructed_type(ctx, "T", &[]),
-    };
+    let val = method_type_value(ctx, &frame.method_type_args, param_index as usize);
     frame.set(dst, val);
 }
 
@@ -117,9 +115,7 @@ pub(super) fn type_of(ctx: &VmContext, frame: &mut Frame, insn: &crate::metadata
 /// type_args. OOB/empty → `Value::Null`.
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn method_default(frame: &mut Frame, dst: u32, param_index: u8) {
-    let val = frame.method_type_args.get(param_index as usize)
-        .map(|tag| crate::object::default_value_for(tag))
-        .unwrap_or(Value::Null);
+    let val = method_default_value(&frame.method_type_args, param_index as usize);
     frame.set(dst, val);
 }
 
