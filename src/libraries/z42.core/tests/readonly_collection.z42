@@ -62,7 +62,13 @@ void test_view_reflects_underlying_mutation() {
     int[] xs = new int[]{ 1, 2, 3 };
     ReadOnlyCollection<int> ro = Array.AsReadOnly<int>(xs);
     xs[0] = 100;
+    Assert.Equal(3, ro.Count);
     Assert.Equal(100, ro[0]);
+    Assert.Equal(0, ro.IndexOf(100));
+    Assert.Equal(-1, ro.IndexOf(1));
+    int[] snapshot = ro.ToArray();
+    Assert.Equal(3, snapshot.Length);
+    Assert.Equal(100, snapshot[0]);
 }
 
 [Test]
