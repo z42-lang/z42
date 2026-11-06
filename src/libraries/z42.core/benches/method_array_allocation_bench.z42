@@ -1,0 +1,24 @@
+namespace Z42MethodArrayAllocationBench;
+
+using Std.Harness;
+
+T[] Allocate<T>(int length) { return new T[length]; }
+int[] AllocateInts(int length) { return new int[length]; }
+
+[Benchmark]
+void generic_int_array(Bencher b) {
+    b.iter(() => {
+        for (int i = 0; i < 256; i = i + 1) {
+            BenchHelpers.blackBox(Allocate<int>(8));
+        }
+    });
+}
+
+[Benchmark]
+void concrete_int_array(Bencher b) {
+    b.iter(() => {
+        for (int i = 0; i < 256; i = i + 1) {
+            BenchHelpers.blackBox(AllocateInts(8));
+        }
+    });
+}

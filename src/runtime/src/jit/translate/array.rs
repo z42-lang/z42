@@ -15,13 +15,9 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     // add-reflection-array-element-type: the interned element-type handle,
                     // baked in as a pointer constant (entries are process-lifetime).
                     let et = self.builder.ins().iconst(self.ptr, self.func.array_type(self.block_idx, self.instr_idx).as_raw() as i64);
-                    // `new T[n]` on a CLASS-level type param: pass its index so the helper zero-fills
-                    // a primitive T from the receiver's (reg 0) type args — same resolution as interp.
-                    // (Method-level T has no JIT carrier → `unsupported_reason`.)
-                    let class_tp = if insn.type_param_kind == 2 { insn.type_param_index } else { -1 };
-                    let tp = self.builder.ins().iconst(types::I32, class_tp as i64);
+                    let tp = self.builder.ins().iconst(types::I32, insn.type_param_index as i64);
                     let tpk = self.builder.ins().iconst(types::I8, insn.type_param_kind as i64);
-                    let owner = if class_tp >= 0 {
+                    let owner = if insn.type_param_kind == 2 && insn.type_param_index >= 0 {
                         crate::vm::exec::call::forward::owner_type(&self.func.name).unwrap_or("")
                     } else { "" };
                     let owner_ptr = self.builder.ins().iconst(self.ptr, owner.as_ptr() as i64);

@@ -195,3 +195,43 @@ fn the_interpreter_diverts_a_generic_call_to_a_compiled_callee() {
     assert_eq!(interp(&vm, &m, "T.VCallDef"), Value::Bool(false));
     assert_eq!(vm.counters().jit_native_from_interp.load(Ordering::Relaxed), before + 2);
 }
+
+#[cfg(feature = "jit")]
+#[test]
+fn method_parameter_array_compiles_with_bound_and_missing_args() {
+    use crate::metadata::ir::ArrayNewInsn;
+    use crate::object::ElemType;
+
+    let allocation = Instruction::ArrayNew(Box::new(ArrayNewInsn {
+        dst: 1,
+        size: 0,
+        elem_tag: 0,
+        element_type: String::new(),
+        stack_alloc: false,
+        type_param_kind: 1,
+        type_param_index: 0,
+    }));
+    let caller = |name, args: &[&str]| func(name, 0, true, vec![
+        Instruction::ConstI64 { dst: 0, val: 1 },
+        call(1, "T.Allocate", &[0], args),
+    ], Some(1));
+    let module = module_of(vec![
+        func("T.Allocate", 1, true, vec![allocation], Some(1)),
+        caller("T.IntArray", &["Std.Int32"]),
+        caller("T.MissingArray", &[]),
+    ]);
+    for (name, default, element_type) in [
+        ("T.IntArray", Value::I64(0), ElemType::intern("Std.Int32")),
+        ("T.MissingArray", Value::Null, ElemType::empty()),
+    ] {
+        let vm = VmContext::new();
+        for value in [interp(&vm, &module, name), jit(&vm, &module, name)] {
+            let Value::Array(array) = value else { panic!("expected array, got {value:?}") };
+            let array = array.borrow();
+            assert_eq!(array.len(), 1);
+            assert_eq!(array.get_boxed(0), default);
+            assert_eq!(array.element_type(), element_type);
+        }
+        assert!(vm.jit().unwrap().resolve_fn_by_id(&vm, idx(&module, "T.Allocate")).is_some());
+    }
+}

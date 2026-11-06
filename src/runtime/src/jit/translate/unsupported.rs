@@ -58,10 +58,7 @@ pub(crate) fn unsupported_reason(instr: &Instruction) -> Option<&'static str> {
         // substitution against the caller's activation before the call.
         Instruction::Call(insn)  if forwards_caller_mta(&insn.method_type_args) => "generic Call forwarding the caller's type args ($mta:)",
         Instruction::VCall(insn) if forwards_caller_mta(&insn.method_type_args) => "generic VCall forwarding the caller's type args ($mta:)",
-        // Method-parameter array allocation still needs the shared default/backing
-        // selection path. Concrete and class-parameter ArrayNew already compile.
-        Instruction::ArrayNew(insn) if insn.type_param_kind != 0 && insn.type_param_kind != 2
-            => "method-type-param ArrayNew",
+        Instruction::ArrayNew(insn) if insn.type_param_kind > 2 => "unknown ArrayNew type-param kind",
         // `o is T` / `o as T` / `new List<T>()` on a method-level `T` in a shared generic body:
         // the target / arguments carry `$mta:N` markers bound from method_type_args. Class-level
         // markers (`$cta:`) JIT — they bind from the receiver in reg 0.
