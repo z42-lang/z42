@@ -3,7 +3,7 @@
 > 代码：`src/runtime/src/host/`（`mod.rs` extern "C" 分发 · `config.rs` 配置校验 · `error.rs` 状态码与 TLS
 > last_error · `state.rs` 单例状态 · `ops.rs` 加载/解析/调用 · `marshal.rs` 值编组 · `resolver.rs` zpkg 钩子）、
 > `src/runtime/include/z42_host.h`（Tier 1 头文件）、`src/runtime/crates/z42-host/`（Tier 2 crate）、
-> `src/runtime/src/corelib/io.rs`（sink 路由）、`src/toolchain/workload/{desktop,ios,android,wasm}/`（Tier 3 facade）。
+> `src/runtime/src/corelib/io/mod.rs`（sink 路由）、`src/toolchain/workload/{desktop,ios,android,wasm}/`（Tier 3 facade）。
 >
 > **宿主怎么调**（函数签名、返回码、生命周期与线程约束）见
 > [嵌入 C ABI 契约](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)，本页不复述。
@@ -198,7 +198,7 @@ Swift / Kotlin / JS 都不需要自己重写 zpkg 解析。
 
 ## 输出路由：从解释器到宿主 sink
 
-sink 的落点在 `src/runtime/src/corelib/io.rs`，由两级开关控制：
+sink 的落点在 `src/runtime/src/corelib/io/mod.rs`，由两级开关控制：
 
 ```rust
 static HOST_STDOUT_SINK: RwLock<Option<HostSink>> = RwLock::new(None);   // 进程全局

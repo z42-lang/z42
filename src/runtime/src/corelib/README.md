@@ -28,10 +28,11 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | builtin 实现与登记 | 各功能模块生成 DESCS；门面 `builtin_assembly.rs` 编译期装配。名称/ID 查询在 `vm/runtime/builtins.rs`，分发在 `vm/exec/call/builtins.rs` |
 | builtin ABI v2：类型化实参 / 返回值、`BuiltinError` 与异常类、`blocking` | **`vm/exec/call/builtin_abi/`**（`args.rs` / `ret.rs` / `error.rs`；宏在 `crates/z42-macros/src/builtins_attr.rs`） |
 | 值转换 / 解析（`Parse` / `TryParse`）/ to-string / 装箱 | `convert.rs`（`typed` 模块，ABI v2）；纯值格式化从 object/value 直接再导出 |
-| 控制台 IO（print / readline：`typed` 模块，ABI v2；写进程 stdout / stderr 与读 stdin 都 park）/ TestIO 捕获（sink 栈） | `io.rs` |
+| 控制台 IO（print / readline：`typed` 模块，ABI v2；写进程 stdout / stderr 与读 stdin 都 park）/ TestIO 捕获（sink 栈） | `io/mod.rs` |
 | 字符串操作 / 字符（含 UTF-8 存储探测 `__str_index_of_any_ascii` 与 bulk 原语 `__str_copy_utf8` / `__str_from_utf8` / `__str_to_chars` / `__str_substring` / `__str_concat_parts` / `__str_concat_parts_utf8` / `__str_split` / `__str_join`：Substring / StringBuilder.ToString / Join / Concat / Split 的底座，一次拷贝取代逐字符 builtin 派发）| `string.rs` / `str_meta.rs` / `char.rs` |
 | 数学 | `math.rs` |
-| 文件系统 / FileStream 句柄 / env / 时间（`typed` 模块，ABI v2：.NET 口径的 IO 异常 `fs_error`、文件 I/O 一律 park、句柄表锁外做系统调用；路径型操作走本 VM 的 `pal::fs::Vfs` 句柄 `VmContext::vfs`，返回 `io::Error`） | `fs.rs` |
+| 文件系统 / FileStream 句柄 / env / 时间（`typed` 模块，ABI v2：.NET 口径的 IO 异常 `fs_error`、文件 I/O 一律 park、句柄表锁外做系统调用；路径型操作走本 VM 的 `pal::fs::Vfs` 句柄 `VmContext::vfs`，返回 `io::Error`） | `io/fs.rs` |
+| 文件、子进程管道、TCP/UDP、TLS 共用的 byte[] 参数检查与拷贝 | `io/buffer.rs` |
 | 对象内建（GetType / RefEq / HashCode） | `object.rs` |
 | **反射**（`Std.Type` / `Std.Reflection.*`：枚举成员、attribute、反射调用、Activator、模块加载） | **`reflection/`**（子目录，见下「核心文件」） |
 | 值类型 struct 字段布局复现（反射读写内联/装箱 struct） | `object/types/named_struct_layout.rs` |

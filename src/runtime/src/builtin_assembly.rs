@@ -37,7 +37,7 @@ const TYPED: &[&[abi::BuiltinDesc]] = &[
     crate::corelib::reflection::module_load::typed::DESCS,
     crate::corelib::assemblyloadcontext::typed::DESCS,
     crate::corelib::threading::typed::DESCS,
-    crate::corelib::fs::typed::DESCS,
+    crate::corelib::io::fs::typed::DESCS,
     crate::corelib::process::typed::DESCS,
     crate::corelib::io::typed::DESCS,
     crate::corelib::repl::typed::DESCS,
