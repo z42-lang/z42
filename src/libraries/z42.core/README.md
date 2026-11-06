@@ -21,6 +21,7 @@
 | 控制台 / 文件 / 路径 / 环境（native 语义层） | `src/IO/` / `src/Native/` |
 
 `List<T>.Count` 是公开只读属性，当前元素数由列表的修改操作维护。
+`ReadOnlyCollection<T>.Count` 也是公开只读属性，返回底层数组的固定长度。此前按字段访问该成员的字节码需要重编。
 
 ## 如何测试验证
 
@@ -50,11 +51,12 @@ xtask test e2e --file std_assert                # 本库的 Main-based golden �
 ## 设计要点
 
 - **集合的包位置与 namespace 解耦**：`List<T>` / `Dictionary<K,V>` / `HashSet<T>` 物理在 `z42.core/src/Collections/`（随 prelude 隐式加载），namespace 仍是 `Std.Collections`，用户写 `using Std.Collections;` 才能无限定访问；`Queue` / `Stack` 等次级集合在 [z42.collections](../z42.collections/README.md)。
+- `Dictionary<TKey,TValue>.Count` 和 `HashSet<T>.Count` 是公开只读属性，返回当前存活元素数。此前按字段访问这两个成员的字节码需要重编。
 - **`List<T>` 尺寸例外**：拆为 `List.z42`（核心）+ `List.Query.z42`（查询族）两个 partial 文件保文件可读；类型整体超出类型尺寸限，属有意的记录在案的例外（公开成员面本就庞大）。
 - **`Dictionary<K,V>` 尺寸例外**：类型整体约 250 行（不计注释），超类型尺寸限，属有意的记录在案的例外——索引器读写 / `ContainsKey` 把 hash 规整、探测与追加就地展开（z42 的每层调用都要建帧，抽成方法插入路径慢约两成），扩容 / 压实要搬 `TKey` / `TValue` 数组也只能留在类里（抽成泛型方法会让调用方整函数退回解释器执行）。
 - **`Dictionary` / `HashSet` 按插入顺序遍历**：CPython 式紧凑布局——稠密 entries 数组按插入顺序追加、删除留 tombstone，另有 `int[]` 索引表做开放寻址（首槽取 hash 低位、冲突后 perturb 探测）；布局、不变量与探测序列见 `src/Collections/HashIndex.z42` 头注释。
 - **primitive 是 struct**：`int` / `long` / `double` / `float` / `bool` / `char` 等以 `struct <小写名>` 声明，运行时仍是 unboxed `Value::I64` / `Value::F64`；`string` 为 `class String`。`INumber` 的 `op_*` 为纯脚本 static abstract 实现，零 VM builtin（Script-First）。
-- **String 只保留最小 extern 核**（`Length` / `ByteLength` / `CharAt` / `FromChars` / `CopyUtf8To` / `FromUtf8` / `Equals` / `CompareTo` / `GetHashCode` / `ToCharArray` / `Substring` / `ConcatParts` / `ConcatPartsUtf8`，以及 `Split(string)` / `Join` 的私有原语 `_splitRaw` / `_joinRaw`），其余方法为纯脚本；`Split` / `Join` / `Concat` / `Format` 在 `String.Split.z42`，`Insert` / `Remove` / `Pad*` 在 `String.Edit.z42`。
+- **String 只保留最小 extern 核**（`Length` / `ByteLength` / `CharAt` / `FromChars` / `CopyUtf8To` / `IndexOfAnyAscii` / `FromUtf8` / `Equals` / `CompareTo` / `GetHashCode` / `ToCharArray` / `Substring` / `ConcatParts` / `ConcatPartsUtf8`，以及 `Split(string)` / `Join` 的私有原语 `_splitRaw` / `_joinRaw`），其余方法为纯脚本；`Split` / `Join` / `Concat` / `Format` 在 `String.Split.z42`，`Insert` / `Remove` / `Pad*` 在 `String.Edit.z42`。
 - **索引与 casing**：索引 / 长度 / 切片按 Unicode scalar（char）计数，UTF-8 字节区间通过 CopyUtf8To 复制、FromUtf8 严格构造，不暴露可变视图；`ToLower` / `ToUpper` 为 ASCII 规则，locale-sensitive 待 `CultureInfo`。
 
 ## 依赖关系
