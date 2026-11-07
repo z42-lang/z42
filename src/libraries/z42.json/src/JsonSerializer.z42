@@ -26,16 +26,19 @@ public static class JsonSerializer {
         return JsonBinder.FromJson(type, JsonValue.Parse(json));
     }
 
+    private static bool _isScalarTarget<T>(object value) { return value is T; }
+
     // object → JsonValue（按运行期类型分派）。
     private static JsonValue _toJson(object o) {
         if (o == null) { return JsonValue.OfNull(); }
+        // A raw VM integer matches both widths and reflects as Int32.
+        if (JsonSerializer._isScalarTarget<int>(o))    { return JsonValue.OfLong((long)(int)o); }
+        if (JsonSerializer._isScalarTarget<long>(o))   { return JsonValue.OfLong((long)o); }
+        if (JsonSerializer._isScalarTarget<double>(o)) { return JsonValue.OfDouble((double)o); }
+        if (JsonSerializer._isScalarTarget<bool>(o))   { return JsonValue.OfBool((bool)o); }
+        if (JsonSerializer._isScalarTarget<string>(o)) { return JsonValue.OfString((string)o); }
         Type t = (Type)o.GetType();   // 跨包 imported 返回类型须 cast（footgun）
         string fn = t.FullName;
-        if (fn == "Std.Int32")   { return JsonValue.OfLong((long)(int)o); }
-        if (fn == "Std.Int64")   { return JsonValue.OfLong((long)o); }
-        if (fn == "Std.Double")  { return JsonValue.OfDouble((double)o); }
-        if (fn == "Std.Boolean") { return JsonValue.OfBool((bool)o); }
-        if (fn == "Std.String")  { return JsonValue.OfString((string)o); }
         if (t.IsArray) { return JsonSerializer._arrayToJson(o); }
         // add-collection-serde：集合检测**先于**通用对象分派（否则 List/Dict 被当对象遍历内部字段）。
         // fix-type-reflection-names 起构造型泛型 FullName 含实参，故按去实参的**基名**匹配。

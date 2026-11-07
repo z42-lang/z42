@@ -1,0 +1,19 @@
+namespace Std.Json.Tests;
+using Std.Harness;
+
+enum ScalarState { Ready = 2 }
+
+[Test]
+void test_scalar_serde_preserves_runtime_representation() {
+    Array ints = new int[] { -2147483647 };
+    Array longs = new long[] { 5000000000L, -5000000000L };
+    Array shorts = new short[] { (short)123 };
+    Array states = new ScalarState[] { ScalarState.Ready };
+    object[] values = new object[] {
+        ints.GetValue(0), longs.GetValue(0), longs.GetValue(1), 1.25,
+        true, "x", null, shorts.GetValue(0), states.GetValue(0)
+    };
+    Assert.Equal("[-2147483647,5000000000,-5000000000,1.25,true,\"x\",null,{},2]",
+        JsonSerializer.Serialize(values));
+    Assert.Equal("5000000000", JsonSerializer.SerializePretty(longs.GetValue(0)));
+}
