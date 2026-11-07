@@ -30,6 +30,8 @@
 | ✅ 并发 GC (safepoint) | interp dispatch loop 在 function entry / backward branch / Call return 三处 `check_safepoint(ctx)`；JIT translate 在对应 4 个 site emit `jit_check_safepoint` helper call，与 interp 对齐。script-driven `__gc_collect` / `__gc_force_collect` 由 `request_gc_pause` RAII guard 包成 stop-the-world。auto-threshold 路径 `maybe_auto_collect` 也走 safepoint：trip 时 set `VmCore.threads.needs_auto_collect` AtomicBool flag → 下个 `check_safepoint(ctx)` swap claim → safepoint-wrapped collect。所有 mutator VmContext park 在 `gc_phase_cv` Condvar 上等 phase 回 Idle。**单线程 mark+sweep**：collector 独自在停顿里标记 / 清扫，不并行、也不与 mutator 并发 |
 | ❌ `spawn` / `task scope` 语法 | L3 阶段引入（本文档 §3.5） |
 
+线程 Join 在资源表锁内比较目标 OS 线程身份，拒绝当前线程等待自身，返回可捕获的 `ThreadException`。拒绝时保留句柄，外部线程仍可 Join；成功取出后在表锁外 park 等待，重复或未知槽继续报告 `thread already joined`。`Timer.StopAndJoin` 共用该协议，自回调调用先标记停止再抛异常。
+
 **未完成项**：
 1. 并行 / 并发标记 — 性能轨道（未排期）
 2. `add-spawn-syntax` — L3，本文档 §3.5

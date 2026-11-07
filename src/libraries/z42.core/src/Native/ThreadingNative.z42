@@ -14,7 +14,7 @@ public static class ThreadNative {
     [Native("__thread_sleep")]
     public static extern void Sleep(long millis);
 
-    /// 等待线程结束；worker 抛过异常 / panic / 重复 Join → VM 直接抛 `Std.Threading.ThreadException`。
+    /// 等待线程结束；worker 失败、重复 Join 或等待自身时抛 ThreadException。
     [Native("__thread_wait")]
     public static extern void Wait(long slotId);
 }
