@@ -3,10 +3,10 @@
 //! which accesses left the native path through the helper counter
 //! (`helpers::object::STATIC_HELPER_CALLS`).
 
-use crate::jit::frame::JitFrame;
+use crate::jit::runtime::frame::JitFrame;
 use crate::jit::helpers::object::STATIC_HELPER_CALLS;
-use crate::jit::invoke::{call_entry, NativeOutcome};
-use crate::jit::runtime::install;
+use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
+use crate::jit::compile::state::install;
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, FieldDesc, Instruction, StaticGetInsn, StaticSetInsn, Terminator};
 use crate::vm::runtime::ids::tokens::TypeId;

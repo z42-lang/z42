@@ -1,13 +1,13 @@
 # 惰性逐函数 JIT（lazy per-function compilation）
 
 > 代码：`src/runtime/src/jit/`
-> （`runtime.rs` / `lazy.rs` / `frame.rs` / `mod.rs` / `helpers/call.rs` / `helpers/vcall.rs`）。
+> （`compile/state.rs` / `compile/mod.rs` / `runtime/frame.rs` / `mod.rs` / `helpers/call.rs` / `helpers/vcall.rs`）。
 
 ## 配置输入
 
 JIT 接收后端拥有的 `jit/config.rs::JitConfig`。门面 `RuntimeConfig::jit_config` 转换已解析的调用阈值、OSR 阈值、解释器入口升层阈值、profile 与 promotion-debug 标记；`engine_assembly` 的注册适配函数在原运行边界传入。解析、默认值和配置优先级仍集中在门面，后端不读取全局 RuntimeConfig。
 
-`runtime::install(ctx, module, config)` 保持每 VM 一个 tier，首次发布后重装沿用同一对象；后续 config 参数不会热改已有 tier。JitRuntime 保存分层输入，LazyCompiler 保存输出/翻译选项，翻译器显式接收 debug 标记。配置归属调整不改变编译阈值、OSR、支持的指令或回落协议。
+`compile::state::install(ctx, module, config)` 保持每 VM 一个 tier，首次发布后重装沿用同一对象；后续 config 参数不会热改已有 tier。JitRuntime 保存分层输入，LazyCompiler 保存输出/翻译选项，翻译器显式接收 debug 标记。配置归属调整不改变编译阈值、OSR、支持的指令或回落协议。
 
 ## 为什么
 
@@ -58,7 +58,7 @@ VmContext（每线程一份）
 ```
 
 **上下文参数 = 运行线程自己的 `VmContext`**。每个编译出的函数和每个 helper 的签名都是
-`fn(frame: *mut JitFrame, ctx: *const VmContext, …)`，`ctx` 就是调用它的那条线程的上下文（`invoke::enter_compiled`
+`fn(frame: *mut JitFrame, ctx: *const VmContext, …)`，`ctx` 就是调用它的那条线程的上下文（`runtime::invoke::enter_compiled`
 传入）。于是帧栈、待抛异常、寄存器池、arena、计数器分片、safepoint 计数、栈下限都直接是本线程的；生成码按
 `offset_of!` 常量读 `VM_CONTEXT_STACK_LIMIT_OFFSET` / `VM_CONTEXT_CCTORS_OFFSET` / `VM_CONTEXT_SAFEPOINT_SKIP_OFFSET`，
 helper 由后端自己的 `VmContext::jit()` 经中立 TierApi 识别并借用 JitRuntime；解释器分流直接使用 `VmContext::tier()` 的注册调用能力。header 指针以 relaxed load 读取，构造和安装从 core 的已发布注册槽取得；早于安装的 context 在下一次底帧入栈时刷新。共享状态发布仍经 OnceLock，代码随 core 保活。
@@ -102,7 +102,7 @@ flowchart TD
     U --> R
 ```
 
-伪代码（`JitRuntime::resolve_fn_by_id_thr`，`runtime.rs`；`thr = 0` 即不分层、立刻编；`vm` 是调用线程的上下文）：
+伪代码（`JitRuntime::resolve_fn_by_id_thr`，`compile/state.rs`；`thr = 0` 即不分层、立刻编；`vm` 是调用线程的上下文）：
 
 ```rust
 fn resolve_fn_by_id_thr(&self, vm, id, thr) -> Option<&FnEntry> {
@@ -128,7 +128,7 @@ fn resolve_fn_by_id_thr(&self, vm, id, thr) -> Option<&FnEntry> {
 `resolve_fn_by_name(vm, name)` = `id_by_name(vm, name) → resolve_fn_by_id(vm, id)`。
 
 **入口函数**无调用者触发，故 `jit::run_fn` 在执行前显式 `resolve_fn_by_name(entry)` 先编它。`jit::run` 先
-`runtime::install`（每 VM 一个 JIT；已装则复用，换模块则报错），再清静态字段、跑入口。
+`compile::state::install`（每 VM 一个 JIT；已装则复用，换模块则报错），再清静态字段、跑入口。
 
 ## 为什么「编译时运行中的调用者不崩」
 
@@ -148,7 +148,7 @@ VM 的每条线程都跑 JIT 代码：主线程和 `__thread_spawn` 的 worker�
 - **编译**：在调用线程上、`Mutex<LazyCompiler>` 锁内进行，`OnceLock` 双重检查 → 同一函数只 `define` 一次、
   无数据竞争。等锁的线程**不 park**：调用方可能在 resolve 期间手握只在 Rust 局部变量里的值（`jit_obj_new` 刚分配、
   ctor 还没跑的实例），park 期间跑的回收看不到它。持锁方在锁内不到 safepoint、不等回收——翻译器只探查已加载的东西
-  （`forward::CompileLookup`），可能加载包 / 跑初始化器的两件事（token 解析、`chained_forward` 的查找）都在拿锁之前做完——
+  （`compile::lookup::CompileLookup`），可能加载包 / 跑初始化器的两件事（token 解析、`chained_forward` 的查找）都在拿锁之前做完——
   所以等待以一次编译为上界，与 VM 其他内部锁同一立足点。代价：GC 请求要等排在编译锁上的线程轮完。
 - **发布**：`compile_fn` 返回前 cranelift 已把代码页改为可执行、刷 icache 并对所有线程做流水线同步
   （`wasmtime_jit_icache_coherence::pipeline_flush_mt`）；之后 `OnceLock::set`（release）发布，别的线程 `get`
@@ -190,7 +190,7 @@ VM 的每条线程都跑 JIT 代码：主线程和 `__thread_spawn` 的 worker�
 应从「整套 stdlib（数千）」降到「该用例实际调用（数十）」。CI `test-vm-jit` shard 墙钟随之
 从 ~55 分钟大幅回落。
 
-## `[Native]` 包装函数短路（`jit/forward.rs`）
+## `[Native]` 包装函数短路（`jit/runtime/forward.rs`）
 
 `[Native("__x")] extern` 方法的包装函数（`%d = builtin __x(%0, …); ret %d`）在两个引擎里都按函数折叠：
 调用解析到它时直接从调用者寄存器跑 builtin，不建包装函数的帧。识别规则、为什么在 VM 链接期而不在编译器里做、
@@ -202,7 +202,7 @@ JIT 这一侧：
 - **已编译的包装函数**：`JitRuntime::resolve_slot_slow` 把函数自己的折叠结果（`Function::forward`，
   `vm::exec::call::forward::forward_of`）抄进 `FnEntry::forward`；`jit_call` 的 `call_compiled`（模块初始化 /
   cctor 屏障之后）与 `jit_vcall` 的 `invoke_entry` 见到它、且实参个数等于形参个数（不靠默认值补位）时，
-  经 `forward::call_forward` → `vm::exec::call::forward::run_folded` 派发。
+  经 `runtime::forward::call_forward` → `vm::exec::call::forward::run_folded` 派发。
 - **冷的包装函数**（还没编译、走解释器的那条路：`call_interp` / `invoke_interp`）同样折叠。
 - 结果写 `dst`（void 写 `Null`，与包装函数 `ret` 的效果一致）；失败经 `abi::error::raise`（与解释器同一个出口）
   变成异常或致命错误，`raised_into_exception` 把它挂到 pending 槽。
@@ -227,7 +227,7 @@ JIT 虚调用在选择目标函数后检查形状，符合条件时直接写入�
 
 ## 字符串原语内联
 
-> `jit/translate/str_intrinsics.rs`（识别 + 发射）、`jit/forward.rs`（`StrIntrinsic` / `ForwardLookup`）、
+> `jit/translate/str_intrinsics.rs`（识别 + 发射）、`jit/compile/lookup.rs`（`StrIntrinsic` / `ForwardLookup`）、
 > `object/string/vstr.rs::jit_layout`（生成码读字符串块的唯一布局出口）。
 
 上一节的短路之后，`s.Length` / `s[i]` / `s.CharAt(i)` 每次仍是一次 helper 调用：把实参克隆进
@@ -317,7 +317,7 @@ Str+int 拼接、Str 与 int 排序比较）逐例双引擎对照。
 惰性逐函数编译是「首次调用即编译」；分层把它推进为「**热函数才编译**」——冷函数（调用次数
 未达阈值）留在解释器（省编译时间 + code 页，准则 2「只有热函数值得升级」）。
 
-**机制**（`jit/frame.rs`）：
+**机制**（`jit/runtime/frame.rs`）：
 - **调用计数**：`JitSlot.count`（lock-free `fetch_add`，零 per-call 堆分配），入口函数与惰性函数同一套。
 - **三态槽**：`entry` 已填 = Compiled；`state == Rejected` = 不可编 / 编译失败的负缓存；其余 = Untried。
   Rejected 一次判定后缓存 → **不可编函数不再每次调用重扫 `jit_unsupported_reason`**（整函数指令走一遍），
@@ -421,8 +421,8 @@ backstop 完备。同样带 `Ref(Stack)` 守卫（arg 为 Ref → 不路由）�
 ## OSR / 循环回边分层
 
 > 代码：`interp/run/exec_support.rs`（`try_osr`）与 `interp/frame/mod.rs`（`Frame.back_edge_count`）、
-> `jit/translate.rs`（`osr_entry`）、`jit/lazy.rs`（`compile_fn_osr`）、
-> `jit/frame.rs`（`from_interp_regs` / `resolve_osr_entry`）。
+> `jit/translate/mod.rs`（`osr_entry`）、`jit/compile/mod.rs`（`compile_fn_osr`）、
+> `jit/runtime/frame.rs`（`from_interp_regs`）、`jit/compile/state.rs`（`resolve_osr_entry`）。
 
 ### 为什么
 
@@ -626,7 +626,7 @@ interp 2460 → 2087 ms（0.85×）；z42c 工作区构建 `--jobs 1` 0.97×、`
 
 ## 寄存器访问汇点：`reg_access`
 
-> `jit/reg_access.rs` + `jit/translate.rs`（全部 emitter 经汇点）。
+> `jit/translate/reg_access.rs` + `jit/translate.rs`（全部 emitter 经汇点）。
 
 ### 为什么
 
@@ -689,12 +689,12 @@ BitNot）interp==jit 逐字节一致，JIT ~1.5× 快于 interp。
 
 ## 块内整数标量缓存：`RegCache`
 
-> 位置：`jit/reg_access.rs`（`RegCache`）+ `jit/translate.rs`（五整数 emitter + flush 汇点）。
+> 位置：`jit/translate/reg_access.rs`（`RegCache`）+ `jit/translate.rs`（五整数 emitter + flush 汇点）。
 
 若每个整数 op 都是「`load payload@off8 → 算 → store tag+payload`」，就每 op 一次内存
 往返——interp 也这样，JIT 只省了 dispatch。Cranelift 帮不上：VM 用 `opt_level=none`（无别名分析），
 且实测 `opt_level=speed` 也**零收益**（`regs_base` 裸指针 + 不透明 helper 调用让它无法跨 op forward，
-见 `lazy.rs`）。但**我们**有 Cranelift 没有的语义：不同 reg index 永不别名、哪些 op 是纯的。
+见 `compile/mod.rs`）。但**我们**有 Cranelift 没有的语义：不同 reg index 永不别名、哪些 op 是纯的。
 
 `RegCache`（`BTreeMap<reg, {payload_ssa, dirty}>`）在**单个基本块的直线整数 op 段内**把每个整数 reg
 的 unboxed i64 payload 留在 Cranelift SSA 值里：`load_i64` 命中即返回驻留值、否则从内存 load 并记

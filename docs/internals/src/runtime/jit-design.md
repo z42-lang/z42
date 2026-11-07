@@ -1,6 +1,6 @@
 # JIT 后端（Cranelift）：结构与调用约定
 
-> 代码：`src/runtime/src/jit/`（`mod.rs` / `runtime.rs` / `frame.rs` / `lazy.rs` / `translate/` / `helpers/`）
+> 代码：`src/runtime/src/jit/`（`mod.rs` / `compile/state.rs` / `runtime/frame.rs` / `compile/mod.rs` / `translate/` / `helpers/`）
 > 相关：[惰性逐函数 JIT](jit.md)（编译时机、调用计数 tier-up、混合模式、OSR、原生快路径） · [解释器 / JIT 标量语义](interp-jit-semantics.md)
 > 待办：编译在调用线程的编译锁内串行进行，尚无批量 / 后台编译（runtime-audit 待办 X-13）
 
@@ -8,7 +8,7 @@
 
 ## 概述
 
-`--mode jit`（默认模式）下，z42 函数由 **Cranelift** 编成原生机器码。编译是**惰性**的：`runtime::install`
+`--mode jit`（默认模式）下，z42 函数由 **Cranelift** 编成原生机器码。编译是**惰性**的：`compile::state::install`
 只建基础设施，不编任何用户函数；函数在调用次数达到 `jit-threshold`（默认 2）时才编译，热循环另由 OSR
 在回边计数达到 `osr-threshold`（默认 10000）时转入原生码。没编译的函数、以及含 JIT 不支持指令的函数，都在解释器上跑。
 
@@ -17,7 +17,7 @@
 ```
 vm.rs: ExecMode::Jit → 已注册优化入口 → jit::run(ctx, module, entry)
     │
-    ▼ runtime::install(ctx, module)  VmCore.exec.engines 发布拥有 JitRuntime 的 TierApi（LazyCompiler 持 cranelift JITModule），
+    ▼ compile::state::install(ctx, module)  VmCore.exec.engines 发布拥有 JitRuntime 的 TierApi（LazyCompiler 持 cranelift JITModule），
     │                                 不编译；已装则复用（每 VM 一个 JIT）
     ▼ jit::run_fn(ctx, entry)
         1. resolve_fn_by_name(ctx, entry)        —— 首次调用即编译入口
@@ -28,7 +28,7 @@ vm.rs: ExecMode::Jit → 已注册优化入口 → jit::run(ctx, module, entry)
 VM 的每条线程都跑 JIT：`__thread_spawn` 的 worker 用自己的 `VmContext`（`new_with_core`），共享同一个
 `VmCore.exec.engines`；它的解释器帧经混合模式分流进入已编译函数，到阈值就在 worker 线程上编译（编译锁内）。
 
-## 运行时数据结构（`runtime.rs` / `frame.rs`）
+## 运行时数据结构（`compile/state.rs` / `runtime/frame.rs`）
 
 **上下文参数是运行线程自己的 `VmContext`**：每个原生函数和每个 helper 都收 `ctx: *const VmContext`——调用它的那条
 线程的上下文。可变执行状态（帧栈、待抛异常、寄存器池、arena、计数器分片、safepoint 计数、栈下限）因此都直接是本线程的。
@@ -72,7 +72,7 @@ VM 的每条线程都跑 JIT：`__thread_spawn` 的 worker 用自己的 `VmConte
 不进 JIT，且槽号总 `<= max_reg`）。`JitFrame` 本身被 move 不影响堆上的缓冲区。`ret` 不是 GC 根：
 从写入到 `enter_compiled` 取走之间没有 safepoint。
 
-每次进入原生函数都经 `invoke::enter_compiled`：把 `FnEntry.func` 与 `regs` 登记成一个 `VmFrame` 压进 `VmContext` 的调用栈（GC 从那里扫描根，栈回溯从 `func` 现算名字与行号），运行后弹出并回收 `JitFrame`。调用类 helper 与 `jit_throw` 只收位点的代码偏移（`linear_offset` 常量），戳到调用方帧的 `pc` 上。
+每次进入原生函数都经 `runtime::invoke::enter_compiled`：把 `FnEntry.func` 与 `regs` 登记成一个 `VmFrame` 压进 `VmContext` 的调用栈（GC 从那里扫描根，栈回溯从 `func` 现算名字与行号），运行后弹出并回收 `JitFrame`。调用类 helper 与 `jit_throw` 只收位点的代码偏移（`linear_offset` 常量），戳到调用方帧的 `pc` 上。
 
 ## 原生函数 ABI
 

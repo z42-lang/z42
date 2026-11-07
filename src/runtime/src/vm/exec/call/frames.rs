@@ -25,7 +25,7 @@ use crate::vm::runtime::Function;
 /// JIT runtime (merged module or a lazily-loaded function kept
 /// alive by its lazy slot) holds for at least the activation. All are valid
 /// for the duration of the corresponding `exec_function` / native call —
-/// RAII (`FrameGuard` for interp, `jit::invoke::enter_compiled` for JIT)
+/// RAII (`FrameGuard` for interp, `jit::runtime::invoke::enter_compiled` for JIT)
 /// guarantees the pop runs before the owning frame's stack slot goes away.
 ///
 /// `pc` is mutable via [`Cell`] so callers can stamp the current call-site

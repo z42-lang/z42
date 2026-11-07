@@ -1,6 +1,6 @@
 //! Unit tests for lazy per-function JIT (lazy-per-function-jit).
 //!
-//! These drive the lazy primitive directly — `runtime::install` + `run_fn` +
+//! These drive the lazy primitive directly — `compile::state::install` + `run_fn` +
 //! `JitRuntime::resolve_fn_by_id` — on hand-built empty/interp-only functions.
 //! End-to-end coverage of real cross-function `Call`s (a caller compiling its
 //! callee on first invocation) lives in the golden suite (`xtask test e2e
@@ -8,7 +8,7 @@
 //! compile-on-first-call bookkeeping, the "uncalled ⇒ never compiled" invariant,
 //! idempotency, the interp-only skip, and thread-safe single-compilation.
 
-use crate::jit::runtime::{install, install_tuned};
+use crate::jit::compile::state::{install, install_tuned};
 use crate::jit::run_fn;
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator};
@@ -168,7 +168,7 @@ fn tiering_rejected_marker_is_negative_cache() {
     // The OSR entry cache's negative marker: a null-ptr FnEntry means "no OSR
     // variant" (untranslatable / compile-failed), cached so it isn't re-attempted.
     // (Per-function slots: see `lazy_load_tests::*_is_negative_cached`.)
-    let r = crate::jit::frame::FnEntry::rejected();
+    let r = crate::jit::runtime::frame::FnEntry::rejected();
     assert!(r.is_rejected(), "null-ptr FnEntry is the Rejected marker");
     assert!(r.ptr.is_null());
 }

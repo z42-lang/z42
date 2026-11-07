@@ -2,7 +2,7 @@
 //! slot table — a lazily loaded target is counted and compiled at the tier threshold like
 //! any `Call`, from native code and from an interpreter frame alike.
 
-use crate::jit::runtime::{install, install_tuned};
+use crate::jit::compile::state::{install, install_tuned};
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, Instruction, LoadFnInsn, Terminator};
 use crate::vm::runtime::resolve::ResolvedTokens;

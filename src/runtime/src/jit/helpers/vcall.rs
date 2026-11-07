@@ -14,9 +14,9 @@ use crate::vm::exec::ops::vcall::resolve_vcall;
 use crate::vm::runtime::dispatch::vcall::vcall_ic_hit;
 use crate::vm::exec::ops::vcall::VCallTarget;
 
-use super::super::frame::{FnEntry, JitFrame};
+use crate::jit::runtime::frame::{FnEntry, JitFrame};
 use crate::vm_context::VmContext;
-use super::super::invoke::call_entry;
+use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
 /// `jit_vcall` after formalize-jit-method-token Phase 2.E :
@@ -158,10 +158,10 @@ unsafe fn invoke_entry(
     frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
     entry: &FnEntry, this: Value, arg_regs: &[u32], mta: &[String],
 ) -> u8 {
-    // `[Native]` extern wrapper (e.g. `string.Length`): run its builtin directly (`jit::forward`).
+    // `[Native]` extern wrapper (e.g. `string.Length`): run its builtin directly (`jit::compile::lookup`).
     if let Some(id) = entry.forward {
         if mta.is_empty() && arg_regs.len() + 1 == unsafe { (*entry.func).param_count } {
-            return unsafe { super::super::forward::call_forward(frame_ref, ctx, dst, entry.func, id, Some(this), arg_regs) };
+            return unsafe { crate::jit::runtime::forward::call_forward(frame_ref, ctx, dst, entry.func, id, Some(this), arg_regs) };
         }
     }
     let vm = vm_ctx_ref(ctx);
@@ -182,7 +182,7 @@ unsafe fn invoke_interp(
     // A cold `[Native]` wrapper folds too (`vm::exec::call::forward`); not on a generic site.
     if mta.is_empty() && arg_regs.len() + 1 == func.param_count {
         if let Some(id) = crate::vm::exec::call::forward::forward_of(vm_ctx, module, func) {
-            return unsafe { super::super::forward::call_forward(frame_ref, ctx, dst, func, id, Some(this), arg_regs) };
+            return unsafe { crate::jit::runtime::forward::call_forward(frame_ref, ctx, dst, func, id, Some(this), arg_regs) };
         }
     }
     match crate::vm::exec::engine::invoke_args(vm_ctx, module, func, crate::vm::exec::call::args::CallArgs::Receiver { receiver: this, regs: &frame_ref.regs, indices: arg_regs }, mta)

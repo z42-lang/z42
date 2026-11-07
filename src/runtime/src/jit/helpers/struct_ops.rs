@@ -28,7 +28,7 @@
 
 use crate::vm::exec::ops::structs;
 use crate::object::Value;
-use super::super::frame::JitFrame;
+use crate::jit::runtime::frame::JitFrame;
 use crate::vm_context::VmContext;
 use super::{set_exception, vm_ctx_ref};
 

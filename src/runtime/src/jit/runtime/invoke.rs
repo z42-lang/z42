@@ -11,8 +11,8 @@ use crate::vm::runtime::Function;
 use crate::object::Value;
 use crate::vm_context::VmContext;
 
-use super::frame::{FnEntry, JitFrame};
-use super::helpers::JitFn;
+use crate::jit::runtime::frame::{FnEntry, JitFrame};
+use crate::jit::helpers::JitFn;
 
 /// How a native call ended.
 #[must_use]

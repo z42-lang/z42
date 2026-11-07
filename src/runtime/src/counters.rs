@@ -9,7 +9,7 @@
 //!
 //! - `builtin_calls`         ← `vm::exec::call::builtins::exec_builtin`
 //! - `native_calls`          ← `interp::ops::exec_ffi::ffi_call`
-//! - `jit_methods_compiled`  ← `jit::runtime` compilation
+//! - `jit_methods_compiled`  ← `jit::compile::state` compilation
 //! - `jit_native_from_interp`← `interp::ops::exec_call` / `exec_vcall` native routing
 //! - `exceptions_thrown`     ← `interp::run::exec_support::fire_exception_thrown`
 //! - `exceptions_caught`     ← `interp::run::exec_support::fire_exception_caught`

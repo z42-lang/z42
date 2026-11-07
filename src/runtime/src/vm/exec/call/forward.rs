@@ -321,3 +321,7 @@ impl FoldFault {
 #[cfg(test)]
 #[path = "forward_tests.rs"]
 mod forward_tests;
+
+#[cfg(test)]
+#[path = "forward_shape_tests.rs"]
+mod forward_shape_tests;

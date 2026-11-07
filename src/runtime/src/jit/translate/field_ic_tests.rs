@@ -5,11 +5,11 @@
 use crate::metadata::ir::ExecMode;
 use crate::gc::PROMOTION_THRESHOLD;
 use crate::gc::GcMode;
-use crate::jit::forward::ForwardLookup;
-use crate::jit::frame::JitFrame;
+use crate::jit::compile::lookup::ForwardLookup;
+use crate::jit::runtime::frame::JitFrame;
 use crate::jit::helpers::object_field::HELPER_CALLS;
-use crate::jit::invoke::{call_entry, NativeOutcome};
-use crate::jit::runtime::install;
+use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
+use crate::jit::compile::state::install;
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, FieldGetInsn, FieldSetInsn, Instruction, Terminator};
 use crate::vm::runtime::ids::tokens::TypeId;
@@ -117,7 +117,7 @@ impl ForwardLookup for Lookup<'_> {
 /// A compiled function plus its VM; `run` returns (result, helper calls during the run).
 struct Jitted<'m> {
     vm: &'m VmContext,
-    entry: crate::jit::frame::FnEntry,
+    entry: crate::jit::runtime::frame::FnEntry,
 }
 
 impl Jitted<'_> {
@@ -191,9 +191,9 @@ fn primitive_get_and_set_go_native_once_the_ic_is_warm() {
 
 #[test]
 fn direct_reader_warms_before_getter_compilation_and_rechecks_its_guards() {
-    use crate::jit::forward::{CompileLookup, DirectFieldReader};
+    use crate::jit::compile::lookup::{CompileLookup, DirectFieldReader};
     use crate::jit::helpers::call::CALL_HELPER_HITS;
-    use crate::jit::runtime::install_tuned;
+    use crate::jit::compile::state::install_tuned;
     use crate::metadata::ir::CallInsn;
     use std::sync::atomic::{AtomicBool, Ordering};
 

@@ -1,45 +1,9 @@
-//! The JIT side of `[Native]` stub folding (runtime-audit P1-8; the shapes, the
-//! rationale and the shared pieces live in [`crate::vm::exec::call::forward`]).
-//!
-//! A compiled entry whose function is a pure forwarder records the builtin's id
-//! ([`FnEntry::forward`](super::frame::FnEntry)); `jit_call` (after its barriers) and
-//! `jit_vcall`'s `invoke_entry` then run the builtin straight from the caller's
-//! registers ([`call_forward`]). Cold callees (no compiled entry yet) fold the same way
-//! through the function's own cache (`vm::exec::call::forward::forward_of`). The translator
-//! also reads the forward of a call target to inline string intrinsics.
-
-use crate::vm::runtime::Function;
-use crate::object::Value;
-
-use super::frame::JitFrame;
-use super::runtime::JitRuntime;
+//! Read-only linkage facts used while compiling a function.
+//! Queries neither load packages nor execute type initializers.
+use crate::vm::runtime::{Function, statics::StaticCell};
 use crate::vm_context::VmContext;
-use crate::vm::runtime::statics::StaticCell;
-use super::helpers::vm_ctx_ref;
-
+use super::state::JitRuntime;
 use crate::vm::exec::call::forward::{builtin_forward, chained_forward};
-
-/// Run the folded call of `wrapper` (fold `token`, `vm::exec::call::forward::forward_of`) with `this` (vcall receiver, if any)
-/// followed by the caller's `arg_regs`, storing the result into `regs[dst]` (`Null`
-/// for a void builtin — what the wrapper's `ret` would have produced). Returns the JIT
-/// helper status: 0 = ok, 1 = exception pending.
-///
-/// # Safety
-/// `frame` / `ctx` as for every JIT helper; `arg_regs` index `frame.regs`; `wrapper`
-/// is the forwarder (valid for the run, as every `FnEntry::func`).
-pub(crate) unsafe fn call_forward(
-    frame: &mut JitFrame, ctx: *const VmContext, dst: u32, wrapper: *const Function, token: u32,
-    this: Option<Value>, arg_regs: &[u32],
-) -> u8 {
-    let vm = unsafe { vm_ctx_ref(ctx) };
-    let wrapper = unsafe { &*wrapper };
-    let module = || unsafe { super::helpers::jit_module(ctx) };
-    match crate::vm::exec::call::forward::run_folded(vm, wrapper, token, this, &frame.regs, arg_regs, module) {
-        Ok(Some(v)) => { frame.regs[dst as usize] = v; 0 }
-        Ok(None) => { frame.regs[dst as usize] = Value::Null; 0 }
-        Err(f) => super::helpers::call::raised_into_exception(vm, f.raise(vm, module(), wrapper)),
-    }
-}
 
 // ── Translate-time view (perf-str-jit-intrinsics) ────────────────────────────
 
@@ -174,7 +138,3 @@ impl ForwardLookup for CompileLookup<'_> {
         self.vm.jit_static_cell(id)
     }
 }
-
-#[cfg(test)]
-#[path = "forward_tests.rs"]
-mod forward_tests;

@@ -135,13 +135,13 @@ fn thrown_text(vm: &VmContext, m: &Module, exc: &Value) -> String {
 
 #[cfg(feature = "jit")]
 fn jit(vm: &VmContext, m: &Module, name: &str) -> Result<Value, String> {
-    use crate::jit::invoke::{call_entry, NativeOutcome};
-    let rt = crate::jit::runtime::install(vm, m, crate::config::runtime_config().jit_config()).expect("install");
+    use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
+    let rt = crate::jit::compile::state::install(vm, m, crate::config::runtime_config().jit_config()).expect("install");
     // Compile every function eagerly: the wrappers then fold through their compiled
     // entries (`FnEntry::forward`), the caller through `jit_call`.
     for i in 0..m.functions.len() { rt.resolve_fn_by_id(vm, i); }
     let entry = rt.resolve_fn_by_id(vm, idx(m, name)).expect("compiles");
-    match unsafe { call_entry(vm, entry, crate::jit::frame::JitFrame::new(vm, entry.max_reg, &[])) } {
+    match unsafe { call_entry(vm, entry, crate::jit::runtime::frame::JitFrame::new(vm, entry.max_reg, &[])) } {
         NativeOutcome::Returned(v) => Ok(v.unwrap_or(Value::Null)),
         NativeOutcome::Threw => {
             let exc = vm.take_exception().expect("pending exception");
