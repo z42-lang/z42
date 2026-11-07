@@ -7,7 +7,7 @@
 
 use crate::vm::runtime::Function;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 // ── JitFrame ─────────────────────────────────────────────────────────────────
 

@@ -270,7 +270,7 @@ builtin 写成**普通的类型化 Rust 函数**，放进所在领域文件里�
 #[z42_macros::builtins]
 pub mod typed {
     use crate::vm::exec::call::builtin_abi::{BuiltinError, RefArg};
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
 
     #[builtin(name = "__int32_parse", pure)]
     pub fn int32_parse(s: &str) -> Result<i64, BuiltinError> { … }
@@ -382,8 +382,8 @@ socket 的（OS 错误 → `SocketException` + Winsock 码 `SocketErrorCode`，�
 JIT `jit_builtin` / `call_forward`），判定顺序：
 
 1. 回调里 z42 代码抛出的原异常（`pending_thrown`）优先，原样抛出；
-2. **致命错误正在展开**（`stack_guard::is_fatal`）⇒ 不构造任何异常，原错误继续向外传；
-3. `Internal` ⇒ `stack_guard::fatal_error`：与栈溢出**同一套机制**——置 VM 的致命标志、记下
+2. **致命错误正在展开**（`vm::exec::stack_guard::is_fatal`）⇒ 不构造任何异常，原错误继续向外传；
+3. `Internal` ⇒ `vm::exec::stack_guard::fatal_error`：与栈溢出**同一套机制**——置 VM 的致命标志、记下
    `fatal error: internal error in builtin `__x`: …` 加 z42 调用栈，此后不再有 z42 handler 运行，
    `z42vm` 打印报告并以退出码 3 结束，嵌入 API 返回 `Z42_HOST_ERR_FATAL`；
 4. 其余按类构造异常，并**在 builtin 处**填 `StackTrace`——两个引擎的 trace 因此逐字一致

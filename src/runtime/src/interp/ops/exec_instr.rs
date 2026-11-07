@@ -30,7 +30,7 @@ use crate::metadata::{
 };
 use crate::vm::runtime::resolve::ResolvedTokens;
 use crate::vm::runtime::ids::tokens::UNRESOLVED;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::Result;
 
 use super::Frame;

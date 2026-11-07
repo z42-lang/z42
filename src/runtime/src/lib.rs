@@ -9,8 +9,6 @@ pub mod profiler;
 // Phase 2-N add fs / signal / thread / mem.
 pub mod pal;
 pub mod thread;
-pub mod exception;
-pub mod stack_guard;
 // Public entry for the engine-independent object operations.
 pub use vm::exec::ops::object as objops;
 pub mod interp;
@@ -27,7 +25,6 @@ pub mod interop;
 // docs/internals/src/runtime/embedding.md, 变更 add-embedding-api/.
 pub mod host;
 pub mod vm;
-pub mod vm_context;
 pub mod app;
 mod app_state;
 mod app_services;
@@ -42,19 +39,6 @@ mod app_tests;
 // table also lists subsystem-local knobs (Z42_GC_* / Z42_NATIVE_PATH /
 // Z42_SAFEPOINT_THROTTLE / Z42_STRESS_ITERS) for `--info` discovery.
 pub mod config;
-
-// Runtime atomic counters — JIT compiles / builtin calls / exception
-// traffic etc. Surfaced via `--print-stats-on-exit` CLI flag and (future)
-// scripted `Std.Diagnostics.RuntimeStats.Snapshot()`. docs/review.md
-// Part 4 D6 Phase 1 . Phase 2 migrates JIT / native / exception
-// increment sites in individual follow-up refactors.
-pub mod counters;
-
-// Push-based runtime event stream — symmetric to existing GcObserver
-// but for non-GC events (module loads + future JIT compiles / exceptions /
-// native calls). docs/review.md Part 4 D3 Phase 1 . Phase 2
-// wires individual emit sites in follow-up refactors.
-pub mod observer;
 
 // POSIX signal handler — captures z42 call stack on hard crashes
 // (SIGSEGV / SIGABRT / SIGFPE / SIGILL / SIGBUS). Phase 2 of D4 panic-hook

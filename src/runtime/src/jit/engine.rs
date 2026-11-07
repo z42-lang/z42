@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::vm::exec::call::{args::CallArgs, outcome::ExecOutcome};
 use crate::vm::exec::engine::{OsrState, TierBackend, TierTarget};
 use crate::vm::runtime::Function;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use crate::jit::{runtime::frame::JitFrame, compile::state::JitRuntime};
 
 impl TierBackend for JitRuntime {

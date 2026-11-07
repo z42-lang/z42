@@ -4,7 +4,7 @@
 由 VM 持有所有权；同一类型重复登记会返回错误，原状态保持不变。需要多份同类服务时使用不同的新类型。
 
 ```rust
-use z42::{pal::fs::default_vfs, vm::ext::VmExtensions, vm_context::VmContext};
+use z42::{pal::fs::default_vfs, vm::ext::VmExtensions, vm::context::VmContext};
 
 fn main() -> anyhow::Result<()> {
     let mut extensions = VmExtensions::new();

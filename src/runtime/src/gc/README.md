@@ -98,7 +98,7 @@ GC 只在标记后观察活对象，清扫结束后交回本轮不透明快照�
 ## 依赖关系
 
 - 上游：`object::{Value, ScriptObject, OwnedObject, TypeDesc, NativeData}`
-- 下游：`vm_context::VmCore` 持有地址稳定的 `Box<Heap>` + 注入 external root
+- 下游：`vm::context::VmCore` 持有地址稳定的 `Box<Heap>` + 注入 external root
   scanner 闭包（扫描 static_fields / pending_exception / interp+JIT exec_stack）；
   `interp/` 与 `jit/helpers/` 通过 `ctx.heap()` 调用
 

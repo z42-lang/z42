@@ -1,7 +1,7 @@
 //! Per-VM native-type registry.
 //!
 //! `z42_register_type` builds a [`RegisteredType`] from the caller's
-//! [`Z42TypeDescriptor_v1`], then hands it to [`crate::vm_context::VmContext`]
+//! [`Z42TypeDescriptor_v1`], then hands it to [`crate::vm::context::VmContext`]
 //! for storage. Each method's signature is parsed into [`SigType`]s and a
 //! libffi `Cif` is prebuilt so per-call dispatch is just `cif.call`.
 

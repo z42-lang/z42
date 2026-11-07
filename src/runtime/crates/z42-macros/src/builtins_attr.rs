@@ -252,7 +252,7 @@ fn expand_fn(f: &mut ItemFn, args: BuiltinArgs) -> syn::Result<(TokenStream2, sy
         #[inline(always)]
         #[allow(non_snake_case, clippy::needless_question_mark, unused_variables)]
         fn #inner<A: #abi::ArgSource + ?Sized>(
-            __ctx: &crate::vm_context::VmContext, __a: &A,
+            __ctx: &crate::vm::context::VmContext, __a: &A,
         ) -> #abi::CallResult {
             if __a.argc() != #n {
                 return ::core::result::Result::Err(#abi::BuiltinError::arity(#name, #n, __a.argc()).into());
@@ -264,7 +264,7 @@ fn expand_fn(f: &mut ItemFn, args: BuiltinArgs) -> syn::Result<(TokenStream2, sy
         #(#cfgs)*
         #[doc(hidden)]
         fn #regs_fn(
-            __ctx: &crate::vm_context::VmContext,
+            __ctx: &crate::vm::context::VmContext,
             this: ::core::option::Option<crate::object::Value>,
             regs: &[crate::object::Value],
             idx: &[u32],
@@ -274,7 +274,7 @@ fn expand_fn(f: &mut ItemFn, args: BuiltinArgs) -> syn::Result<(TokenStream2, sy
         #(#cfgs)*
         #[doc(hidden)]
         fn #slice_fn(
-            __ctx: &crate::vm_context::VmContext, args: &[crate::object::Value],
+            __ctx: &crate::vm::context::VmContext, args: &[crate::object::Value],
         ) -> #abi::CallResult {
             #inner(__ctx, args)
         }

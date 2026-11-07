@@ -1,4 +1,4 @@
-//! Unit tests for `vm_context::cctor`.
+//! Unit tests for `vm::context::cctor`.
 
 use super::*;
 use crate::vm::exec::init::{claim, claim_with};
@@ -146,7 +146,7 @@ fn free_function_barrier_loads_no_package() {
     use crate::vm::loader::locate::namespace_index::ZpkgCandidate;
     let zpkg = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../compiler/z42.package/tests/fixtures/zpkg-format/packed-minimal/source.zpkg");
-    let ctx = crate::vm_context::VmContext::new();
+    let ctx = crate::vm::context::VmContext::new();
     ctx.install_lazy_loader_with_deps(
         Vec::new(), 0,
         vec![("packed.zpkg".to_string(), ZpkgCandidate { file_path: zpkg, namespaces: vec!["Packed".to_string()] })],
@@ -173,7 +173,7 @@ fn owner_class_split() {
 /// static access does not re-derive the owner from the name each time.
 #[test]
 fn static_barrier_caches_the_owner_answer_per_field_id() {
-    let ctx = crate::vm_context::VmContext::new();
+    let ctx = crate::vm::context::VmContext::new();
     // Some type with a pending static constructor keeps the global gate open.
     ctx.core.runtime.cctors.register("Other.C", "Other.C.$cctor");
     let other = ctx.resolve_static_field_id("Demo.Holder.Other");
@@ -214,7 +214,7 @@ fn waiting_claim_parks_and_wakes_on_finish() {
 #[test]
 fn gc_pause_does_not_wait_for_a_thread_waiting_on_a_cctor() {
     use std::sync::atomic::Ordering;
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     let collector = VmContext::new();
     let core = collector.core_arc();
     core.runtime.cctors.register("A.C", "A.C.$cctor");
@@ -266,7 +266,7 @@ fn barrier_epoch_moves_on_every_invalidating_event() {
 /// The barrier records its verdict in the field's cell only once it keeps passing for every thread.
 #[test]
 fn static_field_barrier_records_only_a_settled_verdict() {
-    let ctx = crate::vm_context::VmContext::new();
+    let ctx = crate::vm::context::VmContext::new();
     let id = ctx.resolve_static_field_id("Demo.Holder.Count");
     let cell = || ctx.core.runtime.statics.cell(id).unwrap();
     // No static constructor pending at all: settled.
@@ -303,7 +303,7 @@ fn static_field_barrier_records_only_a_settled_verdict() {
 /// that keeps passing until the epoch moves may be short-circuited.
 #[test]
 fn callee_barrier_settled_tracks_the_same_events_as_the_epoch() {
-    let ctx = crate::vm_context::VmContext::new();
+    let ctx = crate::vm::context::VmContext::new();
     let owner = crate::vm::runtime::OwnerInitCell::default();
     // Nothing pending anywhere: settled (this is the `any_cctor_pending == false`
     // world, where `call_compiled` never even reaches the gate).

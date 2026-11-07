@@ -302,9 +302,9 @@ pub(crate) fn invoke_impl(
     let ret = interp::run_returning(ctx, module, func, args_bytes);
     // runtime-audit P0-4: a fatal VM error overrides whatever the call
     // produced (`z42_host_invoke` maps the prefix to `Z42_HOST_ERR_FATAL`).
-    if crate::stack_guard::is_fatal(ctx) {
-        bail!("{}", crate::stack_guard::take_report()
-            .unwrap_or_else(|| format!("{}stack overflow", crate::stack_guard::FATAL_PREFIX)));
+    if crate::vm::exec::stack_guard::is_fatal(ctx) {
+        bail!("{}", crate::vm::exec::stack_guard::take_report()
+            .unwrap_or_else(|| format!("{}stack overflow", crate::vm::exec::stack_guard::FATAL_PREFIX)));
     }
     let ret = ret?;
     // defer-class-initialization: initializers of packages first touched during this call

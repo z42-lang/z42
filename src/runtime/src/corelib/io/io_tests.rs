@@ -10,7 +10,7 @@
 //!   assert via the buffer.
 
 use super::*;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use crate::object::Value;
 
 fn ctx() -> std::pin::Pin<Box<VmContext>> {

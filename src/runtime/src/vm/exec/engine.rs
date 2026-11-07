@@ -5,7 +5,7 @@ use anyhow::{bail, Result};
 use crate::metadata::ExecMode;
 use crate::object::Value;
 use crate::vm::runtime::{Function, Module};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use super::call::{args::CallArgs, outcome::ExecOutcome};
 
 pub(crate) trait Engine: Send + Sync {

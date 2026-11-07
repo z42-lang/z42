@@ -18,7 +18,7 @@
 //!
 //! # Stack walk strategy
 //!
-//! The handler walks [`vm_context::VM_CORES`] → each `Arc<VmCore>` → each
+//! The handler walks [`vm::context::VM_CORES`] → each `Arc<VmCore>` → each
 //! registered `VmContext`. The two registries are behind `Mutex`es and are
 //! taken with `try_lock` — on contention it writes a placeholder and
 //! continues, trading completeness for deadlock safety.
@@ -157,7 +157,7 @@ fn write_banner(fd: i32) {
 /// `Option<MutexGuard>` (not `Result`). Each `match` arm is shaped to its
 /// mutex type.
 fn write_call_stacks(fd: i32) {
-    use crate::vm_context::VM_CORES;
+    use crate::vm::context::VM_CORES;
 
     let cores_guard = match VM_CORES.try_lock() {
         Ok(g) => g,
@@ -204,7 +204,7 @@ fn write_call_stacks(fd: i32) {
         for (ctx_idx, ctx_ptr) in contexts.iter().enumerate() {
             // SAFETY: VmContextPtr.0 raw ptr stays valid for the entire
             // lifetime of the VmContext (VmContext: !Unpin; deregistered in
-            // Drop). See SAFETY block at vm_context.rs::VmContextPtr.
+            // Drop). See SAFETY block at vm/context/mod.rs::VmContextPtr.
             let ctx_ref = unsafe { &*ctx_ptr.0 };
 
             let stack = &ctx_ref.exec.call_stack;

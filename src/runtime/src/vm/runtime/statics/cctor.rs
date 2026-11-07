@@ -167,7 +167,7 @@ impl Default for CctorRegistry {
 
 impl CctorRegistry {
     /// `module_pending` / `module_failed` 的字节偏移：JIT 内联字符串原语（`jit::translate::str_intrinsics`）
-    /// 在快路径上直接读这两个计数，代替 `jit_call` 的包级屏障门（[`crate::vm_context::VmContext::module_init_gate_open`]）。
+    /// 在快路径上直接读这两个计数，代替 `jit_call` 的包级屏障门（[`crate::vm::context::VmContext::module_init_gate_open`]）。
     #[cfg(feature = "jit")]
     pub(crate) const MODULE_PENDING_OFFSET: usize = std::mem::offset_of!(CctorRegistry, module_pending);
     #[cfg(feature = "jit")]

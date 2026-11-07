@@ -50,7 +50,7 @@ CI 由 `package-wasm` / `package-ios` / `package-android` 在各自真实目标�
 ## 源码 cfg gate 规则
 
 - `src/lib.rs` `pub mod jit` / `pub mod aot` 加 `#[cfg(feature = "...")]`
-- `vm.rs` 的 `ExecMode::Jit => crate::jit::run(...)` 调用点加 `#[cfg(feature = "jit")]`；feature off 时该 arm 改 bail 友好错误
+- `vm/mod.rs` 的 `ExecMode::Jit => crate::jit::run(...)` 调用点加 `#[cfg(feature = "jit")]`；feature off 时该 arm 改 bail 友好错误
 - `metadata::ExecMode` enum 的所有 variant 都保留（zbc 文件可能编码任何 mode；无法解码就 fallback Interp）
 - main.rs CLI 的 `enum ExecMode` 与 `metadata::ExecMode` 不同 —— CLI 端 variant 加 cfg
 

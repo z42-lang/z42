@@ -1,7 +1,7 @@
 //! Engine-neutral struct allocation, copying and checked symbolic field access.
 use crate::object as ty;
 use crate::object::{Value, StructTypeLayout};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use crate::objops::struct_leaf::as_struct_ref;
 use anyhow::Result;
 use std::sync::Arc;

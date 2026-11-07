@@ -9,7 +9,7 @@
 
 use crate::vm::runtime::Function;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
 use crate::jit::helpers::JitFn;

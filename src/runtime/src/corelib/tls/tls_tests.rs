@@ -7,7 +7,7 @@
 use crate::vm::exec::call::builtin_abi::BuiltinError;
 use crate::corelib::net::network_tests::{call, collect_while_parked, detailed};
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::sync::Arc;
 use std::time::Duration;
 

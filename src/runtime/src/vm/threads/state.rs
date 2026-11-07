@@ -1,7 +1,7 @@
 //! Shared mutator coordination state for one VM.
 use parking_lot::{Condvar, Mutex};
 use std::sync::{Arc, atomic::{AtomicBool, AtomicUsize}};
-use crate::vm_context::VmContextPtr;
+use crate::vm::context::VmContextPtr;
 use super::safepoint::GcPhase;
 
 pub(crate) struct ThreadState {

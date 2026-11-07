@@ -4,7 +4,7 @@
 
 use crate::object::Value;
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use super::{set_exception, take_exception, vm_ctx_ref};
 
 /// `jit_throw`: `throw_offset` is the throw site's packed code offset (baked by
@@ -21,7 +21,7 @@ pub unsafe extern "C" fn jit_throw(
     let vm_ctx = vm_ctx_ref(ctx);
     let module = super::jit_module(ctx);
     vm_ctx.set_top_frame_pc(throw_offset);
-    crate::exception::populate_stack_trace(&v, vm_ctx, module);
+    crate::vm::exec::exception::populate_stack_trace(&v, vm_ctx, module);
     set_exception(vm_ctx, v);
 }
 
@@ -130,7 +130,7 @@ pub unsafe extern "C" fn jit_check_safepoint_slow(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_stack_overflow(_frame: *mut JitFrame, ctx: *const VmContext) {
     let vm_ctx = vm_ctx_ref(ctx);
-    let err = crate::stack_guard::overflow(vm_ctx);
+    let err = crate::vm::exec::stack_guard::overflow(vm_ctx);
     super::set_exception(vm_ctx, Value::Str(err.to_string().into()));
 }
 
@@ -138,7 +138,7 @@ pub unsafe extern "C" fn jit_stack_overflow(_frame: *mut JitFrame, ctx: *const V
 /// propagates instead of entering a handler (see `stack_guard`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_fatal_pending(_frame: *mut JitFrame, ctx: *const VmContext) -> i8 {
-    crate::stack_guard::is_fatal(vm_ctx_ref(ctx)) as i8
+    crate::vm::exec::stack_guard::is_fatal(vm_ctx_ref(ctx)) as i8
 }
 
 #[cfg(test)]

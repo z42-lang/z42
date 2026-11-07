@@ -12,7 +12,7 @@
 use super::*;
 use crate::jit::runtime::frame::JitFrame;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 /// 在 ctx 的栈 arena 里放一个 `int[]`，返回对应的 `Value::StackArray` 句柄。
 fn stack_int_array(vm: &VmContext, frame_id: u32, elems: Vec<i64>) -> Value {

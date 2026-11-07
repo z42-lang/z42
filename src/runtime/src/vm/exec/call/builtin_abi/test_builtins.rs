@@ -5,7 +5,7 @@
 pub mod typed {
     use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, RefArg};
     use crate::object::Value;
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
 
     /// Echo every scalar kind back as text.
     #[builtin(name = "__test_abi_args")]

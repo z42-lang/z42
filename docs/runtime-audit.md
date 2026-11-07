@@ -120,7 +120,7 @@ VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 
 ```
 vm/
   mod.rs           对外 API：Vm、VmContext、invoke(FnId, args)、注册接口、ext::<T>() 每 VM 扩展状态
-  vm.rs            VmCore = { diagnostics, threads, runtime, loader, exec, heap, ext_state }
+  vm/mod.rs            VmCore = { diagnostics, threads, runtime, loader, exec, heap, ext_state }
   diagnostics/     发生了什么：counters（L1）、events（合并 RuntimeObserver 与 GcObserver）、monitor（监控 API）
   threads/         谁在跑、怎么让大家停下：registry、safepoint（轮询 / park / suspend_all，实现 GcToVm）、fatal
   runtime/         运行时元数据：组装、查询、缓存
@@ -138,12 +138,12 @@ vm/
     ops/           指令语义：scalar、object/（字段、数组、静态字段、struct 叶子）、vcall、obj_new、cast
                    （检查 → 查 runtime → 调 object 原语 → 屏障 → 抛异常）
     init.rs        类型初始化的执行：认领 / 等待、执行 cctor、失败包装
-    exception.rs   异常对象与传播
+    exception/     异常对象与传播
     stack.rs       统一栈遍历（异常栈回溯、GC 根、调试器、profiler 共用）
-    stack_guard.rs 栈余量检查
+    vm/exec/stack_guard.rs 栈余量检查
 ```
 
-内部依赖自下而上：`diagnostics, threads → runtime → loader → exec → vm.rs / lib.rs`；exec 之下的子系统只拿自己的状态，不拿 `VmContext`。
+内部依赖自下而上：`diagnostics, threads → runtime → loader → exec → vm/mod.rs / lib.rs`；exec 之下的子系统只拿自己的状态，不拿 `VmContext`。
 
 **runtime 的「四不」**：不执行 z42 代码、不抛 z42 异常、不触发加载、不等待其他线程——只返回结果或「未加载 / 不存在」，由 exec 的慢路径请 loader 加载后重查。这是 runtime 不依赖 exec 的保证（现 resolver「查询时加载包、排空初始化队列」的环由此消除）。按此标准：类型初始化的**状态**归 `runtime/statics`、**执行**归 `exec/init`；字段偏移、派发目标、子类型判定等**查询与缓存**归 `runtime/dispatch`，指令的**执行语义**归 `exec/ops`。
 
@@ -224,7 +224,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | X-12 | perf/vm | **分配快路**（依赖 M15、M16）：`jit_obj_new` 是 11 参 helper，每次经过具体 `Heap`、2 次 TLS、全局原子记账、`Arc<TypeDesc>` clone，ctor 再走完整调用协议；解释器 `new` 还为 ctor 实参 malloc 一个 Vec。改法：TLAB cursor / limit 挪进 VmContext，站点稳定后用纪元门（同 X-4）跳过屏障，生成码直接 bump、写头、清零；空洞复用只走慢路 | CoreCLR 每线程分配上下文 + 内联 bump（≈10 条指令、0 原子） | 09_alloc_ctorless 1.5–2×；z42c `jit_obj_new` 14.5% inclusive | ⬜ |
 | X-13 | perf/jit | **后台 / 批量编译 + 代码 arena**：编译在调用线程上、持全局 `Mutex`，持锁期间其他线程直接等不 park；每函数一次 `finalize_definitions`、各占一块 mmap。动工前先对齐编译耗时两个口径（计数 1.59 s vs 采样 3.9%） | CoreCLR tier1 后台编译 | z42c 墙钟 −5~15%，`--jobs` 不再串行等锁 | ⬜ |
 | X-14 | perf/interp | **解释器调用路径继续瘦身**：调用仍有两道屏障，并逐次检查 `$mta:` 转发。将 X-4 的纪元快路用于解释器调用，减少重复屏障与实参扫描；须保留属主初始化、加载和歧义诊断的语义 | — | 减少屏障与扫描开销（需重测） | ⬜ |
-| X-15 | perf/vm | **异常惰性栈**：throw 时当场格式化整条栈（`exception/mod.rs`），`find_handler` 按 String label 查 HashMap。改法：只存 (func, pc) 快照，读 StackTrace 时才格式化；异常表用块下标 | CoreCLR 惰性 IP 数组 | 异常密集代码 5–10× | ⬜ |
+| X-15 | perf/vm | **异常惰性栈**：throw 时当场格式化整条栈（`vm/exec/exception/mod.rs`），`find_handler` 按 String label 查 HashMap。改法：只存 (func, pc) 快照，读 StackTrace 时才格式化；异常表用块下标 | CoreCLR 惰性 IP 数组 | 异常密集代码 5–10× | ⬜ |
 | X-16 | perf/jit | **调用 safepoint 轮询去重**：被调方入口与调用方返回后各轮询一次。先确定 GC 停顿延迟约束，再判断哪些调用可安全省去一次 | — | 降低调用轮询开销（需重测） | ⏸ 需确认延迟约束 |
 
 ### 6.3 内存与 GC（M 系列）

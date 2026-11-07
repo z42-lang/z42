@@ -27,7 +27,7 @@ use crate::vm::runtime::dispatch::{
 use crate::vm::runtime::ids::tokens::TypeKeyCell;
 use crate::object::{ArrayMode, ArrayObj, ElemType};
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 use super::error::{OpError, OpResult, INVALID_CAST_EXC};
 

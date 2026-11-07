@@ -7,7 +7,7 @@
 //! a crash — same "throw becomes a no-op" semantics as the completer trampoline.
 
 use super::*;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::ffi::CString;
 
 /// Serialize tests that mutate the process-global `REGISTERED_KEY_EDITOR`.

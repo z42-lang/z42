@@ -1,7 +1,7 @@
 //! VM-owned root enumeration; caller holds a GC pause.
 use crate::gc::to_vm::GcRoots;
 use crate::object::Value;
-use crate::vm_context::{VmContext, VmCore};
+use crate::vm::context::{VmContext, VmCore};
 use std::sync::Weak;
 
 pub(crate) struct CoreRoots(pub Weak<VmCore>);

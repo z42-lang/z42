@@ -17,7 +17,7 @@ use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Termin
 use crate::metadata::ir::ExecMode;
 use crate::object::string::vstr::{jit_layout, Str};
 use crate::{metadata::IrType, object::Value};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 const GET_LENGTH: usize = 0;
 const CHAR_AT: usize = 1;

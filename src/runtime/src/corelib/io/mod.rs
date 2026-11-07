@@ -180,7 +180,7 @@ pub mod typed {
     use super::{route, Stream};
     use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError};
     use crate::object::Value;
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
 
     /// dispatch-tostring-in-native-stringify: the same string interpolation / `ToString()`
     /// produce — a user `ToString` is dispatched (boxed structs, record synthesis, enum

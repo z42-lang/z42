@@ -26,7 +26,7 @@ use anyhow::{anyhow, Result};
 use crate::object::{NativeData, TypeDesc};
 use crate::vm::runtime::Module;
 use crate::object::{default_value_for, Value};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use crate::vm::exec::stack::{FrameSnapshot, format_stack_trace};
 
 /// fix-silent-symbol-resolution：构造 `Std.MissingSymbolException`。
@@ -35,7 +35,7 @@ use crate::vm::exec::stack::{FrameSnapshot, format_stack_trace};
 /// `catch (MissingSymbolException e)` 甚至 `catch (Exception e)`。逐级回落保证 stdlib
 /// 缺任一类时仍把错误传出去，而不是静默吞掉。
 pub fn make_missing_symbol_exception(
-    ctx: &crate::vm_context::VmContext,
+    ctx: &crate::vm::context::VmContext,
     module: &crate::vm::runtime::Module,
     msg: String,
 ) -> crate::object::Value {

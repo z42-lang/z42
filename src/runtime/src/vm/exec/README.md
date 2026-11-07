@@ -8,6 +8,8 @@
 
 | 入口 | 职责 |
 |---|---|
+| `exception/` | 异常对象构造、传播和栈迹捕获；解释器与 JIT 保持各自的传播通道 |
+| `stack_guard.rs` | 原生栈余量、致命标记与报告；两个后端共用 |
 | `init.rs` | 类型与包初始化屏障、执行、parked 等待及异常构造 |
 | `thread_state.rs` | `ThreadExecState` 的帧、池、arena、异常槽与 JIT 中立头；每线程独立 |
 | `state.rs` | `ExecState` 内联组合每 VM 引擎注册表与对象协议服务，门面提供具体注册 |

@@ -8,7 +8,7 @@
 
 `Std.Threading.Mutex<T>` / `RwLock<T>` / `Channel<T>` 若把值存在 **Rust 侧容器**里——
 `parking_lot::Mutex<Value>` / `parking_lot::RwLock<Value>` / `std::sync::mpsc` 队列，按槽位 id
-登记在 `VmCore` 的 registry——GC 的外部根扫描器（`vm_context/construct.rs`）只扫
+登记在 `VmCore` 的 registry——GC 的外部根扫描器（`vm/context/construct.rs`）只扫
 static 字段、各线程帧寄存器和几个 arena，**看不见这些容器**。
 
 就会出问题：一个值一旦**只被原语持有**，下一次回收就会被收掉。单线程即可确定性复现——往 `Channel<Box>`

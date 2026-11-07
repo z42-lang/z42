@@ -11,7 +11,7 @@ use crate::object::ElemType;
 use crate::vm::runtime::Module;
 use crate::object::Value;
 use crate::objops;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::Result;
 
 use super::raise;

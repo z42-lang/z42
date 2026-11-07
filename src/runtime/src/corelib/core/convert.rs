@@ -3,7 +3,7 @@ pub use crate::object::value::format::{FmtBuf, value_to_str, with_value_str};
 use crate::object::Value;
 use crate::objops::struct_leaf::box_struct_blob;
 use crate::metadata::index::well_known_names::int_wrapper_scalar_spec;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Result};
 use crate::vm::exec::call::builtin_abi as abi;
 
@@ -292,7 +292,7 @@ pub mod typed {
     use super::{parse_double, parse_int, try_int, try_store, value_to_str};
     use crate::vm::exec::call::builtin_abi::{BuiltinError, RefArg};
     use crate::object::Value;
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
 
     /// native-hash：字符串（按其 UTF-8 字节）→ MurmurHash3_x86_128 的 32 个小写 hex 字符。
     /// 等价于 z42 侧 `Murmur3.Hash128Hex(Utf8.GetBytes(s))`（对拍见上）。

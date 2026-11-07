@@ -1,4 +1,4 @@
-use crate::{pal::fs::default_vfs, vm::ext::VmExtensions, vm_context::VmContext};
+use crate::{pal::fs::default_vfs, vm::ext::VmExtensions, vm::context::VmContext};
 
 fn assert_installed(ctx: &VmContext) {
     assert!(ctx.ext::<super::os::process::State>().is_some());

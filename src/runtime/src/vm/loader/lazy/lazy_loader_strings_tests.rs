@@ -9,7 +9,7 @@ use crate::vm::runtime::ids::tokens::FnId;
 use crate::metadata::ir::ExecMode;
 use crate::object::string::vstr::Str;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 /// `string F() { return <pool[idx]>; }`
 fn const_str_fn(name: &str, idx: u32) -> Function {

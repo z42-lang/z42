@@ -14,7 +14,7 @@ use crate::object::{
 };
 use crate::object::Value;
 use crate::object::ElemType;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::sync::Arc;
 
 fn no_fid() -> u32 { panic!("frame id must not be needed here") }

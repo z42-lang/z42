@@ -10,6 +10,6 @@ pub(crate) fn registry() -> EngineRegistry {
 }
 
 #[cfg(feature = "jit")]
-fn run_jit(ctx: &crate::vm_context::VmContext, module: &crate::vm::runtime::Module, entry: &str) -> anyhow::Result<()> {
+fn run_jit(ctx: &crate::vm::context::VmContext, module: &crate::vm::runtime::Module, entry: &str) -> anyhow::Result<()> {
     crate::jit::run(ctx, module, entry, crate::config::runtime_config().jit_config())
 }

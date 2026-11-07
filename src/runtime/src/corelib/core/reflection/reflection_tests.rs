@@ -9,7 +9,7 @@ use crate::{
     object::{NativeData, TypeDesc, Value},
     vm::runtime::ids::tokens::TypeId,
 };
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::sync::Arc;
 
 fn ctx() -> std::pin::Pin<Box<VmContext>> {

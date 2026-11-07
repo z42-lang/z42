@@ -31,7 +31,7 @@ pub(crate) struct State {
     pub(super) slots: crate::corelib::resource_registry::ResourceRegistry<std::sync::Arc<TlsSlot>>,
 }
 
-pub(super) fn state(ctx: &crate::vm_context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::vm::context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
@@ -66,7 +66,7 @@ mod imp {
     use super::TlsSlot;
     use crate::vm::exec::call::builtin_abi::BuiltinError;
     use crate::corelib::net::error::{closed, describe, slot_id, timeout_message};
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     use std::sync::Arc;
 
     pub(super) fn slot(ctx: &VmContext, slot: i64) -> Result<Arc<TlsSlot>, BuiltinError> {
@@ -126,7 +126,7 @@ pub mod typed {
     use crate::corelib::io::buffer::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use crate::corelib::net::error::{check_port, resolve, slot_id, socket_error, timeout};
     use crate::object::Value;
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     use rustls::pki_types::ServerName;
     use rustls::{ClientConnection, StreamOwned};
     use std::io::{Read, Write};

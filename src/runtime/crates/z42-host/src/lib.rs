@@ -159,7 +159,7 @@ pub fn run_app(
         exit_after_run: false,
         vfs: None,
     };
-    z42::app::run(file, entry, opts).map_err(|e| match z42::stack_guard::take_report() {
+    z42::app::run(file, entry, opts).map_err(|e| match z42::vm::exec::stack_guard::take_report() {
         Some(report) => HostError::Fatal(report),
         None => HostError::VmException(format!("{e:#}")),
     })

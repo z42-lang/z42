@@ -13,7 +13,7 @@ use crate::vm::runtime::dispatch::ic::{
 };
 use crate::object::{FieldAccess, FieldLoc, FieldWrite, ScriptObject};
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 use super::error::{OpError, OpResult};
 

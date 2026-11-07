@@ -206,7 +206,7 @@ fn candidates_excludes_subsequently_loaded() {
 
 #[test]
 fn vm_context_install_then_uninstall_is_clean() {
-    let ctx = crate::vm_context::VmContext::new();
+    let ctx = crate::vm::context::VmContext::new();
     ctx.install_lazy_loader(None, 0);
     assert!(ctx.try_lookup_function("Std.IO.Console.WriteLine").is_none());
     ctx.uninstall_lazy_loader();
@@ -215,7 +215,7 @@ fn vm_context_install_then_uninstall_is_clean() {
 
 #[test]
 fn vm_context_install_with_deps_no_libs_no_declared_returns_none() {
-    let ctx = crate::vm_context::VmContext::new();
+    let ctx = crate::vm::context::VmContext::new();
     ctx.install_lazy_loader_with_deps(Vec::new(), 0, Vec::new(), Vec::new());
     assert!(ctx.try_lookup_function("Std.Anything.F").is_none());
     assert!(ctx.try_lookup_type("Std.Anything").is_none());
@@ -744,7 +744,7 @@ fn vm_core_registers_entry_functions_and_the_loader_appends() {
         module.functions.push(ll_stub_function(n));
         module.func_index.insert(n.to_string(), i);
     }
-    let ctx = crate::vm_context::VmContext::with_module(module);
+    let ctx = crate::vm::context::VmContext::with_module(module);
     let funcs = Arc::clone(&ctx.core.runtime.funcs);
     assert_eq!(funcs.entry_len(), 2);
     assert_eq!(funcs.id_of("Entry.Helper$0"), Some(FnId(1)));

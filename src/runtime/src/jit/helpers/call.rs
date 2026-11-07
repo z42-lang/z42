@@ -4,7 +4,7 @@
 use crate::object::Value;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
@@ -189,7 +189,7 @@ unsafe fn call_interp(
     vm.set_top_frame_pc(caller_offset);
     // runtime-ambiguous-use-site：与 interp `exec_call` 对称（两后端同判据）。
     // 常态 = 一次 relaxed 原子读，进程内没发生过碰撞时恒 false。
-    if let Some(exc) = crate::vm_context::symres::ambiguous_function_exception(vm, module, &callee.name) {
+    if let Some(exc) = crate::vm::context::symres::ambiguous_function_exception(vm, module, &callee.name) {
         set_exception(vm, exc);
         return 1;
     }
@@ -223,7 +223,7 @@ unsafe fn call_interp(
 /// Package-init then type-init barrier for a static call of `callee`; `Some` = the
 /// `TypeInitializationException` to throw.
 unsafe fn call_barriers(
-    vm: &crate::vm_context::VmContext, ctx: *const VmContext,
+    vm: &crate::vm::context::VmContext, ctx: *const VmContext,
     callee: &crate::vm::runtime::Function, owner: &crate::vm::runtime::OwnerInitCell,
 ) -> Option<Value> {
     let module = super::jit_module(ctx);
@@ -271,7 +271,7 @@ pub unsafe extern "C" fn jit_builtin(
 /// leaves the error text: while the fatal flag is set the catch dispatch declines every
 /// handler, so it unwinds to the entry, which reports it.
 pub(crate) fn raised_into_exception(
-    vm: &crate::vm_context::VmContext, r: crate::vm::exec::call::builtin_abi::error::Raised,
+    vm: &crate::vm::context::VmContext, r: crate::vm::exec::call::builtin_abi::error::Raised,
 ) -> u8 {
     use crate::vm::exec::call::builtin_abi::error::Raised;
     let exc = match r {

@@ -7,7 +7,7 @@ use super::frame::Frame;
 use super::ops::{self, exec_instr};
 use crate::vm::runtime::{Function, Module};
 use crate::{metadata::{BranchTargets, Terminator}, object::Value};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Context, Result};
 use crate::vm::exec::call::outcome::ExecOutcome;
 use exec_body_cold::{callee_threw, copy_in_ref_param, label_target, locate_error, throw_here, Unwind};

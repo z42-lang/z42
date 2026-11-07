@@ -12,10 +12,10 @@
 ///     vtable slot) stay as `anyhow!` errors but without the legacy
 ///     `Z####:` prefix — the error message text is the diagnostic itself.
 
-use crate::exception::make_stdlib_exception;
+use crate::vm::exec::exception::make_stdlib_exception;
 use crate::vm::runtime::Module;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Result};
 
 use super::Frame;
@@ -39,7 +39,7 @@ pub(super) fn ffi_call(
     // marshal error) are counted — they still represent FFI traffic.
     ctx.counters().native_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     if ctx.has_runtime_observers() {
-        ctx.fire_runtime_event(&crate::observer::RuntimeEvent::NativeCallEntered {
+        ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::NativeCallEntered {
             module: module_name.to_string(),
             symbol: format!("{type_name}::{symbol}"),
         });

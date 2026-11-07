@@ -4,15 +4,15 @@
 //! `TypeInitializationException`。读到 `Null` 时才确证字段是否声明过：未声明 → 缺符号异常；
 //! 声明了但从未赋值 → 惰性装入该字段类型的零值（值 struct 是一个全零的盒子，见
 //! `symres::static_zero_value`）。值本身在 `VmCore.statics` 的单元里，读写不拿锁
-//! （`vm_context::static_table`）。JIT 生成码内联屏障的稳态判定与常见形态的单元读写
+//! （`vm::runtime::statics`）。JIT 生成码内联屏障的稳态判定与常见形态的单元读写
 //! （`jit::translate::static_field`），其余情况经 helper 调这里。
 
 use crate::vm::runtime::ids::tokens::StaticFieldId;
 use crate::vm::runtime::Module;
 use crate::object::Value;
 use crate::vm::exec::init::make_type_init_exception;
-use crate::vm_context::symres::{verify_static_field, StaticNullVerdict};
-use crate::vm_context::VmContext;
+use crate::vm::context::symres::{verify_static_field, StaticNullVerdict};
+use crate::vm::context::VmContext;
 
 use super::error::{OpError, OpResult};
 

@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use crate::metadata::ir::METHOD_FLAG_SRET;
 use crate::object::Value;
 use crate::vm::runtime::{Function, Module};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use super::{args::CallArgs, outcome::ExecOutcome};
 use crate::gc::{Heap, RootHandle};
 

@@ -1255,7 +1255,7 @@ fn sink_callback_can_shut_down_the_host_mid_invoke() {
 #[cfg(z42_have_embedding_hello)]
 fn invoke_deep_recursion_is_fatal() {
     let _g = test_lock();
-    let _f = crate::stack_guard::FATAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _f = crate::vm::exec::stack_guard::FATAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     reset_host();
 
     let capture: Mutex<Vec<u8>> = Mutex::new(Vec::new());

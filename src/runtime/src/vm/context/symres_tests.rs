@@ -146,7 +146,7 @@ use crate::metadata::index::name::NameIndex;
 use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::sync::Arc;
 
 fn type_desc(name: &str, class_flags: u8, cold: TypeDescCold) -> Arc<TypeDesc> {

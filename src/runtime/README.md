@@ -17,7 +17,7 @@
 | `builtin_assembly.rs` | 门面按既定 provider 顺序装配 builtin 描述符及纯名称/ID 目录 |
 | `object_protocol_assembly.rs` | 门面将核心库 GetType 和默认 ToString 绑定到执行层私有协议；保留调用方的物化与错误边界 |
 | `loader_assembly.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
-| `context_assembly.rs` | 门面实现既有 VmContext 主构造入口，装配配置、引擎、builtin 与扩展；worker 加入和 Drop 机制留在 vm_context |
+| `context_assembly.rs` | 门面实现既有 VmContext 主构造入口，装配配置、引擎、builtin 与扩展；worker 加入和 Drop 机制留在 vm/context |
 | `extension_assembly.rs` | 门面装配 interop 与核心库每 VM 资源状态，保留库句柄到最后释放，所有构造入口共用 |
 | `vm/threads/state.rs` | `ThreadState` 拥有每 VM 线程注册、暂停握手与 fatal 状态，VmCore 组合持有 |
 | `vm/runtime/state.rs` | `RuntimeState` 组合入口 module 与运行时身份表，保留每 VM 链接隔离 |
@@ -29,19 +29,20 @@
 | `vm/exec/state.rs` | `ExecState` 组合每 VM 的引擎注册与代码寿命 |
 | `vm/config.rs` | `VmConfig`：门面捕获的构造输入，包含 heap 与采样设置；LOH 覆盖仍应用到进程策略 |
 | `vm/ext.rs` | `VmExtensions` 创建前登记与冻结的每 VM Rust 扩展状态，`VmContext::ext` 借用查询 |
-| `vm.rs` | `Vm`：持有执行配置，从 VmContext 取得 Module，按 `ExecMode` 调用已注册引擎入口 |
+| `vm/mod.rs` | `Vm`：持有执行配置，从 VmContext 取得 Module，按 `ExecMode` 调用已注册引擎入口 |
 | `app.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
 | `boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`app::run` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
 | `lib.rs` | 库入口，re-export 公开 API |
 | `config.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`split.rs`（转换为子系统拥有的 `GcConfig` / `JitConfig` / `VmConfig`）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config_tests.rs` |
-| `counters.rs` | `RuntimeCounters`：VM 可观测性原子计数器 |
-| `observer.rs` | `RuntimeObserver`：非 GC 运行时事件的 push 流（与 `gc::GcObserver` 对称） |
+| `vm/diagnostics/counters.rs` | `RuntimeCounters`：VM 可观测性原子计数器 |
+| `vm/diagnostics/observer.rs` | `RuntimeObserver`：非 GC 运行时事件的 push 流（与 `gc::GcObserver` 对称） |
 | `signal_handler.rs` | 硬崩溃时捕获 z42 调用栈的 OS 信号 handler（调 `pal::signal`） |
 | `aot.rs` | AOT 后端桩（未实现） |
 
 ### 子模块
 | 目录 | 职责 |
 |------|------|
+| `src/vm/` | VM 统一入口、上下文及各子系统，见 [`src/vm/README.md`](src/vm/README.md) |
 | `src/metadata/` | 静态包信息、IR、映像与静态查询（见下） |
 | `src/vm/threads/` | mutator 暂停、safepoint 与 GC 根服务适配，见 [`src/vm/threads/README.md`](src/vm/threads/README.md) |
 | `src/vm/exec/` | 引擎共享的帧栈、寄存器池、arena、栈读取与标量指令语义，见 [`src/vm/exec/README.md`](src/vm/exec/README.md) |
@@ -55,11 +56,11 @@
 | `src/corelib/` | 内置函数（builtin）实现，统一入口 `invoke_builtin` 供 interp / JIT 调用（builtin ABI v2：`vm/exec/call/builtin_abi/`），见 [`src/corelib/README.md`](src/corelib/README.md) |
 | `src/gc/` | 具体 Heap 与分代 / STW / 增量 major 回收，见 [`src/gc/README.md`](src/gc/README.md) |
 | `src/profiler/` | CPU 采样、堆摘要、V8 快照与保留链，见 [`src/profiler/README.md`](src/profiler/README.md) |
-| `src/vm_context/` | `VmContext`：固定地址的每线程视图，组合 exec/runtime/diagnostics/threads 状态并共享 Arc<VmCore> |
+| `src/vm/context/` | `VmContext`（由 `vm` 统一导出）：固定地址的每线程视图，组合 exec/runtime/diagnostics/threads 状态并共享 Arc<VmCore> |
 | `src/interop/` | Tier 1 C ABI 运行时 + stdlib native 扩展加载，见 [`src/interop/README.md`](src/interop/README.md) |
 | `src/host/` | 嵌入 / 宿主 API（`z42_host.h` 的 Tier 1 C ABI 实现），见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
 | `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
-| `src/exception/` | 异常对象布局、传播模型与栈迹捕获 |
+| `src/vm/exec/exception/` | 异常对象布局、传播模型与栈迹捕获 |
 | `src/thread/` | 线程支持（占位，无公开 API；线程原语在 `corelib/core/threading.rs` / `monitor.rs`） |
 
 ### src/metadata/ — 静态包信息

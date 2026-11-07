@@ -6,7 +6,7 @@
 
 use crate::vm::runtime::{Function, Module};
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 
@@ -52,7 +52,7 @@ pub(super) fn copy_in_ref_param(
 pub(super) fn callee_threw(
     ctx: &VmContext, module: &Module, func: &Function, frame: &mut Frame, block_idx: usize, val: Value,
 ) -> Result<Unwind> {
-    crate::exception::populate_stack_trace(&val, ctx, module);
+    crate::vm::exec::exception::populate_stack_trace(&val, ctx, module);
     catch_or_propagate(ctx, module, func, frame, block_idx, val, 1)
 }
 
@@ -68,7 +68,7 @@ pub(super) fn throw_here(
 ) -> Result<Unwind> {
     let end = func.blocks.get(block_idx).map_or(0, |b| b.instructions.len());
     ctx.set_top_frame_pc(func.linear_offset(block_idx as u32, end as u32));
-    crate::exception::populate_stack_trace(&val, ctx, module);
+    crate::vm::exec::exception::populate_stack_trace(&val, ctx, module);
     fire_exception_thrown(ctx, module, &val);
     catch_or_propagate(ctx, module, func, frame, block_idx, val, 0)
 }

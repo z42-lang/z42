@@ -22,7 +22,7 @@ use super::reflection::make_type_object;
 use crate::vm::loader::contexts::{AssemblyId, ContextId, ContextState, UnloadOutcome};
 use crate::object::NativeData;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 const STD_LOADCONTEXT: &str = "Std.Runtime.AssemblyLoadContext";
 const STD_ASSEMBLY: &str = "Std.Reflection.Assembly";

@@ -135,7 +135,7 @@ Rust 查询/注册/pin 操作经 interop 模块函数访问冻结扩展状态，
 每个 VM 的每类槽号从 1 开始、永不复用。阻塞 I/O 只在表锁下克隆 `Arc`，释放锁后再做系统调用；
 关闭操作移除槽项并按所属模块协议唤醒等待者。必需状态缺失走 `BuiltinError::Internal`。
 
-> **模块布局**：`vm_context/`：`mod.rs`（hub：VM_CORES / snapshot /
+> **模块布局**：`vm/context/`：`mod.rs`（hub：VM_CORES / snapshot /
 > `VmContextPtr` / `CoreContextReclaimer`）+ `types.rs`（VmCore/VmContext struct）+
 > `construct.rs`（构造 + Drop）（帧栈归 `vm/exec/call/frame_stack.rs`，见下「帧栈的归属」）+ `native.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
 > （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）（静态状态归 `vm/runtime/statics/`，执行与等待归 `vm/exec/init.rs`）（`is`/`as`/`catch` 前置缓存类型在 `vm/runtime/dispatch/isa_cache.rs`）/ `symres.rs`（「确定不存在」判定）。
@@ -195,7 +195,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 | GC root scanner（标记用的、retention 诊断用的分类版） | collector | `VmContext::scan_frames_parked`（`unsafe`） | 调用方是所属线程，或所属线程已 park |
 | 崩溃信号处理器 | 崩溃线程 | 自己的栈：`scan_parked`；别的线程：`published_depth` | 只读自己拥有的帧；别的线程只读深度原子 |
 
-**跨线程读为什么安全**（`scan_parked` 的前提，全部在 `vm/threads/safepoint.rs` 与 `vm_context/construct.rs`）：
+**跨线程读为什么安全**（`scan_parked` 的前提，全部在 `vm/threads/safepoint.rs` 与 `vm/context/construct.rs`）：
 
 - mutator park 时先 `parked_count.fetch_add(AcqRel)`，再拿 `gc_phase` 锁（`park_until_idle`；阻塞型
   native 调用的 `native_park_incr` 同理）。park 期间不 push / pop：safepoint park 本身阻塞在条件变量上；
@@ -250,7 +250,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
     B → native → A 时，A 的栈非空、thread-local 却指着 B。所以 `host::ops::invoke_impl` **无条件**安装两者；
     每个 guard 恢复它进来时看到的值（已是同一 VM 时为 no-op），嵌套按序退栈。
   - `jit::run_fn` 在入口 push 之前另装一个堆 guard，覆盖入口函数的惰性编译。
-  - 栈底帧 push 时还把**驱动本 ctx 的线程**的栈下限（`stack_guard::limit()`）写进 `jit_head.stack_limit`，
+  - 栈底帧 push 时还把**驱动本 ctx 的线程**的栈下限（`vm::exec::stack_guard::limit()`）写进 `jit_head.stack_limit`，
     JIT 序言比较的就是它；同一 ctx 换线程驱动时随新的栈底帧更新。
 - **frame_id 惰性分配**：帧的 id 只用来给它在 arena 里分配的槽打标签（栈分配对象 / 数组、`Ref`、`PinnedView`、
   值 struct），句柄带着它，帧 truncate 后的悬垂访问由 id 不符拦下。interp `Frame::frame_id(ctx)` 与 JIT
@@ -308,7 +308,7 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
 ## 原生栈预算：栈溢出是致命错误
 
 两个引擎都在原生栈上递归（每个 z42 调用至少一个 Rust / 机器码帧），所以递归深度受线程栈限制。
-`stack_guard`（`src/runtime/src/stack_guard.rs`）在**每个 z42 帧入口**比较栈指针与本线程的下限：
+`stack_guard`（`src/runtime/src/vm/exec/stack_guard.rs`）在**每个 z42 帧入口**比较栈指针与本线程的下限：
 
 - 下限 = 栈底 + 余量，余量为栈大小的 1/8、夹在 256 KiB–1 MiB（给两次检查之间的原生工作：builtin、
   一次惰性 JIT 编译、生成报告）。栈边界来自 `pal::thread`，线程首次进入时算一次，存 TLS。
@@ -1147,7 +1147,7 @@ match callee_value {
 
 ## interp vs JIT 分发
 
-位置：`src/runtime/src/vm.rs` + `interp/` + `jit/`
+位置：`src/runtime/src/vm/mod.rs` + `interp/` + `jit/`
 
 - **interp**：`exec_function` → `exec_instr` match 分发到近 70 个 IR 指令
   实现。`Value` 是 `Copy` 的 16B tagged enum（见 [object-abi.md](object-abi.md)）。
@@ -1373,7 +1373,7 @@ mixed-type sites 调用，删除会让那些 sites 慢一档。
 
 ## Method token system
 
-位置：`src/runtime/src/vm/runtime/ids/tokens.rs` + `vm/runtime/resolve/mod.rs`（+ `resolver/ic.rs`）+ `vm_context/statics.rs::resolve_static_field_id` + 各 `interp/ops/exec_*.rs` 热路径
+位置：`src/runtime/src/vm/runtime/ids/tokens.rs` + `vm/runtime/resolve/mod.rs`（+ `resolver/ic.rs`）+ `vm/context/statics.rs::resolve_static_field_id` + 各 `interp/ops/exec_*.rs` 热路径
 
 **问题**: z42 IR 所有跨引用 dispatch 用 `String` + `HashMap.get()` 做身份。每次虚调用一次 hash + 字符串等价比较；IR 内存表示膨胀；反射 R-series 设计无 token 锚点。
 

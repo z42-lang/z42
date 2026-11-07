@@ -6,7 +6,7 @@ use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator, VCallInsn};
 use crate::metadata::ir::ExecMode;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use super::translate::{jit_unsupported_reason, unsupported_reason};
 
 fn func(name: &str, params: usize, is_static: bool, instructions: Vec<Instruction>, ret: Option<u32>) -> Function {

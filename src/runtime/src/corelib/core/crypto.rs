@@ -11,7 +11,7 @@
 use crate::vm::exec::call::builtin_abi::BuiltinError;
 use super::convert::arg_i64;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Result};
 
 const NAME: &str = "__crypto_random_bytes";

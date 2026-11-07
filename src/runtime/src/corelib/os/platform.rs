@@ -10,7 +10,7 @@
 //!  add-platform-os-stdlib.
 
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::Result;
 
 /// 宿主 OS 名。wasm32 报 `"wasm"` 而不是 `consts::OS`（见 [`crate::pal::system::os_name`]），

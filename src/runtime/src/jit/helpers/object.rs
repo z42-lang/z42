@@ -10,7 +10,7 @@ use crate::vm::runtime::dispatch::ic::ObjNewSite;
 use crate::object::Value;
 
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use super::{set_exception, vm_ctx_ref};
 
@@ -206,7 +206,7 @@ pub unsafe extern "C" fn jit_convert(
     if let Some((exc_fq, msg)) = crate::vm::exec::ops::scalar::hard_cast_failure(&src_val, to_tag as u8) {
         let vm = vm_ctx_ref(ctx);
         let exc = match vm.module() {
-            Some(m) => crate::exception::make_stdlib_exception(vm, m, exc_fq, msg.clone())
+            Some(m) => crate::vm::exec::exception::make_stdlib_exception(vm, m, exc_fq, msg.clone())
                 .unwrap_or(Value::Str(msg.clone().into())),
             None => Value::Str(msg.clone().into()),
         };

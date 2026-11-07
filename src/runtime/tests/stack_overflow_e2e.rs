@@ -1,5 +1,5 @@
 //! Stack overflow is a fatal VM error (runtime-audit P0-4): z42vm prints a fatal
-//! report with the z42 call stack and exits with `stack_guard::EXIT_CODE`; z42
+//! report with the z42 call stack and exits with `vm::exec::stack_guard::EXIT_CODE`; z42
 //! `catch` / `finally` do not intercept it. Runs z42vm in a child process on the
 //! `embedding_hello` fixture's `DeepMain` (unbounded recursion).
 
@@ -28,7 +28,7 @@ fn assert_fatal(mode: &str) {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
         out.status.code(),
-        Some(z42::stack_guard::EXIT_CODE),
+        Some(z42::vm::exec::stack_guard::EXIT_CODE),
         "{mode}: stdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(stderr.contains("fatal error: stack overflow"), "{mode}: stderr:\n{stderr}");

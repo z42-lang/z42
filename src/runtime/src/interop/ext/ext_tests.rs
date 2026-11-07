@@ -51,7 +51,7 @@ fn native_search_paths_includes_exec_dir_fallback() {
 #[cfg(not(feature = "bundled-compression"))]
 #[test]
 fn unknown_builtin_names_never_trigger_a_library_load() {
-    let ctx = crate::vm_context::VmContext::new();
+    let ctx = crate::vm::context::VmContext::new();
     assert!(!ensure_lib_for(&ctx, "__no_such_builtin").unwrap());
 }
 
@@ -61,7 +61,7 @@ fn a_library_is_looked_for_once_per_vm() {
     // The first miss looks for libz42_compression (it may or may not sit next
     // to the test binary); a later miss for another of its builtins does not
     // look again.
-    let ctx = crate::vm_context::VmContext::new();
+    let ctx = crate::vm::context::VmContext::new();
     // P1-8 批次 9:压缩 builtin 迁主表后不再进 ext 表,装载成功的可见信号是
     // 进程级 fn ptr 表已填充(typed 内部 `loaded` 读它)。
     if ensure_lib_for(&ctx, "__deflate_compress").unwrap() {

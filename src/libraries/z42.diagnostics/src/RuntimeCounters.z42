@@ -2,7 +2,7 @@ namespace Std.Diagnostics;
 
 /// VM 运行时累计计数快照（由 VM 直接填充，用户不能 new）。
 public class RuntimeCounters {
-    // ── 运行时 counter（counters.rs RuntimeCounters） ──
+    // ── 运行时 counter（vm/diagnostics/counters.rs RuntimeCounters） ──
 
     /// 调用的 builtin 函数次数（`__str_length` / `__print` / …）。
     public long BuiltinCalls        { get; }

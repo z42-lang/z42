@@ -6,7 +6,7 @@
 use crate::object::{ElemType, ElemTypeInfo};
 use crate::object::Value;
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use super::{raise, vm_ctx_ref};
 
 /// Generic allocations resolve the element from the current method arguments or receiver.

@@ -7,7 +7,7 @@ use crate::object::Value;
 // truth `crate::vm::exec::ops::scalar` (shared with interp), not a JIT-local copy.
 use crate::vm::exec::ops::scalar;
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use super::{set_exception, vm_ctx_ref};
 
 // ── Arithmetic ───────────────────────────────────────────────────────────────
@@ -178,7 +178,7 @@ pub unsafe extern "C" fn jit_rem(
 unsafe fn throw_int_div_by_zero(ctx: *const VmContext, op: &str) -> u8 {
     let vm_ctx = vm_ctx_ref(ctx);
     let module = super::jit_module(ctx);
-    let exc = crate::exception::make_stdlib_exception(
+    let exc = crate::vm::exec::exception::make_stdlib_exception(
         vm_ctx, module, scalar::DIV_BY_ZERO_EXC,
         scalar::div_by_zero_msg(op),
     ).unwrap_or_else(|e| Value::Str(format!("{e}").into()));

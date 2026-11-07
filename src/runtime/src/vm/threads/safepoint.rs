@@ -25,7 +25,7 @@
 //! point — covered by follow-up `add-gc-safepoint-jit` (see Decision 5 in
 //! `变更 add-gc-safepoint/design.md`).
 
-use crate::vm_context::{VmContext, VmCore};
+use crate::vm::context::{VmContext, VmCore};
 use std::sync::atomic::Ordering;
 
 /// How long a collector waits for stragglers before poking every unparked mutator again

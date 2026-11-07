@@ -1,6 +1,6 @@
 //! VM-owned native call contract. The facade registers its provider before execution.
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::Result;
 
 /// Marshal failure surfaced to the caller (`ffi_call`).

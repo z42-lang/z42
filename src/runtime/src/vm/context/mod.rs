@@ -13,9 +13,9 @@
 //! # Lifecycle
 //!
 //! ```ignore
-//! let ctx = VmContext::new();
+//! let ctx = VmContext::with_module(module);
 //! ctx.install_lazy_loader_with_deps(libs_dir, main_pool_len, declared, loaded);
-//! Vm::new(module, mode).run(&ctx, hint)?;
+//! Vm::new(mode).run(&ctx, hint)?;
 //! ```
 //!
 //! # Threading
@@ -126,7 +126,7 @@ use crate::vm::runtime::Function;
 use crate::object::{TypeDesc, Value};
 
 #[cfg(test)]
-#[path = "../vm_context_tests.rs"]
+#[path = "vm_context_tests.rs"]
 mod vm_context_tests;
 #[cfg(test)]
 mod symres_tests;

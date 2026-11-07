@@ -15,7 +15,7 @@ use crate::object::{RefKind, TypeDesc};
 use crate::{metadata::NameIndex, object::FieldSlot};
 use crate::object::NativeData;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::sync::Arc;
 
 fn m() -> crate::vm::runtime::Module {

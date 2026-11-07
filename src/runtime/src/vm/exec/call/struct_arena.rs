@@ -27,7 +27,7 @@
 //!
 //! ## GC: no write barrier needed (A-use P1 scope)
 //! The struct arena is scanned as a **GC root** every collection (`scan_roots`
-//! is wired into the mark + categorized root scanners in `vm_context`, exactly
+//! is wired into the mark + categorized root scanners in `vm::context`, exactly
 //! like `stack_alloc`). References stored into an arena blob are therefore always
 //! re-marked, so writing one needs no write barrier. Write barriers are only for
 //! references stored into *heap* objects (which are not re-scanned as roots) —

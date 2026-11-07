@@ -14,7 +14,7 @@
 use crate::metadata::index::type_param_markers::{self, Marker};
 use crate::object::TypeArgs;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 /// Read a method parameter as a reflection Type. Missing arguments retain the
 /// synthetic T used by older bytecode.

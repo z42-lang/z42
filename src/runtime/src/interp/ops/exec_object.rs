@@ -6,7 +6,7 @@ use crate::vm::runtime::dispatch::ctor::{site_for, instance_type_args};
 use crate::vm::runtime::dispatch::receiver::prim_isa;
 use crate::vm::runtime::Module;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::Result;
 
 use crate::vm::exec::ops::cast::isa_td;
@@ -97,7 +97,7 @@ pub(crate) fn obj_new(
         // make_oom_exception toggles strict OOM off while building the exception
         // object (which itself allocates) and restores it after.
         if matches!(obj_val, Value::Null) {
-            return Ok(Some(crate::exception::make_oom_exception(
+            return Ok(Some(crate::vm::exec::exception::make_oom_exception(
                 ctx, module,
                 format!("cannot allocate `{class_name}`: heap limit exceeded"),
             )));

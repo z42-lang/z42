@@ -9,6 +9,8 @@
 
 | 入口 | 职责 |
 |---|---|
+| `counters.rs` | 每线程原子计数、聚合快照与格式化 |
+| `observer.rs` | 运行时事件、观察者注册及回调快照 |
 | `mod.rs` 的 `DiagnosticsState` | 六个共享诊断字段与其生命周期 |
 | `VmContext::counters_snapshot` | 在同一线程注册表锁下汇总存活与已退出线程计数 |
 | `VmContext::add_runtime_observer` / `fire_runtime_event` | 观察者注册与事件发布 |
@@ -20,7 +22,7 @@
 
 ## 如何测试验证
 
-仓库根运行 `./xtask test runtime`；定向运行 `counters`、`observer`、`safepoint` 和 `profiler` 的 Rust 测试。
+仓库根运行 `./xtask test runtime`；定向运行 `vm::diagnostics::`、`safepoint` 和 `profiler` 的 Rust 测试。
 
 ## 关联文档
 
@@ -28,4 +30,4 @@
 
 ## 核心文件
 
-`mod.rs` 持有状态；计数与事件类型分别在 `src/runtime/src/counters.rs` 和 `src/runtime/src/observer.rs`。
+`mod.rs` 持有状态；`counters.rs` 与 `observer.rs` 定义计数和事件类型，对应独立测试文件为 `counters_tests.rs` 与 `observer_tests.rs`。

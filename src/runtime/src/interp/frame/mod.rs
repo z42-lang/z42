@@ -8,7 +8,7 @@ use crate::{
     metadata::{BranchTargets, Terminator},
     object::Value,
 };
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 

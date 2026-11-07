@@ -32,7 +32,7 @@ use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{FieldSlot, TypeDesc};
 use crate::vm::runtime::Module;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::sync::Arc;
 
 fn s(t: &str) -> Value { Value::Str(t.into()) }
@@ -220,7 +220,7 @@ fn each_error_kind_throws_its_class() {
         let r = error::raise(&ctx, &m, "__test_abi_fail", e, &[]);
         let v = match &r { error::Raised::Throw(v) => *v, _ => panic!("kind {k}") };
         assert_eq!(thrown_class(r), *class, "kind {k}");
-        assert_eq!(crate::exception::read_message(&v, &ctx, &m).as_deref(), Some(msg.as_str()));
+        assert_eq!(crate::vm::exec::exception::read_message(&v, &ctx, &m).as_deref(), Some(msg.as_str()));
     }
 }
 

@@ -1,6 +1,6 @@
 //! Object protocol providers selected by the facade, with caller-owned materialization.
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use super::call::builtin_abi::BuiltinError;
 
 /// Immutable per-core capabilities; function pointers retain no VM or managed values.

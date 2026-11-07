@@ -9,7 +9,7 @@ use crate::vm::runtime::dispatch::ic::{vcall_ic_install, vcall_ic_lookup, VCallI
 use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use crate::vm::runtime::{Function, Module};
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 use crate::vm::runtime::dispatch::vcall::{resolve_virtual, receiver_type_id, vcall_ic_hit, iface_slot_method, erased_iface_slot_key};
 use crate::vm::runtime::dispatch::receiver::{primitive_class_name, value_synthetic_type_id};
@@ -116,7 +116,7 @@ pub(crate) fn resolve_vcall<'a>(
             (func.name.as_str(), crate::vm::runtime::dispatch::functions::call_arity(func)),
         VCallTarget::Immediate(_) | VCallTarget::Thrown(_) => return Ok(resolved),
     };
-    if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(ctx, module, name, sig, phys) {
+    if let Some(exc) = crate::vm::context::symres::wrong_arity_exception(ctx, module, name, sig, phys) {
         return Ok(ResolvedVCall { target: VCallTarget::Thrown(exc), this: resolved.this });
     }
     Ok(resolved)

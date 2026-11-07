@@ -27,7 +27,7 @@ use crate::vm::exec::{engine, call::args::CallArgs};
 use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::metadata::index::well_known_names;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Result};
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;

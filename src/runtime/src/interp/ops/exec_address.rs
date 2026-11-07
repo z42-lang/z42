@@ -12,7 +12,7 @@
 
 use crate::object::Value;
 use crate::object::RefKind;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use crate::vm::exec::call::transient_arena::TransientPayload;
 use crate::vm::exec::call::type_param_env::{method_default_value, method_type_value};
 use anyhow::Result;

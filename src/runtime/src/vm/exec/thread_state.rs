@@ -49,26 +49,26 @@ impl ThreadExecState {
     }
 }
 
-/// The part of a [`crate::vm_context::VmContext`] that JIT-compiled code reads at fixed offsets.
+/// The part of a [`crate::vm::context::VmContext`] that JIT-compiled code reads at fixed offsets.
 ///
 /// Every compiled function and JIT helper receives the **running thread's own**
 /// `VmContext` as its context parameter, so these are per-thread values read
 /// without a helper call:
 ///
 /// - `stack_limit` — the prologue's stack-overflow bound
-///   ([`crate::vm_context::VM_CONTEXT_STACK_LIMIT_OFFSET`]);
+///   ([`crate::vm::context::VM_CONTEXT_STACK_LIMIT_OFFSET`]);
 /// - `cctors` — the VM's cctor registry, whose package-init gate counters the
-///   inline string intrinsics read ([`crate::vm_context::VM_CONTEXT_CCTORS_OFFSET`]).
+///   inline string intrinsics read ([`crate::vm::context::VM_CONTEXT_CCTORS_OFFSET`]).
 ///
 /// It also caches the VM's neutral tier header pointer (`jit`). Backend state
 /// remains owned by the registered tier; compiled reads use layout-derived offsets.
 ///
 /// The safepoint throttle counter is the third JIT-read field; it is stored in
 /// the context's ThreadLocalState (the interpreter decrements it too) and is
-/// addressed by [`crate::vm_context::VM_CONTEXT_SAFEPOINT_SKIP_OFFSET`].
+/// addressed by [`crate::vm::context::VM_CONTEXT_SAFEPOINT_SKIP_OFFSET`].
 #[repr(C)]
 pub(crate) struct JitHead {
-    /// Lowest stack address a JIT function may start at: `stack_guard::limit()`
+    /// Lowest stack address a JIT function may start at: `vm::exec::stack_guard::limit()`
     /// of the thread driving this context, stored at its bottom frame push
     /// (`push_frame` → `EngineGuards::install`), i.e. before any compiled code
     /// runs on it. `0` until then (`sp < 0` never holds: no check). Written and

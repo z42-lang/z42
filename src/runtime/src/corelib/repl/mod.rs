@@ -36,7 +36,7 @@ use crate::corelib::core::reflection::{type_members, make_type_from_name};
 use crate::vm::exec::engine;
 use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Result};
 #[cfg(feature = "native-interop")]
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -45,7 +45,7 @@ use std::ffi::{c_char, c_void, CStr, CString};
 #[z42_macros::builtins]
 pub mod typed {
     use crate::vm::exec::call::builtin_abi::BuiltinError;
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
 
     /// `__repl_readline(prompt) -> string?` — read one edited whole (possibly multi-line)
     /// statement: one `readline()` spans an entire statement, the Enter key deciding

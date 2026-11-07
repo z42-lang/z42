@@ -70,7 +70,7 @@ VM 的内部构造输入为 `vm/config.rs` 的 `VmConfig`，由门面从已决�
 
 Loader 拥有私有 `FusionInputs`，由门面的惰性函数指针在每次实际计算融合侧表时提供。它沿用进程级 `RuntimeConfig` 的首次读取语义。公开加载入口、可用性探测以及每 VM 的惰性加载和可回收程序集上下文使用同一配置来源。装配只传递指针，模块就绪判断、解码错误和融合识别顺序保持原样。
 
-主 VM 构造由 crate 根 `context_assembly.rs` 实现既有 `VmContext` 入口，负责配置捕获、组件选择与 core 接线。`vm_context/construct.rs` 保留线程状态访问、共享 core 的 worker 加入和 Drop；worker 不重新选择组件或重建扩展。主构造的弱引用扫描器、native 扩展加载、固定地址登记及 TLAB/SATB 顺序保持一致，扩展资源随最后一个持有 core 的上下文释放。
+主 VM 构造由 crate 根 `context_assembly.rs` 实现既有 `VmContext` 入口，负责配置捕获、组件选择与 core 接线。`vm/context/construct.rs` 保留线程状态访问、共享 core 的 worker 加入和 Drop；worker 不重新选择组件或重建扩展。主构造的弱引用扫描器、native 扩展加载、固定地址登记及 TLAB/SATB 顺序保持一致，扩展资源随最后一个持有 core 的上下文释放。
 
 核心库的隔离应用执行与退出报告经 `corelib/application.rs` 的私有服务接入，门面 `app_services.rs` 负责应用选项与报告策略。冻结前注入的服务只含函数指针，不拥有 VM 或托管值；并行用例只复制服务值与 Rust 路径/VFS。核心库仍负责 stdout sink 栈、按输入排序和 join 时 park，进程退出仍先报告再终止且不运行析构。
 
@@ -197,3 +197,7 @@ gc     = static  仅此一种   # 不参与 dynlink/dlopen，见 §3
 - **zpkg 加载上下文 / 重载 / 卸载回收 / 保留根诊断**（ALC 式，复用 observer/注册基座）见 [load-context.md](load-context.md)。
 - **诊断与跟踪**（事件 / 计数 / 时间；统一事件总线，`libz42_debug` 是其 sink）见 [diagnostics.md](diagnostics.md)。
 - **AOT 后端**（libz42_aot 组件；cranelift-AOT 复用 JIT 翻译核）见 [aot.md](aot.md)。
+
+## VM 入口与实现归属
+
+Rust 入口由 `vm::{Vm, VmContext, VmCore}` 提供。上下文与共享 Core 的实现位于 `vm/context`；引擎共享的异常构造与原生栈保护位于 `vm/exec`；计数、运行时事件和观察者位于 `vm/diagnostics`。门面负责主上下文的配置与提供方装配，worker 加入、线程注册和 Drop 留在上下文实现中。目录归属不改变状态字段、repr、偏移和同步协议。

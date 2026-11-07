@@ -2,7 +2,7 @@
 use super::contexts::{ContextId, ContextLiveness};
 use crate::gc::to_vm::{ContextReclaim, ContextReclaimSnapshot};
 use crate::object::ScriptObject;
-use crate::vm_context::VmCore;
+use crate::vm::context::VmCore;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};

@@ -20,7 +20,7 @@
 
 use crate::config::{is_available, knob_by_key, runtime_config, BuildCtx, KNOWN_KNOBS};
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{anyhow, Result};
 
 fn arg_str(args: &[Value], what: &str) -> Result<String> {
