@@ -2,7 +2,7 @@
 
 ## 职责
 
-字段、数组、静态字段、值 struct 叶子的读写语义只在这里实现一次；interp（`interp/exec_*`）与 JIT（`jit/helpers/*`）
+字段、数组、静态字段、值 struct 叶子的读写语义只在这里实现一次；interp（`interp/ops/exec_*`）与 JIT（`jit/helpers/*`）
 都是薄适配层：从寄存器取 `&Value`、调本模块、写回寄存器，再把 `OpError` 映射到各自的异常通道。
 对象与数组单元格的存储表示（字节布局、8 B 引用字、型参字段的 16 B 单元、打包基元、写屏障）对引擎不可见；对象字段单元的读写本身在 `object/object/object_fields.rs`。
 不管对象分配与构造器解析（`vm/exec/ops/obj_new.rs`）、虚调用解析（`vm/exec/ops/vcall.rs`）、类型判定（`vm/exec/ops/stringify.rs::isa_td`）。
