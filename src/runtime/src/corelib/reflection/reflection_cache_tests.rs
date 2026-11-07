@@ -254,3 +254,74 @@ fn array_element_keeps_identity_and_reads_current_metadata() {
     assert!(same_object(&element, &projected));
     assert!(type_is_sealed(&projected));
 }
+
+#[test]
+fn late_attribute_result_cannot_restore_an_old_metadata_cache() {
+    let ctx = reflection_cache_context();
+    let initial = declaration("Demo.Target");
+    publish(&ctx, &initial);
+    let held = make_type_object(&ctx, initial.clone());
+    let stale = type_custom_attributes(&ctx, &held).unwrap();
+    let mut updated = (*initial).clone();
+    updated.class_flags |= crate::metadata::ir::CLASS_FLAG_SEALED;
+    publish(&ctx, &Arc::new(updated));
+    let current = type_custom_attributes(&ctx, &held).unwrap();
+    let late = ctx.types().with_current(&initial, || {
+        ctx.core.runtime.reflection_types.store_attributes(
+            ctx.heap(),
+            &held,
+            Some(initial.id),
+            stale,
+        )
+    });
+    assert!(late.is_none());
+    assert_eq!(current, type_custom_attributes(&ctx, &held).unwrap());
+}
+
+#[test]
+fn metadata_update_invalidates_all_live_projection_objects() {
+    let ctx = reflection_cache_context();
+    let mut definition = declaration("Demo.Box");
+    Arc::make_mut(&mut definition).cold = Some(Box::new(TypeDescCold {
+        type_params: vec!["T".into()].into_boxed_slice(),
+        ..Default::default()
+    }));
+    publish(&ctx, &definition);
+    let argument = declaration("Plugin.Argument");
+    let shell = ctx.try_lookup_type("Std.Type").unwrap();
+    let make_argument = || {
+        ctx.heap().alloc_object(
+            shell.clone(),
+            vec![
+                Value::Str("Argument".into()),
+                Value::Str("Argument".into()),
+                Value::Str("Plugin.Argument".into()),
+                Value::Bool(false),
+                Value::Null,
+                Value::Null,
+                Value::Null,
+            ],
+            NativeData::TypeHandle(ReflectedTypeHandle::declaration(argument.clone())),
+        )
+    };
+    let first = super::type_object::build_constructed_type(
+        &ctx,
+        Some(definition.clone()),
+        definition.name.clone(),
+        vec![make_argument()],
+    );
+    let second = super::type_object::build_constructed_type(
+        &ctx,
+        Some(definition.clone()),
+        definition.name.clone(),
+        vec![make_argument()],
+    );
+    assert!(!same_object(&first, &second));
+    let old_first = type_custom_attributes(&ctx, &first).unwrap();
+    let old_second = type_custom_attributes(&ctx, &second).unwrap();
+    let mut updated = (*definition).clone();
+    updated.class_flags |= crate::metadata::ir::CLASS_FLAG_SEALED;
+    publish(&ctx, &Arc::new(updated));
+    assert_ne!(old_first, type_custom_attributes(&ctx, &first).unwrap());
+    assert_ne!(old_second, type_custom_attributes(&ctx, &second).unwrap());
+}

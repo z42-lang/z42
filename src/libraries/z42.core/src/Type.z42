@@ -247,12 +247,16 @@ public sealed class Type : MemberInfo, IEquatable {
 
     // ── 自定义 attribute ──────────────────────────────────────────────────────
 
-    // VM publishes the descriptor dependency and attribute array as one immutable state.
-    private object[] __attributeCache;
+    // Only the VM publishes and invalidates this metadata-dependent result.
+    private Attribute[] __attributeCache;
 
     /// 应用于本类型的用户 attribute（活实例）。VM 按实际描述符缓存，
     /// 同一描述符下复用实例，类型元数据更新后重新物化。
-    public Attribute[] GetCustomAttributes() { return this._fetchAttributes(); }
+    public Attribute[] GetCustomAttributes() {
+        Attribute[] cached = this.__attributeCache;
+        if (cached != null) { return cached; }
+        return this._fetchAttributes();
+    }
 
     [Native("__type_custom_attributes")]
     private extern Attribute[] _fetchAttributes();

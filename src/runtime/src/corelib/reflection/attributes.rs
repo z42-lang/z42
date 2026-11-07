@@ -11,34 +11,23 @@ use super::*;
 /// constant args baked into the factory body) — no runtime `Activator`/`Invoke`
 /// and no generic instantiation. Re-entering the registered engine keeps each activation in its own frame.
 ///
-/// The cache dependency and result live in one immutable managed array. Publishing
-/// one reference prevents concurrent readers from pairing an old result with a new
-/// descriptor. The Type itself owns the result; the VM identity cache stays weak.
+/// The VM publishes and invalidates the managed result under the descriptor's
+/// publication lock. Factories run outside that lock and keep their results rooted.
 pub fn type_custom_attributes(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
+    let cached = read_type_slot_of(ty, "__attributeCache");
+    if matches!(cached, Value::Array(_)) { return Ok(cached); }
     let descriptor = type_handle_of(ty);
-    let owner = Value::I64(descriptor.as_ref().map_or(0, |td| Arc::as_ptr(td) as usize as i64));
-    if let Value::Array(state) = read_type_slot_of(ty, "__attributeCache") {
-        let state = state.borrow();
-        if state.get(0) == Some(owner) {
-            if let Some(attributes @ Value::Array(_)) = state.get(1) {
-                return Ok(attributes);
-            }
-        }
-    }
     let mut roots = ProjectionRoots::new(ctx);
-    let attributes = roots.pin(match descriptor {
+    let attributes = roots.pin(match &descriptor {
         Some(td) => call_attribute_factories(ctx, td.custom_attributes()).map_err(BuiltinError::Legacy)?,
         None => ctx.heap().alloc_array(Vec::new()),
     });
-    if let Value::Object(object) = ty {
-        if let Some(&slot) = object.type_desc().field_index.get("__attributeCache") {
-            let state = ctx.heap().alloc_array(vec![owner, attributes]);
-            let wrote = object.borrow().try_set_field_value(slot, &state)
-                .map_err(BuiltinError::Legacy)?;
-            wrote.with_barrier_value(&state, |value| ctx.heap().write_barrier_field(ty, slot, value));
-        }
+    let cache = &ctx.core.runtime.reflection_types;
+    if let Some(td) = descriptor.as_ref().filter(|td| ctx.types().get(td.id).is_some()) {
+        return ctx.types().with_current(td, || cache.store_attributes(ctx.heap(), ty, Some(td.id), attributes))
+            .unwrap_or(Ok(attributes)).map_err(BuiltinError::Legacy);
     }
-    Ok(attributes)
+    cache.store_attributes(ctx.heap(), ty, None, attributes).map_err(BuiltinError::Legacy)
 }
 
 /// `__method_custom_attributes(qualified) -> Std.Attribute[]` — live attribute

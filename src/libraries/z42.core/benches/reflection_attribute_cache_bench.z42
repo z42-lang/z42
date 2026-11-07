@@ -1,0 +1,16 @@
+namespace Z42ReflectionAttributeCacheBench;
+using Std.Harness;
+
+class MarkerAttribute : Attribute { public int Value = 7; }
+[Marker] class Subject {}
+
+[Benchmark]
+void reflection_type_attributes_cached(Bencher b) {
+    Type t = typeof(Subject);
+    Assert.Equal(1, t.GetCustomAttributes().Length);
+    b.iter(() => {
+        for (int i = 0; i < 128; i = i + 1) {
+            BenchHelpers.blackBox(t.GetCustomAttributes());
+        }
+    });
+}

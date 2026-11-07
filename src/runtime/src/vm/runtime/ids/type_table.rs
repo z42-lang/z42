@@ -64,6 +64,7 @@ pub struct TypeTable {
     count: AtomicUsize,
     /// Target names that named no registered type when first keyed → reserved id.
     names: RwLock<FxHashMap<Box<str>, u32>>,
+    on_update: RwLock<Option<Arc<dyn Fn(TypeId) + Send + Sync>>>,
 }
 
 impl TypeTable {
@@ -112,6 +113,21 @@ impl TypeTable {
         }
     }
 
+    /// Metadata-dependent managed caches are invalidated before publishing a
+    /// replacement. The observer must not publish types or execute user code.
+    pub(crate) fn set_update_observer(&self, observer: Arc<dyn Fn(TypeId) + Send + Sync>) {
+        *self.on_update.write() = Some(observer);
+    }
+
+    /// Publish a dependent result only if its descriptor is still current.
+    /// Uses the publication lock so a late factory cannot restore an old cache.
+    pub(crate) fn with_current<R>(&self, descriptor: &Arc<TypeDesc>, publish: impl FnOnce() -> R) -> Option<R> {
+        let _publication = self.own.lock();
+        self.get(descriptor.id)
+            .filter(|current| std::ptr::eq(*current, Arc::as_ptr(descriptor)))
+            .map(|_| publish())
+    }
+
     /// Register `td` under its id, or repoint the slot at this newer version of the
     /// same type. Returns `true` when the slot changed. No-op for `UNRESOLVED` ids and
     /// when the slot already points at `td`; refuses a different type under a taken id.
@@ -140,6 +156,11 @@ impl TypeTable {
             }
         } else {
             self.count.fetch_add(1, Ordering::Relaxed);
+        }
+        if !cur.is_null() {
+            if let Some(observer) = self.on_update.read().as_ref() {
+                observer(td.id);
+            }
         }
         own.push(Arc::clone(td));
         slot.desc.store(new, Ordering::Release);
