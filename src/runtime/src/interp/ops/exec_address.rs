@@ -48,7 +48,7 @@ pub(super) fn load_elem_addr(
             frame.set(dst, r);
             Ok(None)
         }
-        Err(e) => super::ops::raise(ctx, module, e),
+        Err(e) => super::raise(ctx, module, e),
     }
 }
 
@@ -65,7 +65,7 @@ pub(super) fn load_field_addr(
             frame.set(dst, r);
             Ok(None)
         }
-        Err(e) => super::ops::raise(ctx, module, e),
+        Err(e) => super::raise(ctx, module, e),
     }
 }
 

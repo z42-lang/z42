@@ -30,7 +30,7 @@
 ## 基础用法
 
 ```rust
-// interp 适配（interp/exec_object.rs）
+// interp 适配（interp/ops/exec_object.rs）
 match objops::field::field_get(ctx, frame.get(obj)?, name, ic) {
     Ok(v) => { frame.set(dst, v); Ok(None) }
     Err(e) => super::ops::raise(ctx, module, e),   // Ok(Some(exc)) 或 Err(内部错误)

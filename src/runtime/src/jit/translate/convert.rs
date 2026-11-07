@@ -56,7 +56,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 // lands in a later iteration (L3+). Refuse to compile so the
                 // caller keeps the function in Interp mode.
                 // L3 closure helpers (impl-closure-l3-jit-complete).
-                // Behaviour mirrors interp::exec_instr; see closure.md §6.
+                // Behaviour mirrors interp::ops::exec_instr; see closure.md §6.
             _ => anyhow::bail!("tr_convert: unexpected opcode in category dispatch"),
         }
         Ok(())

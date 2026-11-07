@@ -144,7 +144,7 @@ local / ref return，这套表示要连同 §2.2 一起重做。
 2. **入口 copy-in**：`exec_function_body` 在 callee Frame 建好后扫参数寄存器，持 `Value::Ref` 的被
    deref 成底层值，原 `RefKind` 存进 `frame.ref_writebacks` sidecar。**callee 体内每条指令读到的都是普通
    `Value`** → 80+ 个指令 handler 一个都不用改。
-3. **出口 copy-out**：每条 return / throw 路径前调 `run_ref_writebacks`（`interp/exec_support.rs`），把参数
+3. **出口 copy-out**：每条 return / throw 路径前调 `run_ref_writebacks`（`interp/run/exec_support.rs`），把参数
    寄存器的**终值**按 `RefKind` 写回 caller 的 lvalue。
 4. **嵌套透传**自然成立：`Outer(ref x) { Inner(ref x) }` 中 Outer 的 `x` 已是底层值，对 `Inner(ref x)` 发的
    地址加载指向 Outer 自己的槽；Inner 写 Outer 槽，Outer 出口再写回原 caller，两步 indirection。

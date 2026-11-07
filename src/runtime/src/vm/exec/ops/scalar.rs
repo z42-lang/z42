@@ -2,14 +2,14 @@
 //!
 //! 同一算术 / 比较 / 数值转换语义，运行时有三条执行路径各自表述：
 //!
-//! 1. **interp 执行循环** —— `interp/ops.rs`（寄存器级包装）+ `interp/exec_value.rs`（指令处理）
+//! 1. **interp 执行循环** —— `interp/ops/mod.rs`（寄存器级包装）+ `interp/ops/exec_value.rs`（指令处理）
 //! 2. **JIT runtime helper** —— `jit/helpers/{arith,object}.rs` 的 `extern "C"` 函数
 //! 3. **JIT 内联 Cranelift** —— `jit/translate/*` 的 `emit_*`，当 `reg_types` 证明操作数同型时
 //!    绕过 helper 直发 Cranelift 原语
 //!
 //! 路径 1 与 2 **可在运行期共享 Rust 代码**：两者都调用本模块的值级函数（`int_binop` /
 //! `numeric_lt` / `eval_cmp` / `convert_value`），不再各写一遍（此前 `jit/helpers/mod.rs`
-//! 的 `int_binop_helper` / `numeric_lt_helper` 是 `interp/ops.rs` 的逐字副本，已删除）。
+//! 的 `int_binop_helper` / `numeric_lt_helper` 是 `interp/ops/mod.rs` 的逐字副本，已删除）。
 //!
 //! 路径 3 **无法运行期调用 Rust**（它发机器码），只能以 `// SEMANTICS: scalar::<fn>`
 //! 锚注释引用本模块对应函数，并由 双模式 golden 的**差分验证**

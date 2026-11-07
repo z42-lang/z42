@@ -17,7 +17,7 @@
 //! ## Stack-trace capture (exception-stack-trace)
 //!
 //! `VmContext.exec.call_stack` holds one [`crate::vm::exec::call::frames::VmFrame`] per active script frame,
-//! pushed by `interp::exec_support::enter_frame` / `jit::invoke::enter_compiled`.
+//! pushed by `interp::run::exec_support::enter_frame` / `jit::invoke::enter_compiled`.
 //! Caller frames record the code offset of the call site before they invoke a
 //! callee, so a snapshot at throw time produces a complete
 //! `<func> at <file>:<line>` chain (line resolved from the offset then).

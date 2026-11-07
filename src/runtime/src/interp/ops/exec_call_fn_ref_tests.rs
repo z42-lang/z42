@@ -229,7 +229,7 @@ fn resolver_prefills_and_first_execution_binds() {
     assert_eq!(fn_ref_tokens(main), vec![g.id.get().unwrap().0, 1, UNRESOLVED]);
 
     let late = register_lazy(&ctx, const_fn("Late.F$0", 9));
-    let v = returned(super::super::exec_function(&ctx, &entry, main, &[]).unwrap());
+    let v = returned(crate::interp::run::exec_function(&ctx, &entry, main, &[]).unwrap());
     assert_eq!(v, Value::I64(9));
     assert_eq!(fn_ref_tokens(main)[2], late.id.get().unwrap().0, "first execution stores the FnId");
 }

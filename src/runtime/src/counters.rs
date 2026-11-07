@@ -8,9 +8,9 @@
 //! # Increment sites (current)
 //!
 //! - `builtin_calls`         ← `vm::exec::call::builtins::exec_builtin`
-//! - `native_calls`          ← `interp::exec_ffi::ffi_call`
+//! - `native_calls`          ← `interp::ops::exec_ffi::ffi_call`
 //! - `jit_methods_compiled`  ← `jit::frame` tier-up compile
-//! - `jit_native_from_interp`← `interp::exec_call` / `exec_vcall` native routing
+//! - `jit_native_from_interp`← `interp::ops::exec_call` / `exec_vcall` native routing
 //! - `exceptions_thrown`     ← `interp::fire_exception_thrown`
 //! - `exceptions_caught`     ← `interp::fire_exception_caught`
 //!
@@ -50,7 +50,7 @@ pub struct RuntimeCounters {
     pub builtin_calls:        AtomicU64,
 
     /// Native FFI calls dispatched (e.g. user `[Native("...")]` extern methods).
-    /// Incremented at top of `interp::exec_ffi::ffi_call` .
+    /// Incremented at top of `interp::ops::exec_ffi::ffi_call` .
     pub native_calls:         AtomicU64,
 
     /// Methods JIT-compiled. Incremented on tier-up compile in `jit::frame`
@@ -63,7 +63,7 @@ pub struct RuntimeCounters {
 
     /// runtime-jit-tiering Phase 1.5 (mixed-mode): calls where an INTERP frame
     /// routed an already-compiled callee to its native code instead of
-    /// interpreting it. Incremented in `interp::exec_call::try_native_static_call`
+    /// interpreting it. Incremented in `interp::ops::exec_call::try_native_static_call`
     /// / `exec_vcall::try_native_method_call`. >0 confirms mixed-mode is active.
     pub jit_native_from_interp: AtomicU64,
 

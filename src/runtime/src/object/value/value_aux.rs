@@ -19,7 +19,7 @@ pub struct StructArrayElem {
 // add-boxed-struct-identity (P4b, 路 B2): `BoxedStructData` 已删——装箱 struct 的 blob 现内联在其
 // 共享 `ScriptObject` 的 `struct_bytes`/`struct_refs`（`type_desc.is_struct()` 的对象）。装箱经
 // `corelib::convert::builtin_box_struct`（alloc struct 类型 ScriptObject）；拆箱经
-// `interp::exec_struct::unbox_struct`（读对象 struct_bytes/refs → arena StructRef）。
+// `interp::ops::exec_struct::unbox_struct`（读对象 struct_bytes/refs → arena StructRef）。
 
 // add-primitive-value-boxing → unify Phase 2 R3: `BoxedPrim` 已删——基元装箱统一到堆
 // `ScriptObject`（整数标量存 `struct_bytes`）+ `Value::BoxedStruct`，见
