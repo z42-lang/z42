@@ -32,7 +32,7 @@
 pub mod editing;
 pub mod native;
 
-use crate::corelib::reflection::{type_members, make_type_from_name};
+use crate::corelib::core::reflection::{type_members, make_type_from_name};
 use crate::vm::exec::engine;
 use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::object::Value;
@@ -63,13 +63,13 @@ pub mod typed {
     /// 执行 z42 补全回调并原样回传其 string[](重入;回调 throw 经 Thrown 原样传播)。
     #[builtin(name = "__repl_complete_probe", reenters)]
     pub fn complete_probe(ctx: &VmContext, fqn: &str, line: &crate::object::string::vstr::Str, pos: i64) -> Result<crate::object::Value, BuiltinError> {
-        crate::corelib::reflection::reentry(ctx, super::repl_complete_probe(ctx, fqn, line, pos))
+        crate::corelib::core::reflection::reentry(ctx, super::repl_complete_probe(ctx, fqn, line, pos))
     }
 
     /// 会话变量的活值成员名(static_get 可触发 cctor——重入)。
     #[builtin(name = "__repl_member_names", reenters)]
     pub fn member_names(ctx: &VmContext, fqn: &str) -> Result<crate::object::Value, BuiltinError> {
-        crate::corelib::reflection::reentry(ctx, super::repl_member_names(ctx, fqn))
+        crate::corelib::core::reflection::reentry(ctx, super::repl_member_names(ctx, fqn))
     }
 
     #[builtin(name = "__repl_readline", reenters)]

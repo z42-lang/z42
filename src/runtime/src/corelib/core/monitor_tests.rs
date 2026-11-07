@@ -1,4 +1,4 @@
-//! `corelib/monitor.rs` 的单测 —— spec「Monitor 原生原语」逐条。
+//! `corelib/core/monitor.rs` 的单测 —— spec「Monitor 原生原语」逐条。
 //!
 //! 每个会阻塞的用例都带**超时判死锁**：`join` 不能用（它本身会挂住整个测试进程），
 //! 所以用共享 flag + 轮询等，超时即断言失败。

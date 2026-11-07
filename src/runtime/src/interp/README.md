@@ -19,7 +19,7 @@
 | `ops/exec_call.rs` / `exec_vcall.rs` | 直接、间接、闭包与虚调用的寄存器适配 |
 | `ops/exec_array.rs` / `exec_object.rs` / `exec_struct.rs` | 数组、对象、静态字段和值 struct 的寄存器适配 |
 | `ops/exec_object_isa.rs` | 类型判定与 cast 适配 |
-| `ops/exec_ffi.rs` | 原生调用与 pin 指令适配 |
+| `ops/exec_ffi.rs` | 原生调用与 pin 指令的寄存器适配、事件与异常编排；调用和 owned pin 经 VM native 提供方 |
 | `frame/mod.rs` | 解释器寄存器帧、方法类型实参和 ref 写回记录 |
 
 各实现的测试与被测代码同目录。帧栈、寄存器池和 arena 归 VM 的 `exec/call`；指令共享语义归 `vm/exec/ops`；融合计划由 `vm/runtime/fusion.rs` 准备。

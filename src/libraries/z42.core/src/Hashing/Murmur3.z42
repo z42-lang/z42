@@ -1,6 +1,6 @@
 // 实现笔记：z42 没有逻辑右移、也没有无符号整数，故选 lane 为 32 位的 x86_128 而非 x64_128——lane
 // 用 `long` 承载并 `& MASK32` 掩码，值恒非负，`>>` 即逻辑右移，无符号语义全程显式；乘法按 wrapping
-// 取低位。两个 `Hash128Hex` 重载由 native（`corelib/convert.rs`）实现，与这里的 `Hash128` 逐字面镜像，
+// 取低位。两个 `Hash128Hex` 重载由 native（`corelib/core/convert.rs`）实现，与这里的 `Hash128` 逐字面镜像，
 // 等值由 `tests/murmur3.z42` 双向对拍盯住。
 namespace Std.Hashing;
 

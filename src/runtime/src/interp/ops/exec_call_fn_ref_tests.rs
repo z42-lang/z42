@@ -74,7 +74,7 @@ fn returned(outcome: ExecOutcome) -> Value {
 }
 
 fn thrown_message(ctx: &VmContext, module: &Module, v: &Value) -> String {
-    crate::exception::read_message(v, ctx, module).unwrap_or_else(|| crate::corelib::convert::value_to_str(v))
+    crate::exception::read_message(v, ctx, module).unwrap_or_else(|| crate::corelib::core::convert::value_to_str(v))
 }
 
 /// An entry-module target binds to its `module.functions` index (= its `FnId`) and the

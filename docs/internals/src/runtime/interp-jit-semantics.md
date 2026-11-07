@@ -186,7 +186,7 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 | 调用形态（编译器发什么） | 判空落在哪 | 热路径代价 |
 |------|-----------|-----------|
 | `VCall`（虚 / 接口 / 本包非虚方法、属性访问器、`s.Length`） | `vm::exec::ops::vcall::resolve_vcall` 开头，产出 `VCallTarget::Thrown`，两个引擎沿用既有的 `Thrown` 臂 | 零：PIC 键 `receiver_type_id(Null)` 本就是 `None`，null 只会走到未命中的慢路 |
-| 直接 `Call` 到 `[Native]` 转发桩（`s.CharAt(i)`、`s.ToCharArray()`……） | builtin 的接收者取值：旧表 `corelib::convert::this_str(args, 成员名)`（非接收者实参走 `arg_str` → `null_arg`）；类型化 builtin 由 `#[builtin(this = "成员名")]` 生成同一条消息（非接收者实参为 null 报 `ArgumentNullException`） | 零：只在既有 tag match 的失配臂里构造 |
+| 直接 `Call` 到 `[Native]` 转发桩（`s.CharAt(i)`、`s.ToCharArray()`……） | builtin 的接收者取值：旧表 `corelib::core::convert::this_str(args, 成员名)`（非接收者实参走 `arg_str` → `null_arg`）；类型化 builtin 由 `#[builtin(this = "成员名")]` 生成同一条消息（非接收者实参为 null 报 `ArgumentNullException`） | 零：只在既有 tag match 的失配臂里构造 |
 | `CallIndirect`（null 委托） | `scalar::null_invoke_msg`（不经 objops，见 [委托与事件](delegates-events.md)） | — |
 
 corelib 的反射调用、attribute factory 和线程 action 通过每 VM 的 Engine 注册槽调用脚本；
@@ -258,3 +258,7 @@ Typeof 与方法泛型实参的 Type 值经每个 VM 的对象协议构造。协
 ## Native 回调的活动上下文
 
 启用 `native-interop` 时，VM 执行层的 `active_vm.rs` 持有线程局部活动上下文。底帧进入和宿主重入安装同一个 `VmGuard`，退出按嵌套顺序恢复之前的 VM；同一上下文的嵌套进入复用已有激活。interop 的 ABI 入口读取该状态，执行层直接使用自身的 guard。
+
+## Native 调用提供方
+
+解释器通过 `vm/exec/native.rs` 定义的提供方调用注册的 native 类型，并申请或释放 owned pin。门面在 VM 创建前登记 interop 实现，worker 共享冻结注册。interop 消费寄存器与参数索引的借用视图，负责类型解析、marshal 和 libffi 调度；解释器继续在原调用帧写回结果，并将 InvalidMarshal 消息物化为可捕获异常。

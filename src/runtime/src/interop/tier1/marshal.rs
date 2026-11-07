@@ -16,33 +16,7 @@ use super::dispatch::{
     Z42_VALUE_TAG_NATIVEPTR, Z42_VALUE_TAG_NULL,
 };
 
-/// Marshal failure surfaced to the caller (`ffi_call`).
-///
-/// `InvalidMarshal` is **user-catchable** — the caller constructs a
-/// `Std.InvalidMarshalException` instance carrying the embedded message and
-/// throws it through the interp's value-based propagation channel.
-/// `Internal` covers VM-side programmer mismatches (IR / signature drift)
-/// that cannot happen after a successful type check.
-#[derive(Debug)]
-pub enum MarshalErr {
-    InvalidMarshal(String),
-    Internal(anyhow::Error),
-}
-
-impl From<anyhow::Error> for MarshalErr {
-    fn from(e: anyhow::Error) -> Self { Self::Internal(e) }
-}
-
-impl std::fmt::Display for MarshalErr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MarshalErr::InvalidMarshal(m) => write!(f, "{m}"),
-            MarshalErr::Internal(e)       => write!(f, "{e:#}"),
-        }
-    }
-}
-
-impl std::error::Error for MarshalErr {}
+pub use crate::vm::exec::native::NativeCallError as MarshalErr;
 
 /// Per-call scratch storage owning temporary buffers (currently
 /// NUL-terminated `CString`s) whose raw pointers were handed to a native

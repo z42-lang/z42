@@ -1,6 +1,6 @@
 # 同步原语：值在堆上，原生层只留 Monitor
 
-> 代码：`src/runtime/src/corelib/monitor.rs`（原生底座）、
+> 代码：`src/runtime/src/corelib/core/monitor.rs`（原生底座）、
 > `src/libraries/z42.threading/src/{Mutex,RwLock,Channel}.z42`（z42 实现）、
 > `src/libraries/z42.core/src/Native/ThreadingNative.z42`（`MonitorNative` 声明）。
 
@@ -60,7 +60,7 @@ Monitor { state: Mutex<{ owner, entry_waiters, signal_waiters }>, entry_cv, sign
 ## Monitor
 
 原生状态由 `object/object/monitor.rs` 的 `Monitor` 持有。它只包含线程身份、等待计数、互斥锁和条件变量。
-`corelib/monitor.rs` 实现 checked 操作、异常映射、争用探针与 GC park 协议，对象载荷和回收器直接引用对象层类型。
+`corelib/core/monitor.rs` 实现 checked 操作、异常映射、争用探针与 GC park 协议，对象载荷和回收器直接引用对象层类型。
 
 `Mutex<T>` 的 `Lock`、`Read<TResult>` 和 `Update<TResult>` 共用同一个 Monitor，均为排他访问。
 `Read` 将回调结果直接返回，不替换 `_value`；`Update` 的回调返回 `(T, TResult)`，正常返回后

@@ -156,7 +156,7 @@ fn with_value_str_matches_value_to_str() {
 
 #[test]
 fn public_fmt_buf_keeps_exact_inline_boundary() {
-    use crate::corelib::convert::FmtBuf;
+    use crate::corelib::core::convert::FmtBuf;
     use std::fmt::Write;
     let mut buf = FmtBuf::default();
     assert_eq!(buf.as_str(), "");
@@ -169,7 +169,7 @@ fn public_fmt_buf_keeps_exact_inline_boundary() {
 
 #[test]
 fn public_fmt_buf_preserves_fragmented_utf8_after_spill() {
-    use crate::corelib::convert::FmtBuf;
+    use crate::corelib::core::convert::FmtBuf;
     use std::fmt::Write;
     let mut buf = FmtBuf::new();
     buf.write_str(&"é".repeat(31)).unwrap();

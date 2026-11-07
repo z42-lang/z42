@@ -60,7 +60,7 @@
 | `src/host/` | 嵌入 / 宿主 API（`z42_host.h` 的 Tier 1 C ABI 实现），见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
 | `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
 | `src/exception/` | 异常对象布局、传播模型与栈迹捕获 |
-| `src/thread/` | 线程支持（占位，无公开 API；线程原语在 `corelib/threading.rs` / `monitor.rs`） |
+| `src/thread/` | 线程支持（占位，无公开 API；线程原语在 `corelib/core/threading.rs` / `monitor.rs`） |
 
 ### src/metadata/ — 静态包信息
 | 文件 | 职责 |

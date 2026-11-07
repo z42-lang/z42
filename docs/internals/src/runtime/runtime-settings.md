@@ -2,7 +2,7 @@
 
 > 代码：`src/runtime/src/config/`（`knobs.rs` 类型 · `knob_table.rs` 登记表 · `availability.rs` 求值 ·
 > `resolve.rs` 分层解析 · `split.rs` 子系统配置转换 · `source.rs` 配置文件 · `render.rs` 查询渲染 · `cli.rs` `--set`）、
-> `src/runtime/src/corelib/config.rs`（脚本 builtin）、
+> `src/runtime/src/corelib/core/config.rs`（脚本 builtin）、
 > `src/compiler/z42c.driver/src/RuntimeConfigSidecar.z42`（侧车生成）、
 > `src/compiler/z42c.driver/src/ProfileKnobs.z42`（构建期旋钮名校验）。
 

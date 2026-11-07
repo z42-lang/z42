@@ -1,5 +1,6 @@
 //! Native type registration, C ABI exports and libffi dispatch.
 
+pub(crate) mod call;
 pub mod dispatch;
 pub mod error;
 pub mod exports;
