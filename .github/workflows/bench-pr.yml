@@ -20,6 +20,7 @@ on:
       - 'src/benches/**'
       - 'scripts/**/*.z42'
       - 'scripts/xtask.z42.toml'
+      - '.github/ci/bench-verdict.sh'
       - '.github/workflows/bench-pr.yml'
       # 负向模式在后 ⇒ 覆盖前面的匹配：只动 .md 的 PR 不触发；.md 与代码同改照旧跑。
       - '!**/*.md'
@@ -89,10 +90,32 @@ jobs:
           # for the bench JSON metadata, and that the base.sha diff below resolves.
           fetch-depth: 0
 
+      - name: Select benchmark validation
+        id: scope
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base="${BASE_SHA:-}"
+          verdict_only=false
+          # Compare the checked-out merge tree to its base. Disabling rename detection
+          # checks both the old and new paths when a file moves across the boundary.
+          if [ -n "$base" ] && git merge-base --is-ancestor "$base" HEAD &&
+             git diff --quiet --no-renames "$base" HEAD -- . \
+               ':(exclude,glob)**/*.md' \
+               ':(exclude,glob)src/benches/testdata/**' \
+               ':(exclude,literal).github/ci/bench-verdict.sh'; then
+            verdict_only=true
+            echo "Running verdict self-checks with the seed SDK and xtask." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "verdict_only=$verdict_only" >> "$GITHUB_OUTPUT"
+
       # A/B: the PR's merge-base toolchain, built on THIS same runner. Its build
       # location is irrelevant to the measurement — both base.zbc and pr.zbc are
       # compiled AND run on this runner, so the same-runner cancellation holds.
       - name: Checkout base (merge-base) for A/B
+        if: steps.scope.outputs.verdict_only == 'false'
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -104,6 +127,7 @@ jobs:
       # ::warning:: + job summary 明示「本次没测」（不能静默变绿）；自检与 criterion 照跑。
       # 常量读不出来 ⇒ 直接失败，绝不按「无代差」放行。
       - name: Detect zbc/zpkg format gap (base vs PR)
+        if: steps.scope.outputs.verdict_only == 'false'
         id: fmtgap
         shell: bash
         run: |
@@ -164,9 +188,11 @@ jobs:
           fi
 
       - name: Setup Rust
+        if: steps.scope.outputs.verdict_only == 'false'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install hyperfine
+        if: steps.scope.outputs.verdict_only == 'false'
         run: |
           wget -q https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine_1.20.0_amd64.deb
           sudo dpkg -i hyperfine_1.20.0_amd64.deb
@@ -174,6 +200,7 @@ jobs:
       # 独立 key（不与 ci.yml 共用）：`cargo bench` 的依赖产物（dev-deps 参与 feature 统一）与
       # `cargo build --bin z42vm` 哈希不同，共用 key 时恒 exact hit、从不回存。base-src 同理纳入。
       - name: Cache Rust deps (Swatinem)
+        if: steps.scope.outputs.verdict_only == 'false'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -190,86 +217,11 @@ jobs:
         with:
           rid: linux-x64
           gh-token: ${{ secrets.GITHUB_TOKEN }}
+          xtask-only: ${{ steps.scope.outputs.verdict_only }}
 
-      # 判红逻辑自检（benchmarking.md §9「第 3 步自检守的是什么」）：纯 JSON / 纯函数，放在测量之前，
-      # 规则改坏立刻失败。每个 fixture 套件跑 0.15 与 0.25 两遍——各套件里有一个只在其中一个阈值下
-      # 翻红的用例，是唯一对阈值本身敏感的用例。
-      # ⚠️ 0.15 这一列必须跟着门禁实际用的 --threshold-time 走。
-      # 覆盖边界：守的是判定规则，不是测量与编排（hyperfine 调用、base 工具链构建、基线采集）。
       - name: Verdict logic self-check (_abVerdict/_abResampleVerdict + _benchDiff + _microDiff fixtures)
         shell: bash
-        run: |
-          set -uo pipefail
-          T="src/benches/testdata"
-          fail=0
-          xt() {
-            xtask "$@" >/dev/null 2>&1
-            echo $?
-          }
-          expect() { # <label> <want> <got>
-            if [ "$3" = "$2" ]; then
-              echo "✅ $1 → exit $3"
-            else
-              echo "::error::verdict self-check: $1 exited $3, expected $2"
-              fail=1
-            fi
-          }
-
-          # 1) _abVerdict + _abResampleVerdict + pause-gate pure-function unit check (17 cases).
-          expect "ab-selftest" 0 "$(xt bench --ab-selftest)"
-
-          # 2) _benchDiff — gate is `delta > thr AND cur.ci_lower > base.ci_upper`.
-          for c in overlap:0:0 regress:1:1 improve:0:0 separated-under-threshold:1:0; do
-            name="${c%%:*}"; rest="${c#*:}"; w15="${rest%%:*}"; w25="${rest##*:}"
-            expect "diff/$name@0.15" "$w15" \
-              "$(xt bench --diff --current "$T/current-$name.json" --baseline "$T/baseline.json" --threshold-time 0.15)"
-            expect "diff/$name@0.25" "$w25" \
-              "$(xt bench --diff --current "$T/current-$name.json" --baseline "$T/baseline.json" --threshold-time 0.25)"
-          done
-
-          # 3) _microDiff single round — gate is R_lower > 1+thr, per name+metric+mode key.
-          #    fallback-* drive the no-SEM interval path (base carries mean_ns=-1);
-          #    unmatched holds three 3x-blown-up entries whose name or mode key has
-          #    no base counterpart — they must be SKIPPED, so a loosened match
-          #    turns this case red.
-          for c in regress:1:1 overlap:0:0 improve:0:0 separated-under-threshold:1:0 \
-                   fallback-regress:1:1 fallback-overlap:0:0 unmatched:0:0; do
-            name="${c%%:*}"; rest="${c#*:}"; w15="${rest%%:*}"; w25="${rest##*:}"
-            expect "micro/$name@0.15" "$w15" \
-              "$(xt bench --micro-diff --current "$T/micro-$name.json" --baseline "$T/micro-base.json" --threshold-time 0.15)"
-            expect "micro/$name@0.25" "$w25" \
-              "$(xt bench --micro-diff --current "$T/micro-$name.json" --baseline "$T/micro-base.json" --threshold-time 0.25)"
-          done
-
-          # 4) _microDiff RESAMPLED — three rounds per side,
-          #    verdict from the BETWEEN-ROUND ratio dispersion. Each case guards one thing:
-          #      rs-drift   round 1 +60%, rounds 2-3 +5%/+10%. MEAN ratio (1.25) is above
-          #                 1+0.15 on purpose ⇒ green only if the interval width is computed.
-          #      rs-real    +30% in every round ⇒ still red (resampling did not blind the gate).
-          #      rs-mid     +20%-ish, the thr-sensitive one: red at 0.15, quiet at 0.25.
-          #      rs-missing regressing entry absent from round 3 ⇒ EXCLUDED (warning) ⇒ green.
-          #    Base rounds carry DIFFERENT values per round ⇒ pairing pr round i with the
-          #    wrong base round flips rs-mid@0.15.
-          RSB="$T/micro-rs-base-r1.json,$T/micro-rs-base-r2.json,$T/micro-rs-base-r3.json"
-          for c in drift:0:0 real:1:1 mid:1:0; do
-            name="${c%%:*}"; rest="${c#*:}"; w15="${rest%%:*}"; w25="${rest##*:}"
-            cur="$T/micro-rs-$name-r1.json,$T/micro-rs-$name-r2.json,$T/micro-rs-$name-r3.json"
-            expect "micro-resample/$name@0.15" "$w15" \
-              "$(xt bench --micro-diff --current "$cur" --baseline "$RSB" --threshold-time 0.15)"
-            expect "micro-resample/$name@0.25" "$w25" \
-              "$(xt bench --micro-diff --current "$cur" --baseline "$RSB" --threshold-time 0.25)"
-          done
-          MISS="$T/micro-rs-real-r1.json,$T/micro-rs-real-r2.json,$T/micro-rs-missing-r3.json"
-          expect "micro-resample/missing@0.15" 0 \
-            "$(xt bench --micro-diff --current "$MISS" --baseline "$RSB" --threshold-time 0.15)"
-          expect "micro-resample/missing@0.25" 0 \
-            "$(xt bench --micro-diff --current "$MISS" --baseline "$RSB" --threshold-time 0.25)"
-          # 轮数不匹配必须是**用法错误**（exit 2），不能被当成「没有回归」放行。
-          expect "micro-resample/round-count-mismatch" 2 \
-            "$(xt bench --micro-diff --current "$MISS" --baseline "$T/micro-rs-base-r1.json" --threshold-time 0.15)"
-
-          [ "$fail" -eq 0 ] || { echo "❌ 判红规则与 fixture 不符 —— 改了阈值或区间条件?"; exit 1; }
-          echo "✅ verdict logic matches all fixtures (17 pure-function cases + 15 fixtures x 2 thresholds + 1 usage-error case)"
+        run: bash .github/ci/bench-verdict.sh
 
       # Build the base (merge-base) toolchain on THIS runner. The PR z42c (newer)
       # compiles the older base source (staged bootstrap guarantees newer compiles
@@ -277,7 +229,7 @@ jobs:
       # codegen logic → base-style scenario .zbc. If src/runtime is unchanged,
       # base_vm == pr_vm (byte identical) → skip building base's Rust VM.
       - name: Build base (merge-base) toolchain for A/B
-        if: steps.fmtgap.outputs.gap != '1'
+        if: steps.fmtgap.outputs.gap == '0'
         id: base
         shell: bash
         run: |
@@ -370,7 +322,7 @@ jobs:
       # `--base-driver` 让门自己判两侧 driver 是否同一个二进制；这里本就不是（BASEDRIVER 是 PRDRIVER
       # 又编一代）⇒ 门如实说「判不了」而不判红。根治需两侧 driver 同代，尚未做。
       - name: Compiler fingerprint guard (output changed ⇒ version bumped)
-        if: steps.fmtgap.outputs.gap != '1'
+        if: steps.fmtgap.outputs.gap == '0'
         shell: bash
         run: |
           xtask test compiler fingerprint --base "$PWD/base-src" \
@@ -384,7 +336,7 @@ jobs:
       #   · 树根等长：PR 源码另开 worktree `head-src`（与 `base-src` 等长），artifacts 软链回 PR 产物；
       #   · 工具链显式且同配方：`.ab-head-alllibs` 与 `.ab-base-alllibs` 等长、同一套拷贝顺序。
       - name: Prepare head toolchain (same shape as base, for both A/B gates)
-        if: steps.fmtgap.outputs.gap != '1'
+        if: steps.fmtgap.outputs.gap == '0'
         id: head
         shell: bash
         run: |
@@ -413,7 +365,7 @@ jobs:
           echo "head_driver=$HEADALL/z42c.driver.zpkg"   >> "$GITHUB_OUTPUT"
 
       - name: Same-runner A/B regression gate (symmetric toolchains; >15% time fails)
-        if: steps.fmtgap.outputs.gap != '1'
+        if: steps.fmtgap.outputs.gap == '0'
         shell: bash
         run: |
           set -euo pipefail
@@ -453,7 +405,7 @@ jobs:
       # 重采两次，用三轮比值的跑间离散度判红。整轮重采而不按 benchmark 名过滤：
       # `bench stdlib --filter` 过滤的是文件名，按名重采要另建映射，映射错 = 静默少测。
       - name: Micro A/B gate (symmetric capture; resample-on-suspicion; >15% time fails)
-        if: steps.fmtgap.outputs.gap != '1'
+        if: steps.fmtgap.outputs.gap == '0'
         shell: bash
         run: |
           set -euo pipefail
@@ -510,6 +462,7 @@ jobs:
       # blind to between-run drift, so it only prints. ⚠️ 别删测量：它是 GC 内部热路径
       # 唯一的观测点；要重新硬门禁需先量出跑间漂移，不是调阈值。
       - name: Criterion(Rust) A/B (informational — never fails; only if src/runtime changed)
+        if: steps.scope.outputs.verdict_only == 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -561,7 +514,7 @@ jobs:
           echo "── criterion tier is informational; it never fails this job ──"
 
       - name: Upload A/B results
-        if: always()
+        if: always() && steps.scope.outputs.verdict_only == 'false'
         uses: actions/upload-artifact@v7
         with:
           name: bench-ab-results
