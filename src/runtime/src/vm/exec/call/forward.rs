@@ -57,14 +57,17 @@ pub(crate) fn try_direct_field_read(
     ctx: &VmContext, func: &Function, regs: &[Value], args: &[u32],
 ) -> Option<Value> {
     let [arg] = args else { return None };
-    try_field_read(ctx, func, regs.get(*arg as usize)?)
+    try_field_read_cached(ctx, func, regs.get(*arg as usize)?, None)
 }
 
-/// Try a resolved field reader without a callee frame.
-/// Only heap objects take this path, so receiver errors retain the ordinary call frame.
+/// Warm the native caller's field cache when its direct call takes the helper.
+#[cfg(feature = "jit")]
 #[inline]
-pub(crate) fn try_field_read(ctx: &VmContext, func: &Function, recv: &Value) -> Option<Value> {
-    try_field_read_cached(ctx, func, recv, None)
+pub(crate) fn try_jit_direct_field_read(
+    ctx: &VmContext, func: &Function, regs: &[Value], args: &[u32],
+) -> Option<Value> {
+    let [arg] = args else { return None };
+    try_field_read_cached(ctx, func, regs.get(*arg as usize)?, func.direct_reader.get())
 }
 
 #[inline(always)]
@@ -91,6 +94,15 @@ pub(crate) fn try_field_read_cached(
         }
     }
     Some(result)
+}
+
+/// The caller can reserve this cache before the getter has its own resolved tokens.
+#[cfg(feature = "jit")]
+pub(crate) fn direct_reader_site(func: &Function) -> Option<&crate::vm::runtime::dispatch::ic::FieldICEntry> {
+    if !*func.field_forward.get_or_init(|| is_field_reader(func)) {
+        return None;
+    }
+    Some(func.direct_reader.get_or_init(Default::default))
 }
 
 fn is_field_reader(func: &Function) -> bool {

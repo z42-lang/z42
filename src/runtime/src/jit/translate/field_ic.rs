@@ -160,6 +160,49 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         self.builder.switch_to_block(done);
     }
 
+    /// A bound direct getter shares its normal call barrier and first scalar layout with callers.
+    pub(super) fn emit_direct_field_read(&mut self, insn: &CallInsn) {
+        let [obj] = &*insn.args else { return self.emit_call_helper(insn) };
+        if !FIELD_IC_SUPPORTED || !insn.method_type_args.is_empty() {
+            return self.emit_call_helper(insn);
+        }
+        let Some(cell) = field_prim_kind(self.func, insn.dst) else {
+            return self.emit_call_helper(insn);
+        };
+        let id = method_id_at(self.func, self.block_idx, self.instr_idx);
+        let Some(reader) = self.callees.direct_field_reader(id) else {
+            return self.emit_call_helper(insn);
+        };
+        let fast = cell_block(self.builder);
+        let slow = self.builder.create_block();
+        let done = self.builder.create_block();
+        let flags = MemFlagsData::trusted();
+        let ambiguity_addr = self.builder.ins().iconst(self.ptr, reader.ambiguous as i64);
+        let ambiguous = self.builder.ins().atomic_load(types::I8, flags, ambiguity_addr);
+        self.continue_unless(ambiguous, slow);
+        let ready_addr = self.builder.ins().iconst(self.ptr, reader.ready as i64);
+        let epoch_addr = self.builder.ins().iconst(self.ptr, reader.epoch as i64);
+        let ready = self.builder.ins().atomic_load(types::I32, flags, ready_addr);
+        let current = self.builder.ins().atomic_load(types::I32, flags, epoch_addr);
+        let stale = self.builder.ins().icmp(IntCC::NotEqual, ready, current);
+        self.continue_unless(stale, slow);
+
+        emit_guard(self.builder, self.ptr, self.regs_base, *obj, reader.entry, cell.field_tag, fast, slow);
+        self.builder.switch_to_block(fast);
+        let hdr = self.builder.block_params(fast)[0];
+        let off = self.builder.block_params(fast)[1];
+        let addr = self.builder.ins().iadd(hdr, off);
+        let dst = reg_addr(self.builder, self.regs_base, insn.dst);
+        self.emit_primitive_field_load(cell, addr, dst);
+        emit_safepoint_check(self.builder, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
+        self.builder.ins().jump(done, &[]);
+
+        self.builder.switch_to_block(slow);
+        self.emit_call_helper(insn);
+        self.builder.ins().jump(done, &[]);
+        self.builder.switch_to_block(done);
+    }
+
     /// Inline a previously resolved scalar field reader, falling back to ordinary VCall.
     pub(super) fn emit_virtual_field_read(&mut self, insn: &VCallInsn) {
         if !FIELD_IC_SUPPORTED || !insn.args.is_empty() || !insn.method_type_args.is_empty() {

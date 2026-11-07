@@ -16,7 +16,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     match self.str_intrinsic_of_call(insn) {
                         Some(k) => self.emit_str_intrinsic(k, insn.dst, &insn.args, true,
                             |cx| cx.emit_call_helper(insn)),
-                        None => self.emit_call_helper(insn),
+                        None => self.emit_direct_field_read(insn),
                     }
                 }
                 Instruction::Builtin(insn) => {

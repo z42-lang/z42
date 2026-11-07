@@ -5,6 +5,7 @@ using Std;
 class FieldReaderBase {
     public int Number;
     public virtual int Read() { return this.Number; }
+    public int ReadDirect() { return this.Number; }
 }
 
 class FieldReaderOverride : FieldReaderBase {
@@ -17,6 +18,7 @@ class AlternateFieldReader : FieldReaderBase {
 }
 
 int ReadVirtual(FieldReaderBase reader) { return reader.Read(); }
+int ReadDirect(FieldReaderBase reader) { return reader.ReadDirect(); }
 FieldReaderBase MissingReader() { return null; }
 
 void Main() {
@@ -24,6 +26,7 @@ void Main() {
     FieldReaderBase second = new FieldReaderOverride();
     AlternateFieldReader third = new AlternateFieldReader();
     second.Number = 20;
+    third.Number = 30;
     third.Other = 40;
 
     int i = 0;
@@ -32,6 +35,9 @@ void Main() {
         Assert.Equal(-i, ReadVirtual(first));
         Assert.Equal(30, ReadVirtual(second));
         Assert.Equal(40, ReadVirtual(third));
+        Assert.Equal(-i, ReadDirect(first));
+        Assert.Equal(20, ReadDirect(second));
+        Assert.Equal(30, ReadDirect(third));
         i = i + 1;
     }
 
@@ -43,4 +49,13 @@ void Main() {
     }
     Assert.True(nullCaught);
     Assert.Equal(-63, ReadVirtual(first));
+
+    nullCaught = false;
+    try {
+        ReadDirect(MissingReader());
+    } catch (NullReferenceException e) {
+        nullCaught = true;
+    }
+    Assert.True(nullCaught);
+    Assert.Equal(-63, ReadDirect(first));
 }

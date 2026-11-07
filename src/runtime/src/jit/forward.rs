@@ -73,7 +73,19 @@ impl StrIntrinsic {
 /// What the translator may ask about the VM while compiling a function: call targets,
 /// and the heap's write-barrier gate. Implemented by [`CompileLookup`]; never loads a
 /// package or binds a site.
+/// Stable VM linkage addresses used by the caller's native field-reader guard.
+pub(crate) struct DirectFieldReader {
+    pub entry: *const crate::vm::runtime::dispatch::ic::FieldICEntry,
+    pub ready: *const std::sync::atomic::AtomicU32,
+    pub epoch: *const std::sync::atomic::AtomicU32,
+    pub ambiguous: *const std::sync::atomic::AtomicBool,
+}
+
 pub(crate) trait ForwardLookup {
+    fn direct_field_reader(&self, _id: u32) -> Option<DirectFieldReader> {
+        None
+    }
+
     fn builtins(&self) -> &crate::vm::runtime::builtins::BuiltinCatalog;
     /// The heap's barrier-gate bytes (`Heap::jit_barrier_bytes`) that compiled reference
     /// field stores read; `None` keeps every reference store on the helper.
@@ -131,6 +143,17 @@ impl CompileLookup<'_> {
 }
 
 impl ForwardLookup for CompileLookup<'_> {
+    fn direct_field_reader(&self, id: u32) -> Option<DirectFieldReader> {
+        let func = self.rt.fn_of(id as usize)?;
+        let entry = crate::vm::exec::call::forward::direct_reader_site(func)?;
+        Some(DirectFieldReader {
+            entry,
+            ready: &func.call_init_ready,
+            epoch: self.vm.core.runtime.cctors.barrier_epoch_ptr(),
+            ambiguous: crate::vm::loader::lazy::ambiguity_seen_ptr(),
+        })
+    }
+
     fn builtins(&self) -> &crate::vm::runtime::builtins::BuiltinCatalog { self.vm.core.runtime.builtins }
     fn forward_of_id(&self, id: u32) -> Option<u32> {
         self.barrier_free_forward(self.rt.fn_of(id as usize)?)
