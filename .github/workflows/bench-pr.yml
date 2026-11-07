@@ -97,11 +97,12 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
+          base="${BASE_SHA:-}"
           verdict_only=false
           # Compare the checked-out merge tree to its base. Disabling rename detection
           # checks both the old and new paths when a file moves across the boundary.
-          if git merge-base --is-ancestor "$BASE_SHA" HEAD &&
-             git diff --quiet --no-renames "$BASE_SHA" HEAD -- . \
+          if [ -n "$base" ] && git merge-base --is-ancestor "$base" HEAD &&
+             git diff --quiet --no-renames "$base" HEAD -- . \
                ':(exclude,glob)**/*.md' \
                ':(exclude,glob)src/benches/testdata/**' \
                ':(exclude,literal).github/ci/bench-verdict.sh'; then
