@@ -309,6 +309,10 @@ void bench_with_arg(Bencher b) {
 [`[MethodImpl(NoInlining | NoOptimization)]`](language/attributes.md#控制内联与优化methodimpl)，编译器不内联它、
 也不把它当纯函数，调用和实参的计算都留在原处。无条件使用是安全的。
 
+基准之外的场合——不引 harness 的普通库、并发 / GC 测试里钉住对象引用寿命、或在
+语句位置消费一条「算了但没人用」的表达式——用 core 的 `Std.GC.KeepAlive(target)`：
+同一对 `[MethodImpl]` 标志的无返回值等价物，语义对标 C# `GC.KeepAlive`。
+
 `printSummary` 的输出格式是稳定契约：
 
 ```

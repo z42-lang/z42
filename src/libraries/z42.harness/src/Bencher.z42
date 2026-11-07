@@ -183,6 +183,9 @@ public static class BenchHelpers {
     /// 标了 `[MethodImpl(NoInlining | NoOptimization)]`：编译器不内联它、也不把它当纯函数，
     /// 所以调用不会被公共子表达式消除或循环外提吃掉，实参的计算也就留在原处。可无条件使用。
     ///
+    /// 基准外的通用沉点（含语句位置）用 `Std.GC.KeepAlive`：core 里的无返回值同语义 API，
+    /// 不引 harness 也能用。两者分立不委托——多一层非内联真调用会污染 bench 数字。
+    ///
     /// @warning 形参是 `object` 而非 `<T>`：跨 zpkg 的方法级泛型实参推断尚未就绪，
     ///     装箱开销由调用方自负。
     [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]
