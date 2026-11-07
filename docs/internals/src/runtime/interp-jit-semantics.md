@@ -258,3 +258,7 @@ Typeof 与方法泛型实参的 Type 值经每个 VM 的对象协议构造。协
 ## Native 回调的活动上下文
 
 启用 `native-interop` 时，VM 执行层的 `active_vm.rs` 持有线程局部活动上下文。底帧进入和宿主重入安装同一个 `VmGuard`，退出按嵌套顺序恢复之前的 VM；同一上下文的嵌套进入复用已有激活。interop 的 ABI 入口读取该状态，执行层直接使用自身的 guard。
+
+## Native 调用提供方
+
+解释器通过 `vm/exec/native.rs` 定义的提供方调用注册的 native 类型，并申请或释放 owned pin。门面在 VM 创建前登记 interop 实现，worker 共享冻结注册。interop 消费寄存器与参数索引的借用视图，负责类型解析、marshal 和 libffi 调度；解释器继续在原调用帧写回结果，并将 InvalidMarshal 消息物化为可捕获异常。
