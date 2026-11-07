@@ -123,7 +123,7 @@ pub mod typed {
     use super::imp::{handshake_error, slot, still_open, stream_error};
     use super::{client_config, TlsSlot};
     use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
-    use crate::corelib::fs::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
+    use crate::corelib::io::buffer::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use crate::corelib::network::error::{check_port, resolve, slot_id, socket_error, timeout};
     use crate::object::Value;
     use crate::vm_context::VmContext;

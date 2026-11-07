@@ -67,7 +67,7 @@ fn array_get_slow_path_handles_null_and_stack_array() {
     let mut frame = JitFrame::new(&vm, 4, &[]);
     frame.regs[0] = Value::Null;
     frame.regs[1] = Value::I64(0);
-    assert_eq!(unsafe { jit_array_get(&mut frame, ctx, 2, 0, 1) }, 1);
+    assert_eq!(unsafe { jit_array_get(&mut frame, ctx, 2, 0, 1, 0) }, 1);
     // 无 stdlib ⇒ 退化成字符串异常，文本 = `<类名>: <消息>`，与 interp 的内部错误文本同一条。
     match crate::jit::helpers::take_exception(&vm) {
         Some(Value::Str(s)) => assert_eq!(&*s,
@@ -77,6 +77,6 @@ fn array_get_slow_path_handles_null_and_stack_array() {
 
     frame.regs[0] = stack_int_array(&vm, 9, vec![1, 2]);
     frame.regs[1] = Value::I64(1);
-    assert_eq!(unsafe { jit_array_get(&mut frame, ctx, 2, 0, 1) }, 0);
+    assert_eq!(unsafe { jit_array_get(&mut frame, ctx, 2, 0, 1, 0) }, 0);
     assert!(matches!(frame.regs[2], Value::I64(2)));
 }

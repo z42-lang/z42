@@ -10,20 +10,20 @@
 
 | 文件 | 职责 |
 |------|------|
-| `mod.rs` | 模块入口；re-export 公开 API；native 子模块按 `native-interop` 开关 |
+| `mod.rs` | 模块入口；re-export 公开 API；启用 `native-interop` 时，从 `tier1/` 统一再导出既有公开入口 |
 | `state.rs` | 每 VM 类型/库/buffer 状态；Rust 状态操作返回 `Result`，pin/unpin 在所有平台可用 |
-| `registry.rs` | `RegisteredType` + `MethodEntry`：解析 `Z42TypeDescriptor_v1`，预构建 libffi `Cif` |
-| `marshal.rs` | z42 `Value` ↔ `Z42Value` 双向转换（blittable 子集）|
-| `dispatch.rs` | `SigType` 枚举 + 签名解析 + libffi `Cif::new` / `Cif::call` 包装 |
-| `loader.rs` | `dlopen`：`libloading::Library::new(path)` + 调用 `<basename>_register` 入口 |
-| `error.rs` | thread-local `LAST_ERROR` 槽 + `z42_last_error()` 实现 |
-| `ext.rs` | stdlib native 扩展加载器：`[Native(lib=…, entry=…)]` 引用的 `__<entry>` 是 `BUILTINS` 里的类型化 builtin（`typed`），首次调用时从 SDK native 搜索路径 dlopen `lib<basename>.{so,dylib,dll}` 绑定符号（与 Tier 1 `loader.rs` 的通用 libffi 路径互补） |
-| `exports.rs` | `#[no_mangle]` `z42_*` extern 函数体 + thread-local `CURRENT_VM` + `VmGuard` RAII |
-| `*_tests.rs` | 单元测试（registry / marshal / dispatch / ext）|
+| `tier1/registry.rs` | `RegisteredType` + `MethodEntry`：解析 `Z42TypeDescriptor_v1`，预构建 libffi `Cif` |
+| `tier1/marshal.rs` | z42 `Value` ↔ `Z42Value` 双向转换（blittable 子集）|
+| `tier1/dispatch.rs` | `SigType` 枚举 + 签名解析 + libffi `Cif::new` / `Cif::call` 包装 |
+| `tier1/loader.rs` | `dlopen`：`libloading::Library::new(path)` + 调用 `<basename>_register` 入口 |
+| `tier1/error.rs` | thread-local `LAST_ERROR` 槽 + `z42_last_error()` 实现 |
+| `ext/mod.rs` | stdlib native 扩展加载器：`[Native(lib=…, entry=…)]` 引用的 `__<entry>` 是 `BUILTINS` 里的类型化 builtin（`typed`），首次调用时从 SDK native 搜索路径 dlopen `lib<basename>.{so,dylib,dll}` 绑定符号（与 Tier 1 `tier1/loader.rs` 的通用 libffi 路径互补） |
+| `tier1/exports.rs` | `#[no_mangle]` `z42_*` extern 函数体 + thread-local `CURRENT_VM` + `VmGuard` RAII |
+| `tier1/*_tests.rs` / `ext/ext_tests.rs` | ABI 和扩展加载单元测试|
 
 ## 入口点
 
-- `interop::exports::z42_register_type` / `z42_resolve_type` / `z42_invoke` / `z42_last_error`：本目录 `exports.rs` 提供 `#[no_mangle]` 实现
+- `interop::exports::z42_register_type` / `z42_resolve_type` / `z42_invoke` / `z42_last_error`：本目录 `tier1/exports.rs` 提供 `#[no_mangle]` 实现
 - `interop::register_native_type` / `resolve_native_type` / `loader::load_library`：z42 内部调用入口
 - `Instruction::CallNative` IR dispatch：在 `interp/exec_instr.rs` → `exec_ffi.rs` 调 `RegisteredType::method` + `dispatch::call`
 
@@ -45,7 +45,7 @@
   - `z42_abi` crate（ABI 类型镜像）
   - `libffi = "3.2"`（cif 构造 + dispatch）
   - `libloading = "0.8"`（dlopen 库句柄）
-- VM 仅提供冻结的扩展状态查询；`interop::State` 持有类型表、库句柄、已尝试加载集合及 owned pin buffer，门面在创建 VM 时装配。
+- 门面创建 VM 时装配 `interop::State`。Tier 1 与标准库扩展加载分别通过该状态保留已打开的库；类型注册、扩展尝试集合和可跨平台的 owned pin buffer 均由状态模块管理。
 
 ## 如何测试验证
 

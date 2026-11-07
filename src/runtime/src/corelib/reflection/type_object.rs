@@ -128,7 +128,7 @@ pub(super) fn make_array_type(ctx: &VmContext, element_name: &str, element: Valu
     )
 }
 
-pub(in crate::corelib) fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
+fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
     // Main module's own types first: the user program's classes live in the
     // main module's `type_registry`; the lazy loader below only covers
     // zpkg / stdlib types. (make-typeof-return-type — lets `typeof(UserClass)`
@@ -383,16 +383,7 @@ fn build_type_ex(
 /// and never mis-bind. Shared by `make_type_from_name`'s add-json-serde /
 /// add-collection-serde dotless fallback (with an optional force-load retry).
 pub(super) fn resolve_dotless_simple(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
-    let mut hit: Option<String> = None;
-    for key in ctx.loaded_type_names() {
-        if type_simple_name(&key) == name {
-            if hit.is_some() {
-                return None; // ambiguous
-            }
-            hit = Some(key);
-        }
-    }
-    let fq = hit?;
+    let fq = ctx.unique_loaded_full_name(name)?;
     if let Some(m) = ctx.module() {
         if let Some(td) = m.type_registry.get(&fq) {
             return Some(td.clone());

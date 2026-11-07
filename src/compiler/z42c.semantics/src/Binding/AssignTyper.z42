@@ -205,6 +205,19 @@ public sealed class AssignTyper {
         return env.LookupVar(rn) == null && (env.Symbols.HasClass(rn) || env.Symbols.HasInterface(rn));
     }
 
+    internal static bool IsReadOnlySizeMember(BoundExpr target) {
+        if (!(target is BoundMember)) { return false; }
+        BoundMember member = target as BoundMember;
+        Z42Type receiver = member.Target.Type();
+        if (receiver is Z42ArrayType) {
+            return member.MemberName == "Length" || member.MemberName == "Count";
+        }
+        if (member.MemberName != "Length" || !(receiver is Z42ClassType)) { return false; }
+        Z42ClassType cls = receiver as Z42ClassType;
+        string name = cls.Fqn();
+        return name == "Std.Array" || name == "Std.String" || name == "string";
+    }
+
     // E0482：赋值目标必须是**左值**（有存储的位置）。此前这道检查**根本不存在**——
     // `42 = a;` 编得过、跑得过、什么也不发生，一条诊断都没有。
     //
@@ -224,6 +237,10 @@ public sealed class AssignTyper {
     // 严得多（静态字段 / 值 struct 字段 / 属性一律拒）；赋值只要求**有存储**，那三样都合法。
     // 同一个词「左值」，两个强度，故两码。
     private void _checkAssignable(AssignExpr a, BoundExpr target) {
+        if (AssignTyper.IsReadOnlySizeMember(target)) {
+            this._tc._diags.Error(DiagnosticCodes.AssignTargetNotLvalue, "cannot assign to a read-only size member", a.Span);
+            return;
+        }
         if (target is BoundIdent) { return; }
         if (target is BoundMember) { return; }
         if (target is BoundIndex) { return; }

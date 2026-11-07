@@ -28,11 +28,12 @@ use super::{ExecOutcome, Frame};
 #[cfg(feature = "jit")]
 fn try_native_static_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize, args: &[u32],
+    method_type_args: &[String],
 ) -> Option<Result<Option<Value>>> {
     let tier = ctx.tier()?;
     if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
     tier.invoke(ctx, crate::vm::exec::engine::TierTarget::Site(id),
-        crate::vm::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args })
+        crate::vm::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args }, method_type_args)
         .map(|result| result.map(|outcome| native_result_to_dst(frame, dst, outcome)))
 }
 
@@ -53,6 +54,7 @@ pub(super) fn native_result_to_dst(
 #[inline]
 fn try_native_static_call(
     _ctx: &VmContext, _frame: &mut Frame, _dst: u32, _id: usize, _args: &[u32],
+    _method_type_args: &[String],
 ) -> Option<Result<Option<Value>>> {
     None
 }
@@ -131,12 +133,16 @@ pub(super) fn call(
     }
     // runtime-audit P1-8: a `[Native]` forwarder runs its builtin directly.
     if method_type_args.is_empty() {
+        if let Some(value) = crate::vm::exec::call::forward::try_direct_field_read(ctx, target, &frame.regs, args) {
+            frame.set(dst, value);
+            return Ok(None);
+        }
         if let Some(res) = try_fold(ctx, module, frame, dst, target, None, args) {
             return res;
         }
     }
     if let Some(id) = callee_id {
-        if let Some(res) = try_native_static_call(ctx, frame, dst, id, args) {
+        if let Some(res) = try_native_static_call(ctx, frame, dst, id, args, method_type_args) {
             return res;
         }
     }
@@ -242,7 +248,7 @@ fn try_native_indirect_call(
         Some(receiver) => crate::vm::exec::call::args::CallArgs::Receiver { receiver, regs: &frame.regs, indices: args },
         None => crate::vm::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args },
     };
-    tier.invoke(ctx, crate::vm::exec::engine::TierTarget::Site(id), view)
+    tier.invoke(ctx, crate::vm::exec::engine::TierTarget::Site(id), view, &[])
         .map(|result| result.map(|outcome| native_result_to_dst(frame, dst, outcome)))
 }
 

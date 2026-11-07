@@ -59,8 +59,9 @@ void returned_match_keeps_its_subject_and_capture_values() {
     long before = _usedAfterCollect();
     Match match = _findAndReturn(regex);
     long retained = _usedAfterCollect() - before;
-    // 返回的 Match 可以保留 256KiB 输入，但不应保留额外的 1MiB 字符缓冲。
-    if (retained < 262144L || retained > 786432L) {
+    // 全堆净差允许回收其他对象。仍要区分保留 256KiB 输入与释放输入，
+    // 同时拒绝额外保留 1MiB 字符缓冲。
+    if (retained < 131072L || retained > 786432L) {
         throw new TestFailure("unexpected Match subject footprint: " + retained.ToString());
     }
     Assert.Equal("a", match.Value());

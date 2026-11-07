@@ -166,6 +166,7 @@ public sealed class DepUseCollector : IBoundExprVisitor<Unit, Unit>, IBoundStmtV
     public Unit VisitError(BoundError n, Unit d) { return d; }
     public Unit VisitTypeof(BoundTypeof n, Unit d) { return d; }
     public Unit VisitMethodOf(BoundMethodOf n, Unit d) { return d; }
+    public Unit VisitFieldOf(BoundFieldOf n, Unit d) { return d; }   // add-field-property-reference：叶子（名字绑定全在编译期）
     public Unit VisitSymAvailable(BoundSymAvailable n, Unit d) { return d; }
 
     // ── 模式 ──

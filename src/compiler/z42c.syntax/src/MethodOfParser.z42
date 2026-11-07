@@ -5,6 +5,8 @@
 // 封闭作用域，里面每个 `<` 都是类型实参、每个标识符都是类型或成员名。两门文法混在一个
 // 文件里只会让「这里到底按哪套读」变得难判——它们本就该分开。
 // （直接成因：合并后 ExprParser 到 905 行、越过 886 硬限；但即便没越限，这刀也该切。）
+// add-field-property-reference 起本文件还承载 `_parseDataMember`（fieldof/propertyof 的
+// `Type.Member` 目标）——同一封闭括号家族，只是那份文法连签名列表都没有。
 namespace Z42.Syntax;
 
 using Z42.Core;
@@ -95,6 +97,77 @@ public sealed class MethodOfParser {
         }
         this._p._expect(TokenKind.RParen, ")");
         return new MethodOfExpr(ownerName, ownerSpan, member, memberSpan, ptypes, pc, hasList, sp);
+    }
+
+    // fieldof / propertyof 括号内的目标解析（add-field-property-reference；LParen 已被调用方消费）。
+    //
+    // 文法：`Qualified '.' Member` —— 比 methodof 还简单：字段与属性**没有重载**，名字即身份，
+    // 连签名列表都不存在。两样东西明确不接受：
+    //   · 任何一段上的类型实参（`Box<int>.F`）——与 methodof 同一条理由：泛型类共享一份字段
+    //     布局，`Box<int>.F` 与 `Box<string>.F` 是同一个槽，区分没有意义；
+    //   · 成员后的参数列表（`X.F()`）——字段无重载，写了只会让人误以为有消歧这回事。
+    internal Expr _parseDataMember(string kw, bool isProperty, Span sp) {
+        Token first = this._p._peek();
+        string ownerName = first.Text;
+        Span ownerSpan = first.Span;
+        if (first.Kind == TokenKind.Identifier) { this._p._advance(); }
+        else {
+            this._p._diags.Error(DiagnosticCodes.MemberOfMalformed,
+                kw + ": expected a type name, found `" + first.Text + "`", first.Span);
+            this._p._advance();
+        }
+        bool genAny = false;         // 任何一段上出现了 <...>
+        Span genSpan = ownerSpan;
+        string member = "";
+        Span memberSpan = ownerSpan;
+        bool sawDot = false;
+        if (this._p._peek().Kind == TokenKind.Lt) { genSpan = this._p._peek().Span; genAny = true; this._skipTypeArgs(); }
+        while (this._p._peek().Kind == TokenKind.Dot) {
+            this._p._advance();
+            Token seg = this._p._peek();
+            member = seg.Text;
+            memberSpan = seg.Span;
+            if (seg.Kind == TokenKind.Identifier) { this._p._advance(); }
+            else {
+                this._p._diags.Error(DiagnosticCodes.MemberOfMalformed,
+                    kw + ": expected a member name after `.`", seg.Span);
+            }
+            if (this._p._peek().Kind == TokenKind.Lt) { genSpan = this._p._peek().Span; genAny = true; this._skipTypeArgs(); }
+            sawDot = true;
+        }
+        if (!sawDot) {
+            this._p._diags.Error(DiagnosticCodes.MemberOfMalformed,
+                kw + " requires `Type.Member` — write `" + kw + "(" + ownerName + ".SomeMember)`, not `" + kw
+                + "(" + ownerName + ")`", ownerSpan);
+        } else if (genAny) {
+            // 泛型类的字段共享一份布局（add-field-property-reference）：`Box<int>.F` 与
+            // `Box<string>.F` 是同一个槽，允许写类型实参只会给人「这两个不一样」的错觉。
+            this._p._diags.Error(DiagnosticCodes.MemberOfMalformed,
+                kw + ": type arguments are not accepted — a generic class shares one field layout "
+                + "across all instantiations, so `" + ownerName + "<…>." + member + "` names the same "
+                + "member as the bare name; write `" + kw + "(" + ownerName + "." + member + ")`", genSpan);
+        } else if (this._p._peek().Kind == TokenKind.LParen) {
+            // 吞掉参数列表（已诊断为不接受后的恢复），避免级联 parse 噪声。
+            int depth = 0;
+            while (true) {
+                int kk = this._p._peek().Kind;
+                if (kk == TokenKind.Eof) { break; }
+                if (kk == TokenKind.LParen) { depth = depth + 1; }
+                if (kk == TokenKind.RParen) {
+                    depth = depth - 1;
+                    this._p._advance();
+                    if (depth <= 0) { break; }
+                    continue;
+                }
+                this._p._advance();
+            }
+            this._p._diags.Error(DiagnosticCodes.MemberOfMalformed,
+                kw + ": `" + member + "` takes no parameter list — fields and properties have no "
+                + "overloads, the name alone is the identity; write `" + kw + "(" + ownerName + "." + member + ")`",
+                memberSpan);
+        }
+        this._p._expect(TokenKind.RParen, ")");
+        return new FieldOfExpr(ownerName, ownerSpan, member, memberSpan, isProperty, sp);
     }
 
     // 吞掉一段 `<...>`（已诊断为不接受后的恢复）：让后续 `.`/`(`/`)` 仍能对上，

@@ -15,6 +15,7 @@ pub struct Function {
     pub owner_init: OwnerInitCell,
     pub id: FnIdCell,
     pub forward: ForwardCell,
+    pub(crate) field_forward: OnceLock<bool>,
     pub fused_tails: Vec<Option<SuperInstr>>,
     sites: OnceLock<Box<CodeSites>>,
 }
@@ -29,6 +30,7 @@ impl Function {
             owner_init: Default::default(),
             id: Default::default(),
             forward: Default::default(),
+            field_forward: OnceLock::new(),
             fused_tails: Vec::new(),
             sites: OnceLock::new(),
         }
@@ -59,6 +61,12 @@ impl Function {
     pub fn catch_key(&self, entry: usize) -> &TypeKeyCell {
         &self.sites().catch_keys[entry]
     }
+    pub(crate) fn array_get_erased(&self, dst: u32) -> bool {
+        match self.reg_types.get(dst as usize) {
+            Some(ty) => *ty == ir::reg_type::IrType::Unknown,
+            None => !self.sites().legacy_struct_views.contains(&dst),
+        }
+    }
     fn sites(&self) -> &CodeSites {
         self.sites
             .get_or_init(|| Box::new(CodeSites::new(&self.definition)))
@@ -70,6 +78,7 @@ impl Function {
         }
         self.id = Default::default();
         self.forward = Default::default();
+        self.field_forward.take();
         self.sites.take();
     }
     /// Rebase string literals without invalidating control-flow or frame metadata.

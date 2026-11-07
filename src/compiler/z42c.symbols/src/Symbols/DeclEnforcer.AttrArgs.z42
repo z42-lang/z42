@@ -14,13 +14,14 @@
 // 取决于谁先查、以及那一刻 `K.Mutable` 是什么 —— 实测先把它改成 99 再查就读到 99。
 // attribute 是**数据**不是行为；能在编译期定死的东西不该留一条依赖运行期状态的缝。
 //
-// ── 白名单（User 裁决：常量 + typeof + methodof + 数组）─────────────
+// ── 白名单（User 裁决：常量 + typeof + methodof + 数组；member-of 家族后续扩员沿用同一条）─────
 //   · 字面量：int / float / string / char / bool / null
 //   · 一元 `- + ! ~` 与二元算术/位/逻辑/比较/串接 —— 操作数递归满足即可（常量表达式）
 //   · enum 成员（`Color.Green`）
 //   · `const` 字段（`K.MAX`，以及同类内的裸名 `MAX`）
-//   · `typeof(T)` / `methodof(X.M(..))` —— 两者都在**编译期**解析完毕（methodof.md 的招牌
-//     用例正是 `[Route(methodof(Api.Get(string)))]`：把运行期的静默失效变成编译期报错）
+//   · `typeof(T)` / `methodof(X.M(..))` / `fieldof(X.F)` / `propertyof(X.P)` —— 四者都在**编译期**
+//     解析完毕（methodof.md 的招牌用例正是 `[Route(methodof(Api.Get(string)))]`：把运行期的
+//     静默失效变成编译期报错）
 //   · 上述元素构成的数组：`new T[]{ … }` / `[a, b]` / `[v; n]`
 //
 // ⚠️ **遍历面必须与 `AttributeSynth._process*` 一致** —— 那个 pass 决定「谁被合成工厂」，
@@ -91,7 +92,7 @@ public sealed partial class DeclEnforcer {
                     if (arg is AssignExpr) { arg = (arg as AssignExpr).Value; }
                     if (!this._acIsConst(t, arg, cls)) {
                         this._sc.Diags.Error(DiagnosticCodes.AttributeArgNotConstant,
-                            "attribute argument must be a compile-time constant: a literal, a constant expression, an enum member, a `const` field, `typeof(..)`, `methodof(..)`, or an array of those — an attribute's arguments run on the first reflection query, so a runtime-dependent value makes the metadata depend on who asks first",
+                            "attribute argument must be a compile-time constant: a literal, a constant expression, an enum member, a `const` field, `typeof(..)`, `methodof(..)`, `fieldof(..)`, `propertyof(..)`, or an array of those — an attribute's arguments run on the first reflection query, so a runtime-dependent value makes the metadata depend on who asks first",
                             arg.Span);
                     }
                     g = g + 1;
@@ -110,9 +111,11 @@ public sealed partial class DeclEnforcer {
         if (e is CharLitExpr)   { return true; }
         if (e is BoolLitExpr)   { return true; }
         if (e is NullLitExpr)   { return true; }
-        // 编译期解析：typeof 的类型名、methodof 的重载决议都在绑定期做完。
+        // 编译期解析：typeof 的类型名、methodof 的重载决议、fieldof/propertyof 的成员定位
+        // 都在绑定期做完（同一家族的三个入口）。
         if (e is TypeofExpr)    { return true; }
         if (e is MethodOfExpr)  { return true; }
+        if (e is FieldOfExpr)   { return true; }
         if (e is UnaryExpr) {
             UnaryExpr u = e as UnaryExpr;
             if (u.Op == "-" || u.Op == "+" || u.Op == "!" || u.Op == "~") {

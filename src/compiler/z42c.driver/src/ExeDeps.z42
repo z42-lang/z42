@@ -11,224 +11,136 @@ using Z42.Project;
 using Z42.IR;          // ZpkgReader / ZpkgInfo（产物引用的包名校验）
 using Z42.Pipeline;    // CompilerDomain（编译器域解析域，与 BuildSession 共用）
 
-// **非框架**依赖的已构建 zpkg（+ .zsym）复制进 exe 的 dist。运行时 z42vm 的依赖搜索序
-// = [entry-zpkg 目录, Z42_LIBS]，故 exe 从自身 dist 即可解析私有依赖，框架包仍走 Z42_LIBS。
-// fix-path-dep-closure：**path 依赖的整个闭包**都要搬，不只直接依赖。
-//
-// 此前这里只遍历 `pm.Deps`，头注写着「仅直接依赖……传递闭包记 Deferred，
-// exe 应直接声明全部所需兄弟」——**那个理由站不住**：`app → acme.web → acme.util` 时
-// app 根本没引用过 `Acme.Util` 的任何符号（是 `acme.web` 内部在用），要求它声明一个
-// 自己不用的包，正是包管理器存在的意义所在。征状：编译期正常（闭包 dist 已并进
-// libsDirs），运行期 `MissingSymbolException: type \`Acme.Util.Helper\``——`app/dist/` 里只有
-// `acme.web.zpkg`。⇒ **path 依赖链深度超过 1 就不可用。**
-//
-// ⭐ 这条藏了一个月的原因：`add-path-dependencies` 的 e2e（阶段 2.5）只造了
-// **1 层**（`lib foo + exe bar`），而深度 1 时「直接依赖」恰好等于「闭包」——
-// 又一个「测试写了但抓不到 bug」的样本（同 `static_abstract_operator` 挑中单字段 `Money`）。
-//
-// 闭包名单由 `_build` 透下来（top-level 分支算过的那份），**不在这里重算**——
-// 非 top-level 子建（`libsDirsCount>0`）本就跳过解析，那个语境下重算会抛
-// `No such file or directory`（初稿这么写过，被 e2e `buildclos` 当场抳下）。
-//
-// add-deployment-model 批 2.2：闭包**有两条来源**，它们覆盖的依赖种类互不相交。
-//   ① `path` 指向工程目录 → `PathDepPlan.Resolve` 沿源码树 manifest 做 post-order DFS，
-//      结果就是上面那份 `closureNames`。
-//   ② 按名引用 / `path` 指向 `.zpkg` 产物 → **没有工程目录可递归**（引用一个产物时对方的
-//      `.z42.toml` 通常不在本机），闭包来源换成 zpkg 自己的 `DEPS` 段
-//      （`ZpkgReader.ReadDependencies`）。就在下面的复制循环里做 BFS：每拷成功一个包就打开它、
-//      把未见过的依赖名追加到 `names` 尾部——队列即工作表，不需要第二遍扫描。
-//   ⭐ **递归只对「已复制」的包做**：「拷了它」和「该看它的依赖」是同一个条件，不是两个。
-//      框架包不拷也不递归（它的依赖同在 libs/）；`deploy = "shared"` 在循环开头就 continue。
-//   ⭐ 这个缺口的**症状离原因很远**：`app → mid → leaf` 而 dist/ 只有 mid.zpkg 时，拷出去
-//      **死在 mid 的方法里**（`MissingSymbolException`）——报的像是「mid 的代码有问题」。
-[Suppress("style.fnLinesHard", "108 body lines；拆分见 code-organization.md")]
-int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, string distDir, string[] libsDirs, int libsDirsN, WsTier tier, string[] routedDeps, int routedN) {
-    // 复制判定（add-deployment-model 批 1）：**在不在 shipped `libs/`**（= `Z42_LIBS`）。
-    // 在 → 框架，运行期从 libs/ 解析，不复制；不在 → 私有，复制进 dist。
-    //
-    // 这条与 publisher 的 `_pubBundleProjectDeps` 现在**真的**是同一条了。此前两边各写各的、
-    // 而注释互相声称一致：这里原本用「`<srcRoot>/libraries/<name>` 存在 ⇒ 真-stdlib」，
-    // 🔴 而 `_srcRoot` 靠向上找「同时含 libraries/ 与 compiler/ 的目录」——**用户机器上恒为空**
-    // ⇒ 整条判据退化成 `dep.StartsWith("z42.")`：**按名字前缀猜一个包是不是框架**。于是一个
-    // 确实躺在框架目录里、但名字不像 `z42.*` 的包，会被当成私有依赖复制进**每一个**用到它的
-    // exe 的 dist；反方向同样能踩（用户自己的库叫 `z42.foo` 就被当成 stdlib）。
-    //
-    // 为什么 `Z42_LIBS` 可靠而 srcRoot 不可靠：前者是「这台机器上的框架在哪」这个**运行期
-    // 事实**，用户机器与 repo 内都成立；后者是「我在不在 z42 的源码树里」，只有开发时成立。
-    //
-    // 🔴 但判据不能写成「这个名字在 Z42_LIBS 里存在吗」—— 那条在**构建期 Z42_LIBS 混装了
-    // 非框架包**时会失真，而 CI 的 bench A/B 正是这么拼环境的（`.ab-base-alllibs` = stdlib +
-    // 全部 compiler member）。那样 `z42c.pipeline` 会被判成框架而不复制，于是 `z42c.driver`
-    // 的**自包含 bundle 缺件**，z42b 的 `_findCompilerZpkg` 探测③（找 driver dist 里的
-    // pipeline 副本）落空 ⇒ `no compiler injected`。实测踩到过，本地看不见——本地
-    // `build compiler` 的 Z42_LIBS 指向不含编译器包的 stdlib flat dist。
-    //
-    // ⇒ 判据用**它是从哪个目录找到的**：`libsDirs` 的顺序本来就是 `[私有 dist…, 外部档]`
-    //（path 闭包 dist / workspace 成员 dist 在前）。从外部档找到 ⇒ 框架，运行期也从
-    // 那儿解析、不复制；从更靠前的目录找到 ⇒ **本次构建产出的私有包**，复制。
-    // 顺带把「判是不是框架」和「去哪拷」合并成一次查找，不再扫两遍。
-    //
-    // 外部档 = `_extLibDirs()`（`Z42_LIBS`）——与解析面同一份。
+// Keep the compile domain unchanged. Resolve deployment edges of source members
+// with vendored inputs in the same domain that compiled the member.
+int _bundleExeDeps(BundleSeed seed, PathClosureOut closure, ProjectManifest pm, string distDir,
+                   string[] libsDirs, int libsDirsN, WsTier tier) {
     string[] frameworkDirs = _extLibDirs();
-    // 待拷名单 = 直接声明 ∪ 本包 zpkg 的 DEPS 段（usings 驱动，retire-member-dep-decls 起成员 exe 的
-    // 唯一种子）∪ **path 依赖闭包全体**（去重，fix-path-dep-closure）。构成与来源见 `BundleSeed.z42`。
-    BundleSeed seed = _bundleSeed(pm, distDir, closureNames, closureN, routedDeps, routedN);
-    string[] names = seed.Names;
-    string[] deploys = seed.Deploys;
-    bool[] sdkSkip = seed.SdkSkip;   // own-DEPS 播种位（见 BundleSeed.z42）
-    int nameN = seed.N;
-    // `deploy`（add-deployment-model 批 4 use）与 names **并行**：直接依赖取清单声明的值，
-    // 其余来源（DEPS / path 闭包成员不在 `[dependencies]` 里，无从声明）取 `""`。
-    // 散装 zbc 撞名判据（fix-bundle-indexed-deps）：本包自己的散装 zbc（本 dist 里自己那几个 indexed 主文件的
-    // FILE 目录）+ 本轮已由别的依赖拷入的（rel → 依赖名）。上一轮拷来的旧副本不在两者之内 ⇒ 直接覆盖。
     StrMap ownZbc = _ownLooseZbc(pm, distDir);
     StrMap copiedZbc = new StrMap();
+    BundleCopies copies = new BundleCopies(distDir, pm.Project.Name, ownZbc);
+    copies.Keep(pm.Project.Name + ".zpkg");
+    copies.Keep(pm.Project.Name + ".zsym");
+    int entry = 0;
+    while (entry < pm.ExeCount) {
+        copies.Keep(pm.Exes[entry].Name + ".zpkg");
+        copies.Keep(pm.Exes[entry].Name + ".zsym");
+        entry = entry + 1;
+    }
+    StrMap memberDomains = closure == null ? null : closure.BundleDomains;
     int i = 0;
-    while (i < nameN) {
-        string dep = names[i];
-        string dpl = deploys[i];
-        bool ownSeed = sdkSkip[i];   // 在 i 自增前取——own-DEPS 播种位（见 BundleSeed.z42）
+    while (i < seed.N) {
+        BundleItem item = seed.Items[i];
         i = i + 1;
-        // 取值合法性已由 `_validateDeployDecls`（`_build` 开头）统一校验过 —— 批 4.3 起不在这里
-        // 重做一遍：那份只在 exe 分支跑，lib / analyzer 写错的 `deploy` 会被整条跳过。
-        // 🔴 `shared` **不复制**，且**不需要它在任何地方存在**——它的解析是运行期的事
-        // （probing-paths / libs）。这里若去校验「运行期够不够得着」，就得把 VM 那套展开规则
-        // （相对 entry、通配符、去重）在 z42 侧重做一遍 ⇒ 两份规则各自漂移，正是本 change
-        // 一路在消灭的东西。等有共享途径再补，见 tasks 批 4 的「明确不做」。
-        if (dpl == "shared") { continue; }
-        // add-sdk-libs：`deploy = "sdk"` —— 不复制；运行期经侧车自动补的 `${Z42_HOME}/programs/z42c` 从**所在 SDK**
-        // 解析（`_writeRuntimeConfigSidecar`）。只对 SDK 库合法：它必须是从编译器目录解析到的（stdlib 在 libs/、
-        // 私有包在 dist 里，运行期都不会出现在 SDK 的编译器目录）。不复制 ⇒ 它的传递闭包也不经这里走到。
-        if (dpl == "sdk") {
-            string sdkWhere = _firstDirHaving(libsDirs, libsDirsN, dep + ".zpkg");
-            if (sdkWhere.Length == 0 || !_isCompilerDomainDir(sdkWhere)) {
-                ConsoleError.WriteLine("z42c build: [dependencies] `" + dep + "` 写了 deploy = \"sdk\"，但它不是 SDK 库"
-                    + (sdkWhere.Length > 0 ? "（解析自 " + sdkWhere + "）" : "") + " —— deploy = \"sdk\" 只适用于编译器目录"
-                    + "（SDK 的 programs/z42c/）里的包，运行期从所在 SDK 解析。stdlib 不需要它（运行期本就从 libs/ 解析），"
-                    + "私有包请用默认（复制）或 \"shared\"。");
+        if (item.Deploy == "shared") { continue; }
+        string file = item.Name + ".zpkg";
+        string dir = _bundleFindDir(item.Domain, libsDirs, libsDirsN, file);
+        if (item.Deploy == "sdk") {
+            if (dir.Length == 0 || !_isCompilerDomainDir(dir)) {
+                ConsoleError.WriteLine("z42c build: [dependencies] `" + item.Name
+                    + "` 写了 deploy = \"sdk\"，但它不是 SDK 库 —— deploy = \"sdk\" 只适用于 SDK 的 programs/z42c/ 里的包。");
                 return ExitCode.BuildError;
             }
+            seed.NeedsSdk = true;
             continue;
         }
-        string zname = dep + ".zpkg";
-        bool copied = false;
-        int d = 0;
-        while (d < libsDirsN) {
-            string cand = Path.Join(libsDirs[d], zname);
-            if (File.Exists(cand)) {
-                // 从外部档（框架目录）找到 ⇒ 框架，默认不复制（运行期同样从那儿解析）。
-                // `deploy = "copy"` **压过**这条：显式要自包含的，即使是框架包也复制。
-                if (dpl != "copy" && _inDirs(frameworkDirs, libsDirs[d])) {
-                    copied = true;
-                    d = libsDirsN;
-                    continue;
-                }
-                // retire-member-dep-decls：**未声明**的条目（own-DEPS / path 闭包播种进来的）若解析自
-                // **编译器目录**（SDK 库），按 SDK 语义不复制（运行期从所在 SDK 解析）——声明过的
-                // 不走这条：`[dependencies]` 的既定默认是复制（用户 exe 自包含，z42-toml.md），要免复制
-                // 得显式 `deploy = "sdk"` / `"shared"`。workspace 成员 dist 段（`d < tier.MemberDirs`）
-                // 除外：本轮成员产物照旧拷进成员 exe 的 dist 保自包含（z42c.driver）。
-                if (ownSeed && dpl != "copy" && dpl != "sdk"
-                    && (tier == null || d >= tier.MemberDirs)
-                    && _isCompilerDomainDir(libsDirs[d])) {
-                    copied = true;
-                    d = libsDirsN;
-                    continue;
-                }
-                string dst = Path.Join(distDir, zname);
-                if (cand != dst) {
-                    // indexed（开发态）依赖：主文件只是目录，函数体在它旁边的散装 zbc 里 ⇒ **连散装 zbc 一起拷**，
-                    // 保持相对布局（加载器按「主文件所在目录 + rel」找）。此前只拷主文件 ⇒ 运行期 `undefined function`
-                    // （fix-bundle-indexed-deps，User 裁决：保留 indexed、装配时带上散装 zbc）。
-                    ZpkgInfo depInfo = ZpkgReader.Open(File.ReadAllBytes(cand), cand);
-                    if (depInfo != null && !depInfo.Packed) {
-                        int lc = _bundleLooseZbc(dep, libsDirs[d], distDir, ZpkgReader.ReadIndexedZbcRels(depInfo), ownZbc, copiedZbc);
-                        if (lc != 0) { return lc; }
-                    }
-                    if (File.Exists(dst)) { File.Delete(dst); }
-                    File.Copy(cand, dst);
-                    string sym = Path.Join(libsDirs[d], dep + ".zsym");
-                    if (File.Exists(sym)) {
-                        string symDst = Path.Join(distDir, dep + ".zsym");
-                        if (File.Exists(symDst)) { File.Delete(symDst); }
-                        File.Copy(sym, symDst);
-                    }
-                }
-                copied = true;
-                // ── 传递闭包（add-deployment-model 批 2.2 use）────────────────────────────
-                // 复制了一个非框架包 ⇒ **它自己的依赖也得跟着走**，否则拷到别处运行时会在
-                // 它的方法里炸（实测：`app → ncmid → ncleaf`，dist 里只有 ncmid，运行期死在
-                // `NcMid.Mid.Call`）。依赖名从 **zpkg 的 DEPS 段**读（`ReadDependencies`，#826
-                // 的 support）——不是源码树的 toml：那条路在 repo 外整个失效（publisher 今天
-                // 就是那样）。
-                //
-                // 只对**已复制**的包递归：框架包（从 shipped libs/ 找到的）不复制也不递归，
-                // 它的依赖同样在 libs/ 里；`deploy = "shared"` 的在循环开头就 continue 了，
-                // 它的闭包由运行期解析。
-                ZpkgInfo zi = null;
-                try { zi = ZpkgReader.Open(File.ReadAllBytes(cand), cand); } catch (Exception e) { zi = null; }
-                if (zi != null) {
-                    string[] sub = ZpkgReader.ReadDependencies(zi);
-                    int sj = 0;
-                    while (sj < sub.Length) {
-                        string sf = sub[sj];
-                        sj = sj + 1;
-                        // DEPS 段存的是**文件名**（`z42.core.zpkg`），names 里是包名。
-                        if (!_isZpkgRef(sf)) { continue; }
-                        string sn = sf.Substring(0, sf.Length - 5);
-                        // 已拷包的传递依赖必须随行（自包含链）——复制语义**压过** own-DEPS 的 SDK
-                        // 跳过位：该名字若带跳过位入表，清掉；已被跳过处理过的（序号在本轮游标之前），
-                        // 以普通条目重挂一份让复制发生。
-                        bool seen = false;
-                        bool reappend = false;
-                        int sq = 0;
-                        while (sq < nameN) {
-                            if (names[sq] == sn) {
-                                seen = true;
-                                if (sdkSkip[sq]) {
-                                    sdkSkip[sq] = false;
-                                    if (sq < i) { reappend = true; }
-                                }
-                            }
-                            sq = sq + 1;
-                        }
-                        if (seen && !reappend) { continue; }
-                        if (nameN == names.Length) {
-                            string[] nb2 = new string[names.Length * 2];
-                            string[] db2 = new string[names.Length * 2];
-                            bool[] kb2 = new bool[names.Length * 2];
-                            int k2 = 0;
-                            while (k2 < nameN) { nb2[k2] = names[k2]; db2[k2] = deploys[k2]; kb2[k2] = sdkSkip[k2]; k2 = k2 + 1; }
-                            names = nb2; deploys = db2; sdkSkip = kb2;
-                        }
-                        // 间接依赖不在 `[dependencies]` 里，无从声明 deploy ⇒ 走默认判据（SdkSkip = false：
-                        // 已拷包的传递链必须跟随，见 BundleSeed.z42）。
-                        names[nameN] = sn; deploys[nameN] = ""; sdkSkip[nameN] = false; nameN = nameN + 1;
-                    }
-                }
-                d = libsDirsN;   // break
-            } else {
-                d = d + 1;
-            }
-        }
-        if (!copied) {
-            ConsoleError.WriteLine("z42c build: exe dep '" + dep
+        if (dir.Length == 0) {
+            ConsoleError.WriteLine("z42c build: exe dep '" + item.Name
                 + "' zpkg 未在 libs 目录找到（先建兄弟包 / 用 --workspace / path 依赖）");
             return ExitCode.BuildError;
         }
+        if (item.Deploy != "copy" && _inDirs(frameworkDirs, dir)) { continue; }
+        if (item.SdkSkip && _isCompilerDomainDir(dir) && !_bundleMemberDir(tier, libsDirs, dir)) { continue; }
+        string candidate = Path.Join(dir, file);
+        byte[] bytes = File.ReadAllBytes(candidate);
+        ZpkgInfo info = ZpkgReader.Open(bytes, candidate);
+        int rc = _planExeDependency(item.Name, dir, distDir, info, bytes, ownZbc, copiedZbc, copies);
+        if (rc != ExitCode.Ok) { return rc; }
+        if (info != null) {
+            BundleDomain domain = item.Domain;
+            if (memberDomains != null) {
+                BundleDomain sourceDomain = memberDomains.Get(_normPath(candidate)) as BundleDomain;
+                if (sourceDomain != null) { domain = sourceDomain; }
+            }
+            if (!_queueExeDependencies(seed, ZpkgReader.ReadDependencies(info), domain, i, libsDirs, libsDirsN)) {
+                return ExitCode.BuildError;
+            }
+        }
     }
+    copies.Apply();
     return ExitCode.Ok;
 }
 
-// 🔴 **曾经剩下的缺口：按名引用的依赖没有传递闭包**（`app → mid → leaf` 而 app 只按名声明 mid）。
-// retire-member-dep-decls 起从两头补上：第一跳 = 本包 zpkg 的 DEPS 段（`_bundleSeed` ②，usings 驱动），
-// 后续跳 = 上面复制循环里对已拷包的 DEPS BFS。清单声明如今只贡献 `deploy` 键，不再承担「谁要拷」。
+bool _bundleMemberDir(WsTier tier, string[] libsDirs, string dir) {
+    if (tier == null) { return false; }
+    int d = 0;
+    while (d < tier.MemberDirs) {
+        if (libsDirs[d] == dir) { return true; }
+        d = d + 1;
+    }
+    return false;
+}
 
-// `z42c build --workspace [--output-dir <flat>] [--release]`：从 CWD 向上找
-// z42.workspace.toml → 成员拓扑序 → 逐成员 build。
-// Milestone 1（显式 --output-dir <flat>）：全成员产物落该 flat dir（= 各成员 libsDir，
-// deps-first 解析兄弟）。产物 zpkg 与 C# `build --workspace` byte-identical（字节与
-// 目录无关）。注意：flat dir 须含 stdlib 依赖（调用方 seed Z42_LIBS 内容）。
+string _bundleFindDir(BundleDomain domain, string[] dirs, int count, string file) {
+    if (domain != null) { return _firstDirHaving(domain.Dirs, domain.Count, file); }
+    return _firstDirHaving(dirs, count, file);
+}
+
+int _planExeDependency(string name, string dir, string distDir, ZpkgInfo info, byte[] bytes,
+                       StrMap ownZbc, StrMap copiedZbc, BundleCopies copies) {
+    string file = name + ".zpkg";
+    string source = Path.Join(dir, file);
+    string symbols = name + ".zsym";
+    if (_samePath(dir, distDir)) {
+        copies.Keep(file);
+        copies.Keep(symbols);
+        if (info != null && !info.Packed) {
+            foreach (var rel in ZpkgReader.ReadIndexedZbcRels(info)) { copies.Keep(rel); }
+        }
+        return ExitCode.Ok;
+    }
+    if (info != null && !info.Packed) {
+        int rc = _bundleLooseZbc(name, dir, distDir, ZpkgReader.ReadIndexedZbcRels(info), ownZbc, copiedZbc, copies);
+        if (rc != ExitCode.Ok) { return rc; }
+    }
+    copies.Add(file, source, bytes);
+    string symSource = Path.Join(dir, symbols);
+    if (File.Exists(symSource)) { copies.Add(symbols, symSource, File.ReadAllBytes(symSource)); }
+    return ExitCode.Ok;
+}
+
+bool _queueExeDependencies(BundleSeed seed, string[] deps, BundleDomain domain, int cursor, string[] dirs, int count) {
+    int i = 0;
+    while (i < deps.Length) {
+        string file = deps[i];
+        i = i + 1;
+        if (!_isZpkgRef(file)) { continue; }
+        string name = file.Substring(0, file.Length - 5);
+        int previous = seed.IndexOf(name);
+        if (previous < 0) {
+            string deploy = domain == null ? "" : domain.Deploy(name);
+            seed.Append(new BundleItem(name, deploy, false, domain));
+            continue;
+        }
+        BundleItem existing = seed.Items[previous];
+        if (existing.Domain != domain && !_compatibleBundleSources(existing, domain, dirs, count, file)) { return false; }
+        // A copied package's closure takes precedence over the own-DEPS SDK skip.
+        if (existing.SdkSkip) {
+            existing.SdkSkip = false;
+            if (previous < cursor) { seed.Append(existing); }
+        }
+    }
+    return true;
+}
+
+bool _compatibleBundleSources(BundleItem existing, BundleDomain domain, string[] dirs, int count, string file) {
+    string left = _bundleFindDir(existing.Domain, dirs, count, file);
+    string right = _bundleFindDir(domain, dirs, count, file);
+    if (left.Length == 0 || right.Length == 0 || _samePath(left, right)) { return true; }
+    ConsoleError.WriteLine("z42c build: conflicting runtime sources for " + file + ": "
+        + Path.Join(left, file) + " and " + Path.Join(right, file));
+    return false;
+}
 
 // `deploy` 声明的合法性（add-deployment-model 批 4.3）。由 `_build` 在**编译之前**调用 ——
 // 与 `_validateProfileKnobs` 同款「清单有问题不等一趟全量编译」。
@@ -434,7 +346,7 @@ StrMap _ownLooseZbc(ProjectManifest pm, string distDir) {
 
 // 把 indexed 依赖 `dep` 的散装 zbc 从 fromDir 拷到 distDir（保持相对路径）。与本包自己的 zbc、或本轮另一个
 // 依赖的 zbc 撞名 ⇒ 报错（同一路径只能有一份，加载器按路径找）。
-int _bundleLooseZbc(string dep, string fromDir, string distDir, string[] rels, StrMap ownZbc, StrMap copiedZbc) {
+int _bundleLooseZbc(string dep, string fromDir, string distDir, string[] rels, StrMap ownZbc, StrMap copiedZbc, BundleCopies copies) {
     int r = 0;
     while (r < rels.Length) {
         string rel = rels[r];
@@ -448,17 +360,17 @@ int _bundleLooseZbc(string dep, string fromDir, string distDir, string[] rels, S
                 + ". Rename one of the source files, or build `" + dep + "` packed (`pack = true` in its [project]).");
             return ExitCode.BuildError;
         }
+        if (!_bundlePayloadRel(rel) || !rel.EndsWith(".zbc")) {
+            ConsoleError.WriteLine("z42c build: unsafe indexed dependency payload path: " + rel);
+            return ExitCode.BuildError;
+        }
         string src = Path.Join(fromDir, rel);
-        string dst = Path.Join(distDir, rel);
         if (!File.Exists(src)) {
             ConsoleError.WriteLine("z42c build: indexed dependency `" + dep + "` is missing its loose file `" + src
                 + "` (its dist is incomplete — rebuild it)");
             return ExitCode.BuildError;
         }
-        string parent = Path.GetDirectoryName(dst);
-        if (parent.Length > 0) { Directory.Create(parent); }
-        if (File.Exists(dst)) { File.Delete(dst); }
-        File.Copy(src, dst);
+        copies.Add(rel, src, File.ReadAllBytes(src));
         copiedZbc.Put(rel, dep);
     }
     return 0;

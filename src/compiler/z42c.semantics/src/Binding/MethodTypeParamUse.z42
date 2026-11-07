@@ -177,6 +177,8 @@ public static class MethodTypeParamUse {
             }
             return false;
         }
+        // fieldof/propertyof：括号内没有任何 TypeExpr（字段/属性无签名），不可能消费型参。
+        public bool VisitFieldOfExpr(FieldOfExpr n, Unit d) { return false; }
         public bool VisitDefaultExpr(DefaultExpr n, Unit d) { return this._t(n.Target); }
         public bool VisitArrayNewExpr(ArrayNewExpr n, Unit d) {
             if (this._t(n.Elem)) { return true; }

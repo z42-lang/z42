@@ -74,11 +74,15 @@ auto-prop）。不支持：Dict 非字符串键 / Set / enum / nullable。
 `JsonSerializer.SerializeTo` 和 `SerializeToPretty` 以同样方式写出对象的 UTF-8 JSON。
 文档准备成功后调用一次 Write 和一次 Flush。底层流由调用方管理。
 
+字符串键和值先在 UTF-8 存储中检查转义字符。无需转义的字符串直接作为输出片段，
+含转义字符的字符串从首个命中处按原有规则逐标量处理。
+
 ## 如何测试验证
 
 ```bash
 xtask test stdlib z42.json    # 本库全部 [Test]（DOM / JsonPath / serde / stream）
 xtask bench stdlib z42.json -k json_stream_write_bench
+xtask bench stdlib z42.json -k json_escape_scan_bench
 ```
 
 ## 关联文档

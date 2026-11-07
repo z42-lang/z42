@@ -39,6 +39,7 @@ public interface IExprVisitor<R, D> {
     R VisitAsExpr(AsExpr n, D d);
     R VisitTypeofExpr(TypeofExpr n, D d);
     R VisitMethodOfExpr(MethodOfExpr n, D d);
+    R VisitFieldOfExpr(FieldOfExpr n, D d);
     R VisitCastExpr(CastExpr n, D d);
     R VisitObjNewExpr(ObjNewExpr n, D d);
     R VisitObjInitExpr(ObjInitExpr n, D d);

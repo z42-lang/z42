@@ -9,17 +9,30 @@ use std::sync::Arc;
 #[derive(Default)]
 pub(crate) struct State {
     #[cfg(feature = "native-interop")]
-    pub(super) native_types: parking_lot::RwLock<HashMap<(String, String), Arc<super::RegisteredType>>>,
+    native_types: parking_lot::RwLock<HashMap<(String, String), Arc<super::RegisteredType>>>,
     pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>,
     #[cfg(feature = "native-interop")]
-    pub(super) ext_libs_tried: Mutex<std::collections::HashSet<&'static str>>,
+    ext_libs_tried: Mutex<std::collections::HashSet<&'static str>>,
     // Drop last: registered descriptors and native resource destructors point into these libraries.
     #[cfg(feature = "native-interop")]
-    pub(super) native_libs: Mutex<Vec<crate::pal::dynlib::Library>>,
+    native_libs: Mutex<Vec<crate::pal::dynlib::Library>>,
 }
 
-pub(super) fn state(ctx: &VmContext) -> Result<&State> {
+fn state(ctx: &VmContext) -> Result<&State> {
     ctx.ext::<State>().ok_or_else(|| anyhow!("missing interop VM state"))
+}
+
+/// Record the first load attempt for a bundled SDK extension in this VM.
+#[cfg(feature = "native-interop")]
+pub(super) fn claim_extension_load(ctx: &VmContext, lib: &'static str) -> Result<bool> {
+    Ok(state(ctx)?.ext_libs_tried.lock().insert(lib))
+}
+
+/// Keep the library open while registered types and extension resources may call it.
+#[cfg(feature = "native-interop")]
+pub(super) fn retain_library(ctx: &VmContext, lib: crate::pal::dynlib::Library) -> Result<()> {
+    state(ctx)?.native_libs.lock().push(lib);
+    Ok(())
 }
 
 /// Register a type once per (module, name), preserving the original on duplicate.

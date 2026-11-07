@@ -102,3 +102,22 @@ void test_no_capture_groups_in_pattern_emits_dollar_one_literal() {
     Regex r = Regex.Compile("\\d+");
     Assert.Equal("$1 $1", r.Replace("42 7", "$1"));
 }
+
+[Test]
+void test_replacement_template_reuses_literal_runs_across_matches() {
+    Regex r = Regex.Compile("(x)|(y)");
+    Assert.Equal("é😀x-$-!😀-y$-",
+        r.Replace("éx!y", "😀$1-$2$$-"));
+}
+
+[Test]
+void test_unrecognized_dollars_and_trailing_dollar_remain_literal() {
+    Regex r = Regex.Compile("(x)");
+    Assert.Equal("$9|$😀|$0|x|$:$9|$😀|$0|x|$",
+        r.Replace("x:x", "$9|$😀|$$0|$1|$"));
+}
+
+[Test]
+void test_no_match_does_not_inspect_null_replacement() {
+    Assert.Equal("safe", Regex.Compile("x").Replace("safe", null));
+}

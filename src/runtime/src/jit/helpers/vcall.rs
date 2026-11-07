@@ -40,8 +40,8 @@ pub unsafe extern "C" fn jit_vcall(
 }
 
 /// `jit_vcall` for a method-level generic call site (`e.Accept<R, A>(...)`): `mta_ptr/len`
-/// is the site's `method_type_args`, threaded into the callee frame only when the callee
-/// runs on the interpreter — a compiled callee cannot observe it (see `jit_call_mta`).
+/// is the site's `method_type_args`. The callee receives the bound arguments
+/// in either tier, as with `jit_call_mta`.
 /// Resolution and the PIC are the same as the non-generic site: generics are erased,
 /// one `FnId` serves every instantiation.
 #[unsafe(no_mangle)]
@@ -54,8 +54,7 @@ pub unsafe extern "C" fn jit_vcall_mta(
     mta_ptr: *const String, mta_len: usize,
 ) -> u8 {
     let mta = std::slice::from_raw_parts(mta_ptr, mta_len);
-    // Class-level type params forwarded by the site (`$cta:N@Owner`) bind from the receiver
-    // (reg 0); a method-level one keeps the caller out of the JIT (`forwards_caller_mta`).
+    // Keep any temporary bound arguments alive for the callee activation.
     let bound;
     let mta = match super::object::bind_forwarded_mta(frame, ctx, mta) {
         Some(v) => { bound = v; &bound[..] }
@@ -102,6 +101,10 @@ unsafe fn vcall_impl(
                 vm_ctx, module, &obj_val,
                 std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len)).unwrap_or("?"),
                 func);
+            if let Some(value) = read_resolved_field(vm_ctx, func, &obj_val, arg_regs, mta, ic) {
+                frame_ref.regs[dst as usize] = value;
+                return 0;
+            }
             // Move `obj_val` in — this branch always returns.
             return match rt.resolve_fn_by_id_tiered(&*ctx, id) {
                 Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, obj_val, arg_regs, mta),
@@ -124,17 +127,33 @@ unsafe fn vcall_impl(
         // Module-local or lazily loaded: compiled (or compiles at the tier threshold) →
         // native; cold / untranslatable (interp-only opcode such as `LoadLocalAddr`) / no
         // `FnId` → interp, mirroring `jit_call`'s cross-zpkg-via-interp fallback.
-        VCallTarget::Local { func, id } => match id.and_then(|id| rt.resolve_fn_by_id_tiered(&*ctx, id)) {
-            Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, resolved.this, arg_regs, mta),
-            None => invoke_interp(frame_ref, ctx, dst, func, resolved.this, arg_regs, mta),
-        },
+        VCallTarget::Local { func, id } => {
+            // Some resolution fallbacks deliberately leave the dispatch PIC empty.
+            let reader_ic = ic.filter(|_| id.is_some() && vcall_ic_hit(ic, &obj_val) == id);
+            if let Some(value) = read_resolved_field(vm_ctx, func, &resolved.this, arg_regs, mta, reader_ic) {
+                frame_ref.regs[dst as usize] = value;
+                return 0;
+            }
+            match id.and_then(|id| rt.resolve_fn_by_id_tiered(&*ctx, id)) {
+                Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, resolved.this, arg_regs, mta),
+                None => invoke_interp(frame_ref, ctx, dst, func, resolved.this, arg_regs, mta),
+            }
+        }
     }
+}
+
+// The PIC has already selected the target. A field reader needs no JIT tier lookup.
+#[inline]
+fn read_resolved_field(
+    ctx: &VmContext, func: &Function, this: &Value, args: &[u32], mta: &[String], ic: Option<&VCallIC>,
+) -> Option<Value> {
+    if !args.is_empty() || !mta.is_empty() { return None; }
+    crate::vm::exec::call::forward::try_field_read_cached(ctx, func, this, ic.map(|site| &site.field_reader))
 }
 
 /// Run a compiled entry: receiver in reg 0, args read straight from the caller's
 /// registers (no `Vec<Value>`), one `VmFrame` push covering GC roots + stack trace.
-/// `mta` is not passed on (a compiled callee cannot read it); it only keeps a `[Native]`
-/// wrapper from folding on a generic site, as the interpreter's `try_fold` does.
+/// Preserve the bound method type arguments for the callee activation.
 unsafe fn invoke_entry(
     frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
     entry: &FnEntry, this: Value, arg_regs: &[u32], mta: &[String],
@@ -146,7 +165,8 @@ unsafe fn invoke_entry(
         }
     }
     let vm = vm_ctx_ref(ctx);
-    let callee = JitFrame::new_method_args_from(vm, entry.max_reg, this, &frame_ref.regs, arg_regs);
+    let mut callee = JitFrame::new_method_args_from(vm, entry.max_reg, this, &frame_ref.regs, arg_regs);
+    callee.method_type_args = mta;
     call_entry(vm, entry, callee).store_into(&mut frame_ref.regs, dst)
 }
 

@@ -24,13 +24,15 @@
 //! - **并发复用同一个 `Regex`**：匹配状态存在实例字段上，多线程共享会互相踩
 namespace Std.Regex;
 
+using Std.Collections;
+
 /// 编译后的 pattern：解析为 AST，提供匹配 / 查找 / 替换 / 切分方法。
 ///
 /// 线程内复用；同一个 `Regex` 实例不要跨线程并发调用（匹配过程写实例字段）。
 /// 调用退出时释放临时输入绑定和字符缓冲；返回的 Match 独立持有输入与捕获快照。
 public class Regex {
-    private RegexNode[] _seq;
-    private int _seqCount;
+    private RegexProgram _program;
+    private bool _anchoredStart;
     private int _groupCount;        // 1 + capturing groups（group 0 = entire match）
 
     // ── mutable match state ───────────────────────────────────────────────
@@ -41,8 +43,15 @@ public class Regex {
     // O(1) array indexing instead of a `CharAt` builtin call each. `_input` is
     // kept for `.Length` / `.Substring`.
     private char[] _chars;
-    private int[] _gStarts;
-    private int[] _gEnds;
+    private int[] _slots;
+    private RegexInstruction[] _choices;
+    // Each choice stores [position, trail length, final position, position step].
+    // A zero step marks a single alternative.
+    private int[] _choiceData;
+    // Each recorded change stores a slot index and its previous value.
+    private int[] _trail;
+    private int _choiceCount;
+    private int _trailCount;
 
     // 命名组名 → 1-based 捕获下标 的并行数组；pattern 里没有 `(?<name>…)` 时为空数组。
     // 名字区分大小写，且每个 pattern 内必须唯一（parser 拒绝重名）。
@@ -59,8 +68,11 @@ public class Regex {
     private Regex(RegexNode[] seq, int seqCount, int groupCount,
                   string[] groupNames, int[] groupIndices, int namedGroupCount,
                   bool caseInsensitive, bool multiline) {
-        this._seq             = seq;
-        this._seqCount        = seqCount;
+        this._program         = new RegexProgram(seq, seqCount);
+        this._anchoredStart   = seqCount > 0 && seq[0]._kind == 4 && !multiline;
+        if (groupCount > 1 || this._program.RepeatCount > 0) {
+            this._slots = new int[(groupCount + this._program.RepeatCount) * 2];
+        }
         this._groupCount      = groupCount;
         this._groupNames      = groupNames;
         this._groupIndices    = groupIndices;
@@ -146,8 +158,7 @@ public class Regex {
             this._BindInput(input);
             return this.ScanFrom(0);
         } finally {
-            this._input = null;
-            this._chars = null;
+            this._ReleaseInput();
         }
     }
 
@@ -169,17 +180,15 @@ public class Regex {
                 }
                 buf[n] = m;
                 n = n + 1;
-                // 推进至少一格（避免空匹配死循环）
-                if (m.End() == pos) { pos = pos + 1; }
-                else { pos = m.End(); }
+                int end = m.End();
+                pos = end == m.Start() ? end + 1 : end;
             }
             Match[] result = new Match[n];
             int j = 0;
             while (j < n) { result[j] = buf[j]; j = j + 1; }
             return result;
         } finally {
-            this._input = null;
-            this._chars = null;
+            this._ReleaseInput();
         }
     }
 
@@ -187,71 +196,74 @@ public class Regex {
     public string Replace(string input, string replacement) {
         Match[] matches = this.FindAll(input);
         if (matches.Length == 0) { return input; }
-        // replacement 可含 `$0`/`$1`/.../`$9` 占位符（整个 match / 组 N）与 `$$`（字面 `$`）；
-        // 不含 `$` 时输出即 replacement 字面量。
-        string acc = "";
-        int cursor = 0;
-        int i = 0;
-        while (i < matches.Length) {
-            Match m = matches[i];
-            acc = acc + input.Substring(cursor, m.Start() - cursor);
-            acc = acc + this._ExpandReplacement(replacement, m);
-            cursor = m.End();
-            i = i + 1;
+        int firstDollar = replacement.IndexOf('$');
+        string[] tokens = null;
+        int[] captures = null;
+        if (firstDollar >= 0) {
+            var literals = new List<string>();
+            var dynamicTokens = new List<int>();
+            this._ParseReplacement(replacement, firstDollar, literals, dynamicTokens);
+            tokens = literals.ToArray();
+            if (dynamicTokens.Count == 0) {
+                replacement = String.ConcatParts(tokens, tokens.Length);
+            } else {
+                captures = dynamicTokens.ToArray();
+            }
         }
-        acc = acc + input.Substring(cursor, input.Length - cursor);
-        return acc;
+        var parts = new List<string>();
+        int cursor = 0;
+        for (int i = 0; i < matches.Length; i = i + 1) {
+            Match m = matches[i];
+            int start = m.Start();
+            if (cursor < start) {
+                parts.Add(input.Substring(cursor, start - cursor));
+            }
+            if (captures != null) {
+                for (int j = 0; j < captures.Length; j = j + 2) {
+                    tokens[captures[j]] = m.Group(captures[j + 1]);
+                }
+                parts.Add(tokens.Length == 1 ? tokens[0] : String.ConcatParts(tokens, tokens.Length));
+            } else {
+                parts.Add(replacement);
+            }
+            cursor = m.End();
+        }
+        if (cursor < input.Length) {
+            parts.Add(input.Substring(cursor, input.Length - cursor));
+        }
+        return String.ConcatParts(parts.ToArray(), parts.Count);
     }
 
-    // 把 replacement 里的 `$N` 替换为 m.Group(N)：`$0` → 整个 match；`$1`..`$9` → 捕获组 N；
-    // `$$` → 字面 `$`。`$` 后跟其他字符按字面 `$X` 原样输出（对齐 .NET 行为，避免误伤纯文本里的 `$`）。
-    private string _ExpandReplacement(string replacement, Match m) {
-        // Fast path: no `$` anywhere → literal.
-        int probe = 0;
-        bool hasDollar = false;
-        while (probe < replacement.Length) {
-            if (replacement.CharAt(probe) == '$') { hasDollar = true; break; }
-            probe = probe + 1;
-        }
-        if (!hasDollar) { return replacement; }
-        string acc = "";
-        int i = 0;
-        while (i < replacement.Length) {
-            char c = replacement.CharAt(i);
-            if (c != '$' || i + 1 >= replacement.Length) {
-                char[] one = new char[1]; one[0] = c;
-                acc = acc + String.FromChars(one);
-                i = i + 1;
+    // Store ordinary text in runs. Only $$ and a single in-range group digit
+    // consume a token, while unrecognized two-character sequences stay literal.
+    private void _ParseReplacement(string replacement, int firstDollar, List<string> literals, List<int> dynamicTokens) {
+        int length = replacement.Length;
+        int literalStart = 0;
+        int pos = firstDollar;
+        while (pos + 1 < length) {
+            if (replacement.CharAt(pos) != '$') {
+                pos = pos + 1;
                 continue;
             }
-            char nx = replacement.CharAt(i + 1);
-            if (nx == '$') {
-                acc = acc + "$";
-                i = i + 2;
-                continue;
-            }
-            int code = (int)nx;
-            if (code >= 48 && code <= 57) {
-                int groupIdx = code - 48;
-                if (groupIdx <= this.GroupCount()) {
-                    acc = acc + m.Group(groupIdx);
-                    i = i + 2;
-                    continue;
+            char next = replacement.CharAt(pos + 1);
+            int group = (int)next - 48;
+            bool dollar = next == '$';
+            if (dollar || (group >= 0 && group <= 9 && group <= this.GroupCount())) {
+                if (literalStart < pos) {
+                    literals.Add(replacement.Substring(literalStart, pos - literalStart));
                 }
-                // Out-of-range group index → emit literally (`.NET` policy).
-                char[] dollar = new char[1]; dollar[0] = '$';
-                char[] digit  = new char[1]; digit[0]  = nx;
-                acc = acc + String.FromChars(dollar) + String.FromChars(digit);
-                i = i + 2;
-                continue;
+                if (!dollar) {
+                    dynamicTokens.Add(literals.Count);
+                    dynamicTokens.Add(group);
+                }
+                literals.Add(dollar ? "$" : null);
+                literalStart = pos + 2;
             }
-            // `$` followed by non-digit, non-`$` → emit `$` + char literally.
-            char[] dollar = new char[1]; dollar[0] = '$';
-            char[] other  = new char[1]; other[0]  = nx;
-            acc = acc + String.FromChars(dollar) + String.FromChars(other);
-            i = i + 2;
+            pos = pos + 2;
         }
-        return acc;
+        if (literalStart < length) {
+            literals.Add(replacement.Substring(literalStart, length - literalStart));
+        }
     }
 
     /// 按 match 切分；无匹配返回 [input]，空输入返回 [""]。
@@ -280,20 +292,16 @@ public class Regex {
     // Scans the subject bound by _BindInput from startPos onward.
     private Match ScanFrom(int startPos) {
         string input = this._input;
-        // ^ anchored 优化：若第一个 atom 是 ANCHOR_START，仅尝试 startPos == 0。
-        // 但 multiline 下 `^` 也匹配 `\n` 之后，这个快速失败优化不安全——multiline 时整体关闭。
-        bool anchoredStart = (this._seqCount > 0 && this._seq[0]._kind == 4)
-                          && !this._multiline;
         int from = startPos;
         while (from <= input.Length) {
             this.ResetState();
-            int end = this.Match(this._seq, this._seqCount, 0, from);
+            int end = this.Run(from);
             if (end >= 0) {
                 // R2: give the Match its own copy of the reused slot arrays (null when
                 // no capturing groups — Match never reads them for group 0).
-                return new Match(input, from, end, this.SnapshotStarts(), this.SnapshotEnds(), this._groupCount, this);
+                return new Match(input, from, end, this.SnapshotCaptures(0), this.SnapshotCaptures(this._groupCount), this._groupCount, this);
             }
-            if (anchoredStart) { return null; }
+            if (this._anchoredStart) { return null; }
             from = from + 1;
         }
         return null;
@@ -308,141 +316,216 @@ public class Regex {
         this._chars = input.ToCharArray();
     }
 
-    // perf (R2): reuse the group-slot arrays across scan positions — allocate once
-    // (or on group-count change) and reset in place, instead of `new int[groupCount]`
-    // ×2 at every start position (O(n) throwaway allocs on an unanchored no-match
-    // scan). A matched Match gets its OWN copy at construction (see ScanFrom), so the
-    // reused arrays are never aliased by a returned Match.
-    private void ResetState() {
-        if (this._gStarts == null || this._gStarts.Length != this._groupCount) {
-            this._gStarts = new int[this._groupCount];
-            this._gEnds   = new int[this._groupCount];
+    private void _ReleaseInput() {
+        this._input = null;
+        this._chars = null;
+        // Keep ordinary workspaces for reuse without retaining a large call's high-water mark.
+        if (this._choices != null && this._choices.Length > 1024) {
+            this._choices = null;
+            this._choiceData = null;
         }
-        int i = 0;
-        while (i < this._groupCount) {
-            this._gStarts[i] = -1;
-            this._gEnds[i]   = -1;
-            i = i + 1;
+        if (this._trail != null && this._trail.Length > 4096) {
+            this._trail = null;
         }
     }
 
-    // 核心 match：从 seq[idx..count) 匹配，起始 pos。返回结束 pos 或 -1。
-    [Suppress("style.fnLinesHard", "105 body lines；拆分见 code-organization.md")]
-    private int Match(RegexNode[] seq, int count, int idx, int pos) {
-        if (idx >= count) { return pos; }
-        RegexNode node = seq[idx];
-        int k = node._kind;
+    // Slots are [capture starts, capture ends, repeat counts, repeat body start positions].
+    private void ResetState() {
+        this._choiceCount = 0;
+        this._trailCount = 0;
+        if (this._groupCount > 1) {
+            for (int i = 0; i < this._groupCount * 2; i = i + 1) {
+                this._slots[i] = -1;
+            }
+        }
+    }
 
-        if (k == 1) {  // LIT
-            if (pos < this._input.Length) {
-                int inCh  = (int)this._chars[pos];
-                int patCh = node._ch;
-                bool eq;
-                if (this._caseInsensitive) {
-                    eq = (Regex._fold(inCh) == Regex._fold(patCh));
+    private void Choose(RegexInstruction instruction, int position, int last, int step) {
+        if (this._choices == null) {
+            this._choices = new RegexInstruction[8];
+            this._choiceData = new int[32];
+        } else if (this._choiceCount == this._choices.Length) {
+            this._choices = Array.Resize<RegexInstruction>(this._choices, this._choiceCount * 2);
+            this._choiceData = Array.Resize<int>(this._choiceData, this._choiceCount * 8);
+        }
+        this._choices[this._choiceCount] = instruction;
+        int choice = this._choiceCount * 4;
+        this._choiceData[choice] = position;
+        this._choiceData[choice + 1] = this._trailCount;
+        this._choiceData[choice + 2] = last;
+        this._choiceData[choice + 3] = step;
+        this._choiceCount = this._choiceCount + 1;
+    }
+
+    private void SetSlot(int slot, int value) {
+        if (this._choiceCount > 0 && this._slots[slot] != value) {
+            if (this._trail == null) {
+                this._trail = new int[16];
+            } else if (this._trailCount == this._trail.Length) {
+                this._trail = Array.Resize<int>(this._trail, this._trailCount * 2);
+            }
+            this._trail[this._trailCount] = slot;
+            this._trail[this._trailCount + 1] = this._slots[slot];
+            this._trailCount = this._trailCount + 2;
+        }
+        this._slots[slot] = value;
+    }
+
+    private void Rewind(int count) {
+        while (this._trailCount > count) {
+            this._trailCount = this._trailCount - 2;
+            this._slots[this._trail[this._trailCount]] = this._trail[this._trailCount + 1];
+        }
+    }
+
+    private int Run(int position) {
+        RegexInstruction instruction = this._program.Entry;
+        while (true) {
+            if (instruction == null) {
+                if (this._choiceCount == 0) { return -1; }
+                this._choiceCount = this._choiceCount - 1;
+                int choice = this._choiceCount * 4;
+                this.Rewind(this._choiceData[choice + 1]);
+                instruction = this._choices[this._choiceCount];
+                position = this._choiceData[choice];
+                int step = this._choiceData[choice + 3];
+                if (step != 0 && position != this._choiceData[choice + 2]) {
+                    this._choiceData[choice] = position + step;
+                    this._choiceCount = this._choiceCount + 1;
+                }
+            }
+            RegexOperation operation = instruction.Operation;
+            if (operation == RegexOperation.Accept) { return position; }
+            if (operation == RegexOperation.Literal) {
+                if (position == this._chars.Length) { instruction = null; continue; }
+                int actual = (int)this._chars[position];
+                int expected = instruction.Node._ch;
+                bool equal = this._caseInsensitive
+                    ? Regex._fold(actual) == Regex._fold(expected) : actual == expected;
+                if (equal) { position = position + 1; }
+                instruction = equal ? instruction.Next : null;
+            } else if (operation == RegexOperation.Atom) {
+                int next = this.MatchAtom(instruction.Node, position);
+                if (next < 0) {
+                    instruction = null;
                 } else {
-                    eq = (inCh == patCh);
+                    position = next;
+                    instruction = instruction.Next;
                 }
-                if (eq) { return this.Match(seq, count, idx + 1, pos + 1); }
-            }
-            return -1;
-        }
-        if (k == 2) {  // ANY (v0：包括换行)
-            if (pos < this._input.Length) {
-                return this.Match(seq, count, idx + 1, pos + 1);
-            }
-            return -1;
-        }
-        if (k == 3) {  // CHARSET
-            if (pos < this._input.Length) {
-                int ch = (int)this._chars[pos];
-                bool hit = node.CharsetMatches(ch);
-                if (this._caseInsensitive) {
-                    int swapped = Regex._swapCase(ch);
-                    if (swapped != ch) {
-                        bool hit2 = node.CharsetMatches(swapped);
-                        // Positive charset `[A]`: EITHER case matches (OR).
-                        // Negated charset `[^A]`: BOTH cases must be in
-                        // the negated set (AND) — case-insensitive means
-                        // both `A` and `a` should be excluded.
-                        if (node._negated) {
-                            hit = hit && hit2;
-                        } else {
-                            hit = hit || hit2;
-                        }
-                    }
+            } else if (operation == RegexOperation.Branch) {
+                this.Choose(instruction.Other, position, position, 0);
+                instruction = instruction.Next;
+            } else if (operation == RegexOperation.CaptureStart) {
+                this.SetSlot(instruction.Slot, position);
+                instruction = instruction.Next;
+            } else if (operation == RegexOperation.CaptureEnd) {
+                this.SetSlot(this._groupCount + instruction.Slot, position);
+                instruction = instruction.Next;
+            } else if (operation == RegexOperation.RepeatAtom) {
+                int next = this.MatchRepeatAtom(instruction, position);
+                if (next < 0) {
+                    instruction = null;
+                } else {
+                    position = next;
+                    instruction = instruction.Next;
                 }
-                if (hit) { return this.Match(seq, count, idx + 1, pos + 1); }
+            } else {
+                instruction = this.RunRepeat(instruction, position);
             }
-            return -1;
         }
-        if (k == 4) {  // ANCHOR_START
-            if (pos == 0) { return this.Match(seq, count, idx + 1, pos); }
-            // multiline 下 `^` 也匹配任意 `\n` 之后。
-            if (this._multiline && pos > 0
-                && (int)this._chars[pos - 1] == 10) {
-                return this.Match(seq, count, idx + 1, pos);
+    }
+
+    // A consuming atom has no internal choices. Its possible end positions form
+    // one contiguous range that can share a single backtrack frame.
+    private int MatchRepeatAtom(RegexInstruction instruction, int start) {
+        RegexNode repeat = instruction.Node;
+        RegexNode atom = repeat._childSeq[0];
+        int end = start;
+        int limit = this._chars.Length;
+        if (repeat._max >= 0 && repeat._max < limit - start) {
+            limit = start + repeat._max;
+        }
+        while (end < limit && this.MatchAtom(atom, end) >= 0) {
+            end = end + 1;
+        }
+        if (end - start < repeat._min) { return -1; }
+        int minEnd = start + repeat._min;
+        if (repeat._greedy) {
+            if (end > minEnd) { this.Choose(instruction.Next, end - 1, minEnd, -1); }
+            return end;
+        }
+        if (end > minEnd) { this.Choose(instruction.Next, minEnd + 1, end, 1); }
+        return minEnd;
+    }
+
+    private RegexInstruction RunRepeat(RegexInstruction instruction, int position) {
+        int countSlot = this._groupCount * 2 + instruction.Slot;
+        int startSlot = countSlot + this._program.RepeatCount;
+        RegexOperation operation = instruction.Operation;
+        if (operation == RegexOperation.RepeatInit) {
+            this.SetSlot(countSlot, 0);
+            return instruction.Next;
+        }
+        if (operation == RegexOperation.RepeatBody) {
+            this.SetSlot(startSlot, position);
+            return instruction.Next;
+        }
+        RegexNode node = instruction.Node;
+        int count = this._slots[countSlot];
+        if (operation == RegexOperation.RepeatEnd) {
+            // Reject this iteration once the minimum is met. Backtracking can still
+            // try another body branch that consumes input before leaving the repeat.
+            if (position == this._slots[startSlot] && count >= node._min) { return null; }
+            this.SetSlot(countSlot, count + 1);
+            return instruction.Next;
+        }
+        if (count < node._min) { return instruction.Next; }
+        if (node._max >= 0 && count == node._max) { return instruction.Other; }
+        if (node._greedy) {
+            this.Choose(instruction.Other, position, position, 0);
+            return instruction.Next;
+        }
+        this.Choose(instruction.Next, position, position, 0);
+        return instruction.Other;
+    }
+
+    private int MatchAtom(RegexNode node, int position) {
+        int kind = node._kind;
+        int length = this._chars.Length;
+        if (kind == 4) {
+            return position == 0 || (this._multiline && (int)this._chars[position - 1] == 10)
+                ? position : -1;
+        }
+        if (kind == 5) {
+            return position == length || (this._multiline && (int)this._chars[position] == 10)
+                ? position : -1;
+        }
+        if (kind == 9) { return this._AtWordBoundary(position) ? position : -1; }
+        if (kind == 10) { return this._AtWordBoundary(position) ? -1 : position; }
+        if (position == length) { return -1; }
+        if (kind == 2) { return position + 1; }
+        int ch = (int)this._chars[position];
+        if (kind == 1) {
+            bool equal = this._caseInsensitive
+                ? Regex._fold(ch) == Regex._fold(node._ch) : ch == node._ch;
+            return equal ? position + 1 : -1;
+        }
+        bool hit = node.CharsetMatches(ch);
+        if (this._caseInsensitive) {
+            int swapped = Regex._swapCase(ch);
+            if (swapped != ch) {
+                bool other = node.CharsetMatches(swapped);
+                hit = node._negated ? hit && other : hit || other;
             }
-            return -1;
         }
-        if (k == 5) {  // ANCHOR_END
-            if (pos == this._input.Length) { return this.Match(seq, count, idx + 1, pos); }
-            // multiline 下 `$` 也匹配任意 `\n` 之前。
-            if (this._multiline && pos < this._input.Length
-                && (int)this._chars[pos] == 10) {
-                return this.Match(seq, count, idx + 1, pos);
-            }
-            return -1;
-        }
-        if (k == 6) {  // ALT — try left subseq then idx+1; on fail restore and try right
-            int[] savS = this.SnapshotStarts();
-            int[] savE = this.SnapshotEnds();
-            int lp = this.Match(node._leftSeq, node._leftCount, 0, pos);
-            if (lp >= 0) {
-                int rp = this.Match(seq, count, idx + 1, lp);
-                if (rp >= 0) { return rp; }
-            }
-            this.RestoreStarts(savS);
-            this.RestoreEnds(savE);
-            int rp2 = this.Match(node._rightSeq, node._rightCount, 0, pos);
-            if (rp2 >= 0) {
-                int fp = this.Match(seq, count, idx + 1, rp2);
-                if (fp >= 0) { return fp; }
-            }
-            this.RestoreStarts(savS);
-            this.RestoreEnds(savE);
-            return -1;
-        }
-        if (k == 7) {  // QUANT — greedy
-            return this.MatchQuant(node, seq, count, idx, pos);
-        }
-        if (k == 8) {  // GROUP
-            int[] savS = this.SnapshotStarts();
-            int[] savE = this.SnapshotEnds();
-            int gp = this.Match(node._childSeq, node._childCount, 0, pos);
-            if (gp >= 0) {
-                // _groupIndex == -1 标记非捕获组 `(?:…)`——不写捕获槽位。
-                if (node._groupIndex >= 0) {
-                    this._gStarts[node._groupIndex] = pos;
-                    this._gEnds[node._groupIndex]   = gp;
-                }
-                int rp = this.Match(seq, count, idx + 1, gp);
-                if (rp >= 0) { return rp; }
-            }
-            this.RestoreStarts(savS);
-            this.RestoreEnds(savE);
-            return -1;
-        }
-        // 零宽 `\b`（WORD_BOUNDARY）/ `\B`（WORD_NON_BOUNDARY）断言。
-        if (k == 9) {
-            if (this._AtWordBoundary(pos)) { return this.Match(seq, count, idx + 1, pos); }
-            return -1;
-        }
-        if (k == 10) {
-            if (!this._AtWordBoundary(pos)) { return this.Match(seq, count, idx + 1, pos); }
-            return -1;
-        }
-        return -1;
+        return hit ? position + 1 : -1;
+    }
+
+    private int[] SnapshotCaptures(int offset) {
+        if (this._groupCount <= 1) { return null; }
+        int[] snapshot = new int[this._groupCount];
+        Array.CopyRange(this._slots, offset, snapshot, 0, snapshot.Length);
+        return snapshot;
     }
 
     // 位置 pos 恰好夹在一个 ASCII 词字符与非词字符（或非词一侧的输入边界）之间时为真。
@@ -461,123 +544,5 @@ public class Regex {
             || (ch >= 65 && ch <= 90)    // A-Z
             || (ch >= 97 && ch <= 122)   // a-z
             || ch == 95;                 // _
-    }
-
-    // greedy quantifier with backtracking
-    [Suppress("style.fnLinesHard", "68 body lines；拆分见 code-organization.md")]
-    private int MatchQuant(RegexNode q, RegexNode[] seq, int count, int idx, int pos) {
-        // 先匹配 min 次（必须成功，否则失败）
-        int[] savS = this.SnapshotStarts();
-        int[] savE = this.SnapshotEnds();
-        int p = pos;
-        int matched = 0;
-        // 用一个固定大小的位置数组记录每次 child 成功后的 pos
-        // capacity 估算：8 起步 grow
-        int[] positions = new int[8];
-        positions[0] = pos;
-        int posCount = 1;
-
-        while (q._max < 0 || matched < q._max) {
-            int np = this.Match(q._childSeq, q._childCount, 0, p);
-            if (np < 0) { break; }
-            if (np == p && matched >= q._min) {
-                // 零宽匹配：满足 min 后继续会无限循环
-                break;
-            }
-            matched = matched + 1;
-            p = np;
-            if (posCount >= positions.Length) {
-                int[] grown = new int[positions.Length * 2];
-                int i = 0;
-                while (i < posCount) { grown[i] = positions[i]; i = i + 1; }
-                positions = grown;
-            }
-            positions[posCount] = p;
-            posCount = posCount + 1;
-        }
-        if (matched < q._min) {
-            this.RestoreStarts(savS);
-            this.RestoreEnds(savE);
-            return -1;
-        }
-        // 贪婪：先试最长（posCount-1）递减到 min。
-        // 惰性（非贪婪）：先试 min 递增到最长。
-        int start;
-        int stop;
-        int step;
-        if (q._greedy) {
-            start = posCount - 1;
-            stop  = q._min - 1;
-            step  = -1;
-        } else {
-            start = q._min;
-            stop  = posCount;
-            step  = 1;
-        }
-        // perf (R1): the greedy pass already recorded the end position after every
-        // repetition in `positions[]`. When the pattern has no capturing groups the
-        // child leaves no capture state, so the end after `i` reps is exactly
-        // `positions[i]` — reuse it instead of re-running the child `i` times
-        // (the old inner loop made backtracking O(k²) over the reps). With capturing
-        // groups we must re-run to re-establish the child's capture slots.
-        bool needReMatch = (this._groupCount > 1);
-        int i = start;
-        while ((step > 0 && i < stop) || (step < 0 && i > stop)) {
-            this.RestoreStarts(savS);
-            this.RestoreEnds(savE);
-            int rp;
-            if (needReMatch) {
-                rp = pos;
-                int j = 0;
-                bool ok = true;
-                while (j < i) {
-                    int np = this.Match(q._childSeq, q._childCount, 0, rp);
-                    if (np < 0) { ok = false; break; }
-                    rp = np;
-                    j = j + 1;
-                }
-                if (!ok) { i = i + step; continue; }
-            } else {
-                rp = positions[i];   // recorded end after `i` reps — no re-match
-            }
-            int fp = this.Match(seq, count, idx + 1, rp);
-            if (fp >= 0) { return fp; }
-            i = i + step;
-        }
-        this.RestoreStarts(savS);
-        this.RestoreEnds(savE);
-        return -1;
-    }
-
-    // perf (R3): with no capturing groups (`_groupCount == 1`, only group 0 which is
-    // sourced from match start/end, never from these arrays) there is nothing to save
-    // or restore — return null and no-op the restore, killing a per-ALT/GROUP/QUANT
-    // (and per-backtrack-step) size-1 allocation on the hottest no-capture patterns.
-    private int[] SnapshotStarts() {
-        if (this._groupCount <= 1) { return null; }
-        int[] s = new int[this._groupCount];
-        int i = 0;
-        while (i < this._groupCount) { s[i] = this._gStarts[i]; i = i + 1; }
-        return s;
-    }
-
-    private int[] SnapshotEnds() {
-        if (this._groupCount <= 1) { return null; }
-        int[] s = new int[this._groupCount];
-        int i = 0;
-        while (i < this._groupCount) { s[i] = this._gEnds[i]; i = i + 1; }
-        return s;
-    }
-
-    private void RestoreStarts(int[] s) {
-        if (s == null) { return; }
-        int i = 0;
-        while (i < this._groupCount) { this._gStarts[i] = s[i]; i = i + 1; }
-    }
-
-    private void RestoreEnds(int[] s) {
-        if (s == null) { return; }
-        int i = 0;
-        while (i < this._groupCount) { this._gEnds[i] = s[i]; i = i + 1; }
     }
 }

@@ -1,10 +1,5 @@
-//! Method-level generic call sites (jit-generic-call-sites): a `Call` / `VCall` carrying
-//! `method_type_args` compiles — the site bakes its type args and passes them to
-//! `jit_call_mta` / `jit_vcall_mta` — while a *body* that reads its type args
-//! (`MethodDefault` here) and a site forwarding the caller's (`$mta:N`) stay on the
-//! interpreter. Both engines must agree, a type-arg-reading callee must still see its
-//! arguments through a compiled caller, and the interpreter must divert a generic call to
-//! a compiled callee (the mixed-mode path these sites were shut out of).
+//! Generic call sites pass the bound method arguments to both tiers.
+//! Direct reads and forwarded method arguments both compile.
 
 use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::vm::runtime::{Function, Module};
@@ -53,7 +48,7 @@ fn vcall(dst: u32, obj: u32, method: &str, type_args: &[&str]) -> Instruction {
     }))
 }
 
-/// `T.Def<T>() { return default(T); }` — reads its type arg: stays interp.
+/// `T.Def<T>() { return default(T); }` — reads its type arg.
 fn def_body() -> Function {
     func("T.Def", 0, true, vec![Instruction::MethodDefault { dst: 0, param_index: 0 }], Some(0))
 }
@@ -94,8 +89,14 @@ fn test_module() -> Module {
             Instruction::ConstI64 { dst: 0, val: 5 },
             vcall(1, 0, "Def", &["Std.Boolean"]),
         ], Some(1)),
-        // A site forwarding its own (nonexistent) type arg: `$mta:0`.
         func("T.Fwd", 0, true, vec![call(0, "T.Def", &[], &["$mta:0"])], Some(0)),
+        func("T.CallFwd", 0, true, vec![call(0, "T.Fwd", &[], &["Std.Boolean"])], Some(0)),
+        func("T.VFwd", 0, true, vec![
+            Instruction::ConstI64 { dst: 0, val: 5 },
+            vcall(1, 0, "Def", &["$mta:0"]),
+        ], Some(1)),
+        func("T.CallVFwd", 0, true, vec![call(0, "T.VFwd", &[], &["Std.Boolean"])], Some(0)),
+        func("T.CallMissing", 0, true, vec![call(0, "T.Def", &[], &[])], Some(0)),
     ])
 }
 
@@ -109,14 +110,14 @@ fn interp(vm: &VmContext, m: &Module, name: &str) -> Value {
 }
 
 #[test]
-fn a_generic_call_site_compiles_but_a_type_arg_reader_and_a_forwarder_do_not() {
+fn type_arg_reads_and_forwarding_compile() {
     let m = test_module();
     assert_eq!(jit_unsupported_reason(&m.functions[idx(&m, "T.CallDef")]), None, "generic Call site");
     assert_eq!(jit_unsupported_reason(&m.functions[idx(&m, "T.VCallDef")]), None, "generic VCall site");
     assert_eq!(jit_unsupported_reason(&m.functions[idx(&m, "T.Id")]), None, "a generic body blind to its type args");
-    assert!(jit_unsupported_reason(&m.functions[idx(&m, "T.Def")]).unwrap().contains("MethodDefault"));
-    assert!(jit_unsupported_reason(&m.functions[idx(&m, "T.Fwd")]).unwrap().contains("$mta:"));
-    assert!(unsupported_reason(&vcall(0, 0, "M", &["$mta:1"])).unwrap().contains("forwarding"));
+    assert_eq!(jit_unsupported_reason(&m.functions[idx(&m, "T.Def")]), None);
+    assert_eq!(jit_unsupported_reason(&m.functions[idx(&m, "T.Fwd")]), None);
+    assert_eq!(unsupported_reason(&vcall(0, 0, "M", &["$mta:1"])), None);
 }
 
 /// Without a JIT the interpreter threads the site's type args (the baseline both engines
@@ -142,23 +143,36 @@ fn jit(vm: &VmContext, m: &Module, name: &str) -> Value {
     }
 }
 
-/// A compiled caller passes the site's type args to an interpreted (type-arg-reading)
-/// callee — `default(T)` sees `T`, through `jit_call_mta` and `jit_vcall_mta` alike.
+/// Both native call helpers supply the type arguments to the callee.
 #[cfg(feature = "jit")]
 #[test]
-fn a_compiled_generic_site_still_delivers_the_type_args_to_an_interpreted_callee() {
+fn compiled_static_and_virtual_sites_pass_bound_type_args() {
     let m = test_module();
     let vm = VmContext::new();
-    assert_eq!(jit(&vm, &m, "T.CallDef"), Value::Bool(false), "jit_call_mta → interp T.Def");
-    let rt = vm.jit().expect("installed");
-    assert!(rt.resolve_fn_by_id(&vm, idx(&m, "T.Def")).is_none(), "the type-arg reader stays interp");
-    assert!(rt.resolve_fn_by_id(&vm, idx(&m, "T.Fwd")).is_none(), "a forwarding site stays interp");
-    let vm2 = VmContext::new();
-    assert_eq!(jit(&vm2, &m, "T.VCallDef"), Value::Bool(false), "jit_vcall_mta → interp Std.Int32.Def");
+    assert_eq!(jit(&vm, &m, "T.CallDef"), Value::Bool(false));
+    assert!(vm.jit().unwrap().resolve_fn_by_id(&vm, idx(&m, "T.Def")).is_some());
+
+    let vm = VmContext::new();
+    assert_eq!(jit(&vm, &m, "T.VCallDef"), Value::Bool(false));
+    assert!(vm.jit().unwrap().resolve_fn_by_id(&vm, idx(&m, "Std.Int32.Def")).is_some());
 }
 
-/// A compiled caller calls a compiled generic callee natively (no type args needed: the
-/// callee cannot read them — that is why it compiled).
+#[cfg(feature = "jit")]
+#[test]
+fn native_calls_bind_forwarded_type_args_and_preserve_missing_args() {
+    let m = test_module();
+    let vm = VmContext::new();
+    assert_eq!(jit(&vm, &m, "T.CallFwd"), Value::Bool(false));
+    assert!(vm.jit().unwrap().resolve_fn_by_id(&vm, idx(&m, "T.Fwd")).is_some());
+
+    let vm = VmContext::new();
+    assert_eq!(jit(&vm, &m, "T.CallVFwd"), Value::Bool(false));
+    assert!(vm.jit().unwrap().resolve_fn_by_id(&vm, idx(&m, "T.VFwd")).is_some());
+
+    let vm = VmContext::new();
+    assert_eq!(jit(&vm, &m, "T.CallMissing"), Value::Null);
+}
+
 #[cfg(feature = "jit")]
 #[test]
 fn a_compiled_generic_site_calls_a_compiled_callee_natively() {
@@ -183,9 +197,10 @@ fn the_interpreter_diverts_a_generic_call_to_a_compiled_callee() {
     assert_eq!(interp(&vm, &m, "T.CallId"), Value::I64(7));
     assert_eq!(vm.counters().jit_native_from_interp.load(Ordering::Relaxed), before + 1,
         "the generic call site diverted to the compiled callee");
-    // The type-arg reader is never compiled, so its generic site keeps interpreting it —
-    // with the type args.
-    assert!(rt.resolve_fn_by_id(&vm, idx(&m, "T.Def")).is_none());
+    let before = vm.counters().jit_native_from_interp.load(Ordering::Relaxed);
+    assert!(rt.resolve_fn_by_id(&vm, idx(&m, "T.Def")).is_some());
+    assert!(rt.resolve_fn_by_id(&vm, idx(&m, "Std.Int32.Def")).is_some());
     assert_eq!(interp(&vm, &m, "T.CallDef"), Value::Bool(false));
     assert_eq!(interp(&vm, &m, "T.VCallDef"), Value::Bool(false));
+    assert_eq!(vm.counters().jit_native_from_interp.load(Ordering::Relaxed), before + 2);
 }

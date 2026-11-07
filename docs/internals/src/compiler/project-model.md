@@ -105,9 +105,9 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 >   只要有 path 依赖就运行期 `undefined function`：indexed 主文件被拷进 dist，它的散装 zbc 没跟过去。门：z42c.driver 的 CLI 夹具 `path-dep-closure` / `path-dep-ext-libs`。
 > - **其余来源的 indexed 依赖（workspace lib 成员等）连散装 zbc 一起装配**：`ZpkgReader.ReadIndexedZbcRels` 列出依赖 FILE 目录里的散装 zbc，按原相对布局
 >   拷进 exe 的 dist（加载器按「主文件所在目录 + rel」找）。与**本包自己的**散装 zbc、或**本轮另一个依赖**拷入的
->   同路径文件撞名 ⇒ 构建期报错（上一轮拷来的旧副本直接覆盖）。exe 的孤儿清理会先删掉这些副本、装配再拷回，
->   fresh 构建的终态一致；preserved 路径只装配不清理。门：z42c.driver 的 CLI 夹具 `bundle-indexed-deps` /
->   `bundle-indexed-name-clash`（workspace exe + lib 成员 debug 能跑 / 同名 `x.z42` 撞车报错）。
+>   同路径文件撞名 ⇒ 构建期报错（上一轮拷来的旧副本直接覆盖）。exe 构建记录已复制文件的路径和内容指纹。下次构建完成依赖解析后，复制当前闭包并移除已不再需要且内容未被改动的旧副本。
+>   packed 主包、indexed 散装 zbc 和符号文件采用同一规则。未登记的文件与当前项目产物不会被依赖清理移除。
+>   indexed 项目按上一份主包的 FILE 表识别自己的旧散装文件。fresh 与 preserved 构建共用依赖装配流程。
 
 #### 按名/产物引用的依赖也建闭包
 
@@ -116,13 +116,17 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 `DEPS` 段**（`ZpkgReader.ReadDependencies`）：`_bundleExeDeps` 的复制循环每拷成功一个包，就打开它、
 读出它的依赖名、把未见过的追加到待拷队列尾部 —— 同一个 `while` 里做 BFS，队列即工作表。
 
+源码 path 成员使用 vendored 产物时，构建结果保留该成员实际使用的搜索目录，部署遍历从该成员的
+DEPS 边开始沿用这些目录。搜索目录只交给部署队列，消费方编译域不因此扩大。两个解析域给同一个
+运行期包名选中不同文件时报告冲突，因为 exe 的 dist 只有一个同名落点。
+
 三条边界：
 
 | 情形 | 行为 | 理由 |
 |---|---|---|
 | 判定为框架包（从 shipped `libs/` 找到）| 不拷、**也不递归** | 它的依赖同在 `libs/`，运行期找得到 |
 | `deploy = "shared"` | 循环开头就 `continue` | 闭包是运行期的事（probing-paths 展开规则不在构建侧重做）|
-| 间接依赖不在 `[dependencies]` 里 | `deploy` 取 `""` ⇒ 走默认判据 | 它没有声明，只能按「在哪个目录找到的」判 |
+| 间接依赖未在消费方或其所属源码成员的 `[dependencies]` 声明 | `deploy` 取 `""` ⇒ 走默认判据 | 它没有声明，只能按「在哪个目录找到的」判 |
 
 递归只对**已复制**的包做 —— 「拷了它」和「该看它的依赖」是同一个条件，不是两个。
 

@@ -1,8 +1,37 @@
-desc = "workspace 里 exe 成员用 lib 成员（不声明依赖，WS032 / default_members 序）：lib 是 indexed，散装 zbc 经 exe 自身 zpkg 的 DEPS 段随行装配进 dist，exe 才跑得起来"
+desc = "Indexed workspace dependencies include their loose bytecode, and a rebuild retires unused copies"
+
+[[step]]
 args = ["build", "--workspace"]
 exit = 0
+exists = ["artifacts/biapp/debug/dist/bilib.zpkg", "artifacts/biapp/debug/dist/l.zbc"]
 
-[run]
+[[step]]
+tool = "run"
 target = "artifacts/biapp/debug/dist/biapp.zpkg"
 exit = 0
 stdout_equals = "11"
+
+[[step]]
+tool = "copy"
+from = "variants/no-dependency.z42"
+to = "app/main.z42"
+
+[[step]]
+tool = "copy"
+from = "artifacts/biapp/debug/dist/l.zbc"
+to = "artifacts/biapp/debug/dist/unowned.zbc"
+
+[[step]]
+args = ["build", "--workspace"]
+exit = 0
+
+[[step]]
+tool = "check"
+absent = ["artifacts/biapp/debug/dist/bilib.zpkg", "artifacts/biapp/debug/dist/l.zbc"]
+exists = ["artifacts/biapp/debug/dist/unowned.zbc"]
+
+[[step]]
+tool = "run"
+target = "artifacts/biapp/debug/dist/biapp.zpkg"
+exit = 0
+stdout_equals = "12"

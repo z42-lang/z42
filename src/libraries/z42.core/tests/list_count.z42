@@ -1,0 +1,47 @@
+namespace Z42CoreListCountTests;
+
+using Std.Collections;
+using Std.Harness;
+using Std.Reflection;
+
+[Test]
+void count_tracks_mutations_and_index_iteration() {
+    List<int> list = new List<int>(1);
+    Assert.Equal(0, list.Count);
+    list.Add(1);
+    list.AddRange(new int[] { 2, 3 });
+    list.Insert(0, 4);
+    Assert.Equal(4, list.Count);
+    list.RemoveAt(1);
+    Assert.Equal(3, list.Count);
+    Assert.True(list.Remove(2));
+    Assert.Equal(2, list.Count);
+    Assert.Equal(1, list.RemoveAll(x => x == 4));
+    Assert.Equal(1, list.Count);
+    int sum = 0;
+    foreach (int value in list) { sum = sum + value; }
+    Assert.Equal(3, sum);
+    list.Clear();
+    Assert.Equal(0, list.Count);
+}
+
+[Test]
+void count_is_exposed_as_a_getter_only() {
+    List<int> list = new List<int>();
+    list.Add(7);
+    Type t = (Type)list.GetType();
+    foreach (FieldInfo field in t.GetFields()) {
+        Assert.False(field.IsPublic && field.Name == "Count");
+    }
+    foreach (PropertyInfo property in t.GetProperties()) {
+        if (property.Name == "Count") {
+            Assert.True(property.CanRead);
+            Assert.False(property.CanWrite);
+            Assert.Equal(1, (int)property.GetValue(list));
+            list.Add(8);
+            Assert.Equal(2, (int)property.GetValue(list));
+            return;
+        }
+    }
+    Assert.True(false);
+}

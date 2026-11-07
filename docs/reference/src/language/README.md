@@ -27,6 +27,7 @@ z42 的语法规则：每页讲完一个主题，可跳读。
 - [委托与事件](delegates-events.md)
 - [闭包与捕获](closures.md)
 - [`methodof`（方法引用表达式）](methodof.md)
+- [`fieldof` / `propertyof`（字段与属性引用表达式）](fieldof.md)
 
 **类型定义**
 

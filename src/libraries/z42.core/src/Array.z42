@@ -55,10 +55,18 @@ public sealed class Array {
     [Native("__array_copy")]
     public static extern void CopyRange(Array source, int sourceIndex, Array destination, int destinationIndex, int length);
 
+    [Native("__array_try_clear_range")]
+    private static extern bool TryClearRange(Array array, int index, int length);
+
     // `Sort()` 的基元快路径：`array[0, count)` 全是同一种基元时原生稳定排序并返回 true；
     // 否则原样不动返回 false，调用方照常跑脚本归并排序。
     [Native("__array_sort_prims")]
     internal static extern bool SortPrimitives(Array array, int count);
+
+    // 搜索原生基础类型。-2 表示保留脚本的逐元素 Equals。
+    // 反向从 start 找到 stop（含），正向扫描 [start, stop)。
+    [Native("__array_search_prims")]
+    internal static extern int SearchPrimitives(Array array, object? value, int start, int stop, bool backwards);
 
     // ── 静态算法 ─────────────────────────────────────────────────────────────
     // C# `System.Array.*` 对标，纯脚本泛型（同 List<T> 的 CompareTo / Func 比较器模型）。
@@ -66,8 +74,15 @@ public sealed class Array {
     /// `value` 首次出现的索引（按 `.Equals`），未命中 -1。
     public static int IndexOf<T>(T[] array, T value) {
         int n = array.Length;
+        int result = SearchPrimitives(array, value, 0, n, false);
+        if (result >= -1) return result;
         for (int i = 0; i < n; i++) {
-            if (array[i].Equals(value)) return i;
+            T element = array[i];
+            if (element != null) {
+                if (element.Equals(value)) return i;
+            } else if (value == null) {
+                return i;
+            }
         }
         return -1;
     }
@@ -277,8 +292,15 @@ public sealed class Array {
     /// `value` 最后一次出现的下标（按 `.Equals`），未命中 -1。
     public static int LastIndexOf<T>(T[] array, T value) {
         int i = array.Length - 1;
+        int result = SearchPrimitives(array, value, i, 0, true);
+        if (result >= -1) return result;
         while (i >= 0) {
-            if (array[i].Equals(value)) return i;
+            T element = array[i];
+            if (element != null) {
+                if (element.Equals(value)) return i;
+            } else if (value == null) {
+                return i;
+            }
             i = i - 1;
         }
         return -1;
@@ -300,9 +322,11 @@ public sealed class Array {
 
     /// 把 `[index, index+length)` 置为 default(T)。越界抛异常。
     public static void Clear<T>(T[] array, int index, int length) {
-        if (index < 0 || length < 0 || index + length > array.Length) {
-            throw new Exception($"Array.Clear: range [{index}, {index + length}) out of bounds (len={array.Length})");
+        int n = array.Length;
+        if (index < 0 || length < 0 || index > n || length > n - index) {
+            throw new Exception($"Array.Clear: range [{index}, {index + length}) out of bounds (len={n})");
         }
+        if (length == 0 || Array.TryClearRange(array, index, length)) return;
         for (int i = 0; i < length; i++) { array[index + i] = default(T); }
     }
 
@@ -317,7 +341,7 @@ public sealed class Array {
         T[] result = new T[newSize];
         int copy = array.Length;
         if (newSize < copy) { copy = newSize; }
-        for (int i = 0; i < copy; i++) { result[i] = array[i]; }
+        if (copy > 0) { Array.CopyRange(array, 0, result, 0, copy); }
         return result;
     }
 
@@ -380,8 +404,15 @@ public sealed class Array {
     /// `value` 在 `startIndex` 及其后首次出现的下标（按 `.Equals`），未命中 -1。
     public static int IndexOf<T>(T[] array, T value, int startIndex) {
         int n = array.Length;
+        int result = SearchPrimitives(array, value, startIndex, n, false);
+        if (result >= -1) return result;
         for (int i = startIndex; i < n; i++) {
-            if (array[i].Equals(value)) return i;
+            T element = array[i];
+            if (element != null) {
+                if (element.Equals(value)) return i;
+            } else if (value == null) {
+                return i;
+            }
         }
         return -1;
     }
@@ -390,8 +421,15 @@ public sealed class Array {
     public static int IndexOf<T>(T[] array, T value, int startIndex, int count) {
         int end = startIndex + count;
         if (end > array.Length) { end = array.Length; }
+        int result = SearchPrimitives(array, value, startIndex, end, false);
+        if (result >= -1) return result;
         for (int i = startIndex; i < end; i++) {
-            if (array[i].Equals(value)) return i;
+            T element = array[i];
+            if (element != null) {
+                if (element.Equals(value)) return i;
+            } else if (value == null) {
+                return i;
+            }
         }
         return -1;
     }
@@ -399,8 +437,15 @@ public sealed class Array {
     /// 从 `startIndex` 起向前找 `value` 最后一次出现的下标（按 `.Equals`），未命中 -1。
     public static int LastIndexOf<T>(T[] array, T value, int startIndex) {
         int i = startIndex;
+        int result = SearchPrimitives(array, value, i, 0, true);
+        if (result >= -1) return result;
         while (i >= 0) {
-            if (array[i].Equals(value)) return i;
+            T element = array[i];
+            if (element != null) {
+                if (element.Equals(value)) return i;
+            } else if (value == null) {
+                return i;
+            }
             i = i - 1;
         }
         return -1;
