@@ -253,7 +253,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | S2 | perf/load | 库目录 NSPC 扫描冷启动全价（`vm/loader/locate/namespace_index.rs` + `metadata/reader/zpkg.rs` 整读、全解 STRS）。改法：z42.core 已提供的命名空间不扫；只读文件头、目录与 NSPC 引用的串；SDK 安装时生成 `namespace → zpkg` 索引 | .NET TPA / deps.json | −1.0~1.5 ms | ⬜ |
 | S3 | perf/load | STRS 每包解码 3 次、每项一个 `String`。改为一次解析 + `Arc<[u8]>` 偏移零拷贝 | — | −0.5~0.8 ms | ⬜ |
 | S4 | perf/load | `.zsym` 与 `frame_meta` 启动时 eager（`vm/loader/package/artifact.rs` 解析 sidecar ≈0.3 ms，`vm/loader/package/indices.rs` 给全部函数预格式化帧名）。改为首次生成栈回溯 / 调试器附加时加载 | .NET PDB 按需 | −0.3~0.4 ms、≈−0.5 MB | ⬜ |
-| S6 | perf/load | 入口函数不预编译：`jit/runtime.rs` 的 `resolve_fn_by_name` 先编译 Main 再执行；只跑一次的 Main / cctor 交给解释器 + OSR | .NET tier0 / OSR | hello −0.2 ms、`z42c --help` −2 ms | ⬜ |
+| S6 | perf/load | 入口函数不预编译：`jit/compile/state.rs` 的 `resolve_fn_by_name` 先编译 Main 再执行；只跑一次的 Main / cctor 交给解释器 + OSR | .NET tier0 / OSR | hello −0.2 ms、`z42c --help` −2 ms | ⬜ |
 | S7 | perf/load | **函数体按需解码**：基于 PackageImage；当前仍完整解码，`read_mods_section` 把每条指令还原成带 `String` 的结构，`indices.rs` 给每个函数建 block_index / fused_tails，`resolve_module` 全量预填 token。改为启动只解 SIGS / TYPE，函数体首次调用时解码 | .NET 按方法懒 JIT、CPython 按模块导入 | hello −2.2~2.5 ms / −3~4 MB；`z42c --help` 25 → 10–12 ms | ⬜ |
 | S8 | perf/load | z42.core 链接后快照（阶段 3，S1/S3/S7 之后）：TypeId、函数表、驻留串做成可 mmap 只读镜像 | Java CDS、V8 snapshot、CPython deepfreeze | core 加载 ≈0.3 ms，多进程共享干净页 | ⬜ |
 

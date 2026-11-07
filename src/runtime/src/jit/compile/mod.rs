@@ -16,10 +16,14 @@ use cranelift_codegen::ir::{types, AbiParam};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module as CraneliftModule};
 
-use super::frame::FnEntry;
-use super::forward::ForwardLookup;
+use crate::jit::runtime::frame::FnEntry;
+use crate::jit::compile::lookup::ForwardLookup;
 use super::helpers::{self, HelperIds};
 use super::translate;
+
+pub(crate) mod state;
+pub(crate) mod lookup;
+pub(crate) mod vm_interface;
 use crate::vm::runtime::Function;
 
 /// Mutable JIT compilation state: compiles z42 functions to native code lazily.

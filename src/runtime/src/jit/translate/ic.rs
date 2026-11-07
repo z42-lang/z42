@@ -5,7 +5,7 @@
 use super::*;
 
 /// The callee id to bake into a `Call` site: the site's `method_tokens` value at
-/// translate time — a JIT id (`FnId`, see `jit::runtime`) for entry-module and
+/// translate time — a JIT id (`FnId`, see `jit::compile::state`) for entry-module and
 /// lazily loaded callees alike — or `UNRESOLVED` (= u32::MAX) when the site is
 /// not bound yet; `jit_call` then reads the token cell at run time
 /// ([`method_token_ptr_at`]) and binds by name on a miss.

@@ -8,9 +8,9 @@
 use std::sync::atomic::Ordering;
 
 use crate::vm::exec::call::frames::VmFrame;
-use crate::jit::frame::JitFrame;
-use crate::jit::invoke::{call_entry, NativeOutcome};
-use crate::jit::runtime::{install, install_tuned};
+use crate::jit::runtime::frame::JitFrame;
+use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
+use crate::jit::compile::state::{install, install_tuned};
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator};
 use crate::metadata::ir::ExecMode;
@@ -76,7 +76,7 @@ fn compiled_here(vm: &VmContext) -> u64 {
     vm.counters().jit_methods_compiled.load(Ordering::Relaxed)
 }
 
-fn run(vm: &VmContext, entry: &crate::jit::frame::FnEntry) -> NativeOutcome {
+fn run(vm: &VmContext, entry: &crate::jit::runtime::frame::FnEntry) -> NativeOutcome {
     unsafe { call_entry(vm, entry, JitFrame::new(vm, entry.max_reg, &[])) }
 }
 

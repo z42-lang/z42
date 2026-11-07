@@ -282,7 +282,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         requires: &["jit"],
         description: "enable JIT compilation profiling (boolean: true/false, 1/0, yes/no, on/off)",
         default_hint: "unset; JIT profiling off",
-        consumed_by: "jit/lazy.rs",
+        consumed_by: "jit/compile/mod.rs",
         ..PUBLIC
     },
     KnobSpec {

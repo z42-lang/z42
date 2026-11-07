@@ -3,7 +3,7 @@
 /// `JitFrame` is the runtime stack frame passed (as a raw pointer) to every
 /// JIT-compiled function, next to the running thread's `VmContext`.
 /// `FnEntry` is one compiled function as the shared JIT runtime
-/// (`super::runtime::JitRuntime`) hands it out.
+/// (`crate::jit::compile::state::JitRuntime`) hands it out.
 
 use crate::vm::runtime::Function;
 use crate::object::Value;
@@ -174,7 +174,7 @@ pub struct FnEntry {
     pub owner_init: crate::vm::runtime::OwnerInitCell,
     /// `Some(fold token)` when the function is a pure `[Native]` extern wrapper
     /// (`vm::exec::call::forward::forward_of`); the call helpers then skip the activation and
-    /// dispatch the builtin directly (see [`super::forward`]).
+    /// dispatch the builtin directly (see [`crate::jit::runtime::forward`]).
     pub forward: Option<u32>,
 }
 

@@ -24,12 +24,13 @@ use cranelift_module::{FuncId, Module as CraneliftModule};
 use cranelift_jit::JITModule;
 
 pub use super::helpers::HelperIds;
-use super::reg_access::{
+use crate::jit::translate::reg_access::{
     load_payload, load_payload_i64, load_tag, reg_addr, store_const_tag, store_tag_const,
     store_tagged, RegCache, TAG_BOOL, TAG_CHAR, TAG_F64, TAG_FUNCREF, TAG_I64, TAG_NULL, TAG_STR,
 };
 
 // refactor-jit-translate-split (H2): TxCtx + per-category instruction handlers
+mod reg_access;
 mod ctx;
 mod hoist;
 use ctx::TxCtx;
@@ -106,7 +107,7 @@ pub fn translate_function(
     osr_entry:    Option<usize>,
     // perf-str-jit-intrinsics: what a call site's target forwards to (string
     // `Length` / `CharAt` are emitted inline — see `str_intrinsics`).
-    callees:      &dyn super::forward::ForwardLookup,
+    callees:      &dyn crate::jit::compile::lookup::ForwardLookup,
     debug_promote: bool,
 ) -> Result<()> {
     let ptr     = jit.target_config().pointer_type();
@@ -238,7 +239,7 @@ pub fn translate_function(
     // stays valid for the whole function (see `JitFrame::regs_ptr`).
     let regs_base = builder.ins().load(
         ptr, MemFlagsData::trusted(), frame_val,
-        crate::jit::frame::JIT_FRAME_REGS_PTR_OFFSET as i32,
+        crate::jit::runtime::frame::JIT_FRAME_REGS_PTR_OFFSET as i32,
     );
 
     // ── jit-unbox-regalloc Phase 2C: loop-carried integer residency ──────────
