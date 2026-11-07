@@ -56,10 +56,10 @@ fn td_with_visibility(name: &str, visibility: u8) -> Arc<TypeDesc> {
 fn type_obj(ctx: &VmContext, td: Arc<TypeDesc>) -> Value {
     let shell = bare_td("Std.Type");
     ctx.heap()
-        .alloc_object(shell, Vec::new(), NativeData::TypeHandle(td))
+        .alloc_object(shell, Vec::new(), NativeData::TypeHandle(crate::object::ReflectedTypeHandle::declaration(td)))
 }
 
-fn array_len(v: &Value) -> usize {
+pub(super) fn array_len(v: &Value) -> usize {
     match v {
         Value::Array(a) => a.borrow().len(),
         _ => panic!("expected Value::Array"),
@@ -99,7 +99,7 @@ fn make_generic_type_preserves_same_named_definition_handles() {
         c.heap().alloc_object(
             shell.clone(),
             vec![Value::Str("Plugin.Box".into()), Value::Null],
-            NativeData::TypeHandle(td),
+            NativeData::TypeHandle(crate::object::ReflectedTypeHandle::declaration(td)),
         )
     };
     let left = definition(1);
@@ -107,7 +107,7 @@ fn make_generic_type_preserves_same_named_definition_handles() {
     let int = c.heap().alloc_object(
         shell,
         vec![Value::Str("Std.Int32".into()), Value::Null],
-        NativeData::TypeHandle(bare_td("Std.Int32")),
+        NativeData::TypeHandle(crate::object::ReflectedTypeHandle::declaration(bare_td("Std.Int32"))),
     );
     let args = c.heap().alloc_array(vec![int]);
     let first = type_make_generic(&c, &left, &args).unwrap();

@@ -8,8 +8,8 @@ using Std.Reflection;
 /// `operator ==`），Name 为 `Int32`、FullName 为 `Std.Int32`、IsValueType true、成员可枚举。
 /// 只有数组返回无句柄的合成体（Name/FullName 已填，成员查询为空）。不能从用户代码构造。
 ///
-/// 同一 VM 的同一元数据版本可复用仍存活的 Type 对象。VM 仅持有弱引用，
-/// GC 回收后再次查询会重建对象。类型相等按运行时身份判定。
+/// 同一 VM 按稳定类型身份复用仍存活的 Type 对象。VM 仅持有弱引用，
+/// GC 回收后再次查询会重建对象。元数据查询通过稳定句柄读取当前描述符。
 public sealed class Type : MemberInfo, IEquatable {
     /// VM 写入的短名（优先用继承的 `Name` 属性；此处保留给底层 golden 测试与 z42.harness 直读）。
     public string __name;
@@ -247,23 +247,19 @@ public sealed class Type : MemberInfo, IEquatable {
 
     // ── 自定义 attribute ──────────────────────────────────────────────────────
 
-    /// 本类型 attribute 实例的惰性缓存：首次 GetCustomAttributes() 前为 null。
-    ///
-    /// 之后同一数组（同一批实例）复用（C# 每次调用都新分配，z42 不）。
-    public Attribute[] __attrCache;
+    // Only the VM publishes and invalidates this metadata-dependent result.
+    private Attribute[] __attributeCache;
 
-    /// VM 构建的活 attribute 实例（每个应用一次，按应用顺序）。VM 调用各自编译器合成工厂。
-    [Native("__type_custom_attributes")]
-    public extern Attribute[] __customAttributes();
-
-    /// 应用于本类型的用户 attribute（活实例）。缓存：首次调用物化，重复调用返回同一批实例。
+    /// 应用于本类型的用户 attribute（活实例）。VM 按实际描述符缓存，
+    /// 同一描述符下复用实例，类型元数据更新后重新物化。
     public Attribute[] GetCustomAttributes() {
-        if (this.__attrCache != null) {
-            return this.__attrCache;
-        }
-        this.__attrCache = this.__customAttributes();
-        return this.__attrCache;
+        Attribute[] cached = this.__attributeCache;
+        if (cached != null) { return cached; }
+        return this._fetchAttributes();
     }
+
+    [Native("__type_custom_attributes")]
+    private extern Attribute[] _fetchAttributes();
 
     /// 给定类型的单个 attribute，否则 null。按实例运行时类型（FullName）比较，子类 attribute
     /// 也命中。

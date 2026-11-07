@@ -7,24 +7,6 @@ use crate::object::string::vstr::Str;
 use crate::object::header::{BlockType, GcBlockHeader, GcWord, VarGcRef};
 use std::ptr::NonNull;
 
-/// Stable reflection identity. The shape contains no managed object references.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum ReflectedTypeKey {
-    Definition(crate::vm::runtime::ids::tokens::TypeId),
-    Symbol(Arc<str>),
-    Array(Option<Arc<ReflectedTypeKey>>),
-    Constructed {
-        definition: Arc<ReflectedTypeKey>,
-        arguments: Arc<[ReflectedTypeKey]>,
-    },
-}
-
-#[derive(Debug)]
-pub struct ReflectedTypeShape {
-    pub(crate) definition: Option<Arc<TypeDesc>>,
-    pub(crate) key: ReflectedTypeKey,
-}
-
 /// Native backing data for built-in classes.
 ///
 /// Used by `ScriptObject` to hold VM-managed state that should not be
@@ -37,12 +19,8 @@ pub enum NativeData {
     /// 由 `__obj_make_weak` builtin 创建；`__obj_upgrade_weak` 升格回原对象。
     /// 用户视角是 `Std.WeakHandle` 类（无字段）。
     WeakRef(crate::gc::WeakRef),
-    /// add-reflection-mvp：`Std.Type` 对象携带的真实类型句柄。
-    /// 由 `__obj_get_type` 对 `Value::Object` 创建（存对象 `type_desc` 的
-    /// `Arc<TypeDesc>`）；反射 builtins（`__type_fields` / `__type_methods` /
-    /// `__type_base` / `__type_generic_args`）据此枚举成员。基础类型/数组的
-    /// synthetic Type 无此句柄（`NativeData::None`），成员查询退化为空。
-    TypeHandle(Arc<TypeDesc>),
+    /// Stable identity and metadata owner for a reflected declaration.
+    TypeHandle(ReflectedTypeHandle),
     /// Constructed, array, or symbolic Type, with its immutable identity snapshot.
     TypeShape(Arc<ReflectedTypeShape>),
     /// add-load-context-model：`Std.Runtime.LoadContext` 对象携带的

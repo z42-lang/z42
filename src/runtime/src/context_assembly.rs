@@ -115,6 +115,15 @@ impl VmContext {
             ext_state,
         });
 
+        {
+            let weak = Arc::downgrade(&core);
+            core.runtime.types.set_update_observer(Arc::new(move |id| {
+                if let Some(core) = weak.upgrade() {
+                    core.runtime.reflection_types.invalidate_attributes(&core.heap, id);
+                }
+            }));
+        }
+
         // add-os-signal-handler : register this Arc<VmCore> into
         // the process-wide VM_CORES registry so the POSIX signal handler
         // can walk it to capture z42 call stacks on hard crash. Lazy-prune
