@@ -5,7 +5,7 @@
 // under the *target* VM binary it is about to benchmark/test, and parses the
 // output — so every result carries the caps that binary actually reports, never
 // a static guess. Backed by Std.Platform.Capabilities()/ExecModes(), i.e. the
-// __platform_caps / __platform_exec_modes builtins (corelib/platform.rs).
+// __platform_caps / __platform_exec_modes builtins (corelib/os/platform.rs).
 //
 // Output (one line, e.g.):
 //   {"os":"macos","arch":"aarch64","exec_modes":["interp","jit"],"caps":["jit","native-interop","threads"]}

@@ -69,7 +69,7 @@ pub const OS_CAPS: OsCaps;                         // Std.Platform.Capabilities(
 
 `#[cfg(unix)]` 走 libc::gethostname / libc::uname；`#[cfg(target_arch =
 "wasm32")]` 返回 None / "wasm"；其他 (Windows-without-impl) 返回 None / 空
-字符串。**所有平台 cfg 切分都在 `pal/sys/` 内部** —— `corelib/system.rs`
+字符串。**所有平台 cfg 切分都在 `pal/sys/` 内部** —— `corelib/os/system.rs`
 零 cfg。
 
 ## 不变量（必须遵守）
