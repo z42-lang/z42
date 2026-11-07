@@ -1,0 +1,56 @@
+namespace ClosureStructReturnErased;
+using Std.IO;
+using Std.Reflection;
+
+struct Counter {
+    public int Value;
+    public Counter(int value) { this.Value = value; }
+}
+class Payload { public int Value; public Payload(int value) { this.Value = value; } }
+[Record] struct Parcel(Payload Item);
+
+TResult apply<T, TResult>(Func<T, TResult> body, T value) { return body(value); }
+
+Counter makeCounter(int value) { return new Counter(value); }
+
+void main() {
+    Counter first = apply<int, Counter>((int value) => new Counter(value + 1), 2);
+    Console.WriteLine(first.Value);
+    Counter second = apply<Counter, Counter>((Counter value) => {
+        GC.ForceCollect();
+        value.Value = value.Value + 4;
+        return value;
+    }, first);
+    GC.ForceCollect();
+    Console.WriteLine(first.Value);
+    Console.WriteLine(second.Value);
+
+    int scalar = apply<Counter, int>((Counter value) => { value.Value = 10; return value.Value; }, first);
+    Console.WriteLine(scalar);
+    Console.WriteLine(first.Value);
+
+    Func<int, Counter> method = makeCounter;
+    Counter third = apply<int, Counter>(method, 11);
+    Console.WriteLine(third.Value);
+
+    object boxed = first;
+    object identity = apply<object, object>((object value) => value, boxed);
+    var field = fieldof(Counter.Value);
+    field.SetValue(identity, 23);
+    Counter alias = (Counter)boxed;
+    Console.WriteLine(alias.Value);
+
+    Parcel parcel = apply<int, Parcel>((int value) => {
+        Parcel result = new Parcel(new Payload(value));
+        GC.ForceCollect();
+        return result;
+    }, 17);
+    GC.ForceCollect();
+    Console.WriteLine(parcel.Item.Value);
+
+    try {
+        apply<int, Counter>((int value) => { throw new InvalidOperationException("erased callback"); }, 0);
+    } catch (InvalidOperationException e) {
+        Console.WriteLine("caught");
+    }
+}

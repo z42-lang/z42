@@ -36,7 +36,8 @@
 //! - `Mutex<T>` 没有 TryLock（`RwLock<T>` 有 TryRead / TryWrite，Mutex 没有对应物）。
 //! - 没有带超时的获取：Try* 只有「立刻成功或立刻失败」两态。
 //! - 不可重入：重入抛 LockRecursionException，不是递归计数。
-//! - Lock / Read / Write 都没有返回值：读出来的值必须靠静态字段或数组单元带出回调体。
+//! - `Mutex<T>.Read<TResult>` 直接返回读取结果；`Update<TResult>` 用二元组返回新状态和结果。
+//!   `RwLock<T>.Read` / `Write` 没有结果返回，仍须用共享对象带出回调结果。
 //! - `RwLock<T>.Read` 的「只读」不由类型系统保证：T 是引用类型时，读体里改字段会真的改到共享值。
 //!
 //! 通道：

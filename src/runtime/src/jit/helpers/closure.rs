@@ -149,6 +149,29 @@ pub unsafe extern "C" fn jit_call_indirect(
     };
 
     let user_regs = std::slice::from_raw_parts(args_ptr, args_len);
+    if let Some(function) = rt.fn_of(id.0 as usize) {
+        let count = args_len + usize::from(env_val_opt.is_some());
+        if crate::vm::exec::call::indirect_return::needs_boxed_return(function, count)
+            || user_regs.iter().enumerate().any(|(position, &index)| frame_ref.regs.get(index as usize)
+                .is_some_and(|value| crate::vm::exec::call::indirect_return::has_declared_boxed_argument(
+                    function, position + usize::from(env_val_opt.is_some()), value,
+                )))
+        {
+            let mut values = Vec::with_capacity(count);
+            values.extend(env_val_opt);
+            values.extend(user_regs.iter().map(|&register| frame_ref.regs[register as usize].clone()));
+            vm_ctx.set_top_frame_pc(caller_offset);
+            return match crate::vm::exec::call::indirect_return::invoke(
+                vm_ctx, super::jit_module(ctx), function, id.0 as usize, frame_ref.frame_id, values,
+            ) {
+                Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(value)) => {
+                    frame_ref.regs[dst as usize] = value.unwrap_or(Value::Null); 0
+                }
+                Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(value)) => { set_exception(vm_ctx, value); 1 }
+                Err(error) => { set_exception(vm_ctx, Value::Str(error.to_string().into())); 1 }
+            };
+        }
+    }
 
     // 2) The slot table, by id: no hashing, no name. runtime-jit-tiering Phase 1b: tiered —
     //    a cold (below-threshold) or interp-only target resolves to None and is run on the

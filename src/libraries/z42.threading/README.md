@@ -16,7 +16,7 @@ GC 可见、随对象回收。原生层只提供不含值的 Monitor。机制见
 |------|------|------|
 | `Thread.z42` | `Std.Threading.Thread` | OS 线程句柄；`Start(Action)` 工厂 + `Join()` 同步等待 + 静态 `Sleep(long millis)` 阻塞当前线程 |
 | `ThreadException.z42` | `Std.ThreadException` | 跨线程异常封装（worker `throw` 或 Rust panic 经由 Join 透传） |
-| `Mutex.z42` | `Std.Threading.Mutex<T>` | 排他互斥；RAII callback `Lock(Func<T,T>)`；同线程重入抛异常 |
+| `Mutex.z42` | `Std.Threading.Mutex<T>` | 排他互斥；`Lock` 写回状态，`Read` 返回读取结果，`Update` 同时写回状态并返回结果；同线程重入抛异常 |
 | `RwLock.z42` | `Std.Threading.RwLock<T>` | 多读单写 lock；`Read(Action<T>)` 多 reader 并发 + `Write(Func<T,T>)` 单 writer 排他、写者优先 |
 | `Channel.z42` | `Std.Threading.Channel<T>` | 多生产者多消费者 FIFO：unbounded (`new Channel<T>()`)、bounded with back-pressure (`new Channel<T>(N)`) 或会合 (`new Channel<T>(0)`)；`Send` / `Recv` / `TryRecv` / `TrySend` / `Close` |
 | `Timer.z42` | `Std.Threading.Timer` | 定时器：`StartPeriodic(ms, Action)` 等；回调异常经 `Log.Error` 吞掉，单次失败不杀 Timer 线程 |
@@ -37,6 +37,8 @@ t.Join();
 // Mutex — RAII callback；锁内 (long v) => v + 1 读改写自动 unlock
 var counter = new Mutex<long>(0);
 counter.Lock((long v) => v + 1);
+long previous = counter.Update<long>((long v) => (v + 1, v));
+long current = counter.Read<long>((long v) => v);
 
 // Channel — 跨线程 FIFO 队列
 var c = new Channel<long>();

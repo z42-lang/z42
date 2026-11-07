@@ -59,6 +59,14 @@ Monitor { state: Mutex<{ owner, entry_waiters, signal_waiters }>, entry_cv, sign
 
 ## Monitor
 
+`Mutex<T>` 的 `Lock`、`Read<TResult>` 和 `Update<TResult>` 共用同一个 Monitor，均为排他访问。
+`Read` 将回调结果直接返回，不替换 `_value`；`Update` 的回调返回 `(T, TResult)`，正常返回后
+将 `Item1` 写回 `_value` 并向调用者返回 `Item2`。调用者无需通过临时数组带出锁内结果，
+实现也不依赖闭包捕获写回或 ref local。状态、元组及返回值继续由普通托管字段和执行帧追踪。
+
+三个入口均用 `try/finally` 释放锁。回调抛异常时不执行状态字段写回；引用类型的内部修改
+不属于可回滚事务。`Read` 不保证对象内部不可变，也不提供多个读者并发的读写锁语义。
+
 | 操作 | 语义 |
 |---|---|
 | `Enter` | 阻塞直到持有。**同线程重入报错**（可 catch），不是死锁 |

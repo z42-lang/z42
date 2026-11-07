@@ -32,6 +32,22 @@ public sealed class CallEmitter {
         }
         return args;
     }
+    internal TypedReg _emitIndirectCall(TypedReg callee, TypedReg[] args, int count, Z42Type retType) {
+        if (!this._ee._isBlobStruct(retType)) {
+            TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(retType));
+            this._ctx.Emit(new CallIndirectInstr(dst, callee, args, count));
+            return dst;
+        }
+        string name = this._ee._blobStructName(retType);
+        TypedReg result = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new StructAllocInstr(result, this._ctx.QualifyLayout(name), this._ctx.Gen.Layouts.StructSize(name)));
+        TypedReg[] full = new TypedReg[count + 1];
+        for (int i = 0; i < count; i = i + 1) { full[i] = args[i]; }
+        full[count] = result;
+        this._ctx.Emit(new CallIndirectInstr(this._ctx.Alloc(IrType.Void), callee, full, count + 1));
+        return result;
+    }
+
     // A-use：发射 Call，返回 blob 值 struct 时走 **sret**——caller 预留返回 blob 作末尾隐藏参数，callee
     // `return s`→StructCopy 进去；结果=该 handle。recv=实例接收者句柄（null=静态/自由）；args 已 copy-in。
     private TypedReg _emitCallSretAware(string fq, TypedReg recv, TypedReg[] args, int argCount, Z42Type retType) {
@@ -317,9 +333,7 @@ public sealed class CallEmitter {
         // Call @f 按名（后者 undefined）。镜像 C# 对 func-valued callee 的间接派发。
         if (c.Kind != "static" && this._ctx.Locals.ContainsKey(c.MethodName)) {
             TypedReg callee = this._ctx.Locals.Get(c.MethodName) as TypedReg;
-            TypedReg cidst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
-            this._ctx.Emit(new CallIndirectInstr(cidst, callee, args, c.ArgCount));
-            return cidst;
+            return this._emitIndirectCall(callee, args, c.ArgCount, c.Type());
         }
         // 调用目标限定（BP-0）：静态类按绑定期记下的目标类类型对象的声明 ns（`_qualifyOwner`，fqn-tables 5d）
         // ——否则同包跨-ns 静态调用（如 Std.Archive.Zip → Std.Compression.Deflate.Compress）被误限定当前 ns。自由函数用绑定期解析出的 ns（`FreeNs`，
@@ -543,6 +557,22 @@ public sealed class CallEmitter {
         return dst;
     }
 
+    private void _boxErasedCtorArgs(BoundNew n, TypedReg[] args) {
+        if (this._ee._instLayoutName(n.Type()) != "") { return; }
+        Z42ClassType owner = this._ee._receiverClassType(n.Type());
+        if (owner == null || !owner.Methods.ContainsKey(n.CtorName)) { return; }
+        MethodSymbol ctor = owner.Methods.Get(n.CtorName) as MethodSymbol;
+        if (ctor == null || ctor.Signature == null) { return; }
+        for (int i = 0; i < n.ArgCount && i < ctor.Signature.ParamCount; i = i + 1) {
+            if ((ctor.Signature.ParamTypes[i] is Z42GenericParamType) && this._ee._isBlobStruct(n.Args[i].Type())) {
+                TypedReg boxed = this._ctx.Alloc(IrType.Ref);
+                TypedReg[] value = new TypedReg[1]; value[0] = args[i];
+                this._ctx.Emit(new BuiltinInstr(boxed, "__box_struct", value, 1));
+                args[i] = boxed;
+            }
+        }
+    }
+
     // new T(args) / new Box<int>(args) → obj_new（结果 ref）。泛型实例化携 resolved type-args。ctor 解析延后。
     [Suppress("style.fnLinesHard", "61 body lines；拆分见 code-organization.md")]
     internal TypedReg _emitNew(BoundNew n) {
@@ -560,6 +590,7 @@ public sealed class CallEmitter {
         TypedReg[] args = new TypedReg[n.ArgCount];
         int i = 0;
         while (i < n.ArgCount) { args[i] = this._ee.Emit(n.Args[i]); i = i + 1; }
+        this._boxErasedCtorArgs(n, args);
         TypedReg dst = this._ctx.Alloc(IrType.Ref);  // obj.new 结果始终 Ref（镜像 C# Alloc(IrType.Ref)）
         string className = n.TypeName;
         string[] targs = new string[0];

@@ -1,0 +1,42 @@
+// requires-caps: threads
+namespace Z42MutexResultsBench;
+using Std.Threading;
+using Std.Harness;
+
+long readViaArray(Mutex<long> state) {
+    long[] result = new long[1];
+    state.Lock((long value) => { result[0] = value; return value; });
+    return result[0];
+}
+
+[Benchmark]
+void mutex_read_array_128(Bencher b) {
+    var state = new Mutex<long>(7);
+    b.iter(() => {
+        long sum = 0;
+        for (int i = 0; i < 128; i = i + 1) { sum = sum + readViaArray(state); }
+        BenchHelpers.blackBox(sum);
+    });
+}
+
+[Benchmark]
+void mutex_read_result_128(Bencher b) {
+    var state = new Mutex<long>(7);
+    b.iter(() => {
+        long sum = 0;
+        for (int i = 0; i < 128; i = i + 1) { sum = sum + state.Read<long>((long value) => value); }
+        BenchHelpers.blackBox(sum);
+    });
+}
+
+[Benchmark]
+void mutex_update_result_128(Bencher b) {
+    var state = new Mutex<long>(0);
+    b.iter(() => {
+        long sum = 0;
+        for (int i = 0; i < 128; i = i + 1) {
+            sum = sum + state.Update<long>((long value) => (value + 1, value + 1));
+        }
+        BenchHelpers.blackBox(sum);
+    });
+}
