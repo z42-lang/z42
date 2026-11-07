@@ -1,4 +1,4 @@
-namespace Z42JsonOperationPlanBench;
+namespace Z42JsonReflectionSerdeBench;
 using Std.Json;
 using Std.Harness;
 
@@ -33,13 +33,13 @@ void measureRead(int n, string name) {
 }
 
 [Benchmark]
-void operation_plan_read_128() { measureRead(128, "operation_plan_read_128"); }
+void reflection_serde_read_128() { measureRead(128, "reflection_serde_read_128"); }
 
 [Benchmark]
-void operation_plan_write_128() { measureWrite(128, "operation_plan_write_128"); }
+void reflection_serde_write_128() { measureWrite(128, "reflection_serde_write_128"); }
 
 [Benchmark]
-void operation_plan_read_1() { measureRead(1, "operation_plan_read_1"); }
+void reflection_serde_read_1() { measureRead(1, "reflection_serde_read_1"); }
 
 [Benchmark]
-void operation_plan_write_1() { measureWrite(1, "operation_plan_write_1"); }
+void reflection_serde_write_1() { measureWrite(1, "reflection_serde_write_1"); }

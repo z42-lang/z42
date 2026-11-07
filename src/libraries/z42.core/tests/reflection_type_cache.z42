@@ -1,0 +1,43 @@
+namespace Z42CoreReflectionTypeCacheTests;
+using Std.Harness;
+
+class CachedSample {
+    public int Value;
+}
+
+class CachedBox<T> {
+    public T Value;
+}
+
+[Test]
+void test_type_object_is_reused_while_alive() {
+    Type warm = typeof(CachedSample);
+    Type first = typeof(CachedSample);
+    Type second = typeof(CachedSample);
+    Assert.True(Object.ReferenceEquals(first, second));
+    Assert.True(first.Equals(second));
+}
+
+[Test]
+void test_generic_arguments_keep_their_projected_object() {
+    Type argument = typeof(CachedSample);
+    Type definition = typeof(CachedBox);
+    Type constructed = definition.MakeGenericType(new Type[] { argument });
+    Type[] arguments = (Type[])constructed.GetGenericArguments();
+    Assert.True(Object.ReferenceEquals(argument, arguments[0]));
+    arguments[0] = typeof(string);
+    Assert.True(Object.ReferenceEquals(argument, constructed.GetGenericArguments()[0]));
+}
+
+WeakHandle MakeUnrootedType() {
+    return WeakHandle.MakeWeak(typeof(CachedSample));
+}
+
+[Test]
+void test_type_object_can_be_collected_and_recreated() {
+    WeakHandle weak = MakeUnrootedType();
+    GC.Collect();
+    Assert.True(WeakHandle.Upgrade(weak) == null);
+    Type recreated = typeof(CachedSample);
+    Assert.Equal("Z42CoreReflectionTypeCacheTests.CachedSample", recreated.FullName);
+}
