@@ -1,0 +1,56 @@
+namespace Std.Threading;
+
+internal sealed class TimerWorker {
+    internal TimerScheduler Owner;
+    internal Thread Thread;
+    internal Timer Job;
+    internal TimerWorker NextIdle;
+    internal TimerWorker NextRetired;
+    internal bool IsIdle;
+    internal long IdleSince;
+
+    internal TimerWorker(TimerScheduler owner) { this.Owner = owner; }
+
+    internal void Run() {
+        while (true) {
+            Timer timer = null;
+            bool finished = false;
+            MonitorNative.Enter(this.Owner.Gate);
+            try {
+                while (this.Job == null) {
+                    if (!this.IsIdle) { this.Owner.MakeIdle(this); }
+                    long wait = 100 - (TimerScheduler.Now() - this.IdleSince);
+                    if (wait <= 0 || this.Owner.Active == 0 && !this.Owner.HasPending()) {
+                        this.Owner.Retire(this);
+                        finished = true;
+                        break;
+                    }
+                    MonitorNative.WaitFor(this.Owner.Gate, wait);
+                }
+                if (!finished) { timer = this.Job; this.Job = null; }
+            } finally { MonitorNative.Exit(this.Owner.Gate); }
+            if (finished) { return; }
+            this.RunOne(timer);
+        }
+    }
+
+    private void RunOne(Timer timer) {
+        MonitorNative.Enter(timer.Completion);
+        try {
+            bool execute = false;
+            MonitorNative.Enter(this.Owner.Gate);
+            try { execute = !timer.Stopped; timer.Executing = execute; }
+            finally { MonitorNative.Exit(this.Owner.Gate); }
+            string failure = execute ? timer.Invoke() : null;
+            MonitorNative.Enter(this.Owner.Gate);
+            try {
+                timer.Executing = false;
+                timer.Assigned = false;
+                this.Owner.Active = this.Owner.Active - 1;
+                if (failure != null) { timer.Failure = failure; timer.Stopped = true; }
+                if (timer.Stopped || !timer.Periodic) { timer.Stopped = true; timer.Callback = null; }
+                else { this.Owner.Schedule(timer, timer.Interval); }
+            } finally { MonitorNative.Exit(this.Owner.Gate); }
+        } finally { MonitorNative.Exit(timer.Completion); }
+    }
+}

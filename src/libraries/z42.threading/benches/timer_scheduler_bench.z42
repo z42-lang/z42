@@ -1,0 +1,14 @@
+// requires-caps: threads
+namespace Z42TimerSchedulerBench;
+using Std.Threading;
+using Std.Harness;
+
+[Benchmark]
+void timer_waiting_create_cancel_32(Bencher b) {
+    b.iter(() => {
+        Timer[] timers = new Timer[32];
+        for (int i = 0; i < timers.Length; i++) { timers[i] = Timer.StartOnce(60000, () => {}); }
+        for (int i = 0; i < timers.Length; i++) { timers[i].StopAndJoin(); }
+        BenchHelpers.blackBox(timers);
+    });
+}

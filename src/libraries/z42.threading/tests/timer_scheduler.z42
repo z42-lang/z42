@@ -1,0 +1,105 @@
+// requires-caps: threads
+namespace Z42TimerSchedulerTests;
+using Std.Threading;
+using Std.Harness;
+
+bool awaitFlag(bool[] flag) {
+    for (int i = 0; i < 1000 && !flag[0]; i++) { Thread.Sleep(5); }
+    return flag[0];
+}
+
+[Test]
+void test_new_earlier_deadline_wakes_existing_wait() {
+    bool[] ready = new bool[1];
+    Timer later = Timer.StartOnce(60000, () => { Assert.Fail("cancelled timer fired"); });
+    Thread.Sleep(20);
+    Timer earlier = Timer.StartOnce(0, () => { ready[0] = true; });
+    bool fired = awaitFlag(ready);
+    later.StopAndJoin(); earlier.StopAndJoin();
+    Assert.True(fired);
+}
+
+[Test]
+void test_blocked_callback_does_not_block_another_timer() {
+    bool[] entered = new bool[1]; bool[] finished = new bool[1];
+    Channel<int> release = new Channel<int>(1);
+    Timer first = Timer.StartOnce(0, () => { entered[0] = true; release.Recv(); finished[0] = true; });
+    bool started = awaitFlag(entered);
+    Timer second = Timer.StartOnce(0, () => { release.TrySend(1); });
+    bool progressed = awaitFlag(finished);
+    release.TrySend(1);
+    first.StopAndJoin(); second.StopAndJoin();
+    Assert.True(started); Assert.True(progressed);
+}
+
+[Test]
+void test_many_waiting_callbacks_can_all_enter() {
+    int count = 8;
+    Channel<int> entered = new Channel<int>(count);
+    Channel<int> release = new Channel<int>(count);
+    Timer[] timers = new Timer[count];
+    for (int i = 0; i < count; i++) {
+        timers[i] = Timer.StartOnce(0, () => { entered.Send(1); release.Recv(); });
+    }
+    int seen = 0;
+    for (int i = 0; i < 1000 && seen < count; i++) {
+        object[] result = entered.TryRecv();
+        if ((long)result[0] == 0) { seen = seen + 1; } else { Thread.Sleep(5); }
+    }
+    for (int i = 0; i < count; i++) { release.TrySend(1); }
+    for (int i = 0; i < count; i++) { timers[i].StopAndJoin(); }
+    Assert.Equal(count, seen);
+}
+
+[Test]
+void test_periodic_delay_starts_after_completion_without_overlap() {
+    int[] calls = new int[1]; bool[] entered = new bool[1]; bool[] second = new bool[1];
+    long[] stamps = new long[2];
+    Channel<int> release = new Channel<int>(1);
+    Timer timer = Timer.StartPeriodic(10, () => {
+        calls[0] = calls[0] + 1;
+        if (calls[0] == 1) {
+            entered[0] = true;
+            release.Recv();
+            stamps[0] = Clock.MonoNanos();
+        } else if (calls[0] == 2) { stamps[1] = Clock.MonoNanos(); second[0] = true; }
+    });
+    bool started = awaitFlag(entered);
+    Thread.Sleep(80);
+    int beforeRelease = calls[0];
+    release.TrySend(1);
+    bool progressed = awaitFlag(second);
+    timer.StopAndJoin();
+    Assert.True(started); Assert.True(progressed); Assert.Equal(1, beforeRelease);
+    Assert.True(stamps[1] - stamps[0] >= 10000000);
+}
+
+[Test]
+void test_cancel_heap_nodes_and_restart_empty_scheduler() {
+    bool[] unexpected = new bool[1];
+    Timer[] timers = new Timer[64];
+    for (int i = 0; i < timers.Length; i++) {
+        timers[i] = Timer.StartOnce(60000 + i, () => { unexpected[0] = true; });
+    }
+    for (int i = 0; i < timers.Length; i = i + 2) { timers[i].StopAndJoin(); }
+    for (int i = 1; i < timers.Length; i = i + 2) { timers[i].StopAndJoin(); }
+    for (int i = 0; i < 4; i++) {
+        bool[] done = new bool[1];
+        Timer next = Timer.StartOnce(0, () => { done[0] = true; });
+        bool fired = awaitFlag(done);
+        next.StopAndJoin();
+        Assert.True(fired);
+        Thread.Sleep(20);
+    }
+    Assert.False(unexpected[0]);
+}
+
+[Test]
+void test_long_max_delay_is_cancellable_without_overflow() {
+    bool[] unexpected = new bool[1];
+    Timer once = Timer.StartOnce(9223372036854775807, () => { unexpected[0] = true; });
+    Timer periodic = Timer.StartPeriodic(9223372036854775807, () => { unexpected[0] = true; });
+    Thread.Sleep(10);
+    once.StopAndJoin(); periodic.StopAndJoin();
+    Assert.False(unexpected[0]); Assert.False(once.IsRunning()); Assert.False(periodic.IsRunning());
+}
