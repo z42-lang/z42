@@ -25,10 +25,7 @@ pub mod convert;
 pub mod io;
 pub use io::fs;
 pub mod repl;
-pub mod repl_editing;
-// Lazy dlopen loader for the REPL editor cdylib (libz42_repl); without `native-interop`
-// (wasm) it is the plain-stdin fallback in `repl`. (extract-repl-native-cdylib)
-pub mod repl_native;
+pub use repl::{editing as repl_editing, native as repl_native};
 pub mod string;
 pub mod math;
 pub mod object;
@@ -50,7 +47,8 @@ pub mod monitor;
 // store-sync-values-in-heap: 从 `sync.rs` 内部私有模块上移到这里 —— `monitor.rs` 与（待删的）
 // `sync.rs` 都用它。
 mod sync_contention;
-pub mod network;
+pub mod net;
+pub use net as network;
 #[cfg(feature = "tls")]
 pub mod tls;
 pub mod crypto;

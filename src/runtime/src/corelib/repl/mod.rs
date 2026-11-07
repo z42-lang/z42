@@ -29,6 +29,9 @@
 //! plain stdin read so the builtins still resolve. The REPL itself is host-only
 //! (scripting-charter 2b).
 
+pub mod editing;
+pub mod native;
+
 use crate::corelib::reflection::{type_members, make_type_from_name};
 use crate::vm::exec::engine;
 use crate::vm::exec::call::outcome::ExecOutcome;
@@ -277,7 +280,7 @@ fn complete_arity_check(fqn: &str, param_count: usize) -> Result<()> {
 /// wasm). See `repl_native`. `None` is EOF. Returns a Rust `String` rather than a `Value`
 /// because it runs parked — see `typed::repl_readline`.
 fn read_one_line(ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
-    super::repl_native::readline(ctx, prompt)
+    native::readline(ctx, prompt)
 }
 
 /// Fallback: print the prompt to stderr, read one physical line from stdin. EOF → null.

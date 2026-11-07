@@ -1,4 +1,4 @@
-//! ABI v2 TCP / UDP / DNS builtins (`network/tcp.rs`, `network/udp.rs`): the .NET exception
+//! ABI v2 TCP / UDP / DNS builtins (`net/tcp.rs`, `net/udp.rs`): the .NET exception
 //! mapping, and parking — a collection completes while a thread is blocked in accept /
 //! read / receive. Loopback only.
 

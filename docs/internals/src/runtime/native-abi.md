@@ -374,8 +374,8 @@ GC 等不到它到达 safepoint（规则见 runtime-rust.md「阻塞的 native �
 消息也是 .NET 的原文（`Could not find file '<path>'.`）——完整对照在该函数的文档与
 [reference · 文件与 IO 异常](https://z42-lang.github.io/z42/reference/stdlib/core.IOException.html)。进程的对照在 `corelib/os/process.rs` 抬头；
 socket 的（OS 错误 → `SocketException` + Winsock 码 `SocketErrorCode`，超时 → `TimedOut`，解析失败 → `HostNotFound`，
-关闭的句柄 → `SocketClosedException : ObjectDisposedException`）在 `corelib/network/error.rs`，TLS 的（握手被拒 →
-`AuthenticationException`，传输 / 流 → `IOException`）在 `corelib/tls.rs` 抬头；Monitor 误用 → `LockRecursionException` /
+关闭的句柄 → `SocketClosedException : ObjectDisposedException`）在 `corelib/net/error.rs`，TLS 的（握手被拒 →
+`AuthenticationException`，传输 / 流 → `IOException`）在 `corelib/tls/mod.rs` 抬头；Monitor 误用 → `LockRecursionException` /
 `SynchronizationLockException`（`corelib/monitor.rs`）。
 
 **唯一的出口** `vm::exec::call::builtin_abi::error::raise`，两个引擎共用（interp `exec_call::builtin` / 折叠调用，

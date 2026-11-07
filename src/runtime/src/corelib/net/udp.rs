@@ -1,8 +1,8 @@
 //! `Std.Net.Sockets` UDP + DNS builtins (builtin ABI v2): `UdpSocketNative` /
 //! `DnsNative.Resolve` in z42.core, used by z42.net's `UdpClient` / `Dns`.
 //!
-//! Same shape as `network/tcp.rs`: slot ids into `udp::State`, the `Arc` cloned
-//! out of the table, failures thrown from Rust (`network/error.rs`), every call that can
+//! Same shape as `net/tcp.rs`: slot ids into `udp::State`, the `Arc` cloned
+//! out of the table, failures thrown from Rust (`net/error.rs`), every call that can
 //! block (resolution, send, receive) parked, results built after unparking.
 
 #[derive(Default)]
