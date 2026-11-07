@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::ReflectedTypeKey;
 
 /// `__type_full_name(typeObj) -> string` — fully-qualified name (`Type.FullName`).
 pub fn type_full_name(ty: &Value) -> Value {
@@ -115,7 +116,7 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
     };
     let resolve = |name: &str| {
         ctx.module()
-            .and_then(|m| m.type_registry.get(name).cloned())
+            .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.current_type_desc(td)))
             .or_else(|| ctx.try_lookup_type(name))
     };
     // Seed the queue with the interfaces declared along the class base chain
@@ -281,16 +282,28 @@ pub fn type_is_assignable_from(ctx: &VmContext, this: &Value, c: &Value) -> bool
     if matches!(c, Value::Null) {
         return false;
     }
+    let identities = (reflected_type_key(this), reflected_type_key(c));
+    if let (Some(target), Some(source)) = &identities {
+        if target == source { return true; }
+    }
     // Both sides by their canonical runtime name (`type_value_name`): a constructed Type's
     // handle is its generic *definition*, so comparing handle names answered
     // `typeof(Box<string>).IsAssignableFrom(typeof(DInt))` (DInt : Box<int>) with true.
     let (Some(this_name), Some(c_name)) = (type_value_name(this), type_value_name(c)) else {
         return false;
     };
+    // Same spelling is not an identity across isolated loading contexts.
+    if this_name == c_name && identities.0.is_some() && identities.1.is_some() {
+        return false;
+    }
     // C# semantics: everything is assignable to `object` — value types box, all reference
     // types / interfaces / arrays derive from it. add-reflection-object-assignable.
     if this_name == STD_OBJECT {
-        return true;
+        return match &identities.0 {
+            Some(ReflectedTypeKey::Definition(id)) =>
+                ctx.types().get(*id).is_some_and(|td| td.name == STD_OBJECT),
+            _ => true,
+        };
     }
     match (type_handle_of(this), type_handle_of(c)) {
         (Some(_), Some(_)) => match ctx.module() {

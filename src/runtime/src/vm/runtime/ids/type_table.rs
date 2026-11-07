@@ -100,6 +100,18 @@ impl TypeTable {
         (!p.is_null()).then(|| unsafe { &*p })
     }
 
+    /// Clone the current published descriptor without copying its metadata.
+    /// Every pointer returned by `get` comes from an Arc retained in `own`.
+    pub fn get_arc(&self, id: TypeId) -> Option<Arc<TypeDesc>> {
+        let descriptor = self.get(id)? as *const TypeDesc;
+        // SAFETY: `self` keeps every published Arc alive for this entire call.
+        // Acquire in `get` observes publication before incrementing the count.
+        unsafe {
+            Arc::increment_strong_count(descriptor);
+            Some(Arc::from_raw(descriptor))
+        }
+    }
+
     /// Register `td` under its id, or repoint the slot at this newer version of the
     /// same type. Returns `true` when the slot changed. No-op for `UNRESOLVED` ids and
     /// when the slot already points at `td`; refuses a different type under a taken id.

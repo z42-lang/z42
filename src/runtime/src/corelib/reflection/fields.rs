@@ -88,7 +88,7 @@ pub fn type_fields(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
         }
         cur = c.base_name.as_ref().and_then(|b| {
             ctx.module()
-                .and_then(|m| m.type_registry.get(b).cloned())
+                .and_then(|m| m.type_registry.get(b).cloned().map(|td| ctx.current_type_desc(td)))
                 .or_else(|| ctx.try_lookup_type(b))
         });
     }
@@ -160,7 +160,7 @@ pub fn fieldof(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) ->
     };
     let td = ctx
         .module()
-        .and_then(|m| m.type_registry.get(class).cloned())
+        .and_then(|m| m.type_registry.get(class).cloned().map(|td| ctx.current_type_desc(td)))
         .or_else(|| ctx.try_lookup_type(class));
     let td = match td {
         Some(t) => t,
@@ -190,7 +190,7 @@ pub fn fieldof(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) ->
         }
         cur = c.base_name.as_ref().and_then(|b| {
             ctx.module()
-                .and_then(|m| m.type_registry.get(b).cloned())
+                .and_then(|m| m.type_registry.get(b).cloned().map(|td| ctx.current_type_desc(td)))
                 .or_else(|| ctx.try_lookup_type(b))
         });
     }

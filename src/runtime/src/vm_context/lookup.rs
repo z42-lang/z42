@@ -61,16 +61,6 @@ impl VmContext {
         crate::vm::runtime::dispatch::ic::fn_registration_mark()
     }
 
-    /// The published loader snapshot for VM-owned reflection caches. Pending
-    /// initialization must still take the ordinary resolution path.
-    pub(crate) fn reflection_revision(&self) -> i64 {
-        let loader = self.core.loader.lazy_loader.read();
-        if !self.static_init_drain_is_noop(&[]) {
-            return 0;
-        }
-        loader.as_ref().map_or(0, |loader| loader.reflection_revision() as i64)
-    }
-
     /// fix-cross-pkg-subclass-fields : seed the lazy loader's
     /// `type_registry` with TypeDescs from eagerly-loaded modules (e.g. the
     /// merged main module). Used by both the z42vm CLI and the in-process
@@ -266,15 +256,22 @@ impl VmContext {
         id.is_resolved().then_some(id)
     }
 
+    /// Resolve a registered identity after a metadata publication. Unregistered
+    /// declarations retain their own owner; names must not rebind their identity.
+    pub(crate) fn current_type_desc(&self, declaration: Arc<TypeDesc>) -> Arc<TypeDesc> {
+        self.core.runtime.types.get_arc(declaration.id).unwrap_or(declaration)
+    }
+
     /// Look up a class TypeDesc by FQ name; triggers lazy load if needed.
     /// Same `ModuleLoaded` emit semantics as `try_lookup_function`.
     pub fn try_lookup_type(&self, class_name: &str) -> Option<Arc<TypeDesc>> {
         // parallel-parse-and-cache：线程本地前置缓存，命中不碰共享锁（见 `type_lookup_cache`）。
-        if let Some(td) = self.runtime.type_lookup_cache.lock().get(class_name).cloned() {
+        let cached = self.runtime.type_lookup_cache.lock().get(class_name).cloned();
+        if let Some(td) = cached {
             if !self.static_init_drain_is_noop(&[]) {
                 self.run_pending_static_inits();
             }
-            return Some(td);
+            return Some(self.current_type_desc(td));
         }
         // fix-lazy-lookup-contention：同 try_lookup_function —— registry 命中且基类链完整
         // 时是纯读，走读锁。
@@ -302,7 +299,7 @@ impl VmContext {
             if !self.static_init_drain_is_noop(&[]) {
                 self.run_pending_static_inits();
             }
-            return resolved;
+            return resolved.map(|td| self.current_type_desc(td));
         }
         let (result, newly_loaded) = {
             let mut state = self.core.loader.lazy_loader.write();
@@ -314,14 +311,14 @@ impl VmContext {
             (result, newly)
         };
         if self.static_init_drain_is_noop(&newly_loaded) {
-            return result;
+            return result.map(|td| self.current_type_desc(td));
         }
         // defer-class-initialization (T2): 同上。
         self.run_pending_static_inits();
         for name in newly_loaded {
             self.fire_runtime_event(&crate::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
         }
-        result
+        result.map(|td| self.current_type_desc(td))
     }
 
     /// cache-failed-name-resolution: `true` when `run_pending_static_inits` provably
@@ -334,7 +331,7 @@ impl VmContext {
     /// `newly_loaded` comes out of the loader lock the caller already held;
     /// the other two reads are plain atomics.
     #[inline]
-    fn static_init_drain_is_noop(&self, newly_loaded: &[String]) -> bool {
+    pub(crate) fn static_init_drain_is_noop(&self, newly_loaded: &[String]) -> bool {
         use std::sync::atomic::Ordering;
         newly_loaded.is_empty()
             && self.core.loader.pending_type_init_count.load(Ordering::Relaxed) == 0

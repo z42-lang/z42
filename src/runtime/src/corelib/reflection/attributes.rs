@@ -11,14 +11,34 @@ use super::*;
 /// constant args baked into the factory body) — no runtime `Activator`/`Invoke`
 /// and no generic instantiation. Re-entering the registered engine keeps each activation in its own frame.
 ///
-/// z42-level `Type.GetCustomAttributes()` caches the returned array, so repeated
-/// calls on the same Type yield the same instances. Empty array for a
-/// handle-less Type or a type with no attributes.
+/// The cache dependency and result live in one immutable managed array. Publishing
+/// one reference prevents concurrent readers from pairing an old result with a new
+/// descriptor. The Type itself owns the result; the VM identity cache stays weak.
 pub fn type_custom_attributes(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
-    match type_handle_of(ty) {
-        Some(td) => call_attribute_factories(ctx, td.custom_attributes()).map_err(BuiltinError::Legacy),
-        None => Ok(ctx.heap().alloc_array(Vec::new())),
+    let descriptor = type_handle_of(ty);
+    let owner = Value::I64(descriptor.as_ref().map_or(0, |td| Arc::as_ptr(td) as usize as i64));
+    if let Value::Array(state) = read_type_slot_of(ty, "__attributeCache") {
+        let state = state.borrow();
+        if state.get(0) == Some(owner) {
+            if let Some(attributes @ Value::Array(_)) = state.get(1) {
+                return Ok(attributes);
+            }
+        }
     }
+    let mut roots = ProjectionRoots::new(ctx);
+    let attributes = roots.pin(match descriptor {
+        Some(td) => call_attribute_factories(ctx, td.custom_attributes()).map_err(BuiltinError::Legacy)?,
+        None => ctx.heap().alloc_array(Vec::new()),
+    });
+    if let Value::Object(object) = ty {
+        if let Some(&slot) = object.type_desc().field_index.get("__attributeCache") {
+            let state = ctx.heap().alloc_array(vec![owner, attributes]);
+            let wrote = object.borrow().try_set_field_value(slot, &state)
+                .map_err(BuiltinError::Legacy)?;
+            wrote.with_barrier_value(&state, |value| ctx.heap().write_barrier_field(ty, slot, value));
+        }
+    }
+    Ok(attributes)
 }
 
 /// `__method_custom_attributes(qualified) -> Std.Attribute[]` — live attribute
@@ -55,7 +75,7 @@ pub fn field_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate
     let (class, field) = (&qualified[..dot], &qualified[dot + 1..]);
     let resolve = |name: &str| {
         ctx.module()
-            .and_then(|m| m.type_registry.get(name).cloned())
+            .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.current_type_desc(td)))
             .or_else(|| ctx.try_lookup_type(name))
     };
     let mut current = resolve(class);
@@ -104,7 +124,7 @@ pub fn property_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &cr
     let backing = format!("__prop_{prop}");
     let td = ctx
         .module()
-        .and_then(|m| m.type_registry.get(class).cloned())
+        .and_then(|m| m.type_registry.get(class).cloned().map(|td| ctx.current_type_desc(td)))
         .or_else(|| ctx.try_lookup_type(class));
     let attrs: Vec<crate::metadata::ir::AttributeRef> = td
         .as_ref()
@@ -165,6 +185,7 @@ pub(super) fn call_attribute_factories(
         Some(m) => m.clone(),
         None => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
+    let mut roots = ProjectionRoots::new(ctx);
     let mut out = Vec::with_capacity(attrs.len());
     for a in attrs {
         // attribute-handler-registry: internal sentinels use a `$` prefix that cannot
@@ -193,7 +214,7 @@ pub(super) fn call_attribute_factories(
             }
             None => None,
         };
-        out.push(instance.unwrap_or(Value::Null));
+        out.push(roots.pin(instance.unwrap_or(Value::Null)));
     }
     Ok(ctx.heap().alloc_array(out))
 }

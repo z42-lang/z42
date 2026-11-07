@@ -40,7 +40,7 @@ impl LazyLoader {
             for sym in &dep.symbols {
                 if self.symbol_owners.contains_key(sym) { continue; }
                 self.symbol_owners.insert(sym.clone(), dep.file.clone());
-                self.note_reflection_change();
+
                 let short = sym.rsplit(|c| c == '.' || c == '+').next().unwrap_or(sym);
                 match self.short_symbols.get(short) {
                     None => { self.short_symbols.insert(short.to_string(), Some(sym.clone())); }
