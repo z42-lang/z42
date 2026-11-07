@@ -4,7 +4,7 @@
 /// Architecture
 /// ------------
 /// * Each `Instruction` category lives in its own submodule, mirroring
-///   the interpreter's `interp/exec_*.rs` split (see `docs/internals/src/runtime/vm-architecture.md`
+///   the interpreter's `interp/ops/exec_*.rs` split (see `docs/internals/src/runtime/vm-architecture.md`
 ///   §"JIT/EE helper 边界")
 /// * `registry.rs` is the single source of truth for the helper set:
 ///   it owns `HelperIds` (one `FuncId` per helper) and the two registration
@@ -132,7 +132,7 @@ pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const VmContex
 //
 // converge-vm-arith-semantics (H3): the scalar rules formerly duplicated here
 // (`int_binop_helper` / `int_bitop_helper` / `numeric_lt_helper` were verbatim
-// copies of `interp/ops.rs`) now live once in `crate::vm::exec::ops::scalar`. Call sites in
+// copies of `interp/ops/mod.rs`) now live once in `crate::vm::exec::ops::scalar`. Call sites in
 // `arith.rs` use `crate::vm::exec::ops::scalar::{int_binop, int_bitop, numeric_lt}` directly.
 
 /// A name the translator baked into the code as `(ptr, len)` (`TxCtx::str_val`).

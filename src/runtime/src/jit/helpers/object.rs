@@ -199,7 +199,7 @@ pub unsafe extern "C" fn jit_convert(
         }
     };
     // converge-vm-arith-semantics (H3): convert dispatch moved to the shared
-    // single source of truth (was `interp::exec_value::convert_value`).
+    // single source of truth (was `interp::ops::exec_value::convert_value`).
     // make-hard-cast-fail-properly：与解释器同一判据（scalar::hard_cast_failure），
     // 并构造**真异常对象**而非 `Value::Str`——后者在 catch 机配上是 `<non-exception-value>`，
     // `catch (Exception e)` 匹配不上，于是 interp 能 catch、JIT 不能，是一处 interp/JIT 分叉。

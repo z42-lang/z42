@@ -14,7 +14,7 @@ use crate::objops;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 
-use super::ops::raise;
+use super::raise;
 use super::Frame;
 
 /// 编译器证明不逃逸、且运行期允许栈分配时，返回取帧号的闭包（帧号惰性分配）。

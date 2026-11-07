@@ -317,7 +317,7 @@ Five instructions cover the whole surface of `T[]` (`Instruction::ArrayNew` / `A
 `"Std.Int32"` / `"Std.Int32[]"`。泛型值 struct 上这里有个刻意的不对称：TypeDesc 只按**擦除**
 基名（`Kv`）注册一份，而 `element_type` 刻意带**非擦除**名（`Kv<string,int>`），
 故 `try_struct_backed` 查布局时先 `split('<')` 剥回基名，同时把完整名存进 `ArrayObj`
-（`interp/exec_array.rs`）。`array_new` 另带 `stack_alloc`（逃逸分析）与
+（`interp/ops/exec_array.rs`）。`array_new` 另带 `stack_alloc`（逃逸分析）与
 `type_param_kind` / `type_param_index`（元素是型参时运行期解析出真实零值）。
 
 `array_new_lit` 的元素个数在 zbc 里与所有 `args` 一样是 **u8**（[zbc.md](zbc.md) 的 args 编码）。

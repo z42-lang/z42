@@ -146,7 +146,7 @@ fn run_jit(m: &Module, idx: usize, args: &[Value], init_pending: bool) -> (Strin
 
 fn run_interp(m: &Module, idx: usize, args: &[Value]) -> String {
     let vm = VmContext::new();
-    match crate::interp::exec_function(&vm, m, &m.functions[idx], args) {
+    match crate::interp::run::exec_function(&vm, m, &m.functions[idx], args) {
         Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(v)) => show(v.unwrap_or(Value::Null)),
         Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(v)) => show(v),
         Err(e) => thrown(&e.to_string()),

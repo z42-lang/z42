@@ -4,7 +4,7 @@
 //! `StructFieldSetPrim`).
 //!
 //! # Model
-//! These mirror the interpreter's [`crate::interp::exec_struct`] execution but read
+//! These mirror the interpreter's [`crate::interp::ops::exec_struct`] execution but read
 //! and write the `JitFrame` register file instead of an interp `Frame`. All the
 //! real work — arena allocation, the byte<->`Value` codec, and the base-polymorphic
 //! dispatch (arena `StructRef` / heap `Object` inline field / `StructRefHeap` array

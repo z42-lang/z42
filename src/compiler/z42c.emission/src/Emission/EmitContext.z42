@@ -350,7 +350,7 @@ public sealed class EmitContext {
     // fix-narrow-prim-instance-dispatch：窄基元接收者 → 其包装类上该方法的**已发射 FQ**（查不到 → ""）。
     //
     // 为什么需要这条：运行期的 prim 派发由 `primitive_class_name(obj_val)` **从 Value 反推**类
-    // （`interp/exec_vcall.rs`：`Value::I64 => Std.Int32`、`Value::F64 => Std.Double`），而
+    // （`interp/ops/exec_vcall.rs`：`Value::I64 => Std.Int32`、`Value::F64 => Std.Double`），而
     // `sbyte/short/byte/ushort/uint/ulong/long` 同为 `Value::I64`、`float` 是 `Value::F64` ⇒
     // 这 8 个包装类型上声明的实例方法**运行期一个都到不了**，全落到 Int32/Double 的同名方法。
     // 长期无人发现，只因它们的实现与 Int32/Double 版恰好等价；实测真正分道的有两处：

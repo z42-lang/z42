@@ -21,7 +21,7 @@ vm.rs: ExecMode::Jit → 已注册优化入口 → jit::run(ctx, module, entry)
     │                                 不编译；已装则复用（每 VM 一个 JIT）
     ▼ jit::run_fn(ctx, entry)
         1. resolve_fn_by_name(ctx, entry)        —— 首次调用即编译入口
-           └ 入口不可翻译 → 入口经注册 Engine 调用 interp::exec_function（其调用的已编译函数仍回跳原生码）
+           └ 入口不可翻译 → 入口经注册 Engine 调用 interp::run::exec_function（其调用的已编译函数仍回跳原生码）
         2. push VmFrame（栈底帧顺带写入本线程栈下限）→ jit_fn(&mut frame, ctx) → pop
 ```
 

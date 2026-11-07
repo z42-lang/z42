@@ -375,7 +375,7 @@ Str+int 拼接、Str 与 int 排序比较）逐例双引擎对照。
 
 **结构**：interp 帧经 `VmContext::tier()` 读取中立 TierApi，静态/虚/闭包调用向其传入借用参数视图。TierBackend 的 JIT 实现选择原来的 tiered/peek 路径并构造自己的 JitFrame；interp 不认识 JitRuntime。没有已安装 tier 时继续解释执行。
 
-**分发 hook**（`interp/exec_call.rs::try_native_static_call` / `try_native_indirect_call` /
+**分发 hook**（`interp/ops/exec_call.rs::try_native_static_call` / `try_native_indirect_call` /
 `exec_vcall.rs::try_native_method_call`）：解析出 callee 的 JIT id（`Call` 的 token；VCall 的 PIC 载荷或解析结果里的
 `FnId`；`CallIndirect` 是 `FuncRef` / 闭包值里创建时绑定的 `FnId`，闭包的 env 作 reg 0）后，若 VM 装了 JIT
 且 `resolve_fn_by_id_tiered(id)` 返回已编译 entry → 建 `JitFrame`
@@ -420,9 +420,9 @@ backstop 完备。同样带 `Ref(Stack)` 守卫（arg 为 Ref → 不路由）�
 
 ## OSR / 循环回边分层
 
-> 代码：`interp/mod.rs`（`try_osr` + `Frame.back_edge_count`）、
-> `jit/translate.rs`（`osr_entry`）、`jit/compile/mod.rs`（`compile_fn_osr`）、
-> `jit/runtime/frame.rs`（`from_interp_regs` / `resolve_osr_entry`）。
+> 代码：`interp/run/exec_support.rs`（`try_osr`）与 `interp/frame/mod.rs`（`Frame.back_edge_count`）、
+> `jit/translate/mod.rs`（`osr_entry`）、`jit/compile/mod.rs`（`compile_fn_osr`）、
+> `jit/runtime/frame.rs`（`from_interp_regs`）、`jit/compile/state.rs`（`resolve_osr_entry`）。
 
 ### 为什么
 

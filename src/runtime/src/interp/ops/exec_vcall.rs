@@ -56,7 +56,7 @@ pub(crate) fn vcall(
 ) -> Result<Option<Value>> {
     // add-generic-activator: resolve method-type-arg forwarding markers `$mta:N`
     // against the caller frame before threading to the callee (see exec_call::call
-    // and interp::resolve_forwarded_mta). No alloc unless a marker is present.
+    // and interp::run::exec_support::resolve_forwarded_mta). No alloc unless a marker is present.
     let fwd_storage;
     let method_type_args: &[String] = if super::has_forwarded_mta(method_type_args) {
         fwd_storage = super::resolve_forwarded_mta(ctx, frame, method_type_args);

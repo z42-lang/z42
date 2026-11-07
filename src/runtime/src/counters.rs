@@ -8,11 +8,11 @@
 //! # Increment sites (current)
 //!
 //! - `builtin_calls`         ← `vm::exec::call::builtins::exec_builtin`
-//! - `native_calls`          ← `interp::exec_ffi::ffi_call`
+//! - `native_calls`          ← `interp::ops::exec_ffi::ffi_call`
 //! - `jit_methods_compiled`  ← `jit::compile::state` compilation
-//! - `jit_native_from_interp`← `interp::exec_call` / `exec_vcall` native routing
-//! - `exceptions_thrown`     ← `interp::fire_exception_thrown`
-//! - `exceptions_caught`     ← `interp::fire_exception_caught`
+//! - `jit_native_from_interp`← `interp::ops::exec_call` / `exec_vcall` native routing
+//! - `exceptions_thrown`     ← `interp::run::exec_support::fire_exception_thrown`
+//! - `exceptions_caught`     ← `interp::run::exec_support::fire_exception_caught`
 //!
 //! Still at 0 (not yet wired): `jit_compile_us_total` — per-compile wall time
 //! is tracked as a diagnostics.md §4.2 span item, deferred.
@@ -50,7 +50,7 @@ pub struct RuntimeCounters {
     pub builtin_calls:        AtomicU64,
 
     /// Native FFI calls dispatched (e.g. user `[Native("...")]` extern methods).
-    /// Incremented at top of `interp::exec_ffi::ffi_call` .
+    /// Incremented at top of `interp::ops::exec_ffi::ffi_call` .
     pub native_calls:         AtomicU64,
 
     /// Number of methods compiled by the JIT backend.
@@ -62,17 +62,17 @@ pub struct RuntimeCounters {
 
     /// runtime-jit-tiering Phase 1.5 (mixed-mode): calls where an INTERP frame
     /// routed an already-compiled callee to its native code instead of
-    /// interpreting it. Incremented in `interp::exec_call::try_native_static_call`
+    /// interpreting it. Incremented in `interp::ops::exec_call::try_native_static_call`
     /// / `exec_vcall::try_native_method_call`. >0 confirms mixed-mode is active.
     pub jit_native_from_interp: AtomicU64,
 
     /// User exceptions thrown (z42 `throw expr` statements + VM-raised
     /// arithmetic / type errors that bubble as exceptions).
-    /// Incremented in `interp::fire_exception_thrown` .
+    /// Incremented in `interp::run::exec_support::fire_exception_thrown` .
     pub exceptions_thrown:    AtomicU64,
 
     /// User exceptions caught by `try { ... } catch` blocks.
-    /// Incremented in `interp::fire_exception_caught` .
+    /// Incremented in `interp::run::exec_support::fire_exception_caught` .
     pub exceptions_caught:    AtomicU64,
 }
 

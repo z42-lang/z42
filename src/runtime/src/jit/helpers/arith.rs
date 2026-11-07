@@ -118,7 +118,7 @@ arith_op!(jit_mul, i64::wrapping_mul, |x, y| x * y);
 // SIGFPE on x86_64 in release / panics in debug). fix-jit-int-div-by-zero
 // : pre-fix the helper macro called `int_op(x, y)` directly
 // in the I64 fast path; for y == 0 that panicked the VM, diverging from
-// interp behavior. Now matches `interp::exec_value::check_int_div_by_zero`.
+// interp behavior. Now matches `interp::ops::exec_value::check_int_div_by_zero`.
 //
 // F64 / 0 → IEEE 754 Infinity (existing behavior preserved via the slow
 // path's `float_op`); only integer y == 0 hits the throw.

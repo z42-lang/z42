@@ -12,11 +12,11 @@ impl Engine for Interpreter {
     fn invoke(&self, ctx: &VmContext, module: &Module, func: &Function,
         args: CallArgs<'_>, type_args: &[String]) -> Result<ExecOutcome> {
         match args {
-            CallArgs::Values(values) if type_args.is_empty() => super::exec_function(ctx, module, func, values),
-            CallArgs::Values(values) => super::exec_function_with_type_args(ctx, module, func, values, type_args),
-            CallArgs::Registers { regs, indices } => super::exec_function_from_regs(ctx, module, func, regs, indices, type_args),
+            CallArgs::Values(values) if type_args.is_empty() => super::run::exec_function(ctx, module, func, values),
+            CallArgs::Values(values) => super::run::exec_function_with_type_args(ctx, module, func, values, type_args),
+            CallArgs::Registers { regs, indices } => super::run::exec_function_from_regs(ctx, module, func, regs, indices, type_args),
             CallArgs::Receiver { receiver, regs, indices } =>
-                super::exec_function_from_receiver_regs(ctx, module, func, &receiver, regs, indices, type_args),
+                super::run::exec_function_from_receiver_regs(ctx, module, func, &receiver, regs, indices, type_args),
         }
     }
     fn run(&self, ctx: &VmContext, module: &Module, entry: &Function) -> Result<()> {

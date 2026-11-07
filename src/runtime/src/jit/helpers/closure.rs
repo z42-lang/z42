@@ -1,7 +1,7 @@
 #![allow(dangerous_implicit_autorefs)]
 //! L3 closure JIT helpers — `LoadFn` / `MkClos` / `CallIndirect`.
 //!
-//! Behaviour mirrors `interp::exec_call` / `exec_instr` (impl-closure-l3-core);
+//! Behaviour mirrors `interp::ops::exec_call` / `exec_instr` (impl-closure-l3-core);
 //! see `docs/internals/src/runtime/escape-analysis.md`（闭包栈分配）+ `变更 impl-closure-l3-jit-complete/`.
 //!
 //! Convention follows the rest of `jit/helpers/`:
@@ -60,7 +60,7 @@ pub unsafe extern "C" fn jit_load_fn(
 // ── MkClos ────────────────────────────────────────────────────────────────────
 
 /// Allocate a heap env from `captures` registers and write a heap
-/// `Value::Closure` to `frame.regs[dst]`. Mirrors `interp::exec_call::mk_clos`.
+/// `Value::Closure` to `frame.regs[dst]`. Mirrors `interp::ops::exec_call::mk_clos`.
 /// `baked` is the target id when the site was already bound at translate time
 /// (`UNRESOLVED` otherwise → [`bind_target`]).
 #[unsafe(no_mangle)]

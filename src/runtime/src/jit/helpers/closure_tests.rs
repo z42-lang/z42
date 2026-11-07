@@ -129,7 +129,7 @@ fn interp_call_indirect_routes_to_the_jit_slot() {
     let main = &module.functions[0];
     crate::vm::runtime::resolve::resolve_function_tokens(main, &module, &vm);
     let before = vm.counters().jit_native_from_interp.load(Ordering::Relaxed);
-    let r = crate::interp::exec_function(&vm, &module, main, &[]);
+    let r = crate::interp::run::exec_function(&vm, &module, main, &[]);
     assert!(matches!(r, Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(_))));
     assert_eq!(rt.slot_probe(id), (2, false));
     assert_eq!(vm.counters().jit_native_from_interp.load(Ordering::Relaxed) - before, 2,
