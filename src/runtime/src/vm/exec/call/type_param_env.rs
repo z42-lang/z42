@@ -20,8 +20,8 @@ use crate::vm_context::VmContext;
 /// synthetic T used by older bytecode.
 pub(crate) fn method_type_value(ctx: &VmContext, args: &[String], index: usize) -> Value {
     match args.get(index) {
-        Some(name) => crate::corelib::reflection::make_type_from_name(ctx, name),
-        None => crate::corelib::reflection::make_constructed_type(ctx, "T", &[]),
+        Some(name) => (ctx.core.exec.object_protocol.make_type_from_name)(ctx, name),
+        None => (ctx.core.exec.object_protocol.make_constructed_type)(ctx, "T", &[]),
     }
 }
 

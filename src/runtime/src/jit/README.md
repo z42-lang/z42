@@ -58,7 +58,7 @@ Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每�
 
 ## 依赖关系
 - 共享转发与类型实参从 `vm/exec/call` 调用，struct 值级实现从 `vm/exec/ops/structs` 调用；执行结果使用 VM 的 `ExecOutcome`。
-- 依赖 `corelib` 的 `invoke_builtin` / `abi::error::raise`；纯值格式化直接依赖 `object/value`；`[Native]` 折叠依赖 `vm::exec::call::forward`
+- builtin 调用与异常映射依赖 `vm::exec::call`；Typeof 经 VM 对象协议物化反射类型；纯值格式化依赖 `object/value`；`[Native]` 折叠依赖 `vm::exec::call::forward`
 - 依赖 `metadata` 的 `Module`、`Function`、`Instruction`、`Value` 等类型
 - 依赖 `vm::exec::ops::vcall`（vcall 目标解析单一实现）+ `vm::exec::ops::obj_new`（ObjNew 类 / 构造器解析与站点缓存）+ `vm::runtime::dispatch::receiver::primitive_class_name`（is/as 共享判定）+ `vm::exec::ops::cast::isa_td`（is / as / catch 类型判定单一实现，含 `IsaCache`；helpers/object.rs 与 control.rs 共享，JIT 不自带基链遍历；翻译时烘焙指令 / 异常表行的 `TypeKeyCell` 指针）
 - 外部依赖：`cranelift-codegen`、`cranelift-frontend`、`cranelift-jit`、`cranelift-module`
