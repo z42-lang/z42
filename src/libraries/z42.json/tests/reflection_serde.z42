@@ -1,5 +1,6 @@
 namespace Std.Json.Tests;
 using Std.Harness;
+using Std.Collections;
 
 public class PlannedRow { public int Id; public string Label; }
 public class PlannedOther { public int Code; }
@@ -60,4 +61,30 @@ void test_reflection_serde_preserves_attribute_factories_per_object() {
     Assert.Equal(3, rows[0].Id);
     Assert.Equal(4, rows[1].Id);
     Assert.Equal(0, rows[0].Secret);
+}
+
+[Test]
+void test_collection_bindings_use_current_container() {
+    List<int> emptyList = new List<int>();
+    List<int> first = new List<int>();
+    List<int> second = new List<int>();
+    first.Add(1);
+    second.Add(2);
+    second.Add(3);
+    List<string> labels = new List<string>();
+    labels.Add("x");
+
+    Dictionary<string, int> emptyDict = new Dictionary<string, int>();
+    Dictionary<string, int> scores = new Dictionary<string, int>();
+    Dictionary<string, int> later = new Dictionary<string, int>();
+    Dictionary<string, string> notes = new Dictionary<string, string>();
+    scores["a"] = 4;
+    later["b"] = 5;
+    notes["note"] = "y";
+
+    object[] values = new object[] {
+        emptyList, first, labels, second, emptyList, emptyDict, scores, notes, later, emptyDict
+    };
+    Assert.Equal("[[],[1],[\"x\"],[2,3],[],{},{\"a\":4},{\"note\":\"y\"},{\"b\":5},{}]",
+        JsonSerializer.Serialize(values));
 }
