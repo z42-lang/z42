@@ -331,7 +331,7 @@ impl LazyLoader {
         }
 
         if declared_before != self.declared_zpkgs.len() {
-            self.note_reflection_change();
+
         }
 
         // Idempotent: a re-load of the same module is a no-op.

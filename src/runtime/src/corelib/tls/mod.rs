@@ -1,7 +1,7 @@
 //! `Std.Net` TLS client builtins (builtin ABI v2) — rustls-backed blocking TLS streams:
 //! `TlsSocketNative` in z42.core, used by z42.net's `TlsClient` / `TlsStream`.
 //!
-//! Same handle model as the TCP builtins (`network/tcp.rs`): a slot id into
+//! Same handle model as the TCP builtins (`net/tcp.rs`): a slot id into
 //! `tls::State`; the table holds an `Arc<TlsSlot>` that calls clone. The rustls
 //! session needs `&mut` for reads and writes alike, so it sits behind a lock, with a dup
 //! of the TCP socket beside it for shutdown and timeouts. Read and write are therefore
@@ -13,7 +13,7 @@
 //!
 //! | failure | exception |
 //! |---|---|
-//! | name resolution / TCP connect | `SocketException` (`network/error.rs`) |
+//! | name resolution / TCP connect | `SocketException` (`net/error.rs`) |
 //! | the handshake: certificate rejected (unknown issuer, name mismatch, expired), protocol mismatch, the peer is not speaking TLS | `Std.Security.Authentication.AuthenticationException` |
 //! | the transport fails during the handshake (peer hung up, reset, timed out) | `IOException` (`Received an unexpected EOF or 0 bytes from the transport stream.` / `Unable to read data from the transport connection: …`) |
 //! | read / write on the established stream (I/O error, timeout, corrupt record) | `IOException` (`Unable to read / write data to the transport connection: …`) |
@@ -28,7 +28,7 @@
 //!
 #[derive(Default)]
 pub(crate) struct State {
-    pub(super) slots: super::resource_registry::ResourceRegistry<std::sync::Arc<TlsSlot>>,
+    pub(super) slots: crate::corelib::resource_registry::ResourceRegistry<std::sync::Arc<TlsSlot>>,
 }
 
 pub(super) fn state(ctx: &crate::vm_context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
@@ -65,7 +65,7 @@ pub(crate) fn client_config() -> Result<std::sync::Arc<rustls::ClientConfig>, cr
 mod imp {
     use super::TlsSlot;
     use crate::vm::exec::call::builtin_abi::BuiltinError;
-    use crate::corelib::network::error::{closed, describe, slot_id, timeout_message};
+    use crate::corelib::net::error::{closed, describe, slot_id, timeout_message};
     use crate::vm_context::VmContext;
     use std::sync::Arc;
 
@@ -124,7 +124,7 @@ pub mod typed {
     use super::{client_config, TlsSlot};
     use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
     use crate::corelib::io::buffer::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
-    use crate::corelib::network::error::{check_port, resolve, slot_id, socket_error, timeout};
+    use crate::corelib::net::error::{check_port, resolve, slot_id, socket_error, timeout};
     use crate::object::Value;
     use crate::vm_context::VmContext;
     use rustls::pki_types::ServerName;

@@ -3,9 +3,9 @@
 //!
 //!
 //! Design (see 变更 add-reflection-mvp/design.md):
-//!   - `Std.Type` objects carry the real `Arc<TypeDesc>` in
-//!     `NativeData::TypeHandle` (set by `__obj_get_type`). Reflection builtins
-//!     read it to enumerate members.
+//!   - `Std.Type` objects carry a stable declaration handle. Published identities
+//!     resolve through their owning TypeTable on each metadata query; isolated
+//!     declarations retain their own metadata owner.
 //!   - Member/Type objects are populated EAGERLY: each builtin allocates the
 //!     real z42 class (`Std.Reflection.FieldInfo`, …) via `try_lookup_type` and
 //!     fills slots by name through `field_index`.

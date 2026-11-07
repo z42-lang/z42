@@ -5,7 +5,7 @@
 //! bundled roots.
 
 use crate::vm::exec::call::builtin_abi::BuiltinError;
-use crate::corelib::network::network_tests::{call, collect_while_parked, detailed};
+use crate::corelib::net::network_tests::{call, collect_while_parked, detailed};
 use crate::object::Value;
 use crate::vm_context::VmContext;
 use std::sync::Arc;

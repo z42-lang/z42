@@ -38,7 +38,7 @@ GC 只看得见帧寄存器、static 字段、几个 arena 和 pinned roots。�
    `NativeUnparkGuard`。
 3. **不攥着共享锁阻塞**：排在这把锁上的其它线程是**不 park** 的——只 park 阻塞者本身，GC 照样要等排队者。
    做法：锁下只取出 / 克隆句柄（`Arc`），放锁，再 park 着做 I/O（参照 `corelib/os/process.rs` 的 `ProcessSlot`、
-   `corelib/network/tcp.rs` 的取出-放回）。
+   `corelib/net/tcp.rs` 的取出-放回）。
 
 park 还是**线程注册协议的前提**：新 `VmContext` 在标记期不注册、等停顿结束，醒来后可能赢得 collector 角色并等所有
 已注册线程 park——若有线程卡在没 park 的调用里就永久死锁（loom 模型 B′，`tests/gc_registration_race_loom.rs`）。

@@ -41,20 +41,20 @@ const TYPED: &[&[abi::BuiltinDesc]] = &[
     crate::corelib::os::process::typed::DESCS,
     crate::corelib::io::typed::DESCS,
     crate::corelib::repl::typed::DESCS,
-    crate::corelib::repl_editing::typed::DESCS,
+    crate::corelib::repl::editing::typed::DESCS,
     #[cfg(feature = "native-interop")]
     crate::interop::ext::typed::DESCS,
     crate::corelib::monitor::typed::DESCS,
     #[cfg(feature = "net")]
-    crate::corelib::network::tcp::typed::DESCS,
+    crate::corelib::net::tcp::typed::DESCS,
     #[cfg(feature = "net")]
-    crate::corelib::network::udp::typed::DESCS,
+    crate::corelib::net::udp::typed::DESCS,
     #[cfg(not(feature = "net"))]
-    crate::corelib::network::unsupported::net::DESCS,
+    crate::corelib::net::unsupported::net::DESCS,
     #[cfg(feature = "tls")]
     crate::corelib::tls::typed::DESCS,
     #[cfg(not(feature = "tls"))]
-    crate::corelib::network::unsupported::tls::DESCS,
+    crate::corelib::net::unsupported::tls::DESCS,
     crate::corelib::diagnostics::typed::DESCS,
     crate::corelib::array::typed::DESCS,
     #[cfg(test)]

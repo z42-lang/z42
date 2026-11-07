@@ -1,6 +1,6 @@
 # socket：Close 怎么打断阻塞中的调用
 
-> SoT：`src/runtime/src/corelib/network/{listener,tcp,udp}.rs`、`corelib/tls.rs`。
+> SoT：`src/runtime/src/corelib/net/{listener,tcp,udp}.rs`、`corelib/tls/mod.rs`。
 
 监听 socket 的 accept 与已连接 socket 的读写是两套做法：accept 只能非阻塞 + 轮询（下面前几节），
 已连接的 socket 可以用 shutdown 唤醒（见[已连接的 socket](#已连接的-sockettcp--tls--udp)）。

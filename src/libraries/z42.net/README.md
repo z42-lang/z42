@@ -56,5 +56,5 @@ xtask test stdlib z42.net    # 本库全部 [Test]（本机 loopback，无外网
 
 native 后端：socket op 走 z42.core 的 `TcpSocketNative` / `UdpSocketNative` / `TlsSocketNative` /
 `DnsNative.Resolve`（`__tcp_*` / `__udp_*` / `__tls_*` / `__dns_lookup`，builtin ABI v2：返回普通值、失败从 Rust 抛），
-VM 侧实现在 `src/runtime/src/corelib/network.rs`（+ `network/`）与 `tls.rs`，slot table 模式镜像 `Std.IO.ProcessHandle`。
+VM 侧实现在 `src/runtime/src/corelib/net/mod.rs`与 `src/runtime/src/corelib/tls/mod.rs`，slot table 模式镜像 `Std.IO.ProcessHandle`。
 `NetworkStream` 把 `SocketException` 包成 `IOException`（`InnerException` 是原异常），同 .NET；`TlsStream` 的读写失败由 VM 直接抛 `IOException`。

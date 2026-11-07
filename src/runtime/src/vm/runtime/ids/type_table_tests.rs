@@ -139,3 +139,22 @@ fn concurrent_publish_and_read() {
     });
     assert_eq!(t.len(), 256);
 }
+
+#[test]
+fn current_arc_follows_publication_and_outlives_the_table() {
+    let table = TypeTable::default();
+    let id = fresh_id();
+    let initial = desc("Pkg.Target", id);
+    table.publish(&initial);
+    let held = table.get_arc(id).unwrap();
+    assert!(Arc::ptr_eq(&held, &initial));
+    let mut updated = (*initial).clone();
+    updated.base_name = Some("Pkg.Base".into());
+    let updated = Arc::new(updated);
+    table.publish(&updated);
+    let current = table.get_arc(id).unwrap();
+    assert!(Arc::ptr_eq(&current, &updated));
+    drop(table);
+    assert_eq!(held.base_name, None);
+    assert_eq!(current.base_name.as_deref(), Some("Pkg.Base"));
+}

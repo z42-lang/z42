@@ -47,7 +47,7 @@ pub fn repl_set_key_editor(fqn: &str) {
 /// 没加载到 cdylib（wasm / 无 native-interop / 老版本 cdylib）时静默 no-op。
 pub fn repl_set_keywords(joined: &str) {
     #[cfg(feature = "native-interop")]
-    super::repl_native::native::set_keywords(joined);
+    super::native::native::set_keywords(joined);
     #[cfg(not(feature = "native-interop"))]
     let _ = joined;
 }

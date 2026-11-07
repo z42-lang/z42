@@ -15,8 +15,8 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     add(&mut defaults, corelib::io::fs::State::new(application));
     #[cfg(feature = "net")]
     {
-        add(&mut defaults, corelib::network::tcp::State::default());
-        add(&mut defaults, corelib::network::udp::State::default());
+        add(&mut defaults, corelib::net::tcp::State::default());
+        add(&mut defaults, corelib::net::udp::State::default());
     }
     #[cfg(feature = "tls")]
     add(&mut defaults, corelib::tls::State::default());

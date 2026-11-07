@@ -8,11 +8,9 @@ use std::sync::Arc;
 
 /// Returns a `Std.Type` for the runtime class of the argument.
 ///
-/// add-reflection-mvp: user objects now carry the real
-/// `Arc<TypeDesc>` in `NativeData::TypeHandle`, so the returned Type responds to
+/// Reflected objects use stable declaration handles and current metadata for
 /// `GetFields()` / `GetMethods()` / `BaseType` / `GetGenericArguments()`.
-/// Primitives / arrays / strings get a handle-less `Std.Type` (member queries
-/// reflect empty) — element-typed array reflection deferred (reflection.md).
+/// Primitive wrappers use their declarations; arrays preserve their element Type.
 pub fn obj_get_type(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
     obj_get_type_impl(ctx, this).map_err(BuiltinError::Legacy)
 }

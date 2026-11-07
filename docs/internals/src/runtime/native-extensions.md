@@ -105,7 +105,7 @@ VM → native 是 `dlopen` 符号；native → VM 是**函数指针**。z42vm �
 ### 2.3 trampoline：唯一 cast 回 `&VmContext` 的地方
 
 z42vm 侧为 `complete` / `key_edit` 各提供一个 `extern "C"` trampoline
-（`corelib::repl::complete_trampoline` / `corelib::repl_editing::keyedit_trampoline`）。它们是
+（`corelib::repl::complete_trampoline` / `corelib::repl::editing::keyedit_trampoline`）。它们是
 **边界铁律的守门人**：
 
 ```
@@ -125,7 +125,7 @@ extern "C" fn complete_trampoline(ctx: *mut c_void, line: *const c_char, pos) ->
 `(lib.readline)(…)` 调用，库只在该调用内、同一线程上同步回调，返回后指针即弃。等价于旧
 实现里 `readline` 期间发布的 `ACTIVE_CTX` thread-local，只是现在改为经参数透传。
 
-### 2.4 懒加载与发现（`corelib::repl_native`）
+### 2.4 懒加载与发现（`corelib::repl::native`）
 
 与 compression 的急切扫描相反，repl 库**首次 `__repl_readline` 才 `dlopen`**（`OnceLock` 记忆
 结果，探一次文件系统），启动路径完全不碰它。发现顺序（**不走** `native_search_paths()`）：
@@ -138,7 +138,7 @@ extern "C" fn complete_trampoline(ctx: *mut c_void, line: *const c_char, pos) ->
    ——见 [Native 库的布局与解析](native-libraries.md)）。
 
 找不到 / 加载失败 / `native-interop` feature 未开 / wasm → 一律退回 `plain_readline`。整个
-`repl_native` 模块 gated `not(target_arch = "wasm32")`，内部 dl 逻辑再 gated `feature = "native-interop"`。
+`corelib::repl::native` 在各目标上提供读取入口；动态加载与编辑器回调由 `native-interop` feature 启用。
 
 ### 2.5 GC 重入协议
 

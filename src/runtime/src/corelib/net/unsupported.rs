@@ -1,17 +1,17 @@
 //! Builds without sockets: the ABI v2 network / TLS builtins throw
 //! `NetUnsupportedException : PlatformNotSupportedException` (closing is a no-op, as
-//! there is never anything open). Same names and arities as `network/{tcp,udp}.rs` /
+//! there is never anything open). Same names and arities as `net/{tcp,udp}.rs` /
 //! `tls.rs` — the stdlib declarations are shared.
 //!
 //! `net` stands in for `tcp` / `udp` when the `net` feature is off; `tls` stands in
-//! for `corelib/tls.rs` when the `tls` feature is off (`tls` implies `net`, so a build
+//! for `corelib/tls/mod.rs` when the `tls` feature is off (`tls` implies `net`, so a build
 //! can have sockets without TLS but not the reverse). The wasm preset has neither.
 
 #[cfg(not(feature = "net"))]
 #[z42_macros::builtins]
 pub mod net {
     use crate::vm::exec::call::builtin_abi::BuiltinError;
-    use crate::corelib::network::error::unsupported;
+    use crate::corelib::net::error::unsupported;
     use crate::object::Value;
 
     #[builtin(name = "__tcp_connect")]
@@ -75,7 +75,7 @@ pub mod net {
 #[z42_macros::builtins]
 pub mod tls {
     use crate::vm::exec::call::builtin_abi::BuiltinError;
-    use crate::corelib::network::error::unsupported;
+    use crate::corelib::net::error::unsupported;
     use crate::object::Value;
 
     #[builtin(name = "__tls_connect")]

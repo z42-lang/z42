@@ -1,5 +1,5 @@
 // REPL 缩进感知键位策略（add-repl-indent-editing）。**决策逻辑在此**——Rust 侧
-// （z42vm corelib/repl_editing.rs）只做 policy-free 的适配壳：取 line/pos + 键名，回调这里
+// （z42vm corelib/repl/editing.rs）只做 policy-free 的适配壳：取 line/pos + 键名，回调这里
 // 的自由函数 replKeyEdit，再把返回的「动作串」翻译成 rustyline Cmd。与 Tab 补全的
 // Repl.SetCompleter/replComplete 同款重入模式。
 //
@@ -128,7 +128,7 @@ public static class ReplEditing {
     }
 }
 
-// rustyline 键位回调（契约见 corelib/repl_editing.rs）。经 Repl.SetKeyEditor 注册。
+// rustyline 键位回调（契约见 corelib/repl/editing.rs）。经 Repl.SetKeyEditor 注册。
 string replKeyEdit(string key, string line, int pos) {
     return ReplEditing.KeyEdit(key, line, pos);
 }
