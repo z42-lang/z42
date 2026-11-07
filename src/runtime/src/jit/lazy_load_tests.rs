@@ -12,7 +12,7 @@
 //! interp). CI is authoritative for those (see tasks.md 3.2 / 3.4). Here we lock
 //! the in-process resolution invariants that back them.
 
-use crate::jit::runtime::{install, install_tuned, JitRuntime};
+use crate::jit::compile::state::{install, install_tuned, JitRuntime};
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, Terminator};
 use crate::metadata::ir::ExecMode;

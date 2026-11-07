@@ -6,7 +6,7 @@ use super::*;
 use super::ctx::TxCtx;
 use crate::jit::helpers::value::JIT_GET_BOOL_ERR;
 use crate::metadata::BranchTargets;
-use crate::jit::reg_access::{PAYLOAD_OFFSET, TAG_OFFSET};
+use crate::jit::translate::reg_access::{PAYLOAD_OFFSET, TAG_OFFSET};
 
 impl<'a, 'b> TxCtx<'a, 'b> {
     pub(super) fn tr_terminator(&mut self, term: &Terminator, block_instr_count: usize) -> Result<()> {
@@ -23,7 +23,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 // `Returned(Some(_))`; a void `Ret` leaves it 0). `Value` is `Copy`,
                 // so a raw two-word copy is exactly what a clone does.
                 let flags = MemFlagsData::trusted();
-                let ret_off = crate::jit::frame::JIT_FRAME_RET_OFFSET as i32;
+                let ret_off = crate::jit::runtime::frame::JIT_FRAME_RET_OFFSET as i32;
                 if self.promoted.get(*r as usize).copied().unwrap_or(false) {
                     // 2C: a resident Variable's value lives in SSA, not memory —
                     // write tag + payload straight into `frame.ret`. F64 residents
@@ -47,7 +47,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 }
                 let one = self.builder.ins().iconst(types::I8, 1);
                 self.builder.ins().store(flags, one, self.frame_val,
-                    crate::jit::frame::JIT_FRAME_HAS_RET_OFFSET as i32);
+                    crate::jit::runtime::frame::JIT_FRAME_HAS_RET_OFFSET as i32);
                 let zero = self.builder.ins().iconst(types::I8, 0);
                 self.builder.ins().return_(&[zero]);
             }

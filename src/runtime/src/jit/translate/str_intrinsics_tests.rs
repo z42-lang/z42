@@ -7,11 +7,11 @@
 //! path never touches it. The golden `src/tests/strings/str_intrinsics_jit` covers
 //! the same members end to end through the real compiler and stdlib.
 
-use crate::jit::forward::{ForwardLookup, StrIntrinsic};
+use crate::jit::compile::lookup::{ForwardLookup, StrIntrinsic};
 use crate::vm::exec::call::forward::{builtin_forward, chained_forward};
-use crate::jit::frame::JitFrame;
-use crate::jit::invoke::{call_entry, NativeOutcome};
-use crate::jit::runtime::install;
+use crate::jit::runtime::frame::JitFrame;
+use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
+use crate::jit::compile::state::install;
 use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator, VCallInsn};
 use crate::metadata::ir::ExecMode;

@@ -3,7 +3,7 @@
 //! Mirror the interpreter's `Terminator::Throw` and `find_handler` paths.
 
 use crate::object::Value;
-use super::super::frame::JitFrame;
+use crate::jit::runtime::frame::JitFrame;
 use crate::vm_context::VmContext;
 use super::{set_exception, take_exception, vm_ctx_ref};
 
@@ -84,7 +84,7 @@ pub unsafe extern "C" fn jit_match_catch_type(
 /// the JIT helpers — every helper is `(frame, ctx, ...)`).
 ///
 /// Safety: `ctx` must be the running thread's live `VmContext` — the context
-/// parameter every compiled function is entered with (`jit::invoke::enter_compiled`).
+/// parameter every compiled function is entered with (`jit::runtime::invoke::enter_compiled`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_check_safepoint(
     _frame: *mut JitFrame,

@@ -9,9 +9,9 @@ use crate::vm::exec::ops::cast::isa_td;
 use crate::vm::runtime::dispatch::ic::ObjNewSite;
 use crate::object::Value;
 
-use super::super::frame::JitFrame;
+use crate::jit::runtime::frame::JitFrame;
 use crate::vm_context::VmContext;
-use super::super::invoke::{call_entry, NativeOutcome};
+use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use super::{set_exception, vm_ctx_ref};
 
 // ── Object allocation ────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ use crate::vm::exec::call::{args::CallArgs, outcome::ExecOutcome};
 use crate::vm::exec::engine::{OsrState, TierBackend, TierTarget};
 use crate::vm::runtime::Function;
 use crate::vm_context::VmContext;
-use super::{frame::JitFrame, runtime::JitRuntime};
+use crate::jit::{runtime::frame::JitFrame, compile::state::JitRuntime};
 
 impl TierBackend for JitRuntime {
     fn osr_threshold(&self) -> u32 { self.osr_threshold }
@@ -28,7 +28,7 @@ impl TierBackend for JitRuntime {
                 JitFrame::new_method_args_from(ctx, max_reg, receiver, regs, indices),
         };
         callee.method_type_args = method_type_args;
-        let outcome = unsafe { super::invoke::enter_compiled(ctx, ptr, callee_fn, callee) };
+        let outcome = unsafe { crate::jit::runtime::invoke::enter_compiled(ctx, ptr, callee_fn, callee) };
         Some(Ok(outcome.into_exec(ctx)))
     }
     #[cold]
@@ -44,7 +44,7 @@ impl TierBackend for JitRuntime {
         osr.method_type_args = state.method_type_args;
         // Keep both existing VmFrame records: the interpreter guard still owns
         // its roots until this native continuation returns to that caller.
-        let outcome = unsafe { super::invoke::enter_compiled(ctx, entry.ptr, entry.func, osr) };
+        let outcome = unsafe { crate::jit::runtime::invoke::enter_compiled(ctx, entry.ptr, entry.func, osr) };
         Some(Ok(outcome.into_exec(ctx)))
     }
 }

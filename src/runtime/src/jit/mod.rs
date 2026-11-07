@@ -1,41 +1,11 @@
-/// JIT backend — compiles z42 bytecode to native machine code using Cranelift.
-///
-/// Architecture
-/// ------------
-/// * `frame.rs`        — JitFrame (register file) and FnEntry (one compiled function)
-/// * `runtime.rs`      — JitRuntime: the VM's one JIT on `VmCore` (slots, compiler, OSR
-///                       cache), shared by every thread; compiled code and helpers take the
-///                       running thread's own `VmContext` as their context parameter
-/// * `lazy.rs`         — LazyCompiler: per-function compilation on first call / OSR entries
-/// * `invoke.rs`       — `enter_compiled`: the single push_frame → native code → pop_frame sequence
-/// * `helpers/`        — `extern "C"` helper functions called by JIT code, split
-///                       by `Instruction` category and registered through
-///                       `helpers::registry`. See `helpers/mod.rs` for the list.
-/// * `translate/`      — Cranelift IR translation (one submodule per instruction category)
-/// * `reg_access.rs`   — `frame.regs` slot load / store
-/// * `vm_interface.rs` — read-only metadata contract between JIT and VM
-/// * `mod.rs`          — `run` / `run_fn`: install the runtime (compiles nothing), run the entry
+//! Cranelift JIT backend: compilation, instruction translation and native activation.
+//! The facade registers this backend; every compiled call uses its running thread's context.
 
-/// `[Native]` extern-wrapper short-circuit: call helpers dispatch the builtin directly.
-mod forward;
 mod engine;
-pub(crate) mod frame; // runtime-jit-tiering Phase 1.5: interp dispatch reaches JitFrame
-pub(crate) mod helpers;
-/// The single native-call sequence (push_frame → compiled code → pop_frame), shared by
-/// the JIT entry, the call helpers and the interpreter's mixed-mode diverts.
-pub(crate) mod invoke;
-/// Lazy per-function compilation state (lazy-per-function-jit).
-mod lazy;
-/// The VM's shared JIT state (`VmCore::engines`): slots, compiler, OSR cache.
+pub(crate) mod compile;
 pub(crate) mod runtime;
-/// Centralized `frame.regs` slot access — the single load/store choke point
-/// (jit-unbox-regalloc Phase 2.0; foundation for the 2B/2C register cache).
-mod reg_access;
+pub(crate) mod helpers;
 mod translate;
-/// JIT↔VM read-only metadata contract — review.md Part 1 P0 / E1.P2
-/// Phase 1 . Compile-time path goes through this trait;
-/// helpers still reach Module via raw pointer (Phase 2 territory).
-pub(crate) mod vm_interface;
 
 #[cfg(test)]
 #[path = "lazy_load_tests.rs"]
@@ -45,10 +15,10 @@ mod lazy_load_tests;
 mod generic_call_tests;
 
 use crate::vm::runtime::Module;
-use vm_interface::JitVm;
+use compile::vm_interface::JitVm;
 use anyhow::Result;
 use crate::vm_context::VmContext;
-use frame::JitFrame;
+use runtime::{frame::JitFrame, invoke};
 use helpers::take_exception_error;
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -58,7 +28,7 @@ use helpers::take_exception_error;
 /// parameter for the whole activation.
 ///
 /// lazy-per-function-jit : the entry is compiled on its first call
-/// ([`runtime::JitRuntime::resolve_fn_by_id`]); a non-translatable entry runs on
+/// ([`compile::state::JitRuntime::resolve_fn_by_id`]); a non-translatable entry runs on
 /// the interpreter, which still routes hot callees to native code.
 pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
     let rt = ctx.jit().ok_or_else(|| anyhow::anyhow!("JIT: no JIT installed on this VM"))?;
@@ -121,10 +91,10 @@ fn run_with_static_init(ctx: &VmContext, entry_name: &str) -> Result<()> {
 
 /// Called by `Vm::run` when the execution mode is JIT.
 ///
-/// Installs the VM's JIT ([`runtime::install`] — one per VM, shared by every
+/// Installs the VM's JIT ([`compile::state::install`] — one per VM, shared by every
 /// thread; reused when already installed) without compiling any user function;
 /// each function is compiled on its first call (see
-/// [`runtime::JitRuntime::resolve_fn_by_id`]). The counters therefore report what
+/// [`compile::state::JitRuntime::resolve_fn_by_id`]). The counters therefore report what
 /// was **actually** compiled:
 /// - `jit_methods_compiled` is incremented per compiled function (not the module's
 ///   total function count) — on the shard of the thread that compiled it;
@@ -139,7 +109,7 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: config::J
     let function_count = module.functions().len() as u32;
     let start = std::time::Instant::now();
 
-    runtime::install(ctx, module, config)?;
+    compile::state::install(ctx, module, config)?;
 
     let setup_us = start.elapsed().as_micros() as u64;
     ctx.fire_runtime_event(&crate::observer::RuntimeEvent::JitModuleCompiled {

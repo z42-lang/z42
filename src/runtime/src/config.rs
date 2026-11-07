@@ -188,7 +188,7 @@ pub struct RuntimeConfig {
     pub native_search_paths: Vec<PathBuf>,
     /// `Z42_JIT_PROFILE` — enable JIT compilation profiling. A proper boolean
     /// (`true/false`, `1/0`, `yes/no`, `on/off`); anything else is rejected with
-    /// a diagnostic and falls back to off. Read by `jit/lazy.rs`.
+    /// a diagnostic and falls back to off. Read by `jit/compile/mod.rs`.
     ///
     /// complete-runtime-settings P1 fixed a doc/impl divergence here: the field
     /// doc always promised `false` = off, but the implementation was

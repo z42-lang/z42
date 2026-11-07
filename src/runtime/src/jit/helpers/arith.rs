@@ -6,7 +6,7 @@ use crate::object::Value;
 // converge-vm-arith-semantics (H3): scalar rules come from the single source of
 // truth `crate::vm::exec::ops::scalar` (shared with interp), not a JIT-local copy.
 use crate::vm::exec::ops::scalar;
-use super::super::frame::JitFrame;
+use crate::jit::runtime::frame::JitFrame;
 use crate::vm_context::VmContext;
 use super::{set_exception, vm_ctx_ref};
 

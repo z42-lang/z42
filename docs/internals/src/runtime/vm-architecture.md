@@ -219,7 +219,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 - **interp 帧**：`interp::run::exec_support::enter_frame`（由 `exec_function_body` 调用）——`push_frame`、
   建 `FrameGuard`（任何退出路径都先 pop，再把寄存器文件还给 `reg_pool`），再做栈深检查。
-- **原生帧**：`jit::invoke::enter_compiled`——`push_frame` → 运行编译码 → `pop_frame` → 回收 `JitFrame`（寄存器文件还给 `reg_pool`），
+- **原生帧**：`jit::runtime::invoke::enter_compiled`——`push_frame` → 运行编译码 → `pop_frame` → 回收 `JitFrame`（寄存器文件还给 `reg_pool`），
   返回 `NativeOutcome`（`Returned(ret)` / `Threw`，异常仍挂在 `VmContext` 上）。JIT 入口 `run_fn`、
   各调用 helper（`jit_call` / `jit_vcall` / `jit_call_indirect` / `jit_obj_new` / `jit_to_str`）与 interp 的
   混合模式分流（`try_native_exec` / OSR / `try_native_static_call` / `try_native_method_call`）都经它；
@@ -1175,7 +1175,7 @@ match callee_value {
 
 ## JIT↔VM 元数据契约
 
-位置：[`src/runtime/src/jit/vm_interface.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/vm_interface.rs)
+位置：[`src/runtime/src/jit/compile/vm_interface.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/compile/vm_interface.rs)
 
 `pub trait JitVm` 是 JIT 后端对 metadata 模块的**只读契约** ——
 codifies "JIT 编译期需要从 module 拿到什么"，与 helper 运行期通过
@@ -1209,7 +1209,7 @@ import metadata 内部类型；helpers/* 同样走 trait"这一**完整愿景**�
   `module.module_name()` 等替代直接字段访问
 - **helper 暂无 trait 消费者**：`jit_obj_new` 的类 / 构造器解析与 interp 共用
   `vm::exec::ops::obj_new`，不经 `type_lookup`；raw pointer 不变
-- **签名保持具体类型**：`jit::runtime::install(vm, &Module)`；`JitRuntime.module:
+- **签名保持具体类型**：`jit::compile::state::install(vm, &Module)`；`JitRuntime.module:
   *const Module` 是具体类型
 
 ### 待办
@@ -1262,7 +1262,7 @@ jit/helpers/
 **与 `interp/ops/exec_*.rs` 命名对称**: 加新 IR 指令时，interp 与 JIT 改的文件名一一对应（`exec_value.rs` ↔ `helpers/value.rs`），认知负担最小。
 
 **消费者**:
-- `jit/lazy.rs::LazyCompiler::setup` 调 `helpers::register_symbols(&mut jit_builder)` 与 `helpers::declare_imports(&mut jit)` 各一次
+- `jit/compile/mod.rs::LazyCompiler::setup` 调 `helpers::register_symbols(&mut jit_builder)` 与 `helpers::declare_imports(&mut jit)` 各一次
 - `jit/translate/mod.rs` 通过 `pub use super::helpers::HelperIds;` 重导，逐函数翻译时消费 `HelperIds`
 
 **新增 helper 改 2 处**:
@@ -1330,7 +1330,7 @@ jit/helpers/
   并稳定到函数结束（`reg_pool.take(max_reg + 1)` 一次定长，不会再 grow）。
   `JitFrame` 是 `#[repr(C)]`，首字段 `regs_ptr` 即 `regs.as_mut_ptr()`（构造时设好）；
   函数序言按偏移 `JIT_FRAME_REGS_PTR_OFFSET`（= 0）load 一次，缓存为 SSA `regs_base`，不调 helper。
-- Slot 地址 `= regs_base + idx * 16`（`VALUE_STRIDE = size_of::<Value>()`，`jit/reg_access.rs`；
+- Slot 地址 `= regs_base + idx * 16`（`VALUE_STRIDE = size_of::<Value>()`，`jit/translate/reg_access.rs`；
   pinned by `value_size_observed` test）。
 - 写时只写 1 B discriminant + 8 B payload；不调 `drop` 因为前任 slot
   值在 `reg_types[dst]` 静态类型下必是 Null（首次写）或同类型 primitive
@@ -1533,7 +1533,7 @@ builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等
 | Pending exception / 静态字段 (JIT) | `ctx.pending_exception` / `VmCore.runtime.statics`，无同步桥接 |
 
 > JIT 端所有 extern "C" helper 签名都带 `ctx: *const VmContext` 第 2 参——**运行线程自己的**上下文，
-> 即编译码被调用时收到的那个（`jit::invoke::enter_compiled` 传入）；Cranelift translate 在调用点插入 `ctx_val`。
+> 即编译码被调用时收到的那个（`jit::runtime::invoke::enter_compiled` 传入）；Cranelift translate 在调用点插入 `ctx_val`。
 > helper 用 `vm_ctx_ref(ctx)` 直接解引用，共享的 JIT 状态经 `ctx.jit()`（缓存的 `&TierApi`，`jit_rt(ctx)`）取。
 >
 > 寄存器池也在 `VmContext` 上（`reg_pool`）。`VmContext` 是所有 runtime-mutable 状态的唯一规范来源；

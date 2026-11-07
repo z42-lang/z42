@@ -11,7 +11,7 @@
 
 use super::*;
 use crate::jit::helpers::take_exception;
-use super::super::super::frame::JitFrame;
+use crate::jit::runtime::frame::JitFrame;
 use crate::object::{
     FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold, Value, STRUCT_LEAF_PRIM,
     TAG_I32, TAG_STR,

@@ -46,9 +46,9 @@ use crate::vm::runtime::ids::tokens::FnId;
 use crate::vm::runtime::{Function, Module};
 use crate::vm_context::VmContext;
 
-use super::forward::CompileLookup;
-use super::frame::FnEntry;
-use super::lazy::LazyCompiler;
+use crate::jit::compile::lookup::CompileLookup;
+use crate::jit::runtime::frame::FnEntry;
+use super::LazyCompiler;
 
 // ── JitSlot ──────────────────────────────────────────────────────────────────
 
@@ -132,7 +132,7 @@ unsafe impl Sync for JitRuntime {}
 /// The JIT is built without compiling any user function (compile-on-first-call).
 /// Racing installers build one each; the first published wins and the other is
 /// dropped unused.
-pub fn install<'a>(vm: &'a VmContext, module: &Module, config: super::config::JitConfig) -> Result<&'a JitRuntime> {
+pub fn install<'a>(vm: &'a VmContext, module: &Module, config: crate::jit::config::JitConfig) -> Result<&'a JitRuntime> {
     if vm.core.exec.engines.tier().is_none() {
         let _ = vm.core.exec.engines.install_tier(crate::vm::exec::engine::TierApi::new(JitRuntime::new(vm, module, config)?));
     }
@@ -170,7 +170,7 @@ fn publish_to(vm: &VmContext, rt: &JitRuntime) {
 }
 
 impl JitRuntime {
-    fn new(vm: &VmContext, module: &Module, config: super::config::JitConfig) -> Result<Self> {
+    fn new(vm: &VmContext, module: &Module, config: crate::jit::config::JitConfig) -> Result<Self> {
         Ok(JitRuntime {
             slots: SparseSegTable::new(),
             module: module as *const Module,
@@ -321,7 +321,7 @@ impl JitRuntime {
         if func.resolved.get().is_none() {
             crate::vm::runtime::resolve::resolve_function_tokens(func, self.module(), vm);
         }
-        if super::translate::jit_unsupported_reason(func).is_some() {
+        if crate::jit::translate::jit_unsupported_reason(func).is_some() {
             slot.state.store(SLOT_REJECTED, Ordering::Relaxed);
             return None;
         }
@@ -359,7 +359,7 @@ impl JitRuntime {
     /// Test hook: compile `func` with an explicit callee lookup, bypassing the slots.
     #[cfg(test)]
     pub(crate) fn compile_with(
-        &self, func: &Function, callees: &dyn super::forward::ForwardLookup,
+        &self, func: &Function, callees: &dyn crate::jit::compile::lookup::ForwardLookup,
     ) -> Result<FnEntry> {
         self.lock_compiler().compile_fn(func, callees)
     }
@@ -385,7 +385,7 @@ impl JitRuntime {
         }
         // Not cached — compile the OSR variant (translatable check first).
         let func = self.fn_of(id)?;
-        let compiled: FnEntry = if super::translate::jit_unsupported_reason(func).is_some() {
+        let compiled: FnEntry = if crate::jit::translate::jit_unsupported_reason(func).is_some() {
             FnEntry::rejected()
         } else {
             let mut guard = self.lock_compiler();

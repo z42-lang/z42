@@ -39,8 +39,8 @@ use crate::vm::runtime::Module;
 use crate::object::Value;
 use crate::vm_context::VmContext;
 
-use super::frame::JitFrame;
-use super::runtime::JitRuntime;
+use crate::jit::runtime::frame::JitFrame;
+use crate::jit::compile::state::JitRuntime;
 
 // ─── ABI version ────────────────────────────────────────────────────────────
 //
@@ -64,7 +64,7 @@ pub const VM_JIT_INTERFACE_VERSION: u32 = 3;
 /// Borrow the running thread's context for the duration of the helper call.
 ///
 /// SAFETY: `ctx` is the context parameter compiled code was called with
-/// (`jit::invoke::enter_compiled`): non-null, live, driven by this thread. The
+/// (`jit::runtime::invoke::enter_compiled`): non-null, live, driven by this thread. The
 /// returned reference must not outlive the helper call.
 #[inline(always)]
 pub(super) unsafe fn vm_ctx_ref<'a>(ctx: *const VmContext) -> &'a VmContext {

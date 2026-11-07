@@ -11,7 +11,7 @@
 //! `src/tests/types/struct_jit.z42`.
 
 use super::*;
-use super::super::super::frame::JitFrame;
+use crate::jit::runtime::frame::JitFrame;
 use crate::object::{Value, TAG_I32};
 use crate::vm_context::VmContext;
 
