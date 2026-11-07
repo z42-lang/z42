@@ -16,9 +16,9 @@
 use crate::vm::runtime::ids::tokens::FnId;
 use crate::object::Value;
 
-use super::super::frame::{FnEntry, JitFrame};
+use crate::jit::runtime::frame::{FnEntry, JitFrame};
 use crate::vm_context::VmContext;
-use super::super::invoke::call_entry;
+use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
 // ── LoadFn ────────────────────────────────────────────────────────────────────

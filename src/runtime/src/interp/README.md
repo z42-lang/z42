@@ -15,7 +15,7 @@
 | `exec_value.rs` | 常量 / Copy / 算术 / 比较 / 逻辑 / 一元 / 位运算 / 字符串构造 |
 | `exec_address.rs` | Typeof 经 VM 对象协议物化反射类型；`LoadLocalAddr` / `LoadElemAddr` / `LoadFieldAddr`（检查走 objops）/ `DefaultOf`（类级泛型零值）/ `MethodTypeArg`·`MethodDefault`（方法级泛型：读 `Frame.method_type_args`，解析和默认值操作与 JIT 共用，见 book「泛型方法」页）|
 | `exec_call.rs` | `Call` / `Builtin` / `LoadFn` / `CallIndirect` / `MkClos`；`[Native]` 包装函数的折叠调用（`try_fold`） |
-| `vm/exec/call/forward.rs`（共享） | **`[Native]` 桩折叠单一实现**（识别转发函数、`Function::forward` 缓存、无帧 / 轻帧执行、失败时现算包装函数的 trace 行），interp `exec_call` / `exec_vcall` 与 JIT `jit/forward.rs` 共用；机制见 internals「native ABI §6.4」 |
+| `vm/exec/call/forward.rs`（共享） | **`[Native]` 桩折叠单一实现**（识别转发函数、`Function::forward` 缓存、无帧 / 轻帧执行、失败时现算包装函数的 trace 行），interp `exec_call` / `exec_vcall` 与 JIT `jit/compile/lookup.rs` / `jit/runtime/forward.rs` 共用；机制见 internals「native ABI §6.4」 |
 | `exec_array.rs` | `ArrayNew` / `ArrayNewLit` / `ArrayGet` / `ArraySet` / `ArrayLen`：`objops::array` 的薄适配（另解析泛型型参的基元零值） |
 | `exec_object.rs` | `ObjNew`；`FieldGet` / `FieldSet` / `Static*` 是 `objops::field` / `objops::statics` 的薄适配 |
 | `exec_object_isa.rs` | `IsInstance` / `AsCast` 类型判定（`exec_object` 再导出） |

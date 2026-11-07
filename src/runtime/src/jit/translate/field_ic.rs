@@ -84,7 +84,7 @@ pub(super) fn emit_guard(
     let flags = MemFlagsData::trusted();
     let addr = reg_addr(b, regs_base, obj);
     let tag = load_tag(b, addr);
-    let is_obj = b.ins().icmp_imm_s(IntCC::Equal, tag, super::super::reg_access::TAG_OBJECT as i64);
+    let is_obj = b.ins().icmp_imm_s(IntCC::Equal, tag, crate::jit::translate::reg_access::TAG_OBJECT as i64);
     let next = b.create_block();
     b.ins().brif(is_obj, next, &[], miss, &[]);
     b.switch_to_block(next);

@@ -11,7 +11,7 @@
 
 use crate::vm::runtime::dispatch::ic::FieldIC;
 
-use super::super::frame::JitFrame;
+use crate::jit::runtime::frame::JitFrame;
 use crate::vm_context::VmContext;
 use super::{raise, vm_ctx_ref};
 

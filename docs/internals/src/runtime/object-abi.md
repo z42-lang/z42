@@ -68,7 +68,7 @@
 > 采用**路 A（标记指针）**，`Value` 为 **16B**：
 > - `ObjRef`（对象）、`ArrRef`（数组）、`VarGcRef`（其余变长块）都是 8B 单标记指针（低 48 位块头地址、高 16 位窄 generation，deref mask）。**保留非移动 region GC**（generation 变窄，ABA 窗口 2^16 已接受，见 §4）。wasm32（usize 32 位）按 `target_pointer_width` cfg-gate 成 `{ptr:NonNull(4B), generation:u32(4B)}` 仍 8B。
 > - `Value::Str` 是 8B 细指针 `Str`（[`object/string/vstr.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/string/vstr.rs)，长度进块头；GC 化见 §5）。
-> - `Value::FuncRef` 是目标函数的 `FnId`（4B，P1-2 PR 8；此前是 8B 的 `Str` 名字）。每个 payload ≤ 8B → `#[repr(C,u8)]` 给出 tag(1B padded to 8) + 8B = **16B**。由 [`object/value/value.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/value/value.rs) 的 `const _: () = assert!(size_of::<Value>()==16)` 编译期锁死；JIT 的 `VALUE_STRIDE` 取 `size_of::<Value>()`（单一真相，[`jit/reg_access.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/reg_access.rs)）。
+> - `Value::FuncRef` 是目标函数的 `FnId`（4B，P1-2 PR 8；此前是 8B 的 `Str` 名字）。每个 payload ≤ 8B → `#[repr(C,u8)]` 给出 tag(1B padded to 8) + 8B = **16B**。由 [`object/value/value.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/value/value.rs) 的 `const _: () = assert!(size_of::<Value>()==16)` 编译期锁死；JIT 的 `VALUE_STRIDE` 取 `size_of::<Value>()`（单一真相，[`jit/translate/reg_access.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/translate/reg_access.rs)）。
 >
 > payload 偏移固定（tag@0、payload@8）。native FFI 的 `Z42Value` 是**独立冻结的 16B ABI struct**（`{tag:u32, reserved:u32, payload:u64}`，[z42-abi](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi)），与内部 `Value` enum 表示解耦，marshal 显式转换。
 

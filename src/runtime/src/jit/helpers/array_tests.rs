@@ -10,7 +10,7 @@
 //! 直接打 helper 才是确定性的。
 
 use super::*;
-use super::super::super::frame::JitFrame;
+use crate::jit::runtime::frame::JitFrame;
 use crate::object::Value;
 use crate::vm_context::VmContext;
 

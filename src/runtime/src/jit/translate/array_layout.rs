@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::object::array::jit_layout as layout;
-use crate::jit::reg_access::TAG_ARRAY;
+use crate::jit::translate::reg_access::TAG_ARRAY;
 
 impl TxCtx<'_, '_> {
     pub(super) fn emit_array_length(

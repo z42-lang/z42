@@ -3,7 +3,7 @@
 //! `s.Length` (`vcall get_Length`), `s.CharAt(i)` and `s[i]` (`call
 //! Std.String.CharAt` / `get_Item`) are the innermost operations of every
 //! string-processing loop written in z42. Even with the `[Native]` forwarder
-//! short-circuit (`jit::forward`) each one is a helper call that clones the
+//! short-circuit (`jit::compile::lookup`) each one is a helper call that clones the
 //! arguments into a `SmallVec`, dispatches the builtin by id and boxes the
 //! result. For a string whose block carries the all-ASCII bit the answer is two
 //! or three loads, so the translator emits exactly that:
@@ -25,9 +25,9 @@
 //! negative index all produce the very same result / exception text as before.
 //!
 //! **Recognition** is by what the call target *forwards to*, never by name: the
-//! target must be a builtin forwarder ([`crate::jit::forward::builtin_forward`] /
+//! target must be a builtin forwarder ([`crate::jit::compile::lookup::builtin_forward`] /
 //! `chained_forward`) of `__str_length` / `__str_char_at` whose owner type has no
-//! static constructor ([`crate::jit::forward::ForwardLookup`]).
+//! static constructor ([`crate::jit::compile::lookup::ForwardLookup`]).
 //! - static `Call`: the site's token must already be bound at translate time;
 //! - `VCall`: the receiver must be statically `string`; the target is the
 //!   function `resolve_vcall` would pick first for a string receiver
@@ -50,7 +50,7 @@
 
 use super::*;
 use super::ctx::TxCtx;
-use crate::jit::forward::StrIntrinsic;
+use crate::jit::compile::lookup::StrIntrinsic;
 
 impl<'a, 'b> TxCtx<'a, 'b> {
     /// The intrinsic a static `Call` site can be emitted as, if any.
@@ -98,7 +98,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         // tag(recv) == Str
         let recv_addr = reg_addr(self.builder, self.regs_base, operands[0]);
         let tag = load_tag(self.builder, recv_addr);
-        let is_str = self.builder.ins().icmp_imm_s(IntCC::Equal, tag, super::super::reg_access::TAG_STR as i64);
+        let is_str = self.builder.ins().icmp_imm_s(IntCC::Equal, tag, crate::jit::translate::reg_access::TAG_STR as i64);
         self.continue_if(is_str, slow_blk);
 
         if gated { self.emit_module_init_gate(slow_blk); }

@@ -3,9 +3,9 @@
 
 use crate::object::Value;
 
-use super::super::frame::{FnEntry, JitFrame};
+use crate::jit::runtime::frame::{FnEntry, JitFrame};
 use crate::vm_context::VmContext;
-use super::super::invoke::call_entry;
+use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
 #[cfg(test)]
@@ -14,7 +14,7 @@ thread_local! {
 }
 
 /// Direct call. The callee is named by its JIT id (= `FnId`, see
-/// `jit::runtime`), cheapest source first:
+/// `jit::compile::state`), cheapest source first:
 ///   1. `method_id` baked at translate time (the site's token was already bound);
 ///   2. the site's `method_tokens` cell (`ic_ptr`), bound since — by either backend;
 ///   3. cold: bind by name (`interp::bind_callee` — may load the defining package,
@@ -158,10 +158,10 @@ unsafe fn call_compiled(
     // of a trace captured inside the builtin.
     vm.set_top_frame_pc(caller_offset);
     // `[Native]` extern wrapper: dispatch its builtin straight from our registers
-    // instead of building the wrapper's activation (see `jit::forward`).
+    // instead of building the wrapper's activation (see `jit::compile::lookup`).
     if let Some(id) = entry.forward {
         if mta.is_empty() && arg_regs.len() == (*entry.func).param_count {
-            return super::super::forward::call_forward(frame_ref, ctx, dst, entry.func, id, None, arg_regs);
+            return crate::jit::runtime::forward::call_forward(frame_ref, ctx, dst, entry.func, id, None, arg_regs);
         }
     }
     if mta.is_empty() {
@@ -201,7 +201,7 @@ unsafe fn call_interp(
     // not for a generic site, as the interpreter's `try_fold`.
     if mta.is_empty() && arg_regs.len() == callee.param_count {
         if let Some(id) = crate::vm::exec::call::forward::forward_of(vm, module, callee) {
-            return super::super::forward::call_forward(frame_ref, ctx, dst, callee, id, None, arg_regs);
+            return crate::jit::runtime::forward::call_forward(frame_ref, ctx, dst, callee, id, None, arg_regs);
         }
     }
     if mta.is_empty() {

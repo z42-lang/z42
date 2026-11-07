@@ -9,7 +9,7 @@
 //!
 //! - `builtin_calls`         ← `vm::exec::call::builtins::exec_builtin`
 //! - `native_calls`          ← `interp::exec_ffi::ffi_call`
-//! - `jit_methods_compiled`  ← `jit::frame` tier-up compile
+//! - `jit_methods_compiled`  ← `jit::compile::state` compilation
 //! - `jit_native_from_interp`← `interp::exec_call` / `exec_vcall` native routing
 //! - `exceptions_thrown`     ← `interp::fire_exception_thrown`
 //! - `exceptions_caught`     ← `interp::fire_exception_caught`
@@ -53,8 +53,7 @@ pub struct RuntimeCounters {
     /// Incremented at top of `interp::exec_ffi::ffi_call` .
     pub native_calls:         AtomicU64,
 
-    /// Methods JIT-compiled. Incremented on tier-up compile in `jit::frame`
-    /// .
+    /// Number of methods compiled by the JIT backend.
     pub jit_methods_compiled: AtomicU64,
 
     /// Total wallclock JIT compile time, microseconds. Not yet wired (0);
