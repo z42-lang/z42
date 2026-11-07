@@ -486,6 +486,7 @@ z42b publish: desktop apphost not available (the apphost ships with the desktop 
 
 复用发布目录时，工具会移除自己登记过、当前不再需要且内容未被修改的文件。
 未登记的文件与用户修改过的文件会保留。indexed 输入的散装字节码随主包和依赖一起发布。
+多个项目共用目录时，相同依赖内容可以共享；覆盖另一个项目仍登记使用的不同内容会报 `conflicting deployment payload`，且不写入该批复制文件。请分开输出目录，或先让其他项目移除该依赖并重新构建/发布以解除归属。
 清单不再需要运行旋钮、应用属性和 SDK probing 时，构建会移除之前生成的运行侧车，发布目录也会清除其已登记副本。用户手写的运行侧车会保留。
 
 ## `z42 export --rid <rid> [options] [<manifest>]`
