@@ -29,7 +29,7 @@
 //!   standalone leaked block. Production execution always has an active guard, so
 //!   the fallback is not taken on any hot path.
 //!
-//! Distinct from `interop/tier1/exports.rs`'s `CURRENT_VM` (which scopes a `*const
+//! Distinct from `vm/exec/active_vm.rs`'s `CURRENT_VM` (which scopes a `*const
 //! VmContext` only for native-interop callbacks): that is feature-gated and
 //! carries the whole VM; this carries just the heap and is always compiled.
 
@@ -109,7 +109,7 @@ impl Drop for HeapGuard {
 /// (heap-less contexts: pre-VM module load, unit tests without a VM).
 ///
 /// The returned reference's lifetime is unbounded (`'static`) — matching
-/// `interop::exports::current_vm`'s pattern — and is sound only for **transient**
+/// `vm::exec::active_vm::current_vm`'s pattern — and is sound only for **transient**
 /// use that completes before the installing [`HeapGuard`] drops. Callers
 /// (`Str::new`) allocate and return an owned handle without letting the borrow
 /// escape.

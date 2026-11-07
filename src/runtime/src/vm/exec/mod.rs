@@ -1,6 +1,8 @@
 //! Shared instruction execution semantics.
 pub mod ops;
 pub mod ambient;
+#[cfg(feature = "native-interop")]
+pub mod active_vm;
 pub mod call;
 pub mod stack;
 pub(crate) mod engine;
