@@ -1,0 +1,6 @@
+[project]
+name = "republish.other"
+kind = "exe"
+pack = true
+[sources]
+include = ["Main.z42"]
