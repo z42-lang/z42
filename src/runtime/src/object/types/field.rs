@@ -75,7 +75,7 @@ pub fn default_value_for(type_tag: &str) -> Value {
 /// `default_value_for(type_args[i])`.
 ///
 /// **Deliberately narrow — only PRIMITIVE value arguments produce an override**, the same
-/// line `ArrayNew` already draws (`interp/exec_array.rs`): a resolved *struct* argument
+/// line `ArrayNew` already draws (`interp/ops/exec_array.rs`): a resolved *struct* argument
 /// must NOT be forced through struct backing here, because generic containers store
 /// structs by reference (`struct_generic_container`: `VCall: expected object, got
 /// StructRefHeap`); and a reference argument's zero is `Null` already, so there is

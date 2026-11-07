@@ -26,7 +26,7 @@
 
 - `interop::exports::z42_register_type` / `z42_resolve_type` / `z42_invoke` / `z42_last_error`：本目录 `tier1/exports.rs` 提供 `#[no_mangle]` 实现
 - `interop::register_native_type` / `resolve_native_type` / `loader::load_library`：z42 内部调用入口
-- `Instruction::CallNative` IR dispatch：在 `interp/exec_instr.rs` → `exec_ffi.rs` 调 `RegisteredType::method` + `dispatch::call`
+- `Instruction::CallNative` IR dispatch：在 `interp/ops/exec_instr.rs` → `exec_ffi.rs` 调 `RegisteredType::method` + `dispatch::call`
 
 ## 能力范围
 
@@ -41,7 +41,7 @@
 
 ## 依赖关系
 
-- 上：`crate::interp::exec_instr` 调 `CallNative` 分支
+- 上：`crate::interp::ops::exec_instr` 调 `CallNative` 分支
 - 下：
   - `z42_abi` crate（ABI 类型镜像）
   - `libffi = "3.2"`（cif 构造 + dispatch）

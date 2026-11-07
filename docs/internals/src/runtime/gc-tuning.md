@@ -4,7 +4,7 @@
 > `gc/trace.rs` + `gc/phase_timer.rs` + `gc/heap/card_verify.rs`（诊断旋钮）、
 > `gc/heap/alloc.rs`（压力事件），
 > `vm/threads/safepoint.rs`（协作式 safepoint）、`gc/heap.rs`（具体堆状态；公开操作见 `gc/heap/api.rs`）、
-> `interp/exec_support.rs` + `interp/mod.rs`（被调函数入口 safepoint 的插桩点）。
+> `interp/run/exec_support.rs` + `interp/run/mod.rs`（被调函数入口 safepoint 的插桩点）。
 
 ## 为什么
 

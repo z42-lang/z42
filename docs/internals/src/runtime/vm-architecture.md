@@ -96,7 +96,7 @@ vm.run(&ctx, hint)?;
 | `VmContext::new() -> Pin<Box<Self>>` | 测试入口；构造新 VmCore + `module = None` | 单测大量用（heap / 静态字段 / corelib 单测均不需要真 Module） |
 | `VmContext::new_with_core(core: Arc<VmCore>) -> Pin<Box<Self>>` | spawn 入口；**复用现有 VmCore**，仅构造 per-thread 字段 + register self 到 `vm_contexts` | `__thread_spawn` worker 通过此构造，让 worker 看见父 VmCore 的 statics / heap / lazy_loader / native_libs |
 
-`__thread_spawn`（[corelib/core/threading.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/core/threading.rs)）流程：拿到调用者 `ctx.core` 的 `Arc::clone` → `std::thread::spawn` → worker 内 `VmContext::new_with_core(core)` 构造 worker ctx → `interp::exec_function` dispatch。worker 的 per-thread 字段（pending_exception / call_stack）私有；通过 `vm_contexts` 注册让 GC scanner 看见 worker 自己的 roots。
+`__thread_spawn`（[corelib/core/threading.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/core/threading.rs)）流程：拿到调用者 `ctx.core` 的 `Arc::clone` → `std::thread::spawn` → worker 内 `VmContext::new_with_core(core)` 构造 worker ctx → `interp::run::exec_function` dispatch。worker 的 per-thread 字段（pending_exception / call_stack）私有；通过 `vm_contexts` 注册让 GC scanner 看见 worker 自己的 roots。
 
 VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.exec.engines` 是全 VM 共用的 JIT（槽表、编译器、OSR 缓存），worker 的解释器帧经混合模式分流路由到已编译函数、自己计数升层、到阈值就在 worker 线程上编译；原生码与 helper 的上下文参数就是 worker 自己的 `VmContext`（见 [jit.md](jit.md)「数据结构」「线程安全」）。
 
@@ -217,7 +217,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 **帧的登记只有两处**，改帧布局 / 登记方式只动这两处：
 
-- **interp 帧**：`interp::exec_support::enter_frame`（由 `exec_function_body` 调用）——`push_frame`、
+- **interp 帧**：`interp::run::exec_support::enter_frame`（由 `exec_function_body` 调用）——`push_frame`、
   建 `FrameGuard`（任何退出路径都先 pop，再把寄存器文件还给 `reg_pool`），再做栈深检查。
 - **原生帧**：`jit::invoke::enter_compiled`——`push_frame` → 运行编译码 → `pop_frame` → 回收 `JitFrame`（寄存器文件还给 `reg_pool`），
   返回 `NativeOutcome`（`Returned(ret)` / `Threw`，异常仍挂在 `VmContext` 上）。JIT 入口 `run_fn`、
@@ -626,7 +626,7 @@ try_lookup_function(func_name):        # VmContext 先查 per-context fn_lookup_
   先入口模块、再已登记的惰性函数，与调用路径冷解析同一优先级。惰性包里的函数首执解析时自己的包已登记，
   **包内调用一开始就绑好**；调入尚未加载的包的站点留 `UNRESOLVED`。只查不加载。签名容不下本站点实参数的目标
   不填（与首次绑定同一判定，见 [missing-symbol.md](missing-symbol.md)）。
-- **调用**（[exec_call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/exec_call.rs)）：
+- **调用**（[exec_call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/ops/exec_call.rs)）：
 
 ```
 token 已绑定:
@@ -674,7 +674,7 @@ profile 里 `get_inner`+`memcmp`+`try_lookup_*` 的大头即源于此。
 
 做法：`resolve_module` 的**单函数体**抽成
 [`resolve_function_tokens(func, module, ctx)`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/runtime/resolve/mod.rs)，
-并在 [`exec_function_body`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/mod.rs) 顶部**首次执行时**
+并在 [`exec_function_body`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/run/mod.rs) 顶部**首次执行时**
 按需填充（`if func.resolved.get().is_none()`，OnceLock 门禁 → 每函数只解析一次；
 热路径仅一次 relaxed atomic load，指令循环本就要再读它）。
 
@@ -730,7 +730,7 @@ stdlib 里必然含有 JIT 尚未支持的 opcode —— `out`/`ref`/`in` 参数
    `vm::exec::ops::vcall::resolve_vcall` 完成，[jit/helpers/vcall.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/vcall.rs)
    只决定怎么调：有编译入口走原生，否则在解释器上以填好接收者的帧执行。
 
-3. **entry 也兜底**：`jit::run_fn` 在入口取不到时（被拒绝的 entry）改用 `interp::exec_function`
+3. **entry 也兜底**：`jit::run_fn` 在入口取不到时（被拒绝的 entry）改用 `interp::run::exec_function`
    执行，而不是硬报 `entry not found`。静态字段初始化器随类型初始化器惰性触发（`run_pending_static_inits`），
    不再有 `__static_init__` 名单需要在 JIT 侧枚举。
 
@@ -1007,7 +1007,7 @@ N > K HashMap），调用方零改动 —— `NameIndex` 的 public API 故意�
 
 ### VCall 指令执行
 
-位置：`src/runtime/src/interp/exec_vcall.rs::vcall`（PIC 命中直调；miss 时调 `vm/exec/ops/vcall.rs::resolve_vcall`）
+位置：`src/runtime/src/interp/ops/exec_vcall.rs::vcall`（PIC 命中直调；miss 时调 `vm/exec/ops/vcall.rs::resolve_vcall`）
 
 对象 receiver 的解析（`resolve_vcall` 阶梯第 4 档，伪代码）：
 
@@ -1076,7 +1076,7 @@ if let Some(&slot) = type_desc.vtable_index.get(method) {
 ### 非 Object receiver 的派发：`primitive_class_name`
 
 `Value` 不是 `Object` 时没有 `TypeDesc` 可查，VM 改用
-`primitive_class_name`（`src/runtime/src/interp/exec_vcall.rs`）把 `Value` 变体映射成
+`primitive_class_name`（`src/runtime/src/interp/ops/exec_vcall.rs`）把 `Value` 变体映射成
 stdlib 类的 FQ 名，再构造 `{class}.{method}` 直查 `func_index`：
 
 ```
@@ -1124,7 +1124,7 @@ match callee_value {
 ```
 
 **目标在创建时绑定（P1-2 PR 8）**：`LoadFn` / `MkClos` 把指令里的函数名解析成 `FnId`，一次，在值被创建时
-（`interp::exec_call::fn_ref_id` / `bind_fn_ref`，两个后端共用）：站点 token（`ResolvedTokens::fn_ref_tokens`）
+（`interp::ops::exec_call::fn_ref_id` / `bind_fn_ref`，两个后端共用）：站点 token（`ResolvedTokens::fn_ref_tokens`）
 已绑定就只读它；否则本模块 `func_index` → 惰性加载器（会加载目标所在的包），结果写回 token。resolver 加载期按
 `FuncTable::id_of` 预填已登记的目标。id 空间与 `Call` token 相同（`fn_by_id` 读回；生产运行里就是 `FuncTable`
 的 id，裸 `VmContext::new()` 的测试里只有该模块自己的下标——那里惰性目标没有 id，创建时抛）。
@@ -1154,7 +1154,7 @@ match callee_value {
   `exec_instr` 内联进执行循环 `exec_function_body`，内联进来的 helper 和分发循环共用一份寄存器分配与栈帧，
   所以大而少见的分支都是 `#[inline(never)]` 的 helper（对象 / 数组分配、`is` / `as`、静态字段、取地址、
   反射、值 struct、原生互操作、`Add` 的字符串分支），分支里只留操作数解码和一次直接调用；循环自己的慢路
-  （`ref` 参数 copy-in、异常回卷、内部错误定位、按标签跳转）在 `interp/exec_body_cold.rs`。留在内联里的
+  （`ref` 参数 copy-in、异常回卷、内部错误定位、按标签跳转）在 `interp/run/exec_body_cold.rs`。留在内联里的
   是算术 / 比较 / 拷贝、`Call` / `VCall` / `Builtin` 和字段 / 元素读写——字段与元素读写移出去实测更慢
   （每次访问多一次调用，写密集循环的代价大于循环变紧的收益）。`func.resolved` 每次激活读一次，不是每条指令一次
 - **JIT**：Cranelift 后端把 `Function` **惰性逐函数**编译成 native code（见 [jit.md](jit.md)）；
@@ -1259,7 +1259,7 @@ jit/helpers/
 └── closure.rs    — load_fn / mk_clos / call_indirect
 ```
 
-**与 `interp/exec_*.rs` 命名对称**: 加新 IR 指令时，interp 与 JIT 改的文件名一一对应（`exec_value.rs` ↔ `helpers/value.rs`），认知负担最小。
+**与 `interp/ops/exec_*.rs` 命名对称**: 加新 IR 指令时，interp 与 JIT 改的文件名一一对应（`exec_value.rs` ↔ `helpers/value.rs`），认知负担最小。
 
 **消费者**:
 - `jit/lazy.rs::LazyCompiler::setup` 调 `helpers::register_symbols(&mut jit_builder)` 与 `helpers::declare_imports(&mut jit)` 各一次
@@ -1373,7 +1373,7 @@ mixed-type sites 调用，删除会让那些 sites 慢一档。
 
 ## Method token system
 
-位置：`src/runtime/src/vm/runtime/ids/tokens.rs` + `vm/runtime/resolve/mod.rs`（+ `resolver/ic.rs`）+ `vm_context/statics.rs::resolve_static_field_id` + 各 `interp/exec_*.rs` 热路径
+位置：`src/runtime/src/vm/runtime/ids/tokens.rs` + `vm/runtime/resolve/mod.rs`（+ `resolver/ic.rs`）+ `vm_context/statics.rs::resolve_static_field_id` + 各 `interp/ops/exec_*.rs` 热路径
 
 **问题**: z42 IR 所有跨引用 dispatch 用 `String` + `HashMap.get()` 做身份。每次虚调用一次 hash + 字符串等价比较；IR 内存表示膨胀；反射 R-series 设计无 token 锚点。
 
@@ -1420,7 +1420,7 @@ pub struct ResolvedTokens {
 
 ### 热路径行为
 
-每条 token-bearing 指令在 `interp::exec_instr` 入口查 `resolved.site_index[block_idx][instr_idx] → site_idx`，传给对应 helper：
+每条 token-bearing 指令在 `interp::ops::exec_instr` 入口查 `resolved.site_index[block_idx][instr_idx] → site_idx`，传给对应 helper：
 
 - **Call**: 命中 → 入口函数 `module.functions[t]` / 惰性函数 `funcs.get(t)`；UNRESOLVED → 按名绑定 + 写回（见上文「Call 站点 token：FnId」）
 - **Builtin**: 命中 → `vm::exec::call::builtins::invoke_builtin`（当前 VM 的 callable 表，实参原地从寄存器读）；`UNRESOLVED` → 同一目录按名解析，仍缺失则抛 `MissingSymbolException`

@@ -13,7 +13,7 @@ use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
 
-use super::ops::collect_args;
+use super::collect_args;
 use super::{ExecOutcome, Frame};
 
 /// runtime-jit-tiering Phase 1.5 (mixed-mode): route the callee with JIT id `id`

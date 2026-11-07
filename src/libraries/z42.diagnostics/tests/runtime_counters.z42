@@ -63,7 +63,7 @@ void test_allocations_monotonic() {
 
 // ── 异常计数字段读取后不回退（单调，mode-independent） ────────────────
 //
-// 注：ExceptionsThrown/Caught 的**增量**埋点在 interp 路径（`interp::fire_exception_*`），
+// 注：ExceptionsThrown/Caught 的**增量**埋点在 interp 路径（`interp::run::exec_support::fire_exception_*`），
 // JIT 下不递增（已知 gap）——故本测试只断言「读取安全且非回退」（mode-robust），不断言
 // 严格增量。投影字段可读性由 test_counters_all_fields_readable 覆盖。
 [Test]

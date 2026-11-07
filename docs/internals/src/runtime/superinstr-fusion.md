@@ -1,7 +1,7 @@
 # 超级指令融合（super-instruction fusion）
 
-> 代码：`vm/runtime/fusion.rs`（纯识别规则）、`vm/runtime/fusion.rs`（缓存形态）、`interp/ops.rs`（`eval_cmp` 共享原语）、
-> `interp/mod.rs`（exec 循环消费 + `Frame` 预分配）、`metadata/ir/function.rs`
+> 代码：`vm/runtime/fusion.rs`（纯识别规则）、`vm/runtime/fusion.rs`（缓存形态）、`interp/ops/mod.rs`（`eval_cmp` 共享原语）、
+> `interp/run/mod.rs`（exec 循环消费）、`interp/frame/mod.rs`（帧预分配）、`metadata/ir/function.rs`
 > （静态 `Function::reg_file_len` / `Instruction::written_reg`）、`vm/runtime/function.rs`（`Function.fused_tails` 缓存）、
 > `vm/loader/package/mod.rs`（`build_block_indices` 回填 `func.max_reg`）。
 

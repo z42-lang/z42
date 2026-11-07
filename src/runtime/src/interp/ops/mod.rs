@@ -1,3 +1,21 @@
+//! Register-level instruction adapters and operand helpers.
+pub(crate) mod exec_instr;
+mod exec_address;
+pub(crate) mod exec_array;
+mod exec_call;
+#[cfg(feature = "native-interop")]
+mod exec_ffi;
+pub(crate) mod exec_object;
+pub(crate) mod exec_struct;
+pub(crate) mod exec_value;
+pub(crate) mod exec_vcall;
+
+use super::frame::Frame;
+use super::run::{exec_function, exec_function_from_regs, exec_function_from_receiver_regs};
+use super::run::exec_support::{has_forwarded_mta, resolve_forwarded_mta};
+use crate::vm::exec::call::outcome::ExecOutcome;
+use crate::vm::runtime::dispatch::receiver::prim_isa;
+
 /// Register-level helper operations for the interpreter execution loop.
 ///
 /// These functions operate directly on the register slice (`&[Value]`)
@@ -10,10 +28,10 @@ use anyhow::{bail, Result};
 /// Collect register values into a Vec.
 /// Argument list for a builtin / indirect call. Inline up to [`INLINE_ARGS`]
 /// values — nearly every call — so the per-call heap allocation is gone.
-pub(super) type ArgVec = smallvec::SmallVec<[Value; INLINE_ARGS]>;
-pub(super) const INLINE_ARGS: usize = 6;
+pub(in crate::interp) type ArgVec = smallvec::SmallVec<[Value; INLINE_ARGS]>;
+pub(in crate::interp) const INLINE_ARGS: usize = 6;
 
-pub(super) fn collect_args(regs: &[Value], reg_indices: &[u32]) -> Result<ArgVec> {
+pub(in crate::interp) fn collect_args(regs: &[Value], reg_indices: &[u32]) -> Result<ArgVec> {
     reg_indices.iter()
         .map(|&r| regs.get(r as usize).cloned().ok_or_else(|| anyhow::anyhow!("undefined register %{r}")))
         .collect()
@@ -21,7 +39,7 @@ pub(super) fn collect_args(regs: &[Value], reg_indices: &[u32]) -> Result<ArgVec
 
 
 /// Extract a bool from a register.
-pub(super) fn bool_val(regs: &[Value], reg: u32) -> Result<bool> {
+pub(in crate::interp) fn bool_val(regs: &[Value], reg: u32) -> Result<bool> {
     match regs.get(reg as usize) {
         Some(Value::Bool(b)) => Ok(*b),
         Some(other) => bail!("expected bool in register %{reg}, got {:?}", other),
@@ -34,7 +52,7 @@ pub(super) fn bool_val(regs: &[Value], reg: u32) -> Result<bool> {
 /// converge-vm-arith-semantics (H3): register fetch stays here (the
 /// "undefined register" error is interp-model-specific); the scalar rule +
 /// type-mismatch is [`crate::vm::exec::ops::scalar::int_binop`], shared with the JIT helper.
-pub(super) fn int_binop(
+pub(in crate::interp) fn int_binop(
     regs: &[Value],
     a: u32,
     b: u32,
@@ -48,7 +66,7 @@ pub(super) fn int_binop(
 
 /// Integer-only binary operation (bitwise/shift). Rejects floats.
 /// Scalar rule shared via [`crate::vm::exec::ops::scalar::int_bitop`] (see `int_binop`).
-pub(super) fn int_bitop(
+pub(in crate::interp) fn int_bitop(
     regs: &[Value],
     a: u32,
     b: u32,
@@ -73,7 +91,7 @@ pub(super) fn int_bitop(
 /// `exec_value`) AND the fused `CmpBr` super-instruction, so the comparison logic
 /// lives in exactly one place (no interp/fusion duplication).
 #[inline]
-pub(super) fn eval_cmp(op: crate::vm::runtime::CmpOp, regs: &[Value], a: u32, b: u32) -> Result<bool> {
+pub(in crate::interp) fn eval_cmp(op: crate::vm::runtime::CmpOp, regs: &[Value], a: u32, b: u32) -> Result<bool> {
     // converge-vm-arith-semantics (H3): register fetch here, comparison rule in
     // [`crate::vm::exec::ops::scalar::eval_cmp`] (shared with JIT helper `jit_lt`/`jit_eq`/…).
     crate::vm::exec::ops::scalar::eval_cmp(op, reg_ref(regs, a)?, reg_ref(regs, b)?)
@@ -96,7 +114,7 @@ fn reg_ref(regs: &[Value], r: u32) -> Result<&Value> {
 /// invariant is implied by `typed`, since `is_i64(reg_types, r)` requires
 /// `r < reg_types.len() == regs.len()`).
 #[inline]
-pub(super) fn eval_cmp_i64(op: crate::vm::runtime::CmpOp, regs: &[Value], a: u32, b: u32) -> bool {
+pub(in crate::interp) fn eval_cmp_i64(op: crate::vm::runtime::CmpOp, regs: &[Value], a: u32, b: u32) -> bool {
     use crate::vm::runtime::CmpOp;
     // SAFETY: the typed super-instruction was recognized only when
     // `reg_types[a] == reg_types[b] == I64`, the same invariant the JIT's raw
@@ -116,7 +134,7 @@ pub(super) fn eval_cmp_i64(op: crate::vm::runtime::CmpOp, regs: &[Value], a: u32
 
 
 /// Convert a Value to a usize index/size, rejecting negative values.
-pub(super) fn to_usize(v: &Value, ctx: &str) -> Result<usize> {
+pub(in crate::interp) fn to_usize(v: &Value, ctx: &str) -> Result<usize> {
     match v {
         Value::I64(n) if *n >= 0 => Ok(*n as usize),
         other => bail!("{}: expected non-negative integer, got {:?}", ctx, other),
@@ -128,7 +146,7 @@ pub(super) fn to_usize(v: &Value, ctx: &str) -> Result<usize> {
 /// （`OpError::into_exception`），异常类与消息逐字一致。
 #[cold]
 #[inline(never)]
-pub(super) fn raise(
+pub(in crate::interp) fn raise(
     ctx: &crate::vm_context::VmContext, module: &crate::vm::runtime::Module, e: crate::objops::OpError,
 ) -> Result<Option<Value>> {
     e.into_exception(ctx, Some(module)).map(Some)

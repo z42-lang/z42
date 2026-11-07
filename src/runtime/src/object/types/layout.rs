@@ -25,7 +25,7 @@ pub const STRUCT_REF_GCREF: u8 = 2;
 /// `struct[]` element) each reference leaf is an 8 B reference word at its offset; in the frame
 /// arena it is a `Value` in the blob's `refs`, in `ref_offsets` order (`struct_blob`). Pure-primitive structs have
 /// empty reference arrays. A type with no delivered layout resolves (in
-/// `interp::exec_struct::resolve_layout`) to a `size`-only empty layout, which
+/// `interp::ops::exec_struct::resolve_layout`) to a `size`-only empty layout, which
 /// reproduces the pre-A-use pure-primitive behavior byte-for-byte.
 #[derive(Debug, Default)]
 pub struct StructTypeLayout {
