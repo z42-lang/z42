@@ -1,4 +1,4 @@
-//! 监听槽位与可中断的 accept 等待，供 `network/tcp.rs`（ABI v2）的 accept 使用。
+//! 监听槽位与可中断的 accept 等待，供 `net/tcp.rs`（ABI v2）的 accept 使用。
 //! 等待函数只碰纯 Rust 数据，可以在 park 状态下运行。
 
 /// fix-accept-not-interruptible：监听槽位 = 共享的 listener + 一个关闭标志。

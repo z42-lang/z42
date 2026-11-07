@@ -7,7 +7,7 @@
 //! write or close. Close = take the slot out + `shutdown`, which wakes a blocked read /
 //! write; the fd closes when the last `Arc` drops.
 //!
-//! - **Failures throw from Rust** — the mapping is in `network/error.rs`.
+//! - **Failures throw from Rust** — the mapping is in `net/error.rs`.
 //! - **Everything that can block runs parked** (name resolution, connect, accept, read,
 //!   write) — `Blocking::new(..).then(..)`: the parked part sees only Rust data; the
 //!   `then` step (register the new slot, copy into the caller's `byte[]`, notice a close
@@ -111,7 +111,7 @@ pub mod typed {
     }
 
     /// `Accept(listener) -> slot`. A listener closed while waiting → `SocketClosedException`
-    /// within the accept poll period (`network/listener.rs`).
+    /// within the accept poll period (`net/listener.rs`).
     #[builtin(name = "__tcp_accept")]
     pub fn tcp_accept(ctx: &VmContext, slot: i64) -> Result<Then<i64>, BuiltinError> {
         let l = listener(ctx, slot)?;

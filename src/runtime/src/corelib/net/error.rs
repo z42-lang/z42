@@ -1,6 +1,6 @@
 #![cfg_attr(not(feature = "net"), allow(dead_code))]
-//! .NET-shaped socket failures for the ABI v2 network builtins (`network/tcp.rs`,
-//! `network/udp.rs`, `tls.rs`, the `network/unsupported.rs` stubs).
+//! .NET-shaped socket failures for the ABI v2 network builtins (`net/tcp.rs`,
+//! `net/udp.rs`, `tls.rs`, the `net/unsupported.rs` stubs).
 //!
 //! | failure | exception (fallbacks when the class is not loaded) |
 //! |---|---|

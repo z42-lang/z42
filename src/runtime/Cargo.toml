@@ -158,7 +158,7 @@ cranelift-native   = { version = "0.135", optional = true }
 # - `net` enables Std.Net sockets (TCP / UDP / DNS over std::net + socket2);
 #   `tls` adds the rustls-backed TLS client on top. Without them the
 #   `__tcp_*` / `__udp_*` / `__dns_lookup` / `__tls_*` builtins are stubs that
-#   throw `NetUnsupportedException` (corelib/network/unsupported.rs). On in
+#   throw `NetUnsupportedException` (corelib/net/unsupported.rs). On in
 #   `default` and the ios / android presets; the wasm preset omits them
 #   (no sockets inside the wasm sandbox).
 # - platform presets are convenience combos for `--no-default-features --features <preset>`

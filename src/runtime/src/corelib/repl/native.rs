@@ -35,7 +35,7 @@ pub fn readline(ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
     #[cfg(not(feature = "native-interop"))]
     {
         let _ = ctx;
-        super::repl::plain_readline(prompt)
+        super::plain_readline(prompt)
     }
 }
 
@@ -184,12 +184,12 @@ pub(super) mod native {
     pub(super) fn readline(ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
         let lib = match loaded() {
             Some(l) => l,
-            None => return super::super::repl::plain_readline(prompt),
+            None => return super::super::plain_readline(prompt),
         };
         let cbs = ReplCallbacks {
             ctx: ctx as *const VmContext as *mut c_void,
-            complete: super::super::repl::complete_trampoline,
-            key_edit: super::super::repl_editing::keyedit_trampoline,
+            complete: super::super::complete_trampoline,
+            key_edit: super::super::editing::keyedit_trampoline,
             free_str: z42vm_free_str,
         };
         // A prompt with an interior NUL is nonsensical; fall back to empty rather than
@@ -220,7 +220,7 @@ pub(super) mod native {
             Z42_REPL_INTERRUPT => Ok(Some(String::new())),
             // Editor couldn't initialize (no tty) → plain read, same as the old path
             // where a failed `Editor::with_config` dropped to `plain_readline`.
-            Z42_REPL_NO_EDITOR => super::super::repl::plain_readline(prompt),
+            Z42_REPL_NO_EDITOR => super::super::plain_readline(prompt),
             _ => {
                 let msg = last_error(lib);
                 anyhow::bail!("__repl_readline: {msg}");
