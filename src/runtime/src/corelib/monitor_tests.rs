@@ -371,3 +371,63 @@ fn a_collection_completes_while_a_thread_waits_on_the_monitor() {
     c.heap().unpin_root(root);
     assert_eq!(c.core.threads.parked_count.load(Ordering::Acquire), 0);
 }
+
+fn timed_wait(c: &VmContext, h: &Value, millis: i64) -> Result<Value, BuiltinError> {
+    crate::vm::exec::call::builtins::exec_builtin_value(c, "__monitor_wait_for", &[h.clone(), Value::I64(millis)])
+        .map_err(|e| e.downcast::<BuiltinError>().expect("typed error"))
+}
+
+#[test]
+fn timed_wait_zero_reacquires_and_rejects_negative_duration() {
+    let c = ctx();
+    let (h, m) = new_monitor(&c);
+    builtin_monitor_enter(&c, &[h.clone()]).unwrap();
+    assert!(matches!(timed_wait(&c, &h, 0).unwrap(), Value::Bool(false)));
+    assert!(!m.try_enter());
+    assert!(matches!(timed_wait(&c, &h, -1), Err(BuiltinError::ArgumentOutOfRange(_))));
+    assert!(!m.try_enter(), "invalid duration must preserve ownership");
+    builtin_monitor_exit(&c, &[h]).unwrap();
+    assert_eq!(c.core.threads.parked_count.load(Ordering::Acquire), 0);
+}
+
+#[test]
+fn timed_wait_requires_owner_and_can_expire() {
+    let c = ctx();
+    let (h, m) = new_monitor(&c);
+    assert!(matches!(timed_wait(&c, &h, 0), Err(BuiltinError::Exception { class: "Std.Threading.SynchronizationLockException", .. })));
+    builtin_monitor_enter(&c, &[h.clone()]).unwrap();
+    assert!(wait_until(Duration::from_secs(5), || matches!(timed_wait(&c, &h, 1).unwrap(), Value::Bool(false))));
+    assert!(!m.try_enter());
+    builtin_monitor_exit(&c, &[h]).unwrap();
+}
+
+#[test]
+fn timed_wait_is_parked_collectible_and_notified() {
+    let c = ctx();
+    let (_h, m) = new_monitor(&c);
+    let core = Arc::clone(&c.core);
+    let other_core = Arc::clone(&core);
+    let other_monitor = Arc::clone(&m);
+    let released = Arc::new(AtomicU64::new(0));
+    let other_released = Arc::clone(&released);
+    let done = Arc::new(AtomicU64::new(0));
+    let other_done = Arc::clone(&done);
+    let worker = std::thread::spawn(move || {
+        let w = VmContext::new_with_core(other_core);
+        other_monitor.enter(&w).unwrap();
+        while other_released.load(Ordering::Acquire) == 0 {
+            other_monitor.begin_wait_for(i64::MAX).unwrap().into_ret(&w).unwrap();
+        }
+        assert!(!other_monitor.try_enter(), "notification must reacquire ownership");
+        other_monitor.exit().unwrap();
+        other_done.store(1, Ordering::Release);
+    });
+    collect_while_parked(&c);
+    assert_eq!(core.threads.parked_count.load(Ordering::Acquire), 1);
+    m.enter(&c).unwrap();
+    released.store(1, Ordering::Release);
+    m.exit().unwrap();
+    assert!(wait_until(Duration::from_secs(5), || done.load(Ordering::Acquire) == 1));
+    worker.join().unwrap();
+    assert_eq!(core.threads.parked_count.load(Ordering::Acquire), 0);
+}

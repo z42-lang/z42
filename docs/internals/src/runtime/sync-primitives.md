@@ -156,6 +156,13 @@ fn begin_enter(self: &Arc<Self>, ctx) -> Result<Blocking<()>, BuiltinError> {
 （非持有者的 `SynchronizationLockException` 是纯 Rust 数据，在 park 中构造无妨；先 unpark 单独查一次持有
 会让争用的 Channel 每次 `Wait` 多一次内部锁往返）。
 
+`MonitorNative.WaitFor(m, timeoutMs)` 共用同一释放/重新持有协议，以非负毫秒时长等待信号。
+超时返回 `false`；通知或伪唤醒返回 `true`，两者都不证明应用条件成立，调用方须按单调截止时间循环检查。
+0 表示释放并重新获取后返回 `false`；负数抛 `ArgumentOutOfRangeException`，无限等待仍用 `Wait`。
+超时只限制信号等待，重新持有仍可阻塞，整个过程均在 park 内。原生闭包只保存 `Duration` 和原生身份，
+时长不缩窄为32位；`Exit` 提前通知等待者，新增更早截止任务或取消任务无需等待轮询周期。
+wasm 目标明确抛 `NotSupportedException`，不调用宿主时钟或模拟阻塞成功。
+
 误用的异常按 .NET：同线程重入 → `Std.Threading.LockRecursionException`；非持有者 `Exit` / `Wait` →
 `Std.Threading.SynchronizationLockException`（.NET `Monitor.Exit` 的原文）；句柄不是 Monitor →
 `ArgumentNullException` / `ArgumentException`（`MonitorNative` 是公开类，用户代码能传进任何值）。
