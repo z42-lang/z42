@@ -1,0 +1,83 @@
+namespace Z42DeploymentCopiesTests;
+
+using Std.IO;
+using Std.Encoding;
+using Std.Harness;
+using Z42.Build;
+
+DeploymentCopies _plan(string dir, string owner) {
+    return new DeploymentCopies(dir, owner, ".z42-publish-");
+}
+
+[Test]
+void test_retire_owned_files_keeps_modified_unowned_and_other_owners() {
+    string dir = File.CreateTempDir("deployment-owners");
+    try {
+        string source = Path.Join(dir, "source");
+        File.WriteAllText(source, "original");
+        DeploymentCopies a = _plan(dir, "a");
+        a.Add("retire.zpkg", source, Utf8.GetBytes("original"));
+        a.Add("modified.zpkg", source, Utf8.GetBytes("original"));
+        a.Add("shared.zpkg", source, Utf8.GetBytes("original"));
+        a.Apply();
+        DeploymentCopies b = _plan(dir, "b");
+        b.Add("shared.zpkg", source, Utf8.GetBytes("original"));
+        b.Apply();
+        File.WriteAllText(Path.Join(dir, "modified.zpkg"), "user");
+        File.WriteAllText(Path.Join(dir, "unowned.zpkg"), "user");
+        _plan(dir, "a").Apply();
+        Assert.False(File.Exists(Path.Join(dir, "retire.zpkg")));
+        Assert.Equal("user", File.ReadAllText(Path.Join(dir, "modified.zpkg")));
+        Assert.Equal("user", File.ReadAllText(Path.Join(dir, "unowned.zpkg")));
+        Assert.True(File.Exists(Path.Join(dir, "shared.zpkg")));
+        _plan(dir, "b").Apply();
+        Assert.False(File.Exists(Path.Join(dir, "shared.zpkg")));
+    } finally { Directory.Delete(dir, true); }
+}
+
+[Test]
+void test_copy_retry_preserves_receipt_when_source_changes_after_plan() {
+    string dir = File.CreateTempDir("deployment-retry");
+    try {
+        string source = Path.Join(dir, "source");
+        File.WriteAllText(source, "first");
+        DeploymentCopies plan = _plan(dir, "a");
+        plan.Add("dep.zpkg", source, Utf8.GetBytes("first"));
+        plan.Apply();
+        File.WriteAllText(source, "second");
+        plan = _plan(dir, "a");
+        plan.Add("dep.zpkg", source, Utf8.GetBytes("second"));
+        File.WriteAllText(source, "changed");
+        bool failed = false;
+        try { plan.Apply(); } catch (Exception e) { failed = e.Message.Contains("changed while deploying"); }
+        Assert.True(failed);
+        Assert.Equal("first", File.ReadAllText(Path.Join(dir, "dep.zpkg")));
+        File.WriteAllText(source, "second");
+        plan.Apply();
+        Assert.Equal("second", File.ReadAllText(Path.Join(dir, "dep.zpkg")));
+        _plan(dir, "a").Apply();
+        Assert.False(File.Exists(Path.Join(dir, "dep.zpkg")));
+    } finally { Directory.Delete(dir, true); }
+}
+
+[Test]
+void test_keeps_project_output_and_rejects_escaping_relative_paths() {
+    string dir = File.CreateTempDir("deployment-paths");
+    try {
+        string source = Path.Join(dir, "source");
+        File.WriteAllText(source, "payload");
+        DeploymentCopies old = _plan(dir, "a");
+        old.Add("app.zpkg", source, Utf8.GetBytes("payload"));
+        old.Apply();
+        DeploymentCopies next = _plan(dir, "a");
+        next.Keep("app.zpkg");
+        next.Apply();
+        Assert.True(File.Exists(Path.Join(dir, "app.zpkg")));
+        string[] bad = new string[] { "../outside.zpkg", "nested/../../outside", ".", "/outside", "a\\b.zpkg", "a\tb.zpkg" };
+        foreach (var rel in bad) {
+            bool failed = false;
+            try { next.Add(rel, source, Utf8.GetBytes("payload")); } catch (Exception e) { failed = true; }
+            Assert.True(failed);
+        }
+    } finally { Directory.Delete(dir, true); }
+}

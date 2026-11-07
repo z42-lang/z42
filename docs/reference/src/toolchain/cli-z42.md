@@ -484,6 +484,10 @@ z42b publish: desktop apphost not available (the apphost ships with the desktop 
 改名为 `app.runtimeconfig.toml`）。默认输出根：`--output` → `[platform.desktop].publish_dir`
 → `<output_dir>/publish` → `<工程目录>/publish`。
 
+复用发布目录时，工具会移除自己登记过、当前不再需要且内容未被修改的文件。
+未登记的文件与用户修改过的文件会保留。indexed 输入的散装字节码随主包和依赖一起发布。
+清单不再需要运行旋钮、应用属性和 SDK probing 时，构建会移除之前生成的运行侧车，发布目录也会清除其已登记副本。用户手写的运行侧车会保留。
+
 ## `z42 export --rid <rid> [options] [<manifest>]`
 
 为 ios / android / wasm 生成原生 IDE 工程。`--rid` **必给**。目标是工作区时同 `publish`，

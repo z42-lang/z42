@@ -1,0 +1,4 @@
+namespace Republish.App;
+using Std.IO;
+using Republish.Leaf;
+void Main() { Console.WriteLine(Value()); }

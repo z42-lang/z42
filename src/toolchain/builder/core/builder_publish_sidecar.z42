@@ -1,34 +1,34 @@
-// z42b publish —— 把 app 连同它的**运行配置侧车**一起搬进部署布局。
-//
-// `z42c build` 会在 `dist/<name>.zpkg` 旁产 `dist/<name>.runtimeconfig.toml`
-// （当工程 `[profile.*]` 声明了运行时旋钮时；没声明就不产）。publish 若只搬 zpkg，
-// 用户在 manifest 里写的 `[profile.release] gc-max-bytes = "512MB"` 在发布出来的
-// 二进制上**完全不生效、且无任何提示**——机制在部署路径上是死的。
-//
-// 发现约定是「同目录、同 stem」，apphost（`hostrun.rs::app_config_sidecar`）与
-// launcher 都按它找。所以自包含布局把 zpkg 改名成 `app.zpkg` 时，侧车必须跟着改成
-// `app.runtimeconfig.toml`——拷过去还叫原名等于没拷。
-//
-// 本文件独立存在的另一个原因：`builder_publish.z42` 已 967 行、在 line-limit 棘轮
-// 基线上，越界文件不得增长。`_pubStageApp` 连同它取代的那行 `File.Copy` 一起搬出来，
-// 调用点净行数为 0。
-// sidecar-reaches-published-apps。
 namespace Z42Builder;
 
 using Std.IO;
+using Z42.Build;
+using Z42.Package;
 
-// 把 `zpkgSrc` 搬到 `dstZpkg`，并带上同 stem 的运行配置侧车（有则拷、无则跳过）。
-// 侧车目标名由 `dstZpkg` 的 stem 派生，因此重命名布局自动正确。
+// The renamed main, its FILE payload and same-stem runtime configuration form
+// one deployment. Keeping a receipt also retires a removed runtime sidecar.
 void _pubStageApp(string zpkgSrc, string dstZpkg) {
-    File.Copy(zpkgSrc, dstZpkg);
-    string src = _pubSidecarOf(zpkgSrc);
-    if (File.Exists(src)) {
-        string dst = _pubSidecarOf(dstZpkg);
-        File.Copy(src, dst);
+    string sourceDir = Path.GetDirectoryName(zpkgSrc);
+    string targetDir = Path.GetDirectoryName(dstZpkg);
+    if (Path.Normalize(zpkgSrc) == Path.Normalize(dstZpkg)) { return; }
+    DeploymentCopies copies = new DeploymentCopies(targetDir, Path.GetFileName(zpkgSrc), ".z42-publish-app-");
+    byte[] bytes = File.ReadAllBytes(zpkgSrc);
+    ZpkgInfo info = ZpkgReader.Open(bytes, zpkgSrc);
+    if (info == null) { throw new Exception("cannot read publish app: " + zpkgSrc); }
+    copies.Add(Path.GetFileName(dstZpkg), zpkgSrc, bytes);
+    if (!info.Packed) {
+        foreach (var rel in ZpkgReader.ReadIndexedZbcRels(info)) {
+            string source = Path.Join(sourceDir, rel);
+            copies.Add(rel, source, File.ReadAllBytes(source));
+        }
     }
+    string sidecar = _pubSidecarOf(zpkgSrc);
+    if (File.Exists(sidecar)) {
+        copies.Add(Path.GetFileName(_pubSidecarOf(dstZpkg)), sidecar, File.ReadAllBytes(sidecar));
+    }
+    copies.Apply();
 }
 
-// `<dir>/<stem>.runtimeconfig.toml` —— 与 apphost / launcher 同一条发现约定。
+// The apphost and launcher discover runtime configuration by the payload stem.
 string _pubSidecarOf(string zpkg) {
     string dir = Path.GetDirectoryName(zpkg);
     string name = Path.GetFileNameWithoutExtension(zpkg) + ".runtimeconfig.toml";

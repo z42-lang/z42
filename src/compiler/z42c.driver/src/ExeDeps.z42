@@ -6,6 +6,7 @@
 namespace Z42.Driver;
 
 using Std.IO;
+using Z42.Build;
 using Z42.Package;
 using Z42.Project;
 using Z42.IR;          // ZpkgReader / ZpkgInfo（产物引用的包名校验）
@@ -18,7 +19,8 @@ int _bundleExeDeps(BundleSeed seed, PathClosureOut closure, ProjectManifest pm, 
     string[] frameworkDirs = _extLibDirs();
     StrMap ownZbc = _ownLooseZbc(pm, distDir);
     StrMap copiedZbc = new StrMap();
-    BundleCopies copies = new BundleCopies(distDir, pm.Project.Name, ownZbc);
+    DeploymentCopies copies = new DeploymentCopies(distDir, pm.Project.Name, ".z42-deps-");
+    foreach (var rel in ownZbc.Keys()) { copies.Keep(rel); }
     copies.Keep(pm.Project.Name + ".zpkg");
     copies.Keep(pm.Project.Name + ".zsym");
     int entry = 0;
@@ -87,7 +89,7 @@ string _bundleFindDir(BundleDomain domain, string[] dirs, int count, string file
 }
 
 int _planExeDependency(string name, string dir, string distDir, ZpkgInfo info, byte[] bytes,
-                       StrMap ownZbc, StrMap copiedZbc, BundleCopies copies) {
+                       StrMap ownZbc, StrMap copiedZbc, DeploymentCopies copies) {
     string file = name + ".zpkg";
     string source = Path.Join(dir, file);
     string symbols = name + ".zsym";
@@ -346,7 +348,7 @@ StrMap _ownLooseZbc(ProjectManifest pm, string distDir) {
 
 // 把 indexed 依赖 `dep` 的散装 zbc 从 fromDir 拷到 distDir（保持相对路径）。与本包自己的 zbc、或本轮另一个
 // 依赖的 zbc 撞名 ⇒ 报错（同一路径只能有一份，加载器按路径找）。
-int _bundleLooseZbc(string dep, string fromDir, string distDir, string[] rels, StrMap ownZbc, StrMap copiedZbc, BundleCopies copies) {
+int _bundleLooseZbc(string dep, string fromDir, string distDir, string[] rels, StrMap ownZbc, StrMap copiedZbc, DeploymentCopies copies) {
     int r = 0;
     while (r < rels.Length) {
         string rel = rels[r];

@@ -1,0 +1,152 @@
+namespace Z42.Build;
+
+using Std.IO;
+using Std.Crypto;
+using Std.Encoding;
+using Std.Collections;
+
+sealed class DeploymentCopy {
+    public string Source;
+    public string Hash;
+    public DeploymentCopy(string source, string hash) { this.Source = source; this.Hash = hash; }
+}
+
+// A receipt is scoped to the project even when multiple executables share dist.
+public sealed class DeploymentCopies {
+    private string _dist;
+    private string _receipt;
+    private string _prefix;
+    private Dictionary<string, DeploymentCopy> _planned;
+    private Dictionary<string, string> _protected;
+
+    public DeploymentCopies(string dist, string project, string prefix) {
+        this._dist = dist;
+        this._prefix = prefix;
+        this._receipt = prefix + Hex.Encode(Blake3.HashLen(Utf8.GetBytes(project), 16));
+        this._planned = new Dictionary<string, DeploymentCopy>();
+        this._protected = new Dictionary<string, string>();
+    }
+
+    public void Add(string rel, string source, byte[] bytes) {
+        if (!DeploymentCopies.IsRelativePath(rel)) { throw new Exception("unsafe deployment payload path: " + rel); }
+        if (this._protected.ContainsKey(rel)) { throw new Exception("deployment payload collides with project output: " + rel); }
+        this._planned[rel] = new DeploymentCopy(source, this._hash(bytes));
+    }
+
+    public static bool IsRelativePath(string rel) {
+        return rel.Length > 0 && rel != "." && !Path.IsRooted(rel) && Path.Normalize(rel) == rel
+            && rel.IndexOf("\\") < 0 && rel.IndexOf(":") < 0 && rel.IndexOf("\t") < 0
+            && rel.IndexOf("\n") < 0 && rel.IndexOf("\r") < 0 && !rel.StartsWith("../");
+    }
+
+    public void Keep(string rel) { this._protected[rel] = ""; }
+
+    private string _hash(byte[] bytes) { return Hex.Encode(Blake3.HashLen(bytes, 16)); }
+
+    private string _fileHash(string path) {
+        if (!File.Exists(path) || Directory.Exists(path)) { return ""; }
+        return this._hash(File.ReadAllBytes(path));
+    }
+
+    private Dictionary<string, string> _read(string body) {
+        Dictionary<string, string> result = new Dictionary<string, string>();
+        if (body.Length == 0) { return result; }
+        if (!body.StartsWith("Z42-DEPS1\n")) { throw new Exception("invalid dependency copy receipt"); }
+        foreach (var line in body.Split("\n")) {
+            if (line.Length == 0 || line == "Z42-DEPS1") { continue; }
+            string[] row = line.Split("\t");
+            if (row.Length != 2 || !DeploymentCopies.IsRelativePath(row[0]) || row[1].Length == 0) {
+                throw new Exception("invalid dependency copy receipt entry");
+            }
+            result[row[0]] = row[1];
+        }
+        return result;
+    }
+
+    private string _readText(string path) {
+        return File.Exists(path) ? File.ReadAllText(path) : "";
+    }
+
+    private bool _owns(Dictionary<string, string> receipt, string rel, string hash) {
+        if (hash.Length == 0 || !receipt.ContainsKey(rel)) { return false; }
+        string recorded = receipt[rel];
+        foreach (var entry in recorded.Split(",")) { if (entry == hash) { return true; } }
+        return false;
+    }
+
+    private string _serialize(Dictionary<string, string> entries) {
+        if (entries.Count == 0) { return ""; }
+        string body = "Z42-DEPS1\n";
+        foreach (var rel in entries.Keys()) { body = body + rel + "\t" + entries[rel] + "\n"; }
+        return body;
+    }
+
+    private Dictionary<string, string> _otherOwners() {
+        Dictionary<string, string> owners = new Dictionary<string, string>();
+        foreach (var name in Directory.Enumerate(this._dist)) {
+            if (!name.StartsWith(this._prefix) || name == this._receipt) { continue; }
+            Dictionary<string, string> receipt = this._read(this._readText(Path.Join(this._dist, name)));
+            foreach (var rel in receipt.Keys()) {
+                string current = receipt[rel];
+                if (owners.ContainsKey(rel)) { current = owners[rel] + "," + current; }
+                owners[rel] = current;
+            }
+        }
+        return owners;
+    }
+
+    public void Apply() {
+        string path = Path.Join(this._dist, this._receipt);
+        string oldBody = this._readText(path);
+        Dictionary<string, string> previous = this._read(oldBody);
+        Dictionary<string, string> next = new Dictionary<string, string>();
+        Dictionary<string, string> journal = this._read(oldBody);
+        Dictionary<string, DeploymentCopy> writes = new Dictionary<string, DeploymentCopy>();
+        Dictionary<string, string> others = null;
+        foreach (var rel in this._planned.Keys()) {
+            DeploymentCopy copy = this._planned[rel];
+            string current = this._fileHash(Path.Join(this._dist, rel));
+            bool owned = this._owns(previous, rel, current);
+            if (current == copy.Hash && !owned) {
+                if (others == null) { others = this._otherOwners(); }
+                if (!this._owns(others, rel, current)) { continue; }
+                journal[rel] = copy.Hash;
+            }
+            next[rel] = copy.Hash;
+            if (current != copy.Hash) {
+                writes[rel] = copy;
+                journal[rel] = owned ? current + "," + copy.Hash : copy.Hash;
+            }
+        }
+        string journalBody = this._serialize(journal);
+        if (journalBody != oldBody) { File.WriteAllTextAtomic(path, journalBody); }
+        this._copy(writes);
+        this._retire(previous, others);
+        string nextBody = this._serialize(next);
+        if (nextBody != journalBody) {
+            if (nextBody.Length == 0) { File.Delete(path); }
+            else { File.WriteAllTextAtomic(path, nextBody); }
+        }
+    }
+
+    private void _copy(Dictionary<string, DeploymentCopy> writes) {
+        foreach (var rel in writes.Keys()) {
+            DeploymentCopy copy = writes[rel];
+            byte[] bytes = File.ReadAllBytes(copy.Source);
+            if (this._hash(bytes) != copy.Hash) { throw new Exception("dependency changed while deploying: " + copy.Source); }
+            string target = Path.Join(this._dist, rel);
+            Directory.Create(Path.GetDirectoryName(target));
+            File.WriteAllBytesAtomic(target, bytes);
+        }
+    }
+
+    private void _retire(Dictionary<string, string> previous, Dictionary<string, string> others) {
+        foreach (var rel in previous.Keys()) {
+            if (this._planned.ContainsKey(rel) || this._protected.ContainsKey(rel)) { continue; }
+            string target = Path.Join(this._dist, rel);
+            if (!this._owns(previous, rel, this._fileHash(target))) { continue; }
+            if (others == null) { others = this._otherOwners(); }
+            if (!others.ContainsKey(rel)) { File.Delete(target); }
+        }
+    }
+}

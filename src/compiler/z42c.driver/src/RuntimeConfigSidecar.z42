@@ -11,8 +11,8 @@
 // 分表而非靠前缀区分：否则 `gc-mdoe` 这种 typo 会被当成一个合法的用户属性静默收下，
 // 「未知旋钮就明确报出来」那道诊断就死了。
 //
-// 若只有旋钮而无属性（或反之），另一段就不出现；两者皆空 → **不产文件**，
-// 让"从前没有侧车"的工程 dist 内容逐字节不变。
+// 若只有旋钮而无属性（或反之），另一段就不出现。两者皆空且不需要 SDK probing 时，
+// 移除上次生成的侧车，保留用户手写配置。
 //
 // 对齐 dotnet：`<app>.runtimeconfig.json` 由 SDK 在**构建时**生成并与产物一起进 bin/。
 // 放在 driver（写产物的地方）而非 launcher，是因为侧车必须与产物 1:1——放 launcher 就
@@ -65,10 +65,11 @@ int _writeRuntimeConfigSidecar(ProjectManifest pm, string distDir, string name, 
     TomlValue props = _mergedProperties(pm, profName);
     bool hasProps = props.Keys().Length > 0;
     // add-sdk-libs：有 `deploy = "sdk"` 的依赖 ⇒ 运行期要从所在 SDK 解析它 ⇒ probing-paths 补一条指回 SDK 的占位符。
+    string path = Path.Join(distDir, name + ".runtimeconfig.toml");
     if (knobs.Length == 0 && !hasProps && !sdkDeploy) {
+        if (File.Exists(path) && File.ReadAllText(path).StartsWith(RcSidecar.Marker)) { File.Delete(path); }
         return ExitCode.Ok;
     }
-    string path = Path.Join(distDir, name + ".runtimeconfig.toml");
     // 用户手写的同名侧车不覆盖——那是他自己的运行配置，静默覆盖等于吃掉他的设置。
     if (File.Exists(path)) {
         string existing = File.ReadAllText(path);

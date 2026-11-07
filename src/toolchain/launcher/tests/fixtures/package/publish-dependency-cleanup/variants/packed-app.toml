@@ -1,0 +1,18 @@
+[project]
+name = "republish.app"
+kind = "exe"
+pack = true
+[sources]
+include = ["Main.z42"]
+[dependencies]
+"republish.leaf" = { path = "../vendor/republish.leaf.zpkg" }
+[build]
+dist_dir = "dist"
+[platform.desktop]
+apphost = true
+publish_dir = "published"
+bin = "bin/app"
+payload = "programs/app.zpkg"
+
+[profile.release.runtime]
+mode = "interp"

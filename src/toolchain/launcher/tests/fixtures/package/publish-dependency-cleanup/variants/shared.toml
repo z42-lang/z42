@@ -1,0 +1,15 @@
+[project]
+name = "republish.app"
+kind = "exe"
+pack = false
+[sources]
+include = ["Main.z42"]
+[dependencies]
+"republish.leaf" = { path = "../vendor/republish.leaf.zpkg", deploy = "shared" }
+[build]
+dist_dir = "dist"
+[platform.desktop]
+apphost = true
+publish_dir = "published"
+bin = "bin/app"
+payload = "programs/app.zpkg"
