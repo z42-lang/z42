@@ -1,7 +1,7 @@
 //! User-lock contention probe (add-concurrency-probes, script-profiling P1b).
 //!
 //! Every z42 user lock (`Std.Threading.Mutex` / `RwLock` / `Channel`) is built on the VM
-//! `Monitor` (`corelib/monitor.rs`); its contended enter path is timed here. Under the
+//! `Monitor` (`corelib/core/monitor.rs`); its contended enter path is timed here. Under the
 //! `profile-contention` cargo feature a contended acquire bumps `VmCore.diagnostics.lock_contentions`
 //! and adds its wait to `VmCore.diagnostics.lock_wait_us`; without the feature the probe is a
 //! zero-sized type and both calls inline away (the default build's acquire path is

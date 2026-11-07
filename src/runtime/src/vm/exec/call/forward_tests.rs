@@ -129,7 +129,7 @@ fn thrown_text(vm: &VmContext, m: &Module, exc: &Value) -> String {
             o.type_desc().name,
             crate::exception::read_message(exc, vm, m).unwrap_or_default(),
             crate::exception::read_stack_trace(exc, vm, m).unwrap_or_default()),
-        other => format!("raw: {}", crate::corelib::convert::value_to_str(other)),
+        other => format!("raw: {}", crate::corelib::core::convert::value_to_str(other)),
     }
 }
 

@@ -13,6 +13,7 @@
 | `mod.rs` | 模块入口；re-export 公开 API；启用 `native-interop` 时，从 `tier1/` 统一再导出既有公开入口 |
 | `state.rs` | 每 VM 类型/库/buffer 状态；Rust 状态操作返回 `Result`，pin/unpin 在所有平台可用 |
 | `tier1/registry.rs` | `RegisteredType` + `MethodEntry`：解析 `Z42TypeDescriptor_v1`，预构建 libffi `Cif` |
+| `tier1/call.rs` | 注册类型解析、参数 marshal、libffi 调度与结果解包，经 VM native 提供方接入 |
 | `tier1/marshal.rs` | z42 `Value` ↔ `Z42Value` 双向转换（blittable 子集）|
 | `tier1/dispatch.rs` | `SigType` 枚举 + 签名解析 + libffi `Cif::new` / `Cif::call` 包装 |
 | `tier1/loader.rs` | `dlopen`：`libloading::Library::new(path)` + 调用 `<basename>_register` 入口 |

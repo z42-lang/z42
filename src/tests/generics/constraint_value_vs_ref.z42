@@ -3,7 +3,7 @@ namespace Demo;
 using Std;
 
 // `where T : class` / `where T : struct` 的值-引用判定，必须与**运行期**
-// `validate_type_arg_constraint`（corelib/reflection/generics.rs）一致。
+// `validate_type_arg_constraint`（corelib/core/reflection/generics.rs）一致。
 //
 // 参考手册 generic-constraints.md 抬头写着「判定规则的唯一真相源是运行期，编译期照抄同一套
 // 规则，两边不各判各的」——而编译期此前**确实各判各的**：

@@ -17,7 +17,7 @@ void Sort<T>(T[] xs) where T : IComparable { }                // 方法级
 
 ## 七项约束
 
-判定规则的**唯一真相源是运行期** [`validate_type_arg_constraint`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/reflection/generics.rs)
+判定规则的**唯一真相源是运行期** [`validate_type_arg_constraint`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/core/reflection/generics.rs)
 ——它是 `MakeGenericType` 这条绕过编译期的反射入口的自我把关。编译期照抄同一套规则，
 两边不各判各的。
 

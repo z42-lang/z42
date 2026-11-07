@@ -140,7 +140,7 @@ index 对齐，构建时从 `Function.is_static` 采）。`merge_with_base` 跳�
 
 `typeof(int[]).FullName` 是 `Std.Int32[]`（不是丢掉元素类型的 `Std.Array`），与 C# 一致（元素 FQN + `[]`）。
 
-**机制**（`corelib/reflection/type_object.rs::make_type_from_name` 的 `[]` 臂）：数组名以 `[]` 结尾时，
+**机制**（`corelib/core/reflection/type_object.rs::make_type_from_name` 的 `[]` 臂）：数组名以 `[]` 结尾时，
 **递归解析元素 Type**（`make_type_from_name(elem)`），读其 `__name` / `__fullName`，拼成
 `{elemName}[]` / `{elemFullName}[]`：
 

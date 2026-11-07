@@ -34,8 +34,6 @@ pub(super) fn ffi_call(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, module_name: &str, type_name: &str, symbol: &str, args: &[u32],
 ) -> Result<Option<Value>> {
-    use crate::interop::{marshal, dispatch as ndisp};
-
     // Phase 2 D3+D6 wiring : count + event for native FFI calls.
     // Increment fires BEFORE dispatch so even failing calls (unknown type /
     // marshal error) are counted — they still represent FFI traffic.
@@ -47,60 +45,16 @@ pub(super) fn ffi_call(
         });
     }
 
-    let ty = crate::interop::resolve_native_type(ctx, module_name, type_name)?.ok_or_else(|| {
-        anyhow::anyhow!(
-            "CallNative: unknown native type {module_name}::{type_name}"
-        )
-    })?;
-    let method = ty.method(symbol).ok_or_else(|| {
-        anyhow::anyhow!(
-            "CallNative: unknown method {module_name}::{type_name}::{symbol}"
-        )
-    })?;
-
-    // Marshal each register into a Z42Value targeting the corresponding
-    // ABI-side parameter type.
-    if args.len() != method.params.len() {
-        bail!(
-            "CallNative {module_name}::{type_name}::{symbol}: arity mismatch (caller passed {}, signature wants {})",
-            args.len(),
-            method.params.len()
-        );
-    }
-    // Spec C8: marshal arena owns temporaries (e.g. CString backing
-    // for `*const c_char`) for the call's duration; dropped after
-    // dispatch returns.
-    let mut arena = marshal::Arena::new();
-    let mut z_args: Vec<z42_abi::Z42Value> = Vec::with_capacity(method.params.len());
-    for (reg, param_ty) in args.iter().zip(method.params.iter()) {
-        let v = frame.get(*reg)?;
-        match marshal::value_to_z42(v, param_ty, &mut arena) {
-            Ok(z)                                       => z_args.push(z),
-            Err(marshal::MarshalErr::InvalidMarshal(m)) => {
-                let exc = make_stdlib_exception(ctx, module, INVALID_MARSHAL_FQ, m)?;
-                return Ok(Some(exc));
-            }
-            Err(marshal::MarshalErr::Internal(e))       => return Err(e),
+    let result = match (crate::vm::exec::native::services(ctx)?.call)(
+        ctx, module_name, type_name, symbol, &frame.regs, args,
+    ) {
+        Ok(result) => result,
+        Err(crate::vm::exec::native::NativeCallError::InvalidMarshal(message)) => {
+            let exc = make_stdlib_exception(ctx, module, INVALID_MARSHAL_FQ, message)?;
+            return Ok(Some(exc));
         }
-    }
-
-    // SAFETY: cif was built from `params`/`return_type` matching the
-    // native function pointer at registration time; native lib keeps
-    // the function alive via interop extension state. CURRENT_VM names
-    // this ctx (engine guards, installed at the bottom frame) so a
-    // re-entrant z42_* call finds the right ctx.
-    let z_ret = unsafe {
-        ndisp::call(
-            &method.cif,
-            method.fn_ptr,
-            &z_args,
-            &method.params,
-            &method.return_type,
-        )
-    }?;
-    drop(arena);
-
-    let result = marshal::z42_to_value(&z_ret, &method.return_type)?;
+        Err(crate::vm::exec::native::NativeCallError::Internal(error)) => return Err(error),
+    };
     frame.set(dst, result);
     Ok(None)
 }
@@ -169,7 +123,7 @@ pub(super) fn pin_ptr(
             };
             let len = bytes.len() as u64;
             let buf: Box<[u8]> = bytes.into_boxed_slice();
-            let ptr = crate::interop::pin_owned_buffer(ctx, buf)?;
+            let ptr = (crate::vm::exec::native::services(ctx)?.pin_owned_buffer)(ctx, buf)?;
             mk_view(ctx, crate::object::PinnedViewData {
                 ptr,
                 len,
@@ -199,7 +153,7 @@ pub(super) fn unpin_ptr(ctx: &VmContext, frame: &Frame, pinned: u32) -> Result<(
             })?;
             if kind == crate::object::PinSourceKind::ArrayU8 {
                 // Spec C10: drop the snapshot Box<[u8]> owned by the interop state since PinPtr.
-                crate::interop::release_owned_buffer(ctx, ptr)?;
+                (crate::vm::exec::native::services(ctx)?.release_owned_buffer)(ctx, ptr)?;
             }
             // Str pin: borrowed from the source String — no-op (future moving GC would
             // deregister the pin-set entry here).

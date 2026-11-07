@@ -1,7 +1,7 @@
 # 对象协议的运行期派发（ToString / Equals / GetHashCode / GetType）
 
 > 代码：`vm/exec/ops/stringify.rs`（`with_obj_str` / `obj_to_gc_str`）、`vm/exec/ops/vcall.rs`
-> （统一接收者阶梯）、`corelib/convert.rs`（`value_to_str` / `with_value_str`）、`corelib/object.rs`（`__obj_*` builtin）
+> （统一接收者阶梯）、`corelib/core/convert.rs`（`value_to_str` / `with_value_str`）、`corelib/core/object.rs`（`__obj_*` builtin）
 
 `Std.Object` 的四个协议方法在**每一种 `Value` 变体**上都必须有答案——对象、裸基元、数组、装箱盒、
 栈句柄。本页写这套「一个方法名 → N 种接收者表示」的派发是怎么落地的，以及为什么有
@@ -151,7 +151,7 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
   `Std.String.ToString` 同理，是 String.z42（`ToString`） 的 `return this;`——一个只原样返回自身的
   builtin 不值得占一个 `BuiltinId`。
 - **`GetType`** 在阶梯的第 1/2 级是原生拦截（盒自己带精确 type_desc），在第 3/4 级经
-  `Std.Object.GetType` → `__obj_get_type` builtin（`corelib/object.rs`）合成 `Std.Type` 对象。
+  `Std.Object.GetType` → `__obj_get_type` builtin（`corelib/core/object.rs`）合成 `Std.Type` 对象。
   `Std.Type` 自己的 `GetType()` 有一个独立的 vtable 撞车坑，见
   [反射 Type 身份](reflection-type-identity.md)。
 - **装箱值的四方法**由「基元盒 / struct 盒」分流决定，判据是 `ScriptObject::boxed_prim_i64()` 的

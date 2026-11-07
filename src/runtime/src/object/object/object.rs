@@ -504,7 +504,7 @@ impl ScriptObject {
     }
 
     /// unify Phase 2 R3（装箱统一）：若本对象是**整数基元装箱盒**（`type_desc` 是整数 wrapper、
-    /// 标量 LE 字节存载荷，见 `corelib::convert::box_prim_to_heap`），读回其 i64 标量；
+    /// 标量 LE 字节存载荷，见 `corelib::core::convert::box_prim_to_heap`），读回其 i64 标量；
     /// 否则（多字段 struct 装箱 / 非整数 wrapper）返 `None`。按 wrapper 宽度 + 有无符号从
     /// 载荷前 `width` 字节还原（signed narrow → 符号扩展，unsigned → 零扩展）。
     /// 让装箱整数盒与 struct 装箱盒共用 `Value::BoxedStruct`，同时保留整数的透明拆箱语义。

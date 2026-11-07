@@ -16,7 +16,7 @@ pub fn obj_get_type(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError
 }
 
 fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
-    use crate::corelib::reflection::make_type_from_name;
+    use crate::corelib::core::reflection::make_type_from_name;
     match this {
         // A generic instance is either an instantiation descriptor (`Demo.Box<int>`: a generic
         // instantiated in its own package — the name carries the arguments) or an erased
@@ -57,7 +57,7 @@ fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
 /// The `Std.Type` of a heap instance with descriptor `td` and per-instance type arguments
 /// `args`: see `obj_get_type_impl`.
 fn instance_type(ctx: &VmContext, td: std::sync::Arc<crate::object::TypeDesc>, args: &[String]) -> Value {
-    use crate::corelib::reflection::{make_type_from_name, make_type_object};
+    use crate::corelib::core::reflection::{make_type_from_name, make_type_object};
     if args.is_empty() || !td.type_args().is_empty() {
         make_type_object(ctx, td)
     } else {

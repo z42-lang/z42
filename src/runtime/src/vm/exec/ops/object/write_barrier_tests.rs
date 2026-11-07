@@ -136,7 +136,7 @@ fn field_info_set_value_into_an_old_object_survives_the_next_minor() {
     let young = ctx.heap().alloc_object(class_td("Demo.Young", &[]), vec![], NativeData::None);
     let weak = ctx.heap().make_weak(&young).expect("objects are weakly referenceable");
 
-    crate::corelib::reflection::accessors::field_set_value(
+    crate::corelib::core::reflection::accessors::field_set_value(
         &ctx, &field_info, &target.clone(), &young).expect("SetValue ok");
 
     assert_cards_hold(&ctx, "FieldInfo.SetValue");
