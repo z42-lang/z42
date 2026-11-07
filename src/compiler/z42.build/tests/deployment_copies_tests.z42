@@ -64,6 +64,9 @@ void test_copy_retry_preserves_receipt_when_source_changes_after_plan() {
 void test_keeps_project_output_and_rejects_escaping_relative_paths() {
     string dir = File.CreateTempDir("deployment-paths");
     try {
+        string absent = Path.Join(dir, "absent");
+        _plan(absent, "a").Apply();
+        Assert.False(Directory.Exists(absent));
         string source = Path.Join(dir, "source");
         File.WriteAllText(source, "payload");
         DeploymentCopies old = _plan(dir, "a");
@@ -79,5 +82,82 @@ void test_keeps_project_output_and_rejects_escaping_relative_paths() {
             try { next.Add(rel, source, Utf8.GetBytes("payload")); } catch (Exception e) { failed = true; }
             Assert.True(failed);
         }
+    } finally { Directory.Delete(dir, true); }
+}
+
+[Test]
+void test_shared_payload_update_fails_before_writes_until_other_owner_releases() {
+    string dir = File.CreateTempDir("deployment-owner-conflict");
+    try {
+        string source = Path.Join(dir, "source");
+        File.WriteAllText(source, "original");
+        DeploymentCopies a = _plan(dir, "a");
+        a.Add("dep.zpkg", source, Utf8.GetBytes("original"));
+        a.Apply();
+        string receipt = "";
+        foreach (var name in Directory.Enumerate(dir)) {
+            if (name.StartsWith(".z42-publish-")) { receipt = Path.Join(dir, name); }
+        }
+        string originalReceipt = File.ReadAllText(receipt);
+        DeploymentCopies b = _plan(dir, "b");
+        b.Add("dep.zpkg", source, Utf8.GetBytes("original"));
+        b.Apply();
+        File.WriteAllText(source, "changed");
+        a = _plan(dir, "a");
+        a.Add("new.zpkg", source, Utf8.GetBytes("changed"));
+        a.Add("dep.zpkg", source, Utf8.GetBytes("changed"));
+        bool failed = false;
+        try { a.Apply(); } catch (Exception e) { failed = e.Message.Contains("conflicting deployment payload: dep.zpkg"); }
+        Assert.True(failed);
+        Assert.Equal("original", File.ReadAllText(Path.Join(dir, "dep.zpkg")));
+        Assert.False(File.Exists(Path.Join(dir, "new.zpkg")));
+        Assert.Equal(originalReceipt, File.ReadAllText(receipt));
+        _plan(dir, "b").Apply();
+        a.Apply();
+        Assert.Equal("changed", File.ReadAllText(Path.Join(dir, "dep.zpkg")));
+        _plan(dir, "a").Apply();
+        Assert.False(File.Exists(Path.Join(dir, "dep.zpkg")));
+    } finally { Directory.Delete(dir, true); }
+}
+
+[Test]
+void test_each_other_owner_must_accept_planned_bytes() {
+    string dir = File.CreateTempDir("deployment-owner-hashes");
+    try {
+        string source = Path.Join(dir, "source");
+        File.WriteAllText(source, "first");
+        DeploymentCopies a = _plan(dir, "a");
+        a.Add("dep.zpkg", source, Utf8.GetBytes("first"));
+        a.Apply();
+        string receipt = "";
+        foreach (var name in Directory.Enumerate(dir)) {
+            if (name.StartsWith(".z42-publish-")) { receipt = Path.Join(dir, name); }
+        }
+        string firstBody = File.ReadAllText(receipt);
+        File.Delete(Path.Join(dir, "dep.zpkg"));
+        File.WriteAllText(source, "second");
+        DeploymentCopies b = _plan(dir, "b");
+        b.Add("dep.zpkg", source, Utf8.GetBytes("second"));
+        bool failed = false;
+        try { b.Apply(); } catch (Exception e) { failed = e.Message.Contains("conflicting deployment payload"); }
+        Assert.True(failed);
+        Assert.Equal(firstBody, File.ReadAllText(receipt));
+        Assert.False(File.Exists(Path.Join(dir, "dep.zpkg")));
+        _plan(dir, "a").Apply();
+        b.Apply();
+        // Recreate a valid older receipt claiming different bytes beside B's receipt.
+        File.WriteAllText(receipt, firstBody);
+        DeploymentCopies c = _plan(dir, "c");
+        c.Add("dep.zpkg", source, Utf8.GetBytes("second"));
+        failed = false;
+        try { c.Apply(); } catch (Exception e) { failed = e.Message.Contains("conflicting deployment payload"); }
+        Assert.True(failed);
+        Assert.Equal("second", File.ReadAllText(Path.Join(dir, "dep.zpkg")));
+        _plan(dir, "a").Apply();
+        c.Apply();
+        _plan(dir, "b").Apply();
+        Assert.Equal("second", File.ReadAllText(Path.Join(dir, "dep.zpkg")));
+        _plan(dir, "c").Apply();
+        Assert.False(File.Exists(Path.Join(dir, "dep.zpkg")));
     } finally { Directory.Delete(dir, true); }
 }

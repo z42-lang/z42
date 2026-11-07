@@ -87,6 +87,10 @@ public sealed class DeploymentCopies {
             if (!name.StartsWith(this._prefix) || name == this._receipt) { continue; }
             Dictionary<string, string> receipt = this._read(this._readText(Path.Join(this._dist, name)));
             foreach (var rel in receipt.Keys()) {
+                if (this._planned.ContainsKey(rel)
+                    && !this._owns(receipt, rel, this._planned[rel].Hash)) {
+                    throw new Exception("conflicting deployment payload: " + rel + " (owned by " + name + ")");
+                }
                 string current = receipt[rel];
                 if (owners.ContainsKey(rel)) { current = owners[rel] + "," + current; }
                 owners[rel] = current;
@@ -98,17 +102,17 @@ public sealed class DeploymentCopies {
     public void Apply() {
         string path = Path.Join(this._dist, this._receipt);
         string oldBody = this._readText(path);
+        if (oldBody.Length == 0 && this._planned.Count == 0) { return; }
         Dictionary<string, string> previous = this._read(oldBody);
         Dictionary<string, string> next = new Dictionary<string, string>();
         Dictionary<string, string> journal = this._read(oldBody);
         Dictionary<string, DeploymentCopy> writes = new Dictionary<string, DeploymentCopy>();
-        Dictionary<string, string> others = null;
+        Dictionary<string, string> others = this._otherOwners();
         foreach (var rel in this._planned.Keys()) {
             DeploymentCopy copy = this._planned[rel];
             string current = this._fileHash(Path.Join(this._dist, rel));
             bool owned = this._owns(previous, rel, current);
             if (current == copy.Hash && !owned) {
-                if (others == null) { others = this._otherOwners(); }
                 if (!this._owns(others, rel, current)) { continue; }
                 journal[rel] = copy.Hash;
             }
@@ -145,7 +149,6 @@ public sealed class DeploymentCopies {
             if (this._planned.ContainsKey(rel) || this._protected.ContainsKey(rel)) { continue; }
             string target = Path.Join(this._dist, rel);
             if (!this._owns(previous, rel, this._fileHash(target))) { continue; }
-            if (others == null) { others = this._otherOwners(); }
             if (!others.ContainsKey(rel)) { File.Delete(target); }
         }
     }
