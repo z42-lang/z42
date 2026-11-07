@@ -25,8 +25,8 @@
 各实现的测试与被测代码同目录。帧栈、寄存器池和 arena 归 VM 的 `exec/call`；指令共享语义归 `vm/exec/ops`；融合计划由 `vm/runtime/fusion.rs` 准备。
 
 ## 入口点
-- `interp::run(module, func, args)` — 执行单个函数
-- `interp::run_with_static_init(module, func)` — 初始化静态字段后执行
+- `interp::run(ctx, module, func, args)` — 执行单个函数
+- `interp::run_with_static_init(ctx, module, func)` — 初始化静态字段后执行
 
 ## 依赖关系
 - builtin 经 `vm/exec/call/builtin_abi` 调用；纯值格式化直接依赖 `object/value`
