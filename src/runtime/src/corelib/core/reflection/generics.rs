@@ -264,7 +264,7 @@ pub fn type_make_generic(ctx: &VmContext, def: &Value, arg_types_arr: &Value) ->
     }
     let name = def_td.name.clone();
     let constructed = build_constructed_type(ctx, Some(def_td), name, arg_types);
-    crate::corelib::assemblyloadcontext::copy_type_asm_id(def, &constructed);
+    crate::corelib::core::assemblyloadcontext::copy_type_asm_id(def, &constructed);
     Ok(constructed)
 }
 

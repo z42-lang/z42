@@ -306,6 +306,6 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 | `[Benchmark]` 的调用形状（零参 / 单个 `Bencher`） | `TestCase.Invoke` / `TakesBencher`（`TestDiscovery.z42`）**和** `TestAttrEnforcer` 的 R3，同一个 commit |
 | 报告字段 | `src/libraries/z42.harness/src/TestReport.z42`（json）+ `Runner._runOne`（pretty） |
 | benchmark 统计形状 | `Bencher.printSummary` **和** `BenchStats._parseLine`，同一个 commit |
-| 加载/调用能力 | `src/runtime/src/corelib/reflection/module_load.rs` + `builtin_table.rs` 登记 |
+| 加载/调用能力 | `src/runtime/src/corelib/core/reflection/module_load.rs` + `builtin_table.rs` 登记 |
 | gate 组成 | `scripts/test/xtask_test.z42` 的 `_gateStages`；检查职责变化时同步 test-gate 文档 |
 | 单元编排 / 并行 / 分片 | `scripts/test/xtask_test_lib.z42`、`scripts/test/xtask_test_cmd.z42`（命令面） |

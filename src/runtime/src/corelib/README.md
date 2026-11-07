@@ -27,28 +27,28 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | 隔离应用执行 / 退出报告 | `application.rs` 私有服务，由门面创建前注入；worker 只复制函数指针，不引用门面 RunOpts |
 | builtin 实现与登记 | 各功能模块生成 DESCS；门面 `builtin_assembly.rs` 编译期装配。名称/ID 查询在 `vm/runtime/builtins.rs`，分发在 `vm/exec/call/builtins.rs` |
 | builtin ABI v2：类型化实参 / 返回值、`BuiltinError` 与异常类、`blocking` | **`vm/exec/call/builtin_abi/`**（`args.rs` / `ret.rs` / `error.rs`；宏在 `crates/z42-macros/src/builtins_attr.rs`） |
-| 值转换 / 解析（`Parse` / `TryParse`）/ to-string / 装箱 | `convert.rs`（`typed` 模块，ABI v2）；纯值格式化从 object/value 直接再导出 |
+| 值转换 / 解析（`Parse` / `TryParse`）/ to-string / 装箱 | `core/convert.rs`（`typed` 模块，ABI v2）；纯值格式化从 object/value 直接再导出 |
 | 控制台 IO（print / readline：`typed` 模块，ABI v2；写进程 stdout / stderr 与读 stdin 都 park）/ TestIO 捕获（sink 栈） | `io/mod.rs` |
-| 字符串操作 / 字符（含 UTF-8 存储探测 `__str_index_of_any_ascii` 与 bulk 原语 `__str_copy_utf8` / `__str_from_utf8` / `__str_to_chars` / `__str_substring` / `__str_concat_parts` / `__str_concat_parts_utf8` / `__str_split` / `__str_join`：Substring / StringBuilder.ToString / Join / Concat / Split 的底座，一次拷贝取代逐字符 builtin 派发）| `string.rs` / `str_meta.rs` / `char.rs` |
-| 数学 | `math.rs` |
+| 字符串操作 / 字符（含 UTF-8 存储探测 `__str_index_of_any_ascii` 与 bulk 原语 `__str_copy_utf8` / `__str_from_utf8` / `__str_to_chars` / `__str_substring` / `__str_concat_parts` / `__str_concat_parts_utf8` / `__str_split` / `__str_join`：Substring / StringBuilder.ToString / Join / Concat / Split 的底座，一次拷贝取代逐字符 builtin 派发）| `core/string.rs` / `str_meta.rs` / `core/char.rs` |
+| 数学 | `core/math.rs` |
 | 文件系统 / FileStream 句柄 / env / 时间（`typed` 模块，ABI v2：.NET 口径的 IO 异常 `fs_error`、文件 I/O 一律 park、句柄表锁外做系统调用；路径型操作走本 VM 的 `pal::fs::Vfs` 句柄 `VmContext::vfs`，返回 `io::Error`） | `io/fs.rs` |
 | 文件、子进程管道、TCP/UDP、TLS 共用的 byte[] 参数检查与拷贝 | `io/buffer.rs` |
-| 对象内建（GetType / RefEq / HashCode） | `object.rs` |
-| **反射**（`Std.Type` / `Std.Reflection.*`：枚举成员、attribute、反射调用、Activator、模块加载） | **`reflection/`**（子目录，见下「核心文件」） |
+| 对象内建（GetType / RefEq / HashCode） | `core/object.rs` |
+| **反射**（`Std.Type` / `Std.Reflection.*`：枚举成员、attribute、反射调用、Activator、模块加载） | **`core/reflection/`**（子目录，见下「核心文件」） |
 | 值类型 struct 字段布局复现（反射读写内联/装箱 struct） | `object/types/named_struct_layout.rs` |
-| 程序集加载上下文（`AssemblyLoadContext`） | `assemblyloadcontext.rs` |
-| 运行时诊断 / 计数器 / profile | `diagnostics.rs` |
-| 运行时设置只读查询 / 应用自定义属性 | `config.rs`（`Std.Runtime.RuntimeConfig`）/ `appprops.rs`（`Std.Runtime.AppProperties`） |
-| `available!(X)` 运行期回落 | `symavail.rs` |
-| 数组内建（含基元与字符串区间查找） | `array.rs` |
-| GC 控制（collect / 阈值 / 快照） | `gc.rs` |
-| 基准计时 | `bench.rs` |
+| 程序集加载上下文（`AssemblyLoadContext`） | `core/assemblyloadcontext.rs` |
+| 运行时诊断 / 计数器 / profile | `core/diagnostics.rs` |
+| 运行时设置只读查询 / 应用自定义属性 | `core/config.rs`（`Std.Runtime.RuntimeConfig`）/ `core/appprops.rs`（`Std.Runtime.AppProperties`） |
+| `available!(X)` 运行期回落 | `core/symavail.rs` |
+| 数组内建（含基元与字符串区间查找） | `core/array.rs` |
+| GC 控制（collect / 阈值 / 快照） | `core/gc.rs` |
+| 基准计时 | `core/bench.rs` |
 | 子进程（`typed` 模块，ABI v2：失败从 Rust 抛、等子进程一律 park）/ 平台 / 系统信息 | `os/process.rs` / `os/platform.rs` / `os/system.rs` |
-| 线程 / 同步原语底座 Monitor（不含值，Mutex/RwLock/Channel 由 z42 写在其上；`typed` 模块，ABI v2：误用抛 `LockRecursionException` / `SynchronizationLockException`，争用时的等待 park）/ 锁争用探针 | `threading.rs` / `monitor.rs` / `sync_contention.rs`；机制见 [sync-primitives.md](../../../../docs/internals/src/runtime/sync-primitives.md) |
+| 线程 / 同步原语底座 Monitor（不含值，Mutex/RwLock/Channel 由 z42 写在其上；`typed` 模块，ABI v2：误用抛 `LockRecursionException` / `SynchronizationLockException`，争用时的等待 park）/ 锁争用探针 | `core/threading.rs` / `core/monitor.rs` / `core/sync_contention.rs`；机制见 [sync-primitives.md](../../../../docs/internals/src/runtime/sync-primitives.md) |
 | 网络（ABI v2：`__tcp_*` / `__udp_*` / `__dns_lookup`，.NET 口径的 `SocketException` 等从 Rust 抛、会阻塞的一律 park） | `net/mod.rs`（hub）+ `net/{tcp, udp, error, listener, unsupported}.rs` |
-| TLS（ABI v2：`__tls_*`，握手被拒 → `AuthenticationException`、传输 / 流 → `IOException`）/ 加密 | `tls/mod.rs` / `crypto.rs` |
+| TLS（ABI v2：`__tls_*`，握手被拒 → `AuthenticationException`、传输 / 流 → `IOException`）/ 加密 | `tls/mod.rs` / `core/crypto.rs` |
 | REPL 支持（求值宿主 / 行编辑 / 行编辑器 cdylib 的懒 dlopen） | `repl/mod.rs` / `repl/editing.rs` / `repl/native.rs` |
-| 测试宿主（隔离跑 golden） | `tests.rs`（+ `reflection/module_load.rs` 的 `__run_goldens_isolated`）|
+| 测试宿主（隔离跑 golden） | `tests.rs`（+ `core/reflection/module_load.rs` 的 `__run_goldens_isolated`）|
 
 Monitor 状态定义在 `object/object/monitor.rs`，核心库实现持有者检查、异常映射、争用统计与 GC park 协议。
 
@@ -123,19 +123,19 @@ xtask test stdlib
 | `mod.rs` | 名称↔`BuiltinId` 解析 + `invoke_builtin` / `exec_builtin` 分发 |
 | `../vm/exec/call/builtin_abi/` | builtin ABI v2：`BuiltinDesc` / `FromArg` / `IntoRet` / `Blocking` / `BuiltinError` + `raise`（两引擎共用的失败出口）；`test_builtins.rs` 是 `cfg(test)` 的测试用 builtin |
 | `builtin_assembly.rs` | `BUILTINS`：各 `#[builtins]` 模块的 `DESCS` 经 `abi::concat_descs` 编译期拼接（下标即 `BuiltinId`，不跨进程持久化） |
-| `reflection/mod.rs` | 反射 hub —— 导入 + 共享常量 + 私有 re-glob 各 concern 子模块（兄弟经 `use super::*` 互见）+ `pub use` 保留公开 API |
-| `reflection/type_object.rs` | `Std.Type` 对象构造（`make_type_object` / `make_type_from_name` / `make_constructed_type`）+ handle/slot 辅助 |
-| `reflection/type_query.rs` | 类型查询谓词（base / interfaces / members / nested / is_abstract·sealed·value·record·interface·class·primitive·generic / assignable_from / visibility）|
-| `reflection/fields.rs` | 字段枚举（`__type_fields` + `FieldInfo` 构造，含继承静态字段）|
-| `reflection/methods.rs` | 方法/构造函数枚举（`__type_methods` / `__type_constructors` + `MethodInfo`/`ParameterInfo` 构造 + 签名解析）|
-| `reflection/properties.rs` | 属性枚举（`get_`/`set_` 访问器归并为 `PropertyInfo`）|
-| `reflection/attributes.rs` | custom-attribute 反射（type/method/field/property/param → 调工厂函数实例化）|
-| `reflection/generics.rs` | 运行期泛型实例化（`MakeGenericType` + `where` 约束校验）|
-| `reflection/enums.rs` | 枚举反射（names/values/name/parse/is_defined/underlying）|
-| `reflection/invoke.rs` | 反射调用（`MethodInfo.Invoke` / `MakeGenericMethod` / `Activator.CreateInstance` / `ConstructorInfo.Invoke` / `__invoke_static`）+ slot 读取 |
-| `reflection/accessors.rs` | 反射读写字段/属性值（含内联/装箱 struct 的 byte-region 读写 + 写屏障）|
-| `reflection/methodof.rs` | `methodof(Type.Member(sig))` 运行期支持（编译期已绑定重载，运行期按签名取 `MethodInfo`） |
-| `reflection/module_load.rs` | 运行期加载模块/字节码（REPL、test 宿主）+ `__run_goldens_isolated` |
-| `convert.rs` / `io.rs` / `string.rs` / `math.rs` / `fs.rs` | 各类别 builtin 实现（见「功能索引」）|
-| `object/types/named_struct_layout.rs` | 值类型 struct 字段布局复现（供 `reflection/accessors.rs` 读写内联/装箱 struct）|
-| `<mod>_tests.rs` | 各模块 Rust 单元测试（`reflection` 的在 `reflection/reflection_tests.rs`）|
+| `core/reflection/mod.rs` | 反射 hub —— 导入 + 共享常量 + 私有 re-glob 各 concern 子模块（兄弟经 `use super::*` 互见）+ `pub use` 保留公开 API |
+| `core/reflection/type_object.rs` | `Std.Type` 对象构造（`make_type_object` / `make_type_from_name` / `make_constructed_type`）+ handle/slot 辅助 |
+| `core/reflection/type_query.rs` | 类型查询谓词（base / interfaces / members / nested / is_abstract·sealed·value·record·interface·class·primitive·generic / assignable_from / visibility）|
+| `core/reflection/fields.rs` | 字段枚举（`__type_fields` + `FieldInfo` 构造，含继承静态字段）|
+| `core/reflection/methods.rs` | 方法/构造函数枚举（`__type_methods` / `__type_constructors` + `MethodInfo`/`ParameterInfo` 构造 + 签名解析）|
+| `core/reflection/properties.rs` | 属性枚举（`get_`/`set_` 访问器归并为 `PropertyInfo`）|
+| `core/reflection/attributes.rs` | custom-attribute 反射（type/method/field/property/param → 调工厂函数实例化）|
+| `core/reflection/generics.rs` | 运行期泛型实例化（`MakeGenericType` + `where` 约束校验）|
+| `core/reflection/enums.rs` | 枚举反射（names/values/name/parse/is_defined/underlying）|
+| `core/reflection/invoke.rs` | 反射调用（`MethodInfo.Invoke` / `MakeGenericMethod` / `Activator.CreateInstance` / `ConstructorInfo.Invoke` / `__invoke_static`）+ slot 读取 |
+| `core/reflection/accessors.rs` | 反射读写字段/属性值（含内联/装箱 struct 的 byte-region 读写 + 写屏障）|
+| `core/reflection/methodof.rs` | `methodof(Type.Member(sig))` 运行期支持（编译期已绑定重载，运行期按签名取 `MethodInfo`） |
+| `core/reflection/module_load.rs` | 运行期加载模块/字节码（REPL、test 宿主）+ `__run_goldens_isolated` |
+| `core/convert.rs` / `io.rs` / `core/string.rs` / `core/math.rs` / `fs.rs` | 各类别 builtin 实现（见「功能索引」）|
+| `object/types/named_struct_layout.rs` | 值类型 struct 字段布局复现（供 `core/reflection/accessors.rs` 读写内联/装箱 struct）|
+| `<mod>_tests.rs` | 各模块 Rust 单元测试（`reflection` 的在 `core/reflection/reflection_tests.rs`）|

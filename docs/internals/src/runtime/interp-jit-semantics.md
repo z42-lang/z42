@@ -186,7 +186,7 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 | 调用形态（编译器发什么） | 判空落在哪 | 热路径代价 |
 |------|-----------|-----------|
 | `VCall`（虚 / 接口 / 本包非虚方法、属性访问器、`s.Length`） | `vm::exec::ops::vcall::resolve_vcall` 开头，产出 `VCallTarget::Thrown`，两个引擎沿用既有的 `Thrown` 臂 | 零：PIC 键 `receiver_type_id(Null)` 本就是 `None`，null 只会走到未命中的慢路 |
-| 直接 `Call` 到 `[Native]` 转发桩（`s.CharAt(i)`、`s.ToCharArray()`……） | builtin 的接收者取值：旧表 `corelib::convert::this_str(args, 成员名)`（非接收者实参走 `arg_str` → `null_arg`）；类型化 builtin 由 `#[builtin(this = "成员名")]` 生成同一条消息（非接收者实参为 null 报 `ArgumentNullException`） | 零：只在既有 tag match 的失配臂里构造 |
+| 直接 `Call` 到 `[Native]` 转发桩（`s.CharAt(i)`、`s.ToCharArray()`……） | builtin 的接收者取值：旧表 `corelib::core::convert::this_str(args, 成员名)`（非接收者实参走 `arg_str` → `null_arg`）；类型化 builtin 由 `#[builtin(this = "成员名")]` 生成同一条消息（非接收者实参为 null 报 `ArgumentNullException`） | 零：只在既有 tag match 的失配臂里构造 |
 | `CallIndirect`（null 委托） | `scalar::null_invoke_msg`（不经 objops，见 [委托与事件](delegates-events.md)） | — |
 
 corelib 的反射调用、attribute factory 和线程 action 通过每 VM 的 Engine 注册槽调用脚本；

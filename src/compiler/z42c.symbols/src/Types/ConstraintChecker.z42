@@ -673,7 +673,7 @@ public sealed class ConstraintChecker {
     }
 
     // 值类型判定 —— **镜像运行期** `validate_type_arg_constraint` 的 `is_value`
-    // （`corelib/reflection/generics.rs`：`class_flags & CLASS_FLAG_STRUCT`，取不到 TypeDef 时
+    // （`corelib/core/reflection/generics.rs`：`class_flags & CLASS_FLAG_STRUCT`，取不到 TypeDef 时
     // 回落基元表）。本页抬头写明「判定规则的唯一真相源是运行期，编译期照抄同一套规则，两边不
     // 各判各的」——此前这里**确实各判各的**：
     //

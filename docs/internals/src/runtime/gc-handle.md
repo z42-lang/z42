@@ -2,7 +2,7 @@
 
 > 代码：
 > `src/libraries/z42.core/src/GC/GCHandle.z42`、`src/libraries/z42.core/src/GC/HeapStats.z42`、
-> `src/runtime/src/corelib/gc.rs`、`src/runtime/src/gc/heap.rs`（`HandleSlab` / `HandleEntry`）、
+> `src/runtime/src/corelib/core/gc.rs`、`src/runtime/src/gc/heap.rs`（`HandleSlab` / `HandleEntry`）、
 > `src/runtime/src/gc/heap/api.rs`（`handle_*` 实现）、`src/runtime/src/gc/heap.rs`（具体堆状态）
 >
 > 收集器本体（标记 / 清扫 / 分代 / 增量 major）见 [GC 子系统](gc.md)；
@@ -40,7 +40,7 @@ backing、任一 alias `Free()` 后全体失效」。三条路里只有这条走
   作用在 slot 上 ⇒ 共享语义自然成立。
 
 `enum GCHandleType { Weak = 0, Strong = 1 }` 的两个值在 corelib 侧以
-`GC_HANDLE_TYPE_WEAK` / `GC_HANDLE_TYPE_STRONG` 常量硬编码（`corelib/gc.rs`），**改枚举顺序
+`GC_HANDLE_TYPE_WEAK` / `GC_HANDLE_TYPE_STRONG` 常量硬编码（`corelib/core/gc.rs`），**改枚举顺序
 必须同时改这两个常量**。
 
 ## 2. HandleSlab：slab + free list
@@ -154,7 +154,7 @@ sentinel 里 `0` 会与「上限就是 0 字节」混淆、`u64::MAX` 转 i64 �
 
 真要加一种 kind，需要动的点是固定的：`GcHandleKind` 加 variant → `HandleEntry` 加 variant →
 `HandleEntry::kind()` / `target()` / `strong_targets()` 三个 match 补分支（**`strong_targets`
-最容易漏，漏了就是「新 kind 声称保活但不保活」**）→ `handle_alloc` 的取值分支 → `corelib/gc.rs`
+最容易漏，漏了就是「新 kind 声称保活但不保活」**）→ `handle_alloc` 的取值分支 → `corelib/core/gc.rs`
 的两个常量与两个转换函数 → `GCHandleType` 枚举。
 
 ## 8. 测试在哪

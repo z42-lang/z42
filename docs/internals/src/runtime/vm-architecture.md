@@ -96,7 +96,7 @@ vm.run(&ctx, hint)?;
 | `VmContext::new() -> Pin<Box<Self>>` | 测试入口；构造新 VmCore + `module = None` | 单测大量用（heap / 静态字段 / corelib 单测均不需要真 Module） |
 | `VmContext::new_with_core(core: Arc<VmCore>) -> Pin<Box<Self>>` | spawn 入口；**复用现有 VmCore**，仅构造 per-thread 字段 + register self 到 `vm_contexts` | `__thread_spawn` worker 通过此构造，让 worker 看见父 VmCore 的 statics / heap / lazy_loader / native_libs |
 
-`__thread_spawn`（[corelib/threading.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/threading.rs)）流程：拿到调用者 `ctx.core` 的 `Arc::clone` → `std::thread::spawn` → worker 内 `VmContext::new_with_core(core)` 构造 worker ctx → `interp::exec_function` dispatch。worker 的 per-thread 字段（pending_exception / call_stack）私有；通过 `vm_contexts` 注册让 GC scanner 看见 worker 自己的 roots。
+`__thread_spawn`（[corelib/core/threading.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/core/threading.rs)）流程：拿到调用者 `ctx.core` 的 `Arc::clone` → `std::thread::spawn` → worker 内 `VmContext::new_with_core(core)` 构造 worker ctx → `interp::exec_function` dispatch。worker 的 per-thread 字段（pending_exception / call_stack）私有；通过 `vm_contexts` 注册让 GC scanner 看见 worker 自己的 roots。
 
 VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.exec.engines` 是全 VM 共用的 JIT（槽表、编译器、OSR 缓存），worker 的解释器帧经混合模式分流路由到已编译函数、自己计数升层、到阈值就在 worker 线程上编译；原生码与 helper 的上下文参数就是 worker 自己的 `VmContext`（见 [jit.md](jit.md)「数据结构」「线程安全」）。
 

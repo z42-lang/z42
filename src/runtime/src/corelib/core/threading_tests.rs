@@ -1,4 +1,4 @@
-//! Unit tests for `corelib/threading.rs` — validates the surface of
+//! Unit tests for `corelib/core/threading.rs` — validates the surface of
 //! `__thread_spawn` / `__thread_wait` without spawning real OS threads on
 //! complex modules. End-to-end spawn+join is covered by
 //! `runtime/tests/cross_thread_smoke.rs::spawn_via_builtin_then_join` (which

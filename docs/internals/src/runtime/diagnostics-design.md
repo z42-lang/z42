@@ -120,7 +120,7 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
     复用 `--heap` 的隔离 target-dir 手法）。仅进 profile 快照；暴露到 z42 API 延后。
 - **暴露到 z42**：`Std.Diagnostics.RuntimeStats.Counters()`
   返回一个 `Std.Diagnostics.RuntimeCounters` 值对象（11 只读 auto-property = 7 运行时 counter +
-  `Allocations` + 3 分代 GC 字段），backing builtin `__diag_counters`（`corelib/diagnostics.rs`，append 到
+  `Allocations` + 3 分代 GC 字段），backing builtin `__diag_counters`（`corelib/core/diagnostics.rs`，append 到
   `BUILTINS` 末尾，BuiltinId 不移位）。投影来源与 `app.rs` 的 `ProfileSnapshot` 同（`RuntimeCounters::snapshot`
   + `HeapStats`），故脚本内读值与 `--print-stats-on-exit` JSON 一致。z42.core 的 `Std.HeapStats`（7 字段）
   保持不动——全景归 Diagnostics.Runtime（决策 D3）。**无格式 bump**（builtin 运行时解析 + `[Native]` 字符串）。

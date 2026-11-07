@@ -11,7 +11,7 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     let application = crate::app_state::state_for_vm();
     add(&mut defaults, application.clone());
     add(&mut defaults, corelib::os::process::State::default());
-    add(&mut defaults, corelib::threading::State::default());
+    add(&mut defaults, corelib::core::threading::State::default());
     add(&mut defaults, corelib::io::fs::State::new(application));
     #[cfg(feature = "net")]
     {

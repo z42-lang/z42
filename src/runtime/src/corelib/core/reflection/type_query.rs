@@ -92,7 +92,7 @@ pub fn type_generic_definition(ctx: &VmContext, ty: &Value) -> Result<Value, Bui
     match type_handle_of(ty) {
         Some(td) if !td.type_params().is_empty() => {
             let definition = make_type_object(ctx, td);
-            crate::corelib::assemblyloadcontext::copy_type_asm_id(ty, &definition);
+            crate::corelib::core::assemblyloadcontext::copy_type_asm_id(ty, &definition);
             Ok(definition)
         }
         _ => Err(BuiltinError::InvalidOperation(

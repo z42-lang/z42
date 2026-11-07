@@ -1,6 +1,6 @@
 // 泛型约束模型（port-z42c-semantics 2B）。镜像 C# `GenericConstraintBundle` 的可行子集。
 //
-// 判定规则的唯一真相源是**运行期** `src/runtime/src/corelib/reflection/generics.rs::
+// 判定规则的唯一真相源是**运行期** `src/runtime/src/corelib/core/reflection/generics.rs::
 // validate_type_arg_constraint`（七项俱全）——编译期照抄，不另立规则。当前落地：
 //   base-class（where T : C）/ class / struct / 型参引用（where U : T）/ interface（含继承闭包）
 //   / enum / new()  + class·struct 互斥。

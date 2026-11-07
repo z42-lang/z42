@@ -1,7 +1,7 @@
 # JSON serde 的反射实现
 
 > 代码：`src/libraries/z42.json/src/{JsonSerializer,JsonBinder,JsonMember,JsonReflect}.z42`、
-> `src/runtime/src/corelib/reflection/attributes.rs`
+> `src/runtime/src/corelib/core/reflection/attributes.rs`
 >
 > 公开 API（`Serialize` / `Deserialize<T>` / `[JsonProperty]` / `[JsonIgnore]` / 类型覆盖）见参考手册
 > [Std.Json](https://z42-lang.github.io/z42/reference/stdlib/json.html)。本页写**这套东西怎么跑起来的**。
@@ -68,7 +68,7 @@ FromJson(t, v):
 整数属性经反射写入时，VM 按 setter 的参数表示把整数盒转换为标量，使解释器与已编译的 JIT setter 看到同一种参数。
 
 > **auto-property 脱糖成私有背后字段 `__prop_X`，而 `GetFields()` 有意排除它**
-> （`corelib/reflection/fields.rs::is_backing_field`）。所以属性只能经 `GetProperties()` 看到——两条
+> （`corelib/core/reflection/fields.rs::is_backing_field`）。所以属性只能经 `GetProperties()` 看到——两条
 > 路径不会把同一个属性收两遍。
 
 ## 3. 构造模型：无参优先，带参兜底

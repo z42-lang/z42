@@ -115,7 +115,7 @@ Console.WriteLine(c);      // Blue
 | 入口 | 谁走 |
 |---|---|
 | `interp::vcall_resolve` 的 enum 臂 | `x.ToString()`（receiver 是盒） |
-| `corelib::convert::value_to_str` | `Console.WriteLine(object)` / 拼接 / `ToStr` |
+| `corelib::core::convert::value_to_str` | `Console.WriteLine(object)` / 拼接 / `ToStr` |
 
 编译器侧一个原语 `TypeOpEmitter._emitEnumBox`（非 enum 静态类型 no-op），挂三处发射点：
 插值洞、字符串 `+`、`e.ToString()`。

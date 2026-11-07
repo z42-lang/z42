@@ -7,8 +7,8 @@
 // null/非数组在 ABI 层报 `NullReference`/`InvalidCast`),错误按 C# 口径类型化
 // (越界 → `IndexOutOfRangeException`,负长度/负下标 → `ArgumentOutOfRangeException`)。
 
-use crate::corelib::convert::box_prim_to_heap;
-use crate::corelib::reflection::read_obj_slot;
+use crate::corelib::core::convert::box_prim_to_heap;
+use crate::corelib::core::reflection::read_obj_slot;
 use crate::object::ArrRef;
 use crate::object::{default_value_for, ArrayObj};
 use crate::object::Value;
