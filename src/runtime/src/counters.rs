@@ -9,10 +9,10 @@
 //!
 //! - `builtin_calls`         ← `vm::exec::call::builtins::exec_builtin`
 //! - `native_calls`          ← `interp::ops::exec_ffi::ffi_call`
-//! - `jit_methods_compiled`  ← `jit::frame` tier-up compile
+//! - `jit_methods_compiled`  ← `jit::runtime` compilation
 //! - `jit_native_from_interp`← `interp::ops::exec_call` / `exec_vcall` native routing
-//! - `exceptions_thrown`     ← `interp::fire_exception_thrown`
-//! - `exceptions_caught`     ← `interp::fire_exception_caught`
+//! - `exceptions_thrown`     ← `interp::run::exec_support::fire_exception_thrown`
+//! - `exceptions_caught`     ← `interp::run::exec_support::fire_exception_caught`
 //!
 //! Still at 0 (not yet wired): `jit_compile_us_total` — per-compile wall time
 //! is tracked as a diagnostics.md §4.2 span item, deferred.
@@ -53,8 +53,7 @@ pub struct RuntimeCounters {
     /// Incremented at top of `interp::ops::exec_ffi::ffi_call` .
     pub native_calls:         AtomicU64,
 
-    /// Methods JIT-compiled. Incremented on tier-up compile in `jit::frame`
-    /// .
+    /// Number of methods compiled by the JIT backend.
     pub jit_methods_compiled: AtomicU64,
 
     /// Total wallclock JIT compile time, microseconds. Not yet wired (0);
@@ -69,11 +68,11 @@ pub struct RuntimeCounters {
 
     /// User exceptions thrown (z42 `throw expr` statements + VM-raised
     /// arithmetic / type errors that bubble as exceptions).
-    /// Incremented in `interp::fire_exception_thrown` .
+    /// Incremented in `interp::run::exec_support::fire_exception_thrown` .
     pub exceptions_thrown:    AtomicU64,
 
     /// User exceptions caught by `try { ... } catch` blocks.
-    /// Incremented in `interp::fire_exception_caught` .
+    /// Incremented in `interp::run::exec_support::fire_exception_caught` .
     pub exceptions_caught:    AtomicU64,
 }
 

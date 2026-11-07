@@ -8,12 +8,6 @@
 //! - **JIT**: in-flight exception lives in `VmContext.exec.pending_exception`,
 //!   reached by a JIT helper through its context parameter (the thread's `VmContext`).
 //!
-//! All previously-existing thread_local exception slots
-//! (`interp::PENDING_EXCEPTION`, `jit::helpers::PENDING_EXCEPTION`) and
-//! the `UserException` sentinel + `user_throw` / `user_exception_take` /
-//! `sync_in_from_ctx` / `sync_out_to_ctx` bridges are gone (review2 §5.5
-//! closed; review2 §3 fully tackled).
-//!
 //! ## Stack-trace capture (exception-stack-trace)
 //!
 //! `VmContext.exec.call_stack` holds one [`crate::vm::exec::call::frames::VmFrame`] per active script frame,
