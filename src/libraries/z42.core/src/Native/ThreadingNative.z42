@@ -41,4 +41,14 @@ public static class MonitorNative {
     /// 原子释放 → 等一次 Exit 信号 → 重新持有（允许伪唤醒）。
     [Native("__monitor_wait")]
     public static extern void Wait(object monitor);
+    /// 原子释放锁并等待通知或超时，返回前重新持有；允许伪唤醒。
+    ///
+    /// 超时返回 false，通知或伪唤醒返回 true；调用者仍须循环检查条件与截止时间。
+    /// timeoutMs 为非负毫秒数，0 释放并重新获取后返回 false。重新获取锁可能超过超时时长。
+    /// 无限等待使用 Wait；Exit 可提前唤醒等待者。
+    /// @throws ArgumentOutOfRangeException timeoutMs 小于 0 时。
+    /// @throws SynchronizationLockException 当前线程未持有锁时。
+    /// @throws NotSupportedException wasm 目标不支持阻塞线程等待时。
+    [Native("__monitor_wait_for")]
+    public static extern bool WaitFor(object monitor, long timeoutMs);
 }
