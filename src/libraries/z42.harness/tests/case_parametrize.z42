@@ -36,6 +36,20 @@ void test_mixed_types(string tag, int n, long doubled) {
     Assert.Equal(doubled, (long)(n * 2));
 }
 
+[Test]
+[Case(3, -7)]
+void test_integer_literals_widen(long integer, double floating) {
+    Assert.Equal(3L, integer);
+    Assert.True(floating == -7.0);
+}
+
+[Test]
+[Case(5000000000L, 1.25)]
+void test_wide_literals_keep_their_value(long integer, double floating) {
+    Assert.Equal(5000000000L, integer);
+    Assert.True(floating == 1.25);
+}
+
 // 普通零参 [Test] 与参数化共存。
 [Test]
 void test_plain_zero_arg() {
@@ -43,4 +57,4 @@ void test_plain_zero_arg() {
 }
 
 // 展开条数与名字格式由 runner 报告钉：这里只验证 body 语义；名字后缀断言经
-// BundleRunner/json 属 e2e 层——本文件以执行结果为准（3+2+2+1 条用例各自独立）。
+// BundleRunner/json 属 e2e 层——本文件以执行结果为准（3+2+2+1+1+1 条用例各自独立）。

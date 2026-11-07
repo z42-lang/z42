@@ -1,0 +1,19 @@
+namespace Z42CaseArgumentsBench;
+using Std.Harness;
+
+static class CaseTarget {
+    public static void Check(long integer, double floating, long wide, string text, object missing) {
+        if (integer != 3L || floating != -7.0 || wide != 5000000000L || text != "keep" || missing != null) {
+            throw new Exception("unexpected case arguments");
+        }
+    }
+}
+
+[Benchmark]
+void case_widen_128(Bencher b) {
+    TestCase c = new TestCase("CaseTarget.Check", 1, methodof(CaseTarget.Check(long, double, long, string, object)));
+    c.Args = new object[] { 3, -7, 5000000000L, "keep", null };
+    b.iter(() => {
+        for (int i = 0; i < 128; i = i + 1) { c.Invoke(); }
+    });
+}
