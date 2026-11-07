@@ -13,3 +13,15 @@ void timer_waiting_create_cancel_32(Bencher b) {
         BenchHelpers.blackBox(timers);
     });
 }
+
+[Benchmark]
+void timer_is_running_128(Bencher b) {
+    Timer timer = Timer.StartOnce(60000, () => {});
+    try {
+        b.iter(() => {
+            int count = 0;
+            for (int i = 0; i < 128; i++) { if (timer.IsRunning()) { count = count + 1; } }
+            BenchHelpers.blackBox(count);
+        });
+    } finally { timer.StopAndJoin(); }
+}

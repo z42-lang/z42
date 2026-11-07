@@ -72,7 +72,7 @@ internal sealed partial class TimerScheduler {
 
     private string Step() {
         if (this._count == 0) { MonitorNative.Wait(this.Gate); return null; }
-        long wait = this._heap[0].DueMillis - TimerScheduler.Now();
+        long wait = this.WaitMillis();
         if (wait > 0) { MonitorNative.WaitFor(this.Gate, wait); return null; }
         Timer timer = this.TakeDue();
         if (timer == null) { return null; }
@@ -102,7 +102,9 @@ internal sealed partial class TimerScheduler {
             worker.Job = null;
             timer.Assigned = false;
             this.Active = this.Active - 1;
-            timer.DueMillis = TimerScheduler.Now() + 50;
+            long retry = Clock.MonoNanos();
+            timer.DueMillis = retry / 1000000 + 50;
+            timer.Fraction = retry % 1000000;
             this.Insert(timer);
             if (this._spawnFailureLogged) { return null; }
             this._spawnFailureLogged = true;

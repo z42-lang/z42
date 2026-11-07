@@ -2,6 +2,8 @@ namespace Std.Threading;
 using Std.Diagnostics;
 
 /// 一次性或周期性后台回调，共享等待调度和按需增长的回调工作线程。
+///
+/// 每次回调可能由不同工作线程执行，不保证线程亲和性；闲置后内部线程退出。
 public sealed class Timer {
     private static TimerScheduler _scheduler = new TimerScheduler();
     internal TimerScheduler Owner;
@@ -18,6 +20,7 @@ public sealed class Timer {
     internal long Remaining;
     internal long LastMillis;
     internal long DueMillis;
+    internal long Fraction;
 
     private Timer(Action callback, long interval, bool periodic) {
         this.Owner = Timer._scheduler;
@@ -73,9 +76,8 @@ public sealed class Timer {
 
     /// 已停止或一次性回调结束时为 false；尚在等待工作线程的任务仍为 true。
     public bool IsRunning() {
-        MonitorNative.Enter(this.Owner.Gate);
-        try { return !this.Stopped; }
-        finally { MonitorNative.Exit(this.Owner.Gate); }
+        // A single atomic flag snapshot, not a completion barrier.
+        return !this.Stopped;
     }
     // The caller holds Completion. Returning this frame drops callback/exception
     // locals before Assigned is cleared and StopAndJoin may complete.

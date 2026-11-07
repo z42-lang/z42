@@ -1,5 +1,4 @@
 namespace Std.Threading;
-using Std.Runtime;
 
 internal sealed partial class TimerScheduler {
     private Timer[] _heap;
@@ -11,8 +10,9 @@ internal sealed partial class TimerScheduler {
 
     internal void Schedule(Timer timer, long delay) {
         timer.Remaining = delay;
-        // Round a positive initial delay up, so millisecond truncation never fires early.
-        timer.LastMillis = TimerScheduler.Now() + (delay > 0 ? 1 : 0);
+        long now = Clock.MonoNanos();
+        timer.LastMillis = now / 1000000;
+        timer.Fraction = now % 1000000;
         this.Checkpoint(timer);
         this.Insert(timer);
     }
@@ -45,8 +45,13 @@ internal sealed partial class TimerScheduler {
         if (index == this._count) { return; }
         this._heap[index] = last;
         last.HeapIndex = index;
-        if (index > 0 && last.DueMillis < this._heap[(index - 1) / 2].DueMillis) { this.Up(index); }
+        if (index > 0 && TimerScheduler.Earlier(last, this._heap[(index - 1) / 2])) { this.Up(index); }
         else { this.Down(index); }
+    }
+
+    private static bool Earlier(Timer left, Timer right) {
+        return left.DueMillis < right.DueMillis
+            || left.DueMillis == right.DueMillis && left.Fraction < right.Fraction;
     }
 
     private void Swap(int left, int right) {
@@ -60,7 +65,7 @@ internal sealed partial class TimerScheduler {
     private void Up(int index) {
         while (index > 0) {
             int parent = (index - 1) / 2;
-            if (this._heap[parent].DueMillis <= this._heap[index].DueMillis) { break; }
+            if (!TimerScheduler.Earlier(this._heap[index], this._heap[parent])) { break; }
             this.Swap(parent, index);
             index = parent;
         }
@@ -69,22 +74,30 @@ internal sealed partial class TimerScheduler {
     private void Down(int index) {
         while (index * 2 + 1 < this._count) {
             int child = index * 2 + 1;
-            if (child + 1 < this._count && this._heap[child + 1].DueMillis < this._heap[child].DueMillis) {
+            if (child + 1 < this._count && TimerScheduler.Earlier(this._heap[child + 1], this._heap[child])) {
                 child = child + 1;
             }
-            if (this._heap[index].DueMillis <= this._heap[child].DueMillis) { break; }
+            if (!TimerScheduler.Earlier(this._heap[child], this._heap[index])) { break; }
             this.Swap(index, child);
             index = child;
         }
     }
 
+    private long WaitMillis() {
+        long now = Clock.MonoNanos();
+        long wait = this._heap[0].DueMillis - now / 1000000;
+        if (now % 1000000 < this._heap[0].Fraction) { wait = wait + 1; }
+        return wait;
+    }
+
     private Timer TakeDue() {
         Timer timer = this._heap[0];
         this.Remove(timer);
-        long now = TimerScheduler.Now();
-        long elapsed = now > timer.LastMillis ? now - timer.LastMillis : 0;
+        long now = Clock.MonoNanos();
+        long elapsed = now / 1000000 - timer.LastMillis;
+        if (now % 1000000 < timer.Fraction) { elapsed = elapsed - 1; }
         timer.Remaining = elapsed >= timer.Remaining ? 0 : timer.Remaining - elapsed;
-        timer.LastMillis = now;
+        timer.LastMillis = timer.LastMillis + elapsed;
         if (timer.Remaining == 0) { return timer; }
         this.Checkpoint(timer);
         this.Insert(timer);
