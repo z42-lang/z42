@@ -155,7 +155,7 @@ fn object_protocol_consumer_errors_keep_the_original_channels() {
     fn default_to_string(_: &Value) -> Result<String, BuiltinError> {
         Err(BuiltinError::Internal("registered ToString failure".into()))
     }
-    let ctx = protocol_context(ObjectProtocol { get_type, default_to_string });
+    let ctx = protocol_context(ObjectProtocol { get_type, default_to_string, ..crate::object_protocol_assembly::services() });
     let module = protocol_module();
     let boxed = protocol_box(&ctx, "Std.Int64");
     let root = ctx.heap().pin_root(boxed.clone());
@@ -196,4 +196,36 @@ fn object_protocol_default_services_are_shared_with_workers_without_retaining_th
     assert!(matches!((protocol.get_type)(&worker, &Value::Null), Err(BuiltinError::Legacy(_))));
     drop(worker);
     assert!(weak.upgrade().is_none());
+}
+
+#[test]
+fn method_type_materialization_uses_registered_providers_on_primary_and_worker() {
+    fn named(ctx: &VmContext, name: &str) -> Value {
+        assert!(ctx.module().is_none());
+        assert_eq!(name, "Demo.Named");
+        PROTOCOL_CALLS.with(|calls| calls.set(calls.get() + 1));
+        Value::I64(41)
+    }
+    fn constructed(ctx: &VmContext, name: &str, args: &[String]) -> Value {
+        assert!(ctx.module().is_none());
+        assert_eq!(name, "T");
+        assert!(args.is_empty());
+        PROTOCOL_CALLS.with(|calls| calls.set(calls.get() + 1));
+        Value::I64(42)
+    }
+    PROTOCOL_CALLS.with(|calls| calls.set(0));
+    let primary = protocol_context(ObjectProtocol {
+        make_type_from_name: named,
+        make_constructed_type: constructed,
+        ..crate::object_protocol_assembly::services()
+    });
+    let args = vec!["Demo.Named".to_string()];
+    use crate::vm::exec::call::type_param_env::method_type_value;
+    assert!(matches!(method_type_value(&primary, &args, 0), Value::I64(41)));
+    assert!(matches!(method_type_value(&primary, &args, 1), Value::I64(42)));
+    let worker = VmContext::new_with_core(primary.core_arc());
+    drop(primary);
+    assert!(matches!(method_type_value(&worker, &args, 0), Value::I64(41)));
+    assert!(matches!(method_type_value(&worker, &[], 0), Value::I64(42)));
+    assert_eq!(PROTOCOL_CALLS.with(Cell::get), 4);
 }

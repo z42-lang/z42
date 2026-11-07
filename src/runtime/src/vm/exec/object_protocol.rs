@@ -10,4 +10,6 @@ use super::call::builtin_abi::BuiltinError;
 pub(crate) struct ObjectProtocol {
     pub(crate) get_type: fn(&VmContext, &Value) -> Result<Value, BuiltinError>,
     pub(crate) default_to_string: fn(&Value) -> Result<String, BuiltinError>,
+    pub(crate) make_type_from_name: fn(&VmContext, &str) -> Value,
+    pub(crate) make_constructed_type: fn(&VmContext, &str, &[String]) -> Value,
 }

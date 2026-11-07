@@ -250,3 +250,7 @@ struct 的帧无关分配、复制、拆箱和符号化字段检查位于 `vm/ex
 
 - JIT 内联快路径与 helper 边界：[JIT 惰性逐函数编译](jit.md)、
   `src/runtime/src/jit/README.md`。
+
+## 反射类型物化
+
+Typeof 与方法泛型实参的 Type 值经每个 VM 的对象协议构造。协议持有按名称、按类型名称与泛型实参构造 Type 的函数指针，门面登记核心库反射实现。解释器、JIT helper 和共享调用层使用同一组提供方，worker 共享不可变注册。

@@ -32,7 +32,7 @@ pub enum NativeData {
     AssemblyHandle(crate::vm::loader::contexts::AssemblyId),
     /// store-sync-values-in-heap：`Std.Threading.Mutex/RwLock/Channel` 的同步底座。
     /// **不含任何 GC 值**（值是 z42 字段）；句柄对象的槽位被复用时随旧条目 drop。
-    Monitor(std::sync::Arc<crate::corelib::monitor::Monitor>),
+    Monitor(std::sync::Arc<crate::object::Monitor>),
     // script-first-stringbuilder: removed `StringBuilder(String)` —
     // `Std.Text.StringBuilder` is now a pure z42 script. Variant slot kept open
     // for future native-backed types (Stream / FileHandle / etc.).

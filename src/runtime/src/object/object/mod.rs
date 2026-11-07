@@ -1,6 +1,8 @@
 //! Object storage and field access primitives.
 
 mod object;
+mod monitor;
+pub use monitor::Monitor;
 mod object_fields;
 mod owned_object;
 pub use object::*;
