@@ -78,7 +78,9 @@ public class Thread {
     }
 
     /// 阻塞直到 worker 结束。
-    /// @throws ThreadException worker 抛过异常、或对同一个 Thread 第二次 Join 时。
+    /// @throws ThreadException worker 抛异常、重复 Join 或尝试等待当前线程时。
+    ///
+    /// 当前线程不能等待自身；此错误不消耗句柄，其他线程仍可 Join。
     public void Join() {
         ThreadNative.Wait(this._slot);   // VM 会抛出 ThreadException（见上）
     }

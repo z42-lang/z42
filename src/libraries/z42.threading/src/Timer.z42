@@ -56,7 +56,9 @@ public sealed class Timer {
     }
 
     /// 发信号并等后台线程退出。不可重复调用——第二次抛 ThreadException("thread already joined")。
-    /// @throws ThreadException 第二次调用时。
+    /// @throws ThreadException 重复调用或在自身回调内调用时。
+    ///
+    /// 自身回调内调用会先发送停止信号，再抛异常；其他线程仍可等待结束。
     public void StopAndJoin() {
         this._stopped[0] = true;
         this._thread.Join();

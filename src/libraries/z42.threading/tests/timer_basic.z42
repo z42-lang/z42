@@ -165,3 +165,24 @@ void test_negative_delay_once_throws() {
     }
     Assert.True(threw);
 }
+
+[Test]
+void test_callback_self_join_throws_and_external_join_completes() {
+    Timer[] timer = new Timer[1];
+    bool[] caught = new bool[1];
+    Channel<int> ready = new Channel<int>(1);
+    Channel<int> done = new Channel<int>(1);
+    timer[0] = Timer.StartOnce(0, () => {
+        ready.Recv();
+        try { timer[0].StopAndJoin(); }
+        catch (ThreadException e) {
+            caught[0] = e.Message == "cannot join the current thread";
+        }
+        done.Send(1);
+    });
+    ready.Send(1);
+    done.Recv();
+    timer[0].StopAndJoin();
+    Assert.True(caught[0]);
+    Assert.False(timer[0].IsRunning());
+}
