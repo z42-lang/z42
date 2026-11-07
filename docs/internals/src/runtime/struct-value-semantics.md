@@ -1049,3 +1049,14 @@ z42.core 里的脚本泛型，跨包不特化，擦除体里 `a[i]` 拿到的是
 元素时取值副本（编译器在擦除读点装箱，或 VM 侧给擦除帧另一种读法），再配写入臂与 struct 型参的 `new T[n]`。
 只读元素的谓词算法（`ForEach` / `Exists` / `TrueForAll` / `FindIndex` / `ConvertAll` 到非 struct）今天可用。
 **单标量叶子 struct 塌缩**（`GCHandle`）、**JIT 原生内联字节访问**（现 helper 桥接=interp 速度）、**反射合成方法可见**、**static struct 字段反射**、**ToString 字段 dump**、**E0438 自引用诊断**（现 `Size==0` 兜底防崩）、**`(P)o` 拆箱失败报错**（对 blob struct 目标发 `AsCast`，类型不符 / `o` 为 null 时得 `Null`，不抛 `InvalidCastException` / `NullReferenceException`；基元拆箱已抛，见 [object-abi](object-abi.md)）尚未实施。
+
+
+## Deferred
+
+### imported-generic-struct-box-identity: 依赖包泛型 struct 装箱身份
+
+- **来源**：Mutex 结果返回与委托值类型边界的类型身份探针。
+- **触发原因**：依赖包泛型 struct 沿用擦除描述符；例如直接将 `(int,int)` 装入 object 后，GetType 只报告 ValueTuple2 定义。普通装箱已有此限制，不只发生在委托返回。
+- **前置依赖**：明确跨包 generic struct 的实例身份与装箱类型实参载体，并与现有擦除布局、上下文归属保持一致。
+- **触发条件**：需要通过装箱实例反射其具体泛型实参，或扩展跨包 generic struct 的运行期身份时。
+- **当前 workaround**：已有静态目标 Type 时显式传递该 Type；不从依赖包泛型 struct 的装箱实例推断实参。本包具体实例已有合成描述符，返回协议保留其身份。

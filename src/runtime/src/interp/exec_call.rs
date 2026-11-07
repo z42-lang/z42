@@ -303,6 +303,7 @@ pub(super) fn call_indirect(
     };
     let physical_count = args.len() + usize::from(env_val_opt.is_some());
     if crate::vm::exec::call::indirect_return::needs_boxed_return(cfn, physical_count)
+        || crate::vm::exec::call::indirect_return::has_caller_return_slot(cfn, physical_count)
         || args.iter().enumerate().any(|(position, &index)| frame.regs.get(index as usize)
             .is_some_and(|value| crate::vm::exec::call::indirect_return::has_declared_boxed_argument(
                 cfn, position + usize::from(env_val_opt.is_some()), value,

@@ -1,7 +1,7 @@
 namespace Std.Threading;
 
 
-/// 锁包着数据的互斥原语：被保护的值放在 Mutex<T> 内部，只有 Lock 的回调体能碰到它。
+/// 锁包着数据的互斥原语：被保护的值放在 Mutex<T> 内部，经 Lock / Read / Update 回调访问。
 ///
 /// 没有 Acquire / Release，Lock 自己配对；不可重入，重入抛 LockRecursionException。
 public class Mutex<T> {

@@ -152,6 +152,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     if let Some(function) = rt.fn_of(id.0 as usize) {
         let count = args_len + usize::from(env_val_opt.is_some());
         if crate::vm::exec::call::indirect_return::needs_boxed_return(function, count)
+            || crate::vm::exec::call::indirect_return::has_caller_return_slot(function, count)
             || user_regs.iter().enumerate().any(|(position, &index)| frame_ref.regs.get(index as usize)
                 .is_some_and(|value| crate::vm::exec::call::indirect_return::has_declared_boxed_argument(
                     function, position + usize::from(env_val_opt.is_some()), value,

@@ -381,7 +381,7 @@ public sealed class FunctionEmitter {
             this._ctx.Locals.Put(lam.ParamNames[p], new TypedReg(p + paramOffset, ptag));
             this._ctx.RecordReg(p + paramOffset, ptag);
             string parameterStruct = this._blobStructNameT(lam.ParamTypes[p]);
-            paramTypes[p + paramOffset] = parameterStruct != "" ? this._ctx.QualifyLayout(parameterStruct) : "?";
+            paramTypes[p + paramOffset] = parameterStruct != "" ? this._lambdaStructIdentity(lam.ParamTypes[p], parameterStruct) : "?";
             p = p + 1;
         }
         Z42FuncType ft = lam.Type() as Z42FuncType;
@@ -417,7 +417,7 @@ public sealed class FunctionEmitter {
         }
         string retName = "void";
         if (ft != null) { retName = PrimModel.SurfaceName(ft.Ret.Name()); }
-        if (this._ctx.RetIsStruct) { retName = this._ctx.QualifyLayout(retStruct); }   // unify-value-types P1：内建 leaf 回 keyword（SIGS 一致，见 _sigTypeName）
+        if (this._ctx.RetIsStruct) { retName = this._lambdaStructIdentity(ft.Ret, retStruct); }   // unify-value-types P1：内建 leaf 回 keyword（SIGS 一致，见 _sigTypeName）
         int[] regTypes = new int[this._ctx.RegTagCount];
         int rt = 0;
         while (rt < this._ctx.RegTagCount) { regTypes[rt] = this._ctx.RegTags[rt]; rt = rt + 1; }
@@ -442,6 +442,11 @@ public sealed class FunctionEmitter {
             lifted.ExcCount = this._ctx.ExcCount;
         }
         return lifted;
+    }
+
+    private string _lambdaStructIdentity(Z42Type type, string layout) {
+        string instance = this._expr._instIdentityName(type);
+        return instance != "" ? this._expr._qualifyInstName(instance) : this._ctx.QualifyLayout(layout);
     }
 
     private string[] _mergeTp(string[] a, int ac, string[] b, int bc) {

@@ -8,10 +8,13 @@ struct Counter {
 }
 class Payload { public int Value; public Payload(int value) { this.Value = value; } }
 [Record] struct Parcel(Payload Item);
+[Record] struct Local<T>(T Value);
 
 TResult apply<T, TResult>(Func<T, TResult> body, T value) { return body(value); }
+Func<T> capture<T>(T value) { return () => value; }
 
 Counter makeCounter(int value) { return new Counter(value); }
+Type inspect<TResult>(Func<TResult> factory) { object value = factory(); return value.GetType(); }
 
 void main() {
     Counter first = apply<int, Counter>((int value) => new Counter(value + 1), 2);
@@ -47,6 +50,10 @@ void main() {
     }, 17);
     GC.ForceCollect();
     Console.WriteLine(parcel.Item.Value);
+
+    Console.WriteLine(inspect<Local<int>>(() => new Local<int>(19)) == typeof(Local<int>));
+    Func<Counter> captured = capture<Counter>(new Counter(29));
+    Console.WriteLine(captured().Value);
 
     try {
         apply<int, Counter>((int value) => { throw new InvalidOperationException("erased callback"); }, 0);
