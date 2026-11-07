@@ -5,7 +5,7 @@
 //! `ArrayGet`/`ArraySet` helpers) per comparison. When every element is the same
 //! primitive `Value` variant, the `CompareTo` that call would reach is fixed — primitives
 //! are sealed, and the VM dispatches a `Value::I64` / `F64` / `Char` / `Str` receiver to
-//! `Std.Int32` / `Std.Double` / `Std.Char` / `Std.String` (`interp::exec_vcall::
+//! `Std.Int32` / `Std.Double` / `Std.Char` / `Std.String` (`interp::ops::exec_vcall::
 //! primitive_class_name`) — so sorting natively with the **same** order and a **stable**
 //! algorithm yields exactly the permutation the script would. Anything else (objects,
 //! boxed structs, null, mixed kinds, packed / struct backings) declines and the script sorts.

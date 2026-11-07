@@ -12,6 +12,7 @@
 | `thread_state.rs` | `ThreadExecState` 的帧、池、arena、异常槽与 JIT 中立头；每线程独立 |
 | `state.rs` | `ExecState` 内联组合每 VM 引擎注册表与对象协议服务，门面提供具体注册 |
 | `object_protocol.rs` | 私有 GetType / 默认 ToString / 按名称与泛型实参构造 Type 的函数指针契约；worker 共享不可变服务，默认文本仍以 Rust String 返回给调用方 |
+| `native.rs` | native 调用与 owned pin 提供方契约；门面在创建 VM 前登记，worker 共享 |
 | `active_vm.rs` | native-interop 回调的活动 VM TLS 与激活 guard；底帧与宿主重入共用，退出时恢复前一上下文 |
 | `ambient.rs` | 执行期当前堆 TLS、HeapGuard 嵌套恢复和堆 epoch |
 | `engine.rs` | Engine / TierApi 注册、共享调用边界和 OSR 交接；门面按 feature 装配，后端持有代码及激活；corelib 的反射、attribute 和线程回调也经此入口 |

@@ -1,7 +1,7 @@
 // 执行基座 native 语义层：线程原语 + 同步原语的底座 Monitor。高层 API
 // （Std.Threading.Thread / Mutex<T> / RwLock<T> / Channel<T>）留在 z42.threading 转纯脚本、
 // 调这里的 *Native 原语。命名空间保持 Std.Threading 不变。native 实现镜像
-// src/runtime/src/corelib/threading.rs。
+// src/runtime/src/corelib/core/threading.rs。
 namespace Std.Threading;
 
 /// Thread 应用层用的线程原语（__thread_spawn / __thread_sleep / __thread_wait）。

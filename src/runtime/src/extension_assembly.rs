@@ -6,12 +6,18 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     let mut defaults = VmExtensions::new();
     // Interop providers must outlive heap, engines, user state and core-library resources.
     add(&mut defaults, crate::interop::state_for_vm());
+    #[cfg(feature = "native-interop")]
+    add(&mut defaults, crate::vm::exec::native::NativeServices {
+        call: crate::interop::call_registered,
+        pin_owned_buffer: crate::interop::pin_owned_buffer,
+        release_owned_buffer: crate::interop::release_owned_buffer,
+    });
     add(&mut defaults, crate::app_services::services());
     // The service owns only Rust arguments, never the core, so this sharing cannot form a cycle.
     let application = crate::app_state::state_for_vm();
     add(&mut defaults, application.clone());
     add(&mut defaults, corelib::os::process::State::default());
-    add(&mut defaults, corelib::threading::State::default());
+    add(&mut defaults, corelib::core::threading::State::default());
     add(&mut defaults, corelib::io::fs::State::new(application));
     #[cfg(feature = "net")]
     {

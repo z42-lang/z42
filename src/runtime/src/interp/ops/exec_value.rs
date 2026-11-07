@@ -9,7 +9,7 @@ use anyhow::{bail, Result};
 
 use crate::vm::exec::ops::stringify::{obj_to_gc_str, with_obj_str};
 use crate::object::value::format::with_value_str;
-use super::ops::{bool_val, int_binop, int_bitop};
+use super::{bool_val, int_binop, int_bitop};
 use super::Frame;
 
 // ── Constants ────────────────────────────────────────────────────────────
@@ -148,32 +148,32 @@ fn check_int_div_by_zero(
 use crate::vm::runtime::CmpOp;
 
 pub(super) fn eq(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Eq, &frame.regs, a, b)?));
+    frame.set(dst, Value::Bool(super::eval_cmp(CmpOp::Eq, &frame.regs, a, b)?));
     Ok(())
 }
 
 pub(super) fn ne(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Ne, &frame.regs, a, b)?));
+    frame.set(dst, Value::Bool(super::eval_cmp(CmpOp::Ne, &frame.regs, a, b)?));
     Ok(())
 }
 
 pub(super) fn lt(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Lt, &frame.regs, a, b)?));
+    frame.set(dst, Value::Bool(super::eval_cmp(CmpOp::Lt, &frame.regs, a, b)?));
     Ok(())
 }
 
 pub(super) fn le(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Le, &frame.regs, a, b)?));
+    frame.set(dst, Value::Bool(super::eval_cmp(CmpOp::Le, &frame.regs, a, b)?));
     Ok(())
 }
 
 pub(super) fn gt(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Gt, &frame.regs, a, b)?));
+    frame.set(dst, Value::Bool(super::eval_cmp(CmpOp::Gt, &frame.regs, a, b)?));
     Ok(())
 }
 
 pub(super) fn ge(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
-    frame.set(dst, Value::Bool(super::ops::eval_cmp(CmpOp::Ge, &frame.regs, a, b)?));
+    frame.set(dst, Value::Bool(super::eval_cmp(CmpOp::Ge, &frame.regs, a, b)?));
     Ok(())
 }
 

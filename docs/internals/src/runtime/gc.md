@@ -85,7 +85,7 @@ RAII guard：
 4. caller 跑 mark + sweep
 5. Drop 时写 `gc_phase = Idle` + `notify_all()` 释放所有 mutator
 
-**接入点**：`corelib/gc.rs` 的 `builtin_gc_collect` / `builtin_gc_force_collect`
+**接入点**：`corelib/core/gc.rs` 的 `builtin_gc_collect` / `builtin_gc_force_collect`
 （即 z42 `Std.GC.Collect()` / `ForceCollect()`）持 RAII guard 调
 `heap.collect_cycles()` / `collect_full()`。
 

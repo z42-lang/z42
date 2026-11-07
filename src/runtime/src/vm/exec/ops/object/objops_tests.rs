@@ -2,7 +2,7 @@
 //!
 //! 两个引擎只是这一层的薄适配（interp `exec_array` / `exec_object`，JIT `helpers/array` /
 //! `helpers/object_field`），所以这里钉住的类与文本就是两侧的用户可见行为；
-//! 适配层各自的映射另有单测（`interp/exec_array_tests.rs`、`jit/helpers/array_tests.rs`、
+//! 适配层各自的映射另有单测（`interp/ops/exec_array_tests.rs`、`jit/helpers/array_tests.rs`、
 //! `jit/helpers/object_field_tests.rs`），端到端逐条对照见 `src/tests/exceptions/objops_errors.z42`。
 
 use super::array::{array_get, array_len, array_new, array_new_lit, array_set, packed_data};

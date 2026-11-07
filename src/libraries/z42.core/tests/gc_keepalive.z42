@@ -1,0 +1,37 @@
+// gc-keepalive — Std.GC.KeepAlive 语义测试：语句位置的通用观测沉点，实参求值
+// 不得被 DCE / 循环外提吃掉；null / 装箱值 / 引用值都直接过。基准侧的表达式沉点
+// 等价物（带返回值的 blackBox）在 z42.harness，机制同源（NoInlining|NoOptimization）。
+namespace Z42CoreTests.GcKeepAlive;
+
+using Std.Harness;
+
+static class Probe {
+    public static int Count = 0;
+    public static int Bump() { Count = Count + 1; return Count; }
+}
+
+[Test]
+void test_consumes_side_effecting_expression() {
+    Probe.Count = 0;
+    GC.KeepAlive(Probe.Bump());
+    Assert.Equal(1, Probe.Count);
+}
+
+[Test]
+void test_call_in_loop_not_hoisted_or_eliminated() {
+    Probe.Count = 0;
+    for (int i = 0; i < 4; i = i + 1) {
+        GC.KeepAlive(Probe.Bump());
+    }
+    Assert.Equal(4, Probe.Count);
+}
+
+[Test]
+void test_accepts_null_boxed_and_references() {
+    Probe.Count = 0;
+    GC.KeepAlive(null);
+    GC.KeepAlive(Probe.Bump());
+    GC.KeepAlive("text");
+    GC.KeepAlive(new long[8]);
+    Assert.Equal(1, Probe.Count);
+}

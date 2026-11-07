@@ -1,5 +1,5 @@
 //! `RegPool` — a context's free-list of register-file `Vec`s, shared by the
-//! interpreter (`interp::Frame`) and the JIT (`JitFrame`).
+//! interpreter (`interp::frame::Frame`) and the JIT (`JitFrame`).
 //!
 //! # Invariant
 //!

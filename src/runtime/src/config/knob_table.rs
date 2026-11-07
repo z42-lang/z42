@@ -442,7 +442,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         tier: Tier::Internal,
         description: "milliseconds a freshly spawned thread sleeps before installing its captured environment — fault injection for the spawn-window GC-root regression test",
         default_hint: "unset; no delay",
-        consumed_by: "corelib/threading.rs (env-only scaffolding, read per spawn)",
+        consumed_by: "corelib/core/threading.rs (env-only scaffolding, read per spawn)",
         ..PUBLIC
     },
     KnobSpec {
@@ -493,7 +493,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         platforms: NOT_WASM,
         description: "native stack size of every thread the VM creates (Std.Threading.Thread, the embedded app-run thread). z42 calls recurse on the native stack and running out is a fatal error, so this bounds how deep a program may recurse. Accepts a byte count or a K/KB/M/MB/G/GB suffix (64M)",
         default_hint: "unset; 16M",
-        consumed_by: "corelib/threading.rs + host/mod.rs (z42_host_run_app)",
+        consumed_by: "corelib/core/threading.rs + host/mod.rs (z42_host_run_app)",
         ..PUBLIC
     },
     KnobSpec {

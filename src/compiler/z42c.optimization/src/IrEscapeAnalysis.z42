@@ -96,7 +96,7 @@ public sealed class IrEscapeAnalysis {
             bi = bi + 1;
         }
         // Pass A′：**ref/out 形参写回汇点**（fix-ref-param-escape）。运行时的 ref/out 是「入口 copy-in /
-        // 出口 copy-out」（impl-ref-out-in-runtime，见 interp/mod.rs `exec_function_body` +
+        // 出口 copy-out」（impl-ref-out-in-runtime，见 interp/run/mod.rs `exec_function_body` +
         // exec_support.rs `run_ref_writebacks`）：出口把**参数寄存器的终值**存回 caller 的 lvalue。
         // 而 callee 的 IR 完全看不见 `ref` 修饰（`Param.IsRef` 只影响 caller 侧发 `load_local_addr`，
         // callee 寄存器类型不变，见 syntax/Decl.z42）→ 没有任何一条指令把「写回」表达成逃逸汇点。

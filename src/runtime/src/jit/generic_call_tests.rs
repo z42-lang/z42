@@ -103,7 +103,7 @@ fn test_module() -> Module {
 fn idx(m: &Module, name: &str) -> usize { m.func_index[name] }
 
 fn interp(vm: &VmContext, m: &Module, name: &str) -> Value {
-    match crate::interp::exec_function(vm, m, &m.functions[idx(m, name)], &[]).expect("runs") {
+    match crate::interp::run::exec_function(vm, m, &m.functions[idx(m, name)], &[]).expect("runs") {
         ExecOutcome::Returned(v) => v.unwrap_or(Value::Null),
         ExecOutcome::Thrown(exc) => panic!("threw {exc:?}"),
     }

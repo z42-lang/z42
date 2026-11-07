@@ -551,7 +551,7 @@ GC 管理 + 引用身份；基元 = 轻量 `Box`、无引用身份、非 GC 管�
 反射/vcall 等 ~20 处 helper 要双写；且 `object o=5; object p=5; ReferenceEquals(o,p)` 在 C# 是 `false`（两个不同盒），
 无引用身份就是语义偏差。
 
-**唯一装箱模型**：`__box_prim`（`corelib/convert.rs`）产堆 `ScriptObject` + `Value::BoxedStruct`，
+**唯一装箱模型**：`__box_prim`（`corelib/core/convert.rs`）产堆 `ScriptObject` + `Value::BoxedStruct`，
 与 struct 装箱同一路径 → 每次装箱 alloc 新盒（C# 引用身份），复用对象块的全套 GC。无 `Value::Boxed`
 变体（判别号 13 留空，`#[repr(C,u8)]` 显式判别 14-18，JIT 原始布局不受影响）。
 
@@ -639,7 +639,7 @@ is-a / `GetType` / vcall。
 reference 的[类型转换](https://z42-lang.github.io/z42/reference/language/conversions.html)。
 
 **call-arg 与基元 native 的交互**：call-arg 装箱会把整数实参装成 object（`Assert.Equal(object,object)`
-这类），而基元 struct 的 native 方法按裸 long 读参 —— `arg_i64`（`corelib/convert.rs` 取参助手）
+这类），而基元 struct 的 native 方法按裸 long 读参 —— `arg_i64`（`corelib/core/convert.rs` 取参助手）
 **透明拆箱**基元盒，一处修覆盖全部整数 native。
 
 ## JIT 值路径
@@ -738,7 +738,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 - 装箱 = 分配一个 **struct 类型的 `ScriptObject`**（`type_desc.is_struct()`，struct blob 存进对象已有的
   `struct_bytes`/`struct_refs`，`slots` 空）。`inline_region_sizes()` 对 `is_struct()` 类型改读该类型自己的
   `struct_layout`（size + ref_count），使 `alloc_object` 为盒分配正确大小的 blob 区。装箱经
-  `corelib::convert::box_struct_blob`（`__box_struct` 复用它），拆箱 `unbox_struct` 读对象 blob → 当前帧 arena。
+  `corelib::core::convert::box_struct_blob`（`__box_struct` 复用它），拆箱 `unbox_struct` 读对象 blob → 当前帧 arena。
 - **复用对象块 + 全部 GC 机制，零 GC 核心改动**：GC 的 mark / gen-age / trace / scan_object_refs /
   size / 跨代写屏障（`maybe_remember_owner` 的 owner+new 两侧）的 `BoxedStruct` 臂与 `Value::Object` **同路**
   （底层同为 `ObjRef`）。`is/as/GetType/vcall/Equals` 保持 boxed 值类型特判，只改「读盒」经对象

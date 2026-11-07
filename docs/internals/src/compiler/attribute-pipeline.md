@@ -86,7 +86,7 @@ public Attribute __attr$cls$C$0() { return new RouteAttribute("/u", method: "POS
 
 attr-ref 块存的是两个字符串引用，所以**任何**「每个成员一位 / 一小串」的编译器元数据都能
 骑它过包边界，而不必扩 zbc 格式。约定是 `type_name` 以 `$` 打头（`$` 在标识符里非法 ⇒ 与
-用户 attribute 零撞名），反射侧一条通用的 `$` 前缀过滤（`corelib/reflection/attributes.rs`）
+用户 attribute 零撞名），反射侧一条通用的 `$` 前缀过滤（`corelib/core/reflection/attributes.rs`）
 把它们整体挡在 `GetCustomAttributes()` 之外。
 
 现有哨兵（常量都在 `z42.package/IrModule.z42`，生产方 `ClassDescBuilder`、消费方 `TsigReconcile`）：

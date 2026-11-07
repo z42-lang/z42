@@ -110,11 +110,11 @@ fn interp_call_runs_and_binds_lazy_targets_by_fn_id() {
     assert_eq!(tokens(main), vec![UNRESOLVED], "not registered when Main resolved");
 
     let g = register_lazy(&ctx, const7("Late.G$0"));
-    let v = returned(super::super::exec_function(&ctx, &entry, main, &[]).unwrap());
+    let v = returned(crate::interp::run::exec_function(&ctx, &entry, main, &[]).unwrap());
     assert!(matches!(v, Value::I64(7)));
     assert_eq!(tokens(main), vec![g.id.get().unwrap().0], "first dispatch stores the FnId");
     // Second run: straight off the token.
-    let v = returned(super::super::exec_function(&ctx, &entry, main, &[]).unwrap());
+    let v = returned(crate::interp::run::exec_function(&ctx, &entry, main, &[]).unwrap());
     assert!(matches!(v, Value::I64(7)));
 }
 
@@ -135,7 +135,7 @@ fn non_entry_module_never_caches_a_lazy_fn_id() {
     crate::vm::runtime::resolve::resolve_function_tokens(a, &m, &ctx);
     assert_eq!(tokens(a), vec![UNRESOLVED, 1]);
 
-    let v = returned(super::super::exec_function(&ctx, &m, a, &[]).unwrap());
+    let v = returned(crate::interp::run::exec_function(&ctx, &m, a, &[]).unwrap());
     assert!(matches!(v, Value::I64(7)));
     assert_eq!(tokens(a), vec![UNRESOLVED, 1], "the lazy binding is not cached");
 }
@@ -155,7 +155,7 @@ fn entry_function_wins_over_a_same_named_lazy_one() {
     let main = &entry.functions[0];
     crate::vm::runtime::resolve::resolve_function_tokens(main, &entry, &ctx);
     assert_eq!(tokens(main), vec![1]);
-    let v = returned(super::super::exec_function(&ctx, &entry, main, &[]).unwrap());
+    let v = returned(crate::interp::run::exec_function(&ctx, &entry, main, &[]).unwrap());
     assert!(matches!(v, Value::I64(7)));
 }
 

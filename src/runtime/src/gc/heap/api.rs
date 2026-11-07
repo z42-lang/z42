@@ -94,7 +94,7 @@ impl Heap {
     }
 
     /// unify Phase 2 R3（装箱统一）：装箱一个基元（整数）成堆对象 + 引用身份——载荷装裸标量（LE 字节，
-    /// 宽度由调用方按 wrapper 定，见 `corelib/convert.rs::box_prim_to_heap`），**不走
+    /// 宽度由调用方按 wrapper 定，见 `corelib/core/convert.rs::box_prim_to_heap`），**不走
     /// `type_desc.inline_regions()`**（基元 wrapper 如 Int32 是零字段 struct，layout size=0，装不下标量）。
     /// 返 `Value::Object`，调用方包成 `Value::BoxedStruct`（与 struct 装箱同款引用身份/GC/反射路径）。
     pub fn alloc_boxed_prim(&self, type_desc: Arc<TypeDesc>, scalar_bytes: Box<[u8]>) -> Value {

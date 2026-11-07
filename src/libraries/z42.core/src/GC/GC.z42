@@ -30,6 +30,16 @@ public static class GC {
     [Native("__gc_finalize")]
     public static extern bool Finalize(Object target);
 
+    /// 把 `target` 的生存期钉到本调用点：消费一条引用，防止编译器把它判死消除。
+    ///
+    /// 通用的「观测点」sink，对标 C# `GC.KeepAlive`：语句位置消费一条算了但没人用的
+    /// 表达式（实参求值留在原处，不被 DCE / 外提吃掉）；并发与 GC 测试里钉住对象引用
+    /// 寿命。基准防 DCE 的表达式沉点用 `Std.Harness.BenchHelpers.blackBox`（返回值版）。
+    // 实现笔记：NoInlining → 不进纯函数表（调用按保守非纯对待，删不得）；NoOptimization →
+    // 体原样保留。与 blackBox 分立而非委托：多一层非内联真调用会污染 bench 数字。
+    [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]
+    public static void KeepAlive(object target) { }
+
     /// 返回 8 元素 `long[]`，第 `i` 项是落入第 `i` 桶的 collect 次数。
     ///
     /// 桶边界（半开区间 `[lower, upper)`，微秒）：0 `[0, 10)` · 1 `[10, 100)` ·

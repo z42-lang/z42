@@ -20,9 +20,9 @@ GC 只看得见帧寄存器、static 字段、几个 arena 和 pinned roots。�
 - `Thread.Start` 捕获的环境，从 spawn 到进入 worker 帧之间只在 Rust 局部变量里；
 - `Mutex` / `RwLock` / `Channel` 的值存在 Rust 侧容器里。
 
-**首选：让值成为 z42 对象的字段**，原生层只提供机制（参照 `corelib/monitor.rs`）——追踪、写屏障、随拥有者回收
+**首选：让值成为 z42 对象的字段**，原生层只提供机制（参照 `corelib/core/monitor.rs`）——追踪、写屏障、随拥有者回收
 全都免费。**确实只能暂存**（跨线程移交这类短窗口）时，用 `pin_root` + RAII 守卫 unpin（参照
-`corelib/threading.rs` 的 `SpawnedEnvRoot`），并想清楚「谁拥有它、何时释放」，否则就是泄漏。同步原语的完整设计见
+`corelib/core/threading.rs` 的 `SpawnedEnvRoot`），并想清楚「谁拥有它、何时释放」，否则就是泄漏。同步原语的完整设计见
 [同步原语](sync-primitives.md)。
 
 ### 阻塞的 native 调用必须 park
@@ -68,5 +68,5 @@ time builtins、GC 计时、采样器构造时取起点（→ 每次加载 zbc �
 
 - **关着的探针不取时钟**：计时起点放进 `Option<Instant>`，开关打开才取（参照 `gc/phase_timer.rs`、`profiler/cpu.rs`）。
 - **始终要跑的计时**（每次 GC、time builtin）：`#[cfg(target_arch = "wasm32")]` 给替代实现（参照
-  `gc/heap/observe.rs` 的单调计数、`corelib/bench.rs`）。
+  `gc/heap/observe.rs` 的单调计数、`corelib/core/bench.rs`）。
 - 只在 native 可达的路径（JIT、子进程、信号处理）不受限。
