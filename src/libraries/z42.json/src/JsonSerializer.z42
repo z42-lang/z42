@@ -1,5 +1,7 @@
 namespace Std.Json;
 using Std.Reflection;
+using Std.Collections;
+using Std.IO;
 
 /// 对象 ↔ JSON 序列化：经反射在用户对象与 JSON 文本之间直转。
 ///
@@ -8,12 +10,36 @@ using Std.Reflection;
 public static class JsonSerializer {
     /// 把 `value` 序列化为紧凑 JSON 文本（无换行缩进）；null 序列化为 "null"。
     public static string Serialize(object value) {
-        return JsonValue.Stringify(JsonSerializer._toJson(value));
+        return JsonSerializer._prepare(value, false).FinishText();
     }
 
     /// 同 Serialize，但输出按两层缩进换行的易读格式。
     public static string SerializePretty(object value) {
-        return JsonValue.StringifyPretty(JsonSerializer._toJson(value));
+        return JsonSerializer._prepare(value, true).FinishText();
+    }
+
+    /// 把对象序列化为紧凑 UTF-8 JSON，一次写入并刷新，流保持打开。
+    /// 取值或格式化失败时不调用流；流的异常直接传播。
+    public static void SerializeTo(Stream dest, object value) {
+        JsonSerializer._serializeTo(dest, value, false);
+    }
+
+    /// 与 SerializeTo 相同，以换行和每层两个空格缩进。
+    public static void SerializeToPretty(Stream dest, object value) {
+        JsonSerializer._serializeTo(dest, value, true);
+    }
+
+    private static void _serializeTo(Stream dest, object value, bool pretty) {
+        byte[] bytes = JsonSerializer._prepare(value, pretty).FinishUtf8();
+        dest.Write(bytes, 0, bytes.Length);
+        dest.Flush();
+    }
+
+    private static JsonWriteBuffer _prepare(object value, bool pretty) {
+        JsonWriteBuffer writer = new JsonWriteBuffer(pretty);
+        writer.DeferNullQuotedValues();
+        JsonSerializer._toJson(value, writer);
+        return writer;
     }
 
     /// 解析 `json` 并按 `T` 绑定返回；JSON null / 语法错误按 JsonBinder / JsonParser 语义抛出。
@@ -28,86 +54,177 @@ public static class JsonSerializer {
 
     private static bool _isScalarTarget<T>(object value) { return value is T; }
 
-    // object → JsonValue（按运行期类型分派）。
-    private static JsonValue _toJson(object o) {
-        if (o == null) { return JsonValue.OfNull(); }
+    // A null writer requests a DOM value. Otherwise emit into the current traversal.
+    private static JsonValue _toJson(object o, JsonWriteBuffer writer) {
+        if (o == null) {
+            if (writer == null) { return JsonValue.OfNull(); }
+            writer.Put("null");
+            return null;
+        }
         // A raw VM integer matches both widths and reflects as Int32.
-        if (JsonSerializer._isScalarTarget<int>(o))    { return JsonValue.OfLong((long)(int)o); }
-        if (JsonSerializer._isScalarTarget<long>(o))   { return JsonValue.OfLong((long)o); }
-        if (JsonSerializer._isScalarTarget<double>(o)) { return JsonValue.OfDouble((double)o); }
-        if (JsonSerializer._isScalarTarget<bool>(o))   { return JsonValue.OfBool((bool)o); }
-        if (JsonSerializer._isScalarTarget<string>(o)) { return JsonValue.OfString((string)o); }
-        Type t = (Type)o.GetType();   // 跨包 imported 返回类型须 cast（footgun）
+        if (JsonSerializer._isScalarTarget<int>(o)) { return JsonSerializer._longToJson((long)(int)o, writer); }
+        if (JsonSerializer._isScalarTarget<long>(o)) { return JsonSerializer._longToJson((long)o, writer); }
+        if (JsonSerializer._isScalarTarget<double>(o)) { return JsonSerializer._doubleToJson((double)o, writer); }
+        if (JsonSerializer._isScalarTarget<bool>(o)) { return JsonSerializer._boolToJson((bool)o, writer); }
+        if (JsonSerializer._isScalarTarget<string>(o)) { return JsonSerializer._stringToJson((string)o, writer); }
+        Type t = (Type)o.GetType();
         string fn = t.FullName;
-        if (t.IsArray) { return JsonSerializer._arrayToJson(o); }
-        // add-collection-serde：集合检测**先于**通用对象分派（否则 List/Dict 被当对象遍历内部字段）。
-        // fix-type-reflection-names 起构造型泛型 FullName 含实参，故按去实参的**基名**匹配。
-        string baseFn = fn;
+        if (t.IsArray) { return JsonSerializer._arrayToJson(o, writer); }
         int lt = fn.IndexOf("<");
-        if (lt >= 0) { baseFn = fn.Substring(0, lt); }
-        if (baseFn == "Std.Collections.List")       { return JsonSerializer._listToJson(o, t); }
-        if (baseFn == "Std.Collections.Dictionary") { return JsonSerializer._dictToJson(o, t); }
-        return JsonSerializer._objectToJson(o, t);
+        string baseFn = lt < 0 ? fn : fn.Substring(0, lt);
+        if (baseFn == "Std.Collections.List") { return JsonSerializer._listToJson(o, t, writer); }
+        if (baseFn == "Std.Collections.Dictionary") { return JsonSerializer._dictToJson(o, t, writer); }
+        return JsonSerializer._objectToJson(o, t, writer);
     }
 
-    // List<T> → JSON array（反射 Count + get_Item 遍历，元素按运行期类型递归）。
-    private static JsonValue _listToJson(object o, Type t) {
-        JsonValue arr = JsonValue.OfArray();
+    private static JsonValue _longToJson(long value, JsonWriteBuffer writer) {
+        if (writer == null) { return JsonValue.OfLong(value); }
+        writer.Put(value.ToString());
+        return null;
+    }
+
+    private static JsonValue _doubleToJson(double value, JsonWriteBuffer writer) {
+        if (writer == null) { return JsonValue.OfDouble(value); }
+        writer.Put(value.ToString());
+        return null;
+    }
+
+    private static JsonValue _boolToJson(bool value, JsonWriteBuffer writer) {
+        if (writer == null) { return JsonValue.OfBool(value); }
+        writer.Put(value ? "true" : "false");
+        return null;
+    }
+
+    private static JsonValue _stringToJson(string value, JsonWriteBuffer writer) {
+        if (writer == null) { return JsonValue.OfString(value); }
+        writer.PutQuoted(value);
+        return null;
+    }
+
+    private static JsonValue _listToJson(object o, Type t, JsonWriteBuffer writer) {
+        JsonValue arr = writer == null ? JsonValue.OfArray() : null;
         int n = JsonReflect.ListCount(o, t);
-        if (n == 0) { return arr; }
+        if (n == 0) {
+            if (writer != null) { writer.Put("[]"); }
+            return arr;
+        }
         MethodInfo getter = JsonReflect.BindMethod(t, "get_Item", new Type[] { typeof(int) });
         object[] args = new object[1];
-        int i = 0;
-        while (i < n) {
+        if (writer != null && n > 0) { writer.StartContainer("["); }
+        for (int i = 0; i < n; i = i + 1) {
             args[0] = i;
-            arr.Add(JsonSerializer._toJson(getter.Invoke(o, args)));
-            i = i + 1;
+            if (writer != null) { writer.StartEntry(i == 0); }
+            JsonValue child = JsonSerializer._toJson(getter.Invoke(o, args), writer);
+            if (arr != null) { arr.Add(child); }
+        }
+        if (writer != null) {
+            if (n > 0) { writer.EndContainer("]"); }
+            else { writer.Put("[]"); }
         }
         return arr;
     }
 
-    // Dictionary<string,V> → JSON object（反射 Keys + get_Item，键为字符串）。
-    private static JsonValue _dictToJson(object o, Type t) {
-        JsonValue obj = JsonValue.OfObject();
+    private static JsonValue _dictToJson(object o, Type t, JsonWriteBuffer writer) {
         MethodInfo keysMethod = JsonReflect.BindMethod(t, "Keys", new Type[0]);
         string[] keys = (string[])keysMethod.Invoke(o, new object[0]);
-        if (keys.Length == 0) { return obj; }
+        if (keys.Length == 0) {
+            if (writer == null) { return JsonValue.OfObject(); }
+            writer.Put("{}");
+            return null;
+        }
         Type keyType = JsonReflect.GenericArg(t, 0);
         MethodInfo getter = JsonReflect.BindMethod(t, "get_Item", new Type[] { keyType });
         object[] args = new object[1];
-        int i = 0;
-        while (i < keys.Length) {
+        JsonWriteBuffer direct = writer;
+        if (direct != null && !JsonSerializer._uniqueKeys(keys)) { direct = null; }
+        JsonValue obj = direct == null ? JsonValue.OfObject() : null;
+        if (direct != null) { direct.StartContainer("{"); }
+        for (int i = 0; i < keys.Length; i = i + 1) {
             string k = keys[i];
             args[0] = k;
-            obj.Set(k, JsonSerializer._toJson(getter.Invoke(o, args)));
-            i = i + 1;
+            if (direct != null) { direct.StartEntry(i == 0); direct.WriteKey(k); }
+            JsonValue child = JsonSerializer._toJson(getter.Invoke(o, args), direct);
+            if (obj != null) { obj.Set(k, child); }
         }
+        if (direct != null) { direct.EndContainer("}"); }
+        else if (writer != null) { writer.WriteValue(obj); }
         return obj;
     }
 
-    private static JsonValue _arrayToJson(object o) {
-        JsonValue arr = JsonValue.OfArray();
-        Array a = (Array)o;                       // object → Array 下转型（元素以运行期 Type 反射读）
-        int n = a.Length;
-        int i = 0;
-        while (i < n) {
-            arr.Add(JsonSerializer._toJson(a.GetValue(i)));
-            i = i + 1;
+    private static bool _uniqueKeys(string[] keys) {
+        HashSet<string> seen = null;
+        if (keys.Length > 8) { seen = new HashSet<string>(); }
+        for (int i = 0; i < keys.Length; i = i + 1) {
+            string key = keys[i];
+            if (key == null) { return false; }
+            if (seen != null) {
+                if (!seen.Add(key)) { return false; }
+            } else {
+                for (int j = 0; j < i; j = j + 1) {
+                    if (keys[j] == key) { return false; }
+                }
+            }
         }
+        return true;
+    }
+
+    private static JsonValue _arrayToJson(object o, JsonWriteBuffer writer) {
+        Array a = (Array)o;
+        int n = a.Length;
+        if (writer != null && n == 0) { writer.Put("[]"); return null; }
+        JsonValue arr = writer == null ? JsonValue.OfArray() : null;
+        if (writer != null) { writer.StartContainer("["); }
+        for (int i = 0; i < n; i = i + 1) {
+            if (writer != null) { writer.StartEntry(i == 0); }
+            JsonValue child = JsonSerializer._toJson(a.GetValue(i), writer);
+            if (arr != null) { arr.Add(child); }
+        }
+        if (writer != null) { writer.EndContainer("]"); }
         return arr;
     }
 
-    private static JsonValue _objectToJson(object o, Type t) {
-        JsonValue obj = JsonValue.OfObject();
+    private static JsonValue _objectToJson(object o, Type t, JsonWriteBuffer writer) {
         JsonMember[] members = JsonMembers.For(t);
-        int i = 0;
-        while (i < members.Length) {
-            JsonMember m = members[i];
-            if (m.CanRead) {
-                obj.Set(m.JsonKey, JsonSerializer._toJson(m.Get(o)));
-            }
-            i = i + 1;
+        JsonWriteBuffer direct = writer;
+        if (direct != null) {
+            int count = JsonSerializer._directMemberCount(members);
+            if (count == 0) { writer.Put("{}"); return null; }
+            if (count < 0) { direct = null; }
         }
+        JsonValue obj = direct == null ? JsonValue.OfObject() : null;
+        bool first = true;
+        if (direct != null) { direct.StartContainer("{"); }
+        for (int i = 0; i < members.Length; i = i + 1) {
+            JsonMember member = members[i];
+            if (!member.CanRead) { continue; }
+            if (direct != null) { direct.StartEntry(first); direct.WriteKey(member.JsonKey); first = false; }
+            JsonValue child = JsonSerializer._toJson(member.Get(o), direct);
+            if (obj != null) { obj.Set(member.JsonKey, child); }
+        }
+        if (direct != null) { direct.EndContainer("}"); }
+        else if (writer != null) { writer.WriteValue(obj); }
         return obj;
     }
+
+    private static int _directMemberCount(JsonMember[] members) {
+        HashSet<string> seen = null;
+        if (members.Length > 8) { seen = new HashSet<string>(); }
+        int count = 0;
+        for (int i = 0; i < members.Length; i = i + 1) {
+            JsonMember member = members[i];
+            if (!member.CanRead) { continue; }
+            string key = member.JsonKey;
+            if (key == null) { return -1; }
+            if (seen != null) {
+                if (!seen.Add(key)) { return -1; }
+            } else {
+                for (int j = 0; j < i; j = j + 1) {
+                    if (members[j].CanRead && members[j].JsonKey == key) { return -1; }
+                }
+            }
+            count = count + 1;
+        }
+        return count;
+    }
+
 }

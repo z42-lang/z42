@@ -1,0 +1,78 @@
+namespace Z42JsonObjectStreamBench;
+using Std.Collections;
+using Std.Harness;
+using Std.IO;
+using Std.Json;
+
+class Row {
+    public int Id;
+    public string Label = "é中😀";
+    public bool Ready = true;
+}
+
+class CountingSink : Stream {
+    public int Bytes;
+    public override void Write(byte[] buffer, int offset, int count) {
+        this.Bytes = this.Bytes + count;
+    }
+    public override void Flush() {}
+}
+
+Row[] rows(int count) {
+    Row[] values = new Row[count];
+    for (int i = 0; i < count; i = i + 1) {
+        Row value = new Row();
+        value.Id = i;
+        values[i] = value;
+    }
+    return values;
+}
+
+object collections() {
+    Row[] values = rows(128);
+    List<Row> list = new List<Row>();
+    Dictionary<string, Row> dictionary = new Dictionary<string, Row>();
+    for (int i = 0; i < values.Length; i = i + 1) {
+        list.Add(values[i]);
+        dictionary["k" + i.ToString()] = values[i];
+    }
+    return new object[] { list, dictionary };
+}
+
+void measureStream(object value, bool pretty, string name) {
+    CountingSink sink = new CountingSink();
+    var b = new Bencher(4, 24);
+    b.iter(() => {
+        if (pretty) { JsonSerializer.SerializeToPretty(sink, value); }
+        else { JsonSerializer.SerializeTo(sink, value); }
+        BenchHelpers.blackBox(sink.Bytes);
+    });
+    b.printSummary(name);
+}
+
+void measureString(object value, bool pretty, string name) {
+    var b = new Bencher(4, 24);
+    b.iter(() => {
+        string output = pretty ? JsonSerializer.SerializePretty(value) : JsonSerializer.Serialize(value);
+        BenchHelpers.blackBox(output);
+    });
+    b.printSummary(name);
+}
+
+[Benchmark]
+void object_stream_128() { measureStream(rows(128), false, "object_stream_128"); }
+
+[Benchmark]
+void object_stream_pretty_128() { measureStream(rows(128), true, "object_stream_pretty_128"); }
+
+[Benchmark]
+void object_stream_1() { measureStream(rows(1), false, "object_stream_1"); }
+
+[Benchmark]
+void object_stream_collections() { measureStream(collections(), false, "object_stream_collections"); }
+
+[Benchmark]
+void object_string_128() { measureString(rows(128), false, "object_string_128"); }
+
+[Benchmark]
+void object_string_pretty_collections() { measureString(collections(), true, "object_string_pretty_collections"); }

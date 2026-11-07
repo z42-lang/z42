@@ -1,0 +1,32 @@
+namespace Z42JsonCollectionBindingBench;
+using Std.Collections;
+using Std.Harness;
+using Std.Json;
+
+void measure(object value, string name) {
+    var b = new Bencher(3, 24);
+    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Serialize(value)); });
+    b.printSummary(name);
+}
+
+[Benchmark]
+void collection_binding_lists_16() {
+    object[] rows = new object[16];
+    for (int i = 0; i < rows.Length; i = i + 1) {
+        List<int> row = new List<int>();
+        for (int j = 0; j < 8; j = j + 1) { row.Add(j); }
+        rows[i] = row;
+    }
+    measure(rows, "collection_binding_lists_16");
+}
+
+[Benchmark]
+void collection_binding_dictionaries_16() {
+    object[] rows = new object[16];
+    for (int i = 0; i < rows.Length; i = i + 1) {
+        Dictionary<string, int> row = new Dictionary<string, int>();
+        for (int j = 0; j < 8; j = j + 1) { row["k" + j.ToString()] = j; }
+        rows[i] = row;
+    }
+    measure(rows, "collection_binding_dictionaries_16");
+}

@@ -9,7 +9,7 @@ JSON RFC 8259 reader / writer + **对象 ↔ JSON serde**（`JsonSerializer`）�
 | DOM Parse / Stringify | `JsonValue.z42` 的 `Parse` / `Stringify` / `StringifyPretty` |
 | DOM 构造 / 谓词 / 访问 | `JsonValue.z42` 的 `Of*` / `Is*` / `As*` / `Get`/`Set`/`At`/`Add` |
 | JSONPath 选择 | `JsonPath.z42` 的 `Select(root, "$.a.b[0]")` |
-| **对象 → JSON** | `JsonSerializer.z42` 的 `Serialize` / `SerializePretty` |
+| **对象 → JSON** | `JsonSerializer.z42` 的 `Serialize` / `SerializePretty` / `SerializeTo` / `SerializeToPretty` |
 | **JSON → 对象** | `JsonSerializer.z42` 的 `Deserialize<T>` / `Deserialize(Type, json)` |
 | **成员改名 / 忽略** | `[JsonProperty("k")]` / `[JsonIgnore]`（字段 + 属性均生效，含计算属性） |
 
@@ -71,7 +71,8 @@ ctor → `Activator` + 按名 `SetValue`；否则按参数名映射 JSON 键 `Co
 auto-prop）。不支持：Dict 非字符串键 / Set / enum / nullable。
 
 `JsonValue.WriteTo` 和 `WriteToPretty` 完成文档遍历后，将片段拼接为独立的 UTF-8 字节数组。
-底层流接收一次 Write，成功后刷新，由调用方管理底层流。
+`JsonSerializer.SerializeTo` 和 `SerializeToPretty` 以同样方式写出对象的 UTF-8 JSON。
+文档准备成功后调用一次 Write 和一次 Flush。底层流由调用方管理。
 
 字符串键和值先在 UTF-8 存储中检查转义字符。无需转义的字符串直接作为输出片段，
 含转义字符的字符串从首个命中处按原有规则逐标量处理。
