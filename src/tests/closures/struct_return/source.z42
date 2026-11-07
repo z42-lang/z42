@@ -1,0 +1,35 @@
+namespace ClosureStructReturn;
+using Std.IO;
+
+[Record] struct Pair(int Number, string Text);
+
+Pair makePair(int value) { return new Pair(value, "method"); }
+
+Pair apply<T>(Func<T, Pair> body, T value) { return body(value); }
+
+void main() {
+    Func<int, Pair> expression = (int value) => new Pair(value + 1, "expression");
+    Pair first = expression(2);
+    Console.WriteLine(first.Number);
+    Console.WriteLine(first.Text);
+
+    int offset = 4;
+    Func<int, Pair> captured = (int value) => {
+        Pair result = new Pair(value + offset, "captured");
+        GC.ForceCollect();
+        return result;
+    };
+    Pair second = apply<int>(captured, 3);
+    Console.WriteLine(second.Number);
+    Console.WriteLine(second.Text);
+
+    Func<int, Pair> method = makePair;
+    Pair third = method(9);
+    Console.WriteLine(third.Number);
+    Console.WriteLine(third.Text);
+
+    Func<int, (int, string)> tuple = (int value) => (value, "tuple");
+    (int, string) fourth = tuple(11);
+    Console.WriteLine(fourth.Item1);
+    Console.WriteLine(fourth.Item2);
+}
