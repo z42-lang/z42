@@ -30,6 +30,7 @@ public class Mutex<T> {
     }
 
     /// 在排他锁内读取当前值并返回 body 的结果，不替换被保护的值。
+    ///
     /// 引用类型的内部修改不会被限制；body 抛异常时仍释放锁并传播原异常。
     public TResult Read<TResult>(Func<T, TResult> body) {
         MonitorNative.Enter(this._mon);
@@ -40,7 +41,9 @@ public class Mutex<T> {
         }
     }
 
-    /// 在排他锁内用当前值调用 body，将其二元组的 Item1 写回，并返回 Item2。
+    /// 在排他锁内更新状态并返回独立结果。
+    ///
+    /// body 返回二元组 (新状态, 结果)，将 Item1 写回并返回 Item2。
     /// body 抛异常时不执行字段写回，释放锁并传播原异常；已发生的引用对象内部修改不回滚。
     public TResult Update<TResult>(Func<T, (T, TResult)> body) {
         MonitorNative.Enter(this._mon);
