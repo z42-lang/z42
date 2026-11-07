@@ -325,15 +325,19 @@ criterion 层噪声底的实测（同一个 PR 的四次跑，**每次 base 与 
 
 ## 9. CI 门禁接线（`bench-pr.yml`）
 
-触发路径刻意收窄（`src/runtime` / `src/libraries` / `src/compiler` / `src/benches/` /
-`scripts/**/*.z42` / 本 workflow），末尾再加一条负向模式 `!**/*.md`（负向在后 ⇒ 覆盖前面的匹配），
-使**纯文档 PR 一个文件都不命中、整个 workflow 不触发**；`.md` 与代码同改则照旧跑。步骤：
+触发路径包括 Runtime、标准库、编译器、`src/benches/`、xtask 源码和工程清单、判定自检脚本及本 workflow。
+纯 Markdown 改动由 `!**/*.md` 排除。
+
+checkout 后比较事件基线和实际合并树。改动只落在 `src/benches/testdata/`、`.github/ci/bench-verdict.sh`
+及 Markdown 文档时，job 用种子 SDK 编译 xtask 后运行判定自检，摘要记录所选路径。重命名的两端均参与判断。
+涉及场景、测量编排或其他路径时走完整 A/B。基线缺失或无法验证时也走完整路径。
+
+完整 A/B 的步骤如下。
 
 1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`），
    随后做**格式代差检测**（见 §10）。
 2. bootstrap PR 工具链（nightly z42c 种子 → 当前源码 warm 自建）。
-3. **判红逻辑自检**——纯 JSON / 纯函数，实测约 1.2 s，**放在测量之前** ⇒ 规则改坏立刻失败而不是
-   等二十分钟。
+3. **判红逻辑自检**用 `bash .github/ci/bench-verdict.sh` 执行纯 JSON 与纯函数检查，在测量之前报告失败。
 4. **建 base 工具链**（同 runner，见 §3）。
 5. **e2e A/B（硬门禁）**：`bench --ab --tier gate --mode $MODE --threshold-time 0.15
    --pause-cap-ms 16 --threshold-pause 0.25 --threshold-pause-max 1.0 --base-vm/-libs/-driver …
