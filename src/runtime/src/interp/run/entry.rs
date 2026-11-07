@@ -1,6 +1,4 @@
-//! 解释器公开入口：ExecOutcome / run / run_returning / run_outcome / init_static_fields / run_with_static_init。refactor-split-interp-mod：自 1155 行的 `interp/mod.rs` 逐行搬出，
-//! mod.rs 只留模块表与执行主循环 `exec_function_body`；本模块经 mod.rs 的 `pub(crate) use` 全量再导出，
-//! 兄弟模块的 `super::X` 路径不变。
+//! Public execution entry points.
 
 #![allow(unused_imports)]
 use super::*;

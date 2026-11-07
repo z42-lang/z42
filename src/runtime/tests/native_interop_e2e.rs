@@ -110,7 +110,7 @@ fn vm_with_counter_registered() -> std::pin::Pin<Box<VmContext>> {
 }
 
 /// Run `f` while a `VmGuard` for `ctx` is active. The guard is normally
-/// installed by `interp::exec_function`; this helper exposes the same
+/// installed by `interp::run::exec_function`; this helper exposes the same
 /// scoping for tests that need to drive `z42_*` extern functions directly.
 fn invoke_with_vm_guard<R>(ctx: &VmContext, f: impl FnOnce() -> R) -> R {
     let _g = z42::interop::exports::VmGuard::enter(ctx);

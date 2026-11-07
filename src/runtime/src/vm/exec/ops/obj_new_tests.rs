@@ -2,7 +2,7 @@
 //! `new` of a class from a lazily loaded package hashes no names after its first execution.
 
 use super::*;
-use crate::interp::Frame;
+use crate::interp::frame::Frame;
 use crate::metadata::ir::{BasicBlock, Instruction, ObjNewInsn, Terminator};
 use crate::metadata::index::name::NameIndex;
 use crate::vm::runtime::ids::tokens::{alloc_type_id_block, FnId, TypeId};
@@ -134,7 +134,7 @@ fn interp_obj_new_hits_the_site_cache() {
     let site = ObjNewSite::default();
     let run = |ctx: &VmContext| {
         let mut frame = Frame::new(ctx, &[], 4);
-        let thrown = crate::interp::exec_object::obj_new(
+        let thrown = crate::interp::ops::exec_object::obj_new(
             ctx, &entry, &mut frame, 1, "Pkg.Foo", "Pkg.Foo..ctor$0", &[], crate::object::TypeArgs::empty(), Some(&site), false, true,
         ).unwrap();
         assert!(thrown.is_none());

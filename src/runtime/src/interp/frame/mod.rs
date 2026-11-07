@@ -2,7 +2,6 @@
 //! Reference location access is owned by the shared execution operations.
 
 #![allow(unused_imports)]
-use super::*;
 use crate::vm::exec::ops::references::{deref_ref, store_thru_ref};
 use crate::vm::runtime::{Function, Module};
 use crate::{

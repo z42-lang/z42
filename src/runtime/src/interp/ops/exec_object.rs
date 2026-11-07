@@ -10,7 +10,7 @@ use crate::vm_context::VmContext;
 use anyhow::Result;
 
 use crate::vm::exec::ops::cast::isa_td;
-use super::ops::collect_args;
+use super::collect_args;
 use super::Frame;
 
 /// `ObjNew` dispatch. Class and ctor come from the site cache (`site`, P1-2 PR 5) once the
@@ -138,7 +138,7 @@ pub(super) fn field_get(
 ) -> Result<Option<Value>> {
     match crate::objops::field::field_get(ctx, frame.get(obj)?, field_name, field_ic) {
         Ok(v) => { frame.set(dst, v); Ok(None) }
-        Err(e) => super::ops::raise(ctx, module, e),
+        Err(e) => super::raise(ctx, module, e),
     }
 }
 
@@ -158,7 +158,7 @@ pub(super) fn field_set(
     );
     match crate::objops::field::field_set(ctx, frame.get(obj)?, field_name, v, field_ic) {
         Ok(()) => Ok(None),
-        Err(e) => super::ops::raise(ctx, module, e),
+        Err(e) => super::raise(ctx, module, e),
     }
 }
 
@@ -176,7 +176,7 @@ pub(super) fn static_get(
 ) -> Result<Option<Value>> {
     match crate::objops::statics::static_get(ctx, module, field, field_id) {
         Ok(v) => { frame.set(dst, v); Ok(None) }
-        Err(e) => super::ops::raise(ctx, module, e),
+        Err(e) => super::raise(ctx, module, e),
     }
 }
 
@@ -194,6 +194,6 @@ pub(super) fn static_set(
     );
     match crate::objops::statics::static_set(ctx, module, field, field_id, v) {
         Ok(()) => Ok(None),
-        Err(e) => super::ops::raise(ctx, module, e),
+        Err(e) => super::raise(ctx, module, e),
     }
 }

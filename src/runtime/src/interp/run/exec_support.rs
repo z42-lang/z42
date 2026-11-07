@@ -1,6 +1,4 @@
-//! exec_function 族入口、FrameGuard、OSR / 原生分流、异常事件与 handler 查找、ref 写回。refactor-split-interp-mod：自 1155 行的 `interp/mod.rs` 逐行搬出，
-//! mod.rs 只留模块表与执行主循环 `exec_function_body`；本模块经 mod.rs 的 `pub(crate) use` 全量再导出，
-//! 兄弟模块的 `super::X` 路径不变。
+//! Activation entry, frame guards, native routing and exception bookkeeping.
 
 #![allow(unused_imports)]
 use super::*;
@@ -93,14 +91,14 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
 /// receiver; either may sit inside a constructed argument (`Bar<List<T>>()`). Same binding as
 /// the caller's own `o is T` / `typeof(T)` (`type_param_env`). Only called when the site carries
 /// at least one marker (see [`has_forwarded_mta`]), so the common concrete path allocates nothing.
-pub(super) fn resolve_forwarded_mta(ctx: &VmContext, caller: &Frame, mta: &[String]) -> Vec<String> {
+pub(in crate::interp) fn resolve_forwarded_mta(ctx: &VmContext, caller: &Frame, mta: &[String]) -> Vec<String> {
     let env = caller.type_param_env();
     mta.iter().map(|s| env.substitute(ctx, s)).collect()
 }
 
 /// Does a call site's `method_type_args` carry type-parameter markers to bind first?
 #[inline]
-pub(super) fn has_forwarded_mta(mta: &[String]) -> bool {
+pub(in crate::interp) fn has_forwarded_mta(mta: &[String]) -> bool {
     mta.iter().any(|s| crate::metadata::index::type_param_markers::has_markers(s))
 }
 
@@ -133,7 +131,7 @@ pub(crate) fn exec_function_with_type_args(
 /// runtime-jit-tiering Phase 1.5.2: mixed-mode divert used as the universal
 /// backstop at `exec_function`, keyed by the function's JIT id (no hashing). Returns `None` (→ interpret) when the
 /// VM has no JIT installed (interp-only run), when an argument is a `Ref` (a stack address
-/// can't cross into native code — see `super::exec_call::try_native_static_call`; a
+/// can't cross into native code — see `crate::interp::ops::exec_call::try_native_static_call`; a
 /// compiled fn never has ref params anyway, so this is defensive), or when the
 /// function is not compiled yet (or has no JIT id). On a
 /// compiled hit it runs the native code and marshals the result into an
@@ -191,7 +189,7 @@ pub(super) fn try_osr(_ctx: &VmContext, _frame: &mut Frame, _func: &Function, _l
 /// indices — no intermediate `collect_args` `Vec<Value>` alloc, and each arg is
 /// cloned **once** (caller reg → callee reg) instead of twice (caller reg →
 /// args Vec → callee reg). Mirrors the JIT's `JitFrame::new_args_from`
-/// (jit/helpers/call.rs). Used by the non-virtual `Call` path (super::exec_call::call),
+/// (jit/helpers/call.rs). Used by the non-virtual `Call` path (crate::interp::ops::exec_call::call),
 /// which passes plain register indices with no receiver prepend.
 pub(crate) fn exec_function_from_regs(
     ctx: &VmContext, module: &Module, func: &Function,

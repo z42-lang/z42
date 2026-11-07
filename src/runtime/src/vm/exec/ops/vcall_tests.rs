@@ -8,7 +8,7 @@ use crate::vm::runtime::ids::tokens::{alloc_type_id_block, FnId, TypeId};
 use crate::metadata::ir::ExecMode;
 use crate::object::{NativeData, TypeDesc};
 use crate::vm::runtime::Function;
-use crate::interp::Frame;
+use crate::interp::frame::Frame;
 use std::sync::Arc;
 
 /// An instance method returning `val` (receiver in reg 0).
@@ -114,7 +114,7 @@ fn interp_vcall_hits_the_pic_for_a_lazy_target() {
 
     let mut frame = Frame::new(&ctx, &[], 4);
     frame.set(0, obj.clone());
-    let thrown = crate::interp::exec_vcall::vcall(&ctx, &entry, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
+    let thrown = crate::interp::ops::exec_vcall::vcall(&ctx, &entry, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
     assert!(thrown.is_none());
     assert!(matches!(frame.get(1).unwrap(), Value::I64(7)));
 
@@ -125,7 +125,7 @@ fn interp_vcall_hits_the_pic_for_a_lazy_target() {
     assert!(ctx2.try_lookup_function("Pkg.Foo.Run$0").is_none());
     let mut frame = Frame::new(&ctx2, &[], 4);
     frame.set(0, obj);
-    let thrown = crate::interp::exec_vcall::vcall(&ctx2, &entry, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
+    let thrown = crate::interp::ops::exec_vcall::vcall(&ctx2, &entry, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
     assert!(thrown.is_none());
     assert!(matches!(frame.get(1).unwrap(), Value::I64(7)), "dispatched off the PIC by FnId");
 }
@@ -179,7 +179,7 @@ fn non_entry_module_never_caches_a_lazy_target() {
 
     let mut frame = Frame::new(&ctx, &[], 4);
     frame.set(0, obj);
-    crate::interp::exec_vcall::vcall(&ctx, &m, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
+    crate::interp::ops::exec_vcall::vcall(&ctx, &m, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
     assert!(matches!(frame.get(1).unwrap(), Value::I64(7)));
     assert_eq!(vcall_ic_hit(Some(&ic), &frame.get(0).unwrap().clone()), None);
 }

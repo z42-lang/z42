@@ -82,7 +82,7 @@ pub enum Value {
     // every closure is a heap `Closure`. 11 stays unused (no renumbering of 12+).
     /// Spec impl-ref-out-in-runtime: `ref` / `out` / `in` 参数运行时表达。
     /// 持有该 Value 的寄存器在 frame.get/set 时被透明 deref（单点 dispatch，
-    /// 见 `interp/mod.rs::Frame::get`）。引用永远不离开调用栈帧（前置 spec
+    /// 见 `interp/frame/mod.rs::Frame::get`）。引用永远不离开调用栈帧（前置 spec
     /// design Decision 9 + R1），因此 Stack kind 的 frame_idx 不会 stale。
     ///
     /// review.md C1 chunk 4 : payload boxed because RefKind

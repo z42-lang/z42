@@ -217,7 +217,7 @@ Make<ActWidget>()              → Make frame.method_type_args = ["…ActWidget"
 
 - **编译期**：`_applyMethodTypeArgs` 若类型实参是外层方法级形参（`env.MethodParamIndexOf ≥ 0`），
   在 `BoundCall.MethodTypeArgFwd` 记其下标；`_methodTypeArgNames` 据此发 `$mta:<idx>`。
-- **运行期**：`resolve_forwarded_mta`（interp/mod.rs）按**调用方** frame 解析标记。嵌套天然成立
+- **运行期**：`resolve_forwarded_mta`（interp/run/exec_support.rs）按**调用方** frame 解析标记。嵌套天然成立
   （每层调用在设置自己 callee frame 前解析，故调用方 frame 的槽已是具体名）。
 - **零格式改动**：`method_type_args` 本就是 `string[]`，`$mta:<idx>` 只是标记串；无新 opcode。
   无标记的调用（具体实参 / 类级形参）产物**字节不变**（`starts_with("$mta:")` 门控）。

@@ -1,7 +1,7 @@
 # 解释器 / JIT 标量语义的单一真相源
 
-> 代码：`src/runtime/src/vm/exec/ops/scalar.rs`（标量真相源）、`src/runtime/src/vm/exec/ops/object/`（对象操作真相源）、`src/runtime/src/interp/ops.rs` +
-> `interp/exec_value.rs`（interp 消费）、`src/runtime/src/jit/helpers/arith.rs` +
+> 代码：`src/runtime/src/vm/exec/ops/scalar.rs`（标量真相源）、`src/runtime/src/vm/exec/ops/object/`（对象操作真相源）、`src/runtime/src/interp/ops/mod.rs` +
+> `interp/ops/exec_value.rs`（interp 消费）、`src/runtime/src/jit/helpers/arith.rs` +
 > `jit/helpers/object.rs`（JIT helper 消费）、`src/runtime/src/jit/translate/emit_int.rs` +
 > `emit_fc.rs`（JIT 内联镜像）。
 
