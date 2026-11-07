@@ -355,7 +355,7 @@ public sealed class FunctionEmitter {
 
     // lambda lift 发射（port-z42c-closures；镜像 C# EmitLifted/EmitLiftedLambdaWithEnv）。
     // hasEnv：env=reg0、参数 reg1..；否则参数 reg0..。体内 BoundCapturedIdent → array_get env[idx]。
-    [Suppress("style.fnLinesHard", "64 body lines；拆分见 code-organization.md")]
+    [Suppress("style.fnLinesHard", "lambda 的捕获、参数、返回协议和调试表共用同一发射上下文")]
     public IrFunction EmitLambdaLifted(string name, BoundLambda lam) {
         // 子发射器自建 ctx（EmitFunction 才建 _ctx；镜像其入口装配）
         this._ctx = new EmitContext(this._symbols, this._gen);
@@ -380,10 +380,21 @@ public sealed class FunctionEmitter {
             int ptag = this._ctx.ToIrType(lam.ParamTypes[p]);
             this._ctx.Locals.Put(lam.ParamNames[p], new TypedReg(p + paramOffset, ptag));
             this._ctx.RecordReg(p + paramOffset, ptag);
-            paramTypes[p + paramOffset] = "?";                   // lift 形参类型串恒 "?"（SIGS 字节实证）
+            string parameterStruct = this._blobStructNameT(lam.ParamTypes[p]);
+            paramTypes[p + paramOffset] = parameterStruct != "" ? this._lambdaStructIdentity(lam.ParamTypes[p], parameterStruct) : "?";
             p = p + 1;
         }
-        this._ctx.NextReg = totalParams;                     // 参数区之后分配（漏此则 const 撞 reg0）
+        Z42FuncType ft = lam.Type() as Z42FuncType;
+        int regCount = totalParams;
+        string retStruct = ft != null ? this._blobStructNameT(ft.Ret) : "";
+        if (retStruct != "") {
+            this._ctx.RetIsStruct = true;
+            this._ctx.RetStructSize = this._gen.Layouts.StructSize(retStruct);
+            this._ctx.SretReg = new TypedReg(totalParams, IrType.Ref);
+            this._ctx.RecordReg(totalParams, IrType.Ref);
+            regCount = totalParams + 1;
+        }
+        this._ctx.NextReg = regCount;
         this._ctx.MaxReg = this._ctx.NextReg;
         this._ctx.InLambdaEnv = hasEnv;
         // 记录本 lifted lambda 的捕获名（env 布局序 = lam.Captures 序）→ 嵌套 lambda 的
@@ -399,11 +410,14 @@ public sealed class FunctionEmitter {
         } else {
             this._ctx.TrackLine(lam.ExprBody.Span);          // 表达式体记 1 条行（DBUG 字节实证：体表达式位置）
             TypedReg r = this._expr.Emit(lam.ExprBody);
-            this._ctx.EndBlock(new RetTerm(true, r));
+            if (this._ctx.RetIsStruct) {
+                this._ctx.Emit(new StructCopyInstr(this._ctx.SretReg, r, this._ctx.RetStructSize));
+                this._ctx.EndBlock(new RetTerm(false, null));
+            } else { this._ctx.EndBlock(new RetTerm(true, r)); }
         }
-        Z42FuncType ft = lam.Type() as Z42FuncType;
         string retName = "void";
-        if (ft != null) { retName = PrimModel.SurfaceName(ft.Ret.Name()); }   // unify-value-types P1：内建 leaf 回 keyword（SIGS 一致，见 _sigTypeName）
+        if (ft != null) { retName = PrimModel.SurfaceName(ft.Ret.Name()); }
+        if (this._ctx.RetIsStruct) { retName = this._lambdaStructIdentity(ft.Ret, retStruct); }   // unify-value-types P1：内建 leaf 回 keyword（SIGS 一致，见 _sigTypeName）
         int[] regTypes = new int[this._ctx.RegTagCount];
         int rt = 0;
         while (rt < this._ctx.RegTagCount) { regTypes[rt] = this._ctx.RegTags[rt]; rt = rt + 1; }
@@ -417,6 +431,7 @@ public sealed class FunctionEmitter {
                               this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,
                               "Interp", paramTypes, totalParams, regTypes, this._ctx.RegTagCount,
                               lines, lineCount, localVars, localVars.Length);
+        if (this._ctx.RetIsStruct) { lifted.MethodFlags = lifted.MethodFlags | IrGenFacts.MethodFlagSret; }
         // 异常表（lambda_try_catch）：lambda 体含 try/catch → 须把子 ctx 的 exc 表附到
         // lifted 函数（镜像 EmitFunction:101-106）。漏此则 lifted 体无 handler → 异常不被捕获。
         if (this._ctx.ExcCount > 0) {
@@ -427,6 +442,11 @@ public sealed class FunctionEmitter {
             lifted.ExcCount = this._ctx.ExcCount;
         }
         return lifted;
+    }
+
+    private string _lambdaStructIdentity(Z42Type type, string layout) {
+        string instance = this._expr._instIdentityName(type);
+        return instance != "" ? this._expr._qualifyInstName(instance) : this._ctx.QualifyLayout(layout);
     }
 
     private string[] _mergeTp(string[] a, int ac, string[] b, int bc) {

@@ -40,7 +40,6 @@ fn try_native_static_call(
 /// Shared tail of the two per-site native diverts (`try_native_static_call` /
 /// `exec_vcall::try_native_method_call`): a return lands in `dst` (`Null` for
 /// void), a throw is taken off the context and propagated as `Some(exception)`.
-#[cfg(feature = "jit")]
 pub(super) fn native_result_to_dst(
     frame: &mut Frame, dst: u32, outcome: ExecOutcome,
 ) -> Option<Value> {
@@ -302,6 +301,21 @@ pub(super) fn call_indirect(
     let Some(cfn) = fn_by_id((ctx).funcs(), module, id.0) else {
         bail!("CallIndirect: function id {} is not registered in this VM", id.0);
     };
+    let physical_count = args.len() + usize::from(env_val_opt.is_some());
+    if crate::vm::exec::call::indirect_return::needs_boxed_return(cfn, physical_count)
+        || crate::vm::exec::call::indirect_return::has_caller_return_slot(cfn, physical_count)
+        || args.iter().enumerate().any(|(position, &index)| frame.regs.get(index as usize)
+            .is_some_and(|value| crate::vm::exec::call::indirect_return::has_declared_boxed_argument(
+                cfn, position + usize::from(env_val_opt.is_some()), value,
+            )))
+    {
+        let mut values = collect_args(&frame.regs, args)?;
+        if let Some(environment) = env_val_opt { values.insert(0, environment); }
+        let outcome = crate::vm::exec::call::indirect_return::invoke(
+            ctx, module, cfn, id.0 as usize, frame.frame_id(ctx), values.into_vec(),
+        )?;
+        return Ok(native_result_to_dst(frame, dst, outcome));
+    }
     if let Some(res) = try_native_indirect_call(ctx, frame, dst, id.0 as usize, env_val_opt, args) {
         return res;
     }

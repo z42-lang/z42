@@ -513,6 +513,15 @@ blob 紧凑排列，每个元素就是独立 blob 的布局，引用叶子是元
 
 ### 覆盖范围
 
+- **lambda 与间接调用返回 struct**：调用方为已知 blob 返回类型分配返回槽，并作为末尾隐藏实参传入。
+  lifted lambda 的表达式体和块内 return 均将值复制进该槽，使用与普通函数相同的 SRET 标志。
+  返回值存储由调用方帧拥有，回调退出不会使结果悬垂；方法组复用其原有函数返回协议。
+- **擦除的委托消费方**：泛型体只知道返回型参时，间接调用按目标的 SRET 标记与逻辑参数数
+  在调用方 arena 补返回槽，正常返回后装箱交给擦除消费者；已显式传槽的调用不重复适配。
+  结构体参数使用独立值副本；按 `object` 声明的参数保留装箱引用身份。两个后端共用此适配，
+  lambda 的结构体参数/返回类型携带精确布局名，返回槽及参数副本随调用方帧回收。
+- **擦除布局的泛型构造器**：已知 struct 实参传入裸型参位时先装箱，避免泛型槽保留创建帧的
+  struct 句柄；采用特化内联布局的构造器继续接收原有 struct 实参，保持两种布局的协议一致。
 - **对象内联 struct 字段**（`class C { Point pt; }`）：默认零初始化 / `c.pt.x` 叶子读写 / 整字段拷入拷出值语义
   独立 / 方法内裸字段 / string 引用叶子内联 / 多对象独立——golden `struct_heap_inline.z42` 端到端验证。
 - **`struct[]` 值类型数组**（`Point[]`）：默认零初始化 / `arr[i].x` 叶子读写 / 整元素拷出拷入值语义独立 /
@@ -1040,3 +1049,14 @@ z42.core 里的脚本泛型，跨包不特化，擦除体里 `a[i]` 拿到的是
 元素时取值副本（编译器在擦除读点装箱，或 VM 侧给擦除帧另一种读法），再配写入臂与 struct 型参的 `new T[n]`。
 只读元素的谓词算法（`ForEach` / `Exists` / `TrueForAll` / `FindIndex` / `ConvertAll` 到非 struct）今天可用。
 **单标量叶子 struct 塌缩**（`GCHandle`）、**JIT 原生内联字节访问**（现 helper 桥接=interp 速度）、**反射合成方法可见**、**static struct 字段反射**、**ToString 字段 dump**、**E0438 自引用诊断**（现 `Size==0` 兜底防崩）、**`(P)o` 拆箱失败报错**（对 blob struct 目标发 `AsCast`，类型不符 / `o` 为 null 时得 `Null`，不抛 `InvalidCastException` / `NullReferenceException`；基元拆箱已抛，见 [object-abi](object-abi.md)）尚未实施。
+
+
+## Deferred
+
+### imported-generic-struct-box-identity: 依赖包泛型 struct 装箱身份
+
+- **来源**：Mutex 结果返回与委托值类型边界的类型身份探针。
+- **触发原因**：依赖包泛型 struct 沿用擦除描述符；例如直接将 `(int,int)` 装入 object 后，GetType 只报告 ValueTuple2 定义。普通装箱已有此限制，不只发生在委托返回。
+- **前置依赖**：明确跨包 generic struct 的实例身份与装箱类型实参载体，并与现有擦除布局、上下文归属保持一致。
+- **触发条件**：需要通过装箱实例反射其具体泛型实参，或扩展跨包 generic struct 的运行期身份时。
+- **当前 workaround**：已有静态目标 Type 时显式传递该 Type；不从依赖包泛型 struct 的装箱实例推断实参。本包具体实例已有合成描述符，返回协议保留其身份。

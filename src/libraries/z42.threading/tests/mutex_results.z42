@@ -1,0 +1,115 @@
+// requires-caps: threads
+namespace Z42MutexResultsTests;
+using Std.Threading;
+using Std.Harness;
+
+class Box { public int Value; public Box(int value) { this.Value = value; } }
+[Record] struct Counter(int Value);
+
+static class Shared {
+    public static Mutex<long> State;
+    public static long First;
+    public static long Second;
+}
+
+[Test]
+void test_read_returns_result_without_replacing_state() {
+    var state = new Mutex<int>(7);
+    Assert.Equal("7", state.Read<string>((int value) => value.ToString()));
+    Assert.Equal(7, state.Read<int>((int value) => value));
+    state.Lock((int value) => value + 1);
+    Assert.Equal(8, state.Read<int>((int value) => value));
+}
+
+[Test]
+void test_update_returns_result_and_commits_new_state() {
+    var state = new Mutex<int>(7);
+    string previous = state.Update<string>((int value) => (value + 2, value.ToString()));
+    Assert.Equal("7", previous);
+    Assert.Equal(9, state.Read<int>((int value) => value));
+}
+
+[Test]
+void test_struct_state_and_result() {
+    var state = new Mutex<Counter>(new Counter(3));
+    Counter previous = state.Update<Counter>((Counter value) => (new Counter(value.Value + 1), value));
+    Assert.Equal(3, previous.Value);
+    Counter current = state.Read<Counter>((Counter value) => value);
+    Assert.Equal(4, current.Value);
+    Assert.Equal(4, state.Read<int>((Counter value) => value.Value));
+}
+
+[Test]
+void test_reference_results_survive_callback_and_caller_gc() {
+    var state = new Mutex<Box>(new Box(5));
+    Box previous = state.Update<Box>((Box value) => {
+        Box next = new Box(value.Value + 1);
+        GC.ForceCollect();
+        return (next, value);
+    });
+    GC.ForceCollect();
+    Assert.Equal(5, previous.Value);
+    Assert.Equal(6, state.Read<int>((Box value) => { GC.ForceCollect(); return value.Value; }));
+}
+
+[Test]
+void test_update_throw_preserves_state_and_original_exception() {
+    var state = new Mutex<int>(11);
+    Exception failure = new InvalidOperationException("body failed");
+    bool caught = false;
+    try {
+        state.Update<int>((int value) => { throw failure; });
+    } catch (Exception e) {
+        caught = Object.ReferenceEquals(failure, e);
+    }
+    Assert.True(caught);
+    Assert.Equal(11, state.Read<int>((int value) => value));
+    Assert.Equal(12, state.Update<int>((int value) => (value + 1, value + 1)));
+}
+
+[Test]
+void test_read_throw_releases_lock_and_reference_mutation_is_not_rolled_back() {
+    var state = new Mutex<Box>(new Box(1));
+    Assert.Throws("InvalidOperationException", () => {
+        state.Read<int>((Box value) => { value.Value = 9; throw new InvalidOperationException("read failed"); });
+    });
+    Assert.Equal(9, state.Read<int>((Box value) => value.Value));
+    Assert.Throws("InvalidOperationException", () => {
+        state.Update<int>((Box value) => { value.Value = 10; throw new InvalidOperationException("update failed"); });
+    });
+    Assert.Equal(10, state.Read<int>((Box value) => value.Value));
+}
+
+[Test]
+void test_reentry_throws_and_outer_lock_is_released() {
+    var state = new Mutex<int>(1);
+    Assert.Throws("LockRecursionException", () => {
+        state.Read<int>((int value) => state.Read<int>((int inner) => inner));
+    });
+    Assert.Equal(1, state.Read<int>((int value) => value));
+}
+
+[Test]
+void test_concurrent_updates_return_each_committed_value() {
+    Shared.State = new Mutex<long>(0);
+    Shared.First = 0;
+    Shared.Second = 0;
+    Thread first = Thread.Start(() => {
+        long sum = 0;
+        for (int i = 0; i < 50; i = i + 1) {
+            sum = sum + Shared.State.Update<long>((long value) => (value + 1, value + 1));
+        }
+        Shared.First = sum;
+    });
+    Thread second = Thread.Start(() => {
+        long sum = 0;
+        for (int i = 0; i < 50; i = i + 1) {
+            sum = sum + Shared.State.Update<long>((long value) => (value + 1, value + 1));
+        }
+        Shared.Second = sum;
+    });
+    first.Join();
+    second.Join();
+    Assert.Equal((long)100, Shared.State.Read<long>((long value) => value));
+    Assert.Equal((long)5050, Shared.First + Shared.Second);
+}
