@@ -59,6 +59,9 @@ Monitor { state: Mutex<{ owner, entry_waiters, signal_waiters }>, entry_cv, sign
 
 ## Monitor
 
+原生状态由 `object/object/monitor.rs` 的 `Monitor` 持有。它只包含线程身份、等待计数、互斥锁和条件变量。
+`corelib/monitor.rs` 实现 checked 操作、异常映射、争用探针与 GC park 协议，对象载荷和回收器直接引用对象层类型。
+
 | 操作 | 语义 |
 |---|---|
 | `Enter` | 阻塞直到持有。**同线程重入报错**（可 catch），不是死锁 |

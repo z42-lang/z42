@@ -43,26 +43,12 @@
 use std::sync::Arc;
 use std::thread::ThreadId;
 
-use parking_lot::{Condvar, Mutex};
-
 use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, IntoRet};
 use crate::object::{NativeData, TypeDesc};
 use crate::object::Value;
 use crate::vm_context::VmContext;
 
-#[derive(Debug, Default)]
-pub struct Monitor {
-    state:     Mutex<MonitorState>,
-    entry_cv:  Condvar,
-    signal_cv: Condvar,
-}
-
-#[derive(Debug, Default)]
-struct MonitorState {
-    owner:          Option<ThreadId>,
-    entry_waiters:  u32,
-    signal_waiters: u32,
-}
+pub use crate::object::Monitor;
 
 /// `enter` 慢路径 park 之前的自旋轮数：前 `SPIN_BUSY_ROUNDS` 轮忙等，其余轮 `yield_now`。
 const SPIN_ROUNDS: u32 = 40;

@@ -50,6 +50,8 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | REPL 支持（求值宿主 / 行编辑 / 行编辑器 cdylib 的懒 dlopen） | `repl/mod.rs` / `repl/editing.rs` / `repl/native.rs` |
 | 测试宿主（隔离跑 golden） | `tests.rs`（+ `reflection/module_load.rs` 的 `__run_goldens_isolated`）|
 
+Monitor 状态定义在 `object/object/monitor.rs`，核心库实现持有者检查、异常映射、争用统计与 GC park 协议。
+
 ## 基础用法
 
 **加一个 builtin**（新增一条需要 Rust 的 native 能力）——一律用 builtin ABI v2：
