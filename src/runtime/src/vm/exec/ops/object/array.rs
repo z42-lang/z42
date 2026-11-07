@@ -202,7 +202,7 @@ pub fn array_size(len: &Value) -> OpResult<usize> {
 ///
 /// - 元素是 blob 值 struct → STRUCT 堆数组（不走栈分配）。
 /// - `tp_prim`：泛型型参在运行期解析成**基元**实参时的（打包种类, 零值）——数组按该宽度打包
-///   （M13，`List<int>` 的 backing 每元素 4 B）。方法级型参由 interp 解析。
+///   （M13，`List<int>` 的 backing 每元素 4 B）。方法级型参从当前激活解析。
 /// - `bound`：`new T[n]` 在运行期绑定的实参。已绑定的 blob struct 使用连续布局；
 ///   引用和未绑定的型参使用擦除存储。反射报告实际绑定的元素类型。
 /// - `stack`：编译器证明不逃逸且运行期允许时给出栈帧号，数组进栈 arena。
@@ -266,6 +266,14 @@ pub fn class_type_param_array_args(
     let arg = crate::vm::exec::call::type_param_env::class_type_arg(ctx, receiver, index, owner);
     let kind = arg.as_deref().map(ElemKind::of_type_param).unwrap_or(ElemKind::Mixed);
     type_param_array_args(arg.as_deref(), kind)
+}
+
+/// Resolve a method-level array element from the current activation's arguments.
+pub(crate) fn method_type_param_array_args(
+    args: &[String], index: usize,
+) -> (Option<TypeParamElem>, Option<ElemType>) {
+    let Some(name) = args.get(index) else { return (None, None) };
+    type_param_array_args(Some(name), ElemKind::of_type_param(name))
 }
 
 pub(crate) fn type_param_array_args(arg: Option<&str>, kind: ElemKind) -> (Option<TypeParamElem>, Option<ElemType>) {

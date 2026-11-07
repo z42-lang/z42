@@ -8,6 +8,11 @@ use crate::vm_context::VmContext;
 use super::super::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
+#[cfg(test)]
+thread_local! {
+    pub(crate) static CALL_HELPER_HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Direct call. The callee is named by its JIT id (= `FnId`, see
 /// `jit::runtime`), cheapest source first:
 ///   1. `method_id` baked at translate time (the site's token was already bound);
@@ -73,6 +78,8 @@ unsafe fn call_impl(
     caller_offset: u32,
     mta: &[String],
 ) -> u8 {
+    #[cfg(test)]
+    CALL_HELPER_HITS.with(|hits| hits.set(hits.get() + 1));
     use crate::vm::runtime::ids::tokens::UNRESOLVED;
     let rt        = super::jit_rt(ctx);
     let frame_ref = &mut *frame;
@@ -132,16 +139,18 @@ unsafe fn call_compiled(
     // (`callee_barrier_settled`), the entry records the epoch — read BEFORE the
     // barrier ran, so an event while it ran leaves the record stale (re-checked
     // next call), never wrong. The gate is then one acquire + one relaxed load.
-    if !entry.init_ready_eq(vm.core.runtime.cctors.barrier_epoch()) {
+    let callee = &*entry.func;
+    let ready = &callee.call_init_ready;
+    if ready.load(std::sync::atomic::Ordering::Acquire) != vm.core.runtime.cctors.barrier_epoch() {
         let epoch = vm.core.runtime.cctors.barrier_epoch_acquire();
         if vm.module_init_gate_open() || vm.any_cctor_pending() {
-            if let Some(exc) = call_barriers(vm, ctx, &*entry.func, &entry.owner_init) {
+            if let Some(exc) = call_barriers(vm, ctx, callee, &entry.owner_init) {
                 set_exception(vm, exc);
                 return 1;
             }
         }
         if vm.callee_barrier_settled(&entry.owner_init) {
-            entry.mark_init_ready(epoch);
+            ready.store(epoch, std::sync::atomic::Ordering::Release);
         }
     }
     // jit-stack-trace: stamp the caller's call-site offset. Before the forwarder
@@ -156,7 +165,7 @@ unsafe fn call_compiled(
         }
     }
     if mta.is_empty() {
-        if let Some(value) = crate::vm::exec::call::forward::try_direct_field_read(vm, &*entry.func, &frame_ref.regs, arg_regs) {
+        if let Some(value) = crate::vm::exec::call::forward::try_jit_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
             frame_ref.regs[dst as usize] = value;
             return 0;
         }
@@ -196,7 +205,7 @@ unsafe fn call_interp(
         }
     }
     if mta.is_empty() {
-        if let Some(value) = crate::vm::exec::call::forward::try_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
+        if let Some(value) = crate::vm::exec::call::forward::try_jit_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
             frame_ref.regs[dst as usize] = value;
             return 0;
         }

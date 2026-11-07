@@ -9,11 +9,7 @@ use super::super::frame::JitFrame;
 use crate::vm_context::VmContext;
 use super::{raise, vm_ctx_ref};
 
-/// `class_tp`: for `new T[n]` on a **class-level** type parameter, its index (else -1).
-/// The receiver (reg 0) carries the concrete type args, so a primitive `T` packs the array at
-/// its width — resolved by the same `objops::array::class_type_param_array_args` interp uses (M13).
-/// (A method-level `T` has no JIT carrier → `unsupported_reason`.) The JIT never
-/// stack-allocates, so no frame id.
+/// Generic allocations resolve the element from the current method arguments or receiver.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_new(
     frame: *mut JitFrame, ctx: *const VmContext,
@@ -21,23 +17,23 @@ pub unsafe extern "C" fn jit_array_new(
     // the instruction's interned element-type handle (`ElemType::as_raw`) —
     // non-erased array reflection, no name allocation.
     et: *const ElemTypeInfo,
-    class_tp: i32,
-    // the instruction's `type_param_kind` (non-zero = element is a type parameter; a primitive
-    // argument packs, anything else stays MIXED).
-    tp_kind: u8, owner_ptr: *const u8, owner_len: usize,
+    tp_index: i32, tp_kind: u8, owner_ptr: *const u8, owner_len: usize,
 ) -> u8 {
     let element_type = ElemType::from_raw(et);
-    let len = (*frame).regs[size as usize];
-    let (tp_prim, bound) = if class_tp >= 0 {
-        let owner = (owner_len != 0).then(|| std::str::from_utf8_unchecked(std::slice::from_raw_parts(owner_ptr, owner_len)));
-        crate::objops::array::class_type_param_array_args(vm_ctx_ref(ctx), (*frame).regs.first(), class_tp as usize, owner)
-    } else {
-        (None, None)
+    let frame = &mut *frame;
+    let len = frame.regs[size as usize];
+    let (tp_prim, bound) = match (tp_kind, usize::try_from(tp_index)) {
+        (1, Ok(index)) => crate::objops::array::method_type_param_array_args(frame.method_type_args, index),
+        (2, Ok(index)) => {
+            let owner = (owner_len != 0).then(|| std::str::from_utf8_unchecked(std::slice::from_raw_parts(owner_ptr, owner_len)));
+            crate::objops::array::class_type_param_array_args(vm_ctx_ref(ctx), frame.regs.first(), index, owner)
+        }
+        _ => (None, None),
     };
     let r = crate::objops::array::array_new(
         vm_ctx_ref(ctx), &len, elem_tag, element_type, tp_kind != 0, tp_prim, bound, None::<fn() -> u32>);
     match r {
-        Ok(arr) => { (*frame).regs[dst as usize] = arr; 0 }
+        Ok(arr) => { frame.regs[dst as usize] = arr; 0 }
         Err(e) => raise(ctx, e),
     }
 }
