@@ -61,7 +61,7 @@ impl VmContext {
         crate::vm::runtime::dispatch::ic::fn_registration_mark()
     }
 
-    /// A loader snapshot for operation-local reflection plans. Pending
+    /// The published loader snapshot for VM-owned reflection caches. Pending
     /// initialization must still take the ordinary resolution path.
     pub(crate) fn reflection_revision(&self) -> i64 {
         let loader = self.core.loader.lazy_loader.read();

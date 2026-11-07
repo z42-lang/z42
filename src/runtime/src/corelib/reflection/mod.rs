@@ -72,3 +72,6 @@ pub use self::methodof::*;
 #[cfg(test)]
 #[path = "reflection_tests.rs"]
 mod reflection_tests;
+
+#[cfg(test)]
+mod reflection_cache_tests;

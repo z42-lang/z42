@@ -38,7 +38,7 @@ public static class JsonSerializer {
     private static JsonWriteBuffer _prepare(object value, bool pretty) {
         JsonWriteBuffer writer = new JsonWriteBuffer(pretty);
         writer.DeferNullQuotedValues();
-        JsonSerializer._toJson(value, null, writer);
+        JsonSerializer._toJson(value, writer);
         return writer;
     }
 
@@ -55,7 +55,7 @@ public static class JsonSerializer {
     private static bool _isScalarTarget<T>(object value) { return value is T; }
 
     // A null writer requests a DOM value. Otherwise emit into the current traversal.
-    private static JsonValue _toJson(object o, JsonOperationPlans plans, JsonWriteBuffer writer) {
+    private static JsonValue _toJson(object o, JsonWriteBuffer writer) {
         if (o == null) {
             if (writer == null) { return JsonValue.OfNull(); }
             writer.Put("null");
@@ -69,13 +69,12 @@ public static class JsonSerializer {
         if (JsonSerializer._isScalarTarget<string>(o)) { return JsonSerializer._stringToJson((string)o, writer); }
         Type t = (Type)o.GetType();
         string fn = t.FullName;
-        if (plans == null) { plans = new JsonOperationPlans(); }
-        if (t.IsArray) { return JsonSerializer._arrayToJson(o, plans, writer); }
+        if (t.IsArray) { return JsonSerializer._arrayToJson(o, writer); }
         int lt = fn.IndexOf("<");
         string baseFn = lt < 0 ? fn : fn.Substring(0, lt);
-        if (baseFn == "Std.Collections.List") { return JsonSerializer._listToJson(o, t, plans, writer); }
-        if (baseFn == "Std.Collections.Dictionary") { return JsonSerializer._dictToJson(o, t, plans, writer); }
-        return JsonSerializer._objectToJson(o, t, plans, writer);
+        if (baseFn == "Std.Collections.List") { return JsonSerializer._listToJson(o, t, writer); }
+        if (baseFn == "Std.Collections.Dictionary") { return JsonSerializer._dictToJson(o, t, writer); }
+        return JsonSerializer._objectToJson(o, t, writer);
     }
 
     private static JsonValue _longToJson(long value, JsonWriteBuffer writer) {
@@ -102,20 +101,20 @@ public static class JsonSerializer {
         return null;
     }
 
-    private static JsonValue _listToJson(object o, Type t, JsonOperationPlans plans, JsonWriteBuffer writer) {
+    private static JsonValue _listToJson(object o, Type t, JsonWriteBuffer writer) {
         JsonValue arr = writer == null ? JsonValue.OfArray() : null;
         int n = JsonReflect.ListCount(o, t);
         if (n == 0) {
             if (writer != null) { writer.Put("[]"); }
             return arr;
         }
-        MethodInfo getter = plans.For(t).GetListItem(t);
+        MethodInfo getter = JsonReflect.BindMethod(t, "get_Item", new Type[] { typeof(int) });
         object[] args = new object[1];
         if (writer != null && n > 0) { writer.StartContainer("["); }
         for (int i = 0; i < n; i = i + 1) {
             args[0] = i;
             if (writer != null) { writer.StartEntry(i == 0); }
-            JsonValue child = JsonSerializer._toJson(getter.Invoke(o, args), plans, writer);
+            JsonValue child = JsonSerializer._toJson(getter.Invoke(o, args), writer);
             if (arr != null) { arr.Add(child); }
         }
         if (writer != null) {
@@ -125,22 +124,16 @@ public static class JsonSerializer {
         return arr;
     }
 
-    private static JsonValue _dictToJson(object o, Type t, JsonOperationPlans plans, JsonWriteBuffer writer) {
-        JsonTypePlan plan = plans.For(t);
-        MethodInfo[] methods = null;
-        if (plan.DictionaryKeys == null) {
-            methods = t.GetMethods();
-            plan.DictionaryKeys = JsonReflect.BindMethod(methods, "Keys", new Type[0]);
-        }
-        MethodInfo keysMethod = plan.DictionaryKeys;
+    private static JsonValue _dictToJson(object o, Type t, JsonWriteBuffer writer) {
+        MethodInfo keysMethod = JsonReflect.BindMethod(t, "Keys", new Type[0]);
         string[] keys = (string[])keysMethod.Invoke(o, new object[0]);
         if (keys.Length == 0) {
             if (writer == null) { return JsonValue.OfObject(); }
             writer.Put("{}");
             return null;
         }
-        JsonTypePlan itemPlan = plans.For(t);
-        MethodInfo getter = itemPlan.GetDictionaryItem(t, plan, methods);
+        Type keyType = JsonReflect.GenericArg(t, 0);
+        MethodInfo getter = JsonReflect.BindMethod(t, "get_Item", new Type[] { keyType });
         object[] args = new object[1];
         JsonWriteBuffer direct = writer;
         if (direct != null && !JsonSerializer._uniqueKeys(keys)) { direct = null; }
@@ -150,7 +143,7 @@ public static class JsonSerializer {
             string k = keys[i];
             args[0] = k;
             if (direct != null) { direct.StartEntry(i == 0); direct.WriteKey(k); }
-            JsonValue child = JsonSerializer._toJson(getter.Invoke(o, args), plans, direct);
+            JsonValue child = JsonSerializer._toJson(getter.Invoke(o, args), direct);
             if (obj != null) { obj.Set(k, child); }
         }
         if (direct != null) { direct.EndContainer("}"); }
@@ -175,7 +168,7 @@ public static class JsonSerializer {
         return true;
     }
 
-    private static JsonValue _arrayToJson(object o, JsonOperationPlans plans, JsonWriteBuffer writer) {
+    private static JsonValue _arrayToJson(object o, JsonWriteBuffer writer) {
         Array a = (Array)o;
         int n = a.Length;
         if (writer != null && n == 0) { writer.Put("[]"); return null; }
@@ -183,19 +176,18 @@ public static class JsonSerializer {
         if (writer != null) { writer.StartContainer("["); }
         for (int i = 0; i < n; i = i + 1) {
             if (writer != null) { writer.StartEntry(i == 0); }
-            JsonValue child = JsonSerializer._toJson(a.GetValue(i), plans, writer);
+            JsonValue child = JsonSerializer._toJson(a.GetValue(i), writer);
             if (arr != null) { arr.Add(child); }
         }
         if (writer != null) { writer.EndContainer("]"); }
         return arr;
     }
 
-    private static JsonValue _objectToJson(object o, Type t, JsonOperationPlans plans, JsonWriteBuffer writer) {
-        JsonTypePlan plan = plans.For(t);
-        JsonMember[] members = plan.GetMembers(t);
+    private static JsonValue _objectToJson(object o, Type t, JsonWriteBuffer writer) {
+        JsonMember[] members = JsonMembers.For(t);
         JsonWriteBuffer direct = writer;
         if (direct != null) {
-            int count = plan.DirectMemberCount(members);
+            int count = JsonSerializer._directMemberCount(members);
             if (count == 0) { writer.Put("{}"); return null; }
             if (count < 0) { direct = null; }
         }
@@ -206,11 +198,33 @@ public static class JsonSerializer {
             JsonMember member = members[i];
             if (!member.CanRead) { continue; }
             if (direct != null) { direct.StartEntry(first); direct.WriteKey(member.JsonKey); first = false; }
-            JsonValue child = JsonSerializer._toJson(member.Get(o), plans, direct);
+            JsonValue child = JsonSerializer._toJson(member.Get(o), direct);
             if (obj != null) { obj.Set(member.JsonKey, child); }
         }
         if (direct != null) { direct.EndContainer("}"); }
         else if (writer != null) { writer.WriteValue(obj); }
         return obj;
     }
+
+    private static int _directMemberCount(JsonMember[] members) {
+        HashSet<string> seen = null;
+        if (members.Length > 8) { seen = new HashSet<string>(); }
+        int count = 0;
+        for (int i = 0; i < members.Length; i = i + 1) {
+            JsonMember member = members[i];
+            if (!member.CanRead) { continue; }
+            string key = member.JsonKey;
+            if (key == null) { return -1; }
+            if (seen != null) {
+                if (!seen.Add(key)) { return -1; }
+            } else {
+                for (int j = 0; j < i; j = j + 1) {
+                    if (members[j].CanRead && members[j].JsonKey == key) { return -1; }
+                }
+            }
+            count = count + 1;
+        }
+        return count;
+    }
+
 }

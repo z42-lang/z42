@@ -312,6 +312,25 @@ enum TypeProjection<'a> {
 fn build_type_ex(
     ctx: &VmContext, simple: &str, full: &str, native: NativeData, projection: TypeProjection<'_>,
 ) -> Value {
+    let cache_key = match &native {
+        NativeData::TypeHandle(td) => Some(declaration_key(td)),
+        NativeData::TypeShape(shape) => Some(shape.key.clone()),
+        _ => None,
+    };
+    // Explicit Type arguments keep their object identity through member projection.
+    let arguments = match &projection {
+        TypeProjection::Array { element: Value::Object(element), .. } => vec![*element],
+        TypeProjection::Generic(arguments) => arguments.iter().filter_map(|arg| {
+            if let Value::Object(object) = arg { Some(*object) } else { None }
+        }).collect(),
+        _ => Vec::new(),
+    };
+    let revision = ctx.reflection_revision();
+    if let Some(key) = &cache_key {
+        if let Some(value) = ctx.core.runtime.reflection_types.get(ctx.heap(), revision, key, &arguments) {
+            return value;
+        }
+    }
     let related_type = match &projection {
         TypeProjection::Array { element, .. } => Some(element),
         TypeProjection::Generic(arguments) => arguments.first(),
@@ -324,7 +343,7 @@ fn build_type_ex(
             Some(rc.type_desc_arc().clone()),
         _ => ctx.try_lookup_type(well_known_names::STD_TYPE),
     };
-    match type_td {
+    let value = match type_td {
         Some(type_td) => {
             let mut slots = vec![Value::Null; type_td.fields.len()];
             if let Some(&i) = type_td.field_index.get("IsArray") {
@@ -369,6 +388,11 @@ fn build_type_ex(
         // z42.core not loaded — return a bare null Type (degraded). Reflection
         // is meaningless without z42.core, so this path is effectively dead.
         None => Value::Null,
+    };
+    match cache_key {
+        Some(key) if revision == ctx.reflection_revision() =>
+            ctx.core.runtime.reflection_types.publish(ctx.heap(), revision, key, arguments, value),
+        _ => value,
     }
 }
 
