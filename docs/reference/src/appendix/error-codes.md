@@ -239,6 +239,9 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0504 | struct 不参与继承：struct 的 `:` 后只能写接口，类也不能派生自 struct。对齐 C# CS0527 / CS0509。报在派生类型的声明处，报错后按「无基类」继续检查 | ✅ `SymbolCollector._rejectStructBase` | `struct B : A { }`、`class C : SomeStruct { }` |
 | E0505 | `kind = "plugin"` 的插件工程里**没有任何类实现插件契约**（`Z42.Analyzers.Analyzer` / `Z42.Generators.Generator` / `Z42.Generators.ModuleGenerator`，或继承 `Z42.Build.BuildHooks`）。插件包提供哪几类由构建按实现的契约推导、写进 zpkg 头能力位；一类都没有的包对任何宿主都是空转，故在**构建插件本身**时即报，而非等使用方加载后发现零 handler（E0496）。判据看本包类型的全名基类与接口（经本包内基类传递） | ✅ `PackageCompile.z42`（常量 `PluginNoContract`） | `kind = "plugin"` 的工程里只有一个普通类 |
 | E0506 | 在**推不出类型**的值上调方法（如无类型标注、也没有目标类型的 lambda 形参 `(x) => x.Run(1, 2)`）。推不出类型就选不了重载：此前静默降级成按裸名的运行期派发，只认得同名重载里的第一个（对 `x` 调 `Substring(0, 3)` 会派到单参的 `Substring(int)`），运行期才报签名不符。修法是给该值写出类型。字段 / 属性读与下标不报（按名取无歧义）；已报过错的值不再级联报本码 | ✅ MemberResolver.z42（`ReportUnknownReceiver`） | `var f = (x) => x.Run(1, 2);` |
+| E0507 | `fieldof(T.F)` 的目标不是可见的实例/静态字段：不存在、其实是属性（诊断给出 `propertyof(T.F)` 写法）、或是 `const` 字段（编译期折叠、无运行期槽，`GetFields` 也从不列出它）。诊断列出该类型上可用的字段名 | ✅ TypeOpTyper.z42（`_bindFieldOfExpr`） | `fieldof(Logger.Nope)`、`fieldof(Logger.Prop)`（Prop 是属性） |
+| E0508 | `fieldof(...)` / `propertyof(...)` 括号内形态错：缺 `Type.Member`、任何一段带类型实参（泛型类共享一份字段布局，`Box<int>.F` 与 `Box<string>.F` 是同一个槽）、或成员后带参数列表（字段/属性无重载，名字即身份） | ✅ MethodOfParser.z42（`_parseDataMember`） | `fieldof(Logger)`、`fieldof(Box<int>.Item)`、`fieldof(Logger.Level(int))` |
+| E0509 | `propertyof(T.P)` 的目标不是属性：不存在（含跨包访问器回落后仍无 `get_P`/`set_P`）、其实是字段（诊断给出 `fieldof(T.P)` 写法）。诊断列出该类型上可用的属性名 | ✅ TypeOpTyper.z42（`_bindFieldOfExpr`） | `propertyof(Logger.Nope)`、`propertyof(Logger.Level)`（Level 是字段） |
 
 ### `[Forward]` 转发生成（⚠️ 常量名与实际发射不符，以本表为准）
 
@@ -339,10 +342,10 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0911 | `[Test]` 违反五条规则之一 | ✅ TestAttrEnforcer.z42（`_teCode`） | `[Test] int t() { return 0; }` |
+| E0911 | `[Test]` 违反五条规则之一；含 `[Case]` 三查（只贴 `[Test]` / 贴了须有形参 / 每行套数 = 形参数） | ✅ TestAttrEnforcer.z42（`_teCode`） | `[Test] [Case(1, 2)] void t(int a) {}` |
 | E0912 | `[Benchmark]` 违反同五条规则（**脱糖后**判定：form-2 `void f(Bencher b)` 合法） | ✅ TestAttrEnforcer.z42（`_teCode`） | — |
 | E0913 | `[ShouldThrow]` 缺类型实参，或该类型**可解析但基类链到不了 `Exception`**。⚠️ 类型解析不到时**刻意不报**（跨包 / 符号表不完整会误伤） | ✅ TestAttrEnforcer.z42（`_tsCheck`） | `[ShouldThrow(typeof(int))]` |
-| E0914 | `[Skip]` 缺 `reason` 或 reason 为空串；或 `[Skip]`/`[Ignore]` **孤儿使用**（同声明上没有 `[Test]`/`[Benchmark]`） | ✅ TestAttrEnforcer.z42（`_teArgChecks` / `_teOrphanCheck`） | `[Skip] void t() {}` |
+| E0914 | `[Skip]` 缺 `reason` 或 reason 为空串；或 `[Skip]`/`[Ignore]`/`[Case]` **孤儿使用**（同声明上没有 kind attr） | ✅ TestAttrEnforcer.z42（`_teArgChecks` / `_teOrphanCheck`） | `[Skip] void t() {}` |
 | E0915 | `[Setup]` / `[Teardown]` 违反同五条规则 | ✅ TestAttrEnforcer.z42（`_teCode`） | — |
 | E0917 | `[Timeout]` 缺 `milliseconds`（或该实参非整数字面量），或其值 ≤ 0 | ✅ TestAttrEnforcer.z42（`_teArgChecks`） | `[Timeout(0)] [Test] void t() {}` |
 

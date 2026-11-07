@@ -98,18 +98,35 @@ flowchart LR
 [Ignore]?                      → skipped("ignored")，不调 body
 [Skip] 且 _skipApplies()?      → skipped(SkipReason)，不调 body
 否则：
-  同组的全部 [Setup]            → Invoke（异常被吞）
+  同组的全部 [Setup]            → Invoke（异常被吞）——公共环境
+  声明的专属 setup               → `[Test(setup: methodof(Fix.s))]` 的 MethodInfo 直调；
+                                  抛异常 = 本条 failed（作者亲手指名的，炸了继续跑没有意义）
   被测函数                      → Invoke（json 模式下 stdout 被 TestIO 捕获；
-                                  `[Benchmark] f(Bencher b)` 由 runner 建 Bencher 传入，跑完 printSummary(函数名)）
-  同组的全部 [Teardown]         → Invoke（**总是跑**，异常被吞）
+                                  `[Benchmark] f(Bencher b)` 由 runner 建 Bencher 传入，跑完 printSummary(函数名)；
+                                  零参 `[Benchmark]` = runner 计时整个函数体）
+  声明的专属 teardown            → `[Test(teardown: methodof(Fix.t))]` 直调（异常被吞，总是跑）
+  同组的全部 [Teardown]         → Invoke（**总是跑**，异常被吞）——公共环境
   有 [ShouldThrow<E>]? → 抛了且 E 可赋值自抛出类型 = passed；否则 failed
   否则抛了            → failed（reason = "<ErrType>: <Message>"）
   否则                → passed
 ```
 
-**fixture 按命名空间（自由函数）或类型（静态方法）分组**：没有共享实例，这是唯一可用的
+**参数化测试（`[Case]`，data-driven）**：`[Test]` 可与多份 `[Case(1, 2, 3)]` 同贴——每份一行
+数据（实参是编译期常量，E0500 白名单），发现层把方法展开成多条用例（名字带实参后缀，如
+`test_add(1, 2, 3)`），每行独立 pass/fail。编译期三查（E0911/E0914）：`[Case]` 只贴 `[Test]`、
+贴了须有形参、每行套数 = 形参数；类型勘合在运行期（runner 按形参类型摆平整数族装箱，
+不匹配的失败消息指向具体行）。执行：`Method.Invoke(null, 勘合后实参)`——与 `[Benchmark]`
+的 Bencher 注入同一反射机制。
+
+**公共 fixture 按命名空间（自由函数）或类型（静态方法）分组**：没有共享实例，这是唯一可用的
 locality 单位。Setup/Teardown 里的异常被静默吞掉——这是当前实现的取舍，不是疏漏能推翻的，
 但它意味着一个坏掉的 Setup 会表现为"测试本身失败"。
+
+**专属 fixture 在测试那一侧强类型声明**（`[Test(setup: methodof(Fix.setup_x))]`）：引用经
+`methodof` 编译期解析——目标改名/拼错在引用点直接 **E0459 编译错误**，而不是字符串目标的
+静默失效。目标须是静态类的零参 void 方法（`methodof` 的 owner 是类型；静态类即 fixture 容器，
+JMH `@State` 的轻量对应）。执行序「公共先、专属后」，teardown 反序（专属先、公共后）；
+`[Test]` 与 `[Benchmark]` 同一 runner 入口，机制共享。
 
 ### 3.3 skip 判定
 

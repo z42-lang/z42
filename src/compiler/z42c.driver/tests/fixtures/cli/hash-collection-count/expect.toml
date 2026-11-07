@@ -1,0 +1,25 @@
+desc = "跨包字典与哈希集合 Count 拒绝直接和复合赋值"
+
+[[step]]
+args = ["--emit-zbc", "dictionary-assign.z42", "dictionary-assign.zbc"]
+exit = "nonzero"
+output_contains = ["E0482"]
+absent = ["dictionary-assign.zbc"]
+
+[[step]]
+args = ["--emit-zbc", "dictionary-compound.z42", "dictionary-compound.zbc"]
+exit = "nonzero"
+output_contains = ["E0482"]
+absent = ["dictionary-compound.zbc"]
+
+[[step]]
+args = ["--emit-zbc", "hashset-assign.z42", "hashset-assign.zbc"]
+exit = "nonzero"
+output_contains = ["E0482"]
+absent = ["hashset-assign.zbc"]
+
+[[step]]
+args = ["--emit-zbc", "hashset-compound.z42", "hashset-compound.zbc"]
+exit = "nonzero"
+output_contains = ["E0482"]
+absent = ["hashset-compound.zbc"]

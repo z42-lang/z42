@@ -1,0 +1,46 @@
+// 声明式专属 fixture（lifecycle-declared）：`[Test(setup: methodof(Fix.setup_x))]`（强类型，
+// methodof 编译期解析——改名/拼错在引用点直接编译错误，不再是字符串的静默失效）。
+// 执行序：公共（非定向 [Setup]，本组每条前跑）→ 声明 setup → 测试 → 声明 teardown →
+// 公共 [Teardown]。计数器断言各相位恰跑 N 次；专属 fixture 是静态类方法（methodof 的
+// owner 是类型，自由函数指不了——静态类即 fixture 容器，JMH @State 的轻量对应）。
+namespace Z42TestLifecycleTargeting;
+
+using Std.Harness;
+
+static class Fix {
+    public static int Common;
+    public static int DeclaredSetup;
+    public static int DeclaredTeardown;
+    public static int CommonTeardown;
+
+    public static void setup_for_a() { DeclaredSetup = DeclaredSetup + 1; }
+    public static void teardown_for_a() { DeclaredTeardown = DeclaredTeardown + 1; }
+}
+
+[Setup]
+void setup_common() { Fix.Common = Fix.Common + 1; }
+
+[Teardown]
+void teardown_common() { Fix.CommonTeardown = Fix.CommonTeardown + 1; }
+
+// 执行序 = 全限定名排序（发现层保证）：a → b（无声明）→ c。
+[Test(setup: methodof(Fix.setup_for_a), teardown: methodof(Fix.teardown_for_a))]
+void test_a_with_declared() {
+    Assert.Equal(1, Fix.Common);          // 公共先跑
+    Assert.Equal(1, Fix.DeclaredSetup);   // 声明随后
+    Assert.Equal(0, Fix.DeclaredTeardown);
+}
+
+[Test]
+void test_b_plain() {
+    Assert.Equal(2, Fix.Common);
+    Assert.Equal(1, Fix.DeclaredSetup);   // b 没声明 ⇒ 专属不再跑
+    Assert.Equal(1, Fix.DeclaredTeardown); // a 的声明 teardown 已在 a 后跑过
+}
+
+[Test]
+void test_c_teardown_order() {
+    // c 之前：公共累计 3，声明 setup 仍 1（只属于 a）。
+    Assert.Equal(3, Fix.Common);
+    Assert.Equal(1, Fix.DeclaredSetup);
+}

@@ -103,6 +103,8 @@ class LibUnitsCommand : Command {
 
 // 编译器：不带 part = GREEN 里那三项（自举不动点 + [Test] 单元 + e2e）；其余是按需跑的专项。
 class TestCompilerCommand : Command {
+    [Option(help: "default suite: reuse the release VM, compiler and stdlib; still build gen2")]
+    public bool NoBuild;
     [Option(help: "fingerprint: base source tree root (its stdlib already built by the base compiler)")]
     public string Base = "";
     [Option(help: "fingerprint: the base side's driver zpkg (tells whether both sides are the same binary)")]
@@ -115,10 +117,13 @@ class TestCompilerCommand : Command {
     public TestCompilerCommand() : base("compiler", "z42c fixpoint + units + e2e; or incremental | fingerprint | bootstrap") {}
 
     public override int Run() {
+        if (this.NoBuild && this.Part.Length > 0) {
+            throw new CliException("--no-build is only supported by the default compiler suite");
+        }
         if (this.Part == "incremental") { return _testIncremental(); }       // 文件级增量暴力对账（D4/D8）
         if (this.Part == "fingerprint") { return _testFingerprint(this.Base, this.BaseDriver); }   // 编译器输出变 ⇒ 版本号必须累加
         if (this.Part == "bootstrap")   { return _bootstrapCheck(this.Rid); }   // staged-bootstrap 边界检查
-        return _testCompiler(false);
+        return _testCompiler(this.NoBuild);
     }
 }
 

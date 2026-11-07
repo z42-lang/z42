@@ -131,4 +131,71 @@ pub mod typed {
     pub fn fields_of(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
         type_fields(ctx, ty)
     }
+
+    #[builtin(name = "__fieldof")]
+    pub fn field_of(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
+        fieldof(ctx, qualified)
+    }
+}
+
+/// `__fieldof("<declaring FQN>.<Field>") -> Std.Reflection.FieldInfo`
+/// (add-field-property-reference, the field/property sibling of `__methodof`).
+///
+/// The compiler resolves the member **entirely at bind time** (most-derived
+/// declaration wins, mirroring how field access resolves) and emits that one
+/// name, so this builtin does no lookup policy: resolve the class, find the
+/// field, materialise the reflection object. Auto-property backing fields
+/// (`__prop_*`) are skipped exactly like `GetFields()`.
+///
+/// Like `__methodof`, a miss here is a **compiler bug, not user error** — loud
+/// `Internal`, never a half-populated FieldInfo. The base-chain walk is
+/// belt-and-suspenders: the compiler already names the declaring class
+/// (inherited instance fields arrive in a derived class's `Fields` map as
+/// flattened copies), so the walk normally ends at the first class.
+pub fn fieldof(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) -> Result<Value, BuiltinError> {
+    let qualified = qualified.to_string();
+    let (class, field) = match qualified.rsplit_once('.') {
+        Some((c, f)) => (c, f),
+        None => (qualified.as_str(), ""),
+    };
+    let td = ctx
+        .module()
+        .and_then(|m| m.type_registry.get(class).cloned())
+        .or_else(|| ctx.try_lookup_type(class));
+    let td = match td {
+        Some(t) => t,
+        None => {
+            return Err(BuiltinError::Internal(format!(
+                "__fieldof: no type named `{class}` — the compiler emitted a field reference \
+                 that does not resolve (this is a z42c bug, not a source error)"
+            )));
+        }
+    };
+    // Instance fields first (already base-first within one td), then statics
+    // (stored per declaring class — same ordering as `type_fields`), then up
+    // the base chain. Dedup is implicit: first hit wins, most-derived first.
+    let mut cur = Some(td);
+    while let Some(c) = cur {
+        if let Some(f) = c.fields.iter().find(|f| f.name.as_ref() == field && !is_autoprop_backing(&f.name)) {
+            // No substitution: fieldof references the definition (no type
+            // arguments accepted), mirroring the shared field layout.
+            let ftype = make_type_from_name(ctx, &f.type_tag);
+            return build_field_info(ctx, &c.name, &f.name, ftype, false, f.visibility)
+                .map_err(BuiltinError::Legacy);
+        }
+        if let Some(f) = c.static_fields().iter().find(|f| &*f.name == field && !is_autoprop_backing(&f.name)) {
+            let ftype = make_type_from_name(ctx, &f.type_tag);
+            return build_field_info(ctx, &c.name, &f.name, ftype, true, f.visibility)
+                .map_err(BuiltinError::Legacy);
+        }
+        cur = c.base_name.as_ref().and_then(|b| {
+            ctx.module()
+                .and_then(|m| m.type_registry.get(b).cloned())
+                .or_else(|| ctx.try_lookup_type(b))
+        });
+    }
+    Err(BuiltinError::Internal(format!(
+        "__fieldof: no field named `{field}` on `{class}` or its base chain — the compiler \
+         emitted a field reference that does not resolve (this is a z42c bug, not a source error)"
+    )))
 }

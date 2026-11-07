@@ -49,12 +49,9 @@ public class StringBuilder {
         return this;
     }
 
-    // 追加单个字符：run-flush 路径上很少见（只有转义字符），每次分配 1 字符串可接受。
     /// 追加一个字符。
     public StringBuilder Append(char value) {
-        char[] one = new char[1];
-        one[0] = value;
-        return this.Append(String.FromChars(one));
+        return this.Append(value.ToString());
     }
 
     /// 追加任意值，经 `Convert.ToString` 转成字符串再追加。

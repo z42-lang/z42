@@ -10,10 +10,9 @@
 ///
 /// Submodules are organised by functional category (≈ CoreCLR `classlibnative/`):
 ///   `convert`     — parse / try_parse / to_string, boxing; re-exports object value formatting
-///   `io`          — println, print, readline, TestIO sinks
+///   `io`          — console, TestIO sinks, filesystem, and shared byte buffers
 ///   `string`      — str_length/char_at/substring/split/join/format …
 ///   `math`        — abs/max/min/pow/sqrt/trig …
-///   `fs`          — file_* / path_* / env_* / process_exit / time_now_ms
 ///   `object`      — obj_get_type / obj_ref_eq / obj_hash_code
 
 pub(crate) mod symavail;
@@ -23,6 +22,7 @@ pub(crate) mod application;
 mod resource_state_tests;
 pub mod convert;
 pub mod io;
+pub use io::fs;
 pub mod repl;
 pub mod repl_editing;
 // Lazy dlopen loader for the REPL editor cdylib (libz42_repl); without `native-interop`
@@ -30,10 +30,9 @@ pub mod repl_editing;
 pub mod repl_native;
 pub mod string;
 pub mod math;
-pub mod fs;
 pub mod object;
 pub mod reflection;
-pub mod struct_reflect;   // add-boxed-struct-identity (P4b): value-struct field layout replication
+pub use crate::object::types::named_struct_layout as struct_reflect;
 pub mod assemblyloadcontext;
 pub mod diagnostics;
 pub mod appprops;

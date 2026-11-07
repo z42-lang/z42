@@ -495,3 +495,36 @@ fn typed_iter_packs_each_element_in_place() {
     assert!(matches!(gc.borrow().get_boxed(0), Value::Str(s) if s.as_str() == "a"));
     assert!(matches!(gc.borrow().get_boxed(1), Value::Null));
 }
+
+#[test]
+fn search_prims_preserves_ranges_and_declines_unknown_storage() {
+    use super::typed::search_prims;
+    let ctx = ctx();
+    let array = ArrayObj::alloc_typed_filled(
+        ctx.heap(), crate::object::ElemType::intern("int"), 4, Value::I64(0),
+    );
+    let Value::Array(handle) = array else { panic!("expected an array") };
+    handle.borrow().set_boxed(1, Value::I64(4));
+    handle.borrow().set_boxed(3, Value::I64(4));
+    assert_eq!(search_prims(&array, &Value::I64(4), 0, 4, false), 1);
+    assert_eq!(search_prims(&array, &Value::I64(4), 3, 0, true), 3);
+    assert_eq!(search_prims(&array, &Value::I64(4), 2, 3, false), -1);
+    assert_eq!(search_prims(&array, &Value::I64(4), 0, 5, false), -2);
+    assert_eq!(search_prims(&array, &Value::I64(4), 4, 0, true), -2);
+    assert_eq!(search_prims(&array, &Value::Null, 0, 4, false), -2);
+    assert_eq!(search_prims(&ints(&[4]), &Value::I64(4), 0, 1, false), -2);
+}
+
+#[test]
+fn search_prims_accepts_null_in_string_arrays() {
+    use super::typed::search_prims;
+    let ctx = ctx();
+    let array = ArrayObj::alloc_typed_filled(
+        ctx.heap(), crate::object::ElemType::intern("string"), 3, Value::Null,
+    );
+    let Value::Array(handle) = array else { panic!("expected an array") };
+    handle.borrow().set_boxed(1, Value::Str("é".into()));
+    assert_eq!(search_prims(&array, &Value::Str("é".into()), 0, 3, false), 1);
+    assert_eq!(search_prims(&array, &Value::Null, 2, 0, true), 2);
+    assert_eq!(search_prims(&array, &Value::Null, 1, 2, false), -1);
+}

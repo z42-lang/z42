@@ -135,3 +135,8 @@ index 对齐，构建时从 `Function.is_static` 采）。`merge_with_base` 跳�
 `MemberResolver._bindInstanceMemberCall` 对 `Z42ArrayType` 收者委托给 `BindArrayInstanceCall`（`MemberResolver.Prim.z42`）：数组继承 Object 四方法，查 `Object` 取**真实返回类型**（`GetType`→`Std.Type`），镜像
 `Z42GenericParamType` 分支；`Std.Array` 的实例方法（`Clone` / `GetValue` / `SetValue`）照旧松绑定；两处都没有的名字报 `E0401`。若落到松绑定，返回类型是 `Z42UnknownType` → 链式 `xs.GetType().FullName` 退化成 `FieldGet "FullName"` → `null`。运行期数组值上的 VCall 仍走 `builtin_obj_get_type` 数组特化，OwnerClass
 与兜底同名、不改派发——只把 receiver 结果的静态类型定为 `Std.Type`，让链式属性正确绑定。
+
+
+## 短类型名的反射查找
+
+直接查找未命中时，反射从入口模块与惰性加载器的已加载全名中查找唯一短名。两个来源里的相同全名只算一次，多个不同全名匹配时保留原有歧义处理。扫描直接借用类型表中的名称，普通名称按切片比较，只在需要时按既有规则解析构造类型名。

@@ -69,3 +69,25 @@ void test_split_no_match_returns_single() {
     Assert.Equal(1, parts.Length);
     Assert.Equal("abc", parts[0]);
 }
+
+[Test]
+void test_end_anchor_is_emitted_once_when_search_starts_before_it() {
+    Regex r = Regex.Compile("$");
+    Match[] all = r.FindAll("é😀");
+    Assert.Equal(1, all.Length);
+    Assert.Equal(2, all[0].Start());
+    Assert.Equal(2, all[0].End());
+    Assert.Equal("é😀|", r.Replace("é😀", "|"));
+    string[] parts = r.Split("é😀");
+    Assert.Equal(2, parts.Length);
+    Assert.Equal("é😀", parts[0]);
+    Assert.Equal("", parts[1]);
+}
+
+[Test]
+void test_empty_boundary_after_nonmatching_prefix_is_emitted_once() {
+    Match[] all = Regex.Compile("\\b").FindAll("!a?");
+    Assert.Equal(2, all.Length);
+    Assert.Equal(1, all[0].Start());
+    Assert.Equal(2, all[1].Start());
+}

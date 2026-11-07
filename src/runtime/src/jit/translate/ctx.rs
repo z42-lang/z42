@@ -112,6 +112,8 @@ pub(super) struct TxCtx<'a, 'b> {
     pub(super) hr_mk_clos: FuncRef,
     pub(super) hr_call_indirect: FuncRef,
     pub(super) hr_default_of: FuncRef,
+    pub(super) hr_method_type_arg: FuncRef,
+    pub(super) hr_method_default: FuncRef,
     pub(super) hr_convert: FuncRef,
     pub(super) hr_check_safepoint_slow: FuncRef,
     pub(super) hr_fatal_pending: FuncRef,
@@ -159,6 +161,13 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         let rptr = self.builder.ins().iconst(self.ptr, slice.as_ptr() as i64);
         let rlen = self.builder.ins().iconst(types::I64, slice.len() as i64);
         (rptr, rlen)
+    }
+
+    /// Continue in a fresh block if the guard succeeds.
+    pub(super) fn continue_if(&mut self, cond: Value, otherwise: cranelift_codegen::ir::Block) {
+        let next = self.builder.create_block();
+        self.builder.ins().brif(cond, next, &[], otherwise, &[]);
+        self.builder.switch_to_block(next);
     }
 
     /// After a helper call returning u8: branch to catch dispatch or return 1 on

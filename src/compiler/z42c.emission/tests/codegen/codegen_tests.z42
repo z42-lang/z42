@@ -720,6 +720,21 @@ void test_inline_readonly_param_no_copy() {
 }
 
 [Test]
+void test_inline_bound_generic_type_test() {
+    string src = "bool IsTarget<T>(object value) { return value is T; }"
+        + " bool TestInt(object value) { return IsTarget<int>(value); }"
+        + " bool TestLong(object value) { return IsTarget<long>(value); }"
+        + " bool Forward<T>(object value) { return IsTarget<T>(value); }";
+    string intDump = IrDump.DumpFuncOpt(src, "TestInt", Opt.Inline);
+    string longDump = IrDump.DumpFuncOpt(src, "TestLong", Opt.Inline);
+    Assert.Contains("is_instance %0, Std.Int32", intDump);
+    Assert.Contains("is_instance %0, Std.Int64", longDump);
+    Assert.False(intDump.Contains("call @IsTarget"));
+    Assert.False(longDump.Contains("call @IsTarget"));
+    Assert.Contains("call @IsTarget", IrDump.DumpFuncOpt(src, "Forward", Opt.Inline));
+}
+
+[Test]
 void test_inline_disabled_keeps_call() {
     // OptSet 门控：Opt.None(-O0) → 内联不跑，`call @Helper` 保留（可调试忠实）。
     string src = "int Helper() { return 7; } int Main() { return Helper(); }";

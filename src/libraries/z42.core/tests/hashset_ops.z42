@@ -135,3 +135,21 @@ void test_except_with() {
     Assert.True(s.Contains(3));
     Assert.False(s.Contains(2));
 }
+
+[Test]
+void test_clear_empty_and_tombstoned_set_allows_reuse() {
+    var set = new HashSet<int>();
+    set.Clear();
+    set.Clear();
+    Assert.Equal(0, set.Count);
+    Assert.True(set.Add(7));
+    Assert.False(set.Add(7));
+    Assert.Equal(1, set.Count);
+    Assert.True(set.Remove(7));
+    Assert.Equal(0, set.Count);
+    set.Clear();
+    Assert.False(set.Contains(7));
+    Assert.True(set.Add(7));
+    Assert.Equal(1, set.Count);
+    Assert.Equal(7, set.ToArray()[0]);
+}

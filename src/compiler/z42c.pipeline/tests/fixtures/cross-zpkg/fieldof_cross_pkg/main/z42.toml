@@ -1,0 +1,8 @@
+[project]
+name    = "fp.app"
+version = "0.1.0"
+kind    = "exe"
+pack    = true
+[dependencies]
+"fp.base" = "0.1.0"
+"fp.ext"  = "0.1.0"

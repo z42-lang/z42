@@ -58,7 +58,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                             self.emit_str_intrinsic(k, insn.dst, &recv_args, false,
                                 |cx| cx.emit_vcall_helper(insn));
                         }
-                        None => self.emit_vcall_helper(insn),
+                        None => self.emit_virtual_field_read(insn),
                     }
                 }
                 Instruction::IsInstance(insn) => {

@@ -1,0 +1,13 @@
+[project]
+name = "nested-vendor.app"
+version = "0.1.0"
+kind = "exe"
+
+[sources]
+include = ["app.z42"]
+
+[dependencies]
+"nested-vendor.mid" = { path = "../source-mid" }
+
+[plugins]
+"z42.harness.lint" = false

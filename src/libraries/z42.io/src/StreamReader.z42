@@ -43,15 +43,23 @@ public class StreamReader : TextReader {
     /// 窥视下一个 Unicode 标量，不推进游标；EOF 返回 -1。
     public override int Peek() {
         if (this._closed || this._failed) { throw new InvalidOperationException("StreamReader: unavailable"); }
-        if ((this._skipLf || this._pos >= this._length) && !this.EnsureChars()) { return -1; }
-        return (int)this._chars[this._pos];
+        char[] chars = this._chars;
+        if (chars == null || this._skipLf || this._pos >= this._length) {
+            if (!this.EnsureCharArray()) { return -1; }
+            chars = this._chars;
+        }
+        return (int)chars[this._pos];
     }
 
     /// 消费一个 Unicode 标量；EOF 返回 -1。
     public override int Read() {
         if (this._closed || this._failed) { throw new InvalidOperationException("StreamReader: unavailable"); }
-        if ((this._skipLf || this._pos >= this._length) && !this.EnsureChars()) { return -1; }
-        int c = (int)this._chars[this._pos];
+        char[] chars = this._chars;
+        if (chars == null || this._skipLf || this._pos >= this._length) {
+            if (!this.EnsureCharArray()) { return -1; }
+            chars = this._chars;
+        }
+        int c = (int)chars[this._pos];
         this._pos = this._pos + 1;
         return c;
     }
@@ -66,7 +74,7 @@ public class StreamReader : TextReader {
             throw new ArgumentException("Read: buffer / offset / count out of range");
         }
         if (count == 0) { return 0; }
-        if (!this.EnsureChars()) { return 0; }
+        if (!this.EnsureCharArray()) { return 0; }
         int n = this._length - this._pos;
         if (n > count) { n = count; }
         Array.CopyRange(this._chars, this._pos, buffer, offset, n);
@@ -80,16 +88,15 @@ public class StreamReader : TextReader {
     public string? ReadLine() {
         this.EnsureOpen();
         StringBuilder parts = null;
-        while (this.EnsureChars()) {
+        while (this.EnsureChars(false, false)) {
             int start = this._pos;
-            int end = start;
-            while (end < this._length && this._chars[end] != '\r' && this._chars[end] != '\n') {
-                end = end + 1;
-            }
+            int lineBreak = this._text.IndexOfAnyAscii("\r\n", start);
+            int end = lineBreak < 0 ? this._length : lineBreak;
             string piece = this._text.Substring(start, end - start);
             this._pos = end;
             if (end < this._length) {
-                this._skipLf = this._chars[end] == '\r';
+                char terminator = this._chars == null ? this._text.CharAt(end) : this._chars[end];
+                this._skipLf = terminator == '\r';
                 this._pos = end + 1;
                 if (parts == null) { return piece; }
                 parts.Append(piece);
@@ -108,7 +115,7 @@ public class StreamReader : TextReader {
     public string ReadToEnd() {
         this.EnsureOpen();
         StringBuilder parts = new StringBuilder();
-        while (this.EnsureChars(true)) {
+        while (this.EnsureChars(true, false)) {
             if (this._pos == 0) { parts.Append(this._text); }
             else { parts.Append(this._text.Substring(this._pos)); }
             this._pos = this._length;
@@ -137,32 +144,37 @@ public class StreamReader : TextReader {
         this._byteCount = 0;
     }
 
-    private bool EnsureChars() { return this.EnsureChars(false); }
+    private bool EnsureCharArray() {
+        if (!this.EnsureChars(false, true)) { return false; }
+        if (this._chars == null) { this._chars = this._text.ToCharArray(); }
+        return true;
+    }
 
-    private bool EnsureChars(bool drain) {
+    private bool EnsureChars(bool drain, bool materialize) {
         while (true) {
-            if (this._pos >= this._length && !this.Fill(drain)) { return false; }
+            if (this._pos >= this._length && !this.Fill(drain, materialize)) { return false; }
             if (!this._skipLf) { return true; }
             this._skipLf = false;
-            if (this._chars[this._pos] != '\n') { return true; }
+            char current = this._chars == null ? this._text.CharAt(this._pos) : this._chars[this._pos];
+            if (current != '\n') { return true; }
             this._pos = this._pos + 1;
         }
         return false;
     }
 
-    private bool Fill(bool drain) {
+    private bool Fill(bool drain, bool materialize) {
         this._text = null;
         this._chars = null;
         this._pos = 0;
         this._length = 0;
         // 源异常可能留下尚未解码的成功短读；先交付其中完整字符。
-        if (this._byteCount > 0 && this.DecodeBuffered()) { return true; }
+        if (this._byteCount > 0 && this.DecodeBuffered(materialize)) { return true; }
         if (this._eof) { this.Release(); return false; }
         if (this._bytes == null) { this._bytes = new byte[4096]; }
         while (true) {
             this.ReadBytes(drain);
             if (this._byteCount == 0) { this.Release(); return false; }
-            if (this.DecodeBuffered()) { return true; }
+            if (this.DecodeBuffered(materialize)) { return true; }
         }
         return false;
     }
@@ -191,15 +203,19 @@ public class StreamReader : TextReader {
         }
     }
 
-    private bool DecodeBuffered() {
+    private bool DecodeBuffered(bool materialize) {
         try {
             int tail = this.IncompleteTail(this._byteCount);
             int complete = this._byteCount - tail;
             if (this._eof && tail > 0) { throw new FormatException("StreamReader: truncated UTF-8"); }
             if (complete == 0) { return false; }
             this._text = this._encoding.GetString(this._bytes, 0, complete);
-            this._chars = this._text.ToCharArray();
-            this._length = this._chars.Length;
+            if (materialize) {
+                this._chars = this._text.ToCharArray();
+                this._length = this._chars.Length;
+            } else {
+                this._length = this._text.Length;
+            }
             if (tail > 0) { Array.CopyRange(this._bytes, complete, this._bytes, 0, tail); }
             this._byteCount = tail;
             return true;

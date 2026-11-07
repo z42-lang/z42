@@ -12,12 +12,11 @@ int exercise(int n) {
     return f.Blocks[0].InstrCount;
 }
 [Benchmark]
-void bench_copy_chain_1024() {
-    var b = new Bencher(10, 20);
+void bench_copy_chain_1024(Bencher b) {
     b.iter(() => { BenchHelpers.blackBox(exercise(1024)); });
-    b.printSummary("copy_chain_1024");
 }
 void Main() {
+    // 手跑（CLI 一把梭）自建档：Main 不经 runner，注入形态到不了这里。
     string[] args = Environment.GetCommandLineArgs();
     int n = args.Length > 0 ? int.Parse(args[0]) : 1024;
     var b = new Bencher(10, 20);

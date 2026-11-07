@@ -69,6 +69,54 @@ pub mod typed {
     #[builtin(name = "__str_byte_length", this = "get_ByteLength", pure)]
     pub fn byte_length(s: &crate::object::string::vstr::Str) -> i64 { super::str_byte_length(s) }
 
+    #[builtin(name = "__str_index_of_any_ascii", this = "IndexOfAnyAscii", pure)]
+    pub fn index_of_any_ascii(text: &str, candidates: &str) -> Result<i64, BuiltinError> {
+        let mask = ascii_mask(candidates)?;
+        if mask == 0 { return Ok(-1); }
+        // A matched ASCII byte is always on a scalar boundary.
+        let index = ascii_match(text.as_bytes(), mask);
+        Ok(index.map_or(-1, |i| text[..i].chars().count() as i64))
+    }
+
+    fn ascii_mask(candidates: &str) -> Result<u128, BuiltinError> {
+        let mut mask = 0u128;
+        for byte in candidates.bytes() {
+            if !byte.is_ascii() {
+                return Err(BuiltinError::Argument("candidates must contain only ASCII characters".into()));
+            }
+            mask |= 1u128 << byte;
+        }
+        Ok(mask)
+    }
+
+    fn ascii_match(bytes: &[u8], mask: u128) -> Option<usize> {
+        bytes.iter().position(|&byte| byte.is_ascii() && mask & (1u128 << byte) != 0)
+    }
+
+    /// Start and result are Unicode scalar indices, even when the scan uses UTF-8 bytes.
+    #[builtin(name = "__str_index_of_any_ascii_from", this = "IndexOfAnyAscii", pure)]
+    pub fn index_of_any_ascii_from(text: &Str, candidates: &str, start: i64) -> Result<i64, BuiltinError> {
+        use crate::object::string::str_meta;
+
+        let mask = ascii_mask(candidates)?;
+        let length = str_meta::char_len(text);
+        let start = usize::try_from(start).ok().filter(|&i| i <= length).ok_or_else(|| {
+            BuiltinError::ArgumentOutOfRange(format!("ASCII search start {start}, string length {length}"))
+        })?;
+        if start == length || mask == 0 {
+            return Ok(-1);
+        }
+        if text.is_known_ascii() {
+            return Ok(ascii_match(&text.as_bytes()[start..], mask)
+                .map_or(-1, |i| (start + i) as i64));
+        }
+        let (start_byte, _) = str_meta::byte_range(text, start, 0)
+            .ok_or_else(|| BuiltinError::Internal("ASCII search cursor has no UTF-8 offset".into()))?;
+        let suffix = &text[start_byte..];
+        Ok(ascii_match(suffix.as_bytes(), mask)
+            .map_or(-1, |i| (start + suffix[..i].chars().count()) as i64))
+    }
+
     #[builtin(name = "__str_copy_utf8", this = "CopyUtf8To")]
     pub fn copy_utf8(s: &str, source_byte_index: i64, destination: crate::object::ArrRef,
         destination_index: i64, byte_count: i64) -> Result<(), BuiltinError> {
@@ -92,8 +140,8 @@ pub mod typed {
     }
 
     #[builtin(name = "__str_concat_parts_utf8")]
-    pub fn concat_parts_utf8(parts: crate::object::ArrRef, count: i64) -> Result<Vec<u8>, BuiltinError> {
-        super::concat_part_storage(&parts, count).map(String::into_bytes)
+    pub fn concat_parts_utf8(ctx: &VmContext, parts: crate::object::ArrRef, count: i64) -> Result<crate::object::Value, BuiltinError> {
+        super::str_concat_parts_utf8(ctx, &parts, count)
     }
 
     /// replace-fastpath：单字符 → 单字符的整体替换。零命中时**原样返回**（Arc clone，零分配零拷贝）；
@@ -190,15 +238,20 @@ pub fn str_concat_parts(
     concat_part_storage(arr, count)
 }
 
-fn concat_part_storage(arr: &crate::object::ArrRef, count: i64) -> Result<String, BuiltinError> {
+fn checked_concat_count(len: usize, count: i64) -> Result<usize, BuiltinError> {
     let count = usize::try_from(count).map_err(|_| {
         BuiltinError::Argument(format!("__str_concat_parts: invalid count {count}"))
     })?;
-    let b = arr.borrow();
-    if count > b.len() {
+    if count > len {
         return Err(BuiltinError::Argument(format!(
-            "__str_concat_parts: count {} exceeds array length {}", count, b.len())));
+            "__str_concat_parts: count {count} exceeds array length {len}")));
     }
+    Ok(count)
+}
+
+fn concat_part_storage(arr: &crate::object::ArrRef, count: i64) -> Result<String, BuiltinError> {
+    let b = arr.borrow();
+    let count = checked_concat_count(b.len(), count)?;
     // 单趟 iter_boxed(与 str_join 同因:两趟对每元素多一次 acquire+decode)。
     let mut out = String::with_capacity(count * 16);
     for v in b.iter_boxed().take(count) {
@@ -210,6 +263,31 @@ fn concat_part_storage(arr: &crate::object::ArrRef, count: i64) -> Result<String
     }
     out.shrink_to_fit();
     Ok(out)
+}
+
+fn str_concat_parts_utf8(
+    ctx: &VmContext, arr: &crate::object::ArrRef, count: i64,
+) -> Result<Value, BuiltinError> {
+    use crate::object::string::vstr::Str;
+    use smallvec::SmallVec;
+
+    let b = arr.borrow();
+    let count = checked_concat_count(b.len(), count)?;
+    let mut parts = SmallVec::<[Str; 8]>::with_capacity(count);
+    let mut len = 0usize;
+    for value in b.iter_boxed().take(count) {
+        let Value::Str(part) = value else {
+            return Err(BuiltinError::Argument(format!(
+                "__str_concat_parts: element must be string, got {value:?}")));
+        };
+        len = len.checked_add(part.len()).ok_or_else(|| {
+            BuiltinError::Argument("__str_concat_parts: UTF-8 length exceeds address space".into())
+        })?;
+        parts.push(part);
+    }
+    // Keep the same observed slot values for sizing and copying. The array allocation
+    // runs the copy before publishing the result or reaching its collection check.
+    Ok(crate::object::ArrayObj::alloc_byte_str_parts(ctx.heap(), len, &parts))
 }
 
 /// `Std.String.Split(string)` (perf-strings-json): split `this` on every non-overlapping

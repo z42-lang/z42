@@ -1,0 +1,29 @@
+namespace CustomSize;
+
+class Array {
+    public int Length;
+    public int Count;
+}
+
+void Set(ref int value) { value = 7; }
+
+void Main() {
+    int[] vector = [1, 2];
+    Std.Array array = vector;
+    string text = "é🙂";
+
+    Assert.Equal(2, vector.Length);
+    Assert.Equal(2, vector.Count);
+    Assert.Equal(2, array.Length);
+    Assert.Equal(2, text.Length);
+    Set(ref vector[0]);
+    Assert.Equal(7, vector[0]);
+
+    Array local = new Array();
+    local.Length = 1;
+    local.Count += 2;
+    local.Length++;
+    Set(ref local.Count);
+    Assert.Equal(2, local.Length);
+    Assert.Equal(7, local.Count);
+}

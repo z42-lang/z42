@@ -17,13 +17,9 @@ int rp_fib(int n) { if (n < 2) { return n; } return rp_fib(n - 1) + rp_fib(n - 2
 
 [Benchmark]
 void bench_pure_call_hot_loop() {
-    var b = new Bencher(2, 10);
-    b.iter(() => {
-        long s = 0L;
-        int i = 0;
-        int k = 20;
-        while (i < 30) { s = s + (long)rp_fib(k); i = i + 1; }   // rp_fib(k) 循环不变纯 → 外提
-        BenchHelpers.blackBox(s);
-    });
-    b.printSummary("pure_call_hot_loop");
+    long s = 0L;
+    int i = 0;
+    int k = 20;
+    while (i < 30) { s = s + (long)rp_fib(k); i = i + 1; }   // rp_fib(k) 循环不变纯 → 外提
+    BenchHelpers.blackBox(s);
 }

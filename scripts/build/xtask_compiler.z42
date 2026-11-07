@@ -295,11 +295,3 @@ int _prebuildOne(string vm, string driver, string toml, string name, string runL
     Directory.Delete(tmp, true);
     return 0;
 }
-
-// 防 zpkg 格式版本 skew 假失败：单独跑 `test compiler` 时，若某变更 bump 了 zpkg 格式而 z42vm 停在旧版，加载期会把
-// 每个单元判成 "cannot read zpkg metadata"。故显式重建 z42vm；z42b 由 `_testCompilerUnits` 用当前 z42c 重建
-// （cached 时近 no-op）。
-int _ensureCompilerTooling() {
-    Console.WriteLine("  ensuring tooling fresh (z42vm; release)");
-    return _buildRuntime();   // z42vm（z42b 运行所需的当前格式 reader）
-}

@@ -24,58 +24,48 @@ byte[] _mkPayloadN(int n) {
 }
 
 [Benchmark]
-void bench_base64_roundtrip_4k() {
+void bench_base64_roundtrip_4k(Bencher b) {
     byte[] data = _mkPayloadN(4096);
-    var b = new Bencher(2, 10);
     b.iter(() => {
         string s = Base64.Encode(data);
         BenchHelpers.blackBox(Base64.Decode(s).Length);
     });
-    b.printSummary("base64_roundtrip_4k");
 }
 
 [Benchmark]
-void bench_hex_roundtrip_4k() {
+void bench_hex_roundtrip_4k(Bencher b) {
     byte[] data = _mkPayloadN(4096);
-    var b = new Bencher(2, 10);
     b.iter(() => {
         string s = Hex.Encode(data);
         BenchHelpers.blackBox(Hex.Decode(s).Length);
     });
-    b.printSummary("hex_roundtrip_4k");
 }
 
 [Benchmark]
-void bench_base64_roundtrip() {
+void bench_base64_roundtrip(Bencher b) {
     byte[] data = _mkPayload();
-    var b = new Bencher(2, 20);
     b.iter(() => {
         string s = Base64.Encode(data);
         BenchHelpers.blackBox(Base64.Decode(s));
     });
-    b.printSummary("base64_roundtrip");
 }
 
 [Benchmark]
-void bench_hex_roundtrip() {
+void bench_hex_roundtrip(Bencher b) {
     byte[] data = _mkPayload();
-    var b = new Bencher(2, 20);
     b.iter(() => {
         string s = Hex.Encode(data);
         BenchHelpers.blackBox(Hex.Decode(s));
     });
-    b.printSummary("hex_roundtrip");
 }
 
 [Benchmark]
-void bench_utf8_roundtrip() {
+void bench_utf8_roundtrip(Bencher b) {
     string text = "The quick brown fox jumps over the lazy dog — 敏捷的棕色狐狸 0123456789";
-    var b = new Bencher(2, 20);
     b.iter(() => {
         byte[] bytes = Utf8.GetBytes(text);
         BenchHelpers.blackBox(Utf8.GetString(bytes));
     });
-    b.printSummary("utf8_roundtrip");
 }
 
 // Smoke [Test] — bench bodies run + roundtrip sanity.

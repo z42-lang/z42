@@ -9,7 +9,7 @@ pub(crate) struct State {
     args: Mutex<Vec<String>>,
 }
 
-impl crate::corelib::fs::ProgramArgs for State {
+impl crate::corelib::io::fs::ProgramArgs for State {
     fn program_args(&self) -> Vec<String> { self.args.lock().clone() }
 }
 
@@ -28,7 +28,7 @@ pub fn set_program_args(ctx: &VmContext, args: Vec<String>) -> Result<()> {
 
 /// Take an owned snapshot of this VM application's arguments.
 pub fn program_args(ctx: &VmContext) -> Result<Vec<String>> {
-    Ok(crate::corelib::fs::ProgramArgs::program_args(state(ctx)?))
+    Ok(crate::corelib::io::fs::ProgramArgs::program_args(state(ctx)?))
 }
 
 #[cfg(test)]
