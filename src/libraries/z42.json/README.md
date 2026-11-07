@@ -19,7 +19,7 @@ JSON RFC 8259 reader / writer + **对象 ↔ JSON serde**（`JsonSerializer`）�
 | `src/JsonValue.z42` | 值类型 + 公开入口（`Parse` / `Stringify` / `StringifyPretty` / `Of*` 工厂 / `Is*` / `As*` / 容器操作） |
 | `src/JsonException.z42` | `JsonException : Std.Exception`，带 1-based line / column |
 | `src/JsonParser.z42` | 内部 recursive-descent parser + tokenizer，含 surrogate-pair 处理 |
-| `src/JsonWriter.z42` | 内部 stringifier（compact + pretty 两模式） |
+| `src/JsonWriter.z42` | 可复用 writer 与单次调用的内部缓冲（compact + pretty 两模式） |
 | `src/JsonPath.z42` | `static class JsonPath` — `Select(root, "$.api.users[0].name")` 嵌套访问；支持 `.name` / `[N]` / `["key"]` |
 | `src/JsonSerializer.z42` | 公开 serde API（`Serialize` / `SerializePretty` / `Deserialize<T>` / `Deserialize(Type,...)`）+ 序列化核 `_toJson` |
 | `src/JsonBinder.z42` | 反序列化反射核 `_fromJson`（按目标 Type 递归）+ 构造绑定（无参 ctor / 带参 ctor）|
@@ -29,6 +29,8 @@ JSON RFC 8259 reader / writer + **对象 ↔ JSON serde**（`JsonSerializer`）�
 
 ## 入口点
 公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/json.md)（由源码 doc 注释生成）。
+
+`JsonWriter.Write` 每次返回独立文档。重复调用及失败后的重试由 `tests/writer_reuse.z42` 覆盖。
 
 ## 用法
 
@@ -71,11 +73,15 @@ auto-prop）。不支持：Dict 非字符串键 / Set / enum / nullable。
 `JsonValue.WriteTo` 和 `WriteToPretty` 完成文档遍历后，将片段拼接为独立的 UTF-8 字节数组。
 底层流接收一次 Write，成功后刷新，由调用方管理底层流。
 
+字符串键和值先在 UTF-8 存储中检查转义字符。无需转义的字符串直接作为输出片段，
+含转义字符的字符串从首个命中处按原有规则逐标量处理。
+
 ## 如何测试验证
 
 ```bash
 xtask test stdlib z42.json    # 本库全部 [Test]（DOM / JsonPath / serde / stream）
 xtask bench stdlib z42.json -k json_stream_write_bench
+xtask bench stdlib z42.json -k json_escape_scan_bench
 ```
 
 ## 关联文档

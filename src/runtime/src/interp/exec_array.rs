@@ -7,7 +7,7 @@
 /// `IndexOutOfRangeException` / `OverflowException` / `OutOfMemoryException`),
 /// `Err` = internal VM error.
 
-use crate::object::{default_value_for, ElemKind, ElemType};
+use crate::object::{ElemKind, ElemType};
 use crate::vm::runtime::Module;
 use crate::object::Value;
 use crate::objops;
@@ -27,11 +27,10 @@ fn stack_frame<'f>(ctx: &'f VmContext, frame: &'f Frame, stack_alloc: bool) -> O
 pub(super) fn array_new(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, size: u32, elem_tag: u8, element_type: ElemType, stack_alloc: bool,
-    type_param_kind: u8, type_param_index: i32,
+    type_param_kind: u8, type_param_index: i32, owner: Option<&str>,
 ) -> Result<Option<Value>> {
     let len = *frame.get(size)?;
-    let tp_prim = generic_prim_elem(frame, type_param_kind, type_param_index);
-    let bound = generic_bound_elem(frame, type_param_kind, type_param_index);
+    let (tp_prim, bound) = generic_array_args(ctx, frame, type_param_kind, type_param_index, owner);
     let r = objops::array::array_new(
         ctx, &len, elem_tag, element_type, type_param_kind != 0, tp_prim, bound, stack_frame(ctx, frame, stack_alloc));
     match r {
@@ -40,41 +39,18 @@ pub(super) fn array_new(
     }
 }
 
-/// `new T[n]`: the argument `T` is bound to here (same carriers as [`generic_prim_elem`]) — the
-/// element type the array reports.
-fn generic_bound_elem(frame: &Frame, kind: u8, index: i32) -> Option<ElemType> {
-    if index < 0 { return None; }
-    let idx = index as usize;
-    match kind {
-        1 => objops::array::type_param_bound_elem(frame.method_type_args.get(idx).map(String::as_str)),
-        2 => objops::array::class_type_param_bound(frame.get(0).ok(), idx),
-        _ => None,
-    }
-}
-
-/// `new T[n]` with `T` a generic type parameter — resolve `T` at runtime (method-level →
-/// `frame.method_type_args`, class-level → receiver `type_args`, same as `default(T)`); if it is a
-/// **primitive value type**, M13 packs the array at its width: `(ElemKind, zero)` per slot.
-///
-/// Reference / struct params and unresolvable sites keep the erased cell-backed array (generic
-/// containers store structs by reference; a reference `T` is `Mixed` by [`ElemKind::of_type_param`]).
-/// The class-level resolution is shared with the JIT (`objops::array::class_type_param_elem`); a
-/// method-level site never JITs (`unsupported_reason`: the JIT frame has no `method_type_args`).
-/// Method-level names are not interned — the match runs per allocation; the sites are generic
-/// static methods (`Array.Sort<T>`'s scratch), low-rate by construction.
-fn generic_prim_elem(frame: &Frame, kind: u8, index: i32) -> Option<objops::array::TypeParamElem> {
-    if index < 0 { return None; }
-    let idx = index as usize;
+fn generic_array_args(
+    ctx: &VmContext, frame: &Frame, kind: u8, index: i32, owner: Option<&str>,
+) -> (Option<objops::array::TypeParamElem>, Option<ElemType>) {
+    if index < 0 { return (None, None); }
+    let index = index as usize;
     match kind {
         1 => {
-            let name = frame.method_type_args.get(idx)?;
-            let k = ElemKind::of_type_param(name);
-            if !k.is_prim() { return None; }
-            let zero = default_value_for(name);
-            (!matches!(zero, Value::Null)).then_some(objops::array::TypeParamElem { kind: k, zero })
+            let Some(name) = frame.method_type_args.get(index) else { return (None, None) };
+            objops::array::type_param_array_args(Some(name), ElemKind::of_type_param(name))
         }
-        2 => objops::array::class_type_param_elem(frame.get(0).ok(), idx),
-        _ => None,
+        2 => objops::array::class_type_param_array_args(ctx, frame.get(0).ok(), index, owner),
+        _ => (None, None),
     }
 }
 
@@ -104,11 +80,11 @@ pub(super) fn array_new_lit(
 
 #[inline]
 pub(super) fn array_get(
-    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, arr: u32, idx: u32,
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, arr: u32, idx: u32, erased: bool,
 ) -> Result<Option<Value>> {
     // `Value: Copy` — copy the operands out so the lazy frame-id closure can borrow `frame`.
     let (a, i) = (*frame.get(arr)?, *frame.get(idx)?);
-    match objops::array::array_get(ctx, &a, &i, || frame.frame_id(ctx)) {
+    match objops::array::array_get(ctx, &a, &i, erased, || frame.frame_id(ctx)) {
         Ok(v) => { frame.set(dst, v); Ok(None) }
         Err(e) => raise(ctx, module, e),
     }

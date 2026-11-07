@@ -40,7 +40,7 @@
 | `operators/` | bitwise / 增量 / parse / postfix / 逻辑 / 比较 / 重载 |
 | `refs/` | ref / out / in / nested ref |
 | `classes/` | class / namespace / access / static / auto-property / ctor / indexer |
-| `attributes/` | attribute 机制：字段 / 方法 attribute、`methodof`、`[Record]` 值语义 |
+| `attributes/` | attribute 机制：字段 / 方法 attribute、member-of 家族（`methodof`/`fieldof`/`propertyof`）、`[Record]` 值语义 |
 | `const/` | `const` 编译期常量 |
 | `ctor-reflection/` | 构造器反射 |
 | `generic-methods/` | 泛型方法：类型实参 / lambda 推断 / 默认值 / 多型参 / `new T()` / 静态 |
@@ -51,7 +51,7 @@
 | `params/` | `params` 可变参数：展开 / 常规 / `object` 混合 |
 | `partial-types/` | `partial` 类型与方法：class / interface / record / static / protocol 重载 |
 | `pattern-matching/` | 模式匹配：常量 / 位置解构 / 属性 / 绑定 / 穷尽性 |
-| `reflection/` | 反射：`Activator` / `methodof` / 方法调用 / LoadContext |
+| `reflection/` | 反射：`Activator` / `methodof` / `fieldof`·`propertyof` / 方法调用 / LoadContext |
 | `static-ctor/` | 静态构造器触发时机 / 至多一次 / 失败终态 / 字段初始化顺序 |
 | `structs/` | struct 的 ToString 路径、值类型静态字段的零值等 |
 | `tuples/` | 元组 |

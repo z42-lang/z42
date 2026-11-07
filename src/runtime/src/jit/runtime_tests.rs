@@ -273,9 +273,9 @@ fn explicit_mixed_entry_config_counts_before_compiling() {
     let vm = VmContext::new();
     let rt = install(&vm, &module, config).unwrap();
     assert_eq!(rt.osr_threshold(), 7);
-    assert!(rt.invoke(&vm, TierTarget::Existing(&module.functions[0]), CallArgs::Values(&[])).is_none());
+    assert!(rt.invoke(&vm, TierTarget::Existing(&module.functions[0]), CallArgs::Values(&[]), &[]).is_none());
     assert_eq!(compiled_here(&vm), 0);
-    let outcome = rt.invoke(&vm, TierTarget::Existing(&module.functions[0]), CallArgs::Values(&[])).unwrap().unwrap();
+    let outcome = rt.invoke(&vm, TierTarget::Existing(&module.functions[0]), CallArgs::Values(&[]), &[]).unwrap().unwrap();
     assert!(matches!(outcome, ExecOutcome::Returned(Some(Value::I64(11)))));
     assert_eq!(compiled_here(&vm), 1);
 }

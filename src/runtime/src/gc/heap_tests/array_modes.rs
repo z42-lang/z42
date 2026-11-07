@@ -22,7 +22,7 @@ impl Drop for Bound {
 }
 
 #[derive(Clone, Copy)]
-enum Cut { RefElem, MixedElem, StructLeaf, BulkCopy }
+enum Cut { RefElem, MixedElem, StructLeaf, BulkCopy, ClearRef, ClearStruct }
 
 /// Root → array, array[0] → x. After the root snapshot the mutator moves `x` into a register and
 /// overwrites the array's only edge to it. Returns whether `x` survived the cycle.
@@ -38,10 +38,10 @@ fn run(cut: Cut, barrier_on: bool) -> bool {
         size: 16, ref_offsets: Box::new([8]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
     });
     let a = match cut {
-        Cut::RefElem | Cut::BulkCopy =>
+        Cut::RefElem | Cut::BulkCopy | Cut::ClearRef =>
             ArrayObj::alloc_from_iter(&heap, ElemType::intern("object"), ElemKind::Ref, 1, [x].into_iter()),
         Cut::MixedElem => ArrayObj::alloc_untyped(&heap, vec![x]),
-        Cut::StructLeaf => {
+        Cut::StructLeaf | Cut::ClearStruct => {
             let a = ArrayObj::alloc_struct(&heap, ElemType::intern("P"), 1, layout);
             let Value::Array(g) = &a else { panic!() };
             g.borrow().write_struct_elem(0, &[0u8; 16], &[x], &mut |_| {}).unwrap();
@@ -63,6 +63,7 @@ fn run(cut: Cut, barrier_on: bool) -> bool {
         Cut::RefElem | Cut::MixedElem => { arr_gc.borrow().set_boxed(0, Value::Null); }
         Cut::StructLeaf => { arr_gc.borrow().set_struct_elem_ref(0, 8, &Value::Null).unwrap(); }
         Cut::BulkCopy => arr_gc.borrow().copy_elems_from(&empty_gc.borrow(), 0, 0, 1),
+        Cut::ClearRef | Cut::ClearStruct => assert!(arr_gc.borrow().try_clear_elems(0, 1).unwrap()),
     }
     heap.drain_mark_queue();
     heap.close_major_marking();
@@ -84,6 +85,26 @@ fn satb_keeps_a_referent_cut_from_any_array_mode() {
 fn without_satb_a_referent_cut_from_any_array_mode_is_swept() {
     for cut in [Cut::RefElem, Cut::MixedElem, Cut::StructLeaf, Cut::BulkCopy] {
         assert!(!run(cut, false), "barrier off: the negative control must lose the referent");
+    }
+}
+
+#[test]
+fn bulk_clear_records_removed_references_and_struct_leaves() {
+    for cut in [Cut::ClearRef, Cut::ClearStruct] {
+        assert!(run(cut, true), "barrier on: the cut referent must survive");
+        assert!(!run(cut, false), "barrier off: the negative control must lose the referent");
+    }
+}
+
+#[test]
+fn bulk_clear_leaves_unsupported_array_modes_untouched() {
+    let heap = Heap::default();
+    let value = Value::I64(12);
+    for array in [ArrayObj::alloc_untyped(&heap, vec![value]), ArrayObj::alloc_frozen(&heap, &[value])] {
+        let Value::Array(array) = array else { panic!("expected array") };
+        let array = array.borrow();
+        assert!(!array.try_clear_elems(0, 1).unwrap());
+        assert!(matches!(array.get_boxed(0), Value::I64(12)));
     }
 }
 

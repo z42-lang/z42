@@ -609,6 +609,7 @@ public sealed partial class FlowAnalyzer : IBoundExprVisitor<Unit, Unit>, IBound
     public Unit VisitMethodGroup(BoundMethodGroup n, Unit d) { return d; }
     public Unit VisitTypeof(BoundTypeof n, Unit d)          { return d; }
     public Unit VisitMethodOf(BoundMethodOf n, Unit d)      { return d; }
+    public Unit VisitFieldOf(BoundFieldOf n, Unit d)        { return d; }
     public Unit VisitSymAvailable(BoundSymAvailable n, Unit d) { return d; }
 
     // ── 空值义务点（define-null-check-marks）────────────────────────────────

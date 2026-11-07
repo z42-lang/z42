@@ -8,7 +8,7 @@
 // z42 IR **无统一「重映射一条指令的寄存器」操作**——每种指令各有自己的 TypedReg 字段。内联要
 // 逐指令类型克隆 + 寄存器重命名，故 v1 只支持一组直线（straight-line）curated 指令：
 //   const（i32/i64/f64/bool/char/str/null）/ copy / 算术（add/sub/mul/div/rem）/
-//   比较（eq/ne/lt/le/gt/ge）/ 位与一元（bit_and/or/xor/shl/shr/not/neg/bit_not/convert）/ field_get。
+//   比较（eq/ne/lt/le/gt/ge）/ 位与一元（bit_and/or/xor/shl/shr/not/neg/bit_not/convert）/ field_get / 目标不含型参标记的 is_instance。
 // callee 体含任何**非** curated 指令（call/vcall/obj_new/array_*/field_set/static_*/str_concat/...）→
 // **跳过该 callee**（不内联，保守正确）。curated 集天然排除：嵌套调用（→ 无递归展开风险）、分配、
 // 副作用存储、ref/out（无地址/存储指令）。
@@ -436,6 +436,11 @@ public sealed class IrInline {
         if (ins is GtInstr)        { return true; }
         if (ins is GeInstr)        { return true; }
         if (ins is FieldGetInstr)  { return true; }
+        if (ins is IsInstanceInstr) {
+            // A shared generic body reads its own activation or receiver.
+            string target = (ins as IsInstanceInstr).ClassName;
+            return !target.Contains("$mta:") && !target.Contains("$cta:");
+        }
         return false;
     }
 

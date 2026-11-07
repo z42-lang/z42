@@ -3,6 +3,7 @@
 //! generic `default(T)` runtime helper.
 
 use crate::vm::runtime::dispatch::ctor::{site_for, instance_type_args};
+use crate::vm::exec::call::type_param_env::{method_default_value, method_type_value};
 use crate::vm::exec::ops::cast::isa_object;
 use crate::vm::exec::ops::cast::isa_td;
 use crate::vm::runtime::dispatch::ic::ObjNewSite;
@@ -158,6 +159,24 @@ pub unsafe extern "C" fn jit_default_of(
     0
 }
 
+/// Materialize the method type argument in the destination register.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_method_type_arg(
+    frame: *mut JitFrame, ctx: *const VmContext, dst: u32, param_index: u32,
+) {
+    let frame = &mut *frame;
+    frame.regs[dst as usize] = method_type_value(vm_ctx_ref(ctx), frame.method_type_args, param_index as usize);
+}
+
+/// Store the method type argument's default value in the destination register.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_method_default(
+    frame: *mut JitFrame, dst: u32, param_index: u32,
+) {
+    let frame = &mut *frame;
+    frame.regs[dst as usize] = method_default_value(frame.method_type_args, param_index as usize);
+}
+
 /// spec fix-numeric-cast-lowering : explicit numeric type
 /// conversion. Mirrors interp `exec_value::convert` semantics:
 ///   - source Value variant determines from-type
@@ -223,13 +242,14 @@ pub(super) unsafe fn dynamic_target(frame: *mut JitFrame, ctx: *const VmContext,
     Some(env.test_target(vm_ctx_ref(ctx), class_name))
 }
 
-/// A generic call site's `method_type_args` with class-level markers bound for this JIT frame;
-/// `None` = none to bind (the baked constant is used as is).
+/// Bind a generic call site's method and class markers against the caller's frame.
+/// `None` means the site already carries concrete arguments.
 pub(super) unsafe fn bind_forwarded_mta(frame: *mut JitFrame, ctx: *const VmContext, mta: &[String]) -> Option<Vec<String>> {
     if !mta.iter().any(|s| crate::metadata::index::type_param_markers::has_markers(s)) {
         return None;
     }
-    let env = crate::vm::exec::call::type_param_env::TypeParamEnv::new(&[], (*frame).regs.first());
+    let frame = &*frame;
+    let env = crate::vm::exec::call::type_param_env::TypeParamEnv::new(frame.method_type_args, frame.regs.first());
     Some(mta.iter().map(|s| env.substitute(vm_ctx_ref(ctx), s)).collect())
 }
 

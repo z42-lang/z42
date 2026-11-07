@@ -26,7 +26,7 @@ public partial class List<T> {
     /// 返回第一个满足 `match` 的元素下标；无匹配返回 -1。
     public int FindIndex(Predicate<T> match) {
         int i = 0;
-        while (i < this.Count) {
+        while (i < this._count) {
             if (match(this.items[i])) return i;
             i = i + 1;
         }
@@ -35,7 +35,7 @@ public partial class List<T> {
 
     /// 返回最后一个满足 `match` 的元素下标；无匹配返回 -1。
     public int FindLastIndex(Predicate<T> match) {
-        int i = this.Count - 1;
+        int i = this._count - 1;
         while (i >= 0) {
             if (match(this.items[i])) return i;
             i = i - 1;
@@ -47,7 +47,7 @@ public partial class List<T> {
     public List<T> FindAll(Predicate<T> match) {
         List<T> result = new List<T>();
         int i = 0;
-        while (i < this.Count) {
+        while (i < this._count) {
             if (match(this.items[i])) result.Add(this.items[i]);
             i = i + 1;
         }
@@ -60,7 +60,7 @@ public partial class List<T> {
     /// 是否所有元素都满足 `match`（空列表返回 true，与 C# 一致）。
     public bool TrueForAll(Predicate<T> match) {
         int i = 0;
-        while (i < this.Count) {
+        while (i < this._count) {
             if (!match(this.items[i])) return false;
             i = i + 1;
         }
@@ -71,28 +71,35 @@ public partial class List<T> {
     public int RemoveAll(Predicate<T> match) {
         int w = 0;
         int r = 0;
-        while (r < this.Count) {
+        while (r < this._count) {
             if (!match(this.items[r])) {
                 this.items[w] = this.items[r];
                 w = w + 1;
             }
             r = r + 1;
         }
-        int removed = this.Count - w;
+        int removed = this._count - w;
         int i = w;
-        while (i < this.Count) {
+        while (i < this._count) {
             this.items[i] = default(T);
             i = i + 1;
         }
-        this.Count = w;
+        this._count = w;
         return removed;
     }
 
     /// 返回最后一个等于 `item` 的元素下标（用 T 的相等判定）；无则 -1。
     public int LastIndexOf(T item) {
-        int i = this.Count - 1;
+        int i = this._count - 1;
+        int result = Array.SearchPrimitives(this.items, item, i, 0, true);
+        if (result >= -1) return result;
         while (i >= 0) {
-            if (this.items[i].Equals(item)) return i;
+            T element = this.items[i];
+            if (element != null) {
+                if (element.Equals(item)) return i;
+            } else if (item == null) {
+                return i;
+            }
             i = i - 1;
         }
         return -1;
@@ -100,8 +107,8 @@ public partial class List<T> {
 
     /// 返回 [index, index+count) 子区间的新 List（浅拷贝，保持顺序）；区间必须位于 [0, Count] 内。
     public List<T> GetRange(int index, int count) {
-        if (index < 0 || index > this.Count) throw new ArgumentOutOfRangeException("List.GetRange: index out of range");
-        if (count < 0 || count > this.Count - index) throw new ArgumentOutOfRangeException("List.GetRange: count out of range");
+        if (index < 0 || index > this._count) throw new ArgumentOutOfRangeException("List.GetRange: index out of range");
+        if (count < 0 || count > this._count - index) throw new ArgumentOutOfRangeException("List.GetRange: count out of range");
         List<T> result = new List<T>(count);
         int i = 0;
         while (i < count) {
@@ -117,7 +124,7 @@ public partial class List<T> {
     /// `~insertionPoint`，insertionPoint = 第一个大于 item 的位置）。
     public int BinarySearch(T item) where T : IComparable {   // `CompareTo` 由方法级 where 细化类级 T 提供
         int lo = 0;
-        int hi = this.Count - 1;
+        int hi = this._count - 1;
         while (lo <= hi) {
             int mid = lo + (hi - lo) / 2;
             int cmp = this.items[mid].CompareTo(item);

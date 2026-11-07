@@ -1,4 +1,5 @@
 use super::*;
+use crate::vm::runtime::Function;
 
 // ── Method reflection ───────────────────────────────────────────────────────
 
@@ -136,9 +137,10 @@ fn build_param_infos_ex(
     subst: Option<&MemberSubst>,
     shadowed: &[String],
 ) -> Result<(Vec<Value>, bool, String, u8, u8, bool)> {
-    match resolve_func_sig(ctx, qualified) {
-        Some((param_count, ret_type, fn_is_static0, param_types, param_names, vis, mf, min_arg, params_from, param_defaults)) => {
-            let fn_is_static = fn_is_static0 || receiverless;
+    match resolve_reflected_function(ctx, qualified) {
+        Some(resolved) => {
+            let f = resolved.as_ref();
+            let fn_is_static = f.is_static || receiverless;
             // Instance methods / constructors carry `this` at param 0 — skip it.
             let start = if fn_is_static { 0 } else { 1 };
             // PR6: parameter defaults now persist as the `$Default` param attr-ref
@@ -146,22 +148,29 @@ fn build_param_infos_ex(
             // (z42c now writes kind 0 for all params). Read it per physical param; the
             // legacy `param_defaults` match stays as a fallback for zpkgs built by an
             // older z42c (which wrote kinds but no `$Default`).
-            let param_attrs = resolve_func_param_attrs(ctx, qualified);
+            let attrs_source = resolve_reflected_function(ctx, qualified);
+            let param_attrs = attrs_source.as_ref().map_or(&[][..], |entry| entry.as_ref().param_attributes());
+            let param_types = f.param_types();
+            let sigs_names = f.param_names();
+            let use_debug_names = sigs_names.len() != f.param_count
+                || sigs_names.iter().all(String::is_empty);
+            let debug_names = use_debug_names.then(|| debug_parameter_names(f));
+            let param_defaults = f.param_defaults();
             let mut params = Vec::new();
-            for i in start..param_count {
+            for i in start..f.param_count {
                 let tag = param_types.get(i).map(|s| s.as_str()).unwrap_or("?");
                 let pos = (i - start) as i64;   // logical position (0-based, excludes `this`)
-                // add-param-metadata (unify P1-d): SIGS name preferred (via resolve_func_sig),
-                // `arg{n}` fallback otherwise.
-                let name = param_names
-                    .get(i)
-                    .filter(|n| !n.is_empty())
-                    .cloned()
-                    .unwrap_or_else(|| format!("arg{pos}"));
+                // Keep the logical position as the fallback name.
+                let name = match &debug_names {
+                    Some(names) => names.get(i).copied(),
+                    None => sigs_names.get(i).map(String::as_str),
+                };
+                let name = name.filter(|name| !name.is_empty())
+                    .map_or_else(|| format!("arg{pos}"), str::to_owned);
                 // add-param-metadata: IsOptional / IsParams (logical position) + DefaultValue.
-                let is_optional = (pos as u16) >= min_arg;
-                let is_params = params_from != 0xFF && pos as u8 == params_from;
-                let default_value = param_default_from_blob(&param_attrs, i).unwrap_or_else(|| {
+                let is_optional = (pos as u16) >= f.min_arg;
+                let is_params = f.params_from != 0xFF && pos as u8 == f.params_from;
+                let default_value = param_default_from_blob(param_attrs, i).unwrap_or_else(|| {
                     // Fallback: legacy SIGS default_kind tuple (only nonzero for zpkgs
                     // built by a pre-PR6 z42c; current z42c writes kind 0 everywhere).
                     match param_defaults.get(i) {
@@ -190,7 +199,7 @@ fn build_param_infos_ex(
                     ],
                 )?);
             }
-            Ok((params, fn_is_static, ret_type, vis, mf, true))
+            Ok((params, fn_is_static, f.ret_type.clone(), f.visibility, f.method_flags, true))
         }
         None => Ok((Vec::new(), false, "void".to_string(), 0, 0, false)),
     }
@@ -226,9 +235,10 @@ fn build_method_info_ex(
     // Reflection presents the source-level name — strip the mangle suffix for
     // the user-facing `MethodInfo.Name` (dispatch still uses `qualified`).
     let simple = simple.split('$').next().unwrap_or(simple);
-    let type_param_names = resolve_func_type_params(ctx, qualified);
+    let type_params_source = resolve_reflected_function(ctx, qualified);
+    let type_param_names = type_params_source.as_ref().map_or(&[][..], |entry| entry.as_ref().type_params());
     let (params, is_static, ret_tag, visibility, method_flags, sig_found) =
-        build_param_infos_ex(ctx, qualified, receiverless, subst, &type_param_names)?;
+        build_param_infos_ex(ctx, qualified, receiverless, subst, type_param_names)?;
     // add-method-modifiers (unify P1-c): IsVirtual authoritative from the flag
     // (bit0) WHEN a SIGS entry was resolved — z42 lists every method (virtual or
     // not) in the vtable, so vtable-presence alone over-reports. Fall back to the
@@ -259,7 +269,7 @@ fn build_method_info_ex(
         STD_REFLECTION_METHODINFO,
         &[
             ("Name", Value::Str(simple.to_string().into())),
-            ("ReturnType", signature_type(ctx, &ret_tag, qualified, subst, &type_param_names)),
+            ("ReturnType", signature_type(ctx, &ret_tag, qualified, subst, type_param_names)),
             ("IsStatic", Value::Bool(is_static)),
             ("IsVirtual", Value::Bool(is_virtual_flag)),
             // add-method-modifiers (unify P1-c): abstract methods (bit1).
@@ -332,67 +342,45 @@ pub(super) fn build_iface_method_info(
     )
 }
 
-/// Resolve a function's signature `(param_count, ret_type, is_static, param_types)`
-/// by qualified name. Checks the **main module**'s `func_index` first (the
-/// user program's own methods), then the lazy loader (stdlib / zpkg methods).
-/// `try_lookup_function` alone misses main-module functions.
-pub(super) fn resolve_func_sig(
-    ctx: &VmContext,
-    qualified: &str,
-) -> Option<(usize, String, bool, Vec<String>, Vec<String>, u8, u8, u16, u8, Vec<(u8, i64, String)>)> {
-    // reflection-future-parameter-names: parameters occupy registers
-    // 0..param_count on entry, so a param's source name is the debug local-var
-    // whose `reg` matches its index. Empty string when no debug symbols are
-    // present (the builder falls back to `arg{n}`).
-    fn extract(
-        f: &crate::vm::runtime::Function,
-    ) -> (usize, String, bool, Vec<String>, Vec<String>, u8, u8, u16, u8, Vec<(u8, i64, String)>) {
-        // add-param-metadata (unify P1-d): prefer the authoritative SIGS param
-        // names; fall back to the DBUG local-var guess (empty → `arg{n}` later).
-        let sigs_names = f.param_names();
-        let names = if sigs_names.len() == f.param_count && sigs_names.iter().any(|n| !n.is_empty()) {
-            sigs_names.to_vec()
-        } else {
-            let mut names = vec![String::new(); f.param_count];
-            for lv in f.local_vars() {
-                let r = lv.reg as usize;
-                if r < f.param_count {
-                    names[r] = lv.name.clone();
-                }
-            }
-            names
-        };
-        (f.param_count, f.ret_type.clone(), f.is_static, f.param_types().to_vec(), names,
-         f.visibility, f.method_flags, f.min_arg, f.params_from, f.param_defaults().to_vec())
-    }
-    if let Some(m) = ctx.module() {
-        if let Some(&i) = m.func_index.get(qualified) {
-            if let Some(f) = m.functions.get(i) {
-                return Some(extract(f));
-            }
-        }
-    }
-    ctx.try_lookup_function(qualified).map(|f| extract(&f))
+/// Keep the owning handle alive while reflection projects borrowed metadata.
+pub(super) enum ReflectedFunction<'a> {
+    Entry(&'a Function),
+    Loaded(Arc<Function>),
 }
 
-/// PR6 (param-default-representation): the backing function's per-parameter
-/// attribute-ref lists (physical param order, incl. `this`). Carries the `$Default`
-/// ConstBlob sentinel read by `param_default_from_blob`. Kept separate from the
-/// 10-tuple `resolve_func_sig` to avoid bloating a return shared by two callers.
-fn resolve_func_param_attrs(
-    ctx: &VmContext,
+impl AsRef<Function> for ReflectedFunction<'_> {
+    fn as_ref(&self) -> &Function {
+        match self {
+            Self::Entry(function) => function,
+            Self::Loaded(function) => function,
+        }
+    }
+}
+
+/// Look in the entry module first, then follow the ordinary lazy lookup path.
+pub(super) fn resolve_reflected_function<'a>(
+    ctx: &'a VmContext,
     qualified: &str,
-) -> Vec<Box<[crate::metadata::ir::AttributeRef]>> {
-    if let Some(m) = ctx.module() {
-        if let Some(&i) = m.func_index.get(qualified) {
-            if let Some(f) = m.functions.get(i) {
-                return f.param_attributes().to_vec();
+) -> Option<ReflectedFunction<'a>> {
+    if let Some(module) = ctx.module() {
+        if let Some(&index) = module.func_index.get(qualified) {
+            if let Some(function) = module.functions.get(index) {
+                return Some(ReflectedFunction::Entry(function));
             }
         }
     }
-    ctx.try_lookup_function(qualified)
-        .map(|f| f.param_attributes().to_vec())
-        .unwrap_or_default()
+    ctx.try_lookup_function(qualified).map(ReflectedFunction::Loaded)
+}
+
+/// With no authoritative SIGS names, use the last DBUG name at each argument register.
+fn debug_parameter_names(f: &Function) -> Vec<&str> {
+    let mut names = vec![""; f.param_count];
+    for local in f.local_vars() {
+        if let Some(name) = names.get_mut(local.reg as usize) {
+            *name = local.name.as_str();
+        }
+    }
+    names
 }
 
 /// PR6: read the `$Default` param attr-ref sentinel (a ConstBlob) for physical
@@ -458,24 +446,6 @@ fn decode_const_blob_scalar(blob: &str) -> Option<Value> {
         'e' | 'a' | 't' => Some(Value::Null),
         _ => None,
     }
-}
-
-/// add-reflective-invoke: the backing function's **method-level** generic type
-/// parameter names (e.g. `["T", "U"]` for `Foo<T, U>()`; empty for non-generic).
-/// Read from `Function.type_params()` (populated from SIGS via FunctionCold).
-/// Kept separate from the 10-tuple `resolve_func_sig` to avoid bloating a shared
-/// return used by two callers.
-pub(super) fn resolve_func_type_params(ctx: &VmContext, qualified: &str) -> Vec<String> {
-    if let Some(m) = ctx.module() {
-        if let Some(&i) = m.func_index.get(qualified) {
-            if let Some(f) = m.functions.get(i) {
-                return f.type_params().to_vec();
-            }
-        }
-    }
-    ctx.try_lookup_function(qualified)
-        .map(|f| f.type_params().to_vec())
-        .unwrap_or_default()
 }
 
 /// 成员列举迁 builtin ABI v2(P1-8 批次 5):纯合成(FieldInfo / MethodInfo /

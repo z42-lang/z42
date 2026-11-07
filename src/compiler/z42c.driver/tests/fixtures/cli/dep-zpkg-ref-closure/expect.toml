@@ -37,6 +37,16 @@ to = "vendor/"
 tool = "remove"
 paths = ["libs/ncleaf.zpkg"]
 
+[[step]]
+tool = "copy"
+from = "midsrc/dist/ncmid.zsym"
+to = "vendor/"
+
+[[step]]
+tool = "copy"
+from = "leafsrc/dist/ncleaf.zsym"
+to = "vendor/"
+
 # app 只声明 mid —— leaf 是间接依赖，用户不该被要求声明它
 [[step]]
 args = ["build", "app/ncapp.z42.toml", "--release"]
@@ -51,3 +61,93 @@ target = "app/dist/ncapp.zpkg"
 libs = "libs"
 exit = 0
 stdout_equals = "leaf"
+
+# Source path members bring their own vendored dependency domain to deployment.
+[[step]]
+args = ["build", "source-app/z42.toml", "--release"]
+libs = "libs"
+exit = 0
+exists = ["source-app/dist/nested-vendor.mid.zpkg", "source-app/dist/ncmid.zpkg", "source-app/dist/ncleaf.zpkg", "source-app/dist/ncmid.zsym", "source-app/dist/ncleaf.zsym"]
+
+[[step]]
+tool = "run"
+target = "source-app/dist/nested-vendor.app.zpkg"
+libs = "libs"
+exit = 0
+stdout_equals = "leaf"
+
+[[step]]
+tool = "remove"
+paths = ["source-app/dist/ncmid.zpkg", "source-app/dist/ncleaf.zpkg"]
+
+[[step]]
+args = ["build", "source-app/z42.toml", "--release"]
+libs = "libs"
+exit = 0
+stdout_contains = ["no changes; preserved"]
+stdout_not_contains = ["wrote ->"]
+exists = ["source-app/dist/ncmid.zpkg", "source-app/dist/ncleaf.zpkg"]
+
+# Two source domains cannot put different origins for one name in the same dist.
+[[step]]
+tool = "copy"
+from = "variants/collision.toml"
+to = "source-app/z42.toml"
+
+[[step]]
+args = ["build", "source-app/z42.toml", "--release"]
+libs = "libs"
+exit = 1
+stderr_contains = ["conflicting runtime sources for ncleaf.zpkg"]
+
+[[step]]
+tool = "copy"
+from = "variants/root.toml"
+to = "source-app/z42.toml"
+
+[[step]]
+tool = "copy"
+from = "variants/shared.toml"
+to = "source-mid/z42.toml"
+
+[[step]]
+args = ["build", "source-app/z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+# Use a separate check step: the z42c fixture tool pre-clears its own absent paths.
+[[step]]
+tool = "check"
+absent = ["source-app/dist/ncmid.zpkg", "source-app/dist/ncleaf.zpkg", "source-app/dist/ncmid.zsym", "source-app/dist/ncleaf.zsym"]
+
+# Restore copy policy, then replace one of its outputs with unrelated bytes.
+[[step]]
+tool = "copy"
+from = "variants/copy.toml"
+to = "source-mid/z42.toml"
+
+[[step]]
+args = ["build", "source-app/z42.toml", "--release"]
+libs = "libs"
+exit = 0
+exists = ["source-app/dist/ncmid.zsym"]
+
+[[step]]
+tool = "copy"
+from = "variants/root.toml"
+to = "source-app/dist/ncmid.zsym"
+
+[[step]]
+tool = "copy"
+from = "variants/shared.toml"
+to = "source-mid/z42.toml"
+
+[[step]]
+args = ["build", "source-app/z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "check"
+absent = ["source-app/dist/ncmid.zpkg", "source-app/dist/ncleaf.zpkg", "source-app/dist/ncleaf.zsym"]
+exists = ["source-app/dist/ncmid.zsym"]

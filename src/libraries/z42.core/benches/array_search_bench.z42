@@ -1,0 +1,33 @@
+namespace Z42CoreArraySearchBench;
+using Std.Harness;
+using Std.Collections;
+
+[Benchmark]
+void ArrayInts(Bencher b) {
+    int[] a = new int[1024];
+    a[1023] = 9;
+    b.iter(() => { BenchHelpers.blackBox(Array.IndexOf<int>(a, 9)); });
+}
+
+[Benchmark]
+void ArrayStrings(Bencher b) {
+    string[] a = new string[1024];
+    Array.Fill<string>(a, "skip");
+    a[1023] = "hit";
+    b.iter(() => { BenchHelpers.blackBox(Array.IndexOf<string>(a, "hit")); });
+}
+
+[Benchmark]
+void ListInts(Bencher b) {
+    var a = new List<int>(1024);
+    for (int i = 0; i < 1024; i = i + 1) { a.Add(i); }
+    b.iter(() => { BenchHelpers.blackBox(a.IndexOf(1023)); });
+}
+
+[Benchmark]
+void ListStrings(Bencher b) {
+    var a = new List<string>(1024);
+    for (int i = 0; i < 1023; i = i + 1) { a.Add("skip"); }
+    a.Add("hit");
+    b.iter(() => { BenchHelpers.blackBox(a.IndexOf("hit")); });
+}

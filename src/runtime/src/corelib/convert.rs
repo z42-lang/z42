@@ -1,7 +1,7 @@
 pub use crate::object::value::format::{FmtBuf, value_to_str, with_value_str};
 
 use crate::object::Value;
-use crate::object::NativeData;
+use crate::objops::struct_leaf::box_struct_blob;
 use crate::metadata::index::well_known_names::int_wrapper_scalar_spec;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
@@ -31,39 +31,6 @@ pub(crate) fn box_prim_to_heap(ctx: &VmContext, class: &str, raw: i64) -> Result
     match ctx.heap().alloc_boxed_prim(td, struct_bytes) {
         Value::Object(gc) => Ok(Value::BoxedStruct(gc)),
         other => Ok(other), // Null under strict-OOM refusal
-    }
-}
-
-/// add-boxed-struct-identity (P4b, 路 B2): box a value-struct blob into a **shared**
-/// `ScriptObject` (`type_desc` = the struct type, `is_struct()` true), storing the
-/// blob in the object's payload — primitive leaves plus 8 B reference words at the struct
-/// layout's reference offsets (`struct_blob`; `alloc_object` sizes the payload from the
-/// struct's own `struct_layout`). Returns a
-/// `Value::BoxedStruct(gc)` — a shared, GC-managed, reference-identity box (C# semantics:
-/// `object b = a` aliases the same box, reflective `SetValue` writes through).
-///
-/// Reused by `__box_struct` (top-level boxing) and reflection's nested-field GetValue
-/// (a nested struct field materializes as a fresh boxed snapshot).
-pub(crate) fn box_struct_blob(
-    ctx: &VmContext, type_name: &str, bytes: &[u8], refs: &[Value],
-) -> Result<Value> {
-    let td = ctx.try_lookup_type(type_name).ok_or_else(|| {
-        anyhow::anyhow!("__box_struct: unknown struct type `{type_name}`")
-    })?;
-    let obj_val = ctx.heap().alloc_object(td, Vec::new(), NativeData::None);
-    match obj_val {
-        Value::Object(gc) => {
-            {
-                let o = gc.borrow();
-                let size = o.payload_len();
-                // A fresh box (young, unreachable until returned): no barrier owed.
-                let offs = o.type_desc.struct_layout().map(|sl| sl.ref_offsets.clone()).unwrap_or_default();
-                o.write_blob(0, size, bytes, refs, &offs, &mut |_| {})?;
-            }
-            Ok(Value::BoxedStruct(gc))
-        }
-        // alloc_object returns Null under strict-OOM refusal.
-        other => Ok(other),
     }
 }
 

@@ -80,7 +80,7 @@ fn still_open(ctx: &VmContext, id: u64) -> Result<(), BuiltinError> {
 pub mod typed {
     use super::*;
     use crate::vm::exec::call::builtin_abi::{Blocking, Then};
-    use crate::corelib::fs::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
+    use crate::corelib::io::buffer::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use crate::object::Value;
     use std::io::{Read, Write};
 

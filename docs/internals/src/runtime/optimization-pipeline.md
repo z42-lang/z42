@@ -265,7 +265,7 @@ IrModule = 单 CU，callee 在同模块内解析（函数共享 StringPool → �
 - **v1 curated 指令集**：z42 IR **无统一「重映射一条指令寄存器」操作**（每种指令各有 `TypedReg` 字段）→
   内联逐指令类型克隆 + 重命名。v1 只支持直线 curated 集：const*（i32/i64/f64/bool/char/str/null）/ copy /
   算术（add/sub/mul/div/rem）/ 比较（eq/ne/lt/le/gt/ge）/ 位·一元（bit_and/or/xor/shl/shr/not/neg/bit_not/
-  convert）/ field_get。callee 体含任一**非** curated 指令（call/vcall/obj_new/array_*/field_set/static_*/
+  convert）/ field_get / 目标不含型参标记的 is_instance。共享体中的方法级或类级型参仍由原激活解析。callee 体含任一**非** curated 指令（call/vcall/obj_new/array_*/field_set/static_*/
   str_concat/...）→ **跳过整个 callee**。curated 集天然排除嵌套调用（无递归展开）、分配、副作用存储、ref/out
   （无地址/存储指令）。`_isInlinable` 只表达「哪些指令内联安全」的**策略**；`_cloneRemap` 经接口 `Clone` + `SetDefReg` / `SetReadAt`
   重映射，对全部指令通用。

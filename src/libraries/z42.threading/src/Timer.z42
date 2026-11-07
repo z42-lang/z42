@@ -32,7 +32,7 @@ public sealed class Timer {
         stopped[0] = false;
         Timer t = new Timer(stopped, callback, intervalMs, true);
         Timer self = t;
-        t._thread = Thread.Start(() => { self._runPeriodic(); });
+        t._thread = Thread.Start(() => { self._run(); });
         return t;
     }
 
@@ -46,7 +46,7 @@ public sealed class Timer {
         stopped[0] = false;
         Timer t = new Timer(stopped, callback, delayMs, false);
         Timer self = t;
-        t._thread = Thread.Start(() => { self._runOnce(); });
+        t._thread = Thread.Start(() => { self._run(); });
         return t;
     }
 
@@ -68,6 +68,18 @@ public sealed class Timer {
     }
 
     // ── 后台线程体 ──────────────────────────────────────────────────────
+
+    private void _run() {
+        try {
+            if (this._periodic) {
+                this._runPeriodic();
+            } else {
+                this._runOnce();
+            }
+        } finally {
+            this._callback = null;
+        }
+    }
 
     private void _runPeriodic() {
         while (!this._stopped[0]) {

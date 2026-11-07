@@ -5,13 +5,11 @@ using Std.IO;
 using Std.Time;
 
 // 产物存在性 smoke + [Test] 单元 + e2e 夹具 + 自举不动点。成员清单取 workspace 的 default_members（单一事实源，
-// 同 _stdlibList）。noBuild=true：调用方（`test`）已在构建波里建过 z42c，跳过重建；单独 `test compiler` 传 false。
+// 同 _stdlibList）。noBuild=true 时复用已有 release VM、gen1 和 stdlib，仍实际重建 gen2。
 int _testCompiler(bool noBuild) {
     Stopwatch sw = _procStart("test compiler");
     _selfcheckSelfHostSections();
     if (!noBuild) {
-        int tc = _ensureCompilerTooling();
-        if (tc != 0) { return tc; }
         int bc = _buildCompiler();
         if (bc != 0) { return bc; }
     }

@@ -19,7 +19,7 @@ use crate::vm_context::VmContext;
 /// to 0) and `Ret %r` stores into `ret` / `has_ret` ([`JIT_FRAME_RET_OFFSET`],
 /// [`JIT_FRAME_HAS_RET_OFFSET`]). Neither goes through a helper call.
 #[repr(C)]
-pub struct JitFrame {
+pub struct JitFrame<'a> {
     /// `regs.as_mut_ptr()`, set by every constructor once `regs` is sized. The
     /// register file is never resized while the frame exists (sized to the
     /// function's `max_reg + 1` up front; JIT code and helpers only index it —
@@ -46,9 +46,11 @@ pub struct JitFrame {
     /// exactly like an interp frame's; the arena's LIFO truncation is driven by
     /// the `VmFrame` bases (push/pop_frame), not by the id.
     pub frame_id: u32,
+    /// Bound method type arguments, borrowed for this synchronous activation.
+    pub method_type_args: &'a [String],
 }
 
-impl JitFrame {
+impl<'a> JitFrame<'a> {
     /// Allocate a new frame with `max_reg + 1` register slots from `vm`'s register
     /// pool (all `Null`). The first `args.len()` registers are initialised with
     /// the call arguments.
@@ -124,7 +126,7 @@ impl JitFrame {
     fn with_regs(mut regs: Vec<Value>) -> Self {
         JitFrame {
             regs_ptr: regs.as_mut_ptr(), ret: Value::Null, has_ret: 0,
-            regs, frame_id: 0,
+            regs, frame_id: 0, method_type_args: &[],
         }
     }
 

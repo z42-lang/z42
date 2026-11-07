@@ -1,0 +1,13 @@
+desc = "跨包只读视图的 Count 拒绝直接和复合赋值"
+
+[[step]]
+args = ["--emit-zbc", "assign.z42", "assign.zbc"]
+exit = "nonzero"
+output_contains = ["E0482"]
+absent = ["assign.zbc"]
+
+[[step]]
+args = ["--emit-zbc", "compound.z42", "compound.zbc"]
+exit = "nonzero"
+output_contains = ["E0482"]
+absent = ["compound.zbc"]

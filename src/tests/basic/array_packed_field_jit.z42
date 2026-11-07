@@ -1,0 +1,63 @@
+namespace Demo;
+
+class Buffers {
+    public int[] Ints;
+    public long[] Longs;
+    public double[] Doubles;
+    public char[] Chars;
+    public byte[] Bytes;
+
+    public int ReadInt(int i) { return this.Ints[i]; }
+    public long ReadLong(int i) { return this.Longs[i]; }
+    public double ReadDouble(int i) { return this.Doubles[i]; }
+    public char ReadChar(int i) { return this.Chars[i]; }
+    public int ReadByte(int i) { return this.Bytes[i]; }
+
+    public int SumWithReplacement(int[] replacement) {
+        int total = 0;
+        for (int i = 0; i < 4; i = i + 1) {
+            if (i == 2) { this.Ints = replacement; }
+            total = total + this.Ints[i & 1];
+        }
+        return total;
+    }
+}
+
+void Main() {
+    var b = new Buffers();
+    b.Ints = new int[] { -3, 4 };
+    b.Longs = new long[] { 5000000000L, -5000000000L };
+    b.Doubles = new double[] { 1.5, -2.25 };
+    b.Chars = new char[] { 'a', '中' };
+    b.Bytes = new byte[2];
+    b.Bytes[1] = 23;
+
+    for (int round = 0; round < 3; round = round + 1) {
+        Assert.Equal(-3, b.ReadInt(0));
+        Assert.Equal(-5000000000L, b.ReadLong(1));
+        Assert.Equal(-2.25, b.ReadDouble(1));
+        Assert.Equal('中', b.ReadChar(1));
+        Assert.Equal(23, b.ReadByte(1));
+    }
+
+    var replacement = new int[] { 10, 20 };
+    Assert.Equal(31, b.SumWithReplacement(replacement));
+    b.Ints = new int[] { -3, 4 };
+    Assert.Equal(31, b.SumWithReplacement(replacement));
+
+    string message = "";
+    try { b.ReadInt(-1); }
+    catch (IndexOutOfRangeException e) { message = e.Message; }
+    Assert.Equal("index -1 is out of range for an array of length 2", message);
+
+    message = "";
+    try { b.ReadInt(2); }
+    catch (IndexOutOfRangeException e) { message = e.Message; }
+    Assert.Equal("index 2 is out of range for an array of length 2", message);
+
+    b.Ints = null;
+    message = "";
+    try { b.ReadInt(0); }
+    catch (NullReferenceException e) { message = e.Message; }
+    Assert.Equal("cannot read an element of a null array", message);
+}

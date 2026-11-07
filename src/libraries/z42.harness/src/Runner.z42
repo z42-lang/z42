@@ -24,6 +24,8 @@
 //! - `[Setup]` / `[Teardown]` 按命名空间（或同一类型）成组，没有共享实例的类级夹具。
 //! - `TestResult` 没有 duration / 失败位置 / 栈：运行期没有可靠来源，略去而不是编造。
 //! - 报告 JSON 由 `TestReport` 手写（本包零依赖、不引 z42.json），schema 见该类文档。
+using Std.Reflection;   // MethodInfo —— 声明式专属 fixture（[Test(setup: methodof(…))]）
+
 namespace Std.Harness;
 
 using Std.IO;
@@ -159,8 +161,22 @@ public static class Runner {
         }
 
         string ns = e.DeclaringType();
-        Runner._runLifecycle(all, ns, 3);   // [Setup]
+        // 公共 fixture（非定向 [Setup]，本组每条前跑）→ 声明的专属 setup（[Test(setup: methodof(…))]，
+        // 强类型）——公共环境先于专属环境。声明 setup 抛异常按本条失败计（与公共 [Setup] 的吞异常
+        // 不同：它是测试作者亲手指名的，炸了继续跑没有意义）。
+        Runner._runLifecycle(all, ns, 3);
+        if (e.DeclaredSetup is MethodInfo ds) {
+            try { ds.Invoke(null, new object[0]); }
+            catch (Exception ex) {
+                if (!json) { Console.WriteLine("  FAIL " + e.Qualified + " (declared setup threw: " + ex.Message + ")"); }
+                return new TestResult(e.Qualified, "failed", isBench, "declared setup threw: " + ex.Message, null);
+            }
+        }
         InvokeOutcome o = Runner._invoke(e, json);
+        // teardown 反序：声明的专属先、公共的非定向 [Teardown] 后（always）。
+        if (e.DeclaredTeardown is MethodInfo dt) {
+            try { dt.Invoke(null, new object[0]); } catch (Exception ex) { }
+        }
         Runner._runLifecycle(all, ns, 4);   // [Teardown] (always)
 
         if (e.HasShouldThrow()) {
@@ -187,8 +203,30 @@ public static class Runner {
 
     // Invoke the entry. In json mode, capture its stdout (so the benchmark's
     // `bench[...]` line can be parsed and is not echoed into the JSON stream).
+    //
+    // 零参 [Benchmark]（bench-zero-boilerplate）：runner 计时**整个函数体**（JMH / BenchmarkDotNet
+    // 式）——预热 2 + 采样 20 由这里包办，摘要按函数名自动打。体里就是被测工作本身，一个 harness
+    // 符号都不用出现。要把 setup 挡在计时外（Go / Rust 式显式边界）用 `void f(Bencher b)` 形态：
+    // setup 写在 b.iter 之前、只把工作放进闭包。自建档（自定采样档/标签）不再用 [Benchmark]，
+    // 写成 [Test] 自己 new Bencher（见 benches/bench_demo.z42 三形态展示）。
     static InvokeOutcome _invoke(TestCase e, bool json) {
         InvokeOutcome o = new InvokeOutcome();
+        if (e.IsBenchmark() && !e.TakesBencher()) {
+            if (json) {
+                try {
+                    o.Captured = TestIO.captureStdout(() => { Runner._runTimed(e); });
+                } catch (Exception ex) {
+                    Type tt = ex.GetType(); o.Threw = true; o.ErrMsg = ex.Message; o.Thrown = tt; o.ErrType = tt.FullName;
+                }
+            } else {
+                try {
+                    Runner._runTimed(e);
+                } catch (Exception ex) {
+                    Type tt = ex.GetType(); o.Threw = true; o.ErrMsg = ex.Message; o.Thrown = tt; o.ErrType = tt.FullName;
+                }
+            }
+            return o;
+        }
         if (json) {
             try {
                 o.Captured = TestIO.captureStdout(() => { e.Invoke(); });
@@ -205,6 +243,14 @@ public static class Runner {
         return o;
     }
 
+    // 零参基准的计时壳：与注入形态同一固定档（2, 20）、同一摘要行格式（按函数名）——两条路唯一
+    // 的差别是计时边界（整个函数体 vs b.iter 闭包）。异常按原类型传出（由 _runOne 统一判失败）。
+    static void _runTimed(TestCase e) {
+        Bencher b = new Bencher(2, 20);
+        b.iter(() => { e.Invoke(); });
+        b.printSummary(e.Method.Name);
+    }
+
     // Build a passed TestResult; for a benchmark in json mode, parse its captured
     // summary line into bench_stats (null if the line is absent/malformed).
     static TestResult _pass(TestCase e, bool isBench, string captured, bool json) {
@@ -213,9 +259,10 @@ public static class Runner {
         return new TestResult(e.Qualified, "passed", isBench, null, stats);
     }
 
-    // Run all [Setup] (kind 3) or [Teardown] (kind 4) functions declared in the
-    // same namespace `ns` as the test. (z42 free-function fixtures have no shared
-    // instance; same-namespace grouping preserves locality.)
+    // Run [Setup] (kind 3) or [Teardown] (kind 4) functions declared in the same
+    // namespace `ns` as the test. (z42 free-function fixtures have no shared instance;
+    // same-namespace grouping preserves locality.) 专属 fixture 不在这里——它是
+    // `[Test(setup: methodof(…))]` 声明的（强类型），由 `_runOne` 直接调。
     static void _runLifecycle(TestCase[] all, string ns, int kind) {
         int i = 0;
         while (i < all.Length) {

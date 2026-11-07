@@ -3,18 +3,34 @@
 //!
 //! The carriers are the ones `typeof(T)` already reads, so a body's `o is T`, `new List<T>()`,
 //! `catch (Err<T>)` and `typeof(T)` agree on what `T` is:
-//! - method-level → the frame's `method_type_args` (interp only — a JIT frame has none, so a
-//!   body with a method-level marker never JITs; see `jit::translate::unsupported`);
+//! - method-level → the frame's `method_type_args`. Both tiers carry them for direct reads;
+//!   marker substitution in compiled bodies still falls back (see `jit::translate::unsupported`);
 //! - class-level → the receiver in reg 0, walked to the level that declares the parameter
 //!   ([`class_type_arg`], which `__class_type_arg` / `__class_default` resolve through too).
 //!
-//! Both engines go through this one type: interp builds it from its `Frame`
-//! (`Frame::type_param_env`), the JIT helpers from their frame's reg 0 (no method arguments).
+//! Interpreter marker substitution uses the full environment. JIT marker helpers only
+//! bind class parameters until the corresponding method-level operations are supported.
 
 use crate::metadata::index::type_param_markers::{self, Marker};
 use crate::object::TypeArgs;
 use crate::object::Value;
 use crate::vm_context::VmContext;
+
+/// Read a method parameter as a reflection Type. Missing arguments retain the
+/// synthetic T used by older bytecode.
+pub(crate) fn method_type_value(ctx: &VmContext, args: &[String], index: usize) -> Value {
+    match args.get(index) {
+        Some(name) => crate::corelib::reflection::make_type_from_name(ctx, name),
+        None => crate::corelib::reflection::make_constructed_type(ctx, "T", &[]),
+    }
+}
+
+/// Read a method parameter's default value, or Null if the argument is missing.
+pub(crate) fn method_default_value(args: &[String], index: usize) -> Value {
+    args.get(index)
+        .map(|tag| crate::object::default_value_for(tag))
+        .unwrap_or(Value::Null)
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct TypeParamEnv<'a> {

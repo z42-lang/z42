@@ -95,6 +95,22 @@ void lines_cross_blocks_and_keep_mixed_cursor() {
     Assert.Equal("", r.ReadLine()); Assert.Equal("last", r.ReadLine());
     Assert.True(r.ReadLine() == null); Assert.Equal("", r.ReadToEnd());
 }
+
+[Test]
+void line_scan_keeps_scalar_cursor_across_read_modes() {
+    var s = source("pré😀\r\n甲乙\néfin", 4096);
+    var r = new StreamReader(s);
+    Assert.Equal((int)'p', r.Read());
+    Assert.Equal("ré😀", r.ReadLine());
+    Assert.Equal(1, s.Calls);
+    Assert.Equal((int)'甲', r.Peek());
+    char[] chars = new char[3];
+    Assert.Equal(1, r.Read(chars, 1, 1));
+    Assert.Equal('甲', chars[1]);
+    Assert.Equal("乙", r.ReadLine());
+    Assert.Equal(1, s.Calls);
+    Assert.Equal("éfin", r.ReadToEnd());
+}
 [Test]
 void long_line_crosses_multiple_buffers() {
     char[] chars = new char[10000]; int i = 0;
@@ -206,4 +222,21 @@ void read_to_end_source_failure_keeps_successful_short_reads() {
     StreamReader r = new StreamReader(s); bool bad = false;
     try { r.ReadToEnd(); } catch (InvalidOperationException e) { bad = true; }
     Assert.True(bad); Assert.Equal((int)'a', r.Read()); Assert.Equal("b😀cd", r.ReadToEnd());
+}
+
+[Test]
+void drain_after_cr_handles_optional_lf_in_the_next_block() {
+    StreamReader withLf = new StreamReader(source("head\r\n😀", 1));
+    Assert.Equal("head", withLf.ReadLine());
+    Assert.Equal("😀", withLf.ReadToEnd());
+    Assert.Equal(-1, withLf.Peek());
+
+    StreamReader withoutLf = new StreamReader(source("head\r中", 1));
+    Assert.Equal("head", withoutLf.ReadLine());
+    Assert.Equal("中", withoutLf.ReadToEnd());
+
+    StreamReader eof = new StreamReader(source("head\r\n", 1));
+    Assert.Equal("head", eof.ReadLine());
+    Assert.Equal("", eof.ReadToEnd());
+    Assert.Equal(-1, eof.Read());
 }

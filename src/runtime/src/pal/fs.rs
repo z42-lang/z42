@@ -9,7 +9,7 @@
 //! [`MemoryFs`](super::vfs::MemoryFs) (`path → bytes`, what wasm runs on).
 //!
 //! The OS implementations live under `pal/sys/`, so
-//! `corelib/fs.rs` carries zero `#[cfg(...)]` for them.
+//! `corelib/io/fs.rs` carries zero `#[cfg(...)]` for them.
 
 use std::io::Result;
 use std::path::Path;

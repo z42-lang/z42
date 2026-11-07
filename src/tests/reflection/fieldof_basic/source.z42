@@ -1,0 +1,74 @@
+// fieldof(Type.Field) / propertyof(Type.Prop) 端到端（add-field-property-reference）。
+//
+// 对照 GetFields()/GetProperties() 手写循环按名筛的写法：那里名字打错要到运行期才发现、
+// 继承字段的声明类要自己沿基链追；这里一行拿到、写错是**编译错误**、声明类编译期已定位。
+namespace Demo;
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+class Box {
+    public int A;
+    public static int Port;
+    public string Name { get; set; }
+    public int Ro { get { return 7; } }
+}
+
+class Base    { public int Tag; }
+class Derived : Base { public int Own; }
+
+// 遮蔽：派生类重新声明同名字段——own-wins，指派生那份（与字段访问 `d.V` 看到的同一份）。
+class ShadowBase  { public int V; }
+class Shadow : ShadowBase { public int V; }
+
+void Main() {
+    Box b = new Box();
+    b.A = 5;
+    b.Name = "zed";
+    Box.Port = 9;
+
+    // ① 实例字段：读 / 写 / 元数据
+    FieldInfo fa = fieldof(Box.A);
+    Console.WriteLine(fa.Name);
+    Console.WriteLine((fa.GetValue(b) as object).ToString());
+    fa.SetValue(b, 11);
+    Console.WriteLine(b.A.ToString());
+    Console.WriteLine(fa.IsStatic.ToString());
+    Console.WriteLine(fa.FieldType.Name);
+
+    // ② 静态字段：可指代（IsStatic 真）；GetValue 走实例通道，静态读不在本例范围
+    FieldInfo fp = fieldof(Box.Port);
+    Console.WriteLine(fp.Name);
+    Console.WriteLine(fp.IsStatic.ToString());
+
+    // ③ 继承字段：经派生类指代，仍指向**基类声明**的那份（__qualified 是声明类全名）
+    Derived d = new Derived();
+    d.Tag = 3;
+    FieldInfo ft = fieldof(Derived.Tag);
+    Console.WriteLine(ft.Name);
+    Console.WriteLine((ft.GetValue(d) as object).ToString());
+    Console.WriteLine(ft.__qualified);
+
+    // ④ 遮蔽：own-wins——指到 Shadow 自己那份，不是 ShadowBase 的
+    Shadow s = new Shadow();
+    s.V = 42;
+    Console.WriteLine(fieldof(Shadow.V).__qualified);
+    Console.WriteLine((fieldof(Shadow.V).GetValue(s) as object).ToString());
+
+    // ⑤ 属性：get/set 经访问器往返；只读计算属性 CanWrite 假
+    PropertyInfo pn = propertyof(Box.Name);
+    Console.WriteLine(pn.Name);
+    Console.WriteLine(pn.CanRead.ToString());
+    Console.WriteLine(pn.CanWrite.ToString());
+    Console.WriteLine(pn.GetValue(b) as string);
+    pn.SetValue(b, "new");
+    Console.WriteLine(b.Name);
+    PropertyInfo pr = propertyof(Box.Ro);
+    Console.WriteLine((pr.GetValue(b) as object).ToString());
+    Console.WriteLine(pr.CanWrite.ToString());
+
+    // ⑥ 与 typeof / methodof 对称：**值相等**（按声明类全名 + 成员名比），对象身份不驻留
+    Console.WriteLine((fieldof(Box.A) == fieldof(Box.A)).ToString());
+    Console.WriteLine((fieldof(Box.A) == fieldof(Box.Port)).ToString());
+    Console.WriteLine((propertyof(Box.Name) == propertyof(Box.Name)).ToString());
+}
