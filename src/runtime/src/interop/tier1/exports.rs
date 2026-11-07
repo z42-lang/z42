@@ -4,13 +4,10 @@
 //! the z42 host (or links statically against the test binary) and calls
 //! these to register types and invoke z42 methods.
 //!
-//! The thread-local `CURRENT_VM` slot carries the active `VmContext` while
-//! the interpreter is running; native callbacks fired from inside z42
-//! find the VM through this slot. See [`VmGuard`] for the RAII wrapper.
+//! Native callbacks find the active context through VM execution's
+//! `active_vm` slot. [`VmGuard`] re-exports its activation guard.
 
-use std::cell::Cell;
 use std::ffi::CStr;
-use std::marker::PhantomData;
 use std::os::raw::c_char;
 use std::ptr;
 use std::sync::Arc;
@@ -28,66 +25,8 @@ use crate::vm_context::VmContext;
 const TYPE_REGISTRATION_FAILURE: u32 = 905;
 const ABI_VERSION_MISMATCH:      u32 = 906;
 
-// ── thread_local current-VM pointer ──────────────────────────────────────
-
-thread_local! {
-    /// `*const VmContext` for the VM currently running z42 code on this
-    /// thread. Set via [`VmGuard`] when a context pushes its bottom frame
-    /// (`vm/exec/call/engine_guards.rs`) and on host invoke; restored when that
-    /// activation ends.
-    static CURRENT_VM: Cell<*const VmContext> = const { Cell::new(ptr::null()) };
-}
-
-/// RAII guard that scopes a `VmContext` reference into `CURRENT_VM` for
-/// the lifetime of `'a`, so any native callback fired while the VM runs can
-/// locate it. Installed at engine entry only (see `CURRENT_VM`).
-pub struct VmGuard<'a> {
-    prev: *const VmContext,
-    /// `false` when `enter` found `CURRENT_VM` already this same ctx (a nested
-    /// entry under the same VM/thread): store skipped, drop skips its TLS
-    /// restore. Only the outermost entry per ctx has `active == true`.
-    active: bool,
-    _phantom: PhantomData<&'a VmContext>,
-}
-
-impl<'a> VmGuard<'a> {
-    #[inline]
-    pub fn enter(ctx: &'a VmContext) -> Self {
-        // Engine entries nest (host invoke → bottom frame). When the SAME ctx is
-        // already installed, skip both the store and the drop-time restore. A
-        // different ctx (cross-VM re-entry) saves + sets + restores, so callback
-        // location stays correct.
-        let p = ctx as *const _;
-        CURRENT_VM.with(|c| {
-            let cur = c.get();
-            if cur == p {
-                VmGuard { prev: cur, active: false, _phantom: PhantomData }
-            } else {
-                c.set(p);
-                VmGuard { prev: cur, active: true, _phantom: PhantomData }
-            }
-        })
-    }
-}
-
-impl Drop for VmGuard<'_> {
-    #[inline]
-    fn drop(&mut self) {
-        if !self.active {
-            return;
-        }
-        CURRENT_VM.with(|c| c.set(self.prev));
-    }
-}
-
-/// Borrow the VM pointed to by `CURRENT_VM`. Returns `None` if no VM is
-/// currently active on this thread.
-pub(crate) fn current_vm<'a>() -> Option<&'a VmContext> {
-    CURRENT_VM.with(|c| {
-        let p = c.get();
-        if p.is_null() { None } else { Some(unsafe { &*p }) }
-    })
-}
+pub use crate::vm::exec::active_vm::VmGuard;
+pub(crate) use crate::vm::exec::active_vm::current_vm;
 
 // ── Z42TypeRef sentinels ────────────────────────────────────────────────
 
