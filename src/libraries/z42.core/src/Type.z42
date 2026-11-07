@@ -8,8 +8,8 @@ using Std.Reflection;
 /// `operator ==`），Name 为 `Int32`、FullName 为 `Std.Int32`、IsValueType true、成员可枚举。
 /// 只有数组返回无句柄的合成体（Name/FullName 已填，成员查询为空）。不能从用户代码构造。
 ///
-/// 注：相等的 Type 可以是独立的反射对象。每次 typeof / GetType() 都新建，
-/// `ReferenceEquals` 恒为假。
+/// 同一 VM 的同一元数据版本可复用仍存活的 Type 对象。VM 仅持有弱引用，
+/// GC 回收后再次查询会重建对象。类型相等按运行时身份判定。
 public sealed class Type : MemberInfo, IEquatable {
     /// VM 写入的短名（优先用继承的 `Name` 属性；此处保留给底层 golden 测试与 z42.harness 直读）。
     public string __name;

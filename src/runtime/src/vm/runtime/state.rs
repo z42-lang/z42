@@ -15,6 +15,7 @@ pub(crate) struct RuntimeState {
     pub(crate) types: Arc<TypeTable>,
     /// Per-VM literal identities and interned heap strings (GC roots).
     pub(crate) strings: Arc<StrTable>,
+    pub(crate) reflection_types: Box<super::reflection_types::ReflectionTypes>,
 }
 
 impl RuntimeState {
@@ -29,6 +30,7 @@ impl RuntimeState {
             cctors: Arc::new(super::statics::CctorRegistry::default()),
             static_init_error: parking_lot::Mutex::new(None),
             module, funcs, types, strings,
+            reflection_types: Box::default(),
         }
     }
 }

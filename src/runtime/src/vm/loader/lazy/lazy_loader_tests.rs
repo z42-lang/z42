@@ -789,3 +789,30 @@ fn lazy_load_uses_registered_fusion_input_source_at_preparation() {
     loader.load_module_from_path("source.zbc").unwrap();
     assert_eq!(READS.load(Relaxed), 2 * count);
 }
+
+#[test]
+fn reflection_revision_tracks_loader_changes_and_pending_work() {
+    let ctx = crate::vm_context::VmContext::new();
+    assert_eq!(ctx.reflection_revision(), 0);
+    ctx.install_lazy_loader(None, 0);
+    let initial = ctx.reflection_revision();
+    assert_ne!(initial, 0);
+    assert_eq!(ctx.reflection_revision(), initial);
+
+    {
+        let mut state = ctx.core.loader.lazy_loader.write();
+        let loader = state.as_mut().unwrap();
+        loader.insert_type("Demo.Added".into(), type_desc_with_cctor("Demo.Added", None));
+    }
+    let changed = ctx.reflection_revision();
+    assert_ne!(changed, initial);
+    ctx.enqueue_type_init("Demo.Pending");
+    assert_eq!(ctx.reflection_revision(), 0);
+    ctx.run_pending_static_inits();
+    assert_ne!(ctx.reflection_revision(), 0);
+
+    ctx.uninstall_lazy_loader();
+    assert_eq!(ctx.reflection_revision(), 0);
+    ctx.install_lazy_loader(None, 0);
+    assert_ne!(ctx.reflection_revision(), changed);
+}

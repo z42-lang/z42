@@ -16,7 +16,7 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> {
     VmContext::new()
 }
 
-fn bare_td(name: &str) -> Arc<TypeDesc> {
+pub(super) fn bare_td(name: &str) -> Arc<TypeDesc> {
     td_with_flags(name, 0)
 }
 

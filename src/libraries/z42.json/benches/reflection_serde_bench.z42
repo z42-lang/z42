@@ -1,0 +1,45 @@
+namespace Z42JsonReflectionSerdeBench;
+using Std.Json;
+using Std.Harness;
+
+class PlanBenchRow {
+    public int Id;
+    public string Label;
+}
+
+PlanBenchRow[] rows(int n) {
+    PlanBenchRow[] result = new PlanBenchRow[n];
+    for (int i = 0; i < n; i = i + 1) {
+        PlanBenchRow row = new PlanBenchRow();
+        row.Id = i;
+        row.Label = "item";
+        result[i] = row;
+    }
+    return result;
+}
+
+void measureWrite(int n, string name) {
+    PlanBenchRow[] values = rows(n);
+    var b = new Bencher(3, 24);
+    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Serialize(values)); });
+    b.printSummary(name);
+}
+
+void measureRead(int n, string name) {
+    string json = JsonSerializer.Serialize(rows(n));
+    var b = new Bencher(3, 24);
+    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Deserialize<PlanBenchRow[]>(json)); });
+    b.printSummary(name);
+}
+
+[Benchmark]
+void reflection_serde_read_128() { measureRead(128, "reflection_serde_read_128"); }
+
+[Benchmark]
+void reflection_serde_write_128() { measureWrite(128, "reflection_serde_write_128"); }
+
+[Benchmark]
+void reflection_serde_read_1() { measureRead(1, "reflection_serde_read_1"); }
+
+[Benchmark]
+void reflection_serde_write_1() { measureWrite(1, "reflection_serde_write_1"); }
