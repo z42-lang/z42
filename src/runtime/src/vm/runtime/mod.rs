@@ -15,6 +15,7 @@ pub use fusion::{CmpOp, SuperInstr};
 #[cfg(test)]
 mod runtime_tests;
 
+pub(crate) mod reflection_types;
 mod state;
 pub(crate) use state::{RuntimeState, ThreadRuntimeState};
 

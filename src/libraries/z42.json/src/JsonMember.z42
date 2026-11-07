@@ -58,25 +58,16 @@ public class JsonMember {
 public static class JsonMembers {
     /// 收集公开实例字段和属性访问器，排除标注 [JsonIgnore] 的成员。
     public static JsonMember[] For(Type t) {
-        return JsonMembers.Build(t, null);
-    }
-
-    internal static JsonMember[] Build(Type t, JsonTypePlan plan) {
         FieldInfo[] fs = t.GetFields();
         PropertyInfo[] ps = t.GetProperties();
         JsonMember[] buf = new JsonMember[fs.Length + ps.Length];
-        bool cacheable = plan != null;
         int n = 0;
         int i = 0;
         while (i < fs.Length) {
             FieldInfo f = fs[i];
-            if (!f.IsStatic && f.IsPublic) {
-                bool ignored = JsonMembers._fieldIgnored(f);
-                if (cacheable && f.__attrCache.Length != 0) { cacheable = false; }
-                if (!ignored) {
-                    buf[n] = JsonMember.OfField(f, JsonMembers._fieldKey(f));
-                    n = n + 1;
-                }
+            if (!f.IsStatic && f.IsPublic && !JsonMembers._fieldIgnored(f)) {
+                buf[n] = JsonMember.OfField(f, JsonMembers._fieldKey(f));
+                n = n + 1;
             }
             i = i + 1;
         }
@@ -85,23 +76,18 @@ public static class JsonMembers {
             PropertyInfo p = ps[i];
             bool canRead = p.CanReadPublicInstance;
             bool canWrite = p.CanWritePublicInstance;
-            if (canRead || canWrite) {
-                bool ignored = JsonMembers._propIgnored(p);
-                if (cacheable && p.__attrCache.Length != 0) { cacheable = false; }
-                if (!ignored) {
-                    JsonMember member = JsonMember.OfProperty(p, JsonMembers._propKey(p));
-                    member.CanRead = canRead;
-                    member.CanWrite = canWrite;
-                    buf[n] = member;
-                    n = n + 1;
-                }
+            if ((canRead || canWrite) && !JsonMembers._propIgnored(p)) {
+                JsonMember member = JsonMember.OfProperty(p, JsonMembers._propKey(p));
+                member.CanRead = canRead;
+                member.CanWrite = canWrite;
+                buf[n] = member;
+                n = n + 1;
             }
             i = i + 1;
         }
         JsonMember[] outm = new JsonMember[n];
         int k = 0;
         while (k < n) { outm[k] = buf[k]; k = k + 1; }
-        if (cacheable) { plan.Members = outm; }
         return outm;
     }
 

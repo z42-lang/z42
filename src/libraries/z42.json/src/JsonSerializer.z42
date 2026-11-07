@@ -8,12 +8,12 @@ using Std.Reflection;
 public static class JsonSerializer {
     /// 把 `value` 序列化为紧凑 JSON 文本（无换行缩进）；null 序列化为 "null"。
     public static string Serialize(object value) {
-        return JsonValue.Stringify(JsonSerializer._toJson(value, null));
+        return JsonValue.Stringify(JsonSerializer._toJson(value));
     }
 
     /// 同 Serialize，但输出按两层缩进换行的易读格式。
     public static string SerializePretty(object value) {
-        return JsonValue.StringifyPretty(JsonSerializer._toJson(value, null));
+        return JsonValue.StringifyPretty(JsonSerializer._toJson(value));
     }
 
     /// 解析 `json` 并按 `T` 绑定返回；JSON null / 语法错误按 JsonBinder / JsonParser 语义抛出。
@@ -27,7 +27,7 @@ public static class JsonSerializer {
     }
 
     // object → JsonValue（按运行期类型分派）。
-    private static JsonValue _toJson(object o, JsonOperationPlans plans) {
+    private static JsonValue _toJson(object o) {
         if (o == null) { return JsonValue.OfNull(); }
         Type t = (Type)o.GetType();   // 跨包 imported 返回类型须 cast（footgun）
         string fn = t.FullName;
@@ -36,20 +36,19 @@ public static class JsonSerializer {
         if (fn == "Std.Double")  { return JsonValue.OfDouble((double)o); }
         if (fn == "Std.Boolean") { return JsonValue.OfBool((bool)o); }
         if (fn == "Std.String")  { return JsonValue.OfString((string)o); }
-        if (plans == null) { plans = new JsonOperationPlans(); }
-        if (t.IsArray) { return JsonSerializer._arrayToJson(o, plans); }
+        if (t.IsArray) { return JsonSerializer._arrayToJson(o); }
         // add-collection-serde：集合检测**先于**通用对象分派（否则 List/Dict 被当对象遍历内部字段）。
         // fix-type-reflection-names 起构造型泛型 FullName 含实参，故按去实参的**基名**匹配。
         string baseFn = fn;
         int lt = fn.IndexOf("<");
         if (lt >= 0) { baseFn = fn.Substring(0, lt); }
-        if (baseFn == "Std.Collections.List")       { return JsonSerializer._listToJson(o, t, plans); }
-        if (baseFn == "Std.Collections.Dictionary") { return JsonSerializer._dictToJson(o, t, plans); }
-        return JsonSerializer._objectToJson(o, t, plans);
+        if (baseFn == "Std.Collections.List")       { return JsonSerializer._listToJson(o, t); }
+        if (baseFn == "Std.Collections.Dictionary") { return JsonSerializer._dictToJson(o, t); }
+        return JsonSerializer._objectToJson(o, t);
     }
 
     // List<T> → JSON array（反射 Count + get_Item 遍历，元素按运行期类型递归）。
-    private static JsonValue _listToJson(object o, Type t, JsonOperationPlans plans) {
+    private static JsonValue _listToJson(object o, Type t) {
         JsonValue arr = JsonValue.OfArray();
         int n = JsonReflect.ListCount(o, t);
         if (n == 0) { return arr; }
@@ -58,14 +57,14 @@ public static class JsonSerializer {
         int i = 0;
         while (i < n) {
             args[0] = i;
-            arr.Add(JsonSerializer._toJson(getter.Invoke(o, args), plans));
+            arr.Add(JsonSerializer._toJson(getter.Invoke(o, args)));
             i = i + 1;
         }
         return arr;
     }
 
     // Dictionary<string,V> → JSON object（反射 Keys + get_Item，键为字符串）。
-    private static JsonValue _dictToJson(object o, Type t, JsonOperationPlans plans) {
+    private static JsonValue _dictToJson(object o, Type t) {
         JsonValue obj = JsonValue.OfObject();
         MethodInfo keysMethod = JsonReflect.BindMethod(t, "Keys", new Type[0]);
         string[] keys = (string[])keysMethod.Invoke(o, new object[0]);
@@ -77,32 +76,32 @@ public static class JsonSerializer {
         while (i < keys.Length) {
             string k = keys[i];
             args[0] = k;
-            obj.Set(k, JsonSerializer._toJson(getter.Invoke(o, args), plans));
+            obj.Set(k, JsonSerializer._toJson(getter.Invoke(o, args)));
             i = i + 1;
         }
         return obj;
     }
 
-    private static JsonValue _arrayToJson(object o, JsonOperationPlans plans) {
+    private static JsonValue _arrayToJson(object o) {
         JsonValue arr = JsonValue.OfArray();
         Array a = (Array)o;                       // object → Array 下转型（元素以运行期 Type 反射读）
         int n = a.Length;
         int i = 0;
         while (i < n) {
-            arr.Add(JsonSerializer._toJson(a.GetValue(i), plans));
+            arr.Add(JsonSerializer._toJson(a.GetValue(i)));
             i = i + 1;
         }
         return arr;
     }
 
-    private static JsonValue _objectToJson(object o, Type t, JsonOperationPlans plans) {
+    private static JsonValue _objectToJson(object o, Type t) {
         JsonValue obj = JsonValue.OfObject();
-        JsonMember[] members = plans.GetMembers(t);
+        JsonMember[] members = JsonMembers.For(t);
         int i = 0;
         while (i < members.Length) {
             JsonMember m = members[i];
             if (m.CanRead) {
-                obj.Set(m.JsonKey, JsonSerializer._toJson(m.Get(o), plans));
+                obj.Set(m.JsonKey, JsonSerializer._toJson(m.Get(o)));
             }
             i = i + 1;
         }

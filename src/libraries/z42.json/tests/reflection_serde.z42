@@ -23,7 +23,7 @@ public class AttributedPlanRow {
 }
 
 [Test]
-void test_operation_plans_reuse_matching_types_and_keep_distinct_types() {
+void test_reflection_serde_keeps_distinct_types() {
     PlannedRow a = new PlannedRow();
     a.Id = 1;
     a.Label = "a";
@@ -44,7 +44,7 @@ void test_operation_plans_reuse_matching_types_and_keep_distinct_types() {
 }
 
 [Test]
-void test_operation_plans_preserve_attribute_factories_per_object() {
+void test_reflection_serde_preserves_attribute_factories_per_object() {
     AttributedPlanRow a = new AttributedPlanRow();
     a.Id = 1;
     a.Secret = 7;
