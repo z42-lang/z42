@@ -106,7 +106,7 @@ pub(super) fn method_type_arg(ctx: &VmContext, frame: &mut Frame, dst: u32, para
 /// + structured generic instantiation args.
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn type_of(ctx: &VmContext, frame: &mut Frame, insn: &crate::metadata::ir::TypeofInsn) {
-    let v = crate::corelib::reflection::make_constructed_type(ctx, &insn.type_name, &insn.type_args);
+    let v = (ctx.core.exec.object_protocol.make_constructed_type)(ctx, &insn.type_name, &insn.type_args);
     frame.set(insn.dst, v);
 }
 

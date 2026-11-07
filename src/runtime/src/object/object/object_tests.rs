@@ -76,7 +76,7 @@ fn native_backing_keeps_type_args_in_either_order() {
 
 #[test]
 fn native_backing_is_dropped_with_the_object() {
-    let monitor = Arc::new(crate::corelib::monitor::Monitor::default());
+    let monitor = Arc::new(crate::object::Monitor::default());
     let probe = Arc::downgrade(&monitor);
     {
         let mut o = obj("Std.Threading.Mutex");

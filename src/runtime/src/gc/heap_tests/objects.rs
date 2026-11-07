@@ -87,7 +87,7 @@ fn a_dead_object_drops_its_type_descriptor() {
 #[test]
 fn a_dead_native_backed_object_frees_its_extras() {
     let heap = stw_heap();
-    let monitor = Arc::new(crate::corelib::monitor::Monitor::default());
+    let monitor = Arc::new(crate::object::Monitor::default());
     let probe = Arc::downgrade(&monitor);
     let _ = heap.alloc_object(dummy_type_desc("Mutex"), vec![], NativeData::Monitor(monitor));
     assert!(probe.upgrade().is_some());

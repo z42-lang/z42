@@ -15,7 +15,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 
 纯值格式化和盒装值哈希由 object/value 定义；corelib 保留 builtin 调用、参数检查与装箱编排，原公开格式化路径直接再导出同一实现。
 
-对象 GetType 和默认 ToString 的既有实现同时供 typed builtin 与门面注册使用。VM 执行层经自身私有协议服务调用，核心库仍负责反射对象物化；默认 ToString 仍返回 Rust String，由执行调用方在原位置分配托管字符串并映射错误。
+对象 GetType、默认 ToString、按名称与泛型实参构造 Type 的实现由门面登记进 VM 对象协议。VM 执行层经自身私有协议服务调用，核心库仍负责反射对象物化；默认 ToString 仍返回 Rust String，由执行调用方在原位置分配托管字符串并映射错误。
 
 反射调用、attribute factory 和线程 action 经 `vm::exec::engine` 的每 VM 注册槽回调脚本；
 调用参数、类型实参与 `ExecOutcome` 由 VM 调用协议承接。
@@ -49,6 +49,8 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | TLS（ABI v2：`__tls_*`，握手被拒 → `AuthenticationException`、传输 / 流 → `IOException`）/ 加密 | `tls/mod.rs` / `crypto.rs` |
 | REPL 支持（求值宿主 / 行编辑 / 行编辑器 cdylib 的懒 dlopen） | `repl/mod.rs` / `repl/editing.rs` / `repl/native.rs` |
 | 测试宿主（隔离跑 golden） | `tests.rs`（+ `reflection/module_load.rs` 的 `__run_goldens_isolated`）|
+
+Monitor 状态定义在 `object/object/monitor.rs`，核心库实现持有者检查、异常映射、争用统计与 GC park 协议。
 
 ## 基础用法
 

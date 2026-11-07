@@ -128,7 +128,8 @@ pub unsafe extern "C" fn jit_typeof(
     let type_name = std::str::from_utf8(std::slice::from_raw_parts(type_name_ptr, type_name_len))
         .unwrap_or("<invalid>");
     let type_args = std::slice::from_raw_parts(type_args_ptr, type_args_count);
-    let v = crate::corelib::reflection::make_constructed_type(vm_ctx_ref(ctx), type_name, type_args);
+    let ctx = vm_ctx_ref(ctx);
+    let v = (ctx.core.exec.object_protocol.make_constructed_type)(ctx, type_name, type_args);
     (*frame).regs[dst as usize] = v;
 }
 
