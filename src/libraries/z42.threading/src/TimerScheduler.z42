@@ -91,7 +91,7 @@ internal sealed partial class TimerScheduler {
         worker.Job = timer;
         timer.Assigned = true;
         this.Active = this.Active + 1;
-        if (!create) { return null; }
+        if (!create) { this._spawnFailureLogged = false; return null; }
         try {
             TimerWorker self = worker;
             worker.Thread = Thread.Start(() => { self.Run(); });
