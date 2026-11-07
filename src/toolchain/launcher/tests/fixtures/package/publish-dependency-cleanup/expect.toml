@@ -1,0 +1,163 @@
+desc = "重复发布 packed 与 indexed 应用：依赖转 shared 后清除旧发布副本，保留手动文件和用户替换的散装文件"
+
+[[step]]
+tool = "copy"
+from = "variants/packed-leaf.toml"
+to = "leaf/z42.toml"
+
+[[step]]
+tool = "copy"
+from = "variants/packed-app.toml"
+to = "app/z42.toml"
+
+[[step]]
+tool = "z42c"
+args = ["build", "{case}/leaf/z42.toml", "--release", "--output-dir", "{case}/vendor"]
+exit = 0
+
+[[step]]
+args = ["publish", "{case}/app/z42.toml"]
+env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
+exit = 0
+exists = ["app/published/programs/republish.leaf.zpkg", "app/published/programs/app.runtimeconfig.toml"]
+
+[[step]]
+tool = "exec"
+target = "app/published/bin/app{exe}"
+env = { Z42_HOME = "{sdk}" }
+exit = 0
+stdout_equals = "leaf"
+
+[[step]]
+tool = "copy"
+from = "variants/packed-shared.toml"
+to = "app/z42.toml"
+
+[[step]]
+args = ["publish", "{case}/app/z42.toml"]
+env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
+exit = 0
+
+[[step]]
+tool = "check"
+absent = ["app/dist/republish.leaf.zpkg", "app/published/programs/republish.leaf.zpkg", "app/dist/republish.app.runtimeconfig.toml", "app/published/programs/app.runtimeconfig.toml"]
+
+[[step]]
+tool = "exec"
+target = "app/published/bin/app{exe}"
+env = { Z42_HOME = "{sdk}" }
+exit = 1
+
+[[step]]
+tool = "exec"
+target = "app/published/bin/app{exe}"
+env = { Z42_HOME = "{sdk}", Z42_PROBING_PATHS = "{case}/vendor" }
+exit = 0
+stdout_equals = "leaf"
+
+# 无清单配置时，编译器保留用户手写侧车。
+[[step]]
+tool = "copy"
+from = "manual-runtime.toml"
+to = "app/dist/republish.app.runtimeconfig.toml"
+
+[[step]]
+args = ["publish", "{case}/app/z42.toml"]
+env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
+exit = 0
+
+[[step]]
+tool = "check"
+same_bytes = [["manual-runtime.toml", "app/dist/republish.app.runtimeconfig.toml"], ["manual-runtime.toml", "app/published/programs/app.runtimeconfig.toml"]]
+
+[[step]]
+tool = "remove"
+paths = ["app/dist/republish.app.runtimeconfig.toml"]
+
+[[step]]
+tool = "copy"
+from = "variants/indexed-leaf.toml"
+to = "leaf/z42.toml"
+
+[[step]]
+tool = "copy"
+from = "variants/indexed-app.toml"
+to = "app/z42.toml"
+
+[[step]]
+tool = "z42c"
+args = ["build", "{case}/leaf/z42.toml", "--output-dir", "{case}/vendor"]
+exit = 0
+exists = ["vendor/republish.leaf.zpkg", "vendor/Leaf.zbc"]
+
+[[step]]
+tool = "z42c"
+args = ["build", "{case}/app/z42.toml"]
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "manual.txt"
+to = "app/dist/{native_prefix}republish{native_suffix}"
+
+[[step]]
+args = ["publish", "{case}/app/z42.toml", "--no-build"]
+env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
+exit = 0
+exists = ["app/published/programs/republish.leaf.zpkg", "app/published/programs/Leaf.zbc", "app/published/programs/Main.zbc", "app/published/programs/{native_prefix}republish{native_suffix}"]
+
+[[step]]
+tool = "exec"
+target = "app/published/bin/app{exe}"
+env = { Z42_HOME = "{sdk}" }
+exit = 0
+stdout_equals = "leaf"
+
+[[step]]
+tool = "copy"
+from = "manual.txt"
+to = "app/published/programs/manual.zbc"
+
+[[step]]
+tool = "copy"
+from = "manual.txt"
+to = "app/published/programs/Leaf.zbc"
+
+[[step]]
+tool = "remove"
+paths = ["app/dist/{native_prefix}republish{native_suffix}"]
+
+[[step]]
+tool = "copy"
+from = "variants/shared.toml"
+to = "app/z42.toml"
+
+[[step]]
+tool = "z42c"
+args = ["build", "{case}/app/z42.toml"]
+exit = 0
+
+[[step]]
+args = ["publish", "{case}/app/z42.toml", "--no-build"]
+env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
+exit = 0
+
+# check 不会像 z42c/z42b 工具那样在执行前清理 absent。
+[[step]]
+tool = "check"
+absent = ["app/dist/republish.leaf.zpkg", "app/published/programs/republish.leaf.zpkg", "app/published/programs/{native_prefix}republish{native_suffix}"]
+exists = ["app/published/programs/Main.zbc"]
+same_bytes = [["manual.txt", "app/published/programs/Leaf.zbc"], ["manual.txt", "app/published/programs/manual.zbc"]]
+
+[[step]]
+tool = "exec"
+target = "app/published/bin/app{exe}"
+env = { Z42_HOME = "{sdk}" }
+exit = 1
+
+[[step]]
+tool = "exec"
+target = "app/published/bin/app{exe}"
+env = { Z42_HOME = "{sdk}", Z42_PROBING_PATHS = "{case}/vendor" }
+exit = 0
+stdout_equals = "leaf"

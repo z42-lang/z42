@@ -167,7 +167,7 @@ int _pubDesktop(ParseResult r, string rid) {
         string payloadDir = Path.GetDirectoryName(appZpkg);
         if (payloadDir.Length > 0) { Directory.Create(payloadDir); }
         _pubStageApp(zpkgSrc, appZpkg);   // + 同 stem 的 runtimeconfig 侧车
-        _pubCopyDistDeps(distDir, projName, payloadDir);
+        _pubCopyDistDeps(distDir, projName, payloadDir, Path.GetFileName(appZpkg));
     }
 
     string outDir = Path.GetDirectoryName(outPath);
@@ -250,7 +250,7 @@ int _pubDesktopSelfContained(ParseResult r, TomlValue toml, string tomlPath, str
     foreach (var p in Path.Glob(libsSrc, "*.zpkg")) {               // stdlib
         File.Copy(p, Path.Join(libsOut, Path.GetFileName(p)));
     }
-    _pubCopyDistDeps(distDir, projName, libsOut);                    // + app's transitive deps
+    _pubCopyDistDeps(distDir, projName, libsOut, "");                    // + app's transitive deps
     if (link == "dynamic") {
         File.Copy(dylibSrc, Path.Join(appDir, Path.GetFileName(dylibSrc)));
     }
@@ -643,40 +643,6 @@ string _pubNativeFileName(string name, string rid) {
     if (rid.StartsWith("windows-")) { return name + ".dll"; }
     if (rid.StartsWith("macos-") || rid.StartsWith("ios-") || rid.StartsWith("iossim-")) { return "lib" + name + ".dylib"; }
     return "lib" + name + ".so";
-}
-
-// Copy non-app zpkgs from distDir into targetDir (used by publish to populate
-// payload from already-colocated dist/).
-//
-// **这是 payload 里依赖 zpkg 的唯一来源**，而 dist 的内容由 **z42c 的 `_bundleExeDeps`** 决定
-// （复制判据 + 传递闭包）。
-//
-// 📜 add-deployment-model 批 2.3：publish 这条路上曾经还挂着第二份闭包实现
-// `_pubBundleProjectDeps`（BFS 走**源码树 toml**）。实测它是死重：
-//   · repo 外**构造上**就失效 —— `_pubSrcRoot()` 返回 `""` ⇒ 每个依赖都 `continue`、零复制零递归；
-//   · repo 内撤除整条，四个组件的 payload 文件清单**逐字不变**（对账前先清空 publish 目录 ——
-//     File.Copy 只覆盖不删除，残留会假装一致）。
-// 它想解决的「已 ship 进 libs/ 却依赖非框架包」（z42.scripting → z42c.*）已被 `probing-paths`
-// + `ModuleSearch.Dirs()` 从根上换掉：编译器组件的位置**声明在清单里**，不靠拷到身边。
-// ⇒ publish 的三个调用点删掉；函数本体仍被 `z42b build` 那条编排路用着（见它的头注）。
-//
-// 守着它的门 = `xtask_toolchain.z42` 的 `_assertPayloadComplete`（dist 里每个非-app 产物都必须
-// 在 payload 里出现）。在此之前**没有任何东西盯着 payload 完整性**。
-void _pubCopyDistDeps(string distDir, string projName, string targetDir) {
-    string[] entries = Directory.Enumerate(distDir);
-    string mainZpkg = projName + ".zpkg";
-    int i = 0;
-    while (i < entries.Length) {
-        string name = entries[i];
-        // Non-app zpkgs + colocated native libs (add-native-dep-config) → carried into payload.
-        bool take = (name.EndsWith(".zpkg") && name != mainZpkg) || _pubIsNativeLib(name);
-        if (take) {
-            string src = Path.Join(distDir, name);
-            string dst = Path.Join(targetDir, name);
-            if (src != dst) { File.Copy(src, dst); }   // overwrite（同上）
-        }
-        i = i + 1;
-    }
 }
 
 // Native dynamic lib by platform suffix (add-native-dep-config). Flat colocated file.

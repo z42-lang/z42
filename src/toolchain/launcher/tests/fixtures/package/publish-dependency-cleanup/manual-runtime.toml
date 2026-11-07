@@ -1,0 +1,3 @@
+# user configuration
+[runtime]
+mode = "interp"

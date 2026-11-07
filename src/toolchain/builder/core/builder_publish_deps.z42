@@ -1,0 +1,37 @@
+namespace Z42Builder;
+
+using Std.IO;
+using Z42.Build;
+using Z42.Package;
+
+// dist already contains the resolved deployment closure. Keep its copied payload
+// in sync without claiming unrelated files in a shared publish directory.
+void _pubCopyDistDeps(string distDir, string projName, string targetDir, string appFile) {
+    if (Path.Normalize(distDir) == Path.Normalize(targetDir)) { return; }
+    DeploymentCopies copies = new DeploymentCopies(targetDir, projName, ".z42-publish-deps-");
+    if (appFile.Length > 0) { copies.Keep(appFile); copies.Keep(_pubSidecarOf(appFile)); }
+    string main = Path.Join(distDir, projName + ".zpkg");
+    ZpkgInfo app = ZpkgReader.Open(File.ReadAllBytes(main), main);
+    if (app != null && !app.Packed) {
+        foreach (var rel in ZpkgReader.ReadIndexedZbcRels(app)) { copies.Keep(rel); }
+    }
+    foreach (var name in Directory.Enumerate(distDir)) {
+        string source = Path.Join(distDir, name);
+        if (Directory.Exists(source)) { continue; }
+        if (name.EndsWith(".zpkg")) {
+            byte[] bytes = File.ReadAllBytes(source);
+            ZpkgInfo info = ZpkgReader.Open(bytes, source);
+            if (info == null) { throw new Exception("cannot read publish dependency: " + source); }
+            if (name != projName + ".zpkg") { copies.Add(name, source, bytes); }
+            if (!info.Packed && name != projName + ".zpkg") {
+                foreach (var rel in ZpkgReader.ReadIndexedZbcRels(info)) {
+                    string loose = Path.Join(distDir, rel);
+                    copies.Add(rel, loose, File.ReadAllBytes(loose));
+                }
+            }
+        } else if (_pubIsNativeLib(name)) {
+            copies.Add(name, source, File.ReadAllBytes(source));
+        }
+    }
+    copies.Apply();
+}

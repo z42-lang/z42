@@ -1,0 +1,6 @@
+[project]
+name = "republish.leaf"
+kind = "lib"
+pack = false
+[sources]
+include = ["Leaf.z42"]

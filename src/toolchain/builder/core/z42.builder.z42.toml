@@ -24,7 +24,7 @@ pack    = true
 "style.fnLinesHard" = "error"
 
 [sources]
-include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder_device_ios.z42", "builder_device_android.z42", "builder_publish.z42", "builder_publish_sidecar.z42", "builder_publish_build.z42", "builder_apphost.z42",
+include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder_device_ios.z42", "builder_device_android.z42", "builder_publish.z42", "builder_publish_sidecar.z42", "builder_publish_deps.z42", "builder_publish_build.z42", "builder_apphost.z42",
            "builder.z42", "builder_commands.z42", "builder_new.z42", "builder_hooks.z42", "builder_prebuilt_deps.z42",
            "builder_dev_targets.z42", "builder_workspace.z42", "builder_workspace_worker.z42", "builder_pins.z42"]   # builder_pins.z42 = xtask 生成（gitignore）
 

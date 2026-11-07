@@ -1,0 +1,2 @@
+namespace Republish.Leaf;
+public string Value() { return "leaf"; }
