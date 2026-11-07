@@ -23,7 +23,7 @@
 | `vm/exec/ops/vcall.rs` | **虚调用目标解析单一实现**（装箱基元 / 装箱 struct / 基元 / 对象 vtable·层级 walk + 候选名 + PIC 安装），interp `exec_vcall` 与 JIT `helpers/vcall.rs` 共用|
 | `vm/exec/ops/obj_new.rs` | **`ObjNew` 类 / 构造器解析单一实现** + 站点缓存（`ObjNewSite`：类描述符 + ctor `FnId` + ctorless 标记，命中不哈希、不拿锁），interp `exec_object::obj_new` 与 JIT `helpers/object.rs::jit_obj_new` 共用 |
 | `exec_vcall.rs` | `VCall` 的 interp 调用侧（PIC 命中 / 解析结果 → 帧执行、mixed-mode 原生分流）+ `primitive_class_name` |
-| `exec_ffi.rs` | `CallNative` / `CallNativeVtable` / `PinPtr` / `UnpinPtr` |
+| `exec_ffi.rs` | `CallNative` / `CallNativeVtable` / `PinPtr` / `UnpinPtr` 的寄存器适配与异常编排；调用和 owned pin 经 VM native 提供方 |
 | `engine.rs` | VM 注册的基线 Engine；借用参数视图转入本后端原有 callee 帧构造入口 |
 | `vm/runtime/fusion.rs`（共享） | 加载期融合识别规则与缓存形态；本后端只执行计划 |
 | `vm/exec/ops/references.rs`（共享） | ref/out/in 位置读取与写回；帧只保留寄存器适配和 copy-in/copy-out 记录 |

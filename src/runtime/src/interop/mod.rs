@@ -15,6 +15,8 @@ mod tier1;
 pub use tier1::{dispatch, error, exports, loader, marshal, registry};
 #[cfg(feature = "native-interop")]
 pub use registry::{MethodEntry, RegisteredType};
+#[cfg(feature = "native-interop")]
+pub(crate) use tier1::call::call_registered;
 #[cfg(test)]
 mod state_tests;
 
