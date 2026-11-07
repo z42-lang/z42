@@ -69,4 +69,5 @@ pub(crate) fn current_vm<'a>() -> Option<&'a VmContext> {
 }
 
 #[cfg(test)]
+#[path = "active_vm_tests.rs"]
 mod active_vm_tests;
