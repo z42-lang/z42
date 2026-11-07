@@ -179,9 +179,17 @@ pub mod typed {
     /// z42 class stays; there is no timed join, hence no `TimeoutException`.
     #[builtin(name = "__thread_wait")]
     pub fn thread_wait(ctx: &VmContext, slot: i64) -> Result<Blocking<()>, BuiltinError> {
-        let handle = super::state(ctx)?.slots.lock().remove(&(slot as u64));
         let fail = |message: String| crate::vm::exec::call::builtin_abi::BuiltinError::Exception {
             class: "Std.Threading.ThreadException", message,
+        };
+        let handle = {
+            let mut slots = super::state(ctx)?.slots.lock();
+            // Reject before consuming the handle so another thread can still join.
+            // The check and removal share the registry lock with concurrent joiners.
+            if slots.get(&(slot as u64)).is_some_and(|h| h.thread().id() == std::thread::current().id()) {
+                return Err(fail("cannot join the current thread".to_string()));
+            }
+            slots.remove(&(slot as u64))
         };
         Ok(Blocking::new(move || match handle {
             None => Err(fail("thread already joined".to_string())),

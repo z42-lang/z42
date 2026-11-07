@@ -30,3 +30,27 @@ void test_join_after_join_throws_thread_exception() {
     }
     Assert.True(caught);
 }
+
+[Test]
+void test_self_join_throws_and_preserves_external_join() {
+    Thread[] worker = new Thread[1];
+    bool[] caught = new bool[1];
+    Channel<int> ready = new Channel<int>(1);
+    Channel<int> done = new Channel<int>(1);
+    worker[0] = Thread.Start(() => {
+        ready.Recv();
+        try { worker[0].Join(); }
+        catch (ThreadException e) {
+            caught[0] = e.Message == "cannot join the current thread";
+        }
+        done.Send(1);
+    });
+    ready.Send(1);
+    done.Recv();
+    worker[0].Join();
+    Assert.True(caught[0]);
+    bool joined = false;
+    try { worker[0].Join(); }
+    catch (ThreadException e) { joined = e.Message == "thread already joined"; }
+    Assert.True(joined);
+}
