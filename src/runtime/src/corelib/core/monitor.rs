@@ -42,6 +42,7 @@
 
 use std::sync::Arc;
 use std::thread::ThreadId;
+use std::time::Duration;
 
 use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, IntoRet};
 use crate::object::{NativeData, TypeDesc};
@@ -170,7 +171,23 @@ impl Monitor {
     pub fn begin_wait(self: &Arc<Self>) -> Result<Blocking<()>, BuiltinError> {
         let me = me();
         let m = Arc::clone(self);
-        Ok(Blocking::new(move || m.release_and_wait(me)))
+        Ok(Blocking::new(move || m.release_and_wait(me, None).map(|_| ())))
+    }
+
+    /// Timed signal wait; reacquiring ownership remains unbounded.
+    pub fn begin_wait_for(self: &Arc<Self>, timeout_ms: i64) -> Result<Blocking<bool>, BuiltinError> {
+        if timeout_ms < 0 {
+            return Err(BuiltinError::ArgumentOutOfRange("timeoutMs must be non-negative".into()));
+        }
+        #[cfg(target_arch = "wasm32")]
+        { Err(BuiltinError::NotSupported("timed monitor waits require thread support".into())) }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let me = me();
+            let m = Arc::clone(self);
+            let timeout = Duration::from_millis(timeout_ms as u64);
+            Ok(Blocking::new(move || m.release_and_wait(me, Some(timeout))))
+        }
     }
 
     pub fn wait(self: &Arc<Self>, ctx: &VmContext) -> Result<(), BuiltinError> {
@@ -178,7 +195,7 @@ impl Monitor {
     }
 
     /// park 状态下运行：原子地释放 → 等一次 `exit` 的信号 → 重新持有。
-    fn release_and_wait(&self, me: ThreadId) -> Result<(), BuiltinError> {
+    fn release_and_wait(&self, me: ThreadId, timeout: Option<Duration>) -> Result<bool, BuiltinError> {
         let mut st = self.state.lock();
         if st.owner != Some(me) {
             return Err(not_held());
@@ -188,7 +205,13 @@ impl Monitor {
             self.entry_cv.notify_one();
         }
         st.signal_waiters += 1;
-        self.signal_cv.wait(&mut st);
+        let signalled = match timeout {
+            Some(duration) => {
+                let result = self.signal_cv.wait_for(&mut st, duration);
+                !duration.is_zero() && !result.timed_out()
+            }
+            None => { self.signal_cv.wait(&mut st); true }
+        };
         st.signal_waiters -= 1;
         st.entry_waiters += 1;
         while st.owner.is_some() {
@@ -196,7 +219,7 @@ impl Monitor {
         }
         st.entry_waiters -= 1;
         st.owner = Some(me);
-        Ok(())
+        Ok(signalled)
     }
 }
 
@@ -267,6 +290,12 @@ pub mod typed {
     #[builtin(name = "__monitor_wait")]
     pub fn monitor_wait(monitor: &Value) -> Result<Blocking<()>, BuiltinError> {
         monitor_ref(monitor)?.begin_wait()
+    }
+
+    /// Timed wait, sharing ownership and GC parking with the infinite form.
+    #[builtin(name = "__monitor_wait_for")]
+    pub fn monitor_wait_for(monitor: &Value, timeout_ms: i64) -> Result<Blocking<bool>, BuiltinError> {
+        monitor_ref(monitor)?.begin_wait_for(timeout_ms)
     }
 }
 
