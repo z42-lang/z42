@@ -93,7 +93,7 @@ pub fn run_goldens_isolated(
 
     // Effective worker count: jobs<=0 → cores, capped at n.
     let workers = if jobs <= 0 {
-        std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1)
+        crate::pal::system::available_parallelism()
     } else {
         jobs as usize
     }.max(1).min(n.max(1));

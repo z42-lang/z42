@@ -7,7 +7,7 @@
 > `src/compiler/z42.compiler.contracts/src/IReplCompiler.z42`（编译门面）、
 > `src/compiler/z42c.pipeline/src/Z42cReplCompiler.z42`（门面实现）、
 > `src/runtime/crates/z42-repl/`（行编辑 cdylib）、
-> `src/runtime/src/corelib/repl.rs` · `repl_native.rs` · `repl_editing.rs`（VM 侧 builtin）、
+> `src/runtime/src/corelib/repl/mod.rs` · `repl/native.rs` · `repl/editing.rs`（VM 侧 builtin）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`z42 repl` 转发）。
 >
 > 要查**怎么用** `z42 repl`（旗标、元指令）→ 敲 `z42 repl -h`，或语言与库参考的工具链部分。
@@ -261,7 +261,7 @@ Ctrl-D 归一成 **null**（循环 break，退出）——见 §5.1。
 ### 5.1 边界：dlopen 的 host-only cdylib
 
 rustyline 后端不在 z42vm 里，而是独立 crate `z42-repl` 编出的 `libz42_repl.{so,dylib,dll}`，
-**挨着 z42i 放**（`programs/z42i/`），由 `corelib::repl_native` 的 REPL 专用惰性 loader 在首次
+**挨着 z42i 放**（`programs/z42i/`），由 `corelib::repl::native` 的 REPL 专用惰性 loader 在首次
 `__repl_readline` 时 dlopen——不走通用的 `native_search_paths()`。wasm / mobile 永远不加载它，
 落回纯 stdin 读取。产物由 `z42.repl` 自己的 build hook（`repl/hooks/hooks.z42` 的 `ProvideNative`）
 `cargo build -p z42-repl` 产出并登记，消费方 publish 时沿 path-dep 闭包自动平铺进 payload。

@@ -1,0 +1,38 @@
+struct ArrayAllocationEntry {
+    public int Count;
+    public string? Name;
+}
+
+T[] Allocate<T>(int size) {
+    return new T[size];
+}
+
+void Main() {
+    int[] ints = Allocate<int>(3);
+    string[] strings = Allocate<string>(2);
+    ArrayAllocationEntry[] entries = Allocate<ArrayAllocationEntry>(2);
+    bool[] flags = Allocate<bool>(2);
+
+    Assert.Equal(0, ints[2]);
+    Assert.Equal(false, flags[1]);
+    Assert.Equal(0, Allocate<int>(0).Length);
+    Assert.Equal("Int32", ints.GetType().GetElementType().Name);
+    Assert.Equal("String", strings.GetType().GetElementType().Name);
+    Assert.Equal("ArrayAllocationEntry", entries.GetType().GetElementType().Name);
+    Assert.Null(strings[0]);
+    strings[0] = "value";
+    Assert.Null(strings[1]);
+    Assert.Equal(0, entries[0].Count);
+    Assert.Null(entries[0].Name);
+    entries[0].Count = 9;
+    entries[0].Name = "value";
+    Assert.Equal(9, entries[0].Count);
+    Assert.Equal("value", entries[0].Name);
+    Assert.Equal(0, entries[1].Count);
+    Assert.Null(entries[1].Name);
+
+    bool caught = false;
+    try { Allocate<int>(-1); }
+    catch (OverflowException ex) { caught = true; }
+    Assert.True(caught);
+}

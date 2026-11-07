@@ -1,5 +1,8 @@
 use super::*;
-use crate::object::{ReflectedTypeKey, ReflectedTypeShape};
+use crate::object::{ReflectedTypeHandle, ReflectedTypeKey, ReflectedTypeShape};
+#[path = "type_allocation.rs"]
+mod allocation;
+use allocation::{build_type, build_type_ex, finish_type_initialization, TypeProjection};
 
 // ── Type-object construction ────────────────────────────────────────────────
 
@@ -14,9 +17,14 @@ pub fn make_type_object(ctx: &VmContext, td: Arc<TypeDesc>) -> Value {
     if !td.type_args().is_empty() && td.name.contains('<') {
         return make_type_from_name(ctx, &td.name);
     }
+    finish_type_initialization(ctx);
+    let key = declaration_key(&td);
+    if let Some(value) = ctx.core.runtime.reflection_types.get(ctx.heap(), &key, &[]) {
+        return value;
+    }
     let full = td.name.clone();
     let simple = type_simple_name(&full);
-    build_type(ctx, &simple, &full, NativeData::TypeHandle(td))
+    build_type(ctx, &simple, &full, NativeData::TypeHandle(ReflectedTypeHandle::new(&ctx.core.runtime.types, td)))
 }
 
 /// Simple (unqualified) type name for `Type.Name`: strip the namespace (`.`)
@@ -76,7 +84,7 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
         if elem.is_empty() {
             return build_type_ex(
                 ctx, "Array", well_known_names::STD_ARRAY,
-                type_shape(None, ReflectedTypeKey::Array(None)),
+                type_shape(ctx, None, ReflectedTypeKey::Array(None)),
                 TypeProjection::Array { element_name: elem, element: Value::Null },
             );
         }
@@ -108,7 +116,7 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
     }
     let canon = canonical_type_name(name);
     let simple = type_simple_name(&canon);
-    let native = type_shape(None, ReflectedTypeKey::Symbol(canon.as_str().into()));
+    let native = type_shape(ctx, None, ReflectedTypeKey::Symbol(canon.as_str().into()));
     build_type(ctx, &simple, &canon, native)
 }
 
@@ -121,7 +129,7 @@ pub(super) fn make_array_type(ctx: &VmContext, element_name: &str, element: Valu
         Value::Str(s) => s.to_string(),
         _ => element_name.to_string(),
     };
-    let native = type_shape(None, ReflectedTypeKey::Array(reflected_type_key(&element).map(Arc::new)));
+    let native = type_shape(ctx, None, ReflectedTypeKey::Array(reflected_type_key(&element).map(Arc::new)));
     build_type_ex(
         ctx, &format!("{name}[]"), &format!("{full}[]"), native,
         TypeProjection::Array { element_name, element },
@@ -135,7 +143,7 @@ fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
     // resolve to a real handle.)
     if let Some(m) = ctx.module() {
         if let Some(td) = m.type_registry.get(name) {
-            return Some(td.clone());
+            return Some(ctx.current_type_desc(td.clone()));
         }
     }
     if let Some(td) = ctx.try_lookup_type(name) {
@@ -248,14 +256,15 @@ pub(super) fn build_constructed_type(
         }
     }).collect::<Vec<_>>();
     let full = format!("{base_full}<{}>", arg_names.join(","));
-    let native = type_shape(definition, ReflectedTypeKey::Constructed {
+    let native = type_shape(ctx, definition, ReflectedTypeKey::Constructed {
         definition: Arc::new(definition_key),
         arguments: arguments.into(),
     });
     build_type_ex(ctx, &simple, &full, native, TypeProjection::Generic(arg_types))
 }
 
-fn type_shape(definition: Option<Arc<TypeDesc>>, key: ReflectedTypeKey) -> NativeData {
+fn type_shape(ctx: &VmContext, definition: Option<Arc<TypeDesc>>, key: ReflectedTypeKey) -> NativeData {
+    let definition = definition.map(|td| ReflectedTypeHandle::new(&ctx.core.runtime.types, td));
     NativeData::TypeShape(Arc::new(ReflectedTypeShape { definition, key }))
 }
 
@@ -270,7 +279,7 @@ fn declaration_key(td: &TypeDesc) -> ReflectedTypeKey {
 pub(super) fn reflected_type_key(ty: &Value) -> Option<ReflectedTypeKey> {
     let Value::Object(rc) = ty else { return None };
     match rc.borrow().native() {
-        NativeData::TypeHandle(td) => Some(declaration_key(td)),
+        NativeData::TypeHandle(handle) => Some(handle.key()),
         NativeData::TypeShape(shape) => Some(shape.key.clone()),
         _ => None,
     }
@@ -296,109 +305,9 @@ pub(super) fn canonical_type_name(tag: &str) -> String {
     .to_string()
 }
 
-/// Allocate a `Std.Type` ScriptObject, writing `__name` / `__fullName` slots by
-/// `field_index` and attaching `native`. Uses the real `Std.Type` TypeDesc so
-/// the object responds to reflection methods.
-pub(super) fn build_type(ctx: &VmContext, simple: &str, full: &str, native: NativeData) -> Value {
-    build_type_ex(ctx, simple, full, native, TypeProjection::Plain)
-}
-
-enum TypeProjection<'a> {
-    Plain,
-    Array { element_name: &'a str, element: Value },
-    Generic(Vec<Value>),
-}
-
-fn build_type_ex(
-    ctx: &VmContext, simple: &str, full: &str, native: NativeData, projection: TypeProjection<'_>,
-) -> Value {
-    let cache_key = match &native {
-        NativeData::TypeHandle(td) => Some(declaration_key(td)),
-        NativeData::TypeShape(shape) => Some(shape.key.clone()),
-        _ => None,
-    };
-    // Explicit Type arguments keep their object identity through member projection.
-    let arguments = match &projection {
-        TypeProjection::Array { element: Value::Object(element), .. } => vec![*element],
-        TypeProjection::Generic(arguments) => arguments.iter().filter_map(|arg| {
-            if let Value::Object(object) = arg { Some(*object) } else { None }
-        }).collect(),
-        _ => Vec::new(),
-    };
-    let revision = ctx.reflection_revision();
-    if let Some(key) = &cache_key {
-        if let Some(value) = ctx.core.runtime.reflection_types.get(ctx.heap(), revision, key, &arguments) {
-            return value;
-        }
-    }
-    let related_type = match &projection {
-        TypeProjection::Array { element, .. } => Some(element),
-        TypeProjection::Generic(arguments) => arguments.first(),
-        TypeProjection::Plain => None,
-    };
-    let type_td = match related_type {
-        // Reuse the Type descriptor without a lazy lookup while fresh
-        // reflection objects are held in native locals.
-        Some(Value::Object(rc)) if rc.type_desc().name == well_known_names::STD_TYPE =>
-            Some(rc.type_desc_arc().clone()),
-        _ => ctx.try_lookup_type(well_known_names::STD_TYPE),
-    };
-    let value = match type_td {
-        Some(type_td) => {
-            let mut slots = vec![Value::Null; type_td.fields.len()];
-            if let Some(&i) = type_td.field_index.get("IsArray") {
-                slots[i] = Value::Bool(matches!(projection, TypeProjection::Array { .. }));
-            }
-            if let Some(&i) = type_td.field_index.get("__elementName") {
-                let name = match &projection {
-                    TypeProjection::Array { element_name, .. } => *element_name,
-                    _ => "",
-                };
-                slots[i] = Value::Str(name.into());
-            }
-            match projection {
-                TypeProjection::Array { element, .. } => {
-                    if let Some(&i) = type_td.field_index.get("__elementType") {
-                        slots[i] = element;
-                    }
-                }
-                TypeProjection::Generic(arguments) => {
-                    if let Some(&i) = type_td.field_index.get("__typeArgs") {
-                        slots[i] = ctx.heap().alloc_array(arguments);
-                    }
-                }
-                TypeProjection::Plain => {}
-            }
-            // align-type-memberinfo-hierarchy: `Name` is inherited from
-            // `Std.Reflection.MemberInfo` (Type's base) — populate that slot so
-            // `typeof(C).Name` / `(MemberInfo)typeof(C)).Name` resolve via the
-            // shared base field (same as FieldInfo/MethodInfo). `__name` retained
-            // for low-level golden / z42.harness direct reads.
-            if let Some(&i) = type_td.field_index.get("Name") {
-                slots[i] = Value::Str(simple.to_string().into());
-            }
-            if let Some(&i) = type_td.field_index.get("__name") {
-                slots[i] = Value::Str(simple.to_string().into());
-            }
-            if let Some(&i) = type_td.field_index.get("__fullName") {
-                slots[i] = Value::Str(full.to_string().into());
-            }
-            ctx.heap().alloc_object(type_td, slots, native)
-        }
-        // z42.core not loaded — return a bare null Type (degraded). Reflection
-        // is meaningless without z42.core, so this path is effectively dead.
-        None => Value::Null,
-    };
-    match cache_key {
-        Some(key) if revision == ctx.reflection_revision() =>
-            ctx.core.runtime.reflection_types.publish(ctx.heap(), revision, key, arguments, value),
-        _ => value,
-    }
-}
-
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-/// Pull the real `Arc<TypeDesc>` out of a `Std.Type`'s `NativeData::TypeHandle`.
+/// Resolve the current descriptor through a Type's stable declaration handle.
 /// Returns `None` for synthetic Types (primitives/arrays) so callers degrade
 /// to empty results.
 /// Resolve a dotless simple type name to a loaded `TypeDesc` by *unique*
@@ -410,7 +319,7 @@ pub(super) fn resolve_dotless_simple(ctx: &VmContext, name: &str) -> Option<Arc<
     let fq = ctx.unique_loaded_full_name(name)?;
     if let Some(m) = ctx.module() {
         if let Some(td) = m.type_registry.get(&fq) {
-            return Some(td.clone());
+            return Some(ctx.current_type_desc(td.clone()));
         }
     }
     ctx.try_lookup_type(&fq)
@@ -446,7 +355,7 @@ pub(super) fn instantiation_desc(ctx: &VmContext, ty: &Value) -> Option<Arc<Type
     }
     let name = type_value_name(ty)?;
     ctx.module()
-        .and_then(|m| m.type_registry.get(&name).cloned())
+        .and_then(|m| m.type_registry.get(&name).cloned().map(|td| ctx.current_type_desc(td)))
         .or_else(|| ctx.try_lookup_type(&name))
 }
 
@@ -460,8 +369,8 @@ pub(super) fn type_handle_of(ty: &Value) -> Option<Arc<TypeDesc>> {
         Value::Object(rc) => {
             let obj = rc.borrow();
             match &obj.native() {
-                NativeData::TypeHandle(td) => Some(td.clone()),
-                NativeData::TypeShape(shape) => shape.definition.clone(),
+                NativeData::TypeHandle(handle) => handle.resolve(),
+                NativeData::TypeShape(shape) => shape.definition.as_ref().and_then(ReflectedTypeHandle::resolve),
                 _ => None,
             }
         }

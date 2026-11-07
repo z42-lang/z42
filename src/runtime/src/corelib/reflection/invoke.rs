@@ -344,7 +344,7 @@ pub(super) fn construction_target(
 ) -> Option<(Arc<TypeDesc>, crate::object::TypeArgs)> {
     let lookup = |n: &str| {
         ctx.module()
-            .and_then(|m| m.type_registry.get(n).cloned())
+            .and_then(|m| m.type_registry.get(n).cloned().map(|td| ctx.current_type_desc(td)))
             .or_else(|| ctx.try_lookup_type(n))
     };
     if let Some(td) = lookup(name) {

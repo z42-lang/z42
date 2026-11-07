@@ -137,9 +137,7 @@ public class TestCase {
         return acc;
     }
 
-    // 数值族勘合：字面量装箱（Int32）vs 形参类型（Int64/Double…）在反射 Invoke 前摆平；
-    // 非数值（string/bool/null）精确匹配直传。按形参**短名**分发——反射侧的参数类型名
-    // 是表面拼写（Int32/Int64/Double/Boolean/String），与 [Case] 字面量的装箱族一一对上。
+    // 在反射调用前按形参类型勘合 Case 整数字面量。
     static object[] _coerceArgs(MethodInfo m, object[] args) {
         ParameterInfo[] ps = m.GetParameters();
         object[] r = new object[args.Length];
@@ -151,19 +149,12 @@ public class TestCase {
         return r;
     }
 
-    // 勘合一个实参：形参类型名（反射侧准确：Std.Int32/Int64/Double/String/Boolean）对装箱值。
-    // 整数族装箱统一报 Std.Int32（VM 反射限制），实测 (long)v / (double)v 按目标类型正确转换，
-    // 故整数字面量 → Int64/Double 形参按 want 走；非数值族不匹配的原样交回——Invoke 的失败
-    // 消息比这里猜一个转换诚实。
+    // Case 整数字面量按 Int32 判断，只扩宽到 Int64 或 Double 形参。
     static object _coerceOne(object v, Type pt) {
         if (v == null) { return null; }
         string want = pt.FullName;
-        string got = v.GetType().FullName;
-        if (got == want) { return v; }
-        if (got == "Std.Int32") {
-            if (want == "Std.Int64") { return (long)v; }
-            if (want == "Std.Double") { return (double)v; }
-        }
+        if (want == "Std.Int64" && v is int) { return (long)v; }
+        if (want == "Std.Double" && v is int) { return (double)v; }
         return v;
     }
 }

@@ -6,11 +6,11 @@
 > 公开 API（`Serialize` / `Deserialize<T>` / `[JsonProperty]` / `[JsonIgnore]` / 类型覆盖）见参考手册
 > [Std.Json](https://z42-lang.github.io/z42/reference/stdlib/json.html)。本页写**这套东西怎么跑起来的**。
 >
-> DOM 的解析与输出细节见标准库实现。这里描述对象绑定与写流如何共用反射转换。
+> DOM 层（`JsonValue` 的 parse / stringify）不在本页范围——serde 只是站在 DOM 之上的一层反射绑定。
 
 serde 没有代码生成或全局 schema 缓存。对象成员每次现场收集；集合在一次遍历内绑定方法并复用调用参数数组。
 
-反射对象的复用和回收后重建由 VM 的 Type 弱缓存处理。JSON 按正常反射 API 获取成员和构造器，
+反射对象的复用和回收后重建由 VM 的 Type 身份弱缓存处理；已持有的 Type 经稳定句柄查询当前描述符。JSON 按正常反射 API 获取成员和构造器，
 不保存跨对象的元数据计划，也不查询加载器版本。用户特性工厂仍按每次成员查询执行。
 
 对象流入口与字符串入口共用类型分派、集合绑定和成员读取，并将普通值直接追加到单次 writer 的片段缓冲。

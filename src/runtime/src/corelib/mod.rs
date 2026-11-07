@@ -14,6 +14,7 @@
 ///   `string`      — str_length/char_at/substring/split/join/format …
 ///   `math`        — abs/max/min/pow/sqrt/trig …
 ///   `object`      — obj_get_type / obj_ref_eq / obj_hash_code
+///   `os`          — processes, platform capabilities, and system queries
 
 pub(crate) mod symavail;
 mod resource_registry;
@@ -24,10 +25,7 @@ pub mod convert;
 pub mod io;
 pub use io::fs;
 pub mod repl;
-pub mod repl_editing;
-// Lazy dlopen loader for the REPL editor cdylib (libz42_repl); without `native-interop`
-// (wasm) it is the plain-stdin fallback in `repl`. (extract-repl-native-cdylib)
-pub mod repl_native;
+pub use repl::{editing as repl_editing, native as repl_native};
 pub mod string;
 pub mod math;
 pub mod object;
@@ -41,16 +39,16 @@ pub mod config;
 pub mod char;
 pub mod gc;
 pub mod bench;
-pub mod process;
-pub mod platform;
-pub mod system;
+pub mod os;
+pub use os::{platform, process, system};
 pub mod threading;
 pub mod monitor;
 // add-concurrency-probes (P1b): 用户锁争用探针（`profile-contention` gated，默认零开销）。
 // store-sync-values-in-heap: 从 `sync.rs` 内部私有模块上移到这里 —— `monitor.rs` 与（待删的）
 // `sync.rs` 都用它。
 mod sync_contention;
-pub mod network;
+pub mod net;
+pub use net as network;
 #[cfg(feature = "tls")]
 pub mod tls;
 pub mod crypto;

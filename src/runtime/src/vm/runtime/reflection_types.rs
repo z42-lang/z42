@@ -1,11 +1,13 @@
-//! Weak Type objects owned by one VM and one published metadata snapshot.
+//! Weak Type objects indexed by stable identity within one VM.
 use crate::gc::{Heap, WeakRef};
 use crate::object::{ObjRef, ReflectedTypeKey, Value};
+use crate::vm::runtime::ids::tokens::TypeId;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 
 struct CachedType {
     object: WeakRef,
+    // Identity cookies only: comparison never dereferences these unrooted handles.
     arguments: Vec<ObjRef>,
 }
 
@@ -21,42 +23,72 @@ impl CachedType {
 }
 
 #[derive(Default)]
-struct Snapshot {
-    revision: i64,
-    types: FxHashMap<ReflectedTypeKey, CachedType>,
-}
-
-#[derive(Default)]
 pub(crate) struct ReflectionTypes {
-    snapshot: Mutex<Snapshot>,
+    types: Mutex<FxHashMap<ReflectedTypeKey, CachedType>>,
+    attributes: Mutex<FxHashMap<TypeId, Vec<WeakRef>>>,
 }
 
 impl ReflectionTypes {
+    /// Called under the type publication lock for registered declarations.
+    pub(crate) fn store_attributes(
+        &self,
+        heap: &Heap,
+        ty: &Value,
+        dependency: Option<TypeId>,
+        attributes: Value,
+    ) -> anyhow::Result<Value> {
+        let mut watchers = self.attributes.lock();
+        let Value::Object(object) = ty else {
+            return Ok(attributes);
+        };
+        let Some(&slot) = object.type_desc().field_index.get("__attributeCache") else {
+            return Ok(attributes);
+        };
+        let cached = object.borrow().field_value(slot);
+        if matches!(cached, Value::Array(_)) {
+            return Ok(cached);
+        }
+        let wrote = object.borrow().try_set_field_value(slot, &attributes)?;
+        wrote.with_barrier_value(&attributes, |value| {
+            heap.write_barrier_field(ty, slot, value)
+        });
+        if let Some(id) = dependency {
+            if let Some(weak) = heap.make_weak(ty) {
+                watchers.entry(id).or_default().push(weak);
+            }
+        }
+        Ok(attributes)
+    }
+
+    /// The owning Type objects remain stable; only their dependent results clear.
+    pub(crate) fn invalidate_attributes(&self, heap: &Heap, id: TypeId) {
+        let watchers = self.attributes.lock().remove(&id).unwrap_or_default();
+        for weak in watchers {
+            let Some(ty @ Value::Object(object)) = heap.upgrade_weak(&weak) else {
+                continue;
+            };
+            let Some(&slot) = object.type_desc().field_index.get("__attributeCache") else {
+                continue;
+            };
+            if object.borrow().set_field_value(slot, &Value::Null) {
+                heap.write_barrier_field(&ty, slot, &Value::Null);
+            }
+        }
+    }
+
     pub(crate) fn get(
         &self,
         heap: &Heap,
-        revision: i64,
         key: &ReflectedTypeKey,
         arguments: &[ObjRef],
     ) -> Option<Value> {
-        if revision == 0 {
-            return None;
-        }
-        let mut snapshot = self.snapshot.lock();
-        if revision < snapshot.revision {
-            return None;
-        }
-        if revision != snapshot.revision {
-            snapshot.types.clear();
-            snapshot.revision = revision;
-        }
-        let value = snapshot
-            .types
+        let mut entries = self.types.lock();
+        let value = entries
             .get(key)
             .filter(|cached| cached.arguments_match(arguments))
             .and_then(|cached| heap.upgrade_weak(&cached.object));
         if value.is_none() {
-            snapshot.types.remove(key);
+            entries.remove(key);
         }
         value
     }
@@ -64,34 +96,22 @@ impl ReflectionTypes {
     pub(crate) fn publish(
         &self,
         heap: &Heap,
-        revision: i64,
         key: ReflectedTypeKey,
         arguments: Vec<ObjRef>,
         value: Value,
     ) -> Value {
-        if revision == 0 {
-            return value;
-        }
         let Some(weak) = heap.make_weak(&value) else {
             return value;
         };
-        let mut snapshot = self.snapshot.lock();
-        if revision < snapshot.revision {
-            return value;
-        }
-        if revision != snapshot.revision {
-            snapshot.types.clear();
-            snapshot.revision = revision;
-        }
-        if let Some(existing) = snapshot
-            .types
+        let mut entries = self.types.lock();
+        if let Some(existing) = entries
             .get(&key)
             .filter(|cached| cached.arguments_match(&arguments))
             .and_then(|cached| heap.upgrade_weak(&cached.object))
         {
             return existing;
         }
-        snapshot.types.insert(
+        entries.insert(
             key,
             CachedType {
                 object: weak,

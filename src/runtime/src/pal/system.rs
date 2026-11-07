@@ -57,6 +57,11 @@ pub fn set_env(name: &str, value: Option<&str>) {
     super::sys::system::set_env(name, value)
 }
 
+/// Parallelism available to this process, with one worker as the fallback.
+pub(crate) fn available_parallelism() -> usize {
+    std::thread::available_parallelism().map(|count| count.get()).unwrap_or(1)
+}
+
 /// What the target OS lets a program do, independent of cargo features.
 #[derive(Debug, Clone, Copy)]
 pub struct OsCaps {

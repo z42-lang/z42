@@ -5,7 +5,7 @@ use super::*;
 /// Resolve a type name to its `TypeDesc` (main module then lazy loader).
 pub(super) fn resolve_td(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
     ctx.module()
-        .and_then(|m| m.type_registry.get(name).cloned())
+        .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.current_type_desc(td)))
         .or_else(|| ctx.try_lookup_type(name))
 }
 

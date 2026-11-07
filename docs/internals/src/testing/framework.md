@@ -114,8 +114,8 @@ flowchart LR
 **参数化测试（`[Case]`，data-driven）**：`[Test]` 可与多份 `[Case(1, 2, 3)]` 同贴——每份一行
 数据（实参是编译期常量，E0500 白名单），发现层把方法展开成多条用例（名字带实参后缀，如
 `test_add(1, 2, 3)`），每行独立 pass/fail。编译期三查（E0911/E0914）：`[Case]` 只贴 `[Test]`、
-贴了须有形参、每行套数 = 形参数；类型勘合在运行期（runner 按形参类型摆平整数族装箱，
-不匹配的失败消息指向具体行）。执行：`Method.Invoke(null, 勘合后实参)`——与 `[Benchmark]`
+贴了须有形参、每行套数 = 形参数。运行期用脚本类型检查识别 Int32 实参，按形参类型扩宽到 Int64 或 Double。
+不匹配的失败消息指向具体行。执行：`Method.Invoke(null, 勘合后实参)`——与 `[Benchmark]`
 的 Bencher 注入同一反射机制。
 
 **公共 fixture 按命名空间（自由函数）或类型（静态方法）分组**：没有共享实例，这是唯一可用的
@@ -139,7 +139,7 @@ SkipFeature  != null → skip iff !Capabilities().contains(SkipFeature)
 ```
 
 **能力集是运行期真值，不是静态推断**：`Std.Platform.Capabilities()` 背后是
-`corelib/platform.rs::builtin_platform_caps`，按 cfg 拼出这个二进制**实际编译进了什么**：
+`corelib/os/platform.rs::builtin_platform_caps`，按 cfg 拼出这个二进制**实际编译进了什么**：
 
 | cap | 何时出现 |
 |---|---|

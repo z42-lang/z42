@@ -14,8 +14,8 @@ const TYPED: &[&[abi::BuiltinDesc]] = &[
     crate::corelib::convert::typed::DESCS,
     crate::corelib::math::typed::DESCS,
     crate::corelib::object::typed::DESCS,
-    crate::corelib::platform::typed::DESCS,
-    crate::corelib::system::typed::DESCS,
+    crate::corelib::os::platform::typed::DESCS,
+    crate::corelib::os::system::typed::DESCS,
     crate::corelib::config::typed::DESCS,
     crate::corelib::appprops::typed::DESCS,
     crate::corelib::symavail::typed::DESCS,
@@ -38,23 +38,23 @@ const TYPED: &[&[abi::BuiltinDesc]] = &[
     crate::corelib::assemblyloadcontext::typed::DESCS,
     crate::corelib::threading::typed::DESCS,
     crate::corelib::io::fs::typed::DESCS,
-    crate::corelib::process::typed::DESCS,
+    crate::corelib::os::process::typed::DESCS,
     crate::corelib::io::typed::DESCS,
     crate::corelib::repl::typed::DESCS,
-    crate::corelib::repl_editing::typed::DESCS,
+    crate::corelib::repl::editing::typed::DESCS,
     #[cfg(feature = "native-interop")]
     crate::interop::ext::typed::DESCS,
     crate::corelib::monitor::typed::DESCS,
     #[cfg(feature = "net")]
-    crate::corelib::network::tcp::typed::DESCS,
+    crate::corelib::net::tcp::typed::DESCS,
     #[cfg(feature = "net")]
-    crate::corelib::network::udp::typed::DESCS,
+    crate::corelib::net::udp::typed::DESCS,
     #[cfg(not(feature = "net"))]
-    crate::corelib::network::unsupported::net::DESCS,
+    crate::corelib::net::unsupported::net::DESCS,
     #[cfg(feature = "tls")]
     crate::corelib::tls::typed::DESCS,
     #[cfg(not(feature = "tls"))]
-    crate::corelib::network::unsupported::tls::DESCS,
+    crate::corelib::net::unsupported::tls::DESCS,
     crate::corelib::diagnostics::typed::DESCS,
     crate::corelib::array::typed::DESCS,
     #[cfg(test)]

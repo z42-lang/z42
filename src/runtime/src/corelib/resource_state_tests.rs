@@ -1,7 +1,7 @@
 use crate::{pal::fs::default_vfs, vm::ext::VmExtensions, vm_context::VmContext};
 
 fn assert_installed(ctx: &VmContext) {
-    assert!(ctx.ext::<super::process::State>().is_some());
+    assert!(ctx.ext::<super::os::process::State>().is_some());
     assert!(ctx.ext::<super::threading::State>().is_some());
     assert!(ctx.ext::<super::io::fs::State>().is_some());
     #[cfg(feature = "net")]
@@ -44,7 +44,7 @@ fn resource_state_is_shared_by_workers_and_isolated_between_vms() {
             assert!(!std::ptr::eq(first.ext::<$state>().unwrap(), second.ext::<$state>().unwrap()));
         }};
     }
-    check!(super::process::State);
+    check!(super::os::process::State);
     check!(super::threading::State);
     check!(super::io::fs::State);
     #[cfg(feature = "net")]

@@ -1,7 +1,7 @@
 // 执行基座 native 语义层：TCP / UDP / TLS / DNS socket 原语。高层 API（TcpClient /
 // TcpListener / NetworkStream / UdpClient / TlsClient / Dns）留在 z42.net 转纯脚本、调这里的
 // *Native 原语。命名空间保持 Std.Net.Sockets 不变。native 实现镜像
-// src/runtime/src/corelib/network.rs。
+// src/runtime/src/corelib/net/mod.rs。
 //
 // ABI v2：TcpSocketNative / UdpSocketNative / TlsSocketNative / DnsNative.Resolve 返回普通值、
 // 失败从 Rust 抛（.NET 口径：SocketException / SocketClosedException / AuthenticationException /

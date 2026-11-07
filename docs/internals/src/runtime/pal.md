@@ -69,7 +69,7 @@ pub const OS_CAPS: OsCaps;                         // Std.Platform.Capabilities(
 
 `#[cfg(unix)]` 走 libc::gethostname / libc::uname；`#[cfg(target_arch =
 "wasm32")]` 返回 None / "wasm"；其他 (Windows-without-impl) 返回 None / 空
-字符串。**所有平台 cfg 切分都在 `pal/sys/` 内部** —— `corelib/system.rs`
+字符串。**所有平台 cfg 切分都在 `pal/sys/` 内部** —— `corelib/os/system.rs`
 零 cfg。
 
 ## 不变量（必须遵守）
@@ -175,7 +175,7 @@ Windows 用 `GetCurrentThreadStackLimits`；其他平台返回 `None`，栈检�
 
 ### `pal/net.rs` — socket 的 OS 部分
 
-承接 `corelib/network/{error,listener,tcp}.rs` 的平台分支（runtime-audit §6.1 L-2b）。`corelib/network`
+承接 `corelib/net/{error,listener,tcp}.rs` 的平台分支（runtime-audit §6.1 L-2b）。`corelib/net`
 只剩 builtin 胶水（参数、.NET 异常映射、句柄表、park），零平台 cfg：
 
 ```rust
@@ -241,7 +241,7 @@ impl Library {
 ```
 
 运行时只在这里 dlopen：用户 native 扩展（`interop/loader`）、`libz42_compression`（`interop/ext`）、REPL 编辑器
-`libz42_repl`（`corelib/repl_native`）。
+`libz42_repl`（`corelib/repl/native.rs`）。
 
 ### `pal/random.rs` — 熵
 
@@ -273,7 +273,7 @@ Cargo.toml 的 `wasm` / `ios` / `android` preset feature 与 PAL 互补：
 PAL **不** 是 Cargo feature；它是 cfg-based static dispatch。Feature gate
 的角色是关掉某些 module（如 `jit`），PAL 始终在。wasm 的功能裁剪用 feature 表达而不是
 `cfg(target_arch = "wasm32")`：网络是 `net` / `tls`（`default` 与 ios / android preset 开，`wasm`
-preset 不开），关掉时 `corelib/network/unsupported.rs` 的桩抛 `NetUnsupportedException`，任何目标上都一样。
+preset 不开），关掉时 `corelib/net/unsupported.rs` 的桩抛 `NetUnsupportedException`，任何目标上都一样。
 
 ## Deferred / Future Work
 

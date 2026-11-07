@@ -5,6 +5,8 @@ class CachedSample {
     public int Value;
 }
 
+class CollectibleSample {}
+
 class CachedBox<T> {
     public T Value;
 }
@@ -30,14 +32,56 @@ void test_generic_arguments_keep_their_projected_object() {
 }
 
 WeakHandle MakeUnrootedType() {
-    return WeakHandle.MakeWeak(typeof(CachedSample));
+    return WeakHandle.MakeWeak(typeof(CollectibleSample));
 }
 
 [Test]
 void test_type_object_can_be_collected_and_recreated() {
     WeakHandle weak = MakeUnrootedType();
-    GC.Collect();
+    GC.ForceCollect();
     Assert.True(WeakHandle.Upgrade(weak) == null);
-    Type recreated = typeof(CachedSample);
-    Assert.Equal("Z42CoreReflectionTypeCacheTests.CachedSample", recreated.FullName);
+    Type recreated = typeof(CollectibleSample);
+    Assert.Equal("Z42CoreReflectionTypeCacheTests.CollectibleSample", recreated.FullName);
+}
+
+class CachedInit {
+    public static Type Saved = typeof(CachedSample);
+}
+
+class RootedFirstAttribute : Attribute {
+    public static int Calls;
+    public int Value = 7;
+    public RootedFirstAttribute() {
+        RootedFirstAttribute.Calls = RootedFirstAttribute.Calls + 1;
+    }
+}
+
+class CollectDuringConstructionAttribute : Attribute {
+    public CollectDuringConstructionAttribute() { GC.ForceCollect(); }
+}
+
+[RootedFirst] [CollectDuringConstruction]
+class CachedAttributed {}
+
+[Test]
+void test_type_identity_survives_type_initialization() {
+    Type before = typeof(CachedSample);
+    Type saved = CachedInit.Saved;
+    Assert.True(Object.ReferenceEquals(before, saved));
+    Assert.True(Object.ReferenceEquals(before, typeof(CachedSample)));
+}
+
+[Test]
+void test_attribute_cache_preserves_instances_and_roots_factories() {
+    Type t = typeof(CachedAttributed);
+    GC.ForceCollect();
+    Attribute[] first = t.GetCustomAttributes();
+    Assert.Equal(2, first.Length);
+    RootedFirstAttribute attribute = (RootedFirstAttribute)first[0];
+    Assert.Equal(7, attribute.Value);
+    Assert.Equal(1, RootedFirstAttribute.Calls);
+    GC.ForceCollect();
+    Assert.True(Object.ReferenceEquals(first, t.GetCustomAttributes()));
+    Assert.True(Object.ReferenceEquals(attribute, t.GetAttribute(typeof(RootedFirstAttribute))));
+    Assert.Equal(1, RootedFirstAttribute.Calls);
 }

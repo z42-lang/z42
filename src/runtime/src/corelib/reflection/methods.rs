@@ -56,7 +56,7 @@ pub fn type_methods(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> 
     if td.class_flags & crate::metadata::ir::CLASS_FLAG_INTERFACE != 0 {
         let resolve = |name: &str| {
             ctx.module()
-                .and_then(|m| m.type_registry.get(name).cloned())
+                .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.current_type_desc(td)))
                 .or_else(|| ctx.try_lookup_type(name))
         };
         let mut queue: VecDeque<String> =

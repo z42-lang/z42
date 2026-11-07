@@ -6,10 +6,7 @@
 //!
 //!  add-platform-os-stdlib (original landing).
 
-use super::convert::arg_str;
-use crate::object::Value;
 use crate::pal;
-use crate::vm_context::VmContext;
 use anyhow::Result;
 use crate::vm::exec::call::builtin_abi::BuiltinError;
 
@@ -34,7 +31,7 @@ pub fn system_hostname() -> String {
 }
 
 pub fn system_cpu_count() -> i64 {
-    std::thread::available_parallelism().map(|n| n.get() as i64).unwrap_or(1)
+    pal::system::available_parallelism() as i64
 }
 
 pub fn system_os_version() -> String {

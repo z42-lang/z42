@@ -1,6 +1,6 @@
 // 执行基座 native 语义层：子进程 spawn / wait / kill / stdio 原语。应用层 Process / ProcessHandle
 // （编排、超时、stdio 流）留 z42.io、调这里的 *Native 原语。命名空间保持 Std.IO 不变。
-// native 实现镜像 src/runtime/src/corelib/process.rs。
+// native 实现镜像 src/runtime/src/corelib/os/process.rs。
 namespace Std.IO;
 
 /// 子进程 spawn / wait / kill / stdio 的 native 原语，供 z42.io 的 Process 应用层调用。
