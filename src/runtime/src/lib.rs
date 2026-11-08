@@ -26,12 +26,7 @@ pub mod interop;
 pub mod host;
 pub mod vm;
 pub mod app;
-mod app_state;
-mod app_services;
-pub(crate) mod boot;
-#[cfg(test)]
-#[path = "app_tests.rs"]
-mod app_tests;
+pub(crate) mod assembly;
 
 // Runtime configuration registry — single source of truth for every
 // Z42_* env var the runtime reads (docs/review.md Part 4 D1).
@@ -45,11 +40,3 @@ pub mod config;
 // story (Phase 1 = main.rs install_panic_hook). Windows VEH = Phase 2.1.
 // Spec: 变更 add-os-signal-handler/.
 pub mod signal_handler;
-
-mod context_assembly;
-mod engine_assembly;
-mod extension_assembly;
-
-mod builtin_assembly;
-mod object_protocol_assembly;
-mod loader_assembly;

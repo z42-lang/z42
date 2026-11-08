@@ -5,7 +5,7 @@
 执行 z42 编译产物（`.zbc` / `.zpkg`）。后端：解释器（interp）+ Cranelift JIT（desktop 默认，惰性逐函数编译）；AOT 为桩。
 不含编译器（在 `src/compiler/`）与标准库（在 `src/libraries/`）。
 
-门面 `engine_assembly.rs` 按 feature 注册基线 Engine 与优化入口；每 VM 的 TierApi 归执行层，后端拥有编译器和代码页。
+门面 `assembly/engine.rs` 按 feature 注册基线 Engine 与优化入口；每 VM 的 TierApi 归执行层，后端拥有编译器和代码页。
 
 ## 目录结构与核心文件
 
@@ -14,24 +14,24 @@
 |------|------|
 | `main.rs` | `z42vm` CLI 入口，加载产物并交给 `Vm` 执行 |
 | `startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
-| `builtin_assembly.rs` | 门面按既定 provider 顺序装配 builtin 描述符及纯名称/ID 目录 |
-| `object_protocol_assembly.rs` | 门面将核心库 GetType 和默认 ToString 绑定到执行层私有协议；保留调用方的物化与错误边界 |
-| `loader_assembly.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
-| `context_assembly.rs` | 门面实现既有 VmContext 主构造入口，装配配置、引擎、builtin 与扩展；worker 加入和 Drop 机制留在 vm/context |
-| `extension_assembly.rs` | 门面装配 interop 与核心库每 VM 资源状态，保留库句柄到最后释放，所有构造入口共用 |
+| `assembly/builtin.rs` | 门面按既定 provider 顺序装配 builtin 描述符及纯名称/ID 目录 |
+| `assembly/object_protocol.rs` | 门面将核心库 GetType 和默认 ToString 绑定到执行层私有协议；保留调用方的物化与错误边界 |
+| `assembly/loader.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
+| `assembly/context.rs` | 门面实现既有 VmContext 主构造入口，装配配置、引擎、builtin 与扩展；worker 加入和 Drop 机制留在 vm/context |
+| `assembly/extension.rs` | 门面装配 interop 与核心库每 VM 资源状态，保留库句柄到最后释放，所有构造入口共用 |
 | `vm/threads/state.rs` | `ThreadState` 拥有每 VM 线程注册、暂停握手与 fatal 状态，VmCore 组合持有 |
 | `vm/runtime/state.rs` | `RuntimeState` 组合入口 module 与运行时身份表，保留每 VM 链接隔离 |
 | `vm/loader/state.rs` | `LoaderState` 组合每 VM 加载上下文、初始化队列与 VFS |
 | `vm/runtime/statics/` / `vm/exec/init.rs` | 静态存储/初始化事实与执行/等待的职责边界 |
-| `app_services.rs` | 门面适配隔离应用执行与退出报告，经冻结扩展服务注入 corelib |
-| `app_state.rs` | 门面拥有的应用参数，经核心库服务接口提供快照 |
+| `app/services.rs` | 门面适配隔离应用执行与退出报告，经冻结扩展服务注入 corelib |
+| `app/state.rs` | 门面拥有的应用参数，经核心库服务接口提供快照 |
 | `vm/exec/thread_state.rs` | `ThreadExecState` 组合每线程帧、arena、异常槽和中立 JIT 头 |
 | `vm/exec/state.rs` | `ExecState` 组合每 VM 的引擎注册与代码寿命 |
 | `vm/config.rs` | `VmConfig`：门面捕获的构造输入，包含 heap 与采样设置；LOH 覆盖仍应用到进程策略 |
 | `vm/ext.rs` | `VmExtensions` 创建前登记与冻结的每 VM Rust 扩展状态，`VmContext::ext` 借用查询 |
 | `vm/mod.rs` | `Vm`：持有执行配置，从 VmContext 取得 Module，按 `ExecMode` 调用已注册引擎入口 |
-| `app.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
-| `boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`app::run` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
+| `app/mod.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
+| `assembly/boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`app::run` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
 | `lib.rs` | 库入口，re-export 公开 API |
 | `config.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`split.rs`（转换为子系统拥有的 `GcConfig` / `JitConfig` / `VmConfig`）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config_tests.rs` |
 | `vm/diagnostics/counters.rs` | `RuntimeCounters`：VM 可观测性原子计数器 |

@@ -50,9 +50,9 @@ impl VmContext {
             Arc::new(module)
         });
         Self::new_internal(
-            module, vfs, crate::extension_assembly::freeze(extensions),
+            module, vfs, crate::assembly::extension::freeze(extensions),
             crate::config::runtime_config().vm_config(),
-            crate::object_protocol_assembly::services(),
+            crate::assembly::object_protocol::services(),
         )
     }
 
@@ -88,9 +88,9 @@ impl VmContext {
         // heap → strong-Arc loop = leak). Weak.upgrade() per call.
         let core: Arc<VmCore> = Arc::new(VmCore {
             threads: crate::vm::threads::ThreadState::new(),
-            loader: crate::vm::loader::LoaderState::new(vfs, crate::loader_assembly::FUSION_INPUTS),
+            loader: crate::vm::loader::LoaderState::new(vfs, crate::assembly::loader::FUSION_INPUTS),
             heap:                 Box::new(Heap::new(config.gc)),
-            runtime: crate::vm::runtime::RuntimeState::new(module, &crate::builtin_assembly::CATALOG),
+            runtime: crate::vm::runtime::RuntimeState::new(module, &crate::assembly::builtin::CATALOG),
 
             diagnostics: crate::vm::diagnostics::DiagnosticsState {
                 counters: Arc::new(crate::vm::diagnostics::counters::RuntimeCounters::new()),
@@ -110,7 +110,7 @@ impl VmContext {
                 },
             },
             exec: crate::vm::exec::ExecState::new(
-                crate::engine_assembly::registry(), crate::builtin_assembly::BUILTINS, object_protocol,
+                crate::assembly::engine::registry(), crate::assembly::builtin::BUILTINS, object_protocol,
             ),
             ext_state,
         });
