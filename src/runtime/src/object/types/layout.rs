@@ -424,7 +424,7 @@ impl ObjectLayout {
 /// unit tests).
 pub fn compose_object_layout(
     base: Option<&ObjectLayout>,
-    own: &crate::metadata::ir::ObjectLayoutDesc,
+    own: &crate::zpkg::ir::ObjectLayoutDesc,
     merged_fields: &[FieldSlot],
     type_params: &[String],
 ) -> ObjectLayout {

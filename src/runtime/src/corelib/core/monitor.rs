@@ -309,9 +309,9 @@ fn monitor_handle_type_desc() -> Arc<TypeDesc> {
         class_flags: 0,
         visibility: 0,
         fields: Vec::new(),
-        field_index: crate::metadata::NameIndex::new(),
+        field_index: crate::zpkg::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })).clone()

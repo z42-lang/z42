@@ -35,8 +35,8 @@ pub enum SuperInstr {
     },
 }
 
-use crate::metadata::ir::{BasicBlock, BranchTargets, Instruction, Reg, Terminator};
-use crate::metadata::ir::reg_type::IrType;
+use crate::zpkg::ir::{BasicBlock, BranchTargets, Instruction, Reg, Terminator};
+use crate::zpkg::ir::reg_type::IrType;
 
 
 impl SuperInstr {

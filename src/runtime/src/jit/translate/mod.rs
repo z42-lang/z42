@@ -6,8 +6,8 @@
 /// emitted as inline Cranelift instructions.
 
 use crate::vm::runtime::Function;
-use crate::metadata::{Instruction, Terminator};
-use crate::metadata::{
+use crate::zpkg::{Instruction, Terminator};
+use crate::zpkg::{
     AsCastInsn, BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, IsInstanceInsn,
     LoadFnInsn, MkClosInsn, ObjNewInsn, StaticGetInsn, StaticSetInsn, TypeofInsn,
     VCallInsn,
@@ -16,7 +16,7 @@ use anyhow::{bail, Result};
 use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlagsData};
 use cranelift_codegen::ir::types;
 use cranelift_codegen::ir::condcodes::IntCC;
-use crate::metadata::IrType;
+use crate::zpkg::IrType;
 use crate::vm::runtime::ids::tokens::TypeKeyCell;
 use cranelift_codegen::Context;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};

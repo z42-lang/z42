@@ -1,7 +1,7 @@
 //! Immutable package definitions, shared without VM identities or caches.
 //!
 //! ```compile_fail
-//! fn mutate(image: &mut z42::metadata::image::PackageImage) {
+//! fn mutate(image: &mut z42_zpkg::image::PackageImage) {
 //!     image.name.clear();
 //! }
 //! ```
@@ -53,13 +53,13 @@ impl PackageImage {
     pub fn function(&self, index: usize) -> Option<&Function> {
         self.functions.get(index).map(AsRef::as_ref)
     }
-    pub(crate) fn data(&self) -> Arc<ModuleData> {
+    pub fn data(&self) -> Arc<ModuleData> {
         self.data.clone()
     }
-    pub(crate) fn definitions(&self) -> &[Arc<Function>] {
+    pub fn definitions(&self) -> &[Arc<Function>] {
         &self.functions
     }
-    pub(crate) fn snapshot(data: Arc<ModuleData>, functions: Vec<Arc<Function>>) -> Arc<Self> {
+    pub fn snapshot(data: Arc<ModuleData>, functions: Vec<Arc<Function>>) -> Arc<Self> {
         let mut data = data;
         if data.func_index.len() != functions.len()
             || functions

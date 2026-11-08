@@ -12,14 +12,14 @@
 use super::*;
 use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{RefKind, TypeDesc};
-use crate::{metadata::NameIndex, object::FieldSlot};
+use crate::{zpkg::NameIndex, object::FieldSlot};
 use crate::object::NativeData;
 use crate::object::Value;
 use crate::vm::context::VmContext;
 use std::sync::Arc;
 
 fn m() -> crate::vm::runtime::Module {
-    crate::vm::runtime::Module::new(crate::metadata::image::ModuleData {
+    crate::vm::runtime::Module::new(crate::zpkg::image::ModuleData {
         name: "test".to_owned(),
         string_pool: vec![],
         classes: vec![],

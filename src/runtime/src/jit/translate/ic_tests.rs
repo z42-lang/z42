@@ -2,14 +2,14 @@
 
 use super::method_id_at;
 use crate::vm::runtime::Function;
-use crate::metadata::ir::{BasicBlock, Terminator};
+use crate::zpkg::ir::{BasicBlock, Terminator};
 use crate::vm::runtime::resolve::ResolvedTokens;
 use crate::vm::runtime::ids::tokens::UNRESOLVED;
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::ExecMode;
 use std::sync::atomic::AtomicU32;
 
 fn with_call_tokens(tokens: &[u32]) -> Function {
-    let f = Function::new(crate::metadata::ir::Function {
+    let f = Function::new(crate::zpkg::ir::Function {
         name: "f".to_string(),
         param_count: 0,
         ret_type: "void".to_string(),

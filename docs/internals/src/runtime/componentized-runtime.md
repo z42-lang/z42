@@ -1,10 +1,10 @@
 # 组件化运行时（Componentized Runtime）
 
-> 待办：设计已定，尚未实施（目标架构）
+> 状态：静态产物层已成为独立 `z42-zpkg` 库；执行后端和诊断组件的独立交付仍待实施。
 >
 > 本文是 z42 运行时**未来的组件化目标架构**：把执行后端、GC、调试等从单一 `z42` crate 中拆成可独立交付的组件，支持「独立 z42vm 运行时按需加载」与「嵌入按需链接」。
 >
-> **实施触发**：ROI 出现（如某分发渠道对 z42vm 单二进制体积敏感、或 interp/jit 需按需下发）。在此之前仅作为目标设计存在；`runtime-workload-distribution.md` 的 Deferred `runtime-future-jit-cdylib-split` 指向本文。
+> 组件拆分按静态产物、共享核心、执行后端和可选诊断组件推进。静态链接和运行时加载共用宿主门面；`runtime-workload-distribution.md` 的 Deferred `runtime-future-jit-cdylib-split` 指向后端独立交付。
 >
 > 当前运行时架构（单 crate + feature gate）见 [vm-architecture.md](vm-architecture.md)；运行时/包分发见 [runtime-workload-distribution.md](../toolchain/workload-distribution.md)。
 
@@ -54,9 +54,15 @@
 
 ## 4. 依赖反转与无环
 
-### 4.1 当前单 crate 的注册边界
+### 4.1 当前库边界与引擎注册
 
-当前运行时保持一个 crate。门面 `assembly/engine.rs` 按 feature 装配 Engine 与优化入口；`VmCore.exec.engines` 持有每 VM 注册表和一次发布的 TierApi。VM 的模式分发、初始化执行及共享 ToString 调用均通过注册能力，不静态选择具体后端。
+`z42-zpkg` 拥有格式、解码、静态 IR、调试记录和不可变包映像，只依赖通用错误与哈希库，不依赖 VM。执行身份、链接、缓存和初始化状态留在运行时。它是静态链接的基础库，解析符号记录不要求加载调试器。
+
+执行后端目前仍属于主运行时 crate。门面 `assembly/engine.rs` 按 feature 装配 Engine 与优化入口；`VmCore.exec.engines` 持有每 VM 注册表和一次发布的 TierApi。VM 的模式分发、初始化执行及共享 ToString 调用均通过注册能力，不静态选择具体后端。
+
+面向嵌入宿主的接口和类型统一从 `host` 提供，具体实现可以属于独立组件。CLI 使用相同门面。组件间的内部 Rust API 不自动成为宿主 API；静态链接与动态加载不能要求宿主改换调用接口。
+
+CPU/堆分析器和调试代理属于可选组件，通过核心的观察者、采样和诊断接口接入。核心保留共享事件契约及执行所需状态，不因未加载工具组件而引入其实现。调试器与 profiler 可以按需启用；产物符号解析和崩溃栈定位属于基础能力，不能随调试器移除。
 
 interp 的静态、虚、闭包和通用混合入口传入共享参数视图；TierBackend 的 JIT 实现拥有 JitRuntime、JitFrame、编译器与代码。OSR 的计数和阈值比较留在解释器热循环，实际交接经 TierApi。JIT 的冷/不可翻译调用经已注册 Engine 回落，两个后端的生产代码互不引用。
 

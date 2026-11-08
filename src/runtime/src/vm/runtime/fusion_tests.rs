@@ -2,8 +2,8 @@
 //! super-instruction rule table — covers CmpBr recognition, the `typed`
 //! (integer `reg_types`) fast-path flag, and the untyped fallback.
 
-use crate::metadata::ir::{BasicBlock, BranchTargets, Instruction, Terminator};
-use crate::metadata::ir::reg_type::IrType;
+use crate::zpkg::ir::{BasicBlock, BranchTargets, Instruction, Terminator};
+use crate::zpkg::ir::reg_type::IrType;
 use crate::vm::runtime::{CmpOp, SuperInstr};
 
 /// Build a block whose last instruction is `cmp dst, a, b` and whose

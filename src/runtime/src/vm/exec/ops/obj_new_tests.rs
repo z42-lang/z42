@@ -3,10 +3,10 @@
 
 use super::*;
 use crate::interp::frame::Frame;
-use crate::metadata::ir::{BasicBlock, Instruction, ObjNewInsn, Terminator};
-use crate::metadata::index::name::NameIndex;
+use crate::zpkg::ir::{BasicBlock, Instruction, ObjNewInsn, Terminator};
+use crate::zpkg::index::name::NameIndex;
 use crate::vm::runtime::ids::tokens::{alloc_type_id_block, FnId, TypeId};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::ExecMode;
 use crate::object::TypeDescCold;
 
 /// A ctor (receiver in reg 0) with `params` physical parameters, body `Ret`.
@@ -15,7 +15,7 @@ fn ctor(name: &str, params: usize) -> Function {
 }
 
 fn func(name: &str, params: usize, instructions: Vec<Instruction>) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: params,
         ret_type: "void".to_string(),
@@ -56,7 +56,7 @@ fn class(name: &str, base_unmerged: bool) -> Arc<TypeDesc> {
 
 fn module(name: &str, functions: Vec<Function>, types: Vec<Arc<TypeDesc>>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![],
         classes: vec![],

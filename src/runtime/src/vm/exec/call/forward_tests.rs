@@ -9,16 +9,16 @@
 use std::sync::Arc;
 
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator};
+use crate::zpkg::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator};
 use crate::vm::runtime::ids::tokens::TypeId;
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::ExecMode;
 use crate::object::{FieldSlot, TypeDesc};
 use crate::object::Value;
 use crate::vm::context::VmContext;
 use crate::vm::exec::call::outcome::ExecOutcome;
 
 fn func(name: &str, params: usize, instructions: Vec<Instruction>, terminator: Terminator) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: params,
         ret_type: "object".to_string(),
@@ -75,13 +75,13 @@ fn exception_type(name: &str, base: Option<&str>) -> Arc<TypeDesc> {
         FieldSlot { name: "StackTrace".into(),     type_tag: "str".into(), visibility: 0 },
         FieldSlot { name: "InnerException".into(), type_tag: "Std.Exception".into(), visibility: 0 },
     ];
-    let mut field_index = crate::metadata::NameIndex::new();
+    let mut field_index = crate::zpkg::NameIndex::new();
     for (i, f) in fields.iter().enumerate() { field_index.insert(f.name.to_string(), i); }
     let own: Box<[FieldSlot]> = fields.clone().into();
     Arc::new(TypeDesc {
         class_flags: 0, visibility: 0, name: name.into(), id: TypeId::UNRESOLVED,
         base_name: base.map(str::to_owned), fields, field_index,
-        vtable: vec![], vtable_index: crate::metadata::NameIndex::new(),
+        vtable: vec![], vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(crate::object::TypeDescCold { own_fields: own, ..Default::default() })),
     })
 }
@@ -98,7 +98,7 @@ pub(crate) fn module_of(functions: Vec<Function>) -> Module {
     ] {
         type_registry.insert(n.to_string(), exception_type(n, b));
     }
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "M".into(),
         string_pool: Vec::new(),
         classes: Vec::new(),
@@ -318,7 +318,7 @@ fn no_exception_is_built_while_a_fatal_error_unwinds() {
 
 #[test]
 fn field_read_fold_loads_current_value_and_rejects_ineligible_calls() {
-    use crate::metadata::ir::{FieldGetInsn, METHOD_FLAG_NO_INLINING};
+    use crate::zpkg::ir::{FieldGetInsn, METHOD_FLAG_NO_INLINING};
     use crate::object::NativeData;
 
     let vm = VmContext::new();

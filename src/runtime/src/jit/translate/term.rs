@@ -5,7 +5,7 @@
 use super::*;
 use super::ctx::TxCtx;
 use crate::jit::helpers::value::JIT_GET_BOOL_ERR;
-use crate::metadata::BranchTargets;
+use crate::zpkg::BranchTargets;
 use crate::jit::translate::reg_access::{PAYLOAD_OFFSET, TAG_OFFSET};
 
 impl<'a, 'b> TxCtx<'a, 'b> {

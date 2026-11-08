@@ -101,7 +101,7 @@ pub(crate) fn is_open_type_arg(arg: &str) -> bool {
 /// The keyword spellings of built-in types (`type_names::canonical_arg`) — the only dot-free
 /// names a canonical type argument can carry.
 pub(crate) fn is_keyword_type_name(t: &str) -> bool {
-    crate::metadata::index::type_names::builtin_keyword(t) == Some(t)
+    crate::zpkg::index::type_names::builtin_keyword(t) == Some(t)
 }
 
 /// complete-generic-class-identity P2: does the instantiated type name `full` match a test

@@ -1,7 +1,7 @@
 //! Shared images must never publish another VM's identities or cache cells.
 use super::*;
-use crate::metadata::image::PackageImage;
-use crate::metadata::ir::{
+use crate::zpkg::image::PackageImage;
+use crate::zpkg::ir::{
     self, BasicBlock, ClassDesc, ExceptionEntry, FunctionCold, Instruction, Terminator,
 };
 use crate::vm::runtime::ids::tokens::FnId;
@@ -236,7 +236,7 @@ fn debug_overlay_reprepares_static_metadata_without_mutating_the_image() {
     let mut module = Module::from_image(original.clone());
     crate::vm::loader::package::build_block_indices(&mut module);
     assert_eq!(module.functions[0].branch_targets.len(), 1);
-    let line = crate::metadata::debug::LineEntry {
+    let line = crate::zpkg::debug::LineEntry {
         block: 0,
         instr: 0,
         line: 10,

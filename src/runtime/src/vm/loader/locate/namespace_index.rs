@@ -20,8 +20,8 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 
 use crate::pal::fs::Vfs;
-use crate::metadata::format::{ZBC_MAGIC, ZPKG_MAGIC};
-use crate::metadata::reader::read_zpkg_meta;
+use crate::zpkg::format::{ZBC_MAGIC, ZPKG_MAGIC};
+use crate::zpkg::reader::read_zpkg_meta;
 
 /// A declared-but-not-yet-loaded zpkg candidate: absolute file path + the
 /// namespaces it exports (from its NSPC section). Owned — the caller decides
@@ -168,7 +168,7 @@ fn cached_zpkg_namespaces(fs: &dyn Vfs, path_str: &str) -> Option<Vec<String>> {
 /// the reader byte-parse — kept here so the scanners have a single parse
 /// entry point alongside [`read_zbc_namespace`].
 fn read_zpkg_namespaces(data: &[u8]) -> Result<Vec<String>> {
-    crate::metadata::reader::read_zpkg_namespaces(data)
+    crate::zpkg::reader::read_zpkg_namespaces(data)
 }
 
 /// Reads the (single) namespace from a binary zbc buffer (NSPC section
@@ -179,7 +179,7 @@ pub fn read_zbc_namespace(data: &[u8]) -> Result<String> {
     if &data[0..4] != ZBC_MAGIC { bail!("not a zbc file (bad magic)") }
 
     let sec_count = u16::from_le_bytes([data[10], data[11]]);
-    let dir = crate::metadata::reader::read_directory_pub(data, sec_count)?;
+    let dir = crate::zpkg::reader::read_directory_pub(data, sec_count)?;
 
     match dir.get(b"NSPC") {
         None => Ok(String::new()),

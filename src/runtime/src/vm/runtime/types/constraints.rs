@@ -29,7 +29,7 @@ pub fn verify_constraints(module: &Module) -> Result<()> {
 }
 
 fn check_constraint_refs(
-    b: &crate::metadata::ir::ConstraintBundle,
+    b: &crate::zpkg::ir::ConstraintBundle,
     registry: &FxHashMap<String, Arc<TypeDesc>>,
     owner: &str,
     type_params: &[&str],

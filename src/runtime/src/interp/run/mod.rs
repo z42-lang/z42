@@ -6,7 +6,7 @@ mod exec_body_cold;
 use super::frame::Frame;
 use super::ops::{self, exec_instr};
 use crate::vm::runtime::{Function, Module};
-use crate::{metadata::{BranchTargets, Terminator}, object::Value};
+use crate::{zpkg::{BranchTargets, Terminator}, object::Value};
 use crate::vm::context::VmContext;
 use anyhow::{bail, Context, Result};
 use crate::vm::exec::call::outcome::ExecOutcome;

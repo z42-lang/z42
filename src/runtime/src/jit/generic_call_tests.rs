@@ -3,14 +3,14 @@
 
 use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator, VCallInsn};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::{BasicBlock, CallInsn, Instruction, Terminator, VCallInsn};
+use crate::zpkg::ir::ExecMode;
 use crate::object::Value;
 use crate::vm::context::VmContext;
 use super::translate::{jit_unsupported_reason, unsupported_reason};
 
 fn func(name: &str, params: usize, is_static: bool, instructions: Vec<Instruction>, ret: Option<u32>) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: params,
         ret_type: "object".to_string(),
@@ -64,7 +64,7 @@ fn id_body() -> Function { func("T.Id", 1, true, vec![], Some(0)) }
 
 fn module_of(functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "M".into(),
         string_pool: Vec::new(),
         classes: Vec::new(),
@@ -208,7 +208,7 @@ fn the_interpreter_diverts_a_generic_call_to_a_compiled_callee() {
 #[cfg(feature = "jit")]
 #[test]
 fn method_parameter_array_compiles_with_bound_and_missing_args() {
-    use crate::metadata::ir::ArrayNewInsn;
+    use crate::zpkg::ir::ArrayNewInsn;
     use crate::object::ElemType;
 
     let allocation = Instruction::ArrayNew(Box::new(ArrayNewInsn {

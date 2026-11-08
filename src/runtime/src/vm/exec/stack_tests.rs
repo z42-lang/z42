@@ -2,8 +2,8 @@ use super::*;
 use crate::vm::runtime::Function;
 use crate::vm::exec::call::frames::{VmFrame, PC_UNSET};
 
-use crate::metadata::ir::FunctionCold;
-use crate::metadata::debug::LineEntry;
+use crate::zpkg::ir::FunctionCold;
+use crate::zpkg::debug::LineEntry;
 
 fn line(block: u32, instr: u32, line: u32, column: u32, file: Option<&str>) -> LineEntry {
     LineEntry { block, instr, line, column, file: file.map(str::to_string) }
@@ -13,11 +13,11 @@ fn line(block: u32, instr: u32, line: u32, column: u32, file: Option<&str>) -> L
 /// with the given parameter types and line table. Shared with other tests
 /// that need a function for a `VmFrame` to point at.
 pub(crate) fn test_function(name: &str, param_types: &[&str], line_table: Vec<LineEntry>) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: param_types.len(),
         ret_type: "void".to_string(),
-        exec_mode: crate::metadata::ir::ExecMode::Interp,
+        exec_mode: crate::zpkg::ir::ExecMode::Interp,
         blocks: Vec::new(),
         is_static: true,
         visibility: 0,

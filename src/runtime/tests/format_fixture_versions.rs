@@ -28,7 +28,7 @@
 
 use std::path::{Path, PathBuf};
 
-use z42::metadata::format::{ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR, ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR};
+use z42_zpkg::format::{ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR, ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR};
 
 fn tests_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../compiler/z42.package/tests/fixtures")

@@ -14,7 +14,7 @@ fn td(name: &str) -> Arc<crate::object::TypeDesc> {
     let field_index = fields.iter().enumerate().map(|(i, f)| (f.name.to_string(), i)).collect();
     Arc::new(crate::object::TypeDesc {
         class_flags: 0, visibility: 0, name: name.to_string(), base_name: None, fields, field_index,
-        vtable: Vec::new(), vtable_index: crate::metadata::NameIndex::new(), cold: None,
+        vtable: Vec::new(), vtable_index: crate::zpkg::NameIndex::new(), cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }

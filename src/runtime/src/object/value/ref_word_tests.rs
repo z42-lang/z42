@@ -18,9 +18,9 @@ fn plain_td(name: &str) -> Arc<TypeDesc> {
         name: name.to_string(),
         base_name: None,
         fields: Vec::new(),
-        field_index: crate::metadata::NameIndex::new(),
+        field_index: crate::zpkg::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
@@ -51,7 +51,7 @@ pub(crate) fn ref_cell_td(n: usize) -> Arc<TypeDesc> {
         fields,
         field_index,
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })

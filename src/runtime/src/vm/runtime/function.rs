@@ -3,7 +3,7 @@ use super::sites::CodeSites;
 use super::SuperInstr;
 use crate::vm::runtime::resolve::ResolvedTokens;
 use crate::vm::runtime::ids::tokens::{FnIdCell, ForwardCell, TypeKeyCell};
-use crate::{metadata::ir, object::TypeDesc};
+use crate::{zpkg::ir, object::TypeDesc};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, OnceLock};

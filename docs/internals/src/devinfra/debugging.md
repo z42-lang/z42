@@ -3,7 +3,7 @@
 > 代码：`src/runtime/src/startup.rs`
 > （`--info` / panic hook）、`src/runtime/src/host/signal.rs`、`src/runtime/src/pal/signal.rs`、
 > `src/runtime/src/host/app.rs`（`--stats`）、`src/runtime/src/vm/diagnostics/observer.rs`、
-> `src/runtime/src/config/`、`src/runtime/src/metadata/format/build_id.rs`、`scripts/bench/xtask_profile.z42`
+> `src/runtime/src/config/`、`src/runtime/crates/z42-zpkg/src/format/build_id.rs`、`scripts/bench/xtask_profile.z42`
 >
 > 旋钮登记表与五层优先级见[运行时设置的实现](../runtime/runtime-settings.md)；
 > 采样 profiler / 计数器面的**机制**见[诊断与性能分析](../runtime/diagnostics.md)。
@@ -47,7 +47,7 @@ Z42_LOG=z42=warn ./z42vm --verbose script.zbc      # 即便 --verbose 也安静
 ```
 
 target 就是各个 mod 自己的路径：`z42` / `z42::interp` / `z42::jit` / `z42::gc` /
-`z42::interop::*` / `z42::metadata::*` …
+`z42::interop::*` / `z42_zpkg::*` …
 
 ## 3. 崩溃抓盘：`Z42_CRASH_DIR`
 

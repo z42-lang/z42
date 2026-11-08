@@ -256,7 +256,7 @@ z42vm (Rust) ──要它才能跑──> z42c ──产出──> z42c.driver.z
 ## 7. strict-pin：改格式必须同 commit bump 且重生基线
 
 z42c（writer）在每个 `.zbc` / `.zpkg` 头写版本常量；z42vm（reader，
-`src/runtime/src/metadata/reader/`）加载时**精确匹配 major + minor**，不匹配直接拒
+`src/runtime/crates/z42-zpkg/src/reader/`）加载时**精确匹配 major + minor**，不匹配直接拒
 （`zpkg minor 22 not supported (writer 0.23)`），**没有兼容回退**。推论三条：
 
 - 改 wire 格式（新 opcode / section / 字段语义）→ **writer 与 reader 的版本常量必须同一 commit 一起

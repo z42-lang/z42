@@ -2,7 +2,7 @@
 use std::any::Any;
 use std::sync::OnceLock;
 use anyhow::{bail, Result};
-use crate::metadata::ExecMode;
+use crate::zpkg::ExecMode;
 use crate::object::Value;
 use crate::vm::runtime::{Function, Module};
 use crate::vm::context::VmContext;

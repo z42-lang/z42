@@ -4,7 +4,7 @@
 use super::*;
 use crate::vm::runtime::{Function, Module};
 use crate::{
-    metadata::{BranchTargets, Terminator},
+    zpkg::{BranchTargets, Terminator},
     object::Value,
 };
 use crate::vm::context::VmContext;

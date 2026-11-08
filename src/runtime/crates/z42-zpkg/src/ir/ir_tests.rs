@@ -4,7 +4,7 @@
 //! stays ≤32 B; `instruction_size_is_slim` pins that invariant.
 
 use super::Instruction;
-use crate::metadata::ir::ExecMode;
+use crate::ir::ExecMode;
 use super::{BasicBlock, ExceptionEntry, Function, FunctionCold, Terminator};
 
 /// add-offline-symbolication: build a bare Function with the given per-block

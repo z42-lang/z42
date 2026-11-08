@@ -1,5 +1,5 @@
 use super::*;
-use crate::metadata::index::name::NameIndex;
+use crate::zpkg::index::name::NameIndex;
 use crate::vm::runtime::ids::tokens::UNRESOLVED;
 
 fn desc(name: &str, id: TypeId) -> Arc<TypeDesc> {
@@ -22,7 +22,7 @@ fn fresh_id() -> TypeId {
 }
 
 fn entry_module(types: &[Arc<TypeDesc>]) -> Module {
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "Entry".to_string(),
         string_pool: vec![],
         classes: vec![],

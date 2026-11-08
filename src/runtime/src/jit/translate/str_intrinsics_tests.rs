@@ -13,10 +13,10 @@ use crate::jit::runtime::frame::JitFrame;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use crate::jit::compile::state::install;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator, VCallInsn};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator, VCallInsn};
+use crate::zpkg::ir::ExecMode;
 use crate::object::string::vstr::{jit_layout, Str};
-use crate::{metadata::IrType, object::Value};
+use crate::{zpkg::IrType, object::Value};
 use crate::vm::context::VmContext;
 
 const GET_LENGTH: usize = 0;
@@ -27,7 +27,7 @@ const AT_CALL: usize = 4;
 const AT_VCALL: usize = 5;
 
 fn func(name: &str, params: usize, regs: &[IrType], instr: Instruction, ret: u32) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: params,
         ret_type: "i64".to_string(),
@@ -79,7 +79,7 @@ fn module() -> Module {
         func("T.AtV", 2, &[Str, I64, Char], vcall(2, 0, "CharAt", &[1]), 2),
     ];
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "T".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),
@@ -264,7 +264,7 @@ fn char_comparisons_match_the_interpreter() {
         .map(|(n, mk)| func(&format!("T.{n}"), 2, &[Char, Char, Bool], mk(2, 0, 1), 2))
         .collect();
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    let m = Module::new(crate::metadata::image::ModuleData {
+    let m = Module::new(crate::zpkg::image::ModuleData {
         name: "T".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),

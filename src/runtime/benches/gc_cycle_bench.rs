@@ -38,9 +38,9 @@ fn make_type_desc(name: &str) -> Arc<TypeDesc> {
         class_flags: 0,
         visibility: 0,
         fields: Vec::new(),
-        field_index: z42::metadata::NameIndex::new(),
+        field_index: z42_zpkg::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: z42::metadata::NameIndex::new(),
+        vtable_index: z42_zpkg::NameIndex::new(),
         cold: None,
         id: TypeId::UNRESOLVED,
     })
@@ -67,9 +67,9 @@ fn build_cycle_heavy(heap: &Heap, num_cycles: usize) {
             class_flags: 0,
             visibility: 0,
             fields: Vec::new(),
-            field_index: z42::metadata::NameIndex::new(),
+            field_index: z42_zpkg::NameIndex::new(),
             vtable: Vec::new(),
-            vtable_index: z42::metadata::NameIndex::new(),
+            vtable_index: z42_zpkg::NameIndex::new(),
             cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
             id: TypeId::UNRESOLVED,
         })

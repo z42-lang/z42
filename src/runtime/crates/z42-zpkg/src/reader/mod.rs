@@ -159,7 +159,7 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
         } else {
             Box::new([])
         };
-        let cold_inner = crate::metadata::ir::FunctionCold {
+        let cold_inner = crate::ir::FunctionCold {
             param_types:            sig.map(|s| s.param_types.clone()).unwrap_or_default().into_boxed_slice(),
             exception_table:        body.exception_table.into_boxed_slice(),
             line_table:             dbug.line_table.into_boxed_slice(),

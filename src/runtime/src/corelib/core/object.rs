@@ -37,7 +37,7 @@ fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
             Ok(make_type_from_name(ctx, &format!("{element}[]")))
         }
         Value::Str(_) => {
-            Ok(make_type_from_name(ctx, crate::metadata::index::well_known_names::STD_STRING))
+            Ok(make_type_from_name(ctx, crate::zpkg::index::well_known_names::STD_STRING))
         }
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）→ 其**精确类型**
         // （type_desc.name：struct 类型 / 基元 wrapper 如 Std.Int64——两者统一为 BoxedStruct）。
@@ -61,7 +61,7 @@ fn instance_type(ctx: &VmContext, td: std::sync::Arc<crate::object::TypeDesc>, a
     if args.is_empty() || !td.type_args().is_empty() {
         make_type_object(ctx, td)
     } else {
-        make_type_from_name(ctx, &crate::metadata::index::type_names::constructed(&td.name, args))
+        make_type_from_name(ctx, &crate::zpkg::index::type_names::constructed(&td.name, args))
     }
 }
 
@@ -190,9 +190,9 @@ fn weak_handle_type_desc() -> Arc<TypeDesc> {
         class_flags: 0,
         visibility: 0,
         fields: Vec::new(),
-        field_index: crate::metadata::NameIndex::new(),
+        field_index: crate::zpkg::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })).clone()
@@ -271,7 +271,7 @@ pub fn obj_to_str(this: &Value) -> Result<String, BuiltinError> {
     match this {
         Value::Object(rc) => {
             let td_name = &rc.type_desc().name;
-            Ok(crate::metadata::index::type_names::unqualified(td_name).to_string())
+            Ok(crate::zpkg::index::type_names::unqualified(td_name).to_string())
         }
         // add-array-base-class: arrays ToString returns simple class name
         // ("Array"), matching Object protocol default. Element-typed ToString

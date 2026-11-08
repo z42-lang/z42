@@ -8,7 +8,7 @@ use super::{ContextId, ContextRegistry, ContextState, UnloadOutcome};
 use crate::vm::runtime::Module;
 use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{NativeData, TypeDesc};
-use crate::metadata::NameIndex;
+use crate::zpkg::NameIndex;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -33,7 +33,7 @@ fn mk_module(type_names: &[&str]) -> Module {
     for n in type_names {
         type_registry.insert(n.to_string(), dummy_type_desc(n));
     }
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "dep".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),
@@ -149,9 +149,9 @@ fn reflection_handles_are_retention_edges() {
 
 fn stub_function(name: &str) -> crate::vm::runtime::Function {
     use crate::vm::runtime::Function;
-    use crate::metadata::ir::{BasicBlock, Terminator};
-    use crate::metadata::ir::ExecMode;
-    Function::new(crate::metadata::ir::Function {
+    use crate::zpkg::ir::{BasicBlock, Terminator};
+    use crate::zpkg::ir::ExecMode;
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),

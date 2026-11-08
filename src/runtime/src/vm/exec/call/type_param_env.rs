@@ -1,5 +1,5 @@
 //! What the type-parameter markers of a shared generic body (`$mta:N` / `$cta:N@Owner`,
-//! [`crate::metadata::index::type_param_markers`]) mean in **one activation**.
+//! [`crate::zpkg::index::type_param_markers`]) mean in **one activation**.
 //!
 //! The carriers are the ones `typeof(T)` already reads, so a body's `o is T`, `new List<T>()`,
 //! `catch (Err<T>)` and `typeof(T)` agree on what `T` is:
@@ -11,7 +11,7 @@
 //! Interpreter marker substitution uses the full environment. JIT marker helpers only
 //! bind class parameters until the corresponding method-level operations are supported.
 
-use crate::metadata::index::type_param_markers::{self, Marker};
+use crate::zpkg::index::type_param_markers::{self, Marker};
 use crate::object::TypeArgs;
 use crate::object::Value;
 use crate::vm::context::VmContext;
@@ -63,7 +63,7 @@ impl<'a> TypeParamEnv<'a> {
     /// tests name built-ins by their class (`Std.Int32`), as z42c does for a written `o is int`.
     pub(crate) fn test_target(&self, ctx: &VmContext, name: &str) -> String {
         let t = self.substitute(ctx, name);
-        match crate::metadata::index::type_names::builtin_fqn(&t) {
+        match crate::zpkg::index::type_names::builtin_fqn(&t) {
             Some(fqn) => fqn.to_string(),
             None => t,
         }

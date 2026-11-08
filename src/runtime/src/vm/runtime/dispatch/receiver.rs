@@ -9,7 +9,7 @@ use crate::object::Value;
 ///
 /// Returns None for non-primitive values (objects, null, etc.).
 pub(crate) fn primitive_class_name(obj: &Value) -> Option<&'static str> {
-    use crate::metadata::index::well_known_names::*;
+    use crate::zpkg::index::well_known_names::*;
     match obj {
         // ⚠️ These are derived from the *runtime* `Value`, which cannot tell a `ulong` from a
         // `long` from an `int` (all `Value::I64`), nor a `float` from a `double` (both `F64`).

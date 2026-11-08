@@ -115,7 +115,7 @@ fn gc_handle_kind_to_i64(k: GcHandleKind) -> i64 {
 fn gc_handle_type_desc() -> Arc<TypeDesc> {
     static CACHE: OnceLock<Arc<TypeDesc>> = OnceLock::new();
     CACHE.get_or_init(|| {
-        let mut field_index = crate::metadata::NameIndex::new();
+        let mut field_index = crate::zpkg::NameIndex::new();
         field_index.insert("_slot".to_string(), 0usize);
         let fields = vec![FieldSlot { name: "_slot".to_string().into(), type_tag: "long".to_string().into(), visibility: 0 }];
         Arc::new(TypeDesc {
@@ -130,7 +130,7 @@ fn gc_handle_type_desc() -> Arc<TypeDesc> {
             fields,
             field_index,
             vtable: Vec::new(),
-            vtable_index: crate::metadata::NameIndex::new(),
+            vtable_index: crate::zpkg::NameIndex::new(),
             id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
         })
     }).clone()
@@ -148,7 +148,7 @@ fn heap_stats_type_desc() -> Arc<TypeDesc> {
             "__prop_Allocations", "__prop_GcCycles", "__prop_UsedBytes", "__prop_MaxBytes",
             "__prop_RootsPinned", "__prop_FinalizersPending", "__prop_Observers",
         ];
-        let mut field_index = crate::metadata::NameIndex::new();
+        let mut field_index = crate::zpkg::NameIndex::new();
         let mut fields = Vec::with_capacity(names.len());
         for (i, n) in names.iter().enumerate() {
             field_index.insert(n.to_string(), i);
@@ -166,7 +166,7 @@ fn heap_stats_type_desc() -> Arc<TypeDesc> {
             fields,
             field_index,
             vtable: Vec::new(),
-            vtable_index: crate::metadata::NameIndex::new(),
+            vtable_index: crate::zpkg::NameIndex::new(),
             id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
         })
     }).clone()
@@ -362,7 +362,7 @@ pub fn gc_set_strict_oom(ctx: &VmContext, enabled: bool) {
 fn soft_handle_type_desc() -> Arc<TypeDesc> {
     static CACHE: OnceLock<Arc<TypeDesc>> = OnceLock::new();
     CACHE.get_or_init(|| {
-        let mut field_index = crate::metadata::NameIndex::new();
+        let mut field_index = crate::zpkg::NameIndex::new();
         field_index.insert("_key".to_string(), 0usize);
         let fields = vec![FieldSlot { name: "_key".to_string().into(), type_tag: "long".to_string().into(), visibility: 0 }];
         Arc::new(TypeDesc {
@@ -377,7 +377,7 @@ fn soft_handle_type_desc() -> Arc<TypeDesc> {
             fields,
             field_index,
             vtable: Vec::new(),
-            vtable_index: crate::metadata::NameIndex::new(),
+            vtable_index: crate::zpkg::NameIndex::new(),
             id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
         })
     }).clone()

@@ -5,11 +5,11 @@
 
 use super::builtin_forward;
 use crate::vm::runtime::Function;
-use crate::metadata::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator};
+use crate::zpkg::ir::ExecMode;
 
 fn wrapper(name: &str, params: usize, args: &[u32], ret: Option<u32>) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: "T.C.F".to_string(),
         param_count: params,
         ret_type: "i64".to_string(),

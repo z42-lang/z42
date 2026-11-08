@@ -17,7 +17,7 @@
 //! 引用叶子）里的堆引用发 `write_barrier_array_elem`；覆盖前的旧引用由各写入原语交给 SATB。
 
 use crate::gc::{Heap, RootHandle};
-use crate::metadata::index::type_names::{builtin_fqn, erased};
+use crate::zpkg::index::type_names::{builtin_fqn, erased};
 use crate::object::ArrRef;
 use crate::vm::exec::ops::cast::{bound_param_extra_isa, isa_object, isa_td, is_subclass_or_eq_td};
 use crate::vm::runtime::dispatch::{
@@ -188,7 +188,7 @@ fn accepts_any(ctx: &VmContext, name: &str) -> bool {
 }
 
 fn has_open_arguments(name: &str) -> bool {
-    crate::metadata::index::type_param_markers::has_markers(name)
+    crate::zpkg::index::type_param_markers::has_markers(name)
         || name.contains(['<', '[']) && is_open_type_arg(name)
 }
 
@@ -197,7 +197,7 @@ fn known_class(ctx: &VmContext, name: &str) -> bool {
         return true;
     }
     lookup_desc(ctx, erased(type_name(name)))
-        .is_some_and(|td| td.class_flags & crate::metadata::ir::CLASS_FLAG_INTERFACE == 0)
+        .is_some_and(|td| td.class_flags & crate::zpkg::ir::CLASS_FLAG_INTERFACE == 0)
 }
 
 fn lookup_desc(ctx: &VmContext, name: &str) -> Option<std::sync::Arc<crate::object::TypeDesc>> {

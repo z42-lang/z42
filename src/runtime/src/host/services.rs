@@ -8,7 +8,7 @@ pub(crate) fn services() -> Services {
 
 fn run_isolated(path: &str, entry: Option<&str>, libs: Option<PathBuf>, vfs: &Arc<dyn Vfs>) -> anyhow::Result<()> {
     crate::host::run_app(path, entry, crate::host::RunOpts {
-        mode: crate::metadata::ExecMode::Interp,
+        mode: crate::zpkg::ExecMode::Interp,
         libs_dir: libs,
         program_args: Vec::new(),
         print_stats: false,

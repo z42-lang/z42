@@ -127,7 +127,7 @@ assoc_count     u16；assoc × {name u32, type u32}
 `bit5` enum、`bit6` delegate、`bit7` has-inline-struct（gated 合成内联布局块）。
 
 > 🔴 **这个 u8 已经满了（8/8）**——再加一个类形状位必须扩宽字段或另开一字节，不能「找个空位」。
-> 权威副本在 `src/runtime/src/metadata/ir/class.rs`（`CLASS_FLAG_ABSTRACT` …
+> 权威副本在 `src/runtime/crates/z42-zpkg/src/ir/class.rs`（`CLASS_FLAG_ABSTRACT` …
 > `CLASS_FLAG_HAS_INLINE_STRUCT`，`1 << 0` … `1 << 7`）；z42 侧是裸数字，无常量。
 > ⚠️ 正文表必须与实际位同步：**表落后 = 下一个分配位的人
 > 以为 bit7 空着**。加位的同一个 PR 里必须改这一行。

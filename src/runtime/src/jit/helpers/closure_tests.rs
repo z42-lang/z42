@@ -4,16 +4,16 @@
 
 use crate::jit::compile::state::{install, install_tuned};
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::ir::{BasicBlock, Instruction, LoadFnInsn, Terminator};
+use crate::zpkg::ir::{BasicBlock, Instruction, LoadFnInsn, Terminator};
 use crate::vm::runtime::resolve::ResolvedTokens;
 use crate::vm::runtime::ids::tokens::UNRESOLVED;
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::ExecMode;
 use crate::vm::context::VmContext;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 fn func(name: &str, instructions: Vec<Instruction>) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -48,7 +48,7 @@ fn main_calling_lib_f_three_times() -> Function {
 
 fn module_of(functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "App".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),

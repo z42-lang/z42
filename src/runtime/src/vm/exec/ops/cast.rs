@@ -46,7 +46,7 @@ fn constructed_name_isa(
     derived: &str,
     target: &str,
 ) -> bool {
-    let def = crate::metadata::index::type_names::erased(derived);
+    let def = crate::zpkg::index::type_names::erased(derived);
     if def.len() == derived.len() {
         return false;
     }
@@ -148,7 +148,7 @@ fn callable_isa(
     if class_name == "Std.Object" || class_name == "Object" {
         return true;
     }
-    if class_name.ends_with("[]") || crate::metadata::index::type_names::builtin_fqn(class_name).is_some() {
+    if class_name.ends_with("[]") || crate::zpkg::index::type_names::builtin_fqn(class_name).is_some() {
         return false;
     }
     let erased = class_name.split('<').next().unwrap_or(class_name);

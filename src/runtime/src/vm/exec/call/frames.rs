@@ -100,7 +100,7 @@ impl VmFrame {
     pub fn line_col(&self) -> (u32, u32) {
         let pc = self.pc.get();
         if pc == PC_UNSET { return (0, 0); }
-        crate::metadata::debug::resolve_line(self.func().line_table(), pc >> 16, pc & 0xffff)
+        crate::zpkg::debug::resolve_line(self.func().line_table(), pc >> 16, pc & 0xffff)
     }
 
 

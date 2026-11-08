@@ -22,7 +22,7 @@ pub(crate) struct BootPlan {
     pub eager_impl_pairs: Vec<(String, String)>,
     /// precise-pkg-refs: DEPS lists of the eagerly merged artifacts (user module included) —
     /// their symbol lists seed the lazy loader's "which package defines this name" table.
-    pub eager_deps: Vec<crate::metadata::format::ZpkgDep>,
+    pub eager_deps: Vec<crate::zpkg::format::ZpkgDep>,
 }
 
 /// Build the context for a fully merged module (type registry / indices already built).

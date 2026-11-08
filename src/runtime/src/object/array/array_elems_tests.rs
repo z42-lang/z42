@@ -13,8 +13,8 @@ fn heap() -> Heap {
 fn obj(h: &Heap) -> Value {
     let td = std::sync::Arc::new(TypeDesc {
         class_flags: 0, visibility: 0, name: "O".into(), base_name: None, fields: Vec::new(),
-        field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(), cold: None,
+        field_index: crate::zpkg::NameIndex::new(), vtable: Vec::new(),
+        vtable_index: crate::zpkg::NameIndex::new(), cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     h.alloc_object(td, Vec::new(), NativeData::None)

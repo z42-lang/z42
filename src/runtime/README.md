@@ -42,7 +42,7 @@
 | 目录 | 职责 |
 |------|------|
 | `src/vm/` | VM 统一入口、上下文及各子系统，见 [`src/vm/README.md`](src/vm/README.md) |
-| `src/metadata/` | 静态包信息、IR、映像与静态查询（见下） |
+| `crates/z42-zpkg/src/` | 静态包信息、IR、映像与静态查询（见下） |
 | `src/vm/threads/` | mutator 暂停、safepoint 与 GC 根服务适配，见 [`src/vm/threads/README.md`](src/vm/threads/README.md) |
 | `src/vm/exec/` | 引擎共享的帧栈、寄存器池、arena、栈读取与标量指令语义，见 [`src/vm/exec/README.md`](src/vm/exec/README.md) |
 | `src/vm/loader/` | 包加载、惰性依赖、定位和加载上下文，见 [`src/vm/loader/README.md`](src/vm/loader/README.md) |
@@ -61,7 +61,7 @@
 | `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
 | `src/vm/exec/exception/` | 异常对象布局、传播模型与栈迹捕获 |
 
-### src/metadata/ — 静态包信息
+### crates/z42-zpkg/src/ — 静态包信息
 | 文件 | 职责 |
 |------|------|
 | `format/` | `mod.rs` 的 magic 与依赖记录、`versions.rs` 的严格版本校验、`build_id.rs` 的符号配对标识 |
@@ -110,10 +110,11 @@ GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管�
 `VmContext::with_image` 为同一映像构建独立的类型表与缓存；`new_with_core` 继续共享同一 VM 的状态。
 
 ### crates/ — Rust workspace 子 crate
-native interop 三层 ABI 的 Rust 侧公开接口与宿主 / native 扩展 crate；详见 [`crates/README.md`](crates/README.md)。
+静态产物组件库、native interop 三层 ABI 的 Rust 侧公开接口与宿主 / native 扩展 crate；详见 [`crates/README.md`](crates/README.md)。
 
 | 子 crate | 职责 | 状态 |
 |---------|------|------|
+| `crates/z42-zpkg/` | 静态产物格式、解析、IR 与不可变包映像；无 VM 依赖 | 在用 |
 | `crates/z42-abi/` | Tier 1 C ABI 的 Rust `#[repr(C)]` 镜像（`no_std`，无依赖） | 在用 |
 | `crates/z42-rs/` | Tier 2 用户面向 trait/type（`Z42Type`、`Z42Traceable`、`Visitor`） | 在用（高层能力待 C5） |
 | `crates/z42-macros/` | proc macro 入口（`methods`、`module!`；`Z42Type` derive / `trait_impl` 待 C5，现报 `compile_error!`） | 在用 |

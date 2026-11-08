@@ -2247,6 +2247,7 @@ dependencies = [
  "z42-compression",
  "z42-macros",
  "z42-rs",
+ "z42-zpkg",
 ]
 
 [[package]]
@@ -2296,6 +2297,14 @@ version = "0.7.0"
 dependencies = [
  "z42-abi",
  "z42-macros",
+]
+
+[[package]]
+name = "z42-zpkg"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "rustc-hash 2.1.3",
 ]
 
 [[package]]

@@ -2,7 +2,7 @@
 
 ## 职责
 
-`z42`（VM 主 crate，`src/`）之外的 Rust workspace 子 crate。分两组：
+`z42`（VM 主 crate，`src/`）之外的 Rust workspace 子 crate。包含独立运行时组件和 native / 宿主支持库。`z42-zpkg` 是没有 VM 依赖的静态产物库，为运行时和各执行引擎共用。native / 宿主支持库分两组：
 
 1. **native 类型创作 SDK**（`z42-abi` / `z42-rs` / `z42-macros`）——**刻意压在 VM 之下、不依赖
    runtime crate**，靠稳定 `extern "C"` 符号回连 VM。因此**两类消费者共用同一套**：
@@ -27,6 +27,7 @@
 
 | 子目录 | 包名 | 层 | 职责 |
 |--------|------|-----|------|
+| `z42-zpkg/` | `z42-zpkg` | 静态产物组件 | 格式、读取器、静态 IR、调试记录与不可变 PackageImage；不持有运行时状态 |
 | `z42-abi/` | `z42-abi` | 之下 · Tier 1 | C ABI 的 Rust `#[repr(C)]` 冻结布局镜像（`Z42Value` / `Z42_ABI_VERSION` …）；`#![no_std]`、零依赖 |
 | `z42-rs/` | `z42-rs` | 之下 · Tier 2 | native 类型创作的人体工学层：`Z42Type` / `Z42Traceable` / `Visitor` trait + 类型别名；re-export `z42-macros`。需 std，不依赖 runtime |
 | `z42-macros/` | `z42-macros` | 之下 · Tier 2 | proc-macro：`Z42Type` derive、`methods` / `trait_impl` attr、`module!`。**独立编译产物（Rust 规则），不可并入普通 lib** |
