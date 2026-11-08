@@ -1,6 +1,6 @@
 namespace Std.Threading;
 
-/// 由 Thread.Join()（以及 Timer.StopAndJoin，它内部就是 Join）抛出的跨线程异常。
+/// 由 Thread.Join() 或 Timer.StopAndJoin() 抛出的后台执行或等待异常。
 ///
 /// worker 的原始异常类型与栈不跨线程——只能 catch (ThreadException)，拿到
 /// Message 原文。

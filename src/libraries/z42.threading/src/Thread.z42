@@ -4,7 +4,8 @@
 //! 状态、`Timer` 跑后台周期任务。线程之间共享 GC 堆与静态字段，但 lambda 捕获的是值快照
 //! ——跨线程传值只能走静态字段、共享对象、数组单元或 `Channel<T>`。
 //!
-//! 这是 z42 唯一的并发设施：没有 async / await、没有 Task、没有线程池。每次 `Thread.Start`
+//! 这是 z42 唯一的并发设施：没有 async / await、没有 Task、没有公开线程池。Timer 内部复用后台线程，
+//! 每次 `Thread.Start`
 //! 都真的开一条 OS 线程，成本按 OS 线程算。
 //!
 //! 本包随工具链分发、自动可用，工程清单里不需要声明依赖（声明了会报 W0610）。
@@ -13,7 +14,7 @@
 //!
 //! 线程：
 //!
-//! - 没有线程池、没有 async / await / Task：`Thread.Start` 就是一条真 OS 线程。
+//! - 没有公开线程池、没有 async / await / Task：`Thread.Start` 就是一条真 OS 线程。
 //! - `Action` 之外的入口形态都没有：worker 不能带参数、不能返回值。要回传结果得走静态字段、
 //!   共享对象或 `Channel<T>`。
 //! - 没有线程名、优先级、IsAlive、Thread.CurrentThread、线程 id 查询（`SlotId()` 只是
@@ -59,6 +60,8 @@
 //! - 没有 state 参数，回调是无参 Action，上下文靠闭包捕获的对象带。
 //! - StopAndJoin 不幂等：第二次调用抛 ThreadException("thread already joined")。
 //! - 回调异常不会上报给调用方，只有一行 Log.Error。
+//! - Timer 共用等待线程并按需复用工作线程，闲置后内部线程退出；不提供公开池配置。
+//! - 工作线程创建失败时保留任务并退避重试，可被 Stop 取消；Start 不预建每个回调线程。
 namespace Std.Threading;
 
 

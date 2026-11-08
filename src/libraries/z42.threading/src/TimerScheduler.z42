@@ -1,0 +1,148 @@
+namespace Std.Threading;
+using Std.Diagnostics;
+
+internal sealed partial class TimerScheduler {
+    internal object Gate;
+    internal TimerWorker Idle;
+    internal TimerWorker Retired;
+    internal int Workers;
+    internal int Active;
+    private Thread _thread;
+    private bool _running;
+    private bool _spawnFailureLogged;
+    private Timer _failedTimer;
+
+    internal TimerScheduler() {
+        this.Gate = MonitorNative.New();
+        this._heap = new Timer[16];
+    }
+
+    internal void Add(Timer timer) {
+        MonitorNative.Enter(this.Gate);
+        try {
+            if (!this._running) {
+                // The previous coordinator has relinquished Gate permanently.
+                // Its completed handle must be reaped before starting a new generation.
+                if (this._thread != null) { this._thread.Join(); this._thread = null; }
+                TimerScheduler self = this;
+                this._thread = Thread.Start(() => { self.Run(); });
+                this._running = true;
+            }
+            this.Schedule(timer, timer.Interval);
+        } finally { MonitorNative.Exit(this.Gate); }
+    }
+
+    internal void Stop(Timer timer) {
+        MonitorNative.Enter(this.Gate);
+        try {
+            timer.Stopped = true;
+            this.Remove(timer);
+            if (!timer.Executing) { timer.Callback = null; }
+        } finally { MonitorNative.Exit(this.Gate); }
+    }
+
+    private void Run() {
+        while (true) {
+            Thread retired = null;
+            string error = null;
+            Timer failed = null;
+            bool finished = false;
+            MonitorNative.Enter(this.Gate);
+            try {
+                if (this.Retired != null) {
+                    TimerWorker worker = this.Retired;
+                    this.Retired = worker.NextRetired;
+                    worker.NextRetired = null;
+                    retired = worker.Thread;
+                    worker.Thread = null;
+                } else if (this._count == 0 && this.Active == 0 && this.Workers == 0) {
+                    this._heap = new Timer[16];
+                    this._running = false;
+                    finished = true;
+                } else {
+                    error = this.Step();
+                    if (error != null) { failed = this._failedTimer; this._failedTimer = null; }
+                }
+            } finally { MonitorNative.Exit(this.Gate); }
+            if (finished) { return; }
+            if (retired != null) { retired.Join(); }
+            if (error != null) { this.ReportStartFailure(failed, error); }
+        }
+    }
+
+    private string Step() {
+        if (this._count == 0) { MonitorNative.Wait(this.Gate); return null; }
+        long wait = this.WaitMillis();
+        if (wait > 0) { MonitorNative.WaitFor(this.Gate, wait); return null; }
+        Timer timer = this.TakeDue();
+        if (timer == null) { return null; }
+        return this.Dispatch(timer);
+    }
+
+    private string Dispatch(Timer timer) {
+        TimerWorker worker = this.Idle;
+        bool create = worker == null;
+        if (create) { worker = new TimerWorker(this); }
+        else {
+            this.Idle = worker.NextIdle;
+            worker.NextIdle = null;
+            worker.IsIdle = false;
+        }
+        worker.Job = timer;
+        timer.Assigned = true;
+        this.Active = this.Active + 1;
+        if (!create) { this._spawnFailureLogged = false; return null; }
+        try {
+            TimerWorker self = worker;
+            worker.Thread = Thread.Start(() => { self.Run(); });
+            this.Workers = this.Workers + 1;
+            this._spawnFailureLogged = false;
+            return null;
+        } catch (ThreadException e) {
+            worker.Job = null;
+            timer.Assigned = false;
+            this.Active = this.Active - 1;
+            long retry = Clock.MonoNanos();
+            timer.DueMillis = retry / 1000000 + 50;
+            timer.Fraction = retry % 1000000;
+            this.Insert(timer);
+            if (this._spawnFailureLogged) { return null; }
+            this._spawnFailureLogged = true;
+            this._failedTimer = timer;
+            return e.Message;
+        }
+    }
+
+    private void ReportStartFailure(Timer timer, string message) {
+        try { Log.Error("Timer: cannot start callback worker: " + message); }
+        catch (Exception e) {
+            MonitorNative.Enter(this.Gate);
+            try {
+                this.Remove(timer);
+                timer.Stopped = true;
+                timer.Callback = null;
+                if (!timer.Joined) { timer.Failure = e.Message; }
+            } finally { MonitorNative.Exit(this.Gate); }
+        }
+    }
+
+    internal void MakeIdle(TimerWorker worker) {
+        worker.IsIdle = true;
+        worker.IdleSince = TimerScheduler.Now();
+        worker.NextIdle = this.Idle;
+        this.Idle = worker;
+    }
+
+    internal void Retire(TimerWorker worker) {
+        TimerWorker previous = null;
+        TimerWorker current = this.Idle;
+        while (current != worker) { previous = current; current = current.NextIdle; }
+        if (previous == null) { this.Idle = worker.NextIdle; }
+        else { previous.NextIdle = worker.NextIdle; }
+        worker.IsIdle = false;
+        worker.NextIdle = null;
+        worker.NextRetired = this.Retired;
+        this.Retired = worker;
+        this.Workers = this.Workers - 1;
+    }
+}
