@@ -192,7 +192,7 @@ fn resolver_overrides_disk_prelude() {
         }
     }
     let fs = Arc::new(MemoryFs::new());
-    fs.mount("/libs/z42.core.zpkg", b"malformed disk fallback".to_vec());
+    fs.mount(std::path::Path::new("/libs").join("z42.core.zpkg").to_str().unwrap(), b"malformed disk fallback".to_vec());
     let options = LoadOptions {
         mode: ExecMode::Interp,
         vfs: fs,
@@ -222,7 +222,7 @@ fn fatal_error_keeps_the_report_for_the_cli_adapter() {
 #[test]
 fn malformed_selected_eager_dependency_fails_during_load() {
     let fs = Arc::new(MemoryFs::new());
-    fs.mount("/libs/broken.zpkg", b"broken dependency".to_vec());
+    fs.mount(std::path::Path::new("/libs").join("broken.zpkg").to_str().unwrap(), b"broken dependency".to_vec());
     let mut artifact = crate::vm::loader::load_artifact_from_bytes(&empty_zbc()).unwrap();
     artifact.dependencies.push(metadata::format::ZpkgDep {
         file: "broken.zpkg".into(), namespaces: Vec::new(), symbols: Vec::new(),
