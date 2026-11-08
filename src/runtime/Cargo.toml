@@ -24,7 +24,7 @@ description = "z42 virtual machine — interpreter, JIT, and AOT backends"
 
 [[bin]]
 name = "z42vm"
-path = "src/cli/main.rs"
+path = "src/main.rs"
 
 [lib]
 name = "z42"
@@ -220,7 +220,7 @@ getrandom = "0.4"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 # POSIX signal handling — low-level register API (no monitor thread).
-# Used by signal_handler.rs to install async-signal-safe handlers for
+# Used by host/signal.rs to install async-signal-safe handlers for
 # SIGSEGV / SIGABRT / SIGFPE / SIGILL / SIGBUS (add-os-signal-handler
 # spec, 2026-05-25). Windows builds skip via `#[cfg(unix)]` gate.
 signal-hook-registry = "1.4"

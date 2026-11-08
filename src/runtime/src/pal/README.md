@@ -23,7 +23,7 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 提供平台�
 | `thread.rs` | 栈边界、`current_token()`、`run_with_stack()` |
 | `time.rs` | `HAS_CLOCK`、`monotonic_us()` / `monotonic_ns()`、`wall_unix_ms()` / `wall_unix_ns()` |
 | `net.rs` | socket 的 OS 部分：`winsock_code()`（errno → Winsock 码）/ `timed_out_error()` / `wait_readable()`（可中断 accept 等待）/ `set_tcp_keepalive()`（`net` feature）|
-| `signal.rs` | fatal-signal 注册 + `sigsafe` async-signal-safe write + `signal_name` + reset/reraise；非 POSIX 平台为空操作（z42 崩溃 reporter 在 `signal_handler.rs`，调本模块）|
+| `signal.rs` | fatal-signal 注册 + `sigsafe` async-signal-safe write + `signal_name` + reset/reraise；非 POSIX 平台为空操作（z42 崩溃 reporter 在 `host/signal.rs`，调本模块）|
 
 测试：各文件配套 `*_tests.rs`。
 

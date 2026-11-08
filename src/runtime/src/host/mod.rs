@@ -2,6 +2,7 @@
 pub mod config;
 pub mod resolver;
 pub mod runtime;
+pub mod signal;
 pub mod error;
 pub mod entry;
 pub mod module;

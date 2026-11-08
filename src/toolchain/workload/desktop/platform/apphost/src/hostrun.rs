@@ -183,7 +183,7 @@ pub fn resolve_app_runtime_in(
 /// value (`None`/empty = unset) and the resolved runtime's libs dir.
 ///
 /// Rule: **fill only an unset/empty var**. This deliberately mirrors the VM's
-/// own [`libs_env_to_publish`] (`src/runtime/src/cli/startup.rs`) — same knob, so
+/// own [`libs_env_to_publish`] (`src/runtime/src/startup.rs`) — same knob, so
 /// one rule, stated once per component that touches it.
 ///
 /// 🔴 Before honor-explicit-libs-env this was an unconditional

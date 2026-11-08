@@ -30,9 +30,3 @@ pub(crate) mod assembly;
 // table also lists subsystem-local knobs (Z42_GC_* / Z42_NATIVE_PATH /
 // Z42_SAFEPOINT_THROTTLE / Z42_STRESS_ITERS) for `--info` discovery.
 pub mod config;
-
-// POSIX signal handler — captures z42 call stack on hard crashes
-// (SIGSEGV / SIGABRT / SIGFPE / SIGILL / SIGBUS). Phase 2 of D4 panic-hook
-// story (Phase 1 = main.rs install_panic_hook). Windows VEH = Phase 2.1.
-// Spec: 变更 add-os-signal-handler/.
-pub mod signal_handler;

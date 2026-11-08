@@ -206,6 +206,6 @@ Rust 入口由 `vm::{Vm, VmContext, VmCore}` 提供。上下文与共享 Core �
 
 CPU 采样通过 `vm/diagnostics/sampling.rs` 的 crate 私有接口装配：VM 只持有采样能力，具体 `profiler/cpu::Sampler` 由门面按既有配置构造。关闭快路使用不可变布尔 gate，启用后才派发到 backend；采样仍发生在原 safepoint，输出与 backend Drop 生命周期保持在原诊断状态边界。
 
-运行时 crate 的源码根入口为 `lib.rs`；命令行入口与进程启动在 `cli/`，共享应用入口在 `app/`，具体组件接线在 `assembly/`，配置与崩溃报告分别在 `config/` 和 `signal_handler/`。AOT 请求仍由引擎注册表明确拒绝，不设空后端模块；线程协调归 `vm/threads/`，标准库线程胶水归 `corelib/core/threading.rs`。目录归属与依赖约束分别审查：查询层不应承担加载、执行初始化或等待线程的职责。
+运行时 crate 的源码根入口为 `lib.rs`；命令行入口为同级的 `main.rs`，进程启动辅助在 `startup.rs`，共享应用入口在 `host/`，具体组件接线在 `assembly/`，配置在 `config/`，崩溃报告在 `host/signal.rs`。AOT 请求仍由引擎注册表明确拒绝，不设空后端模块；线程协调归 `vm/threads/`，标准库线程胶水归 `corelib/core/threading.rs`。目录归属与依赖约束分别审查：查询层不应承担加载、执行初始化或等待线程的职责。
 
 解释器栈分配策略由门面从已解析的 `RuntimeConfig` 转为 `StackAllocPolicy`，主构造存入 `VmCore.exec`，worker 共享同一策略。执行层的 `stack_alloc_enabled(ctx)` 与 `stats_enabled(ctx)` 只查询当前 VM 的不可变输入，不读取进程配置；on/off/stats 的语言行为保持一致，生产配置仍沿用门面原有单例读取时机。

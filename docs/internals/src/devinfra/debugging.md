@@ -1,7 +1,7 @@
 # 调试与运行时诊断
 
-> 代码：`src/runtime/src/cli/startup.rs`
-> （`--info` / panic hook）、`src/runtime/src/signal_handler/mod.rs`、`src/runtime/src/pal/signal.rs`、
+> 代码：`src/runtime/src/startup.rs`
+> （`--info` / panic hook）、`src/runtime/src/host/signal.rs`、`src/runtime/src/pal/signal.rs`、
 > `src/runtime/src/host/app.rs`（`--stats`）、`src/runtime/src/vm/diagnostics/observer.rs`、
 > `src/runtime/src/config/`、`src/runtime/src/metadata/format/build_id.rs`、`scripts/bench/xtask_profile.z42`
 >

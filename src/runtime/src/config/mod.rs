@@ -5,7 +5,7 @@
 //! registers every runtime knob with a default + type + description in
 //! one place. docs/review.md Part 4 D1 — was P0 because adding a new
 //! knob previously meant scattering `std::env::var("Z42_X")` calls
-//! across `main.rs` / `signal_handler.rs` / `gc/` / `interop/`, with no
+//! across `main.rs` / `host/signal.rs` / `gc/` / `interop/`, with no
 //! single place to discover what knobs exist.
 //!
 //! # Scope (this Phase 1 refactor)

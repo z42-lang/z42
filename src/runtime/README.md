@@ -12,8 +12,8 @@
 ### 顶层（`src/`）
 | 文件 | 职责 |
 |------|------|
-| `cli/main.rs` | `z42vm` CLI 入口，加载产物并交给 `Vm` 执行 |
-| `cli/startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
+| `main.rs` | `z42vm` CLI 入口，解析参数并调用 `host::run_app` |
+| `startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
 | `assembly/builtin.rs` | 门面按既定 provider 顺序装配 builtin 描述符及纯名称/ID 目录 |
 | `assembly/object_protocol.rs` | 门面将核心库 GetType 和默认 ToString 绑定到执行层私有协议；保留调用方的物化与错误边界 |
 | `assembly/loader.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
@@ -36,7 +36,7 @@
 | `config/mod.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config/mod.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`split.rs`（转换为子系统拥有的 `GcConfig` / `JitConfig` / `VmConfig`）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config/config_tests.rs` |
 | `vm/diagnostics/counters.rs` | `RuntimeCounters`：VM 可观测性原子计数器 |
 | `vm/diagnostics/observer.rs` | `RuntimeObserver`：非 GC 运行时事件的 push 流（与 `gc::GcObserver` 对称） |
-| `signal_handler/mod.rs` | 硬崩溃时捕获 z42 调用栈的 OS 信号 handler（调 `pal::signal`） |
+| `host/signal.rs` | 硬崩溃时捕获 z42 调用栈的 OS 信号 handler（调 `pal::signal`） |
 
 ### 子模块
 | 目录 | 职责 |

@@ -1,6 +1,6 @@
 //! Unit tests for `pal::signal` — `sigsafe` write primitives + signal-name
 //! table. The actual signal-firing path is covered by the
-//! `signal_handler` integration tests.
+//! `host::signal` integration tests.
 
 #![cfg(unix)]
 

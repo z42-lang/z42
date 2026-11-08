@@ -13,12 +13,15 @@
 | `run_app` / `RunOpts` | 一次性应用运行、应用参数、退出报告和进程退出时的释放策略 |
 | `ffi.rs` / `config.rs` / `state.rs` | C ABI 适配、配置验证及宿主句柄注册表 |
 | `ops.rs` / `marshal.rs` | ABI 操作适配和参数、返回值转换 |
+| `signal.rs` | 致命信号安装、VM 栈捕获和崩溃报告，底层信号原语由 PAL 提供 |
 | `resolver.rs` | 宿主提供的包解析接口与 C 回调适配 |
 | `services.rs` / `app_state.rs` | 核心库隔离运行服务和每 VM 应用参数 |
 
 ## 基础用法
 
 CLI 和 Rust 调用方使用 `host::run_app`，或用 `LoadedProgram::load_file` / `load_bytes` 创建长期存活的程序后调用 `invoke`。两种来源共享产物准备流程。VFS、搜索目录、包 resolver 和依赖预加载策略由 `LoadOptions` 明确传入。
+
+需要进程崩溃报告的宿主调用 `host::signal::install()`，CLI 在进程启动时安装。
 
 一个程序的初始化状态跨调用保留；驱动同一上下文时遵循单执行线程约束。保留托管返回值跨越后续 VM 调用时，调用方须登记 GC 根。
 
