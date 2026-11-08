@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::vm::runtime::Module;
-use crate::metadata::ir::{ClassDesc, FieldDesc};
+use crate::zpkg::ir::{ClassDesc, FieldDesc};
 use crate::vm::runtime::ids::type_table::TypeTable;
 
 fn class(name: &str, base: Option<&str>, fields: &[&str]) -> ClassDesc {
@@ -32,7 +32,7 @@ fn class(name: &str, base: Option<&str>, fields: &[&str]) -> ClassDesc {
 }
 
 fn artifact(module_name: &str, classes: Vec<ClassDesc>) -> crate::vm::loader::package::LoadedArtifact {
-    let mut module = Module::new(crate::metadata::image::ModuleData {
+    let mut module = Module::new(crate::zpkg::image::ModuleData {
         name: module_name.to_owned(),
         string_pool: vec![],
         classes,

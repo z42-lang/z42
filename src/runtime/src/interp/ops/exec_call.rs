@@ -335,7 +335,7 @@ pub(super) fn call_indirect(
 
 /// L3 closure construction: the env is a heap array, the closure a heap
 /// `Value::Closure` (the zbc stack-alloc byte is decoded and dropped — see
-/// `metadata::reader::instr_decode` `OP_MK_CLOS`). The target is bound by [`fn_ref_id`]
+/// `zpkg::reader::instr_decode` `OP_MK_CLOS`). The target is bound by [`fn_ref_id`]
 /// before anything is allocated.
 ///
 /// add-gc-oom-exception: returns `Ok(Some(exc))` when heap alloc_array fails

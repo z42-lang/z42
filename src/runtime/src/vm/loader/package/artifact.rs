@@ -101,8 +101,8 @@ fn apply_zbc_sidecar(
         tracing::warn!(
             "{} build_id mismatch: main={} sidecar={}; ignored",
             sym_path.display(),
-            crate::metadata::format::build_id::short_hex(&main_blid),
-            crate::metadata::format::build_id::short_hex(&sidecar.build_id),
+            crate::zpkg::format::build_id::short_hex(&main_blid),
+            crate::zpkg::format::build_id::short_hex(&sidecar.build_id),
         );
         return;
     }
@@ -213,7 +213,7 @@ fn load_zpkg_indexed(fs: &dyn Vfs, path: &str, raw: &[u8], fusion_inputs: Fusion
         module_pairs.push((Module::from_ir(module), e.namespace.clone()));
     }
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
-        crate::metadata::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
+        crate::zpkg::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
         Some(meta.name), fusion_inputs)
 }
 
@@ -246,7 +246,7 @@ fn load_zpkg_bytes_with_sidecar(
     }
 
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
-        crate::metadata::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
+        crate::zpkg::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
         Some(meta.name), fusion_inputs)
 }
 
@@ -306,8 +306,8 @@ fn apply_zpkg_sidecar(
     if sidecar.build_id != main_blid {
         tracing::warn!(
             "{display_path} build_id mismatch: main={} sidecar={}; ignored",
-            crate::metadata::format::build_id::short_hex(&main_blid),
-            crate::metadata::format::build_id::short_hex(&sidecar.build_id),
+            crate::zpkg::format::build_id::short_hex(&main_blid),
+            crate::zpkg::format::build_id::short_hex(&sidecar.build_id),
         );
         return;
     }
@@ -350,6 +350,6 @@ fn load_zpkg_bytes(raw: &[u8], fusion_inputs: FusionInputSource) -> Result<Loade
     let module_pairs = read_zpkg_modules(raw).context("cannot load modules from zpkg")?
         .into_iter().map(|(m, ns)| (Module::from_ir(m), ns)).collect::<Vec<_>>();
     assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
-        crate::metadata::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
+        crate::zpkg::reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
         Some(meta.name), fusion_inputs)
 }

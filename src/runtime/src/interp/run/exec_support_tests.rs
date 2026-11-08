@@ -1,8 +1,8 @@
 //! Tests for interpreter support helpers on hand-built IR.
 
 use super::*;
-use crate::metadata::ir::{BasicBlock, ExceptionEntry, FunctionCold, Instruction, Terminator};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::{BasicBlock, ExceptionEntry, FunctionCold, Instruction, Terminator};
+use crate::zpkg::ir::ExecMode;
 
 fn block(label: &str) -> BasicBlock {
     BasicBlock { label: label.to_string(), instructions: Vec::<Instruction>::new(), terminator: Terminator::Ret { reg: None } }
@@ -24,7 +24,7 @@ fn find_handler_skips_an_entry_whose_try_end_does_not_resolve() {
     // z42c never emits this shape; the zbc reader produces it for an
     // out-of-range `try_end`. The unresolved first entry must not hide the
     // second one, which covers b0.
-    let func = Function::new(crate::metadata::ir::Function {
+    let func = Function::new(crate::zpkg::ir::Function {
         name: "T.f".to_string(),
         param_count: 0,
         ret_type: "void".to_string(),

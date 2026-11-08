@@ -101,7 +101,7 @@ fn catch_or_propagate(
 #[cold]
 #[inline(never)]
 pub(super) fn locate_error(e: anyhow::Error, func: &Function, block_idx: usize, instr_idx: usize) -> anyhow::Error {
-    let (line, col) = crate::metadata::debug::resolve_line(func.line_table(), block_idx as u32, instr_idx as u32);
+    let (line, col) = crate::zpkg::debug::resolve_line(func.line_table(), block_idx as u32, instr_idx as u32);
     let loc_str = if col > 0 { format!("line {line}, col {col}") } else { format!("line {line}") };
     anyhow::anyhow!("{}\n  at {} ({})", e, func.name, loc_str)
 }

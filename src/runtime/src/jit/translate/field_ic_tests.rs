@@ -2,7 +2,7 @@
 //! natively (and, for values, on the interpreter), and checks which accesses left the native path
 //! through the helper counter (`helpers::object_field::HELPER_CALLS`).
 
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::ExecMode;
 use crate::gc::PROMOTION_THRESHOLD;
 use crate::gc::GcMode;
 use crate::jit::compile::lookup::ForwardLookup;
@@ -11,13 +11,13 @@ use crate::jit::helpers::object_field::HELPER_CALLS;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use crate::jit::compile::state::install;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::ir::{BasicBlock, FieldGetInsn, FieldSetInsn, Instruction, Terminator};
+use crate::zpkg::ir::{BasicBlock, FieldGetInsn, FieldSetInsn, Instruction, Terminator};
 use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{
     FieldAccess, NativeData, ObjectLayout, TypeDesc, TypeDescCold, STRUCT_LEAF_GCREF,
     STRUCT_LEAF_PRIM, TAG_I32, TAG_I64, TAG_OBJECT,
 };
-use crate::{metadata::IrType, object::Value};
+use crate::{zpkg::IrType, object::Value};
 use crate::vm::context::VmContext;
 use std::sync::Arc;
 
@@ -42,14 +42,14 @@ fn class(name: &str, id: u32, fields: &[(&str, F)]) -> Arc<TypeDesc> {
         tparam_cells: Box::new([]),
         field_access: access.into(),
     });
-    let mut field_index = crate::metadata::NameIndex::new();
+    let mut field_index = crate::zpkg::NameIndex::new();
     for (i, (fname, _)) in fields.iter().enumerate() {
         field_index.insert(fname.to_string(), i);
     }
     Arc::new(TypeDesc {
         class_flags: 0, visibility: 0, name: name.to_string(), base_name: None,
         fields: Vec::new(), field_index, vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
         id: TypeId(id),
     })
@@ -61,7 +61,7 @@ fn new_obj(vm: &VmContext, td: &Arc<TypeDesc>, n: usize) -> Value {
 
 fn func(name: &str, params: usize, regs: &[IrType], blocks: Vec<BasicBlock>) -> Function {
     let block_index = blocks.iter().enumerate().map(|(i, b)| (b.label.clone(), i)).collect();
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: params,
         ret_type: "i64".to_string(),
@@ -95,7 +95,7 @@ fn set(obj: u32, f: &str, val: u32) -> Instruction {
 
 fn module(functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "T".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),
@@ -194,7 +194,7 @@ fn direct_reader_warms_before_getter_compilation_and_rechecks_its_guards() {
     use crate::jit::compile::lookup::{CompileLookup, DirectFieldReader};
     use crate::jit::helpers::call::CALL_HELPER_HITS;
     use crate::jit::compile::state::install_tuned;
-    use crate::metadata::ir::CallInsn;
+    use crate::zpkg::ir::CallInsn;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     struct TestLookup<'a> {

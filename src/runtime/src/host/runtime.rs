@@ -1,6 +1,6 @@
 //! Loaded programs shared by command-line and embedded hosts.
 use crate::{
-    metadata::ExecMode,
+    zpkg::ExecMode,
     object::Value,
     pal::fs::Vfs,
     vm::{context::VmContext, exec::call::outcome::ExecOutcome, runtime::Module},

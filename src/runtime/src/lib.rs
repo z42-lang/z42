@@ -1,4 +1,4 @@
-pub mod metadata;
+pub(crate) use z42_zpkg as zpkg;
 pub mod object;
 pub mod corelib;
 pub mod gc;

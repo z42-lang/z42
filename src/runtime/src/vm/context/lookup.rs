@@ -92,7 +92,7 @@ impl VmContext {
 
     /// precise-pkg-refs: seed the loader's "which package defines this name" table from the
     /// eagerly merged artifacts' DEPS symbol lists. Companion of `seed_lazy_loader_impls`.
-    pub fn seed_lazy_loader_symbol_owners(&self, deps: &[crate::metadata::format::ZpkgDep]) {
+    pub fn seed_lazy_loader_symbol_owners(&self, deps: &[crate::zpkg::format::ZpkgDep]) {
         if deps.is_empty() { return; }
         let mut state = self.core.loader.lazy_loader.write();
         if let Some(loader) = state.as_mut() {
@@ -483,7 +483,7 @@ impl VmContext {
         let entry_names = self.module().into_iter().flat_map(|module| module.type_registry.keys());
         let lazy_names = state.as_ref().into_iter().flat_map(|loader| loader.iter_type_names());
         let mut matches = entry_names.chain(lazy_names)
-            .filter(|name| crate::metadata::index::type_names::simple_matches(name, simple));
+            .filter(|name| crate::zpkg::index::type_names::simple_matches(name, simple));
         let first = matches.next()?;
         if matches.any(|name| name != first) {
             return None;

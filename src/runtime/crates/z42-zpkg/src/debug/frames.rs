@@ -1,6 +1,6 @@
 //! Source-facing frame names, shared by traces and the signal-safe writer.
 
-use crate::metadata::ir::Function;
+use crate::ir::Function;
 
 /// Format a function's stack-trace display name with parameter signature.
 /// Returns `<name>(<t1>,<t2>,...)` (e.g. `Demo.Greeter.greet(str)`).
@@ -45,7 +45,7 @@ pub fn frame_file(func: &Function) -> &str {
 /// overshoot. Column is 0 when the source position predates zbc 1.1 or the
 /// emitter didn't capture it (gracefully degraded by `format_stack_trace`
 /// — `(file:line)` instead of `(file:line:col)`).
-pub(crate) fn resolve_line(table: &[crate::metadata::debug::LineEntry], block: u32, instr: u32) -> (u32, u32) {
+pub fn resolve_line(table: &[crate::debug::LineEntry], block: u32, instr: u32) -> (u32, u32) {
     // S2a (perf-interp-hot-paths): the line table is emitted in non-decreasing
     // (block, instr) order — the previous linear forward-scan already relied on
     // that (it `break`s on the first overshoot). Binary-search the last entry

@@ -84,7 +84,7 @@ fn held_type_reads_republished_metadata_without_changing_identity() {
         0
     );
     let mut updated = fields(initial.clone(), &["Added"]);
-    Arc::make_mut(&mut updated).class_flags |= crate::metadata::ir::CLASS_FLAG_SEALED;
+    Arc::make_mut(&mut updated).class_flags |= crate::zpkg::ir::CLASS_FLAG_SEALED;
     publish(&ctx, &updated);
     assert!(type_is_sealed(&held));
     assert!(Arc::ptr_eq(&type_handle_of(&held).unwrap(), &updated));
@@ -113,7 +113,7 @@ fn constructed_type_uses_current_definition_and_preserves_its_arguments() {
         vec![argument],
     );
     let mut updated = (*initial).clone();
-    updated.class_flags |= crate::metadata::ir::CLASS_FLAG_SEALED;
+    updated.class_flags |= crate::zpkg::ir::CLASS_FLAG_SEALED;
     publish(&ctx, &Arc::new(updated));
     assert!(type_is_sealed(&held));
     let repeated = super::type_object::build_constructed_type(
@@ -197,7 +197,7 @@ fn thread_type_lookup_cache_follows_same_id_publication() {
         .lock()
         .insert(initial.name.clone().into(), initial.clone());
     let mut updated = (*initial).clone();
-    updated.class_flags |= crate::metadata::ir::CLASS_FLAG_SEALED;
+    updated.class_flags |= crate::zpkg::ir::CLASS_FLAG_SEALED;
     let updated = Arc::new(updated);
     publish(&ctx, &updated);
     assert!(Arc::ptr_eq(
@@ -218,7 +218,7 @@ fn type_attribute_cache_tracks_its_descriptor_without_replacing_type() {
     publish(&ctx, &declaration("Demo.Unrelated"));
     assert_eq!(first, type_custom_attributes(&ctx, &held).unwrap());
     let mut updated = (*initial).clone();
-    updated.class_flags |= crate::metadata::ir::CLASS_FLAG_SEALED;
+    updated.class_flags |= crate::zpkg::ir::CLASS_FLAG_SEALED;
     publish(&ctx, &Arc::new(updated));
     let refreshed = type_custom_attributes(&ctx, &held).unwrap();
     assert_ne!(first, refreshed);
@@ -248,7 +248,7 @@ fn array_element_keeps_identity_and_reads_current_metadata() {
     let element = make_type_object(&ctx, initial.clone());
     let array = super::type_object::make_array_type(&ctx, &initial.name, element);
     let mut updated = (*initial).clone();
-    updated.class_flags |= crate::metadata::ir::CLASS_FLAG_SEALED;
+    updated.class_flags |= crate::zpkg::ir::CLASS_FLAG_SEALED;
     publish(&ctx, &Arc::new(updated));
     let projected = type_element(&ctx, &array);
     assert!(same_object(&element, &projected));
@@ -263,7 +263,7 @@ fn late_attribute_result_cannot_restore_an_old_metadata_cache() {
     let held = make_type_object(&ctx, initial.clone());
     let stale = type_custom_attributes(&ctx, &held).unwrap();
     let mut updated = (*initial).clone();
-    updated.class_flags |= crate::metadata::ir::CLASS_FLAG_SEALED;
+    updated.class_flags |= crate::zpkg::ir::CLASS_FLAG_SEALED;
     publish(&ctx, &Arc::new(updated));
     let current = type_custom_attributes(&ctx, &held).unwrap();
     let late = ctx.types().with_current(&initial, || {
@@ -320,7 +320,7 @@ fn metadata_update_invalidates_all_live_projection_objects() {
     let old_first = type_custom_attributes(&ctx, &first).unwrap();
     let old_second = type_custom_attributes(&ctx, &second).unwrap();
     let mut updated = (*definition).clone();
-    updated.class_flags |= crate::metadata::ir::CLASS_FLAG_SEALED;
+    updated.class_flags |= crate::zpkg::ir::CLASS_FLAG_SEALED;
     publish(&ctx, &Arc::new(updated));
     assert_ne!(old_first, type_custom_attributes(&ctx, &first).unwrap());
     assert_ne!(old_second, type_custom_attributes(&ctx, &second).unwrap());

@@ -14,7 +14,7 @@ fn assert_installed(ctx: &VmContext) {
 }
 
 fn module() -> crate::vm::runtime::Module {
-    crate::vm::runtime::Module::new(crate::metadata::image::ModuleData {
+    crate::vm::runtime::Module::new(crate::zpkg::image::ModuleData {
         name: "resource-state".into(), string_pool: Vec::new(), classes: Vec::new(),
         func_index: Default::default(),
     }, Vec::new(), Default::default())

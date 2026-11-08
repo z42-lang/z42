@@ -36,7 +36,7 @@ pub(super) fn struct_copy(
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn struct_field_get_prim(
     ctx: &VmContext, frame: &mut Frame,
-    insn: &crate::metadata::ir::StructFieldGetInsn,
+    insn: &crate::zpkg::ir::StructFieldGetInsn,
 ) -> Result<()> {
     let base_val = frame.get(insn.base)?.clone();
     let byte_off = resolve_for_access(ctx, &insn.root_type, &insn.path, &base_val, "StructFieldGetPrim")?;
@@ -49,7 +49,7 @@ pub(super) fn struct_field_get_prim(
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn struct_field_set_prim(
     ctx: &VmContext, frame: &mut Frame,
-    insn: &crate::metadata::ir::StructFieldSetInsn,
+    insn: &crate::zpkg::ir::StructFieldSetInsn,
 ) -> Result<()> {
     let base_val = frame.get(insn.base)?.clone();
     let byte_off = resolve_for_access(ctx, &insn.root_type, &insn.path, &base_val, "StructFieldSetPrim")?;

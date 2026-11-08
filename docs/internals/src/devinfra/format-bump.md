@@ -1,6 +1,6 @@
 # 格式 bump：清单与本地验证
 
-> 代码：`src/compiler/z42.package/src/BinaryFormat/`、`src/runtime/src/metadata/`
+> 代码：`src/compiler/z42.package/src/BinaryFormat/`、`src/runtime/crates/z42-zpkg/src/`
 > 相关：[zbc 格式](../formats/zbc.md) · [zpkg 格式](../formats/zpkg.md) · [CI 拓扑](ci.md) · [测试怎么跑](testing.md)
 >
 > §一 是**改哪些文件**的同步清单（唯一 SoT）；§二 是 bump 后**在本地怎么重建工具链、重生 fixture、跑门**
@@ -33,9 +33,9 @@ z42 pre-1.0 是 **strict-pin**：Rust reader 精确匹配 writer 的 major + min
 | 端 | 文件 | 常量 |
 |----|------|------|
 | zbc writer（z42c） | `src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` |
-| zbc reader（Rust） | `src/runtime/src/metadata/format/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` |
+| zbc reader（Rust） | `src/runtime/crates/z42-zpkg/src/format/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` |
 | zpkg writer（z42c） | `src/compiler/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` |
-| zpkg reader（Rust） | `src/runtime/src/metadata/format/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` |
+| zpkg reader（Rust） | `src/runtime/crates/z42-zpkg/src/format/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` |
 
 > 🔒 **本表有防腐门**：`cargo test --test format_fixture_versions` 的
 > `version_bumping_coordinate_table_matches_the_real_constants` **解析本表自己的四行**，到每行指着的文件里找该行
@@ -49,7 +49,7 @@ z42 pre-1.0 是 **strict-pin**：Rust reader 精确匹配 writer 的 major + min
 1. **`src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42`** — `ZbcVersion.Minor++`，常量旁注释本次 bump 内容
    （参考已有行格式）。若 bump 改了指令 / section 布局，`ZbcInstr.z42`（编码）+ `ZbcReaderInstr.z42`（解码）或
    `ZbcWriter.z42` 的对应 `Build*` / `_assemble` 逻辑同步。
-2. **`src/runtime/src/metadata/format/versions.rs`** — `ZBC_VERSION_MINOR` 同步，**同时改钉值单测**
+2. **`src/runtime/crates/z42-zpkg/src/format/versions.rs`** — `ZBC_VERSION_MINOR` 同步，**同时改钉值单测**
    `reader/reader_tests.rs` 的 `zbc_version_constants_pinned` / `zpkg_version_constants_pinned`；并在常量上方 changelog
    注释块追加一行（日期 / PR / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **[zbc.md](../formats/zbc.md)** — 格式描述（指令表 / section 布局）变了就同步对应章节；页内不记版本历史。

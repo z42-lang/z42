@@ -136,7 +136,7 @@ pub mod typed {
             match value {
                 Value::BoxedStruct(s) => {
                     let elem = a.element_type();
-                    let scalar = crate::metadata::index::type_names::builtin_keyword(&elem)
+                    let scalar = crate::zpkg::index::type_names::builtin_keyword(&elem)
                         .is_some_and(|kind| !matches!(kind, "object" | "string"));
                     if scalar || a.zero() != 0 || s.type_desc().is_enum() && &*s.type_desc().name == &*elem {
                         s.borrow().boxed_prim_i64().map(Value::I64).unwrap_or(*value)

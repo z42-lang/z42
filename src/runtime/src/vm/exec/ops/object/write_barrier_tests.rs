@@ -15,7 +15,7 @@ use crate::gc::PROMOTION_THRESHOLD;
 use crate::gc::types::RootHandle;
 use crate::{gc::GcMode, object::ArrRef};
 use crate::vm::runtime::Module;
-use crate::metadata::ir::CLASS_FLAG_STRUCT;
+use crate::zpkg::ir::CLASS_FLAG_STRUCT;
 use crate::object::{
     ArrayObj, ElemType, FieldSlot, NativeData, StructTypeLayout, TypeDesc, TypeDescCold,
     STRUCT_REF_GCREF, TAG_OBJECT,
@@ -36,12 +36,12 @@ fn class_td(name: &str, fields: &[(&str, &str)]) -> Arc<TypeDesc> {
     let fields: Vec<FieldSlot> = fields.iter().map(|(n, t)| FieldSlot {
         name: (*n).into(), type_tag: (*t).into(), visibility: 0,
     }).collect();
-    let field_index: crate::metadata::NameIndex =
+    let field_index: crate::zpkg::NameIndex =
         fields.iter().enumerate().map(|(i, f)| (f.name.to_string(), i)).collect();
     Arc::new(TypeDesc {
         class_flags: 0, visibility: 0, name: name.to_string(), base_name: None,
         fields, field_index, vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: None, id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }
@@ -87,7 +87,7 @@ fn exception_module() -> Module {
     ]);
     let mut type_registry = rustc_hash::FxHashMap::default();
     type_registry.insert("Std.Exception".to_string(), td);
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "test".into(),
         string_pool: vec![],
         classes: vec![],
@@ -154,8 +154,8 @@ fn struct_s() -> (Arc<TypeDesc>, Arc<StructTypeLayout>) {
     });
     let td = Arc::new(TypeDesc {
         class_flags: CLASS_FLAG_STRUCT, visibility: 0, name: "Demo.S".to_string(), base_name: None,
-        fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        fields: Vec::new(), field_index: crate::zpkg::NameIndex::new(), vtable: Vec::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { struct_layout: Some(layout.clone()), ..Default::default() })),
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });

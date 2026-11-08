@@ -7,7 +7,7 @@ use crate::object::Value;
 use crate::vm::context::VmContext;
 
 fn empty_module() -> Module {
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "test".to_owned(),
         string_pool: vec![],
         classes: vec![],

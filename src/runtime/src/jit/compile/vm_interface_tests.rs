@@ -9,16 +9,16 @@
 
 use super::*;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::ir::{BasicBlock, ClassDesc, Terminator};
+use crate::zpkg::ir::{BasicBlock, ClassDesc, Terminator};
 use crate::vm::runtime::ids::tokens::TypeId;
-use crate::{metadata::NameIndex, object::TypeDesc};
-use crate::metadata::ir::ExecMode;
+use crate::{zpkg::NameIndex, object::TypeDesc};
+use crate::zpkg::ir::ExecMode;
 use std::sync::Arc;
 
 // ── Module impl forwards correctly ───────────────────────────────────────────
 
 fn empty_function(name: &str) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -73,7 +73,7 @@ fn module_with(
         let td = empty_type_desc(class_name, TypeId(idx as u32));
         type_registry.insert((*class_name).to_string(), td);
     }
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: name.to_string(),
         string_pool,
         classes: Vec::new(),

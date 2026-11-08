@@ -1,6 +1,6 @@
 use super::{LoadOptions, LoadedProgram};
 use crate::{
-    metadata::{self, BasicBlock, ExecMode, Instruction, Terminator},
+    zpkg::{self, BasicBlock, ExecMode, Instruction, Terminator},
     object::Value,
     pal::vfs::MemoryFs,
     vm::{context::VmContext, runtime::Module},
@@ -8,7 +8,7 @@ use crate::{
 use std::sync::Arc;
 
 fn program(mode: ExecMode, throws: bool) -> LoadedProgram {
-    let function = metadata::ir::Function {
+    let function = zpkg::ir::Function {
         name: "Demo.Main".into(),
         param_count: 0,
         ret_type: "long".into(),
@@ -34,7 +34,7 @@ fn program(mode: ExecMode, throws: bool) -> LoadedProgram {
         branch_targets: Vec::new(),
         frame_meta: None,
     };
-    let mut module = Module::from_ir(metadata::ir::Module {
+    let mut module = Module::from_ir(zpkg::ir::Module {
         name: "Demo".into(),
         string_pool: Vec::new(),
         classes: Vec::new(),
@@ -49,7 +49,7 @@ fn program(mode: ExecMode, throws: bool) -> LoadedProgram {
 }
 
 fn empty_zbc() -> Vec<u8> {
-    use metadata::format::*;
+    use zpkg::format::*;
     let mut bytes = vec![0; 16];
     bytes[..4].copy_from_slice(&ZBC_MAGIC);
     bytes[4..6].copy_from_slice(&ZBC_VERSION_MAJOR.to_le_bytes());
@@ -224,7 +224,7 @@ fn malformed_selected_eager_dependency_fails_during_load() {
     let fs = Arc::new(MemoryFs::new());
     fs.mount(std::path::Path::new("/libs").join("broken.zpkg").to_str().unwrap(), b"broken dependency".to_vec());
     let mut artifact = crate::vm::loader::load_artifact_from_bytes(&empty_zbc()).unwrap();
-    artifact.dependencies.push(metadata::format::ZpkgDep {
+    artifact.dependencies.push(zpkg::format::ZpkgDep {
         file: "broken.zpkg".into(), namespaces: Vec::new(), symbols: Vec::new(),
     });
     let options = LoadOptions { mode: ExecMode::Interp, vfs: fs,

@@ -17,8 +17,8 @@ use std::thread;
 
 use z42::gc::{Heap};
 use z42::vm::runtime::{Function, Module};
-use z42::metadata::ir::{BasicBlock, Terminator};
-use z42::metadata::ir::ExecMode;
+use z42_zpkg::ir::{BasicBlock, Terminator};
+use z42_zpkg::ir::ExecMode;
 use z42::object::Value;
 use z42::vm::context::VmContext;
 
@@ -343,7 +343,7 @@ fn concurrent_gc_collect_callers_arbitrate() {
 /// body is empty + `Ret { reg: None }`. Sufficient for spawn/join smoke
 /// tests where we just need a valid dispatch target.
 fn make_void_action_module(fn_name: &str) -> Module {
-    let func = Function::new(z42::metadata::ir::Function {
+    let func = Function::new(z42_zpkg::ir::Function {
         name: fn_name.to_string(),
         param_count: 0,
         ret_type: "void".into(),
@@ -368,7 +368,7 @@ fn make_void_action_module(fn_name: &str) -> Module {
     let mut func_index = rustc_hash::FxHashMap::default();
     func_index.insert(fn_name.to_string(), 0);
 
-    Module::new(z42::metadata::image::ModuleData {
+    Module::new(z42_zpkg::image::ModuleData {
         name: fn_name.to_string(),
         string_pool: vec![],
         classes: vec![],
@@ -383,9 +383,9 @@ fn dummy_type_desc(name: &str) -> Arc<z42::object::TypeDesc> {
         name: name.to_string(),
         base_name: None,
         fields: Vec::new(),
-        field_index: z42::metadata::NameIndex::new(),
+        field_index: z42_zpkg::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: z42::metadata::NameIndex::new(),
+        vtable_index: z42_zpkg::NameIndex::new(),
         cold: None,
         id: z42::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })

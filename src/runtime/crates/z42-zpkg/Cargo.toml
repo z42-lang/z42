@@ -1,0 +1,9 @@
+[package]
+name = "z42-zpkg"
+version.workspace = true
+edition = "2021"
+description = "z42 artifact formats, decoded IR and immutable package definitions"
+
+[dependencies]
+anyhow = "1"
+rustc-hash = "2"

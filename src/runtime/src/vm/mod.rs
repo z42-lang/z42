@@ -10,7 +10,7 @@ pub mod exec;
 pub(crate) mod config;
 
 use crate::vm::runtime::Module;
-use crate::metadata::ExecMode;
+use crate::zpkg::ExecMode;
 use anyhow::{bail, Result};
 
 /// Top-level VM: holds run-time configuration (exec mode) and dispatches to

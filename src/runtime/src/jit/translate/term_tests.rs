@@ -2,8 +2,8 @@
 
 use crate::jit::compile::state::install;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::{BasicBlock, Instruction, Terminator};
+use crate::zpkg::ir::ExecMode;
 use crate::vm::context::VmContext;
 
 fn block(label: &str, instructions: Vec<Instruction>, terminator: Terminator) -> BasicBlock {
@@ -15,7 +15,7 @@ fn br_cond(cond: u32, t: &str, f: &str) -> Terminator {
 }
 
 fn function(blocks: Vec<BasicBlock>, max_reg: u32) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: "f".to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -36,7 +36,7 @@ fn function(blocks: Vec<BasicBlock>, max_reg: u32) -> Function {
 }
 
 fn module(f: Function) -> Module {
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "M".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),

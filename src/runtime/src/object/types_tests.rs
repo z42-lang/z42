@@ -56,9 +56,9 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
         name: name.to_string(),
         base_name: None,
         fields: Vec::new(),
-        field_index: crate::metadata::NameIndex::new(),
+        field_index: crate::zpkg::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
@@ -157,9 +157,9 @@ fn inline_object_field_roundtrips_and_is_traced() {
         name: "Holder".to_string(),
         base_name: None,
         fields: Vec::new(),
-        field_index: crate::metadata::NameIndex::new(),
+        field_index: crate::zpkg::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
@@ -219,9 +219,9 @@ fn clear_refs_for_sweep_erases_every_reference_word() {
         name: "Holder".to_string(),
         base_name: None,
         fields: Vec::new(),
-        field_index: crate::metadata::NameIndex::new(),
+        field_index: crate::zpkg::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
@@ -267,9 +267,9 @@ fn clear_refs_for_sweep_skips_an_offset_past_the_payload() {
         name: "Short".to_string(),
         base_name: None,
         fields: Vec::new(),
-        field_index: crate::metadata::NameIndex::new(),
+        field_index: crate::zpkg::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
@@ -536,7 +536,7 @@ fn boxed_prim_i64_none_for_non_int_wrapper_and_short_bytes() {
 
 #[test]
 fn compose_object_layout_root_is_identity() {
-    let own = crate::metadata::ir::ObjectLayoutDesc {
+    let own = crate::zpkg::ir::ObjectLayoutDesc {
         size: 24,
         field_offsets: Box::new([0, 8, 16]),
         field_sizes:   Box::new([8, 8, 8]),
@@ -559,7 +559,7 @@ fn compose_object_layout_root_is_identity() {
 /// words, and so are inline-struct interior leaves (the struct keeps its blob layout).
 #[test]
 fn compose_object_layout_gives_type_parameter_fields_their_own_cells() {
-    let own = crate::metadata::ir::ObjectLayoutDesc {
+    let own = crate::zpkg::ir::ObjectLayoutDesc {
         size: 48,
         field_offsets: Box::new([0, 8, 16, 24, 32]),
         field_sizes:   Box::new([8, 8, 8, 8, 16]),
@@ -594,7 +594,7 @@ fn compose_object_layout_pads_base_to_8() {
         tparam_cells:  Box::new([]),
         field_access: Box::new([]),
     };
-    let own = crate::metadata::ir::ObjectLayoutDesc {
+    let own = crate::zpkg::ir::ObjectLayoutDesc {
         size: 8,
         field_offsets: Box::new([0]),
         field_sizes:   Box::new([8]),
@@ -622,7 +622,7 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
         tparam_cells:  Box::new([]),
         field_access: Box::new([]),
     };
-    let own = crate::metadata::ir::ObjectLayoutDesc {
+    let own = crate::zpkg::ir::ObjectLayoutDesc {
         size: 4,
         field_offsets: Box::new([0]),
         field_sizes:   Box::new([4]),
@@ -667,9 +667,9 @@ fn td_with_params(name: &str, params: &[&str], fields: &[(&str, &str)]) -> Arc<T
         fields: fields.iter().map(|(n, t)| FieldSlot {
             name: (*n).into(), type_tag: (*t).into(), visibility: 0,
         }).collect(),
-        field_index: crate::metadata::NameIndex::new(),
+        field_index: crate::zpkg::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(cold)),
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })

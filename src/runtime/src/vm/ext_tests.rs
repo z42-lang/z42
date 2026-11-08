@@ -85,7 +85,7 @@ fn unused_registrations_drop_their_state_in_reverse_order() {
 
 #[test]
 fn module_vfs_and_default_constructors_keep_their_contracts() {
-    let module = crate::vm::runtime::Module::new(crate::metadata::image::ModuleData {
+    let module = crate::vm::runtime::Module::new(crate::zpkg::image::ModuleData {
         name: "extensions".into(), string_pool: Vec::new(), classes: Vec::new(),
         func_index: Default::default(),
     }, Vec::new(), Default::default());

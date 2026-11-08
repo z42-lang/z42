@@ -1,8 +1,8 @@
 //! Immutable function bodies, signatures and derived static metadata.
 
 use super::*;
-use crate::metadata::debug::{format_frame_name, frame_file, LineEntry, LocalVar};
-use crate::metadata::ir::ExecMode;
+use crate::debug::{format_frame_name, frame_file, LineEntry, LocalVar};
+use crate::ir::ExecMode;
 use std::sync::Arc;
 
 /// Cold (rarely-accessed) slice fields on `Function`. Boxed behind an
@@ -103,7 +103,7 @@ pub struct Function {
     /// path). JIT translate.rs reads this to specialize arithmetic /
     /// comparison / logical ops on known primitives (`I64` → emit
     /// Cranelift `iadd` instead of `jit_add` helper call).
-    pub reg_types: Box<[crate::metadata::ir::reg_type::IrType]>,
+    pub reg_types: Box<[crate::ir::reg_type::IrType]>,
     /// Precomputed block label → index mapping. Not serialized; populated after module load.
     pub block_index: std::collections::HashMap<String, usize>,
     /// perf-vm-iteration: per-block pre-resolved branch targets (indices),

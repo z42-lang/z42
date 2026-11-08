@@ -302,7 +302,7 @@ JSON wire format:
 ### Arrays
 
 Five instructions cover the whole surface of `T[]` (`Instruction::ArrayNew` / `ArrayNewLit` /
-`ArrayGet` / `ArraySet` / `ArrayLen`, `metadata/ir/instruction.rs`):
+`ArrayGet` / `ArraySet` / `ArrayLen`, `z42-zpkg/src/ir/instruction.rs`):
 
 | IR 指令 | 操作 |
 |---------|------|
@@ -543,7 +543,7 @@ VM 的 `metadata::Instruction` 是一个枚举。`Function.blocks: Vec<BasicBloc
 - **装箱的 20 个冷变体**：`Call` `Builtin` `LoadFn` `MkClos` `ObjNew`
   `Typeof` `FieldGet` `FieldSet` `VCall` `IsInstance` `AsCast` `StaticGet` `StaticSet`
   `CallNative` `LoadFieldAddr` `ArrayNew` `ArrayNewLit` `StructAlloc` `StructFieldGetPrim`
-  `StructFieldSetPrim`（payload struct 见 `metadata/ir/insn.rs`）。
+  `StructFieldSetPrim`（payload struct 见 `z42-zpkg/src/ir/insn.rs`）。
 - **保持 inline**：所有算术/比较/位运算/常量/数组存取/地址加载（`LoadLocalAddr` 等）
   /`Convert`/`DefaultOf`/`PinPtr`/`UnpinPtr`，以及无 `String` 的 call 类
   `CallIndirect` / `CallNativeVtable`（它们的 inline payload 仍 ≤ 枚举上限）。

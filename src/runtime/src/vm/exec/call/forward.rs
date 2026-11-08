@@ -44,7 +44,7 @@
 
 use crate::vm::exec::stack::FrameSnapshot;
 use crate::vm::exec::call::frames::VmFrame;
-use crate::metadata::ir::{Instruction, Terminator};
+use crate::zpkg::ir::{Instruction, Terminator};
 use crate::vm::runtime::Function;
 use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use crate::vm::runtime::Module;
@@ -106,7 +106,7 @@ pub(crate) fn direct_reader_site(func: &Function) -> Option<&crate::vm::runtime:
 }
 
 fn is_field_reader(func: &Function) -> bool {
-    use crate::metadata::ir::{METHOD_FLAG_NO_INLINING, METHOD_FLAG_SRET};
+    use crate::zpkg::ir::{METHOD_FLAG_NO_INLINING, METHOD_FLAG_SRET};
     if func.is_static || func.param_count != 1
         || func.method_flags & (METHOD_FLAG_NO_INLINING | METHOD_FLAG_SRET) != 0
         || !func.type_params().is_empty() || !func.exception_table().is_empty()

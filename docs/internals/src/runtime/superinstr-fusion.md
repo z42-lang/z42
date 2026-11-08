@@ -1,7 +1,7 @@
 # 超级指令融合（super-instruction fusion）
 
 > 代码：`vm/runtime/fusion.rs`（纯识别规则）、`vm/runtime/fusion.rs`（缓存形态）、`interp/ops/mod.rs`（`eval_cmp` 共享原语）、
-> `interp/run/mod.rs`（exec 循环消费）、`interp/frame/mod.rs`（帧预分配）、`metadata/ir/function.rs`
+> `interp/run/mod.rs`（exec 循环消费）、`interp/frame/mod.rs`（帧预分配）、`z42-zpkg/src/ir/function.rs`
 > （静态 `Function::reg_file_len` / `Instruction::written_reg`）、`vm/runtime/function.rs`（`Function.fused_tails` 缓存）、
 > `vm/loader/package/mod.rs`（`build_block_indices` 回填 `func.max_reg`）。
 
@@ -99,11 +99,11 @@ Function::reg_file_len()  ← 权威计数（单一真相），纯函数、不�
 
 - `build_block_indices` 在 block_index / branch_targets / fused_tails 之后追加
   `func.max_reg = func.reg_file_len()`，**所有构建配置**（含 interp-only / wasm，无 jit feature）
-  均生效——计数逻辑在始终编译的 `metadata/ir/function.rs`，不依赖 JIT。
+  均生效——计数逻辑在始终编译的 `z42-zpkg/src/ir/function.rs`，不依赖 JIT。
 - `Frame::new*` 恒走 `max_reg > 0` 预分配分支，一次 `resize` 到位，热路径不再触发 `set_grow`。
 - JIT 复用同一权威：`translate::max_reg`（要最大**索引**）= `reg_file_len() - 1`（`reg_file_len` 恒
   ≥ 1，不会下溢）。`Instruction::written_reg`（"这条指令定义哪个寄存器"）也从 `translate.rs` 上提到
-  `metadata/ir/instruction.rs`，interp 与 JIT 共用一份。
+  `z42-zpkg/src/ir/instruction.rs`，interp 与 JIT 共用一份。
 
 ### interp/JIT 一致性（一处边界行为对齐）
 

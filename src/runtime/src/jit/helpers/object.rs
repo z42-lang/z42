@@ -236,7 +236,7 @@ pub unsafe extern "C" fn jit_convert(
 /// A type-test target carrying type-parameter markers, bound for this JIT frame (receiver in
 /// reg 0; no method arguments) — the interp `exec_object_isa::dynamic_target` counterpart.
 pub(super) unsafe fn dynamic_target(frame: *mut JitFrame, ctx: *const VmContext, class_name: &str) -> Option<String> {
-    if !crate::metadata::index::type_param_markers::has_markers(class_name) {
+    if !crate::zpkg::index::type_param_markers::has_markers(class_name) {
         return None;
     }
     let env = crate::vm::exec::call::type_param_env::TypeParamEnv::new(&[], (*frame).regs.first());
@@ -246,7 +246,7 @@ pub(super) unsafe fn dynamic_target(frame: *mut JitFrame, ctx: *const VmContext,
 /// Bind a generic call site's method and class markers against the caller's frame.
 /// `None` means the site already carries concrete arguments.
 pub(super) unsafe fn bind_forwarded_mta(frame: *mut JitFrame, ctx: *const VmContext, mta: &[String]) -> Option<Vec<String>> {
-    if !mta.iter().any(|s| crate::metadata::index::type_param_markers::has_markers(s)) {
+    if !mta.iter().any(|s| crate::zpkg::index::type_param_markers::has_markers(s)) {
         return None;
     }
     let frame = &*frame;

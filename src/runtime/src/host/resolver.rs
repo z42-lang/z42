@@ -29,6 +29,17 @@ pub trait ZpkgResolver: Send + Sync {
     fn resolve(&self, namespace: &str) -> Option<Vec<u8>>;
 }
 
+/// Read a package's resolver keys: its nonempty package name, then NSPC namespaces.
+pub fn read_zpkg_namespaces(bytes: &[u8]) -> anyhow::Result<Vec<String>> {
+    let info = crate::zpkg::reader::read_zpkg_meta(bytes)?;
+    let mut keys = Vec::with_capacity(info.namespaces.len() + 1);
+    if !info.name.is_empty() {
+        keys.push(info.name);
+    }
+    keys.extend(info.namespaces);
+    Ok(keys)
+}
+
 /// Adapter that turns a C function pointer + opaque `user_data` pair
 /// into a [`ZpkgResolver`]. Constructed during `z42_host_initialize`
 /// when the caller sets `Z42HostConfig::zpkg_resolver`.

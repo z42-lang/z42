@@ -5,7 +5,7 @@ use super::*;
 use crate::vm::exec::ops::references::store_thru_ref;
 use crate::vm::runtime::{Function, Module};
 use crate::{
-    metadata::{BranchTargets, Terminator},
+    zpkg::{BranchTargets, Terminator},
     object::Value,
 };
 use crate::vm::context::VmContext;
@@ -99,7 +99,7 @@ pub(in crate::interp) fn resolve_forwarded_mta(ctx: &VmContext, caller: &Frame, 
 /// Does a call site's `method_type_args` carry type-parameter markers to bind first?
 #[inline]
 pub(in crate::interp) fn has_forwarded_mta(mta: &[String]) -> bool {
-    mta.iter().any(|s| crate::metadata::index::type_param_markers::has_markers(s))
+    mta.iter().any(|s| crate::zpkg::index::type_param_markers::has_markers(s))
 }
 
 /// add-reflective-invoke: like [`exec_function`] but threads method-level generic
@@ -338,7 +338,7 @@ pub(super) fn find_handler(
             Some("*") => return Some(i),                   // synthetic finally fallthrough
             Some(target) => {
                 if let Some((td, inst_args)) = thrown_obj {
-                    let hit = if crate::metadata::index::type_param_markers::has_markers(target) {
+                    let hit = if crate::zpkg::index::type_param_markers::has_markers(target) {
                         let t = tp_env.test_target(ctx, target);
                         let key = crate::vm::runtime::ids::tokens::TypeKeyCell::new();
                         crate::vm::exec::ops::cast::isa_object(ctx, type_registry, td, inst_args, &t, &key)

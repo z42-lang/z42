@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl", "crates/z42-host"]
+members = [".", "crates/z42-zpkg", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl", "crates/z42-host"]
 # fix-default-members-include-compression (2026-05-29): z42-compression is a
 # cdylib loaded via dlopen at z42vm runtime — not a transitive dep of the
 # main `z42` crate (only pulled in compile-time via `bundled-compression`
@@ -10,7 +10,7 @@ members = [".", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/
 # `__brotli_compress`" because no libz42_compression.{dylib,so,dll} was
 # present in the search path. Listing it here makes every default build
 # co-produce the cdylib without per-script explicit invocations.
-default-members = [".", "crates/z42-compression"]
+default-members = [".", "crates/z42-zpkg", "crates/z42-compression"]
 
 [workspace.package]
 # mirror of versions.toml [project].version — drift enforced by `xtask check versions`
@@ -38,6 +38,8 @@ path = "src/lib.rs"
 cc = "1"
 
 [dependencies]
+# Shared artifact formats, decoded IR and immutable package definitions.
+z42-zpkg = { path = "crates/z42-zpkg" }
 # Faster global allocator. z42c self-compile is malloc-bound (~31% in the
 # system allocator, profiled): mimalloc cuts z42c compile ~40% and alloc-heavy
 # workloads (string-building) ~3×. Optional + default-on so the `mimalloc-alloc`

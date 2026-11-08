@@ -325,7 +325,7 @@ zpkg 同样读不了。所以 **一个 z42vm 与它加载的每一个 `.zpkg` �
 
 | reader | 谁在用 | 什么时候读 |
 |---|---|---|
-| `src/runtime/src/metadata/reader`（Rust） | z42vm | **运行期**加载包 |
+| `src/runtime/crates/z42-zpkg/src/reader`（Rust） | z42vm | **运行期**加载包 |
 | `src/compiler/z42.package/src/ZpkgReader.z42`（z42） | z42c / z42b / REPL / 分析工具 | **编译期**跨包扫描（`DepScan.ScanDirs` 把 libsDirs 下所有 `z42.*.zpkg` 当数据盲读） |
 
 上一节那套「点名 + 给补救命令」在 Rust 侧是失败路径；z42 侧的 `ZpkgReader.Open` 对版本

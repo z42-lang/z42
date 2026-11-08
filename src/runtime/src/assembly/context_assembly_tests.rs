@@ -75,7 +75,7 @@ fn protocol_context(protocol: ObjectProtocol) -> std::pin::Pin<Box<VmContext>> {
 }
 
 fn protocol_module() -> crate::vm::runtime::Module {
-    crate::vm::runtime::Module::new(crate::metadata::image::ModuleData {
+    crate::vm::runtime::Module::new(crate::zpkg::image::ModuleData {
         name: "ProtocolTest".into(), string_pool: vec![], classes: vec![],
         func_index: Default::default(),
     }, vec![], Default::default())

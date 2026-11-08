@@ -15,7 +15,7 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
         crate::object::FieldSlot { name: "head".to_string().into(), type_tag: "object".to_string().into(), visibility: 0 },
         crate::object::FieldSlot { name: "tail".to_string().into(), type_tag: "object".to_string().into(), visibility: 0 },
     ];
-    let mut field_index = crate::metadata::NameIndex::new();
+    let mut field_index = crate::zpkg::NameIndex::new();
     field_index.insert("head".to_string(), 0usize);
     field_index.insert("tail".to_string(), 1usize);
     Arc::new(TypeDesc {
@@ -30,7 +30,7 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
         fields,
         field_index,
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }

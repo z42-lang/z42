@@ -1,6 +1,6 @@
 //! Cross-language zbc decoder contract test.
 //!
-//! Exercises Rust's `metadata::reader::read_zbc` against real `.zbc`
+//! Exercises Rust's `zpkg::reader::read_zbc` against real `.zbc`
 //! bytes produced by the C# compiler (the golden test artifacts under
 //! `tests/golden/run/<name>/source.zbc`). Catches **any** C# opcode /
 //! section format drift that breaks Rust decoding — without waiting for
@@ -15,7 +15,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use z42::metadata::reader::read_zbc;
+use z42_zpkg::reader::read_zbc;
 
 /// Project root resolved from `CARGO_MANIFEST_DIR` (= src/runtime).
 fn project_root() -> PathBuf {
@@ -158,11 +158,11 @@ fn all_golden_zbc_decode() {
 /// must reference valid pool entries. Ensures opcode parameter layout matches
 /// across C# write and Rust read.
 fn check_instr_pool_refs(
-    module: &z42::metadata::ir::Module,
-    instr: &z42::metadata::Instruction,
+    module: &z42_zpkg::ir::Module,
+    instr: &z42_zpkg::Instruction,
     _func_name: &str,
 ) -> Result<(), String> {
-    use z42::metadata::Instruction as I;
+    use z42_zpkg::Instruction as I;
     let pool_len = module.string_pool.len();
     // A handful of instructions carry pool-indexed names; verify they resolve.
     // (Most instructions carry inlined String fields after `read_zbc`

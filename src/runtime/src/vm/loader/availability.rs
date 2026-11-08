@@ -29,7 +29,7 @@
 //!
 //! 加载放大因此有界（≤ `available!` 触及的不同 dep 文件数），不会退化成「加载全世界」。
 
-use crate::metadata::ir::{Instruction, Terminator};
+use crate::zpkg::ir::{Instruction, Terminator};
 use crate::vm::runtime::Module;
 use crate::vm::loader::locate::namespace_index::ZpkgCandidate;
 use super::{fusion_inputs::FusionInputSource, package::load_artifact_with_fusion};
@@ -229,7 +229,7 @@ fn probe_declared(fs: &dyn crate::pal::fs::Vfs, declared: &[(String, ZpkgCandida
 
 /// `A.B.C.Member` → `A.B.C`（去掉最后一段）。无点 → None（全局命名空间，无候选可查）。
 fn namespace_of(fq: &str) -> Option<String> {
-    crate::metadata::index::type_names::last_top_dot(fq).map(|i| fq[..i].to_string())
+    crate::zpkg::index::type_names::last_top_dot(fq).map(|i| fq[..i].to_string())
 }
 
 /// 候选声明的 namespace `claimed` 是否覆盖目标 `ns`（等于或为其祖先）。

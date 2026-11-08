@@ -15,9 +15,9 @@ use super::fusion_inputs::FusionInputSource;
 use crate::vm::runtime::Module;
 use crate::vm::loader::locate::namespace::extract_import_namespaces_from_module;
 use crate::vm::runtime::types::{build_type_registry, verify_constraints};
-use crate::metadata::format::{ZpkgDep, ZBC_MAGIC, ZPKG_MAGIC};
+use crate::zpkg::format::{ZpkgDep, ZBC_MAGIC, ZPKG_MAGIC};
 use crate::vm::loader::package::merge::merge_modules;
-use crate::metadata::reader::{
+use crate::zpkg::reader::{
     parse_zbc_sidecar, parse_zpkg_sidecar, read_build_id, read_zbc, read_zpkg_file_entries,
     read_zpkg_meta, read_zpkg_modules,
 };

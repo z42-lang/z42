@@ -9,7 +9,7 @@ use crate::object::{
     self as ty, FieldSlot, StructTypeLayout, TypeDesc, TypeDescCold, STRUCT_REF_ARC_STRING,
 };
 use crate::vm::runtime::ids::tokens::TypeId;
-use crate::metadata::NameIndex;
+use crate::zpkg::NameIndex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -27,7 +27,7 @@ fn struct_td(name: &str, fields: &[(&str, &str)], layout: StructTypeLayout) -> A
     Arc::new(TypeDesc {
         name: name.to_string(),
         base_name: None,
-        class_flags: crate::metadata::ir::CLASS_FLAG_STRUCT,
+        class_flags: crate::zpkg::ir::CLASS_FLAG_STRUCT,
         visibility: 0,
         fields: fs,
         field_index,

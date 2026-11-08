@@ -224,7 +224,7 @@ pub(super) fn invoke_qualified(
 pub(super) fn invoke_property_setter(
     ctx: &VmContext, qualified: &str, receiver: Value, value: Value,
 ) -> Result<()> {
-    use crate::metadata::ir::reg_type::IrType;
+    use crate::zpkg::ir::reg_type::IrType;
 
     invoke_qualified_with(ctx, qualified, &[], |setter| {
         let value = if matches!(value, Value::BoxedStruct(_)) {
@@ -351,7 +351,7 @@ pub(super) fn construction_target(
         let args = td.type_args_handle();
         return Some((td, args));
     }
-    let def = crate::metadata::index::type_names::erased(name);
+    let def = crate::zpkg::index::type_names::erased(name);
     if def.len() == name.len() {
         return None;
     }
@@ -405,10 +405,10 @@ pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
     // `MethodDefaultInsn`（`default(T)`）读的是同一张表 ⇒ `new T()` 与 `default(T)` 对基元
     // 恒等，由构造保证。`Std.String` 是唯一的分歧：`default(string)` 是 null，而
     // `new string()` 是「构造一个」⇒ 空串（User 裁决）。
-    if td.name == crate::metadata::index::well_known_names::STD_STRING {
+    if td.name == crate::zpkg::index::well_known_names::STD_STRING {
         return Ok(Value::Str("".into()));
     }
-    if crate::metadata::index::well_known_names::is_scalar_prim_wrapper(&td.name) {
+    if crate::zpkg::index::well_known_names::is_scalar_prim_wrapper(&td.name) {
         return Ok(crate::object::default_value_for(&td.name));
     }
     // plan-generic-reflection G1: a constructed generic Type (typeof(Box<int>) or
@@ -444,7 +444,7 @@ pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
     let simple = crate::object::TypeDesc::ctor_member_name(class_name.as_str());
     // An instantiation descriptor (`Demo.Box<int>`) has its own constructor only when its layout
     // differs from the definition's; otherwise it shares the definition's (what `new` calls).
-    let def_name = crate::metadata::index::type_names::erased(&class_name);
+    let def_name = crate::zpkg::index::type_names::erased(&class_name);
     let cands = [
         format!("{class_name}.{simple}"), format!("{class_name}.{simple}$0"),
         format!("{def_name}.{simple}"), format!("{def_name}.{simple}$0"),

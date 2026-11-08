@@ -3,12 +3,12 @@
 //! `Std.*` refs are passed through for lazy loader to resolve.
 
 use crate::vm::runtime::{Function, Module};
-use {crate::metadata::ir::ClassDesc, crate::metadata::ir::ConstraintBundle};
+use {crate::zpkg::ir::ClassDesc, crate::zpkg::ir::ConstraintBundle};
 use crate::vm::runtime::types::{build_type_registry, verify_constraints};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::ExecMode;
 
 fn empty_module(name: &str) -> Module {
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: name.to_owned(),
         string_pool: vec![],
         classes: vec![],
@@ -40,12 +40,12 @@ fn simple_class(name: &str) -> ClassDesc {
 }
 
 fn generic_fn(name: &str, tp: &str, bundle: ConstraintBundle) -> Function {
-    let cold = Some(Box::new(crate::metadata::ir::FunctionCold {
+    let cold = Some(Box::new(crate::zpkg::ir::FunctionCold {
         type_params:            vec![tp.into()].into_boxed_slice(),
         type_param_constraints: vec![bundle].into_boxed_slice(),
         ..Default::default()
     }));
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_owned(),
         param_count: 0,
         ret_type: "void".into(),

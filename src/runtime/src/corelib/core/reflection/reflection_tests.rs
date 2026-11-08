@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::{
-    metadata::NameIndex,
+    zpkg::NameIndex,
     object::{NativeData, TypeDesc, Value},
     vm::runtime::ids::tokens::TypeId,
 };
@@ -194,7 +194,7 @@ fn type_properties_ignores_non_accessor_methods() {
 
 #[test]
 fn type_flags_decode_abstract_and_sealed() {
-    use crate::metadata::ir::{CLASS_FLAG_ABSTRACT, CLASS_FLAG_SEALED};
+    use crate::zpkg::ir::{CLASS_FLAG_ABSTRACT, CLASS_FLAG_SEALED};
     let c = ctx();
     // Abstract-only class.
     let ta = type_obj(&c, td_with_flags("Demo.Shape", CLASS_FLAG_ABSTRACT));
@@ -212,7 +212,7 @@ fn type_flags_decode_abstract_and_sealed() {
 
 #[test]
 fn static_fields_accessor_reads_cold() {
-    use crate::metadata::ir::FieldDesc;
+    use crate::zpkg::ir::FieldDesc;
     use crate::object::TypeDesc;
     // No cold box → empty.
     assert!(bare_td("Demo.Plain").static_fields().is_empty());
@@ -256,7 +256,7 @@ fn field_custom_attributes_lenient_for_bad_qualified() {
 
 #[test]
 fn field_attributes_accessor_reads_cold() {
-    use crate::metadata::ir::AttributeRef;
+    use crate::zpkg::ir::AttributeRef;
     use crate::object::TypeDesc;
     // No cold → empty.
     assert!(bare_td("Demo.Plain").field_attributes().is_empty());
@@ -306,7 +306,7 @@ fn type_flags_false_for_handle_less() {
 
 #[test]
 fn type_flags_decode_struct_and_record() {
-    use crate::metadata::ir::{CLASS_FLAG_RECORD, CLASS_FLAG_STRUCT};
+    use crate::zpkg::ir::{CLASS_FLAG_RECORD, CLASS_FLAG_STRUCT};
     let c = ctx();
     // Struct-only.
     let tv = type_obj(&c, td_with_flags("Demo.Point", CLASS_FLAG_STRUCT));

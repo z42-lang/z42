@@ -1,6 +1,6 @@
 //! Constructor-site ownership, type arguments and module-local descriptor facts.
 use std::sync::Arc;
-use crate::metadata::ClassDesc;
+use crate::zpkg::ClassDesc;
 use crate::object::{TypeDesc, FieldSlot};
 use crate::vm::runtime::{Module, ids::func_table::FuncTable};
 use crate::vm::runtime::dispatch::ic::ObjNewSite;
@@ -75,7 +75,7 @@ pub fn make_fallback_type_desc(module: &Module, class_name: &str) -> TypeDesc {
         fields,
         field_index,
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(crate::object::TypeDescCold {
             composed_object_layout: composed,
             own_fields: own_fields.into(),

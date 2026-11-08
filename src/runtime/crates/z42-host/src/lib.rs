@@ -121,14 +121,8 @@ impl Default for HostConfig {
 /// map directly from the packages they ship — no separate index file.
 /// Mirrors the C ABI `z42_zpkg_read_namespaces`.
 pub fn read_zpkg_namespaces(bytes: &[u8]) -> Result<Vec<String>, HostError> {
-    let info = z42::metadata::reader::read_zpkg_meta(bytes)
-        .map_err(|e| HostError::BadZbc(format!("read zpkg metadata: {e:#}")))?;
-    let mut keys = Vec::with_capacity(info.namespaces.len() + 1);
-    if !info.name.is_empty() {
-        keys.push(info.name);
-    }
-    keys.extend(info.namespaces);
-    Ok(keys)
+    z42::host::read_zpkg_namespaces(bytes)
+        .map_err(|e| HostError::BadZbc(format!("read zpkg metadata: {e:#}")))
 }
 
 /// One-shot: load a z42 app (`.zbc` / `.zpkg`) at `file` and run its entry
@@ -146,7 +140,7 @@ pub fn run_app(
     file: &str,
     entry: Option<&str>,
     libs_dir: Option<PathBuf>,
-    mode: Option<z42::metadata::ExecMode>,
+    mode: Option<z42::host::ExecMode>,
     args: Vec<String>,
 ) -> Result<(), HostError> {
     install_app_config(file);

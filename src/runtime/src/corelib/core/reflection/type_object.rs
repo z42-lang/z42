@@ -32,7 +32,7 @@ pub fn make_type_object(ctx: &VmContext, td: Arc<TypeDesc>) -> Value {
 /// `Nest.Outer+Inner` → `Inner`, mirroring C#. add-nested-types.
 /// Instantiation args are FQ (`Demo.Pair<Demo.A.P>`) and get the same treatment → `Pair<P>`.
 pub fn type_simple_name(full: &str) -> String {
-    crate::metadata::index::type_names::simple(full)
+    crate::zpkg::index::type_names::simple(full)
 }
 
 /// Split a generic arg list on top-level commas, respecting nested `<>` / `[]`
@@ -201,7 +201,7 @@ fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
 /// handled earlier in `make_type_from_name`). One table with the canonical type-name spelling
 /// (`type_names::builtin_fqn`), so `typeof(object)` and `new object().GetType()` agree.
 pub(super) fn primitive_fqn(name: &str) -> Option<&'static str> {
-    crate::metadata::index::type_names::builtin_fqn(name)
+    crate::zpkg::index::type_names::builtin_fqn(name)
 }
 
 /// Backs the `Typeof` opcode (add-reflection-generic-type-definition; replaces
@@ -331,7 +331,7 @@ pub(super) fn resolve_dotless_simple(ctx: &VmContext, name: &str) -> Option<Arc<
 /// spelling (reflection, `typeof`, `GetType`) answers with the one the VM compares by.
 pub(crate) fn type_value_name(ty: &Value) -> Option<String> {
     match read_type_slot_of(ty, "__fullName") {
-        Value::Str(s) if !s.is_empty() => Some(crate::metadata::index::type_names::canonical(&s)),
+        Value::Str(s) if !s.is_empty() => Some(crate::zpkg::index::type_names::canonical(&s)),
         _ => None,
     }
 }
@@ -339,7 +339,7 @@ pub(crate) fn type_value_name(ty: &Value) -> Option<String> {
 /// [`type_value_name`] spelled as a **type argument** (`typeof(int)` → `int`) — what an
 /// instance's `type_args` and a frame's `method_type_args` hold.
 pub(crate) fn type_value_arg_name(ty: &Value) -> Option<String> {
-    type_value_name(ty).map(|n| crate::metadata::index::type_names::canonical_arg(&n))
+    type_value_name(ty).map(|n| crate::zpkg::index::type_names::canonical_arg(&n))
 }
 
 /// The instantiation descriptor of a constructed `Std.Type` (`typeof(Sub<int>)` → the

@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::vm::runtime::Module;
-use crate::metadata::ir::ClassDesc;
+use crate::zpkg::ir::ClassDesc;
 use crate::vm::runtime::ids::tokens::{TypeId, TypeKeyCell};
 use std::sync::Arc;
 
@@ -33,7 +33,7 @@ fn class(name: &str, base: Option<&str>, interfaces: &[&str]) -> ClassDesc {
 
 /// A module whose `type_registry` is built the way the loader builds it (global TypeIds).
 fn module(name: &str, classes: Vec<ClassDesc>) -> Module {
-    let mut m = Module::new(crate::metadata::image::ModuleData {
+    let mut m = Module::new(crate::zpkg::image::ModuleData {
         name: name.to_owned(),
         string_pool: vec![],
         classes,

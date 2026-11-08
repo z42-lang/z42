@@ -11,7 +11,7 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
             visibility: 0,
         })
         .collect();
-    let field_index: crate::metadata::NameIndex = fields
+    let field_index: crate::zpkg::NameIndex = fields
         .iter()
         .enumerate()
         .map(|(i, f)| (f.name.to_string(), i))
@@ -24,7 +24,7 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
         fields,
         field_index,
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })

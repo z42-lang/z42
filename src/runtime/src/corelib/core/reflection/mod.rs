@@ -26,7 +26,7 @@ use crate::vm::exec::call::builtin_abi::BuiltinError;
 use crate::vm::exec::{engine, call::args::CallArgs};
 use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::object::{NativeData, TypeDesc, Value};
-use crate::metadata::index::well_known_names;
+use crate::zpkg::index::well_known_names;
 use crate::vm::context::VmContext;
 use anyhow::{bail, Result};
 use std::collections::{HashSet, VecDeque};
