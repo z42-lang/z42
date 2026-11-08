@@ -37,3 +37,6 @@ void hash_clear_empty_large() { bench(8192, 0, 128, "hash_clear_empty_large"); }
 void hash_clear_sparse_large() { bench(8192, 4, 128, "hash_clear_sparse_large"); }
 [Benchmark]
 void hash_clear_dense_small() { bench(8, 8, 128, "hash_clear_dense_small"); }
+
+[Benchmark]
+void hash_clear_dense_large() { bench(8192, 8192, 8, "hash_clear_dense_large"); }

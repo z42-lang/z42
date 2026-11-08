@@ -100,13 +100,21 @@ public class HashSet<T> where T: IEquatable {
     }
 
     /// 清空集合，保留容量。
-    // 已重置的表复用存储；_used 包括仍需清理索引的 tombstone。
+    // _used includes tombstones; new entries overwrite retained hashes before publication.
     public void Clear() {
         if (this._used == 0) {
             this._count = 0;
-        } else {
-            this._alloc(this._hashes.Length);
+            return;
         }
+        if (this._hashes.Length == 8) {
+            this._alloc(8);
+        } else {
+            int used = this._used;
+            this._index = new int[this._index.Length];
+            Array.Clear<T>(this._elems, 0, used);
+            this._used = 0;
+        }
+        this._count = 0;
     }
 
     /// 元素快照数组，按插入顺序。

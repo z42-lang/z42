@@ -20,6 +20,8 @@
 | 反射 / 动态加载 / 运行时配置 | `src/Reflection/` / `src/Runtime/` |
 | 控制台 / 文件 / 路径 / 环境（native 语义层） | `src/IO/` / `src/Native/` |
 
+`Dictionary<TKey,TValue>.Clear` / `HashSet<T>.Clear` 保留容量并解除失效槽位中的引用，包含含引用的结构体。大表复用元素存储并重建索引；初始容量的小表重建存储。
+
 `List<T>.Count` 是公开只读属性，当前元素数由列表的修改操作维护。
 `ReadOnlyCollection<T>.Count` 也是公开只读属性，返回底层数组的固定长度。此前按字段访问该成员的字节码需要重编。
 
