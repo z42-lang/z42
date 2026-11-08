@@ -1,0 +1,85 @@
+namespace Z42RegexMatchLimitTests;
+using Std.Regex;
+using Std.Harness;
+
+[Test]
+void test_limit_must_be_positive() {
+    bool zero = false;
+    bool negative = false;
+    try { Regex.Compile("a", 0L); } catch (ArgumentOutOfRangeException e) { zero = true; }
+    try { Regex.Compile("a", -1L); } catch (ArgumentOutOfRangeException e) { negative = true; }
+    Assert.True(zero && negative);
+}
+
+[Test]
+void test_exact_empty_accept_and_reset() {
+    var r = Regex.Compile("", 1L);
+    Assert.True(r.IsMatch(""));
+    Assert.True(r.IsMatch(""));
+    Assert.True(Regex.Compile("a+", long.MaxValue).IsMatch("aaa"));
+}
+
+[Test]
+void test_search_positions_share_budget() {
+    var r = Regex.Compile("z", 4L);
+    bool caught = false;
+    try { r.Find("aaaaaz"); } catch (RegexMatchLimitException e) { caught = true; }
+    Assert.True(caught);
+    Assert.True(r.IsMatch("z"));
+    Assert.True(r.Find("x") == null);
+}
+
+[Test]
+void test_find_all_and_wrappers_share_budget() {
+    var r = Regex.Compile("", 1L);
+    bool all = false;
+    bool replace = false;
+    bool split = false;
+    try { r.FindAll("abc"); } catch (RegexMatchLimitException e) { all = true; }
+    try { r.Replace("abc", "x"); } catch (RegexMatchLimitException e) { replace = true; }
+    try { r.Split("abc"); } catch (RegexMatchLimitException e) { split = true; }
+    Assert.True(all && replace && split);
+    Assert.True(r.IsMatch(""));
+}
+
+[Test]
+void test_repeat_atom_consumes_budget() {
+    var r = Regex.Compile("a+", 8L);
+    bool caught = false;
+    try { r.IsMatch("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); }
+    catch (RegexMatchLimitException e) { caught = true; }
+    Assert.True(caught);
+    Assert.True(r.IsMatch("a"));
+}
+
+[Test]
+void test_nested_backtracking_is_bounded_and_reusable() {
+    var r = Regex.Compile("^(a+)+x$", 1000L);
+    bool caught = false;
+    try { r.Find("aaaaaaaaaaaaaaaaaaaaaaaaab"); }
+    catch (RegexMatchLimitException e) { caught = true; }
+    Assert.True(caught);
+    Assert.True(r.IsMatch("ax"));
+    Assert.True(Regex.Compile("(a|ab)c", 1000L).IsMatch("abc"));
+    Assert.True(Regex.Compile("a+").IsMatch("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+}
+
+void exhaust_large_subject(Regex r) {
+    char[] chars = new char[262144];
+    for (int i = 0; i < chars.Length; i = i + 1) { chars[i] = 'a'; }
+    string input = String.FromChars(chars);
+    bool caught = false;
+    try { r.Find(input); } catch (RegexMatchLimitException e) { caught = true; }
+    Assert.True(caught);
+}
+
+[Test]
+void test_budget_failure_releases_input() {
+    var r = Regex.Compile("a+", 8L);
+    GC.ForceCollect(); GC.ForceCollect();
+    long before = GC.UsedBytes();
+    exhaust_large_subject(r);
+    GC.ForceCollect(); GC.ForceCollect();
+    Assert.True(GC.UsedBytes() - before < 131072L);
+    Assert.True(r.IsMatch("a"));
+}

@@ -1,0 +1,12 @@
+namespace Std.Regex;
+
+/// 匹配超过 Compile(pattern, maxSteps) 指定的引擎步数预算。
+/// 表示查找未完成，不等同于没有匹配；该 Regex 实例可以再次调用。
+public class RegexMatchLimitException : Exception {
+    /// 用错误信息构造异常。
+    public RegexMatchLimitException(string message) : base(message) {}
+
+    override string ToString() {
+        return "RegexMatchLimitException: " + this.Message;
+    }
+}

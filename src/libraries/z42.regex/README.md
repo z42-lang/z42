@@ -82,7 +82,7 @@ m2.Group(2);   // "alice"
 - 字符类内的 `\d` `\w` `\s` `\b` `\B`（Compile 抛 RegexException）
 - Unicode property classes `\p{L}`
 - `(?s)` / `(?x)` / 作用域 flag；`\x41` / `\u0041` 数值转义
-- group 内部的选择不回溯：`(a|ab)c` 匹配不上 `"abc"`
+- 不保证线性匹配时间；组内选择支持回溯，例如 `(a|ab)c` 可以匹配 `"abc"`
 
 ## 如何测试验证
 
@@ -103,12 +103,13 @@ xtask test stdlib z42.regex    # 本库全部 [Test]
 - 编译：O(N) where N = pattern 长度
 - 匹配：典型 O(N·M) where N = pattern, M = input 长度
 - pathological：`(a+)+x` 对 input `aaaa...aab` 是指数时间（ReDoS 风险）
-  → 无步数 / 超时上限，勿对不受信任的 pattern 或超长输入使用
+  → 默认无上限；`Regex.Compile(pattern, maxSteps)` 可设置正数引擎步数预算。
+- 每次 Find/IsMatch 或整次 FindAll/Replace/Split 共享一次预算；耗尽抛 `RegexMatchLimitException`，不返回部分结果，下次调用重置预算。
+- 预算计数引擎调度、重复原子尝试和捕获恢复；不是编译、输入物化、时间或内存上限。
 
 ## 实现说明
 
-- AST 用 raw `RegexNode[]` + count 字段（z42 stdlib 不用 `List<T>`，generic
-  type param dropping 限制；同 TomlValue / JsonValue 模式）
+- AST 编译为指令图，匹配使用显式选择栈和捕获变更日志
 - Concat 隐式：序列即 `RegexNode[]`；ALT / QUANT / GROUP 的 child 是子序列
-- Group capture 用 `_gStarts[i]` / `_gEnds[i]` 数组，回溯时 snapshot + restore
+- Group capture 使用 slots 和变更日志，回溯时恢复到选择点
 - Quantifier 默认 greedy：先匹配最多次，再 backtrack 一格一格短；`?` 后缀为 lazy
