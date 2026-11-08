@@ -3,11 +3,11 @@ name    = "e2e.tapp"
 version = "0.1.0"
 kind    = "exe"
 
-# include 是 **/*.z42 —— igen/igen.z42 会被它匹配到，靠「树内插件条目自动排除」挡住
-#（EffectiveSourceExcludes：条目路径规范化后 +/**；段匹配的零段 ** 同时覆盖文件本身）。
-# 这正是 xtask.hooks 的现行形态（`{ path = "xtask_hooks.z42" }`，scripts/ 根下）。
+# include 是 **/*.z42 —— igen/igen.z42 会被它匹配到，靠「源集条目显式分区」挡住
+#（include 模式自动排除出本工程源发现：模式圈中的文件归插件，不被扫进 app 产物）。
+# 这正是 xtask.hooks 的现行形态（`{ include = ["xtask_hooks.z42"] }`，scripts/ 根下）。
 [sources]
 include = ["**/*.z42"]
 
 [plugins]
-"e2e.igen" = { path = "igen/igen.z42" }
+"e2e.igen" = { include = ["igen/igen.z42"] }

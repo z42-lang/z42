@@ -1,13 +1,14 @@
-// 免清单插件条目（plugin-single-file）：PluginSynth 合成（单文件 / 目录全收）、SourceDiscovery
-// rooted `/**/` 直通（合成清单住 cache 目录、源在别处）、EffectiveSourceExcludes 对树内条目
-//（单文件与目录）的排除——后者是「插件源住消费方树内不被 **/*.z42 误扫进 app」的判据。
+// 插件源集条目（plugins-include-form）：PluginSynth.SynthSet 合成、SourceDiscovery rooted
+// `/**/` 直通（合成清单住 cache 目录、源在别处）、EffectiveSourceExcludes 对树内条目
+//（源集 include 与工程 path 目录）的排除——后者是「插件源住消费方树内不被 **/*.z42 误扫进 app」的判据。
+// 历史的免清单 path 形态（单文件 / 目录全收，SynthFile/SynthDir）已随 deps-plugin-routing 收官删除。
 namespace Z42ProjectPluginSynthTests;
 
 using Std.IO;
 using Z42.Project;
 using Std.Harness;
 
-// 造一棵临时源树：plug/hooka.z42 + plug/inner/hookb.z42（两文件一子目录，供目录全收断言）。
+// 造一棵临时源树：plug/hooka.z42 + plug/inner/hookb.z42（两文件一子目录，供递归 glob 断言）。
 string _mkPluginTree() {
     string root = Directory.CreateTempDir("z42-pluginsynth");
     Directory.Create(Path.Join(root, "plug"));
@@ -26,12 +27,14 @@ string[] _discoverInclude(string manifestPath) {
 
 [Test]
 [Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
-void test_synth_file_include_is_abs_and_discovers() {
-    // 单文件：include 写源文件绝对路径（rooted 字面直通），发现恰一个文件。
+void test_synth_set_rooted_single_file_discovers_one() {
+    // 源集圈单个文件（rooted 字面直通）：合成清单 include 写源文件绝对路径，发现恰一个文件。
+    // 这是单文件 hook 的现行写法（include = 源文件路径；原免清单单文件 path 形态的替代）。
     string root = _mkPluginTree();
     string src = Path.Join(root, Path.Join("plug", "hooka.z42"));
     string cache = Path.Join(root, "cache");
-    string manifest = PluginSynth.SynthFile(cache, "demo.hook", src);
+    string[] inc = new string[1]; inc[0] = src;
+    string manifest = PluginSynth.SynthSet(cache, "demo.hook", root, inc, 1, new string[0], 0);
     Assert.True(manifest.Length > 0);
     ProjectManifest pm = ManifestLoader.Load(manifest);
     Assert.Equal("demo.hook", pm.Project.Name);
@@ -43,44 +46,25 @@ void test_synth_file_include_is_abs_and_discovers() {
 
 [Test]
 [Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
-void test_synth_dir_globs_recursive_and_empty_fails() {
-    // 目录：include 写 `<abs>/**/*.z42` 递归全收（含子目录）；空目录 / 不存在的目录 / 不存在的文件
-    // 一律返回 ""（不静默空合成——那与配错路径不可区分）。
-    string root = _mkPluginTree();
-    string cache = Path.Join(root, "cache");
-    string manifest = PluginSynth.SynthDir(cache, "demo.hook", Path.Join(root, "plug"));
-    Assert.True(manifest.Length > 0);
-    string[] hits = _discoverInclude(manifest);
-    Assert.Equal(2, hits.Length);
-
-    string empty = Path.Join(root, "empty");
-    Directory.Create(empty);
-    Assert.Equal("", PluginSynth.SynthDir(cache, "demo.hook", empty));
-    Assert.Equal("", PluginSynth.SynthDir(cache, "demo.hook", Path.Join(root, "missing")));
-    Assert.Equal("", PluginSynth.SynthFile(cache, "demo.hook", Path.Join(root, "missing.z42")));
-}
-
-[Test]
-[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
-void test_effective_excludes_cover_in_tree_file_and_dir_entries() {
-    // 树内条目（单文件与目录）必须进有效排除——单文件条目写成 `<file>/**`：段匹配里 `**` 可吃零段，
-    // 恰好同时匹配文件本身与其（不存在的）子树。树外条目（../plug、.zpkg）与源发现无关，不进。
+void test_effective_excludes_cover_in_tree_include_and_path_entries() {
+    // 树内条目必须进有效排除——源集条目把 include 模式本身加进去（显式分区：模式圈中的文件归插件）；
+    // 树内工程 path 条目排除 `<目录>/**`。树外条目（../plug、.zpkg）与源发现无关，不进。
     string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[plugins]\n"
-        + "\"demo.a\" = { path = \"hooks/hook.z42\" }\n"
+        + "\"demo.a\" = { include = [\"hooks/**/*.z42\"] }\n"
         + "\"demo.b\" = { path = \"igen\" }\n"
         + "\"demo.c\" = { path = \"../plug\" }\n"
         + "\"demo.d\" = { path = \"../x.zpkg\" }\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
     string[] ex = m.EffectiveSourceExcludes();
     Assert.Equal(2, ex.Length);
-    Assert.Equal("hooks/hook.z42/**", ex[0]);
+    Assert.Equal("hooks/**/*.z42", ex[0]);
     Assert.Equal("igen/**", ex[1]);
 }
 
 [Test]
 [Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
-void test_in_tree_single_file_plugin_not_swept_into_consumer() {
-    // 端到端钉子：消费方 include `**/*.z42`，树内单文件插件条目经有效排除后**不进**消费方源发现。
+void test_in_tree_include_plugin_not_swept_into_consumer() {
+    // 端到端钉子：消费方 include `**/*.z42`，树内源集插件条目经有效排除后**不进**消费方源发现。
     string root = _mkPluginTree();
     string app = Path.Join(root, "app");
     Directory.Create(app);
@@ -89,7 +73,7 @@ void test_in_tree_single_file_plugin_not_swept_into_consumer() {
     File.WriteAllText(Path.Join(app, Path.Join("hooks", "hook.z42")), "// hook\n");
     ProjectManifest pm = ManifestLoader.ParseText(
         "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[sources]\ninclude = [\"**/*.z42\"]\n\n[plugins]\n"
-        + "\"demo.a\" = { path = \"hooks/hook.z42\" }\n");
+        + "\"demo.a\" = { include = [\"hooks/hook.z42\"] }\n");
     string[] ex = pm.EffectiveSourceExcludes();
     string[] hits = SourceDiscovery.DiscoverWithExclude(app, pm.Sources.Include, pm.Sources.IncludeCount,
                                                         ex, ex.Length);
@@ -104,7 +88,8 @@ void test_in_tree_single_file_plugin_not_swept_into_consumer() {
 void test_synth_set_globs_and_excludes() {
     // 源集：include glob 相对消费方工程目录（rebase 成绝对模式写进合成清单），exclude 同语义；
     // 展开零命中 → ""。plug/hooka.z42 + plug/inner/hookb.z42 + plug/skip/skip.z42：
-    // include `plug/**/*.z42` 排除 `plug/skip/**` ⇒ 恰两个文件。
+    // include `plug/**/*.z42` 排除 `plug/skip/**` ⇒ 恰两个文件（递归收子目录——原免清单目录
+    // 全收形态的现代表达）。
     string root = _mkPluginTree();
     Directory.Create(Path.Join(root, Path.Join("plug", "skip")));
     File.WriteAllText(Path.Join(root, Path.Join("plug", Path.Join("skip", "skip.z42"))), "// s\n");

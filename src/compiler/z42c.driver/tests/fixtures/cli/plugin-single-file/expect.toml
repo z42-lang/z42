@@ -1,14 +1,6 @@
-desc = "[plugins] 的单文件条目：path 直接指向 .z42 源文件 ⇒ z42c 合成最小插件清单并代建，generator 产的符号可用（免写插件工程 z42.toml）（见 README）"
+desc = "[plugins] 的源码 path 形态（指单个 .z42 源文件）已删除：构建硬错并指路源集条目（include，对齐 [tests]）——免写 z42.toml 的能力活在源集条目上（见 plugin-include / plugin-single-file-in-tree）（见 README）"
 
-# ① 消费方构建：插件随构建代建（无预编步骤——这正是单文件形态的意义），generator 产 E2eOut.O.V()
 [[step]]
 args = ["build", "app/e2e.sapp.z42.toml", "--release"]
-exit = 0
-stderr_contains = ["W0612"]
-
-# ② 生成符号经消费方产物可用
-[[step]]
-tool = "run"
-target = "app/dist/e2e.sapp.zpkg"
-exit = 0
-stdout_equals = "42"
+exit = "nonzero"
+stderr_contains = ["源码 path 形态已删除", "include"]

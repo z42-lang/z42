@@ -1,9 +1,7 @@
-# [plugins] 名字条目走插件目录（查找域分离）
+# [plugins] 按名条目已删除（deps-plugin-routing 收官）
 
-插件 zpkg 与普通库**物理分开**：名字条目只查 `Z42_PLUGINS` 与各依赖目录同级的 `plugins/`
-（SDK 布局：`<sdk>/libs` 的同级即 `<sdk>/plugins`），不查依赖目录本身。libs 是运行期解析域
-（NSPC 前缀兜底、glob 追加、包枚举），插件混进去会被它们当成普通库——这正是要分开的原因。
+按名引用插件产物统一走 [dependencies]（读 zpkg 头自述类型自动分流）；`[plugins]` 里再写按名条目
+（`"x" = "0.1.0"`）在清单层直接硬错，错误信息指路 [dependencies]。按名的插件目录解析语义
+（Z42_PLUGINS 查找域分离）活在 deps 侧——正路径与阴性见 deps-plugin-by-name。
 
-- ① 阴性：插件目录没有 → 「未在插件目录找到」（错误信息列出找过哪些目录）。就算把插件 zpkg 误放进
-  `libs/` 也一样找不到——装错位置是**硬错**而非静默生效。
-- ③ 阳性：`Z42_PLUGINS` 指向放好产物的目录 → 按名解析、加载、产码。
+- 断言：build 失败（nonzero）+ stderr 同时含「按名条目已删除」与「[dependencies]」。
