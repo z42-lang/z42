@@ -20,7 +20,7 @@
 //! - **占有量词**与**原子组**
 //! - **`{,m}` 量词写法**
 //! - **`\x` / `\u` 数值转义**（编译报错）
-//! - **线性时间保证**：引擎是回溯式的，没有 ReDoS 防护，也没有步数 / 超时上限
+//! - **线性时间保证**：引擎是回溯式的，默认无上限；Compile(pattern, maxSteps) 可限制引擎步数，但不是时间或内存上限
 //! - **并发复用同一个 `Regex`**：匹配状态存在实例字段上，多线程共享会互相踩
 namespace Std.Regex;
 
@@ -31,6 +31,8 @@ using Std.Collections;
 /// 线程内复用；同一个 `Regex` 实例不要跨线程并发调用（匹配过程写实例字段）。
 /// 调用退出时释放临时输入绑定和字符缓冲；返回的 Match 独立持有输入与捕获快照。
 public class Regex {
+    private long _maxSteps;
+    private long _remainingSteps;
     private RegexProgram _program;
     private bool _anchoredStart;
     private int _groupCount;        // 1 + capturing groups（group 0 = entire match）
@@ -115,6 +117,23 @@ public class Regex {
         return new Regex(p.ResultNodes, p.ResultCount, 1 + p.GroupCount,
                          p.GroupNames, p.GroupIndices, p.NamedGroupCount,
                          caseInsensitive, multiline);
+    }
+
+    /// 编译并设置每次查找的正数步数预算；耗尽抛 RegexMatchLimitException。
+    /// FindAll（包括 Replace/Split）整次调用共享预算；Find/IsMatch 每次重新计数。
+    /// 步数包含引擎调度、重复原子尝试和捕获恢复，不限制编译、输入物化、时间或内存。
+    public static Regex Compile(string pattern, long maxSteps) {
+        if (maxSteps <= 0L) { throw new ArgumentOutOfRangeException("maxSteps must be positive"); }
+        Regex result = Regex.Compile(pattern);
+        result._maxSteps = maxSteps;
+        return result;
+    }
+
+    private void ConsumeStep() {
+        if (this._remainingSteps == 0L) {
+            throw new RegexMatchLimitException("regex match step limit exceeded");
+        }
+        this._remainingSteps = this._remainingSteps - 1L;
     }
 
     // ASCII 大小写折叠（A-Z → a-z），其余字符不变；供大小写不敏感匹配路径使用。
@@ -312,6 +331,7 @@ public class Regex {
     // unanchored scan calls ResetState at every start position, and FindAll (hence Replace /
     // Split) calls ScanFrom once per match on the same subject.
     private void _BindInput(string input) {
+        this._remainingSteps = this._maxSteps;
         this._input = input;
         this._chars = input.ToCharArray();
     }
@@ -372,7 +392,9 @@ public class Regex {
     }
 
     private void Rewind(int count) {
+        bool limited = this._maxSteps != 0L;
         while (this._trailCount > count) {
+            if (limited) { this.ConsumeStep(); }
             this._trailCount = this._trailCount - 2;
             this._slots[this._trail[this._trailCount]] = this._trail[this._trailCount + 1];
         }
@@ -380,7 +402,9 @@ public class Regex {
 
     private int Run(int position) {
         RegexInstruction instruction = this._program.Entry;
+        bool limited = this._maxSteps != 0L;
         while (true) {
+            if (limited) { this.ConsumeStep(); }
             if (instruction == null) {
                 if (this._choiceCount == 0) { return -1; }
                 this._choiceCount = this._choiceCount - 1;
@@ -438,6 +462,7 @@ public class Regex {
     // A consuming atom has no internal choices. Its possible end positions form
     // one contiguous range that can share a single backtrack frame.
     private int MatchRepeatAtom(RegexInstruction instruction, int start) {
+        bool limited = this._maxSteps != 0L;
         RegexNode repeat = instruction.Node;
         RegexNode atom = repeat._childSeq[0];
         int end = start;
@@ -445,7 +470,9 @@ public class Regex {
         if (repeat._max >= 0 && repeat._max < limit - start) {
             limit = start + repeat._max;
         }
-        while (end < limit && this.MatchAtom(atom, end) >= 0) {
+        while (end < limit) {
+            if (limited) { this.ConsumeStep(); }
+            if (this.MatchAtom(atom, end) < 0) { break; }
             end = end + 1;
         }
         if (end - start < repeat._min) { return -1; }
