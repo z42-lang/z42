@@ -120,6 +120,7 @@ public class Regex {
     }
 
     /// 编译并设置每次查找的正数步数预算；耗尽抛 RegexMatchLimitException。
+    ///
     /// FindAll（包括 Replace/Split）整次调用共享预算；Find/IsMatch 每次重新计数。
     /// 步数包含引擎调度、重复原子尝试和捕获恢复，不限制编译、输入物化、时间或内存。
     public static Regex Compile(string pattern, long maxSteps) {
