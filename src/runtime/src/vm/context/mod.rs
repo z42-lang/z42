@@ -98,7 +98,7 @@ unsafe impl Sync for VmContextPtr {}
 /// Process-wide registry of all live [`VmCore`] instances.
 ///
 /// **add-os-signal-handler **: the POSIX signal handler in
-/// [`crate::signal_handler`] (Phase 2 of D4 panic-hook story) walks this
+/// [`crate::host::signal`] (Phase 2 of D4 panic-hook story) walks this
 /// list to capture z42 call stacks across all VMs in the process. Stored
 /// as `Weak` so a VmCore drop doesn't require explicit deregistration;
 /// the handler ignores entries whose `upgrade()` returns `None` and the

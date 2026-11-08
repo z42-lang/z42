@@ -20,7 +20,7 @@
 //! - [`dynlib`] — shared-library file names, open, symbol lookup.
 //! - [`signal`] — fatal-signal registration + async-signal-safe write
 //!   primitives + signal-name table. The z42 crash *reporter*
-//!   (`signal_handler.rs`) drives these; pal owns only the OS primitives.
+//!   (`host/signal.rs`) drives these; pal owns only the OS primitives.
 
 pub mod system;
 pub mod fs;

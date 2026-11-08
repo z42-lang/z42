@@ -280,7 +280,7 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
 
     init_tracing(cli.verbose, &cfg);
     install_panic_hook();
-    z42::signal_handler::install();
+    z42::host::signal::install();
 
     // Verbose-mode startup banner (docs/review.md D5 item 2).
     // One-line tracing::info — gated by EnvFilter / `--verbose` so the

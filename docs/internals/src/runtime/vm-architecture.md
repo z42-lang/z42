@@ -179,7 +179,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 - **`func` 的寿命**：interp 帧指向调用方借给 `exec_function` 的 `&Function`；原生帧指向 `FnEntry.func`——
   合并模块里的函数归模块所有，惰性加载的函数由它的 `LazySlot` 持 `Arc<Function>` 保活，与 `FnEntry` 同寿。
 - **读帧的地方**：异常 `StackTrace`、栈溢出致命报告（`stack_guard`）、采样器（只取名字）、
-  崩溃信号转储（`signal_handler::write_frame`：直接写 `frame_meta` 的字节，没有时用
+  崩溃信号转储（`host::signal::write_frame`：直接写 `frame_meta` 的字节，没有时用
   `for_each_frame_name_piece` 分段写，行列号是一次二分——全程不分配）。前三者都在所属线程上；
   跨线程的读者只有 GC root scanner，见下一节。
 

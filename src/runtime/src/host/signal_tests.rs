@@ -1,4 +1,4 @@
-//! Unit test for `signal_handler` — install idempotency. The `sigsafe` write
+//! Unit test for `host::signal` — install idempotency. The `sigsafe` write
 //! primitives + signal-name table moved to `pal::signal` (Phase 3) and are
 //! tested in `pal/signal_tests.rs`; the actual signal-firing path is covered by
 //! the `tests/signal_handler_e2e.rs` integration tests.

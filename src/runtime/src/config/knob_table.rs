@@ -64,7 +64,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Path,
         description: "directory for panic + signal crash report files",
         default_hint: "unset; reports go to stderr only",
-        consumed_by: "main.rs (panic hook) + signal_handler.rs",
+        consumed_by: "main.rs (panic hook) + host/signal.rs",
         ..PUBLIC
     },
     KnobSpec {

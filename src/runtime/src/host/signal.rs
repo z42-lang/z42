@@ -282,5 +282,5 @@ fn write_frame(fd: i32, frame: &crate::vm::exec::call::frames::VmFrame) {
 // (PAL Phase 3); see the imports at the top of this file.
 
 #[cfg(test)]
-#[path = "signal_handler_tests.rs"]
-mod signal_handler_tests;
+#[path = "signal_tests.rs"]
+mod signal_tests;

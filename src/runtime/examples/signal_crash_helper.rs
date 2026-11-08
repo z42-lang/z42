@@ -83,7 +83,7 @@ fn main() {
     detach_from_crash_reporter();
 
     // Install hooks like a real z42vm boot would.
-    z42::signal_handler::install();
+    z42::host::signal::install();
 
     // Create a VmContext so the stack-walk has something to report. We do
     // NOT push any frames — empty call_stack still proves the walk worked.

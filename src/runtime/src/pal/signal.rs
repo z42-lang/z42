@@ -4,7 +4,7 @@
 //! writers and the reset are no-ops, so the crash reporter compiles unchanged.
 //!
 //! OS primitives are provided by `pal/sys/`; the VM crash reporter remains in
-//! `signal_handler.rs`. The generic formatting helpers never allocate.
+//! `host/signal.rs`. The generic formatting helpers never allocate.
 //!
 //! # Async-signal safety
 //!
