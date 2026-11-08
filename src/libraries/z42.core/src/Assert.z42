@@ -336,4 +336,44 @@ public static class Assert {
                 "> 0");
         }
     }
+
+    // ── 数组逐元素相等 / 长度 ────────────────────────────────────────────────
+    //
+    // 这两个走泛型（免装箱：long[] / string[] 直传）；上面的 ArrayContains 一族保持
+    // `object[]`（历史形态，装箱由调用方自负）。比对口径同 `Array.IndexOf<T>`：
+    // null 位只与 null 相等，其余按 `Equals`。
+
+    /// 断言两个数组**逐元素相等**：长度一致且每一位 `Equals`。
+    ///
+    /// 失败信息指到第一个不匹配位（下标 + 两侧值）；长度不一致时先报长度——此时逐位
+    /// 信息没有意义。
+    public static void ArrayEqual<T>(T[] expected, T[] actual) {
+        if (expected.Length != actual.Length) {
+            throw new TestFailure(
+                $"array length mismatch: expected {expected.Length} but got {actual.Length}",
+                $"<length {actual.Length}>",
+                $"<length {expected.Length}>");
+        }
+        for (int i = 0; i < expected.Length; i++) {
+            T e = expected[i];
+            T a = actual[i];
+            bool ok = e == null ? a == null : e.Equals(a);
+            if (!ok) {
+                throw new TestFailure(
+                    $"arrays differ at index {i}",
+                    a == null ? "null" : a.ToString(),
+                    e == null ? "null" : e.ToString());
+            }
+        }
+    }
+
+    /// 断言数组长度恰为 `n`。
+    public static void ArrayLength<T>(T[] coll, long n) {
+        if (coll.Length != n) {
+            throw new TestFailure(
+                $"expected array length {n} but got {coll.Length}",
+                coll.Length.ToString(),
+                n.ToString());
+        }
+    }
 }
