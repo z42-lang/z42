@@ -209,7 +209,8 @@ Assert.Throws("Exception", () => { throw new MyError(); }); // ❌ 子类不算�
 
 ### 数组
 
-只有 `object[]` 重载（`int[]` / `string[]` 等经装箱传入）。比对用 `==`：对象比引用、装箱基元比值。
+`ArrayContains` 一族是 `object[]` 重载（`int[]` / `string[]` 等经装箱传入），比对用 `==`：
+对象比引用、装箱基元比值。逐元素相等与长度断言走泛型（免装箱直传）。
 
 | 签名 | 通过条件 |
 |---|---|
@@ -217,6 +218,8 @@ Assert.Throws("Exception", () => { throw new MyError(); }); // ❌ 子类不算�
 | `ArrayDoesNotContain(object needle, object[] haystack)` | 上式取反 |
 | `ArrayIsEmpty(object[] coll)` | `coll.Length == 0` |
 | `ArrayIsNotEmpty(object[] coll)` | `coll.Length != 0` |
+| `ArrayEqual<T>(T[] expected, T[] actual)` | 长度一致且**每一位** `Equals`（null 位只与 null 相等；失败信息指到第一个不匹配位 / 长度不一致先报长度） |
+| `ArrayLength<T>(T[] coll, long n)` | `coll.Length == n` |
 
 `List` / `Dictionary` / `HashSet` 没有对应助手，自己取 `.Count` / `.Contains` 再 `Assert.True`。
 

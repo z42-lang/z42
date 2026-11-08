@@ -45,3 +45,41 @@ void test_null_handling() {
     string defined = "x";
     Assert.NotNull(defined);
 }
+
+[Test]
+void test_array_equal_happy_paths() {
+    // 免装箱直传：int[] / long[] / string[] / object[]；null 位只与 null 相等。
+    Assert.ArrayEqual(new int[]{ 1, 2, 3 }, new int[]{ 1, 2, 3 });
+    Assert.ArrayEqual(new long[]{ 5, 6 }, new long[]{ 5, 6 });
+    Assert.ArrayEqual(new string[]{ "a", "b" }, new string[]{ "a", "b" });
+    string[] expectedWithNull = new string[]{ "a", null };
+    string[] actualWithNull = new string[]{ "a", null };
+    Assert.ArrayEqual(expectedWithNull, actualWithNull);
+    Assert.ArrayEqual(new int[0], new int[0]);
+}
+
+[Test]
+void test_array_equal_failures_report_first_mismatch() {
+    Assert.Throws("TestFailure", () => {
+        Assert.ArrayEqual(new int[]{ 1, 2, 3 }, new int[]{ 1, 9, 3 });
+    });
+    // 长度不一致先报长度。
+    Assert.Throws("TestFailure", () => {
+        Assert.ArrayEqual(new int[]{ 1, 2 }, new int[]{ 1, 2, 3 });
+    });
+    // null 与非 null 不相等。
+    Assert.Throws("TestFailure", () => {
+        string[] e = new string[]{ null };
+        string[] a = new string[]{ "x" };
+        Assert.ArrayEqual(e, a);
+    });
+}
+
+[Test]
+void test_array_length() {
+    int[] arr = new int[]{ 7, 8, 9 };
+    Assert.ArrayLength(arr, 3);
+    Assert.Throws("TestFailure", () => {
+        Assert.ArrayLength(arr, 2);
+    });
+}
