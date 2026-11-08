@@ -194,8 +194,8 @@ jobs:
       - name: Install hyperfine
         if: steps.scope.outputs.verdict_only == 'false'
         run: |
-          wget -q https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine_1.20.0_amd64.deb
-          sudo dpkg -i hyperfine_1.20.0_amd64.deb
+          cargo install hyperfine --version 1.20.0 --locked --root "$HOME/.local"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # 独立 key（不与 ci.yml 共用）：`cargo bench` 的依赖产物（dev-deps 参与 feature 统一）与
       # `cargo build --bin z42vm` 哈希不同，共用 key 时恒 exact hit、从不回存。base-src 同理纳入。
