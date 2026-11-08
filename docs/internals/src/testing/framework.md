@@ -118,6 +118,12 @@ flowchart LR
 不匹配的失败消息指向具体行。执行：`Method.Invoke(null, 勘合后实参)`——与 `[Benchmark]`
 的 Bencher 注入同一反射机制。
 
+**运行期数据行（`[Test(data: methodof(Fix.rows))]`）**：行的运行期来源——provider 是静态类里
+零参、返回 `List<object[]>` 的方法（methodof 引用，编译期解析；锯齿数组语法不可用 ⇒ 行容器
+是 List）。发现层（`TestDiscovery._providerRows`）调用 provider 把行并进与 `[Case]` 同一条
+展开路；provider 抛异常 / 形状不对 → 发现即崩（不做静默零行）。编译期三查（E0920）：`data:`
+只贴 `[Test]`、与 `[Case]` 互斥、贴了须有形参；行套数 = 形参数在 `_coerceArgs` 运行期兜底。
+
 **公共 fixture 按命名空间（自由函数）或类型（静态方法）分组**：没有共享实例，这是唯一可用的
 locality 单位。Setup/Teardown 里的异常被静默吞掉——这是当前实现的取舍，不是疏漏能推翻的，
 但它意味着一个坏掉的 Setup 会表现为"测试本身失败"。

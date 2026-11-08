@@ -209,6 +209,7 @@ public static class DiagnosticCodes {
     public static string SkipReasonMissing             = "E0914";
     public static string SetupTeardownSignatureInvalid = "E0915";
     public static string TimeoutValueInvalid           = "E0917";
+    public static string DataProviderInvalid           = "E0920";   // [Test(data: …)] 形态：只贴 Test / 与 [Case] 互斥 / 须有形参
 
     // E10xx: call-site argument binding
     public static string PositionalAfterNamed     = "E1001";

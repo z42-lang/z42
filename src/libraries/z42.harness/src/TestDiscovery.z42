@@ -1,6 +1,7 @@
 namespace Std.Harness;
 
 using Std.Reflection;   // Assembly / MethodInfo
+using Std.Collections;  // List<object[]> —— data provider 的行容器
 
 /// 一条被发现的测试 / bench / 生命周期函数。
 public class TestCase {
@@ -31,6 +32,11 @@ public class TestCase {
     public MethodInfo? DeclaredSetup;
     /// 同上，teardown：非定向 [Teardown]（公共）之前（专属先、公共后）。
     public MethodInfo? DeclaredTeardown;
+    /// `[Test(data: methodof(Fix.rows))]` 的运行期数据行 provider；null = 无。
+    ///
+    /// 发现期调用（零参 → `List<object[]>`，每元素一行实参），按行展开成多条用例——
+    /// 与 `[Case]` 同一条展开路（编译期互斥）。
+    public MethodInfo? DataProvider;
     /// `[Case(…)]` 的实参（参数化测试展开后本条对应的那行）；null = 非参数化。
     public object[] Args;
     /// 发现期暂存：本方法的全部 `[Case]` 行（null = 无）——Discover 收齐后展开成多条用例。
@@ -44,6 +50,7 @@ public class TestCase {
         this.SkipReason = null; this.SkipPlatform = null; this.SkipFeature = null;
         this.ShouldThrow = false; this.Expected = null;
         this.DeclaredSetup = null; this.DeclaredTeardown = null;
+        this.DataProvider = null;
         this.Args = null; this.CaseRows = null;
     }
 
@@ -140,6 +147,11 @@ public class TestCase {
     // 在反射调用前按形参类型勘合 Case 整数字面量。
     static object[] _coerceArgs(MethodInfo m, object[] args) {
         ParameterInfo[] ps = m.GetParameters();
+        // 行套数 = 形参数。[Case] 行编译期已查（E0911/E0920 口径）；data 行运行期才见值，这里兜底。
+        if (args.Length != ps.Length) {
+            throw new Exception("参数化数据行实参数（" + args.Length.ToString() + "）须等于测试形参数（"
+                + ps.Length.ToString() + "）——逐位对应（方法 " + m.Name + "）");
+        }
         object[] r = new object[args.Length];
         int i = 0;
         while (i < args.Length) {
@@ -180,7 +192,7 @@ public static class TestDiscovery {
         while (i < fs.Length) {
             TestCase tc = TestDiscovery._fromMethod(fs[i]);
             if (tc != null) {
-                object[] rows = tc.CaseRows;
+                object[] rows = TestDiscovery._rowsOf(tc);
                 if (rows == null) {
                     found = TestDiscovery._push(found, n, tc); n = n + 1;
                 } else {
@@ -205,7 +217,7 @@ public static class TestDiscovery {
                     if (ms[k].IsStatic) {
                         TestCase mc = TestDiscovery._fromMethod(ms[k]);
                         if (mc != null) {
-                            object[] rows = mc.CaseRows;
+                            object[] rows = TestDiscovery._rowsOf(mc);
                             if (rows == null) {
                                 found = TestDiscovery._push(found, n, mc); n = n + 1;
                             } else {
@@ -260,6 +272,7 @@ public static class TestDiscovery {
                 TestAttribute ta = at as TestAttribute;
                 tc.DeclaredSetup = ta.Setup;
                 tc.DeclaredTeardown = ta.Teardown;
+                tc.DataProvider = ta.Data;
             } else if (at is CaseAttribute) {
                 CaseAttribute ca = at as CaseAttribute;
                 object[] grown = TestCase._growRows(tc.CaseRows);
@@ -284,6 +297,36 @@ public static class TestDiscovery {
         int i = q.LastIndexOf('.');
         if (i < 0) { return m.Name; }
         return q.Substring(0, i) + "." + m.Name;
+    }
+
+    // 本方法的参数化数据行：data provider（运行期生成）优先，其次 `[Case]` 行；都无 → null。
+    // 两者编译期互斥（E0920），这里取非空的那份。
+    static object[] _rowsOf(TestCase tc) {
+        MethodInfo p = tc.DataProvider;   // 快照：字段判空后不能直接再读（E0484）
+        if (p != null) { return TestDiscovery._providerRows(tc, p); }
+        return tc.CaseRows;
+    }
+
+    // 调 data provider 拿行（零参 → `List<object[]>`，每元素一行实参）。provider 抛异常 /
+    // 返回形状不对：直接抛带上下文的异常——发现即崩（套件红），不做「静默零行」——那与
+    // 「provider 写坏了」不可区分，是最坏的失败形态。
+    static object[] _providerRows(TestCase tc, MethodInfo p) {
+        object grid;
+        try {
+            grid = p.Invoke(null, new object[0]);
+        } catch (Exception e) {
+            throw new Exception("data provider 失败（" + tc.Qualified + " ← "
+                + p.Name + "）: " + e.Message);
+        }
+        List<object[]> rows = grid as List<object[]>;
+        if (rows == null) {
+            throw new Exception("data provider 形状不对（" + tc.Qualified + " ← "
+                + p.Name + "）: 须返回 List<object[]>（每元素一行实参 object[]）");
+        }
+        object[] outRows = new object[rows.Count];
+        int r = 0;
+        while (r < rows.Count) { outRows[r] = rows[r]; r = r + 1; }
+        return outRows;
     }
 
     static string? _orNull(string s) {

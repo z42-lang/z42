@@ -94,6 +94,55 @@ benchmark），别这么写。
 贴在 `static class` 的 `static` 方法上是合法的，但报告里的名字会带
 `$<参数个数>` 后缀（`Demo.S.MathTests.test_in_static_class$0`）；自由函数没有这个后缀。
 
+### 参数化测试：`[Case]` 行与 `data:` provider
+
+「零参数」规则对**参数化测试**豁免：带数据行的 `[Test]` 声明形参，runner 把方法按行展开成
+多条用例——名字带实参后缀（`test_add(1, 2, 3)`），每行独立 pass/fail。数据行有两种来源：
+
+**编译期常量行（`[Case]`）**：与 `[Test]` 同贴、可叠多份，每份一行字面量实参。
+
+```z42
+[Test]
+[Case(1, 2, 3)]
+[Case(0, 0, 0)]
+[Case(-1, 1, 0)]
+void test_add(int a, int b, int expected) {
+    Assert.Equal(expected, a + b);
+}
+```
+
+编译期三查（`E0911`）：`[Case]` 只贴 `[Test]`、贴了须有形参、每行套数 = 形参数。
+类型勘合在运行期（整数族装箱摆平，`int` 行实参可扩宽进 `long`/`double` 形参）。
+
+**运行期生成行（`data:` provider）**：数据要在运行期才算得出（循环生成 / 从环境取）时用
+`[Test(data: methodof(Fix.rows))]`——`rows` 是静态类里零参、返回 `List<object[]>` 的方法，
+每元素一行实参，发现期调用并按行展开：
+
+```z42
+static class Fix {
+    public static List<object[]> rows() {
+        List<object[]> rows = new List<object[]>();
+        for (int i = 0; i < 4; i++) { rows.Add(new object[]{ i, i, i + i }); }
+        return rows;
+    }
+}
+
+[Test(data: methodof(Fix.rows))]
+void test_runtime_rows(int a, int b, int expected) {
+    Assert.Equal(expected, a + b);
+}
+```
+
+要点：
+
+- **与 `[Case]` 互斥**（`E0920`）——数据行要么运行期生成要么逐行常量，别混写；`data:`
+  也只支持 `[Test]`（`E0920`）。
+- provider 抛异常 / 返回形状不对（不是 `List<object[]>`）→ 发现即崩（套件红）并点名
+  provider——不做「静默零行」。
+- 行套数 = 形参数在运行期兜底勘合（不匹配的行报「实参数须等于形参数」）。
+- 引用是 `methodof`（编译期解析，目标拼错 `E0459`）；与 `[Test(setup: …)]` 声明 fixture
+  可组合——每行都跑专属 setup。
+
 ### 修饰 attribute
 
 修饰 attribute **必须与 `[Test]` 或 `[Benchmark]` 贴在同一个声明上**，否则报 `E0914`。
@@ -453,7 +502,7 @@ bench[addition] min=375ns median=417ns max=3583ns mean=432ns stddev=109ns sample
 | `[Skip(feature: "拼错的名字")]` | **静默跳过**，不报错。见[上文](#skipfeature-的取值)。 |
 | `[Skip(platform: …, feature: …)]` 同贴 | `feature:` 被忽略，见[上文](#platform-与-feature-同时写)。 |
 | `[Setup]` 里抛异常 | **被静默吞掉**，测试照常运行、照常可能判通过。fixture 出错不会让任何东西变红——`[Setup]` 里想断言就得改成在测试体里断言。`[Teardown]` 同理。 |
-| `[TestCase(args)]` | **不存在**，写了直接 `E0443: undefined type: TestCaseAttribute`。参数化测试当前只能在测试体里自己写循环。 |
+| `[TestCase(args)]` | **不存在**，写了直接 `E0443: undefined type: TestCaseAttribute`。参数化用 `[Case]`（编译期常量行）或 `[Test(data: methodof(Fix.rows))]`（运行期生成行），见[上文](#参数化测试case-行与-data-provider)。 |
 | `--format tap` / `--format junit` | **不存在**，只有 `pretty` 和 `json`。 |
 | 按测试函数名过滤 | **做不到**。`--filter` 筛的是目标名。 |
 | 失败位置 | 报告里**没有** file:line，也没有栈。`TestFailure` 的位置字段当前恒为空。 |

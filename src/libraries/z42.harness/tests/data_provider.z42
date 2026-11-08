@@ -1,0 +1,63 @@
+// harness-data-provider — [Test(data: methodof(Fix.rows))] 运行期数据行：
+// 发现期调 provider（零参 → List<object[]>，每元素一行实参）按行展开成多条用例，
+// 与 [Case] 同一条展开路（名字带实参后缀、逐行独立判定、行套数运行期兜底勘合）。
+namespace Z42HarnessTests.DataProvider;
+
+using Std;
+using Std.Collections;
+using Std.Harness;
+
+// 行数据运行期才算得出（对照 [Case] 的编译期常量行）：这里用循环生成。
+static class Tables {
+    public static List<object[]> addRows() {
+        List<object[]> rows = new List<object[]>();
+        int i = 0;
+        while (i < 4) {
+            object[] row = new object[3];
+            row[0] = i; row[1] = i; row[2] = i + i;
+            rows.Add(row);
+            i = i + 1;
+        }
+        return rows;
+    }
+
+    // 混合类型行：int / long 宽化 / string / null。
+    public static List<object[]> mixedRows() {
+        List<object[]> rows = new List<object[]>();
+        object[] r1 = new object[2]; r1[0] = "alpha"; r1[1] = 5;
+        rows.Add(r1);
+        object[] r2 = new object[2]; r2[0] = null; r2[1] = 0;
+        rows.Add(r2);
+        return rows;
+    }
+}
+
+// 基础展开：4 行各自独立跑，名字带实参后缀（报告可读）。
+[Test(data: methodof(Tables.addRows))]
+void test_runtime_rows_expand_per_row(int a, int b, int expected) {
+    Assert.Equal(expected, a + b);
+}
+
+// 混合类型行 + null 位（行进方法体即证勘合成功；null 行断言参值确实是 null）。
+[Test(data: methodof(Tables.mixedRows))]
+void test_mixed_typed_rows(string tag, int n) {
+    if (tag == null) {
+        Assert.Equal(0, n);
+    } else {
+        Assert.Equal("alpha", tag);
+        Assert.Equal(5, n);
+    }
+}
+
+// 与声明 fixture 组合：每行都跑专属 setup（CloneForCase 照抄声明 fixture——行级语义；
+// 行序不跨测试假设，只断言 setup 在本行之前真的跑过）。
+static class Counting {
+    public static int Setups;
+    public static void bump() { Counting.Setups = Counting.Setups + 1; }
+}
+
+[Test(data: methodof(Tables.addRows), setup: methodof(Counting.bump))]
+void test_rows_share_declared_fixture(int a, int b, int expected) {
+    Assert.Equal(expected, a + b);
+    Assert.Greater(Counting.Setups, 0);   // 专属 setup 先于本行执行
+}
