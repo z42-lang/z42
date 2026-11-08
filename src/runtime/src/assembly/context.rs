@@ -101,12 +101,15 @@ impl VmContext {
                 // add-sampling-profiler : start the sampler only when
                 // Z42_SAMPLE_HZ is set; otherwise disabled() (no thread, zero-cost).
                 // Trace timeline recorded only when Z42_TRACE_OUT is also set.
-                sampler: match config.sample_hz {
+                sampler: {
+                    let backend = match config.sample_hz {
                     Some(hz) => crate::profiler::cpu::Sampler::start(
                         hz,
                         config.trace_timeline,
                     ),
                     None => crate::profiler::cpu::Sampler::disabled(),
+                    };
+                    crate::vm::diagnostics::sampling::Sampling::new(backend.enabled(), backend)
                 },
             },
             exec: crate::vm::exec::ExecState::new(

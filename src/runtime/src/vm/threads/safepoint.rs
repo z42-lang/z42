@@ -164,9 +164,7 @@ pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
     // This runs only on the already-throttled slow path (Idle tail, no GC lock
     // held — gc_phase lock was a temporary above), so it never touches the hot
     // `check_safepoint` fast path.
-    if ctx.core.diagnostics.sampler.enabled() {
-        ctx.core.diagnostics.sampler.maybe_sample(ctx);
-    }
+    ctx.core.diagnostics.sampler.poll(ctx);
 }
 
 /// Slow path — the mutator parks on the Condvar until the collector
