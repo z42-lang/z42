@@ -177,6 +177,31 @@ impl<'a> Cells<'a> {
         true
     }
 
+    /// Zero a checked range of uniform primitive cells. Every store retains the
+    /// element's width and relaxed ordering; invalid ranges write nothing.
+    #[inline]
+    pub(crate) fn clear_prims(&self, index: usize, n: usize, w: usize) -> bool {
+        if !matches!(w, 1 | 2 | 4 | 8)
+            || index.checked_add(n).and_then(|end| end.checked_mul(w))
+                .is_none_or(|end| end > self.len)
+        {
+            return false;
+        }
+        if n == 0 { return true; }
+        // SAFETY: the complete range was checked, and the 8-aligned view plus
+        // index*w aligns every cell to its width. Specialize before the loop.
+        unsafe {
+            let base = self.base.add(index * w);
+            match w {
+                1 => clear_raw::<1>(base, n),
+                2 => clear_raw::<2>(base, n),
+                4 => clear_raw::<4>(base, n),
+                _ => clear_raw::<8>(base, n),
+            }
+        }
+        true
+    }
+
     /// Element-wise move of `n` packed `w`-byte primitives from `src` (element `si` on) into this
     /// view (element `di` on): one relaxed load and one relaxed store of exactly the element width
     /// per element, so no element is ever torn. `src` may be this very view (overlapping ranges
@@ -352,5 +377,16 @@ unsafe fn store_raw(p: *mut u8, w: usize, bits: u64) {
             4 => AtomicU32::from_ptr(p.cast()).store(bits as u32, Ordering::Relaxed),
             _ => AtomicU64::from_ptr(p.cast()).store(bits, Ordering::Relaxed),
         }
+    }
+}
+
+/// # Safety
+/// base covers n initialized, WIDTH-aligned primitive cells; WIDTH is a supported
+/// cell width. All concurrent access obeys the Cells atomic contract.
+#[inline(always)]
+unsafe fn clear_raw<const WIDTH: usize>(base: *mut u8, n: usize) {
+    for index in 0..n {
+        // SAFETY: the caller validated the entire span and its alignment.
+        unsafe { store_raw(base.add(index * WIDTH), WIDTH, 0); }
     }
 }

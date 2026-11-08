@@ -263,6 +263,11 @@ fn primitive_bulk_clear_preserves_neighbors_for_each_cell_width() {
                 let width = array.width();
                 let original = array.cells().load_bits(0, width);
                 assert!(array.try_clear_elems(start, length).unwrap());
+                assert!(!array.cells().clear_prims(usize::MAX, 1, width));
+                assert!(!array.cells().clear_prims(0, usize::MAX, width));
+                assert!(!array.cells().clear_prims(0, 1, 3));
+                assert!(!array.cells().clear_prims(len, 1, width));
+                assert!(array.cells().clear_prims(len, 0, width));
                 for i in 0..len {
                     let expected = if (start..start + length).contains(&i) { Some(0) } else { original };
                     assert_eq!(array.cells().load_bits(i * width, width), expected);
@@ -289,5 +294,18 @@ fn byte_copy_batches_preserve_unaligned_prefixes_tails_and_bounds() {
             assert!(!a.borrow().write_byte_range(usize::MAX, &[1]));
             assert_eq!(a.borrow().byte_snapshot().unwrap(), expected);
         }
+    }
+}
+
+#[test]
+fn primitive_cell_clear_supports_every_atomic_width() {
+    let h = heap();
+    let _g = HeapGuard::enter(&h);
+    for width in [1, 2, 4, 8] {
+        let a = arr(&h, ArrayObj::alloc_filled(&h, ElemType::intern("byte"), ElemKind::Bytes, 64, Value::I64(165)));
+        assert!(a.borrow().cells().clear_prims(3, 3, width));
+        let mut expected = vec![165; 64];
+        expected[3 * width..6 * width].fill(0);
+        assert_eq!(a.borrow().byte_snapshot().unwrap(), expected);
     }
 }

@@ -15,13 +15,7 @@ impl ArrayObj {
         if mode.is_prim() {
             let cells = self.cells();
             let width = self.width();
-            let end = range.end;
-            let mut i = range.start;
-            while end - i >= 4 {
-                for offset in 0..4 { cells.store_bits((i + offset) * width, width, 0); }
-                i += 4;
-            }
-            for i in i..end { cells.store_bits(i * width, width, 0); }
+            anyhow::ensure!(cells.clear_prims(index, length, width), "invalid primitive clear range");
             return Ok(true);
         }
         match mode {
