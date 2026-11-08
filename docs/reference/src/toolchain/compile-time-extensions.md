@@ -59,7 +59,7 @@ demo.lint/
 ## 完整使用流程（索引）
 
 1. **写插件**：analyzer / generator / hook 三类契约与示例见下文各章；最小工程见上节。
-2. **挂插件**：消费方 `[plugins]` 五种条目（按名 / 工程路径 / `.zpkg` 路径 / 免清单目录 / 免清单单文件）；独立分发的插件 zpkg 也可在 `[dependencies]` 里声明（deps-plugin-routing：z42c/z42b 读 zpkg 头**自述的包类型**——lib/exe/plugin/harness——自动分流，插件不链入产物）；hook 经 z42b 反射执行。
+2. **挂插件**：消费方 `[plugins]` 两种条目（源集 / 工程路径）；独立分发的插件 zpkg 在 `[dependencies]` 里声明（deps-plugin-routing：z42c/z42b 读 zpkg 头**自述的包类型**——lib/exe/plugin/harness——自动分流，插件不链入产物）；hook 经 z42b 反射执行。
 3. **随库分发**：lib 用 `[plugins.export]` 携带——依赖它的工程零配置自动获得（声明闭包=硬承诺、
    ambient 标准库=尽力而为）；`[plugins] "x" = false` 关闭单项。
 4. **internal 授权**：宿主在携带条目上 `internal = true`——插件以宿主同包待遇编译，可复用宿主
@@ -71,16 +71,16 @@ demo.lint/
 
 ```toml
 [plugins]
-"demo.noemptycatch" = "0.1.0"
+"demo.hook" = { include = ["hooks/**/*.z42"] }
 ```
 
 值的写法与 `[dependencies]` 相同，但语义不同：
 
 | | `[dependencies]` | `[plugins]` |
 |---|---|---|
-| 何时加载 | 编译目标代码时解析符号 | **加载进工具链、构建期执行** |
-| 进不进产物 | 进 | **不进** |
-| `path = "..."` | 支持，z42c 代为构建整个闭包 | 支持，代建**那一个工程**；也可指 `.zpkg` 文件直接用，或免清单地指单个 `.z42` 源文件 / 无清单源目录（合成最小清单后代建） |
+| 何时加载 | 编译目标代码时解析符号（插件包读头分流进工具链） | **加载进工具链、构建期执行** |
+| 进不进产物 | 进（插件包例外：分流后不链入） | **不进** |
+| `path = "..."` | 支持，z42c 代为构建整个闭包；`.zpkg` 文件 = 现成产物直连（读头分流） | 只支持指工程目录（代建**那一个工程**） |
 
 **一个段覆盖三类**：z42c 从 `[plugins]` 列出的每个 zpkg 里同时寻找 `: Analyzer`、
 `: Generator`、`: ModuleGenerator` 的类型；z42b 反射出全部继承 `: BuildHooks` 的具体类。条目里
@@ -92,14 +92,14 @@ demo.lint/
 [plugins]
 "demo.hook"         = { include = ["hooks/**/*.z42"], exclude = ["hooks/skip/**"] }   # 源集（推荐，对齐 [tests]）
 "demo.gen"          = { path = "../gen" }     # 按工程路径：代建该工程，取其 dist
-"demo.noemptycatch" = "0.1.0"                 # 按名：在插件目录找 demo.noemptycatch.zpkg
-"demo.local"        = { path = "../x.zpkg" }  # 按 zpkg 路径：现成产物，读头校验后直接用
-# 弃用中（被源集取代，仍工作）：{ path = "hooks/hook.z42" }（单文件）/ { path = "hooks/" }（无清单目录全收）
+# 已删除（写了按清单错误报）：按名 "x" = "0.1.0" / .zpkg 路径 { path = "../x.zpkg" } → 改写 [dependencies]
+# 已删除：{ path = "hooks/hook.z42" }（单文件）/ { path = "hooks/" }（无清单目录）→ 改写源集条目
 ```
 
-**按名**：在**插件目录**里找 `<name>.zpkg`——`Z42_PLUGINS` 指向的目录，或各依赖目录同级的
-`plugins/`（SDK 布局：`<sdk>/plugins`）。与依赖目录（libs）刻意分开：那里是运行期解析域，插件
-混进去会污染它。要求你先单独 `z42c build` 那个工程、再把产物拷进插件目录。
+**引用现成产物 → `[dependencies]`**：独立分发的插件 zpkg（CI 产物、发布件）在 `[dependencies]`
+里按名或 `.zpkg` path 声明——工具链读 zpkg 头自述的包类型自动分流：插件包加载进工具链进程、
+不链入产物；按名解析走**插件目录**（`Z42_PLUGINS` / SDK 的 `<sdk>/plugins`，与依赖目录刻意分开：
+那里是运行期解析域，插件混进去会污染它）。产物字节变了消费方照样重编（指纹含该 zpkg 内容）。
 
 > ⚠️ **开发态构建产出的是 indexed zpkg**（主文件 + 旁边散装的 `.zbc`）。只拷主文件过去，
 > 加载时会报 **E0493**。要么把散装 `.zbc` 一起拷，要么用 `--release` 构建 handler 工程，
@@ -112,15 +112,12 @@ demo.lint/
 指纹含该 zpkg 的内容。**这是自己写插件时的推荐写法**：不用把 zpkg 拷来拷去，也不会踩上面那条
 indexed/packed 的坑。住在工程目录里的 path 插件目录自动排除出本工程源发现。
 
-**按 zpkg 路径**：现成产物直接用（读头验能力位 + META 验名，不代建）。适合钉住一份已构建的插件
-（CI 产物、发布件）；产物字节变了消费方照样重编。
-
 **源集（include/exclude，推荐）**：与 `[tests]` 同键同语义——`include` 相对本工程目录的源码
 glob（须以文件模式收尾），`exclude` 圈掉不要的。工具链合成最小插件清单（name = 条目键、
 kind = "plugin"，落消费方 cache 目录）后走与工程路径**完全相同**的代建路——零依赖插件（hook 几乎
 全是）从此不写 z42.toml。include 模式自动排除出消费方源发现（**显式分区**：模式圈中的文件归插件）；
-源集圈不到任何 `.z42` 明确报错；`include` 与 `path` 互斥。**这是零依赖 hook 插件的推荐写法**。
-旧的免清单 `path` 形态（指 `.z42` 单文件 / 无清单目录全收）仍工作、已被源集取代（弃用中）。
+源集圈不到任何 `.z42` 明确报错；`include` 与 `path` 互斥。**这是零依赖 hook 插件的推荐写法**
+（旧的免清单 `path` 形态——指 `.z42` 单文件 / 无清单目录——已删除，改写源集条目即可，行为不变）。
 
 代建出来的 zpkg **不进消费方的解析域**（与 `[dependencies]` 的 path 闭包刻意不同）：插件只活
 在工具链进程里，把它的 dist 并进依赖目录就等于让构建期代码对运行期代码可见。
@@ -130,10 +127,10 @@ kind = "plugin"，落消费方 cache 目录）后走与工程路径**完全相�
 | 写法 | 结果 |
 |---|---|
 | `kind = "plugin"` 的工程出现在 `[dependencies]` | 报错——它永不链入产物，运行期不会到场（按名也拦得住：读头能力位） |
-| 位全 0 的包出现在 `[plugins]`（按名 / zpkg） | 定位阶段即报「不是插件包」——不留到加载后才发现「零 handler」 |
+| 位全 0 的包出现在 `[plugins]` | 定位阶段即报「不是插件包」——不留到加载后才发现「零 handler」 |
 | `kind = "plugin"` 的工程里一个契约都没实现 | **构建该插件时就报 E0505**，点名四个契约 |
 
-zpkg 头记能力位（bit3–5），所以按名 / 按 zpkg 引用在拿到文件的第一刻就能判——旧世界「zpkg 不记
+zpkg 头记能力位（bit3–5），所以工具链在拿到插件文件的第一刻就能判——旧世界「zpkg 不记
 kind、按名没法校验」的洞补上了。
 
 ### 声明了却没生效？那会报错

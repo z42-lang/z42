@@ -205,7 +205,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 |---|---|---|---|---|
 | L-8 | — | 物理拆 crate：暂不做，VM 保持单 crate、各层是 `src/runtime/src/<模块>/`（User 2026-10-29）；以后是否拆另议 | — | ⏸ |
 | L-9 | feature | 监控 API（vm/diagnostics/monitor）→ debugger（0.8.x，前置：.zsym 局部变量信息）→ profiler 的分配采样与覆盖率；AOT（M9）时拆出 codegen | 各自立项，动工前出方案 | ⬜ |
-| L-10 | refactor | VM 配置输入收敛：`vm/threads/safepoint.rs::throttle_n` 与 `vm/exec/call/stack_alloc.rs::mode` 仍直接读取门面全局配置。由门面提供已解析策略，移除 VM 对配置解析层的依赖 | 保持读取/缓存时机、worker 共享及 interp/JIT 节流与栈分配语义；更新无上下文辅助接口的消费者 | ⬜ |
+| L-10 | refactor | VM 配置输入收敛：`vm/threads/safepoint.rs::throttle_n` 仍直接读取门面全局配置。由门面提供已解析节流策略，移除线程协调层对配置解析层的依赖 | 保持读取/缓存时机、worker 共享及 interp/JIT 节流语义；更新无上下文辅助接口的消费者 | ⬜ |
 | L-11 | refactor | 审查 runtime 查询与执行边界：`vm/runtime/resolve/mod.rs::resolve_module` / `resolve_function_tokens` 仍接收 `VmContext`；沿其静态字段、类型查找调用链区分纯查询、加载和初始化执行，把有副作用的慢路径交给 loader/exec | 逐调用点核对「四不」；不能以改目录或机械移除上下文参数代替行为验证；覆盖惰性加载、静态初始化、失败与线程等待 | ⬜ |
 
 现有的 VM 状态组合、组件注册与门面装配见[组件化运行时](internals/src/runtime/componentized-runtime.md)，

@@ -166,14 +166,12 @@ public static class DiagnosticCodes {
     // 【Warning】清单 `[dependencies]` 声明了标准库包（从框架目录 = 编译期外部档解析到的包）。stdlib 总是可用，声明是多余的；
     // `path` 依赖、`deploy = "copy"`、workspace 成员不报。发射点在 driver 的 DepDecls.z42，位置落清单里该依赖的行。
     public static string StdlibDepDeclared = "W0610";
-    // 【Warning】插件引用统一后的超期形态（deps-plugin-routing 收尾）：[plugins] 的**按名**条目与
-    // `.zpkg` path 条目已被 [dependencies] 取代（读 zpkg 头自述类型自动分流，不链入产物）。发射点在
-    // ManifestKnobs（两宿主单源）。观察期后随形态一起删除。
-    public static string PluginsArtifactFormDeprecated = "W0611";
-    // 【Warning】同上：[plugins] 的**源码 path** 形态（指单个 .z42 / 无清单目录）已被源集条目
-    // （include/exclude，对齐 [tests]）取代。发射点在三处 toml 解析点（PluginRefs /
-    // BuildSession / builder_hooks）的合成分支。
-    public static string PluginsSourcePathDeprecated = "W0612";
+    // 原 PluginsArtifactFormDeprecated：[plugins] 按名 / .zpkg path 超期形态的观察期 warning
+    //（deps-plugin-routing 收尾）。观察期结束形态删除（清单层硬错、不发码），本码零发射点、编号不复用。
+    public static string RetiredPluginsArtifactForm = "W0611";
+    // 原 PluginsSourcePathDeprecated：[plugins] 源码 path 形态（单文件 / 无清单目录）的观察期 warning。
+    // 同上：形态删除（解析点硬错、不发码），本码零发射点、编号不复用。
+    public static string RetiredPluginsSourcePath = "W0612";
     // report-crosspkg-duplicate-type：**本包声明的类型遮蔽了某个导入包的同 FQN 类型**。
     //
     // 🔴 这条曾按 C# CS0436 做成 warning（理由：「本地恒赢是既定规则、不是猜」），**改成了 error**：

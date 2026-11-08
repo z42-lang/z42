@@ -7,6 +7,11 @@ impl RuntimeConfig {
     /// Capture construction inputs without exposing facade settings to the VM builder.
     pub(crate) fn vm_config(&self) -> crate::vm::config::VmConfig {
         crate::vm::config::VmConfig {
+            stack_alloc: match self.stackalloc.as_deref() {
+                Some("off" | "0" | "heap") => crate::vm::exec::call::stack_alloc::StackAllocPolicy::Off,
+                Some("stats") => crate::vm::exec::call::stack_alloc::StackAllocPolicy::Stats,
+                _ => crate::vm::exec::call::stack_alloc::StackAllocPolicy::On,
+            },
             gc: self.gc_config(),
             gc_max_bytes: self.gc_max_bytes,
             gc_trace: self.gc_trace,

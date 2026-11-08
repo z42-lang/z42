@@ -2,6 +2,6 @@
 name = "probe.app"
 version = "0.1.0"
 kind = "exe"
-[plugins]
+[dependencies]
 "probe.generator" = { path = "../toolgen/dist/probe.generator.zpkg" }
 "probe.hook" = { path = "../toolhook/dist/probe.hook.zpkg" }

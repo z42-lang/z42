@@ -1,10 +1,11 @@
 // `[plugins]` 条目 → 插件 zpkg，以及插件身份指纹。
 //
-// 四种条目形态（与 `[dependencies]` 同构，另加单文件）：
-//   · `x = "1.0"`（无 path）：在 libsDirs 里找 `<name>.zpkg`；
-//   · `x = { path = "x.zpkg" }`：现成产物，直接用（相对清单目录）；
-//   · `x = { path = "../x" }`：定位该工程 manifest → 校验它确是插件工程 → **由 z42c 代建** → 取其 dist 的 `<name>.zpkg`；
-//   · `x = { path = "hook.z42" }`（单文件）：合成最小插件清单（`PluginSynth.Synth`，落消费方 cache 目录）→ 与工程条目同一条代建路。一个源文件、零依赖的插件（hook 插件全是这个形态）免写 z42.toml；带 `[dependencies]` 的插件仍用完整工程形态（单文件写不出依赖）。
+// 两种条目形态（deps-plugin-routing 收官后；制品引用按名 / .zpkg path 已删除 → [dependencies]，
+// 源码 path 单文件 / 免清单目录已删除 → 源集条目）：
+//   · `x = { include = [...], exclude = [...] }`（源集，对齐 [tests]）：合成最小插件清单
+//     （`PluginSynth.SynthSet`，落消费方 cache 目录）→ 与工程条目同一条代建路；
+//   · `x = { path = "../x" }`（插件工程）：定位该工程 manifest → 校验它确是插件工程 → **由 z42c 代建**
+//     → 取其 dist 的 `<name>.zpkg`。
 // 拿到 zpkg 后读头：名字须与条目一致，头里须有插件能力位（`PluginCaps`）——没有就是普通库，报错，不留到
 // 加载后才发现「一个 handler 都没有」。z42c 只收**编译器侧**（analyzer / generator 位）的插件；只带 hook 位的
 // 归 z42b，这里跳过。
@@ -17,7 +18,6 @@
 namespace Z42.Driver;
 
 using Std.IO;
-using Z42.Core;   // DiagnosticCodes（W0612 弃用提示）
 using Z42.Package;
 using Z42.Project;
 
@@ -48,14 +48,9 @@ bool _resolvePluginZpkgs(ProjectManifest pm, string projectDir, string consumerT
         DepEntry e = pm.Plugins[ai];
         ai = ai + 1;
         string got = "";
-        if (e.IncludeCount > 0) {
-            // 源集条目（plugins-include-form，对齐 [tests]）：合成最小清单后与工程条目同一条代建路。
-            got = _pluginFromProject(pm, e, projectDir, consumerToml, isRelease, noIncremental, cliAdd, cliRemove);
-        } else if (e.Path.Length == 0) {
-            got = _pluginFromLibs(e.Name, libsDirs, libsDirsN);
-        } else if (e.Path.EndsWith(".zpkg")) {
-            got = _pluginFromZpkgFile(e.Name, e.Path, projectDir);
-        } else {
+        if (e.IncludeCount > 0 || e.Path.Length > 0) {
+            // 源集条目与工程 path 条目同走代建路（免清单形态已在清单层拦下——
+            // ManifestKnobs._rejectPluginArtifactForms / 本文件 _pluginToml）。
             got = _pluginFromProject(pm, e, projectDir, consumerToml, isRelease, noIncremental, cliAdd, cliRemove);
         }
         if (got.Length == 0) { return false; }
@@ -105,34 +100,16 @@ string _pluginToml(ProjectManifest pm, DepEntry e, string projectDir, bool isRel
     }
     string adir = Path.Join(projectDir, e.Path);
     if (e.Path.EndsWith(".z42")) {
-        string asrc = Path.IsRooted(e.Path) ? e.Path : adir;
-        if (!File.Exists(asrc)) {
-            ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
-            return "";
-        }
-        ConsoleError.WriteLine("z42c build: " + DiagnosticCodes.PluginsSourcePathDeprecated + ": [plugins] `" + aname
-                + "` 的源码 path 形态已被源集条目取代——改写为 { include = [\"<相对本清单目录的源文件>\"] }"
-                + "（对齐 [tests]，可加 exclude），行为不变。");
-        string ftoml = PluginSynth.SynthFile(cacheDir, aname, asrc);
-        if (ftoml.Length == 0) {
-            ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + asrc
-                + "，落点在消费方 cache 目录）。");
-        }
-        return ftoml;
+        ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的源码 path 形态已删除——改写为"
+                + " { include = [\"<相对本清单目录的源文件>\"] }（对齐 [tests]，可加 exclude），行为不变。");
+        return "";
     }
     ManifestLocation aloc = ManifestLocator.FindIn(adir);
     if (aloc.Kind == ManifestLocateKind.Project) { return aloc.ManifestPath; }
     if (aloc.Kind == ManifestLocateKind.NotFound && Directory.Exists(adir)) {
-        ConsoleError.WriteLine("z42c build: " + DiagnosticCodes.PluginsSourcePathDeprecated + ": [plugins] `" + aname
-                + "` 的源码 path 形态已被源集条目取代——改写为 { include = [\"<目录>/**/*.z42\"] }"
-                + "（对齐 [tests]，可加 exclude），行为不变。");
-        string dtoml = PluginSynth.SynthDir(cacheDir, aname, adir);
-        if (dtoml.Length == 0) {
-            ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指向 " + adir
-                + "，那里既没有工程清单，也没有任何 .z42 源文件——目录条目要么是插件工程（带清单），"
-                + "要么至少放一个 .z42 源（免清单全收）。");
-        }
-        return dtoml;
+        ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的源码 path 形态已删除——改写为"
+                + " { include = [\"<目录>/**/*.z42\"] }（对齐 [tests]，可加 exclude），行为不变。");
+        return "";
     }
     ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指向 " + adir
         + "，那里没有单个工程清单"
@@ -183,21 +160,10 @@ string _pluginFromProject(ProjectManifest pm, DepEntry e, string projectDir, str
     return cand;
 }
 
-// path 条目（`.zpkg` 产物）：相对清单目录；不存在 → 诊断返回 ""。名字与能力位由 `_checkPluginZpkg` 校验。
-string _pluginFromZpkgFile(string aname, string apath, string projectDir) {
-    string cand = Path.IsRooted(apath) ? apath : Path.Join(projectDir, apath);
-    if (!File.Exists(cand)) {
-        ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指向 " + cand + "，文件不存在。");
-        return "";
-    }
-    return cand;
-}
-
-// 名字条目：**插件目录**里找 `<name>.zpkg`——刻意不查 libsDirs（那是运行期解析域：NSPC 前缀兜底、
+// 插件目录按名查找 `<name>.zpkg`——刻意不查 libsDirs（那是运行期解析域：NSPC 前缀兜底、
 // glob 追加、包枚举都把里面的东西当普通库，插件混进去会污染它们，unify-plugin-packages 的查找域分离）。
-// 查找序：`Z42_PLUGINS`（显式，形态同 Z42_LIBS 的单目录）→ 各 libsDir 的**同级** `plugins/`
-// （SDK 布局：libs 的同级即 <sdk>/plugins；开发树的 dist 目录通常没有这个同级，名字条目本就面向分发态）。
-// 失败打印诊断（含**找过哪些目录**）并返回 ""。
+// 消费方：携带链 `_carryOne`（[plugins.export] 的发布承诺）与 `[dependencies]` 按名分流的安静探测
+//（`_pluginDepZpkgs`）——`[plugins]` 的按名条目已删除，不再从这里解析。
 string[] _pluginSearchDirs(string[] libsDirs, int libsDirsN) {
     // 查找域规则唯一定义在 z42.project 的 `PluginDirs.Search()`（Z42_PLUGINS → Z42_HOME/plugins，
     // 刻意不含 libs 同级 plugins/——理由见上注与 PluginDirs 头注）；driver / z42b / pipeline 三处共用。
@@ -275,11 +241,8 @@ bool _pluginDepZpkgs(ProjectManifest pm, string projectDir, string[] libsDirs, i
     return true;
 }
 
-string _pluginFromLibs(string aname, string[] libsDirs, int libsDirsN) {
-    return _pluginLookup(aname, libsDirs, libsDirsN, false);
-}
-
 // 安静版查找（lenient 阶段用）：找不到返回 "" 不打印——尽力而为的语义不该刷屏。
+// （`[plugins]` 的按名条目已删除；本查找只剩携带链 `_carryOne` 与其安静探测在用。）
 string _pluginLookup(string aname, string[] libsDirs, int libsDirsN, bool quiet) {
     string azfile = aname + ".zpkg";
     string[] dirs = _pluginSearchDirs(libsDirs, libsDirsN);
@@ -299,8 +262,7 @@ string _pluginLookup(string aname, string[] libsDirs, int libsDirsN, bool quiet)
     if (!quiet) {
         ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 未在插件目录找到 " + azfile
             + "；已查找：" + searched
-            + "。插件目录与依赖目录（libs）刻意分开：普通库放 libs、插件放 plugins（或 Z42_PLUGINS）。"
-            + "也可改用 `{ path = \"...\" }`（指向插件工程目录让 z42c 代建，或直接指向 .zpkg / 单个 .z42 源文件）。");
+            + "。插件目录与依赖目录（libs）刻意分开：普通库放 libs、插件放 plugins（或 Z42_PLUGINS）。");
     }
     return "";
 }
@@ -416,7 +378,7 @@ bool _resolveCarriedPlugins(ProjectManifest pm, string[] libsDirs, int libsDirsN
     return true;
 }
 
-// 在依赖目录里按名找 zpkg（闭包 BFS 的定位器；不做插件目录查找——那是 _pluginFromLibs 的职责）。
+// 在依赖目录里按名找 zpkg（闭包 BFS 的定位器；不做插件目录查找——那是 `_pluginLookup` 的职责）。
 string _findDepZpkg(string name, string[] libsDirs, int libsDirsN) {
     string f = name + ".zpkg";
     int d = 0;

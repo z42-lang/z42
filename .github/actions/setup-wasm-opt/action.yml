@@ -1,0 +1,19 @@
+name: Build pinned wasm-opt
+description: Cache a static Binaryen 130 built from its pinned source commit
+runs:
+  using: composite
+  steps:
+    - name: Test wasm-opt installer
+      shell: bash
+      run: python3 .github/scripts/test-install-wasm-opt.py
+    - uses: actions/cache@v6
+      with:
+        path: ${{ runner.temp }}/z42-binaryen-130/bin
+        key: binaryen-130-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/scripts/install-wasm-opt.sh') }}
+    - name: Build or validate wasm-opt
+      shell: bash
+      env:
+        WASM_OPT_ROOT: ${{ runner.temp }}/z42-binaryen-130
+      run: |
+        bash .github/scripts/install-wasm-opt.sh
+        echo "${{ runner.temp }}/z42-binaryen-130/bin" >> "$GITHUB_PATH"
