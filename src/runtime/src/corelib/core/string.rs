@@ -90,15 +90,15 @@ pub mod typed {
     }
 
     fn ascii_match(bytes: &[u8], mask: u128) -> Option<usize> {
-        let mut index = 0;
-        while index < bytes.len() {
-            let byte = bytes[index];
-            if byte.is_ascii() {
-                if mask & (1u128 << byte) != 0 { return Some(index); }
-                index += 1;
-            } else {
-                index += non_ascii_prefix(&bytes[index..]);
-            }
+        let mut offset = 0;
+        let mut remaining = bytes;
+        while let Some(index) = remaining.iter().position(|&byte| {
+            !byte.is_ascii() || mask & (1u128 << byte) != 0
+        }) {
+            if remaining[index].is_ascii() { return Some(offset + index); }
+            let consumed = index + non_ascii_prefix(&remaining[index..]);
+            offset += consumed;
+            remaining = &remaining[consumed..];
         }
         None
     }

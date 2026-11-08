@@ -228,3 +228,22 @@ fn an_array_past_the_block_limit_is_refused() {
     let huge = (u32::MAX as usize) / 8 + 1;
     assert!(matches!(ArrayObj::alloc_typed_filled(&h, ElemType::intern("long"), huge, Value::I64(0)), Value::Null));
 }
+
+#[test]
+fn ref_array_bulk_clear_preserves_neighbors_across_batches_and_tails() {
+    let h = heap();
+    let _g = HeapGuard::enter(&h);
+    let value = obj(&h);
+    for start in 0..5 {
+        for length in 0..13 {
+            let len = start + length + 3;
+            let a = arr(&h, ArrayObj::alloc_filled(&h, ElemType::intern("object"), ElemKind::Ref, len, value));
+            assert!(a.borrow().try_clear_elems(start, length).unwrap());
+            for i in 0..len {
+                let expected = if (start..start + length).contains(&i) { Value::Null } else { value };
+                assert_eq!(a.borrow().get_boxed(i), expected);
+            }
+            assert!(a.borrow().try_clear_elems(len, 0).unwrap());
+        }
+    }
+}

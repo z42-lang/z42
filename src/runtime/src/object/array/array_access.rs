@@ -23,7 +23,17 @@ impl ArrayObj {
         match mode {
             ArrayMode::Ref => {
                 let cells = self.cells();
-                for i in range {
+                let end = range.end;
+                let mut i = range.start;
+                // Retain every atomic store and SATB deletion barrier while amortizing
+                // the range branch over four reference words.
+                while end - i >= 4 {
+                    for offset in 0..4 {
+                        ref_word::store_word_recorded(&cells, (i + offset) * REF_STRIDE, 0);
+                    }
+                    i += 4;
+                }
+                for i in i..end {
                     ref_word::store_word_recorded(&cells, i * REF_STRIDE, 0);
                 }
             }
