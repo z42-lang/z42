@@ -181,3 +181,5 @@ cdylib（与 compression 一致，靠开发者 `cargo build -p`）。
 > 相关：[Native 库的布局与解析](native-libraries.md)（库住哪 / 怎么找 / 发布期拍平）、
 > [加载上下文（LoadContext）](load-context.md)、[GC 调参与 safepoint 协议](gc-tuning.md)、
 > [REPL 输入完整性判定](../toolchain/repl.md)。
+
+REPL 候选路径由门面 `assembly/repl.rs` 提供，经冻结的 VM 扩展服务注入；核心库不直接读取进程配置。首次关键词设置或 readline 请求在全局 OnceLock 初始化闭包中调用路径提供函数，按原顺序探测并缓存成功或缺库结果。worker 共享所属 VM 的服务；所有 VM 仍复用全进程加载结果。Rust 关键词辅助函数显式接收当前 `VmContext`，z42 builtin 的用户参数保持不变。

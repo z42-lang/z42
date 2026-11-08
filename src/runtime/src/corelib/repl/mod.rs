@@ -32,6 +32,9 @@
 pub mod editing;
 pub mod native;
 
+#[cfg(feature = "native-interop")]
+pub(crate) mod paths;
+
 use crate::corelib::core::reflection::{type_members, make_type_from_name};
 use crate::vm::exec::engine;
 use crate::vm::exec::call::outcome::ExecOutcome;
