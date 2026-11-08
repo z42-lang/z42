@@ -168,13 +168,23 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
     }
 
     /// 清空所有键值对，保留容量。
-    // 已重置的表复用存储；_used 包括仍需清理索引的 tombstone。
+    // _used includes tombstones; new entries overwrite retained hashes before publication.
     public void Clear() {
         if (this._used == 0) {
             this._count = 0;
-        } else {
-            this._alloc(this._hashes.Length);
+            this._version = this._version + 1;
+            return;
         }
+        if (this._hashes.Length == 8) {
+            this._alloc(8);
+        } else {
+            int used = this._used;
+            this._index = new int[this._index.Length];
+            Array.Clear<TKey>(this._keys, 0, used);
+            Array.Clear<TValue>(this._values, 0, used);
+            this._used = 0;
+        }
+        this._count = 0;
         this._version = this._version + 1;
     }
 

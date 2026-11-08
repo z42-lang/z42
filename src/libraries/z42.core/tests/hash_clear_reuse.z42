@@ -1,0 +1,115 @@
+namespace Z42HashClearReuseTests;
+using Std.Collections;
+using Std.Harness;
+
+class Key : IEquatable {
+    public int Id;
+    public Key(int id) { this.Id = id; }
+    public bool Equals(Key other) { return this.Id == other.Id; }
+    override int GetHashCode() { return 7; }
+    override bool Equals(object other) {
+        if (other is Key key) { return this.Id == key.Id; }
+        return false;
+    }
+}
+struct RefValue {
+    public Key Value;
+    public RefValue(Key value) { this.Value = value; }
+}
+
+[Test]
+void test_grown_tables_clear_and_reinsert_in_order() {
+    var d = new Dictionary<int, int>();
+    var s = new HashSet<int>();
+    for (int wave = 0; wave < 3; wave++) {
+        for (int i = 0; i < 256; i++) { d[i] = i + wave; Assert.True(s.Add(i)); }
+        for (int i = 0; i < 256; i = i + 2) { Assert.True(d.Remove(i)); Assert.True(s.Remove(i)); }
+        d.Clear(); s.Clear(); d.Clear(); s.Clear();
+        Assert.Equal(0, d.Count); Assert.Equal(0, s.Count);
+        Assert.Equal(0, d.Keys().Length); Assert.Equal(0, s.ToArray().Length);
+        for (int i = 0; i < 256; i++) { Assert.False(d.ContainsKey(i)); Assert.False(s.Contains(i)); }
+        d[9] = 10; d[3] = 4; s.Add(9); s.Add(3);
+        Assert.Equal(9, d.Keys()[0]); Assert.Equal(3, d.Keys()[1]);
+        Assert.Equal(9, s.ToArray()[0]); Assert.Equal(3, s.ToArray()[1]);
+        Assert.Equal(10, d[9]);
+        d.Clear(); s.Clear();
+    }
+}
+
+[Test]
+void test_all_removed_slots_clear_and_reinsert() {
+    var d = new Dictionary<Key, int>(); var s = new HashSet<Key>();
+    for (int i = 0; i < 32; i++) { d[new Key(i)] = i; s.Add(new Key(i)); }
+    for (int i = 0; i < 32; i++) { Assert.True(d.Remove(new Key(i))); Assert.True(s.Remove(new Key(i))); }
+    Assert.Equal(0, d.Count); Assert.Equal(0, s.Count);
+    d.Clear(); s.Clear();
+    for (int i = 31; i >= 0; i--) { d[new Key(i)] = i; Assert.True(s.Add(new Key(i))); }
+    Assert.Equal(32, d.Count); Assert.Equal(32, s.Count);
+    Assert.Equal(31, d.Keys()[0].Id); Assert.Equal(31, s.ToArray()[0].Id);
+    Assert.Equal(17, d[new Key(17)]);
+}
+
+[Test]
+void test_clear_invalidates_dictionary_enumerator_even_when_empty() {
+    var d = new Dictionary<int, int>(); d[1] = 2;
+    var e = d.GetEnumerator(); Assert.True(e.MoveNext()); d.Clear();
+    bool caught = false;
+    try { e.MoveNext(); } catch (InvalidOperationException ex) { caught = true; }
+    Assert.True(caught);
+    var empty = d.GetEnumerator(); Assert.False(empty.MoveNext()); d.Clear(); caught = false;
+    try { empty.MoveNext(); } catch (InvalidOperationException ex) { caught = true; }
+    Assert.True(caught);
+}
+
+WeakHandle add_dict_target(Dictionary<Key, Key> d) {
+    for (int i = 100; i < 132; i++) { d[new Key(i)] = new Key(i); }
+    var key = new Key(1); d[key] = key; return WeakHandle.MakeWeak(key);
+}
+WeakHandle add_set_target(HashSet<Key> s) {
+    for (int i = 100; i < 132; i++) { s.Add(new Key(i)); }
+    var key = new Key(2); s.Add(key); return WeakHandle.MakeWeak(key);
+}
+WeakHandle add_struct_target(Dictionary<int, RefValue> d) {
+    for (int i = 100; i < 132; i++) { d[i] = new RefValue(new Key(i)); }
+    var key = new Key(3); d[1] = new RefValue(key); return WeakHandle.MakeWeak(key);
+}
+
+[Test]
+void test_clear_releases_reference_keys_values_and_elements() {
+    var d = new Dictionary<Key, Key>(); var s = new HashSet<Key>();
+    var dw = add_dict_target(d); var sw = add_set_target(s);
+    Assert.True(dw != null); Assert.True(sw != null);
+    d.Clear(); s.Clear(); GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(dw) == null); Assert.True(WeakHandle.Upgrade(sw) == null);
+    d[new Key(5)] = new Key(6); Assert.Equal(6, d[new Key(5)].Id);
+    Assert.True(s.Add(new Key(5)));
+}
+
+[Test]
+void test_clear_releases_struct_reference_leaf() {
+    var d = new Dictionary<int, RefValue>(); var weak = add_struct_target(d);
+    d.Clear(); GC.ForceCollect(); Assert.True(WeakHandle.Upgrade(weak) == null);
+    d[2] = new RefValue(new Key(9)); Assert.Equal(9, d[2].Value.Id);
+}
+
+struct RefKey : IEquatable {
+    public Key Value;
+    public RefKey(Key value) { this.Value = value; }
+    public bool Equals(RefKey other) { return this.Value.Id == other.Value.Id; }
+    override int GetHashCode() { return 7; }
+    override bool Equals(object other) {
+        if (other is RefKey key) { return this.Value.Id == key.Value.Id; }
+        return false;
+    }
+}
+WeakHandle add_struct_set_target(HashSet<RefKey> s) {
+    for (int i = 100; i < 132; i++) { s.Add(new RefKey(new Key(i))); }
+    var key = new Key(4); s.Add(new RefKey(key)); return WeakHandle.MakeWeak(key);
+}
+[Test]
+void test_set_clear_releases_struct_reference_leaf() {
+    var s = new HashSet<RefKey>(); var weak = add_struct_set_target(s);
+    s.Clear(); GC.ForceCollect(); Assert.True(WeakHandle.Upgrade(weak) == null);
+    Assert.True(s.Add(new RefKey(new Key(9))));
+    Assert.True(s.Contains(new RefKey(new Key(9))));
+}
