@@ -161,3 +161,42 @@ void test_each_other_owner_must_accept_planned_bytes() {
         Assert.False(File.Exists(Path.Join(dir, "dep.zpkg")));
     } finally { Directory.Delete(dir, true); }
 }
+
+[Test]
+void test_validate_checks_sources_without_creating_output() {
+    string dir = File.CreateTempDir("deployment-preflight");
+    try {
+        string source = Path.Join(dir, "source");
+        string output = Path.Join(dir, "absent");
+        File.WriteAllText(source, "first");
+        DeploymentCopies plan = _plan(output, "a");
+        plan.Validate();
+        plan.Add("dep.zpkg", source, Utf8.GetBytes("first"));
+        plan.Validate();
+        Assert.False(Directory.Exists(output));
+        File.WriteAllText(source, "changed");
+        bool failed = false;
+        try { plan.Validate(); } catch (Exception e) { failed = e.Message.Contains("changed while deploying"); }
+        Assert.True(failed);
+        Assert.False(Directory.Exists(output));
+    } finally { Directory.Delete(dir, true); }
+}
+
+[Test]
+void test_validate_owner_conflict_preserves_existing_payload() {
+    string dir = File.CreateTempDir("deployment-preflight-owner");
+    try {
+        string source = Path.Join(dir, "source");
+        File.WriteAllText(source, "first");
+        DeploymentCopies a = _plan(dir, "a");
+        a.Add("dep.zpkg", source, Utf8.GetBytes("first"));
+        a.Apply();
+        File.WriteAllText(source, "second");
+        DeploymentCopies b = _plan(dir, "b");
+        b.Add("dep.zpkg", source, Utf8.GetBytes("second"));
+        bool failed = false;
+        try { b.Validate(); } catch (Exception e) { failed = e.Message.Contains("conflicting deployment payload"); }
+        Assert.True(failed);
+        Assert.Equal("first", File.ReadAllText(Path.Join(dir, "dep.zpkg")));
+    } finally { Directory.Delete(dir, true); }
+}

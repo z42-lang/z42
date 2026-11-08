@@ -113,7 +113,7 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
 - **传递复制**：`_pubBundleProjectNativeDeps` 走消费方 dep 闭包（**按 dep 声明的 `{ path }` 解析**，
   version-string / 仓内 dep 才按名搜 `srcRoot`——故**仓外 path-dep 消费者**同样生效，无需在仓源码树内）
   → 对声明 `[native]` 的 dep：有 hooks 跑其 `ProvideNative`、无 hooks 从 `dir` 复制预编译文件 → 取**目标
-  rid** 那份、平铺（去 rid 子目录）进消费方 dist → `_pubCopyDistDeps` 带进 payload（如 `programs/z42i/`）。
+  rid** 那份、平铺（去 rid 子目录）进消费方 dist → `_pubPlanDistDeps → 预检 → Apply` 带进 payload（如 `programs/z42i/`）。
   运行期 `resolve_native_beside` 按名解析，不变。
 - **消费者**：`z42.repl.z42.toml` 声明 `[build] hooks` + `[native.z42_repl]`，hook 编 `crates/z42-repl`——**hook 路径**的实例。**预编译路径**由合成夹具
   （发行包夹具 `src/toolchain/launcher/tests/fixtures/package/publish-prebuilt-native/`）覆盖，暂无仓内真实预编译消费者。

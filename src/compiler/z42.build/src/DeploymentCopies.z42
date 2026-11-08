@@ -99,6 +99,18 @@ public sealed class DeploymentCopies {
         return owners;
     }
 
+    /// Read-only preflight of source identity and other projects' ownership.
+    /// Apply rechecks at write time; this check does not lock the filesystem.
+    public void Validate() {
+        if (Directory.Exists(this._dist)) { this._otherOwners(); }
+        foreach (var rel in this._planned.Keys()) {
+            DeploymentCopy copy = this._planned[rel];
+            if (this._fileHash(copy.Source) != copy.Hash) {
+                throw new Exception("dependency changed while deploying: " + copy.Source);
+            }
+        }
+    }
+
     public void Apply() {
         string path = Path.Join(this._dist, this._receipt);
         string oldBody = this._readText(path);

@@ -6,10 +6,10 @@ using Z42.Package;
 
 // The renamed main, its FILE payload and same-stem runtime configuration form
 // one deployment. Keeping a receipt also retires a removed runtime sidecar.
-void _pubStageApp(string zpkgSrc, string dstZpkg) {
+DeploymentCopies _pubPlanApp(string zpkgSrc, string dstZpkg) {
     string sourceDir = Path.GetDirectoryName(zpkgSrc);
     string targetDir = Path.GetDirectoryName(dstZpkg);
-    if (Path.Normalize(zpkgSrc) == Path.Normalize(dstZpkg)) { return; }
+    if (Path.Normalize(zpkgSrc) == Path.Normalize(dstZpkg)) { return null; }
     DeploymentCopies copies = new DeploymentCopies(targetDir, Path.GetFileName(zpkgSrc), ".z42-publish-app-");
     byte[] bytes = File.ReadAllBytes(zpkgSrc);
     ZpkgInfo info = ZpkgReader.Open(bytes, zpkgSrc);
@@ -25,7 +25,7 @@ void _pubStageApp(string zpkgSrc, string dstZpkg) {
     if (File.Exists(sidecar)) {
         copies.Add(Path.GetFileName(_pubSidecarOf(dstZpkg)), sidecar, File.ReadAllBytes(sidecar));
     }
-    copies.Apply();
+    return copies;
 }
 
 // The apphost and launcher discover runtime configuration by the payload stem.
@@ -33,4 +33,15 @@ string _pubSidecarOf(string zpkg) {
     string dir = Path.GetDirectoryName(zpkg);
     string name = Path.GetFileNameWithoutExtension(zpkg) + ".runtimeconfig.toml";
     return dir.Length > 0 ? Path.Join(dir, name) : name;
+}
+
+void _pubValidatePayload(DeploymentCopies app, DeploymentCopies deps) {
+    if (app != null) { app.Validate(); }
+    if (deps != null) { deps.Validate(); }
+}
+
+void _pubApplyPayload(DeploymentCopies app, DeploymentCopies deps) {
+    _pubValidatePayload(app, deps);
+    if (app != null) { app.Apply(); }
+    if (deps != null) { deps.Apply(); }
 }
