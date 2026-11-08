@@ -49,3 +49,5 @@
 ## 核心文件
 
 `mod.rs` 汇总 call、stack 与 ops；`ops/scalar.rs` 与同目录的 `scalar_tests.rs` 保存实现和原有边界测试。
+
+栈分配开关由门面构造时提供的每 VM 策略决定。Rust 辅助函数 `call::stack_alloc::stack_alloc_enabled` 与 `stats_enabled` 显式接收 `&VmContext`；worker 复用 Core 的策略，执行层不解析配置字符串。

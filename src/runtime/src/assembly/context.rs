@@ -108,7 +108,7 @@ impl VmContext {
                 },
             },
             exec: crate::vm::exec::ExecState::new(
-                crate::assembly::engine::registry(), crate::assembly::builtin::BUILTINS, object_protocol,
+                crate::assembly::engine::registry(), crate::assembly::builtin::BUILTINS, object_protocol, config.stack_alloc,
             ),
             ext_state,
         });

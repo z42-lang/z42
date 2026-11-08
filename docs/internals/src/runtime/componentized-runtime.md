@@ -205,3 +205,5 @@ Rust 入口由 `vm::{Vm, VmContext, VmCore}` 提供。上下文与共享 Core �
 门面的具体装配实现在 `src/runtime/src/assembly/`，应用执行与参数服务在 `src/runtime/src/app/`。`app::run` 与 `app::RunOpts` 的公开路径保持稳定，`assembly` 仅在 crate 内可见；共享启动步骤由应用入口和宿主调用，worker 生命周期仍归 VM 上下文。
 
 CPU 采样通过 `vm/diagnostics/sampling.rs` 的 crate 私有接口装配：VM 只持有采样能力，具体 `profiler/cpu::Sampler` 由门面按既有配置构造。关闭快路使用不可变布尔 gate，启用后才派发到 backend；采样仍发生在原 safepoint，输出与 backend Drop 生命周期保持在原诊断状态边界。
+
+解释器栈分配策略由门面从已解析的 `RuntimeConfig` 转为 `StackAllocPolicy`，主构造存入 `VmCore.exec`，worker 共享同一策略。执行层的 `stack_alloc_enabled(ctx)` 与 `stats_enabled(ctx)` 只查询当前 VM 的不可变输入，不读取进程配置；on/off/stats 的语言行为保持一致，生产配置仍沿用门面原有单例读取时机。

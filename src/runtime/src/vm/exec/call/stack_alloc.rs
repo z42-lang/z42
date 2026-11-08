@@ -30,7 +30,6 @@
 
 use crate::object::{OwnedObject, ScriptObject, Value};
 use anyhow::Result;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 /// One stack-allocated object; `frame_id` = creating frame's id (staleness guard). The object
 /// lives in a detached block shaped exactly like a heap object's (`OwnedObject`, object model
@@ -201,43 +200,20 @@ fn stack_stale_err(kind: &str, idx: u32, frame_id: u32) -> anyhow::Error {
 
 // ── Runtime toggle / diagnostics ────────────────────────────────────────────────
 
-const MODE_UNSET: u32 = 0;
-const MODE_ON: u32 = 1;
-const MODE_OFF: u32 = 2;
-const MODE_STATS: u32 = 3;
-static MODE: AtomicU32 = AtomicU32::new(MODE_UNSET);
+/// Resolved by the facade; execution never interprets process configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StackAllocPolicy { On, Off, Stats }
 
-fn mode() -> u32 {
-    let m = MODE.load(Ordering::Relaxed);
-    if m != MODE_UNSET {
-        return m;
-    }
-    // adopt-inline-env-knobs : source is the layered config now, not a
-    // bare env read. The AtomicU32 cache stays — it saves the 5-way match on this
-    // interpreter allocation hot path, which is a separate cost from reading the knob.
-    // The `_ => MODE_ON` arm below is now purely "the default"; a misspelled value is
-    // rejected one layer up (ValueKind::Enum) with a diagnostic instead of silently
-    // landing here and leaving the optimisation on.
-    let resolved = match crate::config::runtime_config().stackalloc.as_deref() {
-        Some("off") | Some("0") | Some("heap") => MODE_OFF,
-        Some("stats") => MODE_STATS,
-        _ => MODE_ON,
-    };
-    MODE.store(resolved, Ordering::Relaxed);
-    resolved
+/// Whether this VM permits interpreter stack-allocation hints.
+#[inline]
+pub fn stack_alloc_enabled(ctx: &crate::vm::context::VmContext) -> bool {
+    ctx.core.exec.stack_alloc != StackAllocPolicy::Off
 }
 
-/// Runtime gate: when `Z42_STACKALLOC=off`, the interp ignores every `stack_alloc`
-/// flag and heap-allocates (triage bypass, no recompile). On by default.
+/// Whether this VM requests the existing stack-allocation statistics.
 #[inline]
-pub fn stack_alloc_enabled() -> bool {
-    mode() != MODE_OFF
-}
-
-/// `Z42_STACKALLOC=stats` — print per-run stack-allocation counts.
-#[inline]
-pub fn stats_enabled() -> bool {
-    mode() == MODE_STATS
+pub fn stats_enabled(ctx: &crate::vm::context::VmContext) -> bool {
+    ctx.core.exec.stack_alloc == StackAllocPolicy::Stats
 }
 
 #[cfg(test)]
