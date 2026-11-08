@@ -10,7 +10,7 @@ z42 有**两类** native 库，走**两条**互不干扰的布局/解析路径�
 |---|---|---|
 | 归属 | 运行时横切库，随 **SDK** 分发，不属某个 app zpkg | 跟随**某个组件 / app** 的私有依赖 |
 | 布局 | `<sdk>/native/`（集中） | **平铺在消费方 zpkg 旁** `<zpkg-dir>/lib<name>.<suffix>` |
-| 发现 | `ext::native_search_paths()` **急切扫描**目录 | `ext::resolve_native_beside(zpkg_dir, name)` **按名定向 stat** |
+| 发现 | `ext::native_search_paths()` **急切扫描**目录 | `pal::dynlib::resolve_native_beside(zpkg_dir, name)` **按名定向 stat** |
 | 盲扫? | 是——扫目录里所有 `libz42_*` 并 `dlopen` | **否**——只 stat 被声明需要的那一个 |
 | 本页章节 | §1 | §2/§3 |
 
@@ -42,7 +42,7 @@ compression 等是**运行时横切库**（跨平台、随 SDK 走、不属任�
 
 - **运行期布局唯一 = 平铺**：`<消费方 zpkg 目录>/lib<name>.<平台后缀>`，与该组件的 zpkg 同目录。
   无 rid 子目录、无嵌套——运行期永远只看「zpkg 旁那一个文件」。
-- **发现 = 按名定向 stat**：`ext::resolve_native_beside(zpkg_dir, lib_name)` 用 `DLL_PREFIX`/
+- **发现 = 按名定向 stat**：`pal::dynlib::resolve_native_beside(zpkg_dir, lib_name)` 用 `DLL_PREFIX`/
   `DLL_SUFFIX` 反向拼出 `lib<name>.<suffix>`，**只 stat 这一条路径**（存在→返回全路径，否则 `None`）。
   **不遍历目录、不 `dlopen` 任何未被点名的文件**——从根消除了 §1 那种「盲扫到未知库 → WARN /
   跨污染」。

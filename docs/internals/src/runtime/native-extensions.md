@@ -133,7 +133,7 @@ extern "C" fn complete_trampoline(ctx: *mut c_void, line: *const c_char, pos) ->
 1. `Z42_REPL_NATIVE`（env 覆盖，接受库文件全路径或含库的目录）；
 2. `current_exe().parent()/libz42_repl.{so,dylib}`（**dev** cargo target 目录，
    `cargo build -p z42-repl` 落在 z42vm 旁）；
-3. 从运行 `<sdk>/bin/<app>` 派生 `<sdk>/programs/z42i/`，经共享的 `ext::resolve_native_beside`
+3. 从运行 `<sdk>/bin/<app>` 派生 `<sdk>/programs/z42i/`，经共享的 `pal::dynlib::resolve_native_beside`
    解析（**SDK** 布局：repl 库是「组件私有 native」，平铺在 interactive payload 旁，**不在** `bin/`
    ——见 [Native 库的布局与解析](native-libraries.md)）。
 
