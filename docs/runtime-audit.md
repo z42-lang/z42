@@ -160,7 +160,6 @@ vm/
 - **监控 API（vm/diagnostics/monitor）**：工具槽 DEBUGGER / PROFILER / COVERAGE；事件含函数进出、行 / pc 单步、分支、异常抛出与捕获、分配采样、safepoint 采样、线程起止、模块加载与卸载、JIT 编译、GC 阶段；按函数开关，未开启的函数零成本，开启后解释器走插桩分派、JIT 函数回退解释器（deopt）。对标 CPython PEP 669、CoreCLR ICorDebug / ICorProfiler、JVMTI。
 - **门面（crate 根）**：`lib.rs`（Runtime、RuntimeBuilder）、`config/`（现 `config.rs` + `config/*`，`split.rs` 将门面设置转换为各子系统拥有的 `GcConfig` / `VmConfig` / `JitConfig`）、`app/mod.rs`（现 app / boot / startup / vm）、`crash.rs`（现 `signal_handler.rs`，可选安装）。feature：jit、interop、debugger、profiler、net、tls、process、repl、mimalloc；平台预设是 feature 组合。
 - **hot-reload** 不设模块：loader 重载新版本包、runtime 做函数与类型的版本映射、exec/engine 负责 deopt 与替换，与调试器共用 deopt 和全体暂停。
-- 删除：`aot.rs`、`thread/`（空桩）。
 
 ### 4.5 易混边界
 
@@ -200,12 +199,14 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 ### 6.1 目录与模块化迁移（User 2026-10-29 定案，目标结构见 §4）
 
-在单 crate 内把目录重排成 §4 的形状并审查依赖方向，暂不物理拆 crate。每步一个 PR、行为不变（GREEN 双模式 + `./xtask test runtime`）。
+本节仅保留尚未完成的依赖边界与后续能力。当前目录入口与实际职责见 [runtime README](../src/runtime/README.md) 和[组件化运行时](internals/src/runtime/componentized-runtime.md)；§4 是分层目标，不代表当前实现已全部满足。VM 保持单 crate，每次依赖调整须保持行为不变并通过 GREEN 双模式与独立 runtime 测试。
 
 | ID | 类型 | 内容 | 验证要点 | 状态 |
 |---|---|---|---|---|
 | L-8 | — | 物理拆 crate：暂不做，VM 保持单 crate、各层是 `src/runtime/src/<模块>/`（User 2026-10-29）；以后是否拆另议 | — | ⏸ |
 | L-9 | feature | 监控 API（vm/diagnostics/monitor）→ debugger（0.8.x，前置：.zsym 局部变量信息）→ profiler 的分配采样与覆盖率；AOT（M9）时拆出 codegen | 各自立项，动工前出方案 | ⬜ |
+| L-10 | refactor | VM 配置输入收敛：`vm/threads/safepoint.rs::throttle_n` 仍直接读取门面全局配置。由门面提供已解析节流策略，移除线程协调层对配置解析层的依赖 | 保持读取/缓存时机、worker 共享及 interp/JIT 节流语义；更新无上下文辅助接口的消费者 | ⬜ |
+| L-11 | refactor | 审查 runtime 查询与执行边界：`vm/runtime/resolve/mod.rs::resolve_module` / `resolve_function_tokens` 仍接收 `VmContext`；沿其静态字段、类型查找调用链区分纯查询、加载和初始化执行，把有副作用的慢路径交给 loader/exec | 逐调用点核对「四不」；不能以改目录或机械移除上下文参数代替行为验证；覆盖惰性加载、静态初始化、失败与线程等待 | ⬜ |
 
 现有的 VM 状态组合、组件注册与门面装配见[组件化运行时](internals/src/runtime/componentized-runtime.md)，
 宿主与应用共用的启动步骤见[嵌入宿主](internals/src/runtime/embedding.md)。
@@ -260,6 +261,9 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 不做：二进制体积与 dyld（比 C `return 0` 只多 0.9 ms）、toml / tracing 初始化（≈0.1 ms）。
 
 ### 6.5 遗留待办（来自阶段 0 / 1 的分析，未进上面各表）
+
+**未归因的性能证据**：#1708 与 #1715 的 `z42.core.CopyInts [interp@linux/x64]` A/B 曾判红；#1715 最终三轮比值 1.4935、R_lower 1.2269（[原始 run](https://github.com/z42-lang/z42/actions/runs/42450010366)，artifact `13607010260`）。macOS arm64 定向复测未复现同幅度差距，不能据此判定噪声；后续 PR 的相对 A/B 通过也不代表历史差异已消失。需 Linux 定向对照与拷贝路径/布局证据后归因，不调整阈值掩盖失败。
+
 
 | 领域 | 内容 |
 |---|---|
