@@ -24,7 +24,7 @@ description = "z42 virtual machine — interpreter, JIT, and AOT backends"
 
 [[bin]]
 name = "z42vm"
-path = "src/cli/main.rs"
+path = "src/main.rs"
 
 [lib]
 name = "z42"

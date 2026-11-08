@@ -12,8 +12,8 @@
 ### 顶层（`src/`）
 | 文件 | 职责 |
 |------|------|
-| `cli/main.rs` | `z42vm` CLI 入口，加载产物并交给 `Vm` 执行 |
-| `cli/startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
+| `main.rs` | `z42vm` CLI 入口，解析参数并调用 `host::run_app` |
+| `startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
 | `assembly/builtin.rs` | 门面按既定 provider 顺序装配 builtin 描述符及纯名称/ID 目录 |
 | `assembly/object_protocol.rs` | 门面将核心库 GetType 和默认 ToString 绑定到执行层私有协议；保留调用方的物化与错误边界 |
 | `assembly/loader.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
