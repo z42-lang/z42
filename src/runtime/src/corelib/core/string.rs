@@ -90,7 +90,24 @@ pub mod typed {
     }
 
     fn ascii_match(bytes: &[u8], mask: u128) -> Option<usize> {
-        bytes.iter().position(|&byte| byte.is_ascii() && mask & (1u128 << byte) != 0)
+        // An ASCII candidate cannot occur in a word whose bytes all have their
+        // high bit set. This is independent of UTF-8 scalar boundaries and endian.
+        const HIGH_BITS: u64 = 0x8080_8080_8080_8080;
+        let mut chunks = bytes.chunks_exact(8);
+        let mut offset = 0;
+        for chunk in chunks.by_ref() {
+            let mut word = [0; 8];
+            word.copy_from_slice(chunk);
+            if u64::from_ne_bytes(word) & HIGH_BITS != HIGH_BITS {
+                if let Some(i) = chunk.iter().position(|&byte| byte.is_ascii() && mask & (1u128 << byte) != 0) {
+                    return Some(offset + i);
+                }
+            }
+            offset += 8;
+        }
+        chunks.remainder().iter()
+            .position(|&byte| byte.is_ascii() && mask & (1u128 << byte) != 0)
+            .map(|i| offset + i)
     }
 
     /// Start and result are Unicode scalar indices, even when the scan uses UTF-8 bytes.

@@ -17,6 +17,24 @@ fn ascii_search_from_uses_scalar_offsets() {
     assert!(typed::index_of_any_ascii_from(&"é".into(), "é", 1).is_err());
 }
 
+#[test]
+fn ascii_search_checks_every_word_boundary_and_returns_scalar_positions() {
+    let candidates = "\0\n\"\\\x7f";
+    for length in 0..80 {
+        let prefix: String = "aé中😀".chars().cycle().take(length).collect();
+        assert_eq!(typed::index_of_any_ascii(&prefix, candidates).unwrap(), -1);
+        for candidate in candidates.chars() {
+            let text = format!("{prefix}{candidate}中suffix");
+            assert_eq!(typed::index_of_any_ascii(&text, candidates).unwrap(), length as i64, "{text:?}");
+        }
+        let ascii = format!("{}\"\n", "a".repeat(length));
+        assert_eq!(typed::index_of_any_ascii(&ascii, candidates).unwrap(), length as i64);
+    }
+    assert_eq!(typed::index_of_any_ascii(&"中".repeat(16384), candidates).unwrap(), -1);
+    assert_eq!(typed::index_of_any_ascii("中\"", "").unwrap(), -1);
+    assert!(typed::index_of_any_ascii("中", "é").is_err());
+}
+
 // __str_to_chars: bulk materialise the whole char[] in one native call — the
 // array-view primitive backing script-side string ops (String.ToCharArray →
 // IndexOf/…). Must yield Unicode scalars (chars), not bytes.
