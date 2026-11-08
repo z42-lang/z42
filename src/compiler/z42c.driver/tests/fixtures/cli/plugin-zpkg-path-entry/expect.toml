@@ -1,37 +1,12 @@
-desc = "[plugins] 的 .zpkg path 条目：直接引用现成产物；只换产物内容（源没动）消费方必须重编出新值（handler 指纹覆盖 zpkg 字节）（见 README）"
+desc = "[plugins] 的 .zpkg path 条目已删除（deps-plugin-routing 收官）：构建硬错并指路 [dependencies]（同一产物自动分流；指纹覆盖 zpkg 字节的语义活在 deps 侧——见 deps-plugin-zpkg）（见 README）"
 
-# ① 先编出插件产物
+# ① 先编出插件产物（条目虽已删除，产物仍构建得出——错误只出在消费方清单层）
 [[step]]
 args = ["build", "plug/e2e.pgen.z42.toml", "--release"]
 exit = 0
 
-# ② 消费方经 .zpkg path 引用 ⇒ generator 产的符号可用
+# ② 消费方 [plugins] 里写 .zpkg path ⇒ 清单层硬错
 [[step]]
 args = ["build", "app/e2e.papp.z42.toml", "--release"]
-exit = 0
-
-[[step]]
-tool = "run"
-target = "app/dist/e2e.papp.zpkg"
-exit = 0
-stdout_equals = "42"
-
-# ③ 只改 generator 源（42 → 7）重编插件产物；消费方源码不动、引用路径不动 ⇒ 仍必须重编出新值
-[[step]]
-tool = "copy"
-from = "variants/gen.7.z42"
-to = "plug/gen.z42"
-
-[[step]]
-args = ["build", "plug/e2e.pgen.z42.toml", "--release"]
-exit = 0
-
-[[step]]
-args = ["build", "app/e2e.papp.z42.toml", "--release"]
-exit = 0
-
-[[step]]
-tool = "run"
-target = "app/dist/e2e.papp.zpkg"
-exit = 0
-stdout_equals = "7"
+exit = "nonzero"
+stderr_contains = [".zpkg path 条目已删除", "[dependencies]"]

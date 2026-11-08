@@ -1,4 +1,5 @@
-desc = "hook 源集经编译、加载并执行"
+desc = "hook 源码 path 形态（单文件）已删除：构建失败并指路源集条目"
 args = ["build", "{case}/z42.toml"]
-exit = 0
-output_contains = ["HOOK-SINGLE-FILE-SMOKE: BeforeCompile"]
+exit = "nonzero"
+output_contains = ["源码 path 形态已删除"]
+output_not_contains = ["HOOK-SINGLE-FILE-SMOKE"]

@@ -75,10 +75,10 @@ public static class ManifestKnobs {
         // 1c 携带：[plugins.export] 只对 lib 有意义。plugin 工程写它 = 携带套携带（插件不在依赖图里，
         // 链会无限延伸）；exe 写它 = 无人依赖 exe，携带永不生效——都按清单错误报。
         _rejectPluginInternal(pm, label, r);
-        // deps-plugin-routing 收尾：[plugins] 的按名 / .zpkg path 条目已被 [dependencies] 取代
-        //（zpkg 头自述类型自动分流）。观察期 warning（W0611）——照常构建，提示改写；形态随后删除。
+        // deps-plugin-routing 收官：[plugins] 的按名 / .zpkg path 条目已删除（制品引用统一走
+        // [dependencies]，zpkg 头自述类型自动分流）。观察期 W0611 收尾，改硬错。
         // [plugins.export]（携带）与关闭值（`"x" = false`，不进 Plugins 条目）不受影响。
-        _warnPluginArtifactForms(pm, label, r);
+        _rejectPluginArtifactForms(pm, label, r);
         if (pm.PluginExportCount > 0 && kind != "lib") {
             r.AddError(label + ": [plugins.export] 只能写在 kind = \"lib\" 的工程里（当前 kind = \"" + kind
                 + "\"——插件工程不参与依赖图，携带链必须终止在 lib）");
@@ -139,22 +139,23 @@ public static class ManifestKnobs {
     // plugin-internal-access：internal 授权只在 [plugins.export] 条目上合法。[plugins] 条目的插件跑在
     // 宿主自己的编译里、必须先于宿主构建——它引用宿主 internal 类型构成环（宿主还没编出来）。
     // public：driver 在插件解析之前先查（清单错误先于一切解析报）。
-    // [plugins] 超期制品形态（W0611）：按名（Path=="" 且无 include——值是版本串）与 `.zpkg` path。
+    // [plugins] 已删除的制品形态（原观察期 W0611）：按名（Path=="" 且无 include——值是版本串）与
+    // `.zpkg` path。观察期收尾按 [analyzers] 先例改硬错——写了直接拦在清单层。
     // 纯 manifest 扫描（无 IO）⇒ 两宿主（driver / z42b in-proc）单源同报。
-    static void _warnPluginArtifactForms(ProjectManifest pm, string label, KnobResult r) {
+    public static void _rejectPluginArtifactForms(ProjectManifest pm, string label, KnobResult r) {
     int i = 0;
     while (i < pm.PluginCount) {
         DepEntry e = pm.Plugins[i];
         i = i + 1;
         if (e.IncludeCount > 0) { continue; }
         if (e.Path.Length == 0) {
-            r.AddWarn(label + ": " + DiagnosticCodes.PluginsArtifactFormDeprecated + ": [plugins] `" + e.Name
-                + "` 的按名条目已被 [dependencies] 取代（deps-plugin-routing：zpkg 头自述类型自动分流、"
-                + "不链入产物）——把这行挪到 [dependencies] 即可，插件目录解析不变。");
+            r.AddError(label + ": [plugins] `" + e.Name
+                + "` 的按名条目已删除（deps-plugin-routing 收官：制品引用统一走 [dependencies]，"
+                + "按 zpkg 头自述类型自动分流、不链入产物）——把这行挪到 [dependencies] 即可，"
+                + "插件目录解析不变。");
         } else if (e.Path.EndsWith(".zpkg")) {
-            r.AddWarn(label + ": " + DiagnosticCodes.PluginsArtifactFormDeprecated + ": [plugins] `" + e.Name
-                + "` 的 .zpkg path 条目已被 [dependencies] 取代（deps-plugin-routing）——把这条挪到 "
-                + "[dependencies]，同一产物自动分流。");
+            r.AddError(label + ": [plugins] `" + e.Name
+                + "` 的 .zpkg path 条目已删除——把这条挪到 [dependencies]，同一产物自动分流。");
         }
     }
 }

@@ -1,6 +1,5 @@
-# 免清单目录条目（hooks/ 无工程清单）：z42b 合成最小插件清单（include = <目录>/**/*.z42 全收）→
-# ICompiler 代建 → 反射出包内**全部** BuildHooks 具体类（两个类分住两个文件——目录漏收即缺一条标记）。
-# expect.toml 断言两条标记都在。
+# deps-plugin-routing 收官：`[plugins]` 的源码 path 形态（指单个 .z42 / 无清单目录）已删除。
+# 本夹具钉删除后的行为：z42b 侧 hook 解析直接硬错并指路源集条目（include 目录 glob，对齐 [tests]）。
 [project]
 name    = "hd.app"
 version = "0.1.0"

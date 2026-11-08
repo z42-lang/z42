@@ -1,6 +1,6 @@
-# unify-plugin-packages 后续：`[plugins]` 单文件条目——path 直接指向 hook 源文件（无插件工程清单），
-# z42b 合成最小插件清单（PluginSynth.Synth，落 interDir）并经 ICompiler 代建 → 反射出 BuildHooks 执行。
-# expect.toml 断言标记行出现（单文件路 = 代建 + 加载 + 执行全链）。
+# deps-plugin-routing 收官：`[plugins]` 的源码 path 形态（指单个 .z42 / 无清单目录）已删除。
+# 本夹具钉删除后的行为：z42b 侧 hook 解析直接硬错并指路源集条目（include，对齐 [tests]）。
+# 免写清单的 hook 形态活在源集条目上（正路径见 hook-include）。
 [project]
 name    = "hs.app"
 version = "0.1.0"

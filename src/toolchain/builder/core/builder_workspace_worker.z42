@@ -105,13 +105,12 @@ void _builderValidateWorkers(WorkspaceLayoutPlan plan, string profile) {
 }
 
 void _builderValidateWorkerInputs(WorkspaceLayoutPlan plan, int node, ProjectManifest pm) {
+    // [plugins] 条目在 graph worker 里已无合法形态：源码形态（源集 / 工程 path）本来就要拒——
+    // worker 拿不到插件源的构建序；按名 / `.zpkg` 制品形态已删除（deps-plugin-routing 收官）——
+    // 预构建插件产物改走 [dependencies] 的 `.zpkg` path（下方放行）。
     int p = 0;
     while (p < pm.PluginCount) {
-        DepEntry plugin = pm.Plugins[p];
-        if (plugin.IncludeCount > 0 || (plugin.Path.Length > 0 && !plugin.Path.EndsWith(".zpkg"))) {
-            throw new Exception("package graph workers require prebuilt plugin inputs: " + plugin.Name);
-        }
-        p = p + 1;
+        throw new Exception("package graph workers require prebuilt plugin inputs: " + pm.Plugins[p].Name);
     }
     PathDepClosure closure = PathDepPlan.Resolve(plan.Tomls[node]);
     int j = 0;
@@ -126,7 +125,11 @@ void _builderValidateWorkerInputs(WorkspaceLayoutPlan plan, int node, ProjectMan
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     j = 0;
     while (j < pm.DepCount) {
-        string name = pm.Deps[j].Name; j = j + 1;
+        DepEntry de = pm.Deps[j]; j = j + 1;
+        // `.zpkg` path 依赖是自带输入的预构建产物（deps-plugin-routing：读头分流——插件包走工具链、
+        // 不进运行期解析域；与原 [plugins] .zpkg 预构建输入同一角色，不查成员表/Z42_LIBS）。
+        if (de.Path.Length > 0 && de.Path.EndsWith(".zpkg")) { continue; }
+        string name = de.Name;
         if (WorkspacePlan.IndexOfName(plan.Names, plan.Count, name) < 0 && !File.Exists(Path.Join(libs, name + ".zpkg"))) {
             throw new Exception("builder graph external dependencies must already be framework inputs: " + name);
         }

@@ -154,7 +154,7 @@ DEPS 边开始沿用这些目录。搜索目录只交给部署队列，消费方
 
 ### 插件的解析域与 `[plugins]` 的 path 条目
 
-`[plugins]` 声明的插件 zpkg（analyzer / generator / hook 本体）**加载进工具链进程、构建期运行、永不链入目标产物**。这条与 `[dependencies]` 正交的通道有三件事要保证：契约够得着、插件工程能被路径引用、按名只在插件目录解析（`Z42_PLUGINS` / 依赖目录同级 `plugins/`——查找域分离）。
+`[plugins]` 声明的插件 zpkg（analyzer / generator / hook 本体）**加载进工具链进程、构建期运行、永不链入目标产物**。这条与 `[dependencies]` 正交的通道有三件事要保证：契约够得着、插件工程能被路径引用、携带与 deps 分流的按名解析只在插件目录（`Z42_PLUGINS` / `Z42_HOME/plugins`——查找域分离；`[plugins]` 自身的按名 / `.zpkg` path 条目已删除，制品引用统一走 `[dependencies]`）。
 
 #### 解析域：SDK 库（编译器域包）的可见性
 

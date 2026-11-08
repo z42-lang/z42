@@ -1,11 +1,6 @@
-desc = "[plugins] 免清单目录条目：path 指向无清单目录 ⇒ 合成清单 include=<dir>/**/*.z42 全收代建，多文件插件（值在第二个文件里）可用（见 README）"
+desc = "[plugins] 的源码 path 形态（指无清单源目录）已删除：构建硬错并指路源集条目（include 目录 glob，对齐 [tests]）——多文件免清单插件活在源集条目上（见 plugin-include）（见 README）"
 
 [[step]]
 args = ["build", "app/e2e.dapp.z42.toml", "--release"]
-exit = 0
-
-[[step]]
-tool = "run"
-target = "app/dist/e2e.dapp.zpkg"
-exit = 0
-stdout_equals = "42"
+exit = "nonzero"
+stderr_contains = ["源码 path 形态已删除", "include"]
