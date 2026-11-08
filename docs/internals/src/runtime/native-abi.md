@@ -240,7 +240,7 @@ pub(crate) const BUILTINS: &[abi::BuiltinDesc] = &JOINED;
 > ⇒ 它是**单次运行内的派发令牌**，不跨进程持久化——增删表项只让下标平移，对既有产物没有影响。
 
 - 名字唯一：同一个名字只能在表里出现一次（`abi_tests::typed_builtins_are_in_the_table_once`）。
-- 名字 → id 的索引由 `vm/runtime/builtins.rs::BuiltinCatalog` 首次查询时初始化。门面 `builtin_assembly.rs` 从同一份描述符按序派生纯名称/frameless 记录，查询目录与 callable 表编号一致。
+- 名字 → id 的索引由 `vm/runtime/builtins.rs::BuiltinCatalog` 首次查询时初始化。门面 `assembly/builtin.rs` 从同一份描述符按序派生纯名称/frameless 记录，查询目录与 callable 表编号一致。
 
 每 VM 的 RuntimeState 接收不可变目录，ExecState 接收匹配的 callable 描述符表；默认装配共享进程内只读数据。runtime 不保存执行 ABI 类型，也不依赖 corelib；实际调用和错误映射属于 exec。
 
@@ -289,7 +289,7 @@ pub mod typed {
 三步：
 
 1. 在领域文件的 `#[builtins]` 模块里写函数（没有就建一个 `pub mod typed`）；
-2. 新模块要在 `builtin_assembly.rs` 的 `TYPED` 里加**一行**（模块的 `DESCS`）——模块里的函数不再逐个登记，
+2. 新模块要在 `assembly/builtin.rs` 的 `TYPED` 里加**一行**（模块的 `DESCS`）——模块里的函数不再逐个登记，
    写了 `#[builtin]` 就在表里；`#[builtin]` 写在 `#[builtins]` 模块之外是编译错误（找不到该属性）；
 3. z42 侧用 `[Native("__foo")] … extern` 声明（stdlib）。
 

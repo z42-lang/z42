@@ -26,7 +26,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::builtin_assembly::BUILTINS;
+use crate::assembly::builtin::BUILTINS;
 
 /// Builtins that are intentionally absent from every `[Native]` declaration in `src/libraries`.
 /// Keep this list minimal and documented — an entry here is a claim that the name is consumed by
