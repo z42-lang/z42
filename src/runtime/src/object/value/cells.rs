@@ -138,6 +138,13 @@ impl<'a> Cells<'a> {
     /// `false` when out of bounds.
     #[inline]
     pub fn copy_in(&self, off: usize, src: &[u8]) -> bool {
+        if src.len() < 32 { return self.copy_in_chunks(off, src); }
+        self.copy_in_bulk(off, src)
+    }
+
+    // Keep bulk setup out of callers that only copy a small field or struct gap.
+    #[inline(never)]
+    fn copy_in_bulk(&self, off: usize, src: &[u8]) -> bool {
         if off.checked_add(src.len()).is_none_or(|end| end > self.len) {
             return false;
         }

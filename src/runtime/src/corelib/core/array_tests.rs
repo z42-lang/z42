@@ -528,3 +528,32 @@ fn search_prims_accepts_null_in_string_arrays() {
     assert_eq!(search_prims(&array, &Value::Null, 2, 0, true), 2);
     assert_eq!(search_prims(&array, &Value::Null, 1, 2, false), -1);
 }
+
+#[test]
+fn string_search_preserves_storage_ranges_nulls_and_declined_elements() {
+    use super::typed::search_prims;
+    let ctx = ctx();
+    for kind in [crate::object::ElemKind::Ref, crate::object::ElemKind::Mixed] {
+        let array = ArrayObj::alloc_filled(ctx.heap(), crate::object::ElemType::intern("string"), kind, 5, Value::Null);
+        let _root = ctx.heap().pin_root(array);
+        let Value::Array(handle) = array else { panic!("expected array") };
+        for index in [1, 3] { handle.borrow().set_boxed(index, Value::Str(ctx.heap().alloc_str("é中"))); }
+        let needle = Value::Str(ctx.heap().alloc_str("é中"));
+        let _needle_root = ctx.heap().pin_root(needle);
+        assert_eq!(search_prims(&array, &needle, 0, 5, false), 1);
+        assert_eq!(search_prims(&array, &needle, 4, 0, true), 3);
+        assert_eq!(search_prims(&array, &needle, 2, 3, false), -1);
+        assert_eq!(search_prims(&array, &needle, 2, 4, false), 3);
+        assert_eq!(search_prims(&array, &Value::Null, 0, 5, false), 0);
+        assert_eq!(search_prims(&array, &Value::Null, 4, 0, true), 4);
+        assert_eq!(search_prims(&array, &needle, 0, 0, false), -1);
+        assert_eq!(search_prims(&array, &needle, 0, 6, false), -2);
+        let other = ArrayObj::alloc_typed_filled(ctx.heap(), crate::object::ElemType::intern("int"), 1, Value::I64(0));
+        handle.borrow().set_boxed(2, other);
+        let missing = Value::Str(ctx.heap().alloc_str("missing"));
+        assert_eq!(search_prims(&array, &missing, 0, 5, false), -2);
+        assert_eq!(search_prims(&array, &needle, 0, 5, false), 1);
+        assert_eq!(search_prims(&array, &needle, 4, 0, true), 3);
+        assert_eq!(search_prims(&array, &needle, 2, 0, true), -2);
+    }
+}

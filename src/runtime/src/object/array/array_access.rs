@@ -49,6 +49,37 @@ impl ArrayObj {
         Ok(true)
     }
 
+    /// Search a checked range with string/null equality. The caller checks the
+    /// declared element type; a non-string value declines to custom equality.
+    pub(crate) fn search_string_elems(&self, value: &Value, range: std::ops::Range<usize>,
+        backwards: bool) -> Result<Option<usize>, ()> {
+        let mode = self.mode();
+        if !matches!(mode, ArrayMode::Ref | ArrayMode::Mixed)
+            || range.start > range.end || range.end > self.len() { return Err(()); }
+        let cells = self.cells();
+        // Retain fixed array storage throughout the native search.
+        // Reference loads still use the ordinary acquire/read-barrier primitive.
+        let get = |index| if mode == ArrayMode::Ref {
+            ref_word::load(&cells, index * REF_STRIDE)
+        } else { self.get_boxed(index) };
+        match value {
+            Value::Str(needle) => {
+                let needle = needle.as_str();
+                search_string_range(range, backwards, |index| match get(index) {
+                    Value::Str(text) => (text.as_str() == needle).then_some(Ok(index)),
+                    Value::Null => None,
+                    _ => Some(Err(())),
+                })
+            }
+            Value::Null => search_string_range(range, backwards, |index| match get(index) {
+                Value::Null => Some(Ok(index)),
+                Value::Str(_) => None,
+                _ => Some(Err(())),
+            }),
+            _ => Err(()),
+        }
+    }
+
     /// Materialise all elements as a `Vec<Value>` (reflection, conversions).
     pub fn to_boxed_vec(&self) -> Vec<Value> {
         (0..self.len()).map(|i| self.get_boxed(i)).collect()
@@ -307,4 +338,9 @@ impl ArrayObj {
             _ => (std::ptr::null(), 0, 0),
         }
     }
+}
+
+fn search_string_range(mut range: std::ops::Range<usize>, backwards: bool,
+    find: impl FnMut(usize) -> Option<Result<usize, ()>>) -> Result<Option<usize>, ()> {
+    if backwards { range.rev().find_map(find) } else { range.find_map(find) }.transpose()
 }
