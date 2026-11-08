@@ -28,8 +28,3 @@ target-dir = "../../artifacts/build/runtime"
 # reachable and the intended clean YamlException is thrown instead of a trap.
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "link-arg=-zstack-size=16777216"]
-
-# Keep short native loops at one fixed 64-byte offset when crate/link layout changes.
-# The same configuration governs standalone, embedded and component builds.
-[target.'cfg(target_arch = "x86_64")']
-rustflags = ["-C", "llvm-args=--align-loops=64"]

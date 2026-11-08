@@ -90,7 +90,35 @@ pub mod typed {
     }
 
     fn ascii_match(bytes: &[u8], mask: u128) -> Option<usize> {
-        bytes.iter().position(|&byte| byte.is_ascii() && mask & (1u128 << byte) != 0)
+        let mut index = 0;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            if byte.is_ascii() {
+                if mask & (1u128 << byte) != 0 { return Some(index); }
+                index += 1;
+            } else {
+                index += non_ascii_prefix(&bytes[index..]);
+            }
+        }
+        None
+    }
+
+    // Keep bulk skipping off the ASCII membership-test path. Every byte of a
+    // non-ASCII UTF-8 scalar has its high bit set, so skipped bytes cannot match.
+    #[inline(never)]
+    fn non_ascii_prefix(bytes: &[u8]) -> usize {
+        const HIGH_BITS: u64 = 0x8080_8080_8080_8080;
+        let mut index = 0;
+        while bytes.len() - index >= 8 {
+            let word = u64::from_ne_bytes([
+                bytes[index], bytes[index + 1], bytes[index + 2], bytes[index + 3],
+                bytes[index + 4], bytes[index + 5], bytes[index + 6], bytes[index + 7],
+            ]);
+            if word & HIGH_BITS != HIGH_BITS { break; }
+            index += 8;
+        }
+        while index < bytes.len() && !bytes[index].is_ascii() { index += 1; }
+        index
     }
 
     /// Start and result are Unicode scalar indices, even when the scan uses UTF-8 bytes.

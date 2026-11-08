@@ -110,7 +110,6 @@ mkdir -p artifacts && cp -R <warm 树>/artifacts/xtask artifacts/
 
 运行时及平台宿主共用 `src/runtime/.cargo/config.toml`。在 `src/runtime/` 之外调用 Cargo 时，须像 xtask 一样显式传入 `--config`，因为 Cargo 不按 `--manifest-path` 查找配置。
 
-x86_64 目标使用 LLVM `--align-loops=64` 固定循环入口对齐，使短扫描和原子存储循环的入口不随 crate 划分、构建目标选择或链接地址变化落到不同的 64 字节偏移。该选项适用于独立 VM、嵌入库和组件构建，不改变调用协议或字节码语义；修改时用同 runner 的完整性能门禁验证代码尺寸与执行速度的取舍。
 
 ## 4. 环境变量速查
 
