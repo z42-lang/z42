@@ -1,6 +1,7 @@
 //! VM observation state, runtime counters and event subscriptions.
 pub mod counters;
 pub mod observer;
+pub(crate) mod sampling;
 
 use std::sync::{Arc, atomic::AtomicU64};
 use parking_lot::Mutex;
@@ -14,7 +15,7 @@ pub struct DiagnosticsState {
     pub(crate) park_histogram: Mutex<crate::gc::types::PauseHistogram>,
     pub(crate) lock_contentions: AtomicU64,
     pub(crate) lock_wait_us: AtomicU64,
-    pub(crate) sampler: crate::profiler::cpu::Sampler,
+    pub(crate) sampler: sampling::Sampling,
 }
 
 /// Observation-only shard; transferred under the registry lock before deregistration.

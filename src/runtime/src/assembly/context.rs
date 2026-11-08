@@ -98,15 +98,13 @@ impl VmContext {
                 park_histogram: Mutex::new(crate::gc::types::PauseHistogram::new(config.gc.pause_window)),
                 lock_contentions: std::sync::atomic::AtomicU64::new(0),
                 lock_wait_us:     std::sync::atomic::AtomicU64::new(0),
-                // add-sampling-profiler : start the sampler only when
-                // Z42_SAMPLE_HZ is set; otherwise disabled() (no thread, zero-cost).
-                // Trace timeline recorded only when Z42_TRACE_OUT is also set.
-                sampler: match config.sample_hz {
-                    Some(hz) => crate::profiler::cpu::Sampler::start(
-                        hz,
-                        config.trace_timeline,
-                    ),
-                    None => crate::profiler::cpu::Sampler::disabled(),
+                // Construct the backend here; the VM owns only its sampling capability.
+                sampler: {
+                    let backend = match config.sample_hz {
+                        Some(hz) => crate::profiler::cpu::Sampler::start(hz, config.trace_timeline),
+                        None => crate::profiler::cpu::Sampler::disabled(),
+                    };
+                    crate::vm::diagnostics::sampling::Sampling::new(backend.enabled(), backend)
                 },
             },
             exec: crate::vm::exec::ExecState::new(
