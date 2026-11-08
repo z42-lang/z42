@@ -38,11 +38,7 @@ impl ArrayObj {
             ArrayMode::Struct => {
                 let (cells, layout) = self.struct_cells()
                     .ok_or_else(|| anyhow::anyhow!("missing struct array layout"))?;
-                let zeros = vec![0; layout.size];
-                for i in range {
-                    struct_blob::write(&cells, i * layout.size, layout.size, &zeros, &[],
-                        &layout.ref_offsets, &mut |_| {})?;
-                }
+                struct_blob::clear_range(&cells, index, length, layout.size, &layout.ref_offsets)?;
             }
             _ => return Ok(false),
         }

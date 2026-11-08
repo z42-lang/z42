@@ -184,6 +184,21 @@ impl<'a> Cells<'a> {
         true
     }
 
+    /// Zero primitive bytes with the same aligned atomic chunks as copy_in.
+    /// This must not include reference words, which require the SATB barrier.
+    #[inline]
+    pub(crate) fn clear_bytes(&self, off: usize, len: usize) -> bool {
+        if off.checked_add(len).is_none_or(|end| end > self.len) { return false; }
+        let mut k = 0;
+        while k < len {
+            let w = chunk_width(self.base as usize + off + k, len - k);
+            // SAFETY: checked span, naturally aligned chunk, primitive bytes only.
+            unsafe { store_raw(self.base.add(off + k), w, 0); }
+            k += w;
+        }
+        true
+    }
+
     /// Zero a checked range of uniform primitive cells. Every store retains the
     /// element's width and relaxed ordering; invalid ranges write nothing.
     #[inline]

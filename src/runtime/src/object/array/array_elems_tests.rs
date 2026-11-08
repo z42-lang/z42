@@ -309,3 +309,55 @@ fn primitive_cell_clear_supports_every_atomic_width() {
         assert_eq!(a.borrow().byte_snapshot().unwrap(), expected);
     }
 }
+
+#[test]
+fn struct_bulk_clear_zeros_only_the_requested_blobs_and_all_reference_leaves() {
+    let h = heap(); let _g = HeapGuard::enter(&h);
+    let value = obj(&h); let _value_root = h.pin_root(value);
+    for (size, offsets) in [(16, vec![8]), (24, vec![16, 0]), (16, vec![8, 8]), (12, vec![])] {
+        let layout = std::sync::Arc::new(StructTypeLayout {
+            size, ref_kinds: vec![STRUCT_REF_GCREF; offsets.len()].into_boxed_slice(),
+            ref_offsets: offsets.clone().into_boxed_slice(), fields: Box::new([]),
+        });
+        let a = arr(&h, ArrayObj::alloc_struct(&h, ElemType::intern("S"), 8, layout));
+        let _root = h.pin_root(Value::Array(a));
+        let source = vec![165; size]; let refs = vec![value; offsets.len()];
+        for i in 0..8 { a.borrow().write_struct_elem(i, &source, &refs, &mut |_| {}).unwrap(); }
+        assert!(a.borrow().try_clear_elems(1, 5).unwrap());
+        for i in 0..8 {
+            let cleared = (1..6).contains(&i);
+            let (bytes, refs) = a.borrow().struct_elem(i).unwrap();
+            let mut expected = if cleared { vec![0; size] } else { source.clone() };
+            for &offset in &offsets { expected[offset as usize..offset as usize + 8].fill(0); }
+            assert_eq!(bytes, expected);
+            assert!(refs.iter().all(|r| *r == if cleared { Value::Null } else { value }));
+        }
+        assert!(a.borrow().try_clear_elems(8, 0).unwrap());
+    }
+}
+
+#[test]
+fn atomic_zero_bytes_and_invalid_struct_layouts_preserve_neighbors() {
+    let h = heap(); let _g = HeapGuard::enter(&h);
+    for start in 0..16 {
+        for length in 0..65 {
+            let len = start + length + 9;
+            let a = arr(&h, ArrayObj::alloc_filled(&h, ElemType::intern("byte"), ElemKind::Bytes, len, Value::I64(165)));
+            assert!(a.borrow().cells().clear_bytes(start, length));
+            let mut expected = vec![165; len]; expected[start..start + length].fill(0);
+            assert_eq!(a.borrow().byte_snapshot().unwrap(), expected);
+            assert!(!a.borrow().cells().clear_bytes(usize::MAX, 1));
+            assert!(!a.borrow().cells().clear_bytes(0, usize::MAX));
+            assert_eq!(a.borrow().byte_snapshot().unwrap(), expected);
+        }
+    }
+    let a = arr(&h, ArrayObj::alloc_filled(&h, ElemType::intern("byte"), ElemKind::Bytes, 64, Value::I64(165)));
+    let array = a.borrow(); let cells = array.cells();
+    for offsets in [vec![8, 24], vec![1], vec![u32::MAX]] {
+        assert!(crate::object::value::struct_blob::clear_range(&cells, 0, 2, 16, &offsets).is_err());
+        assert_eq!(array.byte_snapshot().unwrap(), vec![165; 64]);
+    }
+    assert!(crate::object::value::struct_blob::clear_range(&cells, usize::MAX, 1, 16, &[]).is_err());
+    assert!(crate::object::value::struct_blob::clear_range(&cells, 0, usize::MAX, 16, &[]).is_err());
+    assert_eq!(array.byte_snapshot().unwrap(), vec![165; 64]);
+}

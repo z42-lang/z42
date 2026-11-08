@@ -70,6 +70,47 @@ pub fn write(
     Ok(())
 }
 
+/// Clear a checked sequence of blobs without materializing zero buffers. Primitive
+/// gaps retain the normal atomic chunk protocol; each reference deletion uses SATB.
+pub(crate) fn clear_range(c: &Cells, index: usize, count: usize, size: usize,
+    ref_offsets: &[u32]) -> anyhow::Result<()> {
+    let base = index.checked_mul(size).ok_or_else(|| anyhow::anyhow!("struct clear start overflow"))?;
+    let len = count.checked_mul(size).ok_or_else(|| anyhow::anyhow!("struct clear length overflow"))?;
+    anyhow::ensure!(base.checked_add(len).is_some_and(|end| end <= c.len()), "invalid struct clear range");
+    if count == 0 { return Ok(()); }
+    for &offset in ref_offsets {
+        let offset = offset as usize;
+        anyhow::ensure!(offset % 8 == 0 && offset.checked_add(8).is_some_and(|end| end <= size)
+            && (base + offset) % 8 == 0 && (count <= 1 || size % 8 == 0), "invalid struct reference offset");
+    }
+    if size == 0 { return Ok(()); }
+    // Layouts are immutable: check/order their gaps once for the complete range.
+    let sorted = if ref_offsets.windows(2).all(|pair| pair[0] <= pair[1]) {
+        std::borrow::Cow::Borrowed(ref_offsets)
+    } else {
+        let mut offsets = ref_offsets.to_vec();
+        offsets.sort_unstable();
+        std::borrow::Cow::Owned(offsets)
+    };
+    for element in 0..count {
+        let start = base + element * size;
+        let mut cursor = 0;
+        for &offset in sorted.iter() {
+            let offset = offset as usize;
+            if cursor < offset {
+                anyhow::ensure!(c.clear_bytes(start + cursor, offset - cursor), "invalid struct primitive gap");
+            }
+            cursor = offset + 8;
+        }
+        if cursor < size {
+            anyhow::ensure!(c.clear_bytes(start + cursor, size - cursor), "invalid struct primitive tail");
+        }
+        // Preserve the original reference order, including repeated aliases.
+        for &offset in ref_offsets { ref_word::store_word_recorded(c, start + offset as usize, 0); }
+    }
+    Ok(())
+}
+
 /// Visit the blob's reference edges (GC tracing — a boxed value yields its box).
 #[inline]
 pub fn visit(c: &Cells, base: usize, ref_offsets: &[u32], visit: &mut dyn FnMut(&Value)) {
