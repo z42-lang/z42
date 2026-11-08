@@ -229,3 +229,26 @@ fn method_type_materialization_uses_registered_providers_on_primary_and_worker()
     assert!(matches!(method_type_value(&worker, &[], 0), Value::I64(42)));
     assert_eq!(PROTOCOL_CALLS.with(Cell::get), 4);
 }
+
+#[test]
+fn stack_allocation_policy_is_per_vm_and_shared_with_workers() {
+    use crate::vm::exec::call::stack_alloc::{stack_alloc_enabled, stats_enabled};
+    let mut contexts = Vec::new();
+    for (value, enabled, stats) in [("on", true, false), ("off", false, false), ("stats", true, true)] {
+        let mut settings = RuntimeConfig::from_getter(|_| None);
+        settings.stackalloc = Some(value.into());
+        let ctx = VmContext::new_internal(None, crate::pal::fs::default_vfs(),
+            crate::assembly::extension::freeze(Default::default()), settings.vm_config(),
+            crate::assembly::object_protocol::services());
+        let worker = VmContext::new_with_core(ctx.core.clone());
+        assert_eq!(stack_alloc_enabled(&ctx), enabled);
+        assert_eq!(stats_enabled(&ctx), stats);
+        assert_eq!(stack_alloc_enabled(&worker), enabled);
+        assert_eq!(stats_enabled(&worker), stats);
+        contexts.push((ctx, enabled, stats));
+    }
+    for (ctx, enabled, stats) in contexts {
+        assert_eq!(stack_alloc_enabled(&ctx), enabled);
+        assert_eq!(stats_enabled(&ctx), stats);
+    }
+}
