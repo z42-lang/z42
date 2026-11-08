@@ -12,6 +12,8 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
         pin_owned_buffer: crate::interop::pin_owned_buffer,
         release_owned_buffer: crate::interop::release_owned_buffer,
     });
+    #[cfg(feature = "native-interop")]
+    add(&mut defaults, crate::corelib::repl::paths::Paths(crate::assembly::repl::candidates));
     add(&mut defaults, crate::app::services::services());
     // The service owns only Rust arguments, never the core, so this sharing cannot form a cycle.
     let application = crate::app::state::state_for_vm();

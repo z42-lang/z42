@@ -45,11 +45,11 @@ pub fn repl_set_key_editor(fqn: &str) {
 /// 交给编辑器 cdylib 做输入行语法着色。关键字的唯一 SoT 在 `z42c.syntax` 的
 /// `Lexer._initKeywords()`，VM 与 cdylib 都**不自带**表，只做搬运。
 /// 没加载到 cdylib（wasm / 无 native-interop / 老版本 cdylib）时静默 no-op。
-pub fn repl_set_keywords(joined: &str) {
+pub fn repl_set_keywords(ctx: &VmContext, joined: &str) -> Result<()> {
     #[cfg(feature = "native-interop")]
-    super::native::native::set_keywords(joined);
+    { super::native::native::set_keywords(ctx, joined) }
     #[cfg(not(feature = "native-interop"))]
-    let _ = joined;
+    { let _ = (ctx, joined); Ok(()) }
 }
 
 // ── Host-only: VM re-entrancy for the cdylib key handlers ────────────────────
@@ -170,5 +170,7 @@ pub mod typed {
     pub fn set_key_editor(fqn: &str) { super::repl_set_key_editor(fqn) }
 
     #[builtin(name = "__repl_set_keywords")]
-    pub fn set_keywords(joined: &str) { super::repl_set_keywords(joined) }
+    pub fn set_keywords(ctx: &crate::vm::context::VmContext, joined: &str) -> Result<(), crate::vm::exec::call::builtin_abi::BuiltinError> {
+        super::repl_set_keywords(ctx, joined).map_err(|e| crate::vm::exec::call::builtin_abi::BuiltinError::Internal(format!("{e:#}")))
+    }
 }

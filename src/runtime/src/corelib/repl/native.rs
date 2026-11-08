@@ -86,30 +86,37 @@ pub(super) mod native {
         _lib: crate::pal::dynlib::Library,
     }
 
-    /// Process-global, resolved on first `readline`. `Some` = loaded; `None` = no lib
+    /// Process-global, resolved on the first keywords or readline request. `Some` = loaded; `None` = no lib
     /// found / load failed → plain-stdin fallback (memoized so we probe the FS once).
     static LOADED: OnceLock<Option<LoadedRepl>> = OnceLock::new();
 
-    fn loaded() -> Option<&'static LoadedRepl> {
-        LOADED.get_or_init(load).as_ref()
+    fn loaded(ctx: &VmContext) -> Result<Option<&'static LoadedRepl>> {
+        if let Some(value) = LOADED.get() { return Ok(value.as_ref()); }
+        let paths = super::super::paths::source(ctx)?;
+        Ok(loaded_from(&LOADED, paths))
+    }
+
+    fn loaded_from(cache: &OnceLock<Option<LoadedRepl>>, paths: impl FnOnce() -> Vec<PathBuf>) -> Option<&LoadedRepl> {
+        cache.get_or_init(|| load(paths())).as_ref()
     }
 
     /// 把 z42 侧的关键字表（`\n` 分隔）交给编辑器 cdylib 做语法着色。
     /// 没加载到 cdylib、或 cdylib 太老没有这个符号时静默 no-op。
-    pub(in crate::corelib) fn set_keywords(joined: &str) {
-        let Some(l) = loaded() else { return };
-        let Some(f) = l.set_keywords else { return };
-        let Ok(c) = std::ffi::CString::new(joined) else { return };
+    pub(in crate::corelib) fn set_keywords(ctx: &VmContext, joined: &str) -> Result<()> {
+        let Some(l) = loaded(ctx)? else { return Ok(()) };
+        let Some(f) = l.set_keywords else { return Ok(()) };
+        let Ok(c) = std::ffi::CString::new(joined) else { return Ok(()) };
         // SAFETY: `f` 来自本进程持有的 Library（`_lib` 保活）；`c` 在调用期间存活，
         // 且 cdylib 侧只读取、不保留该指针（它把内容拷进自己的关键字集）。
         unsafe { f(c.as_ptr()) };
+        Ok(())
     }
 
     /// Probe the repl-specific candidate paths (env override → sibling of the running
     /// binary) and dlopen the first that resolves the entry set. Never aborts — a
     /// missing lib just means the plain fallback.
-    fn load() -> Option<LoadedRepl> {
-        for path in candidates() {
+    fn load(paths: Vec<PathBuf>) -> Option<LoadedRepl> {
+        for path in paths {
             if !path.is_file() {
                 continue;
             }
@@ -140,49 +147,8 @@ pub(super) mod native {
         Ok(LoadedRepl { readline, free, last_error, set_keywords, _lib: lib })
     }
 
-    /// Repl-specific search order — NOT `ext::native_search_paths()`:
-    ///   1. `Z42_REPL_NATIVE` — explicit override (a full lib path, or a dir holding it).
-    ///   2. the directory of the running binary (dev cargo-target dir, where
-    ///      `cargo build -p z42-repl` drops the cdylib beside `z42vm`).
-    ///   3. `<sdk>/programs/z42i/` — the SDK ships the cdylib beside the interactive
-    ///      apphost's payload (a *colocated native dependency*), deliberately isolated
-    ///      from the shared `bin/` so the generic ext scanner (`ext::native_search_paths`,
-    ///      which scans the running binary's own dir) never sees it and never warns
-    ///      `ignoring unknown lib repl`. Derived from the running `<sdk>/bin/<app>` and
-    ///      resolved through the shared `pal::dynlib::resolve_native_beside` colocated-lib
-    ///      resolver. (add-path-dependencies D9/D10, supersedes isolate-repl-cdylib.)
-    fn candidates() -> Vec<PathBuf> {
-        let file = lib_filename();
-        let mut out = Vec::new();
-        if let Some(over) = crate::config::runtime_config().repl_native.as_ref() {
-            let p = over.clone();
-            // Accept either a direct file path or a directory containing the lib.
-            out.push(p.join(&file));
-            out.push(p);
-        }
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                out.push(dir.join(&file));
-                // <sdk>/programs/z42i/ (beside the interactive payload), via the
-                // shared colocated-native-dependency resolver.
-                if let Some(sdk_root) = dir.parent() {
-                    let z42i_dir = sdk_root.join("programs").join("z42i");
-                    if let Some(p) = crate::pal::dynlib::resolve_native_beside(&z42i_dir, "z42_repl") {
-                        out.push(p);
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    /// Platform lib filename: `libz42_repl.so` / `.dylib`, `z42_repl.dll` on Windows.
-    fn lib_filename() -> String {
-        crate::pal::dynlib::file_name("z42_repl")
-    }
-
     pub(super) fn readline(ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
-        let lib = match loaded() {
+        let lib = match loaded(ctx)? {
             Some(l) => l,
             None => return super::super::plain_readline(prompt),
         };
@@ -252,23 +218,6 @@ pub(super) mod native {
 
     #[cfg(test)]
     mod tests {
-        use super::*;
-
-        #[test]
-        fn free_str_frees_owned_and_ignores_null() {
-            // A pointer from `CString::into_raw` (as the trampolines produce) is
-            // reclaimed without leak/double-free; null is a no-op.
-            let owned = CString::new("candidate").unwrap().into_raw();
-            z42vm_free_str(owned);
-            z42vm_free_str(std::ptr::null_mut());
-        }
-
-        #[test]
-        fn lib_filename_is_platform_shaped() {
-            let f = lib_filename();
-            assert!(f.contains("z42_repl"));
-            // libz42_repl.dylib / .so, or z42_repl.dll on Windows.
-            assert!(f.ends_with(std::env::consts::DLL_SUFFIX));
-        }
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/corelib/repl/native_cache_tests.rs"));
     }
 }

@@ -14,6 +14,7 @@
 | `builtin.rs` | 组装 builtin 目录 |
 | `object_protocol.rs` | 绑定对象协议 |
 | `loader.rs` | 读取加载配置并提供融合输入 |
+| `repl.rs` | 首次加载时的 REPL 原生库路径策略 |
 | `boot.rs` | 应用与宿主共用的启动步骤 |
 
 ## 基础用法
