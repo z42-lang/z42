@@ -823,10 +823,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Install from crates.io: Release asset outages must not block Android packaging.
       - name: Install cargo-ndk
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-ndk
+          tool: cargo-ndk@4.1.2
+          fallback: cargo-install
 
       # local-cache: false — local-cache produced an incomplete ANDROID_NDK_HOME
       # (clang missing under toolchains/llvm/prebuilt/) causing libffi-sys's
@@ -1249,10 +1251,12 @@ jobs:
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      # Install from crates.io: Release asset outages must not block Android packaging.
       - name: Install cargo-ndk
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-ndk
+          tool: cargo-ndk@4.1.2
+          fallback: cargo-install
       - name: Setup JDK 17
         uses: actions/setup-java@v6
         with:
