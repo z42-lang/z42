@@ -8,6 +8,25 @@ pub fn file_name(stem: &str) -> String {
     format!("{}{}{}", std::env::consts::DLL_PREFIX, stem, std::env::consts::DLL_SUFFIX)
 }
 
+/// Resolve a single native library *beside* a given directory — the "colocated
+/// native dependency" layout: a component's private native lib ships flat in the
+/// same directory as its zpkg (`<zpkg-dir>/lib<name>.<suffix>`), NOT in the shared
+/// `<sdk>/native/` (which is eager-scanned by `load_all` for cross-platform stdlib
+/// ext libs like compression). This is a *named, directed* stat — it never walks
+/// the directory, so a non-stdlib cdylib dropped there is only ever loaded by the
+/// caller that asks for it by name, and the generic ext scanner never warns about it.
+///
+/// `lib_name` is the base name between the platform prefix/suffix (e.g. `z42_repl`
+/// → `libz42_repl.dylib` / `libz42_repl.so` / `z42_repl.dll`). Returns the full path
+/// only when the file exists.
+///
+/// (add-path-dependencies D9/D10 — native dependencies colocated beside the
+/// consumer's zpkg; supersedes isolate-repl-cdylib.)
+pub(crate) fn resolve_native_beside(zpkg_dir: &std::path::Path, lib_name: &str) -> Option<std::path::PathBuf> {
+    let candidate = zpkg_dir.join(file_name(lib_name));
+    candidate.is_file().then_some(candidate)
+}
+
 /// An open shared library. Dropping it unloads the library, so keep it alive for as long
 /// as any symbol taken from it may be called.
 #[cfg(feature = "native-interop")]
@@ -39,20 +58,5 @@ impl Library {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn file_name_wraps_the_stem() {
-        let f = super::file_name("z42_repl");
-        assert!(f.contains("z42_repl"));
-        assert!(f.ends_with(std::env::consts::DLL_SUFFIX));
-    }
-
-    #[cfg(all(feature = "native-interop", unix))]
-    #[test]
-    fn open_reports_the_path() {
-        let err = unsafe { super::Library::open(std::path::Path::new("/nonexistent/libz42_none.so")) }
-            .err()
-            .expect("opening a missing file fails");
-        assert!(err.to_string().contains("/nonexistent/libz42_none.so"), "{err}");
-    }
-}
+#[path = "dynlib_tests.rs"]
+mod tests;

@@ -149,7 +149,7 @@ pub(super) mod native {
     ///      from the shared `bin/` so the generic ext scanner (`ext::native_search_paths`,
     ///      which scans the running binary's own dir) never sees it and never warns
     ///      `ignoring unknown lib repl`. Derived from the running `<sdk>/bin/<app>` and
-    ///      resolved through the shared `ext::resolve_native_beside` colocated-lib
+    ///      resolved through the shared `pal::dynlib::resolve_native_beside` colocated-lib
     ///      resolver. (add-path-dependencies D9/D10, supersedes isolate-repl-cdylib.)
     fn candidates() -> Vec<PathBuf> {
         let file = lib_filename();
@@ -167,7 +167,7 @@ pub(super) mod native {
                 // shared colocated-native-dependency resolver.
                 if let Some(sdk_root) = dir.parent() {
                     let z42i_dir = sdk_root.join("programs").join("z42i");
-                    if let Some(p) = crate::interop::ext::resolve_native_beside(&z42i_dir, "z42_repl") {
+                    if let Some(p) = crate::pal::dynlib::resolve_native_beside(&z42i_dir, "z42_repl") {
                         out.push(p);
                     }
                 }
