@@ -109,10 +109,10 @@ mode = "interp"
 
 **运行时不需要任何人指路**：`Z42_APP_CONFIG` 未设时，**VM 自己**按「同目录、同 stem」
 从 app 文件推出侧车路径（`config::sidecar_for`）。这条推导发生在**装配**期——配置在
-`OnceLock` 里 boot 后冻结，`app::run` 那时再想加一层就晚了——所以它在两个入口各做一次：
+`OnceLock` 里 boot 后冻结，`host::run_app` 那时再想加一层就晚了——所以它在两个入口各做一次：
 `z42vm` 的 `main()`（有 `cli.file`）与 Rust 嵌入 API `z42-host::run_app`（有 `file` 参数），
 两者共用 `config::load_app_config_tables`。另外两个进入执行核心的入口**不做**这一步，
-直接调 `app::run`，配置走 `RuntimeConfig::from_env`（只认显式 `Z42_APP_CONFIG`）：
+直接调 `host::run_app`，配置走 `RuntimeConfig::from_env`（只认显式 `Z42_APP_CONFIG`）：
 C 入口 `z42_host_run_app`（`src/runtime/src/host/mod.rs`）与 wasm 入口
 （`src/toolchain/workload/wasm/platform`）。于是覆盖：
 

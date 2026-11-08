@@ -336,7 +336,7 @@ Java_io_z42_vm_Z42VM_nativeShutdown(JNIEnv* env, jobject self, jlong handle) {
  * sourcing the stdlib from `libsDir`. Android has a real filesystem, so the
  * agent + stdlib + bundle are copied out of assets to cacheDir and referenced
  * by path (no VFS). The agent writes its JSON report to the out-path arg; the
- * caller reads it back. Same core (z42::app::run) as desktop / iOS.
+ * caller reads it back. Same core (z42::host::run_app) as desktop / iOS.
  */
 JNIEXPORT jint JNICALL
 Java_io_z42_vm_Z42TestHost_nativeRunApp(

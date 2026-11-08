@@ -31,7 +31,7 @@ z42 的观测遵循**两层成本**原则（design §6）：
 2. **opt-in、按需 gate**：用户锁争用（编译期 `profile-contention` feature，默认编译掉）、
    **采样 profiler**（运行时 `Z42_SAMPLE_HZ` flag，默认无线程无开销）。
 
-退出时 `app/mod.rs` 把 counter 快照 + 堆派生数 + 并发探针合成一条 `ProfileSnapshot`，
+退出时 `host/app.rs` 把 counter 快照 + 堆派生数 + 并发探针合成一条 `ProfileSnapshot`，
 `--stats-format=json` 输出单行 JSON（sentinel key `z42vm_counters`）供 `xtask profile` 抓取。
 
 ---

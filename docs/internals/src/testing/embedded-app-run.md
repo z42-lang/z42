@@ -1,7 +1,7 @@
 # 嵌入式运行与测试 agent（app-run 核心 · bundle · 栈预算）
 
 > 代码：
-> `src/runtime/src/app/mod.rs`（`z42::app::run` 核心）、`src/runtime/src/host/mod.rs`（C ABI
+> `src/runtime/src/host/app.rs`（`z42::host::run_app` 核心）、`src/runtime/src/host/ffi.rs`（C ABI
 > `z42_host_run_app`）、`src/runtime/include/z42_host.h`（公有头）、
 > `src/runtime/crates/z42-host`（Rust wrapper）、
 > `src/toolchain/workload/test/agent/src/agent.z42`（test-agent）、
@@ -21,13 +21,13 @@ test-agent 与一份 app-run 代码全平台共享；而且这条嵌入路径同
 ## 1. 一份 app-run 核心，三个前端
 
 ```
-                 z42::app::run  (app.rs) —— 唯一「跑一个 z42 app」实现
+                 z42::host::run_app  (app.rs) —— 唯一「跑一个 z42 app」实现
                  ╱                      ╲
         main.rs                z42-host::run_app  +  z42::host::z42_host_run_app (C ABI)
     (z42vm 二进制 CLI)          (嵌入：desktop C / Swift / JNI / wasm 壳)
 ```
 
-- **`z42::app::run(file, entry, RunOpts)`** —— 完整启动序列：search_dirs → `z42.core` 预载 →
+- **`z42::host::run_app(file, entry, RunOpts)`** —— 完整启动序列：search_dirs → `z42.core` 预载 →
   加载 entry artifact → AOT eager BFS（否则 lazy）→ merge → 建 VmContext + lazy_loader +
   observer replay → `Vm::run`。
 - **`main.rs`** 解析 CLI → 组 `RunOpts`（mode / libs_dir / program_args / print_stats）→ 调核心。
@@ -102,10 +102,10 @@ wasm 没有文件系统、也没有进程 stdout，所以它**不能**直接复�
 句柄（`RunOpts::vfs`，不给就是默认：native 为 `LocalFs`，即 `std::fs`；wasm 为内存 VFS）。
 走它的有 `vm/loader/package/artifact.rs`（`load_zbc` / `load_zpkg` 及 `.zsym` sidecar、indexed-zpkg
 散装读）、`vm/loader/locate/namespace_index.rs`（命名空间目录扫描、`ZpkgCandidate::build`）、惰性加载器、
-`app/mod.rs`（`z42.core` 预载的 `exists`、entry-dir 的 `is_dir`）。
+`host/load.rs`（`z42.core` 预载的 `exists`）和 `host/app.rs`（entry-dir 的 `is_dir`）。
 
 于是宿主先把 agent app.zpkg + stdlib zpkg + bundle（manifest + 各 case zbc）挂进它自己的
-`MemoryFs`，再把它交给 `z42::app::run`，就能像在磁盘上一样加载它们——**同一个 app-run 核心**。
+`MemoryFs`，再把它交给 `z42::host::run_app`，就能像在磁盘上一样加载它们——**同一个 app-run 核心**。
 
 **(b) 报告经 VFS 文件回传，不是 stdout**（即 §2 的 `out-path`）。
 
@@ -114,7 +114,7 @@ wasm-bindgen 面只有自足的三个函数（`workload/wasm/platform/src/lib.rs
 
 ```
 mountAsset(path, bytes)                // 挂进本页的内存 VFS（wasm 宿主持有，交给它创建的每台 VM）
-runTestApp(app, entry, libs, args)     // → z42::app::run（interp；wasm 无 JIT）
+runTestApp(app, entry, libs, args)     // → z42::host::run_app（interp；wasm 无 JIT）
 readAsset(path) -> bytes               // 读回报告文件
 ```
 
@@ -159,7 +159,7 @@ _enumerateCorpus(root, filter)        → _CorpusCase[]   （结构化，rid 无
 
 - **`_sampleCorpus`（无 `--shard` 时）** —— 按 bucket **round-robin**：连续桶按轮次一桶取一例，
   直到取满 cap 或全部取尽。定位是**快速本地 / 手动 smoke**，验嵌入执行路径（agent + per-case 隔离
-  + `app::run`）通不通。
+  + `host::run_app`）通不通。
 - **`_shardCorpus`（`--shard k/n`）** —— **不设 cap**，取 `included[]` 里 `index % n == k-1` 的那一片。
   n 片并集 = 全集、零重叠、可复现。nightly tier-2 用它跑全覆盖。
 
@@ -182,7 +182,7 @@ z42 解释器**在原生调用栈上递归**——每次 z42 调用一层原生�
 - **mobile（SIGSEGV）**：嵌入 host 从**调用方线程**跑 VM，而 Android `AndroidJUnitRunner` /
   iOS XCTest 的线程栈只有约 512KB–1MB（desktop 主线程约 8MB）→ 整进程 SIGSEGV
   （logcat：`stack pointer is not in a rw map; likely due to stack overflow`），而 R1–R7 却全过。
-  **修法**：C ABI 入口 `z42_host_run_app`（`src/runtime/src/host/mod.rs`）把 `z42::app::run`
+  **修法**：C ABI 入口 `z42_host_run_app`（`src/runtime/src/host/mod.rs`）把 `z42::host::run_app`
   放到一条 **16 MB 大栈线程**上跑再 join。
 - **wasm（OOB 陷阱）**：wasm 的 shadow stack 在 linear memory 里，**默认仅 1 MiB**。
   一个解析 300 层嵌套的用例在**还没触及解析器 256 层 DoS cap 抛异常之前**就把 shadow stack 压穿，
@@ -221,7 +221,7 @@ z42 解释器**在原生调用栈上递归**——每次 z42 调用一层原生�
 
 | 要改什么 | 改哪 |
 |---|---|
-| 启动序列 / 加载顺序 | `src/runtime/src/app/mod.rs` |
+| 启动序列 / 加载顺序 | `src/runtime/src/host/load.rs`、`host/boot.rs` |
 | 嵌入入口（所有原生壳共用） | `src/runtime/src/host/mod.rs` 的 C 符号 + `src/runtime/include/z42_host.h` |
 | agent 的命令面 / 报告通道 | `src/toolchain/workload/test/agent/src/agent.z42` |
 | bundle 的跑法（golden 隔离 / unit 共享） | `src/libraries/z42.harness/src/BundleRunner.z42` |

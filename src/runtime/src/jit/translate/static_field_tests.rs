@@ -96,7 +96,7 @@ fn module(functions: Vec<Function>, types: Vec<Arc<TypeDesc>>) -> Module {
 }
 
 /// A VM running `build()` as its entry module, its JIT installed, every static constructor of the
-/// module registered (as `app::run` does after merging).
+/// module registered (as `host::run_app` does after merging).
 fn vm_of(build: &dyn Fn() -> Module) -> std::pin::Pin<Box<VmContext>> {
     let vm = VmContext::with_module(build());
     let m = Arc::clone(vm.module().expect("entry module"));

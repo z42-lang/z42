@@ -41,7 +41,7 @@ fn env_args_empty_by_default() {
 #[test]
 fn env_args_returns_set_program_args_in_order() {
     let c = ctx();
-    crate::app::set_program_args(&c, vec!["alpha".into(), "beta".into(), "gamma".into()]).unwrap();
+    crate::host::set_program_args(&c, vec!["alpha".into(), "beta".into(), "gamma".into()]).unwrap();
     let r = builtin_env_args(&c, &[]).unwrap();
     assert_eq!(extract_strings(r), vec!["alpha", "beta", "gamma"]);
 }
@@ -49,8 +49,8 @@ fn env_args_returns_set_program_args_in_order() {
 #[test]
 fn env_args_reflects_last_set() {
     let c = ctx();
-    crate::app::set_program_args(&c, vec!["x".into()]).unwrap();
-    crate::app::set_program_args(&c, vec!["y".into(), "z".into()]).unwrap();
+    crate::host::set_program_args(&c, vec!["x".into()]).unwrap();
+    crate::host::set_program_args(&c, vec!["y".into(), "z".into()]).unwrap();
     let r = builtin_env_args(&c, &[]).unwrap();
     assert_eq!(extract_strings(r), vec!["y", "z"]);
 }

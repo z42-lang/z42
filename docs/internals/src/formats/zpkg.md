@@ -315,7 +315,7 @@ zpkg 同样读不了。所以 **一个 z42vm 与它加载的每一个 `.zpkg` �
 `.z42/` 种子还停在旧格式，而构建树已经跟着 main 的格式 bump 走到了新版本。
 
 实现：`format/versions.rs` 的 `FormatVersionMismatch`（带类型的错误，Display 文案与
-历史字符串逐字相同）+ `app/mod.rs` 从 anyhow 链里 `downcast` 出它来与「普通读失败」区分。
+历史字符串逐字相同）+ `host/load.rs` 从 anyhow 链里 `downcast` 出它来与「普通读失败」区分。
 补救命令由错误类型自带：zpkg → `xtask build stdlib`，zbc → `xtask regen`；也可以改用
 `Z42_PORTABLE_VM=<配套的 z42vm>` 反过来迁就产物。
 

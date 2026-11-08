@@ -1,7 +1,7 @@
 // Z42EmbeddedTests.swift — embedded test-host (add-wasm-testhost G6).
 //
 // Runs the bundled test corpus THROUGH the embedded VM, exactly as desktop /
-// wasm do: Z42TestHost.runApp → z42_host_run_app → z42::app::run → the shared
+// wasm do: Z42TestHost.runApp → z42_host_run_app → z42::host::run_app → the shared
 // z42 test-agent → a JSON report file. Proves the SAME agent + bundle run on
 // iOS with a real filesystem (no VFS): the agent + stdlib + bundle are copied
 // into the test bundle under Resources/embedded/ by `xtask test app desktop

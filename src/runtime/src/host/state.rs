@@ -7,67 +7,20 @@
 //! takes the write lock and replaces with `None`. Multi-instance support
 //! is in Deferred — the current shape leaves the public API unchanged.
 
-use std::path::PathBuf;
-use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::vm::runtime::Module;
-use crate::vm::context::VmContext;
 
 use super::config::ResolvedConfig;
 
-/// Loaded user module bound to its own `VmContext`. v0.1 keeps one
-/// context per loaded `.zbc` so concurrent loads don't cross-contaminate
-/// static state. Future work may pool these once multi-instance lands
-/// (see embedding.md §12 Deferred).
-///
-/// The merged module is owned by `ctx` (`VmContext::with_module`, built by
-/// `boot::boot_context` — the same boot steps as `app::run`); read it via [`Self::module`].
-pub(crate) struct HostModule {
-    pub ctx: std::pin::Pin<Box<VmContext>>,
-    /// fix-host-static-init: outcome of running the merged packages' `__static_init__`,
-    /// done once on the first invoke. A failure is sticky — every later invoke reports
-    /// the same error instead of running against half-initialized statics.
-    pub static_init: OnceLock<Result<(), String>>,
-}
-
-impl HostModule {
-    pub(crate) fn module(&self) -> &Module {
-        self.ctx
-            .module()
-            .expect("HostModule.ctx is always built with a module (boot::boot_context)")
-    }
-}
-
-/// Resolved entry handle. Indexes into `HostModule::module().functions`.
+/// Resolved entry handle. Indexes into `super::LoadedProgram::module().functions`.
 #[derive(Clone, Copy)]
 pub(crate) struct HostEntry {
     pub module_idx: usize,
     pub fn_idx: usize,
 }
 
-/// Probe result for `z42.core.zpkg`. Captures the discovered path so the
-/// loader can re-read the zpkg into a fresh `Module` each time
-/// `load_zbc` is called (the runtime `Module` is not `Clone` because
-/// it owns indices that aliasing would invalidate; reload from disk is
-/// the simplest correct strategy for v0.1).
-///
-/// `None` when no `search_paths` entry contains `z42.core.zpkg` —
-/// callers that load a `.zbc` referencing corelib types will surface a
-/// runtime error at first reference, which is documented in §10.
-pub(crate) struct HostCorelib {
-    /// Absolute path to the discovered `z42.core.zpkg`.
-    pub zpkg_path: PathBuf,
-    /// Filename(s) recorded as initially-loaded zpkgs so
-    /// `LazyLoader::install_with_deps` skips them on lookup.
-    pub initially_loaded: Vec<String>,
-    /// Directory the zpkg was found in (handed to the lazy loader so it
-    /// can locate further dependencies).
-    pub libs_dir: PathBuf,
-}
-
 /// Shape of an in-process VM. Grows as host iterations land features:
-/// H1 holds only `config`; H2 adds `modules` / `entries` / `corelib`;
-/// future iterations may pool VmContexts per design.
+/// Loaded programs own their VM context and initialization state.
 pub(crate) struct HostState {
     /// Resolved configuration retained for diagnostics and the future
     /// hot-reload / multi-instance work that will need to inspect the
@@ -76,9 +29,8 @@ pub(crate) struct HostState {
     pub config: ResolvedConfig,
     /// `Arc` so `z42_host_invoke` can take its module out from under the
     /// `HOST` lock and run user code without holding it.
-    pub modules: Vec<std::sync::Arc<HostModule>>,
+    pub modules: Vec<std::sync::Arc<super::LoadedProgram>>,
     pub entries: Vec<HostEntry>,
-    pub corelib: Option<HostCorelib>,
 }
 
 // `ResolvedConfig` carries `Z42WriteSink` (function pointer) and a raw
@@ -102,12 +54,9 @@ pub(crate) enum InitOutcome {
 }
 
 /// Atomically transition Uninitialized → Initialized. The provided
-/// `corelib` is the result of probing `config.search_paths` for
-/// `z42.core.zpkg` (the caller does the I/O so this function stays
-/// purely about state transitions).
+/// Configuration has already been validated; this function only changes registry state.
 pub(crate) fn try_initialize(
     config: ResolvedConfig,
-    corelib: Option<HostCorelib>,
 ) -> InitOutcome {
     let mut guard = match HOST.write() {
         Ok(g) => g,
@@ -120,7 +69,6 @@ pub(crate) fn try_initialize(
         config,
         modules: Vec::new(),
         entries: Vec::new(),
-        corelib,
     });
     InitOutcome::Initialized
 }
@@ -157,7 +105,7 @@ pub(crate) fn is_valid_handle(handle_ptr: *const ()) -> bool {
 
 /// Run a closure with a read guard on the host state. Returns `None` if
 /// the VM is not initialized. Use this for non-mutating work that
-/// touches `modules` / `entries` / `corelib`.
+/// touches `modules` / `entries`.
 pub(crate) fn with_state_read<R>(
     f: impl FnOnce(&HostState) -> R,
 ) -> Option<R> {

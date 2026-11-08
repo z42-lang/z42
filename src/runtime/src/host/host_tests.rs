@@ -18,6 +18,9 @@ use std::sync::{Mutex, OnceLock};
 use super::config::{Z42HostConfig, Z42_HOST_ABI_VERSION};
 use super::error::Z42HostStatus;
 use super::*;
+use super::module::Z42Module;
+#[cfg(z42_have_embedding_hello)]
+use super::entry::Z42Entry;
 
 /// Serializes all host-API tests in this binary so they don't trip over
 /// each other's singleton state.
@@ -462,13 +465,21 @@ fn with_hello_session<R>(
     capture: &Mutex<Vec<u8>>,
     body: impl FnOnce(*mut Z42Host, *mut Z42Module) -> R,
 ) -> R {
+    with_hello_session_mode(capture, config::Z42ExecMode::Interp, body)
+}
+
+#[cfg(z42_have_embedding_hello)]
+fn with_hello_session_mode<R>(
+    capture: &Mutex<Vec<u8>>, mode: config::Z42ExecMode,
+    body: impl FnOnce(*mut Z42Host, *mut Z42Module) -> R,
+) -> R {
     let user_data = capture as *const Mutex<Vec<u8>> as *mut c_void;
     let libs_path = libs_dir_cstring();
     let search_paths: [*const c_char; 2] = [libs_path.as_ptr(), ptr::null()];
     let cfg = Z42HostConfig {
         abi_version: Z42_HOST_ABI_VERSION,
         struct_size: config::MIN_CONFIG_SIZE as u32,
-        exec_mode: config::Z42ExecMode::Interp as i32,
+        exec_mode: mode as i32,
         heap_initial_bytes: 0,
         heap_max_bytes: 0,
         stdout_sink: Some(host_simple_capture_sink),
@@ -1277,4 +1288,49 @@ fn invoke_deep_recursion_is_fatal() {
     });
     let out = String::from_utf8_lossy(&capture.lock().unwrap()).into_owned();
     assert!(!out.contains("caught") && !out.contains("finally"), "a handler ran: {out}");
+    assert!(crate::vm::exec::stack_guard::take_report().is_none(), "C ABI must consume its fatal report after returning it in last_error");
+
+}
+
+#[test]
+fn package_resolver_can_shutdown_the_host_during_load() {
+    let _g = test_lock();
+    reset_host();
+    let cfg = default_config();
+    let mut handle = ptr::null_mut();
+    assert_eq!(unsafe { z42_host_initialize(&cfg, &mut handle) }, Z42HostStatus::Ok);
+    struct ShutdownResolver;
+    impl ZpkgResolver for ShutdownResolver {
+        fn resolve(&self, _namespace: &str) -> Option<Vec<u8>> {
+            assert_eq!(unsafe { z42_host_shutdown(state::HOST_SENTINEL as *mut Z42Host) }, Z42HostStatus::Ok);
+            None
+        }
+    }
+    assert_eq!(install_zpkg_resolver(Arc::new(ShutdownResolver)), Z42HostStatus::Ok);
+    let mut bytes = vec![0; 16];
+    use crate::metadata::format::*;
+    bytes[..4].copy_from_slice(&ZBC_MAGIC);
+    bytes[4..6].copy_from_slice(&ZBC_VERSION_MAJOR.to_le_bytes());
+    bytes[6..8].copy_from_slice(&ZBC_VERSION_MINOR.to_le_bytes());
+    let mut module = ptr::null_mut();
+    let status = unsafe { z42_host_load_zbc(handle, bytes.as_ptr(), bytes.len(), &mut module) };
+    assert_eq!(status, Z42HostStatus::NotInit);
+    assert!(module.is_null());
+}
+
+#[test]
+#[cfg(all(z42_have_embedding_hello, feature = "jit"))]
+fn c_host_jit_mode_uses_the_shared_engine_and_returns_values() {
+    let _g = test_lock();
+    reset_host();
+    let capture = Mutex::new(Vec::new());
+    with_hello_session_mode(&capture, config::Z42ExecMode::Jit, |host, module| {
+        let first = invoke_hello_fn(host, module, "UserStatic");
+        let second = invoke_hello_fn(host, module, "UserStatic");
+        assert_eq!((first.tag, first.payload), (z42_abi::Z42_VALUE_TAG_I64, 42));
+        assert_eq!(second.payload, first.payload);
+        assert!(state::with_state_read(|s| s.modules[0].context().counters_snapshot().jit_methods_compiled).unwrap() > 0);
+        invoke_hello_fn(host, module, "Main");
+    });
+    assert!(String::from_utf8(capture.into_inner().unwrap()).unwrap().contains("Hello, World!"));
 }

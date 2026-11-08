@@ -96,7 +96,7 @@ VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 
 | 能力 | `interop` | 外部 C 库互操作与扩展库加载 | vm、pal、abi |
 | 工具 | `debugger` | 断点、单步、查看（调试引擎 + DAP 服务） | vm |
 | 工具 | `profiler` | CPU / 分配 / 锁 / 堆剖析与覆盖率 | vm |
-| 组装 | 门面（crate 根：`lib.rs`、`config/`、`app/mod.rs`） | 配置装配，按 feature 组装 Runtime | 以上全部 |
+| 组装 | 门面（crate 根：`lib.rs`、`config/`、`host/app.rs`） | 配置装配，按 feature 组装 Runtime | 以上全部 |
 | 产品 | `z42-host`（已有 crate，吸收 `src/host` C ABI 薄壳）、`z42vm`（可执行文件，`main.rs`） | 嵌入 / 命令行 | 门面 |
 
 分层设计约束：
@@ -158,7 +158,7 @@ vm/
 - **`debugger/`**：VM 进程内的调试代理（同 Node inspector / JVM JDWP 代理）。`engine/`（断点表——源位置经 metadata 行号表映射到 (FnId, pc)、条件与异常断点；step in / over / out；**默认全体暂停**，经 vm/threads 的 `suspend_all`，即路线图 Q14 的建议答案；帧 / 局部变量 / 对象检查；表达式求值复用 REPL 编译通道）+ `adapter/`（DAP：stdio / TCP 传输、会话分派，`z42vm --debug` 时起服务线程，feature `dap`）。前端（`z42d dbg`、VS Code 插件）不在 runtime 目录。前置：编译器把局部变量名与作用域写进 .zsym。
 - **`profiler/`**：`cpu/`（safepoint 采样，现 `profiler/cpu.rs`）、`alloc/`（TLAB 每满 N KB 采一次栈，对标 .NET AllocationTick / JFR）、`locks/`（锁争用探针，现 `corelib/core/sync_contention.rs`）、`heap/`（堆快照、保留链，现 `profiler/heap/snapshot.rs` / `profiler/heap/retention.rs`，遍历用 `gc/walk.rs`）、`coverage/`、`jitmap/`（perf map / jitdump）、`export/`（folded、chrome / perfetto trace、V8 heapsnapshot、pprof）。`Std.Diagnostics` 的剖析类 builtin 由它自己登记。
 - **监控 API（vm/diagnostics/monitor）**：工具槽 DEBUGGER / PROFILER / COVERAGE；事件含函数进出、行 / pc 单步、分支、异常抛出与捕获、分配采样、safepoint 采样、线程起止、模块加载与卸载、JIT 编译、GC 阶段；按函数开关，未开启的函数零成本，开启后解释器走插桩分派、JIT 函数回退解释器（deopt）。对标 CPython PEP 669、CoreCLR ICorDebug / ICorProfiler、JVMTI。
-- **门面（crate 根）**：`lib.rs`（Runtime、RuntimeBuilder）、`config/`（现 `config.rs` + `config/*`，`split.rs` 将门面设置转换为各子系统拥有的 `GcConfig` / `VmConfig` / `JitConfig`）、`app/mod.rs`（现 app / boot / startup / vm）、`crash.rs`（现 `signal_handler.rs`，可选安装）。feature：jit、interop、debugger、profiler、net、tls、process、repl、mimalloc；平台预设是 feature 组合。
+- **门面（crate 根）**：`lib.rs`（Runtime、RuntimeBuilder）、`config/`（现 `config.rs` + `config/*`，`split.rs` 将门面设置转换为各子系统拥有的 `GcConfig` / `VmConfig` / `JitConfig`）、`host/app.rs`（现 app / boot / startup / vm）、`crash.rs`（现 `signal_handler.rs`，可选安装）。feature：jit、interop、debugger、profiler、net、tls、process、repl、mimalloc；平台预设是 feature 组合。
 - **hot-reload** 不设模块：loader 重载新版本包、runtime 做函数与类型的版本映射、exec/engine 负责 deopt 与替换，与调试器共用 deopt 和全体暂停。
 
 ### 4.5 易混边界

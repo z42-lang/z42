@@ -5,7 +5,7 @@ import Z42VMC
 ///
 /// Wraps the `z42_host_run_app` C symbol: load a self-contained app (`.zpkg`)
 /// and run its entry, sourcing the stdlib from `libsDir`, then tear down. This
-/// is the same core (`z42::app::run`) the desktop C shell and the Android JNI
+/// is the same core (`z42::host::run_app`) the desktop C shell and the Android JNI
 /// bridge call — one implementation, every platform.
 ///
 /// iOS has a real filesystem, so the bundled test-agent + stdlib zpkgs + test

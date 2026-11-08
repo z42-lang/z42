@@ -3,11 +3,11 @@ use std::{path::PathBuf, sync::Arc};
 use crate::{corelib::application::Services, pal::fs::Vfs};
 
 pub(crate) fn services() -> Services {
-    Services { run_isolated, report_on_exit: crate::app::report_on_exit }
+    Services { run_isolated, report_on_exit: crate::host::report_on_exit }
 }
 
 fn run_isolated(path: &str, entry: Option<&str>, libs: Option<PathBuf>, vfs: &Arc<dyn Vfs>) -> anyhow::Result<()> {
-    crate::app::run(path, entry, crate::app::RunOpts {
+    crate::host::run_app(path, entry, crate::host::RunOpts {
         mode: crate::metadata::ExecMode::Interp,
         libs_dir: libs,
         program_args: Vec::new(),

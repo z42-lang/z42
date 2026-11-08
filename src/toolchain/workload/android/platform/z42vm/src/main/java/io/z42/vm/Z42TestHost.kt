@@ -5,7 +5,7 @@ package io.z42.vm
  *
  * Wraps the `z42_host_run_app` C symbol via JNI: load a self-contained app
  * (`.zpkg`) and run its entry, sourcing the stdlib from [libsDir], then tear
- * down. Same core (`z42::app::run`) the desktop C shell and iOS Swift call —
+ * down. Same core (`z42::host::run_app`) the desktop C shell and iOS Swift call —
  * one implementation, every platform.
  *
  * Android has a real filesystem, so a caller copies the bundled test-agent +

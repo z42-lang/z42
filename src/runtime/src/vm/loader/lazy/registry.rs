@@ -225,7 +225,7 @@ impl LazyLoader {
         // z42c.pipeline.zpkg from the SDK's programs/z42c/) carries a transitive dep
         // closure (z42c.semantics + siblings) that sits NEXT TO it — outside the VM's
         // startup search_dirs (app entry dir + Z42_LIBS). Add the loaded artifact's
-        // own directory to search_dirs so those siblings resolve, mirroring app::run's
+        // own directory to search_dirs so those siblings resolve, mirroring host::run_app's
         // "entry-zpkg dir first" rule. Appended (lowest priority) + deduped so it never
         // shadows the app dir / Z42_LIBS; harmless when path has no colocated deps.
         if let Some(parent) = std::path::Path::new(path).parent() {

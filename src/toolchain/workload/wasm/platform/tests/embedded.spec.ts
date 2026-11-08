@@ -4,7 +4,7 @@
 // embedding-API contract): this serves the self-contained deployable produced
 // by `xtask test app wasm bundle` (artifacts/intermediate/toolchain/workload/wasm/deploy/),
 // opens its index.html — which runs the shared z42 test-agent over the bundled
-// corpus entirely in-browser (runTestApp → z42::app::run) — and asserts the
+// corpus entirely in-browser (runTestApp → z42::host::run_app) — and asserts the
 // JSON report has no failures. Run via playwright.embedded.config.ts, whose
 // webServer roots at the deployable dir.
 import { test, expect } from '@playwright/test';

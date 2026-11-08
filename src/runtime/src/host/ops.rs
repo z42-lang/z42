@@ -1,37 +1,24 @@
-//! Operational logic for the host C ABI: corelib probe, `.zbc` load,
-//! entry resolution, and invocation. Kept distinct from `mod.rs` so the
-//! `extern "C"` surface stays a thin dispatcher.
-//!
-//! Spec: docs/internals/src/runtime/embedding.md §4.4 + 变更 add-embedding-api/design.md.
+//! C ABI operation adapters over the shared Rust host service.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result};
 
 use crate::corelib::io;
-use crate::interp;
-use crate::vm::runtime::Module;
 use crate::{
     object::Value,
-    vm::loader::{load_artifact, load_artifact_from_bytes, merge_modules},
+    vm::loader::load_artifact,
 };
 
 use super::config::ResolvedConfig;
 use super::marshal::{value_to_z42_value, z42_value_to_value};
-use super::resolver::ZpkgResolver;
-use super::state::{HostCorelib, HostEntry, HostModule};
+use super::state::HostEntry;
 
-/// Probe the configured `search_paths` for `z42.core.zpkg`. Records the
-/// path; the actual `Module` is re-read from disk on every
-/// `build_host_module` call (cheap relative to user-code execution and
-/// avoids the `Module` `Clone` requirement, which would otherwise
-/// duplicate index tables).
-///
-/// Returns `Ok(None)` if no path contains the file. User code that
-/// references corelib types will then surface a normal "type not found"
-/// diagnostic at first reference.
-pub(crate) fn probe_corelib(config: &ResolvedConfig) -> Result<Option<HostCorelib>> {
+/// Validate an available prelude during C host initialization.
+/// Missing corelib remains valid for self-contained modules. Actual preparation
+/// and dependency selection are performed by the shared loader for each program.
+pub(crate) fn probe_corelib(config: &ResolvedConfig) -> Result<()> {
     const CORELIB_FILE: &str = "z42.core.zpkg";
     let fs = &*config.vfs;
     for raw in &config.search_paths {
@@ -48,184 +35,25 @@ pub(crate) fn probe_corelib(config: &ResolvedConfig) -> Result<Option<HostCoreli
         let path_str = candidate.to_string_lossy().into_owned();
         load_artifact(fs, &path_str)
             .with_context(|| format!("validating corelib at {path_str}"))?;
-        return Ok(Some(HostCorelib {
-            zpkg_path: candidate,
-            initially_loaded: vec![CORELIB_FILE.to_string()],
-            libs_dir: dir,
-        }));
+        return Ok(());
     }
-    Ok(None)
+    Ok(())
 }
 
-/// Build a fully-prepared user `Module` and a fresh `VmContext` to back
-/// it. Mirrors `src/runtime/src/cli/main.rs` lines 295–412:
-///
-/// 1. parse the user `.zbc` from bytes (`load_artifact_from_bytes`)
-/// 2. eager-load corelib (`z42.core.zpkg`) if found via `search_paths`
-/// 3. for each `import_namespace` in the user module, resolve the
-///    matching `.zpkg` files in `libs_dir` and eager-load those too
-/// 4. merge all modules and rebuild the type / block / func indices
-/// 5. install the lazy loader with an empty `declared_candidates` (the
-///    eager merge already pulled in everything Hello.Main needs;
-///    multi-zpkg lazy resolution lands in H3)
-///
-/// Keeping the merge eager — instead of relying on `declared_candidates`
-/// — is intentional for H2: the host is single-instance and does the
-/// dependency walk once per `load_zbc`, so we trade a small load-time
-/// cost for "no surprising lazy lookups during invoke".
-pub(crate) fn build_host_module(
-    vfs: &Arc<dyn crate::pal::fs::Vfs>,
-    bytes: &[u8],
-    corelib: Option<&HostCorelib>,
-    resolver: Option<&Arc<dyn ZpkgResolver>>,
-) -> Result<HostModule> {
-    let fs = &**vfs;
-    let user_artifact = load_artifact_from_bytes(bytes)
-        .context("z42_host_load_zbc: cannot parse bytes as a .zbc / .zpkg artifact")?;
-
-    let user_module_name = user_artifact.module.name.clone();
-    let mut modules: Vec<Module> = Vec::with_capacity(4);
-    let mut initially_loaded: Vec<String> = Vec::new();
-    let mut eager_impl_pairs: Vec<(String, String)> = Vec::new();
-    let libs_dir = corelib.as_ref().map(|c| c.libs_dir.clone());
-
-    // De-dup tracker for the search_paths fallback: ensures the same
-    // .zpkg file on disk isn't loaded twice when multiple namespaces
-    // happen to live in it (e.g. Std.Collections + Std.Core both ship
-    // from z42.core.zpkg).
-    let mut loaded_paths: std::collections::HashSet<PathBuf> =
-        std::collections::HashSet::new();
-
-    // Build the full namespace list: corelib is always probed first
-    // (even when the user wrote no `using` statement), followed by the
-    // user .zbc's import_namespaces in declaration order.
-    let mut namespaces: Vec<String> = vec!["z42.core".to_string()];
-    for ns in &user_artifact.import_namespaces {
-        if !namespaces.iter().any(|x| x == ns) {
-            namespaces.push(ns.clone());
-        }
-    }
-
-    for ns in &namespaces {
-        // (a) resolver-first
-        if let Some(r) = resolver {
-            if let Some(bytes) = r.resolve(ns) {
-                let dep = load_artifact_from_bytes(&bytes).with_context(|| {
-                    format!("zpkg_resolver returned malformed bytes for namespace `{ns}`")
-                })?;
-                eager_impl_pairs.extend(dep.impl_pairs.iter().cloned());
-                modules.push(dep.module);
-                initially_loaded.push(format!("{ns}.zpkg"));
-                continue;
-            }
-        }
-        // (b) fallback: search_paths / corelib path
-        if ns == "z42.core" {
-            if let Some(c) = corelib {
-                let path_str = c.zpkg_path.to_string_lossy().into_owned();
-                let corelib_artifact = load_artifact(fs, &path_str).with_context(|| {
-                    format!("z42_host_load_zbc: re-reading corelib at {path_str}")
-                })?;
-                eager_impl_pairs.extend(corelib_artifact.impl_pairs.iter().cloned());
-                modules.push(corelib_artifact.module);
-                initially_loaded.extend(c.initially_loaded.iter().cloned());
-                if let Ok(canonical) = c.zpkg_path.canonicalize() {
-                    loaded_paths.insert(canonical);
-                }
-            }
-            // Corelib resolver miss + no search_paths corelib is OK: a
-            // self-contained .zbc may not need corelib. Runtime surfaces
-            // "undefined function" at invoke time if user code reaches
-            // for Console.WriteLine etc.
-        } else if let Some(libs) = libs_dir.as_ref() {
-            let libs_paths = vec![libs.clone()];
-            let Ok(zpkg_paths) =
-                crate::vm::loader::resolve_namespace(fs, ns, &libs_paths)
-            else {
-                continue;
-            };
-            for zpkg_path in zpkg_paths {
-                let canonical = zpkg_path
-                    .canonicalize()
-                    .unwrap_or_else(|_| zpkg_path.clone());
-                if !loaded_paths.insert(canonical) {
-                    continue;
-                }
-                let path_str = zpkg_path.to_string_lossy().into_owned();
-                let dep = load_artifact(fs, &path_str).with_context(|| {
-                    format!("z42_host_load_zbc: loading import dependency {path_str}")
-                })?;
-                eager_impl_pairs.extend(dep.impl_pairs.iter().cloned());
-                modules.push(dep.module);
-                if let Some(name) = zpkg_path.file_name().and_then(|n| n.to_str()) {
-                    initially_loaded.push(name.to_string());
-                }
-            }
-        }
-    }
-
-    // Push the user module last so merge_modules' name-keep behaviour
-    // doesn't accidentally rename it to the first dependency.
-    eager_impl_pairs.extend(user_artifact.impl_pairs.iter().cloned());
-    modules.push(user_artifact.module);
-
-    let final_module = if modules.len() == 1 {
-        modules.into_iter().next().unwrap()
-    } else {
-        let mut m = merge_modules(modules)
-            .context("z42_host_load_zbc: merging dependencies into user module")?;
-        m.name = user_module_name;
-        crate::vm::runtime::types::build_type_registry(&mut m);
-        crate::vm::runtime::types::verify_constraints(&m).with_context(|| {
-            format!("z42_host_load_zbc: constraint verification failed for `{}`", m.name)
-        })?;
-        crate::vm::loader::package::build_block_indices(&mut m);
-        crate::vm::loader::package::build_func_index(&mut m);
-        m
-    };
-
-    // fix-host-static-init: the post-merge boot steps are `app::run`'s, shared via
-    // `boot` — this path used to hand-copy an older subset (no cctor registration, no
-    // lazy-loader seeding, no availability folding, module kept outside the ctx).
-    // FFI/embedded path loads the module from bytes (no on-disk entry dir), so
-    // the search set is just the libs dir (support-colocated-zpkg-deps).
-    let ctx = crate::assembly::boot::boot_context(final_module, crate::assembly::boot::BootPlan {
-        vfs: Arc::clone(vfs),
-        search_dirs: libs_dir.into_iter().collect(),
-        declared_candidates: Vec::new(),
-        initially_loaded,
-        eager_impl_pairs,
-        eager_deps: Vec::new(),
-    });
-    if let Some(m) = ctx.module() {
-        crate::assembly::boot::prepare_execution(&ctx, m);
-    }
-
-    Ok(HostModule { ctx, static_init: std::sync::OnceLock::new() })
-}
-
-/// Look up a fully-qualified function name in a host-module's function
-/// table. Accepts both the dot form `"namespace.Type.method"` and the
-/// `::` form `"namespace.Type::method"` (the spec uses the latter for
-/// readability; the bytecode currently records the former).
-pub(crate) fn resolve_fqn(module: &Module, fqn: &str) -> Result<usize> {
-    if fqn.is_empty() {
-        bail!("z42_host_resolve_entry: fqn is empty");
-    }
-    if let Some(&idx) = module.func_index.get(fqn) {
-        return Ok(idx);
-    }
-    // Tolerate the "ns.Type::method" form by normalising `::` → `.`.
-    if fqn.contains("::") {
-        let normalised = fqn.replace("::", ".");
-        if let Some(&idx) = module.func_index.get(&normalised) {
-            return Ok(idx);
-        }
-    }
-    Err(anyhow!(
-        "z42_host_resolve_entry: function `{fqn}` not found in module `{}`",
-        module.name
-    ))
+/// Load bytes through the same preparation service as file-based application runs.
+pub(crate) fn build_host_module(config: &ResolvedConfig, bytes: &[u8]) -> Result<super::LoadedProgram> {
+    super::LoadedProgram::load_bytes(bytes, super::LoadOptions {
+        mode: match config.exec_mode {
+            super::config::Z42ExecMode::Default => super::default_mode(),
+            super::config::Z42ExecMode::Interp => crate::metadata::ExecMode::Interp,
+            super::config::Z42ExecMode::Jit => crate::metadata::ExecMode::Jit,
+            super::config::Z42ExecMode::Aot => crate::metadata::ExecMode::Aot,
+        },
+        vfs: Arc::clone(&config.vfs),
+        search_dirs: config.search_paths.iter().map(PathBuf::from).collect(),
+        resolver: config.zpkg_resolver.clone(),
+        eager_dependencies: true,
+    })
 }
 
 /// RAII guard that toggles the per-thread "host sink active" flag.
@@ -258,61 +86,12 @@ impl Drop for HostSinkGuard {
 /// throw escaping the entry surfaces as `Z42_HOST_ERR_VM_EXCEPTION`
 /// via `classify_invoke_error`.
 pub(crate) fn invoke_impl(
-    host_module: &HostModule,
+    host_module: &super::LoadedProgram,
     entry: &HostEntry,
     args_bytes: &[Value],
 ) -> Result<Option<Value>> {
-    let module = host_module.module();
-    let func = module
-        .functions
-        .get(entry.fn_idx)
-        .ok_or_else(|| anyhow!("z42_host_invoke: entry function index out of bounds"))?;
-
-    if args_bytes.len() != func.param_count {
-        bail!(
-            "arg-count-mismatch: function `{}` expects {} arg(s), got {}",
-            func.name,
-            func.param_count,
-            args_bytes.len()
-        );
-    }
-
     let _sink_guard = HostSinkGuard::enter();
-    let ctx = &*host_module.ctx;
-    // Engine entry from the host. A context installs its VM / heap thread-locals
-    // only when its frame stack goes 0 → 1 (`vm/exec/call/engine_guards.rs`); a host
-    // re-entering this module from a native callback of *another* VM on this
-    // thread finds this context's stack already non-empty (it called out to that
-    // VM) while the thread-locals name the other VM. Install them here, every
-    // time; each guard restores what it found, and is a no-op when they already
-    // name this VM.
-    #[cfg(feature = "native-interop")]
-    let _vm_guard = crate::vm::exec::active_vm::VmGuard::enter(ctx);
-    let _heap_guard = crate::vm::exec::ambient::HeapGuard::enter(ctx.heap());
-    // fix-host-static-init: run the merged packages' `__static_init__` once per module,
-    // before the first entry — `Vm::run` does the same right before `Main`. Inside the
-    // sink guard so initializer output reaches the host. `init_static_fields` clears all
-    // statics first, so it must never run a second time for this module.
-    let init = host_module
-        .static_init
-        .get_or_init(|| interp::init_static_fields(ctx, module).map_err(|e| format!("{e:#}")));
-    if let Err(msg) = init {
-        bail!("uncaught exception during static initialization: {msg}");
-    }
-    let ret = interp::run_returning(ctx, module, func, args_bytes);
-    // runtime-audit P0-4: a fatal VM error overrides whatever the call
-    // produced (`z42_host_invoke` maps the prefix to `Z42_HOST_ERR_FATAL`).
-    if crate::vm::exec::stack_guard::is_fatal(ctx) {
-        bail!("{}", crate::vm::exec::stack_guard::take_report()
-            .unwrap_or_else(|| format!("{}stack overflow", crate::vm::exec::stack_guard::FATAL_PREFIX)));
-    }
-    let ret = ret?;
-    // defer-class-initialization: initializers of packages first touched during this call
-    // run lazily and can only record their failure — surface it like `Vm::run` does.
-    if let Some(msg) = ctx.take_static_init_error() {
-        bail!("uncaught exception during static initialization: {msg}");
-    }
-    Ok(ret)
+    host_module.invoke_index(entry.fn_idx, args_bytes)
 }
 
 /// Marshal a slice of `Z42Value` into runtime `Value`s. Errors mirror
@@ -325,16 +104,4 @@ pub(crate) fn marshal_args(args: &[z42_abi::Z42Value]) -> Result<Vec<Value>> {
 /// `out_result`. `None` (void return) maps to a NULL-tagged value.
 pub(crate) fn marshal_return(value: Option<&Value>) -> Result<z42_abi::Z42Value> {
     value_to_z42_value(value)
-}
-
-/// Search-path probe shared with `probe_corelib` for diagnostic logging.
-#[allow(dead_code)] // referenced by future H3 multi-zpkg work
-pub(crate) fn libs_dir_from_search_paths(config: &ResolvedConfig) -> Option<PathBuf> {
-    for raw in &config.search_paths {
-        let p = Path::new(raw);
-        if p.is_dir() {
-            return Some(p.to_path_buf());
-        }
-    }
-    None
 }

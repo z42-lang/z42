@@ -1,6 +1,6 @@
 # 嵌入宿主 API（VM 侧实现）
 
-> 代码：`src/runtime/src/host/`（`mod.rs` extern "C" 分发 · `config.rs` 配置校验 · `error.rs` 状态码与 TLS
+> 代码：`src/runtime/src/host/`（`ffi.rs` extern "C" 分发 · `config.rs` 配置校验 · `error.rs` 状态码与 TLS
 > last_error · `state.rs` 单例状态 · `ops.rs` 加载/解析/调用 · `marshal.rs` 值编组 · `resolver.rs` zpkg 钩子）、
 > `src/runtime/include/z42_host.h`（Tier 1 头文件）、`src/runtime/crates/z42-host/`（Tier 2 crate）、
 > `src/runtime/src/corelib/io/mod.rs`（sink 路由）、`src/toolchain/workload/{desktop,ios,android,wasm}/`（Tier 3 facade）。
@@ -57,7 +57,7 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 | 路径 | 内容 |
 |------|------|
 | `src/runtime/include/z42_host.h` | Tier 1 C 头文件（与 `z42_abi.h` 平行）。**唯一一份**——iOS / Android facade 目录下那两个同名文件是只有一行 `#include` 的转发头 |
-| `src/runtime/src/host/` | C ABI 在 VM 内的实现（Rust `extern "C"`） |
+| `src/runtime/src/host/` | Rust 宿主服务及 C ABI 适配（`ffi.rs`） |
 | `src/runtime/crates/z42-host/` | Tier 2 Rust crate（`z42-host`，lib 名 `z42_host`） |
 | `src/toolchain/workload/fixtures/` | 各平台契约测试共用的 z42 夹具（`hello.z42` / `multi_line.z42`） |
 | `src/toolchain/workload/{desktop,ios,android,wasm}/platform/` | Tier 3 facade |
@@ -86,9 +86,8 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 ```rust
 pub(crate) struct HostState {
     pub config:  ResolvedConfig,
-    pub modules: Vec<Arc<HostModule>>,   // 每个已 load 的产物 + 它自己的 VmContext
+    pub modules: Vec<Arc<LoadedProgram>>,   // 每个已 load 的产物 + 它自己的 VmContext
     pub entries: Vec<HostEntry>,    // { module_idx, fn_idx }
-    pub corelib: Option<HostCorelib>,
 }
 ```
 
@@ -102,7 +101,7 @@ pub(crate) struct HostState {
 所以陈旧句柄不会被误当成有效句柄用——但也仅此而已，同一进程内 shutdown→initialize 之后
 拿老句柄会命中新 VM 的同下标条目。多实例落地时这里要换成带代龄的句柄。
 
-**用户代码不在锁内跑**：`z42_host_invoke` 在读锁下把 `Arc<HostModule>` 和 `HostEntry` 拷出来就放锁，
+**用户代码不在锁内跑**：`z42_host_invoke` 在读锁下把 `Arc<LoadedProgram>` 和 `HostEntry` 拷出来就放锁，
 再执行。宿主回调（sink、resolver）里重入 `load_zbc` / `shutdown` 要拿写锁，若 invoke 还持着读锁就会自锁。
 回调里 `shutdown` 掉 VM 时，这次调用手里的 `Arc` 让模块活到调用结束。
 
@@ -112,29 +111,12 @@ pub(crate) struct HostState {
 
 ### 每个 module 一个 VmContext
 
-`HostModule` 持 `Pin<Box<VmContext>>`，模块本身由 ctx 拥有。
+`LoadedProgram` 持 `Pin<Box<VmContext>>`，模块本身由 ctx 拥有。
 这样并发 load 两个产物不会互相污染静态状态。
 
-`ops::build_host_module` 的流程：
+`ops::build_host_module` 将 C 配置转换为 `LoadOptions` 并调用 `LoadedProgram::load_bytes`，后者和文件应用共用加载及启动流程。C 宿主启用依赖预加载，以便在执行前解析依赖中的入口；resolver 优先于文件搜索。
 
-1. `load_artifact_from_bytes` 解析用户 `.zbc` / `.zpkg`；
-2. namespace 列表 = `["z42.core"]` + 用户产物的 `import_namespaces`（去重、保持声明顺序）；
-3. 逐个 namespace **先问 resolver、miss 再扫 `search_paths`**（见下一节）；
-4. **eager 合并**所有依赖模块 → `merge_modules` → 重建类型注册表 / 约束校验 / block 索引 / func 索引；
-5. `boot::boot_context` 建 ctx（与 `app::run` 走同一套 boot 步骤：cctor 注册、lazy loader 播种、
-   availability 折叠），再 `boot::prepare_execution`。
-
-第 4 步选 eager 而不是靠 `declared_candidates` 懒解析，是刻意的：宿主是单实例、每次 `load_zbc`
-只走一遍依赖，用一点加载期开销换「invoke 期间不会有意外的懒查找」。
-
-> 第 5 步必须走 `boot::boot_context`，不能手抄。手抄的子集会缺 cctor 注册、
-> lazy loader 播种、availability 折叠，导致嵌入路径的静态初始化行为和 `z42vm` 不一致。
-
-静态初始化本身挂在 `HostModule::static_init: OnceLock<Result<(), String>>` 上，
-第一次 invoke 时跑、且**只跑一次**（`init_static_fields` 会先清空所有静态字段，跑第二遍会把已初始化的状态抹掉）。
-失败是粘性的：之后每次 invoke 都返回同一条错误，而不是拿半初始化的静态字段继续执行。
-
----
+初始化由 `LoadedProgram::initialized` 保证每个程序只准备一次，失败保持终态；静态字段、初始化器及 VM 资源在后续调用之间保留。调用参数检查、执行模式选择、异常和 fatal 收尾由统一调用服务负责，C 层只转换结果。
 
 ## zpkg 依赖解析顺序
 
@@ -253,7 +235,7 @@ fn classify_invoke_error(msg: &str) -> Z42HostStatus {
 }
 ```
 
-- `arg-count-mismatch:` 由 `ops::invoke_impl` 在**任何其他检查之前**抛出，所以它优先级最高。
+- `arg-count-mismatch:` 由 `LoadedProgram::invoke_index` 在执行之前抛出，所以它优先级最高。
 - `uncaught exception:` 由 `vm::exec::exception::format_uncaught` 钉住（`src/runtime/src/vm/exec/exception/mod.rs`），
   是 z42 异常输出的稳定契约。
 - `undefined function` 是解释器派发期找不到符号的错误（典型场景：corelib 没解析到，
@@ -272,18 +254,16 @@ fn classify_invoke_error(msg: &str) -> Z42HostStatus {
 ### 被接受但被忽略的配置字段
 
 - `heap_initial_bytes` / `heap_max_bytes` 只进 `ResolvedConfig` 和 Debug 输出，**没有消费点**。
-- `exec_mode` 只做 `from_raw` 合法性校验 + `check_feature_available`（feature 没开就报 `ERR_FEATURE_OFF`）。
-  校验之后没人再看它：句柄式 invoke 永远走 `interp::run_returning`。
-  （`z42_host_run_app` 是另一条路，用 `app::default_mode()`，与 `Z42HostConfig` 无关。）
+- `exec_mode` 经合法性和 feature 校验后存入 `LoadedProgram`，调用时选择对应引擎。Default 使用构建默认后端；JIT 支持参数和返回值，AOT 尚未实现，会在执行时明确报错。一次性 `z42_host_run_app` 使用构建默认模式。
 
-这两处的现状写进了契约页的「当前不支持」表。要真正接上，落点分别是 GC 配置与 `vm::run` 的后端选择。
+堆容量字段的限制见契约页「当前不支持」；执行模式由统一宿主服务处理。
 
 ---
 
 ## 值编组
 
 `marshal.rs` 目前只处理四个 tag：`NULL` / `I64` / `F64` / `BOOL`，两个方向对称。
-其他 tag 一律 `bail!`，由 `mod.rs` 映射成 `ERR_ARG_MISMATCH`。
+其他 tag 一律 `bail!`，由 `ffi.rs` 映射成 `ERR_ARG_MISMATCH`。
 `None`（void 返回）编组成 NULL tag，所以宿主的 `out_result` 永远拿到一个有定义的值。
 
 字符串 / 数组 / 对象要跨边界，需要的不只是 marshal 的分支，而是一套跨调用的生命周期方案
@@ -377,3 +357,13 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
    Android `cpp/z42vm_jni.c`、wasm `wasm/platform/src/lib.rs`）。
 5. `src/runtime/src/host/host_tests.rs`（状态码路径）+ `workload/desktop/tests/r1_r7.c`（外部 C 消费者）。
 6. [嵌入 C ABI 契约](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)——对外可见的任何变化都要落到那一页。
+
+## CLI 与嵌入端共用的 Rust 服务
+
+`host::LoadedProgram` 拥有一个加载后的模块及其固定地址上下文。`load_file` 与 `load_bytes` 将产物交给同一个 `host/load.rs` 准备：解析宿主 resolver、选择 prelude、解析依赖、去重并合并模块、验证约束，然后经 `host/boot.rs` 完成可用性裁剪、初始化器登记和链接。
+
+`LoadOptions` 显式携带 VFS、搜索目录、resolver、执行模式及依赖预加载策略。字节输入没有隐式入口目录；文件应用按入口目录、配置 probing 路径、标准库目录构造搜索顺序。需要在调用前解析依赖包入口的 C 宿主启用预加载；应用默认按需加载。两种策略共用解析与合并实现。
+
+`LoadedProgram::invoke` 统一校验参数数量、安装可嵌套恢复的活动 VM/堆守卫、初始化、按模式执行及异常收尾。初始化状态由程序持有，只执行一次，准备失败保持终态。JIT 调用保留参数和返回值，并复用该 VM 的编译器及代码生命周期；不可用模式返回错误。
+
+`host::run_app` 在同一服务上提供一次性应用运行，CLI 只解析参数及处理进程退出。C ABI 位于 `host/ffi.rs`，将句柄映射到 `Arc<LoadedProgram>`；加载前复制配置并释放注册表锁，调用前取得程序强引用并释放锁，宿主 resolver 或输出回调可以重入而不持有宿主注册表锁。

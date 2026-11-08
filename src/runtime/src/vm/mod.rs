@@ -55,7 +55,7 @@ impl Vm {
         let entry_name = Self::resolve_entry_in(module, hint)?;
 
         // FuncRef slots + dispatch tokens (shared with the embedding host path).
-        crate::assembly::boot::prepare_execution(ctx, module);
+        crate::host::boot::prepare_execution(ctx, module);
 
         let entry = module
             .functions
