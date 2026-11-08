@@ -184,6 +184,12 @@ env = { Z42_HOME = "{sdk}", Z42_PROBING_PATHS = "{case}/vendor" }
 exit = 0
 stdout_equals = "leaf"
 
+# Preserve the installed main when selected-dependency validation fails.
+[[step]]
+tool = "copy"
+from = "app/published/programs/app.zpkg"
+to = "saved-app.zpkg"
+
 # Reachable invalid packages still reject publish, even when unrelated junk is ignored.
 [[step]]
 tool = "copy"
@@ -205,3 +211,28 @@ args = ["publish", "{case}/app/z42.toml", "--no-build"]
 env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
 exit = 1
 stderr_contains = ["cannot read publish dependency", "republish.leaf.zpkg"]
+
+[[step]]
+tool = "check"
+same_bytes = [["saved-app.zpkg", "app/published/programs/app.zpkg"]]
+
+[[step]]
+tool = "copy"
+from = "vendor/republish.leaf.zpkg"
+to = "app/dist/republish.leaf.zpkg"
+
+[[step]]
+args = ["publish", "{case}/app/z42.toml", "--no-build"]
+env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
+exit = 0
+
+[[step]]
+tool = "check"
+same_bytes = [["app/dist/republish.app.zpkg", "app/published/programs/app.zpkg"]]
+
+[[step]]
+tool = "exec"
+target = "app/published/bin/app{exe}"
+env = { Z42_HOME = "{sdk}" }
+exit = 0
+stdout_equals = "leaf"

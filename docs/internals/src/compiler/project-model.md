@@ -146,7 +146,7 @@ DEPS 边开始沿用这些目录。搜索目录只交给部署队列，消费方
 > 的 driver 二进制还按旧 FQN 调它）。待办：下一 nightly 后删除。
 
 > 📌 **发布（`z42 publish`）不另建一份闭包**：payload 里的依赖 zpkg 全部来自
-> `_pubCopyDistDeps(dist → payload)`，即上面这份 dist。守着这条不变式的门 = `xtask_toolchain.z42` 的 `_assertPayloadComplete`。
+> `_pubPlanDistDeps → 预检 → Apply(dist → payload)`，即上面这份 dist。守着这条不变式的门 = `xtask_toolchain.z42` 的 `_assertPayloadComplete`。
 
 > **packed 前提（运行期约束）**：colocate 的依赖 zpkg 必须是 **packed**（release 布局）——运行期惰性加载器只把 packed zpkg 当依赖候选，**indexed**（debug 多文件开发态布局）不作候选。故私有 path 依赖的**部署构建走 `--release`**（消费方与其闭包一并 packed；z42.interactive→z42.repl 即如此）。debug 单包 build 仍可编译解析（编译期读 `.zsym`），只是产出的 indexed 依赖不适合 colocate 运行——这是惰性加载器的既有约束。
 

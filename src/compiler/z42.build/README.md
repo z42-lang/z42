@@ -13,6 +13,7 @@ z42 项目「编译 → 发布」管线的**框架库**（全 z42 实现）。�
 - `ICompiler` —— 编译抽象；编排器注入编译器库实现（接口在 `z42.compiler.contracts`），Compile 相位 in-process 调用
 - `WorkloadBase` / `BuildHooks` —— workload 与项目的继承扩展点
 - `IPipelineContext` —— 相位与外界交互的唯一契约
+- `DeploymentCopies.Validate()` —— 只读检查计划源文件内容及其他项目归属冲突；不创建输出目录，不替代 Apply 写入时的复检。
 - `DeploymentCopies` —— 按路径、内容指纹及项目归属同步复制文件，保留外部修改和其他项目使用的文件；同一归属记录空间中不同项目的同路径内容冲突会在写入前拒绝
 - `PackageScheduler` / `PackageWorker` —— 显式图的有界隔离进程运行器与确定日志收尾
 
