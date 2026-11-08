@@ -5,6 +5,8 @@ use super::*;
 /// frames, pending exceptions and allocation arenas. Concrete core-library and
 /// interop resources live in frozen extension state.
 pub struct VmCore {
+    /// Instances stop before heap/engine teardown; their library leases outlive callbacks.
+    pub(crate) components: std::sync::OnceLock<crate::vm::components::VmComponents>,
     pub(crate) threads: crate::vm::threads::ThreadState,
     /// Owned heap. Its root providers keep Weak<VmCore> to avoid ownership cycles.
     /// Metadata and interop providers remain alive until after heap teardown.

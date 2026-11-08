@@ -90,6 +90,7 @@ pub fn run_app(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     }
 
     let program = LoadedProgram::load_file(file, LoadOptions {
+        components: Default::default(),
         mode: opts.mode, vfs, search_dirs, resolver: None, eager_dependencies: false,
     })?;
     set_program_args(program.context(), opts.program_args)?;

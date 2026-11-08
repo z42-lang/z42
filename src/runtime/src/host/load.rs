@@ -232,10 +232,13 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
         eager_impl_pairs,
         eager_deps,
     });
+    // Components see prepared dispatch metadata; initial module events are replayed
+    // only after their interfaces have been published.
+    if let Some(module) = ctx.module() { crate::host::boot::prepare_execution(&ctx, module); }
+    options.components.install(&ctx)?;
     for (name, byte_size) in loaded_for_replay {
         ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size });
     }
-    if let Some(module) = ctx.module() { crate::host::boot::prepare_execution(&ctx, module); }
     LoadedProgram::new(ctx, options.mode, entry_hint)
 }
 

@@ -48,7 +48,7 @@ fn program(mode: ExecMode, throws: bool) -> LoadedProgram {
     LoadedProgram::new(ctx, mode, Some("Demo.Main".into())).unwrap()
 }
 
-fn empty_zbc() -> Vec<u8> {
+pub(super) fn empty_zbc() -> Vec<u8> {
     use zpkg::format::*;
     let mut bytes = vec![0; 16];
     bytes[..4].copy_from_slice(&ZBC_MAGIC);
@@ -199,6 +199,7 @@ fn resolver_overrides_disk_prelude() {
         search_dirs: vec!["/libs".into()],
         resolver: Some(Arc::new(Resolver)),
         eager_dependencies: true,
+        components: Default::default(),
     };
     let program = LoadedProgram::load_bytes(&empty_zbc(), options).unwrap();
     assert!(program.module().functions.is_empty());
@@ -228,7 +229,7 @@ fn malformed_selected_eager_dependency_fails_during_load() {
         file: "broken.zpkg".into(), namespaces: Vec::new(), symbols: Vec::new(),
     });
     let options = LoadOptions { mode: ExecMode::Interp, vfs: fs,
-        search_dirs: vec!["/libs".into()], eager_dependencies: true, resolver: None };
+        search_dirs: vec!["/libs".into()], eager_dependencies: true, resolver: None, components: Default::default() };
     let error = super::load::prepare(artifact, None, &options).err().expect("must reject a corrupt dependency");
     assert!(format!("{error:#}").contains("broken.zpkg"));
 }

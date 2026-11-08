@@ -1,3 +1,4 @@
+pub(crate) mod components;
 pub mod context;
 pub use context::{VmCore, VmContext};
 

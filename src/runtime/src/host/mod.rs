@@ -1,4 +1,10 @@
 //! Shared Rust host services and C embedding adapters.
+mod components;
+mod component_catalog;
+pub use z42_component_api::*;
+pub use components::{ComponentOptions, component_interface, component_ids};
+pub use crate::vm::components::ComponentLease;
+pub use crate::{object::Value, pal::fs::Vfs, vm::context::VmContext, vm::runtime::Module};
 pub mod config;
 pub mod resolver;
 pub mod runtime;
@@ -25,3 +31,5 @@ pub(crate) use app::report_on_exit;
 #[cfg(test)] mod host_tests;
 #[cfg(test)] mod app_tests;
 #[cfg(test)] mod runtime_tests;
+
+#[cfg(test)] mod component_tests;

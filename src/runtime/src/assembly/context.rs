@@ -87,6 +87,7 @@ impl VmContext {
         // avoidance: heap owns the scanner, scanner refs core, core owns
         // heap → strong-Arc loop = leak). Weak.upgrade() per call.
         let core: Arc<VmCore> = Arc::new(VmCore {
+            components: std::sync::OnceLock::new(),
             threads: crate::vm::threads::ThreadState::new(),
             loader: crate::vm::loader::LoaderState::new(vfs, crate::assembly::loader::FUSION_INPUTS),
             heap:                 Box::new(Heap::new(config.gc)),

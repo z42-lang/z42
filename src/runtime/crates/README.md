@@ -27,6 +27,7 @@
 
 | 子目录 | 包名 | 层 | 职责 |
 |--------|------|-----|------|
+| `z42-component-api/` | `z42-component-api` | 组件协议 | no_std C ABI 描述符、表、句柄与同构建身份；不包含 VM 实现 |
 | `z42-zpkg/` | `z42-zpkg` | 静态产物组件 | 格式、读取器、静态 IR、调试记录与不可变 PackageImage；不持有运行时状态 |
 | `z42-abi/` | `z42-abi` | 之下 · Tier 1 | C ABI 的 Rust `#[repr(C)]` 冻结布局镜像（`Z42Value` / `Z42_ABI_VERSION` …）；`#![no_std]`、零依赖 |
 | `z42-rs/` | `z42-rs` | 之下 · Tier 2 | native 类型创作的人体工学层：`Z42Type` / `Z42Traceable` / `Visitor` trait + 类型别名；re-export `z42-macros`。需 std，不依赖 runtime |

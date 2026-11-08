@@ -43,6 +43,7 @@ pub(crate) fn probe_corelib(config: &ResolvedConfig) -> Result<()> {
 /// Load bytes through the same preparation service as file-based application runs.
 pub(crate) fn build_host_module(config: &ResolvedConfig, bytes: &[u8]) -> Result<super::LoadedProgram> {
     super::LoadedProgram::load_bytes(bytes, super::LoadOptions {
+        components: Default::default(),
         mode: match config.exec_mode {
             super::config::Z42ExecMode::Default => super::default_mode(),
             super::config::Z42ExecMode::Interp => crate::zpkg::ExecMode::Interp,

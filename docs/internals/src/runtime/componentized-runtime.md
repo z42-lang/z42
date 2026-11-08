@@ -1,6 +1,6 @@
 # 组件化运行时（Componentized Runtime）
 
-> 状态：静态产物层已成为独立 `z42-zpkg` 库；执行后端和诊断组件的独立交付仍待实施。
+> 状态：静态产物层和通用组件协议已独立；每 VM 静态/动态装配框架已实现。执行后端和诊断组件的独立交付仍待实施。
 >
 > 本文是 z42 运行时**未来的组件化目标架构**：把执行后端、GC、调试等从单一 `z42` crate 中拆成可独立交付的组件，支持「独立 z42vm 运行时按需加载」与「嵌入按需链接」。
 >
@@ -215,3 +215,29 @@ CPU 采样通过 `vm/diagnostics/sampling.rs` 的 crate 私有接口装配：VM 
 运行时 crate 的源码根入口为 `lib.rs`；命令行入口为同级的 `main.rs`，进程启动辅助在 `startup.rs`，共享应用入口在 `host/`，具体组件接线在 `assembly/`，配置在 `config/`，崩溃报告在 `host/signal.rs`。AOT 请求仍由引擎注册表明确拒绝，不设空后端模块；线程协调归 `vm/threads/`，标准库线程胶水归 `corelib/core/threading.rs`。目录归属与依赖约束分别审查：查询层不应承担加载、执行初始化或等待线程的职责。
 
 解释器栈分配策略由门面从已解析的 `RuntimeConfig` 转为 `StackAllocPolicy`，主构造存入 `VmCore.exec`，worker 共享同一策略。执行层的 `stack_alloc_enabled(ctx)` 与 `stats_enabled(ctx)` 只查询当前 VM 的不可变输入，不读取进程配置；on/off/stats 的语言行为保持一致，生产配置仍沿用门面原有单例读取时机。
+
+
+## 当前组件框架
+
+协议在 `crates/z42-component-api`，工厂加载与校验在 `host/components.rs`、`host/component_catalog.rs`，
+实例和核心服务在 `vm/components.rs`。物理核心拆库不要求先扩大核心内部字段的公开面。
+
+工厂描述符的公共头校验版本、大小和构建身份，随后校验预期 ID、回调、依赖和承诺接口。
+构建身份由 workspace Rust 源码、清单/锁文件、工具链、目标及目标特性生成，跨版本组件拒绝加载。
+静态清单的函数引用和动态库入口汇合到同一目录；目录在创建实例前拒绝重复、缺依赖与环，并按稳定 ID 拓扑排序。
+
+`create_vm` 接收核心 RuntimeApi 和不透明 VmHandle，创建独立状态。
+当前核心服务包含 VmInfo 的堆/VM 身份，以及只允许查询已声明依赖的接口服务。
+每个承诺接口均检查版本、大小、对齐和返回状态；所有实例完成后才一次发布到 VmCore。
+创建失败的非空部分状态也必须可销毁，失败回滚和正常销毁均按依赖反序。
+销毁用于停止任务和释放组件资源，不执行托管代码；VM 信息与依赖接口在清理期间保持有效。
+注册表锁不会跨组件回调持有。
+
+接口表采用 C 布局和函数指针，不传 Rust trait 对象、Vec、String 或其析构所有权。
+宿主的 ComponentLease 保留 Core 和实例；实例保留服务上下文、工厂和库。
+worker 共享 Core 的实例；每 VM 的服务与状态不会因共享工厂而共享。最后的接口租约释放后，才能销毁 VM。
+未选择任何组件时不创建组件实例、服务上下文或后台任务。
+
+真实静态及动态测试组件在 `src/runtime/tests/data/component`，只依赖组件协议，验证依赖调用、VM 隔离、回滚与库保活。
+现有 EngineRegistry/TierApi 尚未适配到跨库协议；EngineApi/TieringApi、完整执行/GC 服务以及 profiler/debugger 独立库属于后续组件接入。
+静态/动态框架已经可用，不表示现有 JIT 已经能够单独 dlopen。

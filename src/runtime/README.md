@@ -57,6 +57,7 @@
 | `src/profiler/` | CPU 采样、堆摘要、V8 快照与保留链，见 [`src/profiler/README.md`](src/profiler/README.md) |
 | `src/vm/context/` | `VmContext`（由 `vm` 统一导出）：固定地址的每线程视图，组合 exec/runtime/diagnostics/threads 状态并共享 Arc<VmCore> |
 | `src/interop/` | Tier 1 C ABI 运行时 + stdlib native 扩展加载，见 [`src/interop/README.md`](src/interop/README.md) |
+| `src/vm/components.rs` | 每 VM 组件实例、核心服务、接口租约与反序清理 |
 | `src/host/` | CLI 与外部宿主共用的 Rust 加载、调用及应用服务，包含 `z42_host.h` 的 C ABI 适配，见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
 | `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
 | `src/vm/exec/exception/` | 异常对象布局、传播模型与栈迹捕获 |
@@ -114,6 +115,7 @@ GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管�
 
 | 子 crate | 职责 | 状态 |
 |---------|------|------|
+| `crates/z42-component-api/` | 同构建组件 C ABI 协议，无运行时实现依赖 | 在用 |
 | `crates/z42-zpkg/` | 静态产物格式、解析、IR 与不可变包映像；无 VM 依赖 | 在用 |
 | `crates/z42-abi/` | Tier 1 C ABI 的 Rust `#[repr(C)]` 镜像（`no_std`，无依赖） | 在用 |
 | `crates/z42-rs/` | Tier 2 用户面向 trait/type（`Z42Type`、`Z42Traceable`、`Visitor`） | 在用（高层能力待 C5） |
@@ -146,6 +148,7 @@ xtask test e2e                                # VM golden 端到端（interp + j
 | feature | 作用 |
 |---------|------|
 | `jit` | Cranelift JIT 后端（desktop x64/arm64） |
+| `component-loading` | 通过 PAL 加载可选运行时组件；native-interop 会启用此能力 |
 | `native-interop` | Tier 1 原生扩展 ABI（dlopen + libffi） |
 | `net` | `Std.Net` socket（TCP / UDP / DNS，Rust 标准库 net 模块 + `socket2`）。关掉时网络 builtin 抛 `NetUnsupportedException` |
 | `tls` | 在 `net` 之上加 rustls TLS 客户端（`ring` 后端 + `webpki-roots`）。关掉时 `__tls_*` 抛 `NetUnsupportedException` |
