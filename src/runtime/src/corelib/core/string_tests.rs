@@ -17,6 +17,27 @@ fn ascii_search_from_uses_scalar_offsets() {
     assert!(typed::index_of_any_ascii_from(&"é".into(), "é", 1).is_err());
 }
 
+#[test]
+fn ascii_search_preserves_scalar_indices_across_utf8_boundaries() {
+    for padding in 0..24 {
+        for run in 0..24 {
+            let text = format!("{}{}中😀\0\x7f\"\nend", "x".repeat(padding), "é".repeat(run));
+            let value = text.as_str().into();
+            let length = text.chars().count();
+            for candidates in ["\"\\\n", "\0\x7f", "x", ""] {
+                let expected = text.chars().position(|ch| candidates.contains(ch))
+                    .map_or(-1, |i| i as i64);
+                assert_eq!(typed::index_of_any_ascii(&text, candidates).unwrap(), expected);
+                for start in [0, padding, padding + run, length] {
+                    let expected = text.chars().skip(start).position(|ch| candidates.contains(ch))
+                        .map_or(-1, |i| (start + i) as i64);
+                    assert_eq!(typed::index_of_any_ascii_from(&value, candidates, start as i64).unwrap(), expected);
+                }
+            }
+        }
+    }
+}
+
 // __str_to_chars: bulk materialise the whole char[] in one native call — the
 // array-view primitive backing script-side string ops (String.ToCharArray →
 // IndexOf/…). Must yield Unicode scalars (chars), not bytes.

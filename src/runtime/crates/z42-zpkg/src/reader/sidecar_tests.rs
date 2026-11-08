@@ -49,7 +49,7 @@ fn parse_zbc_sidecar_rejects_non_zbc_magic() {
 // where SymOnly / BLID checks are reachable, and to use mismatched minors where
 // the strict-pin reject path is being tested.
 
-use crate::metadata::format::{ZBC_VERSION_MINOR, ZPKG_VERSION_MINOR};
+use crate::format::{ZBC_VERSION_MINOR, ZPKG_VERSION_MINOR};
 
 #[test]
 fn parse_zbc_sidecar_rejects_old_minor() {

@@ -80,7 +80,8 @@ jobs:
   bench-regression:
     name: bench-regression(linux-x64)
     if: github.event_name == 'pull_request'
-    timeout-minutes: 60
+    # Two cold toolchains plus three complete micro captures must fit the job.
+    timeout-minutes: 90
     runs-on: ubuntu-latest
 
     steps:

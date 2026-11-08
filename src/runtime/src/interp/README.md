@@ -30,7 +30,7 @@
 
 ## 依赖关系
 - builtin 经 `vm/exec/call/builtin_abi` 调用；纯值格式化直接依赖 `object/value`
-- `metadata` 提供静态 IR，`vm/runtime` 提供链接后的 `Module` / `Function` 与执行计划，`object` 提供 `Value`。
+- `z42-zpkg` 提供静态 IR，`vm/runtime` 提供链接后的 `Module` / `Function` 与执行计划，`object` 提供 `Value`。
 - 标量运算调用 `vm/exec/ops/scalar`；融合识别由 `vm/runtime/fusion` 准备。
 
 ## 如何测试验证

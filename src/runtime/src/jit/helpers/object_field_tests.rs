@@ -35,7 +35,7 @@ fn holder() -> Value {
             FieldAccess::ref_word(8, TAG_STR),
         ]),
     });
-    let mut field_index = crate::metadata::NameIndex::new();
+    let mut field_index = crate::zpkg::NameIndex::new();
     field_index.insert("n".to_string(), 0);
     field_index.insert("s".to_string(), 1);
     let td = Arc::new(TypeDesc {
@@ -46,7 +46,7 @@ fn holder() -> Value {
         fields: Vec::new(),
         field_index,
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold {
             composed_object_layout: Some(layout),
             ..Default::default()

@@ -2,7 +2,7 @@
 
 > 代码：`scripts/install-z42.sh`、
 > `scripts/install/install.sh`、`scripts/install/xtask_install.z42`、`scripts/versions.toml`、
-> `src/runtime/Cargo.toml`、`src/compiler/z42c.driver/src/Main.z42`、`.gitattributes`
+> `src/runtime/Cargo.toml`、`src/runtime/.cargo/config.toml`、`src/compiler/z42c.driver/src/Main.z42`、`.gitattributes`
 >
 > 只想**写 z42 程序**不用读这页——装 SDK 见学习手册的[安装 z42](https://z42-lang.github.io/z42/learn/getting-started/install.html)。
 > `z42` / `z42c` / `z42b` 的用户命令面见[参考手册 · 工具链](https://z42-lang.github.io/z42/reference/toolchain/index.html)。
@@ -85,7 +85,8 @@ mkdir -p artifacts && cp -R <warm 树>/artifacts/xtask artifacts/
 | feature | 默认 | 作用 |
 |---|:---:|---|
 | `jit` | ✅ | Cranelift JIT 后端（桌面 x64 / aarch64） |
-| `native-interop` | ✅ | Tier 1 native 扩展 ABI（dlopen + libffi） |
+| `native-interop` | ✅ | Tier 1 native 扩展 ABI（dlopen + libffi），同时启用 `component-loading` |
+| `component-loading` | ✅ | 经 PAL 加载同构建组件库；静态组件不依赖此开关 |
 | `mimalloc-alloc` | ✅ | z42vm 二进制的全局分配器走 mimalloc |
 | `net` | ✅ | `Std.Net` socket（Rust 标准库 net 模块 + `socket2`）；关掉时网络 builtin 抛 `NetUnsupportedException` |
 | `tls` | ✅ | 在 `net` 之上加 rustls TLS 客户端 |
@@ -104,6 +105,11 @@ mkdir -p artifacts && cp -R <warm 树>/artifacts/xtask artifacts/
 ```
 
 > 没有名为 `interp` 或 `host` 的 feature；解释器是无条件编进去的。
+
+### 统一 Rust 构建配置
+
+运行时及平台宿主共用 `src/runtime/.cargo/config.toml`。在 `src/runtime/` 之外调用 Cargo 时，须像 xtask 一样显式传入 `--config`，因为 Cargo 不按 `--manifest-path` 查找配置。
+
 
 ## 4. 环境变量速查
 

@@ -34,11 +34,11 @@ worker context 共享同一个 core 的状态；不同 core 拥有各自的登�
 
 ## 包数据、静态查询与运行期链接
 
-产物格式常量与严格版本校验在 `metadata/format`；`metadata/reader` 将字节解码为
-`metadata/ir` 的模块、签名与指令。名称索引、类型名拆分与型参标记替换由 `metadata/index`
+产物格式常量与严格版本校验在 `z42-zpkg/src/format`；`z42-zpkg/src/reader` 将字节解码为
+`z42-zpkg/src/ir` 的模块、签名与指令。名称索引、类型名拆分与型参标记替换由 `z42-zpkg/src/index`
 直接提供，不需要 VM 上下文，也不触发加载或执行。
 
-源位置、局部变量和 DBUG 函数记录位于 `metadata/debug`，帧名格式化与无分配的分片输出也由它提供。
+源位置、局部变量和 DBUG 函数记录位于 `z42-zpkg/src/debug`，帧名格式化与无分配的分片输出也由它提供。
 sidecar 的定位、build-id 配对及数据覆盖仍由加载器编排，加载时机见下文「Sidecar 调试符号加载」。
 
 `metadata::ir::{Module, Function}` 只保存解码后的静态定义。`metadata::image::PackageImage` 将模块名、
@@ -468,7 +468,7 @@ for ((module, ns, _tidx), (sym_ns, fns)) in module_pairs.iter_mut().zip(sidecar.
 | 单个 module 内 function 数不一致 | warn + 跳过该 module，其他 module 仍合并 |
 | Module 加载主 zbc / zpkg 被发现 `SymOnly` flag | `bail!` —— sidecar 不可作为主模块加载 |
 
-> **实现位置**：[src/runtime/src/metadata/loader/](https://github.com/z42-lang/z42/tree/main/src/runtime/src/metadata/loader) `apply_zbc_sidecar` / `apply_zpkg_sidecar`；解析在 [reader/](https://github.com/z42-lang/z42/tree/main/src/runtime/src/metadata/reader)（`sidecar.rs`）`parse_zbc_sidecar` / `parse_zpkg_sidecar`。
+> **实现位置**：[src/runtime/src/vm/loader/](https://github.com/z42-lang/z42/tree/main/src/runtime/src/vm/loader) `apply_zbc_sidecar` / `apply_zpkg_sidecar`；解析在 [reader/](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-zpkg/src/reader)（`sidecar.rs`）`parse_zbc_sidecar` / `parse_zpkg_sidecar`。
 
 ## Embedding Entry
 
@@ -850,7 +850,7 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 
 ## resolve_namespace / resolve_dependency 的分工
 
-位置：`src/runtime/src/metadata/loader/`
+位置：`src/runtime/src/vm/loader/`
 
 | 函数 | 签名 | 语义 | 调用方 |
 |------|------|------|--------|
@@ -1003,7 +1003,7 @@ N > K HashMap），调用方零改动 —— `NameIndex` 的 public API 故意�
 
 **API**：`get(&str) -> Option<&usize>` / `insert(String, usize) -> Option<usize>` /
 `iter()` / `FromIterator<(String, usize)>` / `Clone`。位于
-[`src/runtime/src/metadata/index/name.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/index/name.rs)。
+[`src/runtime/crates/z42-zpkg/src/index/name.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-zpkg/src/index/name.rs)。
 
 ### VCall 指令执行
 

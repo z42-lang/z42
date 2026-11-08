@@ -1,6 +1,6 @@
 use super::*;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::{BasicBlock, ExecMode, Instruction, Terminator};
+use crate::zpkg::{BasicBlock, ExecMode, Instruction, Terminator};
 
 fn make_module(name: &str, strings: &[&str], const_str_idx: u32) -> Module {
     make_module_with(name, strings, const_str_idx, vec![], vec![])
@@ -10,7 +10,7 @@ fn make_module_with(
     name: &str,
     strings: &[&str],
     const_str_idx: u32,
-    classes: Vec<crate::metadata::ClassDesc>,
+    classes: Vec<crate::zpkg::ClassDesc>,
     extra_functions: Vec<Function>,
 ) -> Module {
     let instr = Instruction::ConstStr { dst: 0, idx: const_str_idx };
@@ -19,7 +19,7 @@ fn make_module_with(
         instructions: vec![instr],
         terminator: Terminator::Ret { reg: None },
     };
-    let mut functions = vec![Function::new(crate::metadata::ir::Function {
+    let mut functions = vec![Function::new(crate::zpkg::ir::Function {
         name: format!("{}.Main", name),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -36,7 +36,7 @@ fn make_module_with(
         frame_meta: None,
     })];
     functions.extend(extra_functions);
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: name.to_string(),
         string_pool: strings.iter().map(|s| s.to_string()).collect(),
         classes,
@@ -104,7 +104,7 @@ fn merge_empty_returns_error() {
 
 #[test]
 fn merge_deduplicates_classes_by_name() {
-    use crate::metadata::{ClassDesc, FieldDesc};
+    use crate::zpkg::{ClassDesc, FieldDesc};
 
     let cls = ClassDesc {
         static_fields: vec![].into(),
@@ -158,7 +158,7 @@ fn merge_deduplicates_classes_by_name() {
 
 #[test]
 fn merge_deduplicates_functions_by_name() {
-    let dup_func = Function::new(crate::metadata::ir::Function {
+    let dup_func = Function::new(crate::zpkg::ir::Function {
         name: "A.Main".to_string(),
         param_count: 0,
         ret_type: "i32".to_string(),

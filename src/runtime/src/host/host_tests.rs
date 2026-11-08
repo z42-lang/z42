@@ -779,6 +779,7 @@ fn zpkg_read_namespaces_lists_nspc() {
     // hand-maintained index would otherwise have to encode (and drift from).
     assert!(out.iter().any(|n| n == "z42.core"), "expected z42.core in {out:?}");
     assert!(out.iter().any(|n| n == "Std"), "expected Std in {out:?}");
+    assert_eq!(super::read_zpkg_namespaces(&core).unwrap(), out);
 }
 
 #[test]
@@ -793,6 +794,7 @@ fn zpkg_read_namespaces_rejects_garbage() {
         )
     };
     assert_eq!(status, Z42HostStatus::BadZbc);
+    assert!(super::read_zpkg_namespaces(&garbage).is_err());
 }
 
 #[test]
@@ -1308,7 +1310,7 @@ fn package_resolver_can_shutdown_the_host_during_load() {
     }
     assert_eq!(install_zpkg_resolver(Arc::new(ShutdownResolver)), Z42HostStatus::Ok);
     let mut bytes = vec![0; 16];
-    use crate::metadata::format::*;
+    use crate::zpkg::format::*;
     bytes[..4].copy_from_slice(&ZBC_MAGIC);
     bytes[4..6].copy_from_slice(&ZBC_VERSION_MAJOR.to_le_bytes());
     bytes[6..8].copy_from_slice(&ZBC_VERSION_MINOR.to_le_bytes());

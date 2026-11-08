@@ -29,10 +29,10 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &std::path::Path, lib_name: &str) 
 
 /// An open shared library. Dropping it unloads the library, so keep it alive for as long
 /// as any symbol taken from it may be called.
-#[cfg(feature = "native-interop")]
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
 pub struct Library(libloading::Library);
 
-#[cfg(feature = "native-interop")]
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
 impl Library {
     /// Open the library at `path`. The error names the path.
     ///

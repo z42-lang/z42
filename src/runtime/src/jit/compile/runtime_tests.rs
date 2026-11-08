@@ -12,13 +12,13 @@ use crate::jit::runtime::frame::JitFrame;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use crate::jit::compile::state::{install, install_tuned};
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::{BasicBlock, CallInsn, Instruction, Terminator};
+use crate::zpkg::ir::ExecMode;
 use crate::object::Value;
 use crate::vm::context::VmContext;
 
 fn func(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -64,7 +64,7 @@ fn calls(name: &str, callee: &str) -> Function {
 
 fn module_of(functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "M".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),

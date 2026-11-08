@@ -44,7 +44,7 @@ impl CallArity {
 
 /// Physical arguments include this and sret; defaults are filled by the compiler.
 pub fn call_arity(f: &crate::vm::runtime::Function) -> CallArity {
-    let sret = (f.method_flags & crate::metadata::ir::METHOD_FLAG_SRET) != 0;
+    let sret = (f.method_flags & crate::zpkg::ir::METHOD_FLAG_SRET) != 0;
     let expected = f.param_count.saturating_add(sret as usize).min(u16::MAX as usize) as u16;
     let max = if f.params_from != 0xFF { u16::MAX } else { expected };
     CallArity { min: expected, max }

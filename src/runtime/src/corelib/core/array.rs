@@ -136,7 +136,7 @@ pub mod typed {
             match value {
                 Value::BoxedStruct(s) => {
                     let elem = a.element_type();
-                    let scalar = crate::metadata::index::type_names::builtin_keyword(&elem)
+                    let scalar = crate::zpkg::index::type_names::builtin_keyword(&elem)
                         .is_some_and(|kind| !matches!(kind, "object" | "string"));
                     if scalar || a.zero() != 0 || s.type_desc().is_enum() && &*s.type_desc().name == &*elem {
                         s.borrow().boxed_prim_i64().map(Value::I64).unwrap_or(*value)
@@ -244,19 +244,15 @@ pub mod typed {
         if !(is_string || mode.is_prim() && array.prim_backing_accepts(value)) {
             return DECLINED;
         }
-        let find = |index| {
-            let element = array.get_boxed(index);
-            if is_string && !matches!(element, Value::Null | Value::Str(_)) {
-                // Untyped writes in existing packages can populate a string array with other values.
-                return Some(DECLINED);
-            }
-            (element == *value).then_some(index as i64)
-        };
-        if backwards {
-            range.rev().find_map(find).unwrap_or(-1)
-        } else {
-            range.find_map(find).unwrap_or(-1)
+        if is_string {
+            return match array.search_string_elems(value, range, backwards) {
+                Ok(Some(index)) => index as i64,
+                Ok(None) => -1,
+                Err(()) => DECLINED,
+            };
         }
+        let find = |index| (array.get_boxed(index) == *value).then_some(index as i64);
+        if backwards { range.rev().find_map(find) } else { range.find_map(find) }.unwrap_or(-1)
     }
 
     /// `Array.Clone()` — shallow copy of the receiver array. Reference-type elements

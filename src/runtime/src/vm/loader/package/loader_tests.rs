@@ -66,7 +66,7 @@ fn import_with_no_dot_uses_full_name() {
 /// Build a minimal binary zpkg (indexed, lib) with a STRS + NSPC section.
 /// Layout: header(16) + dir(sec_count×12) + META + STRS + NSPC sections.
 fn make_fake_zpkg(dir: &Path, filename: &str, namespaces: &[&str]) {
-    use crate::metadata::format::ZPKG_MAGIC;
+    use crate::zpkg::format::ZPKG_MAGIC;
 
     // Build STRS section (segment-dict, zbc 1.21): seg_count + (varint len + utf8)×n
     //   + str_count + (varint segN + varint segIdx×segN)×n. Names split on '.'.
@@ -189,8 +189,8 @@ fn module_with_one_class(
     fields: Vec<(&str, &str)>,
 ) -> crate::vm::runtime::Module {
     use crate::vm::runtime::Module;
-    use crate::metadata::ir::{ClassDesc, FieldDesc};
-    Module::new(crate::metadata::image::ModuleData {
+    use crate::zpkg::ir::{ClassDesc, FieldDesc};
+    Module::new(crate::zpkg::image::ModuleData {
         name: name.to_owned(),
         string_pool: vec![],
         classes: vec![ClassDesc {
@@ -597,7 +597,7 @@ fn fusion_inputs_follow_function_preparation_eligibility() {
 
 #[test]
 fn fusion_input_polarity_preserves_cmp_branch_recognition() {
-    use crate::metadata::ir::{BasicBlock, Instruction, Terminator, reg_type::IrType};
+    use crate::zpkg::ir::{BasicBlock, Instruction, Terminator, reg_type::IrType};
     use crate::vm::loader::fusion_inputs::FusionInputs;
     use crate::vm::runtime::SuperInstr;
 
@@ -722,7 +722,7 @@ fn module_with_object_layout(
     name: &str,
     base: Option<&str>,
     fields: Vec<(&str, &str)>,
-    layout: crate::metadata::ir::ObjectLayoutDesc,
+    layout: crate::zpkg::ir::ObjectLayoutDesc,
 ) -> crate::vm::runtime::Module {
     let mut m = module_with_one_class(name, base, fields);
     m.classes[0].object_layout = Some(layout);
@@ -734,7 +734,7 @@ fn module_with_object_layout(
 #[test]
 fn object_layout_composed_local_inheritance() {
     use crate::vm::runtime::Module;
-    use crate::metadata::ir::{ClassDesc, ObjectLayoutDesc};
+    use crate::zpkg::ir::{ClassDesc, ObjectLayoutDesc};
     use crate::object::{STRUCT_REF_ARC_STRING, STRUCT_REF_GCREF};
 
     // Base { i64 age@0; str name@8 } — size 16, one ref leaf (name @ 8).
@@ -813,7 +813,7 @@ fn object_layout_composed_local_inheritance() {
 /// the base joins the global registry — in lockstep with `fields`.
 #[test]
 fn object_layout_composed_crosspkg_fixup() {
-    use crate::metadata::ir::ObjectLayoutDesc;
+    use crate::zpkg::ir::ObjectLayoutDesc;
     use crate::object::STRUCT_REF_ARC_STRING;
 
     // Base { str name@0 } — size 8, ref leaf @ 0.
@@ -867,8 +867,8 @@ fn object_layout_composed_crosspkg_fixup() {
 /// A minimal `Module` holding `names` as field-less, base-less classes.
 fn module_with_class_names(name: &str, names: &[&str]) -> crate::vm::runtime::Module {
     use crate::vm::runtime::Module;
-    use crate::metadata::ir::ClassDesc;
-    Module::new(crate::metadata::image::ModuleData {
+    use crate::zpkg::ir::ClassDesc;
+    Module::new(crate::zpkg::image::ModuleData {
         name: name.to_owned(),
         string_pool: vec![],
         classes: names
@@ -957,7 +957,7 @@ fn allocated_type_ids_stay_below_import_base() {
 fn module_with_struct_field_table(
     class: &str, size: u32, entries: &[(u32, u32, u8)],
 ) -> crate::vm::runtime::Module {
-    use crate::metadata::ir::{
+    use crate::zpkg::ir::{
         FieldDesc, StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE,
     };
     let mut m = module_with_class_names("m", &[class]);
@@ -1016,7 +1016,7 @@ fn struct_field_table_reaches_the_runtime_layout() {
 /// （留着那半句会和隔壁覆盖门的判据前提直接打架——那正是「判据腐坏」的起点。）
 #[test]
 fn absent_struct_field_table_yields_an_empty_one() {
-    use crate::metadata::ir::StructLayoutDesc;
+    use crate::zpkg::ir::StructLayoutDesc;
     let mut m = module_with_class_names("m", &["Demo.Old"]);
     m.classes[0].struct_layout = Some(StructLayoutDesc {
         size: 8, ref_offsets: Box::new([]), ref_kinds: Box::new([]),
@@ -1037,7 +1037,7 @@ fn absent_struct_field_table_yields_an_empty_one() {
 /// 这条钉住那个「顺手复用」的诱惑。
 #[test]
 fn inline_layout_does_not_borrow_the_struct_field_table() {
-    use crate::metadata::ir::{
+    use crate::zpkg::ir::{
         StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE,
     };
     let mut m = module_with_class_names("m", &["Demo.Holder"]);
@@ -1069,13 +1069,13 @@ fn inline_layout_does_not_borrow_the_struct_field_table() {
 #[test]
 #[should_panic(expected = "index-parallel to `fields`")]
 fn struct_field_table_that_is_not_parallel_to_fields_is_rejected() {
-    use crate::metadata::ir::{
+    use crate::zpkg::ir::{
         StructFieldEntry, StructLayoutDesc, CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE,
     };
     // 表有 3 条，`fields` 只有 1 个 ⇒ 第 2/3 跳会沿着不存在的字段找类型名。
     let mut m = module_with_struct_field_table("Demo.Skew", 24, &[(0, 4, 0), (8, 8, 0), (16, 8, 0)]);
     let c = &mut m.classes[0];
-    c.fields = vec![crate::metadata::ir::FieldDesc {
+    c.fields = vec![crate::zpkg::ir::FieldDesc {
         name: "only".to_string(), type_tag: "int".to_string(),
         attributes: Box::new([]), visibility: 0,
     }].into();
@@ -1104,7 +1104,7 @@ fn struct_field_table_that_is_not_parallel_to_fields_is_rejected() {
 #[test]
 #[should_panic(expected = "empty per-field layout table")]
 fn value_struct_with_fields_but_no_field_table_is_rejected() {
-    use crate::metadata::ir::{FieldDesc, StructLayoutDesc, CLASS_FLAG_STRUCT};
+    use crate::zpkg::ir::{FieldDesc, StructLayoutDesc, CLASS_FLAG_STRUCT};
     let mut m = module_with_class_names("m", &["Demo.NoTable"]);
     let c = &mut m.classes[0];
     c.class_flags = CLASS_FLAG_STRUCT;
@@ -1128,7 +1128,7 @@ fn value_struct_with_fields_but_no_field_table_is_rejected() {
 #[test]
 #[should_panic(expected = "ships no struct byte layout block")]
 fn value_struct_with_fields_but_no_struct_block_is_rejected() {
-    use crate::metadata::ir::{FieldDesc, CLASS_FLAG_STRUCT};
+    use crate::zpkg::ir::{FieldDesc, CLASS_FLAG_STRUCT};
     let mut m = module_with_class_names("m", &["Demo.NoBlock"]);
     let c = &mut m.classes[0];
     c.class_flags = CLASS_FLAG_STRUCT;
@@ -1145,7 +1145,7 @@ fn value_struct_with_fields_but_no_struct_block_is_rejected() {
 /// phantom / 零字段 wrapper 本来就没有表可带。
 #[test]
 fn empty_value_struct_without_a_field_table_is_accepted() {
-    use crate::metadata::ir::{StructLayoutDesc, CLASS_FLAG_STRUCT};
+    use crate::zpkg::ir::{StructLayoutDesc, CLASS_FLAG_STRUCT};
     let mut m = module_with_class_names("m", &["Demo.Phantom"]);
     let c = &mut m.classes[0];
     c.class_flags = CLASS_FLAG_STRUCT;
@@ -1163,12 +1163,12 @@ fn empty_value_struct_without_a_field_table_is_accepted() {
 /// A bodiless instance method stub named `name` — only its name matters to
 /// `build_type_registry` (own methods are collected by `<class>.` prefix).
 fn iface_stub_fn(name: &str) -> crate::vm::runtime::Function {
-    use crate::metadata::ir::{BasicBlock, Terminator};
-    crate::vm::runtime::Function::new(crate::metadata::ir::Function {
+    use crate::zpkg::ir::{BasicBlock, Terminator};
+    crate::vm::runtime::Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: 1,
         ret_type: "string".to_string(),
-        exec_mode: crate::metadata::ExecMode::Interp,
+        exec_mode: crate::zpkg::ExecMode::Interp,
         blocks: vec![BasicBlock {
             label: "entry".to_string(),
             instructions: vec![],
@@ -1195,7 +1195,7 @@ fn iface_stub_fn(name: &str) -> crate::vm::runtime::Function {
 #[test]
 fn iface_slot_aliases_the_implementing_slot_and_follows_overrides() {
     let mut m = module_with_class_names("m", &["Demo.W", "Demo.D"]);
-    m.classes[0].class_flags2 = crate::metadata::ir::CLASS_FLAGS2_HAS_IFACE_SLOTS;
+    m.classes[0].class_flags2 = crate::zpkg::ir::CLASS_FLAGS2_HAS_IFACE_SLOTS;
     m.classes[0].iface_slots = vec![("Demo.IPlain#Get".to_string(), "Get$1$string".to_string())].into();
     m.classes[1].base_class = Some("Demo.W".to_string());
     m.functions = vec![iface_stub_fn("Demo.W.Get"), iface_stub_fn("Demo.W.Get$1$string"),
@@ -1222,7 +1222,7 @@ fn iface_slot_alias_to_an_inherited_method_is_installed_by_fixup() {
     mod_a.functions = vec![iface_stub_fn("A.Base.Get"), iface_stub_fn("A.Base.Get$1$string")];
     let mut mod_b = module_with_class_names("PkgB", &["B.Sub"]);
     mod_b.classes[0].base_class = Some("A.Base".to_string());
-    mod_b.classes[0].class_flags2 = crate::metadata::ir::CLASS_FLAGS2_HAS_IFACE_SLOTS;
+    mod_b.classes[0].class_flags2 = crate::zpkg::ir::CLASS_FLAGS2_HAS_IFACE_SLOTS;
     mod_b.classes[0].iface_slots = vec![("B.IPlain#Get".to_string(), "Get$1$string".to_string())].into();
     mod_b.functions = vec![iface_stub_fn("B.Sub.Other")];
     build_type_registry(&mut mod_a);
@@ -1243,12 +1243,12 @@ fn iface_slot_alias_to_an_inherited_method_is_installed_by_fixup() {
 // ── Members by owner (runtime-audit S1) ───────────────────────────────────────
 
 fn stub_fn(name: &str, is_static: bool) -> crate::vm::runtime::Function {
-    use crate::metadata::ir::{BasicBlock, Terminator};
-    crate::vm::runtime::Function::new(crate::metadata::ir::Function {
+    use crate::zpkg::ir::{BasicBlock, Terminator};
+    crate::vm::runtime::Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: if is_static { 0 } else { 1 },
         ret_type: "void".to_string(),
-        exec_mode: crate::metadata::ir::ExecMode::Interp,
+        exec_mode: crate::zpkg::ir::ExecMode::Interp,
         blocks: vec![BasicBlock {
             label: "entry".to_string(),
             instructions: vec![],

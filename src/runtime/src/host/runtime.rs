@@ -1,6 +1,6 @@
 //! Loaded programs shared by command-line and embedded hosts.
 use crate::{
-    metadata::ExecMode,
+    zpkg::ExecMode,
     object::Value,
     pal::fs::Vfs,
     vm::{context::VmContext, exec::call::outcome::ExecOutcome, runtime::Module},
@@ -14,6 +14,8 @@ use std::{
 
 /// Host-provided inputs. A byte source has no implicit working-directory search.
 pub struct LoadOptions {
+    /// Native component selection, attached once before this program executes.
+    pub components: super::ComponentOptions,
     pub mode: ExecMode,
     pub vfs: Arc<dyn Vfs>,
     pub search_dirs: Vec<PathBuf>,
@@ -25,6 +27,7 @@ pub struct LoadOptions {
 impl Default for LoadOptions {
     fn default() -> Self {
         Self {
+            components: Default::default(),
             mode: super::default_mode(),
             vfs: crate::pal::fs::default_vfs(),
             search_dirs: Vec::new(),

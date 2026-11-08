@@ -8,11 +8,11 @@ use crate::jit::helpers::object::STATIC_HELPER_CALLS;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use crate::jit::compile::state::install;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::ir::{BasicBlock, FieldDesc, Instruction, StaticGetInsn, StaticSetInsn, Terminator};
+use crate::zpkg::ir::{BasicBlock, FieldDesc, Instruction, StaticGetInsn, StaticSetInsn, Terminator};
 use crate::vm::runtime::ids::tokens::TypeId;
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::ExecMode;
 use crate::object::{NativeData, ObjectLayout, TypeDesc, TypeDescCold};
-use crate::{metadata::IrType, object::Value};
+use crate::{zpkg::IrType, object::Value};
 use crate::vm::context::VmContext;
 use std::sync::Arc;
 
@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 fn func(name: &str, params: usize, regs: &[IrType], blocks: Vec<BasicBlock>) -> Function {
     let block_index = blocks.iter().enumerate().map(|(i, b)| (b.label.clone(), i)).collect();
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: params,
         ret_type: "object".to_string(),
@@ -73,8 +73,8 @@ fn class(name: &str, id: u32, statics: &[(&str, &str)], cctor: bool) -> Arc<Type
     }).collect();
     Arc::new(TypeDesc {
         class_flags: 0, visibility: 0, name: name.to_string(), base_name: None,
-        fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        fields: Vec::new(), field_index: crate::zpkg::NameIndex::new(), vtable: Vec::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold {
             composed_object_layout: Some(layout),
             static_fields,
@@ -87,7 +87,7 @@ fn class(name: &str, id: u32, statics: &[(&str, &str)], cctor: bool) -> Arc<Type
 
 fn module(functions: Vec<Function>, types: Vec<Arc<TypeDesc>>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "T".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),

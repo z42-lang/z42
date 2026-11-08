@@ -2,10 +2,10 @@
 //! target lives in a lazily loaded package is cached and dispatched like a module-local one.
 
 use super::*;
-use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
-use crate::metadata::index::name::NameIndex;
+use crate::zpkg::ir::{BasicBlock, Instruction, Terminator};
+use crate::zpkg::index::name::NameIndex;
 use crate::vm::runtime::ids::tokens::{alloc_type_id_block, FnId, TypeId};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::ExecMode;
 use crate::object::{NativeData, TypeDesc};
 use crate::vm::runtime::Function;
 use crate::interp::frame::Frame;
@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 /// An instance method returning `val` (receiver in reg 0).
 fn method(name: &str, val: i32) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: 1,
         ret_type: "int".to_string(),
@@ -39,7 +39,7 @@ fn method(name: &str, val: i32) -> Function {
 
 fn module(name: &str, functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![],
         classes: vec![],

@@ -11,11 +11,11 @@
 
 #![cfg(not(z42_skip_native_poc))]
 
+use z42_zpkg::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator};
 use std::collections::HashMap;
 
 use z42::vm::runtime::{Function, Module};
 use z42::{
-    metadata::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator},
     object::Value,
 };
 use z42::vm::context::VmContext;
@@ -64,7 +64,7 @@ extern "C" {
 }
 
 fn build_function(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Function {
-    Function::new(z42::metadata::ir::Function {
+    Function::new(z42_zpkg::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "i64".to_string(),
@@ -89,7 +89,7 @@ fn build_function(name: &str, instructions: Vec<Instruction>, terminator: Termin
 }
 
 fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Module {
-    Module::new(z42::metadata::image::ModuleData {
+    Module::new(z42_zpkg::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![],
         classes: vec![],
@@ -372,7 +372,7 @@ fn z42_source_calls_numz42_via_native_attr() {
 
 /// Helper: tiny module with an arbitrary single-string pool for C8 tests.
 fn module_with_str(name: &str, s: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Module {
-    let func = Function::new(z42::metadata::ir::Function {
+    let func = Function::new(z42_zpkg::ir::Function {
         name: format!("{name}.Main"),
         param_count: 0,
         ret_type: "i64".into(),
@@ -394,7 +394,7 @@ fn module_with_str(name: &str, s: &str, instructions: Vec<Instruction>, terminat
         branch_targets: Vec::new(),
         frame_meta: None,
     });
-    Module::new(z42::metadata::image::ModuleData {
+    Module::new(z42_zpkg::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![s.to_string()],
         classes: vec![],
@@ -446,7 +446,7 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
     let ctx = VmContext::new();
     invoke_with_vm_guard(&ctx, || unsafe { numz42_register_static() });
 
-    let func = Function::new(z42::metadata::ir::Function {
+    let func = Function::new(z42_zpkg::ir::Function {
         name: "byte_pin_e2e.Main".into(),
         param_count: 0,
         ret_type: "i64".into(),
@@ -457,7 +457,7 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
                 Instruction::ConstI64 { dst: 0, val: 0x68 }, // 'h'
                 Instruction::ConstI64 { dst: 1, val: 0x69 }, // 'i'
                 Instruction::ConstI64 { dst: 2, val: 0x21 }, // '!'
-                Instruction::ArrayNewLit(Box::new(z42::metadata::ir::ArrayNewLitInsn {
+                Instruction::ArrayNewLit(Box::new(z42_zpkg::ir::ArrayNewLitInsn {
                     dst: 3,
                     elems: vec![0, 1, 2].into(),
                     element_type: String::new(),
@@ -497,7 +497,7 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
         branch_targets: Vec::new(),
         frame_meta: None,
     });
-    let m = Module::new(z42::metadata::image::ModuleData {
+    let m = Module::new(z42_zpkg::image::ModuleData {
         name: "byte_pin_e2e".into(),
         string_pool: vec![],
         classes: vec![],
@@ -521,7 +521,7 @@ fn z42_str_with_interior_nul_traps_marshal() {
 
     // Pool the bad string. We can't reuse build_module's pool directly
     // (which only stores "hello world"); set up a tiny custom module.
-    let func = Function::new(z42::metadata::ir::Function {
+    let func = Function::new(z42_zpkg::ir::Function {
         name: "interior_nul.Main".into(),
         param_count: 0,
         ret_type: "i64".into(),
@@ -552,7 +552,7 @@ fn z42_str_with_interior_nul_traps_marshal() {
         branch_targets: Vec::new(),
         frame_meta: None,
     });
-    let m = Module::new(z42::metadata::image::ModuleData {
+    let m = Module::new(z42_zpkg::image::ModuleData {
         name: "interior_nul".into(),
         string_pool: vec!["a\0b".to_string()],
         classes: vec![],

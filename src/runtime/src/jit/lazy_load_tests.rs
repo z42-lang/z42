@@ -14,15 +14,15 @@
 
 use crate::jit::compile::state::{install, install_tuned, JitRuntime};
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::ir::{BasicBlock, Terminator};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::{BasicBlock, Terminator};
+use crate::zpkg::ir::ExecMode;
 use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use std::sync::Arc;
 use crate::vm::context::VmContext;
 
 /// A JIT-translatable `return;` function (no interp-only opcode).
 fn empty_fn(name: &str) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -50,7 +50,7 @@ fn module_of(name: &str, functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate()
         .map(|(i, f)| (f.name.clone(), i))
         .collect();
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: name.to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),
@@ -65,7 +65,7 @@ fn compiled_count(vm: &VmContext) -> u64 {
 /// An untranslatable function (`LoadLocalAddr` is interp-only).
 fn interp_only_fn(name: &str) -> Function {
     let mut f = empty_fn(name);
-    f.blocks[0].instructions = vec![crate::metadata::ir::Instruction::LoadLocalAddr { dst: 0, slot: 0 }];
+    f.blocks[0].instructions = vec![crate::zpkg::ir::Instruction::LoadLocalAddr { dst: 0, slot: 0 }];
     f
 }
 

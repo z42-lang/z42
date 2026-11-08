@@ -279,7 +279,7 @@ fn build_in_dirs_first_dir_wins() {
 // in-process). The fix: on load, mark `<package_name>.zpkg` in `loaded_zpkgs`.
 
 fn ll_empty_module(name: &str) -> crate::vm::runtime::Module {
-    crate::vm::runtime::Module::new(crate::metadata::image::ModuleData {
+    crate::vm::runtime::Module::new(crate::zpkg::image::ModuleData {
         name: name.to_owned(),
         string_pool: vec![],
         classes: vec![],
@@ -295,7 +295,7 @@ fn ll_inmem_artifact(
         entry_hint: None,
         dependencies: deps
             .iter()
-            .map(|f| crate::metadata::format::ZpkgDep { file: (*f).to_string(), namespaces: vec![], symbols: vec![] })
+            .map(|f| crate::zpkg::format::ZpkgDep { file: (*f).to_string(), namespaces: vec![], symbols: vec![] })
             .collect(),
         import_namespaces: vec![],
         impl_pairs: vec![],
@@ -421,9 +421,9 @@ fn qualified_and_user_names_are_not_primitive() {
 /// A minimal `Function` usable as an in-memory module member.
 fn ll_stub_function(name: &str) -> crate::vm::runtime::Function {
     use crate::vm::runtime::Function;
-    use crate::metadata::ir::{BasicBlock, Terminator};
-    use crate::metadata::ir::ExecMode;
-    Function::new(crate::metadata::ir::Function {
+    use crate::zpkg::ir::{BasicBlock, Terminator};
+    use crate::zpkg::ir::ExecMode;
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -576,9 +576,9 @@ fn type_desc_with_cctor(name: &str, cctor: Option<&str>) -> Arc<TypeDesc> {
         name: name.to_string(),
         base_name: None,
         fields: Vec::new(),
-        field_index: crate::metadata::NameIndex::new(),
+        field_index: crate::zpkg::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
@@ -610,7 +610,7 @@ fn inserting_a_loaded_type_registers_its_static_ctor() {
 // 而「库内部用了元组、主程序也用了」就已经撞上 —— 这是常态形状，不是边角。
 
 use super::registry::{is_instantiation_artifact, same_function_shape, same_type_shape};
-use crate::metadata::{BasicBlock, ExecMode, Terminator};
+use crate::zpkg::{BasicBlock, ExecMode, Terminator};
 
 fn td_shape(name: &str, class_flags: u8, field_count: usize) -> TypeDesc {
     TypeDesc {
@@ -625,16 +625,16 @@ fn td_shape(name: &str, class_flags: u8, field_count: usize) -> TypeDesc {
                 visibility: 0,
             })
             .collect(),
-        field_index: crate::metadata::index::name::NameIndex::new(),
+        field_index: crate::zpkg::index::name::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: crate::metadata::index::name::NameIndex::new(),
+        vtable_index: crate::zpkg::index::name::NameIndex::new(),
         cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     }
 }
 
 fn fn_shape(name: &str, param_count: usize, instr_count: usize) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count,
         ret_type: "void".to_string(),

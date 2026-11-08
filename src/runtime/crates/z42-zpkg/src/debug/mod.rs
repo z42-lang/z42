@@ -5,4 +5,4 @@ mod symbols;
 
 pub use frames::{format_frame_name, for_each_frame_name_piece, frame_file};
 pub use symbols::{DbugFuncEntry, LineEntry, LocalVar};
-pub(crate) use frames::resolve_line;
+pub use frames::resolve_line;

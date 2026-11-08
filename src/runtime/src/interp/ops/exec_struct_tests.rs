@@ -120,7 +120,7 @@ fn value_semantics_copy_then_mutate_leaves_source_unchanged() {
 fn heap_object_inline_struct_field_roundtrips() {
     use crate::vm::context::VmContext;
     use crate::object::{NativeData, TypeDesc, TypeDescCold};
-    use crate::metadata::NameIndex;
+    use crate::zpkg::NameIndex;
     use crate::vm::runtime::ids::tokens::TypeId;
 
     // The object stores the inline struct's leaves in its `bytes` at their composed offsets,
@@ -278,7 +278,7 @@ fn boxed_struct_owns_snapshot_and_survives_arena_truncate() {
 fn stack_object_inline_struct_field_roundtrips() {
     use crate::vm::context::VmContext;
     use crate::object::{ScriptObject, TypeDesc, TypeDescCold};
-    use crate::metadata::NameIndex;
+    use crate::zpkg::NameIndex;
     use crate::vm::runtime::ids::tokens::TypeId;
 
     // Same shape as the heap test: Point{x:i32@0, y:i32@4, tag:str@8}, size 16,
@@ -362,7 +362,7 @@ fn stack_object_inline_struct_field_roundtrips() {
 #[test]
 #[ignore]
 fn symbolization_cost_by_path_depth() {
-    use crate::metadata::index::name::NameIndex;
+    use crate::zpkg::index::name::NameIndex;
     use crate::vm::runtime::ids::tokens::TypeId;
     use crate::object::{FieldSlot, StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
     use std::sync::Arc;
@@ -371,7 +371,7 @@ fn symbolization_cost_by_path_depth() {
     fn struct_desc(name: &str, n: usize, nest: Option<&str>) -> Arc<TypeDesc> {
         Arc::new(TypeDesc {
             name: name.into(),
-            class_flags: crate::metadata::ir::CLASS_FLAG_STRUCT,
+            class_flags: crate::zpkg::ir::CLASS_FLAG_STRUCT,
             fields: (0..n).map(|i| FieldSlot {
                 name: format!("f{i}").into(),
                 type_tag: if i == 0 { nest.unwrap_or("long").into() } else { "long".into() },

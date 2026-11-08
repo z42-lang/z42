@@ -53,7 +53,7 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
         }
     }
 
-    let merged = Module::new(crate::metadata::image::ModuleData {
+    let merged = Module::new(crate::zpkg::image::ModuleData {
         name,
         string_pool,
         classes,

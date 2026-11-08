@@ -4,7 +4,7 @@
 use crate::gc::Heap;
 use super::*;
 use crate::gc::GcMode;
-use crate::metadata::ir::ObjectLayoutDesc;
+use crate::zpkg::ir::ObjectLayoutDesc;
 use crate::object::{
     compose_object_layout, generic_field_zero_overrides, FieldCell, FieldSlot, NativeData,
     ScriptObject, TypeDesc, TypeDescCold, STRUCT_LEAF_GCREF_CLOSURE, STRUCT_LEAF_PRIM,
@@ -53,7 +53,7 @@ pub(crate) fn tparam_td(n: usize) -> Arc<TypeDesc> {
         fields,
         field_index,
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold {
             composed_object_layout: Some(layout),
             type_params,

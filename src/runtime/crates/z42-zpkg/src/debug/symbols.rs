@@ -23,7 +23,7 @@ pub struct LineEntry {
 
 #[derive(Default, Clone, Debug)]
 pub struct DbugFuncEntry {
-    pub line_table: Vec<crate::metadata::debug::LineEntry>,
-    pub local_vars: Vec<crate::metadata::debug::LocalVar>,
+    pub line_table: Vec<crate::debug::LineEntry>,
+    pub local_vars: Vec<crate::debug::LocalVar>,
 }
 

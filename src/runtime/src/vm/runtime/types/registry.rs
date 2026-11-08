@@ -1,5 +1,5 @@
 use rustc_hash::FxHashMap;
-use crate::metadata::index::NameIndex;
+use crate::zpkg::index::NameIndex;
 use std::sync::Arc;
 use crate::object::{FieldSlot, TypeDesc};
 use crate::vm::runtime::Module;
@@ -53,7 +53,7 @@ pub fn build_type_registry(module: &mut Module) {
     // dispatch into each other. See `tokens::alloc_type_id_block`.
     let mut next_type_id: u32 = crate::vm::runtime::ids::tokens::alloc_type_id_block(order.len() as u32);
 
-    let class_by_name: FxHashMap<&str, &crate::metadata::ClassDesc> =
+    let class_by_name: FxHashMap<&str, &crate::zpkg::ClassDesc> =
         module.classes.iter().map(|c| (c.name.as_str(), c)).collect();
     let members = functions_by_owner(module);
     let no_members: Vec<usize> = Vec::new();
@@ -155,7 +155,7 @@ pub fn build_type_registry(module: &mut Module) {
         next_type_id += 1;
         // add-field-attribute-reflection: index per-field attr refs (instance +
         // static fields with attributes) by field name for reflection.
-        let field_attributes: Box<[(Box<str>, Box<[crate::metadata::ir::AttributeRef]>)]> =
+        let field_attributes: Box<[(Box<str>, Box<[crate::zpkg::ir::AttributeRef]>)]> =
             desc.fields.iter()
                 .chain(desc.static_fields.iter())
                 .filter(|f| !f.attributes.is_empty())
@@ -377,9 +377,9 @@ pub fn build_type_registry(module: &mut Module) {
 #[inline]
 fn check_struct_field_table_coverage(
     class_name: &str,
-    desc: &crate::metadata::ir::ClassDesc,
+    desc: &crate::zpkg::ir::ClassDesc,
 ) {
-    use crate::metadata::ir::CLASS_FLAG_STRUCT;
+    use crate::zpkg::ir::CLASS_FLAG_STRUCT;
     // 判据取**并集**（旗子 or 交付了 struct 块），不是二选一：漏掉任一侧都会把门做成
     // 恒不响的摆设 —— 声明路径按 `c.Kind == "struct"` 置旗、实例化路径硬写 `Flags = 4`，
     // 但 struct 块本身还额外受 `Layouts.IsStructType(layoutKey)` 门控。

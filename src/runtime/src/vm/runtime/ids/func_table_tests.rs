@@ -1,9 +1,9 @@
 use super::*;
-use crate::metadata::ir::{BasicBlock, Terminator};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::{BasicBlock, Terminator};
+use crate::zpkg::ir::ExecMode;
 
 fn stub_function(name: &str) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -31,7 +31,7 @@ fn stub_function(name: &str) -> Function {
 fn entry_module(names: &[&str]) -> Arc<Module> {
     let functions: Vec<Function> = names.iter().map(|n| stub_function(n)).collect();
     let func_index = names.iter().enumerate().map(|(i, n)| (n.to_string(), i)).collect();
-    Arc::new(Module::new(crate::metadata::image::ModuleData {
+    Arc::new(Module::new(crate::zpkg::image::ModuleData {
         name: "Entry".to_string(),
         string_pool: vec![],
         classes: vec![],

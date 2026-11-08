@@ -251,8 +251,8 @@ fn barrier_epoch_moves_on_every_invalidating_event() {
     assert!(moved(&|| r.reset_for_rerun()), "a re-run generation");
     let m = Arc::new(crate::object::TypeDesc {
         class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
-        fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(), cold: None,
+        fields: Vec::new(), field_index: crate::zpkg::NameIndex::new(), vtable: Vec::new(),
+        vtable_index: crate::zpkg::NameIndex::new(), cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     assert!(moved(&|| r.register_module_init(&m, FxHashSet::default())), "a package initializer registered");
@@ -287,8 +287,8 @@ fn static_field_barrier_records_only_a_settled_verdict() {
     // re-entrantly) is not settled.
     let m = Arc::new(crate::object::TypeDesc {
         class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
-        fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(), cold: None,
+        fields: Vec::new(), field_index: crate::zpkg::NameIndex::new(), vtable: Vec::new(),
+        vtable_index: crate::zpkg::NameIndex::new(), cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     ctx.core.runtime.cctors.register_module_init(&m, FxHashSet::default());
@@ -319,8 +319,8 @@ fn callee_barrier_settled_tracks_the_same_events_as_the_epoch() {
     // A package initializer pending: never settled, owner exempt or not.
     let m = Arc::new(crate::object::TypeDesc {
         class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
-        fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(), cold: None,
+        fields: Vec::new(), field_index: crate::zpkg::NameIndex::new(), vtable: Vec::new(),
+        vtable_index: crate::zpkg::NameIndex::new(), cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
     ctx.core.runtime.cctors.register_module_init(&m, FxHashSet::default());

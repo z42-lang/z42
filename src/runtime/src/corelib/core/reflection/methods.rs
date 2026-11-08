@@ -53,7 +53,7 @@ pub fn type_methods(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> 
     // impls in the vtable, so it must not pull in the abstract sigs as extra
     // MethodInfos. BFS the base-interface closure (same walk as GetInterfaces),
     // qualifying each method by its *declaring* interface so dedup is per-source.
-    if td.class_flags & crate::metadata::ir::CLASS_FLAG_INTERFACE != 0 {
+    if td.class_flags & crate::zpkg::ir::CLASS_FLAG_INTERFACE != 0 {
         let resolve = |name: &str| {
             ctx.module()
                 .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.current_type_desc(td)))
@@ -245,13 +245,13 @@ fn build_method_info_ex(
     // vtable-presence hint only for methods with no resolvable SIGS (synthesized).
     // IsAbstract from bit1.
     let is_virtual_flag = if sig_found {
-        (method_flags & crate::metadata::ir::METHOD_FLAG_VIRTUAL) != 0
+        (method_flags & crate::zpkg::ir::METHOD_FLAG_VIRTUAL) != 0
     } else {
         is_virtual
     };
-    let is_abstract_flag = (method_flags & crate::metadata::ir::METHOD_FLAG_ABSTRACT) != 0;
+    let is_abstract_flag = (method_flags & crate::zpkg::ir::METHOD_FLAG_ABSTRACT) != 0;
     // impl-sealed-semantics-devirt: MethodInfo.IsSealed from METHOD_FLAG_SEALED (bit2).
-    let is_sealed_flag = (method_flags & crate::metadata::ir::METHOD_FLAG_SEALED) != 0;
+    let is_sealed_flag = (method_flags & crate::zpkg::ir::METHOD_FLAG_SEALED) != 0;
     // add-reflective-invoke: method-level generic type parameters (definition state).
     // A freshly-reflected MethodInfo is a generic method *definition* iff it declares
     // type params; MakeGenericMethod produces a *constructed* MethodInfo (sets __typeArgs
@@ -301,7 +301,7 @@ fn build_method_info_ex(
 pub(super) fn build_iface_method_info(
     ctx: &VmContext,
     iface_fqn: &str,
-    sig: &crate::metadata::ir::IfaceMethodSig,
+    sig: &crate::zpkg::ir::IfaceMethodSig,
 ) -> Result<Value> {
     let simple = sig.name.split('$').next().unwrap_or(&sig.name);
     let qualified = format!("{iface_fqn}.{}", sig.name);
@@ -387,7 +387,7 @@ fn debug_parameter_names(f: &Function) -> Vec<&str> {
 /// parameter `idx` and decode it into a reflection `DefaultValue`. Returns `None`
 /// when the param has no `$Default` (→ caller falls back to the legacy kind tuple).
 fn param_default_from_blob(
-    param_attrs: &[Box<[crate::metadata::ir::AttributeRef]>],
+    param_attrs: &[Box<[crate::zpkg::ir::AttributeRef]>],
     idx: usize,
 ) -> Option<Value> {
     let attrs = param_attrs.get(idx)?;

@@ -1,7 +1,7 @@
 //! One-shot application execution through the Rust host service.
 use std::{path::{Path, PathBuf}, sync::Arc};
 use anyhow::Result;
-use crate::{metadata::ExecMode, pal::fs::Vfs};
+use crate::{zpkg::ExecMode, pal::fs::Vfs};
 use super::{app_state::set_program_args, runtime::{LoadOptions, LoadedProgram}};
 fn vfs_is_dir(fs: &dyn Vfs, p: &Path) -> bool { p.to_str().is_some_and(|s| fs.is_dir(s)) }
 /// Build-default execution mode: JIT when compiled in (make-jit-default),
@@ -90,6 +90,7 @@ pub fn run_app(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     }
 
     let program = LoadedProgram::load_file(file, LoadOptions {
+        components: Default::default(),
         mode: opts.mode, vfs, search_dirs, resolver: None, eager_dependencies: false,
     })?;
     set_program_args(program.context(), opts.program_args)?;

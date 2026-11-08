@@ -50,7 +50,7 @@ pub fn simple(full: &str) -> String {
 }
 
 /// Compare a reflection short name without allocating for an ordinary type name.
-pub(crate) fn simple_matches(full: &str, expected: &str) -> bool {
+pub fn simple_matches(full: &str, expected: &str) -> bool {
     if full.ends_with('>') && full.contains('<') {
         expected.contains('<') && simple(full) == expected
     } else {

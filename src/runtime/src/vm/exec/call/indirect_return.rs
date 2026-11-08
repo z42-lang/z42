@@ -1,6 +1,6 @@
 //! Struct argument copies and boxed returns at erased delegate boundaries.
 use anyhow::{anyhow, Result};
-use crate::metadata::ir::METHOD_FLAG_SRET;
+use crate::zpkg::ir::METHOD_FLAG_SRET;
 use crate::object::Value;
 use crate::vm::runtime::{Function, Module};
 use crate::vm::context::VmContext;

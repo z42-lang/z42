@@ -539,17 +539,13 @@ pub unsafe extern "C" fn z42_zpkg_read_namespaces(
         } else {
             unsafe { std::slice::from_raw_parts(bytes, length) }
         };
-        match crate::metadata::reader::read_zpkg_meta(slice) {
-            Ok(info) => {
+        match read_zpkg_namespaces(slice) {
+            Ok(keys) => {
                 // Package name first (the corelib prelude "z42.core" is
                 // requested by package name, not a declared namespace),
                 // then each NSPC namespace. SAFETY: each `&str` outlives
                 // the synchronous callback; the host copies before return.
-                if !info.name.is_empty() {
-                    let b = info.name.as_bytes();
-                    unsafe { visit(b.as_ptr() as *const c_char, b.len(), user_data) };
-                }
-                for ns in &info.namespaces {
+                for ns in &keys {
                     let b = ns.as_bytes();
                     unsafe { visit(b.as_ptr() as *const c_char, b.len(), user_data) };
                 }

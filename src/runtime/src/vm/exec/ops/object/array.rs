@@ -238,7 +238,7 @@ pub fn array_new<F: FnOnce() -> u32>(
 /// `new T[n]`'s element type as bound at run time: the argument's name, interned. `None` when
 /// the parameter is not bound here (the array keeps reporting `T`).
 pub fn type_param_bound_elem(arg: Option<&str>) -> Option<ElemType> {
-    arg.filter(|a| !a.is_empty() && !crate::metadata::index::type_param_markers::has_markers(a)).map(ElemType::intern)
+    arg.filter(|a| !a.is_empty() && !crate::zpkg::index::type_param_markers::has_markers(a)).map(ElemType::intern)
 }
 
 /// Resolve a class-level array element on a heap or stack receiver.

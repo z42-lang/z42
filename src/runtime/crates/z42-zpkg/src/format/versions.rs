@@ -354,8 +354,8 @@ pub const ZPKG_VERSION_MINOR: u16 = 54;
 // handling themselves, since those diverge per reader.
 
 /// Reject truncated data, wrong magic, or any zbc major/minor ≠ the pinned writer
-/// version. Used by [`crate::metadata::reader::read_zbc`].
-pub(in crate::metadata) fn verify_zbc_version(data: &[u8]) -> Result<()> {
+/// version. Used by [`crate::reader::read_zbc`].
+pub(crate) fn verify_zbc_version(data: &[u8]) -> Result<()> {
     if data.len() < 16 { bail!("zbc file too short") }
     if &data[0..4] != ZBC_MAGIC { bail!("not a binary zbc (bad magic)") }
     let major = u16::from_le_bytes([data[4], data[5]]);
@@ -376,7 +376,7 @@ pub(in crate::metadata) fn verify_zbc_version(data: &[u8]) -> Result<()> {
 /// `read_zpkg_modules` / `read_zpkg_file_entries` (each still reads `flags` /
 /// `sec_count` + its own SymOnly handling afterward). The magic-only readers
 /// (`read_zpkg_impl_pairs` / `read_zpkg_namespaces`) intentionally do not use it.
-pub(in crate::metadata) fn verify_zpkg_version(data: &[u8]) -> Result<()> {
+pub(crate) fn verify_zpkg_version(data: &[u8]) -> Result<()> {
     if data.len() < 16 { bail!("zpkg file too short") }
     if &data[0..4] != ZPKG_MAGIC { bail!("not a binary zpkg (bad magic)") }
     let major = u16::from_le_bytes([data[4], data[5]]);

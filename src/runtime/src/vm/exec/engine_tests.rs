@@ -1,10 +1,10 @@
 use super::*;
-use crate::metadata::ir::{BasicBlock, Terminator};
+use crate::zpkg::ir::{BasicBlock, Terminator};
 use crate::vm::exec::call::frames::VmFrame;
 use std::sync::{Arc, Barrier, atomic::{AtomicUsize, Ordering}};
 
 fn module(throws: bool) -> Module {
-    let f = Function::new(crate::metadata::ir::Function {
+    let f = Function::new(crate::zpkg::ir::Function {
         name: "Echo".into(), param_count: 1, ret_type: "long".into(),
         exec_mode: ExecMode::Interp,
         blocks: vec![BasicBlock { label: "entry".into(), instructions: vec![],
@@ -13,7 +13,7 @@ fn module(throws: bool) -> Module {
         max_reg: 2, cold: None, reg_types: Box::new([]), block_index: Default::default(),
         branch_targets: vec![], frame_meta: None,
     });
-    Module::new(crate::metadata::image::ModuleData { name: "Engine".into(),
+    Module::new(crate::zpkg::image::ModuleData { name: "Engine".into(),
         string_pool: vec![], classes: vec![], func_index: [("Echo".into(), 0)].into_iter().collect() },
         vec![f], Default::default())
 }

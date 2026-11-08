@@ -2244,14 +2244,23 @@ dependencies = [
  "tracing-subscriber",
  "webpki-roots",
  "z42-abi",
+ "z42-component-api",
  "z42-compression",
  "z42-macros",
  "z42-rs",
+ "z42-zpkg",
 ]
 
 [[package]]
 name = "z42-abi"
 version = "0.7.0"
+
+[[package]]
+name = "z42-component-api"
+version = "0.7.0"
+dependencies = [
+ "blake3",
+]
 
 [[package]]
 name = "z42-compression"
@@ -2296,6 +2305,14 @@ version = "0.7.0"
 dependencies = [
  "z42-abi",
  "z42-macros",
+]
+
+[[package]]
+name = "z42-zpkg"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "rustc-hash 2.1.3",
 ]
 
 [[package]]

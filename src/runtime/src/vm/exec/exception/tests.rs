@@ -13,7 +13,7 @@ mod make_stdlib_exception_tests {
     use std::sync::Arc;
 
     fn empty_module() -> Module {
-        Module::new(crate::metadata::image::ModuleData {
+        Module::new(crate::zpkg::image::ModuleData {
             name: "test".into(),
             string_pool: vec![],
             classes: vec![],
@@ -27,7 +27,7 @@ mod make_stdlib_exception_tests {
             FieldSlot { name: "StackTrace".into(),     type_tag: "str".into(), visibility: 0 },
             FieldSlot { name: "InnerException".into(), type_tag: "Std.Exception".into(), visibility: 0 },
         ];
-        let mut field_index = crate::metadata::NameIndex::new();
+        let mut field_index = crate::zpkg::NameIndex::new();
         for (i, f) in fields.iter().enumerate() {
             field_index.insert(f.name.to_string(), i);
         }
@@ -41,7 +41,7 @@ mod make_stdlib_exception_tests {
             fields,
             field_index,
             vtable:                 vec![],
-            vtable_index:           crate::metadata::NameIndex::new(),
+            vtable_index:           crate::zpkg::NameIndex::new(),
             cold: Some(Box::new(crate::object::TypeDescCold {
                 own_fields: own_fields_box,
                 ..Default::default()

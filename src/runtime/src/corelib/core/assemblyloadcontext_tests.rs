@@ -11,7 +11,7 @@ use crate::vm::runtime::Module;
 use crate::vm::loader::contexts::{AssemblyId, ContextId, ContextRegistry};
 use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::TypeDesc;
-use crate::metadata::NameIndex;
+use crate::zpkg::NameIndex;
 use std::sync::Arc;
 
 fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
@@ -34,7 +34,7 @@ fn mk_module(type_names: &[&str]) -> Module {
     for n in type_names {
         type_registry.insert(n.to_string(), dummy_type_desc(n));
     }
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "dep".to_string(),
         string_pool: Vec::new(),
         classes: Vec::new(),

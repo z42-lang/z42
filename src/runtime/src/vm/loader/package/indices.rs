@@ -1,6 +1,6 @@
 use super::*;
-use crate::metadata::ir::{BasicBlock, BranchTargets};
-use crate::metadata::ir::reg_type::IrType;
+use crate::zpkg::ir::{BasicBlock, BranchTargets};
+use crate::zpkg::ir::reg_type::IrType;
 use crate::vm::runtime::SuperInstr;
 
 pub(crate) fn build_block_indices_with_fusion(module: &mut Module, fusion_inputs: FusionInputSource) {

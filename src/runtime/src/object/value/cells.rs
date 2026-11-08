@@ -138,6 +138,37 @@ impl<'a> Cells<'a> {
     /// `false` when out of bounds.
     #[inline]
     pub fn copy_in(&self, off: usize, src: &[u8]) -> bool {
+        if src.len() < 32 { return self.copy_in_chunks(off, src); }
+        self.copy_in_bulk(off, src)
+    }
+
+    // Keep bulk setup out of callers that only copy a small field or struct gap.
+    #[inline(never)]
+    fn copy_in_bulk(&self, off: usize, src: &[u8]) -> bool {
+        if off.checked_add(src.len()).is_none_or(|end| end > self.len) {
+            return false;
+        }
+        let leading = ((8 - off % 8) % 8).min(src.len());
+        if !self.copy_in_chunks(off, &src[..leading]) { return false; }
+        let mut k = leading;
+        while src.len() - k >= 32 {
+            for lane in 0..4 {
+                let index = k + lane * 8;
+                // SAFETY: the checked range contains all four words. The destination
+                // is now 8-aligned; each store has exactly the old chunk's width and
+                // ordering. Source bytes are borrowed immutable Rust memory.
+                unsafe {
+                    let bits = std::ptr::read_unaligned(src.as_ptr().add(index).cast::<u64>());
+                    store_raw(self.base.add(off + index), 8, bits);
+                }
+            }
+            k += 32;
+        }
+        self.copy_in_chunks(off + k, &src[k..])
+    }
+
+    #[inline]
+    fn copy_in_chunks(&self, off: usize, src: &[u8]) -> bool {
         if off.checked_add(src.len()).is_none_or(|end| end > self.len) {
             return false;
         }
@@ -149,6 +180,46 @@ impl<'a> Cells<'a> {
             // SAFETY: in bounds (checked above), aligned to `w` (`chunk_width`); view contract.
             unsafe { store_raw(self.base.add(off + k), w, u64::from_ne_bytes(buf)) };
             k += w;
+        }
+        true
+    }
+
+    /// Zero primitive bytes with the same aligned atomic chunks as copy_in.
+    /// This must not include reference words, which require the SATB barrier.
+    #[inline]
+    pub(crate) fn clear_bytes(&self, off: usize, len: usize) -> bool {
+        if off.checked_add(len).is_none_or(|end| end > self.len) { return false; }
+        let mut k = 0;
+        while k < len {
+            let w = chunk_width(self.base as usize + off + k, len - k);
+            // SAFETY: checked span, naturally aligned chunk, primitive bytes only.
+            unsafe { store_raw(self.base.add(off + k), w, 0); }
+            k += w;
+        }
+        true
+    }
+
+    /// Zero a checked range of uniform primitive cells. Every store retains the
+    /// element's width and relaxed ordering; invalid ranges write nothing.
+    #[inline]
+    pub(crate) fn clear_prims(&self, index: usize, n: usize, w: usize) -> bool {
+        if !matches!(w, 1 | 2 | 4 | 8)
+            || index.checked_add(n).and_then(|end| end.checked_mul(w))
+                .is_none_or(|end| end > self.len)
+        {
+            return false;
+        }
+        if n == 0 { return true; }
+        // SAFETY: the complete range was checked, and the 8-aligned view plus
+        // index*w aligns every cell to its width. Specialize before the loop.
+        unsafe {
+            let base = self.base.add(index * w);
+            match w {
+                1 => clear_raw::<1>(base, n),
+                2 => clear_raw::<2>(base, n),
+                4 => clear_raw::<4>(base, n),
+                _ => clear_raw::<8>(base, n),
+            }
         }
         true
     }
@@ -328,5 +399,16 @@ unsafe fn store_raw(p: *mut u8, w: usize, bits: u64) {
             4 => AtomicU32::from_ptr(p.cast()).store(bits as u32, Ordering::Relaxed),
             _ => AtomicU64::from_ptr(p.cast()).store(bits, Ordering::Relaxed),
         }
+    }
+}
+
+/// # Safety
+/// base covers n initialized, WIDTH-aligned primitive cells; WIDTH is a supported
+/// cell width. All concurrent access obeys the Cells atomic contract.
+#[inline(always)]
+unsafe fn clear_raw<const WIDTH: usize>(base: *mut u8, n: usize) {
+    for index in 0..n {
+        // SAFETY: the caller validated the entire span and its alignment.
+        unsafe { store_raw(base.add(index * WIDTH), WIDTH, 0); }
     }
 }

@@ -58,14 +58,14 @@ impl VmContext {
 
     /// Instantiate shared package definitions with fresh per-VM types and caches.
     pub fn with_image(
-        image: Arc<crate::metadata::image::PackageImage>,
+        image: Arc<crate::zpkg::image::PackageImage>,
     ) -> anyhow::Result<std::pin::Pin<Box<Self>>> {
         Self::with_image_and_vfs(image, crate::pal::fs::default_vfs())
     }
 
     /// Instantiate an image using this VM's file system for subsequent loads.
     pub fn with_image_and_vfs(
-        image: Arc<crate::metadata::image::PackageImage>,
+        image: Arc<crate::zpkg::image::PackageImage>,
         vfs: Arc<dyn crate::pal::fs::Vfs>,
     ) -> anyhow::Result<std::pin::Pin<Box<Self>>> {
         let mut module = crate::vm::runtime::Module::from_image(image);
@@ -87,6 +87,7 @@ impl VmContext {
         // avoidance: heap owns the scanner, scanner refs core, core owns
         // heap → strong-Arc loop = leak). Weak.upgrade() per call.
         let core: Arc<VmCore> = Arc::new(VmCore {
+            components: std::sync::OnceLock::new(),
             threads: crate::vm::threads::ThreadState::new(),
             loader: crate::vm::loader::LoaderState::new(vfs, crate::assembly::loader::FUSION_INPUTS),
             heap:                 Box::new(Heap::new(config.gc)),

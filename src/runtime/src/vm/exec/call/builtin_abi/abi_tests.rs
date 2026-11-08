@@ -166,13 +166,13 @@ fn exception_type(name: &str, base: Option<&str>) -> Arc<TypeDesc> {
         FieldSlot { name: "StackTrace".into(),     type_tag: "str".into(), visibility: 0 },
         FieldSlot { name: "InnerException".into(), type_tag: "Std.Exception".into(), visibility: 0 },
     ];
-    let mut field_index = crate::metadata::NameIndex::new();
+    let mut field_index = crate::zpkg::NameIndex::new();
     for (i, f) in fields.iter().enumerate() { field_index.insert(f.name.to_string(), i); }
     let own: Box<[FieldSlot]> = fields.clone().into();
     Arc::new(TypeDesc {
         class_flags: 0, visibility: 0, name: name.into(), id: TypeId::UNRESOLVED,
         base_name: base.map(str::to_owned), fields, field_index,
-        vtable: vec![], vtable_index: crate::metadata::NameIndex::new(),
+        vtable: vec![], vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(crate::object::TypeDescCold { own_fields: own, ..Default::default() })),
     })
 }
@@ -183,7 +183,7 @@ fn module_with(classes: &[&str]) -> Module {
     for c in classes {
         type_registry.insert(c.to_string(), exception_type(c, Some("Std.Exception")));
     }
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "M".into(),
         string_pool: vec![],
         classes: vec![],

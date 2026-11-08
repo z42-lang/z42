@@ -1,0 +1,8 @@
+[package]
+name = "z42-component-api"
+version.workspace = true
+edition = "2021"
+description = "Same-build C ABI contracts for z42 runtime components"
+
+[build-dependencies]
+blake3 = "1"

@@ -151,7 +151,7 @@ pub fn resolve_function_tokens(
         for block in &func.blocks {
             let mut block_sites = vec![UNRESOLVED; block.instructions.len()];
             for (instr_idx, instr) in block.instructions.iter().enumerate() {
-                use crate::metadata::Instruction;
+                use crate::zpkg::Instruction;
                 let site_idx = match instr {
                     Instruction::Call(insn) => {
                         let s = method_site_names.len() as u32;

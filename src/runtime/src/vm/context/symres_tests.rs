@@ -9,12 +9,12 @@
 
 use crate::vm::runtime::dispatch::functions::call_arity;
 use crate::vm::runtime::Function;
-use crate::metadata::ir::{BasicBlock, Terminator, METHOD_FLAG_SRET, METHOD_FLAG_VIRTUAL};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::{BasicBlock, Terminator, METHOD_FLAG_SRET, METHOD_FLAG_VIRTUAL};
+use crate::zpkg::ir::ExecMode;
 
 /// 造一个只有 arity 相关字段有意义的 `Function`（`call_arity` 只读 param_count / method_flags / params_from）。
 fn f(param_count: usize, min_arg: u16, params_from: u8, method_flags: u8) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: "T.M".to_string(),
         param_count,
         ret_type: "void".to_string(),
@@ -141,8 +141,8 @@ fn args_alone_still_decide_without_the_marker() {
 
 use super::symres::{static_zero_value, verify_static_field, StaticNullVerdict};
 use crate::vm::runtime::Module;
-use crate::metadata::ir::{FieldDesc, CLASS_FLAG_ENUM, CLASS_FLAG_STRUCT};
-use crate::metadata::index::name::NameIndex;
+use crate::zpkg::ir::{FieldDesc, CLASS_FLAG_ENUM, CLASS_FLAG_STRUCT};
+use crate::zpkg::index::name::NameIndex;
 use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
 use crate::object::Value;
@@ -202,7 +202,7 @@ fn vm_with_types() -> std::pin::Pin<Box<VmContext>> {
 }
 
 fn empty_module() -> Module {
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: "test".to_owned(),
         string_pool: vec![],
         classes: vec![],

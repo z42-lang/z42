@@ -2,13 +2,13 @@
 //! and `CallIndirect` dispatches on it — no name on the call path.
 
 use super::*;
-use crate::metadata::ir::{BasicBlock, Instruction, LoadFnInsn, MkClosInsn, Terminator};
+use crate::zpkg::ir::{BasicBlock, Instruction, LoadFnInsn, MkClosInsn, Terminator};
 use crate::vm::runtime::ids::tokens::{FnId, UNRESOLVED};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::ExecMode;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 fn func(name: &str, param_count: usize, instructions: Vec<Instruction>, ret: Option<u32>) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count,
         ret_type: "long".to_string(),
@@ -46,7 +46,7 @@ fn mk_clos(dst: u32, name: &str, captures: &[u32]) -> Instruction {
 
 fn module(name: &str, functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![],
         classes: vec![],

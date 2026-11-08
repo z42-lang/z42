@@ -19,7 +19,7 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> { VmContext::new() }
 /// add-attribute-reflection C3 made this path z42.core-dependent.)
 fn ctx_with_std_type() -> std::pin::Pin<Box<VmContext>> {
     use crate::{
-        metadata::index::name::NameIndex, object::FieldSlot, vm::runtime::ids::tokens::TypeId,
+        zpkg::index::name::NameIndex, object::FieldSlot, vm::runtime::ids::tokens::TypeId,
     };
     let c = VmContext::new();
     c.install_lazy_loader(None, 0);
@@ -57,9 +57,9 @@ fn obj(ctx: &VmContext, class_name: &str) -> Value {
         name: class_name.to_string(),
         base_name: None,
         fields: Vec::new(),
-        field_index: crate::metadata::NameIndex::new(),
+        field_index: crate::zpkg::NameIndex::new(),
         vtable: Vec::new(),
-        vtable_index: crate::metadata::NameIndex::new(),
+        vtable_index: crate::zpkg::NameIndex::new(),
         cold: None,
         id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     });
@@ -289,12 +289,12 @@ fn closure_of(env: ArrRef, id: u32) -> Value {
 /// callables can name them (`__delegate_fn_name`, `__make_closure`).
 fn ctx_with_fns(names: &[&str]) -> std::pin::Pin<Box<VmContext>> {
     use crate::vm::runtime::{Function, Module};
-    use crate::metadata::ir::{BasicBlock, Terminator};
-    let functions: Vec<Function> = names.iter().map(|n| Function::new(crate::metadata::ir::Function {
+    use crate::zpkg::ir::{BasicBlock, Terminator};
+    let functions: Vec<Function> = names.iter().map(|n| Function::new(crate::zpkg::ir::Function {
         name: n.to_string(),
         param_count: 0,
         ret_type: "void".to_string(),
-        exec_mode: crate::metadata::ir::ExecMode::Interp,
+        exec_mode: crate::zpkg::ir::ExecMode::Interp,
         blocks: vec![BasicBlock {
             label: "entry".to_string(),
             instructions: Vec::new(),
@@ -313,7 +313,7 @@ fn ctx_with_fns(names: &[&str]) -> std::pin::Pin<Box<VmContext>> {
         frame_meta: None,
     })).collect();
     let func_index = names.iter().enumerate().map(|(i, n)| (n.to_string(), i)).collect();
-    VmContext::with_module(Module::new(crate::metadata::image::ModuleData {
+    VmContext::with_module(Module::new(crate::zpkg::image::ModuleData {
         name: "Demo".to_string(),
         string_pool: vec![],
         classes: vec![],

@@ -2,13 +2,13 @@
 //! lazily loaded packages, and the interp call path reading those tokens.
 
 use super::*;
-use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator};
+use crate::zpkg::ir::{BasicBlock, CallInsn, Instruction, Terminator};
 use crate::vm::runtime::ids::tokens::{FnId, UNRESOLVED};
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::ExecMode;
 use std::sync::atomic::Ordering;
 
 fn func(name: &str, param_count: usize, instructions: Vec<Instruction>, ret: Option<u32>) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count,
         ret_type: "long".to_string(),
@@ -48,7 +48,7 @@ fn const7(name: &str) -> Function {
 
 fn module(name: &str, functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![],
         classes: vec![],

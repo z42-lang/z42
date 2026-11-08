@@ -3,17 +3,17 @@
 
 use super::*;
 use crate::vm::runtime::{Function, Module};
-use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
+use crate::zpkg::ir::{BasicBlock, Instruction, Terminator};
 use crate::vm::loader::package::LoadedArtifact;
 use crate::vm::runtime::ids::tokens::FnId;
-use crate::metadata::ir::ExecMode;
+use crate::zpkg::ir::ExecMode;
 use crate::object::string::vstr::Str;
 use crate::object::Value;
 use crate::vm::context::VmContext;
 
 /// `string F() { return <pool[idx]>; }`
 fn const_str_fn(name: &str, idx: u32) -> Function {
-    Function::new(crate::metadata::ir::Function {
+    Function::new(crate::zpkg::ir::Function {
         name: name.to_string(),
         param_count: 0,
         ret_type: "string".to_string(),
@@ -39,7 +39,7 @@ fn const_str_fn(name: &str, idx: u32) -> Function {
 
 fn module(name: &str, pool: &[&str], functions: Vec<Function>) -> Module {
     let func_index = functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
-    Module::new(crate::metadata::image::ModuleData {
+    Module::new(crate::zpkg::image::ModuleData {
         name: name.to_string(),
         string_pool: pool.iter().map(|s| s.to_string()).collect(),
         classes: vec![],

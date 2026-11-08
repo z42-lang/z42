@@ -90,7 +90,7 @@ pub mod typed {
     }
 
     fn ascii_match(bytes: &[u8], mask: u128) -> Option<usize> {
-        bytes.iter().position(|&byte| byte.is_ascii() && mask & (1u128 << byte) != 0)
+        crate::object::string::ascii::find(bytes, mask)
     }
 
     /// Start and result are Unicode scalar indices, even when the scan uses UTF-8 bytes.

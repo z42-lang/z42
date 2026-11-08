@@ -34,7 +34,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::vm::runtime::Function;
-use crate::metadata::ir::Instruction;
+use crate::zpkg::ir::Instruction;
 use crate::vm::loader::package::{load_artifact_with_fusion, load_artifact_from_bytes_with_fusion, LoadedArtifact};
 use super::fusion_inputs::FusionInputSource;
 use crate::object::TypeDesc;

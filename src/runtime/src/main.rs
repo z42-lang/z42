@@ -142,19 +142,19 @@ fn exec_mode_name(m: &ExecMode) -> &'static str {
 /// default. Returns `None` to fall through to the build default when: unset, an
 /// unrecognized value, or a feature-gated mode (jit / aot) not compiled into this
 /// build — each non-empty invalid case warns once on stderr so it isn't silent.
-fn resolve_config_mode(mode: Option<&str>) -> Option<z42::metadata::ExecMode> {
+fn resolve_config_mode(mode: Option<&str>) -> Option<z42::host::ExecMode> {
     match mode {
         None => None,
-        Some("interp") => Some(z42::metadata::ExecMode::Interp),
+        Some("interp") => Some(z42::host::ExecMode::Interp),
         Some("jit") => {
             #[cfg(feature = "jit")]
-            { Some(z42::metadata::ExecMode::Jit) }
+            { Some(z42::host::ExecMode::Jit) }
             #[cfg(not(feature = "jit"))]
             { eprintln!("z42: Z42_MODE/[runtime].mode=jit but this build has no jit feature; using build default"); None }
         }
         Some("aot") => {
             #[cfg(feature = "aot")]
-            { Some(z42::metadata::ExecMode::Aot) }
+            { Some(z42::host::ExecMode::Aot) }
             #[cfg(not(feature = "aot"))]
             { eprintln!("z42: Z42_MODE/[runtime].mode=aot but this build has no aot feature; using build default"); None }
         }
@@ -354,18 +354,18 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
     // config-driven (`Z42_MODE` / `[runtime].mode`, unify-run-modes P2); else the
     // build default (jit if compiled in, else interp). Feature-gated arms must
     // themselves be gated (constructor absent when the feature is off).
-    let effective_mode: z42::metadata::ExecMode = match cli.mode {
+    let effective_mode: z42::host::ExecMode = match cli.mode {
         #[cfg(feature = "jit")]
-        Some(ExecMode::Jit) => z42::metadata::ExecMode::Jit,
+        Some(ExecMode::Jit) => z42::host::ExecMode::Jit,
         #[cfg(feature = "aot")]
-        Some(ExecMode::Aot) => z42::metadata::ExecMode::Aot,
-        Some(ExecMode::Interp) => z42::metadata::ExecMode::Interp,
+        Some(ExecMode::Aot) => z42::host::ExecMode::Aot,
+        Some(ExecMode::Interp) => z42::host::ExecMode::Interp,
         None => resolve_config_mode(z42::config::runtime_config().mode.as_deref())
             .unwrap_or_else(|| {
                 #[cfg(feature = "jit")]
-                { z42::metadata::ExecMode::Jit }
+                { z42::host::ExecMode::Jit }
                 #[cfg(not(feature = "jit"))]
-                { z42::metadata::ExecMode::Interp }
+                { z42::host::ExecMode::Interp }
             }),
     };
 

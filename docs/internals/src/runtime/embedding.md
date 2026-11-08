@@ -170,7 +170,7 @@ pub trait ZpkgResolver: Send + Sync {
 | wasm | `bundleStdlibNode(readNamespaces)` / `bundleStdlibBrowser(baseUrl, readNamespaces)` / `mapResolver(map)` —— Node 侧 `readdir`，浏览器侧 fetch 构建期生成的 `files.json`（HTTP 枚举不了目录，这是文件名清单的派生替身，**不是** namespace 映射） | `wasm/platform/js/stdlib-resolver.js` |
 
 读 NSPC 的 helper 在三个层面各有一份入口，都落到同一段 Rust（`metadata::reader::read_zpkg_meta`）：
-C ABI `z42_zpkg_read_namespaces`、Rust `z42_host::read_zpkg_namespaces`、
+C ABI `z42_zpkg_read_namespaces`、Rust `z42::host::read_zpkg_namespaces` 与 `z42_host::read_zpkg_namespaces`、
 wasm 导出 `readNamespaces` / Android JNI `Z42VM.readNamespaces`。
 Swift / Kotlin / JS 都不需要自己重写 zpkg 解析。
 
@@ -367,3 +367,19 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 `LoadedProgram::invoke` 统一校验参数数量、安装可嵌套恢复的活动 VM/堆守卫、初始化、按模式执行及异常收尾。初始化状态由程序持有，只执行一次，准备失败保持终态。JIT 调用保留参数和返回值，并复用该 VM 的编译器及代码生命周期；不可用模式返回错误。
 
 `host::run_app` 在同一服务上提供一次性应用运行，CLI 只解析参数及处理进程退出。C ABI 位于 `host/ffi.rs`，将句柄映射到 `Arc<LoadedProgram>`；加载前复制配置并释放注册表锁，调用前取得程序强引用并释放锁，宿主 resolver 或输出回调可以重入而不持有宿主注册表锁。
+
+
+## 可选原生组件
+
+Rust 宿主通过 `LoadOptions.components` 选择同构建组件，所有类型从 `z42::host` 获取。
+`ComponentOptions::with_static` 接收已链接的工厂函数，`with_dynamic` 接收预期组件 ID、库路径和 C 初始化入口；
+调用方通过 unsafe 承诺原生代码及 ABI 的有效性。加载程序自动装配组件，不需要额外注册调用。
+
+`component_ids(program.context())` 返回依赖顺序的组件 ID；
+`component_interface::<T>(program.context(), id)` 返回接口租约，未提供的组件或接口返回 None。
+请求的接口版本、大小或对齐不匹配会报错。租约在释放之前保留整个 VM 及其组件代码。
+
+组件选项克隆共享不可变工厂和加载结果；每次程序加载创建新的实例。修改选项会创建新的加载缓存；
+失败的库加载结果也会缓存，重试时重新构造选项。首版装配后冻结，不支持运行中的替换或热卸载。
+C 宿主和 CLI 目前沿用默认组件选择；具体执行引擎仍使用既有注册入口。
+组件协议与所有权见 [组件化运行时](componentized-runtime.md)。

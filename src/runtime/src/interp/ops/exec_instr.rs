@@ -23,8 +23,8 @@
 /// loop gains. The loop's own slow paths live in `exec_body_cold.rs`.
 
 use crate::vm::runtime::{Function, Module};
-use crate::{metadata::Instruction, object::Value};
-use crate::metadata::{
+use crate::{zpkg::Instruction, object::Value};
+use crate::zpkg::{
     BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, MkClosInsn, ObjNewInsn,
     StaticGetInsn, StaticSetInsn, VCallInsn,
 };

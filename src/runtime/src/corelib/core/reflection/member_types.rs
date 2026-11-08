@@ -149,7 +149,7 @@ pub(super) fn inherited_member_type(
         .filter(|(param, _)| !shadowed.contains(param))
         .filter_map(|(param, arg)| Some((param.clone(), type_value_arg_name(arg)?)))
         .unzip();
-    let tag = crate::metadata::index::type_names::substitute(tag, &params, &names);
+    let tag = crate::zpkg::index::type_names::substitute(tag, &params, &names);
     make_type_from_name(ctx, &tag)
 }
 
@@ -163,7 +163,7 @@ pub(super) fn signature_type(
             }
             // Keep the canonical spelling used by name-based substitution when
             // this signature does not reference a constructed type argument.
-            return make_type_from_name(ctx, &crate::metadata::index::type_names::canonical(tag));
+            return make_type_from_name(ctx, &crate::zpkg::index::type_names::canonical(tag));
         } else {
             return inherited_member_type(ctx, tag, subst, shadowed);
         }

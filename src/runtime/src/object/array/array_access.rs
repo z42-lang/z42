@@ -15,30 +15,65 @@ impl ArrayObj {
         if mode.is_prim() {
             let cells = self.cells();
             let width = self.width();
-            for i in range {
-                cells.store_bits(i * width, width, 0);
-            }
+            anyhow::ensure!(cells.clear_prims(index, length, width), "invalid primitive clear range");
             return Ok(true);
         }
         match mode {
             ArrayMode::Ref => {
                 let cells = self.cells();
-                for i in range {
+                let end = range.end;
+                let mut i = range.start;
+                // Retain every atomic store and SATB deletion barrier while amortizing
+                // the range branch over four reference words.
+                while end - i >= 4 {
+                    for offset in 0..4 {
+                        ref_word::store_word_recorded(&cells, (i + offset) * REF_STRIDE, 0);
+                    }
+                    i += 4;
+                }
+                for i in i..end {
                     ref_word::store_word_recorded(&cells, i * REF_STRIDE, 0);
                 }
             }
             ArrayMode::Struct => {
                 let (cells, layout) = self.struct_cells()
                     .ok_or_else(|| anyhow::anyhow!("missing struct array layout"))?;
-                let zeros = vec![0; layout.size];
-                for i in range {
-                    struct_blob::write(&cells, i * layout.size, layout.size, &zeros, &[],
-                        &layout.ref_offsets, &mut |_| {})?;
-                }
+                struct_blob::clear_range(&cells, index, length, layout.size, &layout.ref_offsets)?;
             }
             _ => return Ok(false),
         }
         Ok(true)
+    }
+
+    /// Search a checked range with string/null equality. The caller checks the
+    /// declared element type; a non-string value declines to custom equality.
+    pub(crate) fn search_string_elems(&self, value: &Value, range: std::ops::Range<usize>,
+        backwards: bool) -> Result<Option<usize>, ()> {
+        let mode = self.mode();
+        if !matches!(mode, ArrayMode::Ref | ArrayMode::Mixed)
+            || range.start > range.end || range.end > self.len() { return Err(()); }
+        let cells = self.cells();
+        // Retain fixed array storage throughout the native search.
+        // Reference loads still use the ordinary acquire/read-barrier primitive.
+        let get = |index| if mode == ArrayMode::Ref {
+            ref_word::load(&cells, index * REF_STRIDE)
+        } else { self.get_boxed(index) };
+        match value {
+            Value::Str(needle) => {
+                let needle = needle.as_str();
+                search_string_range(range, backwards, |index| match get(index) {
+                    Value::Str(text) => (text.as_str() == needle).then_some(Ok(index)),
+                    Value::Null => None,
+                    _ => Some(Err(())),
+                })
+            }
+            Value::Null => search_string_range(range, backwards, |index| match get(index) {
+                Value::Null => Some(Ok(index)),
+                Value::Str(_) => None,
+                _ => Some(Err(())),
+            }),
+            _ => Err(()),
+        }
     }
 
     /// Materialise all elements as a `Vec<Value>` (reflection, conversions).
@@ -299,4 +334,9 @@ impl ArrayObj {
             _ => (std::ptr::null(), 0, 0),
         }
     }
+}
+
+fn search_string_range(mut range: std::ops::Range<usize>, backwards: bool,
+    find: impl FnMut(usize) -> Option<Result<usize, ()>>) -> Result<Option<usize>, ()> {
+    if backwards { range.rev().find_map(find) } else { range.find_map(find) }.transpose()
 }

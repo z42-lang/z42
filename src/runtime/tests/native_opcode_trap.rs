@@ -5,17 +5,17 @@
 //! Once specs C2/C4/C5 land, the corresponding test below should be flipped
 //! from "expects trap" to "expects success".
 
+use z42_zpkg::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator};
 use std::collections::HashMap;
 
 use z42::vm::runtime::{Function, Module};
 use z42::{
-    metadata::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator},
     object::Value,
 };
 use z42::vm::context::VmContext;
 
 fn module_with_single_instr(name: &str, instr: Instruction) -> Module {
-    let func = Function::new(z42::metadata::ir::Function {
+    let func = Function::new(z42_zpkg::ir::Function {
         name: format!("{name}.Main"),
         param_count: 0,
         ret_type: "void".to_string(),
@@ -38,7 +38,7 @@ fn module_with_single_instr(name: &str, instr: Instruction) -> Module {
         frame_meta: None,
     });
 
-    Module::new(z42::metadata::image::ModuleData {
+    Module::new(z42_zpkg::image::ModuleData {
         name: name.to_string(),
         string_pool: vec![],
         classes: vec![],
