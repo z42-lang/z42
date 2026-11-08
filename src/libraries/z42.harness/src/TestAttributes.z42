@@ -19,15 +19,23 @@ namespace Std.Harness;
 /// 在**非定向** `[Setup]`（本组公共）之后执行；`teardown` 反序（声明先、公共后）。引用是
 /// `methodof`（编译期解析）——目标改名/拼错在引用点直接编译错误（E0459），不再是字符串的
 /// 静默失效。目标须是静态类的零参 void 方法（`methodof` 的 owner 是类型，自由函数指不了）。
+///
+/// 运行期数据行（data provider）：`[Test(data: methodof(Fix.rows))]`——`rows` 是静态类里
+/// 零参、返回 `List<object[]>` 的方法，每元素一行实参；发现期调用并按行展开成多条用例
+/// （与 `[Case]` 同一条展开路：名字带实参后缀、逐行独立判定）。与 `[Case]` 互斥——数据行
+/// 要么运行期生成（`data:`）要么逐行常量（`[Case]`）。
 public sealed class TestAttribute : Attribute {
     /// 本条测试专属 setup（`methodof(...)`）；null = 无。
     public MethodInfo Setup;
     /// 本条测试专属 teardown（`methodof(...)`）；null = 无。
     public MethodInfo Teardown;
-    /// 裸 `[Test]` = 无专属 fixture；`setup:` / `teardown:` 按名赋参。
-    public TestAttribute(MethodInfo setup = null, MethodInfo teardown = null) {
+    /// 运行期数据行 provider（`methodof(...)`，零参 → `List<object[]>`）；null = 无。
+    public MethodInfo Data;
+    /// 裸 `[Test]` = 无专属 fixture；`setup:` / `teardown:` / `data:` 按名赋参。
+    public TestAttribute(MethodInfo setup = null, MethodInfo teardown = null, MethodInfo data = null) {
         this.Setup = setup;
         this.Teardown = teardown;
+        this.Data = data;
     }
 }
 
@@ -69,7 +77,8 @@ public sealed class TeardownAttribute : Attribute {
 ///
 /// 每份一行，runner 把方法按行展开成多条用例（名字带实参后缀）。实参是**编译期常量**
 /// （E0500 白名单），逐位对应形参；套数 = 形参数是编译期检查，类型勘合（整数族装箱摆平）
-/// 在运行期。要运行期生成的数据不归 attribute——写成普通 `[Test]` 自己循环断言。
+/// 在运行期。要**运行期生成**的数据行用 `[Test(data: methodof(Fix.rows))]`（见
+/// `TestAttribute`；两者互斥）。
 public sealed class CaseAttribute : Attribute {
     /// 本行实参（params 展开）。
     public object[] Args;

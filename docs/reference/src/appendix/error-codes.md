@@ -331,7 +331,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 |---|---|---|---|
 | E0918 | `[MethodImpl(...)]` 贴在没有体的声明上（类、字段、`extern` / 抽象方法……），实参不是恰好一个，或选项不在 `MethodImplOptions` 的 `NoInlining` / `NoOptimization` 两项之内（两项可用 `\|` 组合） | ✅ DeclEnforcer.MethodImpl.z42（`_miCheck`） | `[MethodImpl(MethodImplOptions.AggressiveInlining)] int f() { return 1; }` |
 
-### E0911–E0917 测试框架
+### E0911–E0920 测试框架
 
 发射点全在
 [`TestAttrEnforcer.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.symbols/src/Symbols/TestAttrEnforcer.z42)
@@ -348,6 +348,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0914 | `[Skip]` 缺 `reason` 或 reason 为空串；或 `[Skip]`/`[Ignore]`/`[Case]` **孤儿使用**（同声明上没有 kind attr） | ✅ TestAttrEnforcer.z42（`_teArgChecks` / `_teOrphanCheck`） | `[Skip] void t() {}` |
 | E0915 | `[Setup]` / `[Teardown]` 违反同五条规则 | ✅ TestAttrEnforcer.z42（`_teCode`） | — |
 | E0917 | `[Timeout]` 缺 `milliseconds`（或该实参非整数字面量），或其值 ≤ 0 | ✅ TestAttrEnforcer.z42（`_teArgChecks`） | `[Timeout(0)] [Test] void t() {}` |
+| E0920 | `[Test(data: …)]` 运行期数据行形态三查：`data:` 只贴 `[Test]`（基准不跑参数化数据行）；与 `[Case]` 互斥（行来源要么运行期生成要么逐行常量）；贴了须有形参。provider 的签名形状（静态类零参 → `List<object[]>`）运行期发现时校验 | ✅ TestAttrEnforcer.z42（`_teDataChecks`） | `[Test(data: methodof(F.r))] [Case(1)] void t(int a) {}` |
 
 > E0913 / E0914 / E0917 防的是**静默降级**——编译器读不到合法实参若取默认值继续走
 > （skip 没理由、超时静默失效、抛出类型永不匹配），会把问题全推到运行期且症状指不回病灶。
