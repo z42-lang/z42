@@ -99,7 +99,7 @@ pub fn platform_caps(ctx: &VmContext) -> Value {
 /// dispatch. `interp` is always present; `jit` / `aot` are cfg-gated. Mirrors
 /// the `exec modes:` line of `main.rs::print_build_info`.
 ///
-/// NOTE: an `aot`-feature build lists `"aot"` here even though `aot.rs` is a
+/// NOTE: an `aot`-feature build lists `"aot"` here even though AOT execution is a
 /// stub — this reports "compiled in", not "executable". The exec-profile support
 /// matrix's *policy overlay* is what marks any `aot_pkgs ≠ []` composition as
 /// `skipped-not-yet` (M9), independent of this list.

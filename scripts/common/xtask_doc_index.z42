@@ -28,7 +28,7 @@ int _docIndex() {
 string[] _docRustCrates(string root) {
     List<string> acc = new List<string>();
     acc.Add("z42=src/runtime/src/lib.rs");
-    acc.Add("z42vm=src/runtime/src/main.rs");
+    acc.Add("z42vm=src/runtime/src/cli/main.rs");
     foreach (var d in _enumDirsSorted(Path.Join(root, "src/runtime/crates"))) {
         string lib = "src/runtime/crates/" + d + "/src/lib.rs";
         if (File.Exists(Path.Join(root, lib))) { acc.Add(d.Replace("-", "_") + "=" + lib); }

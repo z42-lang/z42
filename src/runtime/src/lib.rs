@@ -8,7 +8,6 @@ pub mod profiler;
 // split. Phase 1 covers `system` (hostname / os_version);
 // Phase 2-N add fs / signal / thread / mem.
 pub mod pal;
-pub mod thread;
 // Public entry for the engine-independent object operations.
 pub use vm::exec::ops::object as objops;
 pub mod interp;
@@ -17,8 +16,6 @@ pub mod interp;
 // build without the JIT backend by activating their preset features.
 #[cfg(feature = "jit")]
 pub mod jit;
-#[cfg(feature = "aot")]
-pub mod aot;
 // Portable pin state is always available; interop gates its native ABI modules.
 pub mod interop;
 // Embedding API (Tier 1 C ABI for host applications). Spec:

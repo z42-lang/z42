@@ -12,8 +12,8 @@
 ### 顶层（`src/`）
 | 文件 | 职责 |
 |------|------|
-| `main.rs` | `z42vm` CLI 入口，加载产物并交给 `Vm` 执行 |
-| `startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
+| `cli/main.rs` | `z42vm` CLI 入口，加载产物并交给 `Vm` 执行 |
+| `cli/startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
 | `assembly/builtin.rs` | 门面按既定 provider 顺序装配 builtin 描述符及纯名称/ID 目录 |
 | `assembly/object_protocol.rs` | 门面将核心库 GetType 和默认 ToString 绑定到执行层私有协议；保留调用方的物化与错误边界 |
 | `assembly/loader.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
@@ -33,11 +33,10 @@
 | `app/mod.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
 | `assembly/boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`app::run` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
 | `lib.rs` | 库入口，re-export 公开 API |
-| `config.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`split.rs`（转换为子系统拥有的 `GcConfig` / `JitConfig` / `VmConfig`）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config_tests.rs` |
+| `config/mod.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config/mod.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`split.rs`（转换为子系统拥有的 `GcConfig` / `JitConfig` / `VmConfig`）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config/config_tests.rs` |
 | `vm/diagnostics/counters.rs` | `RuntimeCounters`：VM 可观测性原子计数器 |
 | `vm/diagnostics/observer.rs` | `RuntimeObserver`：非 GC 运行时事件的 push 流（与 `gc::GcObserver` 对称） |
-| `signal_handler.rs` | 硬崩溃时捕获 z42 调用栈的 OS 信号 handler（调 `pal::signal`） |
-| `aot.rs` | AOT 后端桩（未实现） |
+| `signal_handler/mod.rs` | 硬崩溃时捕获 z42 调用栈的 OS 信号 handler（调 `pal::signal`） |
 
 ### 子模块
 | 目录 | 职责 |
@@ -61,7 +60,6 @@
 | `src/host/` | 嵌入 / 宿主 API（`z42_host.h` 的 Tier 1 C ABI 实现），见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
 | `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
 | `src/vm/exec/exception/` | 异常对象布局、传播模型与栈迹捕获 |
-| `src/thread/` | 线程支持（占位，无公开 API；线程原语在 `corelib/core/threading.rs` / `monitor.rs`） |
 
 ### src/metadata/ — 静态包信息
 | 文件 | 职责 |

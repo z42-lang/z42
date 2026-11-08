@@ -1,6 +1,6 @@
 # AOT 后端（Ahead-of-Time Compilation）
 
-> 待办：设计已定，尚未实施（`aot.rs` 为 stub）
+> 待办：设计已定，尚未实施（执行入口明确拒绝 AOT 模式）
 >
 > 设计 z42 的 AOT 后端：把 `.zbc` 提前编译成目标原生码。**iOS/wasm 无运行时 JIT，性能命脉靠 AOT + interp 分层**；desktop/android 上 AOT 作 baseline 与 JIT 共存。
 >
@@ -9,7 +9,7 @@
 ---
 
 ## 1. 现状
-- [aot.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/aot.rs) = **stub**（`run()` 报未实现），原计划 **LLVM/inkwell（M9）**。
+- AOT 尚无可执行后端；`vm/exec/engine.rs` 的模式分派明确报未实现。没有独立的占位后端模块，`aot` feature 仍作为既有构建开关保留。
 - 但 z42 **已用 cranelift 做 JIT**（codegen/frontend/jit/module/native）；`translate.rs` 把 zbc→cranelift IR。
 - cranelift 有 **`cranelift-object`（ObjectModule）**，与 `JITModule` **共用 `cranelift_module::Module` trait** → 能发 `.o`。
 
