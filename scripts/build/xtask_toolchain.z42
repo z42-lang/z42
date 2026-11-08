@@ -10,6 +10,9 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
+using Std.Collections;
+using Z42.Package;
+using Z42.IR;
 
 // Ensure the toolchain build prereqs (z42vm + stdlib + self-contained z42c.driver) EXIST — build only what's
 // missing. Unlike `_buildCompiler`, this does NOT force a z42c `--workspace` rebuild on a warm tree:
@@ -85,13 +88,55 @@ int _buildWorkload() {
 }
 
 // ── build toolchain ──────────────────────────────────────────────────────────
-// payload 完整性门：payload 里那些依赖 zpkg 的唯一来源是 z42b publish 从 dist 拷过去的那份，而 dist 的内容由
-// **z42c 的 `_bundleExeDeps`** 决定（复制判据 + 传递闭包）——「发布出去的东西全不全」取决于另一个组件的两条规则。
-// 没有这道门，payload 少一个包 `build toolchain` 照样打印 ✅，症状要等到用户跑起来才现形（还会现形成「某个包的
-// 方法有问题」）。
-//
-// 判据刻意是**结构对账**而不是写死名单：dist 里每个非-app 产物（zpkg + 同族 native）都必须在 payload 里有同名
-// 文件。写死名单会随组件依赖变化腐坏。
+// Validate the managed closure rooted at the app, plus colocated native libraries.
+// Other applications may share dist; unrelated managed packages are not payload members.
+bool _payloadRelative(string name) {
+    if (name.Length == 0 || name.StartsWith("/") || name.Contains(":") || name.Contains("\\")) { return false; }
+    foreach (var part in name.Split("/")) {
+        if (part.Length == 0 || part == "." || part == "..") { return false; }
+    }
+    return true;
+}
+
+int _payloadMissing(string distDir, string payloadDir, string projName) {
+    List<string> queue = new List<string>();
+    queue.Add(projName + ".zpkg");
+    StrMap seen = new StrMap();
+    int cursor = 0;
+    int missing = 0;
+    while (cursor < queue.Count) {
+        string name = queue[cursor]; cursor = cursor + 1;
+        if (!_payloadRelative(name) || Path.GetFileName(name) != name || !name.EndsWith(".zpkg")) {
+            throw new Exception("unsafe payload dependency: " + name);
+        }
+        if (!seen.TryAdd(name, "")) { continue; }
+        string source = Path.Join(distDir, name);
+        if (!File.Exists(source)) {
+            if (cursor == 1) { throw new Exception("missing payload application: " + source); }
+            continue; // SDK/shared dependencies stay external, as in z42b publish.
+        }
+        ZpkgInfo info = ZpkgReader.Open(File.ReadAllBytes(source), source);
+        if (info == null || info.Name + ".zpkg" != name) { throw new Exception("invalid payload package: " + source); }
+        if (cursor != 1 && !File.Exists(Path.Join(payloadDir, name))) {
+            ConsoleError.WriteLine("  ✗ payload missing dependency: " + name); missing = missing + 1;
+        }
+        if (!info.Packed) {
+            foreach (var rel in ZpkgReader.ReadIndexedZbcRels(info)) {
+                if (!_payloadRelative(rel)) { throw new Exception("unsafe payload member: " + rel); }
+                if (!File.Exists(Path.Join(payloadDir, rel))) { missing = missing + 1; }
+            }
+        }
+        queue.AddRange(ZpkgReader.ReadDependencies(info));
+    }
+    foreach (var name in Directory.Enumerate(distDir)) {
+        if ((name.EndsWith(".dylib") || name.EndsWith(".so") || name.EndsWith(".dll"))
+            && File.Exists(Path.Join(distDir, name)) && !File.Exists(Path.Join(payloadDir, name))) {
+            ConsoleError.WriteLine("  ✗ payload missing native library: " + name); missing = missing + 1;
+        }
+    }
+    return missing;
+}
+
 int _assertPayloadComplete(string root, string tomlPath) {
     string abs = _absToml(root, tomlPath);
     string distDir = _toolchainDistDir(root, tomlPath);
@@ -103,19 +148,7 @@ int _assertPayloadComplete(string root, string tomlPath) {
         ConsoleError.WriteLine("  ✗ payload 完整性: 目录不存在 (dist=" + distDir + " payload=" + payloadDir + ")");
         return 1;
     }
-    string mainZpkg = projName + ".zpkg";
-    int missing = 0;
-    foreach (var name in Directory.Enumerate(distDir)) {
-        bool shipped = (name.EndsWith(".zpkg") && name != mainZpkg)
-                    || name.EndsWith(".dylib") || name.EndsWith(".so") || name.EndsWith(".dll");
-        if (!shipped) { continue; }
-        if (!File.Exists(Path.Join(payloadDir, name))) {
-            ConsoleError.WriteLine("  ✗ payload 完整性: dist 有 " + name + " 而 payload 没有 —— "
-                + projName + " 发布出去会缺件 (" + payloadDir + ")");
-            missing = missing + 1;
-        }
-    }
-    return (missing > 0) ? 1 : 0;
+    return _payloadMissing(distDir, payloadDir, projName) > 0 ? 1 : 0;
 }
 
 // z42c 驱动自己的 apphost（`bin/z42c` + `programs/z42c` payload）。z42c 的 zpkg 由 `build compiler`

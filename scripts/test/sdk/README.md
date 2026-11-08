@@ -27,3 +27,5 @@ CI 在四个桌面 host package 中执行同一入口。测试执行器与私有
 - [打包机制](../../../docs/internals/src/devinfra/packaging.md)
 - [CI 拓扑](../../../docs/internals/src/devinfra/ci.md)
 - [声明式夹具](../../../docs/internals/src/devinfra/fixture-harness.md)
+
+`xtask_selfcheck_payload.z42` 验证发布闭包对账：忽略 dist 中无关包，检查传递依赖和原生库，允许外部 SDK 依赖，并终止循环依赖。由 `package sdk --verify` 的自检阶段执行。

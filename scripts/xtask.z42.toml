@@ -28,6 +28,7 @@ include = ["**/*.z42"]
 "xtask.hooks" = { include = ["xtask_hooks.z42"] }
 
 [dependencies]
+"z42.package" = { version = "*", deploy = "sdk" }
 "z42c.syntax" = { version = "*", deploy = "sdk" } # 指纹门禁复用真实词法器
 "z42.project" = { version = "*", deploy = "sdk" }
 "z42.build"   = { version = "*", deploy = "sdk" }
