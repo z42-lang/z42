@@ -31,7 +31,7 @@ src/toolchain/builder/core/*.z42  →  z42b.zpkg  →  apphost z42b
 | 显式图 build 的隔离 worker 与完成产物复用 | `core/builder_workspace_worker.z42`，`--package-jobs` |
 | 管线编排与编译器注入 | `core/builder.z42` 的 `_orchestrate` / `_hostCompiler` |
 | 反射式 `[Test]` / `[Benchmark]` 运行 | `core/builder_test.z42` |
-| desktop publish（apphost + payload；按主包 DEPS 选择 dist 中的托管依赖） | `core/builder_publish.z42`、`core/builder_apphost.z42` |
+| desktop publish（apphost + payload；应用与依赖先预检再复制；按主包 DEPS 选择 dist 中的托管依赖） | `core/builder_publish.z42`、`core/builder_apphost.z42` |
 | 设备 RID 构建 + 部署 + 运行 | `core/builder_device*.z42` |
 
 ## 基础用法

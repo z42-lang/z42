@@ -8,8 +8,8 @@ using Z42.Package;
 
 // dist supplies deployment bytes, not package membership: it may be shared by
 // independent applications. Follow only the main package's managed closure.
-void _pubCopyDistDeps(string distDir, string projName, string targetDir, string appFile) {
-    if (Path.Normalize(distDir) == Path.Normalize(targetDir)) { return; }
+DeploymentCopies _pubPlanDistDeps(string distDir, string projName, string targetDir, string appFile) {
+    if (Path.Normalize(distDir) == Path.Normalize(targetDir)) { return null; }
     DeploymentCopies copies = new DeploymentCopies(targetDir, projName, ".z42-publish-deps-");
     if (appFile.Length > 0) { copies.Keep(appFile); copies.Keep(_pubSidecarOf(appFile)); }
     string main = Path.Join(distDir, projName + ".zpkg");
@@ -27,7 +27,7 @@ void _pubCopyDistDeps(string distDir, string projName, string targetDir, string 
             copies.Add(name, source, File.ReadAllBytes(source));
         }
     }
-    copies.Apply();
+    return copies;
 }
 
 void _pubPlanManagedDeps(string distDir, string projName, ZpkgInfo app, DeploymentCopies copies) {

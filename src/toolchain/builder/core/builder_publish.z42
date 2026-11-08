@@ -140,7 +140,7 @@ int _pubDesktop(ParseResult r, string rid) {
     if (zpkgSrc.Length == 0) { return 1; }   // ensure failed (compile error / still missing)
 
     // 依赖 zpkg 已由 z42c 的 `_bundleExeDeps` colocate 进 dist —— 复制判据与传递闭包只有那一份
-    // （批 2.3：这里曾有第二份，实测是死重，见 `_pubCopyDistDeps` 头注）。
+    // （批 2.3：这里曾有第二份，实测是死重，见 `_pubPlanDistDeps` 头注）。
     string distDir = Path.GetDirectoryName(zpkgSrc);
     // Colocate transitive private native deps beside the zpkg (add-native-dep-config):
     // run each native-carrying dep's ProvideNative, flatten its target-rid artifact here.
@@ -166,8 +166,9 @@ int _pubDesktop(ParseResult r, string rid) {
         appZpkg = Path.Join(root, payloadRel);
         string payloadDir = Path.GetDirectoryName(appZpkg);
         if (payloadDir.Length > 0) { Directory.Create(payloadDir); }
-        _pubStageApp(zpkgSrc, appZpkg);   // + 同 stem 的 runtimeconfig 侧车
-        _pubCopyDistDeps(distDir, projName, payloadDir, Path.GetFileName(appZpkg));
+        DeploymentCopies appPlan = _pubPlanApp(zpkgSrc, appZpkg);
+        DeploymentCopies depsPlan = _pubPlanDistDeps(distDir, projName, payloadDir, Path.GetFileName(appZpkg));
+        _pubApplyPayload(appPlan, depsPlan);
     }
 
     string outDir = Path.GetDirectoryName(outPath);
@@ -238,19 +239,22 @@ int _pubDesktopSelfContained(ParseResult r, TomlValue toml, string tomlPath, str
     string appDir;
     if (publishDir.Length == 0) { appDir = _pubDefaultPublishDir(tomlPath, toml, projName); }
     else { appDir = (projDir.Length > 0) ? Path.Join(projDir, publishDir) : publishDir; }
+    DeploymentCopies appPlan = _pubPlanApp(zpkgSrc, Path.Join(appDir, "app.zpkg"));
+    string libsOut = Path.Join(appDir, "libs");
+    DeploymentCopies depsPlan = _pubPlanDistDeps(distDir, projName, libsOut, "");
+    _pubValidatePayload(appPlan, depsPlan);
     Directory.Create(appDir);
 
     // exe = prebuilt embed apphost; app.zpkg + libs/ beside it
     string exe = Path.Join(appDir, isWin ? (projName + ".exe") : projName);
     File.Copy(host, exe);
     if (!isWin) { new Process("chmod").Arg("+x").Arg(exe).Run(); }   // File.Copy drops the mode bit
-    _pubStageApp(zpkgSrc, Path.Join(appDir, "app.zpkg"));   // 侧车随之改名为 app.runtimeconfig.toml
-    string libsOut = Path.Join(appDir, "libs");
+    if (appPlan != null) { appPlan.Apply(); }
     Directory.Create(libsOut);
     foreach (var p in Path.Glob(libsSrc, "*.zpkg")) {               // stdlib
         File.Copy(p, Path.Join(libsOut, Path.GetFileName(p)));
     }
-    _pubCopyDistDeps(distDir, projName, libsOut, "");                    // + app's transitive deps
+    if (depsPlan != null) { depsPlan.Apply(); }
     if (link == "dynamic") {
         File.Copy(dylibSrc, Path.Join(appDir, Path.GetFileName(dylibSrc)));
     }
@@ -456,7 +460,7 @@ int _pubBundleProjectDeps(string tomlPath, TomlValue toml, ProjectManifest manif
 // in a dep-scoped ctx (Target.Rid = publish rid, Dirs.Dist = distDir) so it emits the
 // native into `distDir/<rid>/<prefix><name><suffix>`, then flatten each registered
 // "native" output beside the zpkg (`distDir/<file>`). Runtime resolve_native_beside
-// resolves it by name; the payload copy (_pubCopyDistDeps) carries it into the payload
+// resolves it by name; the payload copy (_pubPlanDistDeps) carries it into the payload
 // dir. This replaces the deleted xtask _pkgStageReplCdylib special-case: z42.interactive
 // discovers z42.repl's native purely from the closure + `[native]` declaration.
 //
@@ -596,7 +600,7 @@ int _pubRunDepProvideNative(string depTomlPath, TomlValue depToml, string depNam
 // into distDir (add-precompiled-native — the no-hook sibling of _pubRunDepProvideNative). For
 // each declared native carrying a `dir`, resolve `<depDir>/<dir>/<rid>/<prefix><name><suffix>`
 // (rid-derived filename) and flatten it beside the consumer zpkg; the payload copy
-// (_pubCopyDistDeps) then carries it into the payload dir. Best-effort: a native with no `dir`,
+// (_pubPlanDistDeps) then carries it into the payload dir. Best-effort: a native with no `dir`,
 // or a missing file for this rid, warns and continues (mirrors _pubRunDepProvideNative).
 int _pubCopyPrebuiltNative(string depTomlPath, TomlValue depToml, string depName, string distDir, string rid) {
     string depDir = Path.GetDirectoryName(depTomlPath);

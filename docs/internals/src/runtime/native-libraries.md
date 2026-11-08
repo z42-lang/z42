@@ -10,7 +10,7 @@ z42 有**两类** native 库，走**两条**互不干扰的布局/解析路径�
 |---|---|---|
 | 归属 | 运行时横切库，随 **SDK** 分发，不属某个 app zpkg | 跟随**某个组件 / app** 的私有依赖 |
 | 布局 | `<sdk>/native/`（集中） | **平铺在消费方 zpkg 旁** `<zpkg-dir>/lib<name>.<suffix>` |
-| 发现 | `ext::native_search_paths()` **急切扫描**目录 | `ext::resolve_native_beside(zpkg_dir, name)` **按名定向 stat** |
+| 发现 | `ext::native_search_paths()` **急切扫描**目录 | `pal::dynlib::resolve_native_beside(zpkg_dir, name)` **按名定向 stat** |
 | 盲扫? | 是——扫目录里所有 `libz42_*` 并 `dlopen` | **否**——只 stat 被声明需要的那一个 |
 | 本页章节 | §1 | §2/§3 |
 
@@ -42,7 +42,7 @@ compression 等是**运行时横切库**（跨平台、随 SDK 走、不属任�
 
 - **运行期布局唯一 = 平铺**：`<消费方 zpkg 目录>/lib<name>.<平台后缀>`，与该组件的 zpkg 同目录。
   无 rid 子目录、无嵌套——运行期永远只看「zpkg 旁那一个文件」。
-- **发现 = 按名定向 stat**：`ext::resolve_native_beside(zpkg_dir, lib_name)` 用 `DLL_PREFIX`/
+- **发现 = 按名定向 stat**：`pal::dynlib::resolve_native_beside(zpkg_dir, lib_name)` 用 `DLL_PREFIX`/
   `DLL_SUFFIX` 反向拼出 `lib<name>.<suffix>`，**只 stat 这一条路径**（存在→返回全路径，否则 `None`）。
   **不遍历目录、不 `dlopen` 任何未被点名的文件**——从根消除了 §1 那种「盲扫到未知库 → WARN /
   跨污染」。
@@ -113,7 +113,7 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
 - **传递复制**：`_pubBundleProjectNativeDeps` 走消费方 dep 闭包（**按 dep 声明的 `{ path }` 解析**，
   version-string / 仓内 dep 才按名搜 `srcRoot`——故**仓外 path-dep 消费者**同样生效，无需在仓源码树内）
   → 对声明 `[native]` 的 dep：有 hooks 跑其 `ProvideNative`、无 hooks 从 `dir` 复制预编译文件 → 取**目标
-  rid** 那份、平铺（去 rid 子目录）进消费方 dist → `_pubCopyDistDeps` 带进 payload（如 `programs/z42i/`）。
+  rid** 那份、平铺（去 rid 子目录）进消费方 dist → `_pubPlanDistDeps → 预检 → Apply` 带进 payload（如 `programs/z42i/`）。
   运行期 `resolve_native_beside` 按名解析，不变。
 - **消费者**：`z42.repl.z42.toml` 声明 `[build] hooks` + `[native.z42_repl]`，hook 编 `crates/z42-repl`——**hook 路径**的实例。**预编译路径**由合成夹具
   （发行包夹具 `src/toolchain/launcher/tests/fixtures/package/publish-prebuilt-native/`）覆盖，暂无仓内真实预编译消费者。

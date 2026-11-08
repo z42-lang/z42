@@ -12,16 +12,16 @@ fn captured_vm_inputs_choose_independent_heap_modes() {
     let first = VmContext::new_internal(
         None,
         crate::pal::fs::default_vfs(),
-        crate::extension_assembly::freeze(Default::default()),
+        crate::assembly::extension::freeze(Default::default()),
         stw,
-        crate::object_protocol_assembly::services(),
+        crate::assembly::object_protocol::services(),
     );
     let second = VmContext::new_internal(
         None,
         crate::pal::fs::default_vfs(),
-        crate::extension_assembly::freeze(Default::default()),
+        crate::assembly::extension::freeze(Default::default()),
         generational,
-        crate::object_protocol_assembly::services(),
+        crate::assembly::object_protocol::services(),
     );
     assert_eq!(first.heap().mode(), GcMode::StwMarkSweep);
     assert_eq!(second.heap().mode(), GcMode::GenerationalMarkSweep);
@@ -69,7 +69,7 @@ thread_local! { static PROTOCOL_CALLS: Cell<usize> = const { Cell::new(0) }; }
 fn protocol_context(protocol: ObjectProtocol) -> std::pin::Pin<Box<VmContext>> {
     VmContext::new_internal(
         None, crate::pal::fs::default_vfs(),
-        crate::extension_assembly::freeze(Default::default()),
+        crate::assembly::extension::freeze(Default::default()),
         RuntimeConfig::from_getter(|_| None).vm_config(), protocol,
     )
 }
@@ -115,7 +115,7 @@ fn registered_string(value: &Value) -> Result<String, BuiltinError> {
 fn object_protocol_boxed_get_type_consumes_registration_for_both_receiver_kinds() {
     PROTOCOL_CALLS.with(|calls| calls.set(0));
     let ctx = protocol_context(ObjectProtocol {
-        get_type: registered_get_type, ..crate::object_protocol_assembly::services()
+        get_type: registered_get_type, ..crate::assembly::object_protocol::services()
     });
     let module = protocol_module();
     for (name, expected) in [("Std.Int64", 64), ("Demo.Pair", 42)] {
@@ -136,7 +136,7 @@ fn object_protocol_boxed_get_type_consumes_registration_for_both_receiver_kinds(
 fn object_protocol_string_fallback_uses_registration_but_scalars_bypass_it() {
     PROTOCOL_CALLS.with(|calls| calls.set(0));
     let ctx = protocol_context(ObjectProtocol {
-        default_to_string: registered_string, ..crate::object_protocol_assembly::services()
+        default_to_string: registered_string, ..crate::assembly::object_protocol::services()
     });
     let module = protocol_module();
     let object = ctx.heap().alloc_object(protocol_type("Demo.Plain"), vec![], NativeData::None);
@@ -155,7 +155,7 @@ fn object_protocol_consumer_errors_keep_the_original_channels() {
     fn default_to_string(_: &Value) -> Result<String, BuiltinError> {
         Err(BuiltinError::Internal("registered ToString failure".into()))
     }
-    let ctx = protocol_context(ObjectProtocol { get_type, default_to_string, ..crate::object_protocol_assembly::services() });
+    let ctx = protocol_context(ObjectProtocol { get_type, default_to_string, ..crate::assembly::object_protocol::services() });
     let module = protocol_module();
     let boxed = protocol_box(&ctx, "Std.Int64");
     let root = ctx.heap().pin_root(boxed.clone());
@@ -217,7 +217,7 @@ fn method_type_materialization_uses_registered_providers_on_primary_and_worker()
     let primary = protocol_context(ObjectProtocol {
         make_type_from_name: named,
         make_constructed_type: constructed,
-        ..crate::object_protocol_assembly::services()
+        ..crate::assembly::object_protocol::services()
     });
     let args = vec!["Demo.Named".to_string()];
     use crate::vm::exec::call::type_param_env::method_type_value;

@@ -1,7 +1,7 @@
 # 嵌入式运行与测试 agent（app-run 核心 · bundle · 栈预算）
 
 > 代码：
-> `src/runtime/src/app.rs`（`z42::app::run` 核心）、`src/runtime/src/host/mod.rs`（C ABI
+> `src/runtime/src/app/mod.rs`（`z42::app::run` 核心）、`src/runtime/src/host/mod.rs`（C ABI
 > `z42_host_run_app`）、`src/runtime/include/z42_host.h`（公有头）、
 > `src/runtime/crates/z42-host`（Rust wrapper）、
 > `src/toolchain/workload/test/agent/src/agent.z42`（test-agent）、
@@ -102,7 +102,7 @@ wasm 没有文件系统、也没有进程 stdout，所以它**不能**直接复�
 句柄（`RunOpts::vfs`，不给就是默认：native 为 `LocalFs`，即 `std::fs`；wasm 为内存 VFS）。
 走它的有 `vm/loader/package/artifact.rs`（`load_zbc` / `load_zpkg` 及 `.zsym` sidecar、indexed-zpkg
 散装读）、`vm/loader/locate/namespace_index.rs`（命名空间目录扫描、`ZpkgCandidate::build`）、惰性加载器、
-`app.rs`（`z42.core` 预载的 `exists`、entry-dir 的 `is_dir`）。
+`app/mod.rs`（`z42.core` 预载的 `exists`、entry-dir 的 `is_dir`）。
 
 于是宿主先把 agent app.zpkg + stdlib zpkg + bundle（manifest + 各 case zbc）挂进它自己的
 `MemoryFs`，再把它交给 `z42::app::run`，就能像在磁盘上一样加载它们——**同一个 app-run 核心**。
@@ -221,7 +221,7 @@ z42 解释器**在原生调用栈上递归**——每次 z42 调用一层原生�
 
 | 要改什么 | 改哪 |
 |---|---|
-| 启动序列 / 加载顺序 | `src/runtime/src/app.rs` |
+| 启动序列 / 加载顺序 | `src/runtime/src/app/mod.rs` |
 | 嵌入入口（所有原生壳共用） | `src/runtime/src/host/mod.rs` 的 C 符号 + `src/runtime/include/z42_host.h` |
 | agent 的命令面 / 报告通道 | `src/toolchain/workload/test/agent/src/agent.z42` |
 | bundle 的跑法（golden 隔离 / unit 共享） | `src/libraries/z42.harness/src/BundleRunner.z42` |

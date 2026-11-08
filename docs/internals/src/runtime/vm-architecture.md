@@ -10,7 +10,7 @@
 
 ## 引擎注册与调用边界
 
-门面 `engine_assembly.rs` 按 feature 装配基线 Engine 和优化入口；`VmCore.exec.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
+门面 `assembly/engine.rs` 按 feature 装配基线 Engine 和优化入口；`VmCore.exec.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
 
 TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入口和代码页由 JIT 自己持有；所有 worker 共享所属 core 的注册结果，其他 VM 独立。竞争安装保留首个发布实例，失败候选安全释放；所属模块校验仍由后端执行。
 
@@ -85,7 +85,7 @@ let vm = Vm::new(ExecMode::Interp);                 // Vm 不持 Module
 vm.run(&ctx, hint)?;
 ```
 
-上述装配（`available!` 折叠 → `with_module` → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/boot.rs::boot_context` 一处完成，`app::run` 与嵌入 host（`host/ops.rs`）共用。
+上述装配（`available!` 折叠 → `with_module` → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/assembly/boot.rs::boot_context` 一处完成，`app::run` 与嵌入 host（`host/ops.rs`）共用。
 
 ### VmContext 构造入口
 
@@ -105,7 +105,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.exec.engi
 `VmCore` 持有 **VM 级**的状态，通过 `Arc<VmCore>` 让多个 `VmContext`（每个 OS 线程一个）共享：
 
 共享 `VmCore` 由 `threads`、`heap`、`runtime`、`loader`、`diagnostics`、`exec` 与 `ext_state` 七项组成。
-`exec` 内联持有引擎注册表。应用参数由门面 `app_state.rs` 拥有，核心库从装配的 `ProgramArgs` 服务取得快照；
+`exec` 内联持有引擎注册表。应用参数由门面 `app/state.rs` 拥有，核心库从装配的 `ProgramArgs` 服务取得快照；
 服务不持有 core，worker 共享同一应用数据，其他 VM 隔离。
 
 - `runtime.statics: StaticTable` — 用户类 static 字段（`vm/runtime/statics/table.rs`）：每个 `StaticFieldId` 一个地址稳定的 16 B 单元
@@ -123,7 +123,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.exec.engi
 - 观测：`counters`（`RuntimeCounters`，只累计已销毁 `VmContext` 的计数；各线程在自己的 `VmContext.diagnostics.counters` 上计，`counters_snapshot()` 汇总）/ `runtime_observers` / `park_histogram`（safepoint park 时长分布）/ `lock_contentions` + `lock_wait_us`（仅 `profile-contention` feature 写入）/ `sampler`（`Z42_SAMPLE_HZ` 开启的采样 profiler）
 
 核心库的进程、线程、文件、TCP socket/listener、UDP 和 TLS 七张资源表分别归对应模块的 `State`，
-由门面 `extension_assembly.rs` 在所有 VM 构造入口创建并登记到扩展状态中；worker 共享同一个 core 的状态。
+由门面 `assembly/extension.rs` 在所有 VM 构造入口创建并登记到扩展状态中；worker 共享同一个 core 的状态。
 VM 的泛型存储不依赖这些资源类型。网络与 TLS 状态保持各自 `net` / `tls` feature 边界。
 
 `interop/state.rs` 持有 native 类型表、库句柄、已尝试扩展库集合与 owned pin buffer。
@@ -660,7 +660,7 @@ token = UNRESOLVED（bind_callee，冷路径）:
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
 [`resolve::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/runtime/resolve/mod.rs) 一次性填充。
 但 `resolve_module` **只经 `Vm::run` → `boot::prepare_execution` 对 entry module 跑一次**——而
-interp/JIT 模式下依赖是**纯惰性加载**（[app.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/app.rs)
+interp/JIT 模式下依赖是**纯惰性加载**（[app.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/app/mod.rs)
 `is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
 **所有依赖 zpkg**（自编译时即 z42c.core / z42c.syntax / z42c.semantics /
 z42c.emission / z42c.pipeline 全部）经 `LazyLoader::load_zpkg_file` 进函数注册表，其
@@ -854,7 +854,7 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 
 | 函数 | 签名 | 语义 | 调用方 |
 |------|------|------|--------|
-| `resolve_namespace(ns, libs_paths)` | `-> Result<Vec<PathBuf>>` | 返回**所有**声明该 namespace 的 zbc/zpkg 文件（不 bail on ambiguous）| 编译期诊断 / `app.rs` 启动反查 (.zbc → zpkg) |
+| `resolve_namespace(ns, libs_paths)` | `-> Result<Vec<PathBuf>>` | 返回**所有**声明该 namespace 的 zbc/zpkg 文件（不 bail on ambiguous）| 编译期诊断 / `app/mod.rs` 启动反查 (.zbc → zpkg) |
 | `resolve_dependency(zpkg_file, libs_paths)` | `-> Result<Option<PathBuf>>` | 按 zpkg 文件名直接查找 | LazyLoader 内部（按文件名精确定位）|
 
 **设计权衡**：`resolve_namespace` 保留（返回所有声明者而非 bail），而非彻底删除。
@@ -1168,7 +1168,7 @@ match callee_value {
 两种后端共享：
 - `Module` / `Function` / `Instruction` 数据结构
 - `TypeDesc` / `FieldSlot` / vtable
-- corelib builtin 调度表（`builtin_assembly.rs`）
+- corelib builtin 调度表（`assembly/builtin.rs`）
 - LazyLoader（interp 与 JIT 都经它按需加载依赖 zpkg）
 
 ---
@@ -1482,14 +1482,14 @@ id 永不复用，所以它也是比地址更稳的缓存键：描述符释放�
 
 ## builtin 查询与调用
 
-位置：纯目录在 `vm/runtime/builtins.rs`，调用在 `vm/exec/call/builtins.rs`，provider 装配在 `builtin_assembly.rs`，实现由 corelib 与 interop 提供。
+位置：纯目录在 `vm/runtime/builtins.rs`，调用在 `vm/exec/call/builtins.rs`，provider 装配在 `assembly/builtin.rs`，实现由 corelib 与 interop 提供。
 
 `Builtin` IR 指令在 interp / JIT 都经 `BuiltinId`（加载期由当前 VM 的 `BuiltinCatalog::id_of` 解析）索引 `builtin_assembly::BUILTINS` 表分发（`invoke_builtin`，实参原地从寄存器读；只握着实参切片的调用方用按名入口 `exec_builtin(name, args)`）。ABI 与错误模型见 [native ABI §6](native-abi.md)。
 builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等，详见 `src/runtime/src/corelib/README.md`。
 
 **新增 builtin 三处同改（强制规则）**：
 1. `corelib/<module>.rs` — 实现
-2. `builtin_assembly.rs` — 新 provider 模块在 TYPED 登记 DESCS；目录从同一表派生，ID 为本次运行的数组下标
+2. `assembly/builtin.rs` — 新 provider 模块在 TYPED 登记 DESCS；目录从同一表派生，ID 为本次运行的数组下标
 3. stdlib 中对应的 `[Native("__name")]` 声明 — 类型签名（`native_decl_tests.rs` 对账）
 
 ---

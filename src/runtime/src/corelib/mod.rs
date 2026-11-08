@@ -1,7 +1,7 @@
 /// Core library — native function implementations backing the z42 standard library.
 ///
 /// The facade assembles providers in builtin_assembly.
-/// Every builtin is reachable through the `BUILTINS` table (`crate::builtin_assembly`): the
+/// Every builtin is reachable through the `BUILTINS` table (`crate::assembly::builtin`): the
 /// engines call `vm::exec::call::builtins::invoke_builtin` (interp `Instruction::Builtin`, JIT `jit_builtin`, and
 /// the `[Native]` wrapper short-circuit of both — `vm::exec::call::forward`), reading the
 /// arguments in place from the caller's registers; callers that hold the arguments as a

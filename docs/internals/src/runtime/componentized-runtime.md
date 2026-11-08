@@ -56,7 +56,7 @@
 
 ### 4.1 当前单 crate 的注册边界
 
-当前运行时保持一个 crate。门面 `engine_assembly.rs` 按 feature 装配 Engine 与优化入口；`VmCore.exec.engines` 持有每 VM 注册表和一次发布的 TierApi。VM 的模式分发、初始化执行及共享 ToString 调用均通过注册能力，不静态选择具体后端。
+当前运行时保持一个 crate。门面 `assembly/engine.rs` 按 feature 装配 Engine 与优化入口；`VmCore.exec.engines` 持有每 VM 注册表和一次发布的 TierApi。VM 的模式分发、初始化执行及共享 ToString 调用均通过注册能力，不静态选择具体后端。
 
 interp 的静态、虚、闭包和通用混合入口传入共享参数视图；TierBackend 的 JIT 实现拥有 JitRuntime、JitFrame、编译器与代码。OSR 的计数和阈值比较留在解释器热循环，实际交接经 TierApi。JIT 的冷/不可翻译调用经已注册 Engine 回落，两个后端的生产代码互不引用。
 
@@ -70,13 +70,13 @@ VM 的内部构造输入为 `vm/config.rs` 的 `VmConfig`，由门面从已决�
 
 Loader 拥有私有 `FusionInputs`，由门面的惰性函数指针在每次实际计算融合侧表时提供。它沿用进程级 `RuntimeConfig` 的首次读取语义。公开加载入口、可用性探测以及每 VM 的惰性加载和可回收程序集上下文使用同一配置来源。装配只传递指针，模块就绪判断、解码错误和融合识别顺序保持原样。
 
-主 VM 构造由 crate 根 `context_assembly.rs` 实现既有 `VmContext` 入口，负责配置捕获、组件选择与 core 接线。`vm/context/construct.rs` 保留线程状态访问、共享 core 的 worker 加入和 Drop；worker 不重新选择组件或重建扩展。主构造的弱引用扫描器、native 扩展加载、固定地址登记及 TLAB/SATB 顺序保持一致，扩展资源随最后一个持有 core 的上下文释放。
+主 VM 构造由 crate 门面 `assembly/context.rs` 实现既有 `VmContext` 入口，负责配置捕获、组件选择与 core 接线。`vm/context/construct.rs` 保留线程状态访问、共享 core 的 worker 加入和 Drop；worker 不重新选择组件或重建扩展。主构造的弱引用扫描器、native 扩展加载、固定地址登记及 TLAB/SATB 顺序保持一致，扩展资源随最后一个持有 core 的上下文释放。
 
-核心库的隔离应用执行与退出报告经 `corelib/application.rs` 的私有服务接入，门面 `app_services.rs` 负责应用选项与报告策略。冻结前注入的服务只含函数指针，不拥有 VM 或托管值；并行用例只复制服务值与 Rust 路径/VFS。核心库仍负责 stdout sink 栈、按输入排序和 join 时 park，进程退出仍先报告再终止且不运行析构。
+核心库的隔离应用执行与退出报告经 `corelib/application.rs` 的私有服务接入，门面 `app/services.rs` 负责应用选项与报告策略。冻结前注入的服务只含函数指针，不拥有 VM 或托管值；并行用例只复制服务值与 Rust 路径/VFS。核心库仍负责 stdout sink 栈、按输入排序和 join 时 park，进程退出仍先报告再终止且不运行析构。
 
 值的无上下文格式化与盒装 struct 哈希由 `object/value` 的 crate 内部叶子模块定义，VM、解释器、JIT 与异常展示直接消费。`corelib::convert` 的既有公开格式化路径直接再导出同一定义；typed builtin 保留参数检查、错误和装箱编排。64 字节栈缓冲、UTF8 完整片段、spill、标量文本、FNV 顺序与盒装值借用边界保持一致；用户 ToString 协议和托管对象物化不属于这些纯值原语。
 
-执行层的对象协议由 `vm/exec/object_protocol.rs` 定义，门面 `object_protocol_assembly.rs` 将核心库既有 GetType 和默认 ToString 函数直接绑定到每 core 的不可变服务。服务只存函数指针，不持有 VM 或托管值，worker 共享同一注册。装箱 GetType 在原派发分支内传入完整接收者，反射实现仍在调用时物化托管对象；引用对象的默认 ToString 返回 Rust String，执行调用方仍在原位置分配托管字符串并处理 BuiltinError。用户 override、纯值格式化和普通 builtin 的派发路径不经此默认回落。
+执行层的对象协议由 `vm/exec/object_protocol.rs` 定义，门面 `assembly/object_protocol.rs` 将核心库既有 GetType 和默认 ToString 函数直接绑定到每 core 的不可变服务。服务只存函数指针，不持有 VM 或托管值，worker 共享同一注册。装箱 GetType 在原派发分支内传入完整接收者，反射实现仍在调用时物化托管对象；引用对象的默认 ToString 返回 Rust String，执行调用方仍在原位置分配托管字符串并处理 BuiltinError。用户 override、纯值格式化和普通 builtin 的派发路径不经此默认回落。
 
 ### 4.2 独立交付仍是目标设计
 
@@ -201,3 +201,7 @@ gc     = static  仅此一种   # 不参与 dynlink/dlopen，见 §3
 ## VM 入口与实现归属
 
 Rust 入口由 `vm::{Vm, VmContext, VmCore}` 提供。上下文与共享 Core 的实现位于 `vm/context`；引擎共享的异常构造与原生栈保护位于 `vm/exec`；计数、运行时事件和观察者位于 `vm/diagnostics`。门面负责主上下文的配置与提供方装配，worker 加入、线程注册和 Drop 留在上下文实现中。目录归属不改变状态字段、repr、偏移和同步协议。
+
+门面的具体装配实现在 `src/runtime/src/assembly/`，应用执行与参数服务在 `src/runtime/src/app/`。`app::run` 与 `app::RunOpts` 的公开路径保持稳定，`assembly` 仅在 crate 内可见；共享启动步骤由应用入口和宿主调用，worker 生命周期仍归 VM 上下文。
+
+CPU 采样通过 `vm/diagnostics/sampling.rs` 的 crate 私有接口装配：VM 只持有采样能力，具体 `profiler/cpu::Sampler` 由门面按既有配置构造。关闭快路使用不可变布尔 gate，启用后才派发到 backend；采样仍发生在原 safepoint，输出与 backend Drop 生命周期保持在原诊断状态边界。

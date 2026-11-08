@@ -316,3 +316,9 @@ fn json_escape(s: &str) -> String {
 #[cfg(test)]
 #[path = "cpu_tests.rs"]
 mod cpu_tests;
+
+impl crate::vm::diagnostics::sampling::SampleBackend for Sampler {
+    fn maybe_sample(&self, ctx: &VmContext) { Sampler::maybe_sample(self, ctx); }
+    fn flush_folded(&self, path: &str) -> std::io::Result<()> { Sampler::flush_folded(self, path) }
+    fn flush_trace(&self, path: &str) -> std::io::Result<()> { Sampler::flush_trace(self, path) }
+}
