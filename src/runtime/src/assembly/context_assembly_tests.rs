@@ -252,3 +252,32 @@ fn stack_allocation_policy_is_per_vm_and_shared_with_workers() {
         assert_eq!(stats_enabled(&ctx), stats);
     }
 }
+
+#[test]
+fn safepoint_policy_is_per_vm_and_shared_by_worker_resets() {
+    use crate::vm::threads::safepoint::{throttle_n, check_safepoint};
+    use std::sync::atomic::Ordering;
+    let mut contexts = Vec::new();
+    for throttle in [1, 7, 1024] {
+        let mut settings = RuntimeConfig::from_getter(|_| None);
+        settings.safepoint_throttle = throttle;
+        let ctx = VmContext::new_internal(None, crate::pal::fs::default_vfs(),
+            crate::assembly::extension::freeze(Default::default()), settings.vm_config(),
+            crate::assembly::object_protocol::services());
+        let worker = VmContext::new_with_core(ctx.core.clone());
+        for view in [&ctx, &worker] {
+            assert_eq!(throttle_n(view), throttle);
+            assert_eq!(view.threads.safepoint_skip.load(Ordering::Relaxed), throttle);
+            view.threads.safepoint_skip.store(1, Ordering::Relaxed);
+            check_safepoint(view);
+            assert_eq!(view.threads.safepoint_skip.load(Ordering::Relaxed), throttle);
+            #[cfg(feature = "jit")]
+            unsafe {
+                crate::jit::helpers::control::jit_check_safepoint_slow(std::ptr::null_mut(), &**view);
+                assert_eq!(view.threads.safepoint_skip.load(Ordering::Relaxed), throttle);
+            }
+        }
+        contexts.push((ctx, throttle));
+    }
+    for (ctx, throttle) in contexts { assert_eq!(throttle_n(&ctx), throttle); }
+}

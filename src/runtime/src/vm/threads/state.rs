@@ -5,6 +5,7 @@ use crate::vm::context::VmContextPtr;
 use super::safepoint::GcPhase;
 
 pub(crate) struct ThreadState {
+    pub(crate) safepoint_throttle: u32,
     /// Fatal VM errors propagate to all contexts sharing this core.
     /// Unwinding bypasses z42 handlers and cannot become a catchable z42 exception.
     pub(crate) fatal: AtomicBool,
@@ -22,8 +23,10 @@ pub(crate) struct ThreadState {
 }
 
 impl ThreadState {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(safepoint_throttle: u32) -> Self {
+        assert!(safepoint_throttle > 0, "safepoint throttle must be positive");
         Self {
+            safepoint_throttle,
             fatal: AtomicBool::new(false),
             vm_contexts: Mutex::new(Vec::new()),
             gc_phase: Mutex::new(GcPhase::Idle),
@@ -42,10 +45,10 @@ pub(crate) struct ThreadLocalState {
 }
 
 impl ThreadLocalState {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(safepoint_throttle: u32) -> Self {
         Self {
             parked_tlab: Default::default(),
-            safepoint_skip: std::sync::atomic::AtomicU32::new(super::safepoint::throttle_n()),
+            safepoint_skip: std::sync::atomic::AtomicU32::new(safepoint_throttle),
         }
     }
 }

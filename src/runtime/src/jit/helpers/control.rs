@@ -117,7 +117,7 @@ pub unsafe extern "C" fn jit_check_safepoint_slow(
 ) {
     let vm_ctx = vm_ctx_ref(ctx);
     vm_ctx.threads.safepoint_skip.store(
-        crate::vm::threads::safepoint::throttle_n(),
+        crate::vm::threads::safepoint::throttle_n(vm_ctx),
         std::sync::atomic::Ordering::Relaxed,
     );
     crate::vm::threads::safepoint::check_safepoint_slow(vm_ctx);

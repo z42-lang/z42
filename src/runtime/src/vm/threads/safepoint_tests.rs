@@ -209,11 +209,12 @@ fn request_pause_waits_for_other_mutators_to_park() {
 
 #[test]
 fn throttle_n_default_is_at_least_1024() {
+    let ctx = VmContext::new();
     // Default (no env override) should be >= 1024. Cargo-test runs may
     // inherit an env from CI, so we don't assert exact equality — just
     // the default-or-larger floor. If Z42_SAFEPOINT_THROTTLE is set in
     // the environment to a smaller value, this test may show that.
-    let n = throttle_n();
+    let n = throttle_n(&ctx);
     assert!(n >= 1, "throttle must be at least 1 (every call slow path)");
 }
 
@@ -254,7 +255,7 @@ fn check_safepoint_slow_path_runs_when_counter_drains() {
     check_safepoint(&ctx);
 
     let after = ctx.threads.safepoint_skip.load(Ordering::Relaxed);
-    let expected_reset = throttle_n();
+    let expected_reset = throttle_n(&ctx);
     assert_eq!(after, expected_reset,
         "slow path should reset counter to throttle_n() ({expected_reset}), got {after}");
     // The slow path should have observed + drained the auto_collect flag.
@@ -275,7 +276,7 @@ fn check_safepoint_slow_path_pure_idle_no_op_resets_counter() {
     check_safepoint(&ctx);
 
     let after = ctx.threads.safepoint_skip.load(Ordering::Relaxed);
-    assert_eq!(after, throttle_n());
+    assert_eq!(after, throttle_n(&ctx));
     assert_eq!(ctx.heap().stats().gc_cycles, cycles_before,
         "Idle slow path should not run any collect");
 }
@@ -639,7 +640,7 @@ fn an_auto_collect_trip_sends_every_mutator_to_the_slow_path() {
     let ctx = VmContext::new();
     let other = VmContext::new_with_core(ctx.core_arc());
     ctx.heap().set_max_heap_bytes(Some(64 * 1024));
-    let n = throttle_n();
+    let n = throttle_n(&ctx);
     ctx.threads.safepoint_skip.store(n, Ordering::Relaxed);
     other.threads.safepoint_skip.store(n, Ordering::Relaxed);
     let mut keep = Vec::new();

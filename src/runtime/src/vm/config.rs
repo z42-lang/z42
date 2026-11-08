@@ -4,6 +4,7 @@ use crate::gc::GcConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct VmConfig {
+    pub(crate) safepoint_throttle: u32,
     pub(crate) stack_alloc: crate::vm::exec::call::stack_alloc::StackAllocPolicy,
     pub(crate) gc: GcConfig,
     pub(crate) gc_max_bytes: Option<u64>,

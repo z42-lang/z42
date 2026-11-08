@@ -108,12 +108,13 @@ impl VmContext {
     /// On drop, the entry is removed under the same Mutex discipline as
     /// the primary path.
     pub fn new_with_core(core: Arc<VmCore>) -> std::pin::Pin<Box<Self>> {
+        let safepoint_throttle = core.threads.safepoint_throttle;
         let ctx = Self {
             exec: crate::vm::exec::ThreadExecState::new(&core.runtime.cctors, &core.exec.engines),
             core,
             diagnostics: Default::default(),
             runtime: crate::vm::runtime::ThreadRuntimeState::new(),
-            threads: crate::vm::threads::ThreadLocalState::new(),
+            threads: crate::vm::threads::ThreadLocalState::new(safepoint_throttle),
             _pin: PhantomPinned,
         };
         let boxed = Box::new(ctx);
