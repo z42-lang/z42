@@ -58,7 +58,7 @@ pub(crate) fn probe_corelib(config: &ResolvedConfig) -> Result<Option<HostCoreli
 }
 
 /// Build a fully-prepared user `Module` and a fresh `VmContext` to back
-/// it. Mirrors `src/runtime/src/main.rs` lines 295–412:
+/// it. Mirrors `src/runtime/src/cli/main.rs` lines 295–412:
 ///
 /// 1. parse the user `.zbc` from bytes (`load_artifact_from_bytes`)
 /// 2. eager-load corelib (`z42.core.zpkg`) if found via `search_paths`

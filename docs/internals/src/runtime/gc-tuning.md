@@ -1,6 +1,6 @@
 # GC 调参与自动回收 / safepoint 协议
 
-> 代码：`src/runtime/src/config.rs`（knob）、`gc/heap/auto_collect.rs`（自动回收策略）、
+> 代码：`src/runtime/src/config/mod.rs`（knob）、`gc/heap/auto_collect.rs`（自动回收策略）、
 > `gc/trace.rs` + `gc/phase_timer.rs` + `gc/heap/card_verify.rs`（诊断旋钮）、
 > `gc/heap/alloc.rs`（压力事件），
 > `vm/threads/safepoint.rs`（协作式 safepoint）、`gc/heap.rs`（具体堆状态；公开操作见 `gc/heap/api.rs`）、

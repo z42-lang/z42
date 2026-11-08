@@ -2,7 +2,7 @@
 //
 // 不设任何 Z42_* 环境变量，断言的是「无输入时链末端的行为」+ 结构性不变式
 // ——若断言某个旋钮的具体值，用例会随开发者 shell 里的 Z42_* 变红。带 env / CLI /
-// 配置文件的优先级断言在 Rust 侧（src/runtime/src/config_tests.rs）。
+// 配置文件的优先级断言在 Rust 侧（src/runtime/src/config/config_tests.rs）。
 namespace Z42CoreRuntimeConfigTests;
 
 using Std.Harness;
