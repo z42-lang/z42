@@ -4,9 +4,9 @@
 >
 > 本文是 z42 运行时**未来的组件化目标架构**：把执行后端、GC、调试等从单一 `z42` crate 中拆成可独立交付的组件，支持「独立 z42vm 运行时按需加载」与「嵌入按需链接」。
 >
-> 组件拆分按静态产物、共享核心、执行后端和可选诊断组件推进。静态链接和运行时加载共用宿主门面；`runtime-workload-distribution.md` 的 Deferred `runtime-future-jit-cdylib-split` 指向后端独立交付。
+> 组件拆分按静态产物、共享核心、执行后端和可选诊断组件推进。静态链接和运行时加载共用宿主门面；`workload-distribution.md` 的 Deferred `runtime-future-jit-cdylib-split` 指向后端独立交付。
 >
-> 当前运行时架构（单 crate + feature gate）见 [vm-architecture.md](vm-architecture.md)；运行时/包分发见 [runtime-workload-distribution.md](../toolchain/workload-distribution.md)。
+> 当前运行时架构（单 crate + feature gate）见 [vm-architecture.md](vm-architecture.md)；运行时/包分发见 [workload-distribution.md](../toolchain/workload-distribution.md)。
 
 ---
 
@@ -78,7 +78,7 @@ Loader 拥有私有 `FusionInputs`，由门面的惰性函数指针在每次实�
 
 主 VM 构造由 crate 门面 `assembly/context.rs` 实现既有 `VmContext` 入口，负责配置捕获、组件选择与 core 接线。`vm/context/construct.rs` 保留线程状态访问、共享 core 的 worker 加入和 Drop；worker 不重新选择组件或重建扩展。主构造的弱引用扫描器、native 扩展加载、固定地址登记及 TLAB/SATB 顺序保持一致，扩展资源随最后一个持有 core 的上下文释放。
 
-核心库的隔离应用执行与退出报告经 `corelib/application.rs` 的私有服务接入，门面 `app/services.rs` 负责应用选项与报告策略。冻结前注入的服务只含函数指针，不拥有 VM 或托管值；并行用例只复制服务值与 Rust 路径/VFS。核心库仍负责 stdout sink 栈、按输入排序和 join 时 park，进程退出仍先报告再终止且不运行析构。
+核心库的隔离应用执行与退出报告经 `corelib/application.rs` 的私有服务接入，门面 `host/services.rs` 负责应用选项与报告策略。冻结前注入的服务只含函数指针，不拥有 VM 或托管值；并行用例只复制服务值与 Rust 路径/VFS。核心库仍负责 stdout sink 栈、按输入排序和 join 时 park，进程退出仍先报告再终止且不运行析构。
 
 值的无上下文格式化与盒装 struct 哈希由 `object/value` 的 crate 内部叶子模块定义，VM、解释器、JIT 与异常展示直接消费。`corelib::convert` 的既有公开格式化路径直接再导出同一定义；typed builtin 保留参数检查、错误和装箱编排。64 字节栈缓冲、UTF8 完整片段、spill、标量文本、FNV 顺序与盒装值借用边界保持一致；用户 ToString 协议和托管对象物化不属于这些纯值原语。
 
@@ -86,7 +86,7 @@ Loader 拥有私有 `FusionInputs`，由门面的惰性函数指针在每次实�
 
 ### 4.2 独立交付仍是目标设计
 
-注册边界见 [VM 总体架构](vm-architecture.md)「引擎注册与调用边界」。物理拆 crate、跨动态库的组件 ABI、自动加载和卸载尚未实现；当前 Rust trait/注册对象不是可跨版本或跨动态库使用的 ABI。以后独立交付须在这一每 VM 所有权边界上设计同构建组件 ABI，不能改成进程全局 JIT 单例。
+注册边界见 [VM 总体架构](vm-architecture.md)「引擎注册与调用边界」。通用组件 ABI 与静态/动态装配已经实现，具体协议见下文「当前组件框架」。现有 EngineRegistry/TierApi 仍是 crate 内 Rust 接口，尚未接入该 ABI；后端独立交付须维持每 VM 所有权边界，不能改成进程全局 JIT 单例。
 
 目标依赖仍是组件依赖 core，core 经中立注册能力调用组件。现有模块化注册不表示 `libz42_jit` 已可独立 dlopen。
 
@@ -109,87 +109,57 @@ interp 是基座基线（近乎永远可用）；jit/aot/debug 是可选可切�
 
 ---
 
-## 6. 绑定粒度（static / dynlink / dlopen）× 统一调用面
+## 6. 静态与动态绑定
 
-三种绑定粒度，**调用面统一成一套（注册槽）**，差别只在「槽何时、怎么被填」。core 里只有一条调用路径，组件库不必知道自己被怎么消费。
+组件使用同一种 `ComponentInit` C 函数签名，返回不可变工厂描述符；具体能力通过独立接口表提供。
 
-组件库永远只暴露一个注册入口，两形态共用同一注册逻辑：
-- Rust `fn register() -> BackendApi`（静态路径直接调）
-- `extern "C" fn z42_register_<c>()`（动态/dlopen 路径按名查）
+| 来源 | host 配置 | 自动装配时机 |
+|---|---|---|
+| 静态链接 | `ComponentOptions::with_static(id, init)` 保存直接函数引用，防止未引用入口被链接器删除 | `LoadedProgram` 准备执行环境后调用 init 并创建实例 |
+| 动态库 | `ComponentOptions::with_dynamic(id, path, symbol)` 保存可信原生库与入口 | PAL 打开库、解析 init，再走同一装配流程 |
 
-| 粒度 | 槽何时/如何填 | 可用集定于 | 可切？ | 调用成本 |
-|---|---|---|---|---|
-| **static 静态链接** | 启动时 linked-in 的 init 调 `register()`（无 dlopen） | 构建/链接期 | 只在已链入的之间按 `--mode` 选 | 入口及跨后端 / OSR 边界的注册调用，开销以 A/B 验收 |
-| **dynlink 动态链接（load-time dep）** | dylib 进程启动自动加载，其构造器/init 注册 | 链接期（独立 .dylib 文件） | 按设置选用；换同名 .dylib 即换实现 | 同上 + load-time 解析 |
-| **dlopen 运行时按需** | 用到时 core `dlopen` + 查 `z42_register_*` → 注册 | 运行时（看磁盘有无） | 最灵活，部署后丢 dylib 即增减 | 首次 dlopen 开销，之后同上 |
+不依赖全局构造器或目录枚举顺序注册。静态清单与动态选择由宿主明确给出；将来 CLI 的编译配置和 runtime pack 清单可以生成这些选项。
+组件来源决定可用集，执行模式只在已装配引擎中选择。当前 CLI/C 宿主尚未提供组件选择参数。
 
-**三种粒度的调用代码完全一样**（都走槽）；差别只在填槽触发点：linked-in init / 自动加载构造器 / 显式 dlopen。
-
-### 6.1 「静态=直接调用」的诚实说明
-因为 jit/aot 是**独立 crate**，core 不能写 `crate::jit::run` 字面直调（否则重现 §4 的环）。所以**即使静态链接，也经注册槽调**：
-- 注册调用用于模式入口、跨后端回落与 tier / OSR 交接；原生同后端调用继续自己的 ABI；
-- 真正热路径「编译代码 → helper」是 cranelift finalize 时 **baked 地址**，三种粒度下都是直调，不受影响。
-
-故「静态直接调用」的实际收益是**省 dlopen / load-time 解析**，而非消除注册边界的调用。要字面零间接只能把组件并回 core（放弃拆分），不划算。
-
-### 6.2 每组件独立选粒度（构建配置）
-```
-interp = static            # 基线，独立 z42vm 与嵌入皆内置
-jit    = static | dynlink | dlopen
-aot    = static | dynlink | dlopen
-debug  = dynlink | dlopen
-gc     = static  仅此一种   # 不参与 dynlink/dlopen，见 §3
-```
+引擎适配后的注册调用用于模式入口、跨后端回落和 tier/OSR 交接；原生同后端调用与 JIT baked helper 地址继续使用自己的调用约定。性能以最终构建的 A/B 门禁验证。
 
 ---
 
-## 7. 不重复包含 + 嵌入双版本
+## 7. 核心代码只保留一份
 
-「拆分组件之外都编进 libz42，且不重复」：
+Rust `staticlib` 会包含依赖；`cdylib` 依赖核心的 rlib 时也可能静态带入另一份核心。
+不能通过给每个插件依赖整个 VM 的方式拆库，否则配置单例、堆注册表、TLAB/SATB TLS 都可能重复。
+不能依赖可执行文件的 Rust 符号可见性补救这一所有权问题。
 
-- **libz42** = 基座（core + interp + native-interop + host C ABI）。**发 `.a`（静态）+ `.dylib`（动态）两版**。
-- **libz42_jit / libz42_aot / libz42_debug** = 薄库，**依赖 libz42、不含 core**（不重复）。各出 `.a`（嵌入静态链）+ `.dylib`（dlopen / 嵌入动态）。
-- native 扩展（compression…）维持现有 dlopen 插件。
+当前独立动态测试组件只依赖 `z42-component-api`，经 RuntimeApi 回调访问核心，不包含 VM 实现。
+真实执行后端有两种待验证的交付形态：
 
-### 7.1 独立 z42vm（分平台，实现「不重复 + 按需」）
+- 叶子 C ABI 组件，只经中立服务表访问核心。
+- 同构建 Rust dylib 共享核心，固定工具链和链接选项，并随包携带所需 Rust 动态依赖。
 
-> **此方案在 Rust 下不可行，不按此实施。** 原因：
-> - **导不出 core 符号**：LTO 会把 Rust 符号内部化，依赖 crate 里没人引用的 `#[no_mangle]` 也会被剥掉（z42vm 里实际就没有 `z42_register_type`）；导出可执行文件符号的 `-Zexport-executable-symbols` 是 unstable。
-> - **core 不止一份**：Rust cdylib（libz42_jit）依赖 z42 crate 时会**静态嵌入自己的一份 z42**，`runtime_config` 的 `OnceLock`、TLAB / SATB 的 `thread_local`、GC 注册表都会各有两份——这是正确性问题，不只是体积。本节和 §7 开头「薄库不含 core」的前提因此都不成立（Rust 的 staticlib 同样会打包全部依赖）。
-> - 只有 Rust `dylib` crate-type 能真正共享 core，但它 ABI 不稳定，要 `-C prefer-dynamic` 并随包发 libstd。
-> - JIT 是默认模式，拆出去也省不了常规运行的内存。
->
-> Rust 下可行的形态只有三种：单体；全部 Rust 代码放进一个 cdylib + 薄 exe；叶子 C-ABI 插件（经函数表互调，不靠全局符号）。若「JIT 可选」成为硬需求，优先出「静态 interp-only」和「静态 full」两种 z42vm。下表保留原方案供对照。
-
-| 平台 | 做法 |
-|---|---|
-| **Unix（mac/linux）** | z42vm 静态链 `libz42.a` + `-rdynamic`（导出符号）→ `--mode jit` 时 dlopen `libz42_jit.dylib`，其对 core 的未定义符号**回解析到 z42vm 自身**。core 只一份（在 z42vm），JIT 按需，**零重复**。 |
-| **Windows** | exe 无 `-rdynamic` 等价 → 用共享 `libz42.dll`，`z42vm.exe` 与 `libz42_jit.dll` 都链它（仍不重复）。 |
-
-### 7.2 嵌入（两版都给，core 只出现一次）
-- **动态**：app 链 `libz42.dylib`（要 JIT 再加 `libz42_jit.dylib`，它依赖 libz42）。
-- **静态**：app 链 `libz42.a`（要 JIT 再加 `libz42_jit.a`）——`libz42_jit.a` 只含 JIT 代码 + 对 libz42 的未解析引用，最终链接时 core **只出现一次**。
-
-### 7.3 取舍（认账）
-1. 独立 z42vm 不再是「单文件含 JIT」：interp 自包含（静态 core），JIT 需 `libz42_jit` 在旁（发行包 `native/` 里有，rpath 指 `../native`）；Windows 另需 `libz42.dll` 在旁。
-2. native-interop（libffi ~0.6–1M）默认归 libz42（不单拆）；要更细的「不用 FFI 就不带」可后续再议。
+真实后端拆库前须验证核心身份、全局状态和 TLS 单份，以及 GC、异常、worker、OSR 和代码寿命。
+不能直接承诺每个 Rust staticlib 只含自身代码。最终 SDK/runtime pack 的库清单随实际链接方案确定。
 
 ---
 
-## 8. ABI 版本
+## 8. 构建身份与生命周期
 
-后端/组件与 libz42 **必须同构建**（非第三方，随包同发）。libz42 导出一个 ABI 版本符号；z42vm dlopen 组件时校验 `组件.abi == 自身.abi`，不一致**拒绝 + 清晰报错**，不做跨版本兼容。
+组件协议为内部同构建契约。公共表头同时检查 ABI 版本与结构大小，描述符再检查内容构建身份和预期组件 ID；不匹配即拒绝。
+版本和身份校验只能检查协议，不能把不可信原生代码变成安全代码，因此 host 的原生工厂注册入口为 unsafe。
+
+首版在程序执行前装配并冻结，不支持运行中更换实现或热卸载。组件实例由所属 Core 持有，接口租约延长 Core 和动态库寿命。
+组件须在 destroy_vm 中停止自有任务并释放资源，不得在销毁完成后继续使用借用的服务句柄。
 
 ---
 
-## 9. 分阶段实施（增量，post-ROI）
+## 9. 后续接入顺序
 
-1. **抽出 libz42 基座边界**：把后端现在 `crate::interp::*` / 共享件直够的部分，收敛成稳定的 `core::api` + 注册槽 + observer（最难、最该先做的解耦）。
-2. **后端插件 ABI + z42vm dlopen JIT**：先用 JIT 验证整套框架（§4/§6）。§7.1 的「静态 core + `-rdynamic` + dlopen」形态在 Rust 下不可行，此步须改用 §7.1 列出的可行形态之一。
-3. **模块化 staticlib/dylib + 嵌入 feature 矩阵 + 文档**：SDK 与 runtime pack 的 `native/` 改铺这套模块化库。
-4. **gc 模块化**（编译期可插拔）、**debug 组件**（observer 挂载）、**aot**（M9 时同形状接入）。
+1. 将 EngineRegistry/TierApi 适配到组件接口，明确执行、元数据、GC 根与线程服务。
+2. 拆出真实 interp/JIT，验证单份核心和所有执行回退路径。
+3. 拆出 profiler 与 debugger，经诊断/采样服务接入，未启用时不创建其线程和重型状态。
+4. 完成 CLI/C 宿主组件选择、静态/动态 SDK 和 runtime pack 的平台矩阵；AOT 按其后端计划接入。
 
-每阶段独立可验证、可单独交付；先 JIT 打通框架再推 gc/debug/aot。
+每项均需完整运行时验证、SDK verify 和性能门禁。通用框架与测试组件通过不代表真实后端已独立交付。
 
 ---
 
@@ -197,7 +167,7 @@ gc     = static  仅此一种   # 不参与 dynlink/dlopen，见 §3
 
 - **当前架构**（单 crate、`#[cfg(feature = "jit"/"aot"/"native-interop"/"interp-only"/"bundled-compression")]`）见 [vm-architecture.md](vm-architecture.md)：本文是它的演进目标，feature gate 是迈向组件化的第一步雏形。
 - **嵌入 API / C ABI** 见 [embedding.md](embedding.md)：host 入口归 libz42 基座，不拆。
-- **包分发** 见 [runtime-workload-distribution.md](../toolchain/workload-distribution.md)：其 Deferred `runtime-future-jit-cdylib-split` 是本架构的第一个落地切口。
+- **包分发** 见 [workload-distribution.md](../toolchain/workload-distribution.md)：其 Deferred `runtime-future-jit-cdylib-split` 是本架构的第一个落地切口。
 - **分层执行 / OSR / 回收 / hot-reload**（叠在本组件框架之上，引擎内部各自分层）见 [tiered-execution.md](tiered-execution.md)。
 - **IR 优化 / 特化 / intrinsic / tier0 基线质量** 见 [ir-specialization.md](ir-specialization-design.md)。
 - **zpkg 加载上下文 / 重载 / 卸载回收 / 保留根诊断**（ALC 式，复用 observer/注册基座）见 [load-context.md](load-context.md)。
@@ -206,7 +176,7 @@ gc     = static  仅此一种   # 不参与 dynlink/dlopen，见 §3
 
 ## VM 入口与实现归属
 
-Rust 入口由 `vm::{Vm, VmContext, VmCore}` 提供。上下文与共享 Core 的实现位于 `vm/context`；引擎共享的异常构造与原生栈保护位于 `vm/exec`；计数、运行时事件和观察者位于 `vm/diagnostics`。门面负责主上下文的配置与提供方装配，worker 加入、线程注册和 Drop 留在上下文实现中。目录归属不改变状态字段、repr、偏移和同步协议。
+嵌入 Rust 入口统一由 `host` 提供，内部执行对象为 `vm::{Vm, VmContext, VmCore}`。上下文与共享 Core 的实现位于 `vm/context`；引擎共享的异常构造与原生栈保护位于 `vm/exec`；计数、运行时事件和观察者位于 `vm/diagnostics`。门面负责主上下文的配置与提供方装配，worker 加入、线程注册和 Drop 留在上下文实现中。目录归属不改变状态字段、repr、偏移和同步协议。
 
 门面的具体装配实现在 `src/runtime/src/assembly/`，应用执行与参数服务在 `src/runtime/src/host/`。CLI 与嵌入适配通过 `host::run_app` / `LoadedProgram` 共用加载与调用服务，`assembly` 仅在 crate 内可见；共享启动步骤由应用入口和宿主调用，worker 生命周期仍归 VM 上下文。
 
