@@ -20,7 +20,7 @@ use z42::vm::runtime::{Function, Module};
 use z42::metadata::ir::{BasicBlock, Terminator};
 use z42::metadata::ir::ExecMode;
 use z42::object::Value;
-use z42::vm_context::VmContext;
+use z42::vm::context::VmContext;
 
 // 🪦 这里原有两个测试 `mutex_serializes_concurrent_increments_across_threads` /
 // `channel_producer_consumer_hand_off_across_threads`，直接调 `corelib::sync` 的
@@ -173,7 +173,7 @@ fn gc_collect_with_concurrent_mutators_no_race() {
     for _ in 0..n_workers {
         let core = collector.core_arc();
         worker_handles.push(thread::spawn(move || {
-            let w = z42::vm_context::VmContext::new_with_core(core);
+            let w = z42::vm::context::VmContext::new_with_core(core);
             for _ in 0..iters_per_worker {
                 // add-gc-safepoint-counter-throttling (2026-05-21): force
                 // slow path every iter — the default throttle (1024)
@@ -236,7 +236,7 @@ fn auto_collect_triggers_via_safepoint_no_race() {
         let core = main.core_arc();
         let active_clone = Arc::clone(&active);
         handles.push(thread::spawn(move || {
-            let w = z42::vm_context::VmContext::new_with_core(core);
+            let w = z42::vm::context::VmContext::new_with_core(core);
             for _ in 0..iters_per_worker {
                 let _ = w.heap().alloc_array(vec![
                     Value::I64(0), Value::I64(1), Value::I64(2), Value::I64(3),
@@ -299,7 +299,7 @@ fn concurrent_gc_collect_callers_arbitrate() {
         let none_c = Arc::clone(&none_returned);
         let active_c = Arc::clone(&active);
         handles.push(thread::spawn(move || {
-            let w = z42::vm_context::VmContext::new_with_core(core);
+            let w = z42::vm::context::VmContext::new_with_core(core);
             let pause = request_gc_pause(&w);
             let got_some = pause.is_some();
             if got_some {

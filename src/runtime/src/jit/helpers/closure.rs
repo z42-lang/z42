@@ -17,7 +17,7 @@ use crate::vm::runtime::ids::tokens::FnId;
 use crate::object::Value;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
@@ -134,7 +134,7 @@ pub unsafe extern "C" fn jit_call_indirect(
         // backends must do this: fixing only one leaves the bug alive under the other.
         Value::Null => {
             let module = super::jit_module(ctx);
-            let exc = crate::exception::make_stdlib_exception(
+            let exc = crate::vm::exec::exception::make_stdlib_exception(
                 vm_ctx, module, crate::vm::exec::ops::scalar::NULL_REF_EXC,
                 crate::vm::exec::ops::scalar::null_invoke_msg(),
             ).unwrap_or_else(|e| Value::Str(format!("{e}").into()));

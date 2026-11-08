@@ -26,7 +26,7 @@
 
 把这条判错，会把**正常的跨包两阶段加载**变成崩溃。所以判据不是「现在查不到」，而是
 **所有惰性解析路径都穷尽之后仍然查不到**。实现集中在
-`src/runtime/src/vm_context/symres.rs` 一个模块里，两后端共用同一份判定，避免
+`src/runtime/src/vm/context/symres.rs` 一个模块里，两后端共用同一份判定，避免
 interp / JIT 语义漂移（这是本仓最易出错的一维）。
 
 三条反复出现的纪律：
@@ -81,7 +81,7 @@ C# 的 `default(T)`（`symres::static_zero_value`）：
 - 泛型类实例化（`Demo.Holder<int>`）的描述符里，静态字段的 tag 已代换成实参，`static T V` 读作 `0`。
 
 钉它的是 `src/tests/structs/static_value_default.z42`（单包，interp + JIT）与 cross-zpkg
-`static_struct_default_cross_pkg`（字段类型声明在依赖包里），单测在 `vm_context/symres_tests.rs` /
+`static_struct_default_cross_pkg`（字段类型声明在依赖包里），单测在 `vm/context/symres_tests.rs` /
 `static_table_tests.rs`。
 
 ### 构造器 —— `missing_ctor_exception`，判据是编译期的**正向位**

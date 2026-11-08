@@ -5,7 +5,7 @@
 //! (`fn(frame: *mut JitFrame, vm: *const VmContext) -> u8`). Per-thread state —
 //! frame stack, pending exception, register pool, arenas, safepoint throttle,
 //! stack limit, counter shard — is therefore reached directly; generated code
-//! reads the few hot fields at fixed offsets (`vm_context::JitHead`,
+//! reads the few hot fields at fixed offsets (`vm::exec::jit_head::JitHead`,
 //! `VM_CONTEXT_*_OFFSET`). Shared JIT state lives here, on `VmCore::engines`, and a
 //! helper borrows it through the neutral TierApi cached in the running
 //! context's `JitHead`; the backend identifies its own registered state.
@@ -44,7 +44,7 @@ use crate::vm::runtime::ids::func_table::FuncTable;
 use crate::vm::runtime::ids::seg_vec::SparseSegTable;
 use crate::vm::runtime::ids::tokens::FnId;
 use crate::vm::runtime::{Function, Module};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 use crate::jit::compile::lookup::CompileLookup;
 use crate::jit::runtime::frame::FnEntry;

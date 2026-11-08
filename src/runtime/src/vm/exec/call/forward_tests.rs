@@ -14,7 +14,7 @@ use crate::vm::runtime::ids::tokens::TypeId;
 use crate::metadata::ir::ExecMode;
 use crate::object::{FieldSlot, TypeDesc};
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use crate::vm::exec::call::outcome::ExecOutcome;
 
 fn func(name: &str, params: usize, instructions: Vec<Instruction>, terminator: Terminator) -> Function {
@@ -127,8 +127,8 @@ fn thrown_text(vm: &VmContext, m: &Module, exc: &Value) -> String {
         Value::Object(o) => format!(
             "{}: {}\n{}",
             o.type_desc().name,
-            crate::exception::read_message(exc, vm, m).unwrap_or_default(),
-            crate::exception::read_stack_trace(exc, vm, m).unwrap_or_default()),
+            crate::vm::exec::exception::read_message(exc, vm, m).unwrap_or_default(),
+            crate::vm::exec::exception::read_stack_trace(exc, vm, m).unwrap_or_default()),
         other => format!("raw: {}", crate::corelib::core::convert::value_to_str(other)),
     }
 }
@@ -277,26 +277,26 @@ fn internal_module() -> Module {
 
 #[test]
 fn an_internal_error_is_fatal_in_the_interpreter() {
-    let _g = crate::stack_guard::FATAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _g = crate::vm::exec::stack_guard::FATAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let m = internal_module();
     let vm = VmContext::new();
     let err = interp(&vm, &m, "T.Main").expect_err("not a z42 exception");
     assert!(err.to_string().contains("fatal error: internal error in builtin `__test_abi_internal`"), "{err}");
-    assert!(crate::stack_guard::is_fatal(&vm));
-    let report = crate::stack_guard::take_report().expect("a fatal report");
+    assert!(crate::vm::exec::stack_guard::is_fatal(&vm));
+    let report = crate::vm::exec::stack_guard::take_report().expect("a fatal report");
     assert!(report.contains("broken invariant (test)") && report.contains("T.Main"), "{report}");
 }
 
 #[cfg(feature = "jit")]
 #[test]
 fn an_internal_error_is_fatal_under_the_jit() {
-    let _g = crate::stack_guard::FATAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _g = crate::vm::exec::stack_guard::FATAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let m = internal_module();
     let vm = VmContext::new();
     let err = jit(&vm, &m, "T.Main").expect_err("unwinds");
     assert!(err.contains("internal error in builtin `__test_abi_internal`"), "{err}");
-    assert!(crate::stack_guard::is_fatal(&vm), "the JIT path sets the fatal flag too");
-    let report = crate::stack_guard::take_report().expect("a fatal report");
+    assert!(crate::vm::exec::stack_guard::is_fatal(&vm), "the JIT path sets the fatal flag too");
+    let report = crate::vm::exec::stack_guard::take_report().expect("a fatal report");
     assert!(report.contains("broken invariant (test)"), "{report}");
 }
 
@@ -304,11 +304,11 @@ fn an_internal_error_is_fatal_under_the_jit() {
 /// (both engines share `abi::error::raise`; the JIT used to skip this check).
 #[test]
 fn no_exception_is_built_while_a_fatal_error_unwinds() {
-    let _g = crate::stack_guard::FATAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _g = crate::vm::exec::stack_guard::FATAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let m = fail_module();
     let vm = VmContext::new();
-    let _ = crate::stack_guard::fatal_error(&vm, "test: already unwinding");
-    let _ = crate::stack_guard::take_report();
+    let _ = crate::vm::exec::stack_guard::fatal_error(&vm, "test: already unwinding");
+    let _ = crate::vm::exec::stack_guard::take_report();
     match crate::vm::exec::call::builtin_abi::error::raise(&vm, &m, "__test_abi_fail",
         crate::vm::exec::call::builtin_abi::BuiltinError::Format("x".into()), &[]) {
         crate::vm::exec::call::builtin_abi::error::Raised::Fatal(_) => {}

@@ -340,7 +340,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
 
     // Replay-emit ModuleLoaded for every module loaded during boot.
     for (name, byte_size) in loaded_for_replay.drain(..) {
-        ctx.fire_runtime_event(&crate::observer::RuntimeEvent::ModuleLoaded { name, byte_size });
+        ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size });
     }
 
     // Record the reporting knobs before execution so `Environment.Exit` can
@@ -390,7 +390,7 @@ static EXIT_REPORT: std::sync::OnceLock<ExitReport> = std::sync::OnceLock::new()
 /// dies, by `Environment.Exit`. Safe to call with no `EXIT_REPORT` recorded
 /// (pure-embedder VMs): stats are then skipped and only the env-driven sampler
 /// flush applies.
-pub(crate) fn report_on_exit(ctx: &crate::vm_context::VmContext) {
+pub(crate) fn report_on_exit(ctx: &crate::vm::context::VmContext) {
     static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     // A z42 `Environment.Exit` inside a program that also returns normally can
     // only happen once (process::exit never returns), but an embedder may call
@@ -417,7 +417,7 @@ if report.print_stats {
         (ph.count, ph.total_us, if ph.count == 0 { 0 } else { ph.max_us })
     };
     use std::sync::atomic::Ordering::Relaxed;
-    let snap = crate::counters::ProfileSnapshot::new(
+    let snap = crate::vm::diagnostics::counters::ProfileSnapshot::new(
         counters, h.allocations,
         h.minor_collections, h.major_collections, h.reclaimed_bytes,
     )

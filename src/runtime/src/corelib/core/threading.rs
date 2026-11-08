@@ -21,13 +21,13 @@ pub(crate) struct State {
     slots: crate::corelib::resource_registry::ResourceRegistry<std::thread::JoinHandle<anyhow::Result<()>>>,
 }
 
-pub(super) fn state(ctx: &crate::vm_context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::vm::context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
 use crate::vm::exec::call::outcome::ExecOutcome;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{anyhow, bail, Result};
 use std::sync::Arc;
 
@@ -58,7 +58,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::vm::e
              constructed via VmContext::new() instead of VmContext::with_module()".into()));
     }
 
-    let core_for_thread: Arc<crate::vm_context::VmCore> = Arc::clone(&ctx.core);
+    let core_for_thread: Arc<crate::vm::context::VmCore> = Arc::clone(&ctx.core);
     let id = state(ctx)?.slots.alloc_id();
 
     // 🔴 **fix-spawn-env-gc-root **: root the captured environment *here*, on the
@@ -137,7 +137,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::vm::e
 /// the heap's root map, and the alternative needs a handshake with the worker that buys
 /// nothing.
 struct SpawnedEnvRoot {
-    core:   Arc<crate::vm_context::VmCore>,
+    core:   Arc<crate::vm::context::VmCore>,
     handle: crate::gc::RootHandle,
 }
 
@@ -152,7 +152,7 @@ impl Drop for SpawnedEnvRoot {
 #[z42_macros::builtins]
 pub mod typed {
     use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError};
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
 
     /// `__thread_sleep(millis)` — block the current thread. Negative values saturate to
     /// 0 (BCL `Thread.Sleep`). The whole body runs parked (`blocking`): a sleeping thread
@@ -235,7 +235,7 @@ fn run_spawned_action(
             // text matches what `throw new ...Exception("msg")` set. Fall
             // back to value_to_str for non-Exception thrown values (rare —
             // z42 type-checker normally requires Exception subclasses).
-            let msg = crate::exception::read_message(&val, thread_ctx, module)
+            let msg = crate::vm::exec::exception::read_message(&val, thread_ctx, module)
                 .unwrap_or_else(|| crate::corelib::core::convert::value_to_str(&val));
             bail!("{msg}")
         }

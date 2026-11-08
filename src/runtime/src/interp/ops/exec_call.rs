@@ -9,7 +9,7 @@ use crate::vm::runtime::dispatch::functions::{fn_by_id, lazy_call_id};
 use crate::vm::runtime::{Function, Module};
 use crate::object::Value;
 use crate::vm::runtime::ids::tokens::FnId;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
 
@@ -127,7 +127,7 @@ pub(super) fn call(
     // token 可能是解析期按名填好的惰性目标，所以每次调用都判，不能只在绑定时判。
     // 也先于折叠与转入原生码：歧义调用不该因为目标是 `[Native]` 桩或已编译就静默通过。
     // 常态代价 = 一次 relaxed 原子读（进程内从没碰撞过时恒 false）。
-    if let Some(exc) = crate::vm_context::symres::ambiguous_function_exception(ctx, module, fname) {
+    if let Some(exc) = crate::vm::context::symres::ambiguous_function_exception(ctx, module, fname) {
         return Ok(Some(exc));
     }
     // runtime-audit P1-8: a `[Native]` forwarder runs its builtin directly.
@@ -292,7 +292,7 @@ pub(super) fn call_indirect(
         // back a catchable `Std.NullReferenceException` instead of a `bail!`, whose Rust
         // Debug string no `catch` can intercept (the program died on the spot).
         Value::Null => {
-            return Ok(Some(crate::exception::make_stdlib_exception(
+            return Ok(Some(crate::vm::exec::exception::make_stdlib_exception(
                 ctx, module, crate::vm::exec::ops::scalar::NULL_REF_EXC, crate::vm::exec::ops::scalar::null_invoke_msg(),
             )?));
         }
@@ -359,7 +359,7 @@ pub(super) fn mk_clos(
     let env_val = crate::object::ArrayObj::alloc_frozen(ctx.heap(), &env_vec);
     // add-gc-oom-exception: alloc_array returns Null only under strict OOM
     if matches!(env_val, Value::Null) {
-        return Ok(Some(crate::exception::make_oom_exception(
+        return Ok(Some(crate::vm::exec::exception::make_oom_exception(
             ctx, module,
             format!("cannot allocate closure `{fn_name}` env: heap limit exceeded"),
         )));

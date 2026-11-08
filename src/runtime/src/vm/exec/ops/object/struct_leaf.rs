@@ -19,7 +19,7 @@ use crate::object::{
     decode_prim, encode_prim, is_ref_tag, prim_width, NativeData, ScriptObject, StructArrayElem,
     StructTypeLayout, Value,
 };
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
 

@@ -5,7 +5,7 @@
 use crate::vm::exec::stack::FrameSnapshot;
 use crate::vm::runtime::Module;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 /// What a builtin can fail with. Every kind but `Internal` / `Thrown` is one stdlib
 /// exception class (.NET names and hierarchy — [`BuiltinError::classes`]); the message
@@ -238,15 +238,15 @@ pub(crate) fn raise(
     ctx: &VmContext, module: &Module, builtin: &str, e: BuiltinError, extra_rows: &[FrameSnapshot],
 ) -> Raised {
     if let Some(thrown) = ctx.take_pending_thrown() {
-        crate::exception::populate_stack_trace_with(&thrown, ctx, module, extra_rows);
+        crate::vm::exec::exception::populate_stack_trace_with(&thrown, ctx, module, extra_rows);
         return Raised::Throw(thrown);
     }
-    if crate::stack_guard::is_fatal(ctx) {
+    if crate::vm::exec::stack_guard::is_fatal(ctx) {
         return Raised::Fatal(anyhow::anyhow!("{e}"));
     }
     match build(ctx, module, builtin, e) {
         Ok(exc) => {
-            crate::exception::populate_stack_trace_with(&exc, ctx, module, extra_rows);
+            crate::vm::exec::exception::populate_stack_trace_with(&exc, ctx, module, extra_rows);
             Raised::Throw(exc)
         }
         Err(r) => r,
@@ -256,14 +256,14 @@ pub(crate) fn raise(
 fn build(ctx: &VmContext, module: &Module, builtin: &str, e: BuiltinError) -> Result<Value, Raised> {
     let classes = e.classes();
     match e {
-        BuiltinError::Internal(msg) => Err(Raised::Fatal(crate::stack_guard::fatal_error(
+        BuiltinError::Internal(msg) => Err(Raised::Fatal(crate::vm::exec::stack_guard::fatal_error(
             ctx, &format!("internal error in builtin `{builtin}`: {msg}")))),
         BuiltinError::Thrown(v) => Ok(v),
         BuiltinError::Legacy(err) => match err.downcast::<BuiltinError>() {
             Ok(typed) => build(ctx, module, builtin, typed),
             Err(err) => match err.downcast::<crate::objops::Throw>() {
                 Ok(t) => make(ctx, module, &[t.class], t.msg),
-                Err(err) => crate::exception::make_stdlib_exception(ctx, module, "Std.Exception", err.to_string())
+                Err(err) => crate::vm::exec::exception::make_stdlib_exception(ctx, module, "Std.Exception", err.to_string())
                     .map_err(|_| Raised::Raw(err)),
             },
         },
@@ -292,7 +292,7 @@ fn make_with(
     ctx: &VmContext, module: &Module, classes: &[&str], msg: String, fields: &[(&str, Value)],
 ) -> Result<Value, Raised> {
     for class in classes.iter().copied().chain(std::iter::once("Std.Exception")) {
-        if let Ok(v) = crate::exception::make_stdlib_exception_with(ctx, module, class, msg.clone(), fields) {
+        if let Ok(v) = crate::vm::exec::exception::make_stdlib_exception_with(ctx, module, class, msg.clone(), fields) {
             return Ok(v);
         }
     }

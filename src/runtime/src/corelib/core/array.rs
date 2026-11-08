@@ -13,7 +13,7 @@ use crate::object::ArrRef;
 use crate::object::{default_value_for, ArrayObj};
 use crate::object::Value;
 use crate::objops;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 /// Normalize any element-type spelling (short alias / VM tag / FQ wrapper) to the
 /// **short element tag** the array modes key on (`ElemKind::of`). Reference types

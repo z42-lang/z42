@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::vm::exec::call::{args::CallArgs, outcome::ExecOutcome};
 use crate::vm::exec::engine::Engine;
 use crate::vm::runtime::{Function, Module};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 pub(crate) static ENGINE: Interpreter = Interpreter;
 pub(crate) struct Interpreter;

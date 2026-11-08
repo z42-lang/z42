@@ -29,7 +29,7 @@
 use crate::vm::exec::ops::structs;
 use crate::object::Value;
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use super::{set_exception, vm_ctx_ref};
 
 /// Lazily assign (and return) this JIT frame's monotonic id, so a `StructRef` it

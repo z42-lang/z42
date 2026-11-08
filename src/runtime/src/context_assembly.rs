@@ -1,10 +1,10 @@
-//! Facade-owned primary VM construction; thread mechanisms remain in vm_context.
+//! Facade-owned primary VM construction; thread mechanisms remain in vm::context.
 use std::marker::PhantomPinned;
 use std::sync::Arc;
 use parking_lot::Mutex;
 use crate::gc::Heap;
 use crate::object::Value;
-use crate::vm_context::{VmContext, VmCore, VmContextPtr, VM_CORES};
+use crate::vm::context::{VmContext, VmCore, VmContextPtr, VM_CORES};
 
 impl VmContext {
     /// Standard test entry: constructs a VmContext with `VmCore.module = None`.
@@ -93,8 +93,8 @@ impl VmContext {
             runtime: crate::vm::runtime::RuntimeState::new(module, &crate::builtin_assembly::CATALOG),
 
             diagnostics: crate::vm::diagnostics::DiagnosticsState {
-                counters: Arc::new(crate::counters::RuntimeCounters::new()),
-                runtime_observers: crate::observer::RuntimeObserverRegistry::new(),
+                counters: Arc::new(crate::vm::diagnostics::counters::RuntimeCounters::new()),
+                runtime_observers: crate::vm::diagnostics::observer::RuntimeObserverRegistry::new(),
                 park_histogram: Mutex::new(crate::gc::types::PauseHistogram::new(config.gc.pause_window)),
                 lock_contentions: std::sync::atomic::AtomicU64::new(0),
                 lock_wait_us:     std::sync::atomic::AtomicU64::new(0),

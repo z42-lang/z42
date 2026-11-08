@@ -2,7 +2,7 @@
 
 use crate::vm::runtime::{Function, Module};
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Result};
 
 // ── ToString protocol ────────────────────────────────────────────────────────

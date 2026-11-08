@@ -1,6 +1,6 @@
 use super::*;
 use crate::vm::exec::call::frames::VmFrame;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 fn frame() -> VmFrame {
     VmFrame::new(std::ptr::null(), std::ptr::null())

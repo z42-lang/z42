@@ -450,7 +450,7 @@ fn minor_gc_does_not_clear_card_dirty_bits() {
 
 #[test]
 fn major_collect_via_context_clears_card_dirty() {
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     let ctx = VmContext::new();
     ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
 
@@ -518,7 +518,7 @@ fn major_collect_via_context_clears_card_dirty() {
 fn major_collect_via_context_full_scans_unrooted_old_entries() {
     // Without escalation/major, old entries that lost all references
     // would leak indefinitely. Major closes that loop.
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     let ctx = VmContext::new();
     ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
     let heap_dyn = ctx.heap();
@@ -568,7 +568,7 @@ fn major_collect_via_context_full_scans_unrooted_old_entries() {
 /// in-process compile had made adaptive promotion promote early.
 #[test]
 fn collect_full_reclaims_an_unrooted_old_entry_in_one_call() {
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     let ctx = VmContext::new();
     ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
     let heap_dyn = ctx.heap();
@@ -599,7 +599,7 @@ fn collect_full_reclaims_an_unrooted_old_entry_in_one_call() {
 /// would have made it; one that holds only primitives is not (it has no edge to record).
 #[test]
 fn promoting_an_array_with_a_young_element_remembers_it() {
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     let ctx = VmContext::new();
     ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
     let heap = ctx.heap();
@@ -652,7 +652,7 @@ fn primitives_and_null_slots_do_not_count_as_young_references() {
 /// escalation fires every cycle): `minor 156.7 ms + major 188.5 ms` per cycle, to free 0 bytes.
 #[test]
 fn escalation_defers_the_major_to_the_next_cycle_instead_of_running_both() {
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     let ctx = VmContext::new();
     ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
     let heap = ctx.heap();
@@ -725,7 +725,7 @@ fn a_major_ages_its_survivors_so_the_young_list_still_drains() {
 #[test]
 fn minor_collect_via_context_does_not_escalate_when_low_survival() {
     // Survival rate well below 0.75 → no escalation.
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     let ctx = VmContext::new();
     ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
     let heap_dyn = ctx.heap();

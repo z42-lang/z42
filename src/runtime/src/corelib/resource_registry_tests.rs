@@ -1,5 +1,5 @@
 use super::{ResourceRegistry, state};
-use crate::{vm_context::VmContext, vm::exec::call::builtin_abi::BuiltinError};
+use crate::{vm::context::VmContext, vm::exec::call::builtin_abi::BuiltinError};
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 
 #[test]

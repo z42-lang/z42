@@ -223,7 +223,7 @@ pub struct ProfileSnapshot {
 
 impl ProfileSnapshot {
     /// Assemble from a counter snapshot + the heap-derived fields. Kept as
-    /// plain `u64` so `counters.rs` stays free of a `gc` dependency — the
+    /// plain `u64` so `vm/diagnostics/counters.rs` stays free of a `gc` dependency — the
     /// caller (`app.rs`) extracts them from `HeapStats`. Concurrency-probe
     /// fields default to 0; set them via [`with_concurrency`](Self::with_concurrency).
     pub fn new(

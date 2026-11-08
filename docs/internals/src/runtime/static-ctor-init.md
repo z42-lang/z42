@@ -220,7 +220,7 @@ catch (Exception e) {
 |---|---|---|
 | 静态调用 / 自由函数 | 被调函数 FQ 名 | `exec_call.rs`、`jit/helpers/call.rs`（两条去路各一处） |
 | `new` | 被创建类型的 FQ 名 | `exec_object.rs`、`jit/helpers/object.rs` |
-| 静态字段读写 | 字段 FQ 名 | `vm_context/statics.rs::ensure_static_field_init` |
+| 静态字段读写 | 字段 FQ 名 | `vm/context/statics.rs::ensure_static_field_init` |
 
 **本轮新跑出来的失败仍在当前屏障抛出**，不看归属 —— 初始化器是在这次调用里跑的，失败
 就该在这里浮出来（与「加载即执行」和 `module_init_load_order` 钉住的语义一致）。归属判定

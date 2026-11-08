@@ -7,14 +7,14 @@
 //! zero-sized type and both calls inline away (the default build's acquire path is
 //! unchanged).
 
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 /// `Monitor::begin_enter` 的慢路径（已确认争用）计时：`profile-contention` 下计一次争用并计时
 /// 「自旋 + park 等待」整段（`begin` 在自旋前、`end` 在拿到锁后——可能在 park 闭包里，所以
 /// 只握 `Arc<VmCore>`、`Send + 'static`）；默认构建是零大小类型，两个调用都内联成空。
 pub(crate) struct MonitorContention {
     #[cfg(feature = "profile-contention")]
-    core: std::sync::Arc<crate::vm_context::VmCore>,
+    core: std::sync::Arc<crate::vm::context::VmCore>,
     #[cfg(feature = "profile-contention")]
     t0: std::time::Instant,
 }

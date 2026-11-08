@@ -56,7 +56,7 @@ pub(crate) fn claim_with<G>(registry: &CctorRegistry, class_fq: &str, park: impl
     }
 }
 
-impl crate::vm_context::VmContext {
+impl crate::vm::context::VmContext {
     /// 登记一个类型的静态构造器（幂等；没有 cctor 的类型直接返回）。
     ///
     /// **必须早于该类型被使用**——`pending` 门只在「已登记」的前提下才有意义：
@@ -338,7 +338,7 @@ impl crate::vm_context::VmContext {
                 // 取异常对象的 Message 字段；非异常值（裸抛）才回落到值的文本形式。
                 // 直接 value_to_str 会得到 `Std.Exception{...}` 这种对象转储，不是消息。
                 Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(v)) => Some(
-                    crate::exception::read_message(&v, self, module)
+                    crate::vm::exec::exception::read_message(&v, self, module)
                         .unwrap_or_else(|| crate::object::value::format::value_to_str(&v))),
                 Err(e) => Some(format!("{e:#}")),
             }
@@ -377,15 +377,15 @@ impl crate::vm_context::VmContext {
 /// 逐级回落（TypeInitializationException → Exception → 裸串）保证 stdlib 缺任一类时
 /// 仍能把错误传出去，而不是静默吞掉。
 pub fn make_type_init_exception(
-    vm: &crate::vm_context::VmContext,
+    vm: &crate::vm::context::VmContext,
     module: &crate::vm::runtime::Module,
     msg: &str,
 ) -> crate::object::Value {
-    if let Ok(e) = crate::exception::make_stdlib_exception(
+    if let Ok(e) = crate::vm::exec::exception::make_stdlib_exception(
         vm, module, "Std.TypeInitializationException", msg.to_string()) {
         return e;
     }
-    if let Ok(e) = crate::exception::make_stdlib_exception(
+    if let Ok(e) = crate::vm::exec::exception::make_stdlib_exception(
         vm, module, "Std.Exception", msg.to_string()) {
         return e;
     }

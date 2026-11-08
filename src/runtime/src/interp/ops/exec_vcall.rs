@@ -9,7 +9,7 @@
 
 use crate::vm::runtime::{Function, Module};
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::Result;
 
 use crate::vm::exec::ops::vcall::resolve_vcall;

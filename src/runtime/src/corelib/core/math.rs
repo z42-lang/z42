@@ -7,7 +7,7 @@
 //! backlog #9)由 libm 承载,边界(溢出、2 的幂上的 log2)跟平台数学库。
 
 use crate::vm::exec::call::builtin_abi::BuiltinError;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 
 #[inline]

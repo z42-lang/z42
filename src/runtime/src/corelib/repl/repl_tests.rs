@@ -8,7 +8,7 @@
 //! preserving the "a throw in the completer becomes a silent no-op" semantics.
 
 use super::*;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::ffi::CString;
 
 /// Serialize tests that mutate the process-global `REGISTERED_COMPLETER`.

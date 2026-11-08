@@ -36,7 +36,7 @@ fn diag_counters_appended_last_preserves_ids() {
 #[test]
 fn retention_query_waits_for_running_mutators_to_park() {
     use crate::object::Value;
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{mpsc, Arc};
     use std::time::{Duration, Instant};

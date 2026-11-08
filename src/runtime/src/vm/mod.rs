@@ -1,3 +1,6 @@
+pub mod context;
+pub use context::{VmCore, VmContext};
+
 pub mod diagnostics;
 pub mod ext;
 pub mod threads;
@@ -8,7 +11,6 @@ pub(crate) mod config;
 
 use crate::vm::runtime::Module;
 use crate::metadata::ExecMode;
-use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
 /// Top-level VM: holds run-time configuration (exec mode) and dispatches to
@@ -32,7 +34,7 @@ impl Vm {
     /// `ctx` carries the runtime-mutable state (static fields, lazy loader,
     /// pending exception) AND the user's compiled Module via `ctx.core.runtime.module`.
     /// Caller is responsible for constructing `VmContext` with
-    /// [`VmContext::with_module`](crate::vm_context::VmContext::with_module),
+    /// [`VmContext::with_module`](crate::vm::context::VmContext::with_module),
     /// and for `ctx.install_lazy_loader` before calling `run` if dependencies
     /// need lazy-loading.
     ///

@@ -49,7 +49,7 @@ use crate::vm::runtime::Function;
 use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use crate::vm::runtime::Module;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 /// Try the field-reader shape for a direct call carrying the receiver as its only argument.
 #[inline]

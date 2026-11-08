@@ -5,7 +5,7 @@ use crate::object::Value;
 use crate::vm::runtime::{Function, Module};
 use crate::vm::runtime::ids::tokens::FnId;
 use crate::vm::runtime::dispatch::functions::lazy_call_id;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 
 /// The cold half of [`call`]: bind `fname` by name — this module's `func_index` first,
@@ -23,7 +23,7 @@ pub(crate) fn bind_callee<'a>(
     method_token: Option<&std::sync::atomic::AtomicU32>,
     holder: &'a mut Option<Arc<Function>>,
 ) -> Result<(&'a Function, Option<usize>), Value> {
-    use crate::vm_context::symres::wrong_arity_exception;
+    use crate::vm::context::symres::wrong_arity_exception;
     use crate::vm::runtime::dispatch::functions::call_arity;
     use std::sync::atomic::Ordering;
     if let Some(&idx) = module.func_index.get(fname) {
@@ -39,7 +39,7 @@ pub(crate) fn bind_callee<'a>(
     // **确定不存在**，抛可 catch 的类型化 MissingSymbolException（不是 `bail!`——那条走
     // anyhow Err，不经 find_handler，用户 `catch` 抓不到）。与 JIT 侧同一场景统一。
     let Some(lazy) = ctx.try_lookup_function(fname) else {
-        return Err(crate::exception::make_missing_symbol_exception(
+        return Err(crate::vm::exec::exception::make_missing_symbol_exception(
             ctx, module, format!("undefined function `{fname}`")));
     };
     if let Some(exc) = wrong_arity_exception(ctx, module, fname, call_arity(lazy.as_ref()), argc) {
@@ -92,7 +92,7 @@ pub(crate) fn bind_fn_ref(
         Some(&idx) if idx < module.functions.len() => idx as u32,
         _ => {
             let Some(lazy) = ctx.try_lookup_function(name) else {
-                return Err(crate::exception::make_missing_symbol_exception(
+                return Err(crate::vm::exec::exception::make_missing_symbol_exception(
                     ctx, module, format!("undefined function `{name}`")));
             };
             match lazy_call_id((ctx).funcs(), module, &lazy) {
@@ -100,7 +100,7 @@ pub(crate) fn bind_fn_ref(
                 None => {
                     let msg = format!(
                         "cannot reference `{name}`: a lazily loaded function has no id outside the VM's entry module");
-                    return Err(crate::exception::make_stdlib_exception(ctx, module, "Std.Exception", msg.clone())
+                    return Err(crate::vm::exec::exception::make_stdlib_exception(ctx, module, "Std.Exception", msg.clone())
                         .unwrap_or_else(|_| Value::Str(msg.into())));
                 }
             }

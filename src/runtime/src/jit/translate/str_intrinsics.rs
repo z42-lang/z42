@@ -141,7 +141,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         use crate::vm::runtime::statics::CctorRegistry;
         let flags = MemFlagsData::trusted();
         let reg = self.builder.ins().load(self.ptr, flags, self.ctx_val,
-            crate::vm_context::VM_CONTEXT_CCTORS_OFFSET as i32);
+            crate::vm::context::VM_CONTEXT_CCTORS_OFFSET as i32);
         let pending = self.builder.ins().load(types::I64, flags, reg, CctorRegistry::MODULE_PENDING_OFFSET as i32);
         let failed = self.builder.ins().load(types::I64, flags, reg, CctorRegistry::MODULE_FAILED_OFFSET as i32);
         let any = self.builder.ins().bor(pending, failed);

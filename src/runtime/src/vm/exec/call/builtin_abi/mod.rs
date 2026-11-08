@@ -31,7 +31,7 @@ pub use error::{BuiltinError, FieldInit};
 pub use ret::{Blocking, IntoRet, PlainRet, Then};
 
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 /// Kind of a builtin parameter, as the Rust signature declares it (descriptor data,
 /// for diagnostics and future checks — dispatch never consults it).

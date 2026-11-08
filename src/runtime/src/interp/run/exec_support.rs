@@ -8,7 +8,7 @@ use crate::{
     metadata::{BranchTargets, Terminator},
     object::Value,
 };
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
@@ -55,7 +55,7 @@ pub(super) fn enter_frame<'a>(ctx: &'a VmContext, func: &Function, frame: &mut F
     let guard = FrameGuard { ctx, regs: &mut frame.regs as *mut Vec<Value> };
     // runtime-audit P0-4: stack overflow is fatal — checked once the frame is
     // on the call stack, so the report includes it.
-    crate::stack_guard::check(ctx)?;
+    crate::vm::exec::stack_guard::check(ctx)?;
     Ok(guard)
 }
 
@@ -237,7 +237,7 @@ pub(super) fn fire_exception_thrown(ctx: &VmContext, module: &crate::vm::runtime
         message.truncate(256);
         message.push_str("…");
     }
-    ctx.fire_runtime_event(&crate::observer::RuntimeEvent::ExceptionThrown { class, message });
+    ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::ExceptionThrown { class, message });
 }
 
 /// Phase 2 D3+D6 sibling: increment `exceptions_caught` + fire
@@ -251,7 +251,7 @@ pub(super) fn fire_exception_caught(
     ctx.counters().exceptions_caught.fetch_add(1, Ordering::Relaxed);
     if !ctx.has_runtime_observers() { return; }
     let (class, _) = exception_class_and_message(ctx, val, module);
-    ctx.fire_runtime_event(&crate::observer::RuntimeEvent::ExceptionCaught { class, frames_unwound });
+    ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::ExceptionCaught { class, frames_unwound });
 }
 
 pub(super) fn exception_class_and_message(
@@ -262,7 +262,7 @@ pub(super) fn exception_class_and_message(
         Value::Object(rc) => rc.type_desc().name.clone(),
         _ => "<non-exception-value>".to_string(),
     };
-    let message = crate::exception::read_message(val, ctx, module).unwrap_or_default();
+    let message = crate::vm::exec::exception::read_message(val, ctx, module).unwrap_or_default();
     (class, message)
 }
 
@@ -314,7 +314,7 @@ pub(super) fn find_handler(
     tp_env: crate::vm::exec::call::type_param_env::TypeParamEnv<'_>,
 ) -> Option<usize> {
     // A fatal VM error (stack overflow) unwinds past every handler.
-    if crate::stack_guard::is_fatal(ctx) { return None; }
+    if crate::vm::exec::stack_guard::is_fatal(ctx) { return None; }
     // perf-vm-isa-cache: match on the thrown object's descriptor (cached by TypeId), no
     // per-throw `String` clone of its class name.
     // The thrown object's own type arguments take part, as in `is` (`crate::vm::exec::ops::cast::isa_object`):

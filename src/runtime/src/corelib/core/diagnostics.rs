@@ -11,7 +11,7 @@ use crate::vm::exec::call::builtin_abi::BuiltinError;
 use crate::gc::walk::RootKind;
 use crate::object::NativeData;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 const STD_RETAINER: &str = "Std.Diagnostics.Retainer";
 const STD_ROOTREF: &str = "Std.Diagnostics.RootRef";

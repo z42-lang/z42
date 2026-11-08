@@ -1,6 +1,6 @@
 //! Builtin invocation owns argument views, counters, typed faults and void handling.
 use super::builtin_abi as abi;
-use crate::{object::Value, vm_context::VmContext};
+use crate::{object::Value, vm::context::VmContext};
 use anyhow::Result;
 
 /// Name-keyed entry for callers that hold the arguments as a slice — unit tests,

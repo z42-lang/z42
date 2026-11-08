@@ -34,14 +34,14 @@ impl VmContext {
     /// docs/review.md Part 4 D6 Phase 1 .
     /// This thread's counters — increment sites use these. For a total across
     /// the VM's threads use [`Self::counters_snapshot`].
-    pub fn counters(&self) -> &crate::counters::RuntimeCounters {
+    pub fn counters(&self) -> &crate::vm::diagnostics::counters::RuntimeCounters {
         &self.diagnostics.counters
     }
 
     /// The VM-wide totals: every live context plus those already dropped.
     /// The registry lock makes it exact with respect to a context dropping
     /// concurrently (its counts move to the core under the same lock).
-    pub fn counters_snapshot(&self) -> crate::counters::Snapshot {
+    pub fn counters_snapshot(&self) -> crate::vm::diagnostics::counters::Snapshot {
         let registry = self.core.threads.vm_contexts.lock();
         let mut total = self.core.diagnostics.counters.snapshot();
         for p in registry.iter() {
@@ -52,11 +52,11 @@ impl VmContext {
         total
     }
 
-    /// Register a [`crate::observer::RuntimeObserver`]. The observer
-    /// receives every subsequent [`crate::observer::RuntimeEvent`] fired
+    /// Register a [`crate::vm::diagnostics::observer::RuntimeObserver`]. The observer
+    /// receives every subsequent [`crate::vm::diagnostics::observer::RuntimeEvent`] fired
     /// via [`Self::fire_runtime_event`]. Multiple observers fan-out.
     /// docs/review.md Part 4 D3 Phase 1 .
-    pub fn add_runtime_observer(&self, obs: Arc<dyn crate::observer::RuntimeObserver>) {
+    pub fn add_runtime_observer(&self, obs: Arc<dyn crate::vm::diagnostics::observer::RuntimeObserver>) {
         self.core.diagnostics.runtime_observers.add(obs);
     }
 
@@ -71,7 +71,7 @@ impl VmContext {
         self.core.diagnostics.runtime_observers.has_observers()
     }
 
-    pub fn fire_runtime_event(&self, event: &crate::observer::RuntimeEvent) -> usize {
+    pub fn fire_runtime_event(&self, event: &crate::vm::diagnostics::observer::RuntimeEvent) -> usize {
         self.core.diagnostics.runtime_observers.fire(event)
     }
 

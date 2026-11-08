@@ -21,7 +21,7 @@ use crate::object::{
     STRUCT_REF_GCREF, TAG_OBJECT,
 };
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -103,11 +103,11 @@ fn stack_trace_written_into_an_old_exception_survives_the_next_minor() {
     let ctx = gen_ctx();
     // trace 字符串经 ambient heap 分配——没有它就是脱离 GC 的泄漏块，测不出任何东西。
     let _heap = crate::vm::exec::ambient::HeapGuard::enter(ctx.heap());
-    let exc = crate::exception::make_stdlib_exception(&ctx, &module, "Std.Exception", "boom".into())
+    let exc = crate::vm::exec::exception::make_stdlib_exception(&ctx, &module, "Std.Exception", "boom".into())
         .expect("constructs");
     let _pin = promote(&ctx, std::slice::from_ref(&exc));
 
-    crate::exception::populate_stack_trace(&exc, &ctx, &module);
+    crate::vm::exec::exception::populate_stack_trace(&exc, &ctx, &module);
 
     let Value::Object(gc) = &exc else { panic!("exception is an object") };
     let slot = gc.type_desc().field_index.get("StackTrace").copied().expect("StackTrace slot");

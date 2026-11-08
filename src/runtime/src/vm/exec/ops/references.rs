@@ -1,6 +1,6 @@
 //! Shared reference reads and writes for backend frames and builtin ref arguments.
 use anyhow::Result;
-use crate::{object::Value, vm_context::VmContext};
+use crate::{object::Value, vm::context::VmContext};
 
 /// Spec impl-ref-out-in-runtime: dereference a `Value::Ref { kind }` into
 /// the underlying value. Stack kind looks up `ctx.frame_state_at(frame_idx)`

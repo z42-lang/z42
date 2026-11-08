@@ -19,7 +19,7 @@
 //! overwrite on collision: a miss re-asks the memo and re-installs. Verdicts are monotonic
 //! facts (a loaded type's chain never changes; lazy loading only adds types) — the same
 //! invariant the memo relies on — and the cache is cleared with the memo on explicit module
-//! (re)load (REPL redefinition, see `vm_context::lookup`).
+//! (re)load (REPL redefinition, see `vm::context::lookup`).
 
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 

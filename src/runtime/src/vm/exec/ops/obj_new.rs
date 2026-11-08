@@ -10,8 +10,8 @@ use crate::vm::runtime::dispatch::ic::{ctorless_hit, ctorless_note, ObjNewSite};
 use crate::vm::runtime::ids::tokens::UNRESOLVED;
 use crate::vm::runtime::{Function, Module};
 use crate::object::{TypeDesc, Value};
-use crate::vm_context::symres;
-use crate::vm_context::VmContext;
+use crate::vm::context::symres;
+use crate::vm::context::VmContext;
 
 use crate::vm::runtime::dispatch::functions::{fn_by_id, lazy_call_id};
 use crate::vm::runtime::dispatch::ctor::{site_for, instance_type_args, make_fallback_type_desc};

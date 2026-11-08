@@ -1,5 +1,5 @@
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{anyhow, bail, Result};
 use crate::vm::exec::call::builtin_abi::BuiltinError;
 use super::convert::{arg_str, arg_usize, this_str};
@@ -38,7 +38,7 @@ pub fn str_byte_length(s: &crate::object::string::vstr::Str) -> i64 {
 #[z42_macros::builtins]
 pub mod typed {
     use crate::vm::exec::call::builtin_abi::BuiltinError;
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     use crate::object::string::vstr::Str;
 
     /// Number of Unicode scalar values. O(1) amortised via the per-string metadata

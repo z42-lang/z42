@@ -948,7 +948,7 @@ void test_objnew_ctor_key_visible() {
 void test_objnew_bare_key_is_ambiguous_between_ctor_and_ctorless() {
     // 🔴 **把这条歧义钉住**：完全没有构造器的类，与只有一个构造器的类，发的是**同一个裸键**。
     // 运行期因此分不出「这个类本来就没有构造器」和「构造器本该在、却随旧版依赖不见了」——
-    // 这正是站点 ③ 只能放行 `argc == 0` 的原因（见 `vm_context/symres.rs`）。
+    // 这正是站点 ③ 只能放行 `argc == 0` 的原因（见 `vm/context/symres.rs`）。
     // 谁把这条歧义解开了（给零构造器一个可区分的编码），这条断言就会变红，提醒同步收紧运行期判据。
     string ctorless = "class C { int V; } class D { C Make() { return new C(); } }";
     string oneCtor  = "class C { int V; public C() { this.V = 1; } } class D { C Make() { return new C(); } }";

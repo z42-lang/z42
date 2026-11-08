@@ -4,7 +4,7 @@
 use super::*;
 use crate::gc::GcMode;
 use crate::object::NativeData;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 

@@ -36,7 +36,7 @@ void test_runtime_populates_stack_trace_on_assert_failure() {
     catch (Exception e) {
         caught = true;
         // The StackTrace string is built by Rust-side `format_stack_trace`
-        // (src/runtime/src/exception/mod.rs). Verified invariants:
+        // (src/runtime/src/vm/exec/exception/mod.rs). Verified invariants:
         //
         //   1. Non-empty — `populate_stack_trace` ran at throw time
         //   2. Contains "Assert" — the throwing framework frame is captured

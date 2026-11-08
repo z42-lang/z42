@@ -8,7 +8,7 @@ use crate::vm::runtime::dispatch::receiver::is_integer_class;
 use crate::vm::runtime::ids::tokens::TypeKeyCell;
 use crate::vm::runtime::Module;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::Result;
 
 use crate::vm::runtime::dispatch::isa::array_isa;

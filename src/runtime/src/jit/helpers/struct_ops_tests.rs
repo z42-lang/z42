@@ -13,7 +13,7 @@
 use super::*;
 use crate::jit::runtime::frame::JitFrame;
 use crate::object::{Value, TAG_I32};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 /// symbolic-struct-field-access P2：字段访问改带 `(root 类型名, 字段序号路径)`，
 /// 解析**必须**拿到该类型的布局 ⇒ 这些测试不能再用「没注册的 `"T"`」了。

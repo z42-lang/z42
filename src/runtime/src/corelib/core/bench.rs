@@ -7,7 +7,7 @@
 //! `[MethodImpl(NoInlining | NoOptimization)]`, which the compiler's optimizer honours.
 
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::Result;
 pub fn time_now_mono_ns() -> i64 {
     mono_ns()

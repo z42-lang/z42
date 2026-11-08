@@ -4,7 +4,7 @@
 
 use crate::vm::runtime::Module;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Result};
 
 use crate::vm::exec::ops::stringify::{obj_to_gc_str, with_obj_str};
@@ -133,7 +133,7 @@ fn check_int_div_by_zero(
     ctx: &VmContext, module: &Module, regs: &[Value], b: u32, op: &str,
 ) -> Result<Option<Value>> {
     if regs.get(b as usize).is_some_and(crate::vm::exec::ops::scalar::is_int_div_by_zero) {
-        return Ok(Some(crate::exception::make_stdlib_exception(
+        return Ok(Some(crate::vm::exec::exception::make_stdlib_exception(
             ctx, module, crate::vm::exec::ops::scalar::DIV_BY_ZERO_EXC,
             crate::vm::exec::ops::scalar::div_by_zero_msg(op),
         )?));
@@ -290,7 +290,7 @@ pub(super) fn convert(
 ) -> Result<Option<Value>> {
     let v = frame.get(src)?.clone();
     if let Some((exc_fq, msg)) = crate::vm::exec::ops::scalar::hard_cast_failure(&v, to_tag) {
-        return Ok(Some(crate::exception::make_stdlib_exception(ctx, module, exc_fq, msg)?));
+        return Ok(Some(crate::vm::exec::exception::make_stdlib_exception(ctx, module, exc_fq, msg)?));
     }
     let result = crate::vm::exec::ops::scalar::convert_value(v, to_tag)?;
     frame.set(dst, result);

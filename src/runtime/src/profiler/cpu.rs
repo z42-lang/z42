@@ -30,7 +30,7 @@ use std::time::Instant;
 
 use parking_lot::Mutex;
 
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 /// 每个采样 = 后台线程置 flag、mutator 在下一个 safepoint 快照一次栈。
 ///

@@ -666,7 +666,7 @@ fn classify_config_error(e: config::ConfigError) -> Z42HostStatus {
 
 /// Map an interpreter / runtime error message to a `Z42HostStatus`.
 /// Heuristic: the interpreter surfaces uncaught z42 exceptions via
-/// `exception::format_uncaught`, which prefixes the message with
+/// `vm::exec::exception::format_uncaught`, which prefixes the message with
 /// "uncaught exception:". Anything else — verification failure, type
 /// registry crash, etc. — buckets as `Internal`.
 ///
@@ -674,7 +674,7 @@ fn classify_config_error(e: config::ConfigError) -> Z42HostStatus {
 /// `ops::invoke_impl`) because it has a structural cause rather than a
 /// runtime error string.
 fn classify_invoke_error(msg: &str) -> Z42HostStatus {
-    if msg.starts_with(crate::stack_guard::FATAL_PREFIX) {
+    if msg.starts_with(crate::vm::exec::stack_guard::FATAL_PREFIX) {
         Z42HostStatus::Fatal
     } else if msg.contains("arg-count-mismatch:") {
         Z42HostStatus::ArgMismatch
@@ -756,9 +756,9 @@ pub unsafe extern "C" fn z42_host_run_app(
             };
             let result = crate::app::run(&app, entry_owned.as_deref(), opts);
             // runtime-audit P0-4: fatal VM error → its report + the fixed code.
-            if let Some(report) = crate::stack_guard::take_report() {
+            if let Some(report) = crate::vm::exec::stack_guard::take_report() {
                 eprintln!("z42_host_run_app: {report}");
-                return crate::stack_guard::EXIT_CODE;
+                return crate::vm::exec::stack_guard::EXIT_CODE;
             }
             match result {
                 Ok(()) => 0,

@@ -15,7 +15,7 @@ use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, CallInsn, Instruction, Terminator};
 use crate::metadata::ir::ExecMode;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 fn func(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Function {
     Function::new(crate::metadata::ir::Function {
@@ -182,7 +182,7 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
     // Fatal already set: an overflow below still unwinds as one, but leaves the
     // process-wide report (which other tests read) alone.
     vm.core.threads.fatal.store(true, Ordering::SeqCst);
-    let main_limit = crate::stack_guard::limit();
+    let main_limit = crate::vm::exec::stack_guard::limit();
     let core = vm.core_arc();
     let (stored, own, forced, deep) = std::thread::Builder::new()
         .stack_size(8 << 20)
@@ -204,7 +204,7 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
             w.pop_frame();
             // Unbounded recursion on this thread's 8 MiB stack stops at its own limit.
             let deep = crate::jit::run_fn(&w, "r").expect_err("overflows").to_string();
-            (stored, crate::stack_guard::limit(), forced, deep)
+            (stored, crate::vm::exec::stack_guard::limit(), forced, deep)
         })
         .expect("spawn")
         .join()

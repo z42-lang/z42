@@ -2,7 +2,7 @@
 
 > 代码：`src/runtime/src/startup.rs`
 > （`--info` / panic hook）、`src/runtime/src/signal_handler.rs`、`src/runtime/src/pal/signal.rs`、
-> `src/runtime/src/app.rs`（`--stats`）、`src/runtime/src/observer.rs`、
+> `src/runtime/src/app.rs`（`--stats`）、`src/runtime/src/vm/diagnostics/observer.rs`、
 > `src/runtime/src/config/`、`src/runtime/src/metadata/format/build_id.rs`、`scripts/bench/xtask_profile.z42`
 >
 > 旋钮登记表与五层优先级见[运行时设置的实现](../runtime/runtime-settings.md)；
@@ -145,7 +145,7 @@ VM 用 push-based 事件流通知**非 GC** 的运行时活动；GC 事件留在
 
 ```rust
 use std::sync::Arc;
-use z42::observer::{RuntimeObserver, RuntimeEvent};
+use z42::vm::diagnostics::observer::{RuntimeObserver, RuntimeEvent};
 
 #[derive(Debug)]
 struct JsonLineExporter;

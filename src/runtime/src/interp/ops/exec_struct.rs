@@ -1,6 +1,6 @@
 //! Interpreter register adapters for the shared struct value operations.
 use super::Frame;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::Result;
 use crate::vm::exec::ops::structs::{struct_alloc_val, struct_copy_val, resolve_for_access};
 use crate::objops::struct_leaf::{struct_field_get_val, struct_field_set_val};

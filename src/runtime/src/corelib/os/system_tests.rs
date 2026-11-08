@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 #[test]
 fn pid_is_positive() {

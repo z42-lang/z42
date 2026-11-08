@@ -17,7 +17,7 @@
 //! only inside the trampolines. Owned C strings the trampolines return are freed by
 //! the cdylib via `ReplCallbacks.free_str` (= [`z42vm_free_str`]).
 
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::Result;
 
 /// Read one edited (possibly multi-line) statement, driving the dlopen'd editor

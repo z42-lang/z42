@@ -1,5 +1,5 @@
 use super::services;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 #[test]
 fn native_services_and_owned_pins_are_shared_with_workers() {

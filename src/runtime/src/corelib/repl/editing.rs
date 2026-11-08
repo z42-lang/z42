@@ -21,7 +21,7 @@
 //! The mapping of these strings to redo-immune `Cmd`s lives in the cdylib.
 
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use anyhow::{bail, Result};
 #[cfg(feature = "native-interop")]
 use std::ffi::{c_char, c_void, CStr, CString};

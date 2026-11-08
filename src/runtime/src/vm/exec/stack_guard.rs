@@ -72,7 +72,7 @@ fn current_sp() -> usize {
 
 /// Interpreter frame entry: `Err` once the stack is used up.
 #[inline(always)]
-pub fn check(ctx: &crate::vm_context::VmContext) -> anyhow::Result<()> {
+pub fn check(ctx: &crate::vm::context::VmContext) -> anyhow::Result<()> {
     if current_sp() < limit() {
         return Err(overflow(ctx));
     }
@@ -83,7 +83,7 @@ pub fn check(ctx: &crate::vm_context::VmContext) -> anyhow::Result<()> {
 /// call stack for the report. Returns the error the interpreter propagates.
 #[cold]
 #[inline(never)]
-pub fn overflow(ctx: &crate::vm_context::VmContext) -> anyhow::Error {
+pub fn overflow(ctx: &crate::vm::context::VmContext) -> anyhow::Error {
     record(ctx, |n| format!("stack overflow ({n} z42 frames)"));
     anyhow::anyhow!("stack overflow")
 }
@@ -93,13 +93,13 @@ pub fn overflow(ctx: &crate::vm_context::VmContext) -> anyhow::Error {
 /// stack), same unwinding as a stack overflow. Returns the error the engine propagates.
 #[cold]
 #[inline(never)]
-pub fn fatal_error(ctx: &crate::vm_context::VmContext, what: &str) -> anyhow::Error {
+pub fn fatal_error(ctx: &crate::vm::context::VmContext, what: &str) -> anyhow::Error {
     record(ctx, |_| what.to_string());
     anyhow::anyhow!("{FATAL_PREFIX}{what}")
 }
 
 /// Set the fatal flag; the first fatal error of the VM keeps its report.
-fn record(ctx: &crate::vm_context::VmContext, what: impl FnOnce(usize) -> String) {
+fn record(ctx: &crate::vm::context::VmContext, what: impl FnOnce(usize) -> String) {
     if !ctx.core.threads.fatal.swap(true, Ordering::SeqCst) {
         let frames = ctx.snapshot_call_stack();
         let report = format!("{FATAL_PREFIX}{}\n{}", what(frames.len()), format_trace(&frames));
@@ -127,7 +127,7 @@ fn format_trace(frames: &[crate::vm::exec::stack::FrameSnapshot]) -> String {
 /// Whether a fatal VM error is unwinding in this VM. Checked by every place
 /// that would otherwise run a z42 handler or turn an error into a z42 exception.
 #[inline(always)]
-pub fn is_fatal(ctx: &crate::vm_context::VmContext) -> bool {
+pub fn is_fatal(ctx: &crate::vm::context::VmContext) -> bool {
     ctx.core.threads.fatal.load(Ordering::Relaxed)
 }
 

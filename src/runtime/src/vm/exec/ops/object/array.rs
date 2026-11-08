@@ -12,7 +12,7 @@ use crate::object::{
 use crate::object::Value;
 use crate::object::ArrRef;
 use crate::vm::exec::call::transient_arena::TransientPayload;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 use super::error::{ArrayOp, OpError, OpResult};
 

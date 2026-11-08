@@ -11,7 +11,7 @@ use std::path::Path;
 use anyhow::{anyhow, Context, Result};
 
 use super::error;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 /// Categorical error code mirrored into the last-error slot for native
 /// library load failures.  retire-z-codes: was `Z0910`; the

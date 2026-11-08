@@ -386,9 +386,9 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
     );
     // runtime-audit P0-4: a fatal VM error (stack overflow) — whatever the run
     // returned — is reported with the z42 call stack and a fixed exit code.
-    if let Some(report) = z42::stack_guard::take_report() {
+    if let Some(report) = z42::vm::exec::stack_guard::take_report() {
         eprintln!("{report}");
-        std::process::exit(z42::stack_guard::EXIT_CODE);
+        std::process::exit(z42::vm::exec::stack_guard::EXIT_CODE);
     }
     result
 }

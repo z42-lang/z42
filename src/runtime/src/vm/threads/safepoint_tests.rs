@@ -3,7 +3,7 @@
 //! `runtime/tests/cross_thread_smoke.rs::gc_collect_with_concurrent_mutators_no_race`.
 
 use super::*;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::sync::atomic::Ordering;
 
 #[test]

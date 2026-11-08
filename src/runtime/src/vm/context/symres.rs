@@ -25,7 +25,7 @@
 use crate::vm::runtime::dispatch::functions::{call_arity, CallArity};
 use crate::vm::runtime::Module;
 use crate::object::TypeDesc;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 /// 静态字段声明的类型：`type_tag`，以及它是不是声明类型的**未代换型参**（擦除泛型定义上的
 /// `static T V`；实例化 `Demo.Holder<int>` 的描述符里 tag 已代换成 `int`，不算）。
@@ -86,7 +86,7 @@ pub fn verify_static_field(
         // 这条最初被我当成「归 ObjNew 那个站点管」而保守跳过，结果本站点对**最常见的
         // skew 形态**（整个依赖包不在了）完全不生效——实测才发现。保守要有边界：
         // 保守的是「解析路径没走完就别下结论」，不是「凡是拿不到就别报」。
-        return StaticNullVerdict::Missing(crate::exception::make_missing_symbol_exception(
+        return StaticNullVerdict::Missing(crate::vm::exec::exception::make_missing_symbol_exception(
             ctx, module,
             format!("static field `{field_fq}`: type `{owner}` could not be resolved"),
         ));
@@ -100,7 +100,7 @@ pub fn verify_static_field(
             crate::object::Value::Null => StaticNullVerdict::Ok,
             d => StaticNullVerdict::Default(d),
         },
-        Ok(None) => StaticNullVerdict::Missing(crate::exception::make_missing_symbol_exception(
+        Ok(None) => StaticNullVerdict::Missing(crate::vm::exec::exception::make_missing_symbol_exception(
             ctx, module,
             format!("static field `{field_fq}` is not declared on type `{owner}`"),
         )),
@@ -200,7 +200,7 @@ pub fn missing_ctor_exception(
     ctor_known: bool,
 ) -> Option<crate::object::Value> {
     if !ctor_missing_is_definite(ctor_name, argc, ctor_known) { return None; }
-    Some(crate::exception::make_missing_symbol_exception(
+    Some(crate::vm::exec::exception::make_missing_symbol_exception(
         ctx, module,
         format!(
             "constructor `{ctor_name}` of type `{class_name}` could not be resolved \
@@ -243,7 +243,7 @@ pub fn wrong_arity_exception(
     } else {
         format!("{}", arity.min)
     };
-    Some(crate::exception::make_missing_symbol_exception(
+    Some(crate::vm::exec::exception::make_missing_symbol_exception(
         ctx, module,
         format!(
             "`{callee}` resolved to a definition whose signature does not match this call \
@@ -288,7 +288,7 @@ fn ambiguous_function_exception_slow(
     ctx: &VmContext, module: &Module, fname: &str,
 ) -> Option<crate::object::Value> {
     if !ctx.is_ambiguous_function(fname) { return None; }
-    Some(crate::exception::make_missing_symbol_exception(
+    Some(crate::vm::exec::exception::make_missing_symbol_exception(
         ctx, module,
         format!(
             "`{fname}` is provided by more than one loaded package — which one runs would be \
@@ -314,7 +314,7 @@ fn ambiguous_type_exception_slow(
     ctx: &VmContext, module: &Module, class_name: &str,
 ) -> Option<crate::object::Value> {
     if !ctx.is_ambiguous_type(class_name) { return None; }
-    Some(crate::exception::make_missing_symbol_exception(
+    Some(crate::vm::exec::exception::make_missing_symbol_exception(
         ctx, module,
         format!(
             "type `{class_name}` is provided by more than one loaded package — which one is \
@@ -348,7 +348,7 @@ pub fn missing_type_exception(
 ) -> Option<crate::object::Value> {
     if !class_name.contains('.') { return None; }
     if module.classes.iter().any(|c| c.name == class_name) { return None; }
-    Some(crate::exception::make_missing_symbol_exception(
+    Some(crate::vm::exec::exception::make_missing_symbol_exception(
         ctx, module,
         format!(
             "type `{class_name}` could not be resolved in the module registry, the lazy \
@@ -381,7 +381,7 @@ pub fn missing_base_exception(
     if !td.base_unmerged() { return None; }
     let base = td.base_name.as_deref().unwrap_or("<unknown>");
     let name = &td.name;
-    Some(crate::exception::make_missing_symbol_exception(
+    Some(crate::vm::exec::exception::make_missing_symbol_exception(
         ctx, module,
         format!(
             "base type `{base}` of `{name}` (or one of its ancestors) could not be resolved; every inherited field \

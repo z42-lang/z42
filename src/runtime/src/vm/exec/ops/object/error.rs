@@ -6,7 +6,7 @@
 
 use crate::vm::runtime::Module;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 pub const NULL_REF_EXC: &str = crate::vm::exec::ops::scalar::NULL_REF_EXC;
 pub const INVALID_CAST_EXC: &str = crate::vm::exec::ops::scalar::INVALID_CAST_EXC;
@@ -186,10 +186,10 @@ impl OpError {
                 let built = match module {
                     Some(m) if t.class == OOM_EXC => {
                         // make_oom_exception 暂时关掉严格 OOM 再分配异常对象。
-                        let v = crate::exception::make_oom_exception(ctx, m, t.msg.clone());
+                        let v = crate::vm::exec::exception::make_oom_exception(ctx, m, t.msg.clone());
                         (!matches!(v, Value::Null)).then_some(v)
                     }
-                    Some(m) => crate::exception::make_stdlib_exception(ctx, m, t.class, t.msg.clone()).ok(),
+                    Some(m) => crate::vm::exec::exception::make_stdlib_exception(ctx, m, t.class, t.msg.clone()).ok(),
                     None => None,
                 };
                 built.ok_or_else(|| anyhow::anyhow!("{}: {}", t.class, t.msg))

@@ -1,7 +1,7 @@
 //! Type-test execution and on-demand resolution; pure predicates live in runtime/dispatch.
 use crate::vm::runtime::Module;
 use crate::object::{TypeDesc, Value};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use crate::vm::runtime::dispatch::isa::*;
 
 // ── Subclass check ───────────────────────────────────────────────────────────

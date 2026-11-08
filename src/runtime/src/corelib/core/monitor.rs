@@ -47,7 +47,7 @@ use std::time::Duration;
 use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, IntoRet};
 use crate::object::{NativeData, TypeDesc};
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 pub use crate::object::Monitor;
 
@@ -260,7 +260,7 @@ pub mod typed {
     use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError};
     use crate::object::NativeData;
     use crate::object::Value;
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     use std::sync::Arc;
 
     /// `MonitorNative.New() -> object` —— 不透明句柄，原生状态在 `NativeData::Monitor`。

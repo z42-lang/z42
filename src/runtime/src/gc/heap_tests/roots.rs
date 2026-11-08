@@ -73,7 +73,7 @@ fn frame_held_outer_with_inner_chain_protected_by_stack_scan() {
     // 被错误清空。Phase 3f 把 frame regs 暴露给 scanner 修复此问题。
     //
     // 本测试用 set_external_root_scanner 直接模拟：把"frame regs Vec" 通过
-    // Rc<RefCell> 共享给 scanner 闭包（与 vm_context.rs 中实际 raw-ptr 实现等价）。
+    // Rc<RefCell> 共享给 scanner 闭包（与 vm/context/mod.rs 中实际 raw-ptr 实现等价）。
     let heap = Heap::default();
 
     let inner = heap.alloc_object(dummy_type_desc("Inner"), vec![Value::I64(42)], NativeData::None);
@@ -265,7 +265,7 @@ fn a_weak_handle_does_not_anchor_its_target() {
 fn a_strong_handle_anchors_its_target_across_a_minor() {
     use crate::gc::types::GcHandleKind;
     use crate::gc::GcMode;
-    use crate::vm_context::VmContext;
+    use crate::vm::context::VmContext;
     let ctx = VmContext::new();
     ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
     let heap = ctx.heap();

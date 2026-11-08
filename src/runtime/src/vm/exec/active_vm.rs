@@ -5,7 +5,7 @@
 use std::cell::Cell;
 use std::marker::PhantomData;
 use std::ptr;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 // ── thread_local current-VM pointer ──────────────────────────────────────
 

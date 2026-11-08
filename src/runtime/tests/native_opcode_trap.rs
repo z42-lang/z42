@@ -12,7 +12,7 @@ use z42::{
     metadata::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator},
     object::Value,
 };
-use z42::vm_context::VmContext;
+use z42::vm::context::VmContext;
 
 fn module_with_single_instr(name: &str, instr: Instruction) -> Module {
     let func = Function::new(z42::metadata::ir::Function {

@@ -5,7 +5,7 @@ use crate::metadata::ir::{
     self, BasicBlock, ClassDesc, ExceptionEntry, FunctionCold, Instruction, Terminator,
 };
 use crate::vm::runtime::ids::tokens::FnId;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::sync::Arc;
 
 fn definition(name: &str, instructions: Vec<Instruction>) -> ir::Function {

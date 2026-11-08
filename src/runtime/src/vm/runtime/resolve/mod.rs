@@ -92,7 +92,7 @@ use crate::vm::runtime::dispatch::ic::{FieldIC, ObjNewSite, VCallIC};
 /// `ctx` is needed for `StaticGet/Set` resolution: static field IDs are
 /// allocated lazily through `VmContext::resolve_static_field_id` so
 /// cross-zpkg static fields can be encountered in any load order.
-pub fn resolve_module(module: &crate::vm::runtime::Module, ctx: &crate::vm_context::VmContext) {
+pub fn resolve_module(module: &crate::vm::runtime::Module, ctx: &crate::vm::context::VmContext) {
     for func in &module.functions {
         resolve_function_tokens(func, module, ctx);
     }
@@ -122,7 +122,7 @@ pub fn resolve_module(module: &crate::vm::runtime::Module, ctx: &crate::vm_conte
 pub fn resolve_function_tokens(
     func: &Function,
     module: &crate::vm::runtime::Module,
-    ctx: &crate::vm_context::VmContext,
+    ctx: &crate::vm::context::VmContext,
 ) {
     {
         // Skip if already populated (idempotent).

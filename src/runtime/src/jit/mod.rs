@@ -17,7 +17,7 @@ mod generic_call_tests;
 use crate::vm::runtime::Module;
 use compile::vm_interface::JitVm;
 use anyhow::Result;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use runtime::{frame::JitFrame, invoke};
 use helpers::take_exception_error;
 
@@ -59,7 +59,7 @@ pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
         return match crate::vm::exec::engine::invoke(ctx, module, func, &[])? {
             crate::vm::exec::call::outcome::ExecOutcome::Returned(_) => Ok(()),
             crate::vm::exec::call::outcome::ExecOutcome::Thrown(val) =>
-                Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, ctx, module))),
+                Err(anyhow::anyhow!("{}", crate::vm::exec::exception::format_uncaught(&val, ctx, module))),
         };
     };
     // One `VmFrame` push enrolling the entry frame's regs (GC roots)
@@ -87,7 +87,7 @@ fn run_with_static_init(ctx: &VmContext, entry_name: &str) -> Result<()> {
     run_fn(ctx, entry_name)
 }
 
-// ─── Public entry point called from vm.rs ───────────────────────────────────
+// ─── Public entry point called from vm/mod.rs ───────────────────────────────────
 
 /// Called by `Vm::run` when the execution mode is JIT.
 ///
@@ -112,7 +112,7 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: config::J
     compile::state::install(ctx, module, config)?;
 
     let setup_us = start.elapsed().as_micros() as u64;
-    ctx.fire_runtime_event(&crate::observer::RuntimeEvent::JitModuleCompiled {
+    ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::JitModuleCompiled {
         module_name:    module.module_name().to_string(),
         function_count,
         duration_us:    setup_us,

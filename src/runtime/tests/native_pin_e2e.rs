@@ -11,7 +11,7 @@ use z42::{
     metadata::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator},
     object::Value,
 };
-use z42::vm_context::VmContext;
+use z42::vm::context::VmContext;
 
 fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Module {
     let func = Function::new(z42::metadata::ir::Function {
@@ -123,7 +123,7 @@ fn pin_empty_array_returns_zero_length_view() {
 #[test]
 fn pin_array_u8_snapshots_bytes() {
     // Spec C10 — Array of I64 in 0..=255 pins as a byte buffer.
-    use z42::vm_context::VmContext;
+    use z42::vm::context::VmContext;
     let ctx = VmContext::new();
     let m = build_module(
         "pin_byte_array",

@@ -7,7 +7,7 @@ use crate::vm::runtime::{Function, Module};
 use crate::metadata::ir::{BasicBlock, Instruction, Terminator};
 use crate::metadata::ir::ExecMode;
 use crate::object::Value;
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 
 fn func(name: &str, instructions: Vec<Instruction>, ret: u32) -> Function {
     Function::new(crate::metadata::ir::Function {

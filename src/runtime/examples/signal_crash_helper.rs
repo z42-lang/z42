@@ -87,7 +87,7 @@ fn main() {
 
     // Create a VmContext so the stack-walk has something to report. We do
     // NOT push any frames — empty call_stack still proves the walk worked.
-    let _ctx = z42::vm_context::VmContext::new();
+    let _ctx = z42::vm::context::VmContext::new();
 
     let sig_name = std::env::args()
         .nth(1)

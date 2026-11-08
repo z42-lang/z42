@@ -229,7 +229,7 @@ impl VmContext {
         // defer-class-initialization (T1): 锁已释放，跑刚拉进来的包的初始化器。
         self.run_pending_static_inits();
         for name in newly_loaded {
-            self.fire_runtime_event(&crate::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
+            self.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
         }
         result
     }
@@ -316,7 +316,7 @@ impl VmContext {
         // defer-class-initialization (T2): 同上。
         self.run_pending_static_inits();
         for name in newly_loaded {
-            self.fire_runtime_event(&crate::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
+            self.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
         }
         result.map(|td| self.current_type_desc(td))
     }
@@ -436,7 +436,7 @@ impl VmContext {
         // 否则「类已注册但初始化器没跑」的窗口会重新出现）。
         self.run_pending_static_inits();
         for name in newly {
-            self.fire_runtime_event(&crate::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
+            self.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
         }
     }
 

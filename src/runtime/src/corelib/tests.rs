@@ -1,7 +1,7 @@
 use super::*;
 use crate::vm::exec::call::builtins::{exec_builtin, exec_builtin_value};
 use crate::object::{NativeData, TypeDesc, Value};
-use crate::vm_context::VmContext;
+use crate::vm::context::VmContext;
 use std::sync::Arc;
 
 fn s(v: &str) -> Value { Value::Str(v.into()) }

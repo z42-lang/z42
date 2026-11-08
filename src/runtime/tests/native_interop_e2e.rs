@@ -18,7 +18,7 @@ use z42::{
     metadata::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator},
     object::Value,
 };
-use z42::vm_context::VmContext;
+use z42::vm::context::VmContext;
 
 // build.rs compiles the archive into OUT_DIR but does not link it into the `z42`
 // library (that would ship the PoC inside the released libz42.a) — this test
