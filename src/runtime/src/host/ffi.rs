@@ -420,6 +420,11 @@ pub unsafe extern "C" fn z42_host_invoke(
             Some(Err(e)) => {
                 let msg = format!("{e:#}");
                 let status = classify_invoke_error(&msg);
+                if status == Z42HostStatus::Fatal {
+                    // This adapter returns the report in last_error; the CLI consumes
+                    // its own report when deciding the process exit code.
+                    let _ = crate::vm::exec::stack_guard::take_report();
+                }
                 set_error(status, format!("z42_host_invoke: {msg}"))
             }
             None => set_error(

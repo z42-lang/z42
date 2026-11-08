@@ -1288,6 +1288,8 @@ fn invoke_deep_recursion_is_fatal() {
     });
     let out = String::from_utf8_lossy(&capture.lock().unwrap()).into_owned();
     assert!(!out.contains("caught") && !out.contains("finally"), "a handler ran: {out}");
+    assert!(crate::vm::exec::stack_guard::take_report().is_none(), "C ABI must consume its fatal report after returning it in last_error");
+
 }
 
 #[test]
