@@ -22,7 +22,6 @@ pub mod interop;
 // docs/internals/src/runtime/embedding.md, 变更 add-embedding-api/.
 pub mod host;
 pub mod vm;
-pub mod app;
 pub(crate) mod assembly;
 
 // Runtime configuration registry — single source of truth for every

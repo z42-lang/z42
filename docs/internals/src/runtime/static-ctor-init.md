@@ -1,7 +1,7 @@
 # 静态构造函数的按类型初始化
 
 > 语义面见[静态构造函数](https://z42-lang.github.io/z42/reference/language/static-constructors.html)。本页讲实现。
-> 代码：`src/runtime/src/vm/runtime/statics/cctor.rs`（数据）、`src/runtime/src/vm/exec/init.rs`（执行与等待）；启动路径共用步骤 `src/runtime/src/assembly/boot.rs`。
+> 代码：`src/runtime/src/vm/runtime/statics/cctor.rs`（数据）、`src/runtime/src/vm/exec/init.rs`（执行与等待）；启动路径共用步骤 `src/runtime/src/host/boot.rs`。
 
 RuntimeState 组合静态表、初始化状态与错误记录；执行层共享同一份 Arc registry，
 保留 claim/finish、park 和 Condvar 协议。heap 先于这些数据与类型拥有者释放。
@@ -325,25 +325,25 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 ## 谁来跑 `__static_init__`：两条启动路径共用一份启动步骤
 
 > 注：静态字段初始化器并入每个类型的类型初始化器；本节的 `__static_init__` 读成
-> 「合并进来的包的初始化」即可。要点是两条启动路径（`app::run` / 宿主 API）**合并后共用一份启动步骤**。
+> 「合并进来的包的初始化」即可。要点是两条启动路径（`host::run_app` / 宿主 API）**合并后共用一份启动步骤**。
 
 跑 z42 代码有两条入口：
 
-- **`app::run`**：`z42vm` 二进制、`z42_run_app`、wasm `runTestApp`；
+- **`host::run_app`**：`z42vm` 二进制、`z42_run_app`、wasm `runTestApp`；
 - **宿主 API**：`z42_host_load_zbc` → `z42_host_invoke`（C ABI / `z42-host`，iOS / Android / wasm 的
   `loadZbc` + `invoke` 都走它）。
 
 两者合并模块的方式相同，合并**之后**的启动步骤必须只有**一份**：若各写一份，新增的步骤只进
-`app::run` 时，宿主路径就**不执行**合并进来的包（z42.core、用户模块本身）的
+`host::run_app` 时，宿主路径就**不执行**合并进来的包（z42.core、用户模块本身）的
 `__static_init__`，带初始化器的静态字段读出的是类型默认值——而且不报错：`static_get` 读到空槽后，
 `verify_static_field` 按字段类型补了个 `0`（如 wasm 上 `OSKind.Wasm` 为 0 ⇒
 `Platform.IsWasm()` 恒假，所有嵌入都会中招）。
 
-合并后的步骤只有一份，在 `src/runtime/src/assembly/boot.rs`：
+合并后的步骤只有一份，在 `src/runtime/src/host/boot.rs`：
 
 | 函数 | 做什么 | 谁调 |
 |---|---|---|
-| `boot_context` | `available!` 折叠 → `VmContext::with_module` → 登记静态构造器 → 装 lazy loader + 种类型 / impl | `app::run`、宿主 `build_host_module` |
+| `boot_context` | `available!` 折叠 → `VmContext::with_module` → 登记静态构造器 → 装 lazy loader + 种类型 / impl | `host::run_app`、宿主 `build_host_module` |
 | `prepare_execution` | `resolve_module`（各站点 token 预填）| `Vm::run`、宿主 `build_host_module` |
 
 **静态字段初始化本身仍由调用方决定时机**，因为两边的「程序」形状不同：
@@ -355,5 +355,5 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
   每次 invoke 结束后还要取一次 `take_static_init_error`（本次调用中首次触达、惰性加载的包的初始化失败），
   与 `Vm::run` 一致；两处都归为 `Z42HostStatus::VmException`。
 
-> 新增启动步骤时，加进 `assembly/boot.rs`，两条路径自动都有；别再只改 `app::run`。
+> 新增启动步骤时，加进 `host/boot.rs`，两条路径自动都有；别再只改 `host::run_app`。
 > 回归测试：`host::host_tests::invoke_sees_initialized_static_fields`（stdlib 包与用户模块各一个带初始化器的静态字段）。

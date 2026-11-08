@@ -174,7 +174,7 @@ where
 /// 调用方**可以**传显式路径（`Z42_APP_CONFIG` 仍然优先），但不必自己去发现。
 ///
 /// 现状：接上它的只有 z42vm（`main.rs`）与 Tier 2 `z42-host::run_app`；C 入口
-/// `z42_host_run_app` 与 wasm 入口直接调 `app::run`，还不读侧车（runtime-settings.md 待办）。
+/// `z42_host_run_app` 与 wasm 入口直接调 `host::run_app`，还不读侧车（runtime-settings.md 待办）。
 ///
 /// 找不到是**常态**（多数工程没有 `[profile.*]` 运行时旋钮 ⇒ build 不产侧车），
 /// 所以这里安静返回 `None`——与"显式指向一个不存在的文件"不同，那种情况

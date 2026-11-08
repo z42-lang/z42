@@ -3,7 +3,7 @@
 //! A standalone native host that embeds the VM (links the z42 runtime via the
 //! z42-host crate) and runs a z42 app.zpkg through `z42_host::run_app` — the
 //! SAME entry the desktop self-contained shell + wasm/iOS/Android will use.
-//! Contrast with the `z42vm` binary, which runs apps via `z42::app::run`
+//! Contrast with the `z42vm` binary, which runs apps via `z42::host::run_app`
 //! directly; this proves the embedding wrapper end-to-end.
 //!
 //! Usage:

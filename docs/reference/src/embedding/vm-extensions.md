@@ -35,6 +35,6 @@ interop 的 owned pin buffer 由独立的内建状态保存，在关闭 `native-
 继续由该 feature 控制。Rust 调用方经 `z42::interop` 的状态操作函数访问，错误通过 `Result` 返回。
 库句柄的生命周期覆盖用户状态、核心库资源、heap 与引擎的释放。
 
-应用参数由门面 `z42::app::set_program_args(&ctx, args)` 设置，`program_args(&ctx)` 返回拥有所有权的快照；
+应用参数由门面 `z42::host::set_program_args(&ctx, args)` 设置，`program_args(&ctx)` 返回拥有所有权的快照；
 两者返回 `Result`。同 core 的 worker 观察最新参数，其他 VM 独立。标准库的 `GetCommandLineArgs()`
 从同一参数服务读取，保留参数顺序与覆盖语义。

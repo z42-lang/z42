@@ -122,3 +122,24 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: config::J
 }
 
 pub mod config;
+
+/// Execute a host call with arguments and a returned value on this VM's JIT.
+pub(crate) fn invoke_host(ctx: &VmContext, module: &Module, func: &crate::vm::runtime::Function,
+    args: &[crate::object::Value], config: config::JitConfig) -> Result<crate::vm::exec::call::outcome::ExecOutcome> {
+    let first_install = ctx.jit().is_none();
+    let start = std::time::Instant::now();
+    compile::state::install(ctx, module, config)?;
+    if first_install {
+        ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::JitModuleCompiled {
+            module_name: module.module_name().to_owned(), function_count: module.functions().len() as u32,
+            duration_us: start.elapsed().as_micros() as u64,
+        });
+    }
+    let rt = ctx.jit().ok_or_else(|| anyhow::anyhow!("JIT was not installed"))?;
+    if let Some(entry) = rt.resolve_fn_by_name(ctx, &func.name) {
+        let frame = JitFrame::new(ctx, entry.max_reg, args);
+        Ok(unsafe { invoke::call_entry(ctx, entry, frame) }.into_exec(ctx))
+    } else {
+        crate::vm::exec::engine::invoke(ctx, module, func, args)
+    }
+}

@@ -1,7 +1,7 @@
 // Z42EmbeddedInstrumentedTest.kt — embedded test-host (add-wasm-testhost G6).
 //
 // Runs the bundled test corpus THROUGH the embedded VM, exactly as desktop /
-// iOS / wasm do: Z42TestHost.runApp → z42_host_run_app → z42::app::run → the
+// iOS / wasm do: Z42TestHost.runApp → z42_host_run_app → z42::host::run_app → the
 // shared z42 test-agent → a JSON report file. Proves the SAME agent + bundle
 // run on Android with a real filesystem (no VFS): the corpus is copied out of
 // the test apk's assets to cacheDir, referenced by path, and the report read

@@ -95,6 +95,7 @@ pub const MIN_CONFIG_SIZE: usize = std::mem::size_of::<Z42HostConfig>();
 /// requirement comes from holding this inside the global `RwLock` —
 /// `*mut c_void` is not auto-`Send`, so we wrap the whole config in
 /// `unsafe impl Send + Sync` at the storage site (see `state.rs`).
+#[derive(Clone)]
 pub struct ResolvedConfig {
     pub exec_mode: Z42ExecMode,
     pub heap_initial_bytes: usize,

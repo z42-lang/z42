@@ -15,7 +15,7 @@
 /// 没有这一步，工程在 manifest 里声明的运行时设置在这些形态上完全不生效
 /// （那些环境里也没有"用户设环境变量"这回事）。app-config-follows-the-app。
 ///
-/// 必须在 [`z42::app::run`] **之前**：配置在 `OnceLock` 里 boot 后冻结。
+/// 必须在 [`z42::host::run_app`] **之前**：配置在 `OnceLock` 里 boot 后冻结。
 /// 若已被装配（宿主自己先装过，或已有代码读过 `runtime_config()`）→ 保持不动，
 /// 不覆盖调用方的选择。
 pub(crate) fn install_app_config(file: &str) {

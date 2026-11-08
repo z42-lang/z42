@@ -134,7 +134,7 @@ pub fn read_zpkg_namespaces(bytes: &[u8]) -> Result<Vec<String>, HostError> {
 /// One-shot: load a z42 app (`.zbc` / `.zpkg`) at `file` and run its entry
 /// (`entry` overrides the artifact's baked-in entry hint; `None` uses it).
 ///
-/// add-embedded-app-run: shares z42vm's own app-run core (`z42::app::run`), so
+/// add-embedded-app-run: shares z42vm's own app-run core (`z42::host::run_app`), so
 /// desktop self-contained + wasm / iOS / Android + any user cross-platform app
 /// run identically embedded. `libs_dir` is the stdlib `libs/` dir (deps resolve
 /// from the app's own directory first, then here). `mode = None` → build default
@@ -150,8 +150,8 @@ pub fn run_app(
     args: Vec<String>,
 ) -> Result<(), HostError> {
     install_app_config(file);
-    let opts = z42::app::RunOpts {
-        mode: mode.unwrap_or_else(z42::app::default_mode),
+    let opts = z42::host::RunOpts {
+        mode: mode.unwrap_or_else(z42::host::default_mode),
         libs_dir,
         program_args: args,
         print_stats: false,
@@ -159,7 +159,7 @@ pub fn run_app(
         exit_after_run: false,
         vfs: None,
     };
-    z42::app::run(file, entry, opts).map_err(|e| match z42::vm::exec::stack_guard::take_report() {
+    z42::host::run_app(file, entry, opts).map_err(|e| match z42::vm::exec::stack_guard::take_report() {
         Some(report) => HostError::Fatal(report),
         None => HostError::VmException(format!("{e:#}")),
     })

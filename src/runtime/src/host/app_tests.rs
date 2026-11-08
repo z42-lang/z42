@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use super::prelude_candidates;
+use super::load::prelude_candidates;
 
 /// 每个用例一个独立临时目录树（无 tempfile dev-dep，手工建/删）。
 fn scratch(tag: &str) -> PathBuf {

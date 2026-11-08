@@ -1,7 +1,7 @@
 // z42 test-agent (add-embedded-app-run).
 //
 // The SINGLE, platform-independent on-device test runner. Packaged as an
-// app.zpkg and embedded (via z42-host::run_app → z42::app::run) into every
+// app.zpkg and embedded (via z42-host::run_app → z42::host::run_app) into every
 // platform's test host (desktop self-contained / wasm / iOS / android). Because
 // it is z42 bytecode, ALL platforms run the exact same runner — no per-language
 // re-implementation (retires the 4× R1–R7 native drivers).

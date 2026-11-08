@@ -41,7 +41,7 @@ extern "C" {
 ///
 /// diagnose-mobile-wasm-embed: a bare wasm panic aborts to `RuntimeError:
 /// unreachable` with NO message — opaque when the embedded test-host (nested
-/// `app::run` per golden) traps in-browser. This hook logs the panic's message
+/// `host::run_app` per golden) traps in-browser. This hook logs the panic's message
 /// + `file:line` to `console.error` *before* the trap, so Playwright's console
 /// capture (embedded.spec.ts) surfaces the real cause in CI. Dep-light: uses the
 /// `console.error` binding above, not the `console_error_panic_hook` crate.
@@ -213,7 +213,7 @@ pub fn read_namespaces(bytes: &[u8]) -> Result<Vec<String>, JsValue> {
 //
 // A self-contained "run a bundled app entirely from the in-memory VFS" surface,
 // distinct from the `Z42VM` handle API. It mirrors the desktop `z42_host_run_app`
-// C entry — same `z42::app::run` core — but sources every artifact from the VFS
+// C entry — same `z42::host::run_app` core — but sources every artifact from the VFS
 // (there is no filesystem on wasm) and returns the app's output through a VFS
 // file the caller reads back (there is no process stdout on wasm).
 //
@@ -247,7 +247,7 @@ pub fn read_asset(path: &str) -> Result<Vec<u8>, JsValue> {
 }
 
 /// Run a self-contained app (`.zbc` / `.zpkg`) already mounted in the VFS,
-/// through the shared [`z42::app::run`] core (interp on wasm — no JIT).
+/// through the shared [`z42::host::run_app`] core (interp on wasm — no JIT).
 ///
 /// - `app_path`  VFS path of the app (e.g. the test-agent app.zpkg)
 /// - `entry`     entry FQN override, or `""` for the app's baked-in entry
@@ -266,8 +266,8 @@ pub fn run_test_app(
     } else {
         Some(std::path::PathBuf::from(libs_dir))
     };
-    let opts = z42::app::RunOpts {
-        mode: z42::app::default_mode(),
+    let opts = z42::host::RunOpts {
+        mode: z42::host::default_mode(),
         libs_dir: libs,
         program_args: args,
         print_stats: false,
@@ -275,7 +275,7 @@ pub fn run_test_app(
         exit_after_run: false,
         vfs: Some(page_vfs_handle()),
     };
-    z42::app::run(app_path, entry_opt, opts)
+    z42::host::run_app(app_path, entry_opt, opts)
         .map_err(|e| js_error("VmException", 40, &format!("{e:#}")))
 }
 

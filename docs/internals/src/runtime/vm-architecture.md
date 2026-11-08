@@ -85,7 +85,7 @@ let vm = Vm::new(ExecMode::Interp);                 // Vm 不持 Module
 vm.run(&ctx, hint)?;
 ```
 
-上述装配（`available!` 折叠 → `with_module` → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/assembly/boot.rs::boot_context` 一处完成，`app::run` 与嵌入 host（`host/ops.rs`）共用。
+上述装配（`available!` 折叠 → `with_module` → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/host/boot.rs::boot_context` 一处完成，`host::run_app` 与嵌入 host（`host/ops.rs`）共用。
 
 ### VmContext 构造入口
 
@@ -331,7 +331,7 @@ VM 创建的线程（`Std.Threading.Thread`、`z42_host_run_app` 的运行线程
 ## VM 启动流程
 
 ```
-z42vm <file>                                   [main.rs：CLI + 运行时配置 → app::run]
+z42vm <file>                                   [main.rs：CLI + 运行时配置 → host::run_app]
   │
   ├── resolve_libs_dir()                       [startup.rs]
   │      → libs 旋钮（$Z42_LIBS / --set libs= / [runtime].libs）| <binary>/../libs
@@ -340,7 +340,7 @@ z42vm <file>                                   [main.rs：CLI + 运行时配置 
   │        （尤其 z42c，直接读 $Z42_LIBS 做跨包 dep 解析）与 VM 看到同一 libs 目录，
   │        SDK 布局无需手动 `Z42_LIBS=`；显式设置不覆盖。[libs_env_to_publish]
   │
-  │   以下 5.1b–5.1e 在 `app::run`（app.rs），与嵌入入口 `z42_run_app` 共用
+  │   以下 5.1b–5.1e 在 `host::run_app`（app.rs），与嵌入入口 `z42_run_app` 共用
   │
   ├── 5.1b 加载 z42.core.zpkg (eager，隐式 prelude；按 search_dirs 顺序取首个可读的)
   │      → modules[0]
@@ -494,7 +494,7 @@ interp::run_returning（解释执行；装配与 CLI 启动流程共用 boot::bo
 
 | 关系 | 说明 |
 |------|------|
-| host 模块 ↔ `VmContext` | `host::state::HOST` 持有 `HostState { config: ResolvedConfig, modules, entries, corelib }`；每个已加载 module 独占一个 `VmContext`（`HostModule.ctx`），`load_zbc` 经 `load_artifact_from_bytes` + `merge_modules`（急切并入 `z42.core` 与 `import_namespaces` 对应的 zpkg）后走 `boot::boot_context` + `prepare_execution`（与 `app::run` 同一套装配）；`invoke` 先（每 module 一次）`interp::init_static_fields`，再 `interp::run_returning`。`Z42ExecMode` 在 `initialize` 时只校验所选后端是否编入，不改变 `invoke` 的执行后端 |
+| host 模块 ↔ `VmContext` | `host::state::HOST` 持有 `HostState { config: ResolvedConfig, modules, entries, corelib }`；每个已加载 module 独占一个 `VmContext`（`HostModule.ctx`），`load_zbc` 经 `load_artifact_from_bytes` + `merge_modules`（急切并入 `z42.core` 与 `import_namespaces` 对应的 zpkg）后走 `boot::boot_context` + `prepare_execution`（与 `host::run_app` 同一套装配）；`invoke` 先（每 module 一次）`interp::init_static_fields`，再 `interp::run_returning`。`Z42ExecMode` 在 `initialize` 时只校验所选后端是否编入，不改变 `invoke` 的执行后端 |
 | stdout / stderr | `Z42WriteSink` 函数指针经 `corelib::io::install_host_stdout_sink`（stderr 同理）登记；`invoke` 期间 `HostSinkGuard` 置位 per-thread「host sink active」标志，`corelib/io` 据此把输出路由到宿主回调，结束时复原 |
 | panic 隔离 | 每个 `extern "C"` 入口经 `host::guard()` `catch_unwind` 兜底，panic → `Z42_HOST_ERR_INTERNAL` |
 | 错误诊断 | TLS `LAST_ERROR` 由 `host::error::set_error / clear_error` 管理；与 `interop::error::LAST_ERROR` 独立（两条 ABI 各自维护） |
@@ -660,7 +660,7 @@ token = UNRESOLVED（bind_callee，冷路径）:
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
 [`resolve::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/runtime/resolve/mod.rs) 一次性填充。
 但 `resolve_module` **只经 `Vm::run` → `boot::prepare_execution` 对 entry module 跑一次**——而
-interp/JIT 模式下依赖是**纯惰性加载**（[app.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/app/mod.rs)
+interp/JIT 模式下依赖是**纯惰性加载**（[load.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/host/load.rs)
 `is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
 **所有依赖 zpkg**（自编译时即 z42c.core / z42c.syntax / z42c.semantics /
 z42c.emission / z42c.pipeline 全部）经 `LazyLoader::load_zpkg_file` 进函数注册表，其
@@ -698,7 +698,7 @@ dispatch 的 `module` 填写，同样满足上面的身份不变式 → 这几�
 ### JIT cross-zpkg 调用解析
 
 JIT 按函数**惰性**编译（首次或达调用阈值才编，机制见 [jit.md](jit.md)），槽位按 JIT id（= `FnId`）索引，
-入口模块函数与惰性加载包的函数同一张表。依赖 zpkg 在 interp / JIT 下都是惰性加载（AOT 才在 `app::run` 里
+入口模块函数与惰性加载包的函数同一张表。依赖 zpkg 在 interp / JIT 下都是惰性加载（AOT 才在 `host::run_app` 里
 eager 做 transitive BFS 并整体 merge），跨 zpkg 的 callee 不在 entry module 的 `functions` 里，但都有 `FnId`。
 `jit_call`（[jit/helpers/call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/call.rs)）：
 
@@ -778,7 +778,7 @@ offset = vm.strings.append(take(artifact.module.string_pool))   // 首个 id
 
 ### `z42.core` 永不经过懒加载
 
-`z42.core.zpkg` 在 `app::run` 的 5.1b 阶段就被 eager 加载并 merge 进 main
+`z42.core.zpkg` 在 `host::run_app` 的 5.1b 阶段就被 eager 加载并 merge 进 main
 module。`initially_loaded_zpkgs` 含 `"z42.core.zpkg"`，所以 LazyLoader
 的 `declared_zpkgs` 根本不含它。这保证 prelude 语义（所有 `Std.*` 符号
 启动即可用）。
@@ -854,7 +854,7 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 
 | 函数 | 签名 | 语义 | 调用方 |
 |------|------|------|--------|
-| `resolve_namespace(ns, libs_paths)` | `-> Result<Vec<PathBuf>>` | 返回**所有**声明该 namespace 的 zbc/zpkg 文件（不 bail on ambiguous）| 编译期诊断 / `app/mod.rs` 启动反查 (.zbc → zpkg) |
+| `resolve_namespace(ns, libs_paths)` | `-> Result<Vec<PathBuf>>` | 返回**所有**声明该 namespace 的 zbc/zpkg 文件（不 bail on ambiguous）| 编译期诊断 / `host/load.rs` 启动反查 (.zbc → zpkg) |
 | `resolve_dependency(zpkg_file, libs_paths)` | `-> Result<Option<PathBuf>>` | 按 zpkg 文件名直接查找 | LazyLoader 内部（按文件名精确定位）|
 
 **设计权衡**：`resolve_namespace` 保留（返回所有声明者而非 bail），而非彻底删除。
@@ -1162,8 +1162,8 @@ match callee_value {
   **z42vm CLI 默认 = jit**（built `--features jit`
   时；jit-less 构建如 wasm 回落 interp）。`--mode interp|jit` 显式覆盖。
   注意：嵌入式 FFI 的 `z42_host_invoke`（`host/ops.rs`）固定走 `interp::run_returning`，
-  **不受 CLI 默认影响**；`z42_run_app` 路径（`app::run`）的模式由 `RunOpts.mode` 决定，未指定时取 `app::default_mode()`（jit 编入则 jit，否则 interp）。
-- **AOT**：未实现（`Vm::run` 对 `ExecMode::Aot` 直接报错；`app::run` 里已有 eager 预加载分支）
+  **不受 CLI 默认影响**；`z42_run_app` 路径（`host::run_app`）的模式由 `RunOpts.mode` 决定，未指定时取 `host::default_mode()`（jit 编入则 jit，否则 interp）。
+- **AOT**：未实现（`Vm::run` 对 `ExecMode::Aot` 直接报错；`host::run_app` 里已有 eager 预加载分支）
 
 两种后端共享：
 - `Module` / `Function` / `Instruction` 数据结构

@@ -20,7 +20,7 @@ string _announceTestBundle(string root, string filter, string rid, int shardK, i
 // ── wasm ─────────────────────────────────────────────────────────────────────
 //
 // Assemble a browser-servable dir that runs the SAME test bundle through the
-// wasm-embedded VM (z42_wasm.runTestApp → z42::app::run → agent). Only builds +
+// wasm-embedded VM (z42_wasm.runTestApp → z42::host::run_app → agent). Only builds +
 // assembles; RUN is _runWasmTesthost (Playwright).
 string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
     // Same bundle as desktop; cases whose `requires-caps` the wasm VM lacks are skipped
@@ -166,7 +166,7 @@ string _wasmDeployDir(string root) { return _workOut(root, "src/toolchain/worklo
 //
 // iOS/Android have real filesystems (unlike wasm), so they read the {app,libs,bundle} corpus
 // staged by z42b straight from paths and call the SAME `z42_host_run_app` C symbol
-// (→ z42::app::run) as desktop — no VFS. The agent writes its JSON report to a file
+// (→ z42::host::run_app) as desktop — no VFS. The agent writes its JSON report to a file
 // (out-path arg) which the native test reads back. Only the packaging + thin native shell
 // differ per platform.
 

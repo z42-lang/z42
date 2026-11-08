@@ -219,7 +219,7 @@ fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     // app-config 层：显式 `Z42_APP_CONFIG` 优先，解析不出内容则回落到 app 自己旁边的
     // 侧车（app-config-follows-the-app）。推导必须发生在**装配**期——配置在
-    // OnceLock 里 boot 后冻结，`app::run` 那时再想加一层就晚了。
+    // OnceLock 里 boot 后冻结，`host::run_app` 那时再想加一层就晚了。
     // app 侧车同时携带 `[runtime]`（旋钮）与 `[properties]`（应用自定义配置）。
     // 判据与回落的理由见 `config::load_app_config_tables`（嵌入入口共用同一份实现）。
     let (app_table, app_props) = z42::config::load_app_config_tables(
@@ -371,10 +371,10 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
 
     // Shared app-run core (add-embedded-app-run): load the app + execute its
     // entry — the same core the embedding path (z42-host::run_app) uses.
-    let result = z42::app::run(
+    let result = z42::host::run_app(
         file,
         cli.entry.as_deref(),
-        z42::app::RunOpts {
+        z42::host::RunOpts {
             mode: effective_mode,
             libs_dir,
             program_args: cli.args.clone(),

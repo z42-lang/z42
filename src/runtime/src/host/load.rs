@@ -1,45 +1,10 @@
-//! Shared app-run core (add-embedded-app-run).
-//!
-//! `run()` is the single implementation of "load a z42 app (.zbc / .zpkg) and
-//! execute its entry", extracted from the z42vm binary's `main.rs` so it is
-//! shared by:
-//!   - the `z42vm` binary (`main.rs` builds [`RunOpts`] from its CLI and calls this),
-//!   - embedding (`z42-host::run_app` → `z42-abi::z42_run_app`) — desktop
-//!     self-contained + wasm / iOS / Android all run apps through the same core,
-//!   - any user cross-platform app packaged by the workload system.
-//!
-//! Behavior is a faithful move of main.rs's former load→lazy-loader→merge→
-//! `vm.run` sequence; the whole golden suite is its regression net. Mode
-//! resolution + CLI/process concerns stay in the caller; `run` takes a resolved
-//! [`RunOpts`].
-
-pub(crate) mod state;
-pub(crate) mod services;
-#[cfg(test)]
-#[path = "app_tests.rs"]
-mod app_tests;
-
-pub use crate::app::state::{program_args, set_program_args};
-use crate::vm::loader::lazy::ZpkgCandidate;
-use crate::{metadata::ExecMode, vm::loader::LoadedArtifact};
-use crate::pal::fs::Vfs;
+//! Shared artifact preparation for CLI and embedded hosts.
+use std::{collections::HashSet, path::{Path, PathBuf}, sync::Arc};
 use anyhow::{bail, Context, Result};
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use crate::{metadata::ExecMode, pal::fs::Vfs, vm::loader::{LoadedArtifact, lazy::ZpkgCandidate}};
+use super::runtime::{LoadOptions, LoadedProgram};
 
-// Dir / exists probes and every package read go through the run's VFS (`RunOpts::vfs`), so
-// `run` works on an in-memory VFS (wasm) as well as on disk. `metadata` / `canonicalize`
-// below stay on std::fs — they only feed replay byte-sizes / symlink dedup and degrade
-// gracefully (None / raw path) when absent, so a virtual file system needs no change there.
-fn vfs_is_dir(fs: &dyn Vfs, p: &Path) -> bool {
-    p.to_str().map(|s| fs.is_dir(s)).unwrap_or(false)
-}
-
-fn vfs_exists(fs: &dyn Vfs, p: &Path) -> bool {
-    p.to_str().map(|s| fs.exists(s)).unwrap_or(false)
-}
-
+fn vfs_exists(fs: &dyn Vfs, p: &Path) -> bool { p.to_str().is_some_and(|s| fs.exists(s)) }
 /// Ordered prelude candidates — `<dir>/z42.core.zpkg` for every search dir that
 /// actually has one, in `search_dirs` order (entry zpkg's own directory first,
 /// then `libs/`).
@@ -80,51 +45,6 @@ fn version_mismatch_hint(file: &str, e: &anyhow::Error) -> Option<String> {
 }
 
 
-/// Build-default execution mode: JIT when compiled in (make-jit-default),
-/// else Interp (jit-less builds — wasm / `--features interp-only`). Callers
-/// without an explicit mode (embedding one-shot) use this.
-pub fn default_mode() -> ExecMode {
-    #[cfg(feature = "jit")]
-    { ExecMode::Jit }
-    #[cfg(not(feature = "jit"))]
-    { ExecMode::Interp }
-}
-
-/// Resolved options for [`run`]. The caller resolves execution mode, the stdlib
-/// `libs` dir, program args, and stat-printing; `run` performs the load + execute.
-pub struct RunOpts {
-    /// Effective execution mode (already resolved from CLI / config / build default).
-    pub mode: ExecMode,
-    /// Stdlib `libs/` directory (where `z42.core.zpkg` and deps live), if found.
-    pub libs_dir: Option<PathBuf>,
-    /// Program args forwarded to `GetCommandLineArgs()` (the app's `-- <args>`).
-    pub program_args: Vec<String>,
-    /// Print counter stats to stderr after the run (z42vm `--print-stats-on-exit`).
-    pub print_stats: bool,
-    /// When `print_stats`, emit a single-line JSON object instead of the human
-    /// text block (z42vm `--stats-format=json`; `xtask profile` scrapes it).
-    pub stats_json: bool,
-    /// The process exits as soon as `run` returns (z42vm): leave the VM to the
-    /// OS instead of freeing it block by block. Embedders and nested runs keep
-    /// using the process, so they say `false`.
-    pub exit_after_run: bool,
-    /// The file system the app is loaded from and runs on (the VM's [`Vfs`]). `None` =
-    /// [`crate::pal::fs::default_vfs`]. An embedder that mounted the app into a
-    /// `MemoryFs` passes that here; a nested run passes its caller's.
-    pub vfs: Option<Arc<dyn Vfs>>,
-}
-
-/// Idempotency keys for the entry zpkg, seeded into `initially_loaded_zpkgs`.
-///
-/// The entry zpkg is merged straight into the program module below — it never
-/// passes through the lazy loader, so its name is absent from the loader's
-/// bookkeeping. Record both keys (the dep file name and the
-/// `__loaded_path__<module>` form `register_loaded_artifact` checks): without
-/// them, a lazy symbol miss whose namespace/fallback strategies can see the
-/// entry zpkg in a search dir re-loads the running program itself. Observed as
-/// z42c.driver re-registering its 30 types while compiling a `[plugins]` path
-/// entry — duplicate-type warnings plus a skipped cache write (`CacheZbcTask`
-/// turned ambiguous), so the consumer's incremental cache never persisted.
 fn entry_zpkg_idempotency_keys(file: &str) -> Vec<String> {
     let mut keys = Vec::new();
     if let Some(name) = std::path::Path::new(file).file_name().and_then(|n| n.to_str()) {
@@ -136,67 +56,18 @@ fn entry_zpkg_idempotency_keys(file: &str) -> Vec<String> {
     keys
 }
 
-/// Load the app at `file` (.zbc or .zpkg) and run its entry (`entry` overrides
-/// the artifact's baked-in entry hint). Returns the program's result.
-pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
-    let libs_dir = opts.libs_dir;
-    let vfs: Arc<dyn Vfs> = opts.vfs.unwrap_or_else(crate::pal::fs::default_vfs);
-    let fs: &dyn Vfs = &*vfs;
-
-    // Dependency search dirs (support-colocated-zpkg-deps): resolve a dep zpkg
-    // from the ENTRY zpkg's own directory first, then any declared probing paths,
-    // then the stdlib `libs/`. Fixed order for deterministic resolution; de-duped.
-    //
-    // add-deployment-model 批 3: `Z42_PROBING_PATHS` / `[runtime] probing-paths` sits
-    // **between** entry-dir and libs — a dependency deployed next to the exe still wins
-    // over a shared copy, and a shared copy still wins over the framework's own. This is
-    // the whole of "declare it shared and it is not copied": the build leaves it out of
-    // the dist, and this is where it is found instead.
-    let search_dirs: Vec<PathBuf> = {
-        let mut dirs: Vec<PathBuf> = Vec::new();
-        let entry_dir = match std::path::Path::new(file).parent() {
-            Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
-            _ => PathBuf::from("."),
-        };
-        if vfs_is_dir(fs, &entry_dir) {
-            dirs.push(entry_dir.clone());
-        }
-        // Relative probing paths resolve against the entry zpkg's dir, so the same
-        // install behaves identically whatever cwd it is launched from.
-        for p in crate::vm::loader::locate::probing::expand_probing_paths(&entry_dir, &crate::config::runtime_config().probing_paths) {
-            if !dirs.iter().any(|d| d == &p) {
-                dirs.push(p);
-            }
-        }
-        if let Some(libs) = &libs_dir {
-            if !dirs.iter().any(|d| d == libs) {
-                dirs.push(libs.clone());
-            }
-        }
-        dirs
-    };
-    // 交给 z42 侧只读查询（`Std.Runtime.ModuleSearch.Dirs`）。存的是**解析结果**——相对项已按
-    // entry zpkg 解析、通配符已展开 —— 免得调用方各自重做一遍规则然后慢慢漂移。
-    crate::vm::loader::locate::probing::set_search_dirs(search_dirs.clone());
-    // add-sdk-libs D6：记下展开后不存在的 `${Z42_HOME}` 条目，供依赖解析失败时提示「是否没装 SDK」。
-    {
-        let entry_dir = match std::path::Path::new(file).parent() {
-            Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
-            _ => PathBuf::from("."),
-        };
-        crate::vm::loader::locate::probing::set_unresolved_sdk_patterns(crate::vm::loader::locate::probing::unresolved_z42_home_patterns(
-            &entry_dir,
-            &crate::config::runtime_config().probing_paths,
-        ));
-    }
-
+pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, options: &LoadOptions) -> Result<LoadedProgram> {
+    let vfs = Arc::clone(&options.vfs);
+    let fs = &*vfs;
+    let search_dirs = options.search_dirs.clone();
+    let file = source_path.unwrap_or("<memory>");
     let mut modules: Vec<crate::vm::runtime::Module> = Vec::new();
     // Track canonical paths of loaded artifact files to prevent duplicate loading.
     let mut loaded_paths: HashSet<PathBuf> = HashSet::new();
     // Track zpkg file names loaded eagerly at startup (initially_loaded input
     // for the lazy loader — these are excluded from on-demand candidate set).
     // Seeded with the entry zpkg's two idempotency keys (see `entry_zpkg_idempotency_keys`).
-    let mut initially_loaded_zpkgs: Vec<String> = entry_zpkg_idempotency_keys(file);
+    let mut initially_loaded_zpkgs = source_path.map(entry_zpkg_idempotency_keys).unwrap_or_default();
     // add-runtime-observer: collect (name, byte_size) for every module loaded
     // during boot, replay-emitted as `ModuleLoaded` events after the registry exists.
     let mut loaded_for_replay: Vec<(String, Option<u64>)> = Vec::new();
@@ -204,6 +75,26 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     // from every eagerly-loaded artifact; seeded into the lazy loader below.
     let mut eager_impl_pairs: Vec<(String, String)> = Vec::new();
 
+    let mut resolved_names = HashSet::new();
+    if let Some(resolver) = &options.resolver {
+        let mut queue = std::collections::VecDeque::from(["z42.core".to_owned()]);
+        queue.extend(user_artifact.import_namespaces.iter().cloned());
+        queue.extend(user_artifact.dependencies.iter().flat_map(|d| d.namespaces.iter().cloned()));
+        let mut visited = HashSet::new();
+        while let Some(namespace) = queue.pop_front() {
+            if !visited.insert(namespace.clone()) { continue; }
+            let Some(bytes) = resolver.resolve(&namespace) else { continue; };
+            let artifact = crate::vm::loader::load_artifact_from_bytes(&bytes)
+                .with_context(|| format!("zpkg_resolver returned malformed bytes for namespace `{namespace}`"))?;
+            initially_loaded_zpkgs.push(format!("{namespace}.zpkg"));
+            if !resolved_names.insert(blake3::hash(&bytes)) { continue; }
+            queue.extend(artifact.import_namespaces.iter().cloned());
+            queue.extend(artifact.dependencies.iter().flat_map(|d| d.namespaces.iter().cloned()));
+            loaded_for_replay.push((namespace, Some(bytes.len() as u64)));
+            eager_impl_pairs.extend(artifact.impl_pairs.iter().cloned());
+            modules.push(artifact.module);
+        }
+    }
     // 5.1b — unconditionally try to load z42.core.zpkg if present.
     //
     // fix-prelude-entry-dir-resolution: walk `search_dirs` (entry dir first, then
@@ -223,6 +114,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         let mut prelude_err: Option<String> = None;
         let mut seen_any = false;
         for core_path in prelude_candidates(fs, &search_dirs) {
+            if initially_loaded_zpkgs.iter().any(|n| n == "z42.core.zpkg") { break; }
             seen_any = true;
             let core_canonical = core_path.canonicalize().unwrap_or(core_path.clone());
             let core_str = core_path.to_string_lossy().into_owned();
@@ -232,7 +124,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
                     let byte_size = std::fs::metadata(&core_path).ok().map(|m| m.len());
                     loaded_for_replay.push(("z42.core.zpkg".to_string(), byte_size));
                     eager_impl_pairs.extend(a.impl_pairs.iter().cloned());
-                    modules.push(a.module);
+                    modules.insert(0, a.module);
                     loaded_paths.insert(core_canonical);
                     initially_loaded_zpkgs.push("z42.core.zpkg".to_string());
                     prelude_err = None;
@@ -256,14 +148,12 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         }
     }
 
-    // 5.1c — load the user artifact.
-    let user_artifact = crate::vm::loader::load_artifact(fs, file)?;
-    register_entry_as_loaded(file, &mut loaded_paths, &mut initially_loaded_zpkgs, &mut loaded_for_replay);
+    if let Some(path) = source_path { register_entry_as_loaded(path, &mut loaded_paths, &mut loaded_for_replay); }
 
     // 5.1d — dependency loading strategy: Interp / JIT → pure lazy (declared
     // candidates drive on-demand load); AOT → eager transitive BFS (whole
     // program compiled ahead of time, every callee merged up front).
-    let is_eager = matches!(opts.mode, ExecMode::Aot);
+    let is_eager = options.eager_dependencies || matches!(options.mode, ExecMode::Aot);
     if is_eager && !search_dirs.is_empty() {
         use std::collections::VecDeque;
         let libs_paths = search_dirs.clone();
@@ -273,6 +163,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
             user_artifact.import_namespaces.iter().cloned().collect();
         loop {
             while let Some(ns) = ns_queue.pop_front() {
+                if visited_resolver_namespace(options, &initially_loaded_zpkgs, &ns) { continue; }
                 let Ok(zpkg_paths) = crate::vm::loader::resolve_namespace(fs, &ns, &libs_paths)
                 else { continue };
                 for zpkg_path in zpkg_paths {
@@ -287,7 +178,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
                 .find(|p| vfs_exists(fs, p))
             else { continue };
             let canonical = dep_path.canonicalize().unwrap_or_else(|_| dep_path.clone());
-            if !loaded_paths.insert(canonical) { continue; }  // already merged
+            if initially_loaded_zpkgs.iter().any(|n| n == &dep_file) || !loaded_paths.insert(canonical) { continue; }  // already merged
             let dep_str = dep_path.to_string_lossy().into_owned();
             if let Ok(a) = crate::vm::loader::load_artifact(fs, &dep_str) {
                 for d in &a.dependencies { file_queue.push_back(d.file.clone()); }
@@ -318,7 +209,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     modules.push(user_artifact.module);
 
     let final_module = if modules.len() == 1 {
-        modules.into_iter().next().unwrap()
+        modules.into_iter().next().ok_or_else(|| anyhow::anyhow!("no module to load"))?
     } else {
         let mut m = crate::vm::loader::merge_modules(modules)
             .with_context(|| format!("merging modules for `{}`", file))?;
@@ -333,7 +224,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
 
     // fix-host-static-init: availability folding → ctx → cctor registration → lazy loader
     // live in `boot::boot_context`, shared with the embedding host path.
-    let ctx = crate::assembly::boot::boot_context(final_module, crate::assembly::boot::BootPlan {
+    let ctx = crate::host::boot::boot_context(final_module, crate::host::boot::BootPlan {
         vfs: Arc::clone(&vfs),
         search_dirs: search_dirs.clone(),
         declared_candidates,
@@ -341,135 +232,16 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         eager_impl_pairs,
         eager_deps,
     });
-    // Forward `-- <args>` to the program's GetCommandLineArgs() before vm.run.
-    set_program_args(&ctx, opts.program_args.clone())?;
-
-    // Replay-emit ModuleLoaded for every module loaded during boot.
-    for (name, byte_size) in loaded_for_replay.drain(..) {
+    for (name, byte_size) in loaded_for_replay {
         ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size });
     }
-
-    // Record the reporting knobs before execution so `Environment.Exit` can
-    // honour them (see `report_on_exit`).
-    let _ = EXIT_REPORT.set(ExitReport {
-        print_stats: opts.print_stats,
-        stats_json: opts.stats_json,
-    });
-
-    let vm = crate::vm::Vm::new(opts.mode);
-    // Caller-supplied `entry` overrides any artifact-supplied entry hint.
-    let effective_entry = entry.or(entry_hint.as_deref());
-    let result = vm.run(&*ctx, effective_entry);
-
-    report_on_exit(&ctx);
-
-    // runtime-audit S5: tearing the VM down frees every object, type and function
-    // one by one (≈10⁵ frees, ~0.3 ms) — work the OS does for free at exit. Nothing
-    // in that teardown is visible outside the process; `Environment.Exit` skips it
-    // the same way.
-    if opts.exit_after_run {
-        std::mem::forget(ctx);
-    }
-    result
+    if let Some(module) = ctx.module() { crate::host::boot::prepare_execution(&ctx, module); }
+    LoadedProgram::new(ctx, options.mode, entry_hint)
 }
 
-/// End-of-run reporting knobs, recorded by [`run`] so the **`Environment.Exit`
-/// path can produce the same output as a normal return**
-/// (add-gc-runtime-knobs).
-///
-/// `Environment.Exit` is `std::process::exit`, which unwinds nothing and runs no
-/// `Drop`. Before this existed it silently skipped both `--print-stats-on-exit`
-/// and the sampling profiler's flush — so neither worked for *any* program that
-/// exits that way, which includes z42c itself (`z42c.driver` ends every command
-/// with `Environment.Exit(code)`). The VM's own profiling tooling was blind to
-/// the project's most important workload.
-struct ExitReport {
-    print_stats: bool,
-    stats_json: bool,
+fn visited_resolver_namespace(options: &LoadOptions, loaded: &[String], namespace: &str) -> bool {
+    options.resolver.is_some() && loaded.iter().any(|n| n == &format!("{namespace}.zpkg"))
 }
-
-/// First-wins: an embedder or a nested `run` must not clobber the CLI's choice.
-static EXIT_REPORT: std::sync::OnceLock<ExitReport> = std::sync::OnceLock::new();
-
-/// Emit the end-of-run counter snapshot (when requested) and flush the sampling
-/// profiler. Called on the normal return path by [`run`] and, before the process
-/// dies, by `Environment.Exit`. Safe to call with no `EXIT_REPORT` recorded
-/// (pure-embedder VMs): stats are then skipped and only the env-driven sampler
-/// flush applies.
-pub(crate) fn report_on_exit(ctx: &crate::vm::context::VmContext) {
-    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    // A z42 `Environment.Exit` inside a program that also returns normally can
-    // only happen once (process::exit never returns), but an embedder may call
-    // `run` repeatedly — report at most once per process either way.
-    if DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return;
-    }
-    let default = ExitReport { print_stats: false, stats_json: false };
-    let report = EXIT_REPORT.get().unwrap_or(&default);
-// --print-stats-on-exit: snapshot counters AFTER vm.run (even on error).
-// JSON form (--stats-format=json) is one line for `xtask profile` to scrape;
-// both go to stderr so program stdout stays the script's own output.
-// Merge the RuntimeCounters snapshot with heap-owned numbers (allocations +
-// GC minor/major/reclaimed) into one ProfileSnapshot so the profile picture
-// is complete in a single line/block.
-if report.print_stats {
-    let counters = ctx.counters_snapshot();
-    let h = ctx.heap().stats();
-    // add-concurrency-probes (P1b): safepoint-park distribution (always-on)
-    // + user-lock contention counters (0 unless the `profile-contention`
-    // feature is built in).
-    let (park_count, park_us_total, park_max_us) = {
-        let ph = ctx.core.diagnostics.park_histogram.lock();
-        (ph.count, ph.total_us, if ph.count == 0 { 0 } else { ph.max_us })
-    };
-    use std::sync::atomic::Ordering::Relaxed;
-    let snap = crate::vm::diagnostics::counters::ProfileSnapshot::new(
-        counters, h.allocations,
-        h.minor_collections, h.major_collections, h.reclaimed_bytes,
-    )
-    .with_footprint(h.used_bytes, h.committed_bytes)
-    .with_concurrency(
-        park_count, park_us_total, park_max_us,
-        ctx.core.diagnostics.lock_contentions.load(Relaxed),
-        ctx.core.diagnostics.lock_wait_us.load(Relaxed),
-    );
-    if report.stats_json {
-        eprintln!("{}", snap.to_json());
-    } else {
-        eprintln!("{snap}");
-    }
-}
-
-// add-sampling-profiler (P2): flush the safepoint sampling profiler's folded
-// stacks (+ optional perfetto trace) after the run. Gated on the sampler
-// being enabled (Z42_SAMPLE_HZ set) — the default-off path does nothing.
-// Independent of --print-stats-on-exit: the sampler is its own env-driven
-// profiling channel.
-if ctx.core.diagnostics.sampler.enabled() {
-    let cfg = crate::config::runtime_config();
-    let folded_path = cfg.sample_out.to_string_lossy();
-    match ctx.core.diagnostics.sampler.flush_folded(&folded_path) {
-        Ok(()) => eprintln!(
-            "z42: sampling profiler → folded stacks: {folded_path}  \
-             (flamegraph: `inferno-flamegraph < {folded_path} > flame.svg`)"
-        ),
-        Err(e) => eprintln!("z42: failed to write sample folded stacks to {folded_path}: {e}"),
-    }
-    if let Some(trace_path) = cfg.trace_out.as_ref() {
-        let trace_path = trace_path.to_string_lossy();
-        match ctx.core.diagnostics.sampler.flush_trace(&trace_path) {
-            Ok(()) => eprintln!(
-                "z42: sampling profiler → perfetto trace: {trace_path}  \
-                 (open at https://ui.perfetto.dev)"
-            ),
-            Err(e) => eprintln!("z42: failed to write sample trace to {trace_path}: {e}"),
-        }
-    }
-}
-
-}
-
-
 /// 入口 artifact 的三重登记（fix-entry-self-reload）：
 /// · `loaded_for_replay` —— observer 的 `ModuleLoaded` 事件重放；
 /// · `initially_loaded_zpkgs` —— **入口自己的文件名**也进惰性加载器的已载集。缺了它，入口仍是
@@ -481,7 +253,6 @@ if ctx.core.diagnostics.sampler.enabled() {
 fn register_entry_as_loaded(
     file: &str,
     loaded_paths: &mut HashSet<PathBuf>,
-    initially_loaded_zpkgs: &mut Vec<String>,
     loaded_for_replay: &mut Vec<(String, Option<u64>)>,
 ) {
     let byte_size = std::fs::metadata(file).ok().map(|m| m.len());

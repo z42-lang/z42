@@ -1,29 +1,6 @@
-//! Merged module → ready-to-run `VmContext`: the boot steps shared by every entry path.
-//!
-//! fix-host-static-init : there are two ways to run z42 code —
-//! [`crate::app::run`] (the `z42vm` binary, `z42_run_app`, wasm `runTestApp`) and the
-//! embedding host API (`z42_host_load_zbc` → `z42_host_invoke`, in `host/ops.rs`). Both
-//! merge the user module with its dependencies the same way, but the host kept a
-//! hand-copied, older version of what happens *after* the merge. Every boot step added
-//! since then landed only in `app::run`, and the host silently fell behind:
-//!
-//! | step | why it matters | host before |
-//! |---|---|---|
-//! | `fold_availability` | `available!(X)` folded to a constant, dead branch pruned | missing |
-//! | `VmContext::with_module` | module shared through the ctx (`__thread_spawn` needs it) | `new()` |
-//! | `register_cctor_of` | static-constructor barrier knows the eagerly merged types | missing |
-//! | `seed_lazy_loader_{types,impls}` | lazy packages see merged base classes / impls | missing |
-//! | `resolve_module` | dispatch tokens | missing |
-//! | `init_static_fields` | runs `__static_init__` of merged packages | **missing** |
-//!
-//! The last one was visible: a static field with an initializer read back as its type
-//! default (`OSKind.Wasm` → 0, so `Platform.IsWasm()` was always false) on every
-//! embedding, first noticed on wasm. So these steps live here, once, and both paths call
-//! them — a new boot step added here reaches both.
-//!
-//! Static-field initialization itself stays with the caller: `Vm::run` runs it right
-//! before the entry; the host runs it once per module on the first invoke (inside the
-//! host stdout sink, so initializer output reaches the host).
+//! Shared startup preparation for all Rust and C hosts.
+//! Availability folding precedes context construction and token resolution;
+//! initializer registration and lazy-loader seeding precede any execution.
 
 use crate::vm::loader::lazy::ZpkgCandidate;
 use crate::vm::runtime::Module;

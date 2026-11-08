@@ -97,7 +97,7 @@ feature 裁剪和测试代码维持各自原有规则。
 ### `pal/fs.rs` + `pal/vfs/` — 文件系统
 
 **每台 VM 一个 `Vfs` 句柄。** 路径型文件操作（`File.*` / `Directory.*` / `Path.Glob` 的 builtin）、包加载
-（`metadata/loader`、`namespace_index`、惰性加载器）与 `app::run` 的启动探测都走 VM 持有的
+（`metadata/loader`、`namespace_index`、惰性加载器）与 `host::run_app` 的启动探测都走 VM 持有的
 `Arc<dyn Vfs>`，没有进程级的「当前后端」开关：
 
 ```rust
@@ -115,7 +115,7 @@ pub struct LocalFs;                       // std::fs；write_atomic = tmp + sync
 pub struct MemoryFs;                      // 实例自有 path → bytes；mount(path, bytes)；目录由前缀推出
 ```
 
-- **谁给句柄**：创建 VM 的一方——`VmContext::with_vfs` / `with_module_and_vfs`、`app::RunOpts::vfs`、
+- **谁给句柄**：创建 VM 的一方——`VmContext::with_vfs` / `with_module_and_vfs`、`host::RunOpts::vfs`、
   嵌入 API 的 `HostConfig::vfs`（Tier 2 经 `host::install_vfs` 装入）。不给就是 `default_vfs()`。
   `__run_goldens_isolated` 起的子 VM 沿用父 VM 的句柄。wasm 宿主（`workload/wasm/platform`）持有一个
   页级 `MemoryFs`，`mountFile` / `mountAsset` 写进去，再交给它创建的每台 VM。

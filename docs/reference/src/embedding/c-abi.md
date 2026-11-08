@@ -81,7 +81,7 @@ typedef struct Z42HostConfig {
 |---|---|
 | `abi_version` | 不等于 `Z42_HOST_ABI_VERSION` → `ERR_BAD_CONFIG` |
 | `struct_size` | 调用方编译时的 `sizeof(Z42HostConfig)`；小于 v2 布局 → `ERR_BAD_CONFIG` |
-| `exec_mode` | 只做合法性校验：值不在 0–3 → `ERR_BAD_CONFIG`；`JIT` / `AOT` 而运行时编译时没开对应 feature → `ERR_FEATURE_OFF`。**校验通过后，句柄式 `invoke` 一律走解释器**（见[当前不支持](#当前不支持)） |
+| `exec_mode` | 值不在 0–3 → `ERR_BAD_CONFIG`；`JIT` / `AOT` 未开启对应 feature → `ERR_FEATURE_OFF`。`Default` 使用构建默认后端，`Interp` 使用解释器，`JIT` 使用 JIT；AOT 尚未实现，执行时明确返回错误 |
 | `heap_initial_bytes` / `heap_max_bytes` | **当前被忽略**，填 0 即可 |
 | `stdout_sink` / `stderr_sink` | 见 [stdout / stderr 重定向](#stdout--stderr-重定向) |
 | `sink_user_data` | 原样透传给上面两个回调。一份 config 只有一个，两个 sink 共用；要分开就 init 之后用 `z42_host_set_*_sink` 各设各的 |
@@ -426,7 +426,6 @@ Linux 包要求 glibc ≥ 2.34（x64）、≥ 2.39（arm64）。
 | 多 VM 实例 | 每进程一个。第二次 `initialize` 返回 `ERR_ALREADY_INIT`。`shutdown` 后可重来，但不能并存 |
 | `invoke` 传 / 收 `string`、数组、对象 | 只支持 `Z42_VALUE_TAG_NULL` / `_I64` / `_F64` / `_BOOL`。其他 tag 一律 `ERR_ARG_MISMATCH` |
 | 实参**类型**检查 | 只查个数和 tag 支持度，不比对声明类型 |
-| `exec_mode` 真正选后端 | 句柄式 `invoke` 一律走解释器。`JIT` / `AOT` 的作用仅限于「feature 没开就在 `initialize` 报 `ERR_FEATURE_OFF`」 |
 | `heap_initial_bytes` / `heap_max_bytes` | 被忽略。堆上限请用运行时设置那套旋钮 |
 | 从宿主 catch z42 异常对象 | 只有 `ERR_VM_EXCEPTION` + `last_error` 里的消息串，拿不到异常对象本身 |
 | 异步 / 协程式 invoke | 没有。`invoke` 一律同步；UI 线程切换由宿主自己做 |

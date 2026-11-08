@@ -111,7 +111,7 @@ pub fn scan_zpkg_candidates(fs: &dyn Vfs, dirs: &[PathBuf]) -> Vec<ZpkgCandidate
 ///
 /// cache-zpkg-candidate-scan：本扫描会把 libs 目录下**每个** zpkg 读进内存
 /// 再解析 NSPC，而 `loader::resolve_namespace` 每次调用都做一次完整扫描、
-/// `app::build_declared_candidates` 又按入口的**每个** import 命名空间各调一次
+/// `host::load::build_declared_candidates` 又按入口的**每个** import 命名空间各调一次
 /// —— hello world 因此做了 75 次读+解析（3 个命名空间 × 25 个包），实测 5.8–10 ms，
 /// 是启动耗时的最大头。单个包的读+解析只要 0.01–0.11 ms，成本全在重复。
 ///

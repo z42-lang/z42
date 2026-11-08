@@ -136,7 +136,12 @@ pub fn is_fatal(ctx: &crate::vm::context::VmContext) -> bool {
 #[cfg(test)]
 pub(crate) static FATAL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// The report of the fatal error, if one happened (taken once).
+/// Snapshot the report while leaving it available to the process entry adapter.
+pub(crate) fn report() -> Option<String> {
+    REPORT.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Take the process fatal report once for final reporting.
 pub fn take_report() -> Option<String> {
     REPORT.lock().unwrap_or_else(|e| e.into_inner()).take()
 }
