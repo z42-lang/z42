@@ -218,3 +218,17 @@ fn fatal_error_keeps_the_report_for_the_cli_adapter() {
         .unwrap()
         .contains("host fatal regression"));
 }
+
+#[test]
+fn malformed_selected_eager_dependency_fails_during_load() {
+    let fs = Arc::new(MemoryFs::new());
+    fs.mount("/libs/broken.zpkg", b"broken dependency".to_vec());
+    let mut artifact = crate::vm::loader::load_artifact_from_bytes(&empty_zbc()).unwrap();
+    artifact.dependencies.push(metadata::format::ZpkgDep {
+        file: "broken.zpkg".into(), namespaces: Vec::new(), symbols: Vec::new(),
+    });
+    let options = LoadOptions { mode: ExecMode::Interp, vfs: fs,
+        search_dirs: vec!["/libs".into()], eager_dependencies: true, resolver: None };
+    let error = super::load::prepare(artifact, None, &options).err().expect("must reject a corrupt dependency");
+    assert!(format!("{error:#}").contains("broken.zpkg"));
+}

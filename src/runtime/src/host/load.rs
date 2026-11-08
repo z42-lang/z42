@@ -180,13 +180,13 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
             let canonical = dep_path.canonicalize().unwrap_or_else(|_| dep_path.clone());
             if initially_loaded_zpkgs.iter().any(|n| n == &dep_file) || !loaded_paths.insert(canonical) { continue; }  // already merged
             let dep_str = dep_path.to_string_lossy().into_owned();
-            if let Ok(a) = crate::vm::loader::load_artifact(fs, &dep_str) {
-                for d in &a.dependencies { file_queue.push_back(d.file.clone()); }
-                for ns in &a.import_namespaces { ns_queue.push_back(ns.clone()); }
-                eager_impl_pairs.extend(a.impl_pairs.iter().cloned());
-                modules.push(a.module);
-                initially_loaded_zpkgs.push(dep_file.clone());
-            }
+            let artifact = crate::vm::loader::load_artifact(fs, &dep_str)
+                .with_context(|| format!("loading dependency `{dep_str}`"))?;
+            for dep in &artifact.dependencies { file_queue.push_back(dep.file.clone()); }
+            for ns in &artifact.import_namespaces { ns_queue.push_back(ns.clone()); }
+            eager_impl_pairs.extend(artifact.impl_pairs.iter().cloned());
+            modules.push(artifact.module);
+            initially_loaded_zpkgs.push(dep_file.clone());
         }
     }
 
