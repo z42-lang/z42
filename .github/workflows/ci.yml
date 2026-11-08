@@ -882,7 +882,8 @@ jobs:
       - name: Install wasm-pack + wasm-tools
         uses: taiki-e/install-action@v2
         with:
-          tool: wasm-pack,wasm-tools
+          tool: wasm-pack@0.15.1,wasm-tools
+      - uses: ./.github/actions/setup-wasm-opt
 
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
@@ -1127,7 +1128,8 @@ jobs:
       - name: Install wasm-pack
         uses: taiki-e/install-action@v2
         with:
-          tool: wasm-pack
+          tool: wasm-pack@0.15.1
+      - uses: ./.github/actions/setup-wasm-opt
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
