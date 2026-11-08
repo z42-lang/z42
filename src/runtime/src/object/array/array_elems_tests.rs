@@ -247,3 +247,47 @@ fn ref_array_bulk_clear_preserves_neighbors_across_batches_and_tails() {
         }
     }
 }
+
+#[test]
+fn primitive_bulk_clear_preserves_neighbors_for_each_cell_width() {
+    let h = heap();
+    let _g = HeapGuard::enter(&h);
+    for (name, value) in [("bool", Value::Bool(true)), ("byte", Value::I64(7)),
+        ("int", Value::I64(7)), ("long", Value::I64(7)),
+        ("double", Value::F64(7.0)), ("char", Value::Char('x'))] {
+        for start in 0..5 {
+            for length in 0..13 {
+                let len = start + length + 3;
+                let a = arr(&h, ArrayObj::alloc_filled(&h, ElemType::intern(name), ElemKind::of(name), len, value));
+                let array = a.borrow();
+                let width = array.width();
+                let original = array.cells().load_bits(0, width);
+                assert!(array.try_clear_elems(start, length).unwrap());
+                for i in 0..len {
+                    let expected = if (start..start + length).contains(&i) { Some(0) } else { original };
+                    assert_eq!(array.cells().load_bits(i * width, width), expected);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn byte_copy_batches_preserve_unaligned_prefixes_tails_and_bounds() {
+    let h = heap();
+    let _g = HeapGuard::enter(&h);
+    for start in 0..16 {
+        for length in 0..129 {
+            let len = start + length + 9;
+            let a = arr(&h, ArrayObj::alloc_filled(&h, ElemType::intern("byte"), ElemKind::Bytes, len, Value::I64(165)));
+            let bytes: Vec<u8> = (0..length).map(|i| (i % 256) as u8).collect();
+            assert!(a.borrow().write_byte_range(start, &bytes));
+            let mut expected = vec![165; len];
+            expected[start..start + length].copy_from_slice(&bytes);
+            assert_eq!(a.borrow().byte_snapshot().unwrap(), expected);
+            assert!(!a.borrow().write_byte_range(len, &[1]));
+            assert!(!a.borrow().write_byte_range(usize::MAX, &[1]));
+            assert_eq!(a.borrow().byte_snapshot().unwrap(), expected);
+        }
+    }
+}

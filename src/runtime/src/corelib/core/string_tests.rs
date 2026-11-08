@@ -18,7 +18,7 @@ fn ascii_search_from_uses_scalar_offsets() {
 }
 
 #[test]
-fn ascii_search_bulk_skip_preserves_scalar_indices_at_chunk_boundaries() {
+fn ascii_search_preserves_scalar_indices_across_utf8_boundaries() {
     for padding in 0..24 {
         for run in 0..24 {
             let text = format!("{}{}中😀\0\x7f\"\nend", "x".repeat(padding), "é".repeat(run));

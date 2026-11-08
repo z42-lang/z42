@@ -141,6 +141,30 @@ impl<'a> Cells<'a> {
         if off.checked_add(src.len()).is_none_or(|end| end > self.len) {
             return false;
         }
+        let leading = ((8 - off % 8) % 8).min(src.len());
+        if !self.copy_in_chunks(off, &src[..leading]) { return false; }
+        let mut k = leading;
+        while src.len() - k >= 32 {
+            for lane in 0..4 {
+                let index = k + lane * 8;
+                // SAFETY: the checked range contains all four words. The destination
+                // is now 8-aligned; each store has exactly the old chunk's width and
+                // ordering. Source bytes are borrowed immutable Rust memory.
+                unsafe {
+                    let bits = std::ptr::read_unaligned(src.as_ptr().add(index).cast::<u64>());
+                    store_raw(self.base.add(off + index), 8, bits);
+                }
+            }
+            k += 32;
+        }
+        self.copy_in_chunks(off + k, &src[k..])
+    }
+
+    #[inline]
+    fn copy_in_chunks(&self, off: usize, src: &[u8]) -> bool {
+        if off.checked_add(src.len()).is_none_or(|end| end > self.len) {
+            return false;
+        }
         let mut k = 0usize;
         while k < src.len() {
             let w = chunk_width(self.base as usize + off + k, src.len() - k);
