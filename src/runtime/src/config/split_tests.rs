@@ -89,3 +89,17 @@ fn resolved_overrides_reach_the_heap_without_changing_other_inputs() {
     let untouched = RuntimeConfig::from_getter(|_| None);
     assert_eq!(untouched.gc_config(), GcConfig::default());
 }
+
+#[test]
+fn stack_allocation_policy_maps_resolved_values_without_global_state() {
+    use crate::vm::exec::call::stack_alloc::StackAllocPolicy as Policy;
+    for (value, expected) in [(None, Policy::On), (Some("on"), Policy::On),
+        (Some("off"), Policy::Off), (Some("0"), Policy::Off), (Some("heap"), Policy::Off),
+        (Some("stats"), Policy::Stats)] {
+        let mut settings = RuntimeConfig::from_getter(|_| None);
+        settings.stackalloc = value.map(str::to_owned);
+        let captured = settings.vm_config();
+        settings.stackalloc = Some("off".into());
+        assert_eq!(captured.stack_alloc, expected);
+    }
+}

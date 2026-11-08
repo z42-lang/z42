@@ -1,11 +1,7 @@
-# plugin-single-file — `[plugins]` 单文件条目
+# plugin-single-file — [plugins] 源码 path 形态（单文件）已删除
 
-`path` 直接指向一个 `.z42` 源文件（plug/gen.z42，**没有** z42.toml）：
-z42c 在消费方 cache 目录合成最小插件清单（name = 条目键、kind = "plugin"、include = 源文件绝对路径），
-之后走与「插件工程目录」条目完全相同的代建路。
+`path` 直接指向一个 .z42 源文件曾是免写 z42.toml 的单文件形态；已被源集条目取代
+（deps-plugin-routing 收官改硬错）。免清单写单文件插件 → [plugins] 源集条目
+（include = 源文件路径，见 plugin-single-file-in-tree——树内自动排也在那条上钉）。
 
-- 断言①：`build` 一步成功——插件被代建、generator（compiler 侧能力位）被加载执行；
-- 断言②：generator 产的 `E2eOut.O.V()` 在消费方产物里可用（stdout = 42）。
-
-边界：单文件形态写不出 `[dependencies]`，带依赖的插件（如 z42.harness.lint）仍须完整工程形态——
-那条路由 plugin-zpkg-path-entry / analyzer-path-entry 等夹具覆盖。
+- 断言：build 失败（nonzero）+ stderr 含「源码 path 形态已删除」与改写指引（include）。

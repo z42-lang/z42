@@ -1,8 +1,9 @@
-# `[plugins]` 的 `.zpkg` path 条目
+# [plugins] 的 .zpkg path 条目已删除（deps-plugin-routing 收官）
 
-三种条目形态之一：指向**现成产物**（相对清单目录）。与插件工程 path（代建）相对，适合钉住一份已构建的
-插件（CI 产物、发布件），不随其源码变动。
+引用现成插件产物统一走 [dependencies]（同一产物读头自动分流）；`[plugins]` 里再写 .zpkg path
+条目在清单层直接硬错，错误信息指路 [dependencies]。
 
-- ② 走通「定位 → 读头验位 → 交给 generator 引擎」，产出的符号在消费方可用。
-- ③ 是这条形态的指纹面：引用路径没变、产物**字节**变了，消费方必须重编——否则「换了插件版本却编出旧结果」
-  的静默错值（同 analyzer-path-entry ② 对 path 条目的断言，这里针对 .zpkg 条目）。
+- 断言①：插件产物本身仍能单独编出（plug/ 的构建不依赖消费方清单）。
+- 断言②：消费方 build 失败（nonzero）+ stderr 同时含「.zpkg path 条目已删除」与「[dependencies]」。
+
+「只换产物内容、消费方必须重编」的指纹面由 deps-plugin-zpkg ③ 钉住（同一路由）。

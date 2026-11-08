@@ -1,4 +1,4 @@
-desc = "[plugins] 单文件条目住消费方树内：**/*.z42 不把插件源扫进 app（树内条目自动排除），插件照常代建生效（见 README）"
+desc = "[plugins] 源集条目住消费方树内：**/*.z42 不把插件源扫进 app（源集显式分区自动排除），插件照常代建生效（见 README）"
 
 [[step]]
 args = ["build", "app/e2e.tapp.z42.toml", "--release"]

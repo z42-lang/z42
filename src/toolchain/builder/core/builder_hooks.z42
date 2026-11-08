@@ -197,33 +197,20 @@ BuildHooks[] _loadCarriedHooks(ProjectManifest m, string[] extraDirs, int extraN
 }
 
 string _hookPluginZpkg(DepEntry e, string projDir, string interDir) {
-    // 源集条目（include/exclude，对齐 [tests]）与工程 / 免清单 path 条目同走「合成或定位清单 →
-    // in-process 编译」；名字条目（Path 与 Include 都空）按名在插件目录解析。
+    // 源集条目（include/exclude，对齐 [tests]）与工程 path 条目同走「合成或定位清单 → in-process 编译」。
+    // 按名与 .zpkg path 条目已删除（deps-plugin-routing 收官，制品引用统一走 [dependencies] 自动分流）：
+    // hook 在 z42b 侧先于旋钮决议加载，故在这里直接拦（另一道在 ManifestKnobs._rejectPluginArtifactForms）。
     if (e.Path.Length == 0 && e.IncludeCount == 0) {
-        string[] dirs = _pluginSearchDirs();
-        int di = 0;
-        while (di < dirs.Length) {
-            string cand = Path.Join(dirs[di], e.Name + ".zpkg");
-            if (File.Exists(cand)) { return cand; }
-            di = di + 1;
-        }
-        string searched = "";
-        int si = 0;
-        while (si < dirs.Length) { searched = searched + (si > 0 ? ", " : "") + dirs[si]; si = si + 1; }
-        if (dirs.Length == 0) { searched = "(无插件目录——未设 Z42_PLUGINS，Z42_LIBS 旁也没有 plugins/)"; }
-        ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "` 未在插件目录找到 " + e.Name + ".zpkg；已查找：" + searched
-            + "。普通库放依赖目录（libs）、插件放插件目录。也可改用 `{ path = \"...\" }`（指向插件工程目录、免清单源目录、.zpkg 或单个 .z42 源文件）。");
+        ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "` 的按名条目已删除——把这条挪到 [dependencies]，"
+            + "同一产物按 zpkg 头自述类型自动分流（hook 位归 z42b、不链入产物）。");
         return "";
     }
     if (e.Path.EndsWith(".zpkg")) {
-        string zp = Path.IsRooted(e.Path) ? e.Path : Path.Join(projDir, e.Path);
-        if (!File.Exists(zp)) {
-            ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "` 的 path 指向 " + zp + "，文件不存在。");
-            return "";
-        }
-        return zp;
+        ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "` 的 .zpkg path 条目已删除——把这条挪到 [dependencies]，"
+            + "同一产物自动分流。");
+        return "";
     }
-    // path 条目（工程目录 / 免清单目录 / 单文件）→ 定位（或合成）清单，pm 一并带回；失败返回 ""。
+    // path 条目（工程目录）→ 定位清单，pm 一并带回；失败返回 ""。
     // 之后统一走同一次 in-process 编译（产物落 interDir，不进源码树）。
     ProjectManifest pm = null;
     string atoml = _hookPluginToml(e, projDir, interDir, ref pm);
@@ -242,9 +229,10 @@ string _hookPluginZpkg(DepEntry e, string projDir, string interDir) {
     return res.Zpkg;
 }
 
-// path 条目三形态 → 插件工程清单（或合成清单）+ 已加载的 pm；失败打印诊断返回 ""（pm 置 null）：
-//   · `.z42` 单文件 / 无清单但有源文件的目录 → PluginSynth 合成最小清单（落 interDir/synth）；
-//   · 带清单目录 → 校验是插件工程且名字一致（清单存在即生效）。
+// path 条目 → 插件工程清单 + 已加载的 pm；失败打印诊断返回 ""（pm 置 null）：
+//   · 源集条目（include/exclude）→ PluginSynth 合成最小清单（落 interDir/synth）；
+//   · 带清单目录 → 校验是插件工程且名字一致（清单存在即生效）；
+//   · `.z42` 单文件 / 无清单目录（源码 path 形态）已删除，直接报错。
 string _hookPluginToml(DepEntry e, string projDir, string interDir, ref ProjectManifest pm) {
     string aname = e.Name;
     string asrc = Path.IsRooted(e.Path) ? e.Path : Path.Join(projDir, e.Path);
@@ -265,20 +253,9 @@ string _hookPluginToml(DepEntry e, string projDir, string interDir, ref ProjectM
         return stoml;
     }
     if (e.Path.EndsWith(".z42")) {
-        if (!File.Exists(asrc)) {
-            ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
-            return "";
-        }
-        ConsoleError.WriteLine("z42b: W0612: [plugins] `" + aname
-            + "` 的源码 path 形态已被源集条目取代——改写为 { include = [\"<相对本清单目录的源文件>\"] }"
-            + "（对齐 [tests]，可加 exclude），行为不变。");
-        string atoml = PluginSynth.SynthFile(Path.Join(interDir, "synth"), aname, asrc);
-        if (atoml.Length == 0) {
-            ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + asrc + "）。");
-            return "";
-        }
-        pm = ManifestLoader.Load(atoml);
-        return atoml;
+        ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的源码 path 形态已删除——改写为"
+            + " { include = [\"<相对本清单目录的源文件>\"] }（对齐 [tests]，可加 exclude），行为不变。");
+        return "";
     }
     ManifestLocation loc = ManifestLocator.FindIn(asrc);
     if (loc.Kind == ManifestLocateKind.Project) {
@@ -292,17 +269,9 @@ string _hookPluginToml(DepEntry e, string projDir, string interDir, ref ProjectM
         return loc.ManifestPath;
     }
     if (loc.Kind == ManifestLocateKind.NotFound && Directory.Exists(asrc)) {
-        ConsoleError.WriteLine("z42b: W0612: [plugins] `" + aname
-            + "` 的源码 path 形态已被源集条目取代——改写为 { include = [\"<目录>/**/*.z42\"] }"
-            + "（对齐 [tests]，可加 exclude），行为不变。");
-        string atoml = PluginSynth.SynthDir(Path.Join(interDir, "synth"), aname, asrc);
-        if (atoml.Length == 0) {
-            ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的 path 指向 " + asrc
-                + "，那里既没有工程清单，也没有任何 .z42 源文件。");
-            return "";
-        }
-        pm = ManifestLoader.Load(atoml);
-        return atoml;
+        ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的源码 path 形态已删除——改写为"
+            + " { include = [\"<目录>/**/*.z42\"] }（对齐 [tests]，可加 exclude），行为不变。");
+        return "";
     }
     ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的 path 指向 " + asrc + "，那里没有单个工程清单。");
     return "";

@@ -301,9 +301,12 @@ PluginSetupOut _resolvePluginSetup(ProjectManifest pm, string projectDir, string
     // 一个都没有（含 z42c 自建、只挂了 hook 插件的工程）→ azPaths 为 null、指纹 `""` → 自举 byte-identical。
     // plugin-internal-access：internal 授权的清单合法性先于一切插件解析（path 定位 / 按名查找都不该
     // 先炸——清单错误是最早的错误）。语义见 ManifestKnobs._rejectPluginInternal。
+    // 同理拦已删除的 [plugins] 制品形态（按名 / .zpkg path——原 W0611，观察期收尾改硬错）：
+    // 构建期 ③ 解析在 ⑦ 旋钮决议之前，不在这里先拦就会先跑一轮注定失败的插件查找。
     {
         KnobResult ban = new KnobResult();
         Z42.Pipeline.ManifestKnobs._rejectPluginInternal(pm, "z42c build: " + pm.Project.Name, ban);
+        Z42.Pipeline.ManifestKnobs._rejectPluginArtifactForms(pm, "z42c build: " + pm.Project.Name, ban);
         if (ban.ErrorCount > 0) {
             int bi = 0;
             while (bi < ban.Errors.Length) { ConsoleError.WriteLine(ban.Errors[bi]); bi = bi + 1; }
