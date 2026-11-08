@@ -201,7 +201,7 @@ fn fixture() -> &'static std::path::Path {
             .map(|b| format!("{b:02x}"))
             .collect();
         let target = root
-            .join("../../artifacts/intermediate/component-probe")
+            .join("../../artifacts/build/runtime/tests/data/component")
             .join(identity);
         let output =
             std::process::Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))

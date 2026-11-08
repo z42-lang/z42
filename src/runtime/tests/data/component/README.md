@@ -14,7 +14,7 @@ src/lib.rs 提供两个互有生命周期关系的计数组件、VM 身份回调
 
 ## 如何测试验证
 
-在 src/runtime/ 运行 `cargo test --lib host::component_tests -- --test-threads=1`。测试使用独立 target-dir 离线构建本库，并实际加载生成的动态库；缺少构建工具或产物会失败，不跳过。
+在 src/runtime/ 运行 `cargo test --lib host::component_tests -- --test-threads=1`。测试在 `artifacts/build/runtime/tests/data/component/<build-id>/` 使用独立 target-dir 离线构建本库，并实际加载生成的动态库；缺少构建工具或产物会失败，不跳过。
 
 ## 关联文档
 
