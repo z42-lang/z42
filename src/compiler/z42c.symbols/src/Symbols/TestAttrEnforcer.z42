@@ -86,8 +86,9 @@ internal sealed class TestAttrEnforcer {
                 use + " must return `void` (got: `" + md.RetType.Dump() + "`)", kind.Span);
         }
         bool hasCase = this._teHasCase(ad);
+        bool hasData = this._teHasNamedArg(kind, "data");
         if (md.ParamCount != 0 && !(kind.Name == "Benchmark" && this._teIsBencherParam(md))
-            && !(kind.Name == "Test" && hasCase)) {
+            && !(kind.Name == "Test" && (hasCase || hasData))) {
             string want = " must take no parameters (got: ";
             if (kind.Name == "Benchmark") { want = " must take no parameters or a single `Bencher` (got: "; }
             this._sc.Diags.Error(code, use + want + md.ParamCount.ToString() + ")", kind.Span);
@@ -116,6 +117,8 @@ internal sealed class TestAttrEnforcer {
                 }
             }
         }
+        // [Test(data: …)]（运行期数据行）三条形态检查（E0920），见 `_teDataChecks`。
+        if (hasData) { this._teDataChecks(md, kind, use, hasCase); }
         if (md.TypeParams.Count != 0) {
             this._sc.Diags.Error(code, use + " cannot be applied to a generic method", kind.Span);
         }
@@ -249,6 +252,39 @@ internal sealed class TestAttrEnforcer {
             a = a + 1;
         }
         return false;
+    }
+
+    // kind attr 上是否写了命名实参 `key:`（只看存在性——值是 methodof 表达式，形态检查归
+    // 发现层）。与 `_teNamedStr` 同款遍历，但值形态不限。
+    private bool _teHasNamedArg(Attr at, string key) {
+        int i = 0;
+        while (i < at.ArgCount) {
+            if (at.Args[i] is AssignExpr) {
+                AssignExpr ae = at.Args[i] as AssignExpr;
+                if (ae.Target is IdentExpr && (ae.Target as IdentExpr).Name == key) { return true; }
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // [Test(data: …)]（运行期数据行）三条：只贴 [Test]；与 [Case] 互斥（行来源要么运行期生成
+    // 要么逐行常量，混写 = 两份行并行展开、作者预期不可知）；贴了就须有形参。
+    // provider 的签名形状（静态类零参 → List<object[]>）运行期发现时校验（发现层报
+    // 「形状不对」）——编译期 methodof 只保证引用可解析（E0459）。
+    private void _teDataChecks(MethodDecl md, Attr kind, string use, bool hasCase) {
+        if (kind.Name != "Test") {
+            this._sc.Diags.Error(DiagnosticCodes.DataProviderInvalid,
+                "`data:` 只支持 `[Test]`（got: `[" + kind.Name + "]`）——基准不跑参数化数据行，"
+                    + "数据驱动请写测试", kind.Span);
+        } else if (hasCase) {
+            this._sc.Diags.Error(DiagnosticCodes.DataProviderInvalid,
+                use + " 的 `data:` 与 `[Case]` 互斥——数据行要么运行期生成（data:），"
+                    + "要么逐行常量（[Case]），别混写", kind.Span);
+        } else if (md.ParamCount == 0) {
+            this._sc.Diags.Error(DiagnosticCodes.DataProviderInvalid,
+                use + " 贴了 `data:` 就必须有形参（每行实参逐位对应形参）", kind.Span);
+        }
     }
 
     private string _teCode(string name) {

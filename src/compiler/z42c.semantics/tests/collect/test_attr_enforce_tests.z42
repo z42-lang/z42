@@ -490,3 +490,38 @@ void test_case_orphan() {
     DiagnosticBag d = teDiags("[Case(1)]\nvoid t(int a) { }");
     Assert.True(teHas(d, "E0914"));
 }
+
+// ── [Test(data: …)] 运行期数据行（E0920）────────────────────────────────────
+
+// 合法形态：[Test(data: methodof(F.rows))] + 形参——零诊断（methodof 引用在收集期不绑定，
+// 形态检查只看 data: 的存在性与方法形状）。
+[Test]
+void test_data_provider_ok() {
+    DiagnosticBag d = teDiags("class F { [Test(data: methodof(F.rows))] public static void t(int a) { } }");
+    Assert.Equal(false, teHas(d, "E0920"));
+    Assert.Equal(false, teHas(d, "E0911"));
+}
+
+// data: 贴到 [Benchmark] 上 → E0920（基准不跑参数化数据行）。
+[Test]
+void test_data_on_benchmark_rejected() {
+    DiagnosticBag d = teDiags("[Benchmark(data: methodof(F.rows))]\nvoid b(Bencher x) { }");
+    Assert.True(teHas(d, "E0920"));
+    Assert.True(teMsg(d, "E0920").Contains("[Test]"));
+}
+
+// data: 与 [Case] 互斥。
+[Test]
+void test_data_and_case_mutually_exclusive() {
+    DiagnosticBag d = teDiags("[Test(data: methodof(F.rows))]\n[Case(1)]\nvoid t(int a) { }");
+    Assert.True(teHas(d, "E0920"));
+    Assert.True(teMsg(d, "E0920").Contains("互斥"));
+}
+
+// 贴了 data: 的 [Test] 必须有形参（行实参逐位对应）。
+[Test]
+void test_data_requires_params() {
+    DiagnosticBag d = teDiags("[Test(data: methodof(F.rows))]\nvoid t() { }");
+    Assert.True(teHas(d, "E0920"));
+    Assert.True(teMsg(d, "E0920").Contains("形参"));
+}
