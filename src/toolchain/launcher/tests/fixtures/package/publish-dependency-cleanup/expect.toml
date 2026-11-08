@@ -55,6 +55,28 @@ env = { Z42_HOME = "{sdk}", Z42_PROBING_PATHS = "{case}/vendor" }
 exit = 0
 stdout_equals = "leaf"
 
+# Shared input dist is not a package membership list. Neither another app nor
+# an unrelated malformed package may be copied or block this application's publish.
+[[step]]
+tool = "z42c"
+args = ["build", "{case}/other/z42.toml", "--release", "--output-dir", "{case}/app/dist"]
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "invalid.zpkg"
+to = "app/dist/unrelated.zpkg"
+
+[[step]]
+args = ["publish", "{case}/app/z42.toml", "--no-build"]
+env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
+exit = 0
+
+[[step]]
+tool = "check"
+absent = ["app/published/programs/republish.other.zpkg", "app/published/programs/unrelated.zpkg"]
+exists = ["app/dist/republish.other.zpkg", "app/dist/unrelated.zpkg"]
+
 # 无清单配置时，编译器保留用户手写侧车。
 [[step]]
 tool = "copy"
@@ -161,3 +183,25 @@ target = "app/published/bin/app{exe}"
 env = { Z42_HOME = "{sdk}", Z42_PROBING_PATHS = "{case}/vendor" }
 exit = 0
 stdout_equals = "leaf"
+
+# Reachable invalid packages still reject publish, even when unrelated junk is ignored.
+[[step]]
+tool = "copy"
+from = "variants/packed-app.toml"
+to = "app/z42.toml"
+
+[[step]]
+tool = "z42c"
+args = ["build", "{case}/app/z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "invalid.zpkg"
+to = "app/dist/republish.leaf.zpkg"
+
+[[step]]
+args = ["publish", "{case}/app/z42.toml", "--no-build"]
+env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
+exit = 1
+stderr_contains = ["cannot read publish dependency", "republish.leaf.zpkg"]
