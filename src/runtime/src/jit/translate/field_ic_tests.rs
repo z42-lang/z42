@@ -106,7 +106,7 @@ fn module(functions: Vec<Function>) -> Module {
 /// The production translator's view of the VM: no call forwarding, the heap's barrier gate.
 struct Lookup<'a>(&'a VmContext);
 impl ForwardLookup for Lookup<'_> {
-    fn builtins(&self) -> &crate::vm::runtime::builtins::BuiltinCatalog { &crate::builtin_assembly::CATALOG }
+    fn builtins(&self) -> &crate::vm::runtime::builtins::BuiltinCatalog { &crate::assembly::builtin::CATALOG }
     fn forward_of_id(&self, _: u32) -> Option<u32> { None }
     fn forward_of_name(&self, _: &str) -> Option<u32> { None }
     fn barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {

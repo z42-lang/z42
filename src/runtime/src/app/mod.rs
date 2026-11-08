@@ -13,7 +13,13 @@
 //! resolution + CLI/process concerns stay in the caller; `run` takes a resolved
 //! [`RunOpts`].
 
-pub use crate::app_state::{program_args, set_program_args};
+pub(crate) mod state;
+pub(crate) mod services;
+#[cfg(test)]
+#[path = "app_tests.rs"]
+mod app_tests;
+
+pub use crate::app::state::{program_args, set_program_args};
 use crate::vm::loader::lazy::ZpkgCandidate;
 use crate::{metadata::ExecMode, vm::loader::LoadedArtifact};
 use crate::pal::fs::Vfs;
@@ -327,7 +333,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
 
     // fix-host-static-init: availability folding → ctx → cctor registration → lazy loader
     // live in `boot::boot_context`, shared with the embedding host path.
-    let ctx = crate::boot::boot_context(final_module, crate::boot::BootPlan {
+    let ctx = crate::assembly::boot::boot_context(final_module, crate::assembly::boot::BootPlan {
         vfs: Arc::clone(&vfs),
         search_dirs: search_dirs.clone(),
         declared_candidates,

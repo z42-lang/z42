@@ -189,7 +189,7 @@ pub(crate) fn build_host_module(
     // lazy-loader seeding, no availability folding, module kept outside the ctx).
     // FFI/embedded path loads the module from bytes (no on-disk entry dir), so
     // the search set is just the libs dir (support-colocated-zpkg-deps).
-    let ctx = crate::boot::boot_context(final_module, crate::boot::BootPlan {
+    let ctx = crate::assembly::boot::boot_context(final_module, crate::assembly::boot::BootPlan {
         vfs: Arc::clone(vfs),
         search_dirs: libs_dir.into_iter().collect(),
         declared_candidates: Vec::new(),
@@ -198,7 +198,7 @@ pub(crate) fn build_host_module(
         eager_deps: Vec::new(),
     });
     if let Some(m) = ctx.module() {
-        crate::boot::prepare_execution(&ctx, m);
+        crate::assembly::boot::prepare_execution(&ctx, m);
     }
 
     Ok(HostModule { ctx, static_init: std::sync::OnceLock::new() })

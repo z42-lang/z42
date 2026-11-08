@@ -34,7 +34,7 @@ use crate::vm::runtime::Module;
 use crate::vm::loader::locate::namespace_index::ZpkgCandidate;
 use super::{fusion_inputs::FusionInputSource, package::load_artifact_with_fusion};
 
-pub use crate::loader_assembly::fold_availability;
+pub use crate::assembly::loader::fold_availability;
 use std::collections::HashSet;
 
 /// 编译器发射的探测 builtin 名（与 `TypeOpEmitter._emitSymAvailable` 对齐）。
