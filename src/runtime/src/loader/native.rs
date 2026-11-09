@@ -163,8 +163,18 @@ pub(crate) fn resolve_symbol(
     }
     #[cfg(not(any(feature = "native-interop", feature = "component-loading")))]
     {
-        let _ = (ctx, library, symbol);
-        Err(anyhow!("native extension loading is disabled"))
+        // This arm is what a statically linked final module (the wasm engine
+        // compositions) hits when an optional component archive was not linked
+        // and no static provider was registered. Name the missing component —
+        // consumers (scripts/package/fixtures/wasm_components.mjs) assert on the
+        // `<component> component unavailable` shape, and it tells the user what
+        // to relink instead of blaming a build flag.
+        let _ = (ctx, symbol);
+        let component = library.strip_prefix("z42_").unwrap_or(library);
+        Err(anyhow!(
+            "{component} component unavailable (not linked; native extension \
+             loading is disabled in this build)"
+        ))
     }
 }
 
