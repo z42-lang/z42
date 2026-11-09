@@ -88,9 +88,6 @@ fn host_build() -> Result<(), Box<dyn Error>> {
     if matches!(arch.as_str(), "x86_64" | "aarch64") && matches!(os.as_str(), "linux" | "macos" | "windows") {
         println!("cargo:rustc-cfg=z42_jit_supported");
     }
-    if os == "android" {
-        println!("cargo:rustc-link-arg-examples=-Wl,-soname,libz42.so");
-    }
     if os == "linux" {
         // Shared-std TLS can retain host error destructors after dlclose.
         println!("cargo:rustc-link-arg=-Wl,-z,nodelete");

@@ -38,11 +38,7 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
     int c = _ensureAndroidNdk(root);
     if (c != 0) { return c; }
 
-    Process p = new Process("cargo").Arg("ndk").Arg("-t").Arg(abi).Arg("build")
-        .Arg("--config").Arg(Path.Join(root, _runtimeCargoConfig()))
-        .Arg("-p").Arg("z42").Arg("--example").Arg("z42")
-        .Arg("--no-default-features").Arg("--features").Arg("android,static-embedding");
-    if (rel) { p = p.Arg("--release"); }
+    Process p = _androidRuntimeRustc(new Process("cargo").Arg("ndk").Arg("-t").Arg(abi), root, rel);
     string ndk = _androidNdkDir(root);
     p = p.Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk);
     c = _execIn(p, androidCrate); if (c != 0) { return c; }

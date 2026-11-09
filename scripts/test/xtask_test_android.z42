@@ -100,6 +100,17 @@ string _androidSdkDir(string root) {
 
 // cargo ndk -t <abi>… -o <outDir> build --release → <outDir>/<abi>/*.so（jniLibs 形）。crate 在源码位置编；cargo-ndk 在 crate 目录里跑，找不到 src/runtime/.cargo，
 // 所以显式传 `--config`。
+Process _androidRuntimeRustc(Process cargo, string root, bool release) {
+    // Cargo's example-specific build-script flags omit library examples. Pass
+    // SONAME to this final target only, keeping executable/library links separate.
+    Process p = cargo.Arg("rustc").Arg("--locked").Arg("-p").Arg("z42")
+        .Arg("--example").Arg("z42").Arg("--no-default-features")
+        .Arg("--features").Arg("android,static-embedding")
+        .Arg("--config").Arg(Path.Join(root, _runtimeCargoConfig()));
+    if (release) { p = p.Arg("--release"); }
+    return p.Arg("--").Arg("-C").Arg("link-arg=-Wl,-soname,libz42.so");
+}
+
 int _cargoNdkJniLibs(string root, string[] abis, string outDir) {
     if (!_requireTool("cargo", "https://rustup.rs")) { return 1; }
     if (!_requireTool("cargo-ndk", "cargo install cargo-ndk")) { return 1; }
@@ -110,9 +121,7 @@ int _cargoNdkJniLibs(string root, string[] abis, string outDir) {
 
     Process p = new Process("cargo").Arg("ndk");
     foreach (var abi in abis) { p = p.Arg("-t").Arg(abi); }
-    p = p.Arg("build").Arg("--release").Arg("-p").Arg("z42").Arg("--example").Arg("z42")
-        .Arg("--no-default-features").Arg("--features").Arg("android,static-embedding")
-        .Arg("--config").Arg(Path.Join(root, _runtimeCargoConfig()));
+    p = _androidRuntimeRustc(p, root, true);
     // cargo-ndk's C-dep CMake cross-builds (zlib-ng via z42-compression) use
     // CMake's *built-in* Android toolchain, which locates the NDK via the
     // ANDROID_NDK / ANDROID_NDK_ROOT env vars — NOT ANDROID_NDK_HOME (which
@@ -123,7 +132,7 @@ int _cargoNdkJniLibs(string root, string[] abis, string outDir) {
     // generator (make from Xcode CLT / build-essential) then works — no Ninja
     // needed on any platform.
     p = p.Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk);
-    Console.WriteLine("  cargo ndk build --release (" + abis.Length.ToString() + " ABI) -> " + jniLibs);
+    Console.WriteLine("  cargo ndk rustc --release (" + abis.Length.ToString() + " ABI) -> " + jniLibs);
     int c = _execIn(p, rustDir); if (c != 0) { return c; }
     foreach (var abi in abis) {
         string target = _androidCargoForAbi(abi);
