@@ -1250,14 +1250,14 @@ jobs:
     name: test-android-emu(linux-x64) shard ${{ matrix.shard }}
     # 冷 NDK / cargo-ndk 构建 + 模拟器冷启动。
     timeout-minutes: 60
-    needs: toolchain-bootstrap   # `changes` 不在 needs：本 job 的 if: 只看 event_name，从不读 needs.changes.outputs.*
-    # Tier-2（浏览器 / 模拟器，慢）：只在 nightly 与手动触发时跑。
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    # 嵌入语料全量分 3 片，每片压在模拟器墙内；每片自己起模拟器，R1–R7 并进同一次 connectedAndroidTest。
+    needs: [changes, toolchain-bootstrap]
+    # Platform PRs run one smoke lane (embedding contracts + JIT + compression).
+    # Nightly/manual runs retain the full corpus in three shards.
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.platform_package == 'true' }}
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: ${{ fromJSON(github.event_name == 'pull_request' && '[1]' || '[1,2,3]') }}
     # ubuntu-26.04：旧宿主栈上 API 37 模拟器的 surfaceflinger 开机约 1 分钟后 abort（issuetracker 557246813）。
     runs-on: ubuntu-26.04
     permissions:
@@ -1298,6 +1298,7 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           Z42_SHARD: ${{ matrix.shard }}
+          Z42_ANDROID_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '0' }}
         with:
           api-level: '37.0'   # API 37 packages are named android-37.0; a bare 37 resolves to a non-existent image
           arch: x86_64

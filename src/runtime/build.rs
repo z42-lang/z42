@@ -85,7 +85,7 @@ fn host_build() -> Result<(), Box<dyn Error>> {
     println!("cargo:rustc-check-cfg=cfg(z42_jit_supported)");
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    if matches!(arch.as_str(), "x86_64" | "aarch64") && matches!(os.as_str(), "linux" | "macos" | "windows") {
+    if matches!(arch.as_str(), "x86_64" | "aarch64") && matches!(os.as_str(), "linux" | "macos" | "windows" | "android") {
         println!("cargo:rustc-cfg=z42_jit_supported");
     }
     if os == "linux" {

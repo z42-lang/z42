@@ -78,7 +78,7 @@ interp-only          = ["interp"]
 bundled-compression  = ["dep:z42-compression"]
 wasm                 = ["interp", "interp-only"]
 ios                  = ["interp", "interp-only", "aot", "native-interop", "net", "tls"]
-android              = ["interp", "interp-only", "aot", "native-interop", "net", "tls"]
+android              = ["interp", "jit", "aot", "native-interop", "net", "tls"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 getrandom = "0.4"

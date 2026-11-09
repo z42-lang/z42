@@ -13,7 +13,7 @@ z42 VM 同一份 Rust 代码通过 Cargo features 构建出适合不同平台的
 | `interp-only` | 仅 interpreter，不引入 jit / aot；意图标识 | — |
 | `wasm` | = `["interp-only"]`（wasm 沙箱禁动态代码生成） | — |
 | `ios` | = `["interp-only", "aot"]`（iOS App Store 政策禁 JIT） | — |
-| `android` | = `["interp-only", "aot"]` | — |
+| `android` | = `["interp", "jit", "aot", "native-interop", "net", "tls"]` | arm64/x64 发布独立 JIT，默认解释执行 |
 
 ## 构建矩阵
 

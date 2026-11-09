@@ -92,6 +92,7 @@ void _plRuntimeIos(_PkgLayout L, string rid) {
 void _plRuntimeAndroid(_PkgLayout L, string rid) {
     _plStaticComponents(L, rid);
     L.HasFile("native/libz42_interp.so");
+    if (_componentTargetHasJit(rid)) { L.HasFile("native/libz42_jit.so"); }
     L.HasFile("native/libz42_compression.so");
     L.Expect(Path.Glob(L.P("native"), "libstd-*.so").Length == 1, "Android matching shared std", "missing or ambiguous");
     L.HasFile("native/libz42.so");
