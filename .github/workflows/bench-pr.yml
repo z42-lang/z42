@@ -406,7 +406,7 @@ jobs:
       # 重采两次，用三轮比值的跑间离散度判红。整轮重采而不按 benchmark 名过滤：
       # `bench stdlib --filter` 过滤的是文件名，按名重采要另建映射，映射错 = 静默少测。
       - name: Micro A/B gate (symmetric capture; resample-on-suspicion; >15% time fails)
-        if: steps.fmtgap.outputs.gap == '0'
+        if: ${{ !cancelled() && steps.fmtgap.outputs.gap == '0' && steps.base.outcome == 'success' && steps.head.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -463,7 +463,7 @@ jobs:
       # blind to between-run drift, so it only prints. ⚠️ 别删测量：它是 GC 内部热路径
       # 唯一的观测点；要重新硬门禁需先量出跑间漂移，不是调阈值。
       - name: Criterion(Rust) A/B (informational — never fails; only if src/runtime changed)
-        if: steps.scope.outputs.verdict_only == 'false'
+        if: ${{ !cancelled() && steps.scope.outputs.verdict_only == 'false' && steps.base.outcome == 'success' && steps.head.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
