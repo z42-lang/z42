@@ -11,7 +11,6 @@ pub(crate) struct State {
     #[cfg(feature = "native-interop")]
     native_types: parking_lot::RwLock<HashMap<(String, String), Arc<super::RegisteredType>>>,
     pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>,
-    #[cfg(feature = "native-interop")]
     ext_libs_tried: Mutex<std::collections::HashSet<&'static str>>,
     // Drop last: registered descriptors and native resource destructors point into these libraries.
     #[cfg(feature = "native-interop")]
@@ -23,7 +22,6 @@ fn state(ctx: &VmContext) -> Result<&State> {
 }
 
 /// Record the first load attempt for a bundled SDK extension in this VM.
-#[cfg(feature = "native-interop")]
 pub(super) fn claim_extension_load(ctx: &VmContext, lib: &'static str) -> Result<bool> {
     Ok(state(ctx)?.ext_libs_tried.lock().insert(lib))
 }

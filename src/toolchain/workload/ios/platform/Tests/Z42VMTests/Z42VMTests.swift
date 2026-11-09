@@ -65,6 +65,16 @@ final class Z42VMTests: XCTestCase {
         )
     }
 
+    #if targetEnvironment(simulator)
+    func testIndependentJitComponentExecutesHelloWorld() throws {
+        let collector = Collector()
+        let vm = try Z42VM(zpkgResolver: bundleResolver(), stdoutHandler: { collector.append($0) }, execMode: .jit)
+        let module = try vm.loadZbc(fixture("hello"))
+        _ = try vm.invoke(vm.resolveEntry(module, fqn: "Hello.Main"))
+        XCTAssertEqual(String(data: collector.bytes, encoding: .utf8), "hello, world\n")
+    }
+    #endif
+
     // ── R2 — Bad zbc → badZbc (status 10) ───────────────────────────────
 
     func testBadZbcThrowsBadZbc() throws {

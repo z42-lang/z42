@@ -1,0 +1,31 @@
+// Exercise the production iOS exporter with the actual published Framework set.
+namespace Z42Xtask;
+using Std.IO;
+using Std.Cli;
+
+int _componentIosVerifyExport(string root, string pkg, string zbc, string work) {
+    string source = Path.Join(work, "export-probe");
+    Directory.Create(source);
+    File.Copy(Path.Join(root, "src/toolchain/workload/ios/appbuilder/export.z42"), Path.Join(source, "export.z42"));
+    File.WriteAllText(Path.Join(source, "probe.z42"),
+        "namespace ComponentExportProbe;\nusing Std.IO;\nusing Z42.Workload.Ios;\n"
+        + "void Main() { string[] args = Environment.GetCommandLineArgs(); IosExport.Generate(args[0], \"ComponentExport\", \"org.z42.component-export\", \"ComponentExport\", \"16.0\", args[1], args[2]); }\n");
+    string manifest = Path.Join(source, "z42.toml");
+    File.WriteAllText(manifest,
+        "[project]\nname=\"component.ios.export\"\nkind=\"exe\"\n"
+        + "[sources]\ninclude=[\"*.z42\"]\n[build]\noutput_dir=\"build\"\n");
+    int c = _exec(_z42cProcMode(_builtVm(root, "release"), _libsDir(root), _driverZpkg(root, "release"), "interp")
+        .Arg("build").Arg(manifest));
+    if (c != 0) { return c; }
+    string project = Path.Join(work, "xcode-consumer");
+    c = _exec(_z42Proc(_builtVm(root, "release"), _libsDir(root)).Arg("--mode").Arg("interp")
+        .Arg(Path.Join(source, "build/dist/component.ios.export.zpkg")).Arg("--").Arg(project).Arg(zbc).Arg(pkg));
+    if (c != 0) { return c; }
+    foreach (var stem in _iosFrameworkStems("iossim-arm64")) {
+        if (!File.Exists(Path.Join(project, stem + ".framework/" + stem))) {
+            throw new CliException("exported Xcode project omitted runtime framework " + stem);
+        }
+    }
+    return _exec(new Process("xcodebuild").Arg("-list").Arg("-json")
+        .Arg("-project").Arg(Path.Join(project, "ComponentExport.xcodeproj")));
+}

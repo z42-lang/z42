@@ -22,21 +22,15 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
     string iosMin = _vReadOr(root, "platform.ios.min_ios", "16.0");
     string pkgDir = _runtimePkgScaffold(root, rid, version, profile);
 
-    // libz42.a (iOS slice staticlib). Compression is already inside it (the `ios` preset's
-    // bundled-compression) — no separate libz42_compression.a (it could not be linked
-    // next to libz42.a anyway, being a second Rust staticlib with its own copy of std).
-    Console.WriteLine("  [1/3] libz42.a (cargo " + cargoTarget + ", " + profile + ")");
-    int c = _exec(_iosEmbeddingBuild(root, rel, cargoTarget, iosMin));
-    if (c != 0) { ConsoleError.WriteLine("error: cargo rustc staticlib for " + cargoTarget + " failed"); return 1; }
-    string cargoOut = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile);
-    string lib = Path.Join(cargoOut, "examples/libz42.a");
-    if (!File.Exists(lib)) { ConsoleError.WriteLine("error: " + lib + " not produced"); return 1; }
-    File.Copy(lib, Path.Join(pkgDir, "native/libz42.a"));
+    int c = _componentBuildStaticLibraries(root, rid, profile); if (c != 0) { return c; }
+    string cargoOut = _componentPlatformOut(root, rid, profile, false);
+    _componentCopyRequired(Path.Join(cargoOut, "examples/libz42.a"), Path.Join(pkgDir, "native/libz42.a"));
+    _componentCopyStaticLibraries(root, Path.Join(pkgDir, "native"), rid, profile);
 
     // C ABI headers
     _copyAbiHeaders(root, Path.Join(pkgDir, "native/include"));
 
-    c = _iosDynamicFramework(root, pkgDir, cargoOut, cargoTarget, version, iosMin);
+    c = _iosDynamicFramework(root, pkgDir, rid, profile, version, iosMin);
     if (c != 0) { return c; }
 
     // stdlib libs (loaded by the embedded VM at runtime) + package gate

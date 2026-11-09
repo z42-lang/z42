@@ -22,13 +22,16 @@ class Z42VM(
      */
     @JvmField var stdoutHandler: ((ByteArray) -> Unit)? = null,
     @JvmField var stderrHandler: ((ByteArray) -> Unit)? = null,
+    /** Execution backend to select; unavailable components report a host error. */
+    execMode: ExecMode = ExecMode.INTERP,
 ) : AutoCloseable {
+    enum class ExecMode(internal val nativeValue: Int) { INTERP(1), JIT(2) }
 
     private var nativeHandle: Long = 0L
     private val resolverRef = zpkgResolver  // kept alive for JNI callback duration
 
     init {
-        nativeHandle = nativeInitialize(resolverRef, stdoutHandler, stderrHandler)
+        nativeHandle = nativeInitialize(resolverRef, stdoutHandler, stderrHandler, execMode.nativeValue)
         if (nativeHandle == 0L) {
             // JNI side already threw Z42VMException — defensive guard.
             throw Z42VMException(
@@ -77,6 +80,7 @@ class Z42VM(
         resolver: ZpkgResolver,
         stdoutHandler: ((ByteArray) -> Unit)?,
         stderrHandler: ((ByteArray) -> Unit)?,
+        execMode: Int,
     ): Long
 
     private external fun nativeLoadZbc(host: Long, bytes: ByteArray): Long
