@@ -65,3 +65,5 @@ class iOSBuild         class iOSWorkload            class WorkloadBase
 - **被依赖**：编排器 `z42b`（`src/toolchain/builder/`）与各 workload appbuilder。
 
 契约依赖为 `z42.compiler.contracts`；编译核心与 scripting 通过它使用接口，不依赖本库的编排实现。
+
+`src/RuntimeDeployment.z42` records complete per-application managed runtime selection separately from copy ownership, including empty and in-place sets.

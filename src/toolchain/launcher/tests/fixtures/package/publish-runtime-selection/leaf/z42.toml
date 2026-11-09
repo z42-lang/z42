@@ -1,0 +1,8 @@
+[project]
+name="selection.leaf"
+kind="lib"
+pack=true
+[sources]
+include=["Leaf.z42"]
+[build]
+dist_dir="../vendor"

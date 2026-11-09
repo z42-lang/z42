@@ -6,6 +6,7 @@
 namespace Z42.Driver;
 
 using Std.IO;
+using Std.Collections;
 using Z42.Build;
 using Z42.Package;
 using Z42.Project;
@@ -30,6 +31,7 @@ int _bundleExeDeps(BundleSeed seed, PathClosureOut closure, ProjectManifest pm, 
         entry = entry + 1;
     }
     StrMap memberDomains = closure == null ? null : closure.BundleDomains;
+    List<string> selected = new List<string>();
     int i = 0;
     while (i < seed.N) {
         BundleItem item = seed.Items[i];
@@ -58,6 +60,7 @@ int _bundleExeDeps(BundleSeed seed, PathClosureOut closure, ProjectManifest pm, 
         ZpkgInfo info = ZpkgReader.Open(bytes, candidate);
         int rc = _planExeDependency(item.Name, dir, distDir, info, bytes, ownZbc, copiedZbc, copies);
         if (rc != ExitCode.Ok) { return rc; }
+        selected.Add(file);
         if (info != null) {
             BundleDomain domain = item.Domain;
             if (memberDomains != null) {
@@ -70,7 +73,17 @@ int _bundleExeDeps(BundleSeed seed, PathClosureOut closure, ProjectManifest pm, 
         }
     }
     copies.Apply();
+    _writeRuntimeSelections(pm, distDir, selected.ToArray());
     return ExitCode.Ok;
+}
+
+void _writeRuntimeSelections(ProjectManifest pm, string distDir, string[] selected) {
+    if (pm.ExeCount == 0) { RuntimeDeployment.Write(distDir, pm.Project.Name + ".zpkg", selected); return; }
+    int ex = 0;
+    while (ex < pm.ExeCount) {
+        RuntimeDeployment.Write(distDir, pm.Exes[ex].Name + ".zpkg", selected);
+        ex = ex + 1;
+    }
 }
 
 bool _bundleMemberDir(WsTier tier, string[] libsDirs, string dir) {

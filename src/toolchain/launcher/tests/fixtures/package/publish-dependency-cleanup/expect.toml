@@ -210,7 +210,7 @@ to = "app/dist/republish.leaf.zpkg"
 args = ["publish", "{case}/app/z42.toml", "--no-build"]
 env = { Z42_APPHOST_TEMPLATE = "{apphost_template}" }
 exit = 1
-stderr_contains = ["cannot read publish dependency", "republish.leaf.zpkg"]
+stderr_contains = ["stale runtime deployment record", "republish.leaf.zpkg"]
 
 [[step]]
 tool = "check"
