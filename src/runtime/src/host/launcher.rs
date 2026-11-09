@@ -15,7 +15,7 @@ unsafe extern "C" fn run(argc: i32, argv: *const *const c_char) -> i32 {
     });
     match result {
         Ok(Ok(())) => 0,
-        Ok(Err(error)) => { eprintln!("z42vm: {error:#}"); 1 }
+        Ok(Err(error)) => { eprintln!("Error: {error:?}"); 1 }
         Err(_) => { eprintln!("z42vm: runtime entry panicked"); 1 }
     }
 }

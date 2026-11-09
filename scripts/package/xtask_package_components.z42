@@ -5,7 +5,7 @@ using Std.Cli;
 
 string _componentBuildDir(string root) { return Path.Join(_buildMirror(root, Path.Join(root, "src/runtime")), "components"); }
 string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), profile); }
-string _componentFeatures() { return "cli,interp,shared-core,native-interop,net,tls"; }
+string _componentFeatures() { return "cli,interp,shared-core,native-interop,net,tls,mimalloc-alloc"; }
 string _componentLibrary(string stem) {
     if (Platform.IsWindows()) { return stem + ".dll"; }
     return "lib" + stem + (Platform.IsMacOS() ? ".dylib" : ".so");
@@ -72,7 +72,7 @@ int _packageDynamicRuntime(string rid, string profile, bool noBuild, bool verify
     c = _componentRelocate(native); if (c != 0) { return c; }
     File.WriteAllText(Path.Join(pkg, "manifest.toml"),
         "[package]\nname = \"" + name + "\"\nversion = \"" + version + "\"\nrid = \"" + rid
-        + "\"\nprofile = \"" + profile + "\"\nlinkage = \"dynamic\"\nallocator = \"system\"\n"
+        + "\"\nprofile = \"" + profile + "\"\nlinkage = \"dynamic\"\nallocator = \"mimalloc\"\n"
         + "[components]\nhost = \"" + _componentLibrary("z42") + "\"\ninterp = \"" + _componentLibrary("z42_interp")
         + "\"\njit = \"" + _componentLibrary("z42_jit") + "\"\n");
     c = _pkgFinish(root, pkg, "runtime-dynamic", rid); if (c != 0) { return c; }
@@ -104,7 +104,7 @@ void _componentCopyStd(string native) {
 int _componentBuildStatic(string root, string profile) {
     Process p = _cargoCmd("build", _runtimeCargoConfig())
         .Arg("--locked").Arg("-p").Arg("z42").Arg("--example").Arg("z42").Arg("--no-default-features")
-        .Arg("--features").Arg("static-embedding,interp,jit,native-interop,net,tls")
+        .Arg("--features").Arg("static-embedding,interp,jit,native-interop,net,tls,mimalloc-alloc")
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--target-dir").Arg(Path.Join(_componentBuildDir(root), "static"))
         .EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("RUSTFLAGS", "-C prefer-dynamic=no");
