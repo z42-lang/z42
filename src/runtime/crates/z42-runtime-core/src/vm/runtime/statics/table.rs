@@ -95,7 +95,7 @@ impl StaticCell {
 
     /// Install `v` if the cell was never written; the value the cell holds afterwards
     /// (`tparam_cell::init_if_unwritten`).
-    pub fn init_if_unwritten(&self, v: &Value) -> anyhow::Result<Value> {
+    pub(crate) fn init_if_unwritten(&self, v: &Value) -> anyhow::Result<Value> {
         tparam_cell::init_if_unwritten(&self.cells(), W0, W1, v)
     }
 
@@ -115,14 +115,14 @@ impl StaticCell {
 
     /// The static-field barrier is a no-op for this field at barrier epoch `epoch` (one acquire load).
     #[inline(always)]
-    pub fn barrier_ready(&self, epoch: u32) -> bool {
+    pub(crate) fn barrier_ready(&self, epoch: u32) -> bool {
         self.ready.load(Ordering::Acquire) == epoch
     }
 
     /// Record that the barrier was found a no-op at `epoch` — the epoch read (acquire) **before**
     /// the barrier ran, so an invalidating event in between leaves the record stale.
     #[inline]
-    pub fn mark_barrier_ready(&self, epoch: u32) {
+    pub(crate) fn mark_barrier_ready(&self, epoch: u32) {
         self.ready.store(epoch, Ordering::Release);
     }
 
@@ -192,7 +192,7 @@ impl StaticTable {
     /// the field was never written, and return what the field holds afterwards. First writer wins —
     /// a racing assignment is never overwritten by the zero, and two racing first reads agree on one
     /// value (for a boxed struct, one box).
-    pub fn init_default(&self, id: StaticFieldId, zero: &Value) -> anyhow::Result<Value> {
+    pub(crate) fn init_default(&self, id: StaticFieldId, zero: &Value) -> anyhow::Result<Value> {
         match self.cell(id) {
             Some(c) => c.init_if_unwritten(zero),
             None => self.grown(id).init_if_unwritten(zero),
@@ -210,7 +210,7 @@ impl StaticTable {
 
     /// Cache the type-init barrier's owner answer for `id` (`None` = exempt). No-op for an id
     /// without a cell.
-    pub fn set_owner(&self, id: StaticFieldId, owner: Option<Arc<TypeDesc>>) {
+    pub(crate) fn set_owner(&self, id: StaticFieldId, owner: Option<Arc<TypeDesc>>) {
         let Some(cell) = self.cell(id) else { return };
         match owner {
             None => cell.owner_state.store(OWNER_EXEMPT, Ordering::Release),
@@ -226,7 +226,7 @@ impl StaticTable {
     /// Drop every cached owner answer (an explicit module (re)load can redefine a type); the next
     /// access re-derives it. The caller then invalidates the barrier verdicts
     /// (`VmContext::forget_static_owners`).
-    pub fn forget_owners(&self) {
+    pub(crate) fn forget_owners(&self) {
         for i in 0..self.cells.len() {
             if let Some(c) = self.cells.get(i) {
                 c.owner_state.store(0, Ordering::Release);
@@ -244,7 +244,7 @@ impl StaticTable {
     }
 
     /// GC roots: every reference a static field holds (a boxed value yields its box).
-    pub fn scan_roots(&self, visit: &mut dyn FnMut(&Value)) {
+    pub(crate) fn scan_roots(&self, visit: &mut dyn FnMut(&Value)) {
         for i in 0..self.cells.len() {
             if let Some(c) = self.cells.get(i) {
                 tparam_cell::visit(&c.cells(), W0, visit);

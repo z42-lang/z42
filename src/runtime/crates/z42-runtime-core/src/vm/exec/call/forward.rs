@@ -237,7 +237,7 @@ impl Drop for LightFrame<'_> {
 /// have on the stack when the builtin fails. A wrapper that only ran `builtin` never
 /// stamped its `pc` (no row location); a chained one stamped its `call` site.
 #[cold]
-pub fn wrapper_rows(ctx: &VmContext, module: &Module, f: &Function) -> smallvec::SmallVec<[FrameSnapshot; 2]> {
+pub(crate) fn wrapper_rows(ctx: &VmContext, module: &Module, f: &Function) -> smallvec::SmallVec<[FrameSnapshot; 2]> {
     let mut rows = smallvec::SmallVec::new();
     let no_regs: *const Vec<Value> = std::ptr::null();
     let outer = VmFrame::new(f, no_regs);

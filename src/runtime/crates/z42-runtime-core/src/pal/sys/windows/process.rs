@@ -97,11 +97,11 @@ mod win_job {
     }
 }
 
-pub fn contains_path_separator(s: &str) -> bool {
+pub(crate) fn contains_path_separator(s: &str) -> bool {
     s.contains('/') || s.contains('\\')
 }
 
-pub fn candidates_in_dir(dir: &std::path::Path, name: &str) -> Vec<std::path::PathBuf> {
+pub(crate) fn candidates_in_dir(dir: &std::path::Path, name: &str) -> Vec<std::path::PathBuf> {
     // If the queried name already has an extension, accept as-is. Otherwise
     // try each PATHEXT entry (default to common set when env unset).
     let has_ext = std::path::Path::new(name).extension().is_some();
@@ -116,7 +116,7 @@ pub fn candidates_in_dir(dir: &std::path::Path, name: &str) -> Vec<std::path::Pa
         .collect()
 }
 
-pub fn check_candidate(path: &std::path::Path) -> Option<String> {
+pub(crate) fn check_candidate(path: &std::path::Path) -> Option<String> {
     let meta = std::fs::metadata(path).ok()?;
     if !meta.is_file() {
         return None;

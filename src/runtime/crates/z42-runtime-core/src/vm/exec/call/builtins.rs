@@ -47,7 +47,7 @@ pub fn invoke_builtin(
 
 /// [`invoke_builtin`] for a resolved id (the `[Native]` forward short-circuit always has one).
 #[inline(always)]
-pub fn invoke_builtin_id(
+pub(crate) fn invoke_builtin_id(
     ctx: &VmContext, id: u32, this: Option<Value>, regs: &[Value], args: &[u32],
 ) -> abi::CallResult {
     ctx.counters().builtin_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

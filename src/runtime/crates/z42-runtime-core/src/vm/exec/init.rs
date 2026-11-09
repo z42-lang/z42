@@ -14,7 +14,7 @@ pub fn claim(registry: &CctorRegistry, class_fq: &str) -> Result<Option<String>,
 /// Claim under the original map lock; waiters park and let the Condvar release that lock.
 /// The clock is read only when another thread is running the initializer (never on wasm's fast path).
 /// Release the map guard before dropping the park guard, which may wait for STW to finish.
-pub fn claim_with<G>(registry: &CctorRegistry, class_fq: &str, park: impl Fn() -> G) -> Result<Option<String>, String> {
+pub(crate) fn claim_with<G>(registry: &CctorRegistry, class_fq: &str, park: impl Fn() -> G) -> Result<Option<String>, String> {
     let me = std::thread::current().id();
     // 截止时间**到真要等待时才取时钟**（fix-device-tests）：此前在入口就
     // `Instant::now()`，每次认领都读一次时钟——而 `wasm32-unknown-unknown` 上它直接 panic

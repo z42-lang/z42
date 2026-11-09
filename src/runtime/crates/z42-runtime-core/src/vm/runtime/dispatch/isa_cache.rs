@@ -45,7 +45,7 @@ impl std::fmt::Debug for IsaCache {
 
 /// The `(recv, target)` pair as one word (verdict bit clear). Also the memo key.
 #[inline]
-pub fn pair_key(recv: u32, target: u32) -> u64 {
+pub(crate) fn pair_key(recv: u32, target: u32) -> u64 {
     debug_assert!(target < VERDICT_BIT as u32 && recv < VERDICT_BIT as u32, "isa key out of the TypeId band");
     (u64::from(recv) << 32) | u64::from(target)
 }

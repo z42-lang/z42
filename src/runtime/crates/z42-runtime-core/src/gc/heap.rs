@@ -464,7 +464,7 @@ pub struct Heap {
 impl Heap {
     /// Resize the nursery (tests only). See [`Heap::nursery_bytes`].
     #[cfg(all(test, z42_test_facade))]
-    pub fn set_nursery_bytes_for_test(&self, n: u64) {
+    pub(crate) fn set_nursery_bytes_for_test(&self, n: u64) {
         self.nursery_bytes.store(n.max(1), std::sync::atomic::Ordering::Relaxed);
         // add-pause-budget-nursery: a test sizing the nursery is sizing the whole policy, so the
         // old generation's allowance unit moves with it (production splits the two — see
@@ -477,7 +477,7 @@ impl Heap {
 
     /// Bytes promoted into the old generation since the last major (tests).
     #[cfg(all(test, z42_test_facade))]
-    pub fn promoted_bytes_for_test(&self) -> u64 {
+    pub(crate) fn promoted_bytes_for_test(&self) -> u64 {
         self.promoted_bytes_since_major.load(std::sync::atomic::Ordering::Relaxed)
     }
 }

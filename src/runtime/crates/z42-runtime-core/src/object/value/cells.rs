@@ -187,7 +187,7 @@ impl<'a> Cells<'a> {
     /// Zero primitive bytes with the same aligned atomic chunks as copy_in.
     /// This must not include reference words, which require the SATB barrier.
     #[inline]
-    pub fn clear_bytes(&self, off: usize, len: usize) -> bool {
+    pub(crate) fn clear_bytes(&self, off: usize, len: usize) -> bool {
         if off.checked_add(len).is_none_or(|end| end > self.len) { return false; }
         let mut k = 0;
         while k < len {
@@ -202,7 +202,7 @@ impl<'a> Cells<'a> {
     /// Zero a checked range of uniform primitive cells. Every store retains the
     /// element's width and relaxed ordering; invalid ranges write nothing.
     #[inline]
-    pub fn clear_prims(&self, index: usize, n: usize, w: usize) -> bool {
+    pub(crate) fn clear_prims(&self, index: usize, n: usize, w: usize) -> bool {
         if !matches!(w, 1 | 2 | 4 | 8)
             || index.checked_add(n).and_then(|end| end.checked_mul(w))
                 .is_none_or(|end| end > self.len)

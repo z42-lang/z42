@@ -114,7 +114,7 @@ pub fn end_marking(heap: u64) {
 
 /// Whether `heap` has a major mark in progress (the weak / soft read barrier asks this).
 #[inline]
-pub fn heap_is_marking(heap: u64) -> Option<MarkKind> {
+pub(crate) fn heap_is_marking(heap: u64) -> Option<MarkKind> {
     if MARKING_HEAPS.load(Ordering::Relaxed) == 0 {
         return None;
     }
@@ -123,7 +123,7 @@ pub fn heap_is_marking(heap: u64) -> Option<MarkKind> {
 
 /// Bind the calling thread to `heap` (from `VmContext::new*`). Balanced by [`unbind_thread`] (from
 /// `VmContext::drop`); nested contexts on one thread unwind LIFO.
-pub fn bind_thread(heap: u64) {
+pub(crate) fn bind_thread(heap: u64) {
     with_thread(|t| {
         let outer = t.heap;
         t.outer.push(outer);
@@ -135,7 +135,7 @@ pub fn bind_thread(heap: u64) {
 /// Undo the innermost [`bind_thread`]. The caller has already handed this thread's buffer to its
 /// heap (`retire_thread_tlab`), so anything left is for a heap that is no longer bound here —
 /// dropping it is only possible if that heap is not marking, in which case it is empty anyway.
-pub fn unbind_thread() {
+pub(crate) fn unbind_thread() {
     with_thread(|t| {
         debug_assert!(t.buf.is_empty(), "SATB buffer not handed over before unbinding");
         t.heap = t.outer.pop().unwrap_or(0);
@@ -144,7 +144,7 @@ pub fn unbind_thread() {
 }
 
 /// Hand the calling thread's recorded values to `heap` — empty unless the thread is bound to it.
-pub fn take_thread_buffer(heap: u64) -> Vec<Value> {
+pub(crate) fn take_thread_buffer(heap: u64) -> Vec<Value> {
     with_thread(|t| if t.heap == heap && !t.buf.is_empty() { std::mem::take(&mut t.buf) } else { Vec::new() })
 }
 
@@ -217,6 +217,6 @@ fn record_slow(old: &Value) {
 
 /// Test hook: turn the barrier off on this thread (negative controls).
 #[cfg(all(test, z42_test_facade))]
-pub fn set_disabled_for_test(disabled: bool) {
+pub(crate) fn set_disabled_for_test(disabled: bool) {
     with_thread(|t| t.disabled = disabled);
 }

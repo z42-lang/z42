@@ -196,7 +196,7 @@ pub fn struct_field_set_val(
 }
 
 /// 装箱 struct 的整块快照（类型名、字节、引用叶子）——拆箱时拷进帧 arena。
-pub fn snapshot_box(gc: &crate::object::ObjRef) -> (Arc<str>, Vec<u8>, Vec<Value>) {
+pub(crate) fn snapshot_box(gc: &crate::object::ObjRef) -> (Arc<str>, Vec<u8>, Vec<Value>) {
     let o = gc.borrow();
     let (bytes, refs) = o.boxed_blob();
     (Arc::from(&*o.type_desc.name), bytes, refs)

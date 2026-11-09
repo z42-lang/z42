@@ -223,7 +223,7 @@ impl crate::gc::Heap {
 
     /// **add-incremental-major-gc M2a**: whether `v` carries `kind`'s mark. Values that are not
     /// GC allocations count as marked — there is nothing for the SATB barrier to record.
-    pub fn is_marked_value(v: &Value, kind: MarkKind) -> bool {
+    pub(crate) fn is_marked_value(v: &Value, kind: MarkKind) -> bool {
         match v {
             Value::Object(gc) | Value::BoxedStruct(gc) => ObjRef::is_marked(gc, kind),
             Value::Array(gc) => ArrRef::is_marked(gc, kind),

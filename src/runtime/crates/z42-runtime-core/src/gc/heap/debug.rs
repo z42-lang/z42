@@ -9,13 +9,13 @@ impl crate::gc::Heap {
     /// production caller is the incremental cycle's opening slice); tests
     /// drive the snapshot directly without setting up a real collect.
     #[cfg(all(test, z42_test_facade))]
-    pub fn snapshot_roots_into_mark_queue_for_test(&self) -> usize {
+    pub(crate) fn snapshot_roots_into_mark_queue_for_test(&self) -> usize {
         self.snapshot_roots_into_mark_queue()
     }
 
     /// Test-only entry to read the mark queue contents.
     #[cfg(all(test, z42_test_facade))]
-    pub fn mark_queue_for_test(&self) -> Vec<Value> {
+    pub(crate) fn mark_queue_for_test(&self) -> Vec<Value> {
         self.mark_queue.lock().clone()
     }
 
@@ -23,26 +23,26 @@ impl crate::gc::Heap {
     /// access to the mark queue for injecting corruption (e.g. leaving
     /// stale entries to verify validate panics).
     #[cfg(all(test, z42_test_facade))]
-    pub fn mark_queue_for_test_mut(&self) -> parking_lot::MutexGuard<'_, Vec<Value>> {
+    pub(crate) fn mark_queue_for_test_mut(&self) -> parking_lot::MutexGuard<'_, Vec<Value>> {
         self.mark_queue.lock()
     }
 
     /// Test-only entry to the `mark_if_unmarked` static helper.
     #[cfg(all(test, z42_test_facade))]
-    pub fn mark_if_unmarked_for_test(&self, v: &Value) -> bool {
+    pub(crate) fn mark_if_unmarked_for_test(&self, v: &Value) -> bool {
         Self::mark_if_unmarked(v, self.major_mark())
     }
 
     /// add-incremental-major-gc M1: the major kind in force, for tests that inspect marks.
     #[cfg(all(test, z42_test_facade))]
-    pub fn major_mark_for_test(&self) -> crate::object::header::marks::MarkKind {
+    pub(crate) fn major_mark_for_test(&self) -> crate::object::header::marks::MarkKind {
         self.major_mark()
     }
 
     /// **add-gc-tlab stage 3**: test-only handle to the variable-length region
     /// (var TLAB chunk-count / pool assertions).
     #[cfg(all(test, z42_test_facade))]
-    pub fn region_var_for_test(&self) -> &Mutex<crate::gc::var_region::VarRegion> {
+    pub(crate) fn region_var_for_test(&self) -> &Mutex<crate::gc::var_region::VarRegion> {
         &self.region_var
     }
 
@@ -50,7 +50,7 @@ impl crate::gc::Heap {
     /// minor escalation threshold (used by tests; production reads via
     /// minor_escalation_threshold() in the dispatch path).
     #[cfg(all(test, z42_test_facade))]
-    pub fn minor_escalation_threshold_for_test(&self) -> f32 {
+    pub(crate) fn minor_escalation_threshold_for_test(&self) -> f32 {
         self.minor_escalation_threshold()
     }
 

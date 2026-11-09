@@ -96,7 +96,7 @@ impl crate::gc::Heap {
 
     /// [`Self::apply_promotion_age`] for tests that lower the line by hand.
     #[cfg(all(test, z42_test_facade))]
-    pub fn apply_promotion_age_for_test(&self, age: u8) {
+    pub(crate) fn apply_promotion_age_for_test(&self, age: u8) {
         self.apply_promotion_age(age);
     }
 

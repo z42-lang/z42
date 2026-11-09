@@ -49,17 +49,17 @@ thread_local! {
 }
 
 #[inline]
-pub fn suspend_allocations() {
+pub(crate) fn suspend_allocations() {
     ALLOCATION_SUSPENSION_DEPTH.with(|d| d.set(d.get() + 1));
 }
 
 #[inline]
-pub fn resume_allocations() {
+pub(crate) fn resume_allocations() {
     ALLOCATION_SUSPENSION_DEPTH.with(|d| d.set(d.get() - 1));
 }
 
 #[cfg(debug_assertions)]
-pub fn allocation_suspension_depth() -> u32 {
+pub(crate) fn allocation_suspension_depth() -> u32 {
     ALLOCATION_SUSPENSION_DEPTH.with(|d| d.get())
 }
 

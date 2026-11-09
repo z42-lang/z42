@@ -84,12 +84,12 @@ impl LazyLoader {
     }
 
     /// 已注册的类型描述符（不触发任何加载，也不要求基类链已合并）。
-    pub fn loaded_type(&self, class_name: &str) -> Option<Arc<TypeDesc>> {
+    pub(crate) fn loaded_type(&self, class_name: &str) -> Option<Arc<TypeDesc>> {
         self.type_registry.get(class_name).map(Arc::clone)
     }
 
     /// defer-class-initialization: 只读探测——该类是否已注册（不触发任何加载）。
-    pub fn has_type(&self, class_name: &str) -> bool {
+    pub(crate) fn has_type(&self, class_name: &str) -> bool {
         self.type_registry.contains_key(class_name)
     }
 
@@ -225,7 +225,7 @@ pub(super) fn is_primitive_keyword_name(name: &str) -> bool {
 /// E.g. "Std.IO.Console.WriteLine" → Some("Std.IO")
 ///      "Std.Assert.Equal"         → Some("Std")
 ///      "main"                     → None (no namespace)
-pub fn namespace_prefix(func_name: &str) -> Option<String> {
+pub(crate) fn namespace_prefix(func_name: &str) -> Option<String> {
     // A qualified function name has the form: <ns>.<Class>.<method>
     //                                         or <ns>.<func>
     // Strategy: strip the last two segments (Class.method), keep the rest.

@@ -34,13 +34,13 @@
 
 impl crate::gc::Heap {
     /// Open the window. Called when an incremental major cycle opens.
-    pub fn begin_alloc_black(&self) {
+    pub(crate) fn begin_alloc_black(&self) {
         self.alloc_black.store(true, std::sync::atomic::Ordering::Release);
     }
 
     /// Close the window. Only valid after the cycle's sweep has finished and
     /// while mutators are still parked, so nothing can allocate in between.
-    pub fn end_alloc_black(&self) {
+    pub(crate) fn end_alloc_black(&self) {
         self.alloc_black.store(false, std::sync::atomic::Ordering::Release);
     }
 

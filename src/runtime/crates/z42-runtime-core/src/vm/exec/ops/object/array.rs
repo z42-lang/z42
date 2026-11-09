@@ -276,7 +276,7 @@ pub fn method_type_param_array_args(
     type_param_array_args(Some(name), ElemKind::of_type_param(name))
 }
 
-pub fn type_param_array_args(arg: Option<&str>, kind: ElemKind) -> (Option<TypeParamElem>, Option<ElemType>) {
+pub(crate) fn type_param_array_args(arg: Option<&str>, kind: ElemKind) -> (Option<TypeParamElem>, Option<ElemType>) {
     let bound = type_param_bound_elem(arg);
     let prim = if kind.is_prim() {
         arg.map(crate::object::default_value_for)

@@ -351,13 +351,13 @@ impl LazyLoader {
     /// runtime-ambiguous-use-site: remember that `name` was declared by more than
     /// one loaded zpkg. Append-only (the registries it shadows are append-only too,
     /// which `registry_fingerprint` relies on — nothing is ever removed here either).
-    pub fn note_ambiguous_function(&mut self, name: &str) {
+    pub(crate) fn note_ambiguous_function(&mut self, name: &str) {
         self.ambiguous.get_or_insert_with(Default::default).functions.insert(name.to_string());
         AMBIGUITY_SEEN.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Type-side twin of [`Self::note_ambiguous_function`].
-    pub fn note_ambiguous_type(&mut self, name: &str) {
+    pub(crate) fn note_ambiguous_type(&mut self, name: &str) {
         self.ambiguous.get_or_insert_with(Default::default).types.insert(name.to_string());
         AMBIGUITY_SEEN.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -375,25 +375,25 @@ impl LazyLoader {
 
     /// Attach the VM's function table (see the `funcs` field doc). Must precede any
     /// registration — functions already in the private table would be dropped.
-    pub fn set_func_table(&mut self, table: Arc<crate::vm::runtime::ids::func_table::FuncTable>) {
+    pub(crate) fn set_func_table(&mut self, table: Arc<crate::vm::runtime::ids::func_table::FuncTable>) {
         debug_assert_eq!(self.funcs.lazy_name_count(), 0, "set_func_table after registration");
         self.funcs = table;
     }
 
     /// Attach the VM's string table (see the `strings` field doc). Carries over the id
     /// space reserved so far (`main_pool_len`); call before any package registers.
-    pub fn set_str_table(&mut self, table: Arc<crate::vm::runtime::ids::str_table::StrTable>) {
+    pub(crate) fn set_str_table(&mut self, table: Arc<crate::vm::runtime::ids::str_table::StrTable>) {
         table.reserve(self.strings.len());
         self.strings = table;
     }
 
     /// Attach the VM's file system (see the `vfs` field doc).
-    pub fn set_vfs(&mut self, vfs: Arc<dyn crate::pal::fs::Vfs>) {
+    pub(crate) fn set_vfs(&mut self, vfs: Arc<dyn crate::pal::fs::Vfs>) {
         self.vfs = vfs;
     }
 
     /// Attach the VM's type table (see the `types` field doc).
-    pub fn set_type_table(&mut self, table: Arc<crate::vm::runtime::ids::type_table::TypeTable>) {
+    pub(crate) fn set_type_table(&mut self, table: Arc<crate::vm::runtime::ids::type_table::TypeTable>) {
         self.types = table;
         self.publish_types();
     }
@@ -410,7 +410,7 @@ impl LazyLoader {
     }
 
     /// fix-crosspkg-static-call-cctor: attach the context's cctor registry (see the field doc).
-    pub fn set_cctor_registry(&mut self, reg: Arc<crate::vm::runtime::statics::CctorRegistry>) {
+    pub(crate) fn set_cctor_registry(&mut self, reg: Arc<crate::vm::runtime::statics::CctorRegistry>) {
         self.cctors = Some(reg);
     }
 
@@ -462,7 +462,7 @@ impl LazyLoader {
 
     /// The registered function named `name` (no loading).
     #[inline]
-    pub fn registered_function(&self, name: &str) -> Option<Arc<Function>> {
+    pub(crate) fn registered_function(&self, name: &str) -> Option<Arc<Function>> {
         self.funcs.lazy_fn(name)
     }
 
@@ -520,7 +520,7 @@ impl LazyLoader {
     /// `new` 都查一次）。多线程下这是主要的读者阻塞源（`--jobs 16` 原生采样：
     /// `try_lookup_type` 独占等待 945 样本）。
     #[inline]
-    pub fn known_unresolved_function_ro(&self, name: &str) -> bool {
+    pub(crate) fn known_unresolved_function_ro(&self, name: &str) -> bool {
         self.negative.as_ref().is_some_and(|n| {
             n.fingerprint == self.registry_fingerprint() && n.functions.contains(name)
         })
@@ -528,7 +528,7 @@ impl LazyLoader {
 
     /// 同上，类型版。
     #[inline]
-    pub fn known_unresolved_type_ro(&self, name: &str) -> bool {
+    pub(crate) fn known_unresolved_type_ro(&self, name: &str) -> bool {
         self.negative.as_ref().is_some_and(|n| {
             n.fingerprint == self.registry_fingerprint() && n.types.contains(name)
         })
@@ -557,8 +557,8 @@ impl LazyLoader {
 mod registry;
 mod resolve;
 mod symbols;
-pub use symbols::symbol_key;
-pub use resolve::namespace_prefix;
+pub(crate) use symbols::symbol_key;
+pub(crate) use resolve::namespace_prefix;
 #[cfg(all(test, z42_test_facade))]
 use resolve::is_primitive_keyword_name;
 
@@ -582,7 +582,7 @@ impl LazyLoader {
     /// Return zpkg file names from `declared_zpkgs` whose exported namespaces
     /// cover `ns` (exact match or a descendant like `Std.Collections.Generic`
     /// covering a query for `Std.Collections`).
-    pub fn candidates_for_namespace(&self, ns: &str) -> Vec<String> {
+    pub(crate) fn candidates_for_namespace(&self, ns: &str) -> Vec<String> {
         let ns_dot = format!("{ns}.");
         // load-order determinism rule: `declared_zpkgs` is an FxHashMap (non-deterministic
         // iteration order); downstream consumers pick candidates first-wins, so sort

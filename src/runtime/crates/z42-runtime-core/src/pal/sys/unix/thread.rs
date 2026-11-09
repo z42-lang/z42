@@ -1,11 +1,11 @@
 pub const CAN_SPAWN: bool = true;
-pub fn current_token() -> usize {
+pub(crate) fn current_token() -> usize {
     // SAFETY: `pthread_self` has no preconditions.
     unsafe { libc::pthread_self() as usize }
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-pub fn current_thread_stack() -> Option<(usize, usize)> {
+pub(crate) fn current_thread_stack() -> Option<(usize, usize)> {
     // SAFETY: plain queries on the calling thread's own handle.
     unsafe {
         let me = libc::pthread_self();
@@ -15,7 +15,7 @@ pub fn current_thread_stack() -> Option<(usize, usize)> {
     }
 }
 #[cfg(any(target_os = "linux", target_os = "android"))]
-pub fn current_thread_stack() -> Option<(usize, usize)> {
+pub(crate) fn current_thread_stack() -> Option<(usize, usize)> {
     // SAFETY: `attr` is initialised by `pthread_getattr_np` before it is read
     // and destroyed exactly once.
     unsafe {
@@ -36,6 +36,6 @@ pub fn current_thread_stack() -> Option<(usize, usize)> {
     target_os = "linux",
     target_os = "android"
 )))]
-pub fn current_thread_stack() -> Option<(usize, usize)> {
+pub(crate) fn current_thread_stack() -> Option<(usize, usize)> {
     None
 }

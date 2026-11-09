@@ -154,7 +154,7 @@ impl VarHoleStash {
 
     /// Whether the region had nothing of `size_class` at the last refill (see [`Self::dry`]).
     #[inline(always)]
-    pub fn is_dry(&self, size_class: u8) -> bool {
+    pub(crate) fn is_dry(&self, size_class: u8) -> bool {
         self.dry & (1u128 << size_class) != 0
     }
 
@@ -167,14 +167,14 @@ impl VarHoleStash {
     /// Whether the stash holds slots of some heap (taken or filled, not yet retired) — what keeps
     /// the TLAB bound to that heap.
     #[inline]
-    pub fn holds_slots(&self) -> bool {
+    pub(crate) fn holds_slots(&self) -> bool {
         self.touched != 0
     }
 
     /// Forget the dry marks: the TLAB is being bound to a (possibly different) heap, whose free
     /// lists the marks say nothing about.
     #[inline]
-    pub fn forget_dry(&mut self) {
+    pub(crate) fn forget_dry(&mut self) {
         self.dry = 0;
     }
 
@@ -188,7 +188,7 @@ impl VarHoleStash {
 /// Hint the CPU to fetch `p`'s cache line for writing. A no-op where there is no stable
 /// instruction for it.
 #[inline(always)]
-pub fn prefetch_write(p: *const u8) {
+pub(crate) fn prefetch_write(p: *const u8) {
     #[cfg(all(target_arch = "aarch64", not(miri)))]
     // SAFETY: `prfm` is a hint; it never faults, whatever the address.
     unsafe {

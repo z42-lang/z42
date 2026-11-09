@@ -55,7 +55,7 @@ impl LazyLoader {
     /// the name itself, then its enclosing type (`Ns.Cls.Method` → `Ns.Cls`), then one more level
     /// (`Ns.Outer.Cls.M`-shaped static members of nested owners are spelled with `+`, so two levels
     /// cover every member form).
-    pub fn symbol_route(&self, name: &str) -> Option<SymbolRoute> {
+    pub(crate) fn symbol_route(&self, name: &str) -> Option<SymbolRoute> {
         if self.symbol_owners.is_empty() { return None; }
         let key = symbol_key(name);
         if let Some(f) = self.symbol_owners.get(key) {
@@ -81,7 +81,7 @@ impl LazyLoader {
 
     /// Load the package `route` points at (if declared and not yet loaded). Returns whether the
     /// package is now resident.
-    pub fn load_routed(&mut self, route: &SymbolRoute) -> bool {
+    pub(crate) fn load_routed(&mut self, route: &SymbolRoute) -> bool {
         if self.loaded_zpkgs.contains(&route.file) { return true; }
         self.load_zpkg_file(&route.file).is_ok() && self.loaded_zpkgs.contains(&route.file)
     }

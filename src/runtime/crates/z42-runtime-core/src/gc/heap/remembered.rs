@@ -124,7 +124,7 @@ impl crate::gc::Heap {
 
     /// The remembered set's length (tests / diagnostics).
     #[cfg(all(test, z42_test_facade))]
-    pub fn remembered_len_for_test(&self) -> usize {
+    pub(crate) fn remembered_len_for_test(&self) -> usize {
         self.remembered.lock().len()
     }
 }

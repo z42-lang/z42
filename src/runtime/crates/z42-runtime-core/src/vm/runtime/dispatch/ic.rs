@@ -165,7 +165,7 @@ impl FieldICEntry {
 
     /// Copy a scalar field coordinate from a getter's ordinary FieldGet cache.
     /// The first valid receiver stays the native path. Other types keep using the VCall PIC.
-    pub fn remember_reader(&self, recv_type: u32, getter_ic: &FieldIC) {
+    pub(crate) fn remember_reader(&self, recv_type: u32, getter_ic: &FieldIC) {
         use std::sync::atomic::Ordering::Relaxed;
         let empty = pack(UNRESOLVED, UNRESOLVED);
         if self.packed.load(Relaxed) != empty { return; }

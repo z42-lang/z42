@@ -226,13 +226,13 @@ impl GcBlockHeader {
 
     /// The kind word (objects: the type descriptor pointer; null otherwise).
     #[inline]
-    pub fn kind_word(&self) -> *mut () {
+    pub(crate) fn kind_word(&self) -> *mut () {
         self.kind_word.load(Ordering::Relaxed)
     }
 
     /// Null the kind word — an object's drop glue, after releasing the type descriptor it held.
     #[inline]
-    pub fn clear_kind_word(&self) {
+    pub(crate) fn clear_kind_word(&self) {
         self.kind_word.store(std::ptr::null_mut(), Ordering::Relaxed);
     }
 
@@ -248,7 +248,7 @@ impl GcBlockHeader {
 
     /// The memoized `GetHashCode` value, `None` when this block has none yet.
     #[inline]
-    pub fn str_hash_memo(&self) -> Option<i64> {
+    pub(crate) fn str_hash_memo(&self) -> Option<i64> {
         let bits = self.kind_word.load(Ordering::Relaxed).addr();
         if bits == 0 { return None; }
         Some(bits as u32 as i64)
@@ -256,7 +256,7 @@ impl GcBlockHeader {
 
     /// Memoize this string block's hash. Caller guarantees `h != 0`.
     #[inline]
-    pub fn memo_str_hash(&self, h: u32) {
+    pub(crate) fn memo_str_hash(&self, h: u32) {
         let p = std::ptr::null_mut::<()>().map_addr(|_| h as usize);
         self.kind_word.store(p, Ordering::Relaxed);
     }
@@ -272,7 +272,7 @@ impl GcWord {
     /// Pack a [`BlockType`] and a `gen_age` into the `type_tag` byte. The single place the
     /// layout is encoded — every header construction site goes through it.
     #[inline]
-    pub fn pack_tag(block_type: BlockType, gen_age: u8) -> u8 {
+    pub(crate) fn pack_tag(block_type: BlockType, gen_age: u8) -> u8 {
         debug_assert!(gen_age <= MAX_GEN_AGE, "gen_age {gen_age} exceeds the 2 bits available");
         (block_type as u8) | ((gen_age & AGE_MASK) << AGE_SHIFT)
     }
@@ -299,7 +299,7 @@ impl GcWord {
     /// the minor sweep on survivors — **STW only**, so the read-modify-write needs no CAS
     /// (nothing else writes this byte after alloc).
     #[inline]
-    pub fn bump_gen_age(&self) -> u8 {
+    pub(crate) fn bump_gen_age(&self) -> u8 {
         let cur = self.type_tag.load(Ordering::Relaxed);
         let age = ((cur >> AGE_SHIFT) & AGE_MASK).saturating_add(1).min(MAX_GEN_AGE);
         let keep = cur & KEEP_MASK;
@@ -327,26 +327,26 @@ impl GcWord {
     /// OR, so it cannot clobber a concurrent header update; losing the bit to one is
     /// harmless (the reader falls back to the slow path).
     #[inline]
-    pub fn set_ascii_str(&self) {
+    pub(crate) fn set_ascii_str(&self) {
         self.type_tag.fetch_or(ASCII_STR_BIT, Ordering::Relaxed);
     }
 
     /// Whether [`Self::set_ascii_str`] marked this block.
     #[inline]
-    pub fn is_ascii_str(&self) -> bool {
+    pub(crate) fn is_ascii_str(&self) -> bool {
         self.type_tag.load(Ordering::Relaxed) & ASCII_STR_BIT != 0
     }
 
     /// Record that this (unpublished) object block's payload ends in a meta word
     /// ([`OBJ_META_BIT`]).
     #[inline]
-    pub fn set_obj_meta(&self) {
+    pub(crate) fn set_obj_meta(&self) {
         self.type_tag.fetch_or(OBJ_META_BIT, Ordering::Relaxed);
     }
 
     /// Whether this object block's payload ends in a meta word.
     #[inline(always)]
-    pub fn has_obj_meta(&self) -> bool {
+    pub(crate) fn has_obj_meta(&self) -> bool {
         self.type_tag.load(Ordering::Relaxed) & OBJ_META_BIT != 0
     }
 
@@ -355,13 +355,13 @@ impl GcWord {
     /// list, so the list holds each object once. An atomic OR: the mutator path races only
     /// other mutators here (age updates happen under STW).
     #[inline]
-    pub fn try_set_remembered(&self) -> bool {
+    pub(crate) fn try_set_remembered(&self) -> bool {
         self.type_tag.fetch_or(REMEMBERED_BIT, Ordering::Relaxed) & REMEMBERED_BIT == 0
     }
 
     /// Take the block out of the remembered set's bit (collector, STW).
     #[inline]
-    pub fn clear_remembered(&self) {
+    pub(crate) fn clear_remembered(&self) {
         self.type_tag.fetch_and(!REMEMBERED_BIT, Ordering::Relaxed);
     }
 
@@ -373,14 +373,14 @@ impl GcWord {
 
     /// Flag that the heap keeps side-table state for this block (see [`SIDE_BIT`]).
     #[inline]
-    pub fn set_side(&self) {
+    pub(crate) fn set_side(&self) {
         self.type_tag.fetch_or(SIDE_BIT, Ordering::Relaxed);
     }
 
     /// Whether tombstoning this block must be reported to the heap (side tables or the
     /// remembered set name it).
     #[inline]
-    pub fn needs_dead_notice(&self) -> bool {
+    pub(crate) fn needs_dead_notice(&self) -> bool {
         self.type_tag.load(Ordering::Relaxed) & (SIDE_BIT | REMEMBERED_BIT) != 0
     }
 
@@ -437,7 +437,7 @@ impl GcWord {
 /// `header` must point at a live block whose backing chunk outlives the access; the payload
 /// is valid for the block's `size` bytes.
 #[inline]
-pub unsafe fn payload_ptr_of(header: NonNull<GcBlockHeader>) -> *mut u8 {
+pub(crate) unsafe fn payload_ptr_of(header: NonNull<GcBlockHeader>) -> *mut u8 {
     // SAFETY: the payload occupies `[DATA_OFFSET, DATA_OFFSET + size)` in the same allocation
     // as the header; deriving from the raw header pointer keeps whole-allocation provenance.
     unsafe { header.as_ptr().cast::<u8>().add(GcBlockHeader::DATA_OFFSET) }

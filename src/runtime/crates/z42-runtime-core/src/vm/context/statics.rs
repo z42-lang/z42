@@ -112,7 +112,7 @@ impl VmContext {
 
     /// Drop every cached static-field owner answer and barrier verdict (an explicit module (re)load
     /// can redefine a type).
-    pub fn forget_static_owners(&self) {
+    pub(crate) fn forget_static_owners(&self) {
         self.core.runtime.statics.forget_owners();
         self.core.runtime.cctors.invalidate_barriers();
     }

@@ -188,7 +188,7 @@ impl CctorRegistry {
 
     /// 让所有已记下的「屏障已放行」失效。在引发它的状态变化**之后**调用（release）：读到新纪元的线程
     /// 也看得到那次变化，于是不会拿旧结论记新纪元。
-    pub fn invalidate_barriers(&self) {
+    pub(crate) fn invalidate_barriers(&self) {
         self.barrier_epoch.fetch_add(1, Ordering::Release);
     }
 

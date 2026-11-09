@@ -39,7 +39,7 @@ pub fn next_epoch(cur: u8) -> u8 {
 /// Mark `cell` for `kind`, leaving the other kind's bits alone. Returns `true` iff this call
 /// made the transition (the caller is the one that should trace the slot's children).
 #[inline]
-pub fn mark_cell(cell: &std::sync::atomic::AtomicU8, kind: MarkKind) -> bool {
+pub(crate) fn mark_cell(cell: &std::sync::atomic::AtomicU8, kind: MarkKind) -> bool {
     debug_assert!(!matches!(kind, MarkKind::Major(0)), "major epoch 0 is reserved");
     let mut cur = cell.load(Ordering::Relaxed);
     loop {
@@ -62,7 +62,7 @@ pub fn mark_cell(cell: &std::sync::atomic::AtomicU8, kind: MarkKind) -> bool {
 
 /// Whether `cell` carries `kind`'s mark.
 #[inline]
-pub fn is_marked_cell(cell: &std::sync::atomic::AtomicU8, kind: MarkKind) -> bool {
+pub(crate) fn is_marked_cell(cell: &std::sync::atomic::AtomicU8, kind: MarkKind) -> bool {
     let cur = cell.load(Ordering::Relaxed);
     match kind {
         MarkKind::Minor => cur & MINOR_BIT != 0,
@@ -72,12 +72,12 @@ pub fn is_marked_cell(cell: &std::sync::atomic::AtomicU8, kind: MarkKind) -> boo
 
 /// Clear the minor bit only (the minor sweep on a survivor). The major epoch is left in place.
 #[inline]
-pub fn clear_minor_cell(cell: &std::sync::atomic::AtomicU8) {
+pub(crate) fn clear_minor_cell(cell: &std::sync::atomic::AtomicU8) {
     cell.fetch_and(!MINOR_BIT, Ordering::Relaxed);
 }
 
 /// The major epoch stored in `cell` (diagnostics / invariant checks).
 #[inline]
-pub fn major_epoch_of_cell(cell: &std::sync::atomic::AtomicU8) -> u8 {
+pub(crate) fn major_epoch_of_cell(cell: &std::sync::atomic::AtomicU8) -> u8 {
     cell.load(Ordering::Relaxed) >> 1
 }

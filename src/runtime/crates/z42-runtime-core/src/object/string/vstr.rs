@@ -90,7 +90,7 @@ impl Str {
     /// Wrap an already-allocated `BlockType::Str` block handle. Used by the heap's
     /// `alloc_str` (after writing the bytes) and by GC read-back paths.
     #[inline]
-    pub fn from_var_ref(block: VarGcRef) -> Self {
+    pub(crate) fn from_var_ref(block: VarGcRef) -> Self {
         Str { block }
     }
 

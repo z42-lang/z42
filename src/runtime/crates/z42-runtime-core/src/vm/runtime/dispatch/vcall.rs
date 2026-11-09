@@ -9,7 +9,7 @@ use crate::vm::runtime::dispatch::receiver::value_synthetic_type_id;
 /// Receiver type id used to key the PIC: real `TypeDesc.id` for objects, synthetic id for
 /// primitives / arrays; `None` for boxes and null (not cacheable).
 #[inline]
-pub fn receiver_type_id(obj_val: &Value) -> Option<u32> {
+pub(crate) fn receiver_type_id(obj_val: &Value) -> Option<u32> {
     match obj_val {
         Value::Object(rc) => Some(rc.type_desc().id.0),
         other => value_synthetic_type_id(other),
@@ -39,7 +39,7 @@ pub fn vcall_ic_hit(ic: Option<&VCallIC>, obj_val: &Value) -> Option<usize> {
 /// (overload mangling uses `$`, specializations `:`, nested types `+`), so its presence is
 /// the whole test.
 #[inline]
-pub fn iface_slot_method(method: &str) -> Option<&str> {
+pub(crate) fn iface_slot_method(method: &str) -> Option<&str> {
     method.rfind('#').map(|i| &method[i + 1..])
 }
 
@@ -48,7 +48,7 @@ pub fn iface_slot_method(method: &str) -> Option<&str> {
 /// implements a generic interface whose arguments mention its own type parameters only
 /// registers the erased key, and a shared generic body calling through `IFoo<T>` only emits
 /// it.
-pub fn erased_iface_slot_key(key: &str) -> Option<String> {
+pub(crate) fn erased_iface_slot_key(key: &str) -> Option<String> {
     let hash = key.rfind('#')?;
     let lt = key[..hash].find('<')?;
     Some(format!("{}{}", &key[..lt], &key[hash..]))
@@ -71,7 +71,7 @@ pub fn resolve_virtual<'m>(module: &'m Module, class_name: &str, method: &str) -
 
 /// The method key installed for an interface slot, exact form before erased form.
 #[inline]
-pub fn iface_slot_implementation(
+pub(crate) fn iface_slot_implementation(
     td: &crate::object::TypeDesc, key: &str, erased: Option<&str>,
 ) -> Option<String> {
     let at = |k: &str| td.vtable_index.get(k).and_then(|&slot| td.vtable.get(slot)).map(|(simple, _)| simple.clone());

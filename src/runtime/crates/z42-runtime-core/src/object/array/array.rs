@@ -267,7 +267,7 @@ impl ArrayObj {
     /// the result (every size class / detached block does). The descriptor word is installed
     /// before anything reads through the pointer.
     #[inline(always)]
-    pub unsafe fn from_block(header: NonNull<u8>, payload_size: usize) -> *mut ArrayObj {
+    pub(crate) unsafe fn from_block(header: NonNull<u8>, payload_size: usize) -> *mut ArrayObj {
         std::ptr::slice_from_raw_parts_mut(header.as_ptr(), payload_size) as *mut ArrayObj
     }
 
@@ -305,7 +305,7 @@ impl ArrayObj {
     ///
     /// # Safety
     /// `p` is a STRUCT array over its whole block, destroyed exactly once; nothing reads it after.
-    pub unsafe fn destroy_struct(p: *mut ArrayObj) {
+    pub(crate) unsafe fn destroy_struct(p: *mut ArrayObj) {
         // SAFETY: per the contract.
         unsafe {
             let w = Self::layout_word(p);
@@ -485,7 +485,7 @@ impl ArrayObj {
     }
 
     /// Capture values directly into an unpublished frozen array. The reader must not safepoint.
-    pub fn alloc_frozen_from(heap: &Heap, len: usize, read: impl Fn(usize) -> Value) -> Value {
+    pub(crate) fn alloc_frozen_from(heap: &Heap, len: usize, read: impl Fn(usize) -> Value) -> Value {
         let desc = ElemType::empty().array_desc(ArrayMode::Frozen, 0);
         Self::alloc(heap, desc, len, None, &mut |a| {
             for i in 0..len {
@@ -709,7 +709,7 @@ impl ArrayObj {
     }
 
     /// Test-only: a zeroed array of `desc` in a leaked block.
-    pub fn leaked_block(desc: &'static ArrayDesc, len: usize, layout: Option<Arc<StructTypeLayout>>) -> ArrRef {
+    pub(crate) fn leaked_block(desc: &'static ArrayDesc, len: usize, layout: Option<Arc<StructTypeLayout>>) -> ArrRef {
         let payload = desc.payload_bytes(len, layout.as_deref()).expect("leaked array too large");
         let v = VarGcRef::alloc_leaked(payload, desc.block_type());
         // SAFETY: a fresh zeroed block of `payload` bytes nobody else can reach.

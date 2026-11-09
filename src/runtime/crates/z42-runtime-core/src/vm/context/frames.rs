@@ -141,7 +141,7 @@ impl VmContext {
     /// Snapshot the entire call stack for stack-trace formatting at a
     /// `throw` site — names, files and line/column are resolved here.
     /// Only invoked on the throw / fatal-report path.
-    pub fn snapshot_call_stack(&self) -> Vec<crate::vm::exec::stack::FrameSnapshot> {
+    pub(crate) fn snapshot_call_stack(&self) -> Vec<crate::vm::exec::stack::FrameSnapshot> {
         self.exec.call_stack.with_frames(crate::vm::exec::stack::snapshots)
     }
 
@@ -174,7 +174,7 @@ impl VmContext {
     /// # Safety
     /// As [`crate::vm::exec::call::frame_stack::FrameStack::scan_parked`]: the caller is the
     /// owner thread, or the owner is parked for the whole call.
-    pub unsafe fn scan_frames_parked<R>(
+    pub(crate) unsafe fn scan_frames_parked<R>(
         &self, f: impl FnOnce(&[crate::vm::exec::call::frames::VmFrame]) -> R,
     ) -> R {
         debug_assert!(

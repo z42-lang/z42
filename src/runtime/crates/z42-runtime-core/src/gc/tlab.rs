@@ -59,7 +59,7 @@ impl Tlab {
 
     /// True when the TLAB holds no live claims (safe to (re)bind to any heap).
     #[inline]
-    pub fn is_unbound(&self) -> bool {
+    pub(crate) fn is_unbound(&self) -> bool {
         self.var.is_none() && !self.holes.holds_slots()
     }
 }
@@ -137,13 +137,13 @@ pub fn arm() {
 /// **add-gc-tlab (stage 2)**: disarm this thread (called by `VmContext::drop`
 /// after retiring the TLAB). Saturating so an unbalanced call can't underflow.
 #[inline]
-pub fn disarm() {
+pub(crate) fn disarm() {
     TLAB.with(|c| unsafe { (*c.get()).armed = (*c.get()).armed.saturating_sub(1) });
 }
 
 /// True when this thread has an active `VmContext` and should use the TLAB.
 #[inline]
-pub fn is_armed() -> bool {
+pub(crate) fn is_armed() -> bool {
     // SAFETY: plain read of this thread's own cell.
     TLAB.with(|c| unsafe { (*c.get()).armed > 0 })
 }
@@ -152,7 +152,7 @@ pub fn is_armed() -> bool {
 /// by contract (the alloc fast path never re-enters allocation while holding the
 /// `&mut Tlab`), so the `UnsafeCell` deref is sound.
 #[inline]
-pub fn with_current_tlab<R>(f: impl FnOnce(&mut Tlab) -> R) -> R {
+pub(crate) fn with_current_tlab<R>(f: impl FnOnce(&mut Tlab) -> R) -> R {
     // SAFETY: owner-thread-exclusive, non-reentrant (see the `TLAB` docs).
     TLAB.with(|c| f(unsafe { &mut (*c.get()).tlab }))
 }

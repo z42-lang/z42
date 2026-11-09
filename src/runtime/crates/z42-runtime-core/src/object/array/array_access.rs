@@ -266,7 +266,7 @@ impl ArrayObj {
     }
 
     /// Snapshot an in-bounds REF range without decoding and re-encoding its reference words.
-    pub fn snapshot_ref_range(&self, heap: &Heap, start: usize, len: usize) -> Value {
+    pub(crate) fn snapshot_ref_range(&self, heap: &Heap, start: usize, len: usize) -> Value {
         debug_assert_eq!(self.mode(), ArrayMode::Ref);
         let src = self.cells();
         heap.alloc_array_with(self.desc(), len, None, &mut |copy| {

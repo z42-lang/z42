@@ -232,7 +232,7 @@ fn isa_slow(
 /// The type-test key for target name `target` (cold: once per site, see `TypeKeyCell`): the
 /// `TypeId` of the type it names if one is registered (main module first, then the lazy
 /// loader — without loading anything), else the id the VM's `TypeTable` reserves for the name.
-pub fn target_key(
+pub(crate) fn target_key(
     ctx: &VmContext,
     registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
     target: &str,

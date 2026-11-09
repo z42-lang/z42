@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub const CAN_DECOMMIT: bool = super::sys::mem::CAN_DECOMMIT;
 
 /// The OS page size (cached).
-pub fn page_size() -> usize {
+pub(crate) fn page_size() -> usize {
     static PAGE: AtomicUsize = AtomicUsize::new(0);
     let p = PAGE.load(Ordering::Relaxed);
     if p != 0 {
@@ -29,7 +29,7 @@ pub fn page_size() -> usize {
 
 /// The whole pages inside `[start, end)`: `(first page, byte length)`, or `None` when the range
 /// holds no complete page.
-pub fn inner_pages(start: usize, end: usize) -> Option<(usize, usize)> {
+pub(crate) fn inner_pages(start: usize, end: usize) -> Option<(usize, usize)> {
     let page = page_size();
     let lo = start.next_multiple_of(page);
     let hi = end / page * page;
@@ -42,7 +42,7 @@ pub fn inner_pages(start: usize, end: usize) -> Option<(usize, usize)> {
 /// # Safety
 /// `addr` / `len` must be page-aligned and inside memory this process owns, and nothing may
 /// rely on the range's contents afterwards.
-pub unsafe fn decommit(addr: usize, len: usize) {
+pub(crate) unsafe fn decommit(addr: usize, len: usize) {
     unsafe { super::sys::mem::decommit(addr, len) }
 }
 
@@ -51,7 +51,7 @@ pub unsafe fn decommit(addr: usize, len: usize) {
 ///
 /// # Safety
 /// As [`decommit`].
-pub unsafe fn recommit(addr: usize, len: usize) {
+pub(crate) unsafe fn recommit(addr: usize, len: usize) {
     unsafe { super::sys::mem::recommit(addr, len) }
 }
 

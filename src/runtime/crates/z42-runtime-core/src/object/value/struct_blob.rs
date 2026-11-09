@@ -72,7 +72,7 @@ pub fn write(
 
 /// Clear a checked sequence of blobs without materializing zero buffers. Primitive
 /// gaps retain the normal atomic chunk protocol; each reference deletion uses SATB.
-pub fn clear_range(c: &Cells, index: usize, count: usize, size: usize,
+pub(crate) fn clear_range(c: &Cells, index: usize, count: usize, size: usize,
     ref_offsets: &[u32]) -> anyhow::Result<()> {
     let base = index.checked_mul(size).ok_or_else(|| anyhow::anyhow!("struct clear start overflow"))?;
     let len = count.checked_mul(size).ok_or_else(|| anyhow::anyhow!("struct clear length overflow"))?;

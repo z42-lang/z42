@@ -144,7 +144,7 @@ impl OwnedObject {
     /// Hand the block over **with** its header still constructed (the caller now owns the
     /// type word and meta word): the heap moves them and the fields into a GC block and then
     /// drops this block's memory only.
-    pub fn into_detached(self) -> DetachedBlock {
+    pub(crate) fn into_detached(self) -> DetachedBlock {
         let mut this = std::mem::ManuallyDrop::new(self);
         // SAFETY: `this` is never used or dropped again; the block moves out exactly once.
         unsafe { std::mem::ManuallyDrop::take(&mut this.block) }

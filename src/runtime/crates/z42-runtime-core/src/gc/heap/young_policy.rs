@@ -171,7 +171,7 @@ impl YoungPolicy {
     }
 
     /// Judge a real minor and schedule the tenures that follow it.
-    pub fn observe_minor(&self, m: MinorYield) -> Verdict {
+    pub(crate) fn observe_minor(&self, m: MinorYield) -> Verdict {
         let verdict = self.judge(m);
         self.minor_futile.store(verdict == Verdict::Futile, Ordering::Relaxed);
         let run = if verdict == Verdict::Productive {
@@ -210,7 +210,7 @@ impl YoungPolicy {
     /// One pause of major work (a slice, a synchronous finish, or a one-shot major). `finished`:
     /// the cycle completed in it, so its totals become the reference yield; `futile_below` is
     /// the bar under which the completed cycle counts as having freed nothing.
-    pub fn observe_major_work(&self, freed: u64, pause_us: u64, finished: bool, futile_below: u64) {
+    pub(crate) fn observe_major_work(&self, freed: u64, pause_us: u64, finished: bool, futile_below: u64) {
         let f = self.cycle_freed.fetch_add(freed, Ordering::Relaxed) + freed;
         let p = self.cycle_pause_us.fetch_add(pause_us, Ordering::Relaxed) + pause_us;
         if finished {
@@ -225,7 +225,7 @@ impl YoungPolicy {
     /// The last completed major freed essentially nothing. A minor's high survival is then no
     /// evidence that garbage sits in the old generation — the last look found none — so it must
     /// not escalate to another major; the promoted-byte gate still bounds the old generation.
-    pub fn major_was_futile(&self) -> bool {
+    pub(crate) fn major_was_futile(&self) -> bool {
         self.major_futile.load(Ordering::Relaxed)
     }
 
@@ -233,17 +233,17 @@ impl YoungPolicy {
     /// essentially nothing. Only then is the next major worth postponing — a futile major followed
     /// by minors that do reclaim (a program past its start-up) says garbage is being made again,
     /// and some of it is reaching the old generation.
-    pub fn nothing_dies(&self) -> bool {
+    pub(crate) fn nothing_dies(&self) -> bool {
         self.major_was_futile() && self.minor_futile.load(Ordering::Relaxed)
     }
 
     /// Whether the young-generation collection that ran last was a tenure.
-    pub fn last_was_tenure(&self) -> bool {
+    pub(crate) fn last_was_tenure(&self) -> bool {
         self.last_tenure.load(Ordering::Relaxed)
     }
 
     /// Whether the minor about to run should be a tenure; consumes the turn if so.
-    pub fn take_tenure_turn(&self) -> bool {
+    pub(crate) fn take_tenure_turn(&self) -> bool {
         let tenure = self
             .left
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1))
@@ -253,7 +253,7 @@ impl YoungPolicy {
     }
 
     /// The reference major yield, for diagnostics: (freed bytes, pause µs).
-    pub fn major_reference(&self) -> (u64, u64) {
+    pub(crate) fn major_reference(&self) -> (u64, u64) {
         (self.major_freed.load(Ordering::Relaxed), self.major_pause_us.load(Ordering::Relaxed))
     }
 

@@ -8,7 +8,7 @@ pub fn is_name_too_long(e: &std::io::Error) -> bool {
     e.raw_os_error() == Some(libc::ENAMETOOLONG)
 }
 
-pub fn sync_before_rename(file: &std::fs::File) -> Result<()> {
+pub(crate) fn sync_before_rename(file: &std::fs::File) -> Result<()> {
     #[cfg(target_vendor = "apple")]
     {
         use std::os::fd::AsRawFd;

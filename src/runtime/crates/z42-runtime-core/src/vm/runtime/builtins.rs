@@ -26,7 +26,7 @@ impl BuiltinCatalog {
             .get(name).copied().map(BuiltinId)
     }
 
-    pub fn folds_frameless(&self, id: u32) -> bool {
+    pub(crate) fn folds_frameless(&self, id: u32) -> bool {
         self.records.get(id as usize).is_some_and(|info| info.frameless)
     }
 

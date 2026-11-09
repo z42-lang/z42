@@ -396,7 +396,7 @@ impl ContextRegistry {
 /// thunks), lifted lambdas / local functions (`…__lambda_N`), generic specializations
 /// (`f:int`), and `$`-suffixed bodies that are not an overload key (`f$impl`). An overload
 /// key is `name$<arity>$<types>` — `$` followed by a digit — and names a real function.
-pub fn is_synthesized_fn(qualified: &str) -> bool {
+pub(crate) fn is_synthesized_fn(qualified: &str) -> bool {
     let simple = qualified.rsplit('.').next().unwrap_or(qualified);
     if simple.starts_with("__") || simple.contains("__lambda_") || simple.contains("__mg_thunk_") {
         return true;

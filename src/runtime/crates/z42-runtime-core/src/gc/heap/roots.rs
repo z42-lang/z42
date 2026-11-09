@@ -64,13 +64,13 @@ impl crate::gc::Heap {
 }
 
 impl crate::gc::Heap {
-    pub fn walk_diagnostic_objects(&self, visit: &mut dyn FnMut(&Value)) {
+    pub(crate) fn walk_diagnostic_objects(&self, visit: &mut dyn FnMut(&Value)) {
         self.region_var.lock().iterate_alive_of(crate::object::header::BlockType::Object, |h, _| {
             let value = Value::Object(crate::object::ObjRef::from_var(h));
             visit(&value);
         });
     }
-    pub fn walk_diagnostic_arrays(&self, visit: &mut dyn FnMut(&Value)) {
+    pub(crate) fn walk_diagnostic_arrays(&self, visit: &mut dyn FnMut(&Value)) {
         self.region_var.lock().iterate_alive(|h, header| {
             let bt = header.block_type();
             if bt != crate::object::header::BlockType::Object && bt.is_object_or_array() {
@@ -79,7 +79,7 @@ impl crate::gc::Heap {
             }
         });
     }
-    pub fn walk_diagnostic_roots(&self, visit: &mut dyn FnMut(&Value, crate::gc::walk::RootKind)) {
+    pub(crate) fn walk_diagnostic_roots(&self, visit: &mut dyn FnMut(&Value, crate::gc::walk::RootKind)) {
         {
             let inner = self.inner.lock();
             for value in inner.roots.values().chain(&inner.handle_slab.strong_targets().collect::<Vec<_>>()) {

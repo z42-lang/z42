@@ -8,7 +8,7 @@ pub fn is_name_too_long(_: &std::io::Error) -> bool {
     true
 }
 
-pub fn sync_before_rename(file: &std::fs::File) -> Result<()> {
+pub(crate) fn sync_before_rename(file: &std::fs::File) -> Result<()> {
     file.sync_all()
 }
 

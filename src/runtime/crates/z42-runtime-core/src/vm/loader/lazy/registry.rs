@@ -49,7 +49,7 @@ impl LazyLoader {
     /// Cycle-safe: inserts into `loaded_zpkgs` **before** loading the
     /// artifact, so a re-entrant call (A depends on B, B depends on A)
     /// returns immediately on the second visit.
-    pub fn load_zpkg_file(&mut self, file_name: &str) -> Result<()> {
+    pub(crate) fn load_zpkg_file(&mut self, file_name: &str) -> Result<()> {
         if self.loaded_zpkgs.contains(file_name) {
             return Ok(());
         }

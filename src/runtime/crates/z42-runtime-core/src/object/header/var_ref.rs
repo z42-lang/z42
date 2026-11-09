@@ -51,7 +51,7 @@ impl VarGcRef {
     /// Fold a clean header pointer + generation into the 8-byte handle.
     #[cfg(target_pointer_width = "64")]
     #[inline]
-    pub fn pack(ptr: NonNull<GcBlockHeader>, generation: u16) -> Self {
+    pub(crate) fn pack(ptr: NonNull<GcBlockHeader>, generation: u16) -> Self {
         let gen16 = generation as usize;
         // strict-provenance `map_addr`: the tag lives only in never-dereferenced high bits,
         // so the result keeps `ptr`'s provenance (Miri-clean).
@@ -64,14 +64,14 @@ impl VarGcRef {
 
     #[cfg(not(target_pointer_width = "64"))]
     #[inline]
-    pub fn pack(ptr: NonNull<GcBlockHeader>, generation: u16) -> Self {
+    pub(crate) fn pack(ptr: NonNull<GcBlockHeader>, generation: u16) -> Self {
         Self { ptr, generation: generation as u32 }
     }
 
     /// The backing header pointer with the tag masked off.
     #[cfg(target_pointer_width = "64")]
     #[inline]
-    pub fn header_ptr(&self) -> NonNull<GcBlockHeader> {
+    pub(crate) fn header_ptr(&self) -> NonNull<GcBlockHeader> {
         let clean = self.0.as_ptr().map_addr(|a| a & ADDR_MASK);
         // SAFETY: masking the tag off a valid tagged pointer yields the original non-null
         // header address.
@@ -80,27 +80,27 @@ impl VarGcRef {
 
     #[cfg(not(target_pointer_width = "64"))]
     #[inline]
-    pub fn header_ptr(&self) -> NonNull<GcBlockHeader> {
+    pub(crate) fn header_ptr(&self) -> NonNull<GcBlockHeader> {
         self.ptr
     }
 
     /// The 16-bit generation snapshot (matches the header's generation while the block lives).
     #[cfg(target_pointer_width = "64")]
     #[inline]
-    pub fn gen16(&self) -> u16 {
+    pub(crate) fn gen16(&self) -> u16 {
         (self.0.as_ptr().addr() >> ADDR_BITS) as u16
     }
 
     #[cfg(not(target_pointer_width = "64"))]
     #[inline]
-    pub fn gen16(&self) -> u16 {
+    pub(crate) fn gen16(&self) -> u16 {
         self.generation as u16
     }
 
     /// The block header as a raw pointer (tag masked off, provenance kept) — for keys that must
     /// stay pointers rather than integers (strict provenance).
     #[inline]
-    pub fn header_raw(&self) -> NonNull<u8> {
+    pub(crate) fn header_raw(&self) -> NonNull<u8> {
         self.header_ptr().cast()
     }
 
@@ -200,14 +200,14 @@ impl VarGcRef {
     /// Object model R6: set the block's remembered-set bit; `true` iff this call set it (see
     /// `GcBlockHeader::try_set_remembered`).
     #[inline]
-    pub fn try_set_remembered(&self) -> bool {
+    pub(crate) fn try_set_remembered(&self) -> bool {
         // SAFETY: the caller holds a live handle; the header address is valid.
         unsafe { self.header_ptr().as_ref() }.try_set_remembered()
     }
 
     /// Object model R6: clear the block's remembered-set bit (collector, STW).
     #[inline]
-    pub fn clear_remembered(&self) {
+    pub(crate) fn clear_remembered(&self) {
         // SAFETY: the caller holds a live handle; the header address is valid.
         unsafe { self.header_ptr().as_ref() }.clear_remembered()
     }
@@ -221,7 +221,7 @@ impl VarGcRef {
 
     /// Object model R6: flag that the heap keeps side-table entries keyed by this block.
     #[inline]
-    pub fn set_side(&self) {
+    pub(crate) fn set_side(&self) {
         // SAFETY: the caller holds a live handle; the header address is valid.
         unsafe { self.header_ptr().as_ref() }.set_side()
     }
@@ -229,7 +229,7 @@ impl VarGcRef {
     /// Object model R8: record that this (unpublished) object block's payload ends in a meta
     /// word (`block::OBJ_META_BIT`).
     #[inline]
-    pub fn set_obj_meta(&self) {
+    pub(crate) fn set_obj_meta(&self) {
         // SAFETY: the caller holds a live handle; the header address is valid.
         unsafe { self.header_ptr().as_ref() }.set_obj_meta()
     }
@@ -243,7 +243,7 @@ impl VarGcRef {
 
     /// Mark this (freshly written, not yet shared) string block as all-ASCII.
     #[inline]
-    pub fn set_ascii_str(&self) {
+    pub(crate) fn set_ascii_str(&self) {
         // SAFETY: the caller holds a live handle; the header address is valid.
         unsafe { self.header_ptr().as_ref().set_ascii_str() }
     }
@@ -251,21 +251,21 @@ impl VarGcRef {
     /// The memoized `GetHashCode` of this string block, if computed before
     /// (`block.rs`'s string hash memo).
     #[inline]
-    pub fn str_hash_memo(&self) -> Option<i64> {
+    pub(crate) fn str_hash_memo(&self) -> Option<i64> {
         // SAFETY: the caller holds a live handle; the header address is valid.
         unsafe { self.header_ptr().as_ref().str_hash_memo() }
     }
 
     /// Memoize this string block's `GetHashCode` (`h != 0`).
     #[inline]
-    pub fn memo_str_hash(&self, h: u32) {
+    pub(crate) fn memo_str_hash(&self, h: u32) {
         // SAFETY: the caller holds a live handle; the header address is valid.
         unsafe { self.header_ptr().as_ref().memo_str_hash(h) }
     }
 
     /// Whether this string block was marked all-ASCII at creation.
     #[inline]
-    pub fn is_ascii_str(&self) -> bool {
+    pub(crate) fn is_ascii_str(&self) -> bool {
         // SAFETY: the caller holds a live handle; the header address is valid.
         unsafe { self.header_ptr().as_ref().is_ascii_str() }
     }
@@ -408,7 +408,7 @@ impl VarGcRef {
     }
 
     #[cfg(all(test, z42_test_facade))]
-    pub fn leak_block_for_test(payload: usize, block_type: BlockType) -> Self {
+    pub(crate) fn leak_block_for_test(payload: usize, block_type: BlockType) -> Self {
         Self::alloc_leaked(payload, block_type)
     }
 

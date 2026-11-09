@@ -205,7 +205,7 @@ impl SliceBudget {
 impl crate::gc::Heap {
     /// Whether an incremental major cycle is open (marking or sweeping).
     #[inline]
-    pub fn major_cycle_active(&self) -> bool {
+    pub(crate) fn major_cycle_active(&self) -> bool {
         self.incremental.phase.load(Ordering::Relaxed) != IDLE
     }
 
@@ -229,7 +229,7 @@ impl crate::gc::Heap {
     /// - While an incremental cycle is sweeping, a doomed value is refused: returning it would put
     ///   a handle the sweep is about to reclaim — and whose children may be gone already — into a
     ///   register. Returns `false` for exactly that case.
-    pub fn admit_resurrected(&self, v: &Value) -> bool {
+    pub(crate) fn admit_resurrected(&self, v: &Value) -> bool {
         if let Some(kind) = self.doomed_unless_marked() {
             return Self::is_marked_value(v, kind);
         }
@@ -577,21 +577,21 @@ impl Drop for crate::gc::Heap {
 impl crate::gc::Heap {
     /// Drive one slice by hand with a budget of `units` work units (tests are single-threaded, so
     /// there is no pause to take). Returns whether the cycle completed.
-    pub fn run_major_slice_for_test(&self, units: u64) -> bool {
+    pub(crate) fn run_major_slice_for_test(&self, units: u64) -> bool {
         self.run_major_slice(&mut SliceBudget::from_units(units)).finished
     }
 
     /// Finish the open cycle (if any), as `GC.Collect()` would.
-    pub fn finish_major_cycle_for_test(&self) -> bool {
+    pub(crate) fn finish_major_cycle_for_test(&self) -> bool {
         self.finish_major_cycle("test").finished
     }
 
     /// Whether the open cycle is still marking / already sweeping.
-    pub fn major_cycle_marking_for_test(&self) -> bool {
+    pub(crate) fn major_cycle_marking_for_test(&self) -> bool {
         self.incremental.phase.load(Ordering::Relaxed) == MARKING
     }
 
-    pub fn major_cycle_sweeping_for_test(&self) -> bool {
+    pub(crate) fn major_cycle_sweeping_for_test(&self) -> bool {
         self.major_cycle_sweeping()
     }
 }

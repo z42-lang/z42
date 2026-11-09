@@ -45,7 +45,7 @@ const REPOKE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1)
 /// [`check_safepoint`]), so a poke can be overwritten by a mutator that loaded the counter just
 /// before it. That is why the collector re-pokes while it waits ([`REPOKE_INTERVAL`]); a lost poke
 /// at the trip costs at most the throttle, as before, because the request itself is sticky.
-pub fn poke_safepoints(core: &VmCore) {
+pub(crate) fn poke_safepoints(core: &VmCore) {
     // SAFETY: see `VmContextPtr` — an entry is live while it is registered, and we hold the
     // registry lock for the walk. The counter is an atomic.
     for p in core.threads.vm_contexts.lock().iter() {
@@ -225,7 +225,7 @@ fn park_until_idle(ctx: &VmContext) {
 /// read by the collector without synchronization (`FrameStack::scan_parked`), so the thread
 /// must not push or pop frames until the park ends. Called by `FrameStack::push` / `pop`.
 #[inline]
-pub fn debug_assert_frame_change_not_parked() {
+pub(crate) fn debug_assert_frame_change_not_parked() {
     #[cfg(debug_assertions)]
     {
         let depth = crate::gc::to_vm::allocation_suspension_depth();

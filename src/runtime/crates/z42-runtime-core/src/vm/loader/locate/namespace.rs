@@ -66,7 +66,7 @@ pub fn resolve_dependency(
 /// `Math.PI` 编译为 `static.get @Std.Math.Math.PI`，但 namespace 提取只看 Call/
 /// Builtin → 不发现 Std.Math 依赖 → 不 lazy-load z42.math → __static_init__ 不
 /// 跑 → 字段永远 null。
-pub fn extract_import_namespaces_from_module(module: &Module) -> Vec<String> {
+pub(crate) fn extract_import_namespaces_from_module(module: &Module) -> Vec<String> {
     use crate::zpkg::ir::Instruction;
     let defined: std::collections::HashSet<&str> =
         module.functions.iter().map(|f| f.name.as_str()).collect();

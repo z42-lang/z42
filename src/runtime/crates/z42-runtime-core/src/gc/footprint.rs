@@ -48,14 +48,14 @@ impl Footprint {
     }
 
     #[inline]
-    pub fn charge(&self, bytes: u64) {
+    pub(crate) fn charge(&self, bytes: u64) {
         if bytes != 0 {
             self.committed.fetch_add(bytes, Ordering::Relaxed);
         }
     }
 
     #[inline]
-    pub fn credit(&self, bytes: u64) {
+    pub(crate) fn credit(&self, bytes: u64) {
         if bytes != 0 {
             saturating_sub(&self.committed, bytes);
         }
@@ -90,7 +90,7 @@ fn saturating_sub(a: &AtomicU64, n: u64) {
 /// mimalloc's bins (8-byte steps up to 64 B, then four classes per power of two), which is
 /// also within a few percent of the system allocators z42 runs on. `0` costs nothing.
 #[inline]
-pub fn malloc_size(n: usize) -> u64 {
+pub(crate) fn malloc_size(n: usize) -> u64 {
     if n == 0 {
         return 0;
     }

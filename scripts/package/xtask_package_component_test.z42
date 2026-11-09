@@ -28,9 +28,9 @@ int _componentCompileProbe(string root, string pkg, string profile, string outpu
     string std = _cmdOut("rustc", new string[]{ "--print", "target-libdir" });
     string cargo = _componentCargoOut(root, profile);
     string vm = Path.Join(cargo, Platform.IsWindows() ? "z42vm.exe" : "z42vm");
-    Process p = new Process(vm).Arg(_driverZpkg(root, "release")).Arg("--mode").Arg("interp").Arg("--")
+    Process p = _z42cProcMode(vm, Path.Join(pkg, "libs"), _driverZpkg(root, "release"), "interp")
         .Arg("--emit-zbc").Arg(Path.Join(root, "src/runtime/tests/data/engine_component/source.z42")).Arg(output)
-        .Env("Z42_LIBS", Path.Join(pkg, "libs")).Env("Z42_NATIVE_PATH", cargo)
+        .Env("Z42_NATIVE_PATH", cargo)
         .Env("DYLD_LIBRARY_PATH", cargo + ":" + std).Env("LD_LIBRARY_PATH", cargo + ":" + std);
     if (Platform.IsWindows()) { p = p.Env("PATH", cargo + ";" + std + ";" + Environment.GetEnvironmentVariable("PATH", "")); }
     return _exec(p);

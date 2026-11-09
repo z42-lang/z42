@@ -26,7 +26,7 @@ impl ArrRef {
     /// Type a block handle as an array. The caller knows the block is an array block whose
     /// descriptor word has been written.
     #[inline(always)]
-    pub fn from_var(v: VarGcRef) -> Self {
+    pub(crate) fn from_var(v: VarGcRef) -> Self {
         Self(v)
     }
 

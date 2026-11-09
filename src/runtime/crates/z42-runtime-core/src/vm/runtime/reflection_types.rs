@@ -61,7 +61,7 @@ impl ReflectionTypes {
     }
 
     /// The owning Type objects remain stable; only their dependent results clear.
-    pub fn invalidate_attributes(&self, heap: &Heap, id: TypeId) {
+    pub(crate) fn invalidate_attributes(&self, heap: &Heap, id: TypeId) {
         let watchers = self.attributes.lock().remove(&id).unwrap_or_default();
         for weak in watchers {
             let Some(ty @ Value::Object(object)) = heap.upgrade_weak(&weak) else {

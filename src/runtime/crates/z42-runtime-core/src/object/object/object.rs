@@ -329,7 +329,7 @@ impl ScriptObject {
     /// class / detached block does). The caller installs the type word before reading through
     /// the pointer.
     #[inline(always)]
-    pub unsafe fn from_block(header: NonNull<u8>, payload_size: usize) -> *mut ScriptObject {
+    pub(crate) unsafe fn from_block(header: NonNull<u8>, payload_size: usize) -> *mut ScriptObject {
         std::ptr::slice_from_raw_parts_mut(header.as_ptr(), payload_size) as *mut ScriptObject
     }
 
@@ -480,7 +480,7 @@ impl ScriptObject {
     ///
     /// # Safety
     /// The object is not published yet: nothing else reads its payload.
-    pub unsafe fn install_type_args_unpublished(&self, type_args: TypeArgs) {
+    pub(crate) unsafe fn install_type_args_unpublished(&self, type_args: TypeArgs) {
         if type_args.is_empty() {
             return;
         }

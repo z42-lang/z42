@@ -120,7 +120,7 @@ pub fn verify_static_field(
 ///
 /// 泛型类实例化上的静态字段，`tag` 已是代换后的实参（`Demo.Holder<int>` 上 `static T V` 的 tag 是
 /// `int`），无需在这里解析型参。
-pub fn static_zero_value(ctx: &VmContext, tag: &str) -> crate::object::Value {
+pub(crate) fn static_zero_value(ctx: &VmContext, tag: &str) -> crate::object::Value {
     use crate::object::Value;
     let prim = crate::object::default_value_for(tag);
     if !matches!(prim, Value::Null) { return prim; }

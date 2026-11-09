@@ -31,7 +31,7 @@ impl ObjRef {
     /// Type a block handle as an object. The caller knows the block is a `BlockType::Object`
     /// block whose header has been written.
     #[inline(always)]
-    pub fn from_var(v: VarGcRef) -> Self {
+    pub(crate) fn from_var(v: VarGcRef) -> Self {
         Self(v)
     }
 

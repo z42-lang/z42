@@ -115,7 +115,7 @@ impl TypeTable {
 
     /// Metadata-dependent managed caches are invalidated before publishing a
     /// replacement. The observer must not publish types or execute user code.
-    pub fn set_update_observer(&self, observer: Arc<dyn Fn(TypeId) + Send + Sync>) {
+    pub(crate) fn set_update_observer(&self, observer: Arc<dyn Fn(TypeId) + Send + Sync>) {
         *self.on_update.write() = Some(observer);
     }
 

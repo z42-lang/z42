@@ -77,7 +77,7 @@ pub fn winsock_code(errno: i32) -> Option<i32> {
     })
 }
 
-pub fn timed_out_raw() -> Option<i32> {
+pub(crate) fn timed_out_raw() -> Option<i32> {
     Some(libc::ETIMEDOUT)
 }
 

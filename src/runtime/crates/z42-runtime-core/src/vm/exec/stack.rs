@@ -85,7 +85,7 @@ pub fn snapshots(frames: &[VmFrame]) -> Vec<FrameSnapshot> {
 /// Every record and its register file must remain alive and unchanged for the
 /// call. The caller is their owner, or holds the GC pause while owners are parked.
 #[inline]
-pub unsafe fn visit_roots(frames: &[VmFrame], mut visit: impl FnMut(&Value)) {
+pub(crate) unsafe fn visit_roots(frames: &[VmFrame], mut visit: impl FnMut(&Value)) {
     for frame in frames {
         // SAFETY: the caller keeps the owning activation and read scope alive.
         for value in unsafe { &*frame.regs }.iter() {

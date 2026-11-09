@@ -57,7 +57,7 @@ impl Module {
     pub fn into_image(self) -> Arc<PackageImage> {
         self.image()
     }
-    pub fn into_parts(self) -> (ModuleData, Vec<Function>, TypeRegistry) {
+    pub(crate) fn into_parts(self) -> (ModuleData, Vec<Function>, TypeRegistry) {
         let Self {
             data,
             functions,

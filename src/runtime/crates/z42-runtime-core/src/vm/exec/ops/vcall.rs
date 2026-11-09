@@ -128,7 +128,7 @@ pub fn resolve_vcall<'a>(
 /// key, then its erased form, on the receiver's type and then on its erased generic
 /// definition (instantiations whose descriptor carries no table of its own). `None` when the
 /// type has no matching slot.
-pub fn resolve_iface_slot(
+pub(crate) fn resolve_iface_slot(
     ctx: &VmContext, module: &Module, obj_val: &Value, key: &str,
 ) -> Option<String> {
     let erased = erased_iface_slot_key(key);

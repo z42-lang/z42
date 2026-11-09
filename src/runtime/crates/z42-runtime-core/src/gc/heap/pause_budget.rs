@@ -178,7 +178,7 @@ impl PauseBudget {
     /// M9: a tenure emptied the young lists at `used` without being a sample of what a minor
     /// costs. Re-anchor the growth reading there and drop the inherited survivors, or the next
     /// real minor would price every nursery since the last observed one into its bytes-per-entry.
-    pub fn note_tenure(&self, used: u64) {
+    pub(crate) fn note_tenure(&self, used: u64) {
         self.last_post_used.store(used, Ordering::Relaxed);
         self.survivors.store(0, Ordering::Relaxed);
     }
@@ -197,13 +197,13 @@ impl PauseBudget {
     /// Whether a minor has been measured, i.e. the nursery in force is this model's (until then the
     /// heap keeps it at the default unit — `entry_unit.rs`). Always `false` while adaptation is off.
     #[inline]
-    pub fn has_sized(&self) -> bool {
+    pub(crate) fn has_sized(&self) -> bool {
         self.enabled() && self.cost_ns_per_entry.load(Ordering::Relaxed) != 0
     }
 
     /// The configured target, for diagnostics.
     #[inline]
-    pub fn target_us_for_diag(&self) -> u64 {
+    pub(crate) fn target_us_for_diag(&self) -> u64 {
         self.target_us
     }
 
@@ -214,7 +214,7 @@ impl PauseBudget {
     /// target even though the model already moved the nursery as far as it may (halving at most,
     /// never below the floor). `None` while adaptation is off or before a minor was measured.
     #[inline]
-    pub fn survivor_budget(&self, nursery: u64) -> Option<u64> {
+    pub(crate) fn survivor_budget(&self, nursery: u64) -> Option<u64> {
         let cost = self.cost_ns_per_entry.load(Ordering::Relaxed);
         let bpe = self.bytes_per_entry.load(Ordering::Relaxed);
         (self.enabled() && cost > 0 && bpe > 0)
@@ -223,19 +223,19 @@ impl PauseBudget {
 
     /// The model's current reading (ns per young entry), for diagnostics.
     #[inline]
-    pub fn cost_ns_per_entry(&self) -> u64 {
+    pub(crate) fn cost_ns_per_entry(&self) -> u64 {
         self.cost_ns_per_entry.load(Ordering::Relaxed)
     }
 
     /// The unclamped nursery the last sample asked for, for diagnostics.
     #[inline]
-    pub fn last_want(&self) -> u64 {
+    pub(crate) fn last_want(&self) -> u64 {
         self.last_want.load(Ordering::Relaxed)
     }
 
     /// The model's current size reading (bytes of allocation per young entry), for diagnostics.
     #[inline]
-    pub fn last_bpe(&self) -> u64 {
+    pub(crate) fn last_bpe(&self) -> u64 {
         self.last_bpe.load(Ordering::Relaxed)
     }
 }

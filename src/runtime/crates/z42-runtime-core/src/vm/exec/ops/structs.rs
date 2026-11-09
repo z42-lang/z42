@@ -17,7 +17,7 @@ pub fn struct_alloc_val(
 
 
 /// Use the loaded struct layout, or the existing size-only native fallback.
-pub fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc<StructTypeLayout> {
+pub(crate) fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc<StructTypeLayout> {
     if let Some(td) = ctx.try_lookup_type(type_name) {
         if let Some(layout) = td.struct_layout() {
             return layout;
@@ -167,7 +167,7 @@ pub fn resolve_field_path(ctx: &VmContext, root_type: &str, path: &[u16]) -> Res
 
 
 /// Reject a class/blob offset-space mismatch before calculating an offset.
-pub fn check_base_space(ctx: &VmContext, root_type: &str, base_val: &Value, who: &str) -> Result<()> {
+pub(crate) fn check_base_space(ctx: &VmContext, root_type: &str, base_val: &Value, who: &str) -> Result<()> {
     let root_is_struct = match ctx.try_lookup_type(root_type) {
         Some(td) => td.is_struct(),
         // 类型还没加载：路径解析那一步会给出更准确的诊断，这里不抢着报。

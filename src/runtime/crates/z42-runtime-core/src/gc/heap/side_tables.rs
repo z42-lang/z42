@@ -67,7 +67,7 @@ impl crate::gc::Heap {
     }
 
     /// Upgrade a weak object reference: `None` once the object died (see [`Self::weak_alive`]).
-    pub fn upgrade_weak_object(&self, w: &WeakObjRef) -> Option<ObjRef> {
+    pub(crate) fn upgrade_weak_object(&self, w: &WeakObjRef) -> Option<ObjRef> {
         self.weak_alive(w.obj.var_ref(), w.chunk, w.epoch).then_some(w.obj)
     }
 
@@ -78,7 +78,7 @@ impl crate::gc::Heap {
     }
 
     /// Upgrade a weak array reference: `None` once the array died.
-    pub fn upgrade_weak_array(&self, w: &WeakArrRef) -> Option<ArrRef> {
+    pub(crate) fn upgrade_weak_array(&self, w: &WeakArrRef) -> Option<ArrRef> {
         self.weak_alive(w.arr.var_ref(), w.chunk, w.epoch).then_some(w.arr)
     }
 
@@ -97,7 +97,7 @@ impl crate::gc::Heap {
     /// died, drop their soft-registry entries, and take them out of the remembered set. Every sweep tail
     /// calls it before reclaiming chunks (`reclaim_dead_chunks_and_measure`), and so do the
     /// incremental sweep slices and `finalize_now` so finalizers fire promptly.
-    pub fn process_flagged_dead(&self) {
+    pub(crate) fn process_flagged_dead(&self) {
         let dead = self.region_var.lock().take_flagged_dead();
         if dead.is_empty() {
             return;

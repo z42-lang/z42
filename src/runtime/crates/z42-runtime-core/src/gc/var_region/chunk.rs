@@ -89,7 +89,7 @@ pub fn set_loh_bytes(bytes: usize) {
 /// block is in a bump chunk, whose memory stays mapped until the region drops); `true` is
 /// conservative across threshold changes.
 #[inline]
-pub fn may_be_dedicated(payload: usize) -> bool {
+pub(crate) fn may_be_dedicated(payload: usize) -> bool {
     payload_footprint(payload) > LOH_BYTES_FLOOR.load(Ordering::Relaxed)
 }
 
@@ -99,7 +99,7 @@ pub fn may_be_dedicated(payload: usize) -> bool {
 /// mutator reads the count between safepoints, so the resume handshake already orders the bump
 /// before the read; acquire / release only keeps the pair self-describing.
 #[inline]
-pub fn dedicated_free_count() -> u64 {
+pub(crate) fn dedicated_free_count() -> u64 {
     DEDICATED_FREES.load(Ordering::Acquire)
 }
 
@@ -107,7 +107,7 @@ pub fn dedicated_free_count() -> u64 {
 /// into the process-global threshold (which would race every concurrently running test that
 /// allocates a var block).
 #[inline]
-pub fn clamp_loh_bytes(bytes: usize) -> usize {
+pub(crate) fn clamp_loh_bytes(bytes: usize) -> usize {
     bytes.clamp(MIN_BLOCK, CHUNK_BYTES)
 }
 
@@ -125,7 +125,7 @@ pub fn class_for(payload: usize) -> (usize, u8) {
 /// threshold is process-global, so a test that stored into it would race every other test
 /// allocating a var block).
 #[inline]
-pub fn class_for_with_limit(payload: usize, loh_bytes: usize) -> (usize, u8) {
+pub(crate) fn class_for_with_limit(payload: usize, loh_bytes: usize) -> (usize, u8) {
     let footprint = payload_footprint(payload);
     if footprint > loh_bytes {
         // Oversized: dedicated chunk sized to exactly hold header + payload, 16-aligned.
@@ -402,7 +402,7 @@ impl VarChunkClaim {
 
     /// True while the claim can still fit a block of `footprint` bytes.
     #[inline]
-    pub fn has_room(&self, footprint: usize) -> bool {
+    pub(crate) fn has_room(&self, footprint: usize) -> bool {
         self.off + footprint <= self.cap
     }
 }
@@ -661,7 +661,7 @@ impl VarRegion {
     /// Whether `addr` falls inside a chunk this region still owns (tests: proves nothing
     /// tracked points into memory that was handed back to the allocator).
     #[cfg(all(test, z42_test_facade))]
-    pub fn owns_addr(&self, addr: usize) -> bool {
+    pub(crate) fn owns_addr(&self, addr: usize) -> bool {
         self.chunks.iter().any(|c| {
             !c.is_freed() && {
                 let base = c.base.as_ptr() as usize;

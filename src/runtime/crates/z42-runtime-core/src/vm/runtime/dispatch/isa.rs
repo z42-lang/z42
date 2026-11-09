@@ -10,7 +10,7 @@
 /// type parameter** (`new List<T>()` inside a generic body records `"T"`) cannot be decided: it
 /// matches, which is the erased-generic answer the test had before instantiations had identity.
 #[inline(never)]
-pub fn erased_instance_matches(def: &str, inst_args: &[String], target: &str) -> Option<bool> {
+pub(crate) fn erased_instance_matches(def: &str, inst_args: &[String], target: &str) -> Option<bool> {
     let inner = target.strip_prefix(def)?.strip_prefix('<')?.strip_suffix('>')?;
     if def.contains('<') {
         return None;
@@ -44,7 +44,7 @@ pub fn array_isa(elem: &str, target: &str) -> bool {
 /// an `actual` that is (or contains, at the same position) an unsubstituted type parameter
 /// (`new T[n]` / `new Box<T>[n]` in a generic body records `T`) — the erased answer
 /// [`erased_instance_matches`] gives for the same situation.
-pub fn type_name_matches(actual: &str, target: &str) -> bool {
+pub(crate) fn type_name_matches(actual: &str, target: &str) -> bool {
     if actual == target || is_open_type_arg_name(actual) {
         return true;
     }
@@ -63,14 +63,14 @@ pub fn type_name_matches(actual: &str, target: &str) -> bool {
 }
 
 /// A whole name that is a bare type parameter (`T`): dot-free, not a keyword, no structure.
-pub fn is_open_type_arg_name(name: &str) -> bool {
+pub(crate) fn is_open_type_arg_name(name: &str) -> bool {
     !name.is_empty()
         && !name.contains(['.', '<', '[', ','])
         && !is_keyword_type_name(name)
 }
 
 /// `"a,B<c,d>,e"` → `["a", "B<c,d>", "e"]` (commas nested in `<…>` do not split).
-pub fn split_top_level_args(s: &str) -> Vec<&str> {
+pub(crate) fn split_top_level_args(s: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut depth = 0usize;
     let mut start = 0usize;
@@ -100,7 +100,7 @@ pub fn is_open_type_arg(arg: &str) -> bool {
 
 /// The keyword spellings of built-in types (`type_names::canonical_arg`) — the only dot-free
 /// names a canonical type argument can carry.
-pub fn is_keyword_type_name(t: &str) -> bool {
+pub(crate) fn is_keyword_type_name(t: &str) -> bool {
     crate::zpkg::index::type_names::builtin_keyword(t) == Some(t)
 }
 
@@ -116,7 +116,7 @@ pub fn is_keyword_type_name(t: &str) -> bool {
 ///
 /// Only the erased prefix matches — `GBox<int>` against `GBox<string>` stays false, which is the
 /// whole point of giving instantiations identity.
-pub fn erased_name_matches(full: &str, target: &str) -> bool {
+pub(crate) fn erased_name_matches(full: &str, target: &str) -> bool {
     let lt = match full.find('<') {
         Some(i) => i,
         None => return false,
@@ -147,12 +147,12 @@ pub fn erased_name_matches(full: &str, target: &str) -> bool {
 /// and interfaces of a generic *definition*. `bar is IFoo<int>` cannot be decided from that and is
 /// answered as the erased test — the only answer such a descriptor ever gave. Instantiation
 /// descriptors list their bases / interfaces instantiated, and those compare exactly.
-pub fn erased_either(a: &str, b: &str) -> bool {
+pub(crate) fn erased_either(a: &str, b: &str) -> bool {
     erased_name_matches(a, b) || erased_name_matches(b, a)
 }
 
 /// Number of top-level type arguments in `"<a,b<c,d>>"` (nested `<…>` do not count).
-pub fn top_level_arg_count(args: &str) -> usize {
+pub(crate) fn top_level_arg_count(args: &str) -> usize {
     let mut depth = 0usize;
     let mut n = 0usize;
     for ch in args.chars() {

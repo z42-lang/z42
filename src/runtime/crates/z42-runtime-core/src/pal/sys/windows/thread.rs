@@ -1,6 +1,6 @@
 pub const CAN_SPAWN: bool = true;
 pub use super::super::common::thread::current_token;
-pub fn current_thread_stack() -> Option<(usize, usize)> {
+pub(crate) fn current_thread_stack() -> Option<(usize, usize)> {
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn GetCurrentThreadStackLimits(low: *mut usize, high: *mut usize);

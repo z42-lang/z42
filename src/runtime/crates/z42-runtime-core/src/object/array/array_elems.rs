@@ -175,7 +175,7 @@ impl ArrayObj {
     }
 
     /// Reset an erased IR store of default(T). Missing source refs clear the leaves via SATB.
-    pub fn clear_struct_elem(&self, i: usize) -> anyhow::Result<()> {
+    pub(crate) fn clear_struct_elem(&self, i: usize) -> anyhow::Result<()> {
         let (cells, layout) = self.struct_cells()
             .ok_or_else(|| anyhow::anyhow!("default store on a non-struct array"))?;
         struct_blob::write(

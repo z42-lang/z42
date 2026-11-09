@@ -79,13 +79,13 @@ mod objects;
 use crate::object::header::block::{BlockType, GcBlockHeader, PayloadDropGlue};
 pub use objects::{DetachedBlock, VarMinorSweep};
 use crate::object::header::block::payload_ptr_of;
-pub use chunk::{class_for, class_for_with_limit, dedicated_free_count, may_be_dedicated, OVERSIZED_CLASS};
+pub(crate) use chunk::{class_for, class_for_with_limit, dedicated_free_count, may_be_dedicated, OVERSIZED_CLASS};
 use crate::object::header::block::{ALIVE_GEN_BIT, FIRST_GEN};
 use chunk::payload_class;
 pub use chunk::{loh_bytes, set_loh_bytes};
 pub use chunk::{VarChunkClaim, VarChunkReclaim};
 pub use holes::VarHoleStash;
-pub use holes::prefetch_write;
+pub(crate) use holes::prefetch_write;
 use crate::object::header::var_ref::VarGcRef;
 
 use chunk::{Chunk, FreeEntry, FreeSlot, NUM_CLASSES};
@@ -675,7 +675,7 @@ impl VarRegion {
     /// may credit back: `DATA_OFFSET + payload` for every kind (each allocator — strings,
     /// closures, objects, arrays — charges exactly its block's header and payload).
     #[inline]
-    pub fn alloc_charge_bytes(header: &GcBlockHeader) -> u64 {
+    pub(crate) fn alloc_charge_bytes(header: &GcBlockHeader) -> u64 {
         (GcBlockHeader::DATA_OFFSET + header.size()) as u64
     }
 
@@ -688,25 +688,25 @@ impl VarRegion {
     /// Count of chunks that currently own memory (tests / diagnostics). Slots tombstoned by
     /// `Chunk::free_in_place` are excluded — they are bookkeeping, not footprint.
     #[cfg(all(test, z42_test_facade))]
-    pub fn chunk_count(&self) -> usize {
+    pub(crate) fn chunk_count(&self) -> usize {
         self.chunks.iter().filter(|c| !c.is_freed()).count()
     }
 
     /// Number of `chunks` slots including freed tombstones (tests: proves slot reuse).
     #[cfg(all(test, z42_test_facade))]
-    pub fn chunk_slot_count(&self) -> usize {
+    pub(crate) fn chunk_slot_count(&self) -> usize {
         self.chunks.len()
     }
 
     /// The per-chunk census (tests: reconciled against a full walk of the blocks).
     #[cfg(all(test, z42_test_facade))]
-    pub fn live_per_chunk_for_test(&self) -> Vec<u32> {
+    pub(crate) fn live_per_chunk_for_test(&self) -> Vec<u32> {
         self.live_per_chunk.clone()
     }
 
     /// Every carved block, live or dead (tests: what the region still tracks).
     #[cfg(all(test, z42_test_facade))]
-    pub fn tracked_blocks_for_test(&self) -> Vec<NonNull<GcBlockHeader>> {
+    pub(crate) fn tracked_blocks_for_test(&self) -> Vec<NonNull<GcBlockHeader>> {
         let mut out = Vec::new();
         for ci in 0..self.chunks.len() {
             self.for_each_block_in(ci, |p| out.push(p));
@@ -716,7 +716,7 @@ impl VarRegion {
 
     /// Every block of the young set (tests).
     #[cfg(all(test, z42_test_facade))]
-    pub fn young_blocks_for_test(&self) -> Vec<NonNull<GcBlockHeader>> {
+    pub(crate) fn young_blocks_for_test(&self) -> Vec<NonNull<GcBlockHeader>> {
         let mut out = Vec::new();
         self.iterate_young(|h, _| out.push(h.header_ptr()));
         out
@@ -724,13 +724,13 @@ impl VarRegion {
 
     /// See [`Self::live_per_chunk_for_test`].
     #[cfg(all(test, z42_test_facade))]
-    pub fn blocks_per_chunk_for_test(&self) -> Vec<u32> {
+    pub(crate) fn blocks_per_chunk_for_test(&self) -> Vec<u32> {
         self.blocks_per_chunk.clone()
     }
 
     /// **add-gc-tlab stage 3**: reclaimed-chunk pool size (tests).
     #[cfg(all(test, z42_test_facade))]
-    pub fn free_chunk_pool_len(&self) -> usize {
+    pub(crate) fn free_chunk_pool_len(&self) -> usize {
         self.var_free_chunk_pool.len()
     }
 }

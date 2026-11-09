@@ -84,7 +84,7 @@ impl FrameStack {
 
     /// Owner only. Stamp the top frame's code offset (no-op when empty).
     #[inline]
-    pub fn set_top_pc(&self, pc: u32) {
+    pub(crate) fn set_top_pc(&self, pc: u32) {
         // SAFETY: owner-thread access.
         if let Some(top) = unsafe { &*self.frames.get() }.last() {
             top.pc.set(pc);
@@ -100,7 +100,7 @@ impl FrameStack {
 
     /// Owner only. The register file of frame `idx` (0 = outermost).
     #[inline]
-    pub fn regs_at(&self, idx: usize) -> Option<*const Vec<Value>> {
+    pub(crate) fn regs_at(&self, idx: usize) -> Option<*const Vec<Value>> {
         // SAFETY: owner-thread access; the pointer is copied out.
         unsafe { &*self.frames.get() }.get(idx).map(|f| f.regs)
     }
@@ -174,7 +174,7 @@ impl FrameStack {
 
 /// A process-unique id of the calling thread (see [`crate::pal::thread::current_token`]).
 #[inline]
-pub fn thread_token() -> usize {
+pub(crate) fn thread_token() -> usize {
     crate::pal::thread::current_token()
 }
 

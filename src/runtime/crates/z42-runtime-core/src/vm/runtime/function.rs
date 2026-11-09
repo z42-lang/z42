@@ -28,7 +28,7 @@ impl Function {
     pub fn new(definition: ir::Function) -> Self {
         Self::from_definition(Arc::new(definition))
     }
-    pub fn from_definition(definition: Arc<ir::Function>) -> Self {
+    pub(crate) fn from_definition(definition: Arc<ir::Function>) -> Self {
         Self {
             definition,
             resolved: OnceLock::new(),
@@ -45,7 +45,7 @@ impl Function {
     pub fn definition(&self) -> &ir::Function {
         &self.definition
     }
-    pub fn shared_definition(&self) -> Arc<ir::Function> {
+    pub(crate) fn shared_definition(&self) -> Arc<ir::Function> {
         if self.frame_meta.is_some() && self.branch_targets.len() == self.blocks.len() {
             return self.definition.clone();
         }
@@ -91,7 +91,7 @@ impl Function {
         self.sites.take();
     }
     /// Rebase string literals without invalidating control-flow or frame metadata.
-    pub fn remap_string_ids(&mut self, offset: u32) {
+    pub(crate) fn remap_string_ids(&mut self, offset: u32) {
         if offset == 0 {
             return;
         }
