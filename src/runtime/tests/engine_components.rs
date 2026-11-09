@@ -127,3 +127,28 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
         assert_eq!(shutdown(host), Z42HostStatus::Ok);
     }
 }
+
+#[test]
+fn dynamic_interpreter_preserves_native_pin_instructions() {
+    use z42_zpkg::{BasicBlock, FieldGetInsn, Instruction, Terminator};
+    use z42::vm::{runtime::Function, exec::call::outcome::ExecOutcome};
+    let module = z42::host::Module::new(z42_zpkg::image::ModuleData {
+        name: "PinProbe".into(), string_pool: vec!["shared-core".into()],
+        classes: vec![], func_index: Default::default(),
+    }, vec![Function::new(z42_zpkg::ir::Function {
+        name: "PinProbe.Main".into(), param_count: 0, ret_type: "i64".into(), exec_mode: ExecMode::Interp,
+        blocks: vec![BasicBlock { label: "entry".into(), instructions: vec![
+            Instruction::ConstStr { dst: 0, idx: 0 },
+            Instruction::PinPtr { dst: 1, src: 0 },
+            Instruction::FieldGet(Box::new(FieldGetInsn { dst: 2, obj: 1, field_name: "len".into() })),
+            Instruction::UnpinPtr { pinned: 1 },
+        ], terminator: Terminator::Ret { reg: Some(2) } }],
+        is_static: true, visibility: 0, method_flags: 0, min_arg: 0, params_from: 0xFF,
+        max_reg: 3, cold: None, reg_types: Box::new([]), block_index: Default::default(),
+        branch_targets: vec![], frame_meta: None,
+    })], Default::default());
+    let program = load(ExecMode::Interp, backends()).unwrap();
+    let ctx = program.context();
+    let outcome = ctx.core().exec().engines.invoke_mode(ExecMode::Interp, ctx, &module, &module.functions[0], &[]).unwrap();
+    assert!(matches!(outcome, ExecOutcome::Returned(Some(Value::I64(11)))));
+}
