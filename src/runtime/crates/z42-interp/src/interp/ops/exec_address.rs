@@ -1,0 +1,124 @@
+/// Address-load instructions (spec impl-ref-out-in-runtime) and runtime
+/// generic-default resolution.
+///
+/// Address-load: `LoadLocalAddr` / `LoadElemAddr` / `LoadFieldAddr` produce
+/// `Value::Ref` pointing at the named location. Callers emit these for
+/// `ref`/`out`/`in` arg expressions before the Call; the Ref flows through
+/// `Call.args`; callee's `Frame::get_deref` / `set_thru_ref` transparently
+/// follow it.
+///
+/// `DefaultOf` resolves `default(T)` for a generic type-parameter at runtime
+/// (D-8b-3 Phase 2).
+
+use crate::object::Value;
+use crate::object::RefKind;
+use crate::vm::context::VmContext;
+use crate::vm::exec::call::transient_arena::TransientPayload;
+use crate::vm::exec::call::type_param_env::{method_default_value, method_type_value};
+use anyhow::Result;
+
+use super::Frame;
+
+/// make-value-copy: allocate a `RefKind` into the per-context transient arena and
+/// return the `Value::Ref { idx, frame_id }` handle (payload lives in the arena, so
+/// `Value` stays `Copy`). LIFO-freed when the creating frame pops.
+fn mk_ref(ctx: &VmContext, frame_id: u32, kind: RefKind) -> Value {
+    let idx = ctx.transient_alloc(frame_id, TransientPayload::Ref(kind));
+    Value::Ref { idx, frame_id }
+}
+
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
+pub(super) fn load_local_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, slot: u32) {
+    let depth = ctx.frame_stack_depth();
+    // Current frame is the most recent push (depth - 1).
+    let frame_idx = (depth.saturating_sub(1)) as u32;
+    let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Stack { frame_idx, slot });
+    frame.set(dst, r);
+}
+
+/// `LoadElemAddr`: `ref arr[i]`. Null array → `NullReferenceException`; the index
+/// is bounds-checked here (`IndexOutOfRangeException`), same rule as `ArrayGet`.
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
+pub(super) fn load_elem_addr(
+    ctx: &VmContext, module: &crate::vm::runtime::Module, frame: &mut Frame, dst: u32, arr: u32, idx: u32,
+) -> Result<Option<Value>> {
+    match crate::objops::array::check_elem_addr(frame.get(arr)?, frame.get(idx)?) {
+        Ok((gc_ref, idx)) => {
+            let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Array { gc_ref, idx });
+            frame.set(dst, r);
+            Ok(None)
+        }
+        Err(e) => super::raise(ctx, module, e),
+    }
+}
+
+/// `LoadFieldAddr`: `ref obj.f`. Null receiver → `NullReferenceException`.
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
+pub(super) fn load_field_addr(
+    ctx: &VmContext, module: &crate::vm::runtime::Module, frame: &mut Frame, dst: u32, obj: u32, field_name: &str,
+) -> Result<Option<Value>> {
+    match crate::objops::field::check_field_addr(frame.get(obj)?, field_name) {
+        Ok(gc_ref) => {
+            let r = mk_ref(ctx, frame.frame_id(ctx), RefKind::Field {
+                gc_ref, field_name: field_name.to_string(),
+            });
+            frame.set(dst, r);
+            Ok(None)
+        }
+        Err(e) => super::raise(ctx, module, e),
+    }
+}
+
+/// add-default-generic-typeparam (D-8b-3 Phase 2): runtime
+/// resolution of `default(T)` where T is a generic type-parameter of the
+/// receiver class. Reads `frame.regs[0]` (this) → `Object → instance.type_args[idx]`,
+/// looks up the resolved tag via `default_value_for(tag)`, writes result to dst.
+/// Non-Object reg 0 / OOB index / empty type_args → graceful Null.
+/// type_args is per-instance (populated by `obj.new`), not per-TypeDesc, so
+/// `Foo<int>` and `Foo<string>` instances differ at runtime despite sharing
+/// the same TypeDesc Arc (z42 erasure with per-instance type-arg view).
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
+pub(super) fn default_of(frame: &mut Frame, dst: u32, param_index: u8) {
+    let val = match frame.get(0) {
+        Ok(Value::Object(rc)) => {
+            let borrowed = rc.borrow();
+            borrowed.type_args().get(param_index as usize)
+                .map(|tag| crate::object::default_value_for(tag))
+                .unwrap_or(Value::Null)
+        }
+        _ => Value::Null,
+    };
+    frame.set(dst, val);
+}
+
+/// add-generic-methods: materialize a **method-level** type parameter into a concrete
+/// `Std.Type`, reading `frame.method_type_args[param_index]` (set at call time from
+/// `CallInsn::method_type_args`). Feeds `typeof(T)` (result directly) and `new T()`
+/// (`__activator_create` consumes this Type). OOB/empty → placeholder constructed type
+/// named "T" (graceful, mirrors the class-level Typeof placeholder path).
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
+pub(super) fn method_type_arg(ctx: &VmContext, frame: &mut Frame, dst: u32, param_index: u8) {
+    let val = method_type_value(ctx, &frame.method_type_args, param_index as usize);
+    frame.set(dst, val);
+}
+
+/// `Typeof` (add-reflection-generic-type-definition): a `Std.Type` from the FQ type name
+/// + structured generic instantiation args.
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
+pub(super) fn type_of(ctx: &VmContext, frame: &mut Frame, insn: &crate::zpkg::ir::TypeofInsn) {
+    let v = (ctx.core().exec().object_protocol.make_constructed_type)(ctx, &insn.type_name, &insn.type_args);
+    frame.set(insn.dst, v);
+}
+
+/// add-generic-methods: method-level `default(T)` zero value — mirrors `default_of`
+/// but reads `frame.method_type_args[param_index]` instead of the receiver's instance
+/// type_args. OOB/empty → `Value::Null`.
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
+pub(super) fn method_default(frame: &mut Frame, dst: u32, param_index: u8) {
+    let val = method_default_value(&frame.method_type_args, param_index as usize);
+    frame.set(dst, val);
+}
+
+#[cfg(all(test, z42_test_facade))]
+#[path = "exec_address_tests.rs"]
+mod exec_address_tests;

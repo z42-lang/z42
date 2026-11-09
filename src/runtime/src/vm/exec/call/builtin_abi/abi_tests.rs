@@ -311,3 +311,5 @@ fn a_blocking_builtin_lets_a_collection_run_while_it_waits() {
         assert_eq!(parked(&ctx), 0, "{name}: the park is released");
     }
 }
+
+use crate::assembly::context::VmContextFactory as _;

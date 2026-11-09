@@ -9,11 +9,11 @@ use crate::object::header::obj_ref::ObjRef;
 /// What one minor collection reclaimed. `reclaimed_entries` is what the escalation heuristic
 /// needs: **the number of young blocks the sweep actually tombstoned**. Survival can only be read off that — see `collect_cycles_with_vm`.
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct MinorSweepResult {
-    pub(crate) freed_bytes: u64,
-    pub(crate) reclaimed_entries: usize,
+pub struct MinorSweepResult {
+    pub freed_bytes: u64,
+    pub reclaimed_entries: usize,
     /// Bytes this minor moved into the old generation (add-bounded-nursery).
-    pub(crate) promoted_bytes: u64,
+    pub promoted_bytes: u64,
 }
 
 impl crate::gc::Heap {
@@ -95,7 +95,7 @@ impl crate::gc::Heap {
     }
 
     /// [`Self::apply_promotion_age`] for tests that lower the line by hand.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub(crate) fn apply_promotion_age_for_test(&self, age: u8) {
         self.apply_promotion_age(age);
     }

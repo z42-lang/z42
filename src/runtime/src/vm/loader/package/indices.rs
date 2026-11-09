@@ -3,7 +3,7 @@ use crate::zpkg::ir::{BasicBlock, BranchTargets};
 use crate::zpkg::ir::reg_type::IrType;
 use crate::vm::runtime::SuperInstr;
 
-pub(crate) fn build_block_indices_with_fusion(module: &mut Module, fusion_inputs: FusionInputSource) {
+pub fn build_block_indices_with_fusion(module: &mut Module, fusion_inputs: FusionInputSource) {
     for func in &mut module.functions {
         let ready = !func.blocks.is_empty() && func.branch_targets.len() == func.blocks.len();
         func.prepare();

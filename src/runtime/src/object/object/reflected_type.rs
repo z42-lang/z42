@@ -5,7 +5,7 @@ use std::sync::{Arc, Weak};
 
 /// Stable reflection identity. The shape contains no managed object references.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum ReflectedTypeKey {
+pub enum ReflectedTypeKey {
     Definition(crate::vm::runtime::ids::tokens::TypeId),
     Symbol(Arc<str>),
     Array(Option<Arc<ReflectedTypeKey>>),
@@ -17,8 +17,8 @@ pub(crate) enum ReflectedTypeKey {
 
 #[derive(Debug)]
 pub struct ReflectedTypeShape {
-    pub(crate) definition: Option<ReflectedTypeHandle>,
-    pub(crate) key: ReflectedTypeKey,
+    pub definition: Option<ReflectedTypeHandle>,
+    pub key: ReflectedTypeKey,
 }
 
 /// Metadata ownership follows the declaration, never a same-named lookup.
@@ -35,7 +35,7 @@ enum DeclarationSource {
 }
 
 impl ReflectedTypeHandle {
-    pub(crate) fn new(owner: &Arc<TypeTable>, declaration: Arc<TypeDesc>) -> Self {
+    pub fn new(owner: &Arc<TypeTable>, declaration: Arc<TypeDesc>) -> Self {
         if owner.get(declaration.id).is_some() {
             Self {
                 source: DeclarationSource::Published {
@@ -48,20 +48,20 @@ impl ReflectedTypeHandle {
         }
     }
 
-    pub(crate) fn declaration(declaration: Arc<TypeDesc>) -> Self {
+    pub fn declaration(declaration: Arc<TypeDesc>) -> Self {
         Self {
             source: DeclarationSource::Declaration(declaration),
         }
     }
 
-    pub(crate) fn resolve(&self) -> Option<Arc<TypeDesc>> {
+    pub fn resolve(&self) -> Option<Arc<TypeDesc>> {
         match &self.source {
             DeclarationSource::Published { id, owner } => owner.upgrade()?.get_arc(*id),
             DeclarationSource::Declaration(td) => Some(td.clone()),
         }
     }
 
-    pub(crate) fn key(&self) -> ReflectedTypeKey {
+    pub fn key(&self) -> ReflectedTypeKey {
         match &self.source {
             DeclarationSource::Published { id, .. } => ReflectedTypeKey::Definition(*id),
             DeclarationSource::Declaration(td) if td.id == TypeId::UNRESOLVED => {

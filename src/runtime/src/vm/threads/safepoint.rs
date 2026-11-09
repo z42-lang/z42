@@ -124,11 +124,11 @@ pub fn check_safepoint(ctx: &VmContext) {
 /// `request_gc_pause` picks one; the rest park as mutators. The flag stays set
 /// until the winner holds the pause (P0-16: sticky — see `take_collect_request`).
 ///
-/// **inline-jit-safepoint-check **: `pub(crate)` so the JIT's
+/// **inline-jit-safepoint-check **: `pub` so the JIT's
 /// `jit_check_safepoint_slow` helper (the rare slow branch of the inlined
 /// fast path) can call it directly after resetting the throttle counter.
 #[inline(never)]
-pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
+pub fn check_safepoint_slow(ctx: &VmContext) {
     let phase = *ctx.core.threads.gc_phase.lock();
     if matches!(phase, GcPhase::Requested | GcPhase::Marking) {
         park_until_idle(ctx);
@@ -420,6 +420,6 @@ impl Drop for GcPauseGuard<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "safepoint_tests.rs"]
 mod safepoint_tests;

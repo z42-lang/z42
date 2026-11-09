@@ -17,9 +17,9 @@ use std::path::PathBuf;
 
 use z42_zpkg::reader::read_zbc;
 
-/// Project root resolved from `CARGO_MANIFEST_DIR` (= src/runtime).
+/// Project root resolved from `Z42_RUNTIME_DIR` (= src/runtime).
 fn project_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    PathBuf::from(env!("Z42_RUNTIME_DIR"))
         .parent().unwrap()        // src/
         .parent().unwrap()        // <root>/
         .to_path_buf()

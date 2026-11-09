@@ -14,21 +14,21 @@ impl Drop for ReturnRoot<'_> {
 
 /// Explicit sret calls already pass their trailing slot. An erased caller passes
 /// only the logical arguments and expects a value; other arities remain errors.
-pub(crate) fn needs_boxed_return(function: &Function, argument_count: usize) -> bool {
+pub fn needs_boxed_return(function: &Function, argument_count: usize) -> bool {
     function.method_flags & METHOD_FLAG_SRET != 0 && argument_count == function.param_count
 }
 
-pub(crate) fn has_caller_return_slot(function: &Function, argument_count: usize) -> bool {
+pub fn has_caller_return_slot(function: &Function, argument_count: usize) -> bool {
     function.method_flags & METHOD_FLAG_SRET == 0 && function.params_from == 0xFF
         && argument_count == function.param_count + 1
 }
 
-pub(crate) fn has_declared_boxed_argument(function: &Function, index: usize, value: &Value) -> bool {
+pub fn has_declared_boxed_argument(function: &Function, index: usize, value: &Value) -> bool {
     matches!(value, Value::BoxedStruct(_))
         && function.param_types().get(index).is_some_and(|name| name != "?")
 }
 
-pub(crate) fn invoke(
+pub fn invoke(
     ctx: &VmContext, module: &Module, function: &Function, id: usize,
     frame_id: u32, mut arguments: Vec<Value>,
 ) -> Result<ExecOutcome> {

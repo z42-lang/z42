@@ -44,13 +44,13 @@ fn registered_engine_preserves_typed_throw_channel_and_frame_exit() {
 
 #[test]
 fn absent_registered_backend_is_an_explicit_error() {
-    let m = module(false); let ctx = VmContext::new(); let registry = EngineRegistry::new(None, None);
+    let m = module(false); let ctx = VmContext::new(); let registry = EngineRegistry::new(None);
     assert!(registry.invoke(&ctx, &m, &m.functions[0], CallArgs::Values(&[]), &[])
         .unwrap_err().to_string().contains("no baseline engine"));
     assert!(registry.run(ExecMode::Interp, &ctx, &m, &m.functions[0])
         .unwrap_err().to_string().contains("no baseline engine"));
     assert!(registry.run(ExecMode::Jit, &ctx, &m, &m.functions[0])
-        .unwrap_err().to_string().contains("without the `jit` feature"));
+        .unwrap_err().to_string().contains("JIT backend unavailable"));
     assert!(registry.run(ExecMode::Aot, &ctx, &m, &m.functions[0])
         .unwrap_err().to_string().contains("not implemented"));
 }
@@ -67,7 +67,7 @@ impl TierBackend for ProbeTier {
 
 #[test]
 fn tier_registry_race_publishes_one_owner_and_reclaims_losers() {
-    let registry = Arc::new(EngineRegistry::new(None, None));
+    let registry = Arc::new(EngineRegistry::new(None));
     let barrier = Arc::new(Barrier::new(8)); let dropped = Arc::new(AtomicUsize::new(0));
     let threads: Vec<_> = (0..8).map(|id| {
         let registry = registry.clone(); let barrier = barrier.clone(); let dropped = dropped.clone();
@@ -123,3 +123,5 @@ fn neutral_tier_pointer_preserves_compiled_context_head_layout() {
     #[cfg(feature = "jit")]
     assert_eq!(std::mem::offset_of!(JitHead, jit), std::mem::offset_of!(ExpectedHead, jit));
 }
+
+use crate::assembly::context::VmContextFactory as _;

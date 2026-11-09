@@ -19,7 +19,7 @@
 | agent 工程（app.zpkg） | `agent/z42.testagent.z42.toml` |
 | 单模块执行逻辑（发现/执行/报告） | `Std.Harness.Runner.RunModule`（`src/libraries/z42.harness`）|
 | **bundle 执行逻辑（golden 隔离 + unit 共享 + 聚合）** | `Std.Harness.BundleRunner.RunBundle`（`src/libraries/z42.harness`）——**agent 与 z42b 共用一份核** |
-| 嵌入入口（load app.zpkg + 跑） | `z42-host::run_app` → `z42::host::run_app`（`src/runtime`） |
+| 嵌入入口（load app.zpkg + 跑） | `z42::host::rust::run_app` → `z42::host::run_app`（`src/runtime`） |
 
 ## 基础用法
 

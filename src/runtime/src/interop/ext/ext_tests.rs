@@ -69,3 +69,5 @@ fn a_library_is_looked_for_once_per_vm() {
     }
     assert!(!ensure_lib_for(&ctx, "__zstd_compress").unwrap(), "second miss for the same library must not retry");
 }
+
+use crate::assembly::context::VmContextFactory as _;

@@ -412,6 +412,17 @@ jobs:
           # --verify：在这份 SDK 上跑 packages.toml 自检 + 发行包夹具 + golden（每条腿都必须跑到）。
           xtask package sdk --no-build --archive --label nightly --verify
 
+      - name: Relocated dynamic execution components + C host
+        if: needs.changes.outputs.platform_package == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y gdb
+          fi
+          xtask package runtime --linkage dynamic --profile debug --no-build --verify
+
       - name: Package host runtime and workloads
         if: needs.changes.outputs.platform_package == 'true'
         shell: bash
@@ -896,7 +907,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if cargo tree --locked --manifest-path src/runtime/Cargo.toml \
+          if cargo tree --locked -p z42 --manifest-path src/runtime/Cargo.toml \
              --no-default-features --features interp-only 2>&1 | grep -q "cranelift"; then
             echo "ERROR: cranelift still present in interp-only build" >&2
             exit 1

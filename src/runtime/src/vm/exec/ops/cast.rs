@@ -174,7 +174,7 @@ fn integer_as_enum_isa(
 /// An **unboxed** value struct (`StructRef` — a `T`-typed value in a generic body, a struct that
 /// reached an `object` slot unboxed) against a target: its precise type comes from the arena slot,
 /// the rest of the answer from that type's descriptor (interfaces, `Std.Object`).
-pub(crate) fn struct_ref_isa(
+pub fn struct_ref_isa(
     ctx: &VmContext,
     registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::object::TypeDesc>>,
     idx: u32, frame_id: u32, class_name: &str,
@@ -332,6 +332,6 @@ fn iface_reaches_td(
 }
 
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "cast_tests.rs"]
 mod cast_tests;

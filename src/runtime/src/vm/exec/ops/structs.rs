@@ -7,7 +7,7 @@ use anyhow::Result;
 use std::sync::Arc;
 
 /// Allocate a zeroed struct blob stamped with the current activation id.
-pub(crate) fn struct_alloc_val(
+pub fn struct_alloc_val(
     ctx: &VmContext, frame_id: u32, type_name: &str, size: u32,
 ) -> Value {
     let layout = resolve_layout(ctx, type_name, size);
@@ -34,7 +34,7 @@ pub(crate) fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc
 
 
 /// Copy the boxed struct into independent current-frame arena storage.
-pub(crate) fn unbox_struct(
+pub fn unbox_struct(
     ctx: &VmContext, frame_id: u32, gc: &crate::object::ObjRef,
 ) -> Result<Value> {
     // add-boxed-struct-identity (P4b, 路 B2): the box is a shared struct-typed
@@ -55,7 +55,7 @@ pub(crate) fn unbox_struct(
 
 
 /// Snapshot a struct array element into current-frame storage by value.
-pub(crate) fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::StructArrayElem) -> Result<Value> {
+pub fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::StructArrayElem) -> Result<Value> {
     let (src_bytes, src_refs, layout, tname) = crate::objops::struct_leaf::snapshot_elem(e)?;
     let idx = ctx.struct_alloc(frame_id, tname, layout);
     ctx.exec.struct_arena.lock().with_mut(idx, frame_id, |s| {
@@ -69,7 +69,7 @@ pub(crate) fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::Struct
 
 
 /// Copy between existing arena blobs with their original frame-id checks.
-pub(crate) fn struct_copy_val(
+pub fn struct_copy_val(
     ctx: &VmContext, dst_val: &Value, src_val: &Value, size: u32,
 ) -> Result<()> {
     let (d_idx, d_fid) = as_struct_ref(dst_val, "StructCopy dst")?;
@@ -108,7 +108,7 @@ fn qualify_field_type(ctx: &VmContext, tag: &str, owner_fq: &str) -> Option<std:
 
 
 /// Resolve field indices against the root layout; later levels are inline structs.
-pub(crate) fn resolve_field_path(ctx: &VmContext, root_type: &str, path: &[u16]) -> Result<u32> {
+pub fn resolve_field_path(ctx: &VmContext, root_type: &str, path: &[u16]) -> Result<u32> {
     debug_assert!(!path.is_empty(), "decoder rejects depth 0");
     let mut off: u32 = 0;
     let mut cur: std::sync::Arc<str> = root_type.into();
@@ -199,7 +199,7 @@ pub(crate) fn check_base_space(ctx: &VmContext, root_type: &str, base_val: &Valu
 
 /// Check the numbering space before resolving; diagnostic order is semantic.
 #[inline]
-pub(crate) fn resolve_for_access(
+pub fn resolve_for_access(
     ctx: &VmContext, root_type: &str, path: &[u16], base_val: &Value, who: &str,
 ) -> Result<u32> {
     check_base_space(ctx, root_type, base_val, who)?;

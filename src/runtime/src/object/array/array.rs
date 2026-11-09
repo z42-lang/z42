@@ -101,21 +101,21 @@ const MODE_MASK: usize = 15;
 
 /// Array header fields and mode encoding used by native array reads.
 #[cfg(all(feature = "jit", target_pointer_width = "64"))]
-pub(crate) mod jit_layout {
+pub mod jit_layout {
     use super::{ArrayMode, MODE_MASK};
     use crate::object::header;
 
-    pub(crate) const HANDLE_ADDR_MASK: u64 = header::HANDLE_ADDR_MASK;
-    pub(crate) const HANDLE_GEN_SHIFT: u32 = header::ADDR_BITS;
-    pub(crate) const GEN_OFFSET: i32 = std::mem::offset_of!(header::GcWord, generation) as i32;
-    pub(crate) const SIZE_OFFSET: i32 = header::HEADER_SIZE_OFFSET as i32;
-    pub(crate) const DATA_OFFSET: i64 = header::GcBlockHeader::DATA_OFFSET as i64;
-    pub(crate) const KIND_OFFSET: i32 = header::KIND_WORD_OFFSET as i32;
-    pub(crate) const MODE_MASK_BITS: i64 = MODE_MASK as i64;
-    pub(crate) const STRUCT_MODE: i64 = ArrayMode::Struct as i64;
+    pub const HANDLE_ADDR_MASK: u64 = header::HANDLE_ADDR_MASK;
+    pub const HANDLE_GEN_SHIFT: u32 = header::ADDR_BITS;
+    pub const GEN_OFFSET: i32 = std::mem::offset_of!(header::GcWord, generation) as i32;
+    pub const SIZE_OFFSET: i32 = header::HEADER_SIZE_OFFSET as i32;
+    pub const DATA_OFFSET: i64 = header::GcBlockHeader::DATA_OFFSET as i64;
+    pub const KIND_OFFSET: i32 = header::KIND_WORD_OFFSET as i32;
+    pub const MODE_MASK_BITS: i64 = MODE_MASK as i64;
+    pub const STRUCT_MODE: i64 = ArrayMode::Struct as i64;
 
     // One nibble per mode, using the same width calculation as ArrayObj::len.
-    pub(crate) const PACKED_SHIFTS: i64 = {
+    pub const PACKED_SHIFTS: i64 = {
         let modes = [
             ArrayMode::Bool, ArrayMode::Bytes, ArrayMode::I32, ArrayMode::I64,
             ArrayMode::Chars, ArrayMode::F64, ArrayMode::Ref, ArrayMode::Mixed,
@@ -277,7 +277,7 @@ impl ArrayObj {
     /// # Safety
     /// `header` heads a zeroed block (whole-block provenance) of exactly `payload` bytes nothing
     /// else can reach yet, whose kind word is null; `payload` is `desc.payload_bytes(len, layout)`.
-    pub(crate) unsafe fn install<'a>(
+    pub unsafe fn install<'a>(
         header: NonNull<u8>, payload: usize, desc: &'static ArrayDesc, layout: Option<Arc<StructTypeLayout>>,
     ) -> &'a ArrayObj {
         // SAFETY: per the contract; place projections on the raw pointer — no reference to the
@@ -511,7 +511,7 @@ impl ArrayObj {
     }
 
     /// A packed byte array assembled directly from immutable UTF-8 fragments.
-    pub(crate) fn alloc_byte_str_parts(heap: &Heap, len: usize, parts: &[Str]) -> Value {
+    pub fn alloc_byte_str_parts(heap: &Heap, len: usize, parts: &[Str]) -> Value {
         let desc = ElemType::byte().array_desc(ArrayMode::Bytes, 0);
         Self::alloc(heap, desc, len, None, &mut |array| {
             let dst = array.elems_ptr();
@@ -690,11 +690,11 @@ impl ElemKind {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 impl ArrayObj {
     /// Test-only: a MIXED array in a **leaked** block that no region knows (never marked, swept
     /// or freed) — for heap-less unit tests.
-    pub(crate) fn leaked(elems: Vec<Value>) -> ArrRef {
+    pub fn leaked(elems: Vec<Value>) -> ArrRef {
         let desc = ElemType::empty().array_desc(ArrayMode::Mixed, 0);
         let a = Self::leaked_block(desc, elems.len(), None);
         for (i, v) in elems.into_iter().enumerate() { a.borrow().set_boxed(i, v); }
@@ -703,7 +703,7 @@ impl ArrayObj {
 
     /// Test-only: a zeroed `struct[]` in a **leaked** block (elements written via
     /// `write_struct_elem`).
-    pub(crate) fn struct_leaked(element_type: &str, len: usize, layout: Arc<StructTypeLayout>) -> ArrRef {
+    pub fn struct_leaked(element_type: &str, len: usize, layout: Arc<StructTypeLayout>) -> ArrRef {
         let desc = ElemType::intern(element_type).array_desc(ArrayMode::Struct, 0);
         Self::leaked_block(desc, len, Some(layout))
     }

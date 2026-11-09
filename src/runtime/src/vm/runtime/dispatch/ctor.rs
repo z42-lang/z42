@@ -8,7 +8,7 @@ use crate::vm::runtime::dispatch::ic::ObjNewSite;
 /// The site cache to use for `module`: `site` when `module` is the VM's entry module (the
 /// id space `ctor` is stored in), else `None` (resolve by name, cache nothing).
 #[inline]
-pub(crate) fn site_for<'s>(
+pub fn site_for<'s>(
     funcs: &FuncTable, module: &Module, site: Option<&'s ObjNewSite>,
 ) -> Option<&'s ObjNewSite> {
     site.filter(|_| funcs.is_entry(module))
@@ -21,7 +21,7 @@ pub(crate) fn site_for<'s>(
 /// time), so this is a pointer pick: every instance of an instantiation shares one entry.
 /// Both engines hand the result to `ScriptObject::install_type_args` before the ctor runs.
 #[inline]
-pub(crate) fn instance_type_args(
+pub fn instance_type_args(
     site_args: crate::object::TypeArgs, class: &TypeDesc,
 ) -> crate::object::TypeArgs {
     if site_args.is_empty() { class.type_args_handle() } else { site_args }

@@ -10,8 +10,8 @@ use jsonschema::{Draft, Validator};
 use serde_json::Value;
 
 fn project_root() -> PathBuf {
-    // CARGO_MANIFEST_DIR points at src/runtime/; project root is two up.
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    // Z42_RUNTIME_DIR points at src/runtime/; project root is two up.
+    PathBuf::from(env!("Z42_RUNTIME_DIR"))
         .parent()
         .and_then(|p| p.parent())
         .expect("project root resolves above src/runtime/")
@@ -30,7 +30,7 @@ fn load_schema() -> Validator {
 }
 
 fn load_data(name: &str) -> Value {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let path = PathBuf::from(env!("Z42_RUNTIME_DIR"))
         .join("tests/data")
         .join(name);
     let raw = fs::read_to_string(&path)

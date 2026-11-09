@@ -18,7 +18,7 @@ use crate::vm::context::VmContext;
 /// 走到这里 —— 判定在此抛，且**不写回**（写回就等于把错的绑定缓存下来）。判定先于 cctor 屏障
 /// （fix-crosspkg-static-call-cctor 的顺序）：签名对不上的调用本身非法，不应触发类型初始化。
 #[inline(never)]
-pub(crate) fn bind_callee<'a>(
+pub fn bind_callee<'a>(
     ctx: &'a VmContext, module: &'a Module, fname: &str, argc: usize,
     method_token: Option<&std::sync::atomic::AtomicU32>,
     holder: &'a mut Option<Arc<Function>>,
@@ -60,7 +60,7 @@ pub(crate) fn bind_callee<'a>(
 /// (`ResolvedTokens::fn_ref_tokens`) when bound — one relaxed load, no hashing — else
 /// [`bind_fn_ref`]. `Err` carries the exception to throw.
 #[inline]
-pub(crate) fn fn_ref_id(
+pub fn fn_ref_id(
     ctx: &VmContext, module: &Module, name: &str, token: Option<&std::sync::atomic::AtomicU32>,
 ) -> Result<FnId, Value> {
     if let Some(t) = token {
@@ -85,7 +85,7 @@ pub(crate) fn fn_ref_id(
 /// `module` is the `FuncTable`'s entry module (every production run); against any
 /// other module (unit tests on a bare `VmContext`) it throws instead.
 #[inline(never)]
-pub(crate) fn bind_fn_ref(
+pub fn bind_fn_ref(
     ctx: &VmContext, module: &Module, name: &str, token: Option<&std::sync::atomic::AtomicU32>,
 ) -> Result<FnId, Value> {
     let id = match module.func_index.get(name) {

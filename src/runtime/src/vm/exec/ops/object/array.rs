@@ -269,7 +269,7 @@ pub fn class_type_param_array_args(
 }
 
 /// Resolve a method-level array element from the current activation's arguments.
-pub(crate) fn method_type_param_array_args(
+pub fn method_type_param_array_args(
     args: &[String], index: usize,
 ) -> (Option<TypeParamElem>, Option<ElemType>) {
     let Some(name) = args.get(index) else { return (None, None) };

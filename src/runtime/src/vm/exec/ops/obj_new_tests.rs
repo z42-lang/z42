@@ -267,3 +267,5 @@ fn resolver_prefills_registered_class_and_ctor() {
     assert!(Arc::ptr_eq(r.obj_new[0].class.get().expect("prefilled"), &td));
     assert_eq!(r.obj_new[0].ctor.load(Ordering::Relaxed), f.id.get().unwrap().0);
 }
+
+use crate::assembly::context::VmContextFactory as _;

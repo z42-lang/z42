@@ -28,7 +28,7 @@ src/toolchain/devtools/core/*.z42  →  z42.devtools.zpkg  →  apphost z42d
 
 ## 编辑器集成（`vscode/` + `z42d install`）
 
-[`vscode/`](vscode/) 是 **VSCode 编辑器资产包**：声明式 TextMate 语法高亮 +
+[`vscode/`](vscode) 是 **VSCode 编辑器资产包**：声明式 TextMate 语法高亮 +
 language-configuration，**无 `main`、无需编译**。
 
 **两条安装路，服务不同的人，落点故意不同、互不覆盖：**

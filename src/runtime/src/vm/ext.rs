@@ -3,18 +3,18 @@ use std::any::{Any, TypeId};
 use anyhow::{bail, Result};
 use rustc_hash::FxHashMap;
 
-/// Per-VM extension registrations, consumed by [`crate::vm::context::VmContext::with_extensions`].
+/// Per-VM extension registrations, frozen and injected by the host assembly.
 ///
 /// Each Rust type may be registered once. Use distinct newtypes for distinct services.
 /// The VM does not scan this storage for managed values; their roots must be managed
 /// explicitly while the VM is alive.
 ///
 /// ```
-/// use z42::{pal::fs::default_vfs, vm::ext::VmExtensions, vm::context::VmContext};
+/// use z42_runtime::vm::ext::VmExtensions;
 /// let mut extensions = VmExtensions::new();
 /// extensions.register(String::from("tenant"))?;
-/// let ctx = VmContext::with_extensions(None, default_vfs(), extensions);
-/// assert_eq!(ctx.ext::<String>().map(String::as_str), Some("tenant"));
+/// let state = extensions.freeze();
+/// assert_eq!(state.get::<String>().map(String::as_str), Some("tenant"));
 /// # Ok::<(), anyhow::Error>(())
 /// ```
 #[derive(Default)]
@@ -39,7 +39,7 @@ impl VmExtensions {
 
     /// Default provider types are private to their owner and must not collide with callers.
     /// Providers are prefixed so user state is released before the services it can use.
-    pub(crate) fn with_defaults(mut self, mut defaults: Self) -> Self {
+    pub fn with_defaults(mut self, mut defaults: Self) -> Self {
         assert!(self.state.indices.keys().all(|key| !defaults.state.indices.contains_key(key)),
             "default VM extension type was registered by a caller");
         let offset = defaults.state.values.len();
@@ -50,19 +50,19 @@ impl VmExtensions {
         defaults
     }
 
-    pub(crate) fn freeze(self) -> ExtensionState { self.state }
+    pub fn freeze(self) -> ExtensionState { self.state }
 }
 
 /// Only the pre-creation registrations can modify the index or move state owners.
 /// All contexts borrow this same immutable storage through their shared core.
 #[derive(Default)]
-pub(crate) struct ExtensionState {
+pub struct ExtensionState {
     indices: FxHashMap<TypeId, usize>,
     values: Vec<Box<dyn Any + Send + Sync>>,
 }
 
 impl ExtensionState {
-    pub(crate) fn get<T: Any + Send + Sync>(&self) -> Option<&T> {
+    pub fn get<T: Any + Send + Sync>(&self) -> Option<&T> {
         self.indices.get(&TypeId::of::<T>())
             .and_then(|&index| self.values[index].downcast_ref())
     }
@@ -75,6 +75,9 @@ impl Drop for ExtensionState {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "ext_tests.rs"]
 mod ext_tests;
+
+#[cfg(all(test, z42_test_facade))]
+use crate::assembly::context::VmContextFactory as _;

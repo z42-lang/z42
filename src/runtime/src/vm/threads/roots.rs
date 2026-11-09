@@ -4,7 +4,7 @@ use crate::object::Value;
 use crate::vm::context::{VmContext, VmCore};
 use std::sync::Weak;
 
-pub(crate) struct CoreRoots(pub Weak<VmCore>);
+pub struct CoreRoots(pub Weak<VmCore>);
 impl GcRoots for CoreRoots {
     unsafe fn visit_roots(&self, visit: &mut dyn FnMut(&Value)) {
         if let Some(core) = self.0.upgrade() {
@@ -72,3 +72,6 @@ fn scan_roots(c: &VmCore, visit: &mut dyn FnMut(&Value)) {
         ctx.exec.transient_arena.lock().scan_roots(visit);
     }
 }
+
+#[cfg(all(test, z42_test_facade))]
+use crate::assembly::context::VmContextFactory as _;

@@ -30,7 +30,7 @@ const SLOT_BITS: u32 = SLOTS.trailing_zeros();
 const VERDICT_BIT: u64 = 1 << 31;
 const EMPTY: u64 = u64::MAX;
 
-pub(crate) struct IsaCache {
+pub struct IsaCache {
     /// Allocated on the first `put` (8 KiB): a `VmContext` that never runs a type test —
     /// worker / embedding / test contexts — pays nothing and keeps `VmContext::new()`'s
     /// allocation profile unchanged.
@@ -51,7 +51,7 @@ pub(crate) fn pair_key(recv: u32, target: u32) -> u64 {
 }
 
 impl IsaCache {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self { slots: std::sync::OnceLock::new() }
     }
 
@@ -61,13 +61,13 @@ impl IsaCache {
 
     /// Multiplicative hash of the packed pair; the top bits pick the slot.
     #[inline]
-    pub(crate) fn index(key: u64) -> usize {
+    pub fn index(key: u64) -> usize {
         (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - SLOT_BITS)) as usize
     }
 
     /// Cached verdict for (`recv`, `target`), if this exact pair was installed.
     #[inline]
-    pub(crate) fn get(&self, recv: u32, target: u32) -> Option<bool> {
+    pub fn get(&self, recv: u32, target: u32) -> Option<bool> {
         let slots = self.slots.get()?;
         let key = pair_key(recv, target);
         let w = slots[Self::index(key)].load(Relaxed);
@@ -77,14 +77,14 @@ impl IsaCache {
 
     /// Install (overwrite on collision).
     #[inline]
-    pub(crate) fn put(&self, recv: u32, target: u32, verdict: bool) {
+    pub fn put(&self, recv: u32, target: u32, verdict: bool) {
         let slots = self.slots.get_or_init(Self::alloc_slots);
         let key = pair_key(recv, target);
         slots[Self::index(key)].store(key | if verdict { VERDICT_BIT } else { 0 }, Relaxed);
     }
 
     /// Forget everything (explicit module reload may redefine a type).
-    pub(crate) fn clear(&self) {
+    pub fn clear(&self) {
         if let Some(slots) = self.slots.get() {
             for s in slots.iter() {
                 s.store(EMPTY, Relaxed);
@@ -92,3 +92,6 @@ impl IsaCache {
         }
     }
 }
+
+#[cfg(all(test, z42_test_facade))]
+use crate::assembly::context::VmContextFactory as _;

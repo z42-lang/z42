@@ -214,7 +214,7 @@ impl From<crate::objops::OpError> for BuiltinError {
 }
 
 /// What the engine does with a failed builtin call.
-pub(crate) enum Raised {
+pub enum Raised {
     /// Throw this z42 exception (its `StackTrace` is already filled).
     Throw(Value),
     /// A fatal VM error is unwinding: no z42 handler may run (`stack_guard`).
@@ -234,7 +234,7 @@ pub(crate) enum Raised {
 /// wrapper's row.
 #[cold]
 #[inline(never)]
-pub(crate) fn raise(
+pub fn raise(
     ctx: &VmContext, module: &Module, builtin: &str, e: BuiltinError, extra_rows: &[FrameSnapshot],
 ) -> Raised {
     if let Some(thrown) = ctx.take_pending_thrown() {

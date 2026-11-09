@@ -9,14 +9,14 @@ use crate::gc::var_region::chunk::{class_for, CHUNK_ALIGN};
 
 /// Mask isolating the 48-bit header address from a tagged handle (64-bit targets).
 #[cfg(target_pointer_width = "64")]
-pub(crate) const ADDR_BITS: u32 = 48;
+pub const ADDR_BITS: u32 = 48;
 #[cfg(target_pointer_width = "64")]
 const ADDR_MASK: usize = (1usize << ADDR_BITS) - 1;
 
 /// [`ADDR_MASK`] for native code: AND a handle's bits with it to get the
 /// [`GcBlockHeader`] address (JIT string intrinsics, `object::string::vstr::jit_layout`).
 #[cfg(all(feature = "jit", target_pointer_width = "64"))]
-pub(crate) const HANDLE_ADDR_MASK: u64 = ADDR_MASK as u64;
+pub const HANDLE_ADDR_MASK: u64 = ADDR_MASK as u64;
 
 /// An 8-byte, type-erased handle to a variable-length GC block. The low 48 bits are the
 /// [`GcBlockHeader`] address, the high 16 bits the block's generation (the header's whole
@@ -153,7 +153,7 @@ impl VarGcRef {
     /// generation with release ordering pairs with the walkers' acquire load (`is_alive`).
     /// Bump-filled and locked-path blocks are born alive, so for them this is one load.
     #[inline]
-    pub(crate) fn publish(&self) {
+    pub fn publish(&self) {
         // SAFETY: the caller just allocated this block and holds its only handle.
         let h = unsafe { self.header_ptr().as_ref() };
         if h.generation.load(std::sync::atomic::Ordering::Relaxed) != self.gen16() {
@@ -213,8 +213,8 @@ impl VarGcRef {
     }
 
     /// Object model R6: whether the block's remembered-set bit is set.
-    #[cfg(test)]
-    pub(crate) fn is_remembered(&self) -> bool {
+    #[cfg(all(test, z42_test_facade))]
+    pub fn is_remembered(&self) -> bool {
         // SAFETY: the caller holds a live handle; the header address is valid.
         unsafe { self.header_ptr().as_ref() }.is_remembered()
     }
@@ -407,13 +407,13 @@ impl VarGcRef {
         VarGcRef::pack(header, FIRST_GEN)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub(crate) fn leak_block_for_test(payload: usize, block_type: BlockType) -> Self {
         Self::alloc_leaked(payload, block_type)
     }
 
-    #[cfg(test)]
-    pub(crate) fn leak_for_test<T>(value: T, block_type: BlockType) -> Self {
+    #[cfg(all(test, z42_test_facade))]
+    pub fn leak_for_test<T>(value: T, block_type: BlockType) -> Self {
         let payload = std::mem::size_of::<T>();
         let (footprint, _) = class_for(payload);
         let layout = Layout::from_size_align(footprint, CHUNK_ALIGN).expect("leak layout");

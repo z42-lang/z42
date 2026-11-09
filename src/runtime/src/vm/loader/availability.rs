@@ -34,6 +34,7 @@ use crate::vm::runtime::Module;
 use crate::vm::loader::locate::namespace_index::ZpkgCandidate;
 use super::{fusion_inputs::FusionInputSource, package::load_artifact_with_fusion};
 
+#[cfg(all(test, z42_test_facade))]
 pub use crate::assembly::loader::fold_availability;
 use std::collections::HashSet;
 
@@ -67,7 +68,7 @@ impl AvailabilityStats {
     pub fn is_noop(&self) -> bool { self.folded == 0 && self.blocks_removed == 0 }
 }
 
-pub(crate) fn fold_availability_with_fusion(
+pub fn fold_availability_with_fusion(
     fs: &dyn crate::pal::fs::Vfs,
     module: &mut Module,
     declared: &[(String, ZpkgCandidate)],
@@ -300,7 +301,7 @@ fn remove_unreachable_blocks(module: &mut Module, fi: usize) -> usize {
     nblocks - keep
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod tests {
     use super::*;
 

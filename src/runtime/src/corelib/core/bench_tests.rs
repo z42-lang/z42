@@ -36,3 +36,5 @@ fn now_ns_arity_mismatch_raises() {
     let msg = format!("{err:#}");
     assert!(msg.contains("expects 0") || msg.contains("argument"), "实际消息：{msg}");
 }
+
+use crate::assembly::context::VmContextFactory as _;

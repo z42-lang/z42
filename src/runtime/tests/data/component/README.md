@@ -2,7 +2,7 @@
 
 ## 职责
 
-仅依赖 z42-component-api 的真实 cdylib，验证组件不包含运行时实现。相同源码也作为测试模块静态链接，比较两种注册路径。
+A real cdylib using only z42-runtime::components::api. It owns fixture state and uses runtime service callbacks; it never creates a VM or accesses heap/thread state. The same source also supplies static registration tests.
 
 ## 功能索引
 

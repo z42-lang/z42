@@ -8,6 +8,8 @@ pub struct VmCore {
     /// Instances stop before heap/engine teardown; their library leases outlive callbacks.
     pub(crate) components: std::sync::OnceLock<crate::vm::components::VmComponents>,
     pub(crate) threads: crate::vm::threads::ThreadState,
+    /// Shared execution state, including engine registrations and backend code lifetime.
+    pub(crate) exec: crate::vm::exec::ExecState,
     /// Owned heap. Its root providers keep Weak<VmCore> to avoid ownership cycles.
     /// Metadata and interop providers remain alive until after heap teardown.
     pub(crate) heap:               Box<Heap>,
@@ -15,10 +17,8 @@ pub struct VmCore {
     pub(crate) loader: crate::vm::loader::LoaderState,
 
     /// Observation state shared by this VM; per-thread counters stay on each context.
-    pub diagnostics: crate::vm::diagnostics::DiagnosticsState,
+    pub(crate) diagnostics: crate::vm::diagnostics::DiagnosticsState,
 
-    /// Shared execution state, including engine registrations and backend code lifetime.
-    pub(crate) exec: crate::vm::exec::ExecState,
     /// Released after the heap and engines so extension-owned resources outlive them.
     pub(crate) ext_state: crate::vm::ext::ExtensionState,
 }
@@ -47,3 +47,21 @@ pub const VM_CONTEXT_STACK_LIMIT_OFFSET: usize =
 /// Registry pointer read by inline string intrinsics' package-init gate.
 pub const VM_CONTEXT_CCTORS_OFFSET: usize =
     std::mem::offset_of!(VmContext, exec.jit_head.cctors);
+
+impl VmContext {
+    #[inline] pub fn core(&self) -> &Arc<VmCore> { &self.core }
+    #[inline] pub fn exec(&self) -> &crate::vm::exec::ThreadExecState { &self.exec }
+    #[inline] pub fn diagnostics(&self) -> &crate::vm::diagnostics::ThreadDiagnosticsState { &self.diagnostics }
+    #[inline] pub fn runtime(&self) -> &crate::vm::runtime::ThreadRuntimeState { &self.runtime }
+    #[inline] pub fn threads(&self) -> &crate::vm::threads::ThreadLocalState { &self.threads }
+}
+impl VmCore {
+    #[inline] pub fn components(&self) -> &std::sync::OnceLock<crate::vm::components::VmComponents> { &self.components }
+    #[inline] pub fn exec(&self) -> &crate::vm::exec::ExecState { &self.exec }
+    #[inline] pub fn heap(&self) -> &Heap { &self.heap }
+    #[inline] pub fn runtime(&self) -> &crate::vm::runtime::RuntimeState { &self.runtime }
+    #[inline] pub fn diagnostics(&self) -> &crate::vm::diagnostics::DiagnosticsState { &self.diagnostics }
+    #[inline] pub fn loader(&self) -> &crate::vm::loader::LoaderState { &self.loader }
+    #[inline] pub fn threads(&self) -> &crate::vm::threads::ThreadState { &self.threads }
+    #[inline] pub fn ext_state(&self) -> &crate::vm::ext::ExtensionState { &self.ext_state }
+}

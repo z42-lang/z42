@@ -26,3 +26,5 @@ fn identity_hash_is_stable_for_one_object() {
     let b = obj_hash_code(&arr).unwrap();
     assert!(a == b);
 }
+
+use crate::assembly::context::VmContextFactory as _;

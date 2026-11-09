@@ -72,7 +72,7 @@ use {super::VarRegion, crate::object::header::VarGcRef};
 /// Slots taken per refill. Large enough that the region lock is taken once per 64 reused
 /// allocations of a class; small enough that a thread holds at most a few KB of another thread's
 /// potential reuse between safepoints.
-pub(crate) const HOLE_BATCH: usize = 64;
+pub const HOLE_BATCH: usize = 64;
 
 /// How far past its chunk's `reuse_gen` (mod 2^16) a **live** generation may lie. Handles carry
 /// the whole 16-bit generation, so within one chunk epoch (all live generations in
@@ -124,7 +124,7 @@ impl VarHoleStash {
 
     /// Whether a slot of `size_class` is ready for [`Self::fill`].
     #[inline(always)]
-    pub(crate) fn has(&self, size_class: u8) -> bool {
+    pub fn has(&self, size_class: u8) -> bool {
         self.avail & (1u128 << size_class) != 0
     }
 
@@ -137,7 +137,7 @@ impl VarHoleStash {
     /// [`VarRegion::take_holes`] of the region the returned handle is used with; `size_class` is
     /// `class_for(payload).1`.
     #[inline]
-    pub(crate) unsafe fn fill(&mut self, size_class: u8, payload: usize, block_type: BlockType) -> VarGcRef {
+    pub unsafe fn fill(&mut self, size_class: u8, payload: usize, block_type: BlockType) -> VarGcRef {
         debug_assert!(self.has(size_class));
         let b = &mut self.batches[size_class as usize];
         let (slot, _) = b.slots[b.next];
@@ -160,7 +160,7 @@ impl VarHoleStash {
 
     /// Whether retire has anything to do.
     #[inline]
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.touched == 0 && self.dry == 0
     }
 
@@ -179,8 +179,8 @@ impl VarHoleStash {
     }
 
     /// Unused slots across every class (tests).
-    #[cfg(test)]
-    pub(crate) fn unused(&self) -> usize {
+    #[cfg(all(test, z42_test_facade))]
+    pub fn unused(&self) -> usize {
         self.batches.iter().map(|b| b.slots.len() - b.next).sum()
     }
 }
@@ -357,6 +357,6 @@ impl VarRegion {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "holes_tests.rs"]
 mod holes_tests;

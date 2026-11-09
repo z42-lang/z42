@@ -139,6 +139,6 @@ impl Vfs for LocalFs {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "local_tests.rs"]
 mod local_tests;

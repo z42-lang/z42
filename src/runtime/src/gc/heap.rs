@@ -352,7 +352,7 @@ pub struct Heap {
     /// dispatch events. Production builds (no `cfg(test)`) compile this
     /// field out entirely, so the override on `write_barrier_field` /
     /// `write_barrier_array_elem` collapses to a true no-op.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     barrier_observer: Mutex<Option<std::sync::Arc<BarrierObserver>>>,
     /// **fix-wasm-string-ops**: process-unique, monotonically-increasing epoch for this heap's
     /// address space (see [`Heap::heap_epoch`]). Assigned once at construction from
@@ -463,7 +463,7 @@ pub struct Heap {
 
 impl Heap {
     /// Resize the nursery (tests only). See [`Heap::nursery_bytes`].
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub(crate) fn set_nursery_bytes_for_test(&self, n: u64) {
         self.nursery_bytes.store(n.max(1), std::sync::atomic::Ordering::Relaxed);
         // add-pause-budget-nursery: a test sizing the nursery is sizing the whole policy, so the
@@ -476,7 +476,7 @@ impl Heap {
     }
 
     /// Bytes promoted into the old generation since the last major (tests).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub(crate) fn promoted_bytes_for_test(&self) -> u64 {
         self.promoted_bytes_since_major.load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -491,7 +491,7 @@ static NEXT_HEAP_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 /// barrier dispatch event captured by [`BarrierObserver`]. Used by
 /// `heap_tests::write_barriers` to prove that interp / JIT call
 /// sites invoke the barrier with the expected arguments.
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BarrierEvent {
     Field { owner_addr: usize, slot: usize, new_is_heap: bool },
@@ -503,18 +503,18 @@ pub enum BarrierEvent {
 /// closure. Construct via `BarrierObserver::new()`, install via
 /// [`Heap::install_barrier_observer`], read recorded events via
 /// [`BarrierObserver::events`].
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[derive(Debug, Default)]
 pub struct BarrierObserver {
     events: Mutex<Vec<BarrierEvent>>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 impl BarrierObserver {
     pub fn new() -> Self { Self::default() }
     pub fn events(&self) -> Vec<BarrierEvent> { self.events.lock().clone() }
     pub fn count(&self) -> usize { self.events.lock().len() }
-    pub(crate) fn push(&self, ev: BarrierEvent) { self.events.lock().push(ev); }
+    pub fn push(&self, ev: BarrierEvent) { self.events.lock().push(ev); }
 }
 
 impl std::fmt::Debug for Heap {
@@ -555,7 +555,7 @@ mod young_policy;
 mod roots;
 mod observe;
 mod api;
-#[cfg(any(test, debug_assertions))]
+#[cfg(any(all(test, z42_test_facade), debug_assertions))]
 mod debug;
 mod footprint;
 
@@ -572,9 +572,9 @@ impl Heap {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "heap_tests/mod.rs"]
 mod tests;
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "heap_api_tests.rs"]
 mod api_tests;

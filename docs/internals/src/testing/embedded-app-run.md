@@ -3,7 +3,7 @@
 > 代码：
 > `src/runtime/src/host/app.rs`（`z42::host::run_app` 核心）、`src/runtime/src/host/ffi.rs`（C ABI
 > `z42_host_run_app`）、`src/runtime/include/z42_host.h`（公有头）、
-> `src/runtime/crates/z42-host`（Rust wrapper）、
+> `src/runtime/src/host`（Rust wrapper）、
 > `src/toolchain/workload/test/agent/src/agent.z42`（test-agent）、
 > `src/toolchain/workload/desktop/shell/testhost.c`（desktop C 壳）、
 > `src/toolchain/workload/wasm/platform/src/lib.rs` + `wasm/testhost/`（浏览器面）、
@@ -23,7 +23,7 @@ test-agent 与一份 app-run 代码全平台共享；而且这条嵌入路径同
 ```
                  z42::host::run_app  (app.rs) —— 唯一「跑一个 z42 app」实现
                  ╱                      ╲
-        main.rs                z42-host::run_app  +  z42::host::z42_host_run_app (C ABI)
+        main.rs                z42::host::rust::run_app  +  z42::host::z42_host_run_app (C ABI)
     (z42vm 二进制 CLI)          (嵌入：desktop C / Swift / JNI / wasm 壳)
 ```
 
@@ -31,13 +31,13 @@ test-agent 与一份 app-run 代码全平台共享；而且这条嵌入路径同
   加载 entry artifact → AOT eager BFS（否则 lazy）→ merge → 建 VmContext + lazy_loader +
   observer replay → `Vm::run`。
 - **`main.rs`** 解析 CLI → 组 `RunOpts`（mode / libs_dir / program_args / print_stats）→ 调核心。
-- **`z42-host::run_app` / `z42_host_run_app`(C)** 是嵌入前端，同样调核心，各自建 VmContext。
+- **`z42::host::rust::run_app` / `z42_host_run_app`(C)** 是嵌入前端，同样调核心，各自建 VmContext。
 - **`RunOpts` / `default_mode`** 由调用方决定（main 读 CLI/config/build 默认；嵌入取
   "编进了 jit 就 jit，否则 interp"），核心只负责 load + run。
 
 **三个前端互不调用，都调同一核心**——这就是"共享嵌入代码"的准确含义。
 
-> ⚠️ **入口辨析**（踩过）：`z42-host` **crate** 的 `run_app`（Rust API）与
+> ⚠️ **入口辨析**（踩过）：`z42::host::rust` **crate** 的 `run_app`（Rust API）与
 > `host/mod.rs` 里的 C 符号 `z42_host_run_app` 是**两条路**。所有原生嵌入壳
 > （desktop C test-host / iOS Swift / Android JNI）调的是**后者**；前者只被
 > `run_app_smoke` 示例用。往前者上补东西在移动端**无效**。

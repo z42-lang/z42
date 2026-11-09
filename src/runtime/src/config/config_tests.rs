@@ -749,11 +749,16 @@ fn line_around(text: &str, off: usize) -> &str {
     &text[start..end]
 }
 
-/// 递归收集 `dir` 下所有非测试 `.rs` 文件里出现的 `"Z42_*"` 字符串字面量，
+/// 收集运行时与独立后端的非测试源码里出现的 `"Z42_*"` 字符串字面量，
 /// 并标注它是否是一次真正的 `env::var` / `var_os` **读取**。
 fn scan_env_literals(dir: &std::path::Path, out: &mut Vec<(String, String, bool)>) {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    scan_env_literals_in(dir, &root, out)
+    let root = std::path::Path::new(env!("Z42_RUNTIME_DIR")).join("src");
+    scan_env_literals_in(dir, &root, out);
+    for backend in ["z42-interp", "z42-jit"] {
+        let source = root.parent().unwrap().join("crates").join(backend).join("src");
+        assert!(source.is_dir(), "missing backend source: {}", source.display());
+        scan_env_literals_in(&source, root.parent().unwrap(), out);
+    }
 }
 
 /// `rel` 相对 `root` 而非相对当前递归层——否则 `config/parse.rs` 会被记成 `parse.rs`，
@@ -772,7 +777,7 @@ fn scan_env_literals_in(dir: &std::path::Path, root: &std::path::Path,
             continue;
         }
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
-        if !name.ends_with(".rs") || name.ends_with("_tests.rs") || name == "tests.rs" {
+        if !name.ends_with(".rs") || name.ends_with("_tests.rs") || name == "tests.rs" || name == "build.rs" {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
@@ -806,7 +811,7 @@ fn every_z42_env_literal_in_the_vm_is_registered() {
     // stackalloc, jit-debug-promote, repl-native) were read inline via std::env::var
     // and absent from the table, so `--info` / `--list-knobs` could not show them.
     // This gate keeps that from happening again.
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let root = std::path::Path::new(env!("Z42_RUNTIME_DIR")).join("src");
     let mut found = Vec::new();
     scan_env_literals(&root, &mut found);
     assert!(found.len() > 10, "source scan found suspiciously few Z42_* literals — is the walk broken?");
@@ -851,7 +856,7 @@ fn no_knob_is_read_inline_from_the_environment_any_more() {
 
     // And every consumer that a scan can reach must go through the config module.
     // `Z42_STRESS_ITERS` is the one deliberate exception (test scaffolding).
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let root = std::path::Path::new(env!("Z42_RUNTIME_DIR")).join("src");
     let mut found = Vec::new();
     scan_env_literals(&root, &mut found);
     let stragglers: Vec<String> = found.into_iter()
@@ -1990,7 +1995,7 @@ fn array_is_still_invalid_for_non_pathlist_knobs() {
 #[test]
 fn runtime_settings_doc_knob_counts_match_the_table() {
     let md_rel = "docs/reference/src/toolchain/runtime-settings.md";
-    let md_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join(md_rel);
+    let md_path = std::path::PathBuf::from(env!("Z42_RUNTIME_DIR")).join("../..").join(md_rel);
     let md = std::fs::read_to_string(&md_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", md_path.display()));
 

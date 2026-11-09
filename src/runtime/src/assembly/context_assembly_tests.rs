@@ -9,14 +9,14 @@ fn captured_vm_inputs_choose_independent_heap_modes() {
     let stw = settings.vm_config();
     settings.gc_mode = GcMode::GenerationalMarkSweep;
     let generational = settings.vm_config();
-    let first = VmContext::new_internal(
+    let first = configured_context(
         None,
         crate::pal::fs::default_vfs(),
         crate::assembly::extension::freeze(Default::default()),
         stw,
         crate::assembly::object_protocol::services(),
     );
-    let second = VmContext::new_internal(
+    let second = configured_context(
         None,
         crate::pal::fs::default_vfs(),
         crate::assembly::extension::freeze(Default::default()),
@@ -67,7 +67,7 @@ use std::{cell::Cell, sync::Arc};
 thread_local! { static PROTOCOL_CALLS: Cell<usize> = const { Cell::new(0) }; }
 
 fn protocol_context(protocol: ObjectProtocol) -> std::pin::Pin<Box<VmContext>> {
-    VmContext::new_internal(
+    configured_context(
         None, crate::pal::fs::default_vfs(),
         crate::assembly::extension::freeze(Default::default()),
         RuntimeConfig::from_getter(|_| None).vm_config(), protocol,
@@ -237,7 +237,7 @@ fn stack_allocation_policy_is_per_vm_and_shared_with_workers() {
     for (value, enabled, stats) in [("on", true, false), ("off", false, false), ("stats", true, true)] {
         let mut settings = RuntimeConfig::from_getter(|_| None);
         settings.stackalloc = Some(value.into());
-        let ctx = VmContext::new_internal(None, crate::pal::fs::default_vfs(),
+        let ctx = configured_context(None, crate::pal::fs::default_vfs(),
             crate::assembly::extension::freeze(Default::default()), settings.vm_config(),
             crate::assembly::object_protocol::services());
         let worker = VmContext::new_with_core(ctx.core.clone());
@@ -261,7 +261,7 @@ fn safepoint_policy_is_per_vm_and_shared_by_worker_resets() {
     for throttle in [1, 7, 1024] {
         let mut settings = RuntimeConfig::from_getter(|_| None);
         settings.safepoint_throttle = throttle;
-        let ctx = VmContext::new_internal(None, crate::pal::fs::default_vfs(),
+        let ctx = configured_context(None, crate::pal::fs::default_vfs(),
             crate::assembly::extension::freeze(Default::default()), settings.vm_config(),
             crate::assembly::object_protocol::services());
         let worker = VmContext::new_with_core(ctx.core.clone());
@@ -271,7 +271,7 @@ fn safepoint_policy_is_per_vm_and_shared_by_worker_resets() {
             view.threads.safepoint_skip.store(1, Ordering::Relaxed);
             check_safepoint(view);
             assert_eq!(view.threads.safepoint_skip.load(Ordering::Relaxed), throttle);
-            #[cfg(feature = "jit")]
+            #[cfg(all(feature = "jit", z42_jit_supported))]
             unsafe {
                 crate::jit::helpers::control::jit_check_safepoint_slow(std::ptr::null_mut(), &**view);
                 assert_eq!(view.threads.safepoint_skip.load(Ordering::Relaxed), throttle);
@@ -280,4 +280,12 @@ fn safepoint_policy_is_per_vm_and_shared_by_worker_resets() {
         contexts.push((ctx, throttle));
     }
     for (ctx, throttle) in contexts { assert_eq!(throttle_n(&ctx), throttle); }
+}
+
+use crate::assembly::context::VmContextFactory as _;
+
+fn configured_context(module: Option<std::sync::Arc<crate::vm::runtime::Module>>, vfs: std::sync::Arc<dyn crate::pal::fs::Vfs>,
+    extensions: crate::vm::ext::ExtensionState, config: crate::vm::config::VmConfig,
+    protocol: crate::vm::exec::object_protocol::ObjectProtocol) -> std::pin::Pin<Box<VmContext>> {
+    super::with_config(module, vfs, extensions, config, protocol, crate::assembly::engine::registry())
 }

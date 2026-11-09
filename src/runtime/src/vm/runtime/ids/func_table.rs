@@ -163,6 +163,6 @@ impl FuncTable {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "func_table_tests.rs"]
 mod func_table_tests;

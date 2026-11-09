@@ -7,6 +7,7 @@ int _buildRuntime() {
     Stopwatch sw = _procStart("build runtime (cargo z42vm)");
     // --locked：Cargo.lock 入库，与 `test runtime` 一致；CI 的 bootstrap 也走这里。
     int __rc = _exec(_cargoRelease(_runtimeCargoConfig()).Arg("--locked")
+        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-compression")
         .Arg("--manifest-path").Arg(_runtimeManifest()));
     if (__rc == 0) { _procEnd("build runtime (cargo z42vm)", sw); }
     return __rc;

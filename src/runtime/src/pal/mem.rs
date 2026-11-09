@@ -13,7 +13,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Whether [`decommit`] does anything on this target.
-pub(crate) const CAN_DECOMMIT: bool = super::sys::mem::CAN_DECOMMIT;
+pub const CAN_DECOMMIT: bool = super::sys::mem::CAN_DECOMMIT;
 
 /// The OS page size (cached).
 pub(crate) fn page_size() -> usize {
@@ -55,6 +55,6 @@ pub(crate) unsafe fn recommit(addr: usize, len: usize) {
     unsafe { super::sys::mem::recommit(addr, len) }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "mem_tests.rs"]
 mod tests;

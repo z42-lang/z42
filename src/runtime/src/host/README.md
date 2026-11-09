@@ -2,6 +2,8 @@
 
 ## 职责
 
+本目录的 Cargo 包 z42 提供统一宿主库和 z42vm（入口仍在 ../main.rs）；lib.rs 组合 host、配置、corelib、interop 与可选后端，运行时主库 z42-runtime 不反向依赖这些实现。Rust 人体工学接口位于 host::rust，与 C ABI 和 CLI 共用宿主服务。
+
 为命令行、Rust 嵌入端和外部 C 宿主提供统一加载、初始化与调用服务。CLI 负责参数和进程策略，C ABI 负责指针、句柄和状态码；产物解析、GC 和执行语义由各底层子系统实现。
 
 ## 嵌入接口导出规范
@@ -16,6 +18,7 @@ CLI 是宿主的一种实现，也遵循同一入口和类型规范。C ABI 导�
 
 | 入口 | 职责 |
 |---|---|
+| `backends.rs` / `BackendOptions` / `BackendSource` | 统一静态/动态后端选择、能力检查与原生搜索路径 |
 | `components.rs` / `component_catalog.rs` | 静态/动态工厂选择、描述符校验、依赖排序和事务装配 |
 | `ComponentOptions` / `ComponentLease` | 每 VM 组件配置和接口/库寿命租约 |
 | `component_ids` / `component_interface` | 查询已装配组件与类型化接口 |
@@ -35,7 +38,7 @@ CLI 和 Rust 调用方使用 `host::run_app`，或用 `LoadedProgram::load_file`
 
 需要进程崩溃报告的宿主调用 `host::signal::install()`，CLI 在进程启动时安装。
 
-LoadOptions.components 选择可选的同构建组件。ComponentOptions::with_static 保存已链接的 init 引用，with_dynamic 指定库与 C 入口；两者为 unsafe，调用方保证原生代码和协议可信。加载程序时自动完成校验、依赖排序和实例创建，失败会回滚，成功后注册表冻结。选项克隆共享工厂结果，每个 VM 仍拥有独立实例。component_interface 返回的租约保留 VM、实例和库，直到最后一次接口调用完成。默认组件选择为空，现有解释器/JIT 入口保持当前注册方式。
+LoadOptions.components 选择可选的同构建组件。ComponentOptions::with_static 保存已链接的 init 引用，with_dynamic 指定库与 C 入口；两者为 unsafe，调用方保证原生代码和协议可信。加载程序时自动完成校验、依赖排序和实例创建，失败会回滚，成功后注册表冻结。选项克隆共享工厂结果，每个 VM 仍拥有独立实例。component_interface 返回的租约保留 VM、实例和库，直到最后一次接口调用完成。组件原生代码映像由 core 按路径缓存至进程结束，保证线程退出时的 TLS 析构回调仍有效；VM 和 JIT 实例按正常寿命释放。自定义组件清单默认为空；执行后端由 LoadOptions.backends 按执行模式自动选择并注册，JIT 模式同时要求解释器。Auto 优先静态链接，否则查询动态组件；Linked、Dynamic(path) 和 Disabled 明确限制来源。请求不存在、未链接、被禁用或平台不支持的 JIT 均报错，不静默降级。
 
 一个程序的初始化状态跨调用保留；驱动同一上下文时遵循单执行线程约束。保留托管返回值跨越后续 VM 调用时，调用方须登记 GC 根。
 
@@ -46,6 +49,7 @@ LoadOptions.components 选择可选的同构建组件。ComponentOptions::with_s
 (cd src/runtime && cargo test --lib --no-default-features host:: -- --test-threads=1)
 ./xtask test
 ./xtask package sdk --verify
+./xtask package runtime --linkage dynamic --profile debug --verify
 ```
 
 ## 关联文档

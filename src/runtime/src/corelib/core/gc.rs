@@ -189,7 +189,7 @@ fn extract_gc_handle_slot(ctx: &VmContext, arg: &Value) -> u64 {
     }
     match arg {
         Value::StructRef { idx, frame_id } => ctx
-            .exec.struct_arena
+            .exec().struct_arena
             .lock()
             .with(*idx, *frame_id, |s| first_i64(&s.bytes))
             .unwrap_or(0),

@@ -6,17 +6,52 @@ use parking_lot::Mutex;
 use std::{
     collections::BTreeMap, ffi::c_void, marker::PhantomData, ops::Deref, ptr::NonNull, sync::Arc,
 };
-use z42_component_api::*;
+#[cfg(not(all(test, z42_test_facade)))]
+#[path = "components/api.rs"]
+pub mod api;
+#[cfg(all(test, z42_test_facade))]
+pub use z42_runtime::components::api;
+use self::api::*;
+#[cfg(all(test, z42_test_facade))]
+#[path = "components/api_tests.rs"]
+mod api_tests;
 
-pub(crate) struct Factory {
-    pub id: ComponentId,
-    pub dependencies: Vec<ComponentId>,
-    pub interfaces: Vec<InterfaceSpec>,
-    pub create: CreateVm,
-    pub destroy: DestroyVm,
-    pub query: QueryInterface,
+pub struct Factory {
+    pub(crate) id: ComponentId,
+    pub(crate) dependencies: Vec<ComponentId>,
+    pub(crate) interfaces: Vec<InterfaceSpec>,
+    pub(crate) create: CreateVm,
+    pub(crate) destroy: DestroyVm,
+    pub(crate) query: QueryInterface,
     #[cfg(feature = "component-loading")]
-    pub library: Option<Arc<crate::pal::dynlib::Library>>,
+    pub(crate) library: Option<Arc<crate::pal::dynlib::Library>>,
+}
+
+impl Factory {
+    /// # Safety
+    /// Descriptor callbacks, interfaces and dependency metadata have been validated;
+    /// native code and immutable tables remain alive until this factory is released.
+    pub unsafe fn from_validated_descriptor(descriptor: &ComponentDescriptor,
+        dependencies: Vec<ComponentId>, interfaces: Vec<InterfaceSpec>) -> Result<Self> {
+        Ok(Self {
+            id: descriptor.id, dependencies, interfaces,
+            create: descriptor.create_vm.ok_or_else(|| anyhow::anyhow!("component {} has no create_vm", descriptor.id))?,
+            destroy: descriptor.destroy_vm.ok_or_else(|| anyhow::anyhow!("component {} has no destroy_vm", descriptor.id))?,
+            query: descriptor.query_interface.ok_or_else(|| anyhow::anyhow!("component {} has no query_interface", descriptor.id))?,
+            #[cfg(feature = "component-loading")]
+            library: None,
+        })
+    }
+    pub fn id(&self) -> ComponentId { self.id }
+    pub fn dependencies(&self) -> &[ComponentId] { &self.dependencies }
+    #[cfg(feature = "component-loading")]
+    pub fn library(&self) -> Option<&Arc<crate::pal::dynlib::Library>> { self.library.as_ref() }
+    /// # Safety
+    /// This library owns every callback and table retained by the factory.
+    #[cfg(feature = "component-loading")]
+    pub unsafe fn with_library(mut self, library: Arc<crate::pal::dynlib::Library>) -> Self {
+        self.library = Some(library); self
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -203,7 +238,7 @@ impl Instance {
     }
 }
 
-pub(crate) struct VmComponents {
+pub struct VmComponents {
     instances: Vec<Arc<Instance>>,
 }
 impl Drop for VmComponents {
@@ -232,6 +267,10 @@ impl VmComponents {
                 .push(Instance::create(Arc::clone(factory), Arc::clone(&shared))?);
         }
         Ok(result)
+    }
+    /// Borrow only code ownership, without retaining the VM or instance state.
+    pub fn code_lease(&self, id: ComponentId) -> Option<Arc<dyn Send + Sync>> {
+        self.instances.iter().find(|x| x.factory.id == id).map(|x| x.factory.clone() as Arc<dyn Send + Sync>)
     }
     pub fn ids(&self) -> Vec<ComponentId> {
         self.instances.iter().map(|x| x.factory.id).collect()

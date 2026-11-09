@@ -170,7 +170,7 @@ impl VmContext {
     /// runs initializers** (unlike [`Self::try_lookup_function`]). For callers that
     /// must not re-enter the VM, such as the JIT translator recognising intrinsics and
     /// the `[Native]` forward probe (`vm::exec::call::forward`).
-    pub(crate) fn probe_loaded_function(&self, func_name: &str) -> Option<Arc<Function>> {
+    pub fn probe_loaded_function(&self, func_name: &str) -> Option<Arc<Function>> {
         self.core.loader.lazy_loader.read().as_ref()?.probe_function(func_name)
     }
 
@@ -258,7 +258,7 @@ impl VmContext {
 
     /// Resolve a registered identity after a metadata publication. Unregistered
     /// declarations retain their own owner; names must not rebind their identity.
-    pub(crate) fn current_type_desc(&self, declaration: Arc<TypeDesc>) -> Arc<TypeDesc> {
+    pub fn current_type_desc(&self, declaration: Arc<TypeDesc>) -> Arc<TypeDesc> {
         self.core.runtime.types.get_arc(declaration.id).unwrap_or(declaration)
     }
 
@@ -331,7 +331,7 @@ impl VmContext {
     /// `newly_loaded` comes out of the loader lock the caller already held;
     /// the other two reads are plain atomics.
     #[inline]
-    pub(crate) fn static_init_drain_is_noop(&self, newly_loaded: &[String]) -> bool {
+    pub fn static_init_drain_is_noop(&self, newly_loaded: &[String]) -> bool {
         use std::sync::atomic::Ordering;
         newly_loaded.is_empty()
             && self.core.loader.pending_type_init_count.load(Ordering::Relaxed) == 0
@@ -478,7 +478,7 @@ impl VmContext {
 
     /// The unique loaded full name matching a short name. Identical full names
     /// in the entry module and lazy loader count once, as in loaded_type_names.
-    pub(crate) fn unique_loaded_full_name(&self, simple: &str) -> Option<String> {
+    pub fn unique_loaded_full_name(&self, simple: &str) -> Option<String> {
         let state = self.core.loader.lazy_loader.read();
         let entry_names = self.module().into_iter().flat_map(|module| module.type_registry.keys());
         let lazy_names = state.as_ref().into_iter().flat_map(|loader| loader.iter_type_names());
@@ -513,7 +513,7 @@ impl VmContext {
     /// VM's entry module: there the id is a `FuncTable` id. Without one (a bare test
     /// context) ids are indices of whatever module created the value, which this context
     /// does not know — `None`.
-    pub(crate) fn callable_fn(&self, id: crate::vm::runtime::ids::tokens::FnId) -> Option<&crate::vm::runtime::Function> {
+    pub fn callable_fn(&self, id: crate::vm::runtime::ids::tokens::FnId) -> Option<&crate::vm::runtime::Function> {
         self.core.runtime.module.as_ref()?;
         self.funcs().get(id)
     }

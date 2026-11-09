@@ -174,7 +174,7 @@ impl Heap {
 
     // ── 3. Write barriers ────────────────────────────────────────────────────
     //
-    // Production STW-mode is no-op; `#[cfg(test)]` always fires the test observer regardless
+    // Production STW-mode is no-op; `#[cfg(all(test, z42_test_facade))]` always fires the test observer regardless
     // of mode.
     //
     // Under `GenerationalMarkSweep` the override records old→young writes
@@ -193,7 +193,7 @@ impl Heap {
         Some((&self.mode, &self.promotion_age))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn is_remembered_for_test(&self, owner: &Value) -> bool {
         match owner {
             Value::Object(o) | Value::BoxedStruct(o) => o.var_ref().is_remembered(),

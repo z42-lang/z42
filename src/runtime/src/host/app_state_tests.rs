@@ -18,3 +18,5 @@ fn application_arguments_share_with_workers_and_isolate_other_vms() {
     assert!(program_args(&other).unwrap().is_empty());
     assert_eq!(snapshot, ["first", "second"], "a returned snapshot is independent");
 }
+
+use crate::assembly::context::VmContextFactory as _;

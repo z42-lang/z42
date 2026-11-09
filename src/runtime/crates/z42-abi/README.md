@@ -25,7 +25,7 @@ z42 Tier 1 native interop ABI 的 Rust 镜像。是 [`include/z42_abi.h`](../../
 
 ## 依赖关系
 
-无依赖；被 `z42-rs`、`z42-host`、`z42`（VM 主 crate）引用。
+无依赖；被 `z42-rs`、`z42::host::rust`、`z42`（VM 主 crate）引用。
 
 ## ABI 演进规则
 

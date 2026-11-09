@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 /// Copy a struct blob into a fresh heap object with boxed identity.
 /// A fresh box is unreachable until returned, so its initial writes need no barrier.
-pub(crate) fn box_struct_blob(
+pub fn box_struct_blob(
     ctx: &VmContext, type_name: &str, bytes: &[u8], refs: &[Value],
 ) -> Result<Value> {
     let td = ctx.try_lookup_type(type_name).ok_or_else(|| {
@@ -66,7 +66,7 @@ fn snapshot_struct_leaf(
 
 /// Read a named field from an erased struct box. Reflection and FieldGet share
 /// layout validation and copy nested struct values into a fresh box.
-pub(crate) fn boxed_struct_field_get(
+pub fn boxed_struct_field_get(
     ctx: &VmContext, gc: &crate::object::ObjRef, name: &str,
 ) -> Result<Value> {
     use crate::object::prim_width;
@@ -98,7 +98,7 @@ pub(crate) fn boxed_struct_field_get(
 /// On the heap (an object's inline struct, a boxed struct, a `struct[]` element) a reference
 /// leaf is an 8 B reference word at its offset (`struct_blob`); in the frame arena it is a
 /// `Value` in the blob's `refs`.
-pub(crate) fn struct_field_get_val(
+pub fn struct_field_get_val(
     ctx: &VmContext, base_val: &Value, byte_off: u32, kind: u8,
 ) -> Result<Value> {
     match base_val {
@@ -145,7 +145,7 @@ fn leaf_get(obj: &ScriptObject, byte_off: u32, kind: u8) -> Result<Value> {
 /// at `byte_off` in place. Heap bases route a reference store through the write barrier with
 /// the reference that landed (a box, for a value that does not fit 8 B). Shared by interp and
 /// the JIT struct helpers.
-pub(crate) fn struct_field_set_val(
+pub fn struct_field_set_val(
     ctx: &VmContext, base_val: &Value, byte_off: u32, kind: u8, v: &Value,
 ) -> Result<()> {
     match base_val {
@@ -203,7 +203,7 @@ pub(crate) fn snapshot_box(gc: &crate::object::ObjRef) -> (Arc<str>, Vec<u8>, Ve
 }
 
 /// `struct[]` 元素的整块快照（字节、引用叶子、元素布局、元素类型名）——值语义拷出时用。
-pub(crate) fn snapshot_elem(e: &StructArrayElem) -> Result<(Vec<u8>, Vec<Value>, Arc<StructTypeLayout>, Arc<str>)> {
+pub fn snapshot_elem(e: &StructArrayElem) -> Result<(Vec<u8>, Vec<Value>, Arc<StructTypeLayout>, Arc<str>)> {
     let arr = e.arr.borrow();
     let layout = arr.struct_layout()
         .ok_or_else(|| anyhow::anyhow!("as-cast on a non-value-struct array element"))?;
@@ -212,7 +212,7 @@ pub(crate) fn snapshot_elem(e: &StructArrayElem) -> Result<(Vec<u8>, Vec<Value>,
     Ok((bytes, refs, layout, arr.element_type().arc()))
 }
 
-pub(crate) fn as_struct_ref(v: &Value, what: &str) -> Result<(u32, u32)> {
+pub fn as_struct_ref(v: &Value, what: &str) -> Result<(u32, u32)> {
     match v {
         Value::StructRef { idx, frame_id } => Ok((*idx, *frame_id)),
         other => bail!("{what}: expected a struct value (StructRef), got {other:?}"),

@@ -118,3 +118,5 @@ fn concat_parts_utf8_copies_many_fragments_into_independent_arrays() {
     let (Value::Array(a), Value::Array(b)) = (first, second) else { panic!("expected packed arrays") };
     assert!(!crate::object::ArrRef::ptr_eq(&a, &b));
 }
+
+use crate::assembly::context::VmContextFactory as _;

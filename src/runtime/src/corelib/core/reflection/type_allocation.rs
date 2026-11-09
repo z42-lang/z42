@@ -71,8 +71,8 @@ pub(super) fn build_type_ex(
     };
     if let Some(key) = &cache_key {
         if let Some(value) = ctx
-            .core
-            .runtime
+            .core()
+            .runtime()
             .reflection_types
             .get(ctx.heap(), key, &arguments)
         {
@@ -140,8 +140,8 @@ pub(super) fn build_type_ex(
     };
     match cache_key {
         Some(key) => ctx
-            .core
-            .runtime
+            .core()
+            .runtime()
             .reflection_types
             .publish(ctx.heap(), key, arguments, value),
         _ => value,

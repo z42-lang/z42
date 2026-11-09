@@ -1,10 +1,10 @@
 //! Engine-independent instruction operations.
 pub mod object;
 pub mod scalar;
-pub(crate) mod structs;
-pub(crate) mod vcall;
-pub(crate) mod obj_new;
-pub(crate) mod cast;
-pub(crate) mod call;
+pub mod structs;
+pub mod vcall;
+pub mod obj_new;
+pub mod cast;
+pub mod call;
 pub mod stringify;
-pub(crate) mod references;
+pub mod references;

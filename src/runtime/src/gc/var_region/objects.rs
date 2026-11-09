@@ -139,7 +139,7 @@ impl DetachedBlock {
     }
 
     /// A handle to the block, valid while `self` lives (no ownership transfer).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn handle(&self) -> VarGcRef {
         VarGcRef::pack(self.header, FIRST_GEN)
     }

@@ -15,7 +15,7 @@ use crate::vm::runtime::dispatch::vcall::{resolve_virtual, receiver_type_id, vca
 use crate::vm::runtime::dispatch::receiver::{primitive_class_name, value_synthetic_type_id};
 
 /// What a virtual call resolved to. The engine decides how to run it.
-pub(crate) enum VCallTarget<'a> {
+pub enum VCallTarget<'a> {
     /// Result computed natively without invoking any z42 function (protocol intercepts on
     /// boxed receivers: `GetType` / `GetHashCode` / default struct `ToString`).
     Immediate(Value),
@@ -31,7 +31,7 @@ pub(crate) enum VCallTarget<'a> {
     Thrown(Value),
 }
 
-pub(crate) struct ResolvedVCall<'a> {
+pub struct ResolvedVCall<'a> {
     pub target: VCallTarget<'a>,
     /// The `this` the callee receives: the unboxed scalar for a boxed primitive, otherwise the
     /// receiver value itself.
@@ -50,7 +50,7 @@ pub(crate) struct ResolvedVCall<'a> {
 /// Debug builds only (`cargo test` carries it); compiled out of release, so the hot path
 /// is unchanged.
 #[cfg(debug_assertions)]
-pub(crate) fn assert_pic_target(
+pub fn assert_pic_target(
     ctx: &VmContext, module: &Module, obj_val: &Value, method: &str, callee: &Function,
 ) {
     // Only object receivers key the PIC on a real `TypeDesc.id`; primitives / boxes use
@@ -73,7 +73,7 @@ pub(crate) fn assert_pic_target(
 
 #[cfg(not(debug_assertions))]
 #[inline(always)]
-pub(crate) fn assert_pic_target(
+pub fn assert_pic_target(
     _ctx: &VmContext, _module: &Module, _obj_val: &Value, _method: &str, _callee: &Function,
 ) {}
 
@@ -86,7 +86,7 @@ pub(crate) fn assert_pic_target(
 /// (or for a target that cannot be cached: no receiver type id, or no `FnId`) — a PIC hit
 /// never reaches here, so the steady-state hot path is unchanged. A mismatching target is
 /// also refused by `install_ic`, so it can never be cached and bypass this check next time.
-pub(crate) fn resolve_vcall<'a>(
+pub fn resolve_vcall<'a>(
     ctx: &'a VmContext, module: &'a Module, obj_val: &Value, method: &str, arity: usize,
     ic: Option<&VCallIC>,
 ) -> Result<ResolvedVCall<'a>> {
@@ -448,6 +448,6 @@ fn install_ic(ic: Option<&VCallIC>, arity: usize, recv_type: u32, target: &VCall
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "vcall_tests.rs"]
 mod vcall_tests;

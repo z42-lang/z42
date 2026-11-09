@@ -10,20 +10,20 @@ impl VmContext {
 
     /// The VM's function table (process-level `FnId`s; see `vm::runtime::ids::func_table`).
     #[inline]
-    pub(crate) fn funcs(&self) -> &crate::vm::runtime::ids::func_table::FuncTable {
+    pub fn funcs(&self) -> &crate::vm::runtime::ids::func_table::FuncTable {
         &self.core.runtime.funcs
     }
 
     /// The VM's type table (process-global `TypeId`s; see `vm::runtime::ids::type_table`).
     #[inline]
-    pub(crate) fn types(&self) -> &crate::vm::runtime::ids::type_table::TypeTable {
+    pub fn types(&self) -> &crate::vm::runtime::ids::type_table::TypeTable {
         &self.core.runtime.types
     }
 
     /// Clone the shared `Arc<VmCore>` — needed by external integration
     /// tests / embedders that spawn raw OS threads and want to construct
     /// a child VmContext via [`new_with_core`](Self::new_with_core). The
-    /// `core` field itself is `pub(crate)`; this is the public escape hatch.
+    /// `core` field itself is `pub`; this is the public escape hatch.
     pub fn core_arc(&self) -> Arc<VmCore> {
         Arc::clone(&self.core)
     }

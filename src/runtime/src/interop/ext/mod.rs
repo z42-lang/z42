@@ -117,38 +117,7 @@ fn load_by_name(ctx: &VmContext, name: &str) -> Result<bool> {
 
 // ── Search paths ─────────────────────────────────────────────────────────────
 
-pub(crate) fn native_search_paths() -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-
-    // 1. Explicit override (CI / dev / power user). `Z42_NATIVE_PATH`
-    //    is colon-separated on Unix, semicolon-separated on Windows.
-    //    runtime-config-phase2 : centralised through
-    //    `RuntimeConfig::native_search_paths` (pre-split at config init).
-    paths.extend(crate::config::runtime_config().native_search_paths.iter().cloned());
-
-    // 2. Default SDK layout, relative to the running z42vm binary:
-    //      <exec_dir>/../native/    — SDK package layout (bin/ and native/ siblings)
-    //      <exec_dir>/native/       — dev / cargo-target layout when scripts symlink
-    //      <exec_dir>              — raw cargo-target layout (libz42_*.dylib sit next
-    //                                 to z42vm directly; added  to remove
-    //                                 the manual `ln -sf ../libz42_compression.dylib
-    //                                 release/native/libz42_compression.dylib` setup
-    //                                 step every fresh `cargo build` previously
-    //                                 required). `parse_z42_lib_name` filters to
-    //                                 `libz42_<name>.{so,dylib,dll}`, so dependency
-    //                                 dylibs / `libz42.rlib` / `*.a` are ignored.
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent_dir) = exe.parent() {
-            if let Some(sdk_root) = parent_dir.parent() {
-                paths.push(sdk_root.join("native"));
-            }
-            paths.push(parent_dir.join("native"));
-            paths.push(parent_dir.to_path_buf());
-        }
-    }
-
-    paths
-}
+pub(crate) use crate::host::native_paths as native_search_paths;
 
 
 // ── dlopen path (non-wasm) ───────────────────────────────────────────────────

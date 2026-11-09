@@ -120,7 +120,7 @@ impl VmContext {
     /// What JIT-compiled code bakes for an access to static field `id`: the cell's address (stable —
     /// `SegVec` never moves a cell) and the barrier epoch's. `None` for an id without a cell.
     #[cfg(feature = "jit")]
-    pub(crate) fn jit_static_cell(
+    pub fn jit_static_cell(
         &self, id: u32,
     ) -> Option<(*const crate::vm::runtime::statics::StaticCell, *const std::sync::atomic::AtomicU32)> {
         let cell = self.core.runtime.statics.cell(crate::vm::runtime::ids::tokens::StaticFieldId(id))?;

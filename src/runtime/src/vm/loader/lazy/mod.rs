@@ -63,17 +63,17 @@ pub struct LazyLoader {
     /// zpkg file names that have been loaded (either eagerly at startup or
     /// by a previous lazy-load). Used for de-duplication and cycle-cutting
     /// (Decision 4: pre-inserted before load to break cycles).
-    pub(crate) loaded_zpkgs:   FxHashSet<String>,
+    pub loaded_zpkgs:   FxHashSet<String>,
     /// Scratch buffer: zpkg file names newly inserted into `loaded_zpkgs` during
     /// the current resolve. Drained (`mem::take`) by `VmContext::try_lookup_*`
     /// to fire `ModuleLoaded` events — replaces cloning the whole `loaded_zpkgs`
     /// set on every lookup just to diff it afterwards (profiled: that per-call
     /// clone was the top interp alloc hotspot in cross-zpkg-heavy workloads like
     /// z42c self-compile). Common path (no new load) leaves it empty → zero alloc.
-    pub(crate) newly_loaded:   Vec<String>,
+    pub newly_loaded:   Vec<String>,
     /// zpkg file names that are declared as dependencies (direct or
     /// transitive) but have not yet been loaded. Lookup candidates.
-    pub(crate) declared_zpkgs: FxHashMap<String, ZpkgCandidate>,
+    pub declared_zpkgs: FxHashMap<String, ZpkgCandidate>,
 
     /// Type descriptors from lazily-resolved zpkgs.
     type_registry:  FxHashMap<String, Arc<TypeDesc>>,
@@ -175,13 +175,12 @@ static AMBIGUITY_SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 /// True once any duplicate FQ name has been recorded. Cheap enough to call on a
 /// dispatch path; callers should gate the (locking) precise query behind it.
 #[inline]
-#[inline]
 pub fn ambiguity_seen() -> bool {
     AMBIGUITY_SEEN.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[cfg(feature = "jit")]
-pub(crate) fn ambiguity_seen_ptr() -> *const std::sync::atomic::AtomicBool {
+pub fn ambiguity_seen_ptr() -> *const std::sync::atomic::AtomicBool {
     &AMBIGUITY_SEEN
 }
 
@@ -287,7 +286,7 @@ impl LazyLoader {
         self.impls.get(target_fq).map(|v| v.as_slice()).unwrap_or(&[])
     }
 
-    pub(crate) fn with_fusion_inputs(
+    pub fn with_fusion_inputs(
         search_dirs: Vec<PathBuf>,
         main_pool_len: usize,
         declared: Vec<(String, ZpkgCandidate)>,
@@ -404,7 +403,7 @@ impl LazyLoader {
     /// unchanged entries cost one pointer compare. Call after every step that changes
     /// `type_registry` — after the fixup pass, so a fresh descriptor is still uniquely owned
     /// while the fixup mutates it.
-    pub(crate) fn publish_types(&mut self) {
+    pub fn publish_types(&mut self) {
         for td in self.type_registry.values() {
             self.types.publish(td);
         }
@@ -424,7 +423,7 @@ impl LazyLoader {
     ///
     /// Lock order: called under the loader write lock, takes the cctor map mutex. The reverse
     /// never happens — `CctorRegistry` never touches the loader while holding its mutex.
-    pub(crate) fn insert_type(&mut self, name: String, desc: Arc<TypeDesc>) {
+    pub fn insert_type(&mut self, name: String, desc: Arc<TypeDesc>) {
         if let (Some(reg), Some(func)) = (self.cctors.as_ref(), desc.cctor_func()) {
             tracing::debug!("cctor-register (load): type `{}` -> `{}`", desc.name, func);
             reg.register(&desc.name, func);
@@ -449,7 +448,7 @@ impl LazyLoader {
     /// Every insert bumps the global registration mark, which is what makes
     /// "no function has been registered since" a sound guard for a cached negative
     /// answer. Returns `false` when the name was already present (first-wins).
-    pub(crate) fn insert_function(&mut self, name: String, f: Arc<Function>) -> bool {
+    pub fn insert_function(&mut self, name: String, f: Arc<Function>) -> bool {
         debug_assert_eq!(name, f.name, "a function registers under its own name");
         // First-wins is the table's: it assigns the function its `FnId`, or refuses a
         // taken name (lock order: loader write lock → table name lock).
@@ -560,7 +559,7 @@ mod resolve;
 mod symbols;
 pub(crate) use symbols::symbol_key;
 pub(crate) use resolve::namespace_prefix;
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use resolve::is_primitive_keyword_name;
 
 impl LazyLoader {
@@ -612,7 +611,7 @@ impl LazyLoader {
         }
     }
 
-    pub(crate) fn remaining_declared(&self) -> Vec<String> {
+    pub fn remaining_declared(&self) -> Vec<String> {
         // load-order determinism rule: sort for deterministic force-load order across
         // platforms (FxHashMap iteration order is otherwise non-deterministic).
         let mut out: Vec<String> = self.declared_zpkgs
@@ -656,14 +655,14 @@ impl LazyLoader {
 
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "lazy_loader_tests.rs"]
 mod lazy_loader_tests;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "lazy_loader_types_tests.rs"]
 mod lazy_loader_types_tests;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "lazy_loader_strings_tests.rs"]
 mod lazy_loader_strings_tests;

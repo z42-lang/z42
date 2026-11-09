@@ -8,7 +8,7 @@ use crate::vm::runtime::{Function, Module, ids::func_table::FuncTable};
 /// way. `None` cannot happen for an id a call path stored once the storing thread's
 /// registration is visible; callers then fall back to binding by name.
 #[inline]
-pub(crate) fn fn_by_id<'m>(funcs: &'m FuncTable, module: &'m Module, id: u32) -> Option<&'m Function> {
+pub fn fn_by_id<'m>(funcs: &'m FuncTable, module: &'m Module, id: u32) -> Option<&'m Function> {
     match module.functions.get(id as usize) {
         Some(f) => Some(f),
         None => funcs.get(crate::vm::runtime::ids::tokens::FnId(id)),
@@ -20,7 +20,7 @@ pub(crate) fn fn_by_id<'m>(funcs: &'m FuncTable, module: &'m Module, id: u32) ->
 /// module and the table holds exactly this function under the id (see
 /// `ResolvedTokens::method_tokens`).
 #[inline]
-pub(crate) fn lazy_call_id(funcs: &FuncTable, module: &Module, f: &Function) -> Option<usize> {
+pub fn lazy_call_id(funcs: &FuncTable, module: &Module, f: &Function) -> Option<usize> {
     let id = f.id.get()?;
     (funcs.is_entry(module) && funcs.get(id).is_some_and(|g| std::ptr::eq(g, f))).then_some(id.0 as usize)
 }

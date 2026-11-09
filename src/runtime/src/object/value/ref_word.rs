@@ -217,6 +217,6 @@ pub fn clear(c: &Cells, off: usize) {
     c.store_word(off, 0, std::sync::atomic::Ordering::Relaxed);
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "ref_word_tests.rs"]
-pub(crate) mod ref_word_tests;
+pub mod ref_word_tests;

@@ -125,6 +125,6 @@ impl Vfs for MemoryFs {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "memory_tests.rs"]
 mod memory_tests;

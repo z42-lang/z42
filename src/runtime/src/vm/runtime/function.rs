@@ -16,11 +16,11 @@ pub struct Function {
     pub owner_init: OwnerInitCell,
     pub id: FnIdCell,
     pub forward: ForwardCell,
-    pub(crate) field_forward: OnceLock<bool>,
+    pub field_forward: OnceLock<bool>,
     /// The first scalar layout seen by a native direct reader, shared by its callers.
-    pub(crate) direct_reader: OnceLock<super::dispatch::ic::FieldICEntry>,
+    pub direct_reader: OnceLock<super::dispatch::ic::FieldICEntry>,
     /// Epoch at which the normal module-init and owner-cctor barriers were settled.
-    pub(crate) call_init_ready: AtomicU32,
+    pub call_init_ready: AtomicU32,
     pub fused_tails: Vec<Option<SuperInstr>>,
     sites: OnceLock<Box<CodeSites>>,
 }
@@ -68,7 +68,7 @@ impl Function {
     pub fn catch_key(&self, entry: usize) -> &TypeKeyCell {
         &self.sites().catch_keys[entry]
     }
-    pub(crate) fn array_get_erased(&self, dst: u32) -> bool {
+    pub fn array_get_erased(&self, dst: u32) -> bool {
         match self.reg_types.get(dst as usize) {
             Some(ty) => *ty == ir::reg_type::IrType::Unknown,
             None => !self.sites().legacy_struct_views.contains(&dst),
@@ -78,7 +78,7 @@ impl Function {
         self.sites
             .get_or_init(|| Box::new(CodeSites::new(&self.definition)))
     }
-    pub(crate) fn clear_link_state(&mut self) {
+    pub fn clear_link_state(&mut self) {
         self.resolved.take();
         if self.owner_init.get().is_some() {
             self.owner_init = Default::default();

@@ -270,7 +270,7 @@ fn jit_mode_when_feature_off_returns_feature_off() {
     let mut h: *mut Z42Host = ptr::null_mut();
     let status = unsafe { z42_host_initialize(&cfg, &mut h) };
 
-    #[cfg(feature = "jit")]
+    #[cfg(all(feature = "jit", z42_jit_supported))]
     {
         assert_eq!(status, Z42HostStatus::Ok);
         assert_eq!(
@@ -278,7 +278,7 @@ fn jit_mode_when_feature_off_returns_feature_off() {
             Z42HostStatus::Ok
         );
     }
-    #[cfg(not(feature = "jit"))]
+    #[cfg(not(all(feature = "jit", z42_jit_supported)))]
     {
         assert_eq!(status, Z42HostStatus::FeatureOff);
         assert!(h.is_null());
@@ -331,7 +331,7 @@ unsafe extern "C" fn host_stdout_sink_callback(
 
 /// Project root under cargo, used to locate `artifacts/intermediate/libraries/flat/release/`.
 fn project_root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    std::path::Path::new(env!("Z42_RUNTIME_DIR"))
         .parent()
         .unwrap()
         .parent()

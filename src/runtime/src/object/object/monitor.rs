@@ -13,7 +13,7 @@ pub struct Monitor {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct MonitorState {
+pub struct MonitorState {
     pub(crate) owner:          Option<ThreadId>,
     pub(crate) entry_waiters:  u32,
     pub(crate) signal_waiters: u32,

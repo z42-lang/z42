@@ -43,7 +43,7 @@ xtask test e2e --file std_assert                # 本库的 Main-based golden �
 
 > String 的库行为（Length / ByteLength / Trim / Split / Join / Format / Object 协议…）
 > 集中在 `tests/string_methods.z42` + `tests/string_bcl_augment.z42`。字符串**字面量语法**
-> （raw string、插值、拼接）不在这里，归 [src/tests/strings/](../../tests/strings/)。
+> （raw string、插值、拼接）不在这里，归 [src/tests/strings/](../../tests/strings)。
 
 ## 关联文档
 

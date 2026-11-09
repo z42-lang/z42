@@ -1,4 +1,4 @@
-pub(crate) mod components;
+pub mod components;
 pub mod context;
 pub use context::{VmCore, VmContext};
 
@@ -8,7 +8,7 @@ pub mod threads;
 pub mod runtime;
 pub mod loader;
 pub mod exec;
-pub(crate) mod config;
+pub mod config;
 
 use crate::vm::runtime::Module;
 use crate::zpkg::ExecMode;
@@ -56,7 +56,7 @@ impl Vm {
         let entry_name = Self::resolve_entry_in(module, hint)?;
 
         // FuncRef slots + dispatch tokens (shared with the embedding host path).
-        crate::host::boot::prepare_execution(ctx, module);
+        crate::vm::runtime::resolve::resolve_module(module, ctx);
 
         let entry = module
             .functions
@@ -93,3 +93,6 @@ impl Vm {
         Ok(name.to_string())
     }
 }
+
+#[cfg(all(test, z42_test_facade))]
+use crate::assembly::context::VmContextFactory as _;

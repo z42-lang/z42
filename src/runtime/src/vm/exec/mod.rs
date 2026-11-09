@@ -9,13 +9,13 @@ pub mod native;
 pub mod active_vm;
 pub mod call;
 pub mod stack;
-pub(crate) mod engine;
-pub(crate) mod object_protocol;
+pub mod engine;
+pub mod object_protocol;
 
-pub(crate) mod init;
+pub mod init;
 
 mod state;
-pub(crate) use state::ExecState;
+pub use state::ExecState;
 
 mod thread_state;
-pub(crate) use thread_state::ThreadExecState;
+pub use thread_state::ThreadExecState;

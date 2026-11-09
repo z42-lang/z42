@@ -277,3 +277,5 @@ fn legacy_array_reads_keep_views_only_for_structural_uses() {
     assert!(typed.array_get_erased(2));
     assert!(!typed.array_get_erased(3));
 }
+
+use crate::assembly::context::VmContextFactory as _;

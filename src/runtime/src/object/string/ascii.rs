@@ -1,6 +1,6 @@
 //! Byte search for an ASCII set; matching bytes are UTF-8 scalar boundaries.
 
-pub(crate) fn find(bytes: &[u8], mask: u128) -> Option<usize> {
+pub fn find(bytes: &[u8], mask: u128) -> Option<usize> {
     #[cfg(all(target_arch = "x86_64", target_feature = "sse2"))]
     if bytes.len() >= 128 {
         let prefix = mask.trailing_ones();
@@ -66,6 +66,6 @@ unsafe fn find_sse2(bytes: &[u8], prefix: u8, needles: [u8; 3]) -> Option<usize>
         .map(|tail| index + tail)
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "ascii_tests.rs"]
 mod tests;

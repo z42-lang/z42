@@ -4,20 +4,22 @@ use anyhow::{bail, Context, Result};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
-use z42_component_api::*;
+use crate::components::api::*;
 
 #[derive(Clone)]
 pub(super) enum Registration {
     Static {
         id: ComponentId,
         init: ComponentInit,
+        cache: Arc<OnceLock<Result<Arc<Factory>, String>>>,
     },
     Dynamic {
         id: ComponentId,
         path: PathBuf,
         symbol: String,
+        cache: Arc<OnceLock<Result<Arc<Factory>, String>>>,
     },
 }
 pub(super) struct Catalog {
@@ -79,34 +81,18 @@ unsafe fn read_descriptor(id: ComponentId, init: ComponentInit) -> Result<Factor
             );
         }
     }
-    Ok(Factory {
-        id,
-        dependencies,
-        interfaces,
-        create: descriptor
-            .create_vm
-            .ok_or_else(|| anyhow::anyhow!("component {id} has no create_vm"))?,
-        destroy: descriptor
-            .destroy_vm
-            .ok_or_else(|| anyhow::anyhow!("component {id} has no destroy_vm"))?,
-        query: descriptor
-            .query_interface
-            .ok_or_else(|| anyhow::anyhow!("component {id} has no query_interface"))?,
-        #[cfg(feature = "component-loading")]
-        library: None,
-    })
+    unsafe { Factory::from_validated_descriptor(&descriptor, dependencies, interfaces) }
 }
 fn load(registration: &Registration) -> Result<Factory> {
     match registration {
-        Registration::Static { id, init } => unsafe { read_descriptor(*id, *init) },
-        Registration::Dynamic { id, path, symbol } => {
+        Registration::Static { id, init, .. } => unsafe { read_descriptor(*id, *init) },
+        Registration::Dynamic { id, path, symbol, .. } => {
             #[cfg(feature = "component-loading")]
             {
-                let library = Arc::new(unsafe { crate::pal::dynlib::Library::open(path) }?);
+                let library = unsafe { crate::pal::dynlib::Library::open_component(path) }?;
                 let init = unsafe { library.symbol::<ComponentInit>(symbol) }?;
-                let mut factory = unsafe { read_descriptor(*id, init) }?;
-                factory.library = Some(library);
-                Ok(factory)
+                let factory = unsafe { read_descriptor(*id, init) }?;
+                Ok(unsafe { factory.with_library(library) })
             }
             #[cfg(not(feature = "component-loading"))]
             {
@@ -115,6 +101,11 @@ fn load(registration: &Registration) -> Result<Factory> {
             }
         }
     }
+}
+fn cached_load(registration: &Registration) -> Result<Arc<Factory>> {
+    let cache = match registration { Registration::Static { cache, .. } | Registration::Dynamic { cache, .. } => cache };
+    cache.get_or_init(|| load(registration).map(Arc::new).map_err(|e| format!("{e:#}")))
+        .as_ref().map(Arc::clone).map_err(|e| anyhow::anyhow!("{e}"))
 }
 impl Catalog {
     pub fn load(registrations: &[Registration]) -> Result<Self> {
@@ -129,8 +120,8 @@ impl Catalog {
             }
         }
         for registration in registrations {
-            let factory = load(registration).context("loading runtime component")?;
-            factories.insert(factory.id, Some(Arc::new(factory)));
+            let factory = cached_load(registration).context("loading runtime component")?;
+            factories.insert(factory.id(), Some(factory));
         }
         let mut pending = BTreeMap::new();
         for (id, factory) in factories {
@@ -140,9 +131,9 @@ impl Catalog {
             );
         }
         for factory in pending.values() {
-            for dep in &factory.dependencies {
+            for dep in factory.dependencies() {
                 if !pending.contains_key(dep) {
-                    bail!("component {} requires missing component {dep}", factory.id);
+                    bail!("component {} requires missing component {dep}", factory.id());
                 }
             }
         }
@@ -152,7 +143,7 @@ impl Catalog {
             // Stable IDs order equally-ready providers; never rely on file/hash order.
             let id = pending
                 .iter()
-                .find(|(_, f)| f.dependencies.iter().all(|x| done.contains(x)))
+                .find(|(_, f)| f.dependencies().iter().all(|x| done.contains(x)))
                 .map(|(id, _)| *id)
                 .ok_or_else(|| anyhow::anyhow!("component dependency cycle"))?;
             let factory = pending

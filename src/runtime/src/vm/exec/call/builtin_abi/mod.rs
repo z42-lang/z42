@@ -23,7 +23,7 @@
 //!   exception or a fatal VM error (both engines go through it).
 
 mod args;
-pub(crate) mod error;
+pub mod error;
 mod ret;
 
 pub use args::{ArgAt, ArgSource, FromArg, PlainArg, RefArg, RegArgs};
@@ -162,7 +162,7 @@ pub const fn concat_descs<const N: usize>(parts: &[&[BuiltinDesc]]) -> [BuiltinD
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod abi_tests;
-#[cfg(test)]
-pub(crate) mod test_builtins;
+#[cfg(all(test, z42_test_facade))]
+pub mod test_builtins;

@@ -1,4 +1,4 @@
-pub(crate) const CAN_DECOMMIT: bool = false;
+pub const CAN_DECOMMIT: bool = false;
 pub(crate) fn page_size() -> usize {
     4096
 }

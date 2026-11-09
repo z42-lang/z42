@@ -78,3 +78,5 @@ fn os_version_returns_string() {
     #[cfg(not(unix))]
     let _ = v;
 }
+
+use crate::assembly::context::VmContextFactory as _;

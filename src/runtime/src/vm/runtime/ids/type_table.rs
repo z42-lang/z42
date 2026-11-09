@@ -121,7 +121,7 @@ impl TypeTable {
 
     /// Publish a dependent result only if its descriptor is still current.
     /// Uses the publication lock so a late factory cannot restore an old cache.
-    pub(crate) fn with_current<R>(&self, descriptor: &Arc<TypeDesc>, publish: impl FnOnce() -> R) -> Option<R> {
+    pub fn with_current<R>(&self, descriptor: &Arc<TypeDesc>, publish: impl FnOnce() -> R) -> Option<R> {
         let _publication = self.own.lock();
         self.get(descriptor.id)
             .filter(|current| std::ptr::eq(*current, Arc::as_ptr(descriptor)))
@@ -177,6 +177,6 @@ impl TypeTable {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "type_table_tests.rs"]
 mod type_table_tests;

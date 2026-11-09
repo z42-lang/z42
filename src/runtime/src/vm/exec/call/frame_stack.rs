@@ -22,7 +22,7 @@ use crate::vm::exec::call::frames::VmFrame;
 use crate::object::Value;
 
 /// See the module docs.
-pub(crate) struct FrameStack {
+pub struct FrameStack {
     frames: UnsafeCell<Vec<VmFrame>>,
     /// `frames.len()`, republished after every push / pop for readers that may
     /// not touch `frames` (the signal handler, for other threads' contexts).
@@ -50,7 +50,7 @@ impl FrameStack {
     /// Owner only. Push one frame; `true` when it is the bottom frame (the
     /// stack was empty).
     #[inline]
-    pub(crate) fn push(&self, frame: VmFrame) -> bool {
+    pub fn push(&self, frame: VmFrame) -> bool {
         crate::vm::threads::safepoint::debug_assert_frame_change_not_parked();
         // SAFETY: owner-thread access (module docs); no reference into
         // `frames` outlives this call.
@@ -72,7 +72,7 @@ impl FrameStack {
 
     /// Owner only. Pop the top frame (`None` when empty).
     #[inline]
-    pub(crate) fn pop(&self) -> Option<VmFrame> {
+    pub fn pop(&self) -> Option<VmFrame> {
         crate::vm::threads::safepoint::debug_assert_frame_change_not_parked();
         self.debug_assert_owner();
         // SAFETY: owner-thread access.
@@ -93,7 +93,7 @@ impl FrameStack {
 
     /// Owner only. Number of frames.
     #[inline]
-    pub(crate) fn depth(&self) -> usize {
+    pub fn depth(&self) -> usize {
         // SAFETY: owner-thread access.
         unsafe { &*self.frames.get() }.len()
     }
@@ -108,7 +108,7 @@ impl FrameStack {
     /// Owner only. Run `f` over the frames, outermost first. `f` must not
     /// push or pop frames on this context (it would move the slice it reads).
     #[inline]
-    pub(crate) fn with_frames<R>(&self, f: impl FnOnce(&[VmFrame]) -> R) -> R {
+    pub fn with_frames<R>(&self, f: impl FnOnce(&[VmFrame]) -> R) -> R {
         self.debug_assert_owner();
         // SAFETY: owner-thread access; the borrow ends when `f` returns.
         f(unsafe { &*self.frames.get() })
@@ -140,7 +140,7 @@ impl FrameStack {
     ///
     /// `f` must not keep the slice or anything borrowed from it.
     #[inline]
-    pub(crate) unsafe fn scan_parked<R>(&self, f: impl FnOnce(&[VmFrame]) -> R) -> R {
+    pub unsafe fn scan_parked<R>(&self, f: impl FnOnce(&[VmFrame]) -> R) -> R {
         // SAFETY: the caller's contract above.
         f(unsafe { &*self.frames.get() })
     }
@@ -148,13 +148,13 @@ impl FrameStack {
     /// Frame count as last published by the owner. Readable from any thread
     /// (including a signal handler); from a non-owner it may be stale.
     #[inline]
-    pub(crate) fn published_depth(&self) -> usize {
+    pub fn published_depth(&self) -> usize {
         self.depth.load(Ordering::Acquire)
     }
 
     /// Whether the calling thread owns a non-empty stack. Async-signal-safe.
     #[inline]
-    pub(crate) fn owned_by_current_thread(&self) -> bool {
+    pub fn owned_by_current_thread(&self) -> bool {
         self.published_depth() > 0 && self.owner.load(Ordering::Relaxed) == thread_token()
     }
 
@@ -178,6 +178,6 @@ pub(crate) fn thread_token() -> usize {
     crate::pal::thread::current_token()
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "frame_stack_tests.rs"]
 mod frame_stack_tests;

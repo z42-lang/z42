@@ -53,7 +53,7 @@ use crate::vm::context::VmContext;
 
 /// Try the field-reader shape for a direct call carrying the receiver as its only argument.
 #[inline]
-pub(crate) fn try_direct_field_read(
+pub fn try_direct_field_read(
     ctx: &VmContext, func: &Function, regs: &[Value], args: &[u32],
 ) -> Option<Value> {
     let [arg] = args else { return None };
@@ -63,7 +63,7 @@ pub(crate) fn try_direct_field_read(
 /// Warm the native caller's field cache when its direct call takes the helper.
 #[cfg(feature = "jit")]
 #[inline]
-pub(crate) fn try_jit_direct_field_read(
+pub fn try_jit_direct_field_read(
     ctx: &VmContext, func: &Function, regs: &[Value], args: &[u32],
 ) -> Option<Value> {
     let [arg] = args else { return None };
@@ -71,7 +71,7 @@ pub(crate) fn try_jit_direct_field_read(
 }
 
 #[inline(always)]
-pub(crate) fn try_field_read_cached(
+pub fn try_field_read_cached(
     ctx: &VmContext, func: &Function, recv: &Value,
     site: Option<&crate::vm::runtime::dispatch::ic::FieldICEntry>,
 ) -> Option<Value> {
@@ -98,7 +98,7 @@ pub(crate) fn try_field_read_cached(
 
 /// The caller can reserve this cache before the getter has its own resolved tokens.
 #[cfg(feature = "jit")]
-pub(crate) fn direct_reader_site(func: &Function) -> Option<&crate::vm::runtime::dispatch::ic::FieldICEntry> {
+pub fn direct_reader_site(func: &Function) -> Option<&crate::vm::runtime::dispatch::ic::FieldICEntry> {
     if !*func.field_forward.get_or_init(|| is_field_reader(func)) {
         return None;
     }
@@ -121,7 +121,7 @@ fn is_field_reader(func: &Function) -> bool {
 /// The builtin id `func` forwards to, if `func` is exactly
 /// `%d = builtin __x(%0, …, %{n-1}); ret %d` (or `ret` void) over all of its
 /// parameters in order, with no exception table and no generic parameters.
-pub(crate) fn builtin_forward(func: &Function, builtins: &crate::vm::runtime::builtins::BuiltinCatalog) -> Option<u32> {
+pub fn builtin_forward(func: &Function, builtins: &crate::vm::runtime::builtins::BuiltinCatalog) -> Option<u32> {
     if func.blocks.len() != 1 || !func.exception_table().is_empty() || !func.type_params().is_empty() {
         return None;
     }
@@ -149,7 +149,7 @@ pub(crate) fn builtin_forward(func: &Function, builtins: &crate::vm::runtime::bu
 
 /// Shape 2: `func` is `%d = call @Same.Type.G(%0, …); ret %d` and `lookup` resolves
 /// `G` to the builtin it forwards to (shape 1).
-pub(crate) fn chained_forward(func: &Function, lookup: impl FnOnce(&str) -> Option<u32>) -> Option<u32> {
+pub fn chained_forward(func: &Function, lookup: impl FnOnce(&str) -> Option<u32>) -> Option<u32> {
     let target = chained_target(func)?;
     lookup(target)
 }
@@ -176,7 +176,7 @@ fn chained_target(func: &Function) -> Option<&str> {
 }
 
 /// `Ns.Type` of a function key `Ns.Type.Method[$arity$sig…]`.
-pub(crate) fn owner_type(name: &str) -> Option<&str> {
+pub fn owner_type(name: &str) -> Option<&str> {
     let base = name.split(['$', ':']).next()?;
     base.rsplit_once('.').map(|(owner, _)| owner)
 }
@@ -200,7 +200,7 @@ const FRAMED: u32 = 1 << 30;
 /// on the first call and cached on `f` (`Function::forward`). Pass the token to
 /// [`run_folded`] as is.
 #[inline]
-pub(crate) fn forward_of(ctx: &VmContext, module: &Module, f: &Function) -> Option<u32> {
+pub fn forward_of(ctx: &VmContext, module: &Module, f: &Function) -> Option<u32> {
     match f.forward.get() {
         Some(v) => v,
         None => compute_forward(ctx, module, f),
@@ -261,7 +261,7 @@ pub(crate) fn wrapper_rows(ctx: &VmContext, module: &Module, f: &Function) -> sm
 /// [`FoldFault::raise`]. `module` (the module exceptions are built against) is only
 /// asked for on a failure.
 #[inline(always)]
-pub(crate) fn run_folded<'m>(
+pub fn run_folded<'m>(
     ctx: &VmContext, wrapper: &Function, token: u32,
     this: Option<Value>, regs: &[Value], args: &[u32],
     module: impl FnOnce() -> &'m Module,
@@ -296,7 +296,7 @@ fn run_framed<'m>(
 
 /// A failed folded call, before it becomes an exception. Boxed: one word keeps the
 /// call's result as small as the value it carries on the hot (success) path.
-pub(crate) struct FoldFault(Box<Failure>);
+pub struct FoldFault(Box<Failure>);
 
 enum Failure {
     Unraised { id: u32, fault: crate::vm::exec::call::builtin_abi::Fault },
@@ -307,7 +307,7 @@ impl FoldFault {
     /// What the engine propagates. A frameless call's exception gets the wrapper's rows.
     #[cold]
     #[inline(never)]
-    pub(crate) fn raise(self, ctx: &VmContext, module: &Module, wrapper: &Function) -> crate::vm::exec::call::builtin_abi::error::Raised {
+    pub fn raise(self, ctx: &VmContext, module: &Module, wrapper: &Function) -> crate::vm::exec::call::builtin_abi::error::Raised {
         match *self.0 {
             Failure::Raised(r) => r,
             Failure::Unraised { id, fault } => {
@@ -318,10 +318,10 @@ impl FoldFault {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "forward_tests.rs"]
 mod forward_tests;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "forward_shape_tests.rs"]
 mod forward_shape_tests;

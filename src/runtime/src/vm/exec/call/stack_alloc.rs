@@ -34,13 +34,13 @@ use anyhow::Result;
 /// One stack-allocated object; `frame_id` = creating frame's id (staleness guard). The object
 /// lives in a detached block shaped exactly like a heap object's (`OwnedObject`, object model
 /// R6), so `&ScriptObject` works identically on both.
-pub(crate) struct StackObjSlot {
+pub struct StackObjSlot {
     pub frame_id: u32,
     pub obj: OwnedObject,
 }
 
 /// One stack-allocated array; `frame_id` = creating frame's id.
-pub(crate) struct StackArrSlot {
+pub struct StackArrSlot {
     pub frame_id: u32,
     pub arr: StackArray,
 }
@@ -49,12 +49,12 @@ pub(crate) struct StackArrSlot {
 /// (not the GC heap), scanned directly as GC roots by [`StackArena::scan_roots`] and reached only
 /// under the arena's lock — so, unlike a heap array (`ArrayObj`), it needs no cell encoding and
 /// stores take `&mut`.
-pub(crate) struct StackArray {
+pub struct StackArray {
     elems: Vec<Value>,
 }
 
 impl StackArray {
-    pub(crate) fn new(elems: Vec<Value>) -> Self {
+    pub fn new(elems: Vec<Value>) -> Self {
         Self { elems }
     }
 
@@ -86,7 +86,7 @@ impl StackArray {
 /// Per-`VmContext` stack-allocation arena. Guarded by a `Mutex` on the context
 /// (owner-thread accesses are uncontended; the GC scanner reads it at a safepoint).
 #[derive(Default)]
-pub(crate) struct StackArena {
+pub struct StackArena {
     objs: Vec<StackObjSlot>,
     arrs: Vec<StackArrSlot>,
     /// Diagnostics: number of stack allocations this run (`Z42_STACKALLOC=stats`).
@@ -202,7 +202,7 @@ fn stack_stale_err(kind: &str, idx: u32, frame_id: u32) -> anyhow::Error {
 
 /// Resolved by the facade; execution never interprets process configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StackAllocPolicy { On, Off, Stats }
+pub enum StackAllocPolicy { On, Off, Stats }
 
 /// Whether this VM permits interpreter stack-allocation hints.
 #[inline]
@@ -216,6 +216,6 @@ pub fn stats_enabled(ctx: &crate::vm::context::VmContext) -> bool {
     ctx.core.exec.stack_alloc == StackAllocPolicy::Stats
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "stack_alloc_tests.rs"]
 mod stack_alloc_tests;

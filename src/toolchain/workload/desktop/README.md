@@ -1,7 +1,7 @@
 # workload/desktop — 桌面平台（apphost stub + Tier-1 C ABI 测试）
 
-> 与 [`../wasm`](../wasm/) / [`../ios`](../ios/) /
-> [`../android`](../android/) 平级：desktop 作为统一 `test app` 框架的第 4 个平台。
+> 与 [`../wasm`](../wasm) / [`../ios`](../ios) /
+> [`../android`](../android) 平级：desktop 作为统一 `test app` 框架的第 4 个平台。
 
 ## 职责
 

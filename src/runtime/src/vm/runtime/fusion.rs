@@ -95,6 +95,6 @@ fn as_cmp(ins: &Instruction) -> Option<(CmpOp, Reg, Reg, Reg)> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "fusion_tests.rs"]
 mod fusion_tests;

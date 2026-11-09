@@ -1,0 +1,29 @@
+namespace EngineComponentProbe;
+using Std;
+using Std.IO;
+using Std.Threading;
+class State {
+    public static long Count = 0L;
+}
+long Echo(long value) {
+    State.Count += 1L;
+    return value + State.Count;
+}
+long Worker() {
+    int[] result = new int[1];
+    Thread t = Thread.Start(() => { result[0] = 41; });
+    t.Join();
+    GC.Collect();
+    return result[0] + 1;
+}
+long HotLoop(long count) {
+    long sum = 0L;
+    for (long i = 0L; i < count; i++) { sum += i; }
+    return sum;
+}
+void Boom() { throw new Exception("component-exception"); }
+void Main() {
+    Console.WriteLine(Echo(41L));
+    Console.WriteLine(Worker());
+    try { Boom(); } catch (Exception e) { Console.WriteLine(e.Message); }
+}

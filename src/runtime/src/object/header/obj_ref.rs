@@ -157,10 +157,10 @@ impl std::fmt::Debug for ObjRef {
 /// holds the region.
 #[derive(Clone, Copy)]
 pub struct WeakObjRef {
-    pub(crate) obj: ObjRef,
+    pub obj: ObjRef,
     /// Owning chunk index (`u32::MAX` for a block outside any region — never reclaimed).
-    pub(crate) chunk: u32,
-    pub(crate) epoch: u32,
+    pub chunk: u32,
+    pub epoch: u32,
 }
 
 impl std::fmt::Debug for WeakObjRef {

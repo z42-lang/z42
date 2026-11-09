@@ -56,3 +56,5 @@ fn frame_ids_are_never_zero() {
     assert_eq!(ctx.next_frame_id(), u32::MAX);
     assert_eq!(ctx.next_frame_id(), 1, "wraps past 0, the \"not taken\" marker");
 }
+
+use crate::assembly::context::VmContextFactory as _;

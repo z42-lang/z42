@@ -13,7 +13,7 @@ use {super::VarRegion, crate::object::header::VarGcRef};
 
 /// Size-class sentinel ([`class_for`]) for a block that exceeds the largest in-chunk class and
 /// gets its own dedicated, exactly-sized chunk.
-pub(crate) const OVERSIZED_CLASS: u8 = u8::MAX;
+pub const OVERSIZED_CLASS: u8 = u8::MAX;
 
 /// Smallest total block footprint (header + payload), a power of two: a header-only block — a
 /// field-less object, an empty string. Object model R8: with one 16 B header per object the old
@@ -26,7 +26,7 @@ pub(super) const CHUNK_BYTES: usize = 64 * 1024;
 
 /// Chunk alignment — 16 so every block start (bumped to 8) and the header (align 8) are
 /// satisfied with margin.
-pub(crate) const CHUNK_ALIGN: usize = 16;
+pub const CHUNK_ALIGN: usize = 16;
 
 /// Sub-classes per octave, as a log2. `0` would be plain powers of two; `2` splits every
 /// octave into four (32/40/48/56, 64/80/96/112, …) — the mimalloc / jemalloc shape. The octave
@@ -117,7 +117,7 @@ pub fn loh_bytes() -> usize {
 }
 
 #[inline]
-pub(crate) fn class_for(payload: usize) -> (usize, u8) {
+pub fn class_for(payload: usize) -> (usize, u8) {
     class_for_with_limit(payload, LOH_BYTES.load(Ordering::Relaxed))
 }
 
@@ -172,7 +172,7 @@ pub(super) fn payload_class(payload: usize) -> u8 {
 /// The footprint of size class `sc` — the inverse of [`class_for_with_limit`] for in-chunk
 /// classes (`octave << SUB_LOG2 | sub` → `2^octave + sub · 2^octave / 2^SUB_LOG2`). Tests pin
 /// that every class index names exactly one footprint.
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[inline]
 pub(super) fn class_footprint(sc: u8) -> usize {
     let oct = (sc >> SUB_LOG2) as u32;
@@ -377,7 +377,7 @@ impl VarChunkClaim {
     /// Owner-thread-exclusive (see the type's safety contract); the chunk is `borrowed` so no
     /// concurrent reader exists. `footprint`/`size_class` come from `class_for(payload)`.
     #[inline]
-    pub(crate) fn fill(&mut self, payload: usize, footprint: usize, size_class: u8, block_type: BlockType) -> Option<VarGcRef> {
+    pub fn fill(&mut self, payload: usize, footprint: usize, size_class: u8, block_type: BlockType) -> Option<VarGcRef> {
         if self.off + footprint > self.cap {
             return None;
         }
@@ -660,7 +660,7 @@ impl VarRegion {
 
     /// Whether `addr` falls inside a chunk this region still owns (tests: proves nothing
     /// tracked points into memory that was handed back to the allocator).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub(crate) fn owns_addr(&self, addr: usize) -> bool {
         self.chunks.iter().any(|c| {
             !c.is_freed() && {

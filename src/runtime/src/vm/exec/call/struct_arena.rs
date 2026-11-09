@@ -41,7 +41,7 @@ use std::sync::Arc;
 /// `type_name` = FQ value-type name (used by boxing to recover the precise type);
 /// `bytes` = byte-packed primitive leaves; `refs` = reference leaves as `Value`s
 /// (see module docs); `layout` = shared type layout (offset→ref-index + copy).
-pub(crate) struct StructSlot {
+pub struct StructSlot {
     pub frame_id: u32,
     #[allow(dead_code)] // consumed by boxing (A-use P4) to recover the precise type
     pub type_name: Arc<str>,
@@ -53,7 +53,7 @@ pub(crate) struct StructSlot {
 /// Per-`VmContext` value-struct byte arena. Guarded by a `Mutex` on the context
 /// (owner-thread accesses uncontended; GC scanner reads it at a safepoint).
 #[derive(Default)]
-pub(crate) struct StructArena {
+pub struct StructArena {
     slots: Vec<StructSlot>,
     /// Diagnostics: number of struct allocations this run.
     pub allocs: u64,
@@ -272,6 +272,6 @@ fn stale_err(idx: u32, frame_id: u32) -> anyhow::Error {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "struct_arena_tests.rs"]
 mod struct_arena_tests;

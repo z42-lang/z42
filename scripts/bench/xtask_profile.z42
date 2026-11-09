@@ -199,8 +199,9 @@ string _profileHeap(ProfileCtx c) {
     string tdir = _workOut(_root(), "src/runtime", "dhat-target");   // 中间物：跨脚本复用 cargo 缓存
     Console.WriteLine("  building dhat-heap z42vm (isolated target-dir)…");
     int bc = _exec(_cargoRelease(_runtimeCargoConfig())
+        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-compression")
         .Arg("--manifest-path").Arg(_runtimeManifest())
-        .Arg("--features").Arg("dhat-heap")
+        .Arg("--features").Arg("z42/dhat-heap")
         .Arg("--target-dir").Arg(tdir));
     if (bc != 0) {
         Console.WriteLine("  ✗ dhat-heap build failed (rc=" + bc.ToString() + ")");
@@ -247,8 +248,9 @@ string _profileThreads(ProfileCtx c) {
     string tdir = _workOut(_root(), "src/runtime", "contention-target");   // 中间物：跨脚本复用 cargo 缓存
     Console.WriteLine("  building profile-contention z42vm (isolated target-dir)…");
     int bc = _exec(_cargoRelease(_runtimeCargoConfig())
+        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-compression")
         .Arg("--manifest-path").Arg(_runtimeManifest())
-        .Arg("--features").Arg("profile-contention")
+        .Arg("--features").Arg("z42/profile-contention")
         .Arg("--target-dir").Arg(tdir));
     string contention = "(build failed rc=" + bc.ToString() + ")";
     if (bc == 0) {

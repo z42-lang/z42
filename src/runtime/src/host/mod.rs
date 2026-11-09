@@ -1,10 +1,10 @@
 //! Shared Rust host services and C embedding adapters.
 mod components;
 mod component_catalog;
-pub use z42_component_api::*;
+pub use crate::components::api::*;
 pub use components::{ComponentOptions, component_interface, component_ids};
 pub use crate::vm::components::ComponentLease;
-pub use crate::{object::Value, pal::fs::Vfs, vm::context::VmContext, vm::runtime::Module};
+pub use crate::{object::Value, pal::fs::Vfs, vm::context::{VmContext, VmCore}, vm::runtime::Module};
 pub mod config;
 pub mod resolver;
 pub mod runtime;
@@ -33,3 +33,18 @@ pub(crate) use app::report_on_exit;
 #[cfg(test)] mod runtime_tests;
 
 #[cfg(test)] mod component_tests;
+
+pub use crate::assembly::context::VmContextFactory;
+pub use crate::assembly::loader::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability, LazyLoaderFactory};
+mod backends;
+pub use backends::{BackendOptions, BackendSource, jit_supported, jit_available, interp_available};
+#[cfg(test)]
+mod backend_tests;
+
+pub(crate) use backends::native_paths;
+pub use crate::vm::ext::VmExtensions;
+
+pub use z42_abi::{Z42Value, Z42_VALUE_TAG_I64};
+
+/// Ergonomic Rust embedding over the shared host services.
+pub mod rust;

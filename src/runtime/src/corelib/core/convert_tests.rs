@@ -179,3 +179,5 @@ fn public_fmt_buf_preserves_fragmented_utf8_after_spill() {
     write!(buf, ":{}", -42).unwrap();
     assert_eq!(buf.as_str(), format!("{}🦀中文:-42", "é".repeat(31)));
 }
+
+use crate::assembly::context::VmContextFactory as _;

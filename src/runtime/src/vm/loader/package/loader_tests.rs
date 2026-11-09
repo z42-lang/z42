@@ -506,7 +506,7 @@ fn transitive_flag_clears_in_one_round_for_a_marker_base() {
 
 /// committed fixture: indexed 主文件 + 散装自包含 zbc（src/compiler/z42.package/tests/fixtures/zpkg-format/indexed-minimal）。
 fn indexed_fixture_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    std::path::PathBuf::from(env!("Z42_RUNTIME_DIR"))
         .join("../compiler/z42.package/tests/fixtures/zpkg-format/indexed-minimal")
 }
 
@@ -1291,3 +1291,5 @@ fn own_methods_are_the_functions_under_the_class_name() {
     assert_eq!(own("A.B.C"), ["A.B.C.Inner"]);
     assert_eq!(own("G<int>"), ["G<int>.Special", "G.Shared"]);
 }
+
+use crate::assembly::loader::LazyLoaderFactory as _;

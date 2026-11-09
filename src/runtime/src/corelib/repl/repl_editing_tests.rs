@@ -59,3 +59,5 @@ fn keyedit_trampoline_callback_error_swallowed_to_null() {
     assert!(r.is_null(), "module=None → callback errors → null, never crash");
     repl_set_key_editor("");
 }
+
+use crate::assembly::context::VmContextFactory as _;

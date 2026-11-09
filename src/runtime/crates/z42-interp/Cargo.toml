@@ -1,0 +1,22 @@
+[package]
+name = "z42-interp"
+version.workspace = true
+edition = "2021"
+[lib]
+crate-type = ["rlib", "cdylib"]
+test = false
+[dependencies]
+z42-runtime = { path = "../.." }
+anyhow = "1"
+smallvec = "1"
+tracing = "0.1"
+parking_lot = "0.12"
+rustc-hash = "2"
+[features]
+default = []
+shared-core = ["jit"]
+jit = ["z42-runtime/jit"]
+native-interop = ["z42-runtime/native-interop"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(z42_test_facade)", "cfg(loom)"] }

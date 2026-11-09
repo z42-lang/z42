@@ -20,7 +20,7 @@ impl VmContext {
     // The length store happens UNDER the arena lock (single-writer publish).
 
     /// Allocate a stack object; publishes the new `objs` length. See `stack_obj_len`.
-    pub(crate) fn stack_alloc_obj(&self, frame_id: u32, obj: crate::object::OwnedObject) -> u32 {
+    pub fn stack_alloc_obj(&self, frame_id: u32, obj: crate::object::OwnedObject) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.exec.stack_arena.lock();
         let idx = a.alloc_obj(frame_id, obj);
@@ -29,7 +29,7 @@ impl VmContext {
     }
 
     /// Allocate a stack array; publishes the new `arrs` length. See `stack_arr_len`.
-    pub(crate) fn stack_alloc_arr(&self, frame_id: u32, arr: crate::vm::exec::call::stack_alloc::StackArray) -> u32 {
+    pub fn stack_alloc_arr(&self, frame_id: u32, arr: crate::vm::exec::call::stack_alloc::StackArray) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.exec.stack_arena.lock();
         let idx = a.alloc_arr(frame_id, arr);
@@ -38,7 +38,7 @@ impl VmContext {
     }
 
     /// Allocate a value-struct blob; publishes the new length. See `struct_len`.
-    pub(crate) fn struct_alloc(
+    pub fn struct_alloc(
         &self, frame_id: u32, type_name: std::sync::Arc<str>,
         layout: std::sync::Arc<crate::object::StructTypeLayout>,
     ) -> u32 {
@@ -50,7 +50,7 @@ impl VmContext {
     }
 
     /// Allocate a transient payload; publishes the new length. See `transient_len`.
-    pub(crate) fn transient_alloc(
+    pub fn transient_alloc(
         &self, frame_id: u32, payload: crate::vm::exec::call::transient_arena::TransientPayload,
     ) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
@@ -60,7 +60,7 @@ impl VmContext {
         idx
     }
 
-    pub(crate) fn push_frame(&self, mut frame: crate::vm::exec::call::frames::VmFrame) {
+    pub fn push_frame(&self, mut frame: crate::vm::exec::call::frames::VmFrame) {
         use std::sync::atomic::Ordering::Relaxed;
         // perf interp-frame-lock-slim: capture each arena's truncation base from its
         // published-length atomic — a lock-free `Relaxed` load — instead of locking
@@ -80,7 +80,7 @@ impl VmContext {
     }
 
     /// Pop the most recently pushed frame. No-op when empty (defensive).
-    pub(crate) fn pop_frame(&self) {
+    pub fn pop_frame(&self) {
         use std::sync::atomic::Ordering::Relaxed;
         let popped = self.exec.call_stack.pop();
         if let Some(f) = popped {
@@ -120,7 +120,7 @@ impl VmContext {
     /// Called the first time a frame allocates an arena slot (interp
     /// `Frame::frame_id`, JIT `struct_ops::frame_id_of`). Owner thread only, so a
     /// plain load + store, no read-modify-write.
-    pub(crate) fn next_frame_id(&self) -> u32 {
+    pub fn next_frame_id(&self) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
         let id = self.exec.next_frame_id.load(Relaxed);
         let next = id.wrapping_add(1);
@@ -134,7 +134,7 @@ impl VmContext {
     /// snapshot shows that site rather than an earlier one. Line / column are
     /// resolved from it only when a stack trace is built.
     #[inline]
-    pub(crate) fn set_top_frame_pc(&self, pc: u32) {
+    pub fn set_top_frame_pc(&self, pc: u32) {
         self.exec.call_stack.set_top_pc(pc);
     }
 
@@ -155,7 +155,7 @@ impl VmContext {
     /// is still alive (guaranteed by spec design Decision 9: refs never
     /// escape the call stack — popped frames cannot be referenced). Like every
     /// frame-stack accessor here, it runs on the context's owner thread.
-    pub(crate) fn frame_state_at(&self, idx: usize) -> Option<*const Vec<Value>> {
+    pub fn frame_state_at(&self, idx: usize) -> Option<*const Vec<Value>> {
         self.exec.call_stack.regs_at(idx)
     }
 
@@ -163,7 +163,7 @@ impl VmContext {
     /// the most recent frame. Used by codegen-generated `LoadLocalAddr`
     /// to produce a `RefKind::Stack { frame_idx }` referencing the
     /// current frame at emission time.
-    pub(crate) fn frame_stack_depth(&self) -> usize {
+    pub fn frame_stack_depth(&self) -> usize {
         self.exec.call_stack.depth()
     }
 

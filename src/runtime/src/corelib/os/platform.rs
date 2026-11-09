@@ -75,7 +75,7 @@ pub fn platform_arch_kind() -> i64 {
 /// Order is stable (declaration order) so probe output is deterministic.
 pub fn platform_caps(ctx: &VmContext) -> Value {
     let mut caps: Vec<&str> = Vec::new();
-    #[cfg(feature = "jit")]                 caps.push("jit");
+    if ctx.core().exec().engines.has_jit() || crate::host::jit_available() { caps.push("jit"); }
     #[cfg(feature = "native-interop")]      caps.push("native-interop");
     #[cfg(feature = "bundled-compression")] caps.push("bundled-compression");
     let os = crate::pal::system::OS_CAPS;
@@ -104,8 +104,9 @@ pub fn platform_caps(ctx: &VmContext) -> Value {
 /// matrix's *policy overlay* is what marks any `aot_pkgs ≠ []` composition as
 /// `skipped-not-yet` (M9), independent of this list.
 pub fn platform_exec_modes(ctx: &VmContext) -> Value {
-    let mut modes: Vec<&str> = vec!["interp"];
-    #[cfg(feature = "jit")] modes.push("jit");
+    let mut modes: Vec<&str> = Vec::new();
+    if ctx.core().exec().engines.has_baseline() { modes.push("interp"); }
+    if ctx.core().exec().engines.has_jit() || crate::host::jit_available() { modes.push("jit"); }
     #[cfg(feature = "aot")] modes.push("aot");
     let list: Vec<Value> = modes.into_iter().map(|s| Value::Str(s.to_string().into())).collect();
     ctx.heap().alloc_array(list)

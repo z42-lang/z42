@@ -22,11 +22,11 @@ README.md           仓库门面      定位 + 上手 + 分流
 
 | 书 | 给谁 | 回答什么 | 在线 |
 |---|---|---|---|
-| [`learn/`](learn/) | 用 z42 写程序的人（**学**）：按顺序读一遍就会用 | 怎么上手做成一件事 | <https://z42-lang.github.io/z42/learn/> |
-| [`reference/`](reference/) | 用 z42 写程序的人（**查**）：不读实现也能用对 | 规则是什么、有哪些、怎么写 | <https://z42-lang.github.io/z42/reference/> |
-| [`internals/`](internals/) | 改 z42 本身的人：要动这块代码才需要读 | 怎么实现的、为什么这样、在哪改、怎么构建测试 | <https://z42-lang.github.io/z42/internals/> |
+| [`learn/`](learn) | 用 z42 写程序的人（**学**）：按顺序读一遍就会用 | 怎么上手做成一件事 | <https://z42-lang.github.io/z42/learn/> |
+| [`reference/`](reference) | 用 z42 写程序的人（**查**）：不读实现也能用对 | 规则是什么、有哪些、怎么写 | <https://z42-lang.github.io/z42/reference/> |
+| [`internals/`](internals) | 改 z42 本身的人：要动这块代码才需要读 | 怎么实现的、为什么这样、在哪改、怎么构建测试 | <https://z42-lang.github.io/z42/internals/> |
 
-三本书各是一个 mdBook，同站发布；站点根（[`book/`](book/)）是三书分流索引。
+三本书各是一个 mdBook，同站发布；站点根（[`book/`](book)）是三书分流索引。
 本地渲染：`cargo install mdbook` 后进对应目录跑 `mdbook serve --open`（reference 先在仓库根跑 `xtask doc gen`：标准库页由源码 `///` 生成、不入库）。
 
 语种：`learn` / `reference` 中文先行，内容稳定后出英文版（另一套 SUMMARY，共用 `examples/`）；

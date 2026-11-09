@@ -14,3 +14,5 @@ fn native_services_and_owned_pins_are_shared_with_workers() {
     (services(&worker).unwrap().release_owned_buffer)(&worker, ptr).unwrap();
     assert_eq!(crate::interop::pinned_owned_buffer_count(&worker).unwrap(), 0);
 }
+
+use crate::assembly::context::VmContextFactory as _;

@@ -3,33 +3,33 @@ use std::sync::{Arc, atomic::{AtomicU32, AtomicUsize}};
 use parking_lot::Mutex;
 use crate::object::Value;
 
-pub(crate) struct ThreadExecState {
+pub struct ThreadExecState {
     /// GC-rooted handoff across a JIT error boundary.
-    pub(crate) pending_exception: Arc<Mutex<Option<Value>>>,
+    pub pending_exception: Arc<Mutex<Option<Value>>>,
     /// Callback builtins preserve the original thrown object through this root.
-    pub(crate) pending_thrown: Mutex<Option<Value>>,
+    pub pending_thrown: Mutex<Option<Value>>,
     /// Owner-thread only; other threads read only after the owner is parked.
-    pub(crate) call_stack: super::call::frame_stack::FrameStack,
-    pub(crate) reg_pool: super::call::reg_pool::RegPool,
+    pub call_stack: super::call::frame_stack::FrameStack,
+    pub reg_pool: super::call::reg_pool::RegPool,
     /// Installed at the bottom push and restored after the last pop.
-    pub(crate) engine_guards: super::call::engine_guards::EngineGuards,
+    pub engine_guards: super::call::engine_guards::EngineGuards,
     /// LIFO frame-scoped payloads, scanned under each arena lock during a pause.
-    pub(crate) stack_arena: Arc<Mutex<super::call::stack_alloc::StackArena>>,
-    pub(crate) struct_arena: Arc<Mutex<super::call::struct_arena::StructArena>>,
-    pub(crate) transient_arena: Arc<Mutex<super::call::transient_arena::TransientArena>>,
+    pub stack_arena: Arc<Mutex<super::call::stack_alloc::StackArena>>,
+    pub struct_arena: Arc<Mutex<super::call::struct_arena::StructArena>>,
+    pub transient_arena: Arc<Mutex<super::call::transient_arena::TransientArena>>,
     /// Single-mutator published lengths; GC reads arena data under its locks.
     /// Relaxed reads let push/pop skip locks for unchanged arena lengths.
-    pub(crate) stack_obj_len: AtomicUsize,
-    pub(crate) stack_arr_len: AtomicUsize,
-    pub(crate) struct_len: AtomicUsize,
-    pub(crate) transient_len: AtomicUsize,
+    pub stack_obj_len: AtomicUsize,
+    pub stack_arr_len: AtomicUsize,
+    pub struct_len: AtomicUsize,
+    pub transient_len: AtomicUsize,
     /// Owner-thread source; zero is reserved for a frame that has taken no id.
-    pub(crate) next_frame_id: AtomicU32,
-    pub(crate) jit_head: JitHead,
+    pub next_frame_id: AtomicU32,
+    pub jit_head: JitHead,
 }
 
 impl ThreadExecState {
-    pub(crate) fn new(cctors: &Arc<crate::vm::runtime::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
+    pub fn new(cctors: &Arc<crate::vm::runtime::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
         Self {
             pending_exception: Arc::new(Mutex::new(None)),
             pending_thrown: Mutex::new(None),
@@ -67,16 +67,16 @@ impl ThreadExecState {
 /// the context's ThreadLocalState (the interpreter decrements it too) and is
 /// addressed by [`crate::vm::context::VM_CONTEXT_SAFEPOINT_SKIP_OFFSET`].
 #[repr(C)]
-pub(crate) struct JitHead {
+pub struct JitHead {
     /// Lowest stack address a JIT function may start at: `vm::exec::stack_guard::limit()`
     /// of the thread driving this context, stored at its bottom frame push
     /// (`push_frame` → `EngineGuards::install`), i.e. before any compiled code
     /// runs on it. `0` until then (`sp < 0` never holds: no check). Written and
     /// read by the owner thread only; atomic only to keep the context `Sync`.
-    pub(crate) stack_limit: std::sync::atomic::AtomicUsize,
+    pub stack_limit: std::sync::atomic::AtomicUsize,
     /// `Arc::as_ptr(cctors)` — stable for the core's life, set at
     /// construction.
-    pub(crate) cctors: *const crate::vm::runtime::statics::CctorRegistry,
+    pub cctors: *const crate::vm::runtime::statics::CctorRegistry,
     /// The registered neutral tier header (null until installed):
     /// taken at construction, published by the tier installer for the
     /// installing context, and refreshed at the bottom frame push for a context
@@ -92,7 +92,7 @@ unsafe impl Send for JitHead {}
 unsafe impl Sync for JitHead {}
 
 impl JitHead {
-    pub(crate) fn new(cctors: &Arc<crate::vm::runtime::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
+    pub fn new(cctors: &Arc<crate::vm::runtime::statics::CctorRegistry>, engines: &super::engine::EngineRegistry) -> Self {
         #[cfg(not(feature = "jit"))]
         let _ = engines;
         JitHead {

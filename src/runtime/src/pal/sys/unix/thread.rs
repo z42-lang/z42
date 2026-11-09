@@ -1,4 +1,4 @@
-pub(crate) const CAN_SPAWN: bool = true;
+pub const CAN_SPAWN: bool = true;
 pub(crate) fn current_token() -> usize {
     // SAFETY: `pthread_self` has no preconditions.
     unsafe { libc::pthread_self() as usize }

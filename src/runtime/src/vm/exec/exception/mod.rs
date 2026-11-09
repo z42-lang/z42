@@ -245,5 +245,5 @@ pub fn make_oom_exception(ctx: &VmContext, module: &Module, message: String) -> 
     exc
 }
 
-#[cfg(test)]
-pub(crate) mod tests;
+#[cfg(all(test, z42_test_facade))]
+pub mod tests;

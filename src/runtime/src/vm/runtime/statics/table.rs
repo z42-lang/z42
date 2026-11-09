@@ -48,7 +48,7 @@ const W1: usize = 8;
 /// at [`Self::JIT_READY_OFFSET`].
 #[repr(C, align(8))]
 #[derive(Default)]
-pub(crate) struct StaticCell {
+pub struct StaticCell {
     words: [AtomicU64; 2],
     owner: AtomicPtr<TypeDesc>,
     owner_state: AtomicU8,
@@ -59,7 +59,7 @@ const OWNER_EXEMPT: u8 = 1;
 const OWNER_CHECK: u8 = 2;
 
 /// The cached owner answer of a static field (see [`StaticCell`]).
-pub(crate) enum StaticOwner<'a> {
+pub enum StaticOwner<'a> {
     Unknown,
     Exempt,
     Check(&'a TypeDesc),
@@ -69,11 +69,11 @@ impl StaticCell {
     /// Byte offsets JIT-compiled accesses use (pinned by `static_table_tests::jit_layout_matches_the_accessors`):
     /// the tag word, the payload word (`tparam_cell` protocol), the barrier verdict.
     #[cfg(feature = "jit")]
-    pub(crate) const JIT_TAG_OFFSET: i32 = W0 as i32;
+    pub const JIT_TAG_OFFSET: i32 = W0 as i32;
     #[cfg(feature = "jit")]
-    pub(crate) const JIT_PAYLOAD_OFFSET: i32 = W1 as i32;
+    pub const JIT_PAYLOAD_OFFSET: i32 = W1 as i32;
     #[cfg(feature = "jit")]
-    pub(crate) const JIT_READY_OFFSET: i32 = std::mem::offset_of!(StaticCell, ready) as i32;
+    pub const JIT_READY_OFFSET: i32 = std::mem::offset_of!(StaticCell, ready) as i32;
 
     #[inline(always)]
     fn cells(&self) -> Cells<'_> {
@@ -83,13 +83,13 @@ impl StaticCell {
     }
 
     #[inline(always)]
-    pub(crate) fn load(&self) -> Value {
+    pub fn load(&self) -> Value {
         tparam_cell::load(&self.cells(), W0, W1)
     }
 
     /// Write `v`. Nothing to hand to a write barrier: statics are roots.
     #[inline(always)]
-    pub(crate) fn store(&self, v: &Value) -> anyhow::Result<()> {
+    pub fn store(&self, v: &Value) -> anyhow::Result<()> {
         tparam_cell::store(&self.cells(), W0, W1, v).map(|_| ())
     }
 
@@ -101,7 +101,7 @@ impl StaticCell {
 
     /// The cached type-init owner answer (one acquire load; `Check` adds one relaxed load).
     #[inline(always)]
-    pub(crate) fn owner(&self) -> StaticOwner<'_> {
+    pub fn owner(&self) -> StaticOwner<'_> {
         match self.owner_state.load(Ordering::Acquire) {
             OWNER_EXEMPT => StaticOwner::Exempt,
             OWNER_CHECK => {
@@ -141,7 +141,7 @@ impl StaticCell {
 
 /// The VM's static fields: id → cell (lock-free), name → id (registration).
 #[derive(Default)]
-pub(crate) struct StaticTable {
+pub struct StaticTable {
     cells: SegVec<StaticCell>,
     index: Mutex<FxHashMap<String, u32>>,
     /// Every owner descriptor a cell has pointed at — kept alive (and never dropped before the
@@ -151,7 +151,7 @@ pub(crate) struct StaticTable {
 
 impl StaticTable {
     /// The id of `name`, allocating it (and its cell) on first use. Idempotent.
-    pub(crate) fn resolve(&self, name: &str) -> StaticFieldId {
+    pub fn resolve(&self, name: &str) -> StaticFieldId {
         let mut idx = self.index.lock();
         if let Some(&id) = idx.get(name) {
             return StaticFieldId(id);
@@ -163,25 +163,25 @@ impl StaticTable {
     }
 
     /// The id of `name` if it has one.
-    pub(crate) fn id_of(&self, name: &str) -> Option<StaticFieldId> {
+    pub fn id_of(&self, name: &str) -> Option<StaticFieldId> {
         self.index.lock().get(name).map(|&id| StaticFieldId(id))
     }
 
     /// The cell of `id` (`None` for an id never allocated).
     #[inline(always)]
-    pub(crate) fn cell(&self, id: StaticFieldId) -> Option<&StaticCell> {
+    pub fn cell(&self, id: StaticFieldId) -> Option<&StaticCell> {
         self.cells.get(id.0 as usize)
     }
 
     /// Read `id`; `null` for an id never allocated.
     #[inline]
-    pub(crate) fn get(&self, id: StaticFieldId) -> Value {
+    pub fn get(&self, id: StaticFieldId) -> Value {
         self.cell(id).map_or(Value::Null, StaticCell::load)
     }
 
     /// Write `id`, growing the table when the id was handed out without a cell (ids only come from
     /// [`Self::resolve`], so that is a defensive path).
-    pub(crate) fn set(&self, id: StaticFieldId, v: &Value) -> anyhow::Result<()> {
+    pub fn set(&self, id: StaticFieldId, v: &Value) -> anyhow::Result<()> {
         match self.cell(id) {
             Some(c) => c.store(v),
             None => self.grown(id).store(v),
@@ -235,7 +235,7 @@ impl StaticTable {
     }
 
     /// Every field back to `null` / never written; ids (and so every resolved site) stay valid.
-    pub(crate) fn clear(&self) {
+    pub fn clear(&self) {
         for i in 0..self.cells.len() {
             if let Some(c) = self.cells.get(i) {
                 c.reset();
@@ -253,12 +253,12 @@ impl StaticTable {
     }
 
     /// Number of allocated ids (tests).
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
+    #[cfg(all(test, z42_test_facade))]
+    pub fn len(&self) -> usize {
         self.cells.len()
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "table_tests.rs"]
 mod table_tests;

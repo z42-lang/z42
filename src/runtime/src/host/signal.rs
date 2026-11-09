@@ -187,27 +187,13 @@ fn write_call_stacks(fd: i32) {
         sigsafe::write_dec_u32(fd, core_idx as u32);
         sigsafe::write_str(fd, b" --\n");
 
-        // parking_lot::Mutex::try_lock returns Option<MutexGuard>
-        let contexts = match core.threads.vm_contexts.try_lock() {
-            Some(g) => g,
-            None => {
-                sigsafe::write_str(fd, b"  <vm_contexts lock contended>\n");
-                continue;
-            }
-        };
-
-        if contexts.is_empty() {
-            sigsafe::write_str(fd, b"  <no VmContext>\n");
-            continue;
-        }
-
-        for (ctx_idx, ctx_ptr) in contexts.iter().enumerate() {
+        let count = core.threads().try_visit_contexts(|ctx_idx, ctx_ptr| {
             // SAFETY: VmContextPtr.0 raw ptr stays valid for the entire
             // lifetime of the VmContext (VmContext: !Unpin; deregistered in
             // Drop). See SAFETY block at vm/context/mod.rs::VmContextPtr.
-            let ctx_ref = unsafe { &*ctx_ptr.0 };
+            let ctx_ref = unsafe { &*ctx_ptr };
 
-            let stack = &ctx_ref.exec.call_stack;
+            let stack = &ctx_ref.exec().call_stack;
             if stack.owned_by_current_thread() {
                 // SAFETY: this thread owns the stack (it pushed the bottom
                 // frame and has not emptied it since), so this is an owner
@@ -226,6 +212,11 @@ fn write_call_stacks(fd: i32) {
             } else {
                 write_thread_header(fd, ctx_idx, stack.published_depth(), false);
             }
+        });
+        match count {
+            None => sigsafe::write_str(fd, b"  <vm_contexts lock contended>\n"),
+            Some(0) => sigsafe::write_str(fd, b"  <no VmContext>\n"),
+            Some(_) => {}
         }
     }
     sigsafe::write_str(fd, b"===\n");

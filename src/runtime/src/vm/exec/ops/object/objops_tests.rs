@@ -277,3 +277,5 @@ fn builtin_error_keeps_the_throw() {
     // 内部错误照旧是内部错误。
     assert!(OpError::internal("boom".into()).into_builtin_error().downcast::<Throw>().is_err());
 }
+
+use crate::assembly::context::VmContextFactory as _;

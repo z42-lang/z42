@@ -40,7 +40,7 @@ struct Installed {
 
 /// See the module docs.
 #[derive(Default)]
-pub(crate) struct EngineGuards {
+pub struct EngineGuards {
     installed: UnsafeCell<Option<Installed>>,
 }
 
@@ -55,7 +55,7 @@ impl EngineGuards {
     /// Owner only, at the bottom frame's push.
     #[cold]
     #[inline(never)]
-    pub(crate) fn install(&self, ctx: &VmContext) {
+    pub fn install(&self, ctx: &VmContext) {
         ctx.exec.jit_head.stack_limit.store(crate::vm::exec::stack_guard::limit(), std::sync::atomic::Ordering::Relaxed);
         #[cfg(feature = "jit")]
         if ctx.exec.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed).is_null() {
@@ -80,13 +80,13 @@ impl EngineGuards {
     /// [`install`](Self::install) replaced.
     #[cold]
     #[inline(never)]
-    pub(crate) fn release(&self) {
+    pub fn release(&self) {
         // SAFETY: owner-thread access; the guards drop after the borrow ends.
         let installed = unsafe { &mut *self.installed.get() }.take();
         drop(installed);
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "engine_guards_tests.rs"]
 mod engine_guards_tests;

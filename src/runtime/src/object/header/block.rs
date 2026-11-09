@@ -54,7 +54,7 @@ impl BlockType {
     /// unknown tag (corruption guard — a valid block always carries one of the variants
     /// above). Callers pass the already-masked low [`TAG_BITS`]; all eight values are in use.
     #[inline]
-    pub(crate) fn from_u8(v: u8) -> Option<Self> {
+    pub fn from_u8(v: u8) -> Option<Self> {
         match v {
             0 => Some(Self::Str),
             1 => Some(Self::ArrayValue),
@@ -83,21 +83,21 @@ const AGE_MASK: u8 = 0b11;
 /// (`set_ascii_str`) before the handle escapes; clear means *unknown*, never "not ASCII",
 /// so a path that does not set it only loses the fast path. The STW age updates below
 /// preserve it.
-pub(crate) const ASCII_STR_BIT: u8 = 1 << 6;
+pub const ASCII_STR_BIT: u8 = 1 << 6;
 
 /// Objects and arrays ([`BlockType::may_be_remembered`]): the block is in the heap's
 /// **remembered set** — it is old and a write barrier (or promotion) saw it receive a young
 /// reference, so the next minor re-roots from it (object model R6 / R9; the region has no card
 /// table). Set by an atomic or on the mutator path (`try_set_remembered`), cleared by the
 /// collector when the owner no longer reaches anything young.
-pub(crate) const REMEMBERED_BIT: u8 = 1 << 5;
+pub const REMEMBERED_BIT: u8 = 1 << 5;
 
 /// The heap keeps side-table state keyed by this block's address (a finalizer, a soft
 /// reference). Tombstoning a block with this bit — or [`REMEMBERED_BIT`] — records its address
 /// in the region's flagged-dead list, so the heap can drop those entries before the chunk is
 /// pooled or freed (`VarRegion::take_flagged_dead`). Sweep never has to look anything up for an
 /// unflagged block.
-pub(crate) const SIDE_BIT: u8 = 1 << 7;
+pub const SIDE_BIT: u8 = 1 << 7;
 
 /// The `type_tag` bits a GC age update must preserve (everything but the age).
 const KEEP_MASK: u8 = TAG_MASK | ASCII_STR_BIT | REMEMBERED_BIT | SIDE_BIT;
@@ -114,16 +114,16 @@ pub const MAX_GEN_AGE: u8 = AGE_MASK;
 /// type-arguments / native backing, `object::ScriptObject`). Same bit as
 /// [`ASCII_STR_BIT`] — the two never meet on one block (arrays use neither). Set before the block is published,
 /// never changed; age updates preserve it.
-pub(crate) const OBJ_META_BIT: u8 = ASCII_STR_BIT;
+pub const OBJ_META_BIT: u8 = ASCII_STR_BIT;
 
 /// The live occupant of a block always has an **odd** generation; tombstoning moves it to the
 /// next (even) value and reusing the slot to the next odd one. So "alive" is one bit of the
 /// generation, and the stale-handle guard (`generation == snapshot`) rejects dead blocks and
 /// reused slots in one compare (object model R8 — the header has no separate alive byte).
-pub(crate) const ALIVE_GEN_BIT: u16 = 1;
+pub const ALIVE_GEN_BIT: u16 = 1;
 
 /// Generation of a block carved fresh (a new chunk, a detached block).
-pub(crate) const FIRST_GEN: u16 = ALIVE_GEN_BIT;
+pub const FIRST_GEN: u16 = ALIVE_GEN_BIT;
 
 /// The first 8 bytes of every block header — what the GC owns: generation (alive bit),
 /// mark, packed type tag, payload length. `#[repr(C)]` and shared by name with the object
@@ -141,9 +141,9 @@ pub struct GcWord {
     /// odd while a block lives, bumped to even by its tombstone, bumped to odd again when the
     /// slot is reused. A [`VarGcRef`] snapshots it (16 bits — the whole field) at construction; a
     /// mismatch on resolve means the block died or the slot was reused.
-    pub(crate) generation: AtomicU16,
+    pub generation: AtomicU16,
     /// Mark bits (0 = unmarked): minor bit + major epoch (`object::header::marks::MarkKind`).
-    pub(crate) marked: AtomicU8,
+    pub marked: AtomicU8,
     /// Packed payload kind + generation age + flags. Low [`TAG_BITS`] hold the [`BlockType`]
     /// (tells the tracer how to scan the payload); the next two bits hold `gen_age`; bit 5 is
     /// [`REMEMBERED_BIT`] (objects), bit 6 [`ASCII_STR_BIT`] (strings) / [`OBJ_META_BIT`]
@@ -151,11 +151,11 @@ pub struct GcWord {
     ///
     /// `AtomicU8` because the write barrier reads `gen_age` lock-free on the mutator hot path
     /// while promotion writes it during STW sweep.
-    pub(crate) type_tag: AtomicU8,
+    pub type_tag: AtomicU8,
     /// Payload byte length — the bytes after the 16-byte header (an object's field cells plus
     /// its meta word, a string's UTF-8 bytes, …). The block's size class and footprint are a
     /// function of it (`chunk::payload_class`), so it is also what a chunk walk steps by.
-    pub(crate) size: AtomicU32,
+    pub size: AtomicU32,
 }
 
 /// Fixed header preceding a variable-length block's inline payload: the GC word and one
@@ -169,13 +169,13 @@ pub struct GcWord {
 /// (`VarRegion::chunk_of`). The size class is derived from `size`.
 #[repr(C, align(8))]
 pub struct GcBlockHeader {
-    pub(crate) word: GcWord,
+    pub word: GcWord,
     /// Per-kind word, owned by the payload layer: an object's type descriptor (an
     /// `Arc<TypeDesc>`'s pointer, released by the drop glue, which leaves it null again), an
     /// array's interned descriptor (`object::ArrayDesc`, object model R9). Written before
     /// the block is published; null in strings and closures. The region writes it null when it
     /// carves a block and never reads it.
-    pub(crate) kind_word: AtomicPtr<()>,
+    pub kind_word: AtomicPtr<()>,
 }
 
 impl std::ops::Deref for GcBlockHeader {
@@ -195,14 +195,14 @@ const _: () = assert!(std::mem::align_of::<GcBlockHeader>() == 8);
 /// Byte offset of [`GcWord::size`] (the payload byte length, `u32`) — read by JIT-emitted code
 /// that inspects a string block without a helper call (`object::string::vstr::jit_layout`).
 #[cfg(feature = "jit")]
-pub(crate) const HEADER_SIZE_OFFSET: usize = std::mem::offset_of!(GcWord, size);
+pub const HEADER_SIZE_OFFSET: usize = std::mem::offset_of!(GcWord, size);
 /// Byte offset of [`GcWord::type_tag`] (block type, age, remembered / ASCII bits) — see
 /// [`HEADER_SIZE_OFFSET`].
 #[cfg(feature = "jit")]
-pub(crate) const HEADER_TYPE_TAG_OFFSET: usize = std::mem::offset_of!(GcWord, type_tag);
+pub const HEADER_TYPE_TAG_OFFSET: usize = std::mem::offset_of!(GcWord, type_tag);
 /// Byte offset of [`GcBlockHeader::kind_word`] (an object's type descriptor, an array's
 /// descriptor).
-pub(crate) const KIND_WORD_OFFSET: usize = std::mem::offset_of!(GcBlockHeader, kind_word);
+pub const KIND_WORD_OFFSET: usize = std::mem::offset_of!(GcBlockHeader, kind_word);
 
 impl GcBlockHeader {
     /// Byte offset of the inline payload within the allocation = the (padded) header size.
@@ -211,7 +211,7 @@ impl GcBlockHeader {
     /// A fresh header: generation `generation` (odd = alive, even = not yet published), no mark,
     /// age 0, no flags, null kind word. The single place a header is built.
     #[inline]
-    pub(crate) fn fresh(generation: u16, payload: usize, block_type: BlockType) -> Self {
+    pub fn fresh(generation: u16, payload: usize, block_type: BlockType) -> Self {
         debug_assert!(payload <= u32::MAX as usize, "block payload {payload} exceeds u32");
         GcBlockHeader {
             word: GcWord {
@@ -367,7 +367,7 @@ impl GcWord {
 
     /// Whether [`REMEMBERED_BIT`] is set.
     #[inline]
-    pub(crate) fn is_remembered(&self) -> bool {
+    pub fn is_remembered(&self) -> bool {
         self.type_tag.load(Ordering::Relaxed) & REMEMBERED_BIT != 0
     }
 
@@ -419,7 +419,7 @@ impl GcWord {
 
     /// Current generation (odd = alive).
     #[inline]
-    pub(crate) fn generation(&self) -> u16 {
+    pub fn generation(&self) -> u16 {
         self.generation.load(Ordering::Acquire)
     }
 }

@@ -227,6 +227,6 @@ pub fn char_at(s: &Str, i: usize) -> Option<char> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "str_meta_tests.rs"]
 mod str_meta_tests;

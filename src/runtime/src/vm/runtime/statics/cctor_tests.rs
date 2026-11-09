@@ -144,7 +144,7 @@ fn unregistered_type_never_blocks() {
 #[test]
 fn free_function_barrier_loads_no_package() {
     use crate::vm::loader::locate::namespace_index::ZpkgCandidate;
-    let zpkg = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let zpkg = std::path::PathBuf::from(env!("Z42_RUNTIME_DIR"))
         .join("../compiler/z42.package/tests/fixtures/zpkg-format/packed-minimal/source.zpkg");
     let ctx = crate::vm::context::VmContext::new();
     ctx.install_lazy_loader_with_deps(
@@ -326,3 +326,5 @@ fn callee_barrier_settled_tracks_the_same_events_as_the_epoch() {
     ctx.core.runtime.cctors.register_module_init(&m, FxHashSet::default());
     assert!(!ctx.callee_barrier_settled(&owner));
 }
+
+use crate::assembly::context::VmContextFactory as _;

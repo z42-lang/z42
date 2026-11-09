@@ -27,7 +27,7 @@ const CAP: usize = 512;
 
 /// See the module docs.
 #[derive(Default)]
-pub(crate) struct RegPool {
+pub struct RegPool {
     free: UnsafeCell<Vec<Vec<Value>>>,
 }
 
@@ -38,7 +38,7 @@ unsafe impl Sync for RegPool {}
 impl RegPool {
     /// Owner only. A register file of `need` `Null` slots.
     #[inline]
-    pub(crate) fn take(&self, need: usize) -> Vec<Value> {
+    pub fn take(&self, need: usize) -> Vec<Value> {
         // SAFETY: owner-thread access; the borrow ends here.
         let mut regs = unsafe { &mut *self.free.get() }.pop().unwrap_or_default();
         debug_assert!(regs.is_empty(), "pooled register file not cleared");
@@ -48,7 +48,7 @@ impl RegPool {
 
     /// Owner only. Return a register file once no frame points at it any more.
     #[inline]
-    pub(crate) fn give(&self, mut regs: Vec<Value>) {
+    pub fn give(&self, mut regs: Vec<Value>) {
         if regs.capacity() == 0 {
             return;
         }
@@ -61,6 +61,6 @@ impl RegPool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "reg_pool_tests.rs"]
 mod reg_pool_tests;

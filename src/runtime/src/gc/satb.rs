@@ -70,7 +70,7 @@ struct ThreadSatb {
     /// Recorded old values, not yet handed to the heap.
     buf: Vec<Value>,
     /// Test hook: record nothing (the negative control for the barrier's own tests).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     disabled: bool,
 }
 
@@ -80,7 +80,7 @@ thread_local! {
     static SATB: UnsafeCell<ThreadSatb> = const {
         UnsafeCell::new(ThreadSatb {
             heap: 0, outer: Vec::new(), seen_gen: 0, epoch: 0, buf: Vec::new(),
-            #[cfg(test)]
+            #[cfg(all(test, z42_test_facade))]
             disabled: false,
         })
     };
@@ -93,7 +93,7 @@ fn with_thread<R>(f: impl FnOnce(&mut ThreadSatb) -> R) -> R {
 }
 
 /// Start recording for `heap`'s mark of `epoch`. Called with the world stopped, at cycle start.
-pub(crate) fn begin_marking(heap: u64, epoch: u8) {
+pub fn begin_marking(heap: u64, epoch: u8) {
     let mut m = MARKING.lock();
     debug_assert!(!m.iter().any(|(h, _)| *h == heap), "heap {heap} began marking twice");
     m.push((heap, epoch));
@@ -102,7 +102,7 @@ pub(crate) fn begin_marking(heap: u64, epoch: u8) {
 }
 
 /// Stop recording for `heap`. Called with the world stopped, after its mark is complete.
-pub(crate) fn end_marking(heap: u64) {
+pub fn end_marking(heap: u64) {
     let mut m = MARKING.lock();
     let before = m.len();
     m.retain(|(h, _)| *h != heap);
@@ -158,7 +158,7 @@ pub fn marking_any() -> bool {
 /// Address of the counter [`marking_any`] reads, for JIT-compiled reference stores: a non-zero
 /// load sends the store to the helper, which records the overwritten value.
 #[cfg(feature = "jit")]
-pub(crate) fn marking_heaps_addr() -> *const AtomicUsize {
+pub fn marking_heaps_addr() -> *const AtomicUsize {
     &MARKING_HEAPS
 }
 
@@ -191,7 +191,7 @@ pub fn record_overwrite_all(old: &[Value]) {
 #[inline(never)]
 fn record_slow(old: &Value) {
     with_thread(|t| {
-        #[cfg(test)]
+        #[cfg(all(test, z42_test_facade))]
         if t.disabled {
             return;
         }
@@ -216,7 +216,7 @@ fn record_slow(old: &Value) {
 }
 
 /// Test hook: turn the barrier off on this thread (negative controls).
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 pub(crate) fn set_disabled_for_test(disabled: bool) {
     with_thread(|t| t.disabled = disabled);
 }

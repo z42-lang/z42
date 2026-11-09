@@ -10,7 +10,7 @@
 
 ## 引擎注册与调用边界
 
-门面 `assembly/engine.rs` 按 feature 装配基线 Engine 和优化入口；`VmCore.exec.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
+共享核心位于独立 z42-runtime，解释器和 JIT 分别位于 z42-interp/z42-jit，互不依赖实现。host 按执行模式选择静态或动态组件，经 ExecutionApi 装配基线 Engine 和 JIT Engine；低层构造的默认静态清单由 `assembly/engine.rs` 提供。`VmCore.exec.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
 
 TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入口和代码页由 JIT 自己持有；所有 worker 共享所属 core 的注册结果，其他 VM 独立。竞争安装保留首个发布实例，失败候选安全释放；所属模块校验仍由后端执行。
 
@@ -41,7 +41,7 @@ worker context 共享同一个 core 的状态；不同 core 拥有各自的登�
 源位置、局部变量和 DBUG 函数记录位于 `z42-zpkg/src/debug`，帧名格式化与无分配的分片输出也由它提供。
 sidecar 的定位、build-id 配对及数据覆盖仍由加载器编排，加载时机见下文「Sidecar 调试符号加载」。
 
-`metadata::ir::{Module, Function}` 只保存解码后的静态定义。`metadata::image::PackageImage` 将模块名、
+`z42_zpkg::ir::{Module, Function}` 只保存解码后的静态定义。`z42_zpkg::image::PackageImage` 将模块名、
 字符串池、类签名、函数索引与函数定义封装为只读映像；函数定义包含指令、签名、调试信息及由它们推导的
 控制流/帧信息。映像没有 FnId、TypeDesc、GC 值或可变缓存，可以通过 Arc 跨 VM 共享。
 
@@ -626,7 +626,7 @@ try_lookup_function(func_name):        # VmContext 先查 per-context fn_lookup_
   先入口模块、再已登记的惰性函数，与调用路径冷解析同一优先级。惰性包里的函数首执解析时自己的包已登记，
   **包内调用一开始就绑好**；调入尚未加载的包的站点留 `UNRESOLVED`。只查不加载。签名容不下本站点实参数的目标
   不填（与首次绑定同一判定，见 [missing-symbol.md](missing-symbol.md)）。
-- **调用**（[exec_call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/ops/exec_call.rs)）：
+- **调用**（[exec_call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-interp/src/interp/ops/exec_call.rs)）：
 
 ```
 token 已绑定:
@@ -674,7 +674,7 @@ profile 里 `get_inner`+`memcmp`+`try_lookup_*` 的大头即源于此。
 
 做法：`resolve_module` 的**单函数体**抽成
 [`resolve_function_tokens(func, module, ctx)`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/runtime/resolve/mod.rs)，
-并在 [`exec_function_body`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interp/run/mod.rs) 顶部**首次执行时**
+并在 [`exec_function_body`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-interp/src/interp/run/mod.rs) 顶部**首次执行时**
 按需填充（`if func.resolved.get().is_none()`，OnceLock 门禁 → 每函数只解析一次；
 热路径仅一次 relaxed atomic load，指令循环本就要再读它）。
 
@@ -700,7 +700,7 @@ dispatch 的 `module` 填写，同样满足上面的身份不变式 → 这几�
 JIT 按函数**惰性**编译（首次或达调用阈值才编，机制见 [jit.md](jit.md)），槽位按 JIT id（= `FnId`）索引，
 入口模块函数与惰性加载包的函数同一张表。依赖 zpkg 在 interp / JIT 下都是惰性加载（AOT 才在 `host::run_app` 里
 eager 做 transitive BFS 并整体 merge），跨 zpkg 的 callee 不在 entry module 的 `functions` 里，但都有 `FnId`。
-`jit_call`（[jit/helpers/call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/call.rs)）：
+`jit_call`（[jit/helpers/call.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-jit/src/jit/helpers/call.rs)）：
 
 1. **取 id**：烘焙的 `method_id` → 站点 `method_tokens` 单元 → 都没有时按名绑定：解码名字、调 interp 的
    `bind_callee`（`func_index` → `try_lookup_function`（可能加载包）→ 签名判定 → 写回 token），找不到抛
@@ -719,7 +719,7 @@ stdlib 里必然含有 JIT 尚未支持的 opcode —— `out`/`ref`/`in` 参数
 `Call`/`VCall`）。碰到这些 opcode 若直接 `bail!`，错误冒泡到顶层会让**整个程序 abort**，所以采用
 **逐函数降级**而非「整模块要么全编译要么全失败」。
 
-1. **首编前判定**（`jit_unsupported_reason`，[jit/translate/unsupported.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/translate/unsupported.rs)；
+1. **首编前判定**（`jit_unsupported_reason`，[jit/translate/unsupported.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-jit/src/jit/translate/unsupported.rs)；
    调用点 `JitRuntime::resolve_fn_by_id_thr`）：函数达到编译条件时先扫描一次，含不可翻译 opcode 的
    **不编译**：槽位记为 Rejected（`JitSlot.state` 负缓存，此后不再重扫；编译失败同样记 Rejected、不重编），
    入口函数与惰性函数一样。名单由 `unsupported_reason(instr)`
@@ -727,7 +727,7 @@ stdlib 里必然含有 JIT 尚未支持的 opcode —— `out`/`ref`/`in` 参数
 
 2. **调用点自动走 interp 兜底**：`Call` 永远经 `jit_call` helper 跳转，**从不**
    emit cranelift 直接调用，所以被拒绝的 callee 取不到入口 → `jit_call` 按 id 取到函数 → 解释器执行。`VCall` 的目标解析由与 interp 共用的
-   `vm::exec::ops::vcall::resolve_vcall` 完成，[jit/helpers/vcall.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/vcall.rs)
+   `vm::exec::ops::vcall::resolve_vcall` 完成，[jit/helpers/vcall.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-jit/src/jit/helpers/vcall.rs)
    只决定怎么调：有编译入口走原生，否则在解释器上以填好接收者的帧执行。
 
 3. **entry 也兜底**：`jit::run_fn` 在入口取不到时（被拒绝的 entry）改用 `interp::run::exec_function`
@@ -1007,7 +1007,7 @@ N > K HashMap），调用方零改动 —— `NameIndex` 的 public API 故意�
 
 ### VCall 指令执行
 
-位置：`src/runtime/src/interp/ops/exec_vcall.rs::vcall`（PIC 命中直调；miss 时调 `vm/exec/ops/vcall.rs::resolve_vcall`）
+位置：`src/runtime/crates/z42-interp/src/interp/ops/exec_vcall.rs::vcall`（PIC 命中直调；miss 时调 `vm/exec/ops/vcall.rs::resolve_vcall`）
 
 对象 receiver 的解析（`resolve_vcall` 阶梯第 4 档，伪代码）：
 
@@ -1076,7 +1076,7 @@ if let Some(&slot) = type_desc.vtable_index.get(method) {
 ### 非 Object receiver 的派发：`primitive_class_name`
 
 `Value` 不是 `Object` 时没有 `TypeDesc` 可查，VM 改用
-`primitive_class_name`（`src/runtime/src/interp/ops/exec_vcall.rs`）把 `Value` 变体映射成
+`primitive_class_name`（`src/runtime/crates/z42-interp/src/interp/ops/exec_vcall.rs`）把 `Value` 变体映射成
 stdlib 类的 FQ 名，再构造 `{class}.{method}` 直查 `func_index`：
 
 ```
@@ -1175,7 +1175,7 @@ match callee_value {
 
 ## JIT↔VM 元数据契约
 
-位置：[`src/runtime/src/jit/compile/vm_interface.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/compile/vm_interface.rs)
+位置：[`src/runtime/crates/z42-jit/src/jit/compile/vm_interface.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-jit/src/jit/compile/vm_interface.rs)
 
 `pub trait JitVm` 是 JIT 后端对 metadata 模块的**只读契约** ——
 codifies "JIT 编译期需要从 module 拿到什么"，与 helper 运行期通过
@@ -1230,7 +1230,7 @@ import metadata 内部类型；helpers/* 同样走 trait"这一**完整愿景**�
 
 ## JIT/EE helper 边界
 
-位置：`src/runtime/src/jit/helpers/`
+位置：`src/runtime/crates/z42-jit/src/jit/helpers/`
 
 **问题**: JIT-compiled native code 需要回调 VM 完成所有非纯算术操作（构造对象、字符串、调度虚方法、读静态字段、抛/捕异常等）。这些回调被称为 "helper"，每个是一个 `#[no_mangle] pub unsafe extern "C" fn jit_xxx(...)`。Cranelift 通过 symbol-by-name 解析（`JITBuilder::symbol(name, ptr)`）让生成的 native code 调到 helper。
 
@@ -1284,7 +1284,7 @@ jit/helpers/
 
 ## JIT type specialization
 
-位置：`src/runtime/src/jit/translate/`（`emit_int.rs` / `emit_fc.rs` / `predicates.rs`）的 `emit_i64_binop` / `emit_i64_cmp` /
+位置：`src/runtime/crates/z42-jit/src/jit/translate/`（`emit_int.rs` / `emit_fc.rs` / `predicates.rs`）的 `emit_i64_binop` / `emit_i64_cmp` /
 `emit_bool_binop` / `emit_bool_not` / `emit_const_*` + `is_*_typed` 谓词。
 依赖：`Function.reg_types: Box<[IrType]>`（来自 zbc REGT section）+
 `Value` enum 锁布局（`#[repr(C, u8)]`，16 B，tag@0、payload@8，pinned by

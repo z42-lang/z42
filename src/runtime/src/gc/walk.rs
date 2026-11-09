@@ -14,18 +14,18 @@ pub enum RootKind {
 pub type CategorizedRootScanner = Box<dyn Fn(&mut dyn FnMut(&Value, RootKind)) + Send + Sync>;
 
 /// Preserve the heap's incremental liveness filter and TLAB retirement.
-pub(crate) fn live_values(heap: &Heap, visitor: &mut dyn FnMut(&Value)) {
+pub fn live_values(heap: &Heap, visitor: &mut dyn FnMut(&Value)) {
     heap.iterate_live_objects(visitor);
 }
 /// Lock-scoped raw objects, after collection; callbacks must not re-enter the heap.
-pub(crate) fn objects(heap: &Heap, visitor: &mut dyn FnMut(&Value)) {
+pub fn objects(heap: &Heap, visitor: &mut dyn FnMut(&Value)) {
     heap.walk_diagnostic_objects(visitor);
 }
 /// Lock-scoped raw arrays, preserving region order.
-pub(crate) fn arrays(heap: &Heap, visitor: &mut dyn FnMut(&Value)) {
+pub fn arrays(heap: &Heap, visitor: &mut dyn FnMut(&Value)) {
     heap.walk_diagnostic_arrays(visitor);
 }
 /// Pinned and strong-handle roots, followed by categorized VM roots.
-pub(crate) fn roots(heap: &Heap, visitor: &mut dyn FnMut(&Value, RootKind)) {
+pub fn roots(heap: &Heap, visitor: &mut dyn FnMut(&Value, RootKind)) {
     heap.walk_diagnostic_roots(visitor);
 }

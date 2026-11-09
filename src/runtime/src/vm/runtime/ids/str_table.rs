@@ -174,6 +174,6 @@ impl StrTable {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "str_table_tests.rs"]
 mod str_table_tests;

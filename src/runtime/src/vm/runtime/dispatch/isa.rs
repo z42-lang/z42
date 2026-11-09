@@ -92,7 +92,7 @@ pub(crate) fn split_top_level_args(s: &str) -> Vec<&str> {
 /// Does a recorded type argument still contain an unsubstituted type parameter? Runtime type
 /// names are namespace-qualified (`Demo.Entry`) or primitive keywords (`int`); a bare identifier
 /// that is neither is a type parameter (`T`).
-pub(crate) fn is_open_type_arg(arg: &str) -> bool {
+pub fn is_open_type_arg(arg: &str) -> bool {
     arg.split(|c: char| matches!(c, '<' | '>' | ',' | '[' | ']' | '?' | ' '))
         .filter(|t| !t.is_empty())
         .any(|t| !t.contains('.') && !is_keyword_type_name(t))

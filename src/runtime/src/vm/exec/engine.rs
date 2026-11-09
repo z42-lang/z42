@@ -8,7 +8,7 @@ use crate::vm::runtime::{Function, Module};
 use crate::vm::context::VmContext;
 use super::call::{args::CallArgs, outcome::ExecOutcome};
 
-pub(crate) trait Engine: Send + Sync {
+pub trait Engine: Send + Sync {
     fn invoke(&self, ctx: &VmContext, module: &Module, func: &Function,
         args: CallArgs<'_>, type_args: &[String]) -> Result<ExecOutcome>;
     fn run(&self, ctx: &VmContext, module: &Module, entry: &Function) -> Result<()>;
@@ -16,16 +16,16 @@ pub(crate) trait Engine: Send + Sync {
 
 /// A call-site resolve counts toward tier-up; an existing-function divert uses
 /// the backend's configured peek policy. Keeping these distinct prevents double counting.
-pub(crate) enum TierTarget<'a> { Site(usize), Existing(&'a Function) }
+pub enum TierTarget<'a> { Site(usize), Existing(&'a Function) }
 
-pub(crate) struct OsrState<'a> {
+pub struct OsrState<'a> {
     pub regs: &'a [Value],
     pub method_type_args: &'a [String],
     pub frame_id: u32,
     pub has_ref_writebacks: bool,
 }
 
-pub(crate) trait TierBackend: Any + Send + Sync {
+pub trait TierBackend: Any + Send + Sync {
     fn osr_threshold(&self) -> u32;
     fn invoke(&self, ctx: &VmContext, target: TierTarget<'_>, args: CallArgs<'_>, method_type_args: &[String])
         -> Option<Result<ExecOutcome>>;
@@ -35,7 +35,7 @@ pub(crate) trait TierBackend: Any + Send + Sync {
 
 /// The stable, neutral header cached by contexts. The boxed backend owns its code;
 /// the VM keeps this header alive until every context sharing its core has dropped.
-pub(crate) struct TierApi {
+pub struct TierApi {
     pub osr_threshold: u32,
     backend: Box<dyn TierBackend>,
 }
@@ -55,51 +55,74 @@ impl TierApi {
         -> Option<Result<ExecOutcome>> { self.backend.osr(ctx, func, header, state) }
 }
 
-pub(crate) type TierRun = fn(&VmContext, &Module, &str) -> Result<()>;
-
-pub(crate) struct EngineRegistry {
-    baseline: Option<&'static dyn Engine>,
-    tier_run: Option<TierRun>,
+pub struct EngineRegistry {
+    baseline: OnceLock<&'static dyn Engine>,
+    jit_engine: OnceLock<&'static dyn Engine>,
+    jit_config: OnceLock<JitConfig>,
     tier: OnceLock<TierApi>,
+    // Backend code must survive the trait objects and compiled-code owners above.
+    code_leases: parking_lot::Mutex<Vec<std::sync::Arc<dyn Send + Sync>>>,
 }
 
 impl EngineRegistry {
-    pub fn new(baseline: Option<&'static dyn Engine>, tier_run: Option<TierRun>) -> Self {
-        Self { baseline, tier_run, tier: OnceLock::new() }
+    pub fn new(baseline: Option<&'static dyn Engine>) -> Self {
+        let baseline_cell = OnceLock::new();
+        if let Some(engine) = baseline { let _ = baseline_cell.set(engine); }
+        Self { baseline: baseline_cell, jit_engine: OnceLock::new(),
+            jit_config: OnceLock::new(), tier: OnceLock::new(), code_leases: Default::default() }
+    }
+    pub fn register_baseline(&self, engine: &'static dyn Engine) -> Result<()> {
+        self.baseline.set(engine).map_err(|_| anyhow::anyhow!("interpreter already registered"))
+    }
+    pub fn register_jit(&self, engine: &'static dyn Engine, config: JitConfig) -> Result<()> {
+        self.jit_config.set(config).map_err(|_| anyhow::anyhow!("JIT policy already registered"))?;
+        self.jit_engine.set(engine).map_err(|_| anyhow::anyhow!("JIT already registered"))
+    }
+    pub fn has_jit(&self) -> bool { self.jit_engine.get().is_some() }
+    pub fn has_baseline(&self) -> bool { self.baseline.get().is_some() }
+    pub fn jit_config(&self) -> Result<JitConfig> {
+        self.jit_config.get().copied().ok_or_else(|| anyhow::anyhow!("JIT policy not registered"))
+    }
+    pub fn retain_code(&self, code: std::sync::Arc<dyn Send + Sync>) { self.code_leases.lock().push(code); }
+    pub fn invoke_mode(&self, mode: ExecMode, ctx: &VmContext, module: &Module,
+        func: &Function, args: &[Value]) -> Result<ExecOutcome> {
+        match mode {
+            ExecMode::Interp => self.invoke(ctx, module, func, CallArgs::Values(args), &[]),
+            ExecMode::Jit => self.jit_engine.get().ok_or_else(|| anyhow::anyhow!("JIT backend unavailable on this VM"))?
+                .invoke(ctx, module, func, CallArgs::Values(args), &[]),
+            ExecMode::Aot => bail!("AOT mode is not implemented yet"),
+        }
     }
     pub fn tier(&self) -> Option<&TierApi> { self.tier.get() }
     pub fn install_tier(&self, tier: TierApi) -> Result<(), TierApi> { self.tier.set(tier) }
     pub fn invoke(&self, ctx: &VmContext, module: &Module, func: &Function,
         args: CallArgs<'_>, type_args: &[String]) -> Result<ExecOutcome> {
-        self.baseline.ok_or_else(|| anyhow::anyhow!("no baseline engine registered on this VM"))?
+        self.baseline.get().ok_or_else(|| anyhow::anyhow!("no baseline engine registered on this VM"))?
             .invoke(ctx, module, func, args, type_args)
     }
     pub fn run(&self, mode: ExecMode, ctx: &VmContext, module: &Module, entry: &Function) -> Result<()> {
         match mode {
-            ExecMode::Interp => self.baseline.ok_or_else(|| anyhow::anyhow!("no baseline engine registered on this VM"))?
+            ExecMode::Interp => self.baseline.get().ok_or_else(|| anyhow::anyhow!("no baseline engine registered on this VM"))?
                 .run(ctx, module, entry),
-            ExecMode::Jit => match self.tier_run {
-                Some(run) => run(ctx, module, &entry.name),
-                None => bail!("JIT mode requested but the runtime was built without the `jit` feature. \
-                    Recompile with `--features jit` (default), or run the bytecode in `--mode interp`."),
-            },
+            ExecMode::Jit => self.jit_engine.get().ok_or_else(|| anyhow::anyhow!("JIT backend unavailable on this VM"))?
+                .run(ctx, module, entry),
             ExecMode::Aot => bail!("AOT mode is not implemented yet (planned: roadmap M9 — L3 \
                 phase, LLVM/inkwell). Switch to `--mode interp` or `--mode jit`."),
         }
     }
 }
 
-pub(crate) fn invoke(ctx: &VmContext, module: &Module, func: &Function, args: &[Value]) -> Result<ExecOutcome> {
+pub fn invoke(ctx: &VmContext, module: &Module, func: &Function, args: &[Value]) -> Result<ExecOutcome> {
     invoke_args(ctx, module, func, CallArgs::Values(args), &[])
 }
-pub(crate) fn invoke_args(ctx: &VmContext, module: &Module, func: &Function,
+pub fn invoke_args(ctx: &VmContext, module: &Module, func: &Function,
     args: CallArgs<'_>, type_args: &[String]) -> Result<ExecOutcome> {
     ctx.core.exec.engines.invoke(ctx, module, func, args, type_args)
 }
 
 impl VmContext {
     #[inline]
-    pub(crate) fn tier(&self) -> Option<&TierApi> {
+    pub fn tier(&self) -> Option<&TierApi> {
         #[cfg(feature = "jit")]
         {
             let p = self.exec.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed);
@@ -110,7 +133,7 @@ impl VmContext {
         #[cfg(not(feature = "jit"))]
         { self.core.exec.engines.tier() }
     }
-    pub(crate) fn publish_tier(&self) {
+    pub fn publish_tier(&self) {
         #[cfg(feature = "jit")]
         if let Some(tier) = self.core.exec.engines.tier() {
             self.exec.jit_head.jit.store(tier as *const TierApi as *mut TierApi, std::sync::atomic::Ordering::Relaxed);
@@ -118,6 +141,16 @@ impl VmContext {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "engine_tests.rs"]
 mod engine_tests;
+
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct JitConfig {
+    pub threshold: u32,
+    pub osr_threshold: u32,
+    pub interp_tierup: u32,
+    pub profile: bool,
+    pub debug_promote: bool,
+}

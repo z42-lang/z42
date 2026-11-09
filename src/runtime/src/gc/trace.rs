@@ -22,9 +22,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Human-readable byte count: `118.7M`, `1.0G`, `512B`.
 ///
-/// `pub(crate)` since add-gc-phase-timing: the phase breakdown prints byte counts in the
+/// `pub` since add-gc-phase-timing: the phase breakdown prints byte counts in the
 /// same shape, and two spellings of `118.7M` in one stderr stream would be one too many.
-pub(crate) fn human(bytes: u64) -> String {
+pub fn human(bytes: u64) -> String {
     const K: f64 = 1024.0;
     let b = bytes as f64;
     if b < K { return format!("{bytes}B"); }
@@ -97,6 +97,6 @@ impl GcObserver for GcTracer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "trace_tests.rs"]
 mod trace_tests;

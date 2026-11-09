@@ -174,7 +174,7 @@ impl std::fmt::Display for ElemType {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod tests {
     use super::*;
 

@@ -61,13 +61,13 @@ impl Drop for VmGuard<'_> {
 
 /// Borrow the VM pointed to by `CURRENT_VM`. Returns `None` if no VM is
 /// currently active on this thread.
-pub(crate) fn current_vm<'a>() -> Option<&'a VmContext> {
+pub fn current_vm<'a>() -> Option<&'a VmContext> {
     CURRENT_VM.with(|c| {
         let p = c.get();
         if p.is_null() { None } else { Some(unsafe { &*p }) }
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "active_vm_tests.rs"]
 mod active_vm_tests;

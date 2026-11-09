@@ -17,8 +17,8 @@ src/toolchain/interactive/core/*.z42  →  z42.interactive.zpkg  →  apphost z4
 | 功能 | 入口 / 文件 |
 |------|-----------|
 | 交互循环 / `-c "<expr>"` 单次求值 / `.` 元指令 | `core/interactive_main.z42` 的 `Main` |
-| 求值内核（编译 → 加载 → 反射调用，跨轮变量保留） | [`z42.scripting`](../../compiler/z42.scripting/)（`Script.Eval`） |
-| 终端行编辑 | [`repl/`](repl/)（`Std.Repl`） |
+| 求值内核（编译 → 加载 → 反射调用，跨轮变量保留） | [`z42.scripting`](../../compiler/z42.scripting)（`Script.Eval`） |
+| 终端行编辑 | [`repl/`](repl)（`Std.Repl`） |
 
 ## 基础用法
 

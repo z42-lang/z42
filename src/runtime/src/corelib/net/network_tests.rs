@@ -351,3 +351,5 @@ fn os_errors_map_to_dotnet_socket_error_codes() {
     let os_timeout = crate::pal::net::timed_out_error().unwrap();
     assert_eq!(socket_error_code(&os_timeout), code::TIMED_OUT);
 }
+
+use crate::assembly::context::VmContextFactory as _;

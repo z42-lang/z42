@@ -43,3 +43,5 @@ fn exit_reports_before_terminating() {
     assert!(output.contains("report-before-exit"), "{output}");
     assert!(!output.contains("drop-ran"), "process exit must not run destructors");
 }
+
+use crate::assembly::context::VmContextFactory as _;

@@ -69,15 +69,15 @@
 9. `src/runtime/crates/z42-zpkg/src/reader/opcodes.rs` — `OP_XXX` 常量
 10. `src/runtime/crates/z42-zpkg/src/reader/instr_decode.rs` — 解码
 11. `src/runtime/src/vm/runtime/resolve/mod.rs` — 若需 per-site token 解析
-12. `src/runtime/src/interp/ops/exec_*.rs` — 执行语义。**`exec_instr` 的 match 无 `_` 兜底，必须显式处理**
-13. `src/runtime/src/jit/translate/*.rs` — **要么翻译，要么**登记进
-    `src/runtime/src/jit/translate/unsupported.rs` 的 `unsupported_reason`（单一真相表）
+12. `src/runtime/crates/z42-interp/src/interp/ops/exec_*.rs` — 执行语义。**`exec_instr` 的 match 无 `_` 兜底，必须显式处理**
+13. `src/runtime/crates/z42-jit/src/jit/translate/*.rs` — **要么翻译，要么**登记进
+    `src/runtime/crates/z42-jit/src/jit/translate/unsupported.rs` 的 `unsupported_reason`（单一真相表）
 
 **格式 bump（强制链）**：新增 opcode **必然** bump zbc + zpkg。完整 9 步同步清单是
 [格式 bump：清单与本地验证](../devinfra/format-bump.md) 的 §一（唯一 SoT）——**本页不复列**。
 
 **文档**：IR 参考页（[formats/ir.md](../formats/ir.md)）、`src/compiler/z42.package/README.md`、
-`src/runtime/src/interp/README.md`。
+`src/runtime/crates/z42-interp/src/interp/README.md`。
 
 ### 验证
 

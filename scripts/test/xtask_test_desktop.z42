@@ -46,7 +46,7 @@ public class DesktopBackend : IPlatformBackend {
         Console.WriteLine("  cargo rustc --release --lib --crate-type=" + _embedCrateTypes() + " (libz42.a)");
         Process p = _cargoCmd("rustc", _runtimeCargoConfig()).Arg("--release").Arg("--lib")
             .Arg("--crate-type=" + _embedCrateTypes())
-            .Arg("--manifest-path").Arg(Path.Join(root, "src/runtime/Cargo.toml"));
+            .Arg("-p").Arg("z42").Arg("--manifest-path").Arg(Path.Join(root, "src/runtime/Cargo.toml"));
         string linkArg = _embedLinkArg("");
         if (linkArg.Length > 0) { p = p.Arg("--").Arg("-C").Arg(linkArg); }
         return _exec(p);

@@ -12,12 +12,12 @@ pub use module::Module;
 mod fusion;
 pub use fusion::{CmpOp, SuperInstr};
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod runtime_tests;
 
-pub(crate) mod reflection_types;
+pub mod reflection_types;
 mod state;
-pub(crate) use state::{RuntimeState, ThreadRuntimeState};
+pub use state::{RuntimeState, ThreadRuntimeState};
 
-pub(crate) mod statics;
-pub(crate) mod builtins;
+pub mod statics;
+pub mod builtins;

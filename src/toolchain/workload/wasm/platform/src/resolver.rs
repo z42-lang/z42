@@ -3,7 +3,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use z42_host::ZpkgResolver;
+use z42::host::rust::ZpkgResolver;
 
 /// Wraps a JS function or object so the runtime can ask it for zpkg
 /// bytes. wasm is effectively single-threaded; the `Send + Sync`

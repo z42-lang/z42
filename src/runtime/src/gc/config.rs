@@ -58,6 +58,6 @@ impl GcConfig {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "config_tests.rs"]
 mod config_tests;

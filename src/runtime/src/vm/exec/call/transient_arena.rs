@@ -33,7 +33,7 @@ use anyhow::Result;
 
 /// One transient payload. All are immutable after creation, so a `Value`
 /// handle sharing an entry (a cheap 8B copy) never observes a mutation.
-pub(crate) enum TransientPayload {
+pub enum TransientPayload {
     /// `Value::Ref` target descriptor (spec impl-ref-out-in-runtime).
     Ref(RefKind),
     /// `Value::PinnedView` FFI view (raw ptr + len; no GC leaf).
@@ -43,7 +43,7 @@ pub(crate) enum TransientPayload {
 }
 
 /// One arena entry; `frame_id` = creating frame's id (staleness guard).
-pub(crate) struct TransientSlot {
+pub struct TransientSlot {
     pub frame_id: u32,
     pub payload: TransientPayload,
 }
@@ -51,7 +51,7 @@ pub(crate) struct TransientSlot {
 /// Per-`VmContext` transient-value arena. Guarded by a `Mutex` on the context
 /// (owner-thread accesses uncontended; the GC scanner reads it at a safepoint).
 #[derive(Default)]
-pub(crate) struct TransientArena {
+pub struct TransientArena {
     slots: Vec<TransientSlot>,
     /// Diagnostics: number of transient allocations this run.
     pub allocs: u64,
@@ -142,6 +142,6 @@ fn stale_err(idx: u32, frame_id: u32) -> anyhow::Error {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "transient_arena_tests.rs"]
 mod transient_arena_tests;

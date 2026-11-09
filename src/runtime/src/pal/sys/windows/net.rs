@@ -12,9 +12,9 @@ extern "system" {
 }
 
 #[cfg(feature = "net")]
-pub(crate) use super::super::common::net::set_tcp_keepalive;
+pub use super::super::common::net::set_tcp_keepalive;
 
-pub(crate) fn winsock_code(code: i32) -> Option<i32> {
+pub fn winsock_code(code: i32) -> Option<i32> {
     const WSAEWOULDBLOCK: i32 = 10035;
     const WSAETIMEDOUT: i32 = 10060;
     match code {
@@ -28,7 +28,7 @@ pub(crate) fn timed_out_raw() -> Option<i32> {
     Some(10060) // WSAETIMEDOUT
 }
 
-pub(crate) fn wait_readable(listener: &TcpListener, timeout_ms: i32) -> io::Result<bool> {
+pub fn wait_readable(listener: &TcpListener, timeout_ms: i32) -> io::Result<bool> {
     use std::os::windows::io::AsRawSocket;
     const POLLRDNORM: i16 = 0x0100;
     let mut pfd = WsaPollFd {

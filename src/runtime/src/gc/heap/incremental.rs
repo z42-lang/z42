@@ -64,7 +64,7 @@ const UNITS_PER_MS: f64 = 10_000.0;
 /// The per-heap state of the incremental major. One field on `Heap`, so the heap's own
 /// struct stays small.
 #[derive(Default)]
-pub(crate) struct IncrementalState {
+pub struct IncrementalState {
     /// [`IDLE`] / [`MARKING`] / [`SWEEPING`]. Changed only inside a slice (world stopped); read
     /// lock-free by weak reads, card seeding and the auto-collect policy.
     phase: AtomicU8,
@@ -573,7 +573,7 @@ impl Drop for crate::gc::Heap {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 impl crate::gc::Heap {
     /// Drive one slice by hand with a budget of `units` work units (tests are single-threaded, so
     /// there is no pause to take). Returns whether the cycle completed.

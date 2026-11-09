@@ -9,7 +9,7 @@ pub mod mode;
 pub mod footprint;
 pub mod phase_timer;
 pub mod satb;
-pub(crate) mod side_bits;
+pub mod side_bits;
 pub mod tlab;
 pub mod var_region;
 pub mod soft_registry;

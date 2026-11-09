@@ -1,17 +1,17 @@
 //! Shared native implementations and unsupported-platform sentinels.
 #[cfg(not(unix))]
-pub(crate) mod mem;
+pub mod mem;
 #[cfg(feature = "net")]
-pub(crate) mod net;
+pub mod net;
 #[cfg(not(any(unix, windows)))]
-pub(crate) mod process;
+pub mod process;
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) mod random;
+pub mod random;
 #[cfg(not(unix))]
-pub(crate) mod signal;
+pub mod signal;
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) mod system;
+pub mod system;
 #[cfg(not(unix))]
-pub(crate) mod thread;
+pub mod thread;
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) mod time;
+pub mod time;

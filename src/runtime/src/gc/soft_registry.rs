@@ -24,7 +24,7 @@
 
 /// The target's kind — which `Value` to rebuild from the handle.
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum ErasedKind {
+pub enum ErasedKind {
     Object,
     Array,
 }
@@ -35,29 +35,29 @@ pub(crate) enum ErasedKind {
 /// flagged-dead drain before the target's chunk can be reclaimed (the block carries `SIDE_BIT`),
 /// so the handle always names a readable header.
 #[derive(Clone)]
-pub(crate) struct ErasedSoftEntry {
+pub struct ErasedSoftEntry {
     block: crate::object::header::VarGcRef,
-    pub(crate) kind: ErasedKind,
+    pub kind: ErasedKind,
 }
 
 impl ErasedSoftEntry {
     /// An object target.
-    pub(crate) fn object(obj: crate::object::ObjRef) -> Self {
+    pub fn object(obj: crate::object::ObjRef) -> Self {
         Self { block: obj.var_ref(), kind: ErasedKind::Object }
     }
 
     /// An array target.
-    pub(crate) fn array(arr: crate::object::ArrRef) -> Self {
+    pub fn array(arr: crate::object::ArrRef) -> Self {
         Self { block: arr.var_ref(), kind: ErasedKind::Array }
     }
 
     /// The target's block.
-    pub(crate) fn block(&self) -> crate::object::header::VarGcRef {
+    pub fn block(&self) -> crate::object::header::VarGcRef {
         self.block
     }
 
     /// The target as a `Value` (the recorded handle — safe against slot reuse).
-    pub(crate) fn value(&self) -> crate::object::Value {
+    pub fn value(&self) -> crate::object::Value {
         match self.kind {
             ErasedKind::Object => crate::object::Value::Object(crate::object::ObjRef::from_var(self.block)),
             ErasedKind::Array => crate::object::Value::Array(crate::object::ArrRef::from_var(self.block)),
@@ -83,13 +83,13 @@ impl ErasedSoftEntry {
 
 /// Registry of all current `SoftGcRef` targets.
 #[derive(Default)]
-pub(crate) struct SoftRegistry {
+pub struct SoftRegistry {
     entries: Vec<ErasedSoftEntry>,
 }
 
 impl SoftRegistry {
     /// Insert a new entry. The key is the raw pointer (ptr_key).
-    pub(crate) fn insert(&mut self, entry: ErasedSoftEntry) {
+    pub fn insert(&mut self, entry: ErasedSoftEntry) {
         self.entries.push(entry);
     }
 

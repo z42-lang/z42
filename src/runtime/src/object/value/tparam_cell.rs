@@ -313,7 +313,7 @@ fn store_boxed(st: &Cells, w0_off: usize, v: &Value) -> anyhow::Result<FieldWrit
 #[cold]
 #[inline(never)]
 fn box_value(v: &Value) -> anyhow::Result<ArrRef> {
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     tparam_cell_tests::count_box();
     ref_word::alloc_box_ambient(v)
 }
@@ -359,6 +359,6 @@ pub fn clear(st: &Cells, w0_off: usize) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "tparam_cell_tests.rs"]
-pub(crate) mod tparam_cell_tests;
+pub mod tparam_cell_tests;

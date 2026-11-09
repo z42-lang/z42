@@ -63,23 +63,23 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// a smaller nursery halves how much allocation an object must outlive to be promoted, and
 /// `retune-gc-nursery-and-promotion-age` measured what premature promotion does to the footprint
 /// (16M at promotion age 2: peak RSS **405 MB** against 198 MB at 32M).
-pub(crate) const MIN_NURSERY: u64 = 4 * 1024 * 1024;
+pub const MIN_NURSERY: u64 = 4 * 1024 * 1024;
 
 /// Largest nursery the budget may ask for — the historical default.
-pub(crate) const MAX_NURSERY: u64 = 64 * 1024 * 1024;
+pub const MAX_NURSERY: u64 = 64 * 1024 * 1024;
 
 /// Where the nursery may move: `[MIN_NURSERY, MAX_NURSERY]`, entry-capped by the heap
 /// (`entry_unit.rs`) so a program of small objects gets bounds equal in objects, not in bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Bounds {
-    pub(crate) min: u64,
-    pub(crate) max: u64,
+pub struct Bounds {
+    pub min: u64,
+    pub max: u64,
 }
 
 impl Bounds {
     /// The byte bounds alone.
-    #[cfg(test)]
-    pub(crate) const BYTES: Bounds = Bounds { min: MIN_NURSERY, max: MAX_NURSERY };
+    #[cfg(all(test, z42_test_facade))]
+    pub const BYTES: Bounds = Bounds { min: MIN_NURSERY, max: MAX_NURSERY };
 }
 
 /// EWMA weight for the size reading: `new = (3 * old + sample) / 4`.
@@ -105,7 +105,7 @@ const COST_DECAY_DEN: u64 = 16;
 /// So: measure `ns per entry scanned`, budget `entries per minor`, and turn the **headroom**
 /// (`budget − survivors already listed`) into the bytes the mutator may still allocate.
 #[derive(Debug)]
-pub(crate) struct PauseBudget {
+pub struct PauseBudget {
     /// Target maximum minor pause, in microseconds. `0` = adaptation off (fixed nursery).
     target_us: u64,
     /// EWMA of nanoseconds per young entry scanned; `0` until the first minor is observed.
@@ -123,18 +123,18 @@ pub(crate) struct PauseBudget {
 
 /// What one minor reported.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct MinorSample {
-    pub(crate) pause_us: u64,
+pub struct MinorSample {
+    pub pause_us: u64,
     /// Young entries listed when the minor started — what it had to scan.
-    pub(crate) scanned: u64,
+    pub scanned: u64,
     /// Young entries still listed after it — what the next minor inherits.
-    pub(crate) survivors: u64,
-    pub(crate) used_before: u64,
-    pub(crate) used_after: u64,
+    pub survivors: u64,
+    pub used_before: u64,
+    pub used_after: u64,
 }
 
 impl PauseBudget {
-    pub(crate) fn new(target_us: u64) -> Self {
+    pub fn new(target_us: u64) -> Self {
         PauseBudget {
             target_us,
             cost_ns_per_entry: AtomicU64::new(0),
@@ -147,12 +147,12 @@ impl PauseBudget {
     }
 
     #[inline]
-    pub(crate) fn enabled(&self) -> bool {
+    pub fn enabled(&self) -> bool {
         self.target_us != 0
     }
 
     /// Fold one minor into the model and return the nursery the next one should use.
-    pub(crate) fn observe(&self, s: MinorSample, nursery: u64, bounds: Bounds) -> Option<u64> {
+    pub fn observe(&self, s: MinorSample, nursery: u64, bounds: Bounds) -> Option<u64> {
         if !self.enabled() {
             return None;
         }
@@ -284,6 +284,6 @@ impl crate::gc::Heap {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "pause_budget_tests.rs"]
 mod pause_budget_tests;

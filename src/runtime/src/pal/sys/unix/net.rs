@@ -36,9 +36,9 @@ mod wsa {
 }
 
 #[cfg(feature = "net")]
-pub(crate) use super::super::common::net::set_tcp_keepalive;
+pub use super::super::common::net::set_tcp_keepalive;
 
-pub(crate) fn winsock_code(errno: i32) -> Option<i32> {
+pub fn winsock_code(errno: i32) -> Option<i32> {
     use libc::*;
     Some(match errno {
         EINTR => wsa::EINTR,
@@ -81,7 +81,7 @@ pub(crate) fn timed_out_raw() -> Option<i32> {
     Some(libc::ETIMEDOUT)
 }
 
-pub(crate) fn wait_readable(listener: &TcpListener, timeout_ms: i32) -> io::Result<bool> {
+pub fn wait_readable(listener: &TcpListener, timeout_ms: i32) -> io::Result<bool> {
     use std::os::fd::AsRawFd;
     let mut pfd = libc::pollfd {
         fd: listener.as_raw_fd(),

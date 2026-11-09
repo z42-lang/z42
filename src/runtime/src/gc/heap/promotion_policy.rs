@@ -150,6 +150,6 @@ impl PromotionPolicy {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "promotion_policy_tests.rs"]
 mod promotion_policy_tests;

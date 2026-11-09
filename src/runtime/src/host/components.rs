@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},
 };
-use z42_component_api::*;
+use crate::components::api::*;
 
 /// Immutable component selection. Clones share the factory load result; each VM
 /// receives new instances. Rebuild these options to retry a failed library load.
@@ -23,7 +23,7 @@ impl ComponentOptions {
     /// init and every returned descriptor span/table/callback must satisfy the
     /// component ABI, concurrency and lifetime contracts. No unwinding is allowed.
     pub unsafe fn with_static(mut self, id: ComponentId, init: ComponentInit) -> Self {
-        self.registrations.push(Registration::Static { id, init });
+        self.registrations.push(Registration::Static { id, init, cache: Default::default() });
         self.catalog = Some(Arc::new(OnceLock::new()));
         self
     }
@@ -42,12 +42,18 @@ impl ComponentOptions {
             id,
             path: path.into(),
             symbol: symbol.into(),
+            cache: Default::default(),
         });
         self.catalog = Some(Arc::new(OnceLock::new()));
         self
     }
+    pub(crate) fn merged(&self, extra: &Self) -> Self {
+        let mut registrations = self.registrations.clone();
+        registrations.extend(extra.registrations.iter().cloned());
+        Self { registrations, catalog: Some(Arc::new(OnceLock::new())) }
+    }
     pub(crate) fn install(&self, ctx: &VmContext) -> Result<()> {
-        if ctx.core.components.get().is_some() {
+        if ctx.core().components().get().is_some() {
             bail!("VM component registrations are already frozen");
         }
         let components = match &self.catalog {
@@ -62,8 +68,8 @@ impl ComponentOptions {
                 VmComponents::create(&catalog.factories, ctx.heap().heap_epoch())?
             }
         };
-        ctx.core
-            .components
+        ctx.core()
+            .components()
             .set(components)
             .map_err(|_| anyhow::anyhow!("VM component registrations are already frozen"))
     }
@@ -72,8 +78,7 @@ impl ComponentOptions {
         self.catalog
             .as_ref()
             .unwrap()
-            .get()
-            .unwrap()
+            .get_or_init(|| Catalog::load(&self.registrations).map(Arc::new).map_err(|e| format!("{e:#}")))
             .as_ref()
             .unwrap()
             .clone()
@@ -86,15 +91,15 @@ pub fn component_interface<T: ComponentInterface>(
     ctx: &VmContext,
     id: ComponentId,
 ) -> Result<Option<super::ComponentLease<T>>> {
-    match ctx.core.components.get() {
+    match ctx.core().components().get() {
         Some(components) => components.lease(id, ctx.core_arc()),
         None => Ok(None),
     }
 }
 /// Registered components in deterministic dependency order. Disabled components are absent.
 pub fn component_ids(ctx: &VmContext) -> Vec<ComponentId> {
-    ctx.core
-        .components
+    ctx.core()
+        .components()
         .get()
         .map_or_else(Vec::new, VmComponents::ids)
 }

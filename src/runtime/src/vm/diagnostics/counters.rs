@@ -304,6 +304,6 @@ impl std::fmt::Display for ProfileSnapshot {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "counters_tests.rs"]
 mod counters_tests;

@@ -293,11 +293,11 @@ fn synthesized_ref_cells(td: &TypeDesc, f: &mut dyn FnMut(RefCell)) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 impl ScriptObject {
     /// Test-only: write field `slot` **without** the SATB record — the raw store GC unit tests use
     /// to wire object graphs (and to simulate a mutator that bypassed the barrier).
-    pub(crate) fn set_ref_raw_for_test(&self, slot: usize, v: &Value) {
+    pub fn set_ref_raw_for_test(&self, slot: usize, v: &Value) {
         use std::sync::atomic::Ordering;
         let Some(fa) = self.field_access_of(slot) else { return };
         let c = self.cells();

@@ -11,4 +11,4 @@ pub use owned_object::OwnedObject;
 
 mod reflected_type;
 pub use reflected_type::{ReflectedTypeHandle, ReflectedTypeShape};
-pub(crate) use reflected_type::ReflectedTypeKey;
+pub use reflected_type::ReflectedTypeKey;

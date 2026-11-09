@@ -1,4 +1,4 @@
-pub(crate) const CAN_DECOMMIT: bool = cfg!(any(
+pub const CAN_DECOMMIT: bool = cfg!(any(
     target_os = "macos",
     target_os = "ios",
     target_os = "linux",

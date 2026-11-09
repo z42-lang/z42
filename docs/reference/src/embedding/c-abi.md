@@ -81,7 +81,7 @@ typedef struct Z42HostConfig {
 |---|---|
 | `abi_version` | 不等于 `Z42_HOST_ABI_VERSION` → `ERR_BAD_CONFIG` |
 | `struct_size` | 调用方编译时的 `sizeof(Z42HostConfig)`；小于 v2 布局 → `ERR_BAD_CONFIG` |
-| `exec_mode` | 值不在 0–3 → `ERR_BAD_CONFIG`；`JIT` / `AOT` 未开启对应 feature → `ERR_FEATURE_OFF`。`Default` 使用构建默认后端，`Interp` 使用解释器，`JIT` 使用 JIT；AOT 尚未实现，执行时明确返回错误 |
+| `exec_mode` | 值不在 0–3 → `ERR_BAD_CONFIG`；`JIT` 没有已链接或可找到的动态后端、或平台不支持 → `ERR_FEATURE_OFF`；`AOT` 未开启对应 feature 也返回此错误。`Default` 使用构建默认后端，`Interp` 使用解释器，`JIT` 使用 JIT；AOT 尚未实现，执行时明确返回错误 |
 | `heap_initial_bytes` / `heap_max_bytes` | **当前被忽略**，填 0 即可 |
 | `stdout_sink` / `stderr_sink` | 见 [stdout / stderr 重定向](#stdout--stderr-重定向) |
 | `sink_user_data` | 原样透传给上面两个回调。一份 config 只有一个，两个 sink 共用；要分开就 init 之后用 `z42_host_set_*_sink` 各设各的 |
@@ -121,7 +121,7 @@ typedef enum Z42HostStatus {
 | `ERR_ALREADY_INIT` (1) | 进程内已有活着的 VM 时再次 `initialize` |
 | `ERR_NOT_INIT` (2) | 未初始化（或已 shutdown）时调用任何需要 VM 的 API，含拿失效句柄调用 |
 | `ERR_BAD_CONFIG` (3) | `cfg == NULL`、`out_host == NULL`、`abi_version` 不匹配、`struct_size` 过小、`exec_mode` 越界、`search_paths` 非法（含非 UTF-8 路径、数组超 4096 项）、`search_paths` 里的 `z42.core.zpkg` 解析不了；另外 `resolve_entry` 的 `fqn == NULL` 或非 UTF-8、`shutdown` 的 `host == NULL`、`z42_zpkg_read_namespaces` 的 `visit == NULL` 也归这一档 |
-| `ERR_FEATURE_OFF` (4) | 请求 `JIT` / `AOT`，但该运行时编译时没开对应 feature |
+| `ERR_FEATURE_OFF` (4) | 请求 `JIT`，但平台不支持、未链接且找不到动态组件；或请求未开启的 `AOT` feature |
 | `ERR_BAD_ZBC` (10) | 字节不是可解析的 `.zbc` / `.zpkg`；`bytes == NULL` 而 `length != 0`；依赖 zpkg 解析失败；**IR 约束校验失败也走这一档** |
 | `ERR_VERIFICATION` (11) | **当前运行时从不返回**。枚举值保留，宿主不必为它写分支 |
 | `ERR_ENTRY_NOT_FOUND` (20) | FQN 不在模块的函数表里；`module` 句柄为 NULL；`invoke` 的 `entry` 句柄为 NULL |
@@ -413,6 +413,8 @@ int main(void) {
 | Linux | `libz42.a`（另加 `-lc -lm -lpthread -ldl -lrt -lgcc_s`） | `libz42.so`：SONAME 是 `libz42.so`，宿主加 `-Wl,-rpath,<目录>`（如 `$ORIGIN`）或走 `LD_LIBRARY_PATH` |
 | Windows | `z42.lib` | 链 import lib `z42.dll.lib`，运行时 `z42.dll` 放在 exe 旁 |
 
+另有可选的组件化动态 runtime 包：C 宿主链接其中的 z42（macOS/Linux 为 libz42，Windows 导入库为 z42.dll.lib）。部署时保留 native/ 内同包的共享核心、Rust std 和 interp/JIT 组件；这些库必须来自同一构建，不能混用版本。用 Z42_NATIVE_PATH 指向组件目录，或将 native/ 放在宿主可执行文件旁。显式请求 JIT 时，库缺失或不兼容会报错，不自动改成解释模式。
+
 Linux 包要求 glibc ≥ 2.34（x64）、≥ 2.39（arm64）。
 
 ---
@@ -432,3 +434,5 @@ Linux 包要求 glibc ≥ 2.34（x64）、≥ 2.39（arm64）。
 | 运行时自动加锁 | 没有。并发调用要宿主自己串行化 |
 | 卸载单个 module | 没有。只能整个 `shutdown` |
 | `ERR_VERIFICATION` (11) | 枚举里有，运行时不产生。IR 校验失败走 `ERR_BAD_ZBC` |
+
+运行时原生代码映像按进程寿命保留；关闭 host 释放 VM、堆和 JIT 状态，不提供运行中卸载代码映像。Linux C 宿主动态库使用 ELF NODELETE，保证线程退出时尚未执行的 TLS 析构回调有效。其他平台的宿主须保持 C 宿主库已加载，直到使用过它的线程退出。

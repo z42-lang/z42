@@ -9,7 +9,7 @@ use crate::gc::Heap;
 // ── 批量拷贝 ──
 impl ArrayObj {
     /// Clear a checked range. MIXED and FROZEN use the caller's ordinary stores.
-    pub(crate) fn try_clear_elems(&self, index: usize, length: usize) -> anyhow::Result<bool> {
+    pub fn try_clear_elems(&self, index: usize, length: usize) -> anyhow::Result<bool> {
         let mode = self.mode();
         let range = index..index + length;
         if mode.is_prim() {
@@ -47,7 +47,7 @@ impl ArrayObj {
 
     /// Search a checked range with string/null equality. The caller checks the
     /// declared element type; a non-string value declines to custom equality.
-    pub(crate) fn search_string_elems(&self, value: &Value, range: std::ops::Range<usize>,
+    pub fn search_string_elems(&self, value: &Value, range: std::ops::Range<usize>,
         backwards: bool) -> Result<Option<usize>, ()> {
         let mode = self.mode();
         if !matches!(mode, ArrayMode::Ref | ArrayMode::Mixed)

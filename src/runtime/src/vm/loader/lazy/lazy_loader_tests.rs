@@ -226,7 +226,7 @@ fn vm_context_install_with_deps_no_libs_no_declared_returns_none() {
 
 /// Path to a committed, valid zpkg fixture usable as a real on-disk zpkg.
 fn fixture_zpkg() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    PathBuf::from(env!("Z42_RUNTIME_DIR"))
         .join("../compiler/z42.package/tests/fixtures/zpkg-format/packed-minimal/source.zpkg")
 }
 
@@ -778,7 +778,7 @@ fn lazy_load_uses_registered_fusion_input_source_at_preparation() {
     assert!(loader.load_module_from_bytes(b"bad").is_err());
     assert_eq!(READS.load(Relaxed), 0);
 
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let path = PathBuf::from(env!("Z42_RUNTIME_DIR"))
         .join("../compiler/z42.package/tests/fixtures/zpkg-format/indexed-minimal/source.zbc");
     let raw = std::fs::read(path).unwrap();
     loader.load_module_from_bytes(&raw).unwrap();
@@ -789,3 +789,7 @@ fn lazy_load_uses_registered_fusion_input_source_at_preparation() {
     loader.load_module_from_path("source.zbc").unwrap();
     assert_eq!(READS.load(Relaxed), 2 * count);
 }
+
+use crate::assembly::context::VmContextFactory as _;
+
+use crate::assembly::loader::LazyLoaderFactory as _;

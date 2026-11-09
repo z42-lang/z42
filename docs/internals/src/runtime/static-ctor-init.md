@@ -330,7 +330,7 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 跑 z42 代码有两条入口：
 
 - **`host::run_app`**：`z42vm` 二进制、`z42_run_app`、wasm `runTestApp`；
-- **宿主 API**：`z42_host_load_zbc` → `z42_host_invoke`（C ABI / `z42-host`，iOS / Android / wasm 的
+- **宿主 API**：`z42_host_load_zbc` → `z42_host_invoke`（C ABI / `z42::host::rust`，iOS / Android / wasm 的
   `loadZbc` + `invoke` 都走它）。
 
 两者合并模块的方式相同，合并**之后**的启动步骤必须只有**一份**：若各写一份，新增的步骤只进

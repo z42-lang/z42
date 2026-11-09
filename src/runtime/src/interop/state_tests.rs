@@ -79,3 +79,5 @@ fn c_abi_duplicate_registration_retains_its_error_contract() {
     assert_eq!(error.code, 905);
     assert_eq!(super::native_type_count(&ctx).unwrap(), 1);
 }
+
+use crate::assembly::context::VmContextFactory as _;

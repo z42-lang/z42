@@ -1,22 +1,22 @@
-pub(crate) const HAS_CLOCK: bool = false;
-pub(crate) fn monotonic_us() -> u64 {
+pub const HAS_CLOCK: bool = false;
+pub fn monotonic_us() -> u64 {
     if HAS_CLOCK {
         since_epoch().as_micros() as u64
     } else {
         next_tick()
     }
 }
-pub(crate) fn monotonic_ns() -> u64 {
+pub fn monotonic_ns() -> u64 {
     if HAS_CLOCK {
         since_epoch().as_nanos() as u64
     } else {
         next_tick() * 1_000
     }
 }
-pub(crate) fn wall_unix_ms() -> i64 {
+pub fn wall_unix_ms() -> i64 {
     wall_since_unix_epoch().as_millis() as i64
 }
-pub(crate) fn wall_unix_ns() -> u64 {
+pub fn wall_unix_ns() -> u64 {
     wall_since_unix_epoch().as_nanos() as u64
 }
 pub(crate) fn since_epoch() -> std::time::Duration {

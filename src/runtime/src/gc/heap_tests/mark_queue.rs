@@ -241,3 +241,6 @@ fn allocate_black_covers_var_region_blocks() {
 
     heap.unpin_root(s_pin);
 }
+
+#[cfg(all(test, z42_test_facade))]
+use crate::assembly::context::VmContextFactory as _;

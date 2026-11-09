@@ -5,6 +5,8 @@
 //! Once specs C2/C4/C5 land, the corresponding test below should be flipped
 //! from "expects trap" to "expects success".
 
+// These tests directly exercise the statically linked interpreter entry.
+#![cfg(feature = "interp")]
 use z42_zpkg::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator};
 use std::collections::HashMap;
 
@@ -121,3 +123,5 @@ fn unpin_ptr_non_view_traps() {
     let err = run(&m).expect_err("UnpinPtr non-view must fail");
     assert_trap_with(err, "UnpinPtr expects PinnedView");
 }
+
+use z42::host::VmContextFactory as _;

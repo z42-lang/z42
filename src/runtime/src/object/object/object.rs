@@ -225,7 +225,7 @@ impl ObjHeader {
     /// `header` heads a block (whole-block provenance) nothing else can reach yet, whose kind word
     /// is null.
     #[inline]
-    pub(crate) unsafe fn install(header: NonNull<u8>, type_desc: Arc<TypeDesc>) {
+    pub unsafe fn install(header: NonNull<u8>, type_desc: Arc<TypeDesc>) {
         let p = header.as_ptr().cast::<ObjHeader>();
         // SAFETY: per the contract; a place projection on the raw pointer — no reference to the
         // header is formed while it is being written.
@@ -239,23 +239,23 @@ impl ObjHeader {
 /// below is from `hdr`. Pinned against the Rust accessors by
 /// `object_tests::jit_layout_matches_the_accessors`.
 #[cfg(all(feature = "jit", target_pointer_width = "64"))]
-pub(crate) mod obj_jit_layout {
+pub mod obj_jit_layout {
     use crate::object::header::GcBlockHeader;
 
     /// Mask turning an object handle's bits into its block-header address.
-    pub(crate) const HANDLE_ADDR_MASK: u64 = crate::object::header::HANDLE_ADDR_MASK;
+    pub const HANDLE_ADDR_MASK: u64 = crate::object::header::HANDLE_ADDR_MASK;
     /// The header's type word (the `Arc<TypeDesc>`'s pointer to its heap block).
-    pub(crate) const TYPE_DESC_OFFSET: i32 = crate::object::header::KIND_WORD_OFFSET as i32;
+    pub const TYPE_DESC_OFFSET: i32 = crate::object::header::KIND_WORD_OFFSET as i32;
     /// Field cell 0: a `FieldLoc::offset` is relative to this.
-    pub(crate) const FIELDS_OFFSET: i32 = GcBlockHeader::DATA_OFFSET as i32;
+    pub const FIELDS_OFFSET: i32 = GcBlockHeader::DATA_OFFSET as i32;
     /// The block header's `type_tag` byte: block type, `gen_age`, remembered bit.
-    pub(crate) const TYPE_TAG_OFFSET: i32 = crate::object::header::HEADER_TYPE_TAG_OFFSET as i32;
+    pub const TYPE_TAG_OFFSET: i32 = crate::object::header::HEADER_TYPE_TAG_OFFSET as i32;
     /// `gen_age` = `(type_tag >> AGE_SHIFT) & AGE_MASK` (var-region blocks: objects, strings,
     /// closures alike).
-    pub(crate) const AGE_SHIFT: i64 = 3;
-    pub(crate) const AGE_MASK: i64 = 3;
+    pub const AGE_SHIFT: i64 = 3;
+    pub const AGE_MASK: i64 = 3;
     /// Set ⇔ the object is in the heap's remembered set (a minor re-scans it whole).
-    pub(crate) const REMEMBERED_BIT: i64 = 1 << 5;
+    pub const REMEMBERED_BIT: i64 = 1 << 5;
 
     // `Arc<T>` (sized `T`) is one pointer to its heap block — the word the header stores.
     const _: () = assert!(std::mem::size_of::<std::sync::Arc<u64>>() == 8);
@@ -264,7 +264,7 @@ pub(crate) mod obj_jit_layout {
     /// Offset from the `type_desc` word's pointer to `TypeDesc::id` (a `u32`): the `Arc`'s
     /// counters, then the descriptor. Measured on a probe `Arc` of the same alignment rather than
     /// assumed, so a std layout change shows up here (and in the pinning test), not as a wrong load.
-    pub(crate) fn type_id_offset() -> i32 {
+    pub fn type_id_offset() -> i32 {
         let probe = std::sync::Arc::new(0u64);
         // SAFETY: an `Arc<u64>` is exactly one pointer (asserted above); this reads it as an integer.
         let block: usize = unsafe { std::mem::transmute_copy::<std::sync::Arc<u64>, usize>(&probe) };
@@ -303,7 +303,7 @@ impl ScriptObject {
     /// `p` is a constructed object (type word installed) over its whole block, destroyed exactly
     /// once; nothing reads it afterwards.
     #[inline]
-    pub(crate) unsafe fn destroy(p: *mut ScriptObject) -> u64 {
+    pub unsafe fn destroy(p: *mut ScriptObject) -> u64 {
         // SAFETY: (all below) per the contract; the fields are in range of the fat pointer.
         unsafe {
             let mut freed = 0;
@@ -575,6 +575,6 @@ impl crate::object::ObjRef {
 
 // ── Value ────────────────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "object_tests.rs"]
 mod object_tests;

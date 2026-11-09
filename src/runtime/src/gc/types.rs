@@ -135,11 +135,11 @@ pub struct CollectStats {
 /// cannot be weak-referenced — `make_weak` returns `None` for them.
 #[derive(Debug, Clone)]
 pub struct WeakRef {
-    pub(crate) inner: WeakRefInner,
+    pub inner: WeakRefInner,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum WeakRefInner {
+pub enum WeakRefInner {
     /// Object model R6 / R9: a weak reference records its chunk's reuse epoch.
     Object(crate::object::WeakObjRef),
     Array (WeakArrRef),
@@ -319,6 +319,6 @@ pub struct HeapStats {
     pub pause_histogram:    PauseHistogram,
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "types_tests.rs"]
 mod types_tests;

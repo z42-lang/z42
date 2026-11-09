@@ -73,3 +73,5 @@ fn retention_query_waits_for_running_mutators_to_park() {
     stop.store(true, Ordering::Release);
     worker.join().unwrap();
 }
+
+use crate::assembly::context::VmContextFactory as _;

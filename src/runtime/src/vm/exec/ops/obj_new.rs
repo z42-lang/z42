@@ -19,7 +19,7 @@ use crate::vm::runtime::dispatch::ctor::{site_for, instance_type_args, make_fall
 /// The class to allocate. `Err` carries the exception to throw (missing type, ambiguous
 /// type, missing base). Hit: the cached descriptor, no hashing.
 #[inline]
-pub(crate) fn resolve_class(
+pub fn resolve_class(
     ctx: &VmContext, module: &Module, class_name: &str, site: Option<&ObjNewSite>,
 ) -> Result<Arc<TypeDesc>, Value> {
     if let Some(td) = site.and_then(|s| s.class.get()) {
@@ -92,7 +92,7 @@ fn resolve_class_slow(
 /// mark. The arity check ran when the id was cached and is not repeated (as for `Call`).
 #[inline]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn resolve_ctor<'a>(
+pub fn resolve_ctor<'a>(
     ctx: &'a VmContext, module: &'a Module,
     class_name: &str, ctor_name: &str, phys_argc: usize, ctor_known: bool,
     site: Option<&ObjNewSite>,
@@ -165,6 +165,6 @@ fn bind_ctor<'a>(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "obj_new_tests.rs"]
 mod obj_new_tests;

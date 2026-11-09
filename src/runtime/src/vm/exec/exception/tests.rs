@@ -2,7 +2,7 @@ use super::*;
 
 // ──  retire-z-codes: make_stdlib_exception ────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod make_stdlib_exception_tests {
     use super::*;
     use crate::vm::runtime::Module;
@@ -93,3 +93,6 @@ mod make_stdlib_exception_tests {
             "err = {err}");
     }
 }
+
+#[cfg(all(test, z42_test_facade))]
+use crate::assembly::context::VmContextFactory as _;

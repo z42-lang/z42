@@ -17,7 +17,7 @@ z42 文本处理类型。**纯脚本实现** —— 严格遵循 [`src/libraries
 | `Levenshtein.z42`   | `Levenshtein` static class | 编辑距离 + 归一化相似度（fuzzy search / 拼写纠错） |
 | `Strings.z42`       | `Strings` static class | 字符串 shaping 静态工具 |
 
-> 正则在 [`z42.regex`](../z42.regex/)，不在本包。
+> 正则在 [`z42.regex`](../z42.regex)，不在本包。
 
 ## 实现备注
 

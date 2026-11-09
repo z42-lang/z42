@@ -58,7 +58,7 @@ pub fn set_env(name: &str, value: Option<&str>) {
 }
 
 /// Parallelism available to this process, with one worker as the fallback.
-pub(crate) fn available_parallelism() -> usize {
+pub fn available_parallelism() -> usize {
     std::thread::available_parallelism().map(|count| count.get()).unwrap_or(1)
 }
 
@@ -83,6 +83,6 @@ pub struct OsCaps {
 /// The capabilities of the target this binary was built for.
 pub const OS_CAPS: OsCaps = super::sys::system::OS_CAPS;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "system_tests.rs"]
 mod system_tests;

@@ -2,17 +2,17 @@
 #[cfg(all(unix, not(target_arch = "wasm32")))]
 mod unix;
 #[cfg(all(unix, not(target_arch = "wasm32")))]
-pub(crate) use unix::*;
+pub use unix::*;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub(crate) use windows::*;
+pub use windows::*;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 #[cfg(target_arch = "wasm32")]
-pub(crate) use wasm::*;
+pub use wasm::*;
 #[cfg(not(any(unix, windows, target_arch = "wasm32")))]
 mod fallback;
 #[cfg(not(any(unix, windows, target_arch = "wasm32")))]
-pub(crate) use fallback::*;
+pub use fallback::*;
 mod common;

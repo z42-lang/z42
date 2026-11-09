@@ -54,3 +54,5 @@ fn gate_dispatch_errors_and_backend_lifetime() {
         assert_eq!(drops.load(Ordering::Relaxed), 1);
     }
 }
+
+use crate::assembly::context::VmContextFactory as _;

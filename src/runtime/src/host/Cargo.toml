@@ -1,0 +1,306 @@
+[package]
+name = "z42"
+version.workspace = true
+edition = "2021"
+description = "z42 host services, embedding facade and command-line VM"
+
+[[bin]]
+name = "z42vm"
+path = "../main.rs"
+
+[lib]
+name = "z42"
+path = "lib.rs"
+crate-type = ["rlib", "cdylib"]
+# The facade owns its Rust library and C embedding shared library.
+# Static embedding archives are additionally produced by the SDK package command.
+
+[build-dependencies]
+cc = "1"
+
+[dependencies]
+z42-runtime = { path = "../.." }
+z42-interp = { path = "../../crates/z42-interp", optional = true }
+# Shared artifact formats, decoded IR and immutable package definitions.
+z42-zpkg = { path = "../../crates/z42-zpkg" }
+# Faster global allocator. z42c self-compile is malloc-bound (~31% in the
+# system allocator, profiled): mimalloc cuts z42c compile ~40% and alloc-heavy
+# workloads (string-building) ~3×. Optional + default-on so the `mimalloc-alloc`
+# feature ships in the desktop z42vm binary, while the wasm/ios/android presets
+# (built `--no-default-features`) omit it — mimalloc's C build doesn't belong in
+# the wasm sandbox / size-sensitive mobile staticlibs. Wired via
+# `#[global_allocator]` in main.rs (binary only; embedded lib uses host alloc).
+mimalloc = { version = "0.1", optional = true }
+# Heap profiler (script-profiling P0, `xtask profile --heap`). Optional + off by
+# default; the `dhat-heap` feature swaps it in as `#[global_allocator]` (mutually
+# exclusive with mimalloc) and emits `dhat-heap.json` per run. `xtask profile`
+# builds it on demand into a throwaway target-dir — never the shipped binary.
+dhat = { version = "0.3", optional = true }
+# Serialization
+serde_json = "1"   # --list-knobs / --show-config JSON output (config/render.rs)
+toml = "1"         # runtime config files: `[runtime]` tables, app sidecars (config/)
+
+# Inline small argument lists (`interp::ops::collect_args`); already in the
+# dependency graph through cranelift. All targets (wasm too).
+smallvec = "1"
+
+# Error handling
+anyhow = "1"
+
+
+# Fast non-cryptographic hasher (FxHash) for VM-internal symbol tables.
+# z42c self-compile spends ~14% in HashMap symbol resolution (function/type
+# name → decl), profiled as SipHash write + memcmp, driven mainly by
+# megamorphic VCall IC misses hashing FQ name strings. These tables are
+# internal (never hash-flood-adversarial), so a fast non-DoS-resistant hasher
+# is safe and ~5–10× cheaper on short-string keys. FxHash also gives a
+# deterministic iteration order (std SipHash randomises per-run), which is
+# strictly friendlier to the load-order determinism rule.
+rustc-hash = "2"
+
+# Mutex / RwLock — used for VmCore shared state across threads (add-multithreading-foundation, 2026-05-19).
+# parking_lot vs std::sync: ~2-5x faster uncontended; no poisoning (VM contexts don't benefit from poison-on-panic).
+parking_lot = "0.12"
+
+# BLAKE3 hash for zbc/zpkg build_id (split-debug-symbols, 1.2/0.3+)
+blake3 = "1"
+
+# OS-CSPRNG (Std.Crypto.SecureRandom) — add-csprng-to-crypto (2026-05-26).
+# Wraps Linux getrandom(2) / macOS getentropy / Windows BCryptGenRandom.
+# wasm32 excluded: getrandom requires `js` feature for wasm32-unknown-unknown
+# but we cfg-gate crypto.rs to throw NotSupported there instead.
+# (wasm bridge is add-csprng-wasm-bridge follow-up).
+
+# Compression cdylib — add-z42-compression (2026-05-22).
+# Optional dep, enabled by the `bundled-compression` feature (wasm-only by
+# default; non-wasm targets dlopen the cdylib via native::ext at startup).
+z42-compression = { path = "../../crates/z42-compression", optional = true }
+
+# Networking (Std.Net) — optional, enabled by the `net` / `tls` features (on in
+# `default` and the ios / android presets, off in the wasm preset).
+# add-net-socket-options-extended (2026-05-30): cross-platform setsockopt
+# for SO_REUSEADDR / SO_KEEPALIVE. Rust networking working group crate;
+# only deps libc on Unix; ships Winsock bindings on Windows. Feature `net`.
+socket2 = { version = "0.6", features = ["all"], optional = true }
+# add-z42-net-tls (2026-06-03): pure-Rust TLS for Std.Net (HTTPS in
+# HttpClient + raw TlsClient). rustls with the `ring` crypto backend
+# (no OpenSSL / no aws-lc-rs C-toolchain dependency → identical build
+# across host + cross-compile targets, same rationale as bundled libffi).
+# webpki-roots bundles the Mozilla CA root set so cert verification works
+# with zero host trust-store wiring. tls12 enabled for broad endpoint
+# compatibility. Feature `tls`.
+rustls       = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+webpki-roots = { version = "1", optional = true }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+# `env-filter` enables Z42_LOG=... directive parsing in main.rs
+# (docs/review.md Part 4 D2, 2026-05-25).
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# NOTE: POSIX signal handling crate `signal-hook-registry` is declared
+# in the existing `[target.'cfg(unix)'.dependencies]` block below
+# (next to `libc`) — single unix-deps section per Cargo.toml.
+
+# Native interop — Tier 1 ABI runtime (spec C2)
+#
+# 2026-05-12 add-platform-wasm Stage 0: gated behind `native-interop` feature
+#   so wasm builds (no dlopen / no libffi support) deselect it cleanly.
+# 2026-05-10 vendored-libffi-upgrade: bumped to libffi 5.1 (libffi-sys 4.1)
+#   to pick up the fixed bundled libffi 3.4.7 sources. Earlier libffi-sys 2.3
+#   shipped a snapshot whose `sysv.S` failed to assemble under new Apple
+#   clang (`CFI advance_loc out of range`); 5.1's bundle compiles cleanly on
+#   desktop macOS/Linux, aarch64-apple-ios, and aarch64-linux-android. No
+#   `system` feature — bundled build keeps the toolchain identical across
+#   host and cross-compile targets at the cost of a one-time first build.
+libffi     = { version = "5.1", optional = true }
+libloading = { version = "0.9", optional = true }
+z42-abi    = { path = "../../crates/z42-abi" }
+# `#[builtins]` / `#[builtin]` — the builtin ABI v2 (vm/exec/call/builtin_abi): typed builtins with
+# generated register-reading wrappers + descriptors. Proc macro, host-only build cost;
+# nothing of it ships in the binary. All targets (wasm too).
+z42-macros = { path = "../../crates/z42-macros" }
+
+# JIT backend — Cranelift (optional; enabled via `jit` feature)
+
+[features]
+# 2026-05-07 add-runtime-feature-flags (P4.1):
+# - default = ["jit", "native-interop"] keeps `cargo build` behavior unchanged
+# - `jit` enables the Cranelift JIT backend (desktop x64/aarch64 only)
+# - `native-interop` enables Tier 1 native-extension ABI (dlopen + libffi).
+#   2026-05-12 add-platform-wasm Stage 0 split this out so wasm builds can
+#   deselect it (no dlopen / no libffi support inside the wasm sandbox).
+# - `aot` is a placeholder for future AOT compilation (M9; no impl yet)
+# - `interp-only` links the baseline interpreter without enabling JIT
+# - `net` enables Std.Net sockets (TCP / UDP / DNS over std::net + socket2);
+#   `tls` adds the rustls-backed TLS client on top. Without them the
+#   `__tcp_*` / `__udp_*` / `__dns_lookup` / `__tls_*` builtins are stubs that
+#   throw `NetUnsupportedException` (corelib/net/unsupported.rs). On in
+#   `default` and the ios / android presets; the wasm preset omits them
+#   (no sockets inside the wasm sandbox).
+# - platform presets are convenience combos for `--no-default-features --features <preset>`
+default              = ["interp", "jit", "native-interop", "mimalloc-alloc", "net", "tls"]
+# mimalloc-alloc: route the z42vm binary's global allocator through mimalloc
+# (default-on desktop; omitted by the --no-default-features wasm/ios/android presets).
+mimalloc-alloc       = ["z42-runtime/mimalloc-alloc","dep:mimalloc"]
+# dhat-heap: heap-allocation profiling (script-profiling P0). Swaps the global
+# allocator to dhat (overrides mimalloc via a cfg gate in main.rs) and writes
+# dhat-heap.json per run. Dev/profiling only — never in a release/platform preset.
+dhat-heap            = ["dep:dhat"]
+# profile-contention: user-lock (Std.Threading.Mutex/RwLock) contention probes
+# (script-profiling P1b). Wraps each blocking acquire with a try_lock + timing
+# so contended acquires bump `lock_contentions` / `lock_wait_us`. OFF by default
+# — the probe code is #[cfg]-compiled out so the default build's lock path stays
+# the plain `arc.lock()` (zero cost). `xtask profile` builds a throwaway VM with
+# this feature when contention data is requested. No extra deps.
+profile-contention = ["z42-runtime/profile-contention"]
+# z42-test-fixtures: build.rs 用 z42vm + z42c 把三个 .z42 测试 fixture 编成 .zbc，并 emit
+# `--cfg z42_have_z42c` / `z42_have_embedding_hello` / `z42_have_test_demo` 供对应 Rust 测试开关。
+# 默认 **OFF**：开启它会让 build.rs `rerun-if-changed` 到 z42c.driver.zpkg —— 而那个
+# 文件被 `xtask build compiler` 每轮重写，于是下一次 cargo 判定 build script 陈旧、
+# 整个 crate graph 全量重编（release 实测 62s/次；CI 的 ci-bootstrap 每 run 踩 7 次）。
+# 一个纯测试便利设施不该挂在所有人的构建关键路径上，故改为按需开启：
+# `xtask test runtime`（= CI 的 Rust 单测步骤）显式带上它，测试覆盖面不变。
+# 详见 build.rs 同名注释。
+z42-test-fixtures    = []
+interp = ["dep:z42-interp"]
+shared-core = ["component-loading", "z42-runtime/jit", "z42-interp?/shared-core", "z42-jit?/shared-core"]
+jit                  = ["dep:z42-jit", "z42-runtime/jit", "z42-interp?/jit", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
+component-loading    = ["z42-runtime/component-loading", "dep:libloading"]
+native-interop       = ["z42-interp?/native-interop", "z42-runtime/native-interop", "dep:libffi", "component-loading"]
+net                  = ["z42-runtime/net", "dep:socket2"]
+tls                  = ["net", "dep:rustls", "dep:webpki-roots"]
+aot                  = []
+interp-only          = ["interp"]
+# bundled-compression: statically link z42-compression instead of dlopen'ing it.
+# Required on wasm (no dlopen); optional everywhere else.
+bundled-compression  = ["dep:z42-compression"]
+wasm                 = ["interp", "interp-only", "bundled-compression"]
+# Mobile presets bundle compression too — these platforms either disallow
+# dlopen (iOS App Store) or strongly prefer single-binary integration
+# (Android JNI side-load convention). No separate libz42_compression.a is
+# built or shipped: it would duplicate what libz42.a already contains.
+ios                  = ["interp", "interp-only", "aot", "native-interop", "bundled-compression", "net", "tls"]
+android              = ["interp", "interp-only", "aot", "native-interop", "bundled-compression", "net", "tls"]
+
+# Platform / system info (Std.Platform / Std.OperatingSystem stdlib, 2026-05-14).
+# Only needed on unix-like for gethostname / uname; windows uses winapi via direct
+# FFI binding (no extra crate); wasm falls through to graceful "" returns.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# getrandom excluded from wasm32: requires the `js` feature for
+# wasm32-unknown-unknown; our crypto.rs cfg-gates that path to throw
+# NotSupportedException instead (add-csprng-wasm-bridge follow-up).
+getrandom = "0.4"
+# REPL line editor: rustyline was extracted into the host-only cdylib
+# `crates/z42-repl` (libz42_repl), dlopen'd lazily by `corelib::repl_native`.
+# The core z42vm crate no longer links rustyline (or its ~19 transitive crates);
+# it keeps only the VM-side builtins + re-entrancy trampolines. wasm/no-native-
+# interop builds keep the plain-stdin fallback. (extract-repl-native-cdylib)
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+# POSIX signal handling — low-level register API (no monitor thread).
+# Used by host/signal.rs to install async-signal-safe handlers for
+# SIGSEGV / SIGABRT / SIGFPE / SIGILL / SIGBUS (add-os-signal-handler
+# spec, 2026-05-25). Windows builds skip via `#[cfg(unix)]` gate.
+signal-hook-registry = "1.4"
+
+[dev-dependencies]
+jsonschema = { version = "0.56", default-features = false }
+z42-rs     = { path = "../../crates/z42-rs" }
+# html_reports pulls the whole plotters subtree (SVG/area/line series); CI bench
+# jobs read the numeric output, never the HTML — drop it to lighten bench builds.
+criterion  = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+
+# loom: deterministic interleaving model checker for the GC pause / registration
+# protocol and IC publication. Only compiled under `--cfg loom`
+# (RUSTFLAGS='--cfg loom' cargo test --test gc_registration_race_loom) — it
+# reproduces races that hardware can't reproduce locally.
+[target.'cfg(loom)'.dev-dependencies]
+loom = "0.7"
+
+# Declare the custom `loom` cfg so check-cfg (Rust 1.80+) doesn't warn on the
+# `#![cfg(loom)]` model file in normal builds.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+
+[target.'cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), any(target_os = "linux", target_os = "macos", target_os = "windows")))'.dependencies]
+z42-jit = { path = "../../crates/z42-jit", optional = true, features = ["jit"] }
+cranelift-codegen = { version = "0.135", features = ["unwind"], optional = true }
+cranelift-frontend = { version = "0.135", optional = true }
+cranelift-jit      = { version = "0.135", optional = true }
+cranelift-module   = { version = "0.135", optional = true }
+cranelift-native   = { version = "0.135", optional = true }
+
+[[test]]
+name = "cross_thread_smoke"
+path = "../../tests/cross_thread_smoke.rs"
+
+[[test]]
+name = "engine_components"
+path = "../../tests/engine_components.rs"
+
+[[test]]
+name = "format_fixture_versions"
+path = "../../tests/format_fixture_versions.rs"
+
+[[test]]
+name = "gc_incremental_model"
+path = "../../tests/gc_incremental_model.rs"
+
+[[test]]
+name = "gc_registration_race_loom"
+path = "../../tests/gc_registration_race_loom.rs"
+
+[[test]]
+name = "ic_publication_loom"
+path = "../../tests/ic_publication_loom.rs"
+
+[[test]]
+name = "manifest_schema_validation"
+path = "../../tests/manifest_schema_validation.rs"
+
+[[test]]
+name = "native_interop_e2e"
+path = "../../tests/native_interop_e2e.rs"
+
+[[test]]
+name = "native_opcode_trap"
+path = "../../tests/native_opcode_trap.rs"
+
+[[test]]
+name = "native_pin_e2e"
+path = "../../tests/native_pin_e2e.rs"
+
+[[test]]
+name = "signal_handler_e2e"
+path = "../../tests/signal_handler_e2e.rs"
+
+[[test]]
+name = "stack_overflow_e2e"
+path = "../../tests/stack_overflow_e2e.rs"
+
+[[test]]
+name = "zbc_compat"
+path = "../../tests/zbc_compat.rs"
+
+[[example]]
+name = "signal_crash_helper"
+path = "../../examples/signal_crash_helper.rs"
+
+[[bench]]
+name = "gc_cycle_bench"
+path = "../../benches/gc_cycle_bench.rs"
+harness = false
+
+[[bench]]
+name = "smoke_bench"
+path = "../../benches/smoke_bench.rs"
+harness = false
+
+[[example]]
+name = "run_app_smoke"
+path = "../../examples/run_app_smoke.rs"

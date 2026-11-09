@@ -716,3 +716,5 @@ fn a_collection_during_a_native_park_retires_the_parked_claims() {
     to_worker.send(()).unwrap();
     worker.join().unwrap();
 }
+
+use crate::assembly::context::VmContextFactory as _;

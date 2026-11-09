@@ -122,10 +122,10 @@ impl std::fmt::Debug for ArrRef {
 /// rule, same upgrade through the heap).
 #[derive(Clone, Copy)]
 pub struct WeakArrRef {
-    pub(crate) arr: ArrRef,
+    pub arr: ArrRef,
     /// Owning chunk index (`u32::MAX` for a block outside any region — never reclaimed).
-    pub(crate) chunk: u32,
-    pub(crate) epoch: u32,
+    pub chunk: u32,
+    pub epoch: u32,
 }
 
 impl std::fmt::Debug for WeakArrRef {

@@ -50,3 +50,5 @@ fn site_args_with_markers_are_substituted_and_interned() {
     assert!(!got.has_markers());
     assert!(got == TypeArgs::intern(&args(&["Demo.Entry", "Std.Collections.List<Demo.Entry>"])));
 }
+
+use crate::assembly::context::VmContextFactory as _;

@@ -133,11 +133,11 @@ pub fn is_fatal(ctx: &crate::vm::context::VmContext) -> bool {
 
 /// Unit tests that raise a fatal error serialize on this: the report is process-wide,
 /// so two at once could take each other's.
-#[cfg(test)]
-pub(crate) static FATAL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+#[cfg(all(test, z42_test_facade))]
+pub static FATAL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Snapshot the report while leaving it available to the process entry adapter.
-pub(crate) fn report() -> Option<String> {
+pub fn report() -> Option<String> {
     REPORT.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
@@ -147,6 +147,6 @@ pub fn take_report() -> Option<String> {
 }
 
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "stack_guard_tests.rs"]
 mod stack_guard_tests;

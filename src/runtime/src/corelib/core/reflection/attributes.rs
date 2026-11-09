@@ -22,7 +22,7 @@ pub fn type_custom_attributes(ctx: &VmContext, ty: &Value) -> Result<Value, Buil
         Some(td) => call_attribute_factories(ctx, td.custom_attributes()).map_err(BuiltinError::Legacy)?,
         None => ctx.heap().alloc_array(Vec::new()),
     });
-    let cache = &ctx.core.runtime.reflection_types;
+    let cache = &ctx.core().runtime().reflection_types;
     if let Some(td) = descriptor.as_ref().filter(|td| ctx.types().get(td.id).is_some()) {
         return ctx.types().with_current(td, || cache.store_attributes(ctx.heap(), ty, Some(td.id), attributes))
             .unwrap_or(Ok(attributes)).map_err(BuiltinError::Legacy);

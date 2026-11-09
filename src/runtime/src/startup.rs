@@ -195,7 +195,7 @@ pub fn install_panic_hook() {
 /// Mirrors the `features:` line in `--info` but in one short tag.
 pub fn build_feature_tag() -> String {
     let mut tags: Vec<&str> = vec!["interp"];
-    #[cfg(feature = "jit")]            tags.push("jit");
+    #[cfg(all(feature = "jit", z42_jit_supported))]            tags.push("jit");
     #[cfg(feature = "aot")]            tags.push("aot");
     #[cfg(feature = "native-interop")] tags.push("native");
     tags.join(",")
@@ -214,14 +214,15 @@ pub fn print_build_info(resolution: &z42::config::Resolution, ctx: &z42::config:
 
     // Enabled feature flags
     let mut features: Vec<&str> = Vec::new();
-    #[cfg(feature = "jit")]            features.push("jit");
+    #[cfg(all(feature = "jit", z42_jit_supported))]            features.push("jit");
     #[cfg(feature = "aot")]            features.push("aot");
     #[cfg(feature = "native-interop")] features.push("native-interop");
     println!("features: {}", if features.is_empty() { "(none)".to_string() } else { features.join(", ") });
 
     // Exec modes actually available (function of feature flags)
-    let mut modes: Vec<&str> = vec!["interp"];
-    #[cfg(feature = "jit")] modes.push("jit");
+    let mut modes: Vec<&str> = Vec::new();
+    if z42::host::interp_available() { modes.push("interp"); }
+    if z42::host::jit_available() { modes.push("jit"); }
     #[cfg(feature = "aot")] modes.push("aot");
     println!("exec modes: {}", modes.join(", "));
 

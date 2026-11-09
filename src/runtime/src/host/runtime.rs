@@ -16,6 +16,7 @@ use std::{
 pub struct LoadOptions {
     /// Native component selection, attached once before this program executes.
     pub components: super::ComponentOptions,
+    pub backends: super::BackendOptions,
     pub mode: ExecMode,
     pub vfs: Arc<dyn Vfs>,
     pub search_dirs: Vec<PathBuf>,
@@ -28,6 +29,7 @@ impl Default for LoadOptions {
     fn default() -> Self {
         Self {
             components: Default::default(),
+            backends: Default::default(),
             mode: super::default_mode(),
             vfs: crate::pal::fs::default_vfs(),
             search_dirs: Vec::new(),
@@ -54,8 +56,8 @@ impl LoadedProgram {
         entry_hint: Option<String>,
     ) -> Result<Self> {
         let module = ctx
-            .core
-            .runtime
+            .core()
+            .runtime()
             .module
             .clone()
             .ok_or_else(|| anyhow!("loaded program has no module"))?;
@@ -69,12 +71,12 @@ impl LoadedProgram {
     }
 
     pub fn load_file(path: &str, options: LoadOptions) -> Result<Self> {
-        let artifact = crate::vm::loader::load_artifact(&*options.vfs, path)?;
+        let artifact = crate::assembly::loader::load_artifact(&*options.vfs, path)?;
         super::load::prepare(artifact, Some(path), &options)
     }
 
     pub fn load_bytes(bytes: &[u8], options: LoadOptions) -> Result<Self> {
-        let artifact = crate::vm::loader::load_artifact_from_bytes(bytes)?;
+        let artifact = crate::assembly::loader::load_artifact_from_bytes(bytes)?;
         super::load::prepare(artifact, None, &options)
     }
 
@@ -116,14 +118,6 @@ impl LoadedProgram {
                 args.len()
             );
         }
-        match self.mode {
-            ExecMode::Aot => bail!("AOT mode is not implemented yet"),
-            #[cfg(not(feature = "jit"))]
-            ExecMode::Jit => {
-                bail!("JIT mode requested but the runtime was built without the `jit` feature")
-            }
-            _ => {}
-        }
         let ctx = self.context();
         #[cfg(feature = "native-interop")]
         let _vm_guard = crate::vm::exec::active_vm::VmGuard::enter(ctx);
@@ -151,17 +145,7 @@ impl LoadedProgram {
         if let Err(error) = initialized {
             bail!("uncaught exception during static initialization: {error}");
         }
-        let outcome = match self.mode {
-            #[cfg(feature = "jit")]
-            ExecMode::Jit => crate::jit::invoke_host(
-                ctx,
-                self.module(),
-                func,
-                args,
-                crate::config::runtime_config().jit_config(),
-            ),
-            _ => crate::vm::exec::engine::invoke(ctx, self.module(), func, args),
-        };
+        let outcome = ctx.core().exec().engines.invoke_mode(self.mode, ctx, self.module(), func, args);
         if crate::vm::exec::stack_guard::is_fatal(ctx) {
             bail!(
                 "{}",

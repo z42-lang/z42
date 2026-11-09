@@ -75,7 +75,7 @@ pub fn format_stack_trace(frames: &[FrameSnapshot]) -> String {
 }
 
 /// Freeze the live chain while its owner read scope is held.
-pub(crate) fn snapshots(frames: &[VmFrame]) -> Vec<FrameSnapshot> {
+pub fn snapshots(frames: &[VmFrame]) -> Vec<FrameSnapshot> {
     frames.iter().map(VmFrame::snapshot).collect()
 }
 
@@ -94,6 +94,6 @@ pub(crate) unsafe fn visit_roots(frames: &[VmFrame], mut visit: impl FnMut(&Valu
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "stack_tests.rs"]
-pub(crate) mod stack_tests;
+pub mod stack_tests;

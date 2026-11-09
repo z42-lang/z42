@@ -26,7 +26,7 @@ pub(crate) fn receiver_type_id(obj_val: &Value) -> Option<u32> {
 /// A reader that sees the id before the registration is visible gets `None` from the table and
 /// takes the slow path; it can never read a half-built slot.
 #[inline]
-pub(crate) fn vcall_ic_hit(ic: Option<&VCallIC>, obj_val: &Value) -> Option<usize> {
+pub fn vcall_ic_hit(ic: Option<&VCallIC>, obj_val: &Value) -> Option<usize> {
     let ic = ic?;
     let recv_type = receiver_type_id(obj_val)?;
     let fn_id = vcall_ic_lookup(ic, recv_type)?;

@@ -32,18 +32,18 @@ impl std::fmt::Display for NativeCallError {
 impl std::error::Error for NativeCallError {}
 
 /// Immutable entry points; none retains a VM or managed argument.
-pub(crate) struct NativeServices {
-    pub(crate) call: fn(&VmContext, &str, &str, &str, &[Value], &[u32])
+pub struct NativeServices {
+    pub call: fn(&VmContext, &str, &str, &str, &[Value], &[u32])
         -> std::result::Result<Value, NativeCallError>,
-    pub(crate) pin_owned_buffer: fn(&VmContext, Box<[u8]>) -> Result<u64>,
-    pub(crate) release_owned_buffer: fn(&VmContext, u64) -> Result<()>,
+    pub pin_owned_buffer: fn(&VmContext, Box<[u8]>) -> Result<u64>,
+    pub release_owned_buffer: fn(&VmContext, u64) -> Result<()>,
 }
 
-pub(crate) fn services(ctx: &VmContext) -> Result<&NativeServices> {
+pub fn services(ctx: &VmContext) -> Result<&NativeServices> {
     ctx.ext::<NativeServices>()
         .ok_or_else(|| anyhow::anyhow!("native services were not registered before execution"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "native_tests.rs"]
 mod native_tests;

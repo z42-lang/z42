@@ -9,6 +9,8 @@
 //! source generator (C5) wires user-facing syntax we will add a separate
 //! dlopen-based smoke test.
 
+// These tests directly exercise the statically linked interpreter entry.
+#![cfg(feature = "interp")]
 #![cfg(not(z42_skip_native_poc))]
 
 use z42_zpkg::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator};
@@ -335,7 +337,7 @@ fn z42_source_calls_numz42_via_native_attr() {
     }
 
     let zbc_str = zbc_path.to_str().expect("zbc path is utf-8");
-    let artifact = z42::vm::loader::load_artifact(&z42::pal::vfs::LocalFs, zbc_str)
+    let artifact = z42::host::load_artifact(&z42::pal::vfs::LocalFs, zbc_str)
         .unwrap_or_else(|e| panic!("load_artifact({zbc_str}) failed: {e}"));
     let module = artifact.module;
 
@@ -585,3 +587,5 @@ fn callnative_unknown_method_traps() {
     assert!(msg.contains("unknown method"), "msg = {msg}");
     assert!(msg.contains("ghost_method"), "msg = {msg}");
 }
+
+use z42::host::VmContextFactory as _;

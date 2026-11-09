@@ -109,3 +109,5 @@ fn the_fixed_up_version_replaces_the_own_only_one() {
     assert!(std::ptr::eq(table.get(id).unwrap(), Arc::as_ptr(&merged)), "slot repointed at the merged copy");
     assert_eq!(table.len(), 2);
 }
+
+use crate::assembly::loader::LazyLoaderFactory as _;

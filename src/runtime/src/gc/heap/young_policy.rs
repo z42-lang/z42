@@ -98,23 +98,23 @@ pub(super) const MAX_TENURE_RUN: u32 = 8;
 
 /// What one real minor reported.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct MinorYield {
-    pub(crate) freed: u64,
-    pub(crate) pause_us: u64,
+pub struct MinorYield {
+    pub freed: u64,
+    pub pause_us: u64,
     /// The minor gate in force — the byte futility bar is read off it.
-    pub(crate) gate: u64,
+    pub gate: u64,
     /// Young entries the minor scanned, the ones it reclaimed, and the ones it left listed.
-    pub(crate) scanned: u64,
-    pub(crate) reclaimed: u64,
-    pub(crate) survivors: u64,
+    pub scanned: u64,
+    pub reclaimed: u64,
+    pub survivors: u64,
     /// The part of the next minor's pause budget, in entries, left for the survivors this one
     /// leaves listed (`PauseBudget::survivor_budget`), if measured.
-    pub(crate) survivor_budget: Option<u64>,
+    pub survivor_budget: Option<u64>,
 }
 
 /// Why the policy judged a minor the way it did (diagnostics and tests).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Verdict {
+pub enum Verdict {
     Productive,
     /// Freed essentially nothing (by bytes or by entries).
     Futile,
@@ -126,14 +126,14 @@ pub(crate) enum Verdict {
 
 /// The entry counts of one real minor, as the collector measured them.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct MinorEntries {
-    pub(crate) scanned: u64,
-    pub(crate) reclaimed: u64,
-    pub(crate) survivors: u64,
+pub struct MinorEntries {
+    pub scanned: u64,
+    pub reclaimed: u64,
+    pub survivors: u64,
 }
 
 #[derive(Debug)]
-pub(crate) struct YoungPolicy {
+pub struct YoungPolicy {
     /// Pauses are microseconds (`false` on wasm32, where `now_us` counts ticks): the yield
     /// comparison is only made when they are.
     timed: bool,
@@ -155,7 +155,7 @@ pub(crate) struct YoungPolicy {
 }
 
 impl YoungPolicy {
-    pub(crate) fn new(timed: bool) -> Self {
+    pub fn new(timed: bool) -> Self {
         YoungPolicy {
             timed,
             major_freed: AtomicU64::new(0),
@@ -258,7 +258,7 @@ impl YoungPolicy {
     }
 
     /// Current tenure run length, for diagnostics.
-    pub(crate) fn run(&self) -> u32 {
+    pub fn run(&self) -> u32 {
         self.run.load(Ordering::Relaxed)
     }
 }
@@ -315,6 +315,6 @@ impl crate::gc::Heap {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "young_policy_tests.rs"]
 mod young_policy_tests;

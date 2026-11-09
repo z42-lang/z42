@@ -98,7 +98,7 @@ int _cargoWasmRustc(string root, bool rel, string cargoTarget) {
     Process p = _cargoCmd("rustc", _runtimeCargoConfig());
     if (rel) { p = p.Arg("--release"); }
     p = p.Arg("--lib").Arg("--crate-type=staticlib")
-        .Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))
+        .Arg("-p").Arg("z42").Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))
         .Arg("--target").Arg(cargoTarget)
         .Arg("--no-default-features").Arg("--features").Arg("wasm").Arg("--quiet");
     return _exec(p);

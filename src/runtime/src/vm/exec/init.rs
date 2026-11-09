@@ -6,8 +6,8 @@ use crate::vm::runtime::statics::{CctorRegistry, CctorState,
 const WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Claim or wait without GC participation; only non-VM test callers use this helper.
-#[cfg(test)]
-pub(crate) fn claim(registry: &CctorRegistry, class_fq: &str) -> Result<Option<String>, String> {
+#[cfg(all(test, z42_test_facade))]
+pub fn claim(registry: &CctorRegistry, class_fq: &str) -> Result<Option<String>, String> {
     claim_with(registry, class_fq, || ())
 }
 
@@ -90,7 +90,7 @@ impl crate::vm::context::VmContext {
     /// 编译期判定：静态调用 `func_fq` 的类型初始化屏障（[`Self::ensure_callee_owner_init`]）恒为空操作——
     /// 属主类型已加载且没有静态构造器。属主未加载 / 自由函数一律答 `false`（保守）。
     #[cfg(feature = "jit")]
-    pub(crate) fn callee_owner_init_free(&self, func_fq: &str) -> bool {
+    pub fn callee_owner_init_free(&self, func_fq: &str) -> bool {
         owner_class_of_static_func(func_fq)
             .and_then(|o| self.loaded_type(o))
             .is_some_and(|td| td.cctor_func().is_none())

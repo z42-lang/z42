@@ -55,7 +55,7 @@ const MIN_SAMPLE: u64 = 4096;
 
 /// The allocation-size reading and whether the entry bound applies at all.
 #[derive(Debug)]
-pub(crate) struct EntryUnit {
+pub struct EntryUnit {
     enabled: AtomicBool,
     /// EWMA of bytes per allocation; `0` until the first sample.
     bytes_per_entry: AtomicU64,
@@ -65,7 +65,7 @@ pub(crate) struct EntryUnit {
 }
 
 impl EntryUnit {
-    pub(crate) fn new(enabled: bool) -> Self {
+    pub fn new(enabled: bool) -> Self {
         EntryUnit {
             enabled: AtomicBool::new(enabled),
             bytes_per_entry: AtomicU64::new(0),
@@ -75,14 +75,14 @@ impl EntryUnit {
     }
 
     /// A byte nursery was stated (tests): the gates are bytes only from now on.
-    #[cfg(test)]
-    pub(crate) fn disable(&self) {
+    #[cfg(all(test, z42_test_facade))]
+    pub fn disable(&self) {
         self.enabled.store(false, Ordering::Relaxed);
     }
 
     /// Fold the allocation stream since the last sample into the size reading. `allocated` is the
     /// cumulative bytes ever allocated, `allocations` the cumulative count.
-    pub(crate) fn sample(&self, allocated: u64, allocations: u64) {
+    pub fn sample(&self, allocated: u64, allocations: u64) {
         if !self.enabled.load(Ordering::Relaxed) {
             return;
         }
@@ -101,7 +101,7 @@ impl EntryUnit {
     /// `bytes`, capped at `entries` allocations of the measured size. Unchanged while the bound is
     /// off or nothing has been measured yet.
     #[inline]
-    pub(crate) fn cap(&self, bytes: u64, entries: u64) -> u64 {
+    pub fn cap(&self, bytes: u64, entries: u64) -> u64 {
         match self.reading() {
             0 => bytes,
             bpe => bytes.min(entries.saturating_mul(bpe).max(1)),
@@ -110,7 +110,7 @@ impl EntryUnit {
 
     /// The gate to arm: `gate`, or — while the size is unmeasured — no further than the probe.
     #[inline]
-    pub(crate) fn probe(&self, gate: u64) -> u64 {
+    pub fn probe(&self, gate: u64) -> u64 {
         if self.enabled.load(Ordering::Relaxed) && self.bytes_per_entry.load(Ordering::Relaxed) == 0 {
             gate.min(UNIT_ENTRIES * MIN_ENTRY_BYTES)
         } else {
@@ -120,7 +120,7 @@ impl EntryUnit {
 
     /// The size reading in force (`0`: off or unmeasured), for the gates and diagnostics.
     #[inline]
-    pub(crate) fn reading(&self) -> u64 {
+    pub fn reading(&self) -> u64 {
         if self.enabled.load(Ordering::Relaxed) { self.bytes_per_entry.load(Ordering::Relaxed) } else { 0 }
     }
 }
@@ -147,6 +147,6 @@ impl crate::gc::Heap {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "entry_unit_tests.rs"]
 mod entry_unit_tests;

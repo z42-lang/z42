@@ -1,4 +1,5 @@
-use super::{libs_env_to_publish, Cli};
+use super::{libs_env_to_publish, resolve_config_mode, Cli, ExecMode};
+use clap::Parser;
 use std::path::Path;
 
 // VM resolved a dir and Z42_LIBS is unset → publish the resolved dir so the
@@ -113,4 +114,11 @@ fn absent_mode_keeps_lower_priority_configuration() {
     );
     assert_eq!(cfg.mode.as_deref(), Some("interp"));
     assert_eq!(res.get("Z42_MODE").unwrap().source, Layer::Env);
+}
+
+#[test]
+fn jit_mode_request_survives_parsing_independently_of_static_linkage() {
+    let parsed = Cli::try_parse_from(["z42vm", "app.zpkg", "--mode", "jit"]).unwrap();
+    assert!(matches!(parsed.mode, Some(ExecMode::Jit)));
+    assert_eq!(resolve_config_mode(Some("jit")), Some(z42::host::ExecMode::Jit));
 }

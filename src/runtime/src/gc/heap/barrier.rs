@@ -67,7 +67,7 @@ impl crate::gc::Heap {
 
     #[allow(unused_variables)]
     pub fn write_barrier_field(&self, owner: &Value, slot: usize, new: &Value) {
-        #[cfg(test)]
+        #[cfg(all(test, z42_test_facade))]
         self.fire_barrier_field(owner, slot, new);
 
         match self.mode() {
@@ -87,7 +87,7 @@ impl crate::gc::Heap {
 
     #[allow(unused_variables)]
     pub fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value) {
-        #[cfg(test)]
+        #[cfg(all(test, z42_test_facade))]
         self.fire_barrier_array_elem(arr, idx, new);
 
         match self.mode() {

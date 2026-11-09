@@ -207,7 +207,7 @@ fn threads_of_one_vm_share_the_same_file_system() {
 
 #[test]
 fn lazy_loader_reads_packages_through_its_vms_file_system() {
-    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let fixture = std::path::PathBuf::from(env!("Z42_RUNTIME_DIR"))
         .join("../compiler/z42.package/tests/fixtures/zpkg-format/packed-minimal/source.zpkg");
     let (fs_a, a) = memory_vm();
     let (_fs_b, b) = memory_vm();
@@ -312,3 +312,5 @@ fn vm_context_new_with_core_shares_static_fields() {
     assert!(matches!(ctx2.static_get("Shared"), Value::I64(7)));
 }
 
+
+use crate::assembly::context::VmContextFactory as _;

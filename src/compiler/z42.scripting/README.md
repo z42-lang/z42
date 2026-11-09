@@ -1,7 +1,7 @@
 # z42.scripting
 
 ## 职责
-REPL / 脚本场景的**跨平台编译+执行内核**（scripting-charter Form B）：把一段 z42 源即时编译成内存 zpkg、加载进 live VM、反射调用求值，并提供补全与输入完整性判定。是 `z42.interactive`（z42i）的引擎，playground / 用户代码也可 import。**不做**终端行编辑（tty）——那在 [z42.repl](../../toolchain/interactive/repl/)。
+REPL / 脚本场景的**跨平台编译+执行内核**（scripting-charter Form B）：把一段 z42 源即时编译成内存 zpkg、加载进 live VM、反射调用求值，并提供补全与输入完整性判定。是 `z42.interactive`（z42i）的引擎，playground / 用户代码也可 import。**不做**终端行编辑（tty）——那在 [z42.repl](../../toolchain/interactive/repl)。
 
 **编译期依赖前端与中立契约**：编译经 `z42.compiler.contracts` 的 `IReplCompiler` 门面（把「有状态增量编译世界」封成 opaque 句柄），实现 `Z42cReplCompiler` 住 `z42c.pipeline`，由 `ReplCompilerHost` 运行期反射注入（apphost 不静态 bundle 编译器，运行期动态加载 `z42c.pipeline` 组件）。前端 `z42c.core` / `z42c.syntax`（Lexer/Parser/Span）为库依赖。机制详见 [repl.md「编译门面 + 运行期注入」](../../../docs/internals/src/toolchain/repl.md)。
 
@@ -42,7 +42,7 @@ EvalResult r2 = Script.Eval(s, "add(4, 5)");       // 跨轮裸调 → r2.Value 
 
 ## 关联文档
 - 设计 / 机制：[repl.md](../../../docs/internals/src/toolchain/repl.md)（含输入完整性判定：parser 权威 / 探针解耦 / 裸 parse）
-- 终端行编辑 / 键位（tier1）：[z42.repl](../../toolchain/interactive/repl/)
+- 终端行编辑 / 键位（tier1）：[z42.repl](../../toolchain/interactive/repl)
 
 ## 核心文件
 | 文件 | 职责 |

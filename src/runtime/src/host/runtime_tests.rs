@@ -41,7 +41,7 @@ fn program(mode: ExecMode, throws: bool) -> LoadedProgram {
         functions: vec![function],
         func_index: Default::default(),
     });
-    crate::vm::loader::package::build_block_indices(&mut module);
+    crate::assembly::loader::build_block_indices(&mut module);
     crate::vm::loader::package::build_func_index(&mut module);
     let ctx = VmContext::with_module(module);
     crate::host::boot::prepare_execution(&ctx, ctx.module().unwrap());
@@ -142,7 +142,7 @@ fn unsupported_mode_fails_before_execution() {
         .contains("AOT mode is not implemented"));
 }
 
-#[cfg(feature = "jit")]
+#[cfg(all(feature = "jit", z42_jit_supported))]
 #[test]
 fn jit_host_calls_return_values_compile_and_preserve_static_state() {
     let program = program(ExecMode::Jit, false);
@@ -171,7 +171,7 @@ fn jit_host_calls_return_values_compile_and_preserve_static_state() {
         .contains("uncaught exception"));
 }
 
-#[cfg(not(feature = "jit"))]
+#[cfg(not(all(feature = "jit", z42_jit_supported)))]
 #[test]
 fn jit_request_is_rejected_without_the_feature() {
     let program = program(ExecMode::Jit, false);
@@ -179,7 +179,7 @@ fn jit_request_is_rejected_without_the_feature() {
         .run_entry(None)
         .unwrap_err()
         .to_string()
-        .contains("without the `jit` feature"));
+        .contains("JIT backend unavailable"));
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn resolver_overrides_disk_prelude() {
         search_dirs: vec!["/libs".into()],
         resolver: Some(Arc::new(Resolver)),
         eager_dependencies: true,
-        components: Default::default(),
+        components: Default::default(), backends: Default::default(),
     };
     let program = LoadedProgram::load_bytes(&empty_zbc(), options).unwrap();
     assert!(program.module().functions.is_empty());
@@ -224,12 +224,14 @@ fn fatal_error_keeps_the_report_for_the_cli_adapter() {
 fn malformed_selected_eager_dependency_fails_during_load() {
     let fs = Arc::new(MemoryFs::new());
     fs.mount(std::path::Path::new("/libs").join("broken.zpkg").to_str().unwrap(), b"broken dependency".to_vec());
-    let mut artifact = crate::vm::loader::load_artifact_from_bytes(&empty_zbc()).unwrap();
+    let mut artifact = crate::assembly::loader::load_artifact_from_bytes(&empty_zbc()).unwrap();
     artifact.dependencies.push(zpkg::format::ZpkgDep {
         file: "broken.zpkg".into(), namespaces: Vec::new(), symbols: Vec::new(),
     });
     let options = LoadOptions { mode: ExecMode::Interp, vfs: fs,
-        search_dirs: vec!["/libs".into()], eager_dependencies: true, resolver: None, components: Default::default() };
+        search_dirs: vec!["/libs".into()], eager_dependencies: true, resolver: None, components: Default::default(), backends: Default::default() };
     let error = super::load::prepare(artifact, None, &options).err().expect("must reject a corrupt dependency");
     assert!(format!("{error:#}").contains("broken.zpkg"));
 }
+
+use crate::assembly::context::VmContextFactory as _;

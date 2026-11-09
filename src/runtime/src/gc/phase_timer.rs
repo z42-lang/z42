@@ -79,6 +79,6 @@ fn format_phase(name: &str, elapsed: std::time::Duration, count: Option<u64>) ->
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "phase_timer_tests.rs"]
 mod phase_timer_tests;

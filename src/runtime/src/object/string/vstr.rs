@@ -90,7 +90,7 @@ impl Str {
     /// Wrap an already-allocated `BlockType::Str` block handle. Used by the heap's
     /// `alloc_str` (after writing the bytes) and by GC read-back paths.
     #[inline]
-    pub fn from_var_ref(block: VarGcRef) -> Self {
+    pub(crate) fn from_var_ref(block: VarGcRef) -> Self {
         Str { block }
     }
 
@@ -155,7 +155,7 @@ impl Str {
 
     /// Memoize the (non-zero) `GetHashCode` answer for later reads.
     #[inline]
-    pub(crate) fn memoize_hash_code(&self, h: u32) {
+    pub fn memoize_hash_code(&self, h: u32) {
         self.block.memo_str_hash(h)
     }
 
@@ -213,18 +213,18 @@ impl Str {
 /// [`DATA_OFFSET`]. The single place this layout is spelled for generated code —
 /// pinned against the Rust accessors by `jit::translate::str_intrinsics_tests`.
 #[cfg(all(feature = "jit", target_pointer_width = "64"))]
-pub(crate) mod jit_layout {
+pub mod jit_layout {
     use crate::object::header as vr;
     /// Mask turning a handle's bits into its block-header address.
-    pub(crate) const HANDLE_ADDR_MASK: u64 = vr::HANDLE_ADDR_MASK;
+    pub const HANDLE_ADDR_MASK: u64 = vr::HANDLE_ADDR_MASK;
     /// Header offset of the payload byte length (`u32`).
-    pub(crate) const LEN_OFFSET: i32 = vr::HEADER_SIZE_OFFSET as i32;
+    pub const LEN_OFFSET: i32 = vr::HEADER_SIZE_OFFSET as i32;
     /// Header offset of the flag byte carrying [`ASCII_BIT`].
-    pub(crate) const FLAGS_OFFSET: i32 = vr::HEADER_TYPE_TAG_OFFSET as i32;
+    pub const FLAGS_OFFSET: i32 = vr::HEADER_TYPE_TAG_OFFSET as i32;
     /// Set ⇔ every byte is ASCII (char index == byte index). Clear = unknown.
-    pub(crate) const ASCII_BIT: u8 = vr::ASCII_STR_BIT;
+    pub const ASCII_BIT: u8 = vr::ASCII_STR_BIT;
     /// Header offset of the first UTF-8 byte.
-    pub(crate) const DATA_OFFSET: i32 = vr::GcBlockHeader::DATA_OFFSET as i32;
+    pub const DATA_OFFSET: i32 = vr::GcBlockHeader::DATA_OFFSET as i32;
 }
 
 impl std::ops::Deref for Str {
@@ -331,7 +331,7 @@ impl std::fmt::Display for Str {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod tests {
     use super::*;
 

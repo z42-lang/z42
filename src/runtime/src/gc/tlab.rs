@@ -40,16 +40,16 @@ use super::var_region::{VarChunkClaim, VarHoleStash};
 
 /// Per-thread allocation buffer: a borrowed chunk claim on the heap's variable-length region
 /// (`region_var`: objects, arrays, strings, closures) plus the dead slots taken for reuse.
-pub(crate) struct Tlab {
+pub struct Tlab {
     /// Active claim on `region_var` (`Value::Object` / `BoxedStruct` / `Array` / `Str` /
     /// `Closure`).
-    pub(crate) var: Option<VarChunkClaim>,
+    pub var: Option<VarChunkClaim>,
     /// **M12**: dead slots of `region_var` taken for reuse, per size class
     /// (`var_region::holes`). Inline so the fast path's class test is one load away; its per-class
     /// table is allocated at the first refill.
-    pub(crate) holes: VarHoleStash,
+    pub holes: VarHoleStash,
     /// Heap epoch the current claims belong to; `0` = unbound (no live claims).
-    pub(crate) heap_epoch: u64,
+    pub heap_epoch: u64,
 }
 
 impl Tlab {
@@ -68,13 +68,13 @@ impl Tlab {
 /// ([`crate::vm::threads::safepoint::NativeParkGuard`]): they stay borrowed (the thread may continue filling
 /// them after the call) unless a collection begins meanwhile — then the collector retires
 /// them on the parked thread's behalf, exactly as the thread would have at a safepoint park.
-pub(crate) struct ParkedTlab {
-    pub(crate) var: Option<VarChunkClaim>,
+pub struct ParkedTlab {
+    pub var: Option<VarChunkClaim>,
     /// M12: the dead slots this thread took (counted live + young at take time). Retired with
     /// the claims (`VarRegion::retire_holes`: unused ones back on the free list), so a collection
     /// never runs while a parked thread holds slots off the free list.
-    pub(crate) holes: VarHoleStash,
-    pub(crate) heap_epoch: u64,
+    pub holes: VarHoleStash,
+    pub heap_epoch: u64,
 }
 
 // SAFETY: the claims and the hole stash hold raw pointers into chunks the heap owns. A parked thread's claims
@@ -91,8 +91,8 @@ pub struct ParkedTlabSlot {
 }
 
 impl ParkedTlabSlot {
-    pub(crate) fn put(&self, p: ParkedTlab) -> Option<ParkedTlab> { self.inner.lock().replace(p) }
-    pub(crate) fn take(&self) -> Option<ParkedTlab> { self.inner.lock().take() }
+    pub fn put(&self, p: ParkedTlab) -> Option<ParkedTlab> { self.inner.lock().replace(p) }
+    pub fn take(&self) -> Option<ParkedTlab> { self.inner.lock().take() }
 }
 
 impl std::fmt::Debug for ParkedTlabSlot {
@@ -128,7 +128,7 @@ thread_local! {
 /// **add-gc-tlab (stage 2)**: arm this thread for TLAB allocation (called by
 /// `VmContext::new*`). Balanced by [`disarm`] (nesting count).
 #[inline]
-pub(crate) fn arm() {
+pub fn arm() {
     // SAFETY: single-threaded access to this thread's own cell; no `&mut Tlab`
     // is held across this call (arm runs at VmContext construction, not mid-alloc).
     TLAB.with(|c| unsafe { (*c.get()).armed = (*c.get()).armed.saturating_add(1) });

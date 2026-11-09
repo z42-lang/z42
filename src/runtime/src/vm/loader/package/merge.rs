@@ -68,6 +68,6 @@ fn remap_functions(functions: &mut [crate::vm::runtime::Function], str_offset: u
     for func in functions { func.remap_string_ids(str_offset); }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "merge_tests.rs"]
 mod tests;

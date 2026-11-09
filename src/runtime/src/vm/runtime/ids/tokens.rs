@@ -178,7 +178,7 @@ impl FnIdCell {
     }
 
     #[inline]
-    pub(crate) fn set(&self, id: FnId) {
+    pub fn set(&self, id: FnId) {
         assert!(self.0.compare_exchange(UNRESOLVED, id.0,
             std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed).is_ok(),
             "a linked function belongs to one VM; share its PackageImage instead");
@@ -206,7 +206,7 @@ impl ForwardCell {
     }
 
     #[inline]
-    pub(crate) fn set(&self, v: Option<u32>) {
+    pub fn set(&self, v: Option<u32>) {
         let raw = match v { None => 1, Some(id) => id.checked_add(2).unwrap_or(1) };
         self.0.store(raw, std::sync::atomic::Ordering::Relaxed);
     }
@@ -288,6 +288,6 @@ pub fn alloc_type_id_block(n: u32) -> u32 {
     first
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "tokens_tests.rs"]
 mod tests;

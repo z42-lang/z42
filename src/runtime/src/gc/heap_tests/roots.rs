@@ -281,3 +281,6 @@ fn a_strong_handle_anchors_its_target_across_a_minor() {
     heap.iterate_live_objects(&mut |_| alive += 1);
     assert_eq!(alive, 1, "a strong GC handle must anchor its target across a minor too");
 }
+
+#[cfg(all(test, z42_test_facade))]
+use crate::assembly::context::VmContextFactory as _;

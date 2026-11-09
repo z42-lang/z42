@@ -699,6 +699,6 @@ impl crate::gc::Heap {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "auto_collect_tests.rs"]
 mod auto_collect_tests;

@@ -752,7 +752,7 @@ ResolveMapped: 适用集里找唯一「支配所有其它」的候选
 
 #### prim 类型的静态字段读（`int.MaxValue`）
 
-裸类型名的静态字段读（`Type.FIELD`）绑定走 `MemberResolver._bindMember`（MemberResolver.z42（`_bindMember`））：`target` 是类名（非变量）且该类有同名 `static` 字段 → 产 `BoundStaticGet`，emit `StaticGetInstr @<FQN>.<field>`，运行期由 VM 启动的 `<ns>.__static_init__` pass 初始化（`src/runtime/src/interp/run/mod.rs` `init_static_fields`，机制同 `Std.Math.Pi`）。
+裸类型名的静态字段读（`Type.FIELD`）绑定走 `MemberResolver._bindMember`（MemberResolver.z42（`_bindMember`））：`target` 是类名（非变量）且该类有同名 `static` 字段 → 产 `BoundStaticGet`，emit `StaticGetInstr @<FQN>.<field>`，运行期由 VM 启动的 `<ns>.__static_init__` pass 初始化（`src/runtime/crates/z42-interp/src/interp/run/mod.rs` `init_static_fields`，机制同 `Std.Math.Pi`）。
 
 **问题**：标量基元（`int` / `double` / …）在符号表里**只以包装名 keying**（`Int32` / `Double`，`SymbolTable.Classes`），关键字别名 `int` 的 `HasClass("int")` 为 false → 该分支跳过 → `int.MaxValue` 落到实例 `FieldGet`（受者为裸类型名求值出的 Null）→ 运行期 `FieldGet: not an object or known value type, got Null`。
 

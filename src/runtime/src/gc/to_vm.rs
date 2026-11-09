@@ -65,7 +65,7 @@ pub(crate) fn allocation_suspension_depth() -> u32 {
 
 /// A stopped mutator cannot publish new roots; reject allocation in debug builds.
 #[inline]
-pub(crate) fn debug_assert_not_native_parked() {
+pub fn debug_assert_not_native_parked() {
     #[cfg(debug_assertions)]
     ALLOCATION_SUSPENSION_DEPTH.with(|d| {
         assert!(
@@ -77,6 +77,6 @@ pub(crate) fn debug_assert_not_native_parked() {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "to_vm_tests.rs"]
 mod to_vm_tests;

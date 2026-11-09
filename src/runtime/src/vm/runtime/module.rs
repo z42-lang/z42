@@ -65,7 +65,7 @@ impl Module {
         } = self;
         (Arc::unwrap_or_clone(data), functions, type_registry)
     }
-    pub(crate) fn clear_link_state(&mut self) {
+    pub fn clear_link_state(&mut self) {
         for function in &mut self.functions {
             function.clear_link_state();
         }

@@ -50,3 +50,5 @@ fn first_owner_wins_and_short_names_are_unique_or_nothing() {
     assert_eq!(l.full_name_for_short("Gadget"), None, "two different full names share the short name");
     assert_eq!(l.full_name_for_short("Nope"), None);
 }
+
+use crate::assembly::loader::LazyLoaderFactory as _;

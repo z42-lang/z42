@@ -14,7 +14,7 @@ use super::*;
 use crate::zpkg::format::ZpkgDep;
 
 /// Where a lookup name was routed by the symbol table.
-pub(crate) struct SymbolRoute {
+pub struct SymbolRoute {
     /// zpkg file that defines the symbol.
     pub file:  String,
     /// The name itself (modulo generic args / `$` suffix) is a recorded symbol — a type or a free
@@ -26,7 +26,7 @@ pub(crate) struct SymbolRoute {
 
 /// Normalize a lookup name to its symbol key: cut at the first `<` (generic arguments), `$`
 /// (overload / arity suffix) or `:` (specialization args, which are FQ and carry dots), whichever comes first.
-pub(crate) fn symbol_key(name: &str) -> &str {
+pub fn symbol_key(name: &str) -> &str {
     let cut = name.find(|c| c == '<' || c == '$' || c == ':').unwrap_or(name.len());
     &name[..cut]
 }
@@ -87,6 +87,6 @@ impl LazyLoader {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "symbols_tests.rs"]
 mod symbols_tests;

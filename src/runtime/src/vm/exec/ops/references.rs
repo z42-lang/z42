@@ -6,7 +6,7 @@ use crate::{object::Value, vm::context::VmContext};
 /// the underlying value. Stack kind looks up `ctx.frame_state_at(frame_idx)`
 /// (raw pointer, safe under design Decision 9: refs don't escape call
 /// stack). Array/Field kinds borrow the held ArrRef and read.
-pub(crate) fn deref_ref(
+pub fn deref_ref(
     kind: &crate::object::RefKind, ctx: &VmContext,
 ) -> Result<Value> {
     use crate::object::RefKind;
@@ -38,7 +38,7 @@ pub(crate) fn deref_ref(
 
 /// Spec impl-ref-out-in-runtime: store a value through a `Value::Ref` to
 /// the underlying location. Mirror of `deref_ref` for the write path.
-pub(crate) fn store_thru_ref(
+pub fn store_thru_ref(
     kind: &crate::object::RefKind, val: Value, ctx: &VmContext,
 ) -> Result<()> {
     use crate::object::RefKind;

@@ -1,0 +1,80 @@
+// Verify a relocated package against real Rust host calls and normal destructors.
+namespace Z42Xtask;
+using Std.IO;
+using Std.Cli;
+using Std.Json;
+
+Process _componentTestProcess(string exe, string native) {
+    return new Process(exe).WorkingDirectory(native)
+        .EnvRemove("DYLD_LIBRARY_PATH").EnvRemove("DYLD_FALLBACK_LIBRARY_PATH").EnvRemove("LD_LIBRARY_PATH")
+        .EnvRemove("Z42_HOME").EnvRemove("Z42_LIBS").EnvRemove("Z42_PORTABLE_VM")
+        .EnvRemove("Z42_CONFIG").EnvRemove("Z42_APP_CONFIG").EnvRemove("Z42_MODE")
+        .Env("Z42_NATIVE_PATH", native).Env("RUST_MIN_STACK", "8388608").Stderr(Stdio.Inherit());
+}
+Process _componentFixtureProcess(string exe, string native, string zbc, string libs) {
+    return _componentTestProcess(exe, native)
+        .Env("Z42_TEST_ENGINE_COMPONENT_DIR", native).Env("Z42_TEST_ENGINE_BYTECODE", zbc)
+        .Env("Z42_TEST_ENGINE_LIBS", libs);
+}
+string _componentArtifactExecutable(string json) {
+    foreach (var line in json.Split("\n")) {
+        if (line.Trim().Length == 0) { continue; }
+        JsonValue artifact = JsonValue.Parse(line);
+        if (artifact.Get("reason").AsString() != "compiler-artifact") { continue; }
+        JsonValue exe = artifact.Get("executable");
+        if (!exe.IsNull() && artifact.Get("target").Get("name").AsString() == "engine_components") { return exe.AsString(); }
+    }
+    throw new CliException("Cargo did not produce the component integration test executable");
+}
+string _componentTestExecutable(string root, string profile) {
+    return File.ReadAllText(Path.Join(_componentCargoOut(root, profile), "component-test-executable.txt")).Trim();
+}
+int _componentCompileProbe(string root, string pkg, string profile, string output) {
+    string std = _cmdOut("rustc", new string[]{ "--print", "target-libdir" });
+    string cargo = _componentCargoOut(root, profile);
+    string vm = Path.Join(cargo, Platform.IsWindows() ? "z42vm.exe" : "z42vm");
+    Process p = _z42cProcMode(vm, Path.Join(pkg, "libs"), _driverZpkg(root, "release"), "interp")
+        .Arg("--emit-zbc").Arg(Path.Join(root, "src/runtime/tests/data/engine_component/source.z42")).Arg(output)
+        .Env("Z42_NATIVE_PATH", cargo)
+        .Env("DYLD_LIBRARY_PATH", cargo + ":" + std).Env("LD_LIBRARY_PATH", cargo + ":" + std);
+    if (Platform.IsWindows()) { p = p.Env("PATH", cargo + ";" + std + ";" + Environment.GetEnvironmentVariable("PATH", "")); }
+    return _exec(p);
+}
+int _componentVerify(string root, string pkg, string profile) {
+    string work = _xtaskWork(root, "runtime-components");
+    _resetDir(work);
+    string native = Path.Join(work, "relocated-native");
+    Directory.Create(native);
+    foreach (var file in Path.Glob(Path.Join(pkg, "native"), "*")) {
+        if (!Directory.Exists(file) && File.Exists(file)) { File.Copy(file, Path.Join(native, Path.GetFileName(file))); }
+    }
+    string exe = _componentTestExecutable(root, profile);
+    string test = Path.Join(native, Path.GetFileName(exe));
+    File.Copy(exe, test);
+    if (Platform.IsMacOS()) {
+        int patch = _componentRelocateImports(test, native); if (patch != 0) { return patch; }
+        patch = _exec(new Process("codesign").Arg("--force").Arg("--sign").Arg("-").Arg(test));
+        if (patch != 0) { return patch; }
+    }
+    string zbc = Path.Join(work, "engine-component.zbc");
+    int c = _componentCompileProbe(root, pkg, profile, zbc); if (c != 0) { return c; }
+    ProcessResult result = _componentFixtureProcess(test, native, zbc, Path.Join(pkg, "libs"))
+        .Arg("--test-threads=1").Arg("--nocapture").Run();
+    Console.Write(result.Stdout);
+    if (result.ExitCode != 0) {
+        if (Platform.IsLinux() && File.Exists("/usr/bin/gdb")) {
+            ProcessResult trace = _componentFixtureProcess("/usr/bin/gdb", native, zbc, Path.Join(pkg, "libs"))
+                .Arg("--batch").Arg("-ex").Arg("run").Arg("-ex").Arg("thread apply all bt")
+                .Arg("--args").Arg(test).Arg("--test-threads=1").Arg("--nocapture").Run();
+            Console.Write(trace.Stdout);
+        }
+        return result.ExitCode;
+    }
+    string marker = "test result: ok. ";
+    int start = result.Stdout.LastIndexOf(marker);
+    if (start < 0) { throw new CliException("component test harness produced no result"); }
+    string stats = result.Stdout.Substring(start + marker.Length);
+    int end = stats.IndexOf(" passed;");
+    if (end < 0 || int.Parse(stats.Substring(0, end)) <= 0) { throw new CliException("component verification ran zero tests"); }
+    return 0;
+}

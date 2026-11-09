@@ -17,7 +17,7 @@
 
 ## 如何测试验证
 本包无独立 `tests/`：优化的正确性靠「源码 → IrGen → 优化」整条链断言，住
-[`z42c.emission/tests/codegen`](../z42c.emission/tests/codegen/)（按 `Opt.*` 逐位开关对拍）与 golden
+[`z42c.emission/tests/codegen`](../z42c.emission/tests/codegen)（按 `Opt.*` 逐位开关对拍）与 golden
 `src/tests/optimization/`（必须带 `opt_all` 侧车）。
 ```bash
 ./xtask test compiler        # 自举不动点 + 编译器各包单测（含 codegen）

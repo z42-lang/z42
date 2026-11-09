@@ -109,9 +109,9 @@ struct ModuleInitEntry {
 /// Condvar within this crate so it can claim and wait under that same lock.
 pub struct CctorRegistry {
     /// 类 FQ → 登记项。
-    pub(crate) map: Mutex<FxHashMap<String, CctorEntry>>,
+    pub map: Mutex<FxHashMap<String, CctorEntry>>,
     /// 与 `map` 配对：`finish` 把某个类型推到终态时唤醒在 `claim` 里等它的线程。
-    pub(crate) done_cv: std::sync::Condvar,
+    pub done_cv: std::sync::Condvar,
     /// 还没到达终态（Done / Failed）的类型数。**热路径唯一要读的东西**。
     ///
     /// 只在 `== 0` 方向被信任（「可证无事可做」）；非 0 时一律走慢路复核，
@@ -169,22 +169,22 @@ impl CctorRegistry {
     /// `module_pending` / `module_failed` 的字节偏移：JIT 内联字符串原语（`jit::translate::str_intrinsics`）
     /// 在快路径上直接读这两个计数，代替 `jit_call` 的包级屏障门（[`crate::vm::context::VmContext::module_init_gate_open`]）。
     #[cfg(feature = "jit")]
-    pub(crate) const MODULE_PENDING_OFFSET: usize = std::mem::offset_of!(CctorRegistry, module_pending);
+    pub const MODULE_PENDING_OFFSET: usize = std::mem::offset_of!(CctorRegistry, module_pending);
     #[cfg(feature = "jit")]
-    pub(crate) const MODULE_FAILED_OFFSET: usize = std::mem::offset_of!(CctorRegistry, module_failed);
+    pub const MODULE_FAILED_OFFSET: usize = std::mem::offset_of!(CctorRegistry, module_failed);
 
     /// 当前屏障纪元（见字段注释）；一次 relaxed load。
     #[inline(always)]
-    pub(crate) fn barrier_epoch(&self) -> u32 { self.barrier_epoch.load(Ordering::Relaxed) }
+    pub fn barrier_epoch(&self) -> u32 { self.barrier_epoch.load(Ordering::Relaxed) }
 
     /// [`Self::barrier_epoch`] for a slow path about to record a verdict under it: acquire, so every
     /// state change published before the epoch moved is visible to the barrier that follows.
     #[inline]
-    pub(crate) fn barrier_epoch_acquire(&self) -> u32 { self.barrier_epoch.load(Ordering::Acquire) }
+    pub fn barrier_epoch_acquire(&self) -> u32 { self.barrier_epoch.load(Ordering::Acquire) }
 
     /// 纪元字的地址：JIT 内联的静态字段快路把它烘焙进生成码（registry 与 JIT 同属 VmCore）。
     #[cfg(feature = "jit")]
-    pub(crate) fn barrier_epoch_ptr(&self) -> *const AtomicU32 { &self.barrier_epoch }
+    pub fn barrier_epoch_ptr(&self) -> *const AtomicU32 { &self.barrier_epoch }
 
     /// 让所有已记下的「屏障已放行」失效。在引发它的状态变化**之后**调用（release）：读到新纪元的线程
     /// 也看得到那次变化，于是不会拿旧结论记新纪元。
@@ -411,6 +411,6 @@ pub fn owner_class_of_static_func(func_fq: &str) -> Option<&str> {
 }
 
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "cctor_tests.rs"]
 mod tests;

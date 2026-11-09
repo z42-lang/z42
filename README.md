@@ -61,12 +61,12 @@ see [`docs/README.md`](docs/README.md) for the full split.
 
 | Book | For | Online |
 |---|---|---|
-| [`docs/learn/`](docs/learn/) | Writing z42 programs — read in order, install → first project → language | <https://z42-lang.github.io/z42/learn/> |
-| [`docs/reference/`](docs/reference/) | Looking things up — language rules, stdlib API, CLI, `z42.toml` fields, error codes | <https://z42-lang.github.io/z42/reference/> |
-| [`docs/internals/`](docs/internals/) | Changing z42 itself — architecture, mechanisms, decisions, build/test/release | <https://z42-lang.github.io/z42/internals/> |
+| [`docs/learn/`](docs/learn) | Writing z42 programs — read in order, install → first project → language | <https://z42-lang.github.io/z42/learn/> |
+| [`docs/reference/`](docs/reference) | Looking things up — language rules, stdlib API, CLI, `z42.toml` fields, error codes | <https://z42-lang.github.io/z42/reference/> |
+| [`docs/internals/`](docs/internals) | Changing z42 itself — architecture, mechanisms, decisions, build/test/release | <https://z42-lang.github.io/z42/internals/> |
 
 Beyond the books: [`docs/roadmap.md`](docs/roadmap.md) (plan + deferred index),
-[`docs/agent/`](docs/agent/) (collaboration rules for AI + human contributors).
+[`docs/agent/`](docs/agent) (collaboration rules for AI + human contributors).
 
 ---
 

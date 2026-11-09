@@ -1,4 +1,4 @@
-pub(crate) fn register_fatal_handlers(handler: extern "C" fn(i32)) -> bool {
+pub fn register_fatal_handlers(handler: extern "C" fn(i32)) -> bool {
     unix::register_fatal_handlers(handler);
     true
 }
@@ -48,7 +48,7 @@ mod unix {
     }
 }
 
-pub(crate) fn leak_fd(file: std::fs::File) -> Option<i32> {
+pub fn leak_fd(file: std::fs::File) -> Option<i32> {
     #[cfg(unix)]
     {
         use std::os::fd::IntoRawFd;
@@ -60,7 +60,7 @@ pub(crate) fn leak_fd(file: std::fs::File) -> Option<i32> {
         None
     }
 }
-pub(crate) fn reset_default_and_reraise(sig: i32) {
+pub fn reset_default_and_reraise(sig: i32) {
     #[cfg(unix)]
     unsafe {
         libc::signal(sig, libc::SIG_DFL);
@@ -68,7 +68,7 @@ pub(crate) fn reset_default_and_reraise(sig: i32) {
     }
     let _ = sig;
 }
-pub(crate) fn signal_name(sig: i32) -> &'static [u8] {
+pub fn signal_name(sig: i32) -> &'static [u8] {
     #[cfg(unix)]
     match sig {
         libc::SIGSEGV => return b"SIGSEGV",
@@ -81,7 +81,7 @@ pub(crate) fn signal_name(sig: i32) -> &'static [u8] {
     let _ = sig;
     b"UNKNOWN"
 }
-pub(crate) fn write_str(fd: i32, bytes: &[u8]) {
+pub fn write_str(fd: i32, bytes: &[u8]) {
     #[cfg(not(unix))]
     let _ = (fd, bytes);
     #[cfg(unix)]

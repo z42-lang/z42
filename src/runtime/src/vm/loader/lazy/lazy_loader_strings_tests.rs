@@ -192,3 +192,5 @@ fn a_module_other_than_the_entry_reads_its_own_pool_uncached() {
     assert!(same(p1, ctx.const_str(&foreign, 1).expect("package id")));
     assert!(ctx.const_str(&foreign, 2).is_none());
 }
+
+use crate::assembly::context::VmContextFactory as _;

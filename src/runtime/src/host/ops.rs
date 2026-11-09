@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use crate::corelib::io;
 use crate::{
     object::Value,
-    vm::loader::load_artifact,
+
 };
 
 use super::config::ResolvedConfig;
@@ -43,7 +43,7 @@ pub(crate) fn probe_corelib(config: &ResolvedConfig) -> Result<()> {
 /// Load bytes through the same preparation service as file-based application runs.
 pub(crate) fn build_host_module(config: &ResolvedConfig, bytes: &[u8]) -> Result<super::LoadedProgram> {
     super::LoadedProgram::load_bytes(bytes, super::LoadOptions {
-        components: Default::default(),
+        components: Default::default(), backends: Default::default(),
         mode: match config.exec_mode {
             super::config::Z42ExecMode::Default => super::default_mode(),
             super::config::Z42ExecMode::Interp => crate::zpkg::ExecMode::Interp,
@@ -106,3 +106,5 @@ pub(crate) fn marshal_args(args: &[z42_abi::Z42Value]) -> Result<Vec<Value>> {
 pub(crate) fn marshal_return(value: Option<&Value>) -> Result<z42_abi::Z42Value> {
     value_to_z42_value(value)
 }
+
+use crate::assembly::loader::load_artifact;

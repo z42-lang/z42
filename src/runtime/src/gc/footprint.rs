@@ -63,7 +63,7 @@ impl Footprint {
 
     /// Charge (`delta > 0`) or credit (`delta < 0`).
     #[inline]
-    pub(crate) fn apply(&self, delta: i64) {
+    pub fn apply(&self, delta: i64) {
         if delta >= 0 {
             self.charge(delta as u64);
         } else {
@@ -73,7 +73,7 @@ impl Footprint {
 
     /// A chunk of `bytes` entered (`true`) or left (`false`) a chunk pool.
     #[inline]
-    pub(crate) fn pool(&self, bytes: u64, entering: bool) {
+    pub fn pool(&self, bytes: u64, entering: bool) {
         if entering {
             self.pooled.fetch_add(bytes, Ordering::Relaxed);
         } else {
@@ -106,9 +106,9 @@ pub(crate) fn malloc_size(n: usize) -> u64 {
 /// (`VarRegion::chunk_of`, a B-tree node share), its young-bitmap box header and the per-chunk
 /// words (borrowed / reuse_gen / pool_epoch / census / high-water mark / young count). The young
 /// bitmap's words are re-measured with the other variable-size tables.
-pub(crate) const VAR_CHUNK_TABLES: u64 = 112;
+pub const VAR_CHUNK_TABLES: u64 = 112;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod tests {
     use super::*;
 

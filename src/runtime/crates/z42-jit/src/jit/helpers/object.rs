@@ -1,0 +1,415 @@
+#![allow(dangerous_implicit_autorefs)]
+//! Object allocation, field access, type tests, static fields, and the
+//! generic `default(T)` runtime helper.
+
+use crate::vm::runtime::dispatch::ctor::{site_for, instance_type_args};
+use crate::vm::exec::call::type_param_env::{method_default_value, method_type_value};
+use crate::vm::exec::ops::cast::isa_object;
+use crate::vm::exec::ops::cast::isa_td;
+use crate::vm::runtime::dispatch::ic::ObjNewSite;
+use crate::object::Value;
+
+use crate::jit::runtime::frame::JitFrame;
+use crate::vm::context::VmContext;
+use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
+use super::{set_exception, vm_ctx_ref};
+
+// ── Object allocation ────────────────────────────────────────────────────────
+
+/// `ObjNew`. Class and ctor resolution is shared with the interpreter
+/// (`vm::exec::ops::obj_new`); after the first allocation at a site both come from the
+/// site cache — no name hashing, no locks, a cross-package class / ctor included. The
+/// ctor runs natively once compiled (counted toward its tier-up by `FnId`), else on the
+/// interpreter.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_obj_new(
+    frame: *mut JitFrame, ctx: *const VmContext,
+    dst: u32,
+    cls_name_ptr: *const u8, cls_name_len: usize,
+    ctor_name_ptr: *const u8, ctor_name_len: usize,
+    args_ptr: *const u32, argc: usize,
+    // expand-jit-type-args: the site's interned type-arguments handle
+    // (`ObjNewInsn::type_args.as_raw()`, a leaked process-lifetime entry; the empty
+    // handle for a non-generic `new`).
+    type_args: *const crate::object::TypeArgsInfo,
+    // P1-2 PR 5: this site's `ResolvedTokens::obj_new` cache (null when the function was
+    // compiled without a resolved token table).
+    site_ptr: *const ObjNewSite,
+    // encode-ctorless-objnew: compile-time positive ctor marker; see `missing_ctor_exception`.
+    ctor_known: u8,
+) -> u8 {
+    use crate::vm::exec::ops::obj_new::{resolve_class, resolve_ctor};
+    // Baked by `TxCtx::str_val` from the IR: valid UTF-8, no re-validation per `new`.
+    let class_name = super::baked_str(cls_name_ptr, cls_name_len);
+    let ctor_name = super::baked_str(ctor_name_ptr, ctor_name_len);
+    let rt        = super::jit_rt(ctx);
+    let module    = super::jit_module(ctx);
+    let frame_ref = &mut *frame;
+    let vm        = vm_ctx_ref(ctx);
+    let site = site_for((vm).funcs(), module, if site_ptr.is_null() { None } else { Some(&*site_ptr) });
+
+    let type_desc = match resolve_class(vm, module, class_name, site) {
+        Ok(td) => td,
+        Err(exc) => { set_exception(vm, exc); return 1; }
+    };
+    // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。TypeDesc 已在手 →
+    // 一次 `Option` 判断即可。add-module-init-hook：包级初始化先于类型初始化。与 interp 对称。
+    if let Err(msg) = vm.ensure_module_inits(Some(type_desc.name.as_str())) {
+        set_exception(vm, crate::vm::exec::init::make_type_init_exception(vm, module, &msg));
+        return 1;
+    }
+    if let Err(msg) = vm.ensure_type_init(&type_desc) {
+        set_exception(vm, crate::vm::exec::init::make_type_init_exception(vm, module, &msg));
+        return 1;
+    }
+    // Bound before the object exists (binding may load a package; see interp `obj_new`).
+    let mut lazy_holder = None;
+    let ctor = match resolve_ctor(
+        vm, module, class_name, ctor_name, argc + 1 /* +this */, ctor_known != 0, site,
+        &mut lazy_holder,
+    ) {
+        Ok(c) => c,
+        Err(exc) => { set_exception(vm, exc); return 1; }
+    };
+
+    // The instance — zeroed fields, generic arguments, type-parameter field zeros — is built
+    // completely in its block before it is published (`Heap::alloc_instance`, shared with
+    // interp `obj_new` so the two engines agree; a published object never changes its meta
+    // word, object model R4 / R6). The arguments are set before the ctor runs so its `default(T)` resolves correctly.
+    // SAFETY: `type_args` was baked from `TypeArgs::as_raw` at translate time.
+    let site_args = unsafe { crate::object::TypeArgs::from_raw(type_args) };
+    // `new List<T>()` in a generic class body: class-level markers bound from the receiver.
+    let site_args = crate::vm::exec::call::type_param_env::TypeParamEnv::new(&[], frame_ref.regs.first())
+        .instantiate(vm, site_args);
+    let inst_args = instance_type_args(site_args, &type_desc);
+    let obj_val = vm.heap().alloc_instance(type_desc, inst_args);
+
+    // runtime-jit-tiering Phase 1b: tiered ctor. Compiled (or compiling at the threshold) →
+    // native, `this` in reg 0 and args straight from the caller's registers; cold /
+    // untranslatable / no `FnId` → the interpreter, which mutates `this` (a shared ArrRef)
+    // in place. `None` = a class without a ctor: the object stays default-initialised.
+    if let Some((func, id)) = ctor {
+        let arg_regs = std::slice::from_raw_parts(args_ptr, argc);
+        match id.and_then(|id| rt.resolve_fn_by_id_tiered(&*ctx, id)) {
+            Some(entry) => {
+                let callee = JitFrame::new_method_args_from(
+                    vm, entry.max_reg, obj_val.clone(), &frame_ref.regs, arg_regs);
+                // The ctor mutates `this` in place; its (void) return value is discarded.
+                if let NativeOutcome::Threw = call_entry(vm, entry, callee) { return 1; }
+            }
+            None => {
+                let mut ctor_args: Vec<Value> = Vec::with_capacity(argc + 1);
+                ctor_args.push(obj_val.clone());
+                ctor_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
+                match crate::vm::exec::engine::invoke(vm, module, func, &ctor_args) {
+                    Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(_)) => {} // ctor mutated `this` in place
+                    Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm, val); return 1; }
+                    Err(e) => { set_exception(vm, Value::Str(e.to_string().into())); return 1; }
+                }
+            }
+        }
+    }
+    frame_ref.regs[dst as usize] = obj_val;
+    0
+}
+
+/// add-reflection-generic-type-definition: JIT helper for the `Typeof` opcode.
+/// Mirrors the interp `Instruction::Typeof` handler — builds a `Std.Type` from
+/// the FQ name + structured generic instantiation args. `type_args_ptr` is a
+/// `*const String` into the IR `Instruction::Typeof { type_args }` storage
+/// (valid for module lifetime; count = 0 for non-generic typeof).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_typeof(
+    frame: *mut JitFrame, ctx: *const VmContext,
+    dst: u32,
+    type_name_ptr: *const u8, type_name_len: usize,
+    type_args_ptr: *const String, type_args_count: usize,
+) {
+    let type_name = std::str::from_utf8(std::slice::from_raw_parts(type_name_ptr, type_name_len))
+        .unwrap_or("<invalid>");
+    let type_args = std::slice::from_raw_parts(type_args_ptr, type_args_count);
+    let ctx = vm_ctx_ref(ctx);
+    let v = (ctx.core().exec().object_protocol.make_constructed_type)(ctx, type_name, type_args);
+    (*frame).regs[dst as usize] = v;
+}
+
+// add-default-generic-typeparam (D-8b-3 Phase 2): JIT helper for
+// `default(T)` runtime resolution. Mirrors interp `Instruction::DefaultOf`
+// dispatch — reads `frame.regs[0]` (this) → `ScriptObject.type_args[param_index]`
+// → `default_value_for(tag)`. Non-Object reg 0 / OOB index / empty type_args
+// → graceful Null. Note: JIT-allocated objects currently have empty type_args
+// (jit_obj_new doesn't propagate them from the IR ObjNew yet), so this returns
+// Null in JIT-only data-flow; interp path is the source of truth for full
+// generic-T zero-value resolution.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_default_of(
+    _frame: *mut JitFrame, _ctx: *const VmContext,
+    dst: u32, param_index: u32,
+) -> u8 {
+    let frame_ref = &mut *_frame;
+    let val = match frame_ref.regs.first() {
+        Some(Value::Object(rc)) => {
+            let b = rc.borrow();
+            b.type_args().get(param_index as usize)
+                .map(|tag| crate::object::default_value_for(tag))
+                .unwrap_or(Value::Null)
+        }
+        _ => Value::Null,
+    };
+    frame_ref.regs[dst as usize] = val;
+    0
+}
+
+/// Materialize the method type argument in the destination register.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_method_type_arg(
+    frame: *mut JitFrame, ctx: *const VmContext, dst: u32, param_index: u32,
+) {
+    let frame = &mut *frame;
+    frame.regs[dst as usize] = method_type_value(vm_ctx_ref(ctx), frame.method_type_args, param_index as usize);
+}
+
+/// Store the method type argument's default value in the destination register.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_method_default(
+    frame: *mut JitFrame, dst: u32, param_index: u32,
+) {
+    let frame = &mut *frame;
+    frame.regs[dst as usize] = method_default_value(frame.method_type_args, param_index as usize);
+}
+
+/// spec fix-numeric-cast-lowering : explicit numeric type
+/// conversion. Mirrors interp `exec_value::convert` semantics:
+///   - source Value variant determines from-type
+///   - `to_tag` (u32 from JIT calling convention; really TypeTag byte) gives target
+///   - On conversion failure (e.g. invalid Unicode scalar) sets pending
+///     exception via `set_exception` and returns 1
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_convert(
+    frame: *mut JitFrame, ctx: *const VmContext,
+    dst: u32, src: u32, to_tag: u32,
+) -> u8 {
+    let frame_ref = &mut *frame;
+    let src_val = match frame_ref.regs.get(src as usize) {
+        Some(v) => v.clone(),
+        None => {
+            set_exception(vm_ctx_ref(ctx),
+                Value::Str(format!("jit_convert: undefined register %{}", src).into()));
+            return 1;
+        }
+    };
+    // converge-vm-arith-semantics (H3): convert dispatch moved to the shared
+    // single source of truth (was `interp::ops::exec_value::convert_value`).
+    // make-hard-cast-fail-properly：与解释器同一判据（scalar::hard_cast_failure），
+    // 并构造**真异常对象**而非 `Value::Str`——后者在 catch 机配上是 `<non-exception-value>`，
+    // `catch (Exception e)` 匹配不上，于是 interp 能 catch、JIT 不能，是一处 interp/JIT 分叉。
+    if let Some((exc_fq, msg)) = crate::vm::exec::ops::scalar::hard_cast_failure(&src_val, to_tag as u8) {
+        let vm = vm_ctx_ref(ctx);
+        let exc = match vm.module() {
+            Some(m) => crate::vm::exec::exception::make_stdlib_exception(vm, m, exc_fq, msg.clone())
+                .unwrap_or(Value::Str(msg.clone().into())),
+            None => Value::Str(msg.clone().into()),
+        };
+        set_exception(vm, exc);
+        return 1;
+    }
+    let result = match crate::vm::exec::ops::scalar::convert_value(src_val, to_tag as u8) {
+        Ok(v) => v,
+        Err(e) => {
+            set_exception(vm_ctx_ref(ctx), Value::Str(format!("{:#}", e).into()));
+            return 1;
+        }
+    };
+    frame_ref.regs[dst as usize] = result;
+    0
+}
+
+// ── IsInstance / AsCast ──────────────────────────────────────────────────────
+//
+// perf-vm-isa-cache : the JIT-private `is_subclass_or_eq` walk (+ its
+// `iface_reaches_mod` mirror) is gone — both helpers call the shared VM
+// `vm::exec::ops::cast::isa_td` (id-keyed `IsaCache` → shared memo → chain walk), so
+// there is exactly one type-test implementation for interp, JIT and typed `catch`.
+// Arrays, unboxed structs and bound type-parameter targets: `crate::vm::runtime::dispatch::isa::array_isa` /
+// `struct_ref_isa` / `bound_param_extra_isa` (one rule for both engines, like `isa_td`).
+
+/// A type-test target carrying type-parameter markers, bound for this JIT frame (receiver in
+/// reg 0; no method arguments) — the interp `exec_object_isa::dynamic_target` counterpart.
+pub(super) unsafe fn dynamic_target(frame: *mut JitFrame, ctx: *const VmContext, class_name: &str) -> Option<String> {
+    if !crate::zpkg::index::type_param_markers::has_markers(class_name) {
+        return None;
+    }
+    let env = crate::vm::exec::call::type_param_env::TypeParamEnv::new(&[], (*frame).regs.first());
+    Some(env.test_target(vm_ctx_ref(ctx), class_name))
+}
+
+/// Bind a generic call site's method and class markers against the caller's frame.
+/// `None` means the site already carries concrete arguments.
+pub(super) unsafe fn bind_forwarded_mta(frame: *mut JitFrame, ctx: *const VmContext, mta: &[String]) -> Option<Vec<String>> {
+    if !mta.iter().any(|s| crate::zpkg::index::type_param_markers::has_markers(s)) {
+        return None;
+    }
+    let frame = &*frame;
+    let env = crate::vm::exec::call::type_param_env::TypeParamEnv::new(frame.method_type_args, frame.regs.first());
+    Some(mta.iter().map(|s| env.substitute(vm_ctx_ref(ctx), s)).collect())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_is_instance(
+    frame: *mut JitFrame, ctx: *const VmContext,
+    dst: u32, obj: u32, cls_ptr: *const u8, cls_len: usize,
+    key: *const crate::vm::runtime::ids::tokens::TypeKeyCell,
+) {
+    let class_name = super::baked_str(cls_ptr, cls_len);
+    // The instruction's own key cell, baked at translate time (lives as long as the code).
+    let key = &*key;
+    // A class-level type-parameter target (`o is T` in a generic class body): bound from the
+    // receiver, tested with a key of its own (method-level ones never reach the JIT).
+    let dynamic = dynamic_target(frame, ctx, class_name);
+    let fresh = crate::vm::runtime::ids::tokens::TypeKeyCell::new();
+    let (class_name, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (class_name, key) };
+    let module = super::jit_module(ctx);
+    let v = &(*frame).regs[obj as usize];
+    if dynamic.is_some() && crate::vm::exec::ops::cast::bound_param_extra_isa(vm_ctx_ref(ctx), &module.type_registry, v, class_name) {
+        (*frame).regs[dst as usize] = Value::Bool(true);
+        return;
+    }
+    let result = match v {
+        Value::Object(rc) => isa_object(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
+        Value::Array(rc)  => crate::vm::runtime::dispatch::isa::array_isa(&rc.borrow().element_type(), class_name),
+        Value::StructRef { idx, frame_id } =>
+            crate::vm::exec::ops::cast::struct_ref_isa(vm_ctx_ref(ctx), &module.type_registry, *idx, *frame_id, class_name),
+        // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
+        // object（镜像 interp is_instance；基元盒 type_desc.name 即精确 wrapper）。
+        Value::BoxedStruct(b) => class_name == "Std.Object" || class_name == "Object"
+            || &*b.type_desc().name == class_name
+            || isa_td(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), class_name, key),
+        // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配（Null → None → false）。
+        other => crate::vm::runtime::dispatch::receiver::prim_isa(other, class_name),
+    };
+    (*frame).regs[dst as usize] = Value::Bool(result);
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_as_cast(
+    frame: *mut JitFrame, ctx: *const VmContext,
+    dst: u32, obj: u32, cls_ptr: *const u8, cls_len: usize,
+    key: *const crate::vm::runtime::ids::tokens::TypeKeyCell,
+) {
+    let class_name = super::baked_str(cls_ptr, cls_len);
+    // The instruction's own key cell, baked at translate time (lives as long as the code).
+    let key = &*key;
+    let dynamic = dynamic_target(frame, ctx, class_name);
+    let fresh = crate::vm::runtime::ids::tokens::TypeKeyCell::new();
+    let (class_name, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (class_name, key) };
+    let module = super::jit_module(ctx);
+    let val    = (*frame).regs[obj as usize].clone();
+    if dynamic.is_some() && crate::vm::exec::ops::cast::bound_param_extra_isa(vm_ctx_ref(ctx), &module.type_registry, &val, class_name) {
+        (*frame).regs[dst as usize] = val;
+        return;
+    }
+    // add-struct-object-boxing → unify Phase 2 R3: BoxedStruct 特判（struct 或基元装箱统一，镜像
+    // interp as_cast）——精确类型命中 → 拆箱（基元盒 → 裸标量；struct 盒 → 当前帧 arena StructRef 值
+    // 副本，frame_id 由 struct_ops::frame_id_of 惰性分配）；object/base/接口 → 保持 boxed（多态）；否则
+    // Null。基元 vs struct 盒由 boxed_prim_i64 分流。
+    if let Value::BoxedStruct(b) = &val {
+        let is_obj = class_name == "Std.Object" || class_name == "Object";
+        let prim_scalar = b.borrow().boxed_prim_i64();
+        let out = if &*b.type_desc().name == class_name {
+            match prim_scalar {
+                Some(n) => Value::I64(n), // 基元盒精确命中 → 裸标量
+                None => {
+                    let fid = super::struct_ops::frame_id_of(frame, ctx);
+                    crate::vm::exec::ops::structs::unbox_struct(vm_ctx_ref(ctx), fid, b)
+                        .unwrap_or(Value::Null)
+                }
+            }
+        } else if is_obj || isa_td(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), class_name, key) {
+            val.clone()
+        } else {
+            Value::Null
+        };
+        (*frame).regs[dst as usize] = out;
+        return;
+    }
+    // add-struct-generic-boxing (P3a): 未装箱值 struct（StructRef）→ `as P` 恒等（镜像 interp as_cast）。
+    if matches!(&val, Value::StructRef { .. }) {
+        (*frame).regs[dst as usize] = val;
+        return;
+    }
+    // add-struct-jit-value-path (P5): struct[] 元素句柄在值上下文（foreach 循环变量等）→ 拷出到
+    // 当前帧 arena StructRef（值副本快照，镜像 interp copy_array_elem_out）。
+    if let Value::StructRefHeap { idx, frame_id } = &val {
+        // make-value-copy: resolve the StructRefHeap handle → StructArrayElem via the arena.
+        let e = match vm_ctx_ref(ctx).exec().transient_arena.lock().struct_elem(*idx, *frame_id) {
+            Ok(e) => e,
+            Err(_) => { (*frame).regs[dst as usize] = Value::Null; return; }
+        };
+        let fid = super::struct_ops::frame_id_of(frame, ctx);
+        (*frame).regs[dst as usize] =
+            crate::vm::exec::ops::structs::copy_array_elem_out(vm_ctx_ref(ctx), fid, &e)
+                .unwrap_or(Value::Null);
+        return;
+    }
+    let is_match = match &val {
+        Value::Object(rc) => isa_object(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
+        Value::Array(rc)  => crate::vm::runtime::dispatch::isa::array_isa(&rc.borrow().element_type(), class_name),
+        Value::Null => true,
+        // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配。
+        other       => crate::vm::runtime::dispatch::receiver::prim_isa(other, class_name),
+    };
+    (*frame).regs[dst as usize] = if is_match { val } else { Value::Null };
+}
+
+// ── Static fields ────────────────────────────────────────────────────────────
+
+#[cfg(all(test, z42_test_facade))]
+thread_local! {
+    /// Test probe: calls of the two static-field helpers on this thread — which accesses left the
+    /// native path (`translate::static_field`).
+    pub(crate) static STATIC_HELPER_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[inline(always)]
+fn note_static_helper_call() {
+    #[cfg(all(test, z42_test_facade))]
+    STATIC_HELPER_CALLS.with(|c| c.set(c.get() + 1));
+}
+
+/// `StaticGet` helper — adapter over [`crate::objops::statics::static_get`] (init
+/// barrier, lazy zero-init, missing-symbol check; shared with the interpreter). The slow path of
+/// the native access (`translate::static_field`).
+/// `field_id` = pre-resolved `StaticFieldId`, or `UNRESOLVED` for a lazily-loaded
+/// function compiled without its token table — then the field resolves by NAME
+/// (`field_ptr`/`field_len`, always passed).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_static_get(
+    frame: *mut JitFrame, ctx: *const VmContext,
+    dst: u32, field_id: u32,
+    field_ptr: *const u8, field_len: usize,
+) -> i32 {
+    note_static_helper_call();
+    let field = super::baked_str(field_ptr, field_len);
+    let id = (field_id != crate::vm::runtime::ids::tokens::UNRESOLVED).then_some(field_id);
+    match crate::objops::statics::static_get(vm_ctx_ref(ctx), super::jit_module(ctx), field, id) {
+        Ok(v) => { (*frame).regs[dst as usize] = v; 0 }
+        Err(e) => super::raise(ctx, e) as i32,
+    }
+}
+
+/// `StaticSet` helper — adapter over [`crate::objops::statics::static_set`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_static_set(
+    frame: *mut JitFrame, ctx: *const VmContext,
+    field_id: u32, val: u32,
+    field_ptr: *const u8, field_len: usize,
+) -> i32 {
+    note_static_helper_call();
+    let field = super::baked_str(field_ptr, field_len);
+    let id = (field_id != crate::vm::runtime::ids::tokens::UNRESOLVED).then_some(field_id);
+    let v = (*frame).regs[val as usize];
+    match crate::objops::statics::static_set(vm_ctx_ref(ctx), super::jit_module(ctx), field, id, v) {
+        Ok(()) => 0,
+        Err(e) => super::raise(ctx, e) as i32,
+    }
+}

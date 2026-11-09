@@ -390,3 +390,5 @@ fn dummy_type_desc(name: &str) -> Arc<z42::object::TypeDesc> {
         id: z42::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }
+
+use z42::host::VmContextFactory as _;

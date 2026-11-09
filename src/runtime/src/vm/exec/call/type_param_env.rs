@@ -18,7 +18,7 @@ use crate::vm::context::VmContext;
 
 /// Read a method parameter as a reflection Type. Missing arguments retain the
 /// synthetic T used by older bytecode.
-pub(crate) fn method_type_value(ctx: &VmContext, args: &[String], index: usize) -> Value {
+pub fn method_type_value(ctx: &VmContext, args: &[String], index: usize) -> Value {
     match args.get(index) {
         Some(name) => (ctx.core.exec.object_protocol.make_type_from_name)(ctx, name),
         None => (ctx.core.exec.object_protocol.make_constructed_type)(ctx, "T", &[]),
@@ -26,20 +26,20 @@ pub(crate) fn method_type_value(ctx: &VmContext, args: &[String], index: usize) 
 }
 
 /// Read a method parameter's default value, or Null if the argument is missing.
-pub(crate) fn method_default_value(args: &[String], index: usize) -> Value {
+pub fn method_default_value(args: &[String], index: usize) -> Value {
     args.get(index)
         .map(|tag| crate::object::default_value_for(tag))
         .unwrap_or(Value::Null)
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct TypeParamEnv<'a> {
+pub struct TypeParamEnv<'a> {
     method_args: &'a [String],
     this: Option<&'a Value>,
 }
 
 impl<'a> TypeParamEnv<'a> {
-    pub(crate) fn new(method_args: &'a [String], this: Option<&'a Value>) -> Self {
+    pub fn new(method_args: &'a [String], this: Option<&'a Value>) -> Self {
         Self { method_args, this }
     }
 
@@ -54,14 +54,14 @@ impl<'a> TypeParamEnv<'a> {
 
     /// `name` with every bound marker replaced by its argument — the spelling `ObjNew` records
     /// for an instantiation written with concrete arguments.
-    pub(crate) fn substitute(&self, ctx: &VmContext, name: &str) -> String {
+    pub fn substitute(&self, ctx: &VmContext, name: &str) -> String {
         type_param_markers::substitute(name, |m| self.resolve(ctx, m))
     }
 
     /// A type-test target (`is` / `as` / cast / `catch`) with its markers substituted. A target
     /// that *is* a type parameter bound to a built-in comes out in keyword spelling (`int`); the
     /// tests name built-ins by their class (`Std.Int32`), as z42c does for a written `o is int`.
-    pub(crate) fn test_target(&self, ctx: &VmContext, name: &str) -> String {
+    pub fn test_target(&self, ctx: &VmContext, name: &str) -> String {
         let t = self.substitute(ctx, name);
         match crate::zpkg::index::type_names::builtin_fqn(&t) {
             Some(fqn) => fqn.to_string(),
@@ -72,7 +72,7 @@ impl<'a> TypeParamEnv<'a> {
     /// An `ObjNew` site's type arguments for this activation: unchanged unless they carry
     /// markers (`new List<T>()` in a shared body), else substituted and interned.
     #[inline]
-    pub(crate) fn instantiate(&self, ctx: &VmContext, site: TypeArgs) -> TypeArgs {
+    pub fn instantiate(&self, ctx: &VmContext, site: TypeArgs) -> TypeArgs {
         if !site.has_markers() {
             return site;
         }
@@ -128,7 +128,7 @@ impl<'a> TypeParamEnv<'a> {
 /// `type_args = [U's argument]`, so reading index 0 off the receiver answers with `DG`'s
 /// parameter while the question was about `Box`'s — a plausible-but-wrong type, which is worse
 /// than the placeholder. Measured: `DG<string>` reported `Std.String` for `Box`'s `T`.
-pub(crate) fn class_type_arg(ctx: &VmContext, recv: &Value, idx: usize, owner: Option<&str>) -> Option<String> {
+pub fn class_type_arg(ctx: &VmContext, recv: &Value, idx: usize, owner: Option<&str>) -> Option<String> {
     let (name, own_args) = receiver_parts(ctx, recv)?;
     if let Some(o) = &owner {
         if let Some(n) = inherited_type_arg(ctx, &name, o, idx) {
@@ -192,6 +192,6 @@ fn inherited_type_arg(
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "type_param_env_tests.rs"]
 mod type_param_env_tests;

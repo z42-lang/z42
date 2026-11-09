@@ -351,7 +351,7 @@ impl TypeDesc {
     }
 
     /// The type's declared constructor keys, independent of how its package was loaded.
-    pub(crate) fn own_constructors(&self) -> &[Box<str>] {
+    pub fn own_constructors(&self) -> &[Box<str>] {
         self.cold.as_ref().map_or(&[], |cold| &cold.own_constructors)
     }
 

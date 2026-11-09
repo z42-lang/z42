@@ -1,7 +1,7 @@
 use std::io;
 
 #[cfg(feature = "net")]
-pub(crate) fn set_tcp_keepalive(
+pub fn set_tcp_keepalive(
     stream: &std::net::TcpStream,
     idle: std::time::Duration,
     interval: std::time::Duration,

@@ -26,7 +26,7 @@ pub fn methodof(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) -
 
     // Existence check mirrors `invoke_qualified`'s two-step lookup: the current
     // module's own index first, then the cross-module table.
-    let known = match ctx.core.runtime.module.as_ref() {
+    let known = match ctx.core().runtime().module.as_ref() {
         Some(m) => m.func_index.contains_key(qualified.as_str()),
         None => false,
     } || ctx.try_lookup_function(&qualified).is_some();

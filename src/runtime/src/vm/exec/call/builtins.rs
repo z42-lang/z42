@@ -35,7 +35,7 @@ fn unknown_builtin(name: &str) -> abi::BuiltinError {
 /// `id` = the site's resolved `BuiltinId`, or `UNRESOLVED` to resolve `name` now
 /// (a miss throws `MissingSymbolException`).
 #[inline]
-pub(crate) fn invoke_builtin(
+pub fn invoke_builtin(
     ctx: &VmContext, id: u32, name: &str,
     this: Option<Value>, regs: &[Value], args: &[u32],
 ) -> abi::CallResult {

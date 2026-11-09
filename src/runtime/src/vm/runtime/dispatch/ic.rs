@@ -57,7 +57,7 @@ impl Default for VCallICEntry {
 pub struct VCallIC {
     pub entries:     [VCallICEntry; IC_SLOTS],
     // Independent of the dispatch entries: one complete (TypeId, FieldLoc) word.
-    pub(crate) field_reader: FieldICEntry,
+    pub field_reader: FieldICEntry,
     pub round_robin: AtomicU32,
 }
 
@@ -158,7 +158,7 @@ pub fn field_ic_lookup(ic: &FieldIC, recv_type: u32) -> Option<FieldLoc> {
 impl FieldICEntry {
     /// The scalar coordinate, but only for the receiver type published with it.
     #[inline]
-    pub(crate) fn reader_location(&self, recv_type: u32) -> Option<FieldLoc> {
+    pub fn reader_location(&self, recv_type: u32) -> Option<FieldLoc> {
         let (type_id, loc) = unpack(self.packed.load(std::sync::atomic::Ordering::Relaxed));
         (type_id != UNRESOLVED && type_id == recv_type).then(|| FieldLoc::from_bits(loc))
     }

@@ -1,8 +1,8 @@
 //! Package locations, namespace candidates and probing directory expansion.
 pub mod namespace_index;
 pub mod probing;
-pub(crate) mod namespace;
+pub mod namespace;
 pub use namespace::{extract_import_namespaces, resolve_dependency, resolve_namespace};
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod probing_tests;

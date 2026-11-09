@@ -25,7 +25,7 @@ pub struct LoadedArtifact {
     pub package_name: Option<String>,
 }
 
-pub(crate) fn load_artifact_with_fusion(fs: &dyn Vfs, path: &str, fusion_inputs: FusionInputSource) -> Result<LoadedArtifact> {
+pub fn load_artifact_with_fusion(fs: &dyn Vfs, path: &str, fusion_inputs: FusionInputSource) -> Result<LoadedArtifact> {
     match Path::new(path).extension().and_then(|e| e.to_str()) {
         Some("zbc")  => load_zbc(fs, path, fusion_inputs),
         Some("zpkg") => load_zpkg(fs, path, fusion_inputs),
@@ -36,7 +36,7 @@ pub(crate) fn load_artifact_with_fusion(fs: &dyn Vfs, path: &str, fusion_inputs:
     }
 }
 
-pub(crate) fn load_artifact_from_bytes_with_fusion(raw: &[u8], fusion_inputs: FusionInputSource) -> Result<LoadedArtifact> {
+pub fn load_artifact_from_bytes_with_fusion(raw: &[u8], fusion_inputs: FusionInputSource) -> Result<LoadedArtifact> {
     if raw.len() < 4 {
         bail!("artifact byte buffer is too short ({} bytes); expected at least 4 magic bytes", raw.len());
     }

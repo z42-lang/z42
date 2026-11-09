@@ -56,7 +56,7 @@ mod frames;
 mod statics;
 mod lookup;
 // fix-silent-symbol-resolution：「确定不存在」的判定（两后端共用）。
-pub(crate) mod symres;
+pub mod symres;
 
 pub use types::{
     VmCore, VmContext, VM_CONTEXT_CCTORS_OFFSET, VM_CONTEXT_SAFEPOINT_SKIP_OFFSET,
@@ -86,7 +86,7 @@ pub use types::{
 ///   thread under registry-lock-then-deref discipline is sound. The one
 ///   exception is `call_stack`, readable cross-thread only while its owner is
 ///   parked (`VmContext::scan_frames_parked`).
-pub(crate) struct VmContextPtr(pub(crate) *const VmContext);
+pub struct VmContextPtr(pub(crate) *const VmContext);
 
 // SAFETY: see SAFETY block on `VmContextPtr` above — the raw pointer is
 // kept alive by the Box/Pin ownership of the registering thread, registry
@@ -107,7 +107,7 @@ unsafe impl Sync for VmContextPtr {}
 /// Use the public [`vm_cores_snapshot`] to grab a Vec of live cores from
 /// non-signal contexts (tests, debug tools); the signal handler uses
 /// `try_lock` directly to avoid deadlock on contended mutator threads.
-pub(crate) static VM_CORES: std::sync::Mutex<Vec<Weak<VmCore>>> =
+pub static VM_CORES: std::sync::Mutex<Vec<Weak<VmCore>>> =
     std::sync::Mutex::new(Vec::new());
 
 /// Snapshot all live `Arc<VmCore>` instances. Convenience for tests +
@@ -125,8 +125,15 @@ use crate::vm::loader::lazy::{LazyLoader, ZpkgCandidate};
 use crate::vm::runtime::Function;
 use crate::object::{TypeDesc, Value};
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "vm_context_tests.rs"]
 mod vm_context_tests;
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod symres_tests;
+
+mod bootstrap;
+
+#[cfg(all(test, z42_test_facade))]
+use crate::assembly::context::VmContextFactory as _;
+
+pub use bootstrap::RuntimeInputs;

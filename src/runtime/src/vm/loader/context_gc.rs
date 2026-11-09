@@ -7,9 +7,9 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 
-pub(crate) struct CoreContextReclaimer {
-    pub(crate) core: Weak<VmCore>,
-    pub(crate) unloading: Arc<AtomicUsize>,
+pub struct CoreContextReclaimer {
+    pub core: Weak<VmCore>,
+    pub unloading: Arc<AtomicUsize>,
 }
 impl ContextReclaim for CoreContextReclaimer {
     fn is_unloading(&self) -> bool {

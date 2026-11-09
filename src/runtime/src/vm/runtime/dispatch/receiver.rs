@@ -8,7 +8,7 @@ use crate::object::Value;
 /// hardcoded `(Value, method)` → builtin-name switch.
 ///
 /// Returns None for non-primitive values (objects, null, etc.).
-pub(crate) fn primitive_class_name(obj: &Value) -> Option<&'static str> {
+pub fn primitive_class_name(obj: &Value) -> Option<&'static str> {
     use crate::zpkg::index::well_known_names::*;
     match obj {
         // ⚠️ These are derived from the *runtime* `Value`, which cannot tell a `ulong` from a
@@ -49,7 +49,7 @@ pub(crate) fn primitive_class_name(obj: &Value) -> Option<&'static str> {
 ///
 /// Returns None for objects (which use real `type_desc.id.0`) and `Value::Null`.
 #[inline]
-pub(crate) fn value_synthetic_type_id(obj: &Value) -> Option<u32> {
+pub fn value_synthetic_type_id(obj: &Value) -> Option<u32> {
     use crate::vm::runtime::ids::tokens::*;
     match obj {
         Value::I64(_)   => Some(PRIM_TYPE_I64),
@@ -66,7 +66,7 @@ pub(crate) fn value_synthetic_type_id(obj: &Value) -> Option<u32> {
 /// 里 o 仍是裸 `Value::Str` —— `is`/`as` 须按其 stdlib 类名（`primitive_class_name`，如
 /// `Std.String`）匹配，外加 `Std.Object` 基类（所有基元 is-a object）。编译器 `QualifyTypeName`
 /// 发 FQ 形（`Std.String`/`Std.Int32`/`Std.Object`），此处直接比 FQ。
-pub(crate) fn prim_isa(val: &Value, class_name: &str) -> bool {
+pub fn prim_isa(val: &Value, class_name: &str) -> bool {
     // 所有基元 is-a object。
     if class_name == "Std.Object" || class_name == "Object" {
         return primitive_class_name(val).is_some();
@@ -82,7 +82,7 @@ pub(crate) fn prim_isa(val: &Value, class_name: &str) -> bool {
 }
 
 /// 整数族类名（编译器 QualifyTypeName 发 FQ 形；带非限定形兜底）。
-pub(crate) fn is_integer_class(cn: &str) -> bool {
+pub fn is_integer_class(cn: &str) -> bool {
     matches!(cn,
         "Std.Int32" | "Std.Int64" | "Std.Int16" | "Std.SByte"
         | "Std.Byte" | "Std.UInt16" | "Std.UInt32" | "Std.UInt64"

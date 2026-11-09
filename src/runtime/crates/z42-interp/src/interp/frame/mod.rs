@@ -1,0 +1,233 @@
+//! Interpreter register frames and ref writeback bookkeeping.
+//! Reference location access is owned by the shared execution operations.
+
+#![allow(unused_imports)]
+use crate::vm::exec::ops::references::{deref_ref, store_thru_ref};
+use crate::vm::runtime::{Function, Module};
+use crate::{
+    zpkg::{BranchTargets, Terminator},
+    object::Value,
+};
+use crate::vm::context::VmContext;
+use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
+
+pub(crate) struct Frame {
+    pub regs: Vec<Value>,
+    /// Spec impl-ref-out-in-runtime (Decision R2 architecture E):
+    /// `(param_reg, original_ref_kind)` pairs. When the function was called
+    /// with a `ref`/`out`/`in` argument, the entry path deref'd the Ref
+    /// (storing the underlying value into `regs[param_reg]` so all
+    /// instruction handlers see a normal value) and stashed the original
+    /// `RefKind` here. At function exit, every entry's final `regs[param_reg]`
+    /// value is stored back through the corresponding Ref to the caller's
+    /// lvalue. Net semantic: caller sees the post-call value of its
+    /// `ref`/`out` lvalue, identical to true cross-frame refs but without
+    /// requiring 80+ instruction handlers to be deref-aware.
+    pub ref_writebacks: Vec<(u32, crate::object::RefKind)>,
+    /// add-osr-loop-tiering: loop back-edges taken in THIS activation. When it
+    /// reaches `JitRuntime::osr_threshold` (jit mode only), the running loop is
+    /// hot enough to hand off to native code (OSR). Per-activation (reset each
+    /// `Frame::new*`) so "called once, loops a lot" upgrades while "called a lot,
+    /// loops a little" does not (that's the call-count path's job).
+    pub back_edge_count: u32,
+    /// This activation's id, taken lazily (see [`Frame::frame_id`]); `0` until
+    /// then. `ObjNew`/`ArrayNew` with `stack_alloc`, `Ref`s, `PinnedView`s
+    /// and struct values tag their arena slots with it, and the
+    /// handle carries it, so a stale access (after this frame truncated the
+    /// arena) is caught by the id mismatch. Most frames never allocate there and
+    /// never take one.
+    id: std::cell::Cell<u32>,
+    /// add-generic-methods: resolved concrete FQ type-argument names for the
+    /// generic method call that created this frame (from `CallInsn::method_type_args`).
+    /// Empty for non-generic calls. Read by `MethodTypeArg` / `MethodDefault` in the
+    /// body to materialize `typeof(T)` / `new T()` / `default(T)`. Mirrors the
+    /// class-level `Object.type_args` carrier, but on the frame (static methods have
+    /// no `this`). Set after construction in `exec_call` from the call instruction.
+    pub method_type_args: Box<[String]>,
+}
+
+impl Frame {
+    /// What this activation binds the type-parameter markers of its body to
+    /// (`$mta:N` → `method_type_args`, `$cta:N@Owner` → the receiver in reg 0).
+    pub(crate) fn type_param_env(&self) -> crate::vm::exec::call::type_param_env::TypeParamEnv<'_> {
+        crate::vm::exec::call::type_param_env::TypeParamEnv::new(&self.method_type_args, self.regs.first())
+    }
+
+    /// A frame whose first registers are `args`. The register file comes from
+    /// the context's register pool (`VmContext.exec.reg_pool`, all `Null`); the
+    /// frame's [`FrameGuard`] hands it back after popping the frame. A `Frame`
+    /// dropped without ever being entered just frees it.
+    pub fn new(ctx: &VmContext, args: &[Value], max_reg: u32) -> Self {
+        let size = if max_reg > 0 { max_reg as usize } else { args.len() };
+        let need = size.max(args.len());
+        let mut regs = ctx.exec().reg_pool.take(need);
+        for (i, v) in args.iter().enumerate() {
+            regs[i] = v.clone();
+        }
+        Frame {
+            regs,
+            ref_writebacks: Vec::new(),
+            back_edge_count: 0,
+            id: std::cell::Cell::new(0),
+            method_type_args: Box::default(),
+        }
+    }
+
+    /// perf-vm-iteration Phase 1 (Decision 3): build a frame filling the
+    /// register file directly from `caller_regs[arg_indices[i]]` — one clone per
+    /// arg, no intermediate args `Vec`. Same pooling as `new`. Returns an error
+    /// (not a panic) on an out-of-range register index, matching `collect_args`.
+    pub fn new_from_regs(
+        ctx: &VmContext, caller_regs: &[Value], arg_indices: &[u32], max_reg: u32,
+    ) -> Result<Self> {
+        let argc = arg_indices.len();
+        let size = if max_reg > 0 { max_reg as usize } else { argc };
+        let need = size.max(argc);
+        let mut regs = ctx.exec().reg_pool.take(need);
+        for (i, &r) in arg_indices.iter().enumerate() {
+            let v = caller_regs.get(r as usize)
+                .ok_or_else(|| anyhow::anyhow!("undefined register %{r}"))?;
+            regs[i] = v.clone();
+        }
+        Ok(Frame {
+            regs,
+            ref_writebacks: Vec::new(),
+            back_edge_count: 0,
+            id: std::cell::Cell::new(0),
+            method_type_args: Box::default(),
+        })
+    }
+
+    /// perf-vm-iteration Phase 1 (Decision 3): like `new_from_regs` but with a
+    /// prepended receiver (`this`) in slot 0 — for the virtual-call hot path
+    /// (`exec_vcall`), which passes `regs[0] = receiver`, `regs[1+i] = args[i]`.
+    /// Eliminates the vcall path's `vec![receiver]` + `collect_args` Vecs and the
+    /// arg double-clone; receiver + each arg cloned exactly once.
+    pub fn new_from_receiver_regs(
+        ctx: &VmContext, receiver: &Value, caller_regs: &[Value], arg_indices: &[u32], max_reg: u32,
+    ) -> Result<Self> {
+        let argc = arg_indices.len();
+        let total = argc + 1; // + receiver in slot 0
+        let size = if max_reg > 0 { max_reg as usize } else { total };
+        let need = size.max(total);
+        let mut regs = ctx.exec().reg_pool.take(need);
+        regs[0] = receiver.clone();
+        for (i, &r) in arg_indices.iter().enumerate() {
+            let v = caller_regs.get(r as usize)
+                .ok_or_else(|| anyhow::anyhow!("undefined register %{r}"))?;
+            regs[i + 1] = v.clone();
+        }
+        Ok(Frame {
+            regs,
+            ref_writebacks: Vec::new(),
+            back_edge_count: 0,
+            id: std::cell::Cell::new(0),
+            method_type_args: Box::default(),
+        })
+    }
+
+    /// This frame's id, taken from `ctx` the first time it is asked for. Ask
+    /// only when tagging a new arena slot / handle with it.
+    #[inline]
+    pub fn frame_id(&self, ctx: &VmContext) -> u32 {
+        let id = self.id.get();
+        if id != 0 {
+            return id;
+        }
+        let id = ctx.next_frame_id();
+        self.id.set(id);
+        id
+    }
+
+    /// The id as it stands, `0` if none was taken yet (OSR hands it on as is).
+    #[inline]
+    pub fn frame_id_if_taken(&self) -> u32 {
+        self.id.get()
+    }
+
+    /// Set a register's raw value (no deref). For ref-aware store-through
+    /// (transparently writing through `Value::Ref` to the underlying
+    /// caller slot / array elem / object field), use `set_thru_ref`
+    /// (spec impl-ref-out-in-runtime).
+    /// Write a register. The frame is pre-sized to `max_reg` at construction, so
+    /// the in-bounds path is overwhelmingly hot — keep it inlinable into the exec
+    /// loop (this is one of the two hottest interp functions, per profiling). The
+    /// grow path (a reg beyond the pre-sized file, e.g. hand-built test functions)
+    /// is `#[cold]` + out-of-line so it doesn't bloat the hot path.
+    #[inline]
+    pub fn set(&mut self, reg: u32, val: Value) {
+        let idx = reg as usize;
+        if idx < self.regs.len() {
+            self.regs[idx] = val;
+        } else {
+            self.set_grow(idx, val);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn set_grow(&mut self, idx: usize, val: Value) {
+        self.regs.resize(idx + 1, Value::Null);
+        self.regs[idx] = val;
+    }
+
+    /// Get a register's raw value (no deref). For ref-aware read-through
+    /// (transparently dereferencing `Value::Ref`), use `get_deref`
+    /// (spec impl-ref-out-in-runtime).
+    #[inline(always)]
+    pub fn get(&self, reg: u32) -> Result<&Value> {
+        let idx = reg as usize;
+        if idx < self.regs.len() {
+            Ok(&self.regs[idx])
+        } else {
+            anyhow::bail!("undefined register %{reg}")
+        }
+    }
+
+    /// Spec impl-ref-out-in-runtime (Decision R2): read a register's value
+    /// with transparent deref. If the register holds a `Value::Ref`, the
+    /// underlying value (from caller frame / array elem / object field) is
+    /// returned. Otherwise behaves like `get` but returns owned `Value`.
+    /// Use this in instruction handlers that read user-visible values.
+    #[allow(dead_code)]
+    pub fn get_deref(&self, reg: u32, ctx: &VmContext) -> Result<Value> {
+        match self.get(reg)? {
+            // make-value-copy: resolve the Ref handle → RefKind via the transient arena,
+            // release the arena lock (clone) before deref touches heap / other locks.
+            Value::Ref { idx, frame_id } => {
+                let kind = ctx.exec().transient_arena.lock().ref_kind(*idx, *frame_id)?;
+                deref_ref(&kind, ctx)
+            }
+            other => Ok(other.clone()),
+        }
+    }
+
+    /// Spec impl-ref-out-in-runtime (Decision R2): write a register with
+    /// transparent store-through. If the register currently holds a
+    /// `Value::Ref`, the write is forwarded to the underlying location and
+    /// the Ref itself is preserved so subsequent reads/writes still
+    /// indirect. Otherwise the register is overwritten.
+    #[allow(dead_code)]
+    pub fn set_thru_ref(&mut self, reg: u32, val: Value, ctx: &VmContext) -> Result<()> {
+        let idx = reg as usize;
+        if idx >= self.regs.len() {
+            self.regs.resize(idx + 1, Value::Null);
+        }
+        let kind_to_store = match &self.regs[idx] {
+            // make-value-copy: resolve the Ref handle → RefKind via the transient arena.
+            Value::Ref { idx: ai, frame_id } => Some(ctx.exec().transient_arena.lock().ref_kind(*ai, *frame_id)?),
+            _ => None,
+        };
+        match kind_to_store {
+            Some(kind) => store_thru_ref(&kind, val, ctx),
+            None => { self.regs[idx] = val; Ok(()) }
+        }
+    }
+}
+
+// ── Core execution loop ──────────────────────────────────────────────────────
+
+#[cfg(all(test, z42_test_facade))]
+#[path = "frame_tests.rs"]
+mod frame_tests;

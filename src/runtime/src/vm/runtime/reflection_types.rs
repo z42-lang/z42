@@ -23,14 +23,14 @@ impl CachedType {
 }
 
 #[derive(Default)]
-pub(crate) struct ReflectionTypes {
+pub struct ReflectionTypes {
     types: Mutex<FxHashMap<ReflectedTypeKey, CachedType>>,
     attributes: Mutex<FxHashMap<TypeId, Vec<WeakRef>>>,
 }
 
 impl ReflectionTypes {
     /// Called under the type publication lock for registered declarations.
-    pub(crate) fn store_attributes(
+    pub fn store_attributes(
         &self,
         heap: &Heap,
         ty: &Value,
@@ -76,7 +76,7 @@ impl ReflectionTypes {
         }
     }
 
-    pub(crate) fn get(
+    pub fn get(
         &self,
         heap: &Heap,
         key: &ReflectedTypeKey,
@@ -93,7 +93,7 @@ impl ReflectionTypes {
         value
     }
 
-    pub(crate) fn publish(
+    pub fn publish(
         &self,
         heap: &Heap,
         key: ReflectedTypeKey,

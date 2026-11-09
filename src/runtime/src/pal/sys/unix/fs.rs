@@ -1,10 +1,10 @@
 use std::io::Result;
 
-pub(crate) const HAS_FS: bool = true;
+pub const HAS_FS: bool = true;
 
-pub(crate) const PATH_LIST_SEP: char = ':';
+pub const PATH_LIST_SEP: char = ':';
 
-pub(crate) fn is_name_too_long(e: &std::io::Error) -> bool {
+pub fn is_name_too_long(e: &std::io::Error) -> bool {
     e.raw_os_error() == Some(libc::ENAMETOOLONG)
 }
 
@@ -28,7 +28,7 @@ pub(crate) fn sync_before_rename(file: &std::fs::File) -> Result<()> {
     }
 }
 
-pub(crate) fn make_executable(path: &str) -> Result<()> {
+pub fn make_executable(path: &str) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let mut perms = std::fs::metadata(path)?.permissions();
     let mode = perms.mode() | 0o111;
@@ -36,6 +36,6 @@ pub(crate) fn make_executable(path: &str) -> Result<()> {
     std::fs::set_permissions(path, perms)
 }
 
-pub(crate) fn symlink(src: &str, dst: &str) -> Result<()> {
+pub fn symlink(src: &str, dst: &str) -> Result<()> {
     std::os::unix::fs::symlink(src, dst)
 }
