@@ -3,6 +3,16 @@ use super::builtin_abi as abi;
 use crate::{object::Value, context::VmContext};
 use anyhow::Result;
 
+/// Native module calls supplied by interop, independent of any concrete provider.
+pub struct NativeProviderServices {
+    pub invoke: fn(&VmContext, Option<&str>, &str, &[Value]) -> Option<abi::CallResult>,
+}
+
+fn native_export(ctx: &VmContext, name: &str, args: &[Value]) -> Option<abi::CallResult> {
+    let services = ctx.ext::<NativeProviderServices>()?;
+    (services.invoke)(ctx, None, name, args)
+}
+
 /// Name-keyed entry for callers that hold the arguments as a slice — unit tests,
 /// embedders, and the interpreter's `ToString` dispatch fallback
 /// (`exec_builtin_value`); the engines use [`invoke_builtin`]. A name not in
@@ -14,6 +24,9 @@ pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Optio
 
     if let Some(id) = ctx.core.runtime.builtins.id_of(name) {
         return (ctx.core.exec.builtins[id.0 as usize].call_slice)(ctx, args).map_err(|e| (*e).into_anyhow(ctx));
+    }
+    if let Some(result) = native_export(ctx, name, args) {
+        return result.map_err(|error| (*error).into_anyhow(ctx));
     }
     Err(unknown_builtin(name).into_anyhow(ctx))
 }
@@ -65,6 +78,10 @@ fn invoke_by_name(
     if let Some(id) = ctx.core.runtime.builtins.id_of(name) {
         return invoke_builtin_id(ctx, id.0, this, regs, args);
     }
+    use abi::ArgSource;
+    let source = abi::RegArgs::new(this, regs, args);
+    let values: Vec<_> = (0..source.argc()).map(|index| *source.arg(index)).collect();
+    if let Some(result) = native_export(ctx, name, &values) { return result; }
     Err(Box::new(unknown_builtin(name)))
 }
 

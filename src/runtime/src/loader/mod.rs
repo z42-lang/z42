@@ -15,3 +15,6 @@ pub mod fusion_inputs;
 
 mod state;
 pub use state::LoaderState;
+
+pub mod native;
+pub mod linked;

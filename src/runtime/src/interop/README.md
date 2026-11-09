@@ -1,56 +1,41 @@
-# interop/ — Tier 1 C ABI runtime
+# interop — 原生能力注册与调用桥接
 
 ## 职责
 
-实现 z42 native interop **Tier 1 C ABI** 的运行时部分，以及 stdlib native 扩展（`z42.compression` 等 cdylib）的加载。提供 `z42_register_type` / `z42_resolve_type` / `z42_invoke` / `z42_invoke_method` / `z42_last_error` 五个 `extern "C"` 入口，把 `Instruction::CallNative` IR opcode 接到 libffi 调度路径，让 native 库（C / Rust / 任意能产 C ABI 的语言）可以注册类型并被 z42 用户代码调用。
+描述、注册和查询 native 提供方、函数与类型，并实现 Tier 1 C ABI 的编组与调用适配。目录不实现压缩或终端业务，也不负责库路径探测与动态装入。
 
-> 用户面向的 syntax（`extern class` / `import T from "lib"` 等）属 source generator（C5）；本目录只提供运行时接口，经 hand-crafted bytecode + 集成测试验证。
+## 功能索引
 
-## 核心文件
+| 入口 | 职责 |
+|---|---|
+| `providers.rs` | `NativeProvider`、事务式 `RegistryBuilder` 与不可变 `NativeRegistry`；统一生成 builtin 查询目录和执行表 |
+| `module.rs`、`native_call.rs`、`native_value.rs` | 通用模块描述符校验、每 VM 实例、C 值复制及脚本回调 |
+| `state.rs` | 每 VM 的模块实例、native 类型与 pin buffer；worker 共享所属 VM 的状态 |
+| `tier1/registry.rs` | 校验类型描述符、签名并构建 libffi 调用记录 |
+| `tier1/call.rs`、`dispatch.rs`、`marshal.rs` | 已注册类型方法的参数转换、调用和结果转换 |
+| `tier1/exports.rs`、`error.rs` | C 注册/查询入口、活动 VM 和线程错误通道 |
 
-| 文件 | 职责 |
-|------|------|
-| `mod.rs` | 模块入口；re-export 公开 API；启用 `native-interop` 时，从 `tier1/` 统一再导出既有公开入口 |
-| `state.rs` | 每 VM 类型/库/buffer 状态；Rust 状态操作返回 `Result`，pin/unpin 在所有平台可用 |
-| `tier1/registry.rs` | `RegisteredType` + `MethodEntry`：解析 `Z42TypeDescriptor_v1`，预构建 libffi `Cif` |
-| `tier1/call.rs` | 注册类型解析、参数 marshal、libffi 调度与结果解包，经 VM native 提供方接入 |
-| `tier1/marshal.rs` | z42 `Value` ↔ `Z42Value` 双向转换（blittable 子集）|
-| `tier1/dispatch.rs` | `SigType` 枚举 + 签名解析 + libffi `Cif::new` / `Cif::call` 包装 |
-| `tier1/loader.rs` | `dlopen`：`libloading::Library::new(path)` + 调用 `<basename>_register` 入口 |
-| `tier1/error.rs` | thread-local `LAST_ERROR` 槽 + `z42_last_error()` 实现 |
-| `ext/mod.rs` | stdlib native 扩展加载器：`[Native(lib=…, entry=…)]` 引用的 `__<entry>` 是 `BUILTINS` 里的类型化 builtin（`typed`），首次调用时从 SDK native 搜索路径 dlopen `lib<basename>.{so,dylib,dll}` 绑定符号（与 Tier 1 `tier1/loader.rs` 的通用 libffi 路径互补） |
-| `tier1/exports.rs` | `#[no_mangle]` `z42_*` extern 函数体 ；活动上下文与 `VmGuard` 由 `exec/active_vm.rs` 提供 |
-| `tier1/*_tests.rs` / `ext/ext_tests.rs` | ABI 和扩展加载单元测试|
+## 基础用法
 
-## 入口点
+提供方提交名称和 `BuiltinDesc` 切片。`RegistryBuilder::register` 在修改前检查完整切片，空名称、重复提供方或同一提供方内重复函数名称均报错；失败不发布部分条目。`freeze` 产生不可变快照，`resolve(provider, name)` 只查询指定提供方。不同提供方允许同名导出；存在歧义的裸名不解析，避免按装配顺序覆盖。
 
-- `interop::exports::z42_register_type` / `z42_resolve_type` / `z42_invoke` / `z42_last_error`：本目录 `tier1/exports.rs` 提供 `#[no_mangle]` 实现
-- `interop::register_native_type` / `resolve_native_type` / `loader::load_library`：z42 内部调用入口
-- `Instruction::CallNative` IR dispatch：在 `interp/ops/exec_instr.rs` → `exec_ffi.rs` 调 `RegisteredType::method` + `dispatch::call`
+独立 crate 通过 `RegistryBuilder::register_module` 提交版本化 C 描述符，静态和动态入口共用校验及调用路径。默认提供方由 `host/builtins.rs` 选择：`z42.core`、`z42_repl` 与 `z42_compression`。corelib 只维护自身描述符。metadata 的 `BuiltinCatalog` 保存名称/ID/折叠事实，exec 通过同序的执行表调用；ID 不跨进程持久化。
 
-## 能力范围
-
-- `z42_register_type`（abi 校验、descriptor 解析、cif 预构建）/ `z42_resolve_type` / `z42_last_error`（thread-local 槽）
-- libffi 调度（`Cif::call<R>` 多返回类型分发）；marshal 双向（i8..i64 / u8..u64 / f32 / f64 / bool / null / pointer）
-- `CallNative` interp dispatch；`PinPtr` / `UnpinPtr` + `Value::PinnedView`：经 `FieldGet view,"ptr"/"len"`（`exec_object::field_get`，从 per-context transient arena 解析）投成标量，再由 `marshal::value_to_z42` 投 `*const u8` / `usize`；`value_to_z42` 无 `ctx`，直接接 raw `PinnedView` 会报错（见 `docs/internals/src/runtime/object-abi.md` §2.2）
-
-## 待办
-
-- `z42_invoke` / `z42_invoke_method`：当前返回 "not implemented" 错误，reverse-call 随 source generator（C5）接入
-- `Z42_VALUE_TAG_STR` / `OBJECT` / `TYPEREF`：tag 已冻结，marshal 路径待 C5 接入
-
-## 依赖关系
-
-- 上：`crate::interp::ops::exec_instr` 调 `CallNative` 分支
-- 下：
-  - `z42_abi` crate（ABI 类型镜像）
-  - `libffi = "3.2"`（cif 构造 + dispatch）
-  - `libloading = "0.8"`（dlopen 库句柄）
-- 门面创建 VM 时装配 `interop::State`。Tier 1 与标准库扩展加载分别通过该状态保留已打开的库；类型注册、扩展尝试集合和可跨平台的 owned pin buffer 均由状态模块管理。
+Tier 1 外部类型仍按 `(module, name)` 在每 VM 注册。`loader::native::load_library` 装入库并在指定 VM 上调用注册入口；PAL 负责操作系统原语。
 
 ## 如何测试验证
 
-```bash
-(cd src/runtime && cargo test --lib native)              # registry / marshal / dispatch / ext 单测
-(cd src/runtime && cargo test --test native_interop_e2e)  # dlopen 端到端
-```
+在 `src/runtime/` 运行 `cargo test -p z42 --lib interop::`，完整验证运行 `./xtask test`。
+
+## 关联文档
+
+- [原生提供方与扩展](../../../../docs/internals/src/runtime/native-extensions.md)
+- [原生 ABI](../../../../docs/internals/src/runtime/native-abi.md)
+
+## 核心文件
+
+`providers.rs` 管理内置函数提供方快照；`state.rs` 管理每 VM 的外部类型与 buffer。二者均不承担脚本类型身份（归 metadata）或动态库代码寿命（归 loader）。
+
+## 当前边界
+
+带 `lib` 但不带 `type` 的脚本声明仍生成按名 builtin，外部类型声明使用 `CallNative`。C 入口 `z42_invoke` / `z42_invoke_method` 尚未实现反向调用；通用模块 ABI 的 `HostApi.invoke_script` 已实现同步脚本回调。旧 Tier 1 类型 ABI 仍独立，不能据此视为已实现其反向入口。

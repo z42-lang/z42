@@ -156,7 +156,7 @@ void _pkgEmitManifestWasm(string pkgDir, string rid, string version, string prof
     m = m + "static      = [" + staticList + "]\n";
     m = m + "dynamic     = [" + dynamicList + "]\n";
     m = m + "containers  = []\n";
-    m = m + "includes    = [\"z42_abi.h\", \"z42_host.h\"]\n\n";
+    m = m + "includes    = [\"z42_abi.h\", \"z42_host.h\", \"z42_native.h\"]\n\n";
     m = m + "[contents.platform]\n";
     m = m + "npm-manifest = \"package.json\"\n";
     m = m + "runtime-pack = \"z42-runtime-" + version + "-" + rid + "\"  # separate; install symlinks pkg-web/pkg-nodejs\n\n";

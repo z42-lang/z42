@@ -168,6 +168,12 @@ typedef enum Z42HostStatus {
     Z42_HOST_ERR_INTERNAL        = 99
 } Z42HostStatus;
 
+/* Register before host creation. Resolver and returned C functions must remain
+ * valid for process lifetime; static resolution precedes OS loading on all targets. */
+typedef const void* (*Z42NativeSymbolResolver)(const char* name);
+Z42HostStatus z42_host_register_static_native_library(const char* name,
+                                                     Z42NativeSymbolResolver resolve);
+
 /* ── Lifecycle API ───────────────────────────────────────────────────────── */
 
 /*

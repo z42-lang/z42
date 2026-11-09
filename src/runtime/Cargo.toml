@@ -42,7 +42,9 @@ parking_lot = "0.12"
 
 blake3 = "1"
 
-z42-compression = { path = "crates/z42-compression", optional = true }
+z42-compression = { path = "crates/z42-compression", default-features = false }
+z42-repl = { path = "crates/z42-repl", default-features = false }
+z42-rs = { path = "crates/z42-rs" }
 
 socket2 = { version = "0.6", features = ["all"], optional = true }
 rustls       = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
@@ -75,7 +77,7 @@ net                  = ["dep:socket2"]
 tls                  = ["net", "dep:rustls", "dep:webpki-roots"]
 aot                  = []
 interp-only          = ["interp"]
-bundled-compression  = ["dep:z42-compression"]
+bundled-compression  = ["z42-compression/backend"]
 wasm                 = ["interp", "interp-only", "bundled-compression"]
 ios                  = ["interp", "interp-only", "aot", "native-interop", "bundled-compression", "net", "tls"]
 android              = ["interp", "interp-only", "aot", "native-interop", "bundled-compression", "net", "tls"]
@@ -92,7 +94,6 @@ signal-hook-registry = "1.4"
 [dev-dependencies]
 z42-interp = { path = "crates/z42-interp", default-features = false }
 jsonschema = { version = "0.56", default-features = false }
-z42-rs     = { path = "crates/z42-rs" }
 criterion  = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
 [target.'cfg(loom)'.dev-dependencies]

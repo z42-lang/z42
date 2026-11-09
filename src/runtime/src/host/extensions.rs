@@ -4,8 +4,12 @@ use crate::context::extensions::{ExtensionState, VmExtensions};
 
 pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     let mut defaults = VmExtensions::new();
+    // Library code outlives every provider/type/resource destructor.
+    #[cfg(feature = "native-interop")]
+    add(&mut defaults, crate::loader::native::Libraries::default());
     // Interop providers must outlive heap, engines, user state and core-library resources.
-    add(&mut defaults, crate::interop::state_for_vm());
+    add(&mut defaults, crate::interop::state_for_vm(crate::host::builtins::registry()));
+    add(&mut defaults, crate::exec::call::builtins::NativeProviderServices { invoke: crate::interop::invoke_export });
     #[cfg(feature = "native-interop")]
     add(&mut defaults, crate::exec::native::NativeServices {
         call: crate::interop::call_registered,
@@ -13,7 +17,7 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
         release_owned_buffer: crate::interop::release_owned_buffer,
     });
     #[cfg(feature = "native-interop")]
-    add(&mut defaults, crate::corelib::repl::paths::Paths(repl_candidates));
+    add(&mut defaults, crate::loader::native::SearchPaths(native_candidates));
     add(&mut defaults, crate::host::services::services());
     // The service owns only Rust arguments, never the core, so this sharing cannot form a cycle.
     let application = crate::host::app_state::state_for_vm();
@@ -60,4 +64,11 @@ fn repl_candidates() -> Vec<std::path::PathBuf> {
         }
     }
     out
+}
+
+#[cfg(feature = "native-interop")]
+fn native_candidates(name: &str) -> Vec<std::path::PathBuf> {
+    if name == "z42_repl" { return repl_candidates(); }
+    let file = crate::pal::dynlib::file_name(name);
+    crate::components::native_paths().into_iter().map(|dir| dir.join(&file)).collect()
 }

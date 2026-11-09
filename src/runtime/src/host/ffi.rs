@@ -51,6 +51,30 @@ where
 
 // ── Handle encoding ──────────────────────────────────────────────────────
 
+/// Register a process-lifetime static native library before creating a host.
+///
+/// # Safety
+/// name must be NUL-terminated UTF-8. The resolver and its returned C entries
+/// must remain valid for the process lifetime and support concurrent invocation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn z42_host_register_static_native_library(
+    name: *const c_char, resolve: Option<NativeSymbolResolver>,
+) -> Z42HostStatus {
+    guard(|| {
+        clear_error();
+        let Some(resolve) = resolve else { return set_error(Z42HostStatus::BadConfig, "native resolver is NULL"); };
+        if name.is_null() { return set_error(Z42HostStatus::BadConfig, "native library name is NULL"); }
+        let name = match unsafe { std::ffi::CStr::from_ptr(name) }.to_str() {
+            Ok(name) => name,
+            Err(_) => return set_error(Z42HostStatus::BadConfig, "native library name is not UTF-8"),
+        };
+        match unsafe { register_static_native_library(name, resolve) } {
+            Ok(()) => Z42HostStatus::Ok,
+            Err(error) => set_error(Z42HostStatus::BadConfig, format!("{error:#}")),
+        }
+    })
+}
+
 // `Z42ModuleRef` / `Z42EntryRef` opaque pointers carry an index into the
 // host's modules / entries vector encoded as `idx + 1`. Plus-one keeps
 // NULL distinct from the first valid handle. v0.1 has no generational

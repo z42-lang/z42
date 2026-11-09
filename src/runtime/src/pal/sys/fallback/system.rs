@@ -14,6 +14,7 @@ pub fn os_name() -> &'static str {
 const WASM: bool = false;
 const MOBILE: bool = false;
 pub const OS_CAPS: OsCaps = OsCaps {
+    native_extensions: false,
     threads: crate::pal::thread::CAN_SPAWN,
     fs: !WASM,
     clock: crate::pal::time::HAS_CLOCK,

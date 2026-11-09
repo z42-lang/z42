@@ -540,27 +540,27 @@ fn make_closure_returns_null_for_invalid_args() {
 
 // ── refactor-split-corelib-mod: 拼接表的不变式 ─────────────────────────────
 //
-// BUILTINS 是 `#[builtins]` 模块 DESCS 的**编译期**拼接。下标即 BuiltinId，但 zbc
+// 注册后的 builtin 表由 interop 按提供方顺序装配。下标即 BuiltinId，但 zbc
 // 里存的是 builtin **名字**、id 只在加载期按名解析（见 native_decl_tests 与 ext 表内
 // __repl_readline_indented 先例）——抽掉退役槽位不影响既有 zbc；本测试守的是拼接
 // 不错位、无空洞、名字唯一。
 
 #[test]
 fn builtin_table_join_preserves_order_and_has_no_holes() {
-    use crate::corelib::builtins::BUILTINS;
+
     // 没有被填充值漏下来的空洞（padding 的名字是空串）。
-    assert!(BUILTINS.iter().all(|d| !d.name.is_empty()),
-        "a padding slot leaked into BUILTINS — the const join left a hole");
+    assert!(crate::host::builtins::functions().iter().all(|d| !d.name.is_empty()),
+        "a padding slot leaked into crate::host::builtins::functions() — the const join left a hole");
     // 名字唯一——重复会让 name→id 索引静默丢掉一个实现。
-    let mut names: Vec<&str> = BUILTINS.iter().map(|d| d.name).collect();
+    let mut names: Vec<&str> = crate::host::builtins::functions().iter().map(|d| d.name).collect();
     let total = names.len();
     names.sort_unstable();
     names.dedup();
-    assert_eq!(names.len(), total, "duplicate builtin name in BUILTINS");
+    assert_eq!(names.len(), total, "duplicate builtin name in crate::host::builtins::functions()");
     // 拼接保持模块注册顺序：`builtin_assembly.rs` 的 TYPED 首模块（convert）在表头，
     // 最后一个真实模块（batch 12b 收官的 array）在 cfg(test) 的测试 builtin 之前。
-    let idx = |n: &str| BUILTINS.iter().position(|d| d.name == n).unwrap();
-    assert_eq!(BUILTINS[0].name, "__mmh3_hex_str", "the first module (convert) heads the table");
+    let idx = |n: &str| crate::host::builtins::functions().iter().position(|d| d.name == n).unwrap();
+    assert_eq!(crate::host::builtins::functions()[0].name, "__mmh3_hex_str", "the first module (convert) heads the table");
     assert!(idx("__array_clone") < idx("__test_abi_args"),
         "modules must join in registration order");
 }

@@ -7,27 +7,27 @@
 //! (run under `xtask test stdlib`). Here we assert the registration
 //! discipline that Rust *can* check without stdlib types.
 
-use crate::corelib::builtins::{CATALOG, BUILTINS};
+
 
 #[test]
 fn diag_counters_is_registered() {
     // Name resolves to a valid static BuiltinId.
-    let id = CATALOG.id_of("__diag_counters").expect("__diag_counters must be registered");
-    assert!((id.0 as usize) < BUILTINS.len());
+    let id = crate::host::builtins::catalog().id_of("__diag_counters").expect("__diag_counters must be registered");
+    assert!((id.0 as usize) < crate::host::builtins::functions().len());
     // Points at the diagnostics builtin entry (name matches at that index).
-    assert_eq!(BUILTINS[id.0 as usize].name, "__diag_counters");
+    assert_eq!(crate::host::builtins::functions()[id.0 as usize].name, "__diag_counters");
 }
 
 #[test]
 fn diag_counters_appended_last_preserves_ids() {
     // expose-diagnostics-counters appended `__diag_counters` at the END of
-    // BUILTINS to keep every prior BuiltinId stable (append-only discipline).
+    // crate::host::builtins::functions() to keep every prior BuiltinId stable (append-only discipline).
     // If a later change inserts *before* it, this test still passes as long as
     // ids stay stable; the invariant we lock here is that the entry exists and
     // its id equals its array position (positional == BuiltinId).
-    let id = CATALOG.id_of("__diag_counters").unwrap();
-    let pos = BUILTINS.iter().position(|d| d.name == "__diag_counters").unwrap();
-    assert_eq!(id.0 as usize, pos, "BuiltinId must equal BUILTINS array position");
+    let id = crate::host::builtins::catalog().id_of("__diag_counters").unwrap();
+    let pos = crate::host::builtins::functions().iter().position(|d| d.name == "__diag_counters").unwrap();
+    assert_eq!(id.0 as usize, pos, "BuiltinId must equal crate::host::builtins::functions() array position");
 }
 
 /// The retention queries force a collection and walk every thread's frames for

@@ -128,6 +128,7 @@ fn host_build() -> Result<(), Box<dyn Error>> {
 
     println!("cargo:rerun-if-changed={}", src.display());
     println!("cargo:rerun-if-changed={}/z42_abi.h", inc.display());
+    println!("cargo:rerun-if-changed={}/z42_native.h", inc.display());
 
     // `cargo_metadata(false)`: by default cc prints `cargo:rustc-link-lib=static=numz42_c`,
     // which makes the archive a native dependency of the `z42` library itself —

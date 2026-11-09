@@ -114,6 +114,7 @@ void _copyAbiHeaders(string root, string destIncludeDir) {
     Directory.Create(destIncludeDir);
     File.Copy(Path.Join(root, "src/runtime/include/z42_abi.h"), Path.Join(destIncludeDir, "z42_abi.h"));
     File.Copy(Path.Join(root, "src/runtime/include/z42_host.h"), Path.Join(destIncludeDir, "z42_host.h"));
+    File.Copy(Path.Join(root, "src/runtime/include/z42_native.h"), Path.Join(destIncludeDir, "z42_native.h"));
 }
 
 // Runtime package (z42-runtime-<ver>-<rid>) scaffold: compute the pkg dir, print

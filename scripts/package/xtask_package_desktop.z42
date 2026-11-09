@@ -233,6 +233,7 @@ void _pkgEmitManifest(string pkgDir, string rid, string version, string profile,
     string staticList = _quotedExisting(Path.Join(pkgDir, "native"), "libz42.a", "z42.lib");
     string dynamicList = _quotedDirList(Path.Join(pkgDir, "native"), rid.StartsWith("windows-") ? ".dll" : (rid.StartsWith("macos-") ? ".dylib" : ".so"));
     string includeList = _quotedExisting(Path.Join(pkgDir, "native/include"), "z42_abi.h", "z42_host.h");
+    if (File.Exists(Path.Join(pkgDir, "native/include/z42_native.h"))) { includeList = includeList + ", \"z42_native.h\""; }
     string m = "";
     m = m + "[package]\n";
     m = m + "name        = \"z42-" + rid + "\"\n";

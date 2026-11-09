@@ -330,7 +330,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         platforms: NOT_WASM,
         description: "search path for native .dylib/.so/.dll modules (platform-separated)",
         default_hint: "unset; falls back to package-relative search",
-        consumed_by: "interop/ext/mod.rs",
+        consumed_by: "loader/native.rs",
         ..PUBLIC
     },
     KnobSpec {
@@ -395,7 +395,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         platforms: NOT_WASM,
         description: "override path to the REPL line-editor cdylib (libz42_repl); accepts the file or its directory",
         default_hint: "unset; searched relative to the z42vm binary",
-        consumed_by: "corelib/repl/native.rs",
+        consumed_by: "host/extensions.rs",
         ..DEBUG_KNOB
     },
     KnobSpec {

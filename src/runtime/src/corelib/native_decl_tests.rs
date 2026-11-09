@@ -1,12 +1,12 @@
 //! add-native-decl-consistency-check: the stdlib's `[Native("__x")]` declarations and the
-//! VM's `BUILTINS` table are two hand-maintained lists that must agree. Before this test the
+//! VM's registered provider catalog are two hand-maintained lists that must agree. Before this test the
 //! first sign of drift was a load-time `unknown builtin` panic when the mismatched function
 //! was first resolved (and only if that code path ran). The test scans `src/libraries/**/*.z42`
 //! at `cargo test` time and enforces both directions:
 //!
-//! * every declared `[Native("__x")]` name must exist in `BUILTINS` (a typo / a removed builtin
+//! * every declared `[Native("__x")]` name must exist in registered provider catalog (a typo / a removed builtin
 //!   fails here, not at runtime);
-//! * every `BUILTINS` name must be declared somewhere in the stdlib **or** be on the explicit
+//! * every registered provider catalog name must be declared somewhere in the stdlib **or** be on the explicit
 //!   allowlist of names that are legitimately never declared in z42 source (emitted directly by
 //!   the compiler / used by the VM internally / host-only). Adding a builtin without declaring
 //!   it and without extending the allowlist fails here, which keeps the allowlist honest.
@@ -21,12 +21,12 @@
 //! 会假缺席）。
 //!
 //! Only the positional `[Native("__x")]` form is checked: the `[Native(lib=..., entry=...)]`
-//! form binds to native extensions (`interop/ext/mod.rs`), not to `BUILTINS`.
+//! form binds to native extensions (`crates/z42-compression/src/native.rs`), not to registered provider catalog.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::corelib::builtins::BUILTINS;
+
 
 /// Builtins that are intentionally absent from every `[Native]` declaration in `src/libraries`.
 /// Keep this list minimal and documented — an entry here is a claim that the name is consumed by
@@ -57,11 +57,6 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     ("__class_default", "compiler-emitted: 继承链按声明类寻址（类级 default(T)）"),
     // Invoked by the VM itself (boxed-struct `GetHashCode` protocol intercept in exec/ops/vcall).
     ("__struct_hash_code", "VM-internal: boxed struct GetHashCode"),
-    // Host-only surfaces (REPL line editor) wired by their hosts.
-    ("__repl_readline",       "host-only: z42-repl cdylib"),
-    ("__repl_set_completer",  "host-only: z42-repl cdylib"),
-    ("__repl_set_key_editor", "host-only: z42-repl cdylib"),
-    ("__repl_set_keywords",   "host-only: z42-repl cdylib"),
     // 🪦 store-sync-values-in-heap 阶段 2 已落地：旧同步原语的 19 条豁免连同它们的
     // 表槽、`corelib/sync.rs`、三个 registry 一并删除 —— 所以这里**不再需要**对应条目。
     //
@@ -77,7 +72,7 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
 /// 当场变成「未声明」——它们声明在 `z42.scripting` 里，而那个包挪去了 `src/compiler/`。
 fn z42_source_roots() -> Vec<PathBuf> {
     let base = Path::new(env!("Z42_RUNTIME_DIR"));
-    vec![base.join("../libraries"), base.join("../compiler")]
+    vec![base.join("../libraries"), base.join("../compiler"), base.join("../toolchain/interactive")]
 }
 
 fn collect_z42_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -166,15 +161,25 @@ fn declared_natives_full() -> Vec<(String, bool, String)> {
     out
 }
 
+fn registered_functions() -> Vec<(&'static str, bool)> {
+    let registry = crate::host::builtins::registry();
+    let mut functions: Vec<_> = registry.functions().iter()
+        .map(|function| (function.name, function.ret == crate::exec::call::builtin_abi::RetKind::Void)).collect();
+    for module in registry.modules() {
+        functions.extend(module.functions().map(|(name, function)| (name, function.result == z42_abi::native::VOID)));
+    }
+    functions
+}
+
 #[test]
 fn every_declared_native_has_a_builtin() {
-    let table: BTreeSet<&str> = BUILTINS.iter().map(|d| d.name).collect();
+    let table: BTreeSet<&str> = registered_functions().into_iter().map(|(name, _)| name).collect();
     let missing: Vec<String> = declared_natives().into_iter()
         .filter(|(name, _)| !table.contains(name.as_str()))
         .map(|(name, at)| format!("{name} (declared at {at})"))
         .collect();
     assert!(missing.is_empty(),
-        "stdlib declares [Native] names with no BUILTINS entry (add the Rust builtin or fix the name):\n  {}",
+        "stdlib declares [Native] names with no crate::host::builtins::functions() entry (add the Rust builtin or fix the name):\n  {}",
         missing.join("\n  "));
 }
 
@@ -184,11 +189,11 @@ fn every_builtin_is_declared_or_allowlisted() {
     let allow: BTreeSet<&str> = UNDECLARED_ALLOWLIST.iter().map(|(n, _)| *n).collect();
     // `__test_abi_*`: the builtin ABI's own test builtins (`exec::call::builtin_abi::test_builtins`,
     // registered under `cfg(test)` only).
-    let undeclared: Vec<&str> = BUILTINS.iter().map(|d| d.name)
+    let undeclared: Vec<&str> = registered_functions().into_iter().map(|(name, _)| name)
         .filter(|n| !declared.contains(*n) && !allow.contains(n) && !n.starts_with("__test_abi_"))
         .collect();
     assert!(undeclared.is_empty(),
-        "BUILTINS entries neither declared via [Native] in src/libraries nor allowlisted \
+        "crate::host::builtins::functions() entries neither declared via [Native] in src/libraries nor allowlisted \
          (declare them in stdlib, or add to UNDECLARED_ALLOWLIST with a reason):\n  {}",
         undeclared.join("\n  "));
     // The allowlist must not go stale either: an allowlisted name that IS now declared should
@@ -198,10 +203,10 @@ fn every_builtin_is_declared_or_allowlisted() {
         "UNDECLARED_ALLOWLIST entries are now declared in stdlib — drop them from the allowlist:\n  {}",
         stale.join("\n  "));
     // …and must only name real builtins.
-    let table: BTreeSet<&str> = BUILTINS.iter().map(|d| d.name).collect();
+    let table: BTreeSet<&str> = registered_functions().into_iter().map(|(name, _)| name).collect();
     let unknown: Vec<&str> = allow.iter().copied().filter(|n| !table.contains(n)).collect();
     assert!(unknown.is_empty(),
-        "UNDECLARED_ALLOWLIST names are not BUILTINS at all:\n  {}", unknown.join("\n  "));
+        "UNDECLARED_ALLOWLIST names are not crate::host::builtins::functions() at all:\n  {}", unknown.join("\n  "));
 }
 
 /// 🔴 stdlib 声明的 `void` ⟺ 表项的 `RetKind` 是 `Void`（split-north-null ④ 的闭环门）。
@@ -213,13 +218,13 @@ fn every_builtin_is_declared_or_allowlisted() {
 #[test]
 fn declared_voidness_matches_the_builtin_table() {
     let table: std::collections::BTreeMap<&str, bool> =
-        BUILTINS.iter().map(|d| (d.name, d.ret == crate::exec::call::builtin_abi::RetKind::Void)).collect();
+        registered_functions().into_iter().collect();
     let mut bad = Vec::new();
     for (name, decl_void, where_) in declared_natives_full() {
         let Some(&tbl_void) = table.get(name.as_str()) else { continue };  // 名字那条门管这格
         if decl_void != tbl_void {
             bad.push(format!(
-                "  {name}: stdlib 声明{}，而 BUILTINS 的 RetKind 是{}  ({where_})",
+                "  {name}: stdlib 声明{}，而 crate::host::builtins::functions() 的 RetKind 是{}  ({where_})",
                 if decl_void { "返回 void" } else { "有返回值" },
                 if tbl_void { "Void" } else { "非 Void" },
             ));
@@ -229,7 +234,7 @@ fn declared_voidness_matches_the_builtin_table() {
     bad.dedup();
     assert!(
         bad.is_empty(),
-        "stdlib 的 [Native] 返回类型与 BUILTINS 的 RetKind 登记不一致：\n{}\n\
+        "stdlib 的 [Native] 返回类型与 crate::host::builtins::functions() 的 RetKind 登记不一致：\n{}\n\
          修法：让 Rust 签名与声明一致——声明 void 的返回 `()`（`RetKind::Void`），\n\
          有返回值的返回具体值类型。\n\
          （change split-null-sentinel-channels ④：void 不再用 `Value::Null` 表示）",

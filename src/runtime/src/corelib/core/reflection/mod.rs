@@ -75,3 +75,7 @@ mod reflection_tests;
 
 #[cfg(test)]
 mod reflection_cache_tests;
+
+mod static_value;
+pub use static_value::member_names_of_static_value;
+pub(crate) use static_value::typed as static_value_builtins;

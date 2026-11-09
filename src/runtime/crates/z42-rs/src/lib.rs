@@ -27,6 +27,7 @@
 //! stays `no_std` for embedded users.
 
 pub mod native_helpers;
+pub mod native;
 pub mod traits;
 pub mod types;
 

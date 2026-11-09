@@ -7,7 +7,7 @@
 > `src/compiler/z42.compiler.contracts/src/IReplCompiler.z42`（编译门面）、
 > `src/compiler/z42c.pipeline/src/Z42cReplCompiler.z42`（门面实现）、
 > `src/runtime/crates/z42-repl/`（行编辑 cdylib）、
-> `src/runtime/src/corelib/repl/mod.rs` · `repl/native.rs` · `repl/editing.rs`（VM 侧 builtin）、
+> `src/runtime/crates/z42-repl/src/native.rs`（脚本描述符、每 VM 会话和通用 C 回调）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`z42 repl` 转发）。
 >
 > 要查**怎么用** `z42 repl`（旗标、元指令）→ 敲 `z42 repl -h`，或语言与库参考的工具链部分。
@@ -261,7 +261,7 @@ Ctrl-D 归一成 **null**（循环 break，退出）——见 §5.1。
 ### 5.1 边界：dlopen 的 host-only cdylib
 
 rustyline 后端不在 z42vm 里，而是独立 crate `z42-repl` 编出的 `libz42_repl.{so,dylib,dll}`，
-**挨着 z42i 放**（`programs/z42i/`），由 `corelib::repl::native` 的 REPL 专用惰性 loader 在首次
+**挨着 z42i 放**（`programs/z42i/`），由 `repl::native` 的 REPL 专用惰性 loader 在首次
 `__repl_readline` 时 dlopen——不走通用的 `native_search_paths()`。wasm / mobile 永远不加载它，
 落回纯 stdin 读取。产物由 `z42.repl` 自己的 build hook（`repl/hooks/hooks.z42` 的 `ProvideNative`）
 `cargo build -p z42-repl` 产出并登记，消费方 publish 时沿 path-dep 闭包自动平铺进 payload。
@@ -326,8 +326,8 @@ Rust 答「光标在末尾没」（`ectx.pos() == ectx.line().len()`，字节比
 
 - **Tab 补全**：编辑器以 `CompletionType::List` 构造（bash 式：首 Tab 补最长公共前缀、再 Tab 列候选），
   而非 rustyline 默认的 `Circular`（反复 Tab 循环候选、转一圈回到原始输入，观感是「Tab 越按越退」）。
-  候选经进程全局 `REGISTERED_COMPLETER`（z42 的 `Z42.Scripting.replComplete`，由 `Repl.SetCompleter` 注册）
-  回调 VM 取得。
+  候选经每 VM 的补全回调配置（z42 的 `Z42.Scripting.replComplete`，由 `Repl.SetCompleter` 注册）
+  回调所属 VM 取得，worker 共享所属 VM 的配置。
 - **inline ghost 提示**：`Hinter` 只在行尾、缓冲非空时出手。先试**补全 ghost**——复用同一个 completer，
   取第一个**严格扩展**当前词的候选的后缀（`starts_with` 过滤，非扩展就不提示，ghost 永不错）；
   没有则回退 fish 式**历史 ghost**（`HistoryHinter`）。ghost 用 `highlight_hint` 渲成 ANSI 暗灰

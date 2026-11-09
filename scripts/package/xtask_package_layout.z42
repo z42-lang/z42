@@ -65,6 +65,7 @@ void _plSdk(string root, _PkgLayout L, string rid) {
 // 桌面 runtime 包 = 嵌入者拿 libz42 的唯一来源：静态 + 动态（Windows 另有 import lib）+ C 头。
 void _plRuntimeDesktop(string root, _PkgLayout L, string rid) {
     L.HasFile("native/include/z42_host.h");
+    L.HasFile("native/include/z42_native.h");
     _plComponentLibraries(L, rid);
     L.HasFile(rid.StartsWith("windows-") ? "native/z42.lib" : "native/libz42.a");
 }

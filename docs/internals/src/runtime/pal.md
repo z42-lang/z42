@@ -232,6 +232,8 @@ pub fn find_executable(name: &str) -> Option<String>;        // POSIX `command -
 
 ```rust
 // pal/dynlib.rs
+pub const fn is_supported() -> bool;
+pub fn require_supported() -> io::Result<()>;
 pub fn file_name(stem: &str) -> String;                      // lib<stem>.dylib / .so、<stem>.dll
 pub struct Library;                                          // feature native-interop；drop 即卸载
 impl Library {
@@ -240,8 +242,8 @@ impl Library {
 }
 ```
 
-运行时只在这里 dlopen：用户 native 扩展（`interop/loader`）、`libz42_compression`（`interop/ext`）、REPL 编辑器
-`libz42_repl`（`corelib/repl/native.rs`）。
+运行时只在这里 dlopen：用户 native 扩展（`loader/native`）、`libz42_compression`（`compression`）、REPL 编辑器
+`libz42_repl`（`crates/z42-repl/src/native.rs`），提供方均通过 loader 请求装入。脚本扩展在 iOS/WASM 或关闭 native interop 时拒绝；可信运行时组件的 `open_component` 使用独立装载契约。
 
 ### `pal/random.rs` — 熵
 

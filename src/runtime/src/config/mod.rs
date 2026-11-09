@@ -16,7 +16,7 @@
 //! reads at boot.
 //!
 //! Subsystem-local OnceLock-cached env reads (`Z42_NATIVE_PATH` in
-//! `interop/ext/mod.rs`, `Z42_SAFEPOINT_THROTTLE` / `Z42_GC_*` in `gc/`,
+//! `loader/native.rs`, `Z42_SAFEPOINT_THROTTLE` / `Z42_GC_*` in `gc/`,
 //! `Z42_STRESS_ITERS` in tests) keep their existing inline reads —
 //! migrating those is Phase 2 (separate small refactor). The `KNOWN_KNOBS`
 //! table here lists ALL of them for discovery / `--info` purposes

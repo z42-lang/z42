@@ -53,6 +53,8 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ## 当前焦点
 
+运行时模块迭代：loader 统一 zpkg/zbc/zsym 与 native 装入，interop 负责注册、查询与通用 C 调用，corelib 只维护核心实现。Repl/compression 在各自 crate 拥有脚本描述符、注册入口和实现（[PR #1736](https://github.com/z42-lang/z42/pull/1736)）；库产物和平台分发由 [PR #1735](https://github.com/z42-lang/z42/pull/1735) 处理。后续贯通带 lib 的自由函数绑定与旧 Tier 1 类型 ABI 的反向调用；Repl 编辑和历史保持 tier1 能力边界，PAL 拒绝不支持的平台扩展装载。
+
 **0.3.x 自举线**：以 GC v1 为地基，三主线并行——A（stdlib 重组 + perf）‖ B（**编译器全自举**：7 子系统 byte-identical）‖ C（**反射完整化**：含非泛型 Method.Invoke），尾段五项扩展——boxing 机制 + test-runner 删除 + CI 三平台模拟器 + workload B1/B2，REPL 作为 capstone。（2026-06-19 扩展）。
 
 > **2026-06-07 重排要点**：全端到端自举从 1.0 拉到 0.3.x 作为本线招牌；自举采用「受限写法 + dogfood 补真卡点」（不为自举强制提前整个 0.6/0.7 的 match/LINQ/Result）；REPL 从 0.5.x 拉到 0.3.x capstone。连锁影响见下文 [长期 SemVer 路线](#长期-semver-路线05--10) 重排。
@@ -353,6 +355,10 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 ---
 
 ## Deferred Backlog Index
+
+| 条目 | 当前边界 | 机制页 |
+|---|---|---|
+| `runtime-future-wasm-module-loading` | 当前为最终 WASM 模块静态链接；独立模块的宿主实例化、注册和跨实例 ABI 尚未实现 | [组件化运行时](internals/src/runtime/componentized-runtime.md#runtime-future-wasm-module-loading独立-wasm-模块加载) |
 
 > 所有显式延后特性的横向索引；条目正文存于 internals 对应机制页的 `## Deferred` 节（reference 页为「不支持」节）。新增延后项时：① 在对应书页写清当前行为与延后条目 ② 在本表加索引行。
 

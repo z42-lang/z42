@@ -43,6 +43,31 @@ LoadOptions.backends 的每个后端可选 Auto、Linked、Dynamic(path)、Disab
 
 JIT 的依赖仅在 Linux/macOS/Windows 的 x64/arm64 target 选择；即便不支持的平台误传 jit feature，也不引入 Cranelift 实现。动态组件包仅支持在目标桌面原生构建，不支持跨平台复制 Rust dylib。
 
+### 跨平台编译与链接模型
+
+模块自己拥有脚本接口描述、注册入口和实现。静态链接由宿主调用登记入口，动态装入由 loader 找到同一入口后登记；interop 负责校验和查询，不维护各模块的函数清单。链接形态不改变每 VM 状态、调用契约与资源所有权。
+
+| 平台 | 静态编译 / 链接 | 动态形态与边界 |
+|---|---|---|
+| Linux / macOS / Windows | Rust 宿主链接 rlib，C 宿主链接目标平台的静态归档，再显式登记模块 | 系统动态库 `.so` / `.dylib` / `.dll`；loader 经 PAL 装入并校验登记入口 |
+| Android | 将目标架构静态归档链接进宿主或 JNI 库，显式登记模块 | 使用随应用部署的 `.so`；动态能力取决于 PAL 和宿主提供的装载环境 |
+| iOS | 静态链接所需模块并登记；压缩使用独立模块的静态归档 | 应用预先部署的可信运行时 Framework 与脚本请求的 native 扩展是两类契约；后者禁止，不能以组件装载绕过 |
+| Browser WASM | 为 `wasm32-unknown-unknown` 编译 Rust 库或包含 WASM 对象的 `.a`，链接生成生产 release `.wasm`；需要额外能力时用静态库重新链接 | 默认产品只带运行所需模块，不包含 profiler/debug 等开发组件；独立动态 WASM 模块加载尚未实现 |
+
+WASM 的 `.a` 是供链接器消费的归档，不能由浏览器实例化；`.rlib` 是 Rust 构建输入，也不能当作对外 C 静态库。静态链接的最终交付物仍是 `.wasm`，所需 core、解释器和模块代码已在链接期确定。`wasm-pack` / wasm-bindgen 生成的 JS 加最终 `.wasm` 包，不表示运行时已经支持独立动态库。LLVM 的 [WASM 链接器说明](https://lld.llvm.org/WebAssembly.html)区分了对象链接、imports/exports 与实验性的动态链接约定。
+
+WASM 最终产品的默认发布契约是**最小生产 release**：只链接应用运行必需的 core、选定执行后端和所需库。profiler、debugger、开发测试宿主等能力不进入默认依赖闭包，也不通过导出或注册入口意外保活。`--release` 只选择构建优化配置，不能代替组件裁剪；把开发组件链接进去后仅关闭运行期开关，不满足这一契约。
+
+有诊断或调试需求时，使用对应目标的静态库重新链接，显式选入所需组件并登记，生成专用 `.wasm`。这是同一份模块源码与注册协议的另一种最终链接配置，默认产品不必预留全部开发实现，也不要求先实现动态 WASM 加载。静态库是重链接的支持产物，与默认浏览器产品分开交付；profiler/debugger 尚未独立提供的静态组件，不能描述为已经可直接消费的归档。
+
+发行验证应分别检查默认 release 和按需重链接配置：前者的依赖、导出和注册集合不含开发组件，后者只增加显式选入的能力，并验证注册、执行和资源释放。不能只凭 profile 名称或文件后缀判断裁剪完成。
+
+独立动态 WASM 模块的目标模型是：模块单独编译为 `.wasm`，由 JS 或其他 WASM 宿主读取、校验、补齐 imports 并实例化，再通过 exports 取得注册入口，把能力接入已有 VM。模块通过导入的宿主服务访问运行时，不重复创建一份 core、GC 或类型身份系统。WebAssembly 的 [JS API](https://webassembly.org/getting-started/js-api/)提供实例化和 import/export 连接机制；这些机制与操作系统 dlopen 不同。
+
+动态 WASM 的逻辑注册契约与静态模块一致，跨实例传输需要独立适配：各实例拥有自己的线性内存时，通过复制缓冲、句柄和宿主 trampoline 交互，不能直接传递另一实例的地址或函数表下标。如果采用共享 memory/table，则必须先定义并验证重定位、分配器、表索引和生命周期约定，不能仅凭导出函数同名就复用原生 C 指针布局。Rust `cdylib` 产出 `.wasm` 本身不保证这些条件成立。
+
+因此，当前 PAL 报告 WASM 不支持 native 动态库，禁止的是 OS native 装载路径；未来的 WASM 模块加载由宿主适配层提供独立能力，不能把该开关改成 true 后继续调用 dlopen。Repl 的终端编辑和用户历史仍属于 tier1 桌面模块，WASM 编译/求值与静态 compression 不依赖这些能力。
+
 ## 3. 描述符、身份与边界
 
 组件 init 返回不可变 ComponentDescriptor；其头检查协议版本、结构大小、构建身份和预期 ID。依赖先排序，拒绝重复、缺依赖和环；接口表检查版本、大小与对齐。组件全部创建成功后才发布注册表，失败按依赖反序回滚。
@@ -73,7 +98,7 @@ worker 加入同一 Core，不重建组件或扩展。ComponentLease 保留 Core
 
 ## 6. 配置与装配
 
-host/boot、host/extensions 与 host/artifact 统一主 VM 装配，将 RuntimeConfig 转为 VM 使用的配置和惰性 FusionInputs；VM 的基础机制接收明确的构造输入。builtin 目录和对象协议绑定归 corelib；后端登记归 components。LazyLoader 的宿主默认构造使用 inherent 方法，加载机制仍可显式接收 FusionInputSource。主上下文通过 RuntimeInputs 接收引擎、builtin 目录/表、对象协议、采样和扩展；worker 仅共享已有 Core 并建立线程视图。
+host/boot、host/extensions 与 host/artifact 统一主 VM 装配，将 RuntimeConfig 转为 VM 使用的配置和惰性 FusionInputs；VM 的基础机制接收明确的构造输入。corelib 提供自身 builtin 描述符和对象协议绑定，host 经 interop 装配完整注册集合；后端登记归 components。LazyLoader 的宿主默认构造使用 inherent 方法，加载机制仍可显式接收 FusionInputSource。主上下文通过 RuntimeInputs 接收引擎、builtin 目录/表、对象协议、采样和扩展；worker 仅共享已有 Core 并建立线程视图。
 
 BuiltinCatalog 只含名称/ID 与折叠属性，callable 表属于 exec，provider 由门面装配。纯派发缓存归 runtime/dispatch，加载、初始化、等待与异常物化编排归 exec/ops。监视器机制与争用探针属于 core，标准库适配属于 corelib。
 
@@ -91,6 +116,16 @@ LOH 覆盖、native 扩展加载、固定地址登记和 TLAB/SATB 顺序保持�
 动态包 verify 将库搬移到独立目录，清除动态链接搜索环境，执行实际生产依赖图的 engine_components 集成测试，覆盖解释/JIT、worker/GC/异常、VM 隔离、缺库/禁用/未静态链接、接口租约和正常释放，以及从 host 动态库调用 C 嵌入接口。测试必须实际执行，零用例不算通过。通用静态/动态 ABI 夹具另覆盖描述符拒绝、依赖、回滚与库保活。
 
 后续拆 profiler/debugger：core 仅保留观察者、采样和诊断契约，独立组件拥有工具实现、线程和重型状态。AOT 按其后端计划接入。每项都需要完整运行时、SDK、平台与性能验证；不得把通用框架或某一平台通过当作全部组件已交付。
+
+## Deferred
+
+### runtime-future-wasm-module-loading：独立 WASM 模块加载
+
+- **来源**：原生模块自注册与跨平台链接设计（PR #1736）。
+- **触发原因**：当前浏览器运行时采用最终单模块链接，没有独立模块的装载、注册与跨实例传输实现。
+- **前置依赖**：版本化模块注册协议、宿主 import/export 适配、明确的内存/函数引用及状态寿命契约。
+- **触发条件**：需要不重链接宿主即可按需分发 compression 等 WASM 能力时实施，并覆盖重复装载、ABI 拒绝、多 VM 隔离和释放。
+- **当前 workaround**：将所需模块静态链接到最终 `.wasm`，实例化后显式登记。
 
 ## 关联文档
 

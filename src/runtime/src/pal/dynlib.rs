@@ -2,6 +2,23 @@
 //! The one place the runtime calls `dlopen` / `LoadLibrary` (native extensions, the
 //! compression and REPL cdylibs).
 
+/// Whether script-requested native extensions can be opened by this build.
+/// Trusted runtime components use their separate component-loading contract.
+pub const fn is_supported() -> bool {
+    cfg!(feature = "native-interop") && super::system::OS_CAPS.native_extensions
+}
+
+/// Reject unsupported extension loads before probing files or running native initializers.
+pub fn require_supported() -> std::io::Result<()> {
+    check_supported(is_supported())
+}
+
+fn check_supported(supported: bool) -> std::io::Result<()> {
+    if supported { return Ok(()); }
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported,
+        "native extension loading is not supported by this platform or build"))
+}
+
 /// The platform file name of library `stem`: `lib<stem>.dylib` / `lib<stem>.so` /
 /// `<stem>.dll`.
 pub fn file_name(stem: &str) -> String {
@@ -49,7 +66,7 @@ impl Library {
             return Ok(image);
         }
         // Initializers may load other components; never run them under the lock.
-        let image = Arc::new(unsafe { Self::open(&path) }?);
+        let image = Arc::new(unsafe { Self::open_image(&path) }?);
         Ok(images.lock().unwrap().entry(path).or_insert(image).clone())
     }
 
@@ -59,6 +76,11 @@ impl Library {
     /// Opening runs the library's initialisers; the library must be one this process may
     /// load (built for this target, trusted).
     pub unsafe fn open(path: &std::path::Path) -> std::io::Result<Self> {
+        require_supported()?;
+        unsafe { Self::open_image(path) }
+    }
+
+    unsafe fn open_image(path: &std::path::Path) -> std::io::Result<Self> {
         unsafe { libloading::Library::new(path) }
             .map(Library)
             .map_err(|e| std::io::Error::other(format!("dlopen({}): {e}", path.display())))

@@ -26,8 +26,6 @@ pub(crate) use self::core::symavail;
 mod resource_state_tests;
 pub mod io;
 pub use io::fs;
-pub mod repl;
-pub use repl::{editing as repl_editing, native as repl_native};
 pub use crate::object::types::named_struct_layout as struct_reflect;
 pub mod os;
 pub use os::{platform, process, system};
