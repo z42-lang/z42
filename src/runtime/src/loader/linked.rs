@@ -9,12 +9,27 @@ use std::{
 
 pub type NativeSymbolResolver = unsafe extern "C" fn(*const c_char) -> *const c_void;
 
+/// The stdlib native libraries a statically linked host may supply. Hosts
+/// register implementations by logical name (`z42_<library>`); anything else
+/// is a configuration mistake and must fail loudly instead of sitting in the
+/// table unread (C host self-check pins this).
+const KNOWN_STATIC_LIBRARIES: &[&str] = &[
+    "z42_compression",
+    // Synthetic library driven through the generic declaration/lazy-load
+    // machinery by interop module tests.
+    #[cfg(test)]
+    "native.lazy.test",
+];
+
 #[derive(Default)]
 struct Providers(RwLock<HashMap<String, NativeSymbolResolver>>);
 impl Providers {
     fn register(&self, name: &str, resolver: NativeSymbolResolver) -> Result<()> {
         if name.is_empty() || name.bytes().any(|byte| matches!(byte, 0 | b'/' | b'\\')) {
             bail!("invalid logical native library name");
+        }
+        if !KNOWN_STATIC_LIBRARIES.contains(&name) {
+            bail!("unknown stdlib native library `{name}`");
         }
         let mut providers = self.0.write();
         if let Some(previous) = providers.get(name) {
