@@ -1,7 +1,7 @@
 # z42.build
 
 ## 职责
-z42 项目「编译 → 发布」管线的**框架库**（全 z42 实现）。编译/REPL 契约由 [`z42.compiler.contracts`](../z42.compiler.contracts/) 提供。本库提供：固定的相位流程引擎、
+z42 项目「编译 → 发布」管线的**框架库**（全 z42 实现）。编译/REPL 契约由 [`z42.compiler.contracts`](../z42.compiler.contracts) 提供。本库提供：固定的相位流程引擎、
 传给各相位的 `IPipelineContext` 契约、以及 workload 与项目 `build/` 脚本继承扩展的
 基类（`WorkloadBase` / `BuildHooks`）。
 

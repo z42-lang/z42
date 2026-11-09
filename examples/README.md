@@ -9,11 +9,11 @@ z42 run greet.z42 -- 小明
 
 | 目录 | 章节 |
 |------|------|
-| `getting-started/` | [入门](../docs/learn/src/getting-started/)：`hello-world/`、`projects/`、`tooling/` |
-| `basics/` | [基础](../docs/learn/src/basics/)：`variables` / `operators` / `strings` / `control-flow` / `functions` / `collections` / `tuples` |
-| `types/` | [类型](../docs/learn/src/types/)：`classes` / `structs-records` / `inheritance` / `interfaces` / `generics` / `lambdas` / `exceptions` / `patterns` / `attributes-reflection` / `organization` |
-| `stdlib/` | [标准库](../docs/learn/src/stdlib/)：`data-formats` / `files` |
-| `practice/` | [工程实践](../docs/learn/src/practice/)：`doc-comments` / `testing` / `plugins` / `publishing` |
+| `getting-started/` | [入门](../docs/learn/src/getting-started)：`hello-world/`、`projects/`、`tooling/` |
+| `basics/` | [基础](../docs/learn/src/basics)：`variables` / `operators` / `strings` / `control-flow` / `functions` / `collections` / `tuples` |
+| `types/` | [类型](../docs/learn/src/types)：`classes` / `structs-records` / `inheritance` / `interfaces` / `generics` / `lambdas` / `exceptions` / `patterns` / `attributes-reflection` / `organization` |
+| `stdlib/` | [标准库](../docs/learn/src/stdlib)：`data-formats` / `files` |
+| `practice/` | [工程实践](../docs/learn/src/practice)：`doc-comments` / `testing` / `plugins` / `publishing` |
 
 ## 给贡献者
 

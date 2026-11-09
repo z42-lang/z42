@@ -413,6 +413,7 @@ jobs:
           xtask package sdk --no-build --archive --label nightly --verify
 
       - name: Relocated dynamic execution components + C host
+        if: needs.changes.outputs.platform_package == 'true'
         shell: bash
         run: xtask package runtime --linkage dynamic --profile debug --no-build --verify
 
