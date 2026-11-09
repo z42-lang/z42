@@ -166,6 +166,23 @@ pub extern "C" fn z42_last_error() -> Z42Error {
 
 // ── z42_set_panic_message (used by z42-rs shim panic recovery) ──────────
 
+/// Store a shim panic message in the VM's per-thread last-error slot.
+/// Both the C entry below and the `z42-abi` panic hook installed at boot
+/// ([`install_panic_hook`]) land here; see `z42-rs`'s `native_helpers` for
+/// why the Rust side reaches this through a hook pointer instead of the
+/// link-time symbol.
+fn forward_panic_message(msg: &str) {
+    error::set(TYPE_REGISTRATION_FAILURE, format!("native shim panic: {msg}"));
+}
+
+/// Install the `z42-abi` panic hook pointing at [`forward_panic_message`].
+/// Idempotent (first install wins). Called from native registry init and
+/// host initialization so any image that runs native shims also owns the
+/// forwarding path.
+pub(crate) fn install_panic_hook() {
+    z42_abi::panic_hook::install_panic_hook(forward_panic_message);
+}
+
 /// Forward a panic message from a Rust `extern "C"` shim into the VM's
 /// thread-local last-error slot. Called from the `catch_unwind` recovery
 /// branch emitted by `#[z42::methods]`.
@@ -183,5 +200,5 @@ pub extern "C" fn z42_set_panic_message(msg: *const c_char) {
     let owned = unsafe { CStr::from_ptr(msg) }
         .to_string_lossy()
         .into_owned();
-    error::set(TYPE_REGISTRATION_FAILURE, format!("native shim panic: {owned}"));
+    forward_panic_message(&owned);
 }

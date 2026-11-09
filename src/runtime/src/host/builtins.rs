@@ -8,6 +8,10 @@ use std::sync::OnceLock;
 pub(crate) fn registry() -> &'static NativeRegistry {
     static REGISTRY: OnceLock<NativeRegistry> = OnceLock::new();
     REGISTRY.get_or_init(|| {
+        // Native shims (z42-rs `native_helpers`) forward panic text through
+        // this hook; install before any module registration can run.
+        #[cfg(feature = "native-interop")]
+        crate::interop::exports::install_panic_hook();
         let mut builder = RegistryBuilder::default();
         let providers = [
             NativeProvider {

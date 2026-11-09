@@ -148,6 +148,10 @@ pub unsafe extern "C" fn z42_host_initialize(
             );
         }
         unsafe { *out_host = ptr::null_mut() };
+        // C embedding hosts may never touch the builtins registry; native
+        // shim panic forwarding must be live before any invoke.
+        #[cfg(feature = "native-interop")]
+        crate::interop::exports::install_panic_hook();
 
         let resolved = match unsafe { config::validate(cfg) } {
             Ok(r) => r,

@@ -16,6 +16,7 @@
 
 use core::ffi::{c_char, c_void};
 pub mod module;
+pub mod panic_hook;
 
 /// Current ABI major version. Mirrors `Z42_ABI_VERSION` in C header.
 pub const Z42_ABI_VERSION: u32 = 1;
