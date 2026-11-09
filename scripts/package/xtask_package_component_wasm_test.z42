@@ -1,7 +1,6 @@
 // Relink published archives into two final modules, then execute both in Node.
 namespace Z42Xtask;
 using Std.IO;
-using Std.Cli;
 
 int _componentWasmVerify(string root, string pkg, string zbc, string work) {
     string sysroot = _cmdOut("rustc", new string[]{ "--print", "sysroot" }).Trim();

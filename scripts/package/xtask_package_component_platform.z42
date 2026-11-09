@@ -14,7 +14,10 @@ string _componentStaticName(string stem, string rid) {
     return rid.StartsWith("windows-") ? stem + ".lib" : "lib" + stem + ".a";
 }
 string _componentStaticDir(string root, string rid) {
-    return _ridCategory(rid) == "desktop" ? Path.Join(_componentBuildDir(root), "static") : _cargoTargetDir(root);
+    // Final WASM uses a separate Cargo workspace and LTO profile. Its rlibs
+    // must not be overwritten by the composable static graph.
+    return (_ridCategory(rid) == "desktop" || rid == "browser-wasm")
+        ? Path.Join(_componentBuildDir(root), "static") : _cargoTargetDir(root);
 }
 string _componentPlatformOut(string root, string rid, string profile, bool shared) {
     string dir = shared ? _componentBuildDir(root) : _componentStaticDir(root, rid);

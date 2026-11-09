@@ -67,7 +67,7 @@ SDK 的 native/ 包含统一 libz42、interp/JIT 组件、compression 和匹配�
 
 compression 不属于核心的必需依赖。原生包中的独立动态库在首次调用压缩内置函数时才加载；单纯初始化 VM 或执行其他代码不会装载它。静态宿主链接 libz42_compression.a 后，通过 z42_host_register_static_native_library("z42_compression", z42_compression_get_symbol) 登记符号解析器；Rust 入口统一从 host 导出。未链接或未部署时，实际压缩调用返回明确的组件不可用错误。
 
-browser-wasm 默认最终模块显式启用 bundled-compression，保持现成 JavaScript 门面的能力。随包提供的 libz42.a、libz42_interp.a、libz42_compression.a 则用于项目自行组合：选择需要的库，在最终链接阶段登记组件，生成另一份 .wasm。运行时开关只能选择已链接能力，不能凭空加载未链接的原生库。每个组件的 *-link.txt 保存该目标构建所需的原生链接参数；静态库必须使用同一批发布产物。
+browser-wasm 默认最终模块显式启用 bundled-compression，保持现成 JavaScript 门面的能力。最终 WASM 的 Cargo 输出与静态组件图隔离，避免不同 workspace 的 LTO / bitcode 产物相互覆盖。随包提供的 libz42.a、libz42_interp.a、libz42_compression.a 则用于项目自行组合：选择需要的库，在最终链接阶段登记组件，生成另一份 .wasm。运行时开关只能选择已链接能力，不能凭空加载未链接的原生库。每个组件的 *-link.txt 保存该目标构建所需的原生链接参数；静态库必须使用同一批发布产物。
 
 生产与开发使用相同组合方式：开发构建以后可链接 profiler/debugger，生产构建可省略。profiler/debugger 的实现拆分尚未交付，本轮不发布空壳库。
 
