@@ -39,6 +39,10 @@ string _componentCBuild(string root, string pkg, string rid, string work, bool d
             p = p.Arg(Path.Join(native, _componentStaticName(stem, rid)));
         }
         p = p.Arg(Path.Join(native, _componentStaticName("z42", rid)));
+        if (Platform.IsWindows()) {
+            // 第三方导入库（windows.0.52.0.lib 等）已随档案进 native/；给链接器加该搜索路径。
+            p = p.Arg("-Wl,/LIBPATH:" + native);
+        }
         foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
             if ((stem == "z42_jit" && !jit) || (stem == "z42_compression" && !compression)) { continue; }
             foreach (var flag in File.ReadAllText(Path.Join(native, stem + "-link.txt")).Split(" ")) {

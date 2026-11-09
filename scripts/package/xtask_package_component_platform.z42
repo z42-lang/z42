@@ -120,6 +120,13 @@ int _componentBuildCompression(string root, string rid, string profile, bool sha
         string file = _componentStaticName("z42_compression", rid);
         _componentCopyRequired(Path.Join(cargo, file), Path.Join(destination, file));
         _componentCopyRequired(Path.Join(cargo, "z42_compression-link.txt"), Path.Join(destination, "z42_compression-link.txt"));
+        // 第三方导入库（_componentStaticArchiveFromRlib 已暂存于 cargo/）随档案进平台目录，
+        // 否则 _componentCopyStaticFiles 在平台目录找不到它们。
+        foreach (var flag in File.ReadAllText(Path.Join(cargo, "z42_compression-link.txt")).Split(" ")) {
+            if (flag.EndsWith(".lib") && File.Exists(Path.Join(cargo, flag))) {
+                File.Copy(Path.Join(cargo, flag), Path.Join(destination, flag));
+            }
+        }
     }
     return 0;
 }

@@ -49,7 +49,19 @@ int _componentStaticArchiveFromRlib(string root, string rid, string profile, str
     string flags = start < 0 ? "" : output.Substring(start + prefix.Length).Split("\n")[0].Trim();
     if (flags.Length == 0 && rid != "browser-wasm") { throw new CliException("rustc did not report native dependencies for " + stem); }
     File.WriteAllText(Path.Join(cargo, stem + "-link.txt"), flags);
+    _componentStageStaticImportLibs(cargo, flags);
     return 0;
+}
+
+// MSVC 目标的 native-static-libs 可能点名第三方导入库（如 windows-sys 的 windows.0.52.0.lib）——
+// 它们不在系统 LIB 搜索路径里，而是 cargo 写在 <cargo>/deps/ 下。静态档案的嵌入方需要它们，
+// 故暂存到 <cargo>/ 根（随档案一起进包；_componentCopyStaticFiles 按 link.txt 名单拷贝）。
+void _componentStageStaticImportLibs(string cargo, string flags) {
+    foreach (var flag in flags.Split(" ")) {
+        if (!flag.EndsWith(".lib")) { continue; }
+        string dep = Path.Join(Path.Join(cargo, "deps"), flag);
+        if (File.Exists(dep) && !File.Exists(Path.Join(cargo, flag))) { File.Copy(dep, Path.Join(cargo, flag)); }
+    }
 }
 
 void _componentCopyStaticLibraries(string root, string native, string rid, string profile) {
@@ -62,5 +74,13 @@ void _componentCopyStaticFiles(string cargo, string native, string rid) {
         string name = _componentStaticName(stem, rid);
         _componentCopyRequired(Path.Join(cargo, name), Path.Join(native, name));
         _componentCopyRequired(Path.Join(cargo, stem + "-link.txt"), Path.Join(native, stem + "-link.txt"));
+        // 第三方导入库（已在 <cargo>/ 暂存或仍在 deps/）随档案进包，嵌入方才能链接。
+        foreach (var flag in File.ReadAllText(Path.Join(cargo, stem + "-link.txt")).Split(" ")) {
+            if (!flag.EndsWith(".lib")) { continue; }
+            string staged = Path.Join(cargo, flag);
+            string inDeps = Path.Join(Path.Join(cargo, "deps"), flag);
+            string source = File.Exists(staged) ? staged : (File.Exists(inDeps) ? inDeps : "");
+            if (source.Length > 0) { File.Copy(source, Path.Join(native, flag)); }
+        }
     }
 }
