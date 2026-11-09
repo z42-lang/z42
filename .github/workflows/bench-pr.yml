@@ -262,14 +262,11 @@ jobs:
             echo "→ src/runtime unchanged base..pr → base_vm = pr_vm"
             BASEVM="$PRVM"
           else
-            echo "→ src/runtime changed → cargo-build base z42vm + native cdylib"
-            # Also build the z42-compression cdylib: the VM resolves
-            # `[Native(lib = "z42_compression")]` next to its own binary, so without it
-            # every compression [Benchmark] fails on the BASE side.
-            # Run inside src/runtime: cargo reads .cargo/config.toml from its cwd upward.
-            ( cd base-src/src/runtime && cargo build --locked --release --bin z42vm \
-              && cargo build --locked --release \
-                --manifest-path crates/z42-compression/Cargo.toml )
+            echo "→ src/runtime changed → build complete base runtime and components"
+            # Use the same build graph as the head: the launcher requires its
+            # matching core, execution backends, compression library and shared std.
+            # xtask resolves the repository from cwd, so this builds base sources.
+            ( cd base-src && "$ROOT/xtask" build runtime )
             BASEVM="$ROOT/base-src/artifacts/build/runtime/release/z42vm"
           fi
 
