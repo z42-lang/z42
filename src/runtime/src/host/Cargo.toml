@@ -134,7 +134,7 @@ z42-macros = { path = "../../crates/z42-macros" }
 #   2026-05-12 add-platform-wasm Stage 0 split this out so wasm builds can
 #   deselect it (no dlopen / no libffi support inside the wasm sandbox).
 # - `aot` is a placeholder for future AOT compilation (M9; no impl yet)
-# - `interp-only` is intent-only (no extra deps); used by platform presets
+# - `interp-only` links the baseline interpreter without enabling JIT
 # - `net` enables Std.Net sockets (TCP / UDP / DNS over std::net + socket2);
 #   `tls` adds the rustls-backed TLS client on top. Without them the
 #   `__tcp_*` / `__udp_*` / `__dns_lookup` / `__tls_*` builtins are stubs that
@@ -174,7 +174,7 @@ native-interop       = ["z42-interp?/native-interop", "z42-runtime/native-intero
 net                  = ["z42-runtime/net", "dep:socket2"]
 tls                  = ["net", "dep:rustls", "dep:webpki-roots"]
 aot                  = []
-interp-only          = []
+interp-only          = ["interp"]
 # bundled-compression: statically link z42-compression instead of dlopen'ing it.
 # Required on wasm (no dlopen); optional everywhere else.
 bundled-compression  = ["dep:z42-compression"]
