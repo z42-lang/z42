@@ -219,3 +219,5 @@ z42d install vscode
 
 `deploy = "shared"` 的源码项目及其依赖仍会参与编译所需的构建，但不会仅因进入了构建闭包而被复制到 exe 的私有 dist。
 另一条私有依赖路径仍可要求部署同一库。再次构建时，已移除的私有路径不再保留工具链拥有的旧副本；用户修改过的文件保留。
+
+Successful exe builds record their selected managed runtime dependencies beside output. Publish honors that selection even when dist is shared by multiple apps. `--no-build` rejects stale/corrupt records before replacing payload; rebuild the app to refresh them. Manually assembled output without a record retains existing colocated dependency behavior and does not require source manifests for dependencies.

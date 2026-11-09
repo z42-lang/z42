@@ -1,0 +1,65 @@
+namespace Z42RuntimeDeploymentTests;
+using Std.IO;
+using Std.Harness;
+using Z42.Build;
+
+string _record(string dir) {
+    foreach (var name in Directory.Enumerate(dir)) {
+        if (name.StartsWith(".z42-runtime-")) { return Path.Join(dir, name); }
+    }
+    throw new Exception("missing runtime record");
+}
+
+bool _rejects(string dir) {
+    try { RuntimeDeployment.Read(dir, "app.zpkg"); }
+    catch (Exception ex) { return true; }
+    return false;
+}
+
+[Test]
+void test_selection_distinguishes_absent_empty_and_in_place_unowned_packages() {
+    string dir = File.CreateTempDir("runtime-selection");
+    try {
+        File.WriteAllText(Path.Join(dir, "app.zpkg"), "app");
+        Assert.True(RuntimeDeployment.Read(dir, "app.zpkg") == null);
+        RuntimeDeployment.Write(dir, "app.zpkg", new string[0]);
+        Assert.Equal(0, RuntimeDeployment.Read(dir, "app.zpkg").Length);
+        File.WriteAllText(Path.Join(dir, "dep.zpkg"), "dep");
+        RuntimeDeployment.Write(dir, "app.zpkg", ["dep.zpkg", "dep.zpkg"]);
+        string[] names = RuntimeDeployment.Read(dir, "app.zpkg");
+        Assert.Equal(1, names.Length);
+        Assert.Equal("dep.zpkg", names[0]);
+        RuntimeDeployment.Write(dir, "app.zpkg", new string[0]);
+        Assert.Equal(0, RuntimeDeployment.Read(dir, "app.zpkg").Length);
+        Assert.True(File.Exists(Path.Join(dir, "dep.zpkg")));
+    } finally { Directory.Delete(dir, true); }
+}
+
+[Test]
+void test_selection_rejects_changed_app_dependency_and_corrupt_record() {
+    string dir = File.CreateTempDir("runtime-selection-stale");
+    try {
+        File.WriteAllText(Path.Join(dir, "app.zpkg"), "app");
+        File.WriteAllText(Path.Join(dir, "dep.zpkg"), "dep");
+        RuntimeDeployment.Write(dir, "app.zpkg", ["dep.zpkg"]);
+        string record = _record(dir);
+        string valid = File.ReadAllText(record);
+        File.WriteAllText(Path.Join(dir, "app.zpkg"), "changed");
+        Assert.True(_rejects(dir));
+        File.WriteAllText(Path.Join(dir, "app.zpkg"), "app");
+        File.WriteAllText(Path.Join(dir, "dep.zpkg"), "changed");
+        Assert.True(_rejects(dir));
+        File.WriteAllText(Path.Join(dir, "dep.zpkg"), "dep");
+        File.WriteAllText(record, "Z42-RUNTIME99\n");
+        Assert.True(_rejects(dir));
+        File.WriteAllText(record, valid + "\n");
+        Assert.True(_rejects(dir));
+        string[] rows = valid.Split("\n");
+        File.WriteAllText(record, valid + rows[2] + "\n");
+        Assert.True(_rejects(dir));
+        File.WriteAllText(record, valid.Replace("dep.zpkg", "../dep.zpkg"));
+        Assert.True(_rejects(dir));
+        File.WriteAllText(record, valid);
+        Assert.Equal(1, RuntimeDeployment.Read(dir, "app.zpkg").Length);
+    } finally { Directory.Delete(dir, true); }
+}

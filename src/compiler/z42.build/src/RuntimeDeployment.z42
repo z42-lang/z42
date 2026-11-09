@@ -1,0 +1,65 @@
+namespace Z42.Build;
+
+using Std.IO;
+using Std.Collections;
+using Std.Encoding;
+using Std.Crypto;
+
+// Runtime selection is separate from copy ownership: in-place and already
+// identical dependencies still belong to this application's selected set.
+public static class RuntimeDeployment {
+    private static string _hash(byte[] bytes) { return Hex.Encode(Blake3.HashLen(bytes, 16)); }
+
+    private static bool _package(string name) {
+        return DeploymentCopies.IsRelativePath(name) && Path.GetFileName(name) == name && name.EndsWith(".zpkg");
+    }
+
+    private static string _path(string dist, string app) {
+        if (!RuntimeDeployment._package(app)) { throw new Exception("invalid runtime application name: " + app); }
+        return Path.Join(dist, ".z42-runtime-" + RuntimeDeployment._hash(Utf8.GetBytes(app)));
+    }
+
+    public static void Write(string dist, string app, string[] packages) {
+        string path = RuntimeDeployment._path(dist, app);
+        string body = "Z42-RUNTIME1\n" + app + "\t" + RuntimeDeployment._hash(File.ReadAllBytes(Path.Join(dist, app))) + "\n";
+        Dictionary<string, string> seen = new Dictionary<string, string>();
+        foreach (var name in packages) {
+            if (!RuntimeDeployment._package(name) || name == app) {
+                throw new Exception("invalid runtime dependency name: " + name);
+            }
+            if (seen.ContainsKey(name)) { continue; }
+            seen[name] = "";
+            body = body + name + "\t" + RuntimeDeployment._hash(File.ReadAllBytes(Path.Join(dist, name))) + "\n";
+        }
+        if (!File.Exists(path) || File.ReadAllText(path) != body) { File.WriteAllTextAtomic(path, body); }
+    }
+
+    // null means a manually prepared artifact without producer provenance.
+    // Empty means an authoritative, successfully built empty private closure.
+    public static string[] Read(string dist, string app) {
+        string path = RuntimeDeployment._path(dist, app);
+        if (!File.Exists(path)) { return null; }
+        string[] lines = File.ReadAllText(path).Split("\n");
+        if (lines.Length < 3 || lines[0] != "Z42-RUNTIME1" || lines[lines.Length - 1] != "") {
+            throw new Exception("invalid runtime deployment record: " + path);
+        }
+        Dictionary<string, string> seen = new Dictionary<string, string>();
+        List<string> result = new List<string>();
+        int i = 1;
+        while (i < lines.Length - 1) {
+            string[] row = lines[i].Split("\t");
+            if (row.Length != 2 || !RuntimeDeployment._package(row[0]) || row[1].Length != 32
+                || (i == 1 && row[0] != app) || seen.ContainsKey(row[0])) {
+                throw new Exception("invalid runtime deployment entry: " + path);
+            }
+            seen[row[0]] = "";
+            string source = Path.Join(dist, row[0]);
+            if (!File.Exists(source) || RuntimeDeployment._hash(File.ReadAllBytes(source)) != row[1]) {
+                throw new Exception("stale runtime deployment record: " + source + " (rebuild the application)");
+            }
+            if (i > 1) { result.Add(row[0]); }
+            i = i + 1;
+        }
+        return result.ToArray();
+    }
+}

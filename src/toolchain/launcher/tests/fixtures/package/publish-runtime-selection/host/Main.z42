@@ -1,0 +1,1 @@
+namespace Selectionhost; using Std.IO; using RuntimeSelectionLeaf; void Main() { Console.WriteLine(Value()); }

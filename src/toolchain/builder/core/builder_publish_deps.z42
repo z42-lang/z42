@@ -31,6 +31,9 @@ DeploymentCopies _pubPlanDistDeps(string distDir, string projName, string target
 }
 
 void _pubPlanManagedDeps(string distDir, string projName, ZpkgInfo app, DeploymentCopies copies) {
+    string[] selection = RuntimeDeployment.Read(distDir, projName + ".zpkg");
+    StrMap selected = new StrMap();
+    if (selection != null) { foreach (var file in selection) { selected.Put(file, ""); } }
     List<string> queue = new List<string>();
     queue.AddRange(ZpkgReader.ReadDependencies(app));
     StrMap seen = new StrMap();
@@ -43,6 +46,7 @@ void _pubPlanManagedDeps(string distDir, string projName, ZpkgInfo app, Deployme
             throw new Exception("unsafe publish dependency: " + name);
         }
         if (!seen.TryAdd(name, "")) { continue; }
+        if (selection != null && selected.Get(name) == null) { continue; }
         string source = Path.Join(distDir, name);
         // Framework, shared and SDK dependencies may intentionally stay external.
         if (!File.Exists(source)) { continue; }

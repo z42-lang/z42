@@ -1,0 +1,1 @@
+namespace Selectionprivate; using Std.IO; using RuntimeSelectionLeaf; void Main() { Console.WriteLine(Value()); }

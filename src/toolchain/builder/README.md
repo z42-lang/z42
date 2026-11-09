@@ -92,3 +92,5 @@ xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
 - 调用 `z42c`（编译）、各 workload（平台尾相位）；经 `extern` 调 VM native 原语
   （Sign / Archive / Hash / Download / ProbeVersion，住 `runtime`）。
 - 被 launcher 命令分发调用（见 [`docs/internals/src/toolchain/launcher.md`](../../../docs/internals/src/toolchain/launcher.md)）。
+
+Publish consumes a successful build’s per-application runtime selection; shared dist presence alone does not make a dependency private. Manually assembled `--no-build` input without a selection record keeps colocated DEPS traversal.

@@ -1,0 +1,15 @@
+[project]
+name="selection.private"
+kind="exe"
+pack=true
+[sources]
+include=["Main.z42"]
+[dependencies]
+"selection.leaf"={path="../vendor/selection.leaf.zpkg",deploy="copy"}
+[build]
+dist_dir="../dist"
+[platform.desktop]
+apphost=true
+publish_dir="published"
+bin="bin/run"
+payload="programs/app.zpkg"

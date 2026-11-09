@@ -1,6 +1,7 @@
 namespace Z42Builder;
 
 using Std.IO;
+using Std.Collections;
 using Z42.Build;
 using Z42.IR;
 using Z42.Package;
@@ -103,9 +104,13 @@ sealed class BuilderPrebuiltCopies {
     private StrMap _selected;
     private string _dist;
     private DeploymentCopies _copies;
+    private List<string> _packages;
+    private string _main;
 
     public BuilderPrebuiltCopies(string dist, string mainName) {
         this._dist = _builderAbsolute(dist);
+        this._main = mainName;
+        this._packages = new List<string>();
         this._owners = new StrMap();
         this._owners.Put(mainName, "");
         this._selected = new StrMap();
@@ -133,11 +138,15 @@ sealed class BuilderPrebuiltCopies {
         if (!File.Exists(source)) { throw new Exception("prebuilt payload missing: " + source); }
         this._claim(rel, source);
         if (!this._selected.TryAdd(rel, "")) { return; }
+        if (rel.EndsWith(".zpkg")) { this._packages.Add(rel); }
         if (source == Path.Join(this._dist, rel)) { this._copies.Keep(rel); }
         else { this._copies.Add(rel, source, File.ReadAllBytes(source)); }
     }
 
-    public void Copy() { this._copies.Apply(); }
+    public void Copy() {
+        this._copies.Apply();
+        RuntimeDeployment.Write(this._dist, this._main, this._packages.ToArray());
+    }
 }
 
 string[] _builderInputDirectories(string[] paths) {
