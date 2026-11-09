@@ -185,36 +185,42 @@ bool _skipHas(string skip, string stage) {
     return skip.Length > 0 && _strIn(_splitWords(skip.Replace(",", " ")), stage);
 }
 
-// stage 的名称、skip 键与执行函数只在此登记；列表只读元数据，不调用 Body。
+// stage 的名称、skip 键、改动分流类别与执行函数只在此登记；列表只读元数据，不调用 Body。
+// Changes 是 `test changed` 跳过它的依据："" = 恒跑（构建波、goldens、秒级的全仓静态检查）；
+// "rust" = 只随 Rust 运行时改动；"z42" = 执行 z42 代码，编译器 / stdlib / 运行时的改动都影响它。
 class GateStage {
     public string Key;
     public string Name;
+    public string Changes;
     public Func<int> Body;
     public GateStage(string key, string name, Func<int> body) {
-        this.Key = key; this.Name = name; this.Body = body;
+        this.Key = key; this.Name = name; this.Changes = ""; this.Body = body;
+    }
+    public GateStage(string key, string name, string changes, Func<int> body) {
+        this.Key = key; this.Name = name; this.Changes = changes; this.Body = body;
     }
 }
 
 GateStage[] _gateStages(bool noBuild) {
     return new GateStage[]{
         new GateStage("", "build wave (debug vm + regen)", () => _gateBuildWave(noBuild)),
-        new GateStage("rust-units", "rust units (lib tests + test-target build)", () => _testRuntimeUnits()),
+        new GateStage("rust-units", "rust units (lib tests + test-target build)", "rust", () => _testRuntimeUnits()),
         // interp 本地必跑；JIT 由独立 CI job 覆盖。
         new GateStage("", "e2e goldens (interp; jit → vm-jit-consistency)",
             () => _testE2eCore("interp", false, false, "4", new int[2], "", "")),
-        new GateStage("cross-zpkg", "e2e cross-zpkg", () => _testCrossZpkgCore("interp", true)),
-        new GateStage("multi-exe", "e2e multi-exe", () => _testMultiExeCore("interp", true)),
-        new GateStage("stdlib", "stdlib [Test]",
+        new GateStage("cross-zpkg", "e2e cross-zpkg", "z42", () => _testCrossZpkgCore("interp", true)),
+        new GateStage("multi-exe", "e2e multi-exe", "z42", () => _testMultiExeCore("interp", true)),
+        new GateStage("stdlib", "stdlib [Test]", "z42",
             () => _testLibCore("test", _allUnitProjects(_root(), "test"), true, "", "4", "interp", null, "", "", "")),
-        new GateStage("toolchain", "toolchain [Test]", () => _testToolchainCore("", true, "", false)),
+        new GateStage("toolchain", "toolchain [Test]", "z42", () => _testToolchainCore("", true, "", false)),
         // 只验 benchmark 语料能跑；时间回归由 bench-pr.yml 的 A/B 判定。
-        new GateStage("bench", "stdlib [Benchmark]",
+        new GateStage("bench", "stdlib [Benchmark]", "z42",
             () => _testLibCore("bench", _allUnitProjects(_root(), "bench"), true, "", "4", "interp", null, "", "", "")),
-        new GateStage("targets", "manifest targets ([[test]] + [[example]])", () => _gateTargets()),
-        new GateStage("examples", "examples (learn book transcripts)", () => _gateExamples()),
+        new GateStage("targets", "manifest targets ([[test]] + [[example]])", "z42", () => _gateTargets()),
+        new GateStage("examples", "examples (learn book transcripts)", "z42", () => _gateExamples()),
         new GateStage("docs", "docs (relative links)", () => _testDocs(_root())),
-        new GateStage("compiler", "compiler", () => _testCompiler(true)),
-        new GateStage("gcgen", "gc modes (z42c.semantics build)", () => _testGcModes()),
+        new GateStage("compiler", "compiler", "z42", () => _testCompiler(true)),
+        new GateStage("gcgen", "gc modes (z42c.semantics build)", "z42", () => _testGcModes()),
         new GateStage("vscode", "vscode-syntax", () => _testVscodeSyntax()),
         new GateStage("diagcodes", "diagcodes", () => _checkDiagCodes()),
         new GateStage("ci-shell", "ci-shell", () => _checkCiShell()),

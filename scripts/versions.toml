@@ -168,6 +168,13 @@ tier         = "tier1"
 [workload]
 members = ["desktop", "ios", "android", "wasm"]
 
+# 平台 workload 能装在哪些宿主 RID 上：release 索引的 `host`，launcher 下载前按它拒绝。不列 = 任意宿主。
+# workload 依赖的 runtime 包不在这里写——就是 [rid.*] 里 category 等于该 workload 的那些 RID。
+# `xtask check versions` 校验键是 members、值是已登记的 desktop RID。
+[workload.hosts]
+ios     = ["macos-arm64"]                                          # Xcode
+android = ["macos-arm64", "linux-x64", "linux-arm64", "windows-x64"]
+
 # ══════════════════════════════════════════════════════════════════════════
 # RID: 目标 RID 登记（xtask `_ridToCargo` / `_ridCategory` / release 归档矩阵的唯一来源）
 # ══════════════════════════════════════════════════════════════════════════

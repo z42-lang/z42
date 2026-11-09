@@ -58,10 +58,9 @@ int _bootstrapCheck(string ridArg) {
     // The z42c seed lives in the SDK nightly (host tooling), not the runtime nightly —
     // the runtime package is a pure embeddable pack (native + stdlib only, no z42c/z42vm)
     // since it may be installed on a different host than it targets.
-    string ext = "tar.gz";
-    if (rid == "windows-x64") { ext = "zip"; }
-    string asset = "z42-sdk-nightly-" + rid + "." + ext;
-    string archive = Path.Join(work, "sdk." + ext);
+    string ext = _relArchiveExt(rid);
+    string asset = _sdkName("nightly", rid);
+    string archive = Path.Join(work, "sdk" + ext);
     Console.WriteLine("→ downloading nightly SDK package (" + rid + ") …");
     int dc = _exec(new Process("gh").Arg("release").Arg("download").Arg("nightly")
         .Arg("-p").Arg(asset).Arg("-O").Arg(archive));
@@ -73,7 +72,7 @@ int _bootstrapCheck(string ridArg) {
     string nightly = Path.Join(work, "nightly");
     Directory.Create(nightly);
     int xc;
-    if (ext == "zip") {
+    if (ext == ".zip") {
         if (!_have("unzip")) { ConsoleError.WriteLine("error: `unzip` required to extract the windows nightly"); return 2; }
         xc = _exec(new Process("unzip").Arg("-q").Arg(archive).Arg("-d").Arg(nightly));
     } else {
@@ -87,7 +86,7 @@ int _bootstrapCheck(string ridArg) {
     if (File.Exists(nvm + ".exe")) { nvm = nvm + ".exe"; }
     if (!File.Exists(nvm)) { ConsoleError.WriteLine("error: nightly z42vm missing after extract (expected bin/z42vm)"); return 1; }
     // tar/unzip drop the executable bit — restore it (windows .exe needs none).
-    if (ext != "zip") { _exec(new Process("chmod").Arg("+x").Arg(nvm)); }
+    if (ext != ".zip") { _exec(new Process("chmod").Arg("+x").Arg(nvm)); }
     string nDriver = Path.Join(Path.Join(nightly, "programs/z42c"), "z42c.driver.zpkg");
     if (!File.Exists(nDriver)) {
         ConsoleError.WriteLine("error: nightly SDK package has no programs/z42c/ seed — needs a publish-nightly run carrying the z42c seed");

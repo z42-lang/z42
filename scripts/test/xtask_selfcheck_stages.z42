@@ -112,6 +112,8 @@ void _checkGateRegistry(GateStage[] stages) {
         _gateAssert(stage.Name.Length > 0 && !names.Contains(stage.Name), "unique nonempty stage name");
         _gateAssert(stage.Body != null, "stage body registered");
         names.Add(stage.Name);
+        _gateAssert(stage.Changes == "" || stage.Changes == "rust" || stage.Changes == "z42", "known change category");
+        _gateAssert(stage.Changes.Length == 0 || stage.Key.Length > 0, "change-scoped stage has a skip key");
         if (stage.Key.Length == 0) { continue; }
         _gateAssert(!keys.Contains(stage.Key), "unique skip key");
         keys.Add(stage.Key);

@@ -257,7 +257,7 @@ scripts/
 │   ├── xtask_projects.z42    共享目录 / workspace 成员定位，复用项目模型并拒绝歧义 / 包名冲突
 │   ├── xtask_common.z42     _root/_exec/cargo/toolchain 选择器 + verbosity + 种子解析
 │   ├── xtask_layout.z42     构建树布局路径（per-member 读 workspace.toml 单源 + flat/runtime/build-root 约定）+ `layout` 命令
-│   ├── xtask_versions.z42   versions.toml 读取器 + RID / cargo target 映射
+│   ├── xtask_versions.z42   versions.toml 读取器 + RID / cargo target 映射 + 发布归档命名
 │   ├── xtask_packages_config.z42  packages.toml 读取器（package/component 注册表）
 │   ├── xtask_components.z42  workspace 成员、工具链组件与 TOML 产物/发布路径
 │   ├── xtask_process.z42     z42 子进程工厂（stdlib、编译器 probing 与种子隔离）

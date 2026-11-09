@@ -19,8 +19,11 @@ xtask test --list
 ## 2. 登记与执行共用一张表
 
 `scripts/test/xtask_test.z42` 的 `_gateStages` 是唯一执行清单：每条 `GateStage` 同时携带
-名称、skip 键与执行函数。完整测试与 `--list` 都消费这张表，文档只描述机制，不维护另一份完整名单。
-加、删、改名或调整顺序只改这张表；若改变了某类检查的职责，同步本页对应说明。
+名称、skip 键、改动分流类别与执行函数。完整测试、`--list` 与 `--changed` 都消费这张表，文档只描述机制，
+不维护另一份完整名单。加、删、改名或调整顺序只改这张表；若改变了某类检查的职责，同步本页对应说明。
+
+改动分流类别决定 `--changed` 能否跳过该 stage：不标 = 恒跑（构建波、goldens、秒级的全仓静态检查）；
+`rust` = 只随 Rust 运行时改动；`z42` = 执行 z42 代码，编译器 / stdlib / 运行时的改动都会选中它。
 
 `_runGateStages` 在任何构建或测试开始前校验 `--skip`，未知键直接报错；随后按表顺序执行，
 成功的 stage 记录耗时，第一个非零退出码原样向上传播，后续 stage 不执行。
@@ -70,8 +73,7 @@ skip 键与 banner 名可能不同（如 `vscode` 对应 `vscode-syntax`）；�
 逗号或空格均可分隔，未知键在构建前报错。skip 只影响在哪跑，不改变完整 stage 表。
 
 `--changed <base>` 是 `--skip` 的自动版：按 §7 映射表的「gate stage」列，把相对 `<base>` 的改动**用不到**的
-重 stage（`rust-units` / `cross-zpkg` / `multi-exe` / `stdlib` / `toolchain` / `bench` / `targets` / `examples` /
-`compiler` / `gcgen`）追加进 skip。build wave、`e2e goldens` 与全部静态检查恒跑（后者守全仓不变量，秒级）；
+重 stage（§2 里标了改动分流类别的那些）追加进 skip。build wave、`e2e goldens` 与全部静态检查恒跑（后者守全仓不变量，秒级）；
 任一文件判成 full、base 不可解析或 Git 读取失败 ⇒ 一个都不跳。判定打印在开头（`[test --changed] …`）。CI 的
 `test-host` 在 PR 上使用 PR base SHA，在 main push 上使用 `github.event.before`；首次 push 或无法取得基线时全跑，
 schedule / dispatch 保留全量。测试差异基线不替代 nightly 发布的累计 SDK 差异判定。

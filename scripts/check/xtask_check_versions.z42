@@ -138,6 +138,24 @@ int _checkRidTable(string root, TomlValue toml) {
             fail = fail + 1;
         }
     }
+    // ⑤ [workload.hosts]：键是 workload，值是已登记的 desktop RID（launcher 按宿主 RID 比对）。
+    TomlValue wt = toml.Get("workload");
+    if (wt.ContainsKey("hosts")) {
+        TomlValue hosts = wt.Get("hosts");
+        foreach (var wl in hosts.Keys()) {
+            if (!_strIn(workloads, wl)) {
+                ConsoleError.WriteLine("✗ [workload.hosts].'" + wl + "' 不在 [workload].members 里");
+                fail = fail + 1;
+                continue;
+            }
+            foreach (var host in _vgetList(hosts, wl)) {
+                if (_vRidCategory(root, host) != "desktop") {
+                    ConsoleError.WriteLine("✗ [workload.hosts]." + wl + " 的 '" + host + "' 不是已登记的 desktop RID");
+                    fail = fail + 1;
+                }
+            }
+        }
+    }
     return fail;
 }
 
