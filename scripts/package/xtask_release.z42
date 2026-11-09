@@ -131,17 +131,12 @@ int _releaseGenIndex(string label, string dist, string channel, string tag, stri
         runtimes.Set(rid, e);
     }
 
-    JsonValue any = _jStrs(new string[]{ "*" });
-    JsonValue none = JsonValue.OfArray();
+    // 平台 workload 依赖其类别下全部 RID 的 runtime 包；desktop 复用宿主 runtime，test 只有 payload。
     JsonValue workloads = JsonValue.OfObject();
-    workloads.Set("ios",     _jWorkload(label, sums, "ios",     _jStrs(new string[]{ "macos-arm64" }),
-        _jStrs(new string[]{ "ios-arm64", "iossim-arm64" })));
-    workloads.Set("android", _jWorkload(label, sums, "android",
-        _jStrs(new string[]{ "macos-arm64", "linux-x64", "linux-arm64", "windows-x64" }),
-        _jStrs(new string[]{ "android-arm64", "android-x64" })));
-    workloads.Set("wasm",    _jWorkload(label, sums, "wasm",    any, _jStrs(new string[]{ "browser-wasm" })));
-    workloads.Set("desktop", _jWorkload(label, sums, "desktop", any, none));
-    workloads.Set("test",    _jWorkload(label, sums, "test",    any, none));
+    foreach (var wl in wls) {
+        string[] rts = (wl == "desktop" || wl == "test") ? new string[0] : _vRidsOfCategory(root, wl);
+        workloads.Set(wl, _jWorkload(label, sums, wl, _jStrs(_vWorkloadHosts(root, wl)), _jStrs(rts)));
+    }
 
     JsonValue idx = JsonValue.OfObject();
     idx.Set("schema",    JsonValue.OfLong(1L));
@@ -158,15 +153,6 @@ int _releaseGenIndex(string label, string dist, string channel, string tag, stri
     _procEnd("release gen-release-index", sw);
     return 0;
 }
-
-// ── 归档命名（唯一出处：release-index、`--archive`、桌面 workload 合并都从这里取名）──────────────
-// 扩展名由 RID 的平台决定：Windows RID（versions.toml 的 triple 含 `windows`）出 `.zip`，其余 `.tar.gz`。
-string _relArchiveExt(string rid) { return _vRidTriple(_root(), rid).Contains("windows") ? ".zip" : ".tar.gz"; }
-string _sdkName(string label, string rid)          { return "z42-sdk-"      + label + "-" + rid + _relArchiveExt(rid); }
-string _rtName(string label, string rid)           { return "z42-runtime-"  + label + "-" + rid + _relArchiveExt(rid); }
-string _desktopPieceName(string label, string rid) { return "z42-workload-" + label + "-desktop-" + rid + _relArchiveExt(rid); }
-// 平台 workload（主 RID 出）/ 合并后的桌面 workload / test workload：不随宿主平台变，恒 `.tar.gz`。
-string _wlArchiveName(string label, string wl)     { return "z42-workload-" + label + "-" + wl + ".tar.gz"; }
 
 // first non-empty token of the SHA256SUMS line whose last token == archive.
 string _shaOf(string sums, string archive) {

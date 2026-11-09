@@ -273,7 +273,8 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 
 ### 6.1 stage 单源定义
 
-`_gateStages` 将名称、skip 键和执行函数登记在同一个 `GateStage` 中；列表和执行均消费此表。
+`_gateStages` 将名称、skip 键、改动分流类别和执行函数登记在同一个 `GateStage` 中；列表、执行与
+`--changed` 的分流均消费此表。
 文档不维护完整的平行名单。`_runGateStages` 在构建前拒绝未知 skip 键，并原样传播首个失败的退出码。
 
 ### 6.2 `--skip`：让 CI 拆解这块整料

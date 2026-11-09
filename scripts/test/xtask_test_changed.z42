@@ -81,17 +81,19 @@ string[] _changedFiles(string base_, string root = "") {
     return _dedupeNonEmpty((tracked + untracked).Split("\0"));
 }
 
-// gate 里按改动分流的「重」stage（skip 短名）。其余 stage 恒跑：build wave 与 e2e goldens（不可 skip，
-// 其它 stage 的前提）、纯文本扫描的静态检查（秒级，且它们守的是全仓不变量，不该看改了哪）。
-string[] _changedScopedStages() {
-    return new string[]{ "rust-units", "cross-zpkg", "multi-exe", "stdlib", "toolchain", "bench",
-                         "targets", "examples", "compiler", "gcgen" };
-}
+// gate 里按改动分流的「重」stage（skip 短名）= _gateStages 里登记了 Changes 的那些；其余恒跑。
+string[] _changedScopedStages() { return _gateStageKeys(""); }
 
 // 「跑 z42 代码的 stage」全集：编译器 / stdlib / 运行时的改动会改变一切被编译、被执行的东西。
-string[] _stagesAllZ42() {
-    return new string[]{ "cross-zpkg", "multi-exe", "stdlib", "toolchain", "bench", "targets", "examples",
-                         "compiler", "gcgen" };
+string[] _stagesAllZ42() { return _gateStageKeys("z42"); }
+
+// 按改动分流的 stage 的 skip 键（登记序）；`changes` 非空时只取该类别。
+string[] _gateStageKeys(string changes) {
+    var keys = new List<string>();
+    foreach (var st in _gateStages(true)) {
+        if (st.Changes.Length > 0 && (changes.Length == 0 || st.Changes == changes)) { keys.Add(st.Key); }
+    }
+    return keys.ToArray();
 }
 
 string[] _withStage(string[] xs, string extra) {

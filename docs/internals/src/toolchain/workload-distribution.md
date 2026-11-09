@@ -75,7 +75,9 @@ SDK 是单版本的，由安装脚本装与更新。
 - `sha256` 内置 → 校验不必再单独读 `SHA256SUMS`（后者作为并行资产保留）。
 - `workloads.<wl>.runtimes` 列出装它时要一并拉的目标 runtime RID：
   android 是两个 ABI、ios 是真机 + 模拟器——一条命令带齐，对齐 `dotnet workload install`。
-- `workloads.<wl>.host` 是**宿主白名单**（`"*"` = 不限）。
+  取自 `scripts/versions.toml` 里 `category` 等于该 workload 的 `[rid.*]`，加 RID 不用改生成器。
+- `workloads.<wl>.host` 是**宿主白名单**（`"*"` = 不限），取自 `versions.toml` 的 `[workload.hosts]`
+  （不列 = 不限）。
 
 生成器在写 JSON 前会**逐条校验 SHA256SUMS 里有对应的 sha**，缺一条就整体失败。
 少了这道校验，发出去的 index 会指向不存在的资产，而错误要到用户安装时才暴露。

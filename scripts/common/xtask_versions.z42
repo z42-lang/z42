@@ -95,6 +95,13 @@ string[] _vWorkloads(string root) {
     return _vgetList(_vparse(root), "workload.members");
 }
 
+// workload 可装的宿主 RID（[workload.hosts]）；没登记 = 任意宿主 `*`。
+string[] _vWorkloadHosts(string root, string wl) {
+    TomlValue w = _vparse(root).Get("workload");
+    if (!w.ContainsKey("hosts") || !w.Get("hosts").ContainsKey(wl)) { return new string[]{ "*" }; }
+    return _vgetList(w.Get("hosts"), wl);
+}
+
 // 跨平台 workload（= members 去 desktop）：`setup --os` / `setup check --os` 的参数域。
 string[] _vCrossWorkloads(string root) {
     List<string> xs = new List<string>();
@@ -140,6 +147,15 @@ string[] _vRidsOfCategory(string root, string category) {
     foreach (var rid in _vRidNames(root)) { if (_vRidCategory(root, rid) == category) { xs.Add(rid); } }
     return xs.ToArray();
 }
+
+// ── 发布归档命名（唯一出处：release-index、`--archive`、桌面 workload 合并、bootstrap 检查都从这里取名）──
+// 扩展名由 RID 的平台决定：Windows RID（versions.toml 的 triple 含 `windows`）出 `.zip`，其余 `.tar.gz`。
+string _relArchiveExt(string rid) { return _vRidTriple(_root(), rid).Contains("windows") ? ".zip" : ".tar.gz"; }
+string _sdkName(string label, string rid)          { return "z42-sdk-"      + label + "-" + rid + _relArchiveExt(rid); }
+string _rtName(string label, string rid)           { return "z42-runtime-"  + label + "-" + rid + _relArchiveExt(rid); }
+string _desktopPieceName(string label, string rid) { return "z42-workload-" + label + "-desktop-" + rid + _relArchiveExt(rid); }
+// 平台 workload（主 RID 出）/ 合并后的桌面 workload / test workload：不随宿主平台变，恒 `.tar.gz`。
+string _wlArchiveName(string label, string wl)     { return "z42-workload-" + label + "-" + wl + ".tar.gz"; }
 
 // ── z42b 构建期常量（生成物，不入库）─────────────────────────────────────────
 // 正主是 z42b 自己的 build hook（src/toolchain/builder/core/hooks/hooks.z42，BeforeCompile 生成）——

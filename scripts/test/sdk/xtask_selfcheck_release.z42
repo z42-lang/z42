@@ -14,7 +14,9 @@
 // 期望计数全部从 [rid.*] / [workload] 表推出（加 RID 不用改这里）。
 namespace Z42Xtask;
 
+using Std.Collections;
 using Std.IO;
+using Std.Json;
 
 void _relAssert(string what, bool cond) {
     if (!cond) { throw new Exception("package-release: " + what + ": failed"); }
@@ -88,6 +90,15 @@ int _testPackagesRelease() {
         int lines = sums.Trim().Split("\n").Length;
         _relAssert("SHA256SUMS has " + wantSums.ToString() + " lines (got " + lines.ToString() + ")", lines == wantSums);
         _relAssert("release-index.json", File.Exists(Path.Join(dist, "release-index.json")));
+        JsonValue wls = JsonValue.Parse(File.ReadAllText(Path.Join(dist, "release-index.json"))).Get("workloads");
+        foreach (var wl in _vWorkloads(root)) {
+            JsonValue e = wls.Get(wl);
+            _relAssert("index " + wl + " host = [workload.hosts]",
+                _relJoin(e.Get("host")) == String.Join(",", _vWorkloadHosts(root, wl)));
+            string want = wl == "desktop" ? "" : String.Join(",", _vRidsOfCategory(root, wl));
+            _relAssert("index " + wl + " runtimes = its category's RIDs", _relJoin(e.Get("runtimes")) == want);
+        }
+        _relAssert("index test workload", _relJoin(wls.Get("test").Get("host")) == "*" && wls.Get("test").Get("runtimes").Count() == 0);
     } catch (Exception e) {
         ConsoleError.WriteLine("  ✗ " + e.Message);
         return 1;
@@ -95,4 +106,11 @@ int _testPackagesRelease() {
     Directory.Delete(work, true);
     Console.WriteLine("  ✓ archive / release: 命名映射 + 归档计数 + 桌面 workload 合并 + SHA256SUMS + index");
     return 0;
+}
+
+// JSON 字符串数组 → "a,b"（与 String.Join 的期望值对比）。
+string _relJoin(JsonValue arr) {
+    var xs = new List<string>();
+    for (int i = 0; i < arr.Count(); i = i + 1) { xs.Add(arr.At(i).AsString()); }
+    return String.Join(",", xs.ToArray());
 }
