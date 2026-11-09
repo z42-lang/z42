@@ -93,6 +93,3 @@ mod make_stdlib_exception_tests {
             "err = {err}");
     }
 }
-
-#[cfg(all(test, z42_test_facade))]
-use crate::assembly::context::VmContextFactory as _;

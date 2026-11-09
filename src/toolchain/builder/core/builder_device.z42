@@ -147,7 +147,7 @@ int _bedRuntime(string rid, string rt, string project, string outDir) {
     string abi = _androidRidAbi(rid);
     if (abi.Length == 0) { ConsoleError.WriteLine("z42b: no runtime bedding for rid " + rid); return 2; }
     string nat = Path.Join(rt, "native");
-    string so = Path.Join(nat, "libz42_platform_android.so");
+    string so = Path.Join(nat, "libz42.so");
     if (!File.Exists(so)) { ConsoleError.WriteLine("z42b: runtime pack missing " + so); return 1; }
     string jni = Path.Join(Path.Join(project, "z42vm/src/main/jniLibs"), abi);
     Directory.Create(jni);

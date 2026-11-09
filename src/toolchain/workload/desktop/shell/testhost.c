@@ -22,6 +22,11 @@ extern int z42_host_run_app(const char *app_zpkg,
                             const char *const *argv);
 
 int main(int argc, char **argv) {
+#ifdef Z42_STATIC_LINK
+    extern int z42_linked_components_init(void);
+    if (z42_linked_components_init() != 0) { return 1; }
+#endif
+
     if (argc < 2) {
         return 2; /* usage: testhost <app.zpkg> [prog args...] */
     }

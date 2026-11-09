@@ -790,6 +790,5 @@ fn lazy_load_uses_registered_fusion_input_source_at_preparation() {
     assert_eq!(READS.load(Relaxed), 2 * count);
 }
 
-use crate::assembly::context::VmContextFactory as _;
 
 use crate::assembly::loader::LazyLoaderFactory as _;

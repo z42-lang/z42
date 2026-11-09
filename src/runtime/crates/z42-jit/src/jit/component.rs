@@ -36,5 +36,5 @@ static DESCRIPTOR: ComponentDescriptor = ComponentDescriptor {
     interfaces: InterfaceSpan { data: INTERFACES.as_ptr(), len: 1 },
     create_vm: Some(create), destroy_vm: Some(destroy), query_interface: Some(query),
 };
-#[cfg_attr(feature = "shared-core", no_mangle)]
+#[no_mangle]
 pub unsafe extern "C" fn z42_jit_init() -> *const ComponentDescriptor { &DESCRIPTOR }

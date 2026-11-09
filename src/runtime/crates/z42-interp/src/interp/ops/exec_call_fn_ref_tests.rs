@@ -249,5 +249,3 @@ fn non_entry_module_binds_local_indices_only() {
     assert_eq!(*frame.get(1).unwrap(), Value::I64(2));
     assert!(load_fn_with(&ctx, &m, &mut frame, "Lazy.G$0", None).is_some(), "no id outside the entry module");
 }
-
-use crate::assembly::context::VmContextFactory as _;

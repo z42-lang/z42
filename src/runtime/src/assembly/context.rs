@@ -2,27 +2,17 @@
 use std::sync::Arc;
 use crate::vm::context::VmContext;
 
-pub trait VmContextFactory: Sized {
-    fn new() -> std::pin::Pin<Box<Self>>;
-    fn with_vfs(vfs: Arc<dyn crate::pal::fs::Vfs>) -> std::pin::Pin<Box<Self>>;
-    fn with_module(module: crate::vm::runtime::Module) -> std::pin::Pin<Box<Self>>;
-    fn with_module_and_vfs(module: crate::vm::runtime::Module, vfs: Arc<dyn crate::pal::fs::Vfs>) -> std::pin::Pin<Box<Self>>;
-    fn with_extensions(module: Option<crate::vm::runtime::Module>, vfs: Arc<dyn crate::pal::fs::Vfs>, extensions: crate::vm::ext::VmExtensions) -> std::pin::Pin<Box<Self>>;
-    fn with_image(image: Arc<crate::zpkg::image::PackageImage>) -> anyhow::Result<std::pin::Pin<Box<Self>>>;
-    fn with_image_and_vfs(image: Arc<crate::zpkg::image::PackageImage>, vfs: Arc<dyn crate::pal::fs::Vfs>) -> anyhow::Result<std::pin::Pin<Box<Self>>>;
-}
-
-impl VmContextFactory for VmContext {
+impl VmContext {
     /// Standard test entry: constructs a VmContext with `VmCore.module = None`.
     /// Cargo unit tests use this — they don't need a real Module for
     /// builtin / static-field / alloc tests. Production paths use
     /// [`with_module`](Self::with_module).
-    fn new() -> std::pin::Pin<Box<Self>> {
+    pub fn new() -> std::pin::Pin<Box<Self>> {
         Self::with_extensions(None, crate::pal::fs::default_vfs(), Default::default())
     }
 
     /// [`new`](Self::new) on the file system `vfs` instead of the default one.
-    fn with_vfs(vfs: Arc<dyn crate::pal::fs::Vfs>) -> std::pin::Pin<Box<Self>> {
+    pub fn with_vfs(vfs: Arc<dyn crate::pal::fs::Vfs>) -> std::pin::Pin<Box<Self>> {
         Self::with_extensions(None, vfs, Default::default())
     }
 
@@ -30,13 +20,13 @@ impl VmContextFactory for VmContext {
     /// Module wrapped in `Arc` for cross-thread sharing. Required by any
     /// path that may invoke `__thread_spawn` (which dispatches into the
     /// shared module from the spawned thread).
-    fn with_module(module: crate::vm::runtime::Module) -> std::pin::Pin<Box<Self>> {
+    pub fn with_module(module: crate::vm::runtime::Module) -> std::pin::Pin<Box<Self>> {
         Self::with_module_and_vfs(module, crate::pal::fs::default_vfs())
     }
 
     /// [`with_module`](Self::with_module) on the file system `vfs`: every path-based file
     /// builtin and every package load of this VM goes through it.
-    fn with_module_and_vfs(
+    pub fn with_module_and_vfs(
         module: crate::vm::runtime::Module,
         vfs: Arc<dyn crate::pal::fs::Vfs>,
     ) -> std::pin::Pin<Box<Self>> {
@@ -46,7 +36,7 @@ impl VmContextFactory for VmContext {
     /// Create a VM with owned extension registrations, frozen for its entire lifetime.
     /// `None` omits the entry module, as in [`Self::new`]. Module linkage is reset
     /// exactly as in [`Self::with_module_and_vfs`]. Worker contexts share this state.
-    fn with_extensions(
+    pub fn with_extensions(
         module: Option<crate::vm::runtime::Module>,
         vfs: Arc<dyn crate::pal::fs::Vfs>,
         extensions: crate::vm::ext::VmExtensions,
@@ -55,14 +45,14 @@ impl VmContextFactory for VmContext {
     }
 
     /// Instantiate shared package definitions with fresh per-VM types and caches.
-    fn with_image(
+    pub fn with_image(
         image: Arc<crate::zpkg::image::PackageImage>,
     ) -> anyhow::Result<std::pin::Pin<Box<Self>>> {
         Self::with_image_and_vfs(image, crate::pal::fs::default_vfs())
     }
 
     /// Instantiate an image using this VM's file system for subsequent loads.
-    fn with_image_and_vfs(
+    pub fn with_image_and_vfs(
         image: Arc<crate::zpkg::image::PackageImage>,
         vfs: Arc<dyn crate::pal::fs::Vfs>,
     ) -> anyhow::Result<std::pin::Pin<Box<Self>>> {

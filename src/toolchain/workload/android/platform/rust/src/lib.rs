@@ -11,3 +11,12 @@
 // original `extern "C"` declarations keeps the linker symbols intact;
 // pulling the items into this crate's symbol table is enough.
 pub use z42::host::*;
+
+/// Register this embedding library's statically linked interpreter before using host APIs.
+#[no_mangle]
+pub extern "C" fn z42_linked_components_init() -> i32 {
+    match unsafe { z42::host::register_static_component(z42::host::INTERP_COMPONENT, z42_interp::component::z42_interp_init) } {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}

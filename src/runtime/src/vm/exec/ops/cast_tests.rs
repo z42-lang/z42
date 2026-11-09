@@ -329,5 +329,3 @@ fn arrays_test_by_element_type_and_are_invariant() {
 }
 
 use crate::vm::runtime::dispatch::ctor::make_fallback_type_desc;
-
-use crate::assembly::context::VmContextFactory as _;

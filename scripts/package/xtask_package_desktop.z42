@@ -47,7 +47,7 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     // 但随后的 `package runtime`（desktop 分支不构建）从同一个 cargoOut 装它，所以这里照建。
     Console.WriteLine("[2/5] z42vm + libz42 + z42-compression (cargo " + cargoTarget + ", " + profile + ")");
     c = _pkgBuildRuntime(rid, profile); if (c != 0) { return c; }
-    string cargoOut = _cargoOutFor(root, rid, profile);
+    string cargoOut = _componentCargoOut(root, profile);
 
     // [2c/5] build the toolchain zpkgs (workloads / launcher / z42b / devtools / interactive) + the apphost stub.
     // Only builds; the 5 apphost components are published straight into pkgDir at [install].
@@ -68,6 +68,9 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     _PackagesConfig cfg = _pkgcfgLoad(root);
     c = _pkgInstallPackage(cfg, root, "sdk", pkgDir, ictx);
     if (c != 0) { return c; }
+
+    c = _componentRelocate(Path.Join(pkgDir, "native")); if (c != 0) { return c; }
+    c = _componentRelocateLauncher(pkgDir); if (c != 0) { return c; }
 
     // [4.5/5] 插件目录：stdlib 携带插件平铺进 <sdk>/plugins/——SDK 世界
     // 的插件查找域（Z42_HOME/plugins）。flat 同级 plugins 由 xtask build stdlib 平铺；空则不发目录。
@@ -202,14 +205,18 @@ int _buildRuntimePackage(string root, string rid, string version, string profile
     if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
     Directory.Create(pkgDir);
 
+    int build = _pkgBuildRuntime(rid, profile); if (build != 0) { return build; }
+    build = _componentBuildStatic(root, profile); if (build != 0) { return build; }
+
     // libs/ + native/ (embed libs + include/ headers) per packages.toml
     // `[package.runtime].include = ["native", "stdlib"]`, installed straight from the build outputs.
     _PackagesConfig cfg = _pkgcfgLoad(root);
     _PkgInstallCtx ictx = new _PkgInstallCtx();
-    ictx.CargoOut = _cargoOutFor(root, rid, profile);
+    ictx.CargoOut = _componentCargoOut(root, profile);
     int c = _pkgInstallPackage(cfg, root, "runtime", pkgDir, ictx);
     if (c != 0) { return c; }
 
+    c = _componentRelocate(Path.Join(pkgDir, "native")); if (c != 0) { return c; }
     Console.WriteLine("  ✓ runtime package (native/ + libs): " + pkgDir);
     // 自己跑 source-identity 门：_packageRuntime 的 desktop 分支不经 _pkgFinish，而本包装的正是
     // 规则表前两类（libs/ + native/include）。
@@ -224,7 +231,7 @@ void _pkgEmitManifest(string pkgDir, string rid, string version, string profile,
     string libsList = _quotedDirList(Path.Join(pkgDir, "libs"), ".zpkg");
     // SDK 的 native/ 只有 stdlib ext 动态库（嵌入件在 runtime 包）⇒ 下面三项按实际文件取，SDK 里为空。
     string staticList = _quotedExisting(Path.Join(pkgDir, "native"), "libz42.a", "z42.lib");
-    string dynamicList = _quotedExisting(Path.Join(pkgDir, "native"), "libz42.dylib", "libz42.so");
+    string dynamicList = _quotedDirList(Path.Join(pkgDir, "native"), rid.StartsWith("windows-") ? ".dll" : (rid.StartsWith("macos-") ? ".dylib" : ".so"));
     string includeList = _quotedExisting(Path.Join(pkgDir, "native/include"), "z42_abi.h", "z42_host.h");
     string m = "";
     m = m + "[package]\n";

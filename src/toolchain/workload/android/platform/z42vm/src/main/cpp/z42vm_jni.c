@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "z42_host.h"
+extern int z42_linked_components_init(void);
 
 /* ── Cached JavaVM + Kotlin class / method IDs ────────────────────────── */
 
@@ -27,6 +28,7 @@ static JavaVM* g_jvm = NULL;
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     (void)reserved;
+    if (z42_linked_components_init() != 0) { return JNI_ERR; }
     g_jvm = vm;
     return JNI_VERSION_1_6;
 }

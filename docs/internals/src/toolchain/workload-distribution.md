@@ -124,7 +124,7 @@ runtime pack 和工具链是**两个包**，落在两处：
 |---|---|---|
 | `native/Z42VM.xcframework` | ios | 把工具链 `Package.swift` 里的 `__Z42_RUNTIME_XCFRAMEWORK__` 占位改写成**相对路径** `../../../<rid>/<ver>/native/Z42VM.xcframework` |
 | `pkg-web/` | wasm | 把 runtime 的 `pkg-web` / `pkg-nodejs` **symlink** 进工具链根（`package.json` 的 exports 按根相对解析，无需改写） |
-| `native/libz42_platform_android.so` | android | per-ABI `.so` → `z42vm/src/main/jniLibs/<abi>/`；stdlib zpkg → `z42vm/src/main/assets/stdlib/`（Gradle 把两者都烘进 AAR） |
+| `native/libz42.so` | android | per-ABI `.so` → `z42vm/src/main/jniLibs/<abi>/`；stdlib zpkg → `z42vm/src/main/assets/stdlib/`（Gradle 把两者都烘进 AAR） |
 
 iOS 用相对路径不是风格问题：SwiftPM 的 `binaryTarget` **要求**路径相对 package root。
 `workloads/<wl>/` 在 `runtimes/` 下三层，所以是 `../../../`。

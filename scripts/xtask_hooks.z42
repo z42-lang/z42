@@ -55,31 +55,13 @@ public class ProjectHooks : BuildHooks {
     // dist (= dev Z42_LIBS); dynamic (bonus) only when libz42.dylib already exists
     // (no forced cdylib build per publish).
     void _embedArtifacts(IPipelineContext ctx, string repo) {
-        string libA = Path.Join(repo, "artifacts/build/runtime/release/libz42.a");
+        string libA = Path.Join(repo, "artifacts/build/runtime/static/release/examples/libz42_static.a");
         if (!ctx.Exists(libA)) {
-            // crate-type 列表与 xtask 打包的 `_embedCrateTypes()` 保持一致（staticlib,cdylib），`-- -C link-arg=…`
-            // 与 `_embedLinkArg("")` 一致：参数不同会让两边交替时互相作废 cargo 指纹、每次全编。hooks 是独立工程，
-            // 调不到 xtask 的函数，故此处照抄。
-            ctx.Log("xtask hooks: cargo rustc --crate-type=staticlib,cdylib (libz42.a)…");
-            // --config：cargo 只从 cwd 向上找 .cargo/config.toml，配置在 src/runtime/.cargo 下（不在仓根），
-            // 不显式指定 target-dir 就会落到 src/runtime/target，下面 libA 永远找不到。
-            string[] rustcArgs = new string[]{ "rustc", "--release", "-p", "z42",
+            ctx.Log("xtask hooks: building static embedding archive…");
+            string[] rustcArgs = new string[]{ "build", "--release", "-p", "z42", "--example", "z42_static",
                 "--config", Path.Join(repo, "src/runtime/.cargo/config.toml"),
                 "--manifest-path", Path.Join(repo, "src/runtime/Cargo.toml"),
-                "--lib", "--crate-type=staticlib,cdylib" };
-            if (Platform.IsMacOS()) {
-                rustcArgs = new string[]{ "rustc", "--release", "-p", "z42",
-                    "--config", Path.Join(repo, "src/runtime/.cargo/config.toml"),
-                    "--manifest-path", Path.Join(repo, "src/runtime/Cargo.toml"),
-                    "--lib", "--crate-type=staticlib,cdylib",
-                    "--", "-C", "link-arg=-Wl,-install_name,@rpath/libz42.dylib" };
-            } else if (Platform.IsLinux()) {
-                rustcArgs = new string[]{ "rustc", "--release", "-p", "z42",
-                    "--config", Path.Join(repo, "src/runtime/.cargo/config.toml"),
-                    "--manifest-path", Path.Join(repo, "src/runtime/Cargo.toml"),
-                    "--lib", "--crate-type=staticlib,cdylib",
-                    "--", "-C", "link-arg=-Wl,-soname,libz42.so" };
-            }
+                "--target-dir", Path.Join(repo, "artifacts/build/runtime/static") };
             ExecResult rc = ctx.Exec("cargo", rustcArgs);
             if (rc.ExitCode != 0 || !ctx.Exists(libA)) {
                 ctx.Warn("xtask hooks: libz42.a build failed; --self-contained needs Z42_EMBED_*");
@@ -101,29 +83,33 @@ public class ProjectHooks : BuildHooks {
         string flat = Path.Join(repo, "artifacts/intermediate/libraries/flat/release");
         if (ctx.Exists(flat)) { ctx.AddOutput("embed-libs", flat); }
 
-        // dynamic bonus: only if libz42.dylib exists. It does whenever libz42.a was built by the
-        // staticlib,cdylib call above or by packaging (same crate-type list ⇒ same rustc run);
-        // never a separate cdylib build just for this.
-        string dylib = Path.Join(repo, "artifacts/build/runtime/release/libz42.dylib");
+        string cargo = Path.Join(repo, "artifacts/build/runtime/release");
+        string dylib = Path.Join(cargo, "libz42.dylib");
         if (ctx.Exists(dylib)) {
-            string staged = Path.Join(ctx.Dirs.Intermediate, "libz42.dylib");
-            File.Copy(dylib, staged);
-            ctx.Exec("install_name_tool", new string[]{ "-id", "@rpath/libz42.dylib", staged });
+            foreach (var name in new string[]{ "libz42.dylib", "libz42_interp.dylib", "libz42_jit.dylib", "libz42_compression.dylib" }) {
+                File.Copy(Path.Join(cargo, name), Path.Join(ctx.Dirs.Intermediate, name));
+            }
+            foreach (var std in Path.Glob(cargo, "libstd-*.dylib")) {
+                File.Copy(std, Path.Join(ctx.Dirs.Intermediate, Path.GetFileName(std)));
+            }
+            foreach (var lib in Path.Glob(ctx.Dirs.Intermediate, "*.dylib")) {
+                ctx.Exec("install_name_tool", new string[]{ "-id", "@rpath/" + Path.GetFileName(lib), lib });
+                ctx.Exec("codesign", new string[]{ "--force", "--sign", "-", lib });
+            }
             string outDyn = Path.Join(ctx.Dirs.Intermediate, "apphost-embed-dynamic");
             ExecResult r4 = ctx.Exec("cc", this._ccDynamic(src, outDyn, ctx.Dirs.Intermediate));
             if (r4.ExitCode == 0 && ctx.Exists(outDyn)) {
                 ctx.AddOutput("embed-apphost-dynamic", outDyn);
-                ctx.AddOutput("embed-dylib", staged);
-                ctx.Log("xtask hooks: embed apphost (dynamic) ready");
+                ctx.AddOutput("embed-dylib", Path.Join(ctx.Dirs.Intermediate, "libz42.dylib"));
             }
         }
     }
 
     string[] _ccStatic(string src, string outHost, string libA) {
         if (Platform.IsMacOS()) {
-            return new string[]{ "-O2", "-o", outHost, src, libA, "-liconv", "-lc", "-lm" };
+            return new string[]{ "-O2", "-DZ42_STATIC_LINK", "-o", outHost, src, libA, "-liconv", "-lc", "-lm" };
         }
-        return new string[]{ "-O2", "-o", outHost, src, libA,
+        return new string[]{ "-O2", "-DZ42_STATIC_LINK", "-o", outHost, src, libA,
             "-lc", "-lm", "-lpthread", "-ldl", "-lrt", "-lgcc_s" };
     }
 

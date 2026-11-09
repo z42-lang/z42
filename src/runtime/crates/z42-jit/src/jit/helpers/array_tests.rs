@@ -80,5 +80,3 @@ fn array_get_slow_path_handles_null_and_stack_array() {
     assert_eq!(unsafe { jit_array_get(&mut frame, ctx, 2, 0, 1, 0) }, 0);
     assert!(matches!(frame.regs[2], Value::I64(2)));
 }
-
-use crate::assembly::context::VmContextFactory as _;

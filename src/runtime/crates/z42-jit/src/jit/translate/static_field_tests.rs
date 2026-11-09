@@ -338,5 +338,3 @@ fn concurrent_first_accesses_from_compiled_code_run_the_static_constructor_once(
     });
     assert_eq!(runs(&vm), Value::I64(1), "exactly one thread ran the static constructor");
 }
-
-use crate::assembly::context::VmContextFactory as _;

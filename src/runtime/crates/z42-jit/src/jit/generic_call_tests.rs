@@ -244,5 +244,3 @@ fn method_parameter_array_compiles_with_bound_and_missing_args() {
         assert!(crate::jit::compile::state::runtime(&vm).unwrap().resolve_fn_by_id(&vm, idx(&module, "T.Allocate")).is_some());
     }
 }
-
-use crate::assembly::context::VmContextFactory as _;

@@ -133,7 +133,5 @@ mod symres_tests;
 
 mod bootstrap;
 
-#[cfg(all(test, z42_test_facade))]
-use crate::assembly::context::VmContextFactory as _;
 
 pub use bootstrap::RuntimeInputs;

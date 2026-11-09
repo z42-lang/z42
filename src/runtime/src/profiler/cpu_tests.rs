@@ -158,5 +158,3 @@ fn json_escape_handles_specials() {
     // Typical z42 generic-mangled name — no escaping needed.
     assert_eq!(json_escape("List$1.Add"), "List$1.Add");
 }
-
-use crate::assembly::context::VmContextFactory as _;

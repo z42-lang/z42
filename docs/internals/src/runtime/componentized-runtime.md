@@ -7,12 +7,13 @@
 | 库 | 拥有的实现 | 依赖方向 |
 |---|---|---|
 | z42-zpkg | zpkg/zbc/zsym 解析、静态 IR 和不可变 PackageImage | 不依赖 VM |
-| z42-runtime（runtime/src/lib.rs） | VM、对象、GC、PAL、加载/链接、共享执行原语和诊断契约 | 不依赖 host 或具体引擎 |
+| z42（runtime/src/lib.rs） | host、VM、对象、GC、PAL、配置、corelib、interop 与诊断实现 | 不依赖具体引擎 |
 | z42-interp | 解释器、基线 Engine 和组件工厂 | 依赖 core，不依赖 JIT |
 | z42-jit | Cranelift、编译代码、tier/OSR 实现和组件工厂 | 依赖 core，不依赖 interp 实现 |
-| z42（runtime/src/host/Cargo.toml） | 统一 host、配置、corelib、interop、Rust 嵌入接口和 CLI 装配 | 依赖 runtime，选择实现并注入 |
 
-运行时主库直接提供 rlib/dylib，统一宿主直接提供 rlib/cdylib。 Static builds use rlib; dynamic packs use prefer-dynamic, one core dylib and the matching Rust std. Backends directly provide their own rlib/cdylib and init entries. 不增加核心或后端包装 crate；宿主包只拥有实际宿主实现。
+运行时只有一个 Cargo 包；runtime/src 内的目录都是它的模块。主库提供 rlib/dylib，后端各自提供 rlib/cdylib 和 init 入口。生产运行时不依赖具体后端；测试和最终静态嵌入示例通过 dev-dependency 链接独立后端的 rlib，不形成生产依赖环。
+
+main.rs 不调用 Rust VM 接口，只查找 libz42 并取得版本化 C 入口。先验证头版本、大小、构建身份和回调，再把参数交给 host::cli。已打开的库保留到进程结束，避免运行时或依赖的 TLS 析构跳入已卸载代码。
 
 嵌入接口与类型统一从 z42::host 提供。CLI 只处理参数、启动和进程策略，也调用 host。组件内部 Rust API 不自动成为嵌入 API。
 
@@ -32,8 +33,8 @@ LoadOptions.backends 的每个后端可选 Auto、Linked、Dynamic(path)、Disab
 
 | 构建 | 后端可用集 | 运行时选择 |
 |---|---|---|
-| 默认桌面 | 静态 interp + jit | interp / jit |
-| --no-default-features --features interp | 仅静态 interp | 请求 jit 明确报错 |
+| 桌面 SDK / xtask build runtime | 动态 interp + jit | interp / jit；缺库报错 |
+| Rust 静态宿主 / C 静态归档 | 按最终宿主链接并登记的后端 | 未登记的后端明确报错 |
 | 不含 interp/jit 的普通静态构建 | 无后端 | 请求执行明确报错 |
 | wasm / ios / android 预设 | 静态 interp | 不编入 JIT/Cranelift，请求 jit 报错 |
 | shared-core 动态桌面包 | 动态 interp / jit | 由部署与运行设置决定；缺库报错 |
@@ -50,13 +51,13 @@ JIT 的依赖仅在 Linux/macOS/Windows 的 x64/arm64 target 选择；即便不�
 
 ## 4. 单份核心与动态构建
 
-运行时主库直接提供 rlib/dylib，统一宿主直接提供 rlib/cdylib。 Static builds use rlib; dynamic packs use prefer-dynamic, one core dylib and the matching Rust std. Backends directly provide their own rlib/cdylib and init entries. 不增加核心或后端包装 crate；宿主包只拥有实际宿主实现。
+运行时的单一主库直接提供 rlib/dylib。 Static builds use rlib; dynamic packs use prefer-dynamic, one runtime dylib and the matching Rust std. Backends directly provide rlib/cdylib and init entries.
 
 所有动态宿主、后端、共享核心与验证可执行文件必须在一次 Cargo 图中构建。分开运行 Cargo 可能因开发依赖或传递依赖 feature 合并不同而覆盖成不兼容的 Rust metadata/符号；打包器一次构建全部目标后，从同一组产物搬移并验证，不再用后续 Cargo 调用重写核心。
 
-共享 std 的动态构建使用 System 分配器；shared-core 与 mimalloc-alloc/dhat-heap 组合在编译时拒绝。共享 std 中的分配/释放必须与宿主一致。默认静态 z42vm 仍使用 mimalloc，嵌入静态库仍使用宿主分配器。
+共享 std 的动态构建使用 System 分配器。自定义分配器和 dhat 位于最终静态宿主 z42vm_static，通过独立 target-dir 构建，不覆盖动态运行时。C 静态归档 z42_static 链接独立后端，调用方先调用 z42_linked_components_init；Rust 宿主使用 host::register_static_component。静态登记仅保留进程寿命工厂，不保留 VM 实例。
 
-动态包 native/ 包含 host、shared core、interp/JIT 组件、compression、匹配的 Rust std 和 C 头文件；Windows 另含 host 导入库。macOS 使用 @rpath 标识和 @loader_path，ELF 使用 $ORIGIN；库与头文件、stdlib 一起搬移后可使用。
+SDK 的 native/ 包含统一 libz42、interp/JIT 组件、compression 和匹配的 Rust std。runtime 包另外提供 C 头文件和最终静态嵌入归档；Windows 另含导入库。macOS 使用 @rpath 标识和 @loader_path，ELF 使用 $ORIGIN；库与头文件、stdlib 一起搬移后可使用。Windows 的启动器还需要 bin/ 内的匹配 std DLL，确保在进入 main 之前完成系统装载。
 
 ## 5. 每 VM 生命周期
 
@@ -97,4 +98,4 @@ LOH 覆盖、native 扩展加载、固定地址登记和 TLAB/SATB 顺序保持�
 - [运行时/包分发](../toolchain/workload-distribution.md)
 - [诊断与跟踪](diagnostics.md)
 
-Component protocol ownership: z42-runtime::components::api defines descriptors, C-layout interfaces and execution registration. Core build.rs generates the shared build identity. Host re-exports the public embedding types; execution libraries depend on the core, preserving an acyclic Cargo graph. Generic ABI fixtures use only protocol values and callbacks; actual execution components still link the single shared core.
+Component protocol ownership: z42::components::api defines descriptors, C-layout interfaces and execution registration. Core build.rs generates the shared build identity. Host re-exports the public embedding types; execution libraries depend on the core, preserving an acyclic Cargo graph. Generic ABI fixtures use only protocol values and callbacks; actual execution components still link the single shared core.

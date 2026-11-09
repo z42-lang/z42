@@ -10,7 +10,7 @@ use rustc_hash::FxHashMap;
 /// explicitly while the VM is alive.
 ///
 /// ```
-/// use z42_runtime::vm::ext::VmExtensions;
+/// use z42::vm::ext::VmExtensions;
 /// let mut extensions = VmExtensions::new();
 /// extensions.register(String::from("tenant"))?;
 /// let state = extensions.freeze();
@@ -78,6 +78,3 @@ impl Drop for ExtensionState {
 #[cfg(all(test, z42_test_facade))]
 #[path = "ext_tests.rs"]
 mod ext_tests;
-
-#[cfg(all(test, z42_test_facade))]
-use crate::assembly::context::VmContextFactory as _;

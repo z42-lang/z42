@@ -1279,6 +1279,3 @@ fn promotion_feeds_the_old_gen_budget_and_a_major_resets_it() {
     );
     let _ = (pins, Ordering::Relaxed);
 }
-
-#[cfg(all(test, z42_test_facade))]
-use crate::assembly::context::VmContextFactory as _;

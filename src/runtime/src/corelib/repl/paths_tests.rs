@@ -10,5 +10,3 @@ fn facade_registers_paths_and_workers_share_the_service() {
         worker.ext::<Paths>().unwrap()
     ));
 }
-
-use crate::assembly::context::VmContextFactory as _;

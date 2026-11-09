@@ -82,5 +82,3 @@ pub(crate) fn prepare_execution(ctx: &VmContext, module: &Module) {
     // string lookup until Phase 4 lands).
     crate::vm::runtime::resolve::resolve_module(module, ctx);
 }
-
-use crate::assembly::context::VmContextFactory as _;

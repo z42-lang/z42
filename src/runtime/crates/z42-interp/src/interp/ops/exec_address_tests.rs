@@ -193,5 +193,3 @@ fn load_field_addr_rejects_non_object() {
     let err = load_field_addr(&ctx, &m(), &mut frame, 1, 0, "f").unwrap_err();
     assert!(err.to_string().contains("expected object"), "unexpected error: {err}");
 }
-
-use crate::assembly::context::VmContextFactory as _;

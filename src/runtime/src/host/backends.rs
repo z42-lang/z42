@@ -25,12 +25,13 @@ pub fn jit_supported() -> bool {
         any(target_os = "linux", target_os = "macos", target_os = "windows")))
 }
 fn linked(id: ComponentId) -> Option<ComponentInit> {
+    if let Some(init) = super::linked::find(id) { return Some(init); }
     if id == INTERP_COMPONENT {
-        #[cfg(any(feature = "interp", test))]
+        #[cfg(test)]
         { return Some(crate::interp::component::z42_interp_init); }
     }
     if id == JIT_COMPONENT {
-        #[cfg(all(feature = "jit", z42_jit_supported))]
+        #[cfg(all(test, feature = "jit", z42_jit_supported))]
         { return Some(crate::jit::component::z42_jit_init); }
     }
     None
@@ -74,10 +75,10 @@ fn dynamic_paths(id: ComponentId) -> Vec<PathBuf> {
 }
 fn auto_available(id: ComponentId) -> bool {
     if linked(id).is_some() { return true; }
-    cfg!(all(feature = "shared-core", feature = "component-loading")) && dynamic_paths(id).iter().any(|p| p.is_file())
+    cfg!(feature = "component-loading") && dynamic_paths(id).iter().any(|p| p.is_file())
 }
 /// Default sources present in this runtime pack; actual loading still validates ABI and identity.
-pub fn jit_available() -> bool { jit_supported() && auto_available(INTERP_COMPONENT) && auto_available(JIT_COMPONENT) }
+pub fn jit_available() -> bool { cfg!(feature = "jit") && jit_supported() && auto_available(INTERP_COMPONENT) && auto_available(JIT_COMPONENT) }
 pub fn interp_available() -> bool { auto_available(INTERP_COMPONENT) }
 fn select(options: ComponentOptions, source: &BackendSource, id: ComponentId, name: &str) -> Result<ComponentOptions> {
     let init = linked(id);

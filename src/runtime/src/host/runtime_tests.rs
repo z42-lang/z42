@@ -233,5 +233,3 @@ fn malformed_selected_eager_dependency_fails_during_load() {
     let error = super::load::prepare(artifact, None, &options).err().expect("must reject a corrupt dependency");
     assert!(format!("{error:#}").contains("broken.zpkg"));
 }
-
-use crate::assembly::context::VmContextFactory as _;

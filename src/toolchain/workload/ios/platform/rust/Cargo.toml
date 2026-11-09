@@ -8,14 +8,15 @@ publish = false
 [lib]
 name = "z42_platform_ios"
 path = "src/lib.rs"
-crate-type = ["staticlib", "rlib"]
+crate-type = ["staticlib", "rlib", "cdylib"]
 
 [dependencies]
+z42-interp = { path = "../../../../../runtime/crates/z42-interp", default-features = false }
 # Tier 2 ergonomic API plus the Tier 1 ABI symbols (z42_host_*) live in
 # the runtime crate. iOS feature preset = ["interp-only", "aot",
 # "native-interop"] — App Store policy bans JIT but allows dlopen +
 # libffi, so native-interop stays on.
-z42      = { path = "../../../../../runtime/src/host", default-features = false, features = ["ios"] }
+z42      = { path = "../../../../../runtime", default-features = false, features = ["ios"] }
 
 [profile.release]
 opt-level = "z"

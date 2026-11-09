@@ -222,5 +222,3 @@ fn str_hash_code_is_stable_and_memoized() {
     }
     assert_eq!(h1, (hash & 0x7fff_ffff) as i64);
 }
-
-use crate::assembly::context::VmContextFactory as _;

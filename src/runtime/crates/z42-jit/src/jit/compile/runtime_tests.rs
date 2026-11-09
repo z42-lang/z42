@@ -279,5 +279,3 @@ fn explicit_mixed_entry_config_counts_before_compiling() {
     assert!(matches!(outcome, ExecOutcome::Returned(Some(Value::I64(11)))));
     assert_eq!(compiled_here(&vm), 1);
 }
-
-use crate::assembly::context::VmContextFactory as _;

@@ -73,13 +73,13 @@
 desktop SDK:  z42  bin/  programs/  libs/  native/libz42_compression.<dyn>  manifest.toml
 runtime:      libs/  native/{libz42.{a,dylib,so} | z42.{lib,dll,dll.lib}, libz42_compression.<dyn>, include/{z42_abi.h,z42_host.h}}
 ios:          libs/  native/{libz42.a, Z42VM.xcframework/}  Sources/{Z42VM,Z42VMC}/  Package.swift  manifest.toml
-android:      libs/  native/libz42_platform_android.{a,so}  z42vm/src/main/{java,cpp}/  manifest.toml
+android:      libs/  native/libz42.{a,so}  z42vm/src/main/{java,cpp}/  manifest.toml
 wasm:         libs/  native/{libz42.a, z42_wasm_bg.wasm}  pkg-web/  pkg-nodejs/  js/  package.json  manifest.toml
 ```
 
-嵌入件（libz42 + C 头）**只在 runtime 包**：SDK 里的 z42vm 静态链接 VM，SDK 的 `native/` 只放它启动时 dlopen 的
-stdlib 扩展动态库。compression 的静态库哪个包都不发（desktop 没有静态注册路径，iOS / Android / wasm 的
-preset 已把 compression 编进 libz42）。发布的动态库都是可重定位的：macOS install name 是 `@rpath/<名>`，
+SDK 的 z42vm 动态加载统一 libz42；`native/` 同时携带 interp、JIT、compression 和匹配的共享 Rust std。
+runtime 包另外提供静态嵌入归档与 C 头，保留各平台的链接形式。移动平台的 preset 将 compression 编进嵌入库。
+发布的动态库都是可重定位的：macOS install name 是 `@rpath/<名>`，
 Linux 带 SONAME（= 文件名），Windows 带 import lib `z42.dll.lib`（`z42.lib` 是静态库）。
 
 C ABI 头文件统一落 `native/include/`（`z42_abi.h` + `z42_host.h`，源是

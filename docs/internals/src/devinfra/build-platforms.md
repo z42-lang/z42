@@ -163,7 +163,7 @@ Gradle，约 4 GB / 10~15 分钟）没有单独命令，要靠 z42b 启动 AVD�
 跑 `gradlew :z42vm:connectedAndroidTest`，跑完关掉（[测试用例组织规范](test-layout.md) §6）。
 
 `build` 段跑 `cargo ndk -t arm64-v8a -t x86_64 build --release` + `./gradlew :z42vm:assembleRelease`，
-产出 `z42vm-release.aar`、`jniLibs/{arm64-v8a,x86_64}/libz42_platform_android.so` 和
+产出 `z42vm-release.aar`、`jniLibs/{arm64-v8a,x86_64}/libz42.so` 和
 `assets/stdlib/*.zpkg`。C 依赖（zlib-ng）走 CMake 内建 Android 工具链 + 默认 Unix Makefiles
 生成器，**不需要 Ninja**。
 
@@ -189,7 +189,7 @@ Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
 | gradle 报 `SDK location not found` / cargo-ndk 链接失败 | 两条 SDK 路径都没配 |
 | `error: linker not found for aarch64-linux-android` | NDK 路径错或版本旧 |
 | `Could not resolve all dependencies`（Gradle） | JDK < 17 或不在 PATH |
-| `UnsatisfiedLinkError: dlopen failed: library "libz42_platform_android.so" not found` | 缺该 ABI 的 `.so`，检查 `jniLibs/<abi>/` 与设备 ABI 是否匹配 |
+| `UnsatisfiedLinkError: dlopen failed: library "libz42.so" not found` | 缺该 ABI 的 `.so`，检查 `jniLibs/<abi>/` 与设备 ABI 是否匹配 |
 
 ## 4. desktop
 

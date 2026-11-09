@@ -267,6 +267,10 @@ Z42HostStatus z42_host_shutdown(Z42HostRef host);
 int z42_host_run_app(const char* app_zpkg, const char* entry,
                      const char* libs_dir, int argc, const char* const* argv);
 
+/* Final embedding archives/frameworks export this initializer for linked backends.
+ * Call it before host APIs. The desktop dynamic runtime discovers components instead. */
+int z42_linked_components_init(void);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

@@ -401,7 +401,7 @@ jobs:
       # 独立 cache key：打包另编 cdylib / staticlib / compression / apphost，共用窄 key 会每次冷编（Windows 6~8 分钟）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          cache-key: package-host-v2
+          cache-key: package-host-v3
 
       - name: Package host SDK + verify
         shell: bash

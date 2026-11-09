@@ -173,5 +173,3 @@ fn reinstalled_loader_does_not_see_old_names() {
     let g2 = register_lazy(&ctx, const7("Lazy.G$0"));
     assert_eq!(g2.id.get(), Some(FnId(2)), "ids are never reused");
 }
-
-use crate::assembly::context::VmContextFactory as _;

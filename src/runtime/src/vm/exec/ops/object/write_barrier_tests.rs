@@ -193,5 +193,3 @@ fn a_boxed_struct_copied_into_an_old_struct_array_keeps_its_young_leaf_alive() {
     assert!(ctx.heap().upgrade_weak(&weak).is_some(),
         "the struct[] element's reference leaf was swept while the old array still held it");
 }
-
-use crate::assembly::context::VmContextFactory as _;

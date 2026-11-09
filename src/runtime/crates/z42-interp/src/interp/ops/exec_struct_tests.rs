@@ -428,5 +428,3 @@ fn symbolization_cost_by_path_depth() {
         println!("{:<12} {:>12?} {:>13.1}ns", depth, el, el.as_nanos() as f64 / ITERS as f64);
     }
 }
-
-use crate::assembly::context::VmContextFactory as _;

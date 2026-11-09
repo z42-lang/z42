@@ -135,5 +135,3 @@ fn interp_call_indirect_routes_to_the_jit_slot() {
     assert_eq!(vm.counters().jit_native_from_interp.load(Ordering::Relaxed) - before, 2,
         "calls 2 and 3 ran natively");
 }
-
-use crate::assembly::context::VmContextFactory as _;

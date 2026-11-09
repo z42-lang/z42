@@ -3,9 +3,12 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
+using Std.Json;
+using Std.Cli;
+using Std.Collections;
 
 // 完整 runtime harness 与 GREEN 窄版的 Cargo 测试配置。
-Process _runtimeTestProc() {
+Process _runtimeTestCargo(string verb) {
     // --features z42-test-fixtures：build.rs 里「用 z42c 编三个 .z42 fixture + emit
     // cfg」那块默认关闭（否则它 rerun-if-changed 到 z42c.driver.zpkg，而该文件被
     // `xtask build compiler` 每轮重写 → 下一次 cargo 全量重编）。
@@ -14,9 +17,47 @@ Process _runtimeTestProc() {
     // --workspace：不带它时包选择落到 Cargo.toml 的 `default-members`（只有根包 z42 +
     // z42-compression），z42-abi / z42-repl / z42-rs / z42-macros / 统一宿主的测试整批不跑。
     // 完整 harness 与 GREEN 窄版共用这些参数；z42-abi 守的是 C ABI 结构体布局契约。
-    return _cargoCmd("test", _runtimeCargoConfig()).Arg("--locked").Arg("--workspace")
-        .Arg("--features").Arg("z42/z42-test-fixtures")
-        .Arg("--manifest-path").Arg(_runtimeManifest());
+    return _componentCargo(verb, _root(), "debug", _runtimeTestTarget()).Arg("--workspace")
+        .Arg("--features").Arg("z42/z42-test-fixtures");
+}
+
+string _runtimeTestTarget() { return Path.Join(_componentBuildDir(_root()), "tests/runtime"); }
+Process _runtimeTestProc() { return _runtimeTestCargo("test"); }
+int _runtimeTestRunHarnesses() {
+    // Build every harness and production dependency in one Cargo graph. A subsequent
+    // cargo test graph can overwrite the shared runtime with incompatible metadata.
+    ProcessResult build = _runtimeTestCargo("build").Arg("--all-targets")
+        .Arg("--message-format=json-render-diagnostics").Stderr(Stdio.Inherit()).Run();
+    if (build.ExitCode != 0) { return build.ExitCode; }
+    string native = Path.Join(_runtimeTestTarget(), "debug");
+    _componentCopyStd(native);
+    List<string> executables = new List<string>();
+    List<string> directories = new List<string>();
+    foreach (var line in build.Stdout.Split("\n")) {
+        if (line.Trim().Length == 0) { continue; }
+        JsonValue artifact = JsonValue.Parse(line);
+        if (artifact.Get("reason").AsString() != "compiler-artifact") { continue; }
+        JsonValue exe = artifact.Get("executable");
+        if (exe.IsNull() || !artifact.Get("profile").Get("test").AsBool()) { continue; }
+        string kind = artifact.Get("target").Get("kind").At(0).AsString();
+        if (kind == "bench" || kind == "example") { continue; }
+        executables.Add(exe.AsString());
+        directories.Add(Path.GetDirectoryName(artifact.Get("manifest_path").AsString()));
+    }
+    if (executables.Count == 0) { throw new CliException("Cargo produced no runtime test harnesses"); }
+    string std = _cmdOut("rustc", new string[]{ "--print", "target-libdir" });
+    int index = 0;
+    foreach (var exe in executables) {
+        string directory = directories[index]; index = index + 1;
+        Process test = new Process(exe).Arg("--test-threads=1").Env("RUST_MIN_STACK", "8388608")
+            .Env("DYLD_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std)
+            .Env("LD_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std);
+        if (Platform.IsWindows()) { test = test.Env("PATH", native + ";" + Path.Join(native, "deps") + ";" + std + ";" + Environment.GetEnvironmentVariable("PATH", "")); }
+        int c = _execIn(test.Env("CARGO_MANIFEST_DIR", directory), directory); if (c != 0) { return c; }
+    }
+    return _exec(_componentCargo("test", _root(), "debug", Path.Join(_runtimeTestTarget(), "docs"))
+        .Arg("--workspace").Arg("--doc").Arg("--features").Arg("z42/z42-test-fixtures")
+        .Env("RUST_MIN_STACK", "8388608"));
 }
 
 // `test runtime` — the Rust VM's own unit/integration harness (cargo test on
@@ -27,9 +68,7 @@ Process _runtimeTestProc() {
 // (Suspect: GC region raw-pointer Send/Sync unsoundness with concurrent VmCores.)
 int _testRuntime() {
     Stopwatch sw = _procStart("test runtime");
-    int __rc = _exec(_runtimeTestProc()
-        .Arg("--").Arg("--test-threads=1")
-        .Env("RUST_MIN_STACK", "8388608"));
+    int __rc = _runtimeTestRunHarnesses();
     if (__rc == 0) { _procEnd("test runtime", sw); }
     return __rc;
 }

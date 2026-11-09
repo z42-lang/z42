@@ -62,6 +62,11 @@ static int exe_dir(char *dir, size_t n) {
 }
 
 int main(int argc, char **argv) {
+#ifdef Z42_STATIC_LINK
+    extern int z42_linked_components_init(void);
+    if (z42_linked_components_init() != 0) { return 1; }
+#endif
+
     char dir[PATH_MAX];
     if (exe_dir(dir, sizeof dir) != 0) {
         fprintf(stderr, "z42 apphost: cannot resolve executable directory\n");

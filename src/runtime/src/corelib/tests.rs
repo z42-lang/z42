@@ -564,5 +564,3 @@ fn builtin_table_join_preserves_order_and_has_no_holes() {
     assert!(idx("__array_clone") < idx("__test_abi_args"),
         "modules must join in registration order");
 }
-
-use crate::assembly::context::VmContextFactory as _;

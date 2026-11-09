@@ -72,6 +72,3 @@ fn scan_roots(c: &VmCore, visit: &mut dyn FnMut(&Value)) {
         ctx.exec.transient_arena.lock().scan_roots(visit);
     }
 }
-
-#[cfg(all(test, z42_test_facade))]
-use crate::assembly::context::VmContextFactory as _;

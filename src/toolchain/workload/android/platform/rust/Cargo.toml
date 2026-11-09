@@ -11,11 +11,12 @@ path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
+z42-interp = { path = "../../../../../runtime/crates/z42-interp", default-features = false }
 # Android feature preset = ["interp-only", "aot", "native-interop"].
 # Bundled libffi 5.1 (libffi-sys 4.1) compiles cleanly for all four
 # Android ABIs out of the NDK; the older 2.3 snapshot's `sysv.S` CFI
 # issue is fixed in libffi 3.4.7 which ships inside libffi-sys 4.1.
-z42      = { path = "../../../../../runtime/src/host", default-features = false, features = ["android"] }
+z42      = { path = "../../../../../runtime", default-features = false, features = ["android"] }
 
 [profile.release]
 opt-level = "z"

@@ -165,5 +165,3 @@ fn guarded_add_sub_mul_on_i64_and_str() {
     assert_eq!(interp(&vm, &m, "add_ss"), s!("abcd"));
     assert_eq!(interp(&vm, &m, "add_si"), s!("x5"));
 }
-
-use crate::assembly::context::VmContextFactory as _;

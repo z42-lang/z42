@@ -50,5 +50,3 @@ fn application_service_default_vfs_failures_match_in_sequential_and_parallel_run
     }
     assert_eq!(results[0], results[1], "parallel workers retain input order and error formatting");
 }
-
-use crate::assembly::context::VmContextFactory as _;

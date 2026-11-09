@@ -200,7 +200,7 @@ void _bedRuntimeIntoWorkload(string wlDest, string rtDest, string rid, string ve
             File.SymLink(Path.Join(rtDest, sub), link);
         }
         Console.WriteLine("      ✓ pkg-web/pkg-nodejs symlinked from runtime");
-    } else if (File.Exists(Path.Join(nativeDir, "libz42_platform_android.so"))) {
+    } else if (File.Exists(Path.Join(nativeDir, "libz42.so"))) {
         // android: gradle bakes the AAR from jniLibs (per-ABI .so) + assets/stdlib (zpkgs).
         string abi = _androidAbi(rid);
         if (abi.Length == 0) {
@@ -209,10 +209,10 @@ void _bedRuntimeIntoWorkload(string wlDest, string rtDest, string rid, string ve
         }
         string jni = Path.Join(Path.Join(Path.Join(wlDest, "z42vm/src/main/jniLibs"), abi), "");
         Directory.Create(jni);
-        File.Copy(Path.Join(nativeDir, "libz42_platform_android.so"), Path.Join(jni, "libz42_platform_android.so"));
+        File.Copy(Path.Join(nativeDir, "libz42.so"), Path.Join(jni, "libz42.so"));
         string compSo = Path.Join(nativeDir, "libz42_compression.so");
         if (File.Exists(compSo)) { File.Copy(compSo, Path.Join(jni, "libz42_compression.so")); }
-        Console.WriteLine("      ✓ libz42_platform_android.so → jniLibs/" + abi + "/");
+        Console.WriteLine("      ✓ libz42.so → jniLibs/" + abi + "/");
         // stdlib zpkgs are version-locked to the runtime → ride the runtime pack, not tooling.
         string assets = Path.Join(wlDest, "z42vm/src/main/assets/stdlib");
         Directory.Create(assets);

@@ -126,5 +126,3 @@ fn main() {
     eprintln!("signal_crash_helper is unix-only");
     std::process::exit(2);
 }
-
-use z42::host::VmContextFactory as _;

@@ -6,23 +6,23 @@ edition = "2021"
 crate-type = ["rlib", "cdylib"]
 test = false
 [dependencies]
-z42-runtime = { path = "../..", features = ["jit"] }
+z42-runtime = { package = "z42", default-features = false, path = "../.." }
 anyhow = "1"
 smallvec = "1"
 tracing = "0.1"
 parking_lot = "0.12"
 rustc-hash = "2"
 [features]
-default = []
+default = ["jit"]
 shared-core = ["jit"]
-jit = ["z42-runtime/jit"]
+jit = ["z42-runtime/jit", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), any(target_os = "linux", target_os = "macos", target_os = "windows")))'.dependencies]
-cranelift-codegen = { version = "0.135", features = ["unwind"] }
-cranelift-frontend = "0.135"
-cranelift-jit = "0.135"
-cranelift-module = "0.135"
-cranelift-native = "0.135"
+cranelift-codegen = { version = "0.135", features = ["unwind"], optional = true }
+cranelift-frontend = { version = "0.135", optional = true }
+cranelift-jit = { version = "0.135", optional = true }
+cranelift-module = { version = "0.135", optional = true }
+cranelift-native = { version = "0.135", optional = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(z42_test_facade)", "cfg(loom)"] }

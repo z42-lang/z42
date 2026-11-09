@@ -1016,9 +1016,7 @@ dependencies = [
  "webpki-roots",
  "z42-abi",
  "z42-compression",
- "z42-interp",
  "z42-macros",
- "z42-runtime",
  "z42-zpkg",
 ]
 
@@ -1046,7 +1044,7 @@ dependencies = [
  "rustc-hash",
  "smallvec",
  "tracing",
- "z42-runtime",
+ "z42",
 ]
 
 [[package]]
@@ -1064,24 +1062,7 @@ name = "z42-platform-ios"
 version = "0.1.0"
 dependencies = [
  "z42",
-]
-
-[[package]]
-name = "z42-runtime"
-version = "0.7.0"
-dependencies = [
- "anyhow",
- "blake3",
- "getrandom 0.4.3",
- "libc",
- "libloading",
- "parking_lot",
- "rustc-hash",
- "signal-hook-registry",
- "smallvec",
- "socket2",
- "tracing",
- "z42-zpkg",
+ "z42-interp",
 ]
 
 [[package]]

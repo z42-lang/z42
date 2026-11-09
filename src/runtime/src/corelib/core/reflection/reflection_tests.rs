@@ -467,5 +467,3 @@ fn class_type_arg_name_none_for_bad_index_arg() {
     // 剩下的是真正的越界下标:不得被当成 0 悄悄放过。
     assert_eq!(class_type_arg_name(&o, usize::MAX), None);
 }
-
-use crate::assembly::context::VmContextFactory as _;

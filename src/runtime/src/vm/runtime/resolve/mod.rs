@@ -336,6 +336,3 @@ pub fn resolve_function_tokens(
 #[cfg(all(test, z42_test_facade))]
 #[path = "resolver_tests.rs"]
 mod resolver_tests;
-
-#[cfg(all(test, z42_test_facade))]
-use crate::assembly::context::VmContextFactory as _;

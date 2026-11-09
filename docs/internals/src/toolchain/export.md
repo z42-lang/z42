@@ -95,7 +95,7 @@ self-contained 同一个嵌入核）。iOS 的 bundle 资源是真实文件系�
 而 Android 的 assets 不是文件系统，所以先把 `app.zpkg` 与 stdlib 从 assets 拷到应用私有目录再跑。
 同样跑在非主线程上（避免 ANR），stdout 进 logcat。
 
-`libz42_platform_android.so` 由 `z42 workload install android` 铺进 workload 的 jniLibs
+`libz42.so` 由 `z42 workload install android` 铺进 workload 的 jniLibs
 （见[分发](workload-distribution.md)），导出的工程里 `sourceSets.main.jniLibs` 指向 `jniLibs` 目录，
 需要时把 `.so` 拷进去。
 

@@ -78,7 +78,8 @@ int _pkgInstallZ42vm(string cargoOut, string pkgDir) {
 // + the stdlib ext dylibs (an embedded VM dlopens them too). Runtime package only.
 int _pkgInstallNative(string root, string cargoOut, string pkgDir) {
     if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: native: no cargo output dir"); return 1; }
-    _copyNativeLibs(cargoOut, pkgDir, true);
+    _componentInstallLibraries(cargoOut, pkgDir);
+    _componentCopyRequired(_componentStaticArchive(cargoOut), Path.Join(pkgDir, Platform.IsWindows() ? "native/z42.lib" : "native/libz42.a"));
     _copyAbiHeaders(root, Path.Join(pkgDir, "native/include"));
     return 0;
 }
@@ -87,11 +88,7 @@ int _pkgInstallNative(string root, string cargoOut, string pkgDir) {
 // (libz42_compression.{dylib,so} / z42_compression.dll). SDK package: no embedding libs, no headers.
 int _pkgInstallNativeExt(string cargoOut, string pkgDir) {
     if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: native-ext: no cargo output dir"); return 1; }
-    if (_copyNativeLibs(cargoOut, pkgDir, false) == 0) {
-        // 这是 native-ext 组件的全部内容：一个都没有 ⇒ Std.Compression 运行期报 unknown builtin，不能当成功。
-        ConsoleError.WriteLine("error: native-ext: no stdlib ext dylib (libz42_compression.*) in " + cargoOut);
-        return 1;
-    }
+    _componentInstallLibraries(cargoOut, pkgDir);
     return 0;
 }
 
@@ -178,10 +175,6 @@ int _pkgInstallEditorAssets(string root, string pkgDir) {
 // z42.repl's build hook (ProvideNative) compiles crates/z42-repl during `z42b publish` of z42.interactive and
 // colocates it into the z42i payload.
 int _pkgBuildRuntime(string rid, string profile) {
-    bool rel = (profile == "release");
-    string cargoTarget = _cargoTargetFor(rid);
-    int c = _cargo(rel, "build", "src/runtime/Cargo.toml", cargoTarget, "");
-    if (c != 0) { return c; }
-    _cargoRustc(rel, cargoTarget, _embedCrateTypes());
-    return _cargo(rel, "build", "src/runtime/Cargo.toml", cargoTarget, "z42-compression");
+    if (rid != _detectHostRid()) { throw new Std.Cli.CliException("desktop component packages must be built on the target RID"); }
+    return _componentBuild(_root(), profile);
 }

@@ -2,19 +2,20 @@
 
 ## 职责
 
-`src/lib.rs` 是运行时库入口（z42-runtime）；`src/host/Cargo.toml` 编译统一宿主库 z42 和根目录 `src/main.rs` 的 z42vm。解释器/JIT 只依赖运行时，宿主负责选择和装配后端。Cargo 输出/feature 命令用 `-p z42` 选择宿主。
+`src/lib.rs` 编译唯一的运行时包 `z42`。`src/` 内的 host、VM、对象、GC、PAL、config、corelib、interop 与 profiler 都是包内模块。`src/main.rs` 只通过版本化 C 入口动态加载运行时；CLI 实现在 `host/cli.rs`，与嵌入端共用 host 服务。Cargo 命令用 `-p z42` 选择运行时。
 
 执行 z42 编译产物（`.zbc` / `.zpkg`）。后端：解释器（interp）+ Cranelift JIT（desktop 默认，惰性逐函数编译）；AOT 为桩。
 不含编译器（在 `src/compiler/`）与标准库（在 `src/libraries/`）。
 
-解释器与 JIT 分别属于独立的 z42-interp、z42-jit 库；VM/对象/GC/PAL 由本目录的 z42-runtime 主库直接拥有。host 统一选择静态/动态组件并注册引擎，每 VM 的 TierApi 归执行层，后端拥有编译器和代码页。
+解释器与 JIT 分别属于独立的 z42-interp、z42-jit 库，单向依赖运行时；生产运行时不链接具体后端。host 统一选择静态/动态组件并注册引擎，每 VM 的 TierApi 归执行层，后端拥有编译器和代码页。
 
 ## 目录结构与核心文件
 
 ### 运行时与宿主入口
 | 文件 | 职责 |
 |------|------|
-| `main.rs` | `z42vm` CLI 入口，解析参数并调用 `host::run_app` |
+| `main.rs` | 动态加载运行时，检查 C 入口的 ABI 和构建身份 |
+| `host/cli.rs` | 参数解析、启动策略和调用共用宿主服务 |
 | `startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
 | `assembly/builtin.rs` | 门面按既定 provider 顺序装配 builtin 描述符及纯名称/ID 目录 |
 | `assembly/object_protocol.rs` | 门面将核心库 GetType 和默认 ToString 绑定到执行层私有协议；保留调用方的物化与错误边界 |
@@ -144,21 +145,21 @@ xtask test e2e                                # VM golden 端到端（interp + j
 
 ### Cargo features
 
-`default = ["jit", "native-interop", "mimalloc-alloc", "net", "tls"]`（桌面）。平台预设经
+`default = ["interp", "jit", "native-interop", "net", "tls"]`（桌面）。平台预设经
 `--no-default-features --features <wasm|ios|android>` 裁剪。
 
 | feature | 作用 |
 |---------|------|
-| `jit` | Cranelift JIT 后端（desktop x64/arm64） |
+| `jit` | 启用运行时 JIT 契约；具体 Cranelift 实现由独立组件提供（desktop x64/arm64） |
 | `component-loading` | 通过 PAL 加载可选运行时组件；native-interop 会启用此能力 |
 | `native-interop` | Tier 1 原生扩展 ABI（dlopen + libffi） |
 | `net` | `Std.Net` socket（TCP / UDP / DNS，Rust 标准库 net 模块 + `socket2`）。关掉时网络 builtin 抛 `NetUnsupportedException` |
 | `tls` | 在 `net` 之上加 rustls TLS 客户端（`ring` 后端 + `webpki-roots`）。关掉时 `__tls_*` 抛 `NetUnsupportedException` |
-| `mimalloc-alloc` | z42vm 二进制的 `#[global_allocator]` 走 mimalloc。z42c 自编译**分配受限**，换 mimalloc 后 z42c 编译显著提速。仅二进制生效（嵌入 lib 用宿主分配器）；wasm/移动预设不含（C 构建不入 wasm 沙箱 / 移动体积敏感） |
+| `mimalloc-alloc` | 最终静态宿主 `z42vm_static` 选择 mimalloc；动态 SDK 使用共享 std 的 System 分配器 |
 
 ## 关联文档
 
 - 用法与规则（参考手册）：[嵌入](../../docs/reference/src/embedding/README.md)
 - 设计 / 机制（实现内幕）：[运行时](../../docs/internals/src/runtime/README.md) · [VM 总体架构](../../docs/internals/src/runtime/vm-architecture.md) · [产物格式](../../docs/internals/src/formats/README.md)
 
-静态构建通过 interp/jit feature 选择可用后端；不支持 JIT 的 target 不编译 Cranelift。请求不可用后端明确报错。动态桌面组件包使用 `xtask package runtime --linkage dynamic --verify`；其共享 std 要求 System 分配器，与 mimalloc-alloc/dhat-heap 组合会在编译时拒绝。详见[组件化运行时](../../docs/internals/src/runtime/componentized-runtime.md)。
+`xtask build runtime` 在同一 Cargo 图中构建动态运行时及独立后端。SDK 使用动态库；桌面 runtime 另外提供静态嵌入归档。静态 Rust 宿主链接所需后端 rlib，并先调用 `host::register_static_component`；C 静态归档先调用 `z42_linked_components_init`。不支持 JIT 的 target 不编译 Cranelift，请求不可用后端明确报错。详见[组件化运行时](../../docs/internals/src/runtime/componentized-runtime.md)。

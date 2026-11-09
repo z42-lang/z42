@@ -112,6 +112,7 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
     // threads registry.
     let module = make_void_action_module("TestVoidAction");
     let ctx = VmContext::with_module(module);
+    ctx.core().exec().engines.register_baseline(&z42_interp::engine::ENGINE).unwrap();
 
     // P1-2 PR 8: a `FuncRef` holds its target's `FnId` — the entry module's index 0.
     let action = Value::FuncRef(z42::vm::runtime::ids::tokens::FnId(0));
@@ -390,5 +391,3 @@ fn dummy_type_desc(name: &str) -> Arc<z42::object::TypeDesc> {
         id: z42::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
     })
 }
-
-use z42::host::VmContextFactory as _;

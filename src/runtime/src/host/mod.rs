@@ -34,7 +34,6 @@ pub(crate) use app::report_on_exit;
 
 #[cfg(test)] mod component_tests;
 
-pub use crate::assembly::context::VmContextFactory;
 pub use crate::assembly::loader::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability, LazyLoaderFactory};
 mod backends;
 pub use backends::{BackendOptions, BackendSource, jit_supported, jit_available, interp_available};
@@ -48,3 +47,12 @@ pub use z42_abi::{Z42Value, Z42_VALUE_TAG_I64};
 
 /// Ergonomic Rust embedding over the shared host services.
 pub mod rust;
+
+/// Process entry policy shared by the dynamic launcher and static embeddings.
+pub mod cli;
+mod linked;
+pub use linked::register_static_component;
+mod launcher;
+pub mod entry_api;
+
+pub use crate::config::RuntimeConfig;

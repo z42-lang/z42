@@ -125,5 +125,3 @@ fn default_provider_collision_is_an_assembly_error() {
     users.register(2_u64).unwrap();
     users.with_defaults(defaults);
 }
-
-use crate::assembly::context::VmContextFactory as _;

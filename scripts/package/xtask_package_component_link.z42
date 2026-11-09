@@ -38,7 +38,7 @@ int _componentRelocateImports(string path, string native) {
 void _plRuntimeDynamic(_PkgLayout L, string rid) {
     L.HasDir("libs");
     L.HasFile("native/include/z42_host.h");
-    foreach (var stem in new string[]{ "z42", "z42_runtime", "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
         string name = _componentLibrary(stem);
         L.HasFile("native/" + name);
         if (Platform.IsMacOS()) {
@@ -51,4 +51,19 @@ void _plRuntimeDynamic(_PkgLayout L, string rid) {
     L.Absent("native/libz42.a", "dynamic pack does not provide a static embedding library");
     L.Absent("native/z42.lib", "dynamic pack does not provide a static embedding library");
     if (rid.StartsWith("windows-")) { L.HasFile("native/z42.dll.lib"); }
+}
+
+int _componentRelocateLauncher(string pkg) {
+    string bin = Path.Join(pkg, "bin");
+    string native = Path.Join(pkg, "native");
+    if (Platform.IsWindows()) {
+        foreach (var std in Path.Glob(native, "std-*.dll")) { File.Copy(std, Path.Join(bin, Path.GetFileName(std))); }
+        return 0;
+    }
+    if (!Platform.IsMacOS()) { return 0; }
+    string exe = Path.Join(bin, "z42vm");
+    int c = _componentRelocateImports(exe, native); if (c != 0) { return c; }
+    c = _exec(new Process("install_name_tool").Arg("-add_rpath").Arg("@loader_path/../native").Arg(exe));
+    if (c != 0) { return c; }
+    return _exec(new Process("codesign").Arg("--force").Arg("--sign").Arg("-").Arg(exe));
 }
