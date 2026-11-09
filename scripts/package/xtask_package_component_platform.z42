@@ -96,14 +96,19 @@ string _componentAndroidRid(string root, string abi) {
 
 // Pure C modules have their own graph: enabling algorithms must not change the
 // declaration-only dependency linked into the shared core or static core archive.
+// Build with the package's DEFAULT features instead of naming `z42-compression/backend`
+// on the command line: the current xtask also builds merge-base trees (bench A/B's
+// `cd base-src && xtask build runtime`), and older trees have no [features] table —
+// a hard-coded flag name would abort with "does not contain this feature". Defaults
+// are the package's own data: current trees map default → backend (algorithms on),
+// older trees had the algorithms as unconditional deps.
 int _componentBuildCompression(string root, string rid, string profile, bool shared, string destination = "") {
     string target = Path.Join(shared ? _componentBuildDir(root) : _componentStaticDir(root, rid), "compression");
     string cargo = _ridCategory(rid) == "desktop" ? Path.Join(target, profile)
         : Path.Join(target, _ridToCargo(rid) + "/" + profile);
     if (destination.Length == 0) { destination = _componentPlatformOut(root, rid, profile, shared); }
     int c = _execIn(_componentPlatformCargo("build", root, rid, profile, shared, target)
-        .Arg("-p").Arg("z42-compression").Arg("--lib").Arg("--no-default-features")
-        .Arg("--features").Arg("z42-compression/backend"), _componentPlatformWorkingDirectory(root, rid));
+        .Arg("-p").Arg("z42-compression").Arg("--lib"), _componentPlatformWorkingDirectory(root, rid));
     if (c != 0) { return c; }
     Directory.Create(destination);
     if (shared) {

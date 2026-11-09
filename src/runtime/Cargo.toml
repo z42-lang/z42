@@ -72,7 +72,13 @@ interp = []
 shared-core = ["component-loading"]
 jit                  = ["z42-jit/jit", "z42-interp/jit"]
 component-loading    = ["dep:libloading"]
-native-interop       = ["z42-interp/native-interop", "z42-rs/types", "dep:libffi", "component-loading"]
+# No "z42-rs/types" here: production code uses only z42_rs::module (feature-free).
+# types pulls z42-macros + native_helpers, whose extern `z42_set_panic_message`
+# must resolve at DLL link time on Windows — z42-repl's cdylib inherits it via
+# feature unification (release compiles z42-rs into one CGU, so the reference
+# rides along even unreferenced) and fails with LNK2019. Integration tests get
+# types through the z42-rs dev-dependency below.
+native-interop       = ["z42-interp/native-interop", "dep:libffi", "component-loading"]
 net                  = ["dep:socket2"]
 tls                  = ["net", "dep:rustls", "dep:webpki-roots"]
 aot                  = []
@@ -93,6 +99,10 @@ signal-hook-registry = "1.4"
 # the production runtime has no dependency on a concrete execution backend.
 [dev-dependencies]
 z42-interp = { path = "crates/z42-interp", default-features = false }
+# Default features (= types) on purpose: tests/native_interop_e2e.rs drives the
+# z42_rs prelude + #[z42::methods]. Dev-only so the production graph above stays
+# types-free (see the native-interop note).
+z42-rs = { path = "crates/z42-rs" }
 jsonschema = { version = "0.56", default-features = false }
 criterion  = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
