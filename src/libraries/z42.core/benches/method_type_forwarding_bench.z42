@@ -10,7 +10,7 @@ void method_type_direct(Bencher b) {
         int sum = 0;
         for (int i = 0; i < 1024; i = i + 1) { sum = sum + Zero<int>(); }
         Assert.Equal(0, sum);
-        BenchHelpers.blackBox(sum);
+        GC.KeepAlive(sum);
     });
 }
 
@@ -20,6 +20,6 @@ void method_type_forwarded(Bencher b) {
         int sum = 0;
         for (int i = 0; i < 1024; i = i + 1) { sum = sum + Forward<int>(); }
         Assert.Equal(0, sum);
-        BenchHelpers.blackBox(sum);
+        GC.KeepAlive(sum);
     });
 }

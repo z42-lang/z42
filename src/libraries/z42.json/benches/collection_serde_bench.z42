@@ -21,7 +21,7 @@ Dictionary<string, int> _scores() {
 void bench_serde_list_write() {
     List<int> values = _numbers();
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Serialize(values)); });
+    b.iter(() => { GC.KeepAlive(JsonSerializer.Serialize(values)); });
     b.printSummary("serde_list_write_128");
 }
 
@@ -29,7 +29,7 @@ void bench_serde_list_write() {
 void bench_serde_list_read() {
     string doc = JsonSerializer.Serialize(_numbers());
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Deserialize<List<int>>(doc)); });
+    b.iter(() => { GC.KeepAlive(JsonSerializer.Deserialize<List<int>>(doc)); });
     b.printSummary("serde_list_read_128");
 }
 
@@ -37,7 +37,7 @@ void bench_serde_list_read() {
 void bench_serde_dict_write() {
     Dictionary<string, int> values = _scores();
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Serialize(values)); });
+    b.iter(() => { GC.KeepAlive(JsonSerializer.Serialize(values)); });
     b.printSummary("serde_dict_write_64");
 }
 
@@ -45,7 +45,7 @@ void bench_serde_dict_write() {
 void bench_serde_dict_read() {
     string doc = JsonSerializer.Serialize(_scores());
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Deserialize<Dictionary<string, int>>(doc)); });
+    b.iter(() => { GC.KeepAlive(JsonSerializer.Deserialize<Dictionary<string, int>>(doc)); });
     b.printSummary("serde_dict_read_64");
 }
 
@@ -53,14 +53,14 @@ void bench_serde_dict_read() {
 void bench_serde_list_write_one() {
     List<int> values = new List<int>(); values.Add(1);
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Serialize(values)); });
+    b.iter(() => { GC.KeepAlive(JsonSerializer.Serialize(values)); });
     b.printSummary("serde_list_write_1");
 }
 
 [Benchmark]
 void bench_serde_list_read_one() {
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Deserialize<List<int>>("[1]")); });
+    b.iter(() => { GC.KeepAlive(JsonSerializer.Deserialize<List<int>>("[1]")); });
     b.printSummary("serde_list_read_1");
 }
 
@@ -68,13 +68,13 @@ void bench_serde_list_read_one() {
 void bench_serde_dict_write_one() {
     Dictionary<string, int> values = new Dictionary<string, int>(); values["a"] = 1;
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Serialize(values)); });
+    b.iter(() => { GC.KeepAlive(JsonSerializer.Serialize(values)); });
     b.printSummary("serde_dict_write_1");
 }
 
 [Benchmark]
 void bench_serde_dict_read_one() {
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Deserialize<Dictionary<string, int>>("{\"a\":1}")); });
+    b.iter(() => { GC.KeepAlive(JsonSerializer.Deserialize<Dictionary<string, int>>("{\"a\":1}")); });
     b.printSummary("serde_dict_read_1");
 }

@@ -9,7 +9,7 @@ using Std.Regex;
 [Benchmark]
 void bench_regex_compile() {
     var re = Regex.Compile("[a-z0-9._]+@[a-z0-9-]+\\.[a-z]+");
-    BenchHelpers.blackBox(re);
+    GC.KeepAlive(re);
 }
 
 [Benchmark]
@@ -18,7 +18,7 @@ void bench_regex_is_match(Bencher b) {
     b.iter(() => {
         bool hit = re.IsMatch("contact us at team.lead@example-corp.com for details")
                  && !re.IsMatch("no email here, just words and 12345 numbers");
-        BenchHelpers.blackBox(hit);
+        GC.KeepAlive(hit);
     });
 }
 
@@ -27,7 +27,7 @@ void bench_regex_find_all(Bencher b) {
     var re = Regex.Compile("[0-9]+");
     string hay = "order 12 shipped 345 units to 6789 customers in 10 regions over 2026 days";
     b.iter(() => {
-        BenchHelpers.blackBox(re.FindAll(hay));
+        GC.KeepAlive(re.FindAll(hay));
     });
 }
 
@@ -37,7 +37,7 @@ void test_regex_bench_bodies_run() {
     var b = new Bencher(1, 3);
     var re = Regex.Compile("[0-9]+");
     b.iter(() => {
-        BenchHelpers.blackBox(re.IsMatch("a1b"));
+        GC.KeepAlive(re.IsMatch("a1b"));
     });
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);
@@ -49,7 +49,7 @@ void bench_regex_replace(Bencher b) {
     var re = Regex.Compile("[0-9]+");
     string hay = "id 12 x 345 y 6789 z 10 w 2026 done";
     b.iter(() => {
-        BenchHelpers.blackBox(re.Replace(hay, "#"));
+        GC.KeepAlive(re.Replace(hay, "#"));
     });
 }
 
@@ -60,7 +60,7 @@ void bench_regex_group_capture() {
     b.iter(() => {
         Match hit = re.Find("example-2048");
         Assert.Equal("2048", hit.Group(2));
-        BenchHelpers.blackBox(hit);
+        GC.KeepAlive(hit);
     });
     b.printSummary("regex_group_capture");
 }
@@ -71,8 +71,8 @@ void bench_regex_anchored_literal() {
     var b = new Bencher(4, 24);
     b.iter(() => {
         for (int i = 0; i < 32; i = i + 1) {
-            BenchHelpers.blackBox(re.IsMatch("literal"));
-            BenchHelpers.blackBox(re.IsMatch("literals"));
+            GC.KeepAlive(re.IsMatch("literal"));
+            GC.KeepAlive(re.IsMatch("literals"));
         }
     });
     b.printSummary("regex_anchored_literal");
@@ -93,5 +93,5 @@ void MeasureManyReplacements(Bencher b, string pattern, string replacement) {
     string[] input = new string[512];
     Array.Fill<string>(input, "éx");
     string text = String.ConcatParts(input, input.Length);
-    b.iter(() => { BenchHelpers.blackBox(regex.Replace(text, replacement)); });
+    b.iter(() => { GC.KeepAlive(regex.Replace(text, replacement)); });
 }

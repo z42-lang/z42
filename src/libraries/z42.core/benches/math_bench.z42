@@ -10,13 +10,13 @@ using Std.Harness;
 [Benchmark]
 void bench_sqrt() {
     double r = Math.Sqrt(2.0) + Math.Sqrt(3.0) + Math.Sqrt(5.0);
-    BenchHelpers.blackBox(r);
+    GC.KeepAlive(r);
 }
 
 [Benchmark]
 void bench_pow() {
     double r = Math.Pow(2.0, 10.0);
-    BenchHelpers.blackBox(r);
+    GC.KeepAlive(r);
 }
 
 [Benchmark]
@@ -29,7 +29,7 @@ void bench_abs_loop(Bencher b) {
             acc = acc + Math.AbsInt(i);
             i = i + 1;
         }
-        BenchHelpers.blackBox(acc);
+        GC.KeepAlive(acc);
     });
 }
 
@@ -38,7 +38,7 @@ void test_math_bench_bodies_run() {
     var b = new Bencher(1, 3);
     b.iter(() => {
         double r = Math.Sqrt(4.0);
-        BenchHelpers.blackBox(r);
+        GC.KeepAlive(r);
     });
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);

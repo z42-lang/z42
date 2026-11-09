@@ -10,7 +10,7 @@ void reflection_type_attributes_cached(Bencher b) {
     Assert.Equal(1, t.GetCustomAttributes().Length);
     b.iter(() => {
         for (int i = 0; i < 128; i = i + 1) {
-            BenchHelpers.blackBox(t.GetCustomAttributes());
+            GC.KeepAlive(t.GetCustomAttributes());
         }
     });
 }

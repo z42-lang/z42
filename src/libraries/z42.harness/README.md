@@ -14,7 +14,7 @@ attribute 的写法见 `docs/reference/`。
 | 功能 | 入口 |
 |------|------|
 | 捕获 console 输出 | `TestIO.captureStdout` / `captureStderr` / `captureBoth`（`src/TestIO.z42`） |
-| 基准测量 | `Bencher.iter(Action)` / `printSummary` / `Min·Max·Median·Mean·StdDev·Total·Samples`；`BenchHelpers.blackBox`（`src/Bencher.z42`） |
+| 基准测量 | `Bencher.iter` / `iterValue` / `printSummary` / `Min·Max·Median·Mean·StdDev·Total·Samples` / `Bencher.fixed·adaptive`（`src/Bencher.z42`）；防优化沉点 `Std.GC.KeepAlive`（core） |
 | 命令式 runner（无 lambda） | `TestRunner.Begin` / `Fail` / `Summary`（`src/TestRunner.z42`） |
 | bench 摘要解析 | `BenchStats.parse`（`Bencher.printSummary` 输出行的反向解析；执行器据此写 `bench_stats`） |
 | 测试 attribute | `[Test]` / `[Benchmark]` / `[Setup]` / `[Teardown]` / `[Skip]` / `[Ignore]` / `[Timeout]` / `[ShouldThrow<E>]`（+ `IExpectsException`）（`src/TestAttributes.z42`）|
@@ -75,7 +75,7 @@ void Main() {
 }
 ```
 
-> **`using Std.Harness;` 必写，别靠搭便车**。`Assert` 在 z42.core（prelude，免 `using`）；但测试 attribute 与 `Bencher` / `BenchHelpers` /
+> **`using Std.Harness;` 必写，别靠搭便车**。`Assert` 在 z42.core（prelude，免 `using`）；但测试 attribute 与 `Bencher` /
 > `TestIO` / `BenchStats` 在 z42.harness 的 `Std.Harness` 命名空间，必须显式 `using Std.Harness;`。
 > 包激活是**整包**粒度的，只写 `using Std;` 时 `Bencher` 可能编译期静默解析失败、运行期才炸
 > （`VCall: … .<unknown>.get_WarmupIters not found`）。机制见
@@ -85,7 +85,7 @@ void Main() {
 
 - `Assert.Throws(typeName, Action)` 按类型名字符串比对；`Assert.ThrowsAny(Action)` 不断言类型；泛型 `Throws<E>` 待反射能力增强
 - z42 lambda 对值类型采用快照捕获语义，要把结果传出 lambda body 须用引用类型（class wrapper / array）
-- `BenchHelpers.blackBox` 接 `object` 而非 `<T>`（parser 在表达式上下文不识别方法级显式 generic call）
+- 防优化沉点统一走 `Std.GC.KeepAlive(object)`（原 `BenchHelpers.blackBox` 已删除）——泛型形参受限同因：parser 在表达式上下文不识别方法级显式 generic call
 
 ## 如何测试验证
 
@@ -105,7 +105,7 @@ xtask test stdlib --jobs 0 mylib    # 并行：0 = available_parallelism；N>1 �
 | 文件 | 类型 | 职责 |
 |------|------|------|
 | `src/TestIO.z42` | `static class TestIO` + `CaptureResult` | console 捕获 |
-| `src/Bencher.z42` | `Bencher` / `static class BenchHelpers` | 基准测量与防优化 |
+| `src/Bencher.z42` | `Bencher`（含 `iterValue` 值沉形态与 `fixed`/`adaptive` 工厂） | 基准测量；防优化沉点在 core `Std.GC.KeepAlive` |
 | `src/BenchStats.z42` | `BenchStats` | benchmark 统计（含 `parse`，供执行器解析 benchmark stdout） |
 | `src/TestRunner.z42` | `TestRunner` | 命令式 runner |
 | `src/Contracts/BasicCollectionContract.z42` | `static class` | `IBasicCollection` 契约测试 |

@@ -28,7 +28,7 @@ void bench_base64_roundtrip_4k(Bencher b) {
     byte[] data = _mkPayloadN(4096);
     b.iter(() => {
         string s = Base64.Encode(data);
-        BenchHelpers.blackBox(Base64.Decode(s).Length);
+        GC.KeepAlive(Base64.Decode(s).Length);
     });
 }
 
@@ -37,7 +37,7 @@ void bench_hex_roundtrip_4k(Bencher b) {
     byte[] data = _mkPayloadN(4096);
     b.iter(() => {
         string s = Hex.Encode(data);
-        BenchHelpers.blackBox(Hex.Decode(s).Length);
+        GC.KeepAlive(Hex.Decode(s).Length);
     });
 }
 
@@ -46,7 +46,7 @@ void bench_base64_roundtrip(Bencher b) {
     byte[] data = _mkPayload();
     b.iter(() => {
         string s = Base64.Encode(data);
-        BenchHelpers.blackBox(Base64.Decode(s));
+        GC.KeepAlive(Base64.Decode(s));
     });
 }
 
@@ -55,7 +55,7 @@ void bench_hex_roundtrip(Bencher b) {
     byte[] data = _mkPayload();
     b.iter(() => {
         string s = Hex.Encode(data);
-        BenchHelpers.blackBox(Hex.Decode(s));
+        GC.KeepAlive(Hex.Decode(s));
     });
 }
 
@@ -64,7 +64,7 @@ void bench_utf8_roundtrip(Bencher b) {
     string text = "The quick brown fox jumps over the lazy dog — 敏捷的棕色狐狸 0123456789";
     b.iter(() => {
         byte[] bytes = Utf8.GetBytes(text);
-        BenchHelpers.blackBox(Utf8.GetString(bytes));
+        GC.KeepAlive(Utf8.GetString(bytes));
     });
 }
 
@@ -75,7 +75,7 @@ void test_encoding_bench_bodies_run() {
     byte[] data = new byte[4];
     data[0] = (byte)1; data[1] = (byte)2; data[2] = (byte)3; data[3] = (byte)4;
     b.iter(() => {
-        BenchHelpers.blackBox(Base64.Decode(Base64.Encode(data)));
+        GC.KeepAlive(Base64.Decode(Base64.Encode(data)));
     });
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);

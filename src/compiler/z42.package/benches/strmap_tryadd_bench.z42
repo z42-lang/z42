@@ -18,7 +18,7 @@ int exercise(string[] names, bool duplicates, bool reserved) {
 }
 void measure(Bencher b, int n, bool duplicates, bool reserved) {
     string[] names = keys(n);
-    b.iter(() => { BenchHelpers.blackBox(exercise(names, duplicates, reserved)); });
+    b.iter(() => { GC.KeepAlive(exercise(names, duplicates, reserved)); });
 }
 [Benchmark]
 void bench_strmap_tryadd_growth(Bencher b) { measure(b, 2048, false, false); }
@@ -35,7 +35,7 @@ void measure_hits(Bencher b) {
     string[] names = keys(2048);
     StrMap map = new StrMap(names.Length);
     foreach (var name in names) { map.TryAdd(name, map); }
-    b.iter(() => { BenchHelpers.blackBox(hit_existing(map, names)); });
+    b.iter(() => { GC.KeepAlive(hit_existing(map, names)); });
     Assert.Equal(0, hit_existing(map, names));
 }
 [Benchmark]

@@ -327,8 +327,8 @@ Assert.Equal("hello\nworld\n", s);
 ```z42
 using Std.Harness;
 
-// 形态 1（推荐）：返回值零参（JMH 式）——体里零 Bencher、零手写 blackBox。
-// runner 逐次计时整个函数体，返回值经 blackBox 消费（防 DCE）
+// 形态 1（推荐）：返回值零参（JMH 式）——体里零 Bencher、零手写沉点。
+// runner 逐次计时整个函数体，返回值经沉点（GC.KeepAlive 同机制）消费（防 DCE）
 [Benchmark]
 long bench_addition() {
     return 1 + 2 + 3;
@@ -352,7 +352,7 @@ void bench_with_arg(Bencher b) {
 [Benchmark]
 void bench_custom() {
     var b = Bencher.fixed(2, 20);
-    b.iterValue(() => 2 * 21);       // 值返回形态：返回值逐次经 blackBox 消费
+    b.iterValue(() => 2 * 21);       // 值返回形态：返回值逐次经沉点消费
     b.printSummary("double");
 }
 ```
@@ -370,7 +370,7 @@ void bench_custom() {
 | `Bencher(int warmupIters, int sampleIters)` | 同 `fixed(...)` 的构造器形态（历史写法，语义一致） |
 | `Bencher()` | 同 `adaptive()` 的构造器形态 |
 | `void iter(Action body)` | 先跑 warmup（不计时），再逐次计时采样；返回后下面的统计量全部就位 |
-| `void iterValue(Func<object> body)` | **值返回形态（防 DCE 免样板）**：每次采样经 blackBox 消费 `body` 的返回值——被测表达式的值没人消费时用它，不必手写 `blackBox(...)`（每次采样一次装箱，与手写同价、计入耗时）。单独命名不重载 `iter`：z42 的 lambda 在重载上须显式委托类型 |
+| `void iterValue(Func<object> body)` | **值返回形态（防 DCE 免样板）**：每次采样经沉点（`GC.KeepAlive` 同机制）消费 `body` 的返回值——被测表达式的值没人消费时用它，不必手写沉点调用（每次采样一次装箱，计入耗时）。单独命名不重载 `iter`：z42 的 lambda 在重载上须显式委托类型 |
 | `void printSummary(string label)` | 打印一行汇总（格式见下） |
 | `int WarmupIters` `{ get; }` | warmup 次数 |
 | `int Samples` `{ get; }` | `iter()` **实际**用的采样数（自适应时是算出来的那个 n；`iter()` 之前为 0） |
@@ -378,14 +378,14 @@ void bench_custom() {
 | `long StdDevNs` `{ get; }` | 总体标准差（÷n），四舍五入到纳秒；亚纳秒离散度舍成 0 |
 
 DCE 防护的推荐顺序：**返回值基准**（形态 1，体里什么都不写）> `iterValue`
-（形态 3/4 里 `b.iterValue(() => compute())`）> 手写 `BenchHelpers.blackBox(...)`（剩余场合）。
-`BenchHelpers.blackBox(object value)` 是恒等包装，标记「别把这段优化掉」：它标了
-[`[MethodImpl(NoInlining | NoOptimization)]`](language/attributes.md#控制内联与优化methodimpl)，编译器不内联它、
-也不把它当纯函数，调用和实参的计算都留在原处。无条件使用是安全的。
+（形态 3/4 里 `b.iterValue(() => compute())`）> `Std.GC.KeepAlive(x)`（语句位沉点）。
+沉点机制：[`[MethodImpl(NoInlining | NoOptimization)]`](language/attributes.md#控制内联与优化methodimpl)
+的调用编译器不内联、不当纯函数，实参的计算留在原处。
 
-基准之外的场合——不引 harness 的普通库、并发 / GC 测试里钉住对象引用寿命、或在
-语句位置消费一条「算了但没人用」的表达式——用 core 的 `Std.GC.KeepAlive(target)`：
-同一对 `[MethodImpl]` 标志的无返回值等价物，语义对标 C# `GC.KeepAlive`。
+> ⚠️ **`BenchHelpers.blackBox` 已删除**（防优化沉点统一到 `Std.GC.KeepAlive`——同一对
+> `[MethodImpl]` 标志，返回值弃置时二者恒等，且不引 harness 也能用；基准里的免样板防护由
+> 返回值基准 / `iterValue` 在 runner 与 Bencher 内部逐次消费承接）。存量调用把
+> `BenchHelpers.blackBox(x);` 机械替换为 `GC.KeepAlive(x);` 即可，行为与开销不变。
 
 `printSummary` 的输出格式是稳定契约：
 

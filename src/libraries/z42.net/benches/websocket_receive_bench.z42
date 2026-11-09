@@ -81,7 +81,7 @@ void receiveBinary(int fragments, string label) {
             Assert.Equal(length, message.Buffer.Length);
             Assert.Equal(73, (int)message.Buffer[0]);
             Assert.Equal(89, (int)message.Buffer[length - 1]);
-            BenchHelpers.blackBox(message.Buffer);
+            GC.KeepAlive(message.Buffer);
         });
         bencher.printSummary(label);
     } finally {

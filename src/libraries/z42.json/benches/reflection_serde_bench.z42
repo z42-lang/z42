@@ -21,14 +21,14 @@ PlanBenchRow[] rows(int n) {
 void measureWrite(int n, string name) {
     PlanBenchRow[] values = rows(n);
     var b = new Bencher(3, 24);
-    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Serialize(values)); });
+    b.iter(() => { GC.KeepAlive(JsonSerializer.Serialize(values)); });
     b.printSummary(name);
 }
 
 void measureRead(int n, string name) {
     string json = JsonSerializer.Serialize(rows(n));
     var b = new Bencher(3, 24);
-    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Deserialize<PlanBenchRow[]>(json)); });
+    b.iter(() => { GC.KeepAlive(JsonSerializer.Deserialize<PlanBenchRow[]>(json)); });
     b.printSummary(name);
 }
 

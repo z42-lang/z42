@@ -47,8 +47,8 @@ void measure(int depth, int pattern) {
     var table = InterfaceFixture.Make(depth, pattern);
     var expr = InterfaceFixture.Expr(pattern);
     var b = new Bencher(2, 12);
-    if (pattern >= 8) { b.iter(() => { BenchHelpers.blackBox(InterfaceFixture.Direct(table)); }); }
-    else { b.iter(() => { BenchHelpers.blackBox(InterfaceFixture.Run(table, expr)); }); }
+    if (pattern >= 8) { b.iter(() => { GC.KeepAlive(InterfaceFixture.Direct(table)); }); }
+    else { b.iter(() => { GC.KeepAlive(InterfaceFixture.Run(table, expr)); }); }
     b.printSummary("interface_resolution_" + depth.ToString() + "_" + pattern.ToString());
 }
 [Benchmark]

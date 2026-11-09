@@ -15,7 +15,7 @@ void array_clear_small(Bencher b) {
             Array.Clear<int>(values, 0, values.Length);
             Assert.Equal(0, values[2]);
         }
-        BenchHelpers.blackBox(values);
+        GC.KeepAlive(values);
     });
 }
 
@@ -26,7 +26,7 @@ void array_clear_ints(Bencher b) {
         values[8192] = 8;
         Array.Clear<int>(values, 0, values.Length);
         Assert.Equal(0, values[8192]);
-        BenchHelpers.blackBox(values);
+        GC.KeepAlive(values);
     });
 }
 
@@ -37,7 +37,7 @@ void array_clear_refs(Bencher b) {
         values[8192] = "é";
         Array.Clear<string>(values, 0, values.Length);
         Assert.True(values[8192] == null);
-        BenchHelpers.blackBox(values);
+        GC.KeepAlive(values);
     });
 }
 
@@ -49,7 +49,7 @@ void array_clear_structs(Bencher b) {
         Array.Clear<Entry>(values, 0, values.Length);
         Assert.Equal(0, values[8192].Count);
         Assert.True(values[8192].Name == null);
-        BenchHelpers.blackBox(values);
+        GC.KeepAlive(values);
     });
 }
 
@@ -60,6 +60,6 @@ void list_clear_reuse_refs(Bencher b) {
         for (int i = 0; i < 4096; i++) { values.Add("é"); }
         values.Clear();
         Assert.Equal(0, values.Count);
-        BenchHelpers.blackBox(values);
+        GC.KeepAlive(values);
     });
 }

@@ -17,7 +17,7 @@ using Std.Harness;
 [Benchmark]
 void bench_add_zeroarg() {
     int x = 1 + 2 + 3;
-    BenchHelpers.blackBox(x);
+    GC.KeepAlive(x);
 }
 
 // ── ② Bencher 形参形态：setup（构造表）在计时外、工作在闭包内 ──────
@@ -31,7 +31,7 @@ void bench_add_argform(Bencher b) {
         int acc = 0;
         int j = 0;
         while (j < 8) { acc = acc + table[j]; j = j + 1; }
-        BenchHelpers.blackBox(acc);
+        GC.KeepAlive(acc);
     });
 }
 
@@ -42,7 +42,7 @@ void test_bencher_custom_profile_still_works() {
     var b = new Bencher(2, 5);
     b.iter(() => {
         int y = 4 + 5 + 6;
-        BenchHelpers.blackBox(y);
+        GC.KeepAlive(y);
     });
     b.printSummary("inside_test_regression");
     Assert.Equal(5, b.Samples);

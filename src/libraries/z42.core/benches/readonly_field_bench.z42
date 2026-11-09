@@ -34,6 +34,6 @@ void bench_readonly_field_hot_loop(Bencher b) {
     var sc = new RoScaler(7);
     b.iter(() => {
         long r = sc.Sum(4000);
-        BenchHelpers.blackBox(r);
+        GC.KeepAlive(r);
     });
 }

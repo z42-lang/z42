@@ -65,7 +65,7 @@ int exercise(int n, int pattern) {
     return n;
 }
 void measure(Bencher b, int n, int pattern) {
-    b.iter(() => { BenchHelpers.blackBox(exercise(n, pattern)); });
+    b.iter(() => { GC.KeepAlive(exercise(n, pattern)); });
 }
 [Benchmark]
 void bench_purity_demotion_chain_256(Bencher b) { measure(b, 256, 0); }

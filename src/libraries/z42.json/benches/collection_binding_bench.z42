@@ -5,7 +5,7 @@ using Std.Json;
 
 void measure(object value, string name) {
     var b = new Bencher(3, 24);
-    b.iter(() => { BenchHelpers.blackBox(JsonSerializer.Serialize(value)); });
+    b.iter(() => { GC.KeepAlive(JsonSerializer.Serialize(value)); });
     b.printSummary(name);
 }
 

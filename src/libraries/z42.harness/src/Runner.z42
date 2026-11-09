@@ -249,7 +249,7 @@ public static class Runner {
     // 「算了但没人用」的纯计算不会被优化掉），体里零 Bencher、零手写 blackBox。
     static void _runTimed(TestCase e) {
         Bencher b = Bencher.fixed(2, 20);
-        Action timed = () => { BenchHelpers.blackBox(e.Invoke()); };   // 语句体 → 显式 Action（iter 有重载）
+        Action timed = () => { GC.KeepAlive(e.Invoke()); };   // 语句体 → 显式 Action（iter 有重载）
         b.iter(timed);
         b.printSummary(e.Method.Name);
     }

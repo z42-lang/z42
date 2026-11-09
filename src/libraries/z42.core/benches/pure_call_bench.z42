@@ -21,5 +21,5 @@ void bench_pure_call_hot_loop() {
     int i = 0;
     int k = 20;
     while (i < 30) { s = s + (long)rp_fib(k); i = i + 1; }   // rp_fib(k) 循环不变纯 → 外提
-    BenchHelpers.blackBox(s);
+    GC.KeepAlive(s);
 }

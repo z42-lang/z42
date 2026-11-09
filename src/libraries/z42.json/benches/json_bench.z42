@@ -33,7 +33,7 @@ void bench_parse_large_object(Bencher b) {
     string doc = _bigObjectDoc(200);          // >1 KB, 200 members
     b.iter(() => {
         var v = JsonValue.Parse(doc);
-        BenchHelpers.blackBox(v.Count());
+        GC.KeepAlive(v.Count());
     });
 }
 
@@ -46,7 +46,7 @@ void bench_stringify_large_object(Bencher b) {
         i = i + 1;
     }
     b.iter(() => {
-        BenchHelpers.blackBox(JsonValue.Stringify(obj));   // WriteObject Get-per-key now O(n)
+        GC.KeepAlive(JsonValue.Stringify(obj));   // WriteObject Get-per-key now O(n)
     });
 }
 
@@ -55,7 +55,7 @@ void bench_parse_object(Bencher b) {
     string doc = "{\"name\":\"alice\",\"age\":30,\"active\":true,\"tags\":[1,2,3]}";
     b.iter(() => {
         var v = JsonValue.Parse(doc);
-        BenchHelpers.blackBox(v);
+        GC.KeepAlive(v);
     });
 }
 
@@ -63,7 +63,7 @@ void bench_parse_object(Bencher b) {
 void bench_parse_scalar_access() {
     var v = JsonValue.Parse("42");
     long n = v.AsLong();
-    BenchHelpers.blackBox(n);
+    GC.KeepAlive(n);
 }
 
 [Test]
@@ -71,7 +71,7 @@ void test_json_bench_bodies_run() {
     var b = new Bencher(1, 3);
     b.iter(() => {
         var v = JsonValue.Parse("true");
-        BenchHelpers.blackBox(v.AsBool());
+        GC.KeepAlive(v.AsBool());
     });
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);

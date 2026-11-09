@@ -21,7 +21,7 @@ void virtual_field_reader(Bencher b) {
             total = total + reader.Read();
             i = i + 1;
         }
-        BenchHelpers.blackBox(total);
+        GC.KeepAlive(total);
     });
 }
 
@@ -35,7 +35,7 @@ void virtual_adjusted_reader(Bencher b) {
             total = total + reader.ReadAdjusted();
             i = i + 1;
         }
-        BenchHelpers.blackBox(total);
+        GC.KeepAlive(total);
     });
 }
 
@@ -49,6 +49,6 @@ void direct_field_reader(Bencher b) {
             total = total + reader.ReadDirect();
             i = i + 1;
         }
-        BenchHelpers.blackBox(total);
+        GC.KeepAlive(total);
     });
 }
