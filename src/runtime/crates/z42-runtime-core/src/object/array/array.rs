@@ -690,7 +690,7 @@ impl ElemKind {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 impl ArrayObj {
     /// Test-only: a MIXED array in a **leaked** block that no region knows (never marked, swept
     /// or freed) — for heap-less unit tests.

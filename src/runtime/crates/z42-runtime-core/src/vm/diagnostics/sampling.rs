@@ -39,6 +39,6 @@ impl Sampling {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "sampling_tests.rs"]
 mod tests;

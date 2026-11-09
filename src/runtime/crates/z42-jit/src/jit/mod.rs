@@ -7,10 +7,10 @@ pub(crate) mod runtime;
 pub(crate) mod helpers;
 mod translate;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "lazy_load_tests.rs"]
 mod lazy_load_tests;
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "generic_call_tests.rs"]
 mod generic_call_tests;
 

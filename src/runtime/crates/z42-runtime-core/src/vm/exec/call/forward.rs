@@ -318,10 +318,10 @@ impl FoldFault {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "forward_tests.rs"]
 mod forward_tests;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "forward_shape_tests.rs"]
 mod forward_shape_tests;

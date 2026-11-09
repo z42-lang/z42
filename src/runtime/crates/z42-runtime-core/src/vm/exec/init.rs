@@ -6,7 +6,7 @@ use crate::vm::runtime::statics::{CctorRegistry, CctorState,
 const WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Claim or wait without GC participation; only non-VM test callers use this helper.
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 pub fn claim(registry: &CctorRegistry, class_fq: &str) -> Result<Option<String>, String> {
     claim_with(registry, class_fq, || ())
 }

@@ -247,6 +247,6 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "arith_guard_tests.rs"]
 mod arith_guard_tests;

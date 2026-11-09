@@ -12,7 +12,7 @@ pub use module::Module;
 mod fusion;
 pub use fusion::{CmpOp, SuperInstr};
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod runtime_tests;
 
 pub mod reflection_types;

@@ -30,3 +30,6 @@ getrandom = "0.4"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 signal-hook-registry = "1.4"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(z42_test_facade)", "cfg(loom)"] }

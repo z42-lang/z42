@@ -26,7 +26,7 @@ pub mod merge;
 mod artifact;
 mod indices;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 pub use crate::assembly::loader::{build_block_indices, load_artifact, load_artifact_from_bytes};
 pub use artifact::LoadedArtifact;
 pub use indices::build_func_index;
@@ -34,6 +34,6 @@ pub use artifact::{load_artifact_with_fusion, load_artifact_from_bytes_with_fusi
 pub use indices::build_block_indices_with_fusion;
 
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "loader_tests.rs"]
 mod tests;

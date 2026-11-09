@@ -97,6 +97,6 @@ impl GcObserver for GcTracer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "trace_tests.rs"]
 mod trace_tests;

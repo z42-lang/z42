@@ -16,10 +16,10 @@ pub mod struct_leaf;
 
 pub use error::{ArrayOp, OpError, OpResult, Throw};
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "objops_tests.rs"]
 mod objops_tests;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "write_barrier_tests.rs"]
 mod write_barrier_tests;

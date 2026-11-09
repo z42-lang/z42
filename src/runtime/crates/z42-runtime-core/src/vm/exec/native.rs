@@ -44,6 +44,6 @@ pub fn services(ctx: &VmContext) -> Result<&NativeServices> {
         .ok_or_else(|| anyhow::anyhow!("native services were not registered before execution"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "native_tests.rs"]
 mod native_tests;

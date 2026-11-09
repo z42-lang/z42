@@ -319,6 +319,6 @@ pub struct HeapStats {
     pub pause_histogram:    PauseHistogram,
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "types_tests.rs"]
 mod types_tests;

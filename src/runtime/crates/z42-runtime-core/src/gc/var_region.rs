@@ -687,25 +687,25 @@ impl VarRegion {
 
     /// Count of chunks that currently own memory (tests / diagnostics). Slots tombstoned by
     /// `Chunk::free_in_place` are excluded — they are bookkeeping, not footprint.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn chunk_count(&self) -> usize {
         self.chunks.iter().filter(|c| !c.is_freed()).count()
     }
 
     /// Number of `chunks` slots including freed tombstones (tests: proves slot reuse).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn chunk_slot_count(&self) -> usize {
         self.chunks.len()
     }
 
     /// The per-chunk census (tests: reconciled against a full walk of the blocks).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn live_per_chunk_for_test(&self) -> Vec<u32> {
         self.live_per_chunk.clone()
     }
 
     /// Every carved block, live or dead (tests: what the region still tracks).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn tracked_blocks_for_test(&self) -> Vec<NonNull<GcBlockHeader>> {
         let mut out = Vec::new();
         for ci in 0..self.chunks.len() {
@@ -715,7 +715,7 @@ impl VarRegion {
     }
 
     /// Every block of the young set (tests).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn young_blocks_for_test(&self) -> Vec<NonNull<GcBlockHeader>> {
         let mut out = Vec::new();
         self.iterate_young(|h, _| out.push(h.header_ptr()));
@@ -723,13 +723,13 @@ impl VarRegion {
     }
 
     /// See [`Self::live_per_chunk_for_test`].
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn blocks_per_chunk_for_test(&self) -> Vec<u32> {
         self.blocks_per_chunk.clone()
     }
 
     /// **add-gc-tlab stage 3**: reclaimed-chunk pool size (tests).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn free_chunk_pool_len(&self) -> usize {
         self.var_free_chunk_pool.len()
     }
@@ -764,6 +764,6 @@ impl Drop for VarRegion {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "var_region_tests.rs"]
 mod var_region_tests;

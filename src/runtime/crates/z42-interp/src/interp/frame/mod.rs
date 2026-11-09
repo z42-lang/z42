@@ -228,6 +228,6 @@ impl Frame {
 
 // ── Core execution loop ──────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "frame_tests.rs"]
 mod frame_tests;

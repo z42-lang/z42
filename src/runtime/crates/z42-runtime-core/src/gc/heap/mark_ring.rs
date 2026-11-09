@@ -84,6 +84,6 @@ fn prefetch(v: &Value) {
     crate::gc::var_region::prefetch_write(p);
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "mark_ring_tests.rs"]
 mod mark_ring_tests;

@@ -233,6 +233,6 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "static_field_tests.rs"]
 mod static_field_tests;

@@ -382,6 +382,6 @@ fn align_up(off: u32, align: u32) -> u32 {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "named_struct_layout_tests.rs"]
 mod named_struct_layout_tests;

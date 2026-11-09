@@ -154,6 +154,6 @@ impl<'a, 'b> TxCtx<'a, 'b> {
 /// The inline layout (`vstr::jit_layout`) is spelled for 64-bit handles only.
 const STR_INTRINSICS_SUPPORTED: bool = cfg!(target_pointer_width = "64");
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "str_intrinsics_tests.rs"]
 mod str_intrinsics_tests;

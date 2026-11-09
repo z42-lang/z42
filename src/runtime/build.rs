@@ -15,6 +15,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
+    // The facade owns the cross-layer white-box harness over shared source files.
+    println!("cargo:rustc-check-cfg=cfg(z42_test_facade)");
+    println!("cargo:rustc-cfg=z42_test_facade");
     println!("cargo:rustc-check-cfg=cfg(z42_jit_supported)");
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();

@@ -67,7 +67,7 @@ impl GcMode {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod mode_tests {
     use super::*;
 

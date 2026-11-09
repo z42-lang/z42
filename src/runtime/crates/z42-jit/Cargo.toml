@@ -24,3 +24,6 @@ cranelift-frontend = "0.135"
 cranelift-jit = "0.135"
 cranelift-module = "0.135"
 cranelift-native = "0.135"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(z42_test_facade)", "cfg(loom)"] }

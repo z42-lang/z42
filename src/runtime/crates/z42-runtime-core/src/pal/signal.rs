@@ -93,6 +93,6 @@ pub mod sigsafe {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "signal_tests.rs"]
 mod signal_tests;

@@ -172,7 +172,7 @@ pub(super) fn payload_class(payload: usize) -> u8 {
 /// The footprint of size class `sc` — the inverse of [`class_for_with_limit`] for in-chunk
 /// classes (`octave << SUB_LOG2 | sub` → `2^octave + sub · 2^octave / 2^SUB_LOG2`). Tests pin
 /// that every class index names exactly one footprint.
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[inline]
 pub(super) fn class_footprint(sc: u8) -> usize {
     let oct = (sc >> SUB_LOG2) as u32;
@@ -660,7 +660,7 @@ impl VarRegion {
 
     /// Whether `addr` falls inside a chunk this region still owns (tests: proves nothing
     /// tracked points into memory that was handed back to the allocator).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn owns_addr(&self, addr: usize) -> bool {
         self.chunks.iter().any(|c| {
             !c.is_freed() && {

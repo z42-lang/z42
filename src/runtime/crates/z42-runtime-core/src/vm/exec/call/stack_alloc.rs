@@ -216,6 +216,6 @@ pub fn stats_enabled(ctx: &crate::vm::context::VmContext) -> bool {
     ctx.core.exec.stack_alloc == StackAllocPolicy::Stats
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "stack_alloc_tests.rs"]
 mod stack_alloc_tests;

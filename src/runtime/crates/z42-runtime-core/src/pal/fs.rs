@@ -132,6 +132,6 @@ pub fn symlink(src: &str, dst: &str) -> Result<()> {
     super::sys::fs::symlink(src, dst)
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "fs_tests.rs"]
 mod fs_tests;

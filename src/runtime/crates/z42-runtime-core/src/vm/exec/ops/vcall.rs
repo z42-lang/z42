@@ -448,6 +448,6 @@ fn install_ic(ic: Option<&VCallIC>, arity: usize, recv_type: u32, target: &VCall
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "vcall_tests.rs"]
 mod vcall_tests;

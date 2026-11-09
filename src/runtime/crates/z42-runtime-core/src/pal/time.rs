@@ -30,6 +30,6 @@ pub fn wall_unix_ns() -> u64 {
     super::sys::time::wall_unix_ns()
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "time_tests.rs"]
 mod tests;

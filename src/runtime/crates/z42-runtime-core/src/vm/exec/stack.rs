@@ -94,6 +94,6 @@ pub unsafe fn visit_roots(frames: &[VmFrame], mut visit: impl FnMut(&Value)) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "stack_tests.rs"]
 pub mod stack_tests;

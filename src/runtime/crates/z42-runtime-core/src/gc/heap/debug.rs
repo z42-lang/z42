@@ -1,4 +1,4 @@
-//! `Heap` 调试/测试辅助：`#[cfg(test)]` accessors + `debug_validate_invariants`。
+//! `Heap` 调试/测试辅助：`#[cfg(all(test, z42_test_facade))]` accessors + `debug_validate_invariants`。
 //! 从 `heap.rs` 拆出（refactor-arc-heap-modularization）。
 
 use parking_lot::Mutex;
@@ -8,13 +8,13 @@ impl crate::gc::Heap {
     /// Test-only entry point to `snapshot_roots_into_mark_queue` (whose
     /// production caller is the incremental cycle's opening slice); tests
     /// drive the snapshot directly without setting up a real collect.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn snapshot_roots_into_mark_queue_for_test(&self) -> usize {
         self.snapshot_roots_into_mark_queue()
     }
 
     /// Test-only entry to read the mark queue contents.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn mark_queue_for_test(&self) -> Vec<Value> {
         self.mark_queue.lock().clone()
     }
@@ -22,26 +22,26 @@ impl crate::gc::Heap {
     /// **add-gc-debug-invariants P1 **: test-only mutable
     /// access to the mark queue for injecting corruption (e.g. leaving
     /// stale entries to verify validate panics).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn mark_queue_for_test_mut(&self) -> parking_lot::MutexGuard<'_, Vec<Value>> {
         self.mark_queue.lock()
     }
 
     /// Test-only entry to the `mark_if_unmarked` static helper.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn mark_if_unmarked_for_test(&self, v: &Value) -> bool {
         Self::mark_if_unmarked(v, self.major_mark())
     }
 
     /// add-incremental-major-gc M1: the major kind in force, for tests that inspect marks.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn major_mark_for_test(&self) -> crate::object::header::marks::MarkKind {
         self.major_mark()
     }
 
     /// **add-gc-tlab stage 3**: test-only handle to the variable-length region
     /// (var TLAB chunk-count / pool assertions).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn region_var_for_test(&self) -> &Mutex<crate::gc::var_region::VarRegion> {
         &self.region_var
     }
@@ -49,7 +49,7 @@ impl crate::gc::Heap {
     /// **add-generational-gc P3 **: test-only entry to the
     /// minor escalation threshold (used by tests; production reads via
     /// minor_escalation_threshold() in the dispatch path).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn minor_escalation_threshold_for_test(&self) -> f32 {
         self.minor_escalation_threshold()
     }
@@ -144,7 +144,7 @@ impl crate::gc::Heap {
     /// `heap_tests::mark_phase`. Production code goes through
     /// `collect_cycles` → `run_cycle_collection`, which calls the same
     /// two phases.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub(super) fn collect_cycles_mark_sweep_for_test(&self) -> u64 {
         // add-gc-tlab (stage 2): merge this thread's borrowed chunk before mark.
         self.retire_thread_tlab();
@@ -159,7 +159,7 @@ impl crate::gc::Heap {
     /// Walks the registry via the existing snapshot upgrade path (so dead
     /// WeakRefs are skipped naturally). Makes mark_phase tests idempotent
     /// across runs.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub(super) fn reset_marks_for_test(&self) {
         // add-incremental-major-gc M1: whitening the heap is opening a new epoch.
         self.begin_major_mark();

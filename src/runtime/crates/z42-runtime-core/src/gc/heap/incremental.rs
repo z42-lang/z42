@@ -573,7 +573,7 @@ impl Drop for crate::gc::Heap {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 impl crate::gc::Heap {
     /// Drive one slice by hand with a budget of `units` work units (tests are single-threaded, so
     /// there is no pause to take). Returns whether the cycle completed.

@@ -77,6 +77,6 @@ pub fn debug_assert_not_native_parked() {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "to_vm_tests.rs"]
 mod to_vm_tests;

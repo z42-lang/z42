@@ -125,15 +125,15 @@ use crate::vm::loader::lazy::{LazyLoader, ZpkgCandidate};
 use crate::vm::runtime::Function;
 use crate::object::{TypeDesc, Value};
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "vm_context_tests.rs"]
 mod vm_context_tests;
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod symres_tests;
 
 mod bootstrap;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use crate::assembly::context::VmContextFactory as _;
 
 pub use bootstrap::RuntimeInputs;

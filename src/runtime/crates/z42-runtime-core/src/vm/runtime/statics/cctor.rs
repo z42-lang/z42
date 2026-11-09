@@ -411,6 +411,6 @@ pub fn owner_class_of_static_func(func_fq: &str) -> Option<&str> {
 }
 
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "cctor_tests.rs"]
 mod tests;

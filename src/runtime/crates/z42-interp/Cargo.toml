@@ -18,3 +18,6 @@ default = []
 shared-core = ["dep:z42-runtime-shared", "jit"]
 jit = ["z42-runtime-core/jit"]
 native-interop = ["z42-runtime-core/native-interop"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(z42_test_facade)", "cfg(loom)"] }

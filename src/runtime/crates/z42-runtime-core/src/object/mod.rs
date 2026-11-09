@@ -14,5 +14,5 @@ pub use object::*;
 pub use array::*;
 pub use string::Str;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod types_tests;

@@ -61,6 +61,6 @@ impl RegPool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "reg_pool_tests.rs"]
 mod reg_pool_tests;

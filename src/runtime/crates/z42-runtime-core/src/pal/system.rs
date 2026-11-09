@@ -83,6 +83,6 @@ pub struct OsCaps {
 /// The capabilities of the target this binary was built for.
 pub const OS_CAPS: OsCaps = super::sys::system::OS_CAPS;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "system_tests.rs"]
 mod system_tests;

@@ -7,5 +7,5 @@ pub mod receiver;
 pub mod functions;
 pub mod isa_cache;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod isa_cache_tests;

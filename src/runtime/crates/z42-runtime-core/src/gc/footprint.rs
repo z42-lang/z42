@@ -108,7 +108,7 @@ pub fn malloc_size(n: usize) -> u64 {
 /// bitmap's words are re-measured with the other variable-size tables.
 pub const VAR_CHUNK_TABLES: u64 = 112;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod tests {
     use super::*;
 

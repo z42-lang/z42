@@ -355,6 +355,6 @@ fn convert_from_char(c: char, to_tag: u8) -> Result<Value> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "scalar_tests.rs"]
 mod semantics_tests;

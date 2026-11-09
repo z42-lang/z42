@@ -171,6 +171,6 @@ impl LazyCompiler {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "lazy_tests.rs"]
 mod lazy_tests;

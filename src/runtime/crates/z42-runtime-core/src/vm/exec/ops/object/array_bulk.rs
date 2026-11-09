@@ -331,6 +331,6 @@ fn box_struct(ctx: &VmContext, elem: ElemType, bytes: &[u8], refs: &[Value]) -> 
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "array_bulk_tests.rs"]
 mod array_bulk_tests;

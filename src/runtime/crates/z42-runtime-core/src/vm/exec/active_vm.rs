@@ -68,6 +68,6 @@ pub fn current_vm<'a>() -> Option<&'a VmContext> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "active_vm_tests.rs"]
 mod active_vm_tests;

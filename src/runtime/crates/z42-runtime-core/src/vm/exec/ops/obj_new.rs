@@ -165,6 +165,6 @@ fn bind_ctor<'a>(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "obj_new_tests.rs"]
 mod obj_new_tests;

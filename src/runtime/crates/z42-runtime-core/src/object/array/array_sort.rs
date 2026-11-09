@@ -84,6 +84,6 @@ impl ArrayObj {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "array_sort_tests.rs"]
 mod array_sort_tests;

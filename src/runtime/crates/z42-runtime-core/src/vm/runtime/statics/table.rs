@@ -253,12 +253,12 @@ impl StaticTable {
     }
 
     /// Number of allocated ids (tests).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn len(&self) -> usize {
         self.cells.len()
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "table_tests.rs"]
 mod table_tests;

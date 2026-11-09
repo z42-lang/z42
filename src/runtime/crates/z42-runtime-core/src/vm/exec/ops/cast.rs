@@ -332,6 +332,6 @@ fn iface_reaches_td(
 }
 
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "cast_tests.rs"]
 mod cast_tests;

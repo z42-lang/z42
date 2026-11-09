@@ -46,6 +46,6 @@ pub fn current_thread_stack() -> Option<(usize, usize)> {
     super::sys::thread::current_thread_stack()
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "thread_tests.rs"]
 mod tests;

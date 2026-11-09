@@ -112,6 +112,6 @@ pub(super) fn array_len(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "exec_array_tests.rs"]
 mod exec_array_tests;

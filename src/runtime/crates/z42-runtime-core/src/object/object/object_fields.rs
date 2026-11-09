@@ -293,7 +293,7 @@ fn synthesized_ref_cells(td: &TypeDesc, f: &mut dyn FnMut(RefCell)) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 impl ScriptObject {
     /// Test-only: write field `slot` **without** the SATB record — the raw store GC unit tests use
     /// to wire object graphs (and to simulate a mutator that bypassed the barrier).

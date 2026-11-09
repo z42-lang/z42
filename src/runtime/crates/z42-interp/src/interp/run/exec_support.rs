@@ -356,6 +356,6 @@ pub(super) fn find_handler(
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "exec_support_tests.rs"]
 mod exec_support_tests;

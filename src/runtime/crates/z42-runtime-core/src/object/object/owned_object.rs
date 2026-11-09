@@ -196,6 +196,6 @@ impl std::fmt::Debug for OwnedObject {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "owned_object_tests.rs"]
 mod owned_object_tests;

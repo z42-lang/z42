@@ -73,5 +73,5 @@ fn scan_roots(c: &VmCore, visit: &mut dyn FnMut(&Value)) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use crate::assembly::context::VmContextFactory as _;

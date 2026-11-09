@@ -192,6 +192,6 @@ fn inherited_type_arg(
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "type_param_env_tests.rs"]
 mod type_param_env_tests;

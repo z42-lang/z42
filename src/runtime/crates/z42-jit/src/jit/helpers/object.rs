@@ -363,7 +363,7 @@ pub unsafe extern "C" fn jit_as_cast(
 
 // ── Static fields ────────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 thread_local! {
     /// Test probe: calls of the two static-field helpers on this thread — which accesses left the
     /// native path (`translate::static_field`).
@@ -372,7 +372,7 @@ thread_local! {
 
 #[inline(always)]
 fn note_static_helper_call() {
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     STATIC_HELPER_CALLS.with(|c| c.set(c.get() + 1));
 }
 

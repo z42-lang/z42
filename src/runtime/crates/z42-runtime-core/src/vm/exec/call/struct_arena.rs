@@ -272,6 +272,6 @@ fn stale_err(idx: u32, frame_id: u32) -> anyhow::Error {
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "struct_arena_tests.rs"]
 mod struct_arena_tests;

@@ -194,6 +194,6 @@ pub fn read_zbc_namespace(data: &[u8]) -> Result<String> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "namespace_index_tests.rs"]
 mod tests;

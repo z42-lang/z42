@@ -177,6 +177,6 @@ impl TypeTable {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "type_table_tests.rs"]
 mod type_table_tests;

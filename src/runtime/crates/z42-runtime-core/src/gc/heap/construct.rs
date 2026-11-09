@@ -36,7 +36,7 @@ impl Heap {
             mark_epoch: std::sync::atomic::AtomicU8::new(1),
             satb_queue: parking_lot::Mutex::new(Vec::new()),
             pause_histogram: Mutex::new(crate::gc::types::PauseHistogram::new(config.pause_window)),
-            #[cfg(test)]
+            #[cfg(all(test, z42_test_facade))]
             barrier_observer: Mutex::new(None),
             // fix-wasm-string-ops: claim a fresh, never-reused epoch for this heap.
             epoch: NEXT_HEAP_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed),

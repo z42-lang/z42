@@ -179,7 +179,7 @@ impl VarHoleStash {
     }
 
     /// Unused slots across every class (tests).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn unused(&self) -> usize {
         self.batches.iter().map(|b| b.slots.len() - b.next).sum()
     }
@@ -357,6 +357,6 @@ impl VarRegion {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "holes_tests.rs"]
 mod holes_tests;

@@ -87,6 +87,6 @@ impl EngineGuards {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "engine_guards_tests.rs"]
 mod engine_guards_tests;

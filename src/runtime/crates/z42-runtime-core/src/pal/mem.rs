@@ -55,6 +55,6 @@ pub unsafe fn recommit(addr: usize, len: usize) {
     unsafe { super::sys::mem::recommit(addr, len) }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "mem_tests.rs"]
 mod tests;

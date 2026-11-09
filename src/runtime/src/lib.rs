@@ -1,3 +1,5 @@
+// Production links independent crates; unit tests compile the same implementation
+// sources here to retain cross-layer white-box coverage without dependency cycles.
 pub(crate) use z42_zpkg as zpkg;
 #[cfg(not(test))]
 pub use z42_runtime_core::object;

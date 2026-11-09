@@ -75,9 +75,9 @@ impl Drop for ExtensionState {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "ext_tests.rs"]
 mod ext_tests;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use crate::assembly::context::VmContextFactory as _;

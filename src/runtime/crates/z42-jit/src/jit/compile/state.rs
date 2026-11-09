@@ -150,7 +150,7 @@ pub fn install<'a>(vm: &'a VmContext, module: &Module, config: crate::jit::confi
 
 /// Test hook: install a JIT on `vm`'s VM after `tune` adjusted it (thresholds).
 /// Panics when the VM already has one.
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 pub(crate) fn install_tuned<'a>(
     vm: &'a VmContext, module: &Module, tune: impl FnOnce(&mut JitRuntime),
 ) -> &'a JitRuntime {
@@ -349,7 +349,7 @@ impl JitRuntime {
 
     /// Test probe: `(call count, rejected?)` of JIT id `id`'s slot (`(0, false)`
     /// when it was never touched).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub(crate) fn slot_probe(&self, id: usize) -> (u32, bool) {
         self.slots.get(id).map_or((0, false), |s| {
             (s.count.load(Ordering::Relaxed), s.state.load(Ordering::Relaxed) == SLOT_REJECTED)
@@ -357,7 +357,7 @@ impl JitRuntime {
     }
 
     /// Test hook: compile `func` with an explicit callee lookup, bypassing the slots.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub(crate) fn compile_with(
         &self, func: &Function, callees: &dyn crate::jit::compile::lookup::ForwardLookup,
     ) -> Result<FnEntry> {
@@ -422,7 +422,7 @@ fn bump_compile_counters(vm: &VmContext, t0: std::time::Instant) {
     c.jit_compile_us_total.fetch_add(t0.elapsed().as_micros() as u64, Ordering::Relaxed);
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "runtime_tests.rs"]
 mod runtime_tests;
 
@@ -430,5 +430,5 @@ mod runtime_tests;
 #[inline]
 pub(crate) fn runtime(ctx: &VmContext) -> Option<&JitRuntime> { ctx.tier()?.backend::<JitRuntime>() }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use crate::assembly::context::VmContextFactory as _;

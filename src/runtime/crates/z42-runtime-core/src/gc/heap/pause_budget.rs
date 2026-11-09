@@ -78,7 +78,7 @@ pub struct Bounds {
 
 impl Bounds {
     /// The byte bounds alone.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub const BYTES: Bounds = Bounds { min: MIN_NURSERY, max: MAX_NURSERY };
 }
 
@@ -284,6 +284,6 @@ impl crate::gc::Heap {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "pause_budget_tests.rs"]
 mod pause_budget_tests;

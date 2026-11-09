@@ -7,7 +7,7 @@
 //! clear bits of the same set (the sweeps delist as they go) without disturbing the walk.
 
 /// Whether bit `i` is set.
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[inline]
 pub fn test(words: &[u64], i: usize) -> bool {
     words[i >> 6] >> (i & 63) & 1 != 0
@@ -34,21 +34,21 @@ pub fn clear(words: &mut [u64], i: usize) -> bool {
 }
 
 /// No bit set.
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[inline]
 pub fn is_empty(words: &[u64]) -> bool {
     words.iter().all(|&w| w == 0)
 }
 
 /// Number of set bits.
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[inline]
 pub fn count(words: &[u64]) -> usize {
     words.iter().map(|w| w.count_ones() as usize).sum()
 }
 
 /// The lowest set bit, if any.
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[inline]
 pub fn first(words: &[u64]) -> Option<usize> {
     words.iter().enumerate().find(|(_, &w)| w != 0).map(|(k, &w)| k * 64 + w.trailing_zeros() as usize)
@@ -66,6 +66,6 @@ pub fn for_each(words: &[u64], mut f: impl FnMut(usize)) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "side_bits_tests.rs"]
 mod side_bits_tests;

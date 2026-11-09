@@ -284,6 +284,6 @@ unsafe fn free_uninit<T>(seg: *mut T, n: usize) {
     drop(Box::from_raw(ptr::slice_from_raw_parts_mut(seg as *mut MaybeUninit<T>, n)));
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "seg_vec_tests.rs"]
 mod seg_vec_tests;

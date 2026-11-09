@@ -4,13 +4,13 @@ use crate::vm::context::VmContext;
 use anyhow::Result;
 use crate::vm::exec::ops::structs::{struct_alloc_val, struct_copy_val, resolve_for_access};
 use crate::objops::struct_leaf::{struct_field_get_val, struct_field_set_val};
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use crate::vm::exec::ops::structs::*;
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use crate::object::{decode_prim, encode_prim, prim_width, StructTypeLayout};
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use crate::object as ty;
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use std::sync::Arc;
 
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
@@ -58,6 +58,6 @@ pub(super) fn struct_field_set_prim(
 }
 
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "exec_struct_tests.rs"]
 mod exec_struct_tests;

@@ -213,7 +213,7 @@ impl VarGcRef {
     }
 
     /// Object model R6: whether the block's remembered-set bit is set.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn is_remembered(&self) -> bool {
         // SAFETY: the caller holds a live handle; the header address is valid.
         unsafe { self.header_ptr().as_ref() }.is_remembered()
@@ -407,12 +407,12 @@ impl VarGcRef {
         VarGcRef::pack(header, FIRST_GEN)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn leak_block_for_test(payload: usize, block_type: BlockType) -> Self {
         Self::alloc_leaked(payload, block_type)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn leak_for_test<T>(value: T, block_type: BlockType) -> Self {
         let payload = std::mem::size_of::<T>();
         let (footprint, _) = class_for(payload);

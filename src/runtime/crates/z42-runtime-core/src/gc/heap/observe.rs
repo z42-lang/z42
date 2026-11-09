@@ -1,11 +1,11 @@
 //! `Heap` 观测：barrier observer(test) + 事件分发 + pause 计时 + stats。
 //! 从 `heap.rs` 拆出（refactor-arc-heap-modularization）。
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use super::{BarrierEvent, BarrierObserver};
 use std::sync::Arc;
 use crate::object::Value;
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use crate::object::ArrRef;
 use crate::gc::types::{GcEvent, HeapStats};
 
@@ -32,7 +32,7 @@ impl crate::gc::Heap {
     /// dispatch on this heap instance. Returns the previously-installed
     /// observer (if any) so tests can chain. Replaces (not stacks) — one
     /// observer per heap. `clear_barrier_observer` removes.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn install_barrier_observer(
         &self,
         obs: std::sync::Arc<BarrierObserver>,
@@ -41,12 +41,12 @@ impl crate::gc::Heap {
     }
 
     /// **add-write-barriers **: uninstall the test observer.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn clear_barrier_observer(&self) -> Option<std::sync::Arc<BarrierObserver>> {
         self.barrier_observer.lock().take()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub(super) fn fire_barrier_field(&self, owner: &Value, slot: usize, new: &Value) {
         if let Some(obs) = self.barrier_observer.lock().as_ref() {
             let owner_addr = match owner {
@@ -61,7 +61,7 @@ impl crate::gc::Heap {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub(super) fn fire_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value) {
         if let Some(obs) = self.barrier_observer.lock().as_ref() {
             let arr_addr = match arr {

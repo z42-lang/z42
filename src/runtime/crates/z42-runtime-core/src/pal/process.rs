@@ -41,6 +41,6 @@ pub fn find_executable(name: &str) -> Option<String> {
     }
     None
 }
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "process_tests.rs"]
 mod tests;

@@ -119,6 +119,6 @@ pub(super) fn method_default(frame: &mut Frame, dst: u32, param_index: u8) {
     frame.set(dst, val);
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "exec_address_tests.rs"]
 mod exec_address_tests;

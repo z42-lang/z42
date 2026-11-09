@@ -75,7 +75,7 @@ impl EntryUnit {
     }
 
     /// A byte nursery was stated (tests): the gates are bytes only from now on.
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     pub fn disable(&self) {
         self.enabled.store(false, Ordering::Relaxed);
     }
@@ -147,6 +147,6 @@ impl crate::gc::Heap {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "entry_unit_tests.rs"]
 mod entry_unit_tests;

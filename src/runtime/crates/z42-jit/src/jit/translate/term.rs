@@ -128,6 +128,6 @@ impl TxCtx<'_, '_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "term_tests.rs"]
 mod term_tests;

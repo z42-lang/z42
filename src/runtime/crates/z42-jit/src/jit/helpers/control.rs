@@ -141,7 +141,7 @@ pub unsafe extern "C" fn jit_fatal_pending(_frame: *mut JitFrame, ctx: *const Vm
     crate::vm::exec::stack_guard::is_fatal(vm_ctx_ref(ctx)) as i8
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod check_safepoint_tests {
     //! add-gc-safepoint-jit : inline tests for the
     //! `jit_check_safepoint` trampoline. End-to-end JIT-compiled coverage
@@ -194,5 +194,5 @@ mod check_safepoint_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use crate::assembly::context::VmContextFactory as _;

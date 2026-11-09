@@ -410,6 +410,6 @@ pub fn is_synthesized_fn(qualified: &str) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "context_tests.rs"]
 mod context_tests;

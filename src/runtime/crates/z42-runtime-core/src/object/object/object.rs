@@ -575,6 +575,6 @@ impl crate::object::ObjRef {
 
 // ── Value ────────────────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "object_tests.rs"]
 mod object_tests;

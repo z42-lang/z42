@@ -374,10 +374,10 @@ pub(super) fn mk_clos(
     Ok(None)
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "exec_call_tests.rs"]
 mod exec_call_tests;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "exec_call_fn_ref_tests.rs"]
 mod exec_call_fn_ref_tests;

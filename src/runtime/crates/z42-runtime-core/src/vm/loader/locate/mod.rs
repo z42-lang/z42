@@ -4,5 +4,5 @@ pub mod probing;
 pub mod namespace;
 pub use namespace::{extract_import_namespaces, resolve_dependency, resolve_namespace};
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod probing_tests;

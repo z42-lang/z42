@@ -20,7 +20,7 @@ unsafe fn ic_ref<'a>(ic_ptr: *const FieldIC) -> Option<&'a FieldIC> {
     ic_ptr.as_ref()
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 thread_local! {
     /// Test probe: calls of the two helpers on this thread — which accesses left the native path.
     pub(crate) static HELPER_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -28,7 +28,7 @@ thread_local! {
 
 #[inline(always)]
 fn note_helper_call() {
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     HELPER_CALLS.with(|c| c.set(c.get() + 1));
 }
 
@@ -68,6 +68,6 @@ pub unsafe extern "C" fn jit_field_set(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "object_field_tests.rs"]
 mod object_field_tests;

@@ -161,6 +161,6 @@ impl RuntimeObserverRegistry {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "observer_tests.rs"]
 mod tests;

@@ -145,6 +145,6 @@ impl std::fmt::Debug for TypeArgs {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "type_args_tests.rs"]
 mod type_args_tests;

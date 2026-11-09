@@ -559,7 +559,7 @@ mod resolve;
 mod symbols;
 pub use symbols::symbol_key;
 pub use resolve::namespace_prefix;
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 use resolve::is_primitive_keyword_name;
 
 impl LazyLoader {
@@ -655,14 +655,14 @@ impl LazyLoader {
 
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "lazy_loader_tests.rs"]
 mod lazy_loader_tests;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "lazy_loader_types_tests.rs"]
 mod lazy_loader_types_tests;
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "lazy_loader_strings_tests.rs"]
 mod lazy_loader_strings_tests;

@@ -108,6 +108,6 @@ pub(super) fn static_field_id_at(func: &Function, block_idx: usize, instr_idx: u
         .unwrap_or(crate::vm::runtime::ids::tokens::UNRESOLVED)
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "ic_tests.rs"]
 mod ic_tests;

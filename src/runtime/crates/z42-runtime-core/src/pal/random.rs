@@ -6,6 +6,6 @@ pub fn fill(buf: &mut [u8]) -> std::io::Result<()> {
     super::sys::random::fill(buf)
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "random_tests.rs"]
 mod tests;

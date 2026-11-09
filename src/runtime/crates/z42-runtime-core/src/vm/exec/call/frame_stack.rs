@@ -178,6 +178,6 @@ pub fn thread_token() -> usize {
     crate::pal::thread::current_token()
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "frame_stack_tests.rs"]
 mod frame_stack_tests;

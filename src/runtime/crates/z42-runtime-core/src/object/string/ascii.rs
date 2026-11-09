@@ -66,6 +66,6 @@ unsafe fn find_sse2(bytes: &[u8], prefix: u8, needles: [u8; 3]) -> Option<usize>
         .map(|tail| index + tail)
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "ascii_tests.rs"]
 mod tests;

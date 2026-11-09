@@ -420,6 +420,6 @@ impl Drop for GcPauseGuard<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "safepoint_tests.rs"]
 mod safepoint_tests;

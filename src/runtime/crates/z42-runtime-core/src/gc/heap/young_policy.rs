@@ -315,6 +315,6 @@ impl crate::gc::Heap {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "young_policy_tests.rs"]
 mod young_policy_tests;

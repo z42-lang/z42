@@ -47,6 +47,6 @@ pub fn set_tcp_keepalive(
     super::sys::net::set_tcp_keepalive(stream, idle, interval, retries)
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "net_tests.rs"]
 mod net_tests;

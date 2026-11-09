@@ -70,7 +70,7 @@ struct ThreadSatb {
     /// Recorded old values, not yet handed to the heap.
     buf: Vec<Value>,
     /// Test hook: record nothing (the negative control for the barrier's own tests).
-    #[cfg(test)]
+    #[cfg(all(test, z42_test_facade))]
     disabled: bool,
 }
 
@@ -80,7 +80,7 @@ thread_local! {
     static SATB: UnsafeCell<ThreadSatb> = const {
         UnsafeCell::new(ThreadSatb {
             heap: 0, outer: Vec::new(), seen_gen: 0, epoch: 0, buf: Vec::new(),
-            #[cfg(test)]
+            #[cfg(all(test, z42_test_facade))]
             disabled: false,
         })
     };
@@ -191,7 +191,7 @@ pub fn record_overwrite_all(old: &[Value]) {
 #[inline(never)]
 fn record_slow(old: &Value) {
     with_thread(|t| {
-        #[cfg(test)]
+        #[cfg(all(test, z42_test_facade))]
         if t.disabled {
             return;
         }
@@ -216,7 +216,7 @@ fn record_slow(old: &Value) {
 }
 
 /// Test hook: turn the barrier off on this thread (negative controls).
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 pub fn set_disabled_for_test(disabled: bool) {
     with_thread(|t| t.disabled = disabled);
 }

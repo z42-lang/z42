@@ -5,7 +5,7 @@ pub mod lazy;
 pub mod contexts;
 pub mod availability;
 pub use package::LoadedArtifact;
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 pub use package::{load_artifact, load_artifact_from_bytes};
 pub use package::merge::merge_modules;
 pub use locate::{extract_import_namespaces, resolve_dependency, resolve_namespace};

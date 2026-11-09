@@ -288,6 +288,6 @@ pub fn alloc_type_id_block(n: u32) -> u32 {
     first
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "tokens_tests.rs"]
 mod tests;

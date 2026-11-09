@@ -162,7 +162,7 @@ pub const fn concat_descs<const N: usize>(parts: &[&[BuiltinDesc]]) -> [BuiltinD
     out
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 mod abi_tests;
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 pub mod test_builtins;

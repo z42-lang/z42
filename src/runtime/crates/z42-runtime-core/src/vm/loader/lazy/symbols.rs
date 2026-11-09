@@ -87,6 +87,6 @@ impl LazyLoader {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "symbols_tests.rs"]
 mod symbols_tests;

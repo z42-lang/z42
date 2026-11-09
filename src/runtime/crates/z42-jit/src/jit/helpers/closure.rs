@@ -214,6 +214,6 @@ pub unsafe extern "C" fn jit_call_indirect(
     call_entry(vm_ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }
 
-#[cfg(test)]
+#[cfg(all(test, z42_test_facade))]
 #[path = "closure_tests.rs"]
 mod closure_tests;
