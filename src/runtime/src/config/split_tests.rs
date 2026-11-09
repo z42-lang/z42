@@ -103,3 +103,12 @@ fn stack_allocation_policy_maps_resolved_values_without_global_state() {
         assert_eq!(captured.stack_alloc, expected);
     }
 }
+
+#[test]
+fn safepoint_policy_captures_resolved_value() {
+    let mut settings = RuntimeConfig::from_getter(|_| None);
+    settings.safepoint_throttle = 17;
+    let captured = settings.vm_config();
+    settings.safepoint_throttle = 31;
+    assert_eq!(captured.safepoint_throttle, 17);
+}

@@ -38,3 +38,5 @@ GC 注册与 collector 仲裁的 loom 模型位于 `src/runtime/tests/gc_registr
 ## 核心文件
 
 `mod.rs` 汇总线程协议；`safepoint_tests.rs` 保存原有暂停、仲裁和 park 测试。
+
+节流策略由门面解析后在 Core 创建时传入，每 VM 持有不可变值。Rust `safepoint::throttle_n(ctx)` 显式查询所属 VM，主线程和 worker 初值以及 interp/JIT 慢路径重置使用同一策略。暂停和自动回收请求仍按原协议强制轮询，不受普通倒计数延迟。

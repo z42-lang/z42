@@ -211,3 +211,5 @@ worker 共享 Core 的实例；每 VM 的服务与状态不会因共享工厂而
 真实静态及动态测试组件在 `src/runtime/tests/data/component`，只依赖组件协议，验证依赖调用、VM 隔离、回滚与库保活。
 现有 EngineRegistry/TierApi 尚未适配到跨库协议；EngineApi/TieringApi、完整执行/GC 服务以及 profiler/debugger 独立库属于后续组件接入。
 静态/动态框架已经可用，不表示现有 JIT 已经能够单独 dlopen。
+
+Safepoint 节流值同样由门面在构造时注入 `VmCore.threads`，主上下文和 worker 的倒计数初值及 interp/JIT 慢路径重置都读取所属 Core。线程协调层不再调用配置解析层；配置默认值、单例缓存、GC 请求强制进入慢路径及 park/恢复顺序保持原有语义。

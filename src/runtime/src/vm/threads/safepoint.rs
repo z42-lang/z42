@@ -53,23 +53,10 @@ pub(crate) fn poke_safepoints(core: &VmCore) {
     }
 }
 
-/// add-gc-safepoint-counter-throttling : default throttle
-/// constant lives in `RuntimeConfig::safepoint_throttle` (defaults 1024
-/// — mirrors HotSpot's polling-page heuristic; at z42's typical per-iter
-/// cost ~50ns this caps GC pause latency at ≈ 50us, negligible vs actual
-/// collect time 10ms+).
-///
-/// runtime-config-phase2 : the OnceLock-cached env reader
-/// moved into `RuntimeConfig` for centralised parsing + warnings.
-
-/// Effective safepoint throttle. Reads from process-wide [`runtime_config()`]
-/// (parsed once at first access; cached). Invalid values fall back to 1024
-/// with a stderr warning at config init.
-///
-/// Setting `Z42_SAFEPOINT_THROTTLE=1` disables throttling (every call
-/// runs the slow path) — useful for debugging latency-sensitive paths.
-pub fn throttle_n() -> u32 {
-    crate::config::runtime_config().safepoint_throttle
+/// Resolved throttle for this VM; workers share the Core's immutable policy.
+/// A value of one polls every time. Parsing and defaults belong to the facade.
+pub fn throttle_n(ctx: &VmContext) -> u32 {
+    ctx.core.threads.safepoint_throttle
 }
 
 /// Current GC phase observed by mutators at safepoint checks.
@@ -95,7 +82,7 @@ pub enum GcPhase {
 /// Fast-path safepoint check called from interp hot path.
 ///
 /// **add-gc-safepoint-counter-throttling **: the Mutex-lock +
-/// phase-check + auto-collect-drain logic only runs every [`throttle_n()`] th
+/// phase-check + auto-collect-drain logic only runs every [`throttle_n`] th
 /// call (default 1024). Worker liveness under a GC request is bounded by N
 /// iterations × per-iter cost — at typical z42 hot-loop iter (~50ns) this caps
 /// GC pause latency at ~50us, far below actual collect time.
@@ -122,7 +109,7 @@ pub fn check_safepoint(ctx: &VmContext) {
     }
     // Slow path: counter just hit 0 (or wrapped to u32::MAX in a
     // theoretical overflow — saturating reset below restores invariant).
-    ctx.threads.safepoint_skip.store(throttle_n(), Ordering::Relaxed);
+    ctx.threads.safepoint_skip.store(throttle_n(ctx), Ordering::Relaxed);
     check_safepoint_slow(ctx);
 }
 
