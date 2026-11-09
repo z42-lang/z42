@@ -1,0 +1,73 @@
+namespace Z42IoRangeOverflowTests;
+using Std.IO;
+using Std.Harness;
+
+class CountingReader : TextReader {
+    public int Calls;
+    public override int Read() { this.Calls = this.Calls + 1; return 65; }
+}
+class CountingWriter : TextWriter {
+    public int Calls;
+    public override void Write(string value) { this.Calls = this.Calls + 1; }
+}
+
+[Test]
+void memory_read_rejects_wrapped_range_at_eof() {
+    var s = new MemoryStream(); byte[] b = new byte[1]; b[0] = (byte)7;
+    Assert.Throws("ArgumentException", () => s.Read(b, int.MaxValue, 1));
+    Assert.Throws("ArgumentException", () => s.Read(b, 2, int.MaxValue));
+    Assert.Equal((byte)7, b[0]); Assert.Equal(0L, s.Position());
+}
+[Test]
+void memory_write_rejects_before_growing() {
+    var s = new MemoryStream(); byte[] b = new byte[1]; b[0] = (byte)7;
+    Assert.Throws("ArgumentException", () => s.Write(b, int.MaxValue, 1));
+    Assert.Equal(0L, s.Length()); Assert.Equal(0L, s.Position());
+    s.Write(b, 0, 1); Assert.Equal((byte)7, s.ToArray()[0]);
+}
+[Test]
+void string_reader_rejects_wrapped_range_at_eof() {
+    var s = new StringReader(""); char[] b = new char[1]; b[0] = 'q';
+    Assert.Throws("ArgumentException", () => s.Read(b, int.MaxValue, 1));
+    Assert.Throws("ArgumentException", () => s.Read(b, 2, int.MaxValue));
+    Assert.Equal('q', b[0]);
+}
+[Test]
+void text_reader_rejects_before_consuming_source() {
+    var s = new CountingReader(); char[] b = new char[1];
+    Assert.Throws("ArgumentException", () => s.ReadBufferBase(b, int.MaxValue, 1));
+    Assert.Equal(0, s.Calls);
+}
+[Test]
+void text_writer_rejects_before_calling_target() {
+    var s = new CountingWriter(); char[] b = new char[1];
+    Assert.Throws("ArgumentException", () => s.WriteCharsBase(b, int.MaxValue, 1));
+    Assert.Equal(0, s.Calls);
+}
+[Test]
+void concrete_writers_reject_wrapped_character_ranges() {
+    var ms = new MemoryStream(); var sw = new StreamWriter(ms); var text = new StringWriter();
+    char[] b = new char[1]; b[0] = 'q';
+    Assert.Throws("ArgumentException", () => sw.Write(b, int.MaxValue, 1));
+    Assert.Throws("ArgumentException", () => text.Write(b, int.MaxValue, 1));
+    Assert.Equal(0L, ms.Length()); Assert.Equal("", text.ToString());
+    sw.Write(b, 0, 1); text.Write(b, 0, 1);
+    Assert.Equal(1L, ms.Length()); Assert.Equal("q", text.ToString());
+}
+[Test]
+void process_streams_validate_before_touching_handle() {
+    var input = new ProcessStdinStream(null); var output = new ProcessOutputStream(null, 1);
+    byte[] b = new byte[1];
+    Assert.Throws("ArgumentException", () => input.Write(b, int.MaxValue, 1));
+    Assert.Throws("ArgumentException", () => output.Read(b, int.MaxValue, 1));
+}
+[Test]
+void empty_ranges_at_end_remain_valid() {
+    byte[] bytes = new byte[1]; char[] chars = new char[1];
+    var ms = new MemoryStream(); ms.Write(bytes, 1, 0); Assert.Equal(0, ms.Read(bytes, 1, 0));
+    var sr = new StringReader("x"); Assert.Equal(0, sr.Read(chars, 1, 0)); Assert.Equal((int)'x', sr.Read());
+    var tw = new CountingWriter(); tw.WriteCharsBase(chars, 1, 0); Assert.Equal(0, tw.Calls);
+    var tr = new CountingReader(); Assert.Equal(0, tr.ReadBufferBase(chars, 1, 0)); Assert.Equal(0, tr.Calls);
+    var sw = new StreamWriter(ms); sw.Write(chars, 1, 0);
+    var text = new StringWriter(); text.Write(chars, 1, 0); Assert.Equal("", text.ToString());
+}

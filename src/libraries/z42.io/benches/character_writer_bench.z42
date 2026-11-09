@@ -1,0 +1,45 @@
+namespace Z42IoCharacterWriterBench;
+using Std.IO;
+using Std.Harness;
+
+class CountingSink : Stream {
+    public long Bytes;
+    public int Writes;
+    public override bool CanWrite() { return true; }
+    public override void Write(byte[] buffer, int offset, int count) {
+        this.Bytes = this.Bytes + (long)count;
+        this.Writes = this.Writes + 1;
+        BenchHelpers.blackBox(buffer);
+    }
+}
+
+void MeasureCharacters(Bencher b, int count, bool slice, bool unicode) {
+    int offset = slice ? 1 : 0;
+    char[] chars = new char[count + (slice ? 2 : 0)];
+    for (int i = 0; i < chars.Length; i++) { chars[i] = 'x'; }
+    for (int i = 0; i < count; i++) {
+        if (unicode) {
+            int part = i % 4;
+            chars[offset + i] = part == 0 ? 'a' : part == 1 ? 'é' : part == 2 ? '中' : '😀';
+        }
+    }
+    var sink = new CountingSink();
+    var writer = new StreamWriter(sink);
+    long perWrite = unicode ? (long)(count / 4) * 10L : (long)count;
+    b.iter(() => {
+        long beforeBytes = sink.Bytes;
+        int beforeWrites = sink.Writes;
+        for (int i = 0; i < 128; i++) { writer.Write(chars, offset, count); }
+        Assert.Equal(128, sink.Writes - beforeWrites);
+        Assert.Equal(128L * perWrite, sink.Bytes - beforeBytes);
+    });
+}
+
+[Benchmark]
+void writer_chars_ascii_short_slice(Bencher b) { MeasureCharacters(b, 32, true, false); }
+[Benchmark]
+void writer_chars_ascii_full(Bencher b) { MeasureCharacters(b, 4096, false, false); }
+[Benchmark]
+void writer_chars_ascii_slice(Bencher b) { MeasureCharacters(b, 4096, true, false); }
+[Benchmark]
+void writer_chars_unicode_slice(Bencher b) { MeasureCharacters(b, 4096, true, true); }
