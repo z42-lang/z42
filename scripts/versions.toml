@@ -1,7 +1,7 @@
 # scripts/versions.toml — z42 build env 要求 + 运行时平台承诺 单一真相源
 #
 # 在 scripts/ 下：读它的几乎全是 xtask（`scripts/common/xtask_versions.z42` 的 `_versionsPath`
-# 是唯一入口）；另有 release.yml 的 tag 校验、install-z42.{sh,bat}、z42b 的 iOS xcframework 构建。
+# 是唯一入口）；另有 release.yml 的 tag 校验、install-z42.{sh,ps1}（[toolchain.z42]）、z42b 的 iOS xcframework 构建。
 #
 # 唯一 SoT。**不**生成 rust-toolchain.toml 之类的"投影"文件（那只是把版本号写两遍），
 # 改由 xtask 在入口处显式校验（`xtask check versions` / `xtask setup`）。代价：rustup 不再
@@ -48,7 +48,7 @@ version = "0.7.0"                       # → Cargo.toml [workspace.package].ver
 
 [toolchain.rust]
 channel     = "stable"
-min_version = "1.95"                    # MSRV；cranelift 0.135 requires 1.95+; scripts/install/xtask_install.z42 的 rust 检查校它
+min_version = "1.95"                    # MSRV；cranelift 0.135 requires 1.95+; scripts/setup/xtask_install.z42 的 rust 检查校它
 components  = ["rustfmt", "clippy"]
 # rust_targets 由各 [platform.*] 汇总
 
@@ -58,8 +58,8 @@ min_version = "22"
 version = "24.21.0"   # Active LTS "Krypton"; `xtask setup --os wasm`（及 wasm 测试缺 node 时）下载此版本到 artifacts/tools/node
 
 [toolchain.z42]
-# z42-bootstrap: which prebuilt z42 launcher package
-# scripts/install-z42.{sh,bat,command} downloads into <repo>/.z42.
+# z42-bootstrap: which prebuilt z42 SDK scripts/install-z42.{sh,ps1} install into <repo>/.z42
+# when run from this checkout (they read this one line; keep it a quoted string).
 #   "nightly" → tag nightly, re-download when the nightly release changes
 #   "0.1.0"   → tag v0.1.0, download once (immutable)
 launcher = "nightly"

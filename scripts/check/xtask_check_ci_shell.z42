@@ -15,6 +15,7 @@
 // 刻意**不判**以下形态（它们不会触发 `set -u`，判了就是误报）：
 //   · `${X:-d}` / `${X-d}` / `${X:+d}` / `${X+d}` / `${X:?msg}` —— 带默认/替代，未设也安全；
 //   · `${{ ... }}` —— GitHub 表达式，在 shell 看到之前就被替换掉了；
+//   · `\$X` —— 转义的美元号是字面量（heredoc / 双引号里给别的 shell 写的 `$env:X` 之类）；
 //   · `$1` `$@` `$*` `$?` `$$` `$!` `$#` `$-` `$_` —— 位置/特殊参数；
 //   · `_csEnvNames()` 里列的环境变量 —— runner 或上层 `env:` 提供，不在脚本里赋值。
 //
@@ -126,6 +127,10 @@ List<string> _csUsesIn(string line) {
     int i = 0;
     while (i + 1 < s.Length) {
         if (s.CharAt(i) != '$') { i = i + 1; continue; }
+        // 奇数个反斜杠在前 ⇒ `\$` 字面量；偶数个是转义的反斜杠，后面照常展开。
+        int slashes = 0;
+        while (i - slashes > 0 && s.CharAt(i - slashes - 1) == '\\') { slashes = slashes + 1; }
+        if (slashes % 2 == 1) { i = i + 1; continue; }
         char nx = s.CharAt(i + 1);
         if (nx == '{') {
             // `${{ … }}` = GitHub 表达式，shell 看不到

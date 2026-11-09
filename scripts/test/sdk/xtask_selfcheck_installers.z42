@@ -1,0 +1,263 @@
+// 安装器默认值 / 参数 / 错误配置回归：把真实的 scripts/install-z42.{sh,ps1,command,bat} 复制进临时 checkout 与
+// 「下载目录」，以 dry-run 运行，不联网、不需要 SDK。Unix 必跑 sh（另验 .command 转发与一次假归档离线安装），
+// pwsh 在 PATH 上时补跑 PowerShell；Windows 必跑 Windows PowerShell 与 cmd 转发（.bat）。
+// 真实 SDK 的离线安装与 workload 保留由 CI 的 Installer smoke 覆盖。
+namespace Z42Xtask;
+
+using Std.Collections;
+using Std.IO;
+
+// 一种安装器解释器：sh 跑 install-z42.sh，PowerShell（pwsh / Windows PowerShell）跑 install-z42.ps1。
+class _InstallerShell {
+    public string Kind;   // "sh" | "ps"
+    public string Exe;
+    public _InstallerShell(string kind, string exe) { this.Kind = kind; this.Exe = exe; }
+    public string Script() { return this.Kind == "sh" ? "install-z42.sh" : "install-z42.ps1"; }
+    // 选项名按 sh 写（dry-run / version / dest / archive），PowerShell 换成同义参数。
+    public string Flag(string name) {
+        if (this.Kind == "sh") { return "--" + name; }
+        if (name == "dry-run") { return "-DryRun"; }
+        return "-" + name.Substring(0, 1).ToUpper() + name.Substring(1);
+    }
+}
+
+int _testInstallers() {
+    Console.WriteLine("── installer selfcheck ──");
+    string root = _root();
+    string work = _xtaskWork(root, "installers");
+    _resetDir(work);
+    try {
+        List<_InstallerShell> shells = new List<_InstallerShell>();
+        if (Platform.IsWindows()) {
+            shells.Add(new _InstallerShell("ps", "powershell"));
+        } else {
+            shells.Add(new _InstallerShell("sh", "sh"));
+            if (Process.Which("pwsh") != null) { shells.Add(new _InstallerShell("ps", "pwsh")); }
+            else { Console.WriteLine("  - PowerShell: pwsh not on PATH, skipped here (Windows CI runs it)"); }
+        }
+        foreach (var shell in shells) {
+            _installerDefaults(root, work, shell);
+            Console.WriteLine("  ✓ " + shell.Exe + ": repository / user defaults, overrides, pipe, broken pins");
+        }
+        if (Platform.IsWindows()) {
+            _installerBat(root, work);
+            Console.WriteLine("  ✓ install-z42.bat forwards arguments and exit code");
+        } else {
+            _installerCommand(root, work);
+            _installerOfflineSh(root, work);
+            Console.WriteLine("  ✓ install-z42.command forwarding; offline archive install keeps local state");
+        }
+    } finally { Directory.Delete(work, true); }
+    Console.WriteLine("  ✅ installers");
+    return 0;
+}
+
+void _installerDefaults(string root, string work, _InstallerShell shell) {
+    string repo = _installerCheckout(root, work);
+    string inRepo = Path.Join(Path.Join(repo, "scripts"), shell.Script());
+    string download = Path.Join(work, "download");
+    Directory.Create(download);
+    string downloaded = Path.Join(download, shell.Script());
+    File.Copy(Path.Join(Path.Join(root, "scripts"), shell.Script()), downloaded);
+    string home = _installerHome(work);
+    string foreign = Path.Join(work, "foreign sdk");
+    string[] hostile = new string[]{ "Z42_HOME", foreign, "Z42_VERSION", "9.9.9" };
+    string[] dry = new string[]{ shell.Flag("dry-run") };
+    string what = shell.Exe + ": ";
+
+    string o = _installerOk(shell, inRepo, repo, home, hostile, dry, what + "repository script");
+    _installerHas(o, "mode: repository", what + "repository script selects repository mode");
+    _installerHas(o, "version: 1.2.3", what + "repository version comes from versions.toml");
+    _installerHasPath(o, "install: ", Path.Join(repo, ".z42"), what + "repository installs into <repo>/.z42");
+    _installerHas(o, "modify PATH: no", what + "repository leaves PATH alone");
+    _installerLacks(o, "foreign sdk", what + "repository ignores Z42_HOME");
+
+    o = _installerOk(shell, inRepo, work, home, new string[0], dry, what + "repository script from another cwd");
+    _installerHas(o, "mode: repository", what + "mode follows the script, not cwd");
+
+    string custom = Path.Join(work, "custom sdk");
+    o = _installerOk(shell, inRepo, repo, home, hostile,
+        new string[]{ shell.Flag("dry-run"), shell.Flag("version"), "2.3.4", shell.Flag("dest"), custom },
+        what + "explicit overrides");
+    _installerHas(o, "version: 2.3.4", what + "explicit version wins");
+    _installerHasPath(o, "install: ", custom, what + "explicit dest wins");
+    _installerHas(o, "modify PATH: no", what + "repository never edits PATH, even with --dest");
+
+    o = _installerOk(shell, downloaded, repo, home, new string[0], dry, what + "downloaded copy run inside a checkout");
+    _installerHas(o, "mode: user", what + "a copy outside scripts/ selects user mode");
+    _installerHas(o, "version: nightly", what + "user default version");
+    _installerHasPath(o, "install: ", Path.Join(home, ".z42"), what + "user default dest");
+    _installerHas(o, "modify PATH: yes", what + "user mode sets up PATH");
+
+    o = _installerOk(shell, downloaded, repo, home, hostile, dry, what + "user mode environment");
+    _installerHas(o, "version: 9.9.9", what + "user mode takes Z42_VERSION");
+    _installerHasPath(o, "install: ", foreign, what + "user mode takes Z42_HOME");
+
+    o = _installerOk(shell, downloaded, repo, home, new string[0], dry, what + "piped source", true);
+    _installerHas(o, "mode: user", what + "piped source selects user mode");
+
+    string pins = Path.Join(Path.Join(repo, "scripts"), "versions.toml");
+    File.WriteAllText(pins, "[toolchain.z42]\nlauncher = \"\"\n");
+    _installerFails(shell, inRepo, repo, home, dry, "no valid toolchain.z42.launcher", what + "empty pin");
+    File.WriteAllText(pins, "[toolchain.rust]\nlauncher = \"1.2.3\"\n");
+    _installerFails(shell, inRepo, repo, home, dry, "no valid toolchain.z42.launcher", what + "pin in another table");
+    File.Delete(pins);
+    _installerFails(shell, inRepo, repo, home, dry, "pin file is missing", what + "missing pin file");
+
+    // 真实 checkout：脚本的轻量读取与 Std.Toml 对 scripts/versions.toml 读出同一个固定版本。
+    string real = Path.Join(Path.Join(root, "scripts"), shell.Script());
+    string pin = _vget(_vparse(root), "toolchain.z42.launcher");
+    o = _installerOk(shell, real, work, home, hostile, dry, what + "this checkout's script");
+    _installerHas(o, "version: " + pin + "\n", what + "script reads the same launcher pin as Std.Toml");
+    _installerHasPath(o, "install: ", Path.Join(root, ".z42"), what + "this checkout installs into its .z42");
+}
+
+// .command 只转发：Finder 双击等价于从 scripts/ 跑 install-z42.sh，参数原样传。
+void _installerCommand(string root, string work) {
+    string repo = _installerCheckout(root, work);
+    string home = _installerHome(work);
+    string custom = Path.Join(work, "custom sdk");
+    ProcessResult r = _installerEnv(new Process("bash").Arg(Path.Join(Path.Join(repo, "scripts"), "install-z42.command"))
+        .Arg("--dry-run").Arg("--dest").Arg(custom), home, new string[0]).WorkingDirectory(work).Run();
+    string o = r.Stdout + r.Stderr;
+    _installerAssert(r.ExitCode == 0, "install-z42.command exits 0\n" + o);
+    _installerHas(o, "mode: repository", "install-z42.command keeps repository defaults");
+    _installerHasPath(o, "install: ", custom, "install-z42.command forwards arguments with spaces");
+}
+
+// .bat 只把参数和退出码转给同目录的 install-z42.ps1。
+void _installerBat(string root, string work) {
+    string repo = _installerCheckout(root, work);
+    string home = _installerHome(work);
+    string bat = Path.Join(Path.Join(repo, "scripts"), "install-z42.bat");
+    string custom = Path.Join(work, "custom sdk");
+    ProcessResult r = _installerEnv(new Process(bat).Arg("-DryRun").Arg("-Dest").Arg(custom), home, new string[0])
+        .WorkingDirectory(work).Run();
+    string o = r.Stdout + r.Stderr;
+    _installerAssert(r.ExitCode == 0, "install-z42.bat exits 0\n" + o);
+    _installerHas(o, "mode: repository", "install-z42.bat keeps repository defaults");
+    _installerHasPath(o, "install: ", custom, "install-z42.bat forwards arguments with spaces");
+    File.Delete(Path.Join(Path.Join(repo, "scripts"), "versions.toml"));
+    r = _installerEnv(new Process(bat).Arg("-DryRun"), home, new string[0]).WorkingDirectory(work).Run();
+    _installerAssert(r.ExitCode != 0, "install-z42.bat propagates a failing exit code\n" + r.Stdout + r.Stderr);
+}
+
+// 假 SDK 归档离线装进仓库 .z42：整项替换归档带的顶层条目，保留 runtimes/ 等本地状态，不写用户 profile。
+void _installerOfflineSh(string root, string work) {
+    string repo = _installerCheckout(root, work);
+    string home = _installerHome(work);
+    string fixture = Path.Join(work, "sdk fixture");
+    _resetDir(fixture);
+    Directory.Create(Path.Join(fixture, "bin"));
+    File.WriteAllText(Path.Join(fixture, "z42"), "#!/bin/sh\necho 'z42 0.0.0-fixture'\n");
+    File.WriteAllText(Path.Join(Path.Join(fixture, "bin"), "z42vm"), "vm\n");
+    string archive = Path.Join(work, "sdk fixture.tar.gz");
+    ProcessResult t = new Process("tar").Arg("-czf").Arg(archive).Arg("-C").Arg(fixture).Arg("z42").Arg("bin").Run();
+    _installerAssert(t.ExitCode == 0, "fixture archive\n" + t.Stderr);
+
+    string dest = Path.Join(repo, ".z42");
+    Directory.Create(Path.Join(dest, "runtimes"));
+    File.WriteAllText(Path.Join(Path.Join(dest, "runtimes"), "keep"), "workload\n");
+    Directory.Create(Path.Join(dest, "bin"));
+    File.WriteAllText(Path.Join(Path.Join(dest, "bin"), "stale"), "old\n");
+    _InstallerShell sh = new _InstallerShell("sh", "sh");
+    string o = _installerOk(sh, Path.Join(Path.Join(repo, "scripts"), "install-z42.sh"), work, home, new string[0],
+        new string[]{ "--archive", archive }, "offline archive install");
+    _installerHas(o, "installed z42 0.0.0-fixture", "offline install runs the installed launcher");
+    _installerAssert(File.Exists(Path.Join(Path.Join(dest, "bin"), "z42vm")), "offline install places bin/z42vm");
+    _installerAssert(!File.Exists(Path.Join(Path.Join(dest, "bin"), "stale")), "offline install replaces bin/ as a whole");
+    _installerAssert(File.ReadAllText(Path.Join(Path.Join(dest, "runtimes"), "keep")) == "workload\n",
+        "offline install keeps runtimes/");
+    _installerHas(File.ReadAllText(Path.Join(dest, "install.toml")), "version = \"1.2.3\"", "install.toml records the pin");
+    _installerAssert(Directory.Enumerate(home).Length == 0, "repository install leaves the user profile alone");
+}
+
+// 临时 checkout（路径带空格）：scripts/ 下放真实安装器入口、xtask.z42.toml 标记与 1.2.3 固定版本，另有 src/compiler/。
+string _installerCheckout(string root, string work) {
+    string repo = Path.Join(work, "checkout with spaces");
+    _resetDir(repo);
+    string scripts = Path.Join(repo, "scripts");
+    Directory.Create(scripts);
+    Directory.Create(Path.Join(Path.Join(repo, "src"), "compiler"));
+    foreach (var name in new string[]{ "install-z42.sh", "install-z42.ps1", "install-z42.command", "install-z42.bat" }) {
+        File.Copy(Path.Join(Path.Join(root, "scripts"), name), Path.Join(scripts, name));
+    }
+    File.WriteAllText(Path.Join(scripts, "xtask.z42.toml"), "");
+    File.WriteAllText(Path.Join(scripts, "versions.toml"), "[toolchain.z42]  # fixture\nlauncher = \"1.2.3\"  # pinned\n");
+    return repo;
+}
+
+string _installerHome(string work) {
+    string home = Path.Join(work, "home");
+    _resetDir(home);
+    return home;
+}
+
+// 隔离环境：外部 SDK 变量不进子进程（`env` 里显式给的除外），HOME / USERPROFILE 指向临时目录。
+Process _installerEnv(Process p, string home, string[] env) {
+    List<string> keys = new List<string>();
+    for (int i = 0; i + 1 < env.Length; i = i + 2) { keys.Add(env[i]); p = p.Env(env[i], env[i + 1]); }
+    foreach (var k in new string[]{ "Z42_HOME", "Z42_VERSION" }) {
+        if (!keys.Contains(k)) { p = p.EnvRemove(k); }
+    }
+    return p.Env("HOME", home).Env("USERPROFILE", home);
+}
+
+ProcessResult _installerRun(_InstallerShell shell, string script, string cwd, string home, string[] env,
+                            string[] args, bool pipe) {
+    Process p = new Process(shell.Exe);
+    if (shell.Kind == "sh") {
+        p = pipe ? p.Arg("-s").Arg("--").Stdin(Stdio.Pipe()).StdinBytes(File.ReadAllBytes(script)) : p.Arg(script);
+        p = p.Args(args);
+    } else {
+        p = p.Arg("-NoProfile").Arg("-ExecutionPolicy").Arg("Bypass");
+        if (pipe) {
+            // 不经文件路径执行同一份源码（等价 `irm … | iex`）；参数只能拼进命令。
+            p = p.Arg("-Command").Arg("& ([scriptblock]::Create([Console]::In.ReadToEnd())) " + String.Join(" ", args))
+                .Stdin(Stdio.Pipe()).StdinBytes(File.ReadAllBytes(script));
+        } else {
+            p = p.Arg("-File").Arg(script).Args(args);
+        }
+        // 非 Windows 上只验默认值选择：给出脚本要求的 x64 架构。
+        if (!Platform.IsWindows()) { p = p.Env("PROCESSOR_ARCHITECTURE", "AMD64"); }
+    }
+    return _installerEnv(p, home, env).WorkingDirectory(cwd).Run();
+}
+
+string _installerOk(_InstallerShell shell, string script, string cwd, string home, string[] env, string[] args,
+                    string what) {
+    return _installerOk(shell, script, cwd, home, env, args, what, false);
+}
+
+string _installerOk(_InstallerShell shell, string script, string cwd, string home, string[] env, string[] args,
+                    string what, bool pipe) {
+    ProcessResult r = _installerRun(shell, script, cwd, home, env, args, pipe);
+    string o = (r.Stdout + r.Stderr).Replace("\r", "");
+    _installerAssert(r.ExitCode == 0, what + " exits 0\n" + o);
+    return o;
+}
+
+void _installerFails(_InstallerShell shell, string script, string cwd, string home, string[] args, string message,
+                     string what) {
+    ProcessResult r = _installerRun(shell, script, cwd, home, new string[0], args, false);
+    string o = (r.Stdout + r.Stderr).Replace("\r", "");
+    _installerAssert(r.ExitCode != 0, what + " must fail\n" + o);
+    _installerHas(o, message, what + " reports the cause");
+}
+
+void _installerHas(string output, string text, string what) {
+    _installerAssert(output.Contains(text), what + ": missing `" + text.Trim() + "`\n" + output);
+}
+
+void _installerLacks(string output, string text, string what) {
+    _installerAssert(!output.Contains(text), what + ": unexpected `" + text + "`\n" + output);
+}
+
+// `<prefix><path>` 一行；比较前统一分隔符（PowerShell 在 Windows 上写反斜杠）。
+void _installerHasPath(string output, string prefix, string path, string what) {
+    _installerHas(output.Replace("\\", "/"), prefix + path.Replace("\\", "/") + "\n", what);
+}
+
+void _installerAssert(bool condition, string what) {
+    if (!condition) { throw new Exception("installer: " + what); }
+}
