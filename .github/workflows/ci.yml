@@ -1204,13 +1204,13 @@ jobs:
     # 冷构建 + 模拟器冷启动。
     timeout-minutes: 60
     needs: [changes, toolchain-bootstrap]   # macOS 原生资源槽由 changes 输出。
-    # Tier-2（浏览器 / 模拟器，慢）：只在 nightly 与手动触发时跑。
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    # Platform changes run embedding/JIT/compression smoke; nightly/manual retains the full corpus.
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.platform_package == 'true' }}
     # 嵌入语料全量分 3 片，每片约 155 个用例，压在模拟器 60 分钟墙内；每片自己起模拟器，R1–R7 并进同一次运行。
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '[1,2,3]' || '[1]') }}
     runs-on: macos-26
     concurrency:
       group: ${{ format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) }}
@@ -1231,7 +1231,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xtask test app ios --shard ${{ matrix.shard }}/3
+          if [ "${{ github.event_name }}" = schedule ] || [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            xtask test app ios --shard ${{ matrix.shard }}/3
+          else
+            xtask test app ios --filter z42.compression
+          fi
       - name: Publish iOS test report (GitHub Check)
         uses: dorny/test-reporter@v3
         if: always()
@@ -1259,7 +1263,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(github.event_name == 'pull_request' && '[1]' || '[1,2,3]') }}
+        shard: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '[1,2,3]' || '[1]') }}
     # ubuntu-26.04：旧宿主栈上 API 37 模拟器的 surfaceflinger 开机约 1 分钟后 abort（issuetracker 557246813）。
     runs-on: ubuntu-26.04
     permissions:
@@ -1300,7 +1304,7 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           Z42_SHARD: ${{ matrix.shard }}
-          Z42_ANDROID_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+          Z42_ANDROID_SMOKE: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '1' || '0' }}
         with:
           api-level: '37.0'   # API 37 packages are named android-37.0; a bare 37 resolves to a non-existent image
           arch: x86_64

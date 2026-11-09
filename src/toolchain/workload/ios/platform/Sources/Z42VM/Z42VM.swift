@@ -13,6 +13,30 @@ import Z42VMC
 /// off the main thread (e.g. `DispatchQueue.global().async`) and route
 /// stdout back via the handler.
 public final class Z42VM {
+    public enum ExecMode {
+        case interp, jit
+        var native: Z42ExecMode {
+            switch self {
+            case .interp: return Z42_EXEC_MODE_INTERP
+            case .jit: return Z42_EXEC_MODE_JIT
+            }
+        }
+    }
+
+    static func registerLinkedComponents() throws {
+        guard z42_linked_components_init() == 0 else {
+            throw Self.lastError(prefix: "register execution components")
+        }
+        #if !Z42_NO_COMPRESSION
+        let status = "z42_compression".withCString {
+            z42_host_register_static_native_library($0, z42_compression_get_symbol)
+        }
+        guard status == Z42_HOST_OK else {
+            throw Self.lastError(prefix: "register compression provider")
+        }
+        #endif
+    }
+
     /// User-supplied stdout sink. Called once per `Console.WriteLine`
     /// (or `Print`) with raw UTF-8 bytes.
     public var stdoutHandler: ((Data) -> Void)?
@@ -33,7 +57,8 @@ public final class Z42VM {
     public init(
         zpkgResolver: ZpkgResolver = BundleZpkgResolver(),
         stdoutHandler: ((Data) -> Void)? = nil,
-        stderrHandler: ((Data) -> Void)? = nil
+        stderrHandler: ((Data) -> Void)? = nil,
+        execMode: ExecMode = .interp
     ) throws {
         self.stdoutHandler = stdoutHandler
         self.stderrHandler = stderrHandler
@@ -42,23 +67,13 @@ public final class Z42VM {
         var cfg = Z42HostConfig()
         cfg.abi_version = UInt32(Z42_HOST_ABI_VERSION)
         cfg.struct_size = UInt32(MemoryLayout<Z42HostConfig>.size)
-        cfg.exec_mode = Z42_EXEC_MODE_INTERP
+        cfg.exec_mode = execMode.native
         cfg.zpkg_resolver = zpkgResolverTrampoline
         cfg.zpkg_resolver_user_data = UnsafeMutableRawPointer(
             Unmanaged.passUnretained(resolverBox!).toOpaque()
         )
 
-        guard z42_linked_components_init() == 0 else {
-            throw Self.lastError(prefix: "register execution components")
-        }
-        #if !Z42_NO_COMPRESSION
-        let nativeStatus = "z42_compression".withCString {
-            z42_host_register_static_native_library($0, z42_compression_get_symbol)
-        }
-        guard nativeStatus == Z42_HOST_OK else {
-            throw Self.lastError(prefix: "register compression provider")
-        }
-        #endif
+        try Self.registerLinkedComponents()
         var raw: OpaquePointer? = nil
         let status = z42_host_initialize(&cfg, &raw)
         guard status == Z42_HOST_OK, let h = raw else {

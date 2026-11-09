@@ -433,7 +433,7 @@ Z42HostStatus status = z42_host_register_static_native_library(
 
 解析器接收借用的 NUL 结尾符号名，返回对应 C ABI 函数指针；未知符号返回 NULL，解析器与函数指针须在整个进程期间有效。登记只记录提供者，实际使用时才解析并校验 ABI。未知库名、空参数或冲突登记返回 `ERR_BAD_CONFIG`；同一提供者重复登记成功。原生动态包在首次压缩调用时才装载对应库，其他执行不触发装载。未链接或未部署时，压缩调用返回包含组件不可用原因的 `ERR_VM_EXCEPTION`。
 
-Android arm64/x64 runtime 同时发布核心、解释器、JIT 和压缩的独立 `.a` / `.so`，动态应用须保留匹配的共享 Rust std。默认解释执行；显式选择 `Z42_EXEC_MODE_JIT` 时装配 JIT，缺库报错。Kotlin 门面使用 `Z42VM.ExecMode.JIT` 选择同一模式。iOS 保留 `.a`，动态版本提供核心、解释器、compression 和 Rust std 的 Framework；使用动态运行时的应用须嵌入并签名相应依赖。
+Android arm64/x64 runtime 同时发布核心、解释器、JIT 和压缩的独立 `.a` / `.so`，动态应用须保留匹配的共享 Rust std。默认解释执行；显式选择 `Z42_EXEC_MODE_JIT` 时装配 JIT，缺库报错。Kotlin 门面使用 `Z42VM.ExecMode.JIT` 选择同一模式。iOS 保留 `.a`，动态版本提供核心、解释器、compression 和 Rust std 的 Framework；模拟器另外提供独立 JIT，Swift 门面以 `execMode: .jit` 选择，真机请求 JIT 报错；使用动态运行时的应用须嵌入并签名相应依赖。
 
 browser-wasm 默认最终 `.wasm` 包含解释器和压缩能力；随包提供的独立静态库供项目按需重新链接另一份最终模块。WASM 不支持原生 dlopen；运行时只能选择已链接的组件。开发时额外链接 profiler/debugger 的组合方式沿用此契约，具体组件库待后续交付。
 

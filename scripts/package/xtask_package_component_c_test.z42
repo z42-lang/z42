@@ -117,5 +117,7 @@ int _componentVerifyBundle(string root, string rid, string profile) {
     int c = _exec(compile); if (c != 0) { return c; }
     if (rid == "browser-wasm") { return _componentWasmVerify(root, pkg, zbc, work); }
     c = _componentCVerifyStatic(root, pkg, rid, zbc, work); if (c != 0) { return c; }
-    return _componentCVerifyDynamic(root, pkg, rid, zbc, work);
+    c = _componentCVerifyDynamic(root, pkg, rid, zbc, work); if (c != 0) { return c; }
+    if (rid == "iossim-arm64") { return _componentIosVerifyExport(root, pkg, zbc, work); }
+    return 0;
 }

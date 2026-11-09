@@ -22,7 +22,7 @@ pub struct BackendOptions {
 /// The native backend supports only desktop x64 and arm64 targets.
 pub fn jit_supported() -> bool {
     cfg!(all(any(target_arch = "x86_64", target_arch = "aarch64"),
-        any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android")))
+        any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android", all(target_os = "ios", target_abi = "sim"))))
 }
 fn linked(id: ComponentId) -> Option<ComponentInit> {
     if let Some(init) = super::linked::find(id) { return Some(init); }

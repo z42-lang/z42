@@ -39,12 +39,13 @@ LoadOptions.backends 的每个后端可选 Auto、Linked、Dynamic(path)、Disab
 | 桌面 SDK / xtask build runtime | 动态 interp + jit | interp / jit；缺库报错 |
 | Rust 静态宿主 / C 静态归档 | 按最终宿主链接并登记的后端 | 未登记的后端明确报错 |
 | 不含 interp/jit 的普通静态构建 | 无后端 | 请求执行明确报错 |
-| iOS runtime 包 | 独立静态 interp、compression；另提供动态 Framework | 不编入 JIT/Cranelift，请求 jit 报错 |
+| iOS 真机 runtime 包 | 独立静态 interp、compression；另提供动态 Framework | 不编入 JIT/Cranelift，请求 jit 报错 |
+| iOS simulator runtime 包 | 独立静态与 Framework interp、JIT、compression | 默认 interp；显式选择 JIT，缺库报错 |
 | Android arm64/x64 runtime 包 | 独立静态与动态 interp、JIT、compression | 默认 interp；显式选择 JIT 时加载组件，缺库报错 |
 | browser-wasm runtime 包 | 默认最终 WASM；另提供 core、interp、compression 静态库 | 在链接时选择组件，生成新的最终 WASM |
 | shared-core 动态桌面包 | 动态 interp / jit | 由部署与运行设置决定；缺库报错 |
 
-JIT 的依赖仅在 Linux/macOS/Windows/Android 的 x64/arm64 target 选择；即便不支持的平台误传 jit feature，也不引入 Cranelift 实现。动态组件使用目标平台匹配的 Rust std；iOS 将它与核心、解释器、compression 一起封装为独立 Framework。WASM 没有原生 dlopen，只提供最终模块和可重链静态库。
+JIT 的依赖仅在 Linux/macOS/Windows/Android 的 x64/arm64 target 与 iOS simulator（target_abi=sim） 选择；即便不支持的平台误传 jit feature，也不引入 Cranelift 实现。动态组件使用目标平台匹配的 Rust std；iOS 将它与核心、解释器、compression 一起封装为独立 Framework。WASM 没有原生 dlopen，只提供最终模块和可重链静态库。
 
 ## 3. 描述符、身份与边界
 
