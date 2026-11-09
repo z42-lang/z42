@@ -53,7 +53,8 @@ int _runtimeTestRunHarnesses() {
             .Env("DYLD_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std)
             .Env("LD_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std);
         if (Platform.IsWindows()) { test = test.Env("PATH", native + ";" + Path.Join(native, "deps") + ";" + std + ";" + Environment.GetEnvironmentVariable("PATH", "")); }
-        int c = _execIn(test.Env("CARGO_MANIFEST_DIR", directory), directory); if (c != 0) { return c; }
+        int c = _execIn(test.Env("CARGO_MANIFEST_DIR", directory)
+            .Env("CARGO_TARGET_DIR", _runtimeTestTarget()), directory); if (c != 0) { return c; }
     }
     return _exec(_componentCargo("test", _root(), "debug", Path.Join(_runtimeTestTarget(), "docs"))
         .Arg("--workspace").Arg("--doc").Arg("--features").Arg("z42/z42-test-fixtures")

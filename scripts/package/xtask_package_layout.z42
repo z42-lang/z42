@@ -92,7 +92,7 @@ void _plRuntimeAndroid(_PkgLayout L, string rid) {
     L.HasDir("native/include");
     L.HasDir("libs");
     string ndk = _androidNdkDir(_root());
-    string[] readelf = Path.Glob(Path.Join(ndk, "toolchains/llvm/prebuilt"), "*/bin/llvm-readelf");
+    string[] readelf = Path.GlobRecursive(Path.Join(ndk, "toolchains/llvm/prebuilt"), "*/bin/llvm-readelf");
     if (readelf.Length == 1) {
         string soname = _plSoname(_cmdOut(readelf[0], new string[]{ "-d", L.P("native/libz42.so") }));
         L.Expect(soname == "libz42.so", "Android SONAME = libz42.so", soname);
