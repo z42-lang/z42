@@ -23,12 +23,9 @@
 //!
 //! # Wasm
 //!
-//! When the `bundled-compression` feature is on (wasm32 default), this
-//! module bypasses dlopen and calls into the statically-linked
-//! `z42_compression` rlib directly during [`load_all`]; the builtins can't
-//! tell the difference.
-
-use std::path::PathBuf;
+//! Static providers and dynamic libraries use the same lazy symbol table.
+//! The final WASM facade enables `bundled-compression`; custom static hosts
+//! register their linked provider through the host API before creating a VM.
 
 use std::sync::OnceLock;
 
@@ -39,36 +36,18 @@ use crate::context::VmContext;
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
-/// VM-startup hook. Bundled builds initialize the compression symbol table without I/O.
-/// Dynamic builds defer opening the library until a typed wrapper first needs its symbols.
-pub fn load_all(ctx: &VmContext) -> Result<()> {
-    #[cfg(feature = "bundled-compression")]
-    {
-        let _ = ctx;
-        compression_symbols_bundled();
-    }
-    #[cfg(not(feature = "bundled-compression"))]
-    let _ = ctx;
-    Ok(())
-}
-
 /// Load the known library needed by a typed builtin wrapper, at most once per VM.
 /// Returns whether this call opened it; resolved symbols live in the process symbol table.
 pub fn ensure_lib_for(ctx: &VmContext, name: &str) -> Result<bool> {
+    let Some(library) = KNOWN_EXT_LIBS.iter()
+        .find(|(_, names)| names.contains(&name)).map(|(library, _)| *library)
+    else { return Ok(false) };
+    if !super::state::claim_extension_load(ctx, library)? { return Ok(false); }
     #[cfg(feature = "bundled-compression")]
-    {
-        let _ = (ctx, name);
-        Ok(false)
+    if library == "compression" && linked::find("z42_compression").is_none() {
+        unsafe { register_static_library("z42_compression", z42_compression::z42_compression_get_symbol)?; }
     }
-    #[cfg(not(feature = "bundled-compression"))]
-    {
-        let Some(lib) = KNOWN_EXT_LIBS.iter()
-            .find(|(_, names)| names.contains(&name))
-            .map(|(lib, _)| *lib)
-        else { return Ok(false) };
-        if !super::state::claim_extension_load(ctx, lib)? { return Ok(false); }
-        Ok(load_by_name(ctx, lib).unwrap_or(false))
-    }
+    load_by_name(library)
 }
 
 /// The stdlib ext libs this loader knows how to wire up, with the builtins
@@ -79,7 +58,6 @@ pub fn ensure_lib_for(ctx: &VmContext, name: &str) -> Result<bool> {
 /// The builtin names this loader routes to the compression library — typed
 /// builtins in the main table carry the wrappers; this list only names what
 /// `ensure_lib_for` may open `libz42_compression` for.
-#[cfg(not(feature = "bundled-compression"))]
 const COMPRESSION_NAMES: &[&str] = &[
     "__deflate_compress", "__deflate_decompress",
     "__zstd_compress", "__zstd_decompress",
@@ -88,7 +66,6 @@ const COMPRESSION_NAMES: &[&str] = &[
     "__compressor_begin", "__compressor_feed", "__compressor_finish", "__compressor_dispose",
 ];
 
-#[cfg(not(feature = "bundled-compression"))]
 const KNOWN_EXT_LIBS: &[(&str, &[&str])] = &[
     ("compression", COMPRESSION_NAMES),
 ];
@@ -97,51 +74,49 @@ const KNOWN_EXT_LIBS: &[(&str, &[&str])] = &[
 /// that has it and bind its entry points. A named probe per directory — no
 /// directory listing. Logs and returns `false` when the library is missing
 /// or fails to load; the typed wrapper reports the unavailable native entry.
-#[cfg(not(feature = "bundled-compression"))]
-fn load_by_name(ctx: &VmContext, name: &str) -> Result<bool> {
-    let file = crate::pal::dynlib::file_name(&format!("z42_{name}"));
-    for dir in native_search_paths() {
-        let path = dir.join(&file);
-        if !path.is_file() { continue; }
-        return match load_one(ctx, &path, name) {
+fn load_by_name(name: &str) -> Result<bool> {
+    let stem = format!("z42_{name}");
+    if let Some(resolve) = linked::find(&stem) {
+        unsafe { compression_symbols(SymbolSource::Static(resolve))?; }
+        return Ok(true);
+    }
+    #[cfg(any(feature = "native-interop", feature = "component-loading"))]
+    for path in crate::pal::dynlib::candidate_paths(&stem, native_search_paths()) {
+        if !path.is_file() && !crate::pal::dynlib::is_loader_name(&path) { continue; }
+        let result = unsafe { crate::pal::dynlib::Library::open_component(&path) }
+            .map_err(anyhow::Error::from)
+            .and_then(|library| unsafe { compression_symbols(SymbolSource::Dynamic(library)) });
+        return match result {
             Ok(()) => Ok(true),
-            Err(e) => {
-                tracing::warn!("ext: failed to load {}: {:#}", path.display(), e);
-                Ok(false)
-            }
+            Err(error) => { tracing::warn!("ext: failed to load {}: {error:#}", path.display()); Ok(false) }
         };
     }
-    tracing::debug!("ext: `{file}` not found in the native search paths");
     Ok(false)
 }
 
-// ── Search paths ─────────────────────────────────────────────────────────────
-
 pub(crate) use crate::components::native_paths as native_search_paths;
+mod linked;
+pub use linked::{register_static_library, NativeSymbolResolver};
 
-
-// ── dlopen path (non-wasm) ───────────────────────────────────────────────────
-
-#[cfg(not(feature = "bundled-compression"))]
-fn load_one(ctx: &VmContext, path: &std::path::Path, name: &str) -> Result<()> {
-    let lib = unsafe { crate::pal::dynlib::Library::open(path)? };
-
-    match name {
-        "compression" => {
-            // The library handle moves into the process-static table (see
-            // `LoadedCompression::_lib`), not into this VM's `native_libs`.
-            unsafe { compression_symbols_via_dlopen(lib)? };
-            tracing::debug!("ext: loaded compression symbols from {}", path.display());
-            Ok(())
-        }
-        // Unreachable while the caller filters on `KNOWN_EXT_LIBS`; kept as the
-        // signal for "name added to the allowlist, wiring not written yet".
-        other => {
-            tracing::warn!("ext: no symbol wiring for ext lib `{}`", other);
-            // Keep the library alive for the VM lifetime. Lifetime parking
-            // pattern mirrors `loader.rs`.
-            super::state::retain_library(ctx, lib)?;
-            Ok(())
+enum SymbolSource {
+    Static(NativeSymbolResolver),
+    #[cfg(any(feature = "native-interop", feature = "component-loading"))]
+    Dynamic(std::sync::Arc<crate::pal::dynlib::Library>),
+}
+impl SymbolSource {
+    unsafe fn symbol<T: Copy>(&self, name: &str) -> Result<T> {
+        match self {
+            #[cfg(any(feature = "native-interop", feature = "component-loading"))]
+            Self::Dynamic(library) => unsafe { library.symbol(name).map_err(Into::into) },
+            Self::Static(resolve) => {
+                let name = std::ffi::CString::new(name)?;
+                let pointer = unsafe { resolve(name.as_ptr()) };
+                anyhow::ensure!(!pointer.is_null(), "missing static native symbol `{}`", name.to_string_lossy());
+                anyhow::ensure!(std::mem::size_of::<T>() == std::mem::size_of_val(&pointer), "invalid native function-pointer size");
+                // These private callers request the exact C function types checked
+                // by the library's ABI handshake before any other symbol is used.
+                Ok(unsafe { std::mem::transmute_copy(&pointer) })
+            }
         }
     }
 }
@@ -239,11 +214,7 @@ struct LoadedCompression {
     compressor_dispose:  CCompressorDisposeFn,
     free:                CFreeFn,
     last_error:          CLastErrorFn,
-    /// The dlopen'd library the fn ptrs above point into. Owned by the
-    /// process-static table, so it stays loaded for as long as the pointers can
-    /// be called — not just for the VM that happened to load it first.
-    #[cfg(not(feature = "bundled-compression"))]
-    _lib:                crate::pal::dynlib::Library,
+    _source: SymbolSource,
 }
 
 /// Set once per process by the first VM that loads the library. Read without a
@@ -264,15 +235,14 @@ pub(crate) fn compression_loaded_for_test() -> bool {
 fn loaded(ctx: &VmContext, name: &str) -> Result<&'static LoadedCompression> {
     if LOADED_COMPRESSION.get().is_none() {
         // typed 主表命中后不再经 ext 查找,装载由这里按名触发(dlopen 路径;
-        // bundled 下 LOADED_COMPRESSION 已在启动时填充)。
+        // linked providers resolve through the same lazy path)。
         ensure_lib_for(ctx, name)?;
     }
-    LOADED_COMPRESSION.get().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", name))
+    LOADED_COMPRESSION.get().ok_or_else(|| anyhow::anyhow!("{}: compression component unavailable (not linked or its dynamic library is missing)", name))
 }
 
-#[cfg(not(feature = "bundled-compression"))]
-unsafe fn compression_symbols_via_dlopen(
-    lib: crate::pal::dynlib::Library,
+unsafe fn compression_symbols(
+    lib: SymbolSource,
 ) -> Result<()> {
     // ABI handshake — resolve the version symbol FIRST and refuse to bind the
     // rest unless it matches what these signatures were written against. The
@@ -323,32 +293,10 @@ unsafe fn compression_symbols_via_dlopen(
         lz4_compress, lz4_decompress,
         compressor_begin, compressor_feed, compressor_finish, compressor_dispose,
         free, last_error,
-        _lib: lib,
+        _source: lib,
     });
 
     Ok(())
-}
-
-#[cfg(feature = "bundled-compression")]
-fn compression_symbols_bundled() {
-    // Stash the rlib's `extern "C"` fn ptrs into LOADED_COMPRESSION so the
-    // wrapper functions below can use the same path as the dlopen case.
-    let _ = LOADED_COMPRESSION.get_or_init(|| LoadedCompression {
-        deflate_compress:   z42_compression::z42_compression_deflate_compress,
-        deflate_decompress: z42_compression::z42_compression_deflate_decompress,
-        zstd_compress:      z42_compression::z42_compression_zstd_compress,
-        zstd_decompress:    z42_compression::z42_compression_zstd_decompress,
-        brotli_compress:    z42_compression::z42_compression_brotli_compress,
-        brotli_decompress:  z42_compression::z42_compression_brotli_decompress,
-        lz4_compress:       z42_compression::z42_compression_lz4_compress,
-        lz4_decompress:     z42_compression::z42_compression_lz4_decompress,
-        compressor_begin:   z42_compression::z42_compression_compressor_begin,
-        compressor_feed:    z42_compression::z42_compression_compressor_feed,
-        compressor_finish:  z42_compression::z42_compression_compressor_finish,
-        compressor_dispose: z42_compression::z42_compression_compressor_dispose,
-        free:               z42_compression::z42_compression_free,
-        last_error:         z42_compression::z42_compression_last_error,
-    });
 }
 
 // ── Wrapper helpers ──────────────────────────────────────────────────────────

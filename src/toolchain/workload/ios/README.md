@@ -3,7 +3,7 @@
 ## 职责
 
 提供 SwiftPM 宿主接口（`import Z42VM`），Swift / SwiftUI iOS app 跑 `.zbc`。运行时按 RID 发布 libz42.a 与 z42.framework；SwiftPM 所需的静态适配封装在本地生成，不在 runtime 包重复分发；
-并含 iOS 平台 workload 的 appbuilder（`export`）与 R1–R7 嵌入契约测试。仅 interp（App Store 禁动态代码生成）。
+并含 iOS 平台 workload 的 appbuilder（`export`）与 R1–R7 嵌入契约测试。默认 interp；模拟器可显式选择 JIT，真机不包含 JIT 实现。
 不做：编译 `.z42`（host 端 z42c 预编）。
 
 ## 功能索引
@@ -41,7 +41,9 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
 产物在宿主工程副本 `artifacts/intermediate/toolchain/workload/ios/host/`（不写本目录）：
 `Z42VM.xcframework/`、`Resources/stdlib/*.zpkg`。
 
-限制：仅 interp；单实例；同步 invoke；marshal 仅 null + `i64` / `f64` / `bool`。
+模拟器选择 JIT：`Z42VM(..., execMode: .jit)`；运行时提供独立 `libz42_jit.a` / `z42_jit.framework`。真机请求 JIT 明确报错。
+
+限制：单实例；同步 invoke；marshal 仅 null + `i64` / `f64` / `bool`。
 
 ## 如何测试验证
 

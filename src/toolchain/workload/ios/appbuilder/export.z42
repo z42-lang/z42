@@ -39,10 +39,19 @@ void _generateIosProject(string outputDir, string name, string bundleId,
     if (!Directory.Exists(framework)) { framework = Path.Join(sdkDir, "z42.framework"); }
     if (Directory.Exists(framework)) { _iosCopyTree(framework, Path.Join(outputDir, "z42.framework")); }
     else { Console.WriteLine("  z42.framework missing: install the iOS runtime pack before building this project"); }
+    string native = Directory.Exists(Path.Join(sdkDir, "native")) ? Path.Join(sdkDir, "native") : sdkDir;
+    string[] components = Directory.Exists(Path.Join(native, "z42_jit.framework"))
+        ? new string[]{ "z42_interp", "z42_jit", "z42_compression", "z42_std" }
+        : new string[]{ "z42_interp", "z42_compression", "z42_std" };
+    foreach (var component in components) {
+        string source = Path.Join(native, component + ".framework");
+        if (!Directory.Exists(source)) { throw new Exception("runtime framework is missing: " + source); }
+        _iosCopyTree(source, Path.Join(outputDir, component + ".framework"));
+    }
     string libs = Path.Join(sdkDir, "libs");
     if (Directory.Exists(libs)) { _iosCopyTree(libs, Path.Join(srcDir, "libs")); }
 
-    File.WriteAllText(Path.Join(projDir, "project.pbxproj"),   _iosPbxproj(name, bundleId, minIos));
+    File.WriteAllText(Path.Join(projDir, "project.pbxproj"),   _iosPbxproj(name, bundleId, minIos, components));
     File.WriteAllText(Path.Join(srcDir,  "main.swift"),         _iosMainSwift(name));
     File.WriteAllText(Path.Join(srcDir,  "Info.plist"),         _iosInfoPlist(bundleId, displayName));
 
@@ -56,8 +65,8 @@ void _generateIosProject(string outputDir, string name, string bundleId,
 }
 
 // Generate project.pbxproj with fixed deterministic 24-char hex object IDs.
-[Suppress("style.fnLinesHard", "85 body lines；拆分见 code-organization.md")]
-string _iosPbxproj(string name, string bundleId, string minIos) {
+[Suppress("style.fnLinesHard", "单个 project.pbxproj 模板，对象引用集中维护")]
+string _iosPbxproj(string name, string bundleId, string minIos, string[] components) {
     // Object IDs (deterministic, fixed — single target, single framework)
     string iBfMain = "A1000000000000000000000A"; string iBfZpkg = "A1000000000000000000000B";
     string iBfXcfw = "A1000000000000000000000C"; string iFrMain = "A10000000000000000000006";
@@ -75,6 +84,12 @@ string _iosPbxproj(string name, string bundleId, string minIos) {
     string iPhEmbed = "A000000000000000000000F2";
     string iFrLibs = "A000000000000000000000F3";
     string iBfLibs = "A000000000000000000000F4";
+    string componentFiles = "";
+    string componentEmbeds = "";
+    for (int i = 0; i < components.Length; i++) {
+        componentFiles = componentFiles + "B1000000000000000000000" + i.ToString() + ",";
+        componentEmbeds = componentEmbeds + "B2000000000000000000000" + i.ToString() + ",";
+    }
     string b = "// !$*UTF8*$!\n{\n\tarchiveVersion = 1;\n\tclasses = {};\n\tobjectVersion = 56;\n\tobjects = {\n\n";
 
     b = b + "/* Begin PBXBuildFile section */\n";
@@ -83,6 +98,9 @@ string _iosPbxproj(string name, string bundleId, string minIos) {
     b = b + "\t\t" + iBfXcfw + " = {isa = PBXBuildFile; fileRef = " + iFrXcfw + "; settings = {ATTRIBUTES = (Required,); }; };\n";
     b = b + "\t\t" + iBfEmbed + " = {isa = PBXBuildFile; fileRef = " + iFrXcfw + "; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy,); }; };\n";
     b = b + "\t\t" + iBfLibs + " = {isa = PBXBuildFile; fileRef = " + iFrLibs + "; };\n";
+    for (int i = 0; i < components.Length; i++) {
+        b = b + "\t\tB2000000000000000000000" + i.ToString() + " = {isa = PBXBuildFile; fileRef = B1000000000000000000000" + i.ToString() + "; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy,); }; };\n";
+    }
     b = b + "/* End PBXBuildFile section */\n\n";
 
     b = b + "/* Begin PBXFileReference section */\n";
@@ -91,10 +109,13 @@ string _iosPbxproj(string name, string bundleId, string minIos) {
     b = b + "\t\t" + iFrXcfw + " = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = z42.framework; sourceTree = \"<group>\"; };\n";
     b = b + "\t\t" + iFrApp + " = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = " + name + ".app; sourceTree = BUILT_PRODUCTS_DIR; };\n";
     b = b + "\t\t" + iFrLibs + " = {isa = PBXFileReference; lastKnownFileType = folder; path = libs; sourceTree = \"<group>\"; };\n";
+    for (int i = 0; i < components.Length; i++) {
+        b = b + "\t\tB1000000000000000000000" + i.ToString() + " = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = " + components[i] + ".framework; sourceTree = \"<group>\"; };\n";
+    }
     b = b + "/* End PBXFileReference section */\n\n";
 
     b = b + "/* Begin PBXCopyFilesBuildPhase section */\n";
-    b = b + "\t\t" + iPhEmbed + " = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = \"\"; dstSubfolderSpec = 10; files = (" + iBfEmbed + ",); name = \"Embed Frameworks\"; runOnlyForDeploymentPostprocessing = 0; };\n";
+    b = b + "\t\t" + iPhEmbed + " = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = \"\"; dstSubfolderSpec = 10; files = (" + iBfEmbed + "," + componentEmbeds + "); name = \"Embed Frameworks\"; runOnlyForDeploymentPostprocessing = 0; };\n";
     b = b + "/* End PBXCopyFilesBuildPhase section */\n\n";
     b = b + "/* Begin PBXFrameworksBuildPhase section */\n";
     b = b + "\t\t" + iPhFwk + " = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647;\n";
@@ -106,7 +127,7 @@ string _iosPbxproj(string name, string bundleId, string minIos) {
     b = b + iSrcGrp + "," + iFwkGrp + "," + iProdGrp + ",); sourceTree = \"<group>\"; };\n";
     b = b + "\t\t" + iSrcGrp + " = {isa = PBXGroup; children = (";
     b = b + iFrMain + "," + iFrZpkg + "," + iFrLibs + ",); path = " + name + "; sourceTree = \"<group>\"; };\n";
-    b = b + "\t\t" + iFwkGrp + " = {isa = PBXGroup; children = (" + iFrXcfw + ",); name = Frameworks; sourceTree = \"<group>\"; };\n";
+    b = b + "\t\t" + iFwkGrp + " = {isa = PBXGroup; children = (" + iFrXcfw + "," + componentFiles + "); name = Frameworks; sourceTree = \"<group>\"; };\n";
     b = b + "\t\t" + iProdGrp + " = {isa = PBXGroup; children = (" + iFrApp + ",); name = Products; sourceTree = \"<group>\"; };\n";
     b = b + "/* End PBXGroup section */\n\n";
 

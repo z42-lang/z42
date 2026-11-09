@@ -13,7 +13,7 @@ crate-type = ["cdylib"]
 [dependencies]
 z42-interp = { path = "../../../../runtime/crates/z42-interp", default-features = false }
 # Unified z42::host provides both the C ABI and ergonomic Rust embedding API.
-z42   = { path = "../../../../runtime", default-features = false, features = ["wasm"] }
+z42   = { path = "../../../../runtime", default-features = false, features = ["wasm", "bundled-compression"] }
 z42-abi  = { path = "../../../../runtime/crates/z42-abi" }
 
 wasm-bindgen = "0.2"

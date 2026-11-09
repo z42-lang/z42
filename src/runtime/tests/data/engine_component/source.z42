@@ -27,3 +27,12 @@ void Main() {
     Console.WriteLine(Worker());
     try { Boom(); } catch (Exception e) { Console.WriteLine(e.Message); }
 }
+
+long CompressionRoundtrip() {
+    byte[] input = new byte[]{ 1, 2, 3, 4, 5, 6, 7, 8 };
+    byte[] packed = Std.Compression.Gzip.Compress(input);
+    byte[] output = Std.Compression.Gzip.Decompress(packed);
+    long sum = 0L;
+    for (int i = 0; i < output.Length; i++) { sum += (long)output[i]; }
+    return sum;
+}

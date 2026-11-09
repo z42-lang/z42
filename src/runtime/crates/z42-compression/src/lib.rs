@@ -8,8 +8,9 @@
 //! - `libz42_compression.{so,dylib,dll}` — dlopened by z42vm on desktop,
 //!   located via `Z42_NATIVE_PATH` env or the SDK's `<sdk>/native/` directory
 //! - `libz42_compression.rlib` — used by the z42 main crate's
-//!   `bundled-compression` Cargo feature so wasm / iOS / Android builds
-//!   link it into libz42 itself (no dlopen)
+//!   `bundled-compression` feature in the default final WASM module.
+//!   Runtime packaging also produces a separate C static archive; custom
+//!   hosts register its symbol resolver through the host embedding API.
 //!
 //! # ABI
 //!
@@ -79,6 +80,34 @@ pub const Z42_COMPRESSION_ABI_VERSION: u32 = 1;
 pub extern "C" fn z42_compression_abi_version() -> u32 {
     Z42_COMPRESSION_ABI_VERSION
 }
+
+/// Symbol provider for statically linked hosts; unknown names return null.
+///
+/// # Safety
+/// `name` must be a valid NUL-terminated string for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn z42_compression_get_symbol(name: *const c_char) -> *const std::ffi::c_void {
+    if name.is_null() { return std::ptr::null(); }
+    match unsafe { std::ffi::CStr::from_ptr(name) }.to_bytes() {
+        b"z42_compression_abi_version" => z42_compression_abi_version as *const () as *const std::ffi::c_void,
+        b"z42_compression_deflate_compress" => z42_compression_deflate_compress as *const () as *const std::ffi::c_void,
+        b"z42_compression_deflate_decompress" => z42_compression_deflate_decompress as *const () as *const std::ffi::c_void,
+        b"z42_compression_zstd_compress" => z42_compression_zstd_compress as *const () as *const std::ffi::c_void,
+        b"z42_compression_zstd_decompress" => z42_compression_zstd_decompress as *const () as *const std::ffi::c_void,
+        b"z42_compression_brotli_compress" => z42_compression_brotli_compress as *const () as *const std::ffi::c_void,
+        b"z42_compression_brotli_decompress" => z42_compression_brotli_decompress as *const () as *const std::ffi::c_void,
+        b"z42_compression_lz4_compress" => z42_compression_lz4_compress as *const () as *const std::ffi::c_void,
+        b"z42_compression_lz4_decompress" => z42_compression_lz4_decompress as *const () as *const std::ffi::c_void,
+        b"z42_compression_compressor_begin" => z42_compression_compressor_begin as *const () as *const std::ffi::c_void,
+        b"z42_compression_compressor_feed" => z42_compression_compressor_feed as *const () as *const std::ffi::c_void,
+        b"z42_compression_compressor_finish" => z42_compression_compressor_finish as *const () as *const std::ffi::c_void,
+        b"z42_compression_compressor_dispose" => z42_compression_compressor_dispose as *const () as *const std::ffi::c_void,
+        b"z42_compression_free" => z42_compression_free as *const () as *const std::ffi::c_void,
+        b"z42_compression_last_error" => z42_compression_last_error as *const () as *const std::ffi::c_void,
+        _ => std::ptr::null(),
+    }
+}
+
 
 thread_local! {
     static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) };

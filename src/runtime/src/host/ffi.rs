@@ -34,6 +34,54 @@ pub struct Z42Host {
     _private: [u8; 0],
 }
 
+/// Register a trusted, statically linked component before creating a host.
+///
+/// # Safety
+/// `init` and its descriptor/callbacks must remain valid for the process lifetime
+/// and obey the same-build component protocol.
+#[no_mangle]
+pub unsafe extern "C" fn z42_host_register_static_component(
+    id: ComponentId, init: Option<ComponentInit>,
+) -> Z42HostStatus {
+    guard(|| {
+        let Some(init) = init else {
+            return set_error(Z42HostStatus::BadConfig, "component initializer is null");
+        };
+        match unsafe { register_static_component(id, init) } {
+            Ok(()) => { clear_error(); Z42HostStatus::Ok }
+            Err(error) => set_error(Z42HostStatus::BadConfig, &error.to_string()),
+        }
+    })
+}
+
+/// Register an explicitly linked stdlib native library without loading its symbols.
+///
+/// # Safety
+/// `name` must be a valid NUL-terminated string. The resolver and its returned
+/// functions must implement the native library ABI and remain valid until exit.
+#[no_mangle]
+pub unsafe extern "C" fn z42_host_register_static_native_library(
+    name: *const c_char, resolve: Option<NativeSymbolResolver>,
+) -> Z42HostStatus {
+    guard(|| {
+        if name.is_null() { return set_error(Z42HostStatus::BadConfig, "native library name is null"); }
+        let Some(resolve) = resolve else { return set_error(Z42HostStatus::BadConfig, "native symbol resolver is null"); };
+        let Ok(name) = (unsafe { std::ffi::CStr::from_ptr(name) }).to_str() else {
+            return set_error(Z42HostStatus::BadConfig, "native library name must be UTF-8");
+        };
+        match unsafe { register_static_native_library(name, resolve) } {
+            Ok(()) => { clear_error(); Z42HostStatus::Ok }
+            Err(error) => set_error(Z42HostStatus::BadConfig, &error.to_string()),
+        }
+    })
+}
+
+/// Dynamic cores discover their backends when loading a program. Static final
+/// archives supply the initializer that registers their selected linked backends.
+#[cfg(not(feature = "static-embedding"))]
+#[no_mangle]
+pub extern "C" fn z42_linked_components_init() -> i32 { 0 }
+
 /// Wrap an extern "C" function body so a Rust panic becomes
 /// `Z42_HOST_ERR_INTERNAL` with a stable message rather than UB.
 fn guard<F>(f: F) -> Z42HostStatus

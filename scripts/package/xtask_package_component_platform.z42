@@ -1,0 +1,93 @@
+// Target-aware component graphs; Android 64-bit targets can select the JIT backend.
+namespace Z42Xtask;
+using Std.IO;
+using Std.Cli;
+
+string _componentPlatformPreset(string rid) {
+    if (rid.StartsWith("iossim-")) { return "ios,jit"; }
+    if (rid.StartsWith("ios")) { return "ios"; }
+    if (rid.StartsWith("android-")) { return "android"; }
+    if (rid == "browser-wasm") { return "wasm"; }
+    return "interp,jit,native-interop,net,tls";
+}
+bool _componentTargetHasJit(string rid) {
+    return _ridCategory(rid) == "desktop" || rid == "android-arm64" || rid == "android-x64" || rid == "iossim-arm64";
+}
+string _componentPlatformWorkingDirectory(string root, string rid) {
+    return rid.StartsWith("android-") ? Path.Join(root, "src/runtime") : root;
+}
+string _componentStaticName(string stem, string rid) {
+    return rid.StartsWith("windows-") ? stem + ".lib" : "lib" + stem + ".a";
+}
+string _componentStaticDir(string root, string rid) {
+    // Final WASM uses a separate Cargo workspace and LTO profile. Its rlibs
+    // must not be overwritten by the composable static graph.
+    return (_ridCategory(rid) == "desktop" || rid == "browser-wasm")
+        ? Path.Join(_componentBuildDir(root), "static") : _cargoTargetDir(root);
+}
+string _componentPlatformOut(string root, string rid, string profile, bool shared) {
+    string dir = shared ? _componentBuildDir(root) : _componentStaticDir(root, rid);
+    if (_ridCategory(rid) == "desktop") { return Path.Join(dir, profile); }
+    return Path.Join(dir, _ridToCargo(rid) + "/" + profile);
+}
+
+Process _componentPlatformCargo(string verb, string root, string rid, string profile, bool shared) {
+    Process p = new Process("cargo");
+    if (rid.StartsWith("android-")) { p = p.Arg("ndk").Arg("-t").Arg(_ridToAndroidAbi(rid)); }
+    // cargo-ndk queries workspace metadata before forwarding Cargo arguments.
+    string working = _componentPlatformWorkingDirectory(root, rid);
+    p = p.Arg(verb).Arg("--locked").WorkingDirectory(working)
+        .Arg("--config").Arg(Path.Join(root, _runtimeCargoConfig()))
+        .Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))
+        .Arg("--target-dir").Arg(shared ? _componentBuildDir(root) : _componentStaticDir(root, rid))
+        .EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("CARGO_TERM_COLOR", "never")
+        .Env("CARGO_PROFILE_RELEASE_LTO", "false");
+    if (_ridCategory(rid) != "desktop" && !rid.StartsWith("android-")) { p = p.Arg("--target").Arg(_ridToCargo(rid)); }
+    if (profile == "release") { p = p.Arg("--release"); }
+    string flags = "-C prefer-dynamic=no";
+    if (shared) {
+        flags = "-C prefer-dynamic -C rpath";
+        if (rid.StartsWith("ios") || rid.StartsWith("macos-")) { flags = flags + " -C link-arg=-Wl,-rpath,@loader_path"; }
+        else if (!rid.StartsWith("windows-")) { flags = flags + " -C link-arg=-Wl,-rpath,$ORIGIN"; }
+        p = p.Env("CARGO_PROFILE_RELEASE_LTO", "false");
+    }
+    p = p.Env("RUSTFLAGS", flags);
+    if (rid.StartsWith("ios")) { p = p.Env("IPHONEOS_DEPLOYMENT_TARGET", _vReadOr(root, "platform.ios.min_ios", "16.0")); }
+    if (rid.StartsWith("android-")) {
+        string ndk = _androidNdkDir(root);
+        p = p.Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk);
+    }
+    return p;
+}
+
+int _componentBuildPlatform(string root, string rid, string profile) {
+    if (_ridCategory(rid) == "desktop") { return _componentBuild(root, profile); }
+    if (rid == "browser-wasm") { throw new CliException("browser WASM uses static components; native dynamic loading is unavailable"); }
+    string features = "z42/" + _componentPlatformPreset(rid).Replace(",", ",z42/") + ",z42/shared-core,z42-interp/shared-core,z42-interp/native-interop";
+    Process build = _componentPlatformCargo("build", root, rid, profile, true)
+        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("-p").Arg("z42-compression").Arg("--lib")
+        .Arg("--no-default-features");
+    if (_componentTargetHasJit(rid)) {
+        build = build.Arg("-p").Arg("z42-jit");
+        features = features + ",z42-jit/shared-core,z42-interp/jit";
+    }
+    return _execIn(build.Arg("--features").Arg(features), _componentPlatformWorkingDirectory(root, rid));
+}
+void _componentInstallPlatform(string root, string native, string rid, string profile) {
+    string cargo = _componentPlatformOut(root, rid, profile, true);
+    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+        if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
+        string name = _componentLibrary(stem, rid);
+        _componentCopyRequired(Path.Join(cargo, name), Path.Join(native, name));
+    }
+    _componentCopyStd(native, _ridToCargo(rid));
+}
+
+string _componentRidForTarget(string root, string target) {
+    foreach (var rid in _vRidNames(root)) { if (_ridToCargo(rid) == target) { return rid; } }
+    throw new CliException("no registered runtime RID for " + target);
+}
+string _componentAndroidRid(string root, string abi) {
+    foreach (var rid in _vRidsOfCategory(root, "android")) { if (_ridToAndroidAbi(rid) == abi) { return rid; } }
+    throw new CliException("no published runtime RID for Android ABI " + abi);
+}
