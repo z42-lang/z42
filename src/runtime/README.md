@@ -165,4 +165,4 @@ xtask test e2e                                # VM golden 端到端（interp + j
 - 用法与规则（参考手册）：[嵌入](../../docs/reference/src/embedding/README.md)
 - 设计 / 机制（实现内幕）：[运行时](../../docs/internals/src/runtime/README.md) · [VM 总体架构](../../docs/internals/src/runtime/vm-architecture.md) · [产物格式](../../docs/internals/src/formats/README.md)
 
-`xtask build runtime` 在同一 Cargo 图中构建动态运行时及独立后端。SDK 使用动态库；桌面 runtime 另外提供静态嵌入归档。`examples/z42.rs` 是本包的最终链接 target，启用 `static-embedding` 后生成统一命名的 C 静态库和动态库；iOS/Android 不再需要包装 Cargo 包。静态 Rust 宿主链接所需后端 rlib，并先调用 `host::register_static_component`；最终 C 嵌入库先调用 `z42_linked_components_init`。不支持 JIT 的 target 不编译 Cranelift，请求不可用后端明确报错。详见[组件化运行时](../../docs/internals/src/runtime/componentized-runtime.md)。
+`xtask build runtime` 在同一 Cargo 图中构建动态运行时及独立后端。SDK 使用动态库；所有 runtime 包提供目标适用的独立静态组件归档，原生平台另提供动态库（iOS 为 Framework）；WASM 默认最终模块之外保留按需重链能力。`examples/z42.rs` 是本包的最终链接 target，启用 `static-embedding` 后生成统一命名的 C 静态库和动态库；iOS/Android 不再需要包装 Cargo 包。静态 Rust 宿主链接所需后端 rlib，并先调用 `host::register_static_component`；最终 C 嵌入库先调用 `z42_linked_components_init`。不支持 JIT 的 target 不编译 Cranelift，请求不可用后端明确报错。详见[组件化运行时](../../docs/internals/src/runtime/componentized-runtime.md)。

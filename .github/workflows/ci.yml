@@ -428,7 +428,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xtask package runtime --no-build --archive --label nightly
+          xtask package runtime --no-build --archive --label nightly --verify
           xtask package workload --archive --label nightly
           # test workload = payload-only, platform-agnostic → build once on macos-arm64
           # (package-test-workload) → z42-workload-nightly-test.tar.gz.
@@ -809,6 +809,7 @@ jobs:
           for rid in ios-arm64 iossim-arm64; do
             xtask package runtime --rid "$rid" --archive --label nightly
           done
+          xtask package runtime --rid iossim-arm64 --no-build --verify
 
       - name: Upload iOS archives
         if: github.event_name != 'pull_request'
@@ -926,7 +927,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xtask package runtime --rid browser-wasm --archive --label nightly
+          xtask package runtime --rid browser-wasm --archive --label nightly --verify
+
+      - name: Rebuild final WASM after static component packaging
+        shell: bash
+        run: xtask test app wasm build
 
       # 每个 push / PR 真跑一次 wasm VM（上面只编译、校验、打包；真执行的 test-wasm-browser 只在 nightly）——
       # 第一次 loadZbc 就 trap 的 VM 能一路打包通过。pkg-nodejs 已由上面的 `test app wasm build` 建在暂存的 host 副本里。

@@ -51,6 +51,14 @@ public final class Z42VM {
         guard z42_linked_components_init() == 0 else {
             throw Self.lastError(prefix: "register execution components")
         }
+        #if !Z42_NO_COMPRESSION
+        let nativeStatus = "z42_compression".withCString {
+            z42_host_register_static_native_library($0, z42_compression_get_symbol)
+        }
+        guard nativeStatus == Z42_HOST_OK else {
+            throw Self.lastError(prefix: "register compression provider")
+        }
+        #endif
         var raw: OpaquePointer? = nil
         let status = z42_host_initialize(&cfg, &raw)
         guard status == Z42_HOST_OK, let h = raw else {

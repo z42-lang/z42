@@ -76,5 +76,5 @@ int _componentVerify(string root, string pkg, string profile) {
     string stats = result.Stdout.Substring(start + marker.Length);
     int end = stats.IndexOf(" passed;");
     if (end < 0 || int.Parse(stats.Substring(0, end)) <= 0) { throw new CliException("component verification ran zero tests"); }
-    return 0;
+    return _componentCVerifyDynamic(root, pkg, _detectHostRid(), zbc, work);
 }

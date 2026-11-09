@@ -26,10 +26,7 @@ pub(crate) fn registry() -> &'static NativeRegistry {
             }
         }
         // Both static linkage and native images expose these same C registration entries.
-        for entry in [
-            z42_repl::z42_repl_module_v1(),
-            z42_compression::z42_compression_module_v1(),
-        ] {
+        for entry in [z42_repl::z42_repl_module_v1(), compression_module()] {
             if let Err(error) = unsafe { builder.register_module(entry) } {
                 panic!("invalid default native module assembly: {error:#}");
             }
@@ -43,4 +40,15 @@ pub(crate) fn functions() -> &'static [BuiltinDesc] {
 }
 pub(crate) fn catalog() -> &'static crate::metadata::builtins::BuiltinCatalog {
     registry().catalog()
+}
+
+fn compression_module() -> *const z42_abi::native::Module {
+    #[cfg(feature = "bundled-compression")]
+    {
+        z42_compression::z42_compression_module_v1()
+    }
+    #[cfg(not(feature = "bundled-compression"))]
+    {
+        z42_compression::native::linked_module()
+    }
 }

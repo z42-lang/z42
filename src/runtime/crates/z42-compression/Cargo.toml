@@ -6,13 +6,8 @@ description = "Independent compression script registration and optional algorith
 publish     = false
 
 [lib]
-# - cdylib:    libz42_compression.{so,dylib,dll} — dlopened by z42vm
-# - rlib:      z42 main crate `path =` dep for the bundled-compression feature
-#              (wasm / ios / android presets link it into libz42 itself)
-# No staticlib: nothing could use one. Desktop z42vm has no static registration
-# path (it only dlopens), and the mobile presets already carry compression inside
-# libz42.a — a second Rust staticlib next to it would also bring a second copy of
-# std (duplicate symbols). It used to be built and shipped anyway (P0-17).
+# Dynamic delivery uses cdylib. Bundled final modules use rlib; packaging
+# derives composable C static archives from a single Cargo dependency graph.
 name       = "z42_compression"
 path       = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]

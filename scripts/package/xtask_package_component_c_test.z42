@@ -1,0 +1,121 @@
+// C-only consumers: no runtime Rust dependency can mask a missing packaged library.
+namespace Z42Xtask;
+using Std.IO;
+using Std.Cli;
+using Std.Json;
+
+string _componentBundlePath(string root, string rid, string profile) {
+    return Path.Join(_packagesDir(root), "z42-runtime-" + _versionsGet(root) + "-" + rid + (profile == "release" ? "" : "-" + profile));
+}
+string _componentNativeBinary(string pkg, string stem, string rid) {
+    string native = Path.Join(pkg, "native");
+    return rid.StartsWith("ios") ? Path.Join(native, stem + ".framework/" + stem) : Path.Join(native, _componentLibrary(stem, rid));
+}
+Process _componentCCompiler(string root, string rid) {
+    if (rid == "iossim-arm64") {
+        string sdk = _cmdOut("xcrun", new string[]{ "--sdk", "iphonesimulator", "--show-sdk-path" });
+        string minimum = _vReadOr(root, "platform.ios.min_ios", "16.0");
+        return new Process("xcrun").Arg("--sdk").Arg("iphonesimulator").Arg("clang")
+            .Arg("-target").Arg("arm64-apple-ios" + minimum + "-simulator").Arg("-isysroot").Arg(sdk);
+    }
+    return new Process(Platform.IsWindows() ? "clang" : "cc");
+}
+string _componentCBuild(string root, string pkg, string rid, string work, bool dynamic, bool jit, bool compression) {
+    string native = Path.Join(pkg, "native");
+    string name = dynamic ? "dynamic" : (jit ? "static-jit" : "static-interp");
+    if (compression) { name = name + "-compression"; }
+    string exe = Path.Join(work, name + (Platform.IsWindows() ? ".exe" : ""));
+    Process p = _componentCCompiler(root, rid).Arg("-std=c11")
+        .Arg("-I").Arg(Path.Join(native, "include"))
+        .Arg(Path.Join(root, "src/runtime/tests/data/engine_component/host.c"));
+    if (dynamic) {
+        p = p.Arg("-DZ42_COMPONENT_DYNAMIC");
+        if (rid.StartsWith("linux-")) { p = p.Arg("-ldl"); }
+    } else {
+        if (jit) { p = p.Arg("-DZ42_COMPONENT_HAS_JIT"); }
+        if (compression) { p = p.Arg("-DZ42_COMPONENT_HAS_COMPRESSION"); }
+        foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
+            if ((stem == "z42_jit" && !jit) || (stem == "z42_compression" && !compression)) { continue; }
+            p = p.Arg(Path.Join(native, _componentStaticName(stem, rid)));
+        }
+        p = p.Arg(Path.Join(native, _componentStaticName("z42", rid)));
+        foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
+            if ((stem == "z42_jit" && !jit) || (stem == "z42_compression" && !compression)) { continue; }
+            foreach (var flag in File.ReadAllText(Path.Join(native, stem + "-link.txt")).Split(" ")) {
+                if (flag.Length > 0) { p = p.Arg(flag); }
+            }
+        }
+    }
+    if (_exec(p.Arg("-o").Arg(exe)) != 0) { return ""; }
+    return exe;
+}
+
+string _componentSimulator() {
+    JsonValue devices = JsonValue.Parse(_cmdOut("xcrun", new string[]{ "simctl", "list", "devices", "available", "--json" })).Get("devices");
+    foreach (var runtime in devices.Keys()) {
+        if (!runtime.Contains("iOS")) { continue; }
+        JsonValue list = devices.Get(runtime);
+        for (int i = 0; i < list.Length(); i = i + 1) {
+            JsonValue device = list.At(i);
+            if (device.Get("isAvailable").AsBool()) { return device.Get("udid").AsString(); }
+        }
+    }
+    throw new CliException("an available iOS simulator is required for component verification");
+}
+Process _componentCRunner(string exe, string rid) {
+    Process p = rid == "iossim-arm64"
+        ? new Process("xcrun").Arg("simctl").Arg("spawn").Arg("--standalone").Arg(_componentSimulator()).Arg(exe)
+        : new Process(exe);
+    return p.WorkingDirectory(Path.GetDirectoryName(exe))
+        .EnvRemove("Z42_NATIVE_PATH").EnvRemove("Z42_CONFIG").EnvRemove("Z42_APP_CONFIG")
+        .EnvRemove("Z42_HOME").EnvRemove("Z42_LIBS").EnvRemove("Z42_PORTABLE_VM")
+        .EnvRemove("LD_LIBRARY_PATH").EnvRemove("DYLD_LIBRARY_PATH").EnvRemove("DYLD_FALLBACK_LIBRARY_PATH");
+}
+int _componentCRun(string exe, string pkg, string rid, string zbc, string mode, string action) {
+    Process p = _componentCRunner(exe, rid)
+        .Arg(_componentNativeBinary(pkg, "z42", rid)).Arg(zbc).Arg(Path.Join(pkg, "libs"))
+        .Arg(mode).Arg(action).Arg(_componentNativeBinary(pkg, "z42_compression", rid));
+    return _exec(p);
+}
+int _componentCVerifyDynamic(string root, string pkg, string rid, string zbc, string work) {
+    string exe = _componentCBuild(root, pkg, rid, work, true, false, false);
+    if (exe.Length == 0) { return 1; }
+    int c = _componentCRun(exe, pkg, rid, zbc, "interp", "no-compression"); if (c != 0) { return c; }
+    c = _componentCRun(exe, pkg, rid, zbc, "interp", "compression"); if (c != 0) { return c; }
+    if (_componentTargetHasJit(rid)) { c = _componentCRun(exe, pkg, rid, zbc, "jit", "no-compression"); if (c != 0) { return c; } }
+    string library = _componentNativeBinary(pkg, "z42_compression", rid);
+    string hidden = library + ".unavailable";
+    File.Move(library, hidden);
+    try { return _componentCRun(exe, pkg, rid, zbc, "interp", "compression-missing"); }
+    finally { File.Move(hidden, library); }
+}
+int _componentCVerifyStatic(string root, string pkg, string rid, string zbc, string work) {
+    string exe = _componentCBuild(root, pkg, rid, work, false, false, false);
+    if (exe.Length == 0) { return 1; }
+    int c = _componentCRun(exe, pkg, rid, zbc, "interp", "no-compression"); if (c != 0) { return c; }
+    c = _componentCRun(exe, pkg, rid, zbc, "jit", "expect-missing"); if (c != 0) { return c; }
+    c = _componentCRun(exe, pkg, rid, zbc, "interp", "compression-missing"); if (c != 0) { return c; }
+    bool jit = _componentTargetHasJit(rid);
+    exe = _componentCBuild(root, pkg, rid, work, false, jit, true);
+    if (exe.Length == 0) { return 1; }
+    c = _componentCRun(exe, pkg, rid, zbc, "interp", "compression"); if (c != 0) { return c; }
+    if (jit) { return _componentCRun(exe, pkg, rid, zbc, "jit", "compression"); }
+    return 0;
+}
+
+int _componentVerifyBundle(string root, string rid, string profile) {
+    if (rid.Length == 0) { rid = _detectHostRid(); }
+    if (rid != _detectHostRid() && rid != "iossim-arm64" && rid != "browser-wasm") {
+        throw new CliException("C execution verification requires the host RID, iossim-arm64 or browser-wasm; use device platform tests for " + rid);
+    }
+    string pkg = _componentBundlePath(root, rid, profile);
+    string work = _xtaskWork(root, "component-c-" + rid + "-" + profile);
+    _resetDir(work);
+    string zbc = Path.Join(work, "engine.zbc");
+    Process compile = _z42cProcMode(_builtVm(root, "release"), _libsDir(root), _driverZpkg(root, "release"), "interp")
+        .Arg("--emit-zbc").Arg(Path.Join(root, "src/runtime/tests/data/engine_component/source.z42")).Arg(zbc);
+    int c = _exec(compile); if (c != 0) { return c; }
+    if (rid == "browser-wasm") { return _componentWasmVerify(root, pkg, zbc, work); }
+    c = _componentCVerifyStatic(root, pkg, rid, zbc, work); if (c != 0) { return c; }
+    return _componentCVerifyDynamic(root, pkg, rid, zbc, work);
+}

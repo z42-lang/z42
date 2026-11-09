@@ -39,7 +39,7 @@ int _pkgLayoutCheck(string root, string pkgDir, string kind, string rid) {
 }
 
 // 桌面 SDK：z42c 入口 + ext 动态库 + compression 的 zpkg；嵌入件（libz42.* + C 头）只在 runtime 包，
-// compression 的静态库哪儿都不发（desktop 没有静态注册路径，移动 preset 已把它编进 libz42.a）；
+// 独立静态组件只随 runtime 包发布；SDK 保持完整动态依赖闭包；
 // apphost 只随桌面 workload 发。
 void _plSdk(string root, _PkgLayout L, string rid) {
     L.HasDir("libs");
@@ -68,6 +68,7 @@ void _plRuntimeDesktop(string root, _PkgLayout L, string rid) {
     L.HasFile("native/include/z42_native.h");
     _plComponentLibraries(L, rid);
     L.HasFile(rid.StartsWith("windows-") ? "native/z42.lib" : "native/libz42.a");
+    _plStaticComponents(L, rid);
 }
 
 void _plComponentLibraries(_PkgLayout L, string rid) {
@@ -80,6 +81,8 @@ void _plComponentLibraries(_PkgLayout L, string rid) {
 
 void _plRuntimeIos(_PkgLayout L, string rid) {
     _plIosDynamic(L, rid);
+    _plStaticComponents(L, rid);
+    L.Expect(Path.Glob(L.P("native"), "*.dylib").Length == 0, "iOS dynamic libraries use Frameworks", "naked dylib found");
     L.HasFile("native/libz42.a");
     L.HasDir("native/include");
     L.HasDir("libs");
@@ -88,6 +91,10 @@ void _plRuntimeIos(_PkgLayout L, string rid) {
 }
 
 void _plRuntimeAndroid(_PkgLayout L, string rid) {
+    _plStaticComponents(L, rid);
+    L.HasFile("native/libz42_interp.so");
+    L.HasFile("native/libz42_compression.so");
+    L.Expect(Path.Glob(L.P("native"), "libstd-*.so").Length == 1, "Android matching shared std", "missing or ambiguous");
     L.HasFile("native/libz42.so");
     L.HasFile("native/libz42.a");
     L.HasDir("native/include");
@@ -104,6 +111,7 @@ void _plRuntimeAndroid(_PkgLayout L, string rid) {
 }
 
 void _plRuntimeWasm(_PkgLayout L) {
+    _plStaticComponents(L, "browser-wasm");
     L.HasFile("native/z42_wasm_bg.wasm");
     L.HasFile("native/libz42.a");
     L.HasDir("pkg-web");
@@ -201,17 +209,47 @@ class _PkgLayout {
     }
 }
 
+void _plStaticComponents(_PkgLayout L, string rid) {
+    foreach (var stem in new string[]{ "z42_interp", "z42_compression", "z42_jit" }) {
+        string file = "native/" + _componentStaticName(stem, rid);
+        if (stem == "z42_jit" && !_componentTargetHasJit(rid)) {
+            L.Absent(file, "target has no JIT"); continue;
+        }
+        L.HasFile(file);
+        L.HasFile("native/" + stem + "-link.txt");
+    }
+    if (!_componentTargetHasJit(rid)) {
+        L.Absent("native/" + _componentLibrary("z42_jit", rid), "target has no JIT");
+        L.Absent("native/z42_jit.framework", "target has no JIT");
+    }
+}
+
 void _plIosDynamic(_PkgLayout L, string rid) {
-    string binary = L.P("native/z42.framework/z42");
     L.HasFile("native/z42.framework/Headers/z42_host.h");
-    L.HasFile("native/z42.framework/Modules/module.modulemap");
+    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_compression", "z42_std" }) {
+        _plIosFramework(L, rid, stem);
+    }
+}
+void _plIosFramework(_PkgLayout L, string rid, string stem) {
+    string framework = "native/" + stem + ".framework";
+    string binary = L.P(framework + "/" + stem);
+    L.HasFile(framework + "/Modules/module.modulemap");
     string kind = _cmdOut("file", new string[]{ binary });
-    L.Expect(kind.Contains("dynamically linked shared library") && kind.Contains("arm64"), "iOS dynamic arm64 framework", kind);
+    L.Expect(kind.Contains("dynamically linked shared library") && kind.Contains("arm64"), stem + " arm64 framework", kind);
     string id = _cmdOut("otool", new string[]{ "-D", binary });
-    L.Expect(id.Contains("@rpath/z42.framework/z42"), "framework relocatable identity", id);
+    L.Expect(id.Contains("@rpath/" + stem + ".framework/" + stem), stem + " relocatable identity", id);
     string build = _cmdOut("vtool", new string[]{ "-show-build", binary });
     bool simulator = build.Contains("IOSSIMULATOR");
-    L.Expect(rid.StartsWith("iossim-") ? simulator : (!simulator && build.Contains("platform IOS")), "framework target platform", build);
-    int c = new Process("codesign").Arg("--verify").Arg("--strict").Arg(L.P("native/z42.framework")).Run().ExitCode;
-    L.Expect(c == 0, "framework signature", "codesign verification failed");
+    L.Expect(rid.StartsWith("iossim-") ? simulator : (!simulator && build.Contains("platform IOS")), stem + " target platform", build);
+    string[] libraries = _cmdOut("otool", new string[]{ "-L", binary }).Split("\n");
+    for (int i = 1; i < libraries.Length; i = i + 1) {
+        string line = libraries[i].Trim(); int end = line.IndexOf(" (");
+        if (end < 0) { continue; }
+        string dependency = line.Substring(0, end);
+        bool system = dependency.StartsWith("/usr/lib/") || dependency.StartsWith("/System/Library/");
+        bool packaged = dependency.StartsWith("@rpath/") && File.Exists(L.P("native/" + dependency.Substring(7)));
+        L.Expect(system || packaged, stem + " dependency closure", dependency);
+    }
+    int c = new Process("codesign").Arg("--verify").Arg("--strict").Arg(L.P(framework)).Run().ExitCode;
+    L.Expect(c == 0, stem + " signature", "codesign verification failed");
 }

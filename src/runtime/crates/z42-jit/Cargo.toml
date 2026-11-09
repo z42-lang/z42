@@ -14,7 +14,7 @@ parking_lot = "0.12"
 rustc-hash = "2"
 [features]
 default = ["jit"]
-shared-core = ["jit"]
+shared-core = ["jit", "z42/shared-core"]
 jit = ["z42/jit", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), any(target_os = "linux", target_os = "macos", target_os = "windows")))'.dependencies]

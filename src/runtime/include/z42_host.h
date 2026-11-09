@@ -42,6 +42,9 @@ extern "C" {
 
 #define Z42_HOST_ABI_VERSION 2
 
+/* Integer argument/result tag shared with z42::host::Z42_VALUE_TAG_I64. */
+#define Z42_VALUE_TAG_I64 1u
+
 /* ── Opaque handles ──────────────────────────────────────────────────────── */
 
 /* Handle to the (singleton, in v0.1) VM instance. NULL = invalid. */
@@ -168,12 +171,6 @@ typedef enum Z42HostStatus {
     Z42_HOST_ERR_INTERNAL        = 99
 } Z42HostStatus;
 
-/* Register before host creation. Resolver and returned C functions must remain
- * valid for process lifetime; static resolution precedes OS loading on all targets. */
-typedef const void* (*Z42NativeSymbolResolver)(const char* name);
-Z42HostStatus z42_host_register_static_native_library(const char* name,
-                                                     Z42NativeSymbolResolver resolve);
-
 /* ── Lifecycle API ───────────────────────────────────────────────────────── */
 
 /*
@@ -273,8 +270,32 @@ Z42HostStatus z42_host_shutdown(Z42HostRef host);
 int z42_host_run_app(const char* app_zpkg, const char* entry,
                      const char* libs_dir, int argc, const char* const* argv);
 
-/* Final embedding archives/frameworks export this initializer for linked backends.
- * Call it before host APIs. The desktop dynamic runtime discovers components instead. */
+/* Same-build component factory. The descriptor is opaque to C hosts. */
+typedef struct Z42ComponentDescriptor Z42ComponentDescriptor;
+typedef const Z42ComponentDescriptor* (*Z42ComponentInit)(void);
+typedef struct Z42ComponentId { uint8_t bytes[16]; } Z42ComponentId;
+static const Z42ComponentId Z42_COMPONENT_INTERP = {{0x7a, 0x34, 0x32, 0x2e, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x70, 0x2e, 0x76, 0x31, 0x00, 0x00, 0x00}};
+static const Z42ComponentId Z42_COMPONENT_JIT = {{0x7a, 0x34, 0x32, 0x2e, 0x6a, 0x69, 0x74, 0x2e, 0x76, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
+
+/* Factories are supplied by the selected component libraries, not the core. */
+const Z42ComponentDescriptor* z42_interp_init(void);
+const Z42ComponentDescriptor* z42_jit_init(void);
+
+/* Call before creating a host. init and its callbacks must be trusted and remain
+ * loaded for the process lifetime. Repeating the same registration is idempotent;
+ * a null initializer or conflicting registration returns Z42_HOST_ERR_BAD_CONFIG.
+ * Descriptor/build/ABI validation still occurs before a program is loaded. */
+Z42HostStatus z42_host_register_static_component(Z42ComponentId id, Z42ComponentInit init);
+
+/* Named C-ABI symbols supplied by an explicitly linked native library. Names
+ * are borrowed during the callback; unknown symbols return NULL. Register before
+ * creating hosts. This records the provider; symbols resolve only on first use. */
+typedef const void* (*Z42NativeSymbolResolver)(const char* name);
+Z42HostStatus z42_host_register_static_native_library(const char* name, Z42NativeSymbolResolver resolve);
+const void* z42_compression_get_symbol(const char* name);
+
+/* Final static archives register their bundled backends here. Dynamic cores
+ * expose the same entry as a no-op and discover colocated components on load. */
 int z42_linked_components_init(void);
 
 #ifdef __cplusplus

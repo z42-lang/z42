@@ -66,16 +66,42 @@ pub(crate) fn native_paths() -> Vec<PathBuf> {
         }
     }
 
+    // Embedded libraries need not live beside the application's executable.
+    // Keep explicit and executable-relative overrides ahead of the core image.
+    if let Some(image) = crate::pal::dynlib::image_path(super::core_identity()) {
+        if let Some(directory) = image.parent() {
+            let directory = directory.to_path_buf();
+            if !paths.contains(&directory) { paths.push(directory.clone()); }
+            #[cfg(target_os = "ios")]
+            { let bundled = directory.join("Frameworks"); if !paths.contains(&bundled) { paths.push(bundled); } }
+            #[cfg(target_os = "ios")]
+            if directory.extension().is_some_and(|extension| extension == "framework") {
+                if let Some(frameworks) = directory.parent() {
+                    let frameworks = frameworks.to_path_buf();
+                    if !paths.contains(&frameworks) { paths.push(frameworks); }
+                }
+            }
+        }
+    }
     paths
 }
 
 fn dynamic_paths(id: ComponentId) -> Vec<PathBuf> {
     let stem = if id == INTERP_COMPONENT { "z42_interp" } else { "z42_jit" };
-    native_paths().into_iter().map(|p| p.join(crate::pal::dynlib::file_name(stem))).collect()
+    crate::pal::dynlib::candidate_paths(stem, native_paths())
 }
 fn auto_available(id: ComponentId) -> bool {
     if linked(id).is_some() { return true; }
-    cfg!(feature = "component-loading") && dynamic_paths(id).iter().any(|p| p.is_file())
+    cfg!(feature = "component-loading") && dynamic_paths(id).iter().any(|path| {
+        if path.is_file() { return true; }
+        #[cfg(all(target_os = "android", feature = "component-loading"))]
+        if crate::pal::dynlib::is_loader_name(path) {
+            // Only built-in component names reach this fallback. Retain loaded
+            // code even during capability queries, just as during VM assembly.
+            return unsafe { crate::pal::dynlib::Library::open_component(path) }.is_ok();
+        }
+        false
+    })
 }
 /// Default sources present in this runtime pack; actual loading still validates ABI and identity.
 pub fn jit_available() -> bool { cfg!(feature = "jit") && jit_supported() && auto_available(INTERP_COMPONENT) && auto_available(JIT_COMPONENT) }
@@ -97,12 +123,14 @@ fn select(options: ComponentOptions, source: &BackendSource, id: ComponentId, na
                 BackendSource::Dynamic(path) => path.clone(),
                 _ => {
                     let paths = dynamic_paths(id);
-                    paths.iter().find(|p| p.is_file()).cloned().ok_or_else(|| anyhow::anyhow!(
+                    paths.iter().find(|p| p.is_file() || crate::pal::dynlib::is_loader_name(p)).cloned().ok_or_else(|| anyhow::anyhow!(
                         "{name} backend unavailable: no linked selection and dynamic library was not found; searched {}",
                         paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")))?
                 },
             };
-            if !path.is_file() { bail!("{name} backend unavailable: no linked selection and dynamic library `{}` was not found", path.display()); }
+            if !path.is_file() && !crate::pal::dynlib::is_loader_name(&path) {
+                bail!("{name} backend unavailable: no linked selection and dynamic library `{}` was not found", path.display());
+            }
             let symbol = if id == INTERP_COMPONENT { "z42_interp_init" } else { "z42_jit_init" };
             Ok(unsafe { options.with_dynamic(id, path, symbol) })
         }

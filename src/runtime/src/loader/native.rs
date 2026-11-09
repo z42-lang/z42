@@ -34,8 +34,9 @@ pub unsafe fn open_library(
     path: &Path,
 ) -> std::io::Result<std::sync::Arc<crate::pal::dynlib::Library>> {
     crate::pal::dynlib::require_supported()?;
-    unsafe { crate::pal::dynlib::Library::open_component(path) }
-        .map_err(|error| std::io::Error::new(error.kind(), format!("dlopen({}): {error}", path.display())))
+    unsafe { crate::pal::dynlib::Library::open_component(path) }.map_err(|error| {
+        std::io::Error::new(error.kind(), format!("dlopen({}): {error}", path.display()))
+    })
 }
 
 /// Load a Tier 1 type library and register against the explicitly supplied VM.
@@ -101,7 +102,7 @@ mod tests;
 
 /// Released last by the host extension assembly, after provider destructors and type tables.
 #[derive(Default)]
-#[cfg(feature = "native-interop")]
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
 pub(crate) struct Libraries {
     owned: parking_lot::Mutex<Vec<std::sync::Arc<crate::pal::dynlib::Library>>>,
     named: parking_lot::Mutex<
@@ -134,8 +135,9 @@ pub(crate) fn path_source(ctx: &VmContext) -> Result<PathSource> {
         .ok_or_else(|| anyhow!("native library path service was not registered"))
 }
 
-/// Resolve a provider-requested C entry. Per-VM name caching never holds a lock
-/// while opening images, and PAL retains code for process-lifetime function tables.
+/// Resolve a trusted implementation through host-supplied candidate policy, including
+/// signed iOS frameworks. Script path loading uses the separate capability-checked
+/// load_native_module/load_library entries. No lock is held while opening an image.
 pub(crate) fn resolve_symbol(
     ctx: &VmContext,
     library: &str,
@@ -144,8 +146,7 @@ pub(crate) fn resolve_symbol(
     if let Some(result) = super::linked::resolve(library, symbol) {
         return result;
     }
-    crate::pal::dynlib::require_supported()?;
-    #[cfg(feature = "native-interop")]
+    #[cfg(any(feature = "native-interop", feature = "component-loading"))]
     {
         let libraries = ctx
             .ext::<Libraries>()
@@ -157,7 +158,7 @@ pub(crate) fn resolve_symbol(
                 let paths = path_source(ctx)?;
                 let result = (|| -> Result<_> {
                     for candidate in paths(library) {
-                        if !candidate.is_file() {
+                        if !candidate.is_file() && !crate::pal::dynlib::is_loader_name(&candidate) {
                             continue;
                         }
                         return unsafe { crate::pal::dynlib::Library::open_component(&candidate) }
@@ -177,14 +178,14 @@ pub(crate) fn resolve_symbol(
         .map_err(anyhow::Error::msg)?;
         Ok(unsafe { image.symbol::<*mut std::ffi::c_void>(symbol)? })
     }
-    #[cfg(not(feature = "native-interop"))]
+    #[cfg(not(any(feature = "native-interop", feature = "component-loading")))]
     {
         let _ = (ctx, library, symbol);
         Err(anyhow!("native extension loading is disabled"))
     }
 }
 
-#[cfg(feature = "native-interop")]
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
 fn bail_native_missing<T>(library: &str) -> Result<T> {
     Err(anyhow!(
         "native library `{library}` not found in the configured candidates"

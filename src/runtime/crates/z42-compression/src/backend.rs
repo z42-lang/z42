@@ -385,4 +385,27 @@ unsafe fn write_owned_buffer(buf: Vec<u8>, out_ptr: *mut *mut u8, out_len: *mut 
 }
 
 #[cfg(test)]
+#[path = "compression_tests.rs"]
 mod compression_tests;
+
+pub(crate) unsafe fn resolve_symbol(name: *const c_char) -> *const std::ffi::c_void {
+    if name.is_null() { return std::ptr::null(); }
+    match unsafe { std::ffi::CStr::from_ptr(name) }.to_bytes() {
+        b"z42_compression_abi_version" => z42_compression_abi_version as *const () as *const std::ffi::c_void,
+        b"z42_compression_deflate_compress" => z42_compression_deflate_compress as *const () as *const std::ffi::c_void,
+        b"z42_compression_deflate_decompress" => z42_compression_deflate_decompress as *const () as *const std::ffi::c_void,
+        b"z42_compression_zstd_compress" => z42_compression_zstd_compress as *const () as *const std::ffi::c_void,
+        b"z42_compression_zstd_decompress" => z42_compression_zstd_decompress as *const () as *const std::ffi::c_void,
+        b"z42_compression_brotli_compress" => z42_compression_brotli_compress as *const () as *const std::ffi::c_void,
+        b"z42_compression_brotli_decompress" => z42_compression_brotli_decompress as *const () as *const std::ffi::c_void,
+        b"z42_compression_lz4_compress" => z42_compression_lz4_compress as *const () as *const std::ffi::c_void,
+        b"z42_compression_lz4_decompress" => z42_compression_lz4_decompress as *const () as *const std::ffi::c_void,
+        b"z42_compression_compressor_begin" => z42_compression_compressor_begin as *const () as *const std::ffi::c_void,
+        b"z42_compression_compressor_feed" => z42_compression_compressor_feed as *const () as *const std::ffi::c_void,
+        b"z42_compression_compressor_finish" => z42_compression_compressor_finish as *const () as *const std::ffi::c_void,
+        b"z42_compression_compressor_dispose" => z42_compression_compressor_dispose as *const () as *const std::ffi::c_void,
+        b"z42_compression_free" => z42_compression_free as *const () as *const std::ffi::c_void,
+        b"z42_compression_last_error" => z42_compression_last_error as *const () as *const std::ffi::c_void,
+        _ => std::ptr::null(),
+    }
+}

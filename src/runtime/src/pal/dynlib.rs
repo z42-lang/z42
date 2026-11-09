@@ -25,6 +25,64 @@ pub fn file_name(stem: &str) -> String {
     format!("{}{}{}", std::env::consts::DLL_PREFIX, stem, std::env::consts::DLL_SUFFIX)
 }
 
+/// Candidate names for colocated libraries and platform framework/loader layouts.
+pub(crate) fn candidate_paths(stem: &str, directories: Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
+    let mut paths = Vec::new();
+    for directory in directories {
+        paths.push(directory.join(file_name(stem)));
+        #[cfg(target_os = "ios")]
+        paths.push(directory.join(format!("{stem}.framework")).join(stem));
+    }
+    #[cfg(target_os = "android")]
+    paths.push(file_name(stem).into());
+    paths
+}
+
+/// Android may load unextracted APK libraries through its linker namespace.
+pub(crate) fn is_loader_name(path: &std::path::Path) -> bool {
+    cfg!(target_os = "android") && path.components().count() == 1
+        && path.file_name() == Some(path.as_os_str())
+        && path.extension().is_some_and(|extension| extension == "so")
+}
+
+/// Locate the loaded image containing an address without acquiring another handle.
+#[cfg(unix)]
+pub(crate) fn image_path(address: *const core::ffi::c_void) -> Option<std::path::PathBuf> {
+    use std::{ffi::{CStr, OsStr}, os::unix::ffi::OsStrExt};
+    let mut info = std::mem::MaybeUninit::<libc::Dl_info>::zeroed();
+    // dladdr queries the loader's mapping; it does not dereference the address.
+    if unsafe { libc::dladdr(address, info.as_mut_ptr()) } == 0 { return None; }
+    let info = unsafe { info.assume_init() };
+    if info.dli_fname.is_null() { return None; }
+    // The loader owns this NUL-terminated name for the lifetime of the image.
+    Some(std::path::PathBuf::from(OsStr::from_bytes(unsafe { CStr::from_ptr(info.dli_fname) }.to_bytes())))
+}
+
+#[cfg(windows)]
+pub(crate) fn image_path(address: *const core::ffi::c_void) -> Option<std::path::PathBuf> {
+    use std::{ffi::{c_void, OsString}, os::windows::ffi::OsStringExt};
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetModuleHandleExW(flags: u32, address: *const u16, module: *mut *mut c_void) -> i32;
+        fn GetModuleFileNameW(module: *mut c_void, name: *mut u16, capacity: u32) -> u32;
+    }
+    let mut module = std::ptr::null_mut();
+    // FROM_ADDRESS | UNCHANGED_REFCOUNT: inspect the image without owning it.
+    if unsafe { GetModuleHandleExW(0x00000004 | 0x00000002, address.cast(), &mut module) } == 0 { return None; }
+    let mut capacity = 512;
+    while capacity <= 32768 {
+        let mut name = vec![0u16; capacity];
+        let length = unsafe { GetModuleFileNameW(module, name.as_mut_ptr(), capacity as u32) } as usize;
+        if length == 0 { return None; }
+        if length < capacity { return Some(OsString::from_wide(&name[..length]).into()); }
+        capacity *= 2;
+    }
+    None
+}
+
+#[cfg(not(any(unix, windows)))]
+pub(crate) fn image_path(_: *const core::ffi::c_void) -> Option<std::path::PathBuf> { None }
+
 /// Resolve a single native library *beside* a given directory — the "colocated
 /// native dependency" layout: a component's private native lib ships flat in the
 /// same directory as its zpkg (`<zpkg-dir>/lib<name>.<suffix>`), NOT in the shared
@@ -60,7 +118,7 @@ impl Library {
     pub unsafe fn open_component(path: &std::path::Path) -> std::io::Result<std::sync::Arc<Self>> {
         use std::{collections::BTreeMap, sync::{Arc, Mutex, OnceLock}};
         static IMAGES: OnceLock<Mutex<BTreeMap<std::path::PathBuf, Arc<Library>>>> = OnceLock::new();
-        let path = path.canonicalize()?;
+        let path = if is_loader_name(path) { path.to_path_buf() } else { path.canonicalize()? };
         let images = IMAGES.get_or_init(Default::default);
         if let Some(image) = images.lock().unwrap().get(&path).cloned() {
             return Ok(image);

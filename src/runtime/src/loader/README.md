@@ -8,7 +8,8 @@
 
 | 入口 | 职责 |
 |---|---|
-| `native.rs` | 宿主注入的按名称路径服务、PAL 装入、Tier 1 注册入口与库代码保活 |
+| `native.rs` | 宿主注入的按名称路径服务、PAL 装入、通用模块及 Tier 1 注册入口与库代码保活 |
+| `linked.rs` | 宿主显式注册的进程寿命 C 符号解析器，先于动态候选查询 |
 | `state.rs` | `LoaderState`：每 VM 惰性加载器、上下文、初始化队列与 VFS 依赖 |
 | `fusion_inputs.rs` | 私有融合输入与惰性输入来源 |
 | `package/` | VFS 读取、LoadedArtifact、模块合并和执行索引准备 |

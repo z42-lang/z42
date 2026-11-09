@@ -14,7 +14,7 @@
 | z42-abi | no_std、零依赖的 C ABI 布局 |
 | z42-rs | native 类型创作 SDK；不链接 VM |
 | z42-macros | proc-macro；由 Rust 独立编译，供 native SDK 与 builtin 描述使用 |
-| z42-compression | C ABI 压缩扩展，native 动态加载或 wasm 静态链接 |
+| z42-compression | C ABI 压缩组件；原生首次使用时动态加载，静态宿主按需链接/登记；默认最终 WASM 编入 |
 | z42-repl | host-only 行编辑扩展，通过 C 回调访问运行时 |
 
 ## 依赖关系

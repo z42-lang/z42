@@ -17,15 +17,21 @@ fn result<T>(name: &str, value: Result<T, (i32, String)>) -> native::Result<T> {
 
 macro_rules! function {
     ($entry:ident, $name:literal, $body:expr) => {
-        unsafe extern "C" fn $entry(call: *mut abi::Call) -> u32 {
-            #[cfg(feature = "backend")]
-            {
-                unsafe { native::dispatch(call, $body) }
-            }
-            #[cfg(not(feature = "backend"))]
-            {
+        mod $entry {
+            use super::*;
+            pub(super) unsafe extern "C" fn linked(call: *mut abi::Call) -> u32 {
                 unsafe {
                     native::forward(call, "z42_compression", "z42_compression_module_v1", $name)
+                }
+            }
+            pub(super) unsafe extern "C" fn full(call: *mut abi::Call) -> u32 {
+                #[cfg(feature = "backend")]
+                {
+                    unsafe { native::dispatch(call, $body) }
+                }
+                #[cfg(not(feature = "backend"))]
+                {
+                    unsafe { linked(call) }
                 }
             }
         }
@@ -124,80 +130,53 @@ function!(compressor_dispose, "__compressor_dispose", |call| {
 });
 
 macro_rules! descriptor {
-    ($entry:ident, $name:literal, [$($parameter:expr),*], $result:expr) => {
+    ($entry:ident, $name:literal, [$($parameter:expr),*], $result:expr, $linked:expr) => {
         abi::Function { name: abi::Text::new($name), parameters: abi::Parameters::new(&[$($parameter),*]),
-            result: $result, flags: 0, invoke: Some($entry) }
+            result: $result, flags: 0, invoke: Some(if $linked { $entry::linked } else { $entry::full }) }
     };
 }
-static FUNCTIONS: &[abi::Function] = &[
-    descriptor!(
-        deflate_compress,
-        "__deflate_compress",
+macro_rules! descriptors {
+    ($($entry:ident => ($name:literal, [$($parameter:expr),*], $result:expr)),* $(,)?) => {
+        static FUNCTIONS: &[abi::Function] = &[$(descriptor!($entry, $name, [$($parameter),*], $result, false)),*];
+        static LINKED_FUNCTIONS: &[abi::Function] = &[$(descriptor!($entry, $name, [$($parameter),*], $result, true)),*];
+    };
+}
+descriptors! {
+deflate_compress => ("__deflate_compress",
         [abi::BYTES, abi::I64, abi::I64],
-        abi::BYTES
-    ),
-    descriptor!(
-        deflate_decompress,
-        "__deflate_decompress",
+        abi::BYTES),
+deflate_decompress => ("__deflate_decompress",
         [abi::BYTES, abi::I64],
-        abi::BYTES
-    ),
-    descriptor!(
-        zstd_compress,
-        "__zstd_compress",
+        abi::BYTES),
+zstd_compress => ("__zstd_compress",
         [abi::BYTES, abi::I64],
-        abi::BYTES
-    ),
-    descriptor!(
-        zstd_decompress,
-        "__zstd_decompress",
+        abi::BYTES),
+zstd_decompress => ("__zstd_decompress",
         [abi::BYTES],
-        abi::BYTES
-    ),
-    descriptor!(
-        brotli_compress,
-        "__brotli_compress",
+        abi::BYTES),
+brotli_compress => ("__brotli_compress",
         [abi::BYTES, abi::I64],
-        abi::BYTES
-    ),
-    descriptor!(
-        brotli_decompress,
-        "__brotli_decompress",
+        abi::BYTES),
+brotli_decompress => ("__brotli_decompress",
         [abi::BYTES],
-        abi::BYTES
-    ),
-    descriptor!(
-        lz4_compress,
-        "__lz4_compress",
+        abi::BYTES),
+lz4_compress => ("__lz4_compress",
         [abi::BYTES, abi::I64],
-        abi::BYTES
-    ),
-    descriptor!(lz4_decompress, "__lz4_decompress", [abi::BYTES], abi::BYTES),
-    descriptor!(
-        compressor_begin,
-        "__compressor_begin",
+        abi::BYTES),
+lz4_decompress => ("__lz4_decompress", [abi::BYTES], abi::BYTES),
+compressor_begin => ("__compressor_begin",
         [abi::I64, abi::I64, abi::BOOL],
-        abi::I64
-    ),
-    descriptor!(
-        compressor_feed,
-        "__compressor_feed",
+        abi::I64),
+compressor_feed => ("__compressor_feed",
         [abi::I64, abi::BYTES],
-        abi::BYTES
-    ),
-    descriptor!(
-        compressor_finish,
-        "__compressor_finish",
+        abi::BYTES),
+compressor_finish => ("__compressor_finish",
         [abi::I64],
-        abi::BYTES
-    ),
-    descriptor!(
-        compressor_dispose,
-        "__compressor_dispose",
+        abi::BYTES),
+compressor_dispose => ("__compressor_dispose",
         [abi::I64],
-        abi::VOID
-    ),
-];
+        abi::VOID)
+}
 static MODULE: abi::Module = abi::Module {
     version: abi::MODULE_ABI_VERSION,
     size: std::mem::size_of::<abi::Module>() as u32,
@@ -207,6 +186,18 @@ static MODULE: abi::Module = abi::Module {
     create_state: None,
     destroy_state: None,
 };
+
+static LINKED_MODULE: abi::Module = abi::Module {
+    functions: LINKED_FUNCTIONS.as_ptr(),
+    function_count: LINKED_FUNCTIONS.len(),
+    ..MODULE
+};
+
+/// Lightweight registration always resolves the implementation through the host,
+/// even when another target in the Cargo graph enables the algorithm backend.
+pub fn linked_module() -> *const abi::Module {
+    &LINKED_MODULE
+}
 
 /// Identical registration entry for cdylib discovery and static linkage.
 #[unsafe(no_mangle)]
@@ -228,7 +219,14 @@ pub unsafe extern "C" fn z42_compression_get_symbol(
     if unsafe { std::ffi::CStr::from_ptr(name) }.to_bytes() == b"z42_compression_module_v1" {
         z42_compression_module_v1 as *const () as *const std::ffi::c_void
     } else {
-        std::ptr::null()
+        #[cfg(feature = "backend")]
+        {
+            unsafe { crate::backend::resolve_symbol(name) }
+        }
+        #[cfg(not(feature = "backend"))]
+        {
+            std::ptr::null()
+        }
     }
 }
 
@@ -252,3 +250,7 @@ fn zstd_compress_impl(_: &[u8], _: i32) -> Result<Vec<u8>, (i32, String)> {
 fn zstd_decompress_impl(input: &[u8]) -> Result<Vec<u8>, (i32, String)> {
     zstd_compress_impl(input, 0)
 }
+
+#[cfg(test)]
+#[path = "native_tests.rs"]
+mod tests;
