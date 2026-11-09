@@ -5,6 +5,7 @@
 //   1. _testPackagesConfig    — parse packages.toml + include resolution
 //   2. _testPackagesInstall   — install components straight into a package dir + hermetic libs + failure paths
 //   3. _testPackagesRelease   — --archive / release（命名映射 + 端到端；见 xtask_selfcheck_release.z42）
+//   4. _testInstallers        — install-z42 入口的默认值 / 参数 / 转发（见 xtask_selfcheck_installers.z42）
 namespace Z42Xtask;
 
 
@@ -13,5 +14,6 @@ int _pkgSelfCheck() {
     c = _testPackagesConfig();   if (c != 0) { return c; }
     c = _testPackagesInstall();      if (c != 0) { return c; }
     c = _testPackagesRelease();      if (c != 0) { return c; }
+    c = _testInstallers();           if (c != 0) { return c; }
     return 0;
 }

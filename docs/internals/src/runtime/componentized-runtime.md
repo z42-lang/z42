@@ -39,11 +39,13 @@ LoadOptions.backends 的每个后端可选 Auto、Linked、Dynamic(path)、Disab
 | 桌面 SDK / xtask build runtime | 动态 interp + jit | interp / jit；缺库报错 |
 | Rust 静态宿主 / C 静态归档 | 按最终宿主链接并登记的后端 | 未登记的后端明确报错 |
 | 不含 interp/jit 的普通静态构建 | 无后端 | 请求执行明确报错 |
-| iOS / Android runtime 包 | 独立静态 interp、compression；另提供动态 Framework / .so | 不编入 JIT/Cranelift，请求 jit 报错 |
+| iOS 真机 runtime 包 | 独立静态 interp、compression；另提供动态 Framework | 不编入 JIT/Cranelift，请求 jit 报错 |
+| iOS simulator runtime 包 | 独立静态与 Framework interp、JIT、compression | 默认 interp；显式选择 JIT，缺库报错 |
+| Android arm64/x64 runtime 包 | 独立静态与动态 interp、JIT、compression | 默认 interp；显式选择 JIT 时加载组件，缺库报错 |
 | browser-wasm runtime 包 | 默认最终 WASM；另提供 core、interp、compression 静态库 | 在链接时选择组件，生成新的最终 WASM |
 | shared-core 动态桌面包 | 动态 interp / jit | 由部署与运行设置决定；缺库报错 |
 
-JIT 的依赖仅在 Linux/macOS/Windows 的 x64/arm64 target 选择；即便不支持的平台误传 jit feature，也不引入 Cranelift 实现。动态组件使用目标平台匹配的 Rust std；iOS 将它与核心、解释器、compression 一起封装为独立 Framework。WASM 没有原生 dlopen，只提供最终模块和可重链静态库。
+JIT 的依赖仅在 Linux/macOS/Windows/Android 的 x64/arm64 target 与 iOS simulator（target_abi=sim） 选择；即便不支持的平台误传 jit feature，也不引入 Cranelift 实现。动态组件使用目标平台匹配的 Rust std；iOS 将它与核心、解释器、compression 一起封装为独立 Framework。WASM 没有原生 dlopen，只提供最终模块和可重链静态库。
 
 ### 跨平台编译与链接模型
 
@@ -82,7 +84,7 @@ WASM 最终产品的默认发布契约是**最小生产 release**：只链接应
 
 运行时的单一主库直接提供 rlib/dylib。 Static builds use rlib; dynamic packs use prefer-dynamic, one runtime dylib and the matching Rust std. Backends directly provide rlib/cdylib and init entries.
 
-所有动态宿主、后端、共享核心与验证可执行文件必须在一次 Cargo 图中构建。分开运行 Cargo 可能因开发依赖或传递依赖 feature 合并不同而覆盖成不兼容的 Rust metadata/符号；打包器一次构建全部目标后，从同一组产物搬移并验证，不再用后续 Cargo 调用重写核心。
+动态宿主、Rust 执行后端、共享核心与验证可执行文件必须在同一 Cargo 图中构建。纯 C ABI 的 compression 实现在隔离的 target 图中构建，避免算法 feature 合并回只依赖接口声明的 core。分开运行 Cargo 可能因开发依赖或传递依赖 feature 合并不同而覆盖成不兼容的 Rust metadata/符号；打包器一次构建全部目标后，从同一组产物搬移并验证，不再用后续 Cargo 调用重写核心。
 
 共享 std 的动态构建使用 System 分配器。自定义分配器和 dhat 位于最终静态宿主 z42vm_static，通过独立 target-dir 构建，不覆盖动态运行时。C 的 libz42.a 保留默认解释器初始化入口 z42_linked_components_init；自定义组合可通过 z42_host_register_static_component 登记实际链接的后端，Rust 宿主使用 host::register_static_component。静态组合须使用同一次构建图产生的库，不能混用不同 feature/profile 的核心。静态登记仅保留进程寿命工厂，不保留 VM 实例。
 
@@ -108,7 +110,7 @@ worker 加入同一 Core，不重建组件或扩展。ComponentLease 保留 Core
 
 ## 6. 配置与装配
 
-host/boot、host/extensions 与 host/artifact 统一主 VM 装配，将 RuntimeConfig 转为 VM 使用的配置和惰性 FusionInputs；VM 的基础机制接收明确的构造输入。corelib 提供自身 builtin 描述符和对象协议绑定，host 经 interop 装配完整注册集合；后端登记归 components。LazyLoader 的宿主默认构造使用 inherent 方法，加载机制仍可显式接收 FusionInputSource。主上下文通过 RuntimeInputs 接收引擎、builtin 目录/表、对象协议、采样和扩展；worker 仅共享已有 Core 并建立线程视图。
+host/boot、host/extensions 与 host/artifact 统一主 VM 装配，将 RuntimeConfig 转为 VM 使用的配置和惰性 FusionInputs；VM 的基础机制接收明确的构造输入。corelib 提供自身 builtin 描述符和对象协议绑定，host 经 interop 装配默认集合；后端登记归 components。LazyLoader 的宿主默认构造使用 inherent 方法，加载机制仍可显式接收 FusionInputSource。主上下文通过 RuntimeInputs 接收引擎、builtin 目录/表、对象协议、采样和扩展；worker 仅共享已有 Core 并建立线程视图。
 
 BuiltinCatalog 只含名称/ID 与折叠属性，callable 表属于 exec，provider 由门面装配。纯派发缓存归 runtime/dispatch，加载、初始化、等待与异常物化编排归 exec/ops。监视器机制与争用探针属于 core，标准库适配属于 corelib。
 

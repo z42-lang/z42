@@ -93,6 +93,7 @@ void _plRuntimeIos(_PkgLayout L, string rid) {
 void _plRuntimeAndroid(_PkgLayout L, string rid) {
     _plStaticComponents(L, rid);
     L.HasFile("native/libz42_interp.so");
+    if (_componentTargetHasJit(rid)) { L.HasFile("native/libz42_jit.so"); }
     L.HasFile("native/libz42_compression.so");
     L.Expect(Path.Glob(L.P("native"), "libstd-*.so").Length == 1, "Android matching shared std", "missing or ambiguous");
     L.HasFile("native/libz42.so");
@@ -226,7 +227,7 @@ void _plStaticComponents(_PkgLayout L, string rid) {
 
 void _plIosDynamic(_PkgLayout L, string rid) {
     L.HasFile("native/z42.framework/Headers/z42_host.h");
-    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_compression", "z42_std" }) {
+    foreach (var stem in _iosFrameworkStems(rid)) {
         _plIosFramework(L, rid, stem);
     }
 }
@@ -240,7 +241,9 @@ void _plIosFramework(_PkgLayout L, string rid, string stem) {
     L.Expect(id.Contains("@rpath/" + stem + ".framework/" + stem), stem + " relocatable identity", id);
     string build = _cmdOut("vtool", new string[]{ "-show-build", binary });
     bool simulator = build.Contains("IOSSIMULATOR");
-    L.Expect(rid.StartsWith("iossim-") ? simulator : (!simulator && build.Contains("platform IOS")), stem + " target platform", build);
+    // Rust's device std may retain the legacy minimum-version load command.
+    bool device = build.Contains("platform IOS") || build.Contains("LC_VERSION_MIN_IPHONEOS");
+    L.Expect(rid.StartsWith("iossim-") ? simulator : (!simulator && device), stem + " target platform", build);
     string[] libraries = _cmdOut("otool", new string[]{ "-L", binary }).Split("\n");
     for (int i = 1; i < libraries.Length; i = i + 1) {
         string line = libraries[i].Trim(); int end = line.IndexOf(" (");

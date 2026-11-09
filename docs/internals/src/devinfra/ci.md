@@ -151,7 +151,7 @@ nightly 再 use」（见[编译器自举](../compiler/self-hosting.md)）的后�
 重命名同时检查 `filename` 与 `previous_filename`。生产文件移入私有测试目录时，其删除仍影响 SDK。
 
 「不影响 SDK」= 改动的文件**全部**落在下面这些路径里；其余一律算影响（含 xtask 的 build / package / common /
-install、`ci.yml`、`.github/actions/`——它们决定 SDK 里装什么或怎么装）。拿不到 nightly、compare 结果被截断
+setup、安装器 `scripts/install-z42.*`、`ci.yml`、`.github/actions/`——它们决定 SDK 里装什么或怎么装）。拿不到 nightly、compare 结果被截断
 （≥300 个文件）也算影响。
 
 | 不影响 SDK 的路径 | 理由 |
@@ -235,8 +235,8 @@ gh workflow run retry-ci-runner.yml --ref main -f run_id=<失败运行ID>
 
 | flag | 命中路径（节选） |
 |---|---|
-| `platform` | `src/runtime/**`（排除顶层 Rust 测试与纯测试数据）、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder、interactive、launcher 排除私有 `tests/`）、`scripts/{package/**,packages.toml,install/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{app,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
-| `sdk_checks` | `scripts/test/sdk/**`、`src/toolchain/launcher/tests/fixtures/package/**`（桌面发行包验证） |
+| `platform` | `src/runtime/**`（排除顶层 Rust 测试与纯测试数据）、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder、interactive、launcher 排除私有 `tests/`）、`scripts/{package/**,packages.toml,setup/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{app,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
+| `sdk_checks` | `scripts/test/sdk/**`、`scripts/install-z42.{sh,ps1,bat,command}`（安装器）、`src/toolchain/launcher/tests/fixtures/package/**`（桌面发行包验证） |
 | `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
 | `compiler` | `src/compiler/**`（排除私有 `tests/**` 与 `benches/**`） |
 | `compiler_checks` | `src/compiler/**`（含私有用例）、`scripts/build/xtask_compiler*.z42`、`scripts/test/xtask_selfcheck_{selfhost,compiler_projects}.z42`、`src/toolchain/devtools/vscode/**` |

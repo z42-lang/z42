@@ -43,7 +43,11 @@ adb logcat > "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>&1 &
 logcat_pid=$!
 
 # xtask 经 CI shim 跑在 `.z42` SDK 上（与本地 `./xtask` 一致）。
-"$GITHUB_WORKSPACE/.github/ci/xtask" test app android --shard "${Z42_SHARD:-1}/3"
+if [ "${Z42_ANDROID_SMOKE:-0}" = 1 ]; then
+    "$GITHUB_WORKSPACE/.github/ci/xtask" test app android --filter z42.compression
+else
+    "$GITHUB_WORKSPACE/.github/ci/xtask" test app android --shard "${Z42_SHARD:-1}/3"
+fi
 rc=$?
 
 # Gradle's connectedAndroidTest reports BUILD SUCCESSFUL even when the test APK never

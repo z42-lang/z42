@@ -51,7 +51,7 @@ z42::module! {
 | `src/methods_attr.rs` | `#[z42::methods]` 实现（核心：解析 attribute + impl 块 → emit descriptor / 方法表 / shim / Z42Type impl）|
 | `src/module_macro.rs` | `module!` 实现（生成 `<name>_register()`）|
 | `src/signature.rs` | Rust 类型 → ABI 签名字符串映射；仅 blittable 子集（i*/u*/f*/bool/raw ptr/SelfRef/void）|
-| `src/shim.rs` | 每个用户方法 → `extern "C"` shim（`catch_unwind` 包裹，panic 经 `z42_rs::module_helpers::set_panic` 转 Z0905）|
+| `src/shim.rs` | 每个用户方法 → `extern "C"` shim（`catch_unwind` 包裹，panic 经 `z42_rs::native_helpers::set_panic` 转 Z0905）|
 | `src/util.rs` | c-string literal 生成、私有 ident 命名、模块名校验 |
 | `src/builtins_attr.rs` | `#[builtins]` 实现（VM builtin ABI v2：解析 `#[builtin]` 属性与签名 → 包装器 / 描述符 / `DESCS`；`blocking` 的 `PlainArg` / `PlainRet` 编译期检查） |
 

@@ -79,8 +79,8 @@ aot                  = []
 interp-only          = ["interp"]
 bundled-compression  = ["z42-compression/backend"]
 wasm                 = ["interp", "interp-only"]
-ios                  = ["interp", "interp-only", "aot", "native-interop", "net", "tls"]
-android              = ["interp", "interp-only", "aot", "native-interop", "net", "tls"]
+ios                  = ["interp", "aot", "native-interop", "net", "tls"]
+android              = ["interp", "jit", "aot", "native-interop", "net", "tls"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 getrandom = "0.4"
@@ -102,7 +102,7 @@ loom = "0.7"
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(z42_test_facade)'] }
 
-[target.'cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), any(target_os = "linux", target_os = "macos", target_os = "windows")))'.dev-dependencies]
+[target.'cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android", all(target_os = "ios", target_abi = "sim"))))'.dev-dependencies]
 # White-box backend tests compile the backend sources inside the runtime harness.
 cranelift-codegen = { version = "0.135", features = ["unwind"] }
 cranelift-frontend = { version = "0.135" }

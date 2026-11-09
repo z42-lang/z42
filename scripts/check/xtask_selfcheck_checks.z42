@@ -27,6 +27,21 @@ int _selfcheckDiagCodes(string root) {
     return 0;
 }
 
+// ci-shell 的取值扫描：会触发 set -u 的引用要报；转义的美元号、GitHub 表达式、带默认值与特殊参数不报。
+int _selfcheckCiShell() {
+    _csExpectUses("echo \"$A ${B}\" ${#C}", "A,B,C", "plain, braced and length references");
+    _csExpectUses("echo \\$env:X \\${Y}", "", "escaped dollars are literal");
+    _csExpectUses("echo \\\\$Z", "Z", "an escaped backslash leaves the expansion");
+    _csExpectUses("x=${{ github.sha }} ${U:-d} ${V+x} $1 $@ $?", "", "expressions, defaults and special parameters");
+    Console.WriteLine("  ✅ ci-shell scanner: references, escapes, expressions, defaults");
+    return 0;
+}
+
+void _csExpectUses(string line, string expected, string what) {
+    string got = String.Join(",", _csUsesIn(line).ToArray());
+    if (got != expected) { throw new Exception("ci-shell scanner: " + what + ": expected [" + expected + "] got [" + got + "]"); }
+}
+
 void _dcSelfcheckDocAndCoverage(string dir) {
     _dcFixture(dir);
     _dcFixtureWrite(dir, _dcDocPath(), "| E0002 | test | active |\n");

@@ -13,7 +13,7 @@ int _componentBuildStaticLibraries(string root, string rid, string profile) {
         features = features + ",z42-interp/jit,z42-jit/jit";
     }
     if (rid != "browser-wasm") { features = features + ",z42-interp/native-interop"; }
-    int c = _exec(p.Arg("--features").Arg(features));
+    int c = _execIn(p.Arg("--features").Arg(features), _componentPlatformWorkingDirectory(root, rid));
     if (c != 0) { return c; }
     c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_interp");
     if (c != 0) { return c; }

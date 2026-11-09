@@ -12,7 +12,7 @@
 //       → `test app android run`（AndroidBackend.RunTests）自动装
 //     node 兜底 → wasm RunTests hermetic+PATH 均缺时自动装
 //
-// 只读的在场校验在 `setup check`（install/xtask_setup_check.z42）；versions.toml ↔ 投影文件的漂移是
+// 只读的在场校验在 `setup check`（setup/xtask_setup_check.z42）；versions.toml ↔ 投影文件的漂移是
 // 与机器无关的静态检查，在 `xtask check versions`（test/xtask_check_versions.z42）。没有环境导出命令：
 // xtask 自己解析 NDK / SDK 位置（versions.toml 的 install_root，ANDROID_NDK_HOME / ANDROID_HOME 覆盖），
 // `setup --os android` 装完打印的 export 只给在 xtask 之外直接调 gradle / cargo-ndk 的人用。

@@ -127,6 +127,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _selfcheckLibDiscovery();
         failed = failed + _selfcheckTestProjects(root, tt);
         failed = failed + _selfcheckDiagCodes(root);
+        failed = failed + _selfcheckCiShell();
         failed = failed + _smokeHookPlugin(root, tt);
     }
     Console.WriteLine("");

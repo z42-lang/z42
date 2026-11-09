@@ -1,15 +1,21 @@
-// Target-aware component graphs. Mobile shared cores never enable the JIT feature.
+// Target-aware component graphs; Android 64-bit targets can select the JIT backend.
 namespace Z42Xtask;
 using Std.IO;
 using Std.Cli;
 
 string _componentPlatformPreset(string rid) {
+    if (rid.StartsWith("iossim-")) { return "ios,jit"; }
     if (rid.StartsWith("ios")) { return "ios"; }
     if (rid.StartsWith("android-")) { return "android"; }
     if (rid == "browser-wasm") { return "wasm"; }
     return "interp,jit,native-interop,net,tls";
 }
-bool _componentTargetHasJit(string rid) { return _ridCategory(rid) == "desktop"; }
+bool _componentTargetHasJit(string rid) {
+    return _ridCategory(rid) == "desktop" || rid == "android-arm64" || rid == "android-x64" || rid == "iossim-arm64";
+}
+string _componentPlatformWorkingDirectory(string root, string rid) {
+    return rid.StartsWith("android-") ? Path.Join(root, "src/runtime") : root;
+}
 string _componentStaticName(string stem, string rid) {
     return rid.StartsWith("windows-") ? stem + ".lib" : "lib" + stem + ".a";
 }
@@ -29,7 +35,7 @@ Process _componentPlatformCargo(string verb, string root, string rid, string pro
     Process p = new Process("cargo");
     if (rid.StartsWith("android-")) { p = p.Arg("ndk").Arg("-t").Arg(_ridToAndroidAbi(rid)); }
     // cargo-ndk queries workspace metadata before forwarding Cargo arguments.
-    string working = rid.StartsWith("android-") ? Path.Join(root, "src/runtime") : root;
+    string working = _componentPlatformWorkingDirectory(root, rid);
     if (targetDir.Length == 0) { targetDir = shared ? _componentBuildDir(root) : _componentStaticDir(root, rid); }
     p = p.Arg(verb).Arg("--locked").WorkingDirectory(working)
         .Arg("--config").Arg(Path.Join(root, _runtimeCargoConfig()))
@@ -58,15 +64,21 @@ Process _componentPlatformCargo(string verb, string root, string rid, string pro
 int _componentBuildPlatform(string root, string rid, string profile) {
     if (_ridCategory(rid) == "desktop") { return _componentBuild(root, profile); }
     if (rid == "browser-wasm") { throw new CliException("browser WASM uses static components; native dynamic loading is unavailable"); }
-    string features = "z42/" + _componentPlatformPreset(rid) + ",z42/shared-core,z42-interp/shared-core,z42-interp/native-interop";
-    int c = _exec(_componentPlatformCargo("build", root, rid, profile, true)
+    string features = "z42/" + _componentPlatformPreset(rid).Replace(",", ",z42/") + ",z42/shared-core,z42-interp/shared-core,z42-interp/native-interop";
+    Process build = _componentPlatformCargo("build", root, rid, profile, true)
         .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("--lib")
-        .Arg("--no-default-features").Arg("--features").Arg(features));
+        .Arg("--no-default-features");
+    if (_componentTargetHasJit(rid)) {
+        build = build.Arg("-p").Arg("z42-jit");
+        features = features + ",z42-jit/shared-core,z42-interp/jit";
+    }
+    int c = _execIn(build.Arg("--features").Arg(features), _componentPlatformWorkingDirectory(root, rid));
     return c == 0 ? _componentBuildCompression(root, rid, profile, true) : c;
 }
 void _componentInstallPlatform(string root, string native, string rid, string profile) {
     string cargo = _componentPlatformOut(root, rid, profile, true);
-    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+        if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
         string name = _componentLibrary(stem, rid);
         _componentCopyRequired(Path.Join(cargo, name), Path.Join(native, name));
     }
@@ -89,9 +101,9 @@ int _componentBuildCompression(string root, string rid, string profile, bool sha
     string cargo = _ridCategory(rid) == "desktop" ? Path.Join(target, profile)
         : Path.Join(target, _ridToCargo(rid) + "/" + profile);
     if (destination.Length == 0) { destination = _componentPlatformOut(root, rid, profile, shared); }
-    int c = _exec(_componentPlatformCargo("build", root, rid, profile, shared, target)
+    int c = _execIn(_componentPlatformCargo("build", root, rid, profile, shared, target)
         .Arg("-p").Arg("z42-compression").Arg("--lib").Arg("--no-default-features")
-        .Arg("--features").Arg("z42-compression/backend"));
+        .Arg("--features").Arg("z42-compression/backend"), _componentPlatformWorkingDirectory(root, rid));
     if (c != 0) { return c; }
     Directory.Create(destination);
     if (shared) {
