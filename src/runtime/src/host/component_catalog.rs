@@ -89,7 +89,7 @@ fn load(registration: &Registration) -> Result<Factory> {
         Registration::Dynamic { id, path, symbol, .. } => {
             #[cfg(feature = "component-loading")]
             {
-                let library = Arc::new(unsafe { crate::pal::dynlib::Library::open(path) }?);
+                let library = unsafe { crate::pal::dynlib::Library::open_component(path) }?;
                 let init = unsafe { library.symbol::<ComponentInit>(symbol) }?;
                 let factory = unsafe { read_descriptor(*id, init) }?;
                 Ok(unsafe { factory.with_library(library) })

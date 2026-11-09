@@ -34,6 +34,25 @@ pub struct Library(libloading::Library);
 
 #[cfg(any(feature = "native-interop", feature = "component-loading"))]
 impl Library {
+    /// Open a runtime component and retain its native image for the process.
+    /// Rust/shared-std TLS may keep destructor callbacks after the last VM exits.
+    /// Per-VM state still drops normally; component images cannot be hot-unloaded.
+    ///
+    /// # Safety
+    /// The same trust and initializer requirements as `open` apply.
+    pub unsafe fn open_component(path: &std::path::Path) -> std::io::Result<std::sync::Arc<Self>> {
+        use std::{collections::BTreeMap, sync::{Arc, Mutex, OnceLock}};
+        static IMAGES: OnceLock<Mutex<BTreeMap<std::path::PathBuf, Arc<Library>>>> = OnceLock::new();
+        let path = path.canonicalize()?;
+        let images = IMAGES.get_or_init(Default::default);
+        if let Some(image) = images.lock().unwrap().get(&path).cloned() {
+            return Ok(image);
+        }
+        // Initializers may load other components; never run them under the lock.
+        let image = Arc::new(unsafe { Self::open(&path) }?);
+        Ok(images.lock().unwrap().entry(path).or_insert(image).clone())
+    }
+
     /// Open the library at `path`. The error names the path.
     ///
     /// # Safety

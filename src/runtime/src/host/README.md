@@ -36,7 +36,7 @@ CLI 和 Rust 调用方使用 `host::run_app`，或用 `LoadedProgram::load_file`
 
 需要进程崩溃报告的宿主调用 `host::signal::install()`，CLI 在进程启动时安装。
 
-LoadOptions.components 选择可选的同构建组件。ComponentOptions::with_static 保存已链接的 init 引用，with_dynamic 指定库与 C 入口；两者为 unsafe，调用方保证原生代码和协议可信。加载程序时自动完成校验、依赖排序和实例创建，失败会回滚，成功后注册表冻结。选项克隆共享工厂结果，每个 VM 仍拥有独立实例。component_interface 返回的租约保留 VM、实例和库，直到最后一次接口调用完成。自定义组件清单默认为空；执行后端由 LoadOptions.backends 按执行模式自动选择并注册，JIT 模式同时要求解释器。Auto 优先静态链接，否则查询动态组件；Linked、Dynamic(path) 和 Disabled 明确限制来源。请求不存在、未链接、被禁用或平台不支持的 JIT 均报错，不静默降级。
+LoadOptions.components 选择可选的同构建组件。ComponentOptions::with_static 保存已链接的 init 引用，with_dynamic 指定库与 C 入口；两者为 unsafe，调用方保证原生代码和协议可信。加载程序时自动完成校验、依赖排序和实例创建，失败会回滚，成功后注册表冻结。选项克隆共享工厂结果，每个 VM 仍拥有独立实例。component_interface 返回的租约保留 VM、实例和库，直到最后一次接口调用完成。组件原生代码映像由 core 按路径缓存至进程结束，保证线程退出时的 TLS 析构回调仍有效；VM 和 JIT 实例按正常寿命释放。自定义组件清单默认为空；执行后端由 LoadOptions.backends 按执行模式自动选择并注册，JIT 模式同时要求解释器。Auto 优先静态链接，否则查询动态组件；Linked、Dynamic(path) 和 Disabled 明确限制来源。请求不存在、未链接、被禁用或平台不支持的 JIT 均报错，不静默降级。
 
 一个程序的初始化状态跨调用保留；驱动同一上下文时遵循单执行线程约束。保留托管返回值跨越后续 VM 调用时，调用方须登记 GC 根。
 

@@ -279,9 +279,15 @@ fn real_dynamic_library_shares_the_static_protocol_and_stays_loaded_for_leases()
     );
     drop(first);
     assert!(
-        weak_library.upgrade().is_none(),
-        "last lease releases the library guard"
+        weak_library.upgrade().is_some(),
+        "native code remains mapped for thread-local destructors"
     );
+    assert_eq!(live(), 0, "image retention must not retain VM instances");
+    let same = unsafe { crate::pal::dynlib::Library::open_component(fixture()).unwrap() };
+    assert!(std::sync::Arc::ptr_eq(&same, &weak_library.upgrade().unwrap()));
+    let alias = fixture().parent().unwrap().join(".").join(fixture().file_name().unwrap());
+    let aliased = unsafe { crate::pal::dynlib::Library::open_component(&alias).unwrap() };
+    assert!(std::sync::Arc::ptr_eq(&same, &aliased));
 }
 #[test]
 #[cfg(feature = "component-loading")]

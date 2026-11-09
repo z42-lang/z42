@@ -26,6 +26,8 @@ fn main() {
     }
     if os == "linux" {
         println!("cargo:rustc-cdylib-link-arg=-Wl,-soname,libz42.so");
+        // Shared-std TLS can retain host error destructors after dlclose.
+        println!("cargo:rustc-cdylib-link-arg=-Wl,-z,nodelete");
     }
     // Allow rustc to recognise our custom cfg without warning.
     println!("cargo:rustc-check-cfg=cfg(z42_skip_native_poc)");

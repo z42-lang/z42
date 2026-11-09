@@ -30,6 +30,8 @@ fn echo(program: &LoadedProgram, value: i64) -> i64 {
 }
 #[test]
 fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
+    // This test thread exits after both VMs/options drop. Backend/dependency TLS
+    // destructors must still point into mapped native images at thread exit.
     for mode in [ExecMode::Interp, ExecMode::Jit] {
         let first = load(mode, backends()).unwrap();
         let second = load(mode, backends()).unwrap();
