@@ -2,7 +2,7 @@
 //
 // release-index.json（每个 release 附带）→ 资产名 + sha256；下载后校验、解压。
 // Windows 资产是 .zip（Zip.ExtractAllTo）；其余是 .tar.gz（Gzip.WrapRead + Tar.ExtractStream 流式解压）。
-// SDK 本体的安装与更新由安装脚本负责（scripts/install/），launcher 不做自更新。
+// SDK 本体的安装与更新由安装脚本负责（scripts/install-z42.{sh,ps1}），launcher 不做自更新。
 namespace Z42Launcher;
 
 using Std.IO;

@@ -22,13 +22,13 @@
 **macOS / Linux**：打开终端，运行：
 
 ```sh
-curl -fsSL https://z42-lang.github.io/z42/install.sh | sh
+curl -fsSL https://z42-lang.github.io/z42/install-z42.sh | sh
 ```
 
 **Windows**：打开 PowerShell，运行：
 
 ```powershell
-irm https://z42-lang.github.io/z42/install.ps1 | iex
+irm https://z42-lang.github.io/z42/install-z42.ps1 | iex
 ```
 
 安装脚本会：
@@ -69,7 +69,7 @@ z42 help
 安装脚本接受几个参数。通过管道运行时，参数写在 `sh -s --` 后面：
 
 ```sh
-curl -fsSL https://z42-lang.github.io/z42/install.sh | sh -s -- --version 0.6.0
+curl -fsSL https://z42-lang.github.io/z42/install-z42.sh | sh -s -- --version 0.6.0
 ```
 
 | 参数 | 作用 |
@@ -81,19 +81,22 @@ curl -fsSL https://z42-lang.github.io/z42/install.sh | sh -s -- --version 0.6.0
 | `--force` | 即使已是同一版本也重新安装 |
 | `--dry-run` | 只显示将要做什么，不做任何修改 |
 
-Windows 的 `install.ps1` 有同样的选项（`-Version`、`-Dest`、`-NoModifyPath`、`-Archive`、`-Force`、`-DryRun`）。通过 `irm ... | iex` 运行时无法传参数，可以用环境变量指定版本和位置：
+Windows 的 `install-z42.ps1` 有同样的选项（`-Version`、`-Dest`、`-NoModifyPath`、`-Archive`、`-Force`、`-DryRun`）。通过 `irm ... | iex` 运行时无法传参数，可以用环境变量指定版本和位置：
 
 ```powershell
 $env:Z42_VERSION = "0.6.0"; $env:Z42_HOME = "D:\z42"
-irm https://z42-lang.github.io/z42/install.ps1 | iex
+irm https://z42-lang.github.io/z42/install-z42.ps1 | iex
 ```
+
+参与 z42 开发时，直接运行源码仓库里的 `scripts/install-z42.sh`（Windows：`scripts\install-z42.ps1`）会改用开发默认值：
+仓库固定的版本、装进仓库自己的 `.z42` 目录、不修改 `PATH`。下载到别处的安装脚本不受影响，`--version` / `--dest` 照样优先。
 
 ## 更新
 
 重新运行一遍安装命令即可：
 
 ```sh
-curl -fsSL https://z42-lang.github.io/z42/install.sh | sh
+curl -fsSL https://z42-lang.github.io/z42/install-z42.sh | sh
 ```
 
 如果已经是最新版，脚本会直接告诉你「already up to date」而不重复下载。更新只替换 SDK 自身的文件，你装过的平台 workload 等内容会保留。

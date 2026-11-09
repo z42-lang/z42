@@ -33,7 +33,7 @@ and trade-offs, and the [roadmap](docs/roadmap.md) for planned work.
 **Use z42** (macOS arm64 / Linux / Windows x64) — installs the latest nightly into `~/.z42`:
 
 ```bash
-curl -fsSL https://z42-lang.github.io/z42/install.sh | sh          # Windows: irm https://z42-lang.github.io/z42/install.ps1 | iex
+curl -fsSL https://z42-lang.github.io/z42/install-z42.sh | sh          # Windows: irm https://z42-lang.github.io/z42/install-z42.ps1 | iex
 z42 new hello && cd hello && z42 run
 ```
 

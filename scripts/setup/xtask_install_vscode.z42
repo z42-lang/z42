@@ -12,7 +12,7 @@
 // （资产由 [component.editor-assets] 打进 SDK 包）。两条路的落点故意不同：
 // 仓库本地 vs 用户级，互不覆盖，开发者可以两者并存。
 //
-// 资产项组织：目前唯一项 = 语法扩展；新资产项（LSP client / snippets 等）在 install/检查
+// 资产项组织：目前唯一项 = 语法扩展；新资产项（LSP client / snippets 等）在 setup/检查
 // 主流程追加即可。检查函数供 `check vscode-syntax` gate stage 调用（in-process，
 // install 不留 --check flag——一个动词一个语义）。
 namespace Z42Xtask;
@@ -154,7 +154,7 @@ bool _vscodeValidateCategories(string[] kws) {
         int hits = 0;
         foreach (var grp in groups) { if (_strIn(grp, kw)) { hits = hits + 1; } }
         if (hits == 0) {
-            ConsoleError.WriteLine("error: keyword '" + kw + "' (Lexer) not in any category — add it to a _kw* group in scripts/install/xtask_install_vscode.z42");
+            ConsoleError.WriteLine("error: keyword '" + kw + "' (Lexer) not in any category — add it to a _kw* group in scripts/setup/xtask_install_vscode.z42");
             ok = false;
         } else if (hits > 1) {
             ConsoleError.WriteLine("error: keyword '" + kw + "' appears in " + hits.ToString() + " categories — must be exactly one");
