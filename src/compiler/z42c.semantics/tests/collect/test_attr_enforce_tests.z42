@@ -525,3 +525,18 @@ void test_data_requires_params() {
     Assert.True(teHas(d, "E0920"));
     Assert.True(teMsg(d, "E0920").Contains("形参"));
 }
+
+// ── 返回值基准（JMH 式，bencher-unified-entry）──────────────────────────────
+
+// [Benchmark] 任意返回类型合法——runner 逐次计时并经 blackBox 消费返回值（防 DCE 零样板）。
+[Test]
+void test_benchmark_value_return_is_allowed() {
+    Assert.Equal(false, teHas(teDiags("[Benchmark] long b() { return 1; }"), "E0912"));
+    Assert.Equal(false, teHas(teDiags("[Benchmark] object b() { return null; }"), "E0912"));
+}
+
+// [Test] / [Setup] 仍须 void——返回值消费是基准专属（测试的返回值没人接）。
+[Test]
+void test_test_value_return_still_rejected() {
+    Assert.Equal(true, teHas(teDiags("[Test] long t() { return 1; }"), "E0911"));
+}

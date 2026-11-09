@@ -6,13 +6,16 @@ using Std.IO;
 ///
 /// 用法：
 ///
-///     var b = new Bencher();              // 自适应采样
-///     b.iter(() => doWork());
-///     b.printSummary("doWork");           // bench[doWork] min=... median=... max=...
+///     var b = Bencher.fixed(2, 20);      // 固定档（推荐）：预热 2、采样 20
+///     b.iter(() => doWork());            // Action 形态：体自洽（自己消费计算结果）
+///     b.printSummary("doWork");          // bench[doWork] min=... median=... max=...
+///
+/// 要自适应采样（约 50ms 预算内选 n）用 `Bencher.adaptive()`；被测表达式的值没人消费时
+/// 用值返回形态 `b.iterValue(() => compute())`——每次采样经 blackBox 消费返回值，防 DCE。
 ///
 /// `[Benchmark]` 基准两种签名：**推荐**唯一形参 `void f(Bencher b)`——runner 建固定档
 /// (2, 20) 的 Bencher 传入并在跑完时按函数名自动打摘要行，基准体只写 `b.iter(() => …)`；
-/// 零参形态（自己 new Bencher + printSummary）留给要自定采样档 / 自定标签 / 自适应预算的场合。
+/// 零参形态（自己建 Bencher + printSummary）留给要自定采样档 / 自定标签 / 自适应预算的场合。
 ///
 /// @warning 计时是单线程墙钟（`Clock.MonoNanos()`），不是 CPU 时间；被并发干扰的
 ///     基准会反映为 max 偏大，而不是报错。
@@ -55,6 +58,21 @@ public class Bencher {
         this._initZero();
     }
 
+    /// 固定采样档（**推荐**入口）：确定性采样数。
+    ///
+    /// 预热 `warmupIters` 次、计时 `sampleIters` 次，不做自适应——正确性波 / CI A/B 的
+    /// 现状口径。语义同 `new Bencher(w, n)`，调用点自述意图。
+    public static Bencher fixed(int warmupIters, int sampleIters) {
+        return new Bencher(warmupIters, sampleIters);
+    }
+
+    /// 自适应采样档：预热 10 次，按约 50ms 预算在 [20, 2000] 内选采样数。
+    ///
+    /// 语义同 `new Bencher()`。快的基准采得多、慢的采得少（墙钟有上界）。
+    public static Bencher adaptive() {
+        return new Bencher();
+    }
+
     void _initZero() {
         this.MinNs = 0; this.MaxNs = 0; this.MedianNs = 0;
         this.MeanNs = 0; this.StdDevNs = 0; this.TotalNs = 0;
@@ -89,8 +107,44 @@ public class Bencher {
             i = i + 1;
         }
         this.Samples = n;
+        this._computeStats(times, n);
+    }
 
-        // ── stats: insertion sort + min/median/max/total/mean/stddev ─────
+    /// 值返回形态（防 DCE 的免样板写法）：逐次经 `blackBox` 消费返回值。
+    ///
+    ///     b.iterValue(() => compute());   // compute() 的结果由 Bencher 逐次消费
+    ///
+    /// 「算了但没人用」的表达式不会被优化掉，基准体不必手写 `blackBox(...)`。单独命名
+    /// （不重载 `iter`）：z42 的 lambda 在重载上须显式委托类型（E0437），重载会击穿全部
+    /// 既有 `b.iter(() => { … })` 块式调用点。每次采样一次装箱 + blackBox 调用，计入采样
+    /// 耗时——与手写 `b.iter(() => blackBox(compute()))` 完全同价，只是免了样板。
+    public void iterValue(Func<object> body) {
+        int w = 0;
+        while (w < this.WarmupIters) {
+            BenchHelpers.blackBox(body());
+            w = w + 1;
+        }
+
+        // pilot 估 n 复用 Action 版：闭包一次分配，估算精度足够（粗粒度即可）。
+        Action plain = () => BenchHelpers.blackBox(body());
+        int n = this._adaptive ? this._estimateAdaptiveN(plain) : this.Samples;
+        if (n < 1) { n = 1; }
+
+        long[] times = new long[n];
+        int i = 0;
+        while (i < n) {
+            long t0 = __time_now_mono_ns();
+            BenchHelpers.blackBox(body());
+            long t1 = __time_now_mono_ns();
+            times[i] = t1 - t0;
+            i = i + 1;
+        }
+        this.Samples = n;
+        this._computeStats(times, n);
+    }
+
+    // 两种 iter 共用的统计段：insertion sort + min/median/max/total/mean/stddev。
+    void _computeStats(long[] times, int n) {
         sortInPlace(times);
         this.MinNs    = times[0];
         this.MaxNs    = times[n - 1];

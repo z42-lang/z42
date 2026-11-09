@@ -320,43 +320,65 @@ Assert.Equal("hello\nworld\n", s);
 基准文件默认放 `benches/`，用 `z42 bench` 跑（`benches/*.z42`，一文件一目标，与 `tests/` 同构）。
 `[Benchmark]` 写在 `tests/` 里也会被 `z42 test` 一并跑掉。
 
-### 两种签名
+### 签名形态
+
+按体里 Bencher 样板从「零」到「全自控」排列：
 
 ```z42
 using Std.Harness;
 
-// 形态 1：零参，自己建 Bencher、自己报 label
+// 形态 1（推荐）：返回值零参（JMH 式）——体里零 Bencher、零手写 blackBox。
+// runner 逐次计时整个函数体，返回值经 blackBox 消费（防 DCE）
 [Benchmark]
-void bench_addition() {
-    var b = new Bencher();
-    b.iter(() => BenchHelpers.blackBox(1 + 2 + 3));
-    b.printSummary("addition");
+long bench_addition() {
+    return 1 + 2 + 3;
 }
 
-// 形态 2：收一个 Bencher 形参，Bencher 由框架用默认构造器建好传入，
-// 结束时以**函数名**为 label 自动汇报
+// 形态 2：void 零参——体自洽（自己消费计算结果），runner 逐次计时整个函数体
+[Benchmark]
+void bench_side_effect() {
+    sinkTable.Add(compute());
+}
+
+// 形态 3：收一个 Bencher 形参（「setup 排除在计时区外」的边界形态，Go/Rust 式）——
+// Bencher 由框架建固定档 (2, 20) 传入，结束时以**函数名**为 label 自动汇报
 [Benchmark]
 void bench_with_arg(Bencher b) {
-    b.iter(() => BenchHelpers.blackBox(2 * 21));
+    var data = setupData();          // 计时区外（b.iter 之前）
+    b.iter(() => data.Hash());       // 计时区内
+}
+
+// 形态 4（逃生口）：零参 + 自建 Bencher——自定采样档 / 自定标签 / 自适应预算
+[Benchmark]
+void bench_custom() {
+    var b = Bencher.fixed(2, 20);
+    b.iterValue(() => 2 * 21);       // 值返回形态：返回值逐次经 blackBox 消费
+    b.printSummary("double");
 }
 ```
 
-形态 2 是**唯一**允许 `[Benchmark]` 带参数的情形；参数类型必须正是 `Bencher`，
-且只能有这一个参数，否则 `E0912`。
+形态 3 是**唯一**允许 `[Benchmark]` 带参数的情形；参数类型必须正是 `Bencher`，
+且只能有这一个参数，否则 `E0912`。返回值基准（形态 1）任意返回类型合法——`[Test]` /
+`[Setup]` 仍须 `void`（返回值消费是基准专属）。
 
 ### `Bencher` 公开成员
 
 | 成员 | 说明 |
 |---|---|
-| `Bencher()` | **自适应采样**：warmup 10 次，随后一段试跑估算单次耗时，取 n 填满约 50 ms 的测量预算，n 夹在 `[20, 2000]` |
-| `Bencher(int warmupIters, int sampleIters)` | **固定**：warmup `warmupIters` 次，采样恰好 `sampleIters` 次，不自适应 |
+| `Bencher.fixed(int warmupIters, int sampleIters)` | **固定档（推荐入口）**：warmup `warmupIters` 次，采样恰好 `sampleIters` 次，不自适应——确定性采样数，正确性波 / CI A/B 的现状口径 |
+| `Bencher.adaptive()` | **自适应**：warmup 10 次，随后一段试跑估算单次耗时，取 n 填满约 50 ms 的测量预算，n 夹在 `[20, 2000]` |
+| `Bencher(int warmupIters, int sampleIters)` | 同 `fixed(...)` 的构造器形态（历史写法，语义一致） |
+| `Bencher()` | 同 `adaptive()` 的构造器形态 |
 | `void iter(Action body)` | 先跑 warmup（不计时），再逐次计时采样；返回后下面的统计量全部就位 |
+| `void iterValue(Func<object> body)` | **值返回形态（防 DCE 免样板）**：每次采样经 blackBox 消费 `body` 的返回值——被测表达式的值没人消费时用它，不必手写 `blackBox(...)`（每次采样一次装箱，与手写同价、计入耗时）。单独命名不重载 `iter`：z42 的 lambda 在重载上须显式委托类型 |
 | `void printSummary(string label)` | 打印一行汇总（格式见下） |
 | `int WarmupIters` `{ get; }` | warmup 次数 |
 | `int Samples` `{ get; }` | `iter()` **实际**用的采样数（自适应时是算出来的那个 n；`iter()` 之前为 0） |
 | `long MinNs` `MaxNs` `MedianNs` `MeanNs` `TotalNs` `{ get; }` | 采样的最小 / 最大 / 中位 / 均值 / 总和，纳秒 |
 | `long StdDevNs` `{ get; }` | 总体标准差（÷n），四舍五入到纳秒；亚纳秒离散度舍成 0 |
 
+DCE 防护的推荐顺序：**返回值基准**（形态 1，体里什么都不写）> `iterValue`
+（形态 3/4 里 `b.iterValue(() => compute())`）> 手写 `BenchHelpers.blackBox(...)`（剩余场合）。
 `BenchHelpers.blackBox(object value)` 是恒等包装，标记「别把这段优化掉」：它标了
 [`[MethodImpl(NoInlining | NoOptimization)]`](language/attributes.md#控制内联与优化methodimpl)，编译器不内联它、
 也不把它当纯函数，调用和实参的计算都留在原处。无条件使用是安全的。

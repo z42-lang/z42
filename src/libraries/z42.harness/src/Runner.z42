@@ -245,9 +245,12 @@ public static class Runner {
 
     // 零参基准的计时壳：与注入形态同一固定档（2, 20）、同一摘要行格式（按函数名）——两条路唯一
     // 的差别是计时边界（整个函数体 vs b.iter 闭包）。异常按原类型传出（由 _runOne 统一判失败）。
+    // 返回值基准（JMH 式）在这里逐次消费：Invoke 的返回值经 blackBox 压掉（防 DCE——
+    // 「算了但没人用」的纯计算不会被优化掉），体里零 Bencher、零手写 blackBox。
     static void _runTimed(TestCase e) {
-        Bencher b = new Bencher(2, 20);
-        b.iter(() => { e.Invoke(); });
+        Bencher b = Bencher.fixed(2, 20);
+        Action timed = () => { BenchHelpers.blackBox(e.Invoke()); };   // 语句体 → 显式 Action（iter 有重载）
+        b.iter(timed);
         b.printSummary(e.Method.Name);
     }
 
