@@ -13,7 +13,7 @@
 | z42-jit | Cranelift、编译代码、tier/OSR 实现和组件工厂 | 依赖 core，不依赖 interp 实现 |
 | z42 | host、配置、corelib、interop 和装配 | 选择实现并注入 core |
 
-动态交付增加 z42-runtime-shared（Rust dylib，持有唯一 core）、两个后端的 component cdylib 包装，以及 z42-runtime-host（导出原有 host C ABI 的 cdylib）。包装库不复制实现。静态交付直接链接 core 与选定后端的 rlib。
+两个后端自身同时提供 rlib/cdylib，无独立 component 包装 crate。静态交付直接链接 core 与选定后端的 rlib；动态交付启用 shared-core 并导出各自 init 入口，库名为 z42_interp、z42_jit。另有 z42-runtime-shared（Rust dylib，持有唯一 core）和 z42-runtime-host（导出原有 host C ABI 的 cdylib）。普通静态构建附带的后端 cdylib 不导出组件入口，不进入 runtime pack。
 
 嵌入接口与类型统一从 z42::host 提供。CLI 只处理参数、启动和进程策略，也调用 host。组件内部 Rust API 不自动成为嵌入 API。
 

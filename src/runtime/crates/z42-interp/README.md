@@ -6,11 +6,13 @@
 
 ## 功能索引
 
+Cargo 的同一 library target 产出 rlib 和 cdylib；静态调用使用 rlib，动态包启用 shared-core 使用 cdylib，无额外包装 crate。普通静态构建的附带 cdylib 不导出组件入口，不作为运行时加载组件交付。
+
 src/interp 为解释实现，src/interp/component.rs 提供静态工厂和 ExecutionApi，src/lib.rs 为边界。
 
 ## 基础用法
 
-静态通过 z42 的 interp feature 链接；动态通过 z42-interp-component 包装，JIT 回退只经注册表调用。 嵌入调用方统一使用 z42::host，不直接依赖组件内部模块。
+静态通过 z42 的 interp feature 链接；动态由本库直接提供 cdylib，启用 shared-core 后导出组件 C 入口，JIT 回退只经注册表调用。 嵌入调用方统一使用 z42::host，不直接依赖组件内部模块。
 
 ## 如何测试验证
 

@@ -2300,13 +2300,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "z42-interp-component"
-version = "0.7.0"
-dependencies = [
- "z42-interp",
-]
-
-[[package]]
 name = "z42-jit"
 version = "0.7.0"
 dependencies = [
@@ -2323,13 +2316,6 @@ dependencies = [
  "z42-component-api",
  "z42-runtime-core",
  "z42-runtime-shared",
-]
-
-[[package]]
-name = "z42-jit-component"
-version = "0.7.0"
-dependencies = [
- "z42-jit",
 ]
 
 [[package]]

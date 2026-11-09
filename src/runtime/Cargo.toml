@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/z42-runtime-host", "crates/z42-interp-component", "crates/z42-jit-component", "crates/z42-runtime-core", "crates/z42-interp", "crates/z42-jit", "crates/z42-runtime-shared", "crates/z42-component-api", "crates/z42-zpkg", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl", "crates/z42-host"]
+members = [".", "crates/z42-runtime-host", "crates/z42-runtime-core", "crates/z42-interp", "crates/z42-jit", "crates/z42-runtime-shared", "crates/z42-component-api", "crates/z42-zpkg", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl", "crates/z42-host"]
 # fix-default-members-include-compression (2026-05-29): z42-compression is a
 # cdylib loaded via dlopen at z42vm runtime — not a transitive dep of the
 # main `z42` crate (only pulled in compile-time via `bundled-compression`

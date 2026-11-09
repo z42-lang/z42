@@ -6,11 +6,13 @@
 
 ## 功能索引
 
+Cargo 的同一 library target 产出 rlib 和 cdylib；静态调用使用 rlib，动态包启用 shared-core 使用 cdylib，无额外包装 crate。普通静态构建的附带 cdylib 不导出组件入口，不作为运行时加载组件交付。
+
 src/jit 为后端实现，src/jit/component.rs 提供工厂与 ExecutionApi；src/jit/config.rs 再导出 core 的输入类型。
 
 ## 基础用法
 
-静态通过 z42 的 jit feature 链接；仅桌面 x64/arm64 编译 Cranelift，动态通过 z42-jit-component 包装。 嵌入调用方统一使用 z42::host，不直接依赖组件内部模块。
+静态通过 z42 的 jit feature 链接；仅桌面 x64/arm64 编译 Cranelift，动态由本库直接提供 cdylib，启用 shared-core 后导出组件 C 入口。 嵌入调用方统一使用 z42::host，不直接依赖组件内部模块。
 
 ## 如何测试验证
 

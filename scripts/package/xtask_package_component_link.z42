@@ -38,7 +38,7 @@ int _componentRelocateImports(string path, string native) {
 void _plRuntimeDynamic(_PkgLayout L, string rid) {
     L.HasDir("libs");
     L.HasFile("native/include/z42_host.h");
-    foreach (var stem in new string[]{ "z42_runtime_host", "z42_runtime_shared", "z42_interp_component", "z42_jit_component", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42_runtime_host", "z42_runtime_shared", "z42_interp", "z42_jit", "z42_compression" }) {
         string name = _componentLibrary(stem);
         L.HasFile("native/" + name);
         if (Platform.IsMacOS()) {

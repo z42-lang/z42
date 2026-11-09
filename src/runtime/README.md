@@ -120,7 +120,6 @@ GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管�
 | `crates/z42-jit/` | Cranelift、tier/OSR、代码页与组件工厂 | 在用 |
 | `crates/z42-runtime-shared/` | 动态交付中的单份共享核心 | 在用 |
 | `crates/z42-runtime-host/` | 动态交付的 C 嵌入宿主包装 | 在用 |
-| `crates/z42-interp-component/` / `crates/z42-jit-component/` | 后端 cdylib 入口包装 | 在用 |
 | `crates/z42-component-api/` | 同构建组件 C ABI 协议，无运行时实现依赖 | 在用 |
 | `crates/z42-zpkg/` | 静态产物格式、解析、IR 与不可变包映像；无 VM 依赖 | 在用 |
 | `crates/z42-abi/` | Tier 1 C ABI 的 Rust `#[repr(C)]` 镜像（`no_std`，无依赖） | 在用 |

@@ -13,8 +13,8 @@ fn input(name: &str) -> PathBuf {
 fn backends() -> BackendOptions {
     let native = input("Z42_TEST_ENGINE_COMPONENT_DIR");
     BackendOptions {
-        interp: BackendSource::Dynamic(native.join(format!("{}z42_interp_component{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX))),
-        jit: BackendSource::Dynamic(native.join(format!("{}z42_jit_component{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX))),
+        interp: BackendSource::Dynamic(native.join(format!("{}z42_interp{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX))),
+        jit: BackendSource::Dynamic(native.join(format!("{}z42_jit{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX))),
     }
 }
 fn load(mode: ExecMode, backends: BackendOptions) -> anyhow::Result<LoadedProgram> {

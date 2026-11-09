@@ -69,7 +69,7 @@ pub(crate) fn native_paths() -> Vec<PathBuf> {
 }
 
 fn dynamic_paths(id: ComponentId) -> Vec<PathBuf> {
-    let stem = if id == INTERP_COMPONENT { "z42_interp_component" } else { "z42_jit_component" };
+    let stem = if id == INTERP_COMPONENT { "z42_interp" } else { "z42_jit" };
     native_paths().into_iter().map(|p| p.join(crate::pal::dynlib::file_name(stem))).collect()
 }
 fn auto_available(id: ComponentId) -> bool {
