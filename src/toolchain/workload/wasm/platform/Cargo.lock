@@ -674,6 +674,8 @@ dependencies = [
  "z42-abi",
  "z42-compression",
  "z42-macros",
+ "z42-repl",
+ "z42-rs",
  "z42-zpkg",
 ]
 
@@ -689,6 +691,8 @@ dependencies = [
  "brotli",
  "flate2",
  "lz4_flex",
+ "z42-abi",
+ "z42-rs",
  "zstd",
 ]
 
@@ -723,6 +727,20 @@ dependencies = [
  "z42",
  "z42-abi",
  "z42-interp",
+]
+
+[[package]]
+name = "z42-repl"
+version = "0.1.0"
+dependencies = [
+ "z42-rs",
+]
+
+[[package]]
+name = "z42-rs"
+version = "0.7.0"
+dependencies = [
+ "z42-abi",
 ]
 
 [[package]]
