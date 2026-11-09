@@ -156,7 +156,7 @@ xtask test e2e                                # VM golden 端到端（interp + j
 | `native-interop` | Tier 1 原生扩展 ABI（dlopen + libffi） |
 | `net` | `Std.Net` socket（TCP / UDP / DNS，Rust 标准库 net 模块 + `socket2`）。关掉时网络 builtin 抛 `NetUnsupportedException` |
 | `tls` | 在 `net` 之上加 rustls TLS 客户端（`ring` 后端 + `webpki-roots`）。关掉时 `__tls_*` 抛 `NetUnsupportedException` |
-| `mimalloc-alloc` | 默认启用；统一运行时持有 mimalloc，动态组件与静态宿主共用，避免各模块分别安装分配器 |
+| `mimalloc-alloc` | 最终静态宿主 `z42vm_static` 选择 mimalloc；动态 SDK 使用共享 std 的 System 分配器 |
 
 ## 关联文档
 

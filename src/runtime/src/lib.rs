@@ -22,11 +22,5 @@ pub mod interp;
 #[path = "../crates/z42-jit/src/jit/mod.rs"]
 pub mod jit;
 
-// The runtime owns allocation for both its Rust dylib consumers and static hosts.
-// Backends must use this allocator rather than installing a separate allocator.
-#[cfg(all(not(test), feature = "mimalloc-alloc", not(feature = "dhat-heap")))]
-#[global_allocator]
-static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
-#[cfg(all(not(test), feature = "dhat-heap"))]
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
+#[cfg(all(feature = "shared-core", any(feature = "mimalloc-alloc", feature = "dhat-heap")))]
+compile_error!("shared-core runtime packs require the system allocator; custom allocators belong to a final static host");
