@@ -1,0 +1,124 @@
+desc = "shared 源码依赖可用于编译，但不私有部署其源码闭包；CLI 与直接 Host 行为一致"
+tags = ["launcher"]
+
+[[step]]
+tool = "z42c"
+args = ["build", "{case}/cli/z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "check"
+exists = ["cli/dist/sharedsource.cli.zpkg"]
+absent = ["cli/dist/sharedsource.mid.zpkg", "cli/dist/sharedsource.leaf.zpkg"]
+
+[[step]]
+tool = "z42b"
+args = ["build", "{case}/host/z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "check"
+exists = ["host/dist/sharedsource.host.zpkg"]
+absent = ["host/dist/sharedsource.mid.zpkg", "host/dist/sharedsource.leaf.zpkg"]
+
+[[step]]
+tool = "copy"
+from = "variants/private-cli.toml"
+to = "cli/z42.toml"
+
+[[step]]
+tool = "z42c"
+args = ["build", "{case}/cli/z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "check"
+exists = ["cli/dist/sharedsource.mid.zpkg", "cli/dist/sharedsource.leaf.zpkg", "cli/dist/sharedsource.bridge.zpkg"]
+
+[[step]]
+tool = "run"
+target = "cli/dist/sharedsource.cli.zpkg"
+exit = 0
+stdout_equals = "7"
+
+[[step]]
+tool = "copy"
+from = "manual.txt"
+to = "cli/dist/manual.txt"
+
+[[step]]
+tool = "copy"
+from = "variants/shared-cli.toml"
+to = "cli/z42.toml"
+
+[[step]]
+tool = "z42c"
+args = ["build", "{case}/cli/z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "check"
+absent = ["cli/dist/sharedsource.mid.zpkg", "cli/dist/sharedsource.leaf.zpkg", "cli/dist/sharedsource.bridge.zpkg"]
+same_bytes = [["manual.txt", "cli/dist/manual.txt"]]
+
+[[step]]
+tool = "copy"
+from = "variants/private-host.toml"
+to = "host/z42.toml"
+
+[[step]]
+tool = "z42b"
+args = ["build", "{case}/host/z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "check"
+exists = ["host/dist/sharedsource.mid.zpkg", "host/dist/sharedsource.leaf.zpkg", "host/dist/sharedsource.bridge.zpkg"]
+
+[[step]]
+tool = "run"
+target = "host/dist/sharedsource.host.zpkg"
+exit = 0
+stdout_equals = "7"
+
+[[step]]
+tool = "copy"
+from = "manual.txt"
+to = "host/dist/manual.txt"
+
+[[step]]
+tool = "copy"
+from = "variants/shared-host.toml"
+to = "host/z42.toml"
+
+[[step]]
+tool = "z42b"
+args = ["build", "{case}/host/z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "check"
+absent = ["host/dist/sharedsource.mid.zpkg", "host/dist/sharedsource.leaf.zpkg", "host/dist/sharedsource.bridge.zpkg"]
+same_bytes = [["manual.txt", "host/dist/manual.txt"]]
+
+[[step]]
+tool = "copy"
+from = "variants/sdk-cli.toml"
+to = "cli/z42.toml"
+
+[[step]]
+tool = "z42c"
+args = ["build", "{case}/cli/z42.toml", "--release"]
+exit = 1
+stderr_contains = ["deploy", "sdk"]
+
+[[step]]
+tool = "copy"
+from = "variants/sdk-host.toml"
+to = "host/z42.toml"
+
+[[step]]
+tool = "z42b"
+args = ["build", "{case}/host/z42.toml", "--release"]
+exit = 1
+stderr_contains = ["deploy", "sdk"]

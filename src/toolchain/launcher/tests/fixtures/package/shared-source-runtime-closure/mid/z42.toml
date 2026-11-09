@@ -1,0 +1,8 @@
+[project]
+name = "sharedsource.mid"
+kind = "lib"
+pack = true
+[sources]
+include = ["Mid.z42"]
+[dependencies]
+"sharedsource.leaf" = { path = "../leaf" }

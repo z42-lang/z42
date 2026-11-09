@@ -1,0 +1,6 @@
+[project]
+name = "sharedsource.leaf"
+kind = "lib"
+pack = true
+[sources]
+include = ["Leaf.z42"]

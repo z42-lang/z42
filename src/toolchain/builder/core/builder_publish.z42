@@ -428,7 +428,8 @@ int _pubBundleProjectDeps(string tomlPath, TomlValue toml, ProjectManifest manif
     }
     while (qh < qt) {
         string name = queue[qh]; qh = qh + 1;
-        if (_builderIsFileReference(manifest, name)) { continue; }
+        string policy = _builderPrebuiltDeploy(manifest, name + ".zpkg");
+        if (policy == "shared" || policy == "sdk" || _builderIsFileReference(manifest, name)) { continue; }
         // 真·stdlib 成员：框架、只依赖框架 → 不复制、不递归（省遍历）。
         if (srcRoot.Length > 0 && Directory.Exists(Path.Join(Path.Join(srcRoot, "libraries"), name))) { continue; }
         // 定位依赖 toml（读它的依赖以递归 + resolve zpkg）。
@@ -448,6 +449,9 @@ int _pubBundleProjectDeps(string tomlPath, TomlValue toml, ProjectManifest manif
         int si = 0;
         while (si < sub.Length) {
             string s = sub[si]; si = si + 1;
+            ProjectManifest member = ManifestLoader.Load(depTomlPath);
+            string subPolicy = _builderPrebuiltDeploy(member, s + ".zpkg");
+            if (subPolicy == "shared" || subPolicy == "sdk") { continue; }
             if (s != ownName && !_pubContains(seen, seenN, s)) { seen[seenN] = s; seenN = seenN + 1; queue[qt] = s; qt = qt + 1; }
         }
     }

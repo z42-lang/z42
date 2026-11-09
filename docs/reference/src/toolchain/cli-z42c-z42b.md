@@ -213,3 +213,9 @@ z42d install vscode
 
 见 `z42d symbolicate --help`：把发布档的崩溃栈（`at <fn> +0x<off>`）配合归档的 `.zsym`
 还原成 `file:line:col`。
+
+
+### shared 源码依赖的构建产物
+
+`deploy = "shared"` 的源码项目及其依赖仍会参与编译所需的构建，但不会仅因进入了构建闭包而被复制到 exe 的私有 dist。
+另一条私有依赖路径仍可要求部署同一库。再次构建时，已移除的私有路径不再保留工具链拥有的旧副本；用户修改过的文件保留。

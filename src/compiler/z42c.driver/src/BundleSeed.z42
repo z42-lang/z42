@@ -7,7 +7,7 @@ using Std.IO;
 using Z42.Package;
 using Z42.Project;
 
-// Only source members with vendored inputs need a separate deployment domain.
+// Each source member retains its declaring policy and resolved input domain.
 public sealed class BundleDomain {
     public ProjectManifest Manifest;
     public string[] Dirs;
@@ -65,7 +65,7 @@ public sealed class BundleSeed {
     }
 }
 
-// 待拷名单 = ① 直接声明的依赖（pm.Deps）∪ ② **本包刚写出的 zpkg 的 DEPS 段** ∪ ③ path 依赖闭包
+// 待拷名单 = ① 直接声明的依赖（pm.Deps）∪ ② **本包刚写出的 zpkg 的 DEPS 段** ；path 构建闭包只提供解析目录，不是部署根
 // （fix-path-dep-closure 那份），去重。
 //
 // ② 是 retire-member-dep-decls 引入：workspace 成员清单不再声明同 workspace 依赖（WS032，经成员 dist
@@ -86,8 +86,6 @@ BundleSeed _bundleSeed(ProjectManifest pm, string distDir, PathClosureOut closur
         pi = pi + 1;
     }
     _seedOwnDeps(pm, distDir, s);
-    int ci = 0;
-    while (closure != null && ci < closure.NamesN) { s.Add(closure.Names[ci], "", false); ci = ci + 1; }
     return s;
 }
 

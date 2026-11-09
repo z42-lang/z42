@@ -1,0 +1,2 @@
+namespace SharedSource.Leaf;
+int Value() { return 7; }

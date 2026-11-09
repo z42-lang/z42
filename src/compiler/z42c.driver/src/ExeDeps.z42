@@ -125,6 +125,20 @@ bool _queueExeDependencies(BundleSeed seed, string[] deps, BundleDomain domain, 
             continue;
         }
         BundleItem existing = seed.Items[previous];
+        // A shared edge cuts only its own branch. A later private edge may
+        // still require the same package; promote once so cycles stay bounded.
+        if ((existing.Deploy == "shared" || existing.Deploy == "sdk")
+            && domain != existing.Domain) {
+            string incoming = domain == null ? "" : domain.Deploy(name);
+            if (incoming != "shared" && incoming != "sdk") {
+                if (!_compatibleBundleSources(existing, domain, dirs, count, file)) { return false; }
+                existing.Deploy = incoming;
+                existing.Domain = domain;
+                existing.SdkSkip = false;
+                if (previous < cursor) { seed.Append(existing); }
+                continue;
+            }
+        }
         if (existing.Domain != domain && !_compatibleBundleSources(existing, domain, dirs, count, file)) { return false; }
         // A copied package's closure takes precedence over the own-DEPS SDK skip.
         if (existing.SdkSkip) {

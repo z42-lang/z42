@@ -29,6 +29,7 @@ src/toolchain/builder/core/*.z42  →  z42b.zpkg  →  apphost z42b
 | 命令路由（new / test / bench / clean / publish / build / export） | `core/builder_cli.z42` |
 | 工作区根逐成员 build / test / bench / clean（`default_members`，`--workspace` = 全部） | `core/builder_workspace.z42` |
 | 显式图 build 的隔离 worker 与完成产物复用 | `core/builder_workspace_worker.z42`，`--package-jobs` |
+| 私有源码运行期闭包 | `core/builder_runtime_sources.z42`；只沿私有边选择成员，shared 分支不额外播种其子树 |
 | 管线编排与编译器注入 | `core/builder.z42` 的 `_orchestrate` / `_hostCompiler` |
 | 反射式 `[Test]` / `[Benchmark]` 运行 | `core/builder_test.z42` |
 | desktop publish（apphost + payload；应用与依赖先预检再复制；按主包 DEPS 选择 dist 中的托管依赖） | `core/builder_publish.z42`、`core/builder_apphost.z42` |

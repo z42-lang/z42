@@ -1,0 +1,11 @@
+[project]
+name = "sharedsource.host"
+kind = "exe"
+pack = true
+[sources]
+include = ["Main.z42"]
+[dependencies]
+"sharedsource.mid" = { path = "../mid", deploy = "shared" }
+"sharedsource.bridge" = { path = "../bridge" }
+[build]
+dist_dir = "dist"
