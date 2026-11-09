@@ -7,7 +7,7 @@
 //! a crash — same "throw becomes a no-op" semantics as the completer trampoline.
 
 use super::*;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::ffi::CString;
 
 /// Serialize tests that mutate the process-global `REGISTERED_KEY_EDITOR`.
@@ -53,7 +53,7 @@ fn keyedit_trampoline_callback_error_swallowed_to_null() {
     let ctx_ptr = &*ctx as *const VmContext as *mut c_void;
     let key = CString::new("enter").unwrap();
     let line = CString::new("if x {").unwrap();
-    let park = crate::vm::threads::safepoint::NativeParkGuard::enter(&ctx);
+    let park = crate::threads::safepoint::NativeParkGuard::enter(&ctx);
     let r = keyedit_trampoline(ctx_ptr, key.as_ptr(), line.as_ptr(), 6);
     drop(park);
     assert!(r.is_null(), "module=None → callback errors → null, never crash");

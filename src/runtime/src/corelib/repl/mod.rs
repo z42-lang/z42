@@ -36,10 +36,10 @@ pub mod native;
 pub(crate) mod paths;
 
 use crate::corelib::core::reflection::{type_members, make_type_from_name};
-use crate::vm::exec::engine;
-use crate::vm::exec::call::outcome::ExecOutcome;
+use crate::exec::engine;
+use crate::exec::call::outcome::ExecOutcome;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{bail, Result};
 #[cfg(feature = "native-interop")]
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -47,8 +47,8 @@ use std::ffi::{c_char, c_void, CStr, CString};
 /// `__repl_readline` (builtin ABI v2).
 #[z42_macros::builtins]
 pub mod typed {
-    use crate::vm::exec::call::builtin_abi::BuiltinError;
-    use crate::vm::context::VmContext;
+    use crate::exec::call::builtin_abi::BuiltinError;
+    use crate::context::VmContext;
 
     /// `__repl_readline(prompt) -> string?` — read one edited whole (possibly multi-line)
     /// statement: one `readline()` spans an entire statement, the Enter key deciding
@@ -58,7 +58,7 @@ pub mod typed {
     /// the read, with this context (`reenters`). So the body parks itself around the read —
     /// the callbacks unpark via `NativeUnparkGuard` in their trampolines before re-entering
     /// the VM — and the line becomes a z42 string (a GC allocation) only after the park
-    /// ends (`vm::threads::safepoint::debug_assert_not_native_parked`).
+    /// ends (`threads::safepoint::debug_assert_not_native_parked`).
     /// 注册 / 清除 Tab 补全回调名(纯配置,不执行 z42 代码)。
     #[builtin(name = "__repl_set_completer")]
     pub fn set_completer(fqn: &str) { super::repl_set_completer(fqn) }
@@ -77,7 +77,7 @@ pub mod typed {
 
     #[builtin(name = "__repl_readline", reenters)]
     pub fn repl_readline(ctx: &VmContext, prompt: Option<&str>) -> Result<Option<String>, BuiltinError> {
-        let _park = crate::vm::threads::safepoint::NativeParkGuard::enter(ctx);
+        let _park = crate::threads::safepoint::NativeParkGuard::enter(ctx);
         super::read_one_line(ctx, prompt.unwrap_or("")).map_err(|e| match e.downcast::<std::io::Error>() {
             Ok(io) => io.into(),
             Err(e) => BuiltinError::Legacy(e),
@@ -190,7 +190,7 @@ pub(crate) extern "C" fn complete_trampoline(
     // Fires mid-`readline`, inside the outer NativeParkGuard; temporarily un-park so
     // the completer runs as a normal mutator (parking at its own safepoints if a
     // background GC is requested); re-parks on drop before returning to the read.
-    let _unpark = crate::vm::threads::safepoint::NativeUnparkGuard::exit(vmctx);
+    let _unpark = crate::threads::safepoint::NativeUnparkGuard::exit(vmctx);
     let line_val = Value::Str(line_str.into());
     let cands: Vec<String> = match complete_via_callback(vmctx, &fqn, line_val, pos as i64) {
         Ok(Value::Array(a)) => a
@@ -234,7 +234,7 @@ pub fn repl_member_names(ctx: &VmContext, fqn: &str) -> anyhow::Result<Value> {
         // unify Phase 2 R3: 装箱值类型（struct 或基元）→ 精确类型名（type_desc.name）。
         Value::BoxedStruct(b) => b.type_desc().name.to_string(),
         v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)) => {
-            match crate::vm::runtime::dispatch::receiver::primitive_class_name(v) {
+            match crate::metadata::dispatch::receiver::primitive_class_name(v) {
                 Some(cn) => cn.to_string(),
                 None => return Ok(ctx.heap().alloc_array(Vec::new())),
             }

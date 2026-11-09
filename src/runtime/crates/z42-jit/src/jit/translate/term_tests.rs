@@ -1,10 +1,10 @@
 //! Terminator translation tests that need hand-built IR (shapes z42c never emits).
 
 use crate::jit::compile::state::install;
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, Instruction, Terminator};
 use crate::zpkg::ir::ExecMode;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 fn block(label: &str, instructions: Vec<Instruction>, terminator: Terminator) -> BasicBlock {
     BasicBlock { label: label.to_string(), instructions, terminator }

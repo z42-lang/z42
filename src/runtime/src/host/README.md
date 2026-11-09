@@ -28,7 +28,7 @@ CLI 是宿主的一种实现，也遵循同一入口和类型规范。C ABI 导�
 | `ffi.rs` / `config.rs` / `state.rs` | C ABI 适配、配置验证及宿主句柄注册表 |
 | `ops.rs` / `marshal.rs` | ABI 操作适配和参数、返回值转换 |
 | `ExecMode` / `PackageImage` | 由组件拥有、通过宿主门面提供的执行策略和不可变包定义类型 |
-| `context.rs` / `extensions.rs` | 主 VM 构造、内置服务与扩展装配；worker 继续共享已有 Core |
+| `boot.rs` / `extensions.rs` | 主 VM 构造、内置服务与扩展装配；worker 继续共享已有 Core |
 | `signal.rs` | 致命信号安装、VM 栈捕获和崩溃报告，底层信号原语由 PAL 提供 |
 | `resolver.rs` | 宿主包解析接口、C 回调适配和 `read_zpkg_namespaces` 包解析键查询 |
 | `services.rs` / `app_state.rs` | 核心库隔离运行服务和每 VM 应用参数 |

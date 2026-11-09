@@ -1,7 +1,7 @@
 use super::*;
 use super::api::*;
 use crate::host::{LoadedProgram, LoadOptions, ExecMode};
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::sync::Mutex;
 #[path = "../../tests/data/component/src/lib.rs"]
 mod probe;

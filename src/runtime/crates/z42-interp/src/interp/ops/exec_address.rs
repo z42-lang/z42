@@ -12,9 +12,9 @@
 
 use crate::object::Value;
 use crate::object::RefKind;
-use crate::vm::context::VmContext;
-use crate::vm::exec::call::transient_arena::TransientPayload;
-use crate::vm::exec::call::type_param_env::{method_default_value, method_type_value};
+use crate::context::VmContext;
+use crate::exec::call::transient_arena::TransientPayload;
+use crate::exec::call::type_param_env::{method_default_value, method_type_value};
 use anyhow::Result;
 
 use super::Frame;
@@ -40,7 +40,7 @@ pub(super) fn load_local_addr(ctx: &VmContext, frame: &mut Frame, dst: u32, slot
 /// is bounds-checked here (`IndexOutOfRangeException`), same rule as `ArrayGet`.
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn load_elem_addr(
-    ctx: &VmContext, module: &crate::vm::runtime::Module, frame: &mut Frame, dst: u32, arr: u32, idx: u32,
+    ctx: &VmContext, module: &crate::metadata::Module, frame: &mut Frame, dst: u32, arr: u32, idx: u32,
 ) -> Result<Option<Value>> {
     match crate::objops::array::check_elem_addr(frame.get(arr)?, frame.get(idx)?) {
         Ok((gc_ref, idx)) => {
@@ -55,7 +55,7 @@ pub(super) fn load_elem_addr(
 /// `LoadFieldAddr`: `ref obj.f`. Null receiver → `NullReferenceException`.
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn load_field_addr(
-    ctx: &VmContext, module: &crate::vm::runtime::Module, frame: &mut Frame, dst: u32, obj: u32, field_name: &str,
+    ctx: &VmContext, module: &crate::metadata::Module, frame: &mut Frame, dst: u32, obj: u32, field_name: &str,
 ) -> Result<Option<Value>> {
     match crate::objops::field::check_field_addr(frame.get(obj)?, field_name) {
         Ok(gc_ref) => {

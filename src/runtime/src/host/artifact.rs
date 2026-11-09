@@ -2,9 +2,9 @@
 use std::path::PathBuf;
 
 use crate::pal::fs::Vfs;
-use crate::vm::loader::{LazyLoader, LoadedArtifact, ZpkgCandidate, availability, package};
-use crate::vm::loader::fusion_inputs::{FusionInputs, FusionInputSource};
-use crate::vm::runtime::Module;
+use crate::loader::{LazyLoader, LoadedArtifact, ZpkgCandidate, availability, package};
+use crate::loader::fusion_inputs::{FusionInputs, FusionInputSource};
+use crate::metadata::Module;
 
 pub(crate) const FUSION_INPUTS: FusionInputSource = process_fusion_inputs;
 

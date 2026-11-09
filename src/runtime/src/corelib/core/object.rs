@@ -1,7 +1,7 @@
 use crate::object::{NativeData, TypeDesc, Value};
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{bail, Result};
-use crate::vm::exec::call::builtin_abi::BuiltinError;
+use crate::exec::call::builtin_abi::BuiltinError;
 use std::sync::Arc;
 
 // ── Object protocol ───────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
         Value::BoxedStruct(b) => Ok(instance_type(ctx, b.type_desc_arc().clone(), b.type_args())),
         // 未装箱裸基元 → canonical stdlib 类（I64→Std.Int32；装箱后走上面精确类）。
         v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)) => {
-            match crate::vm::runtime::dispatch::receiver::primitive_class_name(v) {
+            match crate::metadata::dispatch::receiver::primitive_class_name(v) {
                 Some(cn) => Ok(make_type_from_name(ctx, cn)),
                 None => bail!("__obj_get_type: expected an object"),
             }
@@ -152,7 +152,7 @@ pub fn make_closure(ctx: &VmContext, fn_name: &Value, env: &Value) -> Result<Val
         return Err(BuiltinError::Internal(format!(
             "__make_closure: no entry module to resolve `{}` against", &**fn_name)));
     };
-    let fn_id = crate::vm::exec::ops::call::fn_ref_id(ctx, module, fn_name, None).map_err(BuiltinError::Thrown)?;
+    let fn_id = crate::exec::ops::call::fn_ref_id(ctx, module, fn_name, None).map_err(BuiltinError::Thrown)?;
     // 把 Array 里的元素拷贝到 Vec<Value>，再走 heap.alloc_array 拿到新的 ArrRef。
     // 与 jit_mk_clos 同款路径：env 是 GC 管理的 Array → Closure 持其 ArrRef。
     let env_vec: Vec<Value> = env_arr.borrow().iter_boxed().collect();
@@ -194,7 +194,7 @@ fn weak_handle_type_desc() -> Arc<TypeDesc> {
         vtable: Vec::new(),
         vtable_index: crate::zpkg::NameIndex::new(),
         cold: None,
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     })).clone()
 }
 

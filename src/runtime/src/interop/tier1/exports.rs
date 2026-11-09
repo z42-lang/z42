@@ -16,7 +16,7 @@ use z42_abi::{Z42Error, Z42TypeDescriptor_v1, Z42TypeOpaque, Z42TypeRef, Z42Valu
 
 use super::error;
 use super::registry::RegisteredType;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 /// Categorical error codes mirrored into the last-error slot for embedder
 /// consumption via `z42_last_error()`.  retire-z-codes: named
@@ -25,8 +25,8 @@ use crate::vm::context::VmContext;
 const TYPE_REGISTRATION_FAILURE: u32 = 905;
 const ABI_VERSION_MISMATCH:      u32 = 906;
 
-pub use crate::vm::exec::active_vm::VmGuard;
-pub(crate) use crate::vm::exec::active_vm::current_vm;
+pub use crate::exec::active_vm::VmGuard;
+pub(crate) use crate::exec::active_vm::current_vm;
 
 // ── Z42TypeRef sentinels ────────────────────────────────────────────────
 

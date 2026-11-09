@@ -18,7 +18,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let tp = self.builder.ins().iconst(types::I32, insn.type_param_index as i64);
                     let tpk = self.builder.ins().iconst(types::I8, insn.type_param_kind as i64);
                     let owner = if insn.type_param_kind == 2 && insn.type_param_index >= 0 {
-                        crate::vm::exec::call::forward::owner_type(&self.func.name).unwrap_or("")
+                        crate::exec::call::forward::owner_type(&self.func.name).unwrap_or("")
                     } else { "" };
                     let owner_ptr = self.builder.ins().iconst(self.ptr, owner.as_ptr() as i64);
                     let owner_len = self.builder.ins().iconst(types::I64, owner.len() as i64);

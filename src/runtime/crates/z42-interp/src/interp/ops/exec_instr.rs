@@ -22,15 +22,15 @@
 /// measured slower — a call per access costs store-heavy loops more than the tighter
 /// loop gains. The loop's own slow paths live in `exec_body_cold.rs`.
 
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::{zpkg::Instruction, object::Value};
 use crate::zpkg::{
     BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, MkClosInsn, ObjNewInsn,
     StaticGetInsn, StaticSetInsn, VCallInsn,
 };
-use crate::vm::runtime::resolve::ResolvedTokens;
-use crate::vm::runtime::ids::tokens::UNRESOLVED;
-use crate::vm::context::VmContext;
+use crate::metadata::resolve::ResolvedTokens;
+use crate::metadata::ids::tokens::UNRESOLVED;
+use crate::context::VmContext;
 use anyhow::Result;
 
 use super::Frame;
@@ -200,7 +200,7 @@ pub fn exec_instr(
             // callees pop their FrameGuard before returning here, so checking
             // upon resumption catches GC requests that arrived while we were
             // in the callee.
-            crate::vm::threads::safepoint::check_safepoint(ctx);
+            crate::threads::safepoint::check_safepoint(ctx);
         }
         Instruction::Builtin(insn) => {
             let BuiltinInsn { dst, name, args } = &**insn;
@@ -229,7 +229,7 @@ pub fn exec_instr(
             if let Some(thrown) = exec_call::call_indirect(ctx, module, frame, *dst, *callee, args)? {
                 return Ok(Some(thrown));
             }
-            crate::vm::threads::safepoint::check_safepoint(ctx);
+            crate::threads::safepoint::check_safepoint(ctx);
         }
         Instruction::MkClos(insn) => {
             let MkClosInsn { dst, fn_name, captures } = &**insn;
@@ -242,7 +242,7 @@ pub fn exec_instr(
 
         // ── Arrays ───────────────────────────────────────────────────────────
         Instruction::ArrayNew(insn) => {
-            let owner = (insn.type_param_kind == 2).then(|| crate::vm::exec::call::forward::owner_type(&func.name)).flatten();
+            let owner = (insn.type_param_kind == 2).then(|| crate::exec::call::forward::owner_type(&func.name)).flatten();
             if let Some(thrown) = exec_array::array_new(ctx, module, frame, insn.dst, insn.size, insn.elem_tag, func.array_type(block_idx, instr_idx), insn.stack_alloc, insn.type_param_kind, insn.type_param_index, owner)? {
                 return Ok(Some(thrown));
             }

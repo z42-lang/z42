@@ -1268,7 +1268,7 @@ fn sink_callback_can_shut_down_the_host_mid_invoke() {
 #[cfg(z42_have_embedding_hello)]
 fn invoke_deep_recursion_is_fatal() {
     let _g = test_lock();
-    let _f = crate::vm::exec::stack_guard::FATAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _f = crate::exec::stack_guard::FATAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     reset_host();
 
     let capture: Mutex<Vec<u8>> = Mutex::new(Vec::new());
@@ -1290,7 +1290,7 @@ fn invoke_deep_recursion_is_fatal() {
     });
     let out = String::from_utf8_lossy(&capture.lock().unwrap()).into_owned();
     assert!(!out.contains("caught") && !out.contains("finally"), "a handler ran: {out}");
-    assert!(crate::vm::exec::stack_guard::take_report().is_none(), "C ABI must consume its fatal report after returning it in last_error");
+    assert!(crate::exec::stack_guard::take_report().is_none(), "C ABI must consume its fatal report after returning it in last_error");
 
 }
 

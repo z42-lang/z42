@@ -3,9 +3,9 @@
 //! read / receive. Loopback only.
 
 use super::error::code;
-use crate::vm::exec::call::builtin_abi::BuiltinError;
+use crate::exec::call::builtin_abi::BuiltinError;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -19,7 +19,7 @@ fn s(v: &str) -> Value {
 
 /// Call a builtin by name; the error comes back as the typed `BuiltinError`.
 pub(crate) fn call(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Option<Value>, BuiltinError> {
-    crate::vm::exec::call::builtins::exec_builtin(ctx, name, args).map_err(|e| match e.downcast::<BuiltinError>() {
+    crate::exec::call::builtins::exec_builtin(ctx, name, args).map_err(|e| match e.downcast::<BuiltinError>() {
         Ok(b) => b,
         Err(e) => panic!("`{name}` failed with a non-typed error: {e}"),
     })
@@ -43,7 +43,7 @@ fn int(ctx: &VmContext, name: &str, args: &[Value]) -> i64 {
 pub(crate) fn detailed(e: &BuiltinError) -> (&'static str, Option<i64>) {
     match e {
         BuiltinError::Detailed(d) => (d.classes[0], d.fields.iter().find_map(|(n, v)| match (n, v) {
-            (&"SocketErrorCode", crate::vm::exec::call::builtin_abi::FieldInit::I64(c)) => Some(*c),
+            (&"SocketErrorCode", crate::exec::call::builtin_abi::FieldInit::I64(c)) => Some(*c),
             _ => None,
         })),
         other => panic!("expected a Detailed exception, got {other:?}"),
@@ -80,7 +80,7 @@ pub(crate) fn collect_while_parked(ctx: &VmContext) {
     assert!(wait_until(|| parked(ctx) == 1), "the blocked thread is parked");
     let t0 = Instant::now();
     {
-        let pause = crate::vm::threads::safepoint::request_gc_pause(ctx);
+        let pause = crate::threads::safepoint::request_gc_pause(ctx);
         assert!(pause.is_some(), "this thread becomes the collector");
         ctx.heap().collect_full();
     }

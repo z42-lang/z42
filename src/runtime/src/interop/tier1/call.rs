@@ -1,7 +1,7 @@
 //! Registered native type dispatch behind the VM's native call contract.
 use crate::object::Value;
-use crate::vm::context::VmContext;
-use crate::vm::exec::native::NativeCallError;
+use crate::context::VmContext;
+use crate::exec::native::NativeCallError;
 use super::{marshal, dispatch as ndisp};
 
 pub(crate) fn call_registered(

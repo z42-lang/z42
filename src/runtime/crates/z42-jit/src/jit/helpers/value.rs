@@ -6,7 +6,7 @@
 use crate::object::value::format::with_value_str;
 use crate::object::Value;
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use super::{set_exception, vm_ctx_ref};
 
@@ -144,7 +144,7 @@ pub unsafe extern "C" fn jit_to_str(
     let heap = vm_ctx_ref(ctx).heap();
     if matches!(val, Value::Object(_) | Value::BoxedStruct(_)) {
         let v = *val;
-        match crate::vm::exec::ops::stringify::stringify_dispatch_gc(vm_ctx_ref(ctx), &v) {
+        match crate::exec::ops::stringify::stringify_dispatch_gc(vm_ctx_ref(ctx), &v) {
             Ok(s) => (*frame).regs[dst as usize] = Value::Str(s),
             Err(e) => return super::arith::stringify_failed(ctx, e),
         }

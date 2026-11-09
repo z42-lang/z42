@@ -195,14 +195,14 @@ VM 的每条线程都跑 JIT 代码：主线程和 `__thread_spawn` 的 worker�
 `[Native("__x")] extern` 方法的包装函数（`%d = builtin __x(%0, …); ret %d`）在两个引擎里都按函数折叠：
 调用解析到它时直接从调用者寄存器跑 builtin，不建包装函数的帧。识别规则、为什么在 VM 链接期而不在编译器里做、
 栈回溯怎样保持不变（无帧 + 失败时现算行 / 轻帧），见 [native ABI §6.4](native-abi.md)；识别与执行的代码
-在 `vm/exec/call/forward.rs`，两个引擎共用。
+在 `exec/call/forward.rs`，两个引擎共用。
 
 JIT 这一侧：
 
 - **已编译的包装函数**：`JitRuntime::resolve_slot_slow` 把函数自己的折叠结果（`Function::forward`，
-  `vm::exec::call::forward::forward_of`）抄进 `FnEntry::forward`；`jit_call` 的 `call_compiled`（模块初始化 /
+  `exec::call::forward::forward_of`）抄进 `FnEntry::forward`；`jit_call` 的 `call_compiled`（模块初始化 /
   cctor 屏障之后）与 `jit_vcall` 的 `invoke_entry` 见到它、且实参个数等于形参个数（不靠默认值补位）时，
-  经 `runtime::forward::call_forward` → `vm::exec::call::forward::run_folded` 派发。
+  经 `runtime::forward::call_forward` → `exec::call::forward::run_folded` 派发。
 - **冷的包装函数**（还没编译、走解释器的那条路：`call_interp` / `invoke_interp`）同样折叠。
 - 结果写 `dst`（void 写 `Null`，与包装函数 `ret` 的效果一致）；失败经 `abi::error::raise`（与解释器同一个出口）
   变成异常或致命错误，`raised_into_exception` 把它挂到 pending 槽。
@@ -336,7 +336,7 @@ Str+int 拼接、Str 与 int 排序比较）逐例双引擎对照。
 - **`jit_vcall`/`jit_call_indirect`/`jit_obj_new`（方法/闭包/构造）**：把**所有**冷函数→`None`
   要求这三者的兜底健壮。各自如下：
   - `jit_vcall`：vtable 路径 `None`-臂本已健壮 interp（receiver+args）→ PIC + vtable 两 resolve site 切
-    > `jit_vcall` 与 interp `vcall` 的**目标解析**合一为 `vm/exec/ops/vcall.rs`（接收者阶梯 / 候选名 / PIC 安装），两侧只剩调用侧。PIC 载荷就是 JIT 槽位 id（`FnId`），惰性目标同样进 PIC：命中 → `resolve_fn_by_id_tiered(id)`，冷 / 不可编 → `fn_of(id)` 取函数直接 interp（不重新解析，每次调用只计一次数）；慢路径的 `Local { func, id }` 同理，无 id → interp `func`。
+    > `jit_vcall` 与 interp `vcall` 的**目标解析**合一为 `exec/ops/vcall.rs`（接收者阶梯 / 候选名 / PIC 安装），两侧只剩调用侧。PIC 载荷就是 JIT 槽位 id（`FnId`），惰性目标同样进 PIC：命中 → `resolve_fn_by_id_tiered(id)`，冷 / 不可编 → `fn_of(id)` 取函数直接 interp（不重新解析，每次调用只计一次数）；慢路径的 `Local { func, id }` 同理，无 id → interp `func`。
     `resolve_fn_by_id_tiered`。
     - **primitive 接收者也进 IC（镜像 interp）**：
       IC 快路径的 `recv_type` 对 object 取 `TypeDesc.id`、对 primitive（string/int/…）取
@@ -346,7 +346,7 @@ Str+int 拼接、Str 与 int 排序比较）逐例双引擎对照。
       dict e2e jit 从慢 interp 3.1× 追平；string-heavy 反超）。Boxed / `Null` 仍返回 `None` 落慢路径，
       与 interp 一致。
   - `jit_call_indirect`：`None`-臂走 interp（env 前置 + args）。
-  - `jit_obj_new`：类与 ctor 的解析与 interp 共用 `vm/exec/ops/obj_new.rs`，站点缓存（烘焙进代码的
+  - `jit_obj_new`：类与 ctor 的解析与 interp 共用 `exec/ops/obj_new.rs`，站点缓存（烘焙进代码的
     `ObjNewSite` 指针）命中即得描述符与 ctor 的 `FnId`。已编译 → 原生（`this` 进 reg 0、实参直接从调用方寄存器取）；
     冷 / 不可编 / 无 id 的 `None`-臂按 `&Function` 走 interp 跑 ctor（原地改 `this`），不能静默跳过 ctor（字段未初始化）。
   三态负缓存两路径通用。
@@ -399,7 +399,7 @@ push/pop_frame 复制即安全。
 上面的 per-site hook（`try_native_static_call` / `try_native_indirect_call` / `try_native_method_call`）只覆盖
 interp 的**静态 Call、`CallIndirect` 与 IC 虚 VCall 热路径**。「interp 会执行函数体」的入口里还有多条绕过它们、直接经 `exec_function`
 跑函数体：**构造函数**（`exec_object`）、**`ToString` 派发**
-（`vm/exec/ops/stringify.rs`）、**非 IC / vtable / base-fallback 的虚调用路径**、**跨包静态调用**、以及最隐蔽的
+（`exec/ops/stringify.rs`）、**非 IC / vtable / base-fallback 的虚调用路径**、**跨包静态调用**、以及最隐蔽的
 **builtin 回调**（传给 stdlib 原生方法的比较器/谓词，被调够多次编译后又经 `exec_function` 解释执行）。
 
 只靠逐点补全，「已编译函数永不被 interp 执行」这条前提**不成立**——任何新增调用点都可能重开缺口。
@@ -496,7 +496,7 @@ flowchart TD
 ## 字段访问：原生单态字段 IC
 
 > `jit/translate/field_ic.rs`（守卫、读写、引用写的屏障判定）+ `jit/translate/hoist.rs`（循环内的守卫 hoist）+
-> `vm/runtime/dispatch/ic.rs`（`FieldIC` 载荷）+ `object/object/object.rs`（`obj_jit_layout`）+
+> `metadata/dispatch/ic.rs`（`FieldIC` 载荷）+ `object/object/object.rs`（`obj_jit_layout`）+
 > `object/value/ref_word.rs`（种类表）。慢路径：`jit/helpers/object_field.rs`（`jit_field_get` / `jit_field_set`，
 > 经 [objops](interp-jit-semantics.md#对象操作objops) 与解释器同一份语义）。
 
@@ -575,8 +575,8 @@ PRIM 数组的读写内联（`packed_data`）不变。
 
 ## 静态字段：内联的 `StaticGet` / `StaticSet`
 
-> 代码：`src/runtime/crates/z42-jit/src/jit/translate/static_field.rs`；屏障 `vm/context/statics.rs` 的 `ensure_static_field_init`；
-> 单元 `vm/runtime/statics/table.rs`。
+> 代码：`src/runtime/crates/z42-jit/src/jit/translate/static_field.rs`；屏障 `context/statics.rs` 的 `ensure_static_field_init`；
+> 单元 `metadata/statics/table.rs`。
 
 ### 为什么
 

@@ -1,12 +1,12 @@
 //! Generic call sites pass the bound method arguments to both tiers.
 //! Direct reads and forwarded method arguments both compile.
 
-use crate::vm::exec::call::outcome::ExecOutcome;
-use crate::vm::runtime::{Function, Module};
+use crate::exec::call::outcome::ExecOutcome;
+use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, CallInsn, Instruction, Terminator, VCallInsn};
 use crate::zpkg::ir::ExecMode;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use super::translate::{jit_unsupported_reason, unsupported_reason};
 
 fn func(name: &str, params: usize, is_static: bool, instructions: Vec<Instruction>, ret: Option<u32>) -> Function {

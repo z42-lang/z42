@@ -2,20 +2,20 @@
 /// to its size). Covers: ObjNew (allocate + ctor), FieldGet / FieldSet,
 /// IsInstance / AsCast (runtime type checks), StaticGet / StaticSet.
 
-use crate::vm::runtime::dispatch::ctor::{site_for, instance_type_args};
-use crate::vm::runtime::dispatch::receiver::prim_isa;
-use crate::vm::runtime::Module;
+use crate::metadata::dispatch::ctor::{site_for, instance_type_args};
+use crate::metadata::dispatch::receiver::prim_isa;
+use crate::metadata::Module;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::Result;
 
-use crate::vm::exec::ops::cast::isa_td;
+use crate::exec::ops::cast::isa_td;
 use super::collect_args;
 use super::Frame;
 
 /// `ObjNew` dispatch. Class and ctor come from the site cache (`site`, P1-2 PR 5) once the
 /// first allocation resolved them — no name hashing, no locks; the resolution itself is
-/// shared with the JIT (`vm::exec::ops::obj_new`).
+/// shared with the JIT (`exec::ops::obj_new`).
 ///
 /// Return `Ok(Some(val))` when the ctor `throw`s a user exception (or a symbol check
 /// throws), so the caller's `try`/`catch` can match — mirrors the `Call` / `Builtin`
@@ -29,12 +29,12 @@ pub(crate) fn obj_new(
     // The site's interned type-arguments (`ObjNewInsn::type_args`).
     type_args: crate::object::TypeArgs,
     // This site's `ResolvedTokens::obj_new` cache (None when the resolver hasn't run).
-    site: Option<&crate::vm::runtime::dispatch::ic::ObjNewSite>,
+    site: Option<&crate::metadata::dispatch::ic::ObjNewSite>,
     stack_alloc: bool,
     // encode-ctorless-objnew: compile-time positive marker; see `missing_ctor_exception`.
     ctor_known: bool,
 ) -> Result<Option<Value>> {
-    use crate::vm::exec::ops::obj_new::{resolve_class, resolve_ctor};
+    use crate::exec::ops::obj_new::{resolve_class, resolve_ctor};
     // `new List<T>()` in a shared generic body: the site's arguments carry type-parameter
     // markers, bound per activation (one flag test for every other site).
     let type_args = frame.type_param_env().instantiate(ctx, type_args);
@@ -49,10 +49,10 @@ pub(crate) fn obj_new(
     // 不需要 `pending` 门。
     // add-module-init-hook：跨包 `new` 同样可能刚拉进一个包 —— 其包初始化器先跑。
     if let Err(msg) = ctx.ensure_module_inits(Some(type_desc.name.as_str())) {
-        return Ok(Some(crate::vm::exec::init::make_type_init_exception(ctx, module, &msg)));
+        return Ok(Some(crate::exec::init::make_type_init_exception(ctx, module, &msg)));
     }
     if let Err(msg) = ctx.ensure_type_init(&type_desc) {
-        return Ok(Some(crate::vm::exec::init::make_type_init_exception(ctx, module, &msg)));
+        return Ok(Some(crate::exec::init::make_type_init_exception(ctx, module, &msg)));
     }
 
     // The ctor is bound before the object exists: binding may load a package (and run its
@@ -85,7 +85,7 @@ pub(crate) fn obj_new(
     // its header after that (object model R4; `alloc_instance` builds it in its own block, R6),
     // and the stack branch (`OwnedObject::new_instance`) must stay in lockstep with the heap one,
     // or flipping `Z42_STACKALLOC` changes observable values.
-    let obj_val = if stack_alloc && crate::vm::exec::call::stack_alloc::stack_alloc_enabled(ctx) {
+    let obj_val = if stack_alloc && crate::exec::call::stack_alloc::stack_alloc_enabled(ctx) {
         let obj = crate::object::OwnedObject::new_instance(type_desc.clone(), inst_args);
         let frame_id = frame.frame_id(ctx);
         let idx = ctx.stack_alloc_obj(frame_id, obj);
@@ -97,7 +97,7 @@ pub(crate) fn obj_new(
         // make_oom_exception toggles strict OOM off while building the exception
         // object (which itself allocates) and restores it after.
         if matches!(obj_val, Value::Null) {
-            return Ok(Some(crate::vm::exec::exception::make_oom_exception(
+            return Ok(Some(crate::exec::exception::make_oom_exception(
                 ctx, module,
                 format!("cannot allocate `{class_name}`: heap limit exceeded"),
             )));
@@ -134,7 +134,7 @@ pub(crate) fn obj_new(
 #[inline]
 pub(super) fn field_get(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, field_name: &str,
-    field_ic: Option<&crate::vm::runtime::dispatch::ic::FieldIC>,
+    field_ic: Option<&crate::metadata::dispatch::ic::FieldIC>,
 ) -> Result<Option<Value>> {
     match crate::objops::field::field_get(ctx, frame.get(obj)?, field_name, field_ic) {
         Ok(v) => { frame.set(dst, v); Ok(None) }
@@ -147,7 +147,7 @@ pub(super) fn field_get(
 #[inline]
 pub(super) fn field_set(
     ctx: &VmContext, module: &Module, frame: &mut Frame, obj: u32, field_name: &str, val: u32,
-    field_ic: Option<&crate::vm::runtime::dispatch::ic::FieldIC>,
+    field_ic: Option<&crate::metadata::dispatch::ic::FieldIC>,
 ) -> Result<Option<Value>> {
     let v = frame.get(val)?;
     // add-escape-analysis-stack-alloc (diagnostic #2): FieldSet.val is an escape

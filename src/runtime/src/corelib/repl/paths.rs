@@ -1,5 +1,5 @@
 //! Candidate path policy supplied by the facade, not captured at VM construction.
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::path::PathBuf;
 
 pub(crate) type Source = fn() -> Vec<PathBuf>;

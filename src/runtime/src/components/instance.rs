@@ -1,6 +1,6 @@
 //! Per-VM component instances. Factories own code; instances own state and borrowed
 //! service contexts. Worker contexts share this registry through their VmCore.
-use crate::vm::context::VmCore;
+use crate::context::VmCore;
 use super::catalog::Factory;
 use anyhow::{bail, Result};
 use parking_lot::Mutex;

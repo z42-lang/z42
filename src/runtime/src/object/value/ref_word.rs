@@ -93,11 +93,11 @@ pub fn encode_boxed(boxed: &ArrRef) -> u64 {
     tag(boxed.to_tagged_bits(), RK_BOXED_VALUE)
 }
 
-/// 用当前线程的环境堆（`vm::exec::ambient`）分配逃生盒子：只读的单元素数组，元素是原样的 16 B `Value`
+/// 用当前线程的环境堆（`exec::ambient`）分配逃生盒子：只读的单元素数组，元素是原样的 16 B `Value`
 /// （FROZEN 模式 —— 盒子里可以是栈句柄，不能再按单元编码，否则会无限装箱）。
 /// 没有活动堆（不带 VM 的单测）时报内部错误。
 pub fn alloc_box_ambient(v: &Value) -> anyhow::Result<ArrRef> {
-    let heap = crate::vm::exec::ambient::current_heap().ok_or_else(|| {
+    let heap = crate::exec::ambient::current_heap().ok_or_else(|| {
         anyhow::anyhow!("cannot store {v:?} into a reference cell: no active heap to box it")
     })?;
     match ArrayObj::alloc_frozen(heap, std::slice::from_ref(v)) {
@@ -127,7 +127,7 @@ pub unsafe fn decode_for_trace(w: u64) -> Value {
             RK_ARRAY | RK_BOXED_VALUE => ArrRef::from_tagged_bits(h).map_or(Value::Null, Value::Array),
             RK_STR => VarGcRef::from_bits(h).map_or(Value::Null, |b| Value::Str(Str::from_var_ref(b))),
             RK_CLOSURE => VarGcRef::from_bits(h).map_or(Value::Null, Value::Closure),
-            RK_FUNC_REF => Value::FuncRef(crate::vm::runtime::ids::tokens::FnId((w >> 3) as u32)),
+            RK_FUNC_REF => Value::FuncRef(crate::metadata::ids::tokens::FnId((w >> 3) as u32)),
             RK_BOXED_STRUCT => ObjRef::from_tagged_bits(h).map_or(Value::Null, Value::BoxedStruct),
             _ => {
                 debug_assert_eq!(w, 0, "reference word with kind 0 but a non-zero handle");

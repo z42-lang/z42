@@ -4,12 +4,12 @@
 /// Helpers that may propagate a user exception from a callee return
 /// `Result<Option<Value>>` (Some = thrown). Pure helpers return `Result<()>`.
 
-use crate::vm::exec::ops::call::{bind_callee, fn_ref_id};
-use crate::vm::runtime::dispatch::functions::{fn_by_id, lazy_call_id};
-use crate::vm::runtime::{Function, Module};
+use crate::exec::ops::call::{bind_callee, fn_ref_id};
+use crate::metadata::dispatch::functions::{fn_by_id, lazy_call_id};
+use crate::metadata::{Function, Module};
 use crate::object::Value;
-use crate::vm::runtime::ids::tokens::FnId;
-use crate::vm::context::VmContext;
+use crate::metadata::ids::tokens::FnId;
+use crate::context::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
 
@@ -32,8 +32,8 @@ fn try_native_static_call(
 ) -> Option<Result<Option<Value>>> {
     let tier = ctx.tier()?;
     if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
-    tier.invoke(ctx, crate::vm::exec::engine::TierTarget::Site(id),
-        crate::vm::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args }, method_type_args)
+    tier.invoke(ctx, crate::exec::engine::TierTarget::Site(id),
+        crate::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args }, method_type_args)
         .map(|result| result.map(|outcome| native_result_to_dst(frame, dst, outcome)))
 }
 
@@ -90,9 +90,9 @@ pub(super) fn call(
     // package is what loads it, and loading is what registers its types' static constructors
     // (`LazyLoader::insert_type`). `callee_id` = the callee's JIT id (= the bound token),
     // which routes it to native code when compiled.
-    let token = method_token.map_or(crate::vm::runtime::ids::tokens::UNRESOLVED, |s| s.load(Ordering::Relaxed));
+    let token = method_token.map_or(crate::metadata::ids::tokens::UNRESOLVED, |s| s.load(Ordering::Relaxed));
     let mut lazy_holder: Option<Arc<Function>> = None;
-    let hit = if token != crate::vm::runtime::ids::tokens::UNRESOLVED { fn_by_id((ctx).funcs(), module, token) } else { None };
+    let hit = if token != crate::metadata::ids::tokens::UNRESOLVED { fn_by_id((ctx).funcs(), module, token) } else { None };
     let (target, callee_id): (&Function, Option<usize>) = match hit {
         Some(f) => (f, Some(token as usize)),
         None => match bind_callee(ctx, module, fname, args.len(), method_token, &mut lazy_holder) {
@@ -109,10 +109,10 @@ pub(super) fn call(
     // 拉进来，它的 `[ModuleInit]` 必须在本包任何代码（包括马上要调的这个函数）之前跑完。
     // 稳态代价 = 一次 relaxed load。
     if let Err(msg) = ctx.ensure_module_inits(Some(fname)) {
-        return Ok(Some(crate::vm::exec::init::make_type_init_exception(ctx, module, &msg)));
+        return Ok(Some(crate::exec::init::make_type_init_exception(ctx, module, &msg)));
     }
     if let Err(msg) = ctx.ensure_callee_owner_init(fname, &target.owner_init) {
-        return Ok(Some(crate::vm::exec::init::make_type_init_exception(ctx, module, &msg)));
+        return Ok(Some(crate::exec::init::make_type_init_exception(ctx, module, &msg)));
     }
 
     // runtime-jit-tiering Phase 1.5 (mixed-mode): count the callee toward its tier-up
@@ -127,12 +127,12 @@ pub(super) fn call(
     // token 可能是解析期按名填好的惰性目标，所以每次调用都判，不能只在绑定时判。
     // 也先于折叠与转入原生码：歧义调用不该因为目标是 `[Native]` 桩或已编译就静默通过。
     // 常态代价 = 一次 relaxed 原子读（进程内从没碰撞过时恒 false）。
-    if let Some(exc) = crate::vm::context::symres::ambiguous_function_exception(ctx, module, fname) {
+    if let Some(exc) = crate::context::symres::ambiguous_function_exception(ctx, module, fname) {
         return Ok(Some(exc));
     }
     // runtime-audit P1-8: a `[Native]` forwarder runs its builtin directly.
     if method_type_args.is_empty() {
-        if let Some(value) = crate::vm::exec::call::forward::try_direct_field_read(ctx, target, &frame.regs, args) {
+        if let Some(value) = crate::exec::call::forward::try_direct_field_read(ctx, target, &frame.regs, args) {
             frame.set(dst, value);
             return Ok(None);
         }
@@ -159,32 +159,32 @@ pub(super) fn call(
 
 /// `Builtin`: the site's resolved `BuiltinId` (`None` / `UNRESOLVED` → by name, which
 /// re-checks the ext registry). The arguments are read in place from this frame's
-/// registers (`vm::exec::call::builtins::invoke_builtin`); a void builtin leaves `dst` alone.
+/// registers (`exec::call::builtins::invoke_builtin`); a void builtin leaves `dst` alone.
 ///
 /// A failure becomes what `abi::error::raise` says (shared with `jit_builtin`): the
 /// builtin's typed exception — catchable, `StackTrace` filled at the builtin —, or, for
 /// an internal error or while a fatal error unwinds, the raw error (`Err`), which no z42
 /// handler sees.
 pub(super) fn builtin(
-    ctx: &VmContext, module: &crate::vm::runtime::Module,
+    ctx: &VmContext, module: &crate::metadata::Module,
     frame: &mut Frame, dst: u32, name: &str, args: &[u32],
     builtin_id: Option<u32>,
 ) -> Result<Option<Value>> {
-    let id = builtin_id.unwrap_or(crate::vm::runtime::ids::tokens::UNRESOLVED);
-    match crate::vm::exec::call::builtins::invoke_builtin(ctx, id, name, None, &frame.regs, args) {
+    let id = builtin_id.unwrap_or(crate::metadata::ids::tokens::UNRESOLVED);
+    match crate::exec::call::builtins::invoke_builtin(ctx, id, name, None, &frame.regs, args) {
         Ok(Some(v)) => {
             frame.set(dst, v);
             Ok(None)
         }
         Ok(None) => Ok(None),
-        Err(e) => raised(crate::vm::exec::call::builtin_abi::error::raise(ctx, module, name, *e, &[])),
+        Err(e) => raised(crate::exec::call::builtin_abi::error::raise(ctx, module, name, *e, &[])),
     }
 }
 
 /// `raise`'s verdict in the interpreter's channels: a thrown value, or an `Err`.
 #[cold]
-pub(super) fn raised(r: crate::vm::exec::call::builtin_abi::error::Raised) -> Result<Option<Value>> {
-    use crate::vm::exec::call::builtin_abi::error::Raised;
+pub(super) fn raised(r: crate::exec::call::builtin_abi::error::Raised) -> Result<Option<Value>> {
+    use crate::exec::call::builtin_abi::error::Raised;
     match r {
         Raised::Throw(v) => Ok(Some(v)),
         Raised::Fatal(e) | Raised::Raw(e) => Err(e),
@@ -192,7 +192,7 @@ pub(super) fn raised(r: crate::vm::exec::call::builtin_abi::error::Raised) -> Re
 }
 
 /// A call that resolved to a `[Native]` forwarder: run its builtin straight from this
-/// frame's registers (`vm::exec::call::forward`). `None` = not a forwarder (or the argument
+/// frame's registers (`exec::call::forward`). `None` = not a forwarder (or the argument
 /// count differs from the wrapper's parameters) → the ordinary call.
 ///
 /// The not-a-forwarder answer (a count compare + one relaxed load) is inlined into the
@@ -203,7 +203,7 @@ pub(super) fn try_fold(
     target: &Function, this: Option<Value>, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
     if args.len() + this.is_some() as usize != target.param_count { return None; }
-    let id = crate::vm::exec::call::forward::forward_of(ctx, module, target)?;
+    let id = crate::exec::call::forward::forward_of(ctx, module, target)?;
     Some(run_fold(ctx, module, frame, dst, target, id, this, args))
 }
 
@@ -211,7 +211,7 @@ fn run_fold(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32,
     target: &Function, id: u32, this: Option<Value>, args: &[u32],
 ) -> Result<Option<Value>> {
-    match crate::vm::exec::call::forward::run_folded(ctx, target, id, this, &frame.regs, args, || module) {
+    match crate::exec::call::forward::run_folded(ctx, target, id, this, &frame.regs, args, || module) {
         Ok(Some(v)) => { frame.set(dst, v); Ok(None) }
         Ok(None) => { frame.set(dst, Value::Null); Ok(None) }
         Err(f) => raised(f.raise(ctx, module, target)),
@@ -244,10 +244,10 @@ fn try_native_indirect_call(
     let tier = ctx.tier()?;
     if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
     let view = match env {
-        Some(receiver) => crate::vm::exec::call::args::CallArgs::Receiver { receiver, regs: &frame.regs, indices: args },
-        None => crate::vm::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args },
+        Some(receiver) => crate::exec::call::args::CallArgs::Receiver { receiver, regs: &frame.regs, indices: args },
+        None => crate::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args },
     };
-    tier.invoke(ctx, crate::vm::exec::engine::TierTarget::Site(id), view, &[])
+    tier.invoke(ctx, crate::exec::engine::TierTarget::Site(id), view, &[])
         .map(|result| result.map(|outcome| native_result_to_dst(frame, dst, outcome)))
 }
 
@@ -292,8 +292,8 @@ pub(super) fn call_indirect(
         // back a catchable `Std.NullReferenceException` instead of a `bail!`, whose Rust
         // Debug string no `catch` can intercept (the program died on the spot).
         Value::Null => {
-            return Ok(Some(crate::vm::exec::exception::make_stdlib_exception(
-                ctx, module, crate::vm::exec::ops::scalar::NULL_REF_EXC, crate::vm::exec::ops::scalar::null_invoke_msg(),
+            return Ok(Some(crate::exec::exception::make_stdlib_exception(
+                ctx, module, crate::exec::ops::scalar::NULL_REF_EXC, crate::exec::ops::scalar::null_invoke_msg(),
             )?));
         }
         other => bail!("CallIndirect: expected FuncRef / Closure, got {:?}", other),
@@ -302,16 +302,16 @@ pub(super) fn call_indirect(
         bail!("CallIndirect: function id {} is not registered in this VM", id.0);
     };
     let physical_count = args.len() + usize::from(env_val_opt.is_some());
-    if crate::vm::exec::call::indirect_return::needs_boxed_return(cfn, physical_count)
-        || crate::vm::exec::call::indirect_return::has_caller_return_slot(cfn, physical_count)
+    if crate::exec::call::indirect_return::needs_boxed_return(cfn, physical_count)
+        || crate::exec::call::indirect_return::has_caller_return_slot(cfn, physical_count)
         || args.iter().enumerate().any(|(position, &index)| frame.regs.get(index as usize)
-            .is_some_and(|value| crate::vm::exec::call::indirect_return::has_declared_boxed_argument(
+            .is_some_and(|value| crate::exec::call::indirect_return::has_declared_boxed_argument(
                 cfn, position + usize::from(env_val_opt.is_some()), value,
             )))
     {
         let mut values = collect_args(&frame.regs, args)?;
         if let Some(environment) = env_val_opt { values.insert(0, environment); }
-        let outcome = crate::vm::exec::call::indirect_return::invoke(
+        let outcome = crate::exec::call::indirect_return::invoke(
             ctx, module, cfn, id.0 as usize, frame.frame_id(ctx), values.into_vec(),
         )?;
         return Ok(native_result_to_dst(frame, dst, outcome));
@@ -359,7 +359,7 @@ pub(super) fn mk_clos(
     let env_val = crate::object::ArrayObj::alloc_frozen(ctx.heap(), &env_vec);
     // add-gc-oom-exception: alloc_array returns Null only under strict OOM
     if matches!(env_val, Value::Null) {
-        return Ok(Some(crate::vm::exec::exception::make_oom_exception(
+        return Ok(Some(crate::exec::exception::make_oom_exception(
             ctx, module,
             format!("cannot allocate closure `{fn_name}` env: heap limit exceeded"),
         )));

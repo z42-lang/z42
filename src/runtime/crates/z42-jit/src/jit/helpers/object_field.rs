@@ -9,10 +9,10 @@
 //! whose inline guard misses — null or non-object receiver, a type or cell kind entry 0
 //! does not cache yet — calls them, and they install the site's IC.
 
-use crate::vm::runtime::dispatch::ic::FieldIC;
+use crate::metadata::dispatch::ic::FieldIC;
 
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use super::{raise, vm_ctx_ref};
 
 #[inline(always)]

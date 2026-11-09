@@ -31,7 +31,7 @@ const EXEC_MODES: &[&str] = &["interp", "jit", "aot"];
 /// 采样 profiler / native 扩展不适用的平台。wasm 无后台线程、无 dlopen。
 const NOT_WASM: PlatformAvail = PlatformAvail::Except(&["wasm"]);
 
-/// `Z42_STACKALLOC` 的可辨识取值（其余一切值 → on，见 vm/exec/call/stack_alloc.rs）。
+/// `Z42_STACKALLOC` 的可辨识取值（其余一切值 → on，见 exec/call/stack_alloc.rs）。
 const STACKALLOC_MODES: &[&str] = &["on", "off", "0", "heap", "stats"];
 
 /// 机制内部件 / 调试开关：四层可设，但默认视图隐藏。
@@ -73,7 +73,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "dump superinstruction fusion decisions to stderr",
         default_hint: "unset; no fusion dump",
-        consumed_by: "vm/runtime/fusion.rs",
+        consumed_by: "metadata/fusion.rs",
         ..DEBUG_KNOB
     },
     KnobSpec {
@@ -101,7 +101,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Str,
         description: "block-footprint threshold above which a variable-length GC block gets its own exactly-sized chunk (whose memory goes straight back to the allocator when the block dies). Capped at the 64 KB bump-chunk size",
         default_hint: "unset; defaults to 64K (the bump-chunk size, which is also the ceiling)",
-        consumed_by: "gc/var_region/chunk.rs (class_for), applied once in vm/context/construct.rs",
+        consumed_by: "gc/var_region/chunk.rs (class_for), applied once in context/construct.rs",
         ..TUNING
     },
     KnobSpec {
@@ -111,7 +111,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Str,
         description: "soft heap cap: squeezes the collection allowance and adds a near-limit trip. NOT the arming switch since arm-gc-by-default — the collector's thresholds are relative and it runs without one. Accepts a byte count or a K/KB/M/MB/G/GB suffix (512MB, 2G)",
         default_hint: "unset; no cap (the collector still runs, on relative-growth thresholds)",
-        consumed_by: "vm/context/construct.rs (set_max_heap_bytes) → gc/heap/alloc.rs",
+        consumed_by: "context/construct.rs (set_max_heap_bytes) → gc/heap/alloc.rs",
         ..PUBLIC
     },
     KnobSpec {
@@ -229,7 +229,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "print one stderr line per collection (kind, heap used before/after, bytes reclaimed, pause ms) plus near-limit / over-budget edges",
         default_hint: "unset; off. No observer installed when off (zero cost)",
-        consumed_by: "gc/trace.rs, installed by vm/context/construct.rs",
+        consumed_by: "gc/trace.rs, installed by context/construct.rs",
         ..PUBLIC
     },
     KnobSpec {
@@ -252,7 +252,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         // —— 消费点 inline `std::env::var`，这是元旋钮的既定形态。
         description: "SDK install root; `${Z42_HOME}` in `probing-paths` expands to it",
         default_hint: "unset; then derived from $Z42_PORTABLE_VM, else from the running z42vm's own location",
-        consumed_by: "vm/loader/locate/probing.rs (`${Z42_HOME}` expansion) + toolchain launcher/installer",
+        consumed_by: "loader/locate/probing.rs (`${Z42_HOME}` expansion) + toolchain launcher/installer",
         ..META
     },
     KnobSpec {
@@ -339,7 +339,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "disable interpreter superinstruction fusion (kill-switch / A-B knob)",
         default_hint: "unset; fusion enabled",
-        consumed_by: "vm/runtime/fusion.rs",
+        consumed_by: "metadata/fusion.rs",
         ..DEBUG_KNOB
     },
     KnobSpec {
@@ -348,7 +348,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "disable the type-specialised half of superinstruction fusion",
         default_hint: "unset; typed fusion enabled",
-        consumed_by: "vm/runtime/fusion.rs",
+        consumed_by: "metadata/fusion.rs",
         ..DEBUG_KNOB
     },
     KnobSpec {
@@ -375,7 +375,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         // 同上一条：元旋钮，不是应用设置。
         description: "path to the z42vm to run (`<sdk-root>/bin/z42vm`); the VM itself only uses it to derive the SDK root for `${Z42_HOME}`",
         default_hint: "unset; the launcher/apphost sets it when it picks a VM",
-        consumed_by: "vm/loader/locate/probing.rs (SDK-root derivation) + toolchain launcher/apphost",
+        consumed_by: "loader/locate/probing.rs (SDK-root derivation) + toolchain launcher/apphost",
         ..META
     },
     KnobSpec {
@@ -414,7 +414,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         platforms: NOT_WASM,
         description: "safepoint sampling-profiler frequency (Hz); any value ≥1 turns z42-level CPU sampling on",
         default_hint: "unset; sampling off (zero-cost — no background thread, hot path unchanged)",
-        consumed_by: "profiler/cpu.rs (via vm/context/mod.rs)",
+        consumed_by: "profiler/cpu.rs (via context/mod.rs)",
         ..PUBLIC
     },
     KnobSpec {
@@ -451,7 +451,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Enum(STACKALLOC_MODES),
         description: "escape-analysis stack allocation: `off`/`0`/`heap` disables, `stats` prints per-run counts, anything else enables",
         default_hint: "unset; stack allocation on",
-        consumed_by: "vm/exec/call/stack_alloc.rs",
+        consumed_by: "exec/call/stack_alloc.rs",
         ..TUNING
     },
     KnobSpec {

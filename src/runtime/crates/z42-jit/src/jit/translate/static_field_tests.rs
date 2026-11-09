@@ -7,13 +7,13 @@ use crate::jit::runtime::frame::JitFrame;
 use crate::jit::helpers::object::STATIC_HELPER_CALLS;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use crate::jit::compile::state::install;
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, FieldDesc, Instruction, StaticGetInsn, StaticSetInsn, Terminator};
-use crate::vm::runtime::ids::tokens::TypeId;
+use crate::metadata::ids::tokens::TypeId;
 use crate::zpkg::ir::ExecMode;
 use crate::object::{NativeData, ObjectLayout, TypeDesc, TypeDescCold};
 use crate::{zpkg::IrType, object::Value};
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::sync::Arc;
 
 // ── building blocks ─────────────────────────────────────────────────────────
@@ -145,8 +145,8 @@ fn interp(build: &dyn Fn() -> Module, idx: usize, args: &[Value]) -> Result<Valu
     let vm = vm_of(build);
     let m = Arc::clone(vm.module().expect("entry module"));
     match crate::interp::run::exec_function(&vm, &m, &m.functions[idx], args) {
-        Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(v)) => Ok(v.unwrap_or(Value::Null)),
-        Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(v)) => Err(thrown_text(Some(v))),
+        Ok(crate::exec::call::outcome::ExecOutcome::Returned(v)) => Ok(v.unwrap_or(Value::Null)),
+        Ok(crate::exec::call::outcome::ExecOutcome::Thrown(v)) => Err(thrown_text(Some(v))),
         Err(e) => panic!("interp: {e:#}"),
     }
 }

@@ -24,7 +24,7 @@ use super::translate;
 pub(crate) mod state;
 pub(crate) mod lookup;
 pub(crate) mod vm_interface;
-use crate::vm::runtime::Function;
+use crate::metadata::Function;
 
 /// Mutable JIT compilation state: compiles z42 functions to native code lazily.
 pub struct LazyCompiler {
@@ -132,7 +132,7 @@ impl LazyCompiler {
             func:    func as *const Function,
             owner_init: std::sync::Arc::clone(&func.owner_init),
             // Filled by the caller (`JitRuntime::resolve_slot_slow`, from the function's
-            // own forward cell — `vm::exec::call::forward::forward_of`).
+            // own forward cell — `exec::call::forward::forward_of`).
             forward: None,
         })
     }

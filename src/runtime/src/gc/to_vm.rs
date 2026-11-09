@@ -72,7 +72,7 @@ pub fn debug_assert_not_native_parked() {
             d.get() == 0,
             "GC allocation inside a NativeParkGuard region: a parked thread's new objects are \
              not GC roots, so a concurrent collection frees them. End the park (drop the \
-             guard) before allocating — see vm/threads/safepoint.rs"
+             guard) before allocating — see threads/safepoint.rs"
         );
     });
 }

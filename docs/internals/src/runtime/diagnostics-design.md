@@ -5,7 +5,7 @@
 
 > 待办：事件分类 L2 与 `fire()` 门控未实施；观测地基（计数、采样 profiler）已实施
 >
-> 设计 z42 VM 的诊断/跟踪子系统：**诊断事件**（编译、类型加载、GC、deopt、load-context…）、**计数统计**、**时间统计**（含 per-函数编译耗时）。在现有 `vm/diagnostics/observer.rs` / `vm/diagnostics/counters.rs` / `tracing` 地基上补齐缺口。
+> 设计 z42 VM 的诊断/跟踪子系统：**诊断事件**（编译、类型加载、GC、deopt、load-context…）、**计数统计**、**时间统计**（含 per-函数编译耗时）。在现有 `diagnostics/observer.rs` / `diagnostics/counters.rs` / `tracing` 地基上补齐缺口。
 >
 > 与 [tiered-execution.md](tiered-execution.md)（tier 回收 `inspect_artifacts`）、[load-context.md](load-context.md)（`whyRetained` 保留根诊断）、[componentized-runtime.md](componentized-runtime.md)（observer/注册槽、`libz42_debug` 组件）共用同一事件总线。
 
@@ -15,9 +15,9 @@
 
 | 设施 | 现状 | 文件 |
 |---|---|---|
-| **RuntimeObserver** 事件流 | 事件：`ModuleLoaded`/`JitModuleCompiled`/`ExceptionThrown`/`ExceptionCaught`/`NativeCallEntered` + `Custom{source,payload}` 逃逸口；`Mutex<Vec<Arc<dyn RuntimeObserver>>>` on VmCore；对标 CoreCLR EventPipe | [vm/diagnostics/observer.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/diagnostics/observer.rs) |
+| **RuntimeObserver** 事件流 | 事件：`ModuleLoaded`/`JitModuleCompiled`/`ExceptionThrown`/`ExceptionCaught`/`NativeCallEntered` + `Custom{source,payload}` 逃逸口；`Mutex<Vec<Arc<dyn RuntimeObserver>>>` on VmCore；对标 CoreCLR EventPipe | [diagnostics/observer.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/diagnostics/observer.rs) |
 | **GcObserver** | 独立 `GcEvent` 流（与 Runtime 那套**分离**，两套 trait） | [gc/types.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/types.rs) |
-| **RuntimeCounters** | `AtomicU64`：`builtin_calls`/`native_calls`/`jit_methods_compiled`/**`jit_compile_us_total`**/`exceptions_thrown`/`exceptions_caught`；**每个 `VmContext`（线程）一份**，各写各的 cache line，`VmContext::counters_snapshot()` 汇总全部存活线程 + 已退出线程（退出时并入 `VmCore.diagnostics.counters`）；`--print-counters`；对标 dotnet EventCounters | [vm/diagnostics/counters.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/diagnostics/counters.rs) |
+| **RuntimeCounters** | `AtomicU64`：`builtin_calls`/`native_calls`/`jit_methods_compiled`/**`jit_compile_us_total`**/`exceptions_thrown`/`exceptions_caught`；**每个 `VmContext`（线程）一份**，各写各的 cache line，`VmContext::counters_snapshot()` 汇总全部存活线程 + 已退出线程（退出时并入 `VmCore.diagnostics.counters`）；`--print-counters`；对标 dotnet EventCounters | [diagnostics/counters.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/diagnostics/counters.rs) |
 | **tracing** crate | 日志（`tracing::warn!` 等） | Cargo.toml |
 
 **三方面真实状态**：事件=有但薄；计数=已有且有快照（**有必要、且已在**）；时间=仅 `jit_compile_us_total` 一个粗聚合，**per-函数/分位/span 缺失**。
@@ -70,7 +70,7 @@
 ## 4. 缺口与设计（逐项具体）
 
 ### 4.1 🔴 `fire()` 近零成本门控（现有真实开销，必修）
-现 `fire()` 每次都 `Mutex::lock` + clone Vec，**空 observer 也付费**（[vm/diagnostics/observer.rs:128](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/diagnostics/observer.rs#L128)）：
+现 `fire()` 每次都 `Mutex::lock` + clone Vec，**空 observer 也付费**（[diagnostics/observer.rs:128](https://github.com/z42-lang/z42/blob/main/src/runtime/src/diagnostics/observer.rs#L128)）：
 ```rust
 pub fn fire(&self, event: &RuntimeEvent) -> usize {
     let snapshot = { let g = self.inner.lock(); g.iter().cloned().collect() }; // 每次锁+clone
@@ -106,12 +106,12 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
 - **扩覆盖**：`gc_cycles`/`gc_reclaimed_bytes`/`gc_pause_us`(hist)、`types_loaded`、`deopts`、`osr_count`、`allocations`/`alloc_bytes`、`zpkg_loaded`/`zpkg_unloaded`、`contexts_active`(gauge)。
   - **已 surface 到 profile 快照**：`HeapStats` 新增
     `minor_collections`/`major_collections`/`reclaimed_bytes`（generational 分代拆分；`gc_cycles` 合计语义不变）；
-    `--print-stats-on-exit` 输出点用 `vm::diagnostics::counters::ProfileSnapshot` 合并 `RuntimeCounters` 快照 + 上述堆派生字段
+    `--print-stats-on-exit` 输出点用 `diagnostics::counters::ProfileSnapshot` 合并 `RuntimeCounters` 快照 + 上述堆派生字段
     （`allocations` + 分代）成**一行** JSON（`z42vm_counters` sentinel 超集，仅加键→scraper 后向兼容），
     `xtask profile` 展示。
   - **并发探针**：ProfileSnapshot 再加两组并发字段。
     ① **park 直方图（常开）**：mutator 在 GC safepoint STW park 的时长，记进 `VmCore.diagnostics.park_histogram`
-    （复用 `gc::types::PauseHistogram`），埋点在 `vm::threads::safepoint::park_until_idle`——只在真实 GC 暂停的
+    （复用 `gc::types::PauseHistogram`），埋点在 `threads::safepoint::park_until_idle`——只在真实 GC 暂停的
     slow path 跑，`check_safepoint` 热路径零成本，故常开无 feature。surface `park_count`/`park_us_total`/
     `park_max_us`。② **用户锁争用（编译期 feature `profile-contention`，默认关）**：`Std.Threading.Mutex`/
     `RwLock` 的阻塞 acquire（`corelib::sync`）在 feature 下先 `try_lock`，miss=争用 → `lock_contentions`++

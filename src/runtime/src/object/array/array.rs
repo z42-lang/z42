@@ -33,7 +33,7 @@
 //!
 //! Arrays are fixed-length: nothing resizes a block in place (`List<T>` grows by allocating a new
 //! backing array and copying). An escape-analysis stack array is not an `ArrayObj` at all — it is
-//! a `Vec<Value>` in the frame arena (`vm::exec::call::stack_alloc::StackArray`).
+//! a `Vec<Value>` in the frame arena (`exec::call::stack_alloc::StackArray`).
 
 #![allow(unused_imports)]
 use crate::object::*;

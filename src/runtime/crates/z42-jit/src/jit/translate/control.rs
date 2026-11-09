@@ -26,7 +26,7 @@ pub(super) fn find_handler_entries(func: &Function, block_idx: usize) -> Vec<usi
 /// `jit_check_safepoint` helper call (~10ns) on the hot path. See
 /// `变更 inline-jit-safepoint-check/design.md`.
 ///
-/// Mirrors `vm::threads::safepoint::check_safepoint`:
+/// Mirrors `threads::safepoint::check_safepoint`:
 /// ```text
 ///   prev   = *(ctx + SAFEPOINT_SKIP_OFFSET)         // plain i32 load
 ///            *(ctx + SAFEPOINT_SKIP_OFFSET) = prev - 1
@@ -58,7 +58,7 @@ pub(super) fn emit_stack_check(
     let sp = builder.ins().get_stack_pointer(ptr);
     let limit = builder.ins().load(
         ptr, flags, ctx_val,
-        crate::vm::context::VM_CONTEXT_STACK_LIMIT_OFFSET as i32,
+        crate::context::VM_CONTEXT_STACK_LIMIT_OFFSET as i32,
     );
     let over = builder.ins().icmp(IntCC::UnsignedLessThan, sp, limit);
     let ok_blk = builder.create_block();
@@ -78,7 +78,7 @@ pub(super) fn emit_safepoint_check(
     hr_slow:   cranelift_codegen::ir::FuncRef,
 ) {
     let flags = MemFlagsData::trusted();
-    let skip_off = crate::vm::context::VM_CONTEXT_SAFEPOINT_SKIP_OFFSET as i32;
+    let skip_off = crate::context::VM_CONTEXT_SAFEPOINT_SKIP_OFFSET as i32;
     let prev = builder.ins().load(types::I32, flags, ctx_val, skip_off);
     let newv = builder.ins().iadd_imm_s(prev, -1);
     builder.ins().store(flags, newv, ctx_val, skip_off);

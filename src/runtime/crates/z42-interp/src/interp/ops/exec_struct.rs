@@ -1,11 +1,11 @@
 //! Interpreter register adapters for the shared struct value operations.
 use super::Frame;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::Result;
-use crate::vm::exec::ops::structs::{struct_alloc_val, struct_copy_val, resolve_for_access};
+use crate::exec::ops::structs::{struct_alloc_val, struct_copy_val, resolve_for_access};
 use crate::objops::struct_leaf::{struct_field_get_val, struct_field_set_val};
 #[cfg(all(test, z42_test_facade))]
-use crate::vm::exec::ops::structs::*;
+use crate::exec::ops::structs::*;
 #[cfg(all(test, z42_test_facade))]
 use crate::object::{decode_prim, encode_prim, prim_width, StructTypeLayout};
 #[cfg(all(test, z42_test_facade))]

@@ -14,10 +14,10 @@ mod lazy_load_tests;
 #[path = "generic_call_tests.rs"]
 mod generic_call_tests;
 
-use crate::vm::runtime::Module;
+use crate::metadata::Module;
 use compile::vm_interface::JitVm;
 use anyhow::Result;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use runtime::{frame::JitFrame, invoke};
 use helpers::take_exception_error;
 
@@ -33,9 +33,9 @@ use helpers::take_exception_error;
 pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
     let rt = crate::jit::compile::state::runtime(&ctx).ok_or_else(|| anyhow::anyhow!("JIT: no JIT installed on this VM"))?;
     // Scope the heap as the ambient GC heap for this JIT run. The entry's
-    // bottom-frame push installs it too (`vm/exec/call/engine_guards.rs`); this
+    // bottom-frame push installs it too (`exec/call/engine_guards.rs`); this
     // one also covers the entry's lazy compile before that push.
-    let _heap_guard = crate::vm::exec::ambient::HeapGuard::enter(ctx.heap());
+    let _heap_guard = crate::exec::ambient::HeapGuard::enter(ctx.heap());
     let module = rt.module();
     // Resolve (and lazily compile on first call) the entry function.
     let Some(entry) = rt.resolve_fn_by_name(ctx, entry_name) else {
@@ -56,10 +56,10 @@ pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
                 holder.as_ref()
             }
         };
-        return match crate::vm::exec::engine::invoke(ctx, module, func, &[])? {
-            crate::vm::exec::call::outcome::ExecOutcome::Returned(_) => Ok(()),
-            crate::vm::exec::call::outcome::ExecOutcome::Thrown(val) =>
-                Err(anyhow::anyhow!("{}", crate::vm::exec::exception::format_uncaught(&val, ctx, module))),
+        return match crate::exec::engine::invoke(ctx, module, func, &[])? {
+            crate::exec::call::outcome::ExecOutcome::Returned(_) => Ok(()),
+            crate::exec::call::outcome::ExecOutcome::Thrown(val) =>
+                Err(anyhow::anyhow!("{}", crate::exec::exception::format_uncaught(&val, ctx, module))),
         };
     };
     // One `VmFrame` push enrolling the entry frame's regs (GC roots)
@@ -87,9 +87,9 @@ fn run_with_static_init(ctx: &VmContext, entry_name: &str) -> Result<()> {
     run_fn(ctx, entry_name)
 }
 
-// ─── Public entry point called from vm/mod.rs ───────────────────────────────────
+// ─── Entry point called by the registered JIT engine ───────────────────────────────────
 
-/// Called by `Vm::run` when the execution mode is JIT.
+/// Called by `host::LoadedProgram::run_entry` when the execution mode is JIT.
 ///
 /// Installs the VM's JIT ([`compile::state::install`] — one per VM, shared by every
 /// thread; reused when already installed) without compiling any user function;
@@ -112,7 +112,7 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: config::J
     compile::state::install(ctx, module, config)?;
 
     let setup_us = start.elapsed().as_micros() as u64;
-    ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::JitModuleCompiled {
+    ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::JitModuleCompiled {
         module_name:    module.module_name().to_string(),
         function_count,
         duration_us:    setup_us,
@@ -124,13 +124,13 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: config::J
 pub mod config;
 
 /// Execute a host call with arguments and a returned value on this VM's JIT.
-pub fn invoke_host(ctx: &VmContext, module: &Module, func: &crate::vm::runtime::Function,
-    args: &[crate::object::Value], config: config::JitConfig) -> Result<crate::vm::exec::call::outcome::ExecOutcome> {
+pub fn invoke_host(ctx: &VmContext, module: &Module, func: &crate::metadata::Function,
+    args: &[crate::object::Value], config: config::JitConfig) -> Result<crate::exec::call::outcome::ExecOutcome> {
     let first_install = crate::jit::compile::state::runtime(&ctx).is_none();
     let start = std::time::Instant::now();
     compile::state::install(ctx, module, config)?;
     if first_install {
-        ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::JitModuleCompiled {
+        ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::JitModuleCompiled {
             module_name: module.module_name().to_owned(), function_count: module.functions().len() as u32,
             duration_us: start.elapsed().as_micros() as u64,
         });
@@ -140,11 +140,11 @@ pub fn invoke_host(ctx: &VmContext, module: &Module, func: &crate::vm::runtime::
         let frame = JitFrame::new(ctx, entry.max_reg, args);
         Ok(unsafe { invoke::call_entry(ctx, entry, frame) }.into_exec(ctx))
     } else {
-        crate::vm::exec::engine::invoke(ctx, module, func, args)
+        crate::exec::engine::invoke(ctx, module, func, args)
     }
 }
 
 pub mod component;
 
 /// Internal mode-entry contract used by static host assembly.
-pub fn execution_engine() -> &'static dyn crate::vm::exec::engine::Engine { &engine::ENGINE }
+pub fn execution_engine() -> &'static dyn crate::exec::engine::Engine { &engine::ENGINE }

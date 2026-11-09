@@ -10,16 +10,16 @@
 //! arena, store-through writing back to the underlying location, and the three bail
 //! paths (wrong receiver kind, missing field, out-of-range index).
 use super::*;
-use crate::vm::runtime::ids::tokens::TypeId;
+use crate::metadata::ids::tokens::TypeId;
 use crate::object::{RefKind, TypeDesc};
 use crate::{zpkg::NameIndex, object::FieldSlot};
 use crate::object::NativeData;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::sync::Arc;
 
-fn m() -> crate::vm::runtime::Module {
-    crate::vm::runtime::Module::new(crate::zpkg::image::ModuleData {
+fn m() -> crate::metadata::Module {
+    crate::metadata::Module::new(crate::zpkg::image::ModuleData {
         name: "test".to_owned(),
         string_pool: vec![],
         classes: vec![],
@@ -89,7 +89,7 @@ fn store_through_elem_ref_writes_back_to_the_array() {
         panic!("expected a Ref");
     };
     let kind = ctx.exec.transient_arena.lock().ref_kind(idx, frame_id).unwrap();
-    crate::vm::exec::ops::references::store_thru_ref(&kind, Value::I64(11), &ctx).unwrap();
+    crate::exec::ops::references::store_thru_ref(&kind, Value::I64(11), &ctx).unwrap();
 
     match &arr {
         Value::Array(rc) => assert_eq!(rc.borrow().get_boxed(0), Value::I64(11)),
@@ -158,7 +158,7 @@ fn store_through_field_ref_writes_back_to_the_object() {
         panic!("expected a Ref");
     };
     let kind = ctx.exec.transient_arena.lock().ref_kind(idx, frame_id).unwrap();
-    crate::vm::exec::ops::references::store_thru_ref(&kind, Value::I64(21), &ctx).unwrap();
+    crate::exec::ops::references::store_thru_ref(&kind, Value::I64(21), &ctx).unwrap();
 
     match &obj {
         Value::Object(rc) => assert_eq!(rc.borrow().field_value(0), Value::I64(21)),
@@ -179,7 +179,7 @@ fn store_through_unknown_field_bails() {
         panic!("expected a Ref");
     };
     let kind = ctx.exec.transient_arena.lock().ref_kind(idx, frame_id).unwrap();
-    let err = crate::vm::exec::ops::references::store_thru_ref(&kind, Value::I64(2), &ctx).unwrap_err();
+    let err = crate::exec::ops::references::store_thru_ref(&kind, Value::I64(2), &ctx).unwrap_err();
     assert!(err.to_string().contains("not found"), "unexpected error: {err}");
 }
 

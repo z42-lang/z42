@@ -16,7 +16,7 @@ use crate::object::{
     FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold, Value, STRUCT_LEAF_PRIM,
     TAG_I32, TAG_STR,
 };
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::sync::Arc;
 
 /// `class Holder { int n; string s; }`
@@ -51,7 +51,7 @@ fn holder() -> Value {
             composed_object_layout: Some(layout),
             ..Default::default()
         })),
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     });
     Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(td, 16)))
 }

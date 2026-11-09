@@ -1,5 +1,5 @@
 //! Independent interp execution backend, sharing the runtime core.
-pub use z42::{vm, object, gc, pal, objops, zpkg};
+pub use z42::{context, exec, loader, metadata, diagnostics, threads, object, gc, pal, objops, zpkg};
 pub mod interp;
 pub use interp::*;
 

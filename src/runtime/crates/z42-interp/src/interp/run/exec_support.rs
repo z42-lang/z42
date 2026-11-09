@@ -2,13 +2,13 @@
 
 #![allow(unused_imports)]
 use super::*;
-use crate::vm::exec::ops::references::store_thru_ref;
-use crate::vm::runtime::{Function, Module};
+use crate::exec::ops::references::store_thru_ref;
+use crate::metadata::{Function, Module};
 use crate::{
     zpkg::{BranchTargets, Terminator},
     object::Value,
 };
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
@@ -48,14 +48,14 @@ impl Drop for FrameGuard<'_> {
 /// the Rust call stack, and `func` is borrowed by the caller for the whole
 /// activation — both outlive the guard.
 pub(super) fn enter_frame<'a>(ctx: &'a VmContext, func: &Function, frame: &mut Frame) -> Result<FrameGuard<'a>> {
-    ctx.push_frame(crate::vm::exec::call::frames::VmFrame::new(
+    ctx.push_frame(crate::exec::call::frames::VmFrame::new(
         func as *const Function,
         &frame.regs as *const Vec<Value>,
     ));
     let guard = FrameGuard { ctx, regs: &mut frame.regs as *mut Vec<Value> };
     // runtime-audit P0-4: stack overflow is fatal — checked once the frame is
     // on the call stack, so the report includes it.
-    crate::vm::exec::stack_guard::check(ctx)?;
+    crate::exec::stack_guard::check(ctx)?;
     Ok(guard)
 }
 
@@ -140,8 +140,8 @@ pub(crate) fn exec_function_with_type_args(
 pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value], method_type_args: &[String]) -> Option<Result<ExecOutcome>> {
     let tier = ctx.tier()?;
     if args.iter().any(|a| matches!(a, Value::Ref { .. })) { return None; }
-    tier.invoke(ctx, crate::vm::exec::engine::TierTarget::Existing(func),
-        crate::vm::exec::call::args::CallArgs::Values(args), method_type_args)
+    tier.invoke(ctx, crate::exec::engine::TierTarget::Existing(func),
+        crate::exec::call::args::CallArgs::Values(args), method_type_args)
 }
 
 #[cfg(not(feature = "jit"))]
@@ -172,7 +172,7 @@ pub(super) fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_
     let tier = ctx.tier()?;
     frame.back_edge_count = frame.back_edge_count.wrapping_add(1);
     if frame.back_edge_count != tier.osr_threshold { return None; }
-    tier.osr(ctx, func, loop_header, crate::vm::exec::engine::OsrState {
+    tier.osr(ctx, func, loop_header, crate::exec::engine::OsrState {
         regs: &frame.regs, frame_id: frame.frame_id_if_taken(),
         method_type_args: &frame.method_type_args,
         has_ref_writebacks: !frame.ref_writebacks.is_empty(),
@@ -228,7 +228,7 @@ pub(crate) fn exec_function_from_receiver_regs(
 /// the thrown value if it's an Exception subclass; otherwise stamps both
 /// as `"<non-exception-value>"`. Message truncated to 256 chars to keep
 /// the event firehose bounded.
-pub(super) fn fire_exception_thrown(ctx: &VmContext, module: &crate::vm::runtime::Module, val: &crate::object::Value) {
+pub(super) fn fire_exception_thrown(ctx: &VmContext, module: &crate::metadata::Module, val: &crate::object::Value) {
     use std::sync::atomic::Ordering;
     ctx.counters().exceptions_thrown.fetch_add(1, Ordering::Relaxed);
     if !ctx.has_runtime_observers() { return; }
@@ -237,32 +237,32 @@ pub(super) fn fire_exception_thrown(ctx: &VmContext, module: &crate::vm::runtime
         message.truncate(256);
         message.push_str("…");
     }
-    ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::ExceptionThrown { class, message });
+    ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ExceptionThrown { class, message });
 }
 
 /// Phase 2 D3+D6 sibling: increment `exceptions_caught` + fire
 /// `RuntimeEvent::ExceptionCaught`. `frames_unwound` = 0 for same-frame
 /// catch; 1 for callee-thrown + caller-caught; >1 for deeper unwind.
 pub(super) fn fire_exception_caught(
-    ctx: &VmContext, module: &crate::vm::runtime::Module,
+    ctx: &VmContext, module: &crate::metadata::Module,
     val: &crate::object::Value, frames_unwound: u32,
 ) {
     use std::sync::atomic::Ordering;
     ctx.counters().exceptions_caught.fetch_add(1, Ordering::Relaxed);
     if !ctx.has_runtime_observers() { return; }
     let (class, _) = exception_class_and_message(ctx, val, module);
-    ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::ExceptionCaught { class, frames_unwound });
+    ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ExceptionCaught { class, frames_unwound });
 }
 
 pub(super) fn exception_class_and_message(
-    ctx: &VmContext, val: &crate::object::Value, module: &crate::vm::runtime::Module,
+    ctx: &VmContext, val: &crate::object::Value, module: &crate::metadata::Module,
 ) -> (String, String) {
     use crate::object::Value;
     let class = match val {
         Value::Object(rc) => rc.type_desc().name.clone(),
         _ => "<non-exception-value>".to_string(),
     };
-    let message = crate::vm::exec::exception::read_message(val, ctx, module).unwrap_or_default();
+    let message = crate::exec::exception::read_message(val, ctx, module).unwrap_or_default();
     (class, message)
 }
 
@@ -311,13 +311,13 @@ pub(super) fn find_handler(
     type_registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::object::TypeDesc>>,
     thrown: &Value,
     // Binds the type-parameter markers of a `catch (Err<T> e)` in a shared generic body.
-    tp_env: crate::vm::exec::call::type_param_env::TypeParamEnv<'_>,
+    tp_env: crate::exec::call::type_param_env::TypeParamEnv<'_>,
 ) -> Option<usize> {
     // A fatal VM error (stack overflow) unwinds past every handler.
-    if crate::vm::exec::stack_guard::is_fatal(ctx) { return None; }
+    if crate::exec::stack_guard::is_fatal(ctx) { return None; }
     // perf-vm-isa-cache: match on the thrown object's descriptor (cached by TypeId), no
     // per-throw `String` clone of its class name.
-    // The thrown object's own type arguments take part, as in `is` (`crate::vm::exec::ops::cast::isa_object`):
+    // The thrown object's own type arguments take part, as in `is` (`crate::exec::ops::cast::isa_object`):
     // `catch (Err<int>)` must not catch an `Err<string>` of an imported generic.
     let thrown_obj = match thrown {
         Value::Object(rc) => Some((rc.type_desc(), rc.type_args())),
@@ -340,10 +340,10 @@ pub(super) fn find_handler(
                 if let Some((td, inst_args)) = thrown_obj {
                     let hit = if crate::zpkg::index::type_param_markers::has_markers(target) {
                         let t = tp_env.test_target(ctx, target);
-                        let key = crate::vm::runtime::ids::tokens::TypeKeyCell::new();
-                        crate::vm::exec::ops::cast::isa_object(ctx, type_registry, td, inst_args, &t, &key)
+                        let key = crate::metadata::ids::tokens::TypeKeyCell::new();
+                        crate::exec::ops::cast::isa_object(ctx, type_registry, td, inst_args, &t, &key)
                     } else {
-                        crate::vm::exec::ops::cast::isa_object(ctx, type_registry, td, inst_args, target, func.catch_key(i))
+                        crate::exec::ops::cast::isa_object(ctx, type_registry, td, inst_args, target, func.catch_key(i))
                     };
                     if hit {
                         return Some(i);

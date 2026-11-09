@@ -29,7 +29,7 @@ b.x = 99;       // 只改 b
 
 ## 运行时：per-context 字节 arena + 侧表引用叶子
 
-未装箱 struct 值 = per-`VmContext` **字节 arena**（`vm/exec/call/struct_arena.rs`）里的一段 blob；寄存器持
+未装箱 struct 值 = per-`VmContext` **字节 arena**（`exec/call/struct_arena.rs`）里的一段 blob；寄存器持
 `Value::StructRef{idx, frame_id}` 句柄（仿 `StackObject`，LIFO 随帧退出截断，`frame_id` staleness 守卫）。
 
 一个 blob（`StructSlot`）= **两部分**：
@@ -536,7 +536,7 @@ blob 紧凑排列，每个元素就是独立 blob 的布局，引用叶子是元
   + `FieldInfo.GetValue/SetValue` 反射装箱 struct 字段（见下「装箱引用身份 + struct 字段反射」节）。
 - **对象内联 struct 字段反射**：反射 `GetValue/SetValue` 读写
   `class C { Point pt; }` 的内联 struct 字段（复刻类级内联布局，见下同名节）。
-- **`Std.Array` 的无类型 / 批量原生**（`vm/exec/ops/object/array_bulk.rs`）：`get_boxed` / `set_boxed` 没有堆、对
+- **`Std.Array` 的无类型 / 批量原生**（`exec/ops/object/array_bulk.rs`）：`get_boxed` / `set_boxed` 没有堆、对
   STRUCT 数组只有断言，所以这几个原生按两侧的模式选路——同一 struct 的两个数组之间 `CopyRange` 逐元素拷 blob
   （引用叶子经引用字写原语，同数组按 memmove 方向）；struct[] → 引用数组逐元素 `box_struct_blob`；引用数组 → struct[] 先整段校验是该
   struct 的装箱再逐元素拷入；`GetValue` 装箱元素快照；`SetValue` 只收该 struct 的装箱；`CreateInstance` 走
@@ -612,7 +612,7 @@ is-a / `GetType` / vcall。
 | class / record / 数组 / 接口 | ❌ 恒等上转 | 本就是带 TypeDesc 的堆句柄 |
 
 > ⚠️ 「基元装箱」在 z42 里**只覆盖整数与 enum**。非整数标量不进盒这件事决定了：
-> `((object)1.5).GetType()` 答 `Double` 不是靠盒，而是靠 `vm/exec/ops/vcall.rs` 阶梯第 3 级的
+> `((object)1.5).GetType()` 答 `Double` 不是靠盒，而是靠 `exec/ops/vcall.rs` 阶梯第 3 级的
 > `primitive_class_name`（见[对象协议派发](object-protocol-dispatch.md)）；
 > 而 `ReferenceEquals` 式的盒身份只对整数 / enum / struct 成立。
 
@@ -868,7 +868,7 @@ ReadSecond<P2>(t) → 2   ❌   （若只特化类型：虚派发形态读出 10
 
 两条只有实测才会知道的约束：
 
-- **特化名不沿基类链继承**（`vm/exec/ops/vcall.rs`）。一份特化按**某一个声明**所在类型的布局烘焙了偏移；
+- **特化名不沿基类链继承**（`exec/ops/vcall.rs`）。一份特化按**某一个声明**所在类型的布局烘焙了偏移；
   虚派发从接收者的**运行期**类型起走链，落到基类的特化体就是**静默调错实现**。
 - **有错误时不进代码生成**（自然也不做特化）。递归泛型（`Rec<T>` 调 `Rec<G<T>>`）让类型实参逐层加深 ⇒
   工作项无限增长 ⇒ **编译器不返回**；良型却展不完的情形由工作表上限报 E0503。
@@ -959,7 +959,7 @@ fn @Demo.G<P2>.Get(1) -> T {
 
 **运行期（三处，全是「擦除名是回落、不是身份」的贯彻）**
 
-- `vm/exec/ops/vcall.rs`：擦除名回落要在基链的**每一层**做，不只接收者自己那层 ——
+- `exec/ops/vcall.rs`：擦除名回落要在基链的**每一层**做，不只接收者自己那层 ——
   `class DInt : GBox<int> {}` 的基是实例化，而成员体只以擦除名存在
   （实测 `VCall: function Demo.DInt.Tag not found`）。顺序：接收者自己的擦除定义
   先于**基类**的同名方法。

@@ -60,7 +60,7 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
         vtable: Vec::new(),
         vtable_index: crate::zpkg::NameIndex::new(),
         cold: None,
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 
@@ -81,7 +81,7 @@ fn is_heap_ref_true_for_closure() {
     let v = Value::Closure(crate::object::header::VarGcRef::leak_for_test(
         ClosureData {
             env:     crate::object::ArrayObj::leaked(vec![Value::I64(42)]),
-            fn_id:   crate::vm::runtime::ids::tokens::FnId(0),
+            fn_id:   crate::metadata::ids::tokens::FnId(0),
         },
         crate::object::header::BlockType::Closure,
     ));
@@ -161,7 +161,7 @@ fn inline_object_field_roundtrips_and_is_traced() {
         vtable: Vec::new(),
         vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     });
 
     // The heap object the inlined field will point at.
@@ -223,7 +223,7 @@ fn clear_refs_for_sweep_erases_every_reference_word() {
         vtable: Vec::new(),
         vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     });
 
     let leaf = Value::Object(crate::object::ObjRef::leak(crate::object::OwnedObject::new(dummy_type_desc("Leaf"), 0)));
@@ -271,7 +271,7 @@ fn clear_refs_for_sweep_skips_an_offset_past_the_payload() {
         vtable: Vec::new(),
         vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     });
 
     let obj = crate::object::ObjRef::leak(crate::object::OwnedObject::new(td, 8));
@@ -360,7 +360,7 @@ fn is_heap_ref_true_for_string_false_for_func_ref() {
     // write into a heap slot fires the barrier (generational card) that keeps the block
     // found by a minor. P1-2 PR 8: `Value::FuncRef` holds a `FnId` — no heap edge.
     assert!(Value::Str("hello".to_string().into()).is_heap_ref());
-    assert!(!Value::FuncRef(crate::vm::runtime::ids::tokens::FnId(3)).is_heap_ref());
+    assert!(!Value::FuncRef(crate::metadata::ids::tokens::FnId(3)).is_heap_ref());
 }
 
 #[test]
@@ -454,7 +454,7 @@ fn value_discriminants_pinned() {
     let array = Value::Array(crate::object::ArrayObj::leaked(vec![]));
     assert_eq!(tag(&array), 6, "Array tag");
     assert_eq!(tag(&Value::PinnedView { idx: 0, frame_id: 1 }), 8, "PinnedView tag");
-    assert_eq!(tag(&Value::FuncRef(crate::vm::runtime::ids::tokens::FnId(0))), 9, "FuncRef tag");
+    assert_eq!(tag(&Value::FuncRef(crate::metadata::ids::tokens::FnId(0))), 9, "FuncRef tag");
     // Closure tag 10 — needs ArrRef, skip.
     // 11 retired (was StackClosure).
     assert_eq!(tag(&Value::Ref { idx: 0, frame_id: 1 }), 12, "Ref tag");
@@ -671,7 +671,7 @@ fn td_with_params(name: &str, params: &[&str], fields: &[(&str, &str)]) -> Arc<T
         vtable: Vec::new(),
         vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(cold)),
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 

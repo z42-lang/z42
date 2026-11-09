@@ -4,7 +4,7 @@
 
 use crate::object::Value;
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use super::{set_exception, take_exception, vm_ctx_ref};
 
 /// `jit_throw`: `throw_offset` is the throw site's packed code offset (baked by
@@ -21,7 +21,7 @@ pub unsafe extern "C" fn jit_throw(
     let vm_ctx = vm_ctx_ref(ctx);
     let module = super::jit_module(ctx);
     vm_ctx.set_top_frame_pc(throw_offset);
-    crate::vm::exec::exception::populate_stack_trace(&v, vm_ctx, module);
+    crate::exec::exception::populate_stack_trace(&v, vm_ctx, module);
     set_exception(vm_ctx, v);
 }
 
@@ -43,7 +43,7 @@ pub unsafe extern "C" fn jit_install_catch(
 pub unsafe extern "C" fn jit_match_catch_type(
     _frame: *mut JitFrame, ctx: *const VmContext,
     target_ptr: *const u8, target_len: i64,
-    key: *const crate::vm::runtime::ids::tokens::TypeKeyCell,
+    key: *const crate::metadata::ids::tokens::TypeKeyCell,
 ) -> i8 {
     let target = match std::str::from_utf8(
         std::slice::from_raw_parts(target_ptr, target_len as usize)) {
@@ -62,11 +62,11 @@ pub unsafe extern "C" fn jit_match_catch_type(
     let module = super::jit_module(ctx);
     // `catch (Err<T>)` in a generic class body: bound from the receiver, own key.
     let dynamic = super::object::dynamic_target(_frame, ctx, target);
-    let fresh = crate::vm::runtime::ids::tokens::TypeKeyCell::new();
+    let fresh = crate::metadata::ids::tokens::TypeKeyCell::new();
     // `key` is the exception-table row's key cell, baked into the JIT code with `target`.
     let (target, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (target, &*key) };
     // The thrown object's own type arguments count, as in `is` (`catch (Err<int>)` vs `Err<string>`).
-    if crate::vm::exec::ops::cast::isa_object(vm_ctx, &module.type_registry, td, inst_args, target, key) {
+    if crate::exec::ops::cast::isa_object(vm_ctx, &module.type_registry, td, inst_args, target, key) {
         1
     } else {
         0
@@ -77,7 +77,7 @@ pub unsafe extern "C" fn jit_match_catch_type(
 /// code calls this at each safepoint insertion site — function entry,
 /// backward Br terminators, BrCond terminators, and after Call /
 /// CallIndirect helpers return. Thin trampoline into the shared
-/// `vm::threads::safepoint::check_safepoint` so the JIT path follows the same
+/// `threads::safepoint::check_safepoint` so the JIT path follows the same
 /// Idle / Requested / Marking protocol as interp.
 ///
 /// `_frame` is unused (signature kept for ABI uniformity with the rest of
@@ -91,7 +91,7 @@ pub unsafe extern "C" fn jit_check_safepoint(
     ctx:    *const VmContext,
 ) {
     let vm_ctx = vm_ctx_ref(ctx);
-    crate::vm::threads::safepoint::check_safepoint(vm_ctx);
+    crate::threads::safepoint::check_safepoint(vm_ctx);
 }
 
 /// `jit_check_safepoint_slow` (inline-jit-safepoint-check): the
@@ -100,7 +100,7 @@ pub unsafe extern "C" fn jit_check_safepoint(
 /// branches here to (1) reset the counter to [`throttle_n`] and (2) run the
 /// real Mutex + phase-check + auto-collect-drain via [`check_safepoint_slow`].
 ///
-/// This mirrors the tail of [`crate::vm::threads::safepoint::check_safepoint`] (the part
+/// This mirrors the tail of [`crate::threads::safepoint::check_safepoint`] (the part
 /// after the `prev > 1` early return) — the fast decrement itself is emitted
 /// inline by `jit::translate::emit_safepoint_check`, so this helper is called
 /// only ~0.1% of the time (once per [`throttle_n`] back-edges).
@@ -117,10 +117,10 @@ pub unsafe extern "C" fn jit_check_safepoint_slow(
 ) {
     let vm_ctx = vm_ctx_ref(ctx);
     vm_ctx.threads().safepoint_skip.store(
-        crate::vm::threads::safepoint::throttle_n(vm_ctx),
+        crate::threads::safepoint::throttle_n(vm_ctx),
         std::sync::atomic::Ordering::Relaxed,
     );
-    crate::vm::threads::safepoint::check_safepoint_slow(vm_ctx);
+    crate::threads::safepoint::check_safepoint_slow(vm_ctx);
 }
 
 /// Prologue slow branch: the stack pointer is below the context's `JitHead::stack_limit`.
@@ -130,7 +130,7 @@ pub unsafe extern "C" fn jit_check_safepoint_slow(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_stack_overflow(_frame: *mut JitFrame, ctx: *const VmContext) {
     let vm_ctx = vm_ctx_ref(ctx);
-    let err = crate::vm::exec::stack_guard::overflow(vm_ctx);
+    let err = crate::exec::stack_guard::overflow(vm_ctx);
     super::set_exception(vm_ctx, Value::Str(err.to_string().into()));
 }
 
@@ -138,7 +138,7 @@ pub unsafe extern "C" fn jit_stack_overflow(_frame: *mut JitFrame, ctx: *const V
 /// propagates instead of entering a handler (see `stack_guard`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_fatal_pending(_frame: *mut JitFrame, ctx: *const VmContext) -> i8 {
-    crate::vm::exec::stack_guard::is_fatal(vm_ctx_ref(ctx)) as i8
+    crate::exec::stack_guard::is_fatal(vm_ctx_ref(ctx)) as i8
 }
 
 #[cfg(all(test, z42_test_facade))]
@@ -173,7 +173,7 @@ mod check_safepoint_tests {
     #[test]
     fn jit_check_safepoint_drains_pending_auto_collect() {
         // Pre-set the needs_auto_collect flag; trampoline should reach
-        // vm::threads::safepoint::check_safepoint which atomically swaps it and
+        // threads::safepoint::check_safepoint which atomically swaps it and
         // runs a stop-the-world collect.
         let ctx = VmContext::new();
         // add-gc-safepoint-counter-throttling : force the

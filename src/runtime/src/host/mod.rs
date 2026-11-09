@@ -1,7 +1,7 @@
 //! Shared Rust host services and C embedding adapters.
 pub use crate::components::api::*;
 pub use crate::components::{ComponentOptions, ComponentLease, component_interface, component_ids};
-pub use crate::{object::Value, pal::fs::Vfs, vm::context::{VmContext, VmCore}, vm::runtime::Module};
+pub use crate::{object::Value, pal::fs::Vfs, context::{VmContext, VmCore}, metadata::Module};
 pub mod config;
 pub mod resolver;
 pub mod runtime;
@@ -32,7 +32,7 @@ pub(crate) use app::report_on_exit;
 pub use artifact::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability};
 pub use crate::components::{BackendOptions, BackendSource, jit_supported, jit_available, interp_available};
 
-pub use crate::vm::ext::VmExtensions;
+pub use crate::context::extensions::VmExtensions;
 
 pub use z42_abi::{Z42Value, Z42_VALUE_TAG_I64};
 
@@ -48,8 +48,7 @@ mod launcher;
 #[cfg(feature = "cli")]
 pub mod entry_api;
 
-pub use crate::config::RuntimeConfig;
+pub use crate::config::{RuntimeConfig, VmConfig};
 
-pub(crate) mod context;
 mod artifact;
 mod extensions;

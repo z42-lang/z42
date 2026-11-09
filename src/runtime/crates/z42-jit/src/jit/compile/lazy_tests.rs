@@ -10,10 +10,10 @@
 
 use crate::jit::compile::state::{install, install_tuned};
 use crate::jit::run_fn;
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, CallInsn, Instruction, Terminator};
 use crate::zpkg::ir::ExecMode;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 /// A JIT-translatable function whose body is a bare `return;` (no `Call`, no
 /// interp-only opcode → `jit_unsupported_reason` is `None`).

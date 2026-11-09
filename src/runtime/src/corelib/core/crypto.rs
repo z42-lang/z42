@@ -8,10 +8,10 @@
 //!   - wasm32:           NotSupportedException (`pal::random` has no source there;
 //!     browser bridge / WASI integration is add-csprng-wasm-bridge follow-up).
 
-use crate::vm::exec::call::builtin_abi::BuiltinError;
+use crate::exec::call::builtin_abi::BuiltinError;
 use super::convert::arg_i64;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{bail, Result};
 
 const NAME: &str = "__crypto_random_bytes";
@@ -42,7 +42,7 @@ pub mod typed {
     use super::*;
 
     #[builtin(name = "__crypto_random_bytes")]
-    pub fn random_bytes(ctx: &VmContext, n: i64) -> Result<crate::object::Value, crate::vm::exec::call::builtin_abi::BuiltinError> {
+    pub fn random_bytes(ctx: &VmContext, n: i64) -> Result<crate::object::Value, crate::exec::call::builtin_abi::BuiltinError> {
         crypto_random_bytes(ctx, n)
     }
 }

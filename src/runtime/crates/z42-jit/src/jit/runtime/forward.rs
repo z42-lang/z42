@@ -1,11 +1,11 @@
 //! Execute native-wrapper short circuits from compiled callers.
-use crate::vm::runtime::Function;
+use crate::metadata::Function;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use super::frame::JitFrame;
 use crate::jit::helpers::vm_ctx_ref;
 
-/// Run the folded call of `wrapper` (fold `token`, `vm::exec::call::forward::forward_of`) with `this` (vcall receiver, if any)
+/// Run the folded call of `wrapper` (fold `token`, `exec::call::forward::forward_of`) with `this` (vcall receiver, if any)
 /// followed by the caller's `arg_regs`, storing the result into `regs[dst]` (`Null`
 /// for a void builtin — what the wrapper's `ret` would have produced). Returns the JIT
 /// helper status: 0 = ok, 1 = exception pending.
@@ -20,7 +20,7 @@ pub(crate) unsafe fn call_forward(
     let vm = unsafe { vm_ctx_ref(ctx) };
     let wrapper = unsafe { &*wrapper };
     let module = || unsafe { crate::jit::helpers::jit_module(ctx) };
-    match crate::vm::exec::call::forward::run_folded(vm, wrapper, token, this, &frame.regs, arg_regs, module) {
+    match crate::exec::call::forward::run_folded(vm, wrapper, token, this, &frame.regs, arg_regs, module) {
         Ok(Some(v)) => { frame.regs[dst as usize] = v; 0 }
         Ok(None) => { frame.regs[dst as usize] = Value::Null; 0 }
         Err(f) => crate::jit::helpers::call::raised_into_exception(vm, f.raise(vm, module(), wrapper)),

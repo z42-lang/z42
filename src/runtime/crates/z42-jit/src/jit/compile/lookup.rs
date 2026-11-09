@@ -1,9 +1,9 @@
 //! Read-only linkage facts used while compiling a function.
 //! Queries neither load packages nor execute type initializers.
-use crate::vm::runtime::{Function, statics::StaticCell};
-use crate::vm::context::VmContext;
+use crate::metadata::{Function, statics::StaticCell};
+use crate::context::VmContext;
 use super::state::JitRuntime;
-use crate::vm::exec::call::forward::{builtin_forward, chained_forward};
+use crate::exec::call::forward::{builtin_forward, chained_forward};
 
 // ── Translate-time view (perf-str-jit-intrinsics) ────────────────────────────
 
@@ -21,7 +21,7 @@ pub(crate) enum StrIntrinsic {
 
 impl StrIntrinsic {
     /// The intrinsic builtin `id` implements, if any.
-    pub(crate) fn of_builtin(id: u32, builtins: &crate::vm::runtime::builtins::BuiltinCatalog) -> Option<Self> {
+    pub(crate) fn of_builtin(id: u32, builtins: &crate::metadata::builtins::BuiltinCatalog) -> Option<Self> {
         let is = |name| builtins.id_of(name).is_some_and(|b| b.0 == id);
         if is("__str_length") { Some(Self::Length) }
         else if is("__str_char_at") { Some(Self::CharAt) }
@@ -39,7 +39,7 @@ impl StrIntrinsic {
 /// package or binds a site.
 /// Stable VM linkage addresses used by the caller's native field-reader guard.
 pub(crate) struct DirectFieldReader {
-    pub entry: *const crate::vm::runtime::dispatch::ic::FieldICEntry,
+    pub entry: *const crate::metadata::dispatch::ic::FieldICEntry,
     pub ready: *const std::sync::atomic::AtomicU32,
     pub epoch: *const std::sync::atomic::AtomicU32,
     pub ambiguous: *const std::sync::atomic::AtomicBool,
@@ -50,7 +50,7 @@ pub(crate) trait ForwardLookup {
         None
     }
 
-    fn builtins(&self) -> &crate::vm::runtime::builtins::BuiltinCatalog;
+    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog;
     /// The heap's barrier-gate bytes (`Heap::jit_barrier_bytes`) that compiled reference
     /// field stores read; `None` keeps every reference store on the helper.
     fn barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
@@ -109,16 +109,16 @@ impl CompileLookup<'_> {
 impl ForwardLookup for CompileLookup<'_> {
     fn direct_field_reader(&self, id: u32) -> Option<DirectFieldReader> {
         let func = self.rt.fn_of(id as usize)?;
-        let entry = crate::vm::exec::call::forward::direct_reader_site(func)?;
+        let entry = crate::exec::call::forward::direct_reader_site(func)?;
         Some(DirectFieldReader {
             entry,
             ready: &func.call_init_ready,
             epoch: self.vm.core().runtime().cctors.barrier_epoch_ptr(),
-            ambiguous: crate::vm::loader::lazy::ambiguity_seen_ptr(),
+            ambiguous: crate::loader::lazy::ambiguity_seen_ptr(),
         })
     }
 
-    fn builtins(&self) -> &crate::vm::runtime::builtins::BuiltinCatalog { self.vm.core().runtime().builtins }
+    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { self.vm.core().runtime().builtins }
     fn forward_of_id(&self, id: u32) -> Option<u32> {
         self.barrier_free_forward(self.rt.fn_of(id as usize)?)
     }

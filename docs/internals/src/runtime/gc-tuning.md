@@ -3,7 +3,7 @@
 > 代码：`src/runtime/src/config/mod.rs`（knob）、`gc/heap/auto_collect.rs`（自动回收策略）、
 > `gc/trace.rs` + `gc/phase_timer.rs` + `gc/heap/card_verify.rs`（诊断旋钮）、
 > `gc/heap/alloc.rs`（压力事件），
-> `vm/threads/safepoint.rs`（协作式 safepoint）、`gc/heap.rs`（具体堆状态；公开操作见 `gc/heap/api.rs`）、
+> `threads/safepoint.rs`（协作式 safepoint）、`gc/heap.rs`（具体堆状态；公开操作见 `gc/heap/api.rs`）、
 > `interp/run/exec_support.rs` + `interp/run/mod.rs`（被调函数入口 safepoint 的插桩点）。
 
 ## 为什么
@@ -35,7 +35,7 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major（上一次 major 徒劳时不升级，见「年轻代策略」） | `heap` |
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
 | `Z42_GC_PAUSE_WINDOW` | 1024 | per-heap 滚动 pause-time 队列容量（entries），clamp 到 `[1, 65536]` | `gc/types.rs` |
-| `Z42_SAFEPOINT_THROTTLE` | 1024 | 每线程 safepoint 快路径计数；每 N 次才走真 Mutex 轮询。`1` = 禁节流 | `vm/threads/safepoint.rs` |
+| `Z42_SAFEPOINT_THROTTLE` | 1024 | 每线程 safepoint 快路径计数；每 N 次才走真 Mutex 轮询。`1` = 禁节流 | `threads/safepoint.rs` |
 | `Z42_GC_INCREMENTAL` | **on** | **分代专用**：major 拆成有界 STW 切片、切片之间 mutator 与 minor 照常运行（最大停顿与堆大小脱钩）；`0` = 一次性 major（A/B 与排障开关）。见 [增量 major](gc-incremental-major.md) | `heap/incremental.rs` |
 | `Z42_GC_SLICE_MS` | **2** | 一个增量 major 切片的时间预算（ms），clamp 到 `[0.01, 1000]`。极小值（如 `0.05`）是压力配方：让 mutator / minor 最大程度地插进周期中间 | `heap/incremental.rs` |
 | `Z42_GC_MODE` | **`generational-mark-sweep`** | GC 算法：`stw` / `generational`。默认 `generational`（见下「为什么分代是默认」） | `gc/mode.rs` |
@@ -443,7 +443,7 @@ allocator 判定「该回收了」后**不在分配线程就地回收**（那会
 递减覆盖——那时退回到节流上界，flag 仍在。该三态协议集中文档在 `Heap::set_external_needs_collect_flag`
 的 doc（`gc/heap.rs`）。
 
-safepoint 本身的相位状态机（`Idle → Requested → Marking`）见 `vm/threads/safepoint.rs` 顶注 + `GcPhase` 文档。
+safepoint 本身的相位状态机（`Idle → Requested → Marking`）见 `threads/safepoint.rs` 顶注 + `GcPhase` 文档。
 
 ### ⚠️ safepoint 只能放在「活值已经是根」的位置
 

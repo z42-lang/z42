@@ -1,10 +1,10 @@
 //! Site-token readers used at translate time.
 
 use super::method_id_at;
-use crate::vm::runtime::Function;
+use crate::metadata::Function;
 use crate::zpkg::ir::{BasicBlock, Terminator};
-use crate::vm::runtime::resolve::ResolvedTokens;
-use crate::vm::runtime::ids::tokens::UNRESOLVED;
+use crate::metadata::resolve::ResolvedTokens;
+use crate::metadata::ids::tokens::UNRESOLVED;
 use crate::zpkg::ir::ExecMode;
 use std::sync::atomic::AtomicU32;
 

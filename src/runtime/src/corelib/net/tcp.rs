@@ -19,14 +19,14 @@ pub(crate) struct State {
     listeners: crate::corelib::resource_registry::ResourceRegistry<ListenerSlot>,
 }
 
-pub(super) fn state(ctx: &crate::vm::context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::context::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
 use super::error::{check_port, check_ttl, closed, out_of_range, resolve, slot_id, socket_error, timeout};
 use super::listener::{accept_wait, AcceptWait, ListenerSlot};
-use crate::vm::exec::call::builtin_abi::BuiltinError;
-use crate::vm::context::VmContext;
+use crate::exec::call::builtin_abi::BuiltinError;
+use crate::context::VmContext;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 
@@ -79,7 +79,7 @@ fn still_open(ctx: &VmContext, id: u64) -> Result<(), BuiltinError> {
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
-    use crate::vm::exec::call::builtin_abi::{Blocking, Then};
+    use crate::exec::call::builtin_abi::{Blocking, Then};
     use crate::corelib::io::buffer::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use crate::object::Value;
     use std::io::{Read, Write};

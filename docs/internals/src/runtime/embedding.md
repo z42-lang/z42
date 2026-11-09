@@ -236,7 +236,7 @@ fn classify_invoke_error(msg: &str) -> Z42HostStatus {
 ```
 
 - `arg-count-mismatch:` 由 `LoadedProgram::invoke_index` 在执行之前抛出，所以它优先级最高。
-- `uncaught exception:` 由 `vm::exec::exception::format_uncaught` 钉住（`src/runtime/src/vm/exec/exception/mod.rs`），
+- `uncaught exception:` 由 `exec::exception::format_uncaught` 钉住（`src/runtime/src/exec/exception/mod.rs`），
   是 z42 异常输出的稳定契约。
 - `undefined function` 是解释器派发期找不到符号的错误（典型场景：corelib 没解析到，
   用户代码碰 `Console.WriteLine`）。它是用户的 z42 程序可见的运行期失败，归 `VmException` 而不是 `Internal`。

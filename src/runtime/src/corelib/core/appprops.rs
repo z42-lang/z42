@@ -20,7 +20,7 @@
 
 use crate::config::runtime_config;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{anyhow, Result};
 
 fn arg_str(args: &[Value], what: &str) -> Result<String> {

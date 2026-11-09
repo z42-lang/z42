@@ -7,15 +7,15 @@
 
 use std::sync::atomic::Ordering;
 
-use crate::vm::exec::call::frames::VmFrame;
+use crate::exec::call::frames::VmFrame;
 use crate::jit::runtime::frame::JitFrame;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use crate::jit::compile::state::{install, install_tuned};
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, CallInsn, Instruction, Terminator};
 use crate::zpkg::ir::ExecMode;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 fn func(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Function {
     Function::new(crate::zpkg::ir::Function {
@@ -138,13 +138,13 @@ fn worker_reaching_the_tier_threshold_compiles_in_thread() {
     let module = module_of(vec![calls("A", "B"), returns("B", 7)]);
     let vm = VmContext::new();
     install_tuned(&vm, &module, |rt| rt.jit_threshold = 2);
-    crate::vm::runtime::resolve::resolve_function_tokens(&module.functions[0], &module, &vm);
+    crate::metadata::resolve::resolve_function_tokens(&module.functions[0], &module, &vm);
     std::thread::scope(|s| {
         s.spawn(|| {
             let w = VmContext::new_with_core(vm.core_arc());
             for _ in 0..3 {
                 let r = crate::interp::run::exec_function(&w, &module, &module.functions[0], &[]);
-                assert!(matches!(r, Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(_))), "{r:?}");
+                assert!(matches!(r, Ok(crate::exec::call::outcome::ExecOutcome::Returned(_))), "{r:?}");
             }
             assert_eq!(compiled_here(&w), 1, "B compiled on the worker");
             assert_eq!(w.counters().jit_native_from_interp.load(Ordering::Relaxed), 2,
@@ -182,7 +182,7 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
     // Fatal already set: an overflow below still unwinds as one, but leaves the
     // process-wide report (which other tests read) alone.
     vm.core.threads.fatal.store(true, Ordering::SeqCst);
-    let main_limit = crate::vm::exec::stack_guard::limit();
+    let main_limit = crate::exec::stack_guard::limit();
     let core = vm.core_arc();
     let (stored, own, forced, deep) = std::thread::Builder::new()
         .stack_size(8 << 20)
@@ -204,7 +204,7 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
             w.pop_frame();
             // Unbounded recursion on this thread's 8 MiB stack stops at its own limit.
             let deep = crate::jit::run_fn(&w, "r").expect_err("overflows").to_string();
-            (stored, crate::vm::exec::stack_guard::limit(), forced, deep)
+            (stored, crate::exec::stack_guard::limit(), forced, deep)
         })
         .expect("spawn")
         .join()
@@ -261,8 +261,8 @@ fn reinstall_keeps_the_published_config_and_tier() {
 
 #[test]
 fn explicit_mixed_entry_config_counts_before_compiling() {
-    use crate::vm::exec::engine::{TierBackend, TierTarget};
-    use crate::vm::exec::call::{args::CallArgs, outcome::ExecOutcome};
+    use crate::exec::engine::{TierBackend, TierTarget};
+    use crate::exec::call::{args::CallArgs, outcome::ExecOutcome};
     let config = crate::config::RuntimeConfig::from_getter(|key| match key {
         "Z42_JIT_THRESHOLD" => Some("10".to_string()),
         "Z42_JIT_INTERP_TIERUP" => Some("2".to_string()),

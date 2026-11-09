@@ -9,7 +9,7 @@ builtin」），登记进 `BUILTINS` 表（`corelib/builtins.rs` 把各 `#[built
 由解释器 `Instruction::Builtin`、JIT `jit_builtin` 和 `[Native]` 包装函数的折叠调用经
 `invoke_builtin` 调用——实参原地从调用方寄存器读。
 
-**不做**：语言语义（在 `interp` / `jit`）、静态产物定义（在 `z42-zpkg`）与运行时链接状态（在 `vm/runtime`）、
+**不做**：语言语义（在 `interp` / `jit`）、静态产物定义（在 `z42-zpkg`）与运行时链接状态（在 `metadata`）、
 GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / Assert 等）都已从
 这里下沉到 stdlib 脚本，corelib 只保留真正需要 Rust 的最小面。
 
@@ -17,7 +17,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 
 对象 GetType、默认 ToString、按名称与泛型实参构造 Type 的实现由门面登记进 VM 对象协议。VM 执行层经自身私有协议服务调用，核心库仍负责反射对象物化；默认 ToString 仍返回 Rust String，由执行调用方在原位置分配托管字符串并映射错误。
 
-反射调用、attribute factory 和线程 action 经 `vm::exec::engine` 的每 VM 注册槽回调脚本；
+反射调用、attribute factory 和线程 action 经 `exec::engine` 的每 VM 注册槽回调脚本；
 调用参数、类型实参与 `ExecOutcome` 由 VM 调用协议承接。
 
 ## 功能索引
@@ -25,8 +25,8 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | 功能 | 入口 / 文件 |
 |------|-----------|
 | 隔离应用执行 / 退出报告 | `application.rs` 私有服务，由门面创建前注入；worker 只复制函数指针，不引用门面 RunOpts |
-| builtin 实现与登记 | 各功能模块生成 DESCS；门面 `corelib/builtins.rs` 编译期装配。名称/ID 查询在 `vm/runtime/builtins.rs`，分发在 `vm/exec/call/builtins.rs` |
-| builtin ABI v2：类型化实参 / 返回值、`BuiltinError` 与异常类、`blocking` | **`vm/exec/call/builtin_abi/`**（`args.rs` / `ret.rs` / `error.rs`；宏在 `crates/z42-macros/src/builtins_attr.rs`） |
+| builtin 实现与登记 | 各功能模块生成 DESCS；门面 `corelib/builtins.rs` 编译期装配。名称/ID 查询在 `metadata/builtins.rs`，分发在 `exec/call/builtins.rs` |
+| builtin ABI v2：类型化实参 / 返回值、`BuiltinError` 与异常类、`blocking` | **`exec/call/builtin_abi/`**（`args.rs` / `ret.rs` / `error.rs`；宏在 `crates/z42-macros/src/builtins_attr.rs`） |
 | 值转换 / 解析（`Parse` / `TryParse`）/ to-string / 装箱 | `core/convert.rs`（`typed` 模块，ABI v2）；纯值格式化从 object/value 直接再导出 |
 | 控制台 IO（print / readline：`typed` 模块，ABI v2；写进程 stdout / stderr 与读 stdin 都 park）/ TestIO 捕获（sink 栈） | `io/mod.rs` |
 | 字符串操作 / 字符（含 UTF-8 存储探测 `__str_index_of_any_ascii` 与 bulk 原语 `__str_copy_utf8` / `__str_from_utf8` / `__str_to_chars` / `__str_substring` / `__str_concat_parts` / `__str_concat_parts_utf8` / `__str_split` / `__str_join`：Substring / StringBuilder.ToString / Join / Concat / Split 的底座，一次拷贝取代逐字符 builtin 派发）| `core/string.rs` / `str_meta.rs` / `core/char.rs` |
@@ -61,7 +61,7 @@ Monitor 状态定义在 `object/object/monitor.rs`，核心库实现持有者检
    ```rust
    #[z42_macros::builtins]
    pub mod typed {
-       use crate::vm::exec::call::builtin_abi::BuiltinError;
+       use crate::exec::call::builtin_abi::BuiltinError;
        #[builtin(name = "__foo_bar", pure)]
        pub fn foo_bar(s: &str, n: i64) -> Result<String, BuiltinError> { … }
    }
@@ -121,7 +121,7 @@ xtask test stdlib
 | `resource_registry.rs` | 模块资源表的锁、单调槽号与必需扩展状态查询；阻塞 I/O 的锁边界由调用模块维护 |
 |------|------|
 | `mod.rs` | 名称↔`BuiltinId` 解析 + `invoke_builtin` / `exec_builtin` 分发 |
-| `../vm/exec/call/builtin_abi/` | builtin ABI v2：`BuiltinDesc` / `FromArg` / `IntoRet` / `Blocking` / `BuiltinError` + `raise`（两引擎共用的失败出口）；`test_builtins.rs` 是 `cfg(test)` 的测试用 builtin |
+| `../exec/call/builtin_abi/` | builtin ABI v2：`BuiltinDesc` / `FromArg` / `IntoRet` / `Blocking` / `BuiltinError` + `raise`（两引擎共用的失败出口）；`test_builtins.rs` 是 `cfg(test)` 的测试用 builtin |
 | `corelib/builtins.rs` | `BUILTINS`：各 `#[builtins]` 模块的 `DESCS` 经 `abi::concat_descs` 编译期拼接（下标即 `BuiltinId`，不跨进程持久化） |
 | `core/reflection/mod.rs` | 反射 hub —— 导入 + 共享常量 + 私有 re-glob 各 concern 子模块（兄弟经 `use super::*` 互见）+ `pub use` 保留公开 API |
 | `core/reflection/type_object.rs` | `Std.Type` 对象构造（`make_type_object` / `make_type_from_name` / `make_constructed_type`）+ handle/slot 辅助 |

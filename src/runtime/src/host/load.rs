@@ -1,7 +1,7 @@
 //! Shared artifact preparation for CLI and embedded hosts.
 use std::{collections::HashSet, path::{Path, PathBuf}, sync::Arc};
 use anyhow::{bail, Context, Result};
-use crate::{zpkg::ExecMode, pal::fs::Vfs, vm::loader::{LoadedArtifact, lazy::ZpkgCandidate}};
+use crate::{zpkg::ExecMode, pal::fs::Vfs, loader::{LoadedArtifact, lazy::ZpkgCandidate}};
 use super::runtime::{LoadOptions, LoadedProgram};
 
 fn vfs_exists(fs: &dyn Vfs, p: &Path) -> bool { p.to_str().is_some_and(|s| fs.exists(s)) }
@@ -61,7 +61,7 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
     let fs = &*vfs;
     let search_dirs = options.search_dirs.clone();
     let file = source_path.unwrap_or("<memory>");
-    let mut modules: Vec<crate::vm::runtime::Module> = Vec::new();
+    let mut modules: Vec<crate::metadata::Module> = Vec::new();
     // Track canonical paths of loaded artifact files to prevent duplicate loading.
     let mut loaded_paths: HashSet<PathBuf> = HashSet::new();
     // Track zpkg file names loaded eagerly at startup (initially_loaded input
@@ -164,7 +164,7 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
         loop {
             while let Some(ns) = ns_queue.pop_front() {
                 if visited_resolver_namespace(options, &initially_loaded_zpkgs, &ns) { continue; }
-                let Ok(zpkg_paths) = crate::vm::loader::resolve_namespace(fs, &ns, &libs_paths)
+                let Ok(zpkg_paths) = crate::loader::resolve_namespace(fs, &ns, &libs_paths)
                 else { continue };
                 for zpkg_path in zpkg_paths {
                     if let Some(name) = zpkg_path.file_name().and_then(|n| n.to_str()) {
@@ -211,14 +211,14 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
     let final_module = if modules.len() == 1 {
         modules.into_iter().next().ok_or_else(|| anyhow::anyhow!("no module to load"))?
     } else {
-        let mut m = crate::vm::loader::merge_modules(modules)
+        let mut m = crate::loader::merge_modules(modules)
             .with_context(|| format!("merging modules for `{}`", file))?;
         m.name = user_module_name;
-        crate::vm::runtime::types::build_type_registry(&mut m);
-        crate::vm::runtime::types::verify_constraints(&m)
+        crate::metadata::types::build_type_registry(&mut m);
+        crate::metadata::types::verify_constraints(&m)
             .with_context(|| format!("constraint verification failed for `{}`", file))?;
         crate::host::artifact::build_block_indices(&mut m);
-        crate::vm::loader::package::build_func_index(&mut m);
+        crate::loader::package::build_func_index(&mut m);
         m
     };
 
@@ -239,7 +239,7 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
     components.install(&ctx)?;
     crate::components::backends::attach(&ctx, options.mode)?;
     for (name, byte_size) in loaded_for_replay {
-        ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size });
+        ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size });
     }
     LoadedProgram::new(ctx, options.mode, entry_hint)
 }
@@ -301,7 +301,7 @@ fn build_declared_candidates(
             continue;
         }
         for ns in &dep.namespaces {
-            let Ok(zpkg_paths) = crate::vm::loader::resolve_namespace(fs, ns, &libs_paths) else {
+            let Ok(zpkg_paths) = crate::loader::resolve_namespace(fs, ns, &libs_paths) else {
                 continue;
             };
             for zpkg_path in zpkg_paths {
@@ -328,7 +328,7 @@ fn build_declared_candidates(
 
     // .zbc import_namespaces — reverse lookup
     for ns in &user_artifact.import_namespaces {
-        let Ok(zpkg_paths) = crate::vm::loader::resolve_namespace(fs, ns, &libs_paths) else {
+        let Ok(zpkg_paths) = crate::loader::resolve_namespace(fs, ns, &libs_paths) else {
             continue;
         };
         for zpkg_path in zpkg_paths {

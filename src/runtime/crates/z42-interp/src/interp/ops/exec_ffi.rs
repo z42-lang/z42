@@ -12,10 +12,10 @@
 ///     vtable slot) stay as `anyhow!` errors but without the legacy
 ///     `Z####:` prefix — the error message text is the diagnostic itself.
 
-use crate::vm::exec::exception::make_stdlib_exception;
-use crate::vm::runtime::Module;
+use crate::exec::exception::make_stdlib_exception;
+use crate::metadata::Module;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{bail, Result};
 
 use super::Frame;
@@ -39,21 +39,21 @@ pub(super) fn ffi_call(
     // marshal error) are counted — they still represent FFI traffic.
     ctx.counters().native_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     if ctx.has_runtime_observers() {
-        ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::NativeCallEntered {
+        ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::NativeCallEntered {
             module: module_name.to_string(),
             symbol: format!("{type_name}::{symbol}"),
         });
     }
 
-    let result = match (crate::vm::exec::native::services(ctx)?.call)(
+    let result = match (crate::exec::native::services(ctx)?.call)(
         ctx, module_name, type_name, symbol, &frame.regs, args,
     ) {
         Ok(result) => result,
-        Err(crate::vm::exec::native::NativeCallError::InvalidMarshal(message)) => {
+        Err(crate::exec::native::NativeCallError::InvalidMarshal(message)) => {
             let exc = make_stdlib_exception(ctx, module, INVALID_MARSHAL_FQ, message)?;
             return Ok(Some(exc));
         }
-        Err(crate::vm::exec::native::NativeCallError::Internal(error)) => return Err(error),
+        Err(crate::exec::native::NativeCallError::Internal(error)) => return Err(error),
     };
     frame.set(dst, result);
     Ok(None)
@@ -85,7 +85,7 @@ pub(super) fn pin_ptr(
     // the register holds only an 8B `{idx, frame_id}` handle.
     let mk_view = |ctx: &VmContext, data: crate::object::PinnedViewData| {
         let idx = ctx.exec().transient_arena.lock()
-            .alloc(fid, crate::vm::exec::call::transient_arena::TransientPayload::PinView(data));
+            .alloc(fid, crate::exec::call::transient_arena::TransientPayload::PinView(data));
         Value::PinnedView { idx, frame_id: fid }
     };
     let view = match frame.get(src)? {
@@ -123,7 +123,7 @@ pub(super) fn pin_ptr(
             };
             let len = bytes.len() as u64;
             let buf: Box<[u8]> = bytes.into_boxed_slice();
-            let ptr = (crate::vm::exec::native::services(ctx)?.pin_owned_buffer)(ctx, buf)?;
+            let ptr = (crate::exec::native::services(ctx)?.pin_owned_buffer)(ctx, buf)?;
             mk_view(ctx, crate::object::PinnedViewData {
                 ptr,
                 len,
@@ -148,12 +148,12 @@ pub(super) fn unpin_ptr(ctx: &VmContext, frame: &Frame, pinned: u32) -> Result<(
         // make-value-copy: resolve the PinnedView handle → (kind, ptr) via the arena.
         &Value::PinnedView { idx, frame_id } => {
             let (kind, ptr) = ctx.exec().transient_arena.lock().with(idx, frame_id, |p| match p {
-                crate::vm::exec::call::transient_arena::TransientPayload::PinView(pv) => (pv.kind, pv.ptr),
+                crate::exec::call::transient_arena::TransientPayload::PinView(pv) => (pv.kind, pv.ptr),
                 _ => (crate::object::PinSourceKind::Str, 0),
             })?;
             if kind == crate::object::PinSourceKind::ArrayU8 {
                 // Spec C10: drop the snapshot Box<[u8]> owned by the interop state since PinPtr.
-                (crate::vm::exec::native::services(ctx)?.release_owned_buffer)(ctx, ptr)?;
+                (crate::exec::native::services(ctx)?.release_owned_buffer)(ctx, ptr)?;
             }
             // Str pin: borrowed from the source String — no-op (future moving GC would
             // deregister the pin-set entry here).

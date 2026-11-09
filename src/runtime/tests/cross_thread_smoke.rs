@@ -16,11 +16,11 @@ use std::sync::Arc;
 use std::thread;
 
 use z42::gc::{Heap};
-use z42::vm::runtime::{Function, Module};
+use z42::metadata::{Function, Module};
 use z42_zpkg::ir::{BasicBlock, Terminator};
 use z42_zpkg::ir::ExecMode;
 use z42::object::Value;
-use z42::vm::context::VmContext;
+use z42::context::VmContext;
 
 // 🪦 这里原有两个测试 `mutex_serializes_concurrent_increments_across_threads` /
 // `channel_producer_consumer_hand_off_across_threads`，直接调 `corelib::sync` 的
@@ -115,9 +115,9 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
     ctx.core().exec().engines.register_baseline(&z42_interp::engine::ENGINE).unwrap();
 
     // P1-2 PR 8: a `FuncRef` holds its target's `FnId` — the entry module's index 0.
-    let action = Value::FuncRef(z42::vm::runtime::ids::tokens::FnId(0));
+    let action = Value::FuncRef(z42::metadata::ids::tokens::FnId(0));
     // Drive the builtin through the table, as the stdlib's `[Native]` wrapper does.
-    let spawn_result = z42::vm::exec::call::builtins::exec_builtin_value(&ctx, "__thread_spawn", &[action])
+    let spawn_result = z42::exec::call::builtins::exec_builtin_value(&ctx, "__thread_spawn", &[action])
         .expect("__thread_spawn should succeed for a valid FuncRef");
     let slot_id = match spawn_result {
         Value::I64(n) => n,
@@ -127,16 +127,16 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
 
     // `__thread_wait` is a void builtin: success is the absence of an error; a
     // worker that threw / panicked surfaces as a `Std.Threading.ThreadException`.
-    z42::vm::exec::call::builtins::exec_builtin(&ctx, "__thread_wait", &[Value::I64(slot_id)])
+    z42::exec::call::builtins::exec_builtin(&ctx, "__thread_wait", &[Value::I64(slot_id)])
         .expect("__thread_wait should not error for a known slot");
 
     // Second wait on the same slot → ThreadException (handle consumed).
-    let second = z42::vm::exec::call::builtins::exec_builtin(&ctx, "__thread_wait", &[Value::I64(slot_id)])
+    let second = z42::exec::call::builtins::exec_builtin(&ctx, "__thread_wait", &[Value::I64(slot_id)])
         .expect_err("second wait on the same slot must fail");
-    let err = second.downcast::<z42::vm::exec::call::builtin_abi::BuiltinError>()
+    let err = second.downcast::<z42::exec::call::builtin_abi::BuiltinError>()
         .expect("a typed builtin error");
     match err {
-        z42::vm::exec::call::builtin_abi::BuiltinError::Exception { class, message } => {
+        z42::exec::call::builtin_abi::BuiltinError::Exception { class, message } => {
             assert_eq!(class, "Std.Threading.ThreadException");
             assert_eq!(message, "thread already joined");
         }
@@ -163,7 +163,7 @@ fn gc_collect_with_concurrent_mutators_no_race() {
     //
     // Success criterion: completes 100 collect rounds without panic /
     // deadlock; final heap is internally consistent.
-    use z42::vm::threads::safepoint::{check_safepoint, request_gc_pause};
+    use z42::threads::safepoint::{check_safepoint, request_gc_pause};
 
     let collector = VmContext::with_module(make_void_action_module("CollectorMain"));
     let n_workers = 4usize;
@@ -174,7 +174,7 @@ fn gc_collect_with_concurrent_mutators_no_race() {
     for _ in 0..n_workers {
         let core = collector.core_arc();
         worker_handles.push(thread::spawn(move || {
-            let w = z42::vm::context::VmContext::new_with_core(core);
+            let w = z42::context::VmContext::new_with_core(core);
             for _ in 0..iters_per_worker {
                 // add-gc-safepoint-counter-throttling (2026-05-21): force
                 // slow path every iter — the default throttle (1024)
@@ -223,7 +223,7 @@ fn auto_collect_triggers_via_safepoint_no_race() {
     // CAS-guarded `request_gc_pause` ensures only one becomes the
     // active collector; the others park-as-mutator → no deadlock.
     use std::sync::atomic::{AtomicUsize, Ordering as AtoOrd};
-    use z42::vm::threads::safepoint::check_safepoint;
+    use z42::threads::safepoint::check_safepoint;
 
     let main = VmContext::with_module(make_void_action_module("AutoCollectMain"));
     main.heap().set_max_heap_bytes(Some(8 * 1024));
@@ -237,7 +237,7 @@ fn auto_collect_triggers_via_safepoint_no_race() {
         let core = main.core_arc();
         let active_clone = Arc::clone(&active);
         handles.push(thread::spawn(move || {
-            let w = z42::vm::context::VmContext::new_with_core(core);
+            let w = z42::context::VmContext::new_with_core(core);
             for _ in 0..iters_per_worker {
                 let _ = w.heap().alloc_array(vec![
                     Value::I64(0), Value::I64(1), Value::I64(2), Value::I64(3),
@@ -285,7 +285,7 @@ fn concurrent_gc_collect_callers_arbitrate() {
     // atomic counter and have main loop check_safepoint until both
     // workers finish.
     use std::sync::atomic::{AtomicUsize, Ordering as AtoOrd};
-    use z42::vm::threads::safepoint::{check_safepoint, request_gc_pause};
+    use z42::threads::safepoint::{check_safepoint, request_gc_pause};
 
     let main = VmContext::with_module(make_void_action_module("ArbitrateMain"));
     let collected = Arc::new(AtomicUsize::new(0));
@@ -300,7 +300,7 @@ fn concurrent_gc_collect_callers_arbitrate() {
         let none_c = Arc::clone(&none_returned);
         let active_c = Arc::clone(&active);
         handles.push(thread::spawn(move || {
-            let w = z42::vm::context::VmContext::new_with_core(core);
+            let w = z42::context::VmContext::new_with_core(core);
             let pause = request_gc_pause(&w);
             let got_some = pause.is_some();
             if got_some {
@@ -388,6 +388,6 @@ fn dummy_type_desc(name: &str) -> Arc<z42::object::TypeDesc> {
         vtable: Vec::new(),
         vtable_index: z42_zpkg::NameIndex::new(),
         cold: None,
-        id: z42::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: z42::metadata::ids::tokens::TypeId::UNRESOLVED,
     })
 }

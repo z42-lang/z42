@@ -48,7 +48,7 @@ fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
             let module = ctx.module().unwrap();
             let hot = module.functions.iter().find(|f| f.name == "EngineComponentProbe.HotLoop").unwrap();
             let result = ctx.core().exec().engines.invoke_mode(ExecMode::Interp, ctx, module, hot, &[Value::I64(20_000)]).unwrap();
-            assert!(matches!(result, z42::vm::exec::call::outcome::ExecOutcome::Returned(Some(Value::I64(199_990_000)))));
+            assert!(matches!(result, z42::exec::call::outcome::ExecOutcome::Returned(Some(Value::I64(199_990_000)))));
             assert!(ctx.counters_snapshot().jit_native_from_interp > before, "dynamic interpreter must hand its hot loop to the dynamic JIT");
             assert_eq!(component_ids(ctx), [INTERP_COMPONENT, JIT_COMPONENT]);
         } else {
@@ -140,7 +140,7 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
 #[test]
 fn dynamic_interpreter_preserves_native_pin_instructions() {
     use z42_zpkg::{BasicBlock, FieldGetInsn, Instruction, Terminator};
-    use z42::vm::{runtime::Function, exec::call::outcome::ExecOutcome};
+    use z42::{metadata::Function, exec::call::outcome::ExecOutcome};
     let module = z42::host::Module::new(z42_zpkg::image::ModuleData {
         name: "PinProbe".into(), string_pool: vec!["shared-core".into()],
         classes: vec![], func_index: Default::default(),

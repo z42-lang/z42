@@ -5,9 +5,9 @@
 /// `FnEntry` is one compiled function as the shared JIT runtime
 /// (`crate::jit::compile::state::JitRuntime`) hands it out.
 
-use crate::vm::runtime::Function;
+use crate::metadata::Function;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 // ── JitFrame ─────────────────────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ pub struct JitFrame<'a> {
     /// `regs.as_mut_ptr()`, set by every constructor once `regs` is sized. The
     /// register file is never resized while the frame exists (sized to the
     /// function's `max_reg + 1` up front; JIT code and helpers only index it —
-    /// and the one cross-frame resize, `vm::exec::ops::references::store_thru_ref`, can't
+    /// and the one cross-frame resize, `exec::ops::references::store_thru_ref`, can't
     /// reach a JIT frame: `LoadLocalAddr` is JIT-unsupported, and a slot index
     /// is always `<= max_reg` anyway), so the buffer never moves and this stays
     /// valid until [`JitFrame::recycle`] hands `regs` back to the pool. Moving the
@@ -171,9 +171,9 @@ pub struct FnEntry {
     pub func:    *const Function,
     /// The function's `owner_init` cell (shared, see `Function::owner_init`),
     /// so `jit_call`'s cctor barrier needs no name-based owner lookup.
-    pub owner_init: crate::vm::runtime::OwnerInitCell,
+    pub owner_init: crate::metadata::OwnerInitCell,
     /// `Some(fold token)` when the function is a pure `[Native]` extern wrapper
-    /// (`vm::exec::call::forward::forward_of`); the call helpers then skip the activation and
+    /// (`exec::call::forward::forward_of`); the call helpers then skip the activation and
     /// dispatch the builtin directly (see [`crate::jit::runtime::forward`]).
     pub forward: Option<u32>,
 }

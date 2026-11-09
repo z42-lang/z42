@@ -13,7 +13,7 @@ use crate::object::ArrRef;
 use crate::object::{default_value_for, ArrayObj};
 use crate::object::Value;
 use crate::objops;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 /// Normalize any element-type spelling (short alias / VM tag / FQ wrapper) to the
 /// **short element tag** the array modes key on (`ElemKind::of`). Reference types
@@ -70,7 +70,7 @@ fn type_name_of(v: &Value) -> Option<String> {
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
-    use crate::vm::exec::call::builtin_abi::BuiltinError;
+    use crate::exec::call::builtin_abi::BuiltinError;
 
     /// Conservative storage query: only packed primitive arrays are known reference-free.
     #[builtin(name = "__array_may_contain_refs", pure)]

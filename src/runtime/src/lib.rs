@@ -1,7 +1,12 @@
 //! Unified runtime library. Optional execution backends live in independent crates.
 extern crate self as z42;
 pub use z42_zpkg as zpkg;
-pub mod vm;
+pub mod context;
+pub mod exec;
+pub mod loader;
+pub mod metadata;
+pub mod diagnostics;
+pub mod threads;
 pub mod object;
 pub mod gc;
 pub mod pal;
@@ -10,7 +15,7 @@ pub mod profiler;
 pub mod interop;
 pub mod host;
 pub mod config;
-pub use vm::exec::ops::object as objops;
+pub use exec::ops::object as objops;
 pub mod components;
 #[cfg(test)]
 #[path = "../crates/z42-interp/src/interp/mod.rs"]

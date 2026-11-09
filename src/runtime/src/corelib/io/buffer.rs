@@ -1,6 +1,6 @@
 //! Shared managed byte buffer access for native I/O builtins.
 
-use crate::vm::exec::call::builtin_abi::BuiltinError;
+use crate::exec::call::builtin_abi::BuiltinError;
 
 /// .NET `Stream.Read` / `Write` argument checks against a buffer of `len` bytes.
 pub(crate) fn check_buffer_range(offset: i64, count: i64, len: usize) -> Result<(usize, usize), BuiltinError> {

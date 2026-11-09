@@ -3,11 +3,11 @@
 //! guards (`emit_arith_guarded_binop` / `emit_cmp_guarded`) or falls to the fat
 //! helper. Each case asserts the JIT and the interpreter agree.
 
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, Instruction, Terminator};
 use crate::zpkg::ir::ExecMode;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 fn func(name: &str, instructions: Vec<Instruction>, ret: u32) -> Function {
     Function::new(crate::zpkg::ir::Function {
@@ -47,8 +47,8 @@ fn module_of(strings: &[&str], functions: Vec<Function>) -> Module {
 fn interp(vm: &VmContext, m: &Module, name: &str) -> Value {
     let idx = m.func_index[name];
     match crate::interp::run::exec_function(vm, m, &m.functions[idx], &[]).expect("runs") {
-        crate::vm::exec::call::outcome::ExecOutcome::Returned(v) => v.unwrap_or(Value::Null),
-        crate::vm::exec::call::outcome::ExecOutcome::Thrown(exc) => panic!("threw {exc:?}"),
+        crate::exec::call::outcome::ExecOutcome::Returned(v) => v.unwrap_or(Value::Null),
+        crate::exec::call::outcome::ExecOutcome::Thrown(exc) => panic!("threw {exc:?}"),
     }
 }
 
@@ -139,7 +139,7 @@ fn guarded_ordering_on_i64() {
     let vm = VmContext::new();
     let idx = m.func_index["lt_ss"];
     match crate::interp::run::exec_function(&vm, &m, &m.functions[idx], &[]) {
-        Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(_)) | Err(_) => {}
+        Ok(crate::exec::call::outcome::ExecOutcome::Thrown(_)) | Err(_) => {}
         other => panic!("expected throw, got {other:?}"),
     }
 }

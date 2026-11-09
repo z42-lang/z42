@@ -3,7 +3,7 @@ use super::{ComponentOptions, component_interface};
 use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 use crate::components::api::*;
-use crate::{zpkg::ExecMode, vm::{context::VmContext, exec::engine::EngineRegistry}};
+use crate::{zpkg::ExecMode, context::VmContext, exec::engine::EngineRegistry};
 
 #[derive(Clone, Debug, Default)]
 pub enum BackendSource {
@@ -142,7 +142,7 @@ pub(crate) fn attach(ctx: &VmContext, mode: ExecMode) -> Result<()> {
 
 pub(crate) fn registry() -> EngineRegistry {
     #[cfg(test)]
-    let baseline = Some(&crate::interp::engine::ENGINE as &'static dyn crate::vm::exec::engine::Engine);
+    let baseline = Some(&crate::interp::engine::ENGINE as &'static dyn crate::exec::engine::Engine);
     #[cfg(not(test))]
     let baseline = None;
     let registry = EngineRegistry::new(baseline);

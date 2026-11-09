@@ -17,7 +17,7 @@
 //! it from `compile_module` (the JIT build-time path that's call-site,
 //! not raw-pointer-bound). Doesn't change `compile_module(&Module)` signature.
 //! No helper reads through the trait at present: `jit_obj_new`'s class / ctor
-//! resolution is shared with the interpreter (`vm::exec::ops::obj_new`).
+//! resolution is shared with the interpreter (`exec::ops::obj_new`).
 //!
 //! Phase 2 (separate spec, not started): migrate the helpers to call trait
 //! methods through a raw-pointer-but-typed indirection. Phase 3 (likely Phase 2.5)
@@ -34,7 +34,7 @@
 //! - **Phase 2/3 lever**: when the time comes to make `compile_module`
 //!   generic, the trait is already there; we just change a signature.
 
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::object::TypeDesc;
 use std::sync::Arc;
 

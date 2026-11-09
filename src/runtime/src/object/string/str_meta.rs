@@ -36,7 +36,7 @@
 //! returns the WRONG string's metadata (observed on wasm32, where linear-memory
 //! addresses recycle densely and deterministically: e.g. `"".Length == 13`). The fix
 //! is to scope the cache to a single heap's address space via the per-heap monotonic
-//! epoch ([`crate::vm::exec::ambient::current_heap_epoch`]): entries are computed under one
+//! epoch ([`crate::exec::ambient::current_heap_epoch`]): entries are computed under one
 //! epoch, and the whole cache is dropped the moment execution switches to a different
 //! epoch. Because the epoch is never reused, a recycled address in a *new* heap can
 //! never be mistaken for a live entry from the *old* one.
@@ -52,7 +52,7 @@
 //! non-boundary). So an entry whose block may be in a dedicated chunk records that chunk's `(chunk, epoch)` stamp — the identity
 //! weak references use; the epoch moves when the chunk is freed — and every lookup compares the
 //! process-wide dedicated-free count (one load). Both come from the heap layer through
-//! [`crate::vm::exec::ambient::cache_scope`], the one ambient entry this cache uses. When the
+//! [`crate::exec::ambient::cache_scope`], the one ambient entry this cache uses. When the
 //! count moved since the last lookup, each stamped entry is re-checked against its chunk under
 //! the region lock and dropped if the chunk was freed — before anything reads its header.
 //! Bump-chunk entries are never re-checked, and a free elsewhere costs a dedicated entry one
@@ -142,7 +142,7 @@ fn with_meta<R>(s: &Str, query: Query, f: impl FnOnce(&StrMeta) -> R) -> R {
     // generation guard only distinguishes reuse WITHIN one region). The per-heap monotonic epoch
     // (`ambient::current_heap_epoch`, never reused) changes on every heap switch; drop the whole
     // cache when it does. Within one heap the epoch is constant ⇒ no clearing, no perf loss.
-    let scope = crate::vm::exec::ambient::cache_scope();
+    let scope = crate::exec::ambient::cache_scope();
     let (epoch, frees) = (scope.epoch, scope.dedicated_frees);
     CACHE.with(|c| {
         let mut cache = c.borrow_mut();

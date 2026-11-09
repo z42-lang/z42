@@ -1,0 +1,61 @@
+//! 静态字段读写：`StaticGet` / `StaticSet` 的唯一实现。
+//!
+//! 每次访问先过初始化屏障（包初始化器 → 属主类型的静态构造器），失败抛可 catch 的
+//! `TypeInitializationException`。读到 `Null` 时才确证字段是否声明过：未声明 → 缺符号异常；
+//! 声明了但从未赋值 → 惰性装入该字段类型的零值（值 struct 是一个全零的盒子，见
+//! `symres::static_zero_value`）。值本身在 `VmCore.statics` 的单元里，读写不拿锁
+//! （`metadata::statics`）。JIT 生成码内联屏障的稳态判定与常见形态的单元读写
+//! （`jit::translate::static_field`），其余情况经 helper 调这里。
+
+use crate::metadata::ids::tokens::StaticFieldId;
+use crate::metadata::Module;
+use crate::object::Value;
+use crate::exec::init::make_type_init_exception;
+use crate::context::symres::{verify_static_field, StaticNullVerdict};
+use crate::context::VmContext;
+
+use super::error::{OpError, OpResult};
+
+/// 初始化屏障（`VmContext::ensure_static_field_init`：包初始化器 → 属主类型的静态构造器）。
+/// 稳态代价：屏障纪元一次 relaxed load + 字段单元里的放行记录一次 acquire load。
+#[inline]
+fn barrier(ctx: &VmContext, module: &Module, field: &str, field_id: Option<u32>) -> OpResult<()> {
+    ctx.ensure_static_field_init(field, field_id)
+        .map_err(|msg| OpError::Thrown(make_type_init_exception(ctx, module, &msg)))
+}
+
+/// `StaticGet`。`field_id` = 解析好的槽号（`None` → 按名找，惰性分配槽号）。
+pub fn static_get(ctx: &VmContext, module: &Module, field: &str, field_id: Option<u32>) -> OpResult<Value> {
+    barrier(ctx, module, field, field_id)?;
+    let v = match field_id {
+        Some(id) => ctx.static_get_by_id(StaticFieldId(id)),
+        None => ctx.static_get(field),
+    };
+    // Null 本身是合法值（未赋值的引用型静态字段），只在读到它时确证。
+    if !matches!(v, Value::Null) { return Ok(v); }
+    match verify_static_field(ctx, module, field) {
+        StaticNullVerdict::Ok => Ok(v),
+        StaticNullVerdict::Missing(exc) => Err(OpError::Thrown(exc)),
+        // 惰性零初始化：只在槽位仍未写过时装入（先到者胜），后续读不再走这条确证路径。
+        // 不能用普通写：会盖掉并发的真实赋值；值 struct 的零值是一个盒子，两个首读各装各的盒子
+        // 会让经输家盒子做的叶子写（`S.P.X = 1`）悄悄丢失。
+        StaticNullVerdict::Default(d) => ctx
+            .static_init_default(field, field_id.map(StaticFieldId), &d)
+            .map_err(|e| OpError::internal(format!("static field `{field}`: {e}"))),
+    }
+}
+
+/// `StaticSet`。
+pub fn static_set(ctx: &VmContext, module: &Module, field: &str, field_id: Option<u32>, v: Value) -> OpResult<()> {
+    barrier(ctx, module, field, field_id)?;
+    store(ctx, field, field_id, v)
+}
+
+#[inline]
+fn store(ctx: &VmContext, field: &str, field_id: Option<u32>, v: Value) -> OpResult<()> {
+    match field_id {
+        Some(id) => ctx.static_set_by_id(StaticFieldId(id), v),
+        None => ctx.static_set(field, v),
+    }
+    .map_err(|e| OpError::internal(format!("static field `{field}`: {e}")))
+}

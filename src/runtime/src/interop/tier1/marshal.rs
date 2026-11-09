@@ -16,7 +16,7 @@ use super::dispatch::{
     Z42_VALUE_TAG_NATIVEPTR, Z42_VALUE_TAG_NULL,
 };
 
-pub use crate::vm::exec::native::NativeCallError as MarshalErr;
+pub use crate::exec::native::NativeCallError as MarshalErr;
 
 /// Per-call scratch storage owning temporary buffers (currently
 /// NUL-terminated `CString`s) whose raw pointers were handed to a native

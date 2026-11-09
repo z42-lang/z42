@@ -11,13 +11,13 @@ pub const CORE_ABI: ExecutionCoreAbi = ExecutionCoreAbi {
         | ((cfg!(feature = "mimalloc-alloc") as u64) << 5)
         | ((cfg!(feature = "profile-contention") as u64) << 6),
     layouts: [
-        core::mem::size_of::<crate::vm::context::VmContext>(),
-        core::mem::size_of::<crate::vm::context::VmCore>(),
+        core::mem::size_of::<crate::context::VmContext>(),
+        core::mem::size_of::<crate::context::VmCore>(),
         core::mem::size_of::<crate::object::Value>(),
-        core::mem::size_of::<crate::vm::runtime::Function>(),
-        core::mem::size_of::<crate::vm::runtime::Module>(),
+        core::mem::size_of::<crate::metadata::Function>(),
+        core::mem::size_of::<crate::metadata::Module>(),
         core::mem::size_of::<crate::object::TypeDesc>(),
         core::mem::align_of::<crate::object::Value>(),
-        crate::vm::context::VM_CONTEXT_STACK_LIMIT_OFFSET,
+        crate::context::VM_CONTEXT_STACK_LIMIT_OFFSET,
     ],
 };

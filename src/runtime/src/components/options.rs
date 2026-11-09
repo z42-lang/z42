@@ -1,7 +1,7 @@
 //! Component selection and automatic attachment of same-build runtime components.
 use super::catalog::{Catalog, Registration};
 use super::VmComponents;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{bail, Result};
 use std::{
     path::PathBuf,

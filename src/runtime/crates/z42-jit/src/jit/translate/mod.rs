@@ -5,7 +5,7 @@
 /// (see `helpers/`). Only branches, jumps, and function entry/exit are
 /// emitted as inline Cranelift instructions.
 
-use crate::vm::runtime::Function;
+use crate::metadata::Function;
 use crate::zpkg::{Instruction, Terminator};
 use crate::zpkg::{
     AsCastInsn, BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, IsInstanceInsn,
@@ -17,7 +17,7 @@ use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlagsData};
 use cranelift_codegen::ir::types;
 use cranelift_codegen::ir::condcodes::IntCC;
 use crate::zpkg::IrType;
-use crate::vm::runtime::ids::tokens::TypeKeyCell;
+use crate::metadata::ids::tokens::TypeKeyCell;
 use cranelift_codegen::Context;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{FuncId, Module as CraneliftModule};

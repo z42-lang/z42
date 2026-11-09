@@ -1,9 +1,9 @@
 //! Baseline engine registration; frame construction remains interpreter-owned.
 use anyhow::Result;
-use crate::vm::exec::call::{args::CallArgs, outcome::ExecOutcome};
-use crate::vm::exec::engine::Engine;
-use crate::vm::runtime::{Function, Module};
-use crate::vm::context::VmContext;
+use crate::exec::call::{args::CallArgs, outcome::ExecOutcome};
+use crate::exec::engine::Engine;
+use crate::metadata::{Function, Module};
+use crate::context::VmContext;
 
 pub static ENGINE: Interpreter = Interpreter;
 pub struct Interpreter;

@@ -1,9 +1,9 @@
 # 超级指令融合（super-instruction fusion）
 
-> 代码：`vm/runtime/fusion.rs`（纯识别规则）、`vm/runtime/fusion.rs`（缓存形态）、`interp/ops/mod.rs`（`eval_cmp` 共享原语）、
+> 代码：`metadata/fusion.rs`（纯识别规则）、`metadata/fusion.rs`（缓存形态）、`interp/ops/mod.rs`（`eval_cmp` 共享原语）、
 > `interp/run/mod.rs`（exec 循环消费）、`interp/frame/mod.rs`（帧预分配）、`z42-zpkg/src/ir/function.rs`
-> （静态 `Function::reg_file_len` / `Instruction::written_reg`）、`vm/runtime/function.rs`（`Function.fused_tails` 缓存）、
-> `vm/loader/package/mod.rs`（`build_block_indices` 回填 `func.max_reg`）。
+> （静态 `Function::reg_file_len` / `Instruction::written_reg`）、`metadata/function.rs`（`Function.fused_tails` 缓存）、
+> `loader/package/mod.rs`（`build_block_indices` 回填 `func.max_reg`）。
 
 ## 为什么
 
@@ -16,17 +16,17 @@
 ## 框架（可扩展——"处理流程框架，便于后续补充"）
 
 ```
-vm/runtime/fusion.rs
+metadata/fusion.rs
 ├── enum SuperInstr        // 融合形态，一个 pattern 一个 variant
 │     └── CmpBr { op,a,b,dst,t_blk,f_blk }   // v1：cmp + BrCond
 ├── enum CmpOp             // 比较算子（与 interp 标量 cmp handler 共享语义）
 
-vm/runtime/fusion.rs
+metadata/fusion.rs
 ├── SuperInstr::recognize(block, targets) -> Option<SuperInstr>   // 规则表（加规则=加一条 arm）
 └── compute_fused_tails(blocks, branch_targets) -> Vec<Option<SuperInstr>>   // load 期一次性识别
 ```
 
-- **识别一次，热路径零成本**：`compute_fused_tails` 在 load 期（`vm/loader/package/indices.rs`，紧挨 `branch_targets`
+- **识别一次，热路径零成本**：`compute_fused_tails` 在 load 期（`loader/package/indices.rs`，紧挨 `branch_targets`
   之后）算好，存进 `Function.fused_tails`（运行期缓存，**无 zbc/格式影响**）。exec
   循环只读 `fused_tails[block_idx]`（O(1)），不做 per-iteration 识别。
 - **加新规则** = ① 加一个 `SuperInstr` variant；② `recognize` 加一条 arm；③ 后端加一个 handler。
@@ -118,4 +118,4 @@ Function::reg_file_len()  ← 权威计数（单一真相），纯函数、不�
   emit，无格式 bump）。`reg_file_len` 三个折叠维度（param / catch reg / 写入 dst）由
   `metadata/bytecode_tests.rs` 单元测试覆盖。
 
-配置采样与调试输出由 `vm/loader/package/indices.rs` 在加载期处理；runtime 识别器只接收块、目标、寄存器类型和显式的类型化开关。
+配置采样与调试输出由 `loader/package/indices.rs` 在加载期处理；runtime 识别器只接收块、目标、寄存器类型和显式的类型化开关。

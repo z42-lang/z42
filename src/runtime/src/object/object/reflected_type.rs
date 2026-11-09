@@ -1,12 +1,12 @@
 //! Stable reflected identities, separate from replaceable metadata descriptors.
 use crate::object::TypeDesc;
-use crate::vm::runtime::ids::{tokens::TypeId, type_table::TypeTable};
+use crate::metadata::ids::{tokens::TypeId, type_table::TypeTable};
 use std::sync::{Arc, Weak};
 
 /// Stable reflection identity. The shape contains no managed object references.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ReflectedTypeKey {
-    Definition(crate::vm::runtime::ids::tokens::TypeId),
+    Definition(crate::metadata::ids::tokens::TypeId),
     Symbol(Arc<str>),
     Array(Option<Arc<ReflectedTypeKey>>),
     Constructed {

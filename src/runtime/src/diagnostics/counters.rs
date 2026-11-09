@@ -1,0 +1,309 @@
+//! `RuntimeCounters` — atomic counters for VM runtime observability.
+//!
+//! Roslyn / CoreCLR parallel: EventCounters / `dotnet-counters monitor`.
+//! docs/review.md Part 4 D6  — last remaining Part 4 ops/devex
+//! item; was P0 because production environments had zero visibility into
+//! runtime activity (JIT compiles / builtin calls / exception traffic).
+//!
+//! # Increment sites (current)
+//!
+//! - `builtin_calls`         ← `exec::call::builtins::exec_builtin`
+//! - `native_calls`          ← `interp::ops::exec_ffi::ffi_call`
+//! - `jit_methods_compiled`  ← `jit::compile::state` compilation
+//! - `jit_native_from_interp`← `interp::ops::exec_call` / `exec_vcall` native routing
+//! - `exceptions_thrown`     ← `interp::run::exec_support::fire_exception_thrown`
+//! - `exceptions_caught`     ← `interp::run::exec_support::fire_exception_caught`
+//!
+//! Still at 0 (not yet wired): `jit_compile_us_total` — per-compile wall time
+//! is tracked as a diagnostics.md §4.2 span item, deferred.
+//!
+//! Heap-derived numbers (`allocations`, GC minor/major/reclaimed) live in
+//! `gc::HeapStats`, not here; the profile snapshot ([`ProfileSnapshot`])
+//! merges both at the `--print-stats-on-exit` output point.
+//!
+//! # Concurrency
+//!
+//! All counters are `AtomicU64` with `Ordering::Relaxed`. Counters never
+//! drive control flow — they're observation-only — so weak ordering is
+//! fine. **One `RuntimeCounters` per `VmContext`** (per thread), so threads
+//! increment their own cache line instead of contending on one shared line
+//! (runtime-audit P0-15). `VmCore.diagnostics.counters` holds what contexts that have
+//! already been dropped counted; `VmContext::counters_snapshot` adds that to
+//! every live context's counts.
+//!
+//! # Snapshot semantics
+//!
+//! [`Snapshot`] is a frozen view (non-atomic u64 values) captured at one
+//! instant. Because each counter is loaded independently, the values are
+//! NOT a consistent point-in-time tuple — `jit_methods_compiled` may be
+//! one cycle ahead of `jit_compile_us_total` etc. For observation use,
+//! the skew is irrelevant; for billing / SLA reporting it would matter
+//! (deferred).
+
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Atomic counters incremented by hot-path code. One instance per VmCore.
+#[derive(Debug, Default)]
+pub struct RuntimeCounters {
+    /// Builtin functions invoked (e.g. `__str_length`, `__print`, ...).
+    /// Incremented at top of `exec::call::builtins::exec_builtin`.
+    pub builtin_calls:        AtomicU64,
+
+    /// Native FFI calls dispatched (e.g. user `[Native("...")]` extern methods).
+    /// Incremented at top of `interp::ops::exec_ffi::ffi_call` .
+    pub native_calls:         AtomicU64,
+
+    /// Number of methods compiled by the JIT backend.
+    pub jit_methods_compiled: AtomicU64,
+
+    /// Total wallclock JIT compile time, microseconds. Not yet wired (0);
+    /// per-compile timing tracked as a diagnostics.md §4.2 span item (deferred).
+    pub jit_compile_us_total: AtomicU64,
+
+    /// runtime-jit-tiering Phase 1.5 (mixed-mode): calls where an INTERP frame
+    /// routed an already-compiled callee to its native code instead of
+    /// interpreting it. Incremented in `interp::ops::exec_call::try_native_static_call`
+    /// / `exec_vcall::try_native_method_call`. >0 confirms mixed-mode is active.
+    pub jit_native_from_interp: AtomicU64,
+
+    /// User exceptions thrown (z42 `throw expr` statements + VM-raised
+    /// arithmetic / type errors that bubble as exceptions).
+    /// Incremented in `interp::run::exec_support::fire_exception_thrown` .
+    pub exceptions_thrown:    AtomicU64,
+
+    /// User exceptions caught by `try { ... } catch` blocks.
+    /// Incremented in `interp::run::exec_support::fire_exception_caught` .
+    pub exceptions_caught:    AtomicU64,
+}
+
+impl RuntimeCounters {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add `other`'s current counts into `self` (a dropped context's counts
+    /// moving into the core's total).
+    pub fn absorb(&self, other: &RuntimeCounters) {
+        let s = other.snapshot();
+        self.builtin_calls.fetch_add(s.builtin_calls, Ordering::Relaxed);
+        self.native_calls.fetch_add(s.native_calls, Ordering::Relaxed);
+        self.jit_methods_compiled.fetch_add(s.jit_methods_compiled, Ordering::Relaxed);
+        self.jit_compile_us_total.fetch_add(s.jit_compile_us_total, Ordering::Relaxed);
+        self.jit_native_from_interp.fetch_add(s.jit_native_from_interp, Ordering::Relaxed);
+        self.exceptions_thrown.fetch_add(s.exceptions_thrown, Ordering::Relaxed);
+        self.exceptions_caught.fetch_add(s.exceptions_caught, Ordering::Relaxed);
+    }
+
+    /// Capture a frozen snapshot of all counters. See module doc for note
+    /// about per-counter skew (not a consistent tuple).
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            builtin_calls:        self.builtin_calls.load(Ordering::Relaxed),
+            native_calls:         self.native_calls.load(Ordering::Relaxed),
+            jit_methods_compiled: self.jit_methods_compiled.load(Ordering::Relaxed),
+            jit_compile_us_total: self.jit_compile_us_total.load(Ordering::Relaxed),
+            jit_native_from_interp: self.jit_native_from_interp.load(Ordering::Relaxed),
+            exceptions_thrown:    self.exceptions_thrown.load(Ordering::Relaxed),
+            exceptions_caught:    self.exceptions_caught.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// Frozen view of all counters at one instant. Returned by
+/// [`RuntimeCounters::snapshot`]. Implements `Display` for `--print-
+/// stats-on-exit` output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Snapshot {
+    pub builtin_calls:        u64,
+    pub native_calls:         u64,
+    pub jit_methods_compiled: u64,
+    pub jit_compile_us_total: u64,
+    pub jit_native_from_interp: u64,
+    pub exceptions_thrown:    u64,
+    pub exceptions_caught:    u64,
+}
+
+impl Snapshot {
+    /// Field-wise sum (aggregating per-thread snapshots).
+    pub fn add(self, o: Snapshot) -> Snapshot {
+        Snapshot {
+            builtin_calls:          self.builtin_calls + o.builtin_calls,
+            native_calls:           self.native_calls + o.native_calls,
+            jit_methods_compiled:   self.jit_methods_compiled + o.jit_methods_compiled,
+            jit_compile_us_total:   self.jit_compile_us_total + o.jit_compile_us_total,
+            jit_native_from_interp: self.jit_native_from_interp + o.jit_native_from_interp,
+            exceptions_thrown:      self.exceptions_thrown + o.exceptions_thrown,
+            exceptions_caught:      self.exceptions_caught + o.exceptions_caught,
+        }
+    }
+
+    /// Render this snapshot as a single-line JSON object for machine consumption
+    /// (`--print-stats-on-exit --stats-format=json`; `xtask profile` scrapes it).
+    /// Hand-rolled (no serde) — a flat map of the same u64 fields `Display` lists;
+    /// the `z42vm_counters` sentinel key lets scrapers disambiguate it from any
+    /// `{`-leading program stderr on the same stream.
+    pub fn to_json(&self) -> String {
+        format!(
+            "{{\"z42vm_counters\":1,\
+\"builtin_calls\":{},\
+\"native_calls\":{},\
+\"jit_methods_compiled\":{},\
+\"jit_compile_us_total\":{},\
+\"jit_native_from_interp\":{},\
+\"exceptions_thrown\":{},\
+\"exceptions_caught\":{}}}",
+            self.builtin_calls,
+            self.native_calls,
+            self.jit_methods_compiled,
+            self.jit_compile_us_total,
+            self.jit_native_from_interp,
+            self.exceptions_thrown,
+            self.exceptions_caught,
+        )
+    }
+}
+
+impl Snapshot {
+    /// Writes the counter field lines (no header / trailer). Shared by
+    /// [`Snapshot`]'s and [`ProfileSnapshot`]'s `Display` so the counter
+    /// block never drifts between the two.
+    fn fmt_fields(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "builtin_calls:        {}", self.builtin_calls)?;
+        writeln!(f, "native_calls:         {}", self.native_calls)?;
+        writeln!(f, "jit_methods_compiled: {}", self.jit_methods_compiled)?;
+        writeln!(f, "jit_compile_us_total: {}", self.jit_compile_us_total)?;
+        writeln!(f, "jit_native_from_interp: {}", self.jit_native_from_interp)?;
+        writeln!(f, "exceptions_thrown:    {}", self.exceptions_thrown)?;
+        writeln!(f, "exceptions_caught:    {}", self.exceptions_caught)
+    }
+}
+
+impl std::fmt::Display for Snapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "--- z42vm runtime counters ---")?;
+        self.fmt_fields(f)?;
+        write!(f, "---")
+    }
+}
+
+/// Combined runtime + heap-derived counter view for the profile snapshot
+/// (`--print-stats-on-exit`). Wraps the counter [`Snapshot`] and adds the
+/// heap-owned numbers (`gc::HeapStats`) that live outside `RuntimeCounters`,
+/// so a single JSON line / text block carries the full picture for
+/// `xtask profile`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ProfileSnapshot {
+    pub counters:          Snapshot,
+    /// Total object allocations (from `HeapStats.allocations`).
+    pub allocations:       u64,
+    /// Generational minor (young-gen) collections (from `HeapStats`).
+    pub minor_collections: u64,
+    /// Major (whole-heap) collections (from `HeapStats`).
+    pub major_collections: u64,
+    /// Cumulative reclaimed bytes (from `HeapStats.reclaimed_bytes`).
+    pub reclaimed_bytes:   u64,
+    /// Live-byte estimate at exit (from `HeapStats.used_bytes`) — what the GC policy runs on.
+    pub used_bytes:        u64,
+    /// Region memory held at exit (from `HeapStats.committed_bytes`) — the footprint view.
+    pub committed_bytes:   u64,
+
+    // ── add-concurrency-probes (script-profiling P1b) ──
+    /// Number of times a mutator parked at a GC safepoint (STW stalls).
+    pub park_count:        u64,
+    /// Cumulative µs mutators spent parked at safepoints.
+    pub park_us_total:     u64,
+    /// Longest single safepoint park, µs.
+    pub park_max_us:       u64,
+    /// User-lock contended acquires (`try_lock` miss). Non-zero only under the
+    /// `profile-contention` build; 0 in the default build.
+    pub lock_contentions:  u64,
+    /// Cumulative µs blocked on contended user-lock acquires. Feature-gated (see above).
+    pub lock_wait_us:      u64,
+}
+
+impl ProfileSnapshot {
+    /// Assemble from a counter snapshot + the heap-derived fields. Kept as
+    /// plain `u64` so `diagnostics/counters.rs` stays free of a `gc` dependency — the
+    /// caller (`app.rs`) extracts them from `HeapStats`. Concurrency-probe
+    /// fields default to 0; set them via [`with_concurrency`](Self::with_concurrency).
+    pub fn new(
+        counters: Snapshot, allocations: u64,
+        minor_collections: u64, major_collections: u64, reclaimed_bytes: u64,
+    ) -> Self {
+        Self {
+            counters, allocations, minor_collections, major_collections, reclaimed_bytes,
+            used_bytes: 0, committed_bytes: 0,
+            park_count: 0, park_us_total: 0, park_max_us: 0,
+            lock_contentions: 0, lock_wait_us: 0,
+        }
+    }
+
+    /// Attach the heap's two size views at exit: the live estimate and the committed footprint.
+    pub fn with_footprint(mut self, used_bytes: u64, committed_bytes: u64) -> Self {
+        self.used_bytes = used_bytes;
+        self.committed_bytes = committed_bytes;
+        self
+    }
+
+    /// add-concurrency-probes (P1b): attach safepoint-park + user-lock-contention
+    /// numbers. `park_*` come from `VmCore.diagnostics.park_histogram` (count / total_us /
+    /// max_us); `lock_*` from the feature-gated `VmCore.lock_*` atomics (0 in the
+    /// default build). Separate setter so `new`'s arg list stays small.
+    pub fn with_concurrency(
+        mut self,
+        park_count: u64, park_us_total: u64, park_max_us: u64,
+        lock_contentions: u64, lock_wait_us: u64,
+    ) -> Self {
+        self.park_count = park_count;
+        self.park_us_total = park_us_total;
+        self.park_max_us = park_max_us;
+        self.lock_contentions = lock_contentions;
+        self.lock_wait_us = lock_wait_us;
+        self
+    }
+
+    /// Single-line JSON: a strict **superset** of [`Snapshot::to_json`] (same
+    /// `z42vm_counters` sentinel + all counter keys) plus the heap-derived and
+    /// concurrency-probe fields. Built by splicing the counter JSON so the
+    /// counter keys never drift; only adds keys → back-compatible for
+    /// `xtask profile`'s scraper.
+    pub fn to_json(&self) -> String {
+        let base = self.counters.to_json();
+        let head = base.strip_suffix('}').unwrap_or(base.as_str());
+        format!(
+            "{head},\"allocations\":{},\"minor_collections\":{},\
+\"major_collections\":{},\"reclaimed_bytes\":{},\
+\"used_bytes\":{},\"committed_bytes\":{},\
+\"park_count\":{},\"park_us_total\":{},\"park_max_us\":{},\
+\"lock_contentions\":{},\"lock_wait_us\":{}}}",
+            self.allocations, self.minor_collections,
+            self.major_collections, self.reclaimed_bytes,
+            self.used_bytes, self.committed_bytes,
+            self.park_count, self.park_us_total, self.park_max_us,
+            self.lock_contentions, self.lock_wait_us,
+        )
+    }
+}
+
+impl std::fmt::Display for ProfileSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "--- z42vm runtime counters ---")?;
+        self.counters.fmt_fields(f)?;
+        writeln!(f, "allocations:          {}", self.allocations)?;
+        writeln!(f, "gc_minor_collections: {}", self.minor_collections)?;
+        writeln!(f, "gc_major_collections: {}", self.major_collections)?;
+        writeln!(f, "gc_reclaimed_bytes:   {}", self.reclaimed_bytes)?;
+        writeln!(f, "gc_used_bytes:        {}", self.used_bytes)?;
+        writeln!(f, "gc_committed_bytes:   {}", self.committed_bytes)?;
+        writeln!(f, "park_count:           {}", self.park_count)?;
+        writeln!(f, "park_us_total:        {}", self.park_us_total)?;
+        writeln!(f, "park_max_us:          {}", self.park_max_us)?;
+        writeln!(f, "lock_contentions:     {}", self.lock_contentions)?;
+        writeln!(f, "lock_wait_us:         {}", self.lock_wait_us)?;
+        write!(f, "---")
+    }
+}
+
+#[cfg(all(test, z42_test_facade))]
+#[path = "counters_tests.rs"]
+mod counters_tests;

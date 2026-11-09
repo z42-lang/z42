@@ -1,6 +1,6 @@
 use super::*;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 fn ctx() -> std::pin::Pin<Box<VmContext>> {
     VmContext::new()

@@ -3,12 +3,12 @@
 //! any `Call`, from native code and from an interpreter frame alike.
 
 use crate::jit::compile::state::{install, install_tuned};
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, Instruction, LoadFnInsn, Terminator};
-use crate::vm::runtime::resolve::ResolvedTokens;
-use crate::vm::runtime::ids::tokens::UNRESOLVED;
+use crate::metadata::resolve::ResolvedTokens;
+use crate::metadata::ids::tokens::UNRESOLVED;
 use crate::zpkg::ir::ExecMode;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -127,10 +127,10 @@ fn interp_call_indirect_routes_to_the_jit_slot() {
     let module = Arc::clone(vm.module().unwrap());
     let rt = install_tuned(&vm, &module, |rt| rt.jit_threshold = 2);
     let main = &module.functions[0];
-    crate::vm::runtime::resolve::resolve_function_tokens(main, &module, &vm);
+    crate::metadata::resolve::resolve_function_tokens(main, &module, &vm);
     let before = vm.counters().jit_native_from_interp.load(Ordering::Relaxed);
     let r = crate::interp::run::exec_function(&vm, &module, main, &[]);
-    assert!(matches!(r, Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(_))));
+    assert!(matches!(r, Ok(crate::exec::call::outcome::ExecOutcome::Returned(_))));
     assert_eq!(rt.slot_probe(id), (2, false));
     assert_eq!(vm.counters().jit_native_from_interp.load(Ordering::Relaxed) - before, 2,
         "calls 2 and 3 ran natively");

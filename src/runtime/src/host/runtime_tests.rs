@@ -3,7 +3,7 @@ use crate::{
     zpkg::{self, BasicBlock, ExecMode, Instruction, Terminator},
     object::Value,
     pal::vfs::MemoryFs,
-    vm::{context::VmContext, runtime::Module},
+    context::VmContext, metadata::Module,
 };
 use std::sync::Arc;
 
@@ -42,7 +42,7 @@ fn program(mode: ExecMode, throws: bool) -> LoadedProgram {
         func_index: Default::default(),
     });
     crate::host::artifact::build_block_indices(&mut module);
-    crate::vm::loader::package::build_func_index(&mut module);
+    crate::loader::package::build_func_index(&mut module);
     let ctx = VmContext::with_module(module);
     crate::host::boot::prepare_execution(&ctx, ctx.module().unwrap());
     LoadedProgram::new(ctx, mode, Some("Demo.Main".into())).unwrap()
@@ -207,7 +207,7 @@ fn resolver_overrides_disk_prelude() {
 
 #[test]
 fn fatal_error_keeps_the_report_for_the_cli_adapter() {
-    use crate::vm::exec::stack_guard;
+    use crate::exec::stack_guard;
     let _lock = stack_guard::FATAL_TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());

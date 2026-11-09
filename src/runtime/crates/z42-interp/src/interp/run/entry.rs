@@ -2,12 +2,12 @@
 
 #![allow(unused_imports)]
 use super::*;
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::{
     zpkg::{BranchTargets, Terminator},
     object::Value,
 };
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
@@ -17,7 +17,7 @@ use std::collections::HashMap;
 pub fn run(ctx: &VmContext, module: &Module, func: &Function, args: &[Value]) -> Result<()> {
     match exec_function(ctx, module, func, args)? {
         ExecOutcome::Returned(_) => Ok(()),
-        ExecOutcome::Thrown(val) => bail!("{}", crate::vm::exec::exception::format_uncaught(&val, ctx, module)),
+        ExecOutcome::Thrown(val) => bail!("{}", crate::exec::exception::format_uncaught(&val, ctx, module)),
     }
 }
 
@@ -33,7 +33,7 @@ pub fn run_returning(
 ) -> Result<Option<Value>> {
     match exec_function(ctx, module, func, args)? {
         ExecOutcome::Returned(v) => Ok(v),
-        ExecOutcome::Thrown(val) => bail!("{}", crate::vm::exec::exception::format_uncaught(&val, ctx, module)),
+        ExecOutcome::Thrown(val) => bail!("{}", crate::exec::exception::format_uncaught(&val, ctx, module)),
     }
 }
 
@@ -83,12 +83,12 @@ pub fn init_static_fields(ctx: &VmContext, module: &Module) -> Result<()> {
 }
 
 /// Run with static init: convenience wrapper — calls
-/// [`init_static_fields`] then runs `func`. Used by `Vm::run`.
+/// [`init_static_fields`] then runs `func`. Used by `host::LoadedProgram::run_entry`.
 pub fn run_with_static_init(ctx: &VmContext, module: &Module, func: &Function) -> Result<()> {
     init_static_fields(ctx, module)?;
     match exec_function(ctx, module, func, &[])? {
         ExecOutcome::Returned(_) => Ok(()),
-        ExecOutcome::Thrown(val) => bail!("{}", crate::vm::exec::exception::format_uncaught(&val, ctx, module)),
+        ExecOutcome::Thrown(val) => bail!("{}", crate::exec::exception::format_uncaught(&val, ctx, module)),
     }
 }
 

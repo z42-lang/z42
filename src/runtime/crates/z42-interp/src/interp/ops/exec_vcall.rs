@@ -1,21 +1,21 @@
 /// Virtual dispatch (`VCall`): the interpreter's **invoke** side.
 ///
 /// unify-vcall-resolution : *what* to call is decided by
-/// `vm::exec::ops::vcall::resolve_vcall` (shared with `jit/helpers/vcall.rs::jit_vcall`);
+/// `exec::ops::vcall::resolve_vcall` (shared with `jit/helpers/vcall.rs::jit_vcall`);
 /// this file only keeps the interpreter-specific pieces — the receiver-kind
 /// helpers (`primitive_class_name` / `value_synthetic_type_id`),
 /// the mixed-mode divert to an already-compiled native method, and running the
 /// resolved target on an interpreter frame.
 
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::Result;
 
-use crate::vm::exec::ops::vcall::resolve_vcall;
-use crate::vm::runtime::dispatch::ic::{FieldICEntry, VCallIC};
-use crate::vm::runtime::dispatch::vcall::vcall_ic_hit;
-use crate::vm::exec::ops::vcall::VCallTarget;
+use crate::exec::ops::vcall::resolve_vcall;
+use crate::metadata::dispatch::ic::{FieldICEntry, VCallIC};
+use crate::metadata::dispatch::vcall::vcall_ic_hit;
+use crate::exec::ops::vcall::VCallTarget;
 use super::{ExecOutcome, Frame};
 
 /// runtime-jit-tiering Phase 1.5 (mixed-mode): receiver-aware analogue of
@@ -30,8 +30,8 @@ fn try_native_method_call(
     let tier = ctx.tier()?;
     if matches!(receiver, Value::Ref { .. })
         || args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
-    tier.invoke(ctx, crate::vm::exec::engine::TierTarget::Site(id),
-        crate::vm::exec::call::args::CallArgs::Receiver { receiver: receiver.clone(), regs: &frame.regs, indices: args }, method_type_args)
+    tier.invoke(ctx, crate::exec::engine::TierTarget::Site(id),
+        crate::exec::call::args::CallArgs::Receiver { receiver: receiver.clone(), regs: &frame.regs, indices: args }, method_type_args)
         .map(|result| result.map(|outcome| super::exec_call::native_result_to_dst(frame, dst, outcome)))
 }
 
@@ -86,8 +86,8 @@ pub(crate) fn vcall(
     // while another thread's registration of the cached id is not yet visible here (see
     // `vcall_ic_hit`) — then the slow path below resolves by name, as on a miss.
     if let Some(id) = vcall_ic_hit(vcall_ic, &obj_val) {
-        if let Some(func) = crate::vm::runtime::dispatch::functions::fn_by_id((ctx).funcs(), module, id as u32) {
-            crate::vm::exec::ops::vcall::assert_pic_target(ctx, module, &obj_val, method, func);
+        if let Some(func) = crate::metadata::dispatch::functions::fn_by_id((ctx).funcs(), module, id as u32) {
+            crate::exec::ops::vcall::assert_pic_target(ctx, module, &obj_val, method, func);
             return invoke(ctx, module, frame, dst, func, Some(id), &obj_val, args, method_type_args, reader_site);
         }
     }
@@ -119,7 +119,7 @@ fn invoke(
 ) -> Result<Option<Value>> {
     if method_type_args.is_empty() {
         if args.is_empty() {
-            if let Some(value) = crate::vm::exec::call::forward::try_field_read_cached(ctx, func, this, reader_site) {
+            if let Some(value) = crate::exec::call::forward::try_field_read_cached(ctx, func, this, reader_site) {
                 frame.set(dst, value);
                 return Ok(None);
             }

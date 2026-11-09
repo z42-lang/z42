@@ -30,7 +30,7 @@ use std::time::Instant;
 
 use parking_lot::Mutex;
 
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 /// 每个采样 = 后台线程置 flag、mutator 在下一个 safepoint 快照一次栈。
 ///
@@ -317,7 +317,7 @@ fn json_escape(s: &str) -> String {
 #[path = "cpu_tests.rs"]
 mod cpu_tests;
 
-impl crate::vm::diagnostics::sampling::SampleBackend for Sampler {
+impl crate::diagnostics::sampling::SampleBackend for Sampler {
     fn maybe_sample(&self, ctx: &VmContext) { Sampler::maybe_sample(self, ctx); }
     fn flush_folded(&self, path: &str) -> std::io::Result<()> { Sampler::flush_folded(self, path) }
     fn flush_trace(&self, path: &str) -> std::io::Result<()> { Sampler::flush_trace(self, path) }

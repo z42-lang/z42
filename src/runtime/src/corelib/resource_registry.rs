@@ -71,9 +71,9 @@ impl<T> Default for ResourceRegistry<T> {
 
 /// Mandatory state is installed by the facade before a VM can execute builtins.
 pub(super) fn state<T: std::any::Any + Send + Sync>(
-    ctx: &crate::vm::context::VmContext,
-) -> Result<&T, crate::vm::exec::call::builtin_abi::BuiltinError> {
-    ctx.ext::<T>().ok_or_else(|| crate::vm::exec::call::builtin_abi::BuiltinError::Internal(
+    ctx: &crate::context::VmContext,
+) -> Result<&T, crate::exec::call::builtin_abi::BuiltinError> {
+    ctx.ext::<T>().ok_or_else(|| crate::exec::call::builtin_abi::BuiltinError::Internal(
         format!("missing core-library VM state `{}`", std::any::type_name::<T>())))
 }
 

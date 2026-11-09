@@ -21,13 +21,13 @@ pub(crate) struct State {
     slots: crate::corelib::resource_registry::ResourceRegistry<std::thread::JoinHandle<anyhow::Result<()>>>,
 }
 
-pub(super) fn state(ctx: &crate::vm::context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::context::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
-use crate::vm::exec::call::outcome::ExecOutcome;
+use crate::exec::call::outcome::ExecOutcome;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{anyhow, bail, Result};
 use std::sync::Arc;
 
@@ -35,10 +35,10 @@ use std::sync::Arc;
 ///
 /// `action` must be a callable z42 value (`Value::FuncRef` for zero-capture
 /// lambdas, `Value::Closure` for capturing lambdas).
-pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::vm::exec::call::builtin_abi::BuiltinError> {
+pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::exec::call::builtin_abi::BuiltinError> {
     // P1-2 PR 8: the target is the value's bound `FnId` — a plain integer that crosses to
     // the worker as is (the worker shares this VM's `FuncTable`).
-    let (fn_id, env_vec): (crate::vm::runtime::ids::tokens::FnId, Option<Vec<Value>>) = match action {
+    let (fn_id, env_vec): (crate::metadata::ids::tokens::FnId, Option<Vec<Value>>) = match action {
         Value::FuncRef(id) => (*id, None),
         Value::Closure(c) => {
             let data = crate::object::closure_data_of(c);
@@ -46,19 +46,19 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::vm::e
         }
         // The stdlib passes `object action`; anything but a delegate value is the
         // caller's argument (a user value), so a typed argument error, not an internal one.
-        other => return Err(crate::vm::exec::call::builtin_abi::BuiltinError::Argument(format!(
+        other => return Err(crate::exec::call::builtin_abi::BuiltinError::Argument(format!(
             "__thread_spawn: expected callable (Action / FuncRef / Closure), got {:?}",
             other
         ))),
     };
 
     if ctx.core().runtime().module.is_none() {
-        return Err(crate::vm::exec::call::builtin_abi::BuiltinError::Internal(
+        return Err(crate::exec::call::builtin_abi::BuiltinError::Internal(
             "__thread_spawn: VmContext has no shared Module — \
              constructed via VmContext::new() instead of VmContext::with_module()".into()));
     }
 
-    let core_for_thread: Arc<crate::vm::context::VmCore> = Arc::clone(&ctx.core());
+    let core_for_thread: Arc<crate::context::VmCore> = Arc::clone(&ctx.core());
     let id = state(ctx)?.slots.alloc_id();
 
     // 🔴 **fix-spawn-env-gc-root **: root the captured environment *here*, on the
@@ -118,7 +118,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::vm::e
             Ok(r)    => r,
             Err(_)   => Err(anyhow!("thread panicked (Rust panic; not user throw)")),
         }
-    }).map_err(|e| crate::vm::exec::call::builtin_abi::BuiltinError::Exception {
+    }).map_err(|e| crate::exec::call::builtin_abi::BuiltinError::Exception {
         class: "Std.Threading.ThreadException",
         message: format!("__thread_spawn: cannot create thread: {e}"),
     })?;
@@ -137,7 +137,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::vm::e
 /// the heap's root map, and the alternative needs a handshake with the worker that buys
 /// nothing.
 struct SpawnedEnvRoot {
-    core:   Arc<crate::vm::context::VmCore>,
+    core:   Arc<crate::context::VmCore>,
     handle: crate::gc::RootHandle,
 }
 
@@ -151,8 +151,8 @@ impl Drop for SpawnedEnvRoot {
 /// parked, so a collection another thread starts meanwhile does not wait for them.
 #[z42_macros::builtins]
 pub mod typed {
-    use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError};
-    use crate::vm::context::VmContext;
+    use crate::exec::call::builtin_abi::{Blocking, BuiltinError};
+    use crate::context::VmContext;
 
     /// `__thread_sleep(millis)` — block the current thread. Negative values saturate to
     /// 0 (BCL `Thread.Sleep`). The whole body runs parked (`blocking`): a sleeping thread
@@ -179,7 +179,7 @@ pub mod typed {
     /// z42 class stays; there is no timed join, hence no `TimeoutException`.
     #[builtin(name = "__thread_wait")]
     pub fn thread_wait(ctx: &VmContext, slot: i64) -> Result<Blocking<()>, BuiltinError> {
-        let fail = |message: String| crate::vm::exec::call::builtin_abi::BuiltinError::Exception {
+        let fail = |message: String| crate::exec::call::builtin_abi::BuiltinError::Exception {
             class: "Std.Threading.ThreadException", message,
         };
         let handle = {
@@ -207,7 +207,7 @@ pub mod typed {
 
 fn run_spawned_action(
     thread_ctx: &VmContext,
-    fn_id:      crate::vm::runtime::ids::tokens::FnId,
+    fn_id:      crate::metadata::ids::tokens::FnId,
     env_vec:    Option<Vec<Value>>,
 ) -> Result<()> {
     let module_arc = thread_ctx.core().runtime().module.as_ref()
@@ -226,7 +226,7 @@ fn run_spawned_action(
     let target = thread_ctx.callable_fn(fn_id).ok_or_else(|| anyhow!(
         "spawned action: function id {} is not registered in this VM", fn_id.0
     ))?;
-    let outcome = crate::vm::exec::engine::invoke(thread_ctx, module, target, &arg_vals)?;
+    let outcome = crate::exec::engine::invoke(thread_ctx, module, target, &arg_vals)?;
 
     match outcome {
         ExecOutcome::Returned(_) => Ok(()),
@@ -235,7 +235,7 @@ fn run_spawned_action(
             // text matches what `throw new ...Exception("msg")` set. Fall
             // back to value_to_str for non-Exception thrown values (rare —
             // z42 type-checker normally requires Exception subclasses).
-            let msg = crate::vm::exec::exception::read_message(&val, thread_ctx, module)
+            let msg = crate::exec::exception::read_message(&val, thread_ctx, module)
                 .unwrap_or_else(|| crate::corelib::core::convert::value_to_str(&val));
             bail!("{msg}")
         }

@@ -21,7 +21,7 @@
 //! The mapping of these strings to redo-immune `Cmd`s lives in the cdylib.
 
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{bail, Result};
 #[cfg(feature = "native-interop")]
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -56,8 +56,8 @@ pub fn repl_set_keywords(ctx: &VmContext, joined: &str) -> Result<()> {
 // (wasm / no-native-interop fall back to plain stdin, no editing)
 
 #[cfg(feature = "native-interop")]
-use crate::vm::exec::engine;
-use crate::vm::exec::call::outcome::ExecOutcome;
+use crate::exec::engine;
+use crate::exec::call::outcome::ExecOutcome;
 
 /// Invoke the z42 key-editor `fqn(key, line, pos)` and return its action string.
 /// Mirrors `repl::complete_via_callback` but with (string, string, int) args and a
@@ -147,7 +147,7 @@ pub(crate) extern "C" fn keyedit_trampoline(
     let line_str = unsafe { CStr::from_ptr(line) }.to_string_lossy().into_owned();
     // Fires mid-readline, inside the outer NativeParkGuard; temporarily un-park so
     // the callback runs as a normal mutator (same as the completer).
-    let _unpark = crate::vm::threads::safepoint::NativeUnparkGuard::exit(vmctx);
+    let _unpark = crate::threads::safepoint::NativeUnparkGuard::exit(vmctx);
     match key_edit_via_callback(vmctx, &fqn, &key_str, &line_str, pos as i64) {
         Ok(action) if !action.is_empty() => match CString::new(action) {
             Ok(c) => c.into_raw(),
@@ -170,7 +170,7 @@ pub mod typed {
     pub fn set_key_editor(fqn: &str) { super::repl_set_key_editor(fqn) }
 
     #[builtin(name = "__repl_set_keywords")]
-    pub fn set_keywords(ctx: &crate::vm::context::VmContext, joined: &str) -> Result<(), crate::vm::exec::call::builtin_abi::BuiltinError> {
-        super::repl_set_keywords(ctx, joined).map_err(|e| crate::vm::exec::call::builtin_abi::BuiltinError::Internal(format!("{e:#}")))
+    pub fn set_keywords(ctx: &crate::context::VmContext, joined: &str) -> Result<(), crate::exec::call::builtin_abi::BuiltinError> {
+        super::repl_set_keywords(ctx, joined).map_err(|e| crate::exec::call::builtin_abi::BuiltinError::Internal(format!("{e:#}")))
     }
 }

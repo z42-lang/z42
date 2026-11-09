@@ -1,7 +1,7 @@
 pub(crate) mod buffer;
 pub mod fs;
 
-use crate::vm::exec::call::builtin_abi::Blocking;
+use crate::exec::call::builtin_abi::Blocking;
 use std::cell::{Cell, RefCell};
 use std::os::raw::{c_char, c_void};
 use std::sync::RwLock;
@@ -178,15 +178,15 @@ fn read_line_from(r: &mut impl std::io::BufRead) -> std::io::Result<String> {
 #[z42_macros::builtins]
 pub mod typed {
     use super::{route, Stream};
-    use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError};
+    use crate::exec::call::builtin_abi::{Blocking, BuiltinError};
     use crate::object::Value;
-    use crate::vm::context::VmContext;
+    use crate::context::VmContext;
 
     /// dispatch-tostring-in-native-stringify: the same string interpolation / `ToString()`
     /// produce — a user `ToString` is dispatched (boxed structs, record synthesis, enum
     /// member names), the short type name only without one.
     fn stringify(ctx: &VmContext, value: &Value) -> Result<String, BuiltinError> {
-        crate::vm::exec::ops::stringify::stringify_dispatch(ctx, value).map_err(BuiltinError::Legacy)
+        crate::exec::ops::stringify::stringify_dispatch(ctx, value).map_err(BuiltinError::Legacy)
     }
 
     #[builtin(name = "__println", reenters)]

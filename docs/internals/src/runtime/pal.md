@@ -97,7 +97,7 @@ feature 裁剪和测试代码维持各自原有规则。
 ### `pal/fs.rs` + `pal/vfs/` — 文件系统
 
 **每台 VM 一个 `Vfs` 句柄。** 路径型文件操作（`File.*` / `Directory.*` / `Path.Glob` 的 builtin）、包加载
-（`vm/loader`、`namespace_index`、惰性加载器）与 `host::run_app` 的启动探测都走 VM 持有的
+（`loader`、`namespace_index`、惰性加载器）与 `host::run_app` 的启动探测都走 VM 持有的
 `Arc<dyn Vfs>`，没有进程级的「当前后端」开关：
 
 ```rust

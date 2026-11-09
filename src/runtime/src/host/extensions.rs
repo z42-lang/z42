@@ -1,13 +1,13 @@
 //! Facade assembly of core-library services; the VM stores only typed extension state.
 use crate::corelib;
-use crate::vm::ext::{ExtensionState, VmExtensions};
+use crate::context::extensions::{ExtensionState, VmExtensions};
 
 pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     let mut defaults = VmExtensions::new();
     // Interop providers must outlive heap, engines, user state and core-library resources.
     add(&mut defaults, crate::interop::state_for_vm());
     #[cfg(feature = "native-interop")]
-    add(&mut defaults, crate::vm::exec::native::NativeServices {
+    add(&mut defaults, crate::exec::native::NativeServices {
         call: crate::interop::call_registered,
         pin_owned_buffer: crate::interop::pin_owned_buffer,
         release_owned_buffer: crate::interop::release_owned_buffer,

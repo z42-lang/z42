@@ -1,6 +1,6 @@
 # 原生代码与 GC 的协作约定
 
-> 代码：`src/runtime/src/corelib/`、`src/runtime/src/gc/`、`src/runtime/src/vm/context/`
+> 代码：`src/runtime/src/corelib/`、`src/runtime/src/gc/`、`src/runtime/src/context/`
 > 相关：[GC 子系统与 safepoint 协议](gc.md) · [增量 major：SATB 屏障](gc-incremental-major.md) · [同步原语](sync-primitives.md)
 
 ## 概述

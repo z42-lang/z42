@@ -35,9 +35,9 @@ pub mod vcall;
 
 pub use registry::{declare_imports, register_symbols, HelperIds};
 
-use crate::vm::runtime::Module;
+use crate::metadata::Module;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 use crate::jit::runtime::frame::JitFrame;
 use crate::jit::compile::state::JitRuntime;
@@ -116,10 +116,10 @@ pub(super) fn take_exception(ctx: &VmContext) -> Option<Value> {
     ctx.take_exception()
 }
 
-pub fn take_exception_error(ctx: &VmContext, module: &crate::vm::runtime::Module) -> anyhow::Error {
+pub fn take_exception_error(ctx: &VmContext, module: &crate::metadata::Module) -> anyhow::Error {
     let msg = take_exception(ctx)
         .as_ref()
-        .map(|v| crate::vm::exec::exception::format_uncaught(v, ctx, module))
+        .map(|v| crate::exec::exception::format_uncaught(v, ctx, module))
         .unwrap_or_else(|| "uncaught exception".to_owned());
     anyhow::anyhow!("{}", msg)
 }
@@ -132,8 +132,8 @@ pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const VmContex
 //
 // converge-vm-arith-semantics (H3): the scalar rules formerly duplicated here
 // (`int_binop_helper` / `int_bitop_helper` / `numeric_lt_helper` were verbatim
-// copies of `interp/ops/mod.rs`) now live once in `crate::vm::exec::ops::scalar`. Call sites in
-// `arith.rs` use `crate::vm::exec::ops::scalar::{int_binop, int_bitop, numeric_lt}` directly.
+// copies of `interp/ops/mod.rs`) now live once in `crate::exec::ops::scalar`. Call sites in
+// `arith.rs` use `crate::exec::ops::scalar::{int_binop, int_bitop, numeric_lt}` directly.
 
 /// A name the translator baked into the code as `(ptr, len)` (`TxCtx::str_val`).
 /// It points into a Rust `str` owned by the module's IR, which outlives the

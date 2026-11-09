@@ -44,10 +44,10 @@ use std::sync::Arc;
 use std::thread::ThreadId;
 use std::time::Duration;
 
-use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, IntoRet};
+use crate::exec::call::builtin_abi::{Blocking, BuiltinError, IntoRet};
 use crate::object::{NativeData, TypeDesc};
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 pub use crate::object::Monitor;
 
@@ -85,10 +85,10 @@ fn not_a_monitor(h: &Value) -> BuiltinError {
 #[z42_macros::builtins]
 pub mod typed {
     use super::{monitor_handle_type_desc, monitor_ref, Monitor};
-    use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError};
+    use crate::exec::call::builtin_abi::{Blocking, BuiltinError};
     use crate::object::NativeData;
     use crate::object::Value;
-    use crate::vm::context::VmContext;
+    use crate::context::VmContext;
     use std::sync::Arc;
 
     /// `MonitorNative.New() -> object` —— 不透明句柄，原生状态在 `NativeData::Monitor`。
@@ -141,7 +141,7 @@ fn monitor_handle_type_desc() -> Arc<TypeDesc> {
         vtable: Vec::new(),
         vtable_index: crate::zpkg::NameIndex::new(),
         cold: None,
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     })).clone()
 }
 

@@ -10,9 +10,9 @@
 
 ---
 
-## 1. 现状（`vm/threads/safepoint.rs`）
+## 1. 现状（`threads/safepoint.rs`）
 
-共享注册表、暂停 phase/condvar、parked 计数、collector 仲裁与自动回收请求归 `vm/threads/state.rs` 的
+共享注册表、暂停 phase/condvar、parked 计数、collector 仲裁与自动回收请求归 `threads/state.rs` 的
 `ThreadState`，由 `VmCore.threads` 组合持有。状态组合不改变下面的锁、内存序或状态转换协议。
 - **协作轮询**：mutator 每次 `check_safepoint` 读 `gc_phase`，GC 要 STW 时 park（condvar + parked 计数）。
 - **节流**：per-thread 计数器，每 N 次（默认 `safepoint_throttle=1024`，env 可调）才真做 Mutex poll → 热循环近零成本。计数器 fast path 是**普通 load/store 递减**（非原子 RMW）——`safepoint_skip` 每-mutator 单写（唯一跨线程写 `force_safepoint` 是 test/embedder-only），故 RMW 原子性对正确性不必要。

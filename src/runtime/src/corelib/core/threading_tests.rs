@@ -18,10 +18,10 @@ fn no_module_ctx() -> std::pin::Pin<Box<VmContext>> {
     VmContext::new()
 }
 
-fn spawn(c: &VmContext, args: &[Value]) -> crate::vm::exec::call::builtin_abi::BuiltinError {
+fn spawn(c: &VmContext, args: &[Value]) -> crate::exec::call::builtin_abi::BuiltinError {
     // Drive through the table so the tests also cover the typed registration.
-    let e = crate::vm::exec::call::builtins::exec_builtin(c, "__thread_spawn", args).unwrap_err();
-    e.downcast::<crate::vm::exec::call::builtin_abi::BuiltinError>().expect("a typed builtin error")
+    let e = crate::exec::call::builtins::exec_builtin(c, "__thread_spawn", args).unwrap_err();
+    e.downcast::<crate::exec::call::builtin_abi::BuiltinError>().expect("a typed builtin error")
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn thread_spawn_missing_arg_errors() {
     let ctx = no_module_ctx();
     let err = spawn(&ctx, &[]);
     // The arity check lives in the macro-generated wrapper.
-    assert!(matches!(err, crate::vm::exec::call::builtin_abi::BuiltinError::Internal(ref m) if m.contains("argument")),
+    assert!(matches!(err, crate::exec::call::builtin_abi::BuiltinError::Internal(ref m) if m.contains("argument")),
         "unexpected error: {err:?}");
 }
 
@@ -37,7 +37,7 @@ fn thread_spawn_missing_arg_errors() {
 fn thread_spawn_non_callable_arg_errors() {
     let ctx = no_module_ctx();
     let err = spawn(&ctx, &[Value::I64(7)]);
-    assert!(matches!(err, crate::vm::exec::call::builtin_abi::BuiltinError::Argument(ref m) if m.contains("expected callable")),
+    assert!(matches!(err, crate::exec::call::builtin_abi::BuiltinError::Argument(ref m) if m.contains("expected callable")),
         "unexpected error: {err:?}");
 }
 
@@ -46,14 +46,14 @@ fn thread_spawn_without_module_errors() {
     // `VmContext::new()` constructs VmCore with `module = None`; spawn must
     // refuse rather than panic later from the worker.
     let ctx = no_module_ctx();
-    let action = Value::FuncRef(crate::vm::runtime::ids::tokens::FnId(0));
+    let action = Value::FuncRef(crate::metadata::ids::tokens::FnId(0));
     let err = spawn(&ctx, &[action]);
-    assert!(matches!(err, crate::vm::exec::call::builtin_abi::BuiltinError::Internal(ref m) if m.contains("no shared Module")),
+    assert!(matches!(err, crate::exec::call::builtin_abi::BuiltinError::Internal(ref m) if m.contains("no shared Module")),
         "unexpected error: {err:?}");
 }
 
-fn typed_err(e: anyhow::Error) -> crate::vm::exec::call::builtin_abi::BuiltinError {
-    e.downcast::<crate::vm::exec::call::builtin_abi::BuiltinError>().expect("a typed builtin error")
+fn typed_err(e: anyhow::Error) -> crate::exec::call::builtin_abi::BuiltinError {
+    e.downcast::<crate::exec::call::builtin_abi::BuiltinError>().expect("a typed builtin error")
 }
 
 // `__thread_wait` (the throwing join the stdlib calls): an unknown / already-joined slot
@@ -61,9 +61,9 @@ fn typed_err(e: anyhow::Error) -> crate::vm::exec::call::builtin_abi::BuiltinErr
 #[test]
 fn thread_wait_unknown_slot_throws_thread_exception() {
     let ctx = no_module_ctx();
-    let e = typed_err(crate::vm::exec::call::builtins::exec_builtin(&ctx, "__thread_wait", &[Value::I64(999_999)]).unwrap_err());
+    let e = typed_err(crate::exec::call::builtins::exec_builtin(&ctx, "__thread_wait", &[Value::I64(999_999)]).unwrap_err());
     match e {
-        crate::vm::exec::call::builtin_abi::BuiltinError::Exception { class, message } => {
+        crate::exec::call::builtin_abi::BuiltinError::Exception { class, message } => {
             assert_eq!(class, "Std.Threading.ThreadException");
             assert_eq!(message, "thread already joined");
         }

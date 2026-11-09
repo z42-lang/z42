@@ -423,7 +423,7 @@ pub unsafe extern "C" fn z42_host_invoke(
                 if status == Z42HostStatus::Fatal {
                     // This adapter returns the report in last_error; the CLI consumes
                     // its own report when deciding the process exit code.
-                    let _ = crate::vm::exec::stack_guard::take_report();
+                    let _ = crate::exec::stack_guard::take_report();
                 }
                 set_error(status, format!("z42_host_invoke: {msg}"))
             }
@@ -648,7 +648,7 @@ fn classify_config_error(e: config::ConfigError) -> Z42HostStatus {
 
 /// Map an interpreter / runtime error message to a `Z42HostStatus`.
 /// Heuristic: the interpreter surfaces uncaught z42 exceptions via
-/// `vm::exec::exception::format_uncaught`, which prefixes the message with
+/// `exec::exception::format_uncaught`, which prefixes the message with
 /// "uncaught exception:". Anything else — verification failure, type
 /// registry crash, etc. — buckets as `Internal`.
 ///
@@ -656,7 +656,7 @@ fn classify_config_error(e: config::ConfigError) -> Z42HostStatus {
 /// `ops::invoke_impl`) because it has a structural cause rather than a
 /// runtime error string.
 fn classify_invoke_error(msg: &str) -> Z42HostStatus {
-    if msg.starts_with(crate::vm::exec::stack_guard::FATAL_PREFIX) {
+    if msg.starts_with(crate::exec::stack_guard::FATAL_PREFIX) {
         Z42HostStatus::Fatal
     } else if msg.contains("arg-count-mismatch:") {
         Z42HostStatus::ArgMismatch
@@ -738,9 +738,9 @@ pub unsafe extern "C" fn z42_host_run_app(
             };
             let result = crate::host::run_app(&app, entry_owned.as_deref(), opts);
             // runtime-audit P0-4: fatal VM error → its report + the fixed code.
-            if let Some(report) = crate::vm::exec::stack_guard::take_report() {
+            if let Some(report) = crate::exec::stack_guard::take_report() {
                 eprintln!("z42_host_run_app: {report}");
-                return crate::vm::exec::stack_guard::EXIT_CODE;
+                return crate::exec::stack_guard::EXIT_CODE;
             }
             match result {
                 Ok(()) => 0,

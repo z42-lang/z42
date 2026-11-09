@@ -8,7 +8,7 @@
 //! **一个模块一行**——模块里写了 `#[builtin]` 即登记，不再逐函数列表。加一个 builtin 的三步见
 //! `src/runtime/src/corelib/README.md`「加一个 builtin」。
 
-use crate::vm::exec::call::builtin_abi as abi;
+use crate::exec::call::builtin_abi as abi;
 
 const TYPED: &[&[abi::BuiltinDesc]] = &[
     crate::corelib::core::convert::typed::DESCS,
@@ -65,7 +65,7 @@ const JOINED: [abi::BuiltinDesc; abi::descs_len(TYPED)] = abi::concat_descs(TYPE
 
 pub(crate) const BUILTINS: &[abi::BuiltinDesc] = &JOINED;
 
-use crate::vm::runtime::builtins::{BuiltinCatalog, BuiltinInfo};
+use crate::metadata::builtins::{BuiltinCatalog, BuiltinInfo};
 
 const fn catalog_entries<const N: usize>(descs: &[abi::BuiltinDesc; N]) -> [BuiltinInfo; N] {
     let mut records = [BuiltinInfo { name: "", frameless: false }; N];

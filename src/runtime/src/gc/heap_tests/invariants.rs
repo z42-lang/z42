@@ -25,7 +25,7 @@ fn healthy_heap_validates_after_stw_collect() {
 
 #[test]
 fn healthy_heap_validates_after_generational_mode_minor() {
-    use crate::vm::context::VmContext;
+    use crate::context::VmContext;
     let ctx = VmContext::new();
     ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
     let heap_dyn = ctx.heap();
@@ -42,7 +42,7 @@ fn healthy_heap_validates_after_generational_mode_minor() {
 
 #[test]
 fn healthy_heap_validates_with_cross_gen_writes_under_generational() {
-    use crate::vm::context::VmContext;
+    use crate::context::VmContext;
     let ctx = VmContext::new();
     ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
     let heap_dyn = ctx.heap();

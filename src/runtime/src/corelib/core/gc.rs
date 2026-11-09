@@ -7,10 +7,10 @@
 //!  expose-gc-to-scripts (Phase 3d.2): 让脚本能显式触发 cycle
 //! collection 与查询堆使用量，用于端到端验证 GC 与 host 集成应用。
 
-use crate::vm::exec::call::builtin_abi::BuiltinError;
+use crate::exec::call::builtin_abi::BuiltinError;
 use crate::gc::GcHandleKind;
 use crate::object::{FieldSlot, NativeData, TypeDesc, Value};
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{anyhow, Result};
 use std::io::Write as _;
 use std::sync::{Arc, OnceLock};
@@ -19,7 +19,7 @@ use std::sync::{Arc, OnceLock};
 /// 调用 `ctx.heap().collect_cycles()`，进而走 `Heap` 的 trial-deletion 算法。
 ///
 /// **add-gc-safepoint **: stop-the-world via
-/// [`crate::vm::threads::safepoint::request_gc_pause`] before mark+sweep. All other
+/// [`crate::threads::safepoint::request_gc_pause`] before mark+sweep. All other
 /// VmContexts park at their next safepoint check; this thread runs collect;
 /// the RAII guard's Drop releases everyone.
 ///
@@ -53,7 +53,7 @@ pub fn gc_used_bytes(ctx: &VmContext) -> i64 {
 /// bytes (the active collector's work covers our intent). Same
 /// best-effort semantics as `builtin_gc_collect`.
 pub fn gc_force_collect(ctx: &VmContext) -> anyhow::Result<i64> {
-    if let Some(_pause) = crate::vm::threads::safepoint::request_gc_pause(ctx) {
+    if let Some(_pause) = crate::threads::safepoint::request_gc_pause(ctx) {
         let stats = ctx.heap().collect_full();
         Ok(stats.freed_bytes as i64)
     } else {
@@ -131,7 +131,7 @@ fn gc_handle_type_desc() -> Arc<TypeDesc> {
             field_index,
             vtable: Vec::new(),
             vtable_index: crate::zpkg::NameIndex::new(),
-            id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+            id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
         })
     }).clone()
 }
@@ -167,7 +167,7 @@ fn heap_stats_type_desc() -> Arc<TypeDesc> {
             field_index,
             vtable: Vec::new(),
             vtable_index: crate::zpkg::NameIndex::new(),
-            id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+            id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
         })
     }).clone()
 }
@@ -378,7 +378,7 @@ fn soft_handle_type_desc() -> Arc<TypeDesc> {
             field_index,
             vtable: Vec::new(),
             vtable_index: crate::zpkg::NameIndex::new(),
-            id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+            id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
         })
     }).clone()
 }

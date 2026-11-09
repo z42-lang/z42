@@ -5,13 +5,13 @@ use crate::gc::GcConfig;
 
 impl RuntimeConfig {
     /// Capture construction inputs without exposing facade settings to the VM builder.
-    pub(crate) fn vm_config(&self) -> crate::vm::config::VmConfig {
-        crate::vm::config::VmConfig {
+    pub(crate) fn vm_config(&self) -> crate::config::VmConfig {
+        crate::config::VmConfig {
             safepoint_throttle: self.safepoint_throttle,
             stack_alloc: match self.stackalloc.as_deref() {
-                Some("off" | "0" | "heap") => crate::vm::exec::call::stack_alloc::StackAllocPolicy::Off,
-                Some("stats") => crate::vm::exec::call::stack_alloc::StackAllocPolicy::Stats,
-                _ => crate::vm::exec::call::stack_alloc::StackAllocPolicy::On,
+                Some("off" | "0" | "heap") => crate::exec::call::stack_alloc::StackAllocPolicy::Off,
+                Some("stats") => crate::exec::call::stack_alloc::StackAllocPolicy::Stats,
+                _ => crate::exec::call::stack_alloc::StackAllocPolicy::On,
             },
             gc: self.gc_config(),
             gc_max_bytes: self.gc_max_bytes,
@@ -23,8 +23,8 @@ impl RuntimeConfig {
     }
 
     /// Capture the resolved JIT inputs; the backend never interprets facade settings.
-    pub fn jit_config(&self) -> crate::vm::exec::engine::JitConfig {
-        crate::vm::exec::engine::JitConfig {
+    pub fn jit_config(&self) -> crate::exec::engine::JitConfig {
+        crate::exec::engine::JitConfig {
             threshold: self.jit_threshold,
             osr_threshold: self.osr_threshold,
             interp_tierup: self.jit_interp_tierup,

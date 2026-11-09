@@ -2,7 +2,7 @@
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use std::sync::Arc;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 #[derive(Default)]
 pub(crate) struct State {

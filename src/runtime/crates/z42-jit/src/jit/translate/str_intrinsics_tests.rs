@@ -8,16 +8,16 @@
 //! the same members end to end through the real compiler and stdlib.
 
 use crate::jit::compile::lookup::{ForwardLookup, StrIntrinsic};
-use crate::vm::exec::call::forward::{builtin_forward, chained_forward};
+use crate::exec::call::forward::{builtin_forward, chained_forward};
 use crate::jit::runtime::frame::JitFrame;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use crate::jit::compile::state::install;
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, BuiltinInsn, CallInsn, Instruction, Terminator, VCallInsn};
 use crate::zpkg::ir::ExecMode;
 use crate::object::string::vstr::{jit_layout, Str};
 use crate::{zpkg::IrType, object::Value};
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 const GET_LENGTH: usize = 0;
 const CHAR_AT: usize = 1;
@@ -101,7 +101,7 @@ impl Callees<'_> {
 }
 
 impl ForwardLookup for Callees<'_> {
-    fn builtins(&self) -> &crate::vm::runtime::builtins::BuiltinCatalog { &crate::corelib::builtins::CATALOG }
+    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { &crate::corelib::builtins::CATALOG }
     fn forward_of_id(&self, id: u32) -> Option<u32> { self.of(self.0.functions.get(id as usize)?) }
     fn forward_of_name(&self, name: &str) -> Option<u32> {
         self.of(&self.0.functions[*self.0.func_index.get(name)?])
@@ -126,10 +126,10 @@ fn thrown(msg: &str) -> String {
 /// which closes the inline gate). Returns the outcome and whether the slow path ran.
 fn run_jit(m: &Module, idx: usize, args: &[Value], init_pending: bool) -> (String, bool) {
     let vm = VmContext::new();
-    crate::vm::runtime::resolve::resolve_function_tokens(&m.functions[idx], m, &vm);
+    crate::metadata::resolve::resolve_function_tokens(&m.functions[idx], m, &vm);
     let rt = install(&vm, m, crate::config::runtime_config().jit_config()).expect("install");
     if init_pending {
-        use crate::vm::runtime::statics::CctorRegistry;
+        use crate::metadata::statics::CctorRegistry;
         // The counter the inline gate reads (and `jit_call`'s barrier recounts).
         let reg = std::sync::Arc::as_ptr(&vm.core.runtime.cctors) as *const u8;
         let pending = unsafe { &*(reg.add(CctorRegistry::MODULE_PENDING_OFFSET) as *const std::sync::atomic::AtomicUsize) };
@@ -147,8 +147,8 @@ fn run_jit(m: &Module, idx: usize, args: &[Value], init_pending: bool) -> (Strin
 fn run_interp(m: &Module, idx: usize, args: &[Value]) -> String {
     let vm = VmContext::new();
     match crate::interp::run::exec_function(&vm, m, &m.functions[idx], args) {
-        Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(v)) => show(v.unwrap_or(Value::Null)),
-        Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(v)) => show(v),
+        Ok(crate::exec::call::outcome::ExecOutcome::Returned(v)) => show(v.unwrap_or(Value::Null)),
+        Ok(crate::exec::call::outcome::ExecOutcome::Thrown(v)) => show(v),
         Err(e) => thrown(&e.to_string()),
     }
 }

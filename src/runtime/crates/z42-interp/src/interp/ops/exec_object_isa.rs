@@ -4,15 +4,15 @@
 //! `exec_object.rs` when it crossed the 500-line hard limit; the parent
 //! re-exports so `exec_object::is_instance` / `as_cast` paths are unchanged.
 
-use crate::vm::runtime::dispatch::receiver::is_integer_class;
-use crate::vm::runtime::ids::tokens::TypeKeyCell;
-use crate::vm::runtime::Module;
+use crate::metadata::dispatch::receiver::is_integer_class;
+use crate::metadata::ids::tokens::TypeKeyCell;
+use crate::metadata::Module;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::Result;
 
-use crate::vm::runtime::dispatch::isa::array_isa;
-use crate::vm::exec::ops::cast::{bound_param_extra_isa, isa_object, isa_td, struct_ref_isa};
+use crate::metadata::dispatch::isa::array_isa;
+use crate::exec::ops::cast::{bound_param_extra_isa, isa_object, isa_td, struct_ref_isa};
 use super::super::{prim_isa, Frame};
 
 /// A target naming a type parameter of a shared generic body (`o is T`, `o is List<T>`) carries
@@ -35,7 +35,7 @@ pub(crate) fn is_instance(
 }
 
 /// `bound_param`: `class_name` was substituted for a type-parameter marker — the extra matches of
-/// `crate::vm::exec::ops::cast::bound_param_extra_isa` apply.
+/// `crate::exec::ops::cast::bound_param_extra_isa` apply.
 #[allow(clippy::too_many_arguments)]
 fn is_instance_of(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
@@ -97,7 +97,7 @@ fn as_cast_to(
         let out = if &*b.type_desc().name == class_name {
             match prim_scalar {
                 Some(n) => Value::I64(n), // 基元盒精确命中 → 拆回裸标量
-                None => crate::vm::exec::ops::structs::unbox_struct(ctx, frame.frame_id(ctx), b)?, // struct 盒 → arena StructRef
+                None => crate::exec::ops::structs::unbox_struct(ctx, frame.frame_id(ctx), b)?, // struct 盒 → arena StructRef
             }
         } else if is_obj || isa_td(ctx, &module.type_registry, b.type_desc(), class_name, key) {
             val.clone()
@@ -112,7 +112,7 @@ fn as_cast_to(
     // arena `StructRef` (value-semantics snapshot; the loop var must not alias the array).
     if let Value::StructRefHeap { idx, frame_id } = &val {
         let e = ctx.exec().transient_arena.lock().struct_elem(*idx, *frame_id)?;
-        let out = crate::vm::exec::ops::structs::copy_array_elem_out(ctx, frame.frame_id(ctx), &e)?;
+        let out = crate::exec::ops::structs::copy_array_elem_out(ctx, frame.frame_id(ctx), &e)?;
         frame.set(dst, out);
         return Ok(());
     }

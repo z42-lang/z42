@@ -3,7 +3,7 @@
 use crate::gc::Heap;
 use super::*;
 use crate::object::ArrRef;
-use crate::vm::exec::ambient::HeapGuard;
+use crate::exec::ambient::HeapGuard;
 use std::sync::atomic::Ordering;
 
 fn heap() -> Heap {
@@ -15,7 +15,7 @@ fn obj(h: &Heap) -> Value {
         class_flags: 0, visibility: 0, name: "O".into(), base_name: None, fields: Vec::new(),
         field_index: crate::zpkg::NameIndex::new(), vtable: Vec::new(),
         vtable_index: crate::zpkg::NameIndex::new(), cold: None,
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     });
     h.alloc_object(td, Vec::new(), NativeData::None)
 }
