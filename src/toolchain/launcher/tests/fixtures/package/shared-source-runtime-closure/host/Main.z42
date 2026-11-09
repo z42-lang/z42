@@ -1,0 +1,4 @@
+namespace SharedSource.App;
+using Std.IO;
+using SharedSource.Mid;
+void Main() { Console.WriteLine(MidValue()); }

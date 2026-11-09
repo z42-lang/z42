@@ -213,7 +213,6 @@ LibsDomainOut _resolveLibsDomain(ProjectManifest pm, string tomlPath, string pro
     // vendored zpkg 引用目录并入解析域（`_appendZpkgRefDirs`，在 path 闭包之后、SDK 库之前）。
     DirsOut zr = _appendZpkgRefDirs(pm, projectDir, o.LibsDirs, o.LibsDirsN);
     if (zr == null) { o.Rc = ExitCode.BuildError; return o; }
-    bool hasVendoredDirs = zr.N > o.LibsDirsN;
     o.LibsDirs = zr.Dirs; o.LibsDirsN = zr.N;
     // 声明了 stdlib ⇒ W0610（DepDecls.z42）。此刻 libsDirs = path 闭包 / vendored zpkg + 外部档，正是判「从哪解析到」的那一份。
     _warnStdlibDeps(pm, tomlPath, o.LibsDirs, o.LibsDirsN, tier);
@@ -229,7 +228,7 @@ LibsDomainOut _resolveLibsDomain(ProjectManifest pm, string tomlPath, string pro
     }
     // 只用于扫描与缓存身份；`tier` 本身的 workspace 语义（成员 / 闭包代建 / packed / generated）不受影响。
     o.ScanTier = SdkLibs.MergeTier(tier, o.SdkPlan);
-    if (memberDomain != null && hasVendoredDirs) {
+    if (memberDomain != null) {
         memberDomain.Dirs = o.LibsDirs;
         memberDomain.Count = o.LibsDirsN;
     }

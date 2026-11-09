@@ -1,0 +1,8 @@
+[project]
+name = "sharedsource.bridge"
+kind = "lib"
+pack = true
+[sources]
+include = ["Bridge.z42"]
+[dependencies]
+"sharedsource.mid" = { path = "../mid" }

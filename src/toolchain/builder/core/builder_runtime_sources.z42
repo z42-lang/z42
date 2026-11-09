@@ -1,0 +1,46 @@
+namespace Z42Builder;
+
+using Std.IO;
+using Std.Collections;
+using Z42.Project;
+using Z42.Package;
+using Z42.IR;
+
+// Compilation needs every source member. Deployment starts at the executable
+// and follows private edges only; a shared ancestor does not seed its children.
+bool[] _builderRuntimeSourceMask(ProjectManifest root, string rootDist, ClosurePlan closure) {
+    bool[] selected = new bool[closure.Count];
+    List<int> queue = new List<int>();
+    queue.Add(-1);
+    int head = 0;
+    while (head < queue.Count) {
+        int current = queue[head]; head = head + 1;
+        ProjectManifest manifest = current < 0 ? root : ManifestLoader.Load(closure.Tomls[current]);
+        string dist = current < 0 ? rootDist : closure.Dists[current];
+        List<string> names = new List<string>();
+        int d = 0;
+        while (d < manifest.DepCount) { names.Add(manifest.Deps[d].Name); d = d + 1; }
+        string path = Path.Join(dist, manifest.Project.Name + ".zpkg");
+        ZpkgInfo info = ZpkgReader.Open(File.ReadAllBytes(path), path);
+        if (info == null) { throw new Exception("cannot read runtime source package: " + path); }
+        foreach (var file in ZpkgReader.ReadDependencies(info)) {
+            if (file.EndsWith(".zpkg")) { names.Add(Path.GetFileNameWithoutExtension(file)); }
+        }
+        foreach (var name in names) {
+            string policy = _builderPrebuiltDeploy(manifest, name + ".zpkg");
+            if (policy == "shared" || _builderIsFileReference(manifest, name)) { continue; }
+            int i = 0;
+            while (i < closure.Count) {
+                if (closure.Names[i] == name && policy == "sdk") {
+                    throw new Exception("deploy = sdk requires a package from the compiler SDK: " + name);
+                }
+                if (closure.Names[i] == name && !selected[i]) {
+                    selected[i] = true;
+                    queue.Add(i);
+                }
+                i = i + 1;
+            }
+        }
+    }
+    return selected;
+}

@@ -1,6 +1,7 @@
 namespace Z42Builder;
 
 using Std.IO;
+using Z42.Build;
 using Z42.IR;
 using Z42.Package;
 using Z42.Project;
@@ -98,63 +99,45 @@ string _builderPrebuiltDeploy(ProjectManifest manifest, string file) {
 // Plan copies before writing so invalid or conflicting closure entries do not
 // leave a partly copied dependency set.
 sealed class BuilderPrebuiltCopies {
-    private string _dist;
     private StrMap _owners;
-    private string[] _sources;
-    private string[] _targets;
-    private int _count;
+    private StrMap _selected;
+    private string _dist;
+    private DeploymentCopies _copies;
 
     public BuilderPrebuiltCopies(string dist, string mainName) {
         this._dist = _builderAbsolute(dist);
         this._owners = new StrMap();
         this._owners.Put(mainName, "");
-        this._sources = new string[16];
-        this._targets = new string[16];
+        this._selected = new StrMap();
+        string project = Path.GetFileNameWithoutExtension(mainName);
+        this._copies = new DeploymentCopies(this._dist, project, ".z42-deps-");
+        this._copies.Keep(mainName);
+        this._copies.Keep(project + ".zsym");
+        this._copies.Keep(project + ".runtimeconfig.toml");
     }
 
     public void Reserve(string dir, string file) {
         this._claim(file, _builderAbsolute(Path.Join(dir, file)));
     }
 
-    private bool _claim(string rel, string source) {
-        if (this._owners.TryAdd(rel, source)) { return true; }
+    private void _claim(string rel, string source) {
+        if (this._owners.TryAdd(rel, source)) { return; }
         if ((this._owners.Get(rel) as string) != source) {
             throw new Exception("prebuilt payload collision: " + rel);
         }
-        return false;
     }
 
     public void Add(string dir, string rel) {
-        if (Path.IsRooted(rel) || rel.IndexOf("\\") >= 0 || rel.IndexOf(":") >= 0
-            || Path.Normalize(rel) != rel || rel == ".." || rel.StartsWith("../")) {
-            throw new Exception("unsafe prebuilt payload path: " + rel);
-        }
+        if (!DeploymentCopies.IsRelativePath(rel)) { throw new Exception("unsafe prebuilt payload path: " + rel); }
         string source = _builderAbsolute(Path.Join(dir, rel));
         if (!File.Exists(source)) { throw new Exception("prebuilt payload missing: " + source); }
-        if (!this._claim(rel, source)) { return; }
-        if (this._count == this._sources.Length) {
-            string[] sources = new string[this._count * 2];
-            string[] targets = new string[this._count * 2];
-            Array.Copy(this._sources, sources, this._count);
-            Array.Copy(this._targets, targets, this._count);
-            this._sources = sources;
-            this._targets = targets;
-        }
-        this._sources[this._count] = source;
-        this._targets[this._count] = Path.Join(this._dist, rel);
-        this._count = this._count + 1;
+        this._claim(rel, source);
+        if (!this._selected.TryAdd(rel, "")) { return; }
+        if (source == Path.Join(this._dist, rel)) { this._copies.Keep(rel); }
+        else { this._copies.Add(rel, source, File.ReadAllBytes(source)); }
     }
 
-    public void Copy() {
-        int i = 0;
-        while (i < this._count) {
-            if (this._sources[i] != this._targets[i]) {
-                Directory.Create(Path.GetDirectoryName(this._targets[i]));
-                File.Copy(this._sources[i], this._targets[i]);
-            }
-            i = i + 1;
-        }
-    }
+    public void Copy() { this._copies.Apply(); }
 }
 
 string[] _builderInputDirectories(string[] paths) {
@@ -236,21 +219,27 @@ void _builderPlanPrebuilt(BuilderPrebuiltCopies copies, ProjectManifest manifest
     }
 }
 
-int _builderBundlePrebuilt(ProjectManifest manifest, string sourceDir, string dist, ClosurePlan closure) {
+int _builderBundleRuntime(ProjectManifest manifest, string sourceDir, string dist, ClosurePlan closure) {
     if (manifest.Project.Kind != "exe" || BuilderWorkspaceState.Current() != null) { return 0; }
     BuilderPrebuiltCopies copies = new BuilderPrebuiltCopies(dist, manifest.Project.Name + ".zpkg");
     try {
-        // Existing source outputs also own their destination names.
+        bool[] selected = _builderRuntimeSourceMask(manifest, dist, closure);
         int i = 0;
         while (i < closure.Count) {
             string file = closure.Names[i] + ".zpkg";
             string dir = closure.Dists[i];
-            if (File.Exists(Path.Join(dir, file))) { copies.Reserve(dir, file); }
+            if (selected[i] && File.Exists(Path.Join(dir, file))) { copies.Reserve(dir, file); }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < closure.Count) {
+            if (selected[i]) { copies.Add(closure.Dists[i], closure.Names[i] + ".zpkg"); }
             i = i + 1;
         }
         _builderPlanPrebuilt(copies, manifest, sourceDir, closure.Dists, closure.Count);
         i = 0;
         while (i < closure.Count) {
+            if (!selected[i]) { i = i + 1; continue; }
             // Resolve relative file paths and sibling packages in the declaring member's input domain.
             string toml = closure.Tomls[i];
             string dir = Path.GetDirectoryName(toml);
