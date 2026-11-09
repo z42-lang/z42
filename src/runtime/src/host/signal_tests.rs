@@ -82,5 +82,3 @@ fn walk_prints_frames_only_for_the_calling_thread() {
     assert!(!theirs.contains("Main at"), "another thread's frames are not read; got:\n{theirs}");
     ctx.pop_frame();
 }
-
-use crate::assembly::context::VmContextFactory as _;

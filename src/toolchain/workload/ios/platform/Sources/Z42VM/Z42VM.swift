@@ -48,6 +48,9 @@ public final class Z42VM {
             Unmanaged.passUnretained(resolverBox!).toOpaque()
         )
 
+        guard z42_linked_components_init() == 0 else {
+            throw Self.lastError(prefix: "register execution components")
+        }
         var raw: OpaquePointer? = nil
         let status = z42_host_initialize(&cfg, &raw)
         guard status == Z42_HOST_OK, let h = raw else {

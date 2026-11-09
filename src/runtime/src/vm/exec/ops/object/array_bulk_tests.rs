@@ -228,5 +228,3 @@ fn checked_copy_writes_the_validated_snapshot_after_source_changes() {
     ctx.heap().unpin_root(src_root);
     ctx.heap().unpin_root(dst_root);
 }
-
-use crate::assembly::context::VmContextFactory as _;

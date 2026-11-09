@@ -19,7 +19,7 @@
 
 ## 依赖关系
 
-宿主 z42 依赖 z42-runtime 和选定的 interp/JIT；后端依赖 z42-runtime。运行时不依赖宿主或具体后端。native 创作 SDK 的 z42-rs/z42-macros/z42-abi 保持 VM-free，独立扩展不会因此引入整台 VM。proc-macro 和 no_std ABI 各有独立编译约束。
+宿主 z42 依赖 z42 和选定的 interp/JIT；后端依赖 z42。运行时不依赖宿主或具体后端。native 创作 SDK 的 z42-rs/z42-macros/z42-abi 保持 VM-free，独立扩展不会因此引入整台 VM。proc-macro 和 no_std ABI 各有独立编译约束。
 
 ## 如何测试验证
 

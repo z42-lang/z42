@@ -1,65 +1,190 @@
 [workspace]
-members = [".", "tests/data/component", "crates/z42-interp", "crates/z42-jit", "crates/z42-zpkg", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl", "src/host"]
-# fix-default-members-include-compression (2026-05-29): z42-compression is a
-# cdylib loaded via dlopen at z42vm runtime — not a transitive dep of the
-# main `z42` crate (only pulled in compile-time via `bundled-compression`
-# feature, used on wasm). Without listing it as a default-member, the bare
-# `cargo build --manifest-path src/runtime/Cargo.toml` invocations in
-# `just build-runtime` and `z42 xtask.zpkg test lib` only built the root
-# package; tests that touched Std.Compression hit "unknown builtin
-# `__brotli_compress`" because no libz42_compression.{dylib,so,dll} was
-# present in the search path. Listing it here makes every default build
-# co-produce the cdylib without per-script explicit invocations.
-default-members = [".", "src/host", "crates/z42-zpkg", "crates/z42-compression"]
+members = [".", "tests/data/component", "crates/z42-interp", "crates/z42-jit", "crates/z42-zpkg", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl"]
+default-members = [".", "crates/z42-zpkg", "crates/z42-compression"]
 
 [workspace.package]
-# mirror of versions.toml [project].version — drift enforced by `xtask check versions`
 version = "0.7.0"
 
 [package]
-name = "z42-runtime"
+name = "z42"
 version.workspace = true
 edition = "2021"
-description = "z42 runtime: VM, object, GC, PAL and component contracts"
-autobins = false
-autotests = false
-autoexamples = false
-autobenches = false
+description = "z42 unified runtime, embedding API and dynamic VM launcher"
+
+[[bin]]
+name = "z42vm"
+path = "src/main.rs"
+
 [lib]
-name = "z42_runtime"
+name = "z42"
 path = "src/lib.rs"
 crate-type = ["rlib", "dylib"]
-test = false
+
+[build-dependencies]
+cc = "1"
+blake3 = "1"
+
 [dependencies]
 z42-zpkg = { path = "crates/z42-zpkg" }
-anyhow = "1"
-rustc-hash = "2"
-parking_lot = "0.12"
-smallvec = "1"
-blake3 = "1"
-tracing = "0.1"
+# Custom allocators belong to final static embedding executables.
 mimalloc = { version = "0.1", optional = true }
-libloading = { version = "0.9", optional = true }
+dhat = { version = "0.3", optional = true }
+serde_json = "1"   # --list-knobs / --show-config JSON output (config/render.rs)
+toml = "1"         # runtime config files: `[runtime]` tables, app sidecars (config/)
+
+smallvec = "1"
+
+anyhow = "1"
+
+rustc-hash = "2"
+
+parking_lot = "0.12"
+
+blake3 = "1"
+
+z42-compression = { path = "crates/z42-compression", optional = true }
+
 socket2 = { version = "0.6", features = ["all"], optional = true }
+rustls       = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+webpki-roots = { version = "1", optional = true }
+
+clap = { version = "4", features = ["derive"], optional = true }
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+
+libffi     = { version = "5.1", optional = true }
+libloading = { version = "0.9", optional = true }
+z42-abi    = { path = "crates/z42-abi" }
+z42-macros = { path = "crates/z42-macros" }
+
 [features]
-default = []
-jit = []
+cli = ["dep:clap", "dep:tracing-subscriber"]
+default              = ["cli", "interp", "jit", "native-interop", "net", "tls"]
+mimalloc-alloc       = ["dep:mimalloc"]
+dhat-heap            = ["dep:dhat"]
 profile-contention = []
-mimalloc-alloc = ["dep:mimalloc"]
-native-interop = []
-component-loading = ["dep:libloading"]
-net = ["dep:socket2"]
+z42-test-fixtures    = []
+static-embedding = []
+interp = []
+shared-core = ["component-loading", "jit"]
+jit                  = ["z42-jit/jit", "z42-interp/jit"]
+component-loading    = ["dep:libloading"]
+native-interop       = ["z42-interp/native-interop", "dep:libffi", "component-loading"]
+net                  = ["dep:socket2"]
+tls                  = ["net", "dep:rustls", "dep:webpki-roots"]
+aot                  = []
+interp-only          = ["interp"]
+bundled-compression  = ["dep:z42-compression"]
+wasm                 = ["interp", "interp-only", "bundled-compression"]
+ios                  = ["interp", "interp-only", "aot", "native-interop", "bundled-compression", "net", "tls"]
+android              = ["interp", "interp-only", "aot", "native-interop", "bundled-compression", "net", "tls"]
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 getrandom = "0.4"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 signal-hook-registry = "1.4"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(z42_test_facade)", "cfg(loom)"] }
+# Backends depend on this runtime. Only final examples/tests link their rlibs here;
+# the production runtime has no dependency on a concrete execution backend.
+[dev-dependencies]
+z42-interp = { path = "crates/z42-interp", default-features = false }
+jsonschema = { version = "0.56", default-features = false }
+z42-rs     = { path = "crates/z42-rs" }
+criterion  = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
-[build-dependencies]
-blake3 = "1"
+[target.'cfg(loom)'.dev-dependencies]
+loom = "0.7"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(z42_test_facade)'] }
+
+[target.'cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), any(target_os = "linux", target_os = "macos", target_os = "windows")))'.dev-dependencies]
+# White-box backend tests compile the backend sources inside the runtime harness.
+cranelift-codegen = { version = "0.135", features = ["unwind"] }
+cranelift-frontend = { version = "0.135" }
+cranelift-jit      = { version = "0.135" }
+cranelift-module   = { version = "0.135" }
+cranelift-native = { version = "0.135" }
+
+z42-jit = { path = "crates/z42-jit", default-features = false }
+
+[[test]]
+name = "cross_thread_smoke"
+path = "tests/cross_thread_smoke.rs"
+
+[[test]]
+name = "engine_components"
+path = "tests/engine_components.rs"
+
+[[test]]
+name = "format_fixture_versions"
+path = "tests/format_fixture_versions.rs"
+
+[[test]]
+name = "gc_incremental_model"
+path = "tests/gc_incremental_model.rs"
+
+[[test]]
+name = "gc_registration_race_loom"
+path = "tests/gc_registration_race_loom.rs"
+
+[[test]]
+name = "ic_publication_loom"
+path = "tests/ic_publication_loom.rs"
+
+[[test]]
+name = "manifest_schema_validation"
+path = "tests/manifest_schema_validation.rs"
+
+[[test]]
+name = "native_interop_e2e"
+path = "tests/native_interop_e2e.rs"
+
+[[test]]
+name = "native_opcode_trap"
+path = "tests/native_opcode_trap.rs"
+
+[[test]]
+name = "native_pin_e2e"
+path = "tests/native_pin_e2e.rs"
+
+[[test]]
+name = "signal_handler_e2e"
+path = "tests/signal_handler_e2e.rs"
+
+[[test]]
+name = "stack_overflow_e2e"
+path = "tests/stack_overflow_e2e.rs"
+
+[[test]]
+name = "zbc_compat"
+path = "tests/zbc_compat.rs"
+
+[[example]]
+name = "signal_crash_helper"
+path = "examples/signal_crash_helper.rs"
+
+[[bench]]
+name = "gc_cycle_bench"
+path = "benches/gc_cycle_bench.rs"
+harness = false
+
+[[bench]]
+name = "smoke_bench"
+path = "benches/smoke_bench.rs"
+harness = false
+
+[[example]]
+name = "run_app_smoke"
+path = "examples/run_app_smoke.rs"
+
+[[example]]
+name = "z42vm_static"
+path = "examples/z42vm_static.rs"
+required-features = ["cli"]
 
 [patch.crates-io]
 rustyline = { git = "https://github.com/z42-lang/rustyline", branch = "z42-edit-insert-text-cursor-v18" }
@@ -68,3 +193,9 @@ rustyline = { git = "https://github.com/z42-lang/rustyline", branch = "z42-edit-
 opt-level = 3
 lto = true
 codegen-units = 1
+
+[[example]]
+name = "z42"
+path = "examples/z42.rs"
+crate-type = ["staticlib", "cdylib"]
+required-features = ["static-embedding"]

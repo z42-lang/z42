@@ -376,5 +376,3 @@ fn virtual_field_reader_cache_keeps_the_first_scalar_receiver() {
     assert_eq!(site.field_reader.reader_location(2), Some(first));
     assert_eq!(site.field_reader.reader_location(3), None);
 }
-
-use crate::assembly::context::VmContextFactory as _;

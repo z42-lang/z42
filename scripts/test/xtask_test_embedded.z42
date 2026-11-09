@@ -204,7 +204,7 @@ int _runIosTesthost(string root, string rid) {
         new string[] { "--run", "--project", here, "--report-dir", Path.Join(_testReportsDir(root), "ios") });
 }
 
-// Android: build libz42_platform_android.so via cargo-ndk + stage the embedded corpus into the
+// Android: build libz42.so via cargo-ndk + stage the embedded corpus into the
 // androidTest assets. `rid` selects the single ABI built — `android-x64` → x86_64,
 // `android-arm64` → arm64-v8a. The embedded runner is Z42EmbeddedInstrumentedTest.
 string _buildAndroidTesthost(string root, string filter, string rid, int shardK, int shardN) {

@@ -167,5 +167,3 @@ fn real_https_handshake_and_get_round_trip() {
     let _ = builtin_net_tls_socket_drop(&ctx, &[Value::I64(slot)]).expect("drop");
     assert_eq!(super::state(&ctx).unwrap().slots.count(), 0);
 }
-
-use crate::assembly::context::VmContextFactory as _;

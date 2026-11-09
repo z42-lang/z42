@@ -217,5 +217,3 @@ fn osr_entry_for_lazy_function_compiles_once() {
     assert!(rt.resolve_osr_entry(&vm, id, 0).is_some(), "cached");
     assert_eq!(compiled_count(&vm), 1, "one OSR compile per (id, header)");
 }
-
-use crate::assembly::context::VmContextFactory as _;

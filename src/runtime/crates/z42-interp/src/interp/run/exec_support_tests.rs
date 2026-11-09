@@ -53,5 +53,3 @@ fn find_handler_skips_an_entry_whose_try_end_does_not_resolve() {
         crate::vm::exec::call::type_param_env::TypeParamEnv::new(&[], None));
     assert_eq!(found, Some(1));
 }
-
-use crate::assembly::context::VmContextFactory as _;

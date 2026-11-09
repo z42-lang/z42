@@ -92,5 +92,3 @@ fn file_slots_keep_one_sequence_across_threads_and_close_from_a_worker() {
     }
     std::fs::remove_file(path).unwrap();
 }
-
-use crate::assembly::context::VmContextFactory as _;

@@ -81,7 +81,7 @@ z42vm `__text` 构成（macOS arm64，共 4.97 MB），是模块分层与可选�
 
 ### 4.1 模块总览
 
-运行时机制由 `src/runtime/src/lib.rs` 所在的 `z42-runtime` 主库拥有，VM、对象、GC、PAL 与组件协议仍是 `runtime/src` 下的模块。`interp` / `jit` 独立编译并单向依赖运行时；`src/host` 的 z42 宿主包统一提供嵌入接口、CLI 与后端装配，运行时不反向依赖宿主。native SDK、产物格式和原生扩展按各自编译边界保留独立库。
+运行时实现由 `src/runtime/src/lib.rs` 所在的唯一 `z42` 包拥有；host、VM、对象、GC、PAL 与组件协议都是包内模块。interp/JIT 独立编译并单向依赖运行时。根 main.rs 仅经版本化 C 入口动态加载运行时，SDK 携带同构建的共享库闭包。native SDK、产物格式和原生扩展按各自编译边界保留独立库。
 
 | 层 | 模块 | 回答的问题 | 依赖 |
 |---|---|---|---|
@@ -180,7 +180,7 @@ vm/
 
 ## 5. 打包与嵌入的遗留项
 
-z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与重新考虑的触发条件见 [packaging.md](internals/src/devinfra/packaging.md)）。SDK 瘦身、dylib 元数据（`@rpath` / SONAME / `z42.dll.lib`）、glibc 下限已修。剩下的：
+z42vm 经版本化 C 入口动态加载 `native/libz42`；发布闭包见 [packaging.md](internals/src/devinfra/packaging.md)。dylib 元数据（`@rpath` / SONAME / `z42.dll.lib`）、glibc 下限由打包门验证。剩下的：
 
 1. **嵌入路径比 z42vm 慢 1.26–1.55 倍**（分配器能解释大约 2/3）：给 staticlib/cdylib 打包构建加 lib 内 mimalloc feature；剩余差距需要 profile。影响面：self-contained、iOS、Android、wasm。
 2. libz42.a 导出 69 个 `jit_*` 和 37 个 `ffi_*` 全局符号，嵌入者容易撞名。

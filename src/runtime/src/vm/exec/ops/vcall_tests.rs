@@ -274,5 +274,3 @@ fn iface_slot_key_without_a_table_falls_back_to_the_bare_name() {
     let r = resolve_vcall(&ctx, &entry, &obj, "Demo.IPlain#Get", 1, None).unwrap();
     assert_eq!(target_name(&r), "Demo.W.Get");
 }
-
-use crate::assembly::context::VmContextFactory as _;

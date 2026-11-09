@@ -516,5 +516,3 @@ fn a_running_mark_sends_reference_stores_to_the_helper() {
     crate::gc::satb::end_marking(u64::MAX - 7);
     assert_eq!(under_mark, 1, "SATB must see the overwritten word");
 }
-
-use crate::assembly::context::VmContextFactory as _;

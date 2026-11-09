@@ -277,5 +277,3 @@ fn verify_fills_struct_statics_and_leaves_reference_and_open_type_param_statics_
     assert!(!unresolved_was_recorded(&vm, "T"));
     assert!(matches!(verify_static_field(&vm, &m, "Demo.S.Nope"), StaticNullVerdict::Missing(_)));
 }
-
-use crate::assembly::context::VmContextFactory as _;

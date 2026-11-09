@@ -37,5 +37,3 @@ fn missing_required_state_is_an_internal_error() {
     assert!(matches!(state::<Unregistered>(&ctx), Err(BuiltinError::Internal(message))
         if message.contains("Unregistered")));
 }
-
-use crate::assembly::context::VmContextFactory as _;

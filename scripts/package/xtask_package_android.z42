@@ -2,7 +2,7 @@
 //
 // Splits into TWO artifacts (mirrors ios's runtime/workload split):
 //   _buildRuntimePackageAndroid → z42-runtime-<ver>-android-<rid>/  (per-ABI
-//        libz42_platform_android.{so,a} + libz42_compression.{so,a} + headers
+//        libz42.{so,a} + libz42_compression.{so,a} + headers
 //        + libs/) — the platform VM runtime, version-managed independently;
 //        installed under runtimes/<rid>/<ver>/. android has MULTIPLE runtime
 //        packs (android-arm64 + android-x64) feeding ONE workload tooling.
@@ -30,7 +30,7 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
     string cargoTarget = _ridToCargo(rid);
     string abi = _ridToAndroidAbi(rid);
     bool rel = (profile == "release");   // per-ABI cargo builds below gate --release on it
-    string androidCrate = Path.Join(root, "src/toolchain/workload/android/platform/rust");
+    string androidCrate = Path.Join(root, "src/runtime");
     string pkgDir = _runtimePkgScaffold(root, rid, version, profile);
     string nativeOut = Path.Join(pkgDir, "native");
 
@@ -38,48 +38,13 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
     int c = _ensureAndroidNdk(root);
     if (c != 0) { return c; }
 
-    // [1/5] libz42_platform_android.so (cdylib via cargo-ndk)
-    Console.WriteLine("  [1/5] libz42_platform_android.so (cargo ndk -t " + abi + ", " + profile + ")");
-    string ndkOut = Path.Join(nativeOut, ".ndk-out");
-    Process p = new Process("cargo").Arg("ndk").Arg("-t").Arg(abi).Arg("-o").Arg(ndkOut).Arg("build").Arg("--quiet")
-        .Arg("--config").Arg(Path.Join(_root(), _runtimeCargoConfig()));
-    if (rel) { p = p.Arg("--release"); }
-    // _execIn (not _exec): cargo-ndk runs `cargo metadata` in CWD, so it must run
-    // inside the android crate — _exec would override WorkingDirectory back to _root().
-    c = _execIn(p, androidCrate);
-    if (c != 0) { return c; }
-    string outSo = Path.Join(ndkOut, abi + "/libz42_platform_android.so");
-    if (!File.Exists(outSo)) { ConsoleError.WriteLine("error: " + outSo + " not produced"); return 1; }
-    File.Copy(outSo, Path.Join(nativeOut, "libz42_platform_android.so"));
-    if (Directory.Exists(ndkOut)) { Directory.Delete(ndkOut, true); }
-    Console.WriteLine("        ✓ native/libz42_platform_android.so (" + _getFileSize(Path.Join(nativeOut, "libz42_platform_android.so")) + ")");
-
-    // [2/5] libz42_platform_android.a (staticlib via cargo-ndk rustc)
-    Console.WriteLine("  [2/5] libz42_platform_android.a (cargo ndk rustc --crate-type=staticlib)");
-    Process p2 = new Process("cargo").Arg("ndk").Arg("-t").Arg(abi).Arg("-o").Arg(ndkOut)
-        .Arg("rustc").Arg("--config").Arg(Path.Join(_root(), _runtimeCargoConfig())).Arg("--lib").Arg("--crate-type=staticlib").Arg("--quiet")
-        .Stdout(Stdio.Null()).Stderr(Stdio.Null());
-    if (rel) { p2 = p2.Arg("--release"); }
-    _execIn(p2, androidCrate);   // exits non-zero though .a is produced — ignored
-    string staticA = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile + "/libz42_platform_android.a");
-    if (!File.Exists(staticA)) { staticA = Path.Join(androidCrate, "target/" + cargoTarget + "/" + profile + "/libz42_platform_android.a"); }
-    if (!File.Exists(staticA)) { ConsoleError.WriteLine("error: libz42_platform_android.a not produced for " + cargoTarget); return 1; }
-    File.Copy(staticA, Path.Join(nativeOut, "libz42_platform_android.a"));
-    if (Directory.Exists(ndkOut)) { Directory.Delete(ndkOut, true); }
-    Console.WriteLine("        ✓ native/libz42_platform_android.a (" + _getFileSize(Path.Join(nativeOut, "libz42_platform_android.a")) + ")");
-
-    // [3/5] libz42_compression.so (no .a: the `android` preset already links compression into libz42 —
-    // bundled-compression — so a separate staticlib was unusable)
-    Console.WriteLine("  [3/5] libz42_compression.so (cargo ndk -p z42-compression)");
-    string ndkOut2 = Path.Join(nativeOut, ".ndk-out2");
-    Process p3 = new Process("cargo").Arg("ndk").Arg("-t").Arg(abi).Arg("-o").Arg(ndkOut2)
-        .Arg("build").Arg("--config").Arg(Path.Join(_root(), _runtimeCargoConfig())).Arg("-p").Arg("z42-compression").Arg("--quiet").Stdout(Stdio.Null()).Stderr(Stdio.Null());
-    if (rel) { p3 = p3.Arg("--release"); }
-    _execIn(p3, androidCrate);
-    string compSo = Path.Join(ndkOut2, abi + "/libz42_compression.so");
-    if (File.Exists(compSo)) { File.Copy(compSo, Path.Join(nativeOut, "libz42_compression.so")); }
-    if (Directory.Exists(ndkOut2)) { Directory.Delete(ndkOut2, true); }
-    Console.WriteLine("        ✓ native/libz42_compression.so");
+    Process p = _androidRuntimeRustc(new Process("cargo").Arg("ndk").Arg("-t").Arg(abi), root, rel);
+    string ndk = _androidNdkDir(root);
+    p = p.Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk);
+    c = _execIn(p, androidCrate); if (c != 0) { return c; }
+    string cargoOut = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile + "/examples");
+    _componentCopyRequired(Path.Join(cargoOut, "libz42.so"), Path.Join(nativeOut, "libz42.so"));
+    _componentCopyRequired(Path.Join(cargoOut, "libz42.a"), Path.Join(nativeOut, "libz42.a"));
 
     // [4/5] C ABI headers
     Console.WriteLine("  [4/5] C ABI headers");

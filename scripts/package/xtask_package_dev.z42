@@ -64,6 +64,9 @@ int _packageDevSdk(string outOpt) {
     _makeExe(Path.Join(binDir, "z42vm"));
     Console.WriteLine("  ✓ bin/" + vmName);
 
+    _componentInstallLibraries(cargoOut, outDir);
+    c = _componentRelocate(Path.Join(outDir, "native")); if (c != 0) { return c; }
+    c = _componentRelocateLauncher(outDir); if (c != 0) { return c; }
     _devSdkMergeApphosts(root, outDir);
     _procEnd("package dev-sdk", sw);
     return 0;

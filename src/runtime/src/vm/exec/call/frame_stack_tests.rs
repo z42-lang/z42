@@ -99,5 +99,3 @@ fn owner_scan_is_allowed() {
     assert_eq!(unsafe { ctx.scan_frames_parked(|f| f.len()) }, 1);
     ctx.pop_frame();
 }
-
-use crate::assembly::context::VmContextFactory as _;

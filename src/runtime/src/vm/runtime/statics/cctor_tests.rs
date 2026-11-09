@@ -326,5 +326,3 @@ fn callee_barrier_settled_tracks_the_same_events_as_the_epoch() {
     ctx.core.runtime.cctors.register_module_init(&m, FxHashSet::default());
     assert!(!ctx.callee_barrier_settled(&owner));
 }
-
-use crate::assembly::context::VmContextFactory as _;

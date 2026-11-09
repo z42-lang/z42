@@ -23,37 +23,19 @@
 | 组件间依赖 | **不设依赖段**：组件独立产出；include 顺序只影响拷贝顺序 | 组件内部依赖（如 z42c.driver 的兄弟包）由 `z42 publish` 自行解析拷贝，包层无需知道 |
 | per-package 落点覆盖 | 不支持（dest 固定在组件注册表）| 当前无组件在两个包里需要不同落点；真需要再加，不预先设计 |
 | runtime 包内容 | 仅 native + stdlib（不含 z42c / z42vm CLI）| runtime 包会跨 host 安装（如 android runtime 装在 macOS host），host 专属工具放进去无意义；自举种子由 SDK 包提供 |
-| 嵌入件（libz42.* + C 头）放哪 | **只在 runtime 包**；SDK 的 `native/` 只有 z42vm 要 dlopen 的 stdlib 扩展动态库 | z42vm 静态链接 VM，SDK 里没有任何东西用 libz42；嵌入者本来就该拿 runtime 包。compression 的静态库哪个包都不发：desktop 没有静态注册路径，移动 preset 已把它编进 libz42.a |
+| 运行时原生产物放哪 | SDK 的 `native/` 提供 libz42、interp/JIT、compression 和匹配的 Rust std；runtime 包另提供静态嵌入归档与 C 头 | SDK 使用动态运行时；runtime 保留各平台的嵌入链接形式 |
 
-### z42vm 静态链接 VM，不改为动态链接 `native/libz42`
+### SDK 动态运行时与 runtime 静态嵌入
 
-**动态化没有性能 / 内存收益**（实测）：同一份 libz42、同一个 C 宿主，hello 动态 / 静态都是 13.2 ms，
-z42c 编译 526.5 / 531.2 ms，指令数只多 1.3%。所有跑 z42 代码的进程（launcher、z42c、z42b、xtask
-及其子进程）映射的都是同一个 z42vm 文件，`__TEXT` 已经在进程间共享，动态化不会多出任何页共享。
-嵌入件移出 SDK 之后，动态化反而要把 dylib 加回去。
+z42vm 是薄启动器，通过版本化 C 函数表动态加载统一 libz42。参数处理、配置、panic hook、tracing 与宿主实现都在库内，启动器不调用 Rust VM 接口。入口先验证 ABI 版本、大小和构建身份。
 
-**Rust 下的代价是真实的**：
+interp/JIT 是独立组件。SDK、dev-sdk 与 CI 构建树必须携带同构建的完整动态闭包，不能只复制 z42vm。所有动态产物在同一个 Cargo 图中编译，使用同一 libz42 和共享 Rust std；共享构建使用 System 分配器。
 
-1. **全局状态分裂**：每个 cdylib 各带一份 std、tracing-core 和 z42 的 static，exe 里装的 panic hook、
-   tracing subscriber、运行时配置对 dylib 内部都不生效。要修就得把整个 main 搬进 lib。
-2. **mimalloc 丢失**：`#[global_allocator]` 只在 `main.rs`，管不到 dylib 内部的分配（实测 z42c 慢 14–20%）。
-3. **Linux TLS 变慢**：.so 里的 `thread_local!` 走 general-dynamic 模型，热路径大量用 TLS（TLAB、SATB、safepoint、帧池）。
-4. **不再是单文件**：`package dev-sdk`、CI 产物、`Z42_PORTABLE_VM`、apphost、`build.rs` 的 `find_z42vm` 都假设单个 z42vm。
-5. **平台细节**：Windows 加载器不搜 `native\`；Linux 要 rpath `$ORIGIN/../native`。
-6. **版本耦合**：`bin/` 与 `native/` 可以被分别替换，需要 build-id 握手。
+macOS 采用 @rpath 和 @loader_path，Linux 采用 $ORIGIN 与 $ORIGIN/../native。Windows 的启动器在 bin/ 携带匹配的 std DLL；运行时及组件依赖位于 native/。发布前检查闭包完整性，并将产物搬移到独立目录验证。
 
-「静态 core + `-rdynamic` + dlopen JIT」在 Rust 下不可行，见 [componentized-runtime.md §7.1](../runtime/componentized-runtime.md)。
+桌面 runtime 同时提供动态闭包和最终 C 静态归档。最终嵌入 target 是同一运行时包的 examples/z42.rs，通过 static-embedding feature 链接运行时及独立后端 rlib，不增加包装 Cargo 包；调用方先调用 z42_linked_components_init。自定义分配器与 dhat 使用最终静态宿主 z42vm_static，避免改变动态组件的分配契约。
 
-**重新考虑的触发条件**（满足任一条）：
-
-- Tier-1 native 扩展的 dlopen 落地，并且坚持用全局符号 ABI（改用函数表 ABI 就不会触发）；
-- 产品要求 SDK 本体必须带动态 libz42，并且下载体积成了瓶颈；
-- 出现多个不同的宿主进程常驻、共用同一个 SDK libz42 的形态（IDE / LSP 宿主等）；
-- JIT 可选成为硬需求——即使这样，也优先出「静态 interp-only」和「静态 full」两种 z42vm。
-
-若触发，顺序是：dylib 元数据 + build-id 握手 + lib 内 mimalloc + 嵌入路径性能门禁 → `main.rs` 整体搬进
-`z42_vm_main`、z42vm 成为薄 stub → 改造所有「只拷 z42vm」的路径（保留静态 z42vm 用于自举）→ Linux
-bench 验证 TLS 回退，超过 2% 就让 Linux 保持静态。
+平台链接形式分别验证：Linux/macOS/Windows 与 Android 提供静态、动态两种形式；iOS 按 RID 提供 libz42.a 和 z42.framework，不在 runtime 包重复发布 XCFramework。SwiftPM 的静态适配封装由 workload 在本地生成。Browser WASM 提供静态归档及 wasm-bindgen 模块。不支持 JIT 的平台不编译 JIT/Cranelift。
 
 ## 2. 构建 → 安装
 
@@ -190,8 +172,8 @@ source-identity 只比「拷进来的东西和源一不一致」，管不到「�
 | 桌面 SDK | `manifest.toml`、`libs/`、`bin/z42c[.exe]`、ext 动态库 `libz42_compression.*` 与 `libs/z42.compression.zpkg` 在；嵌入件（`libz42.*`、`z42*.lib/dll`、C 头）与 apphost **不在**（只随 runtime 包 / 桌面 workload 发）；Linux 上 `bin/z42vm` 的硬 glibc 需求 ≤ `versions.toml` 声明 |
 | 桌面 runtime | C 头在；macOS `libz42.a` + 两个 dylib 的 install name 是 `@rpath/…`（`otool -D`）；Linux `libz42.a` + 两个 `.so` 的 SONAME 正确（`readelf -d`）且硬 glibc 需求不超声明（`objdump -p`，只看 verneed flag `0x00`，`0x02` 是 Rust std 的弱引用）；Windows `z42.lib` / `z42.dll` / `z42.dll.lib` |
 | 桌面 workload | `manifest.toml` + `apphost-<rid>` |
-| iOS | tooling：SwiftPM 源码、自包含 Z42VMC 头、带 `__Z42_RUNTIME_XCFRAMEWORK__` 占位的 `Package.swift`；runtime：`libz42.a`、`Z42VM.xcframework`（内含的 `libz42.a` 是 arm64，`lipo -info`）、头、`libs/` |
-| Android | tooling：gradle 工程（`gradlew`、`settings.gradle.kts`、Kotlin 门面、JNI 桥与头）；runtime：`libz42_platform_android.{so,a}`（`.so` 架构对，`file`）、头、`libs/` |
+| iOS | tooling：SwiftPM 源码、自包含 Z42VMC 头及安装期解析的 Package.swift；runtime：libz42.a、z42.framework、头、libs/。检查框架的 arm64 架构、真机/模拟器平台、@rpath 身份与签名；不发布 XCFramework |
+| Android | tooling：gradle 工程（`gradlew`、`settings.gradle.kts`、Kotlin 门面、JNI 桥与头）；runtime：`libz42.{so,a}`（`.so` 架构对，`file`）、头、`libs/` |
 | wasm | tooling：`package.json`、`js/`；runtime：`z42_wasm_bg.wasm`（`wasm-tools validate` 通过且有导出）、`libz42.a`、`pkg-web/`、`pkg-nodejs/`、`libs/` |
 
 读外部工具输出失败即判红并提示该装什么——「没装就跳过」等于没有门。

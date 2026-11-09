@@ -129,6 +129,3 @@ fn validation_accepts_current_epoch() {
     crate::object::ObjRef::mark(gc, heap.major_mark_for_test());
     heap.debug_validate_invariants();
 }
-
-#[cfg(all(test, z42_test_facade))]
-use crate::assembly::context::VmContextFactory as _;

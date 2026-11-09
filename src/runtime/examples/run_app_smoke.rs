@@ -14,6 +14,7 @@
 use std::path::PathBuf;
 
 fn main() {
+    if let Err(error) = register() { eprintln!("{error:#}"); std::process::exit(1); }
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() {
         eprintln!("usage: run_app_smoke <app.zpkg> [prog args...]");
@@ -31,4 +32,11 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+fn register() -> anyhow::Result<()> {
+    unsafe { z42::host::register_static_component(z42::host::INTERP_COMPONENT, z42_interp::component::z42_interp_init)?; }
+    #[cfg(all(feature = "jit", z42_jit_supported))]
+    unsafe { z42::host::register_static_component(z42::host::JIT_COMPONENT, z42_jit::component::z42_jit_init)?; }
+    Ok(())
 }

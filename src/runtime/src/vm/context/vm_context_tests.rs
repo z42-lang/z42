@@ -311,6 +311,3 @@ fn vm_context_new_with_core_shares_static_fields() {
     ctx1.static_set("Shared", Value::I64(7)).unwrap();
     assert!(matches!(ctx2.static_get("Shared"), Value::I64(7)));
 }
-
-
-use crate::assembly::context::VmContextFactory as _;

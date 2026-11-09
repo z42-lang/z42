@@ -31,5 +31,3 @@ fn frames_draw_registers_from_the_context_pool() {
     assert_eq!(again.regs.as_ptr(), ptr, "the returned file is reused");
     assert!(again.regs.iter().all(|v| matches!(v, Value::Null)), "and comes back all Null");
 }
-
-use crate::assembly::context::VmContextFactory as _;

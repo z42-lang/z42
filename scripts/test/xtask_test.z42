@@ -120,9 +120,7 @@ int _regenForTestF(bool haveTc, bool noBuild, string dirFilter, string fileFilte
 // runner resolves (artifacts/build/runtime/debug/z42vm; JIT dlopens the compressor).
 // Shared: _testE2eCore + _testAll.
 int _buildDebugVmAndCompression() {
-    int cd = _exec(_cargoCmd("build", _runtimeCargoConfig()).Arg("-q").Arg("--manifest-path").Arg(_runtimeManifest()));
-    if (cd != 0) { return cd; }
-    return _exec(_cargoCmd("build", _runtimeCargoConfig()).Arg("-q").Arg("--manifest-path").Arg("src/runtime/crates/z42-compression/Cargo.toml"));
+    return _buildRuntimeProfile("debug");
 }
 
 int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, int[] shard, string dirFilter, string fileFilter) {
@@ -162,8 +160,7 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, int[] sh
 // 别再在别处复制一份构建波。
 int _ensureFixtureToolchain(bool noBuild) {
     if (noBuild || _toolchainDir(_root()).Length > 0) { return 0; }
-    int cr = _exec(_cargoCmd("build", _runtimeCargoConfig()).Arg("-q")
-        .Arg("--manifest-path").Arg(_runtimeManifest()));
+    int cr = _buildDebugVmAndCompression();
     if (cr != 0) { return cr; }
     string root = _root();
     if (!File.Exists(Path.Join(_libsDir(root), "z42.core.zpkg"))) {

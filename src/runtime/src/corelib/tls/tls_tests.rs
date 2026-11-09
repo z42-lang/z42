@@ -123,5 +123,3 @@ fn bad_arguments_and_unknown_handles() {
     assert_eq!(detailed(&e).0, "Std.Net.Sockets.SocketClosedException");
     call(&ctx, "__tls_close", &[Value::I64(999_999)]).unwrap();
 }
-
-use crate::assembly::context::VmContextFactory as _;

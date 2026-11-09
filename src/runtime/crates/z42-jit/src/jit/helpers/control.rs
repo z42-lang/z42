@@ -193,6 +193,3 @@ mod check_safepoint_tests {
             "trampoline should have run a real collect");
     }
 }
-
-#[cfg(all(test, z42_test_facade))]
-use crate::assembly::context::VmContextFactory as _;

@@ -240,5 +240,3 @@ fn racing_first_reads_agree_on_one_installed_zero() {
         assert!(seen.iter().all(|v| *v == installed), "round {round}: {seen:?} vs {installed:?}");
     }
 }
-
-use crate::assembly::context::VmContextFactory as _;

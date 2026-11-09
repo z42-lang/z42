@@ -8,4 +8,4 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-z42-runtime = { path = "../../.." }
+z42 = { default-features = false, path = "../../.." }

@@ -41,15 +41,7 @@ public class DesktopBackend : IPlatformBackend {
         }
         if (!_requireTool("cargo", "https://rustup.rs")) { return 1; }
         if (!_requireTool("cc", "C compiler required for desktop embedding test")) { return 1; }
-        // 与打包同一个 crate-type 列表（_embedCrateTypes）与 link-arg（_embedLinkArg）：参数不同会让两边交替时
-        // 互相作废 cargo 指纹。
-        Console.WriteLine("  cargo rustc --release --lib --crate-type=" + _embedCrateTypes() + " (libz42.a)");
-        Process p = _cargoCmd("rustc", _runtimeCargoConfig()).Arg("--release").Arg("--lib")
-            .Arg("--crate-type=" + _embedCrateTypes())
-            .Arg("-p").Arg("z42").Arg("--manifest-path").Arg(Path.Join(root, "src/runtime/Cargo.toml"));
-        string linkArg = _embedLinkArg("");
-        if (linkArg.Length > 0) { p = p.Arg("--").Arg("-C").Arg(linkArg); }
-        return _exec(p);
+        return _componentBuildStatic(root, "release");
     }
 
     // ③ compile r1_r7.c against libz42.a, run it, parse output → JUnit.
@@ -60,7 +52,7 @@ public class DesktopBackend : IPlatformBackend {
         string fixtures = Path.Join(outDir, "fixtures");
         string rt = _desktopRuntimeDir();
         if (rt.Length == 0) {
-            string libA = Path.Join(_runtimeOut(root, "release"), "libz42.a");
+            string libA = Path.Join(_componentBuildDir(root), "static/release/examples/libz42.a");
             if (!File.Exists(libA)) {
                 ConsoleError.WriteLine("error: libz42.a not found at " + libA + "; run `test app desktop build` first");
                 return 1;
@@ -107,7 +99,7 @@ public class DesktopBackend : IPlatformBackend {
             .Arg("-o").Arg(bin).Arg(src)
             .Arg(lib);
         if (rpath.Length > 0) { cc = cc.Arg("-Wl,-rpath," + rpath); }
-        else { foreach (var l in this._nativeLibs()) { cc = cc.Arg(l); } }
+        else { cc = cc.Arg("-DZ42_STATIC_LINK"); foreach (var l in this._nativeLibs()) { cc = cc.Arg(l); } }
         if (_exec(cc) != 0) {
             ConsoleError.WriteLine("error: cc link failed (" + binName + ")");
             leg.rc = 1;
@@ -118,6 +110,7 @@ public class DesktopBackend : IPlatformBackend {
             .Arg(Path.Join(fixtures, "hello.zbc"))
             .Arg(Path.Join(fixtures, "multi_line.zbc"))
             .Arg(libs)
+            .Env("Z42_NATIVE_PATH", rpath)
             .Run();
         Console.WriteLine(r.Stdout);
         if (r.Stderr.Length > 0) { ConsoleError.WriteLine(r.Stderr); }

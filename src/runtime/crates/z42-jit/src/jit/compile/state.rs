@@ -429,6 +429,3 @@ mod runtime_tests;
 /// Backend-local view of the neutral tier header.
 #[inline]
 pub(crate) fn runtime(ctx: &VmContext) -> Option<&JitRuntime> { ctx.tier()?.backend::<JitRuntime>() }
-
-#[cfg(all(test, z42_test_facade))]
-use crate::assembly::context::VmContextFactory as _;

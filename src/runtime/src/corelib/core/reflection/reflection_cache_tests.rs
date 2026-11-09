@@ -325,5 +325,3 @@ fn metadata_update_invalidates_all_live_projection_objects() {
     assert_ne!(old_first, type_custom_attributes(&ctx, &first).unwrap());
     assert_ne!(old_second, type_custom_attributes(&ctx, &second).unwrap());
 }
-
-use crate::assembly::context::VmContextFactory as _;

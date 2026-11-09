@@ -186,7 +186,7 @@ fn callnative_counter_inc_three_times_then_get_returns_three() {
     let m = build_module("counter_e2e", instructions, Terminator::Ret { reg: Some(1) });
     let func = &m.functions[0];
 
-    let result = z42::interp::run_returning(&ctx, &m, func, &[] as &[Value])
+    let result = z42_interp::interp::run_returning(&ctx, &m, func, &[] as &[Value])
         .expect("counter_e2e returns Ok");
     assert_eq!(
         result,
@@ -273,7 +273,7 @@ fn rust_counter_callnative_inc_three_times_then_get_returns_three() {
     );
     let func = &m.functions[0];
 
-    let result = z42::interp::run_returning(&ctx, &m, func, &[] as &[Value])
+    let result = z42_interp::interp::run_returning(&ctx, &m, func, &[] as &[Value])
         .expect("rust_counter_e2e returns Ok");
     assert_eq!(result, Some(Value::I64(3)));
 
@@ -361,7 +361,7 @@ fn z42_source_calls_numz42_via_native_attr() {
         });
     let main_fn = &module.functions[main_idx];
 
-    let result = z42::interp::run_returning(&ctx, &module, main_fn, &[] as &[Value])
+    let result = z42_interp::interp::run_returning(&ctx, &module, main_fn, &[] as &[Value])
         .expect("Main runs to completion");
     assert_eq!(
         result,
@@ -429,7 +429,7 @@ fn z42_str_marshals_to_cstr_via_strlen() {
         Terminator::Ret { reg: Some(1) },
     );
     let func = &m.functions[0];
-    let result = z42::interp::run_returning(&ctx, &m, func, &[] as &[Value])
+    let result = z42_interp::interp::run_returning(&ctx, &m, func, &[] as &[Value])
         .expect("strlen via Str-marshal succeeds");
     assert_eq!(result, Some(Value::I64(11)));
 }
@@ -506,7 +506,7 @@ fn z42_byte_array_pins_and_calls_native_buflen() {
         func_index: rustc_hash::FxHashMap::default(),
     }, vec![func], rustc_hash::FxHashMap::default());
     let func = &m.functions[0];
-    let result = z42::interp::run_returning(&ctx, &m, func, &[] as &[Value])
+    let result = z42_interp::interp::run_returning(&ctx, &m, func, &[] as &[Value])
         .expect("byte array pin → native buflen succeeds");
     assert_eq!(result, Some(Value::I64(3)));
     assert_eq!(
@@ -561,7 +561,7 @@ fn z42_str_with_interior_nul_traps_marshal() {
         func_index: rustc_hash::FxHashMap::default(),
     }, vec![func], rustc_hash::FxHashMap::default());
     let func = &m.functions[0];
-    let err = z42::interp::run_returning(&ctx, &m, func, &[] as &[Value])
+    let err = z42_interp::interp::run_returning(&ctx, &m, func, &[] as &[Value])
         .expect_err("interior NUL must fail at marshal");
     let msg = format!("{err:#}");
     assert!(msg.contains("InvalidMarshalException"), "msg = {msg}");
@@ -582,10 +582,8 @@ fn callnative_unknown_method_traps() {
         Terminator::Ret { reg: None },
     );
     let func = &m.functions[0];
-    let err = z42::interp::run(&ctx, &m, func, &[] as &[Value]).expect_err("must fail");
+    let err = z42_interp::interp::run(&ctx, &m, func, &[] as &[Value]).expect_err("must fail");
     let msg = format!("{err:#}");
     assert!(msg.contains("unknown method"), "msg = {msg}");
     assert!(msg.contains("ghost_method"), "msg = {msg}");
 }
-
-use z42::host::VmContextFactory as _;

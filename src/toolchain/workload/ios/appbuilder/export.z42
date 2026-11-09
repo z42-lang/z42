@@ -3,7 +3,7 @@
 //
 // Generates a bare .xcodeproj (project.pbxproj with deterministic 24-char hex IDs),
 // a Swift AppDelegate host, and Info.plist. The z42 app bytecode (app.zpkg) is
-// included as a bundle resource; z42vm.xcframework is expected in <outputDir>/
+// included as a bundle resource; z42.framework is expected in <outputDir>/
 // (copy from the platform SDK, or install with `z42 workload install ios`).
 namespace Z42.Workload.Ios;
 
@@ -35,23 +35,13 @@ void _generateIosProject(string outputDir, string name, string bundleId,
         Console.WriteLine("     Build first: z42c build <project.z42.toml>");
     }
 
-    // Locate xcframework in the platform SDK
-    string xcfwSrc = "";
-    if (sdkDir.Length > 0 && Directory.Exists(sdkDir)) {
-        string cand = Path.Join(sdkDir, "z42vm.xcframework");
-        if (Directory.Exists(cand)) { xcfwSrc = cand; }
-    }
-    if (xcfwSrc.Length > 0) {
-        // Directory.Copy not yet in stdlib — guide the user
-        Console.WriteLine("  note: copy xcframework into the project:");
-        Console.WriteLine("        cp -r \"" + xcfwSrc + "\" \"" + outputDir + "/z42vm.xcframework\"");
-    } else {
-        Console.WriteLine("  ⚠  z42vm.xcframework not found.");
-        Console.WriteLine("     Install iOS SDK: z42 workload install ios");
-        Console.WriteLine("     Then: cp -r ~/.z42/runtimes/ios-arm64/<ver>/z42vm.xcframework " + outputDir + "/");
-    }
+    string framework = Path.Join(sdkDir, "native/z42.framework");
+    if (!Directory.Exists(framework)) { framework = Path.Join(sdkDir, "z42.framework"); }
+    if (Directory.Exists(framework)) { _iosCopyTree(framework, Path.Join(outputDir, "z42.framework")); }
+    else { Console.WriteLine("  z42.framework missing: install the iOS runtime pack before building this project"); }
+    string libs = Path.Join(sdkDir, "libs");
+    if (Directory.Exists(libs)) { _iosCopyTree(libs, Path.Join(srcDir, "libs")); }
 
-    // Write project files
     File.WriteAllText(Path.Join(projDir, "project.pbxproj"),   _iosPbxproj(name, bundleId, minIos));
     File.WriteAllText(Path.Join(srcDir,  "main.swift"),         _iosMainSwift(name));
     File.WriteAllText(Path.Join(srcDir,  "Info.plist"),         _iosInfoPlist(bundleId, displayName));
@@ -68,7 +58,7 @@ void _generateIosProject(string outputDir, string name, string bundleId,
 // Generate project.pbxproj with fixed deterministic 24-char hex object IDs.
 [Suppress("style.fnLinesHard", "85 body lines；拆分见 code-organization.md")]
 string _iosPbxproj(string name, string bundleId, string minIos) {
-    // Object IDs (deterministic, fixed — single target, single xcframework)
+    // Object IDs (deterministic, fixed — single target, single framework)
     string iBfMain = "A1000000000000000000000A"; string iBfZpkg = "A1000000000000000000000B";
     string iBfXcfw = "A1000000000000000000000C"; string iFrMain = "A10000000000000000000006";
     string iFrZpkg = "A10000000000000000000007"; string iFrXcfw = "A10000000000000000000008";
@@ -81,21 +71,31 @@ string _iosPbxproj(string name, string bundleId, string minIos) {
     string iCLProj = "A10000000000000000000013"; string iCDbgT  = "A10000000000000000000014";
     string iCRelT  = "A10000000000000000000015"; string iCLTgt  = "A10000000000000000000016";
 
+    string iBfEmbed = "A000000000000000000000F1";
+    string iPhEmbed = "A000000000000000000000F2";
+    string iFrLibs = "A000000000000000000000F3";
+    string iBfLibs = "A000000000000000000000F4";
     string b = "// !$*UTF8*$!\n{\n\tarchiveVersion = 1;\n\tclasses = {};\n\tobjectVersion = 56;\n\tobjects = {\n\n";
 
     b = b + "/* Begin PBXBuildFile section */\n";
     b = b + "\t\t" + iBfMain + " = {isa = PBXBuildFile; fileRef = " + iFrMain + "; settings = {}; };\n";
     b = b + "\t\t" + iBfZpkg + " = {isa = PBXBuildFile; fileRef = " + iFrZpkg + "; settings = {}; };\n";
     b = b + "\t\t" + iBfXcfw + " = {isa = PBXBuildFile; fileRef = " + iFrXcfw + "; settings = {ATTRIBUTES = (Required,); }; };\n";
+    b = b + "\t\t" + iBfEmbed + " = {isa = PBXBuildFile; fileRef = " + iFrXcfw + "; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy,); }; };\n";
+    b = b + "\t\t" + iBfLibs + " = {isa = PBXBuildFile; fileRef = " + iFrLibs + "; };\n";
     b = b + "/* End PBXBuildFile section */\n\n";
 
     b = b + "/* Begin PBXFileReference section */\n";
     b = b + "\t\t" + iFrMain + " = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = \"<group>\"; };\n";
     b = b + "\t\t" + iFrZpkg + " = {isa = PBXFileReference; lastKnownFileType = file; path = app.zpkg; sourceTree = \"<group>\"; };\n";
-    b = b + "\t\t" + iFrXcfw + " = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = z42vm.xcframework; sourceTree = \"<group>\"; };\n";
+    b = b + "\t\t" + iFrXcfw + " = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = z42.framework; sourceTree = \"<group>\"; };\n";
     b = b + "\t\t" + iFrApp + " = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = " + name + ".app; sourceTree = BUILT_PRODUCTS_DIR; };\n";
+    b = b + "\t\t" + iFrLibs + " = {isa = PBXFileReference; lastKnownFileType = folder; path = libs; sourceTree = \"<group>\"; };\n";
     b = b + "/* End PBXFileReference section */\n\n";
 
+    b = b + "/* Begin PBXCopyFilesBuildPhase section */\n";
+    b = b + "\t\t" + iPhEmbed + " = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = \"\"; dstSubfolderSpec = 10; files = (" + iBfEmbed + ",); name = \"Embed Frameworks\"; runOnlyForDeploymentPostprocessing = 0; };\n";
+    b = b + "/* End PBXCopyFilesBuildPhase section */\n\n";
     b = b + "/* Begin PBXFrameworksBuildPhase section */\n";
     b = b + "\t\t" + iPhFwk + " = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647;\n";
     b = b + "\t\t\tfiles = (" + iBfXcfw + ",); runOnlyForDeploymentPostprocessing = 0; };\n";
@@ -105,7 +105,7 @@ string _iosPbxproj(string name, string bundleId, string minIos) {
     b = b + "\t\t" + iRootGrp + " = {isa = PBXGroup; children = (";
     b = b + iSrcGrp + "," + iFwkGrp + "," + iProdGrp + ",); sourceTree = \"<group>\"; };\n";
     b = b + "\t\t" + iSrcGrp + " = {isa = PBXGroup; children = (";
-    b = b + iFrMain + "," + iFrZpkg + ",); path = " + name + "; sourceTree = \"<group>\"; };\n";
+    b = b + iFrMain + "," + iFrZpkg + "," + iFrLibs + ",); path = " + name + "; sourceTree = \"<group>\"; };\n";
     b = b + "\t\t" + iFwkGrp + " = {isa = PBXGroup; children = (" + iFrXcfw + ",); name = Frameworks; sourceTree = \"<group>\"; };\n";
     b = b + "\t\t" + iProdGrp + " = {isa = PBXGroup; children = (" + iFrApp + ",); name = Products; sourceTree = \"<group>\"; };\n";
     b = b + "/* End PBXGroup section */\n\n";
@@ -113,7 +113,7 @@ string _iosPbxproj(string name, string bundleId, string minIos) {
     b = b + "/* Begin PBXNativeTarget section */\n";
     b = b + "\t\t" + iTgt + " = {isa = PBXNativeTarget;\n";
     b = b + "\t\t\tbuildConfigurationList = " + iCLTgt + ";\n";
-    b = b + "\t\t\tbuildPhases = (" + iPhSrc + "," + iPhRes + "," + iPhFwk + ",);\n";
+    b = b + "\t\t\tbuildPhases = (" + iPhSrc + "," + iPhRes + "," + iPhFwk + "," + iPhEmbed + ",);\n";
     b = b + "\t\t\tbuildRules = (); dependencies = ();\n";
     b = b + "\t\t\tname = " + name + "; productName = " + name + ";\n";
     b = b + "\t\t\tproductReference = " + iFrApp + ";\n";
@@ -133,7 +133,7 @@ string _iosPbxproj(string name, string bundleId, string minIos) {
 
     b = b + "/* Begin PBXResourcesBuildPhase section */\n";
     b = b + "\t\t" + iPhRes + " = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647;\n";
-    b = b + "\t\t\tfiles = (" + iBfZpkg + ",); runOnlyForDeploymentPostprocessing = 0; };\n";
+    b = b + "\t\t\tfiles = (" + iBfZpkg + "," + iBfLibs + ",); runOnlyForDeploymentPostprocessing = 0; };\n";
     b = b + "/* End PBXResourcesBuildPhase section */\n\n";
 
     b = b + "/* Begin PBXSourcesBuildPhase section */\n";
@@ -142,11 +142,11 @@ string _iosPbxproj(string name, string bundleId, string minIos) {
     b = b + "/* End PBXSourcesBuildPhase section */\n\n";
 
     string dep     = "IPHONEOS_DEPLOYMENT_TARGET = " + minIos + ";";
-    string projCfg = "ALWAYS_SEARCH_USER_PATHS = NO; SWIFT_VERSION = 5.0; " + dep;
+    string projCfg = "ALWAYS_SEARCH_USER_PATHS = NO; SWIFT_VERSION = 5.0; FRAMEWORK_SEARCH_PATHS = \"$(inherited) $(PROJECT_DIR)\"; LD_RUNPATH_SEARCH_PATHS = \"$(inherited) @executable_path/Frameworks\"; " + dep;
     string tgtCfg  = "BUNDLE_IDENTIFIER = " + bundleId + "; CODE_SIGN_STYLE = Automatic; "
                    + "INFOPLIST_FILE = " + name + "/Info.plist; "
                    + "PRODUCT_BUNDLE_IDENTIFIER = " + bundleId + "; "
-                   + "PRODUCT_NAME = \"$(TARGET_NAME)\"; SWIFT_VERSION = 5.0; "
+                   + "PRODUCT_NAME = \"$(TARGET_NAME)\"; SWIFT_VERSION = 5.0; FRAMEWORK_SEARCH_PATHS = \"$(inherited) $(PROJECT_DIR)\"; LD_RUNPATH_SEARCH_PATHS = \"$(inherited) @executable_path/Frameworks\"; "
                    + "TARGETED_DEVICE_FAMILY = \"1,2\"; " + dep;
 
     b = b + "/* Begin XCBuildConfiguration section */\n";
@@ -176,7 +176,7 @@ string _iosMainSwift(string name) {
     // paths, so app.zpkg + libs/ are referenced directly (no extraction). Off the
     // main thread; the app's stdout goes to the device console.
     string c = "import UIKit\n";
-    c = c + "import Z42VM\n\n";
+    c = c + "import z42\n\n";
     c = c + "@UIApplicationMain\n";
     c = c + "class AppDelegate: UIResponder, UIApplicationDelegate {\n";
     c = c + "    var window: UIWindow?\n\n";
@@ -188,7 +188,10 @@ string _iosMainSwift(string name) {
     c = c + "        }\n";
     c = c + "        let libs = Bundle.main.resourcePath.map { $0 + \"/libs\" }\n";
     c = c + "        DispatchQueue.global(qos: .userInitiated).async {\n";
-    c = c + "            let code = Z42TestHost.runApp(appPath: zpkgPath, entry: nil, libsDir: libs, args: [])\n";
+    c = c + "            guard z42_linked_components_init() == 0 else { return }\n";
+    c = c + "            let code = zpkgPath.withCString { app in\n";
+    c = c + "                (libs ?? \"\").withCString { lib in z42_host_run_app(app, nil, lib, 0, nil) }\n";
+    c = c + "            }\n";
     c = c + "            NSLog(\"z42 app exited: \\(code)\")\n";
     c = c + "        }\n";
     c = c + "        window = UIWindow(frame: UIScreen.main.bounds)\n";
@@ -216,4 +219,14 @@ string _iosInfoPlist(string bundleId, string displayName) {
     c = c + "\t\t<string>UIInterfaceOrientationPortrait</string>\n\t</array>\n";
     c = c + "</dict>\n</plist>\n";
     return c;
+}
+
+void _iosCopyTree(string source, string destination) {
+    Directory.Create(destination);
+    foreach (var relative in Directory.EnumerateRecursive(source)) {
+        string src = Path.Join(source, relative);
+        string dst = Path.Join(destination, relative);
+        if (Directory.Exists(src)) { Directory.Create(dst); }
+        else { Directory.Create(Path.GetDirectoryName(dst)); File.Copy(src, dst); }
+    }
 }

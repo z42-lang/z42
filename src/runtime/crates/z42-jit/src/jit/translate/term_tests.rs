@@ -117,5 +117,3 @@ fn br_cond_back_edge_polls_every_iteration() {
         assert_eq!(safepoint_polls(br_cond_loop(), indexed), 1 + 10, "entry + one per iteration (indexed: {indexed})");
     }
 }
-
-use crate::assembly::context::VmContextFactory as _;

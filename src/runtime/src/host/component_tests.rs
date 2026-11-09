@@ -353,5 +353,3 @@ fn undeclared_dependency_is_not_exposed_even_when_its_provider_exists() {
     assert_eq!(probe::probe_destroyed(), 1);
     assert_eq!(probe::probe_live(), 0);
 }
-
-use crate::assembly::context::VmContextFactory as _;

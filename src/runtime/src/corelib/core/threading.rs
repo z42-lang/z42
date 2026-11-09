@@ -245,5 +245,3 @@ fn run_spawned_action(
 #[cfg(test)]
 #[path = "threading_tests.rs"]
 mod threading_tests;
-
-use crate::assembly::context::VmContextFactory as _;

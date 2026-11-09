@@ -123,5 +123,3 @@ fn neutral_tier_pointer_preserves_compiled_context_head_layout() {
     #[cfg(feature = "jit")]
     assert_eq!(std::mem::offset_of!(JitHead, jit), std::mem::offset_of!(ExpectedHead, jit));
 }
-
-use crate::assembly::context::VmContextFactory as _;

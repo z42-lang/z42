@@ -257,5 +257,3 @@ fn memory_fs_missing_file_is_file_not_found() {
     assert_eq!(extract_strings(names), vec!["a.bin", "b.bin"]);
     assert_eq!(exec_builtin_value(&c, "__file_get_size", &[str_v("/d/b.bin")]).unwrap(), Value::I64(2));
 }
-
-use crate::assembly::context::VmContextFactory as _;

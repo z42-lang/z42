@@ -49,7 +49,7 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
 fn run_returning(module: &Module) -> anyhow::Result<Option<Value>> {
     let ctx = VmContext::new();
     let func = &module.functions[0];
-    z42::interp::run_returning(&ctx, module, func, &[] as &[Value])
+    z42_interp::interp::run_returning(&ctx, module, func, &[] as &[Value])
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn pin_array_u8_snapshots_bytes() {
         Terminator::Ret { reg: Some(4) },
     );
     let func = &m.functions[0];
-    let out = z42::interp::run_returning(&ctx, &m, func, &[] as &[Value])
+    let out = z42_interp::interp::run_returning(&ctx, &m, func, &[] as &[Value])
         .expect("byte array pin ok");
     assert_eq!(out, Some(Value::I64(2)));
     // After UnpinPtr the owned-buffer table should be empty.
@@ -203,5 +203,3 @@ fn unpin_then_str_still_usable() {
     let out = run_returning(&m).expect("post-unpin String access ok");
     assert_eq!(out, Some(Value::I64("hello world".chars().count() as i64)));
 }
-
-use z42::host::VmContextFactory as _;

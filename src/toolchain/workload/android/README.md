@@ -13,7 +13,7 @@
 | Kotlin 公开 API（`Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMException`） | `platform/z42vm/src/main/java/io/z42/vm/` |
 | zpkg 解析（`AssetZpkgResolver` / `MapZpkgResolver`） | `ZpkgResolver.kt` |
 | JNI 桥 → `z42_host_*` C ABI | `platform/z42vm/src/main/cpp/z42vm_jni.c` |
-| Rust cdylib（`libz42_platform_android.so`，`z42_host_*` 再导出） | `platform/rust/` |
+| Rust cdylib（`libz42.so`，`z42_host_*` 再导出） | `src/runtime/examples/z42.rs` |
 | 发布 / 导出管线（`: WorkloadBase`） | `appbuilder/AndroidWorkload.z42`、`appbuilder/export.z42` |
 | 设备侧测试宿主 | `Z42TestHost.kt`（`main`）、`Z42VMInstrumentedTest.kt` / `Z42EmbeddedInstrumentedTest.kt`（`androidTest`） |
 
@@ -40,7 +40,7 @@ Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
 ```
 
 产物在宿主工程副本 `artifacts/intermediate/toolchain/workload/android/host/`（不写本目录）：
-`z42vm/build/outputs/aar/z42vm-release.aar`、`jniLibs/{arm64-v8a,x86_64}/libz42_platform_android.so`、
+`z42vm/build/outputs/aar/z42vm-release.aar`、`jniLibs/{arm64-v8a,x86_64}/libz42.so`、
 `assets/stdlib/*.zpkg`（`AssetZpkgResolver` 读各 zpkg 的 NSPC 建索引）。
 
 限制：仅 interp；单实例；同步 invoke（UI 线程请用 `Dispatchers.Default` 包装）；
@@ -71,4 +71,4 @@ z42b 跑一次 `./gradlew :z42vm:connectedAndroidTest`（R1–R7 + 嵌入语料�
 | `appbuilder/` | workload handler + export |
 | `template/` | `export` 渲染进用户工程的脚手架 |
 | `platform/z42vm/` | AAR 模块（Kotlin API + JNI C + androidTest） |
-| `platform/rust/` | cargo-ndk 构建的 cdylib |
+| `src/runtime/examples/z42.rs` | cargo-ndk 构建的 cdylib |

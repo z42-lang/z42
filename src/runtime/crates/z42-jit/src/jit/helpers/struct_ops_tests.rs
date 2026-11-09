@@ -161,5 +161,3 @@ fn stale_struct_ref_is_caught() {
         assert_eq!(jit_get(&mut frame, ctx, 1, 0, &[0], TAG_I32), 1);
     }
 }
-
-use crate::assembly::context::VmContextFactory as _;

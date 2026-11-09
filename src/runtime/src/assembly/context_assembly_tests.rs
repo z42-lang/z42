@@ -282,7 +282,6 @@ fn safepoint_policy_is_per_vm_and_shared_by_worker_resets() {
     for (ctx, throttle) in contexts { assert_eq!(throttle_n(&ctx), throttle); }
 }
 
-use crate::assembly::context::VmContextFactory as _;
 
 fn configured_context(module: Option<std::sync::Arc<crate::vm::runtime::Module>>, vfs: std::sync::Arc<dyn crate::pal::fs::Vfs>,
     extensions: crate::vm::ext::ExtensionState, config: crate::vm::config::VmConfig,

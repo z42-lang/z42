@@ -199,7 +199,8 @@ string _profileHeap(ProfileCtx c) {
     string tdir = _workOut(_root(), "src/runtime", "dhat-target");   // 中间物：跨脚本复用 cargo 缓存
     Console.WriteLine("  building dhat-heap z42vm (isolated target-dir)…");
     int bc = _exec(_cargoRelease(_runtimeCargoConfig())
-        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-compression")
+        .Arg("-p").Arg("z42").Arg("--example").Arg("z42vm_static")
+        .EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("RUSTFLAGS", "-C prefer-dynamic=no")
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--features").Arg("z42/dhat-heap")
         .Arg("--target-dir").Arg(tdir));
@@ -207,7 +208,7 @@ string _profileHeap(ProfileCtx c) {
         Console.WriteLine("  ✗ dhat-heap build failed (rc=" + bc.ToString() + ")");
         return "## heap\n\n_dhat-heap build failed (rc=" + bc.ToString() + ")._\n\n";
     }
-    string dhatVm = Path.Join(tdir, Path.Join("release", "z42vm"));
+    string dhatVm = Path.Join(tdir, Path.Join("release/examples", Platform.IsWindows() ? "z42vm_static.exe" : "z42vm_static"));
     // dhat writes dhat-heap.json to cwd → run in outDir so it lands there.
     ProcessResult pr = _z42Proc(dhatVm, c.libs).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
         .Arg("--stats=json")
@@ -248,13 +249,14 @@ string _profileThreads(ProfileCtx c) {
     string tdir = _workOut(_root(), "src/runtime", "contention-target");   // 中间物：跨脚本复用 cargo 缓存
     Console.WriteLine("  building profile-contention z42vm (isolated target-dir)…");
     int bc = _exec(_cargoRelease(_runtimeCargoConfig())
-        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-compression")
+        .Arg("-p").Arg("z42").Arg("--example").Arg("z42vm_static")
+        .EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("RUSTFLAGS", "-C prefer-dynamic=no")
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--features").Arg("z42/profile-contention")
         .Arg("--target-dir").Arg(tdir));
     string contention = "(build failed rc=" + bc.ToString() + ")";
     if (bc == 0) {
-        string cvm = Path.Join(tdir, Path.Join("release", "z42vm"));
+        string cvm = Path.Join(tdir, Path.Join("release/examples", Platform.IsWindows() ? "z42vm_static.exe" : "z42vm_static"));
         ProcessResult cpr = _z42Proc(cvm, c.libs).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
             .Arg("--stats=json")
             .Run();

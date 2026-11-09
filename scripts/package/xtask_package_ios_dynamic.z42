@@ -1,0 +1,30 @@
+// iOS dynamic embedding: a signed framework and XCFramework beside the static variant.
+namespace Z42Xtask;
+using Std.IO;
+
+int _iosDynamicFramework(string root, string pkg, string cargo, string target, string version, string minimum) {
+    string native = Path.Join(pkg, "native");
+    string framework = Path.Join(native, "z42.framework");
+    Directory.Create(Path.Join(framework, "Headers"));
+    Directory.Create(Path.Join(framework, "Modules"));
+    string binary = Path.Join(framework, "z42");
+    _componentCopyRequired(Path.Join(cargo, "examples/libz42.dylib"), binary);
+    _copyAbiHeaders(root, Path.Join(framework, "Headers"));
+    File.WriteAllText(Path.Join(framework, "Headers/z42.h"), "#include \"z42_host.h\"\n");
+    File.WriteAllText(Path.Join(framework, "Modules/module.modulemap"),
+        "framework module z42 { umbrella header \"z42.h\" export * }\n");
+    string platform = target.Contains("-sim") ? "iPhoneSimulator" : "iPhoneOS";
+    File.WriteAllText(Path.Join(framework, "Info.plist"),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+        + "<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>org.z42.z42</string>"
+        + "<key>CFBundleName</key><string>z42</string><key>CFBundleExecutable</key><string>z42</string>"
+        + "<key>CFBundlePackageType</key><string>FMWK</string><key>CFBundleVersion</key><string>1</string>"
+        + "<key>CFBundleShortVersionString</key><string>" + version + "</string>"
+        + "<key>MinimumOSVersion</key><string>" + minimum + "</string>"
+        + "<key>CFBundleSupportedPlatforms</key><array><string>" + platform + "</string></array></dict></plist>\n");
+    int c = _exec(new Process("install_name_tool").Arg("-id").Arg("@rpath/z42.framework/z42").Arg(binary));
+    if (c != 0) { return c; }
+    c = _exec(new Process("codesign").Arg("--force").Arg("--sign").Arg("-").Arg(framework));
+    if (c != 0) { return c; }
+    return 0;
+}

@@ -33,5 +33,3 @@ fn cross_context_unwind_restores_the_outer_activation() {
     }
     assert!(current_vm().is_none());
 }
-
-use crate::assembly::context::VmContextFactory as _;

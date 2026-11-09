@@ -51,7 +51,7 @@ fn module_with_single_instr(name: &str, instr: Instruction) -> Module {
 fn run(module: &Module) -> anyhow::Result<()> {
     let ctx = VmContext::new();
     let func = &module.functions[0];
-    z42::interp::run(&ctx, module, func, &[] as &[Value])
+    z42_interp::interp::run(&ctx, module, func, &[] as &[Value])
 }
 
 fn assert_trap_with(err: anyhow::Error, fragment: &str) {
@@ -123,5 +123,3 @@ fn unpin_ptr_non_view_traps() {
     let err = run(&m).expect_err("UnpinPtr non-view must fail");
     assert_trap_with(err, "UnpinPtr expects PinnedView");
 }
-
-use z42::host::VmContextFactory as _;

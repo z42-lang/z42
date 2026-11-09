@@ -53,7 +53,7 @@ android {
     }
 
     // Source sets use AGP's default layout (no `sourceSets {}` needed):
-    //   src/main/jniLibs — cargo-ndk drops libz42_platform_android.so per ABI here
+    //   src/main/jniLibs — cargo-ndk drops libz42.so per ABI here
     //                      (the build runs cargo ndk before ./gradlew).
     //   src/main/assets  — stdlib zpkg files copied in by the build.
 

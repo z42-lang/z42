@@ -93,6 +93,3 @@ impl Vm {
         Ok(name.to_string())
     }
 }
-
-#[cfg(all(test, z42_test_facade))]
-use crate::assembly::context::VmContextFactory as _;

@@ -98,5 +98,3 @@ fn null_array_read_maps_to_the_shared_text() {
     let err = array_get(&ctx, &module, &mut frame, 2, 0, 1, false).unwrap_err();
     assert_eq!(err.to_string(), "Std.NullReferenceException: cannot read an element of a null array");
 }
-
-use crate::assembly::context::VmContextFactory as _;

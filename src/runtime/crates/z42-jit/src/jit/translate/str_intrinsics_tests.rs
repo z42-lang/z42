@@ -281,5 +281,3 @@ fn char_comparisons_match_the_interpreter() {
         }
     }
 }
-
-use crate::assembly::context::VmContextFactory as _;

@@ -98,7 +98,7 @@ class Z42VM(
 
     companion object {
         init {
-            System.loadLibrary("z42_platform_android")
+            System.loadLibrary("z42")
             System.loadLibrary("z42vm_jni")
         }
 

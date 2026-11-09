@@ -401,7 +401,7 @@ jobs:
       # 独立 cache key：打包另编 cdylib / staticlib / compression / apphost，共用窄 key 会每次冷编（Windows 6~8 分钟）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          cache-key: package-host-v2
+          cache-key: package-host-v3
 
       - name: Package host SDK + verify
         shell: bash
@@ -901,15 +901,18 @@ jobs:
           cache-key: wasm-v2
           rust-targets: wasm32-unknown-unknown
 
-      # interp-only 的依赖图里不许混进 cranelift（jit 依赖）；各 feature 组合编不编得过由 package-{wasm,ios,android}
-      # 的真实构建覆盖。`cargo tree` 只解析依赖图、不编译。
+      # 发布依赖图不许混进 cranelift；宿主白盒测试的 dev-dependencies 不属于发布产物。
+      # 同时检查 interp-only 和真实 wasm 入口，避免目标或 feature 选择掩盖 JIT 依赖。
       - name: Verify cranelift excluded under interp-only
         shell: bash
         run: |
           set -euo pipefail
-          if cargo tree --locked -p z42 --manifest-path src/runtime/Cargo.toml \
-             --no-default-features --features interp-only 2>&1 | grep -q "cranelift"; then
-            echo "ERROR: cranelift still present in interp-only build" >&2
+          cargo tree --locked -p z42 --manifest-path src/runtime/Cargo.toml \
+            --edges normal,build --no-default-features --features interp-only > /tmp/interp-deps.txt
+          cargo tree --locked --manifest-path src/toolchain/workload/wasm/platform/Cargo.toml \
+            --target wasm32-unknown-unknown --edges normal,build > /tmp/wasm-deps.txt
+          if grep -E 'cranelift|z42-jit' /tmp/interp-deps.txt /tmp/wasm-deps.txt; then
+            echo "ERROR: JIT dependency present in interpreter publication graph" >&2
             exit 1
           fi
 

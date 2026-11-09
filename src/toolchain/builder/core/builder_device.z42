@@ -137,17 +137,22 @@ int _bedRuntime(string rid, string rt, string project, string outDir) {
     }
     if (rid == "ios-arm64" || rid == "iossim-arm64") {
         string xcf = Path.Join(Path.Join(rt, "native"), "Z42VM.xcframework");
-        if (!Directory.Exists(xcf)) { ConsoleError.WriteLine("z42b: runtime pack missing " + xcf); return 1; }
         string dst = Path.Join(project, "Z42VM.xcframework");
         if (Directory.Exists(dst)) { Directory.Delete(dst, true); }
-        _copyDirTree(xcf, dst);
+        if (Directory.Exists(xcf)) { _copyDirTree(xcf, dst); }
+        else {
+            int c = _execInherit(new Process("xcodebuild").Arg("-create-xcframework")
+                .Arg("-library").Arg(Path.Join(rt, "native/libz42.a"))
+                .Arg("-headers").Arg(Path.Join(rt, "native/include")).Arg("-output").Arg(dst));
+            if (c != 0) { return c; }
+        }
         Console.WriteLine("z42b: ios runtime ← " + xcf);
         return 0;
     }
     string abi = _androidRidAbi(rid);
     if (abi.Length == 0) { ConsoleError.WriteLine("z42b: no runtime bedding for rid " + rid); return 2; }
     string nat = Path.Join(rt, "native");
-    string so = Path.Join(nat, "libz42_platform_android.so");
+    string so = Path.Join(nat, "libz42.so");
     if (!File.Exists(so)) { ConsoleError.WriteLine("z42b: runtime pack missing " + so); return 1; }
     string jni = Path.Join(Path.Join(project, "z42vm/src/main/jniLibs"), abi);
     Directory.Create(jni);

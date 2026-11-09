@@ -60,6 +60,11 @@ static Z42HostConfig mkcfg(const char* const* paths) {
 }
 
 int main(int argc, char** argv) {
+#ifdef Z42_STATIC_LINK
+    extern int z42_linked_components_init(void);
+    if (z42_linked_components_init() != 0) { return 1; }
+#endif
+
     if (argc != 4) {
         fprintf(stderr, "usage: %s <hello.zbc> <multi_line.zbc> <libs_dir>\n", argv[0]);
         return 2;

@@ -2,7 +2,7 @@
 
 ## 职责
 
-把 z42 VM 编进 SwiftPM 包 + xcframework（`import Z42VM`），Swift / SwiftUI iOS app 跑 `.zbc`；
+提供 SwiftPM 宿主接口（`import Z42VM`），Swift / SwiftUI iOS app 跑 `.zbc`。运行时按 RID 发布 libz42.a 与 z42.framework；SwiftPM 所需的静态适配封装在本地生成，不在 runtime 包重复分发；
 并含 iOS 平台 workload 的 appbuilder（`export`）与 R1–R7 嵌入契约测试。仅 interp（App Store 禁动态代码生成）。
 不做：编译 `.z42`（host 端 z42c 预编）。
 
@@ -13,7 +13,7 @@
 | Swift 公开 API（`Z42VM` / `Z42VMModule` / `Z42VMEntry` / `Z42VMValue` / `Z42VMError`） | `platform/Sources/Z42VM/` |
 | zpkg 解析（`BundleZpkgResolver` / `MapZpkgResolver`） | `platform/Sources/Z42VM/ZpkgResolver.swift` |
 | C 桥头（`z42_host.h`） | `platform/Sources/Z42VMC/` |
-| Rust staticlib（`z42_host_*` 再导出） | `platform/rust/` |
+| Rust staticlib（`z42_host_*` 再导出） | `src/runtime/examples/z42.rs` |
 | 发布 / 导出管线（`: WorkloadBase`） | `appbuilder/iOSWorkload.z42`、`appbuilder/export.z42` |
 | 设备侧测试宿主 | `Z42TestHost.swift`；XCTest 在 `platform/Tests/Z42VMTests/` |
 
@@ -66,5 +66,5 @@ JUnit → `artifacts/reports/tests/ios/junit.xml`。
 | `template/` | `export` 渲染进用户工程的脚手架 |
 | `platform/Package.swift` | SwiftPM 清单 |
 | `platform/Sources/` | Swift facade + C 桥 |
-| `platform/rust/` | staticlib crate |
+| `src/runtime/examples/z42.rs` | staticlib crate |
 | `platform/Tests/` | XCTest（R1–R7 + 嵌入语料） |

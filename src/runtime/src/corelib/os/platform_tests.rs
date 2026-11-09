@@ -130,5 +130,3 @@ fn exec_modes_always_has_interp_and_matches_features() {
     #[cfg(not(all(feature = "jit", z42_jit_supported)))]
     assert!(!modes.contains(&"jit".to_string()), "non-jit build omits jit mode: {modes:?}");
 }
-
-use crate::assembly::context::VmContextFactory as _;

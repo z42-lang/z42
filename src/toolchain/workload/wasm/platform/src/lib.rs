@@ -101,6 +101,7 @@ impl Z42VM {
     /// only on a self-contained .zbc).
     #[wasm_bindgen(constructor)]
     pub fn new(options: JsValue) -> Result<Z42VM, JsValue> {
+        register_backend()?;
         let mut cfg = HostConfig {
             exec_mode: ExecMode::Interp,
             vfs: Some(page_vfs_handle()),
@@ -260,6 +261,7 @@ pub fn run_test_app(
     libs_dir: &str,
     args: Vec<String>,
 ) -> Result<(), JsValue> {
+    register_backend()?;
     let entry_opt = if entry.is_empty() { None } else { Some(entry) };
     let libs = if libs_dir.is_empty() {
         None
@@ -319,4 +321,9 @@ fn parse_args(args: JsValue) -> Result<Vec<Value>, JsValue> {
         out.push(js_to_value(&js_val)?);
     }
     Ok(out)
+}
+
+fn register_backend() -> Result<(), JsValue> {
+    unsafe { z42::host::register_static_component(z42::host::INTERP_COMPONENT, z42_interp::component::z42_interp_init) }
+        .map_err(|e| js_error("ComponentError", 1, &format!("{e:#}")))
 }

@@ -108,5 +108,3 @@ mod tests {
         assert_eq!(error::last().code, LIB_LOAD_FAILURE);
     }
 }
-
-use crate::assembly::context::VmContextFactory as _;

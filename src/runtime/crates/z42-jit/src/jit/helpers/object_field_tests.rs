@@ -142,5 +142,3 @@ fn null_receiver_field_get_raises_the_shared_text() {
         other => panic!("expected a string exception, got {other:?}"),
     }
 }
-
-use crate::assembly::context::VmContextFactory as _;

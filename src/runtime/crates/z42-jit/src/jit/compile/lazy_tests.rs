@@ -192,5 +192,3 @@ fn concurrent_first_call_compiles_exactly_once() {
     });
     assert_eq!(compiled_count(&vm), 1, "concurrent first-calls compile the function exactly once");
 }
-
-use crate::assembly::context::VmContextFactory as _;

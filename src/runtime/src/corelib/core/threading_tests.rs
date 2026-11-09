@@ -70,5 +70,3 @@ fn thread_wait_unknown_slot_throws_thread_exception() {
         other => panic!("{other:?}"),
     }
 }
-
-use crate::assembly::context::VmContextFactory as _;
