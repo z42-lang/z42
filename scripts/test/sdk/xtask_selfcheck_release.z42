@@ -99,6 +99,21 @@ int _testPackagesRelease() {
             _relAssert("index " + wl + " runtimes = its category's RIDs", _relJoin(e.Get("runtimes")) == want);
         }
         _relAssert("index test workload", _relJoin(wls.Get("test").Get("host")) == "*" && wls.Get("test").Get("runtimes").Count() == 0);
+        // release-notes.md：每个 RID / workload 的归档都在表里；nightly 的安装命令不带版本，其它渠道带上版本。
+        string notes = File.ReadAllText(Path.Join(dist, "release-notes.md"));
+        foreach (var rid in _vRidNames(root)) {
+            _relAssert("notes list " + rid, notes.Contains("| " + _vRidTitle(root, rid) + " |")
+                && notes.Contains("`" + _rtName(label, rid) + "`"));
+            if (_relIsDesktop(rid)) { _relAssert("notes list SDK " + rid, notes.Contains("`" + _sdkName(label, rid) + "`")); }
+        }
+        foreach (var wl in _vWorkloads(root)) {
+            _relAssert("notes list workload " + wl, notes.Contains("`" + _wlArchiveName(label, wl) + "`"));
+        }
+        _relAssert("nightly install command", notes.Contains("install-z42.sh | sh\n") && !notes.Contains("--version"));
+        _relAssert("stable notes", _releaseGenNotes(label, dist, "stable", "1.2.3") == 0);
+        notes = File.ReadAllText(Path.Join(dist, "release-notes.md"));
+        _relAssert("stable install pins its version", notes.Contains("| sh -s -- --version 1.2.3\n")
+            && notes.Contains("$env:Z42_VERSION = \"1.2.3\"; irm "));
     } catch (Exception e) {
         ConsoleError.WriteLine("  ✗ " + e.Message);
         return 1;

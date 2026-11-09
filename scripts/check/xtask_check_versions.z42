@@ -138,8 +138,16 @@ int _checkRidTable(string root, TomlValue toml) {
             fail = fail + 1;
         }
     }
-    // ⑤ [workload.hosts]：键是 workload，值是已登记的 desktop RID（launcher 按宿主 RID 比对）。
+    // ⑤ [workload.hosts] / [workload.title]：键是 workload；hosts 的值是已登记的 desktop RID（launcher 按宿主 RID 比对）。
     TomlValue wt = toml.Get("workload");
+    if (wt.ContainsKey("title")) {
+        foreach (var wl in wt.Get("title").Keys()) {
+            if (!_strIn(workloads, wl)) {
+                ConsoleError.WriteLine("✗ [workload.title].'" + wl + "' 不在 [workload].members 里");
+                fail = fail + 1;
+            }
+        }
+    }
     if (wt.ContainsKey("hosts")) {
         TomlValue hosts = wt.Get("hosts");
         foreach (var wl in hosts.Keys()) {

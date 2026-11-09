@@ -1041,6 +1041,9 @@ jobs:
           set -euo pipefail
           short_sha=$(git rev-parse --short HEAD)
           today=$(date -u +%Y-%m-%d)
+          # 安装命令与下载表由上一步 `xtask package release` 按 versions.toml 生成（release-notes.md，不作附件）；
+          # 先读进变量：heredoc 里的命令替换失败不会触发 set -e。
+          generated=$(cat artifacts/packages/release-notes.md)
           notes=$(cat <<EOF
           **Rolling pre-release** built from \`main\` on ${today} (commit \`${short_sha}\`).
 
@@ -1048,39 +1051,7 @@ jobs:
           - **Replaced on every push to main** — URL stays stable, contents change.
           - For tagged releases see [Releases](../../releases?q=v).
 
-          ## Downloads (host)
-
-          | Platform | SDK | Runtime |
-          |----------|-----|---------|
-          | Linux x64 | \`z42-sdk-nightly-linux-x64.tar.gz\` | \`z42-runtime-nightly-linux-x64.tar.gz\` |
-          | Linux arm64 | \`z42-sdk-nightly-linux-arm64.tar.gz\` | \`z42-runtime-nightly-linux-arm64.tar.gz\` |
-          | macOS arm64 | \`z42-sdk-nightly-macos-arm64.tar.gz\` | \`z42-runtime-nightly-macos-arm64.tar.gz\` |
-          | Windows x64 | \`z42-sdk-nightly-windows-x64.zip\` | \`z42-runtime-nightly-windows-x64.zip\` |
-
-          ## Downloads (mobile + wasm runtime)
-
-          | Platform | Runtime |
-          |----------|---------|
-          | iOS arm64 (device) | \`z42-runtime-nightly-ios-arm64.tar.gz\` |
-          | iOS arm64 (simulator) | \`z42-runtime-nightly-iossim-arm64.tar.gz\` |
-          | Android arm64 | \`z42-runtime-nightly-android-arm64.tar.gz\` |
-          | Android x64 | \`z42-runtime-nightly-android-x64.tar.gz\` |
-          | Browser WASM | \`z42-runtime-nightly-browser-wasm.tar.gz\` |
-
-          ## Workloads (\`z42 workload install <wl>\`; ios/android/wasm bundle the runtime packs above — desktop carries the per-RID apphost stubs and reuses the host runtime)
-
-          | Workload | Tooling archive |
-          |----------|-----------------|
-          | Desktop (apphost) | \`z42-workload-nightly-desktop.tar.gz\` |
-          | iOS (SwiftPM) | \`z42-workload-nightly-ios.tar.gz\` |
-          | Android (Gradle) | \`z42-workload-nightly-android.tar.gz\` |
-          | WASM (npm) | \`z42-workload-nightly-wasm.tar.gz\` |
-          | Test (capability; test-agent payload) | \`z42-workload-nightly-test.tar.gz\` |
-
-          Install (macOS / Linux): \`curl -fsSL https://z42-lang.github.io/z42/install-z42.sh | sh\`
-          Install (Windows): \`irm https://z42-lang.github.io/z42/install-z42.ps1 | iex\`
-
-          Verify: \`shasum -a 256 -c SHA256SUMS --ignore-missing\`
+          ${generated}
           EOF
           )
           title="Nightly (main @ ${short_sha} · ${today})"

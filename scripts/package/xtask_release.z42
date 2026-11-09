@@ -303,7 +303,65 @@ int _packageRelease(string label, string dist, string channel, string tag, strin
     if (rc != 0) { return rc; }
     rc = _releaseWriteSums(distDir);
     if (rc != 0) { return rc; }
-    return _releaseGenIndex(label, distDir, channel, tag, version);
+    rc = _releaseGenIndex(label, distDir, channel, tag, version);
+    if (rc != 0) { return rc; }
+    return _releaseGenNotes(label, distDir, channel.Length == 0 ? "stable" : channel, version.Length == 0 ? label : version);
+}
+
+// release 页正文 `<dist>/release-notes.md`（不作附件上传）：安装命令 + 下载表。RID 按 versions.toml 的声明序、
+// 以 [rid.*].title 显示；workload 取 [workload].members（+ release 专用的 test）。附件与 Pages 上的安装器
+// 不带参数时装 nightly，所以 nightly 以外的渠道，安装命令显式带上版本。
+int _releaseGenNotes(string label, string distDir, string channel, string version) {
+    string root = _root();
+    var md = new List<string>();
+    _relNotesInstall(md, channel, version);
+    md.Add("## Downloads (host)");
+    md.Add("");
+    md.Add("| Platform | SDK | Runtime |");
+    md.Add("|----------|-----|---------|");
+    foreach (var rid in _vRidDeclared(root)) {
+        if (_vRidCategory(root, rid) != "desktop") { continue; }
+        md.Add("| " + _vRidTitle(root, rid) + " | `" + _sdkName(label, rid) + "` | `" + _rtName(label, rid) + "` |");
+    }
+    md.Add("");
+    md.Add("## Downloads (mobile + wasm runtime)");
+    md.Add("");
+    md.Add("| Platform | Runtime |");
+    md.Add("|----------|---------|");
+    foreach (var rid in _vRidDeclared(root)) {
+        if (_vRidCategory(root, rid) == "desktop") { continue; }
+        md.Add("| " + _vRidTitle(root, rid) + " | `" + _rtName(label, rid) + "` |");
+    }
+    md.Add("");
+    md.Add("## Workloads (`z42 workload install <wl>`; ios/android/wasm bundle the runtime packs above — "
+        + "desktop carries the per-RID apphost stubs and reuses the host runtime)");
+    md.Add("");
+    md.Add("| Workload | Tooling archive |");
+    md.Add("|----------|-----------------|");
+    foreach (var wl in _vWorkloads(root)) {
+        md.Add("| " + _vWorkloadTitle(root, wl) + " | `" + _wlArchiveName(label, wl) + "` |");
+    }
+    md.Add("| Test (capability; test-agent payload) | `" + _wlArchiveName(label, "test") + "` |");
+    md.Add("");
+    md.Add("Verify: `shasum -a 256 -c SHA256SUMS --ignore-missing`");
+    string outPath = Path.Join(distDir, "release-notes.md");
+    File.WriteAllText(outPath, String.Join("\n", md.ToArray()) + "\n");
+    Console.WriteLine("✓ wrote " + outPath);
+    return 0;
+}
+
+void _relNotesInstall(List<string> md, string channel, string version) {
+    string site = "https://z42-lang.github.io/z42/";
+    string sh = "curl -fsSL " + site + "install-z42.sh | sh";
+    string ps = "irm " + site + "install-z42.ps1 | iex";
+    if (channel != "nightly") {
+        sh = sh + " -s -- --version " + version;
+        ps = "$env:Z42_VERSION = \"" + version + "\"; " + ps;
+    }
+    foreach (var line in new string[]{ "## Install", "", "macOS / Linux:", "", "```sh", sh, "```", "",
+                                       "Windows (PowerShell):", "", "```powershell", ps, "```", "" }) {
+        md.Add(line);
+    }
 }
 
 // <dist>/SHA256SUMS：`<sha>  <name>`，按文件名排序（与 `shasum -a 256 … | sort -k2` 同形）。
