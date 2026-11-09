@@ -547,7 +547,7 @@ fn make_closure_returns_null_for_invalid_args() {
 
 #[test]
 fn builtin_table_join_preserves_order_and_has_no_holes() {
-    use crate::assembly::builtin::BUILTINS;
+    use crate::corelib::builtins::BUILTINS;
     // 没有被填充值漏下来的空洞（padding 的名字是空串）。
     assert!(BUILTINS.iter().all(|d| !d.name.is_empty()),
         "a padding slot leaked into BUILTINS — the const join left a hole");

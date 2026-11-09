@@ -107,4 +107,4 @@ pub(crate) fn marshal_return(value: Option<&Value>) -> Result<z42_abi::Z42Value>
     value_to_z42_value(value)
 }
 
-use crate::assembly::loader::load_artifact;
+use crate::host::artifact::load_artifact;

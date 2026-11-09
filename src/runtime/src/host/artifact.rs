@@ -59,11 +59,9 @@ pub fn fold_availability(
     availability::fold_availability_with_fusion(fs, module, declared, FUSION_INPUTS)
 }
 
-pub trait LazyLoaderFactory {
-    fn new(search_dirs: Vec<PathBuf>, main_pool_len: usize, declared: Vec<(String, ZpkgCandidate)>, initially_loaded: Vec<String>) -> Self;
-}
-impl LazyLoaderFactory for LazyLoader {
-    fn new(
+impl LazyLoader {
+    /// Construct a dependency loader using the host runtime configuration.
+    pub fn new(
         search_dirs: Vec<PathBuf>,
         main_pool_len: usize,
         declared: Vec<(String, ZpkgCandidate)>,

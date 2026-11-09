@@ -84,7 +84,7 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
         while let Some(namespace) = queue.pop_front() {
             if !visited.insert(namespace.clone()) { continue; }
             let Some(bytes) = resolver.resolve(&namespace) else { continue; };
-            let artifact = crate::assembly::loader::load_artifact_from_bytes(&bytes)
+            let artifact = crate::host::artifact::load_artifact_from_bytes(&bytes)
                 .with_context(|| format!("zpkg_resolver returned malformed bytes for namespace `{namespace}`"))?;
             initially_loaded_zpkgs.push(format!("{namespace}.zpkg"));
             if !resolved_names.insert(blake3::hash(&bytes)) { continue; }
@@ -118,7 +118,7 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
             seen_any = true;
             let core_canonical = core_path.canonicalize().unwrap_or(core_path.clone());
             let core_str = core_path.to_string_lossy().into_owned();
-            match crate::assembly::loader::load_artifact(fs, &core_str) {
+            match crate::host::artifact::load_artifact(fs, &core_str) {
                 Ok(a) => {
                     tracing::debug!("loaded stdlib z42.core from {core_str}");
                     let byte_size = std::fs::metadata(&core_path).ok().map(|m| m.len());
@@ -180,7 +180,7 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
             let canonical = dep_path.canonicalize().unwrap_or_else(|_| dep_path.clone());
             if initially_loaded_zpkgs.iter().any(|n| n == &dep_file) || !loaded_paths.insert(canonical) { continue; }  // already merged
             let dep_str = dep_path.to_string_lossy().into_owned();
-            let artifact = crate::assembly::loader::load_artifact(fs, &dep_str)
+            let artifact = crate::host::artifact::load_artifact(fs, &dep_str)
                 .with_context(|| format!("loading dependency `{dep_str}`"))?;
             for dep in &artifact.dependencies { file_queue.push_back(dep.file.clone()); }
             for ns in &artifact.import_namespaces { ns_queue.push_back(ns.clone()); }
@@ -217,7 +217,7 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
         crate::vm::runtime::types::build_type_registry(&mut m);
         crate::vm::runtime::types::verify_constraints(&m)
             .with_context(|| format!("constraint verification failed for `{}`", file))?;
-        crate::assembly::loader::build_block_indices(&mut m);
+        crate::host::artifact::build_block_indices(&mut m);
         crate::vm::loader::package::build_func_index(&mut m);
         m
     };

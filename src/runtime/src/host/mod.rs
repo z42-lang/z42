@@ -29,7 +29,7 @@ pub(crate) use app::report_on_exit;
 #[cfg(test)] mod app_tests;
 #[cfg(test)] pub(crate) mod runtime_tests;
 
-pub use crate::assembly::loader::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability, LazyLoaderFactory};
+pub use artifact::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability};
 pub use crate::components::{BackendOptions, BackendSource, jit_supported, jit_available, interp_available};
 
 pub use crate::vm::ext::VmExtensions;
@@ -49,3 +49,7 @@ mod launcher;
 pub mod entry_api;
 
 pub use crate::config::RuntimeConfig;
+
+pub(crate) mod context;
+mod artifact;
+mod extensions;

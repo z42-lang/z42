@@ -76,7 +76,7 @@ unsafe extern "C" fn foreign_init() -> *const ComponentDescriptor { &FOREIGN_DES
 #[test]
 fn another_core_is_rejected_before_any_vm_address_is_passed_to_it() {
     ATTACH_CALLS.store(0, Ordering::Relaxed);
-    let ctx = crate::assembly::context::construct(None, crate::pal::fs::default_vfs(), Default::default(),
+    let ctx = crate::host::context::construct(None, crate::pal::fs::default_vfs(), Default::default(),
         crate::vm::exec::engine::EngineRegistry::new(None));
     let components = unsafe { ComponentOptions::default().with_static(INTERP_COMPONENT, foreign_init) };
     components.install(&ctx).unwrap();
@@ -104,7 +104,7 @@ static WRONG_ABI_DESCRIPTOR: ComponentDescriptor = ComponentDescriptor {
 unsafe extern "C" fn wrong_abi_init() -> *const ComponentDescriptor { &WRONG_ABI_DESCRIPTOR }
 #[test]
 fn same_image_with_incompatible_compiled_layout_is_rejected() {
-    let ctx = crate::assembly::context::construct(None, crate::pal::fs::default_vfs(), Default::default(),
+    let ctx = crate::host::context::construct(None, crate::pal::fs::default_vfs(), Default::default(),
         crate::vm::exec::engine::EngineRegistry::new(None));
     let components = unsafe { ComponentOptions::default().with_static(INTERP_COMPONENT, wrong_abi_init) };
     components.install(&ctx).unwrap();

@@ -13,7 +13,7 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
         release_owned_buffer: crate::interop::release_owned_buffer,
     });
     #[cfg(feature = "native-interop")]
-    add(&mut defaults, crate::corelib::repl::paths::Paths(crate::assembly::repl::candidates));
+    add(&mut defaults, crate::corelib::repl::paths::Paths(repl_candidates));
     add(&mut defaults, crate::host::services::services());
     // The service owns only Rust arguments, never the core, so this sharing cannot form a cycle.
     let application = crate::host::app_state::state_for_vm();
@@ -34,4 +34,30 @@ pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
 fn add<T: std::any::Any + Send + Sync>(extensions: &mut VmExtensions, state: T) {
     // Only this assembly can register these private types; duplicates are a wiring error.
     assert!(extensions.register(state).is_ok(), "duplicate built-in VM extension type");
+}
+
+#[cfg(feature = "native-interop")]
+fn repl_candidates() -> Vec<std::path::PathBuf> {
+    let file = crate::pal::dynlib::file_name("z42_repl");
+    let mut out = Vec::new();
+    if let Some(over) = crate::config::runtime_config().repl_native.as_ref() {
+        let p = over.clone();
+        // Accept either a direct file path or a directory containing the lib.
+        out.push(p.join(&file));
+        out.push(p);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            out.push(dir.join(&file));
+            // <sdk>/programs/z42i/ (beside the interactive payload), via the
+            // shared colocated-native-dependency resolver.
+            if let Some(sdk_root) = dir.parent() {
+                let z42i_dir = sdk_root.join("programs").join("z42i");
+                if let Some(p) = crate::pal::dynlib::resolve_native_beside(&z42i_dir, "z42_repl") {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    out
 }

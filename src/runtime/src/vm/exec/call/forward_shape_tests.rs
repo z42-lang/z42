@@ -39,28 +39,28 @@ fn wrapper(name: &str, params: usize, args: &[u32], ret: Option<u32>) -> Functio
 
 #[test]
 fn exact_wrapper_forwards_to_its_builtin() {
-    let id = crate::assembly::builtin::CATALOG.id_of("__str_char_at").expect("builtin exists").0;
-    assert_eq!(builtin_forward(&wrapper("__str_char_at", 2, &[0, 1], Some(2)), &crate::assembly::builtin::CATALOG), Some(id));
+    let id = crate::corelib::builtins::CATALOG.id_of("__str_char_at").expect("builtin exists").0;
+    assert_eq!(builtin_forward(&wrapper("__str_char_at", 2, &[0, 1], Some(2)), &crate::corelib::builtins::CATALOG), Some(id));
     // void wrapper (`builtin …; ret`) also qualifies.
-    assert_eq!(builtin_forward(&wrapper("__str_char_at", 2, &[0, 1], None), &crate::assembly::builtin::CATALOG), Some(id));
+    assert_eq!(builtin_forward(&wrapper("__str_char_at", 2, &[0, 1], None), &crate::corelib::builtins::CATALOG), Some(id));
 }
 
 #[test]
 fn anything_but_an_exact_wrapper_is_rejected() {
     // Arguments reordered / dropped / extra.
-    assert_eq!(builtin_forward(&wrapper("__str_char_at", 2, &[1, 0], Some(2)), &crate::assembly::builtin::CATALOG), None);
-    assert_eq!(builtin_forward(&wrapper("__str_char_at", 2, &[0], Some(2)), &crate::assembly::builtin::CATALOG), None);
-    assert_eq!(builtin_forward(&wrapper("__str_char_at", 1, &[0, 1], Some(1)), &crate::assembly::builtin::CATALOG), None);
+    assert_eq!(builtin_forward(&wrapper("__str_char_at", 2, &[1, 0], Some(2)), &crate::corelib::builtins::CATALOG), None);
+    assert_eq!(builtin_forward(&wrapper("__str_char_at", 2, &[0], Some(2)), &crate::corelib::builtins::CATALOG), None);
+    assert_eq!(builtin_forward(&wrapper("__str_char_at", 1, &[0, 1], Some(1)), &crate::corelib::builtins::CATALOG), None);
     // Returns something other than the builtin's result.
-    assert_eq!(builtin_forward(&wrapper("__str_char_at", 2, &[0, 1], Some(0)), &crate::assembly::builtin::CATALOG), None);
+    assert_eq!(builtin_forward(&wrapper("__str_char_at", 2, &[0, 1], Some(0)), &crate::corelib::builtins::CATALOG), None);
     // Unknown builtin name: no id to dispatch → keep the ordinary call.
-    assert_eq!(builtin_forward(&wrapper("__no_such_builtin", 2, &[0, 1], Some(2)), &crate::assembly::builtin::CATALOG), None);
+    assert_eq!(builtin_forward(&wrapper("__no_such_builtin", 2, &[0, 1], Some(2)), &crate::corelib::builtins::CATALOG), None);
     // Extra instruction in the body.
     let mut f = wrapper("__str_char_at", 2, &[0, 1], Some(2));
     f.blocks[0].instructions.push(Instruction::Builtin(Box::new(BuiltinInsn {
         dst: 3, name: "__str_char_at".to_string(), args: vec![0, 1].into(),
     })));
-    assert_eq!(builtin_forward(&f, &crate::assembly::builtin::CATALOG), None);
+    assert_eq!(builtin_forward(&f, &crate::corelib::builtins::CATALOG), None);
 }
 
 fn call_wrapper(name: &str, target: &str, params: usize, args: &[u32]) -> Function {

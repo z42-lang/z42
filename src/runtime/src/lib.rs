@@ -10,7 +10,6 @@ pub mod profiler;
 pub mod interop;
 pub mod host;
 pub mod config;
-pub(crate) mod assembly;
 pub use vm::exec::ops::object as objops;
 pub mod components;
 #[cfg(test)]

@@ -71,12 +71,12 @@ impl LoadedProgram {
     }
 
     pub fn load_file(path: &str, options: LoadOptions) -> Result<Self> {
-        let artifact = crate::assembly::loader::load_artifact(&*options.vfs, path)?;
+        let artifact = crate::host::artifact::load_artifact(&*options.vfs, path)?;
         super::load::prepare(artifact, Some(path), &options)
     }
 
     pub fn load_bytes(bytes: &[u8], options: LoadOptions) -> Result<Self> {
-        let artifact = crate::assembly::loader::load_artifact_from_bytes(bytes)?;
+        let artifact = crate::host::artifact::load_artifact_from_bytes(bytes)?;
         super::load::prepare(artifact, None, &options)
     }
 

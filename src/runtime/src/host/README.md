@@ -23,11 +23,12 @@ CLI 是宿主的一种实现，也遵循同一入口和类型规范。C ABI 导�
 | `ComponentOptions` / `ComponentLease` | 每 VM 组件配置和接口/库寿命租约 |
 | `component_ids` / `component_interface` | 查询已装配组件与类型化接口 |
 | `LoadedProgram` / `LoadOptions` | 文件或字节加载、宿主 VFS 与 resolver、入口解析、模式选择、重复调用及初始化状态 |
-| `load.rs` / `boot.rs` | 依赖解析、去重、合并、约束和索引准备、可用性裁剪、构造上下文和链接准备 |
+| `artifact.rs` / `load.rs` / `boot.rs` | 依赖解析、去重、合并、约束和索引准备、可用性裁剪、构造上下文和链接准备 |
 | `run_app` / `RunOpts` | 一次性应用运行、应用参数、退出报告和进程退出时的释放策略 |
 | `ffi.rs` / `config.rs` / `state.rs` | C ABI 适配、配置验证及宿主句柄注册表 |
 | `ops.rs` / `marshal.rs` | ABI 操作适配和参数、返回值转换 |
 | `ExecMode` / `PackageImage` | 由组件拥有、通过宿主门面提供的执行策略和不可变包定义类型 |
+| `context.rs` / `extensions.rs` | 主 VM 构造、内置服务与扩展装配；worker 继续共享已有 Core |
 | `signal.rs` | 致命信号安装、VM 栈捕获和崩溃报告，底层信号原语由 PAL 提供 |
 | `resolver.rs` | 宿主包解析接口、C 回调适配和 `read_zpkg_namespaces` 包解析键查询 |
 | `services.rs` / `app_state.rs` | 核心库隔离运行服务和每 VM 应用参数 |

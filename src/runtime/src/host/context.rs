@@ -41,7 +41,7 @@ impl VmContext {
         vfs: Arc<dyn crate::pal::fs::Vfs>,
         extensions: crate::vm::ext::VmExtensions,
     ) -> std::pin::Pin<Box<Self>> {
-        construct(module, vfs, extensions, crate::assembly::engine::registry())
+        construct(module, vfs, extensions, crate::components::backends::registry())
     }
 
     /// Instantiate shared package definitions with fresh per-VM types and caches.
@@ -59,14 +59,14 @@ impl VmContext {
         let mut module = crate::vm::runtime::Module::from_image(image);
         crate::vm::runtime::types::build_type_registry(&mut module);
         crate::vm::runtime::types::verify_constraints(&module)?;
-        crate::assembly::loader::build_block_indices(&mut module);
+        crate::host::artifact::build_block_indices(&mut module);
         Ok(Self::with_module_and_vfs(module, vfs))
     }
 
 }
 
 #[cfg(test)]
-#[path = "context_assembly_tests.rs"]
+#[path = "context_tests.rs"]
 mod tests;
 
 /// Construct a context with explicit engine bindings; high-level hosts attach
@@ -77,8 +77,8 @@ pub(crate) fn construct(module: Option<crate::vm::runtime::Module>, vfs: Arc<dyn
             module.clear_link_state();
             Arc::new(module)
         });
-        let ctx = with_config(module, vfs, crate::assembly::extension::freeze(extensions),
-            crate::config::runtime_config().vm_config(), crate::assembly::object_protocol::services(), engines);
+        let ctx = with_config(module, vfs, crate::host::extensions::freeze(extensions),
+            crate::config::runtime_config().vm_config(), crate::corelib::object_protocol(), engines);
         #[cfg(feature = "native-interop")]
         if let Err(e) = crate::interop::ext::load_all(&ctx) { tracing::warn!("native ext loader: {e:#}"); }
         ctx
@@ -93,9 +93,9 @@ pub(crate) fn with_config(module: Option<Arc<crate::vm::runtime::Module>>, vfs: 
     };
     VmContext::with_runtime(module, vfs, crate::vm::context::RuntimeInputs {
         extensions, config, object_protocol: protocol, engines,
-        builtins: crate::assembly::builtin::BUILTINS,
-        catalog: &crate::assembly::builtin::CATALOG,
-        fusion: crate::assembly::loader::FUSION_INPUTS,
+        builtins: crate::corelib::builtins::BUILTINS,
+        catalog: &crate::corelib::builtins::CATALOG,
+        fusion: crate::host::artifact::FUSION_INPUTS,
         sampler: crate::vm::diagnostics::sampling::Sampling::new(backend.enabled(), backend),
     })
 }

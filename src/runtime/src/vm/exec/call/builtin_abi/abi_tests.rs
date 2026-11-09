@@ -26,7 +26,7 @@ pub(crate) fn kind(k: i64) -> BuiltinError {
     }
 }
 
-use crate::assembly::builtin::{CATALOG, BUILTINS};
+use crate::corelib::builtins::{CATALOG, BUILTINS};
 use crate::vm::exec::call::builtins::invoke_builtin;
 use crate::vm::runtime::ids::tokens::TypeId;
 use crate::object::{FieldSlot, TypeDesc};

@@ -10,7 +10,7 @@
 
 ## 引擎注册与调用边界
 
-共享核心位于独立 z42-runtime，解释器和 JIT 分别位于 z42-interp/z42-jit，互不依赖实现。host 按执行模式选择静态或动态组件，经 ExecutionApi 装配基线 Engine 和 JIT Engine；低层构造的默认静态清单由 `assembly/engine.rs` 提供。`VmCore.exec.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
+共享运行时位于统一 z42 包，解释器和 JIT 分别位于 z42-interp/z42-jit，互不依赖实现。host 按执行模式选择静态或动态组件，经 ExecutionApi 装配基线 Engine 和 JIT Engine；低层构造的测试默认引擎由 `components/backends.rs` 提供，生产宿主显式装配所选组件。`VmCore.exec.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
 
 TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入口和代码页由 JIT 自己持有；所有 worker 共享所属 core 的注册结果，其他 VM 独立。竞争安装保留首个发布实例，失败候选安全释放；所属模块校验仍由后端执行。
 
@@ -123,7 +123,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.exec.engi
 - 观测：`counters`（`RuntimeCounters`，只累计已销毁 `VmContext` 的计数；各线程在自己的 `VmContext.diagnostics.counters` 上计，`counters_snapshot()` 汇总）/ `runtime_observers` / `park_histogram`（safepoint park 时长分布）/ `lock_contentions` + `lock_wait_us`（仅 `profile-contention` feature 写入）/ `sampler`（`Z42_SAMPLE_HZ` 开启的采样 profiler）
 
 核心库的进程、线程、文件、TCP socket/listener、UDP 和 TLS 七张资源表分别归对应模块的 `State`，
-由门面 `assembly/extension.rs` 在所有 VM 构造入口创建并登记到扩展状态中；worker 共享同一个 core 的状态。
+由门面 `host/extensions.rs` 在所有 VM 构造入口创建并登记到扩展状态中；worker 共享同一个 core 的状态。
 VM 的泛型存储不依赖这些资源类型。网络与 TLS 状态保持各自 `net` / `tls` feature 边界。
 
 `interop/state.rs` 持有 native 类型表、库句柄、已尝试扩展库集合与 owned pin buffer。
@@ -1168,7 +1168,7 @@ match callee_value {
 两种后端共享：
 - `Module` / `Function` / `Instruction` 数据结构
 - `TypeDesc` / `FieldSlot` / vtable
-- corelib builtin 调度表（`assembly/builtin.rs`）
+- corelib builtin 调度表（`corelib/builtins.rs`）
 - LazyLoader（interp 与 JIT 都经它按需加载依赖 zpkg）
 
 ---
@@ -1482,14 +1482,14 @@ id 永不复用，所以它也是比地址更稳的缓存键：描述符释放�
 
 ## builtin 查询与调用
 
-位置：纯目录在 `vm/runtime/builtins.rs`，调用在 `vm/exec/call/builtins.rs`，provider 装配在 `assembly/builtin.rs`，实现由 corelib 与 interop 提供。
+位置：纯目录在 `vm/runtime/builtins.rs`，调用在 `vm/exec/call/builtins.rs`，provider 装配在 `corelib/builtins.rs`，实现由 corelib 与 interop 提供。
 
-`Builtin` IR 指令在 interp / JIT 都经 `BuiltinId`（加载期由当前 VM 的 `BuiltinCatalog::id_of` 解析）索引 `builtin_assembly::BUILTINS` 表分发（`invoke_builtin`，实参原地从寄存器读；只握着实参切片的调用方用按名入口 `exec_builtin(name, args)`）。ABI 与错误模型见 [native ABI §6](native-abi.md)。
+`Builtin` IR 指令在 interp / JIT 都经 `BuiltinId`（加载期由当前 VM 的 `BuiltinCatalog::id_of` 解析）索引 `corelib::builtins::BUILTINS` 表分发（`invoke_builtin`，实参原地从寄存器读；只握着实参切片的调用方用按名入口 `exec_builtin(name, args)`）。ABI 与错误模型见 [native ABI §6](native-abi.md)。
 builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等，详见 `src/runtime/src/corelib/README.md`。
 
 **新增 builtin 三处同改（强制规则）**：
 1. `corelib/<module>.rs` — 实现
-2. `assembly/builtin.rs` — 新 provider 模块在 TYPED 登记 DESCS；目录从同一表派生，ID 为本次运行的数组下标
+2. `corelib/builtins.rs` — 新 provider 模块在 TYPED 登记 DESCS；目录从同一表派生，ID 为本次运行的数组下标
 3. stdlib 中对应的 `[Native("__name")]` 声明 — 类型签名（`native_decl_tests.rs` 对账）
 
 ---

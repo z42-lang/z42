@@ -37,16 +37,16 @@ pub(crate) fn boot_context(mut module: Module, plan: BootPlan) -> Pin<Box<VmCont
     //     后续 `fix-silent-symbol-resolution` 的急切校验也就不会对它抛出。
     //     `available!` 正是那条校验的唯一显式豁免通道。
     let avail_stats =
-        crate::assembly::loader::fold_availability(&*plan.vfs, &mut module, &plan.declared_candidates);
+        crate::host::artifact::fold_availability(&*plan.vfs, &mut module, &plan.declared_candidates);
     if !avail_stats.is_noop() {
         // 剪枝改了块集合 → 派生侧表（block_index / branch_targets）必须按剪枝后的 CFG 重建。
-        crate::assembly::loader::build_block_indices(&mut module);
+        crate::host::artifact::build_block_indices(&mut module);
         crate::vm::loader::package::build_func_index(&mut module);
         tracing::debug!("available!: {avail_stats:?}");
     }
 
     let string_pool_len = module.string_pool.len();
-    let ctx = crate::assembly::context::construct(Some(module), plan.vfs, Default::default(),
+    let ctx = crate::host::context::construct(Some(module), plan.vfs, Default::default(),
         crate::vm::exec::engine::EngineRegistry::new(None));
     // add-static-constructors：急切合并进来的类型（主程序 + stdlib + eager deps）在此登记
     // 静态构造器。跨包惰性加载的类型由 `try_lookup_type` 登记——两处合起来保证

@@ -152,7 +152,7 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 `WeakRef<TD>` 不能强持原 handler：Closure 自己强持 `env = [receiver]`，持住 handler 就等于
 持住 receiver，弱引用直接失效。所以构造时把 handler **拆解**成 `(WeakHandle → receiver, fnName)`，
 `Get()` 时重建一个新 Closure。这需要 corelib 暴露三个 builtin（注册表在
-`src/runtime/src/assembly/builtin.rs`）：
+`src/runtime/src/corelib/builtins.rs`）：
 
 | builtin | stdlib 入口（`Std.DelegateOps`）| 语义 |
 |---|---|---|

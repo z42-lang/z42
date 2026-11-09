@@ -1,7 +1,7 @@
 /// Core library — native function implementations backing the z42 standard library.
 ///
-/// The facade assembles providers in builtin_assembly.
-/// Every builtin is reachable through the `BUILTINS` table (`crate::assembly::builtin`): the
+/// Provider descriptors are assembled in corelib::builtins.
+/// Every builtin is reachable through the `BUILTINS` table (`crate::corelib::builtins`): the
 /// engines call `vm::exec::call::builtins::invoke_builtin` (interp `Instruction::Builtin`, JIT `jit_builtin`, and
 /// the `[Native]` wrapper short-circuit of both — `vm::exec::call::forward`), reading the
 /// arguments in place from the caller's registers; callers that hold the arguments as a
@@ -41,3 +41,14 @@ pub mod tls;
 mod tests;
 #[cfg(test)]
 mod native_decl_tests;   // [Native] declarations ↔ BUILTINS consistency
+
+pub(crate) mod builtins;
+
+pub(crate) fn object_protocol() -> crate::vm::exec::object_protocol::ObjectProtocol {
+    crate::vm::exec::object_protocol::ObjectProtocol {
+        get_type: crate::corelib::core::object::obj_get_type,
+        default_to_string: crate::corelib::core::object::obj_to_str,
+        make_type_from_name: crate::corelib::core::reflection::make_type_from_name,
+        make_constructed_type: crate::corelib::core::reflection::make_constructed_type,
+    }
+}

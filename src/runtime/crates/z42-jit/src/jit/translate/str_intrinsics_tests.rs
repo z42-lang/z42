@@ -94,14 +94,14 @@ struct Callees<'m>(&'m Module);
 
 impl Callees<'_> {
     fn of(&self, f: &Function) -> Option<u32> {
-        builtin_forward(f, &crate::assembly::builtin::CATALOG).or_else(|| chained_forward(f, |n| {
-            self.0.func_index.get(n).and_then(|&i| builtin_forward(&self.0.functions[i], &crate::assembly::builtin::CATALOG))
+        builtin_forward(f, &crate::corelib::builtins::CATALOG).or_else(|| chained_forward(f, |n| {
+            self.0.func_index.get(n).and_then(|&i| builtin_forward(&self.0.functions[i], &crate::corelib::builtins::CATALOG))
         }))
     }
 }
 
 impl ForwardLookup for Callees<'_> {
-    fn builtins(&self) -> &crate::vm::runtime::builtins::BuiltinCatalog { &crate::assembly::builtin::CATALOG }
+    fn builtins(&self) -> &crate::vm::runtime::builtins::BuiltinCatalog { &crate::corelib::builtins::CATALOG }
     fn forward_of_id(&self, id: u32) -> Option<u32> { self.of(self.0.functions.get(id as usize)?) }
     fn forward_of_name(&self, name: &str) -> Option<u32> {
         self.of(&self.0.functions[*self.0.func_index.get(name)?])
@@ -222,10 +222,10 @@ fn static_call_with_a_pending_package_init_keeps_the_barrier_path() {
 
 #[test]
 fn recognition_is_by_forwarded_builtin() {
-    let id = |n| crate::assembly::builtin::CATALOG.id_of(n).expect("builtin").0;
-    assert_eq!(StrIntrinsic::of_builtin(id("__str_length"), &crate::assembly::builtin::CATALOG), Some(StrIntrinsic::Length));
-    assert_eq!(StrIntrinsic::of_builtin(id("__str_char_at"), &crate::assembly::builtin::CATALOG), Some(StrIntrinsic::CharAt));
-    assert_eq!(StrIntrinsic::of_builtin(id("__str_byte_length"), &crate::assembly::builtin::CATALOG), None);
+    let id = |n| crate::corelib::builtins::CATALOG.id_of(n).expect("builtin").0;
+    assert_eq!(StrIntrinsic::of_builtin(id("__str_length"), &crate::corelib::builtins::CATALOG), Some(StrIntrinsic::Length));
+    assert_eq!(StrIntrinsic::of_builtin(id("__str_char_at"), &crate::corelib::builtins::CATALOG), Some(StrIntrinsic::CharAt));
+    assert_eq!(StrIntrinsic::of_builtin(id("__str_byte_length"), &crate::corelib::builtins::CATALOG), None);
 }
 
 /// The native view of a handle (`vstr::jit_layout`) reads what the Rust accessors do.

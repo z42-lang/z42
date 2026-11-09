@@ -3,7 +3,7 @@ use super::{ComponentOptions, component_interface};
 use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 use crate::components::api::*;
-use crate::{zpkg::ExecMode, vm::context::VmContext};
+use crate::{zpkg::ExecMode, vm::{context::VmContext, exec::engine::EngineRegistry}};
 
 #[derive(Clone, Debug, Default)]
 pub enum BackendSource {
@@ -138,4 +138,15 @@ pub(crate) fn attach(ctx: &VmContext, mode: ExecMode) -> Result<()> {
         anyhow::ensure!(status == ComponentStatus::OK, "{name} registration failed: status {}", status.0);
     }
     Ok(())
+}
+
+pub(crate) fn registry() -> EngineRegistry {
+    #[cfg(test)]
+    let baseline = Some(&crate::interp::engine::ENGINE as &'static dyn crate::vm::exec::engine::Engine);
+    #[cfg(not(test))]
+    let baseline = None;
+    let registry = EngineRegistry::new(baseline);
+    #[cfg(all(test, feature = "jit", z42_jit_supported))]
+    { let _ = registry.register_jit(crate::jit::execution_engine(), crate::config::runtime_config().jit_config()); }
+    registry
 }

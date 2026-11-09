@@ -41,7 +41,7 @@ fn program(mode: ExecMode, throws: bool) -> LoadedProgram {
         functions: vec![function],
         func_index: Default::default(),
     });
-    crate::assembly::loader::build_block_indices(&mut module);
+    crate::host::artifact::build_block_indices(&mut module);
     crate::vm::loader::package::build_func_index(&mut module);
     let ctx = VmContext::with_module(module);
     crate::host::boot::prepare_execution(&ctx, ctx.module().unwrap());
@@ -224,7 +224,7 @@ fn fatal_error_keeps_the_report_for_the_cli_adapter() {
 fn malformed_selected_eager_dependency_fails_during_load() {
     let fs = Arc::new(MemoryFs::new());
     fs.mount(std::path::Path::new("/libs").join("broken.zpkg").to_str().unwrap(), b"broken dependency".to_vec());
-    let mut artifact = crate::assembly::loader::load_artifact_from_bytes(&empty_zbc()).unwrap();
+    let mut artifact = crate::host::artifact::load_artifact_from_bytes(&empty_zbc()).unwrap();
     artifact.dependencies.push(zpkg::format::ZpkgDep {
         file: "broken.zpkg".into(), namespaces: Vec::new(), symbols: Vec::new(),
     });

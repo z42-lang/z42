@@ -7,7 +7,7 @@
 //! (run under `xtask test stdlib`). Here we assert the registration
 //! discipline that Rust *can* check without stdlib types.
 
-use crate::assembly::builtin::{CATALOG, BUILTINS};
+use crate::corelib::builtins::{CATALOG, BUILTINS};
 
 #[test]
 fn diag_counters_is_registered() {
