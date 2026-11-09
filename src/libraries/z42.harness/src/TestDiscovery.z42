@@ -78,24 +78,26 @@ public class TestCase {
 
     /// 调用（无接收者）。被调函数里抛出的异常按原类型传出。
     ///
+    /// 返回被调函数的返回值（装箱；void / Bencher 注入形态返回 null）——零参**返回值基准**
+    /// 的计时壳逐次把它喂给 blackBox（防 DCE），其余调用方忽略即可。
+    ///
     /// 零参形态直接调（`[Test]` / `[Setup]` / `[Teardown]` 及要自定采样档/标签的
     /// `[Benchmark]`）；**推荐**的 `[Benchmark] void f(Bencher b)` 形态由这里建固定档
     /// (2, 20) 的 [`Bencher`] 传入，跑完按函数名自动打摘要行——基准体只写 `b.iter(() => …)`，
     /// 预热/采样/摘要全是 runner 的事。
-    public void Invoke() {
+    public object Invoke() {
         if (this.Args != null) {
-            this.Method.Invoke(null, TestCase._coerceArgs(this.Method, this.Args));
-            return;
+            return this.Method.Invoke(null, TestCase._coerceArgs(this.Method, this.Args));
         }
         if (this.TakesBencher()) {
-            Bencher b = new Bencher(2, 20);   // 事实标准固定档：确定性采样数，正确性波/CI A/B 的现状口径
+            Bencher b = Bencher.fixed(2, 20);   // 事实标准固定档：确定性采样数，正确性波/CI A/B 的现状口径
             object[] args = new object[1];
             args[0] = b;
             this.Method.Invoke(null, args);
             b.printSummary(this.Method.Name);
-            return;
+            return null;
         }
-        this.Method.Invoke(null, new object[0]);
+        return this.Method.Invoke(null, new object[0]);
     }
 
     /// 恰好一个 `Std.Harness.Bencher` 形参（编译期 E0912 已保证 `[Benchmark]` 只有零参与这一种形状）。

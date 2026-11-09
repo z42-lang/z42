@@ -262,3 +262,70 @@ void test_bench_helpers_black_box_passthrough() {
     var y = BenchHelpers.blackBox("xyz");
     Assert.Equal("xyz", y);
 }
+
+// ── Bencher 统一入口 + 值返回 iter（bencher-unified-entry）────────────────
+
+[Test]
+void test_bencher_fixed_factory_matches_ctor() {
+    var b = Bencher.fixed(2, 5);
+    Assert.Equal(2, b.WarmupIters);
+    Assert.Equal(5, b.Samples);
+    var c = new IntCell();
+    b.iter(() => { c.v = c.v + 1; });
+    Assert.Equal(7, c.v);      // warmup(2) + samples(5)——固定档不跑 pilot
+    Assert.Equal(5, b.Samples);
+}
+
+[Test]
+void test_bencher_adaptive_factory_matches_ctor() {
+    var b = Bencher.adaptive();
+    Assert.Equal(10, b.WarmupIters);   // 自适应档的固定预热 10
+    var c = new IntCell();
+    b.iter(() => { c.v = c.v + 1; });
+    Assert.True(b.Samples >= 20);
+    Assert.True(b.Samples <= 2000);
+}
+
+// 值返回 iterValue(Func<object>)：每次采样经 blackBox 消费返回值（防 DCE 的免样板写法）。
+// 固定档下 body 调用总数 = warmup + n（与 Action 形态同构，无 pilot）。
+[Test]
+void test_bencher_iter_value_form_runs_each_sample() {
+    var b = Bencher.fixed(2, 5);
+    var c = new IntCell();
+    b.iterValue(() => {
+        c.v = c.v + 1;
+        return c.v as object;
+    });
+    Assert.Equal(7, c.v);
+    Assert.Equal(5, b.Samples);
+    Assert.True(b.MinNs >= 0);
+    Assert.True(b.MaxNs >= b.MinNs);
+}
+
+// 自适应 + 值返回组合：pilot 用闭包包 blackBox，n 仍在 [20, 2000]。
+[Test]
+void test_bencher_iter_value_form_adaptive() {
+    var b = Bencher.adaptive();
+    var c = new IntCell();
+    b.iterValue(() => {
+        c.v = c.v + 1;
+        return c.v as object;
+    });
+    Assert.True(b.Samples >= 20);
+    Assert.True(b.Samples <= 2000);
+    // warmup(10) + pilot(15) + n——pilot 走 Action 包装，调用次数同构。
+    Assert.Equal(b.WarmupIters + 15 + b.Samples, c.v);
+}
+
+// 返回值基准（JMH 式）：体里零 Bencher、零手写 blackBox——runner 逐次计时并消费返回值。
+// 摘要行按函数名打印（计时壳契约），跑通即形态成立。
+[Benchmark]
+long bench_value_form() {
+    long acc = 0;
+    int i = 0;
+    while (i < 64) {
+        acc = acc + i * 7;
+        i = i + 1;
+    }
+    return acc;
+}

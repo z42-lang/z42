@@ -39,10 +39,16 @@ public sealed class TestAttribute : Attribute {
     }
 }
 
-/// 一条基准：推荐 `void f(Bencher b)`（runner 传固定档并自动打摘要行）。
+/// 一条基准。三种形态，体里的 Bencher 样板从「零」到「全自控」：
 ///
-/// 体里只写 `b.iter(() => …)`——预热/采样/摘要全是 runner 的事；零参自建形态
-/// （自己 new Bencher + printSummary）留给要自定采样档 / 自定标签 / 自适应预算的场合。
+/// - **返回值零参**（JMH 式，推荐）：`long f() { return compute(); }`——runner 逐次计时
+///   整个函数体并经 blackBox 消费返回值（防 DCE），体里零 Bencher、零手写 blackBox；
+/// - **void 零参**：体自洽（自己消费计算结果），runner 逐次计时整个函数体；
+/// - **`void f(Bencher b)`**：要「setup 排除在计时区外」的边界形态（Go/Rust 式）——体里
+///   `b.iter(() => …)`，runner 传固定档 (2, 20) 并自动打摘要行；
+/// - 零参自建形态（自己建 Bencher + printSummary）留给要自定采样档 / 自定标签 /
+///   自适应预算的场合（`Bencher.fixed(w, n)` / `Bencher.adaptive()`）。
+///
 /// 定向 fixture 同 `[Test(setup: …)]`（test/bench 同一 runner 入口，机制共享）。
 public sealed class BenchmarkAttribute : Attribute {
     /// 本条基准专属 setup（`methodof(...)`）；null = 无。
