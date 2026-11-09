@@ -55,7 +55,11 @@ void _plSdk(string root, _PkgLayout L, string rid) {
     }
     L.Absent("bin/apphost", "apphost 随桌面 workload 发");
     L.Absent("bin/apphost.exe", "apphost 随桌面 workload 发");
-    if (rid.StartsWith("linux-")) { _plGlibc(root, L, rid, "bin/z42vm"); }
+    if (rid.StartsWith("linux-")) {
+        _plGlibc(root, L, rid, "bin/z42vm");
+        string name = _plSoname(_cmdOut("readelf", new string[]{ "-d", L.P("bin/z42vm") }));
+        L.Expect(name.Length == 0, "launcher has no shared-library SONAME", name);
+    }
 }
 
 // 桌面 runtime 包 = 嵌入者拿 libz42 的唯一来源：静态 + 动态（Windows 另有 import lib）+ C 头。
@@ -76,18 +80,10 @@ void _plComponentLibraries(_PkgLayout L, string rid) {
 void _plRuntimeIos(_PkgLayout L, string rid) {
     _plIosDynamic(L, rid);
     L.HasFile("native/libz42.a");
-    L.HasDir("native/Z42VM.xcframework");
     L.HasDir("native/include");
     L.HasDir("libs");
-    string xcf = L.P("native/Z42VM.xcframework");
-    string lib = "";
-    if (Directory.Exists(xcf)) {
-        foreach (var rel in Directory.EnumerateRecursive(xcf)) {
-            if (lib.Length == 0 && rel.Replace("\\", "/").EndsWith("libz42.a")) { lib = Path.Join(xcf, rel); }
-        }
-    }
-    string info = lib.Length > 0 ? _cmdOut("lipo", new string[]{ "-info", lib }) : "";
-    L.Expect(info.Contains("arm64"), "xcframework 内的 libz42.a 是 arm64", "lipo -info: '" + info + "'");
+    L.Absent("native/Z42VM.xcframework", "static archive is published directly");
+    L.Absent("native/Z42VMDynamic.xcframework", "dynamic framework is published directly");
 }
 
 void _plRuntimeAndroid(_PkgLayout L, string rid) {
@@ -205,17 +201,16 @@ class _PkgLayout {
 }
 
 void _plIosDynamic(_PkgLayout L, string rid) {
-    L.HasDir("native/Z42VMDynamic.xcframework");
-    string binary = L.P("native/Z42VMRuntime.framework/Z42VMRuntime");
-    L.HasFile("native/Z42VMRuntime.framework/Headers/z42_host.h");
-    L.HasFile("native/Z42VMRuntime.framework/Modules/module.modulemap");
+    string binary = L.P("native/z42.framework/z42");
+    L.HasFile("native/z42.framework/Headers/z42_host.h");
+    L.HasFile("native/z42.framework/Modules/module.modulemap");
     string kind = _cmdOut("file", new string[]{ binary });
     L.Expect(kind.Contains("dynamically linked shared library") && kind.Contains("arm64"), "iOS dynamic arm64 framework", kind);
     string id = _cmdOut("otool", new string[]{ "-D", binary });
-    L.Expect(id.Contains("@rpath/Z42VMRuntime.framework/Z42VMRuntime"), "framework relocatable identity", id);
+    L.Expect(id.Contains("@rpath/z42.framework/z42"), "framework relocatable identity", id);
     string build = _cmdOut("vtool", new string[]{ "-show-build", binary });
     bool simulator = build.Contains("IOSSIMULATOR");
     L.Expect(rid.StartsWith("iossim-") ? simulator : (!simulator && build.Contains("platform IOS")), "framework target platform", build);
-    int c = new Process("codesign").Arg("--verify").Arg("--strict").Arg(L.P("native/Z42VMRuntime.framework")).Run().ExitCode;
+    int c = new Process("codesign").Arg("--verify").Arg("--strict").Arg(L.P("native/z42.framework")).Run().ExitCode;
     L.Expect(c == 0, "framework signature", "codesign verification failed");
 }

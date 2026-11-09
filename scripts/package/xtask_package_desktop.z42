@@ -229,7 +229,7 @@ void _pkgEmitManifest(string pkgDir, string rid, string version, string profile,
     string buildDate = _utcNow();
     string binList = _quotedDirList(Path.Join(pkgDir, "bin"), "");
     string libsList = _quotedDirList(Path.Join(pkgDir, "libs"), ".zpkg");
-    // SDK 的 native/ 只有 stdlib ext 动态库（嵌入件在 runtime 包）⇒ 下面三项按实际文件取，SDK 里为空。
+    // Manifest lists the actual shared runtime closure; static archives and headers belong to runtime packages.
     string staticList = _quotedExisting(Path.Join(pkgDir, "native"), "libz42.a", "z42.lib");
     string dynamicList = _quotedDirList(Path.Join(pkgDir, "native"), rid.StartsWith("windows-") ? ".dll" : (rid.StartsWith("macos-") ? ".dylib" : ".so"));
     string includeList = _quotedExisting(Path.Join(pkgDir, "native/include"), "z42_abi.h", "z42_host.h");

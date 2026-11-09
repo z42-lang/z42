@@ -72,7 +72,7 @@
 ```
 desktop SDK:  z42  bin/  programs/  libs/  native/libz42_compression.<dyn>  manifest.toml
 runtime:      libs/  native/{libz42.{a,dylib,so} | z42.{lib,dll,dll.lib}, libz42_compression.<dyn>, include/{z42_abi.h,z42_host.h}}
-ios:          libs/  native/{libz42.a, Z42VM.xcframework/}  Sources/{Z42VM,Z42VMC}/  Package.swift  manifest.toml
+ios:          libs/  native/{libz42.a, z42.framework/}  Sources/{Z42VM,Z42VMC}/  Package.swift  manifest.toml
 android:      libs/  native/libz42.{a,so}  z42vm/src/main/{java,cpp}/  manifest.toml
 wasm:         libs/  native/{libz42.a, z42_wasm_bg.wasm}  pkg-web/  pkg-nodejs/  js/  package.json  manifest.toml
 ```

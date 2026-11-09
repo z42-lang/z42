@@ -55,7 +55,7 @@ JIT 的依赖仅在 Linux/macOS/Windows 的 x64/arm64 target 选择；即便不�
 
 所有动态宿主、后端、共享核心与验证可执行文件必须在一次 Cargo 图中构建。分开运行 Cargo 可能因开发依赖或传递依赖 feature 合并不同而覆盖成不兼容的 Rust metadata/符号；打包器一次构建全部目标后，从同一组产物搬移并验证，不再用后续 Cargo 调用重写核心。
 
-共享 std 的动态构建使用 System 分配器。自定义分配器和 dhat 位于最终静态宿主 z42vm_static，通过独立 target-dir 构建，不覆盖动态运行时。C 静态归档 z42_static 链接独立后端，调用方先调用 z42_linked_components_init；Rust 宿主使用 host::register_static_component。静态登记仅保留进程寿命工厂，不保留 VM 实例。
+共享 std 的动态构建使用 System 分配器。自定义分配器和 dhat 位于最终静态宿主 z42vm_static，通过独立 target-dir 构建，不覆盖动态运行时。C 静态归档 z42 链接独立后端，调用方先调用 z42_linked_components_init；Rust 宿主使用 host::register_static_component。静态登记仅保留进程寿命工厂，不保留 VM 实例。
 
 SDK 的 native/ 包含统一 libz42、interp/JIT 组件、compression 和匹配的 Rust std。runtime 包另外提供 C 头文件和最终静态嵌入归档；Windows 另含导入库。macOS 使用 @rpath 标识和 @loader_path，ELF 使用 $ORIGIN；库与头文件、stdlib 一起搬移后可使用。Windows 的启动器还需要 bin/ 内的匹配 std DLL，确保在进入 main 之前完成系统装载。
 

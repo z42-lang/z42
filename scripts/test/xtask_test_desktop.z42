@@ -52,7 +52,7 @@ public class DesktopBackend : IPlatformBackend {
         string fixtures = Path.Join(outDir, "fixtures");
         string rt = _desktopRuntimeDir();
         if (rt.Length == 0) {
-            string libA = Path.Join(_componentBuildDir(root), "static/release/examples/libz42_static.a");
+            string libA = Path.Join(_componentBuildDir(root), "static/release/examples/libz42.a");
             if (!File.Exists(libA)) {
                 ConsoleError.WriteLine("error: libz42.a not found at " + libA + "; run `test app desktop build` first");
                 return 1;

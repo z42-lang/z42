@@ -41,7 +41,7 @@ int _buildRuntimePackageWasm(string root, string rid, string version, string pro
     Console.WriteLine("  [1/4] libz42.a (cargo rustc " + cargoTarget + " --features wasm)");
     int c = _cargoWasmRustc(root, rel, cargoTarget);
     if (c != 0) { ConsoleError.WriteLine("error: cargo rustc staticlib for " + cargoTarget + " failed"); return 1; }
-    string staticA = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile + "/examples/libz42_static.a");
+    string staticA = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile + "/examples/libz42.a");
     if (!File.Exists(staticA)) { ConsoleError.WriteLine("error: libz42.a not produced at " + staticA); return 1; }
     File.Copy(staticA, Path.Join(nativeOut, "libz42.a"));
 
@@ -97,10 +97,10 @@ int _packageWasm(string root, string pkgDir, string rid, string version, string 
 int _cargoWasmRustc(string root, bool rel, string cargoTarget) {
     Process p = _cargoCmd("rustc", _runtimeCargoConfig());
     if (rel) { p = p.Arg("--release"); }
-    p = p.Arg("--example").Arg("z42_static")
+    p = p.Arg("--example").Arg("z42")
         .Arg("-p").Arg("z42").Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))
         .Arg("--target").Arg(cargoTarget)
-        .Arg("--no-default-features").Arg("--features").Arg("wasm").Arg("--quiet");
+        .Arg("--no-default-features").Arg("--features").Arg("wasm,static-embedding").Arg("--quiet");
     return _exec(p);
 }
 

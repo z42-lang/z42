@@ -55,10 +55,10 @@ public class ProjectHooks : BuildHooks {
     // dist (= dev Z42_LIBS); dynamic (bonus) only when libz42.dylib already exists
     // (no forced cdylib build per publish).
     void _embedArtifacts(IPipelineContext ctx, string repo) {
-        string libA = Path.Join(repo, "artifacts/build/runtime/static/release/examples/libz42_static.a");
+        string libA = Path.Join(repo, "artifacts/build/runtime/static/release/examples/libz42.a");
         if (!ctx.Exists(libA)) {
             ctx.Log("xtask hooks: building static embedding archive…");
-            string[] rustcArgs = new string[]{ "build", "--release", "-p", "z42", "--example", "z42_static",
+            string[] rustcArgs = new string[]{ "build", "--release", "-p", "z42", "--example", "z42", "--no-default-features", "--features", "static-embedding,interp,jit,native-interop,net,tls",
                 "--config", Path.Join(repo, "src/runtime/.cargo/config.toml"),
                 "--manifest-path", Path.Join(repo, "src/runtime/Cargo.toml"),
                 "--target-dir", Path.Join(repo, "artifacts/build/runtime/static") };

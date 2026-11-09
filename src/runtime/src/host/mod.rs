@@ -49,10 +49,13 @@ pub use z42_abi::{Z42Value, Z42_VALUE_TAG_I64};
 pub mod rust;
 
 /// Process entry policy shared by the dynamic launcher and static embeddings.
+#[cfg(feature = "cli")]
 pub mod cli;
 mod linked;
 pub use linked::register_static_component;
+#[cfg(feature = "cli")]
 mod launcher;
+#[cfg(feature = "cli")]
 pub mod entry_api;
 
 pub use crate::config::RuntimeConfig;

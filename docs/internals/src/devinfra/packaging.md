@@ -33,9 +33,9 @@ interp/JIT 是独立组件。SDK、dev-sdk 与 CI 构建树必须携带同构建
 
 macOS 采用 @rpath 和 @loader_path，Linux 采用 $ORIGIN 与 $ORIGIN/../native。Windows 的启动器在 bin/ 携带匹配的 std DLL；运行时及组件依赖位于 native/。发布前检查闭包完整性，并将产物搬移到独立目录验证。
 
-桌面 runtime 同时提供动态闭包和最终 C 静态归档。静态归档由同一运行时包的 z42_static example target 链接运行时及独立后端 rlib，不增加包装 Cargo 包；调用方先调用 z42_linked_components_init。自定义分配器与 dhat 使用最终静态宿主 z42vm_static，避免改变动态组件的分配契约。
+桌面 runtime 同时提供动态闭包和最终 C 静态归档。最终嵌入 target 是同一运行时包的 examples/z42.rs，通过 static-embedding feature 链接运行时及独立后端 rlib，不增加包装 Cargo 包；调用方先调用 z42_linked_components_init。自定义分配器与 dhat 使用最终静态宿主 z42vm_static，避免改变动态组件的分配契约。
 
-平台链接形式分别验证：Linux/macOS/Windows 与 Android 提供静态、动态两种形式；iOS 提供静态归档和静态 XCFramework；Browser WASM 提供静态归档及 wasm-bindgen 模块。不支持 JIT 的平台不编译 JIT/Cranelift。
+平台链接形式分别验证：Linux/macOS/Windows 与 Android 提供静态、动态两种形式；iOS 按 RID 提供 libz42.a 和 z42.framework，不在 runtime 包重复发布 XCFramework。SwiftPM 的静态适配封装由 workload 在本地生成。Browser WASM 提供静态归档及 wasm-bindgen 模块。不支持 JIT 的平台不编译 JIT/Cranelift。
 
 ## 2. 构建 → 安装
 
@@ -172,7 +172,7 @@ source-identity 只比「拷进来的东西和源一不一致」，管不到「�
 | 桌面 SDK | `manifest.toml`、`libs/`、`bin/z42c[.exe]`、ext 动态库 `libz42_compression.*` 与 `libs/z42.compression.zpkg` 在；嵌入件（`libz42.*`、`z42*.lib/dll`、C 头）与 apphost **不在**（只随 runtime 包 / 桌面 workload 发）；Linux 上 `bin/z42vm` 的硬 glibc 需求 ≤ `versions.toml` 声明 |
 | 桌面 runtime | C 头在；macOS `libz42.a` + 两个 dylib 的 install name 是 `@rpath/…`（`otool -D`）；Linux `libz42.a` + 两个 `.so` 的 SONAME 正确（`readelf -d`）且硬 glibc 需求不超声明（`objdump -p`，只看 verneed flag `0x00`，`0x02` 是 Rust std 的弱引用）；Windows `z42.lib` / `z42.dll` / `z42.dll.lib` |
 | 桌面 workload | `manifest.toml` + `apphost-<rid>` |
-| iOS | tooling：SwiftPM 源码、自包含 Z42VMC 头、带 `__Z42_RUNTIME_XCFRAMEWORK__` 占位的 `Package.swift`；runtime：`libz42.a`、`Z42VM.xcframework`（内含的 `libz42.a` 是 arm64，`lipo -info`）、头、`libs/` |
+| iOS | tooling：SwiftPM 源码、自包含 Z42VMC 头及安装期解析的 Package.swift；runtime：libz42.a、z42.framework、头、libs/。检查框架的 arm64 架构、真机/模拟器平台、@rpath 身份与签名；不发布 XCFramework |
 | Android | tooling：gradle 工程（`gradlew`、`settings.gradle.kts`、Kotlin 门面、JNI 桥与头）；runtime：`libz42.{so,a}`（`.so` 架构对，`file`）、头、`libs/` |
 | wasm | tooling：`package.json`、`js/`；runtime：`z42_wasm_bg.wasm`（`wasm-tools validate` 通过且有导出）、`libz42.a`、`pkg-web/`、`pkg-nodejs/`、`libs/` |
 

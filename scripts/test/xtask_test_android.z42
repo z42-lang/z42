@@ -105,12 +105,13 @@ int _cargoNdkJniLibs(string root, string[] abis, string outDir) {
     if (!_requireTool("cargo-ndk", "cargo install cargo-ndk")) { return 1; }
     string ndk = _androidNdkDir(root);
     if (ndk.Length == 0) { return 1; }
-    string rustDir = Path.Join(_deviceHostSrc(root, "android"), "rust");
+    string rustDir = Path.Join(root, "src/runtime");
     string jniLibs = outDir;
 
     Process p = new Process("cargo").Arg("ndk");
     foreach (var abi in abis) { p = p.Arg("-t").Arg(abi); }
-    p = p.Arg("-o").Arg(jniLibs).Arg("build").Arg("--release")
+    p = p.Arg("build").Arg("--release").Arg("-p").Arg("z42").Arg("--example").Arg("z42")
+        .Arg("--no-default-features").Arg("--features").Arg("android,static-embedding")
         .Arg("--config").Arg(Path.Join(root, _runtimeCargoConfig()));
     // cargo-ndk's C-dep CMake cross-builds (zlib-ng via z42-compression) use
     // CMake's *built-in* Android toolchain, which locates the NDK via the
@@ -123,7 +124,14 @@ int _cargoNdkJniLibs(string root, string[] abis, string outDir) {
     // needed on any platform.
     p = p.Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk);
     Console.WriteLine("  cargo ndk build --release (" + abis.Length.ToString() + " ABI) -> " + jniLibs);
-    return _execIn(p, rustDir);
+    int c = _execIn(p, rustDir); if (c != 0) { return c; }
+    foreach (var abi in abis) {
+        string target = _androidCargoForAbi(abi);
+        string source = Path.Join(_cargoTargetDir(root), target + "/release/examples/libz42.so");
+        string dest = Path.Join(jniLibs, abi); Directory.Create(dest);
+        _componentCopyRequired(source, Path.Join(dest, "libz42.so"));
+    }
+    return 0;
 }
 
 // The android RID matching the host CPU: an emulator only runs (hardware-accelerated) an image
@@ -165,4 +173,12 @@ int _ensureAndroidEmulatorTier(string root) {
     }
     Console.WriteLine("  Android emulator tier missing — installing (~4GB, one-time)");
     return _installAndroidEmulator(false);
+}
+
+string _androidCargoForAbi(string abi) {
+    if (abi == "arm64-v8a") { return "aarch64-linux-android"; }
+    if (abi == "x86_64") { return "x86_64-linux-android"; }
+    if (abi == "armeabi-v7a") { return "armv7-linux-androideabi"; }
+    if (abi == "x86") { return "i686-linux-android"; }
+    throw new Std.Cli.CliException("unsupported Android ABI: " + abi);
 }

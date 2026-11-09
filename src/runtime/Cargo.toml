@@ -48,10 +48,10 @@ socket2 = { version = "0.6", features = ["all"], optional = true }
 rustls       = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 webpki-roots = { version = "1", optional = true }
 
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive"], optional = true }
 
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
 
 libffi     = { version = "5.1", optional = true }
 libloading = { version = "0.9", optional = true }
@@ -59,11 +59,13 @@ z42-abi    = { path = "crates/z42-abi" }
 z42-macros = { path = "crates/z42-macros" }
 
 [features]
-default              = ["interp", "jit", "native-interop", "net", "tls"]
+cli = ["dep:clap", "dep:tracing-subscriber"]
+default              = ["cli", "interp", "jit", "native-interop", "net", "tls"]
 mimalloc-alloc       = ["dep:mimalloc"]
 dhat-heap            = ["dep:dhat"]
 profile-contention = []
 z42-test-fixtures    = []
+static-embedding = []
 interp = []
 shared-core = ["component-loading", "jit"]
 jit                  = ["z42-jit/jit", "z42-interp/jit"]
@@ -182,6 +184,7 @@ path = "examples/run_app_smoke.rs"
 [[example]]
 name = "z42vm_static"
 path = "examples/z42vm_static.rs"
+required-features = ["cli"]
 
 [patch.crates-io]
 rustyline = { git = "https://github.com/z42-lang/rustyline", branch = "z42-edit-insert-text-cursor-v18" }
@@ -192,6 +195,7 @@ lto = true
 codegen-units = 1
 
 [[example]]
-name = "z42_static"
-path = "examples/z42_static.rs"
-crate-type = ["staticlib"]
+name = "z42"
+path = "examples/z42.rs"
+crate-type = ["staticlib", "cdylib"]
+required-features = ["static-embedding"]

@@ -52,7 +52,7 @@ int _testPackagesInstall() {
     File.WriteAllText(Path.Join(fakeCargoOut, "z42.dll.lib"), "fake-import-lib");
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_compression.a"), "must-be-excluded");
     File.WriteAllText(Path.Join(fakeCargoOut, "z42_compression.dll.lib"), "must-be-excluded");
-    File.WriteAllText(Path.Join(fakeCargoOut, "libz42_platform_ios.a"), "must-be-excluded");
+    File.WriteAllText(Path.Join(fakeCargoOut, "libunrelated_platform.a"), "must-be-excluded");
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_repl.dylib"), "fake-repl-cdylib");
 
     // 一个假包：四种固定 kind 各一个组件（真 kind，假 cargoOut），按 include 顺序装进临时包目录。
@@ -84,7 +84,7 @@ int _testPackagesInstall() {
     }
     _stgAssert("native/include/z42_abi.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_abi.h")));
     _stgAssert("native/include/z42_host.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_host.h")));
-    _stgAssert("mobile facade excluded", !File.Exists(Path.Join(pkgDir, "native/libz42_platform_ios.a")));
+    _stgAssert("mobile facade excluded", !File.Exists(Path.Join(pkgDir, "native/libunrelated_platform.a")));
     _stgAssert("REPL excluded", !File.Exists(Path.Join(pkgDir, "native/libz42_repl.dylib")));
 
     // SDK uses dynamic runtime components, without an embedding static archive or C headers.
@@ -178,7 +178,9 @@ int _testPackagesInstall() {
     _resetDir(emptyCargoOut);
     _PkgInstallCtx emptyCtx = new _PkgInstallCtx();
     emptyCtx.CargoOut = emptyCargoOut;
-    _stgAssert("native-ext 缺 ext 动态库必须报错", _pkgInstallPackage(extCfg, root, "install-test-ext", badDir, emptyCtx) != 0);
+    rejected = false;
+    try { _pkgInstallPackage(extCfg, root, "install-test-ext", badDir, emptyCtx); } catch (Exception e) { rejected = true; }
+    _stgAssert("empty runtime output rejects package installation", rejected);
 
     Directory.Delete(fakeCargoOut, true);
     Directory.Delete(emptyCargoOut, true);

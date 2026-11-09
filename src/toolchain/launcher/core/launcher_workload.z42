@@ -180,17 +180,18 @@ void _workloadInstallNetwork(ParseResult r, string wl, string baseUrlOpt) {
 //   - android: per-ABI .so → jniLibs/<abi>/, stdlib zpkgs → assets/stdlib/ (gradle bakes both)
 void _bedRuntimeIntoWorkload(string wlDest, string rtDest, string rid, string ver) {
     string nativeDir = Path.Join(rtDest, "native");
-    string xcf = Path.Join(nativeDir, "Z42VM.xcframework");
-    if (File.Exists(xcf) || Directory.Exists(xcf)) {
-        // iOS: SwiftPM binaryTarget paths must be RELATIVE to the package root.
-        // workloads/<wl>/ is 3 levels under runtimes/; runtime at runtimes/<rid>/<ver>/.
-        string xcfPath = "../../../" + rid + "/" + ver + "/native/Z42VM.xcframework";
+    if (rid.StartsWith("ios-") || rid.StartsWith("iossim-")) {
+        string xcf = Path.Join(wlDest, "Z42VM.xcframework");
+        if (Directory.Exists(xcf)) { Directory.Delete(xcf, true); }
+        int c = new Process("xcodebuild").Arg("-create-xcframework")
+            .Arg("-library").Arg(Path.Join(nativeDir, "libz42.a"))
+            .Arg("-headers").Arg(Path.Join(nativeDir, "include"))
+            .Arg("-output").Arg(xcf).Run().ExitCode;
+        if (c != 0) { throw new Exception("failed to adapt the iOS static archive for SwiftPM"); }
         string pkgSwift = Path.Join(wlDest, "Package.swift");
         if (File.Exists(pkgSwift)) {
-            string body = File.ReadAllText(pkgSwift);
-            body = body.Replace("__Z42_RUNTIME_XCFRAMEWORK__", xcfPath);
+            string body = File.ReadAllText(pkgSwift).Replace("__Z42_RUNTIME_XCFRAMEWORK__", "Z42VM.xcframework");
             File.WriteAllText(pkgSwift, body);
-            Console.WriteLine("      ✓ Package.swift → " + xcfPath);
         }
     } else if (Directory.Exists(Path.Join(rtDest, "pkg-web"))) {
         // wasm: symlink runtime pkg-web/pkg-nodejs into tooling root (exports resolve, no rewrite).
@@ -200,7 +201,7 @@ void _bedRuntimeIntoWorkload(string wlDest, string rtDest, string rid, string ve
             File.SymLink(Path.Join(rtDest, sub), link);
         }
         Console.WriteLine("      ✓ pkg-web/pkg-nodejs symlinked from runtime");
-    } else if (File.Exists(Path.Join(nativeDir, "libz42.so"))) {
+    } else if (rid.StartsWith("android-") && File.Exists(Path.Join(nativeDir, "libz42.so"))) {
         // android: gradle bakes the AAR from jniLibs (per-ABI .so) + assets/stdlib (zpkgs).
         string abi = _androidAbi(rid);
         if (abi.Length == 0) {

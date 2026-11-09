@@ -6,7 +6,7 @@ edition = "2021"
 crate-type = ["rlib", "cdylib"]
 test = false
 [dependencies]
-z42-runtime = { package = "z42", default-features = false, path = "../.." }
+z42 = { default-features = false, path = "../.." }
 anyhow = "1"
 smallvec = "1"
 tracing = "0.1"
@@ -15,7 +15,7 @@ rustc-hash = "2"
 [features]
 default = ["jit"]
 shared-core = ["jit"]
-jit = ["z42-runtime/jit", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
+jit = ["z42/jit", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), any(target_os = "linux", target_os = "macos", target_os = "windows")))'.dependencies]
 cranelift-codegen = { version = "0.135", features = ["unwind"], optional = true }

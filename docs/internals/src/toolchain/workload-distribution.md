@@ -122,7 +122,8 @@ runtime pack 和工具链是**两个包**，落在两处：
 
 | 探测到 | 平台 | 铺设 |
 |---|---|---|
-| `native/Z42VM.xcframework` | ios | 把工具链 `Package.swift` 里的 `__Z42_RUNTIME_XCFRAMEWORK__` 占位改写成**相对路径** `../../../<rid>/<ver>/native/Z42VM.xcframework` |
+| `native/libz42.a` | ios | 为 SwiftPM 在 workload 本地生成静态适配封装，改写 Package.swift 的占位；runtime 包只携带原始静态库与头 |
+| `native/z42.framework` | ios | 随 App 嵌入并签名的动态运行时；真机与模拟器按 RID 分发 |
 | `pkg-web/` | wasm | 把 runtime 的 `pkg-web` / `pkg-nodejs` **symlink** 进工具链根（`package.json` 的 exports 按根相对解析，无需改写） |
 | `native/libz42.so` | android | per-ABI `.so` → `z42vm/src/main/jniLibs/<abi>/`；stdlib zpkg → `z42vm/src/main/assets/stdlib/`（Gradle 把两者都烘进 AAR） |
 

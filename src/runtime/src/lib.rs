@@ -1,6 +1,5 @@
 //! Unified runtime library. Optional execution backends live in independent crates.
 extern crate self as z42;
-extern crate self as z42_runtime;
 pub use z42_zpkg as zpkg;
 pub mod vm;
 pub mod object;
@@ -22,3 +21,6 @@ pub mod interp;
 #[cfg(all(test, feature = "jit", z42_jit_supported))]
 #[path = "../crates/z42-jit/src/jit/mod.rs"]
 pub mod jit;
+
+#[cfg(all(feature = "shared-core", any(feature = "mimalloc-alloc", feature = "dhat-heap")))]
+compile_error!("shared-core runtime packs require the system allocator; custom allocators belong to a final static host");

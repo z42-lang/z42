@@ -5,14 +5,14 @@ using Std.Cli;
 
 string _componentBuildDir(string root) { return Path.Join(_buildMirror(root, Path.Join(root, "src/runtime")), "components"); }
 string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), profile); }
-string _componentFeatures() { return "interp,shared-core,native-interop,net,tls"; }
+string _componentFeatures() { return "cli,interp,shared-core,native-interop,net,tls"; }
 string _componentLibrary(string stem) {
     if (Platform.IsWindows()) { return stem + ".dll"; }
     return "lib" + stem + (Platform.IsMacOS() ? ".dylib" : ".so");
 }
 Process _componentCargo(string verb, string root, string profile, string targetDir = "") {
     if (targetDir.Length == 0) { targetDir = _componentBuildDir(root); }
-    string flags = Environment.GetEnvironmentVariable("RUSTFLAGS", "") + " -C prefer-dynamic";
+    string flags = Environment.GetEnvironmentVariable("RUSTFLAGS", "") + " -C prefer-dynamic -C rpath";
     if (Platform.IsMacOS()) { flags = flags + " -C link-arg=-Wl,-rpath,@loader_path"; }
     else if (Platform.IsLinux()) { flags = flags + " -C link-arg=-Wl,-rpath,$ORIGIN -C link-arg=-Wl,-rpath,$ORIGIN/../native"; }
     Process p = _cargoCmd(verb, _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
@@ -23,16 +23,20 @@ Process _componentCargo(string verb, string root, string profile, string targetD
     if (profile == "release") { p = p.Arg("--release"); }
     return p;
 }
-int _componentBuild(string root, string profile) {
-    // One graph unifies the shared core's features for both dynamic backends and host.
-    Process build = _componentCargo("build", root, profile)
+Process _componentTargets(Process build) {
+    return build
         .Arg("-p").Arg("z42")
         .Arg("-p").Arg("z42-interp").Arg("-p").Arg("z42-jit")
-        .Arg("-p").Arg("z42-compression").Arg("--all-targets")
-        .Arg("--message-format=json-render-diagnostics")
+        .Arg("-p").Arg("z42-compression")
         .Arg("--no-default-features").Arg("--features")
         .Arg("z42/" + _componentFeatures().Replace(",", ",z42/")
             + ",z42-interp/shared-core,z42-interp/native-interop,z42-jit/shared-core");
+}
+
+int _componentBuild(string root, string profile) {
+    // One graph unifies the shared core's features for both dynamic backends and host.
+    Process build = _componentTargets(_componentCargo("build", root, profile))
+        .Arg("--all-targets").Arg("--message-format=json-render-diagnostics");
     // Development targets and every library are in one graph, so transitive
     // dependency features cannot produce a second, incompatible core image.
     ProcessResult result = build.Stderr(Stdio.Inherit()).Run();
@@ -99,7 +103,8 @@ void _componentCopyStd(string native) {
 
 int _componentBuildStatic(string root, string profile) {
     Process p = _cargoCmd("build", _runtimeCargoConfig())
-        .Arg("--locked").Arg("-p").Arg("z42").Arg("--example").Arg("z42_static")
+        .Arg("--locked").Arg("-p").Arg("z42").Arg("--example").Arg("z42").Arg("--no-default-features")
+        .Arg("--features").Arg("static-embedding,interp,jit,native-interop,net,tls")
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--target-dir").Arg(Path.Join(_componentBuildDir(root), "static"))
         .EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("RUSTFLAGS", "-C prefer-dynamic=no");
@@ -108,6 +113,6 @@ int _componentBuildStatic(string root, string profile) {
 }
 
 string _componentStaticArchive(string cargo) {
-    string name = Platform.IsWindows() ? "z42_static.lib" : "libz42_static.a";
+    string name = Platform.IsWindows() ? "z42.lib" : "libz42.a";
     return Path.Join(Path.GetDirectoryName(cargo), "static/" + Path.GetFileName(cargo) + "/examples/" + name);
 }

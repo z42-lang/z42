@@ -36,7 +36,7 @@
 # 不影响构建顺序（构建顺序由各组件自己的依赖图拓扑推导）。
 
 # ── 桌面 SDK：完整开发包 ─────────────────────────────────────────────
-#    native/ 只装 z42vm 自己要 dlopen 的 stdlib 扩展（native-ext），**不装嵌入件**
+#    native/ 装统一动态运行时、interp/JIT、stdlib 扩展与匹配的共享 Rust std。
 #    （C 头）：SDK 的薄启动器动态加载 libz42 和执行组件；嵌入者用
 #    runtime 包（docs/internals/src/devinfra/packaging.md §1）。
 [package.sdk]

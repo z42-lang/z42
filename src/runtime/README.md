@@ -145,11 +145,12 @@ xtask test e2e                                # VM golden 端到端（interp + j
 
 ### Cargo features
 
-`default = ["interp", "jit", "native-interop", "net", "tls"]`（桌面）。平台预设经
+`default = ["cli", "interp", "jit", "native-interop", "net", "tls"]`（桌面）。平台预设经
 `--no-default-features --features <wasm|ios|android>` 裁剪。
 
 | feature | 作用 |
 |---------|------|
+| `cli` | 共用 CLI 策略、参数解析和动态进程入口；嵌入式平台预设不启用 |
 | `jit` | 启用运行时 JIT 契约；具体 Cranelift 实现由独立组件提供（desktop x64/arm64） |
 | `component-loading` | 通过 PAL 加载可选运行时组件；native-interop 会启用此能力 |
 | `native-interop` | Tier 1 原生扩展 ABI（dlopen + libffi） |
@@ -162,4 +163,4 @@ xtask test e2e                                # VM golden 端到端（interp + j
 - 用法与规则（参考手册）：[嵌入](../../docs/reference/src/embedding/README.md)
 - 设计 / 机制（实现内幕）：[运行时](../../docs/internals/src/runtime/README.md) · [VM 总体架构](../../docs/internals/src/runtime/vm-architecture.md) · [产物格式](../../docs/internals/src/formats/README.md)
 
-`xtask build runtime` 在同一 Cargo 图中构建动态运行时及独立后端。SDK 使用动态库；桌面 runtime 另外提供静态嵌入归档。静态 Rust 宿主链接所需后端 rlib，并先调用 `host::register_static_component`；C 静态归档先调用 `z42_linked_components_init`。不支持 JIT 的 target 不编译 Cranelift，请求不可用后端明确报错。详见[组件化运行时](../../docs/internals/src/runtime/componentized-runtime.md)。
+`xtask build runtime` 在同一 Cargo 图中构建动态运行时及独立后端。SDK 使用动态库；桌面 runtime 另外提供静态嵌入归档。`examples/z42.rs` 是本包的最终链接 target，启用 `static-embedding` 后生成统一命名的 C 静态库和动态库；iOS/Android 不再需要包装 Cargo 包。静态 Rust 宿主链接所需后端 rlib，并先调用 `host::register_static_component`；最终 C 嵌入库先调用 `z42_linked_components_init`。不支持 JIT 的 target 不编译 Cranelift，请求不可用后端明确报错。详见[组件化运行时](../../docs/internals/src/runtime/componentized-runtime.md)。

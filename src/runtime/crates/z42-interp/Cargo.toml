@@ -6,7 +6,7 @@ edition = "2021"
 crate-type = ["rlib", "cdylib"]
 test = false
 [dependencies]
-z42-runtime = { package = "z42", default-features = false, path = "../.." }
+z42 = { default-features = false, path = "../.." }
 anyhow = "1"
 smallvec = "1"
 tracing = "0.1"
@@ -15,8 +15,8 @@ rustc-hash = "2"
 [features]
 default = []
 shared-core = ["jit"]
-jit = ["z42-runtime/jit"]
-native-interop = ["z42-runtime/native-interop"]
+jit = ["z42/jit"]
+native-interop = ["z42/native-interop"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(z42_test_facade)", "cfg(loom)"] }

@@ -25,10 +25,10 @@ public class IosBackend : IPlatformBackend {
         if (!_requireTool("xcodebuild", "Xcode required for iOS build")) { return 1; }
         if (!_requireTool("cargo", "https://rustup.rs")) { return 1; }
         // rust crate 在源码位置编；xcframework 输出到宿主副本（SwiftPM 的 binaryTarget 在那里找它）。
-        string manifest = Path.Join(_deviceHostSrc(root, "ios"), "rust/Cargo.toml");
+        string manifest = Path.Join(root, _runtimeManifest());
         string here = _deviceHost(root, "ios");
         string targetDir = _cargoTargetDir(root);
-        string libName = "libz42_platform_ios.a";
+        string libName = "examples/libz42.a";
 
         TomlValue toml = _vparse(root);
         string[] iosTargets = _vgetList(toml, "platform.ios.rust_targets");
@@ -69,6 +69,8 @@ int _iosCargoTargets(string manifest, string targetDir, string[] targets, string
     foreach (var t in targets) {
         Console.WriteLine("  cargo build --release --target " + t + " (IPHONEOS_DEPLOYMENT_TARGET=" + iosMin + ")");
         int c = _exec(_cargoCmd("build", _runtimeCargoConfig()).Arg("--release")
+            .Arg("-p").Arg("z42").Arg("--example").Arg("z42")
+            .Arg("--no-default-features").Arg("--features").Arg("ios,static-embedding")
             .Arg("--manifest-path").Arg(manifest)
             .Arg("--target-dir").Arg(targetDir)
             .Arg("--target").Arg(t)
@@ -86,9 +88,9 @@ int _iosCargoTargets(string manifest, string targetDir, string[] targets, string
 int _buildIosXcframework(string root, string rid, string rtDir) {
     if (!_requireTool("xcodebuild", "Xcode required for iOS build")) { return 1; }
     if (!_requireTool("cargo", "https://rustup.rs")) { return 1; }
-    string manifest = Path.Join(_deviceHostSrc(root, "ios"), "rust/Cargo.toml");
+    string manifest = Path.Join(root, _runtimeManifest());
     string targetDir = _cargoTargetDir(root);
-    string libName = "libz42_platform_ios.a";
+    string libName = "examples/libz42.a";
     bool wantDev = (rid == "ios-arm64" || rid.Length == 0);
     bool wantSim = (rid == "iossim-arm64" || rid.Length == 0);
     List<string> targets = new List<string>();

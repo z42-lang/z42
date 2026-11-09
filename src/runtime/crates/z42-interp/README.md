@@ -6,7 +6,7 @@
 
 ## 功能索引
 
-Cargo 的同一 library target 产出 rlib 和 cdylib；静态调用使用 rlib，动态包启用 shared-core 使用 cdylib，无额外包装 crate。普通静态构建的附带 cdylib 不导出组件入口，不作为运行时加载组件交付。
+同一 library target 产出 rlib 和 cdylib，直接导出组件 init 入口。静态宿主显式链接 rlib 并通过 host 登记；动态包在同一 Cargo 图中构建运行时、后端和共享 std，再通过 host 加载。没有后端包装 crate。
 
 src/interp 为解释实现，src/interp/component.rs 提供静态工厂和 ExecutionApi，src/lib.rs 为边界。
 
