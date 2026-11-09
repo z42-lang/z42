@@ -1,5 +1,5 @@
-// xtask `build` 命令族：编译各组件（实现在本目录的 xtask_runtime / xtask_compiler / xtask_stdlib /
-// xtask_toolchain / xtask_golden_assets）。
+// xtask `build` 命令族：编译各组件、生成文档产物（实现在本目录的 xtask_runtime / xtask_compiler / xtask_stdlib /
+// xtask_toolchain / xtask_golden_assets / xtask_doc）。
 namespace Z42Xtask;
 
 using Std.Cli;
@@ -12,6 +12,7 @@ class BuildCommand : Command {
         this.AddCommand(new BuildWorkloadCommand());
         this.AddCommand(new BuildToolchainCommand());
         this.AddCommand(new BuildTestCommand());
+        this.AddCommand(new BuildDocsCommand());
         this.AddCommand(new BuildAllCommand());
     }
 }

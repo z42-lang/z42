@@ -41,7 +41,7 @@ Rust 运行时的索引）一并并入。命令行与打印在 z42d（`src/toolc
 | `src/DocFormat.z42` | 文本 / JSON 输出 |
 | `src/SourceTree.z42` | 索引根定位、源文件遍历、按最近的清单归包 |
 | `src/IndexCache.z42` | 增量缓存（按文件大小 + 修改时间失效）；条目行读写（外部索引复用） |
-| `src/ExternalIndex.z42` | 读 `artifacts/doc/*.idx`（Rust 运行时条目，`xtask doc index` 产出）并检查过期 |
+| `src/ExternalIndex.z42` | 读 `artifacts/doc/*.idx`（Rust 运行时条目，`xtask build docs index` 产出）并检查过期 |
 | `src/DocQuery.z42` | 查询编排 |
 
 ## 依赖关系

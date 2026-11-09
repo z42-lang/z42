@@ -88,8 +88,8 @@ agent 与仓库 README 仍按仓库文件路径链接。
 
 1. **用户能看见吗？**（语法 / stdlib API / CLI / 清单字段 / 诊断文本）
    → `reference` 对应页必改；该特性若已被 learn 覆盖 → `examples/<章节>/` + learn 章一并改。
-   stdlib API 的 reference 页是生成物（不入库，发布时由 `xtask doc gen` 从源码生成）：**改源码的 `///` / `//!`**，
-   不手改页面；要看效果就本地 `xtask doc gen`
+   stdlib API 的 reference 页是生成物（不入库，发布时由 `xtask build docs` 从源码生成）：**改源码的 `///` / `//!`**，
+   不手改页面；要看效果就本地 `xtask build docs`
 2. **有维护者需要理解的机制、约束或决策变化吗？**（多阶段编排 / 状态循环 / 反直觉决策 /
    跨组件或跨进程协议；zbc / zpkg / IR 格式也归此处）
    → `internals` 对应机制页必改

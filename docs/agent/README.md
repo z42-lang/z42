@@ -24,9 +24,9 @@
    读某目录的代码前必须先读它的 README（如果存在），再决定读哪些文件。
 3. **进书**：要理解机制、决策、在哪改 → internals 对应页（页头「代码」行回指源码）；
    要确认对外行为（语法、API、CLI、诊断）→ reference 对应页。**reference 的标准库包页（`stdlib/` 下除
-   `README.md` 外）由源码 `///` 生成、不入库：读之前先在仓库根跑 `xtask doc gen`**（秒级；目录里缺页或是旧的
+   `README.md` 外）由源码 `///` 生成、不入库：读之前先在仓库根跑 `xtask build docs`**（秒级；目录里缺页或是旧的
    都靠它补齐）。
-4. **定位符号优先用 `z42 doc`**（z42 与 Rust 都行；Rust 先跑过 `xtask doc index`，过期它会提示）：
+4. **定位符号优先用 `z42 doc`**（z42 与 Rust 都行；Rust 先跑过 `xtask build docs index`，过期它会提示）：
    `z42 doc <名字>` 给签名、doc 与 `file:line`，`--members` 给类型 / 模块轮廓，
    `--search` 按名字与摘要找；读完一页书后跑 `z42 doc --page <页.md>` 把页里引用的符号一次解析成当前位置
    （反查用 `--docs <符号>`）；索引不可用或需要全文 / 路径搜索时用 `rg`。仓库里跑种子 SDK 的 `.z42/z42 doc …`

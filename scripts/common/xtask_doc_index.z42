@@ -1,4 +1,4 @@
-// Rust 符号索引的共享构建入口，供 doc index 与引用报告使用。
+// Rust 符号索引的共享构建入口，供 build docs index 与引用报告使用。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -7,7 +7,7 @@ using Std.Collections;
 
 int _docIndex() {
     string root = _root();
-    Stopwatch sw = _procStart("doc index (Rust crates → artifacts/doc/rust.idx)");
+    Stopwatch sw = _procStart("build docs index (Rust crates → artifacts/doc/rust.idx)");
     int c = _exec(_cargoRelease(_runtimeCargoConfig())
         .Arg("--manifest-path").Arg("src/toolchain/devtools/rust-index/Cargo.toml"));
     if (c != 0) { ConsoleError.WriteLine("  ✗ rust-index cargo build failed"); return c; }
@@ -15,11 +15,11 @@ int _docIndex() {
         Platform.IsWindows() ? "z42-rust-index.exe" : "z42-rust-index");
     Process p = new Process(bin).Arg("--root").Arg(root)
         .Arg("--out").Arg(Path.Join(_docIndexDir(root), "rust.idx"))
-        .Arg("--regen").Arg("xtask doc index");
+        .Arg("--regen").Arg("xtask build docs index");
     foreach (var crate in _docRustCrates(root)) { p = p.Arg(crate); }
     c = _exec(p);
     if (c != 0) { ConsoleError.WriteLine("  ✗ rust-index failed"); return c; }
-    _procEnd("doc index", sw);
+    _procEnd("build docs index", sw);
     return 0;
 }
 

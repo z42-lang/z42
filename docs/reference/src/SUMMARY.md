@@ -86,7 +86,7 @@
 
 # 标准库 · 核心（`z42.core`，隐式加载）
 
-<!-- z42-doc:summary:core-begin（xtask doc gen 维护，勿手改） -->
+<!-- z42-doc:summary:core-begin（xtask build docs 维护，勿手改） -->
 - [类型总览](stdlib/core.md)
     - [Std]()
         - [Array](stdlib/core.Array.md)
