@@ -198,7 +198,7 @@ class GateStage {
 GateStage[] _gateStages(bool noBuild) {
     return new GateStage[]{
         new GateStage("", "build wave (debug vm + regen)", () => _gateBuildWave(noBuild)),
-        new GateStage("rust-units", "rust units (cargo test --lib + --no-run)", () => _testRuntimeUnits()),
+        new GateStage("rust-units", "rust units (lib tests + test-target build)", () => _testRuntimeUnits()),
         // interp 本地必跑；JIT 由独立 CI job 覆盖。
         new GateStage("", "e2e goldens (interp; jit → vm-jit-consistency)",
             () => _testE2eCore("interp", false, false, "4", new int[2], "", "")),
