@@ -26,7 +26,7 @@ int[] _runDistGoldens(string[] modes, string root, string z42c, string z42vm, st
     int pass = 0;
     int fail = 0;
     foreach (var mode in modes) {
-        int[] r = _distRunMode(mode, cases, zbcs, compiled, z42vm, libsDir);
+        int[] r = _distRunMode(mode, cases, zbcs, compiled, z42vm, libsDir, true);
         pass = pass + r[0];
         fail = fail + r[1];
     }
@@ -58,10 +58,13 @@ bool[] _distCompileAll(_DistCase[] cases, string[] zbcs, bool wantInterp, string
 }
 
 // 一个 mode 的运行腿：按批并行跑选中的 case，批内按原序判定打印。返回 [pass, fail（含编译失败）]。
-int[] _distRunMode(string mode, _DistCase[] cases, string[] zbcs, bool[] compiled, string z42vm, string libsDir) {
-    Console.WriteLine("══════════════════════════════════════");
-    Console.WriteLine(" Mode: " + mode);
-    Console.WriteLine("══════════════════════════════════════");
+// Negative self-checks report their own verdict; report never changes failure counts.
+int[] _distRunMode(string mode, _DistCase[] cases, string[] zbcs, bool[] compiled, string z42vm, string libsDir, bool report) {
+    if (report) {
+        Console.WriteLine("══════════════════════════════════════");
+        Console.WriteLine(" Mode: " + mode);
+        Console.WriteLine("══════════════════════════════════════");
+    }
     List<int> sel = new List<int>();
     for (int i = 0; i < cases.Length; i = i + 1) {
         if (!(mode == "jit" && cases[i].interpOnly)) { sel.Add(i); }
@@ -93,7 +96,7 @@ int[] _distRunMode(string mode, _DistCase[] cases, string[] zbcs, bool[] compile
             _DistCase c = cases[sel[k + b]];
             if (!compiled[sel[k + b]]) {
                 compileFail = compileFail + 1;
-                Console.WriteLine("  FAIL: " + c.name + " (compile failed)");
+                if (report) { Console.WriteLine("  FAIL: " + c.name + " (compile failed)"); }
                 continue;
             }
             if (live[b]) {
@@ -108,16 +111,20 @@ int[] _distRunMode(string mode, _DistCase[] cases, string[] zbcs, bool[] compile
                 mpass = mpass + 1;
             } else {
                 mfail = mfail + 1;
-                Console.WriteLine("  FAIL: " + c.name + " (exit " + exits[b].ToString() + ")");
-                Console.WriteLine("    expected: " + _firstLine(expected));
-                Console.WriteLine("    actual:   " + _firstLine(actual[b]));
+                if (report) {
+                    Console.WriteLine("  FAIL: " + c.name + " (exit " + exits[b].ToString() + ")");
+                    Console.WriteLine("    expected: " + _firstLine(expected));
+                    Console.WriteLine("    actual:   " + _firstLine(actual[b]));
+                }
             }
         }
     }
-    Console.WriteLine("");
-    Console.WriteLine("  Result: " + mpass.ToString() + " passed, " + mfail.ToString()
-        + " failed, " + compileFail.ToString() + " compile errors");
-    Console.WriteLine("");
+    if (report) {
+        Console.WriteLine("");
+        Console.WriteLine("  Result: " + mpass.ToString() + " passed, " + mfail.ToString()
+            + " failed, " + compileFail.ToString() + " compile errors");
+        Console.WriteLine("");
+    }
     return new int[]{ mpass, mfail + compileFail };
 }
 

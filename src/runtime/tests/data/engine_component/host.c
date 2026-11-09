@@ -9,8 +9,21 @@
 #ifdef Z42_COMPONENT_DYNAMIC
 #ifdef _WIN32
 #include <windows.h>
-/* Core dependencies live beside the DLL, independently of the C executable. */
-#define OPEN(path) LoadLibraryExA(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH)
+/* Win32 loader paths use backslashes; dependencies live beside the core DLL. */
+static int native_path(const char* path, char* absolute, DWORD capacity) {
+    DWORD length = GetFullPathNameA(path, capacity, absolute, NULL);
+    if (length == 0) return 0;
+    if (length >= capacity) { SetLastError(ERROR_INSUFFICIENT_BUFFER); return 0; }
+    for (char* p = absolute; *p; ++p) if (*p == '/') *p = '\\';
+    return 1;
+}
+static HMODULE open_library(const char* path) {
+    char absolute[32768];
+    if (!native_path(path, absolute, sizeof(absolute))) return NULL;
+    return LoadLibraryExA(absolute, NULL,
+        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+}
+#define OPEN(path) open_library(path)
 #define SYMBOL(lib, name) GetProcAddress(lib, name)
 #else
 #include <dlfcn.h>
@@ -36,7 +49,8 @@ static const void* empty_resolver(const char* name) { (void)name; return NULL; }
 #ifdef Z42_COMPONENT_DYNAMIC
 static int module_loaded(const char* path) {
 #ifdef _WIN32
-    return GetModuleHandleA(path) != NULL;
+    char absolute[32768];
+    return native_path(path, absolute, sizeof(absolute)) && GetModuleHandleA(absolute) != NULL;
 #else
     void* module = dlopen(path, RTLD_NOW | RTLD_NOLOAD);
     if (!module) return 0;
@@ -64,7 +78,18 @@ int main(int argc, char** argv) {
 #else
     void* library = OPEN(argv[1]);
 #endif
-    if (!library) { fprintf(stderr, "cannot open core: %s\n", argv[1]); return 1; }
+    if (!library) {
+#ifdef _WIN32
+        DWORD code = GetLastError();
+        char message[1024] = {0};
+        FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            NULL, code, 0, message, sizeof(message), NULL);
+        fprintf(stderr, "cannot open core: %s (Win32 %lu: %s)\n", argv[1], (unsigned long)code, message);
+#else
+        fprintf(stderr, "cannot open core: %s (%s)\n", argv[1], dlerror());
+#endif
+        return 1;
+    }
 #define BIND(field, type, name) api.field = (type)SYMBOL(library, name); if (!api.field) return 1
     BIND(native, RegisterNative, "z42_host_register_static_native_library");
     BIND(initialize, Initialize, "z42_host_initialize");
