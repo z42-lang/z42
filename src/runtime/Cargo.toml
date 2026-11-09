@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "tests/data/component", "crates/z42-runtime-host", "crates/z42-runtime-core", "crates/z42-interp", "crates/z42-jit", "crates/z42-runtime-shared", "crates/z42-zpkg", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl", "crates/z42-host"]
+members = [".", "tests/data/component", "crates/z42-runtime-core", "crates/z42-interp", "crates/z42-jit", "crates/z42-zpkg", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl", "crates/z42-host"]
 # fix-default-members-include-compression (2026-05-29): z42-compression is a
 # cdylib loaded via dlopen at z42vm runtime — not a transitive dep of the
 # main `z42` crate (only pulled in compile-time via `bundled-compression`
@@ -29,10 +29,9 @@ path = "src/main.rs"
 [lib]
 name = "z42"
 path = "src/lib.rs"
-# 默认 rlib only —— Rust 内 path 依赖（z42-host crate 引用）。
-# C 嵌入用的 cdylib / staticlib 在分发 package 步骤由**一次** `cargo rustc --crate-type=staticlib,cdylib`
-# 产出（xtask `_embedCrateTypes`），避免主 build 流程出现 cdylib/staticlib/rlib 三套 metadata 冲突。
-# 来自 redesign-artifact-layout (2026-05-12)
+crate-type = ["rlib", "cdylib"]
+# The facade owns its Rust library and C embedding shared library.
+# Static embedding archives are additionally produced by the SDK package command.
 
 [build-dependencies]
 cc = "1"
@@ -40,7 +39,6 @@ cc = "1"
 [dependencies]
 z42-runtime-core = { path = "crates/z42-runtime-core" }
 z42-interp = { path = "crates/z42-interp", optional = true }
-z42-runtime-shared = { path = "crates/z42-runtime-shared", optional = true }
 # Shared artifact formats, decoded IR and immutable package definitions.
 z42-zpkg = { path = "crates/z42-zpkg" }
 # Faster global allocator. z42c self-compile is malloc-bound (~31% in the
@@ -187,7 +185,7 @@ profile-contention = ["z42-runtime-core/profile-contention"]
 # 详见 build.rs 同名注释。
 z42-test-fixtures    = []
 interp = ["dep:z42-interp"]
-shared-core = ["dep:z42-runtime-shared", "z42-runtime-core/jit", "z42-interp?/shared-core", "z42-jit?/shared-core"]
+shared-core = ["component-loading", "z42-runtime-core/jit", "z42-interp?/shared-core", "z42-jit?/shared-core"]
 jit                  = ["dep:z42-jit", "z42-runtime-core/jit", "z42-interp?/jit", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 component-loading    = ["z42-runtime-core/component-loading", "dep:libloading"]
 native-interop       = ["z42-interp?/native-interop", "z42-runtime-core/native-interop", "dep:libffi", "component-loading"]

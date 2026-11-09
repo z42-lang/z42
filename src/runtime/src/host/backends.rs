@@ -122,8 +122,6 @@ pub(crate) fn attach(ctx: &VmContext, mode: ExecMode) -> Result<()> {
         let name = if id == INTERP_COMPONENT { "interpreter" } else { "JIT" };
         let interface = component_interface::<ExecutionApi>(ctx, id)?
             .ok_or_else(|| anyhow::anyhow!("{name} component does not provide its execution interface"))?;
-        #[cfg(all(feature = "shared-core", not(test)))]
-        let _ = z42_runtime_shared::link_anchor();
         let identity = unsafe { (interface.core_identity)() };
         if identity.image != crate::core_identity() || identity.abi != crate::CORE_ABI {
             bail!("{name} component core image or ABI mismatch; use components from the same shared-core runtime pack");

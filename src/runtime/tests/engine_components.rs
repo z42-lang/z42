@@ -102,7 +102,7 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
     type Resolve = unsafe extern "C" fn(*mut Z42Host, *mut Z42Module, *const c_char, *mut *mut Z42Entry) -> Z42HostStatus;
     type Invoke = unsafe extern "C" fn(*mut Z42Entry, *const Z42Value, usize, *mut Z42Value) -> Z42HostStatus;
     type Shutdown = unsafe extern "C" fn(*mut Z42Host) -> Z42HostStatus;
-    let path = input("Z42_TEST_ENGINE_COMPONENT_DIR").join(format!("{}z42_runtime_host{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX));
+    let path = input("Z42_TEST_ENGINE_COMPONENT_DIR").join(format!("{}z42{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX));
     let libs = CString::new(input("Z42_TEST_ENGINE_LIBS").to_str().unwrap()).unwrap();
     let search = [libs.as_ptr(), ptr::null()];
     let cfg = Z42HostConfig {

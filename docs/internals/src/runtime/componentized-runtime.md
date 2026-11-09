@@ -12,7 +12,7 @@
 | z42-jit | Cranelift、编译代码、tier/OSR 实现和组件工厂 | 依赖 core，不依赖 interp 实现 |
 | z42 | host、配置、corelib、interop 和装配 | 选择实现并注入 core |
 
-两个后端自身同时提供 rlib/cdylib，无独立 component 包装 crate。静态交付直接链接 core 与选定后端的 rlib；动态交付启用 shared-core 并导出各自 init 入口，库名为 z42_interp、z42_jit。另有 z42-runtime-shared（Rust dylib，持有唯一 core）和 z42-runtime-host（导出原有 host C ABI 的 cdylib）。普通静态构建附带的后端 cdylib 不导出组件入口，不进入 runtime pack。
+Core directly provides rlib/dylib and the facade directly provides rlib/cdylib. Static builds use rlib; dynamic packs use prefer-dynamic, one core dylib and the matching Rust std. Backends directly provide their own rlib/cdylib and init entries. No shared-core, host or backend packaging wrapper crates are required.
 
 嵌入接口与类型统一从 z42::host 提供。CLI 只处理参数、启动和进程策略，也调用 host。组件内部 Rust API 不自动成为嵌入 API。
 
@@ -50,7 +50,7 @@ JIT 的依赖仅在 Linux/macOS/Windows 的 x64/arm64 target 选择；即便不�
 
 ## 4. 单份核心与动态构建
 
-cdylib 静态包含 core rlib 会复制堆登记、类型发号器、配置和 TLAB/SATB TLS，不能作为执行后端的交付方式。动态构建以 prefer-dynamic 链接到 z42-runtime-shared，并随包携带匹配的共享 Rust std。
+Core directly provides rlib/dylib and the facade directly provides rlib/cdylib. Static builds use rlib; dynamic packs use prefer-dynamic, one core dylib and the matching Rust std. Backends directly provide their own rlib/cdylib and init entries. No shared-core, host or backend packaging wrapper crates are required.
 
 所有动态宿主、后端、共享核心与验证可执行文件必须在一次 Cargo 图中构建。分开运行 Cargo 可能因开发依赖或传递依赖 feature 合并不同而覆盖成不兼容的 Rust metadata/符号；打包器一次构建全部目标后，从同一组产物搬移并验证，不再用后续 Cargo 调用重写核心。
 

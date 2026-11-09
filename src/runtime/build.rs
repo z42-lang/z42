@@ -24,6 +24,9 @@ fn main() {
     if matches!(arch.as_str(), "x86_64" | "aarch64") && matches!(os.as_str(), "linux" | "macos" | "windows") {
         println!("cargo:rustc-cfg=z42_jit_supported");
     }
+    if os == "linux" {
+        println!("cargo:rustc-cdylib-link-arg=-Wl,-soname,libz42.so");
+    }
     // Allow rustc to recognise our custom cfg without warning.
     println!("cargo:rustc-check-cfg=cfg(z42_skip_native_poc)");
     println!("cargo:rustc-check-cfg=cfg(z42_have_z42c)");

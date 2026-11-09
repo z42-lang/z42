@@ -38,7 +38,7 @@ int _componentRelocateImports(string path, string native) {
 void _plRuntimeDynamic(_PkgLayout L, string rid) {
     L.HasDir("libs");
     L.HasFile("native/include/z42_host.h");
-    foreach (var stem in new string[]{ "z42_runtime_host", "z42_runtime_shared", "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42", "z42_runtime_core", "z42_interp", "z42_jit", "z42_compression" }) {
         string name = _componentLibrary(stem);
         L.HasFile("native/" + name);
         if (Platform.IsMacOS()) {
@@ -50,5 +50,5 @@ void _plRuntimeDynamic(_PkgLayout L, string rid) {
     L.Expect(Path.Glob(L.P("native"), pattern).Length == 1, "matching shared Rust std", "missing or ambiguous");
     L.Absent("native/libz42.a", "dynamic pack does not provide a static embedding library");
     L.Absent("native/z42.lib", "dynamic pack does not provide a static embedding library");
-    if (rid.StartsWith("windows-")) { L.HasFile("native/z42_runtime_host.dll.lib"); }
+    if (rid.StartsWith("windows-")) { L.HasFile("native/z42.dll.lib"); }
 }

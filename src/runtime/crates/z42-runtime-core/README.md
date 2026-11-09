@@ -26,3 +26,5 @@ src/vm、src/object、src/gc、src/pal；src/identity.rs 提供物理核心身�
 src/vm、src/object、src/gc、src/pal；src/identity.rs 提供物理核心身份和编译期 ABI 摘要。
 
 Component contracts belong to components::api. The core owns descriptors, C-layout interface tables, execution registration contracts and same-build identity generation; host re-exports the embedding surface. No separate component protocol crate is required.
+
+The same library target provides rlib and Rust dylib. Static consumers use rlib; desktop dynamic packs select dylib with prefer-dynamic and carry matching shared std. Targets without Rust dylib support retain rlib. The facade itself provides the C embedding library.

@@ -413,7 +413,7 @@ int main(void) {
 | Linux | `libz42.a`（另加 `-lc -lm -lpthread -ldl -lrt -lgcc_s`） | `libz42.so`：SONAME 是 `libz42.so`，宿主加 `-Wl,-rpath,<目录>`（如 `$ORIGIN`）或走 `LD_LIBRARY_PATH` |
 | Windows | `z42.lib` | 链 import lib `z42.dll.lib`，运行时 `z42.dll` 放在 exe 旁 |
 
-另有可选的组件化动态 runtime 包：C 宿主链接其中的 z42_runtime_host（macOS/Linux 为 libz42_runtime_host，Windows 导入库为 z42_runtime_host.dll.lib）。部署时保留 native/ 内同包的共享核心、Rust std 和 interp/JIT 组件；这些库必须来自同一构建，不能混用版本。用 Z42_NATIVE_PATH 指向组件目录，或将 native/ 放在宿主可执行文件旁。显式请求 JIT 时，库缺失或不兼容会报错，不自动改成解释模式。
+另有可选的组件化动态 runtime 包：C 宿主链接其中的 z42（macOS/Linux 为 libz42，Windows 导入库为 z42.dll.lib）。部署时保留 native/ 内同包的共享核心、Rust std 和 interp/JIT 组件；这些库必须来自同一构建，不能混用版本。用 Z42_NATIVE_PATH 指向组件目录，或将 native/ 放在宿主可执行文件旁。显式请求 JIT 时，库缺失或不兼容会报错，不自动改成解释模式。
 
 Linux 包要求 glibc ≥ 2.34（x64）、≥ 2.39（arm64）。
 

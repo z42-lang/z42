@@ -2250,7 +2250,6 @@ dependencies = [
  "z42-macros",
  "z42-rs",
  "z42-runtime-core",
- "z42-runtime-shared",
  "z42-zpkg",
 ]
 
@@ -2294,7 +2293,6 @@ dependencies = [
  "smallvec",
  "tracing",
  "z42-runtime-core",
- "z42-runtime-shared",
 ]
 
 [[package]]
@@ -2312,7 +2310,6 @@ dependencies = [
  "smallvec",
  "tracing",
  "z42-runtime-core",
- "z42-runtime-shared",
 ]
 
 [[package]]
@@ -2358,20 +2355,6 @@ dependencies = [
  "socket2",
  "tracing",
  "z42-zpkg",
-]
-
-[[package]]
-name = "z42-runtime-host"
-version = "0.7.0"
-dependencies = [
- "z42",
-]
-
-[[package]]
-name = "z42-runtime-shared"
-version = "0.7.0"
-dependencies = [
- "z42-runtime-core",
 ]
 
 [[package]]

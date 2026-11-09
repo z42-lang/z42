@@ -2,8 +2,6 @@
 use crate::vm::components::api::*;
 use core::ffi::c_void;
 unsafe extern "C" fn identity() -> ExecutionIdentity {
-    #[cfg(feature = "shared-core")]
-    { let _ = z42_runtime_shared::link_anchor(); }
     ExecutionIdentity { image: crate::core_identity(), abi: crate::CORE_ABI }
 }
 unsafe extern "C" fn attach(vm: *const c_void, config: *const ExecutionConfig) -> ComponentStatus {
