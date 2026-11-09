@@ -32,5 +32,6 @@ int _componentWasmVerify(string root, string pkg, string zbc, string work) {
             .Arg(zbc).Arg(compression ? "true" : "false"));
         if (c != 0) { return c; }
     }
-    return 0;
+    return _exec(new Process("node").Arg(fixture + ".mjs").Arg(Path.Join(pkg, "pkg-nodejs/z42_wasm.js"))
+        .Arg(Path.Join(pkg, "libs")).Arg(zbc).Arg("default"));
 }

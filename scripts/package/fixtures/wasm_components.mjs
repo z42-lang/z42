@@ -1,7 +1,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
 const [modulePath, libs, zbc, withCompression] = process.argv.slice(2);
+if (withCompression === 'default') {
+  const { Z42VM, readNamespaces } = await import(pathToFileURL(modulePath));
+  const byNamespace = new Map();
+  for (const file of fs.readdirSync(libs).filter(file => file.endsWith('.zpkg'))) {
+    const bytes = new Uint8Array(fs.readFileSync(path.join(libs, file)));
+    for (const namespace of readNamespaces(bytes)) byNamespace.set(namespace, bytes);
+  }
+  const vm = new Z42VM({ zpkgResolver: name => byNamespace.get(name) ?? null });
+  const module = vm.loadZbc(new Uint8Array(fs.readFileSync(zbc)));
+  assert.equal(vm.invoke(vm.resolveEntry(module, 'EngineComponentProbe.Echo'), [40]), 41);
+  assert.equal(vm.invoke(vm.resolveEntry(module, 'EngineComponentProbe.CompressionRoundtrip'), []), 36);
+  vm.dispose();
+  console.log('default final WASM: interpreter execution + bundled compression passed');
+  process.exit(0);
+}
 let exports;
 const packages = new Map();
 let currentPackage;
