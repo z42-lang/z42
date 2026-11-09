@@ -34,7 +34,7 @@ Process _componentTargets(Process build) {
         .Arg("-p").Arg("z42-compression")
         .Arg("--no-default-features").Arg("--features")
         .Arg("z42/" + _componentFeatures().Replace(",", ",z42/")
-            + ",z42-interp/shared-core,z42-interp/native-interop,z42-jit/shared-core");
+            + ",z42-interp/shared-core,z42-interp/jit,z42-interp/native-interop,z42-jit/shared-core");
 }
 
 int _componentBuild(string root, string profile) {
