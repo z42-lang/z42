@@ -2,7 +2,7 @@
 
 > 代码：
 > `src/toolchain/devtools/vscode/`（扩展资产）、
-> `scripts/install/xtask_install_vscode.z42`（生成器 + 门禁检查）、
+> `scripts/setup/xtask_install_vscode.z42`（生成器 + 门禁检查）、
 > `src/compiler/z42c.syntax/src/Lexer.z42`（关键字 SoT）、
 > Main.z42（`Main`）（`--dump-keywords` 路由）、
 > `scripts/test/xtask_test.z42`（gate 挂接）。
@@ -37,7 +37,7 @@ Lexer.z42 _initKeywords()                 ← 关键字唯一 SoT
     ▼
 z42c --dump-keywords                      ← 每行一个，注册序
     ▼
-scripts/install/xtask_install_vscode.z42
+scripts/setup/xtask_install_vscode.z42
     ├─ 分类表（control / declaration / modifier / operator / type / literal）
     ├─ 穷尽校验（漏 / 幽灵 / 重复 → 报错指名）
     └─ 模板渲染：z42.tmLanguage.tpl.json 的 __KW_<GROUP>__ → kw1|kw2|…

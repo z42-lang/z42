@@ -4,7 +4,7 @@
 > `src/toolchain/workload/{wasm,ios,android,desktop}/platform/`、
 > `src/toolchain/workload/platform-contract.md`、
 > `scripts/test/xtask_test_{platform,wasm,ios,android,desktop}.z42`、
-> `scripts/install/xtask_install{,_android}.z42`、`scripts/versions.toml`
+> `scripts/setup/xtask_install{,_android}.z42`、`scripts/versions.toml`
 >
 > 嵌入宿主的**契约**（C ABI、三层架构）见[嵌入宿主](../runtime/embedding.md)与
 > [参考手册 · C ABI](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)；打发行包见[打包与发版](release.md)。

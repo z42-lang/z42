@@ -7,7 +7,7 @@
 //
 // 命令树由 Std.Cli 的声明式 `Command` 搭起：本文件只有根命令（全局选项 + 挂各命令族）与
 // `run` 直通；每个命令族的 `Command` 类与它的 handler 同住领域目录（build/ package/ test/
-// install/ bench/ common/），权威命令面是 `xtask -h`（逐层 `-h` 自动生成）。
+// setup/ bench/ common/），权威命令面是 `xtask -h`（逐层 `-h` 自动生成）。
 namespace Z42Xtask;
 
 using Std.IO;

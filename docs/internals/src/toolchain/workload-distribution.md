@@ -33,7 +33,7 @@
 
 | 入口 | 装什么 |
 |---|---|
-| 安装脚本（`install.sh` / `install.ps1`） | 宿主 SDK：z42vm + libs + 各工具 apphost |
+| 安装脚本（`install-z42.sh` / `install-z42.ps1`） | 宿主 SDK：z42vm + libs + 各工具 apphost |
 | `z42 workload install <名字>` | 能力束 = {目标 runtime pack} + {工具链工程 + 模板 + 原生胶水} |
 
 目标 runtime 是 workload 内部组合进来的**组件**，不作为独立命令暴露。

@@ -15,19 +15,18 @@
 // common/xtask_golden.z42 定义一次。
 namespace Z42Xtask;
 
-using Std.Collections;
 using Std.IO;
 
 string _distFixturesSrc() { return "src/toolchain/launcher/tests/fixtures/package"; }
 
-// `package sdk --verify`：packages.toml 自检 → 安装脚本顶层清单对账 → 备好本机桌面 workload → 在 `sdkDir`
+// `package sdk --verify`：packages.toml 自检 → SDK 顶层不占安装目录的本地状态名 → 备好本机桌面 workload → 在 `sdkDir`
 // （本次刚组装出的 SDK）上跑发行包夹具与 golden。全部通过返回 0。
 int _packageVerify(string sdkDir) {
     Console.WriteLine("");
     Console.WriteLine("── verify: packages.toml 自检 ──");
     int c = _pkgSelfCheck(); if (c != 0) { return c; }
     string root = _root();
-    c = _verifyInstallScriptLists(root, sdkDir); if (c != 0) { return c; }
+    c = _verifyInstallState(sdkDir); if (c != 0) { return c; }
     if (_distApphostTemplate(root).Length == 0) {
         Console.WriteLine("── verify: 本机桌面 workload 不在，先打一份（apphost 腿要它的 stub）──");
         c = _packageWorkloadBuild("", "release"); if (c != 0) { return c; }
@@ -36,58 +35,21 @@ int _packageVerify(string sdkDir) {
     return _verifyDist(sdkDir);
 }
 
-// 安装脚本（scripts/install/install.{sh,ps1}）只替换 SDK 自己的顶层条目、其余（已装 workload 等）保留，所以各自
-// 内嵌一份顶层清单——引导期还没有 z42，清单读不了 packages.toml。这里拿**本次真组装出的 SDK** 的顶层条目逐个
-// 对账两份脚本：SDK 新增顶层目录而脚本没跟上时当场红。
-// Windows 上 launcher 是 `z42.exe`，对账时统一去掉 `.exe`。
-int _verifyInstallScriptLists(string root, string sdkDir) {
-    string[] shList  = _installListSh(File.ReadAllText(Path.Join(root, "scripts/install/install.sh")));
-    string[] ps1List = _installListPs1(File.ReadAllText(Path.Join(root, "scripts/install/install.ps1")));
-    if (shList.Length == 0 || ps1List.Length == 0) {
-        ConsoleError.WriteLine("error: install script top-level list not found (install.sh `for entry in …; do` / install.ps1 `foreach ($entry in @(…))`)");
-        return 1;
-    }
+// 安装器（scripts/install-z42.{sh,ps1}）按归档自带的顶层条目整项替换安装目录、其余保留；所以安装目录里的本地状态
+// —— launcher 装的 workload（`runtimes/`）与缓存（`cache/`）、安装器写的 `install.toml` —— 不能与 SDK 顶层条目同名，
+// 否则重装会抹掉它们。
+int _verifyInstallState(string sdkDir) {
     int bad = 0;
-    int total = 0;
-    foreach (var e in _sortedStrings(Directory.Enumerate(sdkDir))) {
-        if (e.StartsWith(".")) { continue; }
-        total = total + 1;
-        string name = e.EndsWith(".exe") ? e.Substring(0, e.Length - 4) : e;
-        if (!_strIn(shList, name))  { ConsoleError.WriteLine("error: install.sh replace list lacks SDK top-level entry `" + e + "`");  bad = bad + 1; }
-        if (!_strIn(ps1List, name)) { ConsoleError.WriteLine("error: install.ps1 replace list lacks SDK top-level entry `" + e + "`"); bad = bad + 1; }
+    foreach (var name in new string[]{ "runtimes", "cache", "install.toml" }) {
+        string p = Path.Join(sdkDir, name);
+        if (File.Exists(p) || Directory.Exists(p)) {
+            ConsoleError.WriteLine("error: SDK top-level entry `" + name + "` would replace local state when the installers reinstall");
+            bad = bad + 1;
+        }
     }
     if (bad > 0) { return 1; }
-    Console.WriteLine("  ✓ install.sh / install.ps1 replace lists cover all " + total.ToString() + " SDK top-level entries");
+    Console.WriteLine("  ✓ SDK top level leaves installer-managed state (runtimes/, cache/, install.toml) alone");
     return 0;
-}
-
-// install.sh 的 `for entry in a b c; do` → [a, b, c]；找不到 → 空。
-string[] _installListSh(string text) {
-    foreach (var ln in text.Split("\n")) {
-        string t = ln.Trim();
-        if (!t.StartsWith("for entry in ")) { continue; }
-        int semi = t.IndexOf(";");
-        return _splitWords(semi > 0 ? t.Substring(13, semi - 13) : t.Substring(13));
-    }
-    return new string[0];
-}
-
-// install.ps1 的 `foreach ($entry in @("a", "b"))` → [a, b]（`z42.exe` → `z42`，与 sh 侧同名对账）；找不到 → 空。
-string[] _installListPs1(string text) {
-    foreach (var ln in text.Split("\n")) {
-        string t = ln.Trim();
-        if (!t.StartsWith("foreach ($entry in @(")) { continue; }
-        int open = t.IndexOf("@(");
-        int close = t.IndexOf("))");
-        if (close <= open) { return new string[0]; }
-        List<string> xs = new List<string>();
-        foreach (var raw in t.Substring(open + 2, close - open - 2).Split(",")) {
-            string v = raw.Trim().Replace("\"", "");
-            xs.Add(v.EndsWith(".exe") ? v.Substring(0, v.Length - 4) : v);
-        }
-        return xs.ToArray();
-    }
-    return new string[0];
 }
 
 // 发行包夹具 + golden 腿（interp / jit）。全部通过返回 0，否则 1（缺包 / 夹具不符 / golden 编译失败或不符）。
