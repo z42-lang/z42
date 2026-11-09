@@ -14,7 +14,7 @@ grammar）+ 括号匹配/注释切换/自动缩进（language-configuration）�
 | 语法高亮 grammar（生成产物，勿手改） | `syntaxes/z42.tmLanguage.json` |
 | grammar 模板（高亮规则的编辑处） | `syntaxes/z42.tmLanguage.tpl.json` |
 | 注释/括号/缩进/包围对 | `language-configuration.json` |
-| 生成 + 安装 | `xtask setup vscode`（`scripts/install/xtask_install_vscode.z42`） |
+| 生成 + 安装 | `xtask setup vscode`（`scripts/setup/xtask_install_vscode.z42`） |
 | 防漂移检查（GREEN gate） | `xtask check vscode-syntax` |
 
 ## 基础用法

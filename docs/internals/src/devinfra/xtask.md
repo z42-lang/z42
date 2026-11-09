@@ -89,7 +89,7 @@ scripts/build/xtask_build_cmd.z42    build 族        （clean → build/xtask_c
 scripts/package/xtask_package_cmd.z42  package 族
 scripts/test/xtask_test_cmd.z42      test 族 + LibUnitsCommand（test stdlib / bench stdlib 共用）
 scripts/check/xtask_check_cmd.z42    check（静态检查的单跑入口；GREEN 里它们仍各是一个 stage）
-scripts/install/xtask_setup_cmd.z42  setup 族
+scripts/setup/xtask_setup_cmd.z42  setup 族
 scripts/bench/xtask_bench_cmd.z42    bench 族        （profile → bench/xtask_profile.z42）
 scripts/common/xtask_layout.z42      layout
 ```

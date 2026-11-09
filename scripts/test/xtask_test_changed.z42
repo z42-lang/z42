@@ -277,8 +277,9 @@ _MapResult _mapFile(string f, _ChangedOwners owners) {
     if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }, new string[]{ "cross-zpkg" }); }
     if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/multi-exe/"))  { return _mapCmds(new string[]{ "xtask test e2e --dir multi-exe" }, new string[]{ "multi-exe" }); }
     if (f.StartsWith("src/toolchain/builder/tests/fixtures/"))                 { return _mapCmds(new string[]{ "xtask test toolchain builder" }, new string[]{ "toolchain", "targets" }); }
-    // 桌面 SDK 验证归 package sdk --verify，不属于 GREEN 的任何 stage。
-    if (f.StartsWith("scripts/test/sdk/") || f.StartsWith("src/toolchain/launcher/tests/fixtures/package/")) {
+    // 桌面 SDK 验证与安装器入口（其回归在 SDK 自检里）归 package sdk --verify，不属于 GREEN 的任何 stage。
+    if (f.StartsWith("scripts/test/sdk/") || f.StartsWith("scripts/install-z42.")
+        || f.StartsWith("src/toolchain/launcher/tests/fixtures/package/")) {
         return _mapOutsideGate("xtask package sdk --verify");
     }
     // src/benches/ — whole-program timing scenarios, probe, schema, verdict fixtures.
@@ -306,8 +307,7 @@ _MapResult _mapFile(string f, _ChangedOwners owners) {
         return _mapCmds(new string[]{ "xtask test stdlib", "xtask test toolchain" }, new string[]{ "stdlib", "toolchain" });
     }
 
-    // 共享脚本与未细分脚本影响整个 CLI，保留全量；SDK 私有验证已按职责单独映射。
-    // Shell install scripts + workspace config too.
+    // 共享脚本与未细分脚本影响整个 CLI，保留全量；SDK 私有验证与安装器已按职责单独映射。workspace 清单同理。
     if (f.StartsWith("scripts/") || f.EndsWith(".workspace.toml")) { return _mapFull(); }
     // Anything else under src/ → full sweep (defensive).
     if (f.StartsWith("src/")) { return _mapFull(); }

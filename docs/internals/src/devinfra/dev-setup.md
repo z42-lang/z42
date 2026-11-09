@@ -1,7 +1,7 @@
 # 开发环境与工具链自举
 
-> 代码：`scripts/install-z42.sh`、
-> `scripts/install/install.sh`、`scripts/install/xtask_install.z42`、`scripts/versions.toml`、
+> 代码：`scripts/install-z42.sh`、`scripts/install-z42.ps1`、
+> `scripts/setup/xtask_install.z42`、`scripts/versions.toml`、
 > `src/runtime/Cargo.toml`、`src/runtime/.cargo/config.toml`、`src/compiler/z42c.driver/src/Main.z42`、`.gitattributes`
 >
 > 只想**写 z42 程序**不用读这页——装 SDK 见学习手册的[安装 z42](https://z42-lang.github.io/z42/learn/getting-started/install.html)。
@@ -16,7 +16,7 @@ gate 要敲哪几条命令、每个 host 平台各自要注意什么。命令树
 ```bash
 git clone https://github.com/z42-lang/z42 && cd z42
 
-./scripts/install-z42.sh                  # ① 下载种子 → ./.z42/（Windows: scripts\install-z42.bat）
+./scripts/install-z42.sh                  # ① 下载种子 → ./.z42/（Windows: .\scripts\install-z42.ps1 或 scripts\install-z42.bat）
 .z42/z42 publish scripts/xtask.z42.toml   # ② 编 xtask → 仓库根的原生 ./xtask
 ./xtask build all                         # ③ 编译器 + VM + stdlib（全部从源码）
 ./xtask test                              # ④ 完整 GREEN gate
@@ -24,10 +24,11 @@ git clone https://github.com/z42-lang/z42 && cd z42
 
 关于这四步：
 
-- **①** `install-z42.sh` 只是给用户安装器 `scripts/install/install.sh` 套上仓库默认值：版本取
-  `scripts/versions.toml` 的 `[toolchain.z42].launcher`，目标是 gitignore 掉的 `./.z42/`，不动 PATH。
-  重跑即更新；它是整条链上**唯一**的非 z42 环节。没有网络 / 没有 `gh` 就起不了步——工具链没有
-  任何非 z42 的逃生编译器。
+- **①** `scripts/install-z42.sh` / `.ps1` 就是发给用户的那份安装器；以仓库内的路径运行时它选开发默认值：
+  版本取 `scripts/versions.toml` 的 `[toolchain.z42].launcher`，目标是 gitignore 掉的 `./.z42/`，不动 PATH，
+  也不受外部 `Z42_HOME` / `Z42_VERSION` 影响（规则见 [scripts/README](../../../../scripts/README.md)）。
+  重跑即更新；它是整条链上**唯一**的非 z42 环节。联网下载需要 curl / wget（Windows 用 PowerShell），也可用
+  `--archive` 离线供种——工具链没有任何非 z42 的逃生编译器。
 - **②** `z42 publish` 产出的 `./xtask` 是原生 apphost，自己能定位 `./.z42` 运行时，**不需要
   PATH、也不需要装 desktop workload**：`scripts/xtask.z42.toml` 用 `[build] hooks` 声明了
   `scripts/xtask_hooks.z42`，publish 期间现造 apphost stub。
@@ -158,7 +159,7 @@ mkdir -p artifacts && cp -R <warm 树>/artifacts/xtask artifacts/
 |---|---|---|---|
 | **macOS**（arm64，主开发平台） | `xcode-select --install` | `./scripts/install-z42.sh` | 全部；**唯一**能产 iOS 包的 host |
 | **Linux**（x64 / arm64） | `build-essential` / `Development Tools` | `./scripts/install-z42.sh` | 除 iOS 外全部 |
-| **Windows**（x64） | MSVC（rustup 选 `x86_64-pc-windows-msvc`） | `scripts\install-z42.bat` | windows-x64、browser-wasm、Android（需 Android Studio） |
+| **Windows**（x64） | MSVC（rustup 选 `x86_64-pc-windows-msvc`） | `.\scripts\install-z42.ps1`（cmd：`scripts\install-z42.bat`） | windows-x64、browser-wasm、Android（需 Android Studio） |
 
 缺 C 工具链的典型症状是 cargo 编 zlib-ng / libffi 时报 `cc: command not found` / `xcrun: error`。
 只支持厂商官方维护的架构，`macos-x64` 不在支持面内。

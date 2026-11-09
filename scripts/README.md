@@ -21,11 +21,19 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 本目录的 `.z42` 除 `xtask_hooks.z42`（z42b build hook，`namespace Build`）外全部是 xtask 模块（含 stdlib 构建逻辑 `build/xtask_stdlib.z42`）。
 安装脚本运行在「还没有 z42 工具链」的最前端，故保持 shell / PowerShell：
 
-- **`install/install.{sh,ps1}`** —— 用户安装脚本，唯一的安装逻辑：默认 nightly、安装到 `~/.z42`、配置 PATH、
-  重新运行即更新（`sha256` 未变则跳过）。发布在 `https://z42-lang.github.io/z42/install.{sh,ps1}`。
-  参数：`--version` / `--dest` / `--no-modify-path` / `--archive <本地包>` / `--force` / `--dry-run`。
-- **`install-z42.{sh,bat,command}`** —— 仓库引导：以仓库默认值调用上面的脚本（版本取 `versions.toml`、
-  安装到 `<repo>/.z42`、不改 PATH）；其余参数原样透传。
+- **`install-z42.{sh,ps1}`** —— 唯一的 SDK 安装器，同一文件两套默认值，只看脚本自身位置（不看当前目录）：
+  - 仓库模式（以 `<repo>/scripts/install-z42.*` 的路径运行）：版本取 `versions.toml` 的 `[toolchain.z42].launcher`，
+    装进 `<repo>/.z42`，不改 PATH，不读 `Z42_HOME` / `Z42_VERSION`；固定版本缺失或读不出时报错，不降级为用户安装。
+  - 用户模式（下载的副本、`curl … | sh`、`irm … | iex`）：`Z42_VERSION` 或 nightly，`Z42_HOME` 或用户目录 `.z42`，配置用户 PATH。
+
+  显式 `--version` / `--dest`（PowerShell：`-Version` / `-Dest`）覆盖两套默认值；另有 `--no-modify-path` /
+  `--archive <本地包>` / `--force` / `--dry-run`。安装按归档自带的顶层条目整项替换，安装目录里的 `runtimes/`
+  （已装 workload）、`cache/`、`install.toml` 保留——所以脚本里没有 SDK 顶层清单。发布在
+  `https://z42-lang.github.io/z42/install-z42.{sh,ps1}` 与每个 release 的附件，重新运行即更新。
+- **`install-z42.{bat,command}`** —— Windows CMD / macOS Finder 的启动转发，只传参数与退出码，不含安装策略。
+
+安装器的默认值 / 参数 / 转发回归是 `package sdk --verify` 的自检（`test/sdk/xtask_selfcheck_installers.z42`，
+dry-run 跑真实脚本，不联网）；真实 SDK 的离线安装由 CI package-host 的 Installer smoke 覆盖。
 
 > **冷启动 bootstrap（鸡生蛋的真正破解点）**：`xtask.zpkg` 依赖 stdlib 才能编译，且
 > 编译它的 z42c 自身也是 z42 写的。冷树上**下载上一版已发布 nightly 的 z42c 种子**
@@ -176,16 +184,16 @@ package runtime [--rid R] [--profile P] ──► 按 RID 分类 dispatch
   ──► artifacts/packages/z42-<ver>-<rid>-<config>/ + manifest.toml + source-identity 门
 ```
 
-### `setup`（`install/`）
+### `setup`（`setup/`）
 
 ```
 setup [--os P] [--force] ──► _setupInstall   纯安装（default action）
   ├─ 无 --os       当前 host 基础（跨平台 rust/node 检查，不装交叉栈）
-  ├─ --os android  rust targets + cargo-ndk + JDK + 构建 SDK   install/xtask_install_android.z42
+  ├─ --os android  rust targets + cargo-ndk + JDK + 构建 SDK   setup/xtask_install_android.z42
   ├─ --os ios      rust targets + Xcode
   └─ --os wasm     rust targets + wasm-pack + hermetic node
-setup vscode       ──► _setupVscode    编辑器资产 → <repo>/.vscode/extensions（工作区本地扩展）install/xtask_install_vscode.z42
-setup check [--os P] ──► _setupCheck   只读在场校验（presence 仅显式 --os 时计入退出码）install/xtask_setup_check.z42
+setup vscode       ──► _setupVscode    编辑器资产 → <repo>/.vscode/extensions（工作区本地扩展）setup/xtask_install_vscode.z42
+setup check [--os P] ──► _setupCheck   只读在场校验（presence 仅显式 --os 时计入退出码）setup/xtask_setup_check.z42
 ```
 
 版本漂移（versions.toml ↔ 投影文件）与机器无关，不归 setup：`check versions`（`test/xtask_check_versions.z42`）。
@@ -323,8 +331,9 @@ scripts/
 │       ├── xtask_package_goldens.z42     发行包 golden 编译 / 分模式运行，输出与退出码共同判定
 │       ├── xtask_selfcheck_dist_goldens.z42  真实退出 0 / 7、输出不符和编译失败回归
 │       ├── xtask_package_selfcheck.z42   packages.toml 三层自检的聚合（`--verify` 的第一步）
-│       └── xtask_selfcheck_{packages_config,package_install,release}.z42
-│                                         清单解析 / 组件安装 / 发布归档各自的 throw-on-mismatch 自检层
+│       ├── xtask_selfcheck_{packages_config,package_install,release}.z42
+│       │                                 清单解析 / 组件安装 / 发布归档各自的 throw-on-mismatch 自检层
+│       └── xtask_selfcheck_installers.z42  install-z42.{sh,ps1,bat,command} 的默认值 / 参数 / 转发 / 离线安装回归
 ├── package/            package 各 RID 类别 + 开发态组装 + 发行档组装
 │   ├── xtask_package_cmd.z42         `package` 族的命令类
 │   ├── xtask_package{,_desktop,_ios,_android,_wasm}.z42   分类入口与各 RID 实现
@@ -333,12 +342,12 @@ scripts/
 │   ├── xtask_package_test.z42        **`package workload test`**：打 payload-only 的 test workload
 │   │                                 （与 _desktop/_ios/_android/_wasm 同族：`test` 是 workload 名）
 │   └── xtask_release.z42             `--archive`（包目录 → 归档）/ `package release`（desktop 合并 → SHA256SUMS → index）
-├── install/            setup：各平台依赖 / 编辑器资产
+├── setup/              setup：各平台依赖 / 编辑器资产
 │   ├── xtask_setup_cmd.z42           `setup` 族的命令类（不带子命令 = 安装）
 │   ├── xtask_install{,_android}.z42  `setup [--os]` + Android SDK·NDK·模拟器
 │   ├── xtask_setup_check.z42         `setup check`：只读在场校验
 │   └── xtask_install_vscode.z42      生成 z42.tmLanguage.json + **`check vscode-syntax` 门**
-└── check/              静态检查与引用报告（VSCode grammar 检查复用 install/ 的生成逻辑）
+└── check/              静态检查与引用报告（VSCode grammar 检查复用 setup/ 的生成逻辑）
     ├── xtask_check_cmd.z42          检查名称、说明与处理函数的统一登记和 CLI
     ├── xtask_check_{diagcodes,layout,ci_shell,proc_env,versions}.z42
     │                               诊断码 / 测试布局 / CI shell / 子进程环境 / 版本一致性
@@ -352,8 +361,8 @@ scripts/
 ### 目录分层规则
 
 `common/` 提供路径、进程、文件系统与共享索引操作，不反调命令实现。命令入口负责解析参数，
-具体处理函数按职责放在 `build/`、`test/`、`package/`、`install/`、`bench/`、`check/`。
-`test/` 负责组合构建、执行与静态检查；`check/` 的 VSCode 检查复用 `install/` 的生成逻辑。
+具体处理函数按职责放在 `build/`、`test/`、`package/`、`setup/`、`bench/`、`check/`。
+`test/` 负责组合构建、执行与静态检查；`check/` 的 VSCode 检查复用 `setup/` 的生成逻辑。
 `test/` 中的执行器与 `xtask_selfcheck_*` 自检按被测职责区分：产品用例放回所属组件，
 xtask 的计划 / 调度回归接入对应自检。新增用例的位置、执行器和确认步骤见[测试用例组织规范](../docs/internals/src/devinfra/test-layout.md#1-用例放哪)。
 
