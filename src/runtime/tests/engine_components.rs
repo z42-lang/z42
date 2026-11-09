@@ -115,14 +115,14 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
     };
     let bytes = std::fs::read(input("Z42_TEST_ENGINE_BYTECODE")).unwrap();
     let fqn = CString::new("EngineComponentProbe.Echo").unwrap();
-    // Keep the C host image alive until shutdown has destroyed every VM/entry.
+    // Keep the C host image through thread exit, including its TLS destructors.
     unsafe {
-        let library = libloading::Library::new(path).unwrap();
-        let initialize = library.get::<Initialize>(b"z42_host_initialize\0").unwrap();
-        let load = library.get::<Load>(b"z42_host_load_zbc\0").unwrap();
-        let resolve = library.get::<Resolve>(b"z42_host_resolve_entry\0").unwrap();
-        let invoke = library.get::<Invoke>(b"z42_host_invoke\0").unwrap();
-        let shutdown = library.get::<Shutdown>(b"z42_host_shutdown\0").unwrap();
+        let library = z42::pal::dynlib::Library::open_component(&path).unwrap();
+        let initialize = library.symbol::<Initialize>("z42_host_initialize").unwrap();
+        let load = library.symbol::<Load>("z42_host_load_zbc").unwrap();
+        let resolve = library.symbol::<Resolve>("z42_host_resolve_entry").unwrap();
+        let invoke = library.symbol::<Invoke>("z42_host_invoke").unwrap();
+        let shutdown = library.symbol::<Shutdown>("z42_host_shutdown").unwrap();
         let mut host = ptr::null_mut();
         assert_eq!(initialize(&cfg, &mut host), Z42HostStatus::Ok);
         let mut module = ptr::null_mut();
