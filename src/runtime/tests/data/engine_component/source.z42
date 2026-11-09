@@ -16,6 +16,11 @@ long Worker() {
     GC.Collect();
     return result[0] + 1;
 }
+long HotLoop(long count) {
+    long sum = 0L;
+    for (long i = 0L; i < count; i++) { sum += i; }
+    return sum;
+}
 void Boom() { throw new Exception("component-exception"); }
 void Main() {
     Console.WriteLine(Echo(41L));
