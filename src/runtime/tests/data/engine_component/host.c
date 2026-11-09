@@ -1,4 +1,7 @@
 /* Real C consumers of independently packaged static/dynamic components. */
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
 #include "z42_host.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,7 +9,8 @@
 #ifdef Z42_COMPONENT_DYNAMIC
 #ifdef _WIN32
 #include <windows.h>
-#define OPEN(path) LoadLibraryA(path)
+/* Core dependencies live beside the DLL, independently of the C executable. */
+#define OPEN(path) LoadLibraryExA(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH)
 #define SYMBOL(lib, name) GetProcAddress(lib, name)
 #else
 #include <dlfcn.h>
