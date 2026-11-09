@@ -266,7 +266,7 @@ jobs:
             # Use the same build graph as the head: the launcher requires its
             # matching core, execution backends, compression library and shared std.
             # xtask resolves the repository from cwd, so this builds base sources.
-            ( cd base-src && "$ROOT/xtask" build runtime )
+            ( cd base-src && xtask build runtime )
             BASEVM="$ROOT/base-src/artifacts/build/runtime/release/z42vm"
           fi
 
