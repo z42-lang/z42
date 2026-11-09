@@ -300,3 +300,7 @@ harness = false
 name = "smoke_bench"
 path = "../../benches/smoke_bench.rs"
 harness = false
+
+[[example]]
+name = "run_app_smoke"
+path = "../../examples/run_app_smoke.rs"

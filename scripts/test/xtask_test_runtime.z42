@@ -12,7 +12,7 @@ Process _runtimeTestProc() {
     // Rust 单测是唯一真正需要这些 fixture 的地方，故在这里按需打开——覆盖面不变，
     // 只是把成本从「所有人的每次构建」挪到「真的要跑 Rust 单测时」。
     // --workspace：不带它时包选择落到 Cargo.toml 的 `default-members`（只有根包 z42 +
-    // z42-compression），z42-abi / z42-repl / z42-rs / z42-macros / z42-host 的测试整批不跑。
+    // z42-compression），z42-abi / z42-repl / z42-rs / z42-macros / 统一宿主的测试整批不跑。
     // 完整 harness 与 GREEN 窄版共用这些参数；z42-abi 守的是 C ABI 结构体布局契约。
     return _cargoCmd("test", _runtimeCargoConfig()).Arg("--locked").Arg("--workspace")
         .Arg("--features").Arg("z42/z42-test-fixtures")

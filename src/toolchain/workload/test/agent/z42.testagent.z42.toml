@@ -1,5 +1,5 @@
 # z42.testagent — the shared on-device test-agent app (add-embedded-app-run).
-# Built to an app.zpkg, embedded via z42-host::run_app into every platform's
+# Built to an app.zpkg, embedded via z42::host::rust::run_app into every platform's
 # test host. One runner (Std.Harness.Runner), all platforms.
 [project]
 name    = "z42.testagent"
