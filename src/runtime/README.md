@@ -154,8 +154,8 @@ xtask test e2e                                # VM golden 端到端（interp + j
 |---------|------|
 | `cli` | 共用 CLI 策略、参数解析和动态进程入口；嵌入式平台预设不启用 |
 | `jit` | 启用运行时 JIT 契约；具体 Cranelift 实现由独立组件提供（desktop x64/arm64） |
-| `component-loading` | 通过 PAL 加载可选运行时组件；native-interop 会启用此能力 |
-| `native-interop` | Tier 1 原生扩展 ABI（dlopen + libffi） |
+| `component-loading` | PAL 动态库装载与通用 C 模块加载；不要求 libffi |
+| `native-interop` | Tier 1 类型注册与 libffi 调用；启用 component-loading 与 SDK types |
 | `net` | `Std.Net` socket（TCP / UDP / DNS，Rust 标准库 net 模块 + `socket2`）。关掉时网络 builtin 抛 `NetUnsupportedException` |
 | `tls` | 在 `net` 之上加 rustls TLS 客户端（`ring` 后端 + `webpki-roots`）。关掉时 `__tls_*` 抛 `NetUnsupportedException` |
 | `mimalloc-alloc` | 最终静态宿主 `z42vm_static` 选择 mimalloc；动态 SDK 使用共享 std 的 System 分配器 |

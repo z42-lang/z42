@@ -14,7 +14,7 @@ interop 校验、注册和查询 native 描述符，并负责脚本值与 C 值�
 
 `RegistryBuilder` 在发布前校验整个提供方，拒绝空名、重复提供方和同一提供方内重复函数。`freeze` 产生不可变快照，同时生成内部 builtin 执行表及 metadata 名称/ID 目录。不同提供方可以导出同名函数，裸名歧义不会按注册顺序选择胜者。BuiltinId 只在当前执行实例内有效，字节码仍保存名称。
 
-内部 builtin 保留按 ID 直接调用寄存器入口的路径。独立 native 模块走通用调用桥，不在 corelib 或 interop 中维护模块专用 wrapper 清单。默认描述符跨 VM 共享；模块实例及其 opaque 状态按 VM 创建、由模块自己的 destroy 回收，worker 共享所属 VM 的实例。构造器在注册表锁外执行；并发构造的多余实例会释放。
+内部 builtin 保留按 ID 直接调用寄存器入口的路径。独立 native 模块走通用调用桥，不在 corelib 或 interop 中维护模块专用 wrapper 清单。默认描述符跨 VM 共享；有状态模块的 opaque 状态按 VM 创建、由模块自己的 destroy 回收，worker 共享所属 VM 的实例；无状态模块直接调用，不创建空实例。构造器与竞争失败实例的析构器均在注册表锁外执行。
 
 ## 同一入口：静态注册与动态加载
 
@@ -34,9 +34,9 @@ ABI 支持整数、浮点、布尔、UTF-8 字符串、可空字符串、字节�
 
 ## 平台能力与代码寿命
 
-PAL 的 `dynlib::is_supported()` 汇合构建开关和 OS 能力。iOS、WASM 及关闭 native interop 的构建拒绝脚本 native 动态库加载，返回 `Unsupported`；静态解析器不受此限制。`HostApi.resolve_symbol` 查询宿主预先部署的实现库，沿 host 注入的可信候选策略使用独立的 component-loading 契约，保留 iOS 签名 Framework 和 Android loader namespace 的支持；它不是脚本任意路径装载入口。按路径打开的模块代码由 PAL 进程缓存保留，覆盖 VM 状态析构及线程本地析构入口。
+PAL 的 `dynlib::is_supported()` 汇合构建开关和 OS 能力。iOS、WASM 及关闭 component-loading 的构建拒绝脚本 native 动态库加载，返回 `Unsupported`；静态解析器不受此限制。`HostApi.resolve_symbol` 查询宿主预先部署的实现库，沿 host 注入的可信候选策略使用独立的 component-loading 契约，保留 iOS 签名 Framework 和 Android loader namespace 的支持；它不是脚本任意路径装载入口。按路径打开的模块代码由 PAL 进程缓存保留，覆盖 VM 状态析构及线程本地析构入口。
 
-Repl 区分 console 输入与交互终端。PAL 每次调用检查平台和标准输入句柄，终端还要求 stdin/stderr 为 tty，不读取输入或初始化编辑器。桌面重定向输入可使用 plain 行读取，但没有编辑和历史；iOS、Android、Browser WASM、缺少有效输入句柄的宿主不直接读取 stdin，`ReadLine` 返回 `NotSupportedException`，由宿主收集 UI 输入后调用独立的脚本求值接口。
+Repl 区分 console 输入与交互终端。PAL 每次调用检查平台和标准输入句柄，终端还要求 stdin/stdout/stderr 为 tty，不读取输入或初始化编辑器。桌面重定向输入可使用 plain 行读取，但没有编辑和历史；iOS、Android、Browser WASM、缺少有效输入句柄的宿主不直接读取 stdin，`ReadLine` 返回 `NotSupportedException`，由宿主收集 UI 输入后调用独立的脚本求值接口。
 
 `SupportsConsoleInput`、`SupportsTerminalEditor`、`SupportsHistory` 分别查询这三类条件，历史还要求文件系统；查询不探测编辑库是否安装。只有 console 输入可用时，缺库或编辑器初始化失败才退回 plain 输入。持久历史属于桌面终端后端。补全、键位回调名称和关键词配置按 VM 隔离。静态值成员查询属于核心反射，与终端模块无关。
 

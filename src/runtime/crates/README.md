@@ -19,7 +19,7 @@
 
 ## 依赖关系
 
-执行后端依赖 z42；生产运行时不链接具体后端。最终宿主选择并登记所需组件。native SDK 的 z42-rs/z42-macros/z42-abi 保持 VM-free，独立模块不会因此引入整台 VM；真正的注册表、查询与调用桥在运行时 interop，装载在 loader。proc-macro 和 no_std ABI 各有独立编译约束。
+执行后端依赖 z42；生产运行时不链接具体后端。最终宿主选择并登记所需组件。native SDK 的 z42-rs/z42-macros/z42-abi 保持 VM-free，独立模块不会因此引入整台 VM；真正的注册表、查询与调用桥在运行时 interop，装载在 loader。模块编写者可关闭 z42-rs 的默认 types feature，仅使用模块辅助；旧类型/宏 API 默认保留。proc-macro 和 no_std ABI 各有独立编译约束。
 
 ## 如何测试验证
 
