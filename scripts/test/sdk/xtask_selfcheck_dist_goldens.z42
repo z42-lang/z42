@@ -4,7 +4,7 @@ namespace Z42Xtask;
 using Std.IO;
 
 int _selfcheckDistGoldens(string root, string z42c, string vm, string libs, string[] modes) {
-    Console.WriteLine("── distribution golden selfcheck (expected failures below) ──");
+    Console.WriteLine("── distribution golden selfcheck (negative cases must be rejected) ──");
     string dir = _xtaskWork(root, "dist-golden-exit");
     _resetDir(dir);
     try {
@@ -23,15 +23,18 @@ int _selfcheckDistGoldens(string root, string z42c, string vm, string libs, stri
         if (!compiled[0] || !compiled[1]) { throw new Exception("distribution golden selfcheck: fixture compilation"); }
         foreach (var mode in modes) {
             File.WriteAllText(expected, "dist-exit\n");
-            int[] result = _distRunMode(mode, cases, zbcs, compiled, vm, libs);
+            int[] result = _distRunMode(mode, cases, zbcs, compiled, vm, libs, false);
             if (result[0] != 1 || result[1] != 1) {
                 throw new Exception("distribution golden selfcheck: nonzero exit accepted (" + mode + ")");
             }
+            Console.WriteLine("  PASS selfcheck (" + mode + "): exit 0 accepted; exit 7 rejected");
             File.WriteAllText(expected, "different output\n");
-            result = _distRunMode(mode, new _DistCase[]{ cases[0] }, new string[]{ zbcs[0] }, new bool[]{ true }, vm, libs);
+            result = _distRunMode(mode, new _DistCase[]{ cases[0] }, new string[]{ zbcs[0] }, new bool[]{ true }, vm, libs, false);
             if (result[0] != 0 || result[1] != 1) { throw new Exception("distribution golden selfcheck: output mismatch accepted"); }
-            result = _distRunMode(mode, new _DistCase[]{ cases[0] }, new string[]{ zbcs[0] }, new bool[]{ false }, vm, libs);
+            Console.WriteLine("  PASS selfcheck (" + mode + "): output mismatch rejected");
+            result = _distRunMode(mode, new _DistCase[]{ cases[0] }, new string[]{ zbcs[0] }, new bool[]{ false }, vm, libs, false);
             if (result[0] != 0 || result[1] != 1) { throw new Exception("distribution golden selfcheck: compile failure accepted"); }
+            Console.WriteLine("  PASS selfcheck (" + mode + "): compile failure counted as a failed test");
         }
     } finally { Directory.Delete(dir, true); }
     Console.WriteLine("  ✅ distribution goldens: exit 0/7, output mismatch and compile failure");

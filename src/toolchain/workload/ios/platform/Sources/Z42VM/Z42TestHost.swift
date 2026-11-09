@@ -30,7 +30,7 @@ public enum Z42TestHost {
         libsDir: String? = nil,
         args: [String]
     ) -> Int32 {
-        guard z42_linked_components_init() == 0 else { return 1 }
+        do { try Z42VM.registerLinkedComponents() } catch { return 1 }
         // Heap-dup each arg into a C string; free after the call. The array is
         // `[UnsafeMutablePointer<CChar>?]`; z42_host_run_app wants
         // `const char* const*`, so rebind the buffer base to the const type.

@@ -1,30 +1,83 @@
-// iOS dynamic embedding: a signed framework and XCFramework beside the static variant.
+// Relocatable same-build iOS component Frameworks; static archives remain separate.
 namespace Z42Xtask;
 using Std.IO;
 
-int _iosDynamicFramework(string root, string pkg, string cargo, string target, string version, string minimum) {
+string[] _iosFrameworkStems(string rid) {
+    return _componentTargetHasJit(rid)
+        ? new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression", "z42_std" }
+        : new string[]{ "z42", "z42_interp", "z42_compression", "z42_std" };
+}
+int _iosDynamicFramework(string root, string pkg, string rid, string profile, string version, string minimum) {
+    int c = _componentBuildPlatform(root, rid, profile); if (c != 0) { return c; }
+    string target = _ridToCargo(rid);
+    string cargo = _componentPlatformOut(root, rid, profile, true);
     string native = Path.Join(pkg, "native");
-    string framework = Path.Join(native, "z42.framework");
+    string raw = _xtaskWork(root, "ios-shared-std-" + rid);
+    _resetDir(raw); _componentCopyStd(raw, target);
+    string[] std = Path.Glob(raw, "libstd-*.dylib");
+    foreach (var stem in _iosFrameworkStems(rid)) {
+        string source = stem == "z42_std" ? std[0] : Path.Join(cargo, "lib" + stem + ".dylib");
+        c = _iosMakeFramework(root, native, stem, source, target, version, minimum);
+        if (c != 0) { return c; }
+    }
+    foreach (var stem in _iosFrameworkStems(rid)) {
+        string framework = Path.Join(native, stem + ".framework");
+        c = _iosRelocateFramework(Path.Join(framework, stem), stem, Path.GetFileName(std[0]));
+        if (c != 0) { return c; }
+        c = _exec(new Process("codesign").Arg("--force").Arg("--sign").Arg("-").Arg(framework));
+        if (c != 0) { return c; }
+    }
+    return 0;
+}
+
+int _iosMakeFramework(string root, string native, string stem, string source, string target, string version, string minimum) {
+    string framework = Path.Join(native, stem + ".framework");
     Directory.Create(Path.Join(framework, "Headers"));
     Directory.Create(Path.Join(framework, "Modules"));
-    string binary = Path.Join(framework, "z42");
-    _componentCopyRequired(Path.Join(cargo, "examples/libz42.dylib"), binary);
-    _copyAbiHeaders(root, Path.Join(framework, "Headers"));
-    File.WriteAllText(Path.Join(framework, "Headers/z42.h"), "#include \"z42_host.h\"\n");
+    string binary = Path.Join(framework, stem);
+    _componentCopyRequired(source, binary);
+    if (stem == "z42") { _copyAbiHeaders(root, Path.Join(framework, "Headers")); }
+    string header = stem == "z42" ? "#include \"z42_host.h\"\n" : "/* Runtime component; embedding interfaces are provided by z42_host.h. */\n";
+    if (stem == "z42_interp" || stem == "z42_jit") { header = header + "struct Z42ComponentDescriptor;\nconst struct Z42ComponentDescriptor* " + stem + "_init(void);\n"; }
+    if (stem == "z42_compression") { header = header + "const void* z42_compression_get_symbol(const char* name);\n"; }
+    File.WriteAllText(Path.Join(framework, "Headers/" + stem + ".h"), header);
     File.WriteAllText(Path.Join(framework, "Modules/module.modulemap"),
-        "framework module z42 { umbrella header \"z42.h\" export * }\n");
+        "framework module " + stem + " { umbrella header \"" + stem + ".h\" export * }\n");
     string platform = target.Contains("-sim") ? "iPhoneSimulator" : "iPhoneOS";
     File.WriteAllText(Path.Join(framework, "Info.plist"),
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
-        + "<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>org.z42.z42</string>"
-        + "<key>CFBundleName</key><string>z42</string><key>CFBundleExecutable</key><string>z42</string>"
+        + "<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>org.z42." + stem.Replace("_", "-") + "</string>"
+        + "<key>CFBundleName</key><string>" + stem + "</string><key>CFBundleExecutable</key><string>" + stem + "</string>"
         + "<key>CFBundlePackageType</key><string>FMWK</string><key>CFBundleVersion</key><string>1</string>"
         + "<key>CFBundleShortVersionString</key><string>" + version + "</string>"
         + "<key>MinimumOSVersion</key><string>" + minimum + "</string>"
         + "<key>CFBundleSupportedPlatforms</key><array><string>" + platform + "</string></array></dict></plist>\n");
-    int c = _exec(new Process("install_name_tool").Arg("-id").Arg("@rpath/z42.framework/z42").Arg(binary));
-    if (c != 0) { return c; }
-    c = _exec(new Process("codesign").Arg("--force").Arg("--sign").Arg("-").Arg(framework));
-    if (c != 0) { return c; }
-    return 0;
+    return _exec(new Process("install_name_tool").Arg("-id").Arg("@rpath/" + stem + ".framework/" + stem).Arg(binary));
+}
+
+int _iosRelocateFramework(string binary, string stem, string stdName) {
+    string[] lines = _cmdOut("otool", new string[]{ "-L", binary }).Split("\n");
+    for (int i = 1; i < lines.Length; i = i + 1) {
+        string line = lines[i].Trim(); int marker = line.IndexOf(" (");
+        if (marker < 0) { continue; }
+        string old = line.Substring(0, marker); string file = Path.GetFileName(old);
+        string dependency = file == stdName ? "z42_std" : "";
+        foreach (var module in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+            if (file == "lib" + module + ".dylib") { dependency = module; }
+        }
+        if (dependency.Length == 0) { continue; }
+        string replacement = "@rpath/" + dependency + ".framework/" + dependency;
+        if (old == replacement) { continue; }
+        int c = _exec(new Process("install_name_tool").Arg("-change").Arg(old).Arg(replacement).Arg(binary));
+        if (c != 0) { return c; }
+    }
+    string[] commands = _cmdOut("otool", new string[]{ "-l", binary }).Split("\n");
+    for (int i = 0; i < commands.Length; i = i + 1) {
+        if (commands[i].Trim() != "cmd LC_RPATH") { continue; }
+        string line = commands[i + 2].Trim(); int end = line.IndexOf(" (offset");
+        if (!line.StartsWith("path ") || end < 0) { continue; }
+        int c = _exec(new Process("install_name_tool").Arg("-delete_rpath").Arg(line.Substring(5, end - 5)).Arg(binary));
+        if (c != 0) { return c; }
+    }
+    return _exec(new Process("install_name_tool").Arg("-add_rpath").Arg("@loader_path/..").Arg(binary));
 }

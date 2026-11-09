@@ -63,6 +63,20 @@ class Z42VMInstrumentedTest {
         assertEquals("hello, world\n", runHelloAndCollect())
     }
 
+    @Test
+    fun testIndependentJitComponentExecutesHelloWorld() {
+        val coll = Collector()
+        Z42VM(
+            zpkgResolver = AssetZpkgResolver(ctx.assets, "stdlib"),
+            stdoutHandler = { bytes -> coll.append(bytes) },
+            execMode = Z42VM.ExecMode.JIT,
+        ).use { vm ->
+            val module = vm.loadZbc(fixture("hello"))
+            vm.invoke(vm.resolveEntry(module, "Hello.Main"))
+        }
+        assertEquals("hello, world\n", coll.text)
+    }
+
     // ── R2 ─ Bad zbc → status 10 ────────────────────────────────────────
 
     @Test
