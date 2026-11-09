@@ -1,0 +1,26 @@
+[package]
+name = "z42-jit"
+version.workspace = true
+edition = "2021"
+[lib]
+test = false
+[dependencies]
+z42-runtime-core = { path = "../z42-runtime-core", features = ["jit"] }
+z42-runtime-shared = { path = "../z42-runtime-shared", optional = true }
+z42-component-api = { path = "../z42-component-api" }
+anyhow = "1"
+smallvec = "1"
+tracing = "0.1"
+parking_lot = "0.12"
+rustc-hash = "2"
+[features]
+default = []
+shared-core = ["dep:z42-runtime-shared", "jit"]
+jit = ["z42-runtime-core/jit"]
+
+[target.'cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), any(target_os = "linux", target_os = "macos", target_os = "windows")))'.dependencies]
+cranelift-codegen = { version = "0.135", features = ["unwind"] }
+cranelift-frontend = "0.135"
+cranelift-jit = "0.135"
+cranelift-module = "0.135"
+cranelift-native = "0.135"

@@ -88,3 +88,5 @@ fn distribution_byte_zero_does_not_dominate() {
     let zeros = bytes.iter().filter(|b| **b == 0).count();
     assert!(zeros < 50, "{} zeros out of 1024 bytes — RNG suspect", zeros);
 }
+
+use crate::assembly::context::VmContextFactory as _;

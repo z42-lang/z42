@@ -17,4 +17,3 @@ pub mod threading;
 pub mod monitor;
 pub mod crypto;
 pub(crate) mod symavail;
-mod sync_contention;

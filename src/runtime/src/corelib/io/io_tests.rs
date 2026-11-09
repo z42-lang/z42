@@ -155,3 +155,5 @@ fn console_write_to_a_capture_sink_does_not_park() {
     assert_eq!(take_stdout(), "captured\n");
     assert_eq!(c.core.threads.parked_count.load(std::sync::atomic::Ordering::Acquire), 0);
 }
+
+use crate::assembly::context::VmContextFactory as _;

@@ -8,7 +8,7 @@ z42 runtime 对外暴露的 C ABI 公开头文件。供 host 应用 / native 库
 
 | 文件 | 职责 |
 |------|------|
-| `z42_abi.h` | Tier 1 native interop ABI（`Z42TypeDescriptor_v1` + `z42_*` 函数声明）。Rust 镜像见 [`crates/z42-abi/`](../crates/z42-abi/) |
+| `z42_abi.h` | Tier 1 native interop ABI（`Z42TypeDescriptor_v1` + `z42_*` 函数声明）。Rust 镜像见 [`crates/z42-abi/`](../crates/z42-abi) |
 | `z42_host.h` | Tier 1 embedding / hosting ABI（`Z42HostConfig` + `z42_host_*` 函数声明）。`#include "z42_abi.h"` 复用 `Z42Value` / `Z42Args` / `Z42Error`。Spec 见 [`docs/internals/src/runtime/embedding.md`](../../../docs/internals/src/runtime/embedding.md) |
 
 ## 入口点

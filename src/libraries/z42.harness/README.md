@@ -4,7 +4,7 @@
 
 z42 的测试库，两半：
 - **写测试用**：`TestIO`（console 捕获）、`Bencher`（基准测量）、`TestRunner`（命令式 runner）、集合契约测试；
-- **跑测试用**：`Runner` / `BundleRunner`（运行期反射发现 `[Test]` / `[Benchmark]` 并调度）、`TestReport`（pretty / JSON 报告），由 [z42b](../../toolchain/builder/)（`z42b test` / `z42b bench`）与设备端 test-agent 调用。
+- **跑测试用**：`Runner` / `BundleRunner`（运行期反射发现 `[Test]` / `[Benchmark]` 并调度）、`TestReport`（pretty / JSON 报告），由 [z42b](../../toolchain/builder)（`z42b test` / `z42b bench`）与设备端 test-agent 调用。
 
 **不在本包**：`Assert`（及 `TestFailure` / `SkipSignal`）在 **z42.core**（`src/Assert.z42`、`src/Failure.z42`），prelude 可见——断言不只测试代码在用。测试 attribute 类（`TestAttribute` / `BenchmarkAttribute` / `SkipAttribute` / `ShouldThrowAttribute<E>` …）**在本包**（`src/TestAttributes.z42`），测试文件需写 `using Std.Harness;`。
 attribute 的写法见 `docs/reference/`。

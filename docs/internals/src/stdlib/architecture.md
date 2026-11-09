@@ -31,7 +31,7 @@ concern：
 
 | 机制 | 覆盖 | 位置 |
 |---|---|---|
-| **PAL** | OS 差异（`#[cfg(target_os)]` 的唯一归集地），按 concern 分阶段迁入 | `src/runtime/src/pal/`，见 [PAL](../runtime/pal.md) |
+| **PAL** | OS 差异（`#[cfg(target_os)]` 的唯一归集地），按 concern 分阶段迁入 | `src/runtime/crates/z42-runtime-core/src/pal/`，见 [PAL](../runtime/pal.md) |
 | **VFS** | 每台 VM 一个文件系统句柄：本地文件系统或内存 VFS（wasm），由创建 VM 的一方选 | `pal/fs.rs`（`Vfs` trait）+ `pal/vfs/{local,memory}.rs` |
 
 其余 builtin（`__net_*` / `__thread_*` / `__math_*` …）没有抽象层，直接落在 `corelib/<area>.rs`

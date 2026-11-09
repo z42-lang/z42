@@ -60,3 +60,5 @@ fn complete_trampoline_callback_error_swallowed_to_null() {
     assert!(r.is_null(), "module=None → callback errors → null, never crash");
     repl_set_completer("");
 }
+
+use crate::assembly::context::VmContextFactory as _;

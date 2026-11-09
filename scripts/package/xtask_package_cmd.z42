@@ -61,10 +61,16 @@ class PackageRuntimeCommand : Command {
     [Option(help: "also write the release archive next to the package dir; release profile only")] public bool Archive;
     [Option(help: "--archive: version label in archive names (default: versions.toml version)")] public string Label = "";
 
+    [Option(help: "execution component linkage", choices: new string[]{ "static", "dynamic" })] public string Linkage = "static";
+    [Option(help: "verify the relocated dynamic runtime against its production libraries")] public bool Verify;
     public PackageRuntimeCommand() : base("runtime", "assemble the runtime package (native+stdlib; --rid for platform)") {}
 
     public override int Run() {
         _pkgCheckArchive(this.Archive, this.Profile);
+        if (this.Linkage == "dynamic") {
+            return _pkgAfterAssemble(_packageDynamicRuntime(this.Rid, this.Profile, this.NoBuild, this.Verify), this.Archive, this.Label);
+        }
+        if (this.Verify) { throw new CliException("runtime --verify requires --linkage dynamic; static distributions use package sdk --verify"); }
         return _pkgAfterAssemble(_packageRuntime(this.Rid, this.Profile, this.Variant, this.NoBuild), this.Archive, this.Label);
     }
 }

@@ -404,3 +404,5 @@ criterion_group!(
     bench_full_collect_with_large_pinned_old_baseline,
 );
 criterion_main!(benches);
+
+use z42::host::VmContextFactory as _;

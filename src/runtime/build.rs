@@ -15,6 +15,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(z42_jit_supported)");
+    let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if matches!(arch.as_str(), "x86_64" | "aarch64") && matches!(os.as_str(), "linux" | "macos" | "windows") {
+        println!("cargo:rustc-cfg=z42_jit_supported");
+    }
     // Allow rustc to recognise our custom cfg without warning.
     println!("cargo:rustc-check-cfg=cfg(z42_skip_native_poc)");
     println!("cargo:rustc-check-cfg=cfg(z42_have_z42c)");

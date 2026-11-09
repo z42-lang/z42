@@ -19,12 +19,12 @@ pub fn make_type_object(ctx: &VmContext, td: Arc<TypeDesc>) -> Value {
     }
     finish_type_initialization(ctx);
     let key = declaration_key(&td);
-    if let Some(value) = ctx.core.runtime.reflection_types.get(ctx.heap(), &key, &[]) {
+    if let Some(value) = ctx.core().runtime().reflection_types.get(ctx.heap(), &key, &[]) {
         return value;
     }
     let full = td.name.clone();
     let simple = type_simple_name(&full);
-    build_type(ctx, &simple, &full, NativeData::TypeHandle(ReflectedTypeHandle::new(&ctx.core.runtime.types, td)))
+    build_type(ctx, &simple, &full, NativeData::TypeHandle(ReflectedTypeHandle::new(&ctx.core().runtime().types, td)))
 }
 
 /// Simple (unqualified) type name for `Type.Name`: strip the namespace (`.`)
@@ -264,7 +264,7 @@ pub(super) fn build_constructed_type(
 }
 
 fn type_shape(ctx: &VmContext, definition: Option<Arc<TypeDesc>>, key: ReflectedTypeKey) -> NativeData {
-    let definition = definition.map(|td| ReflectedTypeHandle::new(&ctx.core.runtime.types, td));
+    let definition = definition.map(|td| ReflectedTypeHandle::new(&ctx.core().runtime().types, td));
     NativeData::TypeShape(Arc::new(ReflectedTypeShape { definition, key }))
 }
 

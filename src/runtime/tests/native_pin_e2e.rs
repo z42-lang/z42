@@ -4,6 +4,8 @@
 //! `pinned p = s { ... }` syntax (which lands in C5). Each test verifies
 //! one slice of the runtime: construction, field projection, error path.
 
+// These tests directly exercise the statically linked interpreter entry.
+#![cfg(feature = "interp")]
 use z42_zpkg::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator};
 use std::collections::HashMap;
 
@@ -201,3 +203,5 @@ fn unpin_then_str_still_usable() {
     let out = run_returning(&m).expect("post-unpin String access ok");
     assert_eq!(out, Some(Value::I64("hello world".chars().count() as i64)));
 }
+
+use z42::host::VmContextFactory as _;

@@ -557,3 +557,5 @@ fn string_search_preserves_storage_ranges_nulls_and_declined_elements() {
         assert_eq!(search_prims(&array, &needle, 2, 0, true), -2);
     }
 }
+
+use crate::assembly::context::VmContextFactory as _;

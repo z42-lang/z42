@@ -26,7 +26,7 @@
 
 把这条判错，会把**正常的跨包两阶段加载**变成崩溃。所以判据不是「现在查不到」，而是
 **所有惰性解析路径都穷尽之后仍然查不到**。实现集中在
-`src/runtime/src/vm/context/symres.rs` 一个模块里，两后端共用同一份判定，避免
+`src/runtime/crates/z42-runtime-core/src/vm/context/symres.rs` 一个模块里，两后端共用同一份判定，避免
 interp / JIT 语义漂移（这是本仓最易出错的一维）。
 
 三条反复出现的纪律：

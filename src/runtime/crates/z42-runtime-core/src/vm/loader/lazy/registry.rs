@@ -1,0 +1,470 @@
+//! 注册与加载：把一个 zpkg / 模块的函数、类型、字符串池、impl 对并入 loader 的注册表，
+//! 并做跨包继承 fixup（含 `try_fixup_inheritance` 的不动点循环）。解析路径在 `super::resolve`。
+
+use super::*;
+
+/// 整包 owner 集合的累积器（fix-module-init-ownership）。
+///
+/// 包初始化失败后的归属判定查的是「这个包拥有哪些符号」，所以登记 `$Module` 时必须把整包的
+/// 类型 FQN ∪ 函数 FQN 交出去。**逐类型漏斗（`insert_type`）算不出它** —— 走到某个 `$Module`
+/// 时同包的表还没填完 ⇒ 登记只能放在整包循环之后，由本累积器把两轮的名字攒起来。
+#[derive(Default)]
+struct OwnedSyms {
+    names: rustc_hash::FxHashSet<String>,
+    module_descs: Vec<std::sync::Arc<crate::object::TypeDesc>>,
+}
+
+impl OwnedSyms {
+    fn note(&mut self, name: &str) {
+        self.names.insert(name.to_string());
+    }
+    /// 顺带记下这一轮见到的 `$Module`（可能一个都没有，那是常态）。
+    fn note_type(&mut self, desc: &std::sync::Arc<crate::object::TypeDesc>) {
+        self.names.insert(desc.name.clone());
+        if crate::vm::runtime::statics::is_module_pseudo_type(&desc.name) && desc.cctor_func().is_some() {
+            self.module_descs.push(std::sync::Arc::clone(desc));
+        }
+    }
+    /// 两轮都跑完后调用：把 owner 集合交给每个 `$Module`。
+    fn finish(self, cctors: Option<&std::sync::Arc<crate::vm::runtime::statics::CctorRegistry>>) {
+        if self.module_descs.is_empty() {
+            return;
+        }
+        if let Some(reg) = cctors {
+            for td in &self.module_descs {
+                if let Some(func) = td.cctor_func() {
+                    reg.register(&td.name, func);
+                }
+                reg.register_module_init(td, self.names.clone());
+            }
+        }
+    }
+}
+
+impl LazyLoader {
+    /// Load a zpkg file, merge its functions / types / strings, and expand
+    /// its own `ZpkgDep` list into `declared_zpkgs` for future transitive
+    /// lookups.
+    ///
+    /// Cycle-safe: inserts into `loaded_zpkgs` **before** loading the
+    /// artifact, so a re-entrant call (A depends on B, B depends on A)
+    /// returns immediately on the second visit.
+    pub fn load_zpkg_file(&mut self, file_name: &str) -> Result<()> {
+        if self.loaded_zpkgs.contains(file_name) {
+            return Ok(());
+        }
+        let file_path = match self.declared_zpkgs.get(file_name) {
+            Some(c) => c.file_path.clone(),
+            None    => return Ok(()),
+        };
+
+        // Decision 4: pre-insert to break cycles before recursive dep expansion
+        // (both idempotency keys — see `mark_zpkg_loaded_both`).
+        self.mark_zpkg_loaded_both(file_name);
+
+        let path_str = file_path.to_string_lossy().into_owned();
+        let mut artifact = load_artifact_with_fusion(&*self.vfs, &path_str, self.fusion_inputs)?;
+
+        // add-crosspkg-impl-reflection: register this package's
+        // `impl Trait for Type` pairs (backs GetInterfaces cross-pkg traits).
+        self.seed_impls(&artifact.impl_pairs);
+        // precise-pkg-refs: this package's references now route precisely too.
+        self.note_symbol_owners(&artifact.dependencies);
+
+        let offset = self.append_strings(&mut artifact.module.string_pool)?;
+
+        // Decision 6: first-wins on function / type name collisions.
+        //
+        // harden-crosspkg-gates: **deliberately still first-wins, not a hard error.**
+        // Erroring here was tried and rejected: loading is lazy and per-package, so two
+        // packages can collide on a name the program never touches (package A is loaded
+        // for `A.X`, package B for `B.Y`, and they happen to share `Ns.W`). Failing the
+        // load would kill a program over an unused collision — exactly the "report a
+        // conflict the user neither uses nor can fix" behaviour that the compile-time
+        // E0601 deliberately avoids by only reporting at **use sites**.
+        //
+        // The right escalation is a use-site error, which needs resolution to *fail* for
+        // an ambiguous name — i.e. not keeping the first-wins entry. That collides with
+        // the append-only invariant these registries rely on (see `registry_fingerprint`:
+        // the negative cache is keyed on lengths precisely because nothing is ever
+        // removed). Left as Deferred `runtime-ambiguous-symbol-use-site-error`.
+        //
+        // What compile time already covers: any collision both packages were *visible*
+        // for is rejected there (E0601 / E0606 / E0456). Reaching this warning means the
+        // two zpkgs were never compiled against each other — usually a stale copy of a
+        // renamed package left in a libs dir.
+        let mut owned = OwnedSyms::default();
+        for mut fn_ in artifact.module.functions {
+            owned.note(&fn_.name);
+            remap_const_str(&mut fn_, offset);
+            let name = fn_.name.clone();
+            if let Some(prev) = self.registered_function(&name) {
+                // complete-generic-instantiation D4-fix：合成实例化产物的**第二次到达不是歧义**。
+                // 每个用到 `Std.ValueTuple2<Int32,String>` 的包都会各合成一份它的成员，两份是
+                // (定义, 类型实参) 的确定性函数。不区分的话，「库内部用了元组、主程序也用了」
+                // 就会被记成歧义，而歧义函数**一调用就抛**（`exec_call` 的 use-site 判定）。
+                if is_instantiation_artifact(&name) && same_function_shape(&prev, &fn_) {
+                    continue;
+                }
+                // runtime-ambiguous-use-site: 记下来，供**使用位**判定（见 note_ambiguous_function
+                // 的注释：这里仍保持 first-wins 注册，不能让解析失败）。
+                self.note_ambiguous_function(&name);
+                tracing::warn!(
+                    "duplicate function `{name}` from zpkg `{file_name}`: already provided by an \
+                     earlier-loaded package; keeping the first-loaded one. Which package wins is \
+                     decided by load order — remove or rename one of them (a stale copy of a \
+                     renamed package in a libs dir is the usual cause)."
+                );
+                continue;
+            }
+            // cache-ctorless-objnew: the one funnel that grows the function registry
+            // (it bumps the shared registration counter every ObjNew site's
+            // "this class has no ctor" cache is validated against).
+            self.insert_function(name, Arc::new(fn_));
+        }
+        // fix-cross-pkg-subclass-fields : drop the by-id Vec of
+        // TypeDescs BEFORE moving them into `self.type_registry` so each Arc
+        // has strong_count = 1 in the lazy_loader's registry. Otherwise the
+        // fixup pass below can't use `Arc::get_mut` to mutate inherited
+        // field layouts in place.
+        for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {
+            owned.note_type(&desc);
+            if let Some(prev) = self.type_registry.get(&name) {
+                // complete-generic-instantiation D4-fix：同上，类型侧。结构**不**一致时
+                // 仍按歧义处理（两个消费方对着不同版本的生产方编出来的布局真会不同），
+                // 不静默取第一份。
+                if is_instantiation_artifact(&name) && same_type_shape(prev, &desc) {
+                    continue;
+                }
+                self.note_ambiguous_type(&name);   // runtime-ambiguous-use-site：同上
+                tracing::warn!(
+                    "duplicate type `{name}` from zpkg `{file_name}`: already provided by an \
+                     earlier-loaded package; keeping the first-loaded one. Which package wins is \
+                     decided by load order — remove or rename one of them (a stale copy of a \
+                     renamed package in a libs dir is the usual cause)."
+                );
+                continue;
+            }
+            self.insert_type(name, desc);   // fix-crosspkg-static-call-cctor：入表即登记 cctor
+        }
+        owned.finish(self.cctors.as_ref());
+
+        // fix-cross-pkg-subclass-fields : subclasses in this
+        // zpkg whose base lives in an already-loaded dep zpkg need a fixup
+        // pass to inherit the base's field/vtable layout. The fixed-point
+        // loop also retries previously-deferred subclasses (a freshly-loaded
+        // dep may unblock subclasses from earlier zpkgs).
+        // Fixed-point: each round resolves one more deferred inheritance level,
+        // so a well-formed registry converges in at most (max base-chain depth)
+        // rounds, bounded by the type count. The `+ 8` slack absorbs interface
+        // / multi-level chains. A correct `needs_fixup` (dedup-aware) makes this
+        // cap unreachable; it's defense-in-depth so a future metadata defect can
+        // never hang the loader at 100% CPU — bail loudly instead.
+        let fixup_cap = self.type_registry.len() + 8;
+        for round in 0.. {
+            let n = crate::vm::runtime::types::try_fixup_inheritance(&mut self.type_registry);
+            if n == 0 { break; }
+            if round >= fixup_cap {
+                tracing::error!(
+                    "inheritance fixup did not converge after {fixup_cap} rounds while \
+                     loading `{file_name}` (still fixing {n}/round); likely duplicate \
+                     field names or a base-class cycle. Unconverged: {:?}",
+                    crate::vm::runtime::types::unconverged_type_names(&self.type_registry)
+                );
+                break;
+            }
+        }
+        self.publish_types();
+
+        // Transitively expand `ZpkgDep` list into the declared set. Each dep is
+        // resolved across all `search_dirs` (entry-zpkg dir + stdlib libs), so a
+        // colocated package dep is found even when it isn't in `libs/`.
+        if !self.search_dirs.is_empty() {
+            let dirs = self.search_dirs.clone();
+            for dep in &artifact.dependencies {
+                if self.loaded_zpkgs.contains(&dep.file)
+                    || self.declared_zpkgs.contains_key(&dep.file)
+                {
+                    continue;
+                }
+                match ZpkgCandidate::build_in_dirs(&*self.vfs, &dirs, &dep.file) {
+                    Ok(cand) => {
+                        self.declared_zpkgs.insert(dep.file.clone(), cand);
+                    }
+                    // A missing transitive dep here is benign: this is an eager
+                    // prefetch of the dep closure, not a hard requirement. If the
+                    // dep is genuinely needed, the call into it surfaces a clear
+                    // `undefined function` at runtime — the real gate. A preemptive
+                    // miss can legitimately happen after a package is merged/renamed
+                    // (e.g. z42.io.binary → z42.io, whose types still resolve via the
+                    // merged package): the stale dep filename lingers in older zpkgs'
+                    // dep lists but nothing loads it. Must stay off stdout/stderr —
+                    // it otherwise pollutes golden-comparison test output for every
+                    // module that transitively references the merged package.
+                    Err(e) => tracing::debug!(
+                        "transitive dep zpkg `{}` not prefetched (resolves lazily / merged away): {e}",
+                        dep.file
+                    ),
+                }
+            }
+        }
+
+        tracing::debug!("lazy-loaded zpkg `{file_name}` from {path_str}");
+        Ok(())
+    }
+
+    /// Load a compiled artifact from an arbitrary **path** (not a declared dep)
+    /// and merge its functions / types / strings into the live registries. Powers
+    /// `__load_module` (`Std.Runtime.ModuleLoader.Load`): components, hooks, analyzers and
+    /// the test runner (which then discovers `[Test]` functions by reflection). Mirrors
+    /// `load_zpkg_file`'s merge (string-pool offset + `remap_const_str` + first-wins
+    /// + inheritance fixup); idempotent per module name. (retire-test-runner)
+    pub fn load_module_from_path(&mut self, path: &str) -> Result<()> {
+        // support-colocated-zpkg-deps for mid-run loads: a module loaded by an
+        // absolute/foreign path (e.g. z42.scripting's REPL injector loading
+        // z42c.pipeline.zpkg from the SDK's programs/z42c/) carries a transitive dep
+        // closure (z42c.semantics + siblings) that sits NEXT TO it — outside the VM's
+        // startup search_dirs (app entry dir + Z42_LIBS). Add the loaded artifact's
+        // own directory to search_dirs so those siblings resolve, mirroring host::run_app's
+        // "entry-zpkg dir first" rule. Appended (lowest priority) + deduped so it never
+        // shadows the app dir / Z42_LIBS; harmless when path has no colocated deps.
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            let dir = if parent.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                parent.to_path_buf()
+            };
+            let is_dir = dir.to_str()
+                .map(|s| self.vfs.is_dir(s))
+                .unwrap_or(false);
+            if is_dir && !self.search_dirs.iter().any(|d| d == &dir) {
+                self.search_dirs.push(dir);
+            }
+        }
+        let artifact = load_artifact_with_fusion(&*self.vfs, path, self.fusion_inputs)?;
+        self.register_loaded_artifact(artifact)
+    }
+
+    /// In-memory sibling of [`load_module_from_path`]: load a compiled artifact
+    /// from raw bytes (packed zpkg or bare zbc, detected by magic) and merge it
+    /// into the live registries. Backs the `__load_bytecode_in_memory` builtin
+    /// used by `z42.scripting` (REPL): `PackageCompile` produces packed zpkg
+    /// bytes in memory, which are loaded here with zero disk I/O so the freshly
+    /// compiled `$Eval_N()` becomes reflectively invocable. (add-z42-repl)
+    /// unify-static-init-into-cctor（7.4）：此前返回本模块的 `*.__static_init__` 名字，
+    /// 供调用方「只跑本轮」（跑全量会清空所有静态字段、毁掉 REPL 跨轮 carry-forward）。
+    /// 静态初始化器现已是**每类型的类型初始化器**、按首次使用惰性触发 —— 本轮的
+    /// `Vars{N}` 在被读/写时自然初始化，且天然只初始化本轮的类型，不再需要这条通道。
+    pub fn load_module_from_bytes(&mut self, raw: &[u8]) -> Result<()> {
+        let artifact = load_artifact_from_bytes_with_fusion(raw, self.fusion_inputs)?;
+        self.register_loaded_artifact(artifact)
+    }
+
+    /// Shared registration body for [`load_module_from_path`] /
+    /// [`load_module_from_bytes`]: merge functions / types / string pool,
+    /// register dep + namespace candidates, force-load the declared closure,
+    /// run inheritance fixup.
+    pub(super) fn register_loaded_artifact(
+        &mut self, mut artifact: LoadedArtifact,
+    ) -> Result<()> {
+        let mod_key = format!("__loaded_path__{}", artifact.module.name);
+
+        // Register the loaded module's dependencies as lazy-loader candidates so
+        // cross-zpkg calls FROM the test module — including virtual (instance-
+        // method) dispatch into a dep like z42.collections — resolve. A bare
+        // `--emit-zbc` test unit carries NO `dependencies` list (only a packed
+        // zpkg does), so we must ALSO resolve the test's `import_namespaces`
+        // (its `using` clauses, e.g. `Std.Collections`) to candidate zpkgs.
+        // Mirrors the dedicated test-runner bootstrap's `build_declared_candidates`
+        // (which covered both); without the namespace path a test calling
+        // `SortedSet.Add` (a dep's instance method) hits "VCall not found".
+        self.note_symbol_owners(&artifact.dependencies);   // precise-pkg-refs
+        let declared_before = self.declared_zpkgs.len();
+        if !self.search_dirs.is_empty() {
+            let dirs = self.search_dirs.clone();
+            for dep in &artifact.dependencies {
+                if self.loaded_zpkgs.contains(&dep.file)
+                    || self.declared_zpkgs.contains_key(&dep.file)
+                {
+                    continue;
+                }
+                match ZpkgCandidate::build_in_dirs(&*self.vfs, &dirs, &dep.file) {
+                    Ok(cand) => {
+                        self.declared_zpkgs.insert(dep.file.clone(), cand);
+                    }
+                    Err(e) => tracing::warn!(
+                        "ModuleLoader: cannot read dep zpkg meta `{}`: {e}", dep.file
+                    ),
+                }
+            }
+            // Namespace-derived candidates (covers bare-zbc test units with no
+            // `dependencies` list). Scan the search dirs once for zpkg candidates
+            // via the stateless `namespace_index` primitive, then register those
+            // whose exported namespaces exactly match a `using` clause. Replaces
+            // the former reverse call into `loader::resolve_namespace` (which
+            // re-scanned the dirs per namespace and then re-read each hit through
+            // `build_in_dirs`): one scan, no cross-module dependency, matched
+            // candidates retained directly. The stored path is now the dir where
+            // the namespace actually matched (was first-dir-by-name) — identical
+            // for real single-location zpkgs. (refactor-metadata-namespace-index)
+            let scanned = namespace_index::scan_zpkg_candidates(&*self.vfs, &dirs);
+            for ns in &artifact.import_namespaces {
+                for cand in &scanned {
+                    if !cand.namespaces.iter().any(|n| n == ns) {
+                        continue;
+                    }
+                    let Some(file) = cand.file_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(str::to_owned)
+                    else {
+                        continue;
+                    };
+                    if self.loaded_zpkgs.contains(&file)
+                        || self.declared_zpkgs.contains_key(&file)
+                    {
+                        continue;
+                    }
+                    self.declared_zpkgs.insert(file, cand.clone());
+                }
+            }
+        }
+
+        if declared_before != self.declared_zpkgs.len() {
+
+        }
+
+        // Idempotent: a re-load of the same module is a no-op.
+        if self.loaded_zpkgs.contains(&mod_key) {
+            return Ok(());
+        }
+        self.mark_zpkg_loaded(mod_key);
+
+        // Mark this package's canonical zpkg file name as resident. A later-loaded
+        // dependent records deps by file name (`<pkg>.zpkg`), so without this a
+        // cross-round REPL reference (R2 uses `Repl.R1.A`) makes the dep loop above
+        // probe disk for `repl_r1.zpkg` — which never existed on disk (compiled to
+        // bytes in memory) — and emit a spurious "cannot read dep zpkg meta" WARN.
+        // Registering it here lets the dep loop short-circuit on `loaded_zpkgs`.
+        // (fix-repl-inmemory-dep-warn)
+        if let Some(pkg) = &artifact.package_name {
+            self.mark_zpkg_loaded(format!("{pkg}.zpkg"));
+        }
+
+        let offset = self.append_strings(&mut artifact.module.string_pool)?;
+
+        let mut owned = OwnedSyms::default();
+        for mut fn_ in artifact.module.functions {
+            owned.note(&fn_.name);
+            remap_const_str(&mut fn_, offset);
+            let name = fn_.name.clone();
+            // cache-ctorless-objnew: same funnel (first-wins handled inside).
+            self.insert_function(name, Arc::new(fn_));
+        }
+        for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {
+            owned.note_type(&desc);
+            if self.type_registry.contains_key(&name) {
+                // harden-crosspkg-gates: this used to be a **completely silent** skip —
+                // the zpkg-loading path warns, this one said nothing at all. First-wins is
+                // intentional *here* (the REPL compiles a fresh module per round and later
+                // rounds reference earlier ones — see the `Repl.R1.A` note above; the test
+                // host likewise loads modules overlapping what is already resident), but
+                // "intentional" is not a reason to be invisible: at debug level so a normal
+                // REPL session stays quiet while `RUST_LOG=debug` can still show it.
+                tracing::debug!(
+                    "type `{name}` already registered; keeping the resident one \
+                     (ad-hoc module load — redefinition is expected here)"
+                );
+                continue;
+            }
+            self.insert_type(name, desc);   // fix-crosspkg-static-call-cctor：入表即登记 cctor
+        }
+        owned.finish(self.cctors.as_ref());
+
+        // Eagerly load the test module's full declared-dependency closure
+        // (functions + types + vtables). Lazy on-demand resolution suffices for
+        // static calls, but virtual (instance-method) dispatch into a dep —
+        // `set.Add(x)` on a `Std.Collections.SortedSet` — needs the dep's
+        // TypeDesc *and* its method bodies present up front. Force-loading the
+        // closure here matches the dedicated test-runner bootstrap's effect
+        // (its candidates were resolved before any test ran).
+        self.force_load_all_declared();
+
+        // Inheritance fixup (subclasses whose base lives in an already-loaded module).
+        let fixup_cap = self.type_registry.len() + 8;
+        for round in 0.. {
+            let n = crate::vm::runtime::types::try_fixup_inheritance(&mut self.type_registry);
+            if n == 0 || round >= fixup_cap {
+                break;
+            }
+        }
+        self.publish_types();
+
+        Ok(())
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// complete-generic-instantiation D4-fix：这个名字是**合成的泛型实例化产物**吗？
+///
+/// 判据是「名字里有 `<`」，可靠性来自：用户源码写不出带尖括号的类型名 —— 泛型**定义**按
+/// 裸名发（`GBox`），arity mangle 走 `Name$N`，而实参仍是型参的伪实例化（`ListEnumerator<T>`）
+/// 在编译器侧已被 `_isConcreteTypeArg` 排除。故带尖括号的名字只可能出自实例化合成。
+///
+/// 成员函数名同判：它们的 owner 前缀就是实例化名
+/// （`Std.ValueTuple2<Int32,String>.ValueTuple2$2`）。
+pub(super) fn is_instantiation_artifact(name: &str) -> bool {
+    name.contains('<')
+}
+
+/// D4-fix 的兜底断言（类型侧）：两份同名描述符是不是同一件东西。
+///
+/// 合成产物是 `(定义, 类型实参)` 的确定性函数，正常情况下必然一致。**不一致意味着两个消费方
+/// 是对着不同版本的生产方编的** —— 那种情况下静默取第一份会让后来者按错布局读写，所以这里
+/// 返回 false，让调用方退回既有的歧义处理（记歧义 + 告警）。
+pub(super) fn same_type_shape(a: &TypeDesc, b: &TypeDesc) -> bool {
+    if a.base_name != b.base_name
+        || a.class_flags != b.class_flags
+        || a.fields.len() != b.fields.len()
+    {
+        return false;
+    }
+    match (a.struct_layout(), b.struct_layout()) {
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            x.size == y.size && x.ref_offsets == y.ref_offsets && x.ref_kinds == y.ref_kinds
+        }
+        _ => false,
+    }
+}
+
+/// D4-fix 的兜底断言（函数侧）。比的是**形状指纹**（签名 + 块数 + 指令总数），不是逐指令
+/// 相等 —— 后者要在每次重复到达时遍历整个函数体，而这条路径在每个 zpkg 加载时都会走。
+/// 指纹不符即退回歧义处理；指纹相符而体不同，需要两个消费方对着不同版本的生产方编出
+/// **同签名同块数同指令数**的体，由包身份/版本门（`fix-package-identity-gate`）在上游拦。
+pub(super) fn same_function_shape(a: &Function, b: &Function) -> bool {
+    a.param_count == b.param_count
+        && a.ret_type == b.ret_type
+        && a.is_static == b.is_static
+        && a.blocks.len() == b.blocks.len()
+        && a.blocks.iter().map(|x| x.instructions.len()).sum::<usize>()
+            == b.blocks.iter().map(|x| x.instructions.len()).sum::<usize>()
+}
+
+impl LazyLoader {
+    /// Move a package's string pool into the VM's string table; the returned first id is the
+    /// offset its `ConstStr` operands are shifted by.
+    fn append_strings(&self, pool: &mut Vec<String>) -> Result<u32> {
+        self.strings
+            .append(std::mem::take(pool))
+            .ok_or_else(|| anyhow::anyhow!("string id space exhausted"))
+    }
+}
+
+/// Rewrite all ConstStr `idx` values in a function's blocks by adding
+/// `offset` (the package's first id in the VM's `StrTable`), so they become ids
+/// in the VM's one string id space.
+fn remap_const_str(fn_: &mut Function, offset: u32) {
+    fn_.remap_string_ids(offset);
+}

@@ -15,9 +15,9 @@
 
 | 子目录 | 内容 |
 |------|------|
-| [android/](android/) / [ios/](ios/) / [wasm/](wasm/) | 平台 workload（appbuilder + template + platform）|
-| [desktop/](desktop/) | 桌面 workload：apphost stub + C-ABI 契约测试 |
-| [test/](test/) | 能力 workload：on-device test-agent |
+| [android/](android) / [ios/](ios) / [wasm/](wasm) | 平台 workload（appbuilder + template + platform）|
+| [desktop/](desktop) | 桌面 workload：apphost stub + C-ABI 契约测试 |
+| [test/](test) | 能力 workload：on-device test-agent |
 | `fixtures/` | 各平台测试共用夹具 |
 | `platform-contract.md` | 平台契约 |
 

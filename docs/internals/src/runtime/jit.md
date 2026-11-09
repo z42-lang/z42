@@ -1,6 +1,6 @@
 # 惰性逐函数 JIT（lazy per-function compilation）
 
-> 代码：`src/runtime/src/jit/`
+> 代码：`src/runtime/crates/z42-jit/src/jit/`
 > （`compile/state.rs` / `compile/mod.rs` / `runtime/frame.rs` / `mod.rs` / `helpers/call.rs` / `helpers/vcall.rs`）。
 
 ## 配置输入
@@ -575,7 +575,7 @@ PRIM 数组的读写内联（`packed_data`）不变。
 
 ## 静态字段：内联的 `StaticGet` / `StaticSet`
 
-> 代码：`src/runtime/src/jit/translate/static_field.rs`；屏障 `vm/context/statics.rs` 的 `ensure_static_field_init`；
+> 代码：`src/runtime/crates/z42-jit/src/jit/translate/static_field.rs`；屏障 `vm/context/statics.rs` 的 `ensure_static_field_init`；
 > 单元 `vm/runtime/statics/table.rs`。
 
 ### 为什么

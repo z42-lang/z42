@@ -1,6 +1,6 @@
 # JIT 后端（Cranelift）：结构与调用约定
 
-> 代码：`src/runtime/src/jit/`（`mod.rs` / `compile/state.rs` / `runtime/frame.rs` / `compile/mod.rs` / `translate/` / `helpers/`）
+> 代码：`src/runtime/crates/z42-jit/src/jit/`（`mod.rs` / `compile/state.rs` / `runtime/frame.rs` / `compile/mod.rs` / `translate/` / `helpers/`）
 > 相关：[惰性逐函数 JIT](jit.md)（编译时机、调用计数 tier-up、混合模式、OSR、原生快路径） · [解释器 / JIT 标量语义](interp-jit-semantics.md)
 > 待办：编译在调用线程的编译锁内串行进行，尚无批量 / 后台编译（runtime-audit 待办 X-13）
 
@@ -126,7 +126,7 @@ brif v, exc_block, next
 ## 文件结构
 
 ```
-src/runtime/src/jit/
+src/runtime/crates/z42-jit/src/jit/
 ├── mod.rs           jit::run / run_fn
 ├── config.rs        后端拥有的 JitConfig 输入
 ├── runtime.rs       JitRuntime（VmCore.exec.engines）：JitSlot 表、fn_of / id_of_func / id_by_name、resolve_fn_by_* / OSR 入口解析、install
@@ -138,6 +138,6 @@ src/runtime/src/jit/
 └── helpers/         extern "C" helper（按指令类别拆分；registry.rs 为中央注册表）
 ```
 
-加 helper 的步骤见 `src/runtime/src/jit/README.md` 的「Helper 边界」。
+加 helper 的步骤见 `src/runtime/crates/z42-jit/src/jit/README.md` 的「Helper 边界」。
 
 配置转换与安装边界见 [惰性逐函数 JIT · 配置输入](jit.md#配置输入)。

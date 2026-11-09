@@ -1,0 +1,58 @@
+use std::process::{Child, Command, ExitStatus};
+
+pub fn exit_code(status: ExitStatus) -> i64 {
+    match status.code() {
+        Some(c) => c as i64,
+        None => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+                status.signal().map(|s| 128 + (s as i64)).unwrap_or(-1)
+            }
+            #[cfg(not(unix))]
+            {
+                -1
+            }
+        }
+    }
+}
+
+pub fn own_process_group(cmd: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    #[cfg(not(unix))]
+    let _ = cmd;
+}
+
+pub struct ProcessTree {
+    own_group: bool,
+}
+impl ProcessTree {
+    pub fn attach(child: &Child, own_group: bool) -> Self {
+        let _ = child;
+        Self { own_group }
+    }
+    pub fn kill(&self, child: &mut Child) {
+        let _ = self.own_group;
+        let _ = child.kill();
+    }
+}
+
+pub fn contains_path_separator(s: &str) -> bool {
+    s.contains('/')
+}
+
+pub fn candidates_in_dir(dir: &std::path::Path, name: &str) -> Vec<std::path::PathBuf> {
+    vec![dir.join(name)]
+}
+
+pub fn check_candidate(path: &std::path::Path) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    Some(path.to_string_lossy().into_owned())
+}

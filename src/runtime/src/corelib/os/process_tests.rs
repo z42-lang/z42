@@ -200,3 +200,5 @@ fn a_collection_completes_while_a_thread_waits_on_a_child() {
         exec_builtin(&ctx, "__process_close", &[i(slot)]).unwrap();
     }
 }
+
+use crate::assembly::context::VmContextFactory as _;

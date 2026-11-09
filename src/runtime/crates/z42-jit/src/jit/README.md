@@ -1,0 +1,69 @@
+# jit — Cranelift JIT backend
+
+## 职责
+将 z42 SSA 字节码编译为原生机器码执行。Cranelift 生成控制流和常见值操作的快路，通用语义由 `extern "C"` helper 实现。**编译是惰性的**：函数在**首次被调用**时才编译（compile-on-first-call），不在加载时全量编译——机制见 [book: 惰性逐函数 JIT](../../../../../../docs/internals/src/runtime/jit.md)。
+
+## 核心文件
+| 文件 | 职责 |
+|------|------|
+| `config.rs` | `JitConfig`：后端拥有的五项已解析输入，由门面转换并传入；不读取全局 RuntimeConfig |
+| `mod.rs` | 公开 API（`jit::run` 装 JIT 并执行入口、`jit::run_fn` 先编入口再执行） |
+| `engine.rs` | TierBackend 适配器：保留原 tiered/peek、原生 callee 帧和 OSR 交接，返回共享 ExecOutcome |
+| `compile/mod.rs` | `LazyCompiler`：Cranelift `JITModule`、helper imports、单函数与 OSR 编译；代码页随每 VM 编译器状态存活 |
+| `compile/state.rs` | `JitRuntime`：每 VM 的编译槽、tier-up 计数、编译锁、OSR 缓存与阈值；`install` 和编译入口解析 |
+| `compile/lookup.rs` | `ForwardLookup` / `CompileLookup`：编译期只读的已加载函数、builtin 转发与屏障地址；不加载、不执行初始化器 |
+| `compile/vm_interface.rs` | `JitVm`：编译期静态元数据只读契约 |
+| `runtime/frame.rs` | `JitFrame` 寄存器文件与 `FnEntry` 已编译入口 |
+| `runtime/invoke.rs` | `enter_compiled` / `call_entry`：`push_frame` → 编译码 → `pop_frame` → 回收帧的唯一调用序列 |
+| `runtime/forward.rs` | 从原生调用者寄存器直接执行已识别的 builtin 转发 |
+| `translate/reg_access.rs` | Cranelift 寄存器地址、tag / payload 发射与寄存器缓存 |
+| `translate/` | z42 指令 → Cranelift IR（`translate_function` 取单 `FuncId`）；`HelperIds` 重导出自 `helpers`。按职责拆为子模块：`mod.rs`（驱动：函数序言 + 逐块循环 + `TxCtx` 构造 + 按类别分发）、`ctx.rs`（`TxCtx` 每块上下文 + 6 个前置局部宏转成的方法 `ri`/`str_val`/`regs_val`/`check`/`dispatch_to_catch_or_return`/`emit_int_divrem`）、`hoist.rs`（循环不变量提升：数组数据指针；循环内、接收者不变的字段 IC 守卫）、`field_ic`（原生单态字段 IC：对站点 `FieldIC` entry 0 的内联守卫 + 单元读写，引用写内联屏障判定，未命中回落 helper）、`static_field`（`StaticGet` / `StaticSet` 内联：单元里的屏障放行记录与屏障纪元比较一次，再按型参单元协议读写，未放行 / 冷形态回落 helper）、指令 handler `value`/`arith`/`compare`/`convert`/`call`/`array`/`object`/`structs`/`term`（各 `impl TxCtx { fn tr_* }`）、Cranelift 发射 `emit_int`/`emit_fc`、谓词 `predicates`、分析 `analysis`、寄存器变量 `reg_var`、站点缓存 `ic`、控制流 `control`、不支持指令表 `unsupported`、字符串原语内联 `str_intrinsics`（`s.Length` / `s[i]` / `CharAt` 对全 ASCII 串直接 load，慢路径即原 helper 序列；`compare` 对两个 `char` 原生比较）。语义锚：`emit_*` 以 `// SEMANTICS: scalar::<fn>` 引用 `crate::vm::exec::ops::scalar` |
+| `helpers/` | `extern "C"` helper 集合（按指令类别拆分；与 `interp/ops/exec_*.rs` 命名对称）。查表统一经 `resolve_fn_*`（含惰性 hook） |
+
+`translate/array_layout.rs` 为定宽堆数组的长度和元素读取提供共同的头部检查。不能提升形状的定宽 `ArrayGet` 按当前接收者读取数组头。
+
+### `helpers/` 子目录
+| 文件 | 职责 |
+|------|------|
+| `mod.rs` | 共享工具（`vm_ctx_ref` / `jit_rt` / `jit_module` / `set_exception` / `raise`（objops 错误 → pending 异常）/ 数值 helper / `JitFn`）+ `VM_JIT_INTERFACE_VERSION`。每个 helper 的 `ctx` 参数是运行线程自己的 `VmContext` |
+| `registry.rs` | **中央 helper 注册表**：`HelperIds` 结构、`register_symbols`（→ JITBuilder）、`declare_imports`（→ JITModule） |
+| `value.rs` | 常量加载、Copy、字符串、`get_bool` |
+| `arith.rs` | 算术、比较、逻辑、一元、位运算 |
+| `control.rs` | `throw` / `install_catch` / `match_catch_type` |
+| `call.rs` | `jit_call`、`jit_builtin` |
+| `array.rs` | 数组分配、元素访问、长度 |
+| `object.rs` | 对象分配（类 / 构造器解析与站点缓存共用 `vm::exec::ops::obj_new`，ctor 按 `FnId` 走槽位）、类型检查、静态字段（内联快路未放行时的 `jit_static_get` / `jit_static_set`）、`default(T)` |
+| `vcall.rs` | 虚调用的 JIT **调用侧**：PIC 命中（载荷 = `FnId`，惰性目标也在内）→ by-id tiered `FnEntry`，冷 → 按 id 经注册 Engine 回落 interp；miss → `vm::exec::ops::vcall::resolve_vcall`（与 interp 共用的**唯一**目标解析：装箱基元 / 装箱 struct / primitive-as-struct / vtable·层级 walk + PIC 安装）→ 编译入口或已注册 Engine 回退 |
+| `closure.rs` | L3 闭包：`load_fn` / `mk_clos` / `call_indirect` |
+| `object_field.rs` | 字段访问 helper（`objops::field` 的薄适配）：原生字段 IC 未命中时的 `jit_field_get` / `jit_field_set`（解析并安装站点 IC） |
+| `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，叶子读写走 `objops::struct_leaf`，分配 / 拷贝调用 `vm/exec/ops/structs` 的值级核心 |
+
+编译器与对应单元测试放在 `compile/`；原生激活放在 `runtime/`。转发形状识别的测试与共享实现一起位于 `vm/exec/call/forward_shape_tests.rs`。
+
+## 入口点
+- `jit::run(ctx, module, entry, config)` → `compile::state::install`（每 VM 一个 JIT，不编译任何用户函数）+ 静态初始化 + `run_fn`
+- `jit::run_fn(ctx, entry_name)` → 先编入口函数，再执行；其余函数首次调用时经 `resolve_fn_by_id` 惰性编译
+- 编译码 / helper 的上下文参数是运行线程自己的 `VmContext`；worker 线程（`new_with_core`）经 `ctx.jit()` 共用同一个 JIT
+
+## 如何测试验证
+```bash
+(cd src/runtime && cargo test --lib jit::)   # 惰性编译 / JIT 槽位 / 跨线程单测（lazy_tests + lazy_load_tests + runtime_tests）
+(cd src/runtime && cargo test --lib --no-default-features vm::exec::call::forward::forward_shape_tests::) # 共享识别器在 interp-only 下实际执行
+./xtask test e2e --mode jit                                         # golden 端到端（JIT，输出须与 interp 逐字节一致）
+Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每个被惰性编译的函数（数十，非整套 stdlib）
+```
+
+## Helper 边界
+
+加新 helper 改 **2 处**:
+1. 对应 `helpers/<category>.rs` 添加函数定义
+2. `helpers/registry.rs` 添加 `register_symbols` 中的 `reg!()` 行 + `HelperIds` 字段 + `declare_imports` 中的 `decl!()` 行
+
+详见 [docs/internals/src/runtime/vm-architecture.md](../../../../../../docs/internals/src/runtime/vm-architecture.md) "JIT/EE helper 边界"。
+
+## 依赖关系
+- 共享转发与类型实参从 `vm/exec/call` 调用，struct 值级实现从 `vm/exec/ops/structs` 调用；执行结果使用 VM 的 `ExecOutcome`。
+- builtin 调用与异常映射依赖 `vm::exec::call`；Typeof 经 VM 对象协议物化反射类型；纯值格式化依赖 `object/value`；`[Native]` 折叠依赖 `vm::exec::call::forward`
+- 静态指令来自 `metadata`，链接后的 `Module` / `Function` 来自 `vm/runtime`，`Value` 来自 `object`。
+- 依赖 `vm::exec::ops::vcall`（vcall 目标解析单一实现）+ `vm::exec::ops::obj_new`（ObjNew 类 / 构造器解析与站点缓存）+ `vm::runtime::dispatch::receiver::primitive_class_name`（is/as 共享判定）+ `vm::exec::ops::cast::isa_td`（is / as / catch 类型判定单一实现，含 `IsaCache`；helpers/object.rs 与 control.rs 共享，JIT 不自带基链遍历；翻译时烘焙指令 / 异常表行的 `TypeKeyCell` 指针）
+- 外部依赖：`cranelift-codegen`、`cranelift-frontend`、`cranelift-jit`、`cranelift-module`

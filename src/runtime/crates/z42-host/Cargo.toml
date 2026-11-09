@@ -19,7 +19,7 @@ path = "src/lib.rs"
 # graph union.
 # 2026-05-12 runtime crate renamed `z42_vm` → `z42`
 # (redesign-artifact-layout, lib/binary naming alignment).
-z42 = { path = "../../", default-features = false }
+z42 = { path = "../../", default-features = false, features = ["interp"] }
 
 # Reuse the Z42Value / Z42Args / Z42Error types from the shared abi crate
 # so callers don't pull in the full runtime tree just to construct args.

@@ -20,7 +20,7 @@ H1 下用引用块给检索入口：
 ```markdown
 # 垃圾回收（GC）
 
-> 代码：`src/runtime/src/gc/`
+> 代码：`src/runtime/crates/z42-runtime-core/src/gc/`
 > 相关：[执行模型](execution-model.md)
 ```
 

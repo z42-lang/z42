@@ -9,6 +9,8 @@
 //! source generator (C5) wires user-facing syntax we will add a separate
 //! dlopen-based smoke test.
 
+// These tests directly exercise the statically linked interpreter entry.
+#![cfg(feature = "interp")]
 #![cfg(not(z42_skip_native_poc))]
 
 use z42_zpkg::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator};
@@ -585,3 +587,5 @@ fn callnative_unknown_method_traps() {
     assert!(msg.contains("unknown method"), "msg = {msg}");
     assert!(msg.contains("ghost_method"), "msg = {msg}");
 }
+
+use z42::host::VmContextFactory as _;

@@ -7,7 +7,7 @@
 ## 设计目标
 
 让 runtime 其余模块**零 cfg 调用** OS 服务。OS-specific 实现集中在
-`src/runtime/src/pal/sys/`，`pal/<concern>.rs` 保留接口和共享策略，公开 surface 返回 OS-neutral 类型
+`src/runtime/crates/z42-runtime-core/src/pal/sys/`，`pal/<concern>.rs` 保留接口和共享策略，公开 surface 返回 OS-neutral 类型
 (`Option<String>` / `Result<T, E>`)。
 
 ## CoreCLR 对照
@@ -31,7 +31,7 @@ ASM）—— Cranelift / Rust 已经兜底 arch 差异。z42 PAL 只关心 **OS 
 
 ## z42 现状
 
-`src/runtime/src/pal/`:
+`src/runtime/crates/z42-runtime-core/src/pal/`:
 
 ```
 pal/

@@ -16,7 +16,7 @@
 
 把 z42 VM 包装成各**目标平台原生形态**的依赖包，让 native 应用（iOS / Android / 浏览器 / Node.js / wasm runtime）一行 `import` 就能跑 `.zbc`。
 
-所有平台 facade **统一架在 [Tier 2 `z42-host` crate](../../workload/host-api/) 之上**（consolidate-platform-into-workload S1 已从 `host/embed/` 迁至 `workload/host-api/`）；没有任何 facade 直接调 `z42_runtime::interp::*` 或 `z42::host::*` extern C 函数 —— 那是 host 模块自己内部的事。
+所有平台 facade **统一架在 [Tier 2 `z42-host` crate](../../workload/host-api) 之上**（consolidate-platform-into-workload S1 已从 `host/embed/` 迁至 `workload/host-api/`）；没有任何 facade 直接调 `z42_runtime::interp::*` 或 `z42::host::*` extern C 函数 —— 那是 host 模块自己内部的事。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -171,9 +171,9 @@ zpkg 文件本身**由 `dotnet build src/compiler/z42.slnx` 编译标准库产�
 
 | 平台 | 目录 | 状态 |
 |------|------|------|
-| iOS | [`ios/`](ios/) | 🟢 H4 ✅ |
-| Android | [`android/`](android/) | 🟢 H4 ✅ |
-| WASM | [`wasm/`](wasm/) | 🟢 H4 ✅ |
+| iOS | [`ios/`](ios) | 🟢 H4 ✅ |
+| Android | [`android/`](android) | 🟢 H4 ✅ |
+| WASM | [`wasm/`](wasm) | 🟢 H4 ✅ |
 
 ---
 

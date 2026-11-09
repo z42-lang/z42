@@ -20,6 +20,7 @@ int _pkgLayoutCheck(string root, string pkgDir, string kind, string rid) {
     if (kind != "runtime") { L.HasFile("manifest.toml"); }   // runtime 包不带 manifest（嵌入者直接取 native/ + libs/）
     if (kind == "sdk")                   { _plSdk(root, L, rid); }
     else if (kind == "workload-desktop") { L.HasGlob("apphost-" + rid + "*", "apphost-<rid> stub"); }
+    else if (kind == "runtime-dynamic") { _plRuntimeDynamic(L, rid); }
     else if (kind == "runtime") {
         if (cat == "desktop")      { _plRuntimeDesktop(root, L, rid); }
         else if (cat == "ios")     { _plRuntimeIos(L); }

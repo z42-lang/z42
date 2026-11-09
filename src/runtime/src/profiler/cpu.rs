@@ -160,7 +160,7 @@ impl Sampler {
         // 快照栈：栈底在左（call_stack 顺序，index 0 = 最外层 Main）。只取帧名（函数的 frame_meta）。
         // 本线程即栈的所属线程（safepoint 在所属线程上跑），读帧不加锁。
         let names: Vec<Arc<str>> = ctx
-            .exec.call_stack
+            .exec().call_stack
             .with_frames(|cs| cs.iter().map(|f| f.func().frame_name_file().0).collect());
         if names.is_empty() {
             return; // 空栈不产坏行

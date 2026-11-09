@@ -1,0 +1,92 @@
+//! `EngineGuards` — the thread-local VM / heap pointers a context installs while
+//! it has frames on its stack.
+//!
+//! Two thread-locals must name the running VM while z42 code runs:
+//! `vm::exec::ambient`'s heap (heap-less `Str::new` / `.into()` allocate from it) and,
+//! with `native-interop`, `vm::exec::active_vm`'s `CURRENT_VM` (`z42_*` exports find
+//! the VM through it). Both stay the same for a whole activation chain, so they
+//! are installed when the **bottom** frame is pushed (`VmContext::push_frame`,
+//! frame-stack depth 0 → 1) and restored when the stack is empty again
+//! (`pop_frame`). A nested call costs no thread-local access.
+//!
+//! Every other engine entry on the same thread and context — reflection invoke,
+//! static constructors, `ToString` dispatch, the REPL, JIT ↔ interp diverts —
+//! runs above that bottom frame, under the guards already installed. The one
+//! way another context's code can run on this thread while this context has
+//! frames is a host re-entry (`z42_host_invoke` from a native callback), and
+//! `host::ops::invoke_impl` installs both guards itself, unconditionally. Each
+//! guard restores what it found, so the nesting unwinds in order.
+//!
+//! The same bottom push also stores the running thread's stack limit into the
+//! context's JIT head (`JitHead::stack_limit`), which every compiled prologue
+//! compares the stack pointer with: a context's compiled code always checks
+//! against the stack of the thread that is driving it. A context created before
+//! the VM's JIT was installed picks up the runtime pointer (`JitHead::jit`) here.
+//!
+//! Owner-thread only, like the frame stack (`frame_stack.rs`).
+
+use std::cell::UnsafeCell;
+
+use crate::vm::exec::ambient::HeapGuard;
+
+use crate::vm::context::VmContext;
+
+struct Installed {
+    // Field order = drop order: restore `CURRENT_VM`, then the heap.
+    #[cfg(feature = "native-interop")]
+    _vm: crate::vm::exec::active_vm::VmGuard<'static>,
+    _heap: HeapGuard,
+}
+
+/// See the module docs.
+#[derive(Default)]
+pub struct EngineGuards {
+    installed: UnsafeCell<Option<Installed>>,
+}
+
+// SAFETY: `installed` is touched only by the owner thread, at the bottom push
+// and the last pop (module docs). Dropping a context that still has frames on
+// another thread would restore that thread's slots — the same as dropping a
+// leaked RAII guard there; no context is dropped with live frames.
+unsafe impl Sync for EngineGuards {}
+unsafe impl Send for EngineGuards {}
+
+impl EngineGuards {
+    /// Owner only, at the bottom frame's push.
+    #[cold]
+    #[inline(never)]
+    pub fn install(&self, ctx: &VmContext) {
+        ctx.exec.jit_head.stack_limit.store(crate::vm::exec::stack_guard::limit(), std::sync::atomic::Ordering::Relaxed);
+        #[cfg(feature = "jit")]
+        if ctx.exec.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed).is_null() {
+            ctx.publish_tier();
+        }
+        // SAFETY: the context outlives its guards — they are dropped at the
+        // last pop or, at the latest, with the context itself.
+        #[cfg(feature = "native-interop")]
+        let ctx_static: &'static VmContext = unsafe { &*(ctx as *const VmContext) };
+        let installed = Installed {
+            #[cfg(feature = "native-interop")]
+            _vm: crate::vm::exec::active_vm::VmGuard::enter(ctx_static),
+            _heap: HeapGuard::enter(ctx.heap()),
+        };
+        // SAFETY: owner-thread access.
+        let slot = unsafe { &mut *self.installed.get() };
+        debug_assert!(slot.is_none(), "engine guards installed twice");
+        *slot = Some(installed);
+    }
+
+    /// Owner only, once the frame stack is empty again. Restores what
+    /// [`install`](Self::install) replaced.
+    #[cold]
+    #[inline(never)]
+    pub fn release(&self) {
+        // SAFETY: owner-thread access; the guards drop after the borrow ends.
+        let installed = unsafe { &mut *self.installed.get() }.take();
+        drop(installed);
+    }
+}
+
+#[cfg(test)]
+#[path = "engine_guards_tests.rs"]
+mod engine_guards_tests;

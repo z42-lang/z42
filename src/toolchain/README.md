@@ -8,15 +8,15 @@
 
 | 目录 | 职责 |
 |------|------|
-| [launcher/](launcher/) | `z42` launcher（muxer）：原生 trampoline + `launcher.zpkg`（run / publish / export / workload / 转发 z42b·z42c·z42i）+ per-app 原生 apphost |
-| [builder/](builder/) | `z42b` 构建编排器：读 `z42.toml` / `--rid` 驱动 `z42.build` 管线（compile → trim → assets → workload），launcher 分发调用（`new` / `build` / `publish` / `export` / `test` / `bench`）；兼作 stdlib / 工程 `[Test]` / `[Benchmark]` 的反射运行器 |
-| [devtools/](devtools/) | `z42d` 开发者工具（muxer apphost）：已有 `symbolicate`、`install`；`fmt` / `doc` / `dbg` / `prof` / `lint` 为已登记命令面的待办 |
-| [devtools/vscode/](devtools/vscode/) | VSCode 语法高亮资产包 |
-| [interactive/](interactive/) | `z42i` 交互式 REPL（apphost，非 muxer）：片段 → 编译 → VM 求值 → 打印 |
-| [interactive/repl/](interactive/repl/) | `z42.repl`（`Std.Repl`）：REPL 终端交互层（rustyline 行编辑 + 缩进感知键位） |
-| [workload/](workload/) | 平台 / 能力 workload：`{ios,android,wasm,desktop}/`（appbuilder · platform · template）+ `test/`（on-device test-agent）+ `platform-contract.md`；按需 `z42 workload install` |
+| [launcher/](launcher) | `z42` launcher（muxer）：原生 trampoline + `launcher.zpkg`（run / publish / export / workload / 转发 z42b·z42c·z42i）+ per-app 原生 apphost |
+| [builder/](builder) | `z42b` 构建编排器：读 `z42.toml` / `--rid` 驱动 `z42.build` 管线（compile → trim → assets → workload），launcher 分发调用（`new` / `build` / `publish` / `export` / `test` / `bench`）；兼作 stdlib / 工程 `[Test]` / `[Benchmark]` 的反射运行器 |
+| [devtools/](devtools) | `z42d` 开发者工具（muxer apphost）：已有 `symbolicate`、`install`；`fmt` / `doc` / `dbg` / `prof` / `lint` 为已登记命令面的待办 |
+| [devtools/vscode/](devtools/vscode) | VSCode 语法高亮资产包 |
+| [interactive/](interactive) | `z42i` 交互式 REPL（apphost，非 muxer）：片段 → 编译 → VM 求值 → 打印 |
+| [interactive/repl/](interactive/repl) | `z42.repl`（`Std.Repl`）：REPL 终端交互层（rustyline 行编辑 + 缩进感知键位） |
+| [workload/](workload) | 平台 / 能力 workload：`{ios,android,wasm,desktop}/`（appbuilder · platform · template）+ `test/`（on-device test-agent）+ `platform-contract.md`；按需 `z42 workload install` |
 
-> 语言核心**编译器在 [`../compiler/`](../compiler/)**、VM 在 [`../runtime/`](../runtime/)、标准库在 [`../libraries/`](../libraries/)，不在本目录。
+> 语言核心**编译器在 [`../compiler/`](../compiler)**、VM 在 [`../runtime/`](../runtime)、标准库在 [`../libraries/`](../libraries)，不在本目录。
 
 ## 构建
 
@@ -30,9 +30,9 @@
 
 **路径 SoT**：所有输出/publish 路径从各组件 `z42.toml` 读（`[build].dist_dir`/`output_dir`、`[platform.desktop].publish_dir`，级联默认 `${output_dir}/{dist,publish}`），xtask 不硬编码——改路径只动 toml。实现见 [`scripts/build/xtask_toolchain.z42`](../../scripts/build/xtask_toolchain.z42)。
 
-本目录无 `host/`——Tier 1 C ABI + 头在 [`../runtime/src/host/`](../runtime/src/host/) + [`../runtime/include/`](../runtime/include/)，Tier 2 `z42-host` crate 在 `src/runtime/crates/z42-host`，Tier 3 平台绑定在 `workload/`。
+本目录无 `host/`——Tier 1 C ABI + 头在 [`../runtime/src/host/`](../runtime/src/host) + [`../runtime/include/`](../runtime/include)，Tier 2 `z42-host` crate 在 `src/runtime/crates/z42-host`，Tier 3 平台绑定在 `workload/`。
 
-启动器的命令分发、平台工程导出、runtime / workload 分发等机制见 [`docs/internals/src/toolchain/`](../../docs/internals/src/toolchain/)。
+启动器的命令分发、平台工程导出、runtime / workload 分发等机制见 [`docs/internals/src/toolchain/`](../../docs/internals/src/toolchain)。
 
 ## 如何测试验证
 

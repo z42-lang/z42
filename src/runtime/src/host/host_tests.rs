@@ -270,7 +270,7 @@ fn jit_mode_when_feature_off_returns_feature_off() {
     let mut h: *mut Z42Host = ptr::null_mut();
     let status = unsafe { z42_host_initialize(&cfg, &mut h) };
 
-    #[cfg(feature = "jit")]
+    #[cfg(all(feature = "jit", z42_jit_supported))]
     {
         assert_eq!(status, Z42HostStatus::Ok);
         assert_eq!(
@@ -278,7 +278,7 @@ fn jit_mode_when_feature_off_returns_feature_off() {
             Z42HostStatus::Ok
         );
     }
-    #[cfg(not(feature = "jit"))]
+    #[cfg(not(all(feature = "jit", z42_jit_supported)))]
     {
         assert_eq!(status, Z42HostStatus::FeatureOff);
         assert!(h.is_null());

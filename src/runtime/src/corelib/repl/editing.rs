@@ -71,8 +71,8 @@ fn key_edit_via_callback(
     pos: i64,
 ) -> Result<String> {
     let module_arc = ctx
-        .core
-        .runtime.module
+        .core()
+        .runtime().module
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("__repl_set_key_editor: VmCore.module is None"))?
         .clone();

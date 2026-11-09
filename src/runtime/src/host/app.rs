@@ -8,9 +8,9 @@ fn vfs_is_dir(fs: &dyn Vfs, p: &Path) -> bool { p.to_str().is_some_and(|s| fs.is
 /// else Interp (jit-less builds — wasm / `--features interp-only`). Callers
 /// without an explicit mode (embedding one-shot) use this.
 pub fn default_mode() -> ExecMode {
-    #[cfg(feature = "jit")]
+    #[cfg(all(feature = "jit", z42_jit_supported))]
     { ExecMode::Jit }
-    #[cfg(not(feature = "jit"))]
+    #[cfg(not(all(feature = "jit", z42_jit_supported)))]
     { ExecMode::Interp }
 }
 
@@ -90,7 +90,7 @@ pub fn run_app(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     }
 
     let program = LoadedProgram::load_file(file, LoadOptions {
-        components: Default::default(),
+        components: Default::default(), backends: Default::default(),
         mode: opts.mode, vfs, search_dirs, resolver: None, eager_dependencies: false,
     })?;
     set_program_args(program.context(), opts.program_args)?;
@@ -146,7 +146,7 @@ if report.print_stats {
     // + user-lock contention counters (0 unless the `profile-contention`
     // feature is built in).
     let (park_count, park_us_total, park_max_us) = {
-        let ph = ctx.core.diagnostics.park_histogram.lock();
+        let ph = ctx.core().diagnostics().park_histogram.lock();
         (ph.count, ph.total_us, if ph.count == 0 { 0 } else { ph.max_us })
     };
     use std::sync::atomic::Ordering::Relaxed;
@@ -157,8 +157,8 @@ if report.print_stats {
     .with_footprint(h.used_bytes, h.committed_bytes)
     .with_concurrency(
         park_count, park_us_total, park_max_us,
-        ctx.core.diagnostics.lock_contentions.load(Relaxed),
-        ctx.core.diagnostics.lock_wait_us.load(Relaxed),
+        ctx.core().diagnostics().lock_contentions.load(Relaxed),
+        ctx.core().diagnostics().lock_wait_us.load(Relaxed),
     );
     if report.stats_json {
         eprintln!("{}", snap.to_json());
@@ -172,10 +172,10 @@ if report.print_stats {
 // being enabled (Z42_SAMPLE_HZ set) — the default-off path does nothing.
 // Independent of --print-stats-on-exit: the sampler is its own env-driven
 // profiling channel.
-if ctx.core.diagnostics.sampler.enabled() {
+if ctx.core().diagnostics().sampler.enabled() {
     let cfg = crate::config::runtime_config();
     let folded_path = cfg.sample_out.to_string_lossy();
-    match ctx.core.diagnostics.sampler.flush_folded(&folded_path) {
+    match ctx.core().diagnostics().sampler.flush_folded(&folded_path) {
         Ok(()) => eprintln!(
             "z42: sampling profiler → folded stacks: {folded_path}  \
              (flamegraph: `inferno-flamegraph < {folded_path} > flame.svg`)"
@@ -184,7 +184,7 @@ if ctx.core.diagnostics.sampler.enabled() {
     }
     if let Some(trace_path) = cfg.trace_out.as_ref() {
         let trace_path = trace_path.to_string_lossy();
-        match ctx.core.diagnostics.sampler.flush_trace(&trace_path) {
+        match ctx.core().diagnostics().sampler.flush_trace(&trace_path) {
             Ok(()) => eprintln!(
                 "z42: sampling profiler → perfetto trace: {trace_path}  \
                  (open at https://ui.perfetto.dev)"

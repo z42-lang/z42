@@ -9,13 +9,13 @@
 - **Flat 模式** — `<category>/<name>.z42` 单文件（仅 assert-only 用例：用 `Std.Assert` 抛异常表达失败，期望空 stdout，无 sidecar）
 
 不放在这里：
-- 编译器单元测试（代码生成 / zbc）→ [src/compiler/z42c.emission/tests/](../compiler/z42c.emission/tests/)
-- 编译器单元测试（语义层）→ [src/compiler/z42c.semantics/tests/](../compiler/z42c.semantics/tests/)
-- 编译器单元测试（语法层）→ [src/compiler/z42c.syntax/tests/](../compiler/z42c.syntax/tests/)
+- 编译器单元测试（代码生成 / zbc）→ [src/compiler/z42c.emission/tests/](../compiler/z42c.emission/tests)
+- 编译器单元测试（语义层）→ [src/compiler/z42c.semantics/tests/](../compiler/z42c.semantics/tests)
+- 编译器单元测试（语法层）→ [src/compiler/z42c.syntax/tests/](../compiler/z42c.syntax/tests)
 - **期望编译报错的用例** → 同上（`[Test]` + `SemanticDump`，见下文）
-- VM Rust 单元测试 → [src/runtime/src/](../runtime/src/) 同模块的 `*_tests.rs`
-- VM Rust 集成测试（zbc_compat / native interop / manifest schema）→ [src/runtime/tests/](../runtime/tests/)
-- stdlib 库本地测试 → [src/libraries/<lib>/tests/](../libraries/)
+- VM Rust 单元测试 → [src/runtime/src/](../runtime/src) 同模块的 `*_tests.rs`
+- VM Rust 集成测试（zbc_compat / native interop / manifest schema）→ [src/runtime/tests/](../runtime/tests)
+- stdlib 库本地测试 → [src/libraries/<lib>/tests/](../libraries)
 
 > **归属判据**：本目录测的是**语言 / VM 特性**——语法、类型系统、派发、GC、优化 pass、自举格式。
 > 一个用例若在测**某个库的 API 行为**（`String.Trim`、`Enum.Parse`、`List<T>`、`Std.Assert` …），
@@ -73,7 +73,7 @@
    配上**包名**喂 `ImportedSymbolLoader.Load`，在内存里造出任意跨包形状，再用
    `IrDump.BuildPackage(..., imported, ...)` 编消费方并断言诊断码。范例见
    `z42c.semantics/tests/typecheck/crosspkg_duplicate/`。
-3. **跨包负例（fixture）**——在 [z42c.pipeline 的 fixtures](../compiler/z42c.pipeline/tests/fixtures/cross-zpkg/) 里放
+3. **跨包负例（fixture）**——在 [z42c.pipeline 的 fixtures](../compiler/z42c.pipeline/tests/fixtures/cross-zpkg) 里放
    `expected_build_error.txt`（**不是** `expected_output.txt`），内容为 stderr 必须包含的子串；
    `main` 编过了判红，错误文本对不上也判红。走真实三包 + 真 .zpkg 元数据，慢但覆盖真实接线。
    范例见 `cross-zpkg/dup_fqn_crosspkg/`、`class_internal_access`、`interface_internal_access`。

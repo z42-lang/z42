@@ -431,3 +431,5 @@ fn timed_wait_is_parked_collectible_and_notified() {
     worker.join().unwrap();
     assert_eq!(core.threads.parked_count.load(Ordering::Acquire), 0);
 }
+
+use crate::assembly::context::VmContextFactory as _;

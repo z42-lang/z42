@@ -52,13 +52,13 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::vm::e
         ))),
     };
 
-    if ctx.core.runtime.module.is_none() {
+    if ctx.core().runtime().module.is_none() {
         return Err(crate::vm::exec::call::builtin_abi::BuiltinError::Internal(
             "__thread_spawn: VmContext has no shared Module — \
              constructed via VmContext::new() instead of VmContext::with_module()".into()));
     }
 
-    let core_for_thread: Arc<crate::vm::context::VmCore> = Arc::clone(&ctx.core);
+    let core_for_thread: Arc<crate::vm::context::VmCore> = Arc::clone(&ctx.core());
     let id = state(ctx)?.slots.alloc_id();
 
     // 🔴 **fix-spawn-env-gc-root **: root the captured environment *here*, on the
@@ -88,7 +88,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::vm::e
     // worker's own context. `SpawnedEnvRoot::drop` releases it once the action has returned,
     // which is exactly as long as the environment can be live.
     let env_root = env_vec.as_ref().map(|env| SpawnedEnvRoot {
-        core:   Arc::clone(&ctx.core),
+        core:   Arc::clone(&ctx.core()),
         handle: ctx.heap().pin_root(crate::object::ArrayObj::alloc_frozen(ctx.heap(), &env)),
     });
 
@@ -143,7 +143,7 @@ struct SpawnedEnvRoot {
 
 impl Drop for SpawnedEnvRoot {
     fn drop(&mut self) {
-        self.core.heap.unpin_root(self.handle);
+        self.core.heap().unpin_root(self.handle);
     }
 }
 
@@ -210,7 +210,7 @@ fn run_spawned_action(
     fn_id:      crate::vm::runtime::ids::tokens::FnId,
     env_vec:    Option<Vec<Value>>,
 ) -> Result<()> {
-    let module_arc = thread_ctx.core.runtime.module.as_ref()
+    let module_arc = thread_ctx.core().runtime().module.as_ref()
         .ok_or_else(|| anyhow!("__thread_spawn worker: VmCore.module is None"))?
         .clone();
     let module = module_arc.as_ref();
@@ -245,3 +245,5 @@ fn run_spawned_action(
 #[cfg(test)]
 #[path = "threading_tests.rs"]
 mod threading_tests;
+
+use crate::assembly::context::VmContextFactory as _;

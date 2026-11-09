@@ -1,8 +1,8 @@
 # 解释器 / JIT 标量语义的单一真相源
 
-> 代码：`src/runtime/src/vm/exec/ops/scalar.rs`（标量真相源）、`src/runtime/src/vm/exec/ops/object/`（对象操作真相源）、`src/runtime/src/interp/ops/mod.rs` +
-> `interp/ops/exec_value.rs`（interp 消费）、`src/runtime/src/jit/helpers/arith.rs` +
-> `jit/helpers/object.rs`（JIT helper 消费）、`src/runtime/src/jit/translate/emit_int.rs` +
+> 代码：`src/runtime/crates/z42-runtime-core/src/vm/exec/ops/scalar.rs`（标量真相源）、`src/runtime/crates/z42-runtime-core/src/vm/exec/ops/object/`（对象操作真相源）、`src/runtime/crates/z42-interp/src/interp/ops/mod.rs` +
+> `interp/ops/exec_value.rs`（interp 消费）、`src/runtime/crates/z42-jit/src/jit/helpers/arith.rs` +
+> `jit/helpers/object.rs`（JIT helper 消费）、`src/runtime/crates/z42-jit/src/jit/translate/emit_int.rs` +
 > `emit_fc.rs`（JIT 内联镜像）。
 
 ## 问题：同一语义三处实现
@@ -115,7 +115,7 @@ PIC 的命中点各设一道常驻断言（`vm::exec::ops::vcall::assert_pic_tar
 
 ### 对象操作：objops
 
-字段、数组、静态字段、值 struct 叶子的**读写语义**收在 `src/runtime/src/vm/exec/ops/object/`，两个引擎都只做适配：
+字段、数组、静态字段、值 struct 叶子的**读写语义**收在 `src/runtime/crates/z42-runtime-core/src/vm/exec/ops/object/`，两个引擎都只做适配：
 
 ```
 interp exec_*            ┐                       ┌ Ok(v)  → 写 dst 寄存器
@@ -249,7 +249,7 @@ struct 的帧无关分配、复制、拆箱和符号化字段检查位于 `vm/ex
 ## 相关
 
 - JIT 内联快路径与 helper 边界：[JIT 惰性逐函数编译](jit.md)、
-  `src/runtime/src/jit/README.md`。
+  `src/runtime/crates/z42-jit/src/jit/README.md`。
 
 ## 反射类型物化
 

@@ -453,13 +453,13 @@ pub mod typed {
         match v {
             Value::BoxedStruct(_) => Ok(*v),
             Value::StructRef { idx, frame_id } => {
-                let (type_name, bytes, refs) = ctx.exec.struct_arena.lock()
+                let (type_name, bytes, refs) = ctx.exec().struct_arena.lock()
                     .with(*idx, *frame_id, |s| (s.type_name.clone(), s.bytes.clone(), s.refs.clone()))
                     .map_err(|e| BuiltinError::Internal(e.to_string()))?;
                 super::box_struct_blob(ctx, &type_name, &bytes, &refs).map_err(|e| BuiltinError::Internal(e.to_string()))
             }
             Value::StructRefHeap { idx, frame_id } => {
-                let e = ctx.exec.transient_arena.lock().struct_elem(*idx, *frame_id)
+                let e = ctx.exec().transient_arena.lock().struct_elem(*idx, *frame_id)
                     .map_err(|e| BuiltinError::Internal(e.to_string()))?;
                 let (bytes, refs, _layout, type_name) = crate::objops::struct_leaf::snapshot_elem(&e)
                     .map_err(|e| BuiltinError::Internal(e.to_string()))?;

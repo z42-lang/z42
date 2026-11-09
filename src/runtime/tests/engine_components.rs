@@ -1,0 +1,129 @@
+//! Production-graph component tests. Run by runtime --linkage dynamic --verify
+//! after relocation, using only the packaged core/std/backend library closure.
+#![cfg(feature = "shared-core")]
+use std::{path::PathBuf, sync::Arc};
+use z42::host::{
+    BackendOptions, BackendSource, ComponentLease, ExecMode, ExecutionApi, JIT_COMPONENT,
+    LoadOptions, LoadedProgram, Value, component_interface, component_ids, INTERP_COMPONENT,
+};
+
+fn input(name: &str) -> PathBuf {
+    std::env::var_os(name).map(PathBuf::from).expect("component verification must supply packaged fixture paths")
+}
+fn backends() -> BackendOptions {
+    let native = input("Z42_TEST_ENGINE_COMPONENT_DIR");
+    BackendOptions {
+        interp: BackendSource::Dynamic(native.join(format!("{}z42_interp_component{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX))),
+        jit: BackendSource::Dynamic(native.join(format!("{}z42_jit_component{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX))),
+    }
+}
+fn load(mode: ExecMode, backends: BackendOptions) -> anyhow::Result<LoadedProgram> {
+    LoadedProgram::load_file(input("Z42_TEST_ENGINE_BYTECODE").to_str().unwrap(), LoadOptions {
+        mode, backends, search_dirs: vec![input("Z42_TEST_ENGINE_LIBS")], ..Default::default()
+    })
+}
+fn echo(program: &LoadedProgram, value: i64) -> i64 {
+    match program.invoke("EngineComponentProbe.Echo", &[Value::I64(value)]).unwrap() {
+        Some(Value::I64(n)) => n,
+        other => panic!("unexpected return: {other:?}"),
+    }
+}
+#[test]
+fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
+    for mode in [ExecMode::Interp, ExecMode::Jit] {
+        let first = load(mode, backends()).unwrap();
+        let second = load(mode, backends()).unwrap();
+        assert_eq!(echo(&first, 40), 41);
+        assert_eq!(echo(&first, 40), 42);
+        assert_eq!(echo(&second, 40), 41);
+        assert!(matches!(first.invoke("EngineComponentProbe.Worker", &[]).unwrap(), Some(Value::I64(42))));
+        assert!(first.invoke("EngineComponentProbe.Boom", &[]).unwrap_err().to_string().contains("component-exception"));
+        assert_eq!(echo(&first, 40), 43, "a failed invocation must not poison subsequent calls");
+        if mode == ExecMode::Jit {
+            assert!(first.context().counters_snapshot().jit_methods_compiled > 0);
+            assert_eq!(component_ids(first.context()), [INTERP_COMPONENT, JIT_COMPONENT]);
+        } else {
+            assert_eq!(first.context().counters_snapshot().jit_methods_compiled, 0);
+            assert_eq!(component_ids(first.context()), [INTERP_COMPONENT]);
+        }
+        drop(first);
+        assert_eq!(echo(&second, 40), 42);
+    }
+}
+#[test]
+fn interface_lease_retains_native_code_and_core_until_final_release() {
+    let program = load(ExecMode::Jit, backends()).unwrap();
+    assert_eq!(echo(&program, 5), 6);
+    let weak = Arc::downgrade(&program.context().core_arc());
+    let lease: ComponentLease<ExecutionApi> = component_interface(program.context(), JIT_COMPONENT).unwrap().unwrap();
+    let before = unsafe { (lease.core_identity)() };
+    drop(program);
+    assert!(weak.upgrade().is_some());
+    let after = unsafe { (lease.core_identity)() };
+    assert_eq!(before.image, after.image);
+    assert_eq!(before.abi, after.abi);
+    drop(lease);
+    assert!(weak.upgrade().is_none(), "backend state and code leases must not form a Core cycle");
+}
+#[test]
+fn missing_disabled_and_unlinked_backends_are_errors() {
+    let mut options = backends();
+    options.jit = BackendSource::Dynamic(input("Z42_TEST_ENGINE_COMPONENT_DIR").join("missing-jit-component"));
+    let error = load(ExecMode::Jit, options).err().unwrap().to_string();
+    assert!(error.contains("was not found"), "{error}");
+    let mut options = backends();
+    options.jit = BackendSource::Disabled;
+    assert!(load(ExecMode::Jit, options).err().unwrap().to_string().contains("disabled"));
+    let mut options = backends();
+    options.jit = BackendSource::Linked;
+    assert!(load(ExecMode::Jit, options).err().unwrap().to_string().contains("not statically linked"));
+    let mut options = backends();
+    options.jit = BackendSource::Disabled;
+    assert_eq!(echo(&load(ExecMode::Interp, options).unwrap(), 5), 6);
+}
+
+#[test]
+fn packaged_c_embedding_host_loads_components_and_shuts_down() {
+    use std::{ffi::{c_char, CString}, ptr};
+    use z42::host::{
+        config::{Z42HostConfig, Z42ExecMode, Z42_HOST_ABI_VERSION},
+        entry::Z42Entry, module::Z42Module, error::Z42HostStatus,
+        Z42Host, Z42Value, Z42_VALUE_TAG_I64,
+    };
+    type Initialize = unsafe extern "C" fn(*const Z42HostConfig, *mut *mut Z42Host) -> Z42HostStatus;
+    type Load = unsafe extern "C" fn(*mut Z42Host, *const u8, usize, *mut *mut Z42Module) -> Z42HostStatus;
+    type Resolve = unsafe extern "C" fn(*mut Z42Host, *mut Z42Module, *const c_char, *mut *mut Z42Entry) -> Z42HostStatus;
+    type Invoke = unsafe extern "C" fn(*mut Z42Entry, *const Z42Value, usize, *mut Z42Value) -> Z42HostStatus;
+    type Shutdown = unsafe extern "C" fn(*mut Z42Host) -> Z42HostStatus;
+    let path = input("Z42_TEST_ENGINE_COMPONENT_DIR").join(format!("{}z42_runtime_host{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX));
+    let libs = CString::new(input("Z42_TEST_ENGINE_LIBS").to_str().unwrap()).unwrap();
+    let search = [libs.as_ptr(), ptr::null()];
+    let cfg = Z42HostConfig {
+        abi_version: Z42_HOST_ABI_VERSION, struct_size: std::mem::size_of::<Z42HostConfig>() as u32,
+        exec_mode: Z42ExecMode::Jit as i32, heap_initial_bytes: 0, heap_max_bytes: 0,
+        stdout_sink: None, stderr_sink: None, sink_user_data: ptr::null_mut(),
+        search_paths: search.as_ptr(), zpkg_resolver: None, zpkg_resolver_user_data: ptr::null_mut(),
+    };
+    let bytes = std::fs::read(input("Z42_TEST_ENGINE_BYTECODE")).unwrap();
+    let fqn = CString::new("EngineComponentProbe.Echo").unwrap();
+    // Keep the C host image alive until shutdown has destroyed every VM/entry.
+    unsafe {
+        let library = libloading::Library::new(path).unwrap();
+        let initialize = library.get::<Initialize>(b"z42_host_initialize\0").unwrap();
+        let load = library.get::<Load>(b"z42_host_load_zbc\0").unwrap();
+        let resolve = library.get::<Resolve>(b"z42_host_resolve_entry\0").unwrap();
+        let invoke = library.get::<Invoke>(b"z42_host_invoke\0").unwrap();
+        let shutdown = library.get::<Shutdown>(b"z42_host_shutdown\0").unwrap();
+        let mut host = ptr::null_mut();
+        assert_eq!(initialize(&cfg, &mut host), Z42HostStatus::Ok);
+        let mut module = ptr::null_mut();
+        assert_eq!(load(host, bytes.as_ptr(), bytes.len(), &mut module), Z42HostStatus::Ok);
+        let mut entry = ptr::null_mut();
+        assert_eq!(resolve(host, module, fqn.as_ptr(), &mut entry), Z42HostStatus::Ok);
+        let arg = Z42Value { tag: Z42_VALUE_TAG_I64, reserved: 0, payload: 40 };
+        let mut result = Z42Value { tag: 0, reserved: 0, payload: 0 };
+        assert_eq!(invoke(entry, &arg, 1, &mut result), Z42HostStatus::Ok);
+        assert_eq!((result.tag, result.payload), (Z42_VALUE_TAG_I64, 41));
+        assert_eq!(shutdown(host), Z42HostStatus::Ok);
+    }
+}

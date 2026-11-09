@@ -1,0 +1,12 @@
+[package]
+name = "z42-interp-component"
+version.workspace = true
+edition = "2021"
+[lib]
+crate-type = ["cdylib"]
+test = false
+[features]
+default = []
+dynamic-component = ["dep:backend"]
+[dependencies]
+backend = { package = "z42-interp", path = "../z42-interp", optional = true, features = ["shared-core", "native-interop"] }

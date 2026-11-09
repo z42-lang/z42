@@ -3,7 +3,7 @@
 ## 职责
 
 z42 项目「编译 → 发布」**全流程的构建编排器**：读 `z42.toml` / `--rid` →
-装配并驱动 [`z42.build`](../../compiler/z42.build/) 管线，逐相位调度执行
+装配并驱动 [`z42.build`](../../compiler/z42.build) 管线，逐相位调度执行
 （Resolve → Compile → Trim → Assets → Configure → GenerateProject → NativeBuild → Package）。
 编译为 `z42b.zpkg`（Exe-mode），由 launcher 命令分发调用
 （`z42 build` / `publish` / `export` / `run --rid` / `test`）。
@@ -19,7 +19,7 @@ src/toolchain/builder/core/*.z42  →  z42b.zpkg  →  apphost z42b
 - **编译本身** —— 经 `z42.compiler.contracts` 的 `ICompiler` 接口（定义于 `z42.compiler.contracts`）**在进程内**调编译器库（z42c）。
   与独立 `z42c.driver` CLI **引用同一份实现，不 fork z42c 子进程**；本模块只编排 + 注入。
 - **平台专属实现** —— 住各 workload 的 `*.workload.zpkg`（`: WorkloadBase` 子类）。
-- **管线接口/相位流程定义** —— 住 [`src/compiler/z42.build/`](../../compiler/z42.build/)
+- **管线接口/相位流程定义** —— 住 [`src/compiler/z42.build/`](../../compiler/z42.build)
   （`Pipeline` / `IPipelineContext` / `ICompiler` / `WorkloadBase` / `BuildHooks`）。本模块是**驱动方**。
 
 ## 功能索引
@@ -87,8 +87,8 @@ xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
 
 ## 依赖关系
 
-- 依赖 [`src/compiler/z42.build/`](../../compiler/z42.build/)（管线框架接口）、
-  [`src/compiler/z42.project/`](../../compiler/z42.project/)（`z42.toml` 模型）。
+- 依赖 [`src/compiler/z42.build/`](../../compiler/z42.build)（管线框架接口）、
+  [`src/compiler/z42.project/`](../../compiler/z42.project)（`z42.toml` 模型）。
 - 调用 `z42c`（编译）、各 workload（平台尾相位）；经 `extern` 调 VM native 原语
   （Sign / Archive / Hash / Download / ProbeVersion，住 `runtime`）。
 - 被 launcher 命令分发调用（见 [`docs/internals/src/toolchain/launcher.md`](../../../docs/internals/src/toolchain/launcher.md)）。

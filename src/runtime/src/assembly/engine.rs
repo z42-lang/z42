@@ -2,14 +2,12 @@
 use crate::vm::exec::engine::EngineRegistry;
 
 pub(crate) fn registry() -> EngineRegistry {
-    #[cfg(feature = "jit")]
-    let tier_run = Some(run_jit as crate::vm::exec::engine::TierRun);
-    #[cfg(not(feature = "jit"))]
-    let tier_run = None;
-    EngineRegistry::new(Some(&crate::interp::engine::ENGINE), tier_run)
-}
-
-#[cfg(feature = "jit")]
-fn run_jit(ctx: &crate::vm::context::VmContext, module: &crate::vm::runtime::Module, entry: &str) -> anyhow::Result<()> {
-    crate::jit::run(ctx, module, entry, crate::config::runtime_config().jit_config())
+    #[cfg(any(feature = "interp", test))]
+    let baseline = Some(&crate::interp::engine::ENGINE as &'static dyn crate::vm::exec::engine::Engine);
+    #[cfg(not(any(feature = "interp", test)))]
+    let baseline = None;
+    let registry = EngineRegistry::new(baseline);
+    #[cfg(all(feature = "jit", z42_jit_supported))]
+    { let _ = registry.register_jit(crate::jit::execution_engine(), crate::config::runtime_config().jit_config()); }
+    registry
 }

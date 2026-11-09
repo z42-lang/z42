@@ -3,7 +3,7 @@
 > 代码：
 > `src/libraries/z42.core/src/Platform.z42`、`src/libraries/z42.core/src/OperatingSystem.z42`、
 > `src/runtime/src/corelib/os/platform.rs`、`src/runtime/src/corelib/os/system.rs`、
-> `src/runtime/src/pal/system.rs`
+> `src/runtime/crates/z42-runtime-core/src/pal/system.rs`
 >
 > Rust 侧 `#[cfg]` 该收敛到哪里 → [PAL 平台抽象层](pal.md)；
 > 一个二进制里编进了哪些 feature、怎么构建各平台产物 → [跨平台](cross-platform.md)。

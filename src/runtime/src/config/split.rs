@@ -23,9 +23,8 @@ impl RuntimeConfig {
     }
 
     /// Capture the resolved JIT inputs; the backend never interprets facade settings.
-    #[cfg(feature = "jit")]
-    pub fn jit_config(&self) -> crate::jit::config::JitConfig {
-        crate::jit::config::JitConfig {
+    pub fn jit_config(&self) -> crate::vm::exec::engine::JitConfig {
+        crate::vm::exec::engine::JitConfig {
             threshold: self.jit_threshold,
             osr_threshold: self.osr_threshold,
             interp_tierup: self.jit_interp_tierup,

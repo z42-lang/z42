@@ -40,7 +40,7 @@ fn static_factories_attach_automatically_and_instances_are_per_vm() {
     let second = load(opts).unwrap();
     assert_eq!(probe::probe_inits(), 2, "factory descriptors are shared");
     assert_eq!(probe::probe_live(), 4);
-    assert_eq!(component_ids(first.context()), [A, B]);
+    assert_eq!(component_ids(first.context()), [A, B, INTERP_COMPONENT]);
     let a = component_interface::<CounterApi>(first.context(), A)
         .unwrap()
         .unwrap();
@@ -183,9 +183,9 @@ fn registrations_freeze_and_interface_leases_retain_the_vm() {
     assert_eq!(probe::probe_destroyed(), 0x21);
 }
 #[test]
-fn empty_component_selection_preserves_loading() {
+fn default_backend_is_attached_without_optional_components() {
     let program = load(Default::default()).unwrap();
-    assert!(component_ids(program.context()).is_empty());
+    assert_eq!(component_ids(program.context()), [INTERP_COMPONENT]);
     assert!(component_interface::<CounterApi>(program.context(), A)
         .unwrap()
         .is_none());
@@ -249,7 +249,7 @@ fn real_dynamic_library_shares_the_static_protocol_and_stays_loaded_for_leases()
     let options = dynamic_options("z42_component_probe_b_init");
     let program = load(options.clone()).unwrap();
     let catalog = options.catalog_for_test();
-    let library = catalog.factories[0].library.as_ref().unwrap();
+    let library = catalog.factories[0].library().unwrap();
     let weak_library = std::sync::Arc::downgrade(library);
     let live: extern "C" fn() -> usize = unsafe { symbol(library, "probe_live") };
     assert_eq!(live(), 2);
@@ -347,3 +347,5 @@ fn undeclared_dependency_is_not_exposed_even_when_its_provider_exists() {
     assert_eq!(probe::probe_destroyed(), 1);
     assert_eq!(probe::probe_live(), 0);
 }
+
+use crate::assembly::context::VmContextFactory as _;

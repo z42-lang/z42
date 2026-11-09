@@ -2,8 +2,8 @@
 
 > 代码：
 > `src/libraries/z42.core/src/GC/GCHandle.z42`、`src/libraries/z42.core/src/GC/HeapStats.z42`、
-> `src/runtime/src/corelib/core/gc.rs`、`src/runtime/src/gc/heap.rs`（`HandleSlab` / `HandleEntry`）、
-> `src/runtime/src/gc/heap/api.rs`（`handle_*` 实现）、`src/runtime/src/gc/heap.rs`（具体堆状态）
+> `src/runtime/src/corelib/core/gc.rs`、`src/runtime/crates/z42-runtime-core/src/gc/heap.rs`（`HandleSlab` / `HandleEntry`）、
+> `src/runtime/crates/z42-runtime-core/src/gc/heap/api.rs`（`handle_*` 实现）、`src/runtime/crates/z42-runtime-core/src/gc/heap.rs`（具体堆状态）
 >
 > 收集器本体（标记 / 清扫 / 分代 / 增量 major）见 [GC 子系统](gc.md)；
 > 「谁还持有这个对象」的反查见[堆保留诊断](heap-diagnostics.md)。
@@ -100,7 +100,7 @@ enum HandleEntry {
 正好是这个诊断存在的意义所在。
 
 弱句柄不进任何根集，这是它与强句柄**唯一**的行为差别（而不是「能不能 downgrade」）。
-`src/runtime/src/gc/heap_tests/roots.rs` 里三个测试分别锁住：强句柄跨整堆回收保活、弱句柄
+`src/runtime/crates/z42-runtime-core/src/gc/heap_tests/roots.rs` 里三个测试分别锁住：强句柄跨整堆回收保活、弱句柄
 不保活、强句柄跨 minor 保活。
 
 ## 4. 读出口上的增量 major 闸门
@@ -161,7 +161,7 @@ sentinel 里 `0` 会与「上限就是 0 字节」混淆、`u64::MAX` 转 i64 �
 
 | 层 | 位置 |
 |---|---|
-| slab 行为单测（alloc / free / 复用 / 幂等 / kind） | `src/runtime/src/gc/heap_tests/weak_refs.rs` |
-| 强/弱句柄作为 mark root（整堆 + minor） | `src/runtime/src/gc/heap_tests/roots.rs` |
+| slab 行为单测（alloc / free / 复用 / 幂等 / kind） | `src/runtime/crates/z42-runtime-core/src/gc/heap_tests/weak_refs.rs` |
+| 强/弱句柄作为 mark root（整堆 + minor） | `src/runtime/crates/z42-runtime-core/src/gc/heap_tests/roots.rs` |
 | 端到端：强 anchor / 弱失效 / alias 共享 slot | `src/tests/gc/gc_handle.z42` |
 | 端到端：`GetStats()` 字段与 `-1` sentinel | `src/tests/gc/gc_stats.z42` |

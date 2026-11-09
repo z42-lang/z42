@@ -1,0 +1,54 @@
+// Relocate a complete same-build shared-library closure, then sign modified Mach-O files.
+namespace Z42Xtask;
+using Std.IO;
+using Std.Cli;
+
+int _componentRelocate(string native) {
+    if (!Platform.IsMacOS()) { return 0; } // ELF uses $ORIGIN; Windows resolves colocated DLLs.
+    foreach (var path in Path.Glob(native, "*.dylib")) {
+        int c = _exec(new Process("install_name_tool").Arg("-id").Arg("@rpath/" + Path.GetFileName(path)).Arg(path));
+        if (c != 0) { return c; }
+        c = _componentRelocateImports(path, native); if (c != 0) { return c; }
+    }
+    foreach (var path in Path.Glob(native, "*.dylib")) {
+        int c = _exec(new Process("codesign").Arg("--force").Arg("--sign").Arg("-").Arg(path));
+        if (c != 0) { return c; }
+    }
+    return 0;
+}
+int _componentRelocateImports(string path, string native) {
+    string output = _cmdOut("otool", new string[]{ "-L", path });
+    if (output.Length == 0) { throw new CliException("otool could not inspect " + path); }
+    string[] lines = output.Split("\n");
+    for (int i = 1; i < lines.Length; i = i + 1) {
+        string line = lines[i].Trim();
+        int marker = line.IndexOf(" (");
+        if (marker < 0) { continue; }
+        string old = line.Substring(0, marker);
+        string name = Path.GetFileName(old);
+        if (!File.Exists(Path.Join(native, name)) || old == "@rpath/" + name) { continue; }
+        int c = _exec(new Process("install_name_tool").Arg("-change").Arg(old).Arg("@rpath/" + name).Arg(path));
+        if (c != 0) { return c; }
+    }
+    if (!_cmdOut("otool", new string[]{ "-l", path }).Contains("path @loader_path (")) {
+        return _exec(new Process("install_name_tool").Arg("-add_rpath").Arg("@loader_path").Arg(path));
+    }
+    return 0;
+}
+void _plRuntimeDynamic(_PkgLayout L, string rid) {
+    L.HasDir("libs");
+    L.HasFile("native/include/z42_host.h");
+    foreach (var stem in new string[]{ "z42_runtime_host", "z42_runtime_shared", "z42_interp_component", "z42_jit_component", "z42_compression" }) {
+        string name = _componentLibrary(stem);
+        L.HasFile("native/" + name);
+        if (Platform.IsMacOS()) {
+            string[] ids = _cmdOut("otool", new string[]{ "-D", L.P("native/" + name) }).Split("\n");
+            L.Expect(ids[ids.Length - 1].Trim() == "@rpath/" + name, name + " relocatable identity", "absolute or missing install name");
+        }
+    }
+    string pattern = Platform.IsWindows() ? "std-*.dll" : (Platform.IsMacOS() ? "libstd-*.dylib" : "libstd-*.so");
+    L.Expect(Path.Glob(L.P("native"), pattern).Length == 1, "matching shared Rust std", "missing or ambiguous");
+    L.Absent("native/libz42.a", "dynamic pack does not provide a static embedding library");
+    L.Absent("native/z42.lib", "dynamic pack does not provide a static embedding library");
+    if (rid.StartsWith("windows-")) { L.HasFile("native/z42_runtime_host.dll.lib"); }
+}

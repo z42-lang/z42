@@ -114,9 +114,9 @@ fn caps_reports_threads_off_wasm() {
 fn caps_reports_jit_when_feature_enabled() {
     let ctx = VmContext::new();
     let caps = str_array(platform_caps(&ctx));
-    #[cfg(feature = "jit")]
+    #[cfg(all(feature = "jit", z42_jit_supported))]
     assert!(caps.contains(&"jit".to_string()), "jit build must report jit cap: {caps:?}");
-    #[cfg(not(feature = "jit"))]
+    #[cfg(not(all(feature = "jit", z42_jit_supported)))]
     assert!(!caps.contains(&"jit".to_string()), "non-jit build must not report jit cap: {caps:?}");
 }
 
@@ -125,8 +125,10 @@ fn exec_modes_always_has_interp_and_matches_features() {
     let ctx = VmContext::new();
     let modes = str_array(platform_exec_modes(&ctx));
     assert!(modes.contains(&"interp".to_string()), "interp is always available: {modes:?}");
-    #[cfg(feature = "jit")]
+    #[cfg(all(feature = "jit", z42_jit_supported))]
     assert!(modes.contains(&"jit".to_string()), "jit build lists jit mode: {modes:?}");
-    #[cfg(not(feature = "jit"))]
+    #[cfg(not(all(feature = "jit", z42_jit_supported)))]
     assert!(!modes.contains(&"jit".to_string()), "non-jit build omits jit mode: {modes:?}");
 }
+
+use crate::assembly::context::VmContextFactory as _;

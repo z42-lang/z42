@@ -49,7 +49,7 @@ src/runtime/Cargo.toml --release --lib diagnostics`。
 ## 关联文档
 - 日志 API 参考：`docs/reference/src/stdlib/diagnostics.md`
 - 运行时计数暴露机制：`docs/internals/src/runtime/diagnostics-design.md` §5
-- 计数来源（VM 侧）：`src/runtime/src/vm/diagnostics/counters.rs`（`RuntimeCounters`/`ProfileSnapshot`）、
+- 计数来源（VM 侧）：`src/runtime/crates/z42-runtime-core/src/vm/diagnostics/counters.rs`（`RuntimeCounters`/`ProfileSnapshot`）、
   `src/runtime/src/corelib/core/diagnostics.rs`（`__diag_counters` builtin）
 
 ## 核心文件

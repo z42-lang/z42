@@ -412,6 +412,10 @@ jobs:
           # --verify：在这份 SDK 上跑 packages.toml 自检 + 发行包夹具 + golden（每条腿都必须跑到）。
           xtask package sdk --no-build --archive --label nightly --verify
 
+      - name: Relocated dynamic execution components + C host
+        shell: bash
+        run: xtask package runtime --linkage dynamic --profile debug --no-build --verify
+
       - name: Package host runtime and workloads
         if: needs.changes.outputs.platform_package == 'true'
         shell: bash

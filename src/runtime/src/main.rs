@@ -16,7 +16,7 @@ use startup::*;
 // allocator with dhat's heap-profiling shim, so it is mutually exclusive with
 // mimalloc — a build carries at most one `#[global_allocator]`. Only ever built
 // on demand into a throwaway target-dir by `xtask profile`; never shipped.
-#[cfg(all(feature = "mimalloc-alloc", not(feature = "dhat-heap")))]
+#[cfg(all(feature = "mimalloc-alloc", not(feature = "dhat-heap"), not(feature = "shared-core")))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
@@ -105,9 +105,8 @@ struct Cli {
 // alongside the Rust-side `diagnostics` catalog. Use `z42c explain E####`
 // for compile-time codes; runtime errors are typed z42 exceptions now.
 
-// add-runtime-feature-flags (P4.1): variants are feature-gated so
-// `--help` only advertises modes the binary can actually run, and clap rejects
-// unsupported `--mode jit` requests with a friendly enum-list error.
+// Mode requests are parsed independently of linkage. The host reports missing
+// or unsupported backends after selecting the runtime component sources.
 /// `--stats-format` selector (script-profiling P0). `Text` is the historical
 /// human block; `Json` is a single-line object for tooling.
 #[derive(Clone, PartialEq, Eq, ValueEnum)]
@@ -119,7 +118,6 @@ enum StatsFormat {
 #[derive(Clone, ValueEnum)]
 enum ExecMode {
     Interp,
-    #[cfg(feature = "jit")]
     Jit,
     #[cfg(feature = "aot")]
     Aot,
@@ -130,7 +128,6 @@ enum ExecMode {
 fn exec_mode_name(m: &ExecMode) -> &'static str {
     match m {
         ExecMode::Interp => "interp",
-        #[cfg(feature = "jit")]
         ExecMode::Jit => "jit",
         #[cfg(feature = "aot")]
         ExecMode::Aot => "aot",
@@ -140,18 +137,12 @@ fn exec_mode_name(m: &ExecMode) -> &'static str {
 /// Resolve the config-driven default execution mode (`Z42_MODE` / `[runtime].mode`,
 /// unify-run-modes P2). Sits below the `--mode` CLI flag and above the build
 /// default. Returns `None` to fall through to the build default when: unset, an
-/// unrecognized value, or a feature-gated mode (jit / aot) not compiled into this
-/// build — each non-empty invalid case warns once on stderr so it isn't silent.
+/// unrecognized value, or AOT not compiled into this build — each non-empty invalid case warns once on stderr so it isn't silent.
 fn resolve_config_mode(mode: Option<&str>) -> Option<z42::host::ExecMode> {
     match mode {
         None => None,
         Some("interp") => Some(z42::host::ExecMode::Interp),
-        Some("jit") => {
-            #[cfg(feature = "jit")]
-            { Some(z42::host::ExecMode::Jit) }
-            #[cfg(not(feature = "jit"))]
-            { eprintln!("z42: Z42_MODE/[runtime].mode=jit but this build has no jit feature; using build default"); None }
-        }
+        Some("jit") => Some(z42::host::ExecMode::Jit),
         Some("aot") => {
             #[cfg(feature = "aot")]
             { Some(z42::host::ExecMode::Aot) }
@@ -355,16 +346,15 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
     // build default (jit if compiled in, else interp). Feature-gated arms must
     // themselves be gated (constructor absent when the feature is off).
     let effective_mode: z42::host::ExecMode = match cli.mode {
-        #[cfg(feature = "jit")]
         Some(ExecMode::Jit) => z42::host::ExecMode::Jit,
         #[cfg(feature = "aot")]
         Some(ExecMode::Aot) => z42::host::ExecMode::Aot,
         Some(ExecMode::Interp) => z42::host::ExecMode::Interp,
         None => resolve_config_mode(z42::config::runtime_config().mode.as_deref())
             .unwrap_or_else(|| {
-                #[cfg(feature = "jit")]
+                #[cfg(all(feature = "jit", z42_jit_supported))]
                 { z42::host::ExecMode::Jit }
-                #[cfg(not(feature = "jit"))]
+                #[cfg(not(all(feature = "jit", z42_jit_supported)))]
                 { z42::host::ExecMode::Interp }
             }),
     };
@@ -395,3 +385,7 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
 
 #[cfg(test)]
 mod main_tests;
+
+#[cfg(test)]
+#[path = "main_tests.rs"]
+mod tests;
