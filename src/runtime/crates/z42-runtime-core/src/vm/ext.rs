@@ -3,18 +3,18 @@ use std::any::{Any, TypeId};
 use anyhow::{bail, Result};
 use rustc_hash::FxHashMap;
 
-/// Per-VM extension registrations, consumed by [`crate::vm::context::VmContext::with_extensions`].
+/// Per-VM extension registrations, frozen and injected by the host assembly.
 ///
 /// Each Rust type may be registered once. Use distinct newtypes for distinct services.
 /// The VM does not scan this storage for managed values; their roots must be managed
 /// explicitly while the VM is alive.
 ///
 /// ```
-/// use z42::{pal::fs::default_vfs, vm::ext::VmExtensions, vm::context::VmContext};
+/// use z42_runtime_core::vm::ext::VmExtensions;
 /// let mut extensions = VmExtensions::new();
 /// extensions.register(String::from("tenant"))?;
-/// let ctx = VmContext::with_extensions(None, default_vfs(), extensions);
-/// assert_eq!(ctx.ext::<String>().map(String::as_str), Some("tenant"));
+/// let state = extensions.freeze();
+/// assert_eq!(state.get::<String>().map(String::as_str), Some("tenant"));
 /// # Ok::<(), anyhow::Error>(())
 /// ```
 #[derive(Default)]

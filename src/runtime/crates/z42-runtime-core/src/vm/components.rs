@@ -6,7 +6,15 @@ use parking_lot::Mutex;
 use std::{
     collections::BTreeMap, ffi::c_void, marker::PhantomData, ops::Deref, ptr::NonNull, sync::Arc,
 };
-use z42_component_api::*;
+#[cfg(not(all(test, z42_test_facade)))]
+#[path = "components/api.rs"]
+pub mod api;
+#[cfg(all(test, z42_test_facade))]
+pub use z42_runtime_core::components::api;
+use self::api::*;
+#[cfg(all(test, z42_test_facade))]
+#[path = "components/api_tests.rs"]
+mod api_tests;
 
 pub struct Factory {
     pub(crate) id: ComponentId,

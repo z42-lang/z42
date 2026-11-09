@@ -6,7 +6,6 @@ description = "Shared VM, object, GC and platform mechanisms"
 [lib]
 test = false
 [dependencies]
-z42-component-api = { path = "../z42-component-api" }
 z42-zpkg = { path = "../z42-zpkg" }
 anyhow = "1"
 rustc-hash = "2"
@@ -33,3 +32,6 @@ signal-hook-registry = "1.4"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(z42_test_facade)", "cfg(loom)"] }
+
+[build-dependencies]
+blake3 = "1"

@@ -1,8 +1,8 @@
-# z42-component-api — 组件协议
+# components::api — 组件协议
 
 ## 职责
 
-定义同构建运行时组件使用的 C ABI：描述符、版本和构建身份、不透明句柄、接口规格及核心服务表。库为 no_std，不依赖 VM、GC 或任何执行后端。
+The shared core owns the component protocol: C-layout descriptors, interface tables, execution registration and same-build identity. This module uses opaque VM handles; host and execution libraries consume the same contract.
 
 ## 功能索引
 
@@ -12,7 +12,7 @@
 | `ApiHeader` / `InterfaceSpec` | 版本、大小和对齐校验 |
 | `ComponentInterface` / `InterfaceRef` | 类型化表的编译期契约与 ABI 借用视图 |
 | `RuntimeApi` / `VmInfoApi` | 核心服务和已声明依赖的查询、稳定 VM 身份 |
-| `build.rs` | 按 workspace Rust 源码、清单/锁文件、工具链、目标与目标特性生成构建身份 |
+| `../../../build.rs` | 按 workspace Rust 源码、清单/锁文件、工具链、目标与目标特性生成构建身份 |
 
 ## 基础用法
 
@@ -24,13 +24,13 @@
 
 ## 如何测试验证
 
-在 src/runtime/ 运行 `cargo test -p z42-component-api`。真实静态/动态协议测试随 `cargo test --lib host::component_tests` 执行。
+在 src/runtime/ 运行 `cargo test -p z42 --lib vm::components::api_tests`。真实静态/动态协议测试随 `cargo test --lib host::component_tests` 执行。
 
 ## 关联文档
 
-- [组件化运行时](../../../../docs/internals/src/runtime/componentized-runtime.md)
-- [嵌入机制](../../../../docs/internals/src/runtime/embedding.md)
+- [组件化运行时](../../../../../../../docs/internals/src/runtime/componentized-runtime.md)
+- [嵌入机制](../../../../../../../docs/internals/src/runtime/embedding.md)
 
 ## 核心文件
 
-src/lib.rs 定义协议，src/api_tests.rs 验证公共 ABI 形状。构建身份要求同源、同工具链及目标；跨版本组件不兼容。
+api.rs 定义协议，api_tests.rs 验证公共 ABI 形状。构建身份要求同源、同工具链及目标；跨版本组件不兼容。

@@ -1,5 +1,5 @@
 //! Static and dynamic registration of the same execution backend.
-use z42_component_api::*;
+use crate::vm::components::api::*;
 use core::ffi::c_void;
 unsafe extern "C" fn identity() -> ExecutionIdentity {
     #[cfg(feature = "shared-core")]

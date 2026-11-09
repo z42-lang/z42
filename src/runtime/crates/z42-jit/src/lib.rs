@@ -7,4 +7,4 @@ pub use jit::*;
 
 pub use z42_runtime_core::{core_identity, CORE_ABI};
 
-pub use z42_component_api as api;
+pub use z42_runtime_core::components::api;

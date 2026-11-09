@@ -6,7 +6,6 @@
 
 | 库 | 拥有的实现 | 依赖方向 |
 |---|---|---|
-| z42-component-api | no_std 描述符、接口表、构建身份和 ExecutionApi | 不依赖运行时 |
 | z42-zpkg | zpkg/zbc/zsym 解析、静态 IR 和不可变 PackageImage | 不依赖 VM |
 | z42-runtime-core | VM、对象、GC、PAL、加载/链接、共享执行原语和诊断契约 | 不依赖 host 或具体引擎 |
 | z42-interp | 解释器、基线 Engine 和组件工厂 | 依赖 core，不依赖 JIT |
@@ -95,3 +94,5 @@ LOH 覆盖、native 扩展加载、固定地址登记和 TLAB/SATB 顺序保持�
 - [分层执行与 OSR](tiered-execution.md)
 - [运行时/包分发](../toolchain/workload-distribution.md)
 - [诊断与跟踪](diagnostics.md)
+
+Component protocol ownership: z42-runtime-core::components::api defines descriptors, C-layout interfaces and execution registration. Core build.rs generates the shared build identity. Host re-exports the public embedding types; execution libraries depend on the core, preserving an acyclic Cargo graph. Generic ABI fixtures use only protocol values and callbacks; actual execution components still link the single shared core.

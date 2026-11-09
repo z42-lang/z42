@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},
 };
-use z42_component_api::*;
+use crate::components::api::*;
 
 /// Immutable component selection. Clones share the factory load result; each VM
 /// receives new instances. Rebuild these options to retry a failed library load.

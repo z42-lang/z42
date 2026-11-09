@@ -1,4 +1,4 @@
-use super::*;
+use super::api::*;
 #[test]
 fn wire_headers_and_ids_have_fixed_shapes() {
     assert_eq!(core::mem::size_of::<ComponentId>(), 16);

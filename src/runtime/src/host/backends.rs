@@ -2,7 +2,7 @@
 use super::{ComponentOptions, component_interface};
 use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
-use z42_component_api::*;
+use crate::components::api::*;
 use crate::{zpkg::ExecMode, vm::context::VmContext};
 
 #[derive(Clone, Debug, Default)]

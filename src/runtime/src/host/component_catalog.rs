@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},
 };
-use z42_component_api::*;
+use crate::components::api::*;
 
 #[derive(Clone)]
 pub(super) enum Registration {

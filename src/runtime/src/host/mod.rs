@@ -1,7 +1,7 @@
 //! Shared Rust host services and C embedding adapters.
 mod components;
 mod component_catalog;
-pub use z42_component_api::*;
+pub use crate::components::api::*;
 pub use components::{ComponentOptions, component_interface, component_ids};
 pub use crate::vm::components::ComponentLease;
 pub use crate::{object::Value, pal::fs::Vfs, vm::context::{VmContext, VmCore}, vm::runtime::Module};

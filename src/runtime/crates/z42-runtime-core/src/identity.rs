@@ -1,5 +1,5 @@
 //! Physical image identity and the compile-time ABI expected by its consumers.
-use z42_component_api::ExecutionCoreAbi;
+use crate::components::api::ExecutionCoreAbi;
 static CORE_IDENTITY: u8 = 0;
 pub fn core_identity() -> *const core::ffi::c_void { core::ptr::addr_of!(CORE_IDENTITY).cast() }
 pub const CORE_ABI: ExecutionCoreAbi = ExecutionCoreAbi {

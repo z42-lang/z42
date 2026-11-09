@@ -24,3 +24,5 @@ src/vm、src/object、src/gc、src/pal；src/identity.rs 提供物理核心身�
 ## 核心文件
 
 src/vm、src/object、src/gc、src/pal；src/identity.rs 提供物理核心身份和编译期 ABI 摘要。
+
+Component contracts belong to components::api. The core owns descriptors, C-layout interface tables, execution registration contracts and same-build identity generation; host re-exports the embedding surface. No separate component protocol crate is required.

@@ -10,4 +10,4 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-z42-component-api = { path = "../../../crates/z42-component-api" }
+z42-runtime-core = { path = "../../../crates/z42-runtime-core" }

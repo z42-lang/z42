@@ -8,7 +8,6 @@ test = false
 [dependencies]
 z42-runtime-core = { path = "../z42-runtime-core" }
 z42-runtime-shared = { path = "../z42-runtime-shared", optional = true }
-z42-component-api = { path = "../z42-component-api" }
 anyhow = "1"
 smallvec = "1"
 tracing = "0.1"

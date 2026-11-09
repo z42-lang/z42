@@ -1,9 +1,9 @@
-//! A real leaf component: it depends only on the ABI and owns all of its state.
+//! A protocol-only component: it owns its state and never accesses VM implementation.
 use std::{
     ffi::c_void,
     sync::atomic::{AtomicU64, AtomicUsize, Ordering},
 };
-use z42_component_api::*;
+use z42_runtime_core::components::api::*;
 
 pub const A: ComponentId = ComponentId::new(0x100);
 pub const B: ComponentId = ComponentId::new(0x200);

@@ -2244,7 +2244,6 @@ dependencies = [
  "tracing-subscriber",
  "webpki-roots",
  "z42-abi",
- "z42-component-api",
  "z42-compression",
  "z42-interp",
  "z42-jit",
@@ -2258,13 +2257,6 @@ dependencies = [
 [[package]]
 name = "z42-abi"
 version = "0.7.0"
-
-[[package]]
-name = "z42-component-api"
-version = "0.7.0"
-dependencies = [
- "blake3",
-]
 
 [[package]]
 name = "z42-compression"
@@ -2294,7 +2286,6 @@ dependencies = [
  "rustc-hash 2.1.3",
  "smallvec",
  "tracing",
- "z42-component-api",
  "z42-runtime-core",
  "z42-runtime-shared",
 ]
@@ -2313,7 +2304,6 @@ dependencies = [
  "rustc-hash 2.1.3",
  "smallvec",
  "tracing",
- "z42-component-api",
  "z42-runtime-core",
  "z42-runtime-shared",
 ]
@@ -2360,7 +2350,6 @@ dependencies = [
  "smallvec",
  "socket2",
  "tracing",
- "z42-component-api",
  "z42-zpkg",
 ]
 

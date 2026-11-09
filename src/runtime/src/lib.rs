@@ -69,3 +69,8 @@ pub use identity::{core_identity, CORE_ABI};
 // system allocator. Static CLI profiles retain their selected custom allocator.
 #[cfg(all(feature = "shared-core", any(feature = "mimalloc-alloc", feature = "dhat-heap")))]
 compile_error!("shared-core runtime packs require the system allocator; build with --no-default-features and omit mimalloc-alloc/dhat-heap");
+
+#[cfg(not(test))]
+pub use z42_runtime_core::components;
+#[cfg(test)]
+pub use vm::components;
