@@ -42,7 +42,6 @@ const TYPED: &[&[abi::BuiltinDesc]] = &[
     crate::corelib::io::typed::DESCS,
     crate::corelib::repl::typed::DESCS,
     crate::corelib::repl::editing::typed::DESCS,
-    #[cfg(feature = "native-interop")]
     crate::interop::ext::typed::DESCS,
     crate::corelib::core::monitor::typed::DESCS,
     #[cfg(feature = "net")]

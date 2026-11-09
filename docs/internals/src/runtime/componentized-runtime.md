@@ -10,6 +10,7 @@
 | z42（runtime/src/lib.rs） | host、VM、对象、GC、PAL、配置、corelib、interop 与诊断实现 | 不依赖具体引擎 |
 | z42-interp | 解释器、基线 Engine 和组件工厂 | 依赖 core，不依赖 JIT |
 | z42-jit | Cranelift、编译代码、tier/OSR 实现和组件工厂 | 依赖 core，不依赖 interp 实现 |
+| z42-compression | 压缩算法与稳定 C ABI | 不依赖 core 或执行后端 |
 
 运行时只有一个 Cargo 包；runtime/src 内的目录都是它的模块。主库提供 rlib/dylib，后端各自提供 rlib/cdylib 和 init 入口。生产运行时不依赖具体后端；测试和最终静态嵌入示例通过 dev-dependency 链接独立后端的 rlib，不形成生产依赖环。
 
@@ -29,7 +30,7 @@ interp 的静态、虚、闭包和混合调用通过共享参数视图进入 Eng
 
 LoadOptions.backends 的每个后端可选 Auto、Linked、Dynamic(path)、Disabled。Auto 优先使用静态实现，否则查询动态库；JIT 模式同时需要基线解释器。显式 JIT 请求在加载/准备阶段验证，未链接、库缺失、平台不支持、协议不匹配和被禁用均返回错误，不改成解释模式。CLI 的 --mode jit、配置和 Z42_MODE=jit 遵循相同规则。
 
-原生库搜索共用 components 的 native_paths：显式配置（含 Z42_NATIVE_PATH）、可执行文件旁 native/、../native/ 和可执行文件目录。Auto 按固定候选顺序查询，显式 Dynamic 只使用所给路径。可用性查询表示候选是否存在，真正装配仍须完成库加载和接口校验。
+原生库搜索共用 components 的 native_paths：显式配置（含 Z42_NATIVE_PATH）、可执行文件旁 native/、../native/、可执行文件目录和已加载核心所在目录。iOS 也查询相邻 Framework 与应用的 Frameworks 目录；Android 最后交给系统加载器按库名查询，以支持 APK 内未解压的原生库。Auto 按固定候选顺序查询，显式 Dynamic 只使用所给路径。可用性查询表示候选是否存在，真正装配仍须完成库加载和接口校验。
 
 ### 构建矩阵
 
@@ -38,10 +39,11 @@ LoadOptions.backends 的每个后端可选 Auto、Linked、Dynamic(path)、Disab
 | 桌面 SDK / xtask build runtime | 动态 interp + jit | interp / jit；缺库报错 |
 | Rust 静态宿主 / C 静态归档 | 按最终宿主链接并登记的后端 | 未登记的后端明确报错 |
 | 不含 interp/jit 的普通静态构建 | 无后端 | 请求执行明确报错 |
-| wasm / ios / android 预设 | 静态 interp | 不编入 JIT/Cranelift，请求 jit 报错 |
+| iOS / Android runtime 包 | 独立静态 interp、compression；另提供动态 Framework / .so | 不编入 JIT/Cranelift，请求 jit 报错 |
+| browser-wasm runtime 包 | 默认最终 WASM；另提供 core、interp、compression 静态库 | 在链接时选择组件，生成新的最终 WASM |
 | shared-core 动态桌面包 | 动态 interp / jit | 由部署与运行设置决定；缺库报错 |
 
-JIT 的依赖仅在 Linux/macOS/Windows 的 x64/arm64 target 选择；即便不支持的平台误传 jit feature，也不引入 Cranelift 实现。动态组件包仅支持在目标桌面原生构建，不支持跨平台复制 Rust dylib。
+JIT 的依赖仅在 Linux/macOS/Windows 的 x64/arm64 target 选择；即便不支持的平台误传 jit feature，也不引入 Cranelift 实现。动态组件使用目标平台匹配的 Rust std；iOS 将它与核心、解释器、compression 一起封装为独立 Framework。WASM 没有原生 dlopen，只提供最终模块和可重链静态库。
 
 ## 3. 描述符、身份与边界
 
@@ -57,9 +59,17 @@ JIT 的依赖仅在 Linux/macOS/Windows 的 x64/arm64 target 选择；即便不�
 
 所有动态宿主、后端、共享核心与验证可执行文件必须在一次 Cargo 图中构建。分开运行 Cargo 可能因开发依赖或传递依赖 feature 合并不同而覆盖成不兼容的 Rust metadata/符号；打包器一次构建全部目标后，从同一组产物搬移并验证，不再用后续 Cargo 调用重写核心。
 
-共享 std 的动态构建使用 System 分配器。自定义分配器和 dhat 位于最终静态宿主 z42vm_static，通过独立 target-dir 构建，不覆盖动态运行时。C 静态归档 z42 链接独立后端，调用方先调用 z42_linked_components_init；Rust 宿主使用 host::register_static_component。静态登记仅保留进程寿命工厂，不保留 VM 实例。
+共享 std 的动态构建使用 System 分配器。自定义分配器和 dhat 位于最终静态宿主 z42vm_static，通过独立 target-dir 构建，不覆盖动态运行时。C 的 libz42.a 保留默认解释器初始化入口 z42_linked_components_init；自定义组合可通过 z42_host_register_static_component 登记实际链接的后端，Rust 宿主使用 host::register_static_component。静态组合须使用同一次构建图产生的库，不能混用不同 feature/profile 的核心。静态登记仅保留进程寿命工厂，不保留 VM 实例。
 
 SDK 的 native/ 包含统一 libz42、interp/JIT 组件、compression 和匹配的 Rust std。runtime 包另外提供 C 头文件和最终静态嵌入归档；Windows 另含导入库。macOS 使用 @rpath 标识和 @loader_path，ELF 使用 $ORIGIN；库与头文件、stdlib 一起搬移后可使用。Windows 的启动器还需要 bin/ 内的匹配 std DLL，确保在进入 main 之前完成系统装载。
+
+### 按需压缩与 WASM 组合
+
+compression 不属于核心的必需依赖。原生包中的独立动态库在首次调用压缩内置函数时才加载；单纯初始化 VM 或执行其他代码不会装载它。静态宿主链接 libz42_compression.a 后，通过 z42_host_register_static_native_library("z42_compression", z42_compression_get_symbol) 登记符号解析器；Rust 入口统一从 host 导出。未链接或未部署时，实际压缩调用返回明确的组件不可用错误。
+
+browser-wasm 默认最终模块显式启用 bundled-compression，保持现成 JavaScript 门面的能力。随包提供的 libz42.a、libz42_interp.a、libz42_compression.a 则用于项目自行组合：选择需要的库，在最终链接阶段登记组件，生成另一份 .wasm。运行时开关只能选择已链接能力，不能凭空加载未链接的原生库。每个组件的 *-link.txt 保存该目标构建所需的原生链接参数；静态库必须使用同一批发布产物。
+
+生产与开发使用相同组合方式：开发构建以后可链接 profiler/debugger，生产构建可省略。profiler/debugger 的实现拆分尚未交付，本轮不发布空壳库。
 
 ## 5. 每 VM 生命周期
 
@@ -84,6 +94,8 @@ LOH 覆盖、native 扩展加载、固定地址登记和 TLAB/SATB 顺序保持�
 ```bash
 ./xtask test
 ./xtask package sdk --verify
+./xtask package runtime --profile debug --verify
+./xtask package runtime --rid iossim-arm64 --profile debug --verify
 ./xtask package runtime --linkage dynamic --profile debug --verify
 ./xtask package runtime --linkage dynamic --profile release --verify
 ```

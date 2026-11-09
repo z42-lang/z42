@@ -70,8 +70,9 @@ class PackageRuntimeCommand : Command {
         if (this.Linkage == "dynamic") {
             return _pkgAfterAssemble(_packageDynamicRuntime(this.Rid, this.Profile, this.NoBuild, this.Verify), this.Archive, this.Label);
         }
-        if (this.Verify) { throw new CliException("runtime --verify requires --linkage dynamic; static distributions use package sdk --verify"); }
-        return _pkgAfterAssemble(_packageRuntime(this.Rid, this.Profile, this.Variant, this.NoBuild), this.Archive, this.Label);
+        int c = _packageRuntime(this.Rid, this.Profile, this.Variant, this.NoBuild);
+        if (c == 0 && this.Verify) { c = _componentVerifyBundle(_root(), this.Rid, this.Profile); }
+        return _pkgAfterAssemble(c, this.Archive, this.Label);
     }
 }
 

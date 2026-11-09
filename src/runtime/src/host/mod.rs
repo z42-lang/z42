@@ -52,3 +52,5 @@ pub use crate::config::{RuntimeConfig, VmConfig};
 
 mod artifact;
 mod extensions;
+
+pub use crate::interop::ext::{register_static_library as register_static_native_library, NativeSymbolResolver};

@@ -415,6 +415,28 @@ int main(void) {
 
 另有可选的组件化动态 runtime 包：C 宿主链接其中的 z42（macOS/Linux 为 libz42，Windows 导入库为 z42.dll.lib）。部署时保留 native/ 内同包的共享核心、Rust std 和 interp/JIT 组件；这些库必须来自同一构建，不能混用版本。用 Z42_NATIVE_PATH 指向组件目录，或将 native/ 放在宿主可执行文件旁。显式请求 JIT 时，库缺失或不兼容会报错，不自动改成解释模式。
 
+静态宿主可直接选择独立组件。所有库须来自同一 runtime 包；链接所需的 `libz42_interp.a`（Windows 为 `z42_interp.lib`）及 `libz42.a`，使用随组件附带的 `*-link.txt` 原生链接参数。加载程序前登记工厂：
+
+```c
+Z42HostStatus status = z42_host_register_static_component(
+    Z42_COMPONENT_INTERP, z42_interp_init);
+```
+
+JIT 库只在支持的平台发布；使用 JIT 时同时链接并登记 interp 与 JIT。空工厂或冲突登记返回 `ERR_BAD_CONFIG`，相同工厂重复登记成功；真正装配时仍校验构建身份和 ABI。工厂及其回调必须在整个进程期间有效。默认静态解释器组合也提供 `z42_linked_components_init()`。
+
+压缩库独立于执行后端。静态宿主选择链接 `libz42_compression.a`，并在创建宿主前调用：
+
+```c
+Z42HostStatus status = z42_host_register_static_native_library(
+    "z42_compression", z42_compression_get_symbol);
+```
+
+解析器接收借用的 NUL 结尾符号名，返回对应 C ABI 函数指针；未知符号返回 NULL，解析器与函数指针须在整个进程期间有效。登记只记录提供者，实际使用时才解析并校验 ABI。未知库名、空参数或冲突登记返回 `ERR_BAD_CONFIG`；同一提供者重复登记成功。原生动态包在首次压缩调用时才装载对应库，其他执行不触发装载。未链接或未部署时，压缩调用返回包含组件不可用原因的 `ERR_VM_EXCEPTION`。
+
+Android runtime 同时发布独立 `.a` 和 `.so`，动态应用须保留匹配的共享 Rust std。iOS 保留 `.a`，动态版本提供核心、解释器、compression 和 Rust std 的 Framework；使用动态运行时的应用须嵌入并签名相应依赖。
+
+browser-wasm 默认最终 `.wasm` 包含解释器和压缩能力；随包提供的独立静态库供项目按需重新链接另一份最终模块。WASM 不支持原生 dlopen；运行时只能选择已链接的组件。开发时额外链接 profiler/debugger 的组合方式沿用此契约，具体组件库待后续交付。
+
 Linux 包要求 glibc ≥ 2.34（x64）、≥ 2.39（arm64）。
 
 ---

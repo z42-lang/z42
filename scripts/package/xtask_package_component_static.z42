@@ -1,0 +1,66 @@
+// Assemble C archives from rlibs belonging to one static core/engine graph.
+namespace Z42Xtask;
+using Std.IO;
+using Std.Cli;
+
+int _componentBuildStaticLibraries(string root, string rid, string profile) {
+    string features = "z42/static-embedding,z42/" + _componentPlatformPreset(rid).Replace(",", ",z42/");
+    Process p = _componentPlatformCargo("build", root, rid, profile, false)
+        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("-p").Arg("z42-compression").Arg("--lib").Arg("--examples")
+        .Arg("--no-default-features");
+    if (_componentTargetHasJit(rid)) {
+        p = p.Arg("-p").Arg("z42-jit");
+        features = features + ",z42-interp/jit,z42-jit/jit";
+    }
+    if (rid != "browser-wasm") { features = features + ",z42-interp/native-interop"; }
+    int c = _exec(p.Arg("--features").Arg(features));
+    if (c != 0) { return c; }
+    c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_interp");
+    if (c != 0) { return c; }
+    c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_compression");
+    if (c != 0 || !_componentTargetHasJit(rid)) { return c; }
+    return _componentStaticArchiveFromRlib(root, rid, profile, "z42_jit");
+}
+
+int _componentStaticArchiveFromRlib(string root, string rid, string profile, string stem) {
+    string cargo = _componentPlatformOut(root, rid, profile, false);
+    string rlib = Path.Join(cargo, "lib" + stem + ".rlib");
+    if (!File.Exists(rlib)) { throw new CliException("static graph did not produce " + rlib); }
+    string work = _xtaskWork(root, "component-static-" + rid + "-" + profile);
+    Directory.Create(work);
+    string stub = Path.Join(work, stem + ".rs");
+    File.WriteAllText(stub, "pub use " + stem + "::*;\n");
+    Process p = new Process("rustc").WorkingDirectory(root)
+        .Arg("--edition=2021").Arg("--crate-name").Arg(stem + "_static")
+        .Arg("--crate-type=staticlib").Arg("--target").Arg(_ridToCargo(rid))
+        .Arg("--extern").Arg(stem + "=" + rlib)
+        .Arg("-L").Arg("dependency=" + cargo).Arg("-L").Arg("dependency=" + Path.Join(cargo, "deps"))
+        .Arg("-L").Arg("dependency=" + Path.Join(_componentStaticDir(root, rid), profile + "/deps"))
+        .Arg("-C").Arg("lto=no").Arg("-C").Arg("prefer-dynamic=no")
+        .Arg("--print").Arg("native-static-libs")
+        .Arg(stub).Arg("-o").Arg(Path.Join(cargo, _componentStaticName(stem, rid))).Stderr(Stdio.Pipe());
+    if (rid.StartsWith("ios")) { p = p.Env("IPHONEOS_DEPLOYMENT_TARGET", _vReadOr(root, "platform.ios.min_ios", "16.0")); }
+    ProcessResult result = p.Run();
+    Console.Write(result.Stdout); ConsoleError.Write(result.Stderr);
+    if (result.ExitCode != 0) { return result.ExitCode; }
+    string output = result.Stdout + "\n" + result.Stderr;
+    string prefix = "native-static-libs:";
+    int start = output.IndexOf(prefix);
+    string flags = start < 0 ? "" : output.Substring(start + prefix.Length).Split("\n")[0].Trim();
+    if (flags.Length == 0 && rid != "browser-wasm") { throw new CliException("rustc did not report native dependencies for " + stem); }
+    File.WriteAllText(Path.Join(cargo, stem + "-link.txt"), flags);
+    return 0;
+}
+
+void _componentCopyStaticLibraries(string root, string native, string rid, string profile) {
+    _componentCopyStaticFiles(_componentPlatformOut(root, rid, profile, false), native, rid);
+}
+
+void _componentCopyStaticFiles(string cargo, string native, string rid) {
+    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
+        if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
+        string name = _componentStaticName(stem, rid);
+        _componentCopyRequired(Path.Join(cargo, name), Path.Join(native, name));
+        _componentCopyRequired(Path.Join(cargo, stem + "-link.txt"), Path.Join(native, stem + "-link.txt"));
+    }
+}

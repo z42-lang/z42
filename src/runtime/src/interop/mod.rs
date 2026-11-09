@@ -6,7 +6,6 @@ pub use state::{pin_owned_buffer, release_owned_buffer, pinned_owned_buffer_coun
 #[cfg(feature = "native-interop")]
 pub use state::{register_native_type, resolve_native_type, native_type_count};
 
-#[cfg(feature = "native-interop")]
 pub mod ext;
 #[cfg(feature = "native-interop")]
 mod tier1;

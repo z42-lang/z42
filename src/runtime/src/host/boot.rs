@@ -161,8 +161,6 @@ pub(crate) fn construct(module: Option<crate::metadata::Module>, vfs: Arc<dyn cr
         });
         let ctx = with_config(module, vfs, crate::host::extensions::freeze(extensions),
             crate::config::runtime_config().vm_config(), crate::corelib::object_protocol(), engines);
-        #[cfg(feature = "native-interop")]
-        if let Err(e) = crate::interop::ext::load_all(&ctx) { tracing::warn!("native ext loader: {e:#}"); }
         ctx
 }
 
