@@ -1,4 +1,4 @@
-/* Native module registration ABI. Mirrors crates/z42-abi/src/native.rs.
+/* Native module registration ABI. Mirrors crates/z42-abi/src/module.rs.
  * Descriptor spans are immutable and retained with module code. Call spans are
  * borrowed only for a synchronous, same-thread invocation. No Rust containers,
  * managed object addresses or unwind may cross this boundary.
@@ -30,6 +30,7 @@ extern "C" {
 #define Z42_NATIVE_CAP_LOADING UINT64_C(1)
 #define Z42_NATIVE_CAP_TERMINAL UINT64_C(2)
 #define Z42_NATIVE_CAP_FILESYSTEM UINT64_C(4)
+#define Z42_NATIVE_CAP_CONSOLE_INPUT UINT64_C(8)
 
 typedef struct Z42NativeText { const uint8_t* data; size_t len; } Z42NativeText;
 typedef struct Z42NativeValue {

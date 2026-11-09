@@ -24,6 +24,7 @@ pub const REENTERS: u32 = 4;
 pub const CAP_NATIVE_LOADING: u64 = 1;
 pub const CAP_TERMINAL: u64 = 2;
 pub const CAP_FILESYSTEM: u64 = 4;
+pub const CAP_CONSOLE_INPUT: u64 = 8;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -137,5 +138,5 @@ unsafe impl Sync for Module {}
 unsafe impl Sync for HostApi {}
 
 #[cfg(test)]
-#[path = "native_tests.rs"]
+#[path = "module_tests.rs"]
 mod tests;

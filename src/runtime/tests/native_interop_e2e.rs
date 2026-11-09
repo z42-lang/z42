@@ -37,12 +37,12 @@ extern "C" {
 #[test]
 fn native_module_c_header_matches_rust_layout() {
     use std::mem::{size_of, offset_of};
-    use z42_abi::native::*;
-    let fields = [size_of::<Text>(), size_of::<z42_abi::native::Value>(), size_of::<Parameters>(),
-        size_of::<Call>(), size_of::<z42_abi::native::Function>(), size_of::<z42_abi::native::Module>(), size_of::<HostApi>(),
-        offset_of!(z42_abi::native::Value, bits), offset_of!(z42_abi::native::Value, data),
-        offset_of!(z42_abi::native::Module, name), offset_of!(z42_abi::native::Module, create_state),
-        offset_of!(z42_abi::native::Function, invoke), offset_of!(HostApi, argument)];
+    use z42_abi::module::*;
+    let fields = [size_of::<Text>(), size_of::<z42_abi::module::Value>(), size_of::<Parameters>(),
+        size_of::<Call>(), size_of::<z42_abi::module::Function>(), size_of::<z42_abi::module::Module>(), size_of::<HostApi>(),
+        offset_of!(z42_abi::module::Value, bits), offset_of!(z42_abi::module::Value, data),
+        offset_of!(z42_abi::module::Module, name), offset_of!(z42_abi::module::Module, create_state),
+        offset_of!(z42_abi::module::Function, invoke), offset_of!(HostApi, argument)];
     for (index, expected) in fields.into_iter().enumerate() {
         assert_eq!(unsafe { z42_native_layout(index) }, expected, "C/Rust layout field {index}");
     }

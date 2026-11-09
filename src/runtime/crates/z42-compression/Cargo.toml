@@ -14,10 +14,11 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["backend"]
-backend = ["dep:flate2", "dep:anyhow", "dep:brotli", "dep:lz4_flex", "dep:zstd"]
+backend = ["dep:z42-rs", "dep:flate2", "dep:anyhow", "dep:brotli", "dep:lz4_flex", "dep:zstd"]
 
 [dependencies]
-z42-rs = { path = "../z42-rs" }
+z42-rs = { path = "../z42-rs", optional = true, default-features = false }
+z42-abi = { path = "../z42-abi" }
 
 # Default = miniz_oxide (pure Rust) — works on every target including wasm;
 # non-wasm targets override to zlib-ng below (SIMD-optimised vendored C,

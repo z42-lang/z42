@@ -6,7 +6,7 @@ use super::{
 use crate::exec::call::builtin_abi::{BuiltinError, CallResult};
 use crate::{context::VmContext, object::Value};
 use std::{ffi::c_void, sync::Arc};
-use z42_abi::native as abi;
+use z42_abi::module as abi;
 
 struct Frame<'a> {
     ctx: &'a VmContext,
@@ -26,12 +26,15 @@ fn instance(ctx: &VmContext, module: Arc<NativeModule>) -> anyhow::Result<Arc<Mo
     let name = module.name;
     // Provider constructors run outside registry locks. A race loser drops its own state.
     let created = Arc::new(ModuleInstance::create(module)?);
-    Ok(state
-        .instances
-        .write()
-        .entry(name)
-        .or_insert(created)
-        .clone())
+    let instance = {
+        let mut instances = state.instances.write();
+        instances
+            .entry(name)
+            .or_insert_with(|| created.clone())
+            .clone()
+    };
+    // A race loser's native destructor runs only after releasing the registry lock.
+    Ok(instance)
 }
 
 pub(crate) fn invoke_export(
@@ -60,9 +63,8 @@ pub(crate) fn invoke_export(
             {
                 return None;
             }
-            let mut modules: Vec<_> = state
-                .external_modules
-                .read()
+            let external = state.external_modules.read();
+            let mut modules: Vec<_> = external
                 .values()
                 .filter(|module| module.function(name).is_some())
                 .cloned()
@@ -70,7 +72,9 @@ pub(crate) fn invoke_export(
             modules.extend(
                 registry
                     .modules()
-                    .filter(|module| module.function(name).is_some())
+                    .filter(|module| {
+                        !external.contains_key(module.name) && module.function(name).is_some()
+                    })
                     .cloned(),
             );
             if modules.len() != 1 {
@@ -101,8 +105,24 @@ pub(crate) fn invoke_export(
             .map(|(index, (value, &kind))| native_value::from_vm(value, kind, name, index))
             .collect();
         let arguments = arguments.map_err(Box::new)?;
-        let instance = instance(ctx, module)
-            .map_err(|error| Box::new(BuiltinError::Internal(error.to_string())))?;
+        let module = module::materialize(ctx, module).map_err(|error| {
+            Box::new(BuiltinError::NotSupported(format!(
+                "native module `{name}` unavailable: {error:#}"
+            )))
+        })?;
+        let function = module.function(name).ok_or_else(|| {
+            Box::new(BuiltinError::Internal(
+                "native implementation lost a validated export".into(),
+            ))
+        })?;
+        let instance = if module.has_state() {
+            Some(
+                instance(ctx, module)
+                    .map_err(|error| Box::new(BuiltinError::Internal(error.to_string())))?,
+            )
+        } else {
+            None
+        };
         let mut frame = Frame {
             ctx,
             arguments,
@@ -112,10 +132,27 @@ pub(crate) fn invoke_export(
             blocking: function.flags & abi::BLOCKING != 0,
             reenters: function.flags & abi::REENTERS != 0,
         };
+        let console = crate::pal::console::capabilities();
+        let host = abi::HostApi {
+            capabilities: HOST.capabilities
+                | if console.input {
+                    abi::CAP_CONSOLE_INPUT
+                } else {
+                    0
+                }
+                | if console.terminal {
+                    abi::CAP_TERMINAL
+                } else {
+                    0
+                },
+            ..HOST
+        };
         let mut call = abi::Call {
-            host: &HOST,
+            host: &host,
             context: (&mut frame as *mut Frame<'_>).cast(),
-            state: instance.state,
+            state: instance
+                .as_ref()
+                .map_or(std::ptr::null_mut(), |instance| instance.state),
         };
         let park = frame
             .blocking
@@ -195,7 +232,7 @@ unsafe extern "C" fn return_value(call: *mut abi::Call, value: *const abi::Value
     let (Some(frame), Some(value)) = (unsafe { frame(call) }, unsafe { value.as_ref() }) else {
         return abi::ERROR;
     };
-    match unsafe { z42_rs::native::decode(value) } {
+    match unsafe { z42_rs::module::decode(value) } {
         Ok(value) => {
             frame.result = Some(value);
             frame.error = None;
@@ -269,7 +306,7 @@ unsafe extern "C" fn invoke_script(
             };
             let mut values = Vec::new();
             for raw in raw {
-                let owned = unsafe { z42_rs::native::decode(raw) }.map_err(native_value::error)?;
+                let owned = unsafe { z42_rs::module::decode(raw) }.map_err(native_value::error)?;
                 let value = native_value::to_vm(frame.ctx, owned)
                     .map_err(|error| *error)?
                     .ok_or_else(|| BuiltinError::Argument("void callback argument".into()))?;
@@ -305,7 +342,7 @@ unsafe extern "C" fn invoke_script(
                 crate::exec::call::outcome::ExecOutcome::Returned(value) => {
                     let owned = match value {
                         Some(value) => native_value::from_callback(&value)?,
-                        None => Owned::Null,
+                        None => Owned::Void,
                     };
                     Ok(frame.arena.insert(owned))
                 }
@@ -360,10 +397,6 @@ static HOST: abi::HostApi = abi::HostApi {
     size: std::mem::size_of::<abi::HostApi>() as u32,
     capabilities: (if crate::pal::dynlib::is_supported() {
         abi::CAP_NATIVE_LOADING
-    } else {
-        0
-    }) | (if crate::pal::system::OS_CAPS.tty {
-        abi::CAP_TERMINAL
     } else {
         0
     }) | (if crate::pal::fs::HAS_FS {

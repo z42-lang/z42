@@ -7,6 +7,7 @@ struct Mock {
     result_bits: u64,
     invokes: usize,
     resolves: usize,
+    errors: usize,
 }
 unsafe fn mock<'a>(call: *mut abi::Call) -> &'a mut Mock {
     unsafe { &mut *(*call).context.cast::<Mock>() }
@@ -30,7 +31,8 @@ unsafe extern "C" fn returned(call: *mut abi::Call, value: *const abi::Value) ->
     mock.result_bits = unsafe { (*value).bits };
     abi::OK
 }
-unsafe extern "C" fn raised(_: *mut abi::Call, _: abi::Text, _: abi::Text) -> u32 {
+unsafe extern "C" fn raised(call: *mut abi::Call, _: abi::Text, _: abi::Text) -> u32 {
+    unsafe { mock(call) }.errors += 1;
     abi::ERROR
 }
 unsafe extern "C" fn invoke(
@@ -65,9 +67,12 @@ const fn host(capabilities: u64) -> abi::HostApi {
     }
 }
 static NONE: abi::HostApi = host(0);
-static TERMINAL: abi::HostApi =
-    host(abi::CAP_TERMINAL | abi::CAP_NATIVE_LOADING | abi::CAP_FILESYSTEM);
-static NO_FILES: abi::HostApi = host(abi::CAP_TERMINAL | abi::CAP_NATIVE_LOADING);
+static TERMINAL: abi::HostApi = host(
+    abi::CAP_CONSOLE_INPUT | abi::CAP_TERMINAL | abi::CAP_NATIVE_LOADING | abi::CAP_FILESYSTEM,
+);
+static NO_FILES: abi::HostApi =
+    host(abi::CAP_CONSOLE_INPUT | abi::CAP_TERMINAL | abi::CAP_NATIVE_LOADING);
+static REDIRECTED: abi::HostApi = host(abi::CAP_CONSOLE_INPUT | abi::CAP_FILESYSTEM);
 
 struct State(*mut c_void);
 impl State {
@@ -207,4 +212,49 @@ fn portable_configuration_does_not_load_a_terminal_and_history_requires_files() 
 fn callback_strings_are_freed_by_their_owner_and_null_is_ignored() {
     free_str(CString::new("candidate").unwrap().into_raw());
     free_str(std::ptr::null_mut());
+}
+
+#[test]
+fn no_console_rejects_input_without_loading_an_editor_or_touching_history() {
+    let state = State::new();
+    let mut mock = Mock {
+        argument: "prompt",
+        ..Mock::default()
+    };
+    assert_eq!(
+        unsafe { supports_console(&mut state.call(&NONE, &mut mock)) },
+        abi::OK
+    );
+    assert_eq!(mock.result_bits, 0);
+    assert_eq!(
+        unsafe { readline(&mut state.call(&NONE, &mut mock)) },
+        abi::ERROR
+    );
+    assert_eq!(mock.errors, 1);
+    assert_eq!(mock.resolves, 0);
+    assert_eq!(mock.invokes, 0);
+    assert!(state.session().editor.get().is_none());
+}
+
+#[test]
+fn redirected_desktop_input_has_console_but_no_terminal_or_history() {
+    let state = State::new();
+    let mut mock = Mock::default();
+    assert_eq!(
+        unsafe { supports_console(&mut state.call(&REDIRECTED, &mut mock)) },
+        abi::OK
+    );
+    assert_eq!(mock.result_bits, 1);
+    assert_eq!(
+        unsafe { supports_terminal(&mut state.call(&REDIRECTED, &mut mock)) },
+        abi::OK
+    );
+    assert_eq!(mock.result_bits, 0);
+    assert_eq!(
+        unsafe { supports_history(&mut state.call(&REDIRECTED, &mut mock)) },
+        abi::OK
+    );
+    assert_eq!(mock.result_bits, 0);
+    assert_eq!(mock.resolves, 0);
+    assert!(state.session().editor.get().is_none());
 }

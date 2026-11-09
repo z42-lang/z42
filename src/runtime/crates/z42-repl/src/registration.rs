@@ -2,7 +2,7 @@
 //! terminal editing/history stays in the optional backend, with plain input available alone.
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::sync::{Mutex, OnceLock};
-use z42_rs::native::{self, Error, Value, abi};
+use z42_rs::module::{self as sdk, Error, Value, abi};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -36,16 +36,26 @@ fn configured(name: String) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
-fn terminal_supported(call: &native::Call<'_>) -> bool {
-    call.capabilities() & abi::CAP_TERMINAL != 0
+fn terminal_supported(call: &sdk::Call<'_>) -> bool {
+    call.capabilities() & abi::CAP_CONSOLE_INPUT != 0
+        && call.capabilities() & abi::CAP_TERMINAL != 0
         && (cfg!(feature = "backend") || call.capabilities() & abi::CAP_NATIVE_LOADING != 0)
 }
+unsafe extern "C" fn supports_console(raw: *mut abi::Call) -> u32 {
+    unsafe {
+        sdk::dispatch(raw, |call| {
+            Ok(Value::Bool(
+                call.capabilities() & abi::CAP_CONSOLE_INPUT != 0,
+            ))
+        })
+    }
+}
 unsafe extern "C" fn supports_terminal(raw: *mut abi::Call) -> u32 {
-    unsafe { native::dispatch(raw, |call| Ok(Value::Bool(terminal_supported(call)))) }
+    unsafe { sdk::dispatch(raw, |call| Ok(Value::Bool(terminal_supported(call)))) }
 }
 unsafe extern "C" fn supports_history(raw: *mut abi::Call) -> u32 {
     unsafe {
-        native::dispatch(raw, |call| {
+        sdk::dispatch(raw, |call| {
             Ok(Value::Bool(
                 terminal_supported(call) && call.capabilities() & abi::CAP_FILESYSTEM != 0,
             ))
@@ -55,7 +65,7 @@ unsafe extern "C" fn supports_history(raw: *mut abi::Call) -> u32 {
 
 unsafe extern "C" fn set_completer(raw: *mut abi::Call) -> u32 {
     unsafe {
-        native::dispatch(raw, |call| {
+        sdk::dispatch(raw, |call| {
             let name = call.text(0)?;
             *lock(&call.state::<Session>()?.completer) = configured(name);
             Ok(Value::Void)
@@ -64,7 +74,7 @@ unsafe extern "C" fn set_completer(raw: *mut abi::Call) -> u32 {
 }
 unsafe extern "C" fn set_key_editor(raw: *mut abi::Call) -> u32 {
     unsafe {
-        native::dispatch(raw, |call| {
+        sdk::dispatch(raw, |call| {
             let name = call.text(0)?;
             *lock(&call.state::<Session>()?.key_editor) = configured(name);
             Ok(Value::Void)
@@ -73,7 +83,7 @@ unsafe extern "C" fn set_key_editor(raw: *mut abi::Call) -> u32 {
 }
 unsafe extern "C" fn set_keywords(raw: *mut abi::Call) -> u32 {
     unsafe {
-        native::dispatch(raw, |call| {
+        sdk::dispatch(raw, |call| {
             let words = call.text(0)?;
             *lock(&call.state::<Session>()?.keywords) = words.clone();
             if let Ok(editor) = editor(call) {
@@ -87,11 +97,18 @@ unsafe extern "C" fn set_keywords(raw: *mut abi::Call) -> u32 {
 }
 unsafe extern "C" fn complete_probe(raw: *mut abi::Call) -> u32 {
     unsafe {
-        native::dispatch(raw, |call| {
+        sdk::dispatch(raw, |call| {
             let name = call.text(0)?;
             let line = call.text(1)?;
             let position = call.integer(2)?;
-            call.invoke(&name, &[Value::Str(line), Value::I64(position)])
+            match call.invoke(&name, &[Value::Str(line), Value::I64(position)])? {
+                Value::Strings(values) => Ok(Value::Strings(values)),
+                Value::Void | Value::Null => Ok(Value::Null),
+                _ => Err(Error::new(
+                    "Std.InvalidCastException",
+                    "REPL completer must return string[] or null",
+                )),
+            }
         })
     }
 }
@@ -109,7 +126,7 @@ struct Editor {
     set_keywords: SetKeywords,
 }
 
-fn editor(call: &mut native::Call<'_>) -> native::Result<Editor> {
+fn editor(call: &mut sdk::Call<'_>) -> sdk::Result<Editor> {
     if !terminal_supported(call) {
         return Err(Error::new(
             "Std.NotSupportedException",
@@ -121,10 +138,10 @@ fn editor(call: &mut native::Call<'_>) -> native::Result<Editor> {
     }
     #[cfg(feature = "backend")]
     let loaded = Editor {
-        readline: crate::backend::z42_repl_readline,
-        free: crate::backend::z42_repl_free,
-        last_error: crate::backend::z42_repl_last_error,
-        set_keywords: crate::backend::z42_repl_set_keywords,
+        readline: crate::editor::z42_repl_readline,
+        free: crate::editor::z42_repl_free,
+        last_error: crate::editor::z42_repl_last_error,
+        set_keywords: crate::editor::z42_repl_set_keywords,
     };
     #[cfg(not(feature = "backend"))]
     let loaded = unsafe {
@@ -153,7 +170,13 @@ fn editor(call: &mut native::Call<'_>) -> native::Result<Editor> {
 
 unsafe extern "C" fn readline(raw: *mut abi::Call) -> u32 {
     unsafe {
-        native::dispatch(raw, |call| {
+        sdk::dispatch(raw, |call| {
+            if call.capabilities() & abi::CAP_CONSOLE_INPUT == 0 {
+                return Err(Error::new(
+                    "Std.NotSupportedException",
+                    "REPL console input is unavailable; the host must provide its own input and scripting evaluation loop",
+                ));
+            }
             let prompt = call.optional_text(0)?.unwrap_or_default();
             let editor = match editor(call) {
                 Ok(editor) => editor,
@@ -199,7 +222,7 @@ unsafe extern "C" fn readline(raw: *mut abi::Call) -> u32 {
     }
 }
 
-fn plain_readline(prompt: &str) -> native::Result<Value> {
+fn plain_readline(prompt: &str) -> sdk::Result<Value> {
     use std::io::Write;
     let mut stderr = std::io::stderr();
     let _ = stderr.write_all(prompt.as_bytes());
@@ -279,7 +302,7 @@ extern "C" fn key_edit(
 
 fn callback(
     context: *mut c_void,
-    body: impl FnOnce(&mut native::Call<'_>) -> native::Result<Option<String>>,
+    body: impl FnOnce(&mut sdk::Call<'_>) -> sdk::Result<Option<String>>,
 ) -> *mut c_char {
     if context.is_null() {
         return std::ptr::null_mut();
@@ -288,7 +311,7 @@ fn callback(
     // dispatch catches panics and uses the call's host services. It may stage an error;
     // readline's eventual successful return replaces swallowed editing errors.
     let _ = unsafe {
-        native::dispatch(context.cast(), |call| {
+        sdk::dispatch(context.cast(), |call| {
             output = body(call)?;
             Ok(Value::Void)
         })
@@ -311,6 +334,13 @@ macro_rules! descriptor {
     };
 }
 static FUNCTIONS: &[abi::Function] = &[
+    descriptor!(
+        "__repl_console_supported",
+        [],
+        abi::BOOL,
+        0,
+        supports_console
+    ),
     descriptor!(
         "__repl_terminal_supported",
         [],
@@ -377,5 +407,5 @@ pub extern "C" fn z42_repl_module_v1() -> *const abi::Module {
 }
 
 #[cfg(test)]
-#[path = "native_tests.rs"]
+#[path = "registration_tests.rs"]
 mod tests;

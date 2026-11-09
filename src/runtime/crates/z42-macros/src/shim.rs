@@ -3,7 +3,7 @@
 //! Each shim:
 //! - converts raw pointer / primitive args into Rust types
 //! - calls the user method inside `std::panic::catch_unwind`
-//! - on panic forwards a message via `z42_rs::native_helpers::set_panic`
+//! - on panic forwards a message via `z42_rs::module_helpers::set_panic`
 //!   and returns `Default::default()` for the return type
 
 use proc_macro2::TokenStream;
@@ -115,7 +115,7 @@ pub(crate) fn render_shim(
             match __r {
                 #ok_branch,
                 Err(_) => {
-                    ::z42_rs::native_helpers::set_panic(#panic_msg);
+                    ::z42_rs::module_helpers::set_panic(#panic_msg);
                     #err_default
                 }
             }

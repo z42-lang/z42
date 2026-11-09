@@ -1,6 +1,46 @@
 use super::*;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use z42_rs::native::{self, Value as NativeValue};
+use z42_rs::module::{self as sdk, Value as NativeValue};
+
+#[test]
+fn competing_state_destructors_run_outside_the_instance_registry_lock() {
+    use std::sync::{Barrier, OnceLock, atomic::AtomicUsize};
+    static START: OnceLock<Barrier> = OnceLock::new();
+    static WATCH: AtomicUsize = AtomicUsize::new(0);
+    static DROPS: AtomicUsize = AtomicUsize::new(0);
+    static LOCKED: AtomicUsize = AtomicUsize::new(0);
+    unsafe extern "C" fn create() -> *mut c_void {
+        START.get_or_init(|| Barrier::new(2)).wait();
+        Box::into_raw(Box::new(0_u8)).cast()
+    }
+    unsafe extern "C" fn destroy(value: *mut c_void) {
+        let pointer = WATCH.load(Ordering::SeqCst) as *const crate::interop::state::State;
+        if let Some(state) = unsafe { pointer.as_ref() } {
+            if state.instances.try_read().is_none() { LOCKED.fetch_add(1, Ordering::SeqCst); }
+        }
+        drop(unsafe { Box::from_raw(value.cast::<u8>()) });
+        DROPS.fetch_add(1, Ordering::SeqCst);
+    }
+    static ENTRIES: &[abi::Function] = &[function("__race", &[], abi::VOID, 0, void)];
+    static RACE: abi::Module = abi::Module { name: abi::Text::new("native.race"), functions: ENTRIES.as_ptr(),
+        function_count: 1, create_state: Some(create), destroy_state: Some(destroy), ..MODULE };
+    let ctx = VmContext::new();
+    unsafe { crate::interop::register_native_module(&ctx, &RACE) }.unwrap();
+    WATCH.store(crate::interop::state::state(&ctx).unwrap() as *const _ as usize, Ordering::SeqCst);
+    let workers: Vec<_> = (0..2).map(|_| {
+        let core = ctx.core_arc();
+        std::thread::spawn(move || {
+            let worker = VmContext::new_with_core(core);
+            assert_eq!(invoke_export(&worker, Some("native.race"), "__race", &[]).unwrap().unwrap(), None);
+        })
+    }).collect();
+    for worker in workers { worker.join().unwrap(); }
+    WATCH.store(0, Ordering::SeqCst);
+    assert_eq!(DROPS.load(Ordering::SeqCst), 1);
+    assert_eq!(LOCKED.load(Ordering::SeqCst), 0);
+    drop(ctx);
+    assert_eq!(DROPS.load(Ordering::SeqCst), 2);
+}
 
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 unsafe extern "C" fn create() -> *mut c_void {
@@ -12,7 +52,7 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
 }
 unsafe extern "C" fn count(raw: *mut abi::Call) -> u32 {
     unsafe {
-        native::dispatch(raw, |call| {
+        sdk::dispatch(raw, |call| {
             Ok(NativeValue::I64(
                 call.state::<AtomicI64>()?.fetch_add(1, Ordering::SeqCst) + 1,
             ))
@@ -20,21 +60,18 @@ unsafe extern "C" fn count(raw: *mut abi::Call) -> u32 {
     }
 }
 unsafe extern "C" fn echo(raw: *mut abi::Call) -> u32 {
-    unsafe { native::dispatch(raw, |call| Ok(NativeValue::Str(call.text(0)?))) }
+    unsafe { sdk::dispatch(raw, |call| Ok(NativeValue::Str(call.text(0)?))) }
 }
 unsafe extern "C" fn void(raw: *mut abi::Call) -> u32 {
-    unsafe { native::dispatch(raw, |_| Ok(NativeValue::Void)) }
+    unsafe { sdk::dispatch(raw, |_| Ok(NativeValue::Void)) }
 }
 unsafe extern "C" fn null(raw: *mut abi::Call) -> u32 {
-    unsafe { native::dispatch(raw, |_| Ok(NativeValue::Null)) }
+    unsafe { sdk::dispatch(raw, |_| Ok(NativeValue::Null)) }
 }
 unsafe extern "C" fn error(raw: *mut abi::Call) -> u32 {
     unsafe {
-        native::dispatch(raw, |_| {
-            Err(native::Error::new(
-                "Std.IO.IOException",
-                "owned native error",
-            ))
+        sdk::dispatch(raw, |_| {
+            Err(sdk::Error::new("Std.IO.IOException", "owned native error"))
         })
     }
 }
@@ -43,7 +80,7 @@ unsafe extern "C" fn parked(raw: *mut abi::Call) -> u32 {
         return abi::ERROR;
     };
     let parked = frame.ctx.core.threads.parked_count.load(Ordering::Acquire);
-    unsafe { native::dispatch(raw, |_| Ok(NativeValue::I64(parked as i64))) }
+    unsafe { sdk::dispatch(raw, |_| Ok(NativeValue::I64(parked as i64))) }
 }
 
 const fn function(
@@ -120,6 +157,7 @@ fn crate_module_registers_and_marshals_without_a_runtime_wrapper() {
             .is_err()
     );
     assert!(invoke_export(&ctx, Some("other"), "__native_echo", &[]).is_none());
+    assert!(!crate::interop::state::state(&ctx).unwrap().instances.read().contains_key("native.test"));
     let error = invoke_export(&ctx, None, "__native_error", &[])
         .unwrap()
         .unwrap_err();
@@ -239,6 +277,126 @@ fn invalid_signatures_and_interface_conflicts_leave_registration_unchanged() {
     );
 }
 
+#[test]
+fn declaration_loads_once_on_first_call_and_rejects_mismatched_implementations_atomically() {
+    use crate::interop::providers::RegistryBuilder;
+    use std::sync::atomic::AtomicUsize;
+    static LOOKUPS: AtomicUsize = AtomicUsize::new(0);
+    static READY: AtomicUsize = AtomicUsize::new(0);
+    static IMPLEMENTATIONS: &[abi::Function] =
+        &[function("__lazy_echo", &[abi::STR], abi::STR, 0, echo)];
+    static DECLARATIONS: &[abi::Function] = &[abi::Function {
+        invoke: None,
+        ..function("__lazy_echo", &[abi::STR], abi::STR, 0, echo)
+    }];
+    static DECLARATION: abi::Module = abi::Module {
+        name: abi::Text::new("native.lazy.test"),
+        functions: DECLARATIONS.as_ptr(),
+        function_count: 1,
+        ..MODULE
+    };
+    static GOOD: abi::Module = abi::Module {
+        name: abi::Text::new("native.lazy.test"),
+        functions: IMPLEMENTATIONS.as_ptr(),
+        function_count: 1,
+        ..MODULE
+    };
+    static BAD: abi::Module = abi::Module {
+        function_count: 0,
+        ..GOOD
+    };
+    unsafe extern "C" fn entry() -> *const abi::Module {
+        if READY.load(Ordering::SeqCst) == 0 {
+            &BAD
+        } else {
+            &GOOD
+        }
+    }
+    unsafe extern "C" fn resolver(name: *const std::ffi::c_char) -> *const c_void {
+        LOOKUPS.fetch_add(1, Ordering::SeqCst);
+        assert_eq!(
+            unsafe { std::ffi::CStr::from_ptr(name) }.to_bytes(),
+            b"native.lazy.test_module_v1"
+        );
+        entry as *const () as *const c_void
+    }
+    unsafe { crate::host::register_static_native_library("native.lazy.test", resolver) }.unwrap();
+    let mut builder = RegistryBuilder::default();
+    unsafe { builder.register_declaration(&DECLARATION) }.unwrap();
+    let registry = Box::leak(Box::new(builder.freeze()));
+    let mut extensions = crate::context::extensions::VmExtensions::new();
+    extensions
+        .register(crate::interop::state_for_vm(registry))
+        .unwrap();
+    let ctx = crate::host::boot::with_config(
+        None,
+        crate::pal::fs::default_vfs(),
+        extensions.freeze(),
+        crate::config::runtime_config().vm_config(),
+        crate::corelib::object_protocol(),
+        crate::exec::engine::EngineRegistry::new(None),
+    );
+    assert!(
+        crate::interop::resolve_native_module(&ctx, "native.lazy.test")
+            .unwrap()
+            .unwrap()
+            .deferred
+    );
+    assert!(invoke_export(&ctx, Some("native.lazy.test"), "missing", &[]).is_none());
+    assert!(
+        invoke_export(&ctx, Some("native.lazy.test"), "__lazy_echo", &[])
+            .unwrap()
+            .is_err()
+    );
+    assert!(
+        invoke_export(
+            &ctx,
+            Some("native.lazy.test"),
+            "__lazy_echo",
+            &[Value::I64(1)]
+        )
+        .unwrap()
+        .is_err()
+    );
+    assert_eq!(LOOKUPS.load(Ordering::SeqCst), 0);
+    let arguments = [Value::Str("lazy module".into())];
+    assert!(
+        invoke_export(&ctx, Some("native.lazy.test"), "__lazy_echo", &arguments)
+            .unwrap()
+            .is_err()
+    );
+    assert!(
+        crate::interop::resolve_native_module(&ctx, "native.lazy.test")
+            .unwrap()
+            .unwrap()
+            .deferred
+    );
+    READY.store(1, Ordering::SeqCst);
+    assert_eq!(
+        invoke_export(&ctx, Some("native.lazy.test"), "__lazy_echo", &arguments)
+            .unwrap()
+            .unwrap(),
+        Some(arguments[0])
+    );
+    assert_eq!(
+        invoke_export(&ctx, None, "__lazy_echo", &arguments)
+            .unwrap()
+            .unwrap(),
+        Some(arguments[0])
+    );
+    assert_eq!(
+        LOOKUPS.load(Ordering::SeqCst),
+        2,
+        "successful materialization must replace the declaration"
+    );
+    assert!(
+        !crate::interop::resolve_native_module(&ctx, "native.lazy.test")
+            .unwrap()
+            .unwrap()
+            .deferred
+    );
+}
+
 #[cfg(feature = "interp")]
 #[test]
 fn blocking_provider_reenters_the_interpreter_and_copies_callback_results() {
@@ -266,14 +424,21 @@ fn blocking_provider_reenters_the_interpreter_and_copies_callback_results() {
         branch_targets: vec![],
         frame_meta: None,
     });
+    let mut void_function = script_function.clone();
+    void_function.name = "Test.Void".into();
+    void_function.param_count = 0;
+    void_function.ret_type = "void".into();
+    void_function.blocks[0].terminator = Terminator::Ret { reg: None };
     let ctx = VmContext::with_module(Module::new(
         crate::zpkg::image::ModuleData {
             name: "Test".into(),
             string_pool: vec![],
             classes: vec![],
-            func_index: [("Test.Callback".into(), 0)].into_iter().collect(),
+            func_index: [("Test.Callback".into(), 0), ("Test.Void".into(), 1)]
+                .into_iter()
+                .collect(),
         },
-        vec![script_function],
+        vec![script_function, Function::new(void_function)],
         Default::default(),
     ));
     ctx.install_lazy_loader(None, 0);
@@ -281,7 +446,13 @@ fn blocking_provider_reenters_the_interpreter_and_copies_callback_results() {
         let ctx = unsafe { frame(raw) }.unwrap().ctx;
         assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 1);
         unsafe {
-            native::dispatch(raw, |call| {
+            sdk::dispatch(raw, |call| {
+                if !matches!(call.invoke("Test.Void", &[])?, NativeValue::Void) {
+                    return Err(sdk::Error::new(
+                        "Std.InvalidCastException",
+                        "void callback became null",
+                    ));
+                }
                 call.invoke(
                     "Test.Callback",
                     &[NativeValue::Strings(vec!["中文".into(), "".into()])],

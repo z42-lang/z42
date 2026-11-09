@@ -1,6 +1,6 @@
 # 原生模块注册与调用
 
-> 代码：`src/runtime/src/interop/`、`src/runtime/src/loader/native.rs`、`src/runtime/crates/z42-abi/src/native.rs`、`src/runtime/crates/z42-rs/src/native.rs`
+> 代码：`src/runtime/src/interop/`、`src/runtime/src/loader/native.rs`、`src/runtime/crates/z42-abi/src/module.rs`、`src/runtime/crates/z42-rs/src/module.rs`
 
 ## 职责与装配
 
@@ -9,8 +9,8 @@ interop 校验、注册和查询 native 描述符，并负责脚本值与 C 值�
 | 提供方 | 实现 | 注册方式 |
 |---|---|---|
 | `z42.core` | `src/corelib/` | `NativeProvider` 提交内部 `BuiltinDesc` |
-| `z42_repl` | `crates/z42-repl/src/native.rs` | `z42_repl_module_v1` 返回 C 描述符 |
-| `z42_compression` | `crates/z42-compression/src/native.rs` | `z42_compression_module_v1` 返回 C 描述符 |
+| `z42_repl` | `crates/z42-repl/src/registration.rs` | `z42_repl_module_v1` 返回 C 描述符 |
+| `z42_compression` | `crates/z42-compression/src/registration.rs` | `z42_compression_module_v1` 返回 C 描述符 |
 
 `RegistryBuilder` 在发布前校验整个提供方，拒绝空名、重复提供方和同一提供方内重复函数。`freeze` 产生不可变快照，同时生成内部 builtin 执行表及 metadata 名称/ID 目录。不同提供方可以导出同名函数，裸名歧义不会按注册顺序选择胜者。BuiltinId 只在当前执行实例内有效，字节码仍保存名称。
 
@@ -18,11 +18,11 @@ interop 校验、注册和查询 native 描述符，并负责脚本值与 C 值�
 
 ## 同一入口：静态注册与动态加载
 
-`z42_native.h` 与 `z42_abi::native` 定义相同的 C 布局。模块入口返回 `Module`：ABI 版本/大小、逻辑名称、函数签名与调用指针，以及成对的可选状态构造/析构入口。静态链接直接调用该入口并提交描述符；`loader::native::load_native_module` 从动态库解析 `<basename>_module_v1`，再提交给同一个 `register_native_module`。校验失败不发布任何导出；同一 VM 的相同模块接口重复注册幂等，冲突接口拒绝替换。
+`z42_native.h` 与 `z42_abi::module` 定义相同的 C 布局。模块入口返回 `Module`：ABI 版本/大小、逻辑名称、函数签名与调用指针，以及成对的可选状态构造/析构入口。静态链接直接调用该入口并提交描述符；`loader::native::load_native_module` 从动态库解析 `<basename>_module_v1`，再提交给同一个 `register_native_module`。校验失败不发布任何导出；同一 VM 的相同模块接口重复注册幂等，冲突接口拒绝替换。
 
 宿主也可先用 `host::register_static_native_library` 或 C 的 `z42_host_register_static_native_library` 注册逻辑库名与 C 符号解析器。解析器和返回入口必须保留到进程退出。loader 优先查询该解析器，再检查 PAL 动态加载能力；已注册静态库缺失的符号直接报错，避免意外混用另一个动态镜像。解析器调用不持有注册表锁。
 
-轻量 compression 注册代码在首次调用时通过宿主解析同一模块的完整实现入口；显式 bundled 构建直接调用自身实现。轻量注册工厂始终产生转发描述符，不能因 Cargo 图中另一个 target 启用算法 feature 而改成内嵌调用。两种描述符从同一份脚本签名生成。Repl 的轻量注册代码提供通用输入和配置，终端后端通过 C 编辑器接口按需解析。两者无需依赖运行时 crate。
+compression 关闭算法 feature 时只提供没有调用指针的接口声明。首次调用由 interop 经 loader 找到模块入口，检查完整实现是否与声明的名称和全部签名匹配，再按 VM 发布实现；失败不改变声明。后续调用直接进入已注册实现，没有模块专用转发函数。显式 bundled 构建直接注册完整入口。声明和实现视图从同一份脚本签名生成。Repl 的注册代码提供通用输入和配置，桌面编辑器通过 C 接口按需解析。两者无需依赖运行时 crate。
 
 ## C 值、错误与回调
 
@@ -36,7 +36,9 @@ ABI 支持整数、浮点、布尔、UTF-8 字符串、可空字符串、字节�
 
 PAL 的 `dynlib::is_supported()` 汇合构建开关和 OS 能力。iOS、WASM 及关闭 native interop 的构建拒绝脚本 native 动态库加载，返回 `Unsupported`；静态解析器不受此限制。`HostApi.resolve_symbol` 查询宿主预先部署的实现库，沿 host 注入的可信候选策略使用独立的 component-loading 契约，保留 iOS 签名 Framework 和 Android loader namespace 的支持；它不是脚本任意路径装载入口。按路径打开的模块代码由 PAL 进程缓存保留，覆盖 VM 状态析构及线程本地析构入口。
 
-Repl 的终端编辑要求平台终端能力和可用的后端链接方式；历史能力还要求文件系统。这些查询描述构建能力，不探测实际 tty 或安装文件。非终端平台、缺库或后端初始化失败走 plain 输入；持久历史属于终端后端。补全、键位回调名称和关键词配置按 VM 隔离。静态值成员查询属于核心反射，与终端模块无关。
+Repl 区分 console 输入与交互终端。PAL 每次调用检查平台和标准输入句柄，终端还要求 stdin/stderr 为 tty，不读取输入或初始化编辑器。桌面重定向输入可使用 plain 行读取，但没有编辑和历史；iOS、Android、Browser WASM、缺少有效输入句柄的宿主不直接读取 stdin，`ReadLine` 返回 `NotSupportedException`，由宿主收集 UI 输入后调用独立的脚本求值接口。
+
+`SupportsConsoleInput`、`SupportsTerminalEditor`、`SupportsHistory` 分别查询这三类条件，历史还要求文件系统；查询不探测编辑库是否安装。只有 console 输入可用时，缺库或编辑器初始化失败才退回 plain 输入。持久历史属于桌面终端后端。补全、键位回调名称和关键词配置按 VM 隔离。静态值成员查询属于核心反射，与终端模块无关。
 
 ## 当前边界与验证
 

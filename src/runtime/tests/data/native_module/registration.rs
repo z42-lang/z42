@@ -1,4 +1,4 @@
-#[path = "../../../crates/z42-abi/src/native.rs"]
+#[path = "../../../crates/z42-abi/src/module.rs"]
 mod abi;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};

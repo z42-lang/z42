@@ -6,7 +6,7 @@ using Std.Cli;
 int _componentBuildStaticLibraries(string root, string rid, string profile) {
     string features = "z42/static-embedding,z42/" + _componentPlatformPreset(rid).Replace(",", ",z42/");
     Process p = _componentPlatformCargo("build", root, rid, profile, false)
-        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("-p").Arg("z42-compression").Arg("--lib").Arg("--examples")
+        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("--lib").Arg("--examples")
         .Arg("--no-default-features");
     if (_componentTargetHasJit(rid)) {
         p = p.Arg("-p").Arg("z42-jit");
@@ -17,13 +17,13 @@ int _componentBuildStaticLibraries(string root, string rid, string profile) {
     if (c != 0) { return c; }
     c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_interp");
     if (c != 0) { return c; }
-    c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_compression");
+    c = _componentBuildCompression(root, rid, profile, false);
     if (c != 0 || !_componentTargetHasJit(rid)) { return c; }
     return _componentStaticArchiveFromRlib(root, rid, profile, "z42_jit");
 }
 
-int _componentStaticArchiveFromRlib(string root, string rid, string profile, string stem) {
-    string cargo = _componentPlatformOut(root, rid, profile, false);
+int _componentStaticArchiveFromRlib(string root, string rid, string profile, string stem, string cargo = "") {
+    if (cargo.Length == 0) { cargo = _componentPlatformOut(root, rid, profile, false); }
     string rlib = Path.Join(cargo, "lib" + stem + ".rlib");
     if (!File.Exists(rlib)) { throw new CliException("static graph did not produce " + rlib); }
     string work = _xtaskWork(root, "component-static-" + rid + "-" + profile);

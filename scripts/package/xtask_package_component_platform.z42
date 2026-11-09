@@ -25,15 +25,16 @@ string _componentPlatformOut(string root, string rid, string profile, bool share
     return Path.Join(dir, _ridToCargo(rid) + "/" + profile);
 }
 
-Process _componentPlatformCargo(string verb, string root, string rid, string profile, bool shared) {
+Process _componentPlatformCargo(string verb, string root, string rid, string profile, bool shared, string targetDir = "") {
     Process p = new Process("cargo");
     if (rid.StartsWith("android-")) { p = p.Arg("ndk").Arg("-t").Arg(_ridToAndroidAbi(rid)); }
     // cargo-ndk queries workspace metadata before forwarding Cargo arguments.
     string working = rid.StartsWith("android-") ? Path.Join(root, "src/runtime") : root;
+    if (targetDir.Length == 0) { targetDir = shared ? _componentBuildDir(root) : _componentStaticDir(root, rid); }
     p = p.Arg(verb).Arg("--locked").WorkingDirectory(working)
         .Arg("--config").Arg(Path.Join(root, _runtimeCargoConfig()))
         .Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))
-        .Arg("--target-dir").Arg(shared ? _componentBuildDir(root) : _componentStaticDir(root, rid))
+        .Arg("--target-dir").Arg(targetDir)
         .EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("CARGO_TERM_COLOR", "never")
         .Env("CARGO_PROFILE_RELEASE_LTO", "false");
     if (_ridCategory(rid) != "desktop" && !rid.StartsWith("android-")) { p = p.Arg("--target").Arg(_ridToCargo(rid)); }
@@ -58,9 +59,10 @@ int _componentBuildPlatform(string root, string rid, string profile) {
     if (_ridCategory(rid) == "desktop") { return _componentBuild(root, profile); }
     if (rid == "browser-wasm") { throw new CliException("browser WASM uses static components; native dynamic loading is unavailable"); }
     string features = "z42/" + _componentPlatformPreset(rid) + ",z42/shared-core,z42-interp/shared-core,z42-interp/native-interop";
-    return _exec(_componentPlatformCargo("build", root, rid, profile, true)
-        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("-p").Arg("z42-compression").Arg("--lib")
+    int c = _exec(_componentPlatformCargo("build", root, rid, profile, true)
+        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("--lib")
         .Arg("--no-default-features").Arg("--features").Arg(features));
+    return c == 0 ? _componentBuildCompression(root, rid, profile, true) : c;
 }
 void _componentInstallPlatform(string root, string native, string rid, string profile) {
     string cargo = _componentPlatformOut(root, rid, profile, true);
@@ -78,4 +80,29 @@ string _componentRidForTarget(string root, string target) {
 string _componentAndroidRid(string root, string abi) {
     foreach (var rid in _vRidsOfCategory(root, "android")) { if (_ridToAndroidAbi(rid) == abi) { return rid; } }
     throw new CliException("no published runtime RID for Android ABI " + abi);
+}
+
+// Pure C modules have their own graph: enabling algorithms must not change the
+// declaration-only dependency linked into the shared core or static core archive.
+int _componentBuildCompression(string root, string rid, string profile, bool shared, string destination = "") {
+    string target = Path.Join(shared ? _componentBuildDir(root) : _componentStaticDir(root, rid), "compression");
+    string cargo = _ridCategory(rid) == "desktop" ? Path.Join(target, profile)
+        : Path.Join(target, _ridToCargo(rid) + "/" + profile);
+    if (destination.Length == 0) { destination = _componentPlatformOut(root, rid, profile, shared); }
+    int c = _exec(_componentPlatformCargo("build", root, rid, profile, shared, target)
+        .Arg("-p").Arg("z42-compression").Arg("--lib").Arg("--no-default-features")
+        .Arg("--features").Arg("z42-compression/backend"));
+    if (c != 0) { return c; }
+    Directory.Create(destination);
+    if (shared) {
+        string file = _componentLibrary("z42_compression", rid);
+        _componentCopyRequired(Path.Join(cargo, file), Path.Join(destination, file));
+    } else {
+        c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_compression", cargo);
+        if (c != 0) { return c; }
+        string file = _componentStaticName("z42_compression", rid);
+        _componentCopyRequired(Path.Join(cargo, file), Path.Join(destination, file));
+        _componentCopyRequired(Path.Join(cargo, "z42_compression-link.txt"), Path.Join(destination, "z42_compression-link.txt"));
+    }
+    return 0;
 }

@@ -6,11 +6,11 @@
 
 ## 功能索引
 
-`native.rs` 提供脚本签名、调用适配及 `z42_compression_module_v1`；`backend.rs` 保留独立传统 C API；`compression.rs` 实现算法与流式句柄。
+`registration.rs` 从同一份签名生成接口声明和实现描述符，导出 `z42_compression_module_v1`；`c_api.rs` 保留独立 C API；`compression.rs` 实现算法与流式句柄。
 
 ## 基础用法
 
-`backend` feature 启用完整算法，默认开启。关闭时只链接轻量注册代码，首次调用通过宿主符号解析器转发到完整模块镜像。静态解析器先于 OS 动态加载；模块入口与描述符在两种链接方式中一致。
+`backend` feature 启用完整算法，默认开启。关闭时只提供不可调用的接口声明；interop 首次调用时经 loader 找到并校验完整模块，再直接使用其入口，不经过模块专用代理。静态解析器先于 OS 动态加载；模块入口与描述符在两种链接方式中一致。
 
 ## 如何测试验证
 
@@ -22,4 +22,4 @@
 
 ## 核心文件
 
-`src/native.rs` 是脚本描述符的唯一来源；`src/compression_tests.rs` 验证算法与传统 C API。C 值由接收方复制，流式句柄由算法后端释放。
+`src/registration.rs` 是脚本描述符的唯一来源；`src/compression_tests.rs` 验证算法与传统 C API。C 值由接收方复制，流式句柄由算法后端释放。

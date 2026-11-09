@@ -18,7 +18,7 @@ default = ["backend"]
 backend = ["dep:rustyline"]
 
 [dependencies]
-z42-rs = { path = "../z42-rs" }
+z42-rs = { path = "../z42-rs", default-features = false }
 
 # The line editor. Lives HERE, not in the z42 main crate — moving it out of the
 # core VM is the whole point (dependency isolation). The `}` auto-dedent + Backspace-floor

@@ -2272,6 +2272,7 @@ dependencies = [
  "brotli",
  "flate2",
  "lz4_flex",
+ "z42-abi",
  "z42-rs",
  "zstd",
 ]

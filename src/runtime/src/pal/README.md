@@ -19,6 +19,7 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 提供平台�
 | `process.rs` | `exit_code()`、`own_process_group()`、`ProcessTree`（超时杀整棵进程树）、`find_executable()` |
 | `random.rs` | `fill()` —— OS CSPRNG |
 | `dynlib.rs` | `is_supported()` / `require_supported()` 查询和限制脚本扩展装载、`file_name()`、`resolve_native_beside()` 定向探测同目录原生依赖、`Library::open()` / `open_component()`（进程寿命代码映像）/ `symbol()` —— 运行时唯一的 dlopen 入口 |
+| `console.rs` | 区分有效 console 输入与交互终端；移动端、浏览器及无输入句柄的宿主不访问 stdin |
 | `mem.rs` | 页大小、GC chunk 页的 `decommit` / `recommit` |
 | `thread.rs` | 栈边界、`current_token()`、`run_with_stack()` |
 | `time.rs` | `HAS_CLOCK`、`monotonic_us()` / `monotonic_ns()`、`wall_unix_ms()` / `wall_unix_ns()` |

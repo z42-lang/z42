@@ -1,9 +1,6 @@
-//! Native library loader: `dlopen` + invoke the library's `<basename>_register`
-//! entry point so its types land in the VM's `TypeRegistry`.
-//!
-//! The library handle is stored on loader extension state for the VM's
-//! lifetime, keeping every `fn_ptr` referenced by a `RegisteredType` valid
-//! until VM drop.
+//! Native library resolution and registration. PAL retains opened images through
+//! process/TLS teardown; this module caches logical identities per VM. Generic
+//! modules use `<name>_module_v1`, while typed libraries use `<name>_register`.
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -79,7 +76,6 @@ pub fn load_library(ctx: &VmContext, path: &Path) -> Result<()> {
     let _guard = crate::interop::exports::VmGuard::enter(ctx);
     unsafe { register() };
 
-    retain_library(ctx, lib)?;
     Ok(())
 }
 
@@ -96,33 +92,20 @@ pub fn guess_register_symbol(path: &Path) -> Option<String> {
     Some(format!("{core}_register"))
 }
 
-#[cfg(all(test, feature = "native-interop"))]
+#[cfg(all(test, feature = "component-loading"))]
 #[path = "native_tests.rs"]
 mod tests;
 
-/// Released last by the host extension assembly, after provider destructors and type tables.
+/// Per-VM name resolution cache. Process code lifetime belongs to PAL.
 #[derive(Default)]
 #[cfg(any(feature = "native-interop", feature = "component-loading"))]
 pub(crate) struct Libraries {
-    owned: parking_lot::Mutex<Vec<std::sync::Arc<crate::pal::dynlib::Library>>>,
     named: parking_lot::Mutex<
         std::collections::HashMap<
             String,
             Result<std::sync::Arc<crate::pal::dynlib::Library>, String>,
         >,
     >,
-}
-
-#[cfg(feature = "native-interop")]
-pub(crate) fn retain_library(
-    ctx: &VmContext,
-    library: std::sync::Arc<crate::pal::dynlib::Library>,
-) -> Result<()> {
-    let libraries = ctx
-        .ext::<Libraries>()
-        .ok_or_else(|| anyhow!("missing native loader VM state"))?;
-    libraries.owned.lock().push(library);
-    Ok(())
 }
 
 /// Candidate policy injected by the host. The logical library name never carries a suffix.
@@ -193,7 +176,7 @@ fn bail_native_missing<T>(library: &str) -> Result<T> {
 }
 
 /// Load a self-registering module through the same descriptor entry used for static linkage.
-#[cfg(feature = "native-interop")]
+#[cfg(feature = "component-loading")]
 pub fn load_native_module(ctx: &VmContext, path: &Path) -> Result<()> {
     crate::pal::dynlib::require_supported()?;
     let image = unsafe { crate::pal::dynlib::Library::open_component(path)? };
@@ -202,7 +185,7 @@ pub fn load_native_module(ctx: &VmContext, path: &Path) -> Result<()> {
         .and_then(OsStr::to_str)
         .ok_or_else(|| anyhow!("native module path has no name"))?;
     let entry_name = format!("{}_module_v1", stem.strip_prefix("lib").unwrap_or(stem));
-    let entry: z42_abi::native::ModuleEntry = unsafe { image.symbol(&entry_name)? };
+    let entry: z42_abi::module::ModuleEntry = unsafe { image.symbol(&entry_name)? };
     let descriptor = unsafe { entry() };
     let module = unsafe { crate::interop::module::NativeModule::parse(descriptor)? };
     let libraries = ctx

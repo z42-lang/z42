@@ -65,6 +65,8 @@ int main(int argc, char** argv) {
     void* library = OPEN(argv[1]);
 #endif
     if (!library) { fprintf(stderr, "cannot open core: %s\n", argv[1]); return 1; }
+    REQUIRE(SYMBOL(library, "z42_compression_module_v1") == NULL);
+    REQUIRE(SYMBOL(library, "z42_compression_deflate_compress") == NULL);
 #define BIND(field, type, name) api.field = (type)SYMBOL(library, name); if (!api.field) return 1
     BIND(native, RegisterNative, "z42_host_register_static_native_library");
     BIND(initialize, Initialize, "z42_host_initialize");

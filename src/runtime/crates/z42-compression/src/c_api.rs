@@ -1,36 +1,6 @@
-//! z42-compression — z42 stdlib native extension for gzip / zlib / deflate / zstd.
-//!
-//! # Build outputs
-//!
-//! `crate-type = ["cdylib", "rlib"]` produces two artifacts per
-//! `cargo build` invocation:
-//!
-//! - `libz42_compression.{so,dylib,dll}` — dlopened by z42vm on desktop,
-//!   located via `Z42_NATIVE_PATH` env or the SDK's `<sdk>/native/` directory
-//! - `libz42_compression.rlib` — used by the z42 main crate's
-//!   `bundled-compression` Cargo feature so wasm / iOS / Android builds
-//!   link it into libz42 itself (no dlopen)
-//!
-//! # ABI
-//!
-//! Pure C ABI — **no z42 internal types cross this boundary**. Inputs and
-//! outputs use raw `*const u8 + usize` for byte payloads; integer
-//! parameters use `i32`. Errors flow back via a return code + a
-//! thread-local last-error message slot (queried with
-//! [`z42_compression_last_error`]). z42vm wraps each entry on its side to
-//! marshal `Value::Array<I64>` ↔ `Vec<u8>` and translate error codes into
-//! `Std.Compression.CompressionException`.
-//!
-//! This decoupling means the crate has zero dependency on the z42 main
-//! crate — no Cargo cycle, no shared-build-tree ABI assumption. Two
-//! crates can evolve independently as long as the C ABI declared here
-//! stays stable.
-//!
-//! # Discovery
-//!
-//! z42vm resolves the `z42_compression_*` symbols by name (after checking
-//! [`z42_compression_abi_version`]); its typed builtins `__deflate_compress`
-//! etc. — the z42 `[Native(entry = "...")]` strings — call through them.
+//! Standalone byte-buffer C API. Script module registration lives in registration.rs.
+//! Algorithms and stream handles live in compression.rs. Returned buffers must
+//! be released through this image's own free function.
 
 use std::cell::RefCell;
 use std::os::raw::c_char;
@@ -56,20 +26,9 @@ pub const Z42_COMPRESSION_ERR_INTERNAL:      i32 = 99;
 
 // ── ABI version handshake ────────────────────────────────────────────────────
 
-/// C-ABI contract version of this crate's `z42_compression_*` exports.
-///
-/// z42vm's dlopen loader (`compression/mod.rs`) calls [`z42_compression_abi_version`]
-/// on a freshly-opened `libz42_compression` and refuses to bind the rest of the
-/// symbols unless it matches the loader's own `EXPECTED_COMPRESSION_ABI`. Bump
-/// this constant — and the loader's, together — on **any** change to a
-/// `z42_compression_*` signature (params / return / calling convention) or to
-/// the error-code meanings above.
-///
-/// Why it exists: the loader's search path includes the executable's own
-/// directory, so a stale `libz42_compression.{dylib,so,dll}` left beside z42vm
-/// (dev incremental builds, partial SDK upgrades) would be dlopen'd and called
-/// through the *current* `C*Fn` signatures — same symbol names, changed layout =
-/// UB. The handshake turns that into a clean skip.
+/// Contract version for the standalone byte-buffer exports. Callers check it
+/// before binding signatures; changes to parameters, calling conventions or error
+/// code meanings require a version bump. The script module protocol has its own header.
 pub const Z42_COMPRESSION_ABI_VERSION: u32 = 1;
 
 /// Returns [`Z42_COMPRESSION_ABI_VERSION`]. The first symbol z42vm resolves when

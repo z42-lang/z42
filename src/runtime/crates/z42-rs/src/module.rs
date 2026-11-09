@@ -1,6 +1,6 @@
 //! VM-independent authoring helpers for native module registration and script calls.
 use std::ffi::c_void;
-pub use z42_abi::native as abi;
+pub use z42_abi::module as abi;
 
 #[derive(Debug)]
 pub enum Value {
@@ -160,12 +160,12 @@ pub unsafe fn dispatch(
     if raw.host.is_null() {
         return abi::ERROR;
     }
-    let host = unsafe { &*raw.host };
-    if host.version != abi::MODULE_ABI_VERSION
-        || host.size < std::mem::size_of::<abi::HostApi>() as u32
-    {
+    let version = unsafe { raw.host.cast::<u32>().read() };
+    let size = unsafe { raw.host.cast::<u32>().add(1).read() };
+    if version != abi::MODULE_ABI_VERSION || size < std::mem::size_of::<abi::HostApi>() as u32 {
         return abi::ERROR;
     }
+    let host = unsafe { &*raw.host };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(&mut Call { raw })));
     match result {
         Ok(Ok(value)) => {
@@ -287,55 +287,6 @@ pub unsafe fn decode(value: &abi::Value) -> Result<Value> {
     }
 }
 
-/// Forward a stateless lightweight registration to the same module's full native image.
-///
-/// # Safety
-/// raw is a live host call. The loaded module must be stateless; this helper rejects
-/// descriptors with state hooks so no Rust state can cross between independently built images.
-pub unsafe fn forward(raw: *mut abi::Call, library: &str, entry: &str, function: &str) -> u32 {
-    if raw.is_null() || unsafe { (*raw).host.is_null() } {
-        return abi::ERROR;
-    }
-    let host = unsafe { &*(*raw).host };
-    if host.version != abi::MODULE_ABI_VERSION
-        || host.size < std::mem::size_of::<abi::HostApi>() as u32
-    {
-        return abi::ERROR;
-    }
-    let target = (|| -> Result<abi::Invoke> {
-        let call = unsafe { raw.as_mut() }.ok_or_else(|| Error::invalid("null native call"))?;
-        let mut call = Call { raw: call };
-        let entry: abi::ModuleEntry = unsafe { call.symbol(library, entry)? };
-        let module = unsafe { entry().as_ref() }
-            .ok_or_else(|| Error::invalid("null native module descriptor"))?;
-        if module.version != abi::MODULE_ABI_VERSION
-            || module.size < std::mem::size_of::<abi::Module>() as u32
-        {
-            return Err(Error::invalid("native module ABI mismatch"));
-        }
-        if module.create_state.is_some() || module.destroy_state.is_some() {
-            return Err(Error::invalid(
-                "stateless forwarding cannot share module state",
-            ));
-        }
-        for candidate in unsafe { span(module.functions, module.function_count)? } {
-            let name = unsafe { span(candidate.name.data, candidate.name.len)? };
-            if name == function.as_bytes() {
-                return candidate
-                    .invoke
-                    .ok_or_else(|| Error::invalid("missing native invoke entry"));
-            }
-        }
-        Err(Error::invalid(format!(
-            "native module does not export `{function}`"
-        )))
-    })();
-    match target {
-        Ok(invoke) => unsafe { invoke(raw) },
-        Err(error) => unsafe { dispatch(raw, |_| Err(error)) },
-    }
-}
-
 #[cfg(test)]
-#[path = "native_tests.rs"]
+#[path = "module_tests.rs"]
 mod tests;

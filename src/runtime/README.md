@@ -123,8 +123,8 @@ GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管�
 | `crates/z42-interp/` | 基线解释器、Engine 与组件工厂 | 在用 |
 | `crates/z42-jit/` | Cranelift、tier/OSR、代码页与组件工厂 | 在用 |
 | `crates/z42-zpkg/` | 静态产物格式、解析、IR 与不可变包映像；无 VM 依赖 | 在用 |
-| `crates/z42-abi/` | Tier 1 C ABI 的 Rust `#[repr(C)]` 镜像（`no_std`，无依赖） | 在用 |
-| `crates/z42-rs/` | Tier 2 用户面向 trait/type（`Z42Type`、`Z42Traceable`、`Visitor`） | 在用（高层能力待 C5） |
+| `crates/z42-abi/` | 类型与模块 C ABI 的 Rust `#[repr(C)]` 布局（`no_std`，无依赖） | 在用 |
+| `crates/z42-rs/` | Rust 类型与模块编写辅助；不链接 VM | 在用（高层能力待 C5） |
 | `crates/z42-macros/` | proc macro 入口（`methods`、`module!`；`Z42Type` derive / `trait_impl` 待 C5，现报 `compile_error!`） | 在用 |
 | `crates/z42-compression/` | 压缩后端 cdylib（`z42.compression` 的 native 侧） | 在用 |
 | `crates/z42-repl/` | host-only REPL 行编辑器 cdylib（`z42i`，被 `z42vm` 懒 dlopen） | 在用 |

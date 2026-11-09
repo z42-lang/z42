@@ -145,8 +145,10 @@ fn dispatch_contains_panics_preserves_script_exceptions_and_validates_host_abi()
         unsafe { dispatch(&mut raw, |_| panic!("must not invoke")) },
         abi::ERROR
     );
+    let prefix = [999_u32, 8];
+    raw.host = prefix.as_ptr().cast();
     assert_eq!(
-        unsafe { forward(std::ptr::null_mut(), "lib", "entry", "function") },
+        unsafe { dispatch(&mut raw, |_| panic!("truncated host must be rejected")) },
         abi::ERROR
     );
 }

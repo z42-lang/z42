@@ -33,5 +33,6 @@ pub mod signal;
 pub mod process;
 pub mod random;
 pub mod dynlib;
+pub mod console;
 
 mod sys;

@@ -1,12 +1,13 @@
 //! Validation and per-VM state for crate-owned native modules.
 use anyhow::{Result, anyhow, bail};
 use std::{collections::HashMap, ffi::c_void, sync::Arc};
-use z42_abi::native as abi;
+use z42_abi::module as abi;
 
 pub struct NativeModule {
     pub name: &'static str,
     pub(crate) functions: HashMap<&'static str, &'static abi::Function>,
     descriptor: &'static abi::Module,
+    pub(crate) deferred: bool,
 }
 
 impl NativeModule {
@@ -16,6 +17,18 @@ impl NativeModule {
     /// The entry and descriptor spans must be readable, immutable, and retained for
     /// the process lifetime. Callback state must support concurrent calls in one VM.
     pub unsafe fn parse(pointer: *const abi::Module) -> Result<Self> {
+        unsafe { Self::parse_descriptor(pointer, false) }
+    }
+
+    /// Register immutable signatures without loading their implementation.
+    ///
+    /// # Safety
+    /// The descriptor and spans must remain immutable for the process lifetime.
+    pub unsafe fn declaration(pointer: *const abi::Module) -> Result<Self> {
+        unsafe { Self::parse_descriptor(pointer, true) }
+    }
+
+    unsafe fn parse_descriptor(pointer: *const abi::Module, deferred: bool) -> Result<Self> {
         if pointer.is_null() || pointer as usize % std::mem::align_of::<abi::Module>() != 0 {
             bail!("invalid native module descriptor pointer");
         }
@@ -27,6 +40,9 @@ impl NativeModule {
         let descriptor = unsafe { &*pointer };
         if descriptor.create_state.is_some() != descriptor.destroy_state.is_some() {
             bail!("native module state creation and destruction must be paired");
+        }
+        if deferred && descriptor.create_state.is_some() {
+            bail!("native declarations cannot create implementation state");
         }
         let name = unsafe { text(descriptor.name)? };
         if name.is_empty() {
@@ -41,8 +57,11 @@ impl NativeModule {
             if functions.insert(function_name, function).is_some() {
                 bail!("duplicate native export `{name}::{function_name}`");
             }
-            if function.invoke.is_none() {
+            if !deferred && function.invoke.is_none() {
                 bail!("missing invoke entry for `{name}::{function_name}`");
+            }
+            if deferred && function.invoke.is_some() {
+                bail!("native declaration `{name}::{function_name}` must not contain a wrapper");
             }
             for kind in unsafe { span(function.parameters.data, function.parameters.len)? } {
                 if !matches!(
@@ -79,6 +98,7 @@ impl NativeModule {
             name,
             functions,
             descriptor,
+            deferred,
         })
     }
 
@@ -87,6 +107,9 @@ impl NativeModule {
     }
     pub fn function_count(&self) -> usize {
         self.functions.len()
+    }
+    pub(crate) fn has_state(&self) -> bool {
+        self.descriptor.create_state.is_some()
     }
     pub fn functions(&self) -> impl Iterator<Item = (&'static str, &'static abi::Function)> + '_ {
         self.functions
@@ -105,7 +128,10 @@ impl NativeModule {
                     && unsafe { span(function.parameters.data, function.parameters.len).ok() }
                         == unsafe { span(other.parameters.data, other.parameters.len).ok() }
             })
-            && self.descriptor.create_state.is_some() == other.descriptor.create_state.is_some()
+            && (self.deferred
+                || other.deferred
+                || self.descriptor.create_state.is_some()
+                    == other.descriptor.create_state.is_some())
     }
 }
 
@@ -145,10 +171,41 @@ pub unsafe fn register_native_module(
         if !existing.same_interface(&module) {
             bail!("conflicting native module interface `{}`", module.name);
         }
-        return Ok(());
+        if !existing.deferred {
+            return Ok(());
+        }
     }
     modules.insert(module.name, Arc::new(module));
     Ok(())
+}
+
+/// Resolve a declaration through the host's linked/dynamic library policy. Only a
+/// fully validated implementation is published; failures leave the declaration intact.
+pub(crate) fn materialize(
+    ctx: &crate::context::VmContext,
+    module: Arc<NativeModule>,
+) -> Result<Arc<NativeModule>> {
+    if !module.deferred {
+        return Ok(module);
+    }
+    let entry_name = format!("{}_module_v1", module.name);
+    let pointer = crate::loader::native::resolve_symbol(ctx, module.name, &entry_name)?;
+    let entry: abi::ModuleEntry = unsafe { std::mem::transmute(pointer) };
+    let descriptor = unsafe { entry() };
+    let implementation = unsafe { NativeModule::parse(descriptor)? };
+    if module.name != implementation.name || !module.same_interface(&implementation) {
+        bail!(
+            "native implementation does not match declaration `{}`",
+            module.name
+        );
+    }
+    unsafe { register_native_module(ctx, descriptor)? };
+    let resolved = resolve_native_module(ctx, module.name)?
+        .ok_or_else(|| anyhow!("native implementation was not registered"))?;
+    if resolved.deferred {
+        bail!("native image did not implement module `{}`", module.name);
+    }
+    Ok(resolved)
 }
 
 pub fn resolve_native_module(

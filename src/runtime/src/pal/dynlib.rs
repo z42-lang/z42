@@ -5,7 +5,7 @@
 /// Whether script-requested native extensions can be opened by this build.
 /// Trusted runtime components use their separate component-loading contract.
 pub const fn is_supported() -> bool {
-    cfg!(feature = "native-interop") && super::system::OS_CAPS.native_extensions
+    cfg!(feature = "component-loading") && super::system::OS_CAPS.native_extensions
 }
 
 /// Reject unsupported extension loads before probing files or running native initializers.

@@ -1,14 +1,15 @@
 //! Script exports and registration owned by the compression crate.
-//! Adapter-only linkage forwards stateless calls to this module's full native image;
-//! bundled linkage invokes the same implementations directly.
+//! Declarations support lazy loading; implementations use the same signatures.
+use z42_abi::module as abi;
 #[cfg(feature = "backend")]
-use z42_rs::native::Value;
-use z42_rs::native::{self, abi};
+use z42_rs::module as sdk;
+#[cfg(feature = "backend")]
+use z42_rs::module::Value;
 
 #[cfg(feature = "backend")]
-fn result<T>(name: &str, value: Result<T, (i32, String)>) -> native::Result<T> {
+fn result<T>(name: &str, value: Result<T, (i32, String)>) -> sdk::Result<T> {
     value.map_err(|(code, message)| {
-        native::Error::new(
+        sdk::Error::new(
             "Std.IO.IOException",
             format!("{name}: {message} (rc={code})"),
         )
@@ -16,46 +17,32 @@ fn result<T>(name: &str, value: Result<T, (i32, String)>) -> native::Result<T> {
 }
 
 macro_rules! function {
-    ($entry:ident, $name:literal, $body:expr) => {
-        mod $entry {
-            use super::*;
-            pub(super) unsafe extern "C" fn linked(call: *mut abi::Call) -> u32 {
-                unsafe {
-                    native::forward(call, "z42_compression", "z42_compression_module_v1", $name)
-                }
-            }
-            pub(super) unsafe extern "C" fn full(call: *mut abi::Call) -> u32 {
-                #[cfg(feature = "backend")]
-                {
-                    unsafe { native::dispatch(call, $body) }
-                }
-                #[cfg(not(feature = "backend"))]
-                {
-                    unsafe { linked(call) }
-                }
-            }
+    ($entry:ident, $body:expr) => {
+        #[cfg(feature = "backend")]
+        unsafe extern "C" fn $entry(call: *mut abi::Call) -> u32 {
+            unsafe { sdk::dispatch(call, $body) }
         }
     };
 }
 
-function!(deflate_compress, "__deflate_compress", |call| {
+function!(deflate_compress, |call| {
     let input = call.bytes(0)?;
     let level = call.integer(1)?;
     let mode = call.integer(2)?;
     Ok(Value::Bytes(result(
         "__deflate_compress",
-        crate::backend::compression::deflate_compress(&input, level as i32, mode as i32),
+        crate::c_api::compression::deflate_compress(&input, level as i32, mode as i32),
     )?))
 });
-function!(deflate_decompress, "__deflate_decompress", |call| {
+function!(deflate_decompress, |call| {
     let input = call.bytes(0)?;
     let mode = call.integer(1)?;
     Ok(Value::Bytes(result(
         "__deflate_decompress",
-        crate::backend::compression::deflate_decompress(&input, mode as i32),
+        crate::c_api::compression::deflate_decompress(&input, mode as i32),
     )?))
 });
-function!(zstd_compress, "__zstd_compress", |call| {
+function!(zstd_compress, |call| {
     let input = call.bytes(0)?;
     let level = call.integer(1)?;
     Ok(Value::Bytes(result(
@@ -63,82 +50,83 @@ function!(zstd_compress, "__zstd_compress", |call| {
         zstd_compress_impl(&input, level as i32),
     )?))
 });
-function!(zstd_decompress, "__zstd_decompress", |call| {
+function!(zstd_decompress, |call| {
     let input = call.bytes(0)?;
     Ok(Value::Bytes(result(
         "__zstd_decompress",
         zstd_decompress_impl(&input),
     )?))
 });
-function!(brotli_compress, "__brotli_compress", |call| {
+function!(brotli_compress, |call| {
     let input = call.bytes(0)?;
     let level = call.integer(1)?;
     Ok(Value::Bytes(result(
         "__brotli_compress",
-        crate::backend::compression::brotli_compress(&input, level as i32),
+        crate::c_api::compression::brotli_compress(&input, level as i32),
     )?))
 });
-function!(brotli_decompress, "__brotli_decompress", |call| {
+function!(brotli_decompress, |call| {
     let input = call.bytes(0)?;
     Ok(Value::Bytes(result(
         "__brotli_decompress",
-        crate::backend::compression::brotli_decompress(&input),
+        crate::c_api::compression::brotli_decompress(&input),
     )?))
 });
-function!(lz4_compress, "__lz4_compress", |call| {
+function!(lz4_compress, |call| {
     let input = call.bytes(0)?;
     let level = call.integer(1)?;
     Ok(Value::Bytes(result(
         "__lz4_compress",
-        crate::backend::compression::lz4_compress(&input, level as i32),
+        crate::c_api::compression::lz4_compress(&input, level as i32),
     )?))
 });
-function!(lz4_decompress, "__lz4_decompress", |call| {
+function!(lz4_decompress, |call| {
     let input = call.bytes(0)?;
     Ok(Value::Bytes(result(
         "__lz4_decompress",
-        crate::backend::compression::lz4_decompress(&input),
+        crate::c_api::compression::lz4_decompress(&input),
     )?))
 });
-function!(compressor_begin, "__compressor_begin", |call| {
+function!(compressor_begin, |call| {
     let algo = call.integer(0)?;
     let level = call.integer(1)?;
     let decode = call.boolean(2)?;
     Ok(Value::I64(result(
         "__compressor_begin",
-        crate::backend::compression::compressor_begin(algo as i32, level as i32, decode),
+        crate::c_api::compression::compressor_begin(algo as i32, level as i32, decode),
     )? as i64))
 });
-function!(compressor_feed, "__compressor_feed", |call| {
+function!(compressor_feed, |call| {
     let slot = call.integer(0)?;
     let chunk = call.bytes(1)?;
     Ok(Value::Bytes(result(
         "__compressor_feed",
-        crate::backend::compression::compressor_feed(slot as u64, &chunk),
+        crate::c_api::compression::compressor_feed(slot as u64, &chunk),
     )?))
 });
-function!(compressor_finish, "__compressor_finish", |call| {
+function!(compressor_finish, |call| {
     let slot = call.integer(0)?;
     Ok(Value::Bytes(result(
         "__compressor_finish",
-        crate::backend::compression::compressor_finish(slot as u64),
+        crate::c_api::compression::compressor_finish(slot as u64),
     )?))
 });
-function!(compressor_dispose, "__compressor_dispose", |call| {
-    crate::backend::compression::compressor_dispose(call.integer(0)? as u64);
+function!(compressor_dispose, |call| {
+    crate::c_api::compression::compressor_dispose(call.integer(0)? as u64);
     Ok(Value::Void)
 });
 
-macro_rules! descriptor {
-    ($entry:ident, $name:literal, [$($parameter:expr),*], $result:expr, $linked:expr) => {
-        abi::Function { name: abi::Text::new($name), parameters: abi::Parameters::new(&[$($parameter),*]),
-            result: $result, flags: 0, invoke: Some(if $linked { $entry::linked } else { $entry::full }) }
-    };
-}
 macro_rules! descriptors {
     ($($entry:ident => ($name:literal, [$($parameter:expr),*], $result:expr)),* $(,)?) => {
-        static FUNCTIONS: &[abi::Function] = &[$(descriptor!($entry, $name, [$($parameter),*], $result, false)),*];
-        static LINKED_FUNCTIONS: &[abi::Function] = &[$(descriptor!($entry, $name, [$($parameter),*], $result, true)),*];
+        #[cfg(feature = "backend")]
+        static FUNCTIONS: &[abi::Function] = &[$(abi::Function {
+            name: abi::Text::new($name), parameters: abi::Parameters::new(&[$($parameter),*]),
+            result: $result, flags: 0, invoke: Some($entry),
+        }),*];
+        static DECLARATIONS: &[abi::Function] = &[$(abi::Function {
+            name: abi::Text::new($name), parameters: abi::Parameters::new(&[$($parameter),*]),
+            result: $result, flags: 0, invoke: None,
+        }),*];
     };
 }
 descriptors! {
@@ -177,6 +165,7 @@ compressor_dispose => ("__compressor_dispose",
         [abi::I64],
         abi::VOID)
 }
+#[cfg(feature = "backend")]
 static MODULE: abi::Module = abi::Module {
     version: abi::MODULE_ABI_VERSION,
     size: std::mem::size_of::<abi::Module>() as u32,
@@ -187,19 +176,23 @@ static MODULE: abi::Module = abi::Module {
     destroy_state: None,
 };
 
-static LINKED_MODULE: abi::Module = abi::Module {
-    functions: LINKED_FUNCTIONS.as_ptr(),
-    function_count: LINKED_FUNCTIONS.len(),
-    ..MODULE
+static DECLARATION: abi::Module = abi::Module {
+    version: abi::MODULE_ABI_VERSION,
+    size: std::mem::size_of::<abi::Module>() as u32,
+    name: abi::Text::new("z42_compression"),
+    functions: DECLARATIONS.as_ptr(),
+    function_count: DECLARATIONS.len(),
+    create_state: None,
+    destroy_state: None,
 };
 
-/// Lightweight registration always resolves the implementation through the host,
-/// even when another target in the Cargo graph enables the algorithm backend.
-pub fn linked_module() -> *const abi::Module {
-    &LINKED_MODULE
+/// Immutable signatures for lazy loading. No function wrappers or algorithm state.
+pub fn declaration() -> *const abi::Module {
+    &DECLARATION
 }
 
 /// Identical registration entry for cdylib discovery and static linkage.
+#[cfg(feature = "backend")]
 #[unsafe(no_mangle)]
 pub extern "C" fn z42_compression_module_v1() -> *const abi::Module {
     &MODULE
@@ -209,6 +202,7 @@ pub extern "C" fn z42_compression_module_v1() -> *const abi::Module {
 ///
 /// # Safety
 /// name must be NULL or point to a readable NUL-terminated string.
+#[cfg(feature = "backend")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn z42_compression_get_symbol(
     name: *const std::ffi::c_char,
@@ -219,29 +213,22 @@ pub unsafe extern "C" fn z42_compression_get_symbol(
     if unsafe { std::ffi::CStr::from_ptr(name) }.to_bytes() == b"z42_compression_module_v1" {
         z42_compression_module_v1 as *const () as *const std::ffi::c_void
     } else {
-        #[cfg(feature = "backend")]
-        {
-            unsafe { crate::backend::resolve_symbol(name) }
-        }
-        #[cfg(not(feature = "backend"))]
-        {
-            std::ptr::null()
-        }
+        unsafe { crate::c_api::resolve_symbol(name) }
     }
 }
 
 #[cfg(all(feature = "backend", not(target_arch = "wasm32")))]
 fn zstd_compress_impl(input: &[u8], level: i32) -> Result<Vec<u8>, (i32, String)> {
-    crate::backend::compression::zstd_compress(input, level)
+    crate::c_api::compression::zstd_compress(input, level)
 }
 #[cfg(all(feature = "backend", not(target_arch = "wasm32")))]
 fn zstd_decompress_impl(input: &[u8]) -> Result<Vec<u8>, (i32, String)> {
-    crate::backend::compression::zstd_decompress(input)
+    crate::c_api::compression::zstd_decompress(input)
 }
 #[cfg(all(feature = "backend", target_arch = "wasm32"))]
 fn zstd_compress_impl(_: &[u8], _: i32) -> Result<Vec<u8>, (i32, String)> {
     Err((
-        crate::backend::Z42_COMPRESSION_ERR_INVALID_MODE,
+        crate::c_api::Z42_COMPRESSION_ERR_INVALID_MODE,
         "zstd not supported on wasm32 — see compression.md Deferred: compression-future-wasm-zstd"
             .into(),
     ))
@@ -252,5 +239,5 @@ fn zstd_decompress_impl(input: &[u8]) -> Result<Vec<u8>, (i32, String)> {
 }
 
 #[cfg(test)]
-#[path = "native_tests.rs"]
+#[path = "registration_tests.rs"]
 mod tests;

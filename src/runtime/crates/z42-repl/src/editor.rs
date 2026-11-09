@@ -1,26 +1,7 @@
-//! z42-repl — host-only toolchain native extension backing the interactive REPL
-//! (`z42i`)'s line editor. Wraps rustyline; z42vm dlopens it lazily on first
-//! `__repl_readline` and drives it through a **pure C ABI**.
-//!
-//! # Boundary invariant
-//!
-//! No z42 internal type (`Value` / `VmContext`) crosses this boundary. All VM
-//! re-entrancy — completion candidates and key-editing decisions — crosses back
-//! via the C function pointers in [`ReplCallbacks`], which the z42vm side supplies
-//! for one `readline` span. `ctx` is an opaque `*mut VmContext` the callbacks cast
-//! back internally; this crate never dereferences it. This decoupling means the
-//! crate has zero dependency on the z42 main crate (no Cargo cycle), mirroring
-//! `z42-compression` — except the REPL also needs the *reverse* direction (native →
-//! VM), which the callbacks provide.
-//!
-//! # Discovery / packaging
-//!
-//! Unlike `z42-compression` (a cross-platform stdlib extension in `<sdk>/native/`),
-//! the REPL editor is **host-only toolchain**: the built `libz42_repl.{so,dylib,dll}`
-//! ships next to `z42i` in the toolchain/interactive dir and is found by z42vm's
-//! repl-specific lazy loader (`repl::native`), NOT the general
-//! `native_search_paths()`. wasm/mobile never load it (they keep the plain-stdin
-//! fallback). (extract-repl-native-cdylib)
+//! Optional desktop line editor and persistent history.
+//! registration.rs owns script bindings, portable input and callbacks. This editor
+//! receives only borrowed C data and opaque callback context, never VM types.
+//! The dynamic image is packaged beside its interactive consumer.
 
 use std::cell::Cell;
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -54,9 +35,9 @@ pub const Z42_REPL_NO_EDITOR: i32 = 4;
 
 /// C callback table the z42vm side installs for one `z42_repl_readline` span.
 /// The fn pointers re-enter the VM to run the z42 completer / key-editor; `ctx`
-/// is an opaque `*mut VmContext` passed straight back. Strings the callbacks
+/// is an opaque native call pointer passed straight back. Strings the callbacks
 /// return are owned by the VM side and must be released with `free_str`.
-pub use crate::native::EditorCallbacks as ReplCallbacks;
+pub use crate::registration::EditorCallbacks as ReplCallbacks;
 
 thread_local! {
     /// The active callbacks for the current `z42_repl_readline` span; read by the

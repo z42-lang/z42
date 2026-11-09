@@ -1,7 +1,8 @@
-//! Compression module registration, with an optional full algorithm backend.
-pub mod native;
+//! Compression signatures and optional algorithm implementation.
+pub mod registration;
 #[cfg(feature = "backend")]
-mod backend;
+mod c_api;
 #[cfg(feature = "backend")]
-pub use backend::*;
-pub use native::{z42_compression_module_v1, z42_compression_get_symbol};
+pub use c_api::*;
+#[cfg(feature = "backend")]
+pub use registration::{z42_compression_module_v1, z42_compression_get_symbol};

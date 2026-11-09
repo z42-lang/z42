@@ -56,9 +56,23 @@ impl RegistryBuilder {
     /// See NativeModule::parse: descriptor/code lifetime and callback contracts apply.
     pub unsafe fn register_module(
         &mut self,
-        descriptor: *const z42_abi::native::Module,
+        descriptor: *const z42_abi::module::Module,
     ) -> Result<()> {
         let module = unsafe { super::module::NativeModule::parse(descriptor)? };
+        self.register_parsed(module)
+    }
+
+    /// # Safety
+    /// Declaration spans must remain immutable for the process lifetime.
+    pub unsafe fn register_declaration(
+        &mut self,
+        descriptor: *const z42_abi::module::Module,
+    ) -> Result<()> {
+        let module = unsafe { super::module::NativeModule::declaration(descriptor)? };
+        self.register_parsed(module)
+    }
+
+    fn register_parsed(&mut self, module: super::module::NativeModule) -> Result<()> {
         if self
             .providers
             .iter()

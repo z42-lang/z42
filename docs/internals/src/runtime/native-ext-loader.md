@@ -4,15 +4,15 @@
 
 ## 模块边界
 
-`z42_compression` crate 同时拥有压缩算法、独立 C API 和脚本接口描述符。`native.rs` 导出 `z42_compression_module_v1`，描述 DEFLATE、Zstandard、Brotli、LZ4 及流式 begin/feed/finish/dispose 的参数、返回值和通用调用入口。运行时只装配描述符，不复制这份函数清单。
+`z42_compression` crate 同时拥有压缩算法、独立 C API 和脚本接口描述符。`registration.rs` 导出 `z42_compression_module_v1`，描述 DEFLATE、Zstandard、Brotli、LZ4 及流式 begin/feed/finish/dispose 的参数、返回值和通用调用入口。运行时只装配描述符，不复制这份函数清单。
 
-crate 的 `backend` feature 启用算法实现；关闭时保留轻量注册与调用适配，首次调用通过 `HostApi.resolve_symbol` 找到完整镜像的模块入口并转发。完整实现使用同一个描述符协议。转发限于无状态模块，不把一个镜像创建的 Rust 状态交给另一个镜像解释。流式压缩句柄仍归算法后端管理。
+crate 的 `backend` feature 启用算法实现；关闭时仅保留接口声明，没有可调用 wrapper 或算法状态。interop 首次调用时通过 loader 解析完整模块入口，核对名称、全部签名与 ABI，成功后发布每 VM 的实现并直接调用。声明和实现来自同一份签名清单。流式压缩句柄仍归算法实现管理。
 
 ## 加载与注册
 
-host 默认注册模块描述符，查询本身不访问文件系统。调用轻量适配器时，loader 先查宿主注册的静态符号解析器；没有静态提供方时才按逻辑库名查询 host 注入的候选路径，并经 PAL 装入动态库。动态库代码由 PAL 保留到进程退出；每 VM 缓存命名解析结果。没有使用压缩功能时不加载完整算法镜像。
+host 默认注册模块描述符，查询本身不访问文件系统。首次调用声明中的函数时，loader 先查宿主注册的静态符号解析器；没有静态提供方时才按逻辑库名查询 host 注入的候选路径，并经 PAL 装入动态库。动态库代码由 PAL 保留到进程退出；每 VM 缓存命名解析结果。没有使用压缩功能时不加载完整算法镜像。
 
-静态宿主可直接链接启用 `backend` 的实现，或注册静态库解析器供轻量适配器查询。在禁止动态库的平台上，这条路径仍可工作。各平台具体归档和动态库发布、默认 WASM 包含项由[组件化运行时](componentized-runtime.md)定义。
+静态宿主可直接链接启用 `backend` 的实现，或注册静态库解析器供 loader 查询。在禁止动态库的平台上，这条路径仍可工作。各平台具体归档和动态库发布、默认 WASM 包含项由[组件化运行时](componentized-runtime.md)定义。
 
 ## 值与错误
 

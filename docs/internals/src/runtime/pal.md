@@ -243,7 +243,7 @@ impl Library {
 ```
 
 运行时只在这里 dlopen：用户 native 扩展（`loader/native`）、`libz42_compression`（`compression`）、REPL 编辑器
-`libz42_repl`（`crates/z42-repl/src/native.rs`），提供方均通过 loader 请求装入。脚本扩展在 iOS/WASM 或关闭 native interop 时拒绝；可信运行时组件的 `open_component` 使用独立装载契约。
+`libz42_repl`（`crates/z42-repl/src/registration.rs`），提供方均通过 loader 请求装入。脚本扩展在 iOS/WASM 或关闭 native interop 时拒绝；可信运行时组件的 `open_component` 使用独立装载契约。
 
 ### `pal/random.rs` — 熵
 

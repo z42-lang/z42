@@ -44,7 +44,7 @@ blake3 = "1"
 
 z42-compression = { path = "crates/z42-compression", default-features = false }
 z42-repl = { path = "crates/z42-repl", default-features = false }
-z42-rs = { path = "crates/z42-rs" }
+z42-rs = { path = "crates/z42-rs", default-features = false }
 
 socket2 = { version = "0.6", features = ["all"], optional = true }
 rustls       = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
@@ -72,7 +72,7 @@ interp = []
 shared-core = ["component-loading"]
 jit                  = ["z42-jit/jit", "z42-interp/jit"]
 component-loading    = ["dep:libloading"]
-native-interop       = ["z42-interp/native-interop", "dep:libffi", "component-loading"]
+native-interop       = ["z42-interp/native-interop", "z42-rs/types", "dep:libffi", "component-loading"]
 net                  = ["dep:socket2"]
 tls                  = ["net", "dep:rustls", "dep:webpki-roots"]
 aot                  = []

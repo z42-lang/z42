@@ -2,6 +2,7 @@ use super::*;
 use std::path::PathBuf;
 
 #[test]
+#[cfg(feature = "native-interop")]
 fn guess_register_symbol_strips_prefix_and_ext() {
     for (input, expected) in [
         ("libnumz42_c.dylib", "numz42_c_register"),
@@ -18,6 +19,7 @@ fn guess_register_symbol_strips_prefix_and_ext() {
 }
 
 #[test]
+#[cfg(feature = "native-interop")]
 fn nonexistent_path_sets_lib_load_failure() {
     // retire-z-codes: no Z#### prefix in message, just the
     // diagnostic. The numeric code stays in Z42Error for embedder

@@ -1,8 +1,8 @@
 //! Copies at the native boundary keep all provider buffers independent of GC movement.
 use crate::exec::call::builtin_abi::{ArgAt, BuiltinError, CallResult, FromArg, IntoRet};
 use crate::{context::VmContext, object::Value};
-use z42_abi::native as abi;
-pub(crate) use z42_rs::native::Value as Owned;
+use z42_abi::module as abi;
+pub(crate) use z42_rs::module::Value as Owned;
 
 pub(crate) fn from_vm(
     value: &Value,
@@ -65,9 +65,9 @@ pub(crate) fn from_callback(value: &Value) -> Result<Owned, BuiltinError> {
     from_vm(value, kind, "native callback", 0)
 }
 
-pub(crate) fn error(error: z42_rs::native::Error) -> BuiltinError {
+pub(crate) fn error(error: z42_rs::module::Error) -> BuiltinError {
     match error {
-        z42_rs::native::Error::Exception { class, message } => {
+        z42_rs::module::Error::Exception { class, message } => {
             BuiltinError::Exception { class, message }
         }
         other => BuiltinError::Internal(format!("unexpected native codec error: {other:?}")),

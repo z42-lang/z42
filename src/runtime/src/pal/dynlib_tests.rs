@@ -36,7 +36,7 @@ fn resolve_beside_requires_a_file_and_keeps_the_named_directory() {
 fn extension_capability_rejects_unsupported_before_loading() {
     assert!(super::check_supported(true).is_ok());
     assert_eq!(super::check_supported(false).unwrap_err().kind(), std::io::ErrorKind::Unsupported);
-    assert_eq!(super::is_supported(), cfg!(feature = "native-interop") && crate::pal::system::OS_CAPS.native_extensions);
+    assert_eq!(super::is_supported(), cfg!(feature = "component-loading") && crate::pal::system::OS_CAPS.native_extensions);
     #[cfg(any(target_os = "ios", target_arch = "wasm32"))]
     assert!(!super::is_supported());
 }

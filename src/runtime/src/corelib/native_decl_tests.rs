@@ -21,7 +21,7 @@
 //! 会假缺席）。
 //!
 //! Only the positional `[Native("__x")]` form is checked: the `[Native(lib=..., entry=...)]`
-//! form binds to native extensions (`crates/z42-compression/src/native.rs`), not to registered provider catalog.
+//! form binds to native extensions (`crates/z42-compression/src/registration.rs`), not to registered provider catalog.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -166,7 +166,7 @@ fn registered_functions() -> Vec<(&'static str, bool)> {
     let mut functions: Vec<_> = registry.functions().iter()
         .map(|function| (function.name, function.ret == crate::exec::call::builtin_abi::RetKind::Void)).collect();
     for module in registry.modules() {
-        functions.extend(module.functions().map(|(name, function)| (name, function.result == z42_abi::native::VOID)));
+        functions.extend(module.functions().map(|(name, function)| (name, function.result == z42_abi::module::VOID)));
     }
     functions
 }
