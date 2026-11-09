@@ -9,7 +9,12 @@ Process _componentTestProcess(string exe, string native) {
         .EnvRemove("DYLD_LIBRARY_PATH").EnvRemove("DYLD_FALLBACK_LIBRARY_PATH").EnvRemove("LD_LIBRARY_PATH")
         .EnvRemove("Z42_HOME").EnvRemove("Z42_LIBS").EnvRemove("Z42_PORTABLE_VM")
         .EnvRemove("Z42_CONFIG").EnvRemove("Z42_APP_CONFIG").EnvRemove("Z42_MODE")
-        .Env("Z42_NATIVE_PATH", native).Stderr(Stdio.Inherit());
+        .Env("Z42_NATIVE_PATH", native).Env("RUST_MIN_STACK", "8388608").Stderr(Stdio.Inherit());
+}
+Process _componentFixtureProcess(string exe, string native, string zbc, string libs) {
+    return _componentTestProcess(exe, native)
+        .Env("Z42_TEST_ENGINE_COMPONENT_DIR", native).Env("Z42_TEST_ENGINE_BYTECODE", zbc)
+        .Env("Z42_TEST_ENGINE_LIBS", libs);
 }
 string _componentArtifactExecutable(string json) {
     foreach (var line in json.Split("\n")) {
@@ -53,12 +58,18 @@ int _componentVerify(string root, string pkg, string profile) {
     }
     string zbc = Path.Join(work, "engine-component.zbc");
     int c = _componentCompileProbe(root, pkg, profile, zbc); if (c != 0) { return c; }
-    ProcessResult result = _componentTestProcess(test, native)
-        .Env("Z42_TEST_ENGINE_COMPONENT_DIR", native).Env("Z42_TEST_ENGINE_BYTECODE", zbc)
-        .Env("Z42_TEST_ENGINE_LIBS", Path.Join(pkg, "libs"))
+    ProcessResult result = _componentFixtureProcess(test, native, zbc, Path.Join(pkg, "libs"))
         .Arg("--test-threads=1").Arg("--nocapture").Run();
     Console.Write(result.Stdout);
-    if (result.ExitCode != 0) { return result.ExitCode; }
+    if (result.ExitCode != 0) {
+        if (Platform.IsLinux() && File.Exists("/usr/bin/gdb")) {
+            ProcessResult trace = _componentFixtureProcess("/usr/bin/gdb", native, zbc, Path.Join(pkg, "libs"))
+                .Arg("--batch").Arg("-ex").Arg("run").Arg("-ex").Arg("thread apply all bt")
+                .Arg("--args").Arg(test).Arg("--test-threads=1").Arg("--nocapture").Run();
+            Console.Write(trace.Stdout);
+        }
+        return result.ExitCode;
+    }
     string marker = "test result: ok. ";
     int start = result.Stdout.LastIndexOf(marker);
     if (start < 0) { throw new CliException("component test harness produced no result"); }

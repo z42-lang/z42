@@ -205,7 +205,7 @@ fn fixture() -> &'static std::path::Path {
             .join(identity);
         let output =
             std::process::Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
-                .args(["build", "--offline", "--manifest-path"])
+                .args(["build", "--locked", "--offline", "--manifest-path"])
                 .arg(root.join("tests/data/component/Cargo.toml"))
                 .arg("--target-dir")
                 .arg(&target)

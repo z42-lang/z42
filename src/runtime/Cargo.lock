@@ -2259,6 +2259,13 @@ name = "z42-abi"
 version = "0.7.0"
 
 [[package]]
+name = "z42-component-probe"
+version = "0.0.0"
+dependencies = [
+ "z42-runtime-core",
+]
+
+[[package]]
 name = "z42-compression"
 version = "0.1.0"
 dependencies = [
