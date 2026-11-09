@@ -124,7 +124,7 @@ pub(crate) fn attach(ctx: &VmContext, mode: ExecMode) -> Result<()> {
         let interface = component_interface::<ExecutionApi>(ctx, id)?
             .ok_or_else(|| anyhow::anyhow!("{name} component does not provide its execution interface"))?;
         let identity = unsafe { (interface.core_identity)() };
-        if identity.image != crate::core_identity() || identity.abi != crate::CORE_ABI {
+        if identity.image != super::core_identity() || identity.abi != super::CORE_ABI {
             bail!("{name} component core image or ABI mismatch; use components from the same shared-core runtime pack");
         }
         let code = ctx.core().components().get().and_then(|x| x.code_lease(id))

@@ -18,8 +18,8 @@ CLI 是宿主的一种实现，也遵循同一入口和类型规范。C ABI 导�
 
 | 入口 | 职责 |
 |---|---|
-| `backends.rs` / `BackendOptions` / `BackendSource` | 统一静态/动态后端选择、能力检查与原生搜索路径 |
-| `components.rs` / `component_catalog.rs` | 静态/动态工厂选择、描述符校验、依赖排序和事务装配 |
+| `BackendOptions` / `BackendSource` | 再导出统一组件框架的后端选择与能力查询 |
+| [`../components/`](../components/README.md) | 组件协议、工厂加载、后端选择和实例管理的统一实现 |
 | `ComponentOptions` / `ComponentLease` | 每 VM 组件配置和接口/库寿命租约 |
 | `component_ids` / `component_interface` | 查询已装配组件与类型化接口 |
 | `LoadedProgram` / `LoadOptions` | 文件或字节加载、宿主 VFS 与 resolver、入口解析、模式选择、重复调用及初始化状态 |

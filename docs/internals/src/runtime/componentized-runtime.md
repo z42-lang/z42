@@ -17,6 +17,8 @@ main.rs 不调用 Rust VM 接口，只查找 libz42 并取得版本化 C 入口�
 
 嵌入接口与类型统一从 z42::host 提供。CLI 只处理参数、启动和进程策略，也调用 host。组件内部 Rust API 不自动成为嵌入 API。
 
+组件框架集中在 `runtime/src/components/`：api 定义协议，catalog 加载和校验工厂，options 接收配置，instance 管理每 VM 实例和租约，backends 选择并装配执行接口，identity 检查核心映像与布局，linked 管理静态工厂。host 再导出嵌入入口；VM 只持有实例集合，不另设组件管理模块。
+
 GC 与值/对象布局仍属于 core，不能运行中切换；它们位于分配、屏障和 safepoint 热路径，机器码使用固定布局。解析符号和崩溃栈定位是基础能力，不依赖可选调试器。
 
 ## 2. 引擎注册与选择
@@ -27,7 +29,7 @@ interp 的静态、虚、闭包和混合调用通过共享参数视图进入 Eng
 
 LoadOptions.backends 的每个后端可选 Auto、Linked、Dynamic(path)、Disabled。Auto 优先使用静态实现，否则查询动态库；JIT 模式同时需要基线解释器。显式 JIT 请求在加载/准备阶段验证，未链接、库缺失、平台不支持、协议不匹配和被禁用均返回错误，不改成解释模式。CLI 的 --mode jit、配置和 Z42_MODE=jit 遵循相同规则。
 
-原生库搜索共用 host 的 native_paths：显式配置（含 Z42_NATIVE_PATH）、可执行文件旁 native/、../native/ 和可执行文件目录。Auto 按固定候选顺序查询，显式 Dynamic 只使用所给路径。可用性查询表示候选是否存在，真正装配仍须完成库加载和接口校验。
+原生库搜索共用 components 的 native_paths：显式配置（含 Z42_NATIVE_PATH）、可执行文件旁 native/、../native/ 和可执行文件目录。Auto 按固定候选顺序查询，显式 Dynamic 只使用所给路径。可用性查询表示候选是否存在，真正装配仍须完成库加载和接口校验。
 
 ### 构建矩阵
 

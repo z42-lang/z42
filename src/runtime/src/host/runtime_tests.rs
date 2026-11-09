@@ -48,7 +48,7 @@ fn program(mode: ExecMode, throws: bool) -> LoadedProgram {
     LoadedProgram::new(ctx, mode, Some("Demo.Main".into())).unwrap()
 }
 
-pub(super) fn empty_zbc() -> Vec<u8> {
+pub(crate) fn empty_zbc() -> Vec<u8> {
     use zpkg::format::*;
     let mut bytes = vec![0; 16];
     bytes[..4].copy_from_slice(&ZBC_MAGIC);

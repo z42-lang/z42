@@ -15,14 +15,13 @@
 | `runtime/` | 运行时身份、类型、静态存储与链接缓存 |
 | `loader/` | 包定位、加载上下文、惰性符号加载与初始化队列 |
 | `exec/` | 引擎共享调用、指令语义、异常、栈与栈保护 |
-| `components.rs` | 每 VM 组件实例、核心/依赖服务表、接口租约和反序清理 |
 | `config.rs` / `ext.rs` | 构造输入与创建前登记、冻结的扩展状态 |
 
 ## 基础用法
 
 Rust 消费方从 `z42::vm::{Vm, VmContext}` 获取入口类型。构造携带 module 的上下文，准备依赖搜索路径后交给 `Vm::run`；宿主 C ABI 继续由 `host` 提供。偏移常量、注册表指针等上下文细节位于 `vm::context`。
 
-组件工厂由 host 装载，实例创建完成后一次发布到 VmCore.components。worker 共享该注册表。核心不持有 host 选项；接口租约保留所属 Core，实例销毁完成前库和服务上下文保持存活。
+组件协议、工厂装载和实例管理由相邻的 [`components`](../components/README.md) 模块统一实现；host 发起装配，实例创建完成后一次发布到 VmCore.components。worker 共享该注册表。核心不持有 host 选项；接口租约保留所属 Core，实例销毁完成前库和服务上下文保持存活。
 
 ## 如何测试验证
 

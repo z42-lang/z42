@@ -1,4 +1,6 @@
 use super::*;
+use super::api::*;
+use crate::host::{LoadedProgram, LoadOptions, ExecMode};
 use crate::vm::context::VmContext;
 use std::sync::Mutex;
 #[path = "../../tests/data/component/src/lib.rs"]
@@ -23,7 +25,7 @@ fn count(lease: &ComponentLease<CounterApi>) -> (u64, u64) {
 }
 fn load(components: ComponentOptions) -> anyhow::Result<LoadedProgram> {
     LoadedProgram::load_bytes(
-        &super::runtime_tests::empty_zbc(),
+        &crate::host::runtime_tests::empty_zbc(),
         LoadOptions {
             mode: ExecMode::Interp,
             components,

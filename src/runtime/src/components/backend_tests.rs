@@ -1,7 +1,9 @@
 use super::*;
+use super::api::*;
+use crate::host::{LoadedProgram, LoadOptions, ExecMode, VmContext};
 use std::sync::atomic::{AtomicUsize, Ordering};
 fn load(mode: ExecMode, backends: BackendOptions) -> anyhow::Result<LoadedProgram> {
-    LoadedProgram::load_bytes(&super::runtime_tests::empty_zbc(), LoadOptions {
+    LoadedProgram::load_bytes(&crate::host::runtime_tests::empty_zbc(), LoadOptions {
         mode, backends, ..Default::default()
     })
 }
@@ -47,7 +49,7 @@ fn absent_static_jit_is_an_error_without_fallback() {
 static FOREIGN: u8 = 0;
 static ATTACH_CALLS: AtomicUsize = AtomicUsize::new(0);
 unsafe extern "C" fn identity() -> ExecutionIdentity {
-    ExecutionIdentity { image: core::ptr::addr_of!(FOREIGN).cast(), abi: crate::CORE_ABI }
+    ExecutionIdentity { image: core::ptr::addr_of!(FOREIGN).cast(), abi: crate::components::CORE_ABI }
 }
 unsafe extern "C" fn attach_foreign(_ctx: *const core::ffi::c_void, _config: *const ExecutionConfig) -> ComponentStatus {
     ATTACH_CALLS.fetch_add(1, Ordering::Relaxed); ComponentStatus::OK
@@ -84,9 +86,9 @@ fn another_core_is_rejected_before_any_vm_address_is_passed_to_it() {
 }
 
 unsafe extern "C" fn wrong_abi_identity() -> ExecutionIdentity {
-    let mut abi = crate::CORE_ABI;
+    let mut abi = crate::components::CORE_ABI;
     abi.flags ^= 1;
-    ExecutionIdentity { image: crate::core_identity(), abi }
+    ExecutionIdentity { image: crate::components::core_identity(), abi }
 }
 static WRONG_ABI_API: ExecutionApi = ExecutionApi { header: ApiHeader::of::<ExecutionApi>(1),
     core_identity: wrong_abi_identity, attach: attach_foreign };

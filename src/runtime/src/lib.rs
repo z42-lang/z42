@@ -12,9 +12,7 @@ pub mod host;
 pub mod config;
 pub(crate) mod assembly;
 pub use vm::exec::ops::object as objops;
-mod identity;
-pub use identity::{core_identity, CORE_ABI};
-pub use vm::components;
+pub mod components;
 #[cfg(test)]
 #[path = "../crates/z42-interp/src/interp/mod.rs"]
 pub mod interp;

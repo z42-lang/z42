@@ -1,4 +1,3 @@
-pub mod components;
 pub mod context;
 pub use context::{VmCore, VmContext};
 

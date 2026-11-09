@@ -6,7 +6,7 @@ use super::*;
 /// interop resources live in frozen extension state.
 pub struct VmCore {
     /// Instances stop before heap/engine teardown; their library leases outlive callbacks.
-    pub(crate) components: std::sync::OnceLock<crate::vm::components::VmComponents>,
+    pub(crate) components: std::sync::OnceLock<crate::components::VmComponents>,
     pub(crate) threads: crate::vm::threads::ThreadState,
     /// Shared execution state, including engine registrations and backend code lifetime.
     pub(crate) exec: crate::vm::exec::ExecState,
@@ -56,7 +56,7 @@ impl VmContext {
     #[inline] pub fn threads(&self) -> &crate::vm::threads::ThreadLocalState { &self.threads }
 }
 impl VmCore {
-    #[inline] pub fn components(&self) -> &std::sync::OnceLock<crate::vm::components::VmComponents> { &self.components }
+    #[inline] pub fn components(&self) -> &std::sync::OnceLock<crate::components::VmComponents> { &self.components }
     #[inline] pub fn exec(&self) -> &crate::vm::exec::ExecState { &self.exec }
     #[inline] pub fn heap(&self) -> &Heap { &self.heap }
     #[inline] pub fn runtime(&self) -> &crate::vm::runtime::RuntimeState { &self.runtime }

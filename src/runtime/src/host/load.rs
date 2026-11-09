@@ -237,7 +237,7 @@ pub(super) fn prepare(user_artifact: LoadedArtifact, source_path: Option<&str>, 
     if let Some(module) = ctx.module() { crate::host::boot::prepare_execution(&ctx, module); }
     let components = options.backends.components(options.mode, &options.components)?;
     components.install(&ctx)?;
-    super::backends::attach(&ctx, options.mode)?;
+    crate::components::backends::attach(&ctx, options.mode)?;
     for (name, byte_size) in loaded_for_replay {
         ctx.fire_runtime_event(&crate::vm::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size });
     }

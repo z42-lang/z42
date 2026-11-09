@@ -1,5 +1,4 @@
 //! Load and validate factories before creating any per-VM instances.
-use crate::vm::components::Factory;
 use anyhow::{bail, Context, Result};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -7,6 +6,44 @@ use std::{
     sync::{Arc, OnceLock},
 };
 use crate::components::api::*;
+
+pub struct Factory {
+    pub(crate) id: ComponentId,
+    pub(crate) dependencies: Vec<ComponentId>,
+    pub(crate) interfaces: Vec<InterfaceSpec>,
+    pub(crate) create: CreateVm,
+    pub(crate) destroy: DestroyVm,
+    pub(crate) query: QueryInterface,
+    #[cfg(feature = "component-loading")]
+    pub(crate) library: Option<Arc<crate::pal::dynlib::Library>>,
+}
+
+impl Factory {
+    /// # Safety
+    /// Descriptor callbacks, interfaces and dependency metadata have been validated;
+    /// native code and immutable tables remain alive until this factory is released.
+    pub unsafe fn from_validated_descriptor(descriptor: &ComponentDescriptor,
+        dependencies: Vec<ComponentId>, interfaces: Vec<InterfaceSpec>) -> Result<Self> {
+        Ok(Self {
+            id: descriptor.id, dependencies, interfaces,
+            create: descriptor.create_vm.ok_or_else(|| anyhow::anyhow!("component {} has no create_vm", descriptor.id))?,
+            destroy: descriptor.destroy_vm.ok_or_else(|| anyhow::anyhow!("component {} has no destroy_vm", descriptor.id))?,
+            query: descriptor.query_interface.ok_or_else(|| anyhow::anyhow!("component {} has no query_interface", descriptor.id))?,
+            #[cfg(feature = "component-loading")]
+            library: None,
+        })
+    }
+    pub fn id(&self) -> ComponentId { self.id }
+    pub fn dependencies(&self) -> &[ComponentId] { &self.dependencies }
+    #[cfg(feature = "component-loading")]
+    pub fn library(&self) -> Option<&Arc<crate::pal::dynlib::Library>> { self.library.as_ref() }
+    /// # Safety
+    /// This library owns every callback and table retained by the factory.
+    #[cfg(feature = "component-loading")]
+    pub unsafe fn with_library(mut self, library: Arc<crate::pal::dynlib::Library>) -> Self {
+        self.library = Some(library); self
+    }
+}
 
 #[derive(Clone)]
 pub(super) enum Registration {
