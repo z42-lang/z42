@@ -2,7 +2,7 @@
 //! (add-struct-value-semantics Phase A).
 use super::*;
 use crate::object::Value;
-use crate::vm::exec::call::struct_arena::StructArena;
+use crate::exec::call::struct_arena::StructArena;
 use crate::object::StructTypeLayout;
 use std::sync::Arc;
 
@@ -118,10 +118,10 @@ fn value_semantics_copy_then_mutate_leaves_source_unchanged() {
 /// (prims) + tag@8 (string ref leaf); size 12, one ref leaf at offset 8.
 #[test]
 fn heap_object_inline_struct_field_roundtrips() {
-    use crate::vm::context::VmContext;
+    use crate::context::VmContext;
     use crate::object::{NativeData, TypeDesc, TypeDescCold};
     use crate::zpkg::NameIndex;
-    use crate::vm::runtime::ids::tokens::TypeId;
+    use crate::metadata::ids::tokens::TypeId;
 
     // The object stores the inline struct's leaves in its `bytes` at their composed offsets,
     // the reference leaf as an 8 B reference word (listed in `ref_cells`).
@@ -189,7 +189,7 @@ fn heap_object_inline_struct_field_roundtrips() {
 /// one ref leaf.
 #[test]
 fn struct_array_element_leaf_access_via_handle() {
-    use crate::vm::context::VmContext;
+    use crate::context::VmContext;
     use crate::object::{ArrayObj, StructArrayElem, STRUCT_REF_ARC_STRING};
 
     let layout = Arc::new(StructTypeLayout {
@@ -208,7 +208,7 @@ fn struct_array_element_leaf_access_via_handle() {
     let mk_sr = |idx: u32| {
         let hidx = ctx.transient_alloc(
             7,
-            crate::vm::exec::call::transient_arena::TransientPayload::StructElem(
+            crate::exec::call::transient_arena::TransientPayload::StructElem(
                 StructArrayElem { arr: arr_gc, index: idx },
             ),
         );
@@ -276,10 +276,10 @@ fn boxed_struct_owns_snapshot_and_survives_arena_truncate() {
 /// which is why no jit lane caught it. This test is the mode-independent guard.
 #[test]
 fn stack_object_inline_struct_field_roundtrips() {
-    use crate::vm::context::VmContext;
+    use crate::context::VmContext;
     use crate::object::{ScriptObject, TypeDesc, TypeDescCold};
     use crate::zpkg::NameIndex;
-    use crate::vm::runtime::ids::tokens::TypeId;
+    use crate::metadata::ids::tokens::TypeId;
 
     // Same shape as the heap test: Point{x:i32@0, y:i32@4, tag:str@8}, size 16,
     // one reference leaf (a reference word) at offset 8.
@@ -363,7 +363,7 @@ fn stack_object_inline_struct_field_roundtrips() {
 #[ignore]
 fn symbolization_cost_by_path_depth() {
     use crate::zpkg::index::name::NameIndex;
-    use crate::vm::runtime::ids::tokens::TypeId;
+    use crate::metadata::ids::tokens::TypeId;
     use crate::object::{FieldSlot, StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
     use std::sync::Arc;
     use std::time::Instant;

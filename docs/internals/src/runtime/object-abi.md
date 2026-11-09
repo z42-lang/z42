@@ -40,7 +40,7 @@
   泛型实例与带原生底座的对象再多一个 8 B meta 字。
   `meta` 是一个 8 B 字，**只有泛型实例与带原生底座的对象才有**（在 payload 末尾、字段区之后，可能不按 8 对齐，整字非对齐读写；
   分配点就知道要不要：`alloc_instance` 看实参是否为空，`OwnedObject` 在构造期补实参 / 原生底座时把块加长一个字），装两样冷数据：
-  - 泛型实参 `type_args`：按实例化**进程级驻留**的 `TypeArgs`（[type_args.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/types/type_args.rs)，同 `ElemType` 的套路：8 B 细指针、同内容同址、永不释放）。同一实例化的所有实例指向同一个条目，每个对象不为实参分配任何东西。`ObjNewInsn::type_args` 解码后只存静态名称；VM 函数首次建立站点侧表时驻留并缓存句柄，实例化描述符（`Demo.Box<int>`）名字里解析出的实参在 `build_type_registry` 驻留进 `TypeDescCold::type_args`；`ObjNew`（interp 堆 / 栈两支、JIT `jit_obj_new`）只拷句柄：两引擎共用 `vm/exec/ops/obj_new.rs::instance_type_args` 挑出实参（站点自己的，否则描述符的），再经 `ScriptObject::install_type_args` 一处写入并改写型参字段零值。进程级而非 VM 级，因为包惰性加载、多个 VM 可并存。
+  - 泛型实参 `type_args`：按实例化**进程级驻留**的 `TypeArgs`（[type_args.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/types/type_args.rs)，同 `ElemType` 的套路：8 B 细指针、同内容同址、永不释放）。同一实例化的所有实例指向同一个条目，每个对象不为实参分配任何东西。`ObjNewInsn::type_args` 解码后只存静态名称；VM 函数首次建立站点侧表时驻留并缓存句柄，实例化描述符（`Demo.Box<int>`）名字里解析出的实参在 `build_type_registry` 驻留进 `TypeDescCold::type_args`；`ObjNew`（interp 堆 / 栈两支、JIT `jit_obj_new`）只拷句柄：两引擎共用 `exec/ops/obj_new.rs::instance_type_args` 挑出实参（站点自己的，否则描述符的），再经 `ScriptObject::install_type_args` 一处写入并改写型参字段零值。进程级而非 VM 级，因为包惰性加载、多个 VM 可并存。
   - 原生底座 `native: NativeData`（WeakRef / Type / LoadContext / Assembly / Monitor 句柄）：只有这类对象才分配一个 `ObjExtras` 盒子；带原生底座的泛型对象（如 `Mutex<T>`）把实参句柄也放进盒子。
   - 编码：`0` = 非泛型且无原生底座（绝大多数对象）；偶指针 = 驻留的 `TypeArgs` 条目；奇指针（低位标签）= `Box<ObjExtras>`。
   - 读者（`DefaultOf`、`__class_type_arg` / `__class_default`、`GetType().GetGenericArguments()`、数组 `T` 零值、型参字段零值）拿到的是 `&'static [String]`。擦除代码里的 `new Box<T>()` 以开放实例化名 `Box<T>` 分配，实参是字面 `["T"]`，同样驻留成一个共享条目。
@@ -94,7 +94,7 @@
 
 **做法**：这 3 个「仅在创建帧的调用栈内存活、创建后不可变」的瞬态变体用 8B
 `{ idx:u32, frame_id:u32 }` 句柄，payload 存进 per-`VmContext` 的 **`TransientArena`**
-（[`vm/exec/call/transient_arena.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/exec/call/transient_arena.rs)）；句柄无显式
+（[`exec/call/transient_arena.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/exec/call/transient_arena.rs)）；句柄无显式
 `Drop` 且 `Copy` → **`Value` 派生 `#[derive(Copy)]`**。
 
 - **`TransientArena` 生命周期模型**：与 `StackArena`/`StructArena` 同构——`Vec<TransientSlot>`（`Mutex`
@@ -395,7 +395,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
     `Heap::alloc_script_object` 整块拷进新块。`set_native` / `set_type_args` 只在构造期（`&mut self`）。发布之后对象的 `meta` 字
     （`NativeData`、驻留的泛型实参句柄）不再变。
   - 数组同样在发布之前建好：所有构造器经 `Heap::alloc_array_with`，在未发布的块上写描述符与元素再发布。
-  - 栈数组（逃逸分析）不是 `ArrayObj`：`vm::exec::call::stack_alloc::StackArray` 是 stack arena 里的一个 `Vec<Value>`，在 arena 的锁下访问（`&mut`）。
+  - 栈数组（逃逸分析）不是 `ArrayObj`：`exec::call::stack_alloc::StackArray` 是 stack arena 里的一个 `Vec<Value>`，在 arena 的锁下访问（`&mut`）。
   - GC：对象块被 tombstone 时由 drop glue 释放对象头（`Arc<TypeDesc>`、extras 盒子），值 struct 数组的块释放它的布局字。
     此时块已死、持 region 锁或在停顿里。
   - 原生数据自带同步：`NativeData::Monitor`（`Std.Threading.Mutex/RwLock/Channel` 的底座）用自己的内部锁，
@@ -404,7 +404,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
   `Std.Threading` 的 `Mutex<T>` / `RwLock<T>`，底座是对象自己的 `NativeData::Monitor`），所以去掉每对象锁不需要过渡机制。
   对任意对象加锁的语义由 R5 的 Monitor 侧表提供（首次加锁才膨胀，按对象地址索引，GC 停顿时清理）。
 
-**静态字段**用同一套单元：每个静态字段一个地址稳定的 16 B 型参单元（`vm/runtime/statics/table.rs`，`VmCore.runtime.statics`，
+**静态字段**用同一套单元：每个静态字段一个地址稳定的 16 B 型参单元（`metadata/statics/table.rs`，`VmCore.runtime.statics`，
 `SegVec` 分段只追加、id 即下标），读写不拿锁，内存序与实例字段相同。按名登记时不知道声明类型，型参单元什么 `Value` 都装得下：
 基元首写时认领种类、之后只改负载字；引用就是标签字；种类不符的写装箱。值 struct 类型的静态字段由编译器装箱存放，单元里只有一个
 引用字，所以不需要 seqlock。静态字段是 GC 根（每次回收扫一遍标签字），写入不需要分代屏障，SATB 由单元协议负责。单元旁边缓存
@@ -506,7 +506,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
 
 > `Value::Str` 的字节在单一 GC 堆内。`Str`（[`object/string/vstr.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/string/vstr.rs)）是 **8B `VarGcRef`**（`gc/var_region.rs` 的变长块，`BlockType::Str`，`{GcBlockHeader,
 > inline UTF-8}` 单次分配）——无 refcount，GC 管生死（mark/sweep）。分配走 **ambient 堆**
-> （`vm/exec/ambient.rs`，引擎入口的 `HeapGuard` 设 thread-local，`Str::new`/`.into()` 无需显式堆参数）；无堆上下文
+> （`exec/ambient.rs`，引擎入口的 `HeapGuard` 设 thread-local，`Str::new`/`.into()` 无需显式堆参数）；无堆上下文
 > （无 VM 的单测）回退 leaked 块。变长 payload 全部在 GC 堆内，统一堆模型闭合。
 
 - `Value::Str(VarGcRef)` = **GC 字符串对象**：8B 细指针指变长块，与 Object/Array 同一堆的

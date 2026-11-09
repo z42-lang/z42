@@ -4,7 +4,7 @@
 use crate::object::Value;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
@@ -80,7 +80,7 @@ unsafe fn call_impl(
 ) -> u8 {
     #[cfg(all(test, z42_test_facade))]
     CALL_HELPER_HITS.with(|hits| hits.set(hits.get() + 1));
-    use crate::vm::runtime::ids::tokens::UNRESOLVED;
+    use crate::metadata::ids::tokens::UNRESOLVED;
     let rt        = super::jit_rt(ctx);
     let frame_ref = &mut *frame;
     let arg_regs  = std::slice::from_raw_parts(args_ptr, argc);
@@ -109,8 +109,8 @@ unsafe fn call_impl(
     let name = std::str::from_utf8(std::slice::from_raw_parts(fn_name_ptr, fn_name_len))
         .unwrap_or("<invalid>");
     let site = if ic_ptr.is_null() { None } else { Some(&*ic_ptr) };
-    let mut holder: Option<std::sync::Arc<crate::vm::runtime::Function>> = None;
-    let (callee, id) = match crate::vm::exec::ops::call::bind_callee(vm, module, name, argc, site, &mut holder) {
+    let mut holder: Option<std::sync::Arc<crate::metadata::Function>> = None;
+    let (callee, id) = match crate::exec::ops::call::bind_callee(vm, module, name, argc, site, &mut holder) {
         Ok(bound) => bound,
         Err(exc) => { set_exception(vm, exc); return 1; }
     };
@@ -165,7 +165,7 @@ unsafe fn call_compiled(
         }
     }
     if mta.is_empty() {
-        if let Some(value) = crate::vm::exec::call::forward::try_jit_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
+        if let Some(value) = crate::exec::call::forward::try_jit_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
             frame_ref.regs[dst as usize] = value;
             return 0;
         }
@@ -181,7 +181,7 @@ unsafe fn call_compiled(
 #[inline(never)]
 unsafe fn call_interp(
     frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
-    callee: &crate::vm::runtime::Function, arg_regs: &[u32], caller_offset: u32, mta: &[String],
+    callee: &crate::metadata::Function, arg_regs: &[u32], caller_offset: u32, mta: &[String],
 ) -> u8 {
     let vm = vm_ctx_ref(ctx);
     let module = super::jit_module(ctx);
@@ -189,7 +189,7 @@ unsafe fn call_interp(
     vm.set_top_frame_pc(caller_offset);
     // runtime-ambiguous-use-site：与 interp `exec_call` 对称（两后端同判据）。
     // 常态 = 一次 relaxed 原子读，进程内没发生过碰撞时恒 false。
-    if let Some(exc) = crate::vm::context::symres::ambiguous_function_exception(vm, module, &callee.name) {
+    if let Some(exc) = crate::context::symres::ambiguous_function_exception(vm, module, &callee.name) {
         set_exception(vm, exc);
         return 1;
     }
@@ -197,25 +197,25 @@ unsafe fn call_interp(
         set_exception(vm, exc);
         return 1;
     }
-    // A cold `[Native]` wrapper (no compiled entry yet) folds too (`vm::exec::call::forward`);
+    // A cold `[Native]` wrapper (no compiled entry yet) folds too (`exec::call::forward`);
     // not for a generic site, as the interpreter's `try_fold`.
     if mta.is_empty() && arg_regs.len() == callee.param_count {
-        if let Some(id) = crate::vm::exec::call::forward::forward_of(vm, module, callee) {
+        if let Some(id) = crate::exec::call::forward::forward_of(vm, module, callee) {
             return crate::jit::runtime::forward::call_forward(frame_ref, ctx, dst, callee, id, None, arg_regs);
         }
     }
     if mta.is_empty() {
-        if let Some(value) = crate::vm::exec::call::forward::try_jit_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
+        if let Some(value) = crate::exec::call::forward::try_jit_direct_field_read(vm, callee, &frame_ref.regs, arg_regs) {
             frame_ref.regs[dst as usize] = value;
             return 0;
         }
     }
-    match crate::vm::exec::engine::invoke_args(vm, module, callee, crate::vm::exec::call::args::CallArgs::Registers { regs: &frame_ref.regs, indices: arg_regs }, mta) {
-        Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(ret)) => {
+    match crate::exec::engine::invoke_args(vm, module, callee, crate::exec::call::args::CallArgs::Registers { regs: &frame_ref.regs, indices: arg_regs }, mta) {
+        Ok(crate::exec::call::outcome::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null);
             0
         }
-        Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm, val); 1 }
+        Ok(crate::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm, val); 1 }
         Err(e) => { set_exception(vm, Value::Str(e.to_string().into())); 1 }
     }
 }
@@ -223,22 +223,22 @@ unsafe fn call_interp(
 /// Package-init then type-init barrier for a static call of `callee`; `Some` = the
 /// `TypeInitializationException` to throw.
 unsafe fn call_barriers(
-    vm: &crate::vm::context::VmContext, ctx: *const VmContext,
-    callee: &crate::vm::runtime::Function, owner: &crate::vm::runtime::OwnerInitCell,
+    vm: &crate::context::VmContext, ctx: *const VmContext,
+    callee: &crate::metadata::Function, owner: &crate::metadata::OwnerInitCell,
 ) -> Option<Value> {
     let module = super::jit_module(ctx);
     if let Err(msg) = vm.ensure_module_inits(Some(&callee.name)) {
-        return Some(crate::vm::exec::init::make_type_init_exception(vm, module, &msg));
+        return Some(crate::exec::init::make_type_init_exception(vm, module, &msg));
     }
     if let Err(msg) = vm.ensure_callee_owner_init(&callee.name, owner) {
-        return Some(crate::vm::exec::init::make_type_init_exception(vm, module, &msg));
+        return Some(crate::exec::init::make_type_init_exception(vm, module, &msg));
     }
     None
 }
 
 /// `jit_builtin`: the site's pre-resolved `BuiltinId` (or `UNRESOLVED` + the name, to
 /// resolve now — which re-checks the ext registry, as the interpreter does). The
-/// arguments are read in place from this frame's registers (`vm::exec::call::builtins::invoke_builtin`);
+/// arguments are read in place from this frame's registers (`exec::call::builtins::invoke_builtin`);
 /// a void builtin leaves `dst` alone (same as interp `exec_call::builtin`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_builtin(
@@ -251,16 +251,16 @@ pub unsafe extern "C" fn jit_builtin(
     let frame_ref = &mut *frame;
     let arg_regs  = std::slice::from_raw_parts(args_ptr, argc);
     let vm = vm_ctx_ref(ctx);
-    let name = if builtin_id != crate::vm::runtime::ids::tokens::UNRESOLVED { "" } else {
+    let name = if builtin_id != crate::metadata::ids::tokens::UNRESOLVED { "" } else {
         std::str::from_utf8(std::slice::from_raw_parts(name_ptr, name_len)).unwrap_or("<invalid>")
     };
-    match crate::vm::exec::call::builtins::invoke_builtin(vm, builtin_id, name, None, &frame_ref.regs, arg_regs) {
+    match crate::exec::call::builtins::invoke_builtin(vm, builtin_id, name, None, &frame_ref.regs, arg_regs) {
         Ok(Some(v)) => { frame_ref.regs[dst as usize] = v; 0 }
         Ok(None)    => 0,
         Err(e) => {
             let module = super::jit_module(ctx);
             let who = if name.is_empty() { vm.core().runtime().builtins.name(builtin_id, "?") } else { name };
-            raised_into_exception(vm, crate::vm::exec::call::builtin_abi::error::raise(vm, module, who, *e, &[]))
+            raised_into_exception(vm, crate::exec::call::builtin_abi::error::raise(vm, module, who, *e, &[]))
         }
     }
 }
@@ -271,9 +271,9 @@ pub unsafe extern "C" fn jit_builtin(
 /// leaves the error text: while the fatal flag is set the catch dispatch declines every
 /// handler, so it unwinds to the entry, which reports it.
 pub(crate) fn raised_into_exception(
-    vm: &crate::vm::context::VmContext, r: crate::vm::exec::call::builtin_abi::error::Raised,
+    vm: &crate::context::VmContext, r: crate::exec::call::builtin_abi::error::Raised,
 ) -> u8 {
-    use crate::vm::exec::call::builtin_abi::error::Raised;
+    use crate::exec::call::builtin_abi::error::Raised;
     let exc = match r {
         Raised::Throw(v) => v,
         Raised::Fatal(e) | Raised::Raw(e) => Value::Str(e.to_string().into()),

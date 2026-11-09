@@ -1,9 +1,9 @@
 //! Optimized-tier registration. Only this backend constructs native activations.
 use anyhow::Result;
-use crate::vm::exec::call::{args::CallArgs, outcome::ExecOutcome};
-use crate::vm::exec::engine::{OsrState, TierBackend, TierTarget};
-use crate::vm::runtime::Function;
-use crate::vm::context::VmContext;
+use crate::exec::call::{args::CallArgs, outcome::ExecOutcome};
+use crate::exec::engine::{OsrState, TierBackend, TierTarget};
+use crate::metadata::Function;
+use crate::context::VmContext;
 use crate::jit::{runtime::frame::JitFrame, compile::state::JitRuntime};
 
 impl TierBackend for JitRuntime {
@@ -51,14 +51,14 @@ impl TierBackend for JitRuntime {
 
 pub static ENGINE: JitEngine = JitEngine;
 pub struct JitEngine;
-impl crate::vm::exec::engine::Engine for JitEngine {
-    fn invoke(&self, ctx: &VmContext, module: &crate::vm::runtime::Module, func: &Function,
+impl crate::exec::engine::Engine for JitEngine {
+    fn invoke(&self, ctx: &VmContext, module: &crate::metadata::Module, func: &Function,
         args: CallArgs<'_>, type_args: &[String]) -> Result<ExecOutcome> {
         let CallArgs::Values(values) = args else { anyhow::bail!("JIT mode entry requires value arguments"); };
         anyhow::ensure!(type_args.is_empty(), "JIT mode entry does not accept open method type arguments");
         super::invoke_host(ctx, module, func, values, ctx.core().exec().engines.jit_config()?)
     }
-    fn run(&self, ctx: &VmContext, module: &crate::vm::runtime::Module, entry: &Function) -> Result<()> {
+    fn run(&self, ctx: &VmContext, module: &crate::metadata::Module, entry: &Function) -> Result<()> {
         super::run(ctx, module, &entry.name, ctx.core().exec().engines.jit_config()?)
     }
 }

@@ -1,5 +1,5 @@
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::Result;
 use super::convert::arg_char;
 

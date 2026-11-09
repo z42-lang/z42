@@ -9,11 +9,11 @@
 use z42_zpkg::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator};
 use std::collections::HashMap;
 
-use z42::vm::runtime::{Function, Module};
+use z42::metadata::{Function, Module};
 use z42::{
     object::Value,
 };
-use z42::vm::context::VmContext;
+use z42::context::VmContext;
 
 fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Module {
     let func = Function::new(z42_zpkg::ir::Function {
@@ -125,7 +125,7 @@ fn pin_empty_array_returns_zero_length_view() {
 #[test]
 fn pin_array_u8_snapshots_bytes() {
     // Spec C10 — Array of I64 in 0..=255 pins as a byte buffer.
-    use z42::vm::context::VmContext;
+    use z42::context::VmContext;
     let ctx = VmContext::new();
     let m = build_module(
         "pin_byte_array",

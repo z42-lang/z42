@@ -11,7 +11,7 @@ fn application_service_preserves_capture_arguments_error_and_outer_sink() {
         assert_eq!(libs, Some(PathBuf::from("/libs")));
         let ctx = VmContext::with_vfs(vfs.clone());
         assert_eq!(ctx.vfs().read("/marker").unwrap(), b"caller-vfs");
-        crate::vm::exec::call::builtins::exec_builtin(&ctx, "__print", &[Value::Str("nested output".into())]).unwrap();
+        crate::exec::call::builtins::exec_builtin(&ctx, "__print", &[Value::Str("nested output".into())]).unwrap();
         anyhow::bail!("deliberate nested error")
     }
     let fs = Arc::new(MemoryFs::new());

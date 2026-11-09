@@ -269,7 +269,7 @@ fn type_shape(ctx: &VmContext, definition: Option<Arc<TypeDesc>>, key: Reflected
 }
 
 fn declaration_key(td: &TypeDesc) -> ReflectedTypeKey {
-    use crate::vm::runtime::ids::tokens::TypeId;
+    use crate::metadata::ids::tokens::TypeId;
     if td.id == TypeId::UNRESOLVED {
         return ReflectedTypeKey::Symbol(td.name.as_str().into());
     }

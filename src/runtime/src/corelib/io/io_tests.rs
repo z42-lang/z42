@@ -10,7 +10,7 @@
 //!   assert via the buffer.
 
 use super::*;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use crate::object::Value;
 
 fn ctx() -> std::pin::Pin<Box<VmContext>> {
@@ -18,13 +18,13 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> {
 }
 
 fn builtin_println(c: &VmContext, args: &[Value]) -> anyhow::Result<()> {
-    crate::vm::exec::call::builtins::exec_builtin(c, "__println", args).map(|_| ())
+    crate::exec::call::builtins::exec_builtin(c, "__println", args).map(|_| ())
 }
 fn builtin_print(c: &VmContext, args: &[Value]) -> anyhow::Result<()> {
-    crate::vm::exec::call::builtins::exec_builtin(c, "__print", args).map(|_| ())
+    crate::exec::call::builtins::exec_builtin(c, "__print", args).map(|_| ())
 }
 fn builtin_eprintln(c: &VmContext, args: &[Value]) -> anyhow::Result<()> {
-    crate::vm::exec::call::builtins::exec_builtin(c, "__eprintln", args).map(|_| ())
+    crate::exec::call::builtins::exec_builtin(c, "__eprintln", args).map(|_| ())
 }
 
 fn s(text: &str) -> Value {
@@ -34,22 +34,22 @@ fn s(text: &str) -> Value {
 // The sinks are driven through the table like the stdlib does, so these tests also
 // cover their registration as typed builtins.
 fn install_stdout() {
-    crate::vm::exec::call::builtins::exec_builtin(&ctx(), "__test_io_install_stdout_sink", &[]).unwrap();
+    crate::exec::call::builtins::exec_builtin(&ctx(), "__test_io_install_stdout_sink", &[]).unwrap();
 }
 
 fn take_stdout() -> String {
-    match crate::vm::exec::call::builtins::exec_builtin_value(&ctx(), "__test_io_take_stdout_buffer", &[]).unwrap() {
+    match crate::exec::call::builtins::exec_builtin_value(&ctx(), "__test_io_take_stdout_buffer", &[]).unwrap() {
         Value::Str(s) => s.to_string(),
         other => panic!("expected Str, got {:?}", other),
     }
 }
 
 fn install_stderr() {
-    crate::vm::exec::call::builtins::exec_builtin(&ctx(), "__test_io_install_stderr_sink", &[]).unwrap();
+    crate::exec::call::builtins::exec_builtin(&ctx(), "__test_io_install_stderr_sink", &[]).unwrap();
 }
 
 fn take_stderr() -> String {
-    match crate::vm::exec::call::builtins::exec_builtin_value(&ctx(), "__test_io_take_stderr_buffer", &[]).unwrap() {
+    match crate::exec::call::builtins::exec_builtin_value(&ctx(), "__test_io_take_stderr_buffer", &[]).unwrap() {
         Value::Str(s) => s.to_string(),
         other => panic!("expected Str, got {:?}", other),
     }

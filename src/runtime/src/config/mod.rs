@@ -254,7 +254,7 @@ pub struct RuntimeConfig {
     /// `Z42_FUSION_DEBUG` — 把融合识别结果打到 stderr。
     pub fusion_debug: bool,
     /// `Z42_STACKALLOC` — 逃逸分析栈上分配的开关 / 统计。原样存字符串，五路 match
-    /// 留在消费点（`vm/exec/call/stack_alloc.rs`），那里还有一层 `AtomicU32` 缓存。
+    /// 留在消费点（`exec/call/stack_alloc.rs`），那里还有一层 `AtomicU32` 缓存。
     pub stackalloc: Option<String>,
     /// `Z42_REPL_NATIVE` — REPL 行编辑 cdylib 的路径覆盖（文件或其所在目录）。
     pub repl_native: Option<PathBuf>,
@@ -529,3 +529,6 @@ fn split_paths(s: &str) -> Vec<PathBuf> {
 #[cfg(test)]
 #[path = "config_tests.rs"]
 mod tests;
+
+mod snapshot;
+pub use snapshot::VmConfig;

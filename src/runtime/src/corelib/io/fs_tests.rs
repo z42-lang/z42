@@ -1,5 +1,5 @@
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 fn ctx() -> std::pin::Pin<Box<VmContext>> {
     VmContext::new()
@@ -23,7 +23,7 @@ fn extract_strings(v: Value) -> Vec<String> {
 }
 
 fn builtin_env_args(c: &VmContext, args: &[Value]) -> anyhow::Result<Value> {
-    crate::vm::exec::call::builtins::exec_builtin_value(c, "__env_args", args)
+    crate::exec::call::builtins::exec_builtin_value(c, "__env_args", args)
 }
 
 // add-z42-launcher : __env_args returns the program arguments
@@ -57,8 +57,8 @@ fn env_args_reflects_last_set() {
 
 // ── P1-8 PR 2: typed errors, parked I/O, no syscall under the handle-table lock ──
 
-use crate::vm::exec::call::builtin_abi::BuiltinError;
-use crate::vm::exec::call::builtins::exec_builtin_value;
+use crate::exec::call::builtin_abi::BuiltinError;
+use crate::exec::call::builtins::exec_builtin_value;
 
 fn str_v(s: &str) -> Value { Value::Str(s.into()) }
 
@@ -133,8 +133,8 @@ fn file_stream_round_trip_and_closed_handle() {
     let ps = str_v(p.to_str().unwrap());
     let Value::I64(w) = exec_builtin_value(&c, "__file_open", &[ps, Value::I64(1)]).unwrap() else { panic!() };
     let data = c.heap().alloc_bytes((0..=255u8).collect());
-    crate::vm::exec::call::builtins::exec_builtin(&c, "__file_write", &[Value::I64(w), data, Value::I64(10), Value::I64(100)]).unwrap();
-    crate::vm::exec::call::builtins::exec_builtin(&c, "__file_close", &[Value::I64(w)]).unwrap();
+    crate::exec::call::builtins::exec_builtin(&c, "__file_write", &[Value::I64(w), data, Value::I64(10), Value::I64(100)]).unwrap();
+    crate::exec::call::builtins::exec_builtin(&c, "__file_close", &[Value::I64(w)]).unwrap();
     let closed = fail(&c, "__file_length", &[Value::I64(w)]);
     assert_eq!(closed.classes(), ["Std.ObjectDisposedException", "Std.InvalidOperationException"], "closed handle");
     let Value::I64(r) = exec_builtin_value(&c, "__file_open", &[ps, Value::I64(0)]).unwrap() else { panic!() };
@@ -147,7 +147,7 @@ fn file_stream_round_trip_and_closed_handle() {
     assert_eq!(exec_builtin_value(&c, "__file_position", &[Value::I64(r)]).unwrap(), Value::I64(100));
     assert!(matches!(fail(&c, "__file_read", &[Value::I64(r), buf, Value::I64(100), Value::I64(100)]), BuiltinError::Argument(_)));
     assert!(matches!(fail(&c, "__file_read", &[Value::I64(r), buf, Value::I64(-1), Value::I64(1)]), BuiltinError::ArgumentOutOfRange(_)));
-    crate::vm::exec::call::builtins::exec_builtin(&c, "__file_close", &[Value::I64(r)]).unwrap();
+    crate::exec::call::builtins::exec_builtin(&c, "__file_close", &[Value::I64(r)]).unwrap();
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -194,7 +194,7 @@ fn a_collection_completes_while_a_thread_is_blocked_in_a_file_read() {
     });
     assert!(wait_until(|| parked(&c) == 1), "a thread blocked in File.ReadAllText must be parked");
     {
-        let pause = crate::vm::threads::safepoint::request_gc_pause(&c);
+        let pause = crate::threads::safepoint::request_gc_pause(&c);
         assert!(pause.is_some(), "this thread becomes the collector");
         c.heap().collect_full();
     }
@@ -216,7 +216,7 @@ fn a_collection_completes_while_a_thread_is_blocked_in_a_file_read() {
         let root = w.heap().pin_root(buf);
         let n = exec_builtin_value(&w, "__file_read", &[Value::I64(slot), buf, Value::I64(0), Value::I64(16)]).unwrap();
         w.heap().unpin_root(root);
-        crate::vm::exec::call::builtins::exec_builtin(&w, "__file_close", &[Value::I64(slot)]).unwrap();
+        crate::exec::call::builtins::exec_builtin(&w, "__file_close", &[Value::I64(slot)]).unwrap();
         n
     });
     assert!(wait_until(|| parked(&c) == 1), "the open is parked");
@@ -225,7 +225,7 @@ fn a_collection_completes_while_a_thread_is_blocked_in_a_file_read() {
     std::thread::sleep(std::time::Duration::from_millis(50));
     assert!(wait_until(|| parked(&c) == 1), "the read is parked");
     {
-        let pause = crate::vm::threads::safepoint::request_gc_pause(&c);
+        let pause = crate::threads::safepoint::request_gc_pause(&c);
         assert!(pause.is_some());
         c.heap().collect_full();
     }
@@ -235,7 +235,7 @@ fn a_collection_completes_while_a_thread_is_blocked_in_a_file_read() {
     let Value::I64(s2) = exec_builtin_value(&c, "__file_open", &[str_v(other.to_str().unwrap()), Value::I64(0)]).unwrap()
         else { panic!() };
     assert_eq!(exec_builtin_value(&c, "__file_length", &[Value::I64(s2)]).unwrap(), Value::I64(1));
-    crate::vm::exec::call::builtins::exec_builtin(&c, "__file_close", &[Value::I64(s2)]).unwrap();
+    crate::exec::call::builtins::exec_builtin(&c, "__file_close", &[Value::I64(s2)]).unwrap();
     use std::io::Write;
     writer_end.as_mut().unwrap().write_all(b"abc").unwrap();
     assert_eq!(opener.join().unwrap(), Value::I64(3));
@@ -251,8 +251,8 @@ fn memory_fs_missing_file_is_file_not_found() {
     let c = VmContext::with_vfs(std::sync::Arc::new(crate::pal::vfs::MemoryFs::new()));
     let e = fail(&c, "__file_read_text", &[str_v("/no-dir/f.txt")]);
     assert!(matches!(&e, BuiltinError::FileNotFound(m) if m == "Could not find file '/no-dir/f.txt'."), "{e:?}");
-    crate::vm::exec::call::builtins::exec_builtin(&c, "__file_write_bytes", &[str_v("/d/a.bin"), c.heap().alloc_bytes(vec![1, 2])]).unwrap();
-    crate::vm::exec::call::builtins::exec_builtin(&c, "__file_copy", &[str_v("/d/a.bin"), str_v("/d/b.bin")]).unwrap();
+    crate::exec::call::builtins::exec_builtin(&c, "__file_write_bytes", &[str_v("/d/a.bin"), c.heap().alloc_bytes(vec![1, 2])]).unwrap();
+    crate::exec::call::builtins::exec_builtin(&c, "__file_copy", &[str_v("/d/a.bin"), str_v("/d/b.bin")]).unwrap();
     let names = exec_builtin_value(&c, "__dir_enumerate_recursive", &[str_v("/d")]).unwrap();
     assert_eq!(extract_strings(names), vec!["a.bin", "b.bin"]);
     assert_eq!(exec_builtin_value(&c, "__file_get_size", &[str_v("/d/b.bin")]).unwrap(), Value::I64(2));

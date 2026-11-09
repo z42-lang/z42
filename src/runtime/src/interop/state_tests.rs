@@ -1,5 +1,5 @@
 use super::{pin_owned_buffer, release_owned_buffer, pinned_owned_buffer_count};
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 #[test]
 fn pinned_buffers_are_isolated_and_release_is_idempotent() {

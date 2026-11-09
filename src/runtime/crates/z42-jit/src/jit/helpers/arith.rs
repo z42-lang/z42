@@ -4,10 +4,10 @@
 use crate::object::value::format::with_value_str;
 use crate::object::Value;
 // converge-vm-arith-semantics (H3): scalar rules come from the single source of
-// truth `crate::vm::exec::ops::scalar` (shared with interp), not a JIT-local copy.
-use crate::vm::exec::ops::scalar;
+// truth `crate::exec::ops::scalar` (shared with interp), not a JIT-local copy.
+use crate::exec::ops::scalar;
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use super::{set_exception, vm_ctx_ref};
 
 // ── Arithmetic ───────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ use super::{set_exception, vm_ctx_ref};
 unsafe fn jit_with_str<R>(ctx: *const VmContext, v: &Value, f: impl FnOnce(&str) -> R) -> anyhow::Result<R> {
     match v {
         Value::Object(_) | Value::BoxedStruct(_) =>
-            crate::vm::exec::ops::stringify::with_stringify_dispatch(vm_ctx_ref(ctx), v, f),
+            crate::exec::ops::stringify::with_stringify_dispatch(vm_ctx_ref(ctx), v, f),
         other => Ok(with_value_str(other, f)),
     }
 }
@@ -178,7 +178,7 @@ pub unsafe extern "C" fn jit_rem(
 unsafe fn throw_int_div_by_zero(ctx: *const VmContext, op: &str) -> u8 {
     let vm_ctx = vm_ctx_ref(ctx);
     let module = super::jit_module(ctx);
-    let exc = crate::vm::exec::exception::make_stdlib_exception(
+    let exc = crate::exec::exception::make_stdlib_exception(
         vm_ctx, module, scalar::DIV_BY_ZERO_EXC,
         scalar::div_by_zero_msg(op),
     ).unwrap_or_else(|e| Value::Str(format!("{e}").into()));

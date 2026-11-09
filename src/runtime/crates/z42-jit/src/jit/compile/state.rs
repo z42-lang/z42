@@ -5,7 +5,7 @@
 //! (`fn(frame: *mut JitFrame, vm: *const VmContext) -> u8`). Per-thread state —
 //! frame stack, pending exception, register pool, arenas, safepoint throttle,
 //! stack limit, counter shard — is therefore reached directly; generated code
-//! reads the few hot fields at fixed offsets (`vm::exec::jit_head::JitHead`,
+//! reads the few hot fields at fixed offsets (`exec::jit_head::JitHead`,
 //! `VM_CONTEXT_*_OFFSET`). Shared JIT state lives here, on `VmCore::engines`, and a
 //! helper borrows it through the neutral TierApi cached in the running
 //! context's `JitHead`; the backend identifies its own registered state.
@@ -40,11 +40,11 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use anyhow::Result;
 
-use crate::vm::runtime::ids::func_table::FuncTable;
-use crate::vm::runtime::ids::seg_vec::SparseSegTable;
-use crate::vm::runtime::ids::tokens::FnId;
-use crate::vm::runtime::{Function, Module};
-use crate::vm::context::VmContext;
+use crate::metadata::ids::func_table::FuncTable;
+use crate::metadata::ids::seg_vec::SparseSegTable;
+use crate::metadata::ids::tokens::FnId;
+use crate::metadata::{Function, Module};
+use crate::context::VmContext;
 
 use crate::jit::compile::lookup::CompileLookup;
 use crate::jit::runtime::frame::FnEntry;
@@ -134,7 +134,7 @@ unsafe impl Sync for JitRuntime {}
 /// dropped unused.
 pub fn install<'a>(vm: &'a VmContext, module: &Module, config: crate::jit::config::JitConfig) -> Result<&'a JitRuntime> {
     if vm.core().exec().engines.tier().is_none() {
-        let _ = vm.core().exec().engines.install_tier(crate::vm::exec::engine::TierApi::new(JitRuntime::new(vm, module, config)?));
+        let _ = vm.core().exec().engines.install_tier(crate::exec::engine::TierApi::new(JitRuntime::new(vm, module, config)?));
     }
     let rt = vm.core().exec().engines.tier().and_then(|tier| tier.backend::<JitRuntime>())
         .ok_or_else(|| anyhow::anyhow!("JIT: a different tier backend is installed on this VM"))?;
@@ -156,7 +156,7 @@ pub(crate) fn install_tuned<'a>(
 ) -> &'a JitRuntime {
     let mut rt = JitRuntime::new(vm, module, crate::config::runtime_config().jit_config()).expect("JIT setup");
     tune(&mut rt);
-    assert!(vm.core.exec.engines.install_tier(crate::vm::exec::engine::TierApi::new(rt)).is_ok(), "a tier is already installed on this VM");
+    assert!(vm.core.exec.engines.install_tier(crate::exec::engine::TierApi::new(rt)).is_ok(), "a tier is already installed on this VM");
     let rt = vm.core.exec.engines.tier().and_then(|t| t.backend::<JitRuntime>()).expect("installed");
     publish_to(vm, rt);
     rt
@@ -319,7 +319,7 @@ impl JitRuntime {
         // the callee executes against (identity invariant). Outside the compiler
         // lock: resolution may load a package.
         if func.resolved.get().is_none() {
-            crate::vm::runtime::resolve::resolve_function_tokens(func, self.module(), vm);
+            crate::metadata::resolve::resolve_function_tokens(func, self.module(), vm);
         }
         if crate::jit::translate::jit_unsupported_reason(func).is_some() {
             slot.state.store(SLOT_REJECTED, Ordering::Relaxed);
@@ -327,7 +327,7 @@ impl JitRuntime {
         }
         // `[Native]` forwarder? (Shared with the interpreter and the cold call paths;
         // the probe never loads anything.)
-        let forward = crate::vm::exec::call::forward::forward_of(vm, self.module(), func);
+        let forward = crate::exec::call::forward::forward_of(vm, self.module(), func);
         let mut guard = self.lock_compiler();
         if slot.entry.get().is_none() {
             if slot.state.load(Ordering::Relaxed) == SLOT_REJECTED { return None; }

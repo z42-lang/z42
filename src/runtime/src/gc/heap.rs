@@ -483,7 +483,7 @@ impl Heap {
 }
 
 /// **fix-wasm-string-ops**: process-global monotonic source for [`Heap::epoch`]. Starts at
-/// `1` so `0` stays the "no ambient heap" sentinel ([`crate::vm::exec::ambient::current_heap_epoch`]).
+/// `1` so `0` stays the "no ambient heap" sentinel ([`crate::exec::ambient::current_heap_epoch`]).
 static NEXT_HEAP_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 

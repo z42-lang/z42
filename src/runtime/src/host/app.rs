@@ -62,7 +62,7 @@ pub fn run_app(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         }
         // Relative probing paths resolve against the entry zpkg's dir, so the same
         // install behaves identically whatever cwd it is launched from.
-        for p in crate::vm::loader::locate::probing::expand_probing_paths(&entry_dir, &crate::config::runtime_config().probing_paths) {
+        for p in crate::loader::locate::probing::expand_probing_paths(&entry_dir, &crate::config::runtime_config().probing_paths) {
             if !dirs.iter().any(|d| d == &p) {
                 dirs.push(p);
             }
@@ -76,14 +76,14 @@ pub fn run_app(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     };
     // 交给 z42 侧只读查询（`Std.Runtime.ModuleSearch.Dirs`）。存的是**解析结果**——相对项已按
     // entry zpkg 解析、通配符已展开 —— 免得调用方各自重做一遍规则然后慢慢漂移。
-    crate::vm::loader::locate::probing::set_search_dirs(search_dirs.clone());
+    crate::loader::locate::probing::set_search_dirs(search_dirs.clone());
     // add-sdk-libs D6：记下展开后不存在的 `${Z42_HOME}` 条目，供依赖解析失败时提示「是否没装 SDK」。
     {
         let entry_dir = match std::path::Path::new(file).parent() {
             Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
             _ => PathBuf::from("."),
         };
-        crate::vm::loader::locate::probing::set_unresolved_sdk_patterns(crate::vm::loader::locate::probing::unresolved_z42_home_patterns(
+        crate::loader::locate::probing::set_unresolved_sdk_patterns(crate::loader::locate::probing::unresolved_z42_home_patterns(
             &entry_dir,
             &crate::config::runtime_config().probing_paths,
         ));
@@ -123,7 +123,7 @@ static EXIT_REPORT: std::sync::OnceLock<ExitReport> = std::sync::OnceLock::new()
 /// dies, by `Environment.Exit`. Safe to call with no `EXIT_REPORT` recorded
 /// (pure-embedder VMs): stats are then skipped and only the env-driven sampler
 /// flush applies.
-pub(crate) fn report_on_exit(ctx: &crate::vm::context::VmContext) {
+pub(crate) fn report_on_exit(ctx: &crate::context::VmContext) {
     static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     // A z42 `Environment.Exit` inside a program that also returns normally can
     // only happen once (process::exit never returns), but an embedder may call
@@ -150,7 +150,7 @@ if report.print_stats {
         (ph.count, ph.total_us, if ph.count == 0 { 0 } else { ph.max_us })
     };
     use std::sync::atomic::Ordering::Relaxed;
-    let snap = crate::vm::diagnostics::counters::ProfileSnapshot::new(
+    let snap = crate::diagnostics::counters::ProfileSnapshot::new(
         counters, h.allocations,
         h.minor_collections, h.major_collections, h.reclaimed_bytes,
     )

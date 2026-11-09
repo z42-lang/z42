@@ -10,15 +10,15 @@ use crate::jit::runtime::frame::JitFrame;
 use crate::jit::helpers::object_field::HELPER_CALLS;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use crate::jit::compile::state::install;
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, FieldGetInsn, FieldSetInsn, Instruction, Terminator};
-use crate::vm::runtime::ids::tokens::TypeId;
+use crate::metadata::ids::tokens::TypeId;
 use crate::object::{
     FieldAccess, NativeData, ObjectLayout, TypeDesc, TypeDescCold, STRUCT_LEAF_GCREF,
     STRUCT_LEAF_PRIM, TAG_I32, TAG_I64, TAG_OBJECT,
 };
 use crate::{zpkg::IrType, object::Value};
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::sync::Arc;
 
 #[derive(Clone, Copy)]
@@ -106,7 +106,7 @@ fn module(functions: Vec<Function>) -> Module {
 /// The production translator's view of the VM: no call forwarding, the heap's barrier gate.
 struct Lookup<'a>(&'a VmContext);
 impl ForwardLookup for Lookup<'_> {
-    fn builtins(&self) -> &crate::vm::runtime::builtins::BuiltinCatalog { &crate::assembly::builtin::CATALOG }
+    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { &crate::corelib::builtins::CATALOG }
     fn forward_of_id(&self, _: u32) -> Option<u32> { None }
     fn forward_of_name(&self, _: &str) -> Option<u32> { None }
     fn barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
@@ -122,7 +122,7 @@ struct Jitted<'m> {
 
 impl Jitted<'_> {
     fn new<'m>(vm: &'m VmContext, m: &'m Module, idx: usize) -> Jitted<'m> {
-        crate::vm::runtime::resolve::resolve_function_tokens(&m.functions[idx], m, vm);
+        crate::metadata::resolve::resolve_function_tokens(&m.functions[idx], m, vm);
         let rt = install(vm, m, crate::config::runtime_config().jit_config()).expect("install");
         let entry = rt.compile_with(&m.functions[idx], &Lookup(vm)).expect("compile");
         Jitted { vm, entry }
@@ -158,7 +158,7 @@ impl Jitted<'_> {
 fn interp(m: &Module, idx: usize, args: &[Value]) -> Value {
     let vm = VmContext::new();
     match crate::interp::run::exec_function(&vm, m, &m.functions[idx], args) {
-        Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(v)) => v.unwrap_or(Value::Null),
+        Ok(crate::exec::call::outcome::ExecOutcome::Returned(v)) => v.unwrap_or(Value::Null),
         other => panic!("interp: {other:?}"),
     }
 }
@@ -202,7 +202,7 @@ fn direct_reader_warms_before_getter_compilation_and_rechecks_its_guards() {
         ambiguous: &'a AtomicBool,
     }
     impl ForwardLookup for TestLookup<'_> {
-        fn builtins(&self) -> &crate::vm::runtime::builtins::BuiltinCatalog { self.vm.builtins() }
+        fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { self.vm.builtins() }
         fn forward_of_id(&self, _: u32) -> Option<u32> { None }
         fn forward_of_name(&self, _: &str) -> Option<u32> { None }
         fn direct_field_reader(&self, id: u32) -> Option<DirectFieldReader> {
@@ -225,7 +225,7 @@ fn direct_reader_warms_before_getter_compilation_and_rechecks_its_guards() {
     let rt = install_tuned(&vm, &m, |rt| rt.jit_threshold = 1);
     let ambiguous = AtomicBool::new(false);
     let lookup = TestLookup { vm: CompileLookup { rt, vm: &vm }, ambiguous: &ambiguous };
-    crate::vm::runtime::resolve::resolve_function_tokens(&m.functions[0], &m, &vm);
+    crate::metadata::resolve::resolve_function_tokens(&m.functions[0], &m, &vm);
     assert!(m.functions[1].resolved.get().is_none(), "getter starts without tokens");
     let entry = rt.compile_with(&m.functions[0], &lookup).expect("compile caller");
     let j = Jitted { vm: &vm, entry };

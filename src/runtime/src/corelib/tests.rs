@@ -1,7 +1,7 @@
 use super::*;
-use crate::vm::exec::call::builtins::{exec_builtin, exec_builtin_value};
+use crate::exec::call::builtins::{exec_builtin, exec_builtin_value};
 use crate::object::{NativeData, TypeDesc, Value};
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::sync::Arc;
 
 fn s(v: &str) -> Value { Value::Str(v.into()) }
@@ -19,7 +19,7 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> { VmContext::new() }
 /// add-attribute-reflection C3 made this path z42.core-dependent.)
 fn ctx_with_std_type() -> std::pin::Pin<Box<VmContext>> {
     use crate::{
-        zpkg::index::name::NameIndex, object::FieldSlot, vm::runtime::ids::tokens::TypeId,
+        zpkg::index::name::NameIndex, object::FieldSlot, metadata::ids::tokens::TypeId,
     };
     let c = VmContext::new();
     c.install_lazy_loader(None, 0);
@@ -61,7 +61,7 @@ fn obj(ctx: &VmContext, class_name: &str) -> Value {
         vtable: Vec::new(),
         vtable_index: crate::zpkg::NameIndex::new(),
         cold: None,
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     });
     ctx.heap().alloc_object(type_desc, Vec::new(), NativeData::None)
 }
@@ -276,11 +276,11 @@ fn obj_hash_code_non_object_errors() {
 use crate::object::ArrRef;
 
 /// P1-2 PR 8: callables hold their target's `FnId`.
-fn fn_ref(id: u32) -> Value { Value::FuncRef(crate::vm::runtime::ids::tokens::FnId(id)) }
+fn fn_ref(id: u32) -> Value { Value::FuncRef(crate::metadata::ids::tokens::FnId(id)) }
 
 fn closure_of(env: ArrRef, id: u32) -> Value {
     Value::Closure(crate::object::header::VarGcRef::leak_for_test(
-        crate::object::ClosureData { env, fn_id: crate::vm::runtime::ids::tokens::FnId(id) },
+        crate::object::ClosureData { env, fn_id: crate::metadata::ids::tokens::FnId(id) },
         crate::object::header::BlockType::Closure,
     ))
 }
@@ -288,7 +288,7 @@ fn closure_of(env: ArrRef, id: u32) -> Value {
 /// A context whose entry module defines empty functions named `names` (ids `0..n`), so
 /// callables can name them (`__delegate_fn_name`, `__make_closure`).
 fn ctx_with_fns(names: &[&str]) -> std::pin::Pin<Box<VmContext>> {
-    use crate::vm::runtime::{Function, Module};
+    use crate::metadata::{Function, Module};
     use crate::zpkg::ir::{BasicBlock, Terminator};
     let functions: Vec<Function> = names.iter().map(|n| Function::new(crate::zpkg::ir::Function {
         name: n.to_string(),
@@ -509,7 +509,7 @@ fn make_closure_constructs_value_closure() {
     match cl {
         Value::Closure(cd) => {
             let data = crate::object::closure_data_of(&cd);
-            assert_eq!(data.fn_id, crate::vm::runtime::ids::tokens::FnId(1), "the name binds to its FnId");
+            assert_eq!(data.fn_id, crate::metadata::ids::tokens::FnId(1), "the name binds to its FnId");
             // env[0] 应是同一 receiver
             let env_ref = data.env.borrow();
             assert_eq!(env_ref.len(), 1);
@@ -547,7 +547,7 @@ fn make_closure_returns_null_for_invalid_args() {
 
 #[test]
 fn builtin_table_join_preserves_order_and_has_no_holes() {
-    use crate::assembly::builtin::BUILTINS;
+    use crate::corelib::builtins::BUILTINS;
     // 没有被填充值漏下来的空洞（padding 的名字是空串）。
     assert!(BUILTINS.iter().all(|d| !d.name.is_empty()),
         "a padding slot leaked into BUILTINS — the const join left a hole");

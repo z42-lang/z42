@@ -1,12 +1,12 @@
 //! Static and dynamic registration of the same execution backend.
-use crate::vm::components::api::*;
+use z42::components::{api::*, core_identity, CORE_ABI};
 use core::ffi::c_void;
 unsafe extern "C" fn identity() -> ExecutionIdentity {
-    ExecutionIdentity { image: crate::core_identity(), abi: crate::CORE_ABI }
+    ExecutionIdentity { image: core_identity(), abi: CORE_ABI }
 }
 unsafe extern "C" fn attach(vm: *const c_void, config: *const ExecutionConfig) -> ComponentStatus {
     if vm.is_null() || config.is_null() { return ComponentStatus::INVALID_ARGUMENT; }
-    let ctx = unsafe { &*vm.cast::<crate::vm::context::VmContext>() };
+    let ctx = unsafe { &*vm.cast::<crate::context::VmContext>() };
     let config = unsafe { &*config };
     let _ = config;
     match ctx.core().exec().engines.register_baseline(&super::engine::ENGINE) { Ok(()) => ComponentStatus::OK, Err(_) => ComponentStatus::ERROR }

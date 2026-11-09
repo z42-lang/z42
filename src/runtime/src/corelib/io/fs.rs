@@ -16,7 +16,7 @@
 //!   slow disk, a network file system or a FIFO. Path strings and byte payloads are copied
 //!   out before parking, results become `Value`s after unparking. The stat-only probes
 //!   (`Exists`, `GetSize`, `GetLastWriteTime`, FileStream `Length` / `Position` / `Seek`)
-//!   run unparked: a park retires the thread's allocation buffer (`vm::threads::safepoint`), which
+//!   run unparked: a park retires the thread's allocation buffer (`threads::safepoint`), which
 //!   costs more than the `stat` itself — a `File.Exists` loop ran 2.6× slower parked.
 //! - **FileStream handles** (`__file_open` …): the slot table in `fs::State`
 //!   holds `Arc<File>`; an operation clones the `Arc` under the table lock, drops the lock,
@@ -24,7 +24,7 @@
 //!   every FileStream read / write in the process serialized on it, and a thread blocked
 //!   in a read held it while unparked, stalling every collection).
 //!
-//! [`Blocking`]: crate::vm::exec::call::builtin_abi::Blocking
+//! [`Blocking`]: crate::exec::call::builtin_abi::Blocking
 
 /// Application data supplied by the facade. Returning owned Rust strings releases
 /// the provider's lock before the builtin allocates managed values.
@@ -43,13 +43,13 @@ impl State {
     }
 }
 
-pub(super) fn state(ctx: &crate::vm::context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::context::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
-use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError};
+use crate::exec::call::builtin_abi::{Blocking, BuiltinError};
 use crate::pal::fs::Vfs;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::io::ErrorKind;
 use std::sync::Arc;
 
@@ -213,7 +213,7 @@ pub(crate) struct FileHandleSlot {
 /// The open file behind `slot` (a clone of its `Arc`; the table lock is released on return).
 /// An unknown or closed slot is .NET's `ObjectDisposedException` ("Cannot access a closed
 /// file.", `ObjectName` null).
-fn open_file(ctx: &crate::vm::context::VmContext, slot: i64) -> Result<Arc<std::fs::File>, BuiltinError> {
+fn open_file(ctx: &crate::context::VmContext, slot: i64) -> Result<Arc<std::fs::File>, BuiltinError> {
     state(ctx)?.slots.with_mut(slot as u64, |s| s.file.clone()).flatten()
         .ok_or_else(|| BuiltinError::object_disposed(None, "Cannot access a closed file."))
 }
@@ -222,9 +222,9 @@ fn open_file(ctx: &crate::vm::context::VmContext, slot: i64) -> Result<Arc<std::
 pub mod typed {
     use crate::corelib::io::buffer::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use super::{check_path, fs_error, on_vfs, open_file, two_path_error, vfs_error, FileHandleSlot, PathRole};
-    use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
+    use crate::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
     use crate::object::Value;
-    use crate::vm::context::VmContext;
+    use crate::context::VmContext;
     use std::io::{Read, Seek, SeekFrom, Write};
 
     // ── File (path-based) ─────────────────────────────────────────────────────

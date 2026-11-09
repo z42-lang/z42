@@ -435,7 +435,7 @@ park 期间它的 z42 根是冻结的，收集器可以安全扫描。Tab 补全
 `parked_count` + `gc_phase_cv`，没有新同步原语。
 
 **park 的范围必须精确到只包住那次读取**：读回来的行变成 z42 字符串是一次 GC 分配，若在 park 内做，
-它对预热线程的收集就不是根（`vm::threads::safepoint::debug_assert_not_native_parked` 守这条）。
+它对预热线程的收集就不是根（`threads::safepoint::debug_assert_not_native_parked` 守这条）。
 所以 `builtin_repl_readline` 里 guard 在字符串构造**之前**就 drop 掉。
 
 机制细节见[安全点与 STW](../runtime/safepoint-design.md)。

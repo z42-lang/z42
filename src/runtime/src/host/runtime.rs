@@ -3,7 +3,7 @@ use crate::{
     zpkg::ExecMode,
     object::Value,
     pal::fs::Vfs,
-    vm::{context::VmContext, exec::call::outcome::ExecOutcome, runtime::Module},
+    context::VmContext, exec::call::outcome::ExecOutcome, metadata::Module,
 };
 use anyhow::{anyhow, bail, Result};
 use std::{
@@ -71,12 +71,12 @@ impl LoadedProgram {
     }
 
     pub fn load_file(path: &str, options: LoadOptions) -> Result<Self> {
-        let artifact = crate::assembly::loader::load_artifact(&*options.vfs, path)?;
+        let artifact = crate::host::artifact::load_artifact(&*options.vfs, path)?;
         super::load::prepare(artifact, Some(path), &options)
     }
 
     pub fn load_bytes(bytes: &[u8], options: LoadOptions) -> Result<Self> {
-        let artifact = crate::assembly::loader::load_artifact_from_bytes(bytes)?;
+        let artifact = crate::host::artifact::load_artifact_from_bytes(bytes)?;
         super::load::prepare(artifact, None, &options)
     }
 
@@ -120,8 +120,8 @@ impl LoadedProgram {
         }
         let ctx = self.context();
         #[cfg(feature = "native-interop")]
-        let _vm_guard = crate::vm::exec::active_vm::VmGuard::enter(ctx);
-        let _heap_guard = crate::vm::exec::ambient::HeapGuard::enter(ctx.heap());
+        let _vm_guard = crate::exec::active_vm::VmGuard::enter(ctx);
+        let _heap_guard = crate::exec::ambient::HeapGuard::enter(ctx.heap());
         struct Roots<'a>(&'a crate::gc::Heap, Vec<crate::gc::RootHandle>);
         impl Drop for Roots<'_> {
             fn drop(&mut self) {
@@ -146,12 +146,12 @@ impl LoadedProgram {
             bail!("uncaught exception during static initialization: {error}");
         }
         let outcome = ctx.core().exec().engines.invoke_mode(self.mode, ctx, self.module(), func, args);
-        if crate::vm::exec::stack_guard::is_fatal(ctx) {
+        if crate::exec::stack_guard::is_fatal(ctx) {
             bail!(
                 "{}",
-                crate::vm::exec::stack_guard::report().unwrap_or_else(|| format!(
+                crate::exec::stack_guard::report().unwrap_or_else(|| format!(
                     "{}stack overflow",
-                    crate::vm::exec::stack_guard::FATAL_PREFIX
+                    crate::exec::stack_guard::FATAL_PREFIX
                 ))
             );
         }
@@ -163,7 +163,7 @@ impl LoadedProgram {
             ExecOutcome::Returned(value) => Ok(value),
             ExecOutcome::Thrown(value) => bail!(
                 "{}",
-                crate::vm::exec::exception::format_uncaught(&value, ctx, self.module())
+                crate::exec::exception::format_uncaught(&value, ctx, self.module())
             ),
         }
     }

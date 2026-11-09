@@ -7,9 +7,9 @@
 //! throws) is exercised end-to-end by the golden test
 //! `src/tests/reflection/load_context/`.
 
-use crate::vm::runtime::Module;
-use crate::vm::loader::contexts::{AssemblyId, ContextId, ContextRegistry};
-use crate::vm::runtime::ids::tokens::TypeId;
+use crate::metadata::Module;
+use crate::loader::contexts::{AssemblyId, ContextId, ContextRegistry};
+use crate::metadata::ids::tokens::TypeId;
 use crate::object::TypeDesc;
 use crate::zpkg::NameIndex;
 use std::sync::Arc;

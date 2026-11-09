@@ -209,7 +209,7 @@ compression 由 cdylib 加载时注册到 per-VM ext 表，见 [native ABI §6.6
 namespace 是 `Std.IO`，不在 prelude 名单里，所以 hello world 仍必须写 `using Std.IO;`**——不写报
 `E0436`。「把 Console 上提到 core」已经发生，「`Std.IO` 进 prelude using」没有。
 
-VM 找 stdlib zpkg 的顺序（`src/runtime/src/startup.rs::resolve_libs_dir`）：
+VM 找 stdlib zpkg 的顺序（`src/runtime/src/host/cli_startup.rs::resolve_libs_dir`）：
 
 1. `libs` 旋钮（`Z42_LIBS` / `--set libs=` / `[runtime].libs`）
 2. `<binary-dir>/../libs/`（packages 布局）

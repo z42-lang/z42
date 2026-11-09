@@ -26,10 +26,10 @@
 //! `VmContext::next_frame_id()` the first time this frame allocates a struct. `0`
 //! means "not yet allocated"; `next_frame_id()` never returns `0`.
 
-use crate::vm::exec::ops::structs;
+use crate::exec::ops::structs;
 use crate::object::Value;
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use super::{set_exception, vm_ctx_ref};
 
 /// Lazily assign (and return) this JIT frame's monotonic id, so a `StructRef` it

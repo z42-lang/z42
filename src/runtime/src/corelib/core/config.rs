@@ -20,7 +20,7 @@
 
 use crate::config::{is_available, knob_by_key, runtime_config, BuildCtx, KNOWN_KNOBS};
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{anyhow, Result};
 
 fn arg_str(args: &[Value], what: &str) -> Result<String> {
@@ -68,7 +68,7 @@ pub fn cfg_source(key: &str) -> &'static str {
 ///
 /// 非 app 路径（纯 host 嵌入）未初始化 → 空数组。
 pub fn search_dirs(ctx: &VmContext) -> Value {
-    let dirs: Vec<Value> = crate::vm::loader::locate::probing::search_dirs()
+    let dirs: Vec<Value> = crate::loader::locate::probing::search_dirs()
         .iter()
         .map(|p| Value::Str(p.display().to_string().into()))
         .collect();

@@ -3,19 +3,19 @@
 //!
 //! unify-vcall-resolution : target resolution (boxed primitive / boxed
 //! struct / primitive-as-struct / object vtable + hierarchy walk, candidate spellings,
-//! PIC install) lives in `vm::exec::ops::vcall` and is shared with the interpreter —
+//! PIC install) lives in `exec::ops::vcall` and is shared with the interpreter —
 //! this helper only decides how to run the resolved target: a compiled `FnEntry` when
 //! the JIT has one (tiered), otherwise the interpreter on a receiver-filled frame.
 
-use crate::vm::runtime::dispatch::ic::VCallIC;
-use crate::vm::runtime::Function;
+use crate::metadata::dispatch::ic::VCallIC;
+use crate::metadata::Function;
 use crate::object::Value;
-use crate::vm::exec::ops::vcall::resolve_vcall;
-use crate::vm::runtime::dispatch::vcall::vcall_ic_hit;
-use crate::vm::exec::ops::vcall::VCallTarget;
+use crate::exec::ops::vcall::resolve_vcall;
+use crate::metadata::dispatch::vcall::vcall_ic_hit;
+use crate::exec::ops::vcall::VCallTarget;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
@@ -27,7 +27,7 @@ use super::{set_exception, vm_ctx_ref};
 /// (TypeId, FnId) pair back to the IC.
 ///
 /// `ic_ptr` may be null when the resolver hasn't run (only happens in
-/// tests bypassing `Vm::run`); helper degrades gracefully to slow path.
+/// tests bypassing `host::LoadedProgram::run_entry`); helper degrades gracefully to slow path.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_vcall(
     frame: *mut JitFrame, ctx: *const VmContext,
@@ -97,7 +97,7 @@ unsafe fn vcall_impl(
             // The check is debug-only; keep its argument (a UTF-8 validation of the
             // method name) out of release builds, where it ran on every IC hit.
             #[cfg(debug_assertions)]
-            crate::vm::exec::ops::vcall::assert_pic_target(
+            crate::exec::ops::vcall::assert_pic_target(
                 vm_ctx, module, &obj_val,
                 std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len)).unwrap_or("?"),
                 func);
@@ -148,7 +148,7 @@ fn read_resolved_field(
     ctx: &VmContext, func: &Function, this: &Value, args: &[u32], mta: &[String], ic: Option<&VCallIC>,
 ) -> Option<Value> {
     if !args.is_empty() || !mta.is_empty() { return None; }
-    crate::vm::exec::call::forward::try_field_read_cached(ctx, func, this, ic.map(|site| &site.field_reader))
+    crate::exec::call::forward::try_field_read_cached(ctx, func, this, ic.map(|site| &site.field_reader))
 }
 
 /// Run a compiled entry: receiver in reg 0, args read straight from the caller's
@@ -179,18 +179,18 @@ unsafe fn invoke_interp(
 ) -> u8 {
     let module  = super::jit_module(ctx);
     let vm_ctx  = vm_ctx_ref(ctx);
-    // A cold `[Native]` wrapper folds too (`vm::exec::call::forward`); not on a generic site.
+    // A cold `[Native]` wrapper folds too (`exec::call::forward`); not on a generic site.
     if mta.is_empty() && arg_regs.len() + 1 == func.param_count {
-        if let Some(id) = crate::vm::exec::call::forward::forward_of(vm_ctx, module, func) {
+        if let Some(id) = crate::exec::call::forward::forward_of(vm_ctx, module, func) {
             return unsafe { crate::jit::runtime::forward::call_forward(frame_ref, ctx, dst, func, id, Some(this), arg_regs) };
         }
     }
-    match crate::vm::exec::engine::invoke_args(vm_ctx, module, func, crate::vm::exec::call::args::CallArgs::Receiver { receiver: this, regs: &frame_ref.regs, indices: arg_regs }, mta)
+    match crate::exec::engine::invoke_args(vm_ctx, module, func, crate::exec::call::args::CallArgs::Receiver { receiver: this, regs: &frame_ref.regs, indices: arg_regs }, mta)
     {
-        Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(ret)) => {
+        Ok(crate::exec::call::outcome::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0
         }
-        Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
+        Ok(crate::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
         Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); 1 }
     }
 }

@@ -16,11 +16,11 @@
 use z42_zpkg::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator};
 use std::collections::HashMap;
 
-use z42::vm::runtime::{Function, Module};
+use z42::metadata::{Function, Module};
 use z42::{
     object::Value,
 };
-use z42::vm::context::VmContext;
+use z42::context::VmContext;
 
 // build.rs compiles the archive into OUT_DIR but does not link it into the `z42`
 // library (that would ship the PoC inside the released libz42.a) — this test

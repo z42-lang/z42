@@ -7,9 +7,9 @@ use super::*;
 use crate::{
     zpkg::NameIndex,
     object::{NativeData, TypeDesc, Value},
-    vm::runtime::ids::tokens::TypeId,
+    metadata::ids::tokens::TypeId,
 };
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::sync::Arc;
 
 fn ctx() -> std::pin::Pin<Box<VmContext>> {

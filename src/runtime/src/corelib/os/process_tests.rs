@@ -4,8 +4,8 @@
 //! POSIX coreutils assumed (`sh` / `true` / `cat` / `sleep`).
 
 use super::*;
-use crate::vm::exec::call::builtin_abi::{BuiltinError, FieldInit};
-use crate::vm::exec::call::builtins::{exec_builtin, exec_builtin_value};
+use crate::exec::call::builtin_abi::{BuiltinError, FieldInit};
+use crate::exec::call::builtins::{exec_builtin, exec_builtin_value};
 
 fn s(v: &str) -> Value { Value::Str(v.into()) }
 fn i(n: i64) -> Value { Value::I64(n) }
@@ -189,7 +189,7 @@ fn a_collection_completes_while_a_thread_waits_on_a_child() {
         assert!(wait_until(|| parked(&ctx) == 1), "{name}: the waiting thread is parked");
         let t0 = std::time::Instant::now();
         {
-            let pause = crate::vm::threads::safepoint::request_gc_pause(&ctx);
+            let pause = crate::threads::safepoint::request_gc_pause(&ctx);
             assert!(pause.is_some(), "{name}: this thread becomes the collector");
             ctx.heap().collect_full();
         }

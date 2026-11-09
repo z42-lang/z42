@@ -26,7 +26,7 @@
 
 把这条判错，会把**正常的跨包两阶段加载**变成崩溃。所以判据不是「现在查不到」，而是
 **所有惰性解析路径都穷尽之后仍然查不到**。实现集中在
-`src/runtime/src/vm/context/symres.rs` 一个模块里，两后端共用同一份判定，避免
+`src/runtime/src/context/symres.rs` 一个模块里，两后端共用同一份判定，避免
 interp / JIT 语义漂移（这是本仓最易出错的一维）。
 
 三条反复出现的纪律：
@@ -81,7 +81,7 @@ C# 的 `default(T)`（`symres::static_zero_value`）：
 - 泛型类实例化（`Demo.Holder<int>`）的描述符里，静态字段的 tag 已代换成实参，`static T V` 读作 `0`。
 
 钉它的是 `src/tests/structs/static_value_default.z42`（单包，interp + JIT）与 cross-zpkg
-`static_struct_default_cross_pkg`（字段类型声明在依赖包里），单测在 `vm/context/symres_tests.rs` /
+`static_struct_default_cross_pkg`（字段类型声明在依赖包里），单测在 `context/symres_tests.rs` /
 `static_table_tests.rs`。
 
 ### 构造器 —— `missing_ctor_exception`，判据是编译期的**正向位**
@@ -190,7 +190,7 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 | 同上，未预填的站点（interp；含跨包首次调用） | `exec_call::bind_callee` 写回 token 之前 | token 直取 |
 | 未绑定的 `Call`（JIT） | `jit_call` 按名绑定，与 interp 同一个 `bind_callee`（按 `Function` 判，**不用** `FnEntry`：被调方未到 JIT 阈值时拿不到它，token 却照写） | 烘焙常量 / token 直取 |
 | `VCall`（两后端共用 `resolve_vcall`） | 出口统一判 → `VCallTarget::Thrown`；`install_ic` 对不上**不装 PIC** | PIC 直取 |
-| `ObjNew`（两后端共用 `vm/exec/ops/obj_new`） | resolver 预填站点缓存的 ctor `FnId`：对不上就**不预填**；否则 `bind_ctor` 写回 `FnId` 之前 | 站点缓存直取 |
+| `ObjNew`（两后端共用 `exec/ops/obj_new`） | resolver 预填站点缓存的 ctor `FnId`：对不上就**不预填**；否则 `bind_ctor` 写回 `FnId` 之前 | 站点缓存直取 |
 
 两处容易漏的地方，都是真实推导出来的：
 

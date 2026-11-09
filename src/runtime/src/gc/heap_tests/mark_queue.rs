@@ -136,7 +136,7 @@ fn collect_cycles_with_vm_frees_an_unrooted_cycle_under_stw() {
     // STW mode routes `collect_cycles_with_vm` to `collect_cycles()` under a pause.
     // flip-gc-default-to-generational : STW is not the default, so select
     // it explicitly — this test is about the STW path, not about what the default is.
-    use crate::vm::context::VmContext;
+    use crate::context::VmContext;
     let ctx = VmContext::new();
     ctx.heap().set_mode(GcMode::StwMarkSweep);
     assert_eq!(ctx.heap().mode(), GcMode::StwMarkSweep);

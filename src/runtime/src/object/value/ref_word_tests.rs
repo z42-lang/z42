@@ -22,7 +22,7 @@ fn plain_td(name: &str) -> Arc<TypeDesc> {
         vtable: Vec::new(),
         vtable_index: crate::zpkg::NameIndex::new(),
         cold: None,
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 
@@ -53,7 +53,7 @@ pub(crate) fn ref_cell_td(n: usize) -> Arc<TypeDesc> {
         vtable: Vec::new(),
         vtable_index: crate::zpkg::NameIndex::new(),
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 
@@ -102,7 +102,7 @@ fn every_kind_round_trips_with_its_tag_in_the_low_bits() {
 /// (including 0, which must not collide with the null word), and the JIT reads it via the slow path.
 #[test]
 fn func_ref_word_carries_the_fn_id_inline() {
-    use crate::vm::runtime::ids::tokens::FnId;
+    use crate::metadata::ids::tokens::FnId;
     for id in [0u32, 1, 7, 123_456, (1 << 28) - 1] {
         let w = encode(&Value::FuncRef(FnId(id))).expect("a FuncRef encodes");
         assert_eq!(w & KIND_MASK, RK_FUNC_REF);
@@ -134,7 +134,7 @@ fn the_jit_store_table_matches_encode() {
     assert_eq!(VALUE_TAG_TO_KIND[discriminant(&Value::Null) as usize], 0);
     let slow = [
         Value::I64(1), Value::F64(1.0), Value::Bool(true), Value::Char('x'),
-        Value::FuncRef(crate::vm::runtime::ids::tokens::FnId(3)),
+        Value::FuncRef(crate::metadata::ids::tokens::FnId(3)),
         Value::StackObject { idx: 0, frame_id: 0 }, Value::StackArray { idx: 0, frame_id: 0 },
         Value::StructRef { idx: 0, frame_id: 0 }, Value::Ref { idx: 0, frame_id: 0 },
     ];
@@ -169,7 +169,7 @@ fn values_that_do_not_fit_eight_bytes_need_a_box() {
 #[test]
 fn a_boxed_primitive_reads_back_unchanged_and_traces_as_its_box() {
     let heap = Heap::default();
-    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap);
+    let _g = crate::exec::ambient::HeapGuard::enter(&heap);
     for v in [Value::I64(-42), Value::F64(2.25), Value::Bool(true), Value::Char('é')] {
         let b = alloc_box_ambient(&v).expect("boxes");
         let w = encode_boxed(&b);
@@ -190,7 +190,7 @@ fn boxing_without_an_active_heap_is_an_error_not_a_crash() {
 fn gc_traces_through_reference_words() {
     let heap = Heap::default();
     heap.set_mode(GcMode::StwMarkSweep);
-    let _g = crate::vm::exec::ambient::HeapGuard::enter(&heap);
+    let _g = crate::exec::ambient::HeapGuard::enter(&heap);
 
     let holder = heap.alloc_object(ref_cell_td(3), vec![], NativeData::None);
     let Value::Object(h) = &holder else { panic!() };

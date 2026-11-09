@@ -27,9 +27,9 @@ use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use z42::gc::{Heap, GcMode};
 use z42::{
     object::{NativeData, TypeDesc, Value},
-    vm::runtime::ids::tokens::TypeId,
+    metadata::ids::tokens::TypeId,
 };
-use z42::vm::context::VmContext;
+use z42::context::VmContext;
 
 fn make_type_desc(name: &str) -> Arc<TypeDesc> {
     Arc::new(TypeDesc {

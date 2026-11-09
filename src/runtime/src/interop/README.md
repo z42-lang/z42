@@ -19,7 +19,7 @@
 | `tier1/loader.rs` | `dlopen`：`libloading::Library::new(path)` + 调用 `<basename>_register` 入口 |
 | `tier1/error.rs` | thread-local `LAST_ERROR` 槽 + `z42_last_error()` 实现 |
 | `ext/mod.rs` | stdlib native 扩展加载器：`[Native(lib=…, entry=…)]` 引用的 `__<entry>` 是 `BUILTINS` 里的类型化 builtin（`typed`），首次调用时从 SDK native 搜索路径 dlopen `lib<basename>.{so,dylib,dll}` 绑定符号（与 Tier 1 `tier1/loader.rs` 的通用 libffi 路径互补） |
-| `tier1/exports.rs` | `#[no_mangle]` `z42_*` extern 函数体 ；活动上下文与 `VmGuard` 由 `vm/exec/active_vm.rs` 提供 |
+| `tier1/exports.rs` | `#[no_mangle]` `z42_*` extern 函数体 ；活动上下文与 `VmGuard` 由 `exec/active_vm.rs` 提供 |
 | `tier1/*_tests.rs` / `ext/ext_tests.rs` | ABI 和扩展加载单元测试|
 
 ## 入口点

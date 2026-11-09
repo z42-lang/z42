@@ -57,7 +57,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     pub(super) fn str_intrinsic_of_call(&self, insn: &CallInsn) -> Option<StrIntrinsic> {
         if !STR_INTRINSICS_SUPPORTED || !insn.method_type_args.is_empty() { return None; }
         let mid = method_id_at(self.func, self.block_idx, self.instr_idx);
-        if mid == crate::vm::runtime::ids::tokens::UNRESOLVED { return None; }
+        if mid == crate::metadata::ids::tokens::UNRESOLVED { return None; }
         let k = StrIntrinsic::of_builtin(self.callees.forward_of_id(mid)?, self.callees.builtins())?;
         self.str_operands_ok(k, &insn.args).then_some(k)
     }
@@ -138,10 +138,10 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     /// cctor registry are zero. The registry pointer is read off the context
     /// parameter (`JitHead::cctors`, set at the context's construction — never null).
     fn emit_module_init_gate(&mut self, slow_blk: cranelift_codegen::ir::Block) {
-        use crate::vm::runtime::statics::CctorRegistry;
+        use crate::metadata::statics::CctorRegistry;
         let flags = MemFlagsData::trusted();
         let reg = self.builder.ins().load(self.ptr, flags, self.ctx_val,
-            crate::vm::context::VM_CONTEXT_CCTORS_OFFSET as i32);
+            crate::context::VM_CONTEXT_CCTORS_OFFSET as i32);
         let pending = self.builder.ins().load(types::I64, flags, reg, CctorRegistry::MODULE_PENDING_OFFSET as i32);
         let failed = self.builder.ins().load(types::I64, flags, reg, CctorRegistry::MODULE_FAILED_OFFSET as i32);
         let any = self.builder.ins().bor(pending, failed);

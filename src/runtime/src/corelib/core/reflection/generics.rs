@@ -13,7 +13,7 @@ pub(super) fn resolve_td(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
 /// via the VM's canonical subclass walk. Handle-less names compare by identity.
 pub(super) fn type_name_assignable(ctx: &VmContext, derived: &str, target: &str) -> bool {
     match ctx.module() {
-        Some(m) => crate::vm::exec::ops::cast::is_subclass_or_eq_td(ctx, &m.type_registry, derived, target),
+        Some(m) => crate::exec::ops::cast::is_subclass_or_eq_td(ctx, &m.type_registry, derived, target),
         None => derived == target,
     }
 }
@@ -204,10 +204,10 @@ fn class_type_arg_of(recv: &Value, idx: usize) -> Option<String> {
 }
 
 /// The class-level resolution itself lives with the VM's type-parameter binding
-/// (`vm::exec::call::type_param_env::class_type_arg`), shared with `o is T` / `new List<T>()` in the
+/// (`exec::call::type_param_env::class_type_arg`), shared with `o is T` / `new List<T>()` in the
 /// same class body — so those and `typeof(T)` read one argument.
 fn resolve_class_type_arg(ctx: &VmContext, recv: &Value, idx: usize, owner: Option<&str>) -> Option<String> {
-    crate::vm::exec::call::type_param_env::class_type_arg(ctx, recv, idx, owner)
+    crate::exec::call::type_param_env::class_type_arg(ctx, recv, idx, owner)
 }
 
 /// The pure name-selection half of `builtin_class_type_arg`: `(receiver, index)`

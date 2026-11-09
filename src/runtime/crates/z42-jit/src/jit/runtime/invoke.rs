@@ -7,9 +7,9 @@
 //! them (how the callee frame is filled, where the return value goes, whether the
 //! exception stays pending or is taken) stays at the call site.
 
-use crate::vm::runtime::Function;
+use crate::metadata::Function;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
 use crate::jit::helpers::JitFn;
@@ -37,11 +37,11 @@ impl NativeOutcome {
     }
 
     /// Interpreter shape: a throw takes the pending exception off the context.
-    pub(crate) fn into_exec(self, vm: &VmContext) -> crate::vm::exec::call::outcome::ExecOutcome {
+    pub(crate) fn into_exec(self, vm: &VmContext) -> crate::exec::call::outcome::ExecOutcome {
         match self {
-            NativeOutcome::Returned(ret) => crate::vm::exec::call::outcome::ExecOutcome::Returned(ret),
+            NativeOutcome::Returned(ret) => crate::exec::call::outcome::ExecOutcome::Returned(ret),
             NativeOutcome::Threw =>
-                crate::vm::exec::call::outcome::ExecOutcome::Thrown(vm.take_exception().unwrap_or(Value::Null)),
+                crate::exec::call::outcome::ExecOutcome::Thrown(vm.take_exception().unwrap_or(Value::Null)),
         }
     }
 }
@@ -71,7 +71,7 @@ pub(crate) unsafe fn enter_compiled(
     vm: &VmContext, code: *const u8, func: *const Function, mut frame: JitFrame,
 ) -> NativeOutcome {
     let jit_fn: JitFn = unsafe { std::mem::transmute(code) };
-    vm.push_frame(crate::vm::exec::call::frames::VmFrame::new(func, &frame.regs as *const _));
+    vm.push_frame(crate::exec::call::frames::VmFrame::new(func, &frame.regs as *const _));
     let r = unsafe { jit_fn(&mut frame, vm) };
     vm.pop_frame();
     if r != 0 {

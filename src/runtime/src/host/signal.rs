@@ -18,12 +18,12 @@
 //!
 //! # Stack walk strategy
 //!
-//! The handler walks [`vm::context::VM_CORES`] → each `Arc<VmCore>` → each
+//! The handler walks [`context::VM_CORES`] → each `Arc<VmCore>` → each
 //! registered `VmContext`. The two registries are behind `Mutex`es and are
 //! taken with `try_lock` — on contention it writes a placeholder and
 //! continues, trading completeness for deadlock safety.
 //!
-//! A context's frame stack is owner-thread only (`vm/exec/call/frame_stack.rs`),
+//! A context's frame stack is owner-thread only (`exec/call/frame_stack.rs`),
 //! so the handler prints full frames only for the contexts **the crashing
 //! thread owns** — it runs on that thread, so reading them is an owner read.
 //! For every other context it prints just the frame count, read from the
@@ -157,7 +157,7 @@ fn write_banner(fd: i32) {
 /// `Option<MutexGuard>` (not `Result`). Each `match` arm is shaped to its
 /// mutex type.
 fn write_call_stacks(fd: i32) {
-    use crate::vm::context::VM_CORES;
+    use crate::context::VM_CORES;
 
     let cores_guard = match VM_CORES.try_lock() {
         Ok(g) => g,
@@ -190,7 +190,7 @@ fn write_call_stacks(fd: i32) {
         let count = core.threads().try_visit_contexts(|ctx_idx, ctx_ptr| {
             // SAFETY: VmContextPtr.0 raw ptr stays valid for the entire
             // lifetime of the VmContext (VmContext: !Unpin; deregistered in
-            // Drop). See SAFETY block at vm/context/mod.rs::VmContextPtr.
+            // Drop). See SAFETY block at context/mod.rs::VmContextPtr.
             let ctx_ref = unsafe { &*ctx_ptr };
 
             let stack = &ctx_ref.exec().call_stack;
@@ -245,7 +245,7 @@ fn write_thread_header(fd: i32, ctx_idx: usize, depth: usize, crashing: bool) {
 /// allocating: the precomputed `frame_meta` strings are written in place, and
 /// a function without them has its name written piece by piece; `line_col`
 /// is a binary search over the line table.
-fn write_frame(fd: i32, frame: &crate::vm::exec::call::frames::VmFrame) {
+fn write_frame(fd: i32, frame: &crate::exec::call::frames::VmFrame) {
     let func = frame.func();
     match &func.frame_meta {
         Some((name, file)) => {

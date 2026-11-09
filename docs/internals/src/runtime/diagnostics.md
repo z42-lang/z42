@@ -8,9 +8,9 @@
 
 | 层 | 内容 | 落点 |
 |------|------|------|
-| P0 | `xtask profile` CLI + `z42vm --print-stats-on-exit --stats-format=json` | `scripts/bench/xtask_profile.z42`、`vm/diagnostics/counters.rs` |
-| P1a | `ProfileSnapshot`：counter 快照 + 堆派生 allocations + GC 分代 | `vm/diagnostics/counters.rs`、`gc/types.rs` |
-| P1b | 并发探针：safepoint park 直方图（常开）+ 用户锁争用（feature-gated）| `vm/threads/safepoint.rs`、`corelib/core/sync_contention.rs` |
+| P0 | `xtask profile` CLI + `z42vm --print-stats-on-exit --stats-format=json` | `scripts/bench/xtask_profile.z42`、`diagnostics/counters.rs` |
+| P1a | `ProfileSnapshot`：counter 快照 + 堆派生 allocations + GC 分代 | `diagnostics/counters.rs`、`gc/types.rs` |
+| P1b | 并发探针：safepoint park 直方图（常开）+ 用户锁争用（feature-gated）| `threads/safepoint.rs`、`corelib/core/sync_contention.rs` |
 | P1c | `Std.Diagnostics.RuntimeStats.Counters()` 暴露给 z42 脚本 | `corelib/core/diagnostics.rs`、`z42.diagnostics` |
 | **P2** | **safepoint 采样 profiler：z42 火焰图 + perfetto 采样 trace** | **`profiler/cpu.rs`** |
 
@@ -24,7 +24,7 @@ z42 的观测遵循**两层成本**原则（design §6）：
    GC 堆统计（`HeapStats`：allocations、分代 minor/major、reclaimed bytes）、park 直方图。
    每个计数点是一次 `Relaxed` atomic add。计数器每个 `VmContext`（即每个线程）一份，各线程只写自己的
    缓存行、互不争用，快照时汇总（已销毁的 context 的计数并入 `VmCore.diagnostics.counters`）。代价不是零：
-   `builtin_calls` 在**每次** builtin 调用上加一次（`vm::exec::call::builtins::exec_builtin*`，这是热路径）；其余计数点在
+   `builtin_calls` 在**每次** builtin 调用上加一次（`exec::call::builtins::exec_builtin*`，这是热路径）；其余计数点在
    native 调用、异常、JIT 编译、GC 暂停这类本来就慢的路径上。`RuntimeObserver` 事件在没有观察者时只付
    一次 relaxed load（`has_observers`）；构造事件要分配字符串的调用点（异常抛出、native 调用）先查
    `has_runtime_observers()`，没有观察者就不构造 → 永远开着。
@@ -117,7 +117,7 @@ chrome/perfetto trace 常见于「每帧 enter/exit 精确计时」的 **span �
 
 ## 3. 并发探针（P1b）与计数暴露（P1c）速览
 
-- **park 直方图**（常开）：`VmCore.diagnostics.park_histogram` 在 `vm::threads::safepoint::park_until_idle` 计时——只 GC 暂停
+- **park 直方图**（常开）：`VmCore.diagnostics.park_histogram` 在 `threads::safepoint::park_until_idle` 计时——只 GC 暂停
   slow path 跑，热 `check_safepoint` 零成本。surface `park_count`/`park_us_total`/`park_max_us`。
 - **用户锁争用**（`profile-contention` feature）：`corelib::sync` 的 `Std.Threading.Mutex`/`RwLock` acquire
   经 `try_lock` miss 判争用 → `lock_contentions`/`lock_wait_us`；默认构建 `#[cfg(not)]` 零分支。
@@ -131,5 +131,5 @@ chrome/perfetto trace 常见于「每帧 enter/exit 精确计时」的 **span �
 
 - 设计蓝图（含 span/事件流/统一总线的未实施部分）：[`docs/internals/src/runtime/diagnostics-design.md`](diagnostics-design.md)
 - 堆保留诊断（whyRetained）：[heap-diagnostics.md](heap-diagnostics.md)
-- safepoint / GC 暂停机制：[GC]() ·（`vm/threads/safepoint.rs`）
+- safepoint / GC 暂停机制：[GC]() ·（`threads/safepoint.rs`）
 - interp/JIT 语义单一真相源：[interp-jit-semantics.md](interp-jit-semantics.md)

@@ -1,9 +1,9 @@
 use super::*;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 fn ctx() -> std::pin::Pin<Box<VmContext>> { VmContext::new() }
-use crate::vm::exec::call::builtin_abi as abi;
+use crate::exec::call::builtin_abi as abi;
 
 fn parse(builtin: fn(&str) -> Result<i64, abi::BuiltinError>, s: &str) -> Result<i64, abi::BuiltinError> {
     builtin(s)

@@ -142,7 +142,7 @@ pub fn param_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate
     let position = position as usize;
     // Resolve the backing Function (main module first, then lazy loader) and read
     // its SIGS-aligned per-param attrs. wire_index = position + (this offset).
-    let lookup = |f: &crate::vm::runtime::Function| {
+    let lookup = |f: &crate::metadata::Function| {
         let wire_index = position + if f.is_static { 0 } else { 1 };
         f.param_attributes().get(wire_index).map(|a| a.to_vec())
     };
@@ -186,18 +186,18 @@ pub(super) fn call_attribute_factories(
             continue;
         }
         let outcome = if let Some(&idx) = module.func_index.get(a.factory_func.as_str()) {
-            Some(crate::vm::exec::engine::invoke(ctx, &module, &module.functions[idx], &[])?)
+            Some(crate::exec::engine::invoke(ctx, &module, &module.functions[idx], &[])?)
         } else if let Some(func) = ctx.try_lookup_function(&a.factory_func) {
-            Some(crate::vm::exec::engine::invoke(ctx, &module, func.as_ref(), &[])?)
+            Some(crate::exec::engine::invoke(ctx, &module, func.as_ref(), &[])?)
         } else {
             None
         };
         let instance = match outcome {
-            Some(crate::vm::exec::call::outcome::ExecOutcome::Returned(v)) => v,
+            Some(crate::exec::call::outcome::ExecOutcome::Returned(v)) => v,
             // An attribute constructor threw: propagate it with its own type
             // through the builtin error channel (`exec_call::builtin` takes it),
             // instead of flattening it into a `Std.Exception` message.
-            Some(crate::vm::exec::call::outcome::ExecOutcome::Thrown(v)) => {
+            Some(crate::exec::call::outcome::ExecOutcome::Thrown(v)) => {
                 ctx.set_pending_thrown(v);
                 anyhow::bail!("attribute constructor threw an exception");
             }

@@ -13,12 +13,12 @@
 //! the in-process resolution invariants that back them.
 
 use crate::jit::compile::state::{install, install_tuned, JitRuntime};
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, Terminator};
 use crate::zpkg::ir::ExecMode;
-use crate::vm::runtime::ids::tokens::UNRESOLVED;
+use crate::metadata::ids::tokens::UNRESOLVED;
 use std::sync::Arc;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 /// A JIT-translatable `return;` function (no interp-only opcode).
 fn empty_fn(name: &str) -> Function {

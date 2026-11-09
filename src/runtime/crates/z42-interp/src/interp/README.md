@@ -22,16 +22,16 @@
 | `ops/exec_ffi.rs` | 原生调用与 pin 指令的寄存器适配、事件与异常编排；调用和 owned pin 经 VM native 提供方 |
 | `frame/mod.rs` | 解释器寄存器帧、方法类型实参和 ref 写回记录 |
 
-各实现的测试与被测代码同目录。帧栈、寄存器池和 arena 归 VM 的 `exec/call`；指令共享语义归 `vm/exec/ops`；融合计划由 `vm/runtime/fusion.rs` 准备。
+各实现的测试与被测代码同目录。帧栈、寄存器池和 arena 归 VM 的 `exec/call`；指令共享语义归 `exec/ops`；融合计划由 `metadata/fusion.rs` 准备。
 
 ## 入口点
 - `interp::run(ctx, module, func, args)` — 执行单个函数
 - `interp::run_with_static_init(ctx, module, func)` — 初始化静态字段后执行
 
 ## 依赖关系
-- builtin 经 `vm/exec/call/builtin_abi` 调用；纯值格式化直接依赖 `object/value`
-- `z42-zpkg` 提供静态 IR，`vm/runtime` 提供链接后的 `Module` / `Function` 与执行计划，`object` 提供 `Value`。
-- 标量运算调用 `vm/exec/ops/scalar`；融合识别由 `vm/runtime/fusion` 准备。
+- builtin 经 `exec/call/builtin_abi` 调用；纯值格式化直接依赖 `object/value`
+- `z42-zpkg` 提供静态 IR，`metadata` 提供链接后的 `Module` / `Function` 与执行计划，`object` 提供 `Value`。
+- 标量运算调用 `exec/ops/scalar`；融合识别由 `metadata/fusion` 准备。
 
 ## 如何测试验证
 

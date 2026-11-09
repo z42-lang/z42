@@ -1,10 +1,10 @@
 //! Terminator translation tests that need hand-built IR (shapes z42c never emits).
 
 use crate::jit::compile::state::install;
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, Instruction, Terminator};
 use crate::zpkg::ir::ExecMode;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 fn block(label: &str, instructions: Vec<Instruction>, terminator: Terminator) -> BasicBlock {
     BasicBlock { label: label.to_string(), instructions, terminator }
@@ -69,7 +69,7 @@ fn br_cond_on_non_bool_throws_instead_of_branching() {
 fn safepoint_polls(f: Function, indexed: bool) -> u32 {
     use std::sync::atomic::Ordering;
     let mut module = module(f);
-    if indexed { crate::vm::loader::package::build_block_indices(&mut module); }
+    if indexed { z42::host::build_block_indices(&mut module); }
     let vm = VmContext::new();
     install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     const START: u32 = 1_000_000;

@@ -1,0 +1,331 @@
+//! P1-2 PR 6: type tests (`is` / `as` / typed `catch`) are cached by `(receiver TypeId,
+//! target key)` — never by descriptor or string address — and that holds for lazily
+//! loaded and generic-instantiation types too.
+
+use super::*;
+use crate::metadata::Module;
+use crate::zpkg::ir::ClassDesc;
+use crate::metadata::ids::tokens::{TypeId, TypeKeyCell};
+use std::sync::Arc;
+
+fn class(name: &str, base: Option<&str>, interfaces: &[&str]) -> ClassDesc {
+    ClassDesc {
+        static_fields: vec![].into(),
+        interfaces: interfaces.iter().map(|s| s.to_string()).collect(),
+        enum_members: vec![].into(),
+        iface_methods: vec![].into(),
+        struct_layout: None,
+        inline_layout: None,
+        object_layout: None,
+        class_flags: 0,
+        visibility: 0,
+        class_flags2: 0,
+        struct_field_table: Box::new([]),
+        iface_slots: Box::new([]),
+        name: name.to_owned(),
+        base_class: base.map(str::to_owned),
+        fields: Box::new([]),
+        type_params: Box::new([]),
+        type_param_constraints: Box::new([]),
+        attributes: Box::new([]),
+    }
+}
+
+/// A module whose `type_registry` is built the way the loader builds it (global TypeIds).
+fn module(name: &str, classes: Vec<ClassDesc>) -> Module {
+    let mut m = Module::new(crate::zpkg::image::ModuleData {
+        name: name.to_owned(),
+        string_pool: vec![],
+        classes,
+        func_index: rustc_hash::FxHashMap::default(),
+    }, vec![], rustc_hash::FxHashMap::default());
+    crate::metadata::types::build_type_registry(&mut m);
+    m
+}
+
+/// Register `pkg`'s types with the context's lazy loader, as a package load does.
+fn load_lazily(ctx: &VmContext, pkg: Module) {
+    let mut state = ctx.core.loader.lazy_loader.write();
+    let loader = state.as_mut().expect("loader installed");
+    for (name, td) in pkg.type_registry {
+        loader.insert_type(name, td);
+    }
+    loader.publish_types();
+}
+
+/// Entry `App.Thing : Pkg.Base`; lazily loaded `Pkg.Base : IShape`, `Pkg.Leaf : Pkg.Base`,
+/// and the instantiation `Pkg.Box<int>`.
+fn setup() -> std::pin::Pin<Box<VmContext>> {
+    let ctx = VmContext::with_module(module("App", vec![class("App.Thing", Some("Pkg.Base"), &[])]));
+    ctx.install_lazy_loader(None, 0);
+    load_lazily(&ctx, module("Pkg", vec![
+        class("Pkg.IShape", None, &[]),
+        class("Pkg.Base", None, &["Pkg.IShape"]),
+        class("Pkg.Leaf", Some("Pkg.Base"), &[]),
+        class("Pkg.Box<int>", None, &[]),
+    ]));
+    ctx
+}
+
+fn lazy(ctx: &VmContext, name: &str) -> Arc<TypeDesc> {
+    ctx.try_lookup_type(name).unwrap_or_else(|| panic!("{name} registered"))
+}
+
+fn isa(ctx: &VmContext, td: &TypeDesc, target: &str, key: &TypeKeyCell) -> bool {
+    let entry = Arc::clone(ctx.module().unwrap());
+    isa_td(ctx, &entry.type_registry, td, target, key)
+}
+
+#[test]
+fn lazy_types_are_registered_in_the_type_table() {
+    let ctx = setup();
+    for n in ["Pkg.IShape", "Pkg.Base", "Pkg.Leaf", "Pkg.Box<int>"] {
+        let td = lazy(&ctx, n);
+        assert!(td.id.is_resolved());
+        assert!(std::ptr::eq(ctx.types().get(td.id).unwrap(), Arc::as_ptr(&td)), "{n}");
+    }
+    let thing = Arc::clone(&ctx.module().unwrap().type_registry["App.Thing"]);
+    assert!(std::ptr::eq(ctx.types().get(thing.id).unwrap(), Arc::as_ptr(&thing)));
+}
+
+/// The key is the target's TypeId when it names a registered type; the verdict lands in
+/// `isa_cache` under `(receiver id, key)`.
+#[test]
+fn lazy_receiver_and_target_are_keyed_by_type_id() {
+    let ctx = setup();
+    let leaf = lazy(&ctx, "Pkg.Leaf");
+    let base = lazy(&ctx, "Pkg.Base");
+    let key = TypeKeyCell::new();
+    assert!(isa(&ctx, &leaf, "Pkg.Base", &key));
+    assert_eq!(key.get(), Some(base.id.0), "registered target ⇒ its TypeId");
+    assert_eq!(ctx.runtime.isa_cache.get(leaf.id.0, base.id.0), Some(true));
+    // Interface reached through the base, and a miss.
+    assert!(isa(&ctx, &leaf, "Pkg.IShape", &TypeKeyCell::new()));
+    let thing_key = TypeKeyCell::new();
+    assert!(!isa(&ctx, &leaf, "App.Thing", &thing_key));
+    let thing_id = ctx.module().unwrap().type_registry["App.Thing"].id.0;
+    assert_eq!(ctx.runtime.isa_cache.get(leaf.id.0, thing_id), Some(false));
+    // An entry-module receiver whose base lives in the lazy package.
+    let thing = Arc::clone(&ctx.module().unwrap().type_registry["App.Thing"]);
+    assert!(isa(&ctx, &thing, "Pkg.IShape", &TypeKeyCell::new()));
+}
+
+/// A hit is answered from the cache by ids alone: a key cell already resolved for one
+/// target name is never re-resolved.
+#[test]
+fn a_resolved_key_is_reused_without_looking_up_the_name() {
+    let ctx = setup();
+    let leaf = lazy(&ctx, "Pkg.Leaf");
+    let key = TypeKeyCell::new();
+    assert!(isa(&ctx, &leaf, "Pkg.Base", &key));
+    let k = key.get().unwrap();
+    assert!(isa(&ctx, &leaf, "Pkg.Base", &key));
+    assert_eq!(key.get(), Some(k));
+}
+
+/// Generic instantiations: the erased name and the arity-mangled spelling name no
+/// registered type, so they get reserved keys; another instantiation does not match.
+#[test]
+fn generic_instantiation_tests_use_reserved_keys_for_erased_names() {
+    let ctx = setup();
+    let boxed = lazy(&ctx, "Pkg.Box<int>");
+    let erased = TypeKeyCell::new();
+    assert!(isa(&ctx, &boxed, "Pkg.Box", &erased));
+    let k = erased.get().unwrap();
+    assert!(ctx.types().get(TypeId(k)).is_none(), "reserved for the name, not a descriptor");
+    assert_eq!(ctx.runtime.isa_cache.get(boxed.id.0, k), Some(true));
+    assert!(isa(&ctx, &boxed, "Pkg.Box$1", &TypeKeyCell::new()));
+    assert!(!isa(&ctx, &boxed, "Pkg.Box<string>", &TypeKeyCell::new()));
+    assert!(isa(&ctx, &boxed, "Pkg.Box<int>", &TypeKeyCell::new()));
+}
+
+/// A target that is not registered yet gets a reserved key; once its package loads, the
+/// key still denotes the same name and the verdict is unchanged (keys and ids are stable
+/// across lazy loads).
+#[test]
+fn keys_and_ids_are_stable_across_later_lazy_loads() {
+    let ctx = setup();
+    let leaf = lazy(&ctx, "Pkg.Leaf");
+    let early = TypeKeyCell::new();
+    assert!(!isa(&ctx, &leaf, "Late.Other", &early));
+    let reserved = early.get().unwrap();
+
+    load_lazily(&ctx, module("Late", vec![class("Late.Other", None, &[])]));
+    let other = lazy(&ctx, "Late.Other");
+    assert_ne!(other.id.0, reserved, "the reservation is not the type's id");
+    assert_eq!(lazy(&ctx, "Pkg.Leaf").id, leaf.id, "earlier ids unchanged");
+    assert!(std::ptr::eq(ctx.types().get(leaf.id).unwrap(), Arc::as_ptr(&leaf)));
+    // Old reserved key and the new TypeId key both answer for the same name.
+    assert!(!isa(&ctx, &leaf, "Late.Other", &early));
+    let fresh = TypeKeyCell::new();
+    assert!(isa(&ctx, &other, "Late.Other", &fresh));
+    assert_eq!(fresh.get(), Some(other.id.0));
+}
+
+/// Name-only callers (reflection) share the same id-keyed memo.
+#[test]
+fn name_only_entry_memoises_by_ids() {
+    let ctx = setup();
+    let entry = Arc::clone(ctx.module().unwrap());
+    assert!(is_subclass_or_eq_td(&ctx, &entry.type_registry, "Pkg.Leaf", "Pkg.IShape"));
+    assert!(!is_subclass_or_eq_td(&ctx, &entry.type_registry, "Pkg.IShape", "Pkg.Leaf"));
+    assert!(!is_subclass_or_eq_td(&ctx, &entry.type_registry, "No.Such", "Pkg.Leaf"));
+    let leaf = lazy(&ctx, "Pkg.Leaf");
+    let shape = lazy(&ctx, "Pkg.IShape");
+    let pair = crate::metadata::dispatch::isa_cache::pair_key(leaf.id.0, shape.id.0);
+    assert_eq!(ctx.runtime.subclass_memo.lock().get(&pair).copied(), Some(true));
+}
+
+/// Descriptors without an id (transient fallbacks) are answered by the walk, never cached.
+#[test]
+fn id_less_descriptors_are_answered_but_not_cached() {
+    let ctx = setup();
+    let entry = Arc::clone(ctx.module().unwrap());
+    let fallback = make_fallback_type_desc(&entry, "Local");
+    assert!(!fallback.id.is_resolved());
+    let key = TypeKeyCell::new();
+    assert!(isa(&ctx, &fallback, "Local", &key));
+    assert!(!isa(&ctx, &fallback, "Pkg.Base", &key));
+    assert_eq!(key.get(), None, "no key resolved for an uncached test");
+    assert!(ctx.runtime.subclass_memo.lock().is_empty());
+}
+
+/// Explicit module (re)load clears both caches; ids stay.
+#[test]
+fn explicit_reload_clears_the_caches() {
+    let ctx = setup();
+    let leaf = lazy(&ctx, "Pkg.Leaf");
+    let key = TypeKeyCell::new();
+    assert!(isa(&ctx, &leaf, "Pkg.Base", &key));
+    let _ = ctx.load_module_bytes_into_vm(&[]); // fails to parse, still clears first
+    assert_eq!(ctx.runtime.isa_cache.get(leaf.id.0, key.get().unwrap()), None);
+    assert!(ctx.runtime.subclass_memo.lock().is_empty());
+}
+
+/// An imported generic instantiated in another package carries the **definition's** descriptor
+/// plus per-instance type arguments; `is Def<args>` reads those arguments. An argument that is
+/// still a type parameter (`T`, recorded by `new List<T>()` in a generic body) cannot be decided
+/// and matches.
+#[test]
+fn erased_generic_instance_compares_its_own_type_args() {
+    let ctx = setup();
+    let entry = Arc::clone(ctx.module().unwrap());
+    let base = lazy(&ctx, "Pkg.Base");
+    let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let test = |inst: &[String], target: &str| {
+        isa_object(&ctx, &entry.type_registry, &base, inst, target, &TypeKeyCell::new())
+    };
+    assert!(test(&args(&["App.Entry"]), "Pkg.Base<App.Entry>"));
+    assert!(!test(&args(&["App.Entry"]), "Pkg.Base<int>"));
+    assert!(!test(&args(&["App.Entry"]), "Pkg.Base<App.Entry,int>"));
+    assert!(test(&args(&["string", "Pkg.Box<int>"]), "Pkg.Base<string,Pkg.Box<int>>"));
+    assert!(!test(&args(&["string", "Pkg.Box<int>"]), "Pkg.Base<string,Pkg.Box<long>>"));
+    assert!(test(&args(&["T"]), "Pkg.Base<App.Entry>"), "open argument ⇒ erased answer");
+    // Not an instantiation of the receiver's definition ⇒ the ordinary descriptor test.
+    assert!(test(&args(&["App.Entry"]), "Pkg.Base"));
+    assert!(test(&args(&["App.Entry"]), "Pkg.IShape"));
+    assert!(!test(&args(&["App.Entry"]), "Pkg.Leaf"));
+}
+
+/// A descriptor that records a base / interface erased (non-generic class implementing
+/// `IShape<int>` lists `Pkg.IShape`) cannot tell instantiations apart: an instantiated target
+/// of it matches, as the erased test does. Instantiation descriptors still compare exactly.
+#[test]
+fn erased_descriptor_entries_match_instantiated_targets() {
+    let ctx = setup();
+    let leaf = lazy(&ctx, "Pkg.Leaf");
+    assert!(isa(&ctx, &leaf, "Pkg.IShape<int>", &TypeKeyCell::new()));
+    assert!(isa(&ctx, &leaf, "Pkg.Base<int>", &TypeKeyCell::new()));
+    let boxed = lazy(&ctx, "Pkg.Box<int>");
+    assert!(!isa(&ctx, &boxed, "Pkg.Box<string>", &TypeKeyCell::new()));
+}
+
+/// A constructed name no package declares a descriptor for (an imported generic instantiated
+/// elsewhere — `Type.IsAssignableFrom` on `typeof(List<int>)`) is tested as an instance of the
+/// definition carrying those arguments would be: arguments compare exactly, the definition's
+/// own bases / interfaces still apply.
+#[test]
+fn name_test_on_an_undeclared_instantiation_reads_its_arguments() {
+    let ctx = setup();
+    let pkg = module("Pkg2", vec![class("Pkg.List", Some("Pkg.Base"), &[])]);
+    load_lazily(&ctx, pkg);
+    let entry = Arc::clone(ctx.module().unwrap());
+    let reg = &entry.type_registry;
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.List<int>"));
+    assert!(!is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.List<string>"));
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.List"));
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.Base"));
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.IShape"));
+    assert!(!is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "App.Thing"));
+    // A declared instantiation keeps answering from its own descriptor.
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.Box<int>", "Pkg.Box"));
+    assert!(!is_subclass_or_eq_td(&ctx, reg, "Pkg.Box<int>", "Pkg.Box<string>"));
+    // Neither declared nor constructed: unknown.
+    assert!(!is_subclass_or_eq_td(&ctx, reg, "Pkg.Nope", "Pkg.Base"));
+}
+
+#[test]
+fn bound_parameter_extra_matches() {
+    let ctx = VmContext::new();
+    let registry = rustc_hash::FxHashMap::default();
+    // Written and bound targets both check the element type.
+    assert!(array_isa("int", "Std.Array"));
+    assert!(!array_isa("int", "string[]"));
+    // A bound parameter does not bypass the ordinary array check.
+    let arr = crate::object::ArrayObj::alloc_typed_filled(ctx.heap(),
+        crate::object::ElemType::intern("int"), 1, Value::I64(0));
+    assert!(!bound_param_extra_isa(&ctx, &registry, &arr, "string[]"));
+    assert!(!bound_param_extra_isa(&ctx, &registry, &arr, "Demo.Entry"));
+    // An integer is no extra match for a non-enum (here: unknown) type.
+    assert!(!bound_param_extra_isa(&ctx, &registry, &Value::I64(1), "Demo.Plat"));
+}
+
+#[test]
+fn unboxed_struct_matches_object_and_misses_a_stale_slot() {
+    let ctx = VmContext::new();
+    let registry = rustc_hash::FxHashMap::default();
+    assert!(struct_ref_isa(&ctx, &registry, 0, 1, "Std.Object"));
+    // No such arena slot: no type to compare — not an instance.
+    assert!(!struct_ref_isa(&ctx, &registry, 0, 1, "Demo.Pt"));
+}
+
+#[test]
+fn callable_matches_a_bound_parameter_unless_it_is_a_known_non_delegate() {
+    // `callable_isa` is the callable arm of `bound_param_extra_isa`.
+    let ctx = VmContext::new();
+    let registry = rustc_hash::FxHashMap::default();
+    assert!(callable_isa(&ctx, &registry, "Action<Int32>"));       // delegate types are not decidable
+    assert!(callable_isa(&ctx, &registry, "Std.Object"));
+    assert!(!callable_isa(&ctx, &registry, "int"));
+    assert!(!callable_isa(&ctx, &registry, "Std.Int32"));
+    assert!(!callable_isa(&ctx, &registry, "Std.String"));
+    assert!(!callable_isa(&ctx, &registry, "string[]"));
+}
+
+#[test]
+fn arrays_test_by_element_type_and_are_invariant() {
+    // Array / Object roots.
+    for root in ["Std.Array", "Std.Object", "Array", "Object"] {
+        assert!(array_isa("int", root));
+    }
+    // Same element ⇒ is-a; different element ⇒ not (no covariance).
+    assert!(array_isa("int", "int[]"));
+    assert!(!array_isa("int", "long[]"));
+    assert!(!array_isa("Demo.Dog", "Demo.Animal[]"));
+    assert!(!array_isa("Demo.Dog", "object[]"));
+    assert!(!array_isa("int", "Demo.Box"));
+    // Constructed generic elements compare their arguments; nested arrays recurse.
+    assert!(array_isa("Demo.Box<int>", "Demo.Box<int>[]"));
+    assert!(!array_isa("Demo.Box<int>", "Demo.Box<string>[]"));
+    assert!(array_isa("int[]", "int[][]"));
+    assert!(!array_isa("int[]", "long[][]"));
+    // Undecidable elements: an unsubstituted type parameter (whole or as an argument) and an
+    // element-less runtime array match any element type.
+    assert!(array_isa("T", "Demo.Box<int>[]"));
+    assert!(array_isa("Demo.Box<T>", "Demo.Box<int>[]"));
+    assert!(!array_isa("Demo.Box<T>", "Demo.Pair<int>[]"));
+    assert!(array_isa("", "string[]"));
+    assert!(!array_isa("", "Demo.Box"));
+}
+
+use crate::metadata::dispatch::ctor::make_fallback_type_desc;

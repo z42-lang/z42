@@ -92,7 +92,7 @@ fn resolved_overrides_reach_the_heap_without_changing_other_inputs() {
 
 #[test]
 fn stack_allocation_policy_maps_resolved_values_without_global_state() {
-    use crate::vm::exec::call::stack_alloc::StackAllocPolicy as Policy;
+    use crate::exec::call::stack_alloc::StackAllocPolicy as Policy;
     for (value, expected) in [(None, Policy::On), (Some("on"), Policy::On),
         (Some("off"), Policy::Off), (Some("0"), Policy::Off), (Some("heap"), Policy::Off),
         (Some("stats"), Policy::Stats)] {

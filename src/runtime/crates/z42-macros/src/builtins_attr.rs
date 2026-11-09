@@ -19,7 +19,7 @@
 //! ```ignore
 //! #[z42_macros::builtins]
 //! pub(crate) mod parse {
-//!     use crate::vm::exec::call::builtin_abi::*;
+//!     use crate::exec::call::builtin_abi::*;
 //!     #[builtin(name = "__int32_parse")]
 //!     pub fn int32_parse(s: &str) -> Result<i64, BuiltinError> { … }
 //!     #[builtin(name = "__thread_sleep", blocking)]
@@ -179,7 +179,7 @@ fn expand_fn(f: &mut ItemFn, args: BuiltinArgs) -> syn::Result<(TokenStream2, sy
 
     let name = &args.name;
     let n = params.len();
-    let abi = quote!(crate::vm::exec::call::builtin_abi);
+    let abi = quote!(crate::exec::call::builtin_abi);
     let inner = format_ident!("__z42b_call_{}", fname);
     let regs_fn = format_ident!("__z42b_regs_{}", fname);
     let slice_fn = format_ident!("__z42b_slice_{}", fname);
@@ -206,7 +206,7 @@ fn expand_fn(f: &mut ItemFn, args: BuiltinArgs) -> syn::Result<(TokenStream2, sy
     let call = if args.blocking {
         quote! {
             let __r = {
-                let __park = crate::vm::threads::safepoint::NativeParkGuard::enter(__ctx);
+                let __park = crate::threads::safepoint::NativeParkGuard::enter(__ctx);
                 #fname(#(#call_args),*)
             };
         }
@@ -252,7 +252,7 @@ fn expand_fn(f: &mut ItemFn, args: BuiltinArgs) -> syn::Result<(TokenStream2, sy
         #[inline(always)]
         #[allow(non_snake_case, clippy::needless_question_mark, unused_variables)]
         fn #inner<A: #abi::ArgSource + ?Sized>(
-            __ctx: &crate::vm::context::VmContext, __a: &A,
+            __ctx: &crate::context::VmContext, __a: &A,
         ) -> #abi::CallResult {
             if __a.argc() != #n {
                 return ::core::result::Result::Err(#abi::BuiltinError::arity(#name, #n, __a.argc()).into());
@@ -264,7 +264,7 @@ fn expand_fn(f: &mut ItemFn, args: BuiltinArgs) -> syn::Result<(TokenStream2, sy
         #(#cfgs)*
         #[doc(hidden)]
         fn #regs_fn(
-            __ctx: &crate::vm::context::VmContext,
+            __ctx: &crate::context::VmContext,
             this: ::core::option::Option<crate::object::Value>,
             regs: &[crate::object::Value],
             idx: &[u32],
@@ -274,7 +274,7 @@ fn expand_fn(f: &mut ItemFn, args: BuiltinArgs) -> syn::Result<(TokenStream2, sy
         #(#cfgs)*
         #[doc(hidden)]
         fn #slice_fn(
-            __ctx: &crate::vm::context::VmContext, args: &[crate::object::Value],
+            __ctx: &crate::context::VmContext, args: &[crate::object::Value],
         ) -> #abi::CallResult {
             #inner(__ctx, args)
         }
@@ -311,7 +311,7 @@ fn expand2(attr: TokenStream2, item: TokenStream2) -> syn::Result<TokenStream2> 
     let Some((_, items)) = module.content.as_mut() else {
         return Err(syn::Error::new(module.span(), "builtins: needs an inline module (`mod x { ... }`)"));
     };
-    let abi = quote!(crate::vm::exec::call::builtin_abi);
+    let abi = quote!(crate::exec::call::builtin_abi);
     let mut generated = Vec::new();
     let mut slots = Vec::new();
     for it in items.iter_mut() {

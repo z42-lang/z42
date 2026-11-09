@@ -26,7 +26,7 @@ public sealed class ModuleInitSite {
 
 public static class ModuleInitScan {
     // 合成出来的包级伪类型**短名**。FQ 名 = `<ns>.$Module`。
-    // ⚠️ 必须与运行期的后缀判定逐字一致（`src/runtime/src/vm/context/cctor.rs` 的 `MODULE_PSEUDO_TYPE`）
+    // ⚠️ 必须与运行期的后缀判定逐字一致（`src/runtime/src/context/cctor.rs` 的 `MODULE_PSEUDO_TYPE`）
     // —— 两处手写同一个字符串是漂移源，故各自只写一次并在此标明对应关系。
     public static string PseudoTypeName = "$Module";
 

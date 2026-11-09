@@ -13,18 +13,18 @@
 //!     (site token, shared with the interpreter); `CallIndirect` dispatches on that id
 //!     through the slot table — no name on the call path.
 
-use crate::vm::runtime::ids::tokens::FnId;
+use crate::metadata::ids::tokens::FnId;
 use crate::object::Value;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
 // ── LoadFn ────────────────────────────────────────────────────────────────────
 
 /// Bind a function reference's target (P1-2 PR 8): the site token when bound, else
-/// `vm::exec::ops::call::bind_fn_ref` (loads the target's package if needed and stores the
+/// `exec::ops::call::bind_fn_ref` (loads the target's package if needed and stores the
 /// token). `tok` is the site's `ResolvedTokens::fn_ref_tokens` cell, or null when the
 /// function was compiled without a token table (then binding runs on every execution).
 /// `Err(())` = the exception is already set.
@@ -36,7 +36,7 @@ unsafe fn bind_target(
     let vm_ctx = vm_ctx_ref(ctx);
     let module = super::jit_module(ctx);
     let name = super::baked_str(name_ptr, name_len);
-    crate::vm::exec::ops::call::fn_ref_id(vm_ctx, module, name, tok.as_ref())
+    crate::exec::ops::call::fn_ref_id(vm_ctx, module, name, tok.as_ref())
         .map_err(|exc| set_exception(vm_ctx, exc))
 }
 
@@ -72,7 +72,7 @@ pub unsafe extern "C" fn jit_mk_clos(
     tok: *const std::sync::atomic::AtomicU32,
     caps_ptr: *const u32, caps_len: usize,
 ) -> u8 {
-    let fn_id = if baked != crate::vm::runtime::ids::tokens::UNRESOLVED {
+    let fn_id = if baked != crate::metadata::ids::tokens::UNRESOLVED {
         FnId(baked)
     } else {
         match bind_target(ctx, name_ptr, name_len, tok) {
@@ -134,9 +134,9 @@ pub unsafe extern "C" fn jit_call_indirect(
         // backends must do this: fixing only one leaves the bug alive under the other.
         Value::Null => {
             let module = super::jit_module(ctx);
-            let exc = crate::vm::exec::exception::make_stdlib_exception(
-                vm_ctx, module, crate::vm::exec::ops::scalar::NULL_REF_EXC,
-                crate::vm::exec::ops::scalar::null_invoke_msg(),
+            let exc = crate::exec::exception::make_stdlib_exception(
+                vm_ctx, module, crate::exec::ops::scalar::NULL_REF_EXC,
+                crate::exec::ops::scalar::null_invoke_msg(),
             ).unwrap_or_else(|e| Value::Str(format!("{e}").into()));
             set_exception(vm_ctx, exc);
             return 1;
@@ -151,10 +151,10 @@ pub unsafe extern "C" fn jit_call_indirect(
     let user_regs = std::slice::from_raw_parts(args_ptr, args_len);
     if let Some(function) = rt.fn_of(id.0 as usize) {
         let count = args_len + usize::from(env_val_opt.is_some());
-        if crate::vm::exec::call::indirect_return::needs_boxed_return(function, count)
-            || crate::vm::exec::call::indirect_return::has_caller_return_slot(function, count)
+        if crate::exec::call::indirect_return::needs_boxed_return(function, count)
+            || crate::exec::call::indirect_return::has_caller_return_slot(function, count)
             || user_regs.iter().enumerate().any(|(position, &index)| frame_ref.regs.get(index as usize)
-                .is_some_and(|value| crate::vm::exec::call::indirect_return::has_declared_boxed_argument(
+                .is_some_and(|value| crate::exec::call::indirect_return::has_declared_boxed_argument(
                     function, position + usize::from(env_val_opt.is_some()), value,
                 )))
         {
@@ -162,13 +162,13 @@ pub unsafe extern "C" fn jit_call_indirect(
             values.extend(env_val_opt);
             values.extend(user_regs.iter().map(|&register| frame_ref.regs[register as usize].clone()));
             vm_ctx.set_top_frame_pc(caller_offset);
-            return match crate::vm::exec::call::indirect_return::invoke(
+            return match crate::exec::call::indirect_return::invoke(
                 vm_ctx, super::jit_module(ctx), function, id.0 as usize, frame_ref.frame_id, values,
             ) {
-                Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(value)) => {
+                Ok(crate::exec::call::outcome::ExecOutcome::Returned(value)) => {
                     frame_ref.regs[dst as usize] = value.unwrap_or(Value::Null); 0
                 }
-                Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(value)) => { set_exception(vm_ctx, value); 1 }
+                Ok(crate::exec::call::outcome::ExecOutcome::Thrown(value)) => { set_exception(vm_ctx, value); 1 }
                 Err(error) => { set_exception(vm_ctx, Value::Str(error.to_string().into())); 1 }
             };
         }
@@ -193,11 +193,11 @@ pub unsafe extern "C" fn jit_call_indirect(
             args.extend(env_val_opt);
             args.extend(user_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
             vm_ctx.set_top_frame_pc(caller_offset);
-            return match crate::vm::exec::engine::invoke(vm_ctx, module, callee, &args) {
-                Ok(crate::vm::exec::call::outcome::ExecOutcome::Returned(ret)) => {
+            return match crate::exec::engine::invoke(vm_ctx, module, callee, &args) {
+                Ok(crate::exec::call::outcome::ExecOutcome::Returned(ret)) => {
                     frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0
                 }
-                Ok(crate::vm::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
+                Ok(crate::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm_ctx, val); 1 }
                 Err(e) => { set_exception(vm_ctx, Value::Str(e.to_string().into())); 1 }
             };
         }

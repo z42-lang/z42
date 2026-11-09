@@ -7,7 +7,7 @@
 //! (run under `xtask test stdlib`). Here we assert the registration
 //! discipline that Rust *can* check without stdlib types.
 
-use crate::assembly::builtin::{CATALOG, BUILTINS};
+use crate::corelib::builtins::{CATALOG, BUILTINS};
 
 #[test]
 fn diag_counters_is_registered() {
@@ -36,7 +36,7 @@ fn diag_counters_appended_last_preserves_ids() {
 #[test]
 fn retention_query_waits_for_running_mutators_to_park() {
     use crate::object::Value;
-    use crate::vm::context::VmContext;
+    use crate::context::VmContext;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{mpsc, Arc};
     use std::time::{Duration, Instant};
@@ -56,7 +56,7 @@ fn retention_query_waits_for_running_mutators_to_park() {
             std::thread::sleep(Duration::from_millis(200));
             while !stop.load(Ordering::Acquire) {
                 w.threads.safepoint_skip.store(1, Ordering::Relaxed);
-                crate::vm::threads::safepoint::check_safepoint(&w);
+                crate::threads::safepoint::check_safepoint(&w);
                 std::thread::yield_now();
             }
         })

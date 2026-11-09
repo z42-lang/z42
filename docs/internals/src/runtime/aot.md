@@ -9,7 +9,7 @@
 ---
 
 ## 1. 现状
-- AOT 尚无可执行后端；`vm/exec/engine.rs` 的模式分派明确报未实现。没有独立的占位后端模块，`aot` feature 仍作为既有构建开关保留。
+- AOT 尚无可执行后端；`exec/engine.rs` 的模式分派明确报未实现。没有独立的占位后端模块，`aot` feature 仍作为既有构建开关保留。
 - 但 z42 **已用 cranelift 做 JIT**（codegen/frontend/jit/module/native）；`translate.rs` 把 zbc→cranelift IR。
 - cranelift 有 **`cranelift-object`（ObjectModule）**，与 `JITModule` **共用 `cranelift_module::Module` trait** → 能发 `.o`。
 

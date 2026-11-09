@@ -2,12 +2,12 @@
 /// logical, unary, bitwise, string formation. Pure register operations —
 /// none of these can throw user exceptions; all errors are VM-internal.
 
-use crate::vm::runtime::Module;
+use crate::metadata::Module;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{bail, Result};
 
-use crate::vm::exec::ops::stringify::{obj_to_gc_str, with_obj_str};
+use crate::exec::ops::stringify::{obj_to_gc_str, with_obj_str};
 use crate::object::value::format::with_value_str;
 use super::{bool_val, int_binop, int_bitop};
 use super::Frame;
@@ -106,7 +106,7 @@ pub(super) fn div(
     if let Some(thrown) = check_int_div_by_zero(ctx, module, &frame.regs, b, "/")? {
         return Ok(Some(thrown));
     }
-    frame.set(dst, int_binop(&frame.regs, a, b, crate::vm::exec::ops::scalar::int_div, |x, y| x / y)?);
+    frame.set(dst, int_binop(&frame.regs, a, b, crate::exec::ops::scalar::int_div, |x, y| x / y)?);
     Ok(None)
 }
 
@@ -116,7 +116,7 @@ pub(super) fn rem(
     if let Some(thrown) = check_int_div_by_zero(ctx, module, &frame.regs, b, "%")? {
         return Ok(Some(thrown));
     }
-    frame.set(dst, int_binop(&frame.regs, a, b, crate::vm::exec::ops::scalar::int_rem, |x, y| x % y)?);
+    frame.set(dst, int_binop(&frame.regs, a, b, crate::exec::ops::scalar::int_rem, |x, y| x % y)?);
     Ok(None)
 }
 
@@ -127,15 +127,15 @@ pub(super) fn rem(
 /// indicate a user exception to propagate, `Ok(None)` to continue.
 ///
 /// The zero-divisor decision + exception name + message are sourced from
-/// [`crate::vm::exec::ops::scalar`] (shared with the JIT helper's `throw_int_div_by_zero`);
+/// [`crate::exec::ops::scalar`] (shared with the JIT helper's `throw_int_div_by_zero`);
 /// only the `make_stdlib_exception` construction (needs ctx/module) stays here.
 fn check_int_div_by_zero(
     ctx: &VmContext, module: &Module, regs: &[Value], b: u32, op: &str,
 ) -> Result<Option<Value>> {
-    if regs.get(b as usize).is_some_and(crate::vm::exec::ops::scalar::is_int_div_by_zero) {
-        return Ok(Some(crate::vm::exec::exception::make_stdlib_exception(
-            ctx, module, crate::vm::exec::ops::scalar::DIV_BY_ZERO_EXC,
-            crate::vm::exec::ops::scalar::div_by_zero_msg(op),
+    if regs.get(b as usize).is_some_and(crate::exec::ops::scalar::is_int_div_by_zero) {
+        return Ok(Some(crate::exec::exception::make_stdlib_exception(
+            ctx, module, crate::exec::ops::scalar::DIV_BY_ZERO_EXC,
+            crate::exec::ops::scalar::div_by_zero_msg(op),
         )?));
     }
     Ok(None)
@@ -145,7 +145,7 @@ fn check_int_div_by_zero(
 
 // interp-superinstr-fusion: all six comparisons route through the shared
 // `ops::eval_cmp` primitive (also used by the fused `CmpBr` super-instruction).
-use crate::vm::runtime::CmpOp;
+use crate::metadata::CmpOp;
 
 pub(super) fn eq(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
     frame.set(dst, Value::Bool(super::eval_cmp(CmpOp::Eq, &frame.regs, a, b)?));
@@ -275,7 +275,7 @@ pub(super) fn to_str(
 // ── Numeric cast (spec fix-numeric-cast-lowering) ────────────
 //
 // converge-vm-arith-semantics (H3): the cast dispatch table + tag constants
-// moved to `crate::vm::exec::ops::scalar::convert_value` (shared with the JIT
+// moved to `crate::exec::ops::scalar::convert_value` (shared with the JIT
 // `jit_convert` helper); this handler is now just the frame read/write wrapper.
 
 /// make-hard-cast-fail-properly：硬转换失败改抛**可 catch 的真异常**。
@@ -289,10 +289,10 @@ pub(super) fn convert(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, src: u32, to_tag: u8,
 ) -> Result<Option<Value>> {
     let v = frame.get(src)?.clone();
-    if let Some((exc_fq, msg)) = crate::vm::exec::ops::scalar::hard_cast_failure(&v, to_tag) {
-        return Ok(Some(crate::vm::exec::exception::make_stdlib_exception(ctx, module, exc_fq, msg)?));
+    if let Some((exc_fq, msg)) = crate::exec::ops::scalar::hard_cast_failure(&v, to_tag) {
+        return Ok(Some(crate::exec::exception::make_stdlib_exception(ctx, module, exc_fq, msg)?));
     }
-    let result = crate::vm::exec::ops::scalar::convert_value(v, to_tag)?;
+    let result = crate::exec::ops::scalar::convert_value(v, to_tag)?;
     frame.set(dst, result);
     Ok(None)
 }

@@ -36,13 +36,13 @@ pub(crate) struct State {
     slots: crate::corelib::resource_registry::ResourceRegistry<ProcessSlot>,
 }
 
-pub(super) fn state(ctx: &crate::vm::context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::context::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
-use crate::vm::exec::call::builtin_abi::{BuiltinError, CallResult, FieldInit, IntoRet, PlainRet, RetKind};
+use crate::exec::call::builtin_abi::{BuiltinError, CallResult, FieldInit, IntoRet, PlainRet, RetKind};
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use std::io::{Read, Write};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
 
@@ -373,8 +373,8 @@ pub(crate) fn drain_readers(
 fn read_pipe<R: Read + Send + 'static>(
     ctx: &VmContext, slot: i64, buffer: Value, offset: i64, count: i64,
     pick: fn(&ProcessSlot) -> Option<Pipe<R>>,
-) -> Result<crate::vm::exec::call::builtin_abi::Then<i64>, BuiltinError> {
-    use crate::vm::exec::call::builtin_abi::Blocking;
+) -> Result<crate::exec::call::builtin_abi::Then<i64>, BuiltinError> {
+    use crate::exec::call::builtin_abi::Blocking;
     let arr = crate::corelib::io::buffer::byte_array(&buffer, "buffer")?;
     let (off, n) = crate::corelib::io::buffer::check_buffer_range(offset, count, arr.borrow().len())?;
     let reader = state(ctx)?.slots.with_mut(slot as u64, |s| pick(s)).ok_or_else(|| handle_invalid(None, slot))?;
@@ -397,9 +397,9 @@ fn read_pipe<R: Read + Send + 'static>(
 #[z42_macros::builtins]
 pub mod typed {
     use super::{handle_invalid, start_error, timeout_error, CommandSpec, MaybeExited, ProcessSlot, RunFail, RunOutput};
-    use crate::vm::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
+    use crate::exec::call::builtin_abi::{Blocking, BuiltinError, Then};
     use crate::object::Value;
-    use crate::vm::context::VmContext;
+    use crate::context::VmContext;
     use std::io::Write;
 
     /// `Process.Run()`: spawn, feed, wait, collect — the whole call parked. Returns

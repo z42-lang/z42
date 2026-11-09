@@ -1,6 +1,6 @@
 use super::*;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 fn ctx() -> std::pin::Pin<Box<VmContext>> { VmContext::new() }
 
@@ -31,7 +31,7 @@ fn now_ns_advances_across_busy_loop() {
 #[test]
 fn now_ns_arity_mismatch_raises() {
     let ctx = ctx();
-    let err = crate::vm::exec::call::builtins::exec_builtin_value(&ctx, "__time_now_mono_ns", &[Value::I64(1)])
+    let err = crate::exec::call::builtins::exec_builtin_value(&ctx, "__time_now_mono_ns", &[Value::I64(1)])
         .expect_err("one-arg call must raise");
     let msg = format!("{err:#}");
     assert!(msg.contains("expects 0") || msg.contains("argument"), "实际消息：{msg}");

@@ -240,13 +240,13 @@ pub(crate) const BUILTINS: &[abi::BuiltinDesc] = &JOINED;
 > ⇒ 它是**单次运行内的派发令牌**，不跨进程持久化——增删表项只让下标平移，对既有产物没有影响。
 
 - 名字唯一：同一个名字只能在表里出现一次（`abi_tests::typed_builtins_are_in_the_table_once`）。
-- 名字 → id 的索引由 `vm/runtime/builtins.rs::BuiltinCatalog` 首次查询时初始化。门面 `assembly/builtin.rs` 从同一份描述符按序派生纯名称/frameless 记录，查询目录与 callable 表编号一致。
+- 名字 → id 的索引由 `metadata/builtins.rs::BuiltinCatalog` 首次查询时初始化。门面 `corelib/builtins.rs` 从同一份描述符按序派生纯名称/frameless 记录，查询目录与 callable 表编号一致。
 
 每 VM 的 RuntimeState 接收不可变目录，ExecState 接收匹配的 callable 描述符表；默认装配共享进程内只读数据。runtime 不保存执行 ABI 类型，也不依赖 corelib；实际调用和错误映射属于 exec。
 
-加载期 `vm::runtime::resolve` 从当前 VM 的目录解析 BuiltinId。未知名称保留 UNRESOLVED，真正调用时按名再查，仍缺失则抛 Std.MissingSymbolException。interop 的压缩函数是同一表中的类型化 wrapper；动态装载只在 interop 内解析其原生符号，不另维护 BuiltinId 表。
+加载期 `metadata::resolve` 从当前 VM 的目录解析 BuiltinId。未知名称保留 UNRESOLVED，真正调用时按名再查，仍缺失则抛 Std.MissingSymbolException。interop 的压缩函数是同一表中的类型化 wrapper；动态装载只在 interop 内解析其原生符号，不另维护 BuiltinId 表。
 
-两个引擎使用 `vm::exec::call::builtins::invoke_builtin(ctx, id, name, this, regs, args)`。实参原地从调用方寄存器读取：this 在前，其后为 regs[args[i]]；持有切片的调用方走同模块 exec_builtin。类型化 wrapper 决定参数转换、阻塞 park 和结果映射。BuiltinCatalog 的 frameless 标记与描述符 reenters 互为否，折叠调用继续使用原有轻帧或无帧协议。
+两个引擎使用 `exec::call::builtins::invoke_builtin(ctx, id, name, this, regs, args)`。实参原地从调用方寄存器读取：this 在前，其后为 regs[args[i]]；持有切片的调用方走同模块 exec_builtin。类型化 wrapper 决定参数转换、阻塞 park 和结果映射。BuiltinCatalog 的 frameless 标记与描述符 reenters 互为否，折叠调用继续使用原有轻帧或无帧协议。
 
 ### 6.1b 有返回值 vs 无返回值
 
@@ -269,8 +269,8 @@ builtin 写成**普通的类型化 Rust 函数**，放进所在领域文件里�
 ```rust
 #[z42_macros::builtins]
 pub mod typed {
-    use crate::vm::exec::call::builtin_abi::{BuiltinError, RefArg};
-    use crate::vm::context::VmContext;
+    use crate::exec::call::builtin_abi::{BuiltinError, RefArg};
+    use crate::context::VmContext;
 
     #[builtin(name = "__int32_parse", pure)]
     pub fn int32_parse(s: &str) -> Result<i64, BuiltinError> { … }
@@ -289,7 +289,7 @@ pub mod typed {
 三步：
 
 1. 在领域文件的 `#[builtins]` 模块里写函数（没有就建一个 `pub mod typed`）；
-2. 新模块要在 `assembly/builtin.rs` 的 `TYPED` 里加**一行**（模块的 `DESCS`）——模块里的函数不再逐个登记，
+2. 新模块要在 `corelib/builtins.rs` 的 `TYPED` 里加**一行**（模块的 `DESCS`）——模块里的函数不再逐个登记，
    写了 `#[builtin]` 就在表里；`#[builtin]` 写在 `#[builtins]` 模块之外是编译错误（找不到该属性）；
 3. z42 侧用 `[Native("__foo")] … extern` 声明（stdlib）。
 
@@ -300,7 +300,7 @@ pub mod typed {
 - 一个 `BuiltinDesc { name, params: &[ParamKind], ret: RetKind, flags, call_regs, call_slice }`；
 - 模块尾部的 `DESCS`（编译期拼接；带 `#[cfg]` 的 builtin 随条件整条消失）。
 
-**签名约定**（`vm/exec/call/builtin_abi/`）：
+**签名约定**（`exec/call/builtin_abi/`）：
 
 | 位置 | 能写什么 | 说明 |
 |---|---|---|
@@ -378,12 +378,12 @@ socket 的（OS 错误 → `SocketException` + Winsock 码 `SocketErrorCode`，�
 `AuthenticationException`，传输 / 流 → `IOException`）在 `corelib/tls/mod.rs` 抬头；Monitor 误用 → `LockRecursionException` /
 `SynchronizationLockException`（`corelib/core/monitor.rs`）。
 
-**唯一的出口** `vm::exec::call::builtin_abi::error::raise`，两个引擎共用（interp `exec_call::builtin` / 折叠调用，
+**唯一的出口** `exec::call::builtin_abi::error::raise`，两个引擎共用（interp `exec_call::builtin` / 折叠调用，
 JIT `jit_builtin` / `call_forward`），判定顺序：
 
 1. 回调里 z42 代码抛出的原异常（`pending_thrown`）优先，原样抛出；
-2. **致命错误正在展开**（`vm::exec::stack_guard::is_fatal`）⇒ 不构造任何异常，原错误继续向外传；
-3. `Internal` ⇒ `vm::exec::stack_guard::fatal_error`：与栈溢出**同一套机制**——置 VM 的致命标志、记下
+2. **致命错误正在展开**（`exec::stack_guard::is_fatal`）⇒ 不构造任何异常，原错误继续向外传；
+3. `Internal` ⇒ `exec::stack_guard::fatal_error`：与栈溢出**同一套机制**——置 VM 的致命标志、记下
    `fatal error: internal error in builtin `__x`: …` 加 z42 调用栈，此后不再有 z42 handler 运行，
    `z42vm` 打印报告并以退出码 3 结束，嵌入 API 返回 `Z42_HOST_ERR_FATAL`；
 4. 其余按类构造异常，并**在 builtin 处**填 `StackTrace`——两个引擎的 trace 因此逐字一致
@@ -399,7 +399,7 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 
 每个 `[Native("__x")] extern` 方法编译成一条指令的包装函数
 （`%n = builtin __x(%0…); ret %n`）。按普通协议调用它要付一整个调用帧，只为把实参原样转给 builtin。
-调用解析到这样的转发函数时，**两个引擎都直接从调用方寄存器跑它的 builtin**（`vm/exec/call/forward.rs`）：
+调用解析到这样的转发函数时，**两个引擎都直接从调用方寄存器跑它的 builtin**（`exec/call/forward.rs`）：
 
 - 解释器：`exec_call::call`（静态调用，在模块初始化 / 类型初始化屏障之后）与 `exec_vcall::invoke`；
 - JIT：`jit_call` / `jit_vcall` 的已编译目标（`FnEntry::forward`）与冷目标（经解释器的那条路）。

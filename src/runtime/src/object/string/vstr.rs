@@ -30,7 +30,7 @@
 //! # Allocation & the ambient heap
 //!
 //! `Str::new`/`From<&str>` carry no `&heap`, so they allocate from the **ambient
-//! heap** ([`crate::vm::exec::ambient::current_heap`], scoped per engine entry). In the rare
+//! heap** ([`crate::exec::ambient::current_heap`], scoped per engine entry). In the rare
 //! heap-less context (unit tests without a VM), they fall back to a standalone
 //! **leaked** block — never taken on a production hot path (see [`Self::new`]).
 //!
@@ -42,7 +42,7 @@
 //! - **Drop** = no-op. The GC frees the block when it becomes unreachable; a
 //!   `Value::Str` in a frame register is a root (the external root scanner walks
 //!   frame regs), so live strings stay marked. Interned `ConstStr` literals are kept
-//!   alive by the VM's string table (a scanned root); see `vm::runtime::ids::str_table`.
+//!   alive by the VM's string table (a scanned root); see `metadata::ids::str_table`.
 //! - **Reachability, not refcount**: a `Str` handle sitting in a *Rust* local (not
 //!   a GC root) does not by itself keep the block alive — but the GC only runs at
 //!   safepoints (loop back-edges / calls) and on `ForceCollect`, never mid-operation,
@@ -76,12 +76,12 @@ const _: () = assert!(std::mem::size_of::<Option<Str>>() == std::mem::size_of::<
 impl Str {
     /// Allocate a fresh GC string copying `s`'s UTF-8 bytes inline.
     ///
-    /// Uses the ambient heap ([`crate::vm::exec::ambient::current_heap`]) so the ~189
+    /// Uses the ambient heap ([`crate::exec::ambient::current_heap`]) so the ~189
     /// `.into()` / `From<&str>` call sites need no `&heap`. Falls back to a
     /// standalone leaked block only when no frame is executing (unit tests without
     /// a VM); production execution always has an active ambient heap.
     pub fn new(s: &str) -> Self {
-        match crate::vm::exec::ambient::current_heap() {
+        match crate::exec::ambient::current_heap() {
             Some(heap) => heap.alloc_str(s),
             None => Self::new_leaked(s),
         }

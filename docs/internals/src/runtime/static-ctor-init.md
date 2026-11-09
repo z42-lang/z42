@@ -1,7 +1,7 @@
 # 静态构造函数的按类型初始化
 
 > 语义面见[静态构造函数](https://z42-lang.github.io/z42/reference/language/static-constructors.html)。本页讲实现。
-> 代码：`src/runtime/src/vm/runtime/statics/cctor.rs`（数据）、`src/runtime/src/vm/exec/init.rs`（执行与等待）；启动路径共用步骤 `src/runtime/src/host/boot.rs`。
+> 代码：`src/runtime/src/metadata/statics/cctor.rs`（数据）、`src/runtime/src/exec/init.rs`（执行与等待）；启动路径共用步骤 `src/runtime/src/host/boot.rs`。
 
 RuntimeState 组合静态表、初始化状态与错误记录；执行层共享同一份 Arc registry，
 保留 claim/finish、park 和 Condvar 协议。heap 先于这些数据与类型拥有者释放。
@@ -39,7 +39,7 @@ if any_pending() { ensure_type_init(...) }   // 热路径的全部代价
   基类链还没合并的类型不进缓存：加载器要靠 `Arc::get_mut` 原地补布局，多一份引用就补不动。
 - **类型本身**：`TypeDesc` 上的初始化代际标记（`init_done_in(gen)`），初始化跑完后两次 relaxed load 放行。
 
-- **静态字段**：属主判定缓存在该字段的静态单元旁（`vm/runtime/statics/table.rs` 的 `StaticCell::owner`，整个 VM 共享、
+- **静态字段**：属主判定缓存在该字段的静态单元旁（`metadata/statics/table.rs` 的 `StaticCell::owner`，整个 VM 共享、
   读无锁）。第一次仍按名推属主，并走会加载的 `try_lookup_type`——跨包读静态字段时，属主所在的包可能确实还没加载；
   之后一次 acquire load 命中：无 cctor 的属主记为免检，有 cctor 的交给上一条的代际标记。基类链未合并的属主不缓存；
   显式模块（重）加载清空全部缓存答案（`VmContext::forget_static_owners`）。槽号未解析的站点（少见）仍每次按名推。
@@ -104,7 +104,7 @@ stateDiagram-v2
 ```
 
 **他线程正在跑（`Running(别的线程)`）时，本线程阻塞到终态**，与 C# 一致：每个类型恰好初始化一次，
-其他线程看到的一定是初始化完成后的状态。实现要点（`vm::exec::init::claim_with`）：
+其他线程看到的一定是初始化完成后的状态。实现要点（`exec::init::claim_with`）：
 
 - 等在与 `map` 配对的 Condvar 上，`finish` 推到终态时唤醒；不轮询。
 - 等待期间持有 `NativeParkGuard`，本线程算作已 park。否则跑 cctor 的线程一旦触发 GC，GC 握手就要等
@@ -220,7 +220,7 @@ catch (Exception e) {
 |---|---|---|
 | 静态调用 / 自由函数 | 被调函数 FQ 名 | `exec_call.rs`、`jit/helpers/call.rs`（两条去路各一处） |
 | `new` | 被创建类型的 FQ 名 | `exec_object.rs`、`jit/helpers/object.rs` |
-| 静态字段读写 | 字段 FQ 名 | `vm/context/statics.rs::ensure_static_field_init` |
+| 静态字段读写 | 字段 FQ 名 | `context/statics.rs::ensure_static_field_init` |
 
 **本轮新跑出来的失败仍在当前屏障抛出**，不看归属 —— 初始化器是在这次调用里跑的，失败
 就该在这里浮出来（与「加载即执行」和 `module_init_load_order` 钉住的语义一致）。归属判定
@@ -344,16 +344,16 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 | 函数 | 做什么 | 谁调 |
 |---|---|---|
 | `boot_context` | `available!` 折叠 → `VmContext::with_module` → 登记静态构造器 → 装 lazy loader + 种类型 / impl | `host::run_app`、宿主 `build_host_module` |
-| `prepare_execution` | `resolve_module`（各站点 token 预填）| `Vm::run`、宿主 `build_host_module` |
+| `prepare_execution` | `resolve_module`（各站点 token 预填）| `host::LoadedProgram::run_entry`、宿主 `build_host_module` |
 
 **静态字段初始化本身仍由调用方决定时机**，因为两边的「程序」形状不同：
 
-- `Vm::run`：进入 `Main` 之前跑一次 `init_static_fields`；
+- `host::LoadedProgram::run_entry`：进入 `Main` 之前跑一次 `init_static_fields`；
 - 宿主：**每个模块在首次 `invoke` 时跑一次**，放在宿主 stdout sink 守卫内（初始化器的输出也送到宿主）。
   `init_static_fields` 会先清空全部静态字段，所以绝不能跑第二次——结果存在 `HostModule.static_init`
   （`OnceLock`）。失败是**粘滞**的：之后每次 invoke 都报同一个错，而不是在半初始化的静态状态上继续跑。
   每次 invoke 结束后还要取一次 `take_static_init_error`（本次调用中首次触达、惰性加载的包的初始化失败），
-  与 `Vm::run` 一致；两处都归为 `Z42HostStatus::VmException`。
+  与 `host::LoadedProgram::run_entry` 一致；两处都归为 `Z42HostStatus::VmException`。
 
 > 新增启动步骤时，加进 `host/boot.rs`，两条路径自动都有；别再只改 `host::run_app`。
 > 回归测试：`host::host_tests::invoke_sees_initialized_static_fields`（stdlib 包与用户模块各一个带初始化器的静态字段）。

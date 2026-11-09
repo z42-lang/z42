@@ -1,6 +1,6 @@
 use super::*;
 use crate::object::{ArrayObj, ElemType, Value};
-use crate::vm::exec::call::builtins::{exec_builtin, exec_builtin_value};
+use crate::exec::call::builtins::{exec_builtin, exec_builtin_value};
 
 fn bytes(ctx: &VmContext, data: &[u8]) -> Value {
     ArrayObj::alloc_typed_iter(ctx.heap(), ElemType::intern("byte"), data.len(),

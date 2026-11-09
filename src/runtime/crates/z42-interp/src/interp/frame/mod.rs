@@ -2,13 +2,13 @@
 //! Reference location access is owned by the shared execution operations.
 
 #![allow(unused_imports)]
-use crate::vm::exec::ops::references::{deref_ref, store_thru_ref};
-use crate::vm::runtime::{Function, Module};
+use crate::exec::ops::references::{deref_ref, store_thru_ref};
+use crate::metadata::{Function, Module};
 use crate::{
     zpkg::{BranchTargets, Terminator},
     object::Value,
 };
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
@@ -50,8 +50,8 @@ pub(crate) struct Frame {
 impl Frame {
     /// What this activation binds the type-parameter markers of its body to
     /// (`$mta:N` → `method_type_args`, `$cta:N@Owner` → the receiver in reg 0).
-    pub(crate) fn type_param_env(&self) -> crate::vm::exec::call::type_param_env::TypeParamEnv<'_> {
-        crate::vm::exec::call::type_param_env::TypeParamEnv::new(&self.method_type_args, self.regs.first())
+    pub(crate) fn type_param_env(&self) -> crate::exec::call::type_param_env::TypeParamEnv<'_> {
+        crate::exec::call::type_param_env::TypeParamEnv::new(&self.method_type_args, self.regs.first())
     }
 
     /// A frame whose first registers are `args`. The register file comes from

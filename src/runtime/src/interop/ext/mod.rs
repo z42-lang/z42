@@ -34,8 +34,8 @@ use std::sync::OnceLock;
 
 use anyhow::Result;
 
-use crate::vm::exec::call::builtin_abi::BuiltinError;
-use crate::vm::context::VmContext;
+use crate::exec::call::builtin_abi::BuiltinError;
+use crate::context::VmContext;
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ fn load_by_name(ctx: &VmContext, name: &str) -> Result<bool> {
 
 // ── Search paths ─────────────────────────────────────────────────────────────
 
-pub(crate) use crate::host::native_paths as native_search_paths;
+pub(crate) use crate::components::native_paths as native_search_paths;
 
 
 // ── dlopen path (non-wasm) ───────────────────────────────────────────────────

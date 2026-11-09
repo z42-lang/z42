@@ -29,7 +29,7 @@ test-agent 与一份 app-run 代码全平台共享；而且这条嵌入路径同
 
 - **`z42::host::run_app(file, entry, RunOpts)`** —— 完整启动序列：search_dirs → `z42.core` 预载 →
   加载 entry artifact → AOT eager BFS（否则 lazy）→ merge → 建 VmContext + lazy_loader +
-  observer replay → `Vm::run`。
+  observer replay → `host::LoadedProgram::run_entry`。
 - **`main.rs`** 解析 CLI → 组 `RunOpts`（mode / libs_dir / program_args / print_stats）→ 调核心。
 - **`z42::host::rust::run_app` / `z42_host_run_app`(C)** 是嵌入前端，同样调核心，各自建 VmContext。
 - **`RunOpts` / `default_mode`** 由调用方决定（main 读 CLI/config/build 默认；嵌入取
@@ -100,8 +100,8 @@ wasm 没有文件系统、也没有进程 stdout，所以它**不能**直接复�
 
 **(a) 加载走 VM 的 VFS，不是 `std::fs`。** 运行期工件读取一律走这台 VM 的 `pal::fs::Vfs`
 句柄（`RunOpts::vfs`，不给就是默认：native 为 `LocalFs`，即 `std::fs`；wasm 为内存 VFS）。
-走它的有 `vm/loader/package/artifact.rs`（`load_zbc` / `load_zpkg` 及 `.zsym` sidecar、indexed-zpkg
-散装读）、`vm/loader/locate/namespace_index.rs`（命名空间目录扫描、`ZpkgCandidate::build`）、惰性加载器、
+走它的有 `loader/package/artifact.rs`（`load_zbc` / `load_zpkg` 及 `.zsym` sidecar、indexed-zpkg
+散装读）、`loader/locate/namespace_index.rs`（命名空间目录扫描、`ZpkgCandidate::build`）、惰性加载器、
 `host/load.rs`（`z42.core` 预载的 `exists`）和 `host/app.rs`（entry-dir 的 `is_dir`）。
 
 于是宿主先把 agent app.zpkg + stdlib zpkg + bundle（manifest + 各 case zbc）挂进它自己的

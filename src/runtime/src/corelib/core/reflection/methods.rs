@@ -1,5 +1,5 @@
 use super::*;
-use crate::vm::runtime::Function;
+use crate::metadata::Function;
 
 // ── Method reflection ───────────────────────────────────────────────────────
 

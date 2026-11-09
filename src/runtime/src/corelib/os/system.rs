@@ -8,7 +8,7 @@
 
 use crate::pal;
 use anyhow::Result;
-use crate::vm::exec::call::builtin_abi::BuiltinError;
+use crate::exec::call::builtin_abi::BuiltinError;
 
 pub fn system_pid() -> i64 {
     pal::system::pid() as i64

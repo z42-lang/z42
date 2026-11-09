@@ -5,11 +5,11 @@ mod exec_body_cold;
 
 use super::frame::Frame;
 use super::ops::{self, exec_instr};
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::{zpkg::{BranchTargets, Terminator}, object::Value};
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{bail, Context, Result};
-use crate::vm::exec::call::outcome::ExecOutcome;
+use crate::exec::call::outcome::ExecOutcome;
 use exec_body_cold::{callee_threw, copy_in_ref_param, label_target, locate_error, throw_here, Unwind};
 pub use entry::{run, run_returning, run_outcome, init_static_fields, run_with_static_init};
 pub(crate) use exec_support::{exec_function, exec_function_with_type_args, exec_function_from_regs, exec_function_from_receiver_regs};
@@ -30,7 +30,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
     // path. `enter_frame` also runs the (fatal) stack-overflow check, after the push.
     // The VM / heap thread-locals (`CURRENT_VM`, the ambient heap) are scoped by the
     // context while its stack is non-empty — the bottom frame's push installs them
-    // (`vm/exec/call/engine_guards.rs`), so a nested frame touches no thread-local.
+    // (`exec/call/engine_guards.rs`), so a nested frame touches no thread-local.
     let _frame_guard = enter_frame(ctx, func, &mut frame)?;
 
     // add-gc-safepoint : every newly-entered z42 function immediately respects a
@@ -47,16 +47,16 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
     // Nothing between `Frame::new` and this line can collect: the ref/out copy-in above only
     // reads, and `resolve_function_tokens` (which *can* run z42 static initialisers, and
     // therefore reach a safepoint) is deliberately below.
-    crate::vm::threads::safepoint::check_safepoint(ctx);
+    crate::threads::safepoint::check_safepoint(ctx);
 
     // perf-lazy-resolve-tokens : populate this function's per-site dispatch caches
-    // on first execution. `resolve_module` (Vm::run) only walks the *entry* module; lazily
+    // on first execution. `resolve_module` (host::LoadedProgram::run_entry) only walks the *entry* module; lazily
     // loaded packages (all of z42c.semantics / z42c.syntax during a self-compile) never pass
     // through it, so without this their VCall PIC / FieldIC / builtin-id / static-id /
     // call-token caches stay dead and every dispatch falls back to string hashing. One relaxed
     // atomic load on the hot path (already re-read by the instruction loop); the resolve body
     // runs once per function (OnceLock-gated). `module` is the entry module (invariant threaded
-    // from `Vm::run`), matching the runtime dispatch module so `method_tokens` indices stay
+    // from `host::LoadedProgram::run_entry`), matching the runtime dispatch module so `method_tokens` indices stay
     // valid.
     //
     // Runs *after* the frame is enrolled (fix-callee-entry-safepoint-drops-args): it drains the
@@ -66,7 +66,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
         // defer-class-initialization (T3): `resolve_function_tokens` 内部会在发布
         // `resolved` 之前排空「静态字段所属类」队列并跑完它们的初始化器，
         // 所以这里不需要再排空一次（放在那里才对并发安全，见 resolver.rs 的注释）。
-        crate::vm::runtime::resolve::resolve_function_tokens(func, module, ctx);
+        crate::metadata::resolve::resolve_function_tokens(func, module, ctx);
     }
 
     // Read once per activation (a `OnceLock`: once set — at the latest by the resolve
@@ -116,7 +116,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
         // last instruction + terminator, using the SHARED `ops::eval_cmp` (same
         // primitive the standalone cmp handlers use). Preserves the back-edge
         // safepoint + OSR hand-off exactly as the `BrCond` terminator does.
-        if let Some(crate::vm::runtime::SuperInstr::CmpBr { op, a, b, dst, t_blk, f_blk, typed }) = fused {
+        if let Some(crate::metadata::SuperInstr::CmpBr { op, a, b, dst, t_blk, f_blk, typed }) = fused {
             // interp-typed-superinstr: `typed` ⇒ both operands statically I64 →
             // unchecked i64 compare (no discriminant branch). Else the dynamic
             // `eval_cmp` (same primitive the standalone cmp handlers use).
@@ -128,7 +128,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
             frame.set(*dst, Value::Bool(cond)); // keep dst written — safe for any other reader
             let target = if cond { *t_blk } else { *f_blk };
             if target <= block_idx {
-                crate::vm::threads::safepoint::check_safepoint(ctx);
+                crate::threads::safepoint::check_safepoint(ctx);
                 if let Some(outcome) = try_osr(ctx, &mut frame, func, target) {
                     return outcome;
                 }
@@ -159,7 +159,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                 // — block index decreasing is a loop back-edge. Check
                 // safepoint so long-running loops park promptly.
                 if target <= block_idx {
-                    crate::vm::threads::safepoint::check_safepoint(ctx);
+                    crate::threads::safepoint::check_safepoint(ctx);
                     // add-osr-loop-tiering: hot loop → hand off to native (OSR).
                     if let Some(outcome) = try_osr(ctx, &mut frame, func, target) {
                         return outcome;
@@ -177,7 +177,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                     _ => label_target(&func.block_index, if go_true { true_label } else { false_label })?,
                 };
                 if target <= block_idx {
-                    crate::vm::threads::safepoint::check_safepoint(ctx);
+                    crate::threads::safepoint::check_safepoint(ctx);
                     // add-osr-loop-tiering: hot loop → hand off to native (OSR).
                     if let Some(outcome) = try_osr(ctx, &mut frame, func, target) {
                         return outcome;

@@ -8,9 +8,9 @@
 //!    see `vm_interface.rs` module docs).
 
 use super::*;
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, ClassDesc, Terminator};
-use crate::vm::runtime::ids::tokens::TypeId;
+use crate::metadata::ids::tokens::TypeId;
 use crate::{zpkg::NameIndex, object::TypeDesc};
 use crate::zpkg::ir::ExecMode;
 use std::sync::Arc;

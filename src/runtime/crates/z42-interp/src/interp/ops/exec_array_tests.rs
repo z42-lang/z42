@@ -2,9 +2,9 @@
 //! generic type-param element to a concrete type via `frame.method_type_args` /
 //! receiver `type_args`, so value-type slots get the type's zero instead of Null.
 use super::*;
-use crate::vm::runtime::Module;
+use crate::metadata::Module;
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 
 fn empty_module() -> Module {
     Module::new(crate::zpkg::image::ModuleData {

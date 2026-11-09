@@ -1,10 +1,7 @@
 //! Shared Rust host services and C embedding adapters.
-mod components;
-mod component_catalog;
 pub use crate::components::api::*;
-pub use components::{ComponentOptions, component_interface, component_ids};
-pub use crate::vm::components::ComponentLease;
-pub use crate::{object::Value, pal::fs::Vfs, vm::context::{VmContext, VmCore}, vm::runtime::Module};
+pub use crate::components::{ComponentOptions, ComponentLease, component_interface, component_ids};
+pub use crate::{object::Value, pal::fs::Vfs, context::{VmContext, VmCore}, metadata::Module};
 pub mod config;
 pub mod resolver;
 pub mod runtime;
@@ -30,18 +27,12 @@ pub use app_state::{program_args, set_program_args};
 pub(crate) use app::report_on_exit;
 #[cfg(test)] mod host_tests;
 #[cfg(test)] mod app_tests;
-#[cfg(test)] mod runtime_tests;
+#[cfg(test)] pub(crate) mod runtime_tests;
 
-#[cfg(test)] mod component_tests;
+pub use artifact::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability};
+pub use crate::components::{BackendOptions, BackendSource, jit_supported, jit_available, interp_available};
 
-pub use crate::assembly::loader::{load_artifact, load_artifact_from_bytes, build_block_indices, fold_availability, LazyLoaderFactory};
-mod backends;
-pub use backends::{BackendOptions, BackendSource, jit_supported, jit_available, interp_available};
-#[cfg(test)]
-mod backend_tests;
-
-pub(crate) use backends::native_paths;
-pub use crate::vm::ext::VmExtensions;
+pub use crate::context::extensions::VmExtensions;
 
 pub use z42_abi::{Z42Value, Z42_VALUE_TAG_I64};
 
@@ -51,11 +42,13 @@ pub mod rust;
 /// Process entry policy shared by the dynamic launcher and static embeddings.
 #[cfg(feature = "cli")]
 pub mod cli;
-mod linked;
-pub use linked::register_static_component;
+pub use crate::components::register_static_component;
 #[cfg(feature = "cli")]
 mod launcher;
 #[cfg(feature = "cli")]
 pub mod entry_api;
 
-pub use crate::config::RuntimeConfig;
+pub use crate::config::{RuntimeConfig, VmConfig};
+
+mod artifact;
+mod extensions;

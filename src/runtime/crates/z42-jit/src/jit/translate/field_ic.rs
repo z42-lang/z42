@@ -36,7 +36,7 @@
 use super::*;
 use super::ctx::TxCtx;
 use cranelift_codegen::ir::{Block, BlockArg, Value as CValue};
-use crate::vm::runtime::dispatch::ic::{FieldIC, FieldICEntry, FIELD_IC_GUARD_MASK};
+use crate::metadata::dispatch::ic::{FieldIC, FieldICEntry, FIELD_IC_GUARD_MASK};
 use crate::object::{ref_word, FieldLoc};
 
 /// The inline layout (`obj_jit_layout`) is spelled for 64-bit handles only.

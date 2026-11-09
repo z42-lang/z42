@@ -1,7 +1,7 @@
 use super::reflection_tests::bare_td;
 use super::*;
 use crate::object::{FieldSlot, ReflectedTypeHandle, TypeDescCold};
-use crate::vm::runtime::ids::{
+use crate::metadata::ids::{
     tokens::{alloc_type_id_block, TypeId},
     type_table::TypeTable,
 };

@@ -94,7 +94,7 @@ impl TypeArgs {
         self.0.kinds.get(i).copied().unwrap_or(ElemKind::Mixed)
     }
 
-    /// 是否含型参标记（站点实参要按运行期型参代换，见 `vm::exec::call::type_param_env`）。
+    /// 是否含型参标记（站点实参要按运行期型参代换，见 `exec::call::type_param_env`）。
     #[inline]
     pub fn has_markers(self) -> bool {
         self.0.open

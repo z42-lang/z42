@@ -10,14 +10,14 @@ pub(crate) struct State {
     slots: crate::corelib::resource_registry::ResourceRegistry<Arc<UdpSocket>>,
 }
 
-pub(super) fn state(ctx: &crate::vm::context::VmContext) -> Result<&State, crate::vm::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::context::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
 use super::error::{check_port, check_ttl, closed, resolve, slot_id, socket_error, socket_exception, timeout};
 use super::error::code;
-use crate::vm::exec::call::builtin_abi::BuiltinError;
-use crate::vm::context::VmContext;
+use crate::exec::call::builtin_abi::BuiltinError;
+use crate::context::VmContext;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 
@@ -52,7 +52,7 @@ fn multicast_group(group: &str) -> Result<Ipv4Addr, BuiltinError> {
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
-    use crate::vm::exec::call::builtin_abi::{Blocking, Then};
+    use crate::exec::call::builtin_abi::{Blocking, Then};
     use crate::corelib::io::buffer::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
     use crate::object::Value;
 

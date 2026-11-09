@@ -26,7 +26,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::assembly::builtin::BUILTINS;
+use crate::corelib::builtins::BUILTINS;
 
 /// Builtins that are intentionally absent from every `[Native]` declaration in `src/libraries`.
 /// Keep this list minimal and documented — an entry here is a claim that the name is consumed by
@@ -55,7 +55,7 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // source, and there is no z42-callable surface for it (the index is a compile-time fact).
     ("__class_type_arg", "compiler-emitted: fix-class-level-typeof"),
     ("__class_default", "compiler-emitted: 继承链按声明类寻址（类级 default(T)）"),
-    // Invoked by the VM itself (boxed-struct `GetHashCode` protocol intercept in vm/exec/ops/vcall).
+    // Invoked by the VM itself (boxed-struct `GetHashCode` protocol intercept in exec/ops/vcall).
     ("__struct_hash_code", "VM-internal: boxed struct GetHashCode"),
     // Host-only surfaces (REPL line editor) wired by their hosts.
     ("__repl_readline",       "host-only: z42-repl cdylib"),
@@ -182,7 +182,7 @@ fn every_declared_native_has_a_builtin() {
 fn every_builtin_is_declared_or_allowlisted() {
     let declared: BTreeSet<String> = declared_natives().into_iter().map(|(n, _)| n).collect();
     let allow: BTreeSet<&str> = UNDECLARED_ALLOWLIST.iter().map(|(n, _)| *n).collect();
-    // `__test_abi_*`: the builtin ABI's own test builtins (`vm::exec::call::builtin_abi::test_builtins`,
+    // `__test_abi_*`: the builtin ABI's own test builtins (`exec::call::builtin_abi::test_builtins`,
     // registered under `cfg(test)` only).
     let undeclared: Vec<&str> = BUILTINS.iter().map(|d| d.name)
         .filter(|n| !declared.contains(*n) && !allow.contains(n) && !n.starts_with("__test_abi_"))
@@ -213,7 +213,7 @@ fn every_builtin_is_declared_or_allowlisted() {
 #[test]
 fn declared_voidness_matches_the_builtin_table() {
     let table: std::collections::BTreeMap<&str, bool> =
-        BUILTINS.iter().map(|d| (d.name, d.ret == crate::vm::exec::call::builtin_abi::RetKind::Void)).collect();
+        BUILTINS.iter().map(|d| (d.name, d.ret == crate::exec::call::builtin_abi::RetKind::Void)).collect();
     let mut bad = Vec::new();
     for (name, decl_void, where_) in declared_natives_full() {
         let Some(&tbl_void) = table.get(name.as_str()) else { continue };  // 名字那条门管这格

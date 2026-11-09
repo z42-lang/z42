@@ -31,7 +31,7 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
         field_index,
         vtable: Vec::new(),
         vtable_index: crate::zpkg::NameIndex::new(),
-        id: crate::vm::runtime::ids::tokens::TypeId::UNRESOLVED,
+        id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     })
 }
 

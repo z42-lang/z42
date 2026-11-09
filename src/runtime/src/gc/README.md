@@ -90,7 +90,7 @@ z42 脚本端可调 `Std.GC.Collect()` / `UsedBytes()` / `ForceCollect()`（见
 `Heap::new(config)` 显式接收 `GcConfig`，每个堆保存自己的配置快照。
 `Heap::default()` 使用纯默认值，不读取环境或进程设置。VM 入口由门面
 `RuntimeConfig::gc_config` 转换已解析设置，继续应用原有配置优先级；独立基准同样显式转发。
-软引用阈值、阶段计时、nursery 策略与停顿窗口均取自当前堆。safepoint 的轮询节流由 `vm/threads` 的线程协议读取。
+软引用阈值、阶段计时、nursery 策略与停顿窗口均取自当前堆。safepoint 的轮询节流由 `threads` 的线程协议读取。
 `collect_cycles_with_vm` 通过 `GcToVm` 申请暂停，GC 不持有线程上下文。根访问须处于暂停内，
 暂停服务的实现必须满足 `GcToVm` 的安全契约；丢弃令牌后恢复线程。加载上下文身份由 VM 回调解析，
 GC 只在标记后观察活对象，清扫结束后交回本轮不透明快照。
@@ -98,7 +98,7 @@ GC 只在标记后观察活对象，清扫结束后交回本轮不透明快照�
 ## 依赖关系
 
 - 上游：`object::{Value, ScriptObject, OwnedObject, TypeDesc, NativeData}`
-- 下游：`vm::context::VmCore` 持有地址稳定的 `Box<Heap>` + 注入 external root
+- 下游：`context::VmCore` 持有地址稳定的 `Box<Heap>` + 注入 external root
   scanner 闭包（扫描 static_fields / pending_exception / interp+JIT exec_stack）；
   `interp/` 与 `jit/helpers/` 通过 `ctx.heap()` 调用
 

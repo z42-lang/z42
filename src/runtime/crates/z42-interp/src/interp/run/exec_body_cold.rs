@@ -4,13 +4,13 @@
 //! location, and the label-map branch fallback. See the 「热循环布局」 note in
 //! `exec_instr.rs`.
 
-use crate::vm::runtime::{Function, Module};
+use crate::metadata::{Function, Module};
 use crate::object::Value;
-use crate::vm::context::VmContext;
+use crate::context::VmContext;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 
-use crate::vm::exec::ops::references::deref_ref;
+use crate::exec::ops::references::deref_ref;
 use super::{
     find_handler, fire_exception_caught, fire_exception_thrown,
     run_ref_writebacks, Frame,
@@ -52,7 +52,7 @@ pub(super) fn copy_in_ref_param(
 pub(super) fn callee_threw(
     ctx: &VmContext, module: &Module, func: &Function, frame: &mut Frame, block_idx: usize, val: Value,
 ) -> Result<Unwind> {
-    crate::vm::exec::exception::populate_stack_trace(&val, ctx, module);
+    crate::exec::exception::populate_stack_trace(&val, ctx, module);
     catch_or_propagate(ctx, module, func, frame, block_idx, val, 1)
 }
 
@@ -68,7 +68,7 @@ pub(super) fn throw_here(
 ) -> Result<Unwind> {
     let end = func.blocks.get(block_idx).map_or(0, |b| b.instructions.len());
     ctx.set_top_frame_pc(func.linear_offset(block_idx as u32, end as u32));
-    crate::vm::exec::exception::populate_stack_trace(&val, ctx, module);
+    crate::exec::exception::populate_stack_trace(&val, ctx, module);
     fire_exception_thrown(ctx, module, &val);
     catch_or_propagate(ctx, module, func, frame, block_idx, val, 0)
 }
