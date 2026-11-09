@@ -3,7 +3,7 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Cli;
 
-string _componentBuildDir(string root) { return Path.Join(root, "artifacts/build/runtime-components"); }
+string _componentBuildDir(string root) { return Path.Join(_buildMirror(root, Path.Join(root, "src/runtime")), "components"); }
 string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), profile); }
 string _componentFeatures() { return "shared-core,native-interop,net,tls"; }
 string _componentLibrary(string stem) {
