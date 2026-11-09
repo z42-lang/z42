@@ -15,7 +15,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    let runtime = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..").canonicalize().unwrap();
+    // Cargo supplies an absolute manifest directory. Taking its parents avoids
+    // Windows verbatim paths, which the C fixture compiler cannot consume.
+    let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let runtime = manifest.parent().and_then(Path::parent).unwrap().to_path_buf();
     println!("cargo:rustc-env=Z42_RUNTIME_DIR={}", runtime.display());
     // The facade owns the cross-layer white-box harness over shared source files.
     println!("cargo:rustc-check-cfg=cfg(z42_test_facade)");
