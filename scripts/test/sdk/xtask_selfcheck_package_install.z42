@@ -48,6 +48,11 @@ int _testPackagesInstall() {
     }
     Directory.Create(Path.GetDirectoryName(_componentStaticArchive(fakeCargoOut)));
     File.WriteAllText(_componentStaticArchive(fakeCargoOut), "fake-static-lib");
+    string staticDir = Path.GetDirectoryName(Path.GetDirectoryName(_componentStaticArchive(fakeCargoOut)));
+    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
+        File.WriteAllText(Path.Join(staticDir, _componentStaticName(stem, _detectHostRid())), "static-" + stem);
+        File.WriteAllText(Path.Join(staticDir, stem + "-link.txt"), "link-" + stem);
+    }
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42.a"), "fake-static-lib");
     File.WriteAllText(Path.Join(fakeCargoOut, "z42.dll.lib"), "fake-import-lib");
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_compression.a"), "must-be-excluded");
@@ -81,6 +86,10 @@ int _testPackagesInstall() {
     _stgAssert("runtime static archive", File.ReadAllText(Path.Join(pkgDir, "native/" + staticName)) == "fake-static-lib");
     foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
         _stgAssert("runtime component " + stem, File.ReadAllText(Path.Join(pkgDir, "native/" + _componentLibrary(stem))) == "fake-" + stem);
+    }
+    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
+        _stgAssert("runtime static " + stem, File.ReadAllText(Path.Join(pkgDir, "native/" + _componentStaticName(stem, _detectHostRid()))) == "static-" + stem);
+        _stgAssert("runtime link requirements " + stem, File.ReadAllText(Path.Join(pkgDir, "native/" + stem + "-link.txt")) == "link-" + stem);
     }
     _stgAssert("native/include/z42_abi.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_abi.h")));
     _stgAssert("native/include/z42_host.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_host.h")));

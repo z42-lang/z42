@@ -80,6 +80,8 @@ int _pkgInstallNative(string root, string cargoOut, string pkgDir) {
     if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: native: no cargo output dir"); return 1; }
     _componentInstallLibraries(cargoOut, pkgDir);
     _componentCopyRequired(_componentStaticArchive(cargoOut), Path.Join(pkgDir, Platform.IsWindows() ? "native/z42.lib" : "native/libz42.a"));
+    _componentCopyStaticFiles(Path.GetDirectoryName(Path.GetDirectoryName(_componentStaticArchive(cargoOut))),
+        Path.Join(pkgDir, "native"), _detectHostRid());
     _copyAbiHeaders(root, Path.Join(pkgDir, "native/include"));
     return 0;
 }

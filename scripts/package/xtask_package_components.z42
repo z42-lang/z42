@@ -5,8 +5,12 @@ using Std.Cli;
 
 string _componentBuildDir(string root) { return Path.Join(_buildMirror(root, Path.Join(root, "src/runtime")), "components"); }
 string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), profile); }
-string _componentFeatures() { return "cli,interp,shared-core,native-interop,net,tls"; }
-string _componentLibrary(string stem) {
+string _componentFeatures() { return "cli,interp,jit,shared-core,native-interop,net,tls"; }
+string _componentLibrary(string stem, string rid = "") {
+    if (rid.Length > 0) {
+        if (rid.StartsWith("windows-")) { return stem + ".dll"; }
+        return "lib" + stem + ((rid.StartsWith("macos-") || rid.StartsWith("ios")) ? ".dylib" : ".so");
+    }
     if (Platform.IsWindows()) { return stem + ".dll"; }
     return "lib" + stem + (Platform.IsMacOS() ? ".dylib" : ".so");
 }
@@ -92,24 +96,20 @@ void _componentInstallLibraries(string cargo, string pkg) {
 
 }
 
-void _componentCopyStd(string native) {
-    string stdDir = _cmdOut("rustc", new string[]{ "--print", "target-libdir" });
-    string suffix = Platform.IsWindows() ? ".dll" : (Platform.IsMacOS() ? ".dylib" : ".so");
-    string pattern = (Platform.IsWindows() ? "std-*" : "libstd-*") + suffix;
+void _componentCopyStd(string native, string target = "") {
+    string[] args = target.Length == 0 ? new string[]{ "--print", "target-libdir" } : new string[]{ "--print", "target-libdir", "--target", target };
+    string stdDir = _cmdOut("rustc", args);
+    bool windows = target.Length == 0 ? Platform.IsWindows() : target.Contains("windows");
+    bool apple = target.Length == 0 ? Platform.IsMacOS() : target.Contains("apple");
+    string suffix = windows ? ".dll" : (apple ? ".dylib" : ".so");
+    string pattern = (windows ? "std-*" : "libstd-*") + suffix;
     string[] std = Path.Glob(stdDir, pattern);
     if (std.Length != 1) { throw new CliException("expected one matching shared Rust std in " + stdDir); }
     File.Copy(std[0], Path.Join(native, Path.GetFileName(std[0])));
 }
 
 int _componentBuildStatic(string root, string profile) {
-    Process p = _cargoCmd("build", _runtimeCargoConfig())
-        .Arg("--locked").Arg("-p").Arg("z42").Arg("--example").Arg("z42").Arg("--no-default-features")
-        .Arg("--features").Arg("static-embedding,interp,jit,native-interop,net,tls")
-        .Arg("--manifest-path").Arg(_runtimeManifest())
-        .Arg("--target-dir").Arg(Path.Join(_componentBuildDir(root), "static"))
-        .EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("RUSTFLAGS", "-C prefer-dynamic=no");
-    if (profile == "release") { p = p.Arg("--release"); }
-    return _exec(p);
+    return _componentBuildStaticLibraries(root, _detectHostRid(), profile);
 }
 
 string _componentStaticArchive(string cargo) {

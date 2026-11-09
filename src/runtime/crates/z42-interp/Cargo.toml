@@ -14,7 +14,7 @@ parking_lot = "0.12"
 rustc-hash = "2"
 [features]
 default = []
-shared-core = ["jit"]
+shared-core = ["z42/shared-core"]
 jit = ["z42/jit"]
 native-interop = ["z42/native-interop"]
 

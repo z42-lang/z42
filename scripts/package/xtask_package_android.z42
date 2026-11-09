@@ -38,13 +38,12 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
     int c = _ensureAndroidNdk(root);
     if (c != 0) { return c; }
 
-    Process p = _androidRuntimeRustc(new Process("cargo").Arg("ndk").Arg("-t").Arg(abi), root, rel);
-    string ndk = _androidNdkDir(root);
-    p = p.Env("ANDROID_NDK_HOME", ndk).Env("ANDROID_NDK", ndk).Env("ANDROID_NDK_ROOT", ndk);
-    c = _execIn(p, androidCrate); if (c != 0) { return c; }
-    string cargoOut = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile + "/examples");
-    _componentCopyRequired(Path.Join(cargoOut, "libz42.so"), Path.Join(nativeOut, "libz42.so"));
-    _componentCopyRequired(Path.Join(cargoOut, "libz42.a"), Path.Join(nativeOut, "libz42.a"));
+    c = _componentBuildStaticLibraries(root, rid, profile); if (c != 0) { return c; }
+    string cargoOut = _componentPlatformOut(root, rid, profile, false);
+    _componentCopyRequired(Path.Join(cargoOut, "examples/libz42.a"), Path.Join(nativeOut, "libz42.a"));
+    _componentCopyStaticLibraries(root, nativeOut, rid, profile);
+    c = _componentBuildPlatform(root, rid, profile); if (c != 0) { return c; }
+    _componentInstallPlatform(root, nativeOut, rid, profile);
 
     // [4/5] C ABI headers
     Console.WriteLine("  [4/5] C ABI headers");
