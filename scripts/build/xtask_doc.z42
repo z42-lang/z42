@@ -1,8 +1,8 @@
-// xtask — `doc` 命令族的两块引擎：
-//   ① `doc gen`：用 z42.doc 的 DocMd 渲染器把 reference/stdlib 包页生成到 docs/reference/src/stdlib/。
+// xtask — `build docs` 的两块引擎：
+//   ① `build docs`：用 z42.doc 的 DocMd 渲染器把 reference/stdlib 包页生成到 docs/reference/src/stdlib/。
 //      生成页不入库（.gitignore），发布书时（deploy-book.yml）与 `test docs` 前现生成，所以没有漂移门禁。
 //      只对写了 `//!` 的包生效。
-//   ② `doc index`：把 Rust 运行时各 crate 的条目与 rustdoc 写成 `z42 doc` 的外部索引
+//   ② `build docs index`：把 Rust 运行时各 crate 的条目与 rustdoc 写成 `z42 doc` 的外部索引
 //      （artifacts/doc/rust.idx），让 `z42 doc` 一并查 Rust 符号。索引器是
 //      src/toolchain/devtools/rust-index（syn 解析，沿 mod 声明走模块树，测试模块不进索引）。
 namespace Z42Xtask;
@@ -12,20 +12,16 @@ using Std.Cli;
 using Std.Collections;
 using Z42.Doc;
 
-class DocCommand : Command {
-    public DocCommand() : base("doc", "generate reference stdlib pages and index Rust crates") {
-        this.AddCommand(new DocGenCommand());
-        this.AddCommand(new DocIndexCommand());
+class BuildDocsCommand : Command {
+    public BuildDocsCommand() : base("docs", "generate reference stdlib pages; `index` builds the Rust symbol index") {
+        this.SetDefaultAction("regenerate reference stdlib pages from source doc comments (only packages with a //! doc)");
+        this.AddCommand(new BuildDocsIndexCommand());
     }
-}
-
-class DocGenCommand : Command {
-    public DocGenCommand() : base("gen", "regenerate reference stdlib pages from source doc comments (only packages with a //! doc)") {}
     public override int Run() { return _docGen(); }
 }
 
-class DocIndexCommand : Command {
-    public DocIndexCommand() : base("index", "index the Rust runtime crates → artifacts/doc/rust.idx (z42 doc then finds Rust symbols too)") {}
+class BuildDocsIndexCommand : Command {
+    public BuildDocsIndexCommand() : base("index", "index the Rust runtime crates → artifacts/doc/rust.idx (z42 doc then finds Rust symbols too)") {}
     public override int Run() { return _docIndex(); }
 }
 
@@ -58,9 +54,11 @@ _GenFile[] _typeSplitFiles(string pkg, string shortName, DocIndex ix) {
 }
 
 // SUMMARY.md 里 type-split 包的页清单区段：mdBook 只构建 SUMMARY 列出的页，上百个类型页
-// 手写必然漂移，这段由 doc gen 重写（标记注释夹住，区段外不许生成改动）。区段随 SUMMARY 入库但不设门禁：
+// 手写必然漂移，这段由 build docs 重写（标记注释夹住，区段外不许生成改动）。区段随 SUMMARY 入库但不设门禁：
 // 发布前总会重新生成，入库那份落后只是本地 `git status` 里多一处改动，提交即可。
-string _summaryBegin(string shortName) { return "<!-- z42-doc:summary:" + shortName + "-begin（xtask doc gen 维护，勿手改） -->"; }
+// 区段按标记 ID（`z42-doc:summary:<short>-begin`）定位，标记行里的说明文字随生成重写。
+string _summaryBeginId(string shortName) { return "<!-- z42-doc:summary:" + shortName + "-begin"; }
+string _summaryBegin(string shortName) { return _summaryBeginId(shortName) + "（xtask build docs 维护，勿手改） -->"; }
 string _summaryEnd(string shortName)   { return "<!-- z42-doc:summary:" + shortName + "-end -->"; }
 
 string _summaryBlock(string shortName, DocIndex ix) {
@@ -85,7 +83,7 @@ string _summaryBlock(string shortName, DocIndex ix) {
 int _syncSummary(string root, string shortName, DocIndex ix) {
     string path = Path.Join(root, "docs/reference/src/SUMMARY.md");
     string text = File.ReadAllText(path);
-    string begin = _summaryBegin(shortName);
+    string begin = _summaryBeginId(shortName);
     string end = _summaryEnd(shortName);
     int b = text.IndexOf(begin);
     int e = text.IndexOf(end);
@@ -127,7 +125,7 @@ int _docGen() {
     foreach (var name in Directory.Enumerate(outDir)) {
         if (name.EndsWith(".md") && name != "README.md" && !written.Contains(name)) { File.Delete(Path.Join(outDir, name)); }
     }
-    Console.WriteLine("doc gen: " + written.Count.ToString() + " page(s) → docs/reference/src/stdlib/");
+    Console.WriteLine("build docs: " + written.Count.ToString() + " page(s) → docs/reference/src/stdlib/");
     return 0;
 }
 

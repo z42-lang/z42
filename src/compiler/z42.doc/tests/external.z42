@@ -24,7 +24,7 @@ string _tree() {
     Directory.Create(Path.Join(root, "artifacts/doc"));
     File.WriteAllText(Path.Join(root, "rt/src/heap.rs"), "pub struct Heap;\n");
     File.WriteAllText(Path.Join(root, "artifacts/doc/rust.idx"),
-        "z42doc-items 1\txtask doc index\n"
+        "z42doc-items 1\txtask build docs index\n"
         + "F\trt/src/heap.rs\trt\n"
         + "I\trt::gc\tmodule\tgc\trt\tmod gc\t1\tpublic\t垃圾回收。\n"
         + "I\trt::gc::Heap\tstruct\tHeap\trt::gc\tpub struct Heap\t1\tpublic\t托管堆。\n"
@@ -86,7 +86,7 @@ void test_stale_index_warns() {
     o.Root = root; o.Query = "Heap::alloc";
     DocQueryResult r = DocQuery.Run(o);
     Assert.Equal(0, r.Exit);
-    _eq("z42 doc: rust.idx is older than 1 of its source file(s) — rebuild it with `xtask doc index`", r.Err);
+    _eq("z42 doc: rust.idx is older than 1 of its source file(s) — rebuild it with `xtask build docs index`", r.Err);
     // 删掉源文件同样算过期。
     File.Delete(src);
     Assert.True(DocQuery.Run(o).Err.Contains("older than 1"));

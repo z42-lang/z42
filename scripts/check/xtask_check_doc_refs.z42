@@ -11,7 +11,7 @@ int _checkDocRefs() {
     string rustIdx = Path.Join(root, "artifacts/doc/rust.idx");
     int rc = _docIndex();
     if (rc != 0 || !File.Exists(rustIdx)) {
-        ConsoleError.WriteLine("check doc-refs: rust.idx 生成失败——先手动跑 `xtask doc index`");
+        ConsoleError.WriteLine("check doc-refs: rust.idx 生成失败——先手动跑 `xtask build docs index`");
         return 1;
     }
     DocIndex ix = DocQuery.BuildIndex(root, "", "");

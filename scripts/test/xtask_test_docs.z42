@@ -2,7 +2,7 @@
 //
 // 纯文档 PR 只跑本门 + diagcodes，所以读文档的检查必须都在这里：
 //   ① 仓内相对链接必须能解析到真实文件 / 目录（死链一律红，无存量豁免，无 `--update`）；
-//      reference/stdlib 的生成页不入库，先 `doc gen` 生成，手写页链进去的链接和生成页自己的链接一起查
+//      reference/stdlib 的生成页不入库，先 `build docs` 生成，手写页链进去的链接和生成页自己的链接一起查
 //   ② 书 / README / 代码不引用 docs/agent
 //   ③ 目录 README 有「关联文档」段
 //

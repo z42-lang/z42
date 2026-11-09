@@ -90,6 +90,7 @@ dry-run 跑真实脚本，不联网）；真实 SDK 的离线安装由 CI packag
 | `build workload` | 改了 `src/toolchain/workload` 源 | z42c/stdlib（缺则自建） | 4 个 workload lib → `artifacts/intermediate/libraries/flat/release/z42.workload.*.zpkg`（launcher 依赖） |
 | `build toolchain [z42b]` | 改了 launcher/z42b/z42d/z42i 源 / 要可运行的 SDK | 同上 + 自动 `build workload` | z42 / z42c / z42b / z42d / z42i 五个 apphost `publish <toml>` → **各 toml 的 `[platform.desktop].publish_dir`**（路径从 toml 读，不硬编码）；`z42b` = 只按当前 z42c 编 z42b |
 | `build runtime` / `build all` | 改了 Rust VM / 一次构建 runtime + compiler + stdlib | `cargo` | `z42vm` + libz42；`all` 另含 compiler、stdlib |
+| `build docs [index]` | 读 / 预览 reference 的 stdlib 页、改了 `///` 或渲染器；`index` = `z42 doc` 要查 Rust 符号 | z42.doc 渲染器（xtask 自带）/ `cargo` | `docs/reference/src/stdlib/` 生成页（不入库）+ SUMMARY 区段；`index` → `artifacts/doc/rust.idx` |
 | `build test` | 改了 golden 测试源 | z42c/stdlib（缺则自建） | `src/tests/**` → `.zbc` 镜像到 `artifacts/build/tests/`（golden 编译，不重建工具链） |
 | `package dev-sdk [--out D]` | 组装开发态 SDK（只组装，不编译） | `build compiler` + `build stdlib` + `build runtime`（+ `build toolchain` 才有 apphost） | `.z42` 布局：`bin/{z42vm,z42c,z42b,z42d,z42i}` + `z42`(launcher 根) + `programs/*` + `libs/*`；apphost 从各 publish_dir 合并，没发布的跳过并列出 |
 | `package ci <dest>` | 已建好构建树的 zpkg 快照 → CI 的 `toolchain-<os>` artifact（只组装；下游 job 原地还原） | z42c / stdlib / xtask + `build toolchain z42b` | `<dest>` 下按仓库相对位置的 zpkg / zsym |
@@ -262,7 +263,7 @@ scripts/
 │   ├── xtask_components.z42  workspace 成员、工具链组件与 TOML 产物/发布路径
 │   ├── xtask_process.z42     z42 子进程工厂（stdlib、编译器 probing 与种子隔离）
 │   ├── xtask_publish.z42     共用的 z42c build / z42b publish 调用
-│   ├── xtask_doc_index.z42  Rust 符号索引生成（doc index 与 doc-refs 报告共用）
+│   ├── xtask_doc_index.z42  Rust 符号索引生成（build docs index 与 doc-refs 报告共用）
 │   ├── xtask_golden.z42     golden 枚举 / 测试单元识别 / 入口推导（多 test stage + build test 复用）
 │   ├── xtask_toolset.z42    外部工具（cargo/gh/tar/...）的存在性与定位
 │   ├── xtask_fs.z42         文件系统原语（_resetDir/_copyAll/_linkAll/_copyFile/_copyIfExists/_cleanGlob/_makeExe；写入前先断链）
@@ -280,7 +281,7 @@ scripts/
 │   ├── xtask_toolchain.z42      build workload / build toolchain [z42b]（apphost publish，路径从各 toml 读）
 │   ├── xtask_golden_assets.z42  **`build test` 的实现**（golden .zbc 编译；_buildTest / _regenGolden / _regenCore）
 │   ├── xtask_clean.z42          clean 命令（production / tests / bench / intermediate / all，见 artifacts-layout.md §4）
-│   ├── xtask_doc.z42            doc 命令族（gen / index）与文档生成
+│   ├── xtask_doc.z42            `build docs`（reference 的 stdlib 生成页 + SUMMARY 区段）/ `build docs index`（Rust 符号索引）
 │   └── xtask_bootstrap_check.z42 上一版 nightly z42c 能否编当前源（分阶段纪律边界检查）
 ├── test/               test 命令族（`test compiler` / `test compiler bootstrap` 实现在 build/）
 │   ├── xtask_test_cmd.z42       `test` 族的命令类 + LibUnitsCommand（test stdlib / bench stdlib 共用）

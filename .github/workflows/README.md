@@ -14,7 +14,7 @@
 | `retry-ci-runner.yml` | PR 的 CI 失败后；`workflow_dispatch` 指定 run ID | 只对未分配到 hosted runner、没有执行步骤的故障重试，最多两次；重跑失败 job 与 `ci-ok`，不放宽合并门禁 |
 | `bench-pr.yml` | `pull_request` 到 main（仅 runtime / libraries / compiler / bench / xtask 脚本路径，纯 `.md` 不触发）；`push` main 与每周一 `schedule` 仅预热缓存；`workflow_dispatch` | `bench-regression(linux-x64)`：同 runner A/B，`xtask bench --ab --tier gate --threshold-time 0.15`（初判回归的条目再测 2 轮、用跑间离散度重算区间），>15% 时间回归且区间分离即 fail；micro 层同为硬门禁（base / pr 各出 `xtask bench stdlib --json`，`xtask bench --micro-diff --threshold-time 0.15` 判红）；criterion 层只打印。`bench-cache-warm`：main 上预热 Rust 依赖缓存。判红语义与阈值依据见 internals「性能基准与回归门禁」 |
 | `release.yml` | 推 tag `v*.*.*`；`workflow_dispatch`（输入 version） | `verify-version`（tag ↔ `scripts/versions.toml`）→ `package-<rid>` × 9 个 RID → `publish-release`（含 SHA256SUMS） |
-| `deploy-book.yml` | `push` main 且改动书 / examples / 安装脚本 / stdlib 源码 / doc 渲染器；`pull_request`（只构建，`[ERROR]` 判红）；`workflow_dispatch` | `xtask doc gen` 现生成 reference 的 stdlib 包页，构建 mdBook 并发布到 GitHub Pages（含 `install-z42.sh` / `install-z42.ps1`） |
+| `deploy-book.yml` | `push` main 且改动书 / examples / 安装脚本 / stdlib 源码 / doc 渲染器；`pull_request`（只构建，`[ERROR]` 判红）；`workflow_dispatch` | `xtask build docs` 现生成 reference 的 stdlib 包页，构建 mdBook 并发布到 GitHub Pages（含 `install-z42.sh` / `install-z42.ps1`） |
 | `jit-fixpoint-check.yml` | 仅 `workflow_dispatch`（实验性，不进门禁） | 逐平台验证 z42c 工作区 `--mode jit` 与 `--mode interp` 产物逐字节一致 |
 
 ### ci.yml 的 job

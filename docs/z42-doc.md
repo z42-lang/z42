@@ -361,7 +361,7 @@ $ z42 doc --format md --out <dir>                            # 普通工程用
 
 | 门 | 内容 | 对照的现有先例 |
 |---|---|---|
-| `xtask doc gen` | 编译 stdlib，重新生成 reference 包页 | `xtask deps install vscode` 重新生成 grammar |
+| `xtask build docs` | 编译 stdlib，重新生成 reference 包页 | `xtask deps install vscode` 重新生成 grammar |
 | `xtask check doc-lints` | 硬门：任何 W08xx 即红；硬门，无白名单 | 编译器内建 style.* 行数 lint（豁免走源内 [Suppress]） |
 | `z42 test --doc` | stdlib 的 doctest 并入 GREEN gate | learn ↔ examples 重放 |
 | `xtask check doc-refs` | 报告书与 README 的行号引用和未解析符号链（§4.9），供手动维护 | 符号索引与 `z42 doc --page` |
@@ -423,7 +423,7 @@ split   = "package"   # mdbook 输出粒度："package" | "type"
 
 1. 开工导航里「先读 README 再读书」之后加一步：**读完书页跑 `z42 doc --page <页>`，查符号用 `z42 doc <Sym>`
    或 `--members`，再按返回的 `file:line` 用 offset/limit 读实现**，不 grep、不整文件读取。
-2. 在 `AGENTS.md`（或所用工具的 skill / 斜杠命令机制）里加一个很薄的查询命令速查表，写清「读 reference 的 stdlib 页前先运行 `xtask doc gen`」（生成页不入库）。
+2. 在 `AGENTS.md`（或所用工具的 skill / 斜杠命令机制）里加一个很薄的查询命令速查表，写清「读 reference 的 stdlib 页前先运行 `xtask build docs`」（生成页不入库）。
 3. 编译器各包设置 `[doc] private = true`。之后 agent 改编译器时，可以用 `z42 doc --private --pkg z42c.semantics Binder --members`
    拿到内部类的轮廓。这对 1.8 万行 `//` 的编译器帮助最大。
 4. `z42 doc --search` 补上「不知道叫什么名字」的场景：按摘要搜，比 grep 源码噪声小得多。
@@ -456,10 +456,10 @@ User 裁决：**先把机制全部做完（含测试与示例），最后统一�
 |---|---|---|
 | **P1 挂靠** | Lexer `DocBlock` 旁挂表、Parser 声明入口认领、`Decl.Doc` / `EnumMember.Doc` / `CompilationUnit.Doc`、`--dump-doc`；本文件写入裁决 | ✅ #1276 |
 | **P2a z42 索引与查询** | `z42.doc` 包（语法级索引、增量缓存、名字解析、输出）+ `z42d doc <Sym>` / `--members` / `--search` / `--private` / `--pkg` / `--json`；launcher 转发 `z42 doc`；示例工程；reference / internals / README 同步 | ✅ #1278 |
-| **P2b Rust 索引** | `src/toolchain/devtools/rust-index`（syn）+ `xtask doc index` → `artifacts/doc/rust.idx`；`z42.doc` 的 `ExternalIndex` 并入、`::` 名字解析、模块 / trait 轮廓、过期提示 | 本 PR |
+| **P2b Rust 索引** | `src/toolchain/devtools/rust-index`（syn）+ `xtask build docs index` → `artifacts/doc/rust.idx`；`z42.doc` 的 `ExternalIndex` 并入、`::` 名字解析、模块 / trait 轮廓、过期提示 | 本 PR |
 | **P3 书引用检查** | `z42 doc --page` / `--docs`；`xtask check doc-refs`（§4.9）只读报告 | 🟡 进行中：查询与按区域报告已落地；书页引用的批量清理（行号改符号、补「代码」页头）待做 |
 | **P4 模型与校验** | `z42.doc` 包（DocParser / DocId / Zdoc）、`DocChecker`、W0801～W0808、`LintConfig` 扩到内建 doc 规则、`[doc]` 表（两步）；reference `language/doc-comments.md` 与 agent 写法规则 | 🟡 进行中：DocParser + W08xx 语法级首批已落地（`z42.doc` DocLint + `xtask check doc-lints` 零告警检查；W0803 零发射占号）；DocId / Zdoc / 编译器 DocChecker pass（W0803 + `[lints]` 级别决策）/ `[doc]` 表待做 |
-| **P5 产出与生成** | build 产出 `.zdoc`；SDK `[component.docs]`；mdbook 渲染器；`xtask doc gen`（按写了 `//!` 的包生效；生成页不入库，发布时现生成） | 🟡 进行中：mdbook 渲染器 + `xtask doc gen` 已落地，生成页改为不入库、deploy-book 现生成；同名声明合并页（partial 并为代表、泛型委托各元数一页）、页内 `file:line` 源码位置行（生成物随 gen 重写不腐；经 `SourceBase` 渲染成 GitHub `#L<行>` 直达链接）、成员锚点（`<a id>` = Doc ID）与成员索引行（mdBook SUMMARY 不支持锚点条目，成员级导航在类型页内）、SUMMARY 的 type-split 区段生成（命名空间草稿章 → 类型，配 book.toml fold 逐级展开）已落地；`.zdoc` 产出、SDK `[component.docs]`、stdlib/README 概览表生成待做 |
+| **P5 产出与生成** | build 产出 `.zdoc`；SDK `[component.docs]`；mdbook 渲染器；`xtask build docs`（按写了 `//!` 的包生效；生成页不入库，发布时现生成） | 🟡 进行中：mdbook 渲染器 + `xtask build docs` 已落地，生成页改为不入库、deploy-book 现生成；同名声明合并页（partial 并为代表、泛型委托各元数一页）、页内 `file:line` 源码位置行（生成物随 gen 重写不腐；经 `SourceBase` 渲染成 GitHub `#L<行>` 直达链接）、成员锚点（`<a id>` = Doc ID）与成员索引行（mdBook SUMMARY 不支持锚点条目，成员级导航在类型页内）、SUMMARY 的 type-split 区段生成（命名空间草稿章 → 类型，配 book.toml fold 逐级展开）已落地；`.zdoc` 产出、SDK `[component.docs]`、stdlib/README 概览表生成待做 |
 | **P6 doctest** | `@example` 合成 `[Test]` 方法，经反射发现；`z42 test --doc` 进 gate | 待做 |
 | **P7 迁移** | 代码注释按包迁移（先 `z42.random`）；stdlib 页改为生成；README 入口点改链接；书里引用清理；W0805 零告警 | ✅ 全部 19 个包已迁移（中文 `//!` + `///` + `@tag`、删历史注记），包页改为生成，README 入口点改链接；`z42.core` 走 `split = "type"`（156 个类型页，9 个手写主题页删除、SUMMARY 区段生成）；`z42.harness` 收录（在 `default_members`、用户可见）。W0805 已由 `xtask check doc-lints` 按零告警检查 |
 | **P8 延伸** | REPL `:doc`；LSP hover 复用 `.zdoc`；英文翻译层（按 Doc ID 叠加） | 按 roadmap 排期 |

@@ -521,7 +521,7 @@ minor 不一致就会把所有 job 推进两代自举那条已知会挂的路。
 |---|---|---|
 | `bench-pr.yml` | `bench-regression(linux-x64)` | 同 runner A/B 性能门；用窄 `paths:` allowlist，纯文档 PR 天然跳过 |
 | `release.yml` | `verify-version` / `package-<rid>` ×9 / `publish-release` | tag 触发的正式发布，见[打包与发版](release.md) |
-| `deploy-book.yml` | `build` / `deploy` | 三本书 + 安装脚本发到 GitHub Pages；构建前 xtask-only bootstrap 后 `xtask doc gen` 现生成 reference 的 stdlib 包页（不入库），所以 stdlib 源码 / `z42.doc` / `xtask_doc.z42` 的改动也触发 |
+| `deploy-book.yml` | `build` / `deploy` | 三本书 + 安装脚本发到 GitHub Pages；构建前 xtask-only bootstrap 后 `xtask build docs` 现生成 reference 的 stdlib 包页（不入库），所以 stdlib 源码 / `z42.doc` / `xtask_doc.z42` 的改动也触发 |
 | `jit-fixpoint-check.yml` | `jit-fixpoint(<rid>)` | JIT 不动点实验腿 |
 | `retry-ci-runner.yml` | `retry` | PR CI 的 hosted runner 获取失败有限重试，见上文资源队列与恢复规则 |
 

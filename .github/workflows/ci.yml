@@ -219,7 +219,7 @@ jobs:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           xtask-only: "true"
 
-      # `test docs links` 先 `doc gen` 生成 reference 的 stdlib 包页（不入库），用的是 xtask 自带的 z42c.syntax——
+      # `test docs links` 先 `build docs` 生成 reference 的 stdlib 包页（不入库），用的是 xtask 自带的 z42c.syntax——
       # xtask-only 下那是种子 SDK 的解析器；stdlib 用上种子还不认的语法时，到下一次 nightly 前这里会红（窗口很短）。
       - name: Docs gates
         shell: bash

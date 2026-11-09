@@ -32,7 +32,6 @@ class XtaskCommand : Command {
         this.AddCommand(new CheckCommand());
         this.AddCommand(new SetupCommand());
         this.AddCommand(new BenchCommand());
-        this.AddCommand(new DocCommand());
         this.AddCommand(new ProfileCommand());
         this.AddCommand(new LayoutCommand());
         this.AddCommand(new CleanCommand());

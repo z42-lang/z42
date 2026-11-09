@@ -7,7 +7,7 @@ name: Deploy book to GitHub Pages
 #   https://z42-lang.github.io/z42/internals/   内部实现（docs/internals）
 #   https://z42-lang.github.io/z42/install-z42.sh / install-z42.ps1   安装脚本
 # PR 上只构建不发布：mdBook 的 include 出错不会让构建失败（缺文件只打 ERROR），这里把 [ERROR] 判红。
-# reference 的 stdlib 包页不入库：构建前用 `xtask doc gen` 从 stdlib 源码的 `///` 现生成，所以 stdlib 源码与
+# reference 的 stdlib 包页不入库：构建前用 `xtask build docs` 从 stdlib 源码的 `///` 现生成，所以 stdlib 源码与
 # 渲染器（z42.doc、xtask_doc.z42）的改动也触发发布。
 # 一次性前置：仓库 Settings → Pages → Source 选 "GitHub Actions"。
 
@@ -69,7 +69,7 @@ jobs:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           xtask-only: "true"
       - name: Generate reference stdlib pages
-        run: xtask doc gen
+        run: xtask build docs
       - name: Test book tool installer
         run: python3 .github/scripts/test-install-book-tools.py
       - name: Install mdBook + mdbook-mermaid

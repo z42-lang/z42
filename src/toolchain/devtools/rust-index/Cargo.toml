@@ -1,5 +1,5 @@
 # z42-rust-index —— 仓库开发用：把 Rust 源码（运行时各 crate）的条目与 rustdoc 写成 `z42 doc` 能读的索引，
-# 让 `z42 doc` 一并查 Rust 符号。由 `xtask doc index` 构建并运行，不进 SDK。
+# 让 `z42 doc` 一并查 Rust 符号。由 `xtask build docs index` 构建并运行，不进 SDK。
 [package]
 name = "z42-rust-index"
 version = "0.1.0"

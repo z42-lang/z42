@@ -1,7 +1,7 @@
 # 文档索引与 `z42 doc`
 
 > 代码：`src/compiler/z42.doc/src/`（引擎，含 `DocParser.z42` / `DocLint.z42` / `DocRefs.z42` / `DocMd.z42`）、`src/toolchain/devtools/core/doc_cmd.z42`（`DocCommand`）、
-> `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/build/xtask_doc.z42`（`doc gen` / `doc index` CLI）、
+> `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/build/xtask_doc.z42`（`build docs` / `build docs index` CLI）、
 > `scripts/common/xtask_doc_index.z42`（Rust 索引构建）、`scripts/check/xtask_check_doc_lints.z42` / `xtask_check_doc_refs.z42`（检查与报告）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`_forwardZ42d`）、`src/compiler/z42c.syntax/src/DocBlock.z42`（doc 挂靠）
 >
@@ -89,16 +89,16 @@ z42 doc <args>                      launcher：`doc` 原样转发
 - **同名声明合并**：partial 类型并成一页（代表声明），泛型委托按元数各一页。
 - **type-split**：太大的包一个类型一页——索引页 `<short>.md` 加每个类型的 `<short>.<Type>.md`（当前只有
   `z42.core`，清单硬编码在 xtask 里，待 `[doc] split` 清单键就绪后改读清单）。SUMMARY.md 里该包的页清单
-  区段由 `xtask doc gen` 重写：标记注释夹住，按命名空间分草稿章、章下列类型；区段外不许生成改动。区段随
+  区段由 `xtask build docs` 重写：标记注释夹住，按命名空间分草稿章、章下列类型；区段外不许生成改动。区段随
   SUMMARY 入库、不设门禁——发布前总会重新生成，入库那份落后只表现为本地 gen 后 `git status` 多一处改动。
 
 `z42d doc --format mdbook --out <dir> --pkg <name>` 渲染一个包到 `<dir>/<name>.md`（生成不写共享索引缓存）。
-`xtask doc gen` 生成全部写了 `//!` 的包的页面到 `docs/reference/src/stdlib/`，并删掉不再生成的旧页（该目录除
+`xtask build docs` 生成全部写了 `//!` 的包的页面到 `docs/reference/src/stdlib/`，并删掉不再生成的旧页（该目录除
 `README.md` 外全归 gen 所有）；内容不变的页不重写。**生成页不入库**（`.gitignore`），由用到它们的地方现生成：
 
 | 谁 | 何时 |
 |---|---|
-| `deploy-book.yml` | 构建 reference 之前（xtask-only bootstrap 后 `xtask doc gen`）；stdlib 源码、`z42.doc`、`xtask_doc.z42` 的改动都触发它 |
+| `deploy-book.yml` | 构建 reference 之前（xtask-only bootstrap 后 `xtask build docs`）；stdlib 源码、`z42.doc`、`xtask_doc.z42` 的改动都触发它 |
 | `xtask test docs`（GREEN gate 的 docs stage、CI docs-check） | 查链接之前——手写页链进生成页的链接、生成页自己的链接一起查 |
 | 本地 | 读 / 预览 reference 的 stdlib 页之前手动跑一次 |
 
@@ -108,12 +108,12 @@ z42 doc <args>                      launcher：`doc` 原样转发
 
 ## 6. Rust 条目（外部索引）
 
-仓库里的 Rust 运行时不归 `z42.doc` 解析，而是由 `xtask doc index` 先产出一份外部索引，`z42 doc` 查询时并入：
+仓库里的 Rust 运行时不归 `z42.doc` 解析，而是由 `xtask build docs index` 先产出一份外部索引，`z42 doc` 查询时并入：
 
 ```
-xtask doc index
+xtask build docs index
   └─ cargo build src/toolchain/devtools/rust-index      （与 apphost 同一 cargo 配置）
-  └─ z42-rust-index --root . --out artifacts/doc/rust.idx --regen "xtask doc index" z42=src/runtime/src/lib.rs …
+  └─ z42-rust-index --root . --out artifacts/doc/rust.idx --regen "xtask build docs index" z42=src/runtime/src/lib.rs …
        从每个 crate 根文件沿 `mod` 声明走模块树（`#[path]` 照认，`#[cfg(test)]` 跳过）→ syn 解析 → 条目行
 ```
 
@@ -156,7 +156,7 @@ tag、W0805 public 声明缺 `///`、W0806 历史注记（日期 / spec 名模�
 范围只有 stdlib：编译器域的注释按 doc-system「契约不显然时写」，不要求 W0805 全覆盖。W0803（链接与
 `@throws` 类型能否解析）需要语义信息，归编译器的 DocChecker pass，不在此列。
 
-**doc-refs** 跑之前先执行 `xtask doc index` 重建 Rust 外部索引（§6），Rust 符号按当前源码解析；生成页（页首
+**doc-refs** 跑之前先执行 `xtask build docs index` 重建 Rust 外部索引（§6），Rust 符号按当前源码解析；生成页（页首
 「由 z42 doc 生成」标记）自带随 gen 重写的 `file:line`，不查；learn 的引用对象在 `examples/`、不进符号索引，
 归 learn↔examples 重放检查，也不查。
 
@@ -164,7 +164,7 @@ tag、W0805 public 声明缺 `///`、W0806 历史注记（日期 / spec 名模�
 
 - 只有语法级：没有继承文档、实现者列表。`@tag` 的语法级检查（§8 的 DocLint）已有；链接与 `@throws` 类型解析
   （W0803）需要语义，归编译器 DocChecker pass，尚未落地。
-- `z42 doc` 查询用的 Rust 索引不会自己更新：手动 `xtask doc index`（过期会提示）；`check doc-refs` 每次自动重建。
+- `z42 doc` 查询用的 Rust 索引不会自己更新：手动 `xtask build docs index`（过期会提示）；`check doc-refs` 每次自动重建。
 - doctest（`@example` 合成测试、`z42 test --doc`）尚未接。
 
 以上后续阶段见仓库根 `docs/z42-doc.md`。

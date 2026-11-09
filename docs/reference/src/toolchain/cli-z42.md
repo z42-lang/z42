@@ -447,7 +447,7 @@ stderr 提示重建，查询照常进行。
 
 **生成 reference 包页**：`z42 doc --format mdbook --out <目录> --pkg <包名>` 把该包渲染成
 `<目录>/<包名>.md`（页面结构见[标准库](../stdlib/README.md)各页）。`@param` / `@throws` 等标记会渲染成
-参数表与异常条目，private 成员不进页。仓库内批量重生成由 `xtask doc gen` 驱动。
+参数表与异常条目，private 成员不进页。仓库内批量重生成由 `xtask build docs` 驱动。
 
 **书里的代码引用**：`z42 doc --page <页.md>` 读该页页头声明的「代码」范围，把正文里每个反引号符号解析成
 当前位置，逐行输出 `符号 → file:line`；`--docs <符号>` 反查哪些书页 / README 引用了它。书里不写行号
