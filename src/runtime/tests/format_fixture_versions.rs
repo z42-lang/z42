@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use z42_zpkg::format::{ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR, ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR};
 
 fn tests_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../compiler/z42.package/tests/fixtures")
+    PathBuf::from(env!("Z42_RUNTIME_DIR")).join("../compiler/z42.package/tests/fixtures")
 }
 
 /// Header prelude shared by both containers: 4-byte magic, then `major`,
@@ -168,7 +168,7 @@ fn sym_only_fixture_really_holds_sidecar_bytes() {
 // writer↔reader numbers are pinned against each other by the next test.
 
 fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+    PathBuf::from(env!("Z42_RUNTIME_DIR")).join("../..")
 }
 
 /// `pub const <name>: u16 = <n>;` — the Rust reader side.

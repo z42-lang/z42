@@ -63,18 +63,18 @@ public class ProjectHooks : BuildHooks {
             ctx.Log("xtask hooks: cargo rustc --crate-type=staticlib,cdylib (libz42.a)…");
             // --config：cargo 只从 cwd 向上找 .cargo/config.toml，配置在 src/runtime/.cargo 下（不在仓根），
             // 不显式指定 target-dir 就会落到 src/runtime/target，下面 libA 永远找不到。
-            string[] rustcArgs = new string[]{ "rustc", "--release",
+            string[] rustcArgs = new string[]{ "rustc", "--release", "-p", "z42",
                 "--config", Path.Join(repo, "src/runtime/.cargo/config.toml"),
                 "--manifest-path", Path.Join(repo, "src/runtime/Cargo.toml"),
                 "--lib", "--crate-type=staticlib,cdylib" };
             if (Platform.IsMacOS()) {
-                rustcArgs = new string[]{ "rustc", "--release",
+                rustcArgs = new string[]{ "rustc", "--release", "-p", "z42",
                     "--config", Path.Join(repo, "src/runtime/.cargo/config.toml"),
                     "--manifest-path", Path.Join(repo, "src/runtime/Cargo.toml"),
                     "--lib", "--crate-type=staticlib,cdylib",
                     "--", "-C", "link-arg=-Wl,-install_name,@rpath/libz42.dylib" };
             } else if (Platform.IsLinux()) {
-                rustcArgs = new string[]{ "rustc", "--release",
+                rustcArgs = new string[]{ "rustc", "--release", "-p", "z42",
                     "--config", Path.Join(repo, "src/runtime/.cargo/config.toml"),
                     "--manifest-path", Path.Join(repo, "src/runtime/Cargo.toml"),
                     "--lib", "--crate-type=staticlib,cdylib",

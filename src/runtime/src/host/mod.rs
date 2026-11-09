@@ -45,3 +45,6 @@ pub(crate) use backends::native_paths;
 pub use crate::vm::ext::VmExtensions;
 
 pub use z42_abi::{Z42Value, Z42_VALUE_TAG_I64};
+
+/// Ergonomic Rust embedding over the shared host services.
+pub mod rust;

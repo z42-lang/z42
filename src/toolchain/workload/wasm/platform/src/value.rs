@@ -12,7 +12,7 @@
 use wasm_bindgen::prelude::*;
 
 use z42_abi::{Z42Value, Z42_VALUE_TAG_BOOL, Z42_VALUE_TAG_F64, Z42_VALUE_TAG_I64, Z42_VALUE_TAG_NULL};
-use z42_host::Value;
+use z42::host::rust::Value;
 
 use crate::error::js_error;
 

@@ -110,7 +110,7 @@ mode = "interp"
 **运行时不需要任何人指路**：`Z42_APP_CONFIG` 未设时，**VM 自己**按「同目录、同 stem」
 从 app 文件推出侧车路径（`config::sidecar_for`）。这条推导发生在**装配**期——配置在
 `OnceLock` 里 boot 后冻结，`host::run_app` 那时再想加一层就晚了——所以它在两个入口各做一次：
-`z42vm` 的 `main()`（有 `cli.file`）与 Rust 嵌入 API `z42-host::run_app`（有 `file` 参数），
+`z42vm` 的 `main()`（有 `cli.file`）与 Rust 嵌入 API `z42::host::rust::run_app`（有 `file` 参数），
 两者共用 `config::load_app_config_tables`。另外两个进入执行核心的入口**不做**这一步，
 直接调 `host::run_app`，配置走 `RuntimeConfig::from_env`（只认显式 `Z42_APP_CONFIG`）：
 C 入口 `z42_host_run_app`（`src/runtime/src/host/mod.rs`）与 wasm 入口
@@ -121,7 +121,7 @@ C 入口 `z42_host_run_app`（`src/runtime/src/host/mod.rs`）与 wasm 入口
 | `z42vm <app.zpkg>` 直跑 | ✅ |
 | `z42 run` / `z42 repl`（launcher）| ✅ |
 | `z42 publish` 出的 spawn apphost | ✅（起的是 `z42vm`） |
-| Rust 宿主调 `z42-host::run_app` | ✅ |
+| Rust 宿主调 `z42::host::rust::run_app` | ✅ |
 | 桌面自包含 apphost、iOS / Android 壳（C 入口 `z42_host_run_app`）| ❌ 不读侧车 |
 | wasm | ❌ 不读侧车 |
 
@@ -144,7 +144,7 @@ C 入口 `z42_host_run_app`（`src/runtime/src/host/mod.rs`）与 wasm 入口
 
 **但 warn 之后必须回落到 app 自己的侧车**，判据是「显式那份**解析出了内容**」而不是
 「变量设了没有」（`config::load_app_config_tables`，`z42vm` 的 `main()` 与
-`z42-host::install_app_config` 共用这**一份**实现）。
+`z42::host::rust::install_app_config` 共用这**一份**实现）。
 显式路径指了个**坏**文件（非法 TOML / `.json`）仍是硬错误：回落只对"没内容"成立，
 否则回落自己就成了新的静默降级，跟它要修的毛病同形。
 

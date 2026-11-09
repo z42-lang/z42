@@ -1,10 +1,10 @@
-//! Translate [`z42_host::HostError`] into a `JsValue` Error object that
+//! Translate [`z42::host::rust::HostError`] into a `JsValue` Error object that
 //! carries the host status code and message alongside JS-side semantics
 //! (`name`, `message`).
 
 use wasm_bindgen::prelude::*;
 
-use z42_host::HostError;
+use z42::host::rust::HostError;
 
 /// Convert a Tier 2 [`HostError`] into a JS-visible `Error` instance.
 /// Sets `err.name = "Z42VMError"`, `err.status = <numeric>` and

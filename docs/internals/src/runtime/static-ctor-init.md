@@ -1,7 +1,7 @@
 # 静态构造函数的按类型初始化
 
 > 语义面见[静态构造函数](https://z42-lang.github.io/z42/reference/language/static-constructors.html)。本页讲实现。
-> 代码：`src/runtime/crates/z42-runtime-core/src/vm/runtime/statics/cctor.rs`（数据）、`src/runtime/crates/z42-runtime-core/src/vm/exec/init.rs`（执行与等待）；启动路径共用步骤 `src/runtime/src/host/boot.rs`。
+> 代码：`src/runtime/src/vm/runtime/statics/cctor.rs`（数据）、`src/runtime/src/vm/exec/init.rs`（执行与等待）；启动路径共用步骤 `src/runtime/src/host/boot.rs`。
 
 RuntimeState 组合静态表、初始化状态与错误记录；执行层共享同一份 Arc registry，
 保留 claim/finish、park 和 Condvar 协议。heap 先于这些数据与类型拥有者释放。
@@ -330,7 +330,7 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 跑 z42 代码有两条入口：
 
 - **`host::run_app`**：`z42vm` 二进制、`z42_run_app`、wasm `runTestApp`；
-- **宿主 API**：`z42_host_load_zbc` → `z42_host_invoke`（C ABI / `z42-host`，iOS / Android / wasm 的
+- **宿主 API**：`z42_host_load_zbc` → `z42_host_invoke`（C ABI / `z42::host::rust`，iOS / Android / wasm 的
   `loadZbc` + `invoke` 都走它）。
 
 两者合并模块的方式相同，合并**之后**的启动步骤必须只有**一份**：若各写一份，新增的步骤只进

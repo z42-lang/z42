@@ -907,7 +907,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if cargo tree --locked --manifest-path src/runtime/Cargo.toml \
+          if cargo tree --locked -p z42 --manifest-path src/runtime/Cargo.toml \
              --no-default-features --features interp-only 2>&1 | grep -q "cranelift"; then
             echo "ERROR: cranelift still present in interp-only build" >&2
             exit 1

@@ -10,7 +10,7 @@
 
 ## 引擎注册与调用边界
 
-共享核心位于独立 z42-runtime-core，解释器和 JIT 分别位于 z42-interp/z42-jit，互不依赖实现。host 按执行模式选择静态或动态组件，经 ExecutionApi 装配基线 Engine 和 JIT Engine；低层构造的默认静态清单由 `assembly/engine.rs` 提供。`VmCore.exec.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
+共享核心位于独立 z42-runtime，解释器和 JIT 分别位于 z42-interp/z42-jit，互不依赖实现。host 按执行模式选择静态或动态组件，经 ExecutionApi 装配基线 Engine 和 JIT Engine；低层构造的默认静态清单由 `assembly/engine.rs` 提供。`VmCore.exec.engines` 持有每 VM 注册表与一次发布的 TierApi。Engine 接收连续值、寄存器索引或带接收者的借用视图，并返回共享 ExecOutcome。JIT 冷回落经此接口进入解释器原有帧构造；VM 与两个后端不需要彼此的具体帧类型。
 
 TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入口和代码页由 JIT 自己持有；所有 worker 共享所属 core 的注册结果，其他 VM 独立。竞争安装保留首个发布实例，失败候选安全释放；所属模块校验仍由后端执行。
 
@@ -147,7 +147,7 @@ heap 先释放，之后才释放 loader 状态，VFS 在其加载器与上下文
 `VmCore.runtime` 是 `vm/runtime/state.rs` 的 `RuntimeState`，拥有入口 module、三张身份表、静态存储与初始化事实。
 构造仍依次创建 FuncTable、TypeTable、StrTable；worker 共享状态，其他 VM 各自链接；heap 先于该身份状态销毁。
 
-`VmCore` 满足 `Send + Sync`（编译期 assertion 在 `src/runtime/crates/z42-runtime-core/src/gc/heap_tests/send_sync.rs`）。
+`VmCore` 满足 `Send + Sync`（编译期 assertion 在 `src/runtime/src/gc/heap_tests/send_sync.rs`）。
 
 ### VmContext：per-thread 视图
 
@@ -308,7 +308,7 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
 ## 原生栈预算：栈溢出是致命错误
 
 两个引擎都在原生栈上递归（每个 z42 调用至少一个 Rust / 机器码帧），所以递归深度受线程栈限制。
-`stack_guard`（`src/runtime/crates/z42-runtime-core/src/vm/exec/stack_guard.rs`）在**每个 z42 帧入口**比较栈指针与本线程的下限：
+`stack_guard`（`src/runtime/src/vm/exec/stack_guard.rs`）在**每个 z42 帧入口**比较栈指针与本线程的下限：
 
 - 下限 = 栈底 + 余量，余量为栈大小的 1/8、夹在 256 KiB–1 MiB（给两次检查之间的原生工作：builtin、
   一次惰性 JIT 编译、生成报告）。栈边界来自 `pal::thread`，线程首次进入时算一次，存 TLS。
@@ -468,7 +468,7 @@ for ((module, ns, _tidx), (sym_ns, fns)) in module_pairs.iter_mut().zip(sidecar.
 | 单个 module 内 function 数不一致 | warn + 跳过该 module，其他 module 仍合并 |
 | Module 加载主 zbc / zpkg 被发现 `SymOnly` flag | `bail!` —— sidecar 不可作为主模块加载 |
 
-> **实现位置**：[src/runtime/crates/z42-runtime-core/src/vm/loader/](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-runtime-core/src/vm/loader) `apply_zbc_sidecar` / `apply_zpkg_sidecar`；解析在 [reader/](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-zpkg/src/reader)（`sidecar.rs`）`parse_zbc_sidecar` / `parse_zpkg_sidecar`。
+> **实现位置**：[src/runtime/src/vm/loader/](https://github.com/z42-lang/z42/tree/main/src/runtime/src/vm/loader) `apply_zbc_sidecar` / `apply_zpkg_sidecar`；解析在 [reader/](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-zpkg/src/reader)（`sidecar.rs`）`parse_zbc_sidecar` / `parse_zpkg_sidecar`。
 
 ## Embedding Entry
 
@@ -621,7 +621,7 @@ try_lookup_function(func_name):        # VmContext 先查 per-context fn_lookup_
 `ResolvedTokens.method_tokens[site]`（`AtomicU32`）存被调函数的 `FnId`。入口函数的 `FnId` 等于
 `module.functions` 下标，惰性包函数的 `FnId` 排在其后，所以一个 u32 就够得着所有已登记的函数。
 
-- **解析期按名填**（[resolver.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/vm/runtime/resolve/mod.rs)）：
+- **解析期按名填**（[resolver.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/runtime/resolve/mod.rs)）：
   `module` 是 FuncTable 的入口模块时（`FuncTable::is_entry`，生产路径恒成立），名字经 `FuncTable::id_of` 解析——
   先入口模块、再已登记的惰性函数，与调用路径冷解析同一优先级。惰性包里的函数首执解析时自己的包已登记，
   **包内调用一开始就绑好**；调入尚未加载的包的站点留 `UNRESOLVED`。只查不加载。签名容不下本站点实参数的目标
@@ -658,7 +658,7 @@ token = UNRESOLVED（bind_callee，冷路径）:
 上面所有 per-site 缓存（`method_tokens` / `vcall_ic` /
 `field_ic` / `builtin_tokens` / `static_field_tokens` / `obj_new` / `fn_ref_tokens` / `site_index`）
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
-[`resolve::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/vm/runtime/resolve/mod.rs) 一次性填充。
+[`resolve::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/runtime/resolve/mod.rs) 一次性填充。
 但 `resolve_module` **只经 `Vm::run` → `boot::prepare_execution` 对 entry module 跑一次**——而
 interp/JIT 模式下依赖是**纯惰性加载**（[load.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/host/load.rs)
 `is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
@@ -673,7 +673,7 @@ Field 无 IC、Builtin/Static 走名字查、每个 Call 都对 entry module 的
 profile 里 `get_inner`+`memcmp`+`try_lookup_*` 的大头即源于此。
 
 做法：`resolve_module` 的**单函数体**抽成
-[`resolve_function_tokens(func, module, ctx)`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/vm/runtime/resolve/mod.rs)，
+[`resolve_function_tokens(func, module, ctx)`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/runtime/resolve/mod.rs)，
 并在 [`exec_function_body`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-interp/src/interp/run/mod.rs) 顶部**首次执行时**
 按需填充（`if func.resolved.get().is_none()`，OnceLock 门禁 → 每函数只解析一次；
 热路径仅一次 relaxed atomic load，指令循环本就要再读它）。
@@ -802,7 +802,7 @@ Sub : Std.Exception { ... }` 加载时，`Std.Exception`（在 z42.core）尚
   可解析 → 仅含 own 部分（后续 fixup 补齐）。
 
 **阶段 2 — fixup**（`try_fixup_inheritance`）：
-- 在 [`LazyLoader::load_zpkg_file`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/vm/loader/lazy/registry.rs)
+- 在 [`LazyLoader::load_zpkg_file`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/loader/lazy/registry.rs)
   把新 zpkg 的 TypeDesc 插入全局 `type_registry` 之后调用（函数本体在 `vm/runtime/types/registry.rs`）。
 - 扫描整个 `type_registry`，对每个 base 链 *新近可解析* 的 TypeDesc
   （`needs_fixup` 检测），用 `merge_with_base` 用全局 registry 重算
@@ -850,7 +850,7 @@ needs_fixup = td.fields.len() != expected || td.vtable.len() != expected_v
 
 ## resolve_namespace / resolve_dependency 的分工
 
-位置：`src/runtime/crates/z42-runtime-core/src/vm/loader/`
+位置：`src/runtime/src/vm/loader/`
 
 | 函数 | 签名 | 语义 | 调用方 |
 |------|------|------|--------|
@@ -900,7 +900,7 @@ const_str(module, idx):
 ### ObjNew dispatch（与 VCall 对称）
 
 `Instruction::ObjNew { dst, class_name, ctor_name, args }`。类与构造器的解析是 interp 与 JIT 共用的一份
-（[obj_new.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/vm/exec/ops/obj_new.rs)），
+（[obj_new.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/exec/ops/obj_new.rs)），
 两侧只决定怎么跑 ctor：
 
 ```
@@ -924,7 +924,7 @@ const_str(module, idx):
 
 ctor 在分配**之前**绑定：绑定可能加载包、跑包初始化器，而刚分配的对象只在 Rust 局部变量里时不是 GC 根。
 
-**站点缓存**（`ResolvedTokens.obj_new[site]: ObjNewSite`，[resolver/ic.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/vm/runtime/dispatch/ic.rs)）：
+**站点缓存**（`ResolvedTokens.obj_new[site]: ObjNewSite`，[resolver/ic.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/runtime/dispatch/ic.rs)）：
 
 | 字段 | 内容 | 何时写 |
 |---|---|---|
@@ -1041,7 +1041,7 @@ if let Some(&slot) = type_desc.vtable_index.get(method) {
 `Std.Object` 同样中招：`ToString` override 被无视）。
 
 > 注：派发目标的**决议**集中在
-> `src/runtime/crates/z42-runtime-core/src/vm/exec/ops/vcall.rs`，interp 与 JIT 共用同一条阶梯（boxed primitive →
+> `src/runtime/src/vm/exec/ops/vcall.rs`，interp 与 JIT 共用同一条阶梯（boxed primitive →
 > boxed struct → primitive/array receiver → object vtable / 继承链），各自只决定「怎么调」。
 
 ### 接口调用：接口槽
@@ -1147,7 +1147,7 @@ match callee_value {
 
 ## interp vs JIT 分发
 
-位置：`src/runtime/crates/z42-runtime-core/src/vm/mod.rs` + `interp/` + `jit/`
+位置：`src/runtime/src/vm/mod.rs` + `interp/` + `jit/`
 
 - **interp**：`exec_function` → `exec_instr` match 分发到近 70 个 IR 指令
   实现。`Value` 是 `Copy` 的 16B tagged enum（见 [object-abi.md](object-abi.md)）。
@@ -1373,7 +1373,7 @@ mixed-type sites 调用，删除会让那些 sites 慢一档。
 
 ## Method token system
 
-位置：`src/runtime/crates/z42-runtime-core/src/vm/runtime/ids/tokens.rs` + `vm/runtime/resolve/mod.rs`（+ `resolver/ic.rs`）+ `vm/context/statics.rs::resolve_static_field_id` + 各 `interp/ops/exec_*.rs` 热路径
+位置：`src/runtime/src/vm/runtime/ids/tokens.rs` + `vm/runtime/resolve/mod.rs`（+ `resolver/ic.rs`）+ `vm/context/statics.rs::resolve_static_field_id` + 各 `interp/ops/exec_*.rs` 热路径
 
 **问题**: z42 IR 所有跨引用 dispatch 用 `String` + `HashMap.get()` 做身份。每次虚调用一次 hash + 字符串等价比较；IR 内存表示膨胀；反射 R-series 设计无 token 锚点。
 
@@ -1565,9 +1565,9 @@ allocator、分代 GC、记忆集、finalizer 契约、迭代规划等）已抽�
 
 简要状态：
 
-- **具体堆类型**：[`crate::gc::Heap`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/gc/heap.rs) ——
+- **具体堆类型**：[`crate::gc::Heap`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs) ——
   对齐 [MMTk](https://www.mmtk.io/) `VMBinding` porting contract
-- **Backing**：[`VarRegion`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/gc/var_region.rs) 变长块
+- **Backing**：[`VarRegion`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/var_region.rs) 变长块
   allocator（对象、数组、字符串、闭包各是一块）+ 8B 句柄（`ObjRef` / `ArrRef` / `VarGcRef`，标记指针指向块头）
 - **两种 mode 可选**（`GcMode` enum + `Z42_GC_MODE` / `--set gc-mode=`）:
   - `GenerationalMarkSweep` (default) — minor GC 扫 young + 记忆集

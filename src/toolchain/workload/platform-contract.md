@@ -16,7 +16,7 @@
 
 把 z42 VM 包装成各**目标平台原生形态**的依赖包，让 native 应用（iOS / Android / 浏览器 / Node.js / wasm runtime）一行 `import` 就能跑 `.zbc`。
 
-所有平台 facade **统一架在 [Tier 2 `z42-host` crate](../../workload/host-api) 之上**（consolidate-platform-into-workload S1 已从 `host/embed/` 迁至 `workload/host-api/`）；没有任何 facade 直接调 `z42_runtime::interp::*` 或 `z42::host::*` extern C 函数 —— 那是 host 模块自己内部的事。
+所有平台 facade **统一架在 [Tier 2 `z42::host::rust` crate](../../runtime/src/host) 之上**（consolidate-platform-into-workload S1 已从 `host/embed/` 迁至 `workload/host-api/`）；没有任何 facade 直接调 `z42_runtime::interp::*` 或 `z42::host::*` extern C 函数 —— 那是 host 模块自己内部的事。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -34,7 +34,7 @@
          ▼                  ▼                        ▼
 ┌─────────────────────────────────────────────────────────────┐
 │         src/toolchain/workload/host-api/  (Tier 2)         │
-│              z42-host crate — single source of truth        │
+│              z42::host::rust crate — single source of truth        │
 └─────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -202,7 +202,7 @@ zpkg 文件本身**由 `dotnet build src/compiler/z42.slnx` 编译标准库产�
 
 ## 关键设计原则
 
-1. **三平台共享 Tier 2 `z42-host`** —— 任何"VM 启动 / 加载 / 调用"逻辑只能在 `z42-host` 中存在一份；platforms/ 只做语言绑定 + 资源 bundle
+1. **三平台共享 Tier 2 `z42::host::rust`** —— 任何"VM 启动 / 加载 / 调用"逻辑只能在 `z42::host::rust` 中存在一份；platforms/ 只做语言绑定 + 资源 bundle
 2. **不分叉 ABI** —— 三平台用相同 C ABI；hook 机制（ZpkgResolver）统一了"如何找 zpkg 字节"，没有 platform-specific 函数
 3. **类名全平台 `Z42VM`** —— 跨平台文档 / 教学 / 错误信息可直接复用
 4. **bundle by default** —— 三平台都假定 stdlib zpkg 与 app 一起 ship；网络下载 / 增量更新留 1.x+

@@ -195,7 +195,7 @@ fn default_backend_is_attached_without_optional_components() {
 fn fixture() -> &'static std::path::Path {
     static PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
     PATH.get_or_init(|| {
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let root = std::path::PathBuf::from(env!("Z42_RUNTIME_DIR"));
         let identity: String = COMPONENT_BUILD_ID[..8]
             .iter()
             .map(|b| format!("{b:02x}"))

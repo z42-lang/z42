@@ -28,7 +28,7 @@ fn helper_path() -> PathBuf {
     }
 
     // 2. z42 repo default (target-dir = artifacts/build/runtime relative to repo root)
-    let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let crate_root = PathBuf::from(env!("Z42_RUNTIME_DIR"));
     let repo_root = crate_root.parent().and_then(|p| p.parent()).unwrap_or(&crate_root);
     let z42_target = repo_root.join("artifacts/build/runtime");
     for sub in ["debug/examples", "release/examples"] {

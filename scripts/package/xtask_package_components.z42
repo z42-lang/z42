@@ -61,7 +61,7 @@ int _packageDynamicRuntime(string rid, string profile, bool noBuild, bool verify
     string native = Path.Join(pkg, "native");
     Directory.Create(native);
     string cargo = _componentCargoOut(root, profile);
-    foreach (var stem in new string[]{ "z42", "z42_runtime_core", "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42", "z42_runtime", "z42_interp", "z42_jit", "z42_compression" }) {
         string file = _componentLibrary(stem);
         _componentCopyRequired(Path.Join(cargo, file), Path.Join(native, file));
     }

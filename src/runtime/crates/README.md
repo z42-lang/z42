@@ -2,81 +2,36 @@
 
 ## 职责
 
-`z42`（VM 主 crate，`src/`）之外的 Rust workspace 子 crate。包含独立运行时组件和 native / 宿主支持库。`z42-zpkg` 是没有 VM 依赖的静态产物库，为运行时和各执行引擎共用。native / 宿主支持库分两组：
-
-1. **native 类型创作 SDK**（`z42-abi` / `z42-rs` / `z42-macros`）——**刻意压在 VM 之下、不依赖
-   runtime crate**，靠稳定 `extern "C"` 符号回连 VM。因此**两类消费者共用同一套**：
-   - 被运行中的 `z42vm` `dlopen` 的独立 native 扩展（如 `numz42-rs`）；
-   - **嵌入式应用**——link 了 `z42-host` 把 VM 嵌进自己进程、又想把自己的 Rust 类型注册进这台
-     内嵌 VM，用的也是这套 `Z42Type` / `#[z42::methods]` / `module!`。
-
-   > 它们**不是"仅扩展侧 / 仅 Tier 2"**；跟"独立扩展还是嵌入宿主"无关，只要"创作暴露给 z42 的
-   > native 类型"就用这套。保持 runtime-free 正是为了让这两类消费者都能用而不拖进整台 VM。
-
-2. **驱动 / 运行 VM 侧**（`z42-host`）——在 VM 之上：`z42-host` link runtime crate 在**进程内**
-   嵌入执行（mobile/wasm workload、桌面嵌入宿主用）。
-
-此外 `z42-compression` / `z42-repl` 是纯 C ABI 的 native 扩展 cdylib（被 `z42vm` dlopen，与主 crate 无 Cargo 环）。
-
-> **进程外拉起（out-of-process）不在本目录**：桌面 apphost 那条"定位已部署 `z42vm` + libs 并
-> **子进程** exec app zpkg"的逻辑在
-> [`src/toolchain/workload/desktop/platform/apphost/src/hostrun.rs`](../../toolchain/workload/desktop/platform/apphost/src/hostrun.rs)
-> ——它纯 std、不 link VM，唯一消费者就是那个 apphost 桩，故住在桩里而非这里。
+本目录包含可独立编译的执行后端、产物格式、native SDK 和原生扩展。运行时主库位于 ../src/lib.rs，统一宿主库与 CLI 的 Cargo 包位于 ../src/host；它们不在本目录重复包装。
 
 ## 功能索引
 
-| 子目录 | 包名 | 层 | 职责 |
-|--------|------|-----|------|
-| `z42-runtime-core/` | `z42-runtime-core` | 共享核心 | VM、对象、GC、PAL 与中立执行/诊断契约 |
-| `z42-interp/` | `z42-interp` | 执行后端 | 基线解释器，直接提供 rlib/cdylib，不依赖 JIT |
-| `z42-jit/` | `z42-jit` | 执行后端 | Cranelift 编译器、tier/OSR 与代码页，直接提供 rlib/cdylib，不依赖解释器实现 |
-| `z42-zpkg/` | `z42-zpkg` | 静态产物组件 | 格式、读取器、静态 IR、调试记录与不可变 PackageImage；不持有运行时状态 |
-| `z42-abi/` | `z42-abi` | 之下 · Tier 1 | C ABI 的 Rust `#[repr(C)]` 冻结布局镜像（`Z42Value` / `Z42_ABI_VERSION` …）；`#![no_std]`、零依赖 |
-| `z42-rs/` | `z42-rs` | 之下 · Tier 2 | native 类型创作的人体工学层：`Z42Type` / `Z42Traceable` / `Visitor` trait + 类型别名；re-export `z42-macros`。需 std，不依赖 runtime |
-| `z42-macros/` | `z42-macros` | 之下 · Tier 2 | proc-macro：`Z42Type` derive、`methods` / `trait_impl` attr、`module!`。**独立编译产物（Rust 规则），不可并入普通 lib** |
-| `z42-host/` | `z42-host` | 之上 | 宿主**进程内嵌入** API：`Result` 错误 / `Drop` 清理 / `Box<dyn Fn>` sink；link runtime crate。包在 Tier 1 C ABI（`z42::host`）外的 Tier 2 |
-| `z42-compression/` | `z42-compression` | 旁 · native 扩展 | 压缩后端（gzip/zlib/deflate/zstd/brotli/lz4，`z42.compression` 的 native 侧）；cdylib+staticlib+rlib，desktop/mobile dlopen、wasm 静态链 |
-| `z42-repl/` | `z42-repl` | 旁 · native 扩展 | **host-only** 交互式 REPL（`z42i`）行编辑器，wrap rustyline；`z42vm` 首次 `__repl_readline` 时 dlopen。VM 重入（补全/按键编辑）经 `ReplCallbacks` 的 C 函数指针回跨，无 z42 内部类型过边界。产物随 `z42i` 放 toolchain/interactive 目录，**不进** `<sdk>/native/`；wasm/mobile 走纯 stdin fallback |
+| 子目录 | 职责 |
+|---|---|
+| z42-interp | 基线解释器；提供 rlib/cdylib，只依赖运行时与产物格式 |
+| z42-jit | Cranelift、tier/OSR 和编译代码；提供 rlib/cdylib，只依赖运行时与产物格式 |
+| z42-zpkg | zpkg/zbc/zsym、静态 IR 和不可变 PackageImage；无 VM 依赖 |
+| z42-abi | no_std、零依赖的 C ABI 布局 |
+| z42-rs | native 类型创作 SDK；不链接 VM |
+| z42-macros | proc-macro；由 Rust 独立编译，供 native SDK 与 builtin 描述使用 |
+| z42-compression | C ABI 压缩扩展，native 动态加载或 wasm 静态链接 |
+| z42-repl | host-only 行编辑扩展，通过 C 回调访问运行时 |
 
 ## 依赖关系
 
-```
-        独立 native 扩展 (.so)        嵌入式应用 (host)
-                │                          │
-                │        ┌─────────────────┤
-                ▼        ▼                 ▼
-              z42-rs ──→ z42-abi ◀──── z42-host ──→ z42 (runtime crate)
-                │            ▲                             │
-                ▼            │                             ▼
-            z42-macros ──────┘                          z42-abi
-             (展开引用 abi 类型)
-
-z42 (runtime) ──→ z42-abi (实现 ABI 函数)        z42vm --dlopen--> z42-compression / z42-repl
-
-进程外拉起（不在本 workspace）: desktop/…/apphost 桩 —(exec 子进程)→ 已装的 z42vm
-```
-
-要点：`z42-abi` 是所有人（含 runtime 本体、wasm platform、host）共享的 no_std 地基；`z42-rs` /
-`z42-macros` 停在 VM 之下（不依赖 runtime），`z42-host` 在 VM 之上（依赖 runtime）。**这条
-below/above-VM 线 + proc-macro 编译约束，就是这些 crate 不能互相合并的原因**（并 `abi`/`rs` 进
-`host` 会成依赖环 / 把 runtime 强塞给独立扩展 / 丢 no_std；并 `macros` 违反 proc-macro 规则）。
+宿主 z42 依赖 z42-runtime 和选定的 interp/JIT；后端依赖 z42-runtime。运行时不依赖宿主或具体后端。native 创作 SDK 的 z42-rs/z42-macros/z42-abi 保持 VM-free，独立扩展不会因此引入整台 VM。proc-macro 和 no_std ABI 各有独立编译约束。
 
 ## 如何测试验证
 
 ```bash
-(cd src/runtime && cargo test -p z42-abi)     # ABI 布局不变量
-(cd src/runtime && cargo test -p z42-macros)  # trybuild 宏展开（含 fail 用例）
-(cd src/runtime && cargo test -p z42-rs)      # skeleton trait
-(cd src/runtime && cargo test -p z42-repl)    # 行编辑器单测
-# native 扩展端到端（dlopen 路径）随 VM goldens 覆盖：
-xtask test e2e
+./xtask test runtime
+./xtask package sdk --verify
+./xtask package runtime --linkage dynamic --profile debug --verify
 ```
 
 ## 关联文档
 
-- 嵌入 API（Tier 1 C ABI + Tier 2）：[`docs/internals/src/runtime/embedding.md`](../../../docs/internals/src/runtime/embedding.md)
-- apphost run 路径（进程外拉起）：实现在 apphost 的 `hostrun` 模块
-- 各 crate 的引入 / 演进：`git log -- src/runtime/crates/<crate>`
-
-## 待办
-- `z42-rs`：`Z42Type` derive、`trait_impl`、reverse-call 等高层能力待 source generator（C5）
+- [运行时入口](../README.md)
+- [宿主入口](../src/host/README.md)
+- [组件机制](../../../docs/internals/src/runtime/componentized-runtime.md)
+- [嵌入机制](../../../docs/internals/src/runtime/embedding.md)

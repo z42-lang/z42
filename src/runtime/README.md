@@ -2,14 +2,16 @@
 
 ## 职责
 
+`src/lib.rs` 是运行时库入口（z42-runtime）；`src/host/Cargo.toml` 编译统一宿主库 z42 和根目录 `src/main.rs` 的 z42vm。解释器/JIT 只依赖运行时，宿主负责选择和装配后端。Cargo 输出/feature 命令用 `-p z42` 选择宿主。
+
 执行 z42 编译产物（`.zbc` / `.zpkg`）。后端：解释器（interp）+ Cranelift JIT（desktop 默认，惰性逐函数编译）；AOT 为桩。
 不含编译器（在 `src/compiler/`）与标准库（在 `src/libraries/`）。
 
-解释器与 JIT 分别属于独立的 z42-interp、z42-jit 库；共享 VM/对象/GC/PAL 属于 z42-runtime-core。host 统一选择静态/动态组件并注册引擎，每 VM 的 TierApi 归执行层，后端拥有编译器和代码页。
+解释器与 JIT 分别属于独立的 z42-interp、z42-jit 库；VM/对象/GC/PAL 由本目录的 z42-runtime 主库直接拥有。host 统一选择静态/动态组件并注册引擎，每 VM 的 TierApi 归执行层，后端拥有编译器和代码页。
 
 ## 目录结构与核心文件
 
-### 门面与共享核心文件（表中 `vm/` 属于 `crates/z42-runtime-core/src/`）
+### 运行时与宿主入口
 | 文件 | 职责 |
 |------|------|
 | `main.rs` | `z42vm` CLI 入口，解析参数并调用 `host::run_app` |
@@ -41,26 +43,26 @@
 ### 子模块
 | 目录 | 职责 |
 |------|------|
-| `crates/z42-runtime-core/src/vm/` | VM 统一入口、上下文及各子系统，见 [`crates/z42-runtime-core/src/vm/README.md`](crates/z42-runtime-core/src/vm/README.md) |
+| `src/vm/` | VM 统一入口、上下文及各子系统，见 [`src/vm/README.md`](src/vm/README.md) |
 | `crates/z42-zpkg/src/` | 静态包信息、IR、映像与静态查询（见下） |
-| `crates/z42-runtime-core/src/vm/threads/` | mutator 暂停、safepoint 与 GC 根服务适配，见 [`crates/z42-runtime-core/src/vm/threads/README.md`](crates/z42-runtime-core/src/vm/threads/README.md) |
-| `crates/z42-runtime-core/src/vm/exec/` | 引擎共享的帧栈、寄存器池、arena、栈读取与标量指令语义，见 [`crates/z42-runtime-core/src/vm/exec/README.md`](crates/z42-runtime-core/src/vm/exec/README.md) |
-| `crates/z42-runtime-core/src/vm/loader/` | 包加载、惰性依赖、定位和加载上下文，见 [`crates/z42-runtime-core/src/vm/loader/README.md`](crates/z42-runtime-core/src/vm/loader/README.md) |
-| `crates/z42-runtime-core/src/vm/runtime/` | 每 VM 的身份、类型组装与链接缓存，见 [`crates/z42-runtime-core/src/vm/runtime/README.md`](crates/z42-runtime-core/src/vm/runtime/README.md) |
-| `crates/z42-runtime-core/src/object/` | 值、类型形状、布局、对象头、句柄及存储原语，见 [`crates/z42-runtime-core/src/object/README.md`](crates/z42-runtime-core/src/object/README.md) |
-| `crates/z42-runtime-core/src/vm/exec/ops/object/` | 引擎无关的对象操作（字段 / 数组 / 静态字段 / struct 叶子的读写与错误通道），interp 与 JIT 共用，见 [`crates/z42-runtime-core/src/vm/exec/ops/object/README.md`](crates/z42-runtime-core/src/vm/exec/ops/object/README.md) |
+| `src/vm/threads/` | mutator 暂停、safepoint 与 GC 根服务适配，见 [`src/vm/threads/README.md`](src/vm/threads/README.md) |
+| `src/vm/exec/` | 引擎共享的帧栈、寄存器池、arena、栈读取与标量指令语义，见 [`src/vm/exec/README.md`](src/vm/exec/README.md) |
+| `src/vm/loader/` | 包加载、惰性依赖、定位和加载上下文，见 [`src/vm/loader/README.md`](src/vm/loader/README.md) |
+| `src/vm/runtime/` | 每 VM 的身份、类型组装与链接缓存，见 [`src/vm/runtime/README.md`](src/vm/runtime/README.md) |
+| `src/object/` | 值、类型形状、布局、对象头、句柄及存储原语，见 [`src/object/README.md`](src/object/README.md) |
+| `src/vm/exec/ops/object/` | 引擎无关的对象操作（字段 / 数组 / 静态字段 / struct 叶子的读写与错误通道），interp 与 JIT 共用，见 [`src/vm/exec/ops/object/README.md`](src/vm/exec/ops/object/README.md) |
 | `crates/z42-interp/src/interp/` | 字节码解释器，见 [`crates/z42-interp/src/interp/README.md`](crates/z42-interp/src/interp/README.md) |
 | `crates/z42-jit/src/jit/` | Cranelift JIT 后端，见 [`crates/z42-jit/src/jit/README.md`](crates/z42-jit/src/jit/README.md) |
-| `crates/z42-runtime-core/src/vm/diagnostics/` | VM 共享诊断状态：已结束线程的计数、运行时观察者、暂停分布、锁争用统计与采样器；`VmContext` 的观察 API 保持统一入口 |
+| `src/vm/diagnostics/` | VM 共享诊断状态：已结束线程的计数、运行时观察者、暂停分布、锁争用统计与采样器；`VmContext` 的观察 API 保持统一入口 |
 | `src/corelib/` | 内置函数（builtin）实现，统一入口 `invoke_builtin` 供 interp / JIT 调用（builtin ABI v2：`vm/exec/call/builtin_abi/`），见 [`src/corelib/README.md`](src/corelib/README.md) |
-| `crates/z42-runtime-core/src/gc/` | 具体 Heap 与分代 / STW / 增量 major 回收，见 [`crates/z42-runtime-core/src/gc/README.md`](crates/z42-runtime-core/src/gc/README.md) |
+| `src/gc/` | 具体 Heap 与分代 / STW / 增量 major 回收，见 [`src/gc/README.md`](src/gc/README.md) |
 | `src/profiler/` | CPU 采样、堆摘要、V8 快照与保留链，见 [`src/profiler/README.md`](src/profiler/README.md) |
-| `crates/z42-runtime-core/src/vm/context/` | `VmContext`（由 `vm` 统一导出）：固定地址的每线程视图，组合 exec/runtime/diagnostics/threads 状态并共享 Arc<VmCore> |
+| `src/vm/context/` | `VmContext`（由 `vm` 统一导出）：固定地址的每线程视图，组合 exec/runtime/diagnostics/threads 状态并共享 Arc<VmCore> |
 | `src/interop/` | Tier 1 C ABI 运行时 + stdlib native 扩展加载，见 [`src/interop/README.md`](src/interop/README.md) |
-| `crates/z42-runtime-core/src/vm/components.rs` | 每 VM 组件实例、核心服务、接口租约与反序清理 |
+| `src/vm/components.rs` | 每 VM 组件实例、核心服务、接口租约与反序清理 |
 | `src/host/` | CLI 与外部宿主共用的 Rust 加载、调用及应用服务，包含 `z42_host.h` 的 C ABI 适配，见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
-| `crates/z42-runtime-core/src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`crates/z42-runtime-core/src/pal/README.md`](crates/z42-runtime-core/src/pal/README.md) |
-| `crates/z42-runtime-core/src/vm/exec/exception/` | 异常对象布局、传播模型与栈迹捕获 |
+| `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
+| `src/vm/exec/exception/` | 异常对象布局、传播模型与栈迹捕获 |
 
 ### crates/z42-zpkg/src/ — 静态包信息
 | 文件 | 职责 |
@@ -73,7 +75,7 @@
 | `debug/` | `symbols` 的源位置 / 局部变量 / DBUG 记录，`frames` 的帧名与源文件查询；sidecar 定位及覆盖由 loader 执行 |
 
 
-### crates/z42-runtime-core/src/object/ — 对象模型
+### src/object/ — 对象模型
 
 | 目录 | 职责 |
 |------|------|
@@ -86,7 +88,7 @@
 
 GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管理。
 
-### crates/z42-runtime-core/src/vm/loader/ — 包与加载上下文
+### src/vm/loader/ — 包与加载上下文
 
 | 目录 / 文件 | 职责 |
 |------|------|
@@ -96,7 +98,7 @@ GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管�
 | `contexts.rs` | 加载上下文和 assembly 身份、惰性卸载关联 |
 | `availability.rs` | 加载期可用性折叠与不可达 CFG 剪枝 |
 
-### crates/z42-runtime-core/src/vm/runtime/ — 每 VM 的链接状态
+### src/vm/runtime/ — 每 VM 的链接状态
 
 | 目录 | 职责 |
 |------|------|
@@ -115,14 +117,12 @@ GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管�
 
 | 子 crate | 职责 | 状态 |
 |---------|------|------|
-| `crates/z42-runtime-core/` | 共享 VM、对象、GC 和 PAL；不依赖门面或具体后端 | 在用 |
 | `crates/z42-interp/` | 基线解释器、Engine 与组件工厂 | 在用 |
 | `crates/z42-jit/` | Cranelift、tier/OSR、代码页与组件工厂 | 在用 |
 | `crates/z42-zpkg/` | 静态产物格式、解析、IR 与不可变包映像；无 VM 依赖 | 在用 |
 | `crates/z42-abi/` | Tier 1 C ABI 的 Rust `#[repr(C)]` 镜像（`no_std`，无依赖） | 在用 |
 | `crates/z42-rs/` | Tier 2 用户面向 trait/type（`Z42Type`、`Z42Traceable`、`Visitor`） | 在用（高层能力待 C5） |
 | `crates/z42-macros/` | proc macro 入口（`methods`、`module!`；`Z42Type` derive / `trait_impl` 待 C5，现报 `compile_error!`） | 在用 |
-| `crates/z42-host/` | Tier 2 宿主进程内嵌入 API（workload host facade） | 在用 |
 | `crates/z42-compression/` | 压缩后端 cdylib（`z42.compression` 的 native 侧） | 在用 |
 | `crates/z42-repl/` | host-only REPL 行编辑器 cdylib（`z42i`，被 `z42vm` 懒 dlopen） | 在用 |
 

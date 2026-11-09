@@ -911,7 +911,10 @@ dependencies = [
  "tracing-subscriber",
  "z42-abi",
  "z42-compression",
+ "z42-interp",
  "z42-macros",
+ "z42-runtime",
+ "z42-zpkg",
 ]
 
 [[package]]
@@ -930,11 +933,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "z42-host"
-version = "0.1.0"
+name = "z42-interp"
+version = "0.7.0"
 dependencies = [
- "z42",
- "z42-abi",
+ "anyhow",
+ "parking_lot",
+ "rustc-hash",
+ "smallvec",
+ "tracing",
+ "z42-runtime",
 ]
 
 [[package]]
@@ -955,7 +962,30 @@ dependencies = [
  "wasm-bindgen",
  "z42",
  "z42-abi",
- "z42-host",
+]
+
+[[package]]
+name = "z42-runtime"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "getrandom",
+ "libc",
+ "parking_lot",
+ "rustc-hash",
+ "signal-hook-registry",
+ "smallvec",
+ "tracing",
+ "z42-zpkg",
+]
+
+[[package]]
+name = "z42-zpkg"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "rustc-hash",
 ]
 
 [[package]]

@@ -15,7 +15,7 @@ Process _runtimeTestProc() {
     // z42-compression），z42-abi / z42-repl / z42-rs / z42-macros / z42-host 的测试整批不跑。
     // 完整 harness 与 GREEN 窄版共用这些参数；z42-abi 守的是 C ABI 结构体布局契约。
     return _cargoCmd("test", _runtimeCargoConfig()).Arg("--locked").Arg("--workspace")
-        .Arg("--features").Arg("z42-test-fixtures")
+        .Arg("--features").Arg("z42/z42-test-fixtures")
         .Arg("--manifest-path").Arg(_runtimeManifest());
 }
 

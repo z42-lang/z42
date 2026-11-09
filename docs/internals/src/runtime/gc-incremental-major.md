@@ -247,7 +247,7 @@ major 的停顿与堆大小脱钩之后，剩余的最大停顿**全部来自 mi
 
 ## 测试
 
-`src/runtime/crates/z42-runtime-core/src/gc/heap_tests/incremental.rs`，手工驱动周期（开周期 → 快照根 → mutator 动作 → drain → 收尾 → sweep），
+`src/runtime/src/gc/heap_tests/incremental.rs`，手工驱动周期（开周期 → 快照根 → mutator 动作 → drain → 收尾 → sweep），
 存活性一律经弱引用观察，不解引用可能已被回收的句柄：
 
 - 字段读进寄存器再清字段：开屏障存活 / **关屏障被回收**（阴性对照，证明测试能判别）

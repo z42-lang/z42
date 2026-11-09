@@ -6,7 +6,7 @@ edition = "2021"
 crate-type = ["rlib", "cdylib"]
 test = false
 [dependencies]
-z42-runtime-core = { path = "../z42-runtime-core", features = ["jit"] }
+z42-runtime = { path = "../..", features = ["jit"] }
 anyhow = "1"
 smallvec = "1"
 tracing = "0.1"
@@ -15,7 +15,7 @@ rustc-hash = "2"
 [features]
 default = []
 shared-core = ["jit"]
-jit = ["z42-runtime-core/jit"]
+jit = ["z42-runtime/jit"]
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), any(target_os = "linux", target_os = "macos", target_os = "windows")))'.dependencies]
 cranelift-codegen = { version = "0.135", features = ["unwind"] }

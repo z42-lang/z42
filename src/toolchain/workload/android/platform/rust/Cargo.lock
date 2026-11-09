@@ -95,26 +95,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
-name = "bincode"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
-dependencies = [
- "bincode_derive",
- "serde",
- "unty",
-]
-
-[[package]]
-name = "bincode_derive"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
-dependencies = [
- "virtue",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -232,6 +212,15 @@ name = "constant_time_eq"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
+
+[[package]]
+name = "convert_case"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1af709f1f33454bf52eadfc8c78b3b9ef9cb26fb54d16dc9cd9a7299f899fd1b"
+dependencies = [
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "cpufeatures"
@@ -623,7 +612,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
- "serde_derive",
 ]
 
 [[package]]
@@ -750,26 +738,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "thiserror"
-version = "2.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
-dependencies = [
- "thiserror-impl",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "2.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.5",
-]
-
-[[package]]
 name = "thread_local"
 version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -891,16 +859,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
+name = "unicode-segmentation"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
+
+[[package]]
 name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
-
-[[package]]
-name = "unty"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 
 [[package]]
 name = "utf8parse"
@@ -913,12 +881,6 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
-
-[[package]]
-name = "virtue"
-version = "0.0.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "wasi"
@@ -1031,11 +993,9 @@ checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
 
 [[package]]
 name = "z42"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
- "bincode",
- "bitflags",
  "blake3",
  "cc",
  "clap",
@@ -1046,22 +1006,25 @@ dependencies = [
  "parking_lot",
  "rustc-hash",
  "rustls",
- "serde",
  "serde_json",
  "signal-hook-registry",
+ "smallvec",
  "socket2",
- "thiserror",
  "toml",
  "tracing",
  "tracing-subscriber",
  "webpki-roots",
  "z42-abi",
  "z42-compression",
+ "z42-interp",
+ "z42-macros",
+ "z42-runtime",
+ "z42-zpkg",
 ]
 
 [[package]]
 name = "z42-abi"
-version = "0.6.0"
+version = "0.7.0"
 
 [[package]]
 name = "z42-compression"
@@ -1075,11 +1038,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "z42-host"
-version = "0.1.0"
+name = "z42-interp"
+version = "0.7.0"
 dependencies = [
- "z42",
- "z42-abi",
+ "anyhow",
+ "parking_lot",
+ "rustc-hash",
+ "smallvec",
+ "tracing",
+ "z42-runtime",
+]
+
+[[package]]
+name = "z42-macros"
+version = "0.7.0"
+dependencies = [
+ "convert_case",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.5",
 ]
 
 [[package]]
@@ -1087,7 +1064,32 @@ name = "z42-platform-android"
 version = "0.1.0"
 dependencies = [
  "z42",
- "z42-host",
+]
+
+[[package]]
+name = "z42-runtime"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "getrandom 0.4.3",
+ "libc",
+ "libloading",
+ "parking_lot",
+ "rustc-hash",
+ "signal-hook-registry",
+ "smallvec",
+ "socket2",
+ "tracing",
+ "z42-zpkg",
+]
+
+[[package]]
+name = "z42-zpkg"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "rustc-hash",
 ]
 
 [[package]]

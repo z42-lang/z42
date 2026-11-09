@@ -2,6 +2,8 @@
 
 ## 职责
 
+本目录的 Cargo 包 z42 提供统一宿主库和 z42vm（入口仍在 ../main.rs）；lib.rs 组合 host、配置、corelib、interop 与可选后端，运行时主库 z42-runtime 不反向依赖这些实现。Rust 人体工学接口位于 host::rust，与 C ABI 和 CLI 共用宿主服务。
+
 为命令行、Rust 嵌入端和外部 C 宿主提供统一加载、初始化与调用服务。CLI 负责参数和进程策略，C ABI 负责指针、句柄和状态码；产物解析、GC 和执行语义由各底层子系统实现。
 
 ## 嵌入接口导出规范

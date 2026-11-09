@@ -1,18 +1,18 @@
 # 组件化运行时（Componentized Runtime）
 
-静态产物、共享核心、解释器和 JIT 已拆为独立 Rust 库。静态链接与同构建动态组件共用 host 门面与组件装配协议；profiler/debugger 独立交付仍是后续工作。
+运行时主库直接拥有共享 VM 实现，解释器和 JIT 是独立 Rust 库。静态链接与同构建动态组件共用 host 门面与组件装配协议；profiler/debugger 独立交付仍是后续工作。
 
 ## 1. 库边界
 
 | 库 | 拥有的实现 | 依赖方向 |
 |---|---|---|
 | z42-zpkg | zpkg/zbc/zsym 解析、静态 IR 和不可变 PackageImage | 不依赖 VM |
-| z42-runtime-core | VM、对象、GC、PAL、加载/链接、共享执行原语和诊断契约 | 不依赖 host 或具体引擎 |
+| z42-runtime（runtime/src/lib.rs） | VM、对象、GC、PAL、加载/链接、共享执行原语和诊断契约 | 不依赖 host 或具体引擎 |
 | z42-interp | 解释器、基线 Engine 和组件工厂 | 依赖 core，不依赖 JIT |
 | z42-jit | Cranelift、编译代码、tier/OSR 实现和组件工厂 | 依赖 core，不依赖 interp 实现 |
-| z42 | host、配置、corelib、interop 和装配 | 选择实现并注入 core |
+| z42（runtime/src/host/Cargo.toml） | 统一 host、配置、corelib、interop、Rust 嵌入接口和 CLI 装配 | 依赖 runtime，选择实现并注入 |
 
-Core directly provides rlib/dylib and the facade directly provides rlib/cdylib. Static builds use rlib; dynamic packs use prefer-dynamic, one core dylib and the matching Rust std. Backends directly provide their own rlib/cdylib and init entries. No shared-core, host or backend packaging wrapper crates are required.
+运行时主库直接提供 rlib/dylib，统一宿主直接提供 rlib/cdylib。 Static builds use rlib; dynamic packs use prefer-dynamic, one core dylib and the matching Rust std. Backends directly provide their own rlib/cdylib and init entries. 不增加核心或后端包装 crate；宿主包只拥有实际宿主实现。
 
 嵌入接口与类型统一从 z42::host 提供。CLI 只处理参数、启动和进程策略，也调用 host。组件内部 Rust API 不自动成为嵌入 API。
 
@@ -50,7 +50,7 @@ JIT 的依赖仅在 Linux/macOS/Windows 的 x64/arm64 target 选择；即便不�
 
 ## 4. 单份核心与动态构建
 
-Core directly provides rlib/dylib and the facade directly provides rlib/cdylib. Static builds use rlib; dynamic packs use prefer-dynamic, one core dylib and the matching Rust std. Backends directly provide their own rlib/cdylib and init entries. No shared-core, host or backend packaging wrapper crates are required.
+运行时主库直接提供 rlib/dylib，统一宿主直接提供 rlib/cdylib。 Static builds use rlib; dynamic packs use prefer-dynamic, one core dylib and the matching Rust std. Backends directly provide their own rlib/cdylib and init entries. 不增加核心或后端包装 crate；宿主包只拥有实际宿主实现。
 
 所有动态宿主、后端、共享核心与验证可执行文件必须在一次 Cargo 图中构建。分开运行 Cargo 可能因开发依赖或传递依赖 feature 合并不同而覆盖成不兼容的 Rust metadata/符号；打包器一次构建全部目标后，从同一组产物搬移并验证，不再用后续 Cargo 调用重写核心。
 
@@ -97,4 +97,4 @@ LOH 覆盖、native 扩展加载、固定地址登记和 TLAB/SATB 顺序保持�
 - [运行时/包分发](../toolchain/workload-distribution.md)
 - [诊断与跟踪](diagnostics.md)
 
-Component protocol ownership: z42-runtime-core::components::api defines descriptors, C-layout interfaces and execution registration. Core build.rs generates the shared build identity. Host re-exports the public embedding types; execution libraries depend on the core, preserving an acyclic Cargo graph. Generic ABI fixtures use only protocol values and callbacks; actual execution components still link the single shared core.
+Component protocol ownership: z42-runtime::components::api defines descriptors, C-layout interfaces and execution registration. Core build.rs generates the shared build identity. Host re-exports the public embedding types; execution libraries depend on the core, preserving an acyclic Cargo graph. Generic ABI fixtures use only protocol values and callbacks; actual execution components still link the single shared core.

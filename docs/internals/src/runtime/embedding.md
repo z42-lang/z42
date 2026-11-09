@@ -2,7 +2,7 @@
 
 > 代码：`src/runtime/src/host/`（`ffi.rs` extern "C" 分发 · `config.rs` 配置校验 · `error.rs` 状态码与 TLS
 > last_error · `state.rs` 单例状态 · `ops.rs` 加载/解析/调用 · `marshal.rs` 值编组 · `resolver.rs` zpkg 钩子）、
-> `src/runtime/include/z42_host.h`（Tier 1 头文件）、`src/runtime/crates/z42-host/`（Tier 2 crate）、
+> `src/runtime/include/z42_host.h`（Tier 1 头文件）、`src/runtime/src/host/`（Tier 2 Rust 接口）、
 > `src/runtime/src/corelib/io/mod.rs`（sink 路由）、`src/toolchain/workload/{desktop,ios,android,wasm}/`（Tier 3 facade）。
 >
 > **宿主怎么调**（函数签名、返回码、生命周期与线程约束）见
@@ -44,7 +44,7 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 │    npm package (@z42/wasm)     → 浏览器 / Node.js            │
 │    C shell (testhost/apphost)  → 桌面自包含 app              │
 ├─────────────────────────────────────────────────────────────┤
-│  Tier 2: Rust 嵌入 API（crate z42-host）                     │
+│  Tier 2: Rust 嵌入 API（z42::host::rust）                     │
 │    Host::new() / load_zbc / resolve_entry / invoke          │
 ├─────────────────────────────────────────────────────────────┤
 │  Tier 1: C ABI（z42_host.h）                                 │
@@ -58,7 +58,7 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 |------|------|
 | `src/runtime/include/z42_host.h` | Tier 1 C 头文件（与 `z42_abi.h` 平行）。**唯一一份**——iOS / Android facade 目录下那两个同名文件是只有一行 `#include` 的转发头 |
 | `src/runtime/src/host/` | Rust 宿主服务及 C ABI 适配（`ffi.rs`） |
-| `src/runtime/crates/z42-host/` | Tier 2 Rust crate（`z42-host`，lib 名 `z42_host`） |
+| `src/runtime/src/host/` | 统一宿主 z42 包及 Tier 2 Rust 接口 |
 | `src/toolchain/workload/fixtures/` | 各平台契约测试共用的 z42 夹具（`hello.z42` / `multi_line.z42`） |
 | `src/toolchain/workload/{desktop,ios,android,wasm}/platform/` | Tier 3 facade |
 | `src/toolchain/workload/desktop/tests/r1_r7.c` | 真·外部 C 消费者：链 `libz42`，跑 R1–R7 七个契约场景。改 ABI 时这是第一道拦截 |
@@ -170,7 +170,7 @@ pub trait ZpkgResolver: Send + Sync {
 | wasm | `bundleStdlibNode(readNamespaces)` / `bundleStdlibBrowser(baseUrl, readNamespaces)` / `mapResolver(map)` —— Node 侧 `readdir`，浏览器侧 fetch 构建期生成的 `files.json`（HTTP 枚举不了目录，这是文件名清单的派生替身，**不是** namespace 映射） | `wasm/platform/js/stdlib-resolver.js` |
 
 读 NSPC 的 helper 在三个层面各有一份入口，都落到同一段 Rust（`metadata::reader::read_zpkg_meta`）：
-C ABI `z42_zpkg_read_namespaces`、Rust `z42::host::read_zpkg_namespaces` 与 `z42_host::read_zpkg_namespaces`、
+C ABI `z42_zpkg_read_namespaces`、Rust `z42::host::read_zpkg_namespaces` 与 `z42::host::rust::read_zpkg_namespaces`、
 wasm 导出 `readNamespaces` / Android JNI `Z42VM.readNamespaces`。
 Swift / Kotlin / JS 都不需要自己重写 zpkg 解析。
 
@@ -236,7 +236,7 @@ fn classify_invoke_error(msg: &str) -> Z42HostStatus {
 ```
 
 - `arg-count-mismatch:` 由 `LoadedProgram::invoke_index` 在执行之前抛出，所以它优先级最高。
-- `uncaught exception:` 由 `vm::exec::exception::format_uncaught` 钉住（`src/runtime/crates/z42-runtime-core/src/vm/exec/exception/mod.rs`），
+- `uncaught exception:` 由 `vm::exec::exception::format_uncaught` 钉住（`src/runtime/src/vm/exec/exception/mod.rs`），
   是 z42 异常输出的稳定契约。
 - `undefined function` 是解释器派发期找不到符号的错误（典型场景：corelib 没解析到，
   用户代码碰 `Console.WriteLine`）。它是用户的 z42 程序可见的运行期失败，归 `VmException` 而不是 `Internal`。
@@ -271,7 +271,7 @@ fn classify_invoke_error(msg: &str) -> Z42HostStatus {
 
 ---
 
-## Tier 2：`z42-host` crate
+## Tier 2：`z42::host::rust` 接口
 
 Tier 2 是 Tier 1 的 Rust 安全封装：所有 `unsafe` 关在 crate 内部，对外是 `Result` + RAII。
 
@@ -352,7 +352,7 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
    `error.rs` 的 `#[repr(i32)]` 枚举）必须同步，**字段只追加不重排**。追加到 `Z42HostConfig` 的字段
    只在 `struct_size` 覆盖到时才读（`config::validate`），`MIN_CONFIG_SIZE` 保持 v2 布局大小不变。
 2. `src/runtime/include/README.md` 的类型 / 函数清单。
-3. Tier 2：`z42-host` 的 `HostConfig` / `HostError` / `translate_status`。
+3. Tier 2：`z42::host::rust` 的 `HostConfig` / `HostError` / `translate_status`。
 4. Tier 3 三家 facade 的桥接层（Swift `Z42VM.swift` 的 `cfg` 填充、
    Android `cpp/z42vm_jni.c`、wasm `wasm/platform/src/lib.rs`）。
 5. `src/runtime/src/host/host_tests.rs`（状态码路径）+ `workload/desktop/tests/r1_r7.c`（外部 C 消费者）。

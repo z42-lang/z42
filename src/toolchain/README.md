@@ -30,7 +30,7 @@
 
 **路径 SoT**：所有输出/publish 路径从各组件 `z42.toml` 读（`[build].dist_dir`/`output_dir`、`[platform.desktop].publish_dir`，级联默认 `${output_dir}/{dist,publish}`），xtask 不硬编码——改路径只动 toml。实现见 [`scripts/build/xtask_toolchain.z42`](../../scripts/build/xtask_toolchain.z42)。
 
-本目录无 `host/`——Tier 1 C ABI + 头在 [`../runtime/src/host/`](../runtime/src/host) + [`../runtime/include/`](../runtime/include)，Tier 2 `z42-host` crate 在 `src/runtime/crates/z42-host`，Tier 3 平台绑定在 `workload/`。
+本目录无 `host/`——Tier 1 C ABI + 头在 [`../runtime/src/host/`](../runtime/src/host) + [`../runtime/include/`](../runtime/include)，Tier 2 `z42::host::rust` crate 在 `src/runtime/src/host`，Tier 3 平台绑定在 `workload/`。
 
 启动器的命令分发、平台工程导出、runtime / workload 分发等机制见 [`docs/internals/src/toolchain/`](../../docs/internals/src/toolchain)。
 

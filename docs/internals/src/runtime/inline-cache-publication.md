@@ -1,6 +1,6 @@
 # 内联缓存（PIC）：为什么一条 entry 必须是一个原子量
 
-> SoT：`src/runtime/crates/z42-runtime-core/src/vm/runtime/dispatch/ic.rs`。
+> SoT：`src/runtime/src/vm/runtime/dispatch/ic.rs`。
 
 ## 这个缓存是什么
 

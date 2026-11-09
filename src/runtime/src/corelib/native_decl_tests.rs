@@ -76,7 +76,7 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
 /// 只扫前者时 `__repl_complete_probe` / `__repl_member_names` / `__load_bytecode_in_memory`
 /// 当场变成「未声明」——它们声明在 `z42.scripting` 里，而那个包挪去了 `src/compiler/`。
 fn z42_source_roots() -> Vec<PathBuf> {
-    let base = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let base = Path::new(env!("Z42_RUNTIME_DIR"));
     vec![base.join("../libraries"), base.join("../compiler")]
 }
 

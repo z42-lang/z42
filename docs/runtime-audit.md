@@ -81,7 +81,7 @@ z42vm `__text` 构成（macOS arm64，共 4.97 MB），是模块分层与可选�
 
 ### 4.1 模块总览
 
-VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 crate**（User 2026-10-29）：下表每一层都是它的顶层模块，目录就是 `src/runtime/src/<模块>/`（`pal/`、`metadata/`、`object/`、`gc/`、`vm/` ……），名字不带 `z42-` 前缀；层间依赖由代码审查维护，不靠 crate 边界。`crates/` 下已有的独立 crate（`z42-abi` / `z42-host` / `z42-rs` / `z42-macros` / `z42-compression` / `z42-repl`）不动。
+运行时机制由 `src/runtime/src/lib.rs` 所在的 `z42-runtime` 主库拥有，VM、对象、GC、PAL 与组件协议仍是 `runtime/src` 下的模块。`interp` / `jit` 独立编译并单向依赖运行时；`src/host` 的 z42 宿主包统一提供嵌入接口、CLI 与后端装配，运行时不反向依赖宿主。native SDK、产物格式和原生扩展按各自编译边界保留独立库。
 
 | 层 | 模块 | 回答的问题 | 依赖 |
 |---|---|---|---|
@@ -97,7 +97,7 @@ VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 
 | 工具 | `debugger` | 断点、单步、查看（调试引擎 + DAP 服务） | vm |
 | 工具 | `profiler` | CPU / 分配 / 锁 / 堆剖析与覆盖率 | vm |
 | 组装 | 门面（crate 根：`lib.rs`、`config/`、`host/app.rs`） | 配置装配，按 feature 组装 Runtime | 以上全部 |
-| 产品 | `z42-host`（已有 crate，吸收 `src/host` C ABI 薄壳）、`z42vm`（可执行文件，`main.rs`） | 嵌入 / 命令行 | 门面 |
+| 产品 | `z42::host::rust`（已有 crate，吸收 `src/host` C ABI 薄壳）、`z42vm`（可执行文件，`main.rs`） | 嵌入 / 命令行 | 门面 |
 
 分层设计约束：
 

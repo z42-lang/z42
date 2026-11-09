@@ -1,6 +1,6 @@
 //! `@z42/wasm` — WebAssembly facade for the z42 embedding API.
 //!
-//! Wraps [`z42_host::Host`] so JavaScript / TypeScript hosts can drive
+//! Wraps [`z42::host::rust::Host`] so JavaScript / TypeScript hosts can drive
 //! a z42 VM in-process inside a browser or Node.js runtime. All actual
 //! VM logic lives in `z42_host` + `z42`; this crate is the JS-side
 //! glue and the wasm-bindgen surface.
@@ -18,7 +18,7 @@ use wasm_bindgen::prelude::*;
 use z42::pal::fs::Vfs;
 use z42::pal::vfs::MemoryFs;
 
-use z42_host::{ExecMode, Host, HostConfig, Value};
+use z42::host::rust::{ExecMode, Host, HostConfig, Value};
 
 mod error;
 mod resolver;
@@ -74,13 +74,13 @@ pub struct Z42VM {
 /// Opaque handle for a loaded `.zbc` module.
 #[wasm_bindgen]
 pub struct Z42VMModule {
-    inner: z42_host::Module,
+    inner: z42::host::rust::Module,
 }
 
 /// Opaque handle for a resolved entry.
 #[wasm_bindgen]
 pub struct Z42VMEntry {
-    inner: z42_host::Entry,
+    inner: z42::host::rust::Entry,
 }
 
 #[wasm_bindgen]
@@ -118,7 +118,7 @@ impl Z42VM {
             }
             // zpkgResolver — accepts both function and { resolve } object
             if let Some(target) = read_property(&options, "zpkgResolver") {
-                let resolver: Arc<dyn z42_host::ZpkgResolver> =
+                let resolver: Arc<dyn z42::host::rust::ZpkgResolver> =
                     Arc::new(JsCallbackResolver::new(target));
                 cfg.zpkg_resolver = Some(resolver);
             }
@@ -206,7 +206,7 @@ impl Z42VM {
 /// the packages directly — no `index.json`.
 #[wasm_bindgen(js_name = readNamespaces)]
 pub fn read_namespaces(bytes: &[u8]) -> Result<Vec<String>, JsValue> {
-    z42_host::read_zpkg_namespaces(bytes).map_err(to_js_error)
+    z42::host::rust::read_zpkg_namespaces(bytes).map_err(to_js_error)
 }
 
 // ── Embedded test-host (add-wasm-testhost G6) ─────────────────────────────

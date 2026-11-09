@@ -6,7 +6,7 @@
 
 立柱（见 [platform-export-lifecycle.md](../../../docs/internals/src/toolchain/platform-export.md)）：**`z42 build` 一次产平台无关 `app.zpkg`，零 workload；`export`/`publish`/on-platform `test` 才分叉并门控对应平台 workload。**
 
-与 `runtime/` 的区别：runtime = 平台无关核心 + **嵌入 API**（VM + Tier1 C ABI + **Tier2 host-api**，住 `src/runtime/crates/z42-host` + 头 + per-RID 原始库）；本模块 = 平台相关工程化（appbuilder 发布管线 + template 脚手架 + platform 原生绑定 Tier3 及其 R1–R7 契约测试）。
+与 `runtime/` 的区别：runtime = 平台无关核心 + **嵌入 API**（VM + Tier1 C ABI + **Tier2 host-api**，住 `src/runtime/src/host` + 头 + per-RID 原始库）；本模块 = 平台相关工程化（appbuilder 发布管线 + template 脚手架 + platform 原生绑定 Tier3 及其 R1–R7 契约测试）。
 与 `launcher/`（SDK）的区别：launcher = `z42` CLI core（install/build/run...），引导关键、baked-in；本模块 = 平台命令（publish/export/工程生成），目录发现、按需装。
 
 不做：VM 执行引擎（归 `runtime/`）；CLI core（归 `launcher/`）。

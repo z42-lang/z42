@@ -226,8 +226,8 @@ chunk 永不移动 —— 地址在块生命周期内**绝对稳定**（`ObjRef:
 JIT 按帧提升的字段基址、数组元素基址也依赖它）。
 
 句柄都是 8B 标记指针（64 位：低 48 位块头地址 + 高 16 位 generation 快照；32 位：`{ptr, gen}`）：
-`ObjRef`（[object/header/obj_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/object/header/obj_ref.rs)）指对象块头，
-`ArrRef`（[object/header/arr_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/object/header/arr_ref.rs)）指数组块头，`VarGcRef` 是二者底下的无类型块句柄。
+`ObjRef`（[object/header/obj_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/header/obj_ref.rs)）指对象块头，
+`ArrRef`（[object/header/arr_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/header/arr_ref.rs)）指数组块头，`VarGcRef` 是二者底下的无类型块句柄。
 - Clone = memcpy 8 字节，**零原子 op**（相对 `Arc::clone` 每次
   `fetch_add` 2-4 ns）
 
@@ -262,7 +262,7 @@ liveness store（无 `heap_registry`）。清扫尾巴的 `reclaim_dead_chunks_a
 ### 变长块堆：单一 GC 堆
 
 对象、数组、字符串、闭包都是同一个变长块 region 的块，CLR/JVM 式的**单一堆**（为将来移动/压缩/去重 GC 铺路）：
-`region_var: Mutex<VarRegion>`（[`gc/var_region.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/gc/var_region.rs)），
+`region_var: Mutex<VarRegion>`（[`gc/var_region.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/var_region.rs)），
 一个托管值 = **单块 `{GcBlockHeader, inline payload…}` 单次分配**。
 
 ```
@@ -305,7 +305,7 @@ drop glue 只对类型掩码里的块调用（`drop_type_bit`：`Object`、`Arra
 空洞复用（M12）把块填进同 size class 的死槽，不管原来是哪种块：填洞时把种类字清空（对象的种类字 drop glue 已清，
 数组的描述符是不计数的 `&'static`、tombstone 时原样留在死头里）。
 
-**数组直接在块里构造**（[`object/array/array.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/object/array/array.rs)）：
+**数组直接在块里构造**（[`object/array/array.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/array/array.rs)）：
 所有构造器（`alloc_filled` / `alloc_from_iter` / `alloc_typed_iter` / `alloc_struct` / `alloc_frozen` / `alloc_bytes` / `deep_copy`）
 都经一条 `Heap::alloc_array_with(desc, len, layout, init)`：按 `desc.payload_bytes(len)` 取一个清零块、写入描述符（与 STRUCT 的布局字）、
 在**未发布**的数组上跑 `init` 写元素，然后 `publish` 并记账——与对象的漏斗同形。`ArrayNew`（interp + JIT `jit_array_new`）/
@@ -320,7 +320,7 @@ payload 超过块的长度上限（`u32` 字节）的数组按内存不足拒绝
 拷完对写入区间的每个引用槽发写屏障（`objops::array_bulk::barrier_after_range_store`：
 REF / MIXED / FROZEN 是元素本身，struct[] 是元素的每个引用叶子，只对真正的堆引用发、不分配），packed 目的数组不持引用、没有可扫的槽。
 
-**分配落地 = ambient 堆**（[`vm/exec/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/vm/exec/ambient.rs)）：`current_heap()` +
+**分配落地 = ambient 堆**（[`vm/exec/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm/exec/ambient.rs)）：`current_heap()` +
 `HeapGuard` 在引擎入口设 thread-local（ctx 栈底帧 push 时、宿主 invoke、`jit::run_fn`；见
 [vm-architecture.md](vm-architecture.md#寄存器池引擎入口-guardframe_id)），
 `Str::new`/`.into()` 走活堆分配 → **~189 处 `.into()` 站点零改动**；无堆上下文（无 VM 的单测）
@@ -348,7 +348,7 @@ bump chunk 里的条目从不核对，别处释放大块只让带戳条目多一
 **融合拼接分配 `alloc_str_concat2(a, b)`**：字符串 `+`
 （IR `StrConcat` / `Std.String.Concat`）若走 `alloc_str(&format!("{a}{b}"))` 是**两次堆分配**
 （中间 `String` + GC 块）+ interp 侧还各 clone 一份操作数（`str_val`）共 **4 次分配 / 3 次 O(n) 拷贝**。
-`Heap::alloc_str_concat2`（[`gc/heap.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/gc/heap.rs)，`Heap` 覆写
+`Heap::alloc_str_concat2`（[`gc/heap.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs)，`Heap` 覆写
 `alloc_str_concat2_in_region`）按 `a.len()+b.len()` **一次性**分配 `BlockType::Str` 块、直接拷入两段，
 **降到 1 次分配 / 1 次拷贝**（两段皆合法 UTF-8 → 拼接合法）。interp `str_concat`/`Add` 字符串臂借
 `&str` 直传、JIT `jit_str_concat` / `jit_add` helper 同步。`Add` 的混合臂（`"k" + i`）把非串操作数
@@ -500,7 +500,7 @@ fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 
 ### Debug invariants
 
-`Heap::debug_validate_invariants`（[`gc/heap/debug.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-runtime-core/src/gc/heap/debug.rs)）
+`Heap::debug_validate_invariants`（[`gc/heap/debug.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap/debug.rs)）
 在每次 collect 末尾检查堆级不变量，任何违反立即 panic 并附详细消息；它只在 `#[cfg(debug_assertions)]` 下编译，
 release 构建零开销。检查两条：
 

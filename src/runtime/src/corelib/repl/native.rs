@@ -218,6 +218,6 @@ pub(super) mod native {
 
     #[cfg(test)]
     mod tests {
-        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/corelib/repl/native_cache_tests.rs"));
+        include!("native_cache_tests.rs");
     }
 }

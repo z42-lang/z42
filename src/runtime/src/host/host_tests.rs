@@ -331,7 +331,7 @@ unsafe extern "C" fn host_stdout_sink_callback(
 
 /// Project root under cargo, used to locate `artifacts/intermediate/libraries/flat/release/`.
 fn project_root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    std::path::Path::new(env!("Z42_RUNTIME_DIR"))
         .parent()
         .unwrap()
         .parent()
