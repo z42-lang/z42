@@ -72,15 +72,27 @@ class BenchScopeTests(unittest.TestCase):
         self.assertEqual(bool(summary.read_text()), scope == "true")
         return scope
 
-    def selected(self, scope, gap=""):
+    def selected(self, scope, gap="", *, cancelled=False, base="success", head="success"):
         outputs = Namespace(scope=Namespace(outputs=Namespace(verdict_only=scope)),
-                            fmtgap=Namespace(outputs=Namespace(gap=gap)))
+                            fmtgap=Namespace(outputs=Namespace(gap=gap)),
+                            base=Namespace(outcome=base), head=Namespace(outcome=head))
         selected = []
         for step in self.steps:
             guard = re.search(r"^        if: (.+)$", step, re.M)
-            if not guard or evaluate(guard[1].replace("always()", "True"), steps=outputs):
+            if not guard or evaluate(guard[1].replace("always()", "True")
+                                     .replace("!cancelled()", str(not cancelled)), steps=outputs):
                 selected.append(step.splitlines()[0])
         return selected
+
+    def test_independent_measurements_require_toolchains_and_a_live_job(self):
+        names = ("name: Micro A/B gate", "name: Criterion(Rust) A/B")
+        for name in names:
+            step = next(step for step in self.steps if step.startswith(name))
+            self.assertIn("!cancelled()", step)
+            self.assertTrue(any(s.startswith(name) for s in self.selected("false", "0")))
+            for state in ({"cancelled": True}, {"base": "failure"}, {"head": "failure"}):
+                with self.subTest(name=name, state=state):
+                    self.assertFalse(any(s.startswith(name) for s in self.selected("false", "0", **state)))
 
     def test_fixture_and_doc_change_use_only_the_seed_and_verdict_step(self):
         self.write(FIXTURE, "after")
