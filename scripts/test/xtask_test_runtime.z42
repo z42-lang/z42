@@ -23,10 +23,17 @@ Process _runtimeTestCargo(string verb) {
 
 string _runtimeTestTarget() { return Path.Join(_componentBuildDir(_root()), "tests/runtime"); }
 Process _runtimeTestProc() { return _runtimeTestCargo("test"); }
-int _runtimeTestRunHarnesses() {
+
+// 完整 harness 与 GREEN 窄版共用的执行器。harness 依赖共享 Rust std（`-C prefer-dynamic`），组件测试还会
+// dlopen 现编的探针库，所以两者都这样跑：一次 Cargo 图编出要的 target → std 拷到组件旁 → 带组件 / deps / std
+// 的库搜索路径逐个运行 harness。直接 `cargo test` 没有这套布局，组件探针库在 Linux 上 dlopen 失败。
+// libOnly（窄版）：只编 `cargo test --no-run` 那组 target、只跑 lib 单测，不跑 doctest。
+int _runtimeTestRunHarnesses(bool libOnly) {
     // Build every harness and production dependency in one Cargo graph. A subsequent
     // cargo test graph can overwrite the shared runtime with incompatible metadata.
-    ProcessResult build = _runtimeTestCargo("build").Arg("--all-targets")
+    Process cargo = _runtimeTestCargo("build");
+    cargo = libOnly ? cargo.Arg("--tests").Arg("--examples") : cargo.Arg("--all-targets");
+    ProcessResult build = cargo
         .Arg("--message-format=json-render-diagnostics").Stderr(Stdio.Inherit()).Run();
     if (build.ExitCode != 0) { return build.ExitCode; }
     string native = Path.Join(_runtimeTestTarget(), "debug");
@@ -41,6 +48,7 @@ int _runtimeTestRunHarnesses() {
         if (exe.IsNull() || !artifact.Get("profile").Get("test").AsBool()) { continue; }
         string kind = artifact.Get("target").Get("kind").At(0).AsString();
         if (kind == "bench" || kind == "example") { continue; }
+        if (libOnly && (kind == "test" || kind == "bin")) { continue; }
         executables.Add(exe.AsString());
         directories.Add(Path.GetDirectoryName(artifact.Get("manifest_path").AsString()));
     }
@@ -56,6 +64,7 @@ int _runtimeTestRunHarnesses() {
         int c = _execIn(test.Env("CARGO_MANIFEST_DIR", directory)
             .Env("CARGO_TARGET_DIR", _runtimeTestTarget()), directory); if (c != 0) { return c; }
     }
+    if (libOnly) { return 0; }
     return _exec(_componentCargo("test", _root(), "debug", Path.Join(_runtimeTestTarget(), "docs"))
         .Arg("--workspace").Arg("--doc").Arg("--features").Arg("z42/z42-test-fixtures")
         .Env("RUST_MIN_STACK", "8388608"));
@@ -69,7 +78,7 @@ int _runtimeTestRunHarnesses() {
 // (Suspect: GC region raw-pointer Send/Sync unsoundness with concurrent VmCores.)
 int _testRuntime() {
     Stopwatch sw = _procStart("test runtime");
-    int __rc = _runtimeTestRunHarnesses();
+    int __rc = _runtimeTestRunHarnesses(false);
     if (__rc == 0) { _procEnd("test runtime", sw); }
     return __rc;
 }
@@ -80,21 +89,15 @@ int _testRuntime() {
 // 在限制信号的沙箱里**挂住**。但「本地全绿、CI test-host 红」的典型事故都落在 lib 单测与编译失败
 // （公共 struct 加字段后 `tests/` 里的字面构造点没补）上，不需要跑那批。
 //
-// ⇒ 本 stage = `--lib`（跑）+ `--no-run`（只编所有 target、一个都不跑）。
-// 🔴 **`--lib` 排除 `tests/` 是结构性的，不是靠过滤器**：signal / loom 那几个都在 `tests/` 下，
-// `--lib` 根本到不了它们。**不用 `--skip <名字>` 这类过滤**——那种写法会随文件改名悄悄失效
-// （本仓库踩过「带过滤器跑 cargo test = 等于没跑全局门」）。
+// ⇒ 本 stage = lib 单测（跑）+ `cargo test --no-run` 的那组 target（只编不跑），执行方式同完整版。
+// 🔴 **排除 `tests/` 是按 target 种类结构性排除，不是靠过滤器**：signal / loom 那几个都是 `tests/` 下的
+// 集成测试 target，lib 单测 harness 根本到不了它们。**不用 `--skip <名字>` 这类过滤**——那种写法会随
+// 文件改名悄悄失效（本仓库踩过「带过滤器跑 cargo test = 等于没跑全局门」）。
 //
 // 完整版仍保留为 `xtask test runtime` / CI 的独立 leg / `test changed`。
 int _testRuntimeUnits() {
-    int rc = _exec(_runtimeTestProc()
-        .Arg("--lib")
-        .Arg("--").Arg("--test-threads=1")
-        .Env("RUST_MIN_STACK", "8388608"));
-    if (rc != 0) { return rc; }
-    // 只编不跑：抓「跨 src/ 与 tests/ 都构造的公共 struct 加了字段却没补齐」这类编译漏。
-    return _exec(_runtimeTestProc()
-        .Arg("--no-run"));
+    // 只编不跑的那部分抓「跨 src/ 与 tests/ 都构造的公共 struct 加了字段却没补齐」这类编译漏。
+    return _runtimeTestRunHarnesses(true);
 }
 
 // compile one real package under each GC mode, with the collector tuned to fire

@@ -36,7 +36,7 @@
 
 裸 `test` 先确保 debug VM，再自建 z42c / stdlib 并重生 golden `.zbc` 基线。
 `--no-build` 复用已有 z42c / stdlib，仍确保 debug VM 并重生 golden，不是跳过整个构建波。
-GREEN 包含 Rust `cargo test --lib` 与全部测试 target 的编译检查；
+GREEN 包含 Rust lib 单测（与 `xtask test runtime` 同一执行器）与全部测试 target 的编译检查；
 完整 `cargo test` 因 signal-crash helper 在 CI 每条腿单列一步。
 `--skip` 的完整键表用 `xtask test --list` 查询，编排规则见[测试门禁 §5](test-gate.md)。
 
