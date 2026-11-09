@@ -28,7 +28,9 @@ string _componentPlatformOut(string root, string rid, string profile, bool share
 Process _componentPlatformCargo(string verb, string root, string rid, string profile, bool shared) {
     Process p = new Process("cargo");
     if (rid.StartsWith("android-")) { p = p.Arg("ndk").Arg("-t").Arg(_ridToAndroidAbi(rid)); }
-    p = p.Arg(verb).Arg("--locked").WorkingDirectory(root)
+    // cargo-ndk queries workspace metadata before forwarding Cargo arguments.
+    string working = rid.StartsWith("android-") ? Path.Join(root, "src/runtime") : root;
+    p = p.Arg(verb).Arg("--locked").WorkingDirectory(working)
         .Arg("--config").Arg(Path.Join(root, _runtimeCargoConfig()))
         .Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))
         .Arg("--target-dir").Arg(shared ? _componentBuildDir(root) : _componentStaticDir(root, rid))
