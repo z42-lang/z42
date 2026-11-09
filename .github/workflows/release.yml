@@ -220,27 +220,9 @@ jobs:
             && [ "$(printf '%s\n1.0.0\n' "$v" | sort -V | head -1)" = "$v" ]; then
             prerelease_flag="--prerelease"
           fi
-          # 安装区排在自动生成的变更记录之前（gh 把 --notes 前置）。附件里的安装器无参数时装 nightly，
-          # 所以命令必须显式带上本页版本。
-          notes=$(cat <<EOF
-          ## Install z42 $v
-
-          macOS / Linux:
-
-          \`\`\`sh
-          curl -fsSL https://z42-lang.github.io/z42/install-z42.sh | sh -s -- --version $v
-          \`\`\`
-
-          Windows (PowerShell):
-
-          \`\`\`powershell
-          \$env:Z42_VERSION = "$v"; irm https://z42-lang.github.io/z42/install-z42.ps1 | iex
-          \`\`\`
-
-          The attached \`install-z42.sh\` / \`install-z42.ps1\` take \`--version $v\` / \`-Version $v\` the same way.
-          Verify downloads: \`shasum -a 256 -c SHA256SUMS --ignore-missing\`
-          EOF
-          )
+          # 安装区与下载表由上一步 `xtask package release` 按 versions.toml 生成（命令显式带本版本），
+          # 排在自动生成的变更记录之前（gh 把 --notes 前置）。
+          notes=$(cat dist/release-notes.md)
           gh release create "v$v" $prerelease_flag --generate-notes --notes "$notes" \
             --title "z42 v$v" \
             dist/SHA256SUMS dist/release-index.json dist/z42-* \

@@ -161,7 +161,7 @@ git tag vY && git push origin vY           # ⑤ 触发 .github/workflows/releas
 |---|---|
 | `verify-version(linux-x64)` | 校验 `tag` 去掉 `v` 后等于 `versions.toml [project].version`，不等就 fail-fast |
 | `package-<rid>`（9 个 RID matrix） | 每 RID 一台 runner，先从上一 nightly 种子自举，再打包：desktop RID 跑 `package sdk` + `package runtime` + `package workload`（外加在一台 host 上 `package workload test`），平台 RID 跑 `package runtime --rid <rid>`；各打包命令带 `--archive --label <version>`，在本 runner 上随打包出归档（保留可执行位；Windows 出 zip） |
-| `publish-release(linux-x64)` | 汇总归档，`xtask package release <version> --dir dist`（合并 desktop workload → `SHA256SUMS` → `release-index.json`），`gh release create v<version>` 上传 |
+| `publish-release(linux-x64)` | 汇总归档，`xtask package release <version> --dir dist`（合并 desktop workload → `SHA256SUMS` → `release-index.json` → `release-notes.md`），`gh release create v<version>` 上传，页面正文 = `release-notes.md` + 自动变更记录 |
 
 **artifact 命名**（`<v>` 在 nightly 里是字面量 `nightly`）：
 
@@ -176,6 +176,11 @@ git tag vY && git push origin vY           # ⑤ 触发 .github/workflows/releas
 
 `release-index.json` 是 launcher 的供给契约：从 `SHA256SUMS` 反推每个 RID 有哪些包、各自的
 sha，以及每个 workload 能装在哪些 host、覆盖哪些目标 RID。
+
+release 页正文 `release-notes.md`（不作附件）由同一条 `xtask package release` 按 `versions.toml` 生成：安装命令
+（nightly 不带版本；tag release 显式带 `--version <v>` / `$env:Z42_VERSION`，因为附件与 Pages 上的安装器不带参数时装
+nightly）+ 下载表（`[rid.*]` 的声明序与 `title`、`[workload].members` 与 `[workload.title]`）。nightly 在它前面加
+滚动预发布说明，tag release 在它后面接 GitHub 自动生成的变更记录。加 RID / workload 只改 `versions.toml`。
 
 **`--prerelease` 的自动条件**：版本号 < `1.0.0`（pre-1.0 阶段全部），或 tag 带 `-` 后缀
 （`v0.2.5-rc1`）。GitHub UI 不把 prerelease 放进 "Latest release" 高亮位。

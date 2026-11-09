@@ -102,6 +102,13 @@ string[] _vWorkloadHosts(string root, string wl) {
     return _vgetList(w.Get("hosts"), wl);
 }
 
+// workload 在 release 页上的显示名（[workload.title]）；没登记就用名字本身。
+string _vWorkloadTitle(string root, string wl) {
+    TomlValue w = _vparse(root).Get("workload");
+    if (!w.ContainsKey("title") || !w.Get("title").ContainsKey(wl)) { return wl; }
+    return _scalarStr(w.Get("title").Get(wl));
+}
+
 // 跨平台 workload（= members 去 desktop）：`setup --os` / `setup check --os` 的参数域。
 string[] _vCrossWorkloads(string root) {
     List<string> xs = new List<string>();
@@ -119,6 +126,19 @@ TomlValue _vRidTable(string root) {
 string[] _vRidNames(string root) {
     TomlValue t = _vRidTable(root);
     return t == null ? new string[0] : _sortedStrings(t.Keys());
+}
+
+// 登记的 RID，按 versions.toml 的声明序（展示用；要确定性排序的地方用 _vRidNames）。
+string[] _vRidDeclared(string root) {
+    TomlValue t = _vRidTable(root);
+    return t == null ? new string[0] : t.Keys();
+}
+
+// RID 在 release 页上的显示名（[rid.<rid>].title）；没登记就用 RID 本身。
+string _vRidTitle(string root, string rid) {
+    TomlValue t = _vRidTable(root);
+    if (t == null || !t.ContainsKey(rid) || !t.Get(rid).ContainsKey("title")) { return rid; }
+    return _scalarStr(t.Get(rid).Get("title"));
 }
 
 // RID 的 cargo triple；未登记返回 ""。

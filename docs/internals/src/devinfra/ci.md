@@ -488,7 +488,7 @@ bootstrap job。实测（run 35287940676）照样全红。
 2. `gh run download <run> -p 'release-*' -D artifacts/packages --merge-multiple` 取它的归档（各 package job 已用
    `--archive --label nightly` 在自己的 runner 上随打包一起出好）
 3. `xtask package release nightly --channel nightly --tag nightly --version nightly`
-   （合并 desktop workload → `SHA256SUMS` → `release-index.json`，与 `publish-nightly` 同一条命令）
+   （合并 desktop workload → `SHA256SUMS` → `release-index.json` → `release-notes.md`，与 `publish-nightly` 同一条命令）
 4. 按 `publish-nightly` 的原地更新顺序发布：`gh release upload nightly <归档…> --clobber` →
    `gh api -X PATCH repos/z42-lang/z42/git/refs/tags/nightly -f sha=<run 的 head sha> -F force=true` →
    `gh release edit nightly --title … --target <sha> --prerelease --draft=false`，再校验非 draft

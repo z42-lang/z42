@@ -175,6 +175,13 @@ members = ["desktop", "ios", "android", "wasm"]
 ios     = ["macos-arm64"]                                          # Xcode
 android = ["macos-arm64", "linux-x64", "linux-arm64", "windows-x64"]
 
+# release 页 workload 表的显示名（release-notes.md）。
+[workload.title]
+desktop = "Desktop (apphost)"
+ios     = "iOS (SwiftPM)"
+android = "Android (Gradle)"
+wasm    = "WASM (npm)"
+
 # ══════════════════════════════════════════════════════════════════════════
 # RID: 目标 RID 登记（xtask `_ridToCargo` / `_ridCategory` / release 归档矩阵的唯一来源）
 # ══════════════════════════════════════════════════════════════════════════
@@ -186,6 +193,7 @@ android = ["macos-arm64", "linux-x64", "linux-arm64", "windows-x64"]
 #              （跨平台类别名与 [workload].members / [build.*] 一致）
 #   primary  — 平台 workload 归档的主 RID：同一平台的 tooling 包各 ABI 内容相同，归档只由
 #              主 RID 出（`_relPrimaryWorkload`），两个主 RID 会在 release 汇总同名相撞。
+#   title    — release 页下载表里的显示名（`xtask package release` 生成 release-notes.md）；表格顺序 = 本文件声明序。
 # triple ↔ [platform.*].rust_targets 双向对账（`xtask check versions`）：platform 由 rid 推出
 # （category != desktop 时 = category；desktop RID = 名字首段，如 linux-x64 → linux）。
 # 反向要求 platform 的每个 rust_target 都有 RID 登记——新增 target 不登记则 CI 编得出、xtask 打不出包。
@@ -195,38 +203,47 @@ android = ["macos-arm64", "linux-x64", "linux-arm64", "windows-x64"]
 [rid.linux-x64]
 triple   = "x86_64-unknown-linux-gnu"
 category = "desktop"
+title    = "Linux x64"
 
 [rid.linux-arm64]
 triple   = "aarch64-unknown-linux-gnu"
 category = "desktop"
+title    = "Linux arm64"
 
 [rid.macos-arm64]
 triple   = "aarch64-apple-darwin"
 category = "desktop"
+title    = "macOS arm64"
 
 [rid.windows-x64]
 triple   = "x86_64-pc-windows-msvc"
 category = "desktop"
+title    = "Windows x64"
 
 [rid.ios-arm64]
 triple   = "aarch64-apple-ios"
 category = "ios"
+title    = "iOS arm64 (device)"
 primary  = true
 
 [rid.iossim-arm64]
 triple   = "aarch64-apple-ios-sim"
 category = "ios"
+title    = "iOS arm64 (simulator)"
 
 [rid.android-arm64]
 triple   = "aarch64-linux-android"
 category = "android"
+title    = "Android arm64"
 primary  = true
 
 [rid.android-x64]
 triple   = "x86_64-linux-android"
 category = "android"
+title    = "Android x64"
 
 [rid.browser-wasm]
 triple   = "wasm32-unknown-unknown"
 category = "wasm"
+title    = "Browser WASM"
 primary  = true
