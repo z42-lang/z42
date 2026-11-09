@@ -254,14 +254,9 @@ void test_bencher_print_summary_format() {
     Assert.Contains("max", s);
 }
 
-[Test]
-void test_bench_helpers_black_box_passthrough() {
-    // 本期 blackBox 用 object 形态（generic extern 在 z42 当前限制下不可用）。
-    var x = BenchHelpers.blackBox(42);
-    Assert.Equal(42, x);
-    var y = BenchHelpers.blackBox("xyz");
-    Assert.Equal("xyz", y);
-}
+// （原 test_bench_helpers_black_box_passthrough 随 API 弃用删除：BenchHelpers.blackBox 已标
+//  [Deprecated]——返回值透传语义随之退役；deprecated 告警机制由 z42c.semantics 的
+//  directives 测试覆盖，语句位沉点语义由 z42.core 的 gc_keepalive 测试钉。）
 
 // ── Bencher 统一入口 + 值返回 iter（bencher-unified-entry）────────────────
 

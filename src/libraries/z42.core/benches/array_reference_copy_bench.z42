@@ -9,7 +9,7 @@ void CopyInts(Bencher b) {
     src[4095] = 5;
     b.iter(() => {
         Array.CopyRange(src, 0, dst, 0, 4096);
-        BenchHelpers.blackBox(dst);
+        GC.KeepAlive(dst);
     });
 }
 
@@ -20,7 +20,7 @@ void CopyStrings(Bencher b) {
     Array.Fill<string>(src, "é");
     b.iter(() => {
         Array.CopyRange(src, 0, dst, 0, 4096);
-        BenchHelpers.blackBox(dst);
+        GC.KeepAlive(dst);
     });
 }
 
@@ -31,6 +31,6 @@ void CopyNarrowStrings(Bencher b) {
     Array.Fill<object>(src, "é");
     b.iter(() => {
         Array.CopyRange(src, 0, dst, 0, 4096);
-        BenchHelpers.blackBox(dst);
+        GC.KeepAlive(dst);
     });
 }

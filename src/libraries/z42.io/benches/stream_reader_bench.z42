@@ -17,7 +17,7 @@ byte[] payload(int length, bool unicode) {
 [Benchmark]
 void first_line_64k() {
     byte[] data = payload(65536, false); var b = new Bencher(2, 12);
-    b.iter(() => { StreamReader r = new StreamReader(new MemoryStream(data)); BenchHelpers.blackBox(r.ReadLine()); r.Close(); });
+    b.iter(() => { StreamReader r = new StreamReader(new MemoryStream(data)); GC.KeepAlive(r.ReadLine()); r.Close(); });
     b.printSummary("reader_first_line_64k");
 }
 
@@ -47,7 +47,7 @@ void read_short_crlf_lines(Bencher b) {
 [Benchmark]
 void read_to_end_ascii_64k() {
     byte[] data = payload(65536, false); var b = new Bencher(2, 12);
-    b.iter(() => { StreamReader r = new StreamReader(new MemoryStream(data)); BenchHelpers.blackBox(r.ReadToEnd()); r.Close(); });
+    b.iter(() => { StreamReader r = new StreamReader(new MemoryStream(data)); GC.KeepAlive(r.ReadToEnd()); r.Close(); });
     b.printSummary("reader_to_end_ascii_64k");
 }
 [Benchmark]
@@ -57,14 +57,14 @@ void read_lines_unicode_16k() {
         StreamReader r = new StreamReader(new MemoryStream(data)); int total = 0;
         string line = r.ReadLine();
         while (line != null) { total = total + line.Length; line = r.ReadLine(); }
-        BenchHelpers.blackBox(total); r.Close();
+        GC.KeepAlive(total); r.Close();
     });
     b.printSummary("reader_lines_unicode_16k");
 }
 [Benchmark]
 void read_short() {
     byte[] data = Encoding.GetUtf8().GetBytes("hello\n"); var b = new Bencher(2, 20);
-    b.iter(() => { StreamReader r = new StreamReader(new MemoryStream(data)); BenchHelpers.blackBox(r.ReadLine()); r.Close(); });
+    b.iter(() => { StreamReader r = new StreamReader(new MemoryStream(data)); GC.KeepAlive(r.ReadLine()); r.Close(); });
     b.printSummary("reader_short");
 }
 [Benchmark]
@@ -73,7 +73,7 @@ void read_single_characters_4k() {
     b.iter(() => {
         StreamReader r = new StreamReader(new MemoryStream(data)); int total = 0; int c = r.Read();
         while (c >= 0) { total = total + c; c = r.Read(); }
-        BenchHelpers.blackBox(total); r.Close();
+        GC.KeepAlive(total); r.Close();
     });
     b.printSummary("reader_single_unicode_4k");
 }
@@ -92,6 +92,6 @@ class BytewiseSource : Stream {
 [Benchmark]
 void read_one_byte_chunks_256() {
     byte[] data = payload(256, true); var b = new Bencher(2, 12);
-    b.iter(() => { StreamReader r = new StreamReader(new BytewiseSource(data)); BenchHelpers.blackBox(r.ReadToEnd()); r.Close(); });
+    b.iter(() => { StreamReader r = new StreamReader(new BytewiseSource(data)); GC.KeepAlive(r.ReadToEnd()); r.Close(); });
     b.printSummary("reader_one_byte_unicode_256");
 }

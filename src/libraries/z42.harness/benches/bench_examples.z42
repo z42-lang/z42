@@ -23,7 +23,7 @@ using Std.Harness;
 [Benchmark]
 void bench_string_concat() {
     string s = String.Concat("hello, ", "world");
-    BenchHelpers.blackBox(s);
+    GC.KeepAlive(s);
 }
 
 [Benchmark]
@@ -31,7 +31,7 @@ void bench_string_contains(Bencher b) {
     string haystack = "the quick brown fox jumps over the lazy dog";
     b.iter(() => {
         bool hit = haystack.Contains("lazy");
-        BenchHelpers.blackBox(hit);
+        GC.KeepAlive(hit);
     });
 }
 
@@ -40,7 +40,7 @@ void bench_string_replace(Bencher b) {
     string text = "a-b-c-d-e-f-g";
     b.iter(() => {
         string r = text.Replace("-", "_");
-        BenchHelpers.blackBox(r);
+        GC.KeepAlive(r);
     });
 }
 
@@ -50,7 +50,7 @@ void bench_string_split_join(Bencher b) {
     b.iter(() => {
         string[] parts = csv.Split(",");
         string rejoined = String.Join("|", parts);
-        BenchHelpers.blackBox(rejoined);
+        GC.KeepAlive(rejoined);
     });
 }
 
@@ -64,7 +64,7 @@ void bench_integer_sum_loop() {
         total = total + i;
         i = i + 1;
     }
-    BenchHelpers.blackBox(total);
+    GC.KeepAlive(total);
 }
 
 // ── Sanity test: the example benchmarks actually measured something ───
@@ -76,7 +76,7 @@ void test_example_bench_bodies_run() {
     var b = new Bencher(1, 3);
     b.iter(() => {
         string s = String.Concat("x", "y");
-        BenchHelpers.blackBox(s);
+        GC.KeepAlive(s);
     });
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);

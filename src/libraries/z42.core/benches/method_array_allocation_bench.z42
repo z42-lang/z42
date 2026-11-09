@@ -9,7 +9,7 @@ int[] AllocateInts(int length) { return new int[length]; }
 void generic_int_array(Bencher b) {
     b.iter(() => {
         for (int i = 0; i < 256; i = i + 1) {
-            BenchHelpers.blackBox(Allocate<int>(8));
+            GC.KeepAlive(Allocate<int>(8));
         }
     });
 }
@@ -18,7 +18,7 @@ void generic_int_array(Bencher b) {
 void concrete_int_array(Bencher b) {
     b.iter(() => {
         for (int i = 0; i < 256; i = i + 1) {
-            BenchHelpers.blackBox(AllocateInts(8));
+            GC.KeepAlive(AllocateInts(8));
         }
     });
 }

@@ -15,7 +15,7 @@ void mutex_read_array_128(Bencher b) {
     b.iter(() => {
         long sum = 0;
         for (int i = 0; i < 128; i = i + 1) { sum = sum + readViaArray(state); }
-        BenchHelpers.blackBox(sum);
+        GC.KeepAlive(sum);
     });
 }
 
@@ -25,7 +25,7 @@ void mutex_read_result_128(Bencher b) {
     b.iter(() => {
         long sum = 0;
         for (int i = 0; i < 128; i = i + 1) { sum = sum + state.Read<long>((long value) => value); }
-        BenchHelpers.blackBox(sum);
+        GC.KeepAlive(sum);
     });
 }
 
@@ -37,6 +37,6 @@ void mutex_update_result_128(Bencher b) {
         for (int i = 0; i < 128; i = i + 1) {
             sum = sum + state.Update<long>((long value) => (value + 1, value + 1));
         }
-        BenchHelpers.blackBox(sum);
+        GC.KeepAlive(sum);
     });
 }

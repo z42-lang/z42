@@ -34,7 +34,8 @@ public static class GC {
     ///
     /// 通用的「观测点」sink，对标 C# `GC.KeepAlive`：语句位置消费一条算了但没人用的
     /// 表达式（实参求值留在原处，不被 DCE / 外提吃掉）；并发与 GC 测试里钉住对象引用
-    /// 寿命。基准防 DCE 的表达式沉点用 `Std.Harness.BenchHelpers.blackBox`（返回值版）。
+    /// 寿命。基准防 DCE 的表达式沉点已统一到本 API（原返回值版 BenchHelpers.blackBox
+    /// 已弃用，观察期后删除）。
     // 实现笔记：NoInlining → 不进纯函数表（调用按保守非纯对待，删不得）；NoOptimization →
     // 体原样保留。与 blackBox 分立而非委托：多一层非内联真调用会污染 bench 数字。
     [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]

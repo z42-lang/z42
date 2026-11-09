@@ -22,7 +22,7 @@ void MeasureJsonWrites(string name, JsonValue value, bool pretty, int iterations
             if (pretty) { JsonValue.WriteToPretty(sink, value); }
             else { JsonValue.WriteTo(sink, value); }
         }
-        BenchHelpers.blackBox(sink.Bytes);
+        GC.KeepAlive(sink.Bytes);
     });
     bench.printSummary(name);
 }

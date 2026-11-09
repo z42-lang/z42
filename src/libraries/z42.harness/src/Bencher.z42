@@ -11,7 +11,7 @@ using Std.IO;
 ///     b.printSummary("doWork");          // bench[doWork] min=... median=... max=...
 ///
 /// 要自适应采样（约 50ms 预算内选 n）用 `Bencher.adaptive()`；被测表达式的值没人消费时
-/// 用值返回形态 `b.iterValue(() => compute())`——每次采样经 blackBox 消费返回值，防 DCE。
+/// 用值返回形态 `b.iterValue(() => compute())`——每次采样经沉点消费返回值，防 DCE。
 ///
 /// `[Benchmark]` 基准两种签名：**推荐**唯一形参 `void f(Bencher b)`——runner 建固定档
 /// (2, 20) 的 Bencher 传入并在跑完时按函数名自动打摘要行，基准体只写 `b.iter(() => …)`；
@@ -110,23 +110,23 @@ public class Bencher {
         this._computeStats(times, n);
     }
 
-    /// 值返回形态（防 DCE 的免样板写法）：逐次经 `blackBox` 消费返回值。
+    /// 值返回形态（防 DCE 的免样板写法）：逐次经沉点（`GC.KeepAlive` 同机制）消费返回值。
     ///
     ///     b.iterValue(() => compute());   // compute() 的结果由 Bencher 逐次消费
     ///
-    /// 「算了但没人用」的表达式不会被优化掉，基准体不必手写 `blackBox(...)`。单独命名
+    /// 「算了但没人用」的表达式不会被优化掉，基准体不必手写沉点调用。单独命名
     /// （不重载 `iter`）：z42 的 lambda 在重载上须显式委托类型（E0437），重载会击穿全部
-    /// 既有 `b.iter(() => { … })` 块式调用点。每次采样一次装箱 + blackBox 调用，计入采样
-    /// 耗时——与手写 `b.iter(() => blackBox(compute()))` 完全同价，只是免了样板。
+    /// 既有 `b.iter(() => { … })` 块式调用点。每次采样一次装箱 + 沉点调用，计入采样
+    /// 耗时——与手写 `b.iter(() => GC.KeepAlive(compute()))` 完全同价，只是免了样板。
     public void iterValue(Func<object> body) {
         int w = 0;
         while (w < this.WarmupIters) {
-            BenchHelpers.blackBox(body());
+            GC.KeepAlive(body());
             w = w + 1;
         }
 
         // pilot 估 n 复用 Action 版：闭包一次分配，估算精度足够（粗粒度即可）。
-        Action plain = () => BenchHelpers.blackBox(body());
+        Action plain = () => GC.KeepAlive(body());
         int n = this._adaptive ? this._estimateAdaptiveN(plain) : this.Samples;
         if (n < 1) { n = 1; }
 
@@ -134,7 +134,7 @@ public class Bencher {
         int i = 0;
         while (i < n) {
             long t0 = __time_now_mono_ns();
-            BenchHelpers.blackBox(body());
+            GC.KeepAlive(body());
             long t1 = __time_now_mono_ns();
             times[i] = t1 - t0;
             i = i + 1;
@@ -232,16 +232,20 @@ public class Bencher {
 
 /// 基准相关的静态帮助函数集。
 public static class BenchHelpers {
-    /// 「别把这次计算优化掉」的恒等包装（对应 criterion 的 black_box）。
+    /// 「别把这次计算优化掉」的恒等包装（对应 criterion 的 black_box）——**已弃用**。
+    ///
+    /// 防优化语义已有更好的载体，本 API 观察期后删除（写了按 deprecated 告警，仍可编译）：
+    /// - 基准里：**返回值基准**（`[Benchmark] long f()`，runner 逐次消费返回值）或
+    ///   `b.iterValue(() => compute())`——体里零沉点样板；
+    /// - 语句位通用沉点：`Std.GC.KeepAlive(x)`（core，不引 harness，语义相同——同一对
+    ///   `[MethodImpl]` 标志，返回值弃置时二者恒等）。
     ///
     /// 标了 `[MethodImpl(NoInlining | NoOptimization)]`：编译器不内联它、也不把它当纯函数，
-    /// 所以调用不会被公共子表达式消除或循环外提吃掉，实参的计算也就留在原处。可无条件使用。
-    ///
-    /// 基准外的通用沉点（含语句位置）用 `Std.GC.KeepAlive`：core 里的无返回值同语义 API，
-    /// 不引 harness 也能用。两者分立不委托——多一层非内联真调用会污染 bench 数字。
+    /// 所以调用不会被公共子表达式消除或循环外提吃掉，实参的计算也就留在原处。
     ///
     /// @warning 形参是 `object` 而非 `<T>`：跨 zpkg 的方法级泛型实参推断尚未就绪，
     ///     装箱开销由调用方自负。
+    [Deprecated("基准用返回值形态 / b.iterValue，语句位用 Std.GC.KeepAlive（语义相同）")]
     [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]
     public static object blackBox(object value) { return value; }
 }

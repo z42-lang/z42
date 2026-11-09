@@ -19,17 +19,17 @@ int exercise_no_calls(int n) {
 }
 [Benchmark]
 void bench_inline_no_calls_512(Bencher b) {
-    b.iter(() => { BenchHelpers.blackBox(exercise_no_calls(512)); });
+    b.iter(() => { GC.KeepAlive(exercise_no_calls(512)); });
 }
 [Benchmark]
 void bench_inline_lookup_512(Bencher b) {
-    b.iter(() => { BenchHelpers.blackBox(exercise(512)); });
+    b.iter(() => { GC.KeepAlive(exercise(512)); });
 }
 void Main() {
     string[] args = Environment.GetCommandLineArgs();
     int n = args.Length > 0 ? int.Parse(args[0]) : 512;
     var b = new Bencher(4, 12);
-    b.iter(() => { BenchHelpers.blackBox(args.Length > 1 ? exercise_no_calls(n) : exercise(n)); });
+    b.iter(() => { GC.KeepAlive(args.Length > 1 ? exercise_no_calls(n) : exercise(n)); });
     b.printSummary("inline_lookup_" + n.ToString());
 }
 

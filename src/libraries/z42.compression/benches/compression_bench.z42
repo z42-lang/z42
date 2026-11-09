@@ -26,7 +26,7 @@ void bench_gzip_roundtrip_4k(Bencher b) {
     byte[] msg = _mkPayload(4096);
     b.iter(() => {
         byte[] c = Gzip.Compress(msg);
-        BenchHelpers.blackBox(Gzip.Decompress(c).Length);
+        GC.KeepAlive(Gzip.Decompress(c).Length);
     });
 }
 
@@ -35,7 +35,7 @@ void bench_deflate_roundtrip_4k(Bencher b) {
     byte[] msg = _mkPayload(4096);
     b.iter(() => {
         byte[] c = Deflate.Compress(msg);
-        BenchHelpers.blackBox(Deflate.Decompress(c).Length);
+        GC.KeepAlive(Deflate.Decompress(c).Length);
     });
 }
 
@@ -44,7 +44,7 @@ void bench_zstd_roundtrip_4k(Bencher b) {
     byte[] msg = _mkPayload(4096);
     b.iter(() => {
         byte[] c = Zstd.Compress(msg);
-        BenchHelpers.blackBox(Zstd.Decompress(c).Length);
+        GC.KeepAlive(Zstd.Decompress(c).Length);
     });
 }
 
@@ -55,7 +55,7 @@ void test_compression_bench_bodies_run() {
     var b = new Bencher(1, 3);
     b.iter(() => {
         byte[] c = Gzip.Compress(msg);
-        BenchHelpers.blackBox(Gzip.Decompress(c).Length);
+        GC.KeepAlive(Gzip.Decompress(c).Length);
     });
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);

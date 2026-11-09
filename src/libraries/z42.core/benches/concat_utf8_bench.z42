@@ -3,7 +3,7 @@ using Std.Harness;
 
 void measure(string[] parts, string name) {
     var b = new Bencher(4, 24);
-    b.iter(() => { BenchHelpers.blackBox(String.ConcatPartsUtf8(parts, parts.Length)); });
+    b.iter(() => { GC.KeepAlive(String.ConcatPartsUtf8(parts, parts.Length)); });
     b.printSummary(name);
 }
 

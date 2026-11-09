@@ -16,7 +16,7 @@ void bench_stringbuilder_append() {
         sb.Append("ab");
         i = i + 1;
     }
-    BenchHelpers.blackBox(sb.ToString());
+    GC.KeepAlive(sb.ToString());
 }
 
 [Benchmark]
@@ -27,7 +27,7 @@ void bench_stringbuilder_append_char() {
         for (int i = 0; i < 256; i = i + 1) {
             sb.Append('a').Append('é').Append('中').Append('😀');
         }
-        BenchHelpers.blackBox(sb.ToString());
+        GC.KeepAlive(sb.ToString());
     });
     b.printSummary("stringbuilder_append_char");
 }
@@ -36,14 +36,14 @@ void bench_stringbuilder_append_char() {
 void bench_levenshtein() {
     int d = Levenshtein.Distance("benchmark structures", "benchmark structure!")
           + Levenshtein.Distance("kitten", "sitting");
-    BenchHelpers.blackBox(d);
+    GC.KeepAlive(d);
 }
 
 [Benchmark]
 void bench_strings_repeat_pad() {
     string r = Strings.Repeat("xy", 32);
     string p = Strings.PadLeft("42", 16, '0');
-    BenchHelpers.blackBox(r + p);
+    GC.KeepAlive(r + p);
 }
 
 // Smoke [Test] — bench bodies actually run, independent of timing.
@@ -53,7 +53,7 @@ void test_text_bench_bodies_run() {
     b.iter(() => {
         var sb = new StringBuilder();
         sb.Append("x");
-        BenchHelpers.blackBox(sb.GetLength());
+        GC.KeepAlive(sb.GetLength());
     });
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);

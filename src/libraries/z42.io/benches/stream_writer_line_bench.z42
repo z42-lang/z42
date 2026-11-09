@@ -19,7 +19,7 @@ void MeasureLines(string name, string line, int iterations) {
         for (int i = 0; i < iterations; i++) {
             writer.WriteLine(line);
         }
-        BenchHelpers.blackBox(stream.Bytes);
+        GC.KeepAlive(stream.Bytes);
     });
     bench.printSummary(name);
 }

@@ -23,8 +23,8 @@ void bench(int capacity, int fill, int repeats, string name) {
         }
         Assert.Equal(0, dict.Count);
         Assert.Equal(0, set.Count);
-        BenchHelpers.blackBox(dict);
-        BenchHelpers.blackBox(set);
+        GC.KeepAlive(dict);
+        GC.KeepAlive(set);
     });
     b.printSummary(name);
 }
