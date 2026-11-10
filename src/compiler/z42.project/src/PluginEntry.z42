@@ -1,0 +1,67 @@
+// `[plugins]` 条目 → 插件工程清单路径的**唯一**判官（unify-plugin-entry-resolver）。
+//
+// 三处宿主（z42c driver 的 `PluginRefs._pluginToml` / z42c.pipeline 的 `BuildSession._pluginEntryToml` /
+// z42b 的 `builder_hooks._hookPluginToml`）原先各持一份平行实现——deps-plugin-routing 三刀
+//（#1413 源集 / #1504 分流 / #1721 删形态）每次都要同步编辑三处，是已兑现多次的漂移源。
+// 现收成一份：判定与消息在此，呈现通道归各宿主（`Error` 是不带渠道前缀的完整消息体，
+// 宿主加自己的 `z42c build: ` / `z42b: ` 前缀或走 reporter）。
+//
+// 合法形态（deps-plugin-routing 收官后只剩两种）：
+//   · 源集条目 `{ include, exclude }`（对齐 [tests]）→ `PluginSynth.SynthSet` 合成最小清单（落 synthBaseDir）；
+//   · `path` → 插件工程目录（目录里有工程清单）→ 定位返回。
+// 已删除（返回 Error 指路改写）：`path` 指单个 `.z42` / 无清单源目录；按名与 `.zpkg` path 条目
+// 在清单层拦（`ManifestKnobs._rejectPluginArtifactForms`），不经这里。
+//
+// synthBaseDir 由调用方给：z42c = 消费方 cache 目录（随缓存清）；z42b = `<interDir>/synth`。
+// 只管条目→清单；定位到的工程是否 kind=plugin、名字是否与条目一致，由各宿主在加载后校验
+//（driver/session 的 `_pluginFromProject` / z42b 的 `_hookPluginToml`——合成清单天然 kind=plugin 免检）。
+namespace Z42.Project;
+
+using Std.IO;
+
+public sealed class PluginEntryResolution {
+    /// 插件工程清单路径；"" = 失败（Error 非空）。
+    public string Toml;
+    /// 完整消息体（以 `[plugins] `x`` 起头），宿主自行加渠道前缀呈现。
+    public string Error;
+    public PluginEntryResolution(string toml, string error) {
+        this.Toml = toml;
+        this.Error = error;
+    }
+}
+
+public static class PluginEntry {
+    /// 判定一个 `[plugins]` 条目。consumerDir = 消费方工程目录（相对 path 的基准）。
+    public static PluginEntryResolution Resolve(DepEntry e, string consumerDir, string synthBaseDir) {
+        string aname = e.Name;
+        if (e.IncludeCount > 0) {
+            // 源集与 path 互斥：都写时源集静默赢会让人以为 path 也生效。
+            if (e.Path.Length > 0) {
+                return new PluginEntryResolution("", "[plugins] `" + aname + "` 同时写了 include 与 path——二者互斥："
+                    + "源码集用 include/exclude（相对本工程目录），插件工程用 path。");
+            }
+            string stoml = PluginSynth.SynthSet(synthBaseDir, aname, consumerDir, e.Include, e.IncludeCount,
+                                               e.Exclude, e.ExcludeCount);
+            if (stoml.Length == 0) {
+                return new PluginEntryResolution("", "[plugins] `" + aname + "` 的源集 include 一个 .z42 都没匹配到——"
+                    + "检查 glob（须以文件模式收尾，如 `hooks/**/*.z42`）。");
+            }
+            return new PluginEntryResolution(stoml, "");
+        }
+        string adir = Path.IsRooted(e.Path) ? e.Path : Path.Join(consumerDir, e.Path);
+        if (e.Path.EndsWith(".z42")) {
+            return new PluginEntryResolution("", "[plugins] `" + aname + "` 的源码 path 形态已删除——改写为"
+                + " { include = [\"<相对本清单目录的源文件>\"] }（对齐 [tests]，可加 exclude），行为不变。");
+        }
+        ManifestLocation aloc = ManifestLocator.FindIn(adir);
+        if (aloc.Kind == ManifestLocateKind.Project) { return new PluginEntryResolution(aloc.ManifestPath, ""); }
+        if (aloc.Kind == ManifestLocateKind.NotFound && Directory.Exists(adir)) {
+            return new PluginEntryResolution("", "[plugins] `" + aname + "` 的源码 path 形态已删除——改写为"
+                + " { include = [\"<目录>/**/*.z42\"] }（对齐 [tests]，可加 exclude），行为不变。");
+        }
+        return new PluginEntryResolution("", "[plugins] `" + aname + "` 的 path 指向 " + adir
+            + "，那里没有单个工程清单"
+            + (aloc.Kind == ManifestLocateKind.Ambiguous ? "（同层有多份 *.z42.toml）"
+               : (aloc.Kind == ManifestLocateKind.Workspace ? "（那是一个 workspace）" : "（目录不存在）")) + "。");
+    }
+}

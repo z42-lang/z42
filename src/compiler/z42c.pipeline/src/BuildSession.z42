@@ -466,36 +466,14 @@ public sealed class BuildSession {
     // 条目（源集 / 单文件 / 免清单目录 / 工程目录）→ 插件工程清单路径（定位或 PluginSynth 合成）；
     // 失败经 reporter 报错返回 ""。
     private string _pluginEntryToml(DepEntry e, string cacheDir) {
-        IBuildReporter rep = this._o.Reporter;
-        string aname = e.Name;
-        if (e.IncludeCount > 0) {
-            if (e.Path.Length > 0) {
-                rep.Fail("[plugins] `" + aname + "` 同时写了 include 与 path——二者互斥：源码集用 include/exclude"
-                    + "（相对本工程目录），插件工程用 path。");
-                return "";
-            }
-            string stoml = PluginSynth.SynthSet(cacheDir, aname, this._o.ProjectDir, e.Include, e.IncludeCount, e.Exclude, e.ExcludeCount);
-            if (stoml.Length == 0) {
-                rep.Fail("[plugins] `" + aname + "` 的源集 include 一个 .z42 都没匹配到——检查 glob"
-                    + "（须以文件模式收尾，如 `hooks/**/*.z42`）。");
-            }
-            return stoml;
-        }
-        string adir = Path.Join(this._o.ProjectDir, e.Path);
-        if (e.Path.EndsWith(".z42")) {
-            rep.Fail("[plugins] `" + aname + "` 的源码 path 形态已删除——改写为"
-                + " { include = [\"<相对本清单目录的源文件>\"] }（对齐 [tests]，可加 exclude），行为不变。");
+        // 条目形态判定与消息统一在 Z42.Project 的 PluginEntry.Resolve（unify-plugin-entry-resolver，
+        // 与 driver / z42b 共一份）；这里只走 reporter 呈现。
+        PluginEntryResolution r = PluginEntry.Resolve(e, this._o.ProjectDir, cacheDir);
+        if (r.Error.Length > 0) {
+            this._o.Reporter.Fail(r.Error);
             return "";
         }
-        ManifestLocation aloc = ManifestLocator.FindIn(adir);
-        if (aloc.Kind == ManifestLocateKind.Project) { return aloc.ManifestPath; }
-        if (aloc.Kind == ManifestLocateKind.NotFound && Directory.Exists(adir)) {
-            rep.Fail("[plugins] `" + aname + "` 的源码 path 形态已删除——改写为"
-                + " { include = [\"<目录>/**/*.z42\"] }（对齐 [tests]，可加 exclude），行为不变。");
-            return "";
-        }
-        rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + adir + "，那里没有单个工程清单。");
-        return "";
+        return r.Toml;
     }
 
 
