@@ -1,0 +1,5 @@
+namespace MultiErr;
+
+public static class B {
+    public static int Bad() { return NoSuchThingB; }
+}

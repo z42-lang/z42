@@ -1,0 +1,6 @@
+desc = "z42c build 逐 CU 全报错误（对齐 BuildSession ⑦ 口径）：两个坏文件的错一并列出，不再是修一个才见下一个（见 README）"
+
+[[step]]
+args = ["build", "app/z42.toml"]
+exit = "nonzero"
+stderr_contains = ["error(s) in", "a.z42", "b.z42", "E0401"]
