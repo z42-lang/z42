@@ -113,7 +113,7 @@ void _checkSdkChangedGit(string dir) {
         "real Git SDK roles select one verification command");
     _gateAssert(_changedGateSkips("HEAD") == String.Join(",", _changedScopedStages()),
         "SDK verification does not claim GREEN stages");
-    Directory.Create(Path.Join(dir, "scripts/common"));
+    Directory.Create(Path.Join(dir, "scripts/src/common"));
     File.WriteAllText(Path.Join(dir, "scripts/src/common/shared.z42"), "// untracked shared script\n");
     _gateAssert(String.Join(";", _buildChangedPlan(_changedFiles("HEAD"))) == "xtask test;xtask package sdk --verify",
         "real Git full fallback preserves SDK verification");

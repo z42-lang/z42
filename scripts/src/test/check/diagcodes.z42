@@ -8,7 +8,7 @@ using Std.Collections;
 
 string _dcRegistryPath() { return "src/compiler/z42c.core/src/DiagnosticCodes.z42"; }
 string _dcDocPath() { return "docs/reference/src/appendix/error-codes.md"; }
-string[] _dcCoverageRoots() { return new string[]{ "examples", "scripts/test", "docs/learn" }; }
+string[] _dcCoverageRoots() { return new string[]{ "examples", "scripts/src/test", "docs/learn" }; }
 
 // 检查器中的码号示例不构成测试覆盖；按文件名排除，避免搬家改变判据。
 bool _dcIsOwnFile(string relp) { return relp.EndsWith("test/check/diagcodes.z42"); }
