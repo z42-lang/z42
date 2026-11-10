@@ -672,7 +672,6 @@ version = "0.7.0"
 name = "z42-compression"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "brotli",
  "flate2",
  "lz4_flex",
@@ -686,10 +685,8 @@ name = "z42-interp"
 version = "0.7.0"
 dependencies = [
  "anyhow",
- "parking_lot",
  "rustc-hash",
  "smallvec",
- "tracing",
  "z42",
 ]
 
