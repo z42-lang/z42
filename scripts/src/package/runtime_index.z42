@@ -4,6 +4,7 @@
 namespace Z42Xtask;
 
 using Std.Collections;
+using Std.Cli;
 using Std.IO;
 using Std.Toml;
 
@@ -152,4 +153,87 @@ string _rtStaticName(string root, string stem, string rid) {
 
 string _rtImportLibName(string root, string stem) {
     return _rtTemplate(root, "dynamic", "import_lib_windows", "{stem}.dll.lib").Replace("{stem}", stem);
+}
+
+// ── pack 形态与输出路径（R1 后半）──────────────────────────────────────────────
+
+class _RtPack {
+    public string Name;
+    public string RidClass;     // desktop | ios | android | wasm
+    public string[] Components; // lib 键名（host/interp/...）
+    public string[] Forms;      // static | dynamic | framework
+    public bool Headers;
+    public bool ImportLibs;
+    public string Std;          // shared | framework-alias | ""
+}
+
+_RtPack[] _rtPacks(string root) {
+    TomlValue doc = TomlValue.Parse(File.ReadAllText(Path.Join(root, "scripts/packages.toml")));
+    List<_RtPack> xs = new List<_RtPack>();
+    if (doc.ContainsKey("runtime") && doc.Get("runtime").ContainsKey("pack")) {
+        TomlValue packs = doc.Get("runtime").Get("pack");
+        foreach (var name in packs.Keys()) {
+            TomlValue n = packs.Get(name);
+            _RtPack x = new _RtPack();
+            x.Name = name;
+            x.RidClass = _rtStr(n, "rid_class", "desktop");
+            x.Components = _rtStrArr(n, "components", new string[0]);
+            x.Forms = _rtStrArr(n, "forms", new string[]{ "static" });
+            x.Headers = n.ContainsKey("headers") && n.Get("headers").AsBool();
+            x.ImportLibs = n.ContainsKey("import_libs") && n.Get("import_libs").AsBool();
+            x.Std = _rtStr(n, "std", "");
+            xs.Add(x);
+        }
+    }
+    return xs.ToArray();
+}
+
+// pack 在某 rid 下的实际 stem 集（pack.components × lib.rids）。
+string[] _rtPackStems(string root, string packName, string rid) {
+    _RtPack[] packs = _rtPacks(root);
+    _RtPack pack = null;
+    foreach (var p in packs) { if (p.Name == packName) { pack = p; } }
+    if (pack == null) { throw new CliException("unknown runtime pack: " + packName); }
+    List<string> xs = new List<string>();
+    foreach (var libName in pack.Components) {
+        foreach (var lib in _rtLibs(root)) {
+            if (lib.Name != libName) { continue; }
+            foreach (var spec in lib.Rids) {
+                if (_rtRidMatch(spec, rid)) { xs.Add(lib.Stem); break; }
+            }
+        }
+    }
+    return xs.ToArray();
+}
+
+// [runtime.output] 模板渲染（{root}/{profile}/{triple}）。
+string _rtOutputPath(string root, string kind, string profile, string rid = "") {
+    TomlValue doc = TomlValue.Parse(File.ReadAllText(Path.Join(root, "scripts/packages.toml")));
+    string dflt = "components";
+    if (kind == "dynamic") { dflt = "components/{profile}"; }
+    else if (kind == "launcher") { dflt = "components/launcher/{profile}"; }
+    else if (kind == "static") { dflt = "components/static/{profile}"; }
+    else if (kind == "headers") { return Path.Join(root, "src/runtime/include"); }
+    string tmpl = dflt;
+    if (doc.ContainsKey("runtime") && doc.Get("runtime").ContainsKey("output")) {
+        TomlValue o = doc.Get("runtime").Get("output");
+        if (o.ContainsKey(kind)) { tmpl = o.Get(kind).AsString(); }
+    }
+    string profileDir = profile == "release" ? _rtProfileDir(root, profile) : profile;
+    string triple = rid.Length > 0 ? _rtRidTriple(root, rid) : "";
+    string result = tmpl.Replace("{root}", "components").Replace("{profile}", profileDir).Replace("{triple}", triple);
+    return Path.Join(Path.Join(root, "artifacts/build/runtime"), result);
+}
+
+// 桌面动态图的 profile 名（era 容错：旧树无 config-dynamic 时为 release）。
+string _rtProfileDir(string root, string profile) {
+    if (File.Exists(Path.Join(root, "src/runtime/.cargo/config-dynamic.toml")) && profile == "release") {
+        return "release-dynamic";
+    }
+    return profile;
+}
+
+// rid → cargo triple（versions.toml [rid.*] 单一来源）。
+string _rtRidTriple(string root, string rid) {
+    return _vRidTriple(root, rid);
 }

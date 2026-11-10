@@ -97,17 +97,17 @@ int _packageDynamicRuntime(string rid, string profile, bool noBuild, bool verify
 // （嵌入者直接链接组件而非 dlopen，见 z42_host.h 的 register_static_* 协议）；
 // SDK 不要 —— z42vm 只 dlopen，链接期文件纯属负载。
 void _componentInstallLibraries(string cargo, string pkg, bool importLibs = false) {
-    string native = Path.Join(pkg, "native");
-    Directory.Create(native);
-    foreach (var stem in _rtStems(_root(), _detectHostRid())) {
-        string file = _componentLibrary(stem);
-        _componentCopyRequired(Path.Join(cargo, file), Path.Join(native, file));
-        if (importLibs && Platform.IsWindows()) {
-            _componentCopyRequired(Path.Join(cargo, stem + ".dll.lib"), Path.Join(native, stem + ".dll.lib"));
+    // R1 统一复制器入口：动态闭包（可选 import lib）+ 恰好一份共享 std。
+    string rid = _detectHostRid();
+    _RtCopy[] closure = _rtResolveClosure(_root(), rid, cargo);
+    _rtExecuteCopies(closure, pkg, true);
+    if (importLibs && rid.StartsWith("windows-")) {
+        foreach (var c in closure) {
+            string il = _rtImportLibName(_root(), c.Stem);
+            _componentCopyRequired(Path.Join(cargo, il), Path.Join(Path.Join(pkg, "native"), il));
         }
     }
-    _componentCopyStd(native);
-
+    _componentCopyStd(Path.Join(pkg, "native"));
 }
 
 // z42vm 启动器单独出一图：静态 Rust std（prefer-dynamic=no），exe 自身不再依赖共享

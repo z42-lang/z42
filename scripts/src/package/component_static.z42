@@ -161,20 +161,16 @@ void _componentCopyStaticLibraries(string root, string native, string rid, strin
     _componentCopyStaticFiles(_componentPlatformOut(root, rid, profile, false), native, rid);
 }
 
+// R1：stem 集归 [runtime.lib]（jit 自动进出）；第三方导入库名单归统一复制器。
+// link.txt 不再随包：flags 由 _rtEmitRuntimeManifest 写进包内 manifest.toml 的
+// [components.<stem>].link_flags。
 void _componentCopyStaticFiles(string cargo, string native, string rid) {
-    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
-        if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
+    List<string> stems = new List<string>();
+    foreach (var stem in _rtStems(_root(), rid)) {
+        if (stem == "z42") { continue; }   // host 归档由各平台打包器自行放置
+        stems.Add(stem);
         string name = _componentStaticName(stem, rid);
         _componentCopyRequired(Path.Join(cargo, name), Path.Join(native, name));
-        // link.txt 不再随包：flags 由 _rtEmitRuntimeManifest 写进包内 manifest.toml 的
-        // [components.<stem>].link_flags；此处仍从构建侧 link.txt 读第三方导入库名单。
-        // 第三方导入库（已在 <cargo>/ 暂存或仍在 deps/）随档案进包，嵌入方才能链接。
-        foreach (var flag in File.ReadAllText(Path.Join(cargo, stem + "-link.txt")).Split(" ")) {
-            if (!flag.EndsWith(".lib")) { continue; }
-            string staged = Path.Join(cargo, flag);
-            string inDeps = Path.Join(Path.Join(cargo, "deps"), flag);
-            string source = File.Exists(staged) ? staged : (File.Exists(inDeps) ? inDeps : "");
-            if (source.Length > 0) { File.Copy(source, Path.Join(native, flag)); }
-        }
     }
+    _rtCopyThirdPartyLibs(cargo, native, stems.ToArray());
 }
