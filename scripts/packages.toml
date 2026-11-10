@@ -122,3 +122,48 @@ dest = "libs/"
 [component.editor-assets]
 kind = "editor-assets"   # 编辑器集成资产（`z42d install <target>` 的输入；*.tpl.json 不进包）
 dest = "editors/"        # → editors/vscode/{package.json,language-configuration.json,syntaxes/}
+
+# ══════════════════════════════════════════════════════════════════════════
+# runtime 域（R1）：runtime 库组件的打包知识单一来源。xtask 从这里读，
+# 不再各处手抄 stem 数组 / 命名分叉 / jit 矩阵 / 特性串。
+#   lib.*   —— 组件注册表：cargo 包名（缺省 = stem）/ kind / rids（缺省 *）/
+#              requires（同包依赖，拓扑序推导）。
+#   naming  —— stem → 平台文件名模板（{stem} 占位）。
+#   jit 矩阵 / 移动 preset 等由 rids + kind 推导；包形态归 [package.*] 既有机制。
+# ══════════════════════════════════════════════════════════════════════════
+[runtime.lib.host]
+stem = "z42"
+kind = "core"
+
+[runtime.lib.interp]
+cargo = "z42-interp"
+stem = "z42_interp"
+kind = "engine"
+requires = ["host"]
+
+[runtime.lib.jit]
+cargo = "z42-jit"
+stem = "z42_jit"
+kind = "engine"
+requires = ["interp"]
+rids = ["desktop", "android", "iossim"]   # 其余目标无 JIT（_componentTargetHasJit 的数据化）
+
+[runtime.lib.compression]
+cargo = "z42-compression"
+stem = "z42_compression"
+kind = "module"
+
+[runtime.lib.repl]
+stem = "z42_repl"
+kind = "tool"        # 宿主专用：随 z42i 进 programs/，不进任何 runtime 包
+rids = ["host-only"]
+
+[runtime.naming.dynamic]
+windows = "{stem}.dll"
+macos = "lib{stem}.dylib"
+other = "lib{stem}.so"
+import_lib_windows = "{stem}.dll.lib"
+
+[runtime.naming.static]
+windows = "{stem}.lib"
+other = "lib{stem}.a"
