@@ -42,17 +42,20 @@ Process _componentCargo(string verb, string root, string profile, string targetD
     if (profile == "release") { p = p.Arg("--release"); }
     return p;
 }
-Process _componentTargets(Process build) {
-    return build
+Process _componentTargets(Process build, string root) {
+    Process p = build
         .Arg("-p").Arg("z42")
         .Arg("-p").Arg("z42-interp").Arg("-p").Arg("z42-jit")
-        .Arg("--no-default-features").Arg("--features")
-        .Arg("z42/desktop-dynamic,z42-interp/dynamic,z42-jit/dynamic");
+        .Arg("--no-default-features");
+    // 旧树（bench base-src 等）没有 R0 的命名别名，回退展开串。
+    if (_componentR0Tree(root)) { return p.Arg("--features").Arg("z42/desktop-dynamic,z42-interp/dynamic,z42-jit/dynamic"); }
+    return p.Arg("--features").Arg("z42/cli,z42/interp,z42/jit,z42/shared-core,z42/native-interop,z42/net,z42/tls"
+        + ",z42-interp/shared-core,z42-interp/jit,z42-interp/native-interop,z42-jit/shared-core");
 }
 
 int _componentBuild(string root, string profile) {
     // One graph unifies the shared core's features for both dynamic backends and host.
-    Process build = _componentTargets(_componentCargo("build", root, profile))
+    Process build = _componentTargets(_componentCargo("build", root, profile), root)
         .Arg("--all-targets").Arg("--message-format=json-render-diagnostics");
     // Development targets and every library are in one graph, so transitive
     // dependency features cannot produce a second, incompatible core image.

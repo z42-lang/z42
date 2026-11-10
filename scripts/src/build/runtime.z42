@@ -13,7 +13,7 @@ int _buildRuntime() {
 
 
 int _buildRuntimeProfile(string profile) {
-    int c = _exec(_componentTargets(_componentCargo("build", _root(), profile, _cargoTargetDir(_root()))));
+    int c = _exec(_componentTargets(_componentCargo("build", _root(), profile, _cargoTargetDir(_root())), _root()));
     if (c == 0) { c = _componentBuildCompression(_root(), _detectHostRid(), profile, true, _runtimeOut(_root(), profile)); }
     if (c == 0) { _componentCopyStd(_runtimeOut(_root(), profile)); }
     return c;
