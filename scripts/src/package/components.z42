@@ -109,7 +109,9 @@ int _componentBuildStatic(string root, string profile) {
     return _componentBuildStaticLibraries(root, _detectHostRid(), profile);
 }
 
+// 静态图仍走 --release（目录名不带 -dynamic 后缀）；从动态图目录名推导时映射回去。
+string _componentStaticProfileName(string cargoProfile) { return cargoProfile == "release-dynamic" ? "release" : cargoProfile; }
 string _componentStaticArchive(string cargo) {
     string name = Platform.IsWindows() ? "z42.lib" : "libz42.a";
-    return Path.Join(Path.GetDirectoryName(cargo), "static/" + Path.GetFileName(cargo) + "/examples/" + name);
+    return Path.Join(Path.GetDirectoryName(cargo), "static/" + _componentStaticProfileName(Path.GetFileName(cargo)) + "/examples/" + name);
 }
