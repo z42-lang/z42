@@ -237,7 +237,11 @@ jobs:
           set -euo pipefail
           ROOT="$PWD"
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          PRVM="$ROOT/artifacts/build/runtime/release-dynamic/z42vm"
+          # 动态图产物目录名因树而异（R0 后 release-dynamic，旧树 release）。A/B 等长不变量靠
+          # 各树内固定名软链 ab → 实际目录；两侧都经 <树>/artifacts/build/runtime/ab/z42vm 取 VM。
+          abdir() { local rt="$1/artifacts/build/runtime"; local d=release; [ -d "$rt/release-dynamic" ] && d=release-dynamic; ln -sfn "$d" "$rt/ab"; }
+          abdir "$ROOT"
+          PRVM="$ROOT/artifacts/build/runtime/ab/z42vm"
           PRDRIVER="$ROOT/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"
 
           # PR flat libs (stdlib + z42c siblings) — PR driver's runtime resolve
@@ -267,8 +271,8 @@ jobs:
             # matching core, execution backends, compression library and shared std.
             # xtask resolves the repository from cwd, so this builds base sources.
             ( cd base-src && xtask build runtime )
-            BASEVM="$ROOT/base-src/artifacts/build/runtime/release-dynamic/z42vm"
-            [ -f "$BASEVM" ] || BASEVM="$ROOT/base-src/artifacts/build/runtime/release/z42vm"
+            abdir "$ROOT/base-src"
+            BASEVM="$ROOT/base-src/artifacts/build/runtime/ab/z42vm"
           fi
 
           # base z42c: PR driver compiles base-src/src/compiler (newer→older).
@@ -350,11 +354,11 @@ jobs:
           BASEVM="${{ steps.base.outputs.base_vm }}"
           BASEALL="${{ steps.base.outputs.base_libs }}"
           # VM 没变 ⇒ base_vm 就是 PR 的 z42vm，两侧同一个路径串；变了 ⇒ 各取本树 artifacts 下的那个（等长）。
-          if [ "$BASEVM" = "$ROOT/artifacts/build/runtime/release-dynamic/z42vm" ]; then
+          if [ "$BASEVM" = "$ROOT/artifacts/build/runtime/ab/z42vm" ]; then
             HEADVM="$BASEVM"
           else
-            HEADVM="$ROOT/head-src/artifacts/build/runtime/release-dynamic/z42vm"
-            [ -f "$HEADVM" ] || HEADVM="$ROOT/head-src/artifacts/build/runtime/release/z42vm"
+            # head-src/artifacts 是 ../artifacts 的软链 —— ab 已在本树建好（见 base 步）。
+            HEADVM="$ROOT/head-src/artifacts/build/runtime/ab/z42vm"
           fi
           # 等长是这一步的不变量：谁改了目录名，这里当场红，而不是悄悄变回有偏的门。
           [ "${#HEADALL}" -eq "${#BASEALL}" ] && [ "${#HEADVM}" -eq "${#BASEVM}" ] \
