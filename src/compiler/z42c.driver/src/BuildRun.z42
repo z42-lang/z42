@@ -673,7 +673,7 @@ CompileInputs _fillCompileInputs(ProjectManifest pm, string[] srcs, string[] tex
     return cin;
 }
 
-// ── ⑪a 错误呈现（逐文件，首个有错即报并返回——与抽取前逐字一致）──────────────────
+// ── ⑪a 错误呈现（逐文件，**全部**有错 CU 报完再返回——对齐 BuildSession ⑦ 的口径）──────
 int _reportCompileErrors(CompileArtifacts art, string[] dispSrcs) {
     CompiledModuleZ[] cms = art.Cms;
     // 🔴 循环上界必须是 **art.CmCount 而不是 srcs.Length**（fix-generated-cu-errors-invisible）：
@@ -685,8 +685,14 @@ int _reportCompileErrors(CompileArtifacts art, string[] dispSrcs) {
     // **任何 generator 的产出编译失败都会踩这条**，不限某个具体 generator。
     //
     // 生成 CU 没有真实源文件名 → 标 `<generated>`；原先那样索引 `srcs[ei]` 正是越界读。
+    //
+    // unify-driver-on-build-session K2：原先「首个有错 CU 即返回」与 BuildSession.Run ⑦
+    // （逐 CU 全报）分叉——z42c CLI 一次只看见第一个坏文件的错，修完重建才见下一个。
+    // 这里改为全报（与 session / 常规编译器口径一致）；级联错（A 坏类型牵连 B）会一并
+    // 列出，属预期——修源头后随之消失。
     if (art.ErrorCount > 0) {
         int ei = 0;
+        bool claimed = false;
         while (ei < art.CmCount) {
             CompiledModuleZ cm = cms[ei];
             if (cm.ErrorCount > 0) {
@@ -694,13 +700,15 @@ int _reportCompileErrors(CompileArtifacts art, string[] dispSrcs) {
                 ConsoleError.WriteLine("z42c build: " + cm.ErrorCount.ToString() + " error(s) in " + origin);
                 int di = 0;
                 while (di < cm.DiagCount) { ConsoleError.WriteLine("  " + cm.DiagMsgs[di]); di = di + 1; }
-                return ExitCode.BuildError;
+                claimed = true;
             }
             ei = ei + 1;
         }
         // 有错但逐 CU 都没认领 —— 也绝不能往下走（下游拿 art.Z==null 会崩成 FieldGet）。
-        ConsoleError.WriteLine("z42c build: " + art.ErrorCount.ToString()
-            + " error(s), but no compilation unit reported them (this is a z42c bug)");
+        if (!claimed) {
+            ConsoleError.WriteLine("z42c build: " + art.ErrorCount.ToString()
+                + " error(s), but no compilation unit reported them (this is a z42c bug)");
+        }
         return ExitCode.BuildError;
     }
     return 0;
