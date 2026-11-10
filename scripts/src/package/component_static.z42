@@ -56,8 +56,10 @@ int _componentStaticArchiveFromRlib(string root, string rid, string profile, str
     // （z42-/z42_zpkg-/z42_rs-/z42_abi- 前缀，与组件自身 z42_interp- 等以 -/_ 可分）
     // 从组件归档中删除；cranelift 留在 jit、算法库留在 compression。嵌入者以 libz42.a
     // 提供 core，成员不再三份。
-    string coreArchive = Path.Join(_componentStaticDir(root, rid),
-        _componentStaticProfileName(profile) + "/examples/" + _componentStaticName("z42", rid));
+    // core 归档与组件同图产出：_componentPlatformOut(false) 即静态图输出根（桌面 <static>/<profile>，
+    // 移动 <static>/<triple>/<profile>），example z42 的归档在其 examples/ 下。
+    string coreArchive = Path.Join(_componentPlatformOut(root, rid, profile, false),
+        "examples/" + _componentStaticName("z42", rid));
     return _componentStripCoreMembers(root, Path.Join(cargo, _componentStaticName(stem, rid)), stem, coreArchive);
 }
 
