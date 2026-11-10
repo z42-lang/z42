@@ -154,9 +154,11 @@ string _cargoOutFor(string root, string rid, string profile) {
 }
 
 
-// artifacts/build/runtime/<profile> — host cargo output dir for z42vm / native libs.
+// artifacts/build/runtime/<profile> — host cargo output dir for z42vm / native libs。
+// R0：动态图走 [profile.release-dynamic]，目录名随 cargo profile（release → release-dynamic）；
+// apphost stub / rust-index 等其它 cargo 工程仍用 --release 原名（_cargoOutFor）。
 string _runtimeOut(string root, string profile) {
-    return Path.Join(_cargoTargetDir(root), profile);
+    return Path.Join(_cargoTargetDir(root), _componentCargoProfile(profile));
 }
 
 // ── build/ 与 intermediate/：都逐路径镜像 src/ ──────────────────────────────────
