@@ -4,8 +4,6 @@ using Std.IO;
 using Std.Cli;
 
 string _componentBuildDir(string root) { return Path.Join(_buildMirror(root, Path.Join(root, "src/runtime")), "components"); }
-string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), profile); }
-string _componentFeatures() { return "cli,interp,jit,shared-core,native-interop,net,tls"; }
 string _componentLibrary(string stem, string rid = "") {
     if (rid.Length > 0) {
         if (rid.StartsWith("windows-")) { return stem + ".dll"; }
@@ -14,17 +12,18 @@ string _componentLibrary(string stem, string rid = "") {
     if (Platform.IsWindows()) { return stem + ".dll"; }
     return "lib" + stem + (Platform.IsMacOS() ? ".dylib" : ".so");
 }
+// R0：编译参数的家在 runtime 自身——rustflags 默认 = .cargo/config.toml（按平台），
+// LTO 关闭 = [profile.release-dynamic]，features 预设 = Cargo 命名别名；xtask 只传名。
+// 静态图 / 启动器图仍以 RUSTFLAGS env（prefer-dynamic=no）整体覆盖 config 默认。
+string _componentCargoProfile(string profile) { return profile == "release" ? "release-dynamic" : "dev"; }
+string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), _componentCargoProfile(profile)); }
 Process _componentCargo(string verb, string root, string profile, string targetDir = "") {
     if (targetDir.Length == 0) { targetDir = _componentBuildDir(root); }
-    string flags = Environment.GetEnvironmentVariable("RUSTFLAGS", "") + " -C prefer-dynamic -C rpath";
-    if (Platform.IsMacOS()) { flags = flags + " -C link-arg=-Wl,-rpath,@loader_path"; }
-    else if (Platform.IsLinux()) { flags = flags + " -C link-arg=-Wl,-rpath,$ORIGIN -C link-arg=-Wl,-rpath,$ORIGIN/../native"; }
     Process p = _cargoCmd(verb, _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
+        .Arg("--config").Arg(Path.Join(root, "src/runtime/.cargo/config-dynamic.toml"))
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--target-dir").Arg(targetDir)
-        .EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("RUSTFLAGS", flags)
-        .Env("CARGO_PROFILE_RELEASE_LTO", "false");
-    if (profile == "release") { p = p.Arg("--release"); }
+        .Arg("--profile").Arg(_componentCargoProfile(profile));
     return p;
 }
 Process _componentTargets(Process build) {
@@ -32,8 +31,7 @@ Process _componentTargets(Process build) {
         .Arg("-p").Arg("z42")
         .Arg("-p").Arg("z42-interp").Arg("-p").Arg("z42-jit")
         .Arg("--no-default-features").Arg("--features")
-        .Arg("z42/" + _componentFeatures().Replace(",", ",z42/")
-            + ",z42-interp/shared-core,z42-interp/jit,z42-interp/native-interop,z42-jit/shared-core");
+        .Arg("z42/desktop-dynamic,z42-interp/dynamic,z42-jit/dynamic");
 }
 
 int _componentBuild(string root, string profile) {

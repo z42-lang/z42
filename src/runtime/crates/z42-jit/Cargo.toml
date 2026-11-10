@@ -10,6 +10,8 @@ z42 = { default-features = false, path = "../.." }
 anyhow = "1"
 rustc-hash = "2"
 [features]
+# 桌面动态图在 jit 上需要的转发特性聚合（xtask 传 z42-jit/dynamic）。
+dynamic = ["shared-core"]
 default = ["jit"]
 shared-core = ["jit", "z42/shared-core"]
 jit = ["z42/jit", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]

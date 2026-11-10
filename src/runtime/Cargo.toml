@@ -62,6 +62,8 @@ z42-macros = { path = "crates/z42-macros" }
 
 [features]
 cli = ["dep:clap", "dep:tracing-subscriber"]
+# 桌面打包图的命名预设（xtask 只传名，内容归 runtime 自身；R0）。
+desktop-dynamic = ["cli", "interp", "jit", "shared-core", "native-interop", "net", "tls"]
 default              = ["cli", "interp", "jit", "native-interop", "net", "tls"]
 mimalloc-alloc       = ["dep:mimalloc"]
 dhat-heap            = ["dep:dhat"]
@@ -189,6 +191,12 @@ required-features = ["cli"]
 
 [patch.crates-io]
 rustyline = { git = "https://github.com/z42-lang/rustyline", branch = "z42-edit-insert-text-cursor-v18" }
+
+# 打包组件图（动态/静态）关 LTO：shared std 跨 dylib 不做全图 LTO，静态图换构建速度。
+# 最终静态宿主 z42vm_static 与发布 profile 仍走 [profile.release]（lto=true）。
+[profile.release-dynamic]
+inherits = "release"
+lto = false
 
 [profile.release]
 opt-level = 3
