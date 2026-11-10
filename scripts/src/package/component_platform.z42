@@ -27,7 +27,11 @@ string _componentStaticDir(string root, string rid) {
 }
 string _componentPlatformOut(string root, string rid, string profile, bool shared) {
     string dir = shared ? _componentBuildDir(root) : _componentStaticDir(root, rid);
-    if (_ridCategory(rid) == "desktop") { return Path.Join(dir, profile); }
+    if (_ridCategory(rid) == "desktop") {
+        // R0：桌面动态图产物目录随 [profile.release-dynamic] 命名；静态图仍走 --release 原名。
+        string name = shared ? _componentCargoProfile(profile) : profile;
+        return Path.Join(dir, name);
+    }
     return Path.Join(dir, _ridToCargo(rid) + "/" + profile);
 }
 
