@@ -114,6 +114,11 @@ int _componentBuildCompression(string root, string rid, string profile, bool sha
     if (shared) {
         string file = _componentLibrary("z42_compression", rid);
         _componentCopyRequired(Path.Join(cargo, file), Path.Join(destination, file));
+        // Windows 导入库随 dll 暂存：runtime 包的 importLibs=true 要求四个组件的 .dll.lib 齐全，
+        // compression 单独图的 import lib 不在组件输出目录里（只有 dll 被拷过来）。
+        if (rid.StartsWith("windows-")) {
+            _componentCopyRequired(Path.Join(cargo, "z42_compression.dll.lib"), Path.Join(destination, "z42_compression.dll.lib"));
+        }
     } else {
         c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_compression", cargo);
         if (c != 0) { return c; }
