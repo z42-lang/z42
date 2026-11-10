@@ -159,7 +159,10 @@ public static class DocRefs {
         if (q.EndsWith("()")) { q = q.Substring(0, q.Length - 2); }
         int p = q.IndexOf("(");
         if (p >= 0 && !q.EndsWith(")")) { return null; }
-        string head = (p >= 0) ? q.Substring(0, p) : q;
+        // 调用式带实参（`A.B(x, y)`）：Query 按**头**（`A.B`）解析——带着实参查永远失败，
+        // 本可解析的调用点被整类误报（docrefs-zero 测量：330 条全数于此）。Text 保留原文。
+        if (p >= 0) { q = q.Substring(0, p); }
+        string head = q;
         string[] segs = DocRefs._segments(head);
         if (segs.Length == 0) { return null; }
         int k = 0;
@@ -210,7 +213,11 @@ public static class DocRefs {
     private static bool _isFileExt(string e) {
         return e == "z42" || e == "rs" || e == "md" || e == "toml" || e == "json" || e == "zpkg" || e == "zbc"
             || e == "zsym" || e == "zdoc" || e == "idx" || e == "txt" || e == "sh" || e == "yml" || e == "yaml"
-            || e == "lock" || e == "h" || e == "c" || e == "py" || e == "html" || e == "js" || e == "ts";
+            || e == "lock" || e == "h" || e == "c" || e == "py" || e == "html" || e == "js" || e == "ts"
+            // 平台产物 / 库后缀（libz42.a、z42.dll、libz42.dylib、z42vm.exe…）与跨语言示例文件名
+            //（Calculator.cs/.java/.swift——对照示例不是本仓符号）：文件名不是符号
+            || e == "a" || e == "so" || e == "dylib" || e == "dll" || e == "exe" || e == "lib" || e == "app"
+            || e == "cs" || e == "java" || e == "swift" || e == "go" || e == "kt";
     }
 
     // 页头里的路径：含 `/`，或是带扩展名的文件名。
