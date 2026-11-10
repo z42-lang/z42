@@ -55,8 +55,10 @@ int _testPackagesInstall() {
     }
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42.a"), "fake-static-lib");
     File.WriteAllText(Path.Join(fakeCargoOut, "z42.dll.lib"), "fake-import-lib");
+    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
+        File.WriteAllText(Path.Join(fakeCargoOut, stem + ".dll.lib"), "fake-import-lib");
+    }
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_compression.a"), "must-be-excluded");
-    File.WriteAllText(Path.Join(fakeCargoOut, "z42_compression.dll.lib"), "must-be-excluded");
     File.WriteAllText(Path.Join(fakeCargoOut, "libunrelated_platform.a"), "must-be-excluded");
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_repl.dylib"), "fake-repl-cdylib");
 
@@ -86,6 +88,9 @@ int _testPackagesInstall() {
     _stgAssert("runtime static archive", File.ReadAllText(Path.Join(pkgDir, "native/" + staticName)) == "fake-static-lib");
     foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
         _stgAssert("runtime component " + stem, File.ReadAllText(Path.Join(pkgDir, "native/" + _componentLibrary(stem))) == "fake-" + stem);
+        if (Platform.IsWindows()) {
+            _stgAssert("runtime import lib " + stem, File.ReadAllText(Path.Join(pkgDir, "native/" + stem + ".dll.lib")) == "fake-import-lib");
+        }
     }
     foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
         _stgAssert("runtime static " + stem, File.ReadAllText(Path.Join(pkgDir, "native/" + _componentStaticName(stem, _detectHostRid()))) == "static-" + stem);

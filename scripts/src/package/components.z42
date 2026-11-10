@@ -112,7 +112,12 @@ int _componentBuildLauncher(string root, string profile) {
         .Arg("--target-dir").Arg(_componentLauncherDir(root))
         .Arg("-p").Arg("z42").Arg("--bin").Arg("z42vm")
         .Arg("--no-default-features").Arg("--features").Arg("z42/cli,z42/component-loading")
-        .EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("RUSTFLAGS", "-C prefer-dynamic=no");
+        .EnvRemove("CARGO_ENCODED_RUSTFLAGS");
+    // 静态 std 启动器；macOS 预留 load-command 余量，否则打包期 install_name_tool
+    // -add_rpath 报 "larger updated load commands do not fit"。
+    string flags = "-C prefer-dynamic=no";
+    if (Platform.IsMacOS()) { flags = flags + " -C link-arg=-Wl,-headerpad_max_install_names"; }
+    p = p.Env("RUSTFLAGS", flags);
     if (profile == "release") { p = p.Arg("--release"); }
     return _exec(p);
 }
