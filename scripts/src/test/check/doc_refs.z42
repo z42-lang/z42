@@ -7,6 +7,8 @@ using Z42.Doc;
 
 int _checkDocRefs() {
     string root = _root();
+    // 清账战役的明细开关：环境变量置 1 时逐条列出未解析引用（页:行 + 原文）。
+    bool verbose = Environment.GetEnvironmentVariable("Z42_DOCREFS_VERBOSE", "") == "1";
     // 先刷新 Rust 索引，再按当前源码报告引用情况。
     string rustIdx = Path.Join(root, "artifacts/doc/rust.idx");
     int rc = _docIndex();
@@ -49,6 +51,7 @@ int _checkDocRefs() {
                 if (printed < 15) { Console.WriteLine("  " + rel + ":" + rf.Line.ToString() + ": 行号引用 " + rf.Text + " —— 写符号，位置用 z42 doc --page 现查"); printed = printed + 1; }
             } else if (rf.Multi && rf.Target == null) {
                 unresolved[g] = unresolved[g] + 1;
+                if (verbose) { Console.WriteLine("  UNRESOLVED " + rel + ":" + rf.Line.ToString() + ": " + rf.Text); }
             }
         }
         int cnt = DocRefs.ProblemCount(page);
