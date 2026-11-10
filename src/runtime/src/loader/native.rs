@@ -166,7 +166,7 @@ pub(crate) fn resolve_symbol(
         // This arm is what a statically linked final module (the wasm engine
         // compositions) hits when an optional component archive was not linked
         // and no static provider was registered. Name the missing component —
-        // consumers (scripts/package/fixtures/wasm_components.mjs) assert on the
+        // consumers (scripts/src/package/fixtures/wasm_components.mjs) assert on the
         // `<component> component unavailable` shape, and it tells the user what
         // to relink instead of blaming a build flag.
         let _ = (ctx, symbol);

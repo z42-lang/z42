@@ -1,6 +1,6 @@
 # 构建编排（`xtask build`）
 
-> 代码：`scripts/build/`（`xtask_stdlib.z42` / `xtask_compiler.z42` / `xtask_golden_assets.z42` / `xtask_bootstrap_check.z42` / `xtask_toolchain.z42`）、`scripts/common/xtask_layout.z42`、`xtask_components.z42`、`xtask_process.z42`、`xtask_publish.z42`
+> 代码：`scripts/src/build/`（`stdlib.z42` / `compiler.z42` / `golden_assets.z42` / `toolchain.z42`）、`scripts/src/test/compiler/bootstrap.z42`、`scripts/src/common/layout.z42`、`scripts/src/common/components.z42`、`scripts/src/common/process.z42`、`scripts/src/common/publish.z42`
 >
 > 产物落在哪、哪个目录归谁，见[产物目录布局](artifacts-layout.md)；命令面见 `xtask build -h`。
 
@@ -25,7 +25,7 @@
 ## 2. 成员清单没有第二份副本
 
 两个 workspace 的成员列表都**派生自各自 `z42.workspace.toml` 的 `default_members`**
-（`common/xtask_components.z42` 的 `_compilerMembers` / `_stdlibList`），不存在手维护的重复清单：
+（`scripts/src/common/components.z42` 的 `_compilerMembers` / `_stdlibList`），不存在手维护的重复清单：
 
 | workspace | 成员 |
 |---|---|
@@ -35,10 +35,10 @@
 编译器域各包之间经同 workspace 拓扑序 + 兄弟 dist 发现解析。「编译器有几个包」这个数是算出来的，
 别在文档或代码里写死——以 `default_members` 为准。
 
-产物路径同理不是硬编码：`scripts/common/xtask_layout.z42` 读 `[workspace.build].output_dir`
+产物路径同理不是硬编码：`scripts/src/common/layout.z42` 读 `[workspace.build].output_dir`
 模板（正是 `WorkspacePlan.PlanLayout` 消费的那一份）再展开，改 toml 模板 xtask 自动跟上。
 
-构建与打包共同读取 `common/xtask_packages_config.z42` 的组件注册表和 `xtask_components.z42` 的路径；
+构建与打包共同读取 `scripts/src/common/packages_config.z42` 的组件注册表和 `scripts/src/common/components.z42` 的路径；
 子进程工厂及已构建产物的发布调用也在 `common/`；RID / Cargo 路径和测试单元识别同样由共享模块提供，
 命令族只负责各自的流程编排。
 
@@ -122,7 +122,7 @@ gen1 = `build compiler`（`z42c build --workspace`）产的 canonical dist；
 gen2 = **用 gen1 的 driver 再跑一遍同样的 `--workspace`**；**gen1 与 gen2 必须逐字节相等**。
 不相等即编译器 self-host 有非确定性或语义 bug——「byte-identical 全自举」这个目标的日常守门员。
 
-实现在 `_testSelfHostByteIdentical`（`scripts/build/xtask_compiler.z42`）：
+实现在 `_testSelfHostByteIdentical`（`scripts/src/test/compiler/selfhost.z42`）：
 
 ```
 snapshot gen1: 拷 canonical dist 的每个 <member>.zpkg → artifacts/intermediate/compiler/selfhost-gen1
@@ -143,7 +143,7 @@ compare:       逐成员 _sectionsEqualIgnoreBlid(gen1, gen2)
 ### z42c 的执行模式：默认 jit
 
 xtask 驱动 z42c（`z42vm z42c.driver --mode <m>`）编 stdlib / 自建 z42c / golden 时的执行模式，
-统一由 `_z42cMode()`（`scripts/common/xtask_common.z42`）给出，**默认 `jit`**。
+统一由 `_z42cMode()`（`scripts/src/common/base.z42`）给出，**默认 `jit`**。
 
 jit 之所以能当不动点的信任基线：`jit-fixpoint-check.yml`（手动触发，linux-x64 / linux-arm64 /
 windows-x64 / macos-arm64 四平台）确认 z42c `--workspace` 编译在 **interp 与 jit 下产出逐字节一致**
@@ -269,7 +269,7 @@ z42c（writer）在每个 `.zbc` / `.zpkg` 头写版本常量；z42vm（reader�
 ## 8. golden 语料：一次遍历，四个消费者
 
 golden 语料被 4 条命令消费。遍历只有一次——`_walkGoldenCorpus(root)`
-（`scripts/common/xtask_golden.z42`）——产出中性的 `_GoldenEntry[]`，四个消费者各自 map 成
+（`scripts/src/common/golden.z42`）——产出中性的 `_GoldenEntry[]`，四个消费者各自 map 成
 自己的记录类型。
 
 **walk 本身不含准入策略**，只报「找到了什么 + 判断所需的事实」（类别、sidecar、artifacts 镜像位置、

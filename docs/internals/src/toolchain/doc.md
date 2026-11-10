@@ -1,8 +1,8 @@
 # 文档索引与 `z42 doc`
 
 > 代码：`src/compiler/z42.doc/src/`（引擎，含 `DocParser.z42` / `DocLint.z42` / `DocRefs.z42` / `DocMd.z42`）、`src/toolchain/devtools/core/doc_cmd.z42`（`DocCommand`）、
-> `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/build/xtask_doc.z42`（`build docs` / `build docs index` CLI）、
-> `scripts/common/xtask_doc_index.z42`（Rust 索引构建）、`scripts/check/xtask_check_doc_lints.z42` / `xtask_check_doc_refs.z42`（检查与报告）、
+> `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/src/build/docs/generate.z42`（`build docs` / `build docs index` CLI）、
+> `scripts/src/build/docs/index.z42`（Rust 索引构建）、`scripts/src/test/check/doc_lints.z42` / `scripts/src/test/check/doc_refs.z42`（检查与报告）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`_forwardZ42d`）、`src/compiler/z42c.syntax/src/DocBlock.z42`（doc 挂靠）
 >
 > 要查**怎么用**（旗标、输出、名字怎么写）→ 语言与库参考的 `z42` 命令页与 doc 注释页。
@@ -98,7 +98,7 @@ z42 doc <args>                      launcher：`doc` 原样转发
 
 | 谁 | 何时 |
 |---|---|
-| `deploy-book.yml` | 构建 reference 之前（xtask-only bootstrap 后 `xtask build docs`）；stdlib 源码、`z42.doc`、`xtask_doc.z42` 的改动都触发它 |
+| `deploy-book.yml` | 构建 reference 之前（xtask-only bootstrap 后 `xtask build docs`）；stdlib 源码、`z42.doc`、`scripts/src/build/docs/generate.z42` 的改动都触发它 |
 | `xtask test docs`（GREEN gate 的 docs stage、CI docs-check） | 查链接之前——手写页链进生成页的链接、生成页自己的链接一起查 |
 | 本地 | 读 / 预览 reference 的 stdlib 页之前手动跑一次 |
 

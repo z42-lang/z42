@@ -8,7 +8,7 @@
 
 | 层 | 内容 | 落点 |
 |------|------|------|
-| P0 | `xtask profile` CLI + `z42vm --print-stats-on-exit --stats-format=json` | `scripts/bench/xtask_profile.z42`、`diagnostics/counters.rs` |
+| P0 | `xtask profile` CLI + `z42vm --print-stats-on-exit --stats-format=json` | `scripts/src/bench/profile.z42`、`diagnostics/counters.rs` |
 | P1a | `ProfileSnapshot`：counter 快照 + 堆派生 allocations + GC 分代 | `diagnostics/counters.rs`、`gc/types.rs` |
 | P1b | 并发探针：safepoint park 直方图（常开）+ 用户锁争用（feature-gated）| `threads/safepoint.rs`、`corelib/core/sync_contention.rs` |
 | P1c | `Std.Diagnostics.RuntimeStats.Counters()` 暴露给 z42 脚本 | `corelib/core/diagnostics.rs`、`z42.diagnostics` |

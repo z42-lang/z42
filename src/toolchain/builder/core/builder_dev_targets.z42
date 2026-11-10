@@ -85,7 +85,7 @@ DevTarget[] _resolveDevTargets(ProjectManifest m, string kind, string nameFilter
     // ② 约定布局下入口文件**全叫 source.z42**，按文件名命名会让每个目录单元都叫 `source`、
     // 互相撞名只活下来一个。**同名显式目标覆盖之**（沿用既有「显式覆盖同名 auto」语义）。
     // `auto = false` ⇒ 本包显式声明「这里没有约定单元，只认 [[test]]」。xtask 一直认这个字段
-    // （xtask_manifest_targets.z42 的 _sectionAuto），z42b 此前**完全忽略**它 —— 两条发现路径的
+    // （scripts/src/common/harness/manifest_targets.z42 的 _sectionAuto），z42b 此前**完全忽略**它 —— 两条发现路径的
     // 又一处分歧，转发前一并抹平。
     if (sec != null && sec.Auto && sec.IncCount > 0) {
         string[] files = SourceDiscovery.DiscoverWithExclude(sourceDir, sec.Include, sec.IncCount,
@@ -274,7 +274,7 @@ string _stripStringLiterals(string ln) {
 ///
 /// 两条豁免，都不是硬编码名单：
 ///   ① **子目录自带 `*.z42.toml` ⇒ 它是独立工程**，不是本包的孤儿源。这不是新规则 —— 编译器
-///      测试单元的发现条件就是它（`xtask_compiler.z42`：无 toml 即 skip）。z42c.semantics/tests
+///      测试单元的发现条件就是它（`scripts/src/build/compiler.z42`：无 toml 即 skip）。z42c.semantics/tests
 ///      的 19 个、z42c.pipeline/tests 的 4 个全走这条。
 ///   ② **`auto = false` ⇒ 本包显式声明「这里没有约定单元」**。欠债记在**债主自己的清单**里
 ///      （可见、可 grep），而不是工具里一张硬编码名单。豁免**不等于消音**：调用方仍会响亮打印

@@ -1,0 +1,222 @@
+// xtask — manifest-driven test/bench/example target engine. Consumed by the per-package
+// flow (_testPkgsCore, test/stdlib/runner.z42), the `test toolchain builder` fixture flow
+// (test/toolchain/targets.z42) and the example runner (test/toolchain/example.z42).
+//
+// 本文件是被三个消费者共用的**引擎**、不对应任何命令，所以归 common/harness/。
+// Reads a project's manifest via Z42.Project's ManifestLoader (no hand-rolled
+// TOML) and turns `[tests]`/`[benches]`/`[examples]` + `[[test]]`/`[[bench]]`/`[[example]]`
+// into runnable units.
+//
+// **test/bench 只有一条路：转发 z42b**（`--list` 拿清单 → 并行 `--name` 逐个跑）。
+// 约定发现、显式目标（两种 harness）、孤儿源守卫、「本包压根没有测试」的分流全部住在 z42b，
+// xtask 侧只剩：清单 lint（`_validateRunTargets`）、并行编排、bench 聚合。
+// example 的依赖合并、合成清单与构建执行住在 test/toolchain/example_build.z42。
+//
+// NOTE (xtask's dependencies): `using Z42.Project` resolves because xtask.z42.toml declares
+// z42.project / z42.build as SDK libs (`deploy = "sdk"`); stdlib (`z42.*` in
+// Z42_LIBS) stays visible without being listed.
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+using Z42.Project;
+
+// ── manifest access (null-tolerant: missing/broken toml → convention defaults) ──
+
+// Load a project manifest, or null when the toml is absent / unparsable. Callers
+// treat null as "auto convention scan, no explicit targets, no dev-deps".
+ProjectManifest _loadManifestOr(string tomlPath) {
+    if (!File.Exists(tomlPath)) { return null; }
+    try { return ManifestLoader.Load(tomlPath); }
+    catch (Exception e) { return null; }
+}
+
+// section.Auto for a kind ("test"/"bench"/"example"); null manifest → true.
+bool _sectionAuto(ProjectManifest m, string kind) {
+    if (m == null) { return true; }
+    if (kind == "bench")   { return m.BenchSection.Auto; }
+    if (kind == "example") { return m.ExampleSection.Auto; }
+    return m.TestsSection.Auto;
+}
+
+// Explicit [[test]]/[[bench]]/[[example]] targets for a kind (empty when none).
+RunTarget[] _explicitTargets(ProjectManifest m, string kind) {
+    if (m == null) { return new RunTarget[0]; }
+    if (kind == "bench")   { return m.Benches; }
+    if (kind == "example") { return m.Examples; }
+    return m.Tests;
+}
+
+// ── explicit-target validation ───────────────────────────────────────────────
+
+// Returns "" when the kind's explicit targets are valid, else an error message.
+// Rules: [[target]] missing name → error; harness=false missing entry → error;
+// duplicate name within a kind → error. (example ignores harness — always Main.)
+string _validateRunTargets(RunTarget[] t, int n, string kind) {
+    int i = 0;
+    while (i < n) {
+        RunTarget x = t[i];
+        if (x.Name.Length == 0) {
+            return "[[" + kind + "]] #" + (i + 1).ToString() + " missing required `name`";
+        }
+        if (kind != "example" && !x.Harness && !x.HasEntry) {
+            return "[[" + kind + "]] '" + x.Name + "' has harness=false but no `entry`";
+        }
+        int j = i + 1;
+        while (j < n) {
+            if (t[j].Name == x.Name) { return "duplicate [[" + kind + "]] name '" + x.Name + "'"; }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+// ── per-package driver (called by _testPkgsCore, test/stdlib/runner.z42) ───────────
+
+// 跑一个 lib 的 test/bench：**一律转发 z42b**——发现规则、孤儿源守卫、harness=false、
+// 「本包压根没有测试」的分流只在 z42b 一处，xtask 不另起一套（两套规则必然各自漂移）。
+// 返回该 lib 的失败数，或 -1 表示目标声明有误（调用方中止整个 stage）。
+// totalFiles / libsTested 按引用更新。
+//
+// 非工程条目不执行；清单路径与包名分别由 ManifestLocator 和 project.name 决定。
+int _runLibKind(string root, string projDir, string kind,
+                string label, string filter, string builderZpkg, int jobsN, string mode,
+                string vm, string driverZpkg, string libs, MicroBenchAgg agg,
+                ref int totalFiles, ref int libsTested) {
+    ManifestLocation found = _findManifest(projDir);
+    if (found.Kind != ManifestLocateKind.Project) { return 0; }
+    string parentToml = found.ManifestPath;
+    // 清单 lint（名字缺失 / 重名 / harness=false 缺 entry）留在 xtask 侧：z42b 对
+    // HasEntry=false 是「自动探测入口」而不是错误，这条 lint 它不复制。
+    ProjectManifest man = ManifestLoader.Load(parentToml);
+    string lib = man.Project.Name;
+    RunTarget[] tgts = _explicitTargets(man, kind);
+    string verr = _validateRunTargets(tgts, tgts.Length, kind);
+    if (verr.Length > 0) { ConsoleError.WriteLine("error: " + lib + ": " + verr); return -1; }
+    return _runLibViaZ42b(root, projDir, parentToml, lib, kind, label, filter,
+                          builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
+                          ref totalFiles, ref libsTested);
+}
+
+// 一个 lib 的 test 走转发：`z42b test <真 manifest> --list` 拿单元名 → 并行拉起
+// `z42b test <toml> --name <unit>`。
+//
+// 零单元时**不在这里判**：直接不带 --name 跑一次 z42b，让它自己的判定说了算 ——
+// 孤儿源守卫（有源却零单元 → 红）与「本包压根没有测试」（→ 绿）都住在 z42b 里，
+// 判据只该有一处。
+int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, string kind,
+                   string label, string filter, string builderZpkg, int jobsN, string mode,
+                   string vm, string driverZpkg, string libs, MicroBenchAgg agg,
+                   ref int totalFiles, ref int libsTested) {
+    bool ok = true;
+    string[] names = _listUnitsViaZ42b(root, parentToml, kind, filter, mode, vm, builderZpkg, libs, ref ok);
+    if (!ok) { return -1; }
+    if (names.Length == 0) {
+        // 零单元：交给 z42b 自己裁定（红/绿），不在 xtask 侧复制一份判据。
+        // filter 非空时零命中是过滤器的事，不是发现规则的 bug —— 直接跳过。
+        if (filter.Length > 0) { return 0; }
+        Process zp = _z42bProc(vm, libs).Arg("--mode").Arg(mode).Arg(builderZpkg)
+            .Arg("--").Arg(kind).Arg(parentToml);
+        if (_z42bSupportsOutRoot(vm, builderZpkg, libs)) {
+            zp = zp.Arg("--out-root").Arg(_devTargetOutRoot(root, parentToml, kind));
+        }
+        ProcessResult rr = zp.WorkingDirectory(root).Run();
+        Console.Write(rr.Stdout);
+        if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
+        return (rr.ExitCode != 0) ? 1 : 0;
+    }
+    Console.WriteLine("");
+    Console.WriteLine("── " + lib + " (" + label + ", z42b) : " + names.Length.ToString() + " unit(s) ──");
+    totalFiles = totalFiles + names.Length;
+    libsTested = libsTested + 1;
+    // capture 模式（bench 基线）：给聚合结果打上执行 profile 标签 —— 从 runner 实际运行的那个
+    // VM 探出来，interp 与 jit 的 micro 基线不能互相比。
+    if (agg != null) {
+        string epMode = (mode.Length > 0) ? mode : "interp";
+        string epProbe = _epEnsureProbe(root, vm, driverZpkg, libs);
+        VmCaps epVm = _epProbe(vm, libs, epProbe);
+        agg.setProfileOnce(_epTiersForMode(epMode), epVm, _epVmVersion(vm));
+    }
+    return _runUnitsViaZ42b(root, parentToml, names, names.Length, kind,
+                            jobsN, mode, vm, builderZpkg, libs, lib, agg);
+}
+
+// ── micro bench 结果聚合（`bench stdlib --json`：lib / units / targets 三个 flow 共用）──────────
+// 住在这里而不是 bench/：消费方全是 test 族（[[bench]] 目标与 [Benchmark] 单元的 z42b json 输出），bench 族自己不用。
+// Aggregate per-module z42b `--format json` bench_stats into one schema-v2
+// baseline doc. median_ns is the primary metric (value); min/max
+// map to ci_lower/ci_upper. One instance is reused across all libs/modules by
+// `bench stdlib --json` (null when not capturing → pretty passthrough untouched).
+class MicroBenchAgg {
+    string _items;   // comma+newline-joined schema-v2 benchmark objects
+    int    _n;
+    // The profile every micro result is tagged with.
+    // Probed once (setProfileOnce) from the VM the z42b runner executes under, so
+    // interp vs jit micro baselines never compare against each other. Defaults to
+    // an interp/empty profile until set.
+    string[] _tiers;
+    VmCaps   _vm;
+    string   _vmVersion;
+    bool     _profSet;
+    public MicroBenchAgg() {
+        this._items = ""; this._n = 0;
+        this._tiers = new string[1]; this._tiers[0] = "interp";
+        this._vm = new VmCaps(); this._vmVersion = ""; this._profSet = false;
+    }
+    internal int count() { return this._n; }
+
+    // Record the execution profile (idempotent — first call wins). tiers comes
+    // from the micro `--mode`; vm/vmVersion from probing the runner's VM binary.
+    internal void setProfileOnce(string[] tiers, VmCaps vm, string vmVersion) {
+        if (this._profSet) { return; }
+        this._tiers = tiers; this._vm = vm; this._vmVersion = vmVersion;
+        this._profSet = true;
+    }
+
+    // Parse one z42b `--format json` module output; append each benchmark's stats.
+    // Non-benchmark entries (smoke [Test]) and failed benches (no bench_stats) skip.
+    internal void addModuleJson(string moduleJson, string lib) {
+        JsonValue root = JsonValue.Parse(moduleJson.Trim());
+        JsonValue results = null;
+        if (!root.TryGet("results", ref results)) { return; }
+        int i = 0;
+        while (i < results.Count()) {
+            JsonValue res = results.At(i);
+            bool isBench = false;
+            JsonValue bs = null;
+            if (res.TryGetValue<bool>("is_benchmark", ref isBench) && isBench
+                && res.TryGet("bench_stats", ref bs)) {
+                string name = lib + "." + bs.Get("label").AsString();
+                long med = bs.Get("median_ns").AsLong();
+                long lo  = bs.Get("min_ns").AsLong();
+                long hi  = bs.Get("max_ns").AsLong();
+                long smp = bs.Get("samples").AsLong();
+                // mean_ns / stddev_ns: optional in older reports → default -1.
+                long mean = -1; bs.TryGetValue<long>("mean_ns", ref mean);
+                long sd   = -1; bs.TryGetValue<long>("stddev_ns", ref sd);
+                if (this._n > 0) { this._items = this._items + ",\n"; }
+                this._items = this._items
+                    + "    {\n      \"name\": \"" + name + "\",\n"
+                    + "      \"tier\": \"z42-micro\",\n      \"metric\": \"time\",\n"
+                    + "      \"value\": " + med.ToString() + ",\n      \"unit\": \"ns\",\n"
+                    + "      \"ci_lower\": " + lo.ToString() + ",\n      \"ci_upper\": " + hi.ToString() + ",\n"
+                    + "      \"mean_ns\": " + mean.ToString() + ",\n      \"stddev_ns\": " + sd.ToString() + ",\n"
+                    + "      \"samples\": " + smp.ToString() + ",\n"
+                    + "      \"profile\": " + _epProfileJson(this._tiers, new string[0], this._vm) + "\n    }";
+                this._n = this._n + 1;
+            }
+            i = i + 1;
+        }
+    }
+
+    // Wrap accumulated items in the schema-v2 envelope.
+    internal string toSchemaV2(string root) {
+        string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
+        string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+        return "{\n  \"schema_version\": 2,\n  \"commit\": \"" + commit
+            + "\",\n  \"branch\": \"" + branch + "\",\n  \"z42vm_version\": \"" + this._vmVersion
+            + "\",\n  \"timestamp\": \"" + _utcNow() + "\",\n  \"benchmarks\": [\n"
+            + this._items + "\n  ]\n}\n";
+    }
+}

@@ -1,6 +1,6 @@
 # 编译器自举（self-hosting）— `src/compiler/` 架构
 
-> **页型**: 机制页 ｜ **代码**: `src/compiler/` · `scripts/build/xtask_compiler.z42` · `scripts/build/xtask_bootstrap_check.z42`
+> **页型**: 机制页 ｜ **代码**: `src/compiler/` · `scripts/src/build/compiler.z42` · `scripts/src/test/compiler/bootstrap.z42`
 > **相关**: [架构总览](architecture.md) · [源代码编译流程](source-compile.md) · [构建编排](../devinfra/build.md)
 
 z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**种子（上一个 nightly SDK）→ 破环预建自依赖库 → 自建 z42c → 用 fresh z42c 建 stdlib**；z42vm 由 Rust 构建，是打破格式环的锚点。
@@ -56,7 +56,7 @@ z42c 只用当前语言子集写；子集表达不了的写法，补进语言而
 
 ## 构建
 
-`./xtask build compiler` = `_buildCompiler`（`scripts/build/xtask_compiler.z42`）：确保种子（`_ensureSeed`）→ 建 z42vm → 必要时先建 stdlib → `_buildCompilerViaZ42c` 用种子 driver 跑 `build --workspace --release`。命令面见 `./xtask --help`。
+`./xtask build compiler` = `_buildCompiler`（`scripts/src/build/compiler.z42`）：确保种子（`_ensureSeed`）→ 建 z42vm → 必要时先建 stdlib → `_buildCompilerViaZ42c` 用种子 driver 跑 `build --workspace --release`。命令面见 `./xtask --help`。
 
 **z42c driver 自有 `build --workspace`**（`z42c.driver/src/WorkspaceBuild.z42`，规划在 `z42.project/src/WorkspacePlan.z42`）：
 
@@ -123,7 +123,7 @@ z42c / stdlib / xtask (z42)  ──互为前置──►  自举环
 
 ### 轴 ④ 的破环预建
 
-`_ensureBootstrapSelfDepLibs`（`xtask_compiler.z42`）在 workspace 自建**前**，用当前 driver（冷启动 = 上一 nightly 种子）把**当前源**的 `z42.core` → `z42.project` → `z42.compiler.contracts` → `z42.build` → `z42.package` → `z42c.core` → `z42c.syntax` 依次编进 flat（顺序即依赖序，先于其消费者）。理由：z42c 源若消费这些库的新 API 而 flat 里是种子带来的旧版，自建会 `unknown type` / `no field`；若 fresh z42c emit 的调用钉在旧库上，运行期加载真库时解析不到（`undefined function`）。
+`_ensureBootstrapSelfDepLibs`（`scripts/src/build/compiler.z42`）在 workspace 自建**前**，用当前 driver（冷启动 = 上一 nightly 种子）把**当前源**的 `z42.core` → `z42.project` → `z42.compiler.contracts` → `z42.build` → `z42.package` → `z42c.core` → `z42c.syntax` 依次编进 flat（顺序即依赖序，先于其消费者）。理由：z42c 源若消费这些库的新 API 而 flat 里是种子带来的旧版，自建会 `unknown type` / `no field`；若 fresh z42c emit 的调用钉在旧库上，运行期加载真库时解析不到（`undefined function`）。
 
 - **不 warm-skip**：「已在 flat 就跳过」等价于「z42c 不消费这些库的新 API」，不成立；源未变时增量缓存近零成本，源变了本就该重建。
 - **推论**：对这 6 个自依赖库，「z42c 源用它们的新 API」由预建自动破环，可同 commit 加成员并消费，无需等 nightly。轴 ③ 的「晚一个 nightly」只约束**其余 stdlib 库**（`z42.collections` / `z42.threading` / …）与 **xtask 源**（xtask 用种子 SDK 编，不受预建保护）。
@@ -174,7 +174,7 @@ entry-dir 最优先）供运行期用。两件齐了，改名就能**一步落**
 
 > ⭐ **消掉这一整类危险的思路**：把旧 `<pkg>.zpkg` 拷进 driver **自己的 dist**（同样靠 entry-dir 最优先），
 > 带改名的 stdlib 重建就过去了——即「让编译器对它运行期要用的 stdlib 库自包含」。注意
-> `xtask_stdlib.z42` 步骤 4 的注释本就写着要给 driver「稳定 stdlib 快照」，而
+> `scripts/src/build/stdlib.z42` 步骤 4 的注释本就写着要给 driver「稳定 stdlib 快照」，而
 > 「fresh member 从 workspace dist 解析、优先于快照」恰好把那个意图吃掉了。
 
 ⚠️ 验这类接线的对照实验，**命令必须真的会触碰那个符号**：懒加载没走到，撤掉兼容物也照样绿——那是空门
@@ -221,7 +221,7 @@ xtask 仍按上一 nightly 的规则计算路径，xtask 侧的跟进要放到�
 | forward-bootstrap：CI composite action `ci-bootstrap`，由 `build-and-test`（test-host ×4 OS）与 `toolchain-bootstrap`（compile-toolchain）两个 job 的 Bootstrap 步骤调用 | 下载上一 nightly SDK 作种子 → 编当前 xtask → xtask 自建 z42c + stdlib → 验证工具链；zpkg minor 与种子不同时先走两代自举 | INV-1 |
 | self-host 不动点：`compiler-checks` job 的 `xtask test compiler` 步骤（仅 z42c 源变动 / schedule / 手动触发才跑，test-host 跳过它）| 先验全成员 zpkg 在、z42c `[Test]` 单元、e2e，再 `_testSelfHostByteIdentical`：快照现有 dist（gen1）→ 用其 driver 同参再 `build --workspace` 一遍（gen2）→ 比较包头与各段（BLID 段不比，其余段的集合与内容须一致）| INV-3 |
 
-不动点实现位于 `scripts/build/xtask_compiler_selfhost.z42`。比较前校验 magic、段目录完整性、
+不动点实现位于 `scripts/src/test/compiler/selfhost.z42`。比较前校验 magic、段目录完整性、
 tag 唯一性与各段的数据范围，损坏快照直接判不等；版本、flags（包括包类型 / 插件能力）与 reserved
 头字段必须一致。BLID 可只存在于任意一代、身份值可不同，因此段数和目录偏移不直接逐字节比较，
 而是按 tag 比较非 BLID 段的集合、长度与内容。
@@ -232,7 +232,7 @@ INV-2（测试全绿）由 `test-host` 的 `xtask test` 守。
 测试单元位于 `src/compiler/<member>/tests/<unit>/`，清单为标准 `z42.toml` 或唯一命名的 `<name>.z42.toml`，
 kind=lib，经 z42b 运行；`z42.harness` 自动可用，不在 toml 声明。清单发现与 test / bench 归属判断共用
 `ManifestLocator`，歧义不能靠文件枚举顺序消解；编译后按清单的 `BuildLayout` 与 `project.name` 定位主产物，
-缺失即失败，旧包与 colocated 依赖不能补位。`scripts/build/xtask_compiler_tests.z42` 负责该编排，`xtask test` 含 compiler。
+缺失即失败，旧包与 colocated 依赖不能补位。`scripts/src/test/compiler/runner.z42` 负责该编排，`xtask test` 含 compiler。
 
 ## Deferred / Future Work
 

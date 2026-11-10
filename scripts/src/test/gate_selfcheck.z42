@@ -1,0 +1,130 @@
+// stage 编排与改动计划回归：必跑、skip、首败、退出码、元数据，以及计划去重与保守回退。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+
+int _selfcheckGateStages() {
+    _checkGateRegistry(_gateStages(false));
+    _checkChangedPlans();
+    _checkOutsideGatePlans();
+    _selfcheckExamplesStage();
+    _selfcheckChangedGit();
+    _selfcheckShards();
+    var calls = new List<string>();
+    GateStage[] stages = new GateStage[]{
+        new GateStage("", "selfcheck required", () => _recordGateCall(calls, "required", 0)),
+        new GateStage("skip-me", "selfcheck skipped", () => _recordGateCall(calls, "skipped", 91)),
+        new GateStage("fail", "selfcheck failure", () => _recordGateCall(calls, "failed", 17)),
+        new GateStage("later", "selfcheck later", () => _recordGateCall(calls, "later", 0))
+    };
+    StageLogZ log = new StageLogZ();
+    int rc = _runGateStages(stages, "skip-me", log);
+    _gateAssert(rc == 17, "first failure exit code");
+    _gateAssert(String.Join(",", calls.ToArray()) == "required,failed", "skip and short circuit");
+    _gateAssert(log.Names.Count == 1 && log.Names[0] == "selfcheck required", "successful stage timing");
+
+    calls.Clear();
+    rc = _runGateStages(stages, "skip-me,fail later,fail", new StageLogZ());
+    _gateAssert(rc == 0 && calls.Count == 1 && calls[0] == "required", "required stage and skip separators");
+
+    calls.Clear();
+    rc = _runGateStages(stages, "not-a-stage", new StageLogZ());
+    _gateAssert(rc == 2 && calls.Count == 0, "unknown skip rejected before any work");
+    Console.WriteLine("  ✅ stage runner: registry, changed plans, required, skip, short circuit, exit codes");
+    return 0;
+}
+
+void _checkChangedPlans() {
+    var owners = new _ChangedOwners(_root());
+    _gateAssert(_buildChangedPlan(new string[]{ "README.md", ".gitignore" }).Length == 0,
+        "documentation-only plan is empty");
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
+        "src/libraries/z42.core/tests/a.z42", "src/runtime/tests/a.rs", "src/libraries/z42.core/tests/b.z42"
+    })) == "xtask test stdlib z42.core;xtask test runtime", "changed plan order and deduplication");
+    foreach (var full in new string[]{ "scripts/src/test/gate.z42", "unknown.config" }) {
+        _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ "src/libraries/z42.core/tests/a.z42", full }))
+            == "xtask test", "full sweep replaces prior narrow commands");
+    }
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
+        "docs/learn/src/basics.md", "src/libraries/z42.core/benches/a.z42",
+        "src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/a/source.z42"
+    })) == "xtask test docs examples --book-only;xtask bench stdlib z42.core;xtask test e2e --dir cross-zpkg",
+        "learn, benchmark and fixture routing precedence");
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
+        "src/compiler/z42c.emission/tests/codegen/a.z42",
+        "src/compiler/z42c.optimization/benches/cfg_bench.z42"
+    })) == "xtask test compiler;xtask test stdlib;xtask bench stdlib z42c.optimization", "compiler private tests and bench union");
+    foreach (var member in new string[]{ "z42c.emission", "z42.package", "z42.scripting" }) {
+        _gateAssert(String.Join(",", _mapFile("src/compiler/" + member + "/tests/unit/a.z42", owners).stages) == "compiler,stdlib",
+            "compiler private tests keep both discovery formats");
+    }
+    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.optimization/benches/cfg_bench.z42", owners).stages) == "bench,compiler",
+        "private compiler benchmarks keep codegen consumers");
+    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.optimization/src/IrOpt.z42", owners).stages)
+        == String.Join(",", _stagesAllZ42()), "production compiler source keeps all consumers");
+    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/a/main.z42", owners).stages)
+        == "cross-zpkg", "compiler fixtures keep harness routing precedence");
+    foreach (var file in new string[]{ "native_interop_e2e.rs", "data/numz42-c/numz42.c", "data/embedding_hello/source.z42" }) {
+        _MapResult m = _mapFile("src/runtime/tests/" + file, owners);
+        _gateAssert(String.Join(",", m.stages) == "rust-units", "private runtime tests keep Rust coverage");
+        _gateAssert(String.Join(";", m.commands) == "xtask test runtime", "private runtime tests use full harness");
+    }
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
+        "src/runtime/tests/native_interop_e2e.rs", "src/runtime/src/lib.rs"
+    })) == "xtask test runtime;xtask test e2e", "mixed runtime inputs keep production consumers");
+}
+
+void _checkOutsideGatePlans() {
+    var owners = new _ChangedOwners(_root());
+    string sdk = "scripts/src/test/sdk/verify.z42";
+    string fixture = "src/toolchain/launcher/tests/fixtures/package/case/expect.toml";
+    foreach (var path in new string[]{ sdk, fixture, "scripts/src/test/sdk/future.z42", "scripts/install-z42.sh",
+                                       "scripts/install-z42.ps1", "scripts/install-z42.bat", "scripts/install-z42.command" }) {
+        _MapResult m = _mapFile(path, owners);
+        _gateAssert(!m.needsFull && m.outsideCommands.Length == 1 && m.stages.Length == 0, "SDK verification belongs outside GREEN");
+        _gateAssert(String.Join(";", m.commands) == "xtask package sdk --verify", "SDK role selects actual verification");
+    }
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ sdk, fixture, sdk }))
+        == "xtask package sdk --verify", "SDK checks deduplicate");
+    foreach (var full in new string[]{ "scripts/src/common/base.z42", "unknown.config" }) {
+        foreach (var files in new string[]{ "first", "last" }) {
+            string[] paths = files == "first" ? new string[]{ full, sdk } : new string[]{ sdk, full };
+            _gateAssert(String.Join(";", _buildChangedPlan(paths)) == "xtask test;xtask package sdk --verify",
+                "full fallback retains SDK verification in either input order");
+        }
+    }
+    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
+        "src/benches/scenarios/case.z42", "scripts/src/common/base.z42", sdk, fixture
+    })) == "xtask test;xtask bench --quick;xtask package sdk --verify", "full gate retains each external check once");
+    foreach (var runtime in new string[]{ "src/runtime/tests/native.rs", "src/runtime/src/lib.rs" }) {
+        _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ runtime, "unknown.config" }))
+            == "xtask test;xtask test runtime", "full GREEN does not replace runtime integration/doctests");
+    }
+    _gateAssert(_mapFile("scripts/src/package/desktop.z42", owners).needsFull, "production packaging keeps full coverage");
+    _gateAssert(_mapFile("scripts/src/test/sdk/README.md", owners).commands.Length == 0, "SDK docs keep documentation routing");
+}
+
+void _checkGateRegistry(GateStage[] stages) {
+    var names = new List<string>();
+    var keys = new List<string>();
+    foreach (var stage in stages) {
+        _gateAssert(stage.Name.Length > 0 && !names.Contains(stage.Name), "unique nonempty stage name");
+        _gateAssert(stage.Body != null, "stage body registered");
+        names.Add(stage.Name);
+        _gateAssert(stage.Changes == "" || stage.Changes == "rust" || stage.Changes == "z42", "known change category");
+        _gateAssert(stage.Changes.Length == 0 || stage.Key.Length > 0, "change-scoped stage has a skip key");
+        if (stage.Key.Length == 0) { continue; }
+        _gateAssert(!keys.Contains(stage.Key), "unique skip key");
+        keys.Add(stage.Key);
+    }
+}
+
+int _recordGateCall(List<string> calls, string name, int rc) {
+    calls.Add(name);
+    return rc;
+}
+
+void _gateAssert(bool condition, string what) {
+    if (!condition) { throw new Exception("stage runner: " + what); }
+}

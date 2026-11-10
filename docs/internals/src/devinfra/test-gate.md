@@ -1,6 +1,6 @@
 # 测试门禁（GREEN gate）
 
-> 代码：`scripts/test/xtask_test.z42`（gate 编排 + stage 清单）、`scripts/test/xtask_test_*.z42`（各 stage）
+> 代码：`scripts/src/test/gate.z42`（gate 编排 + stage 清单）、`scripts/src/test/` 下按被测对象分的子目录（各 stage）
 >
 > 怎么写 `[Test]`、`z42 test` 怎么用 → 参考手册；本页写 gate 的编排机制、各类检查的职责与 CI 分工。
 
@@ -18,7 +18,7 @@ xtask test --list
 
 ## 2. 登记与执行共用一张表
 
-`scripts/test/xtask_test.z42` 的 `_gateStages` 是唯一执行清单：每条 `GateStage` 同时携带
+`scripts/src/test/gate.z42` 的 `_gateStages` 是唯一执行清单：每条 `GateStage` 同时携带
 名称、skip 键、改动分流类别与执行函数。完整测试、`--list` 与 `--changed` 都消费这张表，文档只描述机制，
 不维护另一份完整名单。加、删、改名或调整顺序只改这张表；若改变了某类检查的职责，同步本页对应说明。
 
@@ -52,7 +52,7 @@ panic「unknown builtin」→ 全体 golden 假失败，且 regen 返回 1 早�
 | 文档 | 相对链接与文档结构；stdlib 文档注释的 W08xx 检查 |
 | 诊断码 | 登记唯一性、字面量与常量引用有效、码表集合与活性状态一致、活码有测试按码断言 |
 
-静态检查实现归 `scripts/check/`，单跑用 `xtask check <name>`，完整测试按执行表调用相同处理函数。
+静态检查实现归 `scripts/src/test/check/`，单跑用 `xtask check <name>`，完整测试按执行表调用相同处理函数。
 诊断码直接读取登记表、源码、文档与测试面；允许已登记的字面量发码用于种子过渡，不维护站点白名单、
 计数快照或到期日期。测试面中的代码注释不算断言，检查器自身也不算覆盖来源。
 
@@ -61,7 +61,7 @@ panic「unknown builtin」→ 全体 golden 假失败，且 regen 返回 1 早�
 
 完整 Rust 测试的 signal-crash helper 不进入本地常跑门禁；完整版本由 CI 独立步骤与 `xtask test runtime` 覆盖。
 GREEN 中保留 lib 单测与全部测试 target 的编译检查。两种入口及 GC 模式回归归属
-`scripts/test/xtask_test_runtime.z42`，共用同一执行器：一次 Cargo 图编出 target，把共享 Rust std 拷到组件旁，
+`scripts/src/test/runtime/runner.z42`，共用同一执行器：一次 Cargo 图编出 target，把共享 Rust std 拷到组件旁，
 再带组件 / deps / std 的库搜索路径运行 harness（组件测试会 dlopen 现编的探针库，直接 `cargo test` 在 Linux 上加载失败）；
 Cargo workspace、feature 与 manifest 配置由同一 helper 提供。
 CI 的 `vm` 过滤也包含此执行器文件，执行器改动由完整 Runtime 测试覆盖。
@@ -104,12 +104,12 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 **构建波也计入**——它常是最大的一块，不计的话各 stage 之和对不上 TOTAL，反而误导。
 
 实现：`StageLogZ` + `_stageStart` / `_stageEnd` / `_stageSummary`，时长格式化 `_fmtDur`
-（`scripts/common/xtask_common.z42`）。
+（`scripts/src/common/base.z42`）。
 
 ## 7. `test changed`：按改动挑测试（命令计划 + gate 分流共用一张表）
 
 对工作区相对 `BASE`（默认 `HEAD`）的差异与未跟踪文件逐一分类。重命名按旧路径和新路径分别选测。映射表（`_mapFile`，
-`scripts/test/xtask_test_changed.z42`）每条规则给两列：本地 `test changed` 执行的**窄命令**（去重后的并集，
+`scripts/src/test/changed.z42`）每条规则给两列：本地 `test changed` 执行的**窄命令**（去重后的并集，
 依序执行、首败短路；`--dry-run` 只打印计划，并顺带打印下一列的分流结果），与 `xtask test --changed <base>`
 （§5）用的**受影响 gate stage**。「全集」= 所有编译 / 执行 z42 代码的重 stage（`rust-units` 除外）。
 
@@ -131,7 +131,7 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` | `test e2e --dir cross-zpkg` | `cross-zpkg` |
 | `src/compiler/z42c.pipeline/tests/fixtures/multi-exe/` | `test e2e --dir multi-exe` | `multi-exe` |
 | `src/toolchain/builder/tests/fixtures/` | `test toolchain builder` | `toolchain`、`targets` |
-| `scripts/test/sdk/`、`src/toolchain/launcher/tests/fixtures/package/` | `package sdk --verify` | —（SDK 验证在 GREEN 外；CI 由四个 host package 执行）|
+| `scripts/src/test/sdk/`、`src/toolchain/launcher/tests/fixtures/package/` | `package sdk --verify` | —（SDK 验证在 GREEN 外；CI 由四个 host package 执行）|
 | 其余 `src/tests/` | `test e2e` + `check layout` | —（goldens 与 layout 恒跑）|
 | `src/benches/` | `bench --quick` | —（gate 里没有它）|
 | 编译器成员的 `tests/`（上述专属 harness 夹具除外） | `test compiler` + `test stdlib`（目录工程与扁平 / `[tests]` 单元分别发现） | `compiler`、`stdlib` |

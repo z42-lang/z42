@@ -1,8 +1,8 @@
 # 跨平台测试（平台管线 · 能力门控 · CI 拓扑）
 
 > 代码：
-> `scripts/test/xtask_test_platform.z42`（三阶段框架 + `IPlatformBackend`）、
-> `scripts/test/xtask_test_{desktop,wasm,ios,android}.z42`（四个 backend）、
+> `scripts/src/test/app/platform.z42`（三阶段框架 + `IPlatformBackend`）、
+> `scripts/src/test/app/{desktop,wasm,ios,android}.z42`（四个 backend）、
 > `src/runtime/src/corelib/os/platform.rs`（能力集）、`src/libraries/z42.harness/src/BundleRunner.z42`（设备上的能力门）、
 > `src/toolchain/workload/platform-contract.md`（状态码 ↔ 平台异常映射）、
 > `.github/workflows/ci.yml`（`test-desktop` / `test-wasm` / `test-ios` / `test-android`）。
@@ -39,7 +39,7 @@ R1–R7 与嵌入语料**不冗余**——前者测的是原生壳与 C ABI 的�
 ## 3. 三阶段平台管线
 
 `xtask test app <desktop|wasm|ios|android|all> [build|assets|run]`
-（省略 step = 全流程）。框架在 `xtask_test_platform.z42`，平台差异全在 backend：
+（省略 step = 全流程）。框架在 `scripts/src/test/app/platform.z42`，平台差异全在 backend：
 
 ```z42
 public interface IPlatformBackend {
@@ -179,7 +179,7 @@ junit / logcat / crash-diagnostics 这些 artifact 均按 `${{ matrix.shard }}` 
 | 要改什么 | 改哪 |
 |---|---|
 | 加一个平台 | 新 backend class 实现 `IPlatformBackend` + `_platformDispatch` 注册一行 |
-| 某平台的原生构建 / runner | 对应 `scripts/test/xtask_test_<plat>.z42` |
+| 某平台的原生构建 / runner | 对应 `scripts/src/test/app/<plat>.z42` |
 | R1–R7 场景或状态码 | 本页 §3.1 + `src/toolchain/workload/platform-contract.md` + 三份宿主语言测试 |
 | 某用例在某平台跑不了 | 能力缺口 → 用例源码声明 `// requires-caps:`（新能力名：`platform.rs` + [规范页 §4](../devinfra/test-layout.md)）；可移植性缺陷 → 改用例 |
 | 分片数 / 超时 / 触发条件 | `.github/workflows/ci.yml` 对应 job |

@@ -1,6 +1,6 @@
 # 测试怎么跑
 
-> 代码：`scripts/test/`、
+> 代码：`scripts/src/test/`、
 > `src/tests/`、`src/libraries/<lib>/tests/`、`src/runtime/src/*_tests.rs`
 >
 > 用例放哪、写成什么形态、平台能力怎么声明见[测试用例组织规范](test-layout.md)（唯一权威）；
@@ -63,7 +63,7 @@ builder 的命令行与常规构建 smoke 由 [声明式夹具](fixture-harness.
 需要预置损坏产物或检查插件执行顺序的用例保留专用代码。
 
 工具链测试包、库的 test / bench、编译器独立工程、cross-zpkg、multi-exe 与 manifest targets 通过
-`common/xtask_projects.z42` 中的 `ManifestLocator.FindIn` 复用
+`scripts/src/common/projects.z42` 中的 `ManifestLocator.FindIn` 复用
 [项目模型的清单定位](../compiler/project-model.md)，只查当前目录。`expect.toml` 等其他 TOML
 不参与工程选择，命名清单的歧义会报错。测试包的身份取 `project.name`，
 允许目录名、命名清单文件名与包名不同；工作区本身不作为反射测试包。
@@ -79,7 +79,7 @@ layout 检查同样按 workspace 的声明包名识别产物 owner，允许成�
 发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑[发行包夹具](fixture-harness.md)（命令行路径 / 桌面发布 /
 发布态 analyzer 与 hooks）与 golden（interp / jit；本机桌面 workload 不在会先打一份）。
 
-发行包 golden 的编译 / 执行由 `scripts/test/sdk/xtask_package_goldens.z42` 负责：同一份源只编译一次，
+发行包 golden 的编译 / 执行由 `scripts/src/test/sdk/goldens.z42` 负责：同一份源只编译一次，
 各模式复用该产物；进程必须退出 0，且 stdout + stderr 与期望输出匹配，才计为通过。
 输出相同不能掩盖非零退出；编译失败、进程启动 / 等待失败同样判红。该 runner 先用真实退出 0 / 7
 的程序自检，再运行发行包语料。
@@ -120,7 +120,7 @@ interface dispatch、`using` 的跨包 namespace 解析、同名 namespace 冲�
 **multi-exe**（同级 `multi-exe/<name>/`）每个工程编译一次，按产物路径排序执行全部 exe，拼接输出。
 这两套夹具都要求每个运行进程退出码为 0，且 stdout + stderr 与 `expected_output.txt` 完全一致；
 输出相同也不能掩盖非零退出码。期望编译失败的 cross-zpkg 用例只检查构建失败与诊断，不进入运行阶段。
-构建与临时 libs 的共用助手位于 `scripts/test/xtask_fixture_build.z42`；cross 波次保持包间依赖顺序，
+构建与临时 libs 的共用助手位于 `scripts/src/common/harness/fixture_build.z42`；cross 波次保持包间依赖顺序，
 波内并发独立夹具。multi-exe 开跑前通过真实退出 0 / 7 的程序自检两个 runner，并检查 project.name 的产物选择。
 
 ### stdlib `[Test]`
@@ -334,7 +334,7 @@ xtask test
 | **只改用例 `src/tests/`** | `test e2e` | — | `test-host`（`test-vm-jit` / `stdlib-*` 不跑） |
 | **xtask 源 `scripts/`** | `z42 publish scripts/xtask.z42.toml` 重建后随便跑条命令冒烟 | changed 映射对 `scripts/**` = 全套 | 每腿 `ci-bootstrap` 的种子编 xtask 步 |
 | **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `test compiler bootstrap` | 格式 bump 另跑 [格式 bump 清单](format-bump.md)；等 nightly 发布后才 use | 全腿 `ci-bootstrap`（种子编当前源）+ `compiler-checks` |
-| **打包 `scripts/package/` / `packages.toml`** | `xtask package sdk --verify` | 同左 | `package-host` + `package-{ios,android,wasm}` |
+| **打包 `scripts/src/package/` / `packages.toml`** | `xtask package sdk --verify` | 同左 | `package-host` + `package-{ios,android,wasm}` |
 | **codegen / 优化 / typecheck / IR writer（会改产物字节）** | `test compiler` | 同步 `CacheStore.CompilerFingerprint` +1；自查 `test compiler fingerprint` | `bench-regression` 的 fingerprint guard |
 | **增量编译（IncrementalBuild / CacheStore / ZbcReader）** | `test compiler` | `test compiler incremental`（逐文件 touch 对账，增量 == 全量逐字节） | `compiler-checks` |
 | **学习手册 / `examples/`** | `test docs examples <part>/<chapter>`（只改页面加 `--book-only`）；输出确实该变则 `--bless` 后审 diff | `xtask package dev-sdk` + `test docs examples` | `test-host` 的 examples stage、`package-host`（用打包 SDK 重放，含 Windows）、`deploy-book` |

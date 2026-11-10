@@ -1,0 +1,352 @@
+// xtask — `setup`：按 versions.toml（唯一事实源）装开发依赖。
+//
+// 依赖两层模型：
+//   无 --os = 当前 host 基础（跨平台 rust/node 检查，不装交叉栈）
+//   平台必备 — 该平台构建/测试没它就跑不了，`setup --os <p>` 显式装：
+//     android = rust targets + cargo-ndk + JDK check + build SDK (cmdline-tools
+//               + platforms;<p> + build-tools;<bt> + platform-tools + ndk;<ver>)
+//     ios     = rust targets (+ extra host slice) + Xcode check
+//     wasm    = rust targets + wasm-pack + hermetic node（wasm 测试面必备）
+//   用到才装 — 重型/兜底依赖，消费步骤检测缺失后自动装，零命令面：
+//     android emulator tier（emulator + system-image + AVD + Gradle，~4GB）
+//       → `test app android run`（AndroidBackend.RunTests）自动装
+//     node 兜底 → wasm RunTests hermetic+PATH 均缺时自动装
+//
+// 只读的在场校验在 `setup check`（setup/check.z42）；versions.toml ↔ 投影文件的漂移是
+// 与机器无关的静态检查，在 `xtask check versions`（test/check/versions.z42）。没有环境导出命令：
+// xtask 自己解析 NDK / SDK 位置（versions.toml 的 install_root，ANDROID_NDK_HOME / ANDROID_HOME 覆盖），
+// `setup --os android` 装完打印的 export 只给在 xtask 之外直接调 gradle / cargo-ndk 的人用。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Toml;
+
+// `setup [--os <platform>] [--force]`（default action）。
+// platform 已由 --os 的 choices（versions.toml 跨平台 workload）校验过。
+int _setupInstall(string platform, bool force) {
+    string root = _root();
+    TomlValue toml = _vparse(root);
+
+    Console.WriteLine("── toolchain (cross-platform) ──");
+    _checkRust(toml);
+    _checkNode(toml);
+
+    // 无 --os = 当前 host 基础：host 开发只需上面的跨平台基础；android/ios/wasm 交叉栈显式 --os 才装。
+    if (platform.Length == 0) {
+        Console.WriteLine("");
+        Console.WriteLine("✅ host toolchain checked (cross-platform base only)");
+        Console.WriteLine("   Platform stacks are opt-in: xtask setup --os <android|ios|wasm>");
+        return 0;
+    }
+
+    int rc = 0;
+    if (platform == "android")   { rc = _setupAndroid(root, toml, "install", force); }
+    else if (platform == "ios")  { rc = _setupIos(root, toml, "install"); }
+    else if (platform == "wasm") { rc = _setupWasm(root, toml, "install", force); }
+
+    if (rc == 0) {
+        Console.WriteLine("");
+        Console.WriteLine("✅ setup complete");
+        if (platform == "android") {
+            Console.WriteLine("   xtask finds the SDK / NDK above by itself; the exports are only for running gradle / cargo-ndk by hand.");
+            Console.WriteLine("   Android emulator tier (instrumentation tests) auto-installs on `test app android run`.");
+        }
+    }
+    return rc;
+}
+
+// ── node installer（内部函数，无命令面）────────────────────────────────────────
+// 调用方：_setupWasm（wasm 必备直装）+ WasmBackend.RunTests（用到才装兜底）。
+// Download Node.js LTS into artifacts/tools/node/ (no system PATH changes).
+// Idempotent; force redownloads. POSIX-only (.tar.gz); Windows → MSI.
+int _installNode(bool force) {
+    string root = _root();
+    TomlValue toml = _vparse(root);
+    string nodeVersion = _vget(toml, "toolchain.node.version");   // SoT: versions.toml
+    string installDir = Path.Join(_toolsDir(root), "node");
+    string nodeBin = Path.Join(installDir, "bin/node");
+
+    if (File.Exists(nodeBin) && !force) {
+        string cur = _cmdOut(nodeBin, new string[]{ "--version" });
+        if (cur == "v" + nodeVersion) {
+            Console.WriteLine("Node.js v" + nodeVersion + " already installed at " + installDir + " (skip; --force to reinstall)");
+            Console.WriteLine(nodeBin);
+            return 0;
+        }
+        Console.WriteLine("existing node " + cur + " differs from target v" + nodeVersion + "; reinstalling");
+    }
+
+    // OS / arch.
+    string os = _detectOs();
+    if (os == "windows") {
+        ConsoleError.WriteLine("error: auto-extract is POSIX-only. On Windows install Node.js from the official MSI:");
+        ConsoleError.WriteLine("       https://nodejs.org/en/download  (see docs/workflow/windows.md)");
+        return 1;
+    }
+    string arch = Platform.Arch();          // "arm64" / "x86_64" / ...
+    string nodeArch = "";
+    if (arch == "arm64" || arch == "aarch64") { nodeArch = "arm64"; }
+    else if (arch == "x86_64" || arch == "x64") { nodeArch = "x64"; }
+    else { ConsoleError.WriteLine("error: unsupported arch " + arch); return 1; }
+
+    string name = "node-v" + nodeVersion + "-" + os + "-" + nodeArch;
+    string url = "https://nodejs.org/dist/v" + nodeVersion + "/" + name + ".tar.gz";
+
+    string tmp = Directory.CreateTempDir("node-dl");
+    string tarball = Path.Join(tmp, name + ".tar.gz");
+    Console.WriteLine("fetching " + url);
+    int dc = _curlDownload(url, tarball);
+    if (dc != 0) { ConsoleError.WriteLine("error: node download failed"); return dc; }
+
+    Console.WriteLine("extracting to " + installDir);
+    Directory.Create(_toolsDir(root));
+    if (Directory.Exists(installDir)) { Directory.Delete(installDir, true); }
+    int xc = _exec(new Process("tar").Arg("-xzf").Arg(tarball).Arg("-C").Arg(tmp));
+    if (xc != 0) { return xc; }
+    int mc = _exec(new Process("mv").Arg(Path.Join(tmp, name)).Arg(installDir));
+    if (mc != 0) { return mc; }
+
+    if (!File.Exists(nodeBin)) { ConsoleError.WriteLine("error: " + nodeBin + " missing after extract"); return 1; }
+    string nodeVer = _cmdOut(nodeBin, new string[]{ "--version" });
+    Console.WriteLine("");
+    Console.WriteLine("Node.js installed locally — no system PATH changes.");
+    Console.WriteLine("  node: " + nodeVer + "  → " + nodeBin);
+    Console.WriteLine("  prepend to PATH:  export PATH=\"" + Path.Join(installDir, "bin") + ":$PATH\"");
+    return 0;
+}
+
+// ── host helpers ─────────────────────────────────────────────────────────────
+
+string _detectOs() {
+    if (Platform.IsWindows()) { return "windows"; }
+    if (Platform.IsMacOS())   { return "darwin"; }
+    return "linux";
+}
+
+// major.minor → comparable int (1.79 → 1079); only the first two components.
+int _verKey(string ver) {
+    return _parseIntOr(_nthDot(ver, 0), 0) * 1000 + _parseIntOr(_nthDot(ver, 1), 0);
+}
+
+int _parseIntOr(string s, int fallback) {
+    try { return int.Parse(s); } catch (Exception e) { return fallback; }
+}
+
+// ── cross-platform toolchain checks (warning-only) ───────────────────────────
+
+void _checkRust(TomlValue toml) {
+    if (!_have("rustc")) { ConsoleError.WriteLine("error: rustc not found. Install via https://rustup.rs"); return; }
+    string wantChannel = _vget(toml, "toolchain.rust.channel");
+    string wantMin = _vget(toml, "toolchain.rust.min_version");
+    // rustc --version → "rustc 1.79.0 (...)"
+    string vline = _cmdOut("rustc", new string[]{ "--version" });
+    string actual = _nthWord(vline, 1);
+    if (actual.Length == 0) { ConsoleError.WriteLine("warning: cannot parse rustc version; skip check"); return; }
+    if (_verKey(actual) < _verKey(wantMin)) {
+        ConsoleError.WriteLine("warning: rustc " + actual + " < versions.toml min " + wantMin + " (" + wantChannel + " channel)");
+        ConsoleError.WriteLine("         consider: rustup update " + wantChannel);
+    } else {
+        Console.WriteLine("  ✓ rustc " + actual + " (≥ " + wantMin + ")");
+    }
+}
+
+void _checkNode(TomlValue toml) {
+    if (!_have("node")) { return; }   // only wasm tests need node; silent skip
+    string wantMin = _vget(toml, "toolchain.node.min_version");
+    string v = _cmdOut("node", new string[]{ "-v" });   // "v22.11.0"
+    if (v.StartsWith("v")) { v = v.Substring(1); }
+    int major = _parseIntOr(_nthDot(v, 0), 0);
+    if (major > 0 && major < _parseIntOr(wantMin, 0)) {
+        ConsoleError.WriteLine("warning: node v" + v + " < versions.toml min v" + wantMin);
+    } else {
+        Console.WriteLine("  ✓ node v" + v);
+    }
+}
+
+string _nthWord(string s, int n) {
+    string[] w = s.Split(" ");
+    if (n < w.Length) { return w[n]; }
+    return "";
+}
+
+
+string _nthDot(string s, int n) {
+    string[] p = s.Split(".");
+    if (n < p.Length) { return p[n]; }
+    return "";
+}
+
+// ── 下载 ─────────────────────────────────────────────────────────────────────
+
+// `curl` 下载到 outPath。install 的各下载点（node / android cmdline-tools / gradle）一律走本函数，别再手拼。
+//
+// **这四个 flag 不是可选装饰**，尤其 `--fail`：没有它，curl 遇到 4xx/5xx 会把错误页
+// **以 0 退出码**写进 outPath，于是一个 HTML 错误页被当成 tarball/zip 交给下游解压
+// （android 那两处还会先过 sha256 校验，报出来的是「哈希不符」而非「下载失败」——
+// 指不到真因）。
+int _curlDownload(string url, string outPath) {
+    return _exec(new Process("curl")
+        .Arg("--fail").Arg("--location").Arg("--silent").Arg("--show-error")
+        .Arg("-o").Arg(outPath).Arg(url));
+}
+
+// ── rust target / cargo crate ensure ─────────────────────────────────────────
+
+int _ensureRustTarget(string t, string mode) {
+    string installed = _cmdOut("rustup", new string[]{ "target", "list", "--installed" });
+    if (_hasLine(installed, t)) {
+        Console.WriteLine("  ✓ rust target " + t);
+        return 0;
+    }
+    if (mode == "check") { ConsoleError.WriteLine("  ✗ rust target " + t + " (missing)"); return 1; }
+    Console.WriteLine("  rustup target add " + t);
+    return _exec(new Process("rustup").Arg("target").Arg("add").Arg(t));
+}
+
+int _ensureCargoInstall(string crate, string bin, string mode) {
+    if (_have(bin)) { Console.WriteLine("  ✓ " + bin); return 0; }
+    if (mode == "check") { ConsoleError.WriteLine("  ✗ " + bin + " (missing; cargo install " + crate + " --locked)"); return 1; }
+    Console.WriteLine("  cargo install " + crate + " --locked");
+    return _exec(new Process("cargo").Arg("install").Arg(crate).Arg("--locked"));
+}
+
+bool _hasLine(string text, string want) {
+    foreach (var line in text.Split("\n")) {
+        if (line.Trim() == want) { return true; }
+    }
+    return false;
+}
+
+// ── android ──────────────────────────────────────────────────────────────────
+
+string _ndkInstallDir(string root, TomlValue toml) {
+    return Path.Join(root, _vget(toml, "build.android.install_root") + "/ndk/" + _vget(toml, "build.android.ndk.version"));
+}
+
+string _resolveNdkHome(string root, TomlValue toml) {
+    string local = _ndkInstallDir(root, toml);
+    if (Directory.Exists(local)) { return local; }
+    string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME", "");
+    if (env.Length > 0 && Directory.Exists(env)) { return env; }
+    return "";
+}
+
+// mode: "install" | "check"（check 供 setup check 复用，verify-only 不装）。
+int _setupAndroid(string root, TomlValue toml, string mode, bool force) {
+    Console.WriteLine("── android ──");
+    int rc = 0;
+    // native cross-compile essentials: rust targets + cargo-ndk
+    foreach (var t in _vgetList(toml, "platform.android.rust_targets")) {
+        int c = _ensureRustTarget(t, mode); if (c != 0) { rc = c; }
+    }
+    int cc = _ensureCargoInstall("cargo-ndk", "cargo-ndk", mode); if (cc != 0) { rc = cc; }
+
+    // build SDK (JDK + cmdline-tools + platforms + build-tools + platform-tools + NDK)
+    if (mode == "check") {
+        int c = _checkAndroidBuildSdk(root, toml); if (c != 0) { rc = c; }
+    } else {
+        int c = _installAndroidSdk(force, "build"); if (c != 0) { rc = c; }
+    }
+    return rc;
+}
+
+// Verify-only: JDK + NDK + the build SDK packages (platforms / build-tools) present.
+int _checkAndroidBuildSdk(string root, TomlValue toml) {
+    int rc = 0;
+    int jdkMin = _parseIntOr(_vget(toml, "build.android.jdk_min"), 0);
+    if (_have("javac")) {
+        int jdkMajor = _parseIntOr(_nthDot(_nthWord(_cmdOut("javac", new string[]{ "-version" }), 1), 0), 0);
+        if (jdkMajor < jdkMin) { ConsoleError.WriteLine("  ✗ JDK " + jdkMajor.ToString() + " < required " + jdkMin.ToString()); rc = 1; }
+        else { Console.WriteLine("  ✓ JDK " + jdkMajor.ToString() + " (≥ " + jdkMin.ToString() + ")"); }
+    } else {
+        ConsoleError.WriteLine("  ✗ javac not on PATH (need JDK " + jdkMin.ToString() + "+)"); rc = 1;
+    }
+    string ndkVer = _vget(toml, "build.android.ndk.version");
+    string ndkHome = _resolveNdkHome(root, toml);
+    if (ndkHome.Length > 0) {
+        Console.WriteLine("  ✓ NDK " + ndkVer + " at " + ndkHome);
+    } else {
+        ConsoleError.WriteLine("  ✗ NDK " + ndkVer + " missing (run: xtask setup --os android)"); rc = 1;
+    }
+    string sdkDir = Path.Join(root, _vget(toml, "build.android.install_root"));
+    string platformVer = _vget(toml, "build.android.sdk.platform");
+    string btVer = _vget(toml, "build.android.sdk.build_tools");
+    if (Directory.Exists(Path.Join(sdkDir, "platforms/" + platformVer))) { Console.WriteLine("  ✓ SDK " + platformVer); }
+    else { ConsoleError.WriteLine("  ✗ SDK " + platformVer + " missing"); rc = 1; }
+    if (Directory.Exists(Path.Join(sdkDir, "build-tools/" + btVer))) { Console.WriteLine("  ✓ build-tools " + btVer); }
+    else { ConsoleError.WriteLine("  ✗ build-tools " + btVer + " missing"); rc = 1; }
+    return rc;
+}
+
+// ── ios ────────────────────────────────────────────────────────────────────
+
+// mode: "install" | "check"。
+int _setupIos(string root, TomlValue toml, string mode) {
+    Console.WriteLine("── ios ──");
+    int rc = 0;
+    foreach (var t in _vgetList(toml, "platform.ios.rust_targets")) {
+        int c = _ensureRustTarget(t, mode); if (c != 0) { rc = c; }
+    }
+    if (toml.Get("build").ContainsKey("ios") && toml.Get("build").Get("ios").ContainsKey("extra_rust_targets")) {
+        foreach (var t in _vgetList(toml, "build.ios.extra_rust_targets")) {
+            int c = _ensureRustTarget(t, mode); if (c != 0) { rc = c; }
+        }
+    }
+    string xcodeMin = _vget(toml, "build.ios.xcode_min");
+    if (_have("xcodebuild")) {
+        // `xcodebuild -version` → "Xcode 16.4\nBuild version 16F6"; take line 1, word 1.
+        string xv = _nthWord(_firstLine(_cmdOut("xcodebuild", new string[]{ "-version" })), 1);
+        if (xv.Length == 0) {
+            ConsoleError.WriteLine("warning: cannot parse xcodebuild -version; skip Xcode check");
+        } else if (_verKey(xv) < _verKey(xcodeMin)) {
+            ConsoleError.WriteLine("warning: Xcode " + xv + " < versions.toml build.ios.xcode_min " + xcodeMin);
+        } else {
+            Console.WriteLine("  ✓ Xcode " + xv + " (≥ " + xcodeMin + ")");
+        }
+    } else {
+        ConsoleError.WriteLine("  ✗ xcodebuild missing (run: xcode-select --install)");
+    }
+    return rc;
+}
+
+// ── wasm ───────────────────────────────────────────────────────────────────
+
+// wasm 平台必备：rust targets + wasm-pack + hermetic node（wasm 测试面 pkg-nodejs smoke + Playwright
+// 没有 node 跑不了）。mode: "install" | "check"。
+int _setupWasm(string root, TomlValue toml, string mode, bool force) {
+    Console.WriteLine("── wasm ──");
+    int rc = 0;
+    foreach (var t in _vgetList(toml, "platform.wasm.rust_targets")) {
+        int c = _ensureRustTarget(t, mode); if (c != 0) { rc = c; }
+    }
+    int cc = _ensureCargoInstall("wasm-pack", "wasm-pack", mode); if (cc != 0) { rc = cc; }
+    if (mode == "check") {
+        int kc = _checkWasmNode(root, toml); if (kc != 0) { rc = kc; }
+    } else {
+        int nc = _installNode(force); if (nc != 0) { rc = nc; }
+    }
+    return rc;
+}
+
+// wasm 必备的 node presence 校验：hermetic artifacts/tools/node 优先；PATH node
+// 版本 ≥ toolchain.node.min_version 也接受。两者皆无 → ✗。
+int _checkWasmNode(string root, TomlValue toml) {
+    string hermetic = Path.Join(_toolsDir(root), "node/bin/node");
+    if (File.Exists(hermetic)) {
+        Console.WriteLine("  ✓ node (hermetic) " + _cmdOut(hermetic, new string[]{ "--version" }));
+        return 0;
+    }
+    string wantMin = _vget(toml, "toolchain.node.min_version");
+    if (_have("node")) {
+        string v = _cmdOut("node", new string[]{ "-v" });   // "v22.11.0"
+        if (v.StartsWith("v")) { v = v.Substring(1); }
+        if (_parseIntOr(_nthDot(v, 0), 0) >= _parseIntOr(wantMin, 0)) {
+            Console.WriteLine("  ✓ node v" + v + " (PATH, ≥ v" + wantMin + ")");
+            return 0;
+        }
+        ConsoleError.WriteLine("  ✗ node v" + v + " < min v" + wantMin + " (run: xtask setup --os wasm)");
+        return 1;
+    }
+    ConsoleError.WriteLine("  ✗ node missing (run: xtask setup --os wasm; wasm test run also auto-installs)");
+    return 1;
+}

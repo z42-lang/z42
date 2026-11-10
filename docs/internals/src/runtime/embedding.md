@@ -27,7 +27,7 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 后果有三条，都会在改测试基建时撞上：
 
 - 各平台的测试资产步骤（`z42 xtask.zpkg test platform <plat> assets`，实现在
-  `scripts/test/xtask_test_platform.z42`）把 `src/toolchain/workload/fixtures/*.z42` 在 **host 端**编成 `.zbc`，
+  `scripts/src/test/app/platform.z42`）把 `src/toolchain/workload/fixtures/*.z42` 在 **host 端**编成 `.zbc`，
   再拷进 `Z42VM.xcframework/Resources/` / `z42vm/src/main/assets/` / `pkg-{web,nodejs}/`。
 - 平台 facade 的 test harness（XCTest / JUnit / Playwright）**只 load 预编 `.zbc`**，测试代码里不出现 `z42c`。
 - 这条约束在编译器不再需要 host 工具链之前不会变。

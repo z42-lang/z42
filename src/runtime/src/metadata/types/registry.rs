@@ -371,7 +371,7 @@ pub fn build_type_registry(module: &mut Module) {
 /// 违反，不是用户的错** ⇒ debug 响、release 放行。
 ///
 /// ⚠️ 覆盖面的准确说法：e2e golden **默认**跑构建树的 debug VM
-/// （`xtask_test_vm.z42:52` 的 `_activeVm(root, "debug")`），这道门在那条路上有覆盖；
+/// （`scripts/src/test/e2e/goldens.z42:52` 的 `_activeVm(root, "debug")`），这道门在那条路上有覆盖；
 /// 但选了 `--toolchain` 时跑的是工具链里的 **release** VM ⇒ **那条路上它不响**。
 /// 别把「默认路径有覆盖」说成「语料全覆盖」。
 #[inline]

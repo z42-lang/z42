@@ -4,7 +4,7 @@
 
 每个目录是一个最小工程。`expect.toml` 声明要执行的 z42b 命令及退出码、输出、产物断言，
 由 `xtask test toolchain builder` 复用通用夹具引擎执行；新增常规用例无需修改 xtask。
-涉及过期父包副本、`--reuse-parent` 或插件执行顺序的测试仍由 `xtask_test_targets.z42` 驱动。
+涉及过期父包副本、`--reuse-parent` 或插件执行顺序的测试仍由 `scripts/src/test/toolchain/targets.z42` 驱动。
 
 ## 工具与占位符
 

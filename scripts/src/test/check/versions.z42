@@ -1,0 +1,208 @@
+// xtask — `check versions`：versions.toml ↔ 它的「投影」文件一致（漂移即红）。
+//
+// 版本号的唯一真相源是 scripts/versions.toml；有几处文件格式所限只能各写一份副本（投影）：
+//   src/runtime/Cargo.toml [workspace.package].version   ← [project].version
+//   android build.gradle.kts minSdk / compileSdk          ← [platform.android]
+//   ios harness Package.swift .iOS / .macOS               ← [platform.ios]
+//   [rid.*].triple ↔ [platform.*].rust_targets            ← 双向（见 _checkRidTable）
+// 纯文本比对、与机器无关（不看装了什么）——所以它是 `xtask check` 的一项、GREEN gate 的一个 stage；
+// 「本机装没装齐」是另一回事，在 `xtask setup check`。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Toml;
+using Std.Regex;
+using Std.Collections;
+
+int _checkVersions() {
+    string root = _root();
+    string tomlPath = _versionsPath(root);
+    if (!File.Exists(tomlPath)) {
+        ConsoleError.WriteLine("error: versions.toml not found at " + tomlPath);
+        return 2;
+    }
+    TomlValue toml = TomlValue.Parse(File.ReadAllText(tomlPath));
+    string cargoText = File.ReadAllText(Path.Join(root, _runtimeManifest()));
+    string wantVer = _scalarStr(toml.Get("project").Get("version"));
+    string gotVer  = _extractCargoWorkspaceVersion(cargoText);
+    int fail = _check("src/runtime/Cargo.toml [workspace.package].version", wantVer, gotVer);
+    fail = fail + _checkAndroidProjectionDrift(root, toml);
+    fail = fail + _checkIosProjectionDrift(root, toml);
+    fail = fail + _checkRidTable(root, toml);
+    if (fail > 0) {
+        ConsoleError.WriteLine("error: versions.toml drift detected — update the source files to match versions.toml");
+        ConsoleError.WriteLine("       See versions.toml → field comments (→ filename) for which file to fix.");
+        return 1;
+    }
+    Console.WriteLine("✅ versions.toml projections agree");
+    return 0;
+}
+
+// ── 平台投影 drift（versions.toml ↔ 源文件；单实现 SoT）──────────────────────
+
+int _checkAndroidProjectionDrift(string root, TomlValue toml) {
+    string gradleText = File.ReadAllText(Path.Join(root, "src/toolchain/workload/android/platform/z42vm/build.gradle.kts"));
+    int fail = 0;
+    string wantMin = _scalarStr(toml.Get("platform").Get("android").Get("min_api"));
+    string gotMin  = _firstMatchGroup(gradleText, "minSdk\\s*=\\s*([0-9]+)", 1);
+    fail = fail + _check("build.gradle.kts  minSdk", wantMin, gotMin);
+    string wantTgt = _scalarStr(toml.Get("platform").Get("android").Get("target_api"));
+    string gotTgt  = _firstMatchGroup(gradleText, "compileSdk\\s*=\\s*([0-9]+)", 1);
+    fail = fail + _check("build.gradle.kts  compileSdk", wantTgt, gotTgt);
+    return fail;
+}
+
+// iOS 锚点：committed host harness 的 Package.swift（`swift test` 用）。SDK 包的
+// Package.swift 由 package/ios.z42 运行期从 versions.toml 生成（结构上不可能
+// drift），故唯一残留的硬编码投影是这份 harness——drift 检查钉在它上面。
+int _checkIosProjectionDrift(string root, TomlValue toml) {
+    string pkgSwiftText = File.ReadAllText(Path.Join(root, "src/toolchain/workload/ios/platform/Package.swift"));
+    int fail = 0;
+    string wantIos = _scalarStr(toml.Get("platform").Get("ios").Get("min_ios"));
+    string gotIos  = _firstMatchGroup(pkgSwiftText, "\\.iOS\\(\\.v([0-9]+)\\)", 1) + ".0";
+    fail = fail + _check("ios/Package.swift  .iOS(.v<major>)", wantIos, gotIos);
+    string wantMac = _scalarStr(toml.Get("platform").Get("ios").Get("min_macos"));
+    string gotMac  = _firstMatchGroup(pkgSwiftText, "\\.macOS\\(\\.v([0-9]+)\\)", 1) + ".0";
+    fail = fail + _check("ios/Package.swift  .macOS(.v<major>)", wantMac, gotMac);
+    return fail;
+}
+
+// ── [rid.*] ↔ [platform.*] / [workload] 对账 ─────────────────────────────────
+//
+// [rid] 表是 xtask 侧的目标登记，[platform] 是运行时承诺——两边各自演化就会出现「CI 编得出、
+// xtask 打不出包」。规则（详见 versions.toml [rid] 头注）：
+//   ① 每个 rid 的 triple 必须在对应 platform 的 rust_targets 里（platform 推导：desktop RID
+//      取名字首段，跨平台 RID = category）；
+//   ② 反向：platform 的每个 rust_target 都得有 rid 登记；
+//   ③ rid 的 category 必须是 [workload].members 之一；
+//   ④ 每个跨平台 workload 至少有一个 rid，且主 RID（primary）恰一个——release 归档按主 RID
+//      命名，缺了丢归档、多了同名相撞。
+
+// rid → 对账用的 platform 名（versions.toml [rid] 头注的推导规则）。
+string _ridPlatformOf(string rid, string category) {
+    if (category != "desktop") { return category; }
+    int dash = rid.IndexOf("-");
+    return dash > 0 ? rid.Substring(0, dash) : rid;
+}
+
+int _checkRidTable(string root, TomlValue toml) {
+    TomlValue ridTable = _vRidTable(root);
+    if (ridTable == null) {
+        ConsoleError.WriteLine("✗ versions.toml 缺 [rid.*] 表 — 目标 RID 登记是 xtask 打包/release 的依据，不能省");
+        return 1;
+    }
+    string[] workloads = _vWorkloads(root);
+    string[] ridNames = ridTable.Keys();
+    int fail = 0;
+    // ① + ③：triple ↔ platform.rust_targets、category ∈ workloads。
+    var triples = new List<string>();
+    foreach (var rid in ridNames) {
+        string category = _scalarStr(ridTable.Get(rid).Get("category"));
+        string triple = _scalarStr(ridTable.Get(rid).Get("triple"));
+        triples.Add(triple);
+        if (!_strIn(workloads, category)) {
+            ConsoleError.WriteLine("✗ [rid." + rid + "].category '" + category + "' 不在 [workload].members 里");
+            fail = fail + 1;
+            continue;
+        }
+        string platform = _ridPlatformOf(rid, category);
+        if (!_strIn(_vgetList(toml, "platform." + platform + ".rust_targets"), triple)) {
+            ConsoleError.WriteLine("✗ [rid." + rid + "].triple '" + triple + "' 不在 [platform." + platform + "].rust_targets 里");
+            fail = fail + 1;
+        }
+    }
+    // ② 反向：platform 的每个 target 都得有 rid。
+    foreach (var plat in toml.Get("platform").Keys()) {
+        foreach (var triple in _vgetList(toml, "platform." + plat + ".rust_targets")) {
+            if (!triples.Contains(triple)) {
+                ConsoleError.WriteLine("✗ [platform." + plat + "].rust_targets 的 '" + triple + "' 没有对应的 [rid.*]（CI 编得出、xtask 打不出包）");
+                fail = fail + 1;
+            }
+        }
+    }
+    // ④ 每个跨平台 workload：≥1 个 rid、主 RID 恰一个。
+    foreach (var wl in workloads) {
+        if (wl == "desktop") { continue; }
+        string[] rids = _vRidsOfCategory(root, wl);
+        if (rids.Length == 0) {
+            ConsoleError.WriteLine("✗ workload '" + wl + "' 没有任何 [rid.*]（无法打包）");
+            fail = fail + 1;
+            continue;
+        }
+        int primaries = 0;
+        foreach (var r in rids) {
+            if (_vRidPrimary(root, r)) { primaries = primaries + 1; }
+        }
+        if (primaries != 1) {
+            ConsoleError.WriteLine("✗ workload '" + wl + "' 的主 RID 有 " + primaries.ToString() + " 个（须恰 1 个：release 归档按主 RID 命名）");
+            fail = fail + 1;
+        }
+    }
+    // ⑤ [workload.hosts] / [workload.title]：键是 workload；hosts 的值是已登记的 desktop RID（launcher 按宿主 RID 比对）。
+    TomlValue wt = toml.Get("workload");
+    if (wt.ContainsKey("title")) {
+        foreach (var wl in wt.Get("title").Keys()) {
+            if (!_strIn(workloads, wl)) {
+                ConsoleError.WriteLine("✗ [workload.title].'" + wl + "' 不在 [workload].members 里");
+                fail = fail + 1;
+            }
+        }
+    }
+    if (wt.ContainsKey("hosts")) {
+        TomlValue hosts = wt.Get("hosts");
+        foreach (var wl in hosts.Keys()) {
+            if (!_strIn(workloads, wl)) {
+                ConsoleError.WriteLine("✗ [workload.hosts].'" + wl + "' 不在 [workload].members 里");
+                fail = fail + 1;
+                continue;
+            }
+            foreach (var host in _vgetList(hosts, wl)) {
+                if (_vRidCategory(root, host) != "desktop") {
+                    ConsoleError.WriteLine("✗ [workload.hosts]." + wl + " 的 '" + host + "' 不是已登记的 desktop RID");
+                    fail = fail + 1;
+                }
+            }
+        }
+    }
+    return fail;
+}
+
+// ── 输出与解析助手 ────────────────────────────────────────────────────────────
+
+// want == got → ✓，否则 ✗ + 计 1 失败。
+int _check(string desc, string want, string got) {
+    if (want == got) {
+        Console.WriteLine("  ✓ " + _padRight(desc, 50) + " " + got);
+        return 0;
+    } else {
+        ConsoleError.WriteLine("  ✗ " + _padRight(desc, 50) + " want=" + want + " got=" + got);
+        return 1;
+    }
+}
+
+// 左对齐到 width 列；超长不截断。
+string _padRight(string s, int width) { return s.PadRight(width); }
+
+// 第一个 regex match 的指定 group；找不到返回 ""。
+string _firstMatchGroup(string text, string pattern, int groupIdx) {
+    Regex r = Regex.Compile(pattern);
+    Match m = r.Find(text);
+    if (m == null) { return ""; }
+    return m.Group(groupIdx);
+}
+
+// [workspace.package] section 内第一个 `version = "..."` 行；section 边界是下一个 `[...]` 起始行。
+string _extractCargoWorkspaceVersion(string cargoText) {
+    string[] lines = cargoText.Split("\n");
+    Regex verLine = Regex.Compile("^\\s*version\\s*=\\s*\"([^\"]+)\"");
+    bool inSection = false;
+    foreach (var line in lines) {
+        if (line.StartsWith("[workspace.package]")) { inSection = true; continue; }
+        if (line.StartsWith("[")) { inSection = false; continue; }
+        if (inSection) {
+            Match m = verLine.Find(line);
+            if (m != null) { return m.Group(1); }
+        }
+    }
+    return "";
+}

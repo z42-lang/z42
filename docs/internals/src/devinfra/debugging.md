@@ -3,7 +3,7 @@
 > 代码：`src/runtime/src/host/cli_startup.rs`
 > （`--info` / panic hook）、`src/runtime/src/host/signal.rs`、`src/runtime/src/pal/signal.rs`、
 > `src/runtime/src/host/app.rs`（`--stats`）、`src/runtime/src/diagnostics/observer.rs`、
-> `src/runtime/src/config/`、`src/runtime/crates/z42-zpkg/src/format/build_id.rs`、`scripts/bench/xtask_profile.z42`
+> `src/runtime/src/config/`、`src/runtime/crates/z42-zpkg/src/format/build_id.rs`、`scripts/src/bench/profile.z42`
 >
 > 旋钮登记表与五层优先级见[运行时设置的实现](../runtime/runtime-settings.md)；
 > 采样 profiler / 计数器面的**机制**见[诊断与性能分析](../runtime/diagnostics.md)。

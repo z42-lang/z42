@@ -2,10 +2,10 @@
 
 > 代码：
 > `src/toolchain/devtools/vscode/`（扩展资产）、
-> `scripts/setup/xtask_install_vscode.z42`（生成器 + 门禁检查）、
+> `scripts/src/setup/vscode.z42`（生成器 + 门禁检查）、
 > `src/compiler/z42c.syntax/src/Lexer.z42`（关键字 SoT）、
 > Main.z42（`Main`）（`--dump-keywords` 路由）、
-> `scripts/test/xtask_test.z42`（gate 挂接）。
+> `scripts/src/test/gate.z42`（gate 挂接）。
 
 z42 在 VSCode 里的全部语言支持 = **一份声明式 TextMate grammar**，零 node / 零编译依赖，
 没有 LSP、没有 `.vsix`。本页写这份 grammar 是**怎么生成出来的**、关键字凭什么不漂移、
@@ -37,7 +37,7 @@ Lexer.z42 _initKeywords()                 ← 关键字唯一 SoT
     ▼
 z42c --dump-keywords                      ← 每行一个，注册序
     ▼
-scripts/setup/xtask_install_vscode.z42
+scripts/src/setup/vscode.z42
     ├─ 分类表（control / declaration / modifier / operator / type / literal）
     ├─ 穷尽校验（漏 / 幽灵 / 重复 → 报错指名）
     └─ 模板渲染：z42.tmLanguage.tpl.json 的 __KW_<GROUP>__ → kw1|kw2|…
@@ -80,7 +80,7 @@ syntaxes/z42.tmLanguage.json              ← 生成产物，入库
 `vscode` 是 `xtask setup` 的一个子命令（不带子命令的 `setup` = 装平台必备依赖，不碰编辑器资产）。
 它属于依赖模型的第三类：**主机集成，用户显式触发**——编辑器集成没法「用到时自动装」。
 
-`vscode-syntax` 挂在全量 gate 的链尾（`scripts/test/xtask_test.z42`，`_gateStages` 中登记），
+`vscode-syntax` 挂在全量 gate 的链尾（`scripts/src/test/gate.z42`，`_gateStages` 中登记），
 守的是跨子系统的 SoT 一致性，性质同自举字节不动点。成本≈一次 z42c fork，可忽略。
 CI 的分腿 job 用 `xtask test --skip vscode` 把它挪到别的腿上。
 

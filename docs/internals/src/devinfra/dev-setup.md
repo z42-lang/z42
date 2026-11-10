@@ -1,7 +1,7 @@
 # 开发环境与工具链自举
 
 > 代码：`scripts/install-z42.sh`、`scripts/install-z42.ps1`、
-> `scripts/setup/xtask_install.z42`、`scripts/versions.toml`、
+> `scripts/src/setup/install.z42`、`scripts/versions.toml`、
 > `src/runtime/Cargo.toml`、`src/runtime/.cargo/config.toml`、`src/compiler/z42c.driver/src/Main.z42`、`.gitattributes`
 >
 > 只想**写 z42 程序**不用读这页——装 SDK 见学习手册的[安装 z42](https://z42-lang.github.io/z42/learn/getting-started/install.html)。
@@ -31,7 +31,7 @@ git clone https://github.com/z42-lang/z42 && cd z42
   `--archive` 离线供种——工具链没有任何非 z42 的逃生编译器。
 - **②** `z42 publish` 产出的 `./xtask` 是原生 apphost，自己能定位 `./.z42` 运行时，**不需要
   PATH、也不需要装 desktop workload**：`scripts/xtask.z42.toml` 用 `[build] hooks` 声明了
-  `scripts/xtask_hooks.z42`，publish 期间现造 apphost stub。
+  `scripts/src/hooks.z42`，publish 期间现造 apphost stub。
 - **不想要 apphost** 时（CI 走的就是这条）直接跑 zpkg：
 
   ```bash

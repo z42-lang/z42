@@ -19,10 +19,10 @@ set -euo pipefail
 repo="${GITHUB_REPOSITORY:-z42-lang/z42}"
 
 # 不进 SDK 的路径（逐个文件判；**全部**命中才算不影响）：文档、测试源码与夹具、bench、示例、
-# xtask 里只做测试编排的部分、不参与发布的 workflow。其余一律算影响 —— 包括 xtask 的
-# build / package / common / setup 与安装器 scripts/install-z42.*（它们决定 SDK 里装什么、怎么装）、
-# ci.yml、.github/actions。
-non_sdk_re='^(docs/|examples/)|\.md$|(^|/)(tests|benches)/|^scripts/test/|^scripts/(check|bench)/|^\.github/workflows/(bench-pr|deploy-book|jit-fixpoint-check)\.yml$'
+# xtask 里只做测试 / 检查 / 性能编排的部分（scripts/src/{test,bench}/ 与测试执行机制 common/harness/）、
+# 不参与发布的 workflow。其余一律算影响 —— 包括 xtask 的 build / package / common / setup 与安装器
+# scripts/install-z42.*（它们决定 SDK 里装什么、怎么装）、ci.yml、.github/actions。
+non_sdk_re='^(docs/|examples/)|\.md$|(^|/)(tests|benches)/|^scripts/src/(test|bench|common/harness)/|^\.github/workflows/(bench-pr|deploy-book|jit-fixpoint-check)\.yml$'
 
 # 一组文件里有没有影响 SDK 的（stdin 每行一个路径）。
 touches_sdk() {
