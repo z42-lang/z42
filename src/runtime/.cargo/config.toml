@@ -47,6 +47,16 @@ z42-dyn = [
     "--config", "target.'cfg(target_os = \"linux\")'.rustflags=['-C','link-arg=-Wl,-rpath,$ORIGIN','-C','link-arg=-Wl,-rpath,$ORIGIN/../native']",
     "--config", "target.'cfg(target_os = \"android\")'.rustflags=['-C','link-arg=-Wl,-rpath,$ORIGIN']",
 ]
+# Rust harness 的 doctest 必须执行 cargo test，而非 z42-dyn 的 cargo build。
+# 与 z42-dyn 共享动态运行时的 rustflags；没有生产组件 -p/feature 约束。
+z42-test-dyn = [
+    "test", "--locked",
+    "--config", "target.'cfg(all())'.rustflags=['-C','prefer-dynamic','-C','rpath']",
+    "--config", "target.'cfg(any(target_os = \"macos\", target_os = \"ios\"))'.rustflags=['-C','link-arg=-Wl,-rpath,@loader_path']",
+    "--config", "target.'cfg(target_os = \"linux\")'.rustflags=['-C','link-arg=-Wl,-rpath,$ORIGIN','-C','link-arg=-Wl,-rpath,$ORIGIN/../native']",
+    "--config", "target.'cfg(target_os = \"android\")'.rustflags=['-C','link-arg=-Wl,-rpath,$ORIGIN']",
+]
+
 # 桌面动态组件图（z42vm 同图）。--profile 由调用方追加（release → release-dynamic）。
 z42-dynamic = ["z42-dyn", "-p", "z42", "-p", "z42-interp", "-p", "z42-jit",
     "--no-default-features",

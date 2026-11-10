@@ -17,9 +17,21 @@ Process _runtimeTestCargo(string verb) {
     // --workspace：不带它时包选择落到 Cargo.toml 的 `default-members`（只有根包 z42 +
     // z42-compression），z42-abi / z42-repl / z42-rs / z42-macros / 统一宿主的测试整批不跑。
     // 完整 harness 与 GREEN 窄版共用这些参数；z42-abi 守的是 C ABI 结构体布局契约。
-    return _componentCargo(verb, _root(), "debug", _runtimeTestTarget()).Arg("--workspace")
-        .Arg("--features").Arg("z42/z42-test-fixtures");
+    return _runtimeTestCargoFor(verb, _runtimeTestTarget());
 }
+
+// 测试必须覆盖整个 Rust workspace，不能使用预选组件的生产构建 alias。
+// 旧树仍通过 _componentCargo 使用旧行为。
+Process _runtimeTestCargoFor(string verb, string targetDir) {
+    Process cargo;
+    if (_componentAliasTree(_root())) {
+        string alias = verb == "test" ? "z42-test-dyn" : "z42-dyn";
+        cargo = _componentAliasProc(_root(), alias).Arg("--target-dir").Arg(targetDir);
+    } else {
+        cargo = _componentCargo(verb, _root(), "debug", targetDir);
+    }
+    return cargo.Arg("--workspace").Arg("--features").Arg("z42/z42-test-fixtures");
+ }
 
 string _runtimeTestTarget() { return Path.Join(_componentBuildDir(_root()), "tests/runtime"); }
 Process _runtimeTestProc() { return _runtimeTestCargo("test"); }
@@ -65,9 +77,8 @@ int _runtimeTestRunHarnesses(bool libOnly) {
             .Env("CARGO_TARGET_DIR", _runtimeTestTarget()), directory); if (c != 0) { return c; }
     }
     if (libOnly) { return 0; }
-    return _exec(_componentCargo("test", _root(), "debug", Path.Join(_runtimeTestTarget(), "docs"))
-        .Arg("--workspace").Arg("--doc").Arg("--features").Arg("z42/z42-test-fixtures")
-        .Env("RUST_MIN_STACK", "8388608"));
+    return _exec(_runtimeTestCargoFor("test", Path.Join(_runtimeTestTarget(), "docs"))
+        .Arg("--doc").Env("RUST_MIN_STACK", "8388608"));
 }
 
 // `test runtime` — the Rust VM's own unit/integration harness (cargo test on

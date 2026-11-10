@@ -34,7 +34,10 @@ string _componentPlatformOut(string root, string rid, string profile, bool share
         string name = shared ? _componentDirName(root, profile) : profile;
         return Path.Join(dir, name);
     }
-    return Path.Join(dir, _ridToCargo(rid) + "/" + profile);
+    // iOS 动态 alias 会把 release 产物放在 release-dynamic 目录。
+    string dirProfile = shared && rid.StartsWith("ios") && _componentAliasTree(root)
+        ? _componentDirName(root, profile) : profile;
+    return Path.Join(dir, _ridToCargo(rid) + "/" + dirProfile);
 }
 
 // 静态图配方名（rid → [alias] 键）。android 走 cargo-ndk（env 通道），不用 alias。
@@ -135,9 +138,11 @@ string _componentAndroidRid(string root, string abi) {
 // older trees had the algorithms as unconditional deps.
 int _componentBuildCompression(string root, string rid, string profile, bool shared, string destination = "") {
     string target = Path.Join(shared ? _componentBuildDir(root) : _componentStaticDir(root, rid), "compression");
+    string dirProfile = shared && rid.StartsWith("ios") && _componentAliasTree(root)
+        ? _componentDirName(root, profile) : profile;
     string cargo = _ridCategory(rid) == "desktop"
-        ? Path.Join(target, shared ? _componentCargoProfile(root, profile) : profile)
-        : Path.Join(target, _ridToCargo(rid) + "/" + profile);
+        ? Path.Join(target, shared ? _componentDirName(root, profile) : profile)
+        : Path.Join(target, _ridToCargo(rid) + "/" + dirProfile);
     if (destination.Length == 0) { destination = _componentPlatformOut(root, rid, profile, shared); }
     int c;
     if (!rid.StartsWith("android-") && _componentAliasTree(root)) {
