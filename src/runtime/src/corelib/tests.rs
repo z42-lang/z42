@@ -1,4 +1,3 @@
-use super::*;
 use crate::exec::call::builtins::{exec_builtin, exec_builtin_value};
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::context::VmContext;
@@ -6,7 +5,6 @@ use std::sync::Arc;
 
 fn s(v: &str) -> Value { Value::Str(v.into()) }
 fn i(n: i64) -> Value { Value::I64(n) }
-fn i64(n: i64) -> Value { Value::I64(n) }
 
 /// Build a fresh VmContext for each test (heap is fully isolated, fast to construct).
 fn ctx() -> std::pin::Pin<Box<VmContext>> { VmContext::new() }

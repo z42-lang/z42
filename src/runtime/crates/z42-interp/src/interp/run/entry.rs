@@ -67,7 +67,7 @@ pub fn run_outcome(
 /// 历史（已不适用，留作背景）：曾按三步扫描——扫主模块 `*.__static_init__`、
 /// 经 `declared_namespaces()` 触发 lazy load、按 FQN 字母序去重逐一调用。
 /// 那条路的问题正是本变更要消灭的：**按名字序而非依赖序**，跨类型依赖静默读到零值。
-pub fn init_static_fields(ctx: &VmContext, module: &Module) -> Result<()> {
+pub fn init_static_fields(ctx: &VmContext, _module: &Module) -> Result<()> {
     ctx.static_fields_clear();
 
     // unify-static-init-into-cctor（7.4）：此前这里做两件事 ——

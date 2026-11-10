@@ -5,13 +5,12 @@
 
 use anyhow::{bail, Result};
 
-use crate::metadata::dispatch::ic::{vcall_ic_install, vcall_ic_lookup, VCallIC};
-use crate::metadata::ids::tokens::UNRESOLVED;
+use crate::metadata::dispatch::ic::{vcall_ic_install, VCallIC};
 use crate::metadata::{Function, Module};
 use crate::object::Value;
 use crate::context::VmContext;
 
-use crate::metadata::dispatch::vcall::{resolve_virtual, receiver_type_id, vcall_ic_hit, iface_slot_method, erased_iface_slot_key};
+use crate::metadata::dispatch::vcall::{resolve_virtual, iface_slot_method, erased_iface_slot_key};
 use crate::metadata::dispatch::receiver::{primitive_class_name, value_synthetic_type_id};
 
 /// What a virtual call resolved to. The engine decides how to run it.

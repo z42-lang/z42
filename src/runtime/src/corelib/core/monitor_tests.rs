@@ -4,6 +4,8 @@
 //! 所以用共享 flag + 轮询等，超时即断言失败。
 
 use super::*;
+use crate::context::VmContext;
+use crate::exec::call::builtin_abi::IntoRet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 

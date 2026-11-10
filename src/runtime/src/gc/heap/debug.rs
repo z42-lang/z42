@@ -1,7 +1,6 @@
 //! `Heap` 调试/测试辅助：`#[cfg(all(test, z42_test_facade))]` accessors + `debug_validate_invariants`。
 //! 从 `heap.rs` 拆出（refactor-arc-heap-modularization）。
 
-use parking_lot::Mutex;
 use crate::object::Value;
 
 impl crate::gc::Heap {
@@ -42,7 +41,7 @@ impl crate::gc::Heap {
     /// **add-gc-tlab stage 3**: test-only handle to the variable-length region
     /// (var TLAB chunk-count / pool assertions).
     #[cfg(all(test, z42_test_facade))]
-    pub(crate) fn region_var_for_test(&self) -> &Mutex<crate::gc::var_region::VarRegion> {
+    pub(crate) fn region_var_for_test(&self) -> &parking_lot::Mutex<crate::gc::var_region::VarRegion> {
         &self.region_var
     }
 

@@ -25,9 +25,11 @@
 use crate::metadata::{Function, Module};
 use crate::{zpkg::Instruction, object::Value};
 use crate::zpkg::{
-    BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, MkClosInsn, ObjNewInsn,
+    BuiltinInsn, CallInsn, FieldGetInsn, FieldSetInsn, MkClosInsn, ObjNewInsn,
     StaticGetInsn, StaticSetInsn, VCallInsn,
 };
+#[cfg(feature = "native-interop")]
+use crate::zpkg::CallNativeInsn;
 use crate::metadata::resolve::ResolvedTokens;
 use crate::metadata::ids::tokens::UNRESOLVED;
 use crate::context::VmContext;

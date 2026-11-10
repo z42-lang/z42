@@ -2,10 +2,15 @@
 //! process/TLS teardown; this module caches logical identities per VM. Generic
 //! modules use `<name>_module_v1`, while typed libraries use `<name>_register`.
 
+#[cfg(feature = "native-interop")]
 use std::ffi::OsStr;
+#[cfg(feature = "native-interop")]
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
+#[cfg(feature = "native-interop")]
+use anyhow::Context;
+use anyhow::anyhow;
 
 use crate::context::VmContext;
 #[cfg(feature = "native-interop")]
@@ -109,9 +114,12 @@ pub(crate) struct Libraries {
 }
 
 /// Candidate policy injected by the host. The logical library name never carries a suffix.
+#[cfg(feature = "native-interop")]
 pub(crate) type PathSource = fn(&str) -> Vec<std::path::PathBuf>;
+#[cfg(feature = "native-interop")]
 pub(crate) struct SearchPaths(pub(crate) PathSource);
 
+#[cfg(feature = "native-interop")]
 pub(crate) fn path_source(ctx: &VmContext) -> Result<PathSource> {
     ctx.ext::<SearchPaths>()
         .map(|paths| paths.0)

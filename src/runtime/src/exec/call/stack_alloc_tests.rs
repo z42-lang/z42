@@ -114,7 +114,7 @@ fn reused_slot_rejects_old_handle() {
 fn scan_roots_visits_object_inlined_refs() {
     use std::sync::Arc;
     use crate::object::{
-        FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold, STRUCT_LEAF_GCREF, TAG_OBJECT,
+        FieldAccess, ObjectLayout, TypeDesc, TypeDescCold, STRUCT_LEAF_GCREF, TAG_OBJECT,
     };
 
     // `class Holder { object child; }` — the one field is byte-inlined, side-table empty.

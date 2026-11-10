@@ -4,7 +4,6 @@
 //! `exec_object.rs` when it crossed the 500-line hard limit; the parent
 //! re-exports so `exec_object::is_instance` / `as_cast` paths are unchanged.
 
-use crate::metadata::dispatch::receiver::is_integer_class;
 use crate::metadata::ids::tokens::TypeKeyCell;
 use crate::metadata::Module;
 use crate::object::Value;

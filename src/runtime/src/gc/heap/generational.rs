@@ -12,8 +12,6 @@ use crate::object::header::obj_ref::ObjRef;
 pub struct MinorSweepResult {
     pub freed_bytes: u64,
     pub reclaimed_entries: usize,
-    /// Bytes this minor moved into the old generation (add-bounded-nursery).
-    pub promoted_bytes: u64,
 }
 
 impl crate::gc::Heap {
@@ -418,7 +416,7 @@ grey {grey_n} (skipped old {grey_old})"));
         self.promotion_policy.settle();
         self.promoted_bytes_since_major
             .fetch_add(promoted_bytes, std::sync::atomic::Ordering::Relaxed);
-        MinorSweepResult { freed_bytes, reclaimed_entries, promoted_bytes }
+        MinorSweepResult { freed_bytes, reclaimed_entries }
     }
 
     /// **add-generational-gc P2 **: full minor GC cycle.

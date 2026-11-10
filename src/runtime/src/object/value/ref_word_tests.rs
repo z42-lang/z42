@@ -217,7 +217,6 @@ fn gc_traces_through_reference_words() {
     }
     assert!(heap.upgrade_weak(&weak_child).is_some(), "object reachable only through a word survives");
     assert_eq!(o.field_value(2), Value::I64(99), "boxed primitive survives");
-    drop(o);
 
     {
         let o = h.borrow();

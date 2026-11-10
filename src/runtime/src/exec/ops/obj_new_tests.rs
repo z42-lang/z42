@@ -2,6 +2,7 @@
 //! `new` of a class from a lazily loaded package hashes no names after its first execution.
 
 use super::*;
+use crate::metadata::dispatch::ctor::site_for;
 use crate::interp::frame::Frame;
 use crate::zpkg::ir::{BasicBlock, Instruction, ObjNewInsn, Terminator};
 use crate::zpkg::index::name::NameIndex;

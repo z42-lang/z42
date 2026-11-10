@@ -4,7 +4,7 @@
 //! The dynamic image is packaged beside its interactive consumer.
 
 use std::cell::Cell;
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::ffi::{c_char, CStr, CString};
 
 #[path = "editing.rs"]
 pub(crate) mod editing;

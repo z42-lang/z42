@@ -9,7 +9,7 @@ use super::array::{array_get, array_len, array_new, array_new_lit, array_set, pa
 use super::field::{field_get, field_set};
 use super::{OpError, Throw};
 use crate::object::{
-    ArrayObj, FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold, STRUCT_LEAF_PRIM,
+    ArrayObj, FieldAccess, ObjectLayout, TypeDesc, TypeDescCold, STRUCT_LEAF_PRIM,
     TAG_I32, TAG_STR,
 };
 use crate::object::Value;

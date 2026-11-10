@@ -133,13 +133,6 @@ pub(in crate::interp) fn eval_cmp_i64(op: crate::metadata::CmpOp, regs: &[Value]
 }
 
 
-/// Convert a Value to a usize index/size, rejecting negative values.
-pub(in crate::interp) fn to_usize(v: &Value, ctx: &str) -> Result<usize> {
-    match v {
-        Value::I64(n) if *n >= 0 => Ok(*n as usize),
-        other => bail!("{}: expected non-negative integer, got {:?}", ctx, other),
-    }
-}
 
 /// objops 错误 → interp 的抛出通道：用户异常走 `Ok(Some(exc))`（被 `find_handler` 匹配），
 /// 内部错误走 `Err`。JIT 侧的对应映射是 `jit::helpers::raise`，两侧物化逻辑同一份

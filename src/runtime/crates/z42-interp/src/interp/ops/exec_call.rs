@@ -5,7 +5,7 @@
 /// `Result<Option<Value>>` (Some = thrown). Pure helpers return `Result<()>`.
 
 use crate::exec::ops::call::{bind_callee, fn_ref_id};
-use crate::metadata::dispatch::functions::{fn_by_id, lazy_call_id};
+use crate::metadata::dispatch::functions::fn_by_id;
 use crate::metadata::{Function, Module};
 use crate::object::Value;
 use crate::metadata::ids::tokens::FnId;

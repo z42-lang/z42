@@ -16,7 +16,7 @@
 //! young child after it is old.
 
 use crate::{
-    gc::{GcMode, Heap},
+    gc::GcMode,
     object::{ArrRef, ObjRef},
 };
 use crate::object::header::BlockType;

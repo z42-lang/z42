@@ -36,6 +36,7 @@ fn is_keyword(w: &str) -> bool {
 }
 
 /// 本 crate 是否已拿到关键字表。没拿到时 `highlight` 仍会给字符串 / 注释 / 数字着色。
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn has_keywords() -> bool {
     KEYWORDS.with(|k| !k.borrow().is_empty())
 }

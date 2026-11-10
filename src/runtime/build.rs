@@ -63,7 +63,7 @@ fn identity() -> Result<(), Box<dyn Error>> {
     field(&mut hash, target.as_bytes());
     field(&mut hash, env::var("CARGO_CFG_TARGET_FEATURE")?.as_bytes());
     let bytes = hash.finalize();
-    let generated = format!("pub const COMPONENT_BUILD_ID: [u8; 32] = {:?};\npub const COMPONENT_TARGET: &str = {:?};\n", bytes.as_bytes(), target);
+    let generated = format!("pub const COMPONENT_BUILD_ID: [u8; 32] = {:?};\n#[allow(dead_code)] // 仅测试与 z42_have_embedding_hello 构建消费（component_tests）；普通构建不引用\npub const COMPONENT_TARGET: &str = {:?};\n", bytes.as_bytes(), target);
     fs::write(
         PathBuf::from(env::var("OUT_DIR")?).join("identity.rs"),
         generated,

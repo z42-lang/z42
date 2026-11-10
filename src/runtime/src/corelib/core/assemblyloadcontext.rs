@@ -111,13 +111,6 @@ fn asm_handle_of(this: &Value) -> Result<AssemblyId, BuiltinError> {
     asm_handle(std::slice::from_ref(this)).map_err(BuiltinError::Legacy)
 }
 
-fn str_arg(args: &[Value], i: usize) -> Result<&str> {
-    match args.get(i) {
-        Some(Value::Str(s)) => Ok(s.as_ref()),
-        _ => bail!("load-context builtin: expected a string argument at position {i}"),
-    }
-}
-
 /// Derive an assembly's logical name from a zpkg/zbc path (basename, no extension).
 fn assembly_name_from_path(path: &str) -> String {
     std::path::Path::new(path)

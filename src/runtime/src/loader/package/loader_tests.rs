@@ -297,7 +297,7 @@ fn fixup_handles_three_level_chain() {
 
     let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
         rustc_hash::FxHashMap::default();
-    for m in [&mut mod_a, &mut mod_b, &mut mod_c] {
+    for _m in [&mut mod_a, &mut mod_b, &mut mod_c] {
     }
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }

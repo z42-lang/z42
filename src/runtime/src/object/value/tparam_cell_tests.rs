@@ -284,7 +284,6 @@ fn gc_traces_through_type_parameter_cells() {
         o.set_field_value(2, &child); // claimed int, then a reference: boxed
         o.set_field_value(3, &Value::I64(77));
     }
-    drop(child);
     let mut edges = 0;
     h.borrow().visit_refs(&mut |_| edges += 1);
     assert_eq!(edges, 2, "the string and the box; the int is no edge");
