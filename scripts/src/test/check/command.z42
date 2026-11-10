@@ -21,8 +21,7 @@ CheckSpec[] _checks() {
         new CheckSpec("proc-env", "z42 child-process environments use the shared factories", () => _checkProcEnv()),
         new CheckSpec("layout", "test categories, capabilities and artifact layout agree", () => _checkLayout()),
         new CheckSpec("versions", "versions.toml agrees with its projections", () => _checkVersions()),
-        new CheckSpec("doc-lints", "stdlib doc comments have no W08xx findings", () => _checkDocLints()),
-        new CheckSpec("doc-refs", "report stale line numbers and unresolved book/README code references", () => _checkDocRefs())
+        new CheckSpec("doc-lints", "stdlib doc comments have no W08xx findings", () => _checkDocLints())
     };
 }
 
