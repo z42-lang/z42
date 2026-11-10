@@ -482,9 +482,12 @@ string _hostVmPath() {
         if (File.Exists(c)) { return c; }
         if (File.Exists(c + ".exe")) { return c + ".exe"; }
     }
-    string dev = "artifacts/build/runtime/release/z42vm";
-    if (File.Exists(dev)) { return dev; }
-    if (File.Exists(dev + ".exe")) { return dev + ".exe"; }
+    // R0：动态图目录名随 [profile.release-dynamic]；旧树回退 release/。
+    string[] cands = new string[]{ "artifacts/build/runtime/release-dynamic/z42vm", "artifacts/build/runtime/release/z42vm" };
+    foreach (var c in cands) {
+        if (File.Exists(c)) { return c; }
+        if (File.Exists(c + ".exe")) { return c + ".exe"; }
+    }
     return "";
 }
 
