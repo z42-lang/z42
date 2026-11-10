@@ -2,7 +2,7 @@
 
 **这道门盯的是：struct 布局表与泛型类型声明表的键必须带命名空间，实例化名的类型实参也写全名。**
 
-`target` 包里 `Demo.SlColl.A` 与 `Demo.SlColl.B` 各声明一份同名 `struct P`（字段不同）与泛型
+`target` 包里 ``Demo.SlColl.A`` 与 ``Demo.SlColl.B`` 各声明一份同名 `struct P`（字段不同）与泛型
 `struct Pair<T>`（字段顺序不同）；`Use.z42`（第三个命名空间）把两边各建一份、读回字段，并经同一个
 泛型函数 `Probe.Echo<T>` 各过一遍（值类型实参 ⇒ 特化体）。期望 `a7 b9 1|a7 2|b9 a7 b9`。
 

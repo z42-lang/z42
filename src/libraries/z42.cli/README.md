@@ -11,7 +11,7 @@ CLI argv 解析器 — flag / option / positional + auto `-h/--help` 文本生�
 |------|------|
 | `src/ArgParser.z42`   | `Std.Cli.ArgParser` — 注册 + Parse + HelpText |
 | `src/ParseResult.z42` | `Std.Cli.ParseResult` — GetFlag / GetOption / GetPositional / ShowHelp |
-| `src/CliException.z42`| `Std.CliException`（未知 flag / 缺 value / 缺 positional） |
+| `src/CliException.z42`| `Std.Cli.CliException`（未知 flag / 缺 value / 缺 positional） |
 | `src/SubcommandRouter.z42` | `Std.Cli.SubcommandRouter` + `SubcommandMatch` — git/cargo 风格 `Add(name, desc, ArgParser)`（叶子）+ `AddRouter(name, desc, child)`（嵌套）+ `Match(argv)`（单层）/ `Resolve(argv)`（嵌套，逐层下钻）派发；`HelpText()` 该层帮助 |
 | `src/Command.z42` / `src/Command.Params.z42` | `Std.Cli.Command` — 声明式命令：`AddCommand` 搭层级、`Invoke(argv)` 解析 + 绑定 + 执行；参数表（字段 + 挂上的对象）的声明与绑定 |
 | `src/Option.z42` / `src/Argument.z42` | 参数层最基础的对象：声明 + 解析后的 `Value` / `IsSet`（`AddOption(option)` / `AddArgument(argument)`） |

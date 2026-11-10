@@ -33,9 +33,9 @@ Outer.Point p = new Outer.Point();             // 嵌套 struct
 
 | 面 | 写法 | 例 |
 |----|------|----|
-| 源码限定名 | `.` | `Outer.Inner`、`Outer.Inner.Deep` |
-| `Type.Name`（简单名） | —— | `Inner` |
-| `Type.FullName`（FQ 元数据名） | `+` 分隔嵌套、`.` 分隔 namespace | `Ns.Outer+Inner` |
+| 源码限定名 | `.` | ``Outer.Inner``、``Outer.Inner.Deep`` |
+| ``Type.Name``（简单名） | —— | `Inner` |
+| `Type.FullName`（FQ 元数据名） | `+` 分隔嵌套、`.` 分隔 namespace | ``Ns.Outer+Inner`` |
 
 采 C# 约定：**namespace 用 `.`、嵌套用 `+`**，二者不混。于是反射的嵌套关系可以纯从名字派生
 （找 `+`），类型元数据里不需要额外字段。
@@ -59,7 +59,7 @@ typeof(Outer).GetMembers();       // 含嵌套类型（MemberTypes.NestedType）
 
 **支持**：嵌套 class / struct / interface / enum，任意深度；限定名引用；实例化 / 字段 /
 实例方法 / **构造器（含重载，反射侧 `GetConstructors` / `Activator` 同样可用）** /
-`typeof` / 反射；**静态成员与嵌套枚举成员**（`Outer.Inner.X`、`Outer.Inner.F()`、`Outer.Kind.B`）。
+`typeof` / 反射；**静态成员与嵌套枚举成员**（``Outer.Inner.X``、``Outer.Inner.F()``、``Outer.Kind.B``）。
 外层类型体内可以直接写短名 `Inner`（签名与表达式里都行）；嵌套类型可以访问外层类型的全部成员（含 `private`），
 外层的静态成员在嵌套类型体内也可直接写名字。嵌套类型的基类或接口可以是**另一个嵌套类型**
 （`class Inner : Outer.Other`，兄弟裸名与限定名均可）——继承字段、虚派发、上转型、
@@ -73,7 +73,7 @@ typeof(Outer).GetMembers();       // 含嵌套类型（MemberTypes.NestedType）
   > 类型实参里再套泛型，可递归到任意深度，`GetGenericArguments()` 也逐层还原
   > （见 `src/tests/types/nested_generic_args.z42`）。不支持的是**外层**本身带型参。
 
-- 跨包用**限定名**引用嵌套类型（`geo.Shape.Corner`）；当前解析包内的 `Outer.Inner`。
+- 跨包用**限定名**引用嵌套类型（``geo.Shape.Corner``）；当前解析包内的 ``Outer.Inner``。
 - 嵌套类型自身标 `partial` —— 报 **E0435**（发射点
   DeclEnforcer.z42（`_checkNestedPartial`），`_checkNestedPartial`）。
 

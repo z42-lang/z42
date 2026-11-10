@@ -15,7 +15,7 @@ CPU 采样、堆摘要、V8 堆快照与保留链诊断。GC 提供基础遍历�
 
 ## 基础用法
 
-`cpu::Sampler` 由 VM 持有并在 safepoint 轮询。`heap::take_snapshot` 使用 GC 的存活过滤；
+`cpu::Sampler` 由 VM 持有并在 safepoint 轮询。``heap::take_snapshot`` 使用 GC 的存活过滤；
 V8 导出使用同一 live-value 语义。保留链经 `gc::walk` 枚举对象、数组及分类根，
 调用方沿用完整回收和线程暂停协议。锁内遍历回调不得重入堆。
 

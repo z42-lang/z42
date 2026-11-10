@@ -136,7 +136,7 @@ z42c / stdlib / xtask (z42)  ──互为前置──►  自举环
 
 **重命名 / 删除一个 driver 运行期要调的符号不是增量**：预建用**当前源**重建自依赖库，加 API 时旧 FQN 还在、
 上一版 driver 运行期照旧解析得到；但**改名或删除会抹掉旧 FQN**，而跑这轮 bootstrap 的正是那个 driver ⇒
-它在中途就死。实测（想把 `Z42.Build.Project` ↔ `Z42.Package` 互换）：
+它在中途就死。实测（想把 ``Z42.Build.Project`` ↔ `Z42.Package` 互换）：
 
 ```
 Std.MissingSymbolException: undefined function `Z42.Build.Project.ManifestLoader.Load$1$string`
@@ -158,7 +158,7 @@ Std.MissingSymbolException: undefined function `Z42.Build.Project.ManifestLoader
 
 | 改的是 | 别名形态 | 先例 |
 |---|---|---|
-| **包名（文件名）**，命名空间没动 | 同内容**两个文件名** | `z42.ir` → `z42.package` |
+| **包名（文件名）**，命名空间没动 | 同内容**两个文件名** | ``z42.ir`` → `z42.package` |
 | **命名空间**，文件名没动 | 只能**旁置**一份到消费者的 entry 目录 | — |
 
 这两条已实测否证，别再试：
@@ -231,7 +231,7 @@ INV-2（测试全绿）由 `test-host` 的 `xtask test` 守。
 
 测试单元位于 `src/compiler/<member>/tests/<unit>/`，清单为标准 `z42.toml` 或唯一命名的 `<name>.z42.toml`，
 kind=lib，经 z42b 运行；`z42.harness` 自动可用，不在 toml 声明。清单发现与 test / bench 归属判断共用
-`ManifestLocator`，歧义不能靠文件枚举顺序消解；编译后按清单的 `BuildLayout` 与 `project.name` 定位主产物，
+`ManifestLocator`，歧义不能靠文件枚举顺序消解；编译后按清单的 `BuildLayout` 与 ``project.name`` 定位主产物，
 缺失即失败，旧包与 colocated 依赖不能补位。`scripts/src/test/compiler/runner.z42` 负责该编排，`xtask test` 含 compiler。
 
 ## Deferred / Future Work
@@ -264,7 +264,7 @@ kind=lib，经 z42b 运行；`z42.harness` 自动可用，不在 toml 声明。�
 
 ### self-hosting-future-inherited-optional-param-arity
 
-- **触发原因**：`Z42FuncType` 不携 `MinArgCount`，import 时丢失 → `ExportedTypeExtractor._fromImportedMethod`（子类 re-export 继承自其它包的默认参数方法）只能 emit 全必填 arity；直接定义的方法已正确
+- **触发原因**：`Z42FuncType` 不携 `MinArgCount`，import 时丢失 → ``ExportedTypeExtractor._fromImportedMethod``（子类 re-export 继承自其它包的默认参数方法）只能 emit 全必填 arity；直接定义的方法已正确
 - **前置依赖**：给 `Z42FuncType` 加 `MinArgCount` + 构造点透传 + `ImportedSymbolLoader` 从 TSIG 读回
 - **触发条件**：出现「子类继承其它包默认参数方法并 re-export」且被第三包省略默认实参调用时
 - **当前 workaround**：此类方法在 TSIG 中标全必填；调用方显式传全部实参，或在定义类直接覆写

@@ -24,7 +24,7 @@ class iOSBuild         class iOSWorkload            class WorkloadBase
   : iOSWorkload          : WorkloadBase               (no-op 默认)
   override + base.X()     override 平台逻辑            扩展点契约
 ```
-- 继承 / 重载 / hook 全归一到 `override` + `base.M(ctx)`（z42 原生 OOP，**不需反射**）。
+- 继承 / 重载 / hook 全归一到 `override` + ``base.M(ctx)``（z42 原生 OOP，**不需反射**）。
 - 绑定不靠运行时动态加载：publish 时生成一次性 driver 程序，把
   `z42.build` + workload + 项目 `build/` 静态链接编译后运行（类似 `build.rs`）。
 - **编译走 in-process 共享实现**（`ICompiler`）：Compile 头相位不 fork `z42c` 子进程，

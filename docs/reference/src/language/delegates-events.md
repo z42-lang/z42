@@ -56,10 +56,10 @@ public delegate bool Predicate<T>(T arg);
 | 项 | 行为 |
 |----|------|
 | 持有量 | 一个实例持 0 或 1 个 handler（target + method）|
-| 实参个数 | **校验**：多传报 E1006、少传报 E1005（`f(args)` 与 `f.Invoke(args)` 同一条）。实参**类型**也查（E0402）。**`delegate` 形参不能写默认值**：委托类型只记参数类型，调用点走间接调用、没有可选参数这一层 ⇒ 默认值永远落不下来，故在**声明处**报错（E0402），而不是让调用点收到一个看起来矛盾的 E1005 |
-| 调用 | `f(arg)` 等价 `f.Invoke(arg)`。**委托类型的字段 / 属性可以直接调用**：`obj.F(arg)`、`C.S(arg)`（静态）等价于先读出成员再调用这个委托值，参数个数与类型照委托签名检查；类上同名**方法优先**，静态性要对得上（经实例调静态字段仍报 E0401）。`.Invoke` 脱糖成与括号调用同一个间接调用。委托值上**除 `Invoke` 之外没有任何成员**，写别的名字报 E0401 |
+| 实参个数 | **校验**：多传报 E1006、少传报 E1005（`f(args)` 与 ``f.Invoke(args)`` 同一条）。实参**类型**也查（E0402）。**`delegate` 形参不能写默认值**：委托类型只记参数类型，调用点走间接调用、没有可选参数这一层 ⇒ 默认值永远落不下来，故在**声明处**报错（E0402），而不是让调用点收到一个看起来矛盾的 E1005 |
+| 调用 | `f(arg)` 等价 ``f.Invoke(arg)``。**委托类型的字段 / 属性可以直接调用**：``obj.F(arg)``、``C.S(arg)``（静态）等价于先读出成员再调用这个委托值，参数个数与类型照委托签名检查；类上同名**方法优先**，静态性要对得上（经实例调静态字段仍报 E0401）。`.Invoke` 脱糖成与括号调用同一个间接调用。委托值上**除 `Invoke` 之外没有任何成员**，写别的名字报 E0401 |
 | null | 调用 null delegate 抛 `Std.NullReferenceException`（可 `catch`，两个后端一致）。**触发前仍应查空**：`var h = X; if (h != null) { h.Invoke(args); }`（单播 event 字段默认就是 null；靠异常发现「没人订阅」不是好写法）。⚠️ `?.Invoke()` **已不可用**——`?.` 已移除（E0480）|
-| 方法组转换 | **自由函数** `Action<int> a = SomeMethod;` 与**实例方法** `obj.Method` 编译期合成 delegate 值。**自由函数重载**按目标委托签名精确消解，见 [§2.5](#25-重载自由函数取引用按目标委托消解)。🔴 **类的静态方法取不了引用** —— `Func<int,int> f = C.F;` 报 `E0401: undefined: C`，**类内不限定写 `F` 也一样**（报 `undefined: F`）。⚠️ 两种形态都试过了，别按「只是限定名的问题」去改。能用的是**自由函数**与**实例方法组** `obj.M`。变通：包一层 lambda（`(int x) => C.F(x)`），或改成自由函数。（已知缺口；⚠️ `internals` 里「静态方法组 → LoadFnCached」指的是**自由函数**，不是类的静态方法）|
+| 方法组转换 | **自由函数** `Action<int> a = SomeMethod;` 与**实例方法** ``obj.Method`` 编译期合成 delegate 值。**自由函数重载**按目标委托签名精确消解，见 [§2.5](#25-重载自由函数取引用按目标委托消解)。🔴 **类的静态方法取不了引用** —— `Func<int,int> f = C.F;` 报 `E0401: undefined: C`，**类内不限定写 `F` 也一样**（报 `undefined: F`）。⚠️ 两种形态都试过了，别按「只是限定名的问题」去改。能用的是**自由函数**与**实例方法组** ``obj.M``。变通：包一层 lambda（`(int x) => C.F(x)`），或改成自由函数。（已知缺口；⚠️ `internals` 里「静态方法组 → LoadFnCached」指的是**自由函数**，不是类的静态方法）|
 | Lambda 转换 | `Func<int,int> f = x => x*2;` |
 | 目标何时解析 | **创建 delegate 值时**（lambda、方法组转换求值的那一刻），不是第一次调用时。目标函数所在的包在这时加载；目标找不到（例如运行时缺了它所在的依赖包）就在**创建处**抛 `Std.MissingSymbolException`（可 `catch`），之后的调用不再查找名字 |
 | 名字查找 | 用户 `delegate` 的身份是全限定名：两个命名空间里的同名 `delegate` 是两个类型，各用各的签名。写短名按[命名空间规则](namespaces.md)找（外围 → `using` → prelude），找不到报 `E0436`。**依赖包导出的 `public delegate` 同样可用**（`using` 它的命名空间后当类型写：局部 / 形参 / 字段，lambda 与方法组都能转进去）|
@@ -90,7 +90,7 @@ xs.Reduce(Parse);                           // 实参位：按形参委托签名
 > **单播 vs 多播**：本消解只发生在取引用（方法组转换）那一步，与委托是单播还是多播无关——
 > `MulticastAction<T>.Subscribe(Handler)` 的 `Handler` 实参同样按 `Action<T>` 形参签名消解。
 
-> **实例/静态方法组** `obj.M` / `T.M`（`M` 有重载）取引用的按目标消解**尚未支持**（走不同的合成
+> **实例/静态方法组** ``obj.M`` / ``T.M``（`M` 有重载）取引用的按目标消解**尚未支持**（走不同的合成
 > thunk 派发路径），是独立的后续项。
 
 ### 2.3 嵌套 delegate
@@ -114,7 +114,7 @@ void Run(Btn.OnClick h, int v) { h(v); }
 ```
 
 > **限制**：嵌套 delegate 在类内部**不能**用裸名（`OnClick handler;`）引用——嵌套类型
-> 被展平成 `Outer+Inner`，裸名解析不到。类内外一律写 `Btn.OnClick`。
+> 被展平成 ``Outer+Inner``，裸名解析不到。类内外一律写 ``Btn.OnClick``。
 
 ### 2.4 delegate 值的引用相等
 
@@ -265,19 +265,19 @@ cardinality 100% 由字段类型决定。
 | `event Action<T>` | 单播 | X 为 null → 设置；已设 → 抛 `InvalidOperationException` | 引用相等 → 清空；否则 no-op | `var h = X; if (h != null) { h.Invoke(args); }` |
 | `event Func<TArg,TResult>` | 单播 | 同上 | 同上 | 同上 |
 | `event Predicate<T>` | 单播 | 同上 | 同上 | 同上 |
-| `event MulticastAction<T>` | 多播 | `Subscribe(h)` | `Unsubscribe(h)` | `X.Invoke(args)`，空链 = no-op |
+| `event MulticastAction<T>` | 多播 | `Subscribe(h)` | `Unsubscribe(h)` | ``X.Invoke(args)``，空链 = no-op |
 | `event MulticastFunc<TArg,TResult>` | 多播 | 同上 | 同上 | `TResult[] r = X.Invoke(args)` |
 | `event MulticastPredicate<T>` | 多播 | 同上 | 同上 | `bool[] b = X.Invoke(args)` |
 
 **多播 event 字段自动初始化**：`public event MulticastAction<T> Bar;` 无初始化器时编译器
-补 `= new MulticastAction<T>()`，所以多播字段**不需要查空**，直接 `Bar.Invoke(...)`。
+补 `= new MulticastAction<T>()`，所以多播字段**不需要查空**，直接 ``Bar.Invoke(...)``。
 **单播 event 字段不自动初始化**，默认 null ⇒ 触发前必须先取到局部再查空
 （`?.` 已移除，见 [operators.md](operators.md#-----已移除e0480)）。
 
 **`+=` 只接受裸 handler**：合成的 `add_X` 只有**一个**重载，形参类型是对应的单播 delegate
 （`MulticastAction<T>` → `Action<T>`，`MulticastFunc` → `Func`，`MulticastPredicate` →
 `Predicate`）。`ISubscription` 包装**不能**经 `+=` 传入——走字段自身的
-`bus.Clicked.SubscribeAdvanced(wrapper)`。
+``bus.Clicked.SubscribeAdvanced(wrapper)``。
 
 ### 5.3 Desugar 规则
 
@@ -367,7 +367,7 @@ interface 里的 event 声明合成 abstract 的 `add_X` / `remove_X` 签名，i
 > ⚠️ **`event` 字段目前没有编译期访问控制。** 设计上保留了 `E0414`
 > （event 字段外部直接读 / 直接 `Invoke` / 直接赋值），**但编译器从不发射它**：
 > 字段名集合在符号收集阶段被收集，TypeChecker 从不查询。今天外部代码可以直接
-> `button.Clicked.Invoke(...)` 或 `button.OnKeyDown = h`，编译通过。
+> ``button.Clicked.Invoke(...)`` 或 `button.OnKeyDown = h`，编译通过。
 > 需要真的封闭时，把字段声明为 `private` 并另外暴露方法。
 
 ## 6. 异常聚合：`MulticastException`
@@ -392,7 +392,7 @@ public class MulticastException<TResult> : MulticastException {
 ```
 
 `Failures` / `FailureIndices` 是**两条平行数组**（不是字典、不是元组数组）——用
-`Failures.Length` 取个数，用同一个下标去两边取值。索引口径统一 0-based，strong 通道在前、
+``Failures.Length`` 取个数，用同一个下标去两边取值。索引口径统一 0-based，strong 通道在前、
 advanced 通道在后。
 
 ### 6.2 行为矩阵
@@ -495,7 +495,7 @@ z42 **不提供** per-event once with replay：
 |----|------|
 | Variadic generics | 复杂度过高；C# / Rust 都没做 |
 | 协变 / 逆变（`<in T, out R>`）| 推迟到 L3 后期 |
-| `delegate.GetInvocationList()` | 多播是独立类型，不需要此 API |
+| ``delegate.GetInvocationList()`` | 多播是独立类型，不需要此 API |
 | `BeginInvoke` / `EndInvoke` | 用 L3 async/await 替代 |
 | `Delegate` / `MulticastDelegate` 抽象基类 | 类型分离设计下无意义 |
 | 反射式 `DynamicInvoke` | 与反射轨道一并设计 |

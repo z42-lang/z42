@@ -85,7 +85,7 @@ void Main() {
 
 - `Assert.Throws(typeName, Action)` 按类型名字符串比对；`Assert.ThrowsAny(Action)` 不断言类型；泛型 `Throws<E>` 待反射能力增强
 - z42 lambda 对值类型采用快照捕获语义，要把结果传出 lambda body 须用引用类型（class wrapper / array）
-- 防优化沉点统一走 `Std.GC.KeepAlive(object)`（原 `BenchHelpers.blackBox` 已删除）——泛型形参受限同因：parser 在表达式上下文不识别方法级显式 generic call
+- 防优化沉点统一走 `Std.GC.KeepAlive(object)`（原 ``BenchHelpers.blackBox`` 已删除）——泛型形参受限同因：parser 在表达式上下文不识别方法级显式 generic call
 
 ## 如何测试验证
 

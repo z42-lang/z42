@@ -178,7 +178,7 @@ They are used inside stdlib stub functions and for pseudo-class operations on `A
 (List/Dictionary) that cannot be dispatched via `v_call`.
 
 **Stdlib call chain** — user code emits `call` to a fully-qualified stdlib function
-(e.g. `z42.io.Console.WriteLine`); that stub function contains a `builtin` instruction
+(e.g. ``z42.io.Console.WriteLine``); that stub function contains a `builtin` instruction
 which invokes the VM-native implementation (e.g. `__println`).  The compiler resolves
 stdlib call sites at build time via `StdlibCallIndex` and emits `call` instead of `builtin`
 so that the VM can correctly load and link the stdlib module.
@@ -192,7 +192,7 @@ dispatch on non-object values.
 zbc opcode; the VM is entirely unaware of `params`. It is a pure frontend lowering in the
 compiler's Codegen stage: an *expanded-form* call site (`Sum(1, 2, 3)` against
 `int Sum(params int[] values)`) is emitted as an array literal built from the trailing
-arguments (`new int[3]` + per-element stores) followed by an ordinary `call`/`call.virt`
+arguments (`new int[3]` + per-element stores) followed by an ordinary `call`/``call.virt``
 with that array as the last argument — identical to a hand-written
 `Sum(new int[] { 1, 2, 3 })` *normal-form* call. Cross-package calls resolve
 normal/expanded form using a `paramsFrom` marker carried in the callee's TSIG record
@@ -215,18 +215,18 @@ JSON wire format:
 ```
 
 Four opcodes lock down the binary format for the L2+ three-tier ABI (see
-[native-abi.md](../runtime/native-abi.md)). `call.native.vt` is declared but its
+[native-abi.md](../runtime/native-abi.md)). ``call.native.vt`` is declared but its
 dispatch is not yet implemented.
 
 | Opcode | Byte | Operands | Status |
 |--------|------|----------|--------|
-| `call.native` | `0x53` | `dst`, module:str, type:str, symbol:str, args | implemented |
-| `call.native.vt` | `0x54` | `dst`, recv:reg, vtable_slot:u16, args | not yet implemented |
+| ``call.native`` | `0x53` | `dst`, module:str, type:str, symbol:str, args | implemented |
+| ``call.native.vt`` | `0x54` | `dst`, recv:reg, vtable_slot:u16, args | not yet implemented |
 | `pin` | `0x90` | `dst`, src:reg | implemented |
 | `unpin` | `0x91` | pinned:reg (no dst) | implemented |
 
-`call.native` is the direct-symbol path used to call functions registered
-through `z42_register_type` (Tier 1 C ABI). `call.native.vt` is the
+``call.native`` is the direct-symbol path used to call functions registered
+through `z42_register_type` (Tier 1 C ABI). ``call.native.vt`` is the
 vtable-indexed path: the source generator picks `vtable_slot` at compile
 time so no name lookup happens at runtime, matching C# 11+
 `[LibraryImport]` semantics.
@@ -246,7 +246,7 @@ use. Pinned regions cannot be mutated or relocated until unpinned. The
 **Runtime semantics**: `pin` constructs a `Value::PinnedView { ptr, len, kind }`
 from a `Value::Str` source — `ptr` is the raw `String` buffer address,
 `len` is the byte count, `kind = PinSourceKind::Str`. Field access
-`view.ptr` / `view.len` projects via `FieldGet` to `Value::I64`.
+``view.ptr`` / ``view.len`` projects via `FieldGet` to `Value::I64`.
 `unpin` is a no-op on the RC backend (no relocation possible) but
 validates that the operand is a PinnedView (internal VM error
 otherwise — IR invariant violated) so a moving GC backend can later
@@ -258,7 +258,7 @@ Value variant.
 > string, etc.) are typed z42 exceptions (`Std.InvalidMarshalException`);
 > only IR-shape invariants are Rust `anyhow!` traps.
 
-VM behaviour for the still-trapping opcodes (`call.native.vt`): the
+VM behaviour for the still-trapping opcodes (``call.native.vt``): the
 interpreter raises a clean error ("`<opcode>` not yet implemented") if executed. The JIT translator refuses to
 compile a function that contains any of the four FFI opcodes (lands in
 L3.M16).
@@ -342,10 +342,10 @@ blob 值 struct 元素不走这条下沉（整元素写要经句柄拷贝），�
 
 **运行期表示**：`Value::Array(GcRef<ArrayObj>)`（tag 6），载荷 `ArrayObj` = 元素类型名
 （`Arc<str>`）+ 元素 `Vec<Value>`，`Deref` 到元素向量故元素访问零开销。栈分配逃逸分析命中时
-receiver 变成 `Value::StackArray { idx, frame_id }`，同四条指令走 `ctx.stack_arena` 解析。
+receiver 变成 `Value::StackArray { idx, frame_id }`，同四条指令走 ``ctx.stack_arena`` 解析。
 布局细节见 [对象与值表示 ABI](../runtime/object-abi.md)。
 
-**错误**：四条指令的语义（含错误）只在 `objops::array` 实现一次，interp 与 JIT 共用：数组为 null 抛
+**错误**：四条指令的语义（含错误）只在 ``objops::array`` 实现一次，interp 与 JIT 共用：数组为 null 抛
 `NullReferenceException`，下标越界（含负数）抛 `IndexOutOfRangeException`，`array_new` 长度为负抛
 `OverflowException`，都可 `catch`。机制见 [interp / JIT 语义 · 对象操作：objops](../runtime/interp-jit-semantics.md#对象操作objops)；
 面向用户的规则见 [数组](https://z42-lang.github.io/z42/reference/language/arrays.html)。
@@ -384,7 +384,7 @@ JSON wire format (tag = `"op"`):
 `obj_new` 调用 **TypeChecker 编译期 overload-resolve 选定的具体 ctor 函数**
 （`ctor_name` 字段直查），与 `call` 指令对齐 — VM 不做名字推断。命名约定：
 
-- 单 ctor：`{ClassName}.{SimpleName}`（无 suffix），如 `Demo.Point.Point`
+- 单 ctor：`{ClassName}.{SimpleName}`（无 suffix），如 ``Demo.Point.Point``
 - 重载：`{ClassName}.{SimpleName}${N}`（1-based 声明序），如 `Demo.Point.Point$2`
 - 类无显式 ctor：`ctor_name` 取单 ctor 形式占位，VM lookup 失败时跳过 ctor
   调用（默认无参 ctor 语义）
@@ -416,11 +416,11 @@ generic class 的当前路径都走该退化）。
 access). Virtual fields are also dispatched by `field_get` for built-in primitive types:
 - `Value::Str` — `"Length"` returns `I64` (Unicode scalar count, not byte length)
 - `Value::Array` — `"Length"` / `"Count"` returns `I64`
-- `Value::Map` — `"Length"` / `"Count"` returns `I64`
+- ``Value::Map`` — `"Length"` / `"Count"` returns `I64`
 
 A null receiver throws `NullReferenceException` (both instructions, including the virtual
 `Length`); a value rejected by a primitive field (`null` / wrong kind) throws
-`NullReferenceException` / `InvalidCastException`. The semantics live once in `objops::field`
+`NullReferenceException` / `InvalidCastException`. The semantics live once in ``objops::field``
 (see [对象操作：objops](../runtime/interp-jit-semantics.md#对象操作objops)).
 
 `v_call` dispatches via the pre-computed vtable in `TypeDesc` (O(1)). The vtable is flattened
@@ -453,7 +453,7 @@ class pre-computes a `TypeDesc`:
 
 Each `ScriptObject` instance holds an `Arc<TypeDesc>` (shared across all instances of the same
 class), a `Vec<Value>` of field slots, and a `NativeData` discriminant for built-in backing
-stores (`NativeData::StringBuilder(String)` for `Std.Text.StringBuilder`).
+stores (``NativeData::StringBuilder(String)`` for `Std.Text.StringBuilder`).
 
 ### Static Fields
 ```
@@ -532,7 +532,7 @@ opcode 编号尚未分配。
 > 这是 **VM 内部内存布局** 决策，与 zbc/zpkg wire format **完全解耦**——
 > 二进制字节序列不变，无版本 bump。
 
-VM 的 `metadata::Instruction` 是一个枚举。`Function.blocks: Vec<BasicBlock>` 按基本块存函数体，
+VM 的 ``metadata::Instruction`` 是一个枚举。`Function.blocks: Vec<BasicBlock>` 按基本块存函数体，
 每块的 `instructions: Vec<Instruction>` 是热数组（块尾另有一个 `terminator`），interp / JIT 顺序迭代。枚举 size = 最大变体 size，所以一个臃肿变体会拖胖
 **每一条** 指令槽位（含 `Add`/`Copy` 这类纯寄存器热指令），劣化 cache 局部性。
 
@@ -548,7 +548,7 @@ VM 的 `metadata::Instruction` 是一个枚举。`Function.blocks: Vec<BasicBloc
   /`Convert`/`DefaultOf`/`PinPtr`/`UnpinPtr`，以及无 `String` 的 call 类
   `CallIndirect` / `CallNativeVtable`（它们的 inline payload 仍 ≤ 枚举上限）。
 - **效果**：`size_of::<Instruction>()` 为 **32 B**（由 `CallIndirect` / `CallNativeVtable` 这两个无
-  String 但带 `Box<[Reg]>` 的变体决定）。`metadata::ir::tests::instruction_size_is_slim`
+  String 但带 `Box<[Reg]>` 的变体决定）。``metadata::ir::tests::instruction_size_is_slim``
   静态断言 ≤ 32 B 守门。
 
 ### Deferred / Future Work

@@ -26,7 +26,7 @@
 （裸 `Value` 承载、算术热路径）；`string` / `object` 为**有专属 IR 标签的内建引用类型**
 （非 Scalar，但 IrTag 保留 `Str`/`Ref` 以维持 byte-identical）。
 
-> ⚠️ **`TypeRegistry.StdlibClassName` 不存在。** z42 编译器里**零命中**；
+> ⚠️ **``TypeRegistry.StdlibClassName`` 不存在。** z42 编译器里**零命中**；
 > 看到旧文档提这个名字一律按 `PrimModel` 理解。
 
 `PrimModel.Canon` 的实现细节（先按 `(长度, 首字符)` 分桶再比较，而不是 24 次顺序 `==`）是
@@ -41,7 +41,7 @@
 | `z42.<topic>` | 标准库，随工具链分发，用户永不声明 | `z42.core` `z42.io` `z42.collections` `z42.text` `z42.numerics` `z42.json` `z42.toml` `z42.yaml` `z42.net` `z42.crypto` `z42.compression` `z42.encoding` `z42.regex` `z42.uri` `z42.random` `z42.threading` `z42.diagnostics` `z42.harness` `z42.build` `z42.project` `z42.package` `z42.cli` `z42.scripting` |
 | `z42c.*` | 编译器自身的库 | `z42c.core` `z42c.syntax` |
 
-> **没有 `z42.math` 包**——数学库叫 **`z42.numerics`**。旧文档里的 `z42.math` 是错的。
+> **没有 ``z42.math`` 包**——数学库叫 **`z42.numerics`**。旧文档里的 ``z42.math`` 是错的。
 
 包名与命名空间**解耦**：`z42.collections` 包里是 `namespace Std.Collections`，
 `z42.core` 里同时住着 `Std` / `Std.IO` / `Std.Collections` / `Std.Reflection` 多个命名空间。
@@ -75,9 +75,9 @@ src/libraries/z42.core/
 `Collections/` / `IO/` / `Reflection/` / `Runtime/` 确实映射到子命名空间；
 **`Exceptions/` / `Delegates/` / `Primitives/` / `Protocols/` / `Time/` 全都是 `namespace Std;`**。
 旧的 naming-conventions 文档里"`Exceptions/` → `namespace Std.Exceptions`"和
-"`Delegates/` → `Std.Delegates`"是错的，同一份文档后面讲 Exception 时又写对了（自相矛盾）。
+"`Delegates/` → ``Std.Delegates``"是错的，同一份文档后面讲 Exception 时又写对了（自相矛盾）。
 
-同理：stdlib 里**没有** `Std.Collections.Generic` 命名空间，只有 `Std.Collections`。
+同理：stdlib 里**没有** ``Std.Collections.Generic`` 命名空间，只有 `Std.Collections`。
 
 `_` 前缀的文件（`Time/_DateTimeHelpers.z42`）= 该目录的内部辅助，不是公开主类型。
 

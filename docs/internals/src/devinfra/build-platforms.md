@@ -124,7 +124,7 @@ let m = try vm.loadZbc(Data(contentsOf: zbcURL))
 _ = try vm.invoke(try vm.resolveEntry(m, fqn: "App.Main"))
 ```
 
-`BundleZpkgResolver` 是 `Z42VM.init` 的默认参数（从 main bundle 的 `stdlib` 子目录取），
+`BundleZpkgResolver` 是 ``Z42VM.init`` 的默认参数（从 main bundle 的 `stdlib` 子目录取），
 所以最简用法不用自己传 resolver。Swift API 与错误码见
 `src/toolchain/workload/ios/README.md`。
 
@@ -148,7 +148,7 @@ cargo install cargo-ndk
 32 位 ABI（armv7 / x86）不在支持面内。SDK / NDK 的版本由 `versions.toml` `[build.android]`
 钉住；直接下载的产物（cmdline-tools / gradle）按其中的 `sha256` 校验，不符即中止，
 NDK 与 system-image 走 sdkmanager 自校验。装好之后**不需要任何环境变量**：
-`AndroidBackend._resolveSdk` / `_resolveNdk` 会从 `artifacts/tools/android-sdk` 解析，
+``AndroidBackend._resolveSdk`` / `_resolveNdk` 会从 `artifacts/tools/android-sdk` 解析，
 并给 cargo-ndk 和 gradle 注入 `ANDROID_HOME` / `ANDROID_SDK_ROOT` / `ANDROID_NDK_HOME` /
 `ANDROID_NDK` / `ANDROID_NDK_ROOT`（cmake 定位 NDK 靠的是 `ANDROID_NDK` / `ANDROID_NDK_ROOT`
 这两个，不是 `ANDROID_NDK_HOME`）。

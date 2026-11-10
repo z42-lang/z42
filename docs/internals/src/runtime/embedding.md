@@ -9,7 +9,7 @@
 > [嵌入 C ABI 契约](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)，本页不复述。
 
 本页讲 VM **内部怎么实现**那套 ABI：三层怎么分、单例状态放在哪、句柄怎么编码、
-输出怎么从解释器路由到宿主回调、错误怎么从 `anyhow::Error` 归类成状态码、zpkg 依赖按什么顺序解析。
+输出怎么从解释器路由到宿主回调、错误怎么从 ``anyhow::Error`` 归类成状态码、zpkg 依赖按什么顺序解析。
 改 `z42_host.h` 或往 `src/runtime/src/host/` 加东西之前读这一页。
 
 反方向（native 代码把类型**注册进** z42）是另一套：见 [native-abi.md](native-abi.md)。
@@ -153,25 +153,25 @@ pub trait ZpkgResolver: Send + Sync {
 - **C 函数指针 + user_data**（`Z42ZpkgResolverFn`，来自 `Z42HostConfig`）被 `resolver::CHookResolver`
   包一层。`user_data` 存成 `usize` 以干净地继承 `Send + Sync`。回调返回后**立刻 `to_vec()` 复制**，
   所以宿主那边「字节只需活到回调返回」的契约得以成立。
-- **Rust `Arc<dyn ZpkgResolver>`** 由 Tier 2 经 `host::install_zpkg_resolver()` 直接塞进
+- **Rust `Arc<dyn ZpkgResolver>`** 由 Tier 2 经 ``host::install_zpkg_resolver()`` 直接塞进
   `HostState::config`，不绕 C 回调。这个函数**不是** `extern "C"`，是 Tier 2 专用的逃生口。
 
 ### Tier 3 各平台的默认 resolver
 
 平台 facade 自己的「namespace → 字节」表**由读 zpkg 的 `NSPC` section 派生**，没有索引文件。
-一份 zpkg 通常提供多个 namespace（`z42.core.zpkg` 同时 ship `z42.core` / `Std` / `Std.Exceptions` …），
+一份 zpkg 通常提供多个 namespace（`z42.core.zpkg` 同时 ship `z42.core` / `Std` / ``Std.Exceptions`` …），
 所以不能假设 `namespace == 文件名`；手维护的 `index.json` 会是 `NSPC` 之外的**第二真相源**、
 必然漂移，所以不用。
 
 | 平台 | 默认 resolver | 位置 |
 |---|---|---|
-| iOS | `BundleZpkgResolver(bundle: .main, subdirectory: "stdlib")` —— 枚举 `Bundle.urls(forResourcesWithExtension:"zpkg",subdirectory:)`，逐个读 NSPC 建表。`Z42VM.init` 的**默认参数**，不传就自动装 | `ios/platform/Sources/Z42VM/ZpkgResolver.swift` |
-| Android | `AssetZpkgResolver(assets, subdir = "stdlib")` —— `AssetManager.list` 枚举，逐个经 `Z42VM.readNamespaces`（JNI 桥到同一个 C ABI）读 NSPC。另有 `MapZpkgResolver`。`Z42VM` 构造器里 resolver 是**必填参数** | `android/.../io/z42/vm/ZpkgResolver.kt` |
+| iOS | `BundleZpkgResolver(bundle: .main, subdirectory: "stdlib")` —— 枚举 ``Bundle.urls(forResourcesWithExtension:"zpkg",subdirectory:)``，逐个读 NSPC 建表。``Z42VM.init`` 的**默认参数**，不传就自动装 | `ios/platform/Sources/Z42VM/ZpkgResolver.swift` |
+| Android | `AssetZpkgResolver(assets, subdir = "stdlib")` —— ``AssetManager.list`` 枚举，逐个经 ``Z42VM.readNamespaces``（JNI 桥到同一个 C ABI）读 NSPC。另有 `MapZpkgResolver`。`Z42VM` 构造器里 resolver 是**必填参数** | `android/.../io/z42/vm/ZpkgResolver.kt` |
 | wasm | `bundleStdlibNode(readNamespaces)` / `bundleStdlibBrowser(baseUrl, readNamespaces)` / `mapResolver(map)` —— Node 侧 `readdir`，浏览器侧 fetch 构建期生成的 `files.json`（HTTP 枚举不了目录，这是文件名清单的派生替身，**不是** namespace 映射） | `wasm/platform/js/stdlib-resolver.js` |
 
-读 NSPC 的 helper 在三个层面各有一份入口，都落到同一段 Rust（`metadata::reader::read_zpkg_meta`）：
-C ABI `z42_zpkg_read_namespaces`、Rust `z42::host::read_zpkg_namespaces` 与 `z42::host::rust::read_zpkg_namespaces`、
-wasm 导出 `readNamespaces` / Android JNI `Z42VM.readNamespaces`。
+读 NSPC 的 helper 在三个层面各有一份入口，都落到同一段 Rust（``metadata::reader::read_zpkg_meta``）：
+C ABI `z42_zpkg_read_namespaces`、Rust ``z42::host::read_zpkg_namespaces`` 与 `z42::host::rust::read_zpkg_namespaces`、
+wasm 导出 `readNamespaces` / Android JNI ``Z42VM.readNamespaces``。
 Swift / Kotlin / JS 都不需要自己重写 zpkg 解析。
 
 `./xtask build stdlib` 产 flat view 时不写任何索引文件；各平台 `build.sh` 只拷 `*.zpkg`。
@@ -224,7 +224,7 @@ Err 分支翻译成 `ERR_INTERNAL` 加一条稳定消息。`z42_host_run_app` �
 
 ### 为什么用字符串前缀分类
 
-解释器路径通篇是 `anyhow::Error`，没有结构化错误类型。`invoke` 的错误分流靠两个稳定 marker：
+解释器路径通篇是 ``anyhow::Error``，没有结构化错误类型。`invoke` 的错误分流靠两个稳定 marker：
 
 ```rust
 fn classify_invoke_error(msg: &str) -> Z42HostStatus {
@@ -308,7 +308,7 @@ impl Host {
 2. **两个 sink 各自的 user_data**。Tier 1 的 `Z42HostConfig` 只有一个 `sink_user_data`，
    于是 `Host::new` 先用 stdout 的那个完成 `initialize`，随后立刻调 `z42_host_set_stderr_sink`
    把 stderr 的 `user_data` 换成它自己的 `SinkBox`。
-3. **Rust resolver 不走 C 往返**。`cfg.zpkg_resolver` 在 `initialize` 成功后经
+3. **Rust resolver 不走 C 往返**。``cfg.zpkg_resolver`` 在 `initialize` 成功后经
    `install_zpkg_resolver(Arc<dyn ZpkgResolver>)` 直接装进运行时状态，绕开 `CHookResolver` 适配层。
 4. **VFS 也不走 C 往返**。`HostConfig::vfs`（例如宿主先 `mount` 好文件的 `MemoryFs`）同样在 `initialize` 之后经
    `install_vfs` 装入；之后加载的模块都建在这个文件系统上，`search_paths` 里的
@@ -328,7 +328,7 @@ facade 的 API 细节由各平台自己定，这里只规定最小语义契约�
 - 至少支持：从 `Data` / `ByteArray` / `Uint8Array` 加载产物、按 FQN 调用、读取 stdout 字符串；
 - stdout 默认 sink = 在内存累积成字符串（移动平台没有真 stdout）；
 - 异常翻译成平台原生异常（`NSError` / `Throwable` / `Error`）；
-- 资源释放绑到平台惯用的机制上（Swift `deinit` / Kotlin `AutoCloseable.close()` / Rust `Drop`）。
+- 资源释放绑到平台惯用的机制上（Swift `deinit` / Kotlin ``AutoCloseable.close()`` / Rust `Drop`）。
 
 桌面侧还有两个直接吃 `z42_host_run_app` 的 C shell，它们是**最小可读的嵌入示例**：
 
@@ -360,13 +360,13 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 
 ## CLI 与嵌入端共用的 Rust 服务
 
-`host::LoadedProgram` 拥有一个加载后的模块及其固定地址上下文。`load_file` 与 `load_bytes` 将产物交给同一个 `host/load.rs` 准备：解析宿主 resolver、选择 prelude、解析依赖、去重并合并模块、验证约束，然后经 `host/boot.rs` 完成可用性裁剪、初始化器登记和链接。
+``host::LoadedProgram`` 拥有一个加载后的模块及其固定地址上下文。`load_file` 与 `load_bytes` 将产物交给同一个 `host/load.rs` 准备：解析宿主 resolver、选择 prelude、解析依赖、去重并合并模块、验证约束，然后经 `host/boot.rs` 完成可用性裁剪、初始化器登记和链接。
 
 `LoadOptions` 显式携带 VFS、搜索目录、resolver、执行模式及依赖预加载策略。字节输入没有隐式入口目录；文件应用按入口目录、配置 probing 路径、标准库目录构造搜索顺序。需要在调用前解析依赖包入口的 C 宿主启用预加载；应用默认按需加载。两种策略共用解析与合并实现。
 
 `LoadedProgram::invoke` 统一校验参数数量、安装可嵌套恢复的活动 VM/堆守卫、初始化、按模式执行及异常收尾。初始化状态由程序持有，只执行一次，准备失败保持终态。JIT 调用保留参数和返回值，并复用该 VM 的编译器及代码生命周期；不可用模式返回错误。
 
-`host::run_app` 在同一服务上提供一次性应用运行，CLI 只解析参数及处理进程退出。C ABI 位于 `host/ffi.rs`，将句柄映射到 `Arc<LoadedProgram>`；加载前复制配置并释放注册表锁，调用前取得程序强引用并释放锁，宿主 resolver 或输出回调可以重入而不持有宿主注册表锁。
+``host::run_app`` 在同一服务上提供一次性应用运行，CLI 只解析参数及处理进程退出。C ABI 位于 `host/ffi.rs`，将句柄映射到 `Arc<LoadedProgram>`；加载前复制配置并释放注册表锁，调用前取得程序强引用并释放锁，宿主 resolver 或输出回调可以重入而不持有宿主注册表锁。
 
 
 ## 可选原生组件

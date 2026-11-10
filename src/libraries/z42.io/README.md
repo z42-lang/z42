@@ -18,7 +18,7 @@
 |------|------|------|
 | `Stream.z42` | `Stream` | 流 base class（capability + Read/Write/Seek + ReadAllBytes / WriteAllBytes / ReadExactly） |
 | `MemoryStream.z42` | `MemoryStream` | `byte[]`-backed Stream（可写可增长 / 只读视图 + `ToArray()`） |
-| `FileStream.z42` | `FileStream` | OS 文件 Stream（Read / Write / Append，走 `VmCore.file_handles` slot table；`Seek` 拒绝负位置） |
+| `FileStream.z42` | `FileStream` | OS 文件 Stream（Read / Write / Append，走 ``VmCore.file_handles`` slot table；`Seek` 拒绝负位置） |
 | `BufferedStream.z42` | `BufferedStream` | 单缓冲包装，合并小读写（默认 4 KB） |
 | `FileMode.z42` / `SeekOrigin.z42` | 常量类 | `FileStream` 构造模式（Read / Write / Append）/ `Seek` origin（Begin / Current / End） |
 | `TextReader.z42` / `TextWriter.z42` | `TextReader` / `TextWriter` | 字符读写基类（`IDisposable`） |

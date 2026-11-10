@@ -1,6 +1,6 @@
 # field_null_mark_crosspkg_unchecked（负例：跨包 `?` 字段不检查就解引用）
 
-`field_null_mark_crosspkg` 的**正面对照**。`main` 跨包读 `Holder.Marked`（标了 `?`）而不检查
+`field_null_mark_crosspkg` 的**正面对照**。`main` 跨包读 ``Holder.Marked``（标了 `?`）而不检查
 ⇒ 期望编不过，输出含 `is marked \`?\` and may be null here`（**E0484**）。
 
 ## 为什么必须有这一条

@@ -2,8 +2,8 @@
 
 跨包关联类型的判别力回归门。
 
-- `target`（`demo.assocmisstarget`）：`interface IEnum { type Item; }` + `class StrBag : IEnum { type Item = string; }`
-- `main`（`demo.assocmissapp`）：`Holder<T> where T : IEnum<Item = int>` + `new Holder<StrBag>()`
+- `target`（``demo.assocmisstarget``）：`interface IEnum { type Item; }` + `class StrBag : IEnum { type Item = string; }`
+- `main`（``demo.assocmissapp``）：`Holder<T> where T : IEnum<Item = int>` + `new Holder<StrBag>()`
 - `expected_build_error.txt`：期望 main 编不过，输出含 `binds `Item` to `string`, but `int` is required`（E0453）。
 
 ## 为什么这是真门

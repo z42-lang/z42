@@ -110,7 +110,7 @@ assoc_count     u16；assoc × {name u32, type u32}
 
 **接口槽表**：类实现的每个接口方法一项——键是接口槽键（`Demo.IFoo<string>#Get` 带实参的精确键，
 或 `Demo.IFoo#Get` 擦除键），值是实现该方法的 vtable 键（`Get$1$string`）。编译器按签名定案；运行期
-建 vtable 时作为别名指向实现所在的槽，接口调用点的 `VCall.Method` 就是这个键（见
+建 vtable 时作为别名指向实现所在的槽，接口调用点的 ``VCall.Method`` 就是这个键（见
 [vm-architecture.md「接口调用：接口槽」](../runtime/vm-architecture.md#接口调用接口槽)）。
 
 **约束 flags（`constraint_flags` u8）**：`bit0` requires-class（`where T : class`）、
@@ -281,7 +281,7 @@ IMPORT_BASE       0x80000000
 0xFFFFFFFF        保留为未解析哨兵（正常产物不出现）
 ```
 
-**tokenize 的字段**：`Call.Func`、`ObjNew.{ClassName,CtorName}`、`IsInstance.ClassName`、`AsCast.ClassName`、`LoadFn.Func`、`MkClos.Func`。其余符号字段（`VCall.Method`、`Field*/Static*.Field`、`Builtin.Name`、`CallNative.*`、`Typeof.TypeName`、`Array*.ElemName`）直接用 `pool idx`。
+**tokenize 的字段**：``Call.Func``、`ObjNew.{ClassName,CtorName}`、``IsInstance.ClassName``、``AsCast.ClassName``、``LoadFn.Func``、``MkClos.Func``。其余符号字段（``VCall.Method``、`Field*/Static*.Field`、``Builtin.Name``、`CallNative.*`、``Typeof.TypeName``、`Array*.ElemName`）直接用 `pool idx`。
 
 ## 版本
 
@@ -293,9 +293,9 @@ bump 的同步清单见[格式 bump：清单与本地验证](../devinfra/format-
 
 ## Token 编码
 
-Tokenizable IR 字段（`Call.func` / `LoadFn.func` /
-`MkClos.fn_name` / `ObjNew.{class_name, ctor_name}` / `IsInstance.class_name` /
-`AsCast.class_name`）以 u32 token 写入，编码语义：
+Tokenizable IR 字段（``Call.func`` / ``LoadFn.func`` /
+``MkClos.fn_name`` / `ObjNew.{class_name, ctor_name}` / ``IsInstance.class_name`` /
+``AsCast.class_name``）以 u32 token 写入，编码语义：
 
 ```
 intra-module:    [0,             0x7FFF_FFFE]   token = local index
@@ -305,7 +305,7 @@ cross-zpkg:      [0x8000_0000,   0xFFFF_FFFE]   token - IMPORT_BASE = STRS idx
 UNRESOLVED:      0xFFFF_FFFF                    占位 / 错误状态
 ```
 
-Decoder（z42c `ZbcReader` / Rust `metadata::reader::IdMap`）按 token
+Decoder（z42c `ZbcReader` / Rust ``metadata::reader::IdMap``）按 token
 范围分发：本地 token → `local_funcs[token]` 或 `local_classes[token]`；
 import token → `pool[token - IMPORT_BASE]`；UNRESOLVED → `<unresolved>` 诊断。
 
@@ -314,7 +314,7 @@ namespace 提取语义（用于 lazy zpkg 路由）。
 
 **不 tokenize** 的字段：`BuiltinInstr.Name`（closed set runtime 解析）、
 `VCallInstr.Method`（receiver-type-dependent，IC 路径）、
-`FieldGet/Set.FieldName` / `LoadFieldAddr.FieldName`（同上）、
+`FieldGet/Set.FieldName` / ``LoadFieldAddr.FieldName``（同上）、
 `StaticGet/Set.Field`（runtime lazy 全局编号）、
 `CallNative*.{Module,TypeName,Symbol}`（native interop separate concern）。
 这些字段继续以 STRS 池 idx 编码。

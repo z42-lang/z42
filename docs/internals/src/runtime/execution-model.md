@@ -307,7 +307,7 @@ void OnUpdate(float dt) {
 
 **Step 1: Develop** — Edit the source file and recompile to bytecode.
 
-**Step 2: Reload** — Call `VM.Reload("game.scripts.zbc")`.
+**Step 2: Reload** — Call ``VM.Reload("game.scripts.zbc")``.
 
 **Step 3: Next call** — The next call to `OnUpdate()` executes the new version.
 

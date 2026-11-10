@@ -46,7 +46,7 @@ Z42_LOG=z42=debug ./z42vm script.zbc
 Z42_LOG=z42=warn ./z42vm --verbose script.zbc      # 即便 --verbose 也安静
 ```
 
-target 就是各个 mod 自己的路径：`z42` / `z42::interp` / `z42::jit` / `z42::gc` /
+target 就是各个 mod 自己的路径：`z42` / ``z42::interp`` / ``z42::jit`` / `z42::gc` /
 `z42::interop::*` / `z42_zpkg::*` …
 
 ## 3. 崩溃抓盘：`Z42_CRASH_DIR`
@@ -72,7 +72,7 @@ Z42_CRASH_DIR=/var/log/z42 RUST_BACKTRACE=1 ./z42vm script.zbc
 | 信号 | 典型触发 |
 |---|---|
 | `SIGSEGV` | 坏指针 —— JIT bug、native FFI 写坏内存 |
-| `SIGABRT` | `libc::abort()` —— native 模块内部断言失败 / glibc OOM |
+| `SIGABRT` | ``libc::abort()`` —— native 模块内部断言失败 / glibc OOM |
 | `SIGFPE` | 整数除零 —— z42 解释器已挡，native / JIT 路径的漏网 case |
 | `SIGILL` | 非法指令 —— JIT code 被写坏 |
 | `SIGBUS` | 对齐错误 / mmap 越界 —— ARM64 上偶发 |

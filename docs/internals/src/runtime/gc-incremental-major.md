@@ -281,7 +281,7 @@ major 的停顿与堆大小脱钩之后，剩余的最大停顿**全部来自 mi
 - **`keep_major`**（对照：minor 保留周期已标记的一切）：安全性全绿，活性断言给出反例 ——
   周期内出生即垃圾的对象活过周期内的 minor。
 
-两次年轻代回收中的任意一次或两次换成 **tenure**（`Policy::young`），安全性全绿；终检多给 tenure 的垃圾
+两次年轻代回收中的任意一次或两次换成 **tenure**（``Policy::young``），安全性全绿；终检多给 tenure 的垃圾
 一个完整周期。让 tenure 给它晋升的东西置标记位，给出与「只置标记位、不入灰」相同的反例。
 
 在完整策略上逐个关掉 SATB / allocate-black / 队列作 minor 根 / 弱读拒绝 doomed / minor 跳过 doomed 属主 /

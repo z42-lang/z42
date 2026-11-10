@@ -57,10 +57,10 @@ zbc 的 `TYPE` record 是**单条、内联全字段、有序**的结构（VM 只
 **只有一个「主碎片」发出这条完整 record**，其余碎片只发自己的方法体。
 
 - **主碎片 = 项目相对路径 Ordinal 最小的碎片**（单一规则，无例外）。
-- 主碎片的 TYPE record 成员取自**全碎片合并**后的视图（编译期 `IrDump._buildMergedPartial`
+- 主碎片的 TYPE record 成员取自**全碎片合并**后的视图（编译期 ``IrDump._buildMergedPartial``
   拼接全碎片成员 + 基表并集）。
-- 非主碎片：跳过 TYPE record，只发本文件的方法体（各方法是独立全局函数 `Widget.Area` /
-  `Widget.Describe`，VM `merge_modules` 按 FQ 名扁平化，既不冲突也不丢）。
+- 非主碎片：跳过 TYPE record，只发本文件的方法体（各方法是独立全局函数 ``Widget.Area`` /
+  ``Widget.Describe``，VM `merge_modules` 按 FQ 名扁平化，既不冲突也不丢）。
 
 ```mermaid
 flowchart TD
@@ -108,7 +108,7 @@ z42c 是文件级增量（1 源文件 ↔ 1 cache 条目）。partial 让类型�
 ## 边界与限制（v1）
 
 - **只做顶层类型 partial**：partial 外层**含**嵌套类允许（嵌套按声明碎片落位）；但**嵌套类
-  自身 partial**（`Outer.Inner` 跨碎片拆）v1 报错（`E0435`）——嵌套发射链路本身未接通，非机制受限。
+  自身 partial**（``Outer.Inner`` 跨碎片拆）v1 报错（`E0435`）——嵌套发射链路本身未接通，非机制受限。
 - **partial 与泛型交互**：沿用现有泛型处理，不额外扩展。
 - **跨碎片重载 → 静默覆盖（同名方法组必须整组同碎片）**：同名方法的多个重载**分处不同碎片**时，
   后合并的那个会在类型的方法表里**静默覆盖**前一个——不报错，调用方随之派发到错误的重载。
@@ -122,7 +122,7 @@ z42c 是文件级增量（1 源文件 ↔ 1 cache 条目）。partial 让类型�
   裸名（primary，多态规范槽 + seed 锚点）／其余同名 → 全签名 `MangleKey`」。做这个判定的
   `emittedInst` tracker 是 `MemberCollector._fillClass` 的**局部变量**，而 `_fillClass` 是
   **按 `ClassDecl`（即按碎片）逐个调用**的 —— 所以「首个」只在本碎片内计数。两个碎片各有一个
-  `Foo` 时，双方都认为自己是首个、都取裸键 `Foo`，`ct.Methods.Put("Foo", …)` 后写覆盖先写。
+  `Foo` 时，双方都认为自己是首个、都取裸键 `Foo`，``ct.Methods.Put("Foo", …)`` 后写覆盖先写。
   E0433 只在**完整签名相同**时才报（见上「重复成员」），而重载签名恰恰不同 → 不报错、静默丢失。
 
   > 注意这与 arity 无关：`Trim()` 与 `Trim(char[])` 参数个数不同，但键决策**不看 arity**，

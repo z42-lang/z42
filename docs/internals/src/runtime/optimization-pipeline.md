@@ -46,7 +46,7 @@ z42 源码 ──z42c──> z42 IR
    - 编译期 pass 不能拖垮编译(pass 复杂度要与收益匹配;先测收益再投)。
    - 运行时分析(加载期/JIT 期)不能拖垮加载与执行;能编译期算好的静态分析就别留到运行时反复算(见 [self-hosting](../compiler/self-hosting.md) 的 REGT 先例:reg_types 编译期算好,运行时只消费)。
 3. **分层策略要权衡「升级成本 vs 收益」**:只有热函数值得升级(升级有编译+内存成本);冷函数留在 interp。分层决策要有明确的升级触发条件与降级/清理路径。
-4. **回收要池化,避免频繁向 OS 申请/归还内存**。分层升级/回收不得退化成 malloc/mmap 抖动 —— 回收的内存进 **free-list / arena 复用**(下次加载/升级重用),而非回收即还 OS、再要再申请。仓内先例:`VmContext.reg_pool`(interp / JIT 共用的寄存器文件 free-list)。JIT code 页、IR blocks 回收同理:按块池化复用,批量申请,减少系统调用次数。
+4. **回收要池化,避免频繁向 OS 申请/归还内存**。分层升级/回收不得退化成 malloc/mmap 抖动 —— 回收的内存进 **free-list / arena 复用**(下次加载/升级重用),而非回收即还 OS、再要再申请。仓内先例:``VmContext.reg_pool``(interp / JIT 共用的寄存器文件 free-list)。JIT code 页、IR blocks 回收同理:按块池化复用,批量申请,减少系统调用次数。
 
 > **为什么把这两条钉死**:z42 是 interp/JIT/AOT 混合执行的 VM。很容易犯的错是「优化只盯着 JIT(因为 Cranelift 显眼)」而让 interp 吃朴素 IR,或者「加了分层却让每个函数常驻多份表示把内存吃爆」。这两条准则分别堵这两个系统性陷阱。
 
@@ -78,8 +78,8 @@ z42 源码 ──z42c──> z42 IR
 > 本地非泛型 **sealed 类** → 目标编译期唯一 → `CallEmitter._emitCall` **emit 时就地**把 `VCallInstr`
 > 降级为直接 `CallInstr`（天然在 `IrInline` 前，解锁 virtual 方法内联；`VCall` inline pass 吃不进）。
 > 目标解析不确定即回落 VCall。机制与 v1 边界详见 [sealed 修饰符 · 去虚化](https://z42-lang.github.io/z42/reference/language/sealed.html)。
-> ⚠️ **「永不 miscall」依赖精确的校验判据**：校验「目标确为已发射函数」用的 `Deps.Statics`
-> **含裸名别名**（`DependencyIndex` 给 `Name$N$T` 这类 mangle 名额外注册 `Cls.Name` / `ns.Cls.Name`），
+> ⚠️ **「永不 miscall」依赖精确的校验判据**：校验「目标确为已发射函数」用的 ``Deps.Statics``
+> **含裸名别名**（`DependencyIndex` 给 `Name$N$T` 这类 mangle 名额外注册 ``Cls.Name`` / ``ns.Cls.Name``），
 > 若命中别名后拿**那个键本身**当直呼目标名 ⇒ 会发出一条指向不存在函数名的 Call（如 `typeof(int).GetType()`
 > 在 `--opt-all` 下报 `undefined function \`Std.Type.GetType\``）。故判据是「entry 的真名与构造出的 fq 逐字相同」。教训：**「校验过了」要问清那个谓词回答的是哪个问题** ——
 > 「这个键在表里吗」与「有一个真叫这个名字的函数吗」在有别名的表上不是同一件事。
@@ -93,7 +93,7 @@ z42 源码 ──z42c──> z42 IR
 > **NoOptimization** = 它自己的体原样保留——`_optFunc`、`IrEscapeAnalysis`、`IrLoopAllocReuse` 都跳过它，
 > `IrInline` 也不往里内联。JIT 目前没有跨函数内联、也不消除调用，没有要跳过的东西；将来做其一时须读这两位。
 > 典型用户是 `Std.GC.KeepAlive` 与 harness 计时壳的逐次消费（纯 z42，不需要 native；
-> 原 `BenchHelpers.blackBox` 已删除）。
+> 原 ``BenchHelpers.blackBox`` 已删除）。
 
 **OptSet：可独立开关的具名优化集**：`Opt` 位集 `ConstFold=1/CopyProp=2/
 Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/PureCall=512/DeadBranch=1024/Devirt=2048/All=4095`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控（Devirt 例外：emit 时门控）——用户自助
@@ -123,7 +123,7 @@ reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不�
 但 temp-DCE 只删 `IsPure` 指令,有副作用的 producer 仍保留。**后续可继续加**:常量字符串长度、常量数组
 长度等。收益本身偏低(真实代码字面量运算少),价值在**证明管线可持续扩展**。
 > **安全边界(规则扩展时必守)**：整数算术**仅非负结果才折**(`_parseIntLit` 编码不了负数,负值保守跳过)；
-> div/rem 防除零、shift 防越界(镜像 `IrGenFacts._foldBinary` 的 `long` 语义——它在 long 里算、对全宽度
+> div/rem 防除零、shift 防越界(镜像 ``IrGenFacts._foldBinary`` 的 `long` 语义——它在 long 里算、对全宽度
 > emit,是被生产验证过的做法)。float 暂不折(文本化影响自举字节一致)。每条新规则配「折叠生效 + 安全不折」
 > 双向用例(见 `codegen_tests.z42` const-fold 段)。
 
@@ -181,13 +181,13 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
 - **资格 5 条**（任一不足即跳过，安全兜底）：**C1** `StackAlloc==true`（逃逸分析已证不逃逸函数；对象另含
   「ctor 不泄漏 this」，可复用 ⟹ 不逃逸，故 C1 必要且直接复用已有结果）；**C2 迭代内局部**——alloc 的 dst
   （单赋值 temp）的**前向 copy 闭包**不含任何**多赋值 reg（defs>1）**，否则对象引用被循环携带（`head=new Node(i,head)`
-  / `prev=p`），复用会让携带别名看到改写 → miscompile；**C3 形状固定**——`ArrayNew.Size` 不在循环体内定义
+  / `prev=p`），复用会让携带别名看到改写 → miscompile；**C3 形状固定**——``ArrayNew.Size`` 不在循环体内定义
   （循环不变；LICM 已把不变 const 提到 pre-header）；**C4 重初始化完整**——对象 = ctor **单基本块且对 this 无条件写全
   本类每一个实例字段**、基类只能是隐式 `Std.Object`（类描述不在本模块 → 不复用）。⚠️ 判据不能只看「单块」：裸分配只在 pre-header 做**一次**，未被 ctor 写的字段会带着**上一迭代**的值
   （`Counter(int x){X=x;}` + 循环里 `c.Hits = c.Hits + 1`：关 pass 得 5、开得 15；继承来的基类字段同理），数组 = 常量下标**读前写全**（单块线性扫：ArraySet
   常量下标入已写集、ArrayGet 常量下标要求已写、动态下标/其它读 → 失败）；**C5** 干净 pre-header 的自然循环。
 - **变换（无格式 bump、无新指令）**：**对象** `%r = ObjNew(Cls, ctor, [args])` → pre-header 追加 `%r = ObjNew(Cls, ctor="", [])`
-  （**空 ctor 名哨兵 = 裸分配**，走运行时 `obj_new` 的 `outcome=None` 路径：`func_index.get("")` 皆 None → 跳过
+  （**空 ctor 名哨兵 = 裸分配**，走运行时 `obj_new` 的 `outcome=None` 路径：``func_index.get("")`` 皆 None → 跳过
   ctor、只分配），循环体原址 → `Call ctor(%r, [args])`（静态调 ctor，`this=%r` 前置——运行时 obj_new 内部本就
   `exec_function(ctor,[obj,...args])`；dummy dst 防覆写 `%r`，bump `MaxReg`）；**数组** 整条 `ArrayNew` 移到 pre-header
   （本就是裸分配，循环体既有元素写回重初始化）。保留 `StackAlloc` 标 → arena 只分配一次、帧退出释放。
@@ -211,7 +211,7 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
   `field_get` 到 pre-header——`this` 非空杜绝「零迭代时 NPE 时机漂移」；且循环体内该字段无 `field_set`（值不变）。
   params/locals 接收者留 Deferred（需非空/支配分析）。
 - **正确性主门**：`src/tests/optimization/readonly_field_hoist.z42`（开/关输出必须一致）。**实测 interp ~1.87×**
-  （热循环每迭代 3 次 `this.x` 读被外提+消重到 ~0；bench `readonly_field_bench.z42`）。
+  （热循环每迭代 3 次 ``this.x`` 读被外提+消重到 ~0；bench `readonly_field_bench.z42`）。
 
 **pass 2g 纯函数调用优化（`Opt.PureCall=512`；piggyback CSE + LICM，`PureCall` 单独门控）**：
 `IsPure` 白名单把**任何 `Call` 判为不纯** → 用户函数调用永不进 CSE/LICM。**自动推断**同模块函数纯度
@@ -222,7 +222,7 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
   小模块和短依赖链保留扫描。至少 256 个函数、四轮后名字集仍收缩且非空时，先确认短尾是否已稳定；只有后续两次候选检查仍未收敛，才按需构建本次 `Compute` 的反向调用图：记录每个函数体是否仍有效、每个名字还有多少活跃候选；非纯名字只在最后一个候选失效时移除，再通知调用者。每个函数体最多失效一次，重复调用边不重复扣减候选数。没有非纯来源的递归环保持纯；缺失 callee、无体和 `NoInlining` 仍不提供纯摘要。图不跨 `Compute` 保留。 图节点编号复用不再写入的候选名字表的哈希槽位；图存活期间原表不能扩容或写入，需要移除名字时构建新的结果表。
   `pure(f)` ⟺ f 每条指令是「`IsPure` 白名单内」或「对纯函数的 `CallInstr`」或「**readonly 字段读**
   （`FieldGetInstr.Readonly`，**复用 readonly 标志**——`int scale(C c,int k){return k*c.f;}` 读
-  readonly `c.f` 即纯）」，**且无块以 `throw` 终结**。其余（写字段/静态/数组、读非 readonly 字段·静态·数组、
+  readonly ``c.f`` 即纯）」，**且无块以 `throw` 终结**。其余（写字段/静态/数组、读非 readonly 字段·静态·数组、
   **分配**、`Div/Rem`、IO、`VCall`/动态派发、调非纯）→ 非纯。imported/无体 → 保守非纯。
 - **纯度定义为何这么窄**：CSE/LICM 假设「同参同结果」——读可变外部状态会破坏它，故排除非 readonly 字段/数组读；
   **分配排除**因 CSE 消重会改对象身份（`==`/GC）；**no-throw** 因 LICM 提到可能零迭代 pre-header，会抛的
@@ -243,7 +243,7 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
 **pass 2h 常量条件死分支消除（`Opt.DeadBranch=1024`；跑在 const-fold 后、licm/cse 前）**：
 喂料来自 [`const` 编译期常量](https://z42-lang.github.io/z42/reference/language/const.html)替换（`const bool` 引用 → `ConstBoolInstr`）与 const-fold
 （常量比较 → `ConstBoolInstr`）。分两步：
-- **① 折叠**：块终结子 `br.cond(cond, T, F)` 且 `cond` 由**单赋值** `ConstBoolInstr` 产出 → 折成无条件
+- **① 折叠**：块终结子 ``br.cond(cond, T, F)`` 且 `cond` 由**单赋值** `ConstBoolInstr` 产出 → 折成无条件
   `br(命中分支)`。**始终安全**（条件跳转→无条件跳转，不移块）；折掉的 `cond` 读消失，其 `ConstBool`
   producer 由后续 temp-DCE 清。
 - **② 移块**：**仅 `ExcCount==0`** 的函数，从 entry(block0) 沿 `Br/BrCond` 后继做可达性 BFS，移除不可达块
@@ -257,7 +257,7 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
 Div/Rem(除零陷阱)、FieldGet/ArrayGet(NPE/越界)、Call*/*Set 等不在白名单 → 保留。
 
 **pass 0 函数内联（`IrInline`，`Opt.Inline`；跑在清理 pass 之前）**：模块级逐 caller 展开合格直接调用点。
-IrModule = 单 CU，callee 在同模块内解析（函数共享 StringPool → 内联后 `const.str` 池索引仍有效）。
+IrModule = 单 CU，callee 在同模块内解析（函数共享 StringPool → 内联后 ``const.str`` 池索引仍有效）。
 
 - **资格（D4，`_eligibleCallee`）**：① 直接 `CallInstr`（`VCall` 不入本 pass）；② 同模块按名解析到 callee；
   ③ 非递归（`callee.Name ≠ caller.Name`）；④ callee **单块**且终结子 = `RetTerm`（v1 不做多块重贴标签/续延块）；
@@ -271,9 +271,9 @@ IrModule = 单 CU，callee 在同模块内解析（函数共享 StringPool → �
   （无地址/存储指令）。`_isInlinable` 只表达「哪些指令内联安全」的**策略**；`_cloneRemap` 经接口 `Clone` + `SetDefReg` / `SetReadAt`
   重映射，对全部指令通用。
 - **展开（D5）**：`offset = caller.MaxReg`（fresh reg 区，> 所有 caller reg → 无碰撞）；callee reg `r` → caller
-  reg `r+offset`。① **形参绑定**：**只读**形参（body 从不写它）→ body 中直接**代入调用方
+  reg ``r+offset``。① **形参绑定**：**只读**形参（body 从不写它）→ body 中直接**代入调用方
   实参寄存器**、不 emit copy（只读形参只作读操作数、从不是 dst → 代入安全，等价调用点求值）；**被写**形参
-  → `copy (p+offset), arg[p]` 材料化到可写 fresh reg（body remap 到 `p+offset`）。免去每形参一条 `copy`
+  → `copy (p+offset), arg[p]` 材料化到可写 fresh reg（body remap 到 ``p+offset``）。免去每形参一条 `copy`
   给 interp 增回的 per-arg dispatch，且让常量实参的内联算术直接被 const-fold 折叠（`Add(2,3)`→`const 5`）；
   ② body：单块每条 curated 指令克隆 + 按重映射（只读形参→实参 / 其余→`+offset`）；
   ③ `Ret` 有值 → `copy call.Dst, remap(retReg)`（绑返回值；只读形参直返时 remap 即实参），void → 无；④ `CallInstr`
@@ -288,7 +288,7 @@ IrModule = 单 CU，callee 在同模块内解析（函数共享 StringPool → �
 - **自举字节不动点（D7）**：内联纯优化、**不新增语法 / 不改 zbc·zpkg 格式** → 不触发 bootstrap-seed 两阶段。
   稳态 gen1==gen2（确定性稳定序）。self-host byte-identical 是 opt-in soak（非默认 GREEN gate）+ pair-gen
   兜底 → 不阻塞发布链。
-- **多块 callee**：放宽「单块」限制——含控制流（if/loop → `br`/`br.cond` + 多 `Ret`）的
+- **多块 callee**：放宽「单块」限制——含控制流（if/loop → `br`/``br.cond`` + 多 `Ret`）的
   多块 curated callee 也可内联。资格：**每块**终结子 ∈ {Ret,Br,BrCond}（Throw 不可）+ 全 curated 指令 + 总
   指令数门。展开分两 Phase：**A** 单块 callee 就地 splice（原路径）；**B** 多块 callee **split+insert**——拆 caller
   块为 `head`（前半 + 被写形参 copy + `br entry`）与 `cont`（后半 + 原终结子），中间插 callee 各块（唯一

@@ -115,14 +115,14 @@ is_static / ptypes` 五条平行数组）——那个块**没有任何 attr 槽*
 > 让寻址凭空多出一层下标。
 
 
-> **「顶层函数」这一格的写端要单独走一条路径**：`IrGenMemberEmitter` 给类方法填 `irf.Attrs`，而自由函数走的是另一条发射路径
+> **「顶层函数」这一格的写端要单独走一条路径**：`IrGenMemberEmitter` 给类方法填 ``irf.Attrs``，而自由函数走的是另一条发射路径
 > `IrGenAuxEmitter.EmitFreeFunctions`，它一进循环就 `DeclFacts._unwrap` 剥掉 `AttributedDecl` 外壳
 > ——attribute 列表只挂在外壳上，剥了就再也取不回。于是自由函数的 attr 块恒为空，
 > 与「这个函数没写 attribute」**字节全等**，无错无警。教训与 `ParamAttrs` 那半同源：
 > **两条发射路径各写各的，漏一条不会有任何东西喊疼**。
 
 **自由函数的弃用要走满四棒**，缺一棒就静默失效（这也是它拖了数月没人发现的原因——
-每一棒单看都「有实现」）：`IrGenAuxEmitter` 填 `irf.Attrs` → `TsigReconcile.Rebuild` 把
+每一棒单看都「有实现」）：`IrGenAuxEmitter` 填 ``irf.Attrs`` → `TsigReconcile.Rebuild` 把
 `$Deprecated` 哨兵搬进 `ExportedFuncZ.IsDeprecated` → `ImportedSymbolLoader` 拷进 `MethodSymbol` →
 `MemberResolver` 的自由函数调用分支调 `CheckDeprecatedM`。**最后一棒是纯同包的**：
 `MemberCollector` 收顶层函数时也得问 `HandlerRegistry.HasDeprecated`，否则连同包调用都不报。
@@ -226,7 +226,7 @@ statics / exceptions / strings / reflection）。真正的修法是让 typecheck
 > **prim 收者那两条已经收紧。**上面「26 个 golden
 > 变红」的实测是**对所有收者一起收紧**；prim 这一支单独拿出来收，判据窄得多，实测零回归：
 >
-> - 收紧的前提是**候选集完整**——`env.Symbols.HasClass(wrapper)` 拿到的是主符号表里的真包装类，
+> - 收紧的前提是**候选集完整**——``env.Symbols.HasClass(wrapper)`` 拿到的是主符号表里的真包装类，
 >   成员面是全的，够格判「这个名字不存在」。成员表为空的 stub（懒加载 / 冷启动未载真类）仍然松绑。
 > - 「名字不存在」与「名字在、但没有重载适用」是两句不同的诊断，共用 E0401。
 > - 为什么非收不可：`int x = 5; x.Bogus();` 若不收，**编译期零诊断**，崩在运行期

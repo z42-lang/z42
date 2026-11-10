@@ -77,7 +77,7 @@ flowchart TD
 
 - **优化的位置与粒度**：`IrOptPipeline` 由 `IrGen.Generate` 末尾调用，**每个 CU 的 `IrModule` 单独优化**，所以 Inline 只能内联同一 CU 内的 callee；
   跨 CU / 跨包的调用点不内联。开关由 `optSet` 决定：release 默认 `Opt.All`，debug 默认 `Opt.None`（`CompileInputs.OptSet` 可显式覆盖）。
-- **优化之后还有一步包级处理**：⑧ 里的 `CtorKnownFixup` 需要「本包全部已发射函数 ∪ 依赖索引」才能判定某个 `new` 的构造器是否存在，把结果写进 `ObjNew.CtorKnown`；单个 CU 看不到同包其它文件，所以只能在整包装配后做。
+- **优化之后还有一步包级处理**：⑧ 里的 `CtorKnownFixup` 需要「本包全部已发射函数 ∪ 依赖索引」才能判定某个 `new` 的构造器是否存在，把结果写进 ``ObjNew.CtorKnown``；单个 CU 看不到同包其它文件，所以只能在整包装配后做。
 - **有错误即不生成**：`GenerateIfClean` 在有任何类型错误、包级收集期错误，或前置线（generator 护栏 E0448 / analyzer）报了 error 时不进 `Generate`（`IrDump.BuildPackageCusGated` 的 `upstreamErrors`）。所以代码生成与优化**只对无错误的程序运行**；类型检查照做，诊断一次报全。
 
 ### generator 怎么参与（③，在绑定之前）
@@ -206,20 +206,20 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 
 #### 同短名跨命名空间的类型解析（FQN keying）
 
-`SymbolTable.Classes` 以**裸类名**为键（`Foo`），同短名不同命名空间的类（`namespace A { class Foo }` 与
+``SymbolTable.Classes`` 以**裸类名**为键（`Foo`），同短名不同命名空间的类（`namespace A { class Foo }` 与
 `namespace B { class Foo }`）会在该表里 first/last-wins 只留一份。仅靠裸名表，限定引用 `new A.Foo` 会被剥成
 `Foo` 再查裸名表 → 撞见碰巧赢的那份（B.Foo），致对象身份、`is`/`as`、`GetType().FullName` 全错
 （与静态调用侧同源）。
 
 解法是**并存的 FQN 视图**：
 
-- 每个 `Z42ClassType` 带 `Namespace` 字段（本地类由 `StubCollector` 从 `cu.Namespace` 回填，导入类由
-  `ImportedSymbolLoader` 从模块 ns 回填），并提供 `Fqn()`（`ns.IrName()`；全局类退回裸名）。
+- 每个 `Z42ClassType` 带 `Namespace` 字段（本地类由 `StubCollector` 从 ``cu.Namespace`` 回填，导入类由
+  `ImportedSymbolLoader` 从模块 ns 回填），并提供 `Fqn()`（``ns.IrName()``；全局类退回裸名）。
 - `SymbolTable.ClassesByFqn`（FQN 键 → 类型）**保留每一份**同短名类；按短名键的 `Classes` / `Interfaces` 已于
   fqn-tables 5（2026-10）删除，非限定引用走作用域解析（外围 ns → FQN → using → prelude）。
-- `ResolveTypeP` 的限定名路径按 FQN 命中 `ClassesByFqn`（`A.Foo` → 声明 ns==A 的那份），不剥短名撞赢家。
+- `ResolveTypeP` 的限定名路径按 FQN 命中 `ClassesByFqn`（``A.Foo`` → 声明 ns==A 的那份），不剥短名撞赢家。
 - 发射端限定类名一律取**类型对象**的声明 ns（`EmitContext.QualifyType` / `QualifyLayout` / `QualifySource`）；
-  曾经的「短名 → ns」图（`ImportedClassNs` / `ImportedSymbols.ClassNamespaces`）已删——发射端拿到的短名多来自已解析类型，
+  曾经的「短名 → ns」图（`ImportedClassNs` / ``ImportedSymbols.ClassNamespaces``）已删——发射端拿到的短名多来自已解析类型，
   按短名查图（或按引用方作用域重解析）都会撞同短名的别的类。
 
 > **③ 第三条路：基表（`class C : X` 的那个 `X`）。**
@@ -253,7 +253,7 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 >
 > 上面三条讲的都是**本包内**怎么把一个名字解析对。第四条路是**名字怎么穿过 zpkg** ——
 > 它不能是**有损**的：`TsigReconcile._rebuildClass` 从 TYPE 接口块读出的是 FQ 名
-> （`Demo.IfCollide.IThing`），若剥成裸名再交给消费方，后果是：**消费方只能拿短名去自己的包级 first-wins 表里猜回来**
+> （``Demo.IfCollide.IThing``），若剥成裸名再交给消费方，后果是：**消费方只能拿短名去自己的包级 first-wins 表里猜回来**
 > （`Implements` 入口归一走 `IfaceFqnOf`，不依赖裸名）。
 >
 > 猜错不会报错，会**静默给出错的答案**：
@@ -268,8 +268,8 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 > IThing t = new Widget();                        // 若剥名：零诊断通过（!）
 > ```
 >
-> 若剥名，`Widget.InterfaceNames` 到达消费方时是裸名 `["IThing"]`，归一时猜中了**本地**那个
-> `Demo.IfCollideApp.IThing`（本包声明优先）⇒ 赋值静默放行，直到运行期才炸：
+> 若剥名，``Widget.InterfaceNames`` 到达消费方时是裸名 `["IThing"]`，归一时猜中了**本地**那个
+> ``Demo.IfCollideApp.IThing``（本包声明优先）⇒ 赋值静默放行，直到运行期才炸：
 > `VCall: function Demo.IfCollide.Widget.Other not found`。
 >
 > **做法不是加诊断，是别扔** —— `ExportedClassZ.Interfaces` 的形态契约是 **FQ**，
@@ -301,7 +301,7 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 > `SymbolTable.ClassNsAll`（本地 `StubCollector` 与跨包 `ImportedSymbolLoader` 都在各自的
 > **first-wins 守卫之外**累积——守卫之内只有赢家能进，那正是信息被塌掉的地方）→ 只算本 CU
 > 可见的 ns（using 集 ∪ 本 ns ∪ 全局 ns）→ **当前 ns 的那份直接胜出**（C# 的近者优先）→
-> 剩余 ≥ 2 才报。限定写法（`A.Foo`）永不歧义。
+> 剩余 ≥ 2 才报。限定写法（``A.Foo``）永不歧义。
 >
 > **待办**：导入跨包同短名类型的 **FQN keying** 仍只对本地类做（`ClassesByFqn` 不登记 imported）——
 > 歧义会报，但「限定名精确解析到 imported 的那一份」还没接通。
@@ -311,13 +311,13 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 > 连同成员一起消失，**单文件与跨 CU 两种形态都零诊断**。判据是 **(ns, 名字, arity)** 三者都相同，见下。
 >
 > **④ 多个文件级 namespace**：一个文件里写多个 `namespace X;` 报 **E0457**；否则会**静默 last-wins** —— 全部声明被登记进 **最后**那个 ns，连限定名都随之解析错
-> （实测 `A.Helper.Who()` 打印 `"B"`）。见下「文件级 `namespace` 的位置约束」。
+> （实测 ``A.Helper.Who()`` 打印 `"B"`）。见下「文件级 `namespace` 的位置约束」。
 
 #### arity-mangle 的判据必须是包级的
 
 同短名不同 arity（`class Foo` / `class Foo<T>`）是**两个不同的类型**：泛型那个的注册键带
 `$N` 后缀（`Foo$1`），非泛型的用裸名。是否加后缀由「同短名是否出现了多个 arity」决定 ——
-这个判据**必须与符号表同尺度**：`SymbolTable.Classes` 是 per-package 的。
+这个判据**必须与符号表同尺度**：``SymbolTable.Classes`` 是 per-package 的。
 
 判据若在两处各算一份、且都只扫**当前 CU**（`StubCollector._passClassStubs` 与
 `ExportedTypeExtractor._extractCore` 的开头预扫），就会这样：「a.z42 声明 `Foo<T>`、b.z42 声明 `Foo`」
@@ -353,22 +353,22 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 
 | 维度 | 为什么不能只看它 |
 |---|---|
-| ns | `SymbolTable.Classes` 是**裸名**键，同短名跨 ns（`A.Foo` / `B.Foo`，同一个包里）也会撞 —— 那是**使用点**的歧义（[E0456](#文件级-namespace-的位置约束e0457)，见上节旁）而非重复声明。故按 `ClassesByFqn` 判。 |
+| ns | ``SymbolTable.Classes`` 是**裸名**键，同短名跨 ns（``A.Foo`` / ``B.Foo``，同一个包里）也会撞 —— 那是**使用点**的歧义（[E0456](#文件级-namespace-的位置约束e0457)，见上节旁）而非重复声明。故按 `ClassesByFqn` 判。 |
 | arity | 同短名不同 arity（`Foo` / `Foo<T>`）是**两个不同的类型**，键分别是 `Foo` / `Foo$1`，不构成重复声明。（mangle 判据必须是包级的，见上节。） |
 | partial | `partial` 的重复是**合并**，由上面那条分支处理，不进重复判定。 |
 
 #### 跨包的同全限定名（E0601 / E0606）
 
 E0458 管的是**一个包内**的重复；跨包这半边要另行检查，否则两个互不依赖的包各声明
-`Demo.Ns.Widget` 时（**同 FQN**，不是同短名跨 ns），编译**零诊断、rc=0**，字母序靠前的包赢，
+``Demo.Ns.Widget`` 时（**同 FQN**，不是同短名跨 ns），编译**零诊断、rc=0**，字母序靠前的包赢，
 输的那一份连同全部成员从未存在过。
 
 🔴 **与 E0456 的分工是本节的要点**：
 
 | | E0456 | E0601 |
 |---|---|---|
-| 撞的是什么 | 同**短名**、不同 ns（`A.Foo` / `B.Foo`）| **FQN 本身**（两个包都是 `A.Foo`）|
-| 限定写法能消歧吗 | ✅ 写 `A.Foo` 即可 | ❌ 写全了也一样——两者 FQN 逐字相同 |
+| 撞的是什么 | 同**短名**、不同 ns（``A.Foo`` / ``B.Foo``）| **FQN 本身**（两个包都是 ``A.Foo``）|
+| 限定写法能消歧吗 | ✅ 写 ``A.Foo`` 即可 | ❌ 写全了也一样——两者 FQN 逐字相同 |
 | 判据的输入 | **源码写法**（`TypeExpr`，因为要区分裸名/限定名）| **解析结果**（`Z42Type` 的 `Fqn()`）|
 | 输家还能指到吗 | 能（限定写法）| **不能**，z42 没有 C# `extern alias` 那样的机制 |
 
@@ -416,7 +416,7 @@ E0458 管的是**一个包内**的重复；跨包这半边要另行检查，否�
 
 | | 类型 | 自由函数 |
 |---|---|---|
-| 符号表的键 | 裸名 `Classes` + **`ClassesByFqn` 兜底** | `FunctionsByFqn`（`ns.name`，见下节）|
+| 符号表的键 | 裸名 `Classes` + **`ClassesByFqn` 兜底** | `FunctionsByFqn`（``ns.name``，见下节）|
 | 同短名跨 ns | 各占一条 FQN 记录 | 各占一条 FQN 记录（不撞同一个键）|
 | 输家还能指到吗 | 限定写法有时可以 | **永远不能**——z42 的自由函数只有裸名一种调用形态 |
 | 运行期兜底 | `duplicate type … keeping first-loaded`（打 stderr）| 常常**连 warn 都没有**：输的那个包因惰性加载压根不会被载入 |
@@ -447,7 +447,7 @@ ns 与 pkg 一起存：三种形状恰好由「ns 同不同」×「pkg 同不同
 #### 本包自由函数按命名空间解析
 
 上一节的三个码管「同名来自哪些包」；这一节管更基础的一件事——**本包内**的自由函数怎么登记、裸名调用
-解析到哪一份、发射端发什么名字。三处口径必须一致；若 `SymbolTable.Functions` 以**裸名**为键且后写覆盖，
+解析到哪一份、发射端发什么名字。三处口径必须一致；若 ``SymbolTable.Functions`` 以**裸名**为键且后写覆盖，
 类型检查查它，而发射端一律按**调用方当前 ns** 限定（导入的除外），实测有三种坏形态：
 
 | 形态 | 口径不一致时 | 按 ns 解析 |
@@ -456,8 +456,8 @@ ns 与 pkg 一起存：三种形状恰好由「ns 同不同」×「pkg 同不同
 | `Alpha` 有 `int f(int)`、`Beta` 有 `string f()`，Alpha 里调 `f(41)` | 绑到后注册那份：`a.z42`/`b.z42` 假报 E0402，改个文件名就过——**成败看文件名** | 绑 Alpha 的 `f`，与文件序无关 |
 | Alpha 里 `using Beta; g(1)`（`g` 只在 Beta） | 编译通过，发 `call @Alpha.g` → 运行期 `undefined function` | 发 `call @Beta.g` |
 
-**数据**：`SymbolTable.FunctionsByFqn`（`ns.name` → 符号，本包与导入共用；同 FQN 本包覆盖导入 = local-wins）+
-`FuncNsAll`（短名 → 声明过它的全部 ns）。本包由 `MemberCollector` 按 `cu.Namespace` 登记，导入由
+**数据**：`SymbolTable.FunctionsByFqn`（``ns.name`` → 符号，本包与导入共用；同 FQN 本包覆盖导入 = local-wins）+
+`FuncNsAll`（短名 → 声明过它的全部 ns）。本包由 `MemberCollector` 按 ``cu.Namespace`` 登记，导入由
 `ImportedSymbolLoader` 按模块 ns 登记、`SymbolCollector._mergeImports` 并入。
 
 **解析**（`SymbolTable.ResolveFuncNs`，与类型裸名同口径，**判据只此一份**——E0456 的 `AmbiguousFuncNameMsg`
@@ -523,7 +523,7 @@ resolve = candidates[0]；|candidates| ≥ 2 ⇒ E0456（调用点另报）
   `SymbolCollector._freeFnLocalSeen`（跨文件同 ns 只能一个 primary，故不能 per-CU；只统计本地——导入
   函数各自带包内定好的 RegKey）。
 - **候选集**（`SymbolTable`）：`FunctionsByFqn` 键改为 **RegKey-限定 FQN**（`QualOf(ns, RegKey)`：primary =
-  `ns.name`、非-primary = `ns.name$arity$T`），`GetFuncIn(ns, name)` 仍命中 primary（单符号消费点不受影响）；
+  ``ns.name``、非-primary = `ns.name$arity$T`），`GetFuncIn(ns, name)` 仍命中 primary（单符号消费点不受影响）；
   伴生 `FuncOverloadsByFqn`（**基名** FQN → `MethodSymList`）按基名分组供决议枚举，`GetFuncCandidates` 取之。
 - **调用点**（`MemberResolver` 两处自由调用漏斗）：`GetFuncCandidates` → `OverloadBinder._resolveFreeOverload`
   （与类方法共用抽出的 `_resolveOverloadCands` 核心：arity 过滤 / params / 默认值 / 命名实参 / type-based
@@ -548,20 +548,20 @@ resolve = candidates[0]；|candidates| ≥ 2 ⇒ E0456（调用点另报）
 | 字段 / 属性 / 形参 / 返回 / 基类 / 约束 | `SymbolCollector._chkTypeRefT` |
 | 裸类名静态调用 `Util.go()` | `MemberResolver` 静态调用分支 |
 | **ns 限定静态调用** `A.B.Util.go()` | 同上的 qualified 分支（`_dottedPath`，**独立一条**） |
-| **静态成员读** `Cfg.N` | `BoundStaticGet` 分支（**不是「调用」**） |
-| 自由函数调用（裸名 / `ns.f()`） | `MemberResolver` 两处自由调用漏斗 |
-| **enum 常量读** `Color.Green` | `ChkEnumOrigins`（绑成 `BoundLitInt`，**不经任何类型引用检查**） |
+| **静态成员读** ``Cfg.N`` | `BoundStaticGet` 分支（**不是「调用」**） |
+| 自由函数调用（裸名 / ``ns.f()``） | `MemberResolver` 两处自由调用漏斗 |
+| **enum 常量读** ``Color.Green`` | `ChkEnumOrigins`（绑成 `BoundLitInt`，**不经任何类型引用检查**） |
 
 > 🔴 **enum 是这一族里唯一「静默错**值**」的形态**：同名 enum 在两个包里成员顺序可以不同，而
-> `EnumConsts` 是**裸键**（`Enum.Member`）⇒ first-wins ⇒ `Color.Green` 静默折出**另一个整数**
+> `EnumConsts` 是**裸键**（``Enum.Member``）⇒ first-wins ⇒ ``Color.Green`` 静默折出**另一个整数**
 > （实测 `{Red,Green}` vs `{Green,Red}` ⇒ 1 vs 0）。其余形态错的是「绑到哪一份」。
 >
 > enum 的**类型注解位**则是另一个根因：`_mergeImportedEnums` 从不并 `EnumTypeNs` ⇒ 导入 enum 的
-> `Z42ClassType.Enum(name)` 恒 `Namespace=""`、`Fqn()` 退化成裸名 ⇒ 与 `ClassPkgAll` 的 `ns.Name`
+> `Z42ClassType.Enum(name)` 恒 `Namespace=""`、`Fqn()` 退化成裸名 ⇒ 与 `ClassPkgAll` 的 ``ns.Name``
 > 对不上。把那张表补上，既有检查**自然点亮，零新检查**。
 >
 > ⚠️ **量这张表要抓「任何诊断码」**：只 grep 自己关心的那几个，会把「这写法本就不受支持」的
-> `E0401` 显示成「零诊断」，让人去修一个不存在的洞（`A.B.Cfg.N` 就是这样一次假警报）。
+> `E0401` 显示成「零诊断」，让人去修一个不存在的洞（``A.B.Cfg.N`` 就是这样一次假警报）。
 
 #### 文件级 `namespace` 的位置约束（E0457）
 
@@ -643,16 +643,16 @@ throw-on-switch-expr-no-match 之前的答案是「没人写」—— 循环走�
 **任何**声明形式——`var`、foreach 变量、模式变量（`is T x` / `case C c` / 属性·位置模式）、catch 变量、
 `out var`、解构——都自动算本函数局部。形参在建作用域时先把 `FnLocals` 置空，免得登记进**外层** lambda 的表。
 
-> 若由各声明点各自 `_lambdaLocals.Put`，容易漏掉 foreach 与模式变量
+> 若由各声明点各自 ``_lambdaLocals.Put``，容易漏掉 foreach 与模式变量
 > ⇒ 被当成捕获 ⇒ 外层根本没有这个变量 ⇒ 发射端往捕获槽塞 `ConstNull` ⇒
 > `() => { foreach (int x in xs) { s = s + x; } }` 运行期 `type mismatch in arithmetic: I64(0) vs Null`。
-> 新增声明形式只要走 `env.Define`，就不会漏。
+> 新增声明形式只要走 ``env.Define``，就不会漏。
 
 #### 属性的「源名 ↔ 后备字段名」落差（binder ↔ emitter 对称）
 
 属性在符号表里以**源名** `X` 登记一个 `FieldSymbol`（`MemberCollector` 处理 `PropertyDecl` 时
-`ct.Fields.Put(pd.Name, …)`）——这样类型检查可以像字段一样查它的类型。但**存储不叫 `X`**：
-`MemberCollector` 另外合成一个后备字段 `__prop_X`（`ct.AddOwnField("__prop_" + pd.Name, …)`），
+``ct.Fields.Put(pd.Name, …)``）——这样类型检查可以像字段一样查它的类型。但**存储不叫 `X`**：
+`MemberCollector` 另外合成一个后备字段 `__prop_X`（``ct.AddOwnField("__prop_" + pd.Name, …)``），
 `get_X` / `set_X` 访问器读写的都是它。计算属性（`X { get {..} }`，`HasGetBody`）**没有存储**，
 getter 是真实函数体。
 
@@ -663,21 +663,21 @@ getter 是真实函数体。
 
 | 路径 | 违反时的行为 | 根因 |
 |------|--------|------|
-| `this.X = v`，`X` 无 setter | 按源名 `field_set` | setter 派发只在 `ct.Methods` 有 `set_X` 时触发 |
-| 类内裸写 `X = v` | 当成「首次赋值一个新局部」，属性根本没被写 | 裸 ident 路径只认 `_ctx.Fields`，未命中就落局部分配 |
-| 类内裸读 `X` | `field_get %0.X` → 恒 `Null` | 同上，`_ctx.Fields` 由 `owner.Fields.Keys()`（**源名**）填 |
-| 经子类引用读/写基类属性 | `field_get obj.X` → 恒 `Null` | `ct.Methods` **不含继承来的**访问器（只有 `_passInheritFields` 把基类 `FieldSymbol` 并进子类 `Fields`） |
+| `this.X = v`，`X` 无 setter | 按源名 `field_set` | setter 派发只在 ``ct.Methods`` 有 `set_X` 时触发 |
+| 类内裸写 `X = v` | 当成「首次赋值一个新局部」，属性根本没被写 | 裸 ident 路径只认 ``_ctx.Fields``，未命中就落局部分配 |
+| 类内裸读 `X` | `field_get %0.X` → 恒 `Null` | 同上，``_ctx.Fields`` 由 ``owner.Fields.Keys()``（**源名**）填 |
+| 经子类引用读/写基类属性 | `field_get obj.X` → 恒 `Null` | ``ct.Methods`` **不含继承来的**访问器（只有 `_passInheritFields` 把基类 `FieldSymbol` 并进子类 `Fields`） |
 
 做法是把这条落差**显式带给下游**，而不是在每个发射点各自猜：
 
 - `FieldSymbol` 带三个标志：`IsProp`（这其实是属性）/ `IsPropNoSetter`（没有 setter）/
   `PropBackingName`（`__prop_X`；计算属性为 `""`）。**继承自动带过来**——`_passInheritFields`
   把基类的 `FieldSymbol` **对象本身**放进子类 `Fields`，所以子类那份带着同样的标志。
-- 成员路径（`obj.X`）的 getter / setter 判据，从「`ct.Methods` 有 `get_X`/`set_X`」放宽为
-  「有 `get_X`/`set_X` **或** 该成员是属性」——继承来的访问器编译期不在 `ct.Methods`，但运行期经
+- 成员路径（``obj.X``）的 getter / setter 判据，从「``ct.Methods`` 有 `get_X`/`set_X`」放宽为
+  「有 `get_X`/`set_X` **或** 该成员是属性」——继承来的访问器编译期不在 ``ct.Methods``，但运行期经
   vtable 找得到。无 setter 的属性落 `field_set obj.__prop_X`。
 - 裸 ident 路径（`X`）：`EmitContext` 带 `InstProps` / `InstPropHasSet`（`FunctionEmitter` 从
-  `owner.Fields` 填），判定**先于** `_ctx.Fields`，让裸 `X` 与 `this.X` 同义。局部遮蔽不受影响——
+  ``owner.Fields`` 填），判定**先于** ``_ctx.Fields``，让裸 `X` 与 ``this.X`` 同义。局部遮蔽不受影响——
   `Locals` 的查找本来就在更前面。**struct 属主（`OwnerStructName != ""`）保守不启用**，其 blob
   布局另有一套 `StructFieldGet/SetPrim` 翻转路径。
 
@@ -697,7 +697,7 @@ getter 是真实函数体。
 **问题**：若该分支只用 `_overloadKey`（`name$arity`）+ `_findMethod` 查方法键——**不做类型决议**。当包装类有**同 arity 不同类型**的重载（如 `String.Split(string)` / `Split(char[])`）时，`MemberCollector` 已把它们 mangle 成 `Split$1$string` / `Split$1$char[]`（`OverloadResolver.MangleKey`），`_overloadKey` 试 `Split$1` 查不到 → 回退裸 `Split`：
 
 - **本地编译**（z42.core 编自己）：`MemberCollector` 对 mangle 方法**只注册 mangle 键、无裸键** → `_findMethod` 落空（`wms==null`）→ 裸名 loose-bind Unknown → codegen 的 DepIndex 实例捷径被下游同短名方法（`Std.Regex.Regex.Split`）劫持 → `TrackDepNamespace("Std.Regex")` → **E0436**（`namespace Std.Regex is used but not imported`）。
-- **跨包调用**（用户代码 import z42.core 调 `s.Split(...)`）：`ImportedSymbolLoader` 为每个 mangle 方法**额外注册一个裸-first-wins 别名键**（ImportedSymbolLoader.z42（`Load`））→ `_findMethod(裸 "Split")` **命中首个重载**（`wms!=null`）→ emit **裸名** VCall → 运行期 VM 查 `Std.String.Split`（非注册函数，实际键是 `Split$1$string`）→ `VCall: expected object`。
+- **跨包调用**（用户代码 import z42.core 调 ``s.Split(...)``）：`ImportedSymbolLoader` 为每个 mangle 方法**额外注册一个裸-first-wins 别名键**（ImportedSymbolLoader.z42（`Load`））→ `_findMethod(裸 "Split")` **命中首个重载**（`wms!=null`）→ emit **裸名** VCall → 运行期 VM 查 `Std.String.Split`（非注册函数，实际键是 `Split$1$string`）→ `VCall: expected object`。
 
 **做法（同 arity 多重载才做完整决议）**：MemberResolver.z42（`BoundCall`） 的门，先算 `OverloadBinder._sameArityOverloadCount(...)`（复用 `_collectOverloads` 的 RegKey 去重 + 走基链，同 `_resolveOverload` 的 byArity 过滤）：
 
@@ -738,7 +738,7 @@ ResolveMapped: 适用集里找唯一「支配所有其它」的候选
 实参形态由 `OverloadBinder._argShape` 建：命名实参判据与 `_bindCall` 的延迟判据同一份（`ExprTyper.IsNamedArg`）；
 构造器路径在决议前就地绑定非延迟实参取类型（有命名实参时不把 `a: "b"` 当成对变量 `a` 的赋值绑定）。
 
-不做映射时的形态：`M.F("a")` 对 `F()` + `F(string a, int n = 2)` 报找不到方法；`new C("a")` 同形**编译通过、运行期选中无参构造器**；
+不做映射时的形态：``M.F("a")`` 对 `F()` + `F(string a, int n = 2)` 报找不到方法；`new C("a")` 同形**编译通过、运行期选中无参构造器**；
 `Q("a")` 对 `Q(string a, int n = 2)` + `Q(params object[])` **静默选中 params**；命名实参在多重载时报 E0437 + `undefined`。
 
 #### 构造器重载：选重载时的试绑是**试探性**的
@@ -750,13 +750,13 @@ ResolveMapped: 适用集里找唯一「支配所有其它」的候选
 否则 `new C(undefinedThing)` 报两条 E0401；`new C(new())` 对 `C(P)` + `C(int,int)` 报假的 E0437。
 决议本身报的「歧义」诊断在截断**之后**发，不会被吞。
 
-#### prim 类型的静态字段读（`int.MaxValue`）
+#### prim 类型的静态字段读（``int.MaxValue``）
 
-裸类型名的静态字段读（`Type.FIELD`）绑定走 `MemberResolver._bindMember`（MemberResolver.z42（`_bindMember`））：`target` 是类名（非变量）且该类有同名 `static` 字段 → 产 `BoundStaticGet`，emit `StaticGetInstr @<FQN>.<field>`，运行期由 VM 启动的 `<ns>.__static_init__` pass 初始化（`src/runtime/crates/z42-interp/src/interp/run/mod.rs` `init_static_fields`，机制同 `Std.Math.Pi`）。
+裸类型名的静态字段读（``Type.FIELD``）绑定走 `MemberResolver._bindMember`（MemberResolver.z42（`_bindMember`））：`target` 是类名（非变量）且该类有同名 `static` 字段 → 产 `BoundStaticGet`，emit `StaticGetInstr @<FQN>.<field>`，运行期由 VM 启动的 `<ns>.__static_init__` pass 初始化（`src/runtime/crates/z42-interp/src/interp/run/mod.rs` `init_static_fields`，机制同 `Std.Math.Pi`）。
 
-**问题**：标量基元（`int` / `double` / …）在符号表里**只以包装名 keying**（`Int32` / `Double`，`SymbolTable.Classes`），关键字别名 `int` 的 `HasClass("int")` 为 false → 该分支跳过 → `int.MaxValue` 落到实例 `FieldGet`（受者为裸类型名求值出的 Null）→ 运行期 `FieldGet: not an object or known value type, got Null`。
+**问题**：标量基元（`int` / `double` / …）在符号表里**只以包装名 keying**（`Int32` / `Double`，``SymbolTable.Classes``），关键字别名 `int` 的 `HasClass("int")` 为 false → 该分支跳过 → ``int.MaxValue`` 落到实例 `FieldGet`（受者为裸类型名求值出的 Null）→ 运行期 `FieldGet: not an object or known value type, got Null`。
 
-**做法**：MemberResolver.z42（`_bindMember`） 在 `HasClass` 前有一步——`!HasClass(name) && PrimModel.IsBuiltin(name)` 时把 `name` 归一到 `PrimModel.Wrapper(name)`（`"int"→"Int32"`），并用归一后的包装名产 `BoundStaticGet`（其 `QualifyClass` 得 `Std.Int32`、匹配 `Std.Int32.__static_init__` 写入的键）。于是 `int.MaxValue` 与 `Int32.MaxValue` 绑定到同一静态字段。跨包 `Int32.MaxValue` 本就走 `HasClass("Int32")` 命中的原分支（static 字段随 zbc 类型段导入），无需改动。const 字段不适用（跨包不序列化值、`IsStatic` 亦为 false）——故 `Int32.MaxValue` 等采用 `static` 字段（值单一真相源在 `Primitives/*.z42`，经 `__static_init__` 落地；`Double.NaN`/`±Infinity` 借 `BitConverter` 在 init 期构造，const 折叠做不到）。
+**做法**：MemberResolver.z42（`_bindMember`） 在 `HasClass` 前有一步——`!HasClass(name) && PrimModel.IsBuiltin(name)` 时把 `name` 归一到 `PrimModel.Wrapper(name)`（`"int"→"Int32"`），并用归一后的包装名产 `BoundStaticGet`（其 `QualifyClass` 得 `Std.Int32`、匹配 ``Std.Int32.__static_init__`` 写入的键）。于是 ``int.MaxValue`` 与 `Int32.MaxValue` 绑定到同一静态字段。跨包 `Int32.MaxValue` 本就走 `HasClass("Int32")` 命中的原分支（static 字段随 zbc 类型段导入），无需改动。const 字段不适用（跨包不序列化值、`IsStatic` 亦为 false）——故 `Int32.MaxValue` 等采用 `static` 字段（值单一真相源在 `Primitives/*.z42`，经 `__static_init__` 落地；`Double.NaN`/`±Infinity` 借 `BitConverter` 在 init 期构造，const 折叠做不到）。
 
 #### 调用实参的类型检查（与赋值同一条门）
 
@@ -834,7 +834,7 @@ primary（声明序第一个同名成员） → key = 裸名          （= 唯�
 
 primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载序，确定）。纪律：**新增重载一律追加在既有之后**，否则 primary 易主 → 既有 primary rekey（写入 spec 场景 + 由「不改 z42c 源既有重载声明序」保证）。
 
-调用点 emit（`MemberResolver`）：静态可决议的具体重载 → 发 `ms.RegKey`（primary 裸 / 非-primary 全键）；多态派发（虚/接口/泛型参数接收者）→ 发裸规范槽。**prim-wrapper 接收者不再有 arity 快路径**——统一走 `_resolveOverload` 取 `RegKey`（不能用 `_sameArity<2` 时的 `Name$arity` 分支，那会对非-primary 重载发错 arity 键致段错误）。
+调用点 emit（`MemberResolver`）：静态可决议的具体重载 → 发 ``ms.RegKey``（primary 裸 / 非-primary 全键）；多态派发（虚/接口/泛型参数接收者）→ 发裸规范槽。**prim-wrapper 接收者不再有 arity 快路径**——统一走 `_resolveOverload` 取 `RegKey`（不能用 `_sameArity<2` 时的 `Name$arity` 分支，那会对非-primary 重载发错 arity 键致段错误）。
 
 **四个必须镜像的落点**（辐射面收敛到「非-primary 重载的可达性」，有界可枚举）：
 
@@ -842,21 +842,21 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 |------|------|
 | **ctor 键**（`OverloadBinder._ctorKey`） | `Box$argCount` 查不到非-primary 全键（如 `Box$2$i32$i32`）→ 按 `argCount` 在本类 ctor 里找匹配者返其 `RegKey`（否则 `new Box(3,4)` 发裸 `Box` → ObjNew 命中 primary arity-1 ctor → 错 ctor） |
 | **协议豁免名重载**（`ToString`/`Equals`/…） | 协议豁免名**也走 primary/非-primary**：规范签名（声明序首个）= primary 裸（VM vtable/DepIndex 硬查锚点保住）；其重载（`ToString(string)`）= 非-primary 全键（否则全裸 last-wins 撞车——`guid.ToString("D")` 派发到无参 `ToString` 丢 format） |
-| **VM vtable 槽**（`type_desc.rs derive_simple_method_name`） | 返回**完整键、不再剥 `$` 后缀**——否则同名多个虚重载塌进一槽（H4：`o.F(int)` 与 `o.F(int,int)` 撞）。`merge_with_base` 的 override 匹配 + JIT `vtable_index` 同用此键 |
+| **VM vtable 槽**（`type_desc.rs derive_simple_method_name`） | 返回**完整键、不再剥 `$` 后缀**——否则同名多个虚重载塌进一槽（H4：``o.F(int)`` 与 ``o.F(int,int)`` 撞）。`merge_with_base` 的 override 匹配 + JIT `vtable_index` 同用此键 |
 | **碰撞守卫**（`MemberCollector` `sigSeen`） | primary=裸、非-primary=全键，`G(string)`/`G(string?)` 的 `RegKey` 不相同 → `DeclBinder` 按 `RegKey` 判重会漏判 → 故在此按**全签名 MangleKey**（含 nullable/alias 归一）自查：同全签名 ≥2 报 E0408。协议豁免名 + 转换运算符跳过（各有专属冲突检测） |
 
 **格式**：加/删重载永久 additive、不再 bump。
 
 #### 注册键的单一 owner（写侧唯一入口 + 读侧不变量）
 
-上一节那套键规则**不能被手抄**（手抄会长成「先试 `md.RegKey`，空则试 `Name$arity`，再空则退回裸名」这种多份兜底，改键规则时漏同步其中一份就会拿错 symbol）。
+上一节那套键规则**不能被手抄**（手抄会长成「先试 ``md.RegKey``，空则试 `Name$arity`，再空则退回裸名」这种多份兜底，改键规则时漏同步其中一份就会拿错 symbol）。
 
 收敛成两个口子，各自只有一个实现：
 
 | 方向 | 唯一实现 | 职责 |
 |------|---------|------|
-| **写** | `SymbolCollector.RegisterMethod(ct, md, sym, key)` | `sym.RegKey = key` + `md.RegKey = key` + `ct.Methods.Put(key, sym)` 三件事绑成一个动作 → 结构上不可能「注册了却没填键」（若只 `Put` 不写，impl-block 方法的 `RegKey` 会恒空、逼出一圈兜底） |
-| **读** | `OverloadResolver.MethodKeyOf(md)` | 直接返回 `md.RegKey`；**为空即抛**，不再按名字猜 |
+| **写** | `SymbolCollector.RegisterMethod(ct, md, sym, key)` | `sym.RegKey = key` + `md.RegKey = key` + ``ct.Methods.Put(key, sym)`` 三件事绑成一个动作 → 结构上不可能「注册了却没填键」（若只 `Put` 不写，impl-block 方法的 `RegKey` 会恒空、逼出一圈兜底） |
+| **读** | `OverloadResolver.MethodKeyOf(md)` | 直接返回 ``md.RegKey``；**为空即抛**，不再按名字猜 |
 
 **为什么读侧宁可抛也不回落**：猜出来的裸名在 primary/非-primary 规则下可能恰好命中**另一个同名重载**（primary 才是裸键）——编译成功、跑起来才派发错人。派发缺陷的典型失败模式就是这种「静默派发到错误目标」，编译期炸出调用栈远好过运行期查半天。
 
@@ -896,9 +896,9 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
   `Z42GenericParamType` 而非 Unknown）；键仍裸名，实参在类型位擦除，与运行期一致。
 - **嵌套 delegate 声明**需要 `MemberParser._parseMemberBody` 的 `delegate` 分支，否则
   `delegate` 落到 `_parseType()` 被当成一个名叫 `delegate` 的类型，整条声明报废、该类型**整体消失**。
-  沿用嵌套类型的展平机制：`NestedFlatten` 把它改名 `Outer+Inner` 提升为顶层，
+  沿用嵌套类型的展平机制：`NestedFlatten` 把它改名 ``Outer+Inner`` 提升为顶层，
   `ResolveTypeP` 的 dots→`+` 兜底再补一条查 `Delegates`。引用形式因此与嵌套 class/enum 完全一致
-  ——**dotted-path `Outer.Inner`，裸名不解析**（裸名限制是展平方案的通例，不是 delegate 特有）。
+  ——**dotted-path ``Outer.Inner``，裸名不解析**（裸名限制是展平方案的通例，不是 delegate 特有）。
 
 > 这两条都是「binder 不认 / emitter 照发」的同族：`IrGenAuxEmitter.EmitDelegates` 一直在为泛型
 > delegate 发 TYPE 元数据 + `Invoke(...) -> R`（未解析的型参名），只有 binder 那半边缺席。
@@ -908,7 +908,7 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 `MemberExpr` ⇒ 三条全落空、直冲实例路径 → 递归到最里层把 `Std` 当变量查 →
 `E0401: undefined: Std`。判别补法：把点串拍平成 `<prefix>.<Short>`，`prefix` 须是**本 CU 可见的
 命名空间**（`using` 集 ∪ 本 ns，由 `TypeChecker._collectUsings` 逐 CU 采集），且链根标识符不是局部
-变量（否则真实例链 `a.b.M()` 会被劫持）。命中后按短名走与裸名**同一条**决议路径。
+变量（否则真实例链 ``a.b.M()`` 会被劫持）。命中后按短名走与裸名**同一条**决议路径。
 
 > 因此它**不做歧义消解**：同短名跨 ns 时仍是 `Classes` 的 first-wins 赢家，与今天写裸名等价。
 > 要靠限定名消歧，得先让 imported 类带上 `Namespace`（`ImportedSymbolLoader` 目前**没有**设它，
@@ -931,14 +931,14 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 1. **parser**：类成员位置遇 `class` / `struct` / `interface` / `enum` / `record` 关键字 → 按类型声明
    解析（其成员体递归解析成员 ⇒ 深层嵌套天然支持）。
-2. **展平（`NestedFlatten`）**：把嵌套类型**提升为顶层声明**、名改 `Outer+Inner`（任意深度
-   `A+B+C`）。此后符号收集 / 名解析 / TYPE·SIGS·FUNC 发射全部把它们当**普通顶层类型**处理——
+2. **展平（`NestedFlatten`）**：把嵌套类型**提升为顶层声明**、名改 ``Outer+Inner``（任意深度
+   ``A+B+C``）。此后符号收集 / 名解析 / TYPE·SIGS·FUNC 发射全部把它们当**普通顶层类型**处理——
    零新机制。pass 幂等（每个编译单元只展平一次）。它同时在 AST 上把嵌套类型的 base / 接口引用
    限定到 `+` 全名，于是 `class Inner : Outer.Other` 这类兄弟嵌套继承不必在下游再解释一次。
-3. **名解析**：类型位置的点串 `Outer.Inner` → 转 `+` 键（`Outer+Inner`）查表；namespace 限定名
-   （`Std.Console` → `Std+Console` 未注册）自然跳过，无需先判断点号是哪种含义。
+3. **名解析**：类型位置的点串 ``Outer.Inner`` → 转 `+` 键（``Outer+Inner``）查表；namespace 限定名
+   （`Std.IO.Console` → ``Std+Console`` 未注册）自然跳过，无需先判断点号是哪种含义。
 4. **runtime 反射**：`GetNestedTypes` 扫已加载类型取 `<this>+<simple>`（直接子）；
-   `GetDeclaringType` / `IsNested` 从 `+` 派生；`Type.Name` 的简单名同时按 `.` 和 `+` 取末段。
+   `GetDeclaringType` / `IsNested` 从 `+` 派生；``Type.Name`` 的简单名同时按 `.` 和 `+` 取末段。
 
 **格式代价为零**：嵌套关系纯从名字派生（找 `+`），类型元数据不加字段 ⇒ 无 zbc / zpkg bump
 （与数组 `[]` 后缀、构造泛型 `<>` 串同一设计路数）。
@@ -978,7 +978,7 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 ### IR 生成（IrGen）
 
-Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交给 `FunctionEmitter` 发射为寄存器式 IR 函数，汇总类描述与字符串池成 `IrModule`。函数以 `Class.Method`（类方法）或函数名（顶层函数）为键。
+Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交给 `FunctionEmitter` 发射为寄存器式 IR 函数，汇总类描述与字符串池成 `IrModule`。函数以 ``Class.Method``（类方法）或函数名（顶层函数）为键。
 
 代码生成只依赖 `SemanticModel` 这一接口，与前端类型检查解耦。观察：`--dump-ir`。
 
@@ -992,8 +992,8 @@ Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交�
 而发射侧同时还有**另外两套名字**：`emitKey`（会被改写成 `IrStaticCtor.MethodKey` 或
 `methKey + "$struct"`）与 `irName`（FQ / 实例化名）。三套名字 + 两处特例改写。
 
-> 🔴 **落空的后果若不处理就是「零诊断丢掉整个方法」**：`md.HasBody` 为真（AST 亲口说有体）而
-> `bodyM.HasBody(key)` 为假时，若那个 `if` **没有 else** ⇒ 这个方法一个字节都不发，
+> 🔴 **落空的后果若不处理就是「零诊断丢掉整个方法」**：``md.HasBody`` 为真（AST 亲口说有体）而
+> ``bodyM.HasBody(key)`` 为假时，若那个 `if` **没有 else** ⇒ 这个方法一个字节都不发，
 > 编译成功，直到运行期才以 `undefined function …` / `MissingSymbolException` 现形 ——
 > 位置离原因很远，而原因是**编译器自己的键构造 bug**，不是用户的错。
 >
@@ -1014,7 +1014,7 @@ Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交�
 > 一个字节都不发，运行期才 `VCall: function Box$1<int>.get_X not found`。
 
 **改键的纪律**：动 `methKey` 的拼法必须同时看写读两端。代码里有一条注释记着实测教训 ——
-「只改**发射名**，不能改 `methKey`：两者一起改会让 `model.HasBody` 落空 → 函数根本不发射」。
+「只改**发射名**，不能改 `methKey`：两者一起改会让 ``model.HasBody`` 落空 → 函数根本不发射」。
 
 #### 字节布局表（StructLayout）是包级单例，不随 CU 重建
 
@@ -1025,12 +1025,12 @@ Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交�
 PatternEmitter（烘焙 `struct_fget_prim` 等指令的立即数 offset）**同源查这一张表** → 写侧与
 读侧偏移必然一致。
 
-这张表的输入只有 `SymbolTable.Classes` / `SymbolTable.Interfaces`，二者是**包级**数据：
+这张表的输入只有 ``SymbolTable.Classes`` / ``SymbolTable.Interfaces``，二者是**包级**数据：
 
 - 唯一的写入口 `Z42ClassType.AddOwnField` 只在 `SymbolCollector`（本包源码）与
   `ImportedSymbolLoader`（跨包导入符号）阶段调用，二者都在 per-file 编译循环**之前**跑完；
   `TypeChecker.Infer` / `IrGen.Generate` 全程不写。
-- 每个 CU 拿到的 `model.Symbols` 是 `SymbolTable.WithAliases` 的**浅拷贝视图**——只换
+- 每个 CU 拿到的 ``model.Symbols`` 是 `SymbolTable.WithAliases` 的**浅拷贝视图**——只换
   `CurrentAliases`，`Classes`/`Interfaces` 与包级表**共享同一引用**。
 
 所以「逐 CU 各建一份」与「整包建一份」结果恒等。故布局表由 `IrDump.BuildPackageCus`
@@ -1087,11 +1087,11 @@ z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控
      try { while (__e.MoveNext()) { <T> x = __e.Current; <body> } }
      finally { __e.Dispose(); } }
    ```
-   再交 `_bindStmt`——**复用** struct 值返回（sret）/ try-finally 栈（上节）/ break-continue-return 经 finally / 方法·属性派发**全部既有 lowering**，零新 Bound 节点、零新 emitter。`__e` 取 `GetEnumerator()` 的**具体 struct 类型**（pattern-based 无装箱），`__e.Current` 是 struct 属性 getter（经 `get_Current` 静态 Call / sret-aware）。
+   再交 `_bindStmt`——**复用** struct 值返回（sret）/ try-finally 栈（上节）/ break-continue-return 经 finally / 方法·属性派发**全部既有 lowering**，零新 Bound 节点、零新 emitter。`__e` 取 `GetEnumerator()` 的**具体 struct 类型**（pattern-based 无装箱），``__e.Current`` 是 struct 属性 getter（经 `get_Current` 静态 Call / sret-aware）。
 
 **关键不变量（自举）**：path 1/2 的 `_emitForeach` 完全不动、path 3 的脱糖只在 IEnumerable-only 类型上触发——z42c 源自身 foreach 均走数组/索引 path，从不进脱糖分支 → gen1==gen2 逐字节不动点不受影响。无新 IR 指令 / 无格式 bump（`GetEnumerator`/`MoveNext`/`get_Current`/`Dispose` 全是既有 `Call`/`VCall`）。`ListEnumerator<T>`/`DictionaryEnumerator<K,V>` 是 `Std.Collections` 的 `[Record] struct`（值语义、迭代零堆分配）。用例见 `src/tests/basic/foreach_ienumerable.z42`。
 
-> **配套要求**：foreach 脱糖用的 `__e.Current` 依赖 struct **属性 getter** 读的两点：① 成员不能一律当字段发 `struct_fget_prim @-1`（见 [struct 值语义](../runtime/struct-value-semantics.md)）；② imported 泛型 struct 属性 getter 返回类型须经 `_substGeneric` 替换（否则松绑 `Unknown` → sret 失配；`MemberResolver` 的 `Z42InstantiatedType` 成员访问分支处理属性 getter + 替换）。
+> **配套要求**：foreach 脱糖用的 ``__e.Current`` 依赖 struct **属性 getter** 读的两点：① 成员不能一律当字段发 `struct_fget_prim @-1`（见 [struct 值语义](../runtime/struct-value-semantics.md)）；② imported 泛型 struct 属性 getter 返回类型须经 `_substGeneric` 替换（否则松绑 `Unknown` → sret 失配；`MemberResolver` 的 `Z42InstantiatedType` 成员访问分支处理属性 getter + 替换）。
 
 ### 写出（Emit）
 
@@ -1120,7 +1120,7 @@ z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控
   （`ToString` / `Equals` / `GetHashCode` / `GetType` / `get_Item` / `set_Item`，见
   `SymbolCollector.IsProtocolExempt`）恒以**裸名**注册——VM / DepIndex 按裸字面名走 vtable **单槽**多态
   派发（装箱相等、字典哈希、字符串插值、反射、索引器语法都靠它），故这些名不许 mangle。于是同名多重载
-  （如 `Equals(object?)` + `Equals(string)`）的 RegKey 全部塌缩为裸键 `"Equals"`，`ct.Methods.Put` 后写覆盖
+  （如 `Equals(object?)` + `Equals(string)`）的 RegKey 全部塌缩为裸键 `"Equals"`，``ct.Methods.Put`` 后写覆盖
   前 → `OverloadsOf` 只剩一个 → 调用点重载解析看不到另一个。
   - **后果**：无法让协议方法的两个重载承载**不同**行为；仅当两者语义等价（如 `Std.String` 两 `Equals`
     同指 `__str_equals` native，塌缩隐形）时可用。非协议 type-based 重载不受影响（各得唯一 mangle 键）。
@@ -1198,7 +1198,7 @@ z42 的 IR 把**字节偏移烘焙进指令**（`struct_fget_prim %0 @8`）。�
 `Generate` 仅在未注入时按本 CU 自扫（单文件 dump / 测试路径），两条路共用
 `IrGen.ScanGenericBodies`，判据只有一份。
 
-登记表的键是**发射出的函数名**（自由函数 `ns.RegKey`、方法 `ns.Owner.RegKey`），调用点拿自己的目标名
+登记表的键是**发射出的函数名**（自由函数 ``ns.RegKey``、方法 ``ns.Owner.RegKey``），调用点拿自己的目标名
 （`_specializeGenericBody` 的 `func`；实例方法用接收者类型的声明 ns 拼）去查。键必须带 ns：包里两个
 命名空间各有一个 `Util.Tag<T>` 时，短键 first-wins 会让另一份的调用**静默特化出前一份的体**
 （cross-zpkg `generic_body_crossns_collision`）。`GenericBodySrc.BodyKey` 另存 model 里的短体键——

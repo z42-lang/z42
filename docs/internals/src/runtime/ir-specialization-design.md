@@ -24,7 +24,7 @@
 - **devirtualization**：sealed/primitive/已知具体类型 → 虚调用降直调/内联
 - **死代码消除 / 无用存储消除**
 - **公共子表达式 / 简单 GVN**
-- **特化 opcode 降级**：把可静态识别的泛型操作降成专用 opcode（`s.Length`→`StrLen`），interp 直接走快路径
+- **特化 opcode 降级**：把可静态识别的泛型操作降成专用 opcode（``s.Length``→`StrLen`），interp 直接走快路径
 - **简单内联**：小的纯 intrinsic 内联
 - **bounds-check 静态消除**（可证明的下标）
 
@@ -56,8 +56,8 @@ IR codegen 发成员调用前查表：命中且常量+纯 → 折叠；命中非
 - `pure` 必须真纯（无副作用、确定性）才可折叠 / 跨调用消除。
 
 ### 2.4 案例：`"sss".Length`
-- `String` sealed + `.Length` 纯 + 不可 override + 输入是**驻留字面量**（`Module.interned_strings`）→ 编译期直接折成 `3`，**零运行时调用**。
-- `s.Length`（s 运行时才知）→ 降成 `StrLen` opcode → interp 复用已有 **"Length/CharAt 元数据缓存"** 快路径；JIT 内联 `load [str + len_off]`。
+- `String` sealed + `.Length` 纯 + 不可 override + 输入是**驻留字面量**（``Module.interned_strings``）→ 编译期直接折成 `3`，**零运行时调用**。
+- ``s.Length``（s 运行时才知）→ 降成 `StrLen` opcode → interp 复用已有 **"Length/CharAt 元数据缓存"** 快路径；JIT 内联 `load [str + len_off]`。
 
 ---
 
@@ -65,7 +65,7 @@ IR codegen 发成员调用前查表：命中且常量+纯 → 折叠；命中非
 
 | 运行时 | 特化机制 |
 |---|---|
-| **HotSpot** | 数百 `@IntrinsicCandidate`（`String.length/charAt`、`Math.*`、`System.arraycopy`…），JIT 用表识别换手写 IR。**= z42 硬编码表方案** |
+| **HotSpot** | 数百 `@IntrinsicCandidate`（`String.length/charAt`、`Math.*`、``System.arraycopy``…），JIT 用表识别换手写 IR。**= z42 硬编码表方案** |
 | **.NET JIT** | `[Intrinsic]` + 表；`Math`/`Vector<T>`/`Span`/`RuntimeHelpers` |
 | **CPython PEP 659** | 运行时反馈选特化 opcode（`LOAD_ATTR_INSTANCE_VALUE`、`BINARY_OP_ADD_INT`…），失配 deopt |
 | **V8/JSC** | builtins + inline cache + TurboFan reduction 内联 |

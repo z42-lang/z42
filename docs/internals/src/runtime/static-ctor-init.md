@@ -10,7 +10,7 @@ RuntimeState 组合静态表、初始化状态与错误记录；执行层共享�
 
 C# 的静态构造器屏障之所以「零成本」，是 **JIT 在类型初始化完成后把检查从机器码里 patch 掉**。
 
-z42 的 JIT **没有代码 patch / 失效机制**——`FnEntry` 一旦 `OnceLock::set` 就永久有效，
+z42 的 JIT **没有代码 patch / 失效机制**——`FnEntry` 一旦 ``OnceLock::set`` 就永久有效，
 无 deopt、无重编译。所以屏障只能是「每次访问都检查」，问题就变成**怎么让这个检查便宜**。
 
 ## 怎么让屏障几乎免费
@@ -36,7 +36,7 @@ if any_pending() { ensure_type_init(...) }   // 热路径的全部代价
   不能用会加载的 `try_lookup_type`：自由函数推出的「属主」是命名空间，它会把所有声明了但没加载的包
   逐个装进来才答「没有」（一次自由函数调用装入 16 个 stdlib 包）。只查已登记的类型就够了——
   被调函数既然拿到了，它所在的包就已加载，而包加载时类型和函数在同一把写锁里一起入表。
-  基类链还没合并的类型不进缓存：加载器要靠 `Arc::get_mut` 原地补布局，多一份引用就补不动。
+  基类链还没合并的类型不进缓存：加载器要靠 ``Arc::get_mut`` 原地补布局，多一份引用就补不动。
 - **类型本身**：`TypeDesc` 上的初始化代际标记（`init_done_in(gen)`），初始化跑完后两次 relaxed load 放行。
 
 - **静态字段**：属主判定缓存在该字段的静态单元旁（`metadata/statics/table.rs` 的 `StaticCell::owner`，整个 VM 共享、
@@ -126,7 +126,7 @@ stateDiagram-v2
 漂移。开发期就吃过一次——JIT 侧一度完全没有屏障，而**用户代码默认走 JIT**（只有
 `__static_init__` 被强制走解释器），于是默认模式下静态构造器根本不跑。
 
-`ObjNew` 手上已有 `TypeDesc`，所以那里**不需要门**——`td.cctor_func()` 一次
+`ObjNew` 手上已有 `TypeDesc`，所以那里**不需要门**——``td.cctor_func()`` 一次
 `Option` 判断就结束。站点缓存（类描述符 + ctor `FnId`）只省掉名字解析，屏障每次分配照做。
 
 ## 包级初始化：`<ns>.$Module`
@@ -325,16 +325,16 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 ## 谁来跑 `__static_init__`：两条启动路径共用一份启动步骤
 
 > 注：静态字段初始化器并入每个类型的类型初始化器；本节的 `__static_init__` 读成
-> 「合并进来的包的初始化」即可。要点是两条启动路径（`host::run_app` / 宿主 API）**合并后共用一份启动步骤**。
+> 「合并进来的包的初始化」即可。要点是两条启动路径（``host::run_app`` / 宿主 API）**合并后共用一份启动步骤**。
 
 跑 z42 代码有两条入口：
 
-- **`host::run_app`**：`z42vm` 二进制、`z42_run_app`、wasm `runTestApp`；
+- **``host::run_app``**：`z42vm` 二进制、`z42_run_app`、wasm `runTestApp`；
 - **宿主 API**：`z42_host_load_zbc` → `z42_host_invoke`（C ABI / `z42::host::rust`，iOS / Android / wasm 的
   `loadZbc` + `invoke` 都走它）。
 
 两者合并模块的方式相同，合并**之后**的启动步骤必须只有**一份**：若各写一份，新增的步骤只进
-`host::run_app` 时，宿主路径就**不执行**合并进来的包（z42.core、用户模块本身）的
+``host::run_app`` 时，宿主路径就**不执行**合并进来的包（z42.core、用户模块本身）的
 `__static_init__`，带初始化器的静态字段读出的是类型默认值——而且不报错：`static_get` 读到空槽后，
 `verify_static_field` 按字段类型补了个 `0`（如 wasm 上 `OSKind.Wasm` 为 0 ⇒
 `Platform.IsWasm()` 恒假，所有嵌入都会中招）。
@@ -343,17 +343,17 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 
 | 函数 | 做什么 | 谁调 |
 |---|---|---|
-| `boot_context` | `available!` 折叠 → `VmContext::with_module` → 登记静态构造器 → 装 lazy loader + 种类型 / impl | `host::run_app`、宿主 `build_host_module` |
-| `prepare_execution` | `resolve_module`（各站点 token 预填）| `host::LoadedProgram::run_entry`、宿主 `build_host_module` |
+| `boot_context` | `available!` 折叠 → `VmContext::with_module` → 登记静态构造器 → 装 lazy loader + 种类型 / impl | ``host::run_app``、宿主 `build_host_module` |
+| `prepare_execution` | `resolve_module`（各站点 token 预填）| ``host::LoadedProgram::run_entry``、宿主 `build_host_module` |
 
 **静态字段初始化本身仍由调用方决定时机**，因为两边的「程序」形状不同：
 
-- `host::LoadedProgram::run_entry`：进入 `Main` 之前跑一次 `init_static_fields`；
+- ``host::LoadedProgram::run_entry``：进入 `Main` 之前跑一次 `init_static_fields`；
 - 宿主：**每个模块在首次 `invoke` 时跑一次**，放在宿主 stdout sink 守卫内（初始化器的输出也送到宿主）。
-  `init_static_fields` 会先清空全部静态字段，所以绝不能跑第二次——结果存在 `HostModule.static_init`
+  `init_static_fields` 会先清空全部静态字段，所以绝不能跑第二次——结果存在 ``HostModule.static_init``
   （`OnceLock`）。失败是**粘滞**的：之后每次 invoke 都报同一个错，而不是在半初始化的静态状态上继续跑。
   每次 invoke 结束后还要取一次 `take_static_init_error`（本次调用中首次触达、惰性加载的包的初始化失败），
-  与 `host::LoadedProgram::run_entry` 一致；两处都归为 `Z42HostStatus::VmException`。
+  与 ``host::LoadedProgram::run_entry`` 一致；两处都归为 `Z42HostStatus::VmException`。
 
-> 新增启动步骤时，加进 `host/boot.rs`，两条路径自动都有；别再只改 `host::run_app`。
-> 回归测试：`host::host_tests::invoke_sees_initialized_static_fields`（stdlib 包与用户模块各一个带初始化器的静态字段）。
+> 新增启动步骤时，加进 `host/boot.rs`，两条路径自动都有；别再只改 ``host::run_app``。
+> 回归测试：``host::host_tests::invoke_sees_initialized_static_fields``（stdlib 包与用户模块各一个带初始化器的静态字段）。

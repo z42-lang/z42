@@ -15,14 +15,14 @@ GC 可见、随对象回收。原生层只提供不含值的 Monitor。机制见
 | 文件 | 类型 | 说明 |
 |------|------|------|
 | `Thread.z42` | `Std.Threading.Thread` | OS 线程句柄；`Start(Action)` 工厂 + `Join()` 同步等待 + 静态 `Sleep(long millis)` 阻塞当前线程 |
-| `ThreadException.z42` | `Std.ThreadException` | 跨线程异常封装（worker `throw` 或 Rust panic 经由 Join 透传） |
+| `ThreadException.z42` | `Std.Threading.ThreadException` | 跨线程异常封装（worker `throw` 或 Rust panic 经由 Join 透传） |
 | `Mutex.z42` | `Std.Threading.Mutex<T>` | 排他互斥；`Lock` 写回状态，`Read` 返回读取结果，`Update` 同时写回状态并返回结果；同线程重入抛异常 |
 | `RwLock.z42` | `Std.Threading.RwLock<T>` | 多读单写 lock；`Read(Action<T>)` 多 reader 并发 + `Write(Func<T,T>)` 单 writer 排他、写者优先 |
 | `Channel.z42` | `Std.Threading.Channel<T>` | 多生产者多消费者 FIFO：unbounded (`new Channel<T>()`)、bounded with back-pressure (`new Channel<T>(N)`) 或会合 (`new Channel<T>(0)`)；`Send` / `Recv` / `TryRecv` / `TrySend` / `Close` |
 | `Timer.z42` | `Std.Threading.Timer` | 定时器：共享最小堆等待与按需增长的回调工作线程；固定延时、不重叠，取消可唤醒 |
 | `TimerScheduler.z42` / `TimerScheduler.Heap.z42` | 内部调度器 | 托管截止时间堆、通知等待、工作线程分派和回收 |
 | `TimerWorker.z42` | 内部回调工作线程 | 并发回调、闲置退出与每 Timer 完成协议 |
-| `ChannelDisconnectedException.z42` | `Std.ChannelDisconnectedException` | 所有 sender 关闭且队列空时 `Recv()` 抛出 |
+| `ChannelDisconnectedException.z42` | `Std.Threading.ChannelDisconnectedException` | 所有 sender 关闭且队列空时 `Recv()` 抛出 |
 
 ## 入口点
 公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/threading.md)（由源码 doc 注释生成）。

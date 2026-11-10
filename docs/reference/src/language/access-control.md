@@ -238,8 +238,8 @@ void Main() {
 
 ---
 
-嵌套类型可以访问外层类型的**全部**成员（含 `private` / `protected`），写法不限：`Outer.Secret`、外层实例上的
-`o.v`，或在嵌套类型体内直接写外层的静态成员名 `Secret`。反过来不成立：外层类型访问不了嵌套类型的 `private` 成员。
+嵌套类型可以访问外层类型的**全部**成员（含 `private` / `protected`），写法不限：``Outer.Secret``、外层实例上的
+``o.v``，或在嵌套类型体内直接写外层的静态成员名 `Secret`。反过来不成立：外层类型访问不了嵌套类型的 `private` 成员。
 
 ## 接口类型可见性
 
@@ -277,7 +277,7 @@ internal class Helper {
 
 ## 反射：类可见性
 
-`z42.core` 的 `Type` 暴露声明可见性，与 C# `System.Type` 逐一对齐：
+`z42.core` 的 `Type` 暴露声明可见性，与 C# ``System.Type`` 逐一对齐：
 
 ```z42
 public enum TypeVisibility { Public, Private, Protected, Internal }

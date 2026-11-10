@@ -66,7 +66,7 @@ if (Platform.IsMacOS()) { … }                 // 谓词
 | `Wasm` | 6 | `wasm` |
 | `FreeBSD` | 7 | `freebsd` |
 
-| `ArchKind` | 值 | `std::env::consts::ARCH` |
+| `ArchKind` | 值 | ``std::env::consts::ARCH`` |
 |---|---|---|
 | `Unknown` | 0 | 其他一切 |
 | `X64` | 1 | `x86_64` |
@@ -83,8 +83,8 @@ if (Platform.IsMacOS()) { … }                 // 谓词
 
 ## 4. wasm：唯一不能直通的那个常量
 
-其余平台 `Platform.OS()` 就是 `std::env::consts::OS`，**wasm32 例外**——
-`wasm32-unknown-unknown` 的 `consts::OS` 是空串而不是 `"wasm"`。所以 `corelib/os/platform.rs`
+其余平台 `Platform.OS()` 就是 ``std::env::consts::OS``，**wasm32 例外**——
+`wasm32-unknown-unknown` 的 ``consts::OS`` 是空串而不是 `"wasm"`。所以 `corelib/os/platform.rs`
 顶上有一个覆写常量：
 
 ```rust
@@ -93,7 +93,7 @@ const HOST_OS: &str = if cfg!(target_arch = "wasm32") { "wasm" } else { std::env
 
 整条 OS 识别链都吊在它身上：`OS()`、`OSKindValue()`、`IsWasm()`，以及测试框架的
 `[Skip(platform: "wasm")]`（`z42.harness` 的 `Runner._skipApplies` 直接拿 `Platform.OS()` 与
-属性里的字符串比）。绕过 `HOST_OS` 直接写 `consts::OS` 就会让这四样在 wasm 上同时失效，而
+属性里的字符串比）。绕过 `HOST_OS` 直接写 ``consts::OS`` 就会让这四样在 wasm 上同时失效，而
 wasm 上「`IsWasm()` 恒假」不会报错，只会安静地少跳过一批测试。
 
 ## 5. 能力查询：编译进来了什么，而不是平台大概有什么
@@ -103,8 +103,8 @@ wasm 上「`IsWasm()` 恒假」不会报错，只会安静地少跳过一批测�
 | 能力位 | 来源 |
 |---|---|
 | `jit` / `native-interop` / `bundled-compression` | cargo feature |
-| `threads` | `cfg(not(target_arch = "wasm32"))`——真 OS 线程随 `std::thread` 存在，**不是** feature |
-| `socket` | 同上：真 OS 网络（TCP/UDP/HTTP/WS）随 `std::net` 存在 |
+| `threads` | `cfg(not(target_arch = "wasm32"))`——真 OS 线程随 ``std::thread`` 存在，**不是** feature |
+| `socket` | 同上：真 OS 网络（TCP/UDP/HTTP/WS）随 ``std::net`` 存在 |
 
 `ExecModes()` 恒含 `interp`，`jit` / `aot` 按 feature 追加。注意 **`aot` 出现在列表里只说明
 「编进来了」，不说明「跑得动」**——AOT 后端仍是桩；「能不能真跑」由 exec-profile 支持矩阵的
@@ -128,13 +128,13 @@ threads, socket]`、`ExecModes() = [interp, jit]`。
 | API | unix | wasm32 | 其他（今天 = Windows） |
 |---|---|---|---|
 | `Platform.OS()` / `Arch()` / `Family()` | 编译期常量 | `OS()` 走 `HOST_OS` 覆写 | 编译期常量 |
-| `OperatingSystem.CurrentPid()` | `std::process::id()` | `0` | 同 unix |
-| `ExecutablePath()` | `std::env::current_exe()`，失败 `""` | `""` | 同 unix |
-| `CurrentDirectory()` | `std::env::current_dir()`，失败 `""` | `"/"` | 同 unix |
-| `SetCurrentDirectory()` | `std::env::set_current_dir`（失败向上抛） | no-op | 同 unix |
-| `Hostname()` | `libc::gethostname` | `""` | `""`（未实现） |
+| `OperatingSystem.CurrentPid()` | ``std::process::id()`` | `0` | 同 unix |
+| `ExecutablePath()` | ``std::env::current_exe()``，失败 `""` | `""` | 同 unix |
+| `CurrentDirectory()` | ``std::env::current_dir()``，失败 `""` | `"/"` | 同 unix |
+| `SetCurrentDirectory()` | ``std::env::set_current_dir``（失败向上抛） | no-op | 同 unix |
+| `Hostname()` | ``libc::gethostname`` | `""` | `""`（未实现） |
 | `CpuCount()` | `available_parallelism()`，失败 `1` | 同左 | 同左 |
-| `OsVersion()` | `libc::uname` 的 `sysname release version` 三段拼接 | `"wasm"` | `""`（未实现） |
+| `OsVersion()` | ``libc::uname`` 的 `sysname release version` 三段拼接 | `"wasm"` | `""`（未实现） |
 
 Windows 的 `hostname` / `os_version` 留着 `None` / `""` 是有意的：引入 `winapi` 依赖而没有
 Windows CI runner 验证，等于把未验证代码塞进 PAL；等 runner 到位再补
@@ -146,12 +146,12 @@ Windows CI runner 验证，等于把未验证代码塞进 PAL；等 runner 到�
 
 同属「平台相关的脚本表面」、但不在这两个类里的两块：
 
-- **环境变量 / 进程**：`Std.Environment`（`src/libraries/z42.core/src/IO/Environment.z42`）的
+- **环境变量 / 进程**：`Std.IO.Environment`（`src/libraries/z42.core/src/IO/Environment.z42`）的
   `__env_get` / `__env_set` / `__env_unset` / `__env_vars` / `__env_args` /
   `__env_get_cwd` / `__env_set_cwd` 实现与注册都在 `corelib/io/fs.rs` 的 `typed` 模块
   （经 `corelib/builtins.rs` 的 TYPED 登记）。
 - **文件系统**：`corelib/io/fs.rs` 的路径型 builtin 一律走**本 VM 的** `Vfs` 句柄（`VmContext::vfs`，
-  trait 在 `pal/fs.rs`），两个实现在 `pal/vfs/`——`LocalFs`（`std::fs`）与 `MemoryFs`（`path → bytes`
+  trait 在 `pal/fs.rs`），两个实现在 `pal/vfs/`——`LocalFs`（``std::fs``）与 `MemoryFs`（`path → bytes`
   的内存 VFS，宿主挂载 zpkg）。句柄由创建 VM 的一方给（`VmContext::with_vfs` / `RunOpts::vfs` /
   `HostConfig::vfs`），不给就按 `pal::fs::HAS_FS` 取默认（wasm → 新的 `MemoryFs`）；同一进程里两台
   VM 各用各的，互不可见。加 WASI / 移动端后端 = `pal/vfs/` 多一个 `Vfs` 实现，builtin 本身不动。

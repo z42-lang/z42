@@ -79,13 +79,13 @@ zpkg colocate 进 main dist，而惰性加载器**先搜 entry zpkg 同目录**�
 | `dup_fqn_crosspkg` | **负例**：两个包同 FQN → E0601 | ImportedSymbolLoader 包名累积 → SymbolTable 判据 → 两个 choke point |
 | `available_skew` / `available_present` | `available!()` 按**实际依赖图**折常量 + 剪分支 | 加载期常量折叠 → CFG 剪枝（`skew-absent.txt`） |
 | `missing_ctor_skew` / `missing_ctor_present` | 构造器缺失时抛异常，而非静默产出未构造对象 | ObjNew ctor 解析 → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`） |
-| `wrong_ctor_arity_skew` / `wrong_ctor_arity_present` | 构造器**解析到了、签名却对不上**须抛异常，不得照常调用（裸键在 skew 下会命中错的构造器） | ObjNew ctor 解析后 → `symres::wrong_ctor_arity_exception`（`skew-replace.txt` + `oldtarget/`） |
-| `call_arity_instance_skew` / `call_arity_sealed_skew` / `call_arity_present` | **实例方法**解析到了另一个签名（primary 裸键撞上）须抛异常——普通类走 `VCall`、sealed 类走去虚化后的直接 `Call`；机制失效时两者都输出 `label null7` | `VCall` → `resolve_vcall` 出口 + `install_ic`；`Call` → resolver 预填 / 冷路径写回 / cross-cell / JIT tier 3 → `symres::call_arity` + `wrong_arity_exception`（sret 由 `METHOD_FLAG_SRET` 精确计入） |
+| `wrong_ctor_arity_skew` / `wrong_ctor_arity_present` | 构造器**解析到了、签名却对不上**须抛异常，不得照常调用（裸键在 skew 下会命中错的构造器） | ObjNew ctor 解析后 → ``symres::wrong_ctor_arity_exception``（`skew-replace.txt` + `oldtarget/`） |
+| `call_arity_instance_skew` / `call_arity_sealed_skew` / `call_arity_present` | **实例方法**解析到了另一个签名（primary 裸键撞上）须抛异常——普通类走 `VCall`、sealed 类走去虚化后的直接 `Call`；机制失效时两者都输出 `label null7` | `VCall` → `resolve_vcall` 出口 + `install_ic`；`Call` → resolver 预填 / 冷路径写回 / cross-cell / JIT tier 3 → ``symres::call_arity`` + `wrong_arity_exception`（sret 由 `METHOD_FLAG_SRET` 精确计入） |
 | `call_arity_static_skew` | **事实守卫**：常规静态方法签名变了 ⇒ 键（全签名 mangle）也变 ⇒ 走「缺符号」抛异常，天然不受裸键撞车影响 | `MemberCollector._fillClass` 静态分支 `MangleKey` → `undefined function` |
-| `ctorless_objnew_skew` / `_present` / `_absent` | **零实参**的构造器缺失同样抛异常（`argc == 0` 不留缝隙）。`_absent` 是**过度收紧守卫**：真·零构造器跨包类不得误报 | 装配期 `CtorKnownFixup` 置 `ObjNew.ctor_known` → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`）|
+| `ctorless_objnew_skew` / `_present` / `_absent` | **零实参**的构造器缺失同样抛异常（`argc == 0` 不留缝隙）。`_absent` 是**过度收紧守卫**：真·零构造器跨包类不得误报 | 装配期 `CtorKnownFixup` 置 ``ObjNew.ctor_known`` → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`）|
 | `static_ctor_crosspkg_static_call` | 依赖包类型的**第一次使用是调静态方法**（含不碰静态字段的方法）时静态 ctor 照常执行，结果与调用顺序无关；未使用的类型不执行 | `LazyLoader::insert_type` 入表即登记 cctor → `ensure_callee_owner_init` / `ensure_static_owner_init` 屏障 |
 | `static_ctor_crosspkg_field_first` | 守卫：依赖包类型的第一次使用是**直接读静态字段**时静态 ctor 照常执行（登记点从 `try_lookup_type` 挪到加载器入表处后不退化） | 静态字段名预解析 → 依赖包加载 → `LazyLoader::insert_type` 登记 → `ensure_static_owner_init` |
-| `static_struct_default_cross_pkg` | 值类型静态字段（struct / 枚举）的**声明类型在依赖包里**、赋值前就读 = 零值（全零 struct / 第一个枚举值），叶子写进惰性装入的那个盒子；属主与字段类型都在依赖包里同样成立 | `objops::statics::static_get` → `symres::static_zero_value`（按声明类型惰性解析、触发依赖包加载）→ `StaticTable::init_default` |
+| `static_struct_default_cross_pkg` | 值类型静态字段（struct / 枚举）的**声明类型在依赖包里**、赋值前就读 = 零值（全零 struct / 第一个枚举值），叶子写进惰性装入的那个盒子；属主与字段类型都在依赖包里同样成立 | ``objops::statics::static_get`` → `symres::static_zero_value`（按声明类型惰性解析、触发依赖包加载）→ `StaticTable::init_default` |
 | `inherited_ctor_cross_pkg` | 构造器继承与隐式 `base()` 跨包 / 同包跨文件：主包类继承依赖包基类构造器（含默认值）、依赖包内继承并导出、依赖包基类只有初始化器、继承 stdlib `Exception` | `CtorInheritance`（收集期合成 ctor 符号 → TSIG 导出）→ `DeclBinder` 隐式 `base()` |
 | `ctor_init_cross_pkg` | 零实参 `: base()` 指向**依赖包**基类时照常调用（该调用不得被丢弃）；依赖包里「静态 ctor + 无参实例 ctor」的类 `new` 时仍选中实例 ctor（守卫） | `DeclBinder._bindMethodBody`（`HasCtorInit` 门）→ `OverloadBinder._ctorKey`（排除静态 ctor） |
 | `crosspkg_ctor_default` | **跨包构造器**省略可选实参 → 注入作者声明的默认值（缺失时会读到零值） | `ConstructTyper._bindNew` → `OverloadBinder._crossPkgDefault`（`$Default` ConstBlob 解码） |
@@ -93,9 +93,9 @@ zpkg colocate 进 main dist，而惰性加载器**先搜 entry zpkg 同目录**�
 | `missing_base_skew` / `crosspkg_base_fields_main` | 基类解析不到须抛异常，不得静默退化成「只有自己的成员」 | 继承 fixup → `TypeDescCold::base_unmerged` → `symres::missing_base_exception`（`skew-absent.txt`） |
 | `crosspkg_ctor_chain_main` | 主模块里 `Leaf : Mid : 跨包 Base` 三层构造器链：祖先构造器写的字段不得丢失（直接基类是本地类、但它自己跨包残缺时，子类同样残缺） | `build_type_registry` 的 `base_unmerged` 沿基链传递 → `try_fixup_inheritance` 整链可解析才清位 → ObjNew 换修好的那份 |
 | `module_init_free_function` | 依赖包的 `[ModuleInit]` 在**只调它的自由函数**时也跑 —— 🔴 这条是 `[ModuleInit]` 机制的判别力核心：cctor 屏障推不出自由函数的 owner 类型，纯惰性方案在这条路上永远不跑初始化器 | `LazyLoader::insert_type`（登记）→ `VmContext::ensure_module_inits`（屏障执行） |
-| `module_init_in_exe_rejected` | **负例**：可执行包（`kind = "exe"`）里写 `[ModuleInit]` → E0487；同一 fixture 的 lib 依赖照常可用 —— 禁的是 exe，不是这个特性 | `Z42cCompiler`（kind 判据只有 pipeline 层拿得到）→ `ModuleInitScan.ExeRejectionDiag` |
+| `module_init_in_exe_rejected` | **负例**：可执行包（`kind = "exe"`）里写 `[ModuleInit]` → E0487；同一 fixture 的 lib 依赖照常可用 —— 禁的是 exe，不是这个特性 | `Z42cCompiler`（kind 判据只有 pipeline 层拿得到）→ ``ModuleInitScan.ExeRejectionDiag`` |
 | `module_init_on_free_function` | `[ModuleInit]` 标在**顶层自由函数**上（豁免 `static`）端到端真的会跑 —— 编译期放行是一回事，合成的 `$Module.$cctor` 按自由函数发射名（`_q(RegKey)`）去调它是另一回事 | `ModuleInitSynth._targetIrName` 的自由函数分支 |
-| `module_init_once` | 先于本包代码；三种触达形态（静态方法 / 自由函数 / 静态字段）各来一次，初始化器仍**只跑一次** | 同上 + `CctorRegistry::claim` |
+| `module_init_once` | 先于本包代码；三种触达形态（静态方法 / 自由函数 / 静态字段）各来一次，初始化器仍**只跑一次** | 同上 + ``CctorRegistry::claim`` |
 | `module_init_load_order` | 跨包初始化顺序 = **实际加载顺序**（先触达 B 则 B 先跑），与清单声明顺序无关 | 同上 |
 | `module_init_failure_catchable` | 初始化**失败**的包：三种触达形态（自由函数 / 静态方法 / `new`）各抛一次**可 catch** 的包装异常，而**不属于该包**的调用不受影响、进程正常退出 —— 🔴 判别力在最后那两行无关调用上（若失败包让全程序每次调用都重抛，连 catch 块内的第一条 `Console.WriteLine` 都躲不过，看起来像「catch 抓不到」） | `CctorRegistry::failed_module_owning`（命名空间前缀归属）+ `module_failed` 计数 |
 | `ctor_visibility_cross_pkg` | **负例**：跨包调用 `internal` 构造器 → E0404；public 构造器与主构造器放行 | `ConstructTyper._bindNew` → `AccessChecker.CheckAccess`（`expected_build_error.txt`） |

@@ -87,7 +87,7 @@ Repl 和 compression 分别注册提供方，复用 loader 的命名路径服务
 - **两条产出/定位路径**（语言无关：rust/c/c++/vendor blob 一视同仁）：
   - **hook 现场编**：`[build] hooks` + `BuildHooks.ProvideNative(ctx)`（专用窄相位）
     —— hook `cargo build`/`cc` 出 native，拷进 `ctx.Dirs.Dist/<rid>/<prefix><name><suffix>`（按 rid 分目录，
-    交叉编译不撞）+ `ctx.AddOutput("native", …)`。
+    交叉编译不撞）+ ``ctx.AddOutput("native", …)``。
   - **已提交预编译文件**：`[native.<name>].dir = "<基目录>"`（相对 manifest，**无**
     `[build] hooks`）—— 文件按约定放在 `<dir>/<rid>/<prefix><name><suffix>`，消费方按**目标 rid** 复制。示例：
     ```

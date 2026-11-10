@@ -13,7 +13,7 @@ pathological pattern（`(a+)+x` 类）下可能指数时间 — 详 `docs/refere
 | `src/RegexParser.z42`    | pattern string → `RegexNode[]` AST，递归下降 |
 | `src/RegexNode.z42`      | AST 节点（_kind + fields；同 TomlValue/JsonValue 模式） |
 | `src/Match.z42`          | `Std.Regex.Match` — Start/End/Length/Value/Group(i)/GroupByName/GroupCount |
-| `src/RegexException.z42` | `Std.RegexException`（compile-time errors） |
+| `src/RegexException.z42` | `Std.Regex.RegexException`（compile-time errors） |
 
 ## 入口点
 公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/regex.md)（由源码 doc 注释生成）。

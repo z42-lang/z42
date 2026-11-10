@@ -118,12 +118,12 @@ if (Int32.TryParse(s, ref _))        { … }   // 不要这个出参
 ### `in`
 
 它的只读保证从设计时起就是不完整的：`in` 只约束"slot 不可重赋"，**不约束指向对象的内部状态**——
-`in p` 时 `p.Mutate()` 照样生效。补完需要一整套 `readonly` 成员标注系统（C# 需要
+`in p` 时 ``p.Mutate()`` 照样生效。补完需要一整套 `readonly` 成员标注系统（C# 需要
 `readonly struct` + 成员级 `readonly`），而且装完之后 defensive copy 陷阱依然存在。
 
 它的全部价值是性能（大值类型不复制），而那可以由编译器推导：**被调方的 IR 在任何路径上
 都不写某个值类型形参 ⇒ 调用约定自动改为传别名**。判据是 IR 事实而非声明，因此不会声明错，
-也没有 transitive hole——`p.Mutate()` 会写，优化就不做，自动退回复制，语义永远对。
+也没有 transitive hole——``p.Mutate()`` 会写，优化就不做，自动退回复制，语义永远对。
 
 > `in` 仍是 `foreach (var x in xs)` 的关键字，只是不再作参数修饰符。
 

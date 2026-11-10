@@ -2,7 +2,7 @@
 
 ## 具体堆与嵌入接口
 
-GC 由 `crate::gc::Heap` 具体类型提供，VM、对象构造与当前堆 TLS 直接使用它，堆实现不经过动态派发。
+GC 由 ``crate::gc::Heap`` 具体类型提供，VM、对象构造与当前堆 TLS 直接使用它，堆实现不经过动态派发。
 状态与身份位于 `gc/heap.rs`，公开操作在 `gc/heap/api.rs`，分配、标记、屏障、策略等实现按 concern
 位于 `gc/heap/`。分代 / STW 模式仍可在运行时选择，不需要为模式选择更换堆类型。
 
@@ -22,7 +22,7 @@ GC 由 `crate::gc::Heap` 具体类型提供，VM、对象构造与当前堆 TLS 
 | 10. Tool hooks | `set_alloc_sampler` / `iterate_live_objects` | 分配采样回调与存活遍历；摘要和图工具归 `profiler/heap` |
 | 11. Stats | `stats` | HeapStats 快照（8 字段）|
 
-`VmCore` 持有地址稳定的 `Box<Heap>`，同一 VM 的各 `VmContext` 共享它，独立 VM 使用独立堆；所有脚本驱动分配走 `ctx.heap().alloc_*(...)`；JIT helper 通过
+`VmCore` 持有地址稳定的 `Box<Heap>`，同一 VM 的各 `VmContext` 共享它，独立 VM 使用独立堆；所有脚本驱动分配走 ``ctx.heap().alloc_*(...)``；JIT helper 通过
 `vm_ctx_ref(ctx).heap().alloc_*(...)` 调用同一接口；嵌入 host 通过同一
 `heap()` 入口访问 root / observer / profiler 等所有能力。
 
@@ -63,7 +63,7 @@ VmCore {
 enum GcPhase { Idle, Requested, Marking }
 ```
 
-**Mutator 侧**：interp dispatch loop 在三类位置调 `crate::threads::safepoint::check_safepoint(ctx)`：
+**Mutator 侧**：interp dispatch loop 在三类位置调 ``crate::threads::safepoint::check_safepoint(ctx)``：
 
 | 位置 | 理由 |
 |------|------|
@@ -72,8 +72,8 @@ enum GcPhase { Idle, Requested, Marking }
 | `Call` / `CallIndirect` 返回后 | callee 跑完返回本帧时检查；长 callee 的 GC 请求被父帧捕获 |
 
 fast path（Idle）：一次 Mutex lock + 一次 enum compare。slow path（Requested/Marking）：
-`parked_count.fetch_add(1)` + `gc_phase_cv.notify_all()`（唤醒等阈值的 collector）+
-`gc_phase_cv.wait()`（等回 Idle）+ `parked_count.fetch_sub(1)`。
+``parked_count.fetch_add(1)`` + ``gc_phase_cv.notify_all()``（唤醒等阈值的 collector）+
+``gc_phase_cv.wait()``（等回 Idle）+ ``parked_count.fetch_sub(1)``。
 
 **Collector 侧**：`crate::threads::safepoint::request_gc_pause(ctx) -> GcPauseGuard`
 RAII guard：
@@ -93,7 +93,7 @@ RAII guard：
 
 | 维度 | 行为 |
 |------|------|
-| JIT-mode safepoint | JIT translate 在 function entry / 后向 Br / 带后向目标的 BrCond / `Call` / `CallIndirect` 返回后共 4 类 site（5 处 call）emit safepoint 检查，与 interp 协议完全对齐；JIT-mode multi-thread workloads 不会死锁。fast path 是 `emit_safepoint_check` 内联的原生 `load+sub+store+brif`（~1-2ns/site），仅 counter 归零走 `jit_check_safepoint_slow` helper |
+| JIT-mode safepoint | JIT translate 在 function entry / 后向 Br / 带后向目标的 BrCond / `Call` / `CallIndirect` 返回后共 4 类 site（5 处 call）emit safepoint 检查，与 interp 协议完全对齐；JIT-mode multi-thread workloads 不会死锁。fast path 是 `emit_safepoint_check` 内联的原生 ``load+sub+store+brif``（~1-2ns/site），仅 counter 归零走 `jit_check_safepoint_slow` helper |
 | Auto-threshold (`maybe_auto_collect`) | Safepoint-aware：trip 时 set `VmCore.threads.needs_auto_collect: Arc<AtomicBool>` flag 而非 inline `collect_cycles()`；同时把每个 mutator 的 safepoint 计数器置 1（`set_safepoint_poke` → `poke_safepoints`）；下个 `check_safepoint(ctx)` 看到 flag 即 safepoint-wrapped collect。flag **粘性**：只读不 swap，由抢到 collector 角色、拿到暂停的那个线程清（`take_collect_request`），抢输的线程不消费它。`Heap::set_external_needs_collect_flag` 注入线程请求 flag；Heap 内部 `Mutex<Option<Arc<AtomicBool>>>`，VmCore 构造后 wire。flag 未装时 fallback inline（GC 单测路径） |
 | 检查频率节流 | Counter-throttled fast path：`VmContext.safepoint_skip: AtomicU32`，`check_safepoint` fast path **普通 load/store 递减**（单写者故 RMW 原子性不必要，且 load/store 可被 JIT 内联为裸 mov）；每 N=1024 次（默认）才走 slow path（Mutex lock + 真正的 phase + auto-collect drain）。`Z42_SAFEPOINT_THROTTLE` env override（设 1 = disable throttling）。`VmContext::force_safepoint()` 公共 API 供 test / embedder 强制下次走 slow path。GC pause latency 上限 = N × 单 iter (~50ns) ≈ 50us，远小于实际 collect 时间 |
 | 多 collector 仲裁 | `VmCore.threads.collector_active: AtomicBool` + `request_gc_pause` 返 `Option<GcPauseGuard>`，前置 CAS claim；失败 collector 自动 park-as-mutator 返 `None`。`GcPauseGuard::drop` 释放 collector_active 让下一个 claim 通过。`Std.GC.Collect()` / `ForceCollect()` 在另一 collector active 时静默 no-op（best-effort 语义同 C# / Java） |
@@ -146,7 +146,7 @@ mark bit 用 `Relaxed` 原子仍然安全：
   false 跳过 enqueue（不会重复 trace）
 - 一个 cycle 内 mark 单调（epoch 戳只会被写成本周期的值）
 - 标记只在 collector 持有停顿时进行；跨线程可见性来自停顿边界上 `gc_phase` Mutex 的
-  Acquire/Release，以及 `mark_queue` 的 `parking_lot::Mutex`
+  Acquire/Release，以及 `mark_queue` 的 ``parking_lot::Mutex``
 
 若未来让标记与 mutator 同时运行（并发标记），或把 `mark_queue` 换成 lock-free 队列，必须重新
 评估这里的 ordering。
@@ -184,7 +184,7 @@ Finalizer **不**在句柄
    触发 → tombstone。时机不可控（依赖下次 collect）。
 2. **手动**：用户显式调 `Std.GC.Finalize(target)` → 立即 take + 触发
    finalizer → tombstone。匹配 .NET `IDisposable.Dispose()` /
-   Java `AutoCloseable.close()` 语义。
+   Java ``AutoCloseable.close()`` 语义。
 
 **对象与数组的 finalizer 都在侧表里**
 （`RcHeapInner::obj_finalizers`，按块头地址做 key）：块没有 finalizer 槽，登记时给块头置 `SIDE_BIT`；
@@ -228,7 +228,7 @@ JIT 按帧提升的字段基址、数组元素基址也依赖它）。
 句柄都是 8B 标记指针（64 位：低 48 位块头地址 + 高 16 位 generation 快照；32 位：`{ptr, gen}`）：
 `ObjRef`（[object/header/obj_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/header/obj_ref.rs)）指对象块头，
 `ArrRef`（[object/header/arr_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/header/arr_ref.rs)）指数组块头，`VarGcRef` 是二者底下的无类型块句柄。
-- Clone = memcpy 8 字节，**零原子 op**（相对 `Arc::clone` 每次
+- Clone = memcpy 8 字节，**零原子 op**（相对 ``Arc::clone`` 每次
   `fetch_add` 2-4 ns）
 
 #### 访问：`borrow()` 给 `&T`，没有锁
@@ -307,7 +307,7 @@ drop glue 只对类型掩码里的块调用（`drop_type_bit`：`Object`、`Arra
 
 **数组直接在块里构造**（[`object/array/array.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/array/array.rs)）：
 所有构造器（`alloc_filled` / `alloc_from_iter` / `alloc_typed_iter` / `alloc_struct` / `alloc_frozen` / `alloc_bytes` / `deep_copy`）
-都经一条 `Heap::alloc_array_with(desc, len, layout, init)`：按 `desc.payload_bytes(len)` 取一个清零块、写入描述符（与 STRUCT 的布局字）、
+都经一条 `Heap::alloc_array_with(desc, len, layout, init)`：按 ``desc.payload_bytes(len)`` 取一个清零块、写入描述符（与 STRUCT 的布局字）、
 在**未发布**的数组上跑 `init` 写元素，然后 `publish` 并记账——与对象的漏斗同形。`ArrayNew`（interp + JIT `jit_array_new`）/
 `Array.CreateInstance` 走 `alloc_filled`，`ArrayNewLit` / `ToCharArray` 走 `alloc_from_iter` / `alloc_typed_iter`（从源寄存器 / 迭代器直写），
 中间没有 `Vec<Value>` 暂存——峰值内存 = 目标块本身（扩容 `List<T>.EnsureCapacity` = `new T[2n]` + `Array.Copy` 时 = 旧块 + 新块）。
@@ -317,7 +317,7 @@ drop glue 只对类型掩码里的块调用（`drop_type_bit`：`Object`、`Arra
 payload 超过块的长度上限（`u32` 字节）的数组按内存不足拒绝（返回 `Null`，引擎抛 `OutOfMemoryException`）。
 数组定长：没有原地改长度的 API，`List<T>` 扩容是分配新数组再拷贝。
 同种 PRIM 数组之间的 `__array_copy` 按元素宽度逐元素原子移动（REF → REF 逐字、同一 struct 的 struct[] 逐元素拷 blob，都经引用字写原语记 SATB）；
-拷完对写入区间的每个引用槽发写屏障（`objops::array_bulk::barrier_after_range_store`：
+拷完对写入区间的每个引用槽发写屏障（``objops::array_bulk::barrier_after_range_store``：
 REF / MIXED / FROZEN 是元素本身，struct[] 是元素的每个引用叶子，只对真正的堆引用发、不分配），packed 目的数组不持引用、没有可扫的槽。
 
 **分配落地 = ambient 堆**（[`exec/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/exec/ambient.rs)）：`current_heap()` +
@@ -352,7 +352,7 @@ bump chunk 里的条目从不核对，别处释放大块只让带戳条目多一
 `alloc_str_concat2_in_region`）按 `a.len()+b.len()` **一次性**分配 `BlockType::Str` 块、直接拷入两段，
 **降到 1 次分配 / 1 次拷贝**（两段皆合法 UTF-8 → 拼接合法）。interp `str_concat`/`Add` 字符串臂借
 `&str` 直传、JIT `jit_str_concat` / `jit_add` helper 同步。`Add` 的混合臂（`"k" + i`）把非串操作数
-经 `dispatch::with_obj_str` 以 `&str` 视图直接拷进同一个块（标量在栈缓冲里格式化），同样 1 次分配、零中间串
+经 ``dispatch::with_obj_str`` 以 `&str` 视图直接拷进同一个块（标量在栈缓冲里格式化），同样 1 次分配、零中间串
 （见[对象协议派发](object-protocol-dispatch.md)）。产出字节相同。热字符串 workload 实测 mimalloc 压力
 减半、拼接密集环 ~1.3× interp。
 
@@ -402,7 +402,7 @@ fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 **Caller 契约**。引擎（interp / JIT）的写入全部经 `objops`（`field_set` / `store_named` /
 `array_set` / `elem_store` / `struct_field_set_val`），分代那一半屏障就在那里发，一处实现、两个引擎共用：
 
-1. **Filter at call site**: 只在 `new.is_heap_ref()` 时 invoke barrier。堆引用是
+1. **Filter at call site**: 只在 ``new.is_heap_ref()`` 时 invoke barrier。堆引用是
    `Object / Array / Closure / Str / BoxedStruct`（字符串是块，有真实年龄，
    年轻字符串存进老对象同样要记）；基元、`Null`、`PinnedView`、arena 句柄
    （`Ref` / `StructRef` / `StructRefHeap` / `StackObject` …）skip——它们不是堆边，靠 arena 根扫描保活。
@@ -413,12 +413,12 @@ fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 3. **Borrow released before call**: 调用前放掉对属主的借用（没有锁，但让 override 可以自由
    re-borrow `owner`）。
 4. **IC fast path 也 dispatch**: FieldSet 的 inline cache 命中路径与未命中路径共用
-   `objops::field` 里同一个写后屏障（`barrier`，按 `FieldWrite` 发：装箱时屏障看的是盒子）——快路漏一次就是 hot code 里的 UAF。
+   ``objops::field`` 里同一个写后屏障（`barrier`，按 `FieldWrite` 发：装箱时屏障看的是盒子）——快路漏一次就是 hot code 里的 UAF。
 5. **StaticSet 不 dispatch**: static fields 是 GC root，"old → new"
    写永远在 root，不存在 cross-region/cross-generation 关心的场景。
 6. **引用叶子被拷进别处时，按叶子发**：装箱 struct 写进 `struct[]`（STRUCT 数组）时
    写入把盒子的 blob（含引用叶子）**拷进**数组，数组持有的是叶子而不是盒子 ⇒ 屏障按每个叶子发
-   （`objops::array::barrier_elem`），不能拿盒子判龄（老盒子、年轻叶子就漏记）。
+   （``objops::array::barrier_elem``），不能拿盒子判龄（老盒子、年轻叶子就漏记）。
 
 #### VM 自己的写入点
 
@@ -428,12 +428,12 @@ fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 
 | 写入点 | 经由 |
 |---|---|
-| throw 点补 `Exception.StackTrace` | `objops::field::store_slot` |
-| 反射 `FieldInfo.SetValue`（普通字段） | `objops::field::store_slot` |
+| throw 点补 `Exception.StackTrace` | ``objops::field::store_slot`` |
+| 反射 `FieldInfo.SetValue`（普通字段） | ``objops::field::store_slot`` |
 | 反射 `FieldInfo.SetValue`（装箱 struct 字段 / 对象内联 struct 叶子） | `write_blob` / `set_struct_ref_leaf`，落下的每个引用发 `write_barrier_field` |
-| 反射构造泛型 `Type`（`__typeArgs` / `__fullName`） | `objops::field::store_slot` |
-| `Std.Array.SetValue` | `try_set_boxed` + `objops::array::barrier_elem` |
-| `Std.Array.Copy`（`__array_copy`） | `objops::array_bulk::copy_range` + `barrier_after_range_store`（对写入区间每个引用槽，含 struct 元素的引用叶子） |
+| 反射构造泛型 `Type`（`__typeArgs` / `__fullName`） | ``objops::field::store_slot`` |
+| `Std.Array.SetValue` | `try_set_boxed` + ``objops::array::barrier_elem`` |
+| `Std.Array.Copy`（`__array_copy`） | ``objops::array_bulk::copy_range`` + `barrier_after_range_store`（对写入区间每个引用槽，含 struct 元素的引用叶子） |
 | `PropertyInfo.SetValue` | 调 setter ⇒ 走 `FieldSet` |
 
 **免屏障的写入点**——只有下面几类，新增一处必须能归进其中之一，并在调用点写清是哪一类：
@@ -488,7 +488,7 @@ fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 **屏障契约**:
 
 - 实现可以 `debug_assert!(new.is_heap_ref())` 检测 caller 是否漏 filter
-- 可以自由 `owner.borrow()`（对象没有锁，读字段不会与 caller 冲突）
+- 可以自由 ``owner.borrow()``（对象没有锁，读字段不会与 caller 冲突）
 - STW 的 no-op 与分代屏障均不修改 `HeapStats`（stats 反映
   alloc/free，不反映 barrier dispatch 次数）
 
@@ -500,7 +500,7 @@ fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 
 ### Debug invariants
 
-`Heap::debug_validate_invariants`（[`gc/heap/debug.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap/debug.rs)）
+``Heap::debug_validate_invariants``（[`gc/heap/debug.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap/debug.rs)）
 在每次 collect 末尾检查堆级不变量，任何违反立即 panic 并附详细消息；它只在 `#[cfg(debug_assertions)]` 下编译，
 release 构建零开销。检查两条：
 
@@ -705,7 +705,7 @@ Write>` 流式直写 `BufWriter<File>`，无中间 `String` 内存分配。
 **局限**：
 
 - 不输出 allocation-site stack trace（需要 IR `alloc_site_id`，依赖下面的 B4）
-- WeakRef 不出现在 graph（避免与 retention 混淆）；后续可加 `EdgeType::Weak`
+- WeakRef 不出现在 graph（避免与 retention 混淆）；后续可加 ``EdgeType::Weak``
 - 不预算 dominator tree（DevTools 自己算）；server-side 预算可加速
 
 ### OOM 异常（strict 模式）
@@ -774,6 +774,6 @@ GC 成熟后，字符串可以从 `Value::Str` primitive 进一步
 ### gc-oom-jit-path: JIT 路径 OOM 检测
 
 - **触发原因**：JIT helper `jit_obj_new` / `jit_array_new` 直接调用 `heap.alloc_object` / `heap.alloc_array`，未经 interp OOM 检测分支；JIT 路径下 OOM 目前仍返回 `Value::Null` 触发 NRE
-- **前置依赖**：JIT 路径稳定后；需要 JIT helper 能安全调用 `ctx.set_exception`（当前 JIT 生成代码不访问 `VmContext` exception slot）
+- **前置依赖**：JIT 路径稳定后；需要 JIT helper 能安全调用 ``ctx.set_exception``（当前 JIT 生成代码不访问 `VmContext` exception slot）
 - **触发条件**：JIT 路径全面覆盖时，或首次报告 JIT 路径 OOM-related NRE 时
 - **当前 workaround**：`strict_oom` 模式下 JIT 路径 alloc 失败仍抛 `Value::Null`；interp 路径已完整处理

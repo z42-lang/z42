@@ -64,7 +64,7 @@ class Dog : Animal {
 
 ## 机制 / 实现
 
-- **语义强制**：`SymbolCollector._passSealedEnforce`（在 `_passFixupOverrides` 后运行，签名/regKey 已定案）。
+- **语义强制**：``SymbolCollector._passSealedEnforce``（在 `_passFixupOverrides` 后运行，签名/regKey 已定案）。
   - 继承检查：类的基 `Z42ClassType.IsSealed` → E0427。
   - override 检查：`_nearestBaseMethod` 沿基链找**最近**被覆盖方法，其 `IsSealed` → E0428。
   - 简写解析：方法 `Mods` 含 `sealed` 无 `override` 时，`_passFixupOverrides` 的 2 处 override 识别点
@@ -76,7 +76,7 @@ class Dog : Animal {
 
 ## 去虚化（devirtualization）
 
-sealed 类不可被继承 → 静态类型是 sealed 类 `A` 的 receiver，运行期实际类型**必然是 `A`** → `a.M()` 的
+sealed 类不可被继承 → 静态类型是 sealed 类 `A` 的 receiver，运行期实际类型**必然是 `A`** → ``a.M()`` 的
 目标**编译期唯一可知**。编译器据此把 `VCallInstr` 降级为**直接 `CallInstr`**，解锁 `IrInline` 内联
 （virtual 方法的 `VCall` 内联 pass 吃不进）。
 
@@ -85,18 +85,18 @@ sealed 类不可被继承 → 静态类型是 sealed 类 `A` 的 receiver，运�
   （release 全开；`--no-opt devirt` 关，供 before/after 逐字节对拍）。
 - **目标解析**：`EmitContext.ResolveSealedTarget` 沿 sealed 类基链找**最近声明该方法且非 abstract 的可限定非泛型类**
   `C`，产出 `QualifyClass(C) + "." + RegKey`——逐字节匹配 IrGen 的函数命名。`BoundCall.MethodName` 已是
-  MemberResolver 解析后的 `ms.RegKey`（重载已消歧），故无需重解析。「可限定」= `_devirtQualifiable(ct)`：
+  MemberResolver 解析后的 ``ms.RegKey``（重载已消歧），故无需重解析。「可限定」= `_devirtQualifiable(ct)`：
   是本包声明的类，**或**是带声明 ns 的导入类；目标名按类型对象的声明 ns 限定（`QualifyType`）。
 
 ### imported sealed 去虚化的坑：TSIG 展平继承方法
 
 imported 类的符号 `Methods` 由 `ImportedSymbolLoader` 从 TSIG 重建，而 **TSIG 把继承方法展平进每个派生类**。
-于是 `sealed class Leaf : Tagged {}`（Leaf 不 override `Tag`）在 imported 侧 `Leaf.Methods.ContainsKey("Tag")`
-= **true**，naïve 地构造 `QualifyClass(Leaf)+".Tag"` = `Demo.Sld.Leaf.Tag`——**一个从未被任何包发射的函数名**
-（真身是基类包的 `Demo.Base.Tagged.Tag`）→ 运行期 `undefined function`。本地类无此坑（`SymbolCollector` 只填
+于是 `sealed class Leaf : Tagged {}`（Leaf 不 override `Tag`）在 imported 侧 ``Leaf.Methods.ContainsKey("Tag")``
+= **true**，naïve 地构造 `QualifyClass(Leaf)+".Tag"` = ``Demo.Sld.Leaf.Tag``——**一个从未被任何包发射的函数名**
+（真身是基类包的 ``Demo.Base.Tagged.Tag``）→ 运行期 `undefined function`。本地类无此坑（`SymbolCollector` 只填
 **声明于本类**的方法）。
 
-**解法**：imported 定义类候选返回前，用 `Deps.Statics.ContainsKey(FQ)`（`_depHasFunction`）**校验该 FQ 确为
+**解法**：imported 定义类候选返回前，用 ``Deps.Statics.ContainsKey(FQ)``（`_depHasFunction`）**校验该 FQ 确为
 真实发射函数**——`DependencyIndex.AddModule` 把每个跨包函数按完整 FQ 注册进 `Statics`。命中 → 本类真声明 → 去
 虚化；未命中 → 本类仅继承 → **沿基链继续上溯**到真声明类（其 FQ 命中）。本地类分支**先行短
 路返回**（本包函数不入 Deps，不能也不需校验）——本地路径零改动、零回归。从 receiver 精确 sealed 类型向上、
@@ -136,7 +136,7 @@ imported 类的符号 `Methods` 由 `ImportedSymbolLoader` 从 TSIG 重建，而
 - **receiver 解包**：泛型实例 `Box<int>` 的静态类型是 `Z42InstantiatedType` → `DevirtReceiverClass` 解包 `.Def`
   拿到泛型定义类。
 - **$N 条件 mangle**：泛型是**类型擦除**，方法一份发射；短名由 `_classShortName` 镜像 `IrGen._classIrShortName`
-  ——泛型类**仅当同名多 arity 重载**（`Symbols.HasClass("Name$N")`）才用 `Name$N`，否则裸 `Name`。目标名
+  ——泛型类**仅当同名多 arity 重载**（``Symbols.HasClass("Name$N")``）才用 `Name$N`，否则裸 `Name`。目标名
   `QualifyType(ct, _classShortName(ct))+"."+RegKey` 用它，逐字节匹配
   IrGen 发射。非泛型下 `_classShortName==Name` → 与 v1 逐字节等价（零回归）。
 - **单测**：`test_generic_sealed_devirt`（单 arity → `call @Box.`）/ `test_generic_sealed_multiarity_devirt`

@@ -11,7 +11,7 @@
 ## 1. 现状
 - AOT 尚无可执行后端；`exec/engine.rs` 的模式分派明确报未实现。没有独立的占位后端模块，`aot` feature 仍作为既有构建开关保留。
 - 但 z42 **已用 cranelift 做 JIT**（codegen/frontend/jit/module/native）；`translate.rs` 把 zbc→cranelift IR。
-- cranelift 有 **`cranelift-object`（ObjectModule）**，与 `JITModule` **共用 `cranelift_module::Module` trait** → 能发 `.o`。
+- cranelift 有 **`cranelift-object`（ObjectModule）**，与 `JITModule` **共用 ``cranelift_module::Module`` trait** → 能发 `.o`。
 
 ## 2. 后端决策（D1）：cranelift-AOT，复用 JIT 翻译层（修订 M9 的 LLVM 计划）
 把 `translate_function` 从硬绑 `JITModule` **泛化为 `M: cranelift_module::Module`** → **同一份 zbc→cranelift IR 翻译,两个输出**：

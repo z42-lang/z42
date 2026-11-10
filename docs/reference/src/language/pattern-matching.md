@@ -53,12 +53,12 @@ if (obj is Point(a, b)) { use(a, b); }
 
 模式位置的一个裸标识符可能是「类型测试」「新绑定」或「常量」。z42 分两级唯一消解（同 Rust / C#）：
 
-1. **解析期**按名字形状分流（不查符号表）：字面量→常量；`_`→通配；**点分名**（`A.B`）→常量；
+1. **解析期**按名字形状分流（不查符号表）：字面量→常量；`_`→通配；**点分名**（``A.B``）→常量；
    名字后跟 `(`→位置、`{`→属性、后跟另一 ident→类型+绑定；**单个裸名**→留待绑定期。
 2. **绑定期**对单裸名查类型表：**命中类型名 → 类型模式**（`IsInstance`，不绑定）；**否则 → 新绑定**。
 
 **关键**：常量这条路只留给字面量 / 点分名——裸单名**永不作常量**，歧义收窄成「类型 vs 绑定」二选一。
-所以常量匹配必须写限定名（`Color.Red`）或字面量。
+所以常量匹配必须写限定名（``Color.Red``）或字面量。
 
 ## record 位置解构
 
@@ -284,7 +284,7 @@ Pair<int, Box<int>>(o, Box<int>(iw)) = ...;  // 嵌套泛型字段
 
 **机制（运行时擦除 + 编译期替换）**：`Box<int>` 解析成 `Z42InstantiatedType`（`Def = Box`，`TypeArgs = [int]`）。
 binder 解开 `.Def` 走 `IsRecord` / arity 校验，字段类型（声明为 `T`）经 `MemberResolver._substGeneric` 把类
-形参替换成实参（`T → int`）再递归绑定子模式——与字段访问 `b.Value` 的泛型替换同一设施。emit 侧的
+形参替换成实参（`T → int`）再递归绑定子模式——与字段访问 ``b.Value`` 的泛型替换同一设施。emit 侧的
 `IsInstance` 测的是**构造类型** `Box<int>`（`Box<string>` 的实例不匹配），与泛型 `is` 表达式（`x is Box<int> b`）
 同口径（见 [conversions](conversions.md)）；字段读按名 `FieldGet`。
 
@@ -346,7 +346,7 @@ int a = n switch { 1 => 10, 2 => 20 };   // 编译期无诊断（int 是开放�
 z42 **不引入新的 `[Closed]`/`permits` 机制**——直接复用既有 `internal` 可见性：
 
 > **非 public 基类（`internal`/`private`/`protected`）天然封闭在包内。** 别的包连它的名字都引用不了
-> （`AccessChecker.CheckTypeRef` 对跨包 internal 引用报 E0404）→ 跨包既**无法继承**（派生要命名基类）也
+> （``AccessChecker.CheckTypeRef`` 对跨包 internal 引用报 E0404）→ 跨包既**无法继承**（派生要命名基类）也
 > **无法 switch** 它 ⟹ 基类 + 全部子类 + 全部 switch **必同处一个包**，编译该包时全部可见 ⟹ 本包可见子类
 > 集 = 完整子类集，穷尽判定**健全**（「兄弟包偷偷加子类」的漏网场景物理上不可能）。
 
@@ -373,7 +373,7 @@ int area = s switch {
 > **设计事实**：
 > - **不走 analyzer 框架**：analyzer 跑在 AST(syntax) 层，拿不到 subject 的已解析类型与子类索引；
 >   穷尽性判定落在 **binder 语义阶段**（`ExhaustChecker._report` / `_reportClosedHierarchy`，经
->   `DiagnosticBag.Warning` 上报）。子类集由遍历 `SymbolTable.Classes` + `IsSubclassOf` 现算（无需持久化）。
+>   `DiagnosticBag.Warning` 上报）。子类集由遍历 ``SymbolTable.Classes`` + `IsSubclassOf` 现算（无需持久化）。
 > - **健全但非全能**：只覆盖**包内**封闭层次。做不了「**公开**的封闭 sum type」（public 基类导出给下游
 >   做穷尽匹配，如 Rust `pub enum`）——那需要把封闭标记持久化进 zpkg + 跨包强制，留作将来独立 `[Closed]`
 >   follow-up（与本机制正交、可叠加：给 public 轴加标记，internal 类型的检测不变）。

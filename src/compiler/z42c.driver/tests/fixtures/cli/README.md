@@ -35,4 +35,4 @@
 `workspace-prebuilt/` 覆盖 generator 字节变化、builder hook 输入域、未选择成员的旧框架副本，以及 source plugin
 在 worker 启动前被拒绝。工具工程先由普通 driver 编译；图构建只加载既有插件产物，不递归代建插件。
 
-Cache-preservation fixtures explicitly disable `z42.harness.lint`: analyzer-enabled builds must rerun diagnostics even on a full cache hit. This keeps their no-analyzer premise independent of an installed SDK ambient plugin.
+Cache-preservation fixtures explicitly disable ``z42.harness.lint``: analyzer-enabled builds must rerun diagnostics even on a full cache hit. This keeps their no-analyzer premise independent of an installed SDK ambient plugin.

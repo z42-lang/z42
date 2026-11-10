@@ -94,7 +94,7 @@
 | `src/compiler/z42c.emission/src/Emission/StubEmitter.z42` | 编译器侧：`[Native]` → `CallNativeInstr` / `BuiltinInstr` 的分流 |
 
 整条通路由 cargo feature **`native-interop`** 门控（`= ["dep:libffi", "dep:libloading"]`，在默认
-feature 集里）。关闭该 feature 后，`interop::register_native_type` / `resolve_native_type` 与 native 子模块、
+feature 集里）。关闭该 feature 后，``interop::register_native_type`` / `resolve_native_type` 与 native 子模块、
 状态字段一起消失；portable pin buffer 状态及 `pin_owned_buffer` / `release_owned_buffer` 仍可用。
 
 类型与库表归 `interop::State`，门面在 VM 创建时登记为冻结扩展状态，worker 共享同一份。
@@ -110,9 +110,9 @@ feature 集里）。关闭该 feature 后，`interop::register_native_type` / `r
 | `#[derive(Z42Type)]` | **占位**：展开成 `compile_error!` |
 | `#[z42::trait_impl]` | **占位**：展开成 `compile_error!` |
 
-宏侧的 Rust 类型白名单（`signature.rs::parse_type`）比 ABI 侧更窄：只有基元、裸指针、`Self` 引用与
+宏侧的 Rust 类型白名单（``signature.rs::parse_type``）比 ABI 侧更窄：只有基元、裸指针、`Self` 引用与
 `()`；`&T` / `&str` / `String` / `Vec<T>` / `Box<T>` / `Result<T,E>` / 按值 `self` 都给出定位到具体
-token 的 `syn::Error`。渲染出的签名串必须与 `dispatch::parse_signature` 往返一致——**两处白名单是一对
+token 的 ``syn::Error``。渲染出的签名串必须与 `dispatch::parse_signature` 往返一致——**两处白名单是一对
 必须同步的表**，改一边就要改另一边。
 
 ---
@@ -139,9 +139,9 @@ native 库                      z42vm
 - **描述符指针只留作诊断**。`RegisteredType` 注册完就不再回读 `descriptor_ptr` 指向的内存；调用方必须
   保证描述符及其所有字符串/函数指针是 `'static`。这条契约是 `unsafe impl Send + Sync` 的全部依据。
 - **`fields` / `trait_impls` 不落库**。`RegisteredType` 只存 `methods: HashMap<String, MethodEntry>`。
-- **库句柄挂在 `interop::State.native_libs` 上**，保证所有 `fn_ptr` 活到 VM drop。
+- **库句柄挂在 ``interop::State.native_libs`` 上**，保证所有 `fn_ptr` 活到 VM drop。
 
-`loader::load_library` 按文件名反推入口符号：`libnumz42.dylib` → `numz42_register`。⚠️ **VM 内部没有
+``loader::load_library`` 按文件名反推入口符号：`libnumz42.dylib` → `numz42_register`。⚠️ **VM 内部没有
 任何地方调 `load_native_library`**——typed 通路的库今天只能靠静态链接 + 宿主显式调注册入口进来。启动时
 被自动扫描 `dlopen` 的是 ext 通路（§6.4），两者不要混。
 
@@ -209,7 +209,7 @@ PinSourceKind }` 住在 per-`VmContext` 的 `TransientArena` 里，随帧 LIFO �
 被 native 侧看到——与 `Str` 的借用语义不同，这条不对称是有意的：VM 没有办法把 boxed 元素数组原地变成
 连续字节。
 
-**字段投影**：`view.ptr` / `view.len` 走标准 `FieldGet`，在 `exec_object::field_get` 里经 arena 解句柄
+**字段投影**：``view.ptr`` / ``view.len`` 走标准 `FieldGet`，在 `exec_object::field_get` 里经 arena 解句柄
 取真载荷。`marshal::value_to_z42` 拿不到 `ctx`，所以它对 `PinnedView` 的臂是**明确报错**而非兜底——
 调用点必须先 `FieldGet` 投成标量再传。这是 object-abi §2.2「ctx-less 消费者对 arena 载荷降级」那条通用
 决策在本通路上的落点。
@@ -236,10 +236,10 @@ pub(crate) const DESCS: &[abi::BuiltinDesc] = &JOINED; // provider descriptors
 核心库导出内部描述符，由 host 经 interop 注册并冻结成内部执行表。**该表的 slice 下标就是 `BuiltinId`。** Repl、compression 各自导出独立 C 模块描述符，使用通用编组桥，不占用内部执行表的 ID。
 
 > `BuiltinId` **不会被烤进 zbc**：zbc 里存的是**名字**（`BuiltinInsn { dst, name, args }`），
-> `BuiltinId` 由 resolver 在**加载期**按名字填进 `Function.resolved.builtin_tokens`，AOT 也不烤它
+> `BuiltinId` 由 resolver 在**加载期**按名字填进 ``Function.resolved.builtin_tokens``，AOT 也不烤它
 > ⇒ 它是**单次运行内的派发令牌**，不跨进程持久化——增删表项只让下标平移，对既有产物没有影响。
 
-- 名字唯一：同一个名字只能在表里出现一次（`abi_tests::typed_builtins_are_in_the_table_once`）。
+- 名字唯一：同一个名字只能在表里出现一次（``abi_tests::typed_builtins_are_in_the_table_once``）。
 - 名字 → id 的索引由 `metadata/builtins.rs::BuiltinCatalog` 首次查询时初始化。`interop/providers.rs` 从 host 注册的各提供方描述符按序派生名称/frameless 记录，查询目录与 callable 表编号一致。
 
 每 VM 的 RuntimeState 接收不可变目录，ExecState 接收匹配的 callable 描述符表；默认装配共享进程内只读数据。runtime 不保存执行 ABI 类型，也不依赖 corelib；实际调用和错误映射属于 exec。
@@ -313,7 +313,7 @@ pub mod typed {
   （参数名取自 Rust 形参）；`this = "Member"` 标出的接收者为 null → `NullReferenceException`，消息与
   `VCall` 撞 null 同一条；类型不符 → `InvalidCastException`；**实参个数不符**只可能是 `[Native]` 声明与
   Rust 签名不一致 ⇒ `Internal`（致命）。
-- **`ref` / `out` 出参**：参数写 `RefArg`，`v.store(ctx, value)` 经 transient arena 解出位置后写穿
+- **`ref` / `out` 出参**：参数写 `RefArg`，``v.store(ctx, value)`` 经 transient arena 解出位置后写穿
   （与 z42 方法里给 `ref` 形参赋值同一条 `store_thru_ref`）。`TryParse` 一族就是这样做到不抛异常的。
   builtin 拿到调用方的引用依赖 §6.4 的折叠（直接调用与虚调用都会折叠）：真正执行的包装函数帧在入口把 `ref`
   实参解引用成值（copy-in / copy-out），builtin 写不回去；这种情况只出现在反射 `Invoke` / 嵌入方直接调用，
@@ -344,7 +344,7 @@ GC 等不到它到达 safepoint（规则见 runtime-rust.md「阻塞的 native �
 - 资源表（`file_handles` / `processes`）的锁下**只取 / 克隆句柄**（`Arc<File>`、每条管道自己的锁），系统调用在
   锁外做：一个阻塞在读上的线程既不占表锁，也不挡回收。
 
-单测照 `abi_tests::a_blocking_builtin_lets_a_collection_run_while_it_waits` 写：阻塞线程 `parked_count == 1`，
+单测照 ``abi_tests::a_blocking_builtin_lets_a_collection_run_while_it_waits`` 写：阻塞线程 `parked_count == 1`，
 另一线程此时能发起并完成一次全堆回收，结束后回到 0。debug 构建下 park 期间分配会被
 `debug_assert_not_native_parked` 当场拦下。
 
@@ -364,11 +364,11 @@ GC 等不到它到达 safepoint（规则见 runtime-rust.md「阻塞的 native �
 | `Detailed { classes, message, fields }` | 按序取第一个已加载的类，另外填公开字段（`Std.IO.ProcessTimeoutException` 的 `Program` / `TimeoutMs`、`Std.Net.Sockets.SocketException` 的 `SocketErrorCode` / `ErrorCode`，退到基类时跳过它没有的字段）。`BuiltinError::object_disposed(name, msg)` 用它造 `Std.ObjectDisposedException`（→ `InvalidOperationException`），带 `ObjectName` |
 | `Thrown(Value)` | 已构造好的异常值，原样抛（回调里 z42 代码抛的） |
 | `Internal(String)` | **致命错误**，不可 catch |
-| `Legacy(anyhow::Error)` | `anyhow` 桥：类型化 builtin 包装旧 helper（`obj_get_type` 等）与 **ext** builtin 的错误（`objops::Throw` 按其类，其余 `Std.Exception`；typed 可下插恢复） |
+| `Legacy(anyhow::Error)` | `anyhow` 桥：类型化 builtin 包装旧 helper（`obj_get_type` 等）与 **ext** builtin 的错误（``objops::Throw`` 按其类，其余 `Std.Exception`；typed 可下插恢复） |
 
 `From<std::io::Error>` 按 .NET 的口径映射 OS 错误（不存在 → `FileNotFound`，无权限 →
 `UnauthorizedAccess`，超时 → `Timeout`，提前 EOF → `EndOfStream`，平台不支持 → `NotSupported`，其余 → `Io`）；
-`From<OpError>` 接 objops。**按路径操作的文件系统 builtin 不用它**，而用 `corelib::fs::fs_error(e, path, role)`：
+`From<OpError>` 接 objops。**按路径操作的文件系统 builtin 不用它**，而用 ``corelib::fs::fs_error(e, path, role)``：
 手里有路径、知道要找的是文件还是目录，才分得出 `FileNotFound`（文件所在的目录存在）与 `DirectoryNotFound`，
 消息也是 .NET 的原文（`Could not find file '<path>'.`）——完整对照在该函数的文档与
 [reference · 文件与 IO 异常](https://z42-lang.github.io/z42/reference/stdlib/core.IOException.html)。进程的对照在 `corelib/os/process.rs` 抬头；
@@ -391,7 +391,7 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 「内部错误」指 VM / stdlib 自身的缺陷：`[Native]` 声明与 Rust 签名不一致、句柄失效、不变式被破
 （如 `__box_prim` 在 debug 构建收到 `Null`）。用户代码能触发的失败一律用对应的异常类。
 `Legacy(anyhow)` 不再对应旧表（已删），只剩两个用途：类型化 builtin 包装 anyhow 返回的旧 helper
-（如 `obj_get_type`），以及 **ext** builtin 的 `fn(&VmContext, &[Value])` 错误通道（`objops::Throw`
+（如 `obj_get_type`），以及 **ext** builtin 的 `fn(&VmContext, &[Value])` 错误通道（``objops::Throw``
 按其类、其余 `Std.Exception`）。
 
 ### 6.4 `[Native]` 桩折叠（两个引擎，VM 链接期）
@@ -436,7 +436,7 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 | `str` | `Std.String` 上的字符串操作 | `__str_char_at` |
 | `char` | `Std.Char` | `__char_is_whitespace` |
 | `int32` / `int64` / `double` / … | 基元的 parse / try_parse / to_string | `__int32_parse`、`__int32_try_parse` |
-| `math` | `Std.Math.Math` 静态方法 | `__math_sqrt`、`__math_atan2` |
+| `math` | `Std.Math` 静态方法 | `__math_sqrt`、`__math_atan2` |
 | `obj` | 通用对象协议 | `__obj_get_type`、`__obj_hash_code` |
 | `file` | `Std.IO.File` 静态方法 | `__file_read_text` |
 | `env` | 环境 / 进程 | `__env_get`、`__env_args` |

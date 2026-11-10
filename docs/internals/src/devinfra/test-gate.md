@@ -75,7 +75,7 @@ skip 键与 banner 名可能不同（如 `vscode` 对应 `vscode-syntax`）；�
 `--changed <base>` 是 `--skip` 的自动版：按 §7 映射表的「gate stage」列，把相对 `<base>` 的改动**用不到**的
 重 stage（§2 里标了改动分流类别的那些）追加进 skip。build wave、`e2e goldens` 与全部静态检查恒跑（后者守全仓不变量，秒级）；
 任一文件判成 full、base 不可解析或 Git 读取失败 ⇒ 一个都不跳。判定打印在开头（`[test --changed] …`）。CI 的
-`test-host` 在 PR 上使用 PR base SHA，在 main push 上使用 `github.event.before`；首次 push 或无法取得基线时全跑，
+`test-host` 在 PR 上使用 PR base SHA，在 main push 上使用 ``github.event.before``；首次 push 或无法取得基线时全跑，
 schedule / dispatch 保留全量。测试差异基线不替代 nightly 发布的累计 SDK 差异判定。
 
 `--no-build` 复用已有 z42c / stdlib；完整 `test` 仍确保本地 debug VM 并重生 golden。

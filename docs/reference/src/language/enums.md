@@ -9,7 +9,7 @@
 
 ## 为什么 enum 是独立类型
 
-若 enum 只是整数别名：`E.Member` 会绑成 `long` 字面量，而**类型位置**的 `E` 是一个在转换格里
+若 enum 只是整数别名：``E.Member`` 会绑成 `long` 字面量，而**类型位置**的 `E` 是一个在转换格里
 没有任何边相连的孤立类。两者不是同一个东西，于是：
 
 ```z42
@@ -81,13 +81,13 @@ o is Color                       // true
 ```
 
 挂 `Std.Int64` 也能保住 i64 承诺，但 `GetType()` 会答 `Int64`，与 `typeof(Color)` /
-`Color.Blue.GetType()` 仍然不自洽——那正是这次要根除的东西。
+``Color.Blue.GetType()`` 仍然不自洽——那正是这次要根除的东西。
 
 **擦除面与整数基元逐字一致**：`object` / 接口装箱，**泛型形参不装**。
 `List<Color>` 和 `List<int>` 一样存裸 i64，容器内外表示不变、不需要拆箱对偶。
 代价是一个**未代换的类型形参**位上的 enum 值是裸 i64（见下「已知边角」）。
 
-## 字符串化：成员名（C# `Enum.ToString`）
+## 字符串化：成员名（C# ``Enum.ToString``）
 
 四条路答案必须一致：
 
@@ -114,11 +114,11 @@ Console.WriteLine(c);      // Blue
 
 | 入口 | 谁走 |
 |---|---|
-| `interp::vcall_resolve` 的 enum 臂 | `x.ToString()`（receiver 是盒） |
-| `corelib::core::convert::value_to_str` | `Console.WriteLine(object)` / 拼接 / `ToStr` |
+| ``interp::vcall_resolve`` 的 enum 臂 | ``x.ToString()``（receiver 是盒） |
+| ``corelib::core::convert::value_to_str`` | `Console.WriteLine(object)` / 拼接 / `ToStr` |
 
 编译器侧一个原语 `TypeOpEmitter._emitEnumBox`（非 enum 静态类型 no-op），挂三处发射点：
-插值洞、字符串 `+`、`e.ToString()`。
+插值洞、字符串 `+`、``e.ToString()``。
 
 > **字符串 `+` 为什么不判「结果是不是 string」**：因为不需要。enum 的算术 `+` 已经被转换格
 > 拒掉了 ⇒ 能走到发射、且带 enum 操作数的 `+` 只可能是拼接。这是类型系统给的**不变式**，
@@ -127,7 +127,7 @@ Console.WriteLine(c);      // Blue
 ## `Equals` / `GetHashCode`
 
 enum 不声明任何方法，所以 `Object` 协议的候选走查在 enum 盒上会走空、落到
-`Std.Object.Equals` → `__obj_equals`（引用语义）⇒ **`Color.Green.Equals(Color.Green)` 会答
+`Std.Object.Equals` → `__obj_equals`（引用语义）⇒ **``Color.Green.Equals(Color.Green)`` 会答
 false**。解法是让 enum 盒的候选类名换成**底层类型** `Std.Int64`：`Std.Int64.Equals(long)`
 正是想要的值比较，与装箱 `long` 走同一个方法。（`ToString` 不受影响——前面的 enum 臂先拦下。）
 

@@ -115,7 +115,7 @@ flowchart LR
 数据（实参是编译期常量，E0500 白名单），发现层把方法展开成多条用例（名字带实参后缀，如
 `test_add(1, 2, 3)`），每行独立 pass/fail。编译期三查（E0911/E0914）：`[Case]` 只贴 `[Test]`、
 贴了须有形参、每行套数 = 形参数。运行期用脚本类型检查识别 Int32 实参，按形参类型扩宽到 Int64 或 Double。
-不匹配的失败消息指向具体行。执行：`Method.Invoke(null, 勘合后实参)`——与 `[Benchmark]`
+不匹配的失败消息指向具体行。执行：``Method.Invoke(null, 勘合后实参)``——与 `[Benchmark]`
 的 Bencher 注入同一反射机制。
 
 **运行期数据行（`[Test(data: methodof(Fix.rows))]`）**：行的运行期来源——provider 是静态类里
@@ -152,7 +152,7 @@ SkipFeature  != null → skip iff !Capabilities().contains(SkipFeature)
 | `jit` | cargo feature `jit` |
 | `native-interop` | cargo feature `native-interop` |
 | `bundled-compression` | cargo feature `bundled-compression` |
-| `threads` | `not(target_arch = "wasm32")`（不是 feature——`std::thread` 在哪儿有就在哪儿有） |
+| `threads` | `not(target_arch = "wasm32")`（不是 feature——``std::thread`` 在哪儿有就在哪儿有） |
 | `socket` | `not(target_arch = "wasm32")` |
 
 `Std.Platform.ExecModes()` 另报可派发后端（`interp` 恒在 + cfg 门控的 `jit` / `aot`）。
@@ -163,7 +163,7 @@ SkipFeature  != null → skip iff !Capabilities().contains(SkipFeature)
 
 ### 3.4 `[ShouldThrow<E>]` 的类型匹配
 
-`Runner._typeMatches(thrown, expected)` = `expected.IsAssignableFrom(thrown)`：抛出 `E` 本身或其任意
+`Runner._typeMatches(thrown, expected)` = ``expected.IsAssignableFrom(thrown)``：抛出 `E` 本身或其任意
 子类型都算命中。`expected` 来自 attribute 实例的 `typeof(E)`（运行期真值），子类型判定走运行期类型
 层次，不受编译期可见范围限制。
 

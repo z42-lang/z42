@@ -31,7 +31,7 @@ GC 堆本身（在 `gc`）。终端脚本适配属于 `crates/z42-repl`，压缩
 | 控制台 IO（print / readline：`typed` 模块，ABI v2；写进程 stdout / stderr 与读 stdin 都 park）/ TestIO 捕获（sink 栈） | `io/mod.rs` |
 | 字符串操作 / 字符（含 UTF-8 存储探测 `__str_index_of_any_ascii` 与 bulk 原语 `__str_copy_utf8` / `__str_from_utf8` / `__str_to_chars` / `__str_substring` / `__str_concat_parts` / `__str_concat_parts_utf8` / `__str_split` / `__str_join`：Substring / StringBuilder.ToString / Join / Concat / Split 的底座，一次拷贝取代逐字符 builtin 派发）| `core/string.rs` / `str_meta.rs` / `core/char.rs` |
 | 数学 | `core/math.rs` |
-| 文件系统 / FileStream 句柄 / env / 时间（`typed` 模块，ABI v2：.NET 口径的 IO 异常 `fs_error`、文件 I/O 一律 park、句柄表锁外做系统调用；路径型操作走本 VM 的 `pal::fs::Vfs` 句柄 `VmContext::vfs`，返回 `io::Error`） | `io/fs.rs` |
+| 文件系统 / FileStream 句柄 / env / 时间（`typed` 模块，ABI v2：.NET 口径的 IO 异常 `fs_error`、文件 I/O 一律 park、句柄表锁外做系统调用；路径型操作走本 VM 的 `pal::fs::Vfs` 句柄 `VmContext::vfs`，返回 ``io::Error``） | `io/fs.rs` |
 | 文件、子进程管道、TCP/UDP、TLS 共用的 byte[] 参数检查与拷贝 | `io/buffer.rs` |
 | 对象内建（GetType / RefEq / HashCode） | `core/object.rs` |
 | **反射**（`Std.Type` / `Std.Reflection.*`：枚举成员、attribute、反射调用、Activator、模块加载） | **`core/reflection/`**（子目录，见下「核心文件」） |

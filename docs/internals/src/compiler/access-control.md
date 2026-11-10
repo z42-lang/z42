@@ -47,7 +47,7 @@ env, symbols, kind, name, span)`：
 | `MemberResolver._bindClassMemberAccess` | 实例字段读 / 属性 getter / 方法组 |
 | `MemberResolver._bindInstanceMemberCall` | 实例方法调用 |
 | `MemberResolver._bindMember` | 静态字段读 |
-| `MemberResolver._bindMemberCall` | 静态方法调用（`Class.m()`） |
+| `MemberResolver._bindMemberCall` | 静态方法调用（``Class.m()``） |
 | `AssignTyper._bindAssign` | 属性 setter（`obj.P = v`）；字段写经 `_bindClassMemberAccess` 已覆盖 |
 | `ConstructTyper._bindNew` | 构造器：`new C(..)` / target-typed `new()` / 对象初始化器 / 元组脱糖（选中构造器之后） |
 | `DeclBinder._bindMethodBody` | 构造器：`: base(..)` / `: this(..)` 的目标构造器 |
@@ -68,14 +68,14 @@ internal     → symbols.GetClass(declClass).IsImported==false ? OK : E0404
 
 ### 名字形式对齐
 
-`env.CurrentClass()`（`DeclBinder` 建方法 TypeEnv 时传 `ct.Name()`）与 `FieldSymbol/MethodSymbol.
+``env.CurrentClass()``（`DeclBinder` 建方法 TypeEnv 时传 ``ct.Name()``）与 `FieldSymbol/MethodSymbol.
 ContainingTypeName`（`SymbolCollector` 从 `c.Name` 设）**均为短名**，直接可比，无 FQN 归一。
 
 ### local vs imported：`Z42ClassType.IsImported`
 
-`internal` 需判「声明类是否本包」。TypeChecker 期无现成 local/imported API（`SymbolTable.Classes` 混存
+`internal` 需判「声明类是否本包」。TypeChecker 期无现成 local/imported API（``SymbolTable.Classes`` 混存
 两者）。根因解法：`Z42ClassType` 带 `bool IsImported`，`ImportedSymbolLoader` 构造 imported 类型时置
-`true`，本地类型默认 `false`。声明类自己携带来源，检查点一行 `dc.IsImported` 即判。
+`true`，本地类型默认 `false`。声明类自己携带来源，检查点一行 ``dc.IsImported`` 即判。
 
 ### 跨包 internal 无需格式 bump（关键实现事实）
 
@@ -104,14 +104,14 @@ split 辅助类（Parser/DeclParser/MemberParser/TypeParser 等）的**同包互
 
 ### 语义
 
-| 类可见性 | 可引用范围 | 判据（`AccessChecker.CheckTypeRef`） |
+| 类可见性 | 可引用范围 | 判据（``AccessChecker.CheckTypeRef``） |
 |---------|-----------|-----------------------------------|
 | `public` | 任意 | 不校验 |
-| `private` 嵌套类 `Outer+Inner` | `Outer` 文本内（含更深嵌套） | `currentClass == Outer` 或以 `Outer+` 为前缀 |
+| `private` 嵌套类 ``Outer+Inner`` | `Outer` 文本内（含更深嵌套） | `currentClass == Outer` 或以 `Outer+` 为前缀 |
 | `protected` 嵌套类 | `Outer` + 派生自 `Outer` 的类 | `currentClass` 沿基链上溯能到 `Outer` |
 | `internal` 类（含无修饰符顶层默认） | 同包放行；跨包 → E0404 | 被引类 `IsImported==false`（本包）→ OK |
 
-嵌套类经 `NestedFlatten` 命名为扁平键 `Outer+Inner`；外层名由 `_nestedOuter`（剥 `+` 末段）得出，
+嵌套类经 `NestedFlatten` 命名为扁平键 ``Outer+Inner``；外层名由 `_nestedOuter`（剥 `+` 末段）得出，
 无需结构标记。类可见性**位置默认**（`DeclFacts.classVisCode/classVis`）：嵌套类→`private`、顶层类→
 `internal`，显式修饰符优先（与成员级 `_vis` 同款「最小封闭作用域」）。可见性存内存态 `Z42ClassType.Visibility`
 （本地类由 `SymbolCollector` 从 `Mods` 设，imported 类由 `ImportedSymbolLoader` 从 zbc 可见性字节还原）。
@@ -122,7 +122,7 @@ ImportedSymbolLoader → Z42ClassType.Visibility`），故 imported internal 类
 
 ### 强制点（两相位，静态 `CheckTypeRef` 共用）
 
-`AccessChecker.CheckTypeRef(resolved, currentClass, symbols, diags, span)` 是**静态**方法、显式收 diag
+``AccessChecker.CheckTypeRef(resolved, currentClass, symbols, diags, span)`` 是**静态**方法、显式收 diag
 bag，供绑定期与收集期共用（emit 到各自的 bag）。泛型实例化递归校验定义类 + 每个类型实参。
 
 | 相位 | 位置 | 覆盖引用点 | diag bag |
@@ -130,7 +130,7 @@ bag，供绑定期与收集期共用（emit 到各自的 bag）。泛型实例�
 | 绑定期（体引用） | `TypeChecker._chkTypeRef` ← `StmtBinder`/`ExprTyper`（`new T` 在 `ConstructTyper`；`(T)e`/`e is T`/`e as T`/`typeof(T)` 在 `TypeOpTyper`） | `new T` / 局部 `T x` / `(T)e` / `e is T` / `e as T` / `typeof(T)` / `default(T)` / `catch(T)` / 泛型实参 | `TypeChecker._diags` |
 | 收集期（声明签名） | `SymbolCollector._chkTypeRef` ← `_fillClass`/`_methodSymbol` | 字段 / 属性 / 索引器类型 / 方法参·返回 / 基类·接口列表 | `SymbolCollector.Diags` |
 
-codegen（`FunctionEmitter` 直呼 `symbols.ResolveTypeP`）绕过校验入口 → 不重复报、不碰字节不动点（纯诊断，
+codegen（`FunctionEmitter` 直呼 ``symbols.ResolveTypeP``）绕过校验入口 → 不重复报、不碰字节不动点（纯诊断，
 z42c/stdlib 自身无嵌套类越界引用 → `gen1==gen2` 保持）。`CheckTypeRef` 同时处理**类与接口**（各自
 `Visibility`，共用 `_checkVisRef` 逻辑），其余类型（prim/泛型形参/func/匿名未知）一律放行，绝不误报。
 
@@ -157,7 +157,7 @@ z42c/stdlib 自身无嵌套类越界引用 → `gen1==gen2` 保持）。`CheckTy
 
 `Z42InterfaceType` 与 `Z42ClassType` 对称加 `Visibility` + `IsImported`。接口经 `ClassDescBuilder._interfaceDesc`
 产同一 `IrClassDesc`（Flags bit4），走同一 TYPE 记录——`WriteU8(cd.Visibility)` 对每条记录无条件写，
-故接口 TYPE 本就携带该字节。6 处接口分支写入/还原真实可见性：`SymbolCollector._passInterfaces`
+故接口 TYPE 本就携带该字节。6 处接口分支写入/还原真实可见性：``SymbolCollector._passInterfaces``
 （从 `Mods`）、`_interfaceDesc`（emit）、`ExportedInterfaceZ.Visibility` + `TsigReconcile._rebuildInterface`
 （跨包 round-trip）、`ImportedSymbolLoader`（传播）、`CheckTypeRef` 接口分支。跨包引用 internal 接口 → E0404。
 
@@ -169,7 +169,7 @@ z42c/stdlib 自身无嵌套类越界引用 → `gen1==gen2` 保持）。`CheckTy
 
 ### ② 不一致可访问性（E0441，C# CS0050 族）
 
-`DeclBinder._bindClass` 对每个类的基类/接口 + 字段/方法（含 ctor）签名调 `AccessChecker.CheckExposure`：被暴露
+`DeclBinder._bindClass` 对每个类的基类/接口 + 字段/方法（含 ctor）签名调 ``AccessChecker.CheckExposure``：被暴露
 类型可见性 rank 须 ≥ 暴露声明的**有效可访问性** `min(成员声明, 外层类)`（`MinVisibility`——镜像 C# effective
 accessibility，`internal class` 内 `public` 成员实际只 internal 可见，暴露 internal 不算泄漏 → 绝不误报）。
 可见性线性 rank `public 3 > internal 2 > protected 1 > private 0`；递归穿透泛型实例化（Def+实参）与数组元素；
@@ -178,7 +178,7 @@ accessibility，`internal class` 内 `public` 成员实际只 internal 可见，
 ### ① 类可见性反射（`Type.Visibility`，对齐 C#）
 
 VM 把可见性字节存入 `ClassDesc.visibility → TypeDesc.visibility`。单个 builtin
-`__type_visibility` 读 `td.visibility`，返回声明可见性字节（`0=public/1=private/2=protected/3=internal`；
+`__type_visibility` 读 ``td.visibility``，返回声明可见性字节（`0=public/1=private/2=protected/3=internal`；
 无 TYPE handle 的基元/数组 → `0=Public`，与 C# 一致——基元本就是 public 顶层类型）。
 
 z42 侧 `Type.z42` 以一个 extern auto-property 暴露它，顶层 vs 嵌套由既有 `Type.IsNested`（FQ 名内 `+`）
@@ -188,7 +188,7 @@ z42 侧 `Type.z42` 以一个 extern auto-property 暴露它，顶层 vs 嵌套�
 
 > **设计（完全对齐 C#）**：native interop 只用**一个** `__type_visibility` builtin（返回声明可见性
 > 字节的 `TypeVisibility` enum），6 个 bool **全部在脚本层计算**——这正是 C# 的做法（C# 的 6 个 bool
-> 也是在 `Type.Attributes` flags 之上派生的 computed properties，而非各自的字段）。这依赖
+> 也是在 ``Type.Attributes`` flags 之上派生的 computed properties，而非各自的字段）。这依赖
 > **命名属性的计算 getter**（`Name { get { return … } }`）——6 个 bool 若各作 extern auto-property
 > 就要各背一个 builtin（6 native 面），所以让它们成计算属性，interop 面收缩到 1，API 与 C# 逐一对齐。无格式 bump（可见性字节已在线）。
 

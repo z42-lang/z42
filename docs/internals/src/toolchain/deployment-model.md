@@ -123,7 +123,7 @@ patcher 在 macOS 目标上 patch 完就 `codesign -s - -f <out>`；先 patch �
 patcher 会显式拒绝在别的 host 上产 macos 目标。Linux 无签名；Windows 跑无签名 exe 无碍。
 
 MAGIC 与 patch 逻辑目前有三处副本——Rust stub 是权威（`platform/apphost/src/main.rs`），
-desktop workload 的 `Apphost.PatchBytes`、z42b 的内联 patcher 各一份。
+desktop workload 的 ``Apphost.PatchBytes``、z42b 的内联 patcher 各一份。
 z42b 内联而不复用 workload 的那份，是因为 z42b 兼作 stdlib 的测试运行器，
 那个上下文的 `Z42_LIBS` 里只有 stdlib，看不到 workload 包。改 MAGIC 要三处同步。
 

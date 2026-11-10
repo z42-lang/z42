@@ -22,15 +22,15 @@ z42 用户代码的命名约定。**绝大多数是强建议**——违反不会
 | **局部变量 / 参数** | `camelCase` | `var index = 0`, `void f(int leftValue)` |
 | **常量（`const`）/ 静态只读** | `PascalCase` | `const double Pi = 3.14`, `static readonly DateTime Epoch` |
 | **泛型类型参数** | 单字母 `T` 或 `T` + 语义名 | `class Box<T>`, `Dictionary<TKey, TValue>` |
-| **命名空间** | `PascalCase` 点分 | `Std.IO`, `Demo.Web.Api` |
+| **命名空间** | `PascalCase` 点分 | `Std.IO`, ``Demo.Web.Api`` |
 | **目录名** | `PascalCase` | `src/Collections/`, `src/Exceptions/` |
 | **文件名** | 与主类型同名 `PascalCase.z42` | `Calculator.z42`, `IDisposable.z42` |
 | **Bool 方法 / 字段** | `Is*` / `Has*` / `Can*` / `*ed` / `*able` | `IsEmpty`, `HasValue`, `CanWrite`, `IsParsed` |
-| **方法动词** | `Get/Set/Find/Add/Remove/Open/Close/Try/Parse/To/As/…` | `int.Parse(s)`, `list.ToArray()` |
+| **方法动词** | `Get/Set/Find/Add/Remove/Open/Close/Try/Parse/To/As/…` | ``int.Parse(s)``, `list.ToArray()` |
 | **Exception 类型** | `*Exception` 后缀（约定，不强制）| `TomlException`, `ArgumentException` |
 | **Attribute / Analyzer / Generator 类型** | 同名后缀，**编译期强制** | `RouteAttribute`, `NoGotoAnalyzer` |
 | **Enum** | 互斥单数 / 位标志复数；成员 PascalCase 不带前缀 | `enum Direction { North, … }` |
-| **工厂方法** | `static Create*` / `From*` / `Empty()` / `Default` | `Color.FromHex("…")` |
+| **工厂方法** | `static Create*` / `From*` / `Empty()` / `Default` | ``Color.FromHex("…")`` |
 | **Lambda / 解构 discard** | `_` 表忽略（不能后续引用）| `(_, y) = pair;` |
 
 > **包名**（manifest `[project] name`）是分发层标识符，不是语言标识符，规则另见
@@ -117,7 +117,7 @@ public class Vector3 {
 
 **为什么私有字段用下划线**：
 
-- 与局部变量 / 参数（同样 camelCase）区分。方法体内 `this._refCount` 与 `refCount`（参数）
+- 与局部变量 / 参数（同样 camelCase）区分。方法体内 ``this._refCount`` 与 `refCount`（参数）
   一眼可辨；
 - C# 主流公约，z42 stdlib 已落地；
 - 比 `m_` / `s_`（匈牙利命名的退化形式）更简洁。
@@ -188,7 +188,7 @@ namespace Demo.Web.Api;
 
 - 每段都是 PascalCase；
 - 用 `.` 分隔（不用 `::` / `/`）；
-- 公司 / 项目名通常作首段（`Acme.Web`），stdlib 用 `Std.*`；
+- 公司 / 项目名通常作首段（``Acme.Web``），stdlib 用 `Std.*`；
 - **不用** `_` 或 `-`（保留 `_` 给字段前缀）。
 
 > `Std` 与 `Std.*` 是**保留命名空间**：非官方 stdlib 包声明它是硬错误。详见
@@ -246,7 +246,7 @@ public class Logger {
 
 - .NET runtime 内部代码用 `s_field` / `t_field` / `_field` 区分，但**外部公共 C# 指南不强制**；
 - 现代 IDE 早已用颜色 / 字体区分 static vs instance；语义靠语言层
-  （`ClassName.X` 对 `this.X`），不靠命名；
+  （``ClassName.X`` 对 ``this.X``），不靠命名；
 - 匈牙利式前缀（`s_` / `t_` / `m_` / `g_`）增加噪音，z42 **不引入**。
 
 > **线程局部存储**：z42 当前没有对应语法。将来引入时**命名规则与静态字段相同**
@@ -362,7 +362,7 @@ public class TomlParseFail : Exception { … }              // ✗
 - C# / Java / Python 的 `*Error` ≈ Rust 的 `*Error` ≠ z42 的 `*Exception`——z42 跟 C# 公约
   （"异常"比"错误"涵盖更广）；
 - **命名空间**：异常与它所属的 API 住同一个命名空间（`Std.Toml.TomlException`，不是
-  `Std.TomlException`）。`Std` 根命名空间只留给 z42.core 的类型；`: Exception` 无需额外 `using`——
+  `Std.Toml.TomlException`）。`Std` 根命名空间只留给 z42.core 的类型；`: Exception` 无需额外 `using`——
   外层命名空间（`Std`）的类型在内层（`Std.Toml`）里直接可见。
 
 ## 16. Enum：单数 vs 复数
@@ -381,8 +381,8 @@ public enum FileAccess  { Read = 1, Write = 2, ReadWrite = 3 }
 public enum WatchEvents { Created = 1, Modified = 2, Deleted = 4 }
 ```
 
-**成员命名**：永远 PascalCase，**不带类型前缀**（不要 `LogLevel.LL_INFO`、
-不要 `Direction.DirNorth`）。
+**成员命名**：永远 PascalCase，**不带类型前缀**（不要 ``LogLevel.LL_INFO``、
+不要 ``Direction.DirNorth``）。
 
 > z42 当前**没有** `[Flags]` attribute，也不支持在 enum 上做 `|` 位运算。stdlib 里需要
 > 位标志的地方（如 `Std.ModeFlags`）用"类 + `static int` 常量 + 手工位运算"代替。
@@ -398,7 +398,7 @@ public class Shape {
 }
 ```
 
-`shape.Point.X` 读起来要在脑子里区分"第一个 Point 是字段名"和"潜在的 Point 类"，是无意义的
+``shape.Point.X`` 读起来要在脑子里区分"第一个 Point 是字段名"和"潜在的 Point 类"，是无意义的
 认知开销。.NET FxCop CA1721 与 Go 的 Effective Go 都明确反对。
 
 **处理建议（按优先级）**：
@@ -406,7 +406,7 @@ public class Shape {
 1. **用角色 / 用途命名**：`Point Position` / `Point Origin` / `Color Background` / `Color Stroke`
 2. **基数 / 关系前缀**：`Node Source` / `Node Target`、`DateTime Start` / `DateTime End`
 3. **用 `Kind` / `Category` 替代 `Type`**：`TokenKind Kind`（`Type` 与
-   `Std.Reflection.Type` 撞名，用户字段尽量避开）
+   ``Std.Reflection.Type`` 撞名，用户字段尽量避开）
 4. **域语义**：`User Customer` / `User AssignedAgent`、`User Author` / `User Assignee`
 5. **集合用复数**：`List<User> Users`
 6. **仅在唯一识别属性时允许同名**：`class Brush { public Color Color; }`——很少真合理，
@@ -430,17 +430,17 @@ public Address Address;      public Address ShippingAddress;
 
 | 前缀 / 模式 | 用途 | 例 |
 |------|------|------|
-| `Get*` / `Set*` | 单值访问器（Get 无副作用，Set 幂等）| `config.SetTimeout(ms)` |
+| `Get*` / `Set*` | 单值访问器（Get 无副作用，Set 幂等）| ``config.SetTimeout(ms)`` |
 | `Find*` | 查找，**找不到返回 null / -1 / 可空值** | `list.Find(predicate)` |
-| `Search*` | 多次匹配查询，**返回集合 / 迭代器** | `tree.Search(query)` |
-| `Add*` / `Remove*` / `Insert*` / `Clear*` | 集合修改 | `list.Add(x)`, `dict.Remove(key)` |
-| `Open*` / `Close*` / `Dispose*` | 资源生命周期 | `stream.Close()`, `token.Dispose()` |
+| `Search*` | 多次匹配查询，**返回集合 / 迭代器** | ``tree.Search(query)`` |
+| `Add*` / `Remove*` / `Insert*` / `Clear*` | 集合修改 | `list.Add(x)`, ``dict.Remove(key)`` |
+| `Open*` / `Close*` / `Dispose*` | 资源生命周期 | `stream.Close()`, ``token.Dispose()`` |
 | `Read*` / `Write*` | IO 操作 | `File.ReadAllText(p)`, `File.WriteAllBytes(p, b)` |
-| `Try*` | 失败不抛异常（见下）| `int.TryParse(s)`, `dict.TryAdd(k, v)` |
-| `Parse*` | 字符串 → 值，**失败抛异常**（与 `TryParse*` 成对）| `int.Parse(s)` |
+| `Try*` | 失败不抛异常（见下）| ``int.TryParse(s)``, ``dict.TryAdd(k, v)`` |
+| `Parse*` | 字符串 → 值，**失败抛异常**（与 `TryParse*` 成对）| ``int.Parse(s)`` |
 | `ToX` / `AsX` | 类型转换：`ToX` 复制 / 转换；`AsX` 视图 / 断言 | `list.ToArray()` |
 | `Is*` / `Has*` / `Can*` | bool 谓词（见 §13）| `IsValid()`, `CanWrite()` |
-| `Compare*` / `Equals` | 比较 | `a.CompareTo(b)`, `a.Equals(b)` |
+| `Compare*` / `Equals` | 比较 | ``a.CompareTo(b)``, ``a.Equals(b)`` |
 | `Copy*` / `Clone*` | 复制：`Copy*` 写入目标；`Clone` 返回新实例 | `Array.Copy(src, dst, n)` |
 
 **`Try*` 的返回形状**：失败不抛异常，按结果是不是值类型分两种：
@@ -559,7 +559,7 @@ C# 公约是 `async Task<T> LoadAsync()`（`Async` 后缀）。z42 的 async/awa
 | `class TomlError : Exception` | Exception 类型缺后缀 | `class TomlException : Exception` |
 | `class Route : Attribute` | **编译错误 E0444** | `class RouteAttribute : Attribute` |
 | `enum DayOfWeeks` | 互斥状态用复数 | `enum DayOfWeek`（单数）|
-| `LogLevel.LL_DEBUG` | enum 成员加类型前缀 | `LogLevel.Debug` |
+| ``LogLevel.LL_DEBUG`` | enum 成员加类型前缀 | `LogLevel.Debug` |
 | `MakeFoo()` / `NewFoo()` 工厂 | 用 `Create*` / `From*` | `static Foo Create(…)` |
 | `static Foo Build()` 返回 Foo | `Build()` 仅给真正的 builder | `static Foo Create(…)` |
 | Lambda 嵌套同名 `x => f(x, x => …)` | 遮蔽难读 | `outer => f(outer, inner => …)` |

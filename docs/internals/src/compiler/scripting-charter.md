@@ -129,7 +129,7 @@ API 变成跨包公开面（`SymbolTable` / `Bound*` / `SemanticModel` 等），
 **问题**：Roslyn-style async / 同步 state-passing / 编译执行分离，哪个为主？
 
 **当前倾向**：**三者并存**：
-- 形态 C（底层）：`Compiler.Compile(source, opts) → CompileResult { Bytes, Diagnostics }` + `Vm.Load(bytes)` + `Vm.Invoke(name)`
+- 形态 C（底层）：`Compiler.Compile(source, opts) → CompileResult { Bytes, Diagnostics }` + ``Vm.Load(bytes)`` + ``Vm.Invoke(name)``
 - 形态 B（状态承载）：`ScriptState state = Script.Create(); state = state.Eval(snippet); ...`
 - 形态 A（sugar）：`var result = Script.Eval(source)` / `await Script.EvalAsync(source)`
 
@@ -156,7 +156,7 @@ ScriptOptions opts = ScriptOptions.Default;
 // opts.AllowJit 默认值：iOS / WASM = false（不可改）；其他平台 = true
 ```
 
-- 平台 facade 在 `Vm.Create()` 时注入该默认值
+- 平台 facade 在 ``Vm.Create()`` 时注入该默认值
 - 用户强制 `AllowJit = true` on iOS / WASM 时抛 `PlatformNotSupportedException`
 - 文档明示行为差异
 
@@ -189,7 +189,7 @@ ScriptOptions opts = ScriptOptions.Default;
 | `compilation.md` | 编译产物粒度策略；自举后维持不变（z42 compiler 产出同一种 .zbc / .zpkg）|
 | [`project.md`](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html) | manifest schema；自举后 `z42.project` 实现这套 schema |
 | [`runtime/embedding.md`](../runtime/embedding.md) | VM 嵌入 API；scripting 在其上加 in-memory module 加载（C2 引入）|
-| [`runtime/hot-reload.md`](../runtime/hot-reload.md) | runtime 加载模块；scripting 与 hot-reload 共享 `Vm.LoadInMemoryModule(bytes)` 接口 |
+| [`runtime/hot-reload.md`](../runtime/hot-reload.md) | runtime 加载模块；scripting 与 hot-reload 共享 ``Vm.LoadInMemoryModule(bytes)`` 接口 |
 | [`stdlib/organization.md`](../stdlib/organization.md) | 包划分与依赖无环规则；本拆分严格遵守 |
 
 ---

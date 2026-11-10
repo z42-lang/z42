@@ -62,7 +62,7 @@ park 还是**线程注册协议的前提**：新 `VmContext` 在标记期不注�
 
 ### wasm 上不取时钟
 
-`wasm32-unknown-unknown` 没有 `std::time`：`Instant::now()` / `SystemTime::now()` 直接 panic（「time not implemented
+`wasm32-unknown-unknown` 没有 ``std::time``：``Instant::now()`` / ``SystemTime::now()`` 直接 panic（「time not implemented
 on this platform」），整个 VM trap。编译照过、native 测试全绿，只有 nightly 的浏览器 wasm 测试能照出来。典型场景：
 time builtins、GC 计时、采样器构造时取起点（→ 每次加载 zbc 都 trap）。
 

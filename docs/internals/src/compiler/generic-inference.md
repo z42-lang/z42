@@ -42,10 +42,10 @@
 | 来源 | 类型对象 | `Name()` |
 |---|---|---|
 | 表达式类型（`21` 的 `.Type()`） | `Z42ClassType.Builtin` 轻量合成 | 关键字 `"int"` |
-| 显式 `<int>`（`env.ResolveType` → `SymbolTable.BuiltinType`） | `Classes` 表里的包装类 `Std.Int32` | `"Int32"` |
+| 显式 `<int>`（``env.ResolveType`` → `SymbolTable.BuiltinType`） | `Classes` 表里的包装类 `Std.Int32` | `"Int32"` |
 
-而下游判定只认后者（`ConstraintChecker._satisfiesInterface` → `symbols.Implements(裸名)` →
-`Classes.Find`）。推断的绑定值直接取自 `args[i].Type()`（上表第一行），若不归一就会出现
+而下游判定只认后者（`ConstraintChecker._satisfiesInterface` → ``symbols.Implements(裸名)`` →
+``Classes.Find``）。推断的绑定值直接取自 `args[i].Type()`（上表第一行），若不归一就会出现
 **`Double<int>(21)` 过、`Double(21)` 报「`int` 不满足 `INumber`」——差别只有一个尖括号**。
 故 `TypeArgInference.Infer` 在**推断出口**统一过一次 `_resolvedForm`
 （门取 `IsBuiltinType()`，码 0..13，含 `string`=12 / `object`=13；用 `IsScalarType()`（0..11）
@@ -68,7 +68,7 @@
 实例化 / 裸类名静态 / prim wrapper 静态 / ns 限定静态）各接一次，产出一个换了签名的
 `MethodSymbol` 浅拷贝（`MethodSymbol.WithSignature`，`RegKey` 原样保留 ⇒ 发射目标不变）。
 按名代换需要方法级型参**名**，故 `MethodSymbol` 带 `TypeParamNames`（本地取
-`Decl.TypeParams.Names`，跨包取 `ExportedMethodZ.TypeParams`）。
+``Decl.TypeParams.Names``，跨包取 `ExportedMethodZ.TypeParams`）。
 
 > 🔴 **`MethodTypeArgSubst.ByName` 必须递归 `Z42FuncType`**，不能只递归数组元素与实例化类型实参：
 > 「func 位少换一次不会出错」是错的——func 位正是 lambda 形参类型的唯一来源，少换一次就是上面那 18 条 E0402。
@@ -185,7 +185,7 @@ Box<string>.S(boxOfInt)   // 修前 → "0"（读了 probe 的实参表！）应
 
 🔴 **ctor 路径不能两边都查**：不分区时，目标类型来自
 `OverloadBinder._adaptParamType` 的 `md != null` 分支 —— 那是在**调用点**的环境里
-`env.ResolveType(md.Params[i].Type)` 重新解析声明类型。型参在调用点根本不存在 ⇒ `Unknown`。
+``env.ResolveType(md.Params[i].Type)`` 重新解析声明类型。型参在调用点根本不存在 ⇒ `Unknown`。
 
 **同一个根因，两副面孔：**
 

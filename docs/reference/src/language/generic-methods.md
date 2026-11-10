@@ -138,7 +138,7 @@ F(1);        // "plain"
 
 | 维度 | 载体 | 读取指令 |
 |------|------|----------|
-| 类级（`class Box<T>`） | 实例 `Object.type_args`（`regs[0]`，由 `obj.new` 填充） | `DefaultOf`（读 `regs[0]`） |
+| 类级（`class Box<T>`） | 实例 ``Object.type_args``（`regs[0]`，由 ``obj.new`` 填充） | `DefaultOf`（读 `regs[0]`） |
 | **方法级**（`Foo<T>()`） | **`Frame.method_type_args`**（建帧时由调用点填充） | `MethodTypeArg` / `MethodDefault`（读 frame 槽） |
 
 静态方法没有 `this`，无法用实例载体——所以方法级新增一个 **frame 槽**，与类级实例载体对称。
@@ -175,7 +175,7 @@ flowchart LR
 
 - **frame 槽（本质方案）而非 codegen 隐藏参数**：把 type_args 偷渡进值参通道对反射式 invoke 用不上，
   是临时方案，已否决。
-- **`method_type_args` 存解析后的具体 FQ 名（String）**，与类级 `instance.type_args` 一致——
+- **`method_type_args` 存解析后的具体 FQ 名（String）**，与类级 ``instance.type_args`` 一致——
   `make_type_from_name` / `default_value_for` 都以名为输入，调用点编译期已知具体类型 → 直接编码。
 - **非泛型调用逐字节不变**：只有携类型实参时才发 `CallGeneric`/`VCallGeneric`（新 opcode）；普通
   `Call`/`VCall`（0x50/0x52）编码不动 → 全仓自举 byte-identical。

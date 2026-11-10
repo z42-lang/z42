@@ -17,7 +17,7 @@
 | `runtime/invoke.rs` | `enter_compiled` / `call_entry`：`push_frame` → 编译码 → `pop_frame` → 回收帧的唯一调用序列 |
 | `runtime/forward.rs` | 从原生调用者寄存器直接执行已识别的 builtin 转发 |
 | `translate/reg_access.rs` | Cranelift 寄存器地址、tag / payload 发射与寄存器缓存 |
-| `translate/` | z42 指令 → Cranelift IR（`translate_function` 取单 `FuncId`）；`HelperIds` 重导出自 `helpers`。按职责拆为子模块：`mod.rs`（驱动：函数序言 + 逐块循环 + `TxCtx` 构造 + 按类别分发）、`ctx.rs`（`TxCtx` 每块上下文 + 6 个前置局部宏转成的方法 `ri`/`str_val`/`regs_val`/`check`/`dispatch_to_catch_or_return`/`emit_int_divrem`）、`hoist.rs`（循环不变量提升：数组数据指针；循环内、接收者不变的字段 IC 守卫）、`field_ic`（原生单态字段 IC：对站点 `FieldIC` entry 0 的内联守卫 + 单元读写，引用写内联屏障判定，未命中回落 helper）、`static_field`（`StaticGet` / `StaticSet` 内联：单元里的屏障放行记录与屏障纪元比较一次，再按型参单元协议读写，未放行 / 冷形态回落 helper）、指令 handler `value`/`arith`/`compare`/`convert`/`call`/`array`/`object`/`structs`/`term`（各 `impl TxCtx { fn tr_* }`）、Cranelift 发射 `emit_int`/`emit_fc`、谓词 `predicates`、分析 `analysis`、寄存器变量 `reg_var`、站点缓存 `ic`、控制流 `control`、不支持指令表 `unsupported`、字符串原语内联 `str_intrinsics`（`s.Length` / `s[i]` / `CharAt` 对全 ASCII 串直接 load，慢路径即原 helper 序列；`compare` 对两个 `char` 原生比较）。语义锚：`emit_*` 以 `// SEMANTICS: scalar::<fn>` 引用 `crate::exec::ops::scalar` |
+| `translate/` | z42 指令 → Cranelift IR（`translate_function` 取单 `FuncId`）；`HelperIds` 重导出自 `helpers`。按职责拆为子模块：`mod.rs`（驱动：函数序言 + 逐块循环 + `TxCtx` 构造 + 按类别分发）、`ctx.rs`（`TxCtx` 每块上下文 + 6 个前置局部宏转成的方法 `ri`/`str_val`/`regs_val`/`check`/`dispatch_to_catch_or_return`/`emit_int_divrem`）、`hoist.rs`（循环不变量提升：数组数据指针；循环内、接收者不变的字段 IC 守卫）、`field_ic`（原生单态字段 IC：对站点 `FieldIC` entry 0 的内联守卫 + 单元读写，引用写内联屏障判定，未命中回落 helper）、`static_field`（`StaticGet` / `StaticSet` 内联：单元里的屏障放行记录与屏障纪元比较一次，再按型参单元协议读写，未放行 / 冷形态回落 helper）、指令 handler `value`/`arith`/`compare`/`convert`/`call`/`array`/`object`/`structs`/`term`（各 `impl TxCtx { fn tr_* }`）、Cranelift 发射 `emit_int`/`emit_fc`、谓词 `predicates`、分析 `analysis`、寄存器变量 `reg_var`、站点缓存 `ic`、控制流 `control`、不支持指令表 `unsupported`、字符串原语内联 `str_intrinsics`（``s.Length`` / `s[i]` / `CharAt` 对全 ASCII 串直接 load，慢路径即原 helper 序列；`compare` 对两个 `char` 原生比较）。语义锚：`emit_*` 以 `// SEMANTICS: scalar::<fn>` 引用 ``crate::exec::ops::scalar`` |
 | `helpers/` | `extern "C"` helper 集合（按指令类别拆分；与 `interp/ops/exec_*.rs` 命名对称）。查表统一经 `resolve_fn_*`（含惰性 hook） |
 
 `translate/array_layout.rs` 为定宽堆数组的长度和元素读取提供共同的头部检查。不能提升形状的定宽 `ArrayGet` 按当前接收者读取数组头。
@@ -35,15 +35,15 @@
 | `object.rs` | 对象分配（类 / 构造器解析与站点缓存共用 `exec::ops::obj_new`，ctor 按 `FnId` 走槽位）、类型检查、静态字段（内联快路未放行时的 `jit_static_get` / `jit_static_set`）、`default(T)` |
 | `vcall.rs` | 虚调用的 JIT **调用侧**：PIC 命中（载荷 = `FnId`，惰性目标也在内）→ by-id tiered `FnEntry`，冷 → 按 id 经注册 Engine 回落 interp；miss → `exec::ops::vcall::resolve_vcall`（与 interp 共用的**唯一**目标解析：装箱基元 / 装箱 struct / primitive-as-struct / vtable·层级 walk + PIC 安装）→ 编译入口或已注册 Engine 回退 |
 | `closure.rs` | L3 闭包：`load_fn` / `mk_clos` / `call_indirect` |
-| `object_field.rs` | 字段访问 helper（`objops::field` 的薄适配）：原生字段 IC 未命中时的 `jit_field_get` / `jit_field_set`（解析并安装站点 IC） |
-| `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，叶子读写走 `objops::struct_leaf`，分配 / 拷贝调用 `exec/ops/structs` 的值级核心 |
+| `object_field.rs` | 字段访问 helper（``objops::field`` 的薄适配）：原生字段 IC 未命中时的 `jit_field_get` / `jit_field_set`（解析并安装站点 IC） |
+| `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，叶子读写走 ``objops::struct_leaf``，分配 / 拷贝调用 `exec/ops/structs` 的值级核心 |
 
 编译器与对应单元测试放在 `compile/`；原生激活放在 `runtime/`。转发形状识别的测试与共享实现一起位于 `exec/call/forward_shape_tests.rs`。
 
 ## 入口点
 - `jit::run(ctx, module, entry, config)` → `compile::state::install`（每 VM 一个 JIT，不编译任何用户函数）+ 静态初始化 + `run_fn`
 - `jit::run_fn(ctx, entry_name)` → 先编入口函数，再执行；其余函数首次调用时经 `resolve_fn_by_id` 惰性编译
-- 编译码 / helper 的上下文参数是运行线程自己的 `VmContext`；worker 线程（`new_with_core`）经 `ctx.jit()` 共用同一个 JIT
+- 编译码 / helper 的上下文参数是运行线程自己的 `VmContext`；worker 线程（`new_with_core`）经 ``ctx.jit()`` 共用同一个 JIT
 
 ## 如何测试验证
 ```bash

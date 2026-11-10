@@ -256,9 +256,9 @@ exit 2，不是「没有回归」）；某条 benchmark 没有出现在**每一�
 
 | 基准 | 比值 | 声称区间 | 判定 | 为什么是假红 |
 |---|---|---|---|---|
-| `crypto.sha256_4k` | 1.115 | ±0.15% | ↑ 判红 | 区间窄到离谱，恰好把 1.10 顶出去 |
-| `crypto.sha256_small` | 1.110 | ±0.8% | ≈ 放过 | **同量级的同一效应**，只因区间稍宽就没红 |
-| `crypto.aes_cbc_4k` | 0.810 | ±0.06% | ↓ 快 19% | GC 改动不可能让 AES 快 19%，却被宣称为极高置信 |
+| ``crypto.sha256_4k`` | 1.115 | ±0.15% | ↑ 判红 | 区间窄到离谱，恰好把 1.10 顶出去 |
+| ``crypto.sha256_small`` | 1.110 | ±0.8% | ≈ 放过 | **同量级的同一效应**，只因区间稍宽就没红 |
+| ``crypto.aes_cbc_4k`` | 0.810 | ±0.06% | ↓ 快 19% | GC 改动不可能让 AES 快 19%，却被宣称为极高置信 |
 
 e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs 真实 13%，低估约 1.6 倍）。
 这条缺陷的正解就是 §5 的复测。
@@ -274,7 +274,7 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 ## 7. criterion 层：为什么只打印
 
 判定条件原样保留（**整个 95% 区间在 +25% 之上**，即读 `change/estimates.json` 的
-`mean.confidence_interval` 判 `lower_bound > thr`），它仍是「这条值得人看一眼」的最好线索，
+``mean.confidence_interval`` 判 `lower_bound > thr`），它仍是「这条值得人看一眼」的最好线索，
 只是不再替人做拦不拦的决定。依据是它自己的战绩：**至今每一次判红都是假的**
 （一次 `gc_cycle/large_array_10k +13.2%`，作者五分钟后照常合并；另有两例出现在 base 与 pr 的 VM
 代码**逐字节相同**的对照上）。
@@ -334,7 +334,7 @@ checkout 后比较事件基线和实际合并树。改动只落在 `src/benches/
 
 完整 A/B 的步骤如下。
 
-1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`），
+1. checkout PR + checkout ``base.sha``（`path: base-src`，两者 `fetch-depth: 0`），
    随后做**格式代差检测**（见 §10）。
 2. bootstrap PR 工具链（nightly z42c 种子 → 当前源码 warm 自建）。
 3. **判红逻辑自检**用 `bash .github/ci/bench-verdict.sh` 执行纯 JSON 与纯函数检查，在测量之前报告失败。

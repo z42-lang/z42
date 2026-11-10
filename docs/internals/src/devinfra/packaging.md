@@ -173,8 +173,8 @@ source-identity 只比「拷进来的东西和源一不一致」，管不到「�
 | 桌面 runtime | C 头在；macOS `libz42.a` + 两个 dylib 的 install name 是 `@rpath/…`（`otool -D`）；Linux `libz42.a` + 两个 `.so` 的 SONAME 正确（`readelf -d`）且硬 glibc 需求不超声明（`objdump -p`，只看 verneed flag `0x00`，`0x02` 是 Rust std 的弱引用）；Windows `z42.lib` / `z42.dll` / `z42.dll.lib` |
 | 桌面 workload | `manifest.toml` + `apphost-<rid>` |
 | iOS | tooling：SwiftPM 源码、自包含 Z42VMC 头及安装期解析的 Package.swift；runtime：libz42.a、z42.framework、头、libs/。检查框架的 arm64 架构、真机/模拟器平台、@rpath 身份与签名；不发布 XCFramework |
-| Android | tooling：gradle 工程（`gradlew`、`settings.gradle.kts`、Kotlin 门面、JNI 桥与头）；runtime：`libz42.{so,a}`（`.so` 架构对，`file`）、头、`libs/` |
-| wasm | tooling：`package.json`、`js/`；runtime：`z42_wasm_bg.wasm`（`wasm-tools validate` 通过且有导出）、`libz42.a`、`pkg-web/`、`pkg-nodejs/`、`libs/` |
+| Android | tooling：gradle 工程（`gradlew`、``settings.gradle.kts``、Kotlin 门面、JNI 桥与头）；runtime：`libz42.{so,a}`（`.so` 架构对，`file`）、头、`libs/` |
+| wasm | tooling：`package.json`、`js/`；runtime：``z42_wasm_bg.wasm``（`wasm-tools validate` 通过且有导出）、`libz42.a`、`pkg-web/`、`pkg-nodejs/`、`libs/` |
 
 读外部工具输出失败即判红并提示该装什么——「没装就跳过」等于没有门。
 

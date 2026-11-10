@@ -51,8 +51,8 @@ CI 由 `package-wasm` / `package-ios` / `package-android` 在各自真实目标�
 
 - `src/lib.rs` `pub mod jit` / `pub mod aot` 加 `#[cfg(feature = "...")]`
 - `components/backends.rs` 统一检查平台能力与后端来源；不支持 JIT 的目标不编译具体 JIT 库，请求不可用 JIT 返回错误
-- `metadata::ExecMode` enum 的所有 variant 都保留（zbc 文件可能编码任何 mode；无法解码就 fallback Interp）
-- main.rs CLI 的 `enum ExecMode` 与 `metadata::ExecMode` 不同 —— CLI 端 variant 加 cfg
+- ``metadata::ExecMode`` enum 的所有 variant 都保留（zbc 文件可能编码任何 mode；无法解码就 fallback Interp）
+- main.rs CLI 的 `enum ExecMode` 与 ``metadata::ExecMode`` 不同 —— CLI 端 variant 加 cfg
 
 ## 互斥不强制
 

@@ -43,7 +43,7 @@ methodof(Demo.Api.Handle)              // owner 可以是限定名
 
 ### 括号内是签名语法，不是表达式语法
 
-这是本设计的技术关键。在表达式文法里 `Logger.Log(List<int>)` 的 `List<int>` 与 `<` 比较
+这是本设计的技术关键。在表达式文法里 ``Logger.Log(List<int>)`` 的 `List<int>` 与 `<` 比较
 运算**真歧义**；而 `methodof(...)` 的括号是一个封闭作用域，里面每个 `<` 都是类型实参，歧义
 消失。语法是**局部的**，不污染表达式文法。
 
@@ -97,7 +97,7 @@ class GetByIdRoute { }
 
 C# 和 Java 都否决过这个特性，**原因不在语言、在元数据格式**：
 
-- ECMA-335 II.23.3 的 CustomAttrib blob 只允许基元 / string / `System.Type` / object /
+- ECMA-335 II.23.3 的 CustomAttrib blob 只允许基元 / string / ``System.Type`` / object /
   装箱值类型 / 一维数组，**没有任何方法引用编码**——连 `typeof(T)` 在 blob 里都只是一个
   类型全名字符串。
 - JVM 的 `element_value` tag 集合同样没有方法引用。
@@ -154,7 +154,7 @@ factoryFuncName)` 两个字符串，运行时 `GetCustomAttributes` 调该函数
 | `E0459` | 目标方法不存在 / 没有重载匹配给出的参数类型列表（列出全部可用重载） |
 | `E0460` | 参数类型列表匹配到多个 / 未给列表但存在重载（列出候选 + 给出补签名写法） |
 | `E0461` | 目标是运算符或转换——明确说明「指不了」而非含糊报找不到 |
-| `E0462` | 语法形态错：缺 `Type.Member`、owner 或方法带类型实参 |
+| `E0462` | 语法形态错：缺 ``Type.Member``、owner 或方法带类型实参 |
 
 诊断的下划线落在**成员名本身**，不是整个 `methodof(...)` 表达式。
 

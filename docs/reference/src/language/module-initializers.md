@@ -12,7 +12,7 @@ static class Bootstrap {
 }
 ```
 
-**保证**：`acme.widgets` 这个 zpkg 被加载后、**本包任何代码被执行前**，`Init()` 恰好执行一次。
+**保证**：``acme.widgets`` 这个 zpkg 被加载后、**本包任何代码被执行前**，`Init()` 恰好执行一次。
 
 与[静态构造函数](static-constructors.md)的关系：包初始化器就是一个合成伪类型
 `<ns>.$Module` 的类型初始化器 —— 同一个机制，只是宿主类型由编译器合成、且触发方式不同

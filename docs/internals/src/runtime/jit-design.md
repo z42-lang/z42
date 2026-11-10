@@ -26,7 +26,7 @@ host/runtime.rs: ExecMode::Jit → 已注册优化入口 → jit::run(ctx, modul
 ```
 
 VM 的每条线程都跑 JIT：`__thread_spawn` 的 worker 用自己的 `VmContext`（`new_with_core`），共享同一个
-`VmCore.exec.engines`；它的解释器帧经混合模式分流进入已编译函数，到阈值就在 worker 线程上编译（编译锁内）。
+``VmCore.exec.engines``；它的解释器帧经混合模式分流进入已编译函数，到阈值就在 worker 线程上编译（编译锁内）。
 
 ## 运行时数据结构（`compile/state.rs` / `runtime/frame.rs`）
 
@@ -36,15 +36,15 @@ VM 的每条线程都跑 JIT：`__thread_spawn` 的 worker 用自己的 `VmConte
 
 | 字段（`VmContext` 上） | 偏移常量 | 作用 |
 |---|---|---|
-| `jit_head.stack_limit` | `VM_CONTEXT_STACK_LIMIT_OFFSET` | 序言栈深检查的下限：驱动本 ctx 的线程的栈下限，栈底帧 push 时写入 |
-| `jit_head.cctors` | `VM_CONTEXT_CCTORS_OFFSET` | VM 的 `CctorRegistry`；内联字符串原语读它的包初始化门计数 |
+| ``jit_head.stack_limit`` | `VM_CONTEXT_STACK_LIMIT_OFFSET` | 序言栈深检查的下限：驱动本 ctx 的线程的栈下限，栈底帧 push 时写入 |
+| ``jit_head.cctors`` | `VM_CONTEXT_CCTORS_OFFSET` | VM 的 `CctorRegistry`；内联字符串原语读它的包初始化门计数 |
 | `safepoint_skip` | `VM_CONTEXT_SAFEPOINT_SKIP_OFFSET` | safepoint 节流计数，内联快路 load/store |
 
-`jit_head` 是 `#[repr(C)]` 的 `JitHead`（`context/types.rs`），另缓存一份 `&TierApi`（后端自己的 `VmContext::jit()` 通过中立 header 识别并借用本 VM 的 JIT
+`jit_head` 是 `#[repr(C)]` 的 `JitHead`（`context/types.rs`），另缓存一份 `&TierApi`（后端自己的 ``VmContext::jit()`` 通过中立 header 识别并借用本 VM 的 JIT
 运行时；早于安装的 ctx 在下一次栈底帧 push 时补上）。
 
-**`JitRuntime`**（`VmCore.exec.engines` 的 `TierApi` 所拥有的后端）：每 VM 一份、所有线程共享，随 VmCore 释放，helper 经
-`ctx.jit()` 取（`helpers::jit_rt`）。主要字段：
+**`JitRuntime`**（``VmCore.exec.engines`` 的 `TierApi` 所拥有的后端）：每 VM 一份、所有线程共享，随 VmCore 释放，helper 经
+``ctx.jit()`` 取（`helpers::jit_rt`）。主要字段：
 
 | 字段 | 作用 |
 |---|---|
@@ -61,7 +61,7 @@ VM 的每条线程都跑 JIT：`__thread_spawn` 的 worker 用自己的 `VmConte
 
 | 字段 | 作用 |
 |---|---|
-| `regs_ptr: *mut Value` | 首字段（偏移 0），即 `regs.as_mut_ptr()`。函数序言 load 一次作为 `regs_base`，之后所有内联寄存器访问都按 `regs_base + idx * 16` 算地址 |
+| `regs_ptr: *mut Value` | 首字段（偏移 0），即 ``regs.as_mut_ptr()``。函数序言 load 一次作为 `regs_base`，之后所有内联寄存器访问都按 `regs_base + idx * 16` 算地址 |
 | `ret: Value` | 返回值。`Ret %r` 把寄存器槽的 16 B 原样拷进来（`Value` 是 `Copy`，无引用计数、无写屏障）；寄存器驻留在 SSA 里时直接写 tag + payload |
 | `has_ret: u8` | `Ret %r` 置 1；无值的 `Ret` 不碰它，保持 0。`enter_compiled` 据此给出 `Returned(Some(ret))` 或 `Returned(None)`，void 与返回 `null` 由此区分 |
 | `regs: Vec<Value>` | 寄存器文件，按 SSA 寄存器号索引，长度 `max_reg + 1` |
@@ -88,7 +88,7 @@ pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const VmContex
 ## 指令翻译（`translate/`）
 
 - 每个 z42 基本块对应一个 Cranelift 块；`Br` / `BrCond` / `Ret` / `Throw` 译成原生跳转与返回。
-  `Ret %r` 内联把返回值写进 `frame.ret` 并置 `frame.has_ret = 1`（偏移见 `JIT_FRAME_RET_OFFSET` / `JIT_FRAME_HAS_RET_OFFSET`），不调 helper。
+  `Ret %r` 内联把返回值写进 ``frame.ret`` 并置 `frame.has_ret = 1`（偏移见 `JIT_FRAME_RET_OFFSET` / `JIT_FRAME_HAS_RET_OFFSET`），不调 helper。
   `BrCond` 先调 `jit_get_bool`（返回 0 / 1，非 Bool 时返回 `JIT_GET_BOOL_ERR` 并挂异常）。
 - 回边（后向 `Br`，以及有一个目标在后方的 `BrCond`）前内联 safepoint 快路（两次 load/store + 分支），慢路调 `jit_check_safepoint_slow`；函数序言内联栈深检查，越界调 `jit_stack_overflow`。
 - 类型已知的整数 / 浮点标量运算、比较、转换、除余，以及部分字段读写，直接生成原生指令（寄存器缓存、loop-carried 驻留等见 [jit.md](jit.md)）。
@@ -104,7 +104,7 @@ pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const VmContex
   运行期读它的指令全在拒译表里，所以已编译的 callee 拿到也不会看。解释器侧对称：泛型调用的 callee 一旦编译也走
   mixed-mode 转接。（动机：z42c 四个遍的 visitor 入口各含一处 `e.Accept<R, A>(this, arg)`，此前整函数留解释器。）
   类级形参的 `new T[n]` 可以编译：实参在 reg 0 接收者的 `type_args` 上，翻译时把形参下标传给 `jit_array_new`，
-  由 `objops::array::class_type_param_elem` 解析出基元 T 的打包宽度与零值（M13：数组按该宽度打包；与解释器 `array_new` 同一实现）——
+  由 ``objops::array::class_type_param_elem`` 解析出基元 T 的打包宽度与零值（M13：数组按该宽度打包；与解释器 `array_new` 同一实现）——
   否则 `Dictionary.Grow` 这类含 `new TKey[n]` 的扩容循环整段留在解释器里。
 
 ## 异常

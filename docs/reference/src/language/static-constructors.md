@@ -19,10 +19,10 @@ class Config {
 
 | 触发 | 例 |
 |---|---|
-| 读该类型的静态字段 | `Config.Endpoint` |
+| 读该类型的静态字段 | ``Config.Endpoint`` |
 | 写该类型的静态字段 | `Config.Endpoint = x` |
 | 创建该类型的实例 | `new Config()` |
-| 调用该类型的静态方法 | `Config.Reload()` |
+| 调用该类型的静态方法 | ``Config.Reload()`` |
 
 一个从没被用到的类型，它的静态构造器**不会执行**。
 

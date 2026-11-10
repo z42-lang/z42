@@ -1,6 +1,6 @@
 # `[syntax]` 特性门
 
-接线：`z42c.driver/src/Main.z42` 建 feats（未知名在这里报错退出）→ `CompileInput.Features` → `IncrementalDriver` 的**两处**
+接线：`z42c.driver/src/Main.z42` 建 feats（未知名在这里报错退出）→ ``CompileInput.Features`` → `IncrementalDriver` 的**两处**
 `new Parser` → `Parser._requireFeature` 发 E0301；特性集折进 `depsId`。
 
 四条判据缺一不可：

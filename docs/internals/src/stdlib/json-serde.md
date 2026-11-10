@@ -20,7 +20,7 @@ Dictionary 在已取到的键数组上做相同检查。空键引起的格式化
 
 ## 1. 分派轴：目标 Type，而非 JSON kind
 
-反序列化核 `JsonBinder.FromJson(Type t, JsonValue v)` 以 **`t.FullName`** 为主分派轴：
+反序列化核 `JsonBinder.FromJson(Type t, JsonValue v)` 以 **``t.FullName``** 为主分派轴：
 
 ```
 FromJson(t, v):
@@ -57,8 +57,8 @@ FromJson(t, v):
 
 | 来源 | 收集方式 | 过滤 |
 |---|---|---|
-| 字段 | `t.GetFields()` | `!IsStatic && IsPublic` |
-| 属性 | `t.GetProperties()` | 按公开实例 getter 与 setter 分别筛选 |
+| 字段 | ``t.GetFields()`` | `!IsStatic && IsPublic` |
+| 属性 | ``t.GetProperties()`` | 按公开实例 getter 与 setter 分别筛选 |
 
 `JsonMember` 里藏一个 `FieldInfo` 或一个 `PropertyInfo`（二者其一非 null），对外只暴露
 `JsonKey` / `MemberType` / `CanRead` / `CanWrite` / `Get` / `Set`。序列化只看 `CanRead`，反序列化只看
@@ -95,7 +95,7 @@ ctors = t.GetConstructors()
 | 情形 | 结果 |
 |---|---|
 | 缺 JSON 键、目标是普通成员 | 成员保持默认值（整个 `Set` 不执行） |
-| 缺 JSON 键、目标是可选 ctor 参数 | 用 `p.DefaultValue` |
+| 缺 JSON 键、目标是可选 ctor 参数 | 用 ``p.DefaultValue`` |
 | **缺 JSON 键、目标是必填 ctor 参数** | `FromJson(pt, JsonValue.OfNull())` → **`null`**，不报错 |
 
 第三种对引用类型合理，对值类型参数就是把 `null` 塞进一个 `int` 位置。
@@ -113,7 +113,7 @@ serde 需要读属性上的 `[JsonProperty]` / `[JsonIgnore]`，实现方式是*
 
 1. **AttributeSynth**（`_processMembers`）补 `PropertyDecl` 分支（key 形如 `prop$<Class>$<Name>`）。
    缺了这一步，属性上的 attr 会因 `FactoryFunc == ""` 被 `_attrRefsFromList` 静默跳过。
-2. **ClassDescBuilder** 合成 `__prop_X` 时把该属性的 attr-refs 写进 `ibf.Attrs`。
+2. **ClassDescBuilder** 合成 `__prop_X` 时把该属性的 attr-refs 写进 ``ibf.Attrs``。
 3. **运行期** `__property_custom_attributes` 收 `PropertyInfo.__getterQualified`（`"<Class>.get_<Name>"`），
    在 Rust 侧按最后一个 `.` 切开、剥 `get_` / `set_` 前缀得属性名 → `__prop_<Name>` → 查该类型的
    `field_attributes`。传 accessor-qualified 名而不是属性名，是为了避免在 z42 侧对跨包字段做字符串
@@ -128,7 +128,7 @@ serde 用到的反射能力分两批：
 
 **已下沉为公开反射 API**（`add-array-property-reflection-api`）——
 
-- **`Std.Array`**（照搬 C# `System.Array`）：静态 `CreateInstance(Type, int)` / `CopyRange`，实例
+- **`Std.Array`**（照搬 C# ``System.Array``）：静态 `CreateInstance(Type, int)` / `CopyRange`，实例
   `GetValue(int)` / `SetValue(object value, int index)` / `Clone()` / `.Length` 字段。用于以运行期
   Type 建 `T[]` 并读写元素。`SetValue` 是 **value 在前、index 在后**，对齐 C#，与直觉相反。
 - **`Std.Reflection.PropertyInfo`**：`GetCustomAttributes()` / `GetAttribute(Type)`（镜像 `FieldInfo`）。

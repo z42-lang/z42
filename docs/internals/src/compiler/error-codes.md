@@ -62,7 +62,7 @@
 > **`E1005` / `E1006`（普通调用实参个数）**：非 `params` 调用里，
 > 实参多于形参 → `E1006`；少传且缺位形参**没有默认值** → `E1005`（同包看声明的默认值，跨包看导入签名的
 > `$Default` / caller 宏；消息点名缺的形参——同包给名字、跨包给序号，导入签名不带形参名）。覆盖全部调用
-> 形态：实例 / 类·基元关键字·ns 限定静态 / 同类无限定静态 / 自由函数 / `ns.func()` / 局部函数 / 跨包构造器
+> 形态：实例 / 类·基元关键字·ns 限定静态 / 同类无限定静态 / 自由函数 / ``ns.func()`` / 局部函数 / 跨包构造器
 > （本地构造器由 `E0426` 管）。**静态形式调实例方法**（`Int32.ToString(n)`，接收者作首参）只接受
 > 「形参数 + 1」个实参，否则同样报这两个码。
 >
@@ -78,7 +78,7 @@
 > `_passTestAttrSemantic`。`E` 在符号表中解析不到时**刻意不报**（跨包/表不完整会误伤）。
 
 > `E0203`（意外 EOF）除标示语法错，还兼作 REPL **可恢复不完整**信号：parser 在「缺 token 且当前 token
-> 为 EOF」时置 `DiagnosticBag.IncompleteAtEof` 并报此码，REPL 完整性探针 `Completeness.IsIncomplete`
+> 为 EOF」时置 ``DiagnosticBag.IncompleteAtEof`` 并报此码，REPL 完整性探针 `Completeness.IsIncomplete`
 > 据此判「输入没写完、需续读」。机制见 [REPL 输入完整性判定](../toolchain/repl.md)。
 
 完整码表以 `DiagnosticCodes.z42` 的常量为准（每个码是一个命名常量，如 `ExpectedToken = "E0202"`）。

@@ -71,7 +71,7 @@ native 库依赖；它已是纯脚本（`z42.text`，基于 `List<string>` + `St
 | 调用 | 落点 | 理由 |
 |---|---|---|
 | `x + y`（int/long/double/string） | codegen 特化 | IR 已有指令，对 primitive 零开销 |
-| `x.CompareTo(y)`（primitive） | 脚本 | `if (this < other) …` 走 IR cmp+jmp，与 Rust `partial_cmp` 等价 |
+| ``x.CompareTo(y)``（primitive） | 脚本 | `if (this < other) …` 走 IR cmp+jmp，与 Rust `partial_cmp` 等价 |
 | `Math.Abs / Max / Min` | 脚本 | 三元判断，BCL/Rust 同样不是 intrinsic |
 | `Math.Sqrt / Sin / Exp` | builtin | libm 精度 |
 | `Path.Join / GetExtension` | 脚本 | 纯字符串操作 |

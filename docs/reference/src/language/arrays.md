@@ -130,7 +130,7 @@ int[] back = (int[])a;       // Array → T[] 是下转，运行期受检
 | `CopyRange` 两侧的**数组类型**本身就不兼容（`int[]` ↔ `Point[]`、`Point[]` → `Vector[]`、`Point[]` → `string[]`） | `ArrayTypeMismatchException` |
 | `CopyRange` 的区间越出任一数组 | `ArgumentException` |
 
-不做隐式拓宽 —— `double[]` **不收整数**（`d.SetValue(42, 0)` 抛；要存就传 `42.0`）。
+不做隐式拓宽 —— `double[]` **不收整数**（``d.SetValue(42, 0)`` 抛；要存就传 `42.0`）。
 
 ```z42
 int[] a = new int[1];

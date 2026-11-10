@@ -415,7 +415,7 @@ removed ./artifacts
 | `--page <md>` | 解析一页书里引用的符号，逐行输出 `符号 → file:line` |
 | `--docs <符号>` | 反查：哪些书页 / README 引用了这个符号 |
 
-**名字怎么写**：完整 ID（`Sample.Shapes.Circle.Scale(int)`）、限定名的后缀（`Circle.Scale`）或短名（`Scale`）
+**名字怎么写**：完整 ID（``Sample.Shapes.Circle.Scale(int)``）、限定名的后缀（``Circle.Scale``）或短名（`Scale`）
 都行，按这个顺序匹配，再不行就忽略大小写，最后按短名包含。重载一起列出；命中多个不同的符号时每个一行列候选。
 写命名空间名得到该命名空间下的类型与顶层函数。
 
@@ -502,7 +502,7 @@ z42b publish: desktop apphost not available (the apphost ships with the desktop 
 | `--sdk-ver <ver>` | 使用哪个平台 SDK 版本 |
 | `--bundle-id <id>` | iOS `CFBundleIdentifier`（仅 ios） |
 | `--app-id <id>` | Android application ID（仅 android） |
-| `--entry <Type.Method>` | wasm 入口点，如 `Hello.Main`（仅 wasm） |
+| `--entry <Type.Method>` | wasm 入口点，如 ``Hello.Main``（仅 wasm） |
 
 CLI 旗标覆盖清单里 `[platform.ios]` / `[platform.android]` / `[platform.wasm]` 的同名字段；
 必填项两处都没有就报错：

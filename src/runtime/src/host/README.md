@@ -35,7 +35,7 @@ CLI 是宿主的一种实现，也遵循同一入口和类型规范。C ABI 导�
 
 ## 基础用法
 
-CLI 和 Rust 调用方使用 `host::run_app`，或用 `LoadedProgram::load_file` / `load_bytes` 创建长期存活的程序后调用 `invoke`。两种来源共享产物准备流程。VFS、搜索目录、包 resolver 和依赖预加载策略由 `LoadOptions` 明确传入。
+CLI 和 Rust 调用方使用 ``host::run_app``，或用 `LoadedProgram::load_file` / `load_bytes` 创建长期存活的程序后调用 `invoke`。两种来源共享产物准备流程。VFS、搜索目录、包 resolver 和依赖预加载策略由 `LoadOptions` 明确传入。
 
 需要进程崩溃报告的宿主调用 `host::signal::install()`，CLI 在进程启动时安装。
 

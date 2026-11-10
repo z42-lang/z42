@@ -3,7 +3,7 @@
 > 代码：`metadata/fusion.rs`（纯识别规则）、`metadata/fusion.rs`（缓存形态）、`interp/ops/mod.rs`（`eval_cmp` 共享原语）、
 > `interp/run/mod.rs`（exec 循环消费）、`interp/frame/mod.rs`（帧预分配）、`z42-zpkg/src/ir/function.rs`
 > （静态 `Function::reg_file_len` / `Instruction::written_reg`）、`metadata/function.rs`（`Function.fused_tails` 缓存）、
-> `loader/package/mod.rs`（`build_block_indices` 回填 `func.max_reg`）。
+> `loader/package/mod.rs`（`build_block_indices` 回填 ``func.max_reg``）。
 
 ## 为什么
 
@@ -30,7 +30,7 @@ metadata/fusion.rs
   之后）算好，存进 `Function.fused_tails`（运行期缓存，**无 zbc/格式影响**）。exec
   循环只读 `fused_tails[block_idx]`（O(1)），不做 per-iteration 识别。
 - **加新规则** = ① 加一个 `SuperInstr` variant；② `recognize` 加一条 arm；③ 后端加一个 handler。
-  框架、缓存、load 接线都不动。候选：`load+arith`、`arith+store`、`cmp+cmp&&` 等。
+  框架、缓存、load 接线都不动。候选：``load+arith``、``arith+store``、`cmp+cmp&&` 等。
 
 ## 后端 + 共享
 
@@ -80,8 +80,8 @@ metadata/fusion.rs
 
 ## 相关机制：寄存器文件预分配
 
-与融合同属 `loader::build_block_indices` 的 **post-load 一次性预计算**族。解决的问题：解释器每次
-调用构造 `Frame` 时应按「函数寄存器总数」一次性分配寄存器文件。zbc reader 把 `func.max_reg`
+与融合同属 ``loader::build_block_indices`` 的 **post-load 一次性预计算**族。解决的问题：解释器每次
+调用构造 `Frame` 时应按「函数寄存器总数」一次性分配寄存器文件。zbc reader 把 ``func.max_reg``
 置 0（该计数不落 wire），由 loader 回填；否则 `Frame::new*` 只按**实参数**起步，后续对更高寄存器
 的写入逐个命中 `#[cold] Frame::set_grow`（每次 `resize(idx+1, Null)` = 一次 realloc + memmove +
 清零），这是 call-heavy 前端里 frame 开销中最大的可攻击块。
@@ -101,7 +101,7 @@ Function::reg_file_len()  ← 权威计数（单一真相），纯函数、不�
   `func.max_reg = func.reg_file_len()`，**所有构建配置**（含 interp-only / wasm，无 jit feature）
   均生效——计数逻辑在始终编译的 `z42-zpkg/src/ir/function.rs`，不依赖 JIT。
 - `Frame::new*` 恒走 `max_reg > 0` 预分配分支，一次 `resize` 到位，热路径不再触发 `set_grow`。
-- JIT 复用同一权威：`translate::max_reg`（要最大**索引**）= `reg_file_len() - 1`（`reg_file_len` 恒
+- JIT 复用同一权威：``translate::max_reg``（要最大**索引**）= `reg_file_len() - 1`（`reg_file_len` 恒
   ≥ 1，不会下溢）。`Instruction::written_reg`（"这条指令定义哪个寄存器"）也从 `translate.rs` 上提到
   `z42-zpkg/src/ir/instruction.rs`，interp 与 JIT 共用一份。
 

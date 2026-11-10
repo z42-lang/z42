@@ -7,7 +7,7 @@
 ## 为什么
 
 `Std.Threading.Mutex<T>` / `RwLock<T>` / `Channel<T>` 若把值存在 **Rust 侧容器**里——
-`parking_lot::Mutex<Value>` / `parking_lot::RwLock<Value>` / `std::sync::mpsc` 队列，按槽位 id
+`parking_lot::Mutex<Value>` / `parking_lot::RwLock<Value>` / ``std::sync::mpsc`` 队列，按槽位 id
 登记在 `VmCore` 的 registry——GC 的外部根扫描器（`context/construct.rs`）只扫
 static 字段、各线程帧寄存器和几个 arena，**看不见这些容器**。
 
@@ -243,7 +243,7 @@ O(1) 的 z42 片段，持有者通常转眼就释放，而 park 一次要拿全�
 | `Channel` 跨线程（有界 64，一生产者一消费者） | 338 ms | 540 ms | **1.60** |
 
 锁类原语明显变快（旧实现每次加锁要跨 3 次 builtin 并在线程局部 map 里簿记守卫）。**跨线程高频争用的
-Channel 变慢**：旧实现底下是 `std::sync::mpsc`，生产者和消费者几乎不互相阻塞；新实现两者争同一个 Monitor。
+Channel 变慢**：旧实现底下是 ``std::sync::mpsc``，生产者和消费者几乎不互相阻塞；新实现两者争同一个 Monitor。
 `enter` 加自旋前是 2.15 倍，加后 1.60 倍；再给 `Wait` 加自旋没有可测收益（已回退）。按每次操作折算约多 0.7 µs，
 对以 I/O 为主的使用方（如 `HttpServer.ServeWithPool`）可以忽略；若将来出现吞吐敏感的场景，方向是给 Channel
 单独做无锁快路径，而不是退回把值存进原生容器。

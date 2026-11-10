@@ -26,7 +26,7 @@
 
 ## 入口点
 - `interp::run(ctx, module, func, args)` — 执行单个函数
-- `interp::run_with_static_init(ctx, module, func)` — 初始化静态字段后执行
+- ``interp::run_with_static_init(ctx, module, func)`` — 初始化静态字段后执行
 
 ## 依赖关系
 - builtin 经 `exec/call/builtin_abi` 调用；纯值格式化直接依赖 `object/value`

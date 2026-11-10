@@ -191,7 +191,7 @@ windows-x64 / macos-arm64 四平台）确认 z42c `--workspace` 编译在 **inte
 保守方向也是稳的：**漏**登记一种带体的声明形态，只会让那段 token 留在指纹里 → 该文件体一改照旧
 波及（多编不错编）；**多**挖 token 才危险，故只按「AST 亲口给出的体起始 `{` 偏移 + token 层大括号
 配平」挖。切片定界同理只认「上一个声明的收尾符」（`;` / `}` / `{` / 折叠体记号），因为
-`ClassDecl.Span` 指向 `class` 关键字、**修饰符与 `[Attr]` 都在它之前**——按声明起点直接切会把
+``ClassDecl.Span`` 指向 `class` 关键字、**修饰符与 `[Attr]` 都在它之前**——按声明起点直接切会把
 `public` 划给上一个名字，改可见性就归错人。
 
 实测（xtask 自身工程，64 文件）：新增类型 / 新增自由函数 `cached: 63/64`；给某个类新增成员函数
@@ -213,7 +213,7 @@ dist 清空后全命中重装配三轮，每轮都要求增量 dist 与 `--no-in
 
 已知的两处：
 
-- **E0436（文件级 `using` 强制）**：它的输入是 `cm.UsedDepNs`，而 cached 分支构造
+- **E0436（文件级 `using` 强制）**：它的输入是 ``cm.UsedDepNs``，而 cached 分支构造
   `CompiledModuleZ` 时那个数组是**空的**（typecheck 产物，本轮没跑），真正的回填在
   `PackageCompile` 从 cache meta 补 —— 比检查原本所在的调用点（`IrDump` 的 per-file 并行体）**晚**。
   于是 cached 文件**永远不可能报 E0436**。检查因此放在回填之后

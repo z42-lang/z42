@@ -81,7 +81,7 @@ Binder 链是设计目标，代码中尚无 `Binder` 基类或子类；`TypeChec
 
 ### Phase 2: 第一个真实 consumer — `BindClassMethods`
 
-候选第一个迁移点是 `TypeChecker.TryBindClassMethods`：
+候选第一个迁移点是 ``TypeChecker.TryBindClassMethods``：
 
 ```z42
 void TryBindClassMethods(ClassDecl cls) {
@@ -109,8 +109,8 @@ void TryBindClassMethods(ClassDecl cls) {
 
 需要：
 - NEW `InClassBinder` (Phase 2 specific class scope binder)
-- `ExprTyper` 的标识符绑定 改走 `_currentBinder.LookupSymbol(name)`
-  替代 `env.LookupVar(name)` / `env.IsClassName(name)`
+- `ExprTyper` 的标识符绑定 改走 ``_currentBinder.LookupSymbol(name)``
+  替代 ``env.LookupVar(name)`` / ``env.IsClassName(name)``
 - TypeEnv 当前其它 caller (closure / for / try) 仍保留 TypeEnv 走原路径 —
   gradual migration
 
@@ -139,7 +139,7 @@ public override ISymbol LookupSymbol(string name) {
 }
 ```
 
-漏掉 `base.LookupSymbol(name)` 会让"内层没找到但外层有"的合法 lookup 失败。
+漏掉 ``base.LookupSymbol(name)`` 会让"内层没找到但外层有"的合法 lookup 失败。
 
 ## 与 ISymbol (F2.2) 的关系
 

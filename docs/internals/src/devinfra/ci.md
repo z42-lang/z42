@@ -30,7 +30,7 @@ flowchart TD
 核心思想：**平台无关的东西编一次、下游消费**。`compile-toolchain` 把当前源编成一套
 `{z42c, stdlib, xtask}` zpkg 上传成 `toolchain-ubuntu-latest` artifact；`compile-test-assets` 再消费它
 regen 一次 golden `.zbc`、连同 `.z42` 布局打成 `current-sdk-ubuntu-latest`。下游测试 job 下载这些产物
-直接运行。`goldens.tar` 同时保存 `artifacts/build/tests/` 下的语言 golden 和各库 `release/tests/` 下的 golden，
+直接运行。``goldens.tar`` 同时保存 `artifacts/build/tests/` 下的语言 golden 和各库 `release/tests/` 下的 golden，
 路径相对 `artifacts/build/`。Interp 消费验证和 JIT 分片解包回同一镜像，使用 `--no-rebuild` 运行。
 
 这两个 job **只有 linux 一条腿**：产物全是 zpkg，与宿主无关，macOS / Windows 的消费方
@@ -339,7 +339,7 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
   android 四个组合没有必要：后三者 `package-*` 本就在真实目标平台上完整构建；「interp-only 不含
   cranelift」断言在 `package-wasm` 里。`.cargo/**` 并入 `platform` 过滤器（配置只有 `src/runtime/.cargo` 一份，由 `src/runtime/**` 覆盖）。
 
-学习手册示例按 `changes.outputs.host_package` 分工。它集中原有的打包选择条件：platform、sdk_checks 或 examples flag 为 true，
+学习手册示例按 ``changes.outputs.host_package`` 分工。它集中原有的打包选择条件：platform、sdk_checks 或 examples flag 为 true，
 或事件不是 PR。打包 job 会执行时，每个平台只在打包 SDK 上重放会话；非 Windows 的 test-host 跳过开发 SDK 准备与
 examples stage。打包 job 不执行时，test-host 用 `--changed` 决定是否执行 examples；开发 SDK 的准备属于该 stage，
 只有实际执行时才构建 apphost 并组装，不再由 workflow 提前准备。本地完整 `xtask test` 也保留 examples。

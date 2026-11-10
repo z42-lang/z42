@@ -34,7 +34,7 @@ backing、任一 alias `Free()` 后全体失效」。三条路里只有这条走
 
 - 纯 z42 class：引用类型天然共享，但 corelib 侧拿不住用户 class 实例的句柄（那是
   `Value::Object(ObjRef)`，句柄表要存的是自己的 slot）；
-- 纯 z42 struct、状态放在字段里：值拷贝把状态一起复制，`h1.Free()` 只清 `h1`，`h2` 还持有
+- 纯 z42 struct、状态放在字段里：值拷贝把状态一起复制，``h1.Free()`` 只清 `h1`，`h2` 还持有
   引用——`Free` 失去意义；
 - **struct + 一条 slot id**：拷贝复制的是 id，所有 alias 指向 corelib 里同一个 slot，`Free`
   作用在 slot 上 ⇒ 共享语义自然成立。
@@ -124,7 +124,7 @@ TypeDesc 字段名带 `__prop_` 前缀，且**顺序即 slot 顺序**，与 `bui
 `Vec<Value>` 一一对位——改任一侧的顺序或增删字段，两处必须同时改。
 
 `MaxBytes` 用 `-1` 表示无上限：Rust 侧是 `Option<u64>`，z42 没有 `Optional<T>`，三个候选
-sentinel 里 `0` 会与「上限就是 0 字节」混淆、`u64::MAX` 转 i64 溢出，`-1` 是唯一无歧义的。
+sentinel 里 `0` 会与「上限就是 0 字节」混淆、``u64::MAX`` 转 i64 溢出，`-1` 是唯一无歧义的。
 
 ⚠️ Rust `HeapStats` 现在是 11 个字段（多出 `minor_collections` / `major_collections` /
 `reclaimed_bytes` / `pause_histogram`），z42 侧仍只投影 7 个。分代计数与回收字节数目前

@@ -1,7 +1,7 @@
 # 基本类型与字面量
 
 z42 的内建标量类型**每种只有一套拼写**：C# 风格的关键字（`int`、`byte`、`double`…），外加等价的
-BCL 包装类型名（`Int32`、`Byte`、`Double`…），二者关系同 C# 的 `int` ⟷ `System.Int32`。
+BCL 包装类型名（`Int32`、`Byte`、`Double`…），二者关系同 C# 的 `int` ⟷ ``System.Int32``。
 
 ## 内建类型总表
 
@@ -50,7 +50,7 @@ canonical 表里 `int`/`long`/`float`/`double` 走关键字、窄整数族走短
 | `[Extern]` FFI 签名串 | `u8`、`usize`、`*const T`、`CStr` | C / Rust ABI 记法，由 VM 的 `interop/tier1/dispatch.rs` 解析（见 interop 参考页） |
 | IR 文本 dump | `add i32 %1, %2` | LLVM 风格的 IR 汇编记法 |
 
-这与 C# 的「源码 `int` / CIL `int32` / 元数据 `System.Int32`」分层同形：同一个类型在不同层用不同
+这与 C# 的「源码 `int` / CIL `int32` / 元数据 ``System.Int32``」分层同形：同一个类型在不同层用不同
 记法是正常的，**同一层里有两个名字**才是要消除的冗余。
 
 > **z42 没有的**：`decimal`、`nint` / `nuint`、`System.*` 的任何类型。
@@ -142,7 +142,7 @@ return s != null && s.Length > 0;                      // ✓ `&&` 短路
 return s != null ? s.Length : 0;                       // ✓ 三元
 ```
 
-义务点（会触发检查的位置）：成员访问 `s.X`、下标 `a[i]`、方法调用接收者 `s.M()`、
+义务点（会触发检查的位置）：成员访问 ``s.X``、下标 `a[i]`、方法调用接收者 ``s.M()``、
 `foreach` 的集合、`throw` 的操作数。**比较不是解引用**——`s == null` 本身永远不会被判红，
 整体传递 `Sink(s)` 也不算。
 
@@ -193,7 +193,7 @@ class C {
 ```
 
 **为什么就地检查不算数**——因为字段不是一个「值」，是一个**每次读都重新求值的位置**。
-`if (this.F != null) { this.F.M(); }` 里的两个 `this.F` 是**两次独立的读**：
+`if (this.F != null) { this.F.M(); }` 里的两个 ``this.F`` 是**两次独立的读**：
 
 1. 别的线程能在检查与使用之间把它置空；
 2. `F` 若是**属性**，那是两次真调用，返回值可以不同；
@@ -217,7 +217,7 @@ public Attribute[] GetCustomAttributes() {
 }
 ```
 
-> 义务只覆盖**接收者是裸名**的一层（`this.F` / `other.F`）。更深的链 `a.b.F` 不跟踪 ——
+> 义务只覆盖**接收者是裸名**的一层（``this.F`` / ``other.F``）。更深的链 ``a.b.F`` 不跟踪 ——
 > 漏报方向。
 
 > ⚠️ **这不是「空安全」，别当它是。** 已知会漏的形态：同一条语句内 `&&` / `||` / 三元的
@@ -315,7 +315,7 @@ class C {
 
 **它不是 C# 的 `!`。** 差别就在「真检查」三个字：
 
-| | C# 的 `x!` | z42 的 `x.Expect("理由")` |
+| | C# 的 `x!` | z42 的 ``x.Expect("理由")`` |
 |---|---|---|
 | 编译期 | 解除义务 | 解除义务 |
 | 运行期 | **什么都不做**（纯擦除） | 为 null 就抛 `NullReferenceException` |

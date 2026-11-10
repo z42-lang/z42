@@ -5,7 +5,7 @@
 
 ## 它是什么
 
-增量缓存的失效判据（`.meta` / `package.meta`）只 pin「源内容 SHA-256 + zbc/zpkg 格式 Minor」，
+增量缓存的失效判据（`.meta` / ``package.meta``）只 pin「源内容 SHA-256 + zbc/zpkg 格式 Minor」，
 两者都测不出**「编译器语义变了但格式没变」**：codegen / 优化改动多数不动 wire 格式 → 格式 Minor 不 bump →
 `ProbeFiles` 命中旧 cache → **静默复用旧 `.zbc` 产物**，产物与当前编译器语义不一致。
 指纹补的就是这个失效次元。
@@ -56,7 +56,7 @@ public static string[] Entries = new string[] {
 
 **坐标**：`src/compiler/z42c.pipeline/src/CompilerFingerprint.z42` 的 `Entries`（**只许在末尾追加**，
 不许改动 / 删除既有条目）；`CacheStore.Fingerprint()` 只是它的取值口。它进 `.meta` 的 `z42c-fp` 行与
-`package.meta` 头，`Parse` / `LoadSrcList` 校验不符即令条目作废。**纯 z42c 内部格式：不涉 wire、不触发
+``package.meta`` 头，`Parse` / `LoadSrcList` 校验不符即令条目作废。**纯 z42c 内部格式：不涉 wire、不触发
 zbc/zpkg 格式 bump、不需改 Rust 端。**
 
 ### CI 守门：输出变了就必须累加

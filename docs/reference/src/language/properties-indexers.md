@@ -4,7 +4,7 @@
 
 | 访问器 | 声明 | 使用 | 编译成 |
 |--------|------|------|--------|
-| **属性** | `T Name { get; set; }`（auto）/ `T Name { get { ... } set { ... } }`（带体）/ `T Name => e;`（表达式体） | `obj.Name` / `obj.Name = v` | `get_Name()` / `set_Name(v)`（auto 另合成后备字段 `__prop_Name`；带体访问器无后备字段） |
+| **属性** | `T Name { get; set; }`（auto）/ `T Name { get { ... } set { ... } }`（带体）/ `T Name => e;`（表达式体） | ``obj.Name`` / `obj.Name = v` | `get_Name()` / `set_Name(v)`（auto 另合成后备字段 `__prop_Name`；带体访问器无后备字段） |
 | **索引器** | `T this[P...] { get {...} set {...} }` | `obj[i]` / `obj[i] = v` | `get_Item(...)` / `set_Item(..., v)` |
 
 两者都在编译期降解成普通实例方法（镜像 C# 的 `get_X`/`set_X`、`get_Item`/`set_Item`），
@@ -78,7 +78,7 @@ public class Box {
 - **不能混合**：两个访问器都在时，要么都 auto（`{ get; set; }`）、要么都带体
   （`{ get { ... } set { ... } }`）。混合（`{ get; set { ... } }` / `{ get { ... } set; }`）报
   **E0474**——z42 无 C# 的 `field` 关键字，auto 半边读/写 `__prop_X`、带体半边写自备字段，会读写错位。
-- 访问器体内可访问 `this`、本类字段、其它成员（`this.Doubled` 派发到 `get_Doubled`）；setter 体额外可用 `value`。
+- 访问器体内可访问 `this`、本类字段、其它成员（``this.Doubled`` 派发到 `get_Doubled`）；setter 体额外可用 `value`。
 
 ### 表达式体属性（`=> e;`）
 
@@ -164,8 +164,8 @@ interface IShape {
 - 私有后备字段 `__prop_Name`（源名 `Name` 不是真实字段，只在类型检查时视作字段）；
 - `T get_Name()`（有 `get` 时）、`void set_Name(T value)`（有 `set` 时）。
 
-使用点 `obj.Name` / `obj.Name = v` **会被编译为 `get_Name()` / `set_Name(v)` 实例虚调用**——
-包括**类内裸名 `Name`**，它与 `this.Name` 完全同义。只读属性在 ctor 内的写入（无 `set_Name`）
+使用点 ``obj.Name`` / `obj.Name = v` **会被编译为 `get_Name()` / `set_Name(v)` 实例虚调用**——
+包括**类内裸名 `Name`**，它与 ``this.Name`` 完全同义。只读属性在 ctor 内的写入（无 `set_Name`）
 落到后备字段。**任何情况下都不会按源名 `Name` 读写字段**（那是不存在的字段）。
 
 计算属性、表达式体属性同样派发 `get_Name()`；只是没有 `__prop_Name` 后备字段，读取每次都跑
@@ -257,7 +257,7 @@ int v = b[0];                         // → b.get_Item(0)，虚派发到实现�
 
 | 维度 | 属性 | 索引器 |
 |------|------|--------|
-| 访问语法 | `obj.Name` | `obj[i]` / `obj[a, b]` |
+| 访问语法 | ``obj.Name`` | `obj[i]` / `obj[a, b]` |
 | 命名 | 每个属性独立名 `X` | 固定 `Item`（一类唯一） |
 | 参数 | 无 | 1..N 个下标 |
 | 访问器体 | auto（`get;`/`set;`）；计算 getter `get {...}` / `get => e;` / `T X => e;`（get-only，无计算 set） | 自定义 `get`/`set`，块体或 `=> e;`；只读可 `T this[..] => e;` |

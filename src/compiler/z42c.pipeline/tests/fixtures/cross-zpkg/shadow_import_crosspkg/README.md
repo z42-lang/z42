@@ -1,7 +1,7 @@
 # shadow_import_crosspkg — 本包遮蔽导入包同 FQN（E0606）
 
-`main`（`demo.shadowapp`）自己声明了一个 `Demo.ShadowNs.Widget`，而它的依赖
-`target`（`demo.shadowlib`）也声明了同一个 FQN。
+`main`（``demo.shadowapp``）自己声明了一个 ``Demo.ShadowNs.Widget``，而它的依赖
+`target`（``demo.shadowlib``）也声明了同一个 FQN。
 
 若无诊断，本地那份赢——`bare` 与 `qualified` 都绑到本地，依赖包那份**没有任何写法能指到**
 （两者 FQN 逐字相同，限定名也分不开）。想调只有它才有的 `OnlyLib()` 时，得到的是

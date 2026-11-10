@@ -42,7 +42,7 @@
 |---|---|
 | **Go** | 全非阻塞 + netpoll；`Close` 先标记、**evict 等在该 fd 上的 goroutine**，引用计数归零才真关 |
 | **libuv / Node** | 同构；跨线程唤醒用 eventfd（Linux）/ 自管道 |
-| **Java NIO** | `Selector.wakeup()` = 自管道（Linux 后改 eventfd，Windows 用回环 socket 对） |
+| **Java NIO** | ``Selector.wakeup()`` = 自管道（Linux 后改 eventfd，Windows 用回环 socket 对） |
 | **Java 传统 Socket** | JDK 13 起在 NIO 上重写：非阻塞 + poll，`close` 置标志后**给阻塞线程发信号**让 syscall 以 EINTR 返回 |
 | **Python** | 阻塞 `accept()` 被别的线程 close 不保证唤醒（官方已知坑）；标准答案是 `settimeout()` 轮询或 selectors |
 
@@ -84,5 +84,5 @@ Windows 的 `WSAPoll` 只能 poll socket 所以还得换回环 socket 对 ——
 | `accept_still_returns_a_real_connection` | 正向对照：别把 bug 修成「accept 不工作」 |
 | `a_socket_is_full_duplex_and_close_wakes_a_blocked_read` | `corelib/network_tests.rs` —— 读阻塞期间能写；Close 后读报句柄已关（unix 上由 Close 唤醒）；槽位不复活 |
 
-> 🔴 那条回归测试**必须用 detached 线程 + 带超时的 channel**，不能用 `thread::scope`：
+> 🔴 那条回归测试**必须用 detached 线程 + 带超时的 channel**，不能用 ``thread::scope``：
 > scope 退出时会 join worker，于是回退实现时**整个测试进程挂住**（CI 超时），而不是报一条失败。

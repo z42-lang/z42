@@ -50,14 +50,14 @@ void Demo() {
   |---|---|
   | 字面量 | `"/users"` / `42` / `-1` / `true` / `'x'` / `null` |
   | 常量表达式（操作数递归满足即可）| `1 + 2 * 3` / `"a" + "b"` / `1 << 4` / `!false` |
-  | enum 成员 | `Color.Green` |
-  | `const` 字段（限定名，或同类内的裸名）| `K.MAX` / `MAX` / `K.MAX + 1` |
+  | enum 成员 | ``Color.Green`` |
+  | `const` 字段（限定名，或同类内的裸名）| ``K.MAX`` / `MAX` / `K.MAX + 1` |
   | `typeof(T)` | `typeof(UserService)` |
   | [`methodof(X.M(..))`](methodof.md) | `methodof(Api.Get(string))` |
   | [`fieldof(X.F)`](fieldof.md) / [`propertyof(X.P)`](fieldof.md) | `fieldof(Row.Total)` / `propertyof(Row.Title)` |
   | 以上元素构成的数组 | `new string[]{ "a", "b" }` / `new Type[]{ typeof(int) }` |
 
-  拒掉的是**依赖运行期状态**的写法——方法调用（`K.Make()`）、可变静态字段（`K.Mutable`）、
+  拒掉的是**依赖运行期状态**的写法——方法调用（``K.Make()``）、可变静态字段（``K.Mutable``）、
   `new` 出来的对象、lambda。理由不只是「元数据该是常量」：attribute 实例由编译器合成的工厂
   产出，而那个工厂**在首次反射查询该 attribute 时才执行**，之后缓存 ⇒ 实参若依赖可变状态，
   读回的「元数据」就取决于谁先查、以及那一刻的状态。

@@ -1,7 +1,7 @@
 # iface_null_mark_crosspkg_unchecked（负例：跨包接口返回值不检查就解引用）
 
 `iface_null_mark_crosspkg` 的**正面对照之一**（调用点这端）。`main` 经接口收者拿到
-`IFinder.Find`（标了 `?`）的返回值并直接解引用 ⇒ 期望编不过、报 **E0478**。
+``IFinder.Find``（标了 `?`）的返回值并直接解引用 ⇒ 期望编不过、报 **E0478**。
 
 ## 为什么必须有这一条
 

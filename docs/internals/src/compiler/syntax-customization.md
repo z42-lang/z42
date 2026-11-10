@@ -8,7 +8,7 @@
 >
 > | 设计物 | 现状 |
 > |--------|------|
-> | `LanguageFeatures` 类 | **已接线**。`z42.toml [syntax]` → `ManifestLoader._parseSyntax` → `Main._build`（唯一一次 resolve，未知名报错退出）→ `CompileInput.Features` → `IncrementalDriver` 两处 `new Parser` → `Parser._requireFeature` 发 **E0301** |
+> | `LanguageFeatures` 类 | **已接线**。`z42.toml [syntax]` → `ManifestLoader._parseSyntax` → ``Main._build``（唯一一次 resolve，未知名报错退出）→ ``CompileInput.Features`` → `IncrementalDriver` 两处 `new Parser` → `Parser._requireFeature` 发 **E0301** |
 > | `ParseTable` 类 | **已存在**：`src/compiler/z42c.syntax/src/ParseTable.z42` —— 绑定力 / led 角色 / 特性名 + 语句步骤顺序 `StmtRules` |
 > | `z42.toml` 的 `[syntax]` 节 | **已存在**；字段见[清单参考](https://z42-lang.github.io/z42/reference/toolchain/z42-toml.html) |
 > | `using syntax` 指令（配置来源②）| **不存在** |
@@ -366,8 +366,8 @@ var x = 2 ** 10;   // 展开为 Math.Pow(2, 10)
 顺序不可换：批 3 的表格化是批 4 运行时插入的前提，没有批 1 则任何特性门都无从验证。
 
 > **批 1（特性门接线）**：`z42.toml [syntax]` →
-> `ManifestLoader._parseSyntax`（只搬中性 name/value）→ `Main._build` **唯一一次** resolve
-> （未知特性名报错退出）→ `CompileInput.Features` → `IncrementalDriver` 的**两处** `new Parser`
+> `ManifestLoader._parseSyntax`（只搬中性 name/value）→ ``Main._build`` **唯一一次** resolve
+> （未知特性名报错退出）→ ``CompileInput.Features`` → `IncrementalDriver` 的**两处** `new Parser`
 > → `Parser._requireFeature` 发 **E0301**。特性集折进 `depsId`，
 > 否则旋钮「全量生效、增量被忽略」。门：z42c.driver 的 CLI 夹具 `syntax-knob-control-flow`（`xtask test compiler`）。
 >
@@ -416,7 +416,7 @@ var x = 2 ** 10;   // 展开为 Math.Pow(2, 10)
 | pest（`.pest` 文法文件） | ❌（编译期固定） | ✅ | ❌ |
 | nom（组合子） | ❌ | ❌ | ❌ |
 | Roslyn Scripting | ❌ | ❌ | ✅（但无法裁剪） |
-| Python（`sys.modules` 级裁剪） | ✅ | ✅ | ✅（但模型不同：裁库不裁语法） |
+| Python（``sys.modules`` 级裁剪） | ✅ | ✅ | ✅（但模型不同：裁库不裁语法） |
 
 z42 的差异点是**在解析期完成门控**：同一个编译器二进制可服务多种方言，而生成的字节码与 VM 执行路径不含任何特性判断，因此**运行期零开销**。
 

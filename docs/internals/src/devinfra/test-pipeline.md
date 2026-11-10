@@ -86,7 +86,7 @@ per-platform driver（`builder_device.z42` 管 wasm；`builder_device_ios.z42`�
 
 | rid | 原生 runtime（xtask 预备）| run（z42b spawn 原生工具）| report |
 |---|---|---|---|
-| `browser-wasm` | `wasm-pack build --target web` → `pkg-web/`；z42b 铺进 deployable，xtask 再叠 harness | `npx playwright test --config playwright.embedded.config.ts` | playwright 退出码（`run.js` 自断言 `window.__report`）|
+| `browser-wasm` | `wasm-pack build --target web` → `pkg-web/`；z42b 铺进 deployable，xtask 再叠 harness | `npx playwright test --config playwright.embedded.config.ts` | playwright 退出码（`run.js` 自断言 ``window.__report``）|
 | `ios-arm64` / `iossim-arm64` | cargo × slices（host + device/sim）+ `xcodebuild -create-xcframework`；z42b stage embedded 语料进 XCTest `Resources/embedded` | `xcodebuild test -scheme Z42VM -destination <sim>`（sim UDID 由 `xcrun simctl` 解析；**一次 boot 同跑全部**）| 解析 `Test Case … passed/failed` → `<--report-dir>/junit.xml` |
 | `android-arm64` / `android-x64` | `cargo ndk -t <abi> build --release` → jniLibs（ABI 由 rid 解析）；z42b stage 语料进 `androidTest/assets/embedded` | `gradlew :z42vm:connectedAndroidTest`（**一次 emulator run 同跑全部**）| gradle 自产 junit |
 
@@ -98,7 +98,7 @@ xtask 保留**语料发现 / 编译 / 分片**与 native 工具**供给**（node
 deploy/run 交给 z42b；原生 runtime 的**构建**也留在 xtask。设备由运行它的工具启停（规则见
 [测试用例组织规范](test-layout.md) §6）：iOS 模拟器由 `xcodebuild` 启动；android 由 z42b 负责——
 `adb devices` 里已有设备（CI 的 emulator action、本地手动起的模拟器、手机）就复用、跑完不关；没有且给了
-`--avd <name>` 就以 headless 方式启动该 AVD、等 `sys.boot_completed`、跑完只关自己起的那台
+`--avd <name>` 就以 headless 方式启动该 AVD、等 ``sys.boot_completed``、跑完只关自己起的那台
 （`_runAndroidGradle`；adb / emulator 取调用方导出的 `ANDROID_HOME`）。
 
 ## 4. test-agent 的解析：dogfood `test` workload

@@ -37,7 +37,7 @@
 > 实参），所以这条边是搭在既有机制上的，没有第二套遍历。
 >
 > ⚠️ **步 5 的对称陷阱**：`Z42InterfaceType.IsAssignableTo` 不能只比 `Name()`，
-> 因为 `Z42InstantiatedInterfaceType.Name()` **刻意返回裸名**（元数据拼写要稳）⇒ 只比 `Name()` 会让 `IBox<int>` 与
+> 因为 ``Z42InstantiatedInterfaceType.Name()`` **刻意返回裸名**（元数据拼写要稳）⇒ 只比 `Name()` 会让 `IBox<int>` 与
 > `IBox<string>` 在步 5 就被判成 `Identity`。这与 H2 那条「只比 `Name()` 全等」是同一个坑的
 > 接口版，但后果更重：类那半是**误报**（编不过、拦住正确代码），接口这半是**静默错值** ——
 > 实测 `IBox<string> s; IBox<int> i = s; int bad = i.Get();` 编译期零诊断，跑出 `bad = hello`、
@@ -124,12 +124,12 @@
 2. **其余引用目标** → `BoundConvert.CheckedRefCast`（`_isCheckedRefCast`：`ExplicitRef`，或 `None` 且
    `Conversion.IsRefTarget`）。发射端 `TypeOpEmitter._emitConvert` 合成 `is_instance` + 分支 + `throw`：
    null 放行，类型不符抛 `InvalidCastException`。值类型目标不走这条：基元拆箱是 `ConvertInstr`（VM
-   `semantics::hard_cast_failure`），blob struct 拆箱是 `AsCast` + 结果判空（`_emitStructUnbox`：源 null 抛
+   ``semantics::hard_cast_failure``），blob struct 拆箱是 `AsCast` + 结果判空（`_emitStructUnbox`：源 null 抛
    `NullReferenceException`、类型不符抛 `InvalidCastException`）。全部复用现有指令，不新增 opcode。
 
 运行期类型测试的目标名出自 `ExprEmitter._typeTestName` 一个出口。数组目标是 `_arrayElemName(元素) + "[]"`，
 而 `ArrayNew` / `ArrayNewLit` 记到数组上的元素名出自**同一个** `_arrayElemName`（本包泛型取身份名、导入泛型
-带实参、基元取关键字），所以 VM 只需按名比：`dispatch::array_isa`（interp / JIT 共用）认 `Array` / `Object`，
+带实参、基元取关键字），所以 VM 只需按名比：``dispatch::array_isa``（interp / JIT 共用）认 `Array` / `Object`，
 以及元素名相同的 `X[]`；元素名是未代换型参（泛型体里 `new T[n]` 记的 `T`）或空（运行期合成的无类型数组）
 时按「任一元素类型」回答。
 

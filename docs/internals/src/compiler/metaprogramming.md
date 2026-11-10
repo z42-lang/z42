@@ -181,7 +181,7 @@ public string ToString()         { return "Point { X=" + this.X + ", Y=" + this.
 ### T1 — 你写一个模板宏（就是上面 `DeriveEq` 那段）
 
 逐行白话：
-- `[macro]`：标记它编译期执行；输入 `TypeInfo t` 是**被标注类型的语义信息**（能 `t.Fields` 枚举字段）。
+- `[macro]`：标记它编译期执行；输入 `TypeInfo t` 是**被标注类型的语义信息**（能 ``t.Fields`` 枚举字段）。
 - `quote { true }`：起一个"恒真"的 AST 作累加器。
 - 循环里 `quote { ${body} && this.${f.Name} == other.${f.Name} }`：把已有 `body` splice 进来，
   再 && 上"这个字段相等"——逐字段叠成 `true && X相等 && Y相等`。

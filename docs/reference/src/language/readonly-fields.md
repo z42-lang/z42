@@ -54,7 +54,7 @@ class D {
   （若字段是引用类型，被指对象的内部仍可变——与 C# `readonly` 一致）。
 - 优化收益（同模块）：一个方法反复读自己的 readonly 字段时，
   - **块内 CSE**：`this.x + this.x` 只读一次；
-  - **LICM**：循环体内 `this.x`（接收者 `this` 恒非空）提到 pre-header，每次进循环只读一次。
+  - **LICM**：循环体内 ``this.x``（接收者 `this` 恒非空）提到 pre-header，每次进循环只读一次。
   - 实测热循环 interp **~1.87×**（`src/libraries/z42.core/benches/readonly_field_bench.z42`）。
 
 ## 当前边界（Deferred）

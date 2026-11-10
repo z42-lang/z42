@@ -120,10 +120,10 @@ void Main() {
 
 两个容易写错的地方：
 
-- **`Length` 是属性**（`a.Length`），不是 `a.Length()`。另有 `ByteLength` 返回 UTF-8 字节数，
+- **`Length` 是属性**（``a.Length``），不是 ``a.Length()``。另有 `ByteLength` 返回 UTF-8 字节数，
   两者对非 ASCII 字符串不同（`"你好".Length == 2`，`"你好".ByteLength == 6`）。
 - **`Split` 没有 `Split(char)` 重载**。可用的三个是 `Split(string)`、`Split(string, int)`、
-  `Split(char[])`，所以要写 `a.Split(",")` 而不是 `a.Split(',')`；写成字符会报
+  `Split(char[])`，所以要写 ``a.Split(",")`` 而不是 ``a.Split(',')``；写成字符会报
   `E0401: no overload of \`Split\` on \`String\` accepts these arguments`。
 
 

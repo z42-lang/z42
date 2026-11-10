@@ -207,13 +207,13 @@ void t() { }          // → 照跑（platform 不匹配就结束判定，featur
 
 | 签名 | 通过条件 |
 |---|---|
-| `Equal(object expected, object actual)` | `expected.Equals(actual)` |
+| `Equal(object expected, object actual)` | ``expected.Equals(actual)`` |
 | `NotEqual(object expected, object actual)` | 上式取反 |
 | `True(bool condition)` | `condition` |
 | `False(bool condition)` | `!condition` |
 | `Null(object? value)` | `value == null` |
 | `NotNull(object? value)` | `value != null` |
-| `Contains(string expected, string actual)` | `actual.Contains(expected)`——**第一个参数是子串** |
+| `Contains(string expected, string actual)` | ``actual.Contains(expected)``——**第一个参数是子串** |
 
 ### 主动控制
 
@@ -378,11 +378,11 @@ void bench_custom() {
 | `long StdDevNs` `{ get; }` | 总体标准差（÷n），四舍五入到纳秒；亚纳秒离散度舍成 0 |
 
 DCE 防护的推荐顺序：**返回值基准**（形态 1，体里什么都不写）> `iterValue`
-（形态 3/4 里 `b.iterValue(() => compute())`）> `Std.GC.KeepAlive(x)`（语句位沉点）。
+（形态 3/4 里 ``b.iterValue(() => compute())``）> `Std.GC.KeepAlive(x)`（语句位沉点）。
 沉点机制：[`[MethodImpl(NoInlining | NoOptimization)]`](language/attributes.md#控制内联与优化methodimpl)
 的调用编译器不内联、不当纯函数，实参的计算留在原处。
 
-> ⚠️ **`BenchHelpers.blackBox` 已删除**（防优化沉点统一到 `Std.GC.KeepAlive`——同一对
+> ⚠️ **``BenchHelpers.blackBox`` 已删除**（防优化沉点统一到 `Std.GC.KeepAlive`——同一对
 > `[MethodImpl]` 标志，返回值弃置时二者恒等，且不引 harness 也能用；基准里的免样板防护由
 > 返回值基准 / `iterValue` 在 runner 与 Bencher 内部逐次消费承接）。存量调用把
 > `BenchHelpers.blackBox(x);` 机械替换为 `GC.KeepAlive(x);` 即可，行为与开销不变。

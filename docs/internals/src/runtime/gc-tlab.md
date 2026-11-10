@@ -116,7 +116,7 @@ retire，所以 sweep / chunk 回收看到的永远是没有 stash 的 region；
   但不经 safepoint 的并发回收（`tlab_concurrent_shared_heap_stress`）会碰到——若照常处理，上一个占用者已老的槽会被
   增龄判断摘出年轻集合，填进去的新块年轻却不在集合里，没有 minor 会清扫它、清它的标记。
 - **建完才可见**：见上；`acquire_var_block` 的四个 funnel（字符串 ×2、闭包、对象）在写完 payload 后 `publish`，
-  `Heap::alloc_var_block`（数组元素）当场 `publish`（元素区零值合法，回收之外没有遍历读它）。
+  ``Heap::alloc_var_block``（数组元素）当场 `publish`（元素区零值合法，回收之外没有遍历读它）。
 - **侧表先清**：flagged-dead 列表非空时 `take_holes`（以及锁路径的 free-list 弹槽）一个槽都不发——finalizer / 软引用 /
   记忆集按块头地址记账，新块不能在旧条目被 `process_flagged_dead` 删掉之前占到这个地址。
 - **块头标志清零**：`fill_hole` 整个重写 `type_tag`，年龄、`REMEMBERED_BIT`、`SIDE_BIT`、`ASCII_STR_BIT` / `OBJ_META_BIT` 都回到 0，
@@ -345,7 +345,7 @@ malloc。它死后必须有去处：`tombstone` 不把 `OVERSIZED_CLASS` 放进�
 
 ⚠️ **释放是原地的，槽位必须留下。** `chunks` 的**下标就是 chunk 的身份** ——
 `bump_chunk` / `borrowed` / `reuse_gen` / `var_free_chunk_pool` 全按下标寻址，
-`Vec::remove` 会把它后面每个 chunk 悄悄改号（`bump_chunk` 指向别人、池子里的下标错位）。
+``Vec::remove`` 会把它后面每个 chunk 悄悄改号（`bump_chunk` 指向别人、池子里的下标错位）。
 所以 `Chunk::free_in_place` 只是 `dealloc` + `base` 置 dangling + `cap = 0`，槽位留在原位当
 **墓碑**（`is_freed()` 即 `cap == 0`）。三处必须认得墓碑：`VarRegion::drop` 跳过（否则
 double free）、`ChunkIndex` 不给它建地址区间、`partition_dead_chunks` 不重复释放。

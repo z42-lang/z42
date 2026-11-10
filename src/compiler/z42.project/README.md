@@ -16,7 +16,7 @@ schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为�
 | 加载单项目清单 | `ManifestLoader.Load(path)` / `ParseText(text)`（fs-free，REPL / playground 可复用）|
 | 加载 workspace 清单 | `ManifestLoader.LoadWorkspace(path)` / `ParseWorkspaceText(text)` |
 | 清单键审计 | `ManifestKeys.AuditProject(root)` / `AuditWorkspace(root)` → `KeyAudit`（`Unknown()` / `Deprecated()`）|
-| 源文件 glob 发现 | `SourceDiscovery.Discover(projectDir, includes, count)` |
+| 源文件 glob 发现 | ``SourceDiscovery.Discover(projectDir, includes, count)`` |
 | 路径模板展开 | `PathTemplate.Expand(template, ctx)` |
 | 清单定位 | `ManifestLocator.FindUp` / `FindIn` |
 | 产物目录解析 | `BuildLayout.Resolve(manifest, projectDir, isRelease)` |

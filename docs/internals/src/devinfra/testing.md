@@ -65,12 +65,12 @@ builder 的命令行与常规构建 smoke 由 [声明式夹具](fixture-harness.
 工具链测试包、库的 test / bench、编译器独立工程、cross-zpkg、multi-exe 与 manifest targets 通过
 `scripts/src/common/projects.z42` 中的 `ManifestLocator.FindIn` 复用
 [项目模型的清单定位](../compiler/project-model.md)，只查当前目录。`expect.toml` 等其他 TOML
-不参与工程选择，命名清单的歧义会报错。测试包的身份取 `project.name`，
+不参与工程选择，命名清单的歧义会报错。测试包的身份取 ``project.name``，
 允许目录名、命名清单文件名与包名不同；工作区本身不作为反射测试包。
 工具链自身的测试由桌面宿主执行，不需要逐用例声明平台或 tier。
 
 `test stdlib` 与 `bench stdlib` 从 stdlib / compiler 两个 workspace 的 `members` / `exclude`
-发现真实工程，按 `project.name` 点名和分片，不把目录名当包名。`default_members` 只决定默认构建集合，
+发现真实工程，按 ``project.name`` 点名和分片，不把目录名当包名。`default_members` 只决定默认构建集合，
 不缩小测试集合（例如 compiler 域的 `z42.doc`）。独立编译器测试工程仍由 `test compiler` 执行；
 同包的 benchmark 继续按 `benches/` 发现。未知包名在准备工具链前报错，空分片不扩大为全量。
 layout 检查同样按 workspace 的声明包名识别产物 owner，允许成员目录名与包名不同，仍拒绝无 owner 的残留目录。
@@ -137,7 +137,7 @@ interface dispatch、`using` 的跨包 namespace 解析、同名 namespace 冲�
 
 默认库枚举包含 stdlib 与编译器域；采用独立 `tests/<unit>/` 工程的编译器包由 `test compiler` 跑，不重复进入 `test stdlib`。
 清单选择复用 `ManifestLocator`：支持标准 `z42.toml` 与唯一命名清单，标准名优先，命名清单歧义报错。
-编译后按工程的 `BuildLayout` 与 `project.name` 执行主 zpkg，不扫描执行目录里的旧包或依赖包。
+编译后按工程的 `BuildLayout` 与 ``project.name`` 执行主 zpkg，不扫描执行目录里的旧包或依赖包。
 这项测试归属规则不用于 benchmark：`bench stdlib` 仍发现这些包的 `benches/`，并按基准 unit 数估算分片负载。
 
 `test stdlib --shard k/n` 与 `bench stdlib --shard k/n` 选择全库中的分片，不能同时点名单库。
@@ -335,7 +335,7 @@ xtask test
 | **xtask 源 `scripts/`** | `z42 publish scripts/xtask.z42.toml` 重建后随便跑条命令冒烟 | changed 映射对 `scripts/**` = 全套 | 每腿 `ci-bootstrap` 的种子编 xtask 步 |
 | **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `test compiler bootstrap` | 格式 bump 另跑 [格式 bump 清单](format-bump.md)；等 nightly 发布后才 use | 全腿 `ci-bootstrap`（种子编当前源）+ `compiler-checks` |
 | **打包 `scripts/src/package/` / `packages.toml`** | `xtask package sdk --verify` | 同左 | `package-host` + `package-{ios,android,wasm}` |
-| **codegen / 优化 / typecheck / IR writer（会改产物字节）** | `test compiler` | 同步 `CacheStore.CompilerFingerprint` +1；自查 `test compiler fingerprint` | `bench-regression` 的 fingerprint guard |
+| **codegen / 优化 / typecheck / IR writer（会改产物字节）** | `test compiler` | 同步 ``CacheStore.CompilerFingerprint`` +1；自查 `test compiler fingerprint` | `bench-regression` 的 fingerprint guard |
 | **增量编译（IncrementalBuild / CacheStore / ZbcReader）** | `test compiler` | `test compiler incremental`（逐文件 touch 对账，增量 == 全量逐字节） | `compiler-checks` |
 | **学习手册 / `examples/`** | `test docs examples <part>/<chapter>`（只改页面加 `--book-only`）；输出确实该变则 `--bless` 后审 diff | `xtask package dev-sdk` + `test docs examples` | `test-host` 的 examples stage、`package-host`（用打包 SDK 重放，含 Windows）、`deploy-book` |
 | **launcher / z42b 的命令行输出** | `test docs examples`（手册会话脚本记录了这些输出） | 同上 | 同上 |

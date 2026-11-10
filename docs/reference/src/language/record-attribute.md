@@ -52,8 +52,8 @@ class Counter(int start, int step) {              // 无 [Record] = 主构造器
 
 - **基类随底层 Kind 归位**：`[Record] class` 是 `class`，拿到默认 `Std.Object` 基类；`[Record] struct`
   是 `struct`，无默认基类。attribute 不改身份 / 基类轴，只补「位置参数糖 + `IsRecord` 标记」。
-- **裸字段访问**：主构造器参数变成同名字段后，方法体里裸写 `start`（不必 `this.start`）即可——z42 把
-  类的全部字段播种进方法体作用域，裸标识符命中字段名时按 `this.field` 发码。
+- **裸字段访问**：主构造器参数变成同名字段后，方法体里裸写 `start`（不必 ``this.start``）即可——z42 把
+  类的全部字段播种进方法体作用域，裸标识符命中字段名时按 ``this.field`` 发码。
 - **值语义**（见下节）：`[Record]` 类型自动获得 member-wise **值相等**（`Equals` / `GetHashCode` /
   `==` / `!=`，type-exact）与**记录式 `ToString`**（`T { A = v, B = v }`）。用户显式声明同名成员时合成让位。
 
@@ -119,12 +119,12 @@ AttributedDecl([Record], ClassDecl{ Kind="class"/"struct", Members=[X,Y,ctor,...
 parser 能判 `[Record]` 是因为把已解析的 `attrs` 作参传进了 `_parseTypeDecl`（顶层 + 嵌套两处调用点）。
 
 **为什么裸字段访问免 binder 改动**：`DeclBinder` 绑定方法体时把类的**全部字段**（含继承）播种进
-`TypeEnv`；`ExprTyper._bindIdent` 经 `env.LookupVar` 命中字段名；`AccessEmitter._lookupIdent` 把裸
+`TypeEnv`；`ExprTyper._bindIdent` 经 ``env.LookupVar`` 命中字段名；`AccessEmitter._lookupIdent` 把裸
 `BoundIdent`（在字段集里）发成 `FieldGetInstr(this, name)`。所以主构造器参数脱糖成同名字段后，方法体
-里裸 `start` 天然解析成 `this.start` 字段读——无需让参数名进名字解析。
+里裸 `start` 天然解析成 ``this.start`` 字段读——无需让参数名进名字解析。
 
 **`IsRecord` 与 zbc flags bit3**：`[Record]` 不序列化成 store-meta 反射 blob，而是**复用既有 bit3**——
-`ClassDescBuilder` 把 `ClassDecl.IsRecord` 打进类形状 flags 的 bit3（`CLASS_FLAG_RECORD`），运行时
+`ClassDescBuilder` 把 ``ClassDecl.IsRecord`` 打进类形状 flags 的 bit3（`CLASS_FLAG_RECORD`），运行时
 反射 `Type.IsRecord`（`__type_is_record`）读该位。bit3 早已在 zbc 格式里，**零格式-bump**。
 
 **值语义合成（`RecordSynth.z42`）**：`IrGen` 的合成循环对 `HandlerRegistry.HasRecord` 为真的类型，调

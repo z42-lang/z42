@@ -48,8 +48,8 @@ observers / allocation sampling / weak refs / finalizers / strict OOM / ...）�
 
 ## 入口点
 
-- `crate::gc::Heap` —— 具体堆的分配、根、屏障、回收、引用、观测与统计接口
-- `crate::object::ObjRef` / `crate::object::WeakObjRef` —— 对象句柄；`crate::object::ArrRef` / `crate::object::WeakArrRef` —— 数组句柄
+- ``crate::gc::Heap`` —— 具体堆的分配、根、屏障、回收、引用、观测与统计接口
+- ``crate::object::ObjRef`` / ``crate::object::WeakObjRef`` —— 对象句柄；``crate::object::ArrRef`` / ``crate::object::WeakArrRef`` —— 数组句柄
 - 嵌入相关类型：`RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `AllocSample` / `WeakRef` / `HeapStats` / ...
 
 ### 能力组
@@ -98,9 +98,9 @@ GC 只在标记后观察活对象，清扫结束后交回本轮不透明快照�
 ## 依赖关系
 
 - 上游：`object::{Value, ScriptObject, OwnedObject, TypeDesc, NativeData}`
-- 下游：`context::VmCore` 持有地址稳定的 `Box<Heap>` + 注入 external root
+- 下游：``context::VmCore`` 持有地址稳定的 `Box<Heap>` + 注入 external root
   scanner 闭包（扫描 static_fields / pending_exception / interp+JIT exec_stack）；
-  `interp/` 与 `jit/helpers/` 通过 `ctx.heap()` 调用
+  `interp/` 与 `jit/helpers/` 通过 ``ctx.heap()`` 调用
 
 ## 如何测试验证
 

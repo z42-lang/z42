@@ -96,7 +96,7 @@ mode = "interp"
 
 - **profile 没声明运行时旋钮 → 不产文件**。产一个空 `[runtime]` 表既无意义，又会让
   "从前没有侧车"的工程凭空多出一个产物。
-- **只收用户真的写了的键**。`Profile.Mode` 字段有历史硬默认 `"interp"`，拿它烤侧车会把
+- **只收用户真的写了的键**。``Profile.Mode`` 字段有历史硬默认 `"interp"`，拿它烤侧车会把
   一个用户没声明的 `mode = "interp"` 写进产物、**静默压过 build 默认的 jit**；
   `Profile.Knobs` 没有这个歧义。
 - **不覆盖手写侧车**。目标路径已存在且不含生成标记头 → build 报错，提示把内容移进
@@ -108,11 +108,11 @@ mode = "interp"
 侧车跟着改成 `app.runtimeconfig.toml`）。
 
 **运行时不需要任何人指路**：`Z42_APP_CONFIG` 未设时，**VM 自己**按「同目录、同 stem」
-从 app 文件推出侧车路径（`config::sidecar_for`）。这条推导发生在**装配**期——配置在
-`OnceLock` 里 boot 后冻结，`host::run_app` 那时再想加一层就晚了——所以它在两个入口各做一次：
+从 app 文件推出侧车路径（``config::sidecar_for``）。这条推导发生在**装配**期——配置在
+`OnceLock` 里 boot 后冻结，``host::run_app`` 那时再想加一层就晚了——所以它在两个入口各做一次：
 `z42vm` 的 `main()`（有 `cli.file`）与 Rust 嵌入 API `z42::host::rust::run_app`（有 `file` 参数），
-两者共用 `config::load_app_config_tables`。另外两个进入执行核心的入口**不做**这一步，
-直接调 `host::run_app`，配置走 `RuntimeConfig::from_env`（只认显式 `Z42_APP_CONFIG`）：
+两者共用 ``config::load_app_config_tables``。另外两个进入执行核心的入口**不做**这一步，
+直接调 ``host::run_app``，配置走 `RuntimeConfig::from_env`（只认显式 `Z42_APP_CONFIG`）：
 C 入口 `z42_host_run_app`（`src/runtime/src/host/mod.rs`）与 wasm 入口
 （`src/toolchain/workload/wasm/platform`）。于是覆盖：
 
@@ -143,8 +143,8 @@ C 入口 `z42_host_run_app`（`src/runtime/src/host/mod.rs`）与 wasm 入口
 不 warn；而 `Z42_APP_CONFIG` 被**显式**指向一个不存在的路径仍会 warn。
 
 **但 warn 之后必须回落到 app 自己的侧车**，判据是「显式那份**解析出了内容**」而不是
-「变量设了没有」（`config::load_app_config_tables`，`z42vm` 的 `main()` 与
-`z42::host::rust::install_app_config` 共用这**一份**实现）。
+「变量设了没有」（``config::load_app_config_tables``，`z42vm` 的 `main()` 与
+``z42::host::rust::install_app_config`` 共用这**一份**实现）。
 显式路径指了个**坏**文件（非法 TOML / `.json`）仍是硬错误：回落只对"没内容"成立，
 否则回落自己就成了新的静默降级，跟它要修的毛病同形。
 
@@ -202,7 +202,7 @@ TOML 类型。
   - `Z42_STRESS_ITERS` 标 **ENV_ONLY**：GC 压力测试脚手架，进 CLI 表面等于向用户暗示
     它是个正经旋钮。
   - 其余**全部四层可设**。门面和消费点读取 `runtime_config()`，GC 的堆策略经 `RuntimeConfig::gc_config` 显式注入；若某旋钮在 `consumed_by` 处直接
-    `std::env::var`，CLI 与配置文件层就到不了那行内联读取，标成"四层全收"会让 `--list-knobs`
+    ``std::env::var``，CLI 与配置文件层就到不了那行内联读取，标成"四层全收"会让 `--list-knobs`
     声称能 `--set` 而实际静默无效，**比不登记更坏**。故有一道反向门：**任何新的内联 env 读都会
     让测试变红**（`no_knob_is_read_inline_from_the_environment_any_more`）。
 
@@ -318,7 +318,7 @@ string[] all = RuntimeConfig.Dump();                  // "key=value|source" 扁�
    都读的 `safepoint_throttle` 加锁开销——为边缘能力惩罚主路径。
 2. 多数旋钮**只在 boot 期被消费一次**（`Z42_LIBS` 定位、`Z42_SAMPLE_HZ` 决定是否起采样
    线程、`Z42_GC_MODE` 决定建哪种堆）。运行中改要么无效、要么要重建子系统——
-   "能设但不生效"比"不能设"更坏，这正是 .NET `AppContext.SetSwitch` 的坑。
+   "能设但不生效"比"不能设"更坏，这正是 .NET ``AppContext.SetSwitch`` 的坑。
 3. 真正需要运行期可调的能力（触发 GC、调堆上限）有专门 API（`Std.GC`）。
 
 ## 配置文件格式：只有 TOML

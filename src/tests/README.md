@@ -69,7 +69,7 @@
 1. **单包负例**——写成 `z42c.semantics` 的 `[Test]` 单测（`src/compiler/z42c.semantics/tests/typecheck/`），
    用 `SemanticDump.FirstErrorCode` / `FirstErrorMessage` / `FirstErrorPos` / `ErrorCount` 断言，
    由 `./xtask test compiler` 驱动。参考 `typecheck/undefined_type/undefined_type_tests.z42` / `typecheck/constraint_tests.z42`。
-2. **跨包负例（单测）**——`IrDump.ExtractExports` 把源码合成 `ExportedModuleZ`（= 一个依赖包的导出面），
+2. **跨包负例（单测）**——``IrDump.ExtractExports`` 把源码合成 `ExportedModuleZ`（= 一个依赖包的导出面），
    配上**包名**喂 `ImportedSymbolLoader.Load`，在内存里造出任意跨包形状，再用
    `IrDump.BuildPackage(..., imported, ...)` 编消费方并断言诊断码。范例见
    `z42c.semantics/tests/typecheck/crosspkg_duplicate/`。

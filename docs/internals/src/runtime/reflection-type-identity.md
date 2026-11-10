@@ -120,7 +120,7 @@ getter 读取 VM 提供的托管结果，未命中才调用 VM。查询不读取
   `$1$string` mangle** 得简单名 `GetType`——与从基类（`MemberInfo`→`Object`）继承来的 instance
   `Object.GetType`（arity-0）**同名撞车**，于是**静态方法覆盖了 instance 槽**：`vtable["GetType"]` 指向
   静态 extern。
-- 运行期 `t.GetType()` 走 VCall → vtable 命中静态 extern `__type_get_type` → 把 receiver（Type 对象）
+- 运行期 ``t.GetType()`` 走 VCall → vtable 命中静态 extern `__type_get_type` → 把 receiver（Type 对象）
   当 `fqn` 字符串 → 查不到 → `null`。
 
 > 为什么这不是 struct 独有：任何类只要有一个 static 方法，其简单名撞上某个继承来的 instance 方法，
@@ -152,7 +152,7 @@ index 对齐，构建时从 `Function.is_static` 采）。`merge_with_base` 跳�
 - 数组 Type 的内部引用槽保留生成名称所用的元素 Type。`GetElementType()` 返回这个投影，后续加载仅影响
   新创建的数组 Type。旧种子布局通过 `__elementName` 解析。
 
-`typeof(T[])` 与运行期 `arr.GetType()` 走**同一** `make_type_from_name`（后者经
+`typeof(T[])` 与运行期 ``arr.GetType()`` 走**同一** `make_type_from_name`（后者经
 `builtin_obj_get_type` 用数组值的 `element_type`）→ 两路名字一致。
 
 ### 数组 receiver 的 `GetType()` 返回类型（编译器）

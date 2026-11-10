@@ -125,7 +125,7 @@ zbc_hash       pool idx（散装 zbc 内容 SHA-256，一致性校验）
 
 `u32 module_count`，每模块 `{ ns_idx; u32 funcCount; frameName_idx × funcCount; u32 dbug_len; dbug 体 }`
 （dbug 体同 zbc DBUG，用符号池）。`frameName_idx[i]` 与 dbug 的第 `i` 个函数行表按 index 对齐，
-存该函数的 **frame-name(带签名) key**（`ns.Name(t0,t1)`，镜像 runtime `format_frame_name`）——使
+存该函数的 **frame-name(带签名) key**（``ns.Name(t0,t1)``，镜像 runtime `format_frame_name`）——使
 `.zsym` **自足**映射「函数名 → 行表」，供离线 `z42d symbolicate` 还原剥离档崩溃栈的
 `at <name>(<types>) +0x<offset>`（offset 打包 `(block<<16)|instr`）为 `file:line:col`。
 
@@ -139,7 +139,7 @@ zbc_hash       pool idx（散装 zbc 内容 SHA-256，一致性校验）
 16 字节 **MurmurHash3 x86_128**（`Std.Hashing.Murmur3.Hash128`）。release strip 的主 packed 包先写 16 字节占位、装配后对全字节 hash 回填；sidecar 直接写同一 build id。runtime 据此把 sidecar 与主包配对。
 
 > **为什么不是密码学哈希**：build_id 只做「这个 `.zsym` 配不配这个 `.zpkg`」的**配对识别**，不参与
-> 任何信任决策；runtime 只**读取两个值比相等**，从不重算（`metadata::format::build_id::compute` 在整个
+> 任何信任决策；runtime 只**读取两个值比相等**，从不重算（``metadata::format::build_id::compute`` 在整个
 > runtime 里没有调用点）。而 z42c 是解释执行的，BLAKE3 在这条路径上贵得离谱——800 KB 输入实测
 > BLAKE3-128 需 6.21 G 指令，MurmurHash3 x86_128 只需 0.41 G（**15×**）。选 x86 而非 x64 变体是因为
 > z42 没有逻辑右移也没有无符号整数：x86 的 lane 是 32 位，用 `long` 承载 + `& 0xFFFFFFFF` 掩码即可
@@ -206,7 +206,7 @@ Phase 3 — impl merge
 `IrGenTypeEmitter` 按 impl target 的**类型对象**的声明 ns（`IrGen._qType`）生成方法 body 的 IR 函数符号；导出端的
 target / trait FQ 名按声明方 CU 作用域解析（`FuncImplExtractor._fqOf`）。imported target（如 z42.numerics 给
 z42.core `int` 加方法）走 source namespace，生成 `Std.Int32.op_Add`
-而非 `numerics.int.op_Add`，与消费者 VCall 期望的 `func_index` 符号一致；local target 等同 QualifyName。
+而非 ``numerics.int.op_Add``，与消费者 VCall 期望的 `func_index` 符号一致；local target 等同 QualifyName。
 
 ### VM 端零改动
 
@@ -252,7 +252,7 @@ frameName → 行表 把 `+0x<offset>` 还原成 `file:line:col`。z42 侧读 `.
 | 构建 | 主 `.zpkg` | sidecar | 栈跟踪 |
 |---|---|---|---|
 | debug（默认） | 内嵌 DBUG（LineTable + LocalVarTable） | 无 | `at <FQN>(<sig>) (<file>:<line>:<col>)` |
-| release strip（`[profile.release].strip = true` 或 `--strip-symbols=true`） | 剥离 DBUG bodies + 写 16B BLID | `<name>.zsym`（`ZpkgFlags.SymOnly`，独立 STRS 子集 + MDBG + BLID） | 有 sidecar 时与 debug 无差异；无则 `at <FQN>(<sig>) +0x<offset>` |
+| release strip（`[profile.release].strip = true` 或 `--strip-symbols=true`） | 剥离 DBUG bodies + 写 16B BLID | `<name>.zsym`（``ZpkgFlags.SymOnly``，独立 STRS 子集 + MDBG + BLID） | 有 sidecar 时与 debug 无差异；无则 `at <FQN>(<sig>) +0x<offset>` |
 
 ### 加载期探测
 
@@ -280,7 +280,7 @@ trace 里每帧的函数名携带参数类型签名（`at MyApp.Greeter.greet(Gr
 
 - **eager 加载**：sidecar 现在是一次性全量读，启动 IO 一次付清；启动延迟敏感场景可加 lazy / mmap 路径。
 - **跨目录 sidecar 搜索**：见上，仅同目录。
-- **stdlib 公开 `Std.Reflection.Symbolicate`**：让 z42 程序内部触发符号化，尚未提供。
+- **stdlib 公开 ``Std.Reflection.Symbolicate``**：让 z42 程序内部触发符号化，尚未提供。
 
 ## zpkg 与 zbc 的关系
 
@@ -297,7 +297,7 @@ Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合，bump 联�
 
 ### 版本失配怎么表现
 
-Strict-pin 是**双向**的：reader 只认与自己 writer 完全相同的 `major.minor`，比自己**旧**的
+Strict-pin 是**双向**的：reader 只认与自己 writer 完全相同的 ``major.minor``，比自己**旧**的
 zpkg 同样读不了。所以 **一个 z42vm 与它加载的每一个 `.zpkg` 必须同代**，没有兼容层可退。
 
 由此推出一条运行期规则：**版本失配不是「跳过这个文件继续跑」，而是致命的**。

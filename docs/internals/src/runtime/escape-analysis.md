@@ -54,13 +54,13 @@ CFG」的坑）。
 | `MkClos` | 所有捕获 reg | — |
 | `AsCast`（结果别名）/ `ToStr`（调 ToString）/ `LoadLocalAddr`（取址）/ `IsInstance`※ / `Convert`※ | 其 Obj/Src/Slot | — |
 | `FieldGet` / `ArrayGet` / `ArrayLen` | — | target / array / index |
-| 算术·比较·位·移位·一元·StrConcat / `ArrayNew.Size` / Copy(Pass B) | — | 全部读操作数 |
+| 算术·比较·位·移位·一元·StrConcat / ``ArrayNew.Size`` / Copy(Pass B) | — | 全部读操作数 |
 | **规则表未列的任何指令** | **其所有读操作数（保守兜底）** | — |
 | **被函数体重新定义过的参数槽**（Pass A′，非指令） | **该参数寄存器本身** | 从未被重定义的参数槽 |
 
-> ※ `IsInstance.Obj` / `Convert.Src` 严格说中性（is-check / 恒等 convert 不泄露引用），但**有意标为逃逸
+> ※ ``IsInstance.Obj`` / ``Convert.Src`` 严格说中性（is-check / 恒等 convert 不泄露引用），但**有意标为逃逸
 > 以收窄运行时触达面**——如此栈对象只经历 FieldGet/FieldSet、栈数组只经历 ArrayGet/Set/Len +
-> FieldGet(`.Length`/`.Count` 经 FieldGet 路由)（+ Eq 走 `Value::PartialEq`），运行时无需为 IsInstance /
+> FieldGet(`.Length`/`.Count` 经 FieldGet 路由)（+ Eq 走 ``Value::PartialEq``），运行时无需为 IsInstance /
 > `convert_value`（只 match 堆 Array/Object）补栈分支。代价：`p is T` / 引用恒等 cast 的操作数不栈分配
 > （少量覆盖损失）。放宽 = 运行时补对应分支后移除该标记。
 
@@ -194,11 +194,11 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 可解 `this`，无需跨帧机制。
 
 - **句柄**：`Value::StackObject { idx, frame_id }` / `Value::StackArray { idx, frame_id }`（各 8B 内联，
-  不撑大 24B `Value`）。`idx` 索引 `VmContext.exec.stack_arena`（`Mutex<StackArena>`：owner 无竞争、GC 扫描在
+  不撑大 24B `Value`）。`idx` 索引 ``VmContext.exec.stack_arena``（`Mutex<StackArena>`：owner 无竞争、GC 扫描在
   safepoint）。
 - **分配**：`obj_new`/`array_new`(stack) 构造 `OwnedObject`（与堆对象同形的脱离块）/ `StackArray`（`Vec<Value>`，堆数组的块表示不用于栈数组）push 进 arena、返回句柄。ctor 照常在
   栈对象上跑（`this` = 句柄，FieldGet/Set 经 arena 解）。
-- **访问**：FieldGet/Set、ArrayGet/Set/Len 识别栈句柄 → `ctx.stack_arena` 校验访问。栈对象字段存堆引用
+- **访问**：FieldGet/Set、ArrayGet/Set/Len 识别栈句柄 → ``ctx.stack_arena`` 校验访问。栈对象字段存堆引用
   **不发 GC 写屏障**（栈对象非堆槽；其堆字段由根扫描保活）。
   > ⚠️ **「识别栈句柄」必须覆盖每一个接受堆对象 base 的处理器，不只是 FieldGet/Set**
   > ——这是本页同一条不变量的**第三例**
@@ -220,14 +220,14 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
   > `stack_object_inline_struct_field_roundtrips`。两个 ref 分支都实测过是活码
   > （逐个插 `bail!` 确认被触达，不是写了不跑的代码）。
   **字段访问接单态 inline cache**：栈对象 FieldGet/FieldSet **复用堆路径同款
-  `FieldIC`**（缓存 `TypeId→slot`）——`type_desc.id` 已解析、`field_index` 按类型定 slot，故 `(TypeId→slot)`
+  `FieldIC`**（缓存 `TypeId→slot`）——``type_desc.id`` 已解析、`field_index` 按类型定 slot，故 `(TypeId→slot)`
   缓存对堆/栈**同一份有效**。命中即直接 `slots[slot]`，跳过每访问一次的 `field_index` 字符串哈希查找。
   > 栈访问并非「非热路径、直接 hashmap 即可」：对象**传进 callee 反复读字段**时哈希查找主导，使
   > 栈分配在该模式下反被堆（有 IC）反超；接 IC 后栈字段访问≈堆。实测密集字段访问 8M：**interp +5%**（jit
   > 不受影响——JIT 忽略 flag、对象走堆、本就用堆 IC）。
 - **生命期（LIFO 截断）**：帧入栈 `push_frame` 记录 arena 长度基线（`VmFrame::stack_obj_base/arr_base`）；
   帧退出 `pop_frame` 截断回基线，bulk-free 该帧的栈分配。嵌套（对象 ctor 里再 `new`）自然 LIFO 正确。
-- **GC**：`Value` 的 `trace_children` 视栈句柄为叶；外部根扫描器在 safepoint 扫 `ctx.stack_arena` 每个栈
+- **GC**：`Value` 的 `trace_children` 视栈句柄为叶；外部根扫描器在 safepoint 扫 ``ctx.stack_arena`` 每个栈
   对象的字段 / 栈数组的元素作根（它们可能持堆句柄，必须保活）。arena 锁从不跨 GC 触发持有 → 不死锁。
   > ⚠️ **「栈对象的字段」是两半，缺一即悬垂**：
   > **引用字段**（含内联 struct 的引用叶子）存在 `bytes` 里的 8 B 引用字或型参单元的标签字。堆一侧与 `StackArena::scan_roots` 都经
@@ -245,7 +245,7 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
   `frame.regs`），回边 OSR 进 JIT 后 JIT 代码会**继承并访问**该句柄。故 JIT 的字段/元素 helper
   **必须**镜像 interp 处理栈句柄：`jit_field_get`/`jit_field_set`（对象，复用 FieldIC、栈槽无 write
   barrier）与 `jit_array_get`/`jit_array_set`/`jit_array_len`（数组）各带一条 `StackObject`/`StackArray`
-  臂，经 `ctx.stack_arena` 解析。原生字段 IC 的守卫（接收者不是 `Value::Object` → 慢路）与元素快路径的 hoist
+  臂，经 ``ctx.stack_arena`` 解析。原生字段 IC 的守卫（接收者不是 `Value::Object` → 慢路）与元素快路径的 hoist
   （`jit_array_data_opt`，对非堆 receiver 返回 `ptr=null`）都把栈句柄路由到冷 helper，故修 helper 即全覆盖。**漏这条 = OSR 下 `FieldGet/FieldSet/ArraySet…: expected object/array, got Stack*`
   崩**（默认 OSR 阈值高、`--release` 才开逃逸分析 → 平时 latent）。
 
@@ -266,14 +266,14 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 `MkClos` 恒在 GC 堆上分配 env 数组与 `Value::Closure`。运行时没有栈闭包表示：`Value` 没有栈闭包变体，
 interp `Frame` / `JitFrame` / `VmFrame` 没有闭包 env arena，`CallIndirect` 只认 `FuncRef` / `Closure`。
 
-- **编译器**：`MkClosInstr.StackAlloc`（`z42.package/src/IrInstrCall.z42`）三个发射点
+- **编译器**：``MkClosInstr.StackAlloc``（`z42.package/src/IrInstrCall.z42`）三个发射点
   （`FunctionEmitter` 局部函数闭包、`ExprEmitter` lambda 字面量、`CallEmitter` 合成 thunk）都传常量 `false`；
   `IrEscapeAnalysis` 只给 `ObjNew` / `ArrayNew` / `ArrayNewLit` 置标志，不碰 `MkClos`。
 - **格式**：zbc 的 `MkClos` 仍带一个 `u8` 尾字节（原 `stack_alloc`）。VM 读出后丢弃
   （`reader/instr_decode.rs`），下次 zbc bump 时删除（登记在
   [zbc.md `## Deferred`](../formats/zbc.md#deferred)）。
 - **为什么不做栈闭包**（2026-10-07 决策）：它只覆盖「创建后当场调用」这一种用法；把 lambda 传给别的
-  函数（`list.Where(x => …)`）本来就逃逸。维护两套闭包表示要让调用协议、对象模型、OSR、GC 根扫描每次都改两条
+  函数（``list.Where(x => …)``）本来就逃逸。维护两套闭包表示要让调用协议、对象模型、OSR、GC 根扫描每次都改两条
   路径，收益却很窄。以后真要消掉不逃逸闭包的分配，做法是 JIT 里的**标量替换**（把 env 拆进寄存器），不需要
   新的值变体。
 

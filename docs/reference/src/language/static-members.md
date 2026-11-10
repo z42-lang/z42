@@ -33,17 +33,17 @@ lambda 里的裸名静态成员**不是捕获**：读到的是调用时的当前
 
 ## 不支持（保持 E0401）
 
-- 经**派生类名**限定访问基类的静态成员 `Derived.baseStatic`——写 `Base.x`（静态成员不是虚的，`Derived.x`
+- 经**派生类名**限定访问基类的静态成员 ``Derived.baseStatic``——写 ``Base.x``（静态成员不是虚的，``Derived.x``
   读到的永远是基类那一份，写成派生类名容易误读成「派生类自己的」）。需要「每个类型各提供一份、按类型分派」的
-  静态实现时，用接口的 `static abstract` 成员加型参约束（`where T : INumber<T>` 后写 `T.Zero`）。
+  静态实现时，用接口的 `static abstract` 成员加型参约束（`where T : INumber<T>` 后写 ``T.Zero``）。
 - 静态字段初始化器里用裸名引用同类其它静态成员（`static int b = a + 1;`）——写 `C.a`。
 
 ## 实现
 
 - 体绑定环境只 `Define` **非 static** 字段（`DeclBinder._defineInstanceFields`）；
   `FunctionEmitter` 的裸字段表同样只收非 static。
-- `ExprTyper._bindIdent` 在 `LookupVar` 落空后调 `MemberResolver.BindBareStatic`，它与限定名 `C.x` 走
-  **同一个** `BindStaticMember` 判据，产出 `BoundStaticGet`——之后读、写、`++`、复合赋值全部复用 `C.x` 的既有路径。
+- `ExprTyper._bindIdent` 在 `LookupVar` 落空后调 `MemberResolver.BindBareStatic`，它与限定名 ``C.x`` 走
+  **同一个** `BindStaticMember` 判据，产出 `BoundStaticGet`——之后读、写、`++`、复合赋值全部复用 ``C.x`` 的既有路径。
 - `C.x += v` 的接收者是类名：`AssignTyper` 为 event `+=`/`-=` 做的拦截不能先把接收者当表达式绑定，
   所以 `=` 与 `+=` 两个分支共用「接收者是类名就跳过」的判定 `_isStaticRecv`。
 

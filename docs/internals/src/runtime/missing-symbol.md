@@ -60,10 +60,10 @@ C# 的 `default(T)`（`symres::static_zero_value`）：
 |---|---|
 | 基元 | 标量零 |
 | 枚举 | `I64(0)`（枚举一律以 i64 承载） |
-| 值 struct（含泛型 struct 实例化） | 一个**新分配的全零装箱 struct**——编译器把 struct 静态字段存成盒子（`_boxIfStaticStruct`），整读 `AsCast` 拆箱、叶子读写 `S.P.X` 就地改这个盒子 |
+| 值 struct（含泛型 struct 实例化） | 一个**新分配的全零装箱 struct**——编译器把 struct 静态字段存成盒子（`_boxIfStaticStruct`），整读 `AsCast` 拆箱、叶子读写 ``S.P.X`` 就地改这个盒子 |
 | 引用类型 / 数组 / 委托 / 擦除定义上未代换的型参 | 不补（`Null` 就是零值），裁决为 `Ok` |
 
-这是**读漏斗**（`objops::statics::static_get`，interp 与 JIT helper 共用）上的一次性装入，不是消费端兜底：
+这是**读漏斗**（``objops::statics::static_get``，interp 与 JIT helper 共用）上的一次性装入，不是消费端兜底：
 装入之后槽位里就是那个零值，`StructCopy` / `AsCast` / 算术永远见不到值类型静态字段的 `Null`。
 写不需要它——整写直接替换，叶子写经 `StaticGet` 取根盒子，同样先过这里。
 
@@ -87,7 +87,7 @@ C# 的 `default(T)`（`symres::static_zero_value`）：
 ### 构造器 —— `missing_ctor_exception`，判据是编译期的**正向位**
 
 这条最反直觉：**不能用「ctor 名解析不到」当判据**。z42c 对**没有构造器**的类照样发射
-`ObjNew`，ctor 键取裸类名（`Demo.Point.Point`）——而这与**单构造器**的 primary 裸键
+`ObjNew`，ctor 键取裸类名（``Demo.Point.Point``）——而这与**单构造器**的 primary 裸键
 （见 `stabilize-instance-dispatch-keys`）**同形**。运行时无法从名字本身区分「这个类没有
 构造器」和「构造器应该在但不见了」。`IrLoopAllocReuse` 的裸分配（ctor 名为空串）也走
 同一条路。
@@ -121,8 +121,8 @@ argc > 0  且解析不到    ⇒  零构造器的类不可能收实参 ⇒ 定�
 发射端（`CallEmitter._emitNew`）那一刻答案还不存在，有两个独立原因：
 
 1. z42c 会为「有字段初始化器、无显式 ctor」的类**合成**隐式构造器
-   （`IrGenTypeEmitter._emitSynthCtor`）。它既不是 `MethodSymbol`（符号表判据会把它误判成
-   零构造器），也不在 `_bindNew` 那一刻存在 —— `DeclBinder._synthCtors` 跑在
+   （``IrGenTypeEmitter._emitSynthCtor``）。它既不是 `MethodSymbol`（符号表判据会把它误判成
+   零构造器），也不在 `_bindNew` 那一刻存在 —— ``DeclBinder._synthCtors`` 跑在
    `TypeChecker.Infer` 的**全部绑定之后**。
 2. 本 CU 的 `IrModule` 看不到**同包其它文件**的函数，而 `DependencyIndex` 按设计不含本包。
 
@@ -141,12 +141,12 @@ IR pass 而必须挂在装配上。
 
 | | 编译时依赖（v2） | 运行时加载到（v1） | 调用点发出的键 |
 |---|---|---|---|
-| 构造器 | `Widget()` | `Widget(int v)` | `Demo.T.Widget.Widget`（两边都是） |
-| 实例方法 | `string Label()` | `string Label(string prefix)` | `Demo.T.Box.Label`（两边都是） |
+| 构造器 | `Widget()` | `Widget(int v)` | ``Demo.T.Widget.Widget``（两边都是） |
+| 实例方法 | `string Label()` | `string Label(string prefix)` | ``Demo.T.Box.Label``（两边都是） |
 
 键**解析成功**，命中的却是另一个签名。建帧（`Frame::new` / `new_from_regs` /
 `new_from_receiver_regs`）**不做任何 arity 校验**，缺的形参就停在默认值上继续跑——实测
-`new Widget()` 把字段写成 `0`、`b.Label()` 输出 `null7`。这不是「缺符号」，是**静默调错**。
+`new Widget()` 把字段写成 `0`、``b.Label()`` 输出 `null7`。这不是「缺符号」，是**静默调错**。
 
 **覆盖面**：构造器、实例方法——`VCall` 与 sealed 去虚化后的直接 `Call`、
 静态虚成员。**常规静态方法天然免疫**：它们的键恒为全签名 mangle
@@ -187,7 +187,7 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 | 路径 | 首次绑定点 | 命中缓存后 |
 |---|---|---|
 | `Call`：解析时已登记的目标（合并模块内，**含急切合并的 `z42.core`**；惰性包内及已加载的包） | resolver Pass 2 预填 `method_tokens`：对不上就**不预填** | token 直取 |
-| 同上，未预填的站点（interp；含跨包首次调用） | `exec_call::bind_callee` 写回 token 之前 | token 直取 |
+| 同上，未预填的站点（interp；含跨包首次调用） | ``exec_call::bind_callee`` 写回 token 之前 | token 直取 |
 | 未绑定的 `Call`（JIT） | `jit_call` 按名绑定，与 interp 同一个 `bind_callee`（按 `Function` 判，**不用** `FnEntry`：被调方未到 JIT 阈值时拿不到它，token 却照写） | 烘焙常量 / token 直取 |
 | `VCall`（两后端共用 `resolve_vcall`） | 出口统一判 → `VCallTarget::Thrown`；`install_ic` 对不上**不装 PIC** | PIC 直取 |
 | `ObjNew`（两后端共用 `exec/ops/obj_new`） | resolver 预填站点缓存的 ctor `FnId`：对不上就**不预填**；否则 `bind_ctor` 写回 `FnId` 之前 | 站点缓存直取 |
@@ -276,7 +276,7 @@ module.classes 里有            → 回落描述符正确，放行
 
 这三条若只写在 `tracing::warn!` 的判断里，日志挡不住
 静默数据损坏：空壳没有字段槽 ⇒ 构造器的 `FieldSet` 被**丢弃**、后续 `FieldGet` 全读
-`Null`（实测：`Std.IO.Process` 被合成空壳后，崩在 `AppendString` 的 `arr.Length`）。判据
+`Null`（实测：`Std.IO.Process` 被合成空壳后，崩在 `AppendString` 的 ``arr.Length``）。判据
 既然已经确定，就抛。
 
 ### 基类 —— `base_unmerged` 旗子 + `missing_base_exception`
@@ -309,15 +309,15 @@ module.classes 里有            → 回落描述符正确，放行
 
 ### 主模块的类继承跨包基类时丢掉全部继承字段
 
-`class Derived : CrossPkgBase` 写在**主模块**里时，`d.A = 7` 被静默丢弃、`d.A` 读出 `Null`
+`class Derived : CrossPkgBase` 写在**主模块**里时，`d.A = 7` 被静默丢弃、``d.A`` 读出 `Null`
 （实测急切副本 1 个字段槽 / 惰性副本 2 个）。**基类在不在场都一样**，与 skew 无关。
 
 根因是两份注册表的分叉：主模块的类型注册表在**构建期**合并继承视图，那时跨包依赖还没
 加载 ⇒ 退化成「只有自己的字段」；`try_fixup_inheritance` 事后能补齐，但
-`Arc::make_mut` 写时复制只让**惰性**注册表拿到修好的
+``Arc::make_mut`` 写时复制只让**惰性**注册表拿到修好的
 副本。而 `ObjNew` **先查主模块** —— 于是永远拿残缺的那份。
 
-`VCall` 另有基类回落路径，所以 `d.Who()` 是好的，
+`VCall` 另有基类回落路径，所以 ``d.Who()`` 是好的，
 会把这个洞盖住。解法即上面的 `base_unmerged` 旗子 + `ObjNew` 取修好的那份。
 
 > **教训**：方法派发通过 ≠ 字段布局正确。跨包继承的用例两样都要测。

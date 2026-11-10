@@ -69,7 +69,7 @@ stdlib 上的特化。
 - **`z42.threading` 比 `z42.io` 高**：`Timer` 的回调异常要 `Log.Error` 吞掉，于是 threading → diagnostics → io。
 - **`z42.numerics` 依赖 `z42.random`**：`BigInt.IsProbablyPrime` 的 Miller-Rabin 见证数。这条又逼得
   `z42.random` **不能**依赖 `z42.crypto`（会成环 crypto → numerics → random → crypto），
-  `Random.FromEntropy()` 因此一直缺席。
+  ``Random.FromEntropy()`` 因此一直缺席。
 - **序列化三兄弟 toml / json / yaml 都依赖 io**：因为各自都提供 `ParseStream` / `WriteTo(Stream, …)`。
 
 新开包时**不要去找「我属于哪一层」**，而是问「我的依赖闭包是什么、有没有环」。
@@ -150,7 +150,7 @@ C ABI 的外部扩展。
 
 **OS 熵是反向的样板**：`__crypto_random_bytes` 名字里带 crypto，但它是 OS 能力而非加密算法（同
 `__time_now_*`），归 core `Std.Runtime.Entropy`——core 的 `Guid.NewGuid` 要用它，而 prelude 不能反
-依赖 crypto。`z42.crypto.SecureRandom` 作为安全语义门面留在 crypto，委托 core 的熵原语。
+依赖 crypto。``z42.crypto.SecureRandom`` 作为安全语义门面留在 crypto，委托 core 的熵原语。
 
 ### 配套纪律
 
@@ -217,7 +217,7 @@ C ABI 的外部扩展。
 | **R4 领域包** | 依赖 runtime 服务，提供特定领域高层抽象；多数纯脚本 | JSON → `z42.json`；测试运行时 → `z42.harness`；日志 → `z42.diagnostics`；正则 → `z42.regex`；CLI → `z42.cli` |
 
 已经落在 core 而不是独立包的两处，别再提议搬出去：数学 libm 原语 `Std.Math`（随 CoreLib，等同
-`System.Math`）、日期时间 `Std.Time`（`core/src/Time/`）。未来的非原语数值类型（BigInteger / 矩阵）
+``System.Math``）、日期时间 `Std.Time`（`core/src/Time/`）。未来的非原语数值类型（BigInteger / 矩阵）
 仍走 `z42.numerics`。
 
 ## 6. 命名
@@ -269,7 +269,7 @@ C ABI 的外部扩展。
 ### 什么情况下不开新包
 
 - **类型只有 1–3 个方法** → 放已有包，避免 zpkg 碎片化。
-- **与现有包 80% 重合的 domain** → 合进去，用子命名空间区分（`Std.Collections.Concurrent`）。
+- **与现有包 80% 重合的 domain** → 合进去，用子命名空间区分（``Std.Collections.Concurrent``）。
 - **只是想分离测试** → 测试不该是独立 stdlib 包；用 `z42.harness` + 用户工程的 test 目录。
 - **不是 z42 官方功能** → 不进 `z42.<x>`，用户自己开包。
 - **新加的是「从某种源读 / 写」能力** → 实现一个 `: Stream` 适配器复用既有 operation，不开新包也不开

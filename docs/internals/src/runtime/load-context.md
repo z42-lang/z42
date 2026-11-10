@@ -70,7 +70,7 @@ owned `Module`）。root context(0) + root assembly(0) 由 `ContextRegistry::new
 `Clone`，且加载后被 `Arc` 别名进两处注册表，mutate 代价大且要改 loader build 路径）。改为：
 
 - `Assembly.GetTypes()` 用 `make_type_object` 建 `Std.Type` 后，往其 `__asmId` 隐藏槽
-  stamp 该类型所属 `AssemblyId`；`typeof(T)` / `obj.GetType()` **不 stamp**（→ Null → root）。
+  stamp 该类型所属 `AssemblyId`；`typeof(T)` / ``obj.GetType()`` **不 stamp**（→ Null → root）。
 - `__type_is_collectible` / `__type_assembly` 读 `__asmId` → 注册表查 context 可回收性 /
   建 `Assembly`。Null/0 → root → `false`。
 
@@ -79,7 +79,7 @@ owned `Module`）。root context(0) + root assembly(0) 由 `ContextRegistry::new
 
 ### 加载路径分叉（`loader/package/mod.rs`）
 root 走现有 `merge_modules`（不动）；collectible 走 `AssemblyLoadContext.Load` →
-`loader::load_artifact` 解析 zpkg → 存入该 context 的 `AssemblyEntry.module`，**不 merge 进
+``loader::load_artifact`` 解析 zpkg → 存入该 context 的 `AssemblyEntry.module`，**不 merge 进
 root**。`GetTypes()` 按 FQ 名有序返回（`assembly_types` sort，避免 HashMap 非确定序）。
 
 根上下文的类型描述符记录各自声明的实例构造器。构造器反射按 TypeId 取得已注册描述符，入口包和
@@ -102,11 +102,11 @@ Active ──Unload()──▶ Unloading ──(GC 判定无引用)──▶ Rec
 ### 机制（GC 驱动，major STW）
 
 1. **反查表**（`ContextRegistry.td_to_ctx: HashMap<*const TypeDesc, ContextId>`）：`load_into`
-   时登记 collectible 类型的 `Arc::as_ptr`（root 类型不登记）。不 mutate `TypeDesc`。
-2. **保留边扫描**（`unloading_count > 0` 才激活，零回归）：major GC mark 后、sweep 前，`Heap::scan_marked_contexts`
+   时登记 collectible 类型的 ``Arc::as_ptr``（root 类型不登记）。不 mutate `TypeDesc`。
+2. **保留边扫描**（`unloading_count > 0` 才激活，零回归）：major GC mark 后、sweep 前，``Heap::scan_marked_contexts``
    遍历 marked `ScriptObject`，解析其**两类保留边** → 累积 `live_contexts`：
-   - **活实例**：`obj.type_desc` ptr → 反查表；
-   - **反射对象**：`obj.native` 为 `TypeHandle`/`AssemblyHandle`/`LoadContextHandle` 指向 collectible
+   - **活实例**：``obj.type_desc`` ptr → 反查表；
+   - **反射对象**：``obj.native`` 为 `TypeHandle`/`AssemblyHandle`/`LoadContextHandle` 指向 collectible
      （`typeof(collectibleType)` 的 `Std.Type` 其 `type_desc` 在 root，但 native 句柄钉住 collectible——
      只看 `type_desc` 会漏，提前 free 仍被引用的 arena；这条是正确性关键）。
 3. **reclaim**（sweep 后，STW 内）：`Unloading` 且不在 `live_contexts` 的 context → `drop` 其

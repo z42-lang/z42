@@ -89,7 +89,7 @@
 > **动机（实测驱动）**：interp-bound workload（z42c 前端）profile 中，若 `Value` 挂 **`Box` 冷变体**
 > （`Ref`/`PinnedView`/`StructRefHeap`）或 句柄带显式 no-op `Drop`，编译器会把每次 clone 编成
 > 「match 判别号 + drop-glue」、把 `Vec<Value>` 析构编成逐元素循环，**无法退化成平凡 memcpy / O(1) 释放**
-> （实测 `Value::clone` 是头号 leaf 11.4%、`drop_in_place<Frame>` 6.0%）。堆模型统一后 clone 本已无 refcount
+> （实测 ``Value::clone`` 是头号 leaf 11.4%、`drop_in_place<Frame>` 6.0%）。堆模型统一后 clone 本已无 refcount
 > （句柄 clone = 8B memcpy、`Str`=`Copy`），所以要让 `Value` 成为真正的 POD。
 
 **做法**：这 3 个「仅在创建帧的调用栈内存活、创建后不可变」的瞬态变体用 8B
@@ -107,7 +107,7 @@
 - **相等 / stringify 退化**：3 变体 `==` 按 `{idx,frame_id}` 句柄相等（同 `StackObject`）；`value_to_str`
   返回通用占位串——照 `StackObject`/`StructRef` 先例（ToString 是 escape sink，这些瞬态句柄永不到达
   用户可见 stringify 路径）。有 `ctx` 的消费点（`deref_ref`/`UnpinPtr`/FFI marshal/FieldGet `.ptr/.len`/
-  `StructFieldGet(Set)Prim`）经 `arena.with(idx,frame_id,…)` 读真 payload。
+  `StructFieldGet(Set)Prim`）经 ``arena.with(idx,frame_id,…)`` 读真 payload。
 - **native marshal**：`value_to_z42`（无 `ctx`）的 `PinnedView` 防御臂退化为明确错误——编译器路径本就
   先 `FieldGet ptr/len`（经 arena 解析）再传标量，从不把 raw view 交给 marshal。
 
@@ -259,14 +259,14 @@ ObjectHeader {
   （分不出哪个是型参字段，型参单元什么 `Value` 都装得下）。
 - 名→字段下标由 `TypeDesc.field_index`（类级共享）。**继承：基类字段在前、子类追加**，子类区从 `align_up(base.size, 8)` 开始，
   基类部分的单元归属原样继承。
-- 访问 `obj.f` = 按字段下标查 `ObjectLayout.field_access[i]`（`{offset, width, tag, cell, aux}`，加载期算好），按单元读写
+- 访问 ``obj.f`` = 按字段下标查 `ObjectLayout.field_access[i]`（`{offset, width, tag, cell, aux}`，加载期算好），按单元读写
   （`object/object/object_fields.rs`：`load_access` / `store_access`）。站点的 `FieldIC` 把解析结果缓存成
   `TypeId | FieldLoc`（`FieldLoc` = 单元字节偏移 16 位 + 基元宽度 + 种类：基元的精确 `TAG_*` / 引用字 / 型参单元（偏移位存字段下标）/
   struct 根），命中只比较一次 `TypeId` 就做单元访问，不查名字、不读布局（只有型参单元回布局取第二个坐标）。`Value` ↔ 单元的转换只在这里、
   `ref_word` 与 `tparam_cell`；两个引擎经 [objops](interp-jit-semantics.md#对象操作objops) 调到它们。JIT 生成码直接读站点 IC 的
   entry 0，按对象头 → `TypeDesc::id` 守卫后按字节偏移原生读写基元与引用字，引用写内联屏障判定（见 [jit.md](jit.md)「字段访问：
   原生单态字段 IC」）→ **对象头（类型字在 +8、`type_tag` 在 +3、字段从 +16 起）、`TypeDesc::id` 的位置、引用字编码与 Value 大小是 ABI 一部分，须固化**
-  （`obj_jit_layout`，由 `object_tests::jit_layout_matches_the_accessors` 钉住）。
+  （`obj_jit_layout`，由 ``object_tests::jit_layout_matches_the_accessors`` 钉住）。
 - GC 只经 `ScriptObject::visit_refs`（每个非零引用字 + 型参单元标签字里的引用；装箱 struct 按 struct 布局，合成布局按型参单元）遍历一个对象的出边，标记、栈对象根扫描、保留图共用；
   清扫断边用 `clear_refs_for_sweep`。
 
@@ -331,7 +331,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
 | STRUCT | `ArrayStruct` | 布局字 + 值 struct blob（引用叶子是引用字，见上） | blob 值 struct 的 `P[]` | 各叶子按自己的单元 |
 | FROZEN | `ArrayValue` | 16 B `Value`，发布前写一次、之后只读 | 闭包环境、种类 7 的值盒子（里面可能是栈句柄，不能再按单元编码） | 普通读 |
 
-- **模式判定**（`objops::array::elem_mode`，`ArrayNew` / `ArrayNewLit` / `Array.CreateInstance` 共用）：
+- **模式判定**（``objops::array::elem_mode``，`ArrayNew` / `ArrayNewLit` / `Array.CreateInstance` 共用）：
   名字就能定的先定（`ElemKind::of`：基元 → PRIM；`string` / `object` / `X[]` → REF）；元素是型参（指令的 `type_param_kind`）→ MIXED；
   其余查类型表：blob 值 struct → STRUCT，enum 与非 blob struct → MIXED，类 / 接口 / 委托 → REF，查不到 → MIXED。
   这次查表本来就在建数组的路上（判 struct）。
@@ -348,7 +348,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
   `ArrayNew`），描述符记下该基元种类（`ArrayDesc::zero`，MIXED 的描述符按零种类各驻留一份）、不写任何字：
   从未写过的单元（标签字 `0`）读作这个零值，第一次写才认领——预留容量的页面从不被碰。`List<string>` 的单元里引用就是标签字本身，负载字不用。不符的写（同一个单元先后放不同种类的基元）装箱成种类 7，对用户透明。
 - **写屏障**：元素写返回 `FieldWrite`，屏障拿的是真正落进单元的引用（装箱时是盒子）；整元素 `struct[]` 写与批量写
-  （`Array.Copy` / 排序）之后按 `elem_ref_slots` 对区间内每个引用槽发 `write_barrier_array_elem`（`objops::array_bulk`）。
+  （`Array.Copy` / 排序）之后按 `elem_ref_slots` 对区间内每个引用槽发 `write_barrier_array_elem`（``objops::array_bulk``）。
   被覆盖的旧引用由各写原语交给 SATB。
 - **GC** 只经 `ArrayObj::visit_refs` 遍历一个数组的出边（标记、记忆集、保留图共用）；数组块与对象块一样标记、清扫、进记忆集。
 - **JIT**：PRIM 的读写按 `packed_data` 内联；从不被重赋值的 REF / MIXED 数组读进整 `Value` 寄存器（`Ref` / `Str` / 擦除的 `T`）时按
@@ -404,7 +404,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
   `Std.Threading` 的 `Mutex<T>` / `RwLock<T>`，底座是对象自己的 `NativeData::Monitor`），所以去掉每对象锁不需要过渡机制。
   对任意对象加锁的语义由 R5 的 Monitor 侧表提供（首次加锁才膨胀，按对象地址索引，GC 停顿时清理）。
 
-**静态字段**用同一套单元：每个静态字段一个地址稳定的 16 B 型参单元（`metadata/statics/table.rs`，`VmCore.runtime.statics`，
+**静态字段**用同一套单元：每个静态字段一个地址稳定的 16 B 型参单元（`metadata/statics/table.rs`，``VmCore.runtime.statics``，
 `SegVec` 分段只追加、id 即下标），读写不拿锁，内存序与实例字段相同。按名登记时不知道声明类型，型参单元什么 `Value` 都装得下：
 基元首写时认领种类、之后只改负载字；引用就是标签字；种类不符的写装箱。值 struct 类型的静态字段由编译器装箱存放，单元里只有一个
 引用字，所以不需要 seqlock。静态字段是 GC 根（每次回收扫一遍标签字），写入不需要分代屏障，SATB 由单元协议负责。单元旁边缓存
@@ -514,7 +514,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
   （`STRUCT_LEAF_ARCSTRING` → `TAG_STR`），被 `trace_children` / `scan_object_refs` 扫描 →
   string-in-object 正确可达；`is_heap_ref(Str)=true` → 存进堆槽触发写屏障（分代记忆集）。
 - **驻留/字面量串**：**每 VM 惰性驻留**——加载期**不**物化（无堆），某个字符串 id 首次 `ConstStr(idx)`
-  用活堆分配 GC string，发布进 `VmCore.strings`（`StrTable`，按 id 的稠密表）并记为 **GC root**；
+  用活堆分配 GC string，发布进 ``VmCore.strings``（`StrTable`，按 id 的稠密表）并记为 **GC root**；
   后续命中（任一线程）无锁读出 8B 句柄（运行期全走 `VmContext::const_str`）。
 - **safepoint 安全**：GC 只在显式 safepoint（interp 回边/调用边界）/`ForceCollect` 运行，从不在单条
   指令/builtin 的 Rust 执行中途 → 临时 string（表达式中间值）落寄存器前天然安全，与既有
@@ -574,7 +574,7 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
 | 对象头 | 统一头 = `gc_word`(mark+age+forwarding) + type/kind;去 ad-hoc `native` |
 | 对象种类 | ref-object/字符串(GC)/字节缓冲/ref-array/弱引用/Type/不透明native;按 kind 精确扫 |
 | 移动/分代 | **ABI 预留**(gc_word forwarding + 句柄可重定位 + card table + pin 区 + per-gen 位);实现可 v1 非移动,不锁死 |
-| 句柄 | `NonNull+epoch`(改名避混);可重定位 fork (a)fixup/(b)句柄 待 benchmark |
+| 句柄 | ``NonNull+epoch``(改名避混);可重定位 fork (a)fixup/(b)句柄 待 benchmark |
 | 字符串 | 改 GC 对象;驻留串 context 拥有;finalizer 兜底 |
 | 边界 | 用户堆全 GC;TypeDesc 留 context-arena(不 GC 化) |
 

@@ -2,7 +2,7 @@
 
 ## 职责
 
-把 z42 VM 编进 Gradle AAR 模块（`io.z42.vm.Z42VM`），Kotlin / Compose app 引入后跑 `.zbc`；
+把 z42 VM 编进 Gradle AAR 模块（``io.z42.vm.Z42VM``），Kotlin / Compose app 引入后跑 `.zbc`；
 并含 Android 平台 workload 的 appbuilder（`export`）与 R1–R7 嵌入契约测试。默认使用 interp，arm64/x64 可显式选择独立 JIT 组件。
 不做：编译 `.z42`（host 端 z42c 编好 `.zbc` / `.zpkg` 再装进 assets）。
 
@@ -45,7 +45,7 @@ Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
 
 选择 JIT：构造 `Z42VM(..., execMode = Z42VM.ExecMode.JIT)`；部署须包含同一 runtime 包的 `libz42_jit.so`、解释器、核心和 Rust std。缺少 JIT 时返回宿主错误，保持默认 interp 的应用无需加载 JIT。
 
-限制：单实例；同步 invoke（UI 线程请用 `Dispatchers.Default` 包装）；
+限制：单实例；同步 invoke（UI 线程请用 ``Dispatchers.Default`` 包装）；
 marshal 仅 null + `I64` / `F64` / `Bool`（string / object / Array 见 embedding.md 的 Deferred）。
 
 ## 如何测试验证

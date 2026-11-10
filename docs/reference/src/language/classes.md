@@ -93,7 +93,7 @@ Console.WriteLine("a is " + a);    // a is Point{...}  —— ⚠️ 绕过 ToSt
 ```
 
 > `"..." + obj` 对引用类型只会给出 `类型名{...}` 这种占位形式，与该类有没有重写
-> `ToString()` 无关。需要自定义文本时，用插值 `$"{obj}"` 或显式 `obj.ToString()`。
+> `ToString()` 无关。需要自定义文本时，用插值 `$"{obj}"` 或显式 ``obj.ToString()``。
 > 基元、`enum`、数组不受影响（`"n=" + 5` 得 `n=5`，`"" + Color.Blue` 得 `Blue`，
 > `"" + arr` 得 `[1, 2, 3]`）。
 

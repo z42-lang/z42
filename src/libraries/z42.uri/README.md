@@ -12,7 +12,7 @@ opaque URI。
 | `src/Uri.z42`          | `Std.Uri.Uri` 不可变值对象 + 静态 `Uri.Resolve(base, ref)` RFC 3986 §5.3 |
 | `src/UriParser.z42`    | `Std.Uri.UriParser` RFC 3986 子集解析器 |
 | `src/UriCodec.z42`     | `Std.Uri.UriCodec` percent-encode/decode 辅助 |
-| `src/UriException.z42` | `Std.UriException`（malformed input / bad percent escape） |
+| `src/UriException.z42` | `Std.Uri.UriException`（malformed input / bad percent escape） |
 
 ## 入口点
 公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/uri.md)（由源码 doc 注释生成）。

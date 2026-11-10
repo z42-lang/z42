@@ -32,7 +32,7 @@ cargo bench -- --quick               # 快速模式（每个 bench 总耗时上�
 ## 设计约定
 
 - 每个 bench 文件 ≤ 200 行
-- 用 `criterion::black_box` 防止 LLVM 优化消除被测代码
+- 用 ``criterion::black_box`` 防止 LLVM 优化消除被测代码
 - 名称用 `<area>/<scenario>_<size>` 风格（如 `interp/arith_loop_1k`、`gc/alloc_small`）
 - 同一 bench 文件内的 group 用 `criterion_group!` 聚合
 - 不在 bench 中跑 IO（避免抖动）；如需 .zbc 输入，用 `include_bytes!`

@@ -28,10 +28,10 @@ void Helper() { }
 
 | 声明 | 无 namespace | `namespace Foo` 下 |
 |---|---|---|
-| 顶层函数 `void Bar()` | `Bar` | `Foo.Bar` |
-| 类 `class Baz` | `Baz` | `Foo.Baz` |
-| 类方法 `class Baz { void M() }` | `Baz.M` | `Foo.Baz.M` |
-| 构造函数 `class Baz { Baz() }` | `Baz.Baz` | `Foo.Baz.Baz` |
+| 顶层函数 `void Bar()` | `Bar` | ``Foo.Bar`` |
+| 类 `class Baz` | `Baz` | ``Foo.Baz`` |
+| 类方法 `class Baz { void M() }` | ``Baz.M`` | ``Foo.Baz.M`` |
+| 构造函数 `class Baz { Baz() }` | ``Baz.Baz`` | ``Foo.Baz.Baz`` |
 
 无 `namespace` 的文件归属默认命名空间 `main`。限定名就是栈跟踪里看到的名字，
 也是清单里 `entry` 要写的名字。
@@ -52,11 +52,11 @@ using Std.Collections;
    名字随时可以被找到，名字查找第一次落到哪个包，就用哪个包。
 4. **全限定名不需要 `using`**（与 C# 相同）：`Std.IO.Console.WriteLine("hi")`、`Std.Toml.TomlDocument doc;`
    不写 `using Std.IO;` / `using Std.Toml;` 也能用。所有成员形态都可以写成全限定：类型、静态方法、
-   静态字段 / 属性 / `const`（`A.B.K.N`）、枚举常量（`A.B.Shade.Light`）、嵌套类型的静态成员
-   （`A.B.Outer.Inner.X`）、自由函数（`A.B.f()`）。最左边的名字若是局部变量、形参或本作用域看得见的类名，
+   静态字段 / 属性 / `const`（``A.B.K.N``）、枚举常量（``A.B.Shade.Light``）、嵌套类型的静态成员
+   （``A.B.Outer.Inner.X``）、自由函数（``A.B.f()``）。最左边的名字若是局部变量、形参或本作用域看得见的类名，
    按它解析，不当命名空间。
-5. **外围命名空间隐式可见**（与 C# 相同）：写在 `namespace A.B` 里的代码，不写 `using` 就能用 `A.B` 与 `A`
-   里的类型和函数。名字查找由内向外：`A.B` → `A` → `using` 进来的命名空间（含 prelude）。外围命名空间里的
+5. **外围命名空间隐式可见**（与 C# 相同）：写在 `namespace A.B` 里的代码，不写 `using` 就能用 ``A.B`` 与 `A`
+   里的类型和函数。名字查找由内向外：``A.B`` → `A` → `using` 进来的命名空间（含 prelude）。外围命名空间里的
    那一份**胜过** `using` 进来的同名者，不算歧义；多层外围都有时**最内层**胜出。外围按段算：`AB` 不是
    `A` 的外围。
 
@@ -80,7 +80,7 @@ E0436: namespace `Std.Collections` is used but not imported in this file; add `u
 
 「用到」按 C# 的口径算：源码里**写出**的短名——类型名（局部变量 / 字段 / 形参 / 返回 / 基类与接口列表 / 约束 /
 `new` / 转换 / `is` / `as` / `typeof` / 泛型实参 / delegate 类型）、静态成员与静态调用的类名、enum 常量、自由函数调用与
-函数引用。全限定写法 `A.W` **不算**用到 `A`（规则 4：它不靠 `using` 解析）。编译器**推导或合成**的类型也不算：
+函数引用。全限定写法 ``A.W`` **不算**用到 `A`（规则 4：它不靠 `using` 解析）。编译器**推导或合成**的类型也不算：
 `[1, 2]` 生成 `List<int>`、`(1, 2)` 生成元组类型、`var x = f();` 推出的类型，都不要求 `using`。`using Id = 全限定名;`
 别名的目标也不算。
 
@@ -227,7 +227,7 @@ void Main() {
 }
 ```
 
-生成的限定名：`Demo.Point.Point`、`Demo.Point.ToString`、`Demo.Main`；入口 = `Demo.Main`。
+生成的限定名：``Demo.Point.Point``、``Demo.Point.ToString``、``Demo.Main``；入口 = ``Demo.Main``。
 
 ## 相关
 

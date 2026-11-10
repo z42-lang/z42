@@ -75,7 +75,7 @@ pub const OS_CAPS: OsCaps;                         // Std.Platform.Capabilities(
 ## 不变量（必须遵守）
 
 1. **OS-neutral surface**：pub fn signatures 不带 OS 类型（不暴露
-   `libc::c_char` / `winapi::HANDLE` 等）
+   ``libc::c_char`` / ``winapi::HANDLE`` 等）
 2. **每个 concern 一个接口**：`pal/<concern>.rs` 不含操作系统选择；`sys/mod.rs` 选择后端，后端实现集中在 `sys/`。`pal/sys/` 外现存的平台 cfg 与
    `libc::` 是欠账，由 GREEN 的 `layers` stage 按组件计数、只减不增（见[测试门禁](../devinfra/test-gate.md)）
 3. **graceful degrade**：未实现的平台返回 `None` / `""` / `Err` 而非 panic
@@ -97,7 +97,7 @@ feature 裁剪和测试代码维持各自原有规则。
 ### `pal/fs.rs` + `pal/vfs/` — 文件系统
 
 **每台 VM 一个 `Vfs` 句柄。** 路径型文件操作（`File.*` / `Directory.*` / `Path.Glob` 的 builtin）、包加载
-（`loader`、`namespace_index`、惰性加载器）与 `host::run_app` 的启动探测都走 VM 持有的
+（`loader`、`namespace_index`、惰性加载器）与 ``host::run_app`` 的启动探测都走 VM 持有的
 `Arc<dyn Vfs>`，没有进程级的「当前后端」开关：
 
 ```rust
@@ -115,8 +115,8 @@ pub struct LocalFs;                       // std::fs；write_atomic = tmp + sync
 pub struct MemoryFs;                      // 实例自有 path → bytes；mount(path, bytes)；目录由前缀推出
 ```
 
-- **谁给句柄**：创建 VM 的一方——`VmContext::with_vfs` / `with_module_and_vfs`、`host::RunOpts::vfs`、
-  嵌入 API 的 `HostConfig::vfs`（Tier 2 经 `host::install_vfs` 装入）。不给就是 `default_vfs()`。
+- **谁给句柄**：创建 VM 的一方——`VmContext::with_vfs` / `with_module_and_vfs`、``host::RunOpts::vfs``、
+  嵌入 API 的 `HostConfig::vfs`（Tier 2 经 ``host::install_vfs`` 装入）。不给就是 `default_vfs()`。
   `__run_goldens_isolated` 起的子 VM 沿用父 VM 的句柄。wasm 宿主（`workload/wasm/platform`）持有一个
   页级 `MemoryFs`，`mountFile` / `mountAsset` 写进去，再交给它创建的每台 VM。
 - **隔离**：两台 VM 拿两个 `MemoryFs` 就互不可见（`vm_context_tests` 的
@@ -135,7 +135,7 @@ pub fn make_executable(path: &str) -> Result<()>;  // unix: mode|0o111；非 uni
 pub fn symlink(src: &str, dst: &str) -> Result<()>; // unix symlink；非 unix bail
 ```
 
-`corelib/io/fs.rs` 的 `typed::file_make_executable` 和 `typed::file_symlink` 调用 `crate::pal::fs`。
+`corelib/io/fs.rs` 的 `typed::file_make_executable` 和 `typed::file_symlink` 调用 ``crate::pal::fs``。
 
 > `read_permissions` / `set_permissions` 是 make_executable 的 building
 > block——当前无独立 consumer，按 YAGNI 折进 `make_executable`（read+modify+set 一体），
@@ -163,7 +163,7 @@ pub mod sigsafe { pub fn write_str / write_dec_u32 / write_hex_u64 }
 
 `register_fatal_handlers` 注册后给每个信号补上 `SA_ONSTACK`：`signal-hook-registry` 注册时不带它，
 原生代码撞上栈的 guard page 时 SIGSEGV handler 就跑在已经耗尽的栈上，进程无声死亡。带上后 handler
-跑在线程的备用信号栈上（Rust 运行时为主线程和每个 `std::thread` 都建了一个）。
+跑在线程的备用信号栈上（Rust 运行时为主线程和每个 ``std::thread`` 都建了一个）。
 
 `pal/thread.rs` 的 `current_thread_stack() -> Option<(low, high)>`：macOS / iOS 用
 `pthread_get_stackaddr_np` + `pthread_get_stacksize_np`，Linux / Android 用 `pthread_getattr_np`，

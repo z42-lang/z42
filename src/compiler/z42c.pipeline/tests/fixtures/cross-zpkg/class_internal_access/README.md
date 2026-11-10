@@ -8,9 +8,9 @@ cross-zpkg runner 的 `expected_build_error.txt` 约定：`main` 必须**编译�
 
 ## 期望行为
 
-- `target/`（`demo.aclinttarget`）：`Secret`（无修饰符 → 默认 internal）、`SecretExplicit`（显式 internal）、
+- `target/`（``demo.aclinttarget``）：`Secret`（无修饰符 → 默认 internal）、`SecretExplicit`（显式 internal）、
   `Api`（public）。
-- `main/`（`demo.aclintapp`，依赖 target）：
+- `main/`（``demo.aclintapp``，依赖 target）：
   - `new Api()` → 放行（跨包 public 类）。
   - `new Secret()` / `new SecretExplicit()` → `E0404 AccessViolation`
     `cannot access internal class \`Secret\` from another package`。

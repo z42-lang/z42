@@ -4,8 +4,8 @@
 
 ## 为什么单独立一道门（类那道盖不住）
 
-- **自由函数比类更糊**：`ImportedSymbols.Functions` 的键是**裸名**（`ExportedFuncZ.Name` 就是
-  `md.Name`，没有 ns 前缀）⇒ 没有 FQN 视图，同名者无论同不同 ns 都撞一个键、first-wins；
+- **自由函数比类更糊**：``ImportedSymbols.Functions`` 的键是**裸名**（`ExportedFuncZ.Name` 就是
+  ``md.Name``，没有 ns 前缀）⇒ 没有 FQN 视图，同名者无论同不同 ns 都撞一个键、first-wins；
   而 z42 的自由函数只有裸名一种调用形态，**输的那份没有任何写法能指到**。
 - **静态调用不走 `_chkTypeRef`**：`Util.go()` 里的 `Util` 只经 `GetClass` 取类，挂在 `_chkTypeRef` 上的
   E0601 覆盖不到这条路径，需单独检查。

@@ -256,7 +256,7 @@ var copy = c.Copy();               // 经接口静态类型调用 ⇒ 结果类�
 
 - `Self` **只能写在接口里**。类里写 `Self` 报 `E0443: undefined type: Self`。
 - 经**接口静态类型**调用返回 `Self` 的方法，结果类型就是**该接口本身**（可靠的上界，但不是具体类型）。
-  上例的 `copy.ToString()` 会因 `ICloneable` 上没有这个成员而报 `E0401`。
+  上例的 ``copy.ToString()`` 会因 `ICloneable` 上没有这个成员而报 `E0401`。
 
 标准库的 `IEquatable` / `IComparable` / `INumber` 都是**非泛型 + `Self`** 的形态。
 完整规则、实现模型与 `E0463` 见[泛型约束的 `Self` 类型](generic-constraints.md)。
@@ -292,7 +292,7 @@ Sum3(1, 2, 3);                                          // 6 —— 基元类型
 >
 > 派发是**由接收者的值驱动**的——运行期看实参的具体类型选实现。因此：
 >
-> - **没有值可派发的形态用不了**：`where T : IZero` 下写 `T.Zero()` 报
+> - **没有值可派发的形态用不了**：`where T : IZero` 下写 ``T.Zero()`` 报
 >   `E0401: undefined: T`。
 > - **自定义的 `static abstract` 接口目前不可靠**：同样形状的用户接口
 >   （`interface ICombine { static abstract Self op_Add(Self a, Self b); }`）
@@ -320,7 +320,7 @@ d.Base();         // ✓ 继承自 IBase
 
 **跨包同样成立**：从别的包 `using` 进来的接口，其父接口链随 TSIG 过 wire，继承来的成员在
 导入侧一样可调 —— 实现 `Std.IEnumerable<T>` 的类型能 `foreach`，靠的正是这条（`foreach`
-脱糖出的 `__e.Dispose()` 走 `IEnumerator<T> : IDisposable` 继承来的成员）。
+脱糖出的 ``__e.Dispose()`` 走 `IEnumerator<T> : IDisposable` 继承来的成员）。
 
 ### 接口之间的赋值关系
 

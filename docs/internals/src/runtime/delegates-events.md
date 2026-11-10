@@ -80,7 +80,7 @@ delegate 类型自身在 IR 里由 `StubEmitter._emitDelegateInvoke`
 
 ### 2.1a `.Invoke(args)` 为什么不派发到那个桩
 
-`d.Invoke(args)` 在**绑定期**就被脱糖成与括号调用 `d(args)` **同一个** `BoundIndirectCall`
+``d.Invoke(args)`` 在**绑定期**就被脱糖成与括号调用 `d(args)` **同一个** `BoundIndirectCall`
 节点（`MemberResolver.Func.z42`），发的还是 `CallIndirect` ⇒ **零 VM 改动、零新指令、
 零格式 bump**。
 
@@ -92,7 +92,7 @@ TypeDesc**（`exec/ops/vcall.rs` 直接 bail）。所以桩永远派发不到，
 
 ⚠️ 若不在绑定期脱糖，`.Invoke` 会走到 VCall 那条死路上：`_bindInstanceMemberCall` 没有
 `Z42FuncType` 分支 ⇒ fallthrough 到 prim 收者路径 ⇒ `HasClass("Action<string>")` 恒假
-（delegate 不进 `SymbolTable.Classes`，它在 `SymbolTable.Delegates`）⇒ 跳过诊断闸门 ⇒
+（delegate 不进 ``SymbolTable.Classes``，它在 `SymbolTable.Delegates`）⇒ 跳过诊断闸门 ⇒
 撞上「查无则松绑 Unknown」兜底 ⇒ 发 VCall ⇒ 运行期 `VCall: expected object, got FuncRef(...)`，
 **编译期零诊断且不可 catch**。
 
@@ -110,14 +110,14 @@ TypeDesc**（`exec/ops/vcall.rs` 直接 bail）。所以桩永远派发不到，
 > `Func<int,int> f = C.F;` 报 `E0401: undefined: C`，类内不限定写 `F` 报 `undefined: F`
 > —— 静态方法组转换**整条没接**，两种拼写都不行。既存缺口，候选后续 `support-static-method-group-conversion`。
 
-**实例方法组** `obj.Method`（D-1b）→ 编译期合成一个 static thunk：
+**实例方法组** ``obj.Method``（D-1b）→ 编译期合成一个 static thunk：
 
 ```
 __mg_thunk_<safeClass>_<Method>$<arity>__
 ```
 
 emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
-`CallEmitter.z42`（`_ctx.Qualify("__mg_thunk_" + ...)`）。
+`CallEmitter.z42`（``_ctx.Qualify("__mg_thunk_" + ...)``）。
 **这条路径没有 static slot 缓存**——每次求值分配一个 Closure。§2.3 的弱引用协议依赖
 "receiver 一定落在 `env[0]`" 这个约定。
 
@@ -125,7 +125,7 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 
 自由函数支持按参数类型重载，把一个**重载**自由函数当值
 取引用需要在候选间**定向**。关键在**发射键**：`LoadFn @<name>` 存的是函数名字符串，运行期
-`LoadFn`（`exec_call::bind_fn_ref`）用它查 `module.func_index`（再到惰性加载器）——与一次普通自由函数
+`LoadFn`（``exec_call::bind_fn_ref``）用它查 `module.func_index`（再到惰性加载器）——与一次普通自由函数
 `Call` **同一张表**、同一 key（`QualOf(ns, RegKey)`）。所以选中哪个重载，就发它的 **RegKey**：
 
 - **primary**（声明序首个同名）= 裸键（`Kind`）；**非-primary** = mangle 键（`Kind$1$long`）。
@@ -180,15 +180,15 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 声明了"event 字段外部直接读 / 直接 `Invoke` / 直接赋值"的诊断，`EventFields` 也确实在
 `MemberCollector` 里被收集了——**但 TypeChecker 从不查询这张表，E0414 全仓零发射点。**
 
-后果：外部代码今天可以 `button.Clicked.Invoke(...)`、`button.OnKeyDown = h`，编译通过。
+后果：外部代码今天可以 ``button.Clicked.Invoke(...)``、`button.OnKeyDown = h`，编译通过。
 参考手册已按"未实现"叙述。要补的话，挂载点是 `BindMemberExpr`（`+=`/`-=` 已在
 `AssignTyper` 阶段被吃掉，不会误伤）。
 
 ### 2.6 嵌套 delegate
 
 `MemberParser._parseMemberBody` 有 `delegate` 分支解析嵌套 `delegate` 声明
-（golden：`src/tests/delegates/nested_delegate_dotted.z42`）；实现走 `NestedFlatten` 的 `Outer+Inner` 展平（与嵌套 class/enum 同机制），引用侧写
-`Outer.Inner`（`SymbolTable.ResolveTypeP` 的 dots→`+` 兜底）。
+（golden：`src/tests/delegates/nested_delegate_dotted.z42`）；实现走 `NestedFlatten` 的 ``Outer+Inner`` 展平（与嵌套 class/enum 同机制），引用侧写
+``Outer.Inner``（`SymbolTable.ResolveTypeP` 的 dots→`+` 兜底）。
 **代价：类内部裸名 `OnClick handler;` 不解析**，类内外一律得写限定名。
 展平与"拿名字当键"的纪律见
 [源代码编译流程](../compiler/source-compile.md)的「名字与『拿名字当键』的三条纪律」一节。

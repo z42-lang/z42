@@ -79,8 +79,8 @@ version = "0.1.0"
 "my-utils"  = "*"                # ✓ 单段名里的 `-` 也常见
 ```
 
-- **全小写**。`z42.IO` 与 `z42.io` 不是同一个包名，别指望编译器帮你对齐大小写。
-- **`.` 表示层级**，通常是"组织.功能"（`z42.io` / `acme.payments` / `unity.physics`）。
+- **全小写**。``z42.IO`` 与 `z42.io` 不是同一个包名，别指望编译器帮你对齐大小写。
+- **`.` 表示层级**，通常是"组织.功能"（`z42.io` / ``acme.payments`` / ``unity.physics``）。
 - **`-` 只在单段名内部用**（`my-utils` / `hello-world`），不要拿它当层级分隔符。
 - **不用 `_`**，不用大写字母。
 - **stdlib 命名族**是 `z42.<topic>`（`z42.core` / `z42.io` / `z42.numerics` / `z42.harness` …）。
@@ -100,7 +100,7 @@ version = "0.1.0"
 |------|------|---------|
 | 出现位置 | manifest、CLI、文件系统目录 | 源码 `namespace` / `using` |
 | 作用 | 分发 / 依赖管理（构建系统的"地址"）| 类型查找 / 符号路径（编译期的"路径"）|
-| 形态 | `z42.collections`、`my-utils` | `Std.Collections`、`Demo.Web.Api` |
+| 形态 | `z42.collections`、`my-utils` | `Std.Collections`、``Demo.Web.Api`` |
 | 对照 | npm `@org/lib`、Cargo `tokio`、Maven `com.acme:lib` | C# / Java namespace |
 
 **`name` 与命名空间的关系：**
@@ -125,7 +125,7 @@ dist/my-sdk.zpkg  namespaces = ["Company.Sdk", "Company.Sdk.Internal", "Company.
 
 命名空间解析规则：
 - 编译器的依赖加载：读 zpkg 的 `namespaces` 列表，所有列出的命名空间均可见（无需在 `[dependencies]` 中逐一声明）
-- VM 的 lazy loader：通过 `namespaces.iter().any(|n| n == requested_ns)` 判断 zpkg 是否提供某命名空间
+- VM 的 lazy loader：通过 ``namespaces.iter().any(|n| n == requested_ns)`` 判断 zpkg 是否提供某命名空间
 - 同一命名空间不允许被两个不同 zpkg 同时提供（`AmbiguousNamespaceError`）
 
 **各 `kind` 的产物：**
@@ -211,7 +211,7 @@ exclude = ["src/**/*_test.z42"]      # 排除测试文件
 | `include` | string[] | `["src/**/*.z42"]` | glob 模式列表 |
 | `exclude` | string[] | `[]` | 排除模式；优先于 include |
 
-**Glob 语法（基于 `Microsoft.Extensions.FileSystemGlobbing.Matcher`）：**
+**Glob 语法（基于 ``Microsoft.Extensions.FileSystemGlobbing.Matcher``）：**
 
 | 模式 | 含义 |
 |------|------|
@@ -402,9 +402,9 @@ touch，断言增量产物与全量产物**逐字节相等** + D8 计时（增�
 **cache 条目格式**：`<rel>.zbc`（fullMode，与 `--emit-zbc` 同一 `ZbcWriter.Write` 产出）+
 `<rel>.meta`（z42c 内部行式文本，带 metaVersion/**z42c-fp 编译器语义指纹**/zbc/zpkg 四重版本
 pin：源 hash、ns、usedDepNs、模块池原序（hex）、每函数块 label 表（hex）——后两者是 zbc wire
-不携带、但参与 STRS 字节的 writer 残留）+ 包级 `package.meta`（上次源清单 + **`deps` 依赖身份**：编译扫描到的
+不携带、但参与 STRS 字节的 writer 残留）+ 包级 ``package.meta``（上次源清单 + **`deps` 依赖身份**：编译扫描到的
 全部依赖 zpkg 的 BLID/内容哈希，任一变化 ⇒ 整包全量；依赖重编但输出不变时 BLID 不变 ⇒ 下游照常命中）。任何 pin 不符/损坏
-→ 条目作废按 fresh 处理（宁 fresh 不误命中）。`z42c-fp`（`CacheStore.CompilerFingerprint`）堵住
+→ 条目作废按 fresh 处理（宁 fresh 不误命中）。`z42c-fp`（``CacheStore.CompilerFingerprint``）堵住
 「源没变 + 格式没 bump 但编译器 codegen/优化/typecheck 变了」的误命中漏洞（bump 纪律见格式 bump 清单）。cache 可整目录删除。
 indexed 模式（stripped zbc = `<dist>/<rel>.zbc`）自举重写未实现，见
 self-hosting.md Deferred。
@@ -424,7 +424,7 @@ self-hosting.md Deferred。
 
 workspace 成员（`--workspace`，per-member 与 flat 两种布局）与单工程一样 probe cache；`--no-incremental` 透传到每个成员。
 正确性由三道键保证：编译器身份（`CompilerFingerprint` + 格式 Minor，CI `test compiler fingerprint` 守门）、依赖身份
-（`package.meta` 的 `deps` 行）、源哈希。自举不动点 gen2 与 CI 两代自举显式 `--no-incremental`。
+（``package.meta`` 的 `deps` 行）、源哈希。自举不动点 gen2 与 CI 两代自举显式 `--no-incremental`。
 
 **成员可见性是封闭的**：编译第 i 个成员时，拓扑序排在它之后的成员（它们的 dist 与 `Z42_LIBS` 里的同名副本）一律不可见，
 依赖身份口径相同。否则后序成员上一轮的旧产物会参与编译（依赖索引会因同名方法出现歧义键），构建结果随可见性漂移，
@@ -635,7 +635,7 @@ kind    = "exe"
 
 **stdlib 自动可用，永不声明（Rust-std 模型）：**
 
-标准库（`Std.*` 命名空间 / `z42.*` 包）跟工具链一起分发，**始终可用，无需在任何 manifest section 声明**——就像 Rust 从不在 `Cargo.toml` 写 `std`，`use std::...` 直接可用。机制：编译器对 `meta.Name` 以 `z42.` 开头的包**无条件可见**（`ScanLibsForNamespaces` / `BuildDepIndex` 的 isStdlib 旁路），与是否声明无关；版本跟工具链走。
+标准库（`Std.*` 命名空间 / `z42.*` 包）跟工具链一起分发，**始终可用，无需在任何 manifest section 声明**——就像 Rust 从不在 `Cargo.toml` 写 `std`，`use std::...` 直接可用。机制：编译器对 ``meta.Name`` 以 `z42.` 开头的包**无条件可见**（`ScanLibsForNamespaces` / `BuildDepIndex` 的 isStdlib 旁路），与是否声明无关；版本跟工具链走。
 
 由此确立的约定：
 
@@ -1555,7 +1555,7 @@ myapp/
   - 缺则用默认（空 Hooks / 标准 workload）。
 - **编译前 / 编译后**自定义 = `ProjectHooks` override `BeforeCompile` / `AfterCompile`
   （及 `Before/After` × `Trim` / `Assets`，共 6 个 hook）；平台专属定制走 `<Family>Build`
-  override + `base.X(ctx)`。
+  override + ``base.X(ctx)``。
 - **`build/` 不存在或为空** → 标准路径（z42b 进程内组合，无 driver 生成）。
 - **相位封闭**（八个，线性，不可增删改序）：所有自定义只落在 Hooks / Workload override 上，
   不开放注册新相位（保证构建确定性与缓存模型）。

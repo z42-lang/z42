@@ -63,7 +63,7 @@ public static class Console {
 |---|---|---|
 | `[Native("__name")]` / `[Native(entry="__name")]` | VM 内置函数表，未命中再查 native 扩展表 | — |
 | `[Native(lib="L", entry="__name")]` | 同上（**按 `entry` 名解析，`lib` 不参与**） | 不参与解析；但 `z42.core` 以外的包**必须写**（落点规则，缺了报 `E0919`） |
-| `[Native(lib="L", type="T", entry="E")]` | Tier 1：`L::T::E`，经 `z42_register_type` 注册的方法表 | 参与解析，必须与注册时的 `module_name` 一致 |
+| `[Native(lib="L", type="T", entry="E")]` | Tier 1：``L::T::E``，经 `z42_register_type` 注册的方法表 | 参与解析，必须与注册时的 `module_name` 一致 |
 
 第三种形态是扩展作者真正会用的：`lib` 对应描述符的 `module_name`，`type` 对应 `type_name`，`entry`
 对应 `Z42MethodDesc.name`。三者任一对不上，调用在运行时报 `CallNative: unknown native type ...` /

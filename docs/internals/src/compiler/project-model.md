@@ -40,7 +40,7 @@ graph LR
 
 **加一个新键**同理跨两阶段：阶段 1 只给 loader 加解析 + 进 `ManifestKeys` 键表，**仓内清单不写**它；nightly
 发布后（阶段 2）才在仓内清单里用它。只由刚建出的编译器构建的测试夹具不受此限，但拿不准就按种子算。
-`xtask` 直接按原始 TOML 读的键（如 `_stdlibList` 读 `workspace.default_members`）与仓内清单**同一个提交**一起切。
+`xtask` 直接按原始 TOML 读的键（如 `_stdlibList` 读 ``workspace.default_members``）与仓内清单**同一个提交**一起切。
 
 `SourceDiscovery` 按 `[sources]` 的 include/exclude 规则展开出参与编译的源文件清单，交给源代码编译流程。
 `DiscoverWithExclude(projectDir, includes, excludes)` 是纯 glob 原语：先按 include 展开（`**/*.z42` 递归 /
@@ -58,10 +58,10 @@ vtable fixup 触发假警报）。这条策略经 workspace 两条构建路径�
 **两条编译入口都排除 hooks（fix-hooks-source-scan 阶段4.2）**：上述有效 exclude 的组装在两处对称存在，
 使无论走哪条路径 hooks 源都不进 app zpkg：
 
-- **z42c.driver `Main._build`**（`z42c build <toml>` 直编，阶段2）：直接从 `pm.Sources` / `pm.Build` 组装。
+- **z42c.driver ``Main._build``**（`z42c build <toml>` 直编，阶段2）：直接从 ``pm.Sources`` / ``pm.Build`` 组装。
 - **z42b in-process `Pipeline.Compile`**（`z42b build`/`run`/`export`，头相位经 `ICompiler` 在进程内调编译器库）：
-  从 `ctx.Manifest` 组装同样的有效 exclude，填入 `CompileRequest.Excludes`；`Z42cCompiler.Compile` 读
-  `req.Excludes` 传给 `DiscoverWithExclude`。字段先行 / 读取晚一 nightly（bootstrap-seed 轴②：z42c 源引用
+  从 ``ctx.Manifest`` 组装同样的有效 exclude，填入 `CompileRequest.Excludes`；`Z42cCompiler.Compile` 读
+  ``req.Excludes`` 传给 `DiscoverWithExclude`。字段先行 / 读取晚一 nightly（bootstrap-seed 轴②：z42c 源引用
   stdlib 新字段须待其随 nightly 发布），故拆 4.1（`CompileRequest` 加 `Excludes` 字段）+ 4.2（组装并读取）两步。
 
 > ⚠️ **边界**：`Z42cCompiler` 对 app 源恒用 `**/*.z42` 从工程根递归发现，且 `_excluded` 只跳 `dist/`·`.cache/`
@@ -234,7 +234,7 @@ pipeline 组件时，追加 `ModuleSearch.Dirs()` 中实际包含 `z42c.pipeline
 
 **候选包全体**进符号表：prelude ∪ stdlib（`z42.` 前缀）∪ 本包声明的依赖 ∪ 提供本包某个 `using` / 外围命名空间的包（未声明依赖时仍要它，好报 `E0497` 指路）。名字查找落到哪个包就用哪个包；**能不能用短名**另由命名空间规则判（`SymbolTable._resolveClass` 的外围链 → 全限定 → using → prelude，未命中即不可见），与包是否「激活」无关。于是：
 
-- 全限定名不需要 `using`：`Std.Toml.TomlDocument` 在 FQN 视图里直接命中。
+- 全限定名不需要 `using`：``Std.Toml.TomlDocument`` 在 FQN 视图里直接命中。
 - `using` 只决定短名可见性，`W0607` 只按「本文件写出来的短名用到了它没有」判（`UsedNs`），不会再把「激活这个包的那条 using」误报成多余。
 
 建表分两档，保证既有产物逐字节不变：**第 0 档** = prelude ∪ 提供 using / 外围 ns 的包（旧口径），**第 1 档** = 其余候选。Phase 1/2 先走第 0 档再走第 1 档，短名表的 first-wins 赢家与 arity-mangle 判定对第 0 档不受新增包影响；第 1 档的类只按全体候选判 arity-mangle。impl 合并（Phase 3）只认第 0 档——它改写被合并的导入类，等同 C# 扩展方法，必须 `using` 才生效。
@@ -330,7 +330,7 @@ UsedNs 和 per-CU 警告。损坏 IR/meta 退回 fresh；全局 using 影响整�
 
 增量探测有两级：**文件级**（每个源文件的哈希 + 名字级 surface）与**包级**。包级那一级就是
 `depsId` —— 一个字符串，不符即整包当全量。它由 pipeline 的 `BuildCacheIdentity.Of` 拼出，随后交给
-`IncrementalCompilation.Prepare`，并写进 `package.meta`。CLI 与 HostTarget 共享组成规则。
+`IncrementalCompilation.Prepare`，并写进 ``package.meta``。CLI 与 HostTarget 共享组成规则。
 
 **它必须涵盖「一切影响产物的输入」**。CLI 仅在产物布局、插件和 lint 等守卫允许时，
 才可在 `depsId` 相符且全部文件命中后沿用产物并早退；HostTarget 不走这条捷径，
@@ -432,7 +432,7 @@ preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回�
   「全部 zbc → 全部 meta」，崩在中间只可能留下「新 zbc + 旧 meta」；若源码随后又改回旧内容，旧 meta 的
   SourceHash 会重新对上——没有这道配对就会命中一份由另一版源码编出来的 zbc。
 
-zbc、meta、`package.meta` 的**写盘是普通写**（`File.Write*`）：缓存文件的崩溃一致性由上面两层校验兜底
+zbc、meta、``package.meta`` 的**写盘是普通写**（`File.Write*`）：缓存文件的崩溃一致性由上面两层校验兜底
 （最坏 = 一次 fresh 重建，与 meta 被外部改坏同一处理路径），不值得为它付每文件一次的落盘屏障（tmp +
 `F_BARRIERFSYNC` + rename 的原子写在逐文件缓存写出里是显著的 wall 开销）。这**不**适用于读端校验较弱的
 缓存：`NsIndexCache`（条目数 + 指纹）与 doc `IndexCache`（仅 mtime/size，半截断行边界会漏条目）仍走

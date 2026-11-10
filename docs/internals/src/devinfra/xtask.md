@@ -32,7 +32,7 @@
 
 | 决策 | 选择 | 理由 |
 |---|---|---|
-| 实现语言 | z42（不是 bash / cargo-xtask） | dogfooding：工具链本身是语言与 stdlib 最大的真实用例（`Std.Cli`/`Std.IO`/`Std.Toml`/`Std.Process` 都被它压出来的）；跨平台无 shell 方言差 |
+| 实现语言 | z42（不是 bash / cargo-xtask） | dogfooding：工具链本身是语言与 stdlib 最大的真实用例（`Std.Cli`/`Std.IO`/`Std.Toml`/`Std.IO.Process` 都被它压出来的）；跨平台无 shell 方言差 |
 | 命令路由 | `Std.Cli` 的 `SubcommandRouter` 树 | 每层的 `-h` 由树自动渲染；命令面是数据结构，可静态审阅 |
 | 工具链选择 | 全局 `--toolchain <dir>` → 环境变量 `Z42_HOME` | 一处声明、处处生效，命令实现不必逐个透传参数（见 §4）|
 | 运行形态 | 原生 apphost 可执行（仓库根 `./xtask`，内嵌 launcher + `xtask.zpkg`）| 单文件、不依赖 PATH 上的 launcher；与用户发布自己的 app 走同一套 apphost 机制 |
@@ -160,7 +160,7 @@ graph TD
 | `setup vscode` | 重新生成语法 + 把扩展链进工作区（主机集成，用户显式触发，见[编辑器集成](../toolchain/editor-integration.md)）| 失败即失败 |
 | `setup check [--os]` | 只读：本机依赖在不在、版本够不够 | **仅在显式 `--os <p>` 时致败**；裸跑只报告（没有平台 SDK 的机器缺这些是预期的） |
 
-`versions.toml` ↔ 投影文件（`Cargo.toml` / `build.gradle.kts` / `Package.swift`）的漂移**与机器无关**，
+`versions.toml` ↔ 投影文件（`Cargo.toml` / ``build.gradle.kts`` / `Package.swift`）的漂移**与机器无关**，
 不归 setup，是静态检查 `xtask check versions`（也是 GREEN gate 的 `versions` stage）。
 
 没有「导出环境变量」的命令：xtask 自己解析 NDK / SDK 位置（`versions.toml` 的 `install_root`，

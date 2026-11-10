@@ -17,7 +17,7 @@
 |---|---|---|
 | **RuntimeObserver** 事件流 | 事件：`ModuleLoaded`/`JitModuleCompiled`/`ExceptionThrown`/`ExceptionCaught`/`NativeCallEntered` + `Custom{source,payload}` 逃逸口；`Mutex<Vec<Arc<dyn RuntimeObserver>>>` on VmCore；对标 CoreCLR EventPipe | [diagnostics/observer.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/diagnostics/observer.rs) |
 | **GcObserver** | 独立 `GcEvent` 流（与 Runtime 那套**分离**，两套 trait） | [gc/types.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/types.rs) |
-| **RuntimeCounters** | `AtomicU64`：`builtin_calls`/`native_calls`/`jit_methods_compiled`/**`jit_compile_us_total`**/`exceptions_thrown`/`exceptions_caught`；**每个 `VmContext`（线程）一份**，各写各的 cache line，`VmContext::counters_snapshot()` 汇总全部存活线程 + 已退出线程（退出时并入 `VmCore.diagnostics.counters`）；`--print-counters`；对标 dotnet EventCounters | [diagnostics/counters.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/diagnostics/counters.rs) |
+| **RuntimeCounters** | `AtomicU64`：`builtin_calls`/`native_calls`/`jit_methods_compiled`/**`jit_compile_us_total`**/`exceptions_thrown`/`exceptions_caught`；**每个 `VmContext`（线程）一份**，各写各的 cache line，`VmContext::counters_snapshot()` 汇总全部存活线程 + 已退出线程（退出时并入 ``VmCore.diagnostics.counters``）；`--print-counters`；对标 dotnet EventCounters | [diagnostics/counters.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/diagnostics/counters.rs) |
 | **tracing** crate | 日志（`tracing::warn!` 等） | Cargo.toml |
 
 **三方面真实状态**：事件=有但薄；计数=已有且有快照（**有必要、且已在**）；时间=仅 `jit_compile_us_total` 一个粗聚合，**per-函数/分位/span 缺失**。
@@ -89,7 +89,7 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
 
 ### 4.2 span 语义（编译耗时一等公民）
 现事件全是瞬时/完成；加 `span_begin(id, cat, fields) -> SpanGuard` / `span_end(guard)`：
-- `JitCompile` 改成 span：begin 记 `Instant::now()`，end 算 `duration_us` → **per-函数编译耗时**(你要的)。
+- `JitCompile` 改成 span：begin 记 ``Instant::now()``，end 算 `duration_us` → **per-函数编译耗时**(你要的)。
 - 双路输出：详细 span 事件（L2，opt-in）+ 喂 `jit_compile_us` histogram（L1，廉）。
 
 ### 4.3 统一 Gc + Runtime 事件流
@@ -110,11 +110,11 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
     （`allocations` + 分代）成**一行** JSON（`z42vm_counters` sentinel 超集，仅加键→scraper 后向兼容），
     `xtask profile` 展示。
   - **并发探针**：ProfileSnapshot 再加两组并发字段。
-    ① **park 直方图（常开）**：mutator 在 GC safepoint STW park 的时长，记进 `VmCore.diagnostics.park_histogram`
+    ① **park 直方图（常开）**：mutator 在 GC safepoint STW park 的时长，记进 ``VmCore.diagnostics.park_histogram``
     （复用 `gc::types::PauseHistogram`），埋点在 `threads::safepoint::park_until_idle`——只在真实 GC 暂停的
     slow path 跑，`check_safepoint` 热路径零成本，故常开无 feature。surface `park_count`/`park_us_total`/
     `park_max_us`。② **用户锁争用（编译期 feature `profile-contention`，默认关）**：`Std.Threading.Mutex`/
-    `RwLock` 的阻塞 acquire（`corelib::sync`）在 feature 下先 `try_lock`，miss=争用 → `lock_contentions`++
+    `RwLock` 的阻塞 acquire（``corelib::sync``）在 feature 下先 `try_lock`，miss=争用 → `lock_contentions`++
     + 计时 `lock_wait_us`；默认构建 `#[cfg]`-编译掉探针 → acquire 路径零成本（见 §6 feature-gate）。
     `xtask profile --threads` 展示 park（默认 VM）+ contention（现建 `profile-contention` throwaway VM，
     复用 `--heap` 的隔离 target-dir 手法）。仅进 profile 快照；暴露到 z42 API 延后。
@@ -134,7 +134,7 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
 2. **高频事件**（`NativeCallEntered`、每分配、每调用）→ **不逐个 emit**：聚合成 counter 或采样（每 N 次 / 时间窗）；只低频高价值全量。
 3. **per-thread 缓冲 + 后台 flush**（JFR 模型）：emit 只写线程本地 ring buffer，后台线程消费/写文件；**热路径不做 IO/格式化**。
 4. **feature-gate**：`diagnostics` feature 可完全编译掉 emit 点（极低开销构建，对齐 mobile/wasm interp-only）。
-5. **时钟**：disabled 不读时钟；Rust 侧 `std::time::Instant`（无 sandbox `Date` 限制）；极热点可选 coarse/rdtsc。
+5. **时钟**：disabled 不读时钟；Rust 侧 ``std::time::Instant``（无 sandbox `Date` 限制）；极热点可选 coarse/rdtsc。
 
 ---
 
@@ -157,7 +157,7 @@ pub fn fire(&self, event: &RuntimeEvent) -> usize {
 ## 8. 分阶段
 1. **地基修缺陷**：`fire()` 近零成本门控（§4.1）+ span 语义（§4.2）+ 统一 Gc/Runtime sink（§4.3）。
 2. **埋点**：`JitCompile` begin/end + `TypeLoad` + GC 入统一流 + `Deopt`/`Osr`/`InterpTierUp` + load-context 生命周期。
-3. **计数扩**：gauge/histogram kind + 覆盖（§5）+ `Std.Diagnostics.counters()`。
+3. **计数扩**：gauge/histogram kind + 覆盖（§5）+ ``Std.Diagnostics.counters()``。
 4. **时间**：histogram（p50/p99）+ per-函数编译耗时面板。
 5. **trace 输出**：perfetto/chrome JSON + CLI `--trace`。〔采样型 perfetto trace 已实现（见 §7）；
    埋点型 span trace 待 §4.2〕

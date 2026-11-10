@@ -13,11 +13,11 @@ z42 的 proc macro，两组互不相干的用户：
 
 | Macro | 形式 | 作用 |
 |-------|------|------|
-| `z42::methods` | `#[methods(module = "...", name = "...")]` 作用于 `impl T { ... }` | **主入口**：一次性 emit descriptor + 方法表 + 所有 `extern "C"` shim + `Z42Type` impl |
-| `z42::module` | `module! { name: "...", types: [T1, T2, ...] }` | 生成 `#[no_mangle] pub extern "C" fn <name>_register()` 把每个类型推入 VM |
-| `z42::Z42Type` | `#[derive(Z42Type)]` | 未实现：报清晰 `compile_error!` 指向 spec C5 |
+| ``z42::methods`` | `#[methods(module = "...", name = "...")]` 作用于 `impl T { ... }` | **主入口**：一次性 emit descriptor + 方法表 + 所有 `extern "C"` shim + `Z42Type` impl |
+| ``z42::module`` | `module! { name: "...", types: [T1, T2, ...] }` | 生成 `#[no_mangle] pub extern "C" fn <name>_register()` 把每个类型推入 VM |
+| ``z42::Z42Type`` | `#[derive(Z42Type)]` | 未实现：报清晰 `compile_error!` 指向 spec C5 |
 | `z42_macros::builtins` | `#[builtins]` 作用于内联 `mod { ... }`，模块内函数标 `#[builtin(name = "__x", pure?, blocking?, reenters?, this = "M"?)]` | VM builtin ABI v2：每函数一个读参包装器（寄存器 / 切片两份实例）+ `BuiltinDesc`；模块尾部 `DESCS` |
-| `z42::trait_impl` | `#[trait_impl("trait_name")]` | 未实现：报清晰 `compile_error!` 指向 spec C5 |
+| ``z42::trait_impl`` | `#[trait_impl("trait_name")]` | 未实现：报清晰 `compile_error!` 指向 spec C5 |
 
 ## 用法示例
 

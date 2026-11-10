@@ -207,7 +207,7 @@ SymbolTable.ClassConstraints（导入侧 seed，local-wins）→ 与本包**同�
 - **bit0–bit6 的 wire 布局早已规约**，reader（Rust `type_reader.rs`，以及 z42 侧 `.zbc` / `.zpkg` /
   `.zsym` 三个读者共用的 `ConstraintCodec.Read`）一直按完整布局消费。所以接通跨包**没有格式 bump**——
   只是写端从「仅置 bit3」改成置全位。
-- **键是类的 FQN**：`ns.Name`，同短名多 arity 时带 `$N`（与 `Z42ClassType.Fqn()` 同形）。写入 / 查询 /
+- **键是类的 FQN**：``ns.Name``，同短名多 arity 时带 `$N`（与 `Z42ClassType.Fqn()` 同形）。写入 / 查询 /
   导入三处都按它取，否则 `Foo<T>` 与 `Foo<T,U>`、`A.Box<T>` 与 `B.Box<T>` 的约束会互相覆盖。
 - **local-wins 有守卫**：导入约束只在该 FQN 上登记的确实是导入类时才 seed，避免本地同 FQN 的类
   （可能压根没有 `where`）被别的包的约束污染。
@@ -276,7 +276,7 @@ public class Dictionary<TKey, TValue> where TKey : IEquatable { … }   // 不�
   > 等于类型信息整个丢失。Rust 的对应做法是干脆禁止（`-> Self` 非 object-safe）；z42 选上界替换，
   > 因为 z42 接口没有 object-safety 概念，禁止会平白砍掉一类安全可用的写法。
   >
-  > **`Self` 藏在 `Func<…>` 里也会被替换**：`interface IMk { Func<Self,int> Make(); }` 经接口静态类型调用 `m.Make()` →
+  > **`Self` 藏在 `Func<…>` 里也会被替换**：`interface IMk { Func<Self,int> Make(); }` 经接口静态类型调用 ``m.Make()`` →
   > 结果 `Func<IMk,int>`（不会漏出裸 `Self`）。`MemberResolver._substSelf` 与满足性校验侧的 `_substForIface`
   > 都会下钻 `Z42FuncType`（否则 `Apply(Func<Self,int>)` 会被判成与 `Apply(Func<C,int>)` 不匹配，假红 E0412）。
   > **接口索引器**（`Self this[int]`）的返回位走同一条替换（见
@@ -295,7 +295,7 @@ public class Dictionary<TKey, TValue> where TKey : IEquatable { … }   // 不�
   ```
 
   > 这里**没有**可用的上界：把 `Self` 换成 `IEq` 一个字也拦不住上例 —— `P` 和 `Q` 都是 `IEq`。
-  > 放行的后果是实测过的：派发到 `P.Same(P)`、`other.V` 从一个 `Q` 上读出 **null**，静默返回
+  > 放行的后果是实测过的：派发到 ``P.Same(P)``、``other.V`` 从一个 `Q` 上读出 **null**，静默返回
   > `false`，全程无报错。故这里与 Rust 的 object-safety 同一选择：**禁止**，而不是假装收紧。
 
   **替代写法（推荐，也正是诊断消息给出的那条）**——把接口静态类型换成型参：
@@ -380,8 +380,8 @@ bool ok<T>(T a, T b)  where T : IEq { return a.Same(b); }        // ✅ 实参�
 
 `Self` 经 `_substSelfSig` 精确替换成型参 `T` 后，形参类型是**裸型参**。隐式转换判定里有一条
 「恰一侧含泛型形参 → 擦除放行」的通用规则（服务 `T → object` / `T → 接口` 这类合法上转），
-对「具体类型实参 → 裸型参 `T` 形参」这个方向**也会擦除**——`a.Same("nope")` 若照此放行，
-运行期派发到 `T.Same` 后从 `string` 上读出不存在的字段（静默错值 / 崩）。
+对「具体类型实参 → 裸型参 `T` 形参」这个方向**也会擦除**——``a.Same("nope")`` 若照此放行，
+运行期派发到 ``T.Same`` 后从 `string` 上读出不存在的字段（静默错值 / 崩）。
 
 **为此有一道方向敏感的严格检查**：型参收者上
 调约束接口方法时，`Self` 形参位（含藏在 `Func<Self,…>` 里的）若传入**具体类型**实参（完全不含型参、
@@ -403,7 +403,7 @@ error/unknown（吸收、不级联）→ 不受影响。**只收「目标裸型�
 
 ## 运算符如何在型参上派发
 
-`where T : INumber` 让泛型代码直接写 `a + b`，而不必写 `a.op_Add(b)`：
+`where T : INumber` 让泛型代码直接写 `a + b`，而不必写 ``a.op_Add(b)``：
 
 ```z42
 T Sum<T>(T a, T b) where T : INumber { return a + b; }
@@ -411,7 +411,7 @@ T Sum<T>(T a, T b) where T : INumber { return a + b; }
 
 绑定路径（`ExprTyper._bindBinary`）：左操作数是 `Z42GenericParamType` → 到该型参的 where 约束
 接口里找 `static abstract op_Add`（沿父接口链找；方法级与类级约束都查）→ 发**接收者驱动的
-VCall**（`vcall a.op_Add(b)`），运行期由 `a` 的具体类决定跑哪个实现。与手写 `a.op_Add(b)`
+VCall**（`vcall a.op_Add(b)`），运行期由 `a` 的具体类决定跑哪个实现。与手写 ``a.op_Add(b)``
 （`generic_inumber.z42` 的写法）**发同一条指令**，只是省掉了显式方法名。
 
 两条必须知道的规则：
@@ -473,7 +473,7 @@ error 含 `is \`static\` in the interface and an instance method here`）。
 > E0412 缺成员分支兜。
 >
 > 跨包也覆盖：接口的属性 / 索引器访问器（get_X/set_X/get_Item/
-> set_Item）作为普通方法进 TYPE record 过 wire，导入侧 `ImportedSymbolLoader` 恢复进 `it.Methods`——**无需
+> set_Item）作为普通方法进 TYPE record 过 wire，导入侧 `ImportedSymbolLoader` 恢复进 ``it.Methods``——**无需
 > 格式 bump**（走既有通用方法块）。跨包接口属性/索引器的满足性与经接口读写与本包同口径。
 
 ## 关联类型（`type Item;`）

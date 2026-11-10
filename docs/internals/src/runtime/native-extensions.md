@@ -20,7 +20,7 @@ interop 校验、注册和查询 native 描述符，并负责脚本值与 C 值�
 
 `z42_native.h` 与 `z42_abi::module` 定义相同的 C 布局。模块入口返回 `Module`：ABI 版本/大小、逻辑名称、函数签名与调用指针，以及成对的可选状态构造/析构入口。静态链接直接调用该入口并提交描述符；`loader::native::load_native_module` 从动态库解析 `<basename>_module_v1`，再提交给同一个 `register_native_module`。校验失败不发布任何导出；同一 VM 的相同模块接口重复注册幂等，冲突接口拒绝替换。
 
-宿主也可先用 `host::register_static_native_library` 或 C 的 `z42_host_register_static_native_library` 注册逻辑库名与 C 符号解析器。解析器和返回入口必须保留到进程退出。loader 优先查询该解析器，再检查 PAL 动态加载能力；已注册静态库缺失的符号直接报错，避免意外混用另一个动态镜像。解析器调用不持有注册表锁。
+宿主也可先用 ``host::register_static_native_library`` 或 C 的 `z42_host_register_static_native_library` 注册逻辑库名与 C 符号解析器。解析器和返回入口必须保留到进程退出。loader 优先查询该解析器，再检查 PAL 动态加载能力；已注册静态库缺失的符号直接报错，避免意外混用另一个动态镜像。解析器调用不持有注册表锁。
 
 compression 关闭算法 feature 时只提供没有调用指针的接口声明。首次调用由 interop 经 loader 找到模块入口，检查完整实现是否与声明的名称和全部签名匹配，再按 VM 发布实现；失败不改变声明。后续调用直接进入已注册实现，没有模块专用转发函数。显式 bundled 构建直接注册完整入口。声明和实现视图从同一份脚本签名生成。Repl 的注册代码提供通用输入和配置，桌面编辑器通过 C 接口按需解析。两者无需依赖运行时 crate。
 

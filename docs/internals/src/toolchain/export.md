@@ -63,12 +63,12 @@
   z42vm.xcframework/                   ← 需手动从平台 SDK 拷入
 ```
 
-`project.pbxproj` 用**固定的 24 字符十六进制对象 ID**（按对象语义写死，不随机），
+``project.pbxproj`` 用**固定的 24 字符十六进制对象 ID**（按对象语义写死，不随机），
 于是重复生成字节相同、可 diff、也不需要实现 RNG。Xcode 只要求 ID 在同一工程内唯一。
-单 target，引用 `main.swift`（Sources）、`app.zpkg`（Resources）、`z42vm.xcframework`（Frameworks）。
+单 target，引用 `main.swift`（Sources）、`app.zpkg`（Resources）、``z42vm.xcframework``（Frameworks）。
 
 `main.swift` 生成的是可运行的 AppDelegate：从 bundle 里取 `app.zpkg` 路径，
-后台队列上调 `Z42TestHost.runApp` → `z42_host_run_app`，**进程内**跑（和 desktop 的
+后台队列上调 ``Z42TestHost.runApp`` → `z42_host_run_app`，**进程内**跑（和 desktop 的
 self-contained 同一个嵌入核）。iOS 的 bundle 资源是真实文件系统路径，所以 zpkg 与 `libs/` 直接引用、
 无需解压。app 的 stdout 进设备 console。
 
@@ -96,7 +96,7 @@ self-contained 同一个嵌入核）。iOS 的 bundle 资源是真实文件系�
 同样跑在非主线程上（避免 ANR），stdout 进 logcat。
 
 `libz42.so` 由 `z42 workload install android` 铺进 workload 的 jniLibs
-（见[分发](workload-distribution.md)），导出的工程里 `sourceSets.main.jniLibs` 指向 `jniLibs` 目录，
+（见[分发](workload-distribution.md)），导出的工程里 ``sourceSets.main.jniLibs`` 指向 `jniLibs` 目录，
 需要时把 `.so` 拷进去。
 
 ### WASM
@@ -112,7 +112,7 @@ self-contained 同一个嵌入核）。iOS 的 bundle 资源是真实文件系�
 ```
 
 wasm 是唯一消费 **`.zbc`**（单模块字节码）而不是 `.zpkg` 的导出目标：
-`index.js` 用 `vm.loadZbc` 装模块、`vm.resolveEntry(mod, "<入口>")` 找入口再调用。
+`index.js` 用 ``vm.loadZbc`` 装模块、``vm.resolveEntry(mod, "<入口>")`` 找入口再调用。
 `Z42VM` 未定义时给出友好提示而不是崩。本地预览用任意静态 HTTP 服务器即可。
 
 ## 设计取舍

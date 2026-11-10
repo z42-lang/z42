@@ -41,7 +41,7 @@
 |---|---|
 | `src/IrOptInfo.z42` | **IR 优化基石**：逐 opcode 的写寄存器 `DstId`/`AddDef` / 读寄存器 `AddReads`+`AddTermReads`（经 z42.package 统一操作数接口 `DefReg`/`ReadAt`/`ReadReg` 枚举）/ **读操作数重写 `ReplaceReads`+`ReplaceTermReads`**（按 remap 改写读操作数，供 use-site copy-prop / CSE 复用）/ **CSE value-number `CseKey`+`DstReg`**（纯计算 op 的 `op|操作数ids` key + dst 提取）/ 可删性 `IsPure`（白名单，未知 opcode 保留）/ retarget `SetDst`（copy-prop）/ `TryConstFold`（const-fold 规则表，可扩展） |
 | `src/OptSet.z42` | **可独立开关的具名优化位集**（`Opt` static class）：`ConstFold=1/CopyProp=2/Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/PureCall=512/DeadBranch=1024/All=2047` + `Has`/`ByName`/`ProfileDefault(isRelease)`（debug=None/-O0、release=All）/`Resolve`（CLI>toml>profile）|
-| `src/IrDeadBranch.z42` | **常量条件死分支消除 pass**（`Opt.DeadBranch`）：单赋值 `ConstBoolInstr` 条件的 `br.cond`→无条件 `br` 折叠 + `ExcCount==0` 时可达性 BFS 移不可达块。**`ExcCount>0` 只折不移**（CFG 铁律：异常隐式边不在终结子 CFG，镜像 IrLicm 跳过）。见 book optimization-pipeline |
+| `src/IrDeadBranch.z42` | **常量条件死分支消除 pass**（`Opt.DeadBranch`）：单赋值 `ConstBoolInstr` 条件的 ``br.cond``→无条件 `br` 折叠 + `ExcCount==0` 时可达性 BFS 移不可达块。**`ExcCount>0` 只折不移**（CFG 铁律：异常隐式边不在终结子 CFG，镜像 IrLicm 跳过）。见 book optimization-pipeline |
 | `src/IrPureFunctionTable.z42` | **纯函数推断**：`PureTable`（funcName 集）+ `Compute(m)` 模块**单调不动点**（与 escape 相反：乐观全纯→发现副作用/读可变/抛/调非纯→降级→收敛；扫描路径重建名字集并按数量判断收敛，长链按需转入负向工作队列）。`pure(f)`=每指令 IsPure∪对纯函数 call∪readonly-fget 且无 throw 终结。供 CSE/LICM 判纯调用可消重/外提。无体/imported→保守非纯 |
 | `src/PurityDemotionWorklist.z42` | 负向纯度传播：每个函数体最多失效一次，同名最后一个活跃候选失效才移除名字；没有非纯来源的递归环保持纯。 |
 | `src/SpeculationWorklist.z42` | 可投机最小不动点的按需工作队列：每个函数体计未入集的调用次数，每个名字最多发布一次；反向边唤醒调用者，重复函数名保留任一合格函数体可发布该名的语义。 |

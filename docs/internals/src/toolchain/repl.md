@@ -94,7 +94,7 @@ flowchart TD
   静态字段。这条是长会话保持恒定速度的关键：否则每轮都累积一个包，成本按会话长度线性涨。
 - 用户输入里对变量的**裸引用**必须改写成限定形式：z42 的静态方法/初始化器不能不加限定引用类静态字段
   （会报 E0401）。`Rewriter.Rewrite` 用 `Z42.Syntax.Lexer` 做 token 级改写——identifier 命中变量名、
-  且前一个 token 不是 `.`（排除 `obj.x` 成员访问）就前缀 `Vars{N}.`，其余原文（空白/注释/字符串）逐字保留。
+  且前一个 token 不是 `.`（排除 ``obj.x`` 成员访问）就前缀 `Vars{N}.`，其余原文（空白/注释/字符串）逐字保留。
 
 变量声明保留用户写的**显式类型文本**（`ParsedInput.DeclType`）发字段（`A a = new()` → `public static A a = …`），
 这样 target-typed `new` 和集合字面量能从声明类型定型；写 `var` 的仍发 `var`，靠 init 推断 + carry 保型。
@@ -113,7 +113,7 @@ flowchart TD
 
 函数 / 类型声明**原样**编进 `Repl.R{N}`——不裹壳类、不改写函数体（所以声明体里裸引用会话变量会
 E0401，见 §8）。成功后三件事：`IReplCompiler.ExtendWorld` 把刚编出的字节增量并入编译世界、
-`Engine.LoadBytes` 加载进 VM、`Repl.R{N}` 记入 `state.DeclNamespaces` 供后续轮 `using`。
+`Engine.LoadBytes` 加载进 VM、`Repl.R{N}` 记入 ``state.DeclNamespaces`` 供后续轮 `using`。
 
 一个反直觉的补丁：**缺省未写可见性的类型声明自动前缀 `public`**（`Script._evalDecl`，据
 `ParsedInput.HasVisibility`）。类型默认可见性是 `internal`，而 REPL 每轮是独立 package，裸
@@ -304,17 +304,17 @@ rustyline 在 Backspace / Tab / `}` / Enter 上回调 z42 的 `Std.Repl.ReplEdit
 **Enter 的分工是刻意的**：z42 答「代码写完没」（`Completeness.IsIncomplete` 对**整块缓冲**判定），
 Rust 答「光标在末尾没」（`ectx.pos() == ectx.line().len()`，字节比较，UTF-8 稳健）。两者都成立才提交；
 在中段按 Enter 只拆行——这就是 `accept_in_the_middle: false` 的多行 UX。不需要 rustyline 的 `Validator`：
-`Cmd::AcceptLine` 在 rustyline 里是**无条件提交**（忽略 validator 与光标），`Validator` 保持空 stub。
+``Cmd::AcceptLine`` 在 rustyline 里是**无条件提交**（忽略 validator 与光标），`Validator` 保持空 stub。
 
 整块多行编辑把一条（可能跨多行的）语句放进**一次** readline，rustyline 的整块缓冲因此能跨行方向键导航、
 回改任意一行、粘贴后编辑——逐行 readline 做不到这些（上箭头是历史，够不到当前语句的上一行）。
 
 ### 5.3 两个 rustyline 坑（决定了什么能做）
 
-1. **redo 覆盖 movement 计数**：rustyline 对自定义绑定返回的可重复命令执行 `cmd.redo(Some(n))`，
+1. **redo 覆盖 movement 计数**：rustyline 对自定义绑定返回的可重复命令执行 ``cmd.redo(Some(n))``，
    `n` = 数字前缀（普通按键 = 1），会覆盖 movement 里嵌的计数——`Kill(BackwardChar(4))` 退化成删 1。
    **redo-免疫**的只有三类：movement 无计数的 `Dedent(WholeLine)` / `Replace(WholeLine, …)`
-   （`WholeLine.redo` 恒等），以及把内容放在 payload 而非计数的 `Insert(1, text)`。本机制只用这三类；
+   （``WholeLine.redo`` 恒等），以及把内容放在 payload 而非计数的 `Insert(1, text)`。本机制只用这三类；
    变量宽度的删+插唯 `Replace(WholeLine)` 可用。
 2. **`edit_insert_text` 不推进光标**：`Replace(WholeLine, text)` = `edit_kill(WholeLine)`（光标 `move_home`）
    → `edit_insert_text`（`insert_str` 插入但不改 `pos`）→ 光标停在**行首**，`}` 之后没法继续打
@@ -324,7 +324,7 @@ Rust 答「光标在末尾没」（`ectx.pos() == ectx.line().len()`，字节比
 
 ### 5.4 补全、ghost、历史
 
-- **Tab 补全**：编辑器以 `CompletionType::List` 构造（bash 式：首 Tab 补最长公共前缀、再 Tab 列候选），
+- **Tab 补全**：编辑器以 ``CompletionType::List`` 构造（bash 式：首 Tab 补最长公共前缀、再 Tab 列候选），
   而非 rustyline 默认的 `Circular`（反复 Tab 循环候选、转一圈回到原始输入，观感是「Tab 越按越退」）。
   候选经每 VM 的补全回调配置（z42 的 `Z42.Scripting.replComplete`，由 `Repl.SetCompleter` 注册）
   回调所属 VM 取得，worker 共享所属 VM 的配置。
@@ -346,9 +346,9 @@ Rust 答「光标在末尾没」（`ectx.pos() == ectx.line().len()`，字节比
 
 **两个容易踩的点：**
 
-- **光实现 `highlight` 看不到颜色。** `Highlighter::highlight_char` 默认返回 `false`
+- **光实现 `highlight` 看不到颜色。** ``Highlighter::highlight_char`` 默认返回 `false`
   （= 这次按键不需要重绘），于是 `highlight` 几乎不被调用。必须一并覆写它：
-  普通编辑返回 `true`，`CmdKind::ForcedRefresh` 返回 `false`（那时 rustyline 自己会重绘）。
+  普通编辑返回 `true`，``CmdKind::ForcedRefresh`` 返回 `false`（那时 rustyline 自己会重绘）。
 - **关键字表不在 Rust 侧。** 唯一 SoT 是 `Z42.Syntax.Lexer._initKeywords()`；
   z42 侧 `Repl.InstallKeywordHighlighting()` 在 REPL 启动时经
   `__repl_set_keywords` → `z42_repl_set_keywords` 一次性灌进 cdylib。
@@ -435,7 +435,7 @@ park 期间它的 z42 根是冻结的，收集器可以安全扫描。Tab 补全
 `parked_count` + `gc_phase_cv`，没有新同步原语。
 
 **park 的范围必须精确到只包住那次读取**：读回来的行变成 z42 字符串是一次 GC 分配，若在 park 内做，
-它对预热线程的收集就不是根（`threads::safepoint::debug_assert_not_native_parked` 守这条）。
+它对预热线程的收集就不是根（``threads::safepoint::debug_assert_not_native_parked`` 守这条）。
 所以 `builtin_repl_readline` 里 guard 在字符串构造**之前**就 drop 掉。
 
 机制细节见[安全点与 STW](../runtime/safepoint-design.md)。
@@ -446,9 +446,9 @@ park 期间它的 z42 根是冻结的，收集器可以安全扫描。Tab 补全
 
 | 上下文 | 判据 | 数据源 |
 |---|---|---|
-| `.using <前缀>` | 行以 `.using ` 开头 | 门面 `NamespaceNames`，返回**下一段**候选（`Std.C` → `Collections`） |
-| `recv.mem` | 词前紧邻 `.`，`recv` 是会话变量 | `Engine.MemberNames("Repl.R{N}.Vars{N}.{recv}")`——读**live 值**的运行时类型成员，零副作用（不重求值） |
-| `Type.mem` | 同上但 `recv` 不是会话变量 | 门面 `StaticMembersOf`（按需 reconcile 后遍历 public 静态成员 / 枚举成员） |
+| `.using <前缀>` | 行以 `.using ` 开头 | 门面 `NamespaceNames`，返回**下一段**候选（``Std.C`` → `Collections`） |
+| ``recv.mem`` | 词前紧邻 `.`，`recv` 是会话变量 | `Engine.MemberNames("Repl.R{N}.Vars{N}.{recv}")`——读**live 值**的运行时类型成员，零副作用（不重求值） |
+| ``Type.mem`` | 同上但 `recv` 不是会话变量 | 门面 `StaticMembersOf`（按需 reconcile 后遍历 public 静态成员 / 枚举成员） |
 | 裸标识符 | 其余 | 会话变量 + `DeclNames` +（前缀非空时）门面 `ScopeTypeNames` + z42 语言关键字 |
 
 分工是刻意的：**世界遍历住编译器实现侧，前缀过滤 / 去重 / 活跃 ns 策略留在 scripting 侧**。

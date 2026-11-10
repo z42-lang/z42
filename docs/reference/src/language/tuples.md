@@ -1,7 +1,7 @@
 # 元组（值元组 `(a, b)`）
 
 元组是轻量的多值分组：`(int, string)` 是类型，`(7, "hi")` 是字面量，`(x, y)` 是模式。z42 的元组
-是**值类型、零堆分配**（对齐 C# `System.ValueTuple`、Rust/Swift/Go 的值元组），它补齐了模式匹配引擎的
+是**值类型、零堆分配**（对齐 C# ``System.ValueTuple``、Rust/Swift/Go 的值元组），它补齐了模式匹配引擎的
 最后一块结构化载体。
 
 ```z42
@@ -49,8 +49,8 @@ z42 **不引入原生元组 opcode / 类型 tag**。元组在编译器前端**�
 ### 为什么零格式 bump
 
 zbc / zpkg 里类型引用一律 intern 进字符串池（非封闭 tag enum），故「又多一个字符串
-`ValueTupleN`」不需要任何二进制格式变更；与泛型同款。原生 tuple opcode（`tuple.new` /
-`tuple.get`）才会 bump，而 z42 的 blob struct 本就无对象头、原生 opcode 边际收益极小，不值。
+`ValueTupleN`」不需要任何二进制格式变更；与泛型同款。原生 tuple opcode（``tuple.new`` /
+``tuple.get``）才会 bump，而 z42 的 blob struct 本就无对象头、原生 opcode 边际收益极小，不值。
 
 ### 运行时表示：类型擦除的均匀槽
 
@@ -67,7 +67,7 @@ zbc / zpkg 里类型引用一律 intern 进字符串池（非封闭 tag enum）�
 | 元组字面量 `(e0, ..., en)` | `new ValueTupleN(e0, ..., en)`（泛型实参由构造实参推断） | `ExprParser` 括号分组分支（首元素后遇 `,` 收集为 `TupleExpr`）→ `ConstructTyper._bindTuple` → 复用 `_bindNew` |
 | 元组模式 `(p0, ..., pn)` | `BoundPositionalPattern`（绑定于 `ValueTupleN` 实例化类型，字段 `Item1..ItemN`） | `PatternParser`（裸 `(` 起始）→ `PatternBinder._bindTuple` → 复用既有模式发射（struct blob 字节偏移读、`needTest=false` 不发 IsInstance） |
 
-**用短名 `ValueTupleN`（非 FQ `Std.ValueTupleN`）**：z42.core 是恒加载 prelude，其类型以裸短名注册进
+**用短名 `ValueTupleN`（非 FQ ``Std.ValueTupleN``）**：z42.core 是恒加载 prelude，其类型以裸短名注册进
 符号表，短名恒可解析；FQ 点分名反而不经 using 解析路径。
 
 ### 什么算「元组类型」
@@ -113,7 +113,7 @@ void f(MyValueTupleBox b) {
 - **元数 2..8**；更大元组报 `E0402: tuples support between 2 and 8 elements, got N`
   （可后续加 `Rest` 嵌套，如 C#）。**类型位与字面量位同码同文案**。
 
-- 嵌套元组的**链式字段访问** `t.Item1.Item2` 可直接读写（`var` 接字面量时见上方「元素类型从哪来」）。
+- 嵌套元组的**链式字段访问** ``t.Item1.Item2`` 可直接读写（`var` 接字面量时见上方「元素类型从哪来」）。
   但嵌套在元组里的 struct 值目前**不是独立副本**——struct 的值复制语义见
   [所有权与内存模型](memory-model.md)。
 - **具名元组元素** `(x: int, y: int)`、`Deconstruct` 方法载体、`(T)[]` / `(T)?` 后缀——均后议。

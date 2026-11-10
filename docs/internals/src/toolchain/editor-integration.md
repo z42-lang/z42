@@ -105,7 +105,7 @@ symlink 落 `<repo>/.vscode/extensions/z42.z42-lang`（**工作区本地扩展**
 - 链接路径已在 `.gitignore`（`.vscode/extensions/z42.z42-lang`）。
 
 代价：VSCode 从 1.89 起才支持从工作区加载本地扩展，且首次打开仓库会弹信任/启用提示。
-`package.json` 的 `engines.vscode` 声明的是 grammar 贡献点本身所需的下限（`^1.75.0`）——
+`package.json` 的 ``engines.vscode`` 声明的是 grammar 贡献点本身所需的下限（`^1.75.0`）——
 **工作区本地扩展这条安装路径的实际下限是 1.89**，两个数字不是一回事。
 
 Windows 不做自动安装（symlink 需特权）：生成器直接报错并打印手动指引——把该目录复制到

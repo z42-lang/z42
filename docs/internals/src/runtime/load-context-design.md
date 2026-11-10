@@ -47,7 +47,7 @@
 ## 4. 内部态与缓存池回收（重点）
 
 ### 两类内部态
-1. **纯内部、不外露**（ClassDesc/TypeDesc、method table/vtable、字段布局、`Module.interned_strings` 串池、反射结果缓存、`Length/CharAt` 元数据缓存、method token/签名缓存）→ 放 **context-owned arena**。**非 GC 对象**，生命周期绑 context；context 判定可回收的那刻**随 arena 确定性 free**，不另走 GC。
+1. **纯内部、不外露**（ClassDesc/TypeDesc、method table/vtable、字段布局、``Module.interned_strings`` 串池、反射结果缓存、`Length/CharAt` 元数据缓存、method token/签名缓存）→ 放 **context-owned arena**。**非 GC 对象**，生命周期绑 context；context 判定可回收的那刻**随 arena 确定性 free**，不另走 GC。
 2. **外露成 GC 对象**（`Type`/`MemberInfo`/`typeof` 结果）→ GC 对象，走 GC-lazy + 诊断（同用户堆）。
 
 ### 铁律：缓存自己不能变成那条泄漏边
@@ -61,7 +61,7 @@ context 自己 arena 内的缓存随 arena 整丢，无所谓；跨 context / �
 | 内部缓存/池 | 处置 |
 |---|---|
 | 类型 metadata（ClassDesc/TypeDesc）、method table、字段布局 | context arena，teardown 整丢 |
-| `Module.interned_strings` 串池 | per-context arena，整丢 |
+| ``Module.interned_strings`` 串池 | per-context arena，整丢 |
 | 反射缓存（GetFields/Methods/Properties、attribute、MemberInfo） | context arena；全局二级缓存 → context-keyed purge |
 | `Length/CharAt` 元数据缓存 | 绑类型 metadata，随之走 |
 | cross-zpkg 调用缓存 `OnceLock<Arc<Function>>` | 注册表按 context 清 |
@@ -90,7 +90,7 @@ z42 **自有 GC**：可达性扫描时能记录"引用从哪来"；.NET GC 不�
 - 实现：倾向**平时零开销、诊断时 on-demand 反向可达**（profiler 式 retaining paths）；必要时 GC mark 顺带 root-source-tagged 出"外部入边集合"做常态轻量版。
 
 ### 暴露面
-- 运行时 API：`Std.Diagnostics.whyRetained(ctx)` / `retainers(ctx)`（挂 `Std.Runtime` 族）。
+- 运行时 API：``Std.Diagnostics.whyRetained(ctx)`` / `retainers(ctx)`（挂 `Std.Runtime` 族）。
 - dev 工具：`z42vm --diagnose-context <id>`；或经 observer 在卸载迟迟不发生时自动 dump。
 - 与 tiered-execution 的 `inspect_artifacts()` **统一同一保留边模型**。
 

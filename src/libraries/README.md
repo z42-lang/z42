@@ -84,7 +84,7 @@ cli / random / numerics / io.binary / …），要用 native 时**通过调 core
 - **单一声明点**：每个 native 符号在**全仓库只声明一次**。cross-cutting 原语归 core；平台能力原语归其
   能力库。（位转换 `__*_to_bits`/`__*_from_bits` → core `Std.BitConverter`、时钟 `__time_now_*` → core
   `Std.Runtime.Clock`、OS 熵 `__crypto_random_bytes` → core `Std.Runtime.Entropy`，
-  `z42.crypto.SecureRandom` 委托 core 而不重声明。）
+  ``z42.crypto.SecureRandom`` 委托 core 而不重声明。）
 - **性能升级阶梯**：**脚本实现 → 持续优化（JIT / 算法 / VM 调用机制提速）→ 仍不达标 → 才下沉为
   VM 内置实现**。VM 内置是最后手段，不是默认——优先投资"让脚本层本身更快"的通用机制。
 

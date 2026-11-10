@@ -16,14 +16,14 @@ reference 的[类](https://z42-lang.github.io/z42/reference/language/classes.htm
 |---|---|---|
 | `ToStr dst, src` | 字符串插值 `$"..."` 的每个洞（ExprEmitter.z42（`VisitArrayLit`）） | interp `exec_value::to_str` → `exec/ops/stringify.rs::obj_to_gc_str`；JIT `jit_to_str`（**认 vtable**）|
 | `Add dst, a, b`（操作数之一是 `Str`） | `+` 字符串拼接（OperatorEmitter.z42（`_emitBinary`），**不**发 `ToStr`）| interp `exec_value::add` → `with_obj_str`；JIT `jit_add` → `with_stringify_dispatch`（**认 vtable**）|
-| `VCall dst, recv, method, args` | 每一处 `obj.ToString()` / `.Equals(..)` / `.GetHashCode()` / `.GetType()` | `exec/ops/vcall.rs::resolve_vcall` 阶梯 |
+| `VCall dst, recv, method, args` | 每一处 ``obj.ToString()`` / `.Equals(..)` / `.GetHashCode()` / `.GetType()` | `exec/ops/vcall.rs::resolve_vcall` 阶梯 |
 
 插值、拼接、`Console.WriteLine(obj)`（`stringify_dispatch`）共用同一个 `ToString` 协议
 （`exec/ops/stringify.rs::tostring_result`），四条字符串化路对同一个值给同一个答案。
 
 **不落地中间串**：协议的结果以 `&str` 视图交给调用方（`with_obj_str(ctx, module, val, f)`）——
 用户 `ToString` 返回的 GC 串原样借用，标量（`I64`/`F64`/`Bool`/`Char`/`Null`）由
-`convert::with_value_str` 格式化进 64 B 栈缓冲（`FmtBuf`，超长才溢出到堆）。于是：
+``convert::with_value_str`` 格式化进 64 B 栈缓冲（`FmtBuf`，超长才溢出到堆）。于是：
 
 - `"k" + i`（`Add` 混合臂，interp + JIT）= 一次 `alloc_str_concat2(另一侧, 视图)`，零 malloc、零中间 GC 串；
   JIT `jit_add` 的 `Str + Str` 臂同样走融合分配。
@@ -96,7 +96,7 @@ i64），先查 enum 名才能让 `Console.WriteLine(Color.Blue)` 与 `((object)
 | 1 | **基元盒**（`BoxedStruct` 且 `boxed_prim_i64()==Some`）| 无参 `GetType` 原生作答（盒保留精确 wrapper 类）；其余把 `this` 拆回标量，再解析 `{wrapper}.{m}` / `Std.Object.{m}` |
 | 2 | **struct 盒** | `GetType` / `GetHashCode` / 非 record 的无参 `ToString` 原生拦截；否则解析 `{struct}.{m}` / `Std.Object.{m}`，`this` = 盒 |
 | 3 | **裸基元 / 数组**（`primitive_class_name`）| 解析 `{Std.Int32\|Std.String\|Std.Array…}.{m}` / `Std.Object.{m}`，`this` = 值本身；全落空则落到第 4 级由它报「非对象接收者」 |
-| 4 | **对象** | `vtable_index` → `dispatch::resolve_virtual`（模块内类链）→ 经 `ctx.try_lookup_type` 的惰性基类链走（跨 zpkg 基类）|
+| 4 | **对象** | `vtable_index` → ``dispatch::resolve_virtual``（模块内类链）→ 经 ``ctx.try_lookup_type`` 的惰性基类链走（跨 zpkg 基类）|
 
 解析结果是 `VCallTarget` 三态：`Immediate(Value)`（第 1/2 级的原生拦截，一个 z42 函数都没跑）、
 `Local { func, id }`（本模块与惰性加载的函数同一形态：`func` 是函数本身，`id` 是它在 `module` 下的
@@ -113,7 +113,7 @@ i64），先查 enum 名才能让 `Console.WriteLine(Color.Blue)` 与 `((object)
 
 第 4 级里 `vtable_index` 必须排在 `resolve_virtual` **前面**：
 vtable 把「可能重载的方法名」映射到编译器为该站点绑定的那个覆写槽，而 `resolve_virtual` 的
-`Class.method` 字符串走法会撞上先遇到的同名函数。
+``Class.method`` 字符串走法会撞上先遇到的同名函数。
 
 ### overload-suffix 重试
 
@@ -125,7 +125,7 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
 （第 1/2 级）是反的，这个不对称是为保字节不动点，不是语义需要。
 
 为什么必须重试：**IR 里的方法名未必带 mangle**。接收者静态类型是 `object` 时（`Std.Assert.Equal(object, object)`
-里的 `expected.Equals(actual)`）IR 带的是裸名 `Equals`，而编译器在**声明处**总是给重载加后缀
+里的 ``expected.Equals(actual)``）IR 带的是裸名 `Equals`，而编译器在**声明处**总是给重载加后缀
 （`Std.String` 上 `Equals(object?)` 与 `Equals(string)` 两份 ⇒ 注册名带 `$1$…`）。两边拼法对不上，
 只能在派发端把两种都试一遍。
 
@@ -164,7 +164,7 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
 1. **`ToStr` 必须不可失败**。它长在插值和拼接这类「本身就在渲染诊断信息」的位置，抛出去就会
    让报错路径自己炸。所以它吞异常、对未知表示给占位符、对没覆写 `ToString` 的类走 builtin
    短名——**永远有一个字符串**。
-2. **`VCall` 必须忠实**。`obj.ToString()` 是一次普通的虚调用，异常要照常传播，重载要照常按
+2. **`VCall` 必须忠实**。``obj.ToString()`` 是一次普通的虚调用，异常要照常传播，重载要照常按
    arity / 签名解析，PIC 要照常安装。
 3. 两者的接收者面也不同：`ToStr` 只需要覆盖「能出现在插值洞里的值」，`VCall` 要覆盖全部七种
    可调用接收者形态（含栈句柄与两类盒）。

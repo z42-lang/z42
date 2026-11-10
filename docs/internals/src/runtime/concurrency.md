@@ -26,8 +26,8 @@
 | ✅ 跨线程 read 共享 GC | `Arc<VmCore>` 可跨线程；句柄可跨线程 move / clone / borrow |
 | ✅ 多 VmContext 共享 GC heap | VmCore `vm_contexts` 注册表 + `Pin<Box<VmContext>>` 地址稳定 + scanner walk registry |
 | ✅ 用户层线程 API | `Std.Threading.Thread.Start(Action)` / `.Join()` + `Std.Threading.ThreadException`。底层 `__thread_spawn` / `__thread_wait` builtin 接 `corelib::core::threading::State` 内的 `ResourceRegistry<JoinHandle>` slot table（通过每 VM 扩展状态共享）。worker 走 `VmContext::new_with_core(Arc::clone(core))` 共享父 VmCore |
-| ✅ 同步原语 | `Std.Threading.Mutex<T>` / `Channel<T>` + `Std.Threading.ChannelDisconnectedException`。Mutex 走 `parking_lot::Mutex<Value>` + thread-local guard parking（`__mutex_lock_acquire` / `__mutex_store` / `__mutex_unlock`，z42 facade 暴露 RAII `Lock(Func<T,T>)`）；Channel 走 `std::sync::mpsc` unbounded MPSC（`__channel_send` / `__channel_recv` / `__channel_try_recv` / `__channel_close`）。两 worker 并发读写同一对象的字段是逐单元原子访问，不加锁 |
-| ✅ 并发 GC (safepoint) | interp dispatch loop 在 function entry / backward branch / Call return 三处 `check_safepoint(ctx)`；JIT translate 在对应 4 个 site emit `jit_check_safepoint` helper call，与 interp 对齐。script-driven `__gc_collect` / `__gc_force_collect` 由 `request_gc_pause` RAII guard 包成 stop-the-world。auto-threshold 路径 `maybe_auto_collect` 也走 safepoint：trip 时 set `VmCore.threads.needs_auto_collect` AtomicBool flag → 下个 `check_safepoint(ctx)` swap claim → safepoint-wrapped collect。所有 mutator VmContext park 在 `gc_phase_cv` Condvar 上等 phase 回 Idle。**单线程 mark+sweep**：collector 独自在停顿里标记 / 清扫，不并行、也不与 mutator 并发 |
+| ✅ 同步原语 | `Std.Threading.Mutex<T>` / `Channel<T>` + `Std.Threading.ChannelDisconnectedException`。Mutex 走 `parking_lot::Mutex<Value>` + thread-local guard parking（`__mutex_lock_acquire` / `__mutex_store` / `__mutex_unlock`，z42 facade 暴露 RAII `Lock(Func<T,T>)`）；Channel 走 ``std::sync::mpsc`` unbounded MPSC（`__channel_send` / `__channel_recv` / `__channel_try_recv` / `__channel_close`）。两 worker 并发读写同一对象的字段是逐单元原子访问，不加锁 |
+| ✅ 并发 GC (safepoint) | interp dispatch loop 在 function entry / backward branch / Call return 三处 `check_safepoint(ctx)`；JIT translate 在对应 4 个 site emit `jit_check_safepoint` helper call，与 interp 对齐。script-driven `__gc_collect` / `__gc_force_collect` 由 `request_gc_pause` RAII guard 包成 stop-the-world。auto-threshold 路径 `maybe_auto_collect` 也走 safepoint：trip 时 set ``VmCore.threads.needs_auto_collect`` AtomicBool flag → 下个 `check_safepoint(ctx)` swap claim → safepoint-wrapped collect。所有 mutator VmContext park 在 `gc_phase_cv` Condvar 上等 phase 回 Idle。**单线程 mark+sweep**：collector 独自在停顿里标记 / 清扫，不并行、也不与 mutator 并发 |
 | ❌ `spawn` / `task scope` 语法 | L3 阶段引入（本文档 §3.5） |
 
 线程 Join 在资源表锁内比较目标 OS 线程身份，拒绝当前线程等待自身，返回可捕获的 `ThreadException`。拒绝时保留句柄，外部线程仍可 Join；成功取出后在表锁外 park 等待，重复或未知槽继续报告 `thread already joined`。`Timer.StopAndJoin` 共用该协议，自回调调用先标记停止再抛异常。
@@ -72,7 +72,7 @@
 | **是否染色** | 染色（async/await 显式） | AOT 友好、VM 简单、性能可预测；用减痛设计抵消生态痛点 |
 | **runtime 模型** | 全局 work-stealing scheduler + IOCP/io_uring/kqueue | 与 .NET ThreadPool / Tokio 同思路 |
 | **调度粒度** | task = 状态机 + 调度槽（非 fiber 栈） | 状态机是普通对象，AOT 友好 |
-| **API 颜色** | 标准库 **async-only** | 不再写两套；`File.read` 唯一存在 |
+| **API 颜色** | 标准库 **async-only** | 不再写两套；``File.read`` 唯一存在 |
 | **结构化并发** | 强制 — `spawn` 必须在 `task scope` 内 | 编译期词法检查根除孤儿 |
 | **数据竞争防护** | `Send` / `Sync` marker trait | 跨 task 共享的类型必须满足约束 |
 | **取消模型** | 协作式 `CancellationToken` | 与 .NET 一致；无强杀 |
@@ -205,7 +205,7 @@ async void Op(CancellationToken ct) {
 ```
 
 - 协作式 — 函数体内显式检查或将 `ct` 传给下游
-- `task scope` 自动管理隐式 token；显式参数与隐式 scope token 通过 `ct.Combine(...)`
+- `task scope` 自动管理隐式 token；显式参数与隐式 scope token 通过 ``ct.Combine(...)``
   组合
 - 取消触发 `OperationCancelledException`（不是返回特殊值）
 
@@ -253,7 +253,7 @@ var v = await ch.Read();
 ```
 
 - `Bounded(cap)` / `Unbounded()` / `Mpsc()` / `Mpmc()` 通过工厂方法选择
-- 关闭：`ch.Close()`；读侧 `await ch.Read()` 返回 `Option<T>`，关闭后为 `None`
+- 关闭：``ch.Close()``；读侧 `await ch.Read()` 返回 `Option<T>`，关闭后为 `None`
 
 #### `select` 多路复用
 
@@ -472,7 +472,7 @@ var result = await SpawnBlocking(() => HeavyCpuWork());
 2. **`task scope` 编译期硬强制** — `spawn` 词法作用域检查，比 Swift TaskGroup 更严
 3. **统一 `Future<T>`** — 不引入 `Task<T>`/`ValueTask<T>` 二分，栈分配优先
 4. **`task scope detached` 关键字** — 显式 fire-and-forget，比 .NET `async void`
-   或 Rust `tokio::spawn` 顶层裸调更可见
+   或 Rust ``tokio::spawn`` 顶层裸调更可见
 
 ---
 
@@ -512,7 +512,7 @@ var result = await SpawnBlocking(() => HeavyCpuWork());
 | **L3-A7** | 多线程 work-stealing scheduler + I/O reactor | L3-A1 |
 | **L3-A8** | `await foreach` / `await using` / `async drop` | L3-A2 + L3-A7 |
 | **L3-A9** | 链式 await 自动串接、智能修复建议、异步栈追踪 | L3-A2 + 编译器 lowering 成熟 |
-| **L3-A10** | `parallel.for` / `spawn_blocking` / `block_on` 边界 API | L3-A7 |
+| **L3-A10** | ``parallel.for`` / `spawn_blocking` / `block_on` 边界 API | L3-A7 |
 
 ### 10.2 单元测试要求（每阶段）
 

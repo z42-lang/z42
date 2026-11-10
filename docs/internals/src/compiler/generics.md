@@ -172,8 +172,8 @@ callee 不收 sret（`FunctionEmitter._blobStructNameT` 对方法级型参恒判
 `BoundMember`（赋值 / 复合赋值按左值认它），读形态挂在 `BoundMember.InstGetter` 上、由 `AccessEmitter._emitMember`
 优先发射；导入属性直接返回该读形态。值 struct 收者不走这条（它的属性读是静态 Call 传 handle）。
 
-`MethodTypeArgSubst.ForExplicitTypeArgs` 的型参个数取 `ms.TypeParamNames.Length`：本地符号在 `SymbolCollector`
-裁成恰好 `TypeParamCount` 长（parser 的 `TypeParams.Names` 是带余量的容量数组），与导入侧（精确长度）同口径。
+`MethodTypeArgSubst.ForExplicitTypeArgs` 的型参个数取 ``ms.TypeParamNames.Length``：本地符号在 `SymbolCollector`
+裁成恰好 `TypeParamCount` 长（parser 的 ``TypeParams.Names`` 是带余量的容量数组），与导入侧（精确长度）同口径。
 
 ### 代码共享不是全部：布局不同就特化，而特化副本落在**消费方**
 
@@ -258,7 +258,7 @@ owner 前缀）都出自 `z42c.symbols/src/Types/LayoutKey.z42`：
 
 | 输入 | 拼法 |
 |---|---|
-| 类 / struct | `Z42ClassType.Fqn()`：`ns.Name`，arity-mangle 时 `ns.Name$N`；全局 ns 的类是裸名 |
+| 类 / struct | `Z42ClassType.Fqn()`：``ns.Name``，arity-mangle 时 `ns.Name$N`；全局 ns 的类是裸名 |
 | 基元（含 `string` / `object`） | 关键字（`int`，不是 `Std.Int32`）—— 运行期 `Tag.FromName` 只认关键字 |
 | 实例化 | `InstName(基名, 实参…)`，实参递归同规则：`Demo.Pair<Demo.A.P,int>` |
 | 特化函数 | `owner.F:实参:…`，实参同上 |
@@ -273,9 +273,9 @@ owner 前缀）都出自 `z42c.symbols/src/Types/LayoutKey.z42`：
 `Std.` 前缀（`Std.Guid` → `Guid`），会把全名键折坏。
 
 **运行期切分名字只看顶层**：实参里有点（`Demo.Pair<Demo.A.P>`、`Demo.C.Echo:Demo.A.P`），于是「取最后一个
-`.`」会落进实参里 —— `Type.Name` 得出 `P>`、静态方法的 owner 得出 `Demo.C.Echo:Demo.A`（类型初始化屏障静默跳过）。
+`.`」会落进实参里 —— ``Type.Name`` 得出 `P>`、静态方法的 owner 得出 `Demo.C.Echo:Demo.A`（类型初始化屏障静默跳过）。
 `src/runtime/crates/z42-zpkg/src/index/type_names.rs` 收拢了正确切法（`last_top_dot` 在 `<…>` 外、`:` 之前找；
-`simple` / `unqualified` 去 ns 并递归简化实参，`Type.Name` 与装箱值默认 `ToString` 因此仍是 `Pair<P,int>`）；
+`simple` / `unqualified` 去 ns 并递归简化实参，``Type.Name`` 与装箱值默认 `ToString` 因此仍是 `Pair<P,int>`）；
 `symbol_key` 在 `:` 处也截断。新增按名字切分的代码要经它们。
 
 golden `cross-zpkg/struct_layout_crossns_collision` 覆盖同包跨 ns 同名 struct / 泛型 struct / 值类型特化。
@@ -367,14 +367,14 @@ key 属于标记拼法，每次激活指的类型不同）。`ObjNew` 的站点�
   `$cta:` 从 reg0 解析，照常 JIT。
 - **绑不到时**标记原样保留：lifted lambda / 局部函数的帧没有外层方法的实参（发射端只在型参是
   **本函数自己的**时发 `$mta:`，`EmitContext.MethodTpOwn`）；静态语境没有受者。原样的标记读作开放
-  实参（`dispatch::is_open_type_arg`），与此前的字面 `T` 同口径。
+  实参（``dispatch::is_open_type_arg``），与此前的字面 `T` 同口径。
 - `(T)o` 是受检转换（`TypeOpTyper._isCheckedRefCast`）：类型不符抛 `InvalidCastException`；
-  `T` 绑到数组类型时与直接书写数组目标一样，经 `dispatch::array_isa` 核对元素类型；
+  `T` 绑到数组类型时与直接书写数组目标一样，经 ``dispatch::array_isa`` 核对元素类型；
   值是闭包 / 函数引用而 `T` 绑到委托类型、值是整数而 `T` 绑到 enum 时同样放行（闭包不记得被转成哪个委托类型；
-  enum 以 i64 为底、`Enum.Parse` 交出整数）—— 这几条额外匹配集中在 `dispatch::bound_param_extra_isa`；
-  未装箱的值 struct（`StructRef`）按 arena 槽里的精确类型判（`dispatch::struct_ref_isa`）。
+  enum 以 i64 为底、`Enum.Parse` 交出整数）—— 这几条额外匹配集中在 ``dispatch::bound_param_extra_isa``；
+  未装箱的值 struct（`StructRef`）按 arena 槽里的精确类型判（``dispatch::struct_ref_isa``）。
 - `new T[n]` 的数组**报告**绑定后的元素类型（`GetType()` → `Std.Int32[]`），backing 仍按擦除口径选
-  （`objops::array::array_new` 的 `bound`）。
+  （``objops::array::array_new`` 的 `bound`）。
 
 #### 为什么类级 `typeof(T)` 是 builtin 而不是一条新 opcode
 
@@ -408,7 +408,7 @@ per-instance `type_args` 只覆盖「实例自己那一层泛型」，两种形�
 
 ### 继承来的型参**字段**：符号层按闭合基类代换
 
-`class DInt : GBox<int>` 上访问继承来的字段 `d.V`，其**静态类型**必须是 `int`。
+`class DInt : GBox<int>` 上访问继承来的字段 ``d.V``，其**静态类型**必须是 `int`。
 
 关键是 `Z42ClassType` 除了 `BaseName`（**裸名**，`Classes` 的查找键）还要留一份 `BaseRef` —— 基类的**声明形态** `GBox<int>`。
 少了它，`InheritanceResolver._passInheritFields` 沿基类链上溯拿到的是未实例化的 `GBox` 定义，
@@ -431,7 +431,7 @@ per-instance `type_args` 只覆盖「实例自己那一层泛型」，两种形�
 ### 第三半：接口**身份**也要带实参
 
 上面两条修的是「沿链代换」，还剩一条**同族**的：两个接口类型算不算同一个。
-`Z42InstantiatedInterfaceType.Name()` **刻意返回裸名**（元数据拼写与 `is`/`as` 路径要逐字节
+``Z42InstantiatedInterfaceType.Name()`` **刻意返回裸名**（元数据拼写与 `is`/`as` 路径要逐字节
 稳定，见该类抬头），而 `Z42InterfaceType.IsAssignableTo` 恰好只比 `Name()` ⇒ `IBox<int>` 与
 `IBox<string>` 被判成同一个类型。
 
@@ -466,7 +466,7 @@ per-instance `type_args` 只覆盖「实例自己那一层泛型」，两种形�
 - `a || b` → `if a then true else b`
 
 保留 `AndInstr` / `OrInstr` 仅服务于位运算 `&` / `|`（bool 操作数不再使用）。
-`HashMap.FindSlot` 随即回归自然写法 `occupied[s] && !keys[s].Equals(k)`。
+``HashMap.FindSlot`` 随即回归自然写法 `occupied[s] && !keys[s].Equals(k)`。
 golden test `short_circuit` 覆盖：左真/左假 RHS 副作用观察、null-guard 惯用法、链式 &&/||、优先级混用。
 
 ### 构造器约束
@@ -551,9 +551,9 @@ void Main() {
 **实现范围**：
 - 语义层新增 `Z42EnumType : Z42Type`（`SymbolCollector` / `SymbolTable` 的
   `ResolveType` 在 enum 名查到时发射 `Z42EnumType` 而非 fallback 到 `Z42PrimType`）
-- 编译期校验完整（`TypeChecker.IsEnumArg`）；`Z42EnumType` 满足 `struct` 约束
+- 编译期校验完整（``TypeChecker.IsEnumArg``）；`Z42EnumType` 满足 `struct` 约束
   （enum 是值类型），不满足 `class` 约束
-- body 内 `T.Values` / `T.Parse` / flags 位运算等反射式操作**依赖 L3-R**
+- body 内 ``T.Values`` / ``T.Parse`` / flags 位运算等反射式操作**依赖 L3-R**
   运行时 type_args 传递；本迭代只做约束校验
 - zbc / TSIG flags bit `0x20` 承载 `RequiresEnum`
 
@@ -592,7 +592,7 @@ string Greet<T>(T t) where T: IGreet { return t.Hello(); }
 **永久禁止：impl 块内 `extern` 方法**：
 
 `extern` 关键字的语义是"VM intrinsic / host FFI 绑定"，是类型本身的一部分（与
-类型同生命周期）。`int.op_Add` 的 native 绑定属于 [Int32.z42](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42)
+类型同生命周期）。``int.op_Add`` 的 native 绑定属于 [Int32.z42](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42)
 的 struct body，**不应该被任何外部包通过 impl 块追加**。
 
 理由：
@@ -607,7 +607,7 @@ string Greet<T>(T t) where T: IGreet { return t.Hello(); }
 3. **避免复杂度爆炸**：允许 extern in impl 会让孤儿规则 + 跨包传播额外处理"native binding 谁注册 / 重复注册冲突"
 4. **真要给 primitive 加 VM intrinsic**：直接在 z42.core 对应类型 body 加 `[Native]` extern method，stdlib 内部调整即可
 
-Parser 在 `impl` 块见到 `extern` 修饰符直接报错（`TopLevelParser.ParseImplDecl`）。
+Parser 在 `impl` 块见到 `extern` 修饰符直接报错（``TopLevelParser.ParseImplDecl``）。
 
 **跨 zpkg 传播**：
 - zpkg 的 `IMPL` section 承载本 CU 所有
@@ -625,7 +625,7 @@ Parser 在 `impl` 块见到 `extern` 修饰符直接报错（`TopLevelParser.Par
 
 **目标**：C# 风 `operator` 关键字，支持二元算术 `+ - * / %` 的运算符重载。
 包括异构算子（`Vec2 * int`）。静态方法形式；编译器 desugar `a + b` 为
-`Type.op_Add(a, b)` 静态调用。
+``Type.op_Add(a, b)`` 静态调用。
 
 **语法（C# 对齐）**：
 
@@ -657,7 +657,7 @@ var d = v * 10;   // Vec2.op_Multiply(v, 10) — heterogeneous OK
 1. Primitive 双方（int + int 等）→ **早退，走 BinaryTypeTable / AddInstr 快路径**
 2. 静态 `op_Add(L, R)` on left.Type 或 right.Type（签名匹配）→ Static call；
    也覆盖 generic T 的静态抽象接口派发（VCall 值驱动）
-3. 用户类（非 INumber）的实例 `left.op_Add(R)` 方法 → Virtual call
+3. 用户类（非 INumber）的实例 ``left.op_Add(R)`` 方法 → Virtual call
 4. 全未命中 → 原 "requires numeric operand" 错误
 
 **范围**：
@@ -676,7 +676,7 @@ var d = v * 10;   // Vec2.op_Multiply(v, 10) — heterogeneous OK
 **设计目标**：消除 `PrimitiveImplementsInterface`（编译器内）和
 `primitive_method_builtin`（Rust VM 内）两张硬编码桥接表 — 让 `int` / `double` /
 `bool` / `char` / `string` 通过 **stdlib 的 struct 声明** 来声明接口实现
-（参考 C# BCL 模型：`System.Int32` 是一个 struct，带 `IComparable<int>` 等接口）。
+（参考 C# BCL 模型：``System.Int32`` 是一个 struct，带 `IComparable<int>` 等接口）。
 
 #### stdlib 声明
 
@@ -701,7 +701,7 @@ public struct int : IComparable<int>, IEquatable<int> {
 | 层 | 原硬编码 | 现在 |
 |----|---------|------|
 | **Parser** | 不允许 primitive 关键字作 struct 名 | `ExpectTypeDeclName` 接受 `int`/`double`/... 作为声明名 |
-| **TypeChecker** | `PrimitiveImplementsInterface` switch 表（20+ 条） | 数据驱动：查 `SymbolTable.ClassInterfaces[canonical]`（通过 `TypeRegistry.StdlibClassName` 把 keyword `int / i32` 归一为 BCL 名 `Int32`） |
+| **TypeChecker** | `PrimitiveImplementsInterface` switch 表（20+ 条） | 数据驱动：查 `SymbolTable.ClassInterfaces[canonical]`（通过 ``TypeRegistry.StdlibClassName`` 把 keyword `int / i32` 归一为 BCL 名 `Int32`） |
 | **VM** | `primitive_method_builtin` 方法-内置名映射（17 条） | `primitive_class_name` 仅 6 条变体→类名映射；实际方法派发走 `module.func_index["Std.Int32.CompareTo"]` → stdlib 生成的 extern stub 调 `__int32_compare_to` builtin |
 
 #### 类型身份保守
@@ -714,7 +714,7 @@ public struct int : IComparable<int>, IEquatable<int> {
 
 新增 `ImportedSymbols.ClassInterfaces: Dictionary<string, List<string>>`
 承载 "class X 声明了哪些接口" 的导出数据。`ExportedTypeExtractor` 从
-`SemanticModel.ClassInterfaces` 读取；消费者 `SymbolCollector.MergeImported`
+``SemanticModel.ClassInterfaces`` 读取；消费者 ``SymbolCollector.MergeImported``
 填充 `_classInterfaces` 以供 `PrimitiveImplementsInterface` 查询。
 
 #### struct 可实现接口
@@ -738,7 +738,7 @@ C# 对齐：struct 可以
 - **SymbolCollector 冲突裁决**：local 同名覆盖 imported — 发现 `_classes` 已有同名且属于 `_importedClassNames`，移除 imported 记录，继续注册 local（不报 duplicate）
 - **发射端类名限定**：取类型对象的声明 ns（fqn-tables 5，2026-10；此前按「短名 → ns」图、local 优先）
 - **FunctionEmitterCalls DepIndex 守卫**：仅在接收者非本地类时查 DepIndex（否则 local class 方法会被同名 stdlib 方法劫持）
-- **VM ObjNew lazy-load**：type_registry 未命中时调 `lazy_loader::try_lookup_type` 触发 zpkg 按命名空间加载；同样对 ctor 函数用 `try_lookup_function` 兜底
+- **VM ObjNew lazy-load**：type_registry 未命中时调 ``lazy_loader::try_lookup_type`` 触发 zpkg 按命名空间加载；同样对 ctor 函数用 `try_lookup_function` 兜底
 
 **能力**：
 ```z42
@@ -772,7 +772,7 @@ int v = b.value;        // 字段 value 为 int
 **实现要点**：
 - `Z42InstantiatedType(Definition, TypeArgs)` 承载实例化形式
 - `ResolveGenericType` 当 TypeArgs 数量匹配 TypeParams 时返回 Z42InstantiatedType（否则回退到裸 ClassType）
-- `TypeChecker.SubstituteTypeParams(Z42Type, map)` 递归替换 Z42GenericParamType — 覆盖 Array / Option / Func / 嵌套 Instantiated
+- ``TypeChecker.SubstituteTypeParams(Z42Type, map)`` 递归替换 Z42GenericParamType — 覆盖 Array / Option / Func / 嵌套 Instantiated
 - BindMemberExpr / BindCall 识别 Z42InstantiatedType 接收者，用 `BuildSubstitutionMap` + Substitute 得到替换后的字段/方法签名
 - `IsAssignableTo` / `IsReferenceType` 处理新类型（同 Definition 且 TypeArgs 相等即可赋）
 - zbc / IR / VM 无改动（代码共享不变，IR 层仍是单一未实例化形式）
@@ -793,7 +793,7 @@ var x = new Container<Animal, Vehicle>(...);      // ❌ E0402
 **实现要点**：
 - `GenericConstraintBundle.TypeParamConstraint: string?` 存另一 type-param 名
 - `ResolveWhereConstraints` 优先识别 NamedType ∈ active type params（早于 class/interface 分派）
-- 体内成员查找：`SymbolTable.LookupEffectiveConstraints` 做"一跳"合并 — U 查找命中不了走 T 的 bundle
+- 体内成员查找：``SymbolTable.LookupEffectiveConstraints`` 做"一跳"合并 — U 查找命中不了走 T 的 bundle
 - 调用点 `ValidateGenericConstraints`：拿到 typeArgs 映射后，比较 `typeArg[U]` 与 `typeArg[T]` 的子类型关系（IsSubclassOf；非 class 退回相等）
 - bundle flag bit3 + 条件 `type_param_name_idx`
 - Rust VM `verify_constraints` 对裸 type-param 引用跳过（本地即解）
@@ -810,7 +810,7 @@ var x = new Container<Animal, Vehicle>(...);      // ❌ E0402
     [zbc.md 的「约束 flags」](../formats/zbc.md#type--类型元数据)，别照这一行分配新位。
   - `[if bit2] base_class_name_idx: u32`
   - `interface_count: u8 + interface_name_idx[] × u32`
-- C# IR: `IrFunction.TypeParamConstraints` / `IrClassDesc.TypeParamConstraints` 与 `TypeParams` 按索引对齐
+- C# IR: ``IrFunction.TypeParamConstraints`` / `IrClassDesc.TypeParamConstraints` 与 `TypeParams` 按索引对齐
 - Rust VM: `Function.type_param_constraints` / `TypeDesc.type_param_constraints` 读取并保留
 - Rust loader: 加载后运行 `verify_constraints`。校验按引用**种类**分派：
   - **基类引用**（`base_class`）严格——未在 `type_registry`、非 `Std.*` 即返回 `InvalidConstraintReference`（基类是布局/派发关键）。
@@ -853,7 +853,7 @@ VM interp:  ObjNew：本包实例化 → 实例化描述符；导入泛型 → �
 
 ### Pre-pass 检测
 
-`src/compiler/z42c.symbols/src/Symbols/SymbolCollector.z42` 先 group `cu.Classes` by source name；同源名两个以上时，仅 generic 兄弟（arity > 0）需要 mangling。非泛型永远占 bare 槽位。同 arity 重复仍走 E0408 duplicate path。
+`src/compiler/z42c.symbols/src/Symbols/SymbolCollector.z42` 先 group ``cu.Classes`` by source name；同源名两个以上时，仅 generic 兄弟（arity > 0）需要 mangling。非泛型永远占 bare 槽位。同 arity 重复仍走 E0408 duplicate path。
 
 ### 类型解析路由
 
@@ -874,7 +874,7 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 
 - **跨 zpkg generic base class**：`class Foo<R> : Bar<int>` 当前不支持（z42 BaseClass 只接 NamedType 字符串），与 arity mangling 正交
 - **方法层 generic-vs-non-generic 同名**：`class Foo { void m(); void m<T>(); }` 由 method arity overload 已支持，arity mangling 不涉及
-- stdlib `MulticastException<R>` 与 `MulticastException` 共存；generic type-param `default(R)` 解析走 `Z42InstantiatedType.Definition.IrName` 路径
+- stdlib `MulticastException<R>` 与 `MulticastException` 共存；generic type-param `default(R)` 解析走 ``Z42InstantiatedType.Definition.IrName`` 路径
 ---
 
 ## Deferred / Future Work

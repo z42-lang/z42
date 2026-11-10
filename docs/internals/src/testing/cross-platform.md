@@ -63,7 +63,7 @@ public class AssetLayout {
 | ③ run tests | 统一 JUnit 报告落点 `artifacts/reports/tests/<platform>/junit.xml` | desktop 链 `libz42.a` 跑 C 壳；wasm Playwright；iOS `xcodebuild test`；Android `connectedAndroidTest` |
 
 **阶段 ② 的共享是这个设计的全部意义**。三平台各自在 `build.sh` / `test.sh` 里跑测试时，
-"编 fixture + 收 stdlib" 在三处重复，是最容易漂移的一块。`_platformAssets` 拿 `backend.Assets()`
+"编 fixture + 收 stdlib" 在三处重复，是最容易漂移的一块。`_platformAssets` 拿 ``backend.Assets()``
 的落点把这件事做一遍，backend 只声明"放哪"。**新增一个平台 = 加一个 backend class + 注册一行。**
 
 ### 3.1 R1–R7 契约（单一真相源）

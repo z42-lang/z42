@@ -68,14 +68,14 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
   （`UNRESOLVED`：按对象现建的回落描述符、corelib 原生句柄单例）照常走遍历作答，**不进缓存**。
 - **目标键**：`metadata::Function` 侧表里的 `TypeKeyCell`（`type_key(block, instr)` / `catch_key(entry)`；
   `is_exception_subclass` 用一个 `static`）。首次判定时由 `exec::ops::cast::target_key` 按名解析一次：名字是已登记类型
-  （主模块注册表，再查惰性加载器——只查不加载）→ 取它的 `TypeId`；否则（擦除名 `Demo.GBox`、arity 形 `GBox$1`、
+  （主模块注册表，再查惰性加载器——只查不加载）→ 取它的 `TypeId`；否则（擦除名 ``Demo.GBox``、arity 形 `GBox$1`、
   所在包尚未加载的接口）→ `TypeTable::name_key` 为这个**名字**保留一个 id（同一发号器，不会分给描述符）。
   两种键都进程唯一、各自只代表一个目标名，而判定只取决于「接收者类型的名字链 + 目标名」，VM 仍为每台实例保留独立的站点单元，
   不把解析结果写入共享映像；目标类型后来才加载、键仍是先前保留的那个，判定照旧正确。
   反射等只有名字的调用方（`is_subclass_or_eq_td`）每次按名求键，走同一份 memo。
 
 `IsaCache` 每槽是**一个** `AtomicU64`：`recv << 32 | verdict << 31 | target`（两个 id 都在 `IMPORT_BASE = 1<<31`
-以下，第 31 位空出来放判定），一次 store 安装、一次 load 读出，三者不可能撕裂；空槽是 `u64::MAX`（接收者
+以下，第 31 位空出来放判定），一次 store 安装、一次 load 读出，三者不可能撕裂；空槽是 ``u64::MAX``（接收者
 `UNRESOLVED`，永不匹配）。命中 = 一次 relaxed load + 一次比较，无锁无哈希；直接映射、冲突覆盖，未命中回 memo
 （`Mutex<FxHashMap<u64, bool>>`，键同一个打包值）再回填。两者在显式模块 (re)load（REPL 重定义）时一起清空。
 JIT 侧不自带子类遍历：`jit_is_instance` / `jit_as_cast` / `jit_match_catch_type` 多收一个烘焙的 `TypeKeyCell`
@@ -102,7 +102,7 @@ site: body.Run(i)            // IParallelTask 接口调用，z42.package 的 Par
 **不变量**：`TypeId` 由进程级发号器 `tokens::alloc_type_id_block` 批量分配、**全进程
 唯一**，号段限定 `[0, IMPORT_BASE)`，越界 panic（回绕等于引入撞号）。debug 构建在两条
 PIC 的命中点各设一道常驻断言（`exec::ops::vcall::assert_pic_target` 校验 callee 归属；
-`resolver::assert_field_ic_slot` 校验槽位），违反即**在误派发当场** panic；release 编译掉，
+``resolver::assert_field_ic_slot`` 校验槽位），违反即**在误派发当场** panic；release 编译掉，
 热路径不变。
 
 > **可迁移的判据**：任何「在作用域 S 内发号、却拿到 S 之外做相等比较」的 id 都是这个形状的
@@ -135,10 +135,10 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 
 不能提升形状的定宽 `ArrayGet` 复用头部检查，并核对实际存储模式和目标寄存器类型。匹配时直接从数组头计算元素地址和长度，再检查下标。每次访问使用当次接收者，因而字段替换数组后会读取新数组。其它存储模式与异常输入由 `jit_array_get` 处理。
 
-反射和 `FieldGet` 通过 `objops::struct_leaf` 读取装箱 struct 的命名字段。字段布局由
+反射和 `FieldGet` 通过 ``objops::struct_leaf`` 读取装箱 struct 的命名字段。字段布局由
 `object/types/named_struct_layout.rs` 根据类型描述计算，嵌套 struct 的快照与装箱在执行侧完成。
 
-**错误通道只有一个**：`objops::OpError`。
+**错误通道只有一个**：``objops::OpError``。
 
 - `Throw { class, msg }`：用户可 `catch` 的异常。类与消息**只在 `exec/ops/object/error.rs` 里写**：
 
@@ -172,8 +172,8 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 > `borrow()` 字段槽、`get_boxed` / `set_boxed`、`field_value` 之类的直接存储访问；新增对象 / 数组操作时先在
 > objops 写实现，再给两个引擎各加一个适配。
 >
-> `Std.Array` 的无类型 / 批量原生（`CopyRange`、`GetValue`、`SetValue`）经 `objops::array_bulk`，corelib 只解析参数、
-> 用 `corelib::raise_op` 把 `OpError` 以原异常类抛出。
+> `Std.Array` 的无类型 / 批量原生（`CopyRange`、`GetValue`、`SetValue`）经 ``objops::array_bulk``，corelib 只解析参数、
+> 用 ``corelib::raise_op`` 把 `OpError` 以原异常类抛出。
 >
 > 尚未进入本层的：对象分配（`exec/ops/obj_new.rs`）、闭包环境数组、反射 builtin
 > （`FieldInfo.GetValue` / `SetValue` 等）。
@@ -185,8 +185,8 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 
 | 调用形态（编译器发什么） | 判空落在哪 | 热路径代价 |
 |------|-----------|-----------|
-| `VCall`（虚 / 接口 / 本包非虚方法、属性访问器、`s.Length`） | `exec::ops::vcall::resolve_vcall` 开头，产出 `VCallTarget::Thrown`，两个引擎沿用既有的 `Thrown` 臂 | 零：PIC 键 `receiver_type_id(Null)` 本就是 `None`，null 只会走到未命中的慢路 |
-| 直接 `Call` 到 `[Native]` 转发桩（`s.CharAt(i)`、`s.ToCharArray()`……） | builtin 的接收者取值：旧表 `corelib::core::convert::this_str(args, 成员名)`（非接收者实参走 `arg_str` → `null_arg`）；类型化 builtin 由 `#[builtin(this = "成员名")]` 生成同一条消息（非接收者实参为 null 报 `ArgumentNullException`） | 零：只在既有 tag match 的失配臂里构造 |
+| `VCall`（虚 / 接口 / 本包非虚方法、属性访问器、``s.Length``） | `exec::ops::vcall::resolve_vcall` 开头，产出 `VCallTarget::Thrown`，两个引擎沿用既有的 `Thrown` 臂 | 零：PIC 键 `receiver_type_id(Null)` 本就是 `None`，null 只会走到未命中的慢路 |
+| 直接 `Call` 到 `[Native]` 转发桩（``s.CharAt(i)``、``s.ToCharArray()``……） | builtin 的接收者取值：旧表 `corelib::core::convert::this_str(args, 成员名)`（非接收者实参走 `arg_str` → `null_arg`）；类型化 builtin 由 `#[builtin(this = "成员名")]` 生成同一条消息（非接收者实参为 null 报 `ArgumentNullException`） | 零：只在既有 tag match 的失配臂里构造 |
 | `CallIndirect`（null 委托） | `scalar::null_invoke_msg`（不经 objops，见 [委托与事件](delegates-events.md)） | — |
 
 corelib 的反射调用、attribute factory 和线程 action 通过每 VM 的 Engine 注册槽调用脚本；
@@ -195,15 +195,15 @@ corelib 的反射调用、attribute factory 和线程 action 通过每 VM 的 En
 builtin 失败的出口两个引擎共用 `exec::call::builtin_abi::error::raise`（interp `exec_call::builtin` 与折叠调用、
 JIT `jit_builtin` 与 `call_forward`）：类型化 builtin 的 `BuiltinError` 按种类构造异常类（ABI v2 的类型化
 builtin 里接收者为 null 报 `NullReferenceException`，见 [native ABI §6.2](native-abi.md)）；旧表 builtin
-返回 `anyhow::Result`，用户异常经 `OpError::into_builtin_error` 把 `objops::Throw` **原样装进**
-`anyhow::Error`，`raise` 能 downcast 回 `Throw` 就按它的类构造，否则照旧包成 `Std.Exception`。
+返回 ``anyhow::Result``，用户异常经 `OpError::into_builtin_error` 把 ``objops::Throw`` **原样装进**
+``anyhow::Error``，`raise` 能 downcast 回 `Throw` 就按它的类构造，否则照旧包成 `Std.Exception`。
 `Throw` 的 `Display` 与 `into_anyhow` 同为 `<类名>: <消息>`，被别的路径折成字符串时文本也一致。
 `raise` 先查致命标志：致命错误展开期间两个引擎都不再把错误变成 z42 异常。
 
 **已知边界：直接 `Call` 的实例方法不在调用点判空。** 编译器静态绑定的实例调用（其他包里的非虚方法、
 sealed 类去虚化后的调用）发的是 `Call`，接收者只是第 0 个实参；在调用点判空要给每个 `Call` 加一次取 tag
-比较，故不做。null 从被调方法**第一次用到 `this`** 的地方抛出，消息指向那一步（`s.Substring(1)` 的方法体先读
-`this.Length`，报 ``cannot read property `Length` ``）；方法体完全不碰 `this` 时不抛。要对齐 C# `callvirt`
+比较，故不做。null 从被调方法**第一次用到 `this`** 的地方抛出，消息指向那一步（``s.Substring(1)`` 的方法体先读
+``this.Length``，报 ``cannot read property `Length` ``）；方法体完全不碰 `this` 时不抛。要对齐 C# `callvirt`
 的调用点语义，可由编译器对这类调用改发 `VCall`（代价是每次经 PIC，且失去 `IrInline` 内联），尚未做。
 
 端到端对照：`src/tests/exceptions/objops_errors.z42`（字段 / 数组）与 `null_receiver_call.z42`（调用的 null

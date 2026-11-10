@@ -31,7 +31,7 @@
 
 - **运算符优先级**：数值与跨文件依赖**只写在** `ParseTable.z42` 的 `ParseTable.LeftBp()` 及其头注释里
   （数值越大越紧；左结合，右操作数用 `bp + 1` 递归）。改优先级 = 编辑 `LeftBp()` 对应分支并同步它的头注释。
-- **错误处理约定**：Parser **不抛异常**，遇错调 `_diags.Error(code, msg, span)` 累积后继续；错误码集中在
+- **错误处理约定**：Parser **不抛异常**，遇错调 ``_diags.Error(code, msg, span)`` 累积后继续；错误码集中在
   `z42c.core/src/DiagnosticCodes.z42`；消息面向语言使用者，不暴露内部枚举名。恢复路径的四条规则
   （语句级 panic / 同行残渣 / 同位置去重 / 未闭合字符串）见 [source-compile.md](source-compile.md)。
 - 新语法要落到 z42c 自身源码之前，先读下面「四、自举纪律」。

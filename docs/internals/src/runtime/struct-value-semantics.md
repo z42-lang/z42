@@ -46,7 +46,7 @@ b.x = 99;       // 只改 b
 | 指令 | 语义 |
 |------|------|
 | `StructAlloc dst, type_name, size` | 在 arena 分配零初始化 blob，`dst` = StructRef 句柄 |
-| `StructCopy dst, src, size` | 复制 blob：字节 memcpy + 逐引用叶子 `Value::clone`（值语义） |
+| `StructCopy dst, src, size` | 复制 blob：字节 memcpy + 逐引用叶子 ``Value::clone``（值语义） |
 | `StructFieldGetPrim dst, base, (root_type, path), kind` | 读叶子：基元走字节 codec、引用走 `refs` 侧表 |
 | `StructFieldSetPrim base, (root_type, path), kind, val` | 原地写叶子（3a lvalue），同上分流 |
 
@@ -62,13 +62,13 @@ b.x = 99;       // 只改 b
 | `StructCopy` | **完全不用** | `StructArena::copy_into` 拷 `min(src.bytes.len(), dst.bytes.len())`，即两个 arena 槽**各自的 `layout`** |
 
 两个 blob 都是 arena 槽、各自带 `layout`，所以 `StructCopy` 从来不需要在指令里带类型名。
-⇒ `StructCopy` 无需 `TypeName`、`StructAlloc.Size` 只是兜底，均不需要格式 bump；
+⇒ `StructCopy` 无需 `TypeName`、``StructAlloc.Size`` 只是兜底，均不需要格式 bump；
 只有 `byte_off` → 字段序号才动编码。
 
 ### 符号化的叶子寻址（zbc 1.46）
 
 两条叶子指令携带的不再是**烘焙好的字节偏移**，而是 **`root_type`（池 idx）+ 字段序号路径**
-（`depth:u8 + idx:u16 × depth`，`depth >= 1`；扁平 `a.x` 就是 depth 1）。
+（`depth:u8 + idx:u16 × depth`，`depth >= 1`；扁平 ``a.x`` 就是 depth 1）。
 
 #### 🔴 动机不是性能
 
@@ -107,7 +107,7 @@ b.x = 99;       // 只改 b
 `try_lookup_type`（注册表哈希 + 读锁），**每一级一次** ⇒ 成本**由类型查找主导**，
 不由索引主导。序号仍是对的选择，但理由是**编号空间歧义**（上一节），不是这条。
 
-嵌套链（`line.a.x`）保留为路径（而非被编译器求和展平成一个立即数）。
+嵌套链（``line.a.x``）保留为路径（而非被编译器求和展平成一个立即数）。
 实测分布（全 e2e 语料 800 次链式发射）：**深度 1 占 85.1%**、≥2 占 14.9%、**最大 4**。
 
 #### 🔴 别再给这条路做提速 —— 动态权重已实测
@@ -130,7 +130,7 @@ b.x = 99;       // 只改 b
 
 #### 解析只有一个实现
 
-`exec_struct::resolve_for_access`（**先对账、后解析**），**interp 与 JIT helper 共用**。
+``exec_struct::resolve_for_access``（**先对账、后解析**），**interp 与 JIT helper 共用**。
 顺序是刻意的：错的编号空间下算出的偏移是个**看起来合法的数**，先解析再对账等于把最有
 信息量的诊断让给一个更晚、更远的失败。
 
@@ -150,7 +150,7 @@ b.x = 99;       // 只改 b
 覆盖门问的才是「**每个需要的**类型都有表吗」。
 
 判据取**并集**（`class_flags` bit2 **或** 交付了 struct 块）：声明路径按 `Kind == "struct"`
-置旗、实例化路径硬写 `Flags = 4`，而 struct 块本身还额外受 `Layouts.IsStructType` 门控 ——
+置旗、实例化路径硬写 `Flags = 4`，而 struct 块本身还额外受 ``Layouts.IsStructType`` 门控 ——
 只认一侧就会把门做成恒不响的摆设。前提是**格式严格钉死**（reader 只接受自己写的那个 minor），
 所以不存在「产物合法地没带表」这一档。
 
@@ -209,9 +209,9 @@ arena 同）→ blob 内引用叶子恒被重标记。因此**写引用进 arena
   blob struct 翻转为 `StructFieldSetPrim(句柄, offset, tag, a)`，**原地**填 blob（句柄携创建帧
   `frame_id`，跨 ctor 子帧仍解同一 arena 槽）。
 - `P b = a`（非 `new`）→ `StructAlloc b` + `StructCopy(b, a)`；`P b = new P(...)` 直接别名 fresh 句柄。
-- `b.x = v` → `StructFieldSetPrim`；`a.x` 读 → `StructFieldGetPrim`。
-- `this.x` / 裸字段（struct 方法/ctor 内）→ 同上（`this`=reg0 句柄）。
-- **属性 getter 读（`x.Prop`，`Prop` 是 `T Prop { get {...} }`）→ 静态 Call `<Struct>.get_Prop`（传 blob
+- `b.x = v` → `StructFieldSetPrim`；``a.x`` 读 → `StructFieldGetPrim`。
+- ``this.x`` / 裸字段（struct 方法/ctor 内）→ 同上（`this`=reg0 句柄）。
+- **属性 getter 读（``x.Prop``，`Prop` 是 `T Prop { get {...} }`）→ 静态 Call `<Struct>.get_Prop`（传 blob
   句柄，sret-aware），不是 `StructFieldGetPrim`**。判据：成员有 `get_Prop`
   方法即属性（`MemberCollector` 把属性名也登记进 `Fields` 供类型检查，但计算属性无 byte-layout 存储、
   auto-property 存储在 `__prop_Prop` 而非源名——故不能按源名查字段偏移）。**镜像 class 属性 getter 的
@@ -227,15 +227,15 @@ arena 同）→ blob 内引用叶子恒被重标记。因此**写引用进 arena
 ## 嵌套 struct 字段
 
 `struct Line { P a; P b; }`——字段本身是 struct。布局早已递归展平（嵌套 P 的叶子按偏移平移并入 Line
-的字节区间 + 引用位图），故 `line.a.x` 的叶子寻址是 `root_type=Line` + 字段序号路径 `[a, x]`，运行期沿路径解出累积 offset `off(Line,a)+off(P,x)`。
+的字节区间 + 引用位图），故 ``line.a.x`` 的叶子寻址是 `root_type=Line` + 字段序号路径 `[a, x]`，运行期沿路径解出累积 offset `off(Line,a)+off(P,x)`。
 
 **准入**：`IsBlobStruct` 接受含嵌套 struct 字段的 struct（要求 `FieldCount>=1` 且
 `Size>0`——后者兜住自引用 struct 的空布局，见下）。
 
-**叶子读写（3a 原地）**：`line.a.x` / `line.a.x = 3` 沿成员链**累积字段序号路径**，对根 blob 句柄发射
+**叶子读写（3a 原地）**：``line.a.x`` / `line.a.x = 3` 沿成员链**累积字段序号路径**，对根 blob 句柄发射
 **单条**现有 `StructFieldGetPrim` / `StructFieldSetPrim`——无新指令、无格式 bump。链根解析两遍互补、
 不重复发射：`_structChainRoot` 只 Emit 根一次（局部 / `this` reg0 / 拥有者裸 struct 字段），
-`_structChainRootType` / `_structChainPath` 纯查布局表得根类型名与序号路径。扁平单层 `a.x` 是其退化情形（depth 1）。
+`_structChainRootType` / `_structChainPath` 纯查布局表得根类型名与序号路径。扁平单层 ``a.x`` 是其退化情形（depth 1）。
 
 **链节必须真内联**：沿路径内联解析的前提是「这一节的字节就在
 容器 blob 里」。判据是 `AccessEmitter._isInlineChainLink`：容器是 blob struct **且** 该字段在容器布局里
@@ -254,7 +254,7 @@ t.Item1.Item2  错：路径 [Item1, Item2] 按内联解成 off(VT2,Item1)+off(VT
                对：Item1 非内联 ⇒ 断链：先取 t.Item1 的句柄为根，再在它上面读 Item2（偏移从 0 起）
 ```
 
-若不断链，症状是：`t.Item1.Item2` 读出外层 `Item2`、`t.Item1.Item1` 读出整块内层句柄后装箱崩、
+若不断链，症状是：``t.Item1.Item2`` 读出外层 `Item2`、``t.Item1.Item1`` 读出整块内层句柄后装箱崩、
 `pp.First.Y = 5` 写进外层别的字段。**先读进局部**（`var x = t.Item1; x.Item2`）总是对的——
 单节读正好走「非内联字段 = 取句柄」路径。属性 getter 出现在链中间（无布局存储）也按同一判据断链。
 读写共用 `_structChainRoot` / `_structChainPath`，故读、写、复合赋值一致。golden
@@ -266,7 +266,7 @@ t.Item1.Item2  错：路径 [Item1, Item2] 按内联解成 off(VT2,Item1)+off(VT
 
 **整字段复制**：`P p = line.a`（读出）/ `line.a = q`（写入）= 对子 struct 的叶子**逐叶子分解复制**
 （递归到真叶子；基元走字节 codec、引用叶子走侧表 `get_ref`/`set_ref`），复用现有 Get/SetPrim，
-不引入区间复制指令。值语义：`p` 得独立副本，改 `p.x` 不动 `line.a.x`。
+不引入区间复制指令。值语义：`p` 得独立副本，改 ``p.x`` 不动 ``line.a.x``。
 
 **自引用兜底**：`struct Node { Node next; }` = 无限大小（C# `CS0523`）。`LayoutOf` 的 `_inProgress`
 环检测置 `ErrorType` 并返回空布局（`Size==0`）→ `IsBlobStruct` 的 `Size==0` 门拒之 → 退化引用语义
@@ -286,7 +286,7 @@ offset），每个真叶子发射两条现有 `StructFieldGetPrim` + 一条现�
 
 **叶子比较语义完全复用现有 `Eq`**——基元→值相等（**float NaN → false**，符合 `==` 运算符语义）；
 `string` 叶子→**内容相等**（`Arc<str>` deref 比较）；`object`/`array` 叶子→**引用相等**（符合 z42 对象
-`==` 默认 + C# `ValueType.Equals` 对引用字段的行为），不递归深比较堆对象。
+`==` 默认 + C# ``ValueType.Equals`` 对引用字段的行为），不递归深比较堆对象。
 
 ```
 p1 == p2   ⟹   逐叶子: la=field_get(p1,off,tag); lc=field_get(p2,off,tag); cmp=eq(la,lc)
@@ -296,7 +296,7 @@ p1 == p2   ⟹   逐叶子: la=field_get(p1,off,tag); lc=field_get(p2,off,tag); 
 
 > 仅拦截 `==`/`!=` 且两侧均 blob struct；`<`/`<=`/`>`/`>=` 对 struct 无序（类型检查器不允许），非 blob
 > 操作数（基元/引用类型/单叶子 wrapper）走原 `_emitCompare` 不变。**衔接**：`_emitLeafEqChecks` 确立的
-> 逐叶子值相等，就是未来 struct 合成 `Equals`（C# `ValueType.Equals`）/ boxed struct 相等要复用的语义
+> 逐叶子值相等，就是未来 struct 合成 `Equals`（C# ``ValueType.Equals``）/ boxed struct 相等要复用的语义
 > （struct→object 装箱见下节）。
 
 ## struct→object 装箱 + 身份
@@ -324,7 +324,7 @@ struct（object/boxed）」→ 发 `AsCast`（复用现有 opcode）。VM `as_ca
 
 **身份**：`is_instance` / `as_cast` / `builtin_obj_get_type`（interp + JIT helper 对称）加 `BoxedStruct`
 分支——`is P`/`is object` true、`GetType()` → 精确 struct `Type`（type_name 驱动）、`as P` 拆箱 /
-`as object`·base·接口 保持 boxed / 不匹配 Null。`o.GetType()` 经 VCall 的 `BoxedStruct` 分支特判到
+`as object`·base·接口 保持 boxed / 不匹配 Null。``o.GetType()`` 经 VCall 的 `BoxedStruct` 分支特判到
 `builtin_obj_get_type`（保留精确类型，不拆箱 this）。
 
 > **JIT**（见下「JIT 值路径」节）：`jit_as_cast` 对 boxed struct 精确匹配**拆箱**到当前帧
@@ -344,7 +344,7 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
 - **`GetHashCode()`**：**native `__struct_hash_code`**（VM boxed-vcall 臂路由）——对 boxed blob 的 `bytes`
   FNV-1a + 混入引用叶子哈希（string 内容；object/array 叶子弱贡献常量，因 Equals 对引用叶子按引用比较）。
   `& 0x7fffffff` 非负（Dictionary 契约）。同值 → 同 `bytes`/`refs` → 同哈希。
-- **`ToString()`**：VM boxed-vcall 臂直接返回**短类型名**（C# `ValueType.ToString` 默认；字段 dump 留后续）。
+- **`ToString()`**：VM boxed-vcall 臂直接返回**短类型名**（C# ``ValueType.ToString`` 默认；字段 dump 留后续）。
 - **`GetType()`**：`builtin_obj_get_type`（PR2a）。
 
 **VM 派发**（`exec_vcall.rs` + `jit/helpers/vcall.rs` BoxedStruct 臂，interp+JIT 对称）：`GetType`/`GetHashCode`/
@@ -377,9 +377,9 @@ runtime 才认（`is_instance` 无裸 `StructRef` 臂）。因此调用点**必�
 
 ### 编译器派发：值类型 receiver 的 Object 方法
 
-上面是**运行期**协议；**编译器**须把值类型实例的 Object 方法调用路由到它——若 `a.GetType()`/`a.ToString()`
+上面是**运行期**协议；**编译器**须把值类型实例的 Object 方法调用路由到它——若 ``a.GetType()``/``a.ToString()``
 一律发**静态 `Call {Struct}.{method}`**（blob-struct 分支），Object 方法在 struct 上无函数体 → 运行期
-`undefined function`；`E.Red.GetType()` 因 enum 值是裸 i64 → `primitive_class_name(I64)` 会得到错误的 `Std.Int32`。
+`undefined function`；``E.Red.GetType()`` 因 enum 值是裸 i64 → `primitive_class_name(I64)` 会得到错误的 `Std.Int32`。
 故 `CallEmitter._emitCall` 的 instance 分支按方法分两路（覆盖 struct + enum，含空/单字段 struct 与 scalar
 之外的值类型）：
 
@@ -387,10 +387,10 @@ runtime 才认（`is_instance` 无裸 `StructRef` 臂）。因此调用点**必�
   编译期静态类型 == 运行期类型，GetType 结果编译期已知；发 `TypeofInstr(FQN)`（复用 typeof codegen，真句柄），
   **无装箱开销**。判据 `_isStructOrEnumStatic`：`Z42ClassType.IsStruct && !IsScalarValue`（用户 struct；scalar
   基元的 `IsStruct` 亦 true，但 `5.GetType()` 已由运行期正确处理，故排除以免自举字节漂移）或名在 `EnumTypes`
-  表（enum 变量 receiver，其 `Z42ClassType.IsStruct=false`）。**enum 成员引用 `E.Red`** 的载体仍是
+  表（enum 变量 receiver，其 `Z42ClassType.IsStruct=false`）。**enum 成员引用 ``E.Red``** 的载体仍是
   `BoundLitInt`（codegen 照发整数字面量），绑定时打的 `EnumTypeName` **origin 标记**让 `CallEmitter`
   折叠回 `typeof(E)`。
-  > `E.Red` 的静态类型是 `E`（不是 `long`）；`E.Red == 0` 与「传 int 参」都不成立（双向都要显式 cast）。
+  > ``E.Red`` 的静态类型是 `E`（不是 `long`）；`E.Red == 0` 与「传 int 参」都不成立（双向都要显式 cast）。
   > **载体是 `BoundLitInt`、运行期表示是 i64**，但**身份**是 `E`：擦除到 `object` 时装箱成挂 enum 自己
   > `TypeDesc` 的盒，`GetType()` 因此与这里的编译期折叠答案一致。
   > enum 的完整语义 SoT 见 [`language/enums.md`](https://z42-lang.github.io/z42/reference/language/enums.html)。
@@ -422,7 +422,7 @@ vcall Equals，代价不值）。
 
 **问题**：泛型路径把 struct 实参当**未装箱 `Z42GenericParamType`（K/T）** 传入——`BoxIfNeeded` 只对
 `object`/接口目标装箱，type-param 不装箱 → 裸 `StructRef`（帧作用域 arena 句柄）流入容器：`Dictionary.Set`
-的 `key.GetHashCode()` = 对 StructRef 的 VCall → 崩；`keys[slot]=key` 存进堆数组 → 帧退出 use-after-free。
+的 ``key.GetHashCode()`` = 对 StructRef 的 VCall → 崩；`keys[slot]=key` 存进堆数组 → 帧退出 use-after-free。
 
 **装箱（存入）**：`TypeChecker.BoxIfNeeded` 的 `erasesS` 谓词加 `|| (target is Z42GenericParamType)`——
 覆盖所有走 `BoxArgs` 的方法实参（`List.Add`/`Dictionary.Set`/`Contains`…）。`d[key]=v` 的 indexer-set
@@ -486,14 +486,14 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 
 `AccessEmitter` 谓词 `_isInlineStructFieldRoot`（字段类型 `IsBlobStruct` ∧ 容器是 class）+ `_isOwnerInlineField`
 （class 方法内裸 `pt`=this.pt，靠 `EmitContext.OwnerClassName`）。`_structChainRoot`/`_structChainRootType`/`_structChainPath` 扩两
-根（内联字段根 = 对象句柄 / reg0）→ 叶子 `c.pt.x`/`pt.x` 复用嵌套链发 `StructFieldGetPrim/SetPrim`；整字段读
+根（内联字段根 = 对象句柄 / reg0）→ 叶子 ``c.pt.x``/``pt.x`` 复用嵌套链发 `StructFieldGetPrim/SetPrim`；整字段读
 （`Point p = c.pt`）→ `StructAlloc` + `_copyRegion` 拷出（值副本）；整字段写（`c.pt = q`）→ `_copyRegion` 拷入。
 
 ### `struct[]`：STRUCT 数组
 
 STRUCT 模式的数组（C# inline `struct[]`）：一个块里先是元素布局字（计数的 `Arc<StructTypeLayout>`），再是 `len` 个元素
 blob 紧凑排列，每个元素就是独立 blob 的布局，引用叶子是元素内的引用字（数组块的形状见 [object-abi.md](object-abi.md)「数组元素」）。`arr[i]` 元素 offset 运行期定 → 需**堆 base 句柄**
-`Value::StructRefHeap{idx, frame_id}`（指向 `VmContext.exec.transient_arena` 里的 `StructArrayElem{arr, index}`；arena `StructRef` 热路径不动；仅数组需句柄）。GC：
+`Value::StructRefHeap{idx, frame_id}`（指向 ``VmContext.exec.transient_arena`` 里的 `StructArrayElem{arr, index}`；arena `StructRef` 热路径不动；仅数组需句柄）。GC：
 `ArrayObj::visit_refs` 逐元素解码引用叶子供扫描；元素引用叶子写触发 `write_barrier_array_elem`，
 整元素写与批量写之后按 `elem_ref_slots` 对每个引用叶子发屏障。
 
@@ -502,7 +502,7 @@ blob 紧凑排列，每个元素就是独立 blob 的布局，引用叶子是元
   `BoxedStruct`）字节+引用叶子拷进元素槽。
   - **泛型值 struct 数组的类型查找按擦除裸名**：`array_new` 携带的元素类型名
     是**非擦除全名**（`Kv<string, int>`，供 `arr.GetType().GetElementType()` 反射），但泛型是**类型擦除**——
-    一个泛型定义只注册**裸名** `Kv` 的单一 `TypeDesc`。故 `elem_mode` 查类型前须 `element_type.split('<')`
+    一个泛型定义只注册**裸名** `Kv` 的单一 `TypeDesc`。故 `elem_mode` 查类型前须 ``element_type.split('<')``
     剥泛型实参、用裸名 `try_lookup_type`，否则用全名查会 miss → 数组退化成**引用背衬**（元素 `Null`）→
     `StructFieldSetPrim` 崩 `expected StructRef, got Null`（`KeyValuePair<K,V>[]` = `Dictionary.Entries()` 的返回，
     正是此路径）。全名仍进数组的描述符以保元素反射。该处理覆盖 interp/jit/数组字面量三条创建路径。
@@ -522,7 +522,7 @@ blob 紧凑排列，每个元素就是独立 blob 的布局，引用叶子是元
   lambda 的结构体参数/返回类型携带精确布局名，返回槽及参数副本随调用方帧回收。
 - **擦除布局的泛型构造器**：已知 struct 实参传入裸型参位时先装箱，避免泛型槽保留创建帧的
   struct 句柄；采用特化内联布局的构造器继续接收原有 struct 实参，保持两种布局的协议一致。
-- **对象内联 struct 字段**（`class C { Point pt; }`）：默认零初始化 / `c.pt.x` 叶子读写 / 整字段拷入拷出值语义
+- **对象内联 struct 字段**（`class C { Point pt; }`）：默认零初始化 / ``c.pt.x`` 叶子读写 / 整字段拷入拷出值语义
   独立 / 方法内裸字段 / string 引用叶子内联 / 多对象独立——golden `struct_heap_inline.z42` 端到端验证。
 - **`struct[]` 值类型数组**（`Point[]`）：默认零初始化 / `arr[i].x` 叶子读写 / 整元素拷出拷入值语义独立 /
   元素独立 / `new Point[]{}` 字面量 / string 引用叶子内联——golden `struct_array.z42` 端到端验证。格式中立。
@@ -552,7 +552,7 @@ GC 管理 + 引用身份；基元 = 轻量 `Box`、无引用身份、非 GC 管�
 无引用身份就是语义偏差。
 
 **唯一装箱模型**：`__box_prim`（`corelib/core/convert.rs`）产堆 `ScriptObject` + `Value::BoxedStruct`，
-与 struct 装箱同一路径 → 每次装箱 alloc 新盒（C# 引用身份），复用对象块的全套 GC。无 `Value::Boxed`
+与 struct 装箱同一路径 → 每次装箱 alloc 新盒（C# 引用身份），复用对象块的全套 GC。无 ``Value::Boxed``
 变体（判别号 13 留空，`#[repr(C,u8)]` 显式判别 14-18，JIT 原始布局不受影响）。
 
 **标量存储（与 struct 装箱完全同构，零格式 bump）**：`__box_prim` 只装**整数**（bool/char/double/
@@ -560,13 +560,13 @@ string 各留自己的 `Value` variant，不经此路）。整数标量的 **LE 
 （宽度按 wrapper 名查 `well_known_names::int_wrapper_scalar_spec` → `Std.Int32`→4 / `Std.Byte`→1 /
 `Std.Int64`→8…），`slots`/`struct_refs` 空。**关键**：基元 wrapper（`Std.Int32` 等）是 phantom struct
 （零字段 / layout size 0），故装箱走**专用 alloc** `Heap::alloc_boxed_prim`（调用方按标量宽度定 `struct_bytes`
-尺寸），**不**走 `type_desc.inline_regions()`（那会给零字段 wrapper 空 `struct_bytes`）→ wrapper 的 emitted
+尺寸），**不**走 ``type_desc.inline_regions()``（那会给零字段 wrapper 空 `struct_bytes`）→ wrapper 的 emitted
 struct_layout / zbc TYPE section 完全不动，**无格式 bump**。
 
-**拆箱**：`ScriptObject::boxed_prim_i64()`（`object/object/object.rs`）按 `type_desc.name` 的
+**拆箱**：`ScriptObject::boxed_prim_i64()`（`object/object/object.rs`）按 ``type_desc.name`` 的
 `(width, signed)` 从 `struct_bytes` 前 `width` 字节还原 i64——signed narrow 符号扩展、unsigned 零扩展；
 非整数盒（多字段 struct 装箱 / 名不在整数 wrapper 表）返 `None`。**这个 `Some`/`None` 是「基元盒 vs struct 盒」
-的分流判据**：所有原 `Value::Boxed` 消费点收敛成单一 `BoxedStruct` 臂，需要区分时用 `boxed_prim_i64()`：
+的分流判据**：所有原 ``Value::Boxed`` 消费点收敛成单一 `BoxedStruct` 臂，需要区分时用 `boxed_prim_i64()`：
 
 | 消费点 | 基元盒（`boxed_prim_i64()==Some(n)`） | struct 盒（`None`） |
 |--------|-------------------------------------|---------------------|
@@ -574,7 +574,7 @@ struct_layout / zbc TYPE section 完全不动，**无格式 bump**。
 | `(T)o` 数值转换（`convert_value`） | 拆回 `I64(n)` 再 convert | 不拦截（struct 不走数值转换） |
 | VCall（`exec_vcall` + `jit/helpers/vcall`） | `this = I64(n)` 交基元 struct 方法体 | `this = 盒` 交合成对象协议方法 |
 | `value_to_str` | 标量字符串（`WriteLine(object)` 打印 `5` 非 `Std.Int32{...}`） | `类型名{...}` 占位 |
-| `GetType` | `type_desc.name` = 精确 wrapper（`Int64` 不丢宽度） | `type_desc.name` = struct 类型 |
+| `GetType` | ``type_desc.name`` = 精确 wrapper（`Int64` 不丢宽度） | ``type_desc.name`` = struct 类型 |
 | equality（`Value::eq`） | 装箱整数 vs 裸整数透明拆箱比较；盒 vs 盒按 `struct_bytes` | 盒 vs 盒按类型名 + `struct_bytes` + `struct_refs` |
 
 **格式中立**：`__box_prim` 发射点 / 装箱路由不依赖盒的运行期表示 → zbc/zpkg 格式不变。golden `types/boxed_primitive_is_as.z42`（Int64/Byte/Int32 跨宽度
@@ -635,7 +635,7 @@ is-a / `GetType` / vcall。
 > `object` 槽，`is` / `GetType` 答错，或者裸 `StructRef` 句柄逃出创建帧后 use-after-free。
 
 **拆箱消歧**：`(int)x` 有两义——① `x` 是 object / 接口 → 拆箱（`AsCast`）；② `x` 是数值 → 数值窄化
-（`Convert`）。按 `x.Type()` 分派，绝大多数既有 cast 属 ②，不受影响。分类器口径见
+（`Convert`）。按 ``x.Type()`` 分派，绝大多数既有 cast 属 ②，不受影响。分类器口径见
 reference 的[类型转换](https://z42-lang.github.io/z42/reference/language/conversions.html)。
 
 **call-arg 与基元 native 的交互**：call-arg 装箱会把整数实参装成 object（`Assert.Equal(object,object)`
@@ -674,7 +674,7 @@ callee，零 per-site 改动。**OSR 例外**：`from_interp_regs` 续接同一�
 ### 补齐：struct[] 数组 + 装箱拆箱
 
 - **`jit_array_new`/`jit_array_new_lit`** 对 value-struct 元素造 STRUCT 数组（复用
-  `objops::array` 的 `elem_mode`/`pack_struct_elem`），**`jit_array_get`** 对 STRUCT 数组产
+  ``objops::array`` 的 `elem_mode`/`pack_struct_elem`），**`jit_array_get`** 对 STRUCT 数组产
   `StructRefHeap` 句柄（非 `get_boxed` BoxedStruct 快照）——接通 JIT 下 `new Point[]` + `arr[i].x` +
   `foreach(P p in arr)`（元素拷出走 `copy_array_elem_out`）。
 - **`jit_as_cast`** 对 `BoxedStruct` 精确匹配**拆箱**到当前帧 arena `StructRef`（`(Point)o`），镜像 interp
@@ -735,14 +735,14 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 是两份独立盒、反射 `SetValue` 改盒调用方看不见，与 C#（box 是共享堆引用）不一致。故载荷是
 **`ObjRef`**（共享堆句柄）：
 
-- 装箱 = 分配一个 **struct 类型的 `ScriptObject`**（`type_desc.is_struct()`，struct blob 存进对象已有的
+- 装箱 = 分配一个 **struct 类型的 `ScriptObject`**（``type_desc.is_struct()``，struct blob 存进对象已有的
   `struct_bytes`/`struct_refs`，`slots` 空）。`inline_region_sizes()` 对 `is_struct()` 类型改读该类型自己的
   `struct_layout`（size + ref_count），使 `alloc_object` 为盒分配正确大小的 blob 区。装箱经
-  `corelib::core::convert::box_struct_blob`（`__box_struct` 复用它），拆箱 `unbox_struct` 读对象 blob → 当前帧 arena。
+  ``corelib::core::convert::box_struct_blob``（`__box_struct` 复用它），拆箱 `unbox_struct` 读对象 blob → 当前帧 arena。
 - **复用对象块 + 全部 GC 机制，零 GC 核心改动**：GC 的 mark / gen-age / trace / scan_object_refs /
   size / 跨代写屏障（`maybe_remember_owner` 的 owner+new 两侧）的 `BoxedStruct` 臂与 `Value::Object` **同路**
   （底层同为 `ObjRef`）。`is/as/GetType/vcall/Equals` 保持 boxed 值类型特判，只改「读盒」经对象
-  `type_desc.name`/`struct_bytes`/`struct_refs`。
+  ``type_desc.name``/`struct_bytes`/`struct_refs`。
 - **收益**：`object b = a` 别名同盒、传参改盒可见、反射 `SetValue` 写穿——达成 C# 引用身份。
 - **不给 struct 加 base/vtable**——只是把值装进已有对象容器、用 struct 自己的 TypeDesc。
 
@@ -773,7 +773,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 - **为什么落到通用 `field_get`**：调用点的静态类型是裸 `T`（`--dump-bound` 实测
   `(call id … :T)`、成员 `:<unknown>`）⇒ `AccessEmitter._emitMember` 的
   `_isBlobStruct(m.Target.Type())` 判假 ⇒ 不走 `struct_fget_prim`（那条本就认盒）。
-- **做法 = 复用反射那条已验证的按名取叶子路径**（`accessors::boxed_struct_field_get`，
+- **做法 = 复用反射那条已验证的按名取叶子路径**（``accessors::boxed_struct_field_get``，
   含 `validate_against` 布局对账），interp（`exec_object.rs`）+ JIT（`jit_field_get`）**两条臂对称**
   —— 只做一侧的话小用例全绿而热代码崩。
 - **`field_set` 刻意不跟着加**：写进「从擦除返回位流出的临时盒」必然被丢弃，正解是编译期拒绝
@@ -783,7 +783,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
   措辞红；撤 JIT 臂 → **JIT 措辞红**（证明热循环真的进了 `jit_field_get`，而不是全程解释执行）。
 - ⚠️ 验这类改动必须 `xtask build runtime` **再** `package dev-sdk`：`package dev-sdk` 只装配、**不重编 Rust**，
   只跑后者会拿到上一轮的 `z42vm`，得到一字未变的假阴性。
-- 📉 **已知代价**：`struct_reflect::compute` + `validate_against`
+- 📉 **已知代价**：``struct_reflect::compute`` + `validate_against`
   **每次访问都重算**（反射那条是冷路径，从来没人给它加缓存）。实测 interp 下 500 万次
   `id(v).X` = 2.29s，同规模普通对象字段读 = 0.78s ⇒ 每次访问约 300ns 的布局重算。
   待办：按类型名缓存 `ComputedLayout`（布局按类型不变、缓存天然安全，
@@ -794,7 +794,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 **堆对象上的内联 struct 字段**（`class C { Point pt; }`）若走普通 slot 反射，`GetValue(fi_pt, c)` 读的是
 **dead slot → `Null`**。故读写路径**复用同一套字节解码基础设施**：
 
-- **类级内联布局复刻**（`struct_reflect::compute_class_inline`，镜像编译器 `StructLayout._computeInlineLayout`）：
+- **类级内联布局复刻**（``struct_reflect::compute_class_inline``，镜像编译器 `StructLayout._computeInlineLayout`）：
   与 struct `_compute` 不同——类**只把 struct 字段**按声明序打包进对象 `struct_bytes`（自然对齐、引用叶子展平进
   `struct_refs`），**非 struct 字段仍在 slots**。产出「struct 字段名 → 对象相对 (byte_off, size, 引用叶子)」+
   对象相对引用位图，用 `validate_against` 对交付的 `TypeDesc.inline_layout`（已 wire 的合成布局）做同款三层
@@ -842,7 +842,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 **待办（仍未覆盖）**：① **普通泛型 class 不取独立身份**——给它独立身份要合成完整类描述符
 （基类链/接口/静态字段；**vtable 不需要** —— 运行期从 `own_methods` + 基链 merge）；
 ② **跨包实例化不特化**（消费方编译只读依赖签名，拿不到生产方方法体无法重发）⇒
-**`Std.ValueTuple` 在 z42.core，用户写 `(P2,int)` 是跨包，尚未覆盖**；
+**``Std.ValueTuple`` 在 z42.core，用户写 `(P2,int)` 是跨包，尚未覆盖**；
 ③ 容器 backing 仍靠泛型装箱（`List<T>` 内部 `new T[n]` 只编一份、元素名是字面 `"T"`）。
 
 ### 🔴 单调化必须是**闭包**
@@ -896,7 +896,7 @@ fn @Demo.G<P2>.Get(1) -> T {
 
 根因是**两侧都在看未代换的返回类型 `T`**：callee 的 `FunctionEmitter._blobStructNameT(T)` 判否
 （`T` 既非 ClassType 也非 InstantiatedType），caller 的 `_isBlobStruct(c.Type())` 也判否
-（装箱模型下 `c.Type()` 是 `Unknown`，外层包 `BoundConvert` 拆箱）。两边都判否 ⇒ **表面自洽**，
+（装箱模型下 ``c.Type()`` 是 `Unknown`，外层包 `BoundConvert` 拆箱）。两边都判否 ⇒ **表面自洽**，
 代价是返回一个已死帧的句柄。
 
 > 🔬 **只修一侧＝换个地方错**：原型中只让 callee 走 sret，症状立刻变成
@@ -950,8 +950,8 @@ fn @Demo.G<P2>.Get(1) -> T {
   而不是丢实参的 `NamedType.Name`。
 
 ⚠️ **实例化名的基名必须 arity-mangled**（`Pair$2<int,string>`）。泛型类与同名非泛型类共存时
-，不 mangle 的话擦除前缀是 `Demo.Pair` —— 那是**非泛型**的那个类，
-运行期擦除回落会调到它身上（实测 `p2.Describe()` 返回 "non-generic Pair"，**静默**错值）。
+，不 mangle 的话擦除前缀是 ``Demo.Pair`` —— 那是**非泛型**的那个类，
+运行期擦除回落会调到它身上（实测 ``p2.Describe()`` 返回 "non-generic Pair"，**静默**错值）。
 
 ⚠️ 描述符投送必须**走到不动点**：造一条描述符会发现新的实例化（基表上的 `Bag<int>` 只有在造
 `Sub<int>` 的描述符时才被登记）。快照一次 `Keys()` 就漏，实测
@@ -964,7 +964,7 @@ fn @Demo.G<P2>.Get(1) -> T {
   （实测 `VCall: function Demo.DInt.Tag not found`）。顺序：接收者自己的擦除定义
   先于**基类**的同名方法。
 - `is_subclass_or_eq_td`：`x is GBox`（不带实参，C# 写不出来）意为「任何 GBox 的实例化」，
-  故每层都比一次擦除前缀。两种拼写都要认：裸名 `Demo.GBox`，以及 arity-mangled 的
+  故每层都比一次擦除前缀。两种拼写都要认：裸名 ``Demo.GBox``，以及 arity-mangled 的
   `Demo.GBox$1`（**导入**泛型在元数据里的拼写，`StmtEmitter` 的 catch_type 就是它）——
   漏掉后者时 `catch (MulticastException<bool>)` 抓不住 `Std.MulticastException<bool>`。
 - `build_type_registry`：**实例化的名字就是它的类型实参**，在这里解析成 `type_args`。
@@ -1028,7 +1028,7 @@ InstNeedsOwnBody(inst) = Layouts.InstDiffersFromDef(inst)      // ① 布局不�
 只放宽**派发** ⇒ 调用点指向一个没发射的名字（运行期 MissingSymbol）。
 
 ⚠️ **`EmitStaticInit` 自己拼键、不经 `_staticKey`**，所以要在那里也认一次 `SpecInstName` ——
-漏掉时 `Demo.GBox<int>.$cctor` 的体里写的还是 `Demo.GBox.Seed`（实测，症状就是 ③）。
+漏掉时 `Demo.GBox<int>.$cctor` 的体里写的还是 ``Demo.GBox.Seed``（实测，症状就是 ③）。
 这又是「同一判据散在多处」，只不过这次是**同一个键的两个拼法**。
 
 **解析器**：`GBox<int>.Count` 须可解析（否则 `E0202`）。`<类型列表>` 后紧跟 `.` ⇒ 左边是**类型引用**，

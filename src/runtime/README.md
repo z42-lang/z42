@@ -34,12 +34,12 @@
 | `exec/state.rs` | `ExecState` 组合每 VM 的引擎注册与代码寿命 |
 | `config/snapshot.rs` | `VmConfig`：门面捕获的构造输入，包含 heap 与采样设置；LOH 覆盖仍应用到进程策略 |
 | `context/extensions.rs` | `VmExtensions` 创建前登记与冻结的每 VM Rust 扩展状态，`VmContext::ext` 借用查询 |
-| `host/app.rs` | `host::run_app`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
-| `host/boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`host::run_app` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
+| `host/app.rs` | ``host::run_app``：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
+| `host/boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），``host::run_app`` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉 |
 | `lib.rs` | 库入口，re-export 公开 API |
 | `config/mod.rs` + `config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处）：`config/mod.rs` 为 hub（Default / from_env / toml 加载 / 全局单例）；`config/knob_table.rs` 的 `KNOWN_KNOBS` 旋钮表、`knobs.rs`、`parse.rs`（各 `parse_*`）、`resolve.rs`（四层输入 + 默认的分层解析与 provenance）、`split.rs`（转换为子系统拥有的 `GcConfig` / `JitConfig` / `VmConfig`）、`source.rs`（`Z42_CONFIG` / `Z42_APP_CONFIG` 文件层）、`cli.rs`（`--set key=value`）、`availability.rs`（旋钮可用性）、`render.rs`（`--info` / `--list-knobs` / `--show-config` 渲染）；单测在 `config/config_tests.rs` |
 | `diagnostics/counters.rs` | `RuntimeCounters`：VM 可观测性原子计数器 |
-| `diagnostics/observer.rs` | `RuntimeObserver`：非 GC 运行时事件的 push 流（与 `gc::GcObserver` 对称） |
+| `diagnostics/observer.rs` | `RuntimeObserver`：非 GC 运行时事件的 push 流（与 ``gc::GcObserver`` 对称） |
 | `host/signal.rs` | 硬崩溃时捕获 z42 调用栈的 OS 信号 handler（调 `pal::signal`） |
 
 ### 子模块
@@ -165,4 +165,4 @@ xtask test e2e                                # VM golden 端到端（interp + j
 - 用法与规则（参考手册）：[嵌入](../../docs/reference/src/embedding/README.md)
 - 设计 / 机制（实现内幕）：[运行时](../../docs/internals/src/runtime/README.md) · [VM 总体架构](../../docs/internals/src/runtime/vm-architecture.md) · [产物格式](../../docs/internals/src/formats/README.md)
 
-`xtask build runtime` 在同一 Cargo 图中构建动态运行时及独立后端。SDK 使用动态库；所有 runtime 包提供目标适用的独立静态组件归档，原生平台另提供动态库（iOS 为 Framework）；WASM 默认最终模块之外保留按需重链能力。`examples/z42.rs` 是本包的最终链接 target，启用 `static-embedding` 后生成统一命名的 C 静态库和动态库；iOS/Android 不再需要包装 Cargo 包。静态 Rust 宿主链接所需后端 rlib，并先调用 `host::register_static_component`；最终 C 嵌入库先调用 `z42_linked_components_init`。不支持 JIT 的 target 不编译 Cranelift，请求不可用后端明确报错。详见[组件化运行时](../../docs/internals/src/runtime/componentized-runtime.md)。
+`xtask build runtime` 在同一 Cargo 图中构建动态运行时及独立后端。SDK 使用动态库；所有 runtime 包提供目标适用的独立静态组件归档，原生平台另提供动态库（iOS 为 Framework）；WASM 默认最终模块之外保留按需重链能力。`examples/z42.rs` 是本包的最终链接 target，启用 `static-embedding` 后生成统一命名的 C 静态库和动态库；iOS/Android 不再需要包装 Cargo 包。静态 Rust 宿主链接所需后端 rlib，并先调用 ``host::register_static_component``；最终 C 嵌入库先调用 `z42_linked_components_init`。不支持 JIT 的 target 不编译 Cranelift，请求不可用后端明确报错。详见[组件化运行时](../../docs/internals/src/runtime/componentized-runtime.md)。

@@ -34,7 +34,7 @@ entry 原本是两个独立的 `AtomicU32`，install 先写载荷、再写 TypeI
 "write type_id LAST"。**在 ARM 上这不构成发布顺序**（两个 `Relaxed` 存储可以被另一个核乱序观察到），
 于是并发线程能看到：
 
-> 新的 TypeId ＋ 还没写入的载荷（`UNRESOLVED` = `u32::MAX`）
+> 新的 TypeId ＋ 还没写入的载荷（`UNRESOLVED` = ``u32::MAX``）
 
 `field_value(u32::MAX)` 越界，而它对越界槽位**静默返回 `Value::Null`**——没有任何报错。
 Null 顺着数据流走下去，表现成三种毫不相干的错：
@@ -85,8 +85,8 @@ seqlock 协议。**打包成一个原子量让这些协议全都不必要**，�
 | debug 断言 | `assert_field_ic_slot`（`ic.rs`） | PIC 命中后拿权威 `field_index` 复核，不符即 panic。违例形态如 `cached at slot 4294967295` |
 | debug 断言 | `assert_pic_target`（`exec/ops/vcall.rs`） | VCall 侧同款：命中的目标必须属于该接收者 |
 | loom 模型 | `tests/ic_publication_loom.rs` | 穷举交错验证打包协议不撕裂；**自带阴性对照**（旧的双原子协议，`--ignored` 手动跑，必红） |
-| 并发压力单测 | `metadata::resolve::resolver_tests` | 多写多读跑 300ms，断言命中的载荷永远配对 |
+| 并发压力单测 | ``metadata::resolve::resolver_tests`` | 多写多读跑 300ms，断言命中的载荷永远配对 |
 
 > ⚠️ **给这条热路径加探针/开关时**：必须用 `OnceLock` 在启动时读一次环境变量。
-> 在 lookup 里调 `std::env::var` 会自己拿全局锁、把路径串行化，
+> 在 lookup 里调 ``std::env::var`` 会自己拿全局锁、把路径串行化，
 > 结果**对照组和实验组都变成 0 失败**——探针把要测的竞态掩盖掉了。

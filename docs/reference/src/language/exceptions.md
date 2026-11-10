@@ -78,7 +78,7 @@ typed `catch (Exception e)` 不会捕获它们。新代码请一律 `throw new <
 | `Int32.Parse` 等解析的文本格式不对 | `FormatException` | `Int32.Parse: the input string 'x' was not in a correct format` |
 | 解析出的数超出目标类型（含无符号类型解析负数） | `OverflowException` | `Int32.Parse: value was either too large or too small for Int32` |
 | 解析 null | `ArgumentNullException` | `Value cannot be null. (Parameter 's')` |
-| `s[i]` / `s.CharAt(i)` 越界（含负数） | `IndexOutOfRangeException` | `index 9 is out of range for a string of length 3` |
+| `s[i]` / ``s.CharAt(i)`` 越界（含负数） | `IndexOutOfRangeException` | `index 9 is out of range for a string of length 3` |
 
 `TryParse` 一族（`Int32.TryParse(s, ref v)` 等）**从不抛异常**：格式不对、越界或 `s` 为 null 都返回
 `false` 并把 `v` 置零。
@@ -86,7 +86,7 @@ typed `catch (Exception e)` 不会捕获它们。新代码请一律 `throw new <
 null 检查先于下标检查：`a[-1]` 在 `a` 为 null 时抛 `NullReferenceException`。
 
 ⚠️ **已知边界**：sealed 类的方法、以及别的包里声明的非虚方法（如 `string` 的 `Substring`）不在调用点判空——
-null 在方法体**第一次用到 `this`** 时才抛，`Message` 指向那一步（`s.Substring(1)` 报
+null 在方法体**第一次用到 `this`** 时才抛，`Message` 指向那一步（``s.Substring(1)`` 报
 ``cannot read property `Length` of a null reference``）；方法体完全不用 `this` 时不抛。调用前自己查空。
 
 ## `Exception` 基类
@@ -129,7 +129,7 @@ outer.InnerException.Message;      // "cause"
   `populate_stack_trace`。
   ⚠️ **验这件事不能只看 `--mode jit` 跑通** —— 小用例里抛出的函数可能全程解释执行；
   判据是 `Z42_JIT_PROFILE=1` 里有没有该函数的 `lazy-compile` / `osr-compile`。
-- 帧名带参数类型签名（如 `Greeter.greet(Greeter,str)`），实例方法含隐式 `this`。
+- 帧名带参数类型签名（如 ``Greeter.greet(Greeter,str)``），实例方法含隐式 `this`。
 - release 构建（strip）会把行号信息剥离到同目录的 `<name>.zsym` 旁挂文件；
   **把 `.zsym` 和 `.zpkg` 放在一起，trace 就照常带 `file:line:col`**，否则只剩函数名 + 偏移。
   归档了 `.zsym` 的崩溃栈可以事后用 `z42d symbolicate <trace> --syms <file|dir>...` 还原。

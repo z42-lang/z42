@@ -45,8 +45,8 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 提供平台�
 
 ## 不变量（必须遵守）
 
-1. **OS-neutral surface**：pub fn signatures 不带 OS 类型（不 `libc::c_char` /
-   `winapi::HANDLE` 等）
+1. **OS-neutral surface**：pub fn signatures 不带 OS 类型（不 ``libc::c_char`` /
+   ``winapi::HANDLE`` 等）
 2. **平台边界**：生产代码的平台 cfg 与 `libc` 仅允许出现在 `pal/sys/`；上层 concern 和 consumer 都不选择操作系统。测试可直接验证 OS 行为
 3. **graceful degrade**：未实现的平台返回 None / 空字符串而非 panic
 4. **错误也 OS-neutral**：用 `Option<T>` / `Result<T, E>` 抽象，不暴露 errno

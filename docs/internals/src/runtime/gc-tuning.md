@@ -170,8 +170,8 @@ nursery 是**测出来的量**、不是常量：每次 minor 结束时
 
 ## 默认闸门按条目封顶
 
-> 代码：`gc/heap/entry_unit.rs`（读数、封顶、探针）、`auto_collect.rs::allowance_unit`、
-> `pause_budget.rs::Bounds`。
+> 代码：`gc/heap/entry_unit.rs`（读数、封顶、探针）、``auto_collect.rs::allowance_unit``、
+> ``pause_budget.rs::Bounds``。
 
 回收的**工作量按对象算**（minor 标记、清扫的是条目，major 追踪活条目、清扫死条目），而决定**何时**回收的默认闸门
 ——默认 nursery 16M、major allowance 的下界 4 个 nursery、切片间隔与增量周期的增长目标（它们的分数）——若只按字节计，
@@ -393,7 +393,7 @@ throttle 去抖比 near-limit 触发更容易写错，且错了不会报错、�
   停在 `near_limit_ratio × budget`，预算才真正封顶。
 
 这个基线不需要往各条回收路径里插钩子：上次 trip 记下的 `used` 减去那次回收 `reclaimed` 的
-字节数，就是它收完时的水位（`stats.reclaimed_bytes` 的增量，每条回收路径本就在维护）。
+字节数，就是它收完时的水位（``stats.reclaimed_bytes`` 的增量，每条回收路径本就在维护）。
 
 > 实测（`z42c.semantics --release --no-incremental`，256MB 预算）：基线取 trip 时，全程只收
 > **一次**——cycle 1 在 230.4MB 处释放 186.3MB，闸门随即要 295.3MB（110% 预算，倍数已被下面
@@ -670,7 +670,7 @@ helper 发；下面三处也必须发：
 
 维护点两处，缺一不可：`maybe_auto_collect` 的**每一条出口**（包括「这次不收」——
 否则下一次分配又走进来拿锁），以及 `sub_used_bytes`（四条回收路径唯一的公共汇合点）。
-⚠️ **后者必须无锁**：其中三处调用时**正持着 `inner.lock()`**，`parking_lot::Mutex` 不可重入。
+⚠️ **后者必须无锁**：其中三处调用时**正持着 `inner.lock()`**，``parking_lot::Mutex`` 不可重入。
 
 ### nursery 是整套策略的计量单位
 
@@ -976,14 +976,14 @@ root 后面，直接 pin owner 的测试是空转的。**
 
 - `Z42_GC_PROMOTION_AGE` 经门面解析并传入 `GcConfig`，在**建堆时规范化一次**（`GcConfig::promotion_age`），
   值分发给 `Heap` / `VarRegion` 各存一份 `promotion_age`；
-- 写屏障读的是 `self.promotion_age` —— 一个**普通字段**，不是原子、不是全局，
+- 写屏障读的是 ``self.promotion_age`` —— 一个**普通字段**，不是原子、不是全局，
   热路径成本为零；
 - `PROMOTION_THRESHOLD` 常量**保留**，语义从「值」变成「默认值」，
   那 20 处测试一行不用改；
 - 值**在堆的生命周期内不可变** —— 这正是三份缓存副本能安全存在的原因。
 
 **范围**：`1..=MAX_GEN_AGE`（当前 3）。上界是硬的 —— 年龄打包在
-`GcBlockHeader::type_tag` 的两个空闲位里，3 是能表示的最大值（同一字节剩下的位：
+``GcBlockHeader::type_tag`` 的两个空闲位里，3 是能表示的最大值（同一字节剩下的位：
 bit 6 是字符串块的「全 ASCII」位——字符串分配时写入，`Length` / `CharAt` / `Substring` 据此直接按字节下标、
 不查每字符串元数据缓存，JIT 内联的 `Length` / 字符访问也直接读它（[jit.md](jit.md#字符串原语内联)）；年龄的 STW 读改写都保留它；bit 5、bit 7 空闲——年轻集合成员关系在 region 的位图里）。0 会让一切在第一次 minor
 就晋升（等于没有年轻代）。越界**警告并 clamp**，不是饱和：一个饱和的年龄永远

@@ -41,7 +41,7 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
 产物在宿主工程副本 `artifacts/intermediate/toolchain/workload/ios/host/`（不写本目录）：
 `Z42VM.xcframework/`、`Resources/stdlib/*.zpkg`。
 
-模拟器选择 JIT：`Z42VM(..., execMode: .jit)`；运行时提供独立 `libz42_jit.a` / `z42_jit.framework`。真机请求 JIT 明确报错。
+模拟器选择 JIT：`Z42VM(..., execMode: .jit)`；运行时提供独立 `libz42_jit.a` / ``z42_jit.framework``。真机请求 JIT 明确报错。
 
 限制：单实例；同步 invoke；marshal 仅 null + `i64` / `f64` / `bool`。
 

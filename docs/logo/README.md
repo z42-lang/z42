@@ -55,13 +55,13 @@ docs/logo/
 
 | File | Purpose |
 |------|---------|
-| `favicon.ico` | Legacy/broad support, multi-size (16/32/48) |
-| `favicon.svg` | Modern scalable favicon |
+| ``favicon.ico`` | Legacy/broad support, multi-size (16/32/48) |
+| ``favicon.svg`` | Modern scalable favicon |
 | `favicon-16.png` / `favicon-32.png` / `favicon-48.png` | PNG favicons |
 | `apple-touch-icon.png` (180) | iOS home screen (full-bleed, platform masks it) |
 | `icon-192.png` / `icon-512.png` | PWA / Android manifest icons |
 | `icon-maskable-512.png` | Android adaptive/maskable icon (glyph in safe zone) |
-| `site.webmanifest` | PWA manifest (icons, theme/background color) |
+| ``site.webmanifest`` | PWA manifest (icons, theme/background color) |
 | `og-image.png` (1200×630) | Open Graph / Twitter social share card |
 | `HEAD.html` | Ready-to-paste `<head>` link/meta snippet |
 

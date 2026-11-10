@@ -8,9 +8,9 @@ cross-zpkg runner 的 `expected_build_error.txt` 约定：`main` 必须**编译�
 
 ## 期望行为
 
-- `target/`（`demo.ifaceinttarget`）：`Handler`（无修饰符 → 默认 internal）、`HandlerExplicit`
+- `target/`（``demo.ifaceinttarget``）：`Handler`（无修饰符 → 默认 internal）、`HandlerExplicit`
   （显式 internal）、`Api`（public）。
-- `main/`（`demo.ifaceintapp`，依赖 target）：
+- `main/`（``demo.ifaceintapp``，依赖 target）：
   - `Use(Api a)` → 放行（跨包 public 接口）。
   - `UseInternal(Handler h)` / `UseInternalExplicit(HandlerExplicit e)` → `E0404 AccessViolation`
     `cannot access internal interface \`Handler\` from another package`。

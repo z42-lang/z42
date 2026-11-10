@@ -2,7 +2,7 @@
 
 `static class` 声明一个**只容纳静态成员**的类——它不能被实例化、不持有实例状态。语义与 C# 一致，
 用途是把一组无状态的相关函数 / 常量组织到一个命名容器里（stdlib 的 `Std.Math`、`Std.Convert`、
-`Std.Path`，以及 z42c 内部「无 enum → static class + int 常量」的 `TokenKind` / `SyntaxKind` 皆如此）。
+``Std.Path``，以及 z42c 内部「无 enum → static class + int 常量」的 `TokenKind` / `SyntaxKind` 皆如此）。
 
 ## 语法
 
@@ -44,7 +44,7 @@ static class Also : IComparable {   // ✗ E0451: static class `Also` cannot imp
 
 ## 实现原理
 
-强制发生在 **符号收集** 阶段（`z42c.semantics` 的 `SymbolCollector._passSealedEnforce`——与 sealed
+强制发生在 **符号收集** 阶段（`z42c.semantics` 的 ``SymbolCollector._passSealedEnforce``——与 sealed
 强制与类声明同遍进行）：
 
 1. 判定 `c.Kind == "class"` 且 mods 含 `static` → 该类受约束；
@@ -52,8 +52,8 @@ static class Also : IComparable {   // ✗ E0451: static class `Also` cannot imp
 3. 成员级：逐个成员，凡实例方法 / 字段（非 `static`·非 `const`）/ 属性 / 构造器 / 索引器各报一条。
 
 > **为什么要强制**：若 `static` 修饰不被检查，「`static class` + 实例成员」这种矛盾声明会静默通过。
-> `Std.String`（primitive `string` 的包装类，`s.Length` / `s.Contains(...)` 皆为实例调用、
-> 且实现 `IComparable` / `IEquatable`）是 `sealed class` 而非 `static class`（对齐 C# `System.String`）。
+> `Std.String`（primitive `string` 的包装类，``s.Length`` / ``s.Contains(...)`` 皆为实例调用、
+> 且实现 `IComparable` / `IEquatable`）是 `sealed class` 而非 `static class`（对齐 C# ``System.String``）。
 
 ## 与 sealed 的区别
 
