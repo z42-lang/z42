@@ -15,8 +15,10 @@ string _componentLibrary(string stem, string rid = "") {
 // R0：编译参数的家在 runtime 自身——rustflags 默认 = .cargo/config.toml（按平台），
 // LTO 关闭 = [profile.release-dynamic]，features 预设 = Cargo 命名别名；xtask 只传名。
 // 静态图 / 启动器图仍以 RUSTFLAGS env（prefer-dynamic=no）整体覆盖 config 默认。
+// cargo --profile 名（dev 的产物目录叫 debug）与产物目录名分开，勿混用。
 string _componentCargoProfile(string profile) { return profile == "release" ? "release-dynamic" : "dev"; }
-string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), _componentCargoProfile(profile)); }
+string _componentDirName(string profile) { return profile == "release" ? "release-dynamic" : "debug"; }
+string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), _componentDirName(profile)); }
 Process _componentCargo(string verb, string root, string profile, string targetDir = "") {
     if (targetDir.Length == 0) { targetDir = _componentBuildDir(root); }
     Process p = _cargoCmd(verb, _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
