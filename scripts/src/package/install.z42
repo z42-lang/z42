@@ -17,14 +17,15 @@ using Std.IO;
 
 // 装组件需要的构建上下文。runtime 包只用到 CargoOut；apphost 组件要求后五项齐全（缺则报错，不静默跳过）。
 class _PkgInstallCtx {
-    public string CargoOut;      // 宿主/目标 RID 的 cargo 输出目录（z42vm、libz42.*）
+    public string CargoOut;      // 宿主/目标 RID 的 cargo 输出目录（libz42.* 等组件动态库）
+    public string LauncherOut;   // z42vm 静态 std 启动器图的输出目录；空 = 回落 CargoOut
     public string HostVm;        // 跑 z42b 的宿主 z42vm
     public string Z42bZpkg;      // 已编好的 z42.builder.zpkg
     public string Libs;          // z42b 自身的解析面（_toolchainCompileLibs）
     public string ApphostStub;   // 未 patch 的 apphost 模板（Z42_APPHOST_TEMPLATE）
     public string Rid;
     public _PkgInstallCtx() {
-        this.CargoOut = ""; this.HostVm = ""; this.Z42bZpkg = ""; this.Libs = ""; this.ApphostStub = ""; this.Rid = "";
+        this.CargoOut = ""; this.LauncherOut = ""; this.HostVm = ""; this.Z42bZpkg = ""; this.Libs = ""; this.ApphostStub = ""; this.Rid = "";
     }
 }
 
@@ -43,7 +44,7 @@ int _pkgInstallPackage(_PackagesConfig cfg, string root, string packageName, str
 }
 
 int _pkgInstallComponent(string root, _PkgComponent comp, string pkgDir, _PkgInstallCtx ctx) {
-    if (comp.kind == "cargo-bin" && comp.name == "z42vm") { return _pkgInstallZ42vm(ctx.CargoOut, pkgDir); }
+    if (comp.kind == "cargo-bin" && comp.name == "z42vm") { return _pkgInstallZ42vm(ctx, pkgDir); }
     if (comp.kind == "cargo-native")  { return _pkgInstallNative(root, ctx.CargoOut, pkgDir); }
     if (comp.kind == "cargo-native-ext") { return _pkgInstallNativeExt(ctx.CargoOut, pkgDir); }
     if (comp.kind == "stdlib-glob")   { return _pkgCopyLibs(_libsDir(root), pkgDir); }
@@ -54,8 +55,10 @@ int _pkgInstallComponent(string root, _PkgComponent comp, string pkgDir, _PkgIns
     return 1;
 }
 
-// [component.z42vm] kind=cargo-bin, dest="bin/z42vm".
-int _pkgInstallZ42vm(string cargoOut, string pkgDir) {
+// [component.z42vm] kind=cargo-bin, dest="bin/z42vm"。取静态 std 启动器图（LauncherOut）的
+// 产物 —— bin/ 只有 exe 本体，共享 Rust std 只随 native/ 分发；未建启动器的开发流程回落组件动态图。
+int _pkgInstallZ42vm(_PkgInstallCtx ctx, string pkgDir) {
+    string cargoOut = ctx.LauncherOut.Length > 0 ? ctx.LauncherOut : ctx.CargoOut;
     if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: z42vm: no cargo output dir"); return 1; }
     string bin = Path.Join(pkgDir, "bin");
     Directory.Create(bin);
@@ -78,7 +81,7 @@ int _pkgInstallZ42vm(string cargoOut, string pkgDir) {
 // + the stdlib ext dylibs (an embedded VM dlopens them too). Runtime package only.
 int _pkgInstallNative(string root, string cargoOut, string pkgDir) {
     if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: native: no cargo output dir"); return 1; }
-    _componentInstallLibraries(cargoOut, pkgDir);
+    _componentInstallLibraries(cargoOut, pkgDir, true);
     _componentCopyRequired(_componentStaticArchive(cargoOut), Path.Join(pkgDir, Platform.IsWindows() ? "native/z42.lib" : "native/libz42.a"));
     _componentCopyStaticFiles(Path.GetDirectoryName(Path.GetDirectoryName(_componentStaticArchive(cargoOut))),
         Path.Join(pkgDir, "native"), _detectHostRid());
@@ -138,9 +141,13 @@ string _runtimePkgScaffold(string root, string rid, string version, string profi
 // Runtime package 收尾（`_runtimePkgScaffold` 的另一半，ios / android / wasm 共用）：装 stdlib libs/，然后跑门。
 // runtime pack 才是 libs/ + native/include/ 的真正落点 —— 门必须跑在这里（workload pack 一个
 // source-derived 文件都不装）。stepLabel 是各 builder 自己的 "[k/n]" 步号。
-int _runtimePkgFinish(string root, string pkgDir, string rid, string stepLabel) {
+int _runtimePkgFinish(string root, string pkgDir, string rid, string stepLabel, string profile = "release") {
     Console.WriteLine("  " + stepLabel + " libs/");
     int c = _pkgCopyLibs(_libsDir(root), pkgDir); if (c != 0) { return c; }
+    string cat = _ridCategory(rid);
+    _rtEmitRuntimeManifest(pkgDir, rid, profile, _versionsGet(root),
+        (cat == "android" || cat == "ios") ? "mixed" : "static",
+        _componentPlatformOut(root, rid, profile, false));
     Console.WriteLine("  ✓ runtime package: " + pkgDir);
     return _pkgFinish(root, pkgDir, "runtime", rid);
 }

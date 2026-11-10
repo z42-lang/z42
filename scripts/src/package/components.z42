@@ -69,30 +69,52 @@ int _packageDynamicRuntime(string rid, string profile, bool noBuild, bool verify
     string native = Path.Join(pkg, "native");
     Directory.Create(native);
     string cargo = _componentCargoOut(root, profile);
-    _componentInstallLibraries(cargo, pkg);
+    _componentInstallLibraries(cargo, pkg, true);
     _copyAbiHeaders(root, Path.Join(native, "include"));
     c = _pkgCopyLibs(_libsDir(root), pkg); if (c != 0) { return c; }
     c = _componentRelocate(native); if (c != 0) { return c; }
-    File.WriteAllText(Path.Join(pkg, "manifest.toml"),
-        "[package]\nname = \"" + name + "\"\nversion = \"" + version + "\"\nrid = \"" + rid
-        + "\"\nprofile = \"" + profile + "\"\nlinkage = \"dynamic\"\nallocator = \"system\"\n"
-        + "[components]\nhost = \"" + _componentLibrary("z42") + "\"\ninterp = \"" + _componentLibrary("z42_interp")
-        + "\"\njit = \"" + _componentLibrary("z42_jit") + "\"\n");
+    _rtEmitRuntimeManifest(pkg, rid, profile, version, "dynamic", "");
     c = _pkgFinish(root, pkg, "runtime-dynamic", rid); if (c != 0) { return c; }
     if (verify) { return _componentVerify(root, pkg, profile); }
     return 0;
 }
 
-void _componentInstallLibraries(string cargo, string pkg) {
+// importLibs：Windows 下是否随包拷动态库的导入库（<stem>.dll.lib）。runtime 包要
+// （嵌入者直接链接组件而非 dlopen，见 z42_host.h 的 register_static_* 协议）；
+// SDK 不要 —— z42vm 只 dlopen，链接期文件纯属负载。
+void _componentInstallLibraries(string cargo, string pkg, bool importLibs = false) {
     string native = Path.Join(pkg, "native");
     Directory.Create(native);
     foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
         string file = _componentLibrary(stem);
         _componentCopyRequired(Path.Join(cargo, file), Path.Join(native, file));
+        if (importLibs && Platform.IsWindows()) {
+            _componentCopyRequired(Path.Join(cargo, stem + ".dll.lib"), Path.Join(native, stem + ".dll.lib"));
+        }
     }
-    if (Platform.IsWindows()) { _componentCopyRequired(Path.Join(cargo, "z42.dll.lib"), Path.Join(native, "z42.dll.lib")); }
     _componentCopyStd(native);
 
+}
+
+// z42vm 启动器单独出一图：静态 Rust std（prefer-dynamic=no），exe 自身不再依赖共享
+// libstd —— bin/ 里只有 z42vm 本体，共享 std 只随 native/ 分发（z42.dll 的依赖由
+// launcher 的 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|DEFAULT_DIRS 从 dll 自己的目录解析）。
+// 与组件动态图分开的 target-dir 防止 rustflags 串扰；bin 不引用 lib crate 的代码，
+// 链接期未被引用的 rlib 自然不进 exe。identity 由 build.rs 计算（输入不含 rustflags），
+// 与动态图的 COMPONENT_BUILD_ID 一致，launcher 的 same-build 校验不变。
+// 与 components/、components/static 平级的第三棵树（rustflags 互不串扰）；profile 子目录由 cargo 生成
+// （--release ⇒ <launcher>/<profile>/z42vm，同另两棵图的约定）。
+string _componentLauncherDir(string root) { return Path.Join(_componentBuildDir(root), "launcher"); }
+string _componentLauncherOut(string root, string profile) { return Path.Join(_componentLauncherDir(root), profile); }
+int _componentBuildLauncher(string root, string profile) {
+    Process p = _cargoCmd("build", _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
+        .Arg("--manifest-path").Arg(_runtimeManifest())
+        .Arg("--target-dir").Arg(_componentLauncherDir(root))
+        .Arg("-p").Arg("z42").Arg("--bin").Arg("z42vm")
+        .Arg("--no-default-features").Arg("--features").Arg("z42/cli,z42/component-loading")
+        .EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("RUSTFLAGS", "-C prefer-dynamic=no");
+    if (profile == "release") { p = p.Arg("--release"); }
+    return _exec(p);
 }
 
 void _componentCopyStd(string native, string target = "") {

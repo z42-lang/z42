@@ -3,6 +3,7 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Cli;
 using Std.Json;
+using Std.Toml;
 
 string _componentBundlePath(string root, string rid, string profile) {
     return Path.Join(_packagesDir(root), "z42-runtime-" + _versionsGet(root) + "-" + rid + (profile == "release" ? "" : "-" + profile));
@@ -49,9 +50,11 @@ string _componentCBuild(string root, string pkg, string rid, string work, bool d
             // 第三方导入库（windows.0.52.0.lib 等）已随档案进 native/；给链接器加该搜索路径。
             p = p.Arg("-Wl,/LIBPATH:" + native);
         }
+        TomlValue rtManifest = TomlValue.Parse(File.ReadAllText(Path.Join(pkg, "manifest.toml")));
         foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
             if ((stem == "z42_jit" && !jit) || (stem == "z42_compression" && !compression)) { continue; }
-            foreach (var flag in File.ReadAllText(Path.Join(native, stem + "-link.txt")).Split(" ")) {
+            string flags = rtManifest.Get("components").Get(stem).Get("link_flags").AsString();
+            foreach (var flag in flags.Split(" ")) {
                 if (flag.Length == 0) { continue; }
                 // MSVC 目标下 rustc 的 native-static-libs 是裸库名（kernel32.lib）+ 链接器指令
                 // （/defaultlib:msvcrt），不是 gcc 风格的 -l 标志；直接交给 clang 会被当输入文件。

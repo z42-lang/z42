@@ -1,0 +1,107 @@
+// runtime 包内 manifest.toml —— 嵌入者可机读的链接配方。
+// 吸收原 <stem>-link.txt（rustc --print native-static-libs 的输出）：flags 写进
+// [components.<stem>].link_flags，包内不再带 link.txt 文件；第三方导入库（MSVC 目标）
+// 仍是实体文件，由 [assets].third_party_libs 点名。
+namespace Z42Xtask;
+
+using Std.Collections;
+using Std.IO;
+
+string _rtQuoteJoin(List<string> xs) {
+    string acc = "";
+    foreach (var x in xs) {
+        if (acc.Length > 0) { acc = acc + ", "; }
+        acc = acc + "\"" + x + "\"";
+    }
+    return acc;
+}
+
+// 构建输出侧读取一个静态组件的 native-static-libs flags（<cargo>/<stem>-link.txt）。
+string _rtLinkFlags(string cargo, string stem) {
+    if (cargo.Length == 0) { return ""; }
+    string p = Path.Join(cargo, stem + "-link.txt");
+    return File.Exists(p) ? File.ReadAllText(p).Trim() : "";
+}
+
+// 生成 manifest.toml 并写进 pkgDir 根。
+//   linkage：static | dynamic | mixed（android 同包 .so+.a；ios 静态+framework）。
+//   staticCargo：静态图输出目录（link.txt 的读取源）；纯动态包传 ""。
+// 组件条目按包内实际存在的文件生成：动态（_componentLibrary）、静态（_componentStaticName）；
+// 归档顺序组件在前、host 归档最后（与 _componentCCompiler 的实链顺序一致）。
+void _rtEmitRuntimeManifest(string pkgDir, string rid, string profile, string version, string linkage, string staticCargo) {
+    string native = Path.Join(pkgDir, "native");
+    List<string> l = new List<string>();
+
+    l.Add("schema = 1");
+    l.Add("");
+    l.Add("[package]");
+    l.Add("name = \"" + Path.GetFileName(pkgDir) + "\"");
+    l.Add("version = \"" + version + "\"");
+    l.Add("rid = \"" + rid + "\"");
+    l.Add("profile = \"" + profile + "\"");
+    l.Add("linkage = \"" + linkage + "\"");
+    l.Add("");
+
+    // 静态链接配方：先调 init 登记静态组件工厂，再按 archives 顺序链接。
+    List<string> archives = new List<string>();
+    // 每个 stem 一张表（TOML 表不可重复）：static / dynamic 子键按包内实际文件有无。
+    List<string> compStems = new List<string>();
+    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression", "z42" }) {
+        if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
+        string sname = _componentStaticName(stem, rid);
+        string dname = _componentLibrary(stem, rid);
+        bool hasStatic = File.Exists(Path.Join(native, sname));
+        bool hasDynamic = File.Exists(Path.Join(native, dname));
+        if (!hasStatic && !hasDynamic) { continue; }
+        if (hasStatic && stem != "z42") { archives.Add("native/" + sname); }
+        compStems.Add(stem);
+    }
+    string hostStaticName = _componentStaticName("z42", rid);
+    if (File.Exists(Path.Join(native, hostStaticName))) { archives.Add("native/" + hostStaticName); }
+    l.Add("[link.static]");
+    l.Add("init = \"z42_linked_components_init\"");
+    l.Add("archives = [" + _rtQuoteJoin(archives) + "]");
+    l.Add("");
+    foreach (var stem in compStems) {
+        string sname = _componentStaticName(stem, rid);
+        string dname = _componentLibrary(stem, rid);
+        bool hasStatic = File.Exists(Path.Join(native, sname));
+        bool hasDynamic = File.Exists(Path.Join(native, dname));
+        l.Add("[components." + stem + "]");
+        if (hasStatic) { l.Add("static = \"native/" + sname + "\""); }
+        if (hasDynamic) { l.Add("dynamic = \"native/" + dname + "\""); }
+        if (hasStatic && stem != "z42") { l.Add("link_flags = \"" + _rtLinkFlags(staticCargo, stem) + "\""); }
+        l.Add("");
+    }
+
+    l.Add("[assets]");
+    List<string> headers = new List<string>();
+    foreach (var h in new string[]{ "z42_abi.h", "z42_host.h", "z42_native.h" }) {
+        if (File.Exists(Path.Join(native, "include/" + h))) { headers.Add("native/include/" + h); }
+    }
+    if (headers.Count > 0) { l.Add("headers = [" + _rtQuoteJoin(headers) + "]"); }
+    string stdPattern = rid.StartsWith("windows-") ? "std-*.dll" : (rid.StartsWith("macos-") ? "libstd-*.dylib" : "libstd-*.so");
+    string[] std = Path.Glob(native, stdPattern);
+    if (std.Length == 1) { l.Add("std = \"native/" + Path.GetFileName(std[0]) + "\""); }
+    List<string> importLibs = new List<string>();
+    if (rid.StartsWith("windows-")) {
+        foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+            if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
+            if (File.Exists(Path.Join(native, stem + ".dll.lib"))) { importLibs.Add("native/" + stem + ".dll.lib"); }
+        }
+    }
+    if (importLibs.Count > 0) { l.Add("import_libs = [" + _rtQuoteJoin(importLibs) + "]"); }
+    // MSVC 静态形态需要随包的第三方导入库（windows.0.52.0.lib 等）；自家归档/导入库除外。
+    List<string> thirdParty = new List<string>();
+    foreach (var f in Path.Glob(native, "*.lib")) {
+        string n = Path.GetFileName(f);
+        if (n != "z42.lib" && n != "z42.dll.lib" && n != "z42_interp.dll.lib"
+            && n != "z42_jit.dll.lib" && n != "z42_compression.dll.lib") {
+            thirdParty.Add("native/" + n);
+        }
+    }
+    if (thirdParty.Count > 0) { l.Add("third_party_libs = [" + _rtQuoteJoin(thirdParty) + "]"); }
+    l.Add("");
+
+    File.WriteAllText(Path.Join(pkgDir, "manifest.toml"), string.Join("\n", l.ToArray()));
+}

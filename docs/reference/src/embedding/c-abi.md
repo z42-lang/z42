@@ -415,7 +415,11 @@ int main(void) {
 
 另有可选的组件化动态 runtime 包：C 宿主链接其中的 z42（macOS/Linux 为 libz42，Windows 导入库为 z42.dll.lib）。部署时保留 native/ 内同包的共享核心、Rust std 和 interp/JIT 组件；这些库必须来自同一构建，不能混用版本。用 Z42_NATIVE_PATH 指向组件目录，或将 native/ 放在宿主可执行文件旁。显式请求 JIT 时，库缺失或不兼容会报错，不自动改成解释模式。
 
-静态宿主可直接选择独立组件。所有库须来自同一 runtime 包；链接所需的 `libz42_interp.a`（Windows 为 `z42_interp.lib`）及 `libz42.a`，使用随组件附带的 `*-link.txt` 原生链接参数。加载程序前登记工厂：
+组件也可以**直接链接**而非 dlopen：Windows 动态包随发每个组件的导入库（`z42.dll.lib`、`z42_interp.dll.lib`、`z42_jit.dll.lib`、`z42_compression.dll.lib`，由包内 manifest.toml 的 `[assets].import_libs` 点名）；链接后调 `z42_host_register_static_component(Z42_COMPONENT_INTERP, z42_interp_init)`（JIT 同理）与 `z42_host_register_static_native_library("z42_compression", z42_compression_get_symbol)` 登记工厂——与静态归档同一套登记协议，运行期仍走同构建身份校验。macOS/Linux 直接链 `libz42_interp.dylib` / `libz42_interp.so` 等库文件。
+
+Windows 宿主若按运行期装载（dlopen）而非直接链接：请用 `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS` 标志加载（或先 `AddDllDirectory` 指向 native/），z42.dll 依赖的共享 Rust std（`std-*.dll`，随包在 native/）才能按 dll 自身目录解析——z42vm 启动器正是这么做的。包内 manifest.toml 描述了全部内容物与链接配方（组件文件、归档顺序、link_flags、init 调用）。
+
+静态宿主可直接选择独立组件。所有库须来自同一 runtime 包；链接所需的 `libz42_interp.a`（Windows 为 `z42_interp.lib`）及 `libz42.a`，原生链接参数取包内 `manifest.toml` 的 `[components.<stem>].link_flags`（Windows 的第三方导入库由 `[assets].third_party_libs` 点名、随包提供）。加载程序前登记工厂：
 
 ```c
 Z42HostStatus status = z42_host_register_static_component(

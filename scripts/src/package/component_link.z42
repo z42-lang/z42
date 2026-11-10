@@ -51,16 +51,20 @@ void _plRuntimeDynamic(_PkgLayout L, string rid) {
     L.Expect(Path.Glob(L.P("native"), pattern).Length == 1, "matching shared Rust std", "missing or ambiguous");
     L.Absent("native/libz42.a", "dynamic pack does not provide a static embedding library");
     L.Absent("native/z42.lib", "dynamic pack does not provide a static embedding library");
-    if (rid.StartsWith("windows-")) { L.HasFile("native/z42.dll.lib"); }
+    if (rid.StartsWith("windows-")) {
+        // 嵌入者可链 import lib 直接注册组件（z42_host_register_static_component / _native_library），不 dlopen。
+        foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+            L.HasFile("native/" + stem + ".dll.lib");
+        }
+    }
 }
 
 int _componentRelocateLauncher(string pkg) {
     string bin = Path.Join(pkg, "bin");
     string native = Path.Join(pkg, "native");
-    if (Platform.IsWindows()) {
-        foreach (var std in Path.Glob(native, "std-*.dll")) { File.Copy(std, Path.Join(bin, Path.GetFileName(std))); }
-        return 0;
-    }
+    // Windows 不再把 std-*.dll 拷进 bin/：z42vm 来自静态 std 启动器图，自身无共享 std 依赖；
+    // z42.dll 链的 std 由 launcher 的 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|DEFAULT_DIRS 从 native/ 解析。
+    if (Platform.IsWindows()) { return 0; }
     if (!Platform.IsMacOS()) { return 0; }
     string exe = Path.Join(bin, "z42vm");
     int c = _componentRelocateImports(exe, native); if (c != 0) { return c; }
