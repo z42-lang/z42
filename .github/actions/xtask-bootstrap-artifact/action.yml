@@ -61,13 +61,13 @@ runs:
       uses: actions/download-artifact@v8
       with:
         name: z42vm-linux-x64
-        path: artifacts/build/runtime/release
+        path: artifacts/build/runtime/release-dynamic
 
     # upload-artifact 不保留可执行位。
     - name: Restore exec bit
       if: ${{ inputs.vm == 'prebuilt' && runner.os == 'Linux' && runner.arch == 'X64' }}
       shell: bash
-      run: chmod +x artifacts/build/runtime/release/z42vm && artifacts/build/runtime/release/z42vm --version
+      run: chmod +x artifacts/build/runtime/release-dynamic/z42vm && artifacts/build/runtime/release-dynamic/z42vm --version
 
     # z42c + stdlib + xtask + z42b (.zpkg products) → restored at their repo-relative
     # build-tree locations (`xtask package ci` snapshot). 所有宿主都取同一份 linux 产物（zpkg 与宿主无关）。

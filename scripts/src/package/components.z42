@@ -4,8 +4,6 @@ using Std.IO;
 using Std.Cli;
 
 string _componentBuildDir(string root) { return Path.Join(_buildMirror(root, Path.Join(root, "src/runtime")), "components"); }
-string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), profile); }
-string _componentFeatures() { return "cli,interp,jit,shared-core,native-interop,net,tls"; }
 string _componentLibrary(string stem, string rid = "") {
     if (rid.Length > 0) {
         if (rid.StartsWith("windows-")) { return stem + ".dll"; }
@@ -14,31 +12,50 @@ string _componentLibrary(string stem, string rid = "") {
     if (Platform.IsWindows()) { return stem + ".dll"; }
     return "lib" + stem + (Platform.IsMacOS() ? ".dylib" : ".so");
 }
+// R0：编译参数的家在 runtime 自身——rustflags 默认 = .cargo/config.toml（按平台），
+// LTO 关闭 = [profile.release-dynamic]，features 预设 = Cargo 命名别名；xtask 只传名。
+// 静态图 / 启动器图仍以 RUSTFLAGS env（prefer-dynamic=no）整体覆盖 config 默认。
+// R0 树探测：config-dynamic.toml 是新机制（独立 rustflags 配置 + release-dynamic profile）
+// 的标志物。bench A/B 等场景里 PR 的新 xtask 会构建 base-src 的**旧树**（无该文件、
+// Cargo.toml 无 [profile.release-dynamic]）—— 此时整套回退 R0 前的旧机制
+// （--release + RUSTFLAGS/LTO env），两代树的产物目录与调用形态各自成立。
+bool _componentR0Tree(string root) { return File.Exists(Path.Join(root, "src/runtime/.cargo/config-dynamic.toml")); }
+// cargo --profile 名（dev 的产物目录叫 debug）与产物目录名分开，勿混用。
+string _componentCargoProfile(string root, string profile) { return (_componentR0Tree(root) && profile == "release") ? "release-dynamic" : profile; }
+string _componentDirName(string root, string profile) { return (_componentR0Tree(root) && profile == "release") ? "release-dynamic" : profile; }
+string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), _componentDirName(root, profile)); }
 Process _componentCargo(string verb, string root, string profile, string targetDir = "") {
     if (targetDir.Length == 0) { targetDir = _componentBuildDir(root); }
-    string flags = Environment.GetEnvironmentVariable("RUSTFLAGS", "") + " -C prefer-dynamic -C rpath";
-    if (Platform.IsMacOS()) { flags = flags + " -C link-arg=-Wl,-rpath,@loader_path"; }
-    else if (Platform.IsLinux()) { flags = flags + " -C link-arg=-Wl,-rpath,$ORIGIN -C link-arg=-Wl,-rpath,$ORIGIN/../native"; }
     Process p = _cargoCmd(verb, _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
         .Arg("--manifest-path").Arg(_runtimeManifest())
-        .Arg("--target-dir").Arg(targetDir)
-        .EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("RUSTFLAGS", flags)
-        .Env("CARGO_PROFILE_RELEASE_LTO", "false");
+        .Arg("--target-dir").Arg(targetDir);
+    if (_componentR0Tree(root)) {
+        p = p.Arg("--config").Arg(Path.Join(root, "src/runtime/.cargo/config-dynamic.toml"))
+            .Arg("--profile").Arg(_componentCargoProfile(root, profile));
+        return p;
+    }
+    // 旧树：R0 前的调用形态（env flags + --release）。
+    string flags = "-C prefer-dynamic -C rpath";
+    if (Platform.IsMacOS()) { flags = flags + " -C link-arg=-Wl,-rpath,@loader_path"; }
+    else if (Platform.IsLinux()) { flags = flags + " -C link-arg=-Wl,-rpath,$ORIGIN -C link-arg=-Wl,-rpath,$ORIGIN/../native"; }
+    p = p.EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("RUSTFLAGS", flags).Env("CARGO_PROFILE_RELEASE_LTO", "false");
     if (profile == "release") { p = p.Arg("--release"); }
     return p;
 }
-Process _componentTargets(Process build) {
-    return build
+Process _componentTargets(Process build, string root) {
+    Process p = build
         .Arg("-p").Arg("z42")
         .Arg("-p").Arg("z42-interp").Arg("-p").Arg("z42-jit")
-        .Arg("--no-default-features").Arg("--features")
-        .Arg("z42/" + _componentFeatures().Replace(",", ",z42/")
-            + ",z42-interp/shared-core,z42-interp/jit,z42-interp/native-interop,z42-jit/shared-core");
+        .Arg("--no-default-features");
+    // 旧树（bench base-src 等）没有 R0 的命名别名，回退展开串。
+    if (_componentR0Tree(root)) { return p.Arg("--features").Arg("z42/desktop-dynamic,z42-interp/dynamic,z42-jit/dynamic"); }
+    return p.Arg("--features").Arg("z42/cli,z42/interp,z42/jit,z42/shared-core,z42/native-interop,z42/net,z42/tls"
+        + ",z42-interp/shared-core,z42-interp/jit,z42-interp/native-interop,z42-jit/shared-core");
 }
 
 int _componentBuild(string root, string profile) {
     // One graph unifies the shared core's features for both dynamic backends and host.
-    Process build = _componentTargets(_componentCargo("build", root, profile))
+    Process build = _componentTargets(_componentCargo("build", root, profile), root)
         .Arg("--all-targets").Arg("--message-format=json-render-diagnostics");
     // Development targets and every library are in one graph, so transitive
     // dependency features cannot produce a second, incompatible core image.
@@ -138,7 +155,9 @@ int _componentBuildStatic(string root, string profile) {
     return _componentBuildStaticLibraries(root, _detectHostRid(), profile);
 }
 
+// 静态图仍走 --release（目录名不带 -dynamic 后缀）；从动态图目录名推导时映射回去。
+string _componentStaticProfileName(string cargoProfile) { return cargoProfile == "release-dynamic" ? "release" : cargoProfile; }
 string _componentStaticArchive(string cargo) {
     string name = Platform.IsWindows() ? "z42.lib" : "libz42.a";
-    return Path.Join(Path.GetDirectoryName(cargo), "static/" + Path.GetFileName(cargo) + "/examples/" + name);
+    return Path.Join(Path.GetDirectoryName(cargo), "static/" + _componentStaticProfileName(Path.GetFileName(cargo)) + "/examples/" + name);
 }

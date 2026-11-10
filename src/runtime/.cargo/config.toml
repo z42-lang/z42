@@ -28,3 +28,4 @@ target-dir = "../../artifacts/build/runtime"
 # reachable and the intended clean YamlException is thrown instead of a trap.
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "link-arg=-zstack-size=16777216"]
+

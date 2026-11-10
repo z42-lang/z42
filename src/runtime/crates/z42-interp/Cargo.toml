@@ -11,6 +11,8 @@ anyhow = "1"
 smallvec = "1"
 rustc-hash = "2"
 [features]
+# 桌面动态图在 interp 上需要的转发特性聚合（xtask 传 z42-interp/dynamic）。
+dynamic = ["shared-core", "jit", "native-interop"]
 default = []
 shared-core = ["z42/shared-core"]
 jit = ["z42/jit"]

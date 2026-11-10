@@ -533,8 +533,8 @@ jobs:
         with:
           name: z42vm-linux-x64
           path: |
-            artifacts/build/runtime/release/z42vm
-            artifacts/build/runtime/release/*.so
+            artifacts/build/runtime/release-dynamic/z42vm
+            artifacts/build/runtime/release-dynamic/*.so
           retention-days: 3
           if-no-files-found: error
 
