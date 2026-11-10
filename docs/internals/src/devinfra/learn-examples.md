@@ -1,7 +1,7 @@
 # 学习手册示例与会话脚本
 
-> 代码：`scripts/test/xtask_test_examples.z42`、`scripts/test/xtask_examples_book.z42`、
-> `scripts/test/xtask_examples_transcript.z42`
+> 代码：`scripts/src/test/docs/examples.z42`、`scripts/src/test/docs/examples_book.z42`、
+> `scripts/src/test/docs/examples_transcript.z42`
 > 相关：[怎么跑测试](testing.md) · [GREEN gate](test-gate.md)
 
 学习手册里的每段 z42 代码、每条命令及其输出都 include 自仓库根 `examples/`，由 `xtask test docs examples`

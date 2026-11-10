@@ -1,0 +1,282 @@
+// xtask — desktop packaging pipeline.
+//
+// Functions owned here:
+//   _packageDesktop                — full SDK package ([1/5]–[5/5] pipeline)
+//   _pkgBuildToolchainComponents   — [2c/5]: build the toolchain zpkgs (publish happens at [install])
+//   _buildRuntimePackage           — runtime artifact (layout = runtimes/<ver>/: z42vm+libs)
+//   desktop manifest/example/helper functions
+namespace Z42Xtask;
+
+using Std.Collections;
+using Std.IO;
+using Std.Time;
+
+// ── desktop SDK pipeline ────────────────────────────────────────────────────
+
+int _packageDesktop(string root, string pkgDir, string rid, string version, string profile, string hostRid, bool noBuild) {
+    Stopwatch sw = _procStart("package desktop");
+    string cargoTarget = _cargoTargetFor(rid);   // "" for host → reuse warm build dir
+    bool rel = (profile == "release");
+
+    // [1/5] z42c self-host compiler seed → programs/z42c/. The shipped
+    // compiler runs on z42vm; the z42c.* seed zpkgs are colocated so the VM
+    // resolves the driver's sibling compiler members next to the payload (stdlib via libs/). The
+    // `bin/z42c` entry is the apphost trampoline produced in [2c].
+    // _buildCompiler builds host z42vm + stdlib + z42c seed (self-seeded). --no-build
+    // SKIPS that rebuild and reuses what the CI bootstrap already produced (warm) —
+    // it only verifies the z42c seed is present, then the steps below assemble it.
+    Console.WriteLine("[1/5] z42c seed");
+    int c = 0;
+    if (!noBuild) {
+        c = _buildCompiler(); if (c != 0) { return c; }
+    } else {
+        string drv = _driverZpkg(root, "release");
+        if (!File.Exists(drv) || File.GetSize(drv) <= 0L) {
+            ConsoleError.WriteLine("error: --no-build but no z42c seed at " + drv + " (bootstrap first)");
+            return 1;
+        }
+    }
+    string z42cDir = Path.Join(pkgDir, "programs/z42c");
+    Directory.Create(z42cDir);
+    foreach (var m in _compilerMembers(root)) {
+        _copyIfExists(_compilerMemberZpkg(root, m, "release"), Path.Join(z42cDir, m + ".zpkg"));
+    }
+    Console.WriteLine("      ✓ programs/z42c/ (z42c.* seed zpkgs)");
+
+    // [2/5] z42vm + libz42.* + z42-compression —— 只构建；[install] 从 cargoOut 装进包。SDK 自己不装 libz42，
+    // 但随后的 `package runtime`（desktop 分支不构建）从同一个 cargoOut 装它，所以这里照建。
+    Console.WriteLine("[2/5] z42vm + libz42 + z42-compression (cargo " + cargoTarget + ", " + profile + ")");
+    c = _pkgBuildRuntime(rid, profile); if (c != 0) { return c; }
+    string cargoOut = _componentCargoOut(root, profile);
+
+    // [2c/5] build the toolchain zpkgs (workloads / launcher / z42b / devtools / interactive) + the apphost stub.
+    // Only builds; the 5 apphost components are published straight into pkgDir at [install].
+    c = _pkgBuildToolchainComponents(root, z42cDir, cargoOut, cargoTarget, rel);
+    if (c != 0) { return c; }
+
+    // [install] packages.toml `[package.sdk].include` 逐组件直接装进 pkgDir。[1/5] 写进 programs/z42c/ 的种子会被 z42c 组件的 publish 以相同字节覆盖。
+    Console.WriteLine("[install] sdk components (packages.toml [package.sdk].include)");
+    bool isWin = rid.StartsWith("windows-");
+    _PkgInstallCtx ictx = new _PkgInstallCtx();
+    ictx.CargoOut    = cargoOut;
+    ictx.HostVm      = _builtVm(root, "release");
+    ictx.Z42bZpkg    = _toolchainZpkg(root, _z42bToml());   // z42b publishes itself deploy-only (`--no-build`)
+    // 解析面在此刻取：[2c/5] 已把 workload ×4 / launcher / z42b / z42d / z42i 全建完，快照这时才完整。
+    ictx.Libs        = _toolchainCompileLibs(root);
+    ictx.ApphostStub = Path.Join(_cargoOutFor(root, rid, profile), isWin ? "apphost.exe" : "apphost");
+    ictx.Rid         = rid;
+    _PackagesConfig cfg = _pkgcfgLoad(root);
+    c = _pkgInstallPackage(cfg, root, "sdk", pkgDir, ictx);
+    if (c != 0) { return c; }
+
+    c = _componentRelocate(Path.Join(pkgDir, "native")); if (c != 0) { return c; }
+    c = _componentRelocateLauncher(pkgDir); if (c != 0) { return c; }
+
+    // [4.5/5] 插件目录：stdlib 携带插件平铺进 <sdk>/plugins/——SDK 世界
+    // 的插件查找域（Z42_HOME/plugins）。flat 同级 plugins 由 xtask build stdlib 平铺；空则不发目录。
+    string flatPlugins = Path.Join(Path.GetDirectoryName(_toolchainCompileLibs(root)), "plugins");
+    if (Directory.Exists(flatPlugins)) {
+        string[] pz = Path.Glob(flatPlugins, "*.zpkg");
+        if (pz.Length > 0) {
+            Directory.Create(Path.Join(pkgDir, "plugins"));
+            foreach (var z in pz) { _copyFile(z, Path.Join(pkgDir, "plugins", Path.GetFileName(z))); }
+            Console.WriteLine("  plugins/: " + pz.Length.ToString() + " carried plugin zpkg(s)");
+        }
+    }
+
+    // [5/5] manifest.toml
+    Console.WriteLine("[5/5] manifest.toml");
+    _pkgEmitManifest(pkgDir, rid, version, profile, hostRid);
+    _procEnd("package desktop", sw);
+    return 0;
+}
+
+// [2c/5] of _packageDesktop — build the apphost stub + the toolchain zpkgs. Publishing the 5 apphost
+// components (launcher / z42c / z42b / z42d / z42i) into the package happens at [install]
+// (`_pkgInstallApphost`, project paths from packages.toml); each component's own
+// `[platform.desktop] bin`/`payload` drives placement, and z42c.driver's siblings colocate into
+// programs/z42c/ via publish dependency-bundling.
+int _pkgBuildToolchainComponents(string root, string z42cDir, string cargoOut, string cargoTarget, bool rel) {
+    Console.WriteLine("[2c/5] toolchain zpkgs + apphost stub");
+    // apphost stub (z42-apphost crate) → <toolchain cargo out>/apphost — desktop workload's
+    // per-RID stub AND the publish template (Z42_APPHOST_TEMPLATE) for z42/z42c/z42b.
+    // NOT shipped in the SDK; delivered via the desktop workload.
+    int c = _cargo(rel, "build", "src/toolchain/workload/desktop/platform/apphost/Cargo.toml", cargoTarget, ""); if (c != 0) { return c; }
+    // 编译解析面 = `_toolchainCompileLibs(root)`（纯 stdlib flat；工具链程序用到的编译器域包是按名声明、
+    // `deploy = "shared"` 的 SDK 库，由 driver 从编译器目录解析，见该函数头注）。
+    // Components built with z42c (host z42vm + colocated z42c.driver.zpkg). Host z42vm compiles regardless of target
+    // rid → RID-independent zpkgs. Built into Z42_LIBS first so later components
+    // resolve their workload/launcher deps (z42b must exist before it can publish).
+    string hostVm = _builtVm(root, "release");
+    // 序列 = workload libs（`_workloadTomls` 目录约定；desktop 无 appbuilder——`z42-workload-desktop`
+    // **包**装的是 Rust 的 per-RID apphost stub，与这里的 z42 lib 无关）+ 工具链 apphost（packages.toml
+    // `[component.*]`，`_toolchainApphostTomls`）。z42i 例外：依赖 z42.repl，须在循环后单建（见下）。
+    string z42iToml = _pkgcfgFindComponent(_pkgcfgLoad(root), "z42i").project;
+    List<string> buildTomls = new List<string>();
+    buildTomls.AddRange(_workloadTomls());
+    foreach (var t in _toolchainApphostTomls()) { if (t != z42iToml) { buildTomls.Add(t); } }
+    for (int bi = 0; bi < buildTomls.Count; bi = bi + 1) {
+        // 本循环「边建边被后面的项依赖」（workload lib 先建，launcher / z42b / z42d 依赖 `z42.workload.*`）——
+        // 解析面是**实时**的 stdlib flat（workload 产物就落那儿），每轮都看得到前面刚建的。
+        c = _z42cBuildToml(hostVm, z42cDir, _toolchainCompileLibs(root), buildTomls[bi]);
+        if (c != 0) { return c; }
+    }
+    // z42.interactive（z42i）：z42.repl 是其**私有 path 依赖**（z42.interactive.z42.toml 声明
+    // `"z42.repl" = { path = "../repl" }`）——`z42c build`
+    // 自动建 z42.repl 闭包 + 经 _bundleExeDeps colocate z42.repl.zpkg 进 z42.interactive dist，
+    // 随后 publish 的 _pubCopyDistDeps 带进 programs/z42i/ payload。libz42_repl 由 z42.repl 的 ProvideNative
+    // build hook 在 publish 时 colocate 进 programs/z42i/。
+    // z42i 运行期 lazy-load programs/z42c/z42c.pipeline.zpkg + 其传递闭包：ModuleLoader 把被加载 zpkg 自身所在
+    // 目录并入 search_dirs，无需把编译器闭包复制进 z42i payload。
+    c = _z42cBuildToml(hostVm, z42cDir, _toolchainCompileLibs(root), z42iToml);
+    if (c != 0) { return c; }
+    Console.WriteLine("      ✓ toolchain zpkgs built");
+    return 0;
+}
+
+// ── desktop workload (apphost stub, per-rid file: apphost-<rid>) ──────────────
+// Single RID-agnostic workload: the apphost stub for
+// each desktop RID is a small native binary named `apphost-<rid>`. This per-RID
+// build job emits its own `apphost-<rid>` into z42-workload-<v>-desktop-<rid>/;
+// CI then COLLECTS all RIDs' stubs into ONE z42-workload-<v>-desktop package so
+// any host can `publish --rid <target>` (cross-platform apphost output). No target
+// runtime pack — desktop reuses the host runtime shipped in the SDK. The apphost
+// binary is cargo-built by _packageDesktop's z42-apphost crate build; it lands here, not in SDK bin/.
+
+// 桌面 workload 零件的包目录名 / 其中 apphost 文件名——生产端（下面）与消费端（`package sdk --verify` 找 stub
+// 模板的 `_distWorkloadDir` / `_distApphostTemplate`）同一出处。release profile 无后缀，其余带 `-<profile>`。
+string _desktopWorkloadPkgName(string version, string rid, string profile) {
+    return "z42-workload-" + version + "-desktop-" + rid + (profile == "release" ? "" : "-" + profile);
+}
+string _desktopApphostName(string rid) { return rid.StartsWith("windows-") ? ("apphost-" + rid + ".exe") : ("apphost-" + rid); }
+
+int _buildDesktopWorkload(string root, string rid, string version, string profile) {
+    bool isWin = rid.StartsWith("windows-");
+    string srcExe = isWin ? "apphost.exe" : "apphost";
+    string dstExe = _desktopApphostName(rid);
+    string pkgName = _desktopWorkloadPkgName(version, rid, profile);
+    string pkgDir = Path.Join(_packagesDir(root), pkgName);
+    Console.WriteLine("Desktop workload: " + pkgName);
+    if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
+    Directory.Create(pkgDir);
+
+    string stub = Path.Join(_cargoOutFor(root, rid, profile), srcExe);
+    if (!File.Exists(stub)) {
+        ConsoleError.WriteLine("error: apphost stub not built at " + stub + "; run the z42-apphost crate cargo build first");
+        return 1;
+    }
+    File.Copy(stub, Path.Join(pkgDir, dstExe));
+    _makeExe(Path.Join(pkgDir, dstExe));
+    Console.WriteLine("      ✓ " + dstExe + " (apphost stub)");
+
+    // RID-agnostic manifest (any host; no runtime pack). The single CI-merged
+    // package carries every RID's apphost-<rid>; this per-RID piece carries one.
+    string m = _workloadPkgHeader("z42-workload-desktop", version, "", profile, "");
+    m = m + "[contents.platform]\n";
+    m = m + "apphost-prefix = \"apphost-\"  # apphost-<rid> per target; cross-platform output\n";
+    m = m + "host           = [\"*\"]\n";
+    m = m + "runtime-pack   = \"\"  # none — desktop reuses the host runtime shipped in the SDK\n\n";
+    m = m + "[compat]\n";
+    m = m + "host-min-version = \"" + version + "\"\n";
+    File.WriteAllText(Path.Join(pkgDir, "manifest.toml"), m);
+    Console.WriteLine("      ✓ manifest.toml (workload tooling — desktop, RID-agnostic)");
+    if (_pkgLayoutCheck(root, pkgDir, "workload-desktop", rid) != 0) { return 1; }
+    PackageOutputs.Note(pkgDir);
+    return 0;
+}
+
+// ── launcher artifact ────────────────────────────────────────────────────────
+// ── runtime artifact ─────────────────────────────────────────────────────────
+// Pure embeddable runtime: native/ (embed libs + C ABI headers + stdlib ext dylibs) + libs/ (stdlib
+// zpkg) — NO z42c, NO z42vm CLI. Both are host-platform
+// tooling, not part of "runtime": a runtime pack may run on a DIFFERENT host
+// than it targets (e.g. the android runtime pack is installed from a Windows or
+// macOS host), so a single-host-platform z42c binary inside it has no meaning
+// (same as the ios/android/wasm runtime packs). The self-host bootstrap seed lives in the
+// SDK package's programs/z42c/ (see docs/internals/src/compiler/self-hosting.md). libs/ + native/
+// are installed from the same build outputs the SDK package uses (stdlib flat +
+// cargoOut) ⇒ what both packs carry (libs/, the ext dylibs) stays byte-identical.
+// This is the only desktop package with the embedding libs (libz42.* + headers):
+// the SDK's native/ holds just the ext dylibs z42vm dlopens.
+int _buildRuntimePackage(string root, string rid, string version, string profile) {
+    string pkgName = "z42-runtime-" + version + "-" + rid + (profile == "release" ? "" : "-" + profile);
+    string pkgDir = Path.Join(_packagesDir(root), pkgName);
+    Console.WriteLine("Runtime package: " + pkgName);
+    if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
+    Directory.Create(pkgDir);
+
+    int build = _pkgBuildRuntime(rid, profile); if (build != 0) { return build; }
+    build = _componentBuildStatic(root, profile); if (build != 0) { return build; }
+
+    // libs/ + native/ (embed libs + include/ headers) per packages.toml
+    // `[package.runtime].include = ["native", "stdlib"]`, installed straight from the build outputs.
+    _PackagesConfig cfg = _pkgcfgLoad(root);
+    _PkgInstallCtx ictx = new _PkgInstallCtx();
+    ictx.CargoOut = _componentCargoOut(root, profile);
+    int c = _pkgInstallPackage(cfg, root, "runtime", pkgDir, ictx);
+    if (c != 0) { return c; }
+
+    c = _componentRelocate(Path.Join(pkgDir, "native")); if (c != 0) { return c; }
+    Console.WriteLine("  ✓ runtime package (native/ + libs): " + pkgDir);
+    // 自己跑 source-identity 门：_packageRuntime 的 desktop 分支不经 _pkgFinish，而本包装的正是
+    // 规则表前两类（libs/ + native/include）。
+    return _pkgFinish(root, pkgDir, "runtime", rid);
+}
+
+// ── manifest (desktop SDK) ───────────────────────────────────────────────────
+
+void _pkgEmitManifest(string pkgDir, string rid, string version, string profile, string buildHost) {
+    string buildDate = _utcNow();
+    string binList = _quotedDirList(Path.Join(pkgDir, "bin"), "");
+    string libsList = _quotedDirList(Path.Join(pkgDir, "libs"), ".zpkg");
+    // Manifest lists the actual shared runtime closure; static archives and headers belong to runtime packages.
+    string staticList = _quotedExisting(Path.Join(pkgDir, "native"), "libz42.a", "z42.lib");
+    string dynamicList = _quotedDirList(Path.Join(pkgDir, "native"), rid.StartsWith("windows-") ? ".dll" : (rid.StartsWith("macos-") ? ".dylib" : ".so"));
+    string includeList = _quotedExisting(Path.Join(pkgDir, "native/include"), "z42_abi.h", "z42_host.h");
+    if (File.Exists(Path.Join(pkgDir, "native/include/z42_native.h"))) { includeList = includeList + ", \"z42_native.h\""; }
+    string m = "";
+    m = m + "[package]\n";
+    m = m + "name        = \"z42-" + rid + "\"\n";
+    m = m + "version     = \"" + version + "\"\n";
+    m = m + "abi-version = 1\n";
+    m = m + "rid         = \"" + rid + "\"\n";
+    m = m + "profile     = \"" + profile + "\"\n";
+    m = m + "build-date  = \"" + buildDate + "\"\n";
+    m = m + "build-host  = \"" + buildHost + "\"\n\n";
+    m = m + "[contents]\n";
+    m = m + "bin         = [" + binList + "]\n";
+    m = m + "libs        = [" + libsList + "]\n";
+    m = m + "plugins     = [" + _quotedDirList(Path.Join(pkgDir, "plugins"), ".zpkg") + "]\n\n";
+    m = m + "[contents.native]\n";
+    m = m + "static      = [" + staticList + "]\n";
+    m = m + "dynamic     = [" + dynamicList + "]\n";
+    m = m + "containers  = []\n";
+    m = m + "includes    = [" + includeList + "]\n\n";
+    m = m + "[contents.platform]\n";
+    m = m + "# desktop package: no platform-native facade (C embedders use the runtime package's native/)\n\n";
+    m = m + "[compat]\n";
+    m = m + "host-min-version = \"" + version + "\"\n";
+    File.WriteAllText(Path.Join(pkgDir, "manifest.toml"), m);
+}
+
+
+string _quotedDirList(string dir, string suffix) {
+    if (!Directory.Exists(dir)) { return ""; }
+    string acc = "";
+    foreach (var f in Directory.Enumerate(dir)) {
+        if (suffix.Length == 0 || f.EndsWith(suffix)) {
+            if (acc.Length > 0) { acc = acc + ", "; }
+            acc = acc + "\"" + f + "\"";
+        }
+    }
+    return acc;
+}
+
+string _quotedExisting(string dir, string a, string b) {
+    string acc = "";
+    // length guards: skip empty names — z42 File.Exists is true for the dir itself
+    // (Path.Join(dir,"")==dir), which would otherwise emit a spurious "".
+    if (a.Length > 0 && File.Exists(Path.Join(dir, a))) { acc = "\"" + a + "\""; }
+    if (b.Length > 0 && File.Exists(Path.Join(dir, b))) { if (acc.Length > 0) { acc = acc + ", "; } acc = acc + "\"" + b + "\""; }
+    return acc;
+}

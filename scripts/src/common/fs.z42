@@ -1,0 +1,140 @@
+// xtask — 文件系统原语：**不属于任何命令族**、被 common/ build/ test/ package/ 多方共用的最底层操作。
+//
+// 依赖只有一个方向：**build / test / package / install 各族 → common/**，族与族之间不互相调用。
+// namespace 扁平 + 裸名互调，编译器不会拦反向依赖，只能靠这条约定守住（scripts/README.md
+// 「目录分层规则」）。
+//
+// 收进来的判据：不止一个文件用，且是通用原语。只在本文件用、或带某族布局语义的留在原处
+// （如 `_copyIfNewer`、`_rmIfExists`、`_pkgCopyLibs` / `_copyNativeLibs`）；`_stageCopyExt`
+// （package/dev.z42）**故意不吞异常**，与下面 best-effort 的 `_copyAll` 语义相反，不能合并。
+namespace Z42Xtask;
+
+using Std.IO;
+
+// reset 一个私有目录（删后建）。
+void _resetDir(string d) {
+    if (Directory.Exists(d)) { Directory.Delete(d, true); }
+    Directory.Create(d);
+}
+
+// ── 写入前先断链：拷贝永不「穿透」硬链接 ──────────────────────────────────────
+//
+// 🔴 `File.Copy` / `File.WriteAllBytes` 都是 **truncate 语义、保留 inode**。于是往一个
+// **硬链接**上写，会把同 inode 的**所有**路径一起改掉 —— 包括那个你没打算碰的源文件。
+//
+// `_assembleStdlibFlatView` 就在造这种别名（flat 里每个 zpkg 与对应成员 dist 同 inode）。
+// 例：`_ensureSeed` 把种子 stdlib `_copyAll` 进 flat ⇒ 若穿透，成员 dist 被静默改写成种子字节，
+// 且留下 zpkg 新、zsym 旧的**撕开的配对**（`build_id mismatch`）。
+//
+// ⇒ 写入前都先 `File.Delete(dst)`：unlink 只断这一条链、不动别名的其它路径，之后 `File.Copy`
+// 建的是**新文件**。**不去掉 `_linkAll` 的硬链接本身** —— 它省掉大量纯拷贝，有害的是
+// 「写到别名上」，不是「有别名」。
+void _unlinkIfExists(string path) {
+    if (File.Exists(path)) { try { File.Delete(path); } catch (Exception e) { /* best-effort */ } }
+}
+
+// 把 path 换成内容相同的**独立 inode**（硬链接别名从此不再共享写入）。之后就地写它不会穿透到别的
+// 链接名上——z42c 写产物是就地写，往 hard-link 视图（stdlib flat）里写之前要先过这一步。
+void _breakHardLink(string path) {
+    if (!File.Exists(path)) { return; }
+    // 原子写 = 临时文件 + rename 覆盖目录项：新 inode 换上，别名仍指向旧 inode；中途失败原文件不动。
+    try { File.WriteAllBytesAtomic(path, File.ReadAllBytes(path)); }
+    catch (Exception e) { /* best-effort：失败即保持原状 */ }
+}
+
+// 两个文件逐字节相同；任一不存在 → false。
+bool _filesEqual(string a, string b) {
+    if (!File.Exists(a) || !File.Exists(b)) { return false; }
+    byte[] ba = File.ReadAllBytes(a);
+    byte[] bb = File.ReadAllBytes(b);
+    if (ba.Length != bb.Length) { return false; }
+    for (int i = 0; i < ba.Length; i = i + 1) { if (ba[i] != bb[i]) { return false; } }
+    return true;
+}
+
+// COPY（非 hard-link）srcDir 下匹配文件到 dstDir。私有目录 + 拷贝避免 _linkAll
+// 的 hard-link inode 别名污染（共享目录被 rebuild 会把 per-member 源弄坏）。
+void _copyAll(string srcDir, string dstDir, string pattern) {
+    if (!Directory.Exists(srcDir)) { return; }
+    foreach (var hit in Path.Glob(srcDir, pattern)) {
+        string dstPath = Path.Join(dstDir, Path.GetFileName(hit));
+        // Guard self-copy: File.Copy(X, X) opens the dest for write FIRST (truncating
+        // X to 0) then reads the now-empty source → silently zeroes the file. Reachable
+        // when a caller's src and dst resolve to the same dir (e.g. _ensureSeed staging
+        // stdlib while Z42_LIBS already points at the flat dist). Skip it.
+        if (hit != dstPath) {
+            _unlinkIfExists(dstPath);   // 先断链（见本段头注）：别写到别人的 inode 上
+            try { File.Copy(hit, dstPath); }
+            catch (Exception e) { /* skip */ }
+        }
+    }
+}
+
+// Hard-link srcDir's matches into flatDir; fall back to Copy across filesystems.
+void _linkAll(string srcDir, string flatDir, string pattern) {
+    if (!Directory.Exists(srcDir)) { return; }
+    foreach (var hit in Path.Glob(srcDir, pattern)) {
+        string dst = Path.Join(flatDir, Path.GetFileName(hit));
+        if (hit == dst) { continue; }   // 自链接：断了就没得链了
+        // dst 已存在时 `File.Link` 本就会失败并**退回 File.Copy** —— 那次 copy 同样会穿透。
+        // 先断链让「link 成功」成为常态路径，copy 兜底也不再写到别名上。
+        _unlinkIfExists(dst);
+        try { File.Link(hit, dst); }
+        catch (Exception e) {
+            try { File.Copy(hit, dst); } catch (Exception e2) { /* skip */ }
+        }
+    }
+}
+
+void _cleanGlob(string dir, string pattern) {
+    foreach (var hit in Path.Glob(dir, pattern)) {
+        try { File.Delete(hit); } catch (Exception e) { /* best-effort */ }
+    }
+}
+
+// 单文件覆盖拷贝：写入前先断链（`File.Copy` 是 truncate 语义，直接写到硬链接上会把同 inode 的
+// 所有路径一起改掉，见上一段头注），且显式 overwrite（`File.Copy` 两参形态目标存在即炸）。
+// 拷贝失败**抛出**——与 best-effort 的 `_copyAll` 相反：调用点都是「装进发布包 / 种子 / SDK」的路径，
+// 残件必须当场红而不是静默缺件。
+void _copyFile(string src, string dst) {
+    _unlinkIfExists(dst);
+    File.Copy(src, dst);
+}
+
+void _copyIfExists(string src, string dst) {
+    if (File.Exists(src)) { _copyFile(src, dst); }
+}
+
+void _makeExe(string path) {
+    if (File.Exists(path)) { File.MakeExecutable(path); }
+}
+
+// ── 测试夹具「拷出去再编」 ──────────────────────────────────────────────────────
+//
+// 夹具工程（`<组件>/tests/fixtures/<suite>/**`）没有 `[build]`，z42c 按单工程默认布局把 dist /
+// cache / generated 写在**工程目录旁边**；xtask 还在旁边建 `libs/` 中转目录 ⇒ 原地构建会污染源码树。
+//
+// 做法：每轮把整棵夹具源码树拷到它在 `artifacts/intermediate/` 下的镜像位置（`_workMirror`，先整棵重置），
+// 之后的构建 / 运行全部在拷贝里进行。好处不只是源码树干净：
+//   · 每轮从零开始 —— 消掉「上一轮留下的旧格式 zpkg 赢过本轮产物」这一整类假红；
+//   · 对任何 z42c（含种子）都有效，不依赖 z42c 的 `--output-dir` 是否接管 cache。
+// 拷贝时跳过 `artifacts/` / `dist/`（旧工作树里的残留），其余原样（夹具间的相对 path 依赖不变）。
+string _stageFixtureTree(string root, string srcRel) {
+    string dst = _workMirror(root, srcRel);
+    _resetDir(dst);
+    _copySourceTree(Path.Join(root, srcRel), dst);
+    return dst;
+}
+
+void _copySourceTree(string src, string dst) {
+    Directory.Create(dst);
+    foreach (var name in _sortedStrings(Directory.Enumerate(src))) {
+        string s = Path.Join(src, name);
+        string d = Path.Join(dst, name);
+        if (Directory.Exists(s)) {
+            if (name != "artifacts" && name != "dist") { _copySourceTree(s, d); }
+        } else {
+            File.Copy(s, d);
+        }
+    }
+}

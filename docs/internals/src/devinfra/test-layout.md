@@ -1,8 +1,8 @@
 # 测试用例组织规范
 
-> 代码：`scripts/check/xtask_check_layout.z42`（本页清单的对账门）、
-> `scripts/common/xtask_golden.z42`（golden 语料枚举）、`scripts/test/xtask_test_embedded_corpus.z42`（app 语料）、
-> `scripts/common/xtask_layout.z42`（产物路径）、`src/runtime/src/corelib/os/platform.rs`（运行期能力集）
+> 代码：`scripts/src/test/check/layout.z42`（本页清单的对账门）、
+> `scripts/src/common/golden.z42`（golden 语料枚举）、`scripts/src/test/app/embedded_corpus.z42`（app 语料）、
+> `scripts/src/common/layout.z42`（产物路径）、`src/runtime/src/corelib/os/platform.rs`（运行期能力集）
 > 相关：[怎么跑测试](testing.md) · [GREEN gate](test-gate.md) · [产物目录布局](artifacts-layout.md) · [跨平台测试](../testing/cross-platform.md)
 > 待办：标 ⏳ 的规则还没落地，按 [Deferred](#deferred) 的顺序推进；⏳ 规则落地前，旧做法照常有效
 
@@ -47,7 +47,7 @@
 | 编译器某成员的算法、IR 变换或诊断（含**期望编译报错**：写成 `[Test]` + `SemanticDump`） | `src/compiler/<member>/tests/` | `xtask test compiler`；扁平 / `[tests]` 单元另由 `xtask test stdlib <member>` 跑 |
 | 工具链某组件（launcher / builder / interactive / workload …） | `src/toolchain/<comp>/tests/` | `xtask test toolchain [<comp>]` |
 | 打包 SDK 的命令、布局、安装或发布行为 | `src/toolchain/launcher/tests/fixtures/package/`；包元数据自检追加到现有 SDK 验证器 | `xtask package sdk --verify` |
-| xtask 的改动计划、分片、调度与错误传播 | 对应的 `scripts/test/xtask_selfcheck_*.z42`，接入现有自检调用点 | 当前随 `xtask test toolchain builder` 执行 |
+| xtask 的改动计划、分片、调度与错误传播 | 与被测模块同目录的 `scripts/src/**/*_selfcheck.z42`，接入现有自检调用点 | 当前随 `xtask test toolchain builder` 执行 |
 | CI 的供种、runner 恢复、上传等基础设施 | `.github/ci/test_*.py` | `python3 -B -m unittest discover -s .github/ci -p 'test_*.py'` |
 | VM 内部（Rust） | 同模块 `*_tests.rs`；集成测试在 `src/runtime/tests/` | `xtask test runtime` |
 | 原生宿主与嵌入 ABI（C / Swift / Kotlin / 浏览器壳） | `src/toolchain/workload/<platform>/` 的现有原生测试套件 | `xtask test app <platform>`；不要复制一份标准库用例 |
@@ -244,7 +244,7 @@ Rust 侧的 `*_tests.rs` 与 `tests/*.rs` 按 cargo 惯例，不在此列。
 没有共享的 scratch 目录：不属于某个成员的中间物（编译器自举快照等）落 `intermediate/<area>/<name>`；
 xtask 自检的工作目录在 `intermediate/xtask/`。给 CI 消费的报告不进 `build/`：`artifacts/reports/tests/<platform>/`
 与 `artifacts/reports/benches/`。完整清单见[产物目录布局 §3](artifacts-layout.md)；路径只在
-`scripts/common/xtask_layout.z42` 里定义（`_buildMirror` / `_workOut` / `_workRootOf` / `_devTargetOutRoot`）。
+`scripts/src/common/layout.z42` 里定义（`_buildMirror` / `_workOut` / `_workRootOf` / `_devTargetOutRoot`）。
 
 ### 6. 在 app 里跑
 
@@ -271,7 +271,7 @@ flowchart LR
    Android Studio / Xcode 打开副本调试。Rust crate 不进副本：它们的 `Cargo.toml` 相对依赖 `src/runtime`，
    仍从源码位置编，只把产物输出到副本。wasm 的嵌入 deployable 在副本旁边的 `deploy/`。
 
-一条命令完成全部步骤，本地与 CI 相同（`scripts/test/xtask_test_app.z42`）：
+一条命令完成全部步骤，本地与 CI 相同（`scripts/src/test/app/app.z42`）：
 
 ```bash
 xtask test app <desktop|wasm|ios|android|all> [stage|build|assets|bundle|run] [--filter <pat>] [--shard k/n]
@@ -330,13 +330,13 @@ stdlib、`bundle` 组嵌入语料并放进宿主、`run` 在宿主 / 设备上�
 
 | 组件 | 位置 |
 |---|---|
-| 布局门 | `scripts/check/xtask_check_layout.z42` |
-| 文档清单区解析 | `scripts/check/xtask_check_layout.z42` 的 `_tlDocListBlock` |
-| golden 语料枚举（host） | `scripts/common/xtask_golden.z42` 的 `_walkGoldenCorpus` |
-| app 语料枚举 / 分片 / 排除表 | `scripts/test/xtask_test_embedded_corpus.z42`、`scripts/test/xtask_test_embedded_golden.z42` |
-| 产物路径（单一定义） | `scripts/common/xtask_layout.z42` |
+| 布局门 | `scripts/src/test/check/layout.z42` |
+| 文档清单区解析 | `scripts/src/test/check/layout.z42` 的 `_tlDocListBlock` |
+| golden 语料枚举（host） | `scripts/src/common/golden.z42` 的 `_walkGoldenCorpus` |
+| app 语料枚举 / 分片 / 排除表 | `scripts/src/test/app/embedded_corpus.z42`、`scripts/src/test/app/embedded_golden.z42` |
+| 产物路径（单一定义） | `scripts/src/common/layout.z42` |
 | 运行期能力集 | `src/runtime/src/corelib/os/platform.rs` 的 `builtin_platform_caps` |
-| 改动 → 命令映射 | `scripts/test/xtask_test_changed.z42` |
+| 改动 → 命令映射 | `scripts/src/test/changed.z42` |
 
 ## 边界与限制
 

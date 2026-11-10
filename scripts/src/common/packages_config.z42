@@ -1,0 +1,123 @@
+// xtask — packages.toml reader.
+//
+// Parses scripts/packages.toml into two flat registries ([package.*] / [component.*])
+// and resolves a package's `include` names to their component definitions. This
+// module only reads — it knows nothing about how a component is produced (apphost
+// publish vs. cargo-bin vs. stdlib glob) or how a resolved component gets copied
+// into a package tree (package/install.z42). Keeping the
+// split this narrow means "add a package" or "add a component" is a packages.toml
+// edit only, never a change to this file.
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Toml;
+
+// One entry in [package.*] — a publishable artifact assembled from `include`d
+// components. `manifest` is either "auto" (glob the assembled tree) or a named
+// fixed template (see _pkgEmitManifest callers).
+class _PkgPackage {
+    public string name;
+    public string artifact;
+    public string[] include;
+    public string manifest;
+    public _PkgPackage() {
+        this.name = ""; this.artifact = ""; this.include = new string[0]; this.manifest = "";
+    }
+}
+
+// One entry in [component.*] — how a single component is produced + where it lands.
+// `project`/`dest` are optional depending on `kind`: apphost components carry no
+// `dest` (layout comes from the component's own [platform.desktop] bin/payload);
+// stdlib-glob carries no `project` (no single build to point at). Absent fields
+// read back as "".
+class _PkgComponent {
+    public string name;
+    public string kind;
+    public string project;
+    public string dest;
+    public _PkgComponent() {
+        this.name = ""; this.kind = ""; this.project = ""; this.dest = "";
+    }
+}
+
+class _PackagesConfig {
+    public _PkgPackage[] packages;
+    public _PkgComponent[] components;
+    public _PackagesConfig() {
+        this.packages = new _PkgPackage[0];
+        this.components = new _PkgComponent[0];
+    }
+}
+
+// Read an optional scalar field; "" when the key is absent (kind-dependent fields).
+string _pkgcfgOptStr(TomlValue node, string key) {
+    if (!node.ContainsKey(key)) { return ""; }
+    return _scalarStr(node.Get(key));
+}
+
+_PkgPackage _pkgcfgParsePackage(string name, TomlValue node) {
+    _PkgPackage p = new _PkgPackage();
+    p.name = name;
+    p.artifact = _vget(node, "artifact");
+    p.include = _vgetList(node, "include");
+    p.manifest = _vget(node, "manifest");
+    return p;
+}
+
+_PkgComponent _pkgcfgParseComponent(string name, TomlValue node) {
+    _PkgComponent c = new _PkgComponent();
+    c.name = name;
+    c.kind = _vget(node, "kind");
+    c.project = _pkgcfgOptStr(node, "project");
+    c.dest = _pkgcfgOptStr(node, "dest");
+    return c;
+}
+
+// Parse scripts/packages.toml (relative to repo root) into packages + the
+// component registry.
+_PackagesConfig _pkgcfgLoad(string repoRoot) {
+    TomlValue doc = TomlValue.Parse(File.ReadAllText(Path.Join(repoRoot, "scripts/packages.toml")));
+
+    TomlValue pkgTable = doc.Get("package");
+    string[] pkgNames = pkgTable.Keys();
+    _PkgPackage[] pkgs = new _PkgPackage[pkgNames.Length];
+    for (int i = 0; i < pkgs.Length; i = i + 1) {
+        pkgs[i] = _pkgcfgParsePackage(pkgNames[i], pkgTable.Get(pkgNames[i]));
+    }
+
+    TomlValue compTable = doc.Get("component");
+    string[] compNames = compTable.Keys();
+    _PkgComponent[] comps = new _PkgComponent[compNames.Length];
+    for (int i = 0; i < comps.Length; i = i + 1) {
+        comps[i] = _pkgcfgParseComponent(compNames[i], compTable.Get(compNames[i]));
+    }
+
+    _PackagesConfig cfg = new _PackagesConfig();
+    cfg.packages = pkgs;
+    cfg.components = comps;
+    return cfg;
+}
+
+// Look up a declared package by name (e.g. "sdk"/"runtime"/"workload-desktop").
+// Throws — an unknown package name is a packages.toml/caller bug, not a condition
+// to tolerate silently.
+_PkgPackage _pkgcfgFindPackage(_PackagesConfig cfg, string name) {
+    foreach (var p in cfg.packages) { if (p.name == name) { return p; } }
+    throw new Exception("packages.toml: no [package." + name + "]");
+}
+
+// Look up a declared component by name (e.g. "z42vm"/"native"/"stdlib"/"launcher").
+_PkgComponent _pkgcfgFindComponent(_PackagesConfig cfg, string name) {
+    foreach (var c in cfg.components) { if (c.name == name) { return c; } }
+    throw new Exception("packages.toml: no [component." + name + "]");
+}
+
+// Resolve a package's `include` names to their component definitions, in include
+// order. Include order only affects copy order, never build order — build order
+// is derived from each component's own dependency graph.
+_PkgComponent[] _pkgcfgResolveInclude(_PackagesConfig cfg, string packageName) {
+    _PkgPackage pkg = _pkgcfgFindPackage(cfg, packageName);
+    _PkgComponent[] resolved = new _PkgComponent[pkg.include.Length];
+    for (int i = 0; i < resolved.Length; i = i + 1) { resolved[i] = _pkgcfgFindComponent(cfg, pkg.include[i]); }
+    return resolved;
+}

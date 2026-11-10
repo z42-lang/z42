@@ -5,7 +5,7 @@ kind    = "exe"
 
 # include 是 **/*.z42 —— igen/igen.z42 会被它匹配到，靠「源集条目显式分区」挡住
 #（include 模式自动排除出本工程源发现：模式圈中的文件归插件，不被扫进 app 产物）。
-# 这正是 xtask.hooks 的现行形态（`{ include = ["xtask_hooks.z42"] }`，scripts/ 根下）。
+# 这正是 xtask.hooks 的现行形态（`{ include = ["src/hooks.z42"] }`，src/ 内与 [sources] 并存的分区）。
 [sources]
 include = ["**/*.z42"]
 

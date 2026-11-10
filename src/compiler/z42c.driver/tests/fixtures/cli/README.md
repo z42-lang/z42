@@ -7,7 +7,7 @@
 
 `expect.toml` 的格式（单步 / 多步、`copy` / `remove` / `check`、全部断言键、`outside_repo`、通用占位符）是所有夹具套件
 共用的，见 [声明式夹具（expect.toml）](../../../../../../docs/internals/src/devinfra/fixture-harness.md)。本页只写这个套件
-自己的工具与占位符（定义在 `scripts/build/xtask_compiler_e2e.z42` 的 `_testCompilerCliFixtures`）。
+自己的工具与占位符（定义在 `scripts/src/test/compiler/e2e.z42` 的 `_testCompilerCliFixtures`）。
 
 ## 工具
 

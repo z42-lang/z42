@@ -149,7 +149,7 @@ pub trait ZpkgResolver: Send + Sync {
 | Android | `z42vm-<version>.aar`（含 arm64-v8a / x86_64 jniLibs；32-bit ABI 已退场） | `./xtask test app android build`（AndroidBackend）|
 | WASM | npm package（`pkg-web/` + `pkg-nodejs/`） | `./xtask test app wasm build`（WasmBackend）|
 
-> 构建逻辑已从各 `build.sh` 迁入 `scripts/xtask_test_{ios,android,wasm,desktop}.z42` 的 `IPlatformBackend` 后端（统一三阶段管线）。Android 的 `test.sh`（emulator 编排）暂留，由 `AndroidBackend.RunTests` 桥接。
+> 构建逻辑已从各 `build.sh` 迁入 `scripts/src/test/app/{ios,android,wasm,desktop}.z42` 的 `IPlatformBackend` 后端（统一三阶段管线）。Android 的 `test.sh`（emulator 编排）暂留，由 `AndroidBackend.RunTests` 桥接。
 
 每个产物**不入 git**（二进制大；CI 在 release 时上传）；源代码入 git。
 

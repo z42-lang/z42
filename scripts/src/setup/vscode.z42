@@ -1,0 +1,187 @@
+// xtask — `setup vscode` 组件 + `check vscode-syntax` 检查。VSCode 编辑器资产的生成 + 安装：
+//
+//   Lexer.z42 _initKeywords()（关键字唯一 SoT）
+//     → z42c --dump-keywords（每行一个，注册序）
+//     → 本生成器：分类表（表现层概念，住这里）+ 穷尽校验（漏/幽灵/重复 → 报错指名）
+//     → 模板 z42.tmLanguage.tpl.json 的 __KW_<GROUP>__ 注入
+//     → syntaxes/z42.tmLanguage.json（生成产物，入库）
+//     → symlink <repo>/.vscode/extensions/z42.z42-lang（darwin/linux；win 打印指引）
+//
+// **这条路是给仓库开发者的**：symlink 指回源码树，改 Lexer 关键字重跑本命令即时生效。
+// SDK 用户走另一条——`z42d install vscode` 从 <sdk>/editors/ 拷到 ~/.vscode/extensions/
+// （资产由 [component.editor-assets] 打进 SDK 包）。两条路的落点故意不同：
+// 仓库本地 vs 用户级，互不覆盖，开发者可以两者并存。
+//
+// 资产项组织：目前唯一项 = 语法扩展；新资产项（LSP client / snippets 等）在 setup/检查
+// 主流程追加即可。检查函数供 `check vscode-syntax` gate stage 调用（in-process，
+// install 不留 --check flag——一个动词一个语义）。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Time;
+using Std.Collections;
+
+// ── 关键字分类表 ──────────────────────────────────────────────────────────────
+// 新关键字进 Lexer 后必须在此恰好归入一组，否则生成/gate 报错（防漂移闭环）。
+string[] _kwControl() { return new string[]{ "return", "if", "else", "while", "for", "foreach", "in", "do", "break", "continue", "switch", "case", "default", "try", "catch", "finally", "throw", "await" }; }
+string[] _kwDeclaration() { return new string[]{ "import", "namespace", "using", "var", "class", "struct", "enum", "interface", "delegate", "event", "impl", "operator", "where" }; }
+string[] _kwModifier() { return new string[]{ "static", "public", "private", "protected", "internal", "ref", "out", "params", "abstract", "extern", "sealed", "override", "virtual", "async", "pinned", "partial", "readonly", "const", "implicit", "explicit" }; }
+string[] _kwOperatorExpr() { return new string[]{ "new", "typeof", "methodof", "fieldof", "propertyof", "is", "as", "with" }; }
+string[] _kwPrimType() { return new string[]{ "string", "int", "long", "short", "double", "float", "byte", "uint", "ulong", "ushort", "sbyte", "object", "bool", "char", "void" }; }
+string[] _kwLiteral() { return new string[]{ "null", "true", "false" }; }
+
+// 分组名（模板占位符 = `__KW_<名字大写>__`）与分组，同序；渲染 / 穷尽校验 / 幽灵校验共读这一份。
+string[] _kwGroupNames() { return new string[]{ "control", "declaration", "modifier", "operator", "type", "literal" }; }
+string[][] _kwGroups() {
+    return new string[][]{ _kwControl(), _kwDeclaration(), _kwModifier(), _kwOperatorExpr(), _kwPrimType(), _kwLiteral() };
+}
+
+// ── `setup vscode` 入口 ────────────────────────────────────────────────
+int _setupVscode() {
+    Stopwatch sw = _procStart("setup vscode");
+    string root = _root();
+    string rendered = _vscodeRenderGrammar(root);
+    if (rendered.Length == 0) { return 1; }
+    string outPath = _vscodeGrammarPath(root);
+    File.WriteAllText(outPath, rendered);
+    Console.WriteLine("  grammar → " + outPath);
+
+    // 工作区本地扩展（VSCode ≥1.89：.vscode/extensions/<name>/ 从源码加载；装项目目录而非用户目录）。
+    // 相对 symlink → 仓库整体移动不破链。
+    if (Platform.IsWindows()) {
+        ConsoleError.WriteLine("error: auto-install is symlink-based (macOS/Linux only). On Windows copy");
+        ConsoleError.WriteLine("       src\\toolchain\\devtools\\vscode to .vscode\\extensions\\z42.z42-lang (repo-local)");
+        return 1;
+    }
+    string extDir = Path.Join(root, ".vscode/extensions");
+    Directory.Create(extDir);
+    string linkPath = Path.Join(extDir, "z42.z42-lang");
+    int lc = _exec(new Process("ln").Arg("-sfn").Arg("../../src/toolchain/devtools/vscode").Arg(linkPath));
+    if (lc != 0) { return lc; }
+    Console.WriteLine("  installed → " + linkPath + " (workspace extension; reload VSCode window,");
+    Console.WriteLine("  first time VSCode asks to trust/enable workspace extensions)");
+    _procEnd("setup vscode", sw);
+    return 0;
+}
+
+// ── `check vscode-syntax` gate stage ──────────────────────────────────────────
+// grammar 防漂移：重渲染到内存与入库文件字节 diff（含分类穷尽校验）。
+int _testVscodeSyntax() {
+    Stopwatch sw = _procStart("check vscode-syntax");
+    string root = _root();
+    string rendered = _vscodeRenderGrammar(root);
+    if (rendered.Length == 0) { return 1; }
+    string outPath = _vscodeGrammarPath(root);
+    if (!File.Exists(outPath)) {
+        ConsoleError.WriteLine("error: " + outPath + " missing — run: xtask setup vscode");
+        return 1;
+    }
+    if (File.ReadAllText(outPath) != rendered) {
+        ConsoleError.WriteLine("error: z42.tmLanguage.json is stale (Lexer keyword table or template changed)");
+        ConsoleError.WriteLine("       — regenerate: xtask setup vscode");
+        return 1;
+    }
+    Console.WriteLine("  ✓ grammar in sync with Lexer keyword table");
+    _procEnd("check vscode-syntax", sw);
+    return 0;
+}
+
+// ── 生成核心 ─────────────────────────────────────────────────────────────────
+
+string _vscodeGrammarPath(string root) {
+    return Path.Join(root, "src/toolchain/devtools/vscode/syntaxes/z42.tmLanguage.json");
+}
+
+// 渲染 grammar 文本；失败（dump 失败 / 分类不穷尽）返回 ""（错误已打印）。
+// 确定性：关键字按 dump 注册序注入各组正则，同输入必同字节。
+string _vscodeRenderGrammar(string root) {
+    string dump = _vscodeDumpKeywords(root);
+    if (dump.Length == 0) { return ""; }
+    string[] kws = _vscodeSplitKeywords(dump);
+    if (!_vscodeValidateCategories(kws)) { return ""; }
+    string tplPath = Path.Join(root, "src/toolchain/devtools/vscode/syntaxes/z42.tmLanguage.tpl.json");
+    if (!File.Exists(tplPath)) { ConsoleError.WriteLine("error: template missing: " + tplPath); return ""; }
+    string outText = File.ReadAllText(tplPath);
+    string[] names = _kwGroupNames();
+    string[][] groups = _kwGroups();
+    for (int g = 0; g < groups.Length; g = g + 1) {
+        outText = outText.Replace("__KW_" + names[g].ToUpper() + "__", _vscodeAlt(kws, groups[g]));
+    }
+    return outText;
+}
+
+// fork in-tree z42c（warm；缺则先 build compiler）取关键字 dump。失败返回 ""。
+string _vscodeDumpKeywords(string root) {
+    string profile = "release";
+    string driver = _driverZpkg(root, profile);
+    string vm = _builtVm(root, profile);
+    if (!File.Exists(driver) || !File.Exists(vm)) {
+        Console.WriteLine("  z42c not built — bootstrapping (build compiler)");
+        int bc = _buildCompiler();
+        if (bc != 0) { return ""; }
+    }
+    string stdlibFlat = _libsFlatDist(root, profile);
+    try {
+        ProcessResult pr = _z42cProc(vm, stdlibFlat, driver)
+            .Arg("--dump-keywords")
+            .Stderr(Stdio.Inherit()).Run();
+        if (pr.ExitCode != 0) {
+            ConsoleError.WriteLine("error: z42c --dump-keywords failed (exit " + pr.ExitCode.ToString() + ")");
+            return "";
+        }
+        return pr.Stdout;
+    } catch (Exception e) {
+        ConsoleError.WriteLine("error: cannot spawn z42c --dump-keywords: " + e.Message);
+        return "";
+    }
+}
+
+// dump 文本 → 非空行数组（注册序保持）。
+string[] _vscodeSplitKeywords(string dump) {
+    List<string> kws = new List<string>();
+    foreach (var line in dump.Split("\n")) {
+        string t = line.Trim();
+        if (t.Length > 0) { kws.Add(t); }
+    }
+    return kws.ToArray();
+}
+
+// 穷尽校验：dump 的每个关键字恰好落一个分组；分组里的每个词必须在 dump 中。
+bool _vscodeValidateCategories(string[] kws) {
+    bool ok = true;
+    string[][] groups = _kwGroups();
+    foreach (var kw in kws) {
+        int hits = 0;
+        foreach (var grp in groups) { if (_strIn(grp, kw)) { hits = hits + 1; } }
+        if (hits == 0) {
+            ConsoleError.WriteLine("error: keyword '" + kw + "' (Lexer) not in any category — add it to a _kw* group in scripts/src/setup/vscode.z42");
+            ok = false;
+        } else if (hits > 1) {
+            ConsoleError.WriteLine("error: keyword '" + kw + "' appears in " + hits.ToString() + " categories — must be exactly one");
+            ok = false;
+        }
+    }
+    string[] names = _kwGroupNames();
+    for (int g = 0; g < groups.Length; g = g + 1) { ok = _vscodeNoGhosts(kws, groups[g], names[g]) && ok; }
+    return ok;
+}
+
+// 分组不得含 dump 中不存在的"幽灵"关键字（Lexer 删词后分类表必须跟删）。
+bool _vscodeNoGhosts(string[] kws, string[] group, string name) {
+    bool ok = true;
+    foreach (var kw in group) {
+        if (!_strIn(kws, kw)) {
+            ConsoleError.WriteLine("error: category '" + name + "' lists '" + kw + "' which Lexer no longer has — remove it from the table");
+            ok = false;
+        }
+    }
+    return ok;
+}
+
+// 按 dump 注册序输出该组的 alternation（kw1|kw2|…）——顺序取自 dump 而非分组
+// 声明序，保证生成确定性且与 SoT 顺序一致。
+string _vscodeAlt(string[] kws, string[] group) {
+    List<string> hit = new List<string>();
+    foreach (var kw in kws) { if (_strIn(group, kw)) { hit.Add(kw); } }
+    return String.Join("|", hit.ToArray());
+}

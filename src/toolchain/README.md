@@ -28,7 +28,7 @@
 | `xtask build toolchain` | launcher/z42b/z42d/z42i（外加 z42c 驱动）各 `publish <toml>` → **其 `[platform.desktop].publish_dir`**（native apphost + payload）；自动先 `build workload` |
 | `xtask package dev-sdk` | 完整可运行 `.z42` SDK —— 只组装：把上述 apphost 从各 `publish_dir` 与已编好的 z42c / stdlib / z42vm 合进 SDK |
 
-**路径 SoT**：所有输出/publish 路径从各组件 `z42.toml` 读（`[build].dist_dir`/`output_dir`、`[platform.desktop].publish_dir`，级联默认 `${output_dir}/{dist,publish}`），xtask 不硬编码——改路径只动 toml。实现见 [`scripts/build/xtask_toolchain.z42`](../../scripts/build/xtask_toolchain.z42)。
+**路径 SoT**：所有输出/publish 路径从各组件 `z42.toml` 读（`[build].dist_dir`/`output_dir`、`[platform.desktop].publish_dir`，级联默认 `${output_dir}/{dist,publish}`），xtask 不硬编码——改路径只动 toml。实现见 [`scripts/src/build/toolchain.z42`](../../scripts/src/build/toolchain.z42)。
 
 本目录无 `host/`——Tier 1 C ABI + 头在 [`../runtime/src/host/`](../runtime/src/host) + [`../runtime/include/`](../runtime/include)，Tier 2 `z42::host::rust` crate 在 `src/runtime/src/host`，Tier 3 平台绑定在 `workload/`。
 

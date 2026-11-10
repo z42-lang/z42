@@ -1,0 +1,201 @@
+// xtask — package installer self-check.
+//
+// Same rationale as test/sdk/packages_config_selfcheck.z42: xtask is an exe, so the
+// [Test]-attribute reflection runner can't see it — this is a plain
+// throw-on-mismatch self-check, not [Test]-discovered.
+//
+// 运行方式：`xtask package sdk --verify` 的第一步（经 _pkgSelfCheck 聚合）。不在 `xtask test` 的 GREEN gate
+// stage 里——改打包系统时跑（见 scripts/README.md）。
+//
+// 用一个手搭的 _PackagesConfig（真 kind、假 cargoOut）走 `_pkgInstallPackage`，装进临时包目录：
+// installers only copy — they never invoke cargo themselves, so no real build is needed —
+// plus the repo's real, already-built stdlib dist for the stdlib component.
+namespace Z42Xtask;
+
+using Std.IO;
+
+void _stgAssert(string what, bool cond) {
+    if (!cond) { throw new Exception("packages-install: " + what + ": failed"); }
+}
+
+_PkgComponent _instComp(string name, string kind, string project) {
+    _PkgComponent comp = new _PkgComponent();
+    comp.name = name;
+    comp.kind = kind;
+    comp.project = project;
+    comp.dest = "";
+    return comp;
+}
+
+_PackagesConfig _instConfig(string pkgName, string[] include, _PkgComponent[] comps) {
+    _PkgPackage pkg = new _PkgPackage();
+    pkg.name = pkgName;
+    pkg.include = include;
+    _PackagesConfig cfg = new _PackagesConfig();
+    cfg.packages = new _PkgPackage[]{ pkg };
+    cfg.components = comps;
+    return cfg;
+}
+
+int _testPackagesInstall() {
+    string root = _root();
+    string fakeCargoOut = _xtaskWork(root, "install-test-cargo");
+    if (Directory.Exists(fakeCargoOut)) { Directory.Delete(fakeCargoOut, true); }
+    Directory.Create(fakeCargoOut);
+    File.WriteAllText(Path.Join(fakeCargoOut, "z42vm"), "fake-z42vm-binary");
+    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+        File.WriteAllText(Path.Join(fakeCargoOut, _componentLibrary(stem)), "fake-" + stem);
+    }
+    Directory.Create(Path.GetDirectoryName(_componentStaticArchive(fakeCargoOut)));
+    File.WriteAllText(_componentStaticArchive(fakeCargoOut), "fake-static-lib");
+    string staticDir = Path.GetDirectoryName(Path.GetDirectoryName(_componentStaticArchive(fakeCargoOut)));
+    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
+        File.WriteAllText(Path.Join(staticDir, _componentStaticName(stem, _detectHostRid())), "static-" + stem);
+        File.WriteAllText(Path.Join(staticDir, stem + "-link.txt"), "link-" + stem);
+    }
+    File.WriteAllText(Path.Join(fakeCargoOut, "libz42.a"), "fake-static-lib");
+    File.WriteAllText(Path.Join(fakeCargoOut, "z42.dll.lib"), "fake-import-lib");
+    File.WriteAllText(Path.Join(fakeCargoOut, "libz42_compression.a"), "must-be-excluded");
+    File.WriteAllText(Path.Join(fakeCargoOut, "z42_compression.dll.lib"), "must-be-excluded");
+    File.WriteAllText(Path.Join(fakeCargoOut, "libunrelated_platform.a"), "must-be-excluded");
+    File.WriteAllText(Path.Join(fakeCargoOut, "libz42_repl.dylib"), "fake-repl-cdylib");
+
+    // 一个假包：四种固定 kind 各一个组件（真 kind，假 cargoOut），按 include 顺序装进临时包目录。
+    string pkgDir = _xtaskWork(root, "install-test-pkg");
+    _resetDir(pkgDir);
+    _PkgComponent[] comps = new _PkgComponent[]{
+        _instComp("z42vm", "cargo-bin", ""), _instComp("native", "cargo-native", ""),
+        _instComp("stdlib", "stdlib-glob", ""), _instComp("editor-assets", "editor-assets", "") };
+    _PackagesConfig cfg = _instConfig("install-test-pkg",
+        new string[]{ "z42vm", "native", "stdlib", "editor-assets" }, comps);
+    _PkgInstallCtx ctx = new _PkgInstallCtx();
+    ctx.CargoOut = fakeCargoOut;
+    _stgAssert("install ok", _pkgInstallPackage(cfg, root, "install-test-pkg", pkgDir, ctx) == 0);
+
+    // z42vm: bin/z42vm at the exact dest packages.toml declares, content matches the source (a real copy).
+    string vmBin = Path.Join(pkgDir, "bin/z42vm");
+    _stgAssert("bin/z42vm exists", File.Exists(vmBin));
+    _stgAssert("bin/z42vm content", File.ReadAllText(vmBin) == "fake-z42vm-binary");
+    // The repl cdylib is NOT put into bin/ (kept out of the
+    // shared dir the ext scanner walks). It is colocated into programs/z42i/ by z42.repl's
+    // ProvideNative build hook during `z42b publish` — covered by the publish e2e.
+    _stgAssert("bin/libz42_repl absent", !File.Exists(Path.Join(pkgDir, "bin/libz42_repl.dylib")));
+
+    // Runtime installer includes the complete closure, final static archive and canonical headers.
+    string staticName = Platform.IsWindows() ? "z42.lib" : "libz42.a";
+    _stgAssert("runtime static archive", File.ReadAllText(Path.Join(pkgDir, "native/" + staticName)) == "fake-static-lib");
+    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+        _stgAssert("runtime component " + stem, File.ReadAllText(Path.Join(pkgDir, "native/" + _componentLibrary(stem))) == "fake-" + stem);
+    }
+    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
+        _stgAssert("runtime static " + stem, File.ReadAllText(Path.Join(pkgDir, "native/" + _componentStaticName(stem, _detectHostRid()))) == "static-" + stem);
+        _stgAssert("runtime link requirements " + stem, File.ReadAllText(Path.Join(pkgDir, "native/" + stem + "-link.txt")) == "link-" + stem);
+    }
+    _stgAssert("native/include/z42_abi.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_abi.h")));
+    _stgAssert("native/include/z42_host.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_host.h")));
+    _stgAssert("mobile facade excluded", !File.Exists(Path.Join(pkgDir, "native/libunrelated_platform.a")));
+    _stgAssert("REPL excluded", !File.Exists(Path.Join(pkgDir, "native/libz42_repl.dylib")));
+
+    // SDK uses dynamic runtime components, without an embedding static archive or C headers.
+    string extDir = _xtaskWork(root, "install-test-ext");
+    _resetDir(extDir);
+    _PackagesConfig extCfg = _instConfig("install-test-ext", new string[]{ "native-ext" },
+        new _PkgComponent[]{ _instComp("native-ext", "cargo-native-ext", "") });
+    _stgAssert("SDK runtime install", _pkgInstallPackage(extCfg, root, "install-test-ext", extDir, ctx) == 0);
+    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+        _stgAssert("SDK component " + stem, File.Exists(Path.Join(extDir, "native/" + _componentLibrary(stem))));
+    }
+    _stgAssert("SDK static archive excluded", !File.Exists(Path.Join(extDir, "native/" + staticName)));
+    _stgAssert("SDK C headers excluded", !Directory.Exists(Path.Join(extDir, "native/include")));
+    File.Delete(Path.Join(fakeCargoOut, _componentLibrary("z42_jit")));
+    bool rejected = false;
+    try { _pkgInstallNativeExt(fakeCargoOut, extDir); } catch (Exception e) { rejected = true; }
+    _stgAssert("missing required JIT library rejects the package", rejected);
+
+    // stdlib: reuses the repo's real built dist — at least one zpkg lands at the declared libs/ dest.
+    bool anyZpkg = false;
+    foreach (var f in Directory.Enumerate(Path.Join(pkgDir, "libs"))) {
+        if (f.EndsWith(".zpkg")) { anyZpkg = true; }
+    }
+    _stgAssert("stdlib libs/ has zpkg", anyZpkg);
+
+    // 🔴 **装 libs 必须按成员清单，而不是「flat 里有什么拷什么」**。
+    //
+    // 下面那两组「不得出现在 libs/」的断言读的是**真实 flat 的当下状态** —— 而 flat 里有什么
+    // 取决于最后跑的是哪条命令（`build compiler` 的破环预建往里写，中途失败可能留下），
+    // 所以它们**能抓到、抓不住**。
+    //
+    // 这一格是**密闭**的：自己造一个「被污染的 libs」，看安装会不会把入侵者带进去。
+    // 与命令顺序无关 ⇒ 它守的是**构造**，不是当下这一刻的目录内容。
+    string fakeLibs = _xtaskWork(root, "install-test-fake-libs");
+    _resetDir(fakeLibs);
+    foreach (var m in _stdlibList(root)) {
+        string src = Path.Join(_libsDir(root), m + ".zpkg");
+        if (File.Exists(src)) { File.Copy(src, Path.Join(fakeLibs, m + ".zpkg")); }
+    }
+    File.WriteAllText(Path.Join(fakeLibs, "z42c.core.zpkg"), "INTRUDER");          // 编译器域
+    File.WriteAllText(Path.Join(fakeLibs, "z42.workload.ios.zpkg"), "INTRUDER");   // workload
+    File.WriteAllText(Path.Join(fakeLibs, "totally.random.zpkg"), "INTRUDER");     // 随便什么
+    string hermetic = _xtaskWork(root, "install-test-hermetic");
+    _resetDir(hermetic);
+    _stgAssert("污染过的 libs 也能装成功", _pkgCopyLibsOf(root, fakeLibs, hermetic) == 0);
+    foreach (var f in Directory.Enumerate(Path.Join(hermetic, "libs"))) {
+        _stgAssert("入侵者没被带进 libs/ (" + f + ")",
+            f != "z42c.core.zpkg" && f != "z42.workload.ios.zpkg" && f != "totally.random.zpkg");
+    }
+
+    // 🔴 **编译器域一个都不许出现在 shipped `libs/`**。
+    // 清单读 `_compilerMembers`（compiler workspace 的 default_members）：拆出新编译器包时本门自动跟上，
+    // 不留「名单在自检里手抄一份」的漂移面。
+    foreach (var m in _compilerMembers(root)) {
+        _stgAssert(m + " NOT in shipped libs/", !File.Exists(Path.Join(pkgDir, Path.Join("libs", m + ".zpkg"))));
+    }
+
+    // 🔴 **workload 包一个都不许出现在 shipped `libs/`**。
+    //
+    // workload 清单的 `dist_dir` 指向 stdlib flat（为了让 launcher 的名字依赖解析得到），flat 里因此有
+    // `z42.workload.*`。`libs/` 是用户面的标准库表面，workload 不属于那里。
+    //
+    // 按**前缀**判而不是列四个名字：下一个 workload 加进来时这门自动管得住它
+    // （列名字的门只在有人想起来改它时才成立 —— 那正是「靠约定」）。
+    foreach (var f in Directory.Enumerate(Path.Join(pkgDir, "libs"))) {
+        _stgAssert("no workload zpkg in shipped libs/ (" + f + ")", !f.StartsWith("z42.workload."));
+    }
+
+    // editor-assets: 资产从仓库源码树拷到 editors/<target>/；生成器模板不得进包
+    // （*.tpl.json 是 xtask 的输入，出现在用户扩展目录里只会造成困惑）。
+    string edDir = Path.Join(pkgDir, "editors/vscode");
+    _stgAssert("editors/vscode/package.json exists", File.Exists(Path.Join(edDir, "package.json")));
+    _stgAssert("editors/vscode/language-configuration.json exists",
+        File.Exists(Path.Join(edDir, "language-configuration.json")));
+    _stgAssert("editors/vscode grammar exists",
+        File.Exists(Path.Join(edDir, "syntaxes/z42.tmLanguage.json")));
+    _stgAssert("generator template NOT packaged",
+        !File.Exists(Path.Join(edDir, "syntaxes/z42.tmLanguage.tpl.json")));
+
+    // 失败要响亮（不留半个包当成功）：① kind 装不了（apphost-stub 归 desktop workload）；② apphost 组件缺 z42b 上下文。
+    string badDir = _xtaskWork(root, "install-test-bad");
+    _resetDir(badDir);
+    _PackagesConfig stubCfg = _instConfig("install-test-stub", new string[]{ "apphost-stub" },
+        new _PkgComponent[]{ _instComp("apphost-stub", "cargo-bin", "") });
+    _stgAssert("apphost-stub 不能装进普通包", _pkgInstallPackage(stubCfg, root, "install-test-stub", badDir, ctx) != 0);
+    _PackagesConfig appCfg = _instConfig("install-test-app", new string[]{ "z42b" },
+        new _PkgComponent[]{ _instComp("z42b", "apphost", _z42bToml()) });
+    _stgAssert("apphost 组件缺 z42b 上下文必须报错", _pkgInstallPackage(appCfg, root, "install-test-app", badDir, ctx) != 0);
+    // ③ native-ext 一个 ext 动态库都没有（compression 没建出来）⇒ 报错，而不是装出一个空 native/。
+    string emptyCargoOut = _xtaskWork(root, "install-test-empty-cargo");
+    _resetDir(emptyCargoOut);
+    _PkgInstallCtx emptyCtx = new _PkgInstallCtx();
+    emptyCtx.CargoOut = emptyCargoOut;
+    rejected = false;
+    try { _pkgInstallPackage(extCfg, root, "install-test-ext", badDir, emptyCtx); } catch (Exception e) { rejected = true; }
+    _stgAssert("empty runtime output rejects package installation", rejected);
+
+    Directory.Delete(fakeCargoOut, true);
+    Directory.Delete(emptyCargoOut, true);
+    Directory.Delete(pkgDir, true);
+    Directory.Delete(extDir, true);
+    Directory.Delete(badDir, true);
+    Console.WriteLine("packages-install: PASS (z42vm/native/native-ext/stdlib/editor-assets installers + hermetic libs + failure paths)");
+    return 0;
+}

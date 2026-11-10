@@ -3,8 +3,8 @@
 > 代码：
 > `src/toolchain/workload/{wasm,ios,android,desktop}/platform/`、
 > `src/toolchain/workload/platform-contract.md`、
-> `scripts/test/xtask_test_{platform,wasm,ios,android,desktop}.z42`、
-> `scripts/setup/xtask_install{,_android}.z42`、`scripts/versions.toml`
+> `scripts/src/test/app/{platform,wasm,ios,android,desktop}.z42`、
+> `scripts/src/setup/{install,android}.z42`、`scripts/versions.toml`
 >
 > 嵌入宿主的**契约**（C ABI、三层架构）见[嵌入宿主](../runtime/embedding.md)与
 > [参考手册 · C ABI](https://z42-lang.github.io/z42/reference/embedding/c-abi.html)；打发行包见[打包与发版](release.md)。
@@ -211,7 +211,7 @@ host-package 在 macOS / Linux 上每个 RID 都跑；Windows 没有 `cc`，只�
 
 三个 facade 遵循同一份契约（`src/toolchain/workload/platform-contract.md`）：同样的
 resolver 抽象、同样的 stdout sink 语义、同样的 R1–R7 用例编号。加一个新平台就是再实现一次
-`IPlatformBackend`（`scripts/test/xtask_test_<plat>.z42`）并补齐这三段。
+`IPlatformBackend`（`scripts/src/test/app/<plat>.z42`）并补齐这三段。
 
 嵌入执行跑在 **16 MB 大栈线程**上（host 侧的 C 符号 `z42_host_run_app`），避免深递归打爆
 移动端的小线程栈。哪些用例因平台缺能力被排除、怎么分片跑全覆盖，见

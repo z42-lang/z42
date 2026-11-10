@@ -58,7 +58,7 @@ node src/toolchain/workload/wasm/platform/demo/node/run.js     # 期望 [host] h
 ```
 
 build + assets + pkg-nodejs Node smoke + headless chromium 的 Playwright R1–R7，期望 `7 passed`。
-浏览器装到 `artifacts/tools/playwright-browsers/`。后端实现 [`scripts/test/xtask_test_wasm.z42`](../../../../scripts/test/xtask_test_wasm.z42)。
+浏览器装到 `artifacts/tools/playwright-browsers/`。后端实现 [`scripts/src/test/app/wasm.z42`](../../../../scripts/src/test/app/wasm.z42)。
 
 ## 关联文档
 

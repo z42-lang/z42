@@ -73,14 +73,32 @@ class MainSupersedeTests(unittest.TestCase):
         return printed
 
     def test_rename_across_sdk_boundary_in_either_direction(self):
-        source = "scripts/package/xtask_package_verify.z42"
-        test = "scripts/test/sdk/xtask_package_verify.z42"
+        source = "scripts/src/package/verify.z42"
+        test = "scripts/src/test/sdk/verify.z42"
         for old, new in [(source, test), (test, source)]:
             with self.subTest(old=old, new=new):
                 self.assertEqual(
                     self.sdk({"status": "renamed", "filename": new, "previous_filename": old}),
                     "true",
                 )
+
+    def test_xtask_layout_publish_classification(self):
+        for path, expected in [
+            ("scripts/src/common/base.z42", "true"),
+            ("scripts/src/build/stdlib.z42", "true"),
+            ("scripts/src/package/desktop.z42", "true"),
+            ("scripts/src/setup/install.z42", "true"),
+            ("scripts/src/main.z42", "true"),
+            ("scripts/install-z42.sh", "true"),
+            ("scripts/xtask.z42.toml", "true"),
+            ("scripts/src/test/gate.z42", "false"),
+            ("scripts/src/test/check/layout.z42", "false"),
+            ("scripts/src/test/sdk/verify.z42", "false"),
+            ("scripts/src/bench/bench.z42", "false"),
+            ("scripts/src/common/harness/fixtures.z42", "false"),
+        ]:
+            with self.subTest(path=path):
+                self.assertEqual(self.sdk({"status": "modified", "filename": path}), expected)
 
     def test_rename_within_private_tests_does_not_publish(self):
         self.assertEqual(self.sdk({
@@ -98,7 +116,7 @@ class MainSupersedeTests(unittest.TestCase):
         new = "docs/internals/src/devinfra/new.md"
         for event in ["pull_request", "push"]:
             for old, expected in [
-                ("scripts/build/old.z42", "false"),
+                ("scripts/src/build/old.z42", "false"),
                 ("docs/learn/src/old.md", "false"),
                 ("docs/internals/src/devinfra/old.md", "true"),
             ]:

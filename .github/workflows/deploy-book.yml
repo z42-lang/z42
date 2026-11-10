@@ -8,7 +8,7 @@ name: Deploy book to GitHub Pages
 #   https://z42-lang.github.io/z42/install-z42.sh / install-z42.ps1   安装脚本
 # PR 上只构建不发布：mdBook 的 include 出错不会让构建失败（缺文件只打 ERROR），这里把 [ERROR] 判红。
 # reference 的 stdlib 包页不入库：构建前用 `xtask build docs` 从 stdlib 源码的 `///` 现生成，所以 stdlib 源码与
-# 渲染器（z42.doc、xtask_doc.z42）的改动也触发发布。
+# 渲染器（z42.doc、scripts/src/build/docs/generate.z42）的改动也触发发布。
 # 一次性前置：仓库 Settings → Pages → Source 选 "GitHub Actions"。
 
 on:
@@ -24,7 +24,7 @@ on:
       - 'scripts/install-z42.ps1'
       - 'src/libraries/**'
       - 'src/compiler/z42.doc/**'
-      - 'scripts/build/xtask_doc.z42'
+      - 'scripts/src/build/docs/generate.z42'
       - '.github/workflows/deploy-book.yml'
       - '.github/scripts/install-book-tools.sh'
       - '.github/scripts/test-install-book-tools.py'
@@ -39,7 +39,7 @@ on:
       - 'scripts/install-z42.ps1'
       - 'src/libraries/**'
       - 'src/compiler/z42.doc/**'
-      - 'scripts/build/xtask_doc.z42'
+      - 'scripts/src/build/docs/generate.z42'
       - '.github/workflows/deploy-book.yml'
       - '.github/scripts/install-book-tools.sh'
       - '.github/scripts/test-install-book-tools.py'

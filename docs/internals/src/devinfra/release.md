@@ -1,13 +1,13 @@
 # 打包与发版
 
-> 代码：`scripts/package/`、
+> 代码：`scripts/src/package/`、
 > `scripts/packages.toml`、`.github/workflows/release.yml`、
 > `.github/workflows/ci.yml`（`publish-nightly`）、`scripts/versions.toml`
 >
 > 打包**引擎**（清单三层结构、组装流水、source-identity 门的实现）见[打包引擎](packaging.md)；
 > 这页是操作面：产哪些包、怎么在本地产、怎么验、怎么发出去。
 
-要读这页的场景：在本地打一个发行包来 inspect / 冒烟 / 给别人用；改了 `scripts/package/` 或
+要读这页的场景：在本地打一个发行包来 inspect / 冒烟 / 给别人用；改了 `scripts/src/package/` 或
 `packages.toml` 要验；或者要发一个 tag release。
 
 ## 1. 一次发布产出哪些包
@@ -55,7 +55,7 @@
 
 **本地出发布归档**：打包命令带 `--archive`，本次产出的包目录旁边（`artifacts/packages/`）就多出与 CI 同名、
 同格式的归档（label 缺省取 `versions.toml` 的版本；只有 release profile 的包会发布）。归档名自带平台 / 架构，
-与包目录并排放不会撞。命名规则（下表）只在 `xtask_release.z42` 里写一次，release.yml、nightly 与本地共用。
+与包目录并排放不会撞。命名规则（下表）只在 `scripts/src/package/release.z42` 里写一次，release.yml、nightly 与本地共用。
 `release` 默认就在 `artifacts/packages/` 上做，要求 9 个 RID 的归档齐全（单机凑不齐，它是汇总 job 的步骤）。
 
 `--no-build` 让它消费已有的 z42c + stdlib 产物（CI warm 路径用）。

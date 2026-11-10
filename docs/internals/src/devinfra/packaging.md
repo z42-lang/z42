@@ -1,6 +1,6 @@
 # 打包引擎（`packages.toml`）
 
-> 代码：`scripts/packages.toml`、`scripts/package/`
+> 代码：`scripts/packages.toml`、`scripts/src/package/`
 >
 > 本地怎么打一个包、RID 支持矩阵、发版流程、失败排查 → [打包与发版](release.md)；本页写**引擎本身**：
 > 清单怎么组织、组件怎么产出、组装完为什么还有一道逐字节的门。
@@ -14,7 +14,7 @@
 - **数据驱动**：包的内容是清单（TOML），不是代码里硬编码的拷贝序列。
 - **无隐形组件**：一切进包的东西都在组件注册表逐个登记（名字 → 产出方式 → 落点）。
 - **声明 / 实现分离**：清单只说「哪个包有哪些组件、各落在哪」；「怎么装」按 kind 分派在
-  `scripts/package/xtask_package_install.z42`，加组件不改分派代码。
+  `scripts/src/package/install.z42`，加组件不改分派代码。
 - **跨平台同构**：四个 RID 类别（desktop / ios / android / wasm）共享同一套清单机制。
 
 | 决策 | 选择 | 理由 |
@@ -84,7 +84,7 @@ graph LR
   用的都是它。`z42c.driver` 的非 stdlib 项目依赖（`z42c.optimization` / `z42c.semantics` / `z42c.emission` / `z42c.pipeline` 等）由
   `z42 publish` 自动解析、拷到同一落点 `programs/z42c/`，**因此不单独登记组件**，include 里只写
   一次 `"z42c"`（编译器域的其它包同样随 publish 落进 `programs/z42c/`，不进 `libs/`）。
-- **② 固定形态组件**不经 publish，由 `scripts/package/xtask_package_install.z42` 按 kind 从构建产物
+- **② 固定形态组件**不经 publish，由 `scripts/src/package/install.z42` 按 kind 从构建产物
   拷进包，但**同样逐个登记**，不留「隐形」组件：`z42vm` / `apphost-stub` 是 `cargo-bin`；
   `native` 是 `cargo-native`（嵌入件 `libz42.{a,dylib,so}` / `z42.{lib,dll,dll.lib}` + 头文件 + ext 动态库，
   多文件但来源单一：同一个 cargo 工作区一次 build 产出）；`native-ext` 是 `cargo-native-ext`（只有 stdlib
@@ -105,7 +105,7 @@ graph LR
 **能力 workload**——目前是 **test**（`z42.testagent.zpkg`，见[测试流水线两层模型](test-pipeline.md)）：
 平台无关、无 per-RID apphost、无 runtime pack。三个特点：
 
-- **不进 `packages.toml`**：由 `scripts/package/xtask_package_test.z42` 的 `_buildTestWorkload`
+- **不进 `packages.toml`**：由 `scripts/src/package/test_workload.z42` 的 `_buildTestWorkload`
   **内联**编 agent + 写 manifest，不走 `[package.*]` 的 include-组件模型——它没有可登记的组件，
   只有一份预建 zpkg。`package workload test [<version>]` 直接产出。
 - **manifest 复用 `kind="workload-tooling"`** + `host=["*"]` + 无 runtime pack，单 zpkg 由
@@ -122,7 +122,7 @@ graph LR
 **不是哈希**——直接读两个文件比字节，比 hash 更强（无碰撞面、不依赖外部工具）。
 函数名不含 sha。仓里、CI 日志里出现的 "SHA invariant" 字样指的就是这道门。
 
-规则表是「包内相对路径 ↔ 仓库源路径」（`_pkgIdentityRules`，`scripts/package/xtask_package.z42`）：
+规则表是「包内相对路径 ↔ 仓库源路径」（`_pkgIdentityRules`，`scripts/src/package/dispatch.z42`）：
 
 | 规则 | 包内路径 | 仓库源 |
 |---|---|---|
@@ -164,7 +164,7 @@ graph LR
 ### 5.1 包结构门：该有的在、不该有的不在、原生产物形态对
 
 source-identity 只比「拷进来的东西和源一不一致」，管不到「该拷的拷没拷、不该发的发没发、编出来的原生库
-形态对不对」。这些由 `_pkgLayoutCheck`（`scripts/package/xtask_package_layout.z42`）在同一个 `_pkgFinish` 里
+形态对不对」。这些由 `_pkgLayoutCheck`（`scripts/src/package/layout.z42`）在同一个 `_pkgFinish` 里
 接着判，桌面 workload 在生成处判；逐项打印 ✓ / ✗，一次报全。按包种类：
 
 | 包 | 断言 |
@@ -182,16 +182,16 @@ source-identity 只比「拷进来的东西和源一不一致」，管不到「�
 
 | 组件 | 位置 | 要点 |
 |---|---|---|
-| 顶层分发（按 RID）| `scripts/package/xtask_package.z42` | desktop / ios / android / wasm 四管道；`_pkgFinish` = identity 门 + 结构门 |
-| 包结构门 | `xtask_package_layout.z42` | `_pkgLayoutCheck(root, pkgDir, kind, rid)`，见 §5.1 |
-| 清单解析 | `scripts/common/xtask_packages_config.z42` | `[package.*]` + `[component.*]` 读取、include 名解析 |
-| 组件与共享调用 | `scripts/common/xtask_components.z42` / `xtask_process.z42` / `xtask_publish.z42` | 构建/打包共用组件列表、路径与工具进程参数 |
-| 组件安装 | `xtask_package_install.z42` | `_pkgInstallPackage`：按 include 逐组件、按 kind 分派直接装进包目录（cargo-bin / cargo-native / cargo-native-ext / stdlib-glob / editor-assets 拷贝；apphost `z42b publish --output`）|
-| desktop 管道 | `xtask_package_desktop.z42` | SDK 分段组装 |
-| 移动 / 浏览器管道 | `xtask_package_{ios,android,wasm}.z42` | native 产物 + 平台 facade（SwiftPM / Gradle / npm）|
-| 能力 workload | `xtask_package_test.z42` | 见 §4 |
-| 发布归档 / 索引 | `xtask_release.z42` | 打包命令的 `--archive`（本次产出的包目录 → 同目录下的归档，命名规则唯一出处）、`package release`（合并 desktop workload → `SHA256SUMS` → `release-index.json`，launcher 的供给契约）|
-| 自检 + 端到端 | `scripts/test/sdk/` 中的自检、`xtask_package_verify.z42` 与 `xtask_package_goldens.z42`，入口 `package sdk --verify` | 解析 / 组件安装 / 发布归档三层自检，再在这份 SDK 上跑发行包夹具 + golden；golden 要求退出 0 且输出匹配 |
+| 顶层分发（按 RID）| `scripts/src/package/dispatch.z42` | desktop / ios / android / wasm 四管道；`_pkgFinish` = identity 门 + 结构门 |
+| 包结构门 | `scripts/src/package/layout.z42` | `_pkgLayoutCheck(root, pkgDir, kind, rid)`，见 §5.1 |
+| 清单解析 | `scripts/src/common/packages_config.z42` | `[package.*]` + `[component.*]` 读取、include 名解析 |
+| 组件与共享调用 | `scripts/src/common/components.z42` / `scripts/src/common/process.z42` / `scripts/src/common/publish.z42` | 构建/打包共用组件列表、路径与工具进程参数 |
+| 组件安装 | `scripts/src/package/install.z42` | `_pkgInstallPackage`：按 include 逐组件、按 kind 分派直接装进包目录（cargo-bin / cargo-native / cargo-native-ext / stdlib-glob / editor-assets 拷贝；apphost `z42b publish --output`）|
+| desktop 管道 | `scripts/src/package/desktop.z42` | SDK 分段组装 |
+| 移动 / 浏览器管道 | `scripts/src/package/{ios,android,wasm}.z42` | native 产物 + 平台 facade（SwiftPM / Gradle / npm）|
+| 能力 workload | `scripts/src/package/test_workload.z42` | 见 §4 |
+| 发布归档 / 索引 | `scripts/src/package/release.z42` | 打包命令的 `--archive`（本次产出的包目录 → 同目录下的归档，命名规则唯一出处）、`package release`（合并 desktop workload → `SHA256SUMS` → `release-index.json`，launcher 的供给契约）|
+| 自检 + 端到端 | `scripts/src/test/sdk/` 中的自检、`scripts/src/test/sdk/verify.z42` 与 `scripts/src/test/sdk/goldens.z42`，入口 `package sdk --verify` | 解析 / 组件安装 / 发布归档三层自检，再在这份 SDK 上跑发行包夹具 + golden；golden 要求退出 0 且输出匹配 |
 
 ## 7. 边界与限制
 

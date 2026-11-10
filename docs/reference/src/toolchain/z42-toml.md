@@ -756,7 +756,7 @@ mode = "interp"
 | `false` | 跑目标 `entry`（FQ 函数名）指定的 Main | **退出码**（非零即失败；**无 golden / expected 比对**）|
 
 > **golden（`expected_output.txt` stdout 比对）不进本模型**——它由 `src/tests/**` 的独立约定
-> harness（`scripts/test/xtask_test_vm.z42`）承载，与清单目标正交并存。清单目标一律 exit-code 语义。
+> harness（`scripts/src/test/e2e/goldens.z42`）承载，与清单目标正交并存。清单目标一律 exit-code 语义。
 > example 恒 Main 程序，`harness` 对其无意义（发现方一律按 `entry` Main 跑）。
 
 ### 约定（自动发现）

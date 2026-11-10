@@ -116,7 +116,7 @@ class BenchScopeTests(unittest.TestCase):
 
     def test_mixed_change_preserves_full_measurement(self):
         for path in (SCENARIO, ".github/workflows/bench-pr.yml", "src/runtime/src/lib.rs",
-                     "src/libraries/z42.core/src/Array.z42", "scripts/bench/xtask_bench.z42", "new-input"):
+                     "src/libraries/z42.core/src/Array.z42", "scripts/src/bench/bench.z42", "new-input"):
             with self.subTest(path=path):
                 self.git("reset", "--hard", self.base)
                 self.write(FIXTURE, "after")

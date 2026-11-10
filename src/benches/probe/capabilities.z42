@@ -1,7 +1,7 @@
 // Capability probe (add-exec-profile-matrix, 2026-07-31).
 //
 // Emits THIS VM binary's runtime execution capabilities as a single JSON line.
-// The exec-profile harness (scripts/common/xtask_exec_profile.z42) runs this
+// The exec-profile harness (scripts/src/common/harness/execution_profile.z42) runs this
 // under the *target* VM binary it is about to benchmark/test, and parses the
 // output — so every result carries the caps that binary actually reports, never
 // a static guess. Backed by Std.Platform.Capabilities()/ExecModes(), i.e. the

@@ -1,0 +1,281 @@
+// xtask — release packaging: package sdk / runtime / workload entry points, cargo helpers,
+// native/stdlib copy, and the source-identity gate. Desktop pipeline: package/desktop.z42.
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Time;
+
+// ── shared setup / finish ───────────────────────────────────────────────────
+// Compute pkgDir (z42-<ver>-<rid>-<profile>[-<variant>]) + create bin/libs/native.
+string _pkgSetupDir(string root, string rid, string version, string profile, string variant) {
+    string pkgName = "z42-" + version + "-" + rid + "-" + profile;
+    if (variant.Length > 0) { pkgName = pkgName + "-" + variant; }
+    string pkgDir = Path.Join(_packagesDir(root), pkgName);
+    Console.WriteLine("Package:    " + pkgName);
+    Console.WriteLine("Output:     " + pkgDir);
+    Console.WriteLine("Target RID: " + rid + "  (category=" + _ridCategory(rid) + ")");
+    Console.WriteLine("Profile:    " + profile);
+    Console.WriteLine("");
+    if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
+    Directory.Create(Path.Join(pkgDir, "bin"));
+    // libs/ 与 native/include/ **不在这里建**：谁写谁建（_pkgCopyLibsOf / _copyAbiHeaders /
+    // _copyNativeLibs 各自 ensure 自己的目标目录）。ios/android/wasm 的 workload pack 不装这两类
+    // （在另一个 runtime pack 里），预建会留下空目录，而 source-identity 门用「路径存在 ⇒ 本包有
+    // 这一类」判存在 → 空壳被判成「规则与拷贝点脱钩」。
+    return pkgDir;
+}
+// 组装完的包过两道门：source-identity（包内拷贝 == 仓库源）+ 包结构（package/layout.z42）。
+// kind / rid 选结构断言：sdk | runtime | tooling（见 _pkgLayoutCheck）。
+int _pkgFinish(string root, string pkgDir, string kind, string rid) {
+    Console.WriteLine("");
+    Console.WriteLine("source-identity check (package copies vs repo source):");
+    int c = _pkgSourceIdentityCheck(root, pkgDir);
+    if (c != 0) { ConsoleError.WriteLine("  ✗ source-identity check FAILED"); return c; }
+    c = _pkgLayoutCheck(root, pkgDir, kind, rid);
+    if (c != 0) { return c; }
+    Console.WriteLine("");
+    Console.WriteLine("✅ Package assembled: " + pkgDir);
+    PackageOutputs.Note(pkgDir);
+    return 0;
+}
+
+// ── package sdk (host SDK only) ─────────────────────────────────────────────
+int _packageSdk(string profile, string variant, bool noBuild) {
+    Stopwatch sw = _procStart("package sdk");
+    string root = _root();
+    string rid = _detectHostRid();
+    if (_ridCategory(rid) != "desktop") {
+        ConsoleError.WriteLine("package sdk: host RID is not desktop (" + rid + ")"); return 2;
+    }
+    string version = _versionsGet(root);
+    if (version.Length == 0) { ConsoleError.WriteLine("error: versions.toml [project].version missing"); return 1; }
+    string pkgDir = _pkgSetupDir(root, rid, version, profile, variant);
+    int c = _packageDesktop(root, pkgDir, rid, version, profile, rid, noBuild); if (c != 0) { return c; }
+    c = _pkgFinish(root, pkgDir, "sdk", rid); if (c != 0) { return c; }
+    _procEnd("package sdk", sw); return 0;
+}
+
+// ── package runtime (native+stdlib; host or platform via rid) ────────────────
+int _packageRuntime(string rid, string profile, string variant, bool noBuild) {
+    Stopwatch sw = _procStart("package runtime");
+    string root = _root();
+    string hostRid = _detectHostRid();
+    if (rid.Length == 0) { rid = hostRid; }
+    string category = _ridCategory(rid);
+    string version = _versionsGet(root);
+    if (version.Length == 0) { ConsoleError.WriteLine("error: versions.toml [project].version missing"); return 1; }
+    if (category == "desktop") {
+        // host runtime pack 自带 z42-runtime-<rid> 目录，并**自己调 _pkgFinish**。
+        int rc = _buildRuntimePackage(root, rid, version, profile);
+        if (rc == 0) { _procEnd("package runtime", sw); }
+        return rc;
+    }
+    string pkgDir = _pkgSetupDir(root, rid, version, profile, variant);
+    int c;
+    if (category == "ios")          { c = _packageIos(root, pkgDir, rid, version, profile, hostRid); }
+    else if (category == "android") { c = _packageAndroid(root, pkgDir, rid, version, profile, hostRid); }
+    else if (category == "wasm")    { c = _packageWasm(root, pkgDir, rid, version, profile, hostRid); }
+    else { ConsoleError.WriteLine("package runtime: unknown category '" + category + "' for rid " + rid); return 2; }
+    if (c != 0) { return c; }
+    c = _pkgFinish(root, pkgDir, "tooling", rid); if (c != 0) { return c; }
+    _procEnd("package runtime", sw); return 0;
+}
+
+// ── package workload (build ONE per-RID desktop workload) ────────────────────
+int _packageWorkloadBuild(string rid, string profile) {
+    Stopwatch sw = _procStart("package workload (build per-RID)");
+    string root = _root();
+    if (rid.Length == 0) { rid = _detectHostRid(); }
+    string version = _versionsGet(root);
+    if (version.Length == 0) { ConsoleError.WriteLine("error: versions.toml [project].version missing"); return 1; }
+    int c = _buildDesktopWorkload(root, rid, version, profile);
+    if (c == 0) { _procEnd("package workload (build per-RID)", sw); }
+    return c;
+}
+
+int _cargo(bool rel, string verb, string manifest, string target, string pkg) {
+    Process p = _cargoCmd(verb, _runtimeCargoConfig());
+    if (rel) { p = p.Arg("--release"); }
+    if (pkg.Length > 0) { p = p.Arg("-p").Arg(pkg); }
+    p = p.Arg("--manifest-path").Arg(manifest);
+    if (target.Length > 0) { p = p.Arg("--target").Arg(target); }   // host: no --target → reuse warm build
+    p = p.Arg("--quiet");
+    return _exec(p);
+}
+
+// ── file assembly helpers ───────────────────────────────────────────────────
+
+// The shared `[package]` header for the workload manifests (desktop / ios / android
+// / wasm). Empty rid / buildHost are omitted (desktop has neither). NOTE: does NOT
+// cover the runtime-pkg manifest (`z42-<rid>`, no `kind`) nor the merged release
+// manifest — those have distinct shapes and stay inline.
+string _workloadPkgHeader(string name, string version, string rid, string profile, string buildHost) {
+    string m = "[package]\n"
+        + "name        = \"" + name + "\"\n"
+        + "kind        = \"workload-tooling\"\n"
+        + "version     = \"" + version + "\"\n"
+        + "abi-version = 1\n";
+    if (rid.Length > 0) { m = m + "rid         = \"" + rid + "\"\n"; }
+    m = m + "profile     = \"" + profile + "\"\n"
+          + "build-date  = \"" + _utcNow() + "\"\n";
+    if (buildHost.Length > 0) { m = m + "build-host  = \"" + buildHost + "\"\n"; }
+    return m + "\n";
+}
+
+// Mobile/wasm packages don't ship z42c — bin/ gets a placeholder README.
+// Shared by _packageAndroid / _packageWasm (ios writes its own inline).
+void _pkgEmitBinReadmePlaceholder(string pkgDir, string targetLabel) {
+    Directory.Create(Path.Join(pkgDir, "bin"));
+    string content = "# bin/\n\n"
+        + "Reserved for future cross tools targeting **" + targetLabel + "**\n"
+        + "(e.g. z42-aotcross). Mobile / wasm packages do NOT ship the host compiler\n"
+        + "(z42c); embed prebuilt .zbc from your host build pipeline.\n"
+        + "See memory: project_mobile_no_compiler.\n";
+    File.WriteAllText(Path.Join(pkgDir, "bin/README.md"), content);
+}
+
+// 🔴 **按 stdlib 成员清单拷，而不是把 flat 整目录拷走**。
+//
+// flat（`artifacts/intermediate/libraries/flat/release`）**不只装 stdlib**：`build compiler` 的破环
+// 预建（`_ensureBootstrapSelfDepLibs`）会把编译器域的包写进去，而 `build stdlib` 的末步
+// `_assembleStdlibFlatView` 又会清空重装 ⇒ 那个目录里此刻有什么，**取决于最后跑的是哪条命令**。
+// 整目录拷会让发布包的内容依赖命令顺序，把编译器域的包带进 shipped `libs/`（编译器域一个都不许出现在那里）。
+// 按 `default_members` 逐个拷：**flat 里多出什么都进不来**，与命令顺序无关。
+int _pkgCopyLibs(string libsDir, string pkgDir) {
+    return _pkgCopyLibsOf(_root(), libsDir, pkgDir);
+}
+
+int _pkgCopyLibsOf(string root, string libsDir, string pkgDir) {
+    if (!Directory.Exists(libsDir)) {
+        ConsoleError.WriteLine("error: stdlib not built at " + libsDir + "; run build stdlib");
+        return 1;
+    }
+    Directory.Create(Path.Join(pkgDir, "libs"));   // 谁写谁建（见 _pkgSetupDir 注释）
+    string[] members = _stdlibList(root);
+    if (members.Length == 0) {
+        ConsoleError.WriteLine("error: 读不到 src/libraries/z42.workspace.toml 的 default_members"
+            + " —— 拒绝回落到「整目录拷」，那会把编译器域的包一起打进 libs/");
+        return 1;
+    }
+    foreach (var m in members) {
+        string zp = Path.Join(libsDir, m + ".zpkg");
+        if (!File.Exists(zp)) {
+            ConsoleError.WriteLine("error: stdlib 成员 " + m + " 的 zpkg 不在 " + libsDir
+                + " —— flat 未装配完整（先跑 build stdlib）");
+            return 1;
+        }
+        File.Copy(zp, Path.Join(pkgDir, "libs/" + m + ".zpkg"));
+        string zs = Path.Join(libsDir, m + ".zsym");
+        if (File.Exists(zs)) { File.Copy(zs, Path.Join(pkgDir, "libs/" + m + ".zsym")); }
+    }
+    _vDetailed("  stdlib: staged " + members.Length.ToString() + " member(s) by default_members");
+    return 0;
+}
+
+// ── source-identity invariant（包内副本 vs 仓库源，逐字节） ───────────────────
+//
+// **不是哈希**：直接读两个文件比字节（比 hash 更强——无碰撞面、不依赖外部工具）。
+//
+// 「包 vs 源」而不是「包 vs 包」：各包副本都拷自同一份源，`A==源 ∧ B==源 ⟹ A==B`，反之不成立。
+// 设计见 docs/internals/src/devinfra/packaging.md §5。
+
+// 一条规则 = 包内相对路径 ↔ 仓库源绝对路径。
+// PkgRel 落在目录上 → **递归**比对以 Suffix 结尾的文件（Suffix="" 表示全部）；
+// 落在文件上 → 直接比对。包内不存在该路径 → 整条规则跳过（一张表服务全部包类别：
+// desktop 没有 Sources/、ios 没有 js/）。
+class _PkgIdentityRule {
+    public string Label  { get; set; }
+    public string PkgRel { get; set; }
+    public string SrcAbs { get; set; }
+    public string Suffix { get; set; }
+}
+
+class _PkgIdentityTally {
+    public int Compared { get; set; }
+    public int Mismatch { get; set; }
+}
+
+_PkgIdentityRule _pkgRule(string label, string pkgRel, string srcAbs, string suffix) {
+    _PkgIdentityRule r = new _PkgIdentityRule();
+    r.Label = label; r.PkgRel = pkgRel; r.SrcAbs = srcAbs; r.Suffix = suffix;
+    return r;
+}
+
+// ⚠️ 规则必须与**实际拷贝的那一行**同源，否则门会验一个不相干的文件（= 假保障）。
+// 每条右侧注明拷贝点。特别注意 ios `Sources/Z42VMC/` 与 android `.../cpp/` **不能**
+// 整棵目录递归比：它们的 `include/` 装的是 `_copyAbiHeaders` 拷进去的**真 runtime 头**，
+// 而源树同名目录里是 `#include "../../.."` 的转发 stub，整棵比会假红。故那两处用
+// 显式文件规则 + 单独一条指向 src/runtime/include 的 include 规则。
+_PkgIdentityRule[] _pkgIdentityRules(string root) {
+    string rtInc   = Path.Join(root, "src/runtime/include");
+    string iosSrc  = Path.Join(root, "src/toolchain/workload/ios/platform");
+    string andProj = Path.Join(root, "src/toolchain/workload/android/platform");
+    string wasmJs  = Path.Join(root, "src/toolchain/workload/wasm/platform/js");
+    _PkgIdentityRule[] rs = new _PkgIdentityRule[10];
+    // stdlib zpkg/zsym（_pkgCopyLibsOf）
+    rs[0] = _pkgRule("stdlib libs",        "libs",                          _libsDir(root), "");
+    // C ABI 头，三个落点同一份源（_copyAbiHeaders）
+    rs[1] = _pkgRule("C ABI headers",      "native/include",                rtInc, ".h");
+    rs[2] = _pkgRule("C ABI headers (ios)", "Sources/Z42VMC/include",       rtInc, ".h");
+    rs[3] = _pkgRule("C ABI headers (android)", "z42vm/src/main/cpp/include", rtInc, ".h");
+    // iOS（_packageIos）
+    rs[4] = _pkgRule("iOS Swift",          "Sources/Z42VM",                 Path.Join(iosSrc, "Sources/Z42VM"), ".swift");
+    rs[5] = _pkgRule("iOS Z42VMC dummy.c", "Sources/Z42VMC/dummy.c",        Path.Join(iosSrc, "Sources/Z42VMC/dummy.c"), "");
+    // Android（_pkgEmitAndroidGradleProject）
+    rs[6] = _pkgRule("Android Kotlin",     "z42vm/src/main/java",           Path.Join(andProj, "z42vm/src/main/java"), ".kt");
+    rs[7] = _pkgRule("Android JNI bridge", "z42vm/src/main/cpp/z42vm_jni.c", Path.Join(andProj, "z42vm/src/main/cpp/z42vm_jni.c"), "");
+    rs[8] = _pkgRule("Android CMakeLists", "z42vm/src/main/cpp/CMakeLists.txt", Path.Join(andProj, "z42vm/src/main/cpp/CMakeLists.txt"), "");
+    // wasm（_packageWasm）
+    rs[9] = _pkgRule("wasm js facade",     "js",                            wasmJs, "");
+    return rs;
+}
+
+int _pkgSourceIdentityCheck(string root, string pkgDir) {
+    _PkgIdentityTally t = new _PkgIdentityTally();
+    string covered = "";
+    foreach (var r in _pkgIdentityRules(root)) {
+        string pkgPath = Path.Join(pkgDir, r.PkgRel);
+        int before = t.Compared;
+        if (Directory.Exists(pkgPath))  { _pkgIdentityWalk(pkgPath, r.SrcAbs, r.Suffix, r.PkgRel, t); }
+        else if (File.Exists(pkgPath))  { _pkgIdentityOne(pkgPath, r.SrcAbs, r.PkgRel, t); }
+        else                            { continue; }   // 本包没有这一类
+        int n = t.Compared - before;
+        if (n == 0) {
+            // 路径在、却一个文件都没比 → 规则与拷贝点脱钩了。**这是失败，不是警告**：
+            // 只打 ⚠ 的话「本门要防的那个形状」自己复发时门是黄的不是红的。
+            ConsoleError.WriteLine("  ✗ " + r.Label + ": " + r.PkgRel + " 存在但 0 个文件可比对 —— 规则已与拷贝点脱钩");
+            t.Mismatch = t.Mismatch + 1;
+        } else {
+            covered = covered + (covered.Length > 0 ? ", " : "") + r.Label + " " + n.ToString();
+        }
+    }
+    if (t.Mismatch > 0) { return 1; }
+    if (t.Compared == 0) {
+        Console.WriteLine("  ✓ no source-derived files in this package (nothing to compare)");
+    } else {
+        Console.WriteLine("  ✓ " + t.Compared.ToString() + " file(s) match repo source (" + covered + ")");
+    }
+    return 0;
+}
+
+// 递归比对 pkgDir 子树内以 suffix 结尾的文件与 srcDir 下的同名对应文件。
+// **源侧缺失 → 跳过**（包里可以有源树没有的产物，如 workload 自带件）。
+void _pkgIdentityWalk(string pkgDir, string srcDir, string suffix, string rel, _PkgIdentityTally t) {
+    foreach (var name in Directory.Enumerate(pkgDir)) {
+        string p = Path.Join(pkgDir, name);
+        if (Directory.Exists(p)) {
+            _pkgIdentityWalk(p, Path.Join(srcDir, name), suffix, rel + "/" + name, t);
+        } else if (suffix.Length == 0 || name.EndsWith(suffix)) {
+            _pkgIdentityOne(p, Path.Join(srcDir, name), rel + "/" + name, t);
+        }
+    }
+}
+
+void _pkgIdentityOne(string pkgFile, string srcFile, string rel, _PkgIdentityTally t) {
+    if (!File.Exists(srcFile)) { return; }   // 源侧没有对应物 → 不在本门管辖内
+    t.Compared = t.Compared + 1;
+    if (!_filesEqual(pkgFile, srcFile)) {
+        ConsoleError.WriteLine("  ✗ " + rel + " differs from " + srcFile);
+        t.Mismatch = t.Mismatch + 1;
+    }
+}
