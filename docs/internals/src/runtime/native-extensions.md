@@ -1,185 +1,47 @@
-# Native 扩展库（独立 cdylib 机制）
+# 原生模块注册与调用
 
-z42vm 把一部分「重、依赖多、或平台特有」的能力放进**独立编译的 native 动态库**（cdylib），
-运行期经 `dlopen` 加载，用一套**纯 C ABI** 与核心 z42vm 交互。这样做的收益：
+> 代码：`src/runtime/src/interop/`、`src/runtime/src/loader/native.rs`、`src/runtime/crates/z42-abi/src/module.rs`、`src/runtime/crates/z42-rs/src/module.rs`
 
-- **依赖隔离**：库自己的 Rust 依赖树（rustyline 的 ~19 个 crate、zstd/brotli/lz4 的 C 绑定）
-  不进核心 z42vm crate，核心的编译时间 / 二进制体积 / 供应链面都更小。
-- **平台裁剪**：wasm / 移动端可以整库不带（用 fallback），或改成静态链接（`bundled-*` feature）。
-- **通用范式**：新增一个 native 能力 = 新建一个 crate + 加一段加载臂，不动核心执行引擎。
+## 职责与装配
 
-目前有两个实例，分处这套机制的两个极端，合起来定义了完整的设计空间：
+interop 校验、注册和查询 native 描述符，并负责脚本值与 C 值之间的转换；loader 定位并装入代码、保留库寿命；PAL 实现动态库 OS 原语。corelib 只实现核心脚本 API。Repl 和 compression 的脚本接口描述、调用入口与资源状态由各自 crate 拥有，host 选择默认注册集合。
 
-| 维度 | `z42-compression`（stdlib ext） | `z42-repl`（host-only toolchain） |
-|------|-------------------------------|----------------------------------|
-| 加载时机 | **急切**：VM 启动扫描 `<sdk>/native/` | **懒**：首次 `__repl_readline` 才 `dlopen` |
-| 方向 | **单向** VM → native（纯计算） | **双向**：native 还要回调进 VM（补全 / 键位） |
-| 打包位置 | `<sdk>/native/`（跨平台 stdlib 扩展） | `<sdk>/programs/z42i/`（平铺在 z42i payload 旁，host-only 组件私有） |
-| 发现路径 | `ext::native_search_paths()` | repl 专用 `repl_native::candidates()` |
-| 缺库行为 | 对应 stdlib facade 抛 NotSupported | 退回 plain-stdin 逐行读 |
-| 边界数据 | `*const u8` 字节缓冲 | C 字符串（prompt / 候选 / 动作串） |
+| 提供方 | 实现 | 注册方式 |
+|---|---|---|
+| `z42.core` | `src/corelib/` | `NativeProvider` 提交内部 `BuiltinDesc` |
+| `z42_repl` | `crates/z42-repl/src/registration.rs` | `z42_repl_module_v1` 返回 C 描述符 |
+| `z42_compression` | `crates/z42-compression/src/registration.rs` | `z42_compression_module_v1` 返回 C 描述符 |
 
-> 铁律（两个实例都遵守）：**z42 内部类型（`Value` / `VmContext`）绝不跨 C 边界。**
-> 一切进出都 marshal 成 C 基本类型（`*const u8` / `*const c_char` / `usize` / `i32`）；
-> `VmContext` 只以 **opaque `*mut c_void`** 透传，且**只在 z42vm 侧的 trampoline 内**才 cast 回
-> `&VmContext`。cdylib 永不 deref 它。这让 cdylib 对 z42 主 crate **零依赖**（无 Cargo 环）。
+`RegistryBuilder` 在发布前校验整个提供方，拒绝空名、重复提供方和同一提供方内重复函数。`freeze` 产生不可变快照，同时生成内部 builtin 执行表及 metadata 名称/ID 目录。不同提供方可以导出同名函数，裸名歧义不会按注册顺序选择胜者。BuiltinId 只在当前执行实例内有效，字节码仍保存名称。
 
----
+内部 builtin 保留按 ID 直接调用寄存器入口的路径。独立 native 模块走通用调用桥，不在 corelib 或 interop 中维护模块专用 wrapper 清单。默认描述符跨 VM 共享；有状态模块的 opaque 状态按 VM 创建、由模块自己的 destroy 回收，worker 共享所属 VM 的实例；无状态模块直接调用，不创建空实例。构造器与竞争失败实例的析构器均在注册表锁外执行。
 
-## 1. 单向范式：`z42-compression`
+## 同一入口：静态注册与动态加载
 
-最简单的形状——VM 调 native，native 算完把结果字节缓冲还回来。
+`z42_native.h` 与 `z42_abi::module` 定义相同的 C 布局。模块入口返回 `Module`：ABI 版本/大小、逻辑名称、函数签名与调用指针，以及成对的可选状态构造/析构入口。静态链接直接调用该入口并提交描述符；`loader::native::load_native_module` 从动态库解析 `<basename>_module_v1`，再提交给同一个 `register_native_module`。校验失败不发布任何导出；同一 VM 的相同模块接口重复注册幂等，冲突接口拒绝替换。
 
-- **crate**：`src/runtime/crates/z42-compression`（cdylib+rlib）。导出 `#[unsafe(no_mangle)]`
-  的 `z42_compression_*`：入 `(*const u8, len, params…)`，出参 `(*mut *mut u8, *mut usize)` +
-  `i32` 返回码；错误经 thread-local `z42_compression_last_error()` 取串；缓冲用**库自己的
-  分配器**分配、经 `z42_compression_free(ptr, len)` 释放。
-- **加载**：`__<entry>` 是 `BUILTINS` 里普通的类型化 builtin（`interop::ext::typed`）；某个库的
-  builtin 第一次被调用时，`src/runtime/src/interop/ext/mod.rs` 的 `ensure_lib_for` 在
-  `native_search_paths()` 下按名找 `libz42_<lib>.{so,dylib,dll}`，`match name { "compression" => … }`
-  解析已知符号集，存进进程级的函数指针表。
-- **builtin 体留在 z42vm 侧**：每个 builtin 收 / 返 `Vec<u8>`（`byte[]` 的转换由 builtin ABI 做），
-  再调库函数指针。marshal 逻辑属于 z42vm，不进库。
-- **分配器纪律**（unify-gc-heap PR-3 教训）：库返回的缓冲**必须用库自己的 `free`** 释放
-  （`take_owned_buffer` 先 copy 进 z42vm 的 Vec、再调库 free）——`dlopen` 的库可能与 z42vm 用
-  不同 global allocator，混用会 Linux 段错误、macOS 侥幸不炸。
-- **wasm**：`bundled-compression` feature 把 rlib 静态链进来，`load_all` 直接填函数指针表，
-  builtin 体无感。
+宿主也可先用 `host::register_static_native_library` 或 C 的 `z42_host_register_static_native_library` 注册逻辑库名与 C 符号解析器。解析器和返回入口必须保留到进程退出。loader 优先查询该解析器，再检查 PAL 动态加载能力；已注册静态库缺失的符号直接报错，避免意外混用另一个动态镜像。解析器调用不持有注册表锁。
 
-搜索路径（`native_search_paths()`，急切扫描用）按序：`Z42_NATIVE_PATH` 覆盖 → `<exe>/../native/`
-（SDK 布局）→ `<exe>/native/` → `<exe>/`（dev cargo target 直放）。**都必须先 `sort` 再迭代**
-（加载顺序确定性规则：`read_dir` 顺序依赖 OS/FS，first-wins 注册会非确定）。
+compression 关闭算法 feature 时只提供没有调用指针的接口声明。首次调用由 interop 经 loader 找到模块入口，检查完整实现是否与声明的名称和全部签名匹配，再按 VM 发布实现；失败不改变声明。后续调用直接进入已注册实现，没有模块专用转发函数。显式 bundled 构建直接注册完整入口。声明和实现视图从同一份脚本签名生成。Repl 的注册代码提供通用输入和配置，桌面编辑器通过 C 接口按需解析。两者无需依赖运行时 crate。
 
----
+## C 值、错误与回调
 
-## 2. 双向范式：`z42-repl`
+ABI 支持整数、浮点、布尔、UTF-8 字符串、可空字符串、字节数组和字符串数组；void 与 null 分开表示。指针和长度只在同步调用期间借用，接收方立即复制。Rust 容器、VmContext、托管地址和跨镜像 Rust trait 不经过 C 边界。
 
-REPL 行编辑器（rustyline 后端）比 compression 多两个难点：**要回调进 VM**（Tab 补全查会话符号、
-缩进键位问 z42 决策），且**是 host-only 工具链件**（不跨平台、不进 `native/`）。
+`HostApi` 提供参数读取、返回值复制、异常报告、脚本回调和逻辑库符号查询。native 状态仅由所属模块解释，运行时不解引用。Rust SDK 的 `dispatch` 捕获 panic，避免展开穿过 C 边界。返回值在 native 等待区间结束后才转换为托管值，错误类名和消息也复制保存。
 
-### 2.1 crate 与 C ABI
+函数显式声明 `BLOCKING` 与 `REENTERS`。阻塞调用前 park mutator；回调脚本前临时 unpark，并在执行期间固定转换后的托管参数根，返回后恢复 park。回调结果复制到当前调用的 arena；脚本抛出通过 `THROWN` 与 VM 异常槽传播。Repl 编辑回调按原契约把错误转为无动作；显式 completion probe 保留脚本异常。
 
-`src/runtime/crates/z42-repl`（cdylib+rlib，只依赖 rustyline）导出三个入口：
+## 平台能力与代码寿命
 
-```
-z42_repl_readline(prompt: *const c_char,
-                  cbs: *const ReplCallbacks,
-                  out_kind: *mut i32) -> *mut c_char   // 返回一行；owned C 串
-z42_repl_free(*mut c_char)                              // 释放上面的返回串
-z42_repl_last_error() -> *const c_char                  // Z42_REPL_ERROR 时取消息
-```
+PAL 的 `dynlib::is_supported()` 汇合构建开关和 OS 能力。iOS、WASM 及关闭 component-loading 的构建拒绝脚本 native 动态库加载，返回 `Unsupported`；静态解析器不受此限制。`HostApi.resolve_symbol` 查询宿主预先部署的实现库，沿 host 注入的可信候选策略使用独立的 component-loading 契约，保留 iOS 签名 Framework 和 Android loader namespace 的支持；它不是脚本任意路径装载入口。按路径打开的模块代码由 PAL 进程缓存保留，覆盖 VM 状态析构及线程本地析构入口。
 
-`out_kind` 是这套 ABI 的关键——它把 rustyline 的多种结局编码成小整数，让 z42vm 侧决定语义映射：
+Repl 区分 console 输入与交互终端。PAL 每次调用检查平台和标准输入句柄，终端还要求 stdin/stdout/stderr 为 tty，不读取输入或初始化编辑器。桌面重定向输入可使用 plain 行读取，但没有编辑和历史；iOS、Android、Browser WASM、缺少有效输入句柄的宿主不直接读取 stdin，`ReadLine` 返回 `NotSupportedException`，由宿主收集 UI 输入后调用独立的脚本求值接口。
 
-| out_kind | 含义 | z42vm 映射 |
-|----------|------|-----------|
-| `0` LINE | 读到一行/一段 | `Value::Str(line)` |
-| `1` EOF | Ctrl-D | `Value::Null`（→ z42 循环退出） |
-| `2` INTERRUPT | Ctrl-C | `Value::Str("")`（放弃当前 buffer、重提示） |
-| `3` ERROR | 真错误 | `bail!`（消息取自 `last_error`） |
-| `4` NO_EDITOR | 编辑器起不来（无 tty） | 退回 `plain_readline` 逐行读 |
+`SupportsConsoleInput`、`SupportsTerminalEditor`、`SupportsHistory` 分别查询这三类条件，历史还要求文件系统；查询不探测编辑库是否安装。只有 console 输入可用时，缺库或编辑器初始化失败才退回 plain 输入。持久历史属于桌面终端后端。补全、键位回调名称和关键词配置按 VM 隔离。静态值成员查询属于核心反射，与终端模块无关。
 
-> `ERROR` vs `NO_EDITOR` 分开是有意的：`Editor::with_config` 失败（无 tty）
-> 属于**应静默降级**到 plain 逐行读的情形，而真正的读取错误才报错。若只有一个 ERROR 码，z42vm 无法区分
-> 「该兜底」和「该报错」。
+## 当前边界与验证
 
-### 2.2 回调表 `ReplCallbacks`
+带 `lib` 但不带 `type` 的脚本声明仍编译为按裸名解析的 builtin；通用桥在内部 builtin 查询未命中时解析唯一的 native 导出。已有 typed native 声明继续通过 Tier 1 的类型描述符、`CallNative` 和 libffi 调用。通用模块 ABI 的脚本回调已实现，旧 Tier 1 C 入口 `z42_invoke` / `z42_invoke_method` 仍未实现，二者不能混为一谈。
 
-VM → native 是 `dlopen` 符号；native → VM 是**函数指针**。z42vm 每次 `readline` 前构造一张
-`#[repr(C)]` 的回调表交给库：
-
-```rust
-#[repr(C)] struct ReplCallbacks {
-    ctx: *mut c_void,   // opaque *mut VmContext，库只透传不 deref
-    complete:  extern "C" fn(*mut c_void, *const c_char, usize) -> *mut c_char, // (ctx,line,pos)→候选
-    key_edit:  extern "C" fn(*mut c_void, *const c_char, *const c_char, usize) -> *mut c_char, // (ctx,key,line,pos)→动作串
-    free_str:  extern "C" fn(*mut c_char),  // 释放上两者返回的串
-}
-```
-
-库的 rustyline `Completer` / 键位 handler 在 `readline` 过程中同步调用这些指针；`complete` 返回
-`\n`-join 的候选串（库自行 split），`key_edit` 返回动作串（`""`=默认键为、`dedent`/`insert:…`/
-`newline:…`/`accept`）。**这张表必须与 z42vm 侧手抄的 `ReplCallbacks` 布局逐字节一致**——
-两侧从同一源码树版本锁一起构建，不匹配在打包链接期就暴露，不会静默到运行期。
-
-### 2.3 trampoline：唯一 cast 回 `&VmContext` 的地方
-
-z42vm 侧为 `complete` / `key_edit` 各提供一个 `extern "C"` trampoline
-（`corelib::repl::complete_trampoline` / `corelib::repl::editing::keyedit_trampoline`）。它们是
-**边界铁律的守门人**：
-
-```
-extern "C" fn complete_trampoline(ctx: *mut c_void, line: *const c_char, pos) -> *mut c_char {
-    if ctx.is_null() || line.is_null() { return null }       // 防御
-    let fqn = REGISTERED_COMPLETER.get()? else { return null } // 无补全器→默认
-    let vmctx = &*(ctx as *const VmContext)                    // ← 唯一 cast 点
-    let _unpark = NativeUnparkGuard::exit(vmctx)               // GC：见 2.5
-    match complete_via_callback(vmctx, &fqn, Str(line), pos) { // 重入 VM 跑 z42 补全器
-        Ok(Array(cands)) => CString::new(cands.join("\n")).into_raw(),
-        _ => null,   // throw 被吞成 no-op（补全器抛异常不该崩 REPL）
-    }
-}
-```
-
-`ctx` 指针的有效性靠**同步 + 同线程**保证：`builtin_repl_readline` 持 `&VmContext` 活过整个
-`(lib.readline)(…)` 调用，库只在该调用内、同一线程上同步回调，返回后指针即弃。等价于旧
-实现里 `readline` 期间发布的 `ACTIVE_CTX` thread-local，只是现在改为经参数透传。
-
-### 2.4 懒加载与发现（`corelib::repl::native`）
-
-与 compression 的急切扫描相反，repl 库**首次 `__repl_readline` 才 `dlopen`**（`OnceLock` 记忆
-结果，探一次文件系统），启动路径完全不碰它。发现顺序（**不走** `native_search_paths()`）：
-
-1. `Z42_REPL_NATIVE`（env 覆盖，接受库文件全路径或含库的目录）；
-2. `current_exe().parent()/libz42_repl.{so,dylib}`（**dev** cargo target 目录，
-   `cargo build -p z42-repl` 落在 z42vm 旁）；
-3. 从运行 `<sdk>/bin/<app>` 派生 `<sdk>/programs/z42i/`，经共享的 `pal::dynlib::resolve_native_beside`
-   解析（**SDK** 布局：repl 库是「组件私有 native」，平铺在 interactive payload 旁，**不在** `bin/`
-   ——见 [Native 库的布局与解析](native-libraries.md)）。
-
-找不到 / 加载失败 / `native-interop` feature 未开 / wasm → 一律退回 `plain_readline`。整个
-`corelib::repl::native` 在各目标上提供读取入口；动态加载与编辑器回调由 `native-interop` feature 启用。
-
-### 2.5 GC 重入协议
-
-`__repl_readline`（`repl::typed::repl_readline`）阻塞读 stdin 前先 `NativeParkGuard::enter`——把本线程**停靠**，让后台
-prewarm 线程的 GC 能在本线程等输入时推进。但回调（`complete`/`key_edit`）会在 `readline` 中途
-重入 VM 跑 z42 代码，此时必须**临时 unpark**（trampoline 内 `NativeUnparkGuard::exit`），让回调
-作为正常 mutator 在自己的 safepoint 停靠；回调返回、`_unpark` drop 后自动重新停靠回阻塞读。
-
-### 2.6 打包（host-only 组件私有，进 programs/z42i/ 不进 bin/ / native/）
-
-SDK 打包（`scripts/package/`）：`libz42_repl` 由 **z42.repl 的 build hook**（`ProvideNative`）在
-`z42b publish z42.interactive` 时 `cargo build -p z42-repl` 产出，经 `_pubBundleProjectNativeDeps`
-平铺进 **z42i 组件的 `programs/z42i/`**（`[assemble]` 自动并入 `pkgDir`，与 2.4 的 `<sdk>/programs/z42i/`
-发现对齐）——无 xtask 针对 repl 的特殊拷贝逻辑。两条**关键排除**：
-① `_pkgInstallZ42vm` **不**往 `bin/` 放 repl 库；② `_copyNativeLibs` 按**精确文件名白名单**
-（`_isEmbedLib` / `_isNativeExtLib`）拷，`libz42_repl`/`z42_repl` 不在名单里（hook 把它建进共享 cargoOut），
-所以不会误拷进 `<sdk>/native/`。repl 不放共享 `bin/`，否则 §1 急切扫描器会对它喷 `ignoring unknown lib repl`
-——它是**组件私有 native**（跟随 z42i），不是 `<sdk>/native/` 里的跨平台 stdlib 扩展，也不是
-`bin/` 的通用可执行件。布局/解析全轴见 [Native 库的布局与解析](native-libraries.md)。dev 流不建
-cdylib（与 compression 一致，靠开发者 `cargo build -p`）。
-
----
-
-## 3. 新增一个 native 扩展的清单
-
-1. 建 crate `src/runtime/crates/z42-<name>`（cdylib+rlib，对 z42 主 crate 零依赖）；导出
-   `#[unsafe(no_mangle)] z42_<name>_*` 的纯 C ABI（错误经 thread-local last-error + 返回码）。
-2. 决定形状：**单向**（照 compression：进 `native/`、按需加载、typed builtin + 函数指针表）还是
-   **双向 / host-only**（照 repl：回调表 + trampoline + 懒 dlopen + 专用发现路径 + 进 bin/）。
-3. z42vm 侧加加载臂：单向在 `interop/ext/mod.rs` 的 `match name`；双向另起一个 `corelib::<name>_native`
-   懒加载模块。**符号名两侧手抄，务必逐字节对齐**（版本锁同树构建 → 打包期暴露不匹配）。
-4. 打包接线（`scripts/package/`）：`cargo build -p z42-<name>` + 拷到正确位置——跨平台 stdlib 扩展
-   进 `<sdk>/native/`：把它的动态库文件名加进 `_isNativeExtLib` 白名单（SDK 的 `native-ext` 与 runtime 包的
-   `native` 组件都按它拷；只拷动态库，不发静态库）；**组件私有 native**（host-only / 跟随某组件）平铺进该组件
-   payload 旁（如 repl 的 `programs/z42i/`，见 [Native 库的布局与解析](native-libraries.md)），不进白名单即可。
-5. 缺库 fallback：想清楚库不存在时的降级行为（抛 NotSupported / plain 兜底 / bundled 静态链）。
-6. **边界铁律自查**：有没有让任何 z42 类型跨了 C 边界？`VmContext` 只 opaque 透传、只在 trampoline
-   cast 回？回调返回的串谁分配、谁 free（用哪侧的 `free_str`）？
-
-> 相关：[Native 库的布局与解析](native-libraries.md)（库住哪 / 怎么找 / 发布期拍平）、
-> [加载上下文（LoadContext）](load-context.md)、[GC 调参与 safepoint 协议](gc-tuning.md)、
-> [REPL 输入完整性判定](../toolchain/repl.md)。
-
-REPL 候选路径由门面 `host/extensions.rs` 提供，经冻结的 VM 扩展服务注入；核心库不直接读取进程配置。首次关键词设置或 readline 请求在全局 OnceLock 初始化闭包中调用路径提供函数，按原顺序探测并缓存成功或缺库结果。worker 共享所属 VM 的服务；所有 VM 仍复用全进程加载结果。Rust 关键词辅助函数显式接收当前 `VmContext`，z42 builtin 的用户参数保持不变。
+模块注册/调用由 `interop/providers_tests.rs`、`interop/module_tests.rs` 覆盖；真实动态镜像由 `loader/native_tests.rs` 覆盖；静态解析由 `loader/linked_tests.rs` 覆盖；Repl 会话与 SDK 编组分别在各自 crate 测试。完整验证使用 `xtask test` 和 `xtask package sdk --verify`。布局与搜索策略见[原生库布局](native-libraries.md)，跨平台产物及 WASM 链接模型见[组件化运行时](componentized-runtime.md)。

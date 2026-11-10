@@ -159,7 +159,7 @@ fn a_wrapper_call_folds_to_its_builtin() {
     let m = add_module();
     let vm = VmContext::new();
     assert_eq!(outcome(&vm, &m, interp(&vm, &m, "T.Main")).map(|v| format!("{v:?}")), Ok("I64(5)".into()));
-    let id = crate::corelib::builtins::CATALOG.id_of("__test_abi_add").unwrap().0;
+    let id = crate::host::builtins::catalog().id_of("__test_abi_add").unwrap().0;
     assert_eq!(m.functions[idx(&m, "T.C.Add")].forward.get(), Some(Some(id)), "the call folded");
 }
 
@@ -219,7 +219,7 @@ fn a_chained_forward_folds_and_keeps_both_rows() {
     let m = chain_module();
     let vm = VmContext::new();
     let folded = outcome(&vm, &m, interp(&vm, &m, "T.Main")).unwrap_err();
-    let id = crate::corelib::builtins::CATALOG.id_of("__test_abi_fail").unwrap().0;
+    let id = crate::host::builtins::catalog().id_of("__test_abi_fail").unwrap().0;
     assert_eq!(m.functions[idx(&m, "T.C.Outer")].forward.get(), Some(Some(id)));
     let rows: Vec<&str> = folded.lines().skip(1).map(str::trim).collect();
     assert!(rows[0].starts_with("at T.C.Inner") && rows[1].starts_with("at T.C.Outer")
@@ -248,9 +248,9 @@ fn a_reentrant_old_table_builtin_folds_under_a_light_frame() {
         wrapper("T.C.Load", "__load_module", 1, false),
         caller("T.Main", "T.C.Load", &[7]),
     ]);
-    let id = crate::corelib::builtins::CATALOG.id_of("__load_module").unwrap().0;
-    assert!(!crate::corelib::builtins::CATALOG.folds_frameless(id), "reflection / module loading may run z42 code");
-    assert!(crate::corelib::builtins::CATALOG.folds_frameless(crate::corelib::builtins::CATALOG.id_of("__math_sqrt").unwrap().0));
+    let id = crate::host::builtins::catalog().id_of("__load_module").unwrap().0;
+    assert!(!crate::host::builtins::catalog().folds_frameless(id), "reflection / module loading may run z42 code");
+    assert!(crate::host::builtins::catalog().folds_frameless(crate::host::builtins::catalog().id_of("__math_sqrt").unwrap().0));
     let m = build();
     let vm = VmContext::new();
     let folded = outcome(&vm, &m, interp(&vm, &m, "T.Main")).unwrap_err();

@@ -65,6 +65,8 @@ pub fn available_parallelism() -> usize {
 /// What the target OS lets a program do, independent of cargo features.
 #[derive(Debug, Clone, Copy)]
 pub struct OsCaps {
+    /// Loading script-requested native extensions, independent of Cargo features.
+    pub native_extensions: bool,
     pub threads: bool,
     pub fs: bool,
     pub clock: bool,

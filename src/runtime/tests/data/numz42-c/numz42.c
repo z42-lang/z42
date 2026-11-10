@@ -17,6 +17,18 @@
 /* z42_abi.h ships with the runtime. CMake / cc-rs build script adds
  * `src/runtime/include` to the include path. */
 #include "z42_abi.h"
+#include "z42_native.h"
+
+size_t z42_native_layout(size_t index) {
+    const size_t fields[] = {
+        sizeof(Z42NativeText), sizeof(Z42NativeValue), sizeof(Z42NativeParameters),
+        sizeof(Z42NativeCall), sizeof(Z42NativeFunction), sizeof(Z42NativeModule), sizeof(Z42NativeHostApi),
+        offsetof(Z42NativeValue, bits), offsetof(Z42NativeValue, data),
+        offsetof(Z42NativeModule, name), offsetof(Z42NativeModule, create_state),
+        offsetof(Z42NativeFunction, invoke), offsetof(Z42NativeHostApi, argument)
+    };
+    return index < sizeof(fields) / sizeof(fields[0]) ? fields[index] : 0;
+}
 
 /* ── Counter type ───────────────────────────────────────────────────── */
 

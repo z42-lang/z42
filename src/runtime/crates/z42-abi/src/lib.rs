@@ -1,11 +1,10 @@
-//! z42 Tier 1 Native Interop ABI — Rust mirror of `include/z42_abi.h`.
+//! Native interop C layouts: type ABI and module registration ABI.
 //!
 //! This crate is the canonical Rust definition of the stable C ABI types and
 //! function declarations. It is `no_std` so it can be embedded in any context.
 //!
-//! Status: C1 scaffold. Function bodies are exposed by `z42_vm` and currently
-//! return [`Z42Error`] with code `Z0905+` indicating "not implemented" — see
-//! spec `design-interop-interfaces` and follow-up specs C2..C5.
+//! The root types mirror `include/z42_abi.h`; [`module`] mirrors
+//! `include/z42_native.h`. Implementations and VM registration live elsewhere.
 //!
 //! # Layout invariants
 //!
@@ -16,6 +15,8 @@
 #![no_std]
 
 use core::ffi::{c_char, c_void};
+pub mod module;
+pub mod panic_hook;
 
 /// Current ABI major version. Mirrors `Z42_ABI_VERSION` in C header.
 pub const Z42_ABI_VERSION: u32 = 1;

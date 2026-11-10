@@ -43,6 +43,7 @@ pub mod rust;
 #[cfg(feature = "cli")]
 pub mod cli;
 pub use crate::components::register_static_component;
+pub use crate::loader::linked::{NativeSymbolResolver, register_static_library as register_static_native_library};
 #[cfg(feature = "cli")]
 mod launcher;
 #[cfg(feature = "cli")]
@@ -53,4 +54,4 @@ pub use crate::config::{RuntimeConfig, VmConfig};
 mod artifact;
 mod extensions;
 
-pub use crate::interop::ext::{register_static_library as register_static_native_library, NativeSymbolResolver};
+pub(crate) mod builtins;

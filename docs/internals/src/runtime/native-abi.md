@@ -19,7 +19,7 @@
 | [embedding.md](embedding.md) | 反方向：宿主启动并驱动 VM（`z42_host.h`） |
 
 判据是 `[Native(...)]` 里**有没有 `type=`**：有 → 本页的 typed 通路；没有 → builtin 名字解析，落
-`BUILTINS[]` 或 ext 表（§6）。两条通路在编译器里由同一处分流（`StubEmitter._emitNativeStub`），在 VM
+内部 builtin 或通用 native 模块（§6）。两条通路在编译器里由同一处分流（`StubEmitter._emitNativeStub`），在 VM
 里则是完全不同的两套代码。
 
 `Z42Value` / `Z42Args` / `Z42Error` 三个值形状由本通路与 embedding 通路**共用同一份定义**
@@ -87,7 +87,7 @@
 | 路径 | 内容 |
 |---|---|
 | [`src/runtime/include/z42_abi.h`](https://github.com/z42-lang/z42/blob/main/src/runtime/include/z42_abi.h) | Tier 1 C 头（与 `z42_host.h` 平行） |
-| [`src/runtime/src/interop/`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/interop) | Tier 1 在 VM 内的实现（`state` / `registry` / `marshal` / `dispatch` / `loader` / `error` / `exports` / `ext`） |
+| [`src/runtime/src/interop/`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/interop) | Tier 1 在 VM 内的实现（`providers` / `state` / `registry` / `marshal` / `dispatch` / `error` / `exports`） |
 | [`src/runtime/crates/z42-abi`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi) | Tier 1 的 Rust 镜像（结构体 + 冻结 tag 常量 + `extern "C"` 声明） |
 | [`src/runtime/crates/z42-rs`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-rs) | 面向用户的门面 crate（`Z42Type` trait + helper） |
 | [`src/runtime/crates/z42-macros`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-macros) | proc macro：`methods_attr` / `module_macro` / `shim` / `signature`（Tier 2）；`builtins_attr`（VM 自己的 builtin ABI，§6.2） |
@@ -230,21 +230,21 @@ PinSourceKind }` 住在 per-`VmContext` 的 `TransientArena` 里，随帧 LIFO �
 ```rust
 const TYPED: &[&[abi::BuiltinDesc]] = &[convert::typed::DESCS, string::typed::DESCS, …];  // 一个模块一行
 const JOINED: [abi::BuiltinDesc; N] = abi::concat_descs(TYPED);  // 编译期拼接
-pub(crate) const BUILTINS: &[abi::BuiltinDesc] = &JOINED;
+pub(crate) const DESCS: &[abi::BuiltinDesc] = &JOINED; // provider descriptors
 ```
 
-**slice 下标就是 `BuiltinId`。**
+核心库导出内部描述符，由 host 经 interop 注册并冻结成内部执行表。**该表的 slice 下标就是 `BuiltinId`。** Repl、compression 各自导出独立 C 模块描述符，使用通用编组桥，不占用内部执行表的 ID。
 
 > `BuiltinId` **不会被烤进 zbc**：zbc 里存的是**名字**（`BuiltinInsn { dst, name, args }`），
 > `BuiltinId` 由 resolver 在**加载期**按名字填进 `Function.resolved.builtin_tokens`，AOT 也不烤它
 > ⇒ 它是**单次运行内的派发令牌**，不跨进程持久化——增删表项只让下标平移，对既有产物没有影响。
 
 - 名字唯一：同一个名字只能在表里出现一次（`abi_tests::typed_builtins_are_in_the_table_once`）。
-- 名字 → id 的索引由 `metadata/builtins.rs::BuiltinCatalog` 首次查询时初始化。门面 `corelib/builtins.rs` 从同一份描述符按序派生纯名称/frameless 记录，查询目录与 callable 表编号一致。
+- 名字 → id 的索引由 `metadata/builtins.rs::BuiltinCatalog` 首次查询时初始化。`interop/providers.rs` 从 host 注册的各提供方描述符按序派生名称/frameless 记录，查询目录与 callable 表编号一致。
 
 每 VM 的 RuntimeState 接收不可变目录，ExecState 接收匹配的 callable 描述符表；默认装配共享进程内只读数据。runtime 不保存执行 ABI 类型，也不依赖 corelib；实际调用和错误映射属于 exec。
 
-加载期 `metadata::resolve` 从当前 VM 的目录解析 BuiltinId。未知名称保留 UNRESOLVED，真正调用时按名再查，仍缺失则抛 Std.MissingSymbolException。interop 的压缩函数是同一表中的类型化 wrapper；动态装载只在 interop 内解析其原生符号，不另维护 BuiltinId 表。
+加载期 `metadata::resolve` 从当前 VM 的目录解析 BuiltinId。未知名称保留 UNRESOLVED，真正调用时按名再查；未命中内部 builtin 时，由 interop 查询唯一的 native 模块导出并经通用 C ABI 调用，仍缺失则抛 Std.MissingSymbolException。动态注册不能遮蔽已存在的内部 builtin。
 
 两个引擎使用 `exec::call::builtins::invoke_builtin(ctx, id, name, this, regs, args)`。实参原地从调用方寄存器读取：this 在前，其后为 regs[args[i]]；持有切片的调用方走同模块 exec_builtin。类型化 wrapper 决定参数转换、阻塞 park 和结果映射。BuiltinCatalog 的 frameless 标记与描述符 reenters 互为否，折叠调用继续使用原有轻帧或无帧协议。
 
@@ -340,8 +340,7 @@ GC 等不到它到达 safepoint（规则见 runtime-rust.md「阻塞的 native �
   `__tcp_accept` / `__tcp_read` 是样板。
 - 先在 unpark 状态下试一把、不行再等的（`__monitor_enter`：重入检查、无争用快路径、短暂自旋）返回
   `Result<Blocking<()>, _>`：拿到了就 `Blocking::ready(())`（不 park），要等才 `Blocking::new`（闭包只握 `Arc<Monitor>`）。
-- 函数体自己 park 的只剩一种：执行期间要以本 ctx 回调 z42 的（`__repl_readline`：行编辑器在读的中途回调补全器，
-  回调里 `NativeUnparkGuard` 暂离 park）。它标 `reenters`、函数体显式 `NativeParkGuard`，结果在 park 结束后才分配。
+- 独立 native 模块通过描述符声明阻塞和重入：如 `__repl_readline` 的通用桥负责 park，脚本回调期间临时 unpark，结果在等待结束后才分配。这条路径由 interop 实现，不由 corelib 业务函数管理。
 - 资源表（`file_handles` / `processes`）的锁下**只取 / 克隆句柄**（`Arc<File>`、每条管道自己的锁），系统调用在
   锁外做：一个阻塞在读上的线程既不占表锁，也不挡回收。
 
@@ -468,12 +467,10 @@ core 里**加新方法**（`ThreadNative.Wait`、`ProcessNative.RunSync` / `Star
 z42.net 改调新方法，旧方法与旧 builtin 一起挂债；种子不再声明旧名字后，core 侧旧声明与运行时旧表项、legacy
 实现一并删除。
 
-### 6.6 与 ext 表的关系
+### 6.6 与独立 native 模块的关系
 
 `[Native(lib="z42_compression", entry="__deflate_compress")]` 这类 facade 声明发的是同一条
-`BuiltinInstr`——`lib=` 在这条路上**完全不参与解析**，只是给人看的标注。实际的库发现与符号注册在
-[native-ext-loader.md](native-ext-loader.md)：这些 builtin 和其他 builtin 在同一张 `BUILTINS` 表、同一个 id 空间里，
-同样参与折叠。
+`BuiltinInstr`，当前编译器尚未把 `lib=` 保留为自由函数调用的解析键。运行时先查询内部 builtin，再通过通用桥查唯一模块导出；有歧义则不解析。独立模块不参与内部 builtin 的 frameless 折叠。模块描述符、静态/动态入口与通用脚本回调见 [native-extensions.md](native-extensions.md)，压缩实例见 [native-ext-loader.md](native-ext-loader.md)。
 
 ---
 

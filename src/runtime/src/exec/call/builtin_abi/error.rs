@@ -52,6 +52,8 @@ pub enum BuiltinError {
     /// (`Std.Threading.ThreadException`). Falls back to `Std.Exception` when the class
     /// is not loaded.
     Exception { class: &'static str, message: String },
+    /// Exception class supplied by a native module; copied before its buffer expires.
+    ExceptionOwned { class: String, message: String },
     /// A class with fallbacks (most specific first, as [`BuiltinError::classes`]) and
     /// public fields besides `Message` — a package exception that carries data
     /// (`Std.IO.ProcessTimeoutException.Program` / `TimeoutMs`). A field the class that
@@ -133,7 +135,7 @@ impl BuiltinError {
             UnauthorizedAccess(_) => &["Std.UnauthorizedAccessException"],
             Timeout(_) => &["Std.TimeoutException"],
             Detailed(d) => d.classes,
-            Exception { .. } | Thrown(_) | Internal(_) | Legacy(_) => &[],
+            Exception { .. } | ExceptionOwned { .. } | Thrown(_) | Internal(_) | Legacy(_) => &[],
         }
     }
 
@@ -145,7 +147,7 @@ impl BuiltinError {
             | Overflow(m) | InvalidOperation(m) | NotSupported(m) | InvalidCast(m) | NullReference(m)
             | KeyNotFound(m) | Io(m) | FileNotFound(m) | DirectoryNotFound(m) | PathTooLong(m)
             | EndOfStream(m) | UnauthorizedAccess(m) | Timeout(m) | Internal(m) => m.as_str().into(),
-            Exception { message, .. } => message.as_str().into(),
+            Exception { message, .. } | ExceptionOwned { message, .. } => message.as_str().into(),
             Detailed(d) => d.message.as_str().into(),
             Thrown(_) => "".into(),
             Legacy(e) => e.to_string().into(),
@@ -174,6 +176,7 @@ impl std::fmt::Display for BuiltinError {
             BuiltinError::Thrown(_) => f.write_str("exception"),
             BuiltinError::Legacy(e) => write!(f, "{e}"),
             BuiltinError::Exception { class, message } => write!(f, "{class}: {message}"),
+            BuiltinError::ExceptionOwned { class, message } => write!(f, "{class}: {message}"),
             BuiltinError::Detailed(d) => write!(f, "{}: {}", d.classes.first().copied().unwrap_or("Std.Exception"), d.message),
             other => write!(f, "{}: {}", other.classes()[0], other.message()),
         }
@@ -268,6 +271,7 @@ fn build(ctx: &VmContext, module: &Module, builtin: &str, e: BuiltinError) -> Re
             },
         },
         BuiltinError::Exception { class, message } => make(ctx, module, &[class], message),
+        BuiltinError::ExceptionOwned { class, message } => make(ctx, module, &[&class], message),
         BuiltinError::Detailed(d) => {
             let fields: Vec<(&str, Value)> = d.fields.iter().map(|(n, v)| (*n, match v {
                 FieldInit::Str(s) => Value::Str(s.as_str().into()),

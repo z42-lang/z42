@@ -2,22 +2,14 @@
 //!
 //! These functions intentionally avoid taking a direct dependency on the
 //! z42 VM crate (`z42-rs` lives below `z42-vm` in the dependency graph).
-//! Instead, the VM exposes a stable `extern "C"` symbol that we forward
-//! to here.
-
-use core::ffi::c_char;
-
-extern "C" {
-    /// Implemented in `z42::interop::exports`. Stores the message into
-    /// the per-thread `LAST_ERROR` slot using error code Z0905.
-    pub fn z42_set_panic_message(msg: *const c_char);
-}
+//! Panic text is forwarded through the hook pointer the VM installs in
+//! `z42-abi` at boot — deliberately NOT a link-time `extern "C"` symbol,
+//! which DLLs linked below the host (z42-repl's cdylib, component
+//! libraries) cannot resolve on Windows.
 
 /// Forward a Rust panic message into the VM's last-error slot. Called by
 /// `extern "C"` shims emitted by `#[z42::methods]` from inside their
 /// `catch_unwind` recovery branch.
 pub fn set_panic(msg: &str) {
-    if let Ok(cs) = std::ffi::CString::new(msg) {
-        unsafe { z42_set_panic_message(cs.as_ptr()) };
-    }
+    z42_abi::panic_hook::forward_panic(msg);
 }

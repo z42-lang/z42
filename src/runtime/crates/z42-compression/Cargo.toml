@@ -2,7 +2,7 @@
 name        = "z42-compression"
 version     = "0.1.0"
 edition     = "2024"
-description = "Optional compression component with a C ABI and static symbol resolver"
+description = "Independent compression script registration and optional algorithm backend; VM-free C ABI."
 publish     = false
 
 [lib]
@@ -12,19 +12,26 @@ name       = "z42_compression"
 path       = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["backend"]
+backend = ["dep:z42-rs", "dep:flate2", "dep:anyhow", "dep:brotli", "dep:lz4_flex", "dep:zstd"]
+
 [dependencies]
+z42-rs = { path = "../z42-rs", optional = true, default-features = false }
+z42-abi = { path = "../z42-abi" }
+
 # Default = miniz_oxide (pure Rust) — works on every target including wasm;
 # non-wasm targets override to zlib-ng below (SIMD-optimised vendored C,
 # 2-3× the perf of stock zlib).
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
-anyhow = "1"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"], optional = true }
+anyhow = { version = "1", optional = true }
 # add-z42-compression-brotli (2026-05-27): pure-Rust brotli (no C deps),
 # works on every target including wasm. RFC 7932.
-brotli = { version = "9", default-features = false, features = ["std"] }
+brotli = { version = "9", default-features = false, features = ["std"], optional = true }
 # add-z42-compression-lz4 (2026-05-27): pure-Rust LZ4 (no C deps),
 # works on every target including wasm. Block format LZ4 (the most
 # common; frame format is a wrapper).
-lz4_flex = { version = "0.14", default-features = false, features = ["std", "frame"] }
+lz4_flex = { version = "0.14", default-features = false, features = ["std", "frame"], optional = true }
 
 # Non-wasm-only deps:
 #   * zlib-ng feature: vendored C, needs system clang (works on every
@@ -34,8 +41,8 @@ lz4_flex = { version = "0.14", default-features = false, features = ["std", "fra
 #     .Zstd.* entries on wasm return CompressionException("zstd not supported
 #     on wasm32 — see Deferred: compression-future-wasm-zstd").
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-flate2 = { version = "1", default-features = false, features = ["zlib-ng"] }
-zstd   = { version = "0.14", default-features = false }
+flate2 = { version = "1", default-features = false, features = ["zlib-ng"], optional = true }
+zstd   = { version = "0.14", default-features = false, optional = true }
 
 # Profile lives at workspace root (src/runtime/Cargo.toml) for the whole
 # workspace; defining one here is ignored with a warning by cargo.

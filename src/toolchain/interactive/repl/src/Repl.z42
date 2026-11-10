@@ -4,24 +4,36 @@ namespace Std.Repl;
 
 using Z42.Syntax;   // Lexer —— 关键字表的唯一 SoT（语法着色用）
 
-// 交互式行编辑器（rustyline，见 z42vm corelib/repl/mod.rs）。EOF/Ctrl-D → null。
+// 交互式行编辑器（rustyline，见 crates/z42-repl/src/registration.rs）。EOF/Ctrl-D → null。
 public static class Repl {
-    // 读入（历史 / emacs 键 / Ctrl-D）。返回 null 表示 EOF（调用方据此退出）。
+    /// 当前宿主是否提供可读取的 console 输入；重定向输入也可用，无 console 平台返回 false。
+    [Native(lib = "z42_repl", entry = "__repl_console_supported")]
+    public static extern bool SupportsConsoleInput();
+
+    /// 当前宿主是否具有交互终端及编辑后端支持；不探测编辑器是否已安装。
+    [Native(lib = "z42_repl", entry = "__repl_terminal_supported")]
+    public static extern bool SupportsTerminalEditor();
+
+    /// 当前构建是否支持终端历史；还要求宿主提供文件系统能力。
+    [Native(lib = "z42_repl", entry = "__repl_history_supported")]
+    public static extern bool SupportsHistory();
+
+    /// 读取一行；EOF 返回 null。重定向输入使用普通读取；无 console 时抛 NotSupportedException，宿主应自行收集输入后调用脚本求值接口。
     // 整块多行编辑（add-repl-multiline-editing）：交互（tty）下一次 ReadLine 读**整条**多行语句——
     // 回车键重入 z42（Std.Repl.ReplEditing 的 "enter" 策略）按 Completeness 判「写完没」，没写完
     // 就在缓冲内插换行 + 续行缩进（可上下方向键跨行编辑、粘贴回改），写完才提交整块。非交互（管道 /
-    // 无 tty）下退化成读一物理行，多行仍由调用方按 Completeness.IsIncomplete 累积（见 corelib/repl/mod.rs）。
+    // 无 tty）下退化成读一物理行，多行仍由调用方按 Completeness.IsIncomplete 累积（见 crates/z42-repl/src/registration.rs）。
     // 续行缩进由回车策略在缓冲内插入 → 不再需要 initial 预填参数。
     [Native(lib = "z42_repl", entry = "__repl_readline")]
     public static extern string ReadLine(string prompt);
 
     // 注册 Tab 补全的自由函数 FQN（契约 `string[] f(string line, int pos)`）；空串清除。
-    // rustyline Completer 在每次 Tab 回调它取候选（见 z42vm corelib/repl/mod.rs）。add-completion-query-api。
+    // rustyline Completer 在每次 Tab 回调它取候选（见 crates/z42-repl/src/registration.rs）。add-completion-query-api。
     [Native(lib = "z42_repl", entry = "__repl_set_completer")]
     public static extern void SetCompleter(string fqn);
 
     // 注册缩进感知键位回调的自由函数 FQN（契约 `string f(string key, string line, int pos)`）；空串清除。
-    // rustyline 在 Backspace / Tab / `}` 按下时回调它取「动作串」（见 z42vm corelib/repl/editing.rs）。
+    // rustyline 在 Backspace / Tab / `}` 按下时回调它取「动作串」（见 crates/z42-repl/src/registration.rs）。
     // 策略全在 z42（Std.Repl.ReplEditing），Rust 只翻译动作串。add-repl-indent-editing。
     [Native(lib = "z42_repl", entry = "__repl_set_key_editor")]
     public static extern void SetKeyEditor(string fqn);

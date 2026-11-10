@@ -36,6 +36,7 @@ pub fn os_name() -> &'static str {
 const WASM: bool = false;
 const MOBILE: bool = cfg!(any(target_os = "ios", target_os = "android"));
 pub const OS_CAPS: OsCaps = OsCaps {
+    native_extensions: !cfg!(target_os = "ios"),
     threads: crate::pal::thread::CAN_SPAWN,
     fs: !WASM,
     clock: crate::pal::time::HAS_CLOCK,

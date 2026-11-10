@@ -1482,7 +1482,7 @@ id 永不复用，所以它也是比地址更稳的缓存键：描述符释放�
 
 位置：纯目录在 `metadata/builtins.rs`，调用在 `exec/call/builtins.rs`，provider 装配在 `corelib/builtins.rs`，实现由 corelib 与 interop 提供。
 
-`Builtin` IR 指令在 interp / JIT 都经 `BuiltinId`（加载期由当前 VM 的 `BuiltinCatalog::id_of` 解析）索引 `corelib::builtins::BUILTINS` 表分发（`invoke_builtin`，实参原地从寄存器读；只握着实参切片的调用方用按名入口 `exec_builtin(name, args)`）。ABI 与错误模型见 [native ABI §6](native-abi.md)。
+`Builtin` IR 指令在 interp / JIT 都经 `BuiltinId`（加载期由当前 VM 的 `BuiltinCatalog::id_of` 解析）索引 host 经 interop 注册各提供方后生成的执行表分发（`invoke_builtin`，实参原地从寄存器读；只握着实参切片的调用方用按名入口 `exec_builtin(name, args)`）。ABI 与错误模型见 [native ABI §6](native-abi.md)。
 builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等，详见 `src/runtime/src/corelib/README.md`。
 
 **新增 builtin 三处同改（强制规则）**：

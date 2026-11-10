@@ -17,7 +17,7 @@ REPL / 脚本场景的**跨平台编译+执行内核**（scripting-charter Form 
 | 输入分类（using/var/顶层声明/表达式/语句；类型 vs 自由函数）| `Classifier.z42`（`Classify` + `ParsedInput.IsTypeDecl`；`_typeRefEnd` 跳完整类型引用——限定名/泛型/数组/可空，识别 `List<int> a = new()` 等多 token 类型声明）|
 | 编译+执行编排 | `Script.z42`（`Create` / `Eval`；编译经 `IReplCompiler.CompileRound`）。**求值期错误恢复**：编译错误及运行异常（用户 `throw` / 除零 / 越界 / `__box_prim` 类型不符）均被捕获、作失败 `EvalResult` 返回、会话不推进，异常不逃逸终止 REPL；轮次号进程级单调、只在本轮模块加载进 VM 后前进（重用轮号会让已加载的旧函数胜出：异常「粘住」、`.reset` 后的新会话拿到旧结果）|
 | 编译器组件运行期注入 | `ReplCompilerHost.Get()`：`ModuleLoader.Load` z42c.pipeline.zpkg → 反射 `Z42cReplCompiler` → `as IReplCompiler`；缺失兜底 `NoReplCompiler` |
-| 启动预热（后台线程建依赖世界）| `Script.Prewarm`（REPL 启动 spawn worker 跑；`_ensureWarm` 首次 Eval 前 Join 汇合）+ `ScriptState.PrewarmThread`；GC-safe park 见 z42vm `corelib/repl/mod.rs` + `gc/safepoint.rs` |
+| 启动预热（后台线程建依赖世界）| `Script.Prewarm`（REPL 启动 spawn worker 跑；`_ensureWarm` 首次 Eval 前 Join 汇合）+ `ScriptState.PrewarmThread`；GC-safe park 见 运行时 `interop/native_call.rs` + `threads/safepoint.rs` |
 | 函数/类型声明累积（跨轮）| `Script._evalDecl`——声明入 `Repl.R{N}` ns，`ExtendWithPackage` + `using` 供后续轮解析；重定义报 ERROR；类型名记 `DeclTypeNames`（`.types`）；缺省未写可见性的类型声明自动补 `public`（`Classifier.HasVisibility`），避开每轮独立 package 下 internal 类的 `E0441`/`E0404` |
 | 多行输入完整性判定 | `Completeness.IsIncomplete`——parser 权威：对**裸输入原文** parse，读 `IncompleteAtEof` 决定续读；tty 下由 `ReplEditing.KeyEdit` 的 Enter 分支对整块调用，非 tty 由 `interactive_main` 逐行累积调用 |
 | 续行视觉缩进 | `Completeness.ContinuationIndent`——用 Lexer 数括号算 `层数×4 空格`；由 `ReplEditing.KeyEdit` 的 Enter 分支在缓冲内插换行时附加；纯装饰，不参与完整性判定 |

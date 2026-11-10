@@ -18,7 +18,13 @@ Process _componentCCompiler(string root, string rid) {
         return new Process("xcrun").Arg("--sdk").Arg("iphonesimulator").Arg("clang")
             .Arg("-target").Arg("arm64-apple-ios" + minimum + "-simulator").Arg("-isysroot").Arg(sdk);
     }
-    return new Process(Platform.IsWindows() ? "clang" : "cc");
+    // 发布的静态档案由 rustc 默认按**动态** CRT（msvcrt/ucrt 导入库，如 __imp__wassert）编译；
+    // clang 的 MSVC 目标默认静态 CRT（libucrt），混链必出 LNK2019/LNK4217。编译侧用
+    // -fms-runtime-lib=dll 选动态导入；链接侧 clang 不一定替我们传 msvcrt.lib，显式点名。
+    if (Platform.IsWindows()) {
+        return new Process("clang").Arg("-fms-runtime-lib=dll").Arg("-Wl,msvcrt.lib");
+    }
+    return new Process("cc");
 }
 string _componentCBuild(string root, string pkg, string rid, string work, bool dynamic, bool jit, bool compression) {
     string native = Path.Join(pkg, "native");
@@ -39,10 +45,18 @@ string _componentCBuild(string root, string pkg, string rid, string work, bool d
             p = p.Arg(Path.Join(native, _componentStaticName(stem, rid)));
         }
         p = p.Arg(Path.Join(native, _componentStaticName("z42", rid)));
+        if (Platform.IsWindows()) {
+            // 第三方导入库（windows.0.52.0.lib 等）已随档案进 native/；给链接器加该搜索路径。
+            p = p.Arg("-Wl,/LIBPATH:" + native);
+        }
         foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
             if ((stem == "z42_jit" && !jit) || (stem == "z42_compression" && !compression)) { continue; }
             foreach (var flag in File.ReadAllText(Path.Join(native, stem + "-link.txt")).Split(" ")) {
-                if (flag.Length > 0) { p = p.Arg(flag); }
+                if (flag.Length == 0) { continue; }
+                // MSVC 目标下 rustc 的 native-static-libs 是裸库名（kernel32.lib）+ 链接器指令
+                // （/defaultlib:msvcrt），不是 gcc 风格的 -l 标志；直接交给 clang 会被当输入文件。
+                // 经 -Wl, 转交链接器（clang 的 MSVC 工具链自动探测 VS/Windows SDK）。
+                p = p.Arg(Platform.IsWindows() ? "-Wl," + flag : flag);
             }
         }
     }

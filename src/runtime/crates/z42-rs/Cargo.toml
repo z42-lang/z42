@@ -2,12 +2,20 @@
 name = "z42-rs"
 version.workspace = true
 edition = "2021"
-description = "z42 Tier 2 ergonomic Rust API for native interop (skeleton)"
+description = "VM-free Rust helpers for native modules and optional type bindings"
 license = "MIT OR Apache-2.0"
 
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = ["types"]
+types = ["dep:z42-macros"]
+
+[[test]]
+name = "skeleton_tests"
+required-features = ["types"]
+
 [dependencies]
 z42-abi    = { path = "../z42-abi" }
-z42-macros = { path = "../z42-macros" }
+z42-macros = { path = "../z42-macros", optional = true }

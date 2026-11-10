@@ -12,7 +12,7 @@
 //   ③ 裸标识符 `pre` → 作用域候选（会话变量 + 声明名 + 门面 ScopeTypeNames 导入类型/枚举/自由函数名）。
 //
 // rustyline Tab 经 `Std.Repl.Repl.SetCompleter` 注册的自由函数 `replComplete` 回调本模块
-// （机制见 z42vm `corelib/repl/mod.rs`）。契约：`string[] replComplete(string line, int pos)`。
+// （机制见 z42vm `crates/z42-repl/src/registration.rs`）。契约：`string[] replComplete(string line, int pos)`。
 namespace Z42.Scripting;
 
 using Std.Collections;
@@ -26,7 +26,7 @@ public static class Completer {
 }
 
 // rustyline Tab 回调。两种上下文（按光标前缀 token 判）：
-//   ① `recv.mem`——`recv` 是会话变量 → 对其 **live 值**反射列成员（D2；零副作用，见 corelib/repl/mod.rs）。
+//   ① `recv.mem`——`recv` 是会话变量 → 对其 **live 值**反射列成员（D2；零副作用，见 crates/z42-repl/src/registration.rs）。
 //   ② 裸标识符 `pre` → 作用域候选（会话变量 + 声明的函数/类型）。
 // 均按当前前缀过滤 + 去重。任意非会话变量 receiver 的 `expr.` Phase 1 不补（需静态类型推断，defer）。
 string[] replComplete(string line, int pos) {

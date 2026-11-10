@@ -19,7 +19,7 @@
 | `main.rs` | 动态加载运行时，检查 C 入口的 ABI 和构建身份 |
 | `host/cli.rs` | 参数解析、启动策略和调用共用宿主服务 |
 | `host/cli_startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
-| `corelib/builtins.rs` | 门面按既定 provider 顺序装配 builtin 描述符及纯名称/ID 目录 |
+| `corelib/builtins.rs` / `host/builtins.rs` | 核心库导出自身描述符，host 经 interop 注册独立提供方并生成查询目录与执行表 |
 | `corelib/mod.rs` | 核心库提供 GetType 和默认 ToString 的对象协议绑定；宿主将其注入 VM |
 | `host/artifact.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |
 | `host/boot.rs` | 门面实现既有 VmContext 主构造入口，装配配置、引擎、builtin 与扩展；worker 加入和 Drop 机制留在 context |
@@ -55,11 +55,13 @@
 | `crates/z42-interp/src/interp/` | 字节码解释器，见 [`crates/z42-interp/src/interp/README.md`](crates/z42-interp/src/interp/README.md) |
 | `crates/z42-jit/src/jit/` | Cranelift JIT 后端，见 [`crates/z42-jit/src/jit/README.md`](crates/z42-jit/src/jit/README.md) |
 | `src/diagnostics/` | VM 共享诊断状态：已结束线程的计数、运行时观察者、暂停分布、锁争用统计与采样器；`VmContext` 的观察 API 保持统一入口 |
+| `crates/z42-repl/` | 独立终端模块的脚本注册与可选编辑器，见 [`README.md`](crates/z42-repl/README.md) |
+| `crates/z42-compression/` | 独立压缩模块的脚本注册与算法，见 [`README.md`](crates/z42-compression/README.md) |
 | `src/corelib/` | 内置函数（builtin）实现，统一入口 `invoke_builtin` 供 interp / JIT 调用（builtin ABI v2：`exec/call/builtin_abi/`），见 [`src/corelib/README.md`](src/corelib/README.md) |
 | `src/gc/` | 具体 Heap 与分代 / STW / 增量 major 回收，见 [`src/gc/README.md`](src/gc/README.md) |
 | `src/profiler/` | CPU 采样、堆摘要、V8 快照与保留链，见 [`src/profiler/README.md`](src/profiler/README.md) |
 | `src/context/` | `VmContext`（通过 host 提供嵌入入口）：固定地址的每线程视图，组合 exec/runtime/diagnostics/threads 状态并共享 Arc<VmCore> |
-| `src/interop/` | Tier 1 C ABI 运行时 + stdlib native 扩展加载，见 [`src/interop/README.md`](src/interop/README.md) |
+| `src/interop/` | 原生提供方注册/查询与 Tier 1 C ABI 编组，见 [`src/interop/README.md`](src/interop/README.md) |
 | `src/components/` | 统一组件协议、工厂加载、后端选择与每 VM 生命周期，见 [`src/components/README.md`](src/components/README.md) |
 | `src/host/` | CLI 与外部宿主共用的 Rust 加载、调用及应用服务，包含 `z42_host.h` 的 C ABI 适配，见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
 | `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
@@ -121,8 +123,8 @@ GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管�
 | `crates/z42-interp/` | 基线解释器、Engine 与组件工厂 | 在用 |
 | `crates/z42-jit/` | Cranelift、tier/OSR、代码页与组件工厂 | 在用 |
 | `crates/z42-zpkg/` | 静态产物格式、解析、IR 与不可变包映像；无 VM 依赖 | 在用 |
-| `crates/z42-abi/` | Tier 1 C ABI 的 Rust `#[repr(C)]` 镜像（`no_std`，无依赖） | 在用 |
-| `crates/z42-rs/` | Tier 2 用户面向 trait/type（`Z42Type`、`Z42Traceable`、`Visitor`） | 在用（高层能力待 C5） |
+| `crates/z42-abi/` | 类型与模块 C ABI 的 Rust `#[repr(C)]` 布局（`no_std`，无依赖） | 在用 |
+| `crates/z42-rs/` | Rust 类型与模块编写辅助；不链接 VM | 在用（高层能力待 C5） |
 | `crates/z42-macros/` | proc macro 入口（`methods`、`module!`；`Z42Type` derive / `trait_impl` 待 C5，现报 `compile_error!`） | 在用 |
 | `crates/z42-compression/` | 压缩后端 cdylib（`z42.compression` 的 native 侧） | 在用 |
 | `crates/z42-repl/` | host-only REPL 行编辑器 cdylib（`z42i`，被 `z42vm` 懒 dlopen） | 在用 |
@@ -152,8 +154,8 @@ xtask test e2e                                # VM golden 端到端（interp + j
 |---------|------|
 | `cli` | 共用 CLI 策略、参数解析和动态进程入口；嵌入式平台预设不启用 |
 | `jit` | 启用运行时 JIT 契约；具体 Cranelift 实现由独立组件提供（desktop x64/arm64） |
-| `component-loading` | 通过 PAL 加载可选运行时组件；native-interop 会启用此能力 |
-| `native-interop` | Tier 1 原生扩展 ABI（dlopen + libffi） |
+| `component-loading` | PAL 动态库装载与通用 C 模块加载；不要求 libffi |
+| `native-interop` | Tier 1 类型注册与 libffi 调用；启用 component-loading 与 SDK types |
 | `net` | `Std.Net` socket（TCP / UDP / DNS，Rust 标准库 net 模块 + `socket2`）。关掉时网络 builtin 抛 `NetUnsupportedException` |
 | `tls` | 在 `net` 之上加 rustls TLS 客户端（`ring` 后端 + `webpki-roots`）。关掉时 `__tls_*` 抛 `NetUnsupportedException` |
 | `mimalloc-alloc` | 最终静态宿主 `z42vm_static` 选择 mimalloc；动态 SDK 使用共享 std 的 System 分配器 |

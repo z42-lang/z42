@@ -6,31 +6,17 @@ use crate::context::VmContext;
 #[cfg(feature = "native-interop")]
 use std::sync::Arc;
 
-#[derive(Default)]
 pub(crate) struct State {
+    pub(super) providers: &'static super::providers::NativeRegistry,
+    pub(super) external_modules: parking_lot::RwLock<HashMap<&'static str, std::sync::Arc<super::module::NativeModule>>>,
+    pub(super) instances: parking_lot::RwLock<HashMap<&'static str, std::sync::Arc<super::module::ModuleInstance>>>,
     #[cfg(feature = "native-interop")]
     native_types: parking_lot::RwLock<HashMap<(String, String), Arc<super::RegisteredType>>>,
     pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>,
-    ext_libs_tried: Mutex<std::collections::HashSet<&'static str>>,
-    // Drop last: registered descriptors and native resource destructors point into these libraries.
-    #[cfg(feature = "native-interop")]
-    native_libs: Mutex<Vec<crate::pal::dynlib::Library>>,
 }
 
-fn state(ctx: &VmContext) -> Result<&State> {
+pub(super) fn state(ctx: &VmContext) -> Result<&State> {
     ctx.ext::<State>().ok_or_else(|| anyhow!("missing interop VM state"))
-}
-
-/// Record the first load attempt for a bundled SDK extension in this VM.
-pub(super) fn claim_extension_load(ctx: &VmContext, lib: &'static str) -> Result<bool> {
-    Ok(state(ctx)?.ext_libs_tried.lock().insert(lib))
-}
-
-/// Keep the library open while registered types and extension resources may call it.
-#[cfg(feature = "native-interop")]
-pub(super) fn retain_library(ctx: &VmContext, lib: crate::pal::dynlib::Library) -> Result<()> {
-    state(ctx)?.native_libs.lock().push(lib);
-    Ok(())
 }
 
 /// Register a type once per (module, name), preserving the original on duplicate.
@@ -70,4 +56,13 @@ pub fn release_owned_buffer(ctx: &VmContext, ptr: u64) -> Result<()> {
 
 pub fn pinned_owned_buffer_count(ctx: &VmContext) -> Result<usize> {
     Ok(state(ctx)?.pinned_owned_buffers.lock().len())
+}
+
+impl State {
+    pub(super) fn new(providers: &'static super::providers::NativeRegistry) -> Self {
+        Self { providers, external_modules: Default::default(), instances: Default::default(), pinned_owned_buffers: Default::default(),
+            #[cfg(feature = "native-interop")]
+            native_types: Default::default(),
+        }
+    }
 }

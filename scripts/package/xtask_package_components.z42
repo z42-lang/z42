@@ -31,10 +31,9 @@ Process _componentTargets(Process build) {
     return build
         .Arg("-p").Arg("z42")
         .Arg("-p").Arg("z42-interp").Arg("-p").Arg("z42-jit")
-        .Arg("-p").Arg("z42-compression")
         .Arg("--no-default-features").Arg("--features")
         .Arg("z42/" + _componentFeatures().Replace(",", ",z42/")
-            + ",z42-interp/shared-core,z42-interp/native-interop,z42-jit/shared-core");
+            + ",z42-interp/shared-core,z42-interp/jit,z42-interp/native-interop,z42-jit/shared-core");
 }
 
 int _componentBuild(string root, string profile) {
@@ -47,7 +46,7 @@ int _componentBuild(string root, string profile) {
     if (result.ExitCode != 0) { return result.ExitCode; }
     File.WriteAllText(Path.Join(_componentCargoOut(root, profile), "component-test-executable.txt"),
         _componentArtifactExecutable(result.Stdout));
-    return 0;
+    return _componentBuildCompression(root, _detectHostRid(), profile, true);
 }
 
 void _componentCopyRequired(string source, string destination) {

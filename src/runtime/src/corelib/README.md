@@ -5,12 +5,12 @@
 z42 VM 的**原生 builtin 层**：为 z42 标准库（`Std.*`）里那些无法用纯 z42 表达、
 必须落到 Rust 的能力（IO、文件系统、反射、进程/线程/网络、加密、GC 控制…）提供
 native 实现。builtin 一律写成类型化 Rust 函数（builtin ABI v2，`#[builtin]`，见下「加一个
-builtin」），登记进 `BUILTINS` 表（`corelib/builtins.rs` 把各 `#[builtins]` 模块的描述符编译期拼接），
+builtin」），由 `corelib/builtins.rs` 拼接核心库描述符，再通过 interop 注册为 `z42.core` 提供方，
 由解释器 `Instruction::Builtin`、JIT `jit_builtin` 和 `[Native]` 包装函数的折叠调用经
 `invoke_builtin` 调用——实参原地从调用方寄存器读。
 
 **不做**：语言语义（在 `interp` / `jit`）、静态产物定义（在 `z42-zpkg`）与运行时链接状态（在 `metadata`）、
-GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / Assert 等）都已从
+GC 堆本身（在 `gc`）。终端脚本适配属于 `crates/z42-repl`，压缩脚本适配属于 `crates/z42-compression`。凡能用纯 z42 写的（StringBuilder / List / Assert 等）都已从
 这里下沉到 stdlib 脚本，corelib 只保留真正需要 Rust 的最小面。
 
 纯值格式化和盒装值哈希由 object/value 定义；corelib 保留 builtin 调用、参数检查与装箱编排，原公开格式化路径直接再导出同一实现。
@@ -25,7 +25,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | 功能 | 入口 / 文件 |
 |------|-----------|
 | 隔离应用执行 / 退出报告 | `application.rs` 私有服务，由门面创建前注入；worker 只复制函数指针，不引用门面 RunOpts |
-| builtin 实现与登记 | 各功能模块生成 DESCS；门面 `corelib/builtins.rs` 编译期装配。名称/ID 查询在 `metadata/builtins.rs`，分发在 `exec/call/builtins.rs` |
+| builtin 实现与登记 | 各功能模块生成 DESCS；`corelib/builtins.rs` 只拼接核心库；host 经 interop 装配各提供方。名称/ID 查询在 `metadata/builtins.rs`，分发在 `exec/call/builtins.rs` |
 | builtin ABI v2：类型化实参 / 返回值、`BuiltinError` 与异常类、`blocking` | **`exec/call/builtin_abi/`**（`args.rs` / `ret.rs` / `error.rs`；宏在 `crates/z42-macros/src/builtins_attr.rs`） |
 | 值转换 / 解析（`Parse` / `TryParse`）/ to-string / 装箱 | `core/convert.rs`（`typed` 模块，ABI v2）；纯值格式化从 object/value 直接再导出 |
 | 控制台 IO（print / readline：`typed` 模块，ABI v2；写进程 stdout / stderr 与读 stdin 都 park）/ TestIO 捕获（sink 栈） | `io/mod.rs` |
@@ -47,7 +47,6 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | 线程 / 同步原语底座 Monitor（不含值，Mutex/RwLock/Channel 由 z42 写在其上；`typed` 模块，ABI v2：误用抛 `LockRecursionException` / `SynchronizationLockException`，争用时的等待 park）/ 锁争用探针 | `core/threading.rs` / `core/monitor.rs` / `core/sync_contention.rs`；机制见 [sync-primitives.md](../../../../docs/internals/src/runtime/sync-primitives.md) |
 | 网络（ABI v2：`__tcp_*` / `__udp_*` / `__dns_lookup`，.NET 口径的 `SocketException` 等从 Rust 抛、会阻塞的一律 park） | `net/mod.rs`（hub）+ `net/{tcp, udp, error, listener, unsupported}.rs` |
 | TLS（ABI v2：`__tls_*`，握手被拒 → `AuthenticationException`、传输 / 流 → `IOException`）/ 加密 | `tls/mod.rs` / `core/crypto.rs` |
-| REPL 支持（求值宿主 / 行编辑 / 行编辑器 cdylib 的懒 dlopen） | `repl/mod.rs` / `repl/editing.rs` / `repl/native.rs` |
 | 测试宿主（隔离跑 golden） | `tests.rs`（+ `core/reflection/module_load.rs` 的 `__run_goldens_isolated`）|
 
 Monitor 状态定义在 `object/object/monitor.rs`，核心库实现持有者检查、异常映射、争用统计与 GC park 协议。
@@ -122,7 +121,7 @@ xtask test stdlib
 |------|------|
 | `mod.rs` | 名称↔`BuiltinId` 解析 + `invoke_builtin` / `exec_builtin` 分发 |
 | `../exec/call/builtin_abi/` | builtin ABI v2：`BuiltinDesc` / `FromArg` / `IntoRet` / `Blocking` / `BuiltinError` + `raise`（两引擎共用的失败出口）；`test_builtins.rs` 是 `cfg(test)` 的测试用 builtin |
-| `corelib/builtins.rs` | `BUILTINS`：各 `#[builtins]` 模块的 `DESCS` 经 `abi::concat_descs` 编译期拼接（下标即 `BuiltinId`，不跨进程持久化） |
+| `corelib/builtins.rs` | 核心库 `DESCS`；host 注册完整提供方集合后生成 BuiltinId |
 | `core/reflection/mod.rs` | 反射 hub —— 导入 + 共享常量 + 私有 re-glob 各 concern 子模块（兄弟经 `use super::*` 互见）+ `pub use` 保留公开 API |
 | `core/reflection/type_object.rs` | `Std.Type` 对象构造（`make_type_object` / `make_type_from_name` / `make_constructed_type`）+ handle/slot 辅助 |
 | `core/reflection/type_query.rs` | 类型查询谓词（base / interfaces / members / nested / is_abstract·sealed·value·record·interface·class·primitive·generic / assignable_from / visibility）|

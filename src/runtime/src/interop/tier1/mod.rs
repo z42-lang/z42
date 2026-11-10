@@ -4,7 +4,6 @@ pub(crate) mod call;
 pub mod dispatch;
 pub mod error;
 pub mod exports;
-pub mod loader;
 pub mod marshal;
 pub mod registry;
 

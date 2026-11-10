@@ -26,7 +26,7 @@ pub(crate) fn kind(k: i64) -> BuiltinError {
     }
 }
 
-use crate::corelib::builtins::{CATALOG, BUILTINS};
+
 use crate::exec::call::builtins::invoke_builtin;
 use crate::metadata::ids::tokens::TypeId;
 use crate::object::{FieldSlot, TypeDesc};
@@ -37,7 +37,7 @@ use std::sync::Arc;
 
 fn s(t: &str) -> Value { Value::Str(t.into()) }
 
-fn id(name: &str) -> u32 { CATALOG.id_of(name).unwrap_or_else(|| panic!("{name} registered")).0 }
+fn id(name: &str) -> u32 { crate::host::builtins::catalog().id_of(name).unwrap_or_else(|| panic!("{name} registered")).0 }
 
 /// Call `name` the way the engines do: arguments read from `regs` by index.
 fn call_regs(ctx: &VmContext, name: &str, this: Option<Value>, regs: &[Value], idx: &[u32])
@@ -49,22 +49,22 @@ fn call_regs(ctx: &VmContext, name: &str, this: Option<Value>, regs: &[Value], i
 #[test]
 fn typed_builtins_are_in_the_table_once() {
     let mut seen = std::collections::HashSet::new();
-    for (i, d) in BUILTINS.iter().enumerate() {
+    for (i, d) in crate::host::builtins::functions().iter().enumerate() {
         assert!(seen.insert(d.name), "builtin `{}` registered twice", d.name);
-        assert_eq!(CATALOG.id_of(d.name).unwrap().0 as usize, i, "lookup and callable order agree");
-        assert_eq!(CATALOG.name(i as u32, "?"), d.name);
-        assert_eq!(CATALOG.folds_frameless(i as u32), !d.flags.reenters);
+        assert_eq!(crate::host::builtins::catalog().id_of(d.name).unwrap().0 as usize, i, "lookup and callable order agree");
+        assert_eq!(crate::host::builtins::catalog().name(i as u32, "?"), d.name);
+        assert_eq!(crate::host::builtins::catalog().folds_frameless(i as u32), !d.flags.reenters);
     }
-    let d = &BUILTINS[id("__test_abi_args") as usize];
+    let d = &crate::host::builtins::functions()[id("__test_abi_args") as usize];
     assert_eq!(d.params, &[ParamKind::Str, ParamKind::I64, ParamKind::F64, ParamKind::Bool,
         ParamKind::Char, ParamKind::OptStr]);
     assert_eq!(d.ret, RetKind::Str);
     assert!(!d.flags.blocking);
-    assert!(BUILTINS[id("__test_abi_sleep") as usize].flags.blocking);
-    let d = &BUILTINS[id("__int32_parse") as usize];
+    assert!(crate::host::builtins::functions()[id("__test_abi_sleep") as usize].flags.blocking);
+    let d = &crate::host::builtins::functions()[id("__int32_parse") as usize];
     assert!(d.flags.pure && d.ret == RetKind::I64);
     // An array parameter is taken by handle (`ArrRef`): `ParamKind::Array`.
-    assert_eq!(BUILTINS[id("__array_clone") as usize].params, &[ParamKind::Array]);
+    assert_eq!(crate::host::builtins::functions()[id("__array_clone") as usize].params, &[ParamKind::Array]);
 }
 
 /// `ArrRef` parameters: null → `ArgumentNullException` (`NullReferenceException` as the

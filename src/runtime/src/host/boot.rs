@@ -173,8 +173,8 @@ pub(crate) fn with_config(module: Option<Arc<crate::metadata::Module>>, vfs: Arc
     };
     VmContext::with_runtime(module, vfs, crate::context::RuntimeInputs {
         extensions, config, object_protocol: protocol, engines,
-        builtins: crate::corelib::builtins::BUILTINS,
-        catalog: &crate::corelib::builtins::CATALOG,
+        builtins: crate::host::builtins::functions(),
+        catalog: crate::host::builtins::catalog(),
         fusion: crate::host::artifact::FUSION_INPUTS,
         sampler: crate::diagnostics::sampling::Sampling::new(backend.enabled(), backend),
     })

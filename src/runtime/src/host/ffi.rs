@@ -54,28 +54,6 @@ pub unsafe extern "C" fn z42_host_register_static_component(
     })
 }
 
-/// Register an explicitly linked stdlib native library without loading its symbols.
-///
-/// # Safety
-/// `name` must be a valid NUL-terminated string. The resolver and its returned
-/// functions must implement the native library ABI and remain valid until exit.
-#[no_mangle]
-pub unsafe extern "C" fn z42_host_register_static_native_library(
-    name: *const c_char, resolve: Option<NativeSymbolResolver>,
-) -> Z42HostStatus {
-    guard(|| {
-        if name.is_null() { return set_error(Z42HostStatus::BadConfig, "native library name is null"); }
-        let Some(resolve) = resolve else { return set_error(Z42HostStatus::BadConfig, "native symbol resolver is null"); };
-        let Ok(name) = (unsafe { std::ffi::CStr::from_ptr(name) }).to_str() else {
-            return set_error(Z42HostStatus::BadConfig, "native library name must be UTF-8");
-        };
-        match unsafe { register_static_native_library(name, resolve) } {
-            Ok(()) => { clear_error(); Z42HostStatus::Ok }
-            Err(error) => set_error(Z42HostStatus::BadConfig, &error.to_string()),
-        }
-    })
-}
-
 /// Dynamic cores discover their backends when loading a program. Static final
 /// archives supply the initializer that registers their selected linked backends.
 #[cfg(not(feature = "static-embedding"))]
@@ -98,6 +76,30 @@ where
 }
 
 // ── Handle encoding ──────────────────────────────────────────────────────
+
+/// Register a process-lifetime static native library before creating a host.
+///
+/// # Safety
+/// name must be NUL-terminated UTF-8. The resolver and its returned C entries
+/// must remain valid for the process lifetime and support concurrent invocation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn z42_host_register_static_native_library(
+    name: *const c_char, resolve: Option<NativeSymbolResolver>,
+) -> Z42HostStatus {
+    guard(|| {
+        clear_error();
+        let Some(resolve) = resolve else { return set_error(Z42HostStatus::BadConfig, "native resolver is NULL"); };
+        if name.is_null() { return set_error(Z42HostStatus::BadConfig, "native library name is NULL"); }
+        let name = match unsafe { std::ffi::CStr::from_ptr(name) }.to_str() {
+            Ok(name) => name,
+            Err(_) => return set_error(Z42HostStatus::BadConfig, "native library name is not UTF-8"),
+        };
+        match unsafe { register_static_native_library(name, resolve) } {
+            Ok(()) => Z42HostStatus::Ok,
+            Err(error) => set_error(Z42HostStatus::BadConfig, format!("{error:#}")),
+        }
+    })
+}
 
 // `Z42ModuleRef` / `Z42EntryRef` opaque pointers carry an index into the
 // host's modules / entries vector encoded as `idx + 1`. Plus-one keeps
@@ -146,6 +148,10 @@ pub unsafe extern "C" fn z42_host_initialize(
             );
         }
         unsafe { *out_host = ptr::null_mut() };
+        // C embedding hosts may never touch the builtins registry; native
+        // shim panic forwarding must be live before any invoke.
+        #[cfg(feature = "native-interop")]
+        crate::interop::exports::install_panic_hook();
 
         let resolved = match unsafe { config::validate(cfg) } {
             Ok(r) => r,

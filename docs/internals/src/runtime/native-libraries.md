@@ -10,8 +10,8 @@ z42 有**两类** native 库，走**两条**互不干扰的布局/解析路径�
 |---|---|---|
 | 归属 | 运行时横切库，随 **SDK** 分发，不属某个 app zpkg | 跟随**某个组件 / app** 的私有依赖 |
 | 布局 | `<sdk>/native/`（集中） | **平铺在消费方 zpkg 旁** `<zpkg-dir>/lib<name>.<suffix>` |
-| 发现 | `ext::native_search_paths()` **急切扫描**目录 | `pal::dynlib::resolve_native_beside(zpkg_dir, name)` **按名定向 stat** |
-| 盲扫? | 是——扫目录里所有 `libz42_*` 并 `dlopen` | **否**——只 stat 被声明需要的那一个 |
+| 发现 | loader 按逻辑名称查询 host 提供的候选路径 | `pal::dynlib::resolve_native_beside(zpkg_dir, name)` 按名定向 stat |
+| 盲扫? | 否，只装入请求的库 | 否，只 stat 被声明需要的那一个 |
 | 本页章节 | §1 | §2/§3 |
 
 > native 库是「path 依赖」的另一半：path 依赖 colocate 私有组件的 **zpkg** 进 payload，native
@@ -19,19 +19,13 @@ z42 有**两类** native 库，走**两条**互不干扰的布局/解析路径�
 
 ---
 
-## 1. 标准库 native：`<sdk>/native/` 急切扫描
+## 1. 标准库 native：`<sdk>/native/` 按需加载
 
 compression 等是**运行时横切库**（跨平台、随 SDK 走、不属任何单个 app），布局与解析如下：
 
 - **布局**：`<sdk>/native/libz42_<name>.{so,dylib,dll}`。
-- **发现**：VM 启动 `ext::load_all` 扫 `native_search_paths()`（按序：`Z42_NATIVE_PATH` 覆盖 →
-  `<exe>/../native/` SDK 布局 → `<exe>/native/` → `<exe>/` dev 直放），对每个 `libz42_*` 反解出
-  `<name>`（`parse_z42_lib_name`）并 `dlopen` 注册已知符号集。**这是目录级盲扫**——扫到什么就
-  `dlopen` 什么，未知库只会喷一条 `ignoring unknown lib <name>` WARN。
-- **确定序**：扫描前必须 `sort`（加载顺序确定性规则：`read_dir` 顺序依赖 OS/FS，first-wins 注册
-  会非确定）。
-
-急切盲扫对「随 SDK 分发的一小撮已知横切库」够用，但它是 repl WARN 污染的来源（§2 讲为什么 repl 不走这条路径）。
+- **发现**：首次调用时，loader 先查询显式注册的静态符号解析器；没有静态提供方时，host 按逻辑库名拼接候选文件。目录顺序为 `Z42_NATIVE_PATH` 覆盖 → `<exe>/../native/` SDK 布局 → `<exe>/native/` → `<exe>/` dev 直放。
+- **确定序**：按候选顺序选择，不枚举目录或初始化未请求的库。每 VM 缓存命名解析结果，PAL 保留动态代码寿命。
 
 ---
 
@@ -52,7 +46,7 @@ compression 等是**运行时横切库**（跨平台、随 SDK 走、不属任�
   只有「平铺 beside zpkg」这一条路径，dead simple。
 
 ```rust
-// src/runtime/src/interop/ext/mod.rs
+// src/runtime/src/pal/dynlib.rs
 pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<PathBuf> {
     let file = format!("{}{}{}", DLL_PREFIX, lib_name, DLL_SUFFIX); // 反向拼 lib<name>.<suffix>
     let candidate = zpkg_dir.join(file);
@@ -63,7 +57,7 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
 ### 2.1 唯一实例：REPL 行编辑器 cdylib（`libz42_repl`）
 
 当前唯一的组件私有 native 库是 REPL 的 `libz42_repl`（host-only 行编辑器 cdylib，详见
-[native-extensions.md §2](native-extensions.md#2-双向范式z42-repl)的 C ABI / 回调机制）。它的
+[native-extensions.md](native-extensions.md)的 C ABI / 回调机制）。它的
 「消费方 zpkg 目录」= interactive apphost 的 payload 目录 **`<sdk>/programs/z42i/`**（`z42i` 的
 `z42.interactive.zpkg` 就在那）。
 
@@ -72,17 +66,12 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
   `cargo build -p z42-repl` 产出，经 `_pubBundleProjectNativeDeps` 沿 path-dep 闭包平铺进
   `programs/z42i/`——packaging 只整目录拷 publish 输出，无 repl 特殊处理。`_pkgInstallZ42vm` **不**往 `bin/` 放 repl 库；`_copyNativeLibs` 按精确文件名
   白名单拷（`_isEmbedLib` / `_isNativeExtLib`），repl 不在名单里（hook 把它建进共享 cargoOut，白名单防其漏进 `<sdk>/native/`）。
-- **发现**（`corelib::repl::native::candidates()`）：`Z42_REPL_NATIVE` 覆盖 → dev cargo-target
+- **发现**（`host/extensions.rs 的 native_candidates`）：`Z42_REPL_NATIVE` 覆盖 → dev cargo-target
   目录（z42vm 旁）→ 从运行 `<sdk>/bin/<app>` 派生 `<sdk>/programs/z42i/`，经共享的
   `resolve_native_beside` 解析。
-- **为什么不放 `bin/`**：放进 `bin/` 会被 §1 的急切 ext 扫描器 `dlopen` →
-  `ignoring unknown lib repl` WARN，SDK VM 跑任何程序都喷、污染 golden。物理隔离到
-  `programs/z42i/`（通用 z42vm 的 `exec_dir` 扫描不含它）避免了这条 WARN，同时把 repl 归入
-  「组件私有 native」这条正规路径。
+- **组件私有边界**：编辑器随 z42i 发布，不成为共享 native 目录中的跨平台标准库扩展。loader 按逻辑库名获得候选路径，再由提供方绑定自己的 C ABI；不会扫描并初始化无关库。
 
-> repl **不是** `[Native(lib=)]` ext-builtin（那是 §1 的注册式扩展），而是带回调 C ABI 的专用
-> host-editor cdylib，由 repl 子系统自己 `dlopen`。与本页共享的只是**路径解析层**
-> （`resolve_native_beside`）；repl 的回调式加载仍是专用的。
+Repl 和 compression 分别注册提供方，复用 loader 的命名路径服务与 PAL 装入原语。Repl 的同步回调协议仍由终端适配层处理。
 
 ---
 

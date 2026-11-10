@@ -11,19 +11,31 @@ pub struct BuiltinInfo {
 /// Immutable provider catalog. A VM's execution table has the same record order.
 /// The default facade shares this catalog across VMs; queries never execute providers.
 pub struct BuiltinCatalog {
-    records: &'static [BuiltinInfo],
-    index: OnceLock<HashMap<&'static str, u32>>,
+    records: std::borrow::Cow<'static, [BuiltinInfo]>,
+    reserved: Vec<&'static str>,
+    index: OnceLock<HashMap<&'static str, Option<u32>>>,
 }
 
 impl BuiltinCatalog {
     pub const fn new(records: &'static [BuiltinInfo]) -> Self {
-        Self { records, index: OnceLock::new() }
+        Self { records: std::borrow::Cow::Borrowed(records), reserved: Vec::new(), index: OnceLock::new() }
     }
 
+    pub fn from_records(records: Vec<BuiltinInfo>) -> Self {
+        Self { records: std::borrow::Cow::Owned(records), reserved: Vec::new(), index: OnceLock::new() }
+    }
+
+    pub fn with_reserved_names(mut self, names: Vec<&'static str>) -> Self { self.reserved = names; self.index = OnceLock::new(); self }
+
     pub fn id_of(&self, name: &str) -> Option<BuiltinId> {
-        self.index.get_or_init(|| self.records.iter().enumerate()
-            .map(|(i, info)| (info.name, i as u32)).collect())
-            .get(name).copied().map(BuiltinId)
+        self.index.get_or_init(|| {
+            let mut names: HashMap<_, _> = self.reserved.iter().map(|&name| (name, None)).collect();
+            for (index, info) in self.records.iter().enumerate() {
+                // Ambiguous bare names never acquire a load-order-dependent winner.
+                names.entry(info.name).and_modify(|id| *id = None).or_insert(Some(index as u32));
+            }
+            names
+        }).get(name).copied().flatten().map(BuiltinId)
     }
 
     pub(crate) fn folds_frameless(&self, id: u32) -> bool {
