@@ -9,13 +9,13 @@ string payload(bool unicode) {
 [Benchmark]
 void bulk_ascii_4k() {
     string text = payload(false); char[] dest = new char[4096]; var b = new Bencher(2, 12);
-    b.iter(() => { StringReader r = new StringReader(text); BenchHelpers.blackBox(r.Read(dest, 0, 4096)); BenchHelpers.blackBox(dest[4095]); });
+    b.iter(() => { StringReader r = new StringReader(text); GC.KeepAlive(r.Read(dest, 0, 4096)); GC.KeepAlive(dest[4095]); });
     b.printSummary("string_reader_bulk_ascii_4k");
 }
 [Benchmark]
 void bulk_unicode_4k() {
     string text = payload(true); char[] dest = new char[4096]; var b = new Bencher(2, 12);
-    b.iter(() => { StringReader r = new StringReader(text); BenchHelpers.blackBox(r.Read(dest, 0, 4096)); BenchHelpers.blackBox(dest[4095]); });
+    b.iter(() => { StringReader r = new StringReader(text); GC.KeepAlive(r.Read(dest, 0, 4096)); GC.KeepAlive(dest[4095]); });
     b.printSummary("string_reader_bulk_unicode_4k");
 }
 [Benchmark]
@@ -23,24 +23,24 @@ void bulk_chunks_1k() {
     string text = payload(true); char[] dest = new char[1024]; var b = new Bencher(2, 12);
     b.iter(() => { StringReader r = new StringReader(text); int total = 0; int n = r.Read(dest, 0, 1024);
         while (n > 0) { total = total + n; n = r.Read(dest, 0, 1024); }
-        BenchHelpers.blackBox(total); BenchHelpers.blackBox(dest[1023]); });
+        GC.KeepAlive(total); GC.KeepAlive(dest[1023]); });
     b.printSummary("string_reader_bulk_chunks_1k");
 }
 [Benchmark]
 void bulk_short_8() {
     char[] dest = new char[8]; var b = new Bencher(2, 24);
-    b.iter(() => { StringReader r = new StringReader("abcdefgh"); BenchHelpers.blackBox(r.Read(dest, 0, 8)); BenchHelpers.blackBox(dest[7]); });
+    b.iter(() => { StringReader r = new StringReader("abcdefgh"); GC.KeepAlive(r.Read(dest, 0, 8)); GC.KeepAlive(dest[7]); });
     b.printSummary("string_reader_bulk_short_8");
 }
 [Benchmark]
 void bulk_one() {
     char[] dest = new char[1]; var b = new Bencher(2, 24);
-    b.iter(() => { StringReader r = new StringReader("x"); BenchHelpers.blackBox(r.Read(dest, 0, 1)); BenchHelpers.blackBox(dest[0]); });
+    b.iter(() => { StringReader r = new StringReader("x"); GC.KeepAlive(r.Read(dest, 0, 1)); GC.KeepAlive(dest[0]); });
     b.printSummary("string_reader_bulk_one");
 }
 [Benchmark]
 void zero_count() {
     char[] dest = new char[1]; var b = new Bencher(2, 24);
-    b.iter(() => { StringReader r = new StringReader("x"); BenchHelpers.blackBox(r.Read(dest, 0, 0)); BenchHelpers.blackBox(r.Peek()); });
+    b.iter(() => { StringReader r = new StringReader("x"); GC.KeepAlive(r.Read(dest, 0, 0)); GC.KeepAlive(r.Peek()); });
     b.printSummary("string_reader_zero_count");
 }

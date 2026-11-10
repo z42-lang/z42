@@ -9,7 +9,7 @@ class CountingSink : Stream {
     public override void Write(byte[] buffer, int offset, int count) {
         this.Bytes = this.Bytes + (long)count;
         this.Writes = this.Writes + 1;
-        BenchHelpers.blackBox(buffer);
+        GC.KeepAlive(buffer);
     }
 }
 

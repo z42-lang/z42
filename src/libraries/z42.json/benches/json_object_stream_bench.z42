@@ -45,7 +45,7 @@ void measureStream(object value, bool pretty, string name) {
     b.iter(() => {
         if (pretty) { JsonSerializer.SerializeToPretty(sink, value); }
         else { JsonSerializer.SerializeTo(sink, value); }
-        BenchHelpers.blackBox(sink.Bytes);
+        GC.KeepAlive(sink.Bytes);
     });
     b.printSummary(name);
 }
@@ -54,7 +54,7 @@ void measureString(object value, bool pretty, string name) {
     var b = new Bencher(4, 24);
     b.iter(() => {
         string output = pretty ? JsonSerializer.SerializePretty(value) : JsonSerializer.Serialize(value);
-        BenchHelpers.blackBox(output);
+        GC.KeepAlive(output);
     });
     b.printSummary(name);
 }

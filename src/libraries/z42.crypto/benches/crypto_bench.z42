@@ -18,7 +18,7 @@ byte[] _mkPayload(int n) {
 void bench_sha256_small(Bencher b) {
     byte[] msg = _mkPayload(64);
     b.iter(() => {
-        BenchHelpers.blackBox(Sha256.Hash(msg));
+        GC.KeepAlive(Sha256.Hash(msg));
     });
 }
 
@@ -26,7 +26,7 @@ void bench_sha256_small(Bencher b) {
 void bench_sha256_4k(Bencher b) {
     byte[] msg = _mkPayload(4096);
     b.iter(() => {
-        BenchHelpers.blackBox(Sha256.Hash(msg));
+        GC.KeepAlive(Sha256.Hash(msg));
     });
 }
 
@@ -34,7 +34,7 @@ void bench_sha256_4k(Bencher b) {
 void bench_blake3_small(Bencher b) {
     byte[] msg = _mkPayload(64);
     b.iter(() => {
-        BenchHelpers.blackBox(Blake3.Hash(msg));
+        GC.KeepAlive(Blake3.Hash(msg));
     });
 }
 
@@ -43,7 +43,7 @@ void bench_blake3_4k_multichunk(Bencher b) {
     // >1024B input drives the multi-chunk tree path (fix-blake3-multichunk-root-flag).
     byte[] msg = _mkPayload(4096);
     b.iter(() => {
-        BenchHelpers.blackBox(Blake3.Hash(msg));
+        GC.KeepAlive(Blake3.Hash(msg));
     });
 }
 
@@ -53,7 +53,7 @@ void test_crypto_bench_bodies_run() {
     var b = new Bencher(1, 3);
     byte[] msg = _mkPayload(8);
     b.iter(() => {
-        BenchHelpers.blackBox(Sha256.Hash(msg));
+        GC.KeepAlive(Sha256.Hash(msg));
     });
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);
@@ -75,7 +75,7 @@ void bench_aes_cbc_roundtrip_4k(Bencher b) {
     byte[] msg = _mkPayload(4096);
     b.iter(() => {
         byte[] ct = Aes.EncryptCbcPkcs7(key, iv, msg);
-        BenchHelpers.blackBox(Aes.DecryptCbcPkcs7(key, iv, ct).Length);
+        GC.KeepAlive(Aes.DecryptCbcPkcs7(key, iv, ct).Length);
     });
 }
 
@@ -87,6 +87,6 @@ void bench_aes_gcm_roundtrip_4k(Bencher b) {
     byte[] msg = _mkPayload(4096);
     b.iter(() => {
         byte[] ct = Aes.EncryptGcm(key, iv, aad, msg);
-        BenchHelpers.blackBox(Aes.DecryptGcm(key, iv, aad, ct).Length);
+        GC.KeepAlive(Aes.DecryptGcm(key, iv, aad, ct).Length);
     });
 }

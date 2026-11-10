@@ -8,7 +8,7 @@ void MeasureJsonEscapeScan(string name, JsonValue value, bool pretty, int iterat
     bench.iter(() => {
         for (int i = 0; i < iterations; i++) {
             string text = pretty ? JsonValue.StringifyPretty(value) : JsonValue.Stringify(value);
-            BenchHelpers.blackBox(text);
+            GC.KeepAlive(text);
         }
     });
     bench.printSummary(name);

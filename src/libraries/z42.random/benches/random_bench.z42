@@ -16,7 +16,7 @@ void bench_next_int_range() {
         acc = acc + rng.NextIntRange(0, 100);
         i = i + 1;
     }
-    BenchHelpers.blackBox(acc);
+    GC.KeepAlive(acc);
 }
 
 [Benchmark]
@@ -28,7 +28,7 @@ void bench_next_double() {
         acc = acc + rng.NextDouble();
         i = i + 1;
     }
-    BenchHelpers.blackBox(acc);
+    GC.KeepAlive(acc);
 }
 
 // Smoke [Test] — bench bodies run + seeded determinism sanity.
@@ -37,7 +37,7 @@ void test_random_bench_bodies_run() {
     var b = new Bencher(1, 3);
     b.iter(() => {
         var rng = new Random(1L);
-        BenchHelpers.blackBox(rng.NextInt());
+        GC.KeepAlive(rng.NextInt());
     });
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);

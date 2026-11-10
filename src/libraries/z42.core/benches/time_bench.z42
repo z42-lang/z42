@@ -11,15 +11,15 @@ using Std.Time;
 void bench_parse_iso8601() {
     var d1 = DateTime.ParseIso8601("2026-07-19T12:34:56.789Z");
     var d2 = DateTime.ParseIso8601("1999-12-31T23:59:59.999Z");
-    BenchHelpers.blackBox(d1);
-    BenchHelpers.blackBox(d2);
+    GC.KeepAlive(d1);
+    GC.KeepAlive(d2);
 }
 
 [Benchmark]
 void bench_to_iso8601(Bencher b) {
     var dt = DateTime.ParseIso8601("2026-07-19T12:34:56.789Z");
     b.iter(() => {
-        BenchHelpers.blackBox(dt.ToIso8601());
+        GC.KeepAlive(dt.ToIso8601());
     });
 }
 
@@ -28,7 +28,7 @@ void bench_add_days_months(Bencher b) {
     var dt = DateTime.Utc(2026, 1, 31, 12, 0, 0, 0);
     b.iter(() => {
         var r = dt.AddDays(365).AddMonths(13).AddDays(-30);
-        BenchHelpers.blackBox(r);
+        GC.KeepAlive(r);
     });
 }
 
@@ -38,7 +38,7 @@ void test_time_bench_bodies_run() {
     var b = new Bencher(1, 3);
     b.iter(() => {
         var dt = DateTime.ParseIso8601("2026-07-19T00:00:00.000Z");
-        BenchHelpers.blackBox(dt.ToIso8601());
+        GC.KeepAlive(dt.ToIso8601());
     });
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);

@@ -13,11 +13,11 @@ int exercise(int n, bool leafFirst) {
 }
 [Benchmark]
 void bench_speculation_chain_128(Bencher b) {
-    b.iter(() => { BenchHelpers.blackBox(exercise(128, false)); });
+    b.iter(() => { GC.KeepAlive(exercise(128, false)); });
 }
 [Benchmark]
 void bench_speculation_leaf_first_128(Bencher b) {
-    b.iter(() => { BenchHelpers.blackBox(exercise(128, true)); });
+    b.iter(() => { GC.KeepAlive(exercise(128, true)); });
 }
 int exercise_fanout(int n) {
     IrModule m = SpeculationChainFixture.MakeFanout(n);
@@ -28,7 +28,7 @@ int exercise_fanout(int n) {
 }
 [Benchmark]
 void bench_speculation_repeated_fanout_128(Bencher b) {
-    b.iter(() => { BenchHelpers.blackBox(exercise_fanout(128)); });
+    b.iter(() => { GC.KeepAlive(exercise_fanout(128)); });
 }
 void Main() {
     string[] args = Environment.GetCommandLineArgs();
@@ -36,11 +36,11 @@ void Main() {
     bool leafFirst = args.Length > 1;
     var b = new Bencher(2, 12);
     if (args.Length > 1 && args[1] == "fanout") {
-        b.iter(() => { BenchHelpers.blackBox(exercise_fanout(n)); });
+        b.iter(() => { GC.KeepAlive(exercise_fanout(n)); });
         b.printSummary("speculation_fanout_" + n.ToString());
         return;
     }
-    b.iter(() => { BenchHelpers.blackBox(exercise(n, leafFirst)); });
+    b.iter(() => { GC.KeepAlive(exercise(n, leafFirst)); });
     b.printSummary("speculation_" + n.ToString());
 }
 public static class SpeculationChainFixture {

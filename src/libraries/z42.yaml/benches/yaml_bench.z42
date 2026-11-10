@@ -28,7 +28,7 @@ string _doc() {
 void bench_yaml_parse(Bencher b) {
     string doc = _doc();
     b.iter(() => {
-        BenchHelpers.blackBox(YamlValue.Parse(doc));
+        GC.KeepAlive(YamlValue.Parse(doc));
     });
 }
 
@@ -38,7 +38,7 @@ void test_yaml_bench_bodies_run() {
     var b = new Bencher(1, 3);
     string doc = _doc();
     b.iter(() => {
-        BenchHelpers.blackBox(YamlValue.Parse(doc));
+        GC.KeepAlive(YamlValue.Parse(doc));
     });
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);

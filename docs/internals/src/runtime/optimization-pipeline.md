@@ -92,7 +92,8 @@ z42 源码 ──z42c──> z42 IR
 > `IrPureFunctionTable` 与 `IrEscapeSummary` 不给它出摘要（调用不被 CSE / LICM 消掉、实参保守标逃逸）；
 > **NoOptimization** = 它自己的体原样保留——`_optFunc`、`IrEscapeAnalysis`、`IrLoopAllocReuse` 都跳过它，
 > `IrInline` 也不往里内联。JIT 目前没有跨函数内联、也不消除调用，没有要跳过的东西；将来做其一时须读这两位。
-> 典型用户是 `BenchHelpers.blackBox`（纯 z42 恒等函数，不需要 native）。
+> 典型用户是 `Std.GC.KeepAlive` 与 harness 计时壳的逐次消费（纯 z42，不需要 native；
+> 原 `BenchHelpers.blackBox` 已删除）。
 
 **OptSet：可独立开关的具名优化集**：`Opt` 位集 `ConstFold=1/CopyProp=2/
 Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/PureCall=512/DeadBranch=1024/Devirt=2048/All=4095`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控（Devirt 例外：emit 时门控）——用户自助

@@ -82,7 +82,7 @@ internal sealed class TestAttrEnforcer {
         }
         // R2..R5 各报一次 —— 一个方法可能同时「有返回值」且「有参数」，都说出来比只说第一条有用。
         // R2 的 Benchmark 豁免：返回值形态（JMH 式）——runner 逐次计时并经 blackBox 消费返回值
-        //（防 DCE 的零样板基准），任意返回类型都合法（反射装箱进 blackBox）。
+        //（防 DCE 的零样板基准），任意返回类型都合法（反射装箱进沉点）。
         if (!(md.RetType is NamedType) || (md.RetType as NamedType).Name != "void") {
             if (kind.Name != "Benchmark") {
                 this._sc.Diags.Error(code,

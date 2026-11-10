@@ -5,11 +5,11 @@ using Std.Harness;
 [Benchmark]
 void regex_unlimited_find_all(Bencher b) {
     var r = Regex.Compile("[0-9]+");
-    b.iter(() => { BenchHelpers.blackBox(r.FindAll("id 123 x 456 y 789 z 1234")); });
+    b.iter(() => { GC.KeepAlive(r.FindAll("id 123 x 456 y 789 z 1234")); });
 }
 
 [Benchmark]
 void regex_limited_find_all(Bencher b) {
     var r = Regex.Compile("[0-9]+", 10000L);
-    b.iter(() => { BenchHelpers.blackBox(r.FindAll("id 123 x 456 y 789 z 1234")); });
+    b.iter(() => { GC.KeepAlive(r.FindAll("id 123 x 456 y 789 z 1234")); });
 }

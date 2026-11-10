@@ -28,7 +28,7 @@ void _benchObjectBinding(Type target, string name) {
     var b = new Bencher(3, 24);
     b.iter(() => {
         for (int i = 0; i < 32; i++) {
-            BenchHelpers.blackBox(JsonBinder.FromJson(target, row));
+            GC.KeepAlive(JsonBinder.FromJson(target, row));
         }
     });
     b.printSummary(name);

@@ -11,14 +11,14 @@ int exercise(int n, int repeats) {
     while (i < repeats) {
         var cfg = IrLoopUtil.BuildCfg(f);
         sum = sum + cfg.S0.Length;
-        BenchHelpers.blackBox(cfg.Dom);
+        GC.KeepAlive(cfg.Dom);
         i = i + 1;
     }
     return sum;
 }
 [Benchmark]
 void bench_loop_cfg_256(Bencher b) {
-    b.iter(() => { BenchHelpers.blackBox(exercise(256, 1)); });
+    b.iter(() => { GC.KeepAlive(exercise(256, 1)); });
 }
 void Main() {
     string[] args = Environment.GetCommandLineArgs();

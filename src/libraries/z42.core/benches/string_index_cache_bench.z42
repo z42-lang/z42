@@ -29,7 +29,7 @@ void lengthBench(int count, string name) {
             sum = sum + inputs[i].Length;
         }
         Assert.Equal(size * count, sum);
-        BenchHelpers.blackBox(sum);
+        GC.KeepAlive(sum);
     });
     b.printSummary(name);
 }
@@ -45,7 +45,7 @@ void indexBench(int count, string name) {
             if (s.CharAt(s.Length - 1) == '中') { sum = sum + 1; }
         }
         Assert.Equal(count, sum);
-        BenchHelpers.blackBox(sum);
+        GC.KeepAlive(sum);
     });
     b.printSummary(name);
 }

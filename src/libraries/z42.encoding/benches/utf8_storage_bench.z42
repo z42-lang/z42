@@ -18,28 +18,28 @@ string _unicode() {
 void bench_utf8_encode_ascii() {
     string text = _ascii();
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(Utf8.GetBytes(text)); });
+    b.iter(() => { GC.KeepAlive(Utf8.GetBytes(text)); });
     b.printSummary("utf8_encode_ascii_4k");
 }
 [Benchmark]
 void bench_utf8_decode_ascii() {
     byte[] data = Utf8.GetBytes(_ascii());
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(Utf8.GetString(data)); });
+    b.iter(() => { GC.KeepAlive(Utf8.GetString(data)); });
     b.printSummary("utf8_decode_ascii_4k");
 }
 [Benchmark]
 void bench_utf8_encode_unicode() {
     string text = _unicode();
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(Utf8.GetBytes(text)); });
+    b.iter(() => { GC.KeepAlive(Utf8.GetBytes(text)); });
     b.printSummary("utf8_encode_unicode_4608");
 }
 [Benchmark]
 void bench_utf8_decode_unicode() {
     byte[] data = Utf8.GetBytes(_unicode());
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(Utf8.GetString(data)); });
+    b.iter(() => { GC.KeepAlive(Utf8.GetString(data)); });
     b.printSummary("utf8_decode_unicode_4608");
 }
 [Benchmark]
@@ -47,26 +47,26 @@ void bench_utf8_decode_slice() {
     byte[] data = Utf8.GetBytes("?" + _unicode() + "?");
     Encoding encoding = Encoding.GetUtf8();
     var b = new Bencher(2, 12);
-    b.iter(() => { BenchHelpers.blackBox(encoding.GetString(data, 1, data.Length - 2)); });
+    b.iter(() => { GC.KeepAlive(encoding.GetString(data, 1, data.Length - 2)); });
     b.printSummary("utf8_decode_slice_4608");
 }
 [Benchmark]
 void bench_utf8_encode_short() {
     var b = new Bencher(2, 20);
-    b.iter(() => { BenchHelpers.blackBox(Utf8.GetBytes("é")); });
+    b.iter(() => { GC.KeepAlive(Utf8.GetBytes("é")); });
     b.printSummary("utf8_encode_short");
 }
 [Benchmark]
 void bench_utf8_decode_short() {
     byte[] data = Utf8.GetBytes("é");
     var b = new Bencher(2, 20);
-    b.iter(() => { BenchHelpers.blackBox(Utf8.GetString(data)); });
+    b.iter(() => { GC.KeepAlive(Utf8.GetString(data)); });
     b.printSummary("utf8_decode_short");
 }
 [Benchmark]
 void bench_utf8_empty() {
     byte[] data = new byte[0];
     var b = new Bencher(2, 20);
-    b.iter(() => { BenchHelpers.blackBox(Utf8.GetString(data)); BenchHelpers.blackBox(Utf8.GetBytes("")); });
+    b.iter(() => { GC.KeepAlive(Utf8.GetString(data)); GC.KeepAlive(Utf8.GetBytes("")); });
     b.printSummary("utf8_empty");
 }

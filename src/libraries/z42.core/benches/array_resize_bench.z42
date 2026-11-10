@@ -13,7 +13,7 @@ void measureInts(int size, int repeats, Bencher b) {
             int[] resized = Array.Resize<int>(input, size + 1);
             Assert.Equal(71, resized[size - 1]);
             Assert.Equal(0, resized[size]);
-            BenchHelpers.blackBox(resized);
+            GC.KeepAlive(resized);
         }
     });
 }
@@ -29,7 +29,7 @@ void array_resize_refs(Bencher b) {
     b.iter(() => {
         string[] resized = Array.Resize<string>(input, 4096);
         Assert.Equal("é😀", resized[4095]);
-        BenchHelpers.blackBox(resized);
+        GC.KeepAlive(resized);
     });
 }
 [Benchmark]
@@ -40,6 +40,6 @@ void array_resize_structs(Bencher b) {
         Entry[] resized = Array.Resize<Entry>(input, 8192);
         Assert.Equal(7, resized[4095].Count);
         Assert.Equal("é", resized[4095].Name);
-        BenchHelpers.blackBox(resized);
+        GC.KeepAlive(resized);
     });
 }
