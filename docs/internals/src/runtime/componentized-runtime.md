@@ -88,13 +88,13 @@ WASM 最终产品的默认发布契约是**最小生产 release**：只链接应
 
 共享 std 的动态构建使用 System 分配器。自定义分配器和 dhat 位于最终静态宿主 z42vm_static，通过独立 target-dir 构建，不覆盖动态运行时。C 的 libz42.a 保留默认解释器初始化入口 z42_linked_components_init；自定义组合可通过 z42_host_register_static_component 登记实际链接的后端，Rust 宿主使用 host::register_static_component。静态组合须使用同一次构建图产生的库，不能混用不同 feature/profile 的核心。静态登记仅保留进程寿命工厂，不保留 VM 实例。
 
-SDK 的 native/ 包含统一 libz42、interp/JIT 组件、compression 和匹配的 Rust std。runtime 包另外提供 C 头文件和最终静态嵌入归档；Windows 另含导入库。macOS 使用 @rpath 标识和 @loader_path，ELF 使用 $ORIGIN；库与头文件、stdlib 一起搬移后可使用。Windows 的启动器还需要 bin/ 内的匹配 std DLL，确保在进入 main 之前完成系统装载。
+SDK 的 native/ 包含统一 libz42、interp/JIT 组件、compression 和匹配的 Rust std。runtime 包另外提供 C 头文件和最终静态嵌入归档；Windows 另含导入库。macOS 使用 @rpath 标识和 @loader_path，ELF 使用 $ORIGIN；库与头文件、stdlib 一起搬移后可使用。Windows 的动态包另含各组件导入库（z42.dll.lib 等，见包内 manifest.toml）供嵌入者直接链接注册；启动器自带静态 std，bin/ 只有可执行文件本体。
 
 ### 按需压缩与 WASM 组合
 
 compression 不属于核心的必需依赖。原生包中的独立动态库在首次调用压缩内置函数时才加载；单纯初始化 VM 或执行其他代码不会装载它。静态宿主链接 libz42_compression.a 后，通过 z42_host_register_static_native_library("z42_compression", z42_compression_get_symbol) 登记符号解析器；Rust 入口统一从 host 导出。未链接或未部署时，实际压缩调用返回明确的组件不可用错误。
 
-browser-wasm 默认最终模块显式启用 bundled-compression，保持现成 JavaScript 门面的能力。最终 WASM 的 Cargo 输出与静态组件图隔离，避免不同 workspace 的 LTO / bitcode 产物相互覆盖。随包提供的 libz42.a、libz42_interp.a、libz42_compression.a 则用于项目自行组合：选择需要的库，在最终链接阶段登记组件，生成另一份 .wasm。运行时开关只能选择已链接能力，不能凭空加载未链接的原生库。每个组件的 *-link.txt 保存该目标构建所需的原生链接参数；静态库必须使用同一批发布产物。
+browser-wasm 默认最终模块显式启用 bundled-compression，保持现成 JavaScript 门面的能力。最终 WASM 的 Cargo 输出与静态组件图隔离，避免不同 workspace 的 LTO / bitcode 产物相互覆盖。随包提供的 libz42.a、libz42_interp.a、libz42_compression.a 则用于项目自行组合：选择需要的库，在最终链接阶段登记组件，生成另一份 .wasm。运行时开关只能选择已链接能力，不能凭空加载未链接的原生库。每个组件的原生链接参数记录在包内 manifest.toml 的 [components.<stem>].link_flags（静态链接配方含 init 调用与归档顺序）；静态库必须使用同一批发布产物。
 
 生产与开发使用相同组合方式：开发构建以后可链接 profiler/debugger，生产构建可省略。profiler/debugger 的实现拆分尚未交付，本轮不发布空壳库。
 

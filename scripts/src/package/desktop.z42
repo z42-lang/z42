@@ -47,6 +47,7 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     // 但随后的 `package runtime`（desktop 分支不构建）从同一个 cargoOut 装它，所以这里照建。
     Console.WriteLine("[2/5] z42vm + libz42 + z42-compression (cargo " + cargoTarget + ", " + profile + ")");
     c = _pkgBuildRuntime(rid, profile); if (c != 0) { return c; }
+    c = _componentBuildLauncher(root, profile); if (c != 0) { return c; }
     string cargoOut = _componentCargoOut(root, profile);
 
     // [2c/5] build the toolchain zpkgs (workloads / launcher / z42b / devtools / interactive) + the apphost stub.
@@ -59,6 +60,7 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     bool isWin = rid.StartsWith("windows-");
     _PkgInstallCtx ictx = new _PkgInstallCtx();
     ictx.CargoOut    = cargoOut;
+    ictx.LauncherOut = _componentLauncherOut(root, profile);
     ictx.HostVm      = _builtVm(root, "release");
     ictx.Z42bZpkg    = _toolchainZpkg(root, _z42bToml());   // z42b publishes itself deploy-only (`--no-build`)
     // 解析面在此刻取：[2c/5] 已把 workload ×4 / launcher / z42b / z42d / z42i 全建完，快照这时才完整。
@@ -217,6 +219,8 @@ int _buildRuntimePackage(string root, string rid, string version, string profile
     if (c != 0) { return c; }
 
     c = _componentRelocate(Path.Join(pkgDir, "native")); if (c != 0) { return c; }
+    _rtEmitRuntimeManifest(pkgDir, rid, profile, version, "static",
+        Path.GetDirectoryName(Path.GetDirectoryName(_componentStaticArchive(_componentCargoOut(root, profile)))));
     Console.WriteLine("  ✓ runtime package (native/ + libs): " + pkgDir);
     // 自己跑 source-identity 门：_packageRuntime 的 desktop 分支不经 _pkgFinish，而本包装的正是
     // 规则表前两类（libs/ + native/include）。

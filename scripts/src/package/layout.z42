@@ -17,7 +17,7 @@ int _pkgLayoutCheck(string root, string pkgDir, string kind, string rid) {
     Console.WriteLine("layout check (" + kind + ", " + rid + "):");
     _PkgLayout L = new _PkgLayout(pkgDir);
     string cat = _ridCategory(rid);
-    if (kind != "runtime") { L.HasFile("manifest.toml"); }   // runtime 包不带 manifest（嵌入者直接取 native/ + libs/）
+    L.HasFile("manifest.toml");   // 每个包都带：runtime 包的 manifest 是嵌入者的链接配方（R2 全量化的前身）
     if (kind == "sdk")                   { _plSdk(root, L, rid); }
     else if (kind == "workload-desktop") { L.HasGlob("apphost-" + rid + "*", "apphost-<rid> stub"); }
     else if (kind == "runtime-dynamic") { _plRuntimeDynamic(L, rid); }
@@ -49,9 +49,15 @@ void _plSdk(string root, _PkgLayout L, string rid) {
     L.HasFile("libs/z42.compression.zpkg");
     _plComponentLibraries(L, rid);
     // 名字按平台分叉（MSVC：`z42.lib` 是静态库、`z42.dll.lib` 是 import lib），逐个列出。
+    // import lib 也不进 SDK：z42vm 只 dlopen，链接期文件属于 runtime 包（嵌入者直接链接用）。
     foreach (var f in new string[]{ "include", "libz42.a", "z42.lib",
-                                    "libz42_compression.a", "z42_compression.lib", "z42_compression.dll.lib" }) {
+                                    "libz42_compression.a", "z42_compression.lib", "z42_compression.dll.lib",
+                                    "z42.dll.lib", "z42_interp.dll.lib", "z42_jit.dll.lib" }) {
         L.Absent("native/" + f, "嵌入件只在 runtime 包");
+    }
+    if (rid.StartsWith("windows-")) {
+        L.Expect(Path.Glob(L.P("bin"), "std-*.dll").Length == 0,
+            "bin 无共享 std dll（z42vm 是静态 std 启动器；std 只随 native/ 发）", "bin/std-*.dll 存在");
     }
     L.Absent("bin/apphost", "apphost 随桌面 workload 发");
     L.Absent("bin/apphost.exe", "apphost 随桌面 workload 发");
@@ -69,6 +75,12 @@ void _plRuntimeDesktop(string root, _PkgLayout L, string rid) {
     _plComponentLibraries(L, rid);
     L.HasFile(rid.StartsWith("windows-") ? "native/z42.lib" : "native/libz42.a");
     _plStaticComponents(L, rid);
+    if (rid.StartsWith("windows-")) {
+        // 桌面 runtime 包同时提供动态链接面：嵌入者可链 import lib 直接注册组件（不 dlopen）。
+        foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+            L.HasFile("native/" + stem + ".dll.lib");
+        }
+    }
 }
 
 void _plComponentLibraries(_PkgLayout L, string rid) {
@@ -217,7 +229,8 @@ void _plStaticComponents(_PkgLayout L, string rid) {
             L.Absent(file, "target has no JIT"); continue;
         }
         L.HasFile(file);
-        L.HasFile("native/" + stem + "-link.txt");
+        // link.txt 已并入包内 manifest.toml 的 [components.<stem>].link_flags，不再单独发文件。
+        L.Absent("native/" + stem + "-link.txt", "link flags 在 manifest.toml");
     }
     if (!_componentTargetHasJit(rid)) {
         L.Absent("native/" + _componentLibrary("z42_jit", rid), "target has no JIT");

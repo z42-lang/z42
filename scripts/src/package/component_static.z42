@@ -98,7 +98,8 @@ void _componentCopyStaticFiles(string cargo, string native, string rid) {
         if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
         string name = _componentStaticName(stem, rid);
         _componentCopyRequired(Path.Join(cargo, name), Path.Join(native, name));
-        _componentCopyRequired(Path.Join(cargo, stem + "-link.txt"), Path.Join(native, stem + "-link.txt"));
+        // link.txt 不再随包：flags 由 _rtEmitRuntimeManifest 写进包内 manifest.toml 的
+        // [components.<stem>].link_flags；此处仍从构建侧 link.txt 读第三方导入库名单。
         // 第三方导入库（已在 <cargo>/ 暂存或仍在 deps/）随档案进包，嵌入方才能链接。
         foreach (var flag in File.ReadAllText(Path.Join(cargo, stem + "-link.txt")).Split(" ")) {
             if (!flag.EndsWith(".lib")) { continue; }
