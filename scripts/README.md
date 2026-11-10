@@ -44,7 +44,7 @@ dry-run 跑真实脚本，不联网）；真实 SDK 的离线安装由 CI packag
 > **工具链全程 z42 自举**。
 
 > **种子从哪来（`build compiler` / `build stdlib` 共用一套解析，CI = 本地）**：冷树无
-> in-tree 种子时，`_ensureSeed`（`src/common/base.z42`）按 **`Z42_HOME`
+> in-tree 种子时，`_ensureSeed`（`src/build/seed.z42`）按 **`Z42_HOME`
 > （`--toolchain` 设它，或 launcher/install 设）→ 运行 xtask 的 apphost SDK
 > （`Z42_PORTABLE_VM` 反推）→ `./.z42`** 顺序找 SDK-toolchain 布局的根
 > （`programs/z42c` + `libs`），把 `programs/z42c` + `libs` 拷进 in-tree 再自建；
@@ -66,7 +66,7 @@ dry-run 跑真实脚本，不联网）；真实 SDK 的离线安装由 CI packag
 | `--toolchain <dir>` | 指定 `.z42` 布局的工具链（`programs/z42c` + `libs` + `bin`）；写入 `Z42_HOME`（单一「SDK 根」变量），被 seed / VM / libs 定位器读取 |
 | `--verbosity` / `-v <level>` | 输出详略：`q[uiet]` \| `m[inimal]`（默认）\| `n[ormal]` \| `d[etailed]` \| `diag[nostic]`；写入 `Z42_VERBOSITY`，子进程继承 |
 
-**verbosity 级别（累进，MSBuild 风格；实现见 `src/common/base.z42`）：**
+**verbosity 级别（累进，MSBuild 风格；实现见 `src/common/logging.z42`）：**
 
 | 级别 | 打印 |
 |------|------|
@@ -255,16 +255,19 @@ scripts/
     │                       publish 前现场 cargo 编 apphost stub，免装 desktop workload
     ├── clean.z42           `clean` 命令（production / tests / bench / intermediate / all，见 artifacts-layout.md §4）
     ├── common/             共享基建（非某个命令专属；不反调命令实现）
-    │   ├── base.z42              _root/_exec/cargo/toolchain 选择器 + verbosity + 种子解析 + 进程输出 / 时间戳 / sha256 小工具
+    │   ├── repository.z42        仓库根（git）、源码里的常量、zpkg 文件头
+    │   ├── toolchain.z42         用哪套工具链：运行中的 z42vm、`--toolchain` 选择器、Rust runtime 的 cargo 调用
+    │   ├── logging.z42           verbosity 与流程的开始 / 结束 / 耗时标记
+    │   ├── text.z42              通用的字符串 / 集合小工具
     │   ├── projects.z42          共享目录 / workspace 成员定位，复用项目模型并拒绝歧义 / 包名冲突
-    │   ├── layout.z42            构建树布局路径（per-member 读 workspace.toml 单源 + flat/runtime/build-root 约定）+ `layout` 命令
-    │   ├── versions.z42          versions.toml 读取器 + RID / cargo target 映射 + 发布归档命名
+    │   ├── layout.z42            构建树布局路径（per-member 读 workspace.toml 单源 + flat/runtime/build-root 约定 + 已建产物路径）+ `layout` 命令
+    │   ├── versions.z42          versions.toml 读取器 + RID / cargo target 映射 + 发布归档命名 + 版本号比较
     │   ├── packages_config.z42   packages.toml 读取器（package/component 注册表）
     │   ├── components.z42        workspace 成员、工具链组件与 TOML 产物/发布路径
-    │   ├── process.z42           z42 子进程工厂（stdlib、编译器 probing 与种子隔离）
-    │   ├── publish.z42           共用的 z42c build / z42b publish 调用
-    │   ├── golden.z42            golden 枚举 / 测试单元识别 / 入口推导（多 test stage + build test 复用）
-    │   ├── toolset.z42           外部工具（cargo/gh/tar/...）的存在性与定位
+    │   ├── process.z42           子进程：z42 进程工厂（stdlib、编译器 probing 与种子隔离）+ 通用执行 / 输出（_exec / _cmdOut / 时间戳 / sha256）
+    │   ├── publish.z42           共用的 z42c build / z42b publish 调用（含编译模式与成员产物校验）
+    │   ├── golden.z42            golden 枚举 / 测试单元识别 / 入口推导 / --dir、--file 选择（多 test stage + build test 复用）
+    │   ├── toolset.z42           外部工具（cargo/gh/tar/... 与 Android NDK）的存在性与定位
     │   ├── fs.z42                文件系统原语（_resetDir/_copyAll/_linkAll/_copyFile/_copyIfExists/_cleanGlob/_makeExe；写入前先断链）
     │   └── harness/              test 与 bench 共用的执行机制（只被 test/、bench/ 调用，不进发布判定）
     │       ├── fixtures.z42          声明式夹具（`expect.toml`）的通用引擎：z42c / z42b 命令行夹具与发行包夹具共用
@@ -278,7 +281,8 @@ scripts/
     ├── build/              编译各组件、生成文档产物
     │   ├── command.z42           `build` 族的命令类
     │   ├── stdlib.z42            build stdlib（z42c build --workspace + 扁平视图）
-    │   ├── compiler.z42          build compiler（workspace 自建、种子与依赖准备）
+    │   ├── compiler.z42          build compiler（workspace 自建与依赖准备）
+    │   ├── seed.z42              自举种子：冷树从 SDK 供种（_ensureSeed）+ 种子 driver 的运行期 libs（代际锚、搬迁、补齐、回落）
     │   ├── compiler_prebuild.z42 自举输入的 path 依赖预建（不继承源 workspace 的隐式 SDK 成员可见性）
     │   ├── runtime.z42           build runtime（cargo z42vm）
     │   ├── toolchain.z42         build workload / build toolchain [z42b]（apphost publish，路径从各 toml 读）

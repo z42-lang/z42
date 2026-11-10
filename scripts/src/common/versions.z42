@@ -228,3 +228,10 @@ string _versionsGet(string root) {
 string _cargoTargetFor(string rid) {
     return (rid == _detectHostRid()) ? "" : _ridToCargo(rid);
 }
+
+// ── 版本号比较 ──────────────────────────────────────────────────────────────────
+
+// major.minor → comparable int (1.79 → 1079); only the first two components.
+int _verKey(string ver) {
+    return _parseIntOr(_nthDot(ver, 0), 0) * 1000 + _parseIntOr(_nthDot(ver, 1), 0);
+}

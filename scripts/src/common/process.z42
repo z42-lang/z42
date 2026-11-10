@@ -94,3 +94,59 @@ Process _z42cProcMode(string vm, string libs, string driverZpkg, string mode) {
     if (mode.Length > 0) { p = p.Arg("--mode").Arg(mode); }
     return p.Arg("--");
 }
+
+// ── 进程执行（继承 stdio，返回退出码） ──────────────────────────────────────────
+
+// Run a prepared Process at the repo root, inheriting stdio; return its exit code.
+int _exec(Process p) {
+    return p.WorkingDirectory(_root())
+        .Stdout(Stdio.Inherit())
+        .Stderr(Stdio.Inherit())
+        .Run().ExitCode;
+}
+
+// Like _exec but runs in an explicit working directory — passing a WorkingDirectory
+// to _exec is silently overridden to _root().
+int _execIn(Process p, string wd) {
+    return p.WorkingDirectory(wd)
+        .Stdout(Stdio.Inherit())
+        .Stderr(Stdio.Inherit())
+        .Run().ExitCode;
+}
+
+// ── 外部命令输出 ────────────────────────────────────────────────────────────────
+
+// stdout of a command, trimmed; "" on failure.
+string _cmdOut(string bin, string[] args) {
+    try {
+        ProcessResult r = new Process(bin).Args(args).Stderr(Stdio.Null()).Run();
+        if (r.ExitCode != 0) { return ""; }
+        return r.Stdout.Trim();
+    } catch (Exception e) { return ""; }
+}
+
+// UTC 时间戳（ISO 8601，秒级）；`date` 不可用时返回纪元起点。
+string _utcNow() {
+    ProcessResult r = new Process("date").Arg("-u").Arg("+%Y-%m-%dT%H:%M:%SZ").Run();
+    if (r.ExitCode == 0) { return r.Stdout.Trim(); }
+    return "1970-01-01T00:00:00Z";
+}
+
+// 文件的 sha256（小写 hex）；失败 → ""。走系统工具（Std.Crypto.Sha256 是纯脚本实现，解释模式下对几百 MB 的
+// 归档太慢）：macOS 只有 `shasum`，Linux 必有 `sha256sum`；两者都打 "<hash>  <file>"，取首 token。
+// 发布归档 SHA256SUMS（package/）与下载件 pin 校验（setup/）共用。
+string _sha256Hex(string path) {
+    string outp = Platform.IsMacOS() ? _cmdOut("shasum", new string[] { "-a", "256", path })
+                                     : _cmdOut("sha256sum", new string[] { path });
+    int sp = outp.IndexOf(" ");
+    string hex = sp > 0 ? outp.Substring(0, sp) : outp;
+    return hex.Trim().ToLower();
+}
+
+// ── release z42c 子进程（test app 与 test workload 构建共用） ───────────────────
+
+// The release z42c driver over the pure stdlib flat (what is compiled here uses only stdlib; the
+// driver is self-contained).
+Process _releaseZ42c(string root) {
+    return _z42cProc(_builtVm(root, "release"), _libsDir(root), _driverZpkg(root, "release"));
+}

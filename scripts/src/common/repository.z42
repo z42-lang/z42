@@ -1,0 +1,67 @@
+// xtask — 仓库根与源码树事实：仓库根（git）、源码里的常量、zpkg 文件头。
+namespace Z42Xtask;
+
+using Std.IO;
+
+// ── 源码常量 / zpkg 头 ───────────────────────────────────────────────────────
+
+// 源码里 `<decl><n>;` 的 n（如 "public static int CompilerFingerprint = "）；读不到 → -1。
+// **从源码树读、不用编进 xtask 的常量**：xtask 自身可能是旧二进制，编进去的版本号会跟着
+// 一起旧，那就正好在最需要它的场合失效。
+int _srcIntConst(string file, string decl) {
+    if (!File.Exists(file)) { return -1; }
+    string t = File.ReadAllText(file);
+    int k = t.IndexOf(decl);
+    if (k < 0) { return -1; }
+    int s = k + decl.Length;
+    int e = s;
+    while (e < t.Length && t.CharAt(e) >= '0' && t.CharAt(e) <= '9') { e = e + 1; }
+    if (e == s) { return -1; }
+    return int.Parse(t.Substring(s, e - s));
+}
+
+// 本源码树的 zpkg 格式 minor（z42.package 的写端常量 = SoT，与 Rust 读端 strict-pin 同步）。
+int _treeZpkgMinor(string root) {
+    return _srcIntConst(Path.Join(root, "src/compiler/z42.package/src/ZpkgWriter.z42"),
+        "public static int Minor = ");
+}
+
+// 一个 .zpkg 文件头里的格式 minor；文件不在 / 太短 / 坏 magic → -1。
+// 头布局见 `z42.package` 的 `ZpkgWriterZ._assemble`：'Z''P''K' 0 | major:u16le | minor:u16le | …
+int _zpkgFileMinor(string file) {
+    if (!File.Exists(file)) { return -1; }
+    byte[] b = File.ReadAllBytes(file);
+    if (b.Length < 16) { return -1; }
+    int b0 = b[0]; int b1 = b[1]; int b2 = b[2]; int b3 = b[3];
+    if (b0 != 90 || b1 != 80 || b2 != 75 || b3 != 0) { return -1; }   // "ZPK\0"
+    int lo = b[6]; int hi = b[7];
+    return lo + hi * 256;
+}
+
+// ── repo root ───────────────────────────────────────────────────────────────────
+
+// 进程内缓存：xtask 不切换 cwd，仓库根一次运行内不变，只问一次 git。
+static class RepoRoot {
+    public static string Value = "";
+}
+
+// Repo root via git (spawned directly — no bash), falling back to CWD.
+string _root() {
+    if (RepoRoot.Value.Length > 0) { return RepoRoot.Value; }
+    ProcessResult r = new Process("git").Arg("rev-parse").Arg("--show-toplevel").Run();
+    RepoRoot.Value = r.ExitCode == 0 ? r.Stdout.Trim() : Environment.GetCurrentDirectory();
+    return RepoRoot.Value;
+}
+
+// resolve a possibly-relative path under the repo root (absolute paths unchanged).
+string _absUnder(string root, string p) {
+    if (p.StartsWith("/")) { return p; }
+    return Path.Join(root, p);
+}
+
+// `git <a> <b> <c>` at root, stdout trimmed; "unknown" on failure.
+string _gitOut(string root, string a, string b, string c) {
+    ProcessResult r = new Process("git").Arg(a).Arg(b).Arg(c).WorkingDirectory(root).Run();
+    if (r.ExitCode == 0) { return r.Stdout.Trim(); }
+    return "unknown";
+}

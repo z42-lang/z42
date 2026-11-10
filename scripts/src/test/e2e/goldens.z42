@@ -221,19 +221,6 @@ void _printFailLine(_Case c, ProcessResult r) {
 
 // ── Enumeration ──────────────────────────────────────────────────────────
 
-// `test e2e` filter: keep a case iff it passes the --dir (category) and --file
-// (name or source-path substring) narrowing. Both empty = keep all.
-bool _e2eIncluded(string cat, string name, string srcPath, string dirFilter, string fileFilter) {
-    if (dirFilter.Length > 0 && cat != dirFilter) { return false; }
-    if (fileFilter.Length > 0) {
-        if (name == fileFilter) { return true; }
-        string norm = srcPath.Replace("\\", "/");
-        string f = fileFilter.Replace("\\", "/");
-        if (!norm.Contains(f)) { return false; }
-    }
-    return true;
-}
-
 // Run-golden selection over the shared walk (_walkGoldenCorpus, common/golden.z42).
 // The runner drives PREBUILT `.zbc` from the artifacts mirror, so "the case exists"
 // here means the MIRROR ARTIFACT exists — a case whose .zbc was never regenerated

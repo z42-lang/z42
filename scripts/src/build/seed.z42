@@ -1,0 +1,366 @@
+// xtask — 自举种子：冷树从 SDK 供种（`_ensureSeed`），以及种子 driver 的运行期 libs 准备（代际锚、搬迁、补齐、回落）。
+// 只有 `build compiler` / `build stdlib` 用；设计见 docs/internals/src/compiler/self-hosting.md。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Time;
+
+// ── cold-start seed resolution (shared: build compiler / build stdlib + CI) ───
+//
+// A cold tree has no in-tree z42c/stdlib seed. Instead of erroring, resolve one
+// from the downloaded/installed SDK (or an explicit override) and stage it into the
+// in-tree layout so the normal self-build runs. WARM trees are left untouched — the
+// in-tree gen1 is exactly what the second build re-seeds from to reach the gen2
+// byte-identical fixpoint, so it must win over the SDK.
+
+// SDK toolchain root (.z42 layout: programs/z42c + libs + bin). Order:
+// Z42_HOME (--toolchain sets it, else launcher/install) → the SDK running this xtask
+// (Z42_PORTABLE_VM = <sdk>/bin/z42vm ⇒ <sdk>) → repo-local ./.z42. "" if none.
+// A managed-layout Z42_HOME (runtimes/, no programs/) fails the programs/ guard and is
+// skipped — only an SDK-toolchain-layout root qualifies as a seed source.
+string _seedSdkDir(string root) {
+    string tc = _toolchainDir(root);
+    if (tc.Length > 0 && Directory.Exists(Path.Join(tc, "programs"))) {
+        _vDetailed("    sdk: Z42_HOME/--toolchain → " + tc + "  ✓"); return tc;
+    }
+    if (tc.Length > 0) { _vDetailed("    sdk: Z42_HOME=" + tc + "  (no programs/ — managed layout? skip)"); }
+    else { _vDetailed("    sdk: Z42_HOME unset"); }
+    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
+    if (pv.Length > 0) {
+        string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));   // <sdk>/bin/z42vm ⇒ <sdk>
+        if (sdk.Length > 0 && Directory.Exists(Path.Join(sdk, "programs"))) {
+            _vDetailed("    sdk: Z42_PORTABLE_VM → " + sdk + "  ✓"); return sdk;
+        }
+        _vDetailed("    sdk: Z42_PORTABLE_VM=" + pv + " ⇒ " + sdk + "  (no programs/, skip)");
+    } else { _vDetailed("    sdk: Z42_PORTABLE_VM unset"); }
+    string local = Path.Join(root, ".z42");
+    if (Directory.Exists(Path.Join(local, "programs"))) {
+        _vDetailed("    sdk: ./.z42 → " + local + "  ✓"); return local;
+    }
+    _vDetailed("    sdk: ./.z42 absent — no SDK found");
+    return "";
+}
+
+// z42c seed dir (z42c.driver.zpkg + sibling compiler members) = <sdk>/programs/z42c. "" if no SDK.
+string _seedDriverHome(string root) {
+    _vDetailed("  seed·z42c: resolving driver-home ← SDK");
+    string sdk = _seedSdkDir(root);
+    if (sdk.Length > 0) { return _toolchainDriverHome(sdk); }
+    return "";
+}
+
+// stdlib seed dir (flat z42.*.zpkg). Z42_LIBS (explicit, only when it actually holds
+// stdlib — it doubles as the runtime load path, which may point at an empty output
+// dir) wins; else <sdk>/libs. "" if neither resolves.
+string _seedStdlibDir(string root) {
+    _vDetailed("  seed·stdlib: resolving stdlib dist");
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs.Length > 0) {
+        if (!Path.IsRooted(libs)) { libs = Path.Join(root, libs); }
+        if (File.Exists(Path.Join(libs, "z42.core.zpkg"))) {
+            _vDetailed("  seed·stdlib: Z42_LIBS → " + libs + "  ✓"); return libs;
+        }
+        _vDetailed("  seed·stdlib: Z42_LIBS=" + libs + "  (no z42.core.zpkg, fall back to SDK)");
+    } else { _vDetailed("  seed·stdlib: Z42_LIBS unset → SDK"); }
+    string sdk = _seedSdkDir(root);
+    if (sdk.Length > 0) { return _toolchainLibs(sdk); }
+    return "";
+}
+
+// 冷启动 staged 种子时，`_ensureSeed` 把**种子 stdlib 的出处**记在这里 —— 那就是这个 driver
+// 那一代的运行期 libs，是**构造保证**的（它就是从那儿来的）。暖树不 set。
+static class SeedStage {
+    static string _stdlibFrom = "";
+    public static void NoteStdlibFrom(string dir) { SeedStage._stdlibFrom = dir; }
+    public static string StdlibFrom() { return SeedStage._stdlibFrom; }
+}
+
+// 种子 driver 的运行期 libs 该从哪儿取，按可信度排序 —— 判据始终是「**这个 driver 是哪一代**」：
+//
+// ① **本轮 `_ensureSeed` staged 种子的出处**（冷启动）。种子从哪儿来，它那一代的库就在那儿，
+//    构造保证。⚠️ 这条必须排第一：暖 stdlib + 冷 compiler 目录（`rm -rf artifacts/build/compiler`
+//    再 `build compiler`，调试时的常规动作）下，`Z42_LIBS` 可能指着**当前源**的 flat，而 driver
+//    刚从 SDK staged ⇒ 两者不同代，拿 env 就会让种子 driver 崩在旧 FQN 上。
+// ② **本进程启动时的 `Z42_LIBS`**（暖树：driver 是树内自建那代）。谁启动 xtask，谁就知道这个
+//    种子该配哪一代库；`ci-bootstrap` 正是这么传的（快路径 = 下载的种子 libs；
+//    **格式 bump 在飞时 = 两代路径产出的当代 stdlib**）。
+// ③ **SDK libs**（`Z42_HOME/libs`，其次仓内 dev 装 `.z42/`）—— 本地 apphost 启动时会自己把
+//    `Z42_LIBS` 设成 SDK libs，所以 ② 和 ③ 在本地通常同值。
+//
+// 🔴 为什么 ③ 不能无条件排前面：「SDK 就是种子那一代」这个假设**只在没有格式 bump 时成立**。
+//    zpkg/zbc 格式 bump 在飞时 SDK 还是**上一代格式**，拿它补 run-libs 会被 strict-pin 当场拒收
+//    （`zpkg minor N not supported …`）。
+//
+// ⚠️ 这里**故意不加**「minor 必须等于本树写端」的门：两代自举的 gen0 那一腿本就要用**旧** VM
+//    跑旧格式的种子，那道门会当场误报。判「配没配对」得比对**正在用的那个 VM**，不是源码树。
+string _seedLibsSource(string root) {
+    string staged = SeedStage.StdlibFrom();
+    if (staged.Length > 0 && Directory.Exists(staged)) { return staged; }
+    string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (env.Length > 0 && Directory.Exists(env)) { return env; }
+    string tc = _toolchainDir(root);
+    string libs = tc.Length > 0 ? _toolchainLibs(tc) : "";
+    if (libs.Length > 0 && Directory.Exists(libs)) { return libs; }
+    libs = _toolchainLibs(Path.Join(root, ".z42"));
+    if (Directory.Exists(libs)) { return libs; }
+    return "";
+}
+
+// ── 种子代的运行期 libs 快照 ─────────────────────────────────────────────────
+
+//
+// **为什么需要它**：自举时跑的是**上一代** z42c 二进制。它运行期要加载那一代的 stdlib
+// （按它自己编译时的 FQN 调用），而它正在编译的源码要解析**当前源**新建出来的库。
+// 两件事若共用 flat 一个目录 ⇒ 预建一覆盖 flat，种子 driver 自己就崩（改名/删符号时必然）。
+//
+// 种子 driver 的调用把这里挂成运行期 probing、flat 当 `Z42_LIBS`（编译期面，见 `_z42cProcSeed`）。
+// driver 换代之后的调用两者同代，只用 flat。
+//
+// 🔴 **快照每轮重取**，不做「已存在就跳过」：跳过会让它停留在更早的一代，而 driver 已经换过代
+//    —— 那正是这一路反复吃亏的「陈旧快照假装是权威」。
+string _seedRunLibs(string root, string profile) {
+    return _compilerWsWork(root, Path.Join("seed-run-libs", profile));
+}
+
+// 注：锚不能是「自建**开始前**的 flat 快照」—— flat 会被 `_ensureBootstrapSelfDepLibs` 覆盖成当前源（快照晚于覆盖、
+// 或上一轮跑到一半，拿到的就是新代 ⇒ 种子 driver `MissingSymbolException`）。锚是**上一次自建成功时**的 flat
+// stdlib（`_snapshotDriverGenLibs`），那一刻它正是新 driver 编译时对着的那一代，见 `_relocateSeedRunLibs`。
+
+// 供种覆盖了成员 m 的 dist ⇒ 作废它的增量 cache（让 workspace 自建按当前源重编，而不是 preserved 种子产物），
+// 并让 zsym 与种子 zpkg 配对：种子带 zsym 就用它的，不带就删掉 dist 里上一次构建留下的那份。
+void _seedInvalidateMember(string root, string m, string profile, string dist, string seedDir) {
+    string cache = _memberCache(_compilerWsToml(root), m, profile);
+    if (Directory.Exists(cache)) { Directory.Delete(cache, true); }
+    string seedSym = Path.Join(seedDir, m + ".zsym");
+    string distSym = Path.Join(dist, m + ".zsym");
+    if (File.Exists(distSym)) { File.Delete(distSym); }
+    if (File.Exists(seedSym)) { File.Copy(seedSym, distSym); }
+}
+
+// Ensure an in-tree z42c + stdlib seed exists so the self-build (and its gen2
+// byte-identical fixpoint) can run. No-op when the in-tree seed is already present
+// (WARM). When absent (COLD), stage the resolved seed (Z42_LIBS / Z42_HOME
+// (--toolchain) / apphost SDK) into the in-tree layout. Returns 0 on success (or
+// already warm), 1 if no seed source.
+int _ensureSeed(string root) {
+    string profile = "release";
+    string flatDir = _libsFlatDist(root, profile);
+    string inDriver = _driverZpkg(root, profile);
+    string inCore = Path.Join(flatDir, "z42.core.zpkg");
+    // 🔴 **只缺 flat ≠ 冷树**。flat 是 stdlib 成员 dist 汇聚出的视图（clean intermediate、手动删都会让它没了），
+    // 而 driver 还是本树当前那一代。若落到下面的整树供种 ⇒ 用**上一代**种子覆盖当前的编译器成员 dist，
+    // 而增量缓存还在 ⇒ workspace 自建「preserved」把种子产物当本代留下（gen1≠gen2）。
+    // 只缺 flat 时只给 flat 铺种子 stdlib，编译器一个不碰；随后 `build stdlib` 按当前源重建。
+    int wantGen = _treeZpkgMinor(root);
+    if (File.Exists(inDriver) && File.GetSize(inDriver) > 0L && !File.Exists(inCore)
+        && (wantGen <= 0 || _zpkgFileMinor(inDriver) == wantGen)) {
+        string seedLibs = _seedStdlibDir(root);
+        if (seedLibs.Length > 0) {
+            _vNormal("  seed: flat 缺失、driver 是本代 → 只铺种子 stdlib 进 flat（不动编译器）← " + seedLibs);
+            SeedStage.NoteStdlibFrom(seedLibs);
+            Directory.Create(flatDir);
+            _copyAll(seedLibs, flatDir, "z42.*.zpkg");
+            _copyAll(seedLibs, flatDir, "z42.*.zsym");
+            if (File.Exists(inCore)) { return 0; }
+        }
+    }
+    if (File.Exists(inDriver) && File.GetSize(inDriver) > 0L
+        && File.Exists(inCore) && File.GetSize(inCore) > 0L) {
+        // ⚠️ 「在不在」不等于「能用」：老一代 in-tree 产物被无声复用时，失败形态是运行期崩在
+        // 某个未初始化的静态量上，与「种子过期」毫无字面关系。
+        // 所以这里加一道**代际校验**：产物的格式 minor 必须等于本源码树写端的 minor。
+        int want = _treeZpkgMinor(root);
+        int gotDriver = _zpkgFileMinor(inDriver);
+        int gotCore = _zpkgFileMinor(inCore);
+        // 读不到源码常量（文件改名 / 结构变了）⇒ **不判、不删**，退回旧行为。
+        // 这道校验是防呆，不该自己变成新的故障源。
+        if (want <= 0 || (gotDriver == want && gotCore == want)) {
+            _vDetailed("  seed: in-tree warm present — reuse (no staging)");
+            return 0;
+        }
+        // 总是打印（不走 _vNormal）：这是一次**丢弃产物**的纠正动作，而且它一旦发生，
+        // 就是用户理解「为什么这次构建特别慢 / 为什么上一次崩得莫名其妙」的唯一线索。
+        Console.WriteLine("  seed: in-tree warm is a format generation behind (zpkg minor driver="
+            + gotDriver.ToString() + " stdlib=" + gotCore.ToString()
+            + ", this tree writes " + want.ToString() + ") — discarding and cold-staging");
+        // 整代作废：同一代产出的编译器产物与 stdlib dist 要一起丢 —— 留一半下来只会在
+        // 下一层撞上同样的错代问题（devinfra/build.md §3「warm 判据带代际校验」）。
+        if (Directory.Exists(_compilerBuildRoot(root))) { Directory.Delete(_compilerBuildRoot(root), true); }
+        if (Directory.Exists(_libsBuildRoot(root))) { Directory.Delete(_libsBuildRoot(root), true); }
+    }
+
+    Stopwatch sw = _procStart("seed cold-start (stage z42c + stdlib from SDK)");
+    string driverHome = _seedDriverHome(root);
+    string stdlibDir = _seedStdlibDir(root);
+    if (driverHome.Length == 0 || stdlibDir.Length == 0) {
+        ConsoleError.WriteLine("error: no z42c seed. Provide one of:");
+        ConsoleError.WriteLine("  --toolchain <sdk>  /  Z42_HOME=<sdk>   (.z42 layout: programs/z42c + libs)");
+        ConsoleError.WriteLine("  Z42_LIBS=<stdlib dist>                 (stdlib only; z42c seed still needs Z42_HOME)");
+        ConsoleError.WriteLine("  ./scripts/install-z42.sh → ./.z42      (auto-detected when xtask runs via that SDK)");
+        return 1;
+    }
+    _vNormal("  seed: z42c   ← " + driverHome);
+    _vNormal("  seed: stdlib ← " + stdlibDir);
+    // 记下出处：种子 driver 的运行期 libs 就该是它那一代，见 `_seedLibsSource` ①。
+    SeedStage.NoteStdlibFrom(stdlibDir);
+    // 本树上一个 driver 的代际锚与种子不同代 ⇒ 作废（否则 `_relocateSeedRunLibs` 拿它压过种子 stdlib）。
+    string staleAnchor = _driverGenLibs(root, profile);
+    if (Directory.Exists(staleAnchor)) { Directory.Delete(staleAnchor, true); }
+
+    // 种子本身也可能落后一代（刚 bump 完格式、新 nightly 还没发）。这里**只告警不失败**：
+    // 「上一版 z42c 能编当前源」是 分阶段引入纪律（self-hosting.md），落后一代未必不能用；
+    // 但一旦真的不能用，失败形态会是运行期崩在某个静态表上，那时这行是唯一的线索。
+    int wantSeed = _treeZpkgMinor(root);
+    int gotSeed = _zpkgFileMinor(Path.Join(driverHome, "z42c.driver.zpkg"));
+    if (wantSeed > 0 && gotSeed > 0 && gotSeed != wantSeed) {
+        ConsoleError.WriteLine("  ⚠ seed is a format generation behind: zpkg minor "
+            + gotSeed.ToString() + " (this tree writes " + wantSeed.ToString() + ")");
+        ConsoleError.WriteLine("    refresh with ./scripts/install-z42.sh --force"
+            + "  (a stale seed fails LATER, as a runtime crash on some uninitialized static)");
+    }
+
+    // 🔴 供种的期望清单来自**当前** `_compilerMembers()`，而种子是**上一代** —— **成员集合一变，
+    // 这里立刻不匹配**，且只在冷启动（走供种）暴露，本地 warm 树看不见。
+    // ⇒ **挪动编译器成员集合前，先想「上一代种子里这个文件在哪」**。
+    // **新增成员**（种子那一代还没有它）不算缺：供种只给 dist 预置一份可用的上一代，
+    // 随后的 `build --workspace` 按拓扑序从当前源建出每个成员。缺了就跳过、打一行提示；唯独 driver 必须有
+    // （它就是种子本身，下面的种子 driver 要靠它跑）。若一律报错 ⇒ 新增成员的 PR 冷启动必红，而 nightly
+    // 只从绿的 main 发布 ⇒ 永远拿不到带新成员的种子（死锁）。
+    //
+    // 🔴 **成员 dist 与它的增量缓存必须出自同一次构建**。往 dist 里放种子产物时，同时作废该成员的 cache、删掉
+    // 配不上的 zsym（种子的 programs/z42c 不带 zsym）—— 否则随后的 workspace 自建判「源没变」直接 preserved，
+    // 种子那一代的产物就冒充了当前源的产物。
+    foreach (var m in _compilerMembers(root)) {
+        string dst = _compilerMemberDist(root, m, profile);
+        Directory.Create(dst);
+        _copyAll(driverHome, dst, m + ".zpkg");
+        if (File.Exists(Path.Join(dst, m + ".zpkg"))) {
+            _seedInvalidateMember(root, m, profile, dst, driverHome);
+        }
+        if (!File.Exists(Path.Join(dst, m + ".zpkg"))) {
+            if (m == "z42c.driver") {
+                ConsoleError.WriteLine("error: seed missing " + m + ".zpkg in " + driverHome);
+                return 1;
+            }
+            _vNormal("  seed: no " + m + ".zpkg (member newer than the seed) — built from source by the workspace build");
+        }
+    }
+    // 自举纪律：种子 driver 的兄弟集可能含当前 members 已没有的包。它运行时按 entry-dir 解析兄弟，
+    // 缺一个就 undefined。故把 driverHome 的**全部 z42c.* 兄弟**铺到 driver dist，令种子 driver
+    // 自包含可跑。gen1 起用当前成员就地覆盖，遗留兄弟无害闲置。
+    string driverDist = _driverDist(root, profile);
+    Directory.Create(driverDist);
+    _copyAll(driverHome, driverDist, "z42c.*.zpkg");
+    _copyAll(driverHome, driverDist, "z42c.*.zsym");
+    Directory.Create(flatDir);
+    _copyAll(stdlibDir, flatDir, "z42.*.zpkg");
+    _copyAll(stdlibDir, flatDir, "z42.*.zsym");
+    if (!File.Exists(inCore)) {
+        ConsoleError.WriteLine("error: seed stdlib missing z42.core.zpkg in " + stdlibDir);
+        return 1;
+    }
+    _procEnd("seed cold-start (stage z42c + stdlib from SDK)", sw);
+    return 0;
+}
+
+// ── 种子 driver 的运行期 libs 准备（编译器自建前） ──────────────────────────────
+
+// 备种子 driver 的运行期 libs（run-libs）= 它那一代的 stdlib 锚（`_driverGenLibs`），同时把成员 dist 清成
+// 「只有成员」（老 driver 建的 dist 里 colocated 的外部包副本一并搬进 run-libs）。两个理由（详见 self-hosting.md
+// 「运行期 libs 与编译期 libs 分离」）：
+//
+// ① 运行期（代际锚）：本轮 flat 会被 `_ensureBootstrapSelfDepLibs` 覆盖成当前源，快照晚于覆盖就拿到新代，
+//    种子 driver 随即 `MissingSymbolException` ⇒ **本轮的 flat 不能当「代」的锚**。锚在自建成功那一刻记
+//    （`_snapshotDriverGenLibs`），与 driver 同代是构造保证。
+//
+// ② 编译期（遮蔽）：z42c 的 workspace 解析面是「全成员 dist + 外部档」，按 basename 命中、成员 dist 在前 ⇒
+//    成员 dist 里上一代的外部包副本会遮蔽 flat 里当前源的新版（命名空间改名后报 `E0494: 命名空间 … 不存在`）。
+//    ⚠️ 新旧两份可能**同尺寸**，只核对文件大小会被骗过去；判别看 zsym 的 STRS 段，且命名空间按**段**存
+//       （`\x03Z42\x07Package`），整串在二进制里 grep 不到。
+//    根因（解析分档按 basename 混档）该修在 z42c 侧，但跑自建的是种子 driver、修法要跨一个 nightly 才生效，
+//    故编排侧先解。
+//
+// 搬空后由调用方 `_ensureDriverSelfContained` 把成员 + fresh 前端补回 driver bundle（前端与 flat 同代 ⇒ 不遮蔽）。
+// 返回搬了几个；0 = 既无锚也无 bundle（冷启动刚从 SDK 供种，`_ensureSeed` 已作废旧锚）。
+int _relocateSeedRunLibs(string root, string profile, string[] members, string dst) {
+    _resetDir(dst);
+    int moved = 0;
+    foreach (var m in members) {
+        string dist = _compilerMemberDist(root, m, profile);
+        if (!Directory.Exists(dist)) { continue; }
+        foreach (var hit in Path.Glob(dist, "*.zpkg")) {
+            string name = Path.GetFileNameWithoutExtension(hit);
+            if (_strIn(members, name)) { continue; }   // 成员产物归成员 dist，不碰
+            _moveZpkgPair(dist, dst, name);
+            moved = moved + 1;
+        }
+    }
+    // 锚：driver 那一代编译时对着的 stdlib。z42c 不把 stdlib 复制进 exe 的 dist（判为框架），所以锚由 xtask 自己记。
+    // 上面搬出来的与锚同代，已在的不覆盖。
+    // 锚若比 driver 旧一个格式代（driver 由两代自举在 xtask 之外换过代）就不再是这一代的锚，跳过。
+    string anchor = _driverGenLibs(root, profile);
+    int driverMinor = _zpkgFileMinor(_driverZpkg(root, profile));
+    if (Directory.Exists(anchor)) {
+        foreach (var g in Path.Glob(anchor, "*.zpkg")) {
+            string name = Path.GetFileNameWithoutExtension(g);
+            if (File.Exists(Path.Join(dst, name + ".zpkg"))) { continue; }
+            if (driverMinor > 0 && _zpkgFileMinor(g) != driverMinor) { continue; }
+            _copyZpkgPair(anchor, dst, name);
+            moved = moved + 1;
+        }
+    }
+    return moved;
+}
+
+// 自建刚产出的 driver 编译时对着的 stdlib = 此刻 flat 里的 stdlib 成员 ⇒ 快照进 `_driverGenLibs`，作为下一次
+// 用它当种子时的运行期 libs（代际锚，见 `_relocateSeedRunLibs` 头注）。每次自建成功都重取（锚必须跟 driver 同代）。
+void _snapshotDriverGenLibs(string root, string profile, string stdlibFlat) {
+    string[] libs = _stdlibList(root);
+    if (libs.Length == 0) { return; }   // 读不到成员清单就不记：缺锚回落 SDK 补齐，好过记一份错的
+    string anchor = _driverGenLibs(root, profile);
+    _resetDir(anchor);
+    foreach (var lib in libs) { _copyZpkgPair(stdlibFlat, anchor, lib); }
+}
+
+// <name>.zpkg + 同名 .zsym 从 srcDir 搬到 dstDir（先拷后删；dst 已存在则覆盖）。
+void _moveZpkgPair(string srcDir, string dstDir, string name) {
+    foreach (var ext in new string[]{ ".zpkg", ".zsym" }) {
+        string src = Path.Join(srcDir, name + ext);
+        string dst = Path.Join(dstDir, name + ext);
+        if (!File.Exists(src)) { continue; }
+        if (File.Exists(dst)) { File.Delete(dst); }
+        File.Copy(src, dst);
+        File.Delete(src);
+    }
+}
+
+// 用种子那一代的 libs（`_seedLibsSource`：启动时的 `Z42_LIBS` 优先、其次 SDK）补齐 run-libs 的缺口。
+// 锚 / bundle 是主来源（与 driver 同代），但可能不完整（冷启动刚从 SDK 供种的 driver 没有 bundle；清理过的树
+// 只剩零星几个）——判据是「**齐了吗**」而非「搬到了吗」。不无条件取 SDK：格式 bump 在飞时 SDK 还是上一代
+// 格式、会被 strict-pin 拒收（见 `_seedLibsSource` 头注）。
+// 🔴 只补与 driver **同一格式代**的库（`driverMinor` = driver zpkg 头里的 minor）：两代自举之后 driver 已是当前
+// 格式、而 SDK 仍是上一代，不挡的话 run-libs 被整批补成旧格式 ⇒ 新 VM 拒收、driver 运行期 `MissingSymbolException`。
+// 一个都补不进时由调用方回落 flat（两代自举的 gen1 stdlib，正是 driver 编译时对着的那一代）。
+int _topUpSeedRunLibs(string root, string dst, string[] members, int driverMinor) {
+    string sdkLibs = _seedLibsSource(root);
+    if (sdkLibs.Length == 0) { return 0; }
+    // 来源目录打进日志：一眼可判是走了 `Z42_LIBS` 还是回落了 SDK。
+    _vNormal("  run-libs 缺口来源: " + sdkLibs);
+    int filled = 0;
+    foreach (var hit in Path.Glob(sdkLibs, "*.zpkg")) {
+        string name = Path.GetFileNameWithoutExtension(hit);
+        if (_strIn(members, name)) { continue; }
+        if (File.Exists(Path.Join(dst, name + ".zpkg"))) { continue; }   // bundle 已提供 = 更可信
+        if (driverMinor > 0 && _zpkgFileMinor(hit) != driverMinor) { continue; }   // 别代格式：driver 加载不了
+        _copyZpkgPair(sdkLibs, dst, name);
+        filled = filled + 1;
+    }
+    return filled;
+}
+
+// 既无 bundle 也无同代 SDK libs 的末路回落：flat（两代自举之后正是这条：flat = driver 编译时对着的 gen1 stdlib）。改命名空间 / 删符号类变更在这种树上救不了，明说而不是静默走错代。
+void _seedRunLibsFallbackFlat(string root, string profile, string dst, string stdlibFlat) {
+    _copyAll(stdlibFlat, dst, "*.zpkg");
+    _copyAll(stdlibFlat, dst, "*.zsym");
+    _vNormal("  ⚠ seed run-libs ← flat（既无 bundle 也无同代 SDK libs）——改命名空间/删符号类变更在这种树上救不了");
+}

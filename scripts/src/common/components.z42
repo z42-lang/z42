@@ -103,6 +103,10 @@ string _selfContainedDriverDir(string root) {
 // 避免各站点各写一遍字面路径；挪 z42b 的工程位置只改 packages.toml。
 string _z42bToml() { return _pkgcfgFindComponent(_pkgcfgLoad(_root()), "z42b").project; }
 
+// z42c 驱动自己的 apphost（`bin/z42c` + `programs/z42c` payload）。z42c 的 zpkg 由 `build compiler`
+// 编，这里只发布；与其余 apphost 同一个 stub、同一个 z42b。路径 = packages.toml `[component.z42c].project`。
+string _z42cDriverToml() { return _pkgcfgFindComponent(_pkgcfgLoad(_root()), "z42c").project; }
+
 // 工具链程序（launcher / z42b / z42d / z42i / workload libs）的**编译期解析面** = 纯 stdlib flat。它们用到的
 // `Z42.Project` / `Z42.Build` / `Z42.Package` / `Z42.Scripting` / `Z42.Syntax` 是 **SDK 库**：清单里按名声明 +
 // `deploy = "sdk"`，编译期由 driver 从编译器目录解析（CompilerDomain 开发树档），不复制进程序的发布包；发布态

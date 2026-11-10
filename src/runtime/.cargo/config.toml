@@ -4,7 +4,7 @@
 #
 # cargo discovers this file by walking up from its *cwd*, NOT from --manifest-path — so it is
 # only found automatically for crates under src/runtime. Everything else passes
-# `--config <this file>` explicitly (xtask: _runtimeCargoConfig in scripts/src/common/base.z42;
+# `--config <this file>` explicitly (xtask: _runtimeCargoConfig in scripts/src/common/toolchain.z42;
 # wasm-pack / cargo-ndk get it too, since they run inside the platform crate dir).
 #
 # target-dir is relative to the directory that holds `.cargo/` (src/runtime): every crate builds
