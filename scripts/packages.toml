@@ -164,3 +164,48 @@ import_lib_windows = "{stem}.dll.lib"
 [runtime.naming.static]
 windows = "{stem}.lib"
 other = "lib{stem}.a"
+
+# 包形态：哪种包、含哪些组件（引用 lib 键名）、何种形态（static | dynamic | framework | wasm）。
+# CMake 类比：pack ≈ add_library/add_executable 的目标组合；forms ≈ 目标属性（静态/动态/接口）。
+# jit 的进出由 [runtime.lib.jit].rids 自动发生（pack.components ∩ lib.rids）。
+[runtime.pack.desktop_static]
+rid_class = "desktop"
+components = ["host", "interp", "jit", "compression"]
+forms = ["static"]
+headers = true
+
+[runtime.pack.desktop_dynamic]
+rid_class = "desktop"
+components = ["host", "interp", "jit", "compression"]
+forms = ["dynamic"]
+headers = true
+std = "shared"
+
+[runtime.pack.ios]
+rid_class = "ios"
+components = ["host", "interp", "compression"]
+forms = ["static", "framework"]
+headers = true
+std = "framework-alias"
+
+[runtime.pack.android]
+rid_class = "android"
+components = ["host", "interp", "jit", "compression"]
+forms = ["dynamic", "static"]
+headers = true
+std = "shared"
+
+[runtime.pack.wasm]
+rid_class = "wasm"
+components = ["host", "interp", "compression"]
+forms = ["static"]
+app = { file = "native/z42_wasm_bg.wasm", js = ["pkg-web", "pkg-nodejs"] }
+
+# 输出路径布局：一切复制的源路径从这里解析（{root}/{profile}/{triple} 模板）。
+# CMake 类比：≈ CMAKE_RUNTIME_OUTPUT_DIRECTORY 等 per-config 输出目录。
+[runtime.output]
+root = "components"
+dynamic = "{root}/{profile}"                    # 桌面；移动加 {triple}/ 前缀
+launcher = "{root}/launcher/{profile}"
+static = "{root}/static/{profile}"              # 桌面/wasm；移动走默认 target-dir 的 {triple}/{profile}
+headers = "src/runtime/include"
