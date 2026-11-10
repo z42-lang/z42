@@ -1,5 +1,6 @@
 // Assemble C archives from rlibs belonging to one static core/engine graph.
 namespace Z42Xtask;
+using Std.Collections;
 using Std.IO;
 using Std.Cli;
 
@@ -50,7 +51,64 @@ int _componentStaticArchiveFromRlib(string root, string rid, string profile, str
     if (flags.Length == 0 && rid != "browser-wasm") { throw new CliException("rustc did not report native dependencies for " + stem); }
     File.WriteAllText(Path.Join(cargo, stem + "-link.txt"), flags);
     _componentStageStaticImportLibs(cargo, flags);
+    // stub-staticlib 会把依赖闭包整体打进归档：interp/jit 的 .a 里塞进了整个 core
+    // （与 libz42.a 符号 99% 重复），compression 重复 z42_rs/z42_abi。core 家族成员
+    // （z42-/z42_zpkg-/z42_rs-/z42_abi- 前缀，与组件自身 z42_interp- 等以 -/_ 可分）
+    // 从组件归档中删除；cranelift 留在 jit、算法库留在 compression。嵌入者以 libz42.a
+    // 提供 core，成员不再三份。
+    string coreArchive = Path.Join(_componentStaticDir(root, rid),
+        _componentStaticProfileName(profile) + "/examples/" + _componentStaticName("z42", rid));
+    return _componentStripCoreMembers(root, Path.Join(cargo, _componentStaticName(stem, rid)), stem, coreArchive);
+}
+
+// 从组件静态归档中删除 core 家族成员（GNU/LLVM ar 语法；MSVC lib.exe /REMOVE 等价）。
+int _componentStripCoreMembers(string root, string archive, string stem, string coreArchive) {
+    if (!File.Exists(coreArchive)) { throw new CliException("core archive missing for member stripping: " + coreArchive); }
+    string arTool = _componentArTool();
+    // core 闭包名单 = libz42.a（example staticlib）成员的 crate 名集合。组件归档里凡 crate 名
+    // 在名单内且不是组件自身的成员都剔（core/z42_rs/z42_abi/repl/tls… 与 z42.a 重复）；
+    // 组件专属第三方（jit 的 cranelift、compression 的算法库）不在 core 闭包，自动保留。
+    List<string> coreCrates = new List<string>();
+    foreach (var m in _cmdOut(arTool, new string[]{ "t", coreArchive }).Split("\n")) {
+        string crate = _arMemberCrate(m);
+        if (crate.Length > 0 && !coreCrates.Contains(crate)) { coreCrates.Add(crate); }
+    }
+    List<string> drop = new List<string>();
+    foreach (var m in _cmdOut(arTool, new string[]{ "t", archive }).Split("\n")) {
+        string name = m.Trim();
+        string crate = _arMemberCrate(name);
+        if (name.Length == 0 || crate.Length == 0 || crate == stem) { continue; }
+        // 保护组件单独依赖的 crate：core 图与组件图对它们的 feature 集不同 ⇒ rlib 版本不同
+        // （z42.a 里的 z42_rs 无 module 符号、z42_compression 是无 backend 声明版……），
+        // 剔了会 undefined。剔的只有同图同版的 z42 本体 / zpkg / 第三方闭包。
+        if (crate == "z42_rs" || crate == "z42_abi" || crate == "z42_compression" || crate == "z42_repl") { continue; }
+        if (coreCrates.Contains(crate)) { drop.Add(name); }
+    }
+    if (drop.Count == 0) { return 0; }
+    Process del = new Process(arTool).Arg("d").Arg(archive);
+    foreach (var name in drop) { del = del.Arg(name); }
+    int c = _exec(del);
+    if (c != 0) { return c; }
+    Console.WriteLine("  · " + Path.GetFileName(archive) + ": 剔除 core 闭包成员 " + drop.Count.ToString() + " 个（core 由 libz42.a 提供）");
     return 0;
+}
+
+// 归档成员名 → crate 名：rustc staticlib 两种形态 `crate.crate.<hash>-cgu.N.rcgu.o` 与
+// `crate-<hash>.crate.<hash>-cgu...`，统一取第一个 `.` / `-` 之前的段；__.SYMDEF 等返回 ""。
+string _arMemberCrate(string member) {
+    string m = member.Trim();
+    if (m.Length == 0 || m.StartsWith("__")) { return ""; }
+    int cut = m.Length;
+    int d = m.IndexOf("."); if (d >= 0 && d < cut) { cut = d; }
+    int h = m.IndexOf("-"); if (h >= 0 && h < cut) { cut = h; }
+    return cut > 0 ? m.Substring(0, cut) : "";
+}
+
+// 归档工具：mac/linux 用 ar；Windows（MSVC 目标在 Windows 宿主打包）优先 llvm-ar（CI 镜像预装）。
+string _componentArTool() {
+    if (!Platform.IsWindows()) { return "ar"; }
+    if (new Process("llvm-ar").Arg("--version").Run().ExitCode == 0) { return "llvm-ar"; }
+    throw new CliException("Windows 静态归档需要 llvm-ar（LLVM 工具链）在 PATH 上");
 }
 
 // MSVC 目标的 native-static-libs 可能点名第三方导入库（如 windows-sys 的 windows.0.52.0.lib）——

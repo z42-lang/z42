@@ -15,17 +15,31 @@ string _componentLibrary(string stem, string rid = "") {
 // R0：编译参数的家在 runtime 自身——rustflags 默认 = .cargo/config.toml（按平台），
 // LTO 关闭 = [profile.release-dynamic]，features 预设 = Cargo 命名别名；xtask 只传名。
 // 静态图 / 启动器图仍以 RUSTFLAGS env（prefer-dynamic=no）整体覆盖 config 默认。
+// R0 树探测：config-dynamic.toml 是新机制（独立 rustflags 配置 + release-dynamic profile）
+// 的标志物。bench A/B 等场景里 PR 的新 xtask 会构建 base-src 的**旧树**（无该文件、
+// Cargo.toml 无 [profile.release-dynamic]）—— 此时整套回退 R0 前的旧机制
+// （--release + RUSTFLAGS/LTO env），两代树的产物目录与调用形态各自成立。
+bool _componentR0Tree(string root) { return File.Exists(Path.Join(root, "src/runtime/.cargo/config-dynamic.toml")); }
 // cargo --profile 名（dev 的产物目录叫 debug）与产物目录名分开，勿混用。
-string _componentCargoProfile(string profile) { return profile == "release" ? "release-dynamic" : "dev"; }
-string _componentDirName(string profile) { return profile == "release" ? "release-dynamic" : "debug"; }
-string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), _componentDirName(profile)); }
+string _componentCargoProfile(string root, string profile) { return (_componentR0Tree(root) && profile == "release") ? "release-dynamic" : profile; }
+string _componentDirName(string root, string profile) { return (_componentR0Tree(root) && profile == "release") ? "release-dynamic" : profile; }
+string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), _componentDirName(root, profile)); }
 Process _componentCargo(string verb, string root, string profile, string targetDir = "") {
     if (targetDir.Length == 0) { targetDir = _componentBuildDir(root); }
     Process p = _cargoCmd(verb, _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
-        .Arg("--config").Arg(Path.Join(root, "src/runtime/.cargo/config-dynamic.toml"))
         .Arg("--manifest-path").Arg(_runtimeManifest())
-        .Arg("--target-dir").Arg(targetDir)
-        .Arg("--profile").Arg(_componentCargoProfile(profile));
+        .Arg("--target-dir").Arg(targetDir);
+    if (_componentR0Tree(root)) {
+        p = p.Arg("--config").Arg(Path.Join(root, "src/runtime/.cargo/config-dynamic.toml"))
+            .Arg("--profile").Arg(_componentCargoProfile(root, profile));
+        return p;
+    }
+    // 旧树：R0 前的调用形态（env flags + --release）。
+    string flags = "-C prefer-dynamic -C rpath";
+    if (Platform.IsMacOS()) { flags = flags + " -C link-arg=-Wl,-rpath,@loader_path"; }
+    else if (Platform.IsLinux()) { flags = flags + " -C link-arg=-Wl,-rpath,$ORIGIN -C link-arg=-Wl,-rpath,$ORIGIN/../native"; }
+    p = p.EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("RUSTFLAGS", flags).Env("CARGO_PROFILE_RELEASE_LTO", "false");
+    if (profile == "release") { p = p.Arg("--release"); }
     return p;
 }
 Process _componentTargets(Process build) {
