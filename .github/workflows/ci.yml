@@ -89,15 +89,15 @@ jobs:
               - 'src/toolchain/workload/**'
               # 打包管道自身、它的注册表 / CLI 面，以及只在 package sdk 里被编译的工具链组件
               # （launcher / devtools / interactive）——不在这里就等于没有任何 PR job 编过它们。
-              - 'scripts/package/**'
+              - 'scripts/src/package/**'
               - 'scripts/packages.toml'
               # 从 package/ 提取的共享配置与发布入口仍需覆盖打包管道。
-              - 'scripts/common/xtask_packages_config.z42'
-              - 'scripts/common/xtask_publish.z42'
-              - 'scripts/common/xtask_versions.z42'
-              - 'scripts/common/xtask_layout.z42'
+              - 'scripts/src/common/packages_config.z42'
+              - 'scripts/src/common/publish.z42'
+              - 'scripts/src/common/versions.z42'
+              - 'scripts/src/common/layout.z42'
               # xtask setup 模块：其中的版本比较 / 平台工具辅助函数也被打包管道与平台测试调用。
-              - 'scripts/setup/**'
+              - 'scripts/src/setup/**'
               - 'src/toolchain/launcher/**'
               - 'src/toolchain/devtools/**'
               - 'src/toolchain/interactive/**'
@@ -105,20 +105,15 @@ jobs:
               - 'src/toolchain/builder/**'
               # 私有测试由宿主检查或 sdk_checks 消费。workload 与编辑器资源有独立的打包输入。
               - '!src/toolchain/{builder,interactive,launcher}/**/tests/**'
-              - 'scripts/common/xtask_fixture_harness.z42'
-              - 'scripts/test/xtask_test_platform.z42'
-              - 'scripts/test/xtask_test_app.z42'
-              - 'scripts/test/xtask_test_wasm.z42'
-              - 'scripts/test/xtask_test_ios.z42'
-              - 'scripts/test/xtask_test_android.z42'
-              - 'scripts/test/xtask_test_desktop.z42'
-              - 'scripts/test/xtask_test_embedded*.z42'
+              - 'scripts/src/common/harness/fixtures.z42'
+              # 平台测试 backend、嵌入式 test-host 与设备宿主工程（package-wasm 也用设备宿主）。
+              - 'scripts/src/test/app/**'
               - 'scripts/versions.toml'
               - '.github/workflows/ci.yml'
             # 桌面 SDK 的验证执行器与私有夹具，以及安装器（package-host 的 SDK 自检与 Installer smoke 验它）：
             # 保留四个 host package，不选择设备 / 浏览器消费者。
             sdk_checks:
-              - 'scripts/test/sdk/**'
+              - 'scripts/src/test/sdk/**'
               - 'scripts/install-z42.*'
               - 'src/toolchain/launcher/tests/fixtures/package/**'
               - '.github/workflows/ci.yml'
@@ -137,10 +132,10 @@ jobs:
             # 自举不动点、编译器单元 / CLI 夹具与 vscode 语法；保留私有 bench helper 的 codegen 回归。
             compiler_checks:
               - 'src/compiler/**'
-              - 'scripts/build/xtask_compiler*.z42'
-              - 'scripts/test/xtask_selfcheck_selfhost.z42'
-              - 'scripts/test/xtask_selfcheck_compiler_projects.z42'
-              - 'scripts/common/xtask_projects.z42'
+              - 'scripts/src/build/compiler*.z42'
+              # `test compiler` 的编排、CLI 夹具套件与自举不动点（fingerprint / incremental / bootstrap 子命令不在本 job）。
+              - 'scripts/src/test/compiler/{runner,e2e,selfhost,selfhost_selfcheck,projects_selfcheck}.z42'
+              - 'scripts/src/common/projects.z42'
               # vscode 语法门比对「入库生成产物 ↔ 模板 + Lexer 关键字表」，产物与模板都在这里。
               - 'src/toolchain/devtools/vscode/**'
               - '.github/workflows/ci.yml'
@@ -152,11 +147,11 @@ jobs:
               - '!src/runtime/tests/data/{example-manifest,invalid-manifest-missing-types,manifest-with-extra-fields}.json'
               - '!src/runtime/tests/data/embedding_hello/**'
               - '!src/runtime/tests/data/z42_native_e2e/**'
-              - 'scripts/test/xtask_test_runtime.z42'
+              - 'scripts/src/test/runtime/runner.z42'
               - '.github/workflows/ci.yml'
             runtime_checks:
               - 'src/runtime/**'
-              - 'scripts/test/xtask_test_runtime.z42'
+              - 'scripts/src/test/runtime/runner.z42'
               - '.github/workflows/ci.yml'
             # stdlib [Test]（interp + jit）：stdlib 源码，加上 [Test] 的执行器（z42b、xtask 的 test-lib 编排）。
             stdlib:
@@ -165,11 +160,10 @@ jobs:
               - 'src/compiler/**/tests/**'
               - 'src/toolchain/builder/**'
               - '!src/toolchain/builder/**/tests/**'
-              - 'scripts/test/xtask_test_lib*.z42'
-              - 'scripts/test/xtask_manifest_targets.z42'
-              - 'scripts/test/xtask_unit_projects.z42'
-              - 'scripts/common/xtask_projects.z42'
-              - 'scripts/common/xtask_golden.z42'
+              - 'scripts/src/test/stdlib/runner.z42'
+              - 'scripts/src/common/harness/{package_units,manifest_targets,unit_projects}.z42'
+              - 'scripts/src/common/projects.z42'
+              - 'scripts/src/common/golden.z42'
               - '.github/workflows/ci.yml'
 
       # 纯文档快速通道：改动**全部**是文档（docs/learn、examples 除外——示例会被重放）⇒ 只跑 docs-check。

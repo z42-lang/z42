@@ -1,6 +1,6 @@
 # workload 分发：装什么、从哪来、怎么铺
 
-> 代码：`src/toolchain/launcher/core/launcher_workload.z42`、`src/toolchain/launcher/core/launcher_network.z42`、`scripts/package/xtask_release.z42`
+> 代码：`src/toolchain/launcher/core/launcher_workload.z42`、`src/toolchain/launcher/core/launcher_network.z42`、`scripts/src/package/release.z42`
 >
 > 命令与旗标怎么敲 → [工具链参考](https://z42-lang.github.io/z42/reference/toolchain/index.html)；
 > 谁在消费这些 workload → [平台发布与导出](platform-export.md)。
@@ -150,8 +150,8 @@ stdlib zpkg 跟着 **runtime pack** 走而不是工具链：它们与 runtime �
 |---|---|
 | `workload install/list/uninstall`、铺设策略 | `src/toolchain/launcher/core/launcher_workload.z42` |
 | index 读取、下载校验、tar.gz / zip 解包 | `src/toolchain/launcher/core/launcher_network.z42` |
-| `release-index.json` 生成与校验 | `scripts/package/xtask_release.z42` |
-| workload 包的组装 | `scripts/package/xtask_package_desktop.z42` |
+| `release-index.json` 生成与校验 | `scripts/src/package/release.z42` |
+| workload 包的组装 | `scripts/src/package/desktop.z42` |
 | 各 workload 的内容 | `src/toolchain/workload/<plat>/`、`src/toolchain/workload/test/` |
 
 ## 边界与限制

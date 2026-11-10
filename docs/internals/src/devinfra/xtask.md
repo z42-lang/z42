@@ -1,6 +1,6 @@
 # xtask：仓库开发 CLI
 
-> 代码：`scripts/xtask.z42`、各领域目录的 `xtask_<族>_cmd.z42`、`scripts/common/`
+> 代码：`scripts/src/main.z42`、各领域目录的 `command.z42`、`scripts/src/common/`
 >
 > 每个子命令的旗标以 `xtask <命令> -h` 为准（帮助文本由命令类自动生成）；逐文件职责表见
 > [`scripts/README.md`](https://github.com/z42-lang/z42/blob/main/scripts/README.md)，本页不复列。
@@ -18,7 +18,7 @@
 | `build` | **编译**各组件：`runtime` / `compiler` / `stdlib` / `workload` / `toolchain [z42b]` / `test` / `all`；**生成**文档产物：`docs`（reference 的 stdlib 生成页）/ `docs index`（把 Rust 运行时各 crate 的条目与 rustdoc 写进 `artifacts/doc/rust.idx`，`z42 doc` 由此也能查 Rust 符号，见[文档索引与 `z42 doc`](../toolchain/doc.md)）|
 | `package` | **组装**（只把已编好的产物摆成某种布局，缺产物即报错并点名该跑的 `build`）：发行包 `sdk` / `runtime` / `workload`（都可带 `--archive [--label L]` 同时出发布归档；`sdk --verify` 再在这份 SDK 上跑 packages.toml 自检 + 发行包夹具 + golden）、开发态 `dev-sdk`（`.z42` SDK 布局）/ `ci`（已建好构建树的 zpkg 快照，CI 的 `toolchain-<os>` artifact）、发布汇总 `release`（CI 汇总 job 专用：合并 desktop workload → SHA256SUMS → release-index.json；见[打包引擎](packaging.md)）|
 | `test` | 跑用例，按「契约属于谁」分：`e2e` / `stdlib` / `compiler` / `toolchain` / `runtime` / `app` / `docs`，外加 `changed`、`list`；裸 `test [--no-build] [--skip …]` = 完整 GREEN gate（见[怎么跑测试](testing.md)、[测试门禁](test-gate.md)）|
-| `check` | 静态检查：`vscode-syntax` / `diagcodes` / `ci-shell` / `proc-env` / `layout` / `versions` / `doc-lints`，以及手动引用报告 `doc-refs`；不带名字时依次运行并汇总。实现归 `scripts/check/`，见[怎么跑测试](testing.md) |
+| `check` | 静态检查：`vscode-syntax` / `diagcodes` / `ci-shell` / `proc-env` / `layout` / `versions` / `doc-lints`，以及手动引用报告 `doc-refs`；不带名字时依次运行并汇总。实现归 `scripts/src/test/check/`，见[怎么跑测试](testing.md) |
 | `bench` | 基准；裸 `bench` = e2e 场景（见[性能基准与回归门禁](benchmarking.md)）|
 | `setup` | 准备本机：裸 `setup [--os android\|ios\|wasm] [--force]` = 安装，`setup vscode` = 编辑器扩展，`setup check` = 只读在场校验（见 §6）|
 | `profile` | 对单个 `.z42` 脚本做 cpu / heap / threads / e2e 剖析 |
@@ -83,14 +83,15 @@ graph LR
 **每个命令族的类与它的 handler 同住领域目录**——没有集中的 CLI 目录：
 
 ```
-scripts/xtask.z42                    Main + XtaskCommand（根、全局选项、挂各族）+ RunCommand
-scripts/build/xtask_build_cmd.z42    build 族        （clean → build/xtask_clean.z42，build docs → build/xtask_doc.z42）
-scripts/package/xtask_package_cmd.z42  package 族
-scripts/test/xtask_test_cmd.z42      test 族 + LibUnitsCommand（test stdlib / bench stdlib 共用）
-scripts/check/xtask_check_cmd.z42    check（静态检查的单跑入口；GREEN 里它们仍各是一个 stage）
-scripts/setup/xtask_setup_cmd.z42  setup 族
-scripts/bench/xtask_bench_cmd.z42    bench 族        （profile → bench/xtask_profile.z42）
-scripts/common/xtask_layout.z42      layout
+scripts/src/main.z42                Main + XtaskCommand（根、全局选项、挂各族）+ RunCommand
+scripts/src/build/command.z42       build 族（build docs → build/docs/generate.z42）
+scripts/src/clean.z42               clean
+scripts/src/package/command.z42     package 族
+scripts/src/test/command.z42        test 族 + LibUnitsCommand（test stdlib / bench stdlib 共用）
+scripts/src/test/check/command.z42  check（静态检查的单跑入口；GREEN 里它们仍各是一个 stage）
+scripts/src/setup/command.z42       setup 族
+scripts/src/bench/command.z42       bench 族（profile → bench/profile.z42）
+scripts/src/common/layout.z42       layout
 ```
 
 **加一个命令** = 在领域目录写一个 `Command` 子类，并在父命令的构造器里 `AddCommand` 一行。
@@ -130,7 +131,7 @@ graph TD
 
 **种子从哪来**（`build compiler` / `build stdlib` 共用一套解析，CI 与本地同路径：两边都把上一版 nightly 装在
 仓库根 `./.z42`，xtask 本身也跑在它上面，见 [CI §1](ci.md)）：冷树上
-`_ensureSeed`（`scripts/common/xtask_common.z42`）按 `Z42_HOME` → 运行 xtask 的 apphost 所属 SDK
+`_ensureSeed`（`scripts/src/common/base.z42`）按 `Z42_HOME` → 运行 xtask 的 apphost 所属 SDK
 （从 `Z42_PORTABLE_VM` 反推）→ `./.z42` 的顺序找 SDK-toolchain 布局的根，把 `programs/z42c` + `libs`
 拷进 in-tree 再自建。warm 树（已有 in-tree 种子）**直接复用、不覆盖**——gen2 字节不动点靠的就是这一点
 （见[构建编排](build.md)）。

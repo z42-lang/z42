@@ -1,6 +1,6 @@
 # scripts/versions.toml — z42 build env 要求 + 运行时平台承诺 单一真相源
 #
-# 在 scripts/ 下：读它的几乎全是 xtask（`scripts/common/xtask_versions.z42` 的 `_versionsPath`
+# 在 scripts/ 下：读它的几乎全是 xtask（`scripts/src/common/versions.z42` 的 `_versionsPath`
 # 是唯一入口）；另有 release.yml 的 tag 校验、install-z42.{sh,ps1}（[toolchain.z42]）、z42b 的 iOS xcframework 构建。
 #
 # 唯一 SoT。**不**生成 rust-toolchain.toml 之类的"投影"文件（那只是把版本号写两遍），
@@ -48,7 +48,7 @@ version = "0.7.0"                       # → Cargo.toml [workspace.package].ver
 
 [toolchain.rust]
 channel     = "stable"
-min_version = "1.95"                    # MSRV；cranelift 0.135 requires 1.95+; scripts/setup/xtask_install.z42 的 rust 检查校它
+min_version = "1.95"                    # MSRV；cranelift 0.135 requires 1.95+; scripts/src/setup/install.z42 的 rust 检查校它
 components  = ["rustfmt", "clippy"]
 # rust_targets 由各 [platform.*] 汇总
 
@@ -138,7 +138,7 @@ tier             = "tier2"
 # 实测值，不是愿望值：Linux 包在 ubuntu-latest（glibc 2.39）上构建，产物的**硬**版本需求是 GLIBC_2.34
 # （__libc_start_main / pthread_* / dl* 在 2.34 换了符号版本）。还会出现 GLIBC_2.39（pidfd_spawnp /
 # pidfd_getpid），但那是 Rust std 的弱引用（verneed flag 0x02 WEAK），旧 glibc 上照样加载。
-# → 打包的结构门（scripts/package/xtask_package_layout.z42 :: _plGlibc）对账。
+# → 打包的结构门（scripts/src/package/layout.z42 :: _plGlibc）对账。
 # 要真降到 2.31，得换更老的构建环境（容器 / cargo-zigbuild 指定 glibc），不是改这一行。
 # 按架构分开：linux-arm64 的产物在 CI（ubuntu-24.04-arm）上实测对 GLIBC_2.39 有**硬**需求。
 min_glibc       = "2.34"   # linux-x64

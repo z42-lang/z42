@@ -1,6 +1,6 @@
 # 产物目录布局（`artifacts/`）
 
-> 代码：`scripts/common/xtask_layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
+> 代码：`scripts/src/common/layout.z42`（路径 SoT）、`src/libraries/z42.workspace.toml` 与 `src/compiler/z42.workspace.toml` 的 `[workspace.build]`、`.cargo/config.toml`
 >
 > 构建步骤本身见[构建编排](build.md)；打包见[打包引擎](packaging.md)。
 
@@ -45,7 +45,7 @@
 golden、编译器测试单元都在某个 profile 下面。编译器 workspace 级的自举中间物（`selfhost-gen1` /
 `stdlib-run` / `seed-run-libs` / `bootstrap-check`）不属于任何成员，在 `intermediate/compiler/`。
 
-**per-member 的产物路径不是硬编码的**：`scripts/common/xtask_layout.z42` 读各 workspace toml 的
+**per-member 的产物路径不是硬编码的**：`scripts/src/common/layout.z42` 读各 workspace toml 的
 `[workspace.build].output_dir` / `cache_dir` 模板（正是 `WorkspacePlan.PlanLayout` 消费的
 同一份）再展开。改 toml 模板，xtask 自动跟上。cargo 侧同理由 `.cargo/config.toml` 的
 `target-dir` 决定：全仓只有一份 `src/runtime/.cargo` → `artifacts/build/runtime`（路径相对 `.cargo/`
@@ -54,7 +54,7 @@ profile 直接挂在 `runtime/` 下。cargo 只从 cwd 向上找配置、不看 
 不在 `src/runtime` 之下，所以 xtask 的每个 cargo 调用（含在平台 crate 目录里跑的 wasm-pack / cargo-ndk）
 都显式传 `--config`。
 
-xtask 自己发明、没有 toml 归属的路径，**全部在 `xtask_layout.z42` 里各有一个单一定义**：
+xtask 自己发明、没有 toml 归属的路径，**全部在 `scripts/src/common/layout.z42` 里各有一个单一定义**：
 扁平 stdlib dist（`_libsFlatDist`）、cargo target 目录（`_cargoTargetDir` / `_runtimeOut`）、driver 的 home
 （`_driverHome` = driver 自己的 release dist，自包含）、两种镜像（编译产物 `_buildMirror`；中间物 `_workMirror` /
 `_workOut` / `_workRootOf` / `_xtaskWork` / `_compilerWsWork`，见 §3），以及 §1 的每个顶层桶（`_intermediateDir` /
@@ -71,9 +71,9 @@ xtask layout intermediate/libraries/flat/release   # 只打印一条的绝对路
 ```
 
 树里的名字就是磁盘上的目录名（`build/` 下的子目录直接枚举 `src/` 的一级目录），查询参数就是树里显示的
-相对路径（尾 `/` 可有可无）。路径由 `xtask_layout.z42` 里各自的单一定义函数算出，布局整理时树自动跟上。
+相对路径（尾 `/` 可有可无）。路径由 `scripts/src/common/layout.z42` 里各自的单一定义函数算出，布局整理时树自动跟上。
 仍然写死在 xtask 之外的有：`.github/ci/xtask`（CI 垫片，跑在 `.z42` SDK 上、要先能启动 xtask，鸡生蛋）、
-`scripts/xtask_hooks.z42`（z42b publish 时单独编译的 hooks 工程，调不到 xtask 的函数）、
+`scripts/src/hooks.z42`（z42b publish 时单独编译的 hooks 工程，调不到 xtask 的函数）、
 Rust 测试里的若干 cwd 相对路径。
 
 ### `intermediate/libraries/flat/<profile>` 为什么必须存在
@@ -97,7 +97,7 @@ per-lib 那份的内容当场变成种子字节）。可达路径就在供种里
 `build_id mismatch` WARN 污染全部 golden（relocate-compiler-domain-libs 第 6 轮吃过）。
 
 ⇒ **不变式：往可能有别名的目录写之前先 `File.Delete(dst)` 断链**（unlink 只断这一条链）。
-`scripts/common/xtask_fs.z42` 的 `_copyAll` / `_linkAll` 都这么做，行为门在
+`scripts/src/common/fs.z42` 的 `_copyAll` / `_linkAll` 都这么做，行为门在
 `xtask test e2e --dir cross-zpkg` 每轮开跑前真跑一遍。保留 hard-link 本身——它省的是
 cross-zpkg 一轮 ≈198MB 的纯拷贝；有害的是「写到别名上」，不是「有别名」。
 

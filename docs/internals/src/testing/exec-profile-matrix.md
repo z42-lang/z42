@@ -1,12 +1,12 @@
 # 执行画像矩阵（exec-profile）
 
 > 代码：
-> `scripts/common/xtask_exec_profile.z42`（共享模块：`_epProbe` / `_epCellStatus` /
+> `scripts/src/common/harness/execution_profile.z42`（共享模块：`_epProbe` / `_epCellStatus` /
 > `_epModeLabel` / `_epProfileJson` / `_epScenarioRequiredCaps` / `_epCapsMissing`）、
 > `src/runtime/src/corelib/os/platform.rs`（`__platform_caps` / `__platform_exec_modes` builtin）、
 > `src/libraries/z42.core/src/Platform.z42`（`Capabilities()` / `ExecModes()` 门面）、
 > `src/benches/probe/capabilities.z42`（探针）、`src/benches/baseline-schema.json`（schema v2）、
-> `scripts/bench/xtask_bench.z42`（消费方）。
+> `scripts/src/bench/bench.z42`（消费方）。
 
 「这次运行是在什么执行画像下测的」这句话，test 与 bench 两侧需要**同一套词汇**。
 本页写这套词汇的三根轴、三值支持矩阵、以及它怎么进结果文件。
@@ -92,7 +92,7 @@ mode = { tiers: [...], aot_pkgs: [...] }
 flowchart LR
   probe["src/benches/probe/capabilities.z42<br/>调 Capabilities() / ExecModes()"]
   vm["被测 VM 二进制<br/>__platform_caps builtin"]
-  mod["xtask_exec_profile.z42<br/>_epProbe → VmCaps<br/>_epCellStatus / _epModeLabel / _epProfileJson"]
+  mod["scripts/src/common/harness/execution_profile.z42<br/>_epProbe → VmCaps<br/>_epCellStatus / _epModeLabel / _epProfileJson"]
   bench["xtask bench（e2e / micro）<br/>--mode 扫描 → 每格 hyperfine + profile 打标"]
   test["xtask test<br/>（复用同词汇/矩阵）"]
   probe -->|run under| vm

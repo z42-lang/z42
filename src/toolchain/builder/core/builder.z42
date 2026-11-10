@@ -23,7 +23,7 @@ using Z42.Project;
 // hooks：`[build] hooks` 目录与 `[plugins]` 里的 hook 插件 → _loadHooks（builder_hooks.z42：编译 / 加载 +
 // 动态注入 + 组合）→ 挂到 p.Hooks。旧「探测 build/
 // 目录 → 生成一次性 driver 源码」设计被动态注入取代（也修掉了隐式探测会把 xtask 的
-// scripts/build/ 源码目录误判为 hook 目录的坑——hooks 只认 manifest 显式声明）。
+// scripts/src/build/ 源码目录误判为 hook 目录的坑——hooks 只认 manifest 显式声明）。
 int _orchestrate(ProjectManifest manifest, Target target, string sourceDir) {
     return _orchestrate(manifest, target, sourceDir, "");
 }

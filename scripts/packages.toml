@@ -1,7 +1,7 @@
 # packages.toml — 发行包内容清单
 #
 # 「哪个包装哪些组件」只在这里声明。打包时按 `include` 顺序把每个组件**直接装进包目录**
-# （scripts/package/xtask_package_install.z42，按 kind 分派）：固定形态组件从构建产物拷到 `dest`，
+# （scripts/src/package/install.z42，按 kind 分派）：固定形态组件从构建产物拷到 `dest`，
 # apphost 组件 `z42b publish <project> --output <包目录>`。
 #
 # 组件分两类，纯按"谁控制它的构建"区分：

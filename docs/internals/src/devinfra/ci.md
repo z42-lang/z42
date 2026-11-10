@@ -158,7 +158,7 @@ setup、安装器 `scripts/install-z42.*`、`ci.yml`、`.github/actions/`——�
 |---|---|
 | `docs/`、`*.md` | 文档 |
 | `**/tests/**`、`**/benches/**`、`examples/` | 测试 / bench 源码与夹具、学习手册示例，不进包 |
-| `scripts/test/`、`scripts/check/`、`scripts/bench/` | xtask 只做测试 / 检查 / 性能编排的部分 |
+| `scripts/src/test/`、`scripts/src/bench/`、`scripts/src/common/harness/` | xtask 只做测试 / 检查 / 性能编排的部分与测试执行机制 |
 | `.github/workflows/{bench-pr,deploy-book,jit-fixpoint-check}.yml` | 不参与发布的 workflow |
 
 SoT 是脚本里的 `non_sdk_re`，这张表随它改。
@@ -235,14 +235,14 @@ gh workflow run retry-ci-runner.yml --ref main -f run_id=<失败运行ID>
 
 | flag | 命中路径（节选） |
 |---|---|
-| `platform` | `src/runtime/**`（排除顶层 Rust 测试与纯测试数据）、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder、interactive、launcher 排除私有 `tests/`）、`scripts/{package/**,packages.toml,setup/**}`、`scripts/common/xtask_{packages_config,publish,versions,layout}.z42`、`scripts/test/xtask_test_{app,platform,wasm,ios,android,desktop,embedded}*.z42`、`scripts/versions.toml` |
-| `sdk_checks` | `scripts/test/sdk/**`、`scripts/install-z42.{sh,ps1,bat,command}`（安装器）、`src/toolchain/launcher/tests/fixtures/package/**`（桌面发行包验证） |
+| `platform` | `src/runtime/**`（排除顶层 Rust 测试与纯测试数据）、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder、interactive、launcher 排除私有 `tests/`）、`scripts/src/{package,setup}/**`、`scripts/packages.toml`、`scripts/src/common/{packages_config,publish,versions,layout}.z42`、`scripts/src/common/harness/fixtures.z42`、`scripts/src/test/app/**`、`scripts/versions.toml` |
+| `sdk_checks` | `scripts/src/test/sdk/**`、`scripts/install-z42.{sh,ps1,bat,command}`（安装器）、`src/toolchain/launcher/tests/fixtures/package/**`（桌面发行包验证） |
 | `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
 | `compiler` | `src/compiler/**`（排除私有 `tests/**` 与 `benches/**`） |
-| `compiler_checks` | `src/compiler/**`（含私有用例）、`scripts/build/xtask_compiler*.z42`、`scripts/test/xtask_selfcheck_{selfhost,compiler_projects}.z42`、`src/toolchain/devtools/vscode/**` |
-| `vm` | `src/runtime/**`（含 `.cargo/`，排除顶层 Rust 测试与纯测试数据）、`scripts/test/xtask_test_runtime.z42` |
-| `runtime_checks` | `src/runtime/**`（含私有集成测试与数据）、`scripts/test/xtask_test_runtime.z42`；控制四个平台的完整 Rust harness |
-| `stdlib` | `src/libraries/**`、`src/compiler/**/tests/**`、`src/toolchain/builder/**`（排除 builder 私有 `tests/`；z42b 是 [Test] 执行器）、`scripts/test/xtask_test_lib*.z42`、`scripts/common/xtask_golden.z42` |
+| `compiler_checks` | `src/compiler/**`（含私有用例）、`scripts/src/build/compiler*.z42`、`scripts/src/test/compiler/{runner,e2e,selfhost,selfhost_selfcheck,projects_selfcheck}.z42`、`scripts/src/common/projects.z42`、`src/toolchain/devtools/vscode/**` |
+| `vm` | `src/runtime/**`（含 `.cargo/`，排除顶层 Rust 测试与纯测试数据）、`scripts/src/test/runtime/runner.z42` |
+| `runtime_checks` | `src/runtime/**`（含私有集成测试与数据）、`scripts/src/test/runtime/runner.z42`；控制四个平台的完整 Rust harness |
+| `stdlib` | `src/libraries/**`、`src/compiler/**/tests/**`、`src/toolchain/builder/**`（排除 builder 私有 `tests/`；z42b 是 [Test] 执行器）、`scripts/src/test/stdlib/runner.z42`、`scripts/src/common/harness/{package_units,manifest_targets,unit_projects}.z42`、`scripts/src/common/{projects,golden}.z42` |
 
 builder 的生产输入同时触发 `platform` 与 `stdlib`：z42b 既是 [Test] 执行器，它的 `publish`
 （apphost / iOS / Android 导出）又只在 `package-*` 里被执行，不能只跑标准库专项。
@@ -521,7 +521,7 @@ minor 不一致就会把所有 job 推进两代自举那条已知会挂的路。
 |---|---|---|
 | `bench-pr.yml` | `bench-regression(linux-x64)` | 同 runner A/B 性能门；用窄 `paths:` allowlist，纯文档 PR 天然跳过 |
 | `release.yml` | `verify-version` / `package-<rid>` ×9 / `publish-release` | tag 触发的正式发布，见[打包与发版](release.md) |
-| `deploy-book.yml` | `build` / `deploy` | 三本书 + 安装脚本发到 GitHub Pages；构建前 xtask-only bootstrap 后 `xtask build docs` 现生成 reference 的 stdlib 包页（不入库），所以 stdlib 源码 / `z42.doc` / `xtask_doc.z42` 的改动也触发 |
+| `deploy-book.yml` | `build` / `deploy` | 三本书 + 安装脚本发到 GitHub Pages；构建前 xtask-only bootstrap 后 `xtask build docs` 现生成 reference 的 stdlib 包页（不入库），所以 stdlib 源码 / `z42.doc` / `scripts/src/build/docs/generate.z42` 的改动也触发 |
 | `jit-fixpoint-check.yml` | `jit-fixpoint(<rid>)` | JIT 不动点实验腿 |
 | `retry-ci-runner.yml` | `retry` | PR CI 的 hosted runner 获取失败有限重试，见上文资源队列与恢复规则 |
 

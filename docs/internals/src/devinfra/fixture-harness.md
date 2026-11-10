@@ -1,8 +1,8 @@
 # 声明式夹具（expect.toml）
 
-> 代码：`scripts/common/xtask_fixture_harness.z42`（引擎）、`scripts/build/xtask_compiler_e2e.z42`（z42c 套件）、
-> `scripts/test/xtask_test_builder.z42`（z42b 套件）、`scripts/common/xtask_fixture_tools.z42`（开发树工具）、
-> `scripts/test/sdk/xtask_package_verify.z42`（发行包套件）
+> 代码：`scripts/src/common/harness/fixtures.z42`（引擎）、`scripts/src/test/compiler/e2e.z42`（z42c 套件）、
+> `scripts/src/test/toolchain/builder_fixtures.z42`（z42b 套件）、`scripts/src/common/harness/fixture_tools.z42`（开发树工具）、
+> `scripts/src/test/sdk/verify.z42`（发行包套件）
 > 相关：[测试用例组织规范](test-layout.md) · [GREEN gate](test-gate.md) · [产物目录布局](artifacts-layout.md)
 
 ## 概述
@@ -120,12 +120,12 @@
 
 | 组件 | 位置 |
 |------|------|
-| 引擎：`FixtureSuite` / `FixtureTool` / 环境合并 / 判定 | `scripts/common/xtask_fixture_harness.z42` |
-| z42c 套件（开发树 z42c / z42b / z42vm） | `scripts/build/xtask_compiler_e2e.z42` 的 `_testCompilerCliFixtures` |
-| 开发树进程工厂：`DevFixtureTool` | `scripts/common/xtask_fixture_tools.z42` |
-| z42b 套件 | `scripts/test/xtask_test_builder.z42` 的 `_testBuilderCliFixtures` |
-| 发行包套件（包内 z42 / z42c / z42b / z42vm / 发布出的程序） | `scripts/test/sdk/xtask_package_verify.z42` 的 `_distFixtureSuite` |
-| 暂存（拷整棵夹具树，跳过 `artifacts/` / `dist/`） | `scripts/common/xtask_fs.z42` 的 `_stageFixtureTree` / `_copySourceTree` |
+| 引擎：`FixtureSuite` / `FixtureTool` / 环境合并 / 判定 | `scripts/src/common/harness/fixtures.z42` |
+| z42c 套件（开发树 z42c / z42b / z42vm） | `scripts/src/test/compiler/e2e.z42` 的 `_testCompilerCliFixtures` |
+| 开发树进程工厂：`DevFixtureTool` | `scripts/src/common/harness/fixture_tools.z42` |
+| z42b 套件 | `scripts/src/test/toolchain/builder_fixtures.z42` 的 `_testBuilderCliFixtures` |
+| 发行包套件（包内 z42 / z42c / z42b / z42vm / 发布出的程序） | `scripts/src/test/sdk/verify.z42` 的 `_distFixtureSuite` |
+| 暂存（拷整棵夹具树，跳过 `artifacts/` / `dist/`） | `scripts/src/common/fs.z42` 的 `_stageFixtureTree` / `_copySourceTree` |
 
 ## 边界与限制
 

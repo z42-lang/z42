@@ -1,0 +1,294 @@
+// xtask — `test compiler incremental`：增量 vs 全量的暴力对账器（增量编译的硬验收）。
+//
+// 对每个语料工程：全量基线 → 逐文件 append 注释 touch → 增量 build → 与同源态 `--no-incremental` 全量 build 的
+// **dist 全部文件（主 zpkg + 散装 zbc）逐文件字节**比对 → 还原。任一不等即红并指名文件。语料 toml 无 pack →
+// debug 默认 indexed，故最小 patch 面（散装 zbc 字节稳定）天然纳入对账。
+// 逐文件注释轮之后再跑两轮：**改声明**（`_reconcileDeclTouch`，逐文件追加一个新自由函数 —— 注释轮碰不到声明面，
+// 名字级失效判据的主战场全靠它）与 **dist 被清空 + cache 全命中**（`_reconcileDistWiped`，「全命中但必须从 cache
+// 重新装配」那条路径）。最后是 stdlib 整体读回（`test/compiler/incremental_workspace.z42`）。
+// 同时输出增量 vs 全量的墙钟计时（逐工程汇总）——「更快」是被测量的事实。
+//
+// 语料：
+//   ① demo / demo-packed —— 合成多特性工程（跨文件类引用/继承/接口/try·catch/switch/数组/闭包/静态），
+//      覆盖 label 残留（多块函数）与 import token 路径；packed 变体让读回 IR 的缺陷变成字节差异；
+//   ② xtask 自身 —— 真实多文件工程。
+// 运行于 z42c.pipeline 的 tests/ 输出下的 incremental/（拷贝源，不动真实工程）。
+//
+// 本文件只做「逐文件变异 × 增量 == 全量」这种按语料枚举的对账。固定剧本的缓存行为判据（旋钮生效、清单身份进缓存键、
+// 改泛型体失效消费方、警告活过缓存命中）是 z42c 命令行夹具（`src/compiler/z42c.driver/tests/fixtures/cli/`，
+// 由 `xtask test compiler` 跑）。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Time;
+using Std.Crypto;
+using Std.Encoding;
+using Std.Collections;
+using Z42.Project;
+
+int _testIncremental() {
+    Stopwatch sw = _procStart("test compiler incremental");
+    string root = _root();
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root, "release");
+    if (!File.Exists(vm) || !File.Exists(driver)) {
+        int bc = _buildCompiler();
+        if (bc != 0) { return bc; }
+    }
+    string libs = _libsDir(root);
+    string scratch = _workOut(root, "src/compiler/z42c.pipeline", "incremental");
+    if (Directory.Exists(scratch)) { Directory.Delete(scratch, true); }
+
+    int rc = _reconcileProject(vm, driver, libs, _incrDemoDir(scratch), "demo");
+    if (rc != 0) { return rc; }
+    rc = _reconcileProject(vm, driver, libs, _incrDemoPackedDir(scratch), "demo-packed");
+    if (rc != 0) { return rc; }
+    rc = _reconcileProject(vm, driver, libs, _incrXtaskCopy(root, scratch), "xtask");
+    if (rc != 0) { return rc; }
+    rc = _reconcileStdlibReadback(root, vm, driver, libs, scratch);
+    if (rc != 0) { return rc; }
+
+    Console.WriteLine("\n✅ incremental reconciler: all dist files byte-identical (demo + demo-packed + xtask + stdlib readback)");
+    _procEnd("test compiler incremental", sw);
+    return 0;
+}
+
+// 逐文件 touch 对账一个工程。projDir 内须有 t.z42.toml（dist 落 projDir/dist）。
+int _reconcileProject(string vm, string driver, string libs, string projDir, string label) {
+    Console.WriteLine("\n── reconcile: " + label + " (" + projDir + ") ──");
+    string toml = Path.Join(projDir, "t.z42.toml");
+    string[] srcs = _sortedStrings(Path.GlobRecursive(projDir, "*.z42"));
+    // 初始 build（填 cache）。
+    if (_incrBuild(vm, driver, libs, toml, false) != 0) { ConsoleError.WriteLine("  ✗ initial build failed"); return 1; }
+    double incrMs = 0.0;
+    double fullMs = 0.0;
+    foreach (var f in srcs) {
+        string orig = File.ReadAllText(f);
+        File.WriteAllText(f, orig + "\n// incr-reconcile-touch\n");
+        Stopwatch ti = Stopwatch.StartNew();
+        int c1 = _incrBuild(vm, driver, libs, toml, false);
+        incrMs = incrMs + ti.Elapsed().TotalMilliseconds();
+        if (c1 != 0) { ConsoleError.WriteLine("  ✗ incr build failed after touching " + f); File.WriteAllText(f, orig); return 1; }
+        DistSnapZ snapA = _distSnapshot(projDir);
+        Stopwatch tf = Stopwatch.StartNew();
+        int c2 = _incrBuild(vm, driver, libs, toml, true);
+        fullMs = fullMs + tf.Elapsed().TotalMilliseconds();
+        if (c2 != 0) { ConsoleError.WriteLine("  ✗ full build failed after touching " + f); File.WriteAllText(f, orig); return 1; }
+        DistSnapZ snapB = _distSnapshot(projDir);
+        string mism = _snapshotDiff(snapA, snapB);
+        if (mism.Length > 0) {
+            ConsoleError.WriteLine("  ✗ MISMATCH: incremental != full after touching " + f + " (" + mism + ")");
+            File.WriteAllText(f, orig);
+            return 1;
+        }
+        File.WriteAllText(f, orig);   // 还原（下轮 hash 回原值 → 该文件重编，正确性不受影响）
+    }
+    Console.WriteLine("  ✓ " + srcs.Length.ToString() + "/" + srcs.Length.ToString()
+        + " files byte-identical (whole dist); wall-clock incr=" + incrMs.ToString() + "ms full=" + fullMs.ToString()
+        + "ms (D8: per-touch avg " + (incrMs / (double)srcs.Length).ToString() + "ms vs "
+        + (fullMs / (double)srcs.Length).ToString() + "ms)");
+    int dc = _reconcileDeclTouch(vm, driver, libs, projDir, toml, srcs);
+    if (dc != 0) { return dc; }
+    return _reconcileDistWiped(vm, driver, libs, projDir, toml);
+}
+
+// 「改声明」轮：注释轮碰不到声明面，名字级失效判据（新增名字 / 名字指纹变化 / 传播）要靠本轮。
+// 逐文件在末尾追加一个**新的自由函数声明**（= 新名字 + 该文件声明面变化），再做同款
+// 「增量 dist == 全量 dist 逐字节」对账。名字每轮唯一、且随即还原，故不会跨文件撞名。
+int _reconcileDeclTouch(string vm, string driver, string libs, string projDir, string toml, string[] srcs) {
+    int i = 0;
+    while (i < srcs.Length) {
+        string f = srcs[i];
+        string orig = File.ReadAllText(f);
+        File.WriteAllText(f, orig + "\nint __incrDeclProbe" + i.ToString() + "() { return " + i.ToString() + "; }\n");
+        int c1 = _incrBuild(vm, driver, libs, toml, false);
+        if (c1 != 0) { ConsoleError.WriteLine("  ✗ decl-touch incr build failed after " + f); File.WriteAllText(f, orig); return 1; }
+        DistSnapZ snapA = _distSnapshot(projDir);
+        int c2 = _incrBuild(vm, driver, libs, toml, true);
+        if (c2 != 0) { ConsoleError.WriteLine("  ✗ decl-touch full build failed after " + f); File.WriteAllText(f, orig); return 1; }
+        DistSnapZ snapB = _distSnapshot(projDir);
+        string mism = _snapshotDiff(snapA, snapB);
+        if (mism.Length > 0) {
+            ConsoleError.WriteLine("  ✗ MISMATCH: incremental != full after declaring a new function in " + f + " (" + mism + ")");
+            File.WriteAllText(f, orig);
+            return 1;
+        }
+        File.WriteAllText(f, orig);
+        i = i + 1;
+    }
+    Console.WriteLine("  ✓ decl-touch (new free function per file): " + srcs.Length.ToString() + "/" + srcs.Length.ToString()
+        + " byte-identical to full");
+    return 0;
+}
+
+// 「全命中 + 必须重新装配」这一轮：源一个没动（cache 全命中），但 dist 被清掉 → 不能走 `preserved`
+// 捷径，必须拿**全部 cached IrModule** 重新装配 dist，且与全量逐字节相同。这条路径若悄悄退化成
+// 「整包重编」结果照样对，逐文件 touch 那轮抓不到。
+int _reconcileDistWiped(string vm, string driver, string libs, string projDir, string toml) {
+    string dist = Path.Join(projDir, "dist");
+    // 基线：全量重建一次 dist（源未动）。
+    if (_incrBuild(vm, driver, libs, toml, true) != 0) { ConsoleError.WriteLine("  ✗ dist-wiped: full baseline build failed"); return 1; }
+    DistSnapZ full = _distSnapshot(projDir);
+    // 清 dist（cache 保留）→ 增量重建：全命中但无法 preserved，只能从 cache 装配。
+    if (Directory.Exists(dist)) { Directory.Delete(dist, true); }
+    if (_incrBuild(vm, driver, libs, toml, false) != 0) { ConsoleError.WriteLine("  ✗ dist-wiped: incremental rebuild failed"); return 1; }
+    DistSnapZ fromCache = _distSnapshot(projDir);
+    string mism = _snapshotDiff(fromCache, full);
+    if (mism.Length > 0) {
+        ConsoleError.WriteLine("  ✗ MISMATCH: dist wiped + all-cached reassembly != full (" + mism + ")");
+        return 1;
+    }
+    Console.WriteLine("  ✓ dist wiped + all-cached reassembly: " + fromCache.N.ToString() + "/" + fromCache.N.ToString()
+        + " files byte-identical to full");
+    return 0;
+}
+
+int _incrBuild(string vm, string driver, string libs, string toml, bool noIncremental) {
+    Process p = _z42cProc(vm, libs, driver).Arg("build").Arg(toml);
+    if (noIncremental) { p = p.Arg("--no-incremental"); }
+    return p.Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
+}
+
+// ── dist 快照（rel 排序列表 + blake3-128 指纹并行数组；z42 无交错 byte[][]）────────
+
+public sealed class DistSnapZ {
+    public string[] Rels;
+    public string[] Hashes;
+    public int      N;
+    public DistSnapZ(string[] rels, string[] hashes, int n) {
+        this.Rels = rels; this.Hashes = hashes; this.N = n;
+    }
+}
+
+DistSnapZ _distSnapshot(string projDir) {
+    string dist = Path.Join(projDir, "dist");
+    List<string> files = new List<string>();
+    files.AddRange(Path.GlobRecursive(dist, "*.zpkg"));
+    files.AddRange(Path.GlobRecursive(dist, "*.zbc"));
+    string[] all = _sortedStrings(files.ToArray());
+    string[] hs = new string[all.Length];
+    for (int i = 0; i < all.Length; i = i + 1) {
+        hs[i] = Hex.Encode(Blake3.HashLen(File.ReadAllBytes(all[i]), 16));
+    }
+    return new DistSnapZ(all, hs, all.Length);
+}
+
+// 逐文件（rel 与指纹）比较；返回首个不一致描述（"" = 全等）。
+string _snapshotDiff(DistSnapZ a, DistSnapZ b) {
+    if (a.N != b.N) { return "file count " + a.N.ToString() + " vs " + b.N.ToString(); }
+    int i = 0;
+    while (i < a.N) {
+        if (a.Rels[i] != b.Rels[i]) { return "file set differs: " + a.Rels[i] + " vs " + b.Rels[i]; }
+        if (a.Hashes[i] != b.Hashes[i]) { return "bytes differ: " + a.Rels[i]; }
+        i = i + 1;
+    }
+    return "";
+}
+
+// 合成 demo 工程：跨文件引用链 + 多块函数（if/switch/try）+ 接口/继承/静态/数组 + 方法级泛型 + struct 值类型。
+string _incrDemoDir(string scratch) { return _incrDemoDirNamed(scratch, "demo", false); }
+
+// packed 变体（workspace-read-cache）：indexed 布局下 cache 的 .zbc 原样拷进 dist，读回 IR 的缺陷（如方法级泛型
+// 形参没恢复）照不出来；packed 从读回的 IrFunction 重新生成 SIGS/MODS，才会让这类缺陷变成字节差异。
+string _incrDemoPackedDir(string scratch) { return _incrDemoDirNamed(scratch, "demo-packed", true); }
+
+string _incrDemoDirNamed(string scratch, string name, bool pack) {
+    string d = Path.Join(scratch, name);
+    Directory.Create(d);
+    File.WriteAllText(Path.Join(d, "t.z42.toml"),
+        "[project]\nname = \"incrpkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n" + (pack ? "pack = true\n" : "")
+        + "[sources]\ninclude = [\"**/*.z42\"]\n");
+    File.WriteAllText(Path.Join(d, "gen.z42"),
+        "namespace D;\n"
+        + "public static class Gen {\n"
+        + "    public static T Pick<T>(T a, T b, bool first) { if (first) { return a; } return b; }\n"
+        + "    public static int Count<T>(T[] xs) { return xs.Length; }\n"
+        + "}\n"
+        + "public struct Pt { public int X; public int Y; }\n"
+        + "public static class PtOps { public static int Sum(int a) { Pt p = new Pt(); p.X = a; p.Y = 2; Pt q = p; return q.X + q.Y; } }\n");
+    File.WriteAllText(Path.Join(d, "shape.z42"),
+        "namespace D;\n"
+        + "public interface IShape { int Area(); }\n"
+        + "public class Rect : IShape {\n"
+        + "    public int W;\n    public int H;\n"
+        + "    public static int Made = 0;\n"
+        + "    public Rect(int w, int h) { this.W = w; this.H = h; Rect.Made = Rect.Made + 1; }\n"
+        + "    public virtual int Area() { return this.W * this.H; }\n"
+        + "}\n");
+    File.WriteAllText(Path.Join(d, "square.z42"),
+        "namespace D;\n"
+        + "public class Square : Rect {\n"
+        + "    public Square(int s) : base(s, s) { }\n"
+        + "    public override int Area() { return this.W * this.W; }\n"
+        + "}\n");
+    File.WriteAllText(Path.Join(d, "calc.z42"),
+        "namespace D;\n"
+        + "public class Calc {\n"
+        + "    public int Sum(int n) {\n"
+        + "        int[] xs = new int[]{ 1, 2, 3 };\n"
+        + "        int acc = 0;\n"
+        + "        int i = 0;\n"
+        + "        while (i < xs.Length) { acc = acc + xs[i]; i = i + 1; }\n"
+        + "        switch (n) {\n"
+        + "            case 0: acc = acc + 10;\n"
+        + "            default: acc = acc - 1;\n"
+        + "        }\n"
+        + "        try {\n"
+        + "            var sq = new Square(n);\n"
+        + "            acc = acc + sq.Area();\n"
+        + "        } catch (Exception e) {\n"
+        + "            acc = 0 - 1;\n"
+        + "        }\n"
+        + "        return acc + Rect.Made;\n"
+        + "    }\n"
+        + "}\n");
+    File.WriteAllText(Path.Join(d, "strings.z42"),
+        "namespace D;\n"
+        + "string Banner(string who) { string p = \"hi, \"; return p + who + \"!\"; }\n"
+        + "double Ratio(double a) { double k = 2.5; return a / k; }\n");
+    File.WriteAllText(Path.Join(d, "leaf.z42"),
+        "namespace D;\nint LeafOnly() { return 42; }\nint UseGen() { int[] xs = new int[]{ 1, 2 }; return Gen.Pick<int>(Gen.Count<int>(xs), 0, true); }\n");
+    return d;
+}
+
+// 拷贝 xtask 源到 scratch，替换独立 toml（dist 落本地，不动真品）。
+string _incrXtaskCopy(string root, string scratch) {
+    string d = Path.Join(scratch, "xtask");
+    Directory.Create(d);
+    string src = Path.Join(root, "scripts");
+    foreach (var f in _sortedStrings(Path.GlobRecursive(src, "*.z42"))) {
+        string rel = f.Substring(src.Length + 1);
+        string dst = Path.Join(d, rel);
+        string parent = Path.GetDirectoryName(dst);
+        if (parent.Length > 0) { Directory.Create(parent); }
+        File.Copy(f, dst);
+    }
+    File.WriteAllText(Path.Join(d, "t.z42.toml"),
+        "[project]\nname = \"incrpkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n[sources]\ninclude = [\"**/*.z42\"]\n"
+        + _incrXtaskDeps(src));
+    return d;
+}
+
+// 真品 `scripts/xtask.z42.toml` 的依赖，改写成拷贝里可用的 `[dependencies]` 段（没有 → ""）。
+//
+// SDK 库**声明了才可见**（`Z42.Project` / `Z42.Build` 不在 stdlib flat 里），替身清单不带依赖就编不过。
+// 从真品清单读而不是在这里抄一份：xtask 加减依赖时本门自动跟上（本门不在 GREEN 也不在 CI 里，坏了没人发现）。
+//   · 按名依赖：照抄名字 + 版本。`deploy` 不抄：替身是 `kind = "lib"`，不打包，部署无意义。
+//   · path 依赖：相对路径改写成绝对路径（依赖 path 不支持宏）。
+string _incrXtaskDeps(string scriptsDir) {
+    ProjectManifest m = ManifestLoader.Load(Path.Join(scriptsDir, "xtask.z42.toml"));
+    string s = "";
+    int i = 0;
+    while (i < m.DepCount) {
+        DepEntry e = m.Deps[i];
+        if (e.Path.Length > 0) {
+            string p = Path.Normalize(Path.Join(scriptsDir, e.Path)).Replace("\\", "/");
+            s = s + "\"" + e.Name + "\" = { path = \"" + p + "\" }\n";
+        } else {
+            string v = e.Version.Length > 0 ? e.Version : "*";
+            s = s + "\"" + e.Name + "\" = \"" + v + "\"\n";
+        }
+        i = i + 1;
+    }
+    return s.Length > 0 ? "[dependencies]\n" + s : "";
+}

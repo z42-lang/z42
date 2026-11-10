@@ -7,7 +7,7 @@
 > `src/toolchain/workload/test/agent/src/agent.z42`（test-agent）、
 > `src/toolchain/workload/desktop/shell/testhost.c`（desktop C 壳）、
 > `src/toolchain/workload/wasm/platform/src/lib.rs` + `wasm/testhost/`（浏览器面）、
-> `scripts/test/xtask_test_embedded_corpus.z42`（语料枚举 / 采样 / 分片）、
+> `scripts/src/test/app/embedded_corpus.z42`（语料枚举 / 采样 / 分片）、
 > `src/runtime/.cargo/config.toml`（wasm shadow stack）。
 >
 > 平台管线与 CI 拓扑见 [跨平台测试](cross-platform.md)；runner 协议见 [测试框架机制](framework.md)。
@@ -128,7 +128,7 @@ readAsset(path) -> bytes               // 读回报告文件
 
 ## 5. 语料 bundle 的三步流水线
 
-`_buildTestBundle`（`scripts/test/xtask_test_embedded_corpus.z42`）把三个关注点解耦：
+`_buildTestBundle`（`scripts/src/test/app/embedded_corpus.z42`）把三个关注点解耦：
 
 ```
 _enumerateCorpus(root, filter)        → _CorpusCase[]   （结构化，rid 无关）
@@ -225,6 +225,6 @@ z42 解释器**在原生调用栈上递归**——每次 z42 调用一层原生�
 | 嵌入入口（所有原生壳共用） | `src/runtime/src/host/mod.rs` 的 C 符号 + `src/runtime/include/z42_host.h` |
 | agent 的命令面 / 报告通道 | `src/toolchain/workload/test/agent/src/agent.z42` |
 | bundle 的跑法（golden 隔离 / unit 共享） | `src/libraries/z42.harness/src/BundleRunner.z42` |
-| 语料枚举 / 采样 / 分片 | `scripts/test/xtask_test_embedded_corpus.z42` |
+| 语料枚举 / 采样 / 分片 | `scripts/src/test/app/embedded_corpus.z42` |
 | wasm 宿主面 | `src/toolchain/workload/wasm/platform/src/lib.rs` + `wasm/testhost/` |
 | 栈预算 | mobile：`host/mod.rs` 的 `EMBED_STACK`；wasm：`src/runtime/.cargo/config.toml` 的 `-zstack-size` |

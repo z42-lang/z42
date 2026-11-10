@@ -1,0 +1,36 @@
+// Relink published archives into two final modules, then execute both in Node.
+namespace Z42Xtask;
+using Std.IO;
+
+int _componentWasmVerify(string root, string pkg, string zbc, string work) {
+    string sysroot = _cmdOut("rustc", new string[]{ "--print", "sysroot" }).Trim();
+    string host = _cmdOut("rustc", new string[]{ "--print", "host-tuple" }).Trim();
+    string lld = Path.Join(sysroot, "lib/rustlib/" + host + "/bin/rust-lld" + (Platform.IsWindows() ? ".exe" : ""));
+    string fixture = Path.Join(root, "scripts/src/package/fixtures/wasm_components");
+    string native = Path.Join(pkg, "native");
+    foreach (var composition in new string[]{ "minimal", "compression" }) {
+        bool compression = composition == "compression";
+        string obj = Path.Join(work, composition + ".o");
+        string wasm = Path.Join(work, composition + ".wasm");
+        Process compile = new Process("rustc").Arg("--edition=2021").Arg("--crate-type=lib")
+            .Arg("--target").Arg("wasm32-unknown-unknown").Arg("--emit=obj")
+            .Arg("-C").Arg("panic=abort").Arg(fixture + ".rs").Arg("-o").Arg(obj);
+        if (compression) { compile = compile.Arg("--cfg").Arg("compression"); }
+        int c = _exec(compile); if (c != 0) { return c; }
+        Process link = new Process(lld).Arg("-flavor").Arg("wasm").Arg("--no-entry")
+            .Arg("--export=input").Arg("--export=index_package").Arg("--export=run").Arg("--export-memory")
+            .Arg("--allow-undefined").Arg("-z").Arg("stack-size=16777216").Arg(obj)
+            .Arg(Path.Join(native, "libz42_interp.a"));
+        if (compression) { link = link.Arg(Path.Join(native, "libz42_compression.a")); }
+        link = link.Arg(Path.Join(native, "libz42.a")).Arg("-o").Arg(wasm);
+        // rustc normally supplies this for its bundled linker on macOS.
+        if (Platform.IsMacOS()) { link = link.Env("DYLD_LIBRARY_PATH", Path.Join(sysroot, "lib")); }
+        c = _exec(link); if (c != 0) { return c; }
+        c = _exec(new Process("wasm-tools").Arg("validate").Arg(wasm)); if (c != 0) { return c; }
+        c = _exec(new Process("node").Arg(fixture + ".mjs").Arg(wasm).Arg(Path.Join(pkg, "libs"))
+            .Arg(zbc).Arg(compression ? "true" : "false"));
+        if (c != 0) { return c; }
+    }
+    return _exec(new Process("node").Arg(fixture + ".mjs").Arg(Path.Join(pkg, "pkg-nodejs/z42_wasm.js"))
+        .Arg(Path.Join(pkg, "libs")).Arg(zbc).Arg("default"));
+}

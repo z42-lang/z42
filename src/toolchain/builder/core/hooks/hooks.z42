@@ -36,7 +36,7 @@ public class ProjectHooks : BuildHooks {
         ctx.Log("z42b hooks: generated " + pins);
     }
 
-    // 与 scripts/common/xtask_versions.z42 的 _syncBuilderPins 渲染逐字一致。
+    // 与 scripts/src/common/versions.z42 的 _syncBuilderPins 渲染逐字一致。
     static string _render(string iosMin) {
         return "// GENERATED from scripts/versions.toml — do not edit, not committed.\n"
             + "namespace Z42Builder;\n\n"

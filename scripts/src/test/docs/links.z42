@@ -1,0 +1,327 @@
+// xtask — 文档机械门禁（`xtask test docs`）。不需要 SDK，秒级。
+//
+// 纯文档 PR 只跑本门 + diagcodes，所以读文档的检查必须都在这里：
+//   ① 仓内相对链接必须能解析到真实文件 / 目录（死链一律红，无存量豁免，无 `--update`）；
+//      reference/stdlib 的生成页不入库，先 `build docs` 生成，手写页链进去的链接和生成页自己的链接一起查
+//   ② 书 / README / 代码不引用 docs/agent
+//   ③ 目录 README 有「关联文档」段
+//
+// 有意不查：外部 URL（联网让门禁慢且不稳）、纯锚点 `#section`（要解析标题生成 slug）、
+// 代码块内容（示例文本，见 _stripFences）。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+
+int _testDocs(string root) {
+    Console.WriteLine("▶ test docs");
+    if (_docGen() != 0) { return 1; }
+    Console.WriteLine("① 相对链接可解析");
+    string[] found = _collectDeadLinks(root);
+    if (found.Length > 0) {
+        foreach (var f in found) { ConsoleError.WriteLine("  ✗ " + f); }
+        Console.WriteLine("");
+        ConsoleError.WriteLine("  ❌ docs: " + found.Length.ToString() + " 条死链");
+        ConsoleError.WriteLine("     链接目标按所在文件的目录解析；跨书链接请用相对路径或完整 URL。");
+        return 1;
+    }
+    // ② 分层链接方向（doc-system §2.1）：三本书与 README 不得引用 docs/agent。
+    if (_checkAgentRefs(root) != 0) { return 1; }
+    // ③ 目录 README → 书的链路：src/ 第 2、3 层的目录 README 必有「关联文档」段。
+    if (_checkReadmeRelatedDocs(root) != 0) { return 1; }
+    Console.WriteLine("✔ test docs");
+    return 0;
+}
+
+// ③ 目录 README 必有 `## 关联文档`：README 是入口、书是细节，人和 AI 都是「先读目录 README，再顺着
+// 关联文档进书」。这一段缺了，链路就断在目录层——而缺段不会让任何死链检查变红，只能正向断言。
+// 范围与「哪层目录要 README」一致：`src/<X>/README.md` 与 `src/<X>/<Y>/README.md`。
+int _checkReadmeRelatedDocs(string root) {
+    Console.WriteLine("③ 目录 README 有「关联文档」段");
+    int bad = 0;
+    foreach (var file in _docMarkdownFiles(root)) {
+        string rel = _relToRoot(root, file);
+        int depth = rel.Split("/").Length;
+        if (rel.StartsWith("src/") && rel.EndsWith("/README.md") && (depth == 3 || depth == 4)) {
+            string text = "\n" + _stripFences(File.ReadAllText(file));
+            if (!text.Contains("\n## 关联文档")) {
+                ConsoleError.WriteLine("  ✗ " + rel);
+                bad = bad + 1;
+            }
+        }
+    }
+    if (bad > 0) {
+        Console.WriteLine("");
+        ConsoleError.WriteLine("  ❌ docs: " + bad.ToString() + " 个目录 README 缺「## 关联文档」段");
+        ConsoleError.WriteLine("     列出这个目录在参考手册 / 实现内幕里对应的页（模板见目录 README 六段制）。");
+        return 1;
+    }
+    Console.WriteLine("  ✓ 全部目录 README 都链到了书");
+    return 0;
+}
+
+// ② 分层链接方向：**三本书与 README 不得引用 `docs/agent`**（规范只在 agent，书 / README 只链书）。
+//
+// 为什么要单列一条正向断言（而不是靠上面的死链检查）：agent 的规范文件改动最频繁（改名 / 删并），
+// 而跨书那批引用多是**绝对 GitHub URL**，死链检查只查仓内相对路径、照不到它们 ⇒ 只能正向禁止。
+//
+// 豁免两处（doc-system §2.1）：① agent 自己；② 仓库门面 `README.md` 与 `docs/README.md` 的分流导航
+// —— 它们本身就是「文档与代码的总入口」，不指路会让贡献者找不到规范。
+int _checkAgentRefs(string root) {
+    Console.WriteLine("② 分层链接：书 / README / 代码不引用 agent");
+    int bad = 0;
+    foreach (var file in _docMarkdownFiles(root)) {
+        string rel = _relToRoot(root, file);
+        if (rel.StartsWith("docs/agent/") || rel == "README.md" || rel == "docs/README.md") { continue; }
+        foreach (var line in _stripFences(File.ReadAllText(file)).Split("\n")) {
+            foreach (var target in _linkTargets(line)) {
+                if (target.Contains("docs/agent/") || target.Contains("agent/rules/")) {
+                    ConsoleError.WriteLine("  ✗ " + rel + " -> " + target);
+                    bad = bad + 1;
+                }
+            }
+        }
+    }
+    bad = bad + _checkCodeAgentRefs(root);
+    if (bad > 0) {
+        Console.WriteLine("");
+        ConsoleError.WriteLine("  ❌ docs: " + bad.ToString() + " 处书 / README / 代码引用了 docs/agent（规则见 doc-system §2.1）");
+        ConsoleError.WriteLine("     规范在 docs/agent/；书、README、代码注释只能指向三本书。需要引用某条规范时，");
+        ConsoleError.WriteLine("     改写为不带链接的散文陈述事实，或指向书里讲这件事的页。");
+        return 1;
+    }
+    Console.WriteLine("  ✓ 无越层引用");
+    return 0;
+}
+
+// 扫全仓 markdown 的相对链接。返回死链条目（`<文件> -> <目标>`，不含行号——行号会随编辑漂移，
+// 基线要对编辑稳定）。
+string[] _collectDeadLinks(string root) {
+    string[] files = _docMarkdownFiles(root);
+    var acc = new List<string>();
+    int checked = 0;
+    foreach (var file in files) {
+        DocScan sc = _checkOneDoc(root, file);
+        checked = checked + sc.Checked;
+        acc.AddRange(sc.Dead);
+    }
+    Console.WriteLine("  扫描 " + files.Length.ToString() + " 篇，检查 "
+        + checked.ToString() + " 条相对链接");
+    return acc.ToArray();
+}
+
+sealed class DocScan {
+    public int Checked;
+    public string[] Dead;
+    public DocScan(int checkedCount, string[] dead) { this.Checked = checkedCount; this.Dead = dead; }
+}
+
+// 参与检查的 markdown：docs/ 全部 + 根 README + src/**/README.md + scripts/README.md。
+string[] _docMarkdownFiles(string root) {
+    var acc = new List<string>();
+    // EnumerateRecursive 返回的是**相对传入目录**的子路径，须自行拼回。
+    string docs = Path.Join(root, "docs");
+    foreach (var f in Directory.EnumerateRecursive(docs)) {
+        string rel = f.Replace("\\", "/");
+        if (rel.EndsWith(".md")) { _addIfFile(acc, Path.Join(docs, rel)); }
+    }
+    _addIfFile(acc, Path.Join(root, "README.md"));
+    _addIfFile(acc, Path.Join(root, "scripts/README.md"));
+    _addIfFile(acc, Path.Join(root, "examples/README.md"));
+    string srcRoot = Path.Join(root, "src");
+    foreach (var f in Directory.EnumerateRecursive(srcRoot)) {
+        string rel = f.Replace("\\", "/");
+        // 第三方依赖目录（gitignore 掉的）不是仓库文档：跑过 wasm 设备测试后 `npm install` 进来的
+        // node_modules 自带 README 的死链会让本地 GREEN 判红。
+        if (rel.StartsWith("node_modules/") || rel.Contains("/node_modules/")) { continue; }
+        if (rel.EndsWith("README.md")) { _addIfFile(acc, Path.Join(srcRoot, rel)); }
+    }
+    return acc.ToArray();
+}
+
+void _addIfFile(List<string> acc, string full) {
+    if (File.Exists(full)) { acc.Add(full.Replace("\\", "/")); }
+}
+
+DocScan _checkOneDoc(string root, string file) {
+    int checkedCount = 0;
+    var dead = new List<string>();
+    string dir = Path.GetDirectoryName(file);
+    foreach (var line in _stripFences(File.ReadAllText(file)).Split("\n")) {
+        foreach (var target in _linkTargets(line)) {
+            if (_isRepoRelative(target)) {
+                checkedCount = checkedCount + 1;
+                string rel = _stripAnchor(target);
+                if (rel.Length > 0) {
+                    string resolved = Path.Normalize(Path.Join(dir, rel));
+                    // mdBook 把目录的 README.md 渲染成 index.html，书内链接必须写 index.md 才不会 404
+                    // （写 README.md 会被转成不存在的 README.html）；磁盘上对应的是 README.md。
+                    string fwd = resolved.Replace("\\", "/");
+                    if (fwd.EndsWith("/index.md") && !File.Exists(resolved)) {
+                        resolved = fwd.Substring(0, fwd.Length - "index.md".Length) + "README.md";
+                    }
+                    if (!File.Exists(resolved) && !Directory.Exists(resolved)) {
+                        dead.Add(_relToRoot(root, file) + " -> " + target);
+                    }
+                }
+            }
+        }
+    }
+    return new DocScan(checkedCount, dead.ToArray());
+}
+
+// 去掉围栏代码块（``` 与 ~~~）与行内 code span（`…`）——里面是示例文本（如模板占位
+// `[目标页](相对路径)`），不是链接。
+string _stripFences(string text) {
+    string[] lines = text.Split("\n");
+    bool inFence = false;
+    for (int i = 0; i < lines.Length; i++) {
+        string t = lines[i].Trim();
+        if (t.StartsWith("```") || t.StartsWith("~~~")) {
+            inFence = !inFence;
+            lines[i] = "";                 // 占位，保持行号不变
+        } else {
+            lines[i] = inFence ? "" : _stripCodeSpans(lines[i]);
+        }
+    }
+    return string.Join("\n", lines);
+}
+
+// ② 的代码侧：`src/` / `scripts/` / `.github/` 下的代码、脚本与 CI 配置同样不以路径引用 `docs/agent/`。
+// 代码注释是写给下一个改它的人看的，事实与操作在书里；agent 的文件随时会改名、删并，指过去迟早变成死指针，
+// 而注释里的路径不是 markdown 链接，死链检查照不到。门本身（本文件）要提到这个路径，豁免。
+int _checkCodeAgentRefs(string root) {
+    int bad = 0;
+    foreach (var dir in new string[]{ "src", "scripts", ".github" }) {
+        string top = Path.Join(root, dir);
+        if (!Directory.Exists(top)) { continue; }
+        foreach (var f in Directory.EnumerateRecursive(top)) {
+            string rel = dir + "/" + f.Replace("\\", "/");
+            if (!_isScannedCode(rel)) { continue; }
+            string full = Path.Join(root, rel);
+            if (File.Exists(full) && !Directory.Exists(full) && File.ReadAllText(full).Contains("docs/agent/")) {
+                ConsoleError.WriteLine("  ✗ " + rel);
+                bad = bad + 1;
+            }
+        }
+    }
+    return bad;
+}
+
+// 只扫入库的文本源：跳过构建产物目录，按扩展名白名单取文件（markdown 由上面的链接检查负责）。
+// 白名单按名字匹配，目录也可能撞上（`src/libraries/z42.toml`），读之前调用方另判是不是目录。
+bool _isScannedCode(string rel) {
+    if (rel == "scripts/src/test/docs/links.z42") { return false; }
+    foreach (var skip in new string[]{ "/node_modules/", "/target/", "/dist/", "/artifacts/", "/build/", "/.gradle/" }) {
+        if (rel.Contains(skip)) { return false; }
+    }
+    string[] exts = new string[]{ ".rs", ".z42", ".toml", ".yml", ".yaml", ".sh", ".ps1", ".bat",
+        ".h", ".c", ".kt", ".kts", ".swift", ".js", ".ts", ".py", ".txt" };
+    foreach (var ext in exts) {
+        if (rel.EndsWith(ext)) { return true; }
+    }
+    return false;
+}
+
+// 去掉一行里成对的 code span（`…` / ``…`` / ```…```）。
+//
+// markdown 的规则是：**定界符是一串 N 个反引号，span 以「恰好 N 个」的下一个反引号串收尾**。
+// 不能按「每个反引号翻转一次」实现：``[文字](`Sym`)`` 里那对单反引号会把 span 后半截翻成正文。
+//
+// 未闭合的反引号串按 markdown 语义是**普通文本**：原样保留这串反引号，从它后面继续扫
+// （其后的内容照常查链接，不漏报死链）。
+string _stripCodeSpans(string line) {
+    string outLine = "";
+    int i = 0;
+    while (i < line.Length) {
+        char c = line.CharAt(i);
+        if (c != '`') { outLine = outLine + c.ToString(); i = i + 1; continue; }
+        int j = i;
+        while (j < line.Length && line.CharAt(j) == '`') { j = j + 1; }
+        int close = _findTickRun(line, j, j - i);
+        if (close < 0) { outLine = outLine + line.Substring(i, j - i); i = j; continue; }
+        i = close + (j - i);        // 跳过 span 内容与收尾定界符
+    }
+    return outLine;
+}
+
+// 从 from 起找「恰好 run 个反引号」的串，返回其起始下标；找不到返回 -1。
+int _findTickRun(string line, int from, int run) {
+    int i = from;
+    while (i < line.Length) {
+        if (line.CharAt(i) != '`') { i = i + 1; continue; }
+        int j = i;
+        while (j < line.Length && line.CharAt(j) == '`') { j = j + 1; }
+        if (j - i == run) { return i; }
+        i = j;
+    }
+    return -1;
+}
+
+// 一行里的所有 `](target)` 目标。返回可能为空数组。
+string[] _linkTargets(string line) {
+    var acc = new List<string>();
+    int i = 0;
+    while (i < line.Length - 1) {
+        if (line.CharAt(i) == ']' && line.CharAt(i + 1) == '(') {
+            int close = _matchParen(line, i + 1);
+            if (close > i + 1) {
+                string target = line.Substring(i + 2, close - (i + 2)).Trim();
+                // `[text](url "title")` → 去掉 title
+                int sp = target.IndexOf(" ");
+                if (sp > 0) { target = target.Substring(0, sp); }
+                if (target.Length > 0) { acc.Add(target); }
+                i = close;
+            }
+        }
+        i = i + 1;
+    }
+    return acc.ToArray();
+}
+
+// 从 `(` 位置找配对的 `)`，支持一层嵌套括号（URL 里出现 `(1)` 之类）。找不到返回 -1。
+int _matchParen(string line, int open) {
+    int depth = 0;
+    int i = open;
+    while (i < line.Length) {
+        char c = line.CharAt(i);
+        if (c == '(') { depth = depth + 1; }
+        else if (c == ')') {
+            depth = depth - 1;
+            if (depth == 0) { return i; }
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+// 仓内相对链接：不是外部 URL、不是纯锚点、不是绝对路径。
+bool _isRepoRelative(string target) {
+    if (target.Length == 0) { return false; }
+    if (target.StartsWith("#")) { return false; }                     // 纯锚点
+    if (target.StartsWith("/")) { return false; }                     // 站点绝对路径，不解析到仓内
+    if (target.StartsWith("<")) { return false; }                     // 尖括号形式，少见，跳过
+    if (target.Contains("://")) { return false; }                     // http(s) / ftp / …
+    if (target.StartsWith("mailto:")) { return false; }
+    if (target.StartsWith("{{")) { return false; }                    // mdBook include 指令
+    return true;
+}
+
+// 去掉 `#anchor` 与 `?query`。
+string _stripAnchor(string target) {
+    string s = target;
+    int h = s.IndexOf("#");
+    if (h >= 0) { s = s.Substring(0, h); }
+    int q = s.IndexOf("?");
+    if (q >= 0) { s = s.Substring(0, q); }
+    return s.Trim();
+}
+
+string _relToRoot(string root, string p) {
+    string r = root.Replace("\\", "/");
+    string f = p.Replace("\\", "/");
+    string prefix = r.EndsWith("/") ? r : r + "/";
+    if (f.StartsWith(prefix)) { return f.Substring(prefix.Length, f.Length - prefix.Length); }
+    return f;
+}
+

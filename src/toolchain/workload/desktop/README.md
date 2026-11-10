@@ -21,7 +21,7 @@ facade **同一套 7 场景**。覆盖桌面 C-ABI 这条路径的「链接 libz
 ./xtask test app desktop run      # 只 ③ cc r1_r7.c + 跑
 ```
 
-后端实现 [`scripts/test/xtask_test_desktop.z42`](../../../../scripts/test/xtask_test_desktop.z42)
+后端实现 [`scripts/src/test/app/desktop.z42`](../../../../scripts/src/test/app/desktop.z42)
 （`DesktopBackend : IPlatformBackend`）。JUnit → `artifacts/reports/tests/desktop/junit.xml`。
 
 ## 关联文档

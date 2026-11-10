@@ -1,0 +1,290 @@
+// xtask — `test toolchain builder` / `bench targets` impl（_testTargetsCore）：manifest-target
+// fixture runner. Runs the end-to-end fixtures under
+// src/toolchain/builder/tests/fixtures/manifest-targets/<name>/ — each a real project whose z42.toml
+// declares `[[test]]`/`[[bench]]`/`[[example]]` targets — through the SAME
+// path the stdlib per-lib flow uses (**转发 z42b**). This is where harness=false
+// (exit-code) targets, explicit-target overlay, 3-layer dev-deps and named selection
+// get exercised (stdlib libs declare no explicit targets, so they only exercise the
+// convention path); z42b CLI assertions use the shared expect.toml fixture engine.
+//
+// Tooling prep mirrors _testLibCore (release build-tree). The example gate
+// (test/toolchain/example.z42) reuses _prepFixtureTooling.
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+using Z42.Project;
+
+// Resolved toolchain for a manifest-target run (release build-tree paths).
+class TargetTooling {
+    public string Vm { get; set; }
+    public string DriverZpkg { get; set; }
+    public string Libs { get; set; }         // stdlib flat（Z42_LIBS）
+    public string BuilderZpkg { get; set; }  // z42b reflective runner
+    // 夹具在 build/ 镜像的**拷贝**上跑（z42b 把目标 / 父包产物写在
+    // 清单目录旁，直接跑源码树里的夹具就会在 src/tests 下留产物）。两棵树各拷一次，整个 run 共用
+    // —— 不能每个 smoke 各自重置：reuse-parent 等用例要看前面用例留下的父包产物。
+    public string FixturesRoot { get; set; }      // src/toolchain/builder/tests/fixtures/manifest-targets 的拷贝
+    public string Z42bFixturesRoot { get; set; }  // src/toolchain/builder/tests/fixtures/z42b 的拷贝
+    public bool   Ok { get; set; }
+}
+
+// Root dir holding the e2e manifest-target fixtures.
+string _fixturesRoot(string root) { return Path.Join(root, "src/toolchain/builder/tests/fixtures/manifest-targets"); }
+
+// 一次 `z42b <verb> …` 的进程：reflective runner + `--mode`，cwd = 仓库根；调用方续接目标与自己的 flag，再
+// `_exec` 或 `.Stdout(Pipe()).Run()`。
+Process _z42bVerb(string root, TargetTooling tt, string verb) {
+    return _z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg(verb).WorkingDirectory(root);
+}
+
+// smoke 开场：夹具不在 ⇒ false（夹具可选，调用方 return 0）；在 ⇒ 打 banner。
+bool _smokeBegin(string toml, string title) {
+    if (!File.Exists(toml)) { return false; }
+    Console.WriteLine("");
+    Console.WriteLine("── " + title + " ──");
+    return true;
+}
+
+// True when the release build-tree stdlib exists (z42.core.zpkg present). The
+// noBuild gate stages need it (same assumption as the stdlib stage); when absent
+// (e.g. a CI leg that offloaded stdlib / consumes a --toolchain elsewhere) the
+// stage skips cleanly rather than failing the z42b build.
+bool _releaseStdlibReady(string root) {
+    return File.Exists(Path.Join(_libsDir(root), "z42.core.zpkg"));
+}
+
+// Build (unless noBuild) + resolve the release toolchain, then build z42b so
+// harness=true targets can run. Mirrors _testLibCore's prep so the two flows use
+// identical z42c / stdlib / z42b artifacts.
+TargetTooling _prepFixtureTooling(string root, bool noBuild) {
+    TargetTooling t = new TargetTooling();
+    t.Ok = false;
+    if (!noBuild) {
+        Console.WriteLine("→ Preparing tooling (z42vm + stdlib; release)...");
+        int c = _buildRuntime(); if (c != 0) { return t; }   // ⚠ VM first — see _testLibCore
+        c = _buildStdlib();      if (c != 0) { return t; }
+    }
+    t.Vm = _builtVm(root, "release");
+    t.DriverZpkg = _driverZpkg(root, "release");
+    t.Libs = _libsDir(root);
+    t.BuilderZpkg = _toolchainZpkg(root, _z42bToml());
+    Console.WriteLine("→ Building z42b (z42.builder.zpkg; reflective test runner)...");
+    if (_buildZ42bWith(root, t.Vm, t.DriverZpkg, t.Libs) != 0) { return t; }
+    t.Ok = true;
+    return t;
+}
+
+// `xtask test toolchain builder [--target name]` / `xtask bench targets [name]` core. kind =
+// "test" | "bench". name = "" → run every matching target in every fixture;
+// otherwise only the target(s) whose name == name (across fixtures); a name that
+// matches nothing → error listing the available names, non-zero exit.
+int _testTargetsCore(string kind, string name, bool noBuild) {
+    string root = _root();
+    string fixRoot = _fixturesRoot(root);
+    if (!Directory.Exists(fixRoot)) {
+        Console.WriteLine("(no manifest-target fixtures)");
+        return 0;
+    }
+    if (noBuild && !_releaseStdlibReady(root)) {
+        Console.WriteLine("(skip manifest targets: release stdlib not built on this leg)");
+        return 0;
+    }
+    TargetTooling tt = _prepFixtureTooling(root, noBuild);
+    if (!tt.Ok) { return 2; }
+    tt.FixturesRoot = _stageFixtureTree(root, "src/toolchain/builder/tests/fixtures/manifest-targets");
+    tt.Z42bFixturesRoot = _workMirror(root, "src/toolchain/builder/tests/fixtures/z42b");
+    fixRoot = tt.FixturesRoot;
+    string label  = (kind == "bench") ? "bench" : "test";
+    int failed = 0;
+    int matched = 0;
+    var available = new List<string>();
+    foreach (var fx in _sortedStrings(Directory.Enumerate(fixRoot))) {
+        string projDir = Path.Join(fixRoot, fx);
+        string toml = _findManifest(projDir).ManifestPath;
+        if (toml.Length == 0 || !Directory.Exists(projDir)) { continue; }
+        failed = failed + _runFixtureKind(root, fx, toml, kind, label, name, tt, ref matched, available);
+    }
+    if (name.Length > 0 && matched == 0) {
+        ConsoleError.WriteLine("error: no " + label + " target named '" + name + "'");
+        if (available.Count > 0) { ConsoleError.WriteLine("  available: " + String.Join(", ", available.ToArray())); }
+        return 2;
+    }
+    // z42b behaviour smokes — only on the full (unnamed) `test` run, so bench /
+    // named-target runs don't duplicate them.
+    if (kind == "test" && name.Length == 0) {
+        failed = failed + _testBuilderCliFixtures(root, tt);
+        failed = failed + _selfcheckFixtureTargets(root, tt);
+        failed = failed + _smokeDevTargetInternal(root, tt);
+        failed = failed + _smokeReuseParentMissing(root, tt);
+        failed = failed + _smokeBundleHost(root, tt);
+        failed = failed + _smokeGoldenBundleHost(root, tt);
+        failed = failed + _selfcheckBundleSelection(root);
+        failed = failed + _selfcheckBundleCompileFailure(root);
+        failed = failed + _selfcheckGateStages();
+        failed = failed + _selfcheckFingerprintEntries();
+        failed = failed + _selfcheckLibDiscovery();
+        failed = failed + _selfcheckTestProjects(root, tt);
+        failed = failed + _selfcheckDiagCodes(root);
+        failed = failed + _selfcheckCiShell();
+        failed = failed + _smokeHookPlugin(root, tt);
+    }
+    Console.WriteLine("");
+    if (failed > 0) {
+        Console.WriteLine("  ❌ manifest-target " + label + ": " + failed.ToString() + " failure(s)");
+        return 1;
+    }
+    Console.WriteLine("  ✅ manifest-target " + label + ": all passed (" + matched.ToString() + " target(s))");
+    return 0;
+}
+
+// dev-target internal smoke: 驱动 `z42b test <toml>` **按 [[test]] 目标编译 + 运行**，锁住两条性质：
+//   ① 目标**只编自己声明的源**（把整个工程编进每个目标会让 ② 的断言假阳性，因为父包源被一起编了）；
+//   ② 目标**看得见父包的 internal**（类与成员两条判定路径都覆盖）。
+// 回归方向（普通消费包仍被拒）由 cross-zpkg/class_internal_access 守着。
+int _smokeDevTargetInternal(string root, TargetTooling tt) {
+    string toml = Path.Join(tt.Z42bFixturesRoot, "dev-target-internal/z42.toml");
+    if (!_smokeBegin(toml, "dev-target internal (z42b test <toml>：按目标编译 + 可见父包 internal)")) { return 0; }
+    // 负例：先在两个目标的 dist 里放一份**损坏的**父包同置副本，模拟上一轮留下的过期拷贝。z42b 若
+    // 「已存在就不拷」，运行期会加载到这份垃圾 ⇒ 本 smoke 判红；正确行为是每次覆盖成刚建好的父包。
+    // 只在全新树上跑的话过期副本永远不出现，这个 bug 就永远是绿的。
+    string targetsRoot = Path.Join(Path.GetDirectoryName(toml), "artifacts/test-targets");
+    foreach (var t in new string[] { "internals_tests", "dirunit" }) {
+        string distDir = Path.Join(Path.Join(targetsRoot, t), "dist");
+        Directory.Create(distDir);
+        File.WriteAllText(Path.Join(distDir, "dt.internal.zpkg"), "STALE-COLOCATED-PARENT-COPY");
+    }
+    int rc = _exec(_z42bVerb(root, tt, "test").Arg(toml));
+    if (rc != 0) {
+        Console.WriteLine("  ❌ dev-target internal: `z42b test <toml>` exited " + rc.ToString());
+        return 1;
+    }
+    Console.WriteLine("  ✅ dev-target internal: 目标按源隔离编译，且可见父包 internal（预置的过期同置副本已被覆盖）");
+    return 0;
+}
+
+// `--reuse-parent` smoke：xtask 每个库先跑一个单元把父包建好，其余单元带
+// `--reuse-parent` 并行复用。这里锁住它的安全边：**父包 dist 不在时必须照常建**，而不是把一个不存在
+// 的目录当成父包交给编译器（那样目标编译会解析不到父包 internal ⇒ 判红，或更糟地悄悄用上旧产物）。
+// 先整个删掉 fixture 的父包产物，再带 flag 只跑 dirunit（它要看父包 internal）。
+int _smokeReuseParentMissing(string root, TargetTooling tt) {
+    string toml = Path.Join(tt.Z42bFixturesRoot, "dev-target-internal/z42.toml");
+    if (!_smokeBegin(toml, "reuse-parent (父包 dist 不在时 --reuse-parent 仍须先建父包)")) { return 0; }
+    // 父包 dist 的位置取 z42.project 的 `BuildLayout`（z42b `_computeDirs` 用的同一份答案），不写死。
+    // xtask 调 z42b 不带 --release ⇒ debug。
+    string parentOut = BuildLayout.Resolve(ManifestLoader.Load(toml), Path.GetDirectoryName(toml), false).DistDir;
+    if (Directory.Exists(parentOut)) { Directory.Delete(parentOut, true); }
+    int rc = _exec(_z42bVerb(root, tt, "test").Arg(toml).Arg("--name").Arg("dirunit").Arg("--reuse-parent"));
+    if (rc != 0) {
+        Console.WriteLine("  ❌ reuse-parent: 父包 dist 缺失时带 --reuse-parent 失败（rc=" + rc.ToString() + "）—— 复用把缺件当成了成功");
+        return 1;
+    }
+    Console.WriteLine("  ✅ reuse-parent: 父包 dist 缺失时照常先建父包，目标通过");
+    return 0;
+}
+
+// hook 插件 smoke：`[plugins]` 里两个带 hook 能力位的插件工程（path 条目）→
+// z42b 反射出 BuildHooks 具体类、按声明序组合执行。断言两行标记都在**且 A 在 B 前**——只查「都在」会把
+// 组合顺序错乱判绿；只查先后（IndexOf 比大小）不查存在会把「都打了但漏断言」漏掉。
+int _smokeHookPlugin(string root, TargetTooling tt) {
+    string toml = Path.Join(tt.Z42bFixturesRoot, "hook-plugin/z42.toml");
+    if (!_smokeBegin(toml, "hook plugin ([plugins] 插件加载进 z42b、按声明序执行)")) { return 0; }
+    ProcessResult r = _z42bVerb(root, tt, "build").Arg(toml).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all = r.Stdout + r.Stderr;
+    if (r.ExitCode != 0) {
+        Console.WriteLine("  ❌ hook plugin: `z42b build` exited " + r.ExitCode.ToString());
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    int ia = all.IndexOf("HOOK-PLUGIN-SMOKE: A BeforeCompile");
+    int ib = all.IndexOf("HOOK-PLUGIN-SMOKE: B BeforeCompile");
+    if (ia < 0 || ib < 0) {
+        Console.WriteLine("  ❌ hook plugin: 两个插件的标记行没有都出现（ia=" + ia.ToString() + ", ib=" + ib.ToString() + "）");
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    if (ia >= ib) {
+        Console.WriteLine("  ❌ hook plugin: 声明序是 A 在前，输出里 B 先于 A —— 组合顺序错乱");
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    Console.WriteLine("  ✅ hook plugin: 两个插件按声明序加载并执行");
+    return 0;
+}
+
+// bundle-host smoke: compile a trivial [Test] unit →
+// .zbc, wrap it in a 1-case manifest, and run it through the single
+// `z42b test <manifest.json> --rid host` entry — exercising the in-process
+// Std.Harness.BundleRunner path (the host half of the embedded flow xtask delegates
+// to z42b), which the default gate would otherwise not cover (`test app desktop` is a
+// separate stage). Returns 0 pass / 1 fail; skips cleanly (0) if the fixture is absent.
+int _smokeBundleHost(string root, TargetTooling tt) {
+    string src = Path.Join(tt.FixturesRoot, "bundle-host/pass_unit.z42");
+    if (!File.Exists(src)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── bundle-host (z42b test <manifest.json> --rid host) ──");
+    string outDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "smoke-bundle-host");
+    Directory.Create(outDir);
+    string zbc = Path.Join(outDir, "pass_unit.zbc");
+    int ec = _exec(_z42cProc(tt.Vm, tt.Libs, tt.DriverZpkg).Arg("--emit-zbc").Arg(src).Arg(zbc).WorkingDirectory(root));
+    if (ec != 0) { Console.WriteLine("  ❌ bundle-host: compile fixture failed"); return 1; }
+    string manifest = Path.Join(outDir, "manifest.json");
+    File.WriteAllText(manifest, "{\"cases\":[{\"name\":\"bundle_host_smoke\",\"zbc\":\"pass_unit.zbc\"}]}\n");
+    int rc = _exec(_z42bVerb(root, tt, "test").Arg(manifest).Arg("--rid").Arg("host").Arg("--format").Arg("json"));
+    if (rc != 0) {
+        Console.WriteLine("  ❌ bundle-host: `z42b test <manifest> --rid host` exited " + rc.ToString());
+        return 1;
+    }
+    Console.WriteLine("  ✅ bundle-host: `z42b test <manifest> --rid host` passed");
+    return 0;
+}
+
+// 单例 golden 也须经 bundle 编译与隔离执行，stdout 不符必须使宿主失败。
+int _smokeGoldenBundleHost(string root, TargetTooling tt) {
+    string dir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "smoke-golden-host");
+    Directory.Create(dir);
+    File.WriteAllText(Path.Join(dir, "source.z42"),
+        "namespace GoldenBundleSmoke;\nusing Std.IO;\nvoid Main() { Console.WriteLine(\"golden bundle\"); }\n");
+    string expected = Path.Join(dir, "expected_output.txt");
+    File.WriteAllText(expected, "golden bundle\n");
+    string manifest = _buildGoldenBundle(root, dir);
+    if (manifest.Length == 0) { return 1; }
+    int rc = _exec(_z42bVerb(root, tt, "test").Arg(manifest).Arg("--rid").Arg("host"));
+    if (rc != 0) { ConsoleError.WriteLine("  ❌ golden bundle: matching stdout failed"); return 1; }
+    File.WriteAllText(expected, "wrong output\n");
+    manifest = _buildGoldenBundle(root, dir);
+    if (manifest.Length == 0) { return 1; }
+    ProcessResult mismatch = _z42bVerb(root, tt, "test").Arg(manifest).Arg("--rid").Arg("host").Run();
+    if (mismatch.ExitCode == 0) {
+        ConsoleError.WriteLine("  ❌ golden bundle: mismatched stdout passed"); return 1;
+    }
+    Console.WriteLine("  ✅ golden bundle: matching stdout passes, mismatched stdout fails");
+    return 0;
+}
+
+// 跑一个 fixture 的 `kind` 目标 —— 与 stdlib 那条路一样，**一律转发 z42b**（`--name` 对约定单元、
+// harness=true / false 三种形态是同一个入口）。候选名按完整名字去重（点不中时的提示），
+// 按引用累计命中数，返回失败数。filter 语义：name=="" → 全跑；否则精确名。
+int _runFixtureKind(string root, string fixName, string toml,
+                    string kind, string label, string name,
+                    TargetTooling tt, ref int matched, List<string> available) {
+    ProjectManifest man = _loadManifestOr(toml);
+    RunTarget[] tgts = _explicitTargets(man, kind);
+    string verr = _validateRunTargets(tgts, tgts.Length, kind);
+    if (verr.Length > 0) { ConsoleError.WriteLine("error: " + fixName + ": " + verr); return 1; }
+    // 发现交给 z42b：`--list` 一次拿全（约定单元 + 显式目标，两种 harness 都在内）。
+    bool ok = true;
+    string[] all = _listUnitsViaZ42b(root, toml, kind, "", "interp", tt.Vm, tt.BuilderZpkg, tt.Libs, ref ok);
+    if (!ok) { return 1; }
+    foreach (var u in all) { if (!available.Contains(u)) { available.Add(u); } }
+    string[] sel = all;   // 精确名筛选（0 或 1 个）
+    if (name.Length > 0) { sel = _strIn(all, name) ? new string[] { name } : new string[0]; }
+    if (sel.Length == 0) { return 0; }
+    matched = matched + sel.Length;
+    Console.WriteLine("");
+    Console.WriteLine("── " + fixName + " (" + sel.Length.ToString() + " " + label + ") ──");
+    // jobs=1：fixture 数量小，串行输出更好读（stdlib 那条才需要并行）。
+    return _runUnitsViaZ42b(root, toml, sel, sel.Length, kind,
+                            1, "interp", tt.Vm, tt.BuilderZpkg, tt.Libs, fixName, null);
+}
