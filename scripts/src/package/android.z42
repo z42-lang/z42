@@ -96,9 +96,17 @@ int _ensureAndroidNdk(string root) {
     return 1;
 }
 
-string _ridToAndroidAbi(string rid) {
-    if (rid == "android-arm64") { return "arm64-v8a"; }
-    if (rid == "android-x64")   { return "x86_64"; }
+// rid ↔ gradle ABI：[platform.android] 的 rust_targets / abis 是同序对位（cargo ndk -t 用 abis 这套命名）。
+// 未登记的 rid → ""（调用方按未知处理，不猜）。
+string _ridToAndroidAbi(string rid) { return _abiOfTriple(_ridToCargo(rid)); }
+
+// cargo triple → gradle ABI（同一张表反向）；不在表里 → ""。
+string _abiOfTriple(string triple) {
+    string[] targets = _vgetList(_vparse(_root()), "platform.android.rust_targets");
+    string[] abis = _vgetList(_vparse(_root()), "platform.android.abis");
+    for (int i = 0; i < targets.Length && i < abis.Length; i = i + 1) {
+        if (targets[i] == triple) { return abis[i]; }
+    }
     return "";
 }
 

@@ -91,12 +91,14 @@ int _buildIosXcframework(string root, string rid, string rtDir) {
     string manifest = Path.Join(root, _runtimeManifest());
     string targetDir = _cargoTargetDir(root);
     string libName = "examples/libz42-default.a";
-    bool wantDev = (rid == "ios-arm64" || rid.Length == 0);
-    bool wantSim = (rid == "iossim-arm64" || rid.Length == 0);
+    // 切片按 [platform.ios].rust_targets 选：rid 留空 = 全部（ios 域登记了真机 + 模拟器两个 triple），
+    // 否则只留与该 rid 的 triple 同 OS 的目标（真机 rid 只编真机切片，模拟器 rid 只编模拟器切片）。
+    string os = rid.Length == 0 ? "ios" : _tripleOs(_ridToCargo(rid));
     List<string> targets = new List<string>();
     targets.Add("aarch64-apple-darwin");
-    if (wantDev) { targets.Add("aarch64-apple-ios"); }
-    if (wantSim) { targets.Add("aarch64-apple-ios-sim"); }
+    foreach (var t in _vgetList(_vparse(root), "platform.ios.rust_targets")) {
+        if (_tripleOs(t) == os) { targets.Add(t); }
+    }
     string iosMin = _vReadOr(root, "platform.ios.min_ios", "16.0");
     int c = _iosCargoTargets(manifest, targetDir, targets.ToArray(), iosMin);
     if (c != 0) { return c; }
