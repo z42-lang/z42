@@ -289,7 +289,7 @@ scripts/
     │   ├── golden_assets.z42     **`build test` 的实现**（golden .zbc 编译；_buildTest / _regenGolden / _regenCore）
     │   └── docs/
     │       ├── generate.z42      `build docs`：reference 的 stdlib 生成页 + SUMMARY 区段
-    │       └── index.z42         `build docs index`：Rust 符号索引（doc-refs 报告也复用）
+    │       └── index.z42         `build docs index`：Rust 符号索引（`z42 doc` 查询用）
     ├── test/               `test` 命令族与各类验证，按被测对象分子目录（见 test-layout.md §1）
     │   ├── command.z42           `test` 族的命令类 + LibUnitsCommand（test stdlib / bench stdlib 共用）
     │   ├── gate.z42              GREEN / e2e 编排 + stage 单源登记 / 只读列表 / 计时

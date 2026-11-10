@@ -207,7 +207,7 @@ flowchart LR
   emit --> q
   emit --> md["z42 doc --format mdbook<br/>→ reference/stdlib/*.md"]
   emit --> dt["z42 test --doc<br/>doctest"]
-  q --> chk["xtask check doc-refs<br/>书里的符号引用"]
+  q --> chk["z42 doc --page<br/>书里的符号引用"]
 ```
 
 ### 4.1 词法与语法（`z42c.syntax`，P1 已实现）
@@ -364,7 +364,7 @@ $ z42 doc --format md --out <dir>                            # 普通工程用
 | `xtask build docs` | 编译 stdlib，重新生成 reference 包页 | `xtask deps install vscode` 重新生成 grammar |
 | `xtask check doc-lints` | 硬门：任何 W08xx 即红；硬门，无白名单 | 编译器内建 style.* 行数 lint（豁免走源内 [Suppress]） |
 | `z42 test --doc` | stdlib 的 doctest 并入 GREEN gate | learn ↔ examples 重放 |
-| `xtask check doc-refs` | 报告书与 README 的行号引用和未解析符号链（§4.9），供手动维护 | 符号索引与 `z42 doc --page` |
+| `z42 doc --page <页>` | 逐页报告行号引用与未解析符号链（§4.9）——原批量报告 `check doc-refs` 已在引用清零后退役（#1749） | 符号索引 |
 | CI `docs-check` job | 纯文档 PR 跑链接、文档结构与诊断码检查；引用报告按需手动跑 | 现有 docs-check job |
 
 改完之后，doc-system 三问的第 1 问对 stdlib 来说变成：**改 `///`**。生成页不入库、发布时现生成，不需要人记得跑 gen，也就不需要漂移门禁。
@@ -406,7 +406,7 @@ split   = "package"   # mdbook 输出粒度："package" | "type"
 29 个在仓库里不唯一；27 个 internals 页没有「代码」页头行；`xtask test docs` 先剥掉代码片段再检查，所以这些
 引用从来没被校验过。
 
-规则（书照样手写，引用问题通过 `z42 doc --page` 或 `xtask check doc-refs` 报告）：
+规则（书照样手写，引用问题通过 `z42 doc --page` 查看）：
 
 - 页头「代码」行声明作用范围：包名或目录，后接本页涉及的主要类型 / 模块，例如
   `> 代码：z42c.semantics — HandlerRegistry, AttributeSynth`，Rust 写 crate 路径
@@ -457,7 +457,7 @@ User 裁决：**先把机制全部做完（含测试与示例），最后统一�
 | **P1 挂靠** | Lexer `DocBlock` 旁挂表、Parser 声明入口认领、`Decl.Doc` / `EnumMember.Doc` / `CompilationUnit.Doc`、`--dump-doc`；本文件写入裁决 | ✅ #1276 |
 | **P2a z42 索引与查询** | `z42.doc` 包（语法级索引、增量缓存、名字解析、输出）+ `z42d doc <Sym>` / `--members` / `--search` / `--private` / `--pkg` / `--json`；launcher 转发 `z42 doc`；示例工程；reference / internals / README 同步 | ✅ #1278 |
 | **P2b Rust 索引** | `src/toolchain/devtools/rust-index`（syn）+ `xtask build docs index` → `artifacts/doc/rust.idx`；`z42.doc` 的 `ExternalIndex` 并入、`::` 名字解析、模块 / trait 轮廓、过期提示 | 本 PR |
-| **P3 书引用检查** | `z42 doc --page` / `--docs`；`xtask check doc-refs`（§4.9）只读报告 | 🟡 进行中：查询与按区域报告已落地；书页引用的批量清理（行号改符号、补「代码」页头）待做 |
+| **P3 书引用检查** | `z42 doc --page`（§4.9） | ✅ 完成：未解析符号链已清零（#1749，1315→0）；批量报告 `check doc-refs` 随之退役 |
 | **P4 模型与校验** | `z42.doc` 包（DocParser / DocId / Zdoc）、`DocChecker`、W0801～W0808、`LintConfig` 扩到内建 doc 规则、`[doc]` 表（两步）；reference `language/doc-comments.md` 与 agent 写法规则 | 🟡 进行中：DocParser + W08xx 语法级首批已落地（`z42.doc` DocLint + `xtask check doc-lints` 零告警检查；W0803 零发射占号）；DocId / Zdoc / 编译器 DocChecker pass（W0803 + `[lints]` 级别决策）/ `[doc]` 表待做 |
 | **P5 产出与生成** | build 产出 `.zdoc`；SDK `[component.docs]`；mdbook 渲染器；`xtask build docs`（按写了 `//!` 的包生效；生成页不入库，发布时现生成） | 🟡 进行中：mdbook 渲染器 + `xtask build docs` 已落地，生成页改为不入库、deploy-book 现生成；同名声明合并页（partial 并为代表、泛型委托各元数一页）、页内 `file:line` 源码位置行（生成物随 gen 重写不腐；经 `SourceBase` 渲染成 GitHub `#L<行>` 直达链接）、成员锚点（`<a id>` = Doc ID）与成员索引行（mdBook SUMMARY 不支持锚点条目，成员级导航在类型页内）、SUMMARY 的 type-split 区段生成（命名空间草稿章 → 类型，配 book.toml fold 逐级展开）已落地；`.zdoc` 产出、SDK `[component.docs]`、stdlib/README 概览表生成待做 |
 | **P6 doctest** | `@example` 合成 `[Test]` 方法，经反射发现；`z42 test --doc` 进 gate | 待做 |

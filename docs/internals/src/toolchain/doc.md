@@ -85,7 +85,7 @@ z42 doc <args>                      launcher：`doc` 原样转发
   SUMMARY 不支持锚点条目，成员级导航只能放在页内。
 - **源码位置**：每个声明一行 `file:line`。`DocMd.SourceBase` 非空时渲染成链接，点击直达仓库源码的那一行；
   基址取 book.toml 的 `git-repository-url`（`blob/main`），`Z42_DOC_SOURCE_BASE` 可覆盖（本地预览 / 镜像）。
-  生成页里的行号随每次 gen 重写，不参与 doc-refs 的手写页报告（§8）。
+  生成页里的行号随每次 gen 重写，不属于手写页的引用检查范围（§8）。
 - **同名声明合并**：partial 类型并成一页（代表声明），泛型委托按元数各一页。
 - **type-split**：太大的包一个类型一页——索引页 `<short>.md` 加每个类型的 `<short>.<Type>.md`（当前只有
   `z42.core`，清单硬编码在 xtask 里，待 `[doc] split` 清单键就绪后改读清单）。SUMMARY.md 里该包的页清单
@@ -139,16 +139,15 @@ xtask build docs index
 - `z42 doc --docs <sym>`：反查，扫 `docs/**/*.md` 与 `src/**/README.md`，列出引用该符号的页与行。
 - 代码块（``` 围起来的）里的内容不算。
 
-同一套解析用于 `xtask check doc-refs` 的引用报告（§8）；改完一页可用 `--page` 查看 `?` / `✗`。
+同一套解析供 `z42 doc --page` 的逐页引用报告使用（§8）：`?` = 未解析链、`✗` = 行号引用。
 
 ## 8. 注释检查与引用报告（`xtask check`）
 
-doc-lints 是 GREEN 的一个 stage；doc-refs 是手动引用报告，不参与 CI 通过判定。
+doc-lints 是 GREEN 的一个 stage；书页引用检查用 `z42 doc --page` 手动查看（原 `check doc-refs` 报告已在 doc-refs 清零后退役——#1749）。
 
 | 命令 | 行为 |
 |---|---|
 | `check doc-lints` | stdlib 各包的 doc 注释过 `DocLint` 语法级检查，任何 W08xx 发现即失败并列出位置 |
-| `check doc-refs` | 报告书页与 README 中的行号引用、未解析多段符号链及各区域统计，不维护数量上限 |
 
 **DocLint**（`z42.doc` 包的 `DocLint.CheckPaths`）在语法索引上做不需要语义的检查，按包分组跑（W0808
 「同一命名空间一份 `//!`」按包判）：W0801 孤立块、W0802 `@param` / `@typeparam` 名不在签名里、W0804 未知
@@ -156,7 +155,6 @@ tag、W0805 public 声明缺 `///`、W0806 历史注记（日期 / spec 名模�
 范围只有 stdlib：编译器域的注释按 doc-system「契约不显然时写」，不要求 W0805 全覆盖。W0803（链接与
 `@throws` 类型能否解析）需要语义信息，归编译器的 DocChecker pass，不在此列。
 
-**doc-refs** 跑之前先执行 `xtask build docs index` 重建 Rust 外部索引（§6），Rust 符号按当前源码解析；生成页（页首
 「由 z42 doc 生成」标记）自带随 gen 重写的 `file:line`，不查；learn 的引用对象在 `examples/`、不进符号索引，
 归 learn↔examples 重放检查，也不查。
 
@@ -164,7 +162,7 @@ tag、W0805 public 声明缺 `///`、W0806 历史注记（日期 / spec 名模�
 
 - 只有语法级：没有继承文档、实现者列表。`@tag` 的语法级检查（§8 的 DocLint）已有；链接与 `@throws` 类型解析
   （W0803）需要语义，归编译器 DocChecker pass，尚未落地。
-- `z42 doc` 查询用的 Rust 索引不会自己更新：手动 `xtask build docs index`（过期会提示）；`check doc-refs` 每次自动重建。
+- `z42 doc` 查询用的 Rust 索引不会自己更新：手动 `xtask build docs index`（过期会提示）。
 - doctest（`@example` 合成测试、`z42 test --doc`）尚未接。
 
 以上后续阶段见仓库根 `docs/z42-doc.md`。

@@ -41,7 +41,7 @@ GREEN 包含 Rust lib 单测（与 `xtask test runtime` 同一执行器）与全
 `--skip` 的完整键表用 `xtask test --list` 查询，编排规则见[测试门禁 §5](test-gate.md)。
 
 gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比对，秒级），单跑入口是 `xtask check`（每项是一个子命令，
-`xtask check -h` 列出全部）；doc-refs 是手动维护用的报告，不进 GREEN gate，一起列在下表：
+`xtask check -h` 列出全部），一起列在下表：
 
 | 命令 | 守什么 |
 |---|---|
@@ -53,9 +53,8 @@ gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比�
 | `xtask check layout` | 测试布局规范里能机械判定的部分（[test-layout](test-layout.md) 的「实现」节） |
 | `xtask check versions` | `scripts/versions.toml` 与它的投影一致：Cargo workspace 版本、Android / iOS 平台下限，以及 workflow 里的 RID 矩阵（release.yml 的 package 矩阵、ci.yml 的 host-package 矩阵与平台打包步骤） |
 | `xtask check doc-lints` | **文档门禁**：stdlib doc 注释没有 W08xx 发现（硬门、无白名单）；是 GREEN gate 的一个 stage |
-| `xtask check doc-refs` | 只读报告书页与 README 的行号引用、未解析符号链；不维护基线，不判 CI 通过与否 |
 
-doc-refs **不在 GREEN gate 的 stage 清单里**，仅供手动查看引用报告。doc-lints 在 GREEN gate 里，改了 stdlib `///` 的 PR 走的正是它。reference 的 stdlib 生成页
+书页符号引用用 `z42 doc --page <页>` 手动查看（`?` = 未解析链、`✗` = 行号引用；原 `check doc-refs` 批量报告已在引用清零后退役）。doc-lints 在 GREEN gate 里，改了 stdlib `///` 的 PR 走的正是它。reference 的 stdlib 生成页
 不入库、没有对账门（发布时现生成）。两道的机制见[文档索引与 `z42 doc`](../toolchain/doc.md)。
 
 builder 的命令行与常规构建 smoke 由 [声明式夹具](fixture-harness.md)驱动，覆盖 `z42b/` 与

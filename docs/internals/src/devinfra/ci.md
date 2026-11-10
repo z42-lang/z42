@@ -130,7 +130,7 @@ main push 取 `before...sha` 的 compare（新分支的全零 `before`、API 失
 `docs-check` 的内容：ci-bootstrap 的 `xtask-only`
 模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（先生成 reference stdlib 页，
 再查相对链接与文档结构）+ `xtask check diagcodes` + `xtask check layout`（测试类别与能力词表等机器清单对账）。
-布局检查读取仓库文件，保留种子 xtask 的轻量路径。符号引用报告 `xtask check doc-refs` 按需手动运行，
+布局检查读取仓库文件，保留种子 xtask 的轻量路径。符号引用检查用 `z42 doc --page` 按需手动查看，
 docs-check 不为它安装 Rust 或编译索引器。doc-lints 随 test-host 检查源码注释。
 `test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip；
 main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SDK，见下节的 `sdk` 判定）。schedule / dispatch 不走快速通道。
