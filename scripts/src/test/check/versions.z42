@@ -29,6 +29,7 @@ int _checkVersions() {
     fail = fail + _checkAndroidProjectionDrift(root, toml);
     fail = fail + _checkIosProjectionDrift(root, toml);
     fail = fail + _checkRidTable(root, toml);
+    fail = fail + _checkWorkflowRids(root);
     if (fail > 0) {
         ConsoleError.WriteLine("error: versions.toml drift detected — update the source files to match versions.toml");
         ConsoleError.WriteLine("       See versions.toml → field comments (→ filename) for which file to fix.");
@@ -165,6 +166,95 @@ int _checkRidTable(string root, TomlValue toml) {
         }
     }
     return fail;
+}
+
+// ── workflow 里的 RID 投影（GitHub Actions 读不了 toml，只能对账）─────────────────
+//
+// release.yml 的 package 矩阵 = 全部 [rid.*]，且 rust-target = triple（tag 发布按它出包，缺一个 = 发布当天才红）；
+// ci.yml 的 host-package 矩阵 = desktop RID；平台打包步骤（`for rid in …` / `package runtime --rid …`）覆盖全部
+// 非 desktop RID（nightly 按它出包）。另：desktop RID 的 (OS, 架构) 必须两两不同，否则本机 RID 探测有歧义。
+int _checkWorkflowRids(string root) {
+    string[] rids = _vRidNames(root);
+    string[] desktop = _vRidsOfCategory(root, "desktop");
+    int fail = 0;
+    var hosts = new List<string>();
+    foreach (var rid in desktop) {
+        string triple = _vRidTriple(root, rid);
+        string key = _tripleOs(triple) + "/" + _tripleArch(triple);
+        if (_tripleOs(triple).Length == 0) { fail = fail + _wfFail("[rid." + rid + "].triple '" + triple + "' 认不出 OS（本机 RID 探测用它）"); }
+        else if (hosts.Contains(key)) { fail = fail + _wfFail("desktop RID 的 OS/架构 " + key + " 重复（本机 RID 探测有歧义）"); }
+        hosts.Add(key);
+    }
+    string rel = File.ReadAllText(Path.Join(root, ".github/workflows/release.yml"));
+    string[] relRows = _wfReleaseMatrix(rel);   // "rid=triple"
+    var relRids = new List<string>();
+    foreach (var row in relRows) {
+        string rid = row.Substring(0, row.IndexOf("="));
+        string triple = row.Substring(row.IndexOf("=") + 1);
+        relRids.Add(rid);
+        if (!_strIn(rids, rid)) { fail = fail + _wfFail("release.yml package 矩阵的 '" + rid + "' 不在 [rid.*] 里"); }
+        else if (triple != _vRidTriple(root, rid)) {
+            fail = fail + _wfFail("release.yml package 矩阵 " + rid + " 的 rust-target '" + triple + "' ≠ [rid." + rid + "].triple '" + _vRidTriple(root, rid) + "'");
+        }
+    }
+    string ci = File.ReadAllText(Path.Join(root, ".github/workflows/ci.yml"));
+    string[] hostPkg = _wfJobMatrixValues(ci, "host-package", "platform");
+    string[] platformPkg = _wfPackagedRids(ci);
+    foreach (var rid in rids) {
+        if (!relRids.Contains(rid)) { fail = fail + _wfFail("[rid." + rid + "] 不在 release.yml 的 package 矩阵里（tag 发布会缺包）"); }
+        bool isDesktop = _strIn(desktop, rid);
+        if (isDesktop && !_strIn(hostPkg, rid)) { fail = fail + _wfFail("desktop [rid." + rid + "] 不在 ci.yml host-package 矩阵里（nightly 缺包）"); }
+        if (!isDesktop && !_strIn(platformPkg, rid)) { fail = fail + _wfFail("[rid." + rid + "] 没有 ci.yml 的平台打包步骤（`for rid in …` / `package runtime --rid …`）"); }
+    }
+    foreach (var rid in hostPkg) { if (!_strIn(desktop, rid)) { fail = fail + _wfFail("ci.yml host-package 矩阵的 '" + rid + "' 不是登记的 desktop RID"); } }
+    foreach (var rid in platformPkg) { if (!_strIn(rids, rid)) { fail = fail + _wfFail("ci.yml 平台打包步骤的 '" + rid + "' 不在 [rid.*] 里"); } }
+    if (fail == 0) {
+        Console.WriteLine("  ✓ workflow RID 投影：release.yml " + relRows.Length.ToString() + " 个、host-package " + hostPkg.Length.ToString()
+            + " 个、平台打包 " + platformPkg.Length.ToString() + " 个，与 [rid.*] 一致");
+    }
+    return fail;
+}
+
+int _wfFail(string msg) { ConsoleError.WriteLine("✗ " + msg); return 1; }
+
+// release.yml 的 package 矩阵行 `- { rid: X, runs-on: Y, rust-target: Z }` → "X=Z"（按出现顺序）。
+string[] _wfReleaseMatrix(string text) {
+    var rows = new List<string>();
+    Regex r = Regex.Compile("^\\s*- \\{\\s*rid:\\s*([A-Za-z0-9_-]+),.*rust-target:\\s*([A-Za-z0-9_-]+)\\s*\\}");
+    foreach (var line in text.Split("\n")) {
+        Match m = r.Find(line);
+        if (m != null) { rows.Add(m.Group(1) + "=" + m.Group(2)); }
+    }
+    return rows.ToArray();
+}
+
+// ci.yml 里某个 job（`  <job>:` 起、到下一个同级 job 止）矩阵行 `- { …, <key>: V }` 的 V。
+string[] _wfJobMatrixValues(string text, string job, string key) {
+    var xs = new List<string>();
+    Regex r = Regex.Compile("^\\s*- \\{.*\\b" + key + ":\\s*([A-Za-z0-9_-]+)");
+    Regex jobStart = Regex.Compile("^  [A-Za-z][A-Za-z0-9_-]*:\\s*$");
+    bool inJob = false;
+    foreach (var line in text.Split("\n")) {
+        if (jobStart.Find(line) != null) { inJob = line.Trim() == job + ":"; continue; }
+        if (!inJob) { continue; }
+        Match m = r.Find(line);
+        if (m != null) { xs.Add(m.Group(1)); }
+    }
+    return xs.ToArray();
+}
+
+// ci.yml 平台打包步骤点名的 RID：`for rid in a b; do` 的列表 + `package runtime --rid <字面量>`（`"$rid"` 不算）。
+string[] _wfPackagedRids(string text) {
+    var xs = new List<string>();
+    Regex loop = Regex.Compile("for rid in ([A-Za-z0-9_ -]+); do");
+    Regex lit = Regex.Compile("package runtime --rid ([A-Za-z][A-Za-z0-9_-]*)");
+    foreach (var line in text.Split("\n")) {
+        Match m = loop.Find(line);
+        if (m != null) { foreach (var rid in _splitWords(m.Group(1))) { if (!xs.Contains(rid)) { xs.Add(rid); } } }
+        Match l = lit.Find(line);
+        if (l != null && !xs.Contains(l.Group(1))) { xs.Add(l.Group(1)); }
+    }
+    return xs.ToArray();
 }
 
 // ── 输出与解析助手 ────────────────────────────────────────────────────────────

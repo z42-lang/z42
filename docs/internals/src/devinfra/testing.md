@@ -51,7 +51,7 @@ gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比�
 | `xtask check ci-shell` | CI composite action 的 `run:` 块没有先用后赋的变量 |
 | `xtask check proc-env` | `Z42_LIBS` / `Z42_PROBING_PATHS` 只经 `_z42Proc` / `_z42bProc` / `_z42cProc` 设置 |
 | `xtask check layout` | 测试布局规范里能机械判定的部分（[test-layout](test-layout.md) 的「实现」节） |
-| `xtask check versions` | `scripts/versions.toml` 与它的投影文件（Cargo workspace 版本、Android / iOS 平台下限）文本一致 |
+| `xtask check versions` | `scripts/versions.toml` 与它的投影一致：Cargo workspace 版本、Android / iOS 平台下限，以及 workflow 里的 RID 矩阵（release.yml 的 package 矩阵、ci.yml 的 host-package 矩阵与平台打包步骤） |
 | `xtask check doc-lints` | **文档门禁**：stdlib doc 注释没有 W08xx 发现（硬门、无白名单）；是 GREEN gate 的一个 stage |
 | `xtask check doc-refs` | 只读报告书页与 README 的行号引用、未解析符号链；不维护基线，不判 CI 通过与否 |
 
