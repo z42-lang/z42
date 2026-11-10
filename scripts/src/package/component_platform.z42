@@ -29,7 +29,11 @@ string _componentPlatformOut(string root, string rid, string profile, bool share
     string dir = shared ? _componentBuildDir(root) : _componentStaticDir(root, rid);
     if (_ridCategory(rid) == "desktop") {
         // R0：桌面动态图产物目录随 [profile.release-dynamic] 命名；静态图仍走 --release 原名。
+<<<<<<< HEAD
         string name = shared ? _componentDirName(root, profile) : profile;
+=======
+        string name = shared ? _componentDirName(profile) : profile;
+>>>>>>> 72d140ebd (fix(package): cargo profile 名与产物目录名分离 —— debug/dev 错位修复)
         return Path.Join(dir, name);
     }
     return Path.Join(dir, _ridToCargo(rid) + "/" + profile);
