@@ -19,8 +19,11 @@ Process _componentCCompiler(string root, string rid) {
             .Arg("-target").Arg("arm64-apple-ios" + minimum + "-simulator").Arg("-isysroot").Arg(sdk);
     }
     // 发布的静态档案由 rustc 默认按**动态** CRT（msvcrt/ucrt 导入库，如 __imp__wassert）编译；
-    // clang 的 MSVC 目标默认静态 CRT（libucrt），混链必出 LNK2019/LNK4217——配平为动态。
-    if (Platform.IsWindows()) { return new Process("clang").Arg("-fms-runtime-lib=dll"); }
+    // clang 的 MSVC 目标默认静态 CRT（libucrt），混链必出 LNK2019/LNK4217。编译侧用
+    // -fms-runtime-lib=dll 选动态导入；链接侧 clang 不一定替我们传 msvcrt.lib，显式点名。
+    if (Platform.IsWindows()) {
+        return new Process("clang").Arg("-fms-runtime-lib=dll").Arg("-Wl,msvcrt.lib");
+    }
     return new Process("cc");
 }
 string _componentCBuild(string root, string pkg, string rid, string work, bool dynamic, bool jit, bool compression) {
