@@ -1,9 +1,9 @@
 //! ToString protocol invocation and formatting.
 
-use crate::metadata::{Function, Module};
+use crate::metadata::Module;
 use crate::object::Value;
 use crate::context::VmContext;
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 // ── ToString protocol ────────────────────────────────────────────────────────
 

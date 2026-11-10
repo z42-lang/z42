@@ -1,6 +1,6 @@
 //! Backend source selection and registration before any managed execution.
 use super::{ComponentOptions, component_interface};
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use std::path::PathBuf;
 use crate::components::api::*;
 use crate::{zpkg::ExecMode, context::VmContext, exec::engine::EngineRegistry};

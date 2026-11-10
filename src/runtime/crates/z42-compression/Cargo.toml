@@ -14,7 +14,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["backend"]
-backend = ["dep:z42-rs", "dep:flate2", "dep:anyhow", "dep:brotli", "dep:lz4_flex", "dep:zstd"]
+backend = ["dep:z42-rs", "dep:flate2", "dep:brotli", "dep:lz4_flex", "dep:zstd"]
 
 [dependencies]
 z42-rs = { path = "../z42-rs", optional = true, default-features = false }
@@ -24,7 +24,6 @@ z42-abi = { path = "../z42-abi" }
 # non-wasm targets override to zlib-ng below (SIMD-optimised vendored C,
 # 2-3× the perf of stock zlib).
 flate2 = { version = "1", default-features = false, features = ["rust_backend"], optional = true }
-anyhow = { version = "1", optional = true }
 # add-z42-compression-brotli (2026-05-27): pure-Rust brotli (no C deps),
 # works on every target including wasm. RFC 7932.
 brotli = { version = "9", default-features = false, features = ["std"], optional = true }

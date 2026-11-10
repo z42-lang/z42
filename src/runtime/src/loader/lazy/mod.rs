@@ -34,7 +34,6 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::metadata::Function;
-use crate::zpkg::ir::Instruction;
 use crate::loader::package::{load_artifact_with_fusion, load_artifact_from_bytes_with_fusion, LoadedArtifact};
 use super::fusion_inputs::FusionInputSource;
 use crate::object::TypeDesc;
@@ -558,7 +557,6 @@ mod registry;
 mod resolve;
 mod symbols;
 pub(crate) use symbols::symbol_key;
-pub(crate) use resolve::namespace_prefix;
 #[cfg(all(test, z42_test_facade))]
 use resolve::is_primitive_keyword_name;
 

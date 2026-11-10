@@ -6,27 +6,24 @@ use crate::context::VmContext;
 
 #[test]
 fn os_returns_consts_value() {
-    let ctx = VmContext::new();
-    let os = platform_os()
-        else { panic!("expected Str"); };
+    let _ctx = VmContext::new();
+    let os = platform_os();
     assert_eq!(os, crate::pal::system::os_name());
     assert!(!os.is_empty(), "os string must not be empty");
 }
 
 #[test]
 fn arch_returns_consts_value() {
-    let ctx = VmContext::new();
-    let arch = platform_arch()
-        else { panic!("expected Str"); };
+    let _ctx = VmContext::new();
+    let arch = platform_arch();
     assert_eq!(arch, std::env::consts::ARCH);
     assert!(!arch.is_empty());
 }
 
 #[test]
 fn family_returns_consts_value() {
-    let ctx = VmContext::new();
-    let family = platform_family()
-        else { panic!("expected Str"); };
+    let _ctx = VmContext::new();
+    let family = platform_family();
     assert_eq!(family, std::env::consts::FAMILY);
 }
 
@@ -34,9 +31,9 @@ fn family_returns_consts_value() {
 /// 直接透传会让 `Platform.OS()` 与 `IsWasm()` 都失效。native 上钉住「字符串 ↔ kind」一致。
 #[test]
 fn os_name_and_kind_agree() {
-    let ctx = VmContext::new();
-    let os = platform_os() else { panic!("expected Str"); };
-    let kind = platform_os_kind() else { panic!("expected I64"); };
+    let _ctx = VmContext::new();
+    let os = platform_os();
+    let kind = platform_os_kind();
     assert!(!os.is_empty(), "Platform.OS() must never be empty");
     #[cfg(target_arch = "wasm32")]
     assert_eq!(&*os, "wasm");
@@ -48,9 +45,8 @@ fn os_name_and_kind_agree() {
 
 #[test]
 fn os_kind_matches_current_os() {
-    let ctx = VmContext::new();
-    let kind = platform_os_kind()
-        else { panic!("expected I64"); };
+    let _ctx = VmContext::new();
+    let kind = platform_os_kind();
     // Verify the value matches the known mapping for this build target.
     #[cfg(target_os = "linux")]
     assert_eq!(kind, 1, "linux → 1");
@@ -73,9 +69,8 @@ fn os_kind_matches_current_os() {
 
 #[test]
 fn arch_kind_matches_current_arch() {
-    let ctx = VmContext::new();
-    let kind = platform_arch_kind()
-        else { panic!("expected I64"); };
+    let _ctx = VmContext::new();
+    let kind = platform_arch_kind();
     #[cfg(target_arch = "x86_64")]
     assert_eq!(kind, 1);
     #[cfg(target_arch = "aarch64")]

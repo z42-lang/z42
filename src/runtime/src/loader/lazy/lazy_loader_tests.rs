@@ -1,4 +1,6 @@
 use super::*;
+use super::resolve::namespace_prefix;
+use crate::zpkg::ir::Instruction;
 use std::path::PathBuf;
 
 // ── namespace_prefix ──────────────────────────────────────────────────────────

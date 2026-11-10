@@ -4,9 +4,10 @@
 #[cfg(all(test, z42_test_facade))]
 use super::{BarrierEvent, BarrierObserver};
 use std::sync::Arc;
-use crate::object::Value;
 #[cfg(all(test, z42_test_facade))]
 use crate::object::ArrRef;
+#[cfg(all(test, z42_test_facade))]
+use crate::object::Value;
 use crate::gc::types::{GcEvent, HeapStats};
 
 impl crate::gc::Heap {

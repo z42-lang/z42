@@ -400,17 +400,7 @@ pub(super) fn simple_method_name(qualified: &str) -> &str {
     qualified.rsplit('.').next().unwrap_or(qualified)
 }
 
-/// Read a string slot from a `Std.Type` object by `field_index`. Backs the
-/// `Name` / `FullName` extern properties (both handle-carrying and synthetic
-/// Types have these slots written by `build_type`).
-pub(super) fn read_type_str_slot(args: &[Value], field: &str) -> Value {
-    match args.first() {
-        Some(ty) => read_type_slot_of(ty, field),
-        None => Value::Null,
-    }
-}
-
-/// [`read_type_str_slot`] for a single receiver — the typed-builtin shape (P1-8 批次 1)。
+/// 单 receiver 读取 string slot —— typed-builtin 形态（P1-8 批次 1）。
 pub(super) fn read_type_slot_of(ty: &Value, field: &str) -> Value {
     if let Value::Object(rc) = ty {
         if let Some(i) = rc.type_desc().field_index.get(field).copied() {

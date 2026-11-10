@@ -1,8 +1,7 @@
 use crate::object::Value;
 use crate::context::VmContext;
-use anyhow::{anyhow, bail, Result};
+use anyhow::Result;
 use crate::exec::call::builtin_abi::BuiltinError;
-use super::convert::{arg_str, arg_usize, this_str};
 
 /// string.ToCharArray() — bulk materialise the whole `char[]` in ONE native
 /// call (vs the per-char `CharAt` loop, which pays a builtin dispatch per

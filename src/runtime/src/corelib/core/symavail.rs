@@ -11,7 +11,6 @@
 //! 保守答 false 而不是 true：false 让代码走 fallback 分支（总是安全的老路径），
 //! true 会让它走进一条它以为存在、实则可能不存在的分支。
 
-use super::*;
 
 pub fn sym_available(key: &str) -> bool {
     let key = key.to_string();

@@ -2,6 +2,7 @@
 //! target lives in a lazily loaded package is cached and dispatched like a module-local one.
 
 use super::*;
+use crate::metadata::dispatch::vcall::vcall_ic_hit;
 use crate::zpkg::ir::{BasicBlock, Instruction, Terminator};
 use crate::zpkg::index::name::NameIndex;
 use crate::metadata::ids::tokens::{alloc_type_id_block, FnId, TypeId};

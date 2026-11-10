@@ -30,6 +30,7 @@ pub(crate) struct Frame {
     /// hot enough to hand off to native code (OSR). Per-activation (reset each
     /// `Frame::new*`) so "called once, loops a lot" upgrades while "called a lot,
     /// loops a little" does not (that's the call-count path's job).
+    #[cfg_attr(not(feature = "jit"), allow(dead_code))]
     pub back_edge_count: u32,
     /// This activation's id, taken lazily (see [`Frame::frame_id`]); `0` until
     /// then. `ObjNew`/`ArrayNew` with `stack_alloc`, `Ref`s, `PinnedView`s
@@ -142,6 +143,7 @@ impl Frame {
 
     /// The id as it stands, `0` if none was taken yet (OSR hands it on as is).
     #[inline]
+    #[cfg_attr(not(feature = "jit"), allow(dead_code))]
     pub fn frame_id_if_taken(&self) -> u32 {
         self.id.get()
     }

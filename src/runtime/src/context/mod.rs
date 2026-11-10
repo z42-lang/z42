@@ -38,13 +38,11 @@
 //! the full state-collapse rationale.
 
 
-use std::collections::HashMap;
 use rustc_hash::FxHashMap;
 use std::marker::PhantomPinned;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
-use parking_lot::{Mutex, RwLock};
 
 use crate::gc::{Heap};
 

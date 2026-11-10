@@ -1,5 +1,4 @@
 //! Type-test execution and on-demand resolution; pure predicates live in runtime/dispatch.
-use crate::metadata::Module;
 use crate::object::{TypeDesc, Value};
 use crate::context::VmContext;
 use crate::metadata::dispatch::isa::*;

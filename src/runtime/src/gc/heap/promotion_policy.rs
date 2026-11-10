@@ -48,7 +48,7 @@
 //! which is the existing (and load-bearing, see the pause-line notes) mechanism for exactly
 //! this invariant.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Survival fraction of the observed tier above which it is judged worthless. Deliberately
 /// close to 1: the tier's whole value is the objects it lets die, so anything short of
@@ -80,6 +80,7 @@ pub(super) struct PromotionPolicy {
 
 impl PromotionPolicy {
     /// The age this minor should sweep at, given the configured one.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn age_for_this_minor(&self, configured: u8) -> u8 {
         if configured >= 2 && self.lowered.load(Ordering::Relaxed) {
             configured - 1

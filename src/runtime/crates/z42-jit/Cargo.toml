@@ -8,9 +8,6 @@ test = false
 [dependencies]
 z42 = { default-features = false, path = "../.." }
 anyhow = "1"
-smallvec = "1"
-tracing = "0.1"
-parking_lot = "0.12"
 rustc-hash = "2"
 [features]
 default = ["jit"]

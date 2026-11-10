@@ -13,7 +13,7 @@ use super::*;
 use crate::jit::helpers::take_exception;
 use crate::jit::runtime::frame::JitFrame;
 use crate::object::{
-    FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold, Value, STRUCT_LEAF_PRIM,
+    FieldAccess, ObjectLayout, TypeDesc, TypeDescCold, Value, STRUCT_LEAF_PRIM,
     TAG_I32, TAG_STR,
 };
 use crate::context::VmContext;

@@ -10,7 +10,9 @@
 //! the z42c toolchain / stdlib isn't built yet (e.g. CI agents that
 //! haven't run `xtask build stdlib`).
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
+#[cfg_attr(not(z42_have_embedding_hello), allow(unused_imports))]
+use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
@@ -306,10 +308,12 @@ fn load_zbc_before_init_returns_not_init() {
 
 /// Captures bytes written through the host stdout sink. Pointer to this
 /// struct is the `user_data` for `host_stdout_sink_callback`.
-struct StdoutCapture {
+#[cfg_attr(not(z42_have_embedding_hello), allow(dead_code))]
+ struct StdoutCapture {
     bytes: Mutex<Vec<u8>>,
 }
 
+#[cfg_attr(not(z42_have_embedding_hello), allow(dead_code))]
 unsafe extern "C" fn host_stdout_sink_callback(
     bytes: *const c_char,
     length: usize,
@@ -508,6 +512,7 @@ fn with_hello_session_mode<R>(
 /// Capture-only sink used by H3 tests that don't care about extra
 /// formatting — the StdoutCapture in `load_invoke_hello_world` adds an
 /// `[host]` prefix; here we keep raw bytes for ordering assertions.
+#[cfg_attr(not(z42_have_embedding_hello), allow(dead_code))]
 unsafe extern "C" fn host_simple_capture_sink(
     bytes: *const c_char,
     length: usize,
@@ -714,7 +719,8 @@ use super::resolver::ZpkgResolver;
 /// Test-local `ZpkgResolver` backed by a HashMap. We don't depend on the
 /// Tier 2 `z42-host::MapResolver` here because the runtime crate is below
 /// it in the dependency graph.
-struct TestMapResolver {
+#[cfg_attr(not(z42_have_embedding_hello), allow(dead_code))]
+ struct TestMapResolver {
     map: HashMap<String, Vec<u8>>,
 }
 
@@ -726,7 +732,8 @@ impl ZpkgResolver for TestMapResolver {
 
 /// Resolver that always misses, but counts how many lookup attempts
 /// were made — useful for proving fallback behaviour.
-struct AlwaysMissResolver {
+#[cfg_attr(not(z42_have_embedding_hello), allow(dead_code))]
+ struct AlwaysMissResolver {
     attempts: std::sync::Mutex<Vec<String>>,
 }
 
@@ -881,8 +888,10 @@ fn resolver_via_map_resolver_loads_corelib_without_search_paths() {
 
 // ── C-hook resolver test infra ──────────────────────────────────────────
 
+#[cfg_attr(not(z42_have_embedding_hello), allow(dead_code))]
 static C_HOOK_ZPKGS: OnceLock<HashMap<String, Vec<u8>>> = OnceLock::new();
 
+#[cfg_attr(not(z42_have_embedding_hello), allow(dead_code))]
 fn c_hook_zpkgs() -> &'static HashMap<String, Vec<u8>> {
     C_HOOK_ZPKGS.get_or_init(|| {
         let mut m = HashMap::new();
@@ -896,6 +905,7 @@ fn c_hook_zpkgs() -> &'static HashMap<String, Vec<u8>> {
     })
 }
 
+#[cfg_attr(not(z42_have_embedding_hello), allow(dead_code))]
 unsafe extern "C" fn c_hook_resolver_fn(
     namespace_name: *const c_char,
     out_bytes: *mut *const u8,

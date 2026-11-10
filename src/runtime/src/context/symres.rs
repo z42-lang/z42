@@ -22,7 +22,7 @@
 //! **只在确信时才报错。** 属主类型解析不出来时**不报**（那是另一类缺失，归 ObjNew 那个
 //! 站点管），保持既有行为。宁可漏掉一些，也不要把正常的跨包加载变成崩溃。
 
-use crate::metadata::dispatch::functions::{call_arity, CallArity};
+use crate::metadata::dispatch::functions::CallArity;
 use crate::metadata::Module;
 use crate::object::TypeDesc;
 use crate::context::VmContext;
@@ -53,7 +53,7 @@ fn lookup_static_field_tag(
             .or_else(|| ctx.try_lookup_type(base));
         match next {
             None => return Err(()),   // 基类不可解析 → 不下结论
-            Some(b) => { cur = Some(b); probe = cur.as_deref().unwrap(); }
+            Some(b) => { probe = cur.insert(b); }
         }
     }
     Err(())

@@ -98,7 +98,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     // `jit_get_bool` returns 255 for a non-Bool condition, with the
                     // exception already set. Propagate it rather than letting the
                     // non-zero byte take the true branch.
-                    let is_err = self.builder.ins().icmp_imm(IntCC::Equal, b, JIT_GET_BOOL_ERR as i64);
+                    let is_err = self.builder.ins().icmp_imm_s(IntCC::Equal, b, JIT_GET_BOOL_ERR as i64);
                     self.check(is_err);
                     self.builder.ins().brif(b, self.cl_blocks[true_idx], &[], self.cl_blocks[false_idx], &[]);
                 }

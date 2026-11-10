@@ -1,5 +1,9 @@
 //! `Heap` 单元测试 —— 覆盖全部 11 个能力组。
 
+// drop/forget(Copy 句柄) 是「此后不再使用该局部」的表意写法：句柄是 Copy、数据存活由
+// root/scanner 机制决定，这些调用本就是无操作 —— 关 lint 而不改写一百多处。
+#![allow(dropping_copy_types, forgetting_copy_types)]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

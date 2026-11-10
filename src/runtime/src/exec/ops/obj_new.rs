@@ -14,7 +14,7 @@ use crate::context::symres;
 use crate::context::VmContext;
 
 use crate::metadata::dispatch::functions::{fn_by_id, lazy_call_id};
-use crate::metadata::dispatch::ctor::{site_for, instance_type_args, make_fallback_type_desc};
+use crate::metadata::dispatch::ctor::make_fallback_type_desc;
 
 /// The class to allocate. `Err` carries the exception to throw (missing type, ambiguous
 /// type, missing base). Hit: the cached descriptor, no hashing.

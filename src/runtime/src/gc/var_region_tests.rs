@@ -738,7 +738,7 @@ fn a_stale_free_entry_is_never_handed_out() {
     let mut handed = Vec::new();
     for _ in 0..384 {
         let h = r.alloc(1024, BlockType::Str);
-        handed.push(unsafe { h.header_ptr() }.as_ptr() as usize);
+        handed.push(h.header_ptr().as_ptr() as usize);
     }
 
     // Nothing came back twice — the real failure mode is two live blocks at one address.
@@ -1049,14 +1049,14 @@ fn a_recycled_slot_comes_back_at_its_own_address() {
     let handles: Vec<_> = (0..16).map(|_| r.alloc(1024, BlockType::Str)).collect();
     let addrs: std::collections::HashSet<_> = handles
         .iter()
-        .map(|h| unsafe { h.header_ptr() }.as_ptr() as usize)
+        .map(|h| h.header_ptr().as_ptr() as usize)
         .collect();
     for h in &handles {
         assert!(r.tombstone(*h), "every block is live and tombstones once");
     }
 
     let reused: std::collections::HashSet<_> = (0..16)
-        .map(|_| unsafe { r.alloc(1024, BlockType::Str).header_ptr() }.as_ptr() as usize)
+        .map(|_| r.alloc(1024, BlockType::Str).header_ptr().as_ptr() as usize)
         .collect();
     assert_eq!(reused, addrs, "recycling must hand back exactly the slots it took");
 }

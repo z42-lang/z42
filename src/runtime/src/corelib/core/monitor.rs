@@ -41,13 +41,10 @@
 //! `state` 只在 O(1) 临界区里被持有，短暂等它不需要 park。
 
 use std::sync::Arc;
-use std::thread::ThreadId;
-use std::time::Duration;
 
-use crate::exec::call::builtin_abi::{Blocking, BuiltinError, IntoRet};
+use crate::exec::call::builtin_abi::BuiltinError;
 use crate::object::{NativeData, TypeDesc};
 use crate::object::Value;
-use crate::context::VmContext;
 
 pub use crate::object::Monitor;
 

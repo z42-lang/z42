@@ -1,5 +1,5 @@
 use super::*;
-use crate::object::{FieldSlot, NativeData, TypeDesc, Value};
+use crate::object::{FieldSlot, NativeData, TypeDesc};
 use std::sync::Arc;
 
 /// Four reference fields provide real slots for nested-object reachability.

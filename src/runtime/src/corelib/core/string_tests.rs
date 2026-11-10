@@ -101,7 +101,7 @@ fn join_interleaves_and_rejects_non_strings() {
     let arr = |xs: &[&str]| ctx.heap().alloc_array_typed(
         "string", xs.iter().map(|s| Value::Str((*s).into())).collect());
     let join = |sep: &str, a: Value| str_join(sep, &a);
-    let s = |v: Value| match v { Value::Str(s) => s.to_string(), o => panic!("{:?}", o) };
+    let _s = |v: Value| match v { Value::Str(s) => s.to_string(), o => panic!("{:?}", o) };
     assert_eq!(join(";", arr(&["a", "b", "c"])).unwrap(), "a;b;c");
     assert_eq!(join(", ", arr(&["x", "", "y"])).unwrap(), "x, , y");
     assert_eq!(join("-", arr(&["solo"])).unwrap(), "solo");
@@ -116,7 +116,7 @@ fn join_interleaves_and_rejects_non_strings() {
 fn null_string_receiver_is_a_null_reference() {
     use crate::objops::Throw;
     let ctx = VmContext::new();
-    let nre = |e: anyhow::Error| {
+    let _nre = |e: anyhow::Error| {
         let t = e.downcast::<Throw>().expect("typed throw");
         assert_eq!(t.class, "Std.NullReferenceException");
         t.msg

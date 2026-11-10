@@ -1,6 +1,5 @@
 //! 根快照、marked-context 扫描与锁内基础遍历。
 
-use super::*;
 use crate::object::Value;
 
 impl crate::gc::Heap {
