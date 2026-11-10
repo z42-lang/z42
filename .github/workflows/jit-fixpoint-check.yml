@@ -54,7 +54,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
+          vm="$PWD/artifacts/build/runtime/release-dynamic/z42vm"
+          [ -f "$vm" ] || vm="$PWD/artifacts/build/runtime/release/z42vm"
+          [ -f "$vm.exe" ] && vm="$vm.exe"
           driver="$PWD/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"
           libs="$PWD/artifacts/intermediate/libraries/flat/release"
           # 比对面 = 编译器 workspace 的 default_members（从清单读，不手抄——包拆合时不会漂）。
