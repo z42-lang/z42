@@ -71,8 +71,9 @@ int _pkgInstallZ42vm(_PkgInstallCtx ctx, string pkgDir) {
     // native_closure：z42vm 的动态闭包（组件动态库 + 恰好一份共享 std）装进同包 native/ ——
     // 运行期发现路径 <exe>/../native/ 与之咬合。旧树无该字段时回退（有 CargoOut 即装，保持
     // native-ext 时代的 SDK 内容不变）。
-    if (cargoOut.Length > 0) {
-        _componentInstallLibraries(cargoOut, pkgDir);
+    // 闭包源 = **组件动态图**（ctx.CargoOut），不是上面的启动器图输出（那里只有 exe 本体）。
+    if (ctx.CargoOut.Length > 0) {
+        _componentInstallLibraries(ctx.CargoOut, pkgDir);
     }
     // NB: the host-only REPL editor cdylib (libz42_repl) is NOT put into bin/ — it
     // ships in programs/z42i/ beside the interactive apphost payload, colocated there by
