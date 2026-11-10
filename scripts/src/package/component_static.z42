@@ -58,6 +58,10 @@ int _componentStaticArchiveFromRlib(string root, string rid, string profile, str
     // 提供 core，成员不再三份。
     // core 归档与组件同图产出：_componentPlatformOut(false) 即静态图输出根（桌面 <static>/<profile>，
     // 移动 <static>/<triple>/<profile>），example z42 的归档在其 examples/ 下。
+    // 去重仅桌面：非桌面的重链图对第三方也有 feature 分歧（实证 wasm：flate2/miniz_oxide
+    // 在 core 图与 compression 图版本不同，剔了最终 wasm 重建缺符号），第三方名单无法穷举。
+    // 移动/wasm 保持 stub 全闭包归档（体积冗余、链接语义不变），后续按平台专项收紧。
+    if (_ridCategory(rid) != "desktop") { return 0; }
     string coreArchive = Path.Join(_componentPlatformOut(root, rid, profile, false),
         "examples/" + _componentStaticName("z42", rid));
     return _componentStripCoreMembers(root, Path.Join(cargo, _componentStaticName(stem, rid)), stem, coreArchive);
