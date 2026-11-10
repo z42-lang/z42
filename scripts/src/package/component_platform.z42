@@ -10,14 +10,16 @@ string _componentPlatformPreset(string rid) {
     if (rid == "browser-wasm") { return "wasm"; }
     return "interp,jit,native-interop,net,tls";
 }
+// jit 矩阵归 [runtime.lib.jit].rids（packages.toml 单一来源）。
 bool _componentTargetHasJit(string rid) {
-    return _ridCategory(rid) == "desktop" || rid == "android-arm64" || rid == "android-x64" || rid == "iossim-arm64";
+    return _rtRidHasJit(_root(), rid);
 }
 string _componentPlatformWorkingDirectory(string root, string rid) {
     return rid.StartsWith("android-") ? Path.Join(root, "src/runtime") : root;
 }
+// 命名归 [runtime.naming] 模板（packages.toml）。
 string _componentStaticName(string stem, string rid) {
-    return rid.StartsWith("windows-") ? stem + ".lib" : "lib" + stem + ".a";
+    return _rtStaticName(_root(), stem, rid);
 }
 string _componentStaticDir(string root, string rid) {
     // Final WASM uses a separate Cargo workspace and LTO profile. Its rlibs
@@ -89,7 +91,7 @@ int _componentBuildPlatform(string root, string rid, string profile) {
 }
 void _componentInstallPlatform(string root, string native, string rid, string profile) {
     string cargo = _componentPlatformOut(root, rid, profile, true);
-    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in _rtStems(_root(), rid)) {
         if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
         string name = _componentLibrary(stem, rid);
         _componentCopyRequired(Path.Join(cargo, name), Path.Join(native, name));

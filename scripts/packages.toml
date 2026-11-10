@@ -41,7 +41,7 @@
 #    runtime 包（docs/internals/src/devinfra/packaging.md §1）。
 [package.sdk]
 artifact = "z42-sdk-{version}-{rid}"
-include  = ["z42vm", "native-ext", "stdlib", "z42c", "launcher", "z42b", "z42d", "z42i", "editor-assets"]
+include  = ["z42vm", "stdlib", "z42c", "launcher", "z42b", "z42d", "z42i", "editor-assets"]
 manifest = "auto"
 
 # ── 可嵌入运行时：只含 native + stdlib，纯粹给嵌入场景用。
@@ -99,6 +99,9 @@ project = "src/compiler/z42c.driver/z42c.driver.z42.toml"
 kind = "cargo-bin"
 project = "src/runtime/Cargo.toml"
 dest = "bin/z42vm"
+# R1：SDK 的 native/ 是 z42vm 的部署伴随闭包（组件动态库 + 共享 std）—— 与 native-ext 时代
+# 同一内容，但现在归 z42vm 自己声明（runtime 包的嵌入件仍走 [component.native]）。
+native_closure = "native/"
 
 [component.apphost-stub]
 kind = "cargo-bin"
@@ -107,11 +110,6 @@ dest = "apphost-{rid}"   # per-RID；workload-desktop 每个 RID 各产一个，
 
 [component.native]
 kind = "cargo-native"    # 嵌入件 libz42.{a,so,dylib} / z42.{lib,dll,dll.lib} + z42_abi.h/z42_host.h + native-ext 的动态库
-project = "src/runtime/Cargo.toml"
-dest = "native/"
-
-[component.native-ext]
-kind = "cargo-native-ext"   # 完整动态运行时闭包：libz42、interp、jit、compression 和共享 std
 project = "src/runtime/Cargo.toml"
 dest = "native/"
 

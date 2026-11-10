@@ -4,13 +4,10 @@ using Std.IO;
 using Std.Cli;
 
 string _componentBuildDir(string root) { return Path.Join(_buildMirror(root, Path.Join(root, "src/runtime")), "components"); }
+// 命名归 [runtime.naming] 模板（packages.toml）；rid 空 = 宿主 RID。
 string _componentLibrary(string stem, string rid = "") {
-    if (rid.Length > 0) {
-        if (rid.StartsWith("windows-")) { return stem + ".dll"; }
-        return "lib" + stem + ((rid.StartsWith("macos-") || rid.StartsWith("ios")) ? ".dylib" : ".so");
-    }
-    if (Platform.IsWindows()) { return stem + ".dll"; }
-    return "lib" + stem + (Platform.IsMacOS() ? ".dylib" : ".so");
+    if (rid.Length == 0) { rid = _detectHostRid(); }
+    return _rtDynamicName(_root(), stem, rid);
 }
 // R0：编译参数的家在 runtime 自身——rustflags 默认 = .cargo/config.toml（按平台），
 // LTO 关闭 = [profile.release-dynamic]，features 预设 = Cargo 命名别名；xtask 只传名。
@@ -119,7 +116,7 @@ int _packageDynamicRuntime(string rid, string profile, bool noBuild, bool verify
 void _componentInstallLibraries(string cargo, string pkg, bool importLibs = false) {
     string native = Path.Join(pkg, "native");
     Directory.Create(native);
-    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in _rtStems(_root(), _detectHostRid())) {
         string file = _componentLibrary(stem);
         _componentCopyRequired(Path.Join(cargo, file), Path.Join(native, file));
         if (importLibs && Platform.IsWindows()) {
