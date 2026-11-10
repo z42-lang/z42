@@ -102,22 +102,24 @@ int _testPackagesInstall() {
     _stgAssert("mobile facade excluded", !File.Exists(Path.Join(pkgDir, "native/libunrelated_platform.a")));
     _stgAssert("REPL excluded", !File.Exists(Path.Join(pkgDir, "native/libz42_repl.dylib")));
 
-    // SDK uses dynamic runtime components, without an embedding static archive or C headers.
-    string extDir = _xtaskWork(root, "install-test-ext");
-    _resetDir(extDir);
-    _PackagesConfig extCfg = _instConfig("install-test-ext", new string[]{ "native-ext" },
-        new _PkgComponent[]{ _instComp("native-ext", "cargo-native-ext", "") });
-    _stgAssert("SDK runtime install", _pkgInstallPackage(extCfg, root, "install-test-ext", extDir, ctx) == 0);
-    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
-        _stgAssert("SDK component " + stem, File.Exists(Path.Join(extDir, "native/" + _componentLibrary(stem))));
+    // R1：native-ext 退役 —— SDK 的 native/ 由 z42vm 的 native_closure 装出（同一闭包内容）。
+    string sdkDir = _xtaskWork(root, "install-test-sdk");
+    _resetDir(sdkDir);
+    _PackagesConfig extCfg = _instConfig("install-test-sdk", new string[]{ "z42vm" },
+        new _PkgComponent[]{ _instComp("z42vm", "cargo-bin", "") });
+    _stgAssert("SDK z42vm+closure install", _pkgInstallPackage(extCfg, root, "install-test-sdk", sdkDir, ctx) == 0);
+    foreach (var stem in _rtStems(root, _detectHostRid())) {
+        _stgAssert("SDK component " + stem, File.Exists(Path.Join(sdkDir, "native/" + _componentLibrary(stem))));
     }
-    _stgAssert("SDK static archive excluded", !File.Exists(Path.Join(extDir, "native/" + staticName)));
-    _stgAssert("SDK import lib excluded", !File.Exists(Path.Join(extDir, "native/z42.dll.lib"))
-        && !File.Exists(Path.Join(extDir, "native/z42_compression.dll.lib")));
-    _stgAssert("SDK C headers excluded", !Directory.Exists(Path.Join(extDir, "native/include")));
+    _stgAssert("SDK static archive excluded", !File.Exists(Path.Join(sdkDir, "native/" + staticName)));
+    _stgAssert("SDK C headers excluded", !Directory.Exists(Path.Join(sdkDir, "native/include")));
+    _stgAssert("SDK import lib excluded", !File.Exists(Path.Join(sdkDir, "native/z42.dll.lib"))
+        && !File.Exists(Path.Join(sdkDir, "native/z42_compression.dll.lib")));
     File.Delete(Path.Join(fakeCargoOut, _componentLibrary("z42_jit")));
     bool rejected = false;
-    try { _pkgInstallNativeExt(fakeCargoOut, extDir); } catch (Exception e) { rejected = true; }
+    _PkgInstallCtx jitCtx = new _PkgInstallCtx();
+    jitCtx.CargoOut = fakeCargoOut;
+    try { rejected = _pkgInstallZ42vm(jitCtx, sdkDir) != 0; } catch (Exception e) { rejected = true; }
     _stgAssert("missing required JIT library rejects the package", rejected);
 
     // stdlib: reuses the repo's real built dist — at least one zpkg lands at the declared libs/ dest.
@@ -196,14 +198,14 @@ int _testPackagesInstall() {
     _PkgInstallCtx emptyCtx = new _PkgInstallCtx();
     emptyCtx.CargoOut = emptyCargoOut;
     rejected = false;
-    try { _pkgInstallPackage(extCfg, root, "install-test-ext", badDir, emptyCtx); } catch (Exception e) { rejected = true; }
+    try { rejected = _pkgInstallPackage(extCfg, root, "install-test-sdk", badDir, emptyCtx) != 0; } catch (Exception e) { rejected = true; }
     _stgAssert("empty runtime output rejects package installation", rejected);
 
     Directory.Delete(fakeCargoOut, true);
     Directory.Delete(emptyCargoOut, true);
     Directory.Delete(pkgDir, true);
-    Directory.Delete(extDir, true);
+    Directory.Delete(sdkDir, true);
     Directory.Delete(badDir, true);
-    Console.WriteLine("packages-install: PASS (z42vm/native/native-ext/stdlib/editor-assets installers + hermetic libs + failure paths)");
+    Console.WriteLine("packages-install: PASS (z42vm+closure/native/stdlib/editor-assets installers + hermetic libs + failure paths)");
     return 0;
 }

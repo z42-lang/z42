@@ -56,7 +56,6 @@ int _componentStaticArchiveFromRlib(string root, string rid, string profile, str
     // （z42-/z42_zpkg-/z42_rs-/z42_abi- 前缀，与组件自身 z42_interp- 等以 -/_ 可分）
     // 从组件归档中删除；cranelift 留在 jit、算法库留在 compression。嵌入者以 libz42.a
     // 提供 core，成员不再三份。
-<<<<<<< HEAD
     // core 归档与组件同图产出：_componentPlatformOut(false) 即静态图输出根（桌面 <static>/<profile>，
     // 移动 <static>/<triple>/<profile>），example z42 的归档在其 examples/ 下。
     // 去重仅桌面：非桌面的重链图对第三方也有 feature 分歧（实证 wasm：flate2/miniz_oxide
@@ -65,10 +64,6 @@ int _componentStaticArchiveFromRlib(string root, string rid, string profile, str
     if (_ridCategory(rid) != "desktop") { return 0; }
     string coreArchive = Path.Join(_componentPlatformOut(root, rid, profile, false),
         "examples/" + _componentStaticName("z42", rid));
-=======
-    string coreArchive = Path.Join(_componentStaticDir(root, rid),
-        _componentStaticProfileName(profile) + "/examples/" + _componentStaticName("z42", rid));
->>>>>>> c24ae52a0 (fix(package): 静态组件归档剔除 core 闭包成员 —— 三份 core 去重 + 版本分歧保护)
     return _componentStripCoreMembers(root, Path.Join(cargo, _componentStaticName(stem, rid)), stem, coreArchive);
 }
 
@@ -96,7 +91,6 @@ int _componentStripCoreMembers(string root, string archive, string stem, string 
         if (coreCrates.Contains(crate)) { drop.Add(name); }
     }
     if (drop.Count == 0) { return 0; }
-<<<<<<< HEAD
     // Windows 命令行长度有限（llvm-ar 报 os error 206）：分批删，每批 64 个成员。
     for (int i = 0; i < drop.Count; i = i + 64) {
         int take = drop.Count - i; if (take > 64) { take = 64; }
@@ -105,12 +99,6 @@ int _componentStripCoreMembers(string root, string archive, string stem, string 
         int c = _exec(del);
         if (c != 0) { return c; }
     }
-=======
-    Process del = new Process(arTool).Arg("d").Arg(archive);
-    foreach (var name in drop) { del = del.Arg(name); }
-    int c = _exec(del);
-    if (c != 0) { return c; }
->>>>>>> c24ae52a0 (fix(package): 静态组件归档剔除 core 闭包成员 —— 三份 core 去重 + 版本分歧保护)
     Console.WriteLine("  · " + Path.GetFileName(archive) + ": 剔除 core 闭包成员 " + drop.Count.ToString() + " 个（core 由 libz42.a 提供）");
     return 0;
 }

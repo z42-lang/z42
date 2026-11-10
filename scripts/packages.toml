@@ -16,9 +16,8 @@
 #      但同样逐个登记（名字→kind→落点），不留"隐形"
 #      组件——cargo bin 类（z42vm / apphost-stub）产出单个二进制；native 是
 #      cargo-native（libz42.* 静态/动态库 + headers，多文件但来源单一：同一个
-#      cargo 工作区一次 build 产出，登记成本不比单文件高）；native-ext 是
-#      cargo-native-ext（只有 stdlib native 扩展的动态库，z42vm 启动时 dlopen）；
-#      stdlib 是 zpkg glob（加库会变，需要显式声明落点）。
+#      cargo 工作区一次 build 产出，登记成本不比单文件高）；stdlib 是
+#      zpkg glob（加库会变，需要显式声明落点）。
 #
 # dest 与 artifact 一样支持 {version}/{rid} 占位符展开（apphost-stub 需要，因为
 # 它的落点按 RID 变化，如 apphost-{rid}）。
@@ -109,7 +108,7 @@ project = "src/toolchain/workload/desktop/platform/apphost/Cargo.toml"
 dest = "apphost-{rid}"   # per-RID；workload-desktop 每个 RID 各产一个，CI 再合并
 
 [component.native]
-kind = "cargo-native"    # 嵌入件 libz42.{a,so,dylib} / z42.{lib,dll,dll.lib} + z42_abi.h/z42_host.h + native-ext 的动态库
+kind = "cargo-native"    # 嵌入件 libz42.{a,so,dylib} / z42.{lib,dll,dll.lib} + z42_abi.h/z42_host.h
 project = "src/runtime/Cargo.toml"
 dest = "native/"
 
