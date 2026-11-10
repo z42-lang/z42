@@ -37,6 +37,30 @@ int _selfcheckCiShell() {
     return 0;
 }
 
+// RID 的数据推导：本机 RID 探测与 workflow 投影解析（check versions 用）。
+int _selfcheckRidDerivation() {
+    string root = _root();
+    foreach (var rid in _vRidsOfCategory(root, "desktop")) {
+        string triple = _vRidTriple(root, rid);
+        _rdAssert(_hostRidFor(root, _tripleOs(triple), _tripleArch(triple)) == rid, "host " + rid + " round-trips through its triple");
+    }
+    _rdAssert(_hostRidFor(root, "freebsd", "x86_64") == "freebsd-x86_64-unsupported", "unregistered host is reported, not guessed");
+    _rdAssert(_tripleOs("aarch64-apple-ios-sim") == "ios" && _tripleOs("aarch64-linux-android") == "android"
+        && _tripleOs("x86_64-unknown-linux-gnu") == "linux" && _tripleOs("wasm32-unknown-unknown") == "wasm", "triple OS names");
+    string rel = "    include:\n      - { rid: a-x64, runs-on: r, rust-target: x86_64-pc-windows-msvc }\n      - { rid: b, runs-on: r, rust-target: wasm32-unknown-unknown }\n";
+    _rdAssert(String.Join(",", _wfReleaseMatrix(rel)) == "a-x64=x86_64-pc-windows-msvc,b=wasm32-unknown-unknown", "release matrix rows");
+    string ci = "jobs:\n  other:\n    matrix:\n      include:\n        - { os: o, platform: no-x64 }\n"
+        + "  host-package:\n    strategy:\n      matrix:\n        include:\n          - { os: u, platform: linux-x64 }\n          - { os: w, platform: windows-x64 }\n"
+        + "  package-ios:\n    steps:\n      - run: |\n          for rid in ios-arm64 iossim-arm64; do\n            xtask package runtime --rid \"$rid\"\n          done\n"
+        + "          xtask package runtime --rid browser-wasm --archive\n";
+    _rdAssert(String.Join(",", _wfJobMatrixValues(ci, "host-package", "platform")) == "linux-x64,windows-x64", "matrix values stay inside their job");
+    _rdAssert(String.Join(",", _wfPackagedRids(ci)) == "ios-arm64,iossim-arm64,browser-wasm", "loop lists and literal --rid, not $rid");
+    Console.WriteLine("  ✅ RID derivation: host detection round-trip, workflow projection parsing");
+    return 0;
+}
+
+void _rdAssert(bool ok, string what) { if (!ok) { throw new Exception("rid derivation: " + what); } }
+
 void _csExpectUses(string line, string expected, string what) {
     string got = String.Join(",", _csUsesIn(line).ToArray());
     if (got != expected) { throw new Exception("ci-shell scanner: " + what + ": expected [" + expected + "] got [" + got + "]"); }
