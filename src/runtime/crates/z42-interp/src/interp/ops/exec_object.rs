@@ -3,13 +3,11 @@
 /// IsInstance / AsCast (runtime type checks), StaticGet / StaticSet.
 
 use crate::metadata::dispatch::ctor::{site_for, instance_type_args};
-use crate::metadata::dispatch::receiver::prim_isa;
 use crate::metadata::Module;
 use crate::object::Value;
 use crate::context::VmContext;
 use anyhow::Result;
 
-use crate::exec::ops::cast::isa_td;
 use super::collect_args;
 use super::Frame;
 

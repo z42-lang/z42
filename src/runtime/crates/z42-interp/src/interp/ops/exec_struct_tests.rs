@@ -41,11 +41,6 @@ fn get_leaf(ctx: &VmContext, frame: &mut Frame, dst: u32, base: u32, off: u32, k
     frame.set(dst, v);
 }
 
-fn get_leaf_err(ctx: &VmContext, frame: &mut Frame, base: u32, off: u32, kind: u8) -> String {
-    let b = frame.get(base).unwrap().clone();
-    super::struct_field_get_val(ctx, &b, off, kind).unwrap_err().to_string()
-}
-
 #[test]
 fn codec_roundtrip_integers() {
     for &(tag, n) in &[
@@ -277,7 +272,7 @@ fn boxed_struct_owns_snapshot_and_survives_arena_truncate() {
 #[test]
 fn stack_object_inline_struct_field_roundtrips() {
     use crate::context::VmContext;
-    use crate::object::{ScriptObject, TypeDesc, TypeDescCold};
+    use crate::object::{TypeDesc, TypeDescCold};
     use crate::zpkg::NameIndex;
     use crate::metadata::ids::tokens::TypeId;
 

@@ -1,7 +1,3 @@
-use crate::object::Value;
-use crate::context::VmContext;
-use anyhow::Result;
-use super::convert::arg_char;
 
 /// True for Unicode whitespace characters (space, tab, CR, LF, NBSP, etc.).
 /// args: [this: char]

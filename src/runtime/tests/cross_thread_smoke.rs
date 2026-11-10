@@ -73,7 +73,7 @@ fn gc_alloc_on_one_thread_drop_on_another() {
     // Allocate on main, last-strong-reference drops on worker. Validates
     // that GcRef Drop is thread-safe.
     let ctx = VmContext::new();
-    let val = ctx.heap().alloc_object(
+    let _val = ctx.heap().alloc_object(
         dummy_type_desc("DemoCrossThreadObj"),
         vec![Value::I64(0)],
         z42::object::NativeData::None,
@@ -81,7 +81,6 @@ fn gc_alloc_on_one_thread_drop_on_another() {
     let handle = thread::spawn(move || {
         // Move val into worker; drop happens at end of scope (last strong
         // reference, since main released it via move).
-        drop(val);
     });
     handle.join().expect("worker panicked");
     // No assertion needed — if Drop panics or deadlocks the join fails.

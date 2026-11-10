@@ -15,8 +15,6 @@ pub(crate) mod error;
 #[cfg(feature = "net")]
 pub(crate) mod listener;
 #[cfg(feature = "net")]
-pub(crate) use listener::ListenerSlot;
-#[cfg(feature = "net")]
 pub(crate) mod tcp;
 #[cfg(feature = "net")]
 pub(crate) mod udp;

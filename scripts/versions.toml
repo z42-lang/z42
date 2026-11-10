@@ -197,8 +197,11 @@ wasm    = "WASM (npm)"
 # triple ↔ [platform.*].rust_targets 双向对账（`xtask check versions`）：platform 由 rid 推出
 # （category != desktop 时 = category；desktop RID = 名字首段，如 linux-x64 → linux）。
 # 反向要求 platform 的每个 rust_target 都有 RID 登记——新增 target 不登记则 CI 编得出、xtask 打不出包。
-# ⚠️ .github/workflows/release.yml 的 matrix 是本表的另一份投影（GitHub 无法直接读 toml），
-# 两处须同步改；对账门只覆盖 toml 侧。
+# 本机 RID 也从本表推出（desktop RID 里 triple 的 OS / 架构与本机一致的那个），所以 desktop RID 的
+# (OS, 架构) 必须两两不同。
+# ⚠️ workflow 里有本表的投影（GitHub Actions 读不了 toml）：release.yml 的 package 矩阵（rid + rust-target）、
+# ci.yml 的 host-package 矩阵（desktop RID）与平台打包步骤（`for rid in …` / `package runtime --rid …`）。
+# 加 / 改 RID 要同步改它们；`xtask check versions` 双向对账，漏改即红。
 
 [rid.linux-x64]
 triple   = "x86_64-unknown-linux-gnu"

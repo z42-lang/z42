@@ -11,7 +11,6 @@
 use crate::object::Value;
 use crate::object::ArrRef;
 use crate::object::header::obj_ref::ObjRef;
-use crate::gc::Heap;
 
 impl crate::gc::Heap {
     /// **add-generational-gc P1 **: cross-gen detection for the write-barrier

@@ -297,7 +297,7 @@ fn type_fields_empty_for_non_type_arg_with_static() {
 #[test]
 fn type_flags_false_for_handle_less() {
     // Non-Type arg / no handle → false, never bail (lenient).
-    let c = ctx();
+    let _c = ctx();
     assert!(!type_is_abstract(&Value::I64(7)));
     assert!(!type_is_sealed(&Value::Null));
     assert!(!type_is_value_type(&Value::I64(7)));
@@ -370,7 +370,7 @@ fn type_visibility_decode_top_level_and_nested() {
 
 #[test]
 fn type_visibility_handle_less_is_public() {
-    let c = ctx();
+    let _c = ctx();
     // No TYPE handle (primitive / array) → visibility defaults to Public (0):
     // primitives behave as public top-level types (mirrors C#).
     let none = Value::I64(1);

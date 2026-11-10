@@ -13,6 +13,7 @@ pub use options::{ComponentOptions, component_interface, component_ids};
 pub use identity::{core_identity, CORE_ABI};
 pub use linked::register_static_component;
 pub use backends::{BackendOptions, BackendSource, jit_supported, jit_available, interp_available};
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
 pub(crate) use backends::native_paths;
 
 #[cfg(test)] mod api_tests;

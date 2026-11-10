@@ -1,7 +1,6 @@
 //! `Heap` 环回收编排与控制 API：run_cycle_collection(_stw) + collect/force + finalize + soft-ref。
 //! mark/sweep 原语见 `collect.rs`（refactor-arc-heap-modularization）。
 
-use crate::gc::Heap;
 use crate::object::Value;
 use crate::gc::types::{CollectStats, GcEvent, GcKind};
 use super::incremental::{GenWork, SliceBudget};

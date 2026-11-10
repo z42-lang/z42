@@ -333,3 +333,18 @@ bool _dirHasTestMethods(string dir) {
     }
     return false;
 }
+
+// ── golden 选择（build test 与 test e2e 共用的 --dir / --file 过滤） ────────────
+
+// `test e2e` filter: keep a case iff it passes the --dir (category) and --file
+// (name or source-path substring) narrowing. Both empty = keep all.
+bool _e2eIncluded(string cat, string name, string srcPath, string dirFilter, string fileFilter) {
+    if (dirFilter.Length > 0 && cat != dirFilter) { return false; }
+    if (fileFilter.Length > 0) {
+        if (name == fileFilter) { return true; }
+        string norm = srcPath.Replace("\\", "/");
+        string f = fileFilter.Replace("\\", "/");
+        if (!norm.Contains(f)) { return false; }
+    }
+    return true;
+}

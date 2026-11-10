@@ -21,7 +21,6 @@ pub use self::core::{
     diagnostics, appprops, array, config, char, gc, bench,
     threading, monitor, crypto,
 };
-pub(crate) use self::core::symavail;
 #[cfg(test)]
 mod resource_state_tests;
 pub mod io;

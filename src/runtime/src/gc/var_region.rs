@@ -79,7 +79,7 @@ mod objects;
 use crate::object::header::block::{BlockType, GcBlockHeader, PayloadDropGlue};
 pub use objects::{DetachedBlock, VarMinorSweep};
 use crate::object::header::block::payload_ptr_of;
-pub(crate) use chunk::{class_for, class_for_with_limit, dedicated_free_count, may_be_dedicated, OVERSIZED_CLASS};
+pub(crate) use chunk::{class_for, dedicated_free_count, may_be_dedicated, OVERSIZED_CLASS};
 use crate::object::header::block::{ALIVE_GEN_BIT, FIRST_GEN};
 use chunk::payload_class;
 pub use chunk::{loh_bytes, set_loh_bytes};
@@ -452,6 +452,7 @@ impl VarRegion {
     /// unconditional `O(entries)` **per collection** it replaces. Without it a size class that
     /// stops being allocated would keep its stale entries forever: nothing pops them, so
     /// nothing discovers them.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn compact_free_lists(&mut self) {
         for sc in 0..self.free_lists.len() {
             self.compact_class(sc);

@@ -9,10 +9,8 @@
 //!     browser bridge / WASI integration is add-csprng-wasm-bridge follow-up).
 
 use crate::exec::call::builtin_abi::BuiltinError;
-use super::convert::arg_i64;
-use crate::object::Value;
 use crate::context::VmContext;
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 const NAME: &str = "__crypto_random_bytes";
 

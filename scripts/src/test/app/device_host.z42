@@ -31,11 +31,6 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Collections;
 
-// <p> 的宿主工程副本：artifacts/intermediate/toolchain/workload/<p>/host。
-string _deviceHost(string root, string platform) {
-    return _workOut(root, "src/toolchain/workload/" + platform, "host");
-}
-
 // 宿主工程的源码位置（只读；Rust crate 从这里编）。
 string _deviceHostSrc(string root, string platform) {
     return Path.Join(root, "src/toolchain/workload/" + platform + "/platform");

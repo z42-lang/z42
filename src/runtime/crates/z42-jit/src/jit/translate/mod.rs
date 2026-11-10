@@ -59,7 +59,6 @@ mod predicates;
 mod emit_int;
 mod emit_fc;
 
-use unsupported::*;
 pub(crate) use unsupported::{jit_unsupported_reason, unsupported_reason};
 pub(crate) use analysis::max_reg;
 use ic::*;

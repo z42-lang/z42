@@ -54,7 +54,7 @@ pub use knobs::*;
 pub use render::*;
 pub use resolve::*;
 pub use source::*;
-pub(crate) use parse::*;
+use parse::*;
 
 /// Resolved values of **every `Z42_*` runtime knob the runtime consumes**.
 ///

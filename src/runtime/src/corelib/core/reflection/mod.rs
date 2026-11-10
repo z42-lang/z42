@@ -1,3 +1,6 @@
+// 各子模块都自带 `pub mod typed`（typed-builtin 惯例）：glob 再导出必然同名，
+// 消费方一律走完整路径（如 `reflection::accessors::typed`），不在此消歧。
+#![allow(ambiguous_glob_reexports)]
 //! Reflection builtins — read-only type introspection backing `Std.Type` and
 //! `Std.Reflection.{FieldInfo,MethodInfo,ParameterInfo}` (add-reflection-mvp).
 //!

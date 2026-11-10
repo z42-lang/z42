@@ -1,5 +1,4 @@
 //! Constructor-site ownership, type arguments and module-local descriptor facts.
-use std::sync::Arc;
 use crate::zpkg::ClassDesc;
 use crate::object::{TypeDesc, FieldSlot};
 use crate::metadata::{Module, ids::func_table::FuncTable};

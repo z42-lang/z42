@@ -1,8 +1,8 @@
 // xtask — 文件系统原语：**不属于任何命令族**、被 common/ build/ test/ package/ 多方共用的最底层操作。
 //
-// 依赖只有一个方向：**build / test / package / install 各族 → common/**，族与族之间不互相调用。
-// namespace 扁平 + 裸名互调，编译器不会拦反向依赖，只能靠这条约定守住（scripts/README.md
-// 「目录分层规则」）。
+// 依赖方向：**build / test / package / setup / bench 各族 → common/**，common 不反调命令实现；族与族之间
+// 只为编排调用对方的命令（如 test 先 build），共用的小工具上移到 common/。namespace 扁平 + 裸名互调，
+// 编译器不会拦反向依赖，只能靠这条约定守住（scripts/README.md「目录分层规则」）。
 //
 // 收进来的判据：不止一个文件用，且是通用原语。只在本文件用、或带某族布局语义的留在原处
 // （如 `_copyIfNewer`、`_rmIfExists`、`_pkgCopyLibs` / `_copyNativeLibs`）；`_stageCopyExt`

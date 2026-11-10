@@ -16,7 +16,6 @@ use z42_abi::{Z42Error, Z42TypeDescriptor_v1, Z42TypeOpaque, Z42TypeRef, Z42Valu
 
 use super::error;
 use super::registry::RegisteredType;
-use crate::context::VmContext;
 
 /// Categorical error codes mirrored into the last-error slot for embedder
 /// consumption via `z42_last_error()`.  retire-z-codes: named

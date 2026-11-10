@@ -6,7 +6,7 @@
 
 // These tests directly exercise the statically linked interpreter entry.
 #![cfg(feature = "interp")]
-use z42_zpkg::{BasicBlock, CallNativeInsn, ExecMode, FieldGetInsn, Instruction, Terminator};
+use z42_zpkg::{BasicBlock, ExecMode, FieldGetInsn, Instruction, Terminator};
 use std::collections::HashMap;
 
 use z42::metadata::{Function, Module};

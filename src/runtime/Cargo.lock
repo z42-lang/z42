@@ -375,15 +375,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
-name = "convert_case"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1af709f1f33454bf52eadfc8c78b3b9ef9cb26fb54d16dc9cd9a7299f899fd1b"
-dependencies = [
- "unicode-segmentation",
-]
-
-[[package]]
 name = "cpufeatures"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2268,7 +2259,6 @@ dependencies = [
 name = "z42-compression"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "brotli",
  "flate2",
  "lz4_flex",
@@ -2282,10 +2272,8 @@ name = "z42-interp"
 version = "0.7.0"
 dependencies = [
  "anyhow",
- "parking_lot",
  "rustc-hash 2.1.3",
  "smallvec",
- "tracing",
  "z42",
 ]
 
@@ -2299,10 +2287,7 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
- "parking_lot",
  "rustc-hash 2.1.3",
- "smallvec",
- "tracing",
  "z42",
 ]
 
@@ -2310,7 +2295,6 @@ dependencies = [
 name = "z42-macros"
 version = "0.7.0"
 dependencies = [
- "convert_case",
  "proc-macro2",
  "quote",
  "syn 3.0.5",

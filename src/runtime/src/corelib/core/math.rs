@@ -6,8 +6,6 @@
 //! overload),不经这里。反三角 / 双曲 / cbrt / log2(augment-corelib-parity
 //! backlog #9)由 libm 承载,边界(溢出、2 的幂上的 log2)跟平台数学库。
 
-use crate::exec::call::builtin_abi::BuiltinError;
-use crate::context::VmContext;
 
 
 #[inline]

@@ -44,6 +44,7 @@ impl<T> ResourceRegistry<T> {
     }
 
     /// Number of live slots.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn count(&self) -> usize {
         self.table.lock().len()
     }
@@ -60,6 +61,7 @@ impl<T: Clone> ResourceRegistry<T> {
     /// Clone the slot's value out (`None` if unknown). Used by the Arc-wrapped
     /// sync primitives (`Mutex` / `RwLock`) whose handlers clone the `Arc` out
     /// and operate on the inner lock without holding the registry lock.
+    #[cfg_attr(not(feature = "net"), allow(dead_code))]  // 消费方在 net/tls（tls 依赖 net）
     pub(crate) fn get_cloned(&self, id: u64) -> Option<T> {
         self.table.lock().get(&id).cloned()
     }

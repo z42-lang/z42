@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::object::OwnedObject;
 use crate::object::ClosureData;
-use crate::gc::types::{AllocSamplerFn, CollectStats, FinalizerFn, FrameMark, GcHandleKind, GcObserver, HeapStats, ObserverId, RootHandle, WeakRef, WeakRefInner};
+use crate::gc::types::{AllocSamplerFn, FinalizerFn, FrameMark, GcHandleKind, GcObserver, ObserverId, RootHandle, WeakRef, WeakRefInner};
 
 use crate::gc::heap::{Heap, HandleEntry};
 use crate::gc::walk::CategorizedRootScanner;

@@ -287,7 +287,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         let is_zero = self.builder.ins().icmp_imm_u(IntCC::Equal, raw, 0);
         self.builder.ins().brif(is_zero, zero_blk, &[], prim_blk, &[]);
         self.builder.switch_to_block(zero_blk);
-        let zk = self.builder.ins().ushr_imm(info, 8);
+        let zk = self.builder.ins().ushr_imm_s(info, 8);
         let zk = self.builder.ins().band_imm_u(zk, 0xF);
         let ztag_addr = self.builder.ins().iadd(ptable, zk);
         let ztag = self.builder.ins().load(types::I8, MemFlagsData::trusted(), ztag_addr, 0);
@@ -304,7 +304,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         store_tagged(self.builder, dst_addr, null_tag, zp);
         self.builder.ins().jump(done_blk, &[]);
         self.builder.switch_to_block(val_blk);
-        let k = self.builder.ins().ushr_imm(raw, 4);
+        let k = self.builder.ins().ushr_imm_s(raw, 4);
         let k = self.builder.ins().band_imm_u(k, 0xF);
         let ptag_addr = self.builder.ins().iadd(ptable, k);
         let ptag = self.builder.ins().load(types::I8, MemFlagsData::trusted(), ptag_addr, 0);

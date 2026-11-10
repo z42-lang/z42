@@ -104,7 +104,7 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 **构建波也计入**——它常是最大的一块，不计的话各 stage 之和对不上 TOTAL，反而误导。
 
 实现：`StageLogZ` + `_stageStart` / `_stageEnd` / `_stageSummary`，时长格式化 `_fmtDur`
-（`scripts/src/common/base.z42`）。
+（`scripts/src/common/logging.z42`）。
 
 ## 7. `test changed`：按改动挑测试（命令计划 + gate 分流共用一张表）
 
