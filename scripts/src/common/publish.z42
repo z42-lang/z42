@@ -36,3 +36,66 @@ int _z42bPublish(string vm, string z42bZpkg, string libs, string apphostStub, st
         .Arg("--no-build")
         .Env("Z42_APPHOST_TEMPLATE", apphostStub));
 }
+
+// ── z42c 编译执行模式 + workspace 构建 ───────────────────────────────────────
+
+// z42c 编译（xtask 驱动 z42vm 跑 z42c.driver）走 interp 还是 jit 的单一开关。
+// **默认 jit**：四平台 z42c workspace 编译 interp==jit 逐字节一致，自举不动点的信任基线在 JIT。
+// 逃生舱 Z42C_BUILD_MODE=interp|jit（格式-bump 窗口 / 确定性审计 / 调试时回解释器）。
+string _z42cMode() {
+    string m = Environment.GetEnvironmentVariable("Z42C_BUILD_MODE", "");
+    if (m == "interp" || m == "jit") { return m; }
+    return "jit";
+}
+
+// z42c `build --workspace --release` 的单一封装：stdlib / compiler gen1 / gen2
+// 三处 workspace 构建共用，把「gen1、gen2 必须完全同参」的自举不动点不变量从注释纪律
+// 固化成代码（三处仅 driver / cwd / libs 不同，mode 恒同经 _z42cMode()）。
+// noIncremental：凡是「必须真编一遍才有意义」的构建（不动点 gen2、编译器输出对比）传 true——
+// 命中 cache 等于没测。增量开关不改变产物字节（cache 正确性前提），故不破坏 gen1==gen2 同参不变量。
+int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool noIncremental) {
+    return _z42cWorkspaceBuild(vm, driver, cwd, libs, noIncremental, "");
+}
+
+// `libs` = 编译期依赖面（`Z42_LIBS`）；`runLibs` 非空 ⇒ driver 自己运行期先从那里加载（上一代 driver 自举，
+// 见 `_z42cProcSeed`）。
+int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool noIncremental,
+                        string runLibs) {
+    Process p = _z42cProcSeed(vm, libs, runLibs, driver)
+        .Arg("build").Arg("--workspace").Arg("--release");
+    if (noIncremental) { p = p.Arg("--no-incremental"); }
+    return p
+        .WorkingDirectory(cwd)
+        .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit())
+        .Run().ExitCode;
+}
+
+// 单包 `build <toml> --release --output-dir <out>`：把一个成员 zpkg 直接写到 <out>/<name>.zpkg
+// （非 workspace 布局）。冷启动破 z42c⇄z42.package 环用（_ensureBootstrapSelfDepLibs）：种子 driver
+// 先把当前源码的 z42.package 编进 build-libs，让 fresh z42c 对着真 z42.package 编译+运行。
+// `runLibs` 同 `_z42cWorkspaceBuild`。
+int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, string outputDir,
+                      string runLibs) {
+    return _z42cProcSeed(vm, libs, runLibs, driver)
+        .Arg("build").Arg(tomlPath).Arg("--release").Arg("--output-dir").Arg(outputDir)
+        .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit())
+        .Run().ExitCode;
+}
+
+// Verify each member's canonical workspace product (the per-member dist derived
+// from `wsToml`'s [workspace.build].output_dir template) exists + is non-empty.
+// Prints per-member ✓ (verbosity-gated, --detailed) / ✗ (always). Returns the fail
+// count (0 = all present). Shared by `build stdlib` + `test compiler` verify loops.
+int _verifyMemberZpkgs(string wsToml, string[] members, string profile) {
+    int fail = 0;
+    foreach (var m in members) {
+        string zpkg = Path.Join(_memberDist(wsToml, m, profile), m + ".zpkg");
+        if (File.Exists(zpkg) && File.GetSize(zpkg) > 0L) {
+            _vDetailed("    ✓ " + m + ".zpkg (" + File.GetSize(zpkg).ToString() + " bytes)");
+        } else {
+            Console.WriteLine("    ✗ " + m + ".zpkg — workspace product missing at " + zpkg);
+            fail = fail + 1;
+        }
+    }
+    return fail;
+}

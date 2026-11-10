@@ -11,6 +11,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Toml;
 
 // 解析结果。Ok=false 时 _resolveToolset 已经打印过具体原因，调用方直接 return 1 即可。
 class ToolsetZ {
@@ -61,4 +62,37 @@ ToolsetZ _resolveToolset(string root) {
     }
     t.Ok = true;
     return t;
+}
+
+// ── tool presence ────────────────────────────────────────────────────────────
+
+// "is <bin> on PATH" (PATHEXT-aware on Windows). Shared primitive: deps-install presence checks +
+// package-time tooling gates.
+bool _have(string bin) { return Process.Which(bin) != null; }
+
+// `<bin>` 不在 PATH 上 ⇒ 打一行 `error: <bin> not found (<hint>)` 并返回 false（调用方 return 1）。
+// 平台测试 backend（desktop / ios / android）与 embedded 的入口门。
+bool _requireTool(string bin, string hint) {
+    if (Process.Which(bin) != null) { return true; }
+    ConsoleError.WriteLine("error: " + bin + " not found (" + hint + ")");
+    return false;
+}
+
+// ── Android NDK 定位（setup / package / test app 共用） ─────────────────────────
+
+// ANDROID_NDK_HOME env, else auto from versions.toml install_root/ndk/<version>.
+string _androidNdkDir(string root) {
+    string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME", "");
+    if (env.Length > 0) {
+        if (Directory.Exists(env)) { return env; }
+        ConsoleError.WriteLine("error: ANDROID_NDK_HOME set but not a dir: " + env);
+        return "";
+    }
+    TomlValue toml = _vparse(root);
+    string installRoot = _vget(toml, "build.android.install_root");
+    string ver = _vget(toml, "build.android.ndk.version");
+    string auto = Path.Join(root, Path.Join(installRoot, Path.Join("ndk", ver)));
+    if (Directory.Exists(auto)) { return auto; }
+    ConsoleError.WriteLine("error: NDK not found — run `xtask setup --os android` (installs to " + auto + "), or set ANDROID_NDK_HOME");
+    return "";
 }

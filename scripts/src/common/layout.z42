@@ -427,3 +427,38 @@ int _layoutCmd(string keyIn) {
     }
     return 0;
 }
+
+// ── artifact paths (absolute, repo-root-relative) ────────────────────────────
+
+// stdlib flat dist (= the Z42_LIBS value the compiler + VM load stdlib from):
+//   artifacts/intermediate/libraries/flat/release.
+// This is the CANONICAL build-tree path — where the producer command (build stdlib)
+// WRITES. Consumers that must honour an active `--toolchain` resolve the toolchain
+// first themselves (`_activeVm` / `_toolchainLibs`) and fall back here.
+// ⚠️ scripts/src/hooks.z42（embed-libs）另写了一份（hooks 工程调不到本函数），改这里要同步。
+string _libsDir(string root) {
+    return _libsFlatDist(root, "release");
+}
+
+// Absolute path to a cargo-built binary under artifacts/build/runtime/<profile>/,
+// WITH the platform exe suffix. Critical for File.Exists checks on Windows: the
+// real file is `z42vm.exe`, and File.Exists("...z42vm") returns false there even
+// though Process() auto-resolves the .exe. Always route built-binary lookups
+// through this helper so the gate doesn't false-fail on Windows.
+string _builtBin(string root, string profile, string name) {
+    string bin = Platform.IsWindows() ? (name + ".exe") : name;
+    string dir = _runtimeOut(root, profile);
+    return Path.Join(dir, bin);
+}
+
+// Convenience: the built z42vm for a profile ("debug" / "release").
+string _builtVm(string root, string profile) {
+    return _builtBin(root, profile, "z42vm");
+}
+
+// ── 设备测试宿主工程的暂存目录（test app 与 package wasm 共用） ─────────────────
+
+// <p> 的宿主工程副本：artifacts/intermediate/toolchain/workload/<p>/host。
+string _deviceHost(string root, string platform) {
+    return _workOut(root, "src/toolchain/workload/" + platform, "host");
+}

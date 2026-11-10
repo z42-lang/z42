@@ -1,0 +1,54 @@
+// xtask — 通用的字符串 / 集合小工具（多族共用）。
+namespace Z42Xtask;
+
+using Std.Collections;
+
+// ── string / collection helpers (shared across modules) ─────────────────────
+
+/// Non-mutating sort: copy then sort the copy in place via `_sortStrings`
+/// (common/golden.z42). Deterministic ascending (load-order determinism rule).
+string[] _sortedStrings(string[] src) {
+    string[] arr = new string[src.Length];
+    Array.Copy(src, arr, src.Length);
+    _sortStrings(arr);
+    return arr;
+}
+
+// Split a string on ASCII whitespace (space / tab / newline), dropping empties.
+string[] _splitWords(string s) {
+    List<string> words = new List<string>();
+    int i = 0;
+    while (i < s.Length) {
+        while (i < s.Length && _isWordSep(s.CharAt(i))) { i = i + 1; }
+        int start = i;
+        while (i < s.Length && !_isWordSep(s.CharAt(i))) { i = i + 1; }
+        if (i > start) { words.Add(s.Substring(start, i - start)); }
+    }
+    return words.ToArray();
+}
+
+bool _isWordSep(char c) { return c == ' ' || c == '\t' || c == '\n'; }
+
+// ASCII identifier chars: `[A-Za-z_]` to start, `[A-Za-z0-9_]` after.
+bool _isIdentStart(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
+
+bool _isIdentChar(char c) { return _isIdentStart(c) || (c >= '0' && c <= '9'); }
+
+// s 开头的标识符字符段（没有则 ""）。
+string _leadIdent(string s) {
+    int k = 0;
+    while (k < s.Length && _isIdentChar(s.CharAt(k))) { k = k + 1; }
+    return s.Substring(0, k);
+}
+
+// ── 数值 / 点分串 ───────────────────────────────────────────────────────────────
+
+int _parseIntOr(string s, int fallback) {
+    try { return int.Parse(s); } catch (Exception e) { return fallback; }
+}
+
+string _nthDot(string s, int n) {
+    string[] p = s.Split(".");
+    if (n < p.Length) { return p[n]; }
+    return "";
+}

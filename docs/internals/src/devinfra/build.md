@@ -143,7 +143,7 @@ compare:       逐成员 _sectionsEqualIgnoreBlid(gen1, gen2)
 ### z42c 的执行模式：默认 jit
 
 xtask 驱动 z42c（`z42vm z42c.driver --mode <m>`）编 stdlib / 自建 z42c / golden 时的执行模式，
-统一由 `_z42cMode()`（`scripts/src/common/base.z42`）给出，**默认 `jit`**。
+统一由 `_z42cMode()`（`scripts/src/common/publish.z42`）给出，**默认 `jit`**。
 
 jit 之所以能当不动点的信任基线：`jit-fixpoint-check.yml`（手动触发，linux-x64 / linux-arm64 /
 windows-x64 / macos-arm64 四平台）确认 z42c `--workspace` 编译在 **interp 与 jit 下产出逐字节一致**

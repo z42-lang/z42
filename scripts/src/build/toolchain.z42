@@ -87,6 +87,17 @@ int _buildWorkload() {
     return 0;
 }
 
+// Build the shared z42 test-agent → app.zpkg (idempotent: skip if present).
+string _ensureTestAgent(string root) {
+    string toml = Path.Join(root, "src/toolchain/workload/test/agent/z42.testagent.z42.toml");
+    string zpkg = _toolchainZpkg(root, toml);   // 按 toml 的 [build] 解析，不写死
+    if (File.Exists(zpkg)) { return zpkg; }
+    Console.WriteLine("  build test-agent → z42.testagent.zpkg");
+    int c = _exec(_releaseZ42c(root).Arg("build").Arg(toml).Arg("--release"));
+    if (c != 0) { return ""; }
+    return zpkg;
+}
+
 // ── build toolchain ──────────────────────────────────────────────────────────
 // Validate the managed closure rooted at the app, plus colocated native libraries.
 // Other applications may share dist; unrelated managed packages are not payload members.
@@ -150,10 +161,6 @@ int _assertPayloadComplete(string root, string tomlPath) {
     }
     return _payloadMissing(distDir, payloadDir, projName) > 0 ? 1 : 0;
 }
-
-// z42c 驱动自己的 apphost（`bin/z42c` + `programs/z42c` payload）。z42c 的 zpkg 由 `build compiler`
-// 编，这里只发布；与其余 apphost 同一个 stub、同一个 z42b。路径 = packages.toml `[component.z42c].project`。
-string _z42cDriverToml() { return _pkgcfgFindComponent(_pkgcfgLoad(_root()), "z42c").project; }
 
 // Publish the toolchain apphosts (launcher / z42b / z42d / z42i + z42c) → each toml's publish_dir. Auto-builds
 // workloads first (launcher depends on them). z42b compiled first since it publishes the others. Every

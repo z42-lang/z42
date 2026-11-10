@@ -131,7 +131,7 @@ graph TD
 
 **种子从哪来**（`build compiler` / `build stdlib` 共用一套解析，CI 与本地同路径：两边都把上一版 nightly 装在
 仓库根 `./.z42`，xtask 本身也跑在它上面，见 [CI §1](ci.md)）：冷树上
-`_ensureSeed`（`scripts/src/common/base.z42`）按 `Z42_HOME` → 运行 xtask 的 apphost 所属 SDK
+`_ensureSeed`（`scripts/src/build/seed.z42`）按 `Z42_HOME` → 运行 xtask 的 apphost 所属 SDK
 （从 `Z42_PORTABLE_VM` 反推）→ `./.z42` 的顺序找 SDK-toolchain 布局的根，把 `programs/z42c` + `libs`
 拷进 in-tree 再自建。warm 树（已有 in-tree 种子）**直接复用、不覆盖**——gen2 字节不动点靠的就是这一点
 （见[构建编排](build.md)）。

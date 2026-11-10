@@ -1,0 +1,116 @@
+// xtask — 用哪套工具链：运行中的 z42vm、`--toolchain` 选择器与 Rust runtime 的 cargo 调用。
+namespace Z42Xtask;
+
+using Std.IO;
+
+// ── 运行中的 z42vm（子工具定位） ────────────────────────────────────────────────
+
+// Make xtask's z42vm visible to child tool subprocesses whose FindVm() locates
+// z42vm via (1) Z42VM env, (2) artifacts/build/runtime/..., (3) PATH. The launcher
+// exports Z42_PORTABLE_VM (the vm we run on) but NOT Z42VM, and in download/portable
+// mode there is no z42vm at the default build path before the first build-stdlib —
+// so FindVm fails. Export our own vm as Z42VM (inherited by spawned Commands) so
+// every delegated compile/run resolves it. No-op in dev where _z42vm() is a bare
+// name (PATH).
+void _ensureDriverVm() {
+    string cur = Environment.GetEnvironmentVariable("Z42VM", "");
+    if (cur.Length > 0) { return; }
+    string vm = _z42vm();
+    if (File.Exists(vm)) { Environment.SetEnvironmentVariable("Z42VM", vm); }
+}
+
+// Resolve the z42vm this process is running on, to execute compiled zpkgs.
+// The launcher exports Z42_PORTABLE_VM (portable) / sets Z42_HOME (installed/dev).
+string _z42vm() {
+    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
+    if (pv.Length > 0) { return pv; }
+    string vmname = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
+    string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
+    if (home.Length > 0) {
+        // Z42_HOME spans two layouts: SDK/toolchain root (<home>/bin/z42vm — a
+        // portable SDK or a `--toolchain <dir>`) and managed install
+        // (<home>/launcher/z42vm). Prefer whichever exists.
+        string binVm = Path.Join(home, Path.Join("bin", vmname));
+        if (File.Exists(binVm)) { return binVm; }
+        return Path.Join(home, Path.Join("launcher", vmname));
+    }
+    return vmname;
+}
+
+// ── toolchain selector (--toolchain <dir>) ───────────────────────────────────
+
+// The SDK toolchain root in `.z42` layout (programs/z42c/*.zpkg + libs/ + bin/), or
+// "" when unset. Read from Z42_HOME — the single "SDK root" var, set either by the
+// launcher/install or by the global `--toolchain <dir>` option (which exports
+// Z42_HOME so every helper + spawned child sees it). A MANAGED Z42_HOME uses a different layout
+// (runtimes/<ver>/ + config.toml, no programs//bin/z42vm); callers guard on programs/
+// (_seedSdkDir) or bin/z42vm existence (_activeVm) and fall back to the build tree when
+// this root is not an SDK-toolchain layout. Relative → repo root.
+string _toolchainDir(string root) {
+    string tc = Environment.GetEnvironmentVariable("Z42_HOME", "");
+    if (tc.Length == 0) { return ""; }
+    if (Path.IsRooted(tc)) { return tc; }
+    return Path.Join(root, tc);
+}
+
+// stdlib flat libs dir inside a `.z42` toolchain: <dir>/libs
+string _toolchainLibs(string tcDir) {
+    return Path.Join(tcDir, "libs");
+}
+
+// z42c driver-home inside a `.z42` toolchain: <dir>/programs/z42c (driver + its
+// sibling members colocated, so the VM resolves them next to the entry zpkg).
+string _toolchainDriverHome(string tcDir) {
+    return Path.Join(Path.Join(tcDir, "programs"), "z42c");
+}
+
+// z42vm binary inside a `.z42` toolchain: <dir>/bin/z42vm[.exe] (release).
+string _toolchainVm(string tcDir) {
+    string vmname = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
+    return Path.Join(Path.Join(tcDir, "bin"), vmname);
+}
+
+// Active z42vm for compile/run: the toolchain's bin/z42vm when --toolchain is set,
+// else the build-tree binary for `profile` ("debug"/"release"). Consumer paths
+// (cross-zpkg / regen / vm goldens) call this so a downloaded current-sdk supplies
+// the VM with no cargo build.
+string _activeVm(string root, string profile) {
+    string tc = _toolchainDir(root);
+    if (tc.Length > 0) {
+        // Only when Z42_HOME is an SDK-toolchain layout (bin/z42vm present); a managed
+        // Z42_HOME (runtimes/, no bin/z42vm) falls through to the build-tree binary.
+        string tcVm = _toolchainVm(tc);
+        if (File.Exists(tcVm)) { return tcVm; }
+    }
+    return _builtVm(root, profile);
+}
+
+// ── source paths (relative — passed to --manifest-path from cwd=root) ──
+
+// the Rust VM/runtime cargo manifest (--manifest-path): src/runtime/Cargo.toml
+string _runtimeManifest() { return "src/runtime/Cargo.toml"; }
+
+// The one cargo config (target-dir = artifacts/build/runtime, wasm rustflags) lives in
+// src/runtime/.cargo and governs every crate: the runtime workspace *and* the toolchain
+// platform crates (apphost / wasm / ios / android) — all share target-dir artifacts/build/runtime
+// (cargo separates them by <profile>/ vs <triple>/<profile>/ and per-crate artifact names).
+// cargo finds .cargo/config.toml by walking up from its *cwd*, never from --manifest-path,
+// and src/toolchain/** is not under src/runtime — so every cargo call, including wasm-pack /
+// cargo-ndk run inside a platform crate dir, names the config explicitly (--config).
+string _runtimeCargoConfig() { return "src/runtime/.cargo/config.toml"; }
+
+// `cargo <verb> --config <abs config>` — the base for every cargo invocation. The path is
+// absolute so it holds under any WorkingDirectory.
+Process _cargoCmd(string verb, string config) {
+    return new Process("cargo").Arg(verb).Arg("--config").Arg(Path.Join(_root(), config));
+}
+
+// ── bin-invocation builders (return a Process; callers add args + _exec) ─────
+
+// `cargo build --release --config <config>` — the common Rust build prefix. Callers append
+// `.Arg("-q")` / `.Arg("--manifest-path").Arg(m)` / `--features` / `-p` /
+// `--target` etc. then `_exec` it. (cargo ignores flag order, so the few
+// `-q`-before-manifest sites are unaffected.)
+Process _cargoRelease(string config) {
+    return _cargoCmd("build", config).Arg("--release");
+}

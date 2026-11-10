@@ -84,7 +84,8 @@ class MainSupersedeTests(unittest.TestCase):
 
     def test_xtask_layout_publish_classification(self):
         for path, expected in [
-            ("scripts/src/common/base.z42", "true"),
+            ("scripts/src/common/repository.z42", "true"),
+            ("scripts/src/build/seed.z42", "true"),
             ("scripts/src/build/stdlib.z42", "true"),
             ("scripts/src/package/desktop.z42", "true"),
             ("scripts/src/setup/install.z42", "true"),

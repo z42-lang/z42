@@ -1,5 +1,5 @@
-// xtask `build` 命令族：编译各组件、生成文档产物（实现在本目录的 xtask_runtime / xtask_compiler / xtask_stdlib /
-// xtask_toolchain / xtask_golden_assets / xtask_doc）。
+// xtask `build` 命令族：编译各组件、生成文档产物（实现在本目录的 runtime / compiler / seed / stdlib /
+// toolchain / golden_assets 与 docs/）。
 namespace Z42Xtask;
 
 using Std.Cli;

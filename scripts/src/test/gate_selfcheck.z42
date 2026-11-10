@@ -87,7 +87,7 @@ void _checkOutsideGatePlans() {
     }
     _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ sdk, fixture, sdk }))
         == "xtask package sdk --verify", "SDK checks deduplicate");
-    foreach (var full in new string[]{ "scripts/src/common/base.z42", "unknown.config" }) {
+    foreach (var full in new string[]{ "scripts/src/common/repository.z42", "unknown.config" }) {
         foreach (var files in new string[]{ "first", "last" }) {
             string[] paths = files == "first" ? new string[]{ full, sdk } : new string[]{ sdk, full };
             _gateAssert(String.Join(";", _buildChangedPlan(paths)) == "xtask test;xtask package sdk --verify",
@@ -95,7 +95,7 @@ void _checkOutsideGatePlans() {
         }
     }
     _gateAssert(String.Join(";", _buildChangedPlan(new string[]{
-        "src/benches/scenarios/case.z42", "scripts/src/common/base.z42", sdk, fixture
+        "src/benches/scenarios/case.z42", "scripts/src/common/repository.z42", sdk, fixture
     })) == "xtask test;xtask bench --quick;xtask package sdk --verify", "full gate retains each external check once");
     foreach (var runtime in new string[]{ "src/runtime/tests/native.rs", "src/runtime/src/lib.rs" }) {
         _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ runtime, "unknown.config" }))
