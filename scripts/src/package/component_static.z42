@@ -91,10 +91,14 @@ int _componentStripCoreMembers(string root, string archive, string stem, string 
         if (coreCrates.Contains(crate)) { drop.Add(name); }
     }
     if (drop.Count == 0) { return 0; }
-    Process del = new Process(arTool).Arg("d").Arg(archive);
-    foreach (var name in drop) { del = del.Arg(name); }
-    int c = _exec(del);
-    if (c != 0) { return c; }
+    // Windows 命令行长度有限（llvm-ar 报 os error 206）：分批删，每批 64 个成员。
+    for (int i = 0; i < drop.Count; i = i + 64) {
+        int take = drop.Count - i; if (take > 64) { take = 64; }
+        Process del = new Process(arTool).Arg("d").Arg(archive);
+        for (int j = i; j < i + take; j = j + 1) { del = del.Arg(drop[j]); }
+        int c = _exec(del);
+        if (c != 0) { return c; }
+    }
     Console.WriteLine("  · " + Path.GetFileName(archive) + ": 剔除 core 闭包成员 " + drop.Count.ToString() + " 个（core 由 libz42.a 提供）");
     return 0;
 }
