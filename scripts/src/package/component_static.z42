@@ -5,6 +5,25 @@ using Std.IO;
 using Std.Cli;
 
 int _componentBuildStaticLibraries(string root, string rid, string profile) {
+    // R1f：配方树走 [alias]（参数全在 src/runtime/.cargo/config.toml）；android/旧树回退 env 路径。
+    string alias = _componentStaticAlias(rid);
+    if (alias.Length > 0 && _componentAliasTree(root)) {
+        Process a = _componentAliasProc(root, alias)
+            .Arg("--target-dir").Arg(_componentStaticDir(root, rid));
+        if (_ridCategory(rid) != "desktop") { a = a.Arg("--target").Arg(_ridToCargo(rid)); }
+        if (profile == "release") { a = a.Arg("--release"); }
+        if (rid.StartsWith("ios")) { a = a.Env("IPHONEOS_DEPLOYMENT_TARGET", _vReadOr(root, "platform.ios.min_ios", "16.0")); }
+        int ac = _execIn(a, Path.Join(root, "src/runtime"));
+        if (ac != 0) { return ac; }
+    } else {
+        int c = _componentBuildStaticLegacy(root, rid, profile);
+        if (c != 0) { return c; }
+    }
+    return _componentFinishStatic(root, rid, profile);
+}
+
+// 旧树 / android 的 env 调用形态（与 R0 前逐字节一致）。
+int _componentBuildStaticLegacy(string root, string rid, string profile) {
     string features = "z42/static-embedding,z42/" + _componentPlatformPreset(rid).Replace(",", ",z42/");
     Process p = _componentPlatformCargo("build", root, rid, profile, false)
         .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("--lib").Arg("--examples")
@@ -16,7 +35,12 @@ int _componentBuildStaticLibraries(string root, string rid, string profile) {
     if (rid != "browser-wasm") { features = features + ",z42-interp/native-interop"; }
     int c = _execIn(p.Arg("--features").Arg(features), _componentPlatformWorkingDirectory(root, rid));
     if (c != 0) { return c; }
-    c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_interp");
+    return _componentFinishStatic(root, rid, profile);
+}
+
+// 静态图产出的后续步骤（两种路径共用）：组件归档重组。
+int _componentFinishStatic(string root, string rid, string profile) {
+    int c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_interp");
     if (c != 0) { return c; }
     c = _componentBuildCompression(root, rid, profile, false);
     if (c != 0 || !_componentTargetHasJit(rid)) { return c; }

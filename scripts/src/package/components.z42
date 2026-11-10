@@ -16,13 +16,33 @@ string _componentLibrary(string stem, string rid = "") {
 // 的标志物。bench A/B 等场景里 PR 的新 xtask 会构建 base-src 的**旧树**（无该文件、
 // Cargo.toml 无 [profile.release-dynamic]）—— 此时整套回退 R0 前的旧机制
 // （--release + RUSTFLAGS/LTO env），两代树的产物目录与调用形态各自成立。
-bool _componentR0Tree(string root) { return File.Exists(Path.Join(root, "src/runtime/.cargo/config-dynamic.toml")); }
+bool _componentR0Tree(string root) {
+    return File.Exists(Path.Join(root, "src/runtime/.cargo/config-dynamic.toml")) || _componentAliasTree(root);
+}
+// R1f：单文件 config.toml 的 [alias] 图配方（≈ CMakePresets）存在与否。旧树（bench base-src
+// 等）没有配方 —— 回退 R0 前的 env 调用形态。alias 仅经目录发现生效，调用方 cwd 须在 src/runtime。
+bool _componentAliasTree(string root) {
+    string cfg = Path.Join(root, "src/runtime/.cargo/config.toml");
+    return File.Exists(cfg) && File.ReadAllText(cfg).Contains("z42-dynamic");
+}
+// alias 进程基座：cwd=src/runtime（alias 发现条件），阻断继承的 rustflags 环境通道。
+Process _componentAliasProc(string root, string alias) {
+    return new Process("cargo").Arg(alias)
+        .WorkingDirectory(Path.Join(root, "src/runtime"))
+        .EnvRemove("RUSTFLAGS").EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("CARGO_TERM_COLOR", "never");
+}
 // cargo --profile 名（dev 的产物目录叫 debug）与产物目录名分开，勿混用。
 string _componentCargoProfile(string root, string profile) { return (_componentR0Tree(root) && profile == "release") ? "release-dynamic" : profile; }
 string _componentDirName(string root, string profile) { return (_componentR0Tree(root) && profile == "release") ? "release-dynamic" : profile; }
 string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), _componentDirName(root, profile)); }
 Process _componentCargo(string verb, string root, string profile, string targetDir = "") {
     if (targetDir.Length == 0) { targetDir = _componentBuildDir(root); }
+    // R1f：配方树走 cargo z42-dynamic（参数全在 src/runtime/.cargo/config.toml 的 [alias]）。
+    if (_componentAliasTree(root)) {
+        return _componentAliasProc(root, "z42-dynamic")
+            .Arg("--target-dir").Arg(targetDir)
+            .Arg("--profile").Arg(_componentCargoProfile(root, profile));
+    }
     Process p = _cargoCmd(verb, _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--target-dir").Arg(targetDir);
@@ -40,6 +60,7 @@ Process _componentCargo(string verb, string root, string profile, string targetD
     return p;
 }
 Process _componentTargets(Process build, string root) {
+    if (_componentAliasTree(root)) { return build; }   // 配方已含 -p/features
     Process p = build
         .Arg("-p").Arg("z42")
         .Arg("-p").Arg("z42-interp").Arg("-p").Arg("z42-jit")
@@ -121,6 +142,12 @@ void _componentInstallLibraries(string cargo, string pkg, bool importLibs = fals
 string _componentLauncherDir(string root) { return Path.Join(_componentBuildDir(root), "launcher"); }
 string _componentLauncherOut(string root, string profile) { return Path.Join(_componentLauncherDir(root), profile); }
 int _componentBuildLauncher(string root, string profile) {
+    if (_componentAliasTree(root)) {
+        Process a = _componentAliasProc(root, "z42-launcher")
+            .Arg("--target-dir").Arg(_componentLauncherDir(root));
+        if (profile == "release") { a = a.Arg("--release"); }
+        return _execIn(a, Path.Join(root, "src/runtime"));
+    }
     Process p = _cargoCmd("build", _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--target-dir").Arg(_componentLauncherDir(root))

@@ -29,3 +29,66 @@ target-dir = "../../artifacts/build/runtime"
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "link-arg=-zstack-size=16777216"]
 
+
+# ══════════════════════════════════════════════════════════════════════════
+# 构建图配方（≈ CMakePresets）：`cd src/runtime && cargo <名字> [追加参数]`。
+# 图间差异（动态/静态/启动器）经 inline --config（cargo 文档化用法）；平台差异经
+# target cfg 条目（各条目按匹配 join，与 cfg(all()) 叠加）。xtask 只调用这些
+# 名字并复制产物 —— 编译参数全部可见地放在这里，不散在构建代码里。
+# 注意：alias 仅经目录发现生效（--config 传入的文件不参与 alias 解析），
+# 调用方 cwd 须在 src/runtime 下。
+# ══════════════════════════════════════════════════════════════════════════
+[alias]
+# 动态基座：共享 Rust std（prefer-dynamic）+ 构建树 rpath + 各平台 rpath link-arg。
+z42-dyn = [
+    "build", "--locked",
+    "--config", "target.'cfg(all())'.rustflags=['-C','prefer-dynamic','-C','rpath']",
+    "--config", "target.'cfg(any(target_os = \"macos\", target_os = \"ios\"))'.rustflags=['-C','link-arg=-Wl,-rpath,@loader_path']",
+    "--config", "target.'cfg(target_os = \"linux\")'.rustflags=['-C','link-arg=-Wl,-rpath,$ORIGIN','-C','link-arg=-Wl,-rpath,$ORIGIN/../native']",
+    "--config", "target.'cfg(target_os = \"android\")'.rustflags=['-C','link-arg=-Wl,-rpath,$ORIGIN']",
+]
+# 桌面动态组件图（z42vm 同图）。--profile 由调用方追加（release → release-dynamic）。
+z42-dynamic = ["z42-dyn", "-p", "z42", "-p", "z42-interp", "-p", "z42-jit",
+    "--no-default-features",
+    "--features", "z42/desktop-dynamic,z42-interp/dynamic,z42-jit/dynamic"]
+# compression 动态图（默认特性 = backend；桌面与移动同配方，移动由调用方追加 --target）。
+z42-compression-dynamic = ["z42-dyn", "-p", "z42-compression", "--lib"]
+# iOS 动态图（真机无 JIT）。调用方追加 --target <triple>。
+z42-mobile-dynamic-ios = ["z42-dyn", "-p", "z42", "-p", "z42-interp", "--lib",
+    "--no-default-features",
+    "--features", "z42/ios,z42/shared-core,z42-interp/shared-core,z42-interp/native-interop"]
+# iOS 模拟器动态图（含 JIT）。
+z42-mobile-dynamic-iossim = ["z42-dyn", "-p", "z42", "-p", "z42-interp", "-p", "z42-jit", "--lib",
+    "--no-default-features",
+    "--features", "z42/ios,z42/jit,z42/shared-core,z42-interp/shared-core,z42-interp/native-interop,z42-interp/jit,z42-jit/shared-core"]
+
+# 静态基座：显式 prefer-dynamic=no + release 关 LTO（profile 名不变，输出目录不动）。
+z42-static = [
+    "build", "--locked",
+    "--config", "build.rustflags=['-C','prefer-dynamic=no']",
+    "--config", "profile.release.lto=false",
+]
+# 静态嵌入图（--lib --examples；example z42 = 最终静态归档）。移动由调用方追加 --target。
+z42-static-desktop = ["z42-static", "-p", "z42", "-p", "z42-interp", "-p", "z42-jit",
+    "--lib", "--examples", "--no-default-features",
+    "--features", "z42/desktop-static,z42-interp/jit,z42-interp/native-interop,z42-jit/jit"]
+z42-static-ios    = ["z42-static", "-p", "z42", "-p", "z42-interp",
+    "--lib", "--examples", "--no-default-features",
+    "--features", "z42/ios-static,z42-interp/native-interop"]
+z42-static-iossim = ["z42-static", "-p", "z42", "-p", "z42-interp", "-p", "z42-jit",
+    "--lib", "--examples", "--no-default-features",
+    "--features", "z42/iossim-static,z42-interp/jit,z42-interp/native-interop,z42-jit/jit"]
+z42-static-android = ["z42-static", "-p", "z42", "-p", "z42-interp", "-p", "z42-jit",
+    "--lib", "--examples", "--no-default-features",
+    "--features", "z42/android-static,z42-interp/jit,z42-interp/native-interop,z42-jit/jit"]
+z42-static-wasm   = ["z42-static", "-p", "z42", "-p", "z42-interp",
+    "--lib", "--examples", "--no-default-features",
+    "--features", "z42/wasm-static"]
+# compression 静态图（默认特性 = backend）。
+z42-compression-static = ["z42-static", "-p", "z42-compression", "--lib"]
+
+# 静态 std 启动器（bin z42vm）；macOS 预留 install_name_tool 余量。
+z42-launcher = ["build", "--locked", "-p", "z42", "--bin", "z42vm",
+    "--no-default-features", "--features", "z42/launcher",
+    "--config", "build.rustflags=['-C','prefer-dynamic=no']",
+    "--config", "target.'cfg(target_os = \"macos\")'.rustflags=['-C','prefer-dynamic=no','-C','link-arg=-Wl,-headerpad_max_install_names']"]

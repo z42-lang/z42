@@ -1,6 +1,8 @@
 // xtask — `build runtime`：直接驱动 cargo 构建 z42vm。
 namespace Z42Xtask;
 
+using Std.IO;
+
 using Std.Time;   // Stopwatch — _procStart/_procEnd 进程计时标记
 
 int _buildRuntime() {
@@ -13,7 +15,8 @@ int _buildRuntime() {
 
 
 int _buildRuntimeProfile(string profile) {
-    int c = _exec(_componentTargets(_componentCargo("build", _root(), profile, _cargoTargetDir(_root())), _root()));
+    Process _rtGraph = _componentTargets(_componentCargo("build", _root(), profile, _cargoTargetDir(_root())), _root());
+    int c = _rtGraph.WorkingDirectory(Path.Join(_root(), "src/runtime")).Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
     if (c == 0) { c = _componentBuildCompression(_root(), _detectHostRid(), profile, true, _runtimeOut(_root(), profile)); }
     if (c == 0) { _componentCopyStd(_runtimeOut(_root(), profile)); }
     return c;
