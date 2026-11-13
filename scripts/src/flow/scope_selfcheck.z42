@@ -101,9 +101,10 @@ void _flowScopeChecks(FlowConfig cfg) {
     string workflow = File.ReadAllText(Path.Join(root, ".github/workflows/ci.yml"));
     _gateAssert(workflow.Contains("if: needs.changes.outputs.stdlib == 'true'")
         && workflow.Contains("xtask test stdlib --plan artifacts/ci-plan.json"), "stdlib CI consumes explicit selection and package owners");
-    _gateAssert(workflow.Contains("types: [opened, synchronize, reopened, ready_for_review]")
-        && !workflow.Substring(0, workflow.IndexOf("jobs:")).Contains("paths:"), "CI planner is triggered for every PR path and on readiness");
+    _gateAssert(workflow.Contains("types: [opened, synchronize, reopened]")
+        && !workflow.Substring(0, workflow.IndexOf("jobs:")).Contains("paths:"), "CI planner covers every PR path without repeating completed heads on readiness");
     string benchWorkflow = File.ReadAllText(Path.Join(root, ".github/workflows/bench-pr.yml"));
+    _gateAssert(benchWorkflow.Contains("types: [opened, synchronize, reopened]"), "benchmark readiness does not duplicate a validated commit");
     foreach (var kind in _ciBenchKinds()) {
         _gateAssert(benchWorkflow.Contains("steps.scope.outputs." + kind + " == 'true'"), "measurement step consumes its own family: " + kind);
     }
