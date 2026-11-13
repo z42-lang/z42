@@ -356,15 +356,10 @@ publish = false
 [[inputs]]
 id = "packaging"
 include = ["scripts/src/package/**", "scripts/packages.toml", "scripts/src/common/packages_config.z42", "scripts/src/common/publish.z42", "scripts/src/common/versions.z42", "scripts/src/common/layout.z42", "scripts/src/setup/**", "scripts/src/test/app/**", "scripts/versions.toml"]
-select = ["green", "platform"]
+select = ["green", "platform", "sdk"]
 
 [[inputs]]
 id = "ci-configuration"
 include = [".github/**", "scripts/flows.toml"]
 select = ["green", "ci-all", "flow-check"]
 publish = true
-
-[[inputs]]
-id = "scripts"
-include = ["scripts/**"]
-select = ["green"]
