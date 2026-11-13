@@ -94,7 +94,7 @@ void _checkWorkspaceChangedGit(string root) {
     _gitOutput(new string[]{ "restore", "--staged", "--worktree", "--", lib });
 
     _gateAssert(String.Join(";", _flowTestCommands(new string[]{ "src/compiler/groups/tests/other/benches/case.z42" }, root))
-        == "xtask bench stdlib compiler.declared;xtask test compiler", "compiler bench uses owner-relative path and declared name");
+        == "xtask bench stdlib compiler.declared", "compiler bench uses owner-relative path and declared name");
     _gateAssert(_strIn(_flowTestCommands(new string[]{ "src/libraries/groups/src/ignored/tests/case.z42" }, root), "xtask test"), "excluded project cannot become a named test command");
     Directory.Delete(Path.Join(root, lib), true);
     _gateAssert(_strIn(_flowTestCommands(_changedFiles("HEAD"), root), "xtask test"),

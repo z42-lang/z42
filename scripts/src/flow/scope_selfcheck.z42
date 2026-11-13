@@ -1,0 +1,117 @@
+// Resource preparation, correctness and performance are independent configuration contracts.
+namespace Z42Xtask;
+
+using Std.IO;
+
+void _flowScopeChecks(FlowConfig cfg) {
+    string root = _root();
+    string[] control = new string[]{ "scripts/src/flow/planner.z42", "scripts/src/ci/bench.z42",
+        "scripts/src/test/changed.z42", "scripts/src/test/gate.z42", "scripts/src/common/versions.z42",
+        ".github/workflows/ci.yml", "scripts/flows.toml" };
+    foreach (var file in control) {
+        FlowPlan p = _flowSelect(cfg, new string[]{ file }, root);
+        _gateAssert(_flowOutputs(cfg, p).Length == 0 && _flowStages(cfg, p).Length == 0 && !p.Publish,
+            "xtask control does not select product consumers: " + file);
+        _gateAssert(_strIn(_flowLocalCommands(cfg, p), "xtask check xtask") && _ciBenchOnly(cfg, new string[]{ file }, root),
+            "control keeps its own contracts without A/B: " + file);
+    }
+    foreach (var kind in new string[]{ "stdlib", "compiler" }) {
+        FlowPlan p = _flowSelect(cfg, new string[]{ "scripts/src/build/" + kind + ".z42" }, root);
+        string[] flags = _flowOutputs(cfg, p);
+        _gateAssert(flags.Length == 1 && flags[0] == "toolchain_build", "build executor only requests compilation: " + kind);
+        _gateAssert(_strIn(_flowLocalCommands(cfg, p), "xtask build " + kind), "local build executor command: " + kind);
+    }
+    FlowPlan vmBuild = _flowSelect(cfg, new string[]{ "scripts/src/build/runtime.z42" }, root);
+    string[] vmFlags = _flowOutputs(cfg, vmBuild);
+    foreach (var key in new string[]{ "vm", "runtime_checks", "host_checks", "toolchain_build", "test_assets", "bench_integration" }) {
+        _gateAssert(_strIn(vmFlags, key), "VM build validates the produced runtime: " + key);
+    }
+    _gateAssert(!_strIn(vmFlags, "stdlib") && !_strIn(vmFlags, "compiler_checks") && !_strIn(vmFlags, "platform"), "VM build does not change compiler/stdlib or packaging contracts");
+    foreach (var file in new string[]{ "src/runtime/src/config/knob_table.rs", "src/runtime/src/context/core_builder.rs", "src/runtime/src/context/mod.rs", "src/runtime/src/threads/roots.rs", "src/runtime/src/threads/roots_tests.rs" }) {
+        FlowPlan p = _flowSelect(cfg, new string[]{ file }, root);
+        foreach (var key in new string[]{ "vm", "runtime_checks", "host_checks", "platform", "stdlib", "compiler_checks", "bench_integration" }) {
+            _gateAssert(_strIn(_flowOutputs(cfg, p), key), "production VM changes retain consumers: " + file + "/" + key);
+        }
+    }
+    foreach (var platform in new string[]{ "android", "ios", "wasm" }) {
+        FlowPlan p = _flowSelect(cfg, new string[]{ "scripts/src/test/app/" + platform + ".z42" }, root);
+        string[] flags = _flowOutputs(cfg, p);
+        _gateAssert(_strIn(flags, platform) && _strIn(flags, "toolchain_build") && !_strIn(flags, "platform")
+            && !_strIn(flags, "host_checks") && !_strIn(flags, "bench_integration"), "device executor selects its own platform: " + platform);
+    }
+    foreach (var role in new string[]{ "stdlib", "vm", "integration" }) {
+        string file = role == "stdlib" ? "src/libraries/z42.io/benches/micro.z42"
+            : role == "vm" ? "src/runtime/benches/gc_cycle_bench.rs" : "src/benches/scenarios/01_sum.z42";
+        string[] flags = _flowOutputs(cfg, _flowSelect(cfg, new string[]{ file }, root));
+        foreach (var family in _ciBenchKinds()) {
+            _gateAssert(_strIn(flags, family) == (family == "bench_" + role), "benchmark families remain independent: " + role + "/" + family);
+        }
+        _gateAssert(!_strIn(flags, "host_checks") && !_strIn(flags, "toolchain_build"), "standalone benchmarks do not start correctness jobs");
+    }
+    foreach (var file in new string[]{ "src/benches/probe/capabilities.z42", "src/benches/baseline-schema.json" }) {
+        string[] flags = _flowOutputs(cfg, _flowSelect(cfg, new string[]{ file }, root));
+        _gateAssert(_strIn(flags, "bench_stdlib") && _strIn(flags, "bench_integration") && !_strIn(flags, "bench_vm"),
+            "shared language benchmark inputs retain both consumers: " + file);
+    }
+    _gateAssert(_benchVmTargets(root).Length > 0, "VM measurements use declared Cargo benchmark targets");
+    string test = "src/libraries/z42.io/tests/private.z42";
+    FlowPlan unit = _flowSelect(cfg, new string[]{ test }, root);
+    string[] projects = _flowUnitProjects(cfg, unit, "test", "");
+    _gateAssert(projects.Length == 1 && projects[0] == _selectUnitProject(_allUnitProjects(root, "test"), "z42.io"), "CI runs the selected library, not every package");
+    _gateAssert(_flowUnitProjects(cfg, unit, "test", "1/2").Length + _flowUnitProjects(cfg, unit, "test", "2/2").Length == 1, "CI shards preserve selected-owner coverage exactly once");
+    _gateAssert(_flowUnitProjects(cfg, _flowSelect(cfg, new string[]{ "src/libraries/z42.io/src/StreamWriter.z42" }, root), "test", "").Length == _allUnitProjects(root, "test").Length, "production library retains global consumer tests");
+    _gateAssert(_strIn(_flowOutputs(cfg, unit), "toolchain_build") && !_strIn(_flowOutputs(cfg, unit), "host_checks"), "library units prepare tools without the host gate");
+    _gateAssert(_ciBenchOnly(cfg, new string[]{ test, "src/runtime/tests/private.rs" }, root), "private correctness tests do not measure performance");
+    FlowPlan bench = _flowSelect(cfg, new string[]{ "src/libraries/z42.io/benches/micro.z42" }, root);
+    _gateAssert(_flowUnitProjects(cfg, bench, "bench", "").Length == 1, "script benchmark plans preserve the affected package");
+    _gateAssert(_strIn(_flowOutputs(cfg, bench), "bench_stdlib") && !_strIn(_flowOutputs(cfg, bench), "toolchain_build")
+        && !_strIn(_flowStages(cfg, bench), "stdlib"), "benchmark corpus selects measurements, not unit-test builds");
+    _gateAssert(!_ciBenchOnly(cfg, new string[]{ test, "src/runtime/src/threads/roots.rs" }, root)
+        && !_ciBenchOnly(cfg, new string[]{ "unknown.production" }, root), "mixed production and unknown inputs keep measurements");
+    foreach (var key in _ciBenchKinds()) {
+        _gateAssert(_strIn(_flowOutputs(cfg, _flowSelect(cfg, new string[]{ "unknown.production" }, root)), key)
+            && _strIn(_flowOutputs(cfg, _flowSelect(cfg, new string[0], root, true)), key), "unknown and full policies retain every measurement family: " + key);
+    }
+    string savedRoot = RepoRoot.Value;
+    try {
+        RepoRoot.Value = Path.Join(root, "artifacts/nonexistent-flow-workspace");
+        foreach (var kind in new string[]{ "test", "bench" }) {
+            _gateAssert(_flowUnitProjects(cfg, new FlowPlan(), kind, "").Length == 0,
+                "empty unit selection does not discover workspaces or prepare tooling: " + kind);
+        }
+    } finally { RepoRoot.Value = savedRoot; }
+    FlowPlan empty = _flowSelect(cfg, new string[0], root); empty.Event = "pull_request";
+    foreach (var key in new string[]{ "host_checks", "toolchain_build", "test_assets" }) {
+        _gateAssert(!_flowCiOutput(empty, _flowOutputs(cfg, empty), key), "empty PR does not prepare " + key);
+        empty.Event = "push";
+        _gateAssert(_flowCiOutput(empty, _flowOutputs(cfg, empty), key), "unpublished cumulative release retains " + key);
+        empty.Event = "pull_request";
+    }
+    FlowPlan mixedDocs = _flowSelect(cfg, new string[]{ "README.md", "scripts/src/flow/planner.z42" }, root);
+    _gateAssert(_strIn(_flowOutputs(cfg, mixedDocs), "docs_checks") && !_strIn(_flowOutputs(cfg, mixedDocs), "host_checks"), "mixed documentation and control changes retain links without product tests");
+    FlowPlan privateTool = _flowSelect(cfg, new string[]{ "src/toolchain/builder/tests/fixtures/a/expect.toml" }, root);
+    _gateAssert(!_strIn(_flowOutputs(cfg, privateTool), "test_assets"), "private toolchain tests do not assemble a second SDK");
+    string workflow = File.ReadAllText(Path.Join(root, ".github/workflows/ci.yml"));
+    _gateAssert(workflow.Contains("if: needs.changes.outputs.stdlib == 'true'")
+        && workflow.Contains("xtask test stdlib --plan artifacts/ci-plan.json"), "stdlib CI consumes explicit selection and package owners");
+    _gateAssert(workflow.Contains("types: [opened, synchronize, reopened]")
+        && !workflow.Substring(0, workflow.IndexOf("jobs:")).Contains("paths:"), "CI planner covers every PR path without repeating completed heads on readiness");
+    string benchWorkflow = File.ReadAllText(Path.Join(root, ".github/workflows/bench-pr.yml"));
+    _gateAssert(benchWorkflow.Contains("types: [opened, synchronize, reopened]"), "benchmark readiness does not duplicate a validated commit");
+    foreach (var kind in _ciBenchKinds()) {
+        _gateAssert(benchWorkflow.Contains("steps.scope.outputs." + kind + " == 'true'"), "measurement step consumes its own family: " + kind);
+    }
+    foreach (var name in new string[]{ "Build base (merge-base) toolchain for A/B", "Compiler fingerprint guard (output changed ⇒ version bumped)", "Prepare head toolchain (same shape as base, for both A/B gates)" }) {
+        int start = benchWorkflow.IndexOf("- name: " + name);
+        string step = benchWorkflow.Substring(start);
+        step = step.Substring(0, step.IndexOf("shell:"));
+        _gateAssert(step.Contains("steps.scope.outputs.bench_toolchain == 'true'")
+            && step.Contains("steps.fmtgap.outcome == 'success'"), "language preparation must not consume skipped format outputs: " + name);
+    }
+    _gateAssert(benchWorkflow.Contains("steps.scope.outputs.bench_toolchain == 'true'")
+        && benchWorkflow.Contains("xtask bench vm --base base-src"), "Rust-only benchmarks do not bootstrap z42 toolchains");
+    FlowConfig tiny = _flowParse("version = 1\nfull = [\"verify\"]\n[flows.verify]\nrequires = [\"prepare\"]\n[flows.prepare]\noutputs = [\"toolchain_build\"]\naffects = [\"consumer\"]\n[flows.consumer]\noutputs = [\"vm\"]\n[[inputs]]\nid = \"test\"\ninclude = [\"tests/**\"]\nselect = [\"verify\"]\n");
+    _gateAssert(String.Join(",", _flowOutputs(tiny, _flowSelect(tiny, new string[]{ "tests/a" }, root))) == "toolchain_build",
+        "prerequisite prepares resources without affecting consumers");
+    Console.WriteLine("  ✓ flow scope: control, build, test, benchmark, device and production obligations");
+}

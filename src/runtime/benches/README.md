@@ -16,17 +16,15 @@ z42 VM 内部模块的微基准。用 [criterion](https://bheisler.github.io/cri
 ## 运行
 
 ```bash
-cd src/runtime
-cargo bench                          # 跑全部 bench
-cargo bench --bench gc_cycle_bench   # 跑单个 bench 文件
-cargo bench -- --quick               # 快速模式（每个 bench 总耗时上限缩短）
+xtask bench vm                       # Cargo 清单声明的 Criterion targets
+xtask bench vm --quick               # 快速模式
+xtask bench vm --base <base-tree>     # 同 runner 的 base/head 对比
 ```
 
 ## 结果位置
 
 - 文本输出：终端
-- 原始数据：`artifacts/build/runtime/criterion/<bench-id>/{new,base}/*.json`（`src/runtime/.cargo/config.toml` 的
-  target-dir 下；`--save-baseline` / `--baseline` 读写的就是它）。没有 HTML 报告：`Cargo.toml` 里 criterion 只开了
+- 原始数据：`artifacts/reports/benches/criterion/<bench-id>/{new,base}/*.json`（xtask 设置共享 `CRITERION_HOME`）。没有 HTML 报告：`Cargo.toml` 里 criterion 只开了
   `cargo_bench_support`，没开 `html_reports`
 
 ## 设计约定

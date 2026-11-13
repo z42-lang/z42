@@ -8,6 +8,8 @@ int _checkFlows() {
         _flowPlannerChecks(cfg);
         _flowGitChecks(cfg);
         _ciSelectionChecks(cfg);
+        _ciHostChecks(cfg);
+        _flowScopeChecks(cfg);
         _ciRetryChecks();
         _ciUploadChecks();
         _ciBootstrapChecks();
@@ -59,7 +61,7 @@ void _flowPlannerChecks(FlowConfig cfg) {
         FlowPlan capture = _flowSelect(cfg, new string[]{ helper }, root);
         _gateAssert(capture.Publish && _flowHas(capture.Steps, "sdk") && _flowHas(capture.Steps, "green") && _strIn(_flowOutputs(cfg, capture), "platform"), "Cargo artifact helpers select SDK and platform publication");
     }
-    FlowPlan fullPlan = _flowSelect(cfg, new string[]{ "scripts/src/test/gate.z42" }, root);
+    FlowPlan fullPlan = _flowSelect(cfg, new string[0], root, true);
     _gateAssert(_flowJobSteps(cfg, fullPlan, "compiler-checks").Length > 0 && _strIn(_flowOutputs(cfg, fullPlan), "stdlib"), "full gate retains delegated CI obligations");
     _flowExpectBad(minimal.Replace("command =", "ci_command =").Replace("[\"check\", \"flows\"]", "[\"bash\"]"), "external CI command");
     _flowExpectBad(minimal.Replace("command =", "commnad ="), "unknown field");
@@ -86,7 +88,7 @@ void _checkChangedPlans(FlowConfig cfg) {
         _gateAssert(String.Join(",", _flowStages(cfg, plan)) == "compiler,stdlib", "compiler private tests keep both discovery formats");
     }
     FlowPlan bench = _flowSelect(cfg, new string[]{ "src/compiler/z42c.optimization/benches/cfg_bench.z42" }, root);
-    _gateAssert(String.Join(",", _flowStages(cfg, bench)) == "bench,compiler", "private compiler benchmarks keep codegen consumers");
+    _gateAssert(String.Join(",", _flowStages(cfg, bench)) == "bench", "private compiler benchmarks select performance independently");
     FlowPlan source = _flowSelect(cfg, new string[]{ "src/compiler/z42c.optimization/src/IrOpt.z42" }, root);
     _gateAssert(_strIn(_flowStages(cfg, source), "stdlib"), "production compiler source keeps consumers");
     _gateAssert(_strIn(_flowTestCommands(new string[]{ "examples/basics/hello/source.z42" }), "xtask test docs examples basics/hello"), "chapter context survives planning");
@@ -102,7 +104,7 @@ void _checkOutsideGatePlans(FlowConfig cfg) {
     string root = _root(); string sdk = "scripts/src/test/sdk/verify.z42";
     foreach (var path in new string[]{ sdk, "src/toolchain/launcher/tests/fixtures/package/case/expect.toml", "scripts/install-z42.sh" }) {
         FlowPlan plan = _flowSelect(cfg, new string[]{ path }, root);
-        _gateAssert(!_flowHas(plan.Steps, "green") && _flowLocalSteps(cfg, plan).Length == 1 && _flowStages(cfg, plan).Length == 0, "SDK verification belongs outside GREEN");
+        _gateAssert(!_flowHas(plan.Steps, "green") && _flowLocalCommands(cfg, plan).Length == 1 && _flowStages(cfg, plan).Length == 0, "SDK verification belongs outside GREEN");
         _gateAssert(String.Join(";", _flowLocalCommands(cfg, plan)) == "xtask package sdk --verify", "SDK selects verification command");
     }
     foreach (var order in new string[]{ "first", "last" }) {

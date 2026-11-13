@@ -4,6 +4,7 @@ on:
   # 纯文档改动照样触发（要跑死链门禁），走 docs-only 快速通道（见 detect-changes）。
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
   # 手动全量运行 / 重发 nightly（格式 bump 后旧 nightly 让下载自举的门暂时红时用）：gh workflow run CI --ref main。
@@ -40,10 +41,15 @@ jobs:
       compiler_checks: ${{ steps.filter.outputs.compiler_checks }}
       vm: ${{ steps.filter.outputs.vm }}
       runtime_checks: ${{ steps.filter.outputs.runtime_checks }}
+      host_checks: ${{ steps.filter.outputs.host_checks }}
+      toolchain_build: ${{ steps.filter.outputs.toolchain_build }}
+      test_assets: ${{ steps.filter.outputs.test_assets }}
+      android: ${{ steps.filter.outputs.android }}
+      ios: ${{ steps.filter.outputs.ios }}
+      wasm: ${{ steps.filter.outputs.wasm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
       docs_only: ${{ steps.filter.outputs.docs_only }}
-      # 空 PR 不启动产品构建；全量回退与累计发布仍保留验证。
-      validation_required: ${{ steps.filter.outputs.validation_required }}
+      docs_checks: ${{ steps.filter.outputs.docs_checks }}
       macos_host_lane: ${{ steps.macos_queue.outputs.host }}
       macos_package_lane: ${{ steps.macos_queue.outputs.package }}
       macos_checks_lane: ${{ steps.macos_queue.outputs.checks }}
@@ -53,24 +59,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Select bounded macOS runner queue
-        id: macos_queue
-        shell: bash
-        run: |
-          lane_count=3
-          run_number=${{ github.run_number }}
-          echo "host=$((run_number % lane_count))" >> "$GITHUB_OUTPUT"
-          echo "package=$(((run_number + 1) % lane_count))" >> "$GITHUB_OUTPUT"
-          echo "checks=$(((run_number + 2) % lane_count))" >> "$GITHUB_OUTPUT"
-
       - name: Bootstrap planner (xtask only)
         uses: ./.github/actions/ci-bootstrap
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           xtask-only: "true"
 
-      - name: Validate flow and CI control rules
-        run: xtask check flows
+      - name: Select bounded macOS runner queue
+        id: macos_queue
+        run: xtask ci queue
 
       # main 上的运行不互相打断（见顶部 concurrency 注释）：取消较早的、不影响 SDK 的 main push 运行，
       # 并判出本运行是否需要发布 nightly。
@@ -90,6 +87,13 @@ jobs:
         shell: bash
         run: xtask flow plan --event-file "$GITHUB_EVENT_PATH" --out artifacts/ci-plan.json --github-output "$GITHUB_OUTPUT"
 
+      - name: Setup Rust for selected runner fixtures
+        if: steps.filter.outputs.rust_tools == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate selected planner contracts
+        run: xtask flow run --plan artifacts/ci-plan.json --job planner
+
       - name: Share immutable flow plan
         uses: actions/upload-artifact@v7
         with:
@@ -103,7 +107,7 @@ jobs:
     name: docs-check(linux-x64)
     timeout-minutes: 20
     needs: changes
-    if: needs.changes.outputs.docs_only == 'true'
+    if: needs.changes.outputs.docs_checks == 'true' && (needs.changes.outputs.host_checks != 'true' || needs.changes.outputs.docs_only == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -131,7 +135,7 @@ jobs:
     # 本 job 按规划器要求验证非文档改动；完整 Rust harness 只在 VM 相关改动或定期运行时执行。
     needs: changes
     # 纯文档改动（PR 与 main push）走 docs-check（见 changes 的 Docs-only 步骤）；本 job 被 skip 时 ci-ok 照样绿。
-    if: needs.changes.outputs.validation_required == 'true' && needs.changes.outputs.docs_only != 'true'
+    if: needs.changes.outputs.host_checks == 'true' && needs.changes.outputs.docs_only != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -147,9 +151,6 @@ jobs:
       group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_host_lane) || format('ci-test-host-{0}-{1}', github.run_id, matrix.platform) }}
       queue: max
       cancel-in-progress: false
-    env:
-      RUN_RUST_RUNTIME: ${{ needs.changes.outputs.runtime_checks == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -174,50 +175,16 @@ jobs:
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Test (xtask test --no-build --skip ...)
-        if: matrix.os != 'windows-latest'
+      - name: Validate host from the shared plan
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/ci-logs
-          # --no-build：bootstrap 已建好 z42c + stdlib + xtask，gate 只重生 goldens。
-          # 下放到并行 job 的 stage：stdlib → test-stdlib-interp；compiler / vscode → compiler-checks（host 无关，1 次）。
-          # cross-zpkg、bench 也 host 无关，只在 linux-x64（required）上跑；性能判定在 bench-pr.yml。
-          SKIP="stdlib,compiler,vscode"
-          if [ "${{ matrix.platform }}" != "linux-x64" ]; then
-            SKIP="stdlib,cross-zpkg,bench,compiler,vscode"
-          fi
-          # 完整 runtime harness 覆盖 --lib 与所有 target 编译；只有它会执行时才卸下窄版 stage。
-          if [ "${{ env.RUN_RUST_RUNTIME }}" = "true" ]; then
-            SKIP="$SKIP,rust-units"
-          fi
-          # All jobs consume the same plan produced before any product builds.
-          if [ "${{ needs.changes.outputs.host_package }}" = "true" ]; then
-            SKIP="$SKIP,examples"
-          fi
-          xtask test --no-build --skip "$SKIP" --plan artifacts/ci-plan.json 2>&1 | tee artifacts/ci-logs/test-all.log
-          exit "${PIPESTATUS[0]}"
-
-      # build wave 就地重写 zbc-format 字节基线；diff 非空 = 提交的基线过期（格式变更漏了 format-bump.md 清单第 4 步）。
-      # 消费方校验的永远是刚重写的字节，不靠这道门过期基线会一直绿。挂在 test-host 上（失败经 ci-ok 挡合并），零额外构建。
-      - name: Golden byte baselines are up to date (regen produced no diff)
-        if: matrix.os != 'windows-latest'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format; then
-            echo "::error::committed zbc-format byte baselines are stale — regen rewrote them."
-            echo "Fix: run 'xtask build compiler && xtask build stdlib && xtask build test',"
-            echo "review the diff, then commit the regenerated fixtures"
-            echo "(see docs/internals/src/devinfra/format-bump.md step 4)."
-            git --no-pager diff --stat -- src/compiler/z42.package/tests/fixtures/zbc-format
-            exit 1
-          fi
-          echo "OK: zbc-format baselines match the current writer"
+          xtask ci test-host --plan artifacts/ci-plan.json 2>&1 | tee artifacts/ci-logs/test-all.log
 
       # 失败时把 stage 保留的临时输出传上来（runner 回收后就没了）。
       - name: Upload test logs on failure
-        if: failure() && matrix.os != 'windows-latest'
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: test-logs-${{ matrix.os }}
@@ -227,45 +194,6 @@ jobs:
             /var/folders/*/*/T/z42-test-all.*
           retention-days: 7
           if-no-files-found: warn
-
-      # 完整 Rust harness 包含 signal 子进程测试，独立于本地 GREEN 的窄版 rust-units。
-      # Windows 不跑 GREEN，完整 harness 执行前先备好 zbc_compat 要的 goldens。
-      - name: Build golden test assets (Windows — zbc_compat inputs)
-        if: matrix.os == 'windows-latest' && env.RUN_RUST_RUNTIME == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          xtask build test
-
-      # 串行（--test-threads=1，_testRuntime 内设）：--lib 测试有跨线程内存竞争。
-      - name: Rust VM unit tests (xtask test runtime)
-        if: env.RUN_RUST_RUNTIME == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          xtask test runtime
-
-      # ── 抢号预检：PR 的绿基于触发那一刻的 base，两个 PR 能各自拿走同一个诊断码号、双双全绿合入。
-      # 不开「必须基于最新 main」（要每个 PR 重跑整套 CI），改为在 GREEN 之后并入最新 main 重跑一次秒级的
-      # diagcodes。挂在 PR 上必跑的 test-host(linux-x64) 末尾，失败经 ci-ok 挡合并，零额外 job。
-      - name: Code-number preflight (merge LATEST main, rerun diagcodes)
-        if: github.event_name == 'pull_request' && matrix.platform == 'linux-x64'
-        shell: bash
-        run: |
-          set -euo pipefail
-          # checkout 是浅克隆 ⇒ 先把历史挖深到能找到共同祖先；挖不到就**放行**（这一步是加保险，
-          # 不是新增的失败源——真正的唯一性判据在 diagcodes 门本身，它在上面的 `test` 里已跑过）。
-          git fetch --no-tags --deepen=200 origin main 2>/dev/null || true
-          if ! git merge-base HEAD FETCH_HEAD >/dev/null 2>&1; then
-            echo "::notice::浅历史里找不到与 main 的共同祖先，跳过抢号预检"
-            exit 0
-          fi
-          if ! git -c user.name=ci -c user.email=ci@z42.invalid merge --no-edit FETCH_HEAD; then
-            git merge --abort || true
-            echo "::notice::与最新 main 有文本冲突 —— GitHub 本身已挡住合并，此处不重复报警"
-            exit 0
-          fi
-          xtask check diagcodes
 
   # ── 宿主 RID 打包（4 个 OS），与 host 测试并行，吃共享的 toolchain artifact；publish-nightly 消费其上传。
   host-package:
@@ -395,7 +323,7 @@ jobs:
     timeout-minutes: 30
     # 需要代码验证时构建：artifact 是打包 / 平台测试 / current-sdk 各 job 的根。
     needs: changes
-    if: needs.changes.outputs.validation_required == 'true' && needs.changes.outputs.docs_only != 'true'
+    if: needs.changes.outputs.toolchain_build == 'true' && needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -447,7 +375,8 @@ jobs:
   assemble-current-sdk:
     name: compile-test-assets(linux-x64)
     timeout-minutes: 30
-    needs: toolchain-bootstrap
+    needs: [changes, toolchain-bootstrap]
+    if: needs.changes.outputs.test_assets == 'true'
     # 消费方只下载 linux 这一份。
     runs-on: ubuntu-latest
     steps:
@@ -537,7 +466,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [changes, toolchain-bootstrap, assemble-current-sdk]
     # vm 或 compiler 改动都要跑：编译器的优化 pass 会重排 IR，JIT 的输入变了（test-host 只覆盖 interp）。
-    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.compiler == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -572,71 +501,38 @@ jobs:
           # --no-rebuild：直接跑共享 .zbc；JIT 的逐 case 编译发生在运行时（这正是本门要测的）。
           xtask test e2e --mode jit --no-rebuild --shard ${{ matrix.shard }}/2 --jobs=4
 
-  # ── stdlib [Test] 的 JIT 门：每个单元 fork `z42vm --mode jit`（进程内 runner 驱动不了 JIT）。独立并行 job，
-  # 不拉长关键路径；linux-x64 一条（cranelift 与宿主无关）。
-  stdlib-jit-consistency:
-    name: test-stdlib-jit(linux-x64) shard ${{ matrix.shard }}
-    timeout-minutes: 45
-    runs-on: ubuntu-latest
-    needs: [changes, toolchain-bootstrap]
-    # vm（JIT codegen）/ stdlib（测试内容）/ compiler（IR 形状）任一改动都可能挪动结果；schedule / dispatch 全跑。
-    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
-
-    steps:
-      - uses: actions/checkout@v7
-
-      # 吃 toolchain artifact，不在每个分片重新自举（rust toolchain + cache 由 action 自带）。
-      - uses: ./.github/actions/xtask-bootstrap-artifact
-        with:
-          vm: prebuilt
-
-      - name: stdlib [Test] — JIT mode (shard ${{ matrix.shard }}/2)
-        shell: bash
-        run: |
-          set -euo pipefail
-          # xtask runs this shard's stdlib [Test] units under JIT (z42b via
-          # z42vm --mode jit). --shard splits the libs balanced by unit count
-          # across 2 machines; --jobs 4 parallelizes within the shard.
-          xtask test stdlib --mode jit --no-build --shard ${{ matrix.shard }}/2 --jobs 4
-
-  # ── stdlib [Test] interp，每个 OS 一个 job（io / net / process / fs / threading 依赖宿主）；test-host 跳过它。
-  stdlib-interp-consistency:
-    name: test-stdlib-interp(${{ matrix.platform }})
+  # One matrix covers JIT's two shards and the three host-dependent interp legs.
+  stdlib-consistency:
+    name: test-stdlib-${{ matrix.mode }}(${{ matrix.platform }})${{ matrix.shard && format(' shard {0}', matrix.shard) || '' }}
     timeout-minutes: 45
     runs-on: ${{ matrix.os }}
+    needs: [changes, toolchain-bootstrap]
+    if: needs.changes.outputs.stdlib == 'true'
     concurrency:
-      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) || format('ci-stdlib-interp-{0}-{1}', github.run_id, matrix.platform) }}
+      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) || format('ci-stdlib-{0}-{1}-{2}-{3}', github.run_id, matrix.platform, matrix.mode, matrix.shard) }}
       queue: max
       cancel-in-progress: false
-    needs: [changes, toolchain-bootstrap]
-    # vm（interp 派发）/ stdlib（测试内容 / API）/ compiler 任一改动都可能挪动结果；schedule / dispatch 全跑。
-    if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
-      # 不分片：每个 OS 全量约 12~14 分钟；分片会挤爆约 20 个并发的 runner 池，排队比省下的还多。
       matrix:
         include:
-          - { os: ubuntu-latest,    platform: linux-x64 }
-          - { os: ubuntu-24.04-arm, platform: linux-arm64 }
-          - { os: macos-26,         platform: macos-arm64 }
-
+          - { os: ubuntu-latest,    platform: linux-x64,   mode: jit,    shard: 1/2 }
+          - { os: ubuntu-latest,    platform: linux-x64,   mode: jit,    shard: 2/2 }
+          - { os: ubuntu-latest,    platform: linux-x64,   mode: interp }
+          - { os: ubuntu-24.04-arm, platform: linux-arm64, mode: interp }
+          - { os: macos-26,         platform: macos-arm64, mode: interp }
     steps:
       - uses: actions/checkout@v7
-
-      # 吃与架构无关的 toolchain artifact，本机 cargo 编 z42vm（rust toolchain + cache 由 action 自带）。
+      - uses: actions/download-artifact@v8
+        with:
+          name: ci-plan
+          path: artifacts
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
           vm: prebuilt
-
-      - name: stdlib [Test] — INTERP mode (full)
+      - name: Run stdlib tests
         shell: bash
-        run: |
-          set -euo pipefail
-          xtask test stdlib --mode interp --no-build --jobs 4
+        run: xtask test stdlib --plan artifacts/ci-plan.json --no-build --mode ${{ matrix.mode }} --jobs 4 ${{ matrix.shard && format('--shard {0}', matrix.shard) || '' }}
 
   # ── cross-zpkg 在 test-host(linux-x64) 的 gate 里跑：夹具用 release z42vm 编、debug z42vm 跑（保留 debug 断言）。
   # 不跑 JIT 版：zpkg 链接是字节码层的，JIT 执行正确性由 vm-jit goldens 覆盖。
@@ -647,7 +543,7 @@ jobs:
     name: compiler-checks(linux-x64)
     timeout-minutes: 30
     needs: [changes, toolchain-bootstrap]
-    if: ${{ needs.changes.outputs.compiler_checks == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.compiler_checks == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -683,7 +579,7 @@ jobs:
     timeout-minutes: 45
     # PR 上只在 platform 改动时跑（同 host-package）。
     needs: [changes, toolchain-bootstrap]
-    if: needs.changes.outputs.platform_package == 'true'
+    if: needs.changes.outputs.platform_package == 'true' || needs.changes.outputs.ios == 'true'
     runs-on: macos-26
     concurrency:
       group: ${{ format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) }}
@@ -726,7 +622,7 @@ jobs:
     timeout-minutes: 45
     # PR 上只在 platform 改动时跑（同 host-package）。
     needs: [changes, toolchain-bootstrap]
-    if: needs.changes.outputs.platform_package == 'true'
+    if: needs.changes.outputs.platform_package == 'true' || needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -782,7 +678,7 @@ jobs:
     timeout-minutes: 40
     # PR 上只在 platform 改动时跑（同 host-package）。
     needs: [changes, toolchain-bootstrap]
-    if: needs.changes.outputs.platform_package == 'true'
+    if: needs.changes.outputs.platform_package == 'true' || needs.changes.outputs.wasm == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -992,17 +888,17 @@ jobs:
 
   # ── Tier-2 平台测试（nightly）：wasm（Playwright）、iOS 模拟器、Android 模拟器，各自把 JUnit 发成 Check。
   test-wasm:
-    name: test-wasm-browser(linux-x64) shard ${{ matrix.shard }}
+    name: test-wasm-browser(linux-x64) ${{ matrix.shard == 0 && 'smoke' || format('shard {0}/3', matrix.shard) }}
     # 冷构建（wasm-pack LTO + 全语料编译）约 27 分钟，加上分片的浏览器内运行。
     timeout-minutes: 75
-    needs: toolchain-bootstrap   # `changes` 不在 needs：本 job 的 if: 只看 event_name，从不读 needs.changes.outputs.*
-    # Tier-2（浏览器 / 模拟器，慢）：只在 nightly 与手动触发时跑。
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    needs: [changes, toolchain-bootstrap]
+    # Browser-executor PRs run smoke; scheduled/manual validation runs the full corpus.
+    if: ${{ needs.changes.outputs.wasm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     # 嵌入语料全量分 3 片（`--shard k/3`）；R1–R7 与语料无关，只在第 1 片跑。
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('[1,2,3]') || fromJSON('[0]') }}
     runs-on: ubuntu-latest
     permissions:
       actions: read     # setup-z42-sdk 回退（gh run download）
@@ -1046,11 +942,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xtask test app wasm --shard ${{ matrix.shard }}/3
+          xtask test app wasm ${{ matrix.shard != 0 && format('--shard {0}/3', matrix.shard) || '' }}
       # R1–R7 junit exists only on shard 1 (Playwright embedded reports via `list`,
       # not junit — its result is the step exit code above).
       - name: Publish wasm test report (GitHub Check)
-        if: ${{ always() && matrix.shard == 1 }}
+        if: ${{ always() && matrix.shard <= 1 }}
         uses: dorny/test-reporter@v3
         with:
           name: platform-tests / wasm
@@ -1058,7 +954,7 @@ jobs:
           reporter: java-junit
           fail-on-error: false
       - name: Upload wasm JUnit
-        if: ${{ always() && matrix.shard == 1 }}
+        if: ${{ always() && matrix.shard <= 1 }}
         uses: actions/upload-artifact@v7
         with:
           name: junit-wasm
@@ -1071,7 +967,7 @@ jobs:
     timeout-minutes: 60
     needs: [changes, toolchain-bootstrap]   # macOS 原生资源槽由 changes 输出。
     # Platform changes run embedding/JIT/compression smoke; nightly/manual retains the full corpus.
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.platform_package == 'true' }}
+    if: needs.changes.outputs.platform_package == 'true' || needs.changes.outputs.ios == 'true'
     # 嵌入语料全量分 3 片，每片约 155 个用例，压在模拟器 60 分钟墙内；每片自己起模拟器，R1–R7 并进同一次运行。
     strategy:
       fail-fast: false
@@ -1125,7 +1021,7 @@ jobs:
     needs: [changes, toolchain-bootstrap]
     # Platform PRs run one smoke lane (embedding contracts + JIT + compression).
     # Nightly/manual runs retain the full corpus in three shards.
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.platform_package == 'true' }}
+    if: needs.changes.outputs.platform_package == 'true' || needs.changes.outputs.android == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -1217,7 +1113,7 @@ jobs:
     timeout-minutes: 30
     needs: [changes, toolchain-bootstrap]
     # Tier-1 (desktop C ABI, fast — no emulator/sim/browser): runs per-PR on platform changes.
-    if: ${{ needs.changes.outputs.platform == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.platform == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       actions: read     # setup-z42-sdk 回退（gh run download）
@@ -1263,8 +1159,7 @@ jobs:
       - assemble-current-sdk
       - consume-current-sdk
       - vm-jit-consistency
-      - stdlib-jit-consistency
-      - stdlib-interp-consistency
+      - stdlib-consistency
       - compiler-checks
       - package-ios
       - package-android
