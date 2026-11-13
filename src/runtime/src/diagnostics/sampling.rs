@@ -46,14 +46,19 @@ impl Sampling {
     pub fn provider(&self, ctx: &VmContext) -> anyhow::Result<&dyn ProfilerBackend> {
         let result = self.initialized.get_or_init(|| {
             if self.backend.get().is_some() { return Ok(()); }
-            crate::components::profiling::attach(ctx, self.source.get().unwrap_or(&BackendSource::Auto), self.hz.unwrap_or(0), self.trace)
+            crate::components::profiling::attach(ctx, self.source.get_or_init(BackendSource::default), self.hz.unwrap_or(0), self.trace)
                 .map_err(|e| format!("{e:#}"))
         });
         result.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
         self.backend.get().map(|b| b.as_ref())
             .ok_or_else(|| anyhow::anyhow!("profiler component did not install its provider"))
     }
-    pub fn is_loaded(&self) -> bool { self.backend.get().is_some() }
+    pub fn is_loaded(&self) -> bool {
+        self.initialized.get().is_some_and(|result| result.is_ok()) && self.backend.get().is_some()
+    }
+    pub(crate) fn components(&self) -> Option<&VmComponents> {
+        if self.is_loaded() { self.code.get() } else { None }
+    }
     #[inline]
     pub fn enabled(&self) -> bool { self.enabled }
     #[inline]

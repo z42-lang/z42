@@ -58,7 +58,8 @@ int _runtimeTestRunHarnesses(bool libOnly) {
     foreach (var exe in executables) {
         string directory = directories[index]; index = index + 1;
         Process test = new Process(exe).Arg("--test-threads=1").Env("RUST_MIN_STACK", "8388608")
-            .Env("DYLD_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std)
+            .Env("DYLD_LIBRARY_PATH", std)
+            .Env("DYLD_FALLBACK_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std)
             .Env("LD_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std);
         if (Platform.IsWindows()) { test = test.Env("PATH", native + ";" + Path.Join(native, "deps") + ";" + std + ";" + Environment.GetEnvironmentVariable("PATH", "")); }
         int c = _execIn(test.Env("CARGO_MANIFEST_DIR", directory)

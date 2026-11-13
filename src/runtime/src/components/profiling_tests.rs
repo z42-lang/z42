@@ -31,6 +31,22 @@ fn linked_profiler_is_lazy_per_core_and_does_not_retain_the_vm() {
     host::prepare_profiler(&a).unwrap();
     assert!(host::profiler_loaded(&a));
     assert!(!host::profiler_loaded(&b));
+    assert!(host::component_ids(&a).contains(&host::PROFILER_COMPONENT));
+    let lease = host::component_interface::<host::ProfilerApi>(&a, host::PROFILER_COMPONENT).unwrap().unwrap();
     drop(a);
+    assert!(weak.upgrade().is_some(), "public interface lease keeps the VM alive");
+    drop(lease);
     assert!(weak.upgrade().is_none(), "profiler must not create a Core lease cycle");
+}
+
+#[test]
+fn explicitly_selected_profiler_uses_the_existing_component_registry() {
+    let components = unsafe { host::ComponentOptions::default().with_static(
+        host::PROFILER_COMPONENT, crate::profiler::component::z42_profiler_init) };
+    let program = host::LoadedProgram::load_bytes(&crate::host::runtime_tests::empty_zbc(), host::LoadOptions {
+        components, mode: host::ExecMode::Interp, ..Default::default()
+    }).unwrap();
+    assert!(!host::profiler_loaded(program.context()));
+    host::prepare_profiler(program.context()).unwrap();
+    assert_eq!(host::component_ids(program.context()).iter().filter(|&&id| id == host::PROFILER_COMPONENT).count(), 1);
 }

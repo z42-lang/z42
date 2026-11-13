@@ -23,4 +23,3 @@ pub struct RetainerInfo {
 pub struct RootInfo {
     pub kind: RootKind,
 }
-
