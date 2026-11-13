@@ -107,6 +107,7 @@ dry-run 跑真实脚本，不联网）；真实 SDK 的离线安装由 CI packag
 | `test stdlib [lib]` | stdlib 源 / 编译器变动 | `build stdlib` + z42b（z42.builder.zpkg） | 各 stdlib lib 的 `[Test]` 通过率 |
 | `test compiler [--no-build]` | z42c 编译器变动 | 自建工具链，或通过 `--no-build` 使用已构建的工具链 | 全成员自举不动点（gen1==gen2）+ [Test] units + e2e |
 | `package sdk --verify` | 改打包系统 / 发行版相关后，验证打包出的 SDK 能独立工作 | 组装出的这份 SDK（缺本机桌面 workload 就先打） | packages.toml 自检（解析 / 组件安装 / 发布归档）+ 发行包夹具 + packaged z42c/z42vm 跑 golden |
+| `flow plan / run / graph / check` | 本地与 CI 按改动选择流程 | `flows.toml` + Git | 可解释计划、JSON 与 Mermaid；详见[流程规划](../docs/internals/src/devinfra/flows.md) |
 | `test changed [base]` | 增量自测（按改动文件挑 stage） | 上述各命令（in-process 调度） | 仅跑受影响的 stage |
 | `test docs` / `examples` / `targets` / `embedded` / `platform` / `packages` / `bootstrap` 等 | 各专项门（完整清单 `xtask test -h`） | 视 stage | 文档死链、学习手册示例、manifest target、设备嵌入测试、平台 3 段测试…… |
 | `clean [tests\|bench\|all]` / `layout [entry]` / `run <zpkg\|.z42>` | 清产物 / 打印 `artifacts/` 树或某项绝对路径 / 经 launcher 直跑 | — | — |
@@ -245,6 +246,7 @@ xtask package sdk --verify    # 打 host-RID 发行包，再自检 + 端到端�
 
 ```
 scripts/
+├── flows.toml             目录归属、影响图、执行前提与 CI 选择的单一配置
 ├── xtask.z42.toml          工程清单（源集 src/**/*.z42；output → artifacts/xtask/）
 ├── versions.toml           版本与平台承诺、workload / RID 登记（数据，见头注）
 ├── packages.toml           发行包内容清单（数据，见头注）
@@ -367,16 +369,21 @@ scripts/
     │   ├── fixtures/             组件校验用的 WASM 宿主夹具
     │   ├── test_workload.z42     **`package workload test`**：打 payload-only 的 test workload（`test` 是 workload 名，不是「测试」）
     │   └── release.z42           `--archive`（包目录 → 归档）/ `package release`（desktop 合并 → SHA256SUMS → index → release-notes）
+    ├── flow/               配置、Git 输入、影响图与执行图、计划校验与导出
+    ├── ci/                 GitHub 控制策略、离线回归与自举命令探针
     ├── setup/              `setup`：各平台依赖 / 编辑器资产
     │   ├── command.z42           `setup` 族的命令类（不带子命令 = 安装）
     │   ├── install.z42           `setup [--os]`：按 versions.toml 装开发依赖
     │   ├── android.z42           Android SDK·NDK·模拟器
     │   ├── check.z42             `setup check`：只读在场校验
+    │   ├── ci_installers_selfcheck.z42 + testdata/  CI 工具安装器的离线回归与命令探针
     │   └── vscode.z42            生成 z42.tmLanguage.json + **`check vscode-syntax` 门**
     └── bench/              性能测量：bench / profile
         ├── command.z42           `bench` 族的命令类（不带子命令 = e2e；stdlib / targets）
         ├── bench.z42             bench 基准 / --diff / --micro-diff / --ab 同 runner 回归门禁（判定数学 `_abVerdict` 可 `--ab-selftest`）
         ├── gc_pause.z42          GC 停顿指标解析（bench 场景头 `// gc-pause: report`）
+        ├── criterion.z42         Criterion 置信区间报告
+        ├── verdict_selfcheck.z42  `bench check`：入库判定夹具与退出码
         └── profile.z42           profile 单脚本性能（cpu/heap/threads/e2e；samply/dhat/hyperfine + counter JSON）
 ```
 
@@ -386,7 +393,7 @@ scripts/
 
 `src/common/` 提供路径、进程、文件系统与共享索引操作，不反调命令实现；其中 `common/harness/` 是 test 与
 bench 共用的执行机制，只被这两族调用。命令入口负责解析参数，具体处理函数按职责放在 `build/`、`test/`、
-`package/`、`setup/`、`bench/`。`test/` 负责组合构建、执行与静态检查（静态检查在 `test/check/`，对外仍是
+`package/`、`setup/`、`bench/`、`flow/`、`ci/`。`test/` 负责组合构建、执行与静态检查（静态检查在 `test/check/`，对外仍是
 `xtask check <name>`；VSCode 检查复用 `setup/` 的生成逻辑）。`test/` 下按被测对象分子目录：产品用例放回所属组件，
 xtask 的计划 / 调度回归作为 `*_selfcheck.z42` 与被测模块放在一起、接入对应自检。新增用例的位置、执行器和确认步骤见
 [测试用例组织规范](../docs/internals/src/devinfra/test-layout.md#1-用例放哪)。
@@ -450,6 +457,7 @@ iteration 期可用 `test changed`（按改动挑 stage）或单跑某 stage（`
 本 README 是**基础层**（干什么 / 怎么用 / 怎么开发）；设计思路与实现机制（深入层）见 book 工具链部分：
 
 - [xtask：自举 dev CLI](../docs/internals/src/devinfra/xtask.md) —— 自举链路、CLI 分发架构、`--toolchain` 机制
+- [按改动规划流程](../docs/internals/src/devinfra/flows.md) —— 本地与 CI 共用的配置、影响图、执行前提与计划校验
 - [构建编排](../docs/internals/src/devinfra/build.md) —— 编译器 workspace 自建拓扑、stdlib 三阶段、不动点验证、golden 重生
 - [开发基础设施概览](../docs/internals/src/devinfra/README.md) —— xtask 三条产线全景
 - 操作手册（构建/测试的完整流程）：[`docs/internals/src/devinfra/`](../docs/internals/src/devinfra)

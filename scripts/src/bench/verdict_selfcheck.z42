@@ -1,0 +1,38 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _checkBenchVerdicts() {
+    _gateAssert(_criterionTag(0.6, 0.005) == "SUSPECT" && _criterionTag(0.4, 0.26) == "REGRESSION", "Criterion needs entire interval above threshold");
+    if (_abSelfTest() != 0) { return 1; }
+    string dir = "src/benches/testdata/";
+    foreach (var threshold in new string[]{ "0.15", "0.25" }) {
+        foreach (var name in new string[]{ "overlap", "regress", "improve", "separated-under-threshold" }) {
+            int want = name == "regress" || (name == "separated-under-threshold" && threshold == "0.15") ? 1 : 0;
+            _benchFixtureExpect(new string[]{ "bench", "--diff", "--current", dir + "current-" + name + ".json", "--baseline", dir + "baseline.json", "--threshold-time", threshold }, want);
+        }
+        foreach (var name in new string[]{ "regress", "overlap", "improve", "separated-under-threshold", "fallback-regress", "fallback-overlap", "unmatched" }) {
+            int want = name == "regress" || name == "fallback-regress" || (name == "separated-under-threshold" && threshold == "0.15") ? 1 : 0;
+            _benchFixtureExpect(new string[]{ "bench", "--micro-diff", "--current", dir + "micro-" + name + ".json", "--baseline", dir + "micro-base.json", "--threshold-time", threshold }, want);
+        }
+        string baseline = _benchFixtureRounds(dir, "base");
+        foreach (var name in new string[]{ "drift", "real", "mid" }) {
+            int want = name == "real" || (name == "mid" && threshold == "0.15") ? 1 : 0;
+            _benchFixtureExpect(new string[]{ "bench", "--micro-diff", "--current", _benchFixtureRounds(dir, name), "--baseline", baseline, "--threshold-time", threshold }, want);
+        }
+        string missing = dir + "micro-rs-real-r1.json," + dir + "micro-rs-real-r2.json," + dir + "micro-rs-missing-r3.json";
+        _benchFixtureExpect(new string[]{ "bench", "--micro-diff", "--current", missing, "--baseline", baseline, "--threshold-time", threshold }, 0);
+        _benchFixtureExpect(new string[]{ "bench", "--micro-diff", "--current", missing, "--baseline", dir + "micro-rs-base-r1.json", "--threshold-time", threshold }, 2);
+    }
+    Console.WriteLine("✓ benchmark verdicts: pure rules, committed fixtures, both thresholds and usage errors");
+    return 0;
+}
+
+string _benchFixtureRounds(string dir, string name) {
+    return dir + "micro-rs-" + name + "-r1.json," + dir + "micro-rs-" + name + "-r2.json," + dir + "micro-rs-" + name + "-r3.json";
+}
+
+void _benchFixtureExpect(string[] args, int expected) {
+    int code = new XtaskCommand().Invoke(args);
+    _gateAssert(code == expected, "benchmark fixture exit " + expected.ToString() + ": " + String.Join(" ", args));
+}

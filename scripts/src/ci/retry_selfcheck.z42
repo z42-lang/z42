@@ -1,0 +1,95 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+class CiFakeGitHub : CiGitHub {
+    public JsonValue RunData;
+    public JsonValue Pr;
+    public JsonValue Jobs;
+    public JsonValue Annotations;
+    public JsonValue Compare;
+    public int Posts;
+    public int Reads;
+    public string Race = "";
+    public CiFakeGitHub() {
+        this.RunData = JsonValue.Parse("{\"path\":\".github/workflows/ci.yml\",\"event\":\"pull_request\",\"status\":\"completed\",\"conclusion\":\"failure\",\"run_attempt\":1,\"head_sha\":\"abc\",\"head_branch\":\"fix\",\"head_repository\":{\"full_name\":\"owner/repo\"},\"pull_requests\":[{\"number\":3}]}");
+        this.Pr = JsonValue.Parse("{\"state\":\"open\",\"base\":{\"ref\":\"main\",\"repo\":{\"full_name\":\"owner/repo\"}},\"head\":{\"sha\":\"abc\",\"ref\":\"fix\",\"repo\":{\"full_name\":\"owner/repo\"}}}");
+        this.Jobs = JsonValue.Parse("[{\"name\":\"test-stdlib-interp(macos-arm64)\",\"status\":\"completed\",\"conclusion\":\"cancelled\",\"runner_id\":0,\"runner_name\":\"\",\"steps\":[],\"check_run_url\":\"https://api.github.com/repos/owner/repo/check-runs/7\"},{\"name\":\"ci-ok\",\"status\":\"completed\",\"conclusion\":\"failure\"},{\"name\":\"test-host(linux-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"}]");
+        this.Annotations = JsonValue.OfArray();
+        JsonValue annotation = JsonValue.OfObject();
+        annotation.Set("annotation_level", JsonValue.OfString("failure"));
+        annotation.Set("message", JsonValue.OfString(_ciAcquisitionError()));
+        this.Annotations.Add(annotation);
+        this.Compare = JsonValue.Parse("{\"files\":[]}");
+    }
+    public override JsonValue Get(string path) {
+        if (path.Contains("/compare/")) { return this.Compare; }
+        if (path.EndsWith("/pulls/3")) { return this.Pr; }
+        if (path.EndsWith("/actions/runs/42")) {
+            this.Reads = this.Reads + 1;
+            if (this.Reads == 2) {
+                if (this.Race == "run") { this.RunData.Set("status", JsonValue.OfString("queued")); }
+                if (this.Race == "push") { this.Pr.Get("head").Set("sha", JsonValue.OfString("new")); }
+                if (this.Race == "closed") { this.Pr.Set("state", JsonValue.OfString("closed")); }
+            }
+            // A transport returns a snapshot, not a reference to subsequent mutations.
+            return JsonValue.Parse(JsonValue.StringifyPretty(this.RunData));
+        }
+        throw new Exception("unexpected fake API GET " + path);
+    }
+    public override JsonValue Pages(string path, string key = "") {
+        if (path.EndsWith("/jobs?filter=latest&per_page=100") && key == "jobs") { return this.Jobs; }
+        if (path.EndsWith("/check-runs/7/annotations?per_page=100")) { return this.Annotations; }
+        throw new Exception("unexpected fake API pages " + path);
+    }
+    public override void Post(string path) {
+        _gateAssert(path == "repos/owner/repo/actions/runs/42/rerun-failed-jobs", "retry queues failed jobs and ci-ok together");
+        this.Posts = this.Posts + 1;
+    }
+}
+
+void _ciRetryChecks() {
+    var api = new CiFakeGitHub();
+    _gateAssert(_ciRetry(api, "owner/repo", "42", 1L, false).Contains("2/3") && api.Posts == 1, "runner acquisition retry");
+    api = new CiFakeGitHub(); api.RunData.Set("run_attempt", JsonValue.OfLong(2L));
+    _gateAssert(_ciRetry(api, "owner/repo", "42", 2L, false).Contains("3/3") && api.Posts == 1, "second bounded retry");
+    api = new CiFakeGitHub(); api.RunData.Set("run_attempt", JsonValue.OfLong(3L)); _ciAssertSkipped(api, "budget");
+    api = new CiFakeGitHub();
+    _gateAssert(_ciRetry(api, "owner/repo", "42", 0L, true).StartsWith("Dry run:") && api.Posts == 0, "retry dry run");
+    foreach (var reason in new string[]{ "runner", "steps", "mixed", "annotation", "extra-annotation", "url", "status", "empty", "aggregate", "cancelled-aggregate", "event", "workflow", "closed", "push", "target", "unlinked", "stale" }) {
+        api = new CiFakeGitHub(); _ciBreakRetry(api, reason); _ciAssertSkipped(api, reason);
+    }
+    foreach (var race in new string[]{ "run", "push", "closed" }) {
+        api = new CiFakeGitHub(); api.Race = race; _ciAssertSkipped(api, "inspection race " + race);
+    }
+    foreach (var conclusion in new string[]{ "success", "cancelled", "timed_out" }) {
+        api = new CiFakeGitHub(); api.RunData.Set("conclusion", JsonValue.OfString(conclusion)); _ciAssertSkipped(api, conclusion);
+    }
+    Console.WriteLine("  ✓ CI retry: acquisition, budget, errors, dry run and races");
+}
+
+void _ciBreakRetry(CiFakeGitHub api, string reason) {
+    JsonValue job = api.Jobs.At(0);
+    if (reason == "runner") { job.Set("runner_id", JsonValue.OfLong(123L)); }
+    if (reason == "steps") { job.Set("steps", JsonValue.Parse("[{\"name\":\"Set up job\"}]")); }
+    if (reason == "mixed") { api.Jobs.At(2).Set("conclusion", JsonValue.OfString("failure")); }
+    if (reason == "annotation") { api.Annotations = JsonValue.OfArray(); }
+    if (reason == "extra-annotation") { api.Annotations.Add(JsonValue.Parse("{\"annotation_level\":\"failure\",\"message\":\"Invalid workflow\"}")); }
+    if (reason == "url") { job.Set("check_run_url", JsonValue.OfString("https://example.com/check-runs/7")); }
+    if (reason == "status") { job.Set("status", JsonValue.OfString("in_progress")); }
+    if (reason == "empty") { api.Jobs = JsonValue.OfArray(); }
+    if (reason == "aggregate") { api.Jobs = JsonValue.Parse("[{\"name\":\"ci-ok\",\"status\":\"completed\",\"conclusion\":\"failure\"}]"); }
+    if (reason == "cancelled-aggregate") { api.Jobs.At(1).Set("conclusion", JsonValue.OfString("cancelled")); }
+    if (reason == "event") { api.RunData.Set("event", JsonValue.OfString("push")); }
+    if (reason == "workflow") { api.RunData.Set("path", JsonValue.OfString("other.yml")); }
+    if (reason == "closed") { api.Pr.Set("state", JsonValue.OfString("closed")); }
+    if (reason == "push") { api.Pr.Get("head").Set("sha", JsonValue.OfString("new")); }
+    if (reason == "target") { api.Pr.Get("base").Set("ref", JsonValue.OfString("release")); }
+    if (reason == "unlinked") { api.RunData.Set("pull_requests", JsonValue.OfArray()); }
+    if (reason == "stale") { api.RunData.Set("run_attempt", JsonValue.OfLong(2L)); }
+}
+
+void _ciAssertSkipped(CiFakeGitHub api, string why) {
+    _gateAssert(_ciRetry(api, "owner/repo", "42", 1L, false).StartsWith("Skipped:") && api.Posts == 0, "retry rejects " + why);
+}

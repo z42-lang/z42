@@ -1,0 +1,145 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+using Std.Collections;
+
+JsonValue _flowJson(FlowConfig cfg, FlowPlan plan) {
+    JsonValue v = JsonValue.OfObject();
+    v.Set("version", JsonValue.OfLong(1L));
+    v.Set("config_digest", JsonValue.OfString(cfg.Digest));
+    v.Set("base", JsonValue.OfString(plan.Base)); v.Set("head", JsonValue.OfString(plan.Head));
+    v.Set("tree", JsonValue.OfString(plan.Tree)); v.Set("policy", JsonValue.OfString(plan.Policy));
+    v.Set("event", JsonValue.OfString(plan.Event)); v.Set("release_required", JsonValue.OfString(plan.ReleaseRequired));
+    v.Set("full", JsonValue.OfBool(plan.Full)); v.Set("fallback", JsonValue.OfString(plan.Fallback));
+    v.Set("docs_only", JsonValue.OfBool(plan.DocsOnly)); v.Set("publish", JsonValue.OfBool(plan.Publish));
+    v.Set("files", _jStrs(plan.Files)); v.Set("stages", _jStrs(_flowStages(cfg, plan)));
+    v.Set("outputs", _jStrs(_flowOutputs(cfg, plan)));
+    JsonValue steps = JsonValue.OfArray();
+    foreach (var s in plan.Steps) {
+        JsonValue item = JsonValue.OfObject();
+        item.Set("id", JsonValue.OfString(s.Id)); item.Set("owner", JsonValue.OfString(s.Owner));
+        item.Set("chapter", JsonValue.OfString(s.Chapter)); item.Set("reason", JsonValue.OfString(s.Reason));
+        item.Set("prerequisite", JsonValue.OfBool(s.Prerequisite));
+        item.Set("job", JsonValue.OfString(cfg.Find(s.Id).Job));
+        item.Set("ci_command", _jStrs(_flowExpandArgs(cfg.Find(s.Id).CiCommand, s)));
+        item.Set("command", _jStrs(_flowArgs(cfg.Find(s.Id), s)));
+        steps.Add(item);
+    }
+    v.Set("steps", steps);
+    return v;
+}
+
+FlowPlan _flowReadPlan(FlowConfig cfg, string path, string root) {
+    JsonValue saved = JsonValue.Parse(File.ReadAllText(path));
+    if (saved.Get("version").AsLong() != 1L || saved.Get("config_digest").AsString() != cfg.Digest) {
+        throw new Exception("saved plan has a different schema or configuration; regenerate it");
+    }
+    string head = saved.Get("head").AsString();
+    if (_flowCommit(root, "HEAD") != head) { throw new Exception("saved plan belongs to a different HEAD; regenerate it"); }
+    string policy = saved.Get("policy").AsString();
+    if (!_strIn(new string[]{ "local", "commits", "ci" }, policy)) { throw new Exception("unknown saved plan policy"); }
+    string tree = policy == "local" ? _flowSnapshot(root) : "";
+    if (tree != saved.Get("tree").AsString()) { throw new Exception("worktree changed since planning; regenerate the plan"); }
+    if (policy != "local" && _changedFiles("HEAD", root).Length > 0) {
+        throw new Exception("commit plan requires a clean worktree");
+    }
+    string base_ = saved.Get("base").AsString();
+    bool full = saved.Get("full").AsBool();
+    if (!full && policy != "local") { _flowEnsureCommit(root, base_); }
+    string[] files = full ? new string[0] : policy == "local" ? _changedFiles(base_, root) : _flowDiff(root, base_, head);
+    FlowPlan plan = _flowSelect(cfg, files, root, full);
+    plan.Base = base_; plan.Head = head; plan.Tree = tree; plan.Policy = policy;
+    plan.Event = saved.Get("event").AsString(); plan.ReleaseRequired = saved.Get("release_required").AsString();
+    plan.Full = full; plan.Fallback = saved.Get("fallback").AsString();
+    // Reconstruct rather than trusting commands or selected steps from an artifact.
+    if (JsonValue.StringifyPretty(saved) != JsonValue.StringifyPretty(_flowJson(cfg, plan))) {
+        throw new Exception("saved plan does not match current inputs; regenerate it");
+    }
+    return plan;
+}
+
+int _flowCommand(FlowPlanCommand options, bool run) {
+    string root = _root();
+    FlowConfig cfg = _flowLoad(Path.Join(root, options.Config));
+    if (options.EventFile.Length > 0 && (options.Base.Length > 0 || options.Head.Length > 0 || options.MergeBase)) {
+        throw new Exception("--event-file cannot be combined with explicit Git inputs");
+    }
+    if (options.Plan.Length > 0 && (options.Base.Length > 0 || options.Head.Length > 0 || options.EventFile.Length > 0 || options.Full || options.MergeBase)) {
+        throw new Exception("--plan cannot be combined with new diff inputs");
+    }
+    if (options.Out.Length > 0) { _flowPlanDestination(root, options.Out); }
+    FlowPlan plan = options.Plan.Length > 0 ? _flowReadPlan(cfg, options.Plan, root) : _flowCreate(cfg, options, root);
+    if (run && plan.Head != _flowCommit(root, "HEAD")) { throw new Exception("check out the planned HEAD before executing flows"); }
+    if (run && plan.Policy != "local" && _changedFiles("HEAD", root).Length > 0) { throw new Exception("commit plans require a clean worktree"); }
+    string json = JsonValue.StringifyPretty(_flowJson(cfg, plan));
+    if (options.Out.Length > 0) { Directory.Create(Path.GetDirectoryName(Path.IsRooted(options.Out) ? options.Out : Path.Join(Environment.GetCurrentDirectory(), options.Out))); File.WriteAllText(options.Out, json + "\n"); }
+    if (options.GithubOutput.Length > 0) { _flowWriteOutputs(cfg, plan, options.GithubOutput); }
+    if (options.Format == "json") { Console.WriteLine(json); }
+    else { _flowPrint(cfg, plan); }
+    FlowStep[] execution = _flowJobSteps(cfg, plan, options.Job);
+    if (!run || options.DryRun) { return 0; }
+    return _flowExecute(cfg, plan, execution, options.Job);
+}
+
+void _flowPrint(FlowConfig cfg, FlowPlan plan) {
+    Console.WriteLine("flow: " + plan.Policy + " " + plan.Base + " -> " + plan.Head);
+    if (plan.Fallback.Length > 0) { Console.WriteLine("  full: " + plan.Fallback); }
+    foreach (var s in plan.Steps) {
+        Console.WriteLine("  " + s.Id + " ← " + s.Reason);
+        string[] args = _flowArgs(cfg.Find(s.Id), s);
+        if (args.Length > 0) { Console.WriteLine("    xtask " + String.Join(" ", args)); }
+    }
+    if (plan.Steps.Length == 0) { Console.WriteLine("  no affected flows"); }
+}
+
+void _flowWriteOutputs(FlowConfig cfg, FlowPlan plan, string path) {
+    string[] selected = _flowOutputs(cfg, plan);
+    var all = new List<string>();
+    foreach (var n in cfg.Nodes) {
+        foreach (var output in n.Outputs) { if (!all.Contains(output)) { all.Add(output); } }
+    }
+    string text = "";
+    foreach (var key in all) { text = text + key + "=" + (_strIn(selected, key) ? "true" : "false") + "\n"; }
+    text = text + "docs_only=" + (plan.DocsOnly ? "true" : "false") + "\n";
+    bool release = plan.Event != "pull_request" && plan.ReleaseRequired != "false";
+    bool platform = _strIn(selected, "platform") || release;
+    bool host = platform || _strIn(selected, "sdk_checks") || _strIn(selected, "examples");
+    text = text + "platform_package=" + (platform ? "true" : "false") + "\n";
+    text = text + "host_package=" + (host ? "true" : "false") + "\n";
+    text = text + "test_base=" + plan.Base + "\n";
+    text = text + "stage_skip=" + _flowSkipStages(cfg, plan) + "\n";
+    File.AppendAllText(path, text);
+}
+
+string _flowSkipStages(FlowConfig cfg, FlowPlan plan) {
+    string[] needed = _flowStages(cfg, plan);
+    var skip = new List<string>();
+    foreach (var stage in _changedScopedStages()) { if (!_strIn(needed, stage)) { skip.Add(stage); } }
+    return String.Join(",", skip.ToArray());
+}
+
+int _flowExecute(FlowConfig cfg, FlowPlan plan, FlowStep[] execution, string job) {
+    if (job.Length == 0) { execution = _flowLocalSteps(cfg, plan); }
+    var commands = new List<string>();
+    foreach (var step in execution) {
+        FlowNode node = cfg.Find(step.Id);
+        string[] args = job.Length > 0 && node.CiCommand.Length > 0 ? _flowExpandArgs(node.CiCommand, step) : _flowArgs(node, step);
+        if (args.Length == 0) { continue; }
+        string key = JsonValue.StringifyPretty(_jStrs(args));
+        if (commands.Contains(key)) { continue; } commands.Add(key);
+        Console.WriteLine("▶ flow " + step.Id + ": xtask " + String.Join(" ", args));
+        int rc = new XtaskCommand().Invoke(args);
+        if (rc != 0) { return rc; }
+    }
+    return 0;
+}
+
+void _flowPlanDestination(string root, string path) {
+    string full = Path.Normalize(Path.IsRooted(path) ? path : Path.Join(Environment.GetCurrentDirectory(), path));
+    string prefix = Path.Normalize(root) + "/";
+    if (!full.StartsWith(prefix)) { return; }
+    string relative = full.Substring(prefix.Length);
+    ProcessResult ignored = new Process("git").Arg("-C").Arg(root).Arg("check-ignore").Arg("--quiet").Arg("--").Arg(relative).Run();
+    if (ignored.ExitCode != 0) { throw new Exception("save plans outside the repository or under a gitignored path (for example artifacts/ci-plan.json)"); }
+}

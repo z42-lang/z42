@@ -1,0 +1,25 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+bool _ciBenchOnly(FlowConfig cfg, string[] files, string root) {
+    var owners = new _ChangedOwners(root);
+    foreach (var file in files) {
+        FlowInput rule = _flowInput(cfg, file, owners);
+        if (rule == null || !rule.BenchOnly) { return false; }
+    }
+    return true;
+}
+
+int _ciBenchScope(string base_) {
+    bool only = false;
+    try {
+        string root = _root();
+        ProcessResult ancestor = new Process("git").Arg("merge-base").Arg("--is-ancestor").Arg(base_).Arg("HEAD").Run();
+        if (ancestor.ExitCode == 0) { only = _ciBenchOnly(_flowConfigFor(root), _flowDiff(root, _flowCommit(root, base_), "HEAD"), root); }
+    } catch (Exception e) { ConsoleError.WriteLine("benchmark diff unknown: " + e.Message); }
+    string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
+    if (output.Length > 0) { File.AppendAllText(output, "verdict_only=" + (only ? "true" : "false") + "\n"); }
+    Console.WriteLine("verdict_only=" + (only ? "true" : "false"));
+    return 0;
+}

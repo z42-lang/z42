@@ -1,0 +1,197 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+
+class FlowStep {
+    public string Id;
+    public string Owner;
+    public string Chapter;
+    public string Reason;
+    public bool Prerequisite;
+    public FlowStep(string id, string owner, string chapter, string reason, bool prerequisite) {
+        this.Id = id; this.Owner = owner; this.Chapter = chapter;
+        this.Reason = reason; this.Prerequisite = prerequisite;
+    }
+    public string Key() { return this.Id.Length.ToString() + ":" + this.Id + this.Owner.Length.ToString() + ":" + this.Owner + this.Chapter.Length.ToString() + ":" + this.Chapter; }
+}
+
+class FlowPlan {
+    public string Base = "";
+    public string Head = "";
+    public string Tree = "";
+    public string Policy = "local";
+    public string Fallback = "";
+    public string[] Files = new string[0];
+    public FlowStep[] Steps = new FlowStep[0];
+    public string Event = "";
+    public string ReleaseRequired = "";
+    public bool Full;
+    public bool DocsOnly;
+    public bool Publish;
+}
+
+FlowPlan _flowSelect(FlowConfig cfg, string[] files, string root, bool full = false) {
+    var plan = new FlowPlan();
+    plan.Files = _dedupeNonEmpty(files);
+    plan.DocsOnly = plan.Files.Length > 0 && !full;
+    var selected = new List<FlowStep>();
+    var owners = new _ChangedOwners(root);
+    foreach (var file in plan.Files) {
+        FlowInput rule = _flowInput(cfg, file, owners);
+        if (rule == null) {
+            plan.DocsOnly = false; plan.Publish = true;
+            _flowSelectFull(cfg, selected, "unclassified: " + file);
+            continue;
+        }
+        plan.DocsOnly = plan.DocsOnly && rule.Docs;
+        plan.Publish = plan.Publish || rule.Publish;
+        string owner = "";
+        if (rule.Workspace.Length > 0) { owner = owners.Find(file, Path.Join(root, rule.Workspace)).Name; }
+        string chapter = _segment(file, 1) + "/" + _segment(file, 2);
+        foreach (var id in rule.Select) { _flowImpact(cfg, selected, new FlowStep(id, owner, chapter, file + " -> " + rule.Id, false)); }
+    }
+    if (full) {
+        plan.Publish = true;
+        _flowSelectFull(cfg, selected, "full policy");
+    }
+    var ordered = new List<FlowStep>();
+    var visited = new List<string>();
+    foreach (var s in selected) {
+        // Keep covered commands in the plan: CI may delegate them to separate jobs.
+        _flowOrder(cfg, s, ordered, visited);
+    }
+    foreach (var step in ordered) {
+        foreach (var impact in selected) {
+            if (step.Key() == impact.Key()) { step.Prerequisite = false; step.Reason = impact.Reason; }
+        }
+    }
+    plan.Steps = ordered.ToArray();
+    return plan;
+}
+
+FlowInput _flowInput(FlowConfig cfg, string file, _ChangedOwners owners) {
+    foreach (var r in cfg.Inputs) {
+        if (!_flowMatches(file, r.Include) || _flowMatches(file, r.Exclude)) { continue; }
+        if (r.Workspace.Length > 0) {
+            _ChangedOwner owner = owners.Find(file, Path.Join(owners.Root, r.Workspace));
+            // A removed/excluded member has no trustworthy current ownership.
+            if (owner == null) { return null; }
+            if (!_flowMatches(owner.RelativePath, r.Relative)) { continue; }
+        }
+        return r;
+    }
+    return null;
+}
+
+void _flowSelectFull(FlowConfig cfg, List<FlowStep> selected, string reason) {
+    foreach (var id in cfg.Full) { _flowImpact(cfg, selected, new FlowStep(id, "", "", reason, false)); }
+}
+
+void _flowImpact(FlowConfig cfg, List<FlowStep> selected, FlowStep step) {
+    foreach (var old in selected) {
+        if (old.Key() == step.Key()) {
+            if (!old.Reason.Contains(step.Reason)) { old.Reason = old.Reason + "; " + step.Reason; }
+            return;
+        }
+    }
+    FlowNode node = cfg.Find(step.Id);
+    string owner = step.Owner; string chapter = step.Chapter;
+    // Context matters only for parameterized commands, so global flows deduplicate.
+    bool parameterized = node.Affects.Length > 0 || String.Join(" ", node.Command).Contains("{owner}") || String.Join(" ", node.Command).Contains("{chapter}");
+    if (!parameterized) {
+        step.Owner = ""; step.Chapter = "";
+        foreach (var old in selected) {
+            if (old.Key() == step.Key()) {
+                if (!old.Reason.Contains(step.Reason)) { old.Reason = old.Reason + "; " + step.Reason; }
+                return;
+            }
+        }
+    }
+    selected.Add(step);
+    foreach (var id in node.Affects) {
+        _flowImpact(cfg, selected, new FlowStep(id, owner, chapter, step.Reason + " -> " + step.Id, false));
+    }
+}
+
+void _flowOrder(FlowConfig cfg, FlowStep step, List<FlowStep> ordered, List<string> visited) {
+    if (visited.Contains(step.Key())) { return; }
+    visited.Add(step.Key());
+    foreach (var id in cfg.Find(step.Id).Requires) {
+        _flowOrder(cfg, new FlowStep(id, step.Owner, step.Chapter, step.Id + " requires " + id, true), ordered, visited);
+    }
+    // Prerequisites never traverse Affects: preparing a tool is not a change to its inputs.
+    ordered.Add(step);
+}
+
+bool _flowHas(FlowStep[] steps, string id) {
+    foreach (var s in steps) { if (s.Id == id) { return true; } }
+    return false;
+}
+
+string[] _flowArgs(FlowNode node, FlowStep step) {
+    return _flowExpandArgs(node.Command, step);
+}
+
+string[] _flowExpandArgs(string[] template, FlowStep step) {
+    string[] args = new string[template.Length];
+    for (int i = 0; i < args.Length; i = i + 1) {
+        args[i] = template[i].Replace("{owner}", step.Owner).Replace("{chapter}", step.Chapter);
+        if (args[i].Length == 0) { throw new Exception("flow " + step.Id + ": missing command context"); }
+    }
+    return args;
+}
+
+string[] _flowStages(FlowConfig cfg, FlowPlan plan) {
+    var stages = new List<string>();
+    foreach (var s in plan.Steps) {
+        if (s.Prerequisite) { continue; }
+        foreach (var key in cfg.Find(s.Id).Stages) {
+            string[] add = key == "@z42" ? _stagesAllZ42() : key == "@all" ? _changedScopedStages() : new string[]{ key };
+            foreach (var stage in add) { if (!stages.Contains(stage)) { stages.Add(stage); } }
+        }
+    }
+    return stages.ToArray();
+}
+
+string[] _flowOutputs(FlowConfig cfg, FlowPlan plan) {
+    var outputs = new List<string>();
+    foreach (var s in plan.Steps) {
+        if (s.Prerequisite) { continue; }
+        foreach (var key in cfg.Find(s.Id).Outputs) { if (!outputs.Contains(key)) { outputs.Add(key); } }
+    }
+    return outputs.ToArray();
+}
+
+FlowStep[] _flowJobSteps(FlowConfig cfg, FlowPlan plan, string job) {
+    if (job.Length == 0) { return plan.Steps; }
+    bool known = false;
+    foreach (var n in cfg.Nodes) { if (n.Job == job) { known = true; } }
+    if (!known) { throw new Exception("unknown flow job: " + job); }
+    var result = new List<FlowStep>(); var visited = new List<string>();
+    foreach (var step in plan.Steps) {
+        if (!step.Prerequisite && cfg.Find(step.Id).Job == job) { _flowOrder(cfg, step, result, visited); }
+    }
+    return result.ToArray();
+}
+
+FlowStep[] _flowLocalSteps(FlowConfig cfg, FlowPlan plan) {
+    if (!_flowHas(plan.Steps, "green")) { return plan.Steps; }
+    var result = new List<FlowStep>(); var visited = new List<string>();
+    foreach (var step in plan.Steps) { if (step.Id == "green") { _flowOrder(cfg, step, result, visited); } }
+    foreach (var step in plan.Steps) {
+        if (!step.Prerequisite && cfg.Find(step.Id).Outside) { _flowOrder(cfg, step, result, visited); }
+    }
+    return result.ToArray();
+}
+
+string[] _flowLocalCommands(FlowConfig cfg, FlowPlan plan) {
+    var commands = new List<string>();
+    foreach (var step in _flowLocalSteps(cfg, plan)) {
+        string[] args = _flowArgs(cfg.Find(step.Id), step);
+        if (args.Length == 0) { continue; }
+        string command = "xtask " + String.Join(" ", args);
+        if (!commands.Contains(command)) { commands.Add(command); }
+    }
+    return commands.ToArray();
+}

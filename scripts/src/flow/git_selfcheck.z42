@@ -1,0 +1,105 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+void _flowGitChecks(FlowConfig cfg) {
+    string dir = _xtaskWork(_root(), "flow git plan"); _resetDir(dir);
+    string eventName = Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", "");
+    string eventSha = Environment.GetEnvironmentVariable("GITHUB_SHA", "");
+    string release = Environment.GetEnvironmentVariable("XTASK_RELEASE_REQUIRED", "");
+    try {
+        _ciGit(dir, new string[]{ "init", "-q" });
+        _ciWrite(dir, ".gitignore", "artifacts/\n");
+        _ciWrite(dir, "README.md", "base\n");
+        _ciWrite(dir, "src/runtime/src/lib.rs", "production\n");
+        _ciGit(dir, new string[]{ "add", "." }); _ciGit(dir, new string[]{ "commit", "-qm", "base" });
+        string base_ = _flowCommit(dir, "HEAD");
+        _ciWrite(dir, "src/runtime/tests/private.rs", "private test\n");
+        _ciGit(dir, new string[]{ "add", "." }); _ciGit(dir, new string[]{ "commit", "-qm", "head" });
+        string head = _flowCommit(dir, "HEAD");
+        _ciGit(dir, new string[]{ "remote", "add", "origin", dir });
+        string eventPath = Path.Join(dir, "artifacts/event.json");
+        _ciWrite(dir, "artifacts/event.json", "{\"before\":\"" + base_ + "\",\"pull_request\":{\"base\":{\"sha\":\"" + base_ + "\"}}}");
+        Environment.SetEnvironmentVariable("GITHUB_SHA", head);
+        Environment.SetEnvironmentVariable("XTASK_RELEASE_REQUIRED", "false");
+        var options = new FlowPlanCommand("plan"); options.EventFile = eventPath;
+        foreach (var kind in new string[]{ "push", "pull_request", "schedule", "workflow_dispatch" }) {
+            Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", kind);
+            FlowPlan p = _flowCreate(cfg, options, dir);
+            bool full = kind == "schedule" || kind == "workflow_dispatch";
+            _gateAssert(p.Full == full, "event full policy " + kind);
+            if (!full) { _gateAssert(p.Base == base_ && p.Files.Length == 1 && p.Files[0] == "src/runtime/tests/private.rs", "event diff uses real base " + kind); }
+            string path = Path.Join(dir, "artifacts/plan.json");
+            File.WriteAllText(path, JsonValue.StringifyPretty(_flowJson(cfg, p)));
+            _gateAssert(_flowReadPlan(cfg, path, dir).Head == head, "saved CI plan roundtrip");
+        }
+        Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", "push");
+        _flowConsumerChecks(cfg, _flowCreate(cfg, options, dir), dir);
+        _ciGit(dir, new string[]{ "remote", "remove", "origin" });
+        Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", "push");
+        _gateAssert(_flowCreate(cfg, options, dir).Full, "failed fetch remains full even with locally present commit");
+        _ciWrite(dir, "artifacts/event.json", "{\"before\":\"0000000000000000000000000000000000000000\"}");
+        _gateAssert(_flowCreate(cfg, options, dir).Full, "initial push remains full");
+        options = new FlowPlanCommand("plan");
+        _ciWrite(dir, "untracked file.z42", "first\n");
+        FlowPlan local = _flowCreate(cfg, options, dir);
+        string saved = Path.Join(dir, "artifacts/local.json");
+        File.WriteAllText(saved, JsonValue.StringifyPretty(_flowJson(cfg, local)));
+        _flowReadPlan(cfg, saved, dir);
+        JsonValue tampered = _flowJson(cfg, local);
+        tampered.Get("steps").At(0).Set("command", _jStrs(new string[]{ "ci", "supersede" }));
+        File.WriteAllText(saved, JsonValue.StringifyPretty(tampered));
+        _flowExpectStale(cfg, saved, dir, "artifact command tampered");
+        File.WriteAllText(saved, JsonValue.StringifyPretty(_flowJson(cfg, local)));
+        _ciWrite(dir, "untracked file.z42", "second\n");
+        _flowExpectStale(cfg, saved, dir, "untracked content changed");
+        File.Delete(Path.Join(dir, "untracked file.z42"));
+        local = _flowCreate(cfg, options, dir);
+        File.WriteAllText(saved, JsonValue.StringifyPretty(_flowJson(cfg, local)));
+        string digest = cfg.Digest; cfg.Digest = "changed";
+        _flowExpectStale(cfg, saved, dir, "configuration changed"); cfg.Digest = digest;
+        _ciWrite(dir, "README.md", "changed\n");
+        _flowExpectStale(cfg, saved, dir, "tracked content changed");
+        _ciGit(dir, new string[]{ "add", "." }); _ciGit(dir, new string[]{ "commit", "-qm", "advance" });
+        _flowExpectStale(cfg, saved, dir, "HEAD advanced");
+        Directory.Create(Path.Join(dir, "docs"));
+        _ciGit(dir, new string[]{ "mv", "src/runtime/src/lib.rs", "docs/moved.md" });
+        local = _flowCreate(cfg, options, dir);
+        _gateAssert(!local.DocsOnly && _flowHas(local.Steps, "runtime-source"), "rename out of production preserves former owner");
+    } finally {
+        Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", eventName);
+        Environment.SetEnvironmentVariable("GITHUB_SHA", eventSha);
+        Environment.SetEnvironmentVariable("XTASK_RELEASE_REQUIRED", release);
+        Directory.Delete(dir, true);
+    }
+    Console.WriteLine("  ✓ flow Git: event bases, full events, fetch failures, rename and stale plans");
+}
+
+void _flowExpectStale(FlowConfig cfg, string path, string root, string why) {
+    bool rejected = false;
+    try { _flowReadPlan(cfg, path, root); } catch (Exception e) { rejected = true; }
+    _gateAssert(rejected, "saved plan rejects " + why);
+}
+
+void _flowConsumerChecks(FlowConfig cfg, FlowPlan plan, string origin) {
+    foreach (var kind in new string[]{ "reachable", "missing-origin" }) {
+        string dir = Path.Join(origin, "artifacts/consumer-" + kind); Directory.Create(dir);
+        _ciGit(dir, new string[]{ "init", "-q" });
+        _ciGit(dir, new string[]{ "remote", "add", "origin", origin });
+        _ciGit(dir, new string[]{ "fetch", "--quiet", "--depth=1", "origin", plan.Head });
+        _ciGit(dir, new string[]{ "checkout", "--quiet", "--detach", "FETCH_HEAD" });
+        bool basePresent = true;
+        try { _flowCommit(dir, plan.Base); } catch (Exception e) { basePresent = false; }
+        _gateAssert(!basePresent, "consumer fixture starts with only the shallow head");
+        string path = Path.Join(dir, "artifacts/ci-plan.json");
+        _ciWrite(dir, "artifacts/ci-plan.json", JsonValue.StringifyPretty(_flowJson(cfg, plan)));
+        if (kind == "missing-origin") {
+            _ciGit(dir, new string[]{ "remote", "remove", "origin" });
+            _flowExpectStale(cfg, path, dir, "consumer cannot fetch the saved base");
+        } else {
+            _gateAssert(_flowReadPlan(cfg, path, dir).Head == plan.Head, "consumer fetches and validates shared plan base");
+            _gateAssert(_flowCommit(dir, plan.Base) == plan.Base, "consumer has the exact plan base after validation");
+        }
+    }
+}

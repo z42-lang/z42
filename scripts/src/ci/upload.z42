@@ -1,0 +1,55 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+using Std.Regex;
+using Std.Threading;
+
+class CiUploadTransport {
+    public virtual ProcessResult Run(string[] args) { return new Process("gh").Args(args).Run(); }
+    public virtual void Delay(int seconds) { Thread.Sleep(seconds * 1000); }
+}
+
+bool _ciTransient(string output) {
+    if (Regex.Compile("(?i)\\bHTTP(?:/\\S+)?\\s+4\\d\\d\\b").IsMatch(output)) { return false; }
+    return Regex.Compile("(?i)\\bHTTP(?:/\\S+)?\\s+5\\d\\d\\b|\\bEOF\\b|connection reset|TLS handshake timeout|i/o timeout|connection timed out|temporary failure in name resolution").IsMatch(output);
+}
+
+bool _ciReceipt(string text, string name, long size, string digest) {
+    JsonValue assets = JsonValue.Parse(text).Get("assets");
+    if (!assets.IsArray()) { throw new Exception("invalid release asset receipt"); }
+    for (int i = 0; i < assets.Count(); i = i + 1) {
+        JsonValue a = assets.At(i);
+        if (_ciString(a, "name") == name && a.Get("size").AsLong() == size
+            && _ciString(a, "digest") == digest && _ciString(a, "state") == "uploaded") { return true; }
+    }
+    return false;
+}
+
+int _ciUpload(CiUploadTransport transport, string release, string[] assets) {
+    foreach (var asset in assets) {
+        // Use the system digest tool for large archives, as package release does.
+        string digest = "sha256:" + _sha256Hex(asset);
+        long size = File.GetSize(asset);
+        for (int attempt = 0; attempt < 5; attempt = attempt + 1) {
+            ProcessResult result = transport.Run(new string[]{ "release", "upload", release, asset, "--clobber" });
+            bool receiptMissing = false;
+            if (result.ExitCode == 0) {
+                result = transport.Run(new string[]{ "release", "view", release, "--json", "assets" });
+                if (result.ExitCode == 0) {
+                    try {
+                        if (_ciReceipt(result.Stdout, Path.GetFileName(asset), size, digest)) { break; }
+                    } catch (Exception e) { ConsoleError.WriteLine("Invalid release asset receipt: " + e.Message); return 1; }
+                    receiptMissing = true;
+                }
+            }
+            string output = result.Stdout + result.Stderr;
+            ConsoleError.WriteLine(receiptMissing ? "Release asset receipt missing or mismatched: " + asset : output);
+            if (attempt == 4 || (!receiptMissing && !_ciTransient(output))) { return result.ExitCode == 0 ? 1 : result.ExitCode; }
+            int delay = 1 << attempt;
+            ConsoleError.WriteLine("Transient upload failure; retry " + (attempt + 2).ToString() + "/5 in " + delay.ToString() + "s");
+            transport.Delay(delay);
+        }
+    }
+    return 0;
+}

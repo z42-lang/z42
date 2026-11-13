@@ -1,0 +1,56 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+void _ciSelectionChecks(FlowConfig cfg) {
+    string root = _root();
+    var api = new CiFakeGitHub();
+    foreach (var path in new string[]{ "README.md", "docs/learn/src/hello.md", "src/runtime/tests/private.rs", "scripts/src/test/sdk/verify.z42", "src/compiler/z42c.emission/tests/unit.z42" }) {
+        api.Compare = _ciCompareFiles(path, "");
+        _gateAssert(!_ciSdkBetween(api, cfg, root, "owner/repo", "base", "head"), "private inputs do not publish: " + path);
+    }
+    foreach (var path in new string[]{ "src/runtime/src/lib.rs", "src/runtime/tests/data/numz42-c/numz42.c", "scripts/install-z42.sh", "scripts/src/package/desktop.z42", "unknown.production" }) {
+        api.Compare = _ciCompareFiles(path, "");
+        _gateAssert(_ciSdkBetween(api, cfg, root, "owner/repo", "base", "head"), "production inputs publish: " + path);
+        api.Compare = _ciCompareFiles("docs/moved.md", path);
+        _gateAssert(_ciSdkBetween(api, cfg, root, "owner/repo", "base", "head"), "rename keeps previous publishing obligation");
+    }
+    api.Compare = _ciCompareFiles("README.md", "");
+    _gateAssert(_ciSdkBetween(api, cfg, root, "owner/repo", "", "head"), "missing nightly retains publication");
+    _gateAssert(!_ciSdkBetween(api, cfg, root, "owner/repo", "head", "head"), "identical nightly skips publication");
+    JsonValue many = JsonValue.OfArray();
+    for (int i = 0; i < 300; i = i + 1) { many.Add(JsonValue.Parse("{\"filename\":\"README.md\"}")); }
+    api.Compare.Set("files", many);
+    _gateAssert(_ciSdkBetween(api, cfg, root, "owner/repo", "base", "head"), "truncated compare retains publication");
+    _gateAssert(_ciBenchOnly(cfg, new string[]{ "src/benches/testdata/sample.json", "README.md" }, root), "verdict fixtures use seed-only checks");
+    _gateAssert(!_ciBenchOnly(cfg, new string[]{ "src/benches/testdata/moved.json", "src/benches/scenarios/old.z42" }, root), "benchmark rename preserves measurements");
+    _gateAssert(!_ciBenchOnly(cfg, new string[]{ "unknown.input" }, root), "unknown benchmark inputs keep measurements");
+    _ciQueueChecks();
+    _ciBootstrapAvailabilityChecks();
+    string output = _xtaskWork(_root(), "flow-package-output");
+    try {
+        foreach (var kind in new string[]{ "pull_request", "push", "schedule", "workflow_dispatch" }) {
+            foreach (var role in new string[]{ "docs", "sdk", "examples", "platform" }) {
+                string file = role == "docs" ? "README.md" : role == "sdk" ? "scripts/src/test/sdk/check.z42" : role == "examples" ? "examples/basics/hello/source.z42" : "src/runtime/src/lib.rs";
+                FlowPlan p = _flowSelect(cfg, new string[]{ file }, root);
+                p.Event = kind; p.ReleaseRequired = "false";
+                File.WriteAllText(output, ""); _flowWriteOutputs(cfg, p, output);
+                string text = File.ReadAllText(output);
+                _gateAssert(text.Contains("platform_package=true") == (role == "platform"), "platform package selection " + kind + "/" + role);
+                _gateAssert(text.Contains("host_package=true") == (role != "docs"), "host SDK selection " + kind + "/" + role);
+                p.ReleaseRequired = "";
+                File.WriteAllText(output, ""); _flowWriteOutputs(cfg, p, output); text = File.ReadAllText(output);
+                _gateAssert(text.Contains("platform_package=true") == (kind != "pull_request" || role == "platform"), "unknown cumulative release retains packages");
+            }
+        }
+    } finally { File.Delete(output); }
+    Console.WriteLine("  ✓ CI selection: private/production, rename, cumulative release and package roles");
+}
+
+JsonValue _ciCompareFiles(string file, string previous) {
+    JsonValue result = JsonValue.OfObject(); JsonValue files = JsonValue.OfArray(); JsonValue item = JsonValue.OfObject();
+    item.Set("filename", JsonValue.OfString(file));
+    if (previous.Length > 0) { item.Set("previous_filename", JsonValue.OfString(previous)); }
+    files.Add(item); result.Set("files", files); return result;
+}

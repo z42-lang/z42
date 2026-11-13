@@ -1,0 +1,25 @@
+namespace Z42Xtask;
+
+string _flowGraph(FlowConfig cfg) {
+    string text = "flowchart LR\n";
+    int i = 0;
+    foreach (var rule in cfg.Inputs) {
+        string source = "input" + i.ToString(); i = i + 1;
+        text = text + "  " + source + "[\"" + _flowGraphLabel(rule.Id + ": " + String.Join(", ", rule.Include)) + "\"]\n";
+        foreach (var id in rule.Select) { text = text + "  " + source + " --> " + _flowGraphId(cfg, id) + "\n"; }
+    }
+    foreach (var node in cfg.Nodes) {
+        string id = _flowGraphId(cfg, node.Id);
+        text = text + "  " + id + "[\"" + _flowGraphLabel(node.Id + " " + String.Join(" ", node.Command)) + "\"]\n";
+        foreach (var next in node.Affects) { text = text + "  " + id + " -->|affects| " + _flowGraphId(cfg, next) + "\n"; }
+        foreach (var next in node.Requires) { text = text + "  " + _flowGraphId(cfg, next) + " -.->|requires| " + id + "\n"; }
+    }
+    return text;
+}
+
+string _flowGraphId(FlowConfig cfg, string id) {
+    for (int i = 0; i < cfg.Nodes.Length; i = i + 1) { if (cfg.Nodes[i].Id == id) { return "flow" + i.ToString(); } }
+    throw new Exception("unknown graph node " + id);
+}
+
+string _flowGraphLabel(string text) { return text.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\n", " "); }

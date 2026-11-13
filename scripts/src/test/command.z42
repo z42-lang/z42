@@ -20,6 +20,7 @@ class TestCommand : Command {
     public string Skip = "";
     [Option(help: "only run the heavy stages affected by changes since <base> (test-changed mapping; static checks always run)")]
     public string Changed = "";
+    [Option(help: "use stage selection from a validated flow plan")] public string Plan = "";
 
     public TestCommand() : base("test", "run tests") {
         this.SetDefaultAction("the full GREEN gate");
@@ -41,7 +42,14 @@ class TestCommand : Command {
             string extra = _changedGateSkips(this.Changed);
             if (extra.Length > 0) { skip = skip.Length == 0 ? extra : skip + "," + extra; }
         }
+        if (this.Plan.Length > 0) {
+            if (this.Changed.Length > 0) { throw new CliException("--plan and --changed are mutually exclusive"); }
+            FlowConfig cfg = _flowConfigFor(_root());
+            string extra = _flowSkipStages(cfg, _flowReadPlan(cfg, this.Plan, _root()));
+            if (extra.Length > 0) { skip = skip.Length == 0 ? extra : skip + "," + extra; }
+        }
         return _testAll(this.NoBuild, skip);
+
     }
 }
 

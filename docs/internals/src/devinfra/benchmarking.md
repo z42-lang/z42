@@ -328,8 +328,7 @@ criterion 层噪声底的实测（同一个 PR 的四次跑，**每次 base 与 
 触发路径包括 Runtime、标准库、编译器、`src/benches/`、xtask 源码和工程清单、判定自检脚本及本 workflow。
 纯 Markdown 改动由 `!**/*.md` 排除。
 
-checkout 后比较事件基线和实际合并树。改动只落在 `src/benches/testdata/`、`.github/ci/bench-verdict.sh`
-及 Markdown 文档时，job 用种子 SDK 编译 xtask 后运行判定自检，摘要记录所选路径。重命名的两端均参与判断。
+checkout 并轻量自举 xtask 后，`xtask ci bench-scope` 比较事件基线与合并树，按 `scripts/flows.toml` 的 `bench_only` 归属选择验证范围。仅影响判定夹具和文档时只执行判定自检。重命名的两端均参与判断。
 涉及场景、测量编排或其他路径时走完整 A/B。基线缺失或无法验证时也走完整路径。
 
 完整 A/B 的步骤如下。
@@ -337,7 +336,7 @@ checkout 后比较事件基线和实际合并树。改动只落在 `src/benches/
 1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`），
    随后做**格式代差检测**（见 §10）。
 2. bootstrap PR 工具链（nightly z42c 种子 → 当前源码 warm 自建）。
-3. **判红逻辑自检**用 `bash .github/ci/bench-verdict.sh` 执行纯 JSON 与纯函数检查，在测量之前报告失败。
+3. **判红逻辑自检**用 `xtask bench check` 执行纯 JSON 与纯函数检查，在测量之前报告失败。
 4. **建 base 工具链**（同 runner，见 §3）。
 5. **e2e A/B（硬门禁）**：`bench --ab --tier gate --mode $MODE --threshold-time 0.15
    --pause-cap-ms 16 --threshold-pause 0.25 --threshold-pause-max 1.0 --base-vm/-libs/-driver …

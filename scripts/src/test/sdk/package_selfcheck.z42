@@ -11,6 +11,7 @@ namespace Z42Xtask;
 
 int _pkgSelfCheck() {
     int c = _testCargoArtifactInputs(); if (c != 0) { return c; }
+    c = _testCargoCaptureTransport(); if (c != 0) { return c; }
     c = _testPayloadClosure(); if (c != 0) { return c; }
     c = _testPackagesConfig();   if (c != 0) { return c; }
     c = _testPackagesInstall();      if (c != 0) { return c; }
