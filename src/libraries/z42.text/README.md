@@ -22,9 +22,8 @@ z42 文本处理类型。**纯脚本实现** —— 严格遵循 [`src/libraries
 ## 实现备注
 
 `StringBuilder` 内部用 `string[]` 收集 Append 片段（按 2× 扩容），ToString 时
-经 `String.ConcatParts(parts, count)` 一次原生拼接。不用 `List<string>` 是因为
-parser 当前对字段声明的泛型实例化语法（`List<string> _parts;`）会误识别为
-method header；待后续 parser 修复后可以切换。
+经 `String.ConcatParts(parts, count)` 一次原生拼接。空字符串追加直接返回当前构建器，
+不占用片段槽，也不触发扩容。
 
 随机访问与就地编辑成员（索引器 `this[int]` 的 setter、`Length` setter、`Insert`/
 `Remove`/`Replace`）不能直接落在分段 buffer 上，故先 `ToString()` 收敛成单段字符串
