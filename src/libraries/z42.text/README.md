@@ -13,7 +13,7 @@ z42 文本处理类型。**纯脚本实现** —— 严格遵循 [`src/libraries
 
 | 文件 | 类型 | 说明 |
 |------|------|------|
-| `StringBuilder.z42` | `StringBuilder` | 可变字符串缓冲（Script-First，`string[]` 收集片段 + `String.ConcatParts` 单次原生拼接） |
+| `StringBuilder.z42` | `StringBuilder` | 可变字符串缓冲（Script-First，`string[]` 收集片段，单片段复用或 `String.ConcatParts` 批量拼接） |
 | `Levenshtein.z42`   | `Levenshtein` static class | 编辑距离 + 归一化相似度（fuzzy search / 拼写纠错） |
 | `Strings.z42`       | `Strings` static class | 字符串 shaping 静态工具 |
 
@@ -22,7 +22,8 @@ z42 文本处理类型。**纯脚本实现** —— 严格遵循 [`src/libraries
 ## 实现备注
 
 `StringBuilder` 内部用 `string[]` 收集 Append 片段（按 2× 扩容），ToString 时
-经 `String.ConcatParts(parts, count)` 一次原生拼接。空字符串追加直接返回当前构建器，
+多片段经 `String.ConcatParts(parts, count)` 一次原生拼接；单片段直接返回已有不可变字符串。
+空字符串追加直接返回当前构建器，
 不占用片段槽，也不触发扩容。
 
 随机访问与就地编辑成员（索引器 `this[int]` 的 setter、`Length` setter、`Insert`/
