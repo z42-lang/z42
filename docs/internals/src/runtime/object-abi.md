@@ -133,7 +133,7 @@ local / ref return，这套表示要连同 §2.2 一起重做。
 
 - `Value::Ref { idx: u32, frame_id: u32 } = 12`（[`object/value/value.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/value/value.rs)），
   8B 句柄指向 `TransientArena` 中的 `RefKind` payload。
-- `RefKind` 三变体（[`object/value/value_aux.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/value/value_aux.rs)）：
+- `RefKind` 三变体（[`object/value/payloads.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/object/value/payloads.rs)）：
   `Stack { frame_idx, slot }` / `Array { gc_ref, idx }` / `Field { gc_ref, field_name }`。
 - **GC 协调**：arena 本身是 root，`Array` / `Field` 里的句柄因此恒被扫到，底层数组/对象在调用期间存活；
   `Stack` 不持句柄（帧在调用栈上自然存活）。故 `Value::visit_gc_children` 对 `Ref` 是 no-op。

@@ -129,7 +129,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Enum(GC_MODES),
         description: "GC algorithm: `stw` / `generational` (with `-mark-sweep` aliases)",
         default_hint: "unset; defaults to `generational-mark-sweep`",
-        consumed_by: "config/split.rs → gc/heap/construct.rs",
+        consumed_by: "config/subsystem_inputs.rs → gc/heap/construct.rs",
         ..PUBLIC
     },
     KnobSpec {

@@ -55,5 +55,5 @@ impl RuntimeConfig {
 }
 
 #[cfg(test)]
-#[path = "split_tests.rs"]
-mod split_tests;
+#[path = "subsystem_inputs_tests.rs"]
+mod tests;
