@@ -1,0 +1,28 @@
+namespace Z42RepeatBench;
+using Std.Text;
+using Std.Harness;
+void Measure(Bencher b, string seed, int count, int iterations) {
+    var reference = new StringBuilder();
+    for (int i = 0; i < count; i++) { reference.Append(seed); }
+    string expected = reference.ToString();
+    b.iter(() => {
+        for (int i = 0; i < iterations; i++) {
+            string value = Strings.Repeat(seed, count);
+            Assert.Equal(expected, value); GC.KeepAlive(value);
+        }
+    });
+}
+[Benchmark]
+void repeat_short_control(Bencher b) { Measure(b, "ab", 4, 128); }
+[Benchmark]
+void repeat_boundary16(Bencher b) { Measure(b, "ab", 8, 128); }
+[Benchmark]
+void repeat_boundary32(Bencher b) { Measure(b, "ab", 16, 128); }
+[Benchmark]
+void repeat_long_ascii(Bencher b) { Measure(b, "abcdefgh", 1024, 1); }
+[Benchmark]
+void repeat_long_unicode(Bencher b) { Measure(b, "aé中😀", 2048, 1); }
+[Benchmark]
+void repeat_once_control(Bencher b) { Measure(b, "aé中😀", 1, 128); }
+[Benchmark]
+void repeat_empty_control(Bencher b) { Measure(b, "", 1024, 128); }
