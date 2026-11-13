@@ -1,0 +1,29 @@
+namespace Z42SnapshotBench;
+using Std.Text;
+using Std.Harness;
+
+void Measure(Bencher b, int mode) {
+    var builder = new StringBuilder();
+    if (mode != 3) {
+        char[] chars = new char[4096];
+        for (int i = 0; i < chars.Length; i++) { chars[i] = mode == 1 ? '中' : 'x'; }
+        builder.Append(String.FromChars(chars));
+        if (mode == 2) { builder.Append("tail"); }
+    }
+    int expected = mode == 3 ? 0 : mode == 2 ? 4100 : 4096;
+    b.iter(() => {
+        for (int i = 0; i < 128; i++) {
+            string snapshot = builder.ToString();
+            Assert.Equal(expected, snapshot.Length);
+            GC.KeepAlive(snapshot);
+        }
+    });
+}
+[Benchmark]
+void snapshot_single_ascii(Bencher b) { Measure(b, 0); }
+[Benchmark]
+void snapshot_single_unicode(Bencher b) { Measure(b, 1); }
+[Benchmark]
+void snapshot_two_part_control(Bencher b) { Measure(b, 2); }
+[Benchmark]
+void snapshot_empty_control(Bencher b) { Measure(b, 3); }

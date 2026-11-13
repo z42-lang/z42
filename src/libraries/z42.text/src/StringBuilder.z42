@@ -18,7 +18,7 @@
 //! - `Levenshtein` 没有距离上限剪枝参数，也没有 Damerau–Levenshtein（相邻换位不算一次编辑）。
 namespace Std.Text;
 
-/// 可变字符串构建器：Append 收集进 `string[]` buffer（2× 扩容），ToString 一次性合并。
+/// 可变字符串构建器：Append 收集进 `string[]` buffer（2× 扩容），ToString 返回不可变快照。
 ///
 /// 基于 z42.core 原语（`string[]` + 手动扩容 + `String.FromChars`），避免每次 Append 都
 /// 拼接的 O(n²) 开销。空字符串不占用片段槽。
@@ -172,9 +172,10 @@ public class StringBuilder {
         return this.Append(String.Format(format, args));
     }
 
-    /// 物化出当前字符串。空缓冲返回 `""`。
+    /// 返回不可变内容快照；空缓冲返回 `""`，单片段直接复用已有字符串。
     override string ToString() {
         if (this._length == 0) return "";
+        if (this._count == 1) return this._parts[0];
         return String.ConcatParts(this._parts, this._count);
     }
 

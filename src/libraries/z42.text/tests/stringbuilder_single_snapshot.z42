@@ -1,0 +1,45 @@
+namespace Z42SingleSnapshotTests;
+using Std.Text;
+using Std.Harness;
+
+[Test]
+void single_unicode_part_has_scalar_length() {
+    var b = new StringBuilder(); b.Append("aé中😀");
+    Assert.Equal("aé中😀", b.ToString()); Assert.Equal(4, b.Length);
+    Assert.Equal("aé中😀", b.ToString());
+}
+[Test]
+void append_keeps_previous_snapshot() {
+    var b = new StringBuilder(); b.Append("first"); string s = b.ToString();
+    b.Append(" second"); Assert.Equal("first", s); Assert.Equal("first second", b.ToString());
+}
+void AppendGenerated(StringBuilder b) {
+    char[] chars = new char[]{ 'é', '中', '😀' };
+    b.Append(String.FromChars(chars));
+}
+[Test]
+void clear_keeps_snapshot_alive() {
+    var b = new StringBuilder(); AppendGenerated(b); string s = b.ToString();
+    b.Clear(); GC.ForceCollect(); Assert.Equal(3, s.Length); Assert.Equal("", b.ToString());
+    b.Append("new"); Assert.Equal("new", b.ToString());
+    Assert.Equal('é', s.CharAt(0)); Assert.Equal('中', s.CharAt(1)); Assert.Equal('😀', s.CharAt(2));
+}
+[Test]
+void index_edit_keeps_snapshot() {
+    var b = new StringBuilder(); b.Append("abc"); string first = b.ToString();
+    b[1] = '中'; string second = b.ToString(); b[2] = '😀';
+    Assert.Equal("abc", first); Assert.Equal("a中c", second); Assert.Equal("a中😀", b.ToString());
+}
+[Test]
+void edits_collapsing_parts_keep_snapshots() {
+    var b = new StringBuilder(); b.Append("ab").Append("cd"); string first = b.ToString();
+    b.Remove(1, 2); string second = b.ToString(); b.Insert(1, "é");
+    Assert.Equal("abcd", first); Assert.Equal("ad", second); Assert.Equal("aéd", b.ToString());
+}
+[Test]
+void empty_and_multi_part_paths_are_preserved() {
+    var b = new StringBuilder(); Assert.Equal("", b.ToString());
+    b.Append(""); Assert.Equal("", b.ToString());
+    b.Append("a").Append("b"); Assert.Equal("ab", b.ToString());
+    b.Clear(); Assert.Equal("", b.ToString());
+}
