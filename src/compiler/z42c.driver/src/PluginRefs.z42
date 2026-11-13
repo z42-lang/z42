@@ -82,41 +82,16 @@ int _checkPluginZpkg(string name, string zpkgPath) {
 // path 条目（工程目录 / 免清单目录 / 单文件源码）+ 源集条目（include/exclude）→ 插件工程清单路径
 //（带清单目录 = 定位；免清单 = PluginSynth 合成，落消费方 cache 目录）；失败打印诊断返回 ""。
 string _pluginToml(ProjectManifest pm, DepEntry e, string projectDir, bool isRelease) {
-    string aname = e.Name;
+    // 条目形态判定与消息统一在 Z42.Project 的 PluginEntry.Resolve（unify-plugin-entry-resolver：
+    // driver / BuildSession / z42b 三宿主共一份——deps-plugin-routing 三刀每次同步编辑三处的漂移源）；
+    // 这里只补呈现渠道前缀。合成落点仍是消费方 cache 目录。
     string cacheDir = BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir;
-    if (e.IncludeCount > 0) {
-        // 源集与 path 互斥：都写时源集静默赢会让人以为 path 也生效。
-        if (e.Path.Length > 0) {
-            ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 同时写了 include 与 path——二者互斥："
-                + "源码集用 include/exclude（相对本工程目录），插件工程用 path。");
-            return "";
-        }
-        string stoml = PluginSynth.SynthSet(cacheDir, aname, projectDir, e.Include, e.IncludeCount, e.Exclude, e.ExcludeCount);
-        if (stoml.Length == 0) {
-            ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的源集 include 一个 .z42 都没匹配到——"
-                + "检查 glob（须以文件模式收尾，如 `hooks/**/*.z42`）。");
-        }
-        return stoml;
-    }
-    string adir = Path.Join(projectDir, e.Path);
-    if (e.Path.EndsWith(".z42")) {
-        ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的源码 path 形态已删除——改写为"
-                + " { include = [\"<相对本清单目录的源文件>\"] }（对齐 [tests]，可加 exclude），行为不变。");
+    PluginEntryResolution r = PluginEntry.Resolve(e, projectDir, cacheDir);
+    if (r.Error.Length > 0) {
+        ConsoleError.WriteLine("z42c build: " + r.Error);
         return "";
     }
-    ManifestLocation aloc = ManifestLocator.FindIn(adir);
-    if (aloc.Kind == ManifestLocateKind.Project) { return aloc.ManifestPath; }
-    if (aloc.Kind == ManifestLocateKind.NotFound && Directory.Exists(adir)) {
-        ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的源码 path 形态已删除——改写为"
-                + " { include = [\"<目录>/**/*.z42\"] }（对齐 [tests]，可加 exclude），行为不变。");
-        return "";
-    }
-    ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指向 " + adir
-        + "，那里没有单个工程清单"
-        + (aloc.Kind == ManifestLocateKind.Ambiguous ? "（同层有多份 *.z42.toml）"
-           : (aloc.Kind == ManifestLocateKind.Workspace ? "（那是一个 workspace）"
-              : "（目录不存在）")) + "。");
-    return "";
+    return r.Toml;
 }
 
 // path 条目（工程目录 / 免清单目录 / 单文件源码）+ 源集条目：定位（或合成）→ 校验 kind → 代建 →
