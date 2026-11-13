@@ -69,10 +69,7 @@ int _runtimeTestRunHarnesses(bool libOnly) {
     int index = 0;
     foreach (var exe in executables) {
         string directory = directories[index]; index = index + 1;
-        Process test = new Process(exe).Arg("--test-threads=1").Env("RUST_MIN_STACK", "8388608")
-            .Env("DYLD_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std)
-            .Env("LD_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std);
-        if (Platform.IsWindows()) { test = test.Env("PATH", native + ";" + Path.Join(native, "deps") + ";" + std + ";" + Environment.GetEnvironmentVariable("PATH", "")); }
+        Process test = _runtimeHarnessProc(exe, native, std).Arg("--test-threads=1");
         int c = _execIn(test.Env("CARGO_MANIFEST_DIR", directory)
             .Env("CARGO_TARGET_DIR", _runtimeTestTarget()), directory); if (c != 0) { return c; }
     }
@@ -80,6 +77,18 @@ int _runtimeTestRunHarnesses(bool libOnly) {
     return _runtimeTestCargoFor("test", Path.Join(_runtimeTestTarget(), "docs"))
         .Arg("--doc").Env("RUST_MIN_STACK", "8388608")
         .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
+}
+
+// DYLD_LIBRARY_PATH also overrides absolute dlopen paths: exposing workspace libraries there
+// shadows the independently built component probe. macOS libraries already carry their rpaths.
+Process _runtimeHarnessProc(string exe, string native, string std) {
+    Process test = new Process(exe).Env("RUST_MIN_STACK", "8388608")
+        .Env("DYLD_LIBRARY_PATH", std)
+        .Env("LD_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std);
+    if (Platform.IsWindows()) {
+        test = test.Env("PATH", native + ";" + Path.Join(native, "deps") + ";" + std + ";" + Environment.GetEnvironmentVariable("PATH", ""));
+    }
+    return test;
 }
 
 // `test runtime` — the Rust VM's own unit/integration harness (cargo test on

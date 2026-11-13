@@ -27,7 +27,7 @@ int _selfcheckRuntimeCargo() {
     _runtimeCargoExpect(_runtimeTestCargoFor("test", Path.Join(dir, "docs"))
         .Arg("--doc").Arg("--help"), "doctest alias discovery");
     Console.WriteLine("  ✅ runtime Cargo: alias/R0/legacy builds, compression copy, workspace doctests");
-    return 0;
+    return _selfcheckRuntimeLoader();
 }
 
 string _runtimeCargoFixture(string root, string tree, string mode) {
