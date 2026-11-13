@@ -59,21 +59,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Select bounded macOS runner queue
-        id: macos_queue
-        shell: bash
-        run: |
-          lane_count=3
-          run_number=${{ github.run_number }}
-          echo "host=$((run_number % lane_count))" >> "$GITHUB_OUTPUT"
-          echo "package=$(((run_number + 1) % lane_count))" >> "$GITHUB_OUTPUT"
-          echo "checks=$(((run_number + 2) % lane_count))" >> "$GITHUB_OUTPUT"
-
       - name: Bootstrap planner (xtask only)
         uses: ./.github/actions/ci-bootstrap
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           xtask-only: "true"
+
+      - name: Select bounded macOS runner queue
+        id: macos_queue
+        run: xtask ci queue
 
       # main 上的运行不互相打断（见顶部 concurrency 注释）：取消较早的、不影响 SDK 的 main push 运行，
       # 并判出本运行是否需要发布 nightly。
