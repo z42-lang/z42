@@ -58,7 +58,7 @@ golden 消费共享 `.zbc`，随后 cross-zpkg 与 multi-exe 各编跑一次，�
 [`.github/ci/xtask`](https://github.com/z42-lang/z42/blob/main/.github/ci/xtask) 所在目录加进 `$GITHUB_PATH`，之后的步骤一律写
 
 ```bash
-xtask test --no-build --skip "$SKIP"
+xtask ci test-host --plan artifacts/ci-plan.json
 ```
 
 **xtask 跑在 `.z42` SDK 上，与本地 `./xtask` 完全一致**。两个 bootstrap action 都先经
@@ -109,8 +109,7 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 “源码编成同一个 zpkg”不定义测试影响范围。测试计划中没有被所选套件覆盖的验证义务（例如 SDK 验证、
 整程序 benchmark）也要保留，不能被一次完整 GREEN 的选择静默覆盖。
 
-**当前自动选择范围**见下面的路径表和 job 表：PR 和 main push 的 test-host 使用 `--changed`；
-完整 GREEN 的构建波与 interp goldens 仍是必跑阶段，xtask 的计划等自检当前随 builder 夹具执行。
+**当前自动选择范围**见[流程配置](flows.md)：构建、测试、性能与发布各自选择。宿主 job 消费统一计划；需要宿主验证时才执行其构建波与 interp goldens。xtask 控制改动在规划 job 中运行自身契约，标准库 / 编译器构建脚本只申请共享编译。
 这些执行入口与本节的归属判据分别描述“现在怎么跑”和“调整路由时要核对什么”。
 定期全量测试用于补全覆盖，nightly 发布则按标签到 HEAD 的累计差异判定；不能用单个 push 的 diff
 替代发布判定，漏掉尚未进入种子的生产改动。
@@ -123,7 +122,7 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 | `schedule`（每日 16:00 UTC） | 无条件全跑，外加只在这里跑的 Tier-2 平台测试 |
 | `workflow_dispatch` | 无条件全跑；格式 bump 后手动重发 nightly 的逃生口 |
 
-**空 PR 快速通道**：Git 差异为空且没有全量回退时，xtask 输出 `validation_required=false`。只运行轻量 `detect-changes` 和必需汇总 `ci-ok`；四平台宿主、工具链及依赖链跳过。Draft 状态不作为跳过依据，有真实改动的 draft PR 正常验证。非 PR 的累计 SDK 发布与显式完整策略保留构建前提。
+**空 PR 快速通道**：Git 差异为空且没有全量回退时，xtask 不选择 `host_checks`、`toolchain_build` 或 `test_assets`。只运行轻量 `detect-changes` 和必需汇总 `ci-ok`；四平台宿主、工具链及依赖链跳过。Draft 状态不作为跳过依据，有真实改动的 draft PR 正常验证。非 PR 的累计 SDK 发布与显式完整策略保留构建前提。
 
 **纯文档快速通道**：改动**全部**是 `docs/**` 或 `*.md`（`docs/learn/**`、`examples/**` 除外——学习手册的
 示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`。改动集合由 xtask 从真实 Git 差异读取；
@@ -132,7 +131,7 @@ PR 使用 base SHA，push 使用 before SHA。基线无法获取或验证时保�
 `docs-check` 的内容：ci-bootstrap 的 `xtask-only`
 模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（先生成 reference stdlib 页，
 再查相对链接与文档结构）+ `xtask check diagcodes` + `xtask check layout`（测试类别与能力词表等机器清单对账）。
-布局检查读取仓库文件，保留种子 xtask 的轻量路径。符号引用检查用 `z42 doc --page` 按需手动查看，
+混合文档与轻量控制层修改仍保留 `docs_checks`；宿主 GREEN 会检查文档时才卸下独立文档 job。布局检查读取仓库文件，保留种子 xtask 的轻量路径。符号引用检查用 `z42 doc --page` 按需手动查看，
 docs-check 不为它安装 Rust 或编译索引器。doc-lints 随 test-host 检查源码注释。
 `test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip；
 main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SDK，见下节的 `sdk` 判定）。schedule / dispatch 不走快速通道。
@@ -242,18 +241,17 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
 |---|---|---|---|
 | `detect-changes` | `changes` | 总跑 | — |
 | `docs-check(linux-x64)` | `docs-check` | **仅**纯文档改动（PR / main push） | — |
-| `test-host(<plat>)` | `build-and-test` | 需要验证且非纯文档 | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
-| `compile-toolchain(linux-x64)` | `toolchain-bootstrap` | 需要验证且非纯文档 | — |
-| `compile-test-assets(linux-x64)` | `assemble-current-sdk` | 随 `compile-toolchain` | — |
+| `test-host(<plat>)` | `build-and-test` | `host_checks` | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
+| `compile-toolchain(linux-x64)` | `toolchain-bootstrap` | `toolchain_build` | — |
+| `compile-test-assets(linux-x64)` | `assemble-current-sdk` | `test_assets` | — |
 | `test-consume(linux-x64)` | `consume-current-sdk` | 随 `compile-test-assets` | — |
 | `test-vm-jit(linux-x64) shard k` | `vm-jit-consistency` | `vm ‖ compiler` | 2 shard |
-| `test-stdlib-jit(linux-x64) shard k` | `stdlib-jit-consistency` | `vm ‖ stdlib ‖ compiler` | 2 shard |
-| `test-stdlib-interp(<plat>)` | `stdlib-interp-consistency` | `vm ‖ stdlib ‖ compiler` | 3 OS，不分片 |
+| `test-stdlib-<mode>(<plat>)` | `stdlib-consistency` | `stdlib` | JIT 2 shard；interp 3 OS |
 | `compiler-checks(linux-x64)` | `compiler-checks` | `compiler_checks` | — |
 | `package-host(<plat>)` | `host-package` | `host_package` | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
-| `package-ios(macos-arm64)` | `package-ios` | `platform_package` | — |
-| `package-android(linux-x64)` | `package-android` | `platform_package` | — |
-| `package-wasm(linux-x64)` | `package-wasm` | `platform_package` | — |
+| `package-ios(macos-arm64)` | `package-ios` | `platform_package ‖ ios` | — |
+| `package-android(linux-x64)` | `package-android` | `platform_package ‖ android` | — |
+| `package-wasm(linux-x64)` | `package-wasm` | `platform_package ‖ wasm` | — |
 | `test-desktop-cabi(linux-x64)` | `test-desktop` | `platform ‖ schedule ‖ dispatch` | — |
 | `test-wasm-browser(linux-x64) shard k` | `test-wasm` | **仅** schedule ‖ dispatch | 3 shard |
 | `test-ios-sim(macos-arm64) shard k` | `test-ios` | **仅** schedule ‖ dispatch | 3 shard |
@@ -299,7 +297,7 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
   cranelift」断言在 `package-wasm` 里。`.cargo/**` 并入 `platform` 过滤器（配置只有 `src/runtime/.cargo` 一份，由 `src/runtime/**` 覆盖）。
 
 学习手册示例按 `changes.outputs.host_package` 分工。它集中原有的打包选择条件：platform、sdk_checks 或 examples flag 为 true，
-或事件不是 PR。打包 job 会执行时，每个平台只在打包 SDK 上重放会话；非 Windows 的 test-host 跳过开发 SDK 准备与
+或有累计发布义务。打包 job 会执行时，每个平台只在打包 SDK 上重放会话；非 Windows 的 test-host 跳过开发 SDK 准备与
 examples stage。打包 job 不执行时，test-host 用统一计划决定是否执行 examples；开发 SDK 的准备属于该 stage，
 只有实际执行时才构建 apphost 并组装，不再由 workflow 提前准备。本地完整 `xtask test` 也保留 examples。
 两条路径调用同一个 `test docs examples`、校验同一套会话输出与退出码，打包失败仍经 `ci-ok` 挡合并。
@@ -309,15 +307,14 @@ examples stage。打包 job 不执行时，test-host 用统一计划决定是否
 每次核对会话数、步骤数与成功状态。两条 CI job 可以并行，时间总和反映 runner 的执行工作量；
 整条 CI 墙钟收益要另看 Actions 的依赖与排队，不能直接用该总和替代。
 
-`test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
+`xtask ci test-host` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。各腿下载 `ci-plan` artifact，
-用 `xtask test --plan artifacts/ci-plan.json` 消费统一 stage 选择，执行前核对提交、配置与工作区。
+用 `xtask ci test-host --plan artifacts/ci-plan.json` 消费统一 stage 选择，执行前核对提交、配置与工作区。
 首次 push、缺失或无法获取基线及 schedule / dispatch 使用完整策略。编译器专项以
 `xtask flow run --plan artifacts/ci-plan.json --job compiler-checks` 消费同一份计划。
 验证基线只用于本次提交的选测，发布仍按 nightly 到 HEAD 的累计差异决定。
 
-完整 Rust 测试用 job 环境变量 `RUN_RUST_RUNTIME` 统一决定：`runtime_checks` filter 为 true，或事件是 schedule / dispatch 时，
-独立执行完整 `xtask test runtime`；此时非 Windows 腿的 `test` 追加跳过 `rust-units`，避免重复执行 `--lib`。
+完整 Rust 测试由计划的 `runtime_checks` 信号决定，宿主入口独立执行完整 `xtask test runtime`；此时非 Windows 腿的 `test` 追加跳过 `rust-units`，避免重复执行 `--lib`。
 完整 harness 使用同一 workspace、feature 与串行参数，覆盖窄版的库单测和所有 target 编译，并执行集成与文档测试。
 其余情况下，窄版 `rust-units` 是否执行由改动映射决定：例如仅标准库改动不选 Rust 阶段，
 未知输入或无法读取基线则保留保守的全量路径。本地不带改动分流的 `xtask test` 仍运行 `rust-units`。
@@ -353,7 +350,7 @@ Windows 腿不跑 `test`；仅在完整 harness 会执行时，先 `build test` 
 就能把窗口压到近零**。挖不到共同祖先（浅克隆）或与 main 有文本冲突时它**放行**——
 前者是环境限制，后者 GitHub 本身已经挡住合并，不重复报警。
 
-> ⭐ **为什么挂在 `test-host(linux-x64)` 末尾**：它无路径过滤、PR 上必跑，失败经 `ci-ok` 挡合并，零额外 job。
+> ⭐ **为什么挂在 `test-host(linux-x64)` 末尾**：需要宿主验证的 PR 会执行它，失败经 `ci-ok` 挡合并，零额外 job。
 > 新开 job 也可以，但必须加进 `ci-ok` 的 `needs`——不在里面就是「会红但不挡人的门」（[测试门禁](test-gate.md)里对
 > 「它真会红吗 / 它真挡得住人吗」的讨论同理）。这个思路可以推广到**任何「两个 PR 各自合法、合起来才错」的维度**：
 > 加判据时先问「它红了会不会经 `ci-ok` 挡人」。

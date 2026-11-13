@@ -16,7 +16,11 @@ int _testLib(LibUnitsCommand c, string kind, string jsonOut) {
     if (sh[1] > 0 && lib.Length > 0) {
         throw new CliException("--shard cannot be combined with a single library");
     }
-    if (sh[1] > 0) {
+    if (c.Plan.Length > 0) {
+        if (lib.Length > 0) { throw new CliException("--plan cannot be combined with a single library"); }
+        FlowConfig cfg = _flowConfigFor(_root());
+        projects = _flowUnitProjects(cfg, _flowReadPlan(cfg, c.Plan, _root()), kind, c.Shard);
+    } else if (sh[1] > 0) {
         projects = _shardUnitProjects(_root(), kind, sh[0], sh[1]);
         Console.WriteLine("→ shard " + sh[0].ToString() + "/" + sh[1].ToString()
             + ": " + projects.Length.ToString() + " projects");

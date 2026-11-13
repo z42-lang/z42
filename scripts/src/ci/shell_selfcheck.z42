@@ -126,7 +126,7 @@ void _ciQueueChecks() {
             }
         }
     } finally { File.Delete(output); }
-    foreach (var name in new string[]{ "build-and-test", "host-package", "stdlib-interp-consistency", "package-ios", "test-ios" }) {
+    foreach (var name in new string[]{ "build-and-test", "host-package", "stdlib-consistency", "package-ios", "test-ios" }) {
         int start = workflow.IndexOf("\n  " + name + ":");
         string tail = workflow.Substring(start + 1); int next = tail.IndexOf("\n  # ──");
         if (next >= 0) { tail = tail.Substring(0, next); }

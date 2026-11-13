@@ -33,7 +33,7 @@ void _flowGitChecks(FlowConfig cfg) {
         _gateAssert(emptyPr.Files.Length == 0 && !emptyPr.Full && emptyPr.Steps.Length == 0, "real empty planning commit has no affected flows");
         string emptyOutput = Path.Join(dir, "artifacts/empty-output");
         _flowWriteOutputs(cfg, emptyPr, emptyOutput);
-        _gateAssert(File.ReadAllText(emptyOutput).Contains("validation_required=false"), "real empty PR suppresses heavy CI jobs");
+        _gateAssert(File.ReadAllText(emptyOutput).Contains("toolchain_build=false"), "real empty PR suppresses heavy CI jobs");
         _ciWrite(dir, "artifacts/event.json", eventJson);
         foreach (var kind in new string[]{ "push", "pull_request", "schedule", "workflow_dispatch" }) {
             Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", kind);

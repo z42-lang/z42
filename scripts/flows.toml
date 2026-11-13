@@ -1,24 +1,29 @@
 # Inputs are ordered ownership rules: the first matching rule wins.
 # Globs use PathGlob (* and ? within a segment, ** across segments).
-# requires prepares execution; affects propagates changed contracts. Never mix them.
+# requires selects build resources; affects propagates changed contracts.
+# Tests and performance measurements are independent obligations.
 version = 1
-full = ["green", "runtime", "sdk", "bench-quick", "ci-all"]
+full = ["xtask", "green", "runtime", "sdk", "bench-quick", "ci-all"]
 
 [flows.green]
+requires = ["host-validation"]
 affects = ["compiler-consumer", "stdlib-consumer"]
 command = ["test"]
 stages = ["@all"]
 
 [flows.runtime]
+requires = ["host-validation"]
 command = ["test", "runtime"]
 stages = ["rust-units"]
 outputs = ["runtime_checks"]
 outside = true
 
 [flows.e2e]
+requires = ["host-validation"]
 command = ["test", "e2e"]
 
 [flows.compiler]
+requires = ["product-tools"]
 job = "compiler-checks"
 ci_command = ["test", "compiler", "--no-build"]
 command = ["test", "compiler"]
@@ -26,56 +31,68 @@ stages = ["compiler"]
 outputs = ["compiler_checks"]
 
 [flows.stdlib]
+requires = ["product-tools"]
 command = ["test", "stdlib"]
 stages = ["stdlib"]
 outputs = ["stdlib"]
 
 [flows.library]
+requires = ["product-tools"]
 command = ["test", "stdlib", "{owner}"]
 stages = ["stdlib"]
 outputs = ["stdlib"]
 
 [flows.library-bench]
+outputs = ["bench_stdlib"]
 command = ["bench", "stdlib", "{owner}"]
 stages = ["bench"]
 
 [flows.toolchain]
+requires = ["host-validation"]
 command = ["test", "toolchain"]
 stages = ["toolchain", "targets"]
 
 [flows.examples]
+requires = ["host-validation"]
 command = ["test", "docs", "examples"]
 stages = ["examples"]
 outputs = ["examples"]
 
 [flows.chapter]
+requires = ["host-validation"]
 command = ["test", "docs", "examples", "{chapter}"]
 stages = ["examples"]
 outputs = ["examples"]
 
 [flows.learn]
+requires = ["host-validation"]
 command = ["test", "docs", "examples", "--book-only"]
 stages = ["examples"]
 outputs = ["examples"]
 
 [flows.sdk]
+requires = ["product-tools"]
 command = ["package", "sdk", "--verify"]
 outputs = ["sdk_checks"]
 outside = true
 
 [flows.bench-quick]
+outputs = ["bench_integration"]
 command = ["bench", "--quick"]
 outside = true
 
 [flows.cross-zpkg]
+requires = ["host-validation"]
 command = ["test", "e2e", "--dir", "cross-zpkg"]
 stages = ["cross-zpkg"]
 
 [flows.multi-exe]
+requires = ["host-validation"]
 command = ["test", "e2e", "--dir", "multi-exe"]
 stages = ["multi-exe"]
 
 [flows.builder]
+requires = ["host-validation"]
 command = ["test", "toolchain", "builder"]
 stages = ["toolchain", "targets"]
 
@@ -83,39 +100,47 @@ stages = ["toolchain", "targets"]
 command = ["check", "layout"]
 
 [flows.docs]
+outputs = ["docs_checks"]
 command = ["test", "docs", "links"]
 
 [flows.flow-check]
 command = ["check", "flows"]
 
 [flows.compiler-consumer]
+requires = ["product-tools"]
 job = "compiler-checks"
 ci_command = ["test", "compiler", "--no-build"]
 outputs = ["compiler_checks"]
 
 [flows.stdlib-consumer]
+requires = ["product-tools"]
 outputs = ["stdlib"]
 
 [flows.z42-consumers]
+requires = ["host-validation"]
 affects = ["compiler-consumer", "stdlib-consumer"]
 stages = ["@z42"]
 
 [flows.compiler-source]
-affects = ["compiler", "e2e", "z42-consumers"]
+requires = ["test-assets"]
+affects = ["bench-stdlib", "bench-integration", "compiler", "e2e", "z42-consumers"]
 outputs = ["compiler"]
 
 [flows.runtime-source]
-affects = ["runtime", "e2e", "z42-consumers"]
+requires = ["test-assets"]
+affects = ["bench-measure", "runtime", "e2e", "z42-consumers"]
 outputs = ["vm", "platform"]
 
 [flows.library-source]
-affects = ["library", "e2e", "z42-consumers"]
+affects = ["bench-stdlib", "bench-integration", "library", "e2e", "z42-consumers"]
 outputs = ["stdlib"]
 
 [flows.platform]
+requires = ["product-tools"]
 outputs = ["platform"]
 
 [flows.vm]
+requires = ["host-validation", "test-assets"]
 outputs = ["vm"]
 
 [flows.bench-verdict]
@@ -123,8 +148,69 @@ command = ["bench", "check"]
 outside = true
 
 [flows.ci-all]
-affects = ["compiler"]
+requires = ["host-validation", "test-assets"]
+affects = ["compiler", "bench-measure"]
 outputs = ["platform", "compiler", "compiler_checks", "vm", "runtime_checks", "stdlib", "sdk_checks", "examples"]
+
+# Preparation does not imply running every consumer test.
+[flows.product-tools]
+outputs = ["toolchain_build"]
+
+[flows.host-validation]
+requires = ["product-tools"]
+outputs = ["host_checks"]
+
+[flows.test-assets]
+requires = ["product-tools"]
+outputs = ["test_assets"]
+
+[flows.build-stdlib]
+command = ["build", "stdlib"]
+outputs = ["toolchain_build"]
+
+[flows.build-compiler]
+command = ["build", "compiler"]
+outputs = ["toolchain_build"]
+
+[flows.xtask]
+command = ["check", "xtask"]
+job = "planner"
+
+[flows.bench-measure]
+affects = ["bench-stdlib", "bench-vm", "bench-integration"]
+
+[flows.bench-stdlib]
+outputs = ["bench_stdlib"]
+
+[flows.bench-vm]
+command = ["bench", "vm"]
+outputs = ["bench_vm"]
+
+[flows.bench-integration]
+outputs = ["bench_integration"]
+
+[flows.vm-bench-runner]
+outputs = ["rust_tools"]
+command = ["check", "bench-vm"]
+job = "planner"
+
+[flows.android]
+requires = ["product-tools"]
+command = ["test", "app", "android"]
+outputs = ["android"]
+outside = true
+
+[flows.ios]
+requires = ["product-tools"]
+command = ["test", "app", "ios"]
+outputs = ["ios"]
+outside = true
+
+[flows.wasm]
+requires = ["product-tools"]
+command = ["test", "app", "wasm"]
+outputs = ["wasm"]
+outside = true
 
 [[inputs]]
 id = "examples"
@@ -134,7 +220,6 @@ publish = false
 
 [[inputs]]
 id = "learn"
-bench_only = true
 include = ["docs/learn/**"]
 select = ["learn"]
 publish = false
@@ -148,7 +233,6 @@ publish = false
 
 [[inputs]]
 id = "documentation"
-bench_only = true
 include = ["docs/**", "**/*.md", "LICENSE*", "README*"]
 select = ["docs"]
 docs = true
@@ -164,6 +248,12 @@ publish = false
 id = "runtime-private"
 include = ["src/runtime/tests/*.rs", "src/runtime/tests/data/example-manifest.json", "src/runtime/tests/data/invalid-manifest-missing-types.json", "src/runtime/tests/data/manifest-with-extra-fields.json", "src/runtime/tests/data/embedding_hello/**", "src/runtime/tests/data/z42_native_e2e/**"]
 select = ["runtime"]
+publish = false
+
+[[inputs]]
+id = "runtime-benchmarks"
+include = ["src/runtime/benches/**"]
+select = ["bench-vm"]
 publish = false
 
 [[inputs]]
@@ -196,7 +286,6 @@ select = ["sdk"]
 
 [[inputs]]
 id = "builder-fixtures"
-
 include = ["src/toolchain/builder/tests/fixtures/**"]
 select = ["builder"]
 publish = false
@@ -211,12 +300,10 @@ publish = false
 id = "bench-verdict-fixtures"
 include = ["src/benches/testdata/**"]
 select = ["bench-verdict"]
-bench_only = true
 publish = false
 
 [[inputs]]
 id = "bench-scenarios"
-
 include = ["src/benches/**"]
 select = ["bench-quick"]
 publish = false
@@ -224,7 +311,7 @@ publish = false
 [[inputs]]
 id = "golden-tests"
 include = ["src/tests/**"]
-select = ["e2e", "layout"]
+select = ["e2e", "vm", "layout"]
 publish = false
 
 [[inputs]]
@@ -273,7 +360,7 @@ id = "compiler-benchmarks"
 include = ["src/compiler/**"]
 workspace = "src/compiler/z42.workspace.toml"
 relative = ["benches/**"]
-select = ["library-bench", "compiler"]
+select = ["library-bench"]
 publish = false
 
 [[inputs]]
@@ -295,30 +382,44 @@ select = ["stdlib", "toolchain", "platform", "compiler"]
 
 [[inputs]]
 id = "ci-control"
-bench_only = true
 include = ["scripts/src/ci/**"]
-select = ["flow-check"]
+select = ["xtask"]
 publish = false
 
 [[inputs]]
 id = "benchmark-verdict-implementation"
 include = ["scripts/src/bench/verdict_selfcheck.z42", "scripts/src/bench/criterion.z42"]
 select = ["bench-verdict"]
-bench_only = true
 publish = false
 
 [[inputs]]
 id = "installer-regressions"
-bench_only = true
 include = ["scripts/src/setup/ci_installers_selfcheck.z42", "scripts/src/setup/testdata/**"]
-select = ["flow-check"]
+select = ["xtask"]
+publish = false
+
+[[inputs]]
+id = "vm-benchmark-executor"
+include = ["scripts/src/bench/vm*.z42"]
+select = ["vm-bench-runner", "bench-vm"]
+publish = false
+
+[[inputs]]
+id = "micro-benchmark-executor"
+include = ["scripts/src/bench/micro*.z42"]
+select = ["bench-verdict", "bench-stdlib"]
+publish = false
+
+[[inputs]]
+id = "benchmark-command-router"
+include = ["scripts/src/bench/command.z42"]
+select = ["xtask"]
 publish = false
 
 [[inputs]]
 id = "benchmark-executor"
-
 include = ["scripts/src/bench/**"]
-select = ["bench-verdict", "bench-quick"]
+select = ["bench-verdict", "bench-measure"]
 publish = false
 
 [[inputs]]
@@ -329,15 +430,52 @@ publish = false
 
 [[inputs]]
 id = "planner-implementation"
-bench_only = true
-
 include = ["scripts/src/flow/**"]
-select = ["flow-check"]
+select = ["xtask"]
+publish = false
+
+[[inputs]]
+id = "stdlib-build"
+include = ["scripts/src/build/stdlib*.z42"]
+select = ["xtask", "build-stdlib"]
+
+[[inputs]]
+id = "compiler-build"
+include = ["scripts/src/build/compiler*.z42", "scripts/src/build/fingerprint*.z42"]
+select = ["xtask", "build-compiler"]
+
+[[inputs]]
+id = "runtime-build"
+include = ["scripts/src/build/runtime*.z42"]
+select = ["xtask", "runtime", "vm", "bench-measure"]
+
+[[inputs]]
+id = "android-executor"
+include = ["scripts/src/test/app/android*.z42"]
+select = ["xtask", "android"]
+publish = false
+
+[[inputs]]
+id = "ios-executor"
+include = ["scripts/src/test/app/ios*.z42"]
+select = ["xtask", "ios"]
+publish = false
+
+[[inputs]]
+id = "wasm-executor"
+include = ["scripts/src/test/app/wasm*.z42"]
+select = ["xtask", "wasm"]
+publish = false
+
+[[inputs]]
+id = "xtask-control"
+include = ["scripts/src/main.z42", "scripts/xtask.z42.toml", "scripts/src/**/command.z42", "scripts/src/common/git.z42", "scripts/src/common/text.z42", "scripts/src/common/versions.z42", "scripts/src/test/changed*.z42", "scripts/src/test/gate*.z42", "scripts/src/test/check/**", "scripts/src/test/docs/examples_selfcheck.z42"]
+select = ["xtask"]
 publish = false
 
 [[inputs]]
 id = "compiler-executor"
-include = ["scripts/src/test/compiler/**", "scripts/src/build/compiler*.z42"]
+include = ["scripts/src/test/compiler/**"]
 select = ["compiler"]
 publish = false
 
@@ -359,7 +497,13 @@ include = ["scripts/src/package/**", "scripts/packages.toml", "scripts/src/commo
 select = ["green", "platform", "sdk"]
 
 [[inputs]]
+id = "ci-bootstrap"
+include = [".github/actions/ci-bootstrap/**", ".github/actions/xtask-bootstrap-artifact/**", ".github/actions/setup-z42-sdk/**", ".github/ci/xtask"]
+select = ["xtask", "green", "ci-all"]
+publish = false
+
+[[inputs]]
 id = "ci-configuration"
-include = [".github/**", "scripts/flows.toml"]
-select = ["green", "ci-all", "flow-check"]
-publish = true
+include = [".github/workflows/**", "scripts/flows.toml"]
+select = ["xtask"]
+publish = false
