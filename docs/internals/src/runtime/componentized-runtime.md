@@ -1,15 +1,16 @@
 # 组件化运行时（Componentized Runtime）
 
-运行时主库直接拥有共享 VM 实现，解释器和 JIT 是独立 Rust 库。静态链接与同构建动态组件共用 host 门面与组件装配协议；profiler/debugger 独立交付仍是后续工作。
+运行时主库直接拥有共享 VM 实现，解释器、JIT 和 profiler 是独立 Rust 库。静态链接与同构建动态组件共用 host 门面与组件装配协议；profiler 按需加载，debugger 尚未独立实现。
 
 ## 1. 库边界
 
 | 库 | 拥有的实现 | 依赖方向 |
 |---|---|---|
 | z42-zpkg | zpkg/zbc/zsym 解析、静态 IR 和不可变 PackageImage | 不依赖 VM |
-| z42（runtime/src/lib.rs） | host、VM、对象、GC、PAL、配置、corelib、interop 与诊断实现 | 不依赖具体引擎 |
+| z42（runtime/src/lib.rs） | host、VM、对象、GC、PAL、配置、corelib、interop 与轻量诊断契约/计数器 | 不依赖具体引擎 |
 | z42-interp | 解释器、基线 Engine 和组件工厂 | 依赖 core，不依赖 JIT |
 | z42-jit | Cranelift、编译代码、tier/OSR 实现和组件工厂 | 依赖 core，不依赖 interp 实现 |
+| z42-profiler | CPU 采样、堆摘要/快照与保留图算法和组件工厂 | 依赖 core |
 | z42-compression | 压缩算法与稳定 C ABI | 不依赖 core 或执行后端 |
 
 运行时只有一个 Cargo 包；runtime/src 内的目录都是它的模块。主库提供 rlib/dylib，后端各自提供 rlib/cdylib 和 init 入口。生产运行时不依赖具体后端；测试和最终静态嵌入示例通过 dev-dependency 链接独立后端的 rlib，不形成生产依赖环。

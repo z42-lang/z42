@@ -19,7 +19,7 @@ GC 由 `crate::gc::Heap` 具体类型提供，VM、对象构造与当前堆 TLS 
 | 7. Finalization | `register_finalizer` / `cancel_finalizer` | 析构回调（sweep 时触发，或 `Std.GC.Finalize` 显式触发）|
 | 8. Weak refs | `make_weak` / `upgrade_weak` | 弱引用 |
 | 9. Observers | `add_observer` / `remove_observer` | GcEvent 订阅（Before/After Collect / NearHeapLimit / OOM）|
-| 10. Tool hooks | `set_alloc_sampler` / `iterate_live_objects` | 分配采样回调与存活遍历；摘要和图工具归 `profiler/heap` |
+| 10. Tool hooks | `set_alloc_sampler` / `iterate_live_objects` | 分配采样回调与存活遍历；摘要和图工具归 `crates/z42-profiler/src/profiler/heap` |
 | 11. Stats | `stats` | HeapStats 快照（8 字段）|
 
 `VmCore` 持有地址稳定的 `Box<Heap>`，同一 VM 的各 `VmContext` 共享它，独立 VM 使用独立堆；所有脚本驱动分配走 `ctx.heap().alloc_*(...)`；JIT helper 通过
@@ -659,7 +659,7 @@ diff `RecentPauses()` 与上次调用结果也能算 incremental
 (Memory → Load)、[speedscope](https://www.speedscope.app)、
 [heapviewer.com](https://heapviewer.com) 都能直接打开。
 
-实现走 `profiler/heap/snapshot.rs` two-pass walker：
+实现走 `crates/z42-profiler/src/profiler/heap/snapshot.rs` two-pass walker：
 
 ```
 pass 1: iterate_live_objects → assign V8 node ids (odd 2k+1), emit NodeRecs
