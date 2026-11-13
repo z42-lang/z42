@@ -1,0 +1,52 @@
+namespace Z42CharacterWriterCopyTests;
+using Std.IO;
+using Std.Encoding;
+using Std.Harness;
+
+class RetainingStream : Stream {
+    public byte[] First;
+    public byte[] Second;
+    public int Writes;
+    public override bool CanWrite() { return true; }
+    public override void Write(byte[] buffer, int offset, int count) {
+        Assert.Equal(0, offset); Assert.Equal(buffer.Length, count);
+        if (this.Writes == 0) { this.First = buffer; } else { this.Second = buffer; }
+        this.Writes = this.Writes + 1;
+    }
+}
+class RetainingText : TextWriter {
+    public string First;
+    public string Second;
+    public int Writes;
+    public override void Write(string value) {
+        if (this.Writes == 0) { this.First = value; } else { this.Second = value; }
+        this.Writes = this.Writes + 1;
+    }
+}
+char[] Input() { return new char[]{ 'x', 'é', '中', '😀', 'y' }; }
+
+[Test]
+void stream_slice_keeps_independent_completed_writes() {
+    var target = new RetainingStream(); var w = new StreamWriter(target); var chars = Input();
+    w.Write(chars, 1, 3); chars[1] = 'A'; w.Write(chars, 1, 3); chars[1] = 'B';
+    Assert.Equal(2, target.Writes);
+    Assert.Equal("é中😀", Utf8.GetString(target.First)); Assert.Equal("A中😀", Utf8.GetString(target.Second));
+}
+[Test]
+void string_writer_slice_is_snapshot() {
+    var w = new StringWriter(); var chars = Input();
+    w.Write(chars, 1, 3); chars[1] = 'A'; w.Write(chars, 1, 3);
+    Assert.Equal("é中😀A中😀", w.ToString());
+}
+[Test]
+void text_writer_slice_keeps_completed_writes() {
+    var target = new RetainingText(); var chars = Input();
+    target.WriteCharsBase(chars, 1, 3); chars[1] = 'A'; target.WriteCharsBase(chars, 1, 3);
+    Assert.Equal(2, target.Writes); Assert.Equal("é中😀", target.First); Assert.Equal("A中😀", target.Second);
+}
+[Test]
+void empty_slices_do_not_reach_targets() {
+    var bytes = new RetainingStream(); var sw = new StreamWriter(bytes); var text = new RetainingText();
+    var chars = Input(); sw.Write(chars, chars.Length, 0); text.WriteCharsBase(chars, chars.Length, 0);
+    Assert.Equal(0, bytes.Writes); Assert.Equal(0, text.Writes);
+}
