@@ -3,7 +3,7 @@ namespace Z42Xtask;
 using Std.IO;
 
 bool _ciBenchOnly(FlowConfig cfg, string[] files, string root) {
-    var owners = new _ChangedOwners(root);
+    var owners = new FlowOwners(root);
     foreach (var file in files) {
         FlowInput rule = _flowInput(cfg, file, owners);
         if (rule == null || !rule.BenchOnly) { return false; }

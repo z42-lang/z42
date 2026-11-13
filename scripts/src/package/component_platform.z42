@@ -10,14 +10,16 @@ string _componentPlatformPreset(string rid) {
     if (rid == "browser-wasm") { return "wasm"; }
     return "interp,jit,native-interop,net,tls";
 }
+// jit 矩阵归 [runtime.lib.jit].rids（packages.toml 单一来源）。
 bool _componentTargetHasJit(string rid) {
-    return _ridCategory(rid) == "desktop" || rid == "android-arm64" || rid == "android-x64" || rid == "iossim-arm64";
+    return _rtRidHasJit(_root(), rid);
 }
 string _componentPlatformWorkingDirectory(string root, string rid) {
     return rid.StartsWith("android-") ? Path.Join(root, "src/runtime") : root;
 }
+// 命名归 [runtime.naming] 模板（packages.toml）。
 string _componentStaticName(string stem, string rid) {
-    return rid.StartsWith("windows-") ? stem + ".lib" : "lib" + stem + ".a";
+    return _rtStaticName(_root(), stem, rid);
 }
 string _componentStaticDir(string root, string rid) {
     // Final WASM uses a separate Cargo workspace and LTO profile. Its rlibs
@@ -32,10 +34,28 @@ string _componentPlatformOut(string root, string rid, string profile, bool share
         string name = shared ? _componentDirName(root, profile) : profile;
         return Path.Join(dir, name);
     }
-    return Path.Join(dir, _ridToCargo(rid) + "/" + profile);
+    // iOS 动态 alias 会把 release 产物放在 release-dynamic 目录。
+    string dirProfile = shared && rid.StartsWith("ios") && _componentAliasTree(root)
+        ? _componentDirName(root, profile) : profile;
+    return Path.Join(dir, _ridToCargo(rid) + "/" + dirProfile);
 }
 
+// 静态图配方名（rid → [alias] 键）。android 走 cargo-ndk（env 通道），不用 alias。
+string _componentStaticAlias(string rid) {
+    if (rid.StartsWith("iossim-")) { return "z42-static-iossim"; }
+    if (rid.StartsWith("ios")) { return "z42-static-ios"; }
+    if (rid.StartsWith("android-")) { return ""; }
+    if (rid == "browser-wasm") { return "z42-static-wasm"; }
+    return "z42-static-desktop";
+}
+// 移动动态图配方名（ios/iossim；android/wasm 不适用）。
+string _componentMobileDynamicAlias(string rid) {
+    if (rid.StartsWith("iossim-")) { return "z42-mobile-dynamic-iossim"; }
+    if (rid.StartsWith("ios")) { return "z42-mobile-dynamic-ios"; }
+    return "";
+}
 Process _componentPlatformCargo(string verb, string root, string rid, string profile, bool shared, string targetDir = "", string artifactLog = "") {
+
     Process p = new Process("cargo");
     if (rid.StartsWith("android-")) {
         if (artifactLog.Length > 0) {
@@ -79,6 +99,19 @@ Process _componentPlatformCargo(string verb, string root, string rid, string pro
 int _componentBuildPlatform(string root, string rid, string profile) {
     if (_ridCategory(rid) == "desktop") { return _componentBuild(root, profile); }
     if (rid == "browser-wasm") { throw new CliException("browser WASM uses static components; native dynamic loading is unavailable"); }
+    string alias = _componentMobileDynamicAlias(rid);
+    if (alias.Length > 0 && _componentAliasTree(root)) {
+        // R1f：配方树走 [alias]（ios/iossim 动态图）。android 走 cargo-ndk（env 通道）→ 回退。
+        Process a = _componentAliasProc(root, alias)
+            .Arg("--target").Arg(_ridToCargo(rid))
+            .Arg("--target-dir").Arg(_componentBuildDir(root))
+            .Arg("--profile").Arg(_componentCargoProfile(root, profile))
+            .Env("IPHONEOS_DEPLOYMENT_TARGET", _vReadOr(root, "platform.ios.min_ios", "16.0"));
+        int c = _execIn(a, Path.Join(root, "src/runtime"));
+        if (c != 0) { return c; }
+        _componentCopyStd(_componentPlatformOut(root, rid, profile, true), _ridToCargo(rid));
+        return _componentBuildCompression(root, rid, profile, true);
+    }
     string features = "z42/" + _componentPlatformPreset(rid).Replace(",", ",z42/") + ",z42/shared-core,z42-interp/shared-core,z42-interp/native-interop";
     Process build = _componentPlatformCargo("build", root, rid, profile, true)
         .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("--lib")
@@ -94,7 +127,7 @@ int _componentBuildPlatform(string root, string rid, string profile) {
 }
 void _componentInstallPlatform(string root, string native, string rid, string profile) {
     string cargo = _componentPlatformOut(root, rid, profile, true);
-    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in _rtStems(_root(), rid)) {
         if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
         string name = _componentLibrary(stem, rid);
         _componentCopyRequired(Path.Join(cargo, name), Path.Join(native, name));
@@ -121,14 +154,31 @@ string _componentAndroidRid(string root, string abi) {
 // older trees had the algorithms as unconditional deps.
 int _componentBuildCompression(string root, string rid, string profile, bool shared, string destination = "") {
     string target = Path.Join(shared ? _componentBuildDir(root) : _componentStaticDir(root, rid), "compression");
-    string cargo = _ridCategory(rid) == "desktop" ? Path.Join(target, profile)
-        : Path.Join(target, _ridToCargo(rid) + "/" + profile);
+    string dirProfile = shared && _componentAliasTree(root)
+        && (_ridCategory(rid) == "desktop" || rid.StartsWith("ios"))
+        ? _componentDirName(root, profile) : profile;
+    string cargo = _ridCategory(rid) == "desktop"
+        ? Path.Join(target, dirProfile)
+        : Path.Join(target, _ridToCargo(rid) + "/" + dirProfile);
     if (destination.Length == 0) { destination = _componentPlatformOut(root, rid, profile, shared); }
-    Process build = _componentPlatformCargo("build", root, rid, profile, shared, target,
-        shared ? "" : Path.Join(cargo, "cargo-artifacts.jsonl"))
-        .Arg("-p").Arg("z42-compression").Arg("--lib");
-    int c = shared ? _execIn(build, _componentPlatformWorkingDirectory(root, rid))
-        : _cargoBuildArtifactLog(build, cargo);
+    int c;
+    if (!rid.StartsWith("android-") && _componentAliasTree(root)) {
+        // R1f：配方树走 [alias]（动态/静态 compression 同默认特性，差异仅 flags）。
+        Process a = _componentAliasProc(root, shared ? "z42-compression-dynamic" : "z42-compression-static")
+            .Arg("--target-dir").Arg(target);
+        if (_ridCategory(rid) != "desktop") { a = a.Arg("--target").Arg(_ridToCargo(rid)); }
+        if (shared && _componentAliasTree(root)) { a = a.Arg("--profile").Arg(_componentCargoProfile(root, profile)); }
+        if (!shared && profile == "release") { a = a.Arg("--release"); }
+        if (rid.StartsWith("ios")) { a = a.Env("IPHONEOS_DEPLOYMENT_TARGET", _vReadOr(root, "platform.ios.min_ios", "16.0")); }
+        c = shared ? _execIn(a, Path.Join(root, "src/runtime")) : _cargoBuildArtifactLog(a, cargo);
+    } else {
+        Process build = _componentPlatformCargo("build", root, rid, profile, shared, target,
+            shared ? "" : Path.Join(cargo, "cargo-artifacts.jsonl"))
+            .Arg("-p").Arg("z42-compression").Arg("--lib");
+        c = shared ? _execIn(build, _componentPlatformWorkingDirectory(root, rid))
+            : _cargoBuildArtifactLog(build, cargo);
+    }
+
     if (c != 0) { return c; }
     Directory.Create(destination);
     if (shared) {
