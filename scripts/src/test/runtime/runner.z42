@@ -22,7 +22,6 @@ Process _runtimeTestCargo(string verb) {
 }
 
 string _runtimeTestTarget() { return Path.Join(_componentBuildDir(_root()), "tests/runtime"); }
-Process _runtimeTestProc() { return _runtimeTestCargo("test"); }
 
 // 完整 harness 与 GREEN 窄版共用的执行器。harness 依赖共享 Rust std（`-C prefer-dynamic`），组件测试还会
 // dlopen 现编的探针库，所以两者都这样跑：一次 Cargo 图编出要的 target → std 拷到组件旁 → 带组件 / deps / std

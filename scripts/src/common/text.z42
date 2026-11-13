@@ -52,3 +52,16 @@ string _nthDot(string s, int n) {
     if (n < p.Length) { return p[n]; }
     return "";
 }
+
+string _segment(string path, int n) {
+    string[] parts = path.Split("/");
+    return n < parts.Length ? parts[n] : "";
+}
+
+string[] _dedupeNonEmpty(string[] xs) {
+    var r = new List<string>();
+    foreach (var x in xs) { if (x.Length > 0 && !r.Contains(x)) { r.Add(x); } }
+    string[] tight = r.ToArray();
+    _sortStrings(tight);
+    return tight;
+}

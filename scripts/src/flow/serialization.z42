@@ -77,9 +77,9 @@ int _flowCommand(FlowPlanCommand options, bool run) {
     if (options.GithubOutput.Length > 0) { _flowWriteOutputs(cfg, plan, options.GithubOutput); }
     if (options.Format == "json") { Console.WriteLine(json); }
     else { _flowPrint(cfg, plan); }
-    FlowStep[] execution = _flowJobSteps(cfg, plan, options.Job);
+    FlowStep[] execution = options.Job.Length == 0 ? _flowLocalSteps(cfg, plan) : _flowJobSteps(cfg, plan, options.Job);
     if (!run || options.DryRun) { return 0; }
-    return _flowExecute(cfg, plan, execution, options.Job);
+    return _flowExecute(cfg, execution, options.Job.Length > 0);
 }
 
 void _flowPrint(FlowConfig cfg, FlowPlan plan) {
@@ -115,16 +115,15 @@ void _flowWriteOutputs(FlowConfig cfg, FlowPlan plan, string path) {
 string _flowSkipStages(FlowConfig cfg, FlowPlan plan) {
     string[] needed = _flowStages(cfg, plan);
     var skip = new List<string>();
-    foreach (var stage in _changedScopedStages()) { if (!_strIn(needed, stage)) { skip.Add(stage); } }
+    foreach (var stage in _gateStageKeys()) { if (!_strIn(needed, stage)) { skip.Add(stage); } }
     return String.Join(",", skip.ToArray());
 }
 
-int _flowExecute(FlowConfig cfg, FlowPlan plan, FlowStep[] execution, string job) {
-    if (job.Length == 0) { execution = _flowLocalSteps(cfg, plan); }
+int _flowExecute(FlowConfig cfg, FlowStep[] execution, bool ci) {
     var commands = new List<string>();
     foreach (var step in execution) {
         FlowNode node = cfg.Find(step.Id);
-        string[] args = job.Length > 0 && node.CiCommand.Length > 0 ? _flowExpandArgs(node.CiCommand, step) : _flowArgs(node, step);
+        string[] args = ci && node.CiCommand.Length > 0 ? _flowExpandArgs(node.CiCommand, step) : _flowArgs(node, step);
         if (args.Length == 0) { continue; }
         string key = JsonValue.StringifyPretty(_jStrs(args));
         if (commands.Contains(key)) { continue; } commands.Add(key);

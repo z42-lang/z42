@@ -35,7 +35,6 @@ class FlowConfig {
     public FlowInput[] Inputs = new FlowInput[0];
     public string[] Full = new string[0];
     public string Digest = "";
-    public string Path = "";
 
     public FlowNode Find(string id) {
         foreach (var n in this.Nodes) { if (n.Id == id) { return n; } }
@@ -67,12 +66,7 @@ void _flowKeys(TomlValue v, string[] allowed, string location) {
     }
 }
 
-FlowConfig _flowLoad(string path) {
-    string text = File.ReadAllText(path);
-    FlowConfig cfg = _flowParse(text);
-    cfg.Path = path;
-    return cfg;
-}
+FlowConfig _flowLoad(string path) { return _flowParse(File.ReadAllText(path)); }
 
 FlowConfig _flowParse(string text) {
     TomlValue doc = TomlValue.Parse(text);
@@ -137,7 +131,7 @@ void _flowValidate(FlowConfig cfg) {
         foreach (var id in n.Requires) { cfg.Find(id); }
         foreach (var output in n.Outputs) { _flowValidateOutput(output); }
         foreach (var stage in n.Stages) {
-            if (stage != "@z42" && stage != "@all" && !_strIn(_changedScopedStages(), stage)) {
+            if (stage != "@z42" && stage != "@all" && !_strIn(_gateStageKeys(), stage)) {
                 throw new Exception("flows.toml: unknown gate stage " + stage);
             }
         }
@@ -164,20 +158,7 @@ bool _flowMatches(string file, string[] patterns) {
     return false;
 }
 
-static class FlowConfigCache {
-    public static string Root = "";
-    public static string Text = "";
-    public static FlowConfig? Value = null;
-}
-
-FlowConfig _flowConfigFor(string root) {
-    string text = File.ReadAllText(Path.Join(root, "scripts/flows.toml"));
-    FlowConfig? cached = FlowConfigCache.Value;
-    if (cached != null && FlowConfigCache.Root == root && FlowConfigCache.Text == text) { return cached; }
-    FlowConfig cfg = _flowParse(text);
-    FlowConfigCache.Root = root; FlowConfigCache.Text = text; FlowConfigCache.Value = cfg;
-    return cfg;
-}
+FlowConfig _flowConfigFor(string root) { return _flowLoad(Path.Join(root, "scripts/flows.toml")); }
 
 void _flowValidateCommand(string[] args, string id) {
     if (args.Length > 0 && !_strIn(new string[]{ "build", "test", "check", "bench", "package", "setup", "ci" }, args[0])) {
