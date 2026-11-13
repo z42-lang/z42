@@ -36,8 +36,7 @@ public class TextWriter : IDisposable {
             slice = buffer;
         } else {
             slice = new char[count];
-            int i = 0;
-            while (i < count) { slice[i] = buffer[offset + i]; i = i + 1; }
+            Array.CopyRange(buffer, offset, slice, 0, count);
         }
         this.Write(String.FromChars(slice));
     }
