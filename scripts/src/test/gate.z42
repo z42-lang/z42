@@ -8,45 +8,20 @@ using Std.Cli;
 
 // stage 耗时无条件输出，便于默认 verbosity 的 CI 日志定位瓶颈。
 
-// stage 计时账本：名字 + 毫秒并行列表。
-public sealed class StageLogZ {
-    public List<string> Names;
-    public List<long> Ms;
-    public StageLogZ() { Names = new List<string>(); Ms = new List<long>(); }
-    public void Add(string n, long ms) { Names.Add(n); Ms.Add(ms); }
-}
-
-StageRun _stageStart(string name) {
-    Console.WriteLine("\n=== stage: " + name + " ===");
-    StageRun r = new StageRun();
-    r.Name = name;
-    r.Sw = Stopwatch.StartNew();
-    return r;
-}
-
-// 一个在跑的 stage：`_stageStart` 返回，`_stageEnd` 从它取名——名字只在 start 处写一遍。
-class StageRun {
+// Completed stage timings keep each name beside its elapsed time.
+class StageTiming {
     public string Name;
-    public Stopwatch Sw;
-    public StageRun() { this.Name = ""; this.Sw = null; }
+    public long Ms;
+    public StageTiming(string name, long ms) { this.Name = name; this.Ms = ms; }
 }
 
-void _stageEnd(StageLogZ log, StageRun r) {
-    long ms = r.Sw.Elapsed().TotalMilliseconds();
-    log.Add(r.Name, ms);
-    Console.WriteLine("--- stage: " + r.Name + " — " + _fmtDur(ms) + " ---");
-}
-
-// 降序耗时表 + 占比。
-void _stageSummary(StageLogZ log, long totalMs) {
-    if (log.Names.Count == 0) { return; }
-    var order = new List<int>();
-    for (int i = 0; i < log.Names.Count; i++) { order.Add(i); }
-    order.Sort((a, b) => log.Ms[b] > log.Ms[a] ? 1 : (log.Ms[b] < log.Ms[a] ? -1 : 0));
+void _stageSummary(List<StageTiming> log, long totalMs) {
+    if (log.Count == 0) { return; }
+    log.Sort((a, b) => b.Ms > a.Ms ? 1 : (b.Ms < a.Ms ? -1 : 0));
     Console.WriteLine("\n── stage wall-clock (降序) ──");
-    foreach (var k in order) {
-        long pct = totalMs > 0 ? (log.Ms[k] * 100) / totalMs : 0;
-        Console.WriteLine("  " + _padRight(log.Names[k], 48) + _fmtDur(log.Ms[k])
+    foreach (var stage in log) {
+        long pct = totalMs > 0 ? (stage.Ms * 100) / totalMs : 0;
+        Console.WriteLine("  " + _padRight(stage.Name, 48) + _fmtDur(stage.Ms)
             + "  (" + pct.ToString() + "%)");
     }
     Console.WriteLine("  " + _padRight("TOTAL", 48) + _fmtDur(totalMs));
@@ -264,7 +239,7 @@ string _unknownGateSkip(GateStage[] stages, string skip) {
     return "";
 }
 
-int _runGateStages(GateStage[] stages, string skip, StageLogZ log) {
+int _runGateStages(GateStage[] stages, string skip, List<StageTiming> log) {
     string bad = _unknownGateSkip(stages, skip);
     if (bad.Length > 0) {
         ConsoleError.WriteLine("error: unknown gate stage in --skip: " + bad + " (see xtask test --list)");
@@ -272,10 +247,13 @@ int _runGateStages(GateStage[] stages, string skip, StageLogZ log) {
     }
     foreach (var stage in stages) {
         if (stage.Key.Length > 0 && _skipHas(skip, stage.Key)) { continue; }
-        StageRun run = _stageStart(stage.Name);
+        Console.WriteLine("\n=== stage: " + stage.Name + " ===");
+        Stopwatch sw = Stopwatch.StartNew();
         int rc = stage.Body();
         if (rc != 0) { return rc; }
-        _stageEnd(log, run);
+        long ms = sw.Elapsed().TotalMilliseconds();
+        log.Add(new StageTiming(stage.Name, ms));
+        Console.WriteLine("--- stage: " + stage.Name + " — " + _fmtDur(ms) + " ---");
     }
     return 0;
 }
@@ -283,7 +261,7 @@ int _runGateStages(GateStage[] stages, string skip, StageLogZ log) {
 // 顺序、首败短路、skip 与只读列表均消费同一张 stage 表。
 int _testAll(bool noBuild, string skip) {
     Stopwatch sw = _procStart("test");
-    StageLogZ log = new StageLogZ();
+    List<StageTiming> log = new List<StageTiming>();
     int rc = _runGateStages(_gateStages(noBuild), skip, log);
     if (rc != 0) { return rc; }
     Console.WriteLine("\n✅ GREEN — all stages passed");
@@ -322,3 +300,12 @@ int[] _parseShard(string s) {
     return r;
 }
 
+
+// Change-scoped stage keys come from the execution registry.
+string[] _gateStageKeys(string changes = "") {
+    var keys = new List<string>();
+    foreach (var st in _gateStages(true)) {
+        if (st.Changes.Length > 0 && (changes.Length == 0 || st.Changes == changes)) { keys.Add(st.Key); }
+    }
+    return keys.ToArray();
+}

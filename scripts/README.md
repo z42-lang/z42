@@ -258,6 +258,7 @@ scripts/
     │                       publish 前现场 cargo 编 apphost stub，免装 desktop workload
     ├── clean.z42           `clean` 命令（production / tests / bench / intermediate / all，见 artifacts-layout.md §4）
     ├── common/             共享基建（非某个命令专属；不反调命令实现）
+    │   ├── git.z42               flow / 本地选测共用的 Git 读取、改动文件与错误传播
     │   ├── repository.z42        仓库根（git）、源码里的常量、zpkg 文件头
     │   ├── toolchain.z42         用哪套工具链：运行中的 z42vm、`--toolchain` 选择器、Rust runtime 的 cargo 调用
     │   ├── logging.z42           verbosity 与流程的开始 / 结束 / 耗时标记
@@ -296,10 +297,9 @@ scripts/
     ├── test/               `test` 命令族与各类验证，按被测对象分子目录（见 test-layout.md §1）
     │   ├── command.z42           `test` 族的命令类 + LibUnitsCommand（test stdlib / bench stdlib 共用）
     │   ├── gate.z42              GREEN / e2e 编排 + stage 单源登记 / 只读列表 / 计时
-    │   ├── gate_selfcheck.z42    stage 编排与改动计划回归（skip / 必跑 / 首败 / 退出码 / 去重 / 全量回退保留外部检查），随 builder 夹具跑
-    │   ├── changed.z42           `test changed`：按改动文件挑命令与 stage
-    │   ├── changed_owners.z42    按 workspace 成员与声明包名解析改动归属
-    │   ├── changed_selfcheck.z42 真实 Git 的工作区归属、重命名、SDK 职责与读取失败回归，随 stage 自检跑
+    │   ├── gate_selfcheck.z42    stage 编排回归（skip / 必跑 / 首败 / 退出码），随 builder 夹具跑
+    │   ├── changed.z42           `test changed` / `test --changed`：直接消费 flow 计划的命令与 stage
+    │   ├── changed_selfcheck.z42 真实 Git 的工作区归属、重命名、SDK 职责与读取失败回归，由必跑 flows stage 执行
     │   ├── catalog.z42           `test list`：只读语料目录（pretty / json）
     │   ├── runtime/
     │   │   └── runner.z42        Rust runtime 完整 / 窄版测试的共用执行器与 GC 模式回归
@@ -370,7 +370,7 @@ scripts/
     │   ├── fixtures/             组件校验用的 WASM 宿主夹具
     │   ├── test_workload.z42     **`package workload test`**：打 payload-only 的 test workload（`test` 是 workload 名，不是「测试」）
     │   └── release.z42           `--archive`（包目录 → 归档）/ `package release`（desktop 合并 → SHA256SUMS → index → release-notes）
-    ├── flow/               配置、Git 输入、影响图与执行图、计划校验与导出
+    ├── flow/               配置、workspace 成员归属（owners.z42）、影响图与执行图、计划校验与导出
     ├── ci/                 GitHub 控制策略、离线回归与自举命令探针
     ├── setup/              `setup`：各平台依赖 / 编辑器资产
     │   ├── command.z42           `setup` 族的命令类（不带子命令 = 安装）

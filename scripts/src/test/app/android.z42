@@ -136,15 +136,3 @@ int _ensureAndroidEmulatorTier(string root) {
     Console.WriteLine("  Android emulator tier missing — installing (~4GB, one-time)");
     return _installAndroidEmulator(false);
 }
-
-string _androidCargoForAbi(string abi) {
-    // 登记过的 ABI（[platform.android].abis ↔ rust_targets 同序对位）走表；32 位两个是历史兜底，不在表里。
-    string[] abis = _vgetList(_vparse(_root()), "platform.android.abis");
-    string[] targets = _vgetList(_vparse(_root()), "platform.android.rust_targets");
-    for (int i = 0; i < abis.Length && i < targets.Length; i = i + 1) {
-        if (abis[i] == abi) { return targets[i]; }
-    }
-    if (abi == "armeabi-v7a") { return "armv7-linux-androideabi"; }
-    if (abi == "x86") { return "i686-linux-android"; }
-    throw new Std.Cli.CliException("unsupported Android ABI: " + abi);
-}

@@ -87,9 +87,6 @@ bool _strIn(string[] xs, string x) {
     return false;
 }
 
-// 用 sep 连接字符串数组（错误信息里列参数域用，如 "android|ios|wasm"）。
-string _joinStrings(string[] xs, string sep) { return String.Join(sep, xs); }
-
 // 全部 workload（[workload].members，文件序）。desktop = 宿主 workload，恒在列。
 string[] _vWorkloads(string root) {
     return _vgetList(_vparse(root), "workload.members");
