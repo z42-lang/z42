@@ -63,7 +63,9 @@ int _componentBuild(string root, string profile) {
     if (result.ExitCode != 0) { return result.ExitCode; }
     File.WriteAllText(Path.Join(_componentCargoOut(root, profile), "component-test-executable.txt"),
         _componentArtifactExecutable(result.Stdout));
-    return _componentBuildCompression(root, _detectHostRid(), profile, true);
+    int c = _componentBuildCompression(root, _detectHostRid(), profile, true);
+    if (c == 0) { _componentCopyStd(_componentCargoOut(root, profile)); }
+    return c;
 }
 
 void _componentCopyRequired(string source, string destination) {
@@ -109,7 +111,7 @@ void _componentInstallLibraries(string cargo, string pkg, bool importLibs = fals
             _componentCopyRequired(Path.Join(cargo, stem + ".dll.lib"), Path.Join(native, stem + ".dll.lib"));
         }
     }
-    _componentCopyStd(native);
+    _componentCopyStagedStd(cargo, native);
 
 }
 
@@ -142,13 +144,29 @@ int _componentBuildLauncher(string root, string profile) {
 void _componentCopyStd(string native, string target = "") {
     string[] args = target.Length == 0 ? new string[]{ "--print", "target-libdir" } : new string[]{ "--print", "target-libdir", "--target", target };
     string stdDir = _cmdOut("rustc", args);
+    _componentStageStd(stdDir, native, _componentStdPattern(target));
+}
+
+string _componentStdPattern(string target = "") {
     bool windows = target.Length == 0 ? Platform.IsWindows() : target.Contains("windows");
     bool apple = target.Length == 0 ? Platform.IsMacOS() : target.Contains("apple");
     string suffix = windows ? ".dll" : (apple ? ".dylib" : ".so");
-    string pattern = (windows ? "std-*" : "libstd-*") + suffix;
-    string[] std = Path.Glob(stdDir, pattern);
-    if (std.Length != 1) { throw new CliException("expected one matching shared Rust std in " + stdDir); }
-    File.Copy(std[0], Path.Join(native, Path.GetFileName(std[0])));
+    return (windows ? "std-*" : "libstd-*") + suffix;
+}
+
+void _componentStageStd(string source, string destination, string pattern) {
+    string[] std = Path.Glob(source, pattern);
+    if (std.Length != 1) { throw new CliException("expected one matching shared Rust std in " + source); }
+    Directory.Create(destination);
+    string name = Path.GetFileName(std[0]);
+    foreach (var stale in Path.Glob(destination, pattern)) {
+        if (Path.GetFileName(stale) != name) { File.Delete(stale); }
+    }
+    File.Copy(std[0], Path.Join(destination, name));
+}
+
+void _componentCopyStagedStd(string cargo, string native, string target = "") {
+    _componentStageStd(cargo, native, _componentStdPattern(target));
 }
 
 int _componentBuildStatic(string root, string profile) {

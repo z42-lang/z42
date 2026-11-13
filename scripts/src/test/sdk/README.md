@@ -12,6 +12,7 @@
 | 验证本次 SDK 的发行包夹具与 golden | `test/sdk/verify.z42` 的 `_packageVerify` |
 | 编译并执行发行包 golden，同时检查退出码与输出 | `test/sdk/goldens.z42` |
 | 回归真实退出 0 / 7、输出不符与编译失败 | `test/sdk/goldens_selfcheck.z42` 的 `_selfcheckDistGoldens` |
+| 校验 Cargo 产物路径和生产方 Rust std 的拷贝边界 | `test/sdk/cargo_artifacts_selfcheck.z42` |
 | 校验包配置、组件安装与发布归档 | `test/sdk/package_selfcheck.z42` 的 `_pkgSelfCheck` |
 
 ## 如何测试验证

@@ -14,7 +14,8 @@ int _componentBuildStaticLibraries(string root, string rid, string profile) {
         features = features + ",z42-interp/jit,z42-jit/jit";
     }
     if (rid != "browser-wasm") { features = features + ",z42-interp/native-interop"; }
-    int c = _execIn(p.Arg("--features").Arg(features), _componentPlatformWorkingDirectory(root, rid));
+    int c = _cargoBuildArtifactLog(p.Arg("--features").Arg(features),
+        _componentPlatformOut(root, rid, profile, false));
     if (c != 0) { return c; }
     c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_interp");
     if (c != 0) { return c; }
@@ -35,11 +36,10 @@ int _componentStaticArchiveFromRlib(string root, string rid, string profile, str
         .Arg("--edition=2021").Arg("--crate-name").Arg(stem + "_static")
         .Arg("--crate-type=staticlib").Arg("--target").Arg(_ridToCargo(rid))
         .Arg("--extern").Arg(stem + "=" + rlib)
-        .Arg("-L").Arg("dependency=" + cargo).Arg("-L").Arg("dependency=" + Path.Join(cargo, "deps"))
-        .Arg("-L").Arg("dependency=" + Path.Join(_componentStaticDir(root, rid), profile + "/deps"))
         .Arg("-C").Arg("lto=no").Arg("-C").Arg("prefer-dynamic=no")
         .Arg("--print").Arg("native-static-libs")
         .Arg(stub).Arg("-o").Arg(Path.Join(cargo, _componentStaticName(stem, rid))).Stderr(Stdio.Pipe());
+    foreach (var path in _cargoRecordedSearchPaths(cargo)) { p = p.Arg("-L").Arg(path); }
     if (rid.StartsWith("ios")) { p = p.Env("IPHONEOS_DEPLOYMENT_TARGET", _vReadOr(root, "platform.ios.min_ios", "16.0")); }
     ProcessResult result = p.Run();
     Console.Write(result.Stdout); ConsoleError.Write(result.Stderr);
@@ -129,7 +129,13 @@ string _componentArTool() {
 void _componentStageStaticImportLibs(string cargo, string flags) {
     foreach (var flag in flags.Split(" ")) {
         if (!flag.EndsWith(".lib")) { continue; }
-        string dep = Path.Join(Path.Join(cargo, "deps"), flag);
+        string dep = "";
+        foreach (var search in _cargoRecordedSearchPaths(cargo)) {
+            int kind = search.IndexOf("=");
+            string directory = kind >= 0 ? search.Substring(kind + 1) : search;
+            string candidate = Path.Join(directory, flag);
+            if (File.Exists(candidate)) { dep = candidate; break; }
+        }
         if (File.Exists(dep)) {
             if (!File.Exists(Path.Join(cargo, flag))) { File.Copy(dep, Path.Join(cargo, flag)); }
             continue;

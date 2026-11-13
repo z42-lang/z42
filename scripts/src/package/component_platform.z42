@@ -77,7 +77,9 @@ int _componentBuildPlatform(string root, string rid, string profile) {
         features = features + ",z42-jit/shared-core,z42-interp/jit";
     }
     int c = _execIn(build.Arg("--features").Arg(features), _componentPlatformWorkingDirectory(root, rid));
-    return c == 0 ? _componentBuildCompression(root, rid, profile, true) : c;
+    if (c != 0) { return c; }
+    _componentCopyStd(_componentPlatformOut(root, rid, profile, true), _ridToCargo(rid));
+    return _componentBuildCompression(root, rid, profile, true);
 }
 void _componentInstallPlatform(string root, string native, string rid, string profile) {
     string cargo = _componentPlatformOut(root, rid, profile, true);
@@ -86,7 +88,7 @@ void _componentInstallPlatform(string root, string native, string rid, string pr
         string name = _componentLibrary(stem, rid);
         _componentCopyRequired(Path.Join(cargo, name), Path.Join(native, name));
     }
-    _componentCopyStd(native, _ridToCargo(rid));
+    _componentCopyStagedStd(cargo, native, _ridToCargo(rid));
 }
 
 string _componentRidForTarget(string root, string target) {
@@ -111,8 +113,10 @@ int _componentBuildCompression(string root, string rid, string profile, bool sha
     string cargo = _ridCategory(rid) == "desktop" ? Path.Join(target, profile)
         : Path.Join(target, _ridToCargo(rid) + "/" + profile);
     if (destination.Length == 0) { destination = _componentPlatformOut(root, rid, profile, shared); }
-    int c = _execIn(_componentPlatformCargo("build", root, rid, profile, shared, target)
-        .Arg("-p").Arg("z42-compression").Arg("--lib"), _componentPlatformWorkingDirectory(root, rid));
+    Process build = _componentPlatformCargo("build", root, rid, profile, shared, target)
+        .Arg("-p").Arg("z42-compression").Arg("--lib");
+    int c = shared ? _execIn(build, _componentPlatformWorkingDirectory(root, rid))
+        : _cargoBuildArtifactLog(build, cargo);
     if (c != 0) { return c; }
     Directory.Create(destination);
     if (shared) {
