@@ -49,6 +49,10 @@ void _flowPlannerChecks(FlowConfig cfg) {
     FlowPlan unknownScript = _flowSelect(cfg, new string[]{ "scripts/src/common/new-owner.z42" }, root);
     _gateAssert(_strIn(_flowOutputs(cfg, unknownScript), "platform") && _flowHas(unknownScript.Steps, "sdk"), "unclassified scripts retain full CI and SDK obligations");
     _gateAssert(_strIn(_flowLocalCommands(cfg, _flowSelect(cfg, new string[]{ "scripts/src/package/desktop.z42" }, root)), "xtask package sdk --verify"), "local packaging changes verify SDK outside GREEN");
+    foreach (var helper in new string[]{ "scripts/src/common/cargo_artifacts.z42", "scripts/src/common/cargo_capture.rs" }) {
+        FlowPlan capture = _flowSelect(cfg, new string[]{ helper }, root);
+        _gateAssert(capture.Publish && _flowHas(capture.Steps, "sdk") && _flowHas(capture.Steps, "green") && _strIn(_flowOutputs(cfg, capture), "platform"), "Cargo artifact helpers select SDK and platform publication");
+    }
     FlowPlan fullPlan = _flowSelect(cfg, new string[]{ "scripts/src/test/gate.z42" }, root);
     _gateAssert(_flowJobSteps(cfg, fullPlan, "compiler-checks").Length > 0 && _strIn(_flowOutputs(cfg, fullPlan), "stdlib"), "full gate retains delegated CI obligations");
     _flowExpectBad(minimal.Replace("command =", "ci_command =").Replace("[\"check\", \"flows\"]", "[\"bash\"]"), "external CI command");
