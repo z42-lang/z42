@@ -1,0 +1,63 @@
+// Cargo JSON is the contract for locating intermediate artifacts and native inputs.
+namespace Z42Xtask;
+using Std.Collections;
+using Std.IO;
+using Std.Json;
+using Std.Cli;
+
+string[] _cargoArtifactSearchPaths(string json) {
+    List<string> paths = new List<string>();
+    foreach (var line in json.Split("\n")) {
+        if (line.Trim().Length == 0) { continue; }
+        JsonValue record = JsonValue.Parse(line);
+        string reason = record.Get("reason").AsString();
+        if (reason == "compiler-artifact") {
+            JsonValue files = record.Get("filenames");
+            for (int i = 0; i < files.Length(); i = i + 1) {
+                string path = "dependency=" + Path.GetDirectoryName(files.At(i).AsString());
+                if (!paths.Contains(path)) { paths.Add(path); }
+            }
+        } else if (reason == "build-script-executed") {
+            JsonValue linked = record.Get("linked_paths");
+            for (int i = 0; i < linked.Length(); i = i + 1) {
+                string path = linked.At(i).AsString();
+                if (!paths.Contains(path)) { paths.Add(path); }
+            }
+        }
+    }
+    string[] result = paths.ToArray();
+    _sortStrings(result);
+    return result;
+}
+
+int _cargoBuildArtifactLog(Process build, string output) {
+    string log = Path.Join(output, "cargo-artifacts.jsonl");
+    if (File.Exists(log)) { File.Delete(log); }
+    ProcessResult result = build.Arg("--message-format=json-render-diagnostics")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Inherit()).Run();
+    if (result.ExitCode != 0) { return result.ExitCode; }
+    Directory.Create(output);
+    // A Cargo plugin may consume stdout after the transparent Cargo proxy records it.
+    if (!File.Exists(log)) { File.WriteAllText(log, result.Stdout); }
+    return 0;
+}
+
+string _cargoArtifactProxy(string root, string log) {
+    string work = Path.GetDirectoryName(log);
+    Directory.Create(work);
+    string source = Path.Join(root, "scripts/src/common/cargo_capture.rs");
+    string exe = Path.Join(work, "cargo-capture" + (Platform.IsWindows() ? ".exe" : ""));
+    ProcessResult result = new Process("rustc").WorkingDirectory(root)
+        .Arg("--edition=2021").Arg("-C").Arg("prefer-dynamic=no")
+        .Arg(source).Arg("-o").Arg(exe).Stderr(Stdio.Inherit()).Run();
+    if (result.ExitCode != 0) { throw new CliException("could not build Cargo artifact capture tool"); }
+    return exe;
+}
+
+string[] _cargoRecordedSearchPaths(string output) {
+    string log = Path.Join(output, "cargo-artifacts.jsonl");
+    if (!File.Exists(log)) { throw new CliException("missing Cargo artifact records: " + log); }
+    string[] paths = _cargoArtifactSearchPaths(File.ReadAllText(log));
+    if (paths.Length == 0) { throw new CliException("Cargo produced no artifact search paths: " + log); }
+    return paths;
+}

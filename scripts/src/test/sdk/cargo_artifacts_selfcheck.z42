@@ -1,0 +1,61 @@
+namespace Z42Xtask;
+using Std.IO;
+using Std.Json;
+
+int _testCargoArtifactInputs() {
+    string work = _xtaskWork(_root(), "cargo-artifacts-selfcheck");
+    _resetDir(work);
+    try {
+        string target = Path.Join(work, "separate target/library unit");
+        string host = Path.Join(work, "separate host/macro unit");
+        string native = Path.Join(work, "native inputs");
+        string rlib = JsonValue.Stringify(JsonValue.OfString(Path.Join(target, "libbackend.rlib")));
+        string macro = JsonValue.Stringify(JsonValue.OfString(Path.Join(host, "macro.dll")));
+        string link = JsonValue.Stringify(JsonValue.OfString("native=" + native));
+        string json = "{\"reason\":\"compiler-message\"}\n"
+            + "{\"reason\":\"compiler-artifact\",\"filenames\":[" + rlib + "," + rlib + "]}\n"
+            + "{\"reason\":\"compiler-artifact\",\"filenames\":[" + macro + "]}\n"
+            + "{\"reason\":\"build-script-executed\",\"linked_paths\":[" + link + "]}\n"
+            + "{\"reason\":\"build-finished\",\"success\":true}\n";
+        File.WriteAllText(Path.Join(work, "cargo-artifacts.jsonl"), json);
+        string[] paths = _cargoRecordedSearchPaths(work);
+        if (paths.Length != 3 || !_strIn(paths, "dependency=" + target)
+            || !_strIn(paths, "dependency=" + host) || !_strIn(paths, "native=" + native)) {
+            throw new Exception("cargo-artifacts: target/host/native paths or deduplication failed");
+        }
+        File.WriteAllText(Path.Join(work, "cargo-artifacts.jsonl"), "{\"reason\":\"build-finished\",\"success\":true}\n");
+        bool rejected = false;
+        try { _cargoRecordedSearchPaths(work); } catch (Exception e) { rejected = true; }
+        if (!rejected) { throw new Exception("cargo-artifacts: empty artifact graph accepted"); }
+        _testStagedStdInputs(work);
+    } finally { Directory.Delete(work, true); }
+    Console.WriteLine("  PASS Cargo artifact paths and producer-owned Rust std");
+    return 0;
+}
+
+void _testStagedStdInputs(string work) {
+    string source = Path.Join(work, "producer");
+    string dest = Path.Join(work, "consumer");
+    Directory.Create(source); Directory.Create(dest);
+    string pattern = _componentStdPattern();
+    string name = pattern.Replace("*", "producer");
+    string stale = Path.Join(dest, pattern.Replace("*", "obsolete"));
+    File.WriteAllText(Path.Join(source, name), "producer std");
+    File.WriteAllText(stale, "obsolete std");
+    _componentCopyStagedStd(source, dest);
+    if (File.Exists(stale) || File.ReadAllText(Path.Join(dest, name)) != "producer std") {
+        throw new Exception("cargo-artifacts: producer std was replaced by local rustup or stale std survived");
+    }
+    File.Delete(Path.Join(source, name));
+    bool rejected = false;
+    try { _componentCopyStagedStd(source, dest); } catch (Exception e) { rejected = true; }
+    if (!rejected) { throw new Exception("cargo-artifacts: missing producer std accepted"); }
+    File.WriteAllText(Path.Join(source, name), "producer std");
+    File.WriteAllText(Path.Join(source, pattern.Replace("*", "conflict")), "conflicting std");
+    rejected = false;
+    try { _componentCopyStagedStd(source, dest); } catch (Exception e) { rejected = true; }
+    if (!rejected) { throw new Exception("cargo-artifacts: ambiguous producer std accepted"); }
+    if (File.ReadAllText(Path.Join(dest, name)) != "producer std") {
+        throw new Exception("cargo-artifacts: rejected copy changed destination");
+    }
+}

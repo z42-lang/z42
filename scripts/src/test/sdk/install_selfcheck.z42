@@ -42,6 +42,8 @@ int _testPackagesInstall() {
     string fakeCargoOut = _xtaskWork(root, "install-test-cargo");
     if (Directory.Exists(fakeCargoOut)) { Directory.Delete(fakeCargoOut, true); }
     Directory.Create(fakeCargoOut);
+    string stdName = _componentStdPattern().Replace("*", "producer");
+    File.WriteAllText(Path.Join(fakeCargoOut, stdName), "producer std");
     File.WriteAllText(Path.Join(fakeCargoOut, "z42vm"), "fake-z42vm-binary");
     foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
         File.WriteAllText(Path.Join(fakeCargoOut, _componentLibrary(stem)), "fake-" + stem);
@@ -82,6 +84,8 @@ int _testPackagesInstall() {
     // shared dir the ext scanner walks). It is colocated into programs/z42i/ by z42.repl's
     // ProvideNative build hook during `z42b publish` — covered by the publish e2e.
     _stgAssert("bin/libz42_repl absent", !File.Exists(Path.Join(pkgDir, "bin/libz42_repl.dylib")));
+
+    _stgAssert("producer-owned Rust std", File.ReadAllText(Path.Join(pkgDir, "native/" + stdName)) == "producer std");
 
     // Runtime installer includes the complete closure, final static archive and canonical headers.
     string staticName = Platform.IsWindows() ? "z42.lib" : "libz42.a";

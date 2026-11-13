@@ -15,6 +15,7 @@
 | `main-supersede.sh` | 按 nightly 到提交的累计 SDK 差异保留发布者、替换无 SDK 改动的旧运行 |
 | `retry_runner.py` | 有界恢复未取得 runner 且未执行步骤的 CI 故障 |
 | `upload_release_assets.py` | 上传后核对远端资产，处理瞬时上传故障 |
+| `test_cargo_capture.py` | 编译并执行 Cargo 消息转发工具，覆盖 stdout/stderr、元数据透传与失败退出码 |
 | `test_*.py` | 对应基础设施的事件、错误传播与状态转换回归 |
 
 ## 如何测试验证
@@ -22,6 +23,8 @@
 ```bash
 python3 -B -m unittest discover -s .github/ci -p 'test_*.py'
 ```
+
+Cargo 消息转发回归需要 PATH 上有宿主 `rustc`；它不构建 z42 SDK 或 Runtime。
 
 `test_changed_base.py` 使用临时本地 Git 仓库与 origin，检查真实 fetch / diff，并执行 workflow 的实际 Bash 测试步骤。
 SDK、编译器和 Runtime 不是这些基线选择测试的前置。新控制行为的用例追加到对应 `test_*.py`，确认被 discover 执行。
