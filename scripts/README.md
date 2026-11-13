@@ -84,6 +84,7 @@ dry-run 跑真实脚本，不联网）；真实 SDK 的离线安装由 CI packag
 |------|---------|---------|---------|
 | `setup [--os P] [--force]` | **首次 clone / 平台版本变动** | `versions.toml` | host 基础检查；`--os` 装该平台必备（rust targets + cargo-ndk / wasm-pack / NDK + 构建 SDK …） |
 | `setup vscode` / `setup check [--os P]` | 装编辑器扩展 / 看本机缺什么 | `versions.toml` | 工作区 VSCode 扩展 / 在场报告（`--os` 时缺即非 0） |
+| `check runtime-cargo` | 改 runtime Cargo 调用 / 构建配方后 | `cargo` | 最小 workspace 实编 alias / R0 / legacy 三类配置、压缩库部署、doctest 和 macOS 独立探针和子进程依赖加载；GREEN 的 runtime 单测阶段也会执行 |
 | `check versions` | 改 `versions.toml` 后对账（也是 GREEN 的一个 stage） | `versions.toml` + 投影文件 | versions.toml ↔ Cargo.toml / build.gradle.kts / Package.swift 一致性 |
 | `build stdlib` | 改了 stdlib `.z42` 源 | warm z42c 种子 | `artifacts/intermediate/libraries/flat/release/<lib>.zpkg`（扁平视图，无 namespace 索引） |
 | `build compiler` | 改了 z42c 编译器源 | warm z42c 种子 | `artifacts/build/compiler/<member>/release/dist/*.zpkg`（编译器域全部成员，见 `src/compiler/z42.workspace.toml`） |
@@ -257,6 +258,7 @@ scripts/
     │                       publish 前现场 cargo 编 apphost stub，免装 desktop workload
     ├── clean.z42           `clean` 命令（production / tests / bench / intermediate / all，见 artifacts-layout.md §4）
     ├── common/             共享基建（非某个命令专属；不反调命令实现）
+    │   ├── git.z42               flow / 本地选测共用的 Git 读取、改动文件与错误传播
     │   ├── repository.z42        仓库根（git）、源码里的常量、zpkg 文件头
     │   ├── toolchain.z42         用哪套工具链：运行中的 z42vm、`--toolchain` 选择器、Rust runtime 的 cargo 调用
     │   ├── logging.z42           verbosity 与流程的开始 / 结束 / 耗时标记
@@ -295,10 +297,9 @@ scripts/
     ├── test/               `test` 命令族与各类验证，按被测对象分子目录（见 test-layout.md §1）
     │   ├── command.z42           `test` 族的命令类 + LibUnitsCommand（test stdlib / bench stdlib 共用）
     │   ├── gate.z42              GREEN / e2e 编排 + stage 单源登记 / 只读列表 / 计时
-    │   ├── gate_selfcheck.z42    stage 编排与改动计划回归（skip / 必跑 / 首败 / 退出码 / 去重 / 全量回退保留外部检查），随 builder 夹具跑
-    │   ├── changed.z42           `test changed`：按改动文件挑命令与 stage
-    │   ├── changed_owners.z42    按 workspace 成员与声明包名解析改动归属
-    │   ├── changed_selfcheck.z42 真实 Git 的工作区归属、重命名、SDK 职责与读取失败回归，随 stage 自检跑
+    │   ├── gate_selfcheck.z42    stage 编排回归（skip / 必跑 / 首败 / 退出码），随 builder 夹具跑
+    │   ├── changed.z42           `test changed` / `test --changed`：直接消费 flow 计划的命令与 stage
+    │   ├── changed_selfcheck.z42 真实 Git 的工作区归属、重命名、SDK 职责与读取失败回归，由必跑 flows stage 执行
     │   ├── catalog.z42           `test list`：只读语料目录（pretty / json）
     │   ├── runtime/
     │   │   └── runner.z42        Rust runtime 完整 / 窄版测试的共用执行器与 GC 模式回归
@@ -369,7 +370,7 @@ scripts/
     │   ├── fixtures/             组件校验用的 WASM 宿主夹具
     │   ├── test_workload.z42     **`package workload test`**：打 payload-only 的 test workload（`test` 是 workload 名，不是「测试」）
     │   └── release.z42           `--archive`（包目录 → 归档）/ `package release`（desktop 合并 → SHA256SUMS → index → release-notes）
-    ├── flow/               配置、Git 输入、影响图与执行图、计划校验与导出
+    ├── flow/               配置、workspace 成员归属（owners.z42）、影响图与执行图、计划校验与导出
     ├── ci/                 GitHub 控制策略、离线回归与自举命令探针
     ├── setup/              `setup`：各平台依赖 / 编辑器资产
     │   ├── command.z42           `setup` 族的命令类（不带子命令 = 安装）

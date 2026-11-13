@@ -1,0 +1,24 @@
+namespace Z42EmptyBuilderBench;
+using Std.Text;
+using Std.Harness;
+
+void Measure(Bencher b, int mode) {
+    b.iter(() => {
+        var builder = new StringBuilder();
+        for (int i = 0; i < 4096; i++) {
+            builder.Append(mode == 2 || (mode == 1 && i % 4 == 0) ? "x" : "");
+        }
+        if (mode == 0) { builder.Append("done"); }
+        string result = builder.ToString();
+        Assert.Equal(mode == 0 ? 4 : mode == 1 ? 1024 : mode == 2 ? 4096 : 0, result.Length);
+        GC.KeepAlive(result);
+    });
+}
+[Benchmark]
+void builder_empty_prefix(Bencher b) { Measure(b, 0); }
+[Benchmark]
+void builder_mixed_empty(Bencher b) { Measure(b, 1); }
+[Benchmark]
+void builder_nonempty_control(Bencher b) { Measure(b, 2); }
+[Benchmark]
+void builder_only_empty(Bencher b) { Measure(b, 3); }

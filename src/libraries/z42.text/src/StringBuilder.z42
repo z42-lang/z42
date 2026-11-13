@@ -21,7 +21,7 @@ namespace Std.Text;
 /// 可变字符串构建器：Append 收集进 `string[]` buffer（2× 扩容），ToString 一次性合并。
 ///
 /// 基于 z42.core 原语（`string[]` + 手动扩容 + `String.FromChars`），避免每次 Append 都
-/// 拼接的 O(n²) 开销。不用 `List<string>` 是因为 stdlib 字段类型暂不支持泛型实例化语法。
+/// 拼接的 O(n²) 开销。空字符串不占用片段槽。
 public class StringBuilder {
     string[] _parts;
     int _count;
@@ -38,14 +38,16 @@ public class StringBuilder {
 
     // 追加字符串的快速路径：跳过 `Append(object)` 的 `Convert.ToString` 虚分派与装箱。JSON/TOML/YAML
     // 的 run-flush 解析器就是整段 `Substring` 追加，所以按引用存 `string[]`、ToString 时只拷一次最省。
-    /// 追加一个字符串。
+    /// 追加一个字符串；空字符串直接返回当前构建器。
     public StringBuilder Append(string value) {
+        int length = value.Length;
+        if (length == 0) { return this; }
         if (this._count == this._capacity) {
             this.Grow();
         }
         this._parts[this._count] = value;
         this._count = this._count + 1;
-        this._length = this._length + value.Length;
+        this._length = this._length + length;
         return this;
     }
 

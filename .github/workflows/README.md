@@ -23,9 +23,9 @@
 |------|------|------|
 | `changes`（detect-changes） | 总是 | 按路径分类，并输出下游测试和打包任务的选择结果 |
 | `docs-check` | 仅文档改动 | `xtask test docs links` 死链门禁 + `xtask check diagcodes` + `xtask check layout` |
-| `build-and-test`（test-host） | 非纯文档 | 多平台 `xtask build` + `xtask test` |
+| `build-and-test`（test-host） | 需要验证且非纯文档 | 多平台 `xtask build` + `xtask test` |
 | `host-package`（package-host） | platform / sdk_checks / examples 验证，或有发布输入，或定期 / 手动运行 | 各 host RID 的 SDK 打包与验证。平台打包时还构建 runtime / workload |
-| `toolchain-bootstrap`（compile-toolchain） | 非纯文档 | 编译 toolchain（z42c / stdlib / xtask zpkg）供下游 job 消费 |
+| `toolchain-bootstrap`（compile-toolchain） | 需要验证且非纯文档 | 编译 toolchain（z42c / stdlib / xtask zpkg）供下游 job 消费 |
 | `assemble-current-sdk` / `consume-current-sdk` | 随 CI | 组装当前 SDK 与共享 golden 产物，再下载执行语言和标准库 golden |
 | `vm-jit-consistency` / `stdlib-jit-consistency` / `stdlib-interp-consistency` | vm / stdlib / compiler 改动或 schedule / dispatch | VM / 标准库在 JIT 与 interp 下的一致性，分 shard |
 | `compiler-checks` | compiler / 专项执行器改动或 schedule / dispatch | 编译器专项检查 |
@@ -39,6 +39,7 @@
 
 - **用例归属与选测**：新增用例按[测试用例组织规范](../../docs/internals/src/devinfra/test-layout.md#1-用例放哪)选择目录、形态和本地执行器；修改 workflow 时分别核对[构建前提、测试与发布边界](../../docs/internals/src/devinfra/ci.md#构建测试与发布的选择边界)，工程归属与用例能力不在 YAML 里另抄一份名单。
 - **统一入口**：workflow 只调 `xtask <cmd>`，不在 yaml 里硬编码构建 / 测试命令。
+- **空 PR**：xtask 在真实 Git 差异为空时输出 `validation_required=false`，仅保留轻量检测和 `ci-ok`。有改动的 draft PR、全量回退与累计 SDK 发布继续验证。
 - **测试基线**：PR 使用 PR base，main push 使用事件的 `before`；初次 push、无法验证基线、定期 / 手动运行保留全量。基线选择与回归在 [流程规划](../../docs/internals/src/devinfra/flows.md)，发布仍使用 nightly 的累计 SDK 差异。
 - **工具链私有测试**：builder、interactive、launcher 的私有 `tests/` 由宿主测试或 SDK 验证消费，路径筛选从 `platform` 排除这些目录。builder 的私有测试也从 `stdlib` 排除。混合改动逐文件判定，生产输入仍选择对应专项。
 - **SDK 验证**：`scripts/src/test/sdk/` 与 launcher 的发行包私有夹具只选择四个桌面 host package；打包生产实现继续选择设备 / 浏览器消费者，无需逐用例平台配置。

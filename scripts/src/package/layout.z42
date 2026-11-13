@@ -77,14 +77,14 @@ void _plRuntimeDesktop(string root, _PkgLayout L, string rid) {
     _plStaticComponents(L, rid);
     if (rid.StartsWith("windows-")) {
         // 桌面 runtime 包同时提供动态链接面：嵌入者可链 import lib 直接注册组件（不 dlopen）。
-        foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
+        foreach (var stem in _rtStems(_root(), rid)) {
             L.HasFile("native/" + stem + ".dll.lib");
         }
     }
 }
 
 void _plComponentLibraries(_PkgLayout L, string rid) {
-    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
+    foreach (var stem in _rtStems(_root(), rid)) {
         L.HasFile("native/" + _componentLibrary(stem));
     }
     string pattern = rid.StartsWith("windows-") ? "std-*.dll" : (rid.StartsWith("macos-") ? "libstd-*.dylib" : "libstd-*.so");

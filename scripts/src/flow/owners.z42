@@ -5,25 +5,25 @@ using Std.IO;
 using Std.Collections;
 using Z42.Project;
 
-class _ChangedOwner {
+class FlowOwner {
     public string Name;
     public string RelativePath;
 
-    public _ChangedOwner(string name, string relativePath) {
+    public FlowOwner(string name, string relativePath) {
         this.Name = name;
         this.RelativePath = relativePath;
     }
 }
 
-class _ChangedOwners {
+class FlowOwners {
     public string Root;
     private Dictionary<string, WorkspaceMembers> workspaces = new Dictionary<string, WorkspaceMembers>();
 
-    public _ChangedOwners(string root) { this.Root = Path.Normalize(root); }
+    public FlowOwners(string root) { this.Root = Path.Normalize(root); }
 
-    public _ChangedOwner Find(string file, string workspace) {
+    public FlowOwner Find(string file, string workspace) {
         if (!this.workspaces.ContainsKey(workspace)) {
-            this.workspaces[workspace] = _changedWorkspaceMembers(workspace);
+            this.workspaces[workspace] = _flowWorkspaceMembers(workspace);
         }
         WorkspaceMembers members = this.workspaces[workspace];
         if (members == null) { return null; }
@@ -37,11 +37,11 @@ class _ChangedOwners {
                 length = prefix.Length;
             }
         }
-        return best < 0 ? null : new _ChangedOwner(members.Names[best], path.Substring(length, path.Length - length));
+        return best < 0 ? null : new FlowOwner(members.Names[best], path.Substring(length, path.Length - length));
     }
 }
 
-WorkspaceMembers _changedWorkspaceMembers(string workspace) {
+WorkspaceMembers _flowWorkspaceMembers(string workspace) {
     try { return _discoverWorkspaceMembers(workspace); }
     catch (Exception e) {
         ConsoleError.WriteLine("[test changed] workspace 无法发现成员，保留全量覆盖: " + e.Message);

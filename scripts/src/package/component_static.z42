@@ -5,6 +5,25 @@ using Std.IO;
 using Std.Cli;
 
 int _componentBuildStaticLibraries(string root, string rid, string profile) {
+    // R1f：配方树走 [alias]（参数全在 src/runtime/.cargo/config.toml）；android/旧树回退 env 路径。
+    string alias = _componentStaticAlias(rid);
+    if (alias.Length > 0 && _componentAliasTree(root)) {
+        Process a = _componentAliasProc(root, alias)
+            .Arg("--target-dir").Arg(_componentStaticDir(root, rid));
+        if (_ridCategory(rid) != "desktop") { a = a.Arg("--target").Arg(_ridToCargo(rid)); }
+        if (profile == "release") { a = a.Arg("--release"); }
+        if (rid.StartsWith("ios")) { a = a.Env("IPHONEOS_DEPLOYMENT_TARGET", _vReadOr(root, "platform.ios.min_ios", "16.0")); }
+        int ac = _cargoBuildArtifactLog(a, _componentPlatformOut(root, rid, profile, false));
+        if (ac != 0) { return ac; }
+    } else {
+        int c = _componentBuildStaticLegacy(root, rid, profile);
+        if (c != 0) { return c; }
+    }
+    return _componentFinishStatic(root, rid, profile);
+}
+
+// 旧树 / android 的 env 调用形态（与 R0 前逐字节一致）。
+int _componentBuildStaticLegacy(string root, string rid, string profile) {
     string features = "z42/static-embedding,z42/" + _componentPlatformPreset(rid).Replace(",", ",z42/");
     Process p = _componentPlatformCargo("build", root, rid, profile, false, "",
         Path.Join(_componentPlatformOut(root, rid, profile, false), "cargo-artifacts.jsonl"))
@@ -15,10 +34,13 @@ int _componentBuildStaticLibraries(string root, string rid, string profile) {
         features = features + ",z42-interp/jit,z42-jit/jit";
     }
     if (rid != "browser-wasm") { features = features + ",z42-interp/native-interop"; }
-    int c = _cargoBuildArtifactLog(p.Arg("--features").Arg(features),
+    return _cargoBuildArtifactLog(p.Arg("--features").Arg(features),
         _componentPlatformOut(root, rid, profile, false));
-    if (c != 0) { return c; }
-    c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_interp");
+}
+
+// 静态图产出的后续步骤（两种路径共用）：组件归档重组。
+int _componentFinishStatic(string root, string rid, string profile) {
+    int c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_interp");
     if (c != 0) { return c; }
     c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_profiler");
     if (c != 0) { return c; }
@@ -170,20 +192,16 @@ void _componentCopyStaticLibraries(string root, string native, string rid, strin
     _componentCopyStaticFiles(_componentPlatformOut(root, rid, profile, false), native, rid);
 }
 
+// R1：stem 集归 [runtime.lib]（jit 自动进出）；第三方导入库名单归统一复制器。
+// link.txt 不再随包：flags 由 _rtEmitRuntimeManifest 写进包内 manifest.toml 的
+// [components.<stem>].link_flags。
 void _componentCopyStaticFiles(string cargo, string native, string rid) {
-    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
-        if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
+    List<string> stems = new List<string>();
+    foreach (var stem in _rtStems(_root(), rid)) {
+        if (stem == "z42") { continue; }   // host 归档由各平台打包器自行放置
+        stems.Add(stem);
         string name = _componentStaticName(stem, rid);
         _componentCopyRequired(Path.Join(cargo, name), Path.Join(native, name));
-        // link.txt 不再随包：flags 由 _rtEmitRuntimeManifest 写进包内 manifest.toml 的
-        // [components.<stem>].link_flags；此处仍从构建侧 link.txt 读第三方导入库名单。
-        // 第三方导入库（已在 <cargo>/ 暂存或仍在 deps/）随档案进包，嵌入方才能链接。
-        foreach (var flag in File.ReadAllText(Path.Join(cargo, stem + "-link.txt")).Split(" ")) {
-            if (!flag.EndsWith(".lib")) { continue; }
-            string staged = Path.Join(cargo, flag);
-            string inDeps = Path.Join(Path.Join(cargo, "deps"), flag);
-            string source = File.Exists(staged) ? staged : (File.Exists(inDeps) ? inDeps : "");
-            if (source.Length > 0) { File.Copy(source, Path.Join(native, flag)); }
-        }
     }
+    _rtCopyThirdPartyLibs(cargo, native, stems.ToArray());
 }

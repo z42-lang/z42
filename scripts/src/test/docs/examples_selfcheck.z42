@@ -2,6 +2,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 int _selfcheckExamplesStage() {
     string root = _root();
@@ -15,7 +16,7 @@ int _selfcheckExamplesStage() {
         foreach (var stage in _gateStages(true)) {
             if (stage.Key != "examples") { continue; }
             found = true;
-            _gateAssert(_runGateStages(new GateStage[]{ stage }, "examples", new StageLogZ()) == 0,
+            _gateAssert(_runGateStages(new GateStage[]{ stage }, "examples", new List<StageTiming>()) == 0,
                 "skipped examples must not prepare SDK");
         }
         _gateAssert(found, "examples stage is registered");
