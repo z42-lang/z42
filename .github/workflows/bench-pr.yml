@@ -216,7 +216,7 @@ jobs:
 
       - name: Verdict logic self-check (_abVerdict/_abResampleVerdict + _benchDiff + _microDiff fixtures)
         shell: bash
-        run: xtask ci check-bench
+        run: xtask bench check
 
       # Build the base (merge-base) toolchain on THIS runner. The PR z42c (newer)
       # compiles the older base source (staged bootstrap guarantees newer compiles
@@ -481,7 +481,7 @@ jobs:
             cargo bench --locked \
               --bench gc_cycle_bench -- --baseline-lenient ab-base )
           echo "── informational: 整个 95% 区间在 +25% 之上（lower_bound > thr）= 标记，但不 fail ──"
-          xtask ci criterion-report "$CRITERION_HOME"
+          xtask bench criterion-report "$CRITERION_HOME"
           echo "── criterion tier is informational; it never fails this job ──"
 
       - name: Upload A/B results

@@ -89,7 +89,7 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
 
 事件名与待验证提交来自 GitHub 环境。PR 使用事件的 base SHA，push 使用 before SHA；浅克隆先获取基线。
 首次 push、无法获取或验证基线时回退全量并打印原因；schedule / workflow_dispatch 使用全量策略。
-JSON 计划通过 `ci-plan` artifact 共享，host 测试用 `xtask test --plan` 消费 stage 选择，编译器 job 用：
+JSON 计划通过 `ci-plan` artifact 共享；消费 job 独立获取浅克隆中缺失的 base commit，再重新计算并核对计划。host 测试用 `xtask test --plan` 消费 stage 选择，编译器 job 用：
 
 ```bash
 xtask flow run --plan artifacts/ci-plan.json --job compiler-checks
@@ -106,7 +106,7 @@ xtask flow run --plan artifacts/ci-plan.json --job compiler-checks
 
 `xtask check flows` 验证配置、影响与前提的隔离、workspace 归属、真实 Git 事件基线、重命名、计划过期、
 发布范围、runner 恢复、上传重试、自举边界、golden 归档和安装器。它也作为完整 GREEN 的必跑 stage。
-`xtask ci check-bench` 验证性能判定的入库夹具；`xtask ci check-installers book|wasm` 可单独运行安装器回归。
+`xtask bench check` 验证性能判定的入库夹具；`xtask ci check-installers book|wasm` 可单独运行安装器回归。
 
 目录图描述显式契约关系，不代替编译器的语义依赖分析。未知路径保守全量；流程执行串行，CI 的并行由 jobs 和矩阵实现。
 已有测试命令内部仍负责各自产物准备，配置可为新的组合流程声明额外 `requires`，无需复制其内部构建实现。

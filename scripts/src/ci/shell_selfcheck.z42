@@ -30,7 +30,7 @@ void _ciWrite(string root, string relative, string text) {
 }
 
 void _ciProbe(string root, string relative, string fixture) {
-    _ciWrite(root, relative, File.ReadAllText(Path.Join(_root(), "scripts/src/ci/testdata/" + fixture)));
+    _ciWrite(root, relative, File.ReadAllText(Path.Join(_root(), fixture)));
     new Process("chmod").Arg("+x").Arg(Path.Join(root, relative)).Run().EnsureSuccess();
 }
 
@@ -51,7 +51,7 @@ void _ciBootstrapChecks() {
             File.WriteAllBytes(Path.Join(dir, file), new byte[]{ 90, 80, 75, 71, 0, 0, 1, 0 });
         }
         _ciWrite(dir, ".z42/seed-id.txt", "fixture-seed\n");
-        foreach (var file in new string[]{ ".z42/bin/z42c", ".z42/bin/z42vm", ".github/ci/xtask" }) { _ciProbe(dir, file, "bootstrap-probe.sh"); }
+        foreach (var file in new string[]{ ".z42/bin/z42c", ".z42/bin/z42vm", ".github/ci/xtask" }) { _ciProbe(dir, file, "scripts/src/ci/testdata/bootstrap-probe.sh"); }
         int minor = scenario == "bridge" || scenario == "gap-tool" ? 2 : 1;
         if (scenario != "missing-format-tool") {
             _ciWrite(dir, "src/compiler/z42.package/src/ZpkgWriter.z42", scenario == "missing-format-full" ? "// missing\n" : "public static int Minor = " + minor.ToString() + ";\n");

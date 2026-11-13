@@ -3,7 +3,7 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Json;
 
-int _ciCriterionReport(string home) {
+int _benchCriterionReport(string home) {
     int regressions = 0;
     foreach (var file in _sortedStrings(Path.GlobRecursive(home, "*/change/estimates.json"))) {
         JsonValue v = JsonValue.Parse(File.ReadAllText(file));
@@ -16,7 +16,7 @@ int _ciCriterionReport(string home) {
         double point = mean.Get("point_estimate").AsDouble();
         double lo = ci.Get("lower_bound").AsDouble(); double hi = ci.Get("upper_bound").AsDouble();
         string name = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(file)));
-        string tag = _ciCriterionTag(point, lo);
+        string tag = _criterionTag(point, lo);
         if (tag == "REGRESSION") { regressions = regressions + 1; }
         Console.WriteLine(tag + " " + name + ": " + (point * 100.0).ToString() + "% (CI [" + (lo * 100.0).ToString() + "%, " + (hi * 100.0).ToString() + "%], width " + ((hi - lo) * 100.0).ToString() + "pp)");
     }
@@ -24,4 +24,4 @@ int _ciCriterionReport(string home) {
     return 0;
 }
 
-string _ciCriterionTag(double point, double lower) { return lower > 0.25 ? "REGRESSION" : point > 0.25 ? "SUSPECT" : "STABLE"; }
+string _criterionTag(double point, double lower) { return lower > 0.25 ? "REGRESSION" : point > 0.25 ? "SUSPECT" : "STABLE"; }

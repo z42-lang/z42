@@ -14,7 +14,7 @@ void _ciBookInstallerChecks() {
     string dir = _xtaskWork(_root(), "ci book installer"); _resetDir(dir);
     string installer = Path.Join(_root(), ".github/scripts/install-book-tools.sh");
     try {
-        _ciProbe(dir, "tools/curl", "book-curl.sh"); _ciProbe(dir, "tools/cargo", "book-cargo.sh");
+        _ciProbe(dir, "tools/curl", "scripts/src/setup/testdata/book-curl.sh"); _ciProbe(dir, "tools/cargo", "scripts/src/setup/testdata/book-cargo.sh");
         _ciWrite(dir, "archive/tool-fixture", "tool fixture");
         string archive = Path.Join(dir, "valid.tgz");
         new Process("tar").Arg("-czf").Arg(archive).Arg("-C").Arg(Path.Join(dir, "archive")).Arg("tool-fixture").Run().EnsureSuccess();
@@ -43,7 +43,7 @@ void _ciWasmInstallerChecks() {
     string dir = _xtaskWork(_root(), "ci wasm installer"); _resetDir(dir);
     string installer = Path.Join(_root(), ".github/scripts/install-wasm-opt.sh");
     try {
-        _ciProbe(dir, "tools/git", "wasm-git.sh"); _ciProbe(dir, "tools/cmake", "wasm-cmake.sh");
+        _ciProbe(dir, "tools/git", "scripts/src/setup/testdata/wasm-git.sh"); _ciProbe(dir, "tools/cmake", "scripts/src/setup/testdata/wasm-cmake.sh");
         foreach (var mode in new string[]{ "build", "failed-build", "wrong-version", "stale-cache" }) {
             string target = Path.Join(dir, mode); string log = target + ".log";
             if (mode == "stale-cache") {

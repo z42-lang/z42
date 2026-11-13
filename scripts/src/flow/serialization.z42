@@ -46,6 +46,7 @@ FlowPlan _flowReadPlan(FlowConfig cfg, string path, string root) {
     }
     string base_ = saved.Get("base").AsString();
     bool full = saved.Get("full").AsBool();
+    if (!full && policy != "local") { _flowEnsureCommit(root, base_); }
     string[] files = full ? new string[0] : policy == "local" ? _changedFiles(base_, root) : _flowDiff(root, base_, head);
     FlowPlan plan = _flowSelect(cfg, files, root, full);
     plan.Base = base_; plan.Head = head; plan.Tree = tree; plan.Policy = policy;

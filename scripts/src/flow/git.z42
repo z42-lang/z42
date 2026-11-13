@@ -72,3 +72,13 @@ FlowPlan _flowCreate(FlowConfig cfg, FlowPlanCommand options, string root) {
     if (policy == "local") { plan.Tree = _flowSnapshot(root); }
     return plan;
 }
+
+// A shared plan names commits, but every consuming job has its own shallow clone.
+// Fetch the verified base there as well; the planner job's object database is not shared.
+void _flowEnsureCommit(string root, string sha) {
+    try { _flowCommit(root, sha); return; } catch (Exception e) { }
+    ProcessResult fetch = new Process("git").Arg("-C").Arg(root).Arg("fetch").Arg("--no-tags")
+        .Arg("--depth=1").Arg("origin").Arg(sha).Run();
+    if (fetch.ExitCode != 0) { throw new Exception("cannot fetch saved plan base " + sha + ": " + fetch.Stderr); }
+    if (_flowCommit(root, sha) != sha) { throw new Exception("saved plan base is not an immutable commit"); }
+}

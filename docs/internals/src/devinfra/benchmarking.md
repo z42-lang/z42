@@ -336,7 +336,7 @@ checkout 并轻量自举 xtask 后，`xtask ci bench-scope` 比较事件基线�
 1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`），
    随后做**格式代差检测**（见 §10）。
 2. bootstrap PR 工具链（nightly z42c 种子 → 当前源码 warm 自建）。
-3. **判红逻辑自检**用 `xtask ci check-bench` 执行纯 JSON 与纯函数检查，在测量之前报告失败。
+3. **判红逻辑自检**用 `xtask bench check` 执行纯 JSON 与纯函数检查，在测量之前报告失败。
 4. **建 base 工具链**（同 runner，见 §3）。
 5. **e2e A/B（硬门禁）**：`bench --ab --tier gate --mode $MODE --threshold-time 0.15
    --pause-cap-ms 16 --threshold-pause 0.25 --threshold-pause-max 1.0 --base-vm/-libs/-driver …

@@ -376,11 +376,14 @@ scripts/
     │   ├── install.z42           `setup [--os]`：按 versions.toml 装开发依赖
     │   ├── android.z42           Android SDK·NDK·模拟器
     │   ├── check.z42             `setup check`：只读在场校验
+    │   ├── ci_installers_selfcheck.z42 + testdata/  CI 工具安装器的离线回归与命令探针
     │   └── vscode.z42            生成 z42.tmLanguage.json + **`check vscode-syntax` 门**
     └── bench/              性能测量：bench / profile
         ├── command.z42           `bench` 族的命令类（不带子命令 = e2e；stdlib / targets）
         ├── bench.z42             bench 基准 / --diff / --micro-diff / --ab 同 runner 回归门禁（判定数学 `_abVerdict` 可 `--ab-selftest`）
         ├── gc_pause.z42          GC 停顿指标解析（bench 场景头 `// gc-pause: report`）
+        ├── criterion.z42         Criterion 置信区间报告
+        ├── verdict_selfcheck.z42  `bench check`：入库判定夹具与退出码
         └── profile.z42           profile 单脚本性能（cpu/heap/threads/e2e；samply/dhat/hyperfine + counter JSON）
 ```
 

@@ -119,7 +119,7 @@ outputs = ["platform"]
 outputs = ["vm"]
 
 [flows.bench-verdict]
-command = ["ci", "check-bench"]
+command = ["bench", "check"]
 outside = true
 
 [flows.ci-all]
@@ -295,12 +295,28 @@ select = ["stdlib", "toolchain", "platform", "compiler"]
 
 [[inputs]]
 id = "ci-control"
+bench_only = true
 include = ["scripts/src/ci/**"]
 select = ["flow-check"]
 publish = false
 
 [[inputs]]
+id = "benchmark-verdict-implementation"
+include = ["scripts/src/bench/verdict_selfcheck.z42", "scripts/src/bench/criterion.z42"]
+select = ["bench-verdict"]
+bench_only = true
+publish = false
+
+[[inputs]]
+id = "installer-regressions"
+bench_only = true
+include = ["scripts/src/setup/ci_installers_selfcheck.z42", "scripts/src/setup/testdata/**"]
+select = ["flow-check"]
+publish = false
+
+[[inputs]]
 id = "benchmark-executor"
+
 include = ["scripts/src/bench/**"]
 select = ["bench-verdict", "bench-quick"]
 publish = false
@@ -313,6 +329,7 @@ publish = false
 
 [[inputs]]
 id = "planner-implementation"
+bench_only = true
 
 include = ["scripts/src/flow/**"]
 select = ["flow-check"]

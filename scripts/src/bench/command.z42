@@ -3,6 +3,7 @@
 namespace Z42Xtask;
 
 using Std.Cli;
+using Std.IO;
 using Std.Time;   // Stopwatch — bench 进程计时标记
 
 class BenchCommand : Command {
@@ -46,6 +47,8 @@ class BenchCommand : Command {
         this.SetDefaultAction("e2e hyperfine scenarios");
         this.AddCommand(new LibUnitsCommand("bench", "per-lib [Benchmark]"));
         this.AddCommand(new BenchTargetsCommand());
+        this.AddCommand(new BenchVerdictCheckCommand());
+        this.AddCommand(new BenchCriterionCommand());
     }
 
     public override int Run() {
@@ -64,4 +67,18 @@ class BenchTargetsCommand : Command {
 
     public BenchTargetsCommand() : base("targets", "manifest [[bench]] target fixtures (src/toolchain/builder/tests/fixtures/manifest-targets)") {}
     public override int Run() { return _testTargetsCore("bench", this.Name, this.NoBuild); }
+}
+
+class BenchVerdictCheckCommand : Command {
+    public BenchVerdictCheckCommand() : base("check", "run benchmark verdict fixtures") {}
+    public override int Run() {
+        try { return _checkBenchVerdicts(); }
+        catch (Exception e) { ConsoleError.WriteLine(e.Message); return 1; }
+    }
+}
+
+class BenchCriterionCommand : Command {
+    [Argument(help: "Criterion results directory")] public string Directory = "";
+    public BenchCriterionCommand() : base("criterion-report", "print informational Criterion confidence intervals") {}
+    public override int Run() { return _benchCriterionReport(this.Directory); }
 }

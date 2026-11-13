@@ -9,10 +9,8 @@ class CiCommand : Command {
         this.AddCommand(new CiRetryCommand());
         this.AddCommand(new CiUploadCommand());
         this.AddCommand(new CiSupersedeCommand());
-        this.AddCommand(new CiCriterionCommand());
         this.AddCommand(new CiInstallerCheckCommand());
         this.AddCommand(new CiBenchScopeCommand());
-        this.AddCommand(new CiBenchCheckCommand());
     }
 }
 
@@ -63,12 +61,6 @@ class CiSupersedeCommand : Command {
     }
 }
 
-class CiCriterionCommand : Command {
-    [Argument(help: "Criterion results directory")] public string Directory = "";
-    public CiCriterionCommand() : base("criterion-report", "print informational Criterion confidence intervals") {}
-    public override int Run() { return _ciCriterionReport(this.Directory); }
-}
-
 class CiInstallerCheckCommand : Command {
     [Argument(help: "book | wasm | all", choices: new string[]{ "book", "wasm", "all" })] public string Kind = "all";
     public CiInstallerCheckCommand() : base("check-installers", "offline installer regressions") {}
@@ -79,12 +71,4 @@ class CiBenchScopeCommand : Command {
     [Option(help: "benchmark comparison base")] public string Base = "";
     public CiBenchScopeCommand() : base("bench-scope", "select benchmark checks from flow ownership") {}
     public override int Run() { return _ciBenchScope(this.Base); }
-}
-
-class CiBenchCheckCommand : Command {
-    public CiBenchCheckCommand() : base("check-bench", "run benchmark verdict fixtures") {}
-    public override int Run() {
-        try { return _ciCheckBench(); }
-        catch (Exception e) { ConsoleError.WriteLine(e.Message); return 1; }
-    }
 }
