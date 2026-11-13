@@ -28,7 +28,8 @@
 tracked diff 与未跟踪文件的内容。执行时重新规划并核对整个计划；提交、配置或输入发生变化时拒绝旧计划。
 提交模式还要求工作区干净。计划不携带可直接信任的任意 Shell，命令从当前配置重新推导。
 
-`test changed [base]` 与 `test --changed <base>` 也读取同一配置，分别消费本地命令与 gate stage 元数据。
+`test changed [base]` 与 `test --changed <base>` 直接消费 `FlowPlan`：一次读取配置、一次规划，再分别取得本地命令或 gate stage 的补集。
+配置按每次操作读取；workspace 归属缓存仅存活于本次规划中。Git 读取由 `common/git.z42` 共用，成员归属在 `flow/owners.z42`，stage 键从 GREEN 执行注册表取得。
 开发增量验证不代替合并前的完整 `xtask test`。
 
 ## 配置与两种边
@@ -72,7 +73,8 @@ outside = true
 
 **执行前提不会反向扩散测试影响。** 例如 `tests -> runtime-test`，`runtime-test requires build-runtime`，
 只补齐构建；即使 `build-runtime affects e2e`，也不会因此选中 e2e。只有改动影响图选中的节点才沿 `affects` 传播。
-只需 CI 消费者的节点可以省略本地 `command`，通过 `ci_command` 和 `job` 保留独立 job 的验证义务。\n两张图分别拒绝环、未知引用和未知字段；未使用节点也须校验。稳定顺序与参数数组确保去重和含空格参数的准确传递。
+只需 CI 消费者的节点可以省略本地 `command`，通过 `ci_command` 和 `job` 保留独立 job 的验证义务。
+两张图分别拒绝环、未知引用和未知字段；未使用节点也须校验。稳定顺序与参数数组确保去重和含空格参数的准确传递。
 
 `green` 节点执行完整 `test`，本地可覆盖已有窄测试命令；外部义务继续保留。被完整 GREEN 覆盖的节点仍保存在计划中，
 CI 可以将其交给独立 job。SDK 验证、完整 Rust harness 和 benchmark 冒烟不会因选择 GREEN 而消失。
@@ -86,6 +88,8 @@ xtask check flows
 xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
   --out artifacts/ci-plan.json --github-output "$GITHUB_OUTPUT"
 ```
+
+规划器输出 `validation_required`，表示差异、完整策略或待发布 SDK 是否需要验证。空 PR 的值为 `false`：只保留轻量规划与 `ci-ok`，宿主测试、工具链构建及依赖它的任务跳过。空改动与纯文档分别判定；无法读取基线、schedule / dispatch 的完整策略及非 PR 的累计发布义务继续保守验证。
 
 事件名与待验证提交来自 GitHub 环境。PR 使用事件的 base SHA，push 使用 before SHA；浅克隆先获取基线。
 首次 push、无法获取或验证基线时回退全量并打印原因；schedule / workflow_dispatch 使用全量策略。
@@ -105,7 +109,7 @@ xtask flow run --plan artifacts/ci-plan.json --job compiler-checks
 ## 验证与限制
 
 `xtask check flows` 验证配置、影响与前提的隔离、workspace 归属、真实 Git 事件基线、重命名、计划过期、
-发布范围、runner 恢复、上传重试、自举边界、golden 归档和安装器。它也作为完整 GREEN 的必跑 stage。
+发布范围、runner 恢复、上传重试、自举边界、golden 归档和安装器。它也作为完整 GREEN 的必跑 stage；选测与真实 Git 回归只由此 stage 执行一次。
 `xtask bench check` 验证性能判定的入库夹具；`xtask ci check-installers book|wasm` 可单独运行安装器回归。
 
 目录图描述显式契约关系，不代替编译器的语义依赖分析。未知路径保守全量；流程执行串行，CI 的并行由 jobs 和矩阵实现。

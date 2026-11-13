@@ -2,10 +2,13 @@
 namespace Z42Xtask;
 using Std.IO;
 
+// 组件清单归 [runtime.lib]（z42_std framework 拼在组件之后）。
 string[] _iosFrameworkStems(string rid) {
-    return _componentTargetHasJit(rid)
-        ? new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression", "z42_std" }
-        : new string[]{ "z42", "z42_interp", "z42_compression", "z42_std" };
+    string[] stems = _rtStems(_root(), rid);
+    string[] xs = new string[stems.Length + 1];
+    for (int i = 0; i < stems.Length; i = i + 1) { xs[i] = stems[i]; }
+    xs[stems.Length] = "z42_std";
+    return xs;
 }
 int _iosDynamicFramework(string root, string pkg, string rid, string profile, string version, string minimum) {
     int c = _componentBuildPlatform(root, rid, profile); if (c != 0) { return c; }
@@ -13,7 +16,7 @@ int _iosDynamicFramework(string root, string pkg, string rid, string profile, st
     string cargo = _componentPlatformOut(root, rid, profile, true);
     string native = Path.Join(pkg, "native");
     string raw = _xtaskWork(root, "ios-shared-std-" + rid);
-    _resetDir(raw); _componentCopyStd(raw, target);
+    _resetDir(raw); _componentCopyStagedStd(cargo, raw, target);
     string[] std = Path.Glob(raw, "libstd-*.dylib");
     foreach (var stem in _iosFrameworkStems(rid)) {
         string source = stem == "z42_std" ? std[0] : Path.Join(cargo, "lib" + stem + ".dylib");
@@ -62,7 +65,7 @@ int _iosRelocateFramework(string binary, string stem, string stdName) {
         if (marker < 0) { continue; }
         string old = line.Substring(0, marker); string file = Path.GetFileName(old);
         string dependency = file == stdName ? "z42_std" : "";
-        foreach (var module in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+        foreach (var module in _rtStems(_root(), "iossim-arm64")) {  // 识别用并集（含 jit）：多识别一个 stem 不会误配
             if (file == "lib" + module + ".dylib") { dependency = module; }
         }
         if (dependency.Length == 0) { continue; }
