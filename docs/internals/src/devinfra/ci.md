@@ -177,6 +177,21 @@ commit 不因此挂红。publish 真失败照样红。
 PR 之间不在运行中的 job 内轮询排队；同一 ref 的新提交通过 workflow concurrency 取消旧运行。
 main 上的运行替换规则与 nightly 发布串行化分别由对应机制管理。
 
+PR 的测试和打包矩阵使用 `strategy.fail-fast`，同矩阵已有失败时取消其它运行中或排队的项。
+main / schedule / 手动运行保留完整结果。这个机制不跨独立 job 或 workflow 取消，
+`ci-ok` 继续以 `always()` 汇总，取消和失败仍阻止当前提交合并。
+
+普通取消会重新评估 job 的条件；旧运行中 `always()` 的聚合 job 可能继续等待 runner，
+占住同 PR 的 workflow concurrency。可信 main 的 `retry-ci-runner.yml` 在 CI 的
+`workflow_run: requested` 事件调用 `xtask ci supersede`：只检查最近 100 次 CI PR 运行，
+校验 workflow、PR 链接、head 仓库、分支与较早 run number，并在每次取消前重新读取开放 PR 的最新 head。
+先普通取消，等待两秒，再次校验后才 force-cancel 仍未完成的旧 head。当前 head、其它 PR 与主线发布不参与。
+API 的完成竞态按已完成处理，其它错误显式失败；`--dry-run` 可本地查看候选。
+控制 workflow 只检出 `github.workflow_sha` 的可信源码，不消费 PR 产物或运行 PR 代码。
+
+有界队列的 FIFO 按进入 concurrency 等待的时间排序，不能保证最先打开的 PR 最先完成。
+不通过占用 runner 轮询整轮 CI 来实现全仓优先级。
+
 ### macOS 资源队列与 runner 获取失败恢复
 
 主 CI 在 `detect-changes` 中为 macOS 的宿主测试、宿主打包和其余检查分别选择一个资源槽：

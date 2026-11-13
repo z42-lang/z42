@@ -111,6 +111,13 @@ void _ciGoldenChecks() {
 
 void _ciQueueChecks() {
     string workflow = File.ReadAllText(Path.Join(_root(), ".github/workflows/ci.yml"));
+    foreach (var name in new string[]{ "build-and-test", "host-package", "vm-jit-consistency", "stdlib-consistency", "test-wasm", "test-ios", "test-android" }) {
+        int begin = workflow.IndexOf("\n  " + name + ":");
+        string section = workflow.Substring(begin + 1);
+        section = section.Substring(0, section.IndexOf("matrix:"));
+        _gateAssert(section.Contains("fail-fast: ${{ github.event_name == 'pull_request' }}"), "PR matrix failure releases sibling jobs: " + name);
+    }
+    _gateAssert(workflow.Substring(workflow.IndexOf("\n  ci-ok:")).Contains("if: always()"), "cancelled current-head validation still reaches the required aggregate gate");
     string script = _ciShellBody(workflow, "id: macos_queue");
     string output = _xtaskWork(_root(), "ci-queue-output"); string first = "";
     try {
@@ -146,4 +153,6 @@ void _ciBootstrapAvailabilityChecks() {
     }
     string retry = File.ReadAllText(Path.Join(_root(), ".github/workflows/retry-ci-runner.yml"));
     _gateAssert(retry.Contains("ref: ${{ github.workflow_sha }}") && retry.Contains("persist-credentials: false") && !retry.Contains("sparse-checkout:"), "privileged retry executes a complete trusted checkout");
+    _gateAssert(retry.Contains("types: [requested, completed]") && retry.Contains("run: xtask ci supersede")
+        && retry.Contains("github.event.action == 'requested'"), "stale cleanup starts from a requested event before the old run can finish");
 }
