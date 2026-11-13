@@ -64,4 +64,4 @@ LoadOptions.components 选择可选的同构建组件。ComponentOptions::with_s
 
 `runtime.rs` 实现 Rust 服务，`ffi.rs` 实现 C ABI。`runtime_tests.rs` 覆盖输入来源、重复调用、初始化错误和执行模式；`host_tests.rs` 覆盖 ABI 契约。
 
-原生提供方装配由 `builtins.rs` 选择，`extensions.rs` 注册每 VM 状态和 loader 的按名称路径服务。核心库、终端、压缩分别提交描述符；host 注入匹配的 metadata 查询目录和 exec 执行表。
+原生提供方装配由 `builtins.rs` 选择，`extensions.rs` 注册每 VM 状态和 loader 的按名称路径服务。核心库、诊断、harness、终端、压缩分别提交描述符；host 注入匹配的 metadata 查询目录和 exec 执行表。
