@@ -1,229 +1,67 @@
-// xtask — `test changed`: inspect uncommitted git changes, map each file to a coarse
-// test command, dedupe, and run the union in order.
-//
-// Local commands and gate skips share scripts/flows.toml and the flow planner.
+// Local change commands and GREEN skips consume the same flow plan as CI.
 namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
-using Std.Collections;
 
-// `test changed` body — run in-process. Returns the overall exit code:
-// 0 on success, 2 when not a git repo / spawn failure, or the first failing
-// command's exit code. `base_` is the diff base (default "HEAD" resolved by
-// the caller); `dryRun` prints the plan without executing.
 int _testChangedRun(string base_, bool dryRun) {
     Stopwatch sw = _procStart("test changed");
-    if (!_isInGitRepo()) {
-        ConsoleError.WriteLine("[test-changed] error: not a git repository");
-        return 2;
-    }
     Console.WriteLine("[test-changed] base = " + base_);
-
     string root;
     string[] changed;
     try {
         root = _changedGitRoot();
         changed = _changedFiles(base_, root);
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         ConsoleError.WriteLine("[test-changed] error: " + e.Message);
         return 2;
     }
-
     if (changed.Length == 0) {
         Console.WriteLine("[test-changed] no changed files; nothing to run");
         return 0;
     }
-
+    FlowConfig cfg = _flowConfigFor(root);
+    FlowPlan plan = _flowSelect(cfg, changed, root);
     Console.WriteLine("[test-changed] changed files (" + changed.Length.ToString() + "):");
-    foreach (var f in changed) { Console.WriteLine("  " + f); }
-
-    // ── Map → de-duped plan ──────────────────────────────────────────────
-    string[] plan = _buildChangedPlan(changed, root);
-    if (dryRun) { _changedGateSkips(base_); }   // 同一张表的另一列：`xtask test --changed` 会怎么分流
-    if (plan.Length == 0) {
-        Console.WriteLine("[test-changed] only documentation / spec / config touched; no tests to run");
-        return 0;
-    }
-
-    // ── Plan output ──────────────────────────────────────────────────────
+    foreach (var file in changed) { Console.WriteLine("  " + file); }
     Console.WriteLine("[test-changed] plan:");
-    foreach (var cmd in plan) { Console.WriteLine("  → " + cmd); }
-
+    foreach (var command in _flowLocalCommands(cfg, plan)) { Console.WriteLine("  → " + command); }
     if (dryRun) {
+        _changedStageSkips(cfg, plan);
         Console.WriteLine("[test-changed] --dry-run: not executing");
         return 0;
     }
-
-    FlowConfig cfg = _flowConfigFor(root);
-    FlowPlan selected = _flowSelect(cfg, changed, root);
-    int __rc = _flowExecute(cfg, selected, selected.Steps, "");
-    if (__rc == 0) { _procEnd("test changed", sw); }
-    return __rc;
+    int rc = _flowExecute(cfg, _flowLocalSteps(cfg, plan), false);
+    if (rc == 0) { _procEnd("test changed", sw); }
+    return rc;
 }
 
-// 相对 base 的改动文件（已跟踪的 diff + 未跟踪的新文件），去重排序。
-string _changedGitRoot() {
-    return _gitOutput(new string[]{ "rev-parse", "--show-toplevel" }).Trim();
-}
-
-string[] _changedFiles(string base_, string root = "") {
-    if (root.Length == 0) { root = _changedGitRoot(); }
-    // 将 rename 视为删旧路径和加新路径，旧 owner 也参与选测。
-    string tracked = _gitOutput(new string[]{ "-C", root, "diff", "--no-relative", "--no-renames", "--name-only", "-z", base_, "--" });
-    string untracked = _gitOutput(new string[]{ "-C", root, "ls-files", "--others", "--exclude-standard", "-z" });
-    return _dedupeNonEmpty((tracked + untracked).Split("\0"));
-}
-
-// gate 里按改动分流的「重」stage（skip 短名）= _gateStages 里登记了 Changes 的那些；其余恒跑。
-string[] _changedScopedStages() { return _gateStageKeys(""); }
-
-// 「跑 z42 代码的 stage」全集：编译器 / stdlib / 运行时的改动会改变一切被编译、被执行的东西。
-string[] _stagesAllZ42() { return _gateStageKeys("z42"); }
-
-// 按改动分流的 stage 的 skip 键（登记序）；`changes` 非空时只取该类别。
-string[] _gateStageKeys(string changes) {
-    var keys = new List<string>();
-    foreach (var st in _gateStages(true)) {
-        if (st.Changes.Length > 0 && (changes.Length == 0 || st.Changes == changes)) { keys.Add(st.Key); }
-    }
-    return keys.ToArray();
-}
-
-string[] _withStage(string[] xs, string extra) {
-    var r = new List<string>();
-    r.AddRange(xs);
-    r.Add(extra);
-    return r.ToArray();
-}
-
-// `xtask test --changed <base>` 的分流：返回要追加进 --skip 的重 stage（csv；"" = 一个都不跳）。
-// 任一文件判成「全跑」（scripts/、未知文件、编译器、运行时源码……）⇒ 不跳。打印判定，CI 日志里看得见为什么跳了。
-// 拿不到改动（不是 git 仓库 / base 不存在 / Git 读取失败）⇒ 不跳（保守）。
+// Explicit change runs fail on unreadable Git inputs; incremental GREEN retains every stage.
 string _changedGateSkips(string base_) {
     Console.WriteLine("[test --changed] base = " + base_);
     string root;
     string[] changed;
     try {
-        _gitOutput(new string[]{ "rev-parse", "--verify", "--quiet", base_ + "^{commit}" });
         root = _changedGitRoot();
+        _flowCommit(root, base_);
         changed = _changedFiles(base_, root);
     } catch (Exception e) {
         Console.WriteLine("[test --changed] 无法读取改动 —— 全跑: " + e.Message);
         return "";
     }
-    string need = "";
-    var owners = new _ChangedOwners(root);
-    foreach (var f in changed) {
-        _MapResult m = _mapFile(f, owners);
-        if (m.needsFull) {
-            Console.WriteLine("[test --changed] " + f + " ⇒ 全跑");
-            return "";
-        }
-        foreach (var st in m.stages) {
-            if (!_skipHas(need, st)) { need = need.Length == 0 ? st : need + "," + st; }
-        }
-    }
-    string skip = "";
-    foreach (var st in _changedScopedStages()) {
-        if (!_skipHas(need, st)) { skip = skip.Length == 0 ? st : skip + "," + st; }
-    }
-    Console.WriteLine("[test --changed] " + changed.Length.ToString() + " 个改动文件；需要的重 stage: "
+    FlowConfig cfg = _flowConfigFor(root);
+    return _changedStageSkips(cfg, _flowSelect(cfg, changed, root));
+}
+
+string _changedStageSkips(FlowConfig cfg, FlowPlan plan) {
+    string need = String.Join(",", _flowStages(cfg, plan));
+    string skip = _flowSkipStages(cfg, plan);
+    Console.WriteLine("[test --changed] " + plan.Files.Length.ToString() + " 个改动文件；需要的重 stage: "
         + (need.Length == 0 ? "（无）" : need) + "；跳过: " + (skip.Length == 0 ? "（无）" : skip));
     return skip;
 }
 
-// Map every changed file (_mapFile) into a de-duped plan. needsFull on any file
-// replaces covered commands with the full gate; checks outside GREEN remain required.
-string[] _buildChangedPlan(string[] changed, string root = "") {
-    if (root.Length == 0) { root = _root(); }
-    FlowConfig cfg = _flowConfigFor(root);
-    return _flowLocalCommands(cfg, _flowSelect(cfg, changed, root));
-}
-
-// ── Mapping ──────────────────────────────────────────────────────────────
-
-class _MapResult {
-    public string[] commands;
-    public string[] stages;   // 受影响的 gate stage（skip 短名；见 _changedScopedStages）
-    public bool needsFull;
-    public string[] outsideCommands; // 完整 GREEN 未覆盖的命令，全量回退时仍须执行。
-
-    public _MapResult() {
-        this.commands = new string[0];
-        this.stages = new string[0];
-        this.needsFull = false;
-        this.outsideCommands = new string[0];
-    }
-}
-
-// Both local narrow commands and gate skip metadata consume the same flow graph.
-_MapResult _mapFile(string file, _ChangedOwners owners) {
-    FlowConfig cfg = _flowConfigFor(owners.Root);
-    FlowPlan plan = _flowSelect(cfg, new string[]{ file }, owners.Root);
-    var result = new _MapResult();
-    result.needsFull = _flowHas(plan.Steps, "green");
-    result.stages = _flowStages(cfg, plan);
-    var commands = new List<string>(); var outside = new List<string>();
-    foreach (var step in plan.Steps) {
-        FlowNode n = cfg.Find(step.Id);
-        string[] args = _flowArgs(n, step);
-        if (args.Length == 0) { continue; }
-        string command = "xtask " + String.Join(" ", args);
-        if (!commands.Contains(command)) { commands.Add(command); }
-        if (n.Outside && !outside.Contains(command)) { outside.Add(command); }
-    }
-    result.commands = commands.ToArray(); result.outsideCommands = outside.ToArray();
-    return result;
-}
-
-// ── Git helpers ──────────────────────────────────────────────────────────
-
-bool _isInGitRepo() {
-    try {
-        ProcessResult r = new Process("git")
-            .Arg("rev-parse").Arg("--is-inside-work-tree")
-            .Stdout(Stdio.Null()).Stderr(Stdio.Null())
-            .Run();
-        return r.ExitCode == 0;
-    } catch (Exception e) {
-        return false;
-    }
-}
-
-string _gitOutput(string[] args) {
-    ProcessResult r = new Process("git").Args(args).Run();
-    if (r.ExitCode != 0) {
-        throw new Exception("git " + String.Join(" ", args) + " (exit " + r.ExitCode.ToString() + "): " + r.Stderr.Trim());
-    }
-    return r.Stdout;
-}
-
-// ── String / array helpers (module-private) ──────────────────────────────
-
-// Return the n-th path segment (0-based; '/'-split).
-string _segment(string path, int n) {
-    string[] parts = path.Split("/");
-    return n < parts.Length ? parts[n] : "";
-}
-
-string[] _dedupeNonEmpty(string[] xs) {
-    var r = new List<string>();
-    foreach (var x in xs) { if (x.Length > 0 && !r.Contains(x)) { r.Add(x); } }
-    string[] tight = r.ToArray();
-    _sortStrings(tight);
-    return tight;
-}
-
-// ── `test changed` 命令入口 ──
-
-// Base ref: positional, else env `Z42_TEST_CHANGED_BASE`, else HEAD.
 int _testChanged(string baseArg, bool dryRun) {
-    string base_ = baseArg;
-    if (base_.Length == 0) {
-        base_ = Environment.GetEnvironmentVariable("Z42_TEST_CHANGED_BASE", "");
-    }
-    if (base_.Length == 0) { base_ = "HEAD"; }
-    return _testChangedRun(base_, dryRun);
+    string base_ = baseArg.Length > 0 ? baseArg : Environment.GetEnvironmentVariable("Z42_TEST_CHANGED_BASE", "HEAD");
+    return _testChangedRun(base_.Length == 0 ? "HEAD" : base_, dryRun);
 }

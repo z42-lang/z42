@@ -1,0 +1,24 @@
+// Shared Git reads for flow planning and local change selection.
+namespace Z42Xtask;
+
+using Std.IO;
+
+string _changedGitRoot() {
+    return _gitOutput(new string[]{ "rev-parse", "--show-toplevel" }).Trim();
+}
+
+string[] _changedFiles(string base_, string root = "") {
+    if (root.Length == 0) { root = _changedGitRoot(); }
+    // 将 rename 视为删旧路径和加新路径，旧 owner 也参与选测。
+    string tracked = _gitOutput(new string[]{ "-C", root, "diff", "--no-relative", "--no-renames", "--name-only", "-z", base_, "--" });
+    string untracked = _gitOutput(new string[]{ "-C", root, "ls-files", "--others", "--exclude-standard", "-z" });
+    return _dedupeNonEmpty((tracked + untracked).Split("\0"));
+}
+
+string _gitOutput(string[] args) {
+    ProcessResult r = new Process("git").Args(args).Run();
+    if (r.ExitCode != 0) {
+        throw new Exception("git " + String.Join(" ", args) + " (exit " + r.ExitCode.ToString() + "): " + r.Stderr.Trim());
+    }
+    return r.Stdout;
+}

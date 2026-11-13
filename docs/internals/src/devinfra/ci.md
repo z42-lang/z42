@@ -115,13 +115,15 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 定期全量测试用于补全覆盖，nightly 发布则按标签到 HEAD 的累计差异判定；不能用单个 push 的 diff
 替代发布判定，漏掉尚未进入种子的生产改动。
 
-### 事件与文档快速通道
+### 事件与快速通道
 
 | 事件 | 行为 |
 |---|---|
 | `pull_request` / `push` to main | 无路径过滤——**纯文档改动照样跑 CI**，但走快速通道（见下） |
 | `schedule`（每日 16:00 UTC） | 无条件全跑，外加只在这里跑的 Tier-2 平台测试 |
 | `workflow_dispatch` | 无条件全跑；格式 bump 后手动重发 nightly 的逃生口 |
+
+**空 PR 快速通道**：Git 差异为空且没有全量回退时，xtask 输出 `validation_required=false`。只运行轻量 `detect-changes` 和必需汇总 `ci-ok`；四平台宿主、工具链及依赖链跳过。Draft 状态不作为跳过依据，有真实改动的 draft PR 正常验证。非 PR 的累计 SDK 发布与显式完整策略保留构建前提。
 
 **纯文档快速通道**：改动**全部**是 `docs/**` 或 `*.md`（`docs/learn/**`、`examples/**` 除外——学习手册的
 示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`。改动集合由 xtask 从真实 Git 差异读取；
@@ -240,8 +242,8 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
 |---|---|---|---|
 | `detect-changes` | `changes` | 总跑 | — |
 | `docs-check(linux-x64)` | `docs-check` | **仅**纯文档改动（PR / main push） | — |
-| `test-host(<plat>)` | `build-and-test` | 非纯文档改动 | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
-| `compile-toolchain(linux-x64)` | `toolchain-bootstrap` | 非纯文档改动 | — |
+| `test-host(<plat>)` | `build-and-test` | 需要验证且非纯文档 | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 |
+| `compile-toolchain(linux-x64)` | `toolchain-bootstrap` | 需要验证且非纯文档 | — |
 | `compile-test-assets(linux-x64)` | `assemble-current-sdk` | 随 `compile-toolchain` | — |
 | `test-consume(linux-x64)` | `consume-current-sdk` | 随 `compile-test-assets` | — |
 | `test-vm-jit(linux-x64) shard k` | `vm-jit-consistency` | `vm ‖ compiler` | 2 shard |

@@ -1,0 +1,67 @@
+// Run real Cargo against tiny workspaces so directory/config discovery is exercised without VM builds.
+namespace Z42Xtask;
+using Std.IO;
+
+int _selfcheckRuntimeCargo() {
+    string root = _root();
+    string dir = _xtaskWork(root, "runtime-cargo-selfcheck");
+    _resetDir(dir);
+    foreach (var mode in new string[]{ "aliases", "r0", "legacy" }) {
+        string tree = Path.Join(dir, mode);
+        string runtime = _runtimeCargoFixture(root, tree, mode);
+        _runtimeCargoExpect(new Process("cargo").Arg("generate-lockfile").Arg("--offline")
+            .WorkingDirectory(runtime), mode + " lockfile");
+        _runtimeCargoExpect(_componentTargets(_componentCargo("build", tree, "release"), tree)
+            .Arg("--offline"), mode + " runtime build");
+        string destination = Path.Join(tree, "native");
+        int c = _componentBuildCompression(tree, _detectHostRid(), "release", true, destination);
+        if (c != 0 || !File.Exists(Path.Join(destination, _componentLibrary("z42_compression")))) {
+            throw new Exception("runtime Cargo " + mode + ": compression build/copy failed");
+        }
+        int stat = _componentBuildStaticLibraries(tree, _detectHostRid(), "release");
+        if (stat != 0) { throw new Exception("runtime Cargo " + mode + ": static archive build failed"); }
+        if (mode == "aliases") {
+            _runtimeCargoExpect(_componentAliasProc(tree, "z42-test-dyn").Arg("--workspace").Arg("--doc")
+                .Arg("--offline").Arg("--target-dir").Arg(Path.Join(tree, "docs")), "workspace doctests");
+        }
+    }
+    // Cargo must discover z42-test-dyn through cwd before it can dispatch the doctest command.
+    _runtimeCargoExpect(_runtimeTestCargoFor("test", Path.Join(dir, "docs"))
+        .Arg("--doc").Arg("--help"), "doctest alias discovery");
+    Console.WriteLine("  ✅ runtime Cargo: alias/R0/legacy builds, compression copy, workspace doctests");
+    return _selfcheckRuntimeLoader();
+}
+
+string _runtimeCargoFixture(string root, string tree, string mode) {
+    string runtime = Path.Join(tree, "src/runtime");
+    Directory.Create(Path.Join(runtime, ".cargo"));
+    string config = mode == "aliases" ? File.ReadAllText(Path.Join(root, _runtimeCargoConfig())) : "";
+    File.WriteAllText(Path.Join(runtime, ".cargo/config.toml"), config
+        + "\n[env]\nZ42_RUNTIME_CARGO_FIXTURE = \"configured\"\n");
+    if (mode == "r0") { File.WriteAllText(Path.Join(runtime, ".cargo/config-dynamic.toml"), "# R0 dynamic config\n"); }
+    string[] names = new string[]{ "z42", "z42-interp", "z42-jit", "z42-compression" };
+    File.WriteAllText(Path.Join(runtime, "Cargo.toml"),
+        "[workspace]\nmembers = [\"z42\", \"z42-interp\", \"z42-jit\", \"z42-compression\"]\nresolver = \"2\"\n"
+        + "[profile.release-dynamic]\ninherits = \"release\"\n");
+    foreach (var name in names) {
+        string crate = Path.Join(runtime, name);
+        Directory.Create(Path.Join(crate, "src"));
+        File.WriteAllText(Path.Join(crate, "Cargo.toml"),
+            "[package]\nname = \"" + name + "\"\nversion = \"0.0.0\"\nedition = \"2021\"\n"
+            + "[features]\ndesktop-dynamic = []\ndesktop-static = []\nstatic-embedding = []\ndynamic = []\ncli = []\ninterp = []\njit = []\n"
+            + "shared-core = []\nnative-interop = []\nnet = []\ntls = []\n"
+            + (name == "z42" ? "[[example]]\nname = \"z42\"\npath = \"src/lib.rs\"\ncrate-type = [\"staticlib\"]\n" : "")
+            + (name == "z42-compression" ? "[lib]\ncrate-type = [\"rlib\", \"cdylib\"]\n" : ""));
+        File.WriteAllText(Path.Join(crate, "src/lib.rs"),
+            "/// ```\n/// assert_eq!(1 + 1, 2);\n/// ```\npub const CONFIG: &str = env!(\"Z42_RUNTIME_CARGO_FIXTURE\");\n"
+            + "#[no_mangle]\npub extern \"C\" fn probe_" + name.Replace("-", "_") + "() -> i32 { 42 }\n");
+    }
+    return runtime;
+}
+
+void _runtimeCargoExpect(Process cargo, string scenario) {
+    ProcessResult result = cargo.Run();
+    if (result.ExitCode != 0) {
+        throw new Exception("runtime Cargo " + scenario + ": " + result.Stderr + result.Stdout);
+    }
+}
