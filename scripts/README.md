@@ -275,11 +275,12 @@ scripts/
     │   ├── fs.z42                文件系统原语（_resetDir/_copyAll/_linkAll/_copyFile/_copyIfExists/_cleanGlob/_makeExe；写入前先断链）
     │   └── harness/              test 与 bench 共用的执行机制（只被 test/、bench/ 调用，不进发布判定）
     │       ├── fixtures.z42          声明式夹具（`expect.toml`）的通用引擎：z42c / z42b 命令行夹具与发行包夹具共用
+    │       ├── tooling.z42           共享工具路径与 z42b unit 进程工厂
     │       ├── fixture_tools.z42     开发树夹具共用的 z42c / z42b / VM 进程工厂
     │       ├── fixture_build.z42     多包 / 多入口夹具的构建、隔离 libs、产物定位与汇总
     │       ├── manifest_targets.z42  manifest 目标读取/校验、test/bench 编排与聚合（stdlib / targets / example 三个 flow 共用）
     │       │                         + micro bench 结果聚合 `MicroBenchAgg`（`bench stdlib --json`）
-    │       ├── package_units.z42     unit 级机制（发现 / 批量编译运行 / 合成 manifest）
+    │       ├── package_units.z42     unit 级机制（发现 / 批量编译运行）
     │       ├── unit_projects.z42     workspace 真实工程集合、声明包名选择与按 kind 分片
     │       └── execution_profile.z42 执行剖面词汇（tier × aot_pkgs × VM caps）
     ├── build/              编译各组件、生成文档产物
@@ -296,6 +297,7 @@ scripts/
     │       └── index.z42         `build docs index`：Rust 符号索引（`z42 doc` 查询用）
     ├── test/               `test` 命令族与各类验证，按被测对象分子目录（见 test-layout.md §1）
     │   ├── command.z42           `test` 族的命令类 + LibUnitsCommand（test stdlib / bench stdlib 共用）
+    │   ├── tooling.z42           stdlib / 目标 / example 共用的工具链准备与显式工具链覆盖
     │   ├── gate.z42              GREEN / e2e 编排 + stage 单源登记 / 只读列表 / 计时
     │   ├── gate_selfcheck.z42    stage 编排回归（skip / 必跑 / 首败 / 退出码），随 builder 夹具跑
     │   ├── changed.z42           `test changed` / `test --changed`：直接消费 flow 计划的命令与 stage

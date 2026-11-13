@@ -52,8 +52,7 @@ void _writeTestProject(string dir, string file, string name) {
 void _checkTestProjectRun(string root, TargetTooling tt, string dir) {
     int files = 0;
     int tested = 0;
-    int failed = _runLibKind(root, dir, "test", "test", "",
-        tt.BuilderZpkg, 1, "interp", tt.Vm, tt.DriverZpkg, tt.Libs, null, ref files, ref tested);
+    int failed = _runLibKind(root, dir, "test", "", 1, "interp", tt, null, ref files, ref tested);
     _requireLibDiscovery(failed == 0 && files == 1 && tested == 1,
         "valid test project silently skipped or failed: " + dir);
 }
