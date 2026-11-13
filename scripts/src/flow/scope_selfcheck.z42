@@ -66,6 +66,13 @@ void _flowScopeChecks(FlowConfig cfg) {
     _gateAssert(_flowUnitProjects(cfg, bench, "bench", "").Length == 1, "script benchmark plans preserve the affected package");
     _gateAssert(_strIn(_flowOutputs(cfg, bench), "bench_stdlib") && !_strIn(_flowOutputs(cfg, bench), "toolchain_build")
         && !_strIn(_flowStages(cfg, bench), "stdlib"), "benchmark corpus selects measurements, not unit-test builds");
+    FlowPlan mixedUnits = _flowSelect(cfg, new string[]{ test, "src/libraries/z42.core/benches/micro.z42" }, root);
+    foreach (var kind in new string[]{ "test", "bench" }) {
+        string owner = kind == "test" ? "z42.io" : "z42.core";
+        string[] selected = _flowUnitProjects(cfg, mixedUnits, kind, "");
+        _gateAssert(selected.Length == 1 && selected[0] == _selectUnitProject(_allUnitProjects(root, kind), owner),
+            "mixed plans keep correctness and benchmark owners independent: " + kind);
+    }
     _gateAssert(!_ciBenchOnly(cfg, new string[]{ test, "src/runtime/src/threads/roots.rs" }, root)
         && !_ciBenchOnly(cfg, new string[]{ "unknown.production" }, root), "mixed production and unknown inputs keep measurements");
     foreach (var key in _ciBenchKinds()) {

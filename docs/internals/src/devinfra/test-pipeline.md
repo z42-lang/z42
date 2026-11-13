@@ -67,6 +67,11 @@ xtask 的 `_testEmbedded` desktop 分支因此收缩为「组 bundle → 委托 
 ——清单里声明了 `[[test]]` / `[[bench]]` 等 dev target 就**按目标编译 + 运行**（目标在内存里派生
 manifest、不落文件，父包身份直达编译器 ⇒ 测试可见父包 internal），没声明则回落到「编译项目自身」。
 
+工程测试与 benchmark 的宿主编排共用 `common/harness/tooling.z42` 的 `TargetTooling`：
+工具路径与 z42b 参数在同一处组装，`test/tooling.z42` 统一准备 VM、driver、标准库和 builder。
+example 目标直接使用 `Z42.Project.RunTarget`，源文件匹配交给 `SourceDiscovery`；
+依赖按目标、section、工程的顺序合并，首个同名依赖生效。
+
 ## 3. device 路径：xtask 备好原生 runtime，z42b 组装 + 运行
 
 `z42b test <manifest.json> --rid <device> [--out <dir>] [--project <host>] [--report-dir <dir>]`（libs 走 `Z42_LIBS`，runtime pack 走 `Z42_RUNTIME_DIR`）。
