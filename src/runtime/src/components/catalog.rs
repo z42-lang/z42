@@ -145,34 +145,34 @@ fn cached_load(registration: &Registration) -> Result<Arc<Factory>> {
         .as_ref().map(Arc::clone).map_err(|e| anyhow::anyhow!("{e}"))
 }
 impl Catalog {
-    pub fn load(registrations: &[Registration]) -> Result<Self> {
-        let mut factories = BTreeMap::new();
+    pub fn load(registrations: &[Registration], roots: &[ComponentId]) -> Result<Self> {
+        let mut providers = BTreeMap::new();
         // Reject duplicates before native initialization has side effects.
         for registration in registrations {
             let id = match registration {
                 Registration::Static { id, .. } | Registration::Dynamic { id, .. } => *id,
             };
-            if factories.insert(id, None).is_some() {
+            if providers.insert(id, registration).is_some() {
                 bail!("duplicate component {id}");
             }
         }
-        for registration in registrations {
-            let factory = cached_load(registration).context("loading runtime component")?;
-            factories.insert(factory.id(), Some(factory));
-        }
+        // Only the enabled roots and their transitive dependencies load code.
+        // Mark factories loaded before following edges, so cycles terminate here
+        // and are rejected by the topological sort before any VM instance exists.
+        let mut requested: BTreeSet<_> = roots.iter().copied().collect();
         let mut pending = BTreeMap::new();
-        for (id, factory) in factories {
-            pending.insert(
-                id,
-                factory.ok_or_else(|| anyhow::anyhow!("component {id} was not loaded"))?,
-            );
-        }
-        for factory in pending.values() {
+        while let Some(id) = requested.pop_first() {
+            if pending.contains_key(&id) { continue; }
+            let registration = providers.get(&id)
+                .ok_or_else(|| anyhow::anyhow!("missing component {id}"))?;
+            let factory = cached_load(registration).context("loading runtime component")?;
             for dep in factory.dependencies() {
-                if !pending.contains_key(dep) {
+                if !providers.contains_key(dep) {
                     bail!("component {} requires missing component {dep}", factory.id());
                 }
+                if !pending.contains_key(dep) { requested.insert(*dep); }
             }
+            pending.insert(id, factory);
         }
         let mut done = BTreeSet::new();
         let mut ordered = Vec::new();

@@ -37,7 +37,9 @@ fn load(components: ComponentOptions) -> anyhow::Result<LoadedProgram> {
 fn static_factories_attach_automatically_and_instances_are_per_vm() {
     let _lock = LOCK.lock().unwrap();
     probe::probe_reset();
-    let opts = options();
+    let opts = unsafe { ComponentOptions::default()
+        .with_static(B, probe::z42_component_probe_b_init)
+        .with_static_provider(A, probe::z42_component_probe_a_init) };
     let first = load(opts.clone()).unwrap();
     let second = load(opts).unwrap();
     assert_eq!(probe::probe_inits(), 2, "factory descriptors are shared");
@@ -353,5 +355,111 @@ fn undeclared_dependency_is_not_exposed_even_when_its_provider_exists() {
     assert!(load(opts).is_err());
     assert_eq!(probe::probe_created(), 1);
     assert_eq!(probe::probe_destroyed(), 1);
+    assert_eq!(probe::probe_live(), 0);
+}
+
+const TRANSITIVE: ComponentId = ComponentId::new(0x300);
+static TRANSITIVE_DEPS: [ComponentId; 1] = [B];
+static DEPS_LIVE_AT_DESTROY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+unsafe extern "C" fn create_transitive(runtime: *const RuntimeApi, vm: VmHandle, out: *mut InstanceHandle) -> ComponentStatus {
+    unsafe { *out = std::ptr::null_mut(); }
+    let mut dependency = InterfaceRef::NONE;
+    let status = unsafe { ((*runtime).query_component)(vm, B, CounterApi::ID, CounterApi::VERSION, &mut dependency) };
+    if status != ComponentStatus::OK { return status; }
+    let api = unsafe { &*dependency.api.cast::<CounterApi>() };
+    unsafe { (api.increment)(dependency.context) }
+}
+unsafe extern "C" fn destroy_transitive(_: InstanceHandle) {
+    DEPS_LIVE_AT_DESTROY.store(probe::probe_live(), std::sync::atomic::Ordering::SeqCst);
+}
+unsafe extern "C" fn query_transitive(_: InstanceHandle, _: InterfaceId, _: u32, _: *mut InterfaceRef) -> ComponentStatus {
+    ComponentStatus::UNAVAILABLE
+}
+static TRANSITIVE_DESCRIPTOR: ComponentDescriptor = ComponentDescriptor {
+    header: ApiHeader::of::<ComponentDescriptor>(COMPONENT_ABI_VERSION),
+    build_id: COMPONENT_BUILD_ID,
+    id: TRANSITIVE,
+    dependencies: IdSpan { data: TRANSITIVE_DEPS.as_ptr(), len: 1 },
+    interfaces: InterfaceSpan { data: std::ptr::null(), len: 0 },
+    create_vm: Some(create_transitive),
+    destroy_vm: Some(destroy_transitive),
+    query_interface: Some(query_transitive),
+};
+unsafe extern "C" fn transitive_init() -> *const ComponentDescriptor { &TRANSITIVE_DESCRIPTOR }
+
+#[test]
+fn selected_roots_activate_transitive_providers_before_instance_creation() {
+    let _lock = LOCK.lock().unwrap();
+    probe::probe_reset();
+    DEPS_LIVE_AT_DESTROY.store(0, std::sync::atomic::Ordering::SeqCst);
+    let options = unsafe { ComponentOptions::default()
+        .with_static(TRANSITIVE, transitive_init)
+        .with_static_provider(B, probe::z42_component_probe_b_init)
+        .with_static_provider(A, probe::z42_component_probe_a_init) };
+    let program = load(options).unwrap();
+    assert_eq!(component_ids(program.context()), [A, B, TRANSITIVE, INTERP_COMPONENT]);
+    assert_eq!(probe::probe_created(), 0x12);
+    let b = component_interface::<CounterApi>(program.context(), B).unwrap().unwrap();
+    assert_eq!(count(&b).0, 1, "the root invoked its already-created direct dependency");
+    drop(b);
+    drop(program);
+    assert_eq!(DEPS_LIVE_AT_DESTROY.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(probe::probe_destroyed(), 0x21);
+}
+
+#[test]
+fn unused_static_and_dynamic_providers_are_not_loaded_by_install_or_query() {
+    let _lock = LOCK.lock().unwrap();
+    probe::probe_reset();
+    let options = unsafe { ComponentOptions::default()
+        .with_static_provider(A, probe::z42_component_probe_wrong_version_init)
+        .with_dynamic_provider(B, "/no-such-component-library", "no_such_entry") };
+    let program = load(options).unwrap();
+    assert_eq!(component_ids(program.context()), [INTERP_COMPONENT]);
+    assert!(component_interface::<CounterApi>(program.context(), A).unwrap().is_none());
+    assert!(component_interface::<CounterApi>(program.context(), B).unwrap().is_none());
+    assert_eq!(probe::probe_inits(), 0);
+    assert_eq!(probe::probe_created(), 0);
+}
+
+#[test]
+fn provider_cycles_duplicates_and_creation_failures_preserve_atomicity() {
+    let _lock = LOCK.lock().unwrap();
+    probe::probe_reset();
+    let duplicate = unsafe { ComponentOptions::default()
+        .with_static_provider(A, probe::z42_component_probe_a_init)
+        .with_static_provider(A, probe::z42_component_probe_a_init)
+        .with_static(B, probe::z42_component_probe_b_init) };
+    assert!(load(duplicate).err().unwrap().to_string().contains("duplicate"));
+    assert_eq!(probe::probe_inits(), 0);
+    let cycle = unsafe { ComponentOptions::default()
+        .with_static(B, probe::z42_component_probe_b_init)
+        .with_static_provider(A, probe::z42_component_probe_cycle_a_init) };
+    assert!(load(cycle).err().unwrap().to_string().contains("cycle"));
+    assert_eq!(probe::probe_created(), 0);
+    probe::probe_reset();
+    let failure = unsafe { ComponentOptions::default()
+        .with_static(B, probe::z42_component_probe_failed_init)
+        .with_static_provider(A, probe::z42_component_probe_a_init) };
+    let ctx = VmContext::new();
+    assert!(failure.install(&ctx).is_err());
+    assert!(component_ids(&ctx).is_empty());
+    assert_eq!(probe::probe_destroyed(), 0x21);
+    assert_eq!(probe::probe_live(), 0);
+}
+
+#[cfg(feature = "component-loading")]
+#[test]
+fn a_static_root_can_activate_a_dynamic_dependency_provider() {
+    let _lock = LOCK.lock().unwrap();
+    probe::probe_reset();
+    let options = unsafe { ComponentOptions::default()
+        .with_static(B, probe::z42_component_probe_b_init)
+        .with_dynamic_provider(A, fixture(), "z42_component_probe_a_init") };
+    let program = load(options).unwrap();
+    let a = component_interface::<CounterApi>(program.context(), A).unwrap().unwrap();
+    assert_eq!(count(&a).0, 1, "the static root called its dynamic dependency during creation");
+    assert_eq!(component_ids(program.context()), [A, B, INTERP_COMPONENT]);
+    drop((a, program));
     assert_eq!(probe::probe_live(), 0);
 }
