@@ -27,8 +27,8 @@ TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入
 |---|---|---|
 | 产物准备 | `host/load.rs`、`loader/package` | 依赖合并、类型和索引准备完成 |
 | 可用性裁剪 | `host/boot.rs` | 在模块进入 Core 和 token 解析前完成裁剪并重建受影响索引 |
-| Core 构造 | `context/bootstrap.rs` | 创建堆和各子系统状态，连接根扫描、暂停请求与加载上下文回收服务 |
-| 主线程注册 | `context/bootstrap.rs` | 上下文地址固定、登记根扫描地址、启用 TLAB 并绑定 SATB |
+| Core 构造 | `context/core_builder.rs` | 创建堆和各子系统状态，连接根扫描、暂停请求与加载上下文回收服务 |
+| 主线程注册 | `context/thread_lifecycle.rs` | 上下文地址固定、登记根扫描地址、启用 TLAB 并绑定 SATB |
 | 加载与执行准备 | `host/boot.rs`、`metadata/resolve` | 登记 cctor、安装并播种惰性加载器、准备 token |
 | 组件装配 | `components`、`host/load.rs` | 创建组件、连接执行后端，之后发布 LoadedProgram |
 | 调用准备 | `host/runtime.rs` | 参数钉根，首次调用清理静态存储并排空待加载类型队列 |
@@ -36,7 +36,8 @@ TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入
 
 `drain_pending_type_loads` 和 `enqueue_type_load` 处理的是静态字段属主的类型加载队列，
 不执行托管初始化器。加载会登记初始化事实，真正执行发生在包/类型的访问屏障。
-worker 通过 `context/thread_lifecycle.rs` 加入已有 Core，不重建堆、服务或组件；
+主线程和 worker 均通过 `context/thread_lifecycle.rs` 的 `new_with_core` 注册线程上下文。
+主线程在 Core 服务连接完成后加入；worker 加入已有 Core，不重建堆、服务或组件；
 加入时按 `gc_phase → vm_contexts` 的锁顺序等待 Marking 结束后登记。
 
 ## 每 VM 扩展状态
@@ -156,7 +157,7 @@ Rust 查询/注册/pin 操作经 interop 模块函数访问冻结扩展状态，
 
 > **模块布局**：`context/`：`mod.rs`（hub：VM_CORES / snapshot /
 > `VmContextPtr` / `CoreContextReclaimer`）+ `types.rs`（VmCore/VmContext struct）+
-> `bootstrap.rs`（Core 构造）+ `thread_lifecycle.rs`（worker 加入 + Drop）（帧栈归 `exec/call/frame_stack.rs`，见下「帧栈的归属」）+ `pending_exception.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
+> `core_builder.rs`（Core 构造）+ `thread_lifecycle.rs`（worker 加入 + Drop）（帧栈归 `exec/call/frame_stack.rs`，见下「帧栈的归属」）+ `pending_exception.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
 > （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）（静态状态归 `metadata/statics/`，执行与等待归 `exec/init.rs`）（`is`/`as`/`catch` 前置缓存类型在 `metadata/dispatch/isa_cache.rs`）/ `symres.rs`（「确定不存在」判定）。
 
 `VmCore.loader` 是 `loader/state.rs` 的 `LoaderState`，持有惰性加载器、加载上下文、待初始化类型队列、

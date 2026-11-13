@@ -130,9 +130,9 @@ mod vm_context_tests;
 #[cfg(all(test, z42_test_facade))]
 mod symres_tests;
 
-mod bootstrap;
+mod core_builder;
 
 
-pub use bootstrap::RuntimeInputs;
+pub use core_builder::RuntimeInputs;
 
 pub mod extensions;

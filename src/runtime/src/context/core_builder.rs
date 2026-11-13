@@ -1,6 +1,5 @@
 //! Primary context construction from explicit, already-resolved facade inputs.
 use super::*;
-use std::marker::PhantomPinned;
 use parking_lot::Mutex;
 /// Mechanism inputs resolved by the host; no concrete backend or configuration parser.
 pub struct RuntimeInputs {
@@ -119,84 +118,17 @@ impl VmContext {
             }));
         }
 
-        // add-heap-retention-diagnostics: wire the CATEGORIZED root scanner (for
-        // retention-query L2 root reporting). Mirrors the anonymous mark scanner
-        // above but tags each root with its `RootKind`. Called only on-demand by
-        // `retention_roots`, never on the mark hot path.
+        // Both GC and diagnostic walks enumerate the same VM roots. The heap
+        // invokes these borrowed-root callbacks only while mutators are paused.
         {
-            let core_weak = Arc::downgrade(&core);
+            let weak = Arc::downgrade(&core);
             core.heap.set_categorized_root_scanner(Box::new(move |visit| {
-                use crate::gc::walk::RootKind;
-                let Some(c) = core_weak.upgrade() else { return; };
-                c.runtime.statics.scan_roots(&mut |v| visit(v, RootKind::StaticField));
-                // Interned `ConstStr` literals (VM-wide, like static fields).
-                c.runtime.strings.scan_roots(|s| visit(&Value::Str(s), RootKind::StaticField));
-                let registry = c.threads.vm_contexts.lock();
-                for ctx_ptr in registry.iter() {
-                    // SAFETY: same invariant as the anonymous root scanner —
-                    // entries are removed in `VmContext::drop` before dealloc,
-                    // and we hold `vm_contexts.lock()` for the whole walk.
-                    let ctx = unsafe { &*ctx_ptr.0 };
-                    if let Some(v) = ctx.exec.pending_exception.lock().as_ref() {
-                        visit(v, RootKind::StackFrame);
-                    }
-                    if let Some(v) = ctx.exec.pending_thrown.lock().as_ref() {
-                        visit(v, RootKind::StackFrame);
-                    }
-                    // SAFETY: as in the mark scanner above — callers hold the
-                    // GC pause, so other contexts are parked.
-                    unsafe {
-                        ctx.scan_frames_parked(|frames| {
-                            crate::exec::stack::visit_roots(frames, |v| visit(v, RootKind::StackFrame));
-                        });
-                    }
-                    ctx.exec.stack_arena
-                        .lock()
-                        .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
-                    // add-struct-value-semantics: value-struct blob reference leaves.
-                    ctx.exec.struct_arena
-                        .lock()
-                        .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
-                    // make-value-copy: transient payloads' GC leaves.
-                    ctx.exec.transient_arena
-                        .lock()
-                        .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
+                if let Some(core) = weak.upgrade() {
+                    unsafe { crate::threads::roots::scan_categorized_roots(&core, visit); }
                 }
             }));
         }
 
-        let safepoint_throttle = core.threads.safepoint_throttle;
-        let ctx = Self {
-            exec: crate::exec::ThreadExecState::new(&core.runtime.cctors, &core.exec.engines),
-            core,
-            diagnostics: Default::default(),
-            runtime: crate::metadata::ThreadRuntimeState::new(),
-            threads: crate::threads::ThreadLocalState::new(safepoint_throttle),
-            _pin: PhantomPinned,
-        };
-        // Heap-allocate so the address is stable for the scanner registry.
-        let boxed = Box::new(ctx);
-        // SAFETY: VmContext registers its OWN address into VmCore.threads.vm_contexts
-        // here and removes the entry in Drop (running BEFORE Box dealloc).
-        // The Pin wrapper + PhantomPinned prevents any subsequent move-out.
-        let ptr = VmContextPtr(&*boxed as *const VmContext);
-        boxed.core.threads.vm_contexts.lock().push(ptr);
-
-        // add-z42-compression : register ext builtins that need no
-        // I/O (the bundled wasm build). The dlopen build loads a library on the
-        // first lookup miss for one of its builtins (`ext::ensure_lib_for`).
-        // Workers via `new_with_core` share the core's table.
-
-        // SAFETY: We never expose `&mut Box<VmContext>` to user code (only
-        // `Pin<&mut VmContext>` via `Pin::as_mut`, which respects
-        // `PhantomPinned`), so the contents stay at a stable address until
-        // Drop. Constructing the Pin here is the standard idiom for
-        // self-referential heap data.
-        // add-gc-tlab (stage 2): arm this thread for TLAB allocation (balanced
-        // in Drop). The primary VM thread now takes the lock-free alloc path.
-        crate::gc::tlab::arm();
-        // add-incremental-major-gc M2a: this thread's SATB records belong to this heap (balanced in Drop).
-        crate::gc::satb::bind_thread(boxed.core.heap.heap_epoch());
-        unsafe { std::pin::Pin::new_unchecked(boxed) }
+        Self::new_with_core(core)
     }
 }
