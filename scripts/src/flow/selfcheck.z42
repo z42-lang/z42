@@ -41,6 +41,8 @@ void _flowPlannerChecks(FlowConfig cfg) {
     _gateAssert(!learn.DocsOnly && _flowHas(learn.Steps, "learn"), "learn keeps transcripts");
     string minimal = "version = 1\nfull = [\"check\"]\n[flows.check]\ncommand = [\"check\", \"flows\"]\nrequires = [\"build\"]\n[flows.build]\naffects = [\"unrelated\"]\n[flows.unrelated]\n[[inputs]]\nid = \"test\"\ninclude = [\"tests/**\"]\nselect = [\"check\"]\n";
     FlowConfig tiny = _flowParse(minimal);
+    _gateAssert(_flowParse(minimal.Replace("\n", "\r\n")).Digest == tiny.Digest, "configuration identity is stable across LF and CRLF checkouts");
+    _gateAssert(_flowParse(minimal.Replace("flows\"]", "versions\"]")).Digest != tiny.Digest, "real configuration changes still invalidate saved plans");
     FlowPlan p = _flowSelect(tiny, new string[]{ "tests/deleted file.z42" }, root);
     _gateAssert(p.Steps.Length == 2 && p.Steps[0].Id == "build" && p.Steps[1].Id == "check", "requires sorts but never propagates impact");
     FlowConfig dual = _flowParse(minimal.Replace("select = [\"check\"]", "select = [\"check\", \"build\"]").Replace("[flows.build]", "[flows.build]\noutputs = [\"build_changed\"]"));
