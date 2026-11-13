@@ -18,6 +18,8 @@ extern "C" {
     fn resolve(name: *const u8, bytes: *mut *const u8, length: *mut usize, data: *mut c_void) -> i32;
     fn report(message: *const u8);
     fn namespace(name: *const u8, length: usize, data: *mut c_void);
+    #[cfg(profiler)]
+    fn z42_profiler_init() -> *const c_void;
     fn z42_interp_init() -> *const c_void;
     fn z42_host_register_static_component(id: ComponentId, init: unsafe extern "C" fn() -> *const c_void) -> i32;
     fn z42_host_initialize(config: *const Config, host: *mut *mut c_void) -> i32;
@@ -51,6 +53,8 @@ pub unsafe extern "C" fn run(bytes: *const u8, length: usize) -> i32 {
     if unsafe { z42_host_register_static_component(id, z42_interp_init) } != 0 { return 1; }
     #[cfg(compression)]
     if unsafe { z42_host_register_static_native_library(b"z42_compression\0".as_ptr(), z42_compression_get_symbol) } != 0 { return 2; }
+    #[cfg(profiler)]
+    if unsafe { z42_host_register_static_component(ComponentId(*b"z42.profiler.v1\0"), z42_profiler_init) } != 0 { return 11; }
     let config = Config { version: 2, size: core::mem::size_of::<Config>() as u32, mode: 1,
         initial: 0, maximum: 0, stdout: 0, stderr: 0, sink: 0, paths: 0, resolver: resolve, resolver_data: 0 };
     let mut host = ptr::null_mut();
@@ -69,5 +73,11 @@ pub unsafe extern "C" fn run(bytes: *const u8, length: usize) -> i32 {
     if status != 0 || result.tag != 1 || result.payload != 36 { return unsafe { failed(host, 9) }; }
     #[cfg(not(compression))]
     if status == 0 { return 10; } else { unsafe { report(z42_host_last_error(host).message); } }
+    if unsafe { z42_host_resolve_entry(host, module, b"EngineComponentProbe.HeapInspection\0".as_ptr(), &mut entry) } != 0 { return unsafe { failed(host, 12) }; }
+    let status = unsafe { z42_host_invoke(entry, ptr::null(), 0, &mut result) };
+    #[cfg(profiler)]
+    if status != 0 || result.tag != 1 || result.payload != 42 { return unsafe { failed(host, 13) }; }
+    #[cfg(not(profiler))]
+    if status == 0 { return 14; } else { unsafe { report(z42_host_last_error(host).message); } }
     unsafe { z42_host_shutdown(host) }
 }

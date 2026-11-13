@@ -45,19 +45,19 @@ int _testPackagesInstall() {
     string stdName = _componentStdPattern().Replace("*", "producer");
     File.WriteAllText(Path.Join(fakeCargoOut, stdName), "producer std");
     File.WriteAllText(Path.Join(fakeCargoOut, "z42vm"), "fake-z42vm-binary");
-    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
         File.WriteAllText(Path.Join(fakeCargoOut, _componentLibrary(stem)), "fake-" + stem);
     }
     Directory.Create(Path.GetDirectoryName(_componentStaticArchive(fakeCargoOut)));
     File.WriteAllText(_componentStaticArchive(fakeCargoOut), "fake-static-lib");
     string staticDir = Path.GetDirectoryName(Path.GetDirectoryName(_componentStaticArchive(fakeCargoOut)));
-    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
         File.WriteAllText(Path.Join(staticDir, _componentStaticName(stem, _detectHostRid())), "static-" + stem);
         File.WriteAllText(Path.Join(staticDir, stem + "-link.txt"), "link-" + stem);
     }
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42.a"), "fake-static-lib");
     File.WriteAllText(Path.Join(fakeCargoOut, "z42.dll.lib"), "fake-import-lib");
-    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
         File.WriteAllText(Path.Join(fakeCargoOut, stem + ".dll.lib"), "fake-import-lib");
     }
     File.WriteAllText(Path.Join(fakeCargoOut, "libz42_compression.a"), "must-be-excluded");
@@ -90,13 +90,13 @@ int _testPackagesInstall() {
     // Runtime installer includes the complete closure, final static archive and canonical headers.
     string staticName = Platform.IsWindows() ? "z42.lib" : "libz42.a";
     _stgAssert("runtime static archive", File.ReadAllText(Path.Join(pkgDir, "native/" + staticName)) == "fake-static-lib");
-    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
         _stgAssert("runtime component " + stem, File.ReadAllText(Path.Join(pkgDir, "native/" + _componentLibrary(stem))) == "fake-" + stem);
         if (Platform.IsWindows()) {
             _stgAssert("runtime import lib " + stem, File.ReadAllText(Path.Join(pkgDir, "native/" + stem + ".dll.lib")) == "fake-import-lib");
         }
     }
-    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
         _stgAssert("runtime static " + stem, File.ReadAllText(Path.Join(pkgDir, "native/" + _componentStaticName(stem, _detectHostRid()))) == "static-" + stem);
         // link.txt 不再随包：flags 进包内 manifest.toml（manifest 的生成在包 builder，不经本自检的裸 install）。
         _stgAssert("runtime link.txt not shipped " + stem, !File.Exists(Path.Join(pkgDir, "native/" + stem + "-link.txt")));
@@ -112,7 +112,7 @@ int _testPackagesInstall() {
     _PackagesConfig extCfg = _instConfig("install-test-ext", new string[]{ "native-ext" },
         new _PkgComponent[]{ _instComp("native-ext", "cargo-native-ext", "") });
     _stgAssert("SDK runtime install", _pkgInstallPackage(extCfg, root, "install-test-ext", extDir, ctx) == 0);
-    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
         _stgAssert("SDK component " + stem, File.Exists(Path.Join(extDir, "native/" + _componentLibrary(stem))));
     }
     _stgAssert("SDK static archive excluded", !File.Exists(Path.Join(extDir, "native/" + staticName)));

@@ -39,7 +39,7 @@ void _plRuntimeDynamic(_PkgLayout L, string rid) {
     L.HasDir("libs");
     L.HasFile("native/include/z42_host.h");
     L.HasFile("native/include/z42_native.h");
-    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
         string name = _componentLibrary(stem);
         L.HasFile("native/" + name);
         if (Platform.IsMacOS()) {
@@ -53,7 +53,7 @@ void _plRuntimeDynamic(_PkgLayout L, string rid) {
     L.Absent("native/z42.lib", "dynamic pack does not provide a static embedding library");
     if (rid.StartsWith("windows-")) {
         // 嵌入者可链 import lib 直接注册组件（z42_host_register_static_component / _native_library），不 dlopen。
-        foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+        foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
             L.HasFile("native/" + stem + ".dll.lib");
         }
     }

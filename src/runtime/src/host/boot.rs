@@ -167,15 +167,12 @@ pub(crate) fn construct(module: Option<crate::metadata::Module>, vfs: Arc<dyn cr
 pub(crate) fn with_config(module: Option<Arc<crate::metadata::Module>>, vfs: Arc<dyn crate::pal::fs::Vfs>,
     extensions: crate::context::extensions::ExtensionState, config: crate::config::VmConfig,
     protocol: crate::exec::object_protocol::ObjectProtocol, engines: crate::exec::engine::EngineRegistry) -> std::pin::Pin<Box<VmContext>> {
-    let backend = match config.sample_hz {
-        Some(hz) => crate::profiler::cpu::Sampler::start(hz, config.trace_timeline),
-        None => crate::profiler::cpu::Sampler::disabled(),
-    };
+    let sampler = crate::diagnostics::sampling::Sampling::with_config(config.sample_hz, config.trace_timeline);
     VmContext::with_runtime(module, vfs, crate::context::RuntimeInputs {
         extensions, config, object_protocol: protocol, engines,
         builtins: crate::host::builtins::functions(),
         catalog: crate::host::builtins::catalog(),
         fusion: crate::host::artifact::FUSION_INPUTS,
-        sampler: crate::diagnostics::sampling::Sampling::new(backend.enabled(), backend),
+        sampler,
     })
 }

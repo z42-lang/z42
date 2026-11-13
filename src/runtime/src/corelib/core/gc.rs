@@ -11,8 +11,7 @@ use crate::exec::call::builtin_abi::BuiltinError;
 use crate::gc::GcHandleKind;
 use crate::object::{FieldSlot, NativeData, TypeDesc, Value};
 use crate::context::VmContext;
-use anyhow::{anyhow, Result};
-use std::io::Write as _;
+use anyhow::Result;
 use std::sync::{Arc, OnceLock};
 
 /// `Std.GC.Collect()` —— 触发环检测（不阻断；no-op 当 paused）。
@@ -325,20 +324,7 @@ pub fn gc_pause_window_capacity(ctx: &VmContext) -> i64 {
 /// The resulting file opens directly in Chrome DevTools → Memory →
 /// Load, speedscope, and heapviewer.com.
 pub fn gc_write_heap_snapshot(ctx: &VmContext, path: &str) -> Result<i64> {
-    // add-gc-snapshot-streaming : write JSON directly to
-    // a BufWriter<File> via the streaming serializer — avoids the
-    // ~30 MB intermediate String for large heaps.
-    let snap = crate::profiler::heap::snapshot::build_graph_snapshot(ctx.heap());
-    let file = std::fs::File::create(&*path)
-        .map_err(|e| anyhow!("__gc_write_heap_snapshot: create {}: {}", path, e))?;
-    let mut writer = std::io::BufWriter::new(file);
-    let n_bytes = crate::profiler::heap::snapshot::serialize_v8_heapsnapshot_to(&snap, &mut writer)
-        .map_err(|e| anyhow!("__gc_write_heap_snapshot: write {}: {}", path, e))?;
-    // Explicit flush so we surface IO errors before returning success;
-    // BufWriter's Drop-flush silently drops errors otherwise.
-    writer.flush()
-        .map_err(|e| anyhow!("__gc_write_heap_snapshot: flush {}: {}", path, e))?;
-    Ok(n_bytes as i64)
+    ctx.core().diagnostics().sampler.provider(ctx)?.write_heap_snapshot(ctx, path)
 }
 
 /// `Std.GC.SetMaxHeapBytes(bytes)` — **add-gc-oom-exception **.
@@ -494,7 +480,9 @@ pub mod typed {
 
     #[builtin(name = "__gc_write_heap_snapshot")]
     pub fn write_heap_snapshot(ctx: &VmContext, path: &str) -> Result<i64, BuiltinError> {
-        gc_write_heap_snapshot(ctx, path).map_err(|e| BuiltinError::Io(e.to_string()))
+        let provider = ctx.core().diagnostics().sampler.provider(ctx)
+            .map_err(|e| BuiltinError::NotSupported(format!("profiler unavailable: {e:#}")))?;
+        provider.write_heap_snapshot(ctx, path).map_err(|e| BuiltinError::Io(e.to_string()))
     }
 
     #[builtin(name = "__gc_set_max_heap_bytes")]

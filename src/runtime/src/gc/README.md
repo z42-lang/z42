@@ -115,4 +115,4 @@ GC 只在标记后观察活对象，清扫结束后交回本轮不透明快照�
 句柄见 [`gc-handle.md`](../../../../docs/internals/src/runtime/gc-handle.md)。
 两种 `GcMode`（分代 / STW）均可用，默认分代；每次停顿都是 STW，分代模式的 major 默认拆成增量切片。
 
-堆摘要、V8 导出与保留链见 [`profiler/`](../profiler/README.md)。
+堆摘要、V8 导出与保留链见 [`profiler/`](../../crates/z42-profiler/README.md)。

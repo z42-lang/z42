@@ -17,6 +17,8 @@ pub struct LoadOptions {
     /// Native component selection, attached once before this program executes.
     pub components: super::ComponentOptions,
     pub backends: super::BackendOptions,
+    /// Profiler is attached only for sampling or the first heap inspection.
+    pub profiler: super::BackendSource,
     pub mode: ExecMode,
     pub vfs: Arc<dyn Vfs>,
     pub search_dirs: Vec<PathBuf>,
@@ -30,6 +32,7 @@ impl Default for LoadOptions {
         Self {
             components: Default::default(),
             backends: Default::default(),
+            profiler: Default::default(),
             mode: super::default_mode(),
             vfs: crate::pal::fs::default_vfs(),
             search_dirs: Vec::new(),

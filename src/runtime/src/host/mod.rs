@@ -55,3 +55,6 @@ mod artifact;
 mod extensions;
 
 pub(crate) mod builtins;
+
+mod profiling;
+pub use profiling::{profiler_loaded, prepare_profiler, write_heap_snapshot};

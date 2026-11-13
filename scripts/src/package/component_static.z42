@@ -8,7 +8,7 @@ int _componentBuildStaticLibraries(string root, string rid, string profile) {
     string features = "z42/static-embedding,z42/" + _componentPlatformPreset(rid).Replace(",", ",z42/");
     Process p = _componentPlatformCargo("build", root, rid, profile, false, "",
         Path.Join(_componentPlatformOut(root, rid, profile, false), "cargo-artifacts.jsonl"))
-        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("--lib").Arg("--examples")
+        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-profiler").Arg("-p").Arg("z42-interp").Arg("--lib").Arg("--examples")
         .Arg("--no-default-features");
     if (_componentTargetHasJit(rid)) {
         p = p.Arg("-p").Arg("z42-jit");
@@ -19,6 +19,8 @@ int _componentBuildStaticLibraries(string root, string rid, string profile) {
         _componentPlatformOut(root, rid, profile, false));
     if (c != 0) { return c; }
     c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_interp");
+    if (c != 0) { return c; }
+    c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_profiler");
     if (c != 0) { return c; }
     c = _componentBuildCompression(root, rid, profile, false);
     if (c != 0 || !_componentTargetHasJit(rid)) { return c; }
@@ -169,7 +171,7 @@ void _componentCopyStaticLibraries(string root, string native, string rid, strin
 }
 
 void _componentCopyStaticFiles(string cargo, string native, string rid) {
-    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_compression" }) {
+    foreach (var stem in new string[]{ "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
         if (stem == "z42_jit" && !_componentTargetHasJit(rid)) { continue; }
         string name = _componentStaticName(stem, rid);
         _componentCopyRequired(Path.Join(cargo, name), Path.Join(native, name));

@@ -199,7 +199,7 @@ fn resolver_overrides_disk_prelude() {
         search_dirs: vec!["/libs".into()],
         resolver: Some(Arc::new(Resolver)),
         eager_dependencies: true,
-        components: Default::default(), backends: Default::default(),
+        components: Default::default(), backends: Default::default(), profiler: Default::default(),
     };
     let program = LoadedProgram::load_bytes(&empty_zbc(), options).unwrap();
     assert!(program.module().functions.is_empty());
@@ -229,7 +229,7 @@ fn malformed_selected_eager_dependency_fails_during_load() {
         file: "broken.zpkg".into(), namespaces: Vec::new(), symbols: Vec::new(),
     });
     let options = LoadOptions { mode: ExecMode::Interp, vfs: fs,
-        search_dirs: vec!["/libs".into()], eager_dependencies: true, resolver: None, components: Default::default(), backends: Default::default() };
+        search_dirs: vec!["/libs".into()], eager_dependencies: true, resolver: None, components: Default::default(), backends: Default::default(), profiler: Default::default() };
     let error = super::load::prepare(artifact, None, &options).err().expect("must reject a corrupt dependency");
     assert!(format!("{error:#}").contains("broken.zpkg"));
 }

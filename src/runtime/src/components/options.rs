@@ -57,8 +57,15 @@ impl ComponentOptions {
         if ctx.core().components().get().is_some() {
             bail!("VM component registrations are already frozen");
         }
-        let components = match &self.catalog {
-            None => VmComponents::create(&[], ctx.heap().heap_epoch())?,
+        let components = self.create(ctx.heap().heap_epoch())?;
+        ctx.core()
+            .components()
+            .set(components)
+            .map_err(|_| anyhow::anyhow!("VM component registrations are already frozen"))
+    }
+    pub(super) fn create(&self, vm_id: u64) -> Result<VmComponents> {
+        match &self.catalog {
+            None => VmComponents::create(&[], vm_id),
             Some(cell) => {
                 let catalog = cell.get_or_init(|| {
                     Catalog::load(&self.registrations)
@@ -66,13 +73,9 @@ impl ComponentOptions {
                         .map_err(|e| format!("{e:#}"))
                 });
                 let catalog = catalog.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
-                VmComponents::create(&catalog.factories, ctx.heap().heap_epoch())?
+                VmComponents::create(&catalog.factories, vm_id)
             }
-        };
-        ctx.core()
-            .components()
-            .set(components)
-            .map_err(|_| anyhow::anyhow!("VM component registrations are already frozen"))
+        }
     }
     #[cfg(test)]
     pub(super) fn catalog_for_test(&self) -> Arc<Catalog> {
