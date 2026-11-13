@@ -47,8 +47,9 @@ Process _componentCargo(string verb, string root, string profile, string targetD
             .Arg("--target-dir").Arg(targetDir)
             .Arg("--profile").Arg(_componentCargoProfile(root, profile));
     }
-    Process p = _cargoCmd(verb, _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
-        .Arg("--manifest-path").Arg(_runtimeManifest())
+    Process p = new Process("cargo").Arg(verb).Arg("--config").Arg(Path.Join(root, _runtimeCargoConfig()))
+        .WorkingDirectory(root).Arg("--locked")
+        .Arg("--manifest-path").Arg(Path.Join(root, _runtimeManifest()))
         .Arg("--target-dir").Arg(targetDir);
     if (_componentR0Tree(root)) {
         p = p.Arg("--config").Arg(Path.Join(root, "src/runtime/.cargo/config-dynamic.toml"))

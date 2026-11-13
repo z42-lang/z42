@@ -77,8 +77,9 @@ int _runtimeTestRunHarnesses(bool libOnly) {
             .Env("CARGO_TARGET_DIR", _runtimeTestTarget()), directory); if (c != 0) { return c; }
     }
     if (libOnly) { return 0; }
-    return _exec(_runtimeTestCargoFor("test", Path.Join(_runtimeTestTarget(), "docs"))
-        .Arg("--doc").Env("RUST_MIN_STACK", "8388608"));
+    return _runtimeTestCargoFor("test", Path.Join(_runtimeTestTarget(), "docs"))
+        .Arg("--doc").Env("RUST_MIN_STACK", "8388608")
+        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
 }
 
 // `test runtime` — the Rust VM's own unit/integration harness (cargo test on
@@ -107,6 +108,7 @@ int _testRuntime() {
 //
 // 完整版仍保留为 `xtask test runtime` / CI 的独立 leg / `test changed`。
 int _testRuntimeUnits() {
+    int c = _selfcheckRuntimeCargo(); if (c != 0) { return c; }
     // 只编不跑的那部分抓「跨 src/ 与 tests/ 都构造的公共 struct 加了字段却没补齐」这类编译漏。
     return _runtimeTestRunHarnesses(true);
 }
