@@ -1,0 +1,41 @@
+namespace Z42EmptyBuilderTests;
+using Std.Text;
+using Std.Harness;
+
+[Test]
+void empty_append_returns_same_builder() {
+    var b = new StringBuilder();
+    Assert.True(b == b.Append(""));
+    Assert.Equal(0, b.Length); Assert.Equal("", b.ToString());
+}
+[Test]
+void empty_parts_preserve_unicode_order_and_indexing() {
+    var b = new StringBuilder();
+    b.Append("").Append("é").Append("").Append("中😀").Append("");
+    Assert.Equal(3, b.Length); Assert.Equal("é中😀", b.ToString());
+    Assert.Equal('中', b[1]); Assert.Equal('😀', b[2]);
+}
+[Test]
+void snapshots_remain_independent() {
+    var b = new StringBuilder(); b.Append("abc");
+    string first = b.ToString(); b.Append("").Append("d");
+    Assert.Equal("abc", first); Assert.Equal("abcd", b.ToString());
+}
+[Test]
+void clear_after_empty_prefix_can_reuse_builder() {
+    var b = new StringBuilder();
+    for (int i = 0; i < 4096; i++) { b.Append(""); }
+    b.Append("old"); b.Clear(); b.Append("").Append("new");
+    Assert.Equal(3, b.Length); Assert.Equal("new", b.ToString());
+}
+[Test]
+void append_line_empty_still_adds_newline() {
+    var b = new StringBuilder(); b.AppendLine("");
+    Assert.Equal(1, b.Length); Assert.Equal("\n", b.ToString());
+}
+[Test]
+void null_string_keeps_exception_and_existing_content() {
+    var b = new StringBuilder(); b.Append("abc"); string value = null;
+    Assert.Throws("NullReferenceException", () => b.Append(value));
+    Assert.Equal(3, b.Length); Assert.Equal("abc", b.ToString());
+}
