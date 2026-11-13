@@ -64,6 +64,14 @@ def host_steps(event, sdk="", *, runner_os="Linux", **roles):
 
 
 class PackageSelectionTests(unittest.TestCase):
+    def test_cargo_artifact_inputs_select_platform_packages(self):
+        platform_filter = re.search(
+            r"^            platform:\n(.*?)(?=^            \w+:)",
+            WORKFLOW.read_text(), re.M | re.S,
+        )[1]
+        self.assertIn("- 'scripts/src/common/cargo_artifacts.z42'", platform_filter)
+        self.assertEqual(selected_jobs("pull_request", platform=True), ALL_PACKAGES)
+
     def test_push_without_nightly_changes_or_package_roles_skips_packages(self):
         self.assertEqual(selected_jobs("push", sdk="false"), set())
 
