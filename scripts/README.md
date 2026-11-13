@@ -84,7 +84,7 @@ dry-run 跑真实脚本，不联网）；真实 SDK 的离线安装由 CI packag
 |------|---------|---------|---------|
 | `setup [--os P] [--force]` | **首次 clone / 平台版本变动** | `versions.toml` | host 基础检查；`--os` 装该平台必备（rust targets + cargo-ndk / wasm-pack / NDK + 构建 SDK …） |
 | `setup vscode` / `setup check [--os P]` | 装编辑器扩展 / 看本机缺什么 | `versions.toml` | 工作区 VSCode 扩展 / 在场报告（`--os` 时缺即非 0） |
-| `check runtime-cargo` | 改 runtime Cargo 调用 / 构建配方后 | `cargo` | 最小 workspace 实编 alias / R0 / legacy 三类配置、压缩库部署、doctest 和 macOS 独立探针加载；GREEN 的 runtime 单测阶段也会执行 |
+| `check runtime-cargo` | 改 runtime Cargo 调用 / 构建配方后 | `cargo` | 最小 workspace 实编 alias / R0 / legacy 三类配置、压缩库部署、doctest 和 macOS 独立探针和子进程依赖加载；GREEN 的 runtime 单测阶段也会执行 |
 | `check versions` | 改 `versions.toml` 后对账（也是 GREEN 的一个 stage） | `versions.toml` + 投影文件 | versions.toml ↔ Cargo.toml / build.gradle.kts / Package.swift 一致性 |
 | `build stdlib` | 改了 stdlib `.z42` 源 | warm z42c 种子 | `artifacts/intermediate/libraries/flat/release/<lib>.zpkg`（扁平视图，无 namespace 索引） |
 | `build compiler` | 改了 z42c 编译器源 | warm z42c 种子 | `artifacts/build/compiler/<member>/release/dist/*.zpkg`（编译器域全部成员，见 `src/compiler/z42.workspace.toml`） |

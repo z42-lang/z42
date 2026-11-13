@@ -80,11 +80,13 @@ int _runtimeTestRunHarnesses(bool libOnly) {
 }
 
 // DYLD_LIBRARY_PATH also overrides absolute dlopen paths: exposing workspace libraries there
-// shadows the independently built component probe. macOS libraries already carry their rpaths.
+// shadows the independently built component probe. Fallback paths let child executables
+// resolve workspace dependencies without replacing existing absolute fixture paths.
 Process _runtimeHarnessProc(string exe, string native, string std) {
+    string search = native + ":" + Path.Join(native, "deps") + ":" + std;
     Process test = new Process(exe).Env("RUST_MIN_STACK", "8388608")
-        .Env("DYLD_LIBRARY_PATH", std)
-        .Env("LD_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std);
+        .Env("DYLD_LIBRARY_PATH", std).Env("DYLD_FALLBACK_LIBRARY_PATH", search)
+        .Env("LD_LIBRARY_PATH", search);
     if (Platform.IsWindows()) {
         test = test.Env("PATH", native + ";" + Path.Join(native, "deps") + ";" + std + ";" + Environment.GetEnvironmentVariable("PATH", ""));
     }
@@ -99,6 +101,7 @@ Process _runtimeHarnessProc(string exe, string native, string std) {
 // (Suspect: GC region raw-pointer Send/Sync unsoundness with concurrent VmCores.)
 int _testRuntime() {
     Stopwatch sw = _procStart("test runtime");
+    int loader = _selfcheckRuntimeLoader(); if (loader != 0) { return loader; }
     int __rc = _runtimeTestRunHarnesses(false);
     if (__rc == 0) { _procEnd("test runtime", sw); }
     return __rc;

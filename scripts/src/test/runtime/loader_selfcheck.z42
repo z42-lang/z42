@@ -13,7 +13,7 @@ int _selfcheckRuntimeLoader() {
     File.WriteAllText(source, "int probe(void) { return VALUE; }\n");
     string name = "libxtask_loader_probe.dylib";
     _runtimeCargoExpect(new Process("cc").Arg("-dynamiclib").Arg("-DVALUE=1").Arg(source)
-        .Arg("-o").Arg(Path.Join(native, name)), "shadow loader library");
+        .Arg("-Wl,-install_name,@rpath/" + name).Arg("-o").Arg(Path.Join(native, name)), "shadow loader library");
     _runtimeCargoExpect(new Process("cc").Arg("-dynamiclib").Arg("-DVALUE=42").Arg(source)
         .Arg("-o").Arg(Path.Join(fixture, name)), "independent loader library");
     string main = Path.Join(dir, "main.c");
@@ -29,6 +29,21 @@ int _selfcheckRuntimeLoader() {
     ProcessResult shadow = _runtimeHarnessProc(exe, native, std).Arg(Path.Join(fixture, name))
         .Env("DYLD_LIBRARY_PATH", native).Run();
     if (shadow.ExitCode != 1) { throw new Exception("loader negative control did not load the shadow library"); }
-    Console.WriteLine("  ✅ runtime loader: absolute fixture survives same-name workspace library, negative control verified");
+    _selfcheckRuntimeLoaderDependency(dir, native, std, name);
+    Console.WriteLine("  ✅ runtime loader: absolute fixture isolation and child dependency fallback, negative controls verified");
     return 0;
+}
+
+void _selfcheckRuntimeLoaderDependency(string dir, string native, string std, string name) {
+    string source = Path.Join(dir, "linked.c");
+    File.WriteAllText(source, "int probe(void);\nint main(void) { return probe() == 1 ? 0 : 1; }\n");
+    string exe = Path.Join(dir, "linked");
+    _runtimeCargoExpect(new Process("cc").Arg(source).Arg("-L" + native).Arg("-lxtask_loader_probe")
+        .Arg("-o").Arg(exe), "dependent child executable");
+    _runtimeCargoExpect(_runtimeHarnessProc(exe, native, std), "child resolves workspace @rpath dependency");
+    ProcessResult missing = _runtimeHarnessProc(exe, native, std)
+        .Env("DYLD_FALLBACK_LIBRARY_PATH", std).Run();
+    if (missing.ExitCode == 0 || !missing.Stderr.Contains(name)) {
+        throw new Exception("loader negative control did not reject missing child dependency");
+    }
 }
