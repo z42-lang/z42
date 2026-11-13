@@ -138,10 +138,11 @@ string _componentAndroidRid(string root, string abi) {
 // older trees had the algorithms as unconditional deps.
 int _componentBuildCompression(string root, string rid, string profile, bool shared, string destination = "") {
     string target = Path.Join(shared ? _componentBuildDir(root) : _componentStaticDir(root, rid), "compression");
-    string dirProfile = shared && rid.StartsWith("ios") && _componentAliasTree(root)
+    string dirProfile = shared && _componentAliasTree(root)
+        && (_ridCategory(rid) == "desktop" || rid.StartsWith("ios"))
         ? _componentDirName(root, profile) : profile;
     string cargo = _ridCategory(rid) == "desktop"
-        ? Path.Join(target, shared ? _componentDirName(root, profile) : profile)
+        ? Path.Join(target, dirProfile)
         : Path.Join(target, _ridToCargo(rid) + "/" + dirProfile);
     if (destination.Length == 0) { destination = _componentPlatformOut(root, rid, profile, shared); }
     int c;
