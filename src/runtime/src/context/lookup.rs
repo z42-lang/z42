@@ -132,10 +132,8 @@ impl VmContext {
         })?;
         let r = loader.load_module_from_path(path);
         drop(state);
-        // defer-class-initialization: 显式加载路径（z42b / 宿主 LoadModule）内部会
-        // `force_load_all_declared()` 拉进依赖闭包，那些包的 `__static_init__` 同样入队，
-        // 必须在这里排空——否则「类已注册但初始化器没跑」，静态字段永远读到 null
-        // （实测：z42b 的 `DepScanCache._count` 是 Null，崩在 DepScan.ScanDirs）。
+        // Complete queued type-owner loading outside the loader lock. Execution
+        // barriers remain responsible for managed package/type initialization.
         self.drain_pending_type_loads();
         r
     }
@@ -144,9 +142,8 @@ impl VmContext {
     /// from raw bytes (packed zpkg / bare zbc) into the live registries. Backs
     /// the `__load_bytecode_in_memory` builtin used by `z42.scripting` (REPL) so
     /// freshly compiled bytecode is invocable with zero disk I/O. (add-z42-repl)
-    /// Returns the freshly-loaded module's own `*.__static_init__` function names
-    /// so the caller runs only this round's static init (REPL carry-forward — a full
-    /// clear+rerun would wipe prior rounds' mutated static state).
+    /// Preserves existing static storage; new initialization facts are registered
+    /// for execution barriers without rerunning or clearing earlier REPL rounds.
     pub fn load_module_bytes_into_vm(
         &self, raw: &[u8],
     ) -> anyhow::Result<()> {
@@ -166,8 +163,8 @@ impl VmContext {
         r
     }
 
-    /// An already-registered function, or `None` — **never loads a package and never
-    /// runs initializers** (unlike [`Self::try_lookup_function`]). For callers that
+    /// An already-registered function, or `None`, without loading a package.
+    /// Unlike [`Self::try_lookup_function`], this only reads current registrations. For callers that
     /// must not re-enter the VM, such as the JIT translator recognising intrinsics and
     /// the `[Native]` forward probe (`exec::call::forward`).
     pub fn probe_loaded_function(&self, func_name: &str) -> Option<Arc<Function>> {
@@ -226,7 +223,7 @@ impl VmContext {
         if self.type_load_drain_is_noop(&newly_loaded) {
             return result;
         }
-        // defer-class-initialization (T1): 锁已释放，跑刚拉进来的包的初始化器。
+        // Resolve queued type owners after releasing the loader lock.
         self.drain_pending_type_loads();
         for name in newly_loaded {
             self.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
@@ -365,7 +362,7 @@ impl VmContext {
     }
 
 
-    /// defer-class-initialization: 该类是否已在 registry 中（即所属包已加载 + 初始化过）。
+    /// Whether the lazy registry already contains this loaded type.
     /// 只读，不触发任何加载——供 T3 入队前的快速过滤。
     pub fn has_loaded_type(&self, class_fq: &str) -> bool {
         let state = self.core.loader.lazy_loader.read();
@@ -407,9 +404,8 @@ impl VmContext {
                 None => Vec::new(),
             }
         };
-        // defer-class-initialization: 反射的 dotless 兜底会一次性拉进所有包，
-        // 它们的 `__static_init__` 同样入队，必须排空（所有会触发加载的入口都要排空，
-        // 否则「类已注册但初始化器没跑」的窗口会重新出现）。
+        // Reflection may load multiple packages. Drain any queued type owners
+        // before publishing their load events; do not execute their initializers.
         self.drain_pending_type_loads();
         for name in newly {
             self.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
