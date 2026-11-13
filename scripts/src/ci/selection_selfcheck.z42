@@ -26,10 +26,27 @@ void _ciSelectionChecks(FlowConfig cfg) {
     _gateAssert(_ciBenchOnly(cfg, new string[]{ "src/benches/testdata/sample.json", "README.md" }, root), "verdict fixtures use seed-only checks");
     _gateAssert(!_ciBenchOnly(cfg, new string[]{ "src/benches/testdata/moved.json", "src/benches/scenarios/old.z42" }, root), "benchmark rename preserves measurements");
     _gateAssert(!_ciBenchOnly(cfg, new string[]{ "unknown.input" }, root), "unknown benchmark inputs keep measurements");
+    string workflow = File.ReadAllText(Path.Join(root, ".github/workflows/ci.yml"));
+    foreach (var job in new string[]{ "build-and-test", "toolchain-bootstrap" }) {
+        string header = workflow.Substring(workflow.IndexOf("\n  " + job + ":"));
+        header = header.Substring(0, header.IndexOf("    steps:"));
+        _gateAssert(header.Contains("needs.changes.outputs.validation_required == 'true'"), "product job consumes empty-diff policy: " + job);
+    }
     _ciQueueChecks();
     _ciBootstrapAvailabilityChecks();
     string output = _xtaskWork(_root(), "flow-package-output");
     try {
+        FlowPlan empty = _flowSelect(cfg, new string[0], root);
+        empty.Event = "pull_request";
+        File.WriteAllText(output, ""); _flowWriteOutputs(cfg, empty, output);
+        _gateAssert(File.ReadAllText(output).Contains("validation_required=false"), "empty PR does not start product validation");
+        _gateAssert(!empty.DocsOnly, "empty diff is distinct from a documentation change");
+        empty.Full = true;
+        File.WriteAllText(output, ""); _flowWriteOutputs(cfg, empty, output);
+        _gateAssert(File.ReadAllText(output).Contains("validation_required=true"), "unknown or full diff retains validation");
+        empty.Full = false; empty.Event = "push";
+        File.WriteAllText(output, ""); _flowWriteOutputs(cfg, empty, output);
+        _gateAssert(File.ReadAllText(output).Contains("validation_required=true"), "pending cumulative publication retains toolchain preparation");
         foreach (var kind in new string[]{ "pull_request", "push", "schedule", "workflow_dispatch" }) {
             foreach (var role in new string[]{ "docs", "sdk", "examples", "platform" }) {
                 string file = role == "docs" ? "README.md" : role == "sdk" ? "scripts/src/test/sdk/check.z42" : role == "examples" ? "examples/basics/hello/source.z42" : "src/runtime/src/lib.rs";
@@ -37,6 +54,7 @@ void _ciSelectionChecks(FlowConfig cfg) {
                 p.Event = kind; p.ReleaseRequired = "false";
                 File.WriteAllText(output, ""); _flowWriteOutputs(cfg, p, output);
                 string text = File.ReadAllText(output);
+                _gateAssert(text.Contains("validation_required=true"), "nonempty inputs retain validation " + kind + "/" + role);
                 _gateAssert(text.Contains("platform_package=true") == (role == "platform"), "platform package selection " + kind + "/" + role);
                 _gateAssert(text.Contains("host_package=true") == (role != "docs"), "host SDK selection " + kind + "/" + role);
                 p.ReleaseRequired = "";

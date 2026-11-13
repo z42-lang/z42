@@ -17,6 +17,8 @@ void _flowGitChecks(FlowConfig cfg) {
         string base_ = _flowCommit(dir, "HEAD");
         _ciWrite(dir, "src/runtime/tests/private.rs", "private test\n");
         _ciGit(dir, new string[]{ "add", "." }); _ciGit(dir, new string[]{ "commit", "-qm", "head" });
+        string unchangedBase = _flowCommit(dir, "HEAD");
+        _ciGit(dir, new string[]{ "commit", "--allow-empty", "-qm", "planning-only commit" });
         string head = _flowCommit(dir, "HEAD");
         _ciGit(dir, new string[]{ "remote", "add", "origin", dir });
         string eventPath = Path.Join(dir, "artifacts/event.json");
@@ -24,6 +26,15 @@ void _flowGitChecks(FlowConfig cfg) {
         Environment.SetEnvironmentVariable("GITHUB_SHA", head);
         Environment.SetEnvironmentVariable("XTASK_RELEASE_REQUIRED", "false");
         var options = new FlowPlanCommand("plan"); options.EventFile = eventPath;
+        Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", "pull_request");
+        string eventJson = File.ReadAllText(eventPath);
+        _ciWrite(dir, "artifacts/event.json", "{\"pull_request\":{\"base\":{\"sha\":\"" + unchangedBase + "\"}}}");
+        FlowPlan emptyPr = _flowCreate(cfg, options, dir);
+        _gateAssert(emptyPr.Files.Length == 0 && !emptyPr.Full && emptyPr.Steps.Length == 0, "real empty planning commit has no affected flows");
+        string emptyOutput = Path.Join(dir, "artifacts/empty-output");
+        _flowWriteOutputs(cfg, emptyPr, emptyOutput);
+        _gateAssert(File.ReadAllText(emptyOutput).Contains("validation_required=false"), "real empty PR suppresses heavy CI jobs");
+        _ciWrite(dir, "artifacts/event.json", eventJson);
         foreach (var kind in new string[]{ "push", "pull_request", "schedule", "workflow_dispatch" }) {
             Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", kind);
             FlowPlan p = _flowCreate(cfg, options, dir);
