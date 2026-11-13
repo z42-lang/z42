@@ -56,10 +56,7 @@ string _dirUnitManifest(string root, string lib, string name, string dirPath) {
     string outDir = _dirUnitOut(root, projName);
     Directory.Create(outDir);
     string toml = Path.Join(dirPath, ".xtask-embed-" + projName + ".z42.toml");
-    File.WriteAllText(toml, "# Generated embedded dir-unit project.\n[project]\n"
-        + "name = \"" + projName + "\"\nversion = \"0.1.0\"\nkind = \"lib\"\n"
-        + "[sources]\ninclude = [\"**/*.z42\"]\n[build]\n"
-        + "output_dir = \"" + outDir + "\"\ncache_dir = \"${output_dir}/cache/" + name + "\"\n");
+    File.WriteAllText(toml, _renderSyntheticManifest(projName, "**/*.z42", outDir, name));
     return toml;
 }
 

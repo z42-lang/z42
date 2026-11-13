@@ -280,7 +280,7 @@ scripts/
     │       ├── fixture_build.z42     多包 / 多入口夹具的构建、隔离 libs、产物定位与汇总
     │       ├── manifest_targets.z42  manifest 目标读取/校验、test/bench 编排与聚合（stdlib / targets / example 三个 flow 共用）
     │       │                         + micro bench 结果聚合 `MicroBenchAgg`（`bench stdlib --json`）
-    │       ├── package_units.z42     unit 级机制（发现 / 批量编译运行）
+    │       ├── package_units.z42     unit 级机制（发现 / 批量编译运行 / 合成 manifest）
     │       ├── unit_projects.z42     workspace 真实工程集合、声明包名选择与按 kind 分片
     │       └── execution_profile.z42 执行剖面词汇（tier × aot_pkgs × VM caps）
     ├── build/              编译各组件、生成文档产物

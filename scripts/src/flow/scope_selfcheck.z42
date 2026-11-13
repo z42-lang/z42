@@ -15,6 +15,13 @@ void _flowScopeChecks(FlowConfig cfg) {
         _gateAssert(_strIn(_flowLocalCommands(cfg, p), "xtask check xtask") && _ciBenchOnly(cfg, new string[]{ file }, root),
             "control keeps its own contracts without A/B: " + file);
     }
+    foreach (var file in new string[]{ "scripts/src/common/harness/tooling.z42", "scripts/src/common/harness/package_units.z42", "scripts/src/test/tooling.z42", "scripts/src/test/toolchain/example_build.z42" }) {
+        string[] flags = _flowOutputs(cfg, _flowSelect(cfg, new string[]{ file }, root));
+        bool shared = !file.Contains("/toolchain/");
+        _gateAssert(_strIn(flags, "host_checks") && _strIn(flags, "bench_stdlib") == shared
+            && !_strIn(flags, "platform") && !_strIn(flags, "sdk_checks") && !_strIn(flags, "bench_vm") && !_strIn(flags, "bench_integration"),
+            "known host harness changes retain consumers without unrelated platforms or performance: " + file);
+    }
     foreach (var kind in new string[]{ "stdlib", "compiler" }) {
         FlowPlan p = _flowSelect(cfg, new string[]{ "scripts/src/build/" + kind + ".z42" }, root);
         string[] flags = _flowOutputs(cfg, p);
