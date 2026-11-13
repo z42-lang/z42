@@ -26,3 +26,6 @@ pub use module::{register_native_module, resolve_native_module};
 mod native_call;
 mod native_value;
 pub(crate) use native_call::invoke_export;
+
+#[cfg(test)]
+mod qualified_call_tests;

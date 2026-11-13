@@ -1,0 +1,24 @@
+namespace NativeModuleCodegenTests;
+using Z42.Emission;
+using Std.Harness;
+
+[Test]
+void module_library_qualifier_survives_lowering() {
+    string src = "class C { [Native(lib=\"alpha\", entry=\"same\")] public static extern int A(); [Native(lib=\"beta\", entry=\"same\")] public static extern int B(); }";
+    Assert.True(IrDump.DumpFunc(src, "C.A").Contains("call.native alpha::same("));
+    Assert.True(IrDump.DumpFunc(src, "C.B").Contains("call.native beta::same("));
+}
+
+[Test]
+void typed_native_call_preserves_its_type_qualifier() {
+    string src = "class C { [Native(lib=\"alpha\", type=\"Counter\", entry=\"read\")] public static extern int Read(); }";
+    Assert.True(IrDump.DumpFunc(src, "C.Read").Contains("call.native alpha::Counter::read("));
+}
+
+[Test]
+void module_void_stub_keeps_its_qualified_call() {
+    string src = "class C { [Native(lib=\"alpha\", entry=\"close\")] public static extern void Close(); }";
+    string ir = IrDump.DumpFunc(src, "C.Close");
+    Assert.True(ir.Contains("call.native alpha::close("));
+    Assert.False(ir.Contains("builtin close("));
+}

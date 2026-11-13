@@ -156,3 +156,11 @@ void test_read_rejects_bad_input() {
     badMinor[6] = (byte)255;   // header minor lo-byte
     Assert.True(ZbcReader.Read(badMinor) == null);
 }
+
+
+[Test]
+void test_roundtrip_native_module_and_typed_calls() {
+    _assertRoundtrip("class C { [Native(lib=\"alpha\", entry=\"same\")] public static extern int A(); "
+        + "[Native(lib=\"beta\", type=\"Counter\", entry=\"read\")] public static extern int B(); }",
+        "native_module.z42");
+}

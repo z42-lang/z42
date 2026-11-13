@@ -38,4 +38,4 @@ Tier 1 外部类型仍按 `(module, name)` 在每 VM 注册。`loader::native::l
 
 ## 当前边界
 
-带 `lib` 但不带 `type` 的脚本声明仍生成按名 builtin，外部类型声明使用 `CallNative`。C 入口 `z42_invoke` / `z42_invoke_method` 尚未实现反向调用；通用模块 ABI 的 `HostApi.invoke_script` 已实现同步脚本回调。旧 Tier 1 类型 ABI 仍独立，不能据此视为已实现其反向入口。
+脚本声明有 `lib` 时保留库限定信息：`CallNative` 的空类型名调用模块函数，非空类型名调用外部类型方法。限定查询只访问指定提供方，缺失时抛 `MissingSymbolException`，不回落其他模块的同名函数。模块函数在 interp/JIT 均可用，无需 libffi。C 入口 `z42_invoke` / `z42_invoke_method` 尚未实现反向调用；通用模块 ABI 的 `HostApi.invoke_script` 已实现同步脚本回调。旧 Tier 1 类型 ABI 仍独立，不能据此视为已实现其反向入口。

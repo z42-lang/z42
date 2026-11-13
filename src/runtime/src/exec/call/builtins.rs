@@ -13,6 +13,32 @@ fn native_export(ctx: &VmContext, name: &str, args: &[Value]) -> Option<abi::Cal
     (services.invoke)(ctx, None, name, args)
 }
 
+/// Invoke only the named provider. A miss never falls back to a bare builtin.
+pub fn invoke_module(
+    ctx: &VmContext, provider: &str, name: &str, regs: &[Value], args: &[u32],
+) -> abi::CallResult {
+    ctx.counters().native_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if ctx.has_runtime_observers() {
+        ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::NativeCallEntered {
+            module: provider.to_owned(), symbol: name.to_owned(),
+        });
+    }
+    let values: Result<Vec<_>, _> = args.iter().map(|&index| {
+        regs.get(index as usize).copied().ok_or_else(|| Box::new(
+            abi::BuiltinError::Internal(format!("undefined native argument register %{index}"))))
+    }).collect();
+    let values = values?;
+    if let Some(services) = ctx.ext::<NativeProviderServices>() {
+        if let Some(result) = (services.invoke)(ctx, Some(provider), name, &values) {
+            return result;
+        }
+    }
+    Err(Box::new(abi::BuiltinError::Exception {
+        class: "Std.MissingSymbolException",
+        message: format!("native module `{provider}` does not export `{name}`"),
+    }))
+}
+
 /// Name-keyed entry for callers that hold the arguments as a slice — unit tests,
 /// embedders, and the interpreter's `ToString` dispatch fallback
 /// (`exec_builtin_value`); the engines use [`invoke_builtin`]. A name not in

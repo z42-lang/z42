@@ -215,6 +215,10 @@ pub mod typed {
         super::read_line_from(&mut std::io::stdin().lock()).map_err(BuiltinError::from)
     }
 
+}
+
+#[z42_macros::builtins]
+pub(crate) mod harness {
     #[builtin(name = "__test_io_install_stdout_sink")]
     pub fn test_io_install_stdout_sink() { super::push_stdout_sink() }
 
