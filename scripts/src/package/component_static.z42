@@ -6,7 +6,8 @@ using Std.Cli;
 
 int _componentBuildStaticLibraries(string root, string rid, string profile) {
     string features = "z42/static-embedding,z42/" + _componentPlatformPreset(rid).Replace(",", ",z42/");
-    Process p = _componentPlatformCargo("build", root, rid, profile, false)
+    Process p = _componentPlatformCargo("build", root, rid, profile, false, "",
+        Path.Join(_componentPlatformOut(root, rid, profile, false), "cargo-artifacts.jsonl"))
         .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("--lib").Arg("--examples")
         .Arg("--no-default-features");
     if (_componentTargetHasJit(rid)) {

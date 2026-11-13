@@ -37,8 +37,21 @@ int _cargoBuildArtifactLog(Process build, string output) {
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Inherit()).Run();
     if (result.ExitCode != 0) { return result.ExitCode; }
     Directory.Create(output);
-    File.WriteAllText(log, result.Stdout);
+    // A Cargo plugin may consume stdout after the transparent Cargo proxy records it.
+    if (!File.Exists(log)) { File.WriteAllText(log, result.Stdout); }
     return 0;
+}
+
+string _cargoArtifactProxy(string root, string log) {
+    string work = Path.GetDirectoryName(log);
+    Directory.Create(work);
+    string source = Path.Join(root, "scripts/src/common/cargo_capture.rs");
+    string exe = Path.Join(work, "cargo-capture" + (Platform.IsWindows() ? ".exe" : ""));
+    ProcessResult result = new Process("rustc").WorkingDirectory(root)
+        .Arg("--edition=2021").Arg("-C").Arg("prefer-dynamic=no")
+        .Arg(source).Arg("-o").Arg(exe).Stderr(Stdio.Inherit()).Run();
+    if (result.ExitCode != 0) { throw new CliException("could not build Cargo artifact capture tool"); }
+    return exe;
 }
 
 string[] _cargoRecordedSearchPaths(string output) {

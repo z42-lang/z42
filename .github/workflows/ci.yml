@@ -93,6 +93,7 @@ jobs:
               - 'scripts/packages.toml'
               # 从 package/ 提取的共享配置与发布入口仍需覆盖打包管道。
               - 'scripts/src/common/cargo_artifacts.z42'
+              - 'scripts/src/common/cargo_capture.rs'
               - 'scripts/src/common/packages_config.z42'
               - 'scripts/src/common/publish.z42'
               - 'scripts/src/common/versions.z42'

@@ -69,7 +69,8 @@ class PackageSelectionTests(unittest.TestCase):
             r"^            platform:\n(.*?)(?=^            \w+:)",
             WORKFLOW.read_text(), re.M | re.S,
         )[1]
-        self.assertIn("- 'scripts/src/common/cargo_artifacts.z42'", platform_filter)
+        for source in ["cargo_artifacts.z42", "cargo_capture.rs"]:
+            self.assertIn(f"- 'scripts/src/common/{source}'", platform_filter)
         self.assertEqual(selected_jobs("pull_request", platform=True), ALL_PACKAGES)
 
     def test_push_without_nightly_changes_or_package_roles_skips_packages(self):
