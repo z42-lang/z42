@@ -18,6 +18,27 @@ TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入
 
 共享 Call/FnRef 的加载绑定在 `exec/ops/call.rs`；ToString 在 `exec/ops/stringify.rs` 并通过 Engine 执行；加载期 fusion 识别器及缓存形态在 `metadata/fusion.rs`。
 
+## 初始化阶段与所有者
+
+宿主会话、VM 装配和托管初始化有不同寿命。`z42_host_initialize` 只校验宿主配置、
+探测可用 corelib 并发布 C 宿主会话；每次 `LoadedProgram::load_file/load_bytes` 才创建该程序的 VM。
+
+| 阶段 | 所有者 | 完成条件 |
+|---|---|---|
+| 产物准备 | `host/load.rs`、`loader/package` | 依赖合并、类型和索引准备完成 |
+| 可用性裁剪 | `host/boot.rs` | 在模块进入 Core 和 token 解析前完成裁剪并重建受影响索引 |
+| Core 构造 | `context/bootstrap.rs` | 创建堆和各子系统状态，连接根扫描、暂停请求与加载上下文回收服务 |
+| 主线程注册 | `context/bootstrap.rs` | 上下文地址固定、登记根扫描地址、启用 TLAB 并绑定 SATB |
+| 加载与执行准备 | `host/boot.rs`、`metadata/resolve` | 登记 cctor、安装并播种惰性加载器、准备 token |
+| 组件装配 | `components`、`host/load.rs` | 创建组件、连接执行后端，之后发布 LoadedProgram |
+| 调用准备 | `host/runtime.rs` | 参数钉根，首次调用清理静态存储并排空待加载类型队列 |
+| 托管初始化 | `exec/init.rs` | 执行访问屏障保证包和类型初始化的执行、等待与失败传播 |
+
+`drain_pending_type_loads` 和 `enqueue_type_load` 处理的是静态字段属主的类型加载队列，
+不执行托管初始化器。加载会登记初始化事实，真正执行发生在包/类型的访问屏障。
+worker 通过 `context/thread_lifecycle.rs` 加入已有 Core，不重建堆、服务或组件；
+加入时按 `gc_phase → vm_contexts` 的锁顺序等待 Marking 结束后登记。
+
 ## 每 VM 扩展状态
 
 `context/extensions.rs` 的 `VmExtensions` 在 VM 创建前按 Rust `TypeId` 登记拥有所有权的状态；重复类型报错并保留原项。
@@ -83,13 +104,13 @@ let program = z42::host::LoadedProgram::load_file(path, options)?;
 program.run_entry(hint)?;
 ```
 
-上述装配（`available!` 折叠 → `with_module` → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/host/boot.rs::boot_context` 一处完成，`host::run_app` 与嵌入 host（`host/ops.rs`）共用。
+上述装配（`available!` 折叠 → 显式构造 Core → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/host/boot.rs::boot_context` 一处完成，`host::run_app` 与嵌入 host（`host/ops.rs`）共用。
 
 ### VmContext 构造入口
 
 | 方法 | 用途 | 备注 |
 |------|------|------|
-| `VmContext::with_module(module: Module) -> Pin<Box<Self>>` | 生产入口；构造新 VmCore + 把 `Arc<Module>` 装入 `VmCore.module` | `__thread_spawn` worker 需要 `VmCore.module = Some` 来 dispatch；test 路径若不需要 module 走 `new()` |
+| `VmContext::with_module(module: Module) -> Pin<Box<Self>>` | 底层构造入口；创建 Core 和主线程，装入 `Arc<Module>` | `__thread_spawn` worker 需要 `VmCore.module = Some` 来 dispatch；test 路径若不需要 module 走 `new()` |
 | `VmContext::with_image(image: Arc<PackageImage>) -> Result<Pin<Box<Self>>>` | 复用不可变定义，构造新 VM 的类型表并验证约束 | 不复用另一 VM 的 FnId 或缓存；`with_image_and_vfs` 指定后续文件系统 |
 | `VmContext::new() -> Pin<Box<Self>>` | 测试入口；构造新 VmCore + `module = None` | 单测大量用（heap / 静态字段 / corelib 单测均不需要真 Module） |
 | `VmContext::new_with_core(core: Arc<VmCore>) -> Pin<Box<Self>>` | spawn 入口；**复用现有 VmCore**，仅构造 per-thread 字段 + register self 到 `vm_contexts` | `__thread_spawn` worker 通过此构造，让 worker 看见父 VmCore 的 statics / heap / lazy_loader / native_libs |
@@ -115,7 +136,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.exec.engi
 - `runtime.funcs: Arc<FuncTable>` — VM 级函数身份表（`metadata/ids/func_table.rs`）：每个函数一个 `FnId`（u32，本 VmCore 内稠密、永不复用、只存在于运行期），`get(id)` 无锁。入口模块的函数在构造 VmCore 时整块登记为 `0..n`，**等于 `module.functions` 下标**（槽位借用 `module`，表里持有同一个 `Arc`）；惰性包的函数在 `LazyLoader::insert_function` 入表时逐个追加（槽位持有 `Arc<Function>`），重名 first-wins、不分配新 id。`Function.id` 记录登记得到的 id。名字反查 `id_of` 是冷路径：先查入口模块的 `func_index`，再查惰性函数的 `by_name`。`by_name` 同时就是 lazy loader 的函数名表（加载器自己不另存一份，`probe_function` / `resolve_function` 都经 `FuncTable::lazy_fn` 读它）；惰性函数与入口函数同名时仍各有 id，`id_of` 答入口那个。再次安装 lazy loader（只有测试会）用 `reset_lazy_names` 清空名字空间，槽位与 id 保留。底层是 `metadata/ids/seg_vec.rs` 的 `SegVec`：倍增分段（首段 1024 项）、段永不移动，追加持写者锁并以 Release 发布长度，读侧 Acquire 读长度。消费方：`Call` 站点 token（见下文「Call 站点 token：FnId」）、VCall PIC 载荷、ObjNew 站点的 ctor、`LoadFn` / `MkClos` 站点 token 与 `FuncRef` / 闭包值里的目标（见下文「闭包 dispatch」），以及 JIT 的槽位表——全都存同一个 `FnId`。
 - `runtime.types: Arc<TypeTable>` — VM 级类型身份表（`metadata/ids/type_table.rs`）：`TypeId` → 该类型**最新版本**的描述符，`get(id)` 无锁（Acquire 读槽指针）。`TypeId` 是**进程级**的（`tokens::alloc_type_id_block` 在构建模块类型注册表时整块分配，见下「TypeId 的作用域」），一个 VM 只看到其中稀疏的一部分，所以底层是按裸 id 下标的 `SparseSegTable`（段在首次触碰时分配）。登记：入口模块的 `type_registry` 在构造 VmCore 时整体登记；lazy loader 在每个改动自己类型表的步骤之后调 `LazyLoader::publish_types` 把整张表发布一遍——包加载（继承 fixup 跑完之后，此时新描述符仍独占，fixup 原地改）、`seed_types_for_lookup`、`ensure_base_chain_loaded` 的 fixup。fixup 写时复制出的合并副本与原描述符同 id 同名，发布时槽位改指新副本；发布过的每个版本都留在表里直到表析构，借出的 `&TypeDesc` 不会悬空。同一 id 下名字不同的描述符被拒（first-wins，记 error 日志；只有发号器不变量被破坏才会发生）。重名类型由加载器 first-wins，输家从不发布。**不登记**：按对象现建的回落描述符、corelib 原生句柄单例（两者 `id == UNRESOLVED`）、只由 load context 持有的模块的类型。名字查找仍走 `Module.type_registry` 与加载器的 `type_registry`（两张名字表尚未并入本表）。另外为**类型判定的目标名**保留键（`name_key`，见 [interp-jit-semantics.md](interp-jit-semantics.md)「类型判定的缓存键」）。消费方：`isa_cache` 的键。
 - `runtime.strings: Arc<StrTable>` — VM 级字符串字面量身份表（`metadata/ids/str_table.rs`）：每个 `ConstStr` 操作数都是本 VM 一个稠密、只追加、永不复用的**字符串 id**，槽位存字面量文本与驻留的 GC 字符串。入口模块的 `string_pool` 在构造 VmCore 时整块登记为 `0..n`（槽位不复制文本，从 `module` 读）；惰性包注册时加载器把它的整个池追加进来（`StrTable::append` 返回首个 id，`remap_const_str` 把包内 `ConstStr.idx` 加上它）。再次安装 lazy loader（只有测试会）接着往后编号，旧加载器的函数仍读得到自己的字面量；加载器的 `main_pool_len` 以下、表里没有文本的 id 用空槽占位（`reserve`）。驻留与 GC 根见下「ConstStr：每 VM 的字符串表」。
-- 静态初始化：`runtime.cctors: Arc<CctorRegistry>`（有静态构造器的类型的初始化状态，见 [static-ctor-init.md](static-ctor-init.md)）/ `pending_type_inits` / `pending_type_init_count` / `init_batch_inflight` / `runtime.static_init_error`
+- 静态初始化与加载准备：`runtime.cctors: Arc<CctorRegistry>`（有静态构造器的类型的初始化状态，见 [static-ctor-init.md](static-ctor-init.md)）/ `pending_type_loads` / `pending_type_load_count` / `type_load_batch_inflight` / `runtime.static_init_error`
 - `loader.context_registry: Mutex<ContextRegistry>` — load context / assembly 注册表（见 [load-context.md](load-context.md)）
 - `threads: ThreadState`（`threads/state.rs`）— context 注册表、fatal 标记及 GC safepoint 的 `gc_phase` / `gc_phase_cv` / `parked_count` / `collector_active` / `needs_auto_collect`；每 VM 一份，worker 共享（见 [safepoint-design.md](safepoint-design.md)）
 - 观测：`counters`（`RuntimeCounters`，只累计已销毁 `VmContext` 的计数；各线程在自己的 `VmContext.diagnostics.counters` 上计，`counters_snapshot()` 汇总）/ `runtime_observers` / `park_histogram`（safepoint park 时长分布）/ `lock_contentions` + `lock_wait_us`（仅 `profile-contention` feature 写入）/ `sampler`（`Z42_SAMPLE_HZ` 开启的采样 profiler）
@@ -135,7 +156,7 @@ Rust 查询/注册/pin 操作经 interop 模块函数访问冻结扩展状态，
 
 > **模块布局**：`context/`：`mod.rs`（hub：VM_CORES / snapshot /
 > `VmContextPtr` / `CoreContextReclaimer`）+ `types.rs`（VmCore/VmContext struct）+
-> `construct.rs`（构造 + Drop）（帧栈归 `exec/call/frame_stack.rs`，见下「帧栈的归属」）+ `native.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
+> `bootstrap.rs`（Core 构造）+ `thread_lifecycle.rs`（worker 加入 + Drop）（帧栈归 `exec/call/frame_stack.rs`，见下「帧栈的归属」）+ `pending_exception.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
 > （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）（静态状态归 `metadata/statics/`，执行与等待归 `exec/init.rs`）（`is`/`as`/`catch` 前置缓存类型在 `metadata/dispatch/isa_cache.rs`）/ `symres.rs`（「确定不存在」判定）。
 
 `VmCore.loader` 是 `loader/state.rs` 的 `LoaderState`，持有惰性加载器、加载上下文、待初始化类型队列、
@@ -193,7 +214,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 | GC root scanner（标记用的、retention 诊断用的分类版） | collector | `VmContext::scan_frames_parked`（`unsafe`） | 调用方是所属线程，或所属线程已 park |
 | 崩溃信号处理器 | 崩溃线程 | 自己的栈：`scan_parked`；别的线程：`published_depth` | 只读自己拥有的帧；别的线程只读深度原子 |
 
-**跨线程读为什么安全**（`scan_parked` 的前提，全部在 `threads/safepoint.rs` 与 `context/construct.rs`）：
+**跨线程读为什么安全**（`scan_parked` 的前提，全部在 `threads/safepoint.rs` 与 `context/thread_lifecycle.rs`）：
 
 - mutator park 时先 `parked_count.fetch_add(AcqRel)`，再拿 `gc_phase` 锁（`park_until_idle`；阻塞型
   native 调用的 `native_park_incr` 同理）。park 期间不 push / pop：safepoint park 本身阻塞在条件变量上；
@@ -729,7 +750,7 @@ stdlib 里必然含有 JIT 尚未支持的 opcode —— `out`/`ref`/`in` 参数
    只决定怎么调：有编译入口走原生，否则在解释器上以填好接收者的帧执行。
 
 3. **entry 也兜底**：`jit::run_fn` 在入口取不到时（被拒绝的 entry）改用 `interp::run::exec_function`
-   执行，而不是硬报 `entry not found`。静态字段初始化器随类型初始化器惰性触发（`run_pending_static_inits`），
+   执行，而不是硬报 `entry not found`。静态字段初始化器由执行访问点的类型初始化屏障惰性触发；`drain_pending_type_loads` 只解析类型并加载包，
    不再有 `__static_init__` 名单需要在 JIT 侧枚举。
 
 > 净效果：JIT 尽量编原生码，含 interp-only opcode 的函数在解释器上跑（它调用的已编译函数仍经混合模式

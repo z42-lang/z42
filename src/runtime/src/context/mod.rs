@@ -47,8 +47,10 @@ use std::sync::{Arc, Weak};
 use crate::gc::{Heap};
 
 mod types;
-mod construct;
-mod native;
+mod access;
+mod observation;
+mod thread_lifecycle;
+mod pending_exception;
 mod frames;
 mod statics;
 mod lookup;

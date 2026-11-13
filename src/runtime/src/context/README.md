@@ -9,12 +9,14 @@
 | 文件 | 职责 |
 |---|---|
 | `types.rs` | Core/Context 状态、repr 与偏移常量 |
-| `construct.rs` | worker 共享、线程注册、Drop 与诊断计数转移 |
+| `bootstrap.rs` | 从显式输入构造 Core，连接 GC 服务并创建主线程上下文 |
+| `thread_lifecycle.rs` | worker 加入、线程注册、Drop 与诊断计数转移 |
+| `access.rs` / `observation.rs` | 状态借用、计数聚合与事件观察 |
 | `frames.rs` | 帧读写、根扫描、异常槽和栈快照访问 |
-| `lookup.rs` / `symres.rs` | 上下文查找与缺符号判定 |
+| `lookup.rs` / `symres.rs` | 类型/函数查找、待加载类型队列与缺符号判定 |
 | `statics.rs` | 静态字段和初始化访问 |
 | `extensions.rs` | 创建前登记与冻结的每 VM 扩展状态；默认资源装配由 host 提供 |
-| `native.rs` | 反射重入的待传播异常值 |
+| `pending_exception.rs` | 反射重入的待传播异常值 |
 
 ## 基础用法
 

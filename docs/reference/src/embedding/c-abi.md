@@ -160,6 +160,8 @@ Z42HostStatus z42_host_initialize(const Z42HostConfig* cfg, Z42HostRef* out_host
 
 内部已串行化，从多个线程同时调用不会数据竞争；但语义上只有一个会赢。
 
+初始化失败不更改已有宿主会话及其 stdout / stderr 回调；`out_host` 保持 NULL。
+
 ### `z42_host_load_zbc`
 
 ```c

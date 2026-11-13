@@ -102,6 +102,63 @@ fn initialize_twice_returns_already_init() {
     );
 }
 
+fn assert_host_sinks_receive_output(capture: &StdoutCapture) {
+    let ctx = VmContext::new();
+    let _active = super::ops::HostSinkGuard::enter();
+    let _ = crate::corelib::io::typed::println(&ctx, &Value::I64(17)).unwrap();
+    let _ = crate::corelib::io::typed::eprintln(&ctx, &Value::I64(23)).unwrap();
+    assert_eq!(&*capture.bytes.lock().unwrap(), b"17\n23\n");
+}
+
+#[test]
+fn duplicate_initialize_preserves_existing_stdout_and_stderr() {
+    let _g = test_lock();
+    reset_host();
+    let capture = StdoutCapture { bytes: Mutex::new(Vec::new()) };
+    let rejected = StdoutCapture { bytes: Mutex::new(Vec::new()) };
+    let mut cfg = default_config();
+    cfg.stdout_sink = Some(host_stdout_sink_callback);
+    cfg.stderr_sink = Some(host_stdout_sink_callback);
+    cfg.sink_user_data = &capture as *const _ as *mut c_void;
+    let mut host = ptr::null_mut();
+    assert_eq!(unsafe { z42_host_initialize(&cfg, &mut host) }, Z42HostStatus::Ok);
+    cfg.sink_user_data = &rejected as *const _ as *mut c_void;
+    let mut duplicate = ptr::null_mut();
+    assert_eq!(unsafe { z42_host_initialize(&cfg, &mut duplicate) }, Z42HostStatus::AlreadyInit);
+    assert!(duplicate.is_null());
+    assert_host_sinks_receive_output(&capture);
+    assert!(rejected.bytes.lock().unwrap().is_empty());
+    assert_eq!(unsafe { z42_host_shutdown(host) }, Z42HostStatus::Ok);
+}
+
+#[test]
+fn failed_corelib_probe_preserves_existing_stdout_and_stderr() {
+    let _g = test_lock();
+    reset_host();
+    let capture = StdoutCapture { bytes: Mutex::new(Vec::new()) };
+    let mut cfg = default_config();
+    cfg.stdout_sink = Some(host_stdout_sink_callback);
+    cfg.stderr_sink = Some(host_stdout_sink_callback);
+    cfg.sink_user_data = &capture as *const _ as *mut c_void;
+    let mut host = ptr::null_mut();
+    assert_eq!(unsafe { z42_host_initialize(&cfg, &mut host) }, Z42HostStatus::Ok);
+
+    let dir = std::env::temp_dir().join(format!("z42-host-init-probe-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("z42.core.zpkg"), b"invalid package").unwrap();
+    let path = CString::new(dir.to_str().unwrap()).unwrap();
+    let paths = [path.as_ptr(), ptr::null()];
+    let mut invalid = default_config();
+    invalid.search_paths = paths.as_ptr();
+    let mut failed = ptr::null_mut();
+    let status = unsafe { z42_host_initialize(&invalid, &mut failed) };
+    std::fs::remove_dir_all(dir).unwrap();
+    assert_eq!(status, Z42HostStatus::BadConfig);
+    assert!(failed.is_null());
+    assert_host_sinks_receive_output(&capture);
+    assert_eq!(unsafe { z42_host_shutdown(host) }, Z42HostStatus::Ok);
+}
+
 #[test]
 fn shutdown_then_reinitialize() {
     let _g = test_lock();

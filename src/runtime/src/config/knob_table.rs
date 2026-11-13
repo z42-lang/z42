@@ -101,7 +101,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Str,
         description: "block-footprint threshold above which a variable-length GC block gets its own exactly-sized chunk (whose memory goes straight back to the allocator when the block dies). Capped at the 64 KB bump-chunk size",
         default_hint: "unset; defaults to 64K (the bump-chunk size, which is also the ceiling)",
-        consumed_by: "gc/var_region/chunk.rs (class_for), applied once in context/construct.rs",
+        consumed_by: "gc/var_region/chunk.rs (class_for), applied once in context/bootstrap.rs",
         ..TUNING
     },
     KnobSpec {
@@ -111,7 +111,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Str,
         description: "soft heap cap: squeezes the collection allowance and adds a near-limit trip. NOT the arming switch since arm-gc-by-default — the collector's thresholds are relative and it runs without one. Accepts a byte count or a K/KB/M/MB/G/GB suffix (512MB, 2G)",
         default_hint: "unset; no cap (the collector still runs, on relative-growth thresholds)",
-        consumed_by: "context/construct.rs (set_max_heap_bytes) → gc/heap/alloc.rs",
+        consumed_by: "context/bootstrap.rs (set_max_heap_bytes) → gc/heap/alloc.rs",
         ..PUBLIC
     },
     KnobSpec {
@@ -229,7 +229,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Bool,
         description: "print one stderr line per collection (kind, heap used before/after, bytes reclaimed, pause ms) plus near-limit / over-budget edges",
         default_hint: "unset; off. No observer installed when off (zero cost)",
-        consumed_by: "gc/trace.rs, installed by context/construct.rs",
+        consumed_by: "gc/trace.rs, installed by context/bootstrap.rs",
         ..PUBLIC
     },
     KnobSpec {

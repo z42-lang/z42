@@ -78,7 +78,7 @@ pub fn init_static_fields(ctx: &VmContext, _module: &Module) -> Result<()> {
     //
     // 仍然要排空「待加载类型」队列（T3 在主模块解析期入队的静态字段所属类）——
     // 那只做**加载**，让屏障在访问点有类型可查；初始化本身不在这里发生。
-    ctx.run_pending_static_inits();
+    ctx.drain_pending_type_loads();
     Ok(())
 }
 

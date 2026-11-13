@@ -136,7 +136,7 @@ impl LoadedProgram {
         );
         let initialized = self.initialized.get_or_init(|| {
             ctx.static_fields_clear();
-            ctx.run_pending_static_inits();
+            ctx.drain_pending_type_loads();
             match ctx.take_static_init_error() {
                 Some(e) => Err(e),
                 None => Ok(()),

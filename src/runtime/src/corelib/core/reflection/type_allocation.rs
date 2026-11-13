@@ -2,8 +2,8 @@
 use super::*;
 
 pub(super) fn finish_type_initialization(ctx: &VmContext) {
-    if !ctx.static_init_drain_is_noop(&[]) {
-        ctx.run_pending_static_inits();
+    if !ctx.type_load_drain_is_noop(&[]) {
+        ctx.drain_pending_type_loads();
     }
 }
 
@@ -28,7 +28,7 @@ pub(super) fn build_type_ex(
     native: NativeData,
     projection: TypeProjection<'_>,
 ) -> Value {
-    let _initialization_roots = if !ctx.static_init_drain_is_noop(&[]) {
+    let _initialization_roots = if !ctx.type_load_drain_is_noop(&[]) {
         let mut roots = ProjectionRoots::new(ctx);
         match &projection {
             TypeProjection::Array { element, .. } => {
@@ -41,7 +41,7 @@ pub(super) fn build_type_ex(
             }
             TypeProjection::Plain => {}
         }
-        ctx.run_pending_static_inits();
+        ctx.drain_pending_type_loads();
         Some(roots)
     } else {
         None
