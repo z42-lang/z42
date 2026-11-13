@@ -157,7 +157,6 @@ outputs = ["platform", "compiler", "compiler_checks", "vm", "runtime_checks", "s
 outputs = ["toolchain_build"]
 
 [flows.host-validation]
-requires = ["product-tools"]
 outputs = ["host_checks"]
 
 [flows.test-assets]

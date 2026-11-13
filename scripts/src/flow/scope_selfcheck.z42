@@ -22,6 +22,11 @@ void _flowScopeChecks(FlowConfig cfg) {
             && !_strIn(flags, "platform") && !_strIn(flags, "sdk_checks") && !_strIn(flags, "bench_vm") && !_strIn(flags, "bench_integration"),
             "known host harness changes retain consumers without unrelated platforms or performance: " + file);
     }
+    foreach (var file in new string[]{ "src/runtime/tests/private.rs", "scripts/src/test/toolchain/example_build.z42", "src/toolchain/builder/tests/fixtures/private/expect.toml" }) {
+        string[] flags = _flowOutputs(cfg, _flowSelect(cfg, new string[]{ file }, root));
+        _gateAssert(_strIn(flags, "host_checks") && !_strIn(flags, "toolchain_build"),
+            "self-preparing host validation does not build an unused shared toolchain: " + file);
+    }
     foreach (var kind in new string[]{ "stdlib", "compiler" }) {
         FlowPlan p = _flowSelect(cfg, new string[]{ "scripts/src/build/" + kind + ".z42" }, root);
         string[] flags = _flowOutputs(cfg, p);

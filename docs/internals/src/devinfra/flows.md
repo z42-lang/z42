@@ -103,6 +103,8 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
 | VM / 编译器 / 标准库生产源 | 正确性消费者与对应性能类别；VM 生产源保留完整运行时和平台契约 |
 | 无法识别的输入 | 完整策略，不以“脚本文件”作为自动免测依据 |
 
+宿主 job 在本机准备工具链；`host-validation` 不额外申请供分片 / 编译器消费者下载的共享工具链产物。仅宿主验证的计划不会启动无消费者的 `compile-toolchain`，发布所需的准备仍由累计发布策略保留。
+
 `test stdlib --plan <文件>` 和 `bench stdlib --plan <文件>` 在计划绑定的工作树中保留 `{owner}`，并与分片取交集；不会把单包选择扩大成全库。A/B 的 base、head 是不同工作树，各自在本树捕获完整的已选性能类别，不向另一棵树套用提交绑定的计划。
 
 事件名与待验证提交来自 GitHub 环境。PR 使用事件的 base SHA，push 使用 before SHA；浅克隆先获取基线。
