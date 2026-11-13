@@ -89,6 +89,8 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
   --out artifacts/ci-plan.json --github-output "$GITHUB_OUTPUT"
 ```
 
+规划器输出 `validation_required`，表示差异、完整策略或待发布 SDK 是否需要验证。空 PR 的值为 `false`：只保留轻量规划与 `ci-ok`，宿主测试、工具链构建及依赖它的任务跳过。空改动与纯文档分别判定；无法读取基线、schedule / dispatch 的完整策略及非 PR 的累计发布义务继续保守验证。
+
 事件名与待验证提交来自 GitHub 环境。PR 使用事件的 base SHA，push 使用 before SHA；浅克隆先获取基线。
 首次 push、无法获取或验证基线时回退全量并打印原因；schedule / workflow_dispatch 使用全量策略。
 JSON 计划通过 `ci-plan` artifact 共享；消费 job 独立获取浅克隆中缺失的 base commit，再重新计算并核对计划。host 测试用 `xtask test --plan` 消费 stage 选择，编译器 job 用：

@@ -103,6 +103,8 @@ void _flowWriteOutputs(FlowConfig cfg, FlowPlan plan, string path) {
     foreach (var key in all) { text = text + key + "=" + (_strIn(selected, key) ? "true" : "false") + "\n"; }
     text = text + "docs_only=" + (plan.DocsOnly ? "true" : "false") + "\n";
     bool release = plan.Event != "pull_request" && plan.ReleaseRequired != "false";
+    bool required = plan.Full || plan.Files.Length > 0 || release;
+    text = text + "validation_required=" + (required ? "true" : "false") + "\n";
     bool platform = _strIn(selected, "platform") || release;
     bool host = platform || _strIn(selected, "sdk_checks") || _strIn(selected, "examples");
     text = text + "platform_package=" + (platform ? "true" : "false") + "\n";

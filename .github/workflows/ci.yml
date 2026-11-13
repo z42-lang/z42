@@ -42,6 +42,8 @@ jobs:
       runtime_checks: ${{ steps.filter.outputs.runtime_checks }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
       docs_only: ${{ steps.filter.outputs.docs_only }}
+      # 空 PR 不启动产品构建；全量回退与累计发布仍保留验证。
+      validation_required: ${{ steps.filter.outputs.validation_required }}
       macos_host_lane: ${{ steps.macos_queue.outputs.host }}
       macos_package_lane: ${{ steps.macos_queue.outputs.package }}
       macos_checks_lane: ${{ steps.macos_queue.outputs.checks }}
@@ -129,7 +131,7 @@ jobs:
     # 本 job 跑所有非纯文档改动；完整 Rust harness 只在 VM 相关改动或定期运行时执行。
     needs: changes
     # 纯文档改动（PR 与 main push）走 docs-check（见 changes 的 Docs-only 步骤）；本 job 被 skip 时 ci-ok 照样绿。
-    if: needs.changes.outputs.docs_only != 'true'
+    if: needs.changes.outputs.validation_required == 'true' && needs.changes.outputs.docs_only != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -393,7 +395,7 @@ jobs:
     timeout-minutes: 30
     # 除纯文档改动外恒跑：它的 artifact 是打包 / 平台测试 / current-sdk 各 job 的根。
     needs: changes
-    if: needs.changes.outputs.docs_only != 'true'
+    if: needs.changes.outputs.validation_required == 'true' && needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
