@@ -7,12 +7,18 @@ using Std.Cli;
 class CiCommand : Command {
     public CiCommand() : base("ci", "GitHub CI control operations") {
         this.AddCommand(new CiHostTestCommand());
+        this.AddCommand(new CiQueueCommand());
         this.AddCommand(new CiRetryCommand());
         this.AddCommand(new CiUploadCommand());
         this.AddCommand(new CiSupersedeCommand());
         this.AddCommand(new CiInstallerCheckCommand());
         this.AddCommand(new CiBenchScopeCommand());
     }
+}
+
+class CiQueueCommand : Command {
+    public CiQueueCommand() : base("queue", "reserve macOS capacity for PRs and background CI") {}
+    public override int Run() { return _ciQueue(); }
 }
 
 class CiRetryCommand : Command {

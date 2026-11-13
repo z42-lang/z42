@@ -49,7 +49,7 @@
 - **缓存**：Rust 依赖用 Swatinem `rust-cache`，bench 缓存由 main 上的 `bench-cache-warm` 预热。
 - **VM 准备**：共享工具链 action 默认构建 release VM，可复用同轮 Linux x64 产物，也可交给测试命令构建所需 profile。JIT golden 分片使用第三种方式构建 debug VM。[CI 拓扑](../../docs/internals/src/devinfra/ci.md)
 - **并发控制**：PR 上同一 ref 的旧 run 自动取消（`concurrency` 段）；main 的 push 运行不自动取消，由 `xtask ci supersede` 只取消不影响 SDK 的旧运行。job 由 GitHub 原生队列按可用 runner 调度。
-- **macOS 容量与恢复**：主 CI 的 macOS job 使用有界原生资源池；runner 未取得时的有限重试由 `xtask ci retry-runner` 判定，规则见 [CI 拓扑](../../docs/internals/src/devinfra/ci.md#macos-资源队列与-runner-获取失败恢复)。
+- **macOS 容量与恢复**：主 CI 通过 `xtask ci queue` 为 macOS 分配 PR 两槽、后台一槽的独立有界资源池；runner 未取得时的有限重试由 `xtask ci retry-runner` 判定，规则见 [CI 拓扑](../../docs/internals/src/devinfra/ci.md#macos-资源队列与-runner-获取失败恢复)。
 
 ## 如何测试验证
 

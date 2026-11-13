@@ -179,21 +179,17 @@ main 上的运行替换规则与 nightly 发布串行化分别由对应机制管
 
 ### macOS 资源队列与 runner 获取失败恢复
 
-主 CI 在 `detect-changes` 中为 macOS 的宿主测试、宿主打包和其余检查分别选择一个资源槽：
-按 `run_number` 加 0 / 1 / 2 后对 3 取余，输出 `macos_{host,package,checks}_lane`。
-`test-host` 的 macOS 腿使用 host 槽，`package-host` 的 macOS 腿使用 package 槽；
-`test-stdlib-interp` 的 macOS 腿、`package-ios`、`test-ios` 使用 checks 槽。
+主 CI 在 `detect-changes` 的 xtask 自举后调用 `xtask ci queue`，分配两类独立资源池：
+PR 使用 `pr-0` / `pr-1` 两个槽；main / schedule / 手动运行使用 `background-0` 一个槽。
+宿主、宿主打包与其它检查分别按 `run_number` 加 0 / 1 / 2 后对本池槽数取余。
+同一次运行的任务可在池内并行；重跑保持相同槽位，后台 SDK 工作不会占住 PR 的 concurrency 通道。
 
-job 级 concurrency group 统一为 `ci-macos-arm64-<lane>`，一个槽同时只申请一个 macOS runner。
-三个槽之间并行，主 CI 的 macOS 并发需求上限为 3；同一次运行的三个 job 类别也可以并行，
-不同运行按 run_number 轮转分配，避免某一固定类别成为全仓单一瓶颈。重跑保持原 run_number，槽位不变。
-
-槽数的唯一配置在 ci.yml 的 `Select bounded macOS runner queue` 步骤。3 低于
-[Free / Pro / Team 默认的 macOS 并发上限 5](https://docs.github.com/en/actions/reference/limits)，
-为其它 workflow 留出余量；它不是 GitHub 容量保证。每个槽的 `queue: max` 允许最多
-100 个 job 等在 concurrency 队列中，`cancel-in-progress: false` 保留当前执行者；不能只用默认队列，
-默认只保留一个等待者、后来的 job 会取消前一个等待者。Linux / Windows 的矩阵腿按 run ID、job 类型、
-平台分组，保持并行。PR 的 workflow 级新提交取消旧运行规则仍然生效。
+job 级 group 统一为 `ci-macos-arm64-<池与槽>`。新配置总需求上限为 3，其中 PR 最多 2、后台最多 1，
+低于 [Free / Pro / Team 默认的 macOS 并发上限 5](https://docs.github.com/en/actions/reference/limits)，
+为其它 workflow 留出余量。槽数的唯一配置在 `scripts/src/ci/queue.z42`。
+每个槽使用 `queue: max` 和 `cancel-in-progress: false`，最多保留 100 个等待者；
+默认单等待者队列会让新 job 顶掉较早等待者。Linux / Windows 的矩阵腿仍按 run ID、任务类型和平台并行。
+资源池按进入等待的时间 FIFO，不保证整个 PR 按创建时间完成；配置切换前的运行继续使用其原有组。
 
 这个队列限制本仓库发给 macOS runner 池的并发需求，但不保证 GitHub 始终有可用的 hosted runner。
 GitHub 放弃获取 runner 时，job API 可能报告 `cancelled`，`needs` 矩阵结果可能为 `abandoned`；
