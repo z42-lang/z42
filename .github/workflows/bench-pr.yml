@@ -20,7 +20,7 @@ on:
       - 'src/benches/**'
       - 'scripts/**/*.z42'
       - 'scripts/xtask.z42.toml'
-      - '.github/ci/bench-verdict.sh'
+      - 'scripts/flows.toml'
       - '.github/workflows/bench-pr.yml'
       # 负向模式在后 ⇒ 覆盖前面的匹配：只动 .md 的 PR 不触发；.md 与代码同改照旧跑。
       - '!**/*.md'
@@ -91,26 +91,19 @@ jobs:
           # for the bench JSON metadata, and that the base.sha diff below resolves.
           fetch-depth: 0
 
+      - name: Bootstrap planner (seed SDK only)
+        uses: ./.github/actions/ci-bootstrap
+        with:
+          rid: linux-x64
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
+          xtask-only: "true"
+
       - name: Select benchmark validation
         id: scope
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-          base="${BASE_SHA:-}"
-          verdict_only=false
-          # Compare the checked-out merge tree to its base. Disabling rename detection
-          # checks both the old and new paths when a file moves across the boundary.
-          if [ -n "$base" ] && git merge-base --is-ancestor "$base" HEAD &&
-             git diff --quiet --no-renames "$base" HEAD -- . \
-               ':(exclude,glob)**/*.md' \
-               ':(exclude,glob)src/benches/testdata/**' \
-               ':(exclude,literal).github/ci/bench-verdict.sh'; then
-            verdict_only=true
-            echo "Running verdict self-checks with the seed SDK and xtask." >> "$GITHUB_STEP_SUMMARY"
-          fi
-          echo "verdict_only=$verdict_only" >> "$GITHUB_OUTPUT"
+        run: xtask ci bench-scope --base "$BASE_SHA"
 
       # A/B: the PR's merge-base toolchain, built on THIS same runner. Its build
       # location is irrelevant to the measurement — both base.zbc and pr.zbc are
@@ -214,15 +207,16 @@ jobs:
       # Seed from the prev nightly + build current source warm (xtask bench
       # rebuilds stdlib via the warm self-build). Same path as CI build-and-test.
       - name: Bootstrap toolchain (nightly z42c seed → current source)
+        if: steps.scope.outputs.verdict_only == 'false'
         uses: ./.github/actions/ci-bootstrap
         with:
           rid: linux-x64
           gh-token: ${{ secrets.GITHUB_TOKEN }}
-          xtask-only: ${{ steps.scope.outputs.verdict_only }}
+          xtask-only: "false"
 
       - name: Verdict logic self-check (_abVerdict/_abResampleVerdict + _benchDiff + _microDiff fixtures)
         shell: bash
-        run: bash .github/ci/bench-verdict.sh
+        run: xtask bench check
 
       # Build the base (merge-base) toolchain on THIS runner. The PR z42c (newer)
       # compiles the older base source (staged bootstrap guarantees newer compiles
@@ -487,34 +481,7 @@ jobs:
             cargo bench --locked \
               --bench gc_cycle_bench -- --baseline-lenient ab-base )
           echo "── informational: 整个 95% 区间在 +25% 之上（lower_bound > thr）= 标记，但不 fail ──"
-          python3 - "$CRITERION_HOME" <<'PY'
-          # 标记条件是**整个区间**在阈值之上（lower_bound > thr），不是「点估计过阈值 + 下界 > 0」
-          # ——后者让 [+0.5%, +60%] 这种宽区间也算证据。thr 0.25：criterion 层噪声底约 ±16%。
-          import json, os, sys, glob
-          home = sys.argv[1]; thr = 0.25; regr = []
-          for est in glob.glob(os.path.join(home, "**", "change", "estimates.json"), recursive=True):
-              with open(est) as f: d = json.load(f)
-              mean = d.get("mean", {}); pe = mean.get("point_estimate")
-              ci = mean.get("confidence_interval", {})
-              lo, hi = ci.get("lower_bound"), ci.get("upper_bound")
-              if pe is None or lo is None or hi is None: continue
-              bench = est.split(os.sep)[-3]
-              # 打完整区间与宽度：只打下界看不出 [+0.5%, +60%] 这种区间有多没用
-              tag = f"{pe*100:+.1f}% (CI [{lo*100:+.1f}%, {hi*100:+.1f}%], 宽 {(hi-lo)*100:.1f}pp)"
-              if lo > thr:
-                  regr.append(bench); print(f"  ↑ REGRESSION {bench}: {tag}")
-              elif pe > thr:
-                  # 点估计过阈值但区间没整体过 —— 正是「可疑」，也正是「可疑即复测」该接手的地方
-                  print(f"  ? {bench}: {tag} — 点估计过阈值但区间未分离，判为噪声（见 benchmarking.md「可疑即复测」）")
-              else:
-                  print(f"  ≈ {bench}: {tag}")
-          # 只打印，不 sys.exit(1)。
-          if regr:
-              print(f"⚠️  {len(regr)} criterion 条目整个区间在 +{int(thr*100)}% 之上 —— "
-                    f"informational，不 fail job；改了 GC 请人工看一眼上面的区间")
-          else:
-              print("✅ no criterion regression")
-          PY
+          xtask bench criterion-report "$CRITERION_HOME"
           echo "── criterion tier is informational; it never fails this job ──"
 
       - name: Upload A/B results

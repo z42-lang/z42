@@ -1,0 +1,67 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _checkFlows() {
+    try {
+        FlowConfig cfg = _flowLoad(Path.Join(_root(), "scripts/flows.toml"));
+        _flowPlannerChecks(cfg);
+        _flowGitChecks(cfg);
+        _ciSelectionChecks(cfg);
+        _ciRetryChecks();
+        _ciUploadChecks();
+        _ciBootstrapChecks();
+        _ciGoldenChecks();
+        if (_ciInstallerChecks("all") != 0) { return 1; }
+        _checkChangedPlans();
+        _checkOutsideGatePlans();
+        _selfcheckChangedGit();
+        Console.WriteLine("✓ flows: configuration, ownership, impact, prerequisites, fallback");
+        return 0;
+    } catch (Exception e) { ConsoleError.WriteLine("flows: " + e.Message); return 1; }
+}
+
+void _flowPlannerChecks(FlowConfig cfg) {
+    string root = _root();
+    _gateAssert(_componentCargoProfile(root, "debug") == "dev" && _componentDirName(root, "debug") == "debug", "debug build prerequisite separates Cargo profile from output directory");
+    string[] libraries = _flowLocalCommands(cfg, _flowSelect(cfg, new string[]{ "src/libraries/z42.core/src/String.z42", "src/libraries/z42.io/src/Process.z42" }, root));
+    _gateAssert(_strIn(libraries, "xtask test stdlib z42.core") && _strIn(libraries, "xtask test stdlib z42.io"), "impact groups preserve each workspace owner");
+    FlowPlan runtime = _flowSelect(cfg, new string[]{ "src/runtime/tests/native.rs" }, root);
+    _gateAssert(_flowHas(runtime.Steps, "runtime") && !_flowHas(runtime.Steps, "e2e"), "private runtime stays narrow");
+    _gateAssert(!_strIn(_flowOutputs(cfg, runtime), "platform"), "private runtime does not package");
+    FlowPlan production = _flowSelect(cfg, new string[]{ "src/runtime/tests/data/numz42-c/numz42.c" }, root);
+    _gateAssert(_flowHas(production.Steps, "e2e") && _strIn(_flowOutputs(cfg, production), "platform"), "build.rs C input keeps consumers");
+    FlowPlan sdk = _flowSelect(cfg, new string[]{ "scripts/src/test/sdk/verify.z42", "unknown.config" }, root);
+    _gateAssert(_flowHas(sdk.Steps, "green") && _flowHas(sdk.Steps, "sdk"), "full gate preserves external SDK checks");
+    FlowPlan docs = _flowSelect(cfg, new string[]{ "README.md", "docs/internals/src/devinfra/ci.md" }, root);
+    _gateAssert(docs.DocsOnly && !docs.Publish && _flowHas(docs.Steps, "docs"), "docs select actual validation");
+    FlowPlan learn = _flowSelect(cfg, new string[]{ "docs/learn/src/basics.md", "README.md" }, root);
+    _gateAssert(!learn.DocsOnly && _flowHas(learn.Steps, "learn"), "learn keeps transcripts");
+    string minimal = "version = 1\nfull = [\"check\"]\n[flows.check]\ncommand = [\"check\", \"flows\"]\nrequires = [\"build\"]\n[flows.build]\naffects = [\"unrelated\"]\n[flows.unrelated]\n[[inputs]]\nid = \"test\"\ninclude = [\"tests/**\"]\nselect = [\"check\"]\n";
+    FlowConfig tiny = _flowParse(minimal);
+    FlowPlan p = _flowSelect(tiny, new string[]{ "tests/deleted file.z42" }, root);
+    _gateAssert(p.Steps.Length == 2 && p.Steps[0].Id == "build" && p.Steps[1].Id == "check", "requires sorts but never propagates impact");
+    FlowConfig dual = _flowParse(minimal.Replace("select = [\"check\"]", "select = [\"check\", \"build\"]").Replace("[flows.build]", "[flows.build]\noutputs = [\"build_changed\"]"));
+    _gateAssert(_strIn(_flowOutputs(dual, _flowSelect(dual, new string[]{ "tests/case.z42" }, root)), "build_changed"), "an impacted node retains its role when also required");
+    _flowExpectBad(minimal.Replace("requires = [\"build\"]", "requires = [\"missing\"]"), "unknown reference");
+    _flowExpectBad(minimal.Replace("[flows.build]", "[flows.build]\nrequires = [\"check\"]"), "execution cycle");
+    _flowExpectBad(minimal.Replace("[flows.unrelated]", "[flows.unrelated]\naffects = [\"build\"]"), "impact cycle");
+    FlowPlan unknownScript = _flowSelect(cfg, new string[]{ "scripts/src/common/new-owner.z42" }, root);
+    _gateAssert(_strIn(_flowOutputs(cfg, unknownScript), "platform") && _flowHas(unknownScript.Steps, "sdk"), "unclassified scripts retain full CI and SDK obligations");
+    _gateAssert(_strIn(_flowLocalCommands(cfg, _flowSelect(cfg, new string[]{ "scripts/src/package/desktop.z42" }, root)), "xtask package sdk --verify"), "local packaging changes verify SDK outside GREEN");
+    foreach (var helper in new string[]{ "scripts/src/common/cargo_artifacts.z42", "scripts/src/common/cargo_capture.rs" }) {
+        FlowPlan capture = _flowSelect(cfg, new string[]{ helper }, root);
+        _gateAssert(capture.Publish && _flowHas(capture.Steps, "sdk") && _flowHas(capture.Steps, "green") && _strIn(_flowOutputs(cfg, capture), "platform"), "Cargo artifact helpers select SDK and platform publication");
+    }
+    FlowPlan fullPlan = _flowSelect(cfg, new string[]{ "scripts/src/test/gate.z42" }, root);
+    _gateAssert(_flowJobSteps(cfg, fullPlan, "compiler-checks").Length > 0 && _strIn(_flowOutputs(cfg, fullPlan), "stdlib"), "full gate retains delegated CI obligations");
+    _flowExpectBad(minimal.Replace("command =", "ci_command =").Replace("[\"check\", \"flows\"]", "[\"bash\"]"), "external CI command");
+    _flowExpectBad(minimal.Replace("command =", "commnad ="), "unknown field");
+    _flowExpectBad(minimal.Replace("version = 1", "version = 2"), "schema version");
+}
+
+void _flowExpectBad(string text, string why) {
+    bool rejected = false;
+    try { _flowParse(text); } catch (Exception e) { rejected = true; }
+    _gateAssert(rejected, "flow config rejects " + why);
+}

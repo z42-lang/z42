@@ -15,6 +15,7 @@ class CheckSpec {
 
 CheckSpec[] _checks() {
     return new CheckSpec[]{
+        new CheckSpec("flows", "flow configuration and planner regressions", () => _checkFlows()),
         new CheckSpec("vscode-syntax", "VSCode grammar agrees with Lexer keywords", () => _testVscodeSyntax()),
         new CheckSpec("runtime-cargo", "runtime Cargo aliases and legacy trees execute from their own directories", () => _selfcheckRuntimeCargo()),
         new CheckSpec("diagcodes", "diagnostic registration, documentation, liveness and test coverage", () => _checkDiagCodes()),

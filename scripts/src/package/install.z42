@@ -93,7 +93,7 @@ int _pkgInstallNative(string root, string cargoOut, string pkgDir) {
     string native = Path.Join(pkgDir, "native");
     _rtExecuteCopies(_rtResolveCopies(root, "desktop_runtime", rid, cargoOut, staticDir), pkgDir, true);
     _rtCopyThirdPartyLibs(staticDir, native, _rtStems(root, rid));
-    _componentCopyStd(native);
+    _componentCopyStagedStd(cargoOut, native);
     _copyAbiHeaders(root, Path.Join(native, "include"));
     return 0;
 }

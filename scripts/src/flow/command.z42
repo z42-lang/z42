@@ -1,0 +1,49 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Cli;
+
+class FlowCommand : Command {
+    public FlowCommand() : base("flow", "plan and run flows from changed inputs") {
+        this.AddCommand(new FlowPlanCommand("plan"));
+        this.AddCommand(new FlowPlanCommand("run"));
+        this.AddCommand(new FlowGraphCommand());
+        this.AddCommand(new FlowCheckCommand());
+    }
+}
+
+class FlowPlanCommand : Command {
+    [Option(help: "Git base (default HEAD for local worktree)")] public string Base = "";
+    [Option(help: "compare from the merge-base of --base and HEAD")] public bool MergeBase;
+    [Option(help: "Git head (omitted: include local tracked and untracked changes)")] public string Head = "";
+    [Option(help: "GitHub event JSON; selects immutable CI commits")] public string EventFile = "";
+    [Option(help: "configuration path relative to repository root")] public string Config = "scripts/flows.toml";
+    [Option(help: "text | json", choices: new string[]{ "text", "json" })] public string Format = "text";
+    [Option(help: "save JSON plan")] public string Out = "";
+    [Option(help: "execute a previously saved, validated plan")] public string Plan = "";
+    [Option(help: "select the full flow policy")] public bool Full;
+    [Option(help: "only print commands")] public bool DryRun;
+    [Option(help: "append CI selectors to this GitHub output file")] public string GithubOutput = "";
+    [Option(help: "execute only flows assigned to this CI job")] public string Job = "";
+    private bool _run;
+    public FlowPlanCommand(string name) : base(name, name == "run" ? "execute affected flows" : "explain affected flows") { this._run = name == "run"; }
+    public override int Run() {
+        try { return _flowCommand(this, this._run); }
+        catch (Exception e) { ConsoleError.WriteLine("flow: " + e.Message); return 2; }
+    }
+}
+
+class FlowGraphCommand : Command {
+    [Option(help: "configuration path")] public string Config = "scripts/flows.toml";
+    [Option(help: "graph format", choices: new string[]{ "mermaid" })] public string Format = "mermaid";
+    public FlowGraphCommand() : base("graph", "print input, impact and prerequisite edges") {}
+    public override int Run() {
+        try { Console.WriteLine(_flowGraph(_flowLoad(Path.Join(_root(), this.Config)))); return 0; }
+        catch (Exception e) { ConsoleError.WriteLine(e.Message); return 2; }
+    }
+}
+
+class FlowCheckCommand : Command {
+    public FlowCheckCommand() : base("check", "validate configuration and run planner regressions") {}
+    public override int Run() { return _checkFlows(); }
+}

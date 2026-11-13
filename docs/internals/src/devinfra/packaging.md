@@ -29,13 +29,17 @@
 
 z42vm 是薄启动器，通过版本化 C 函数表动态加载统一 libz42。参数处理、配置、panic hook、tracing 与宿主实现都在库内，启动器不调用 Rust VM 接口。入口先验证 ABI 版本、大小和构建身份。
 
-interp/JIT 是独立组件。SDK、dev-sdk 与 CI 构建树必须携带同构建的完整动态闭包，不能只复制 z42vm。所有动态产物在同一个 Cargo 图中编译，使用同一 libz42 和共享 Rust std；共享构建使用 System 分配器。
+interp/JIT 是独立组件。SDK、dev-sdk 与 CI 构建树必须携带同构建的完整动态闭包，不能只复制 z42vm。共享 Rust 核心与执行后端在同一个 Cargo 图中编译，使用同一 libz42 和共享 Rust std；纯 C ABI 模块使用独立图，避免实现特性合并回核心。共享构建使用 System 分配器。
 
-macOS 采用 @rpath 和 @loader_path，Linux 采用 $ORIGIN 与 $ORIGIN/../native。z42vm 启动器自带静态 Rust std，bin/ 只有可执行文件本体；运行时、组件与共享 std 全部位于 native/（Windows 由启动器的 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR 按目录解析）。发布前检查闭包完整性，并将产物搬移到独立目录验证。
+macOS 采用 @rpath 和 @loader_path，Linux 采用 $ORIGIN 与 $ORIGIN/../native。发布 SDK 的 z42vm 启动器自带静态 Rust std；开发 SDK 复用构建树的动态 std 启动器并携带其匹配闭包。bin/ 只有可执行文件本体；运行时、组件与共享 std 全部位于 native/（Windows 由启动器的 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR 按目录解析）。发布前检查闭包完整性，并将产物搬移到独立目录验证。
 
 桌面 runtime 同时提供动态闭包和最终 C 静态归档。最终嵌入 target 是同一运行时包的 examples/z42.rs，通过 static-embedding feature 链接运行时及独立后端 rlib，不增加包装 Cargo 包；调用方先调用 z42_linked_components_init。自定义分配器与 dhat 使用最终静态宿主 z42vm_static，避免改变动态组件的分配契约。
 
 平台链接形式分别验证：Linux/macOS/Windows 与 Android 提供静态、动态两种形式；iOS 按 RID 提供 libz42.a 和 z42.framework，不在 runtime 包重复发布 XCFramework。SwiftPM 的静态适配封装由 workload 在本地生成。Browser WASM 提供静态归档及 wasm-bindgen 模块。不支持 JIT 的平台不编译 JIT/Cranelift。
+
+静态封装从同一 Cargo 图的 JSON `compiler-artifact` 与 `build-script-executed` 记录读取依赖目录、宿主 proc-macro 目录和原生库搜索目录；不依赖 Cargo 内部的 `deps/` 布局。构建记录保留在构建目录，不随运行时包分发。 Android 的 cargo-ndk 会消费这些消息，因此静态构建通过透明的 Cargo 可执行文件转发器同时记录原始 stdout；元数据预检、编译参数、NDK 环境及退出码仍由原工具处理。转发器是宿主构建工具，不属于运行时包。
+
+共享 Rust std 在生产图构建成功后按该工具链暂存到产物目录。SDK、开发 SDK 和预编译 CI 产物的消费方从该目录复制匹配的 std，不查询接收机器的 rustup。缺失或有歧义时拒绝组包；刷新构建目录的 std 时清除旧版本。
 
 ## 2. 构建 → 安装
 

@@ -1,11 +1,11 @@
 name: Build pinned wasm-opt
-description: Cache a static Binaryen 130 built from its pinned source commit
+description: Cache a static Binaryen 130 built from its pinned source commit (requires bootstrapped xtask)
 runs:
   using: composite
   steps:
     - name: Test wasm-opt installer
       shell: bash
-      run: python3 .github/scripts/test-install-wasm-opt.py
+      run: xtask ci check-installers wasm
     - uses: actions/cache@v6
       with:
         path: ${{ runner.temp }}/z42-binaryen-130/bin

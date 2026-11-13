@@ -2,7 +2,7 @@
 
 > 代码：`.github/workflows/ci.yml`、
 > `.github/actions/ci-bootstrap/`、`.github/actions/xtask-bootstrap-artifact/`、
-> `.github/workflows/{bench-pr,release,deploy-book,jit-fixpoint-check,retry-ci-runner}.yml`、`.github/ci/retry_runner.py`
+> `.github/workflows/{bench-pr,release,deploy-book,jit-fixpoint-check,retry-ci-runner}.yml`、`scripts/src/ci/retry.z42`
 >
 > 每个 job 具体跑哪条 `xtask` 命令见[测试怎么跑](testing.md)；gate 的 stage 组成见[测试门禁](test-gate.md)。
 >
@@ -124,8 +124,8 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 | `workflow_dispatch` | 无条件全跑；格式 bump 后手动重发 nightly 的逃生口 |
 
 **纯文档快速通道**：改动**全部**是 `docs/**` 或 `*.md`（`docs/learn/**`、`examples/**` 除外——学习手册的
-示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`。改动集合：PR 取 PR 的文件列表，
-main push 取 `before...sha` 的 compare（新分支的全零 `before`、API 失败、到 compare 的 300 文件上限 ⇒ 当作非纯文档）。
+示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`。改动集合由 xtask 从真实 Git 差异读取；
+PR 使用 base SHA，push 使用 before SHA。基线无法获取或验证时保守全量。
 重命名的旧路径和新路径都参与分类。生产文件或学习手册页移入普通文档时，旧路径仍保留对应检查。
 `docs-check` 的内容：ci-bootstrap 的 `xtask-only`
 模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（先生成 reference stdlib 页，
@@ -141,7 +141,7 @@ PR 上新 push 照常取消旧运行；**push to main 每个 commit 单独一个
 否则连续合并时每个 main 运行都被下一个取消，一个都跑不完 ⇒ nightly 发不出来，而「support 先行、晚一个
 nightly 再 use」（见[编译器自举](../compiler/self-hosting.md)）的后续提交等的正是那份 nightly。
 
-取消改由每个 main 运行在 `detect-changes` 里自己做（`.github/ci/main-supersede.sh supersede`）：
+取消改由每个 main 运行在 `detect-changes` 里自己做（`xtask ci supersede`）：
 
 1. 找出比自己早、还没结束的 main push 运行（带过滤的运行列表是最终一致的，只用来找候选；取消前逐个再查状态）；
 2. 对每一个，看**当前 nightly → 它的 commit** 的累计改动是否影响 SDK：**不影响就取消，影响就留着跑完发布**；
@@ -150,18 +150,8 @@ nightly 再 use」（见[编译器自举](../compiler/self-hosting.md)）的后�
 按**累计**改动判、而不是只看那一个 commit：nightly 还没收进的 SDK 改动，后面每个运行都带着，它们也得能发布。
 重命名同时检查 `filename` 与 `previous_filename`。生产文件移入私有测试目录时，其删除仍影响 SDK。
 
-「不影响 SDK」= 改动的文件**全部**落在下面这些路径里；其余一律算影响（含 xtask 的 build / package / common /
-setup、安装器 `scripts/install-z42.*`、`ci.yml`、`.github/actions/`——它们决定 SDK 里装什么或怎么装）。拿不到 nightly、compare 结果被截断
-（≥300 个文件）也算影响。
-
-| 不影响 SDK 的路径 | 理由 |
-|---|---|
-| `docs/`、`*.md` | 文档 |
-| `**/tests/**`、`**/benches/**`、`examples/` | 测试 / bench 源码与夹具、学习手册示例，不进包 |
-| `scripts/src/test/`、`scripts/src/bench/`、`scripts/src/common/harness/` | xtask 只做测试 / 检查 / 性能编排的部分与测试执行机制 |
-| `.github/workflows/{bench-pr,deploy-book,jit-fixpoint-check}.yml` | 不参与发布的 workflow |
-
-SoT 是脚本里的 `non_sdk_re`，这张表随它改。
+是否影响 SDK 由 `scripts/flows.toml` 输入规则的 `publish` 字段决定，与本地选测共用目录归属；
+配置与机制见[按改动规划流程](flows.md)。拿不到 nightly、compare 失败或达到 300 文件上限时保留发布。
 
 **怎么确认 nightly 已包含某个提交**（阶段 1 落地后判断"能不能开始用"）：
 
@@ -208,7 +198,7 @@ job 级 concurrency group 统一为 `ci-macos-arm64-<lane>`，一个槽同时只
 GitHub 放弃获取 runner 时，job API 可能报告 `cancelled`，`needs` 矩阵结果可能为 `abandoned`；
 两者都代表测试没有完成，`ci-ok` 仍须判红。
 
-`retry-ci-runner.yml` 在 PR CI 失败后读取 API，由 `.github/ci/retry_runner.py` 决定是否重试：
+`retry-ci-runner.yml` 在 PR CI 失败后读取 API，由 `scripts/src/ci/retry.z42` 决定是否重试：
 
 - 仅处理 `.github/workflows/ci.yml` 的 PR 运行，且 PR 仍开放、目标为 main、head 与该次运行一致。
 - 运行已结束且结论为 failure；不恢复手动取消、被新提交取消的运行，也不处理过期的完成事件。
@@ -228,51 +218,18 @@ auto-merge 等待实际测试与 `ci-ok` 重跑通过后继续；恢复 workflow
 gh workflow run retry-ci-runner.yml --ref main -f run_id=<失败运行ID>
 ```
 
-本地回归测试：`python3 -m unittest discover -s .github/ci -p 'test_*.py'`。
-只读诊断：`GITHUB_REPOSITORY=z42-lang/z42 python3 .github/ci/retry_runner.py --run-id <ID> --dry-run`。
+本地与 CI 的离线回归入口为 `xtask check flows`；它使用真实 Git 仓库、GitHub API 夹具、实际 YAML Shell 块及命令探针，
+覆盖基线、选路、计划过期、恢复竞态、上传收据、自举与产物传递。只读诊断：
+`GITHUB_REPOSITORY=z42-lang/z42 xtask ci retry-runner --run-id <ID> --dry-run`。
 
-`detect-changes` 用 `dorny/paths-filter` 输出 flag，下游 job `needs: changes` + `if:` 门控：
+`detect-changes` 用种子 SDK 构建当前 xtask 后生成 `ci-plan` artifact，并输出下游 job 开关。
+所有目录分类、stage 选择与发布输入规则集中在 `scripts/flows.toml`，不在 YAML 中复制路径清单。
+配置、两种依赖边与本地复现方式见[按改动规划流程](flows.md)。
 
-| flag | 命中路径（节选） |
-|---|---|
-| `platform` | `src/runtime/**`（排除顶层 Rust 测试与纯测试数据）、`src/toolchain/{workload,launcher,devtools,interactive,builder}/**`（builder、interactive、launcher 排除私有 `tests/`）、`scripts/src/{package,setup}/**`、`scripts/packages.toml`、`scripts/src/common/{packages_config,publish,versions,layout}.z42`、`scripts/src/common/harness/fixtures.z42`、`scripts/src/test/app/**`、`scripts/versions.toml` |
-| `sdk_checks` | `scripts/src/test/sdk/**`、`scripts/install-z42.{sh,ps1,bat,command}`（安装器）、`src/toolchain/launcher/tests/fixtures/package/**`（桌面发行包验证） |
-| `examples` | `examples/**`、`docs/learn/**`（只门控 `package-host`——唯一用打包 SDK 重放示例的 job） |
-| `compiler` | `src/compiler/**`（排除私有 `tests/**` 与 `benches/**`） |
-| `compiler_checks` | `src/compiler/**`（含私有用例）、`scripts/src/build/compiler*.z42`、`scripts/src/test/compiler/{runner,e2e,selfhost,selfhost_selfcheck,projects_selfcheck}.z42`、`scripts/src/common/projects.z42`、`src/toolchain/devtools/vscode/**` |
-| `vm` | `src/runtime/**`（含 `.cargo/`，排除顶层 Rust 测试与纯测试数据）、`scripts/src/test/runtime/runner.z42` |
-| `runtime_checks` | `src/runtime/**`（含私有集成测试与数据）、`scripts/src/test/runtime/runner.z42`；控制四个平台的完整 Rust harness |
-| `stdlib` | `src/libraries/**`、`src/compiler/**/tests/**`、`src/toolchain/builder/**`（排除 builder 私有 `tests/`；z42b 是 [Test] 执行器）、`scripts/src/test/stdlib/runner.z42`、`scripts/src/common/harness/{package_units,manifest_targets,unit_projects}.z42`、`scripts/src/common/{projects,golden}.z42` |
-
-builder 的生产输入同时触发 `platform` 与 `stdlib`：z42b 既是 [Test] 执行器，它的 `publish`
-（apphost / iOS / Android 导出）又只在 `package-*` 里被执行，不能只跑标准库专项。
-builder、interactive、launcher 的私有 `tests/` 由桌面职责覆盖。REPL 单测走宿主的 toolchain 阶段，
-builder 夹具走宿主的 manifest targets 阶段，launcher 的发行包夹具由 `sdk_checks` 选择桌面 SDK 验证。
-平台宿主与编辑器资源仍按其打包输入选择。路径筛选使用 `some-with-excludes`，对每个文件分别判断正向和排除规则，
-混合改动中的生产输入仍选择对应专项。
-
-每个 filter 都额外包含 `.github/workflows/ci.yml` 自身 → **改 CI 保底全跑**。
-
-Runtime 顶层 `tests/*.rs`、`tests/data/` 的三个 manifest JSON 夹具、`tests/data/embedding_hello/` 与
-`tests/data/z42_native_e2e/` 只由完整 Runtime harness 消费。仅改这些文件时，`runtime_checks`
-保留四个平台的 `test runtime`，`platform` / `vm` 不拉起未改变的消费者与打包。
-`tests/data/numz42-c/` 仍是 build.rs 在非 wasm、native-interop 构建中的输入，保留全部检查；
-不能仅凭“不装进包”就把构建依赖排除。未知测试数据、生产源码、Cargo 配置、build.rs、嵌套 crate
-测试与混合生产改动继续保留消费者。宿主自举、golden 与静态检查按既有规则执行。
-`schedule` / `workflow_dispatch` 下 paths-filter 没有 before-sha 可比、几乎恒 false，所以每条
-门控的 `if:` 都显式带 `|| github.event_name == 'schedule' || ... == 'workflow_dispatch'` 逃生口；
-少了它，每日全量 sweep 里这些 job 会一个都不跑。
-
-编译器域（z42c 前后端 + `z42.project` / `z42.build` / `z42.package`）已全部在 `src/compiler/` 下，
-`compiler` 覆盖生产输入，驱动 VM / stdlib 的消费者一致性检查；`compiler_checks` 还包含私有测试与 benchmark，
-保留编译器单元及其引用的 bench helper 回归，不因收窄消费者专项而丢失正确性验证。
-编译器私有 tests 同时触发 `stdlib`：该执行器负责扁平单元与显式 `[tests]` 源集，compiler-checks 只发现目录工程；
-两种发现格式都保留覆盖。私有 benches 不触发无关的 VM / stdlib 消费者专项。
-`examples` 单独成 flag 而不并进 `platform`：否则改一页 learn 会拉起
-`package-{ios,android,wasm}` + `test-desktop`，而它们一个示例都不跑。
-
-> 只有这五个 flag。e2e golden **没有**内容级门控——真要加，得在同一个提交里把消费方
-> （某个 job 的 `if:`）一起接上，否则就只是一个没人读的输出，反而让人以为门控存在。
+Runtime 私有集成测试仅保留完整 Rust harness；build.rs 使用的 C 源码、未知数据及生产改动继续选择消费者。
+SDK 私有验证与学习手册示例选择桌面 SDK，不因此选择移动 / 浏览器消费者；生产打包输入选择对应平台。
+编译器私有测试保留目录工程及扁平单元两种发现方式，生产输入还选择 IR 的消费者。
+未知输入与无法读取的基线保守全量；定期与手动事件显式使用完整策略。
 
 ## 3. job 表
 
@@ -341,7 +298,7 @@ job 的 **key**（`needs:` 用的）与 **display 名**（PR 检查列表里显�
 
 学习手册示例按 `changes.outputs.host_package` 分工。它集中原有的打包选择条件：platform、sdk_checks 或 examples flag 为 true，
 或事件不是 PR。打包 job 会执行时，每个平台只在打包 SDK 上重放会话；非 Windows 的 test-host 跳过开发 SDK 准备与
-examples stage。打包 job 不执行时，test-host 用 `--changed` 决定是否执行 examples；开发 SDK 的准备属于该 stage，
+examples stage。打包 job 不执行时，test-host 用统一计划决定是否执行 examples；开发 SDK 的准备属于该 stage，
 只有实际执行时才构建 apphost 并组装，不再由 workflow 提前准备。本地完整 `xtask test` 也保留 examples。
 两条路径调用同一个 `test docs examples`、校验同一套会话输出与退出码，打包失败仍经 `ci-ok` 挡合并。
 
@@ -351,11 +308,11 @@ examples stage。打包 job 不执行时，test-host 用 `--changed` 决定是�
 整条 CI 墙钟收益要另看 Actions 的依赖与排队，不能直接用该总和替代。
 
 `test-host` 各腿用 `--skip` 把 stage 卸给并行 job：linux-x64 跳 `stdlib,compiler,vscode`，
-其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。PR 另加 `--changed <PR base sha>`，
-main push 另加 `--changed <github.event.before>`，沿用同一份阶段映射跳过不受影响的重 stage
-（见[测试门禁](test-gate.md) §5、§7）。`.github/ci/changed-base.sh` 获取并验证对应 commit，
-只把 SHA 写到 stdout；首次 push、缺失 / 无法获取基线时返回空结果，退回全量。schedule / dispatch 保留全量。
-测试基线只用于本次提交的选测；`publish-nightly` 仍按 nightly 到 HEAD 的累计 SDK 差异决定，不受此基线替换。
+其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。各腿下载 `ci-plan` artifact，
+用 `xtask test --plan artifacts/ci-plan.json` 消费统一 stage 选择，执行前核对提交、配置与工作区。
+首次 push、缺失或无法获取基线及 schedule / dispatch 使用完整策略。编译器专项以
+`xtask flow run --plan artifacts/ci-plan.json --job compiler-checks` 消费同一份计划。
+验证基线只用于本次提交的选测，发布仍按 nightly 到 HEAD 的累计差异决定。
 
 完整 Rust 测试用 job 环境变量 `RUN_RUST_RUNTIME` 统一决定：`runtime_checks` filter 为 true，或事件是 schedule / dispatch 时，
 独立执行完整 `xtask test runtime`；此时非 Windows 腿的 `test` 追加跳过 `rust-units`，避免重复执行 `--lib`。
@@ -500,7 +457,7 @@ minor 不一致就会把所有 job 推进两代自举那条已知会挂的路。
 
 ### 发布方式：原地更新，从不删除重建
 
-`publish-nightly` 对 `nightly` release **只做原地更新**：① `.github/ci/upload_release_assets.py` 调 `gh release upload --clobber` 串行覆盖并核对每项 SHA256 / 字节数 / uploaded 状态 →
+`publish-nightly` 对 `nightly` release **只做原地更新**：① `xtask ci upload-release` 调 `gh release upload --clobber` 串行覆盖并核对每项 SHA256 / 字节数 / uploaded 状态 →
 ② 删掉本次不再产出的旧资产 → ③ `PATCH git/refs/tags/nightly` 把 tag 移到本次 commit →
 ④ `gh release edit` 改标题 / 说明 / target。release 对象与 tag 从不消失；只有仓库里一个 nightly 都没有时才
 `gh release create`。发布后校验三件事：非 draft、tag 指向本次 commit、资产齐全。

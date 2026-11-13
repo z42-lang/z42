@@ -14,7 +14,7 @@ on:
     - cron: '0 16 * * *'
 
 # 同一 ref、同一事件里新的运行取消旧的；事件名进 group，schedule 与 push 不互相取消。
-# main 的 push 每个 commit 单独一组（不自动取消），改由 detect-changes 的 main-supersede.sh 只取消
+# main 的 push 每个 commit 单独一组（不自动取消），改由 detect-changes 的 xtask ci supersede 只取消
 # 不影响 SDK 的旧运行——否则连续合并时 nightly 一个也发不出来（ci.md §2「main 上的运行不互相打断」）。
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
@@ -27,26 +27,27 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     permissions:
-      actions: write        # main-supersede：取消被替换的 main push 运行
+      actions: write        # supersede：取消被替换的 main push 运行
       contents: read
       pull-requests: read   # Docs-only PR?：读 PR 文件列表
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
       # 非 PR 运行只在确认没有待发布 SDK 改动时收窄。空结果包含定期、手动与无法判定的情况。
-      platform_package: ${{ steps.filter.outputs.platform == 'true' || (github.event_name != 'pull_request' && steps.supersede.outputs.sdk != 'false') }}
+      platform_package: ${{ steps.filter.outputs.platform_package }}
       # 宿主还负责 SDK 验证与示例重放。test-host 也使用此结果决定是否卸下示例阶段。
-      host_package: ${{ steps.filter.outputs.platform == 'true' || steps.filter.outputs.sdk_checks == 'true' || steps.filter.outputs.examples == 'true' || (github.event_name != 'pull_request' && steps.supersede.outputs.sdk != 'false') }}
+      host_package: ${{ steps.filter.outputs.host_package }}
       compiler: ${{ steps.filter.outputs.compiler }}
       compiler_checks: ${{ steps.filter.outputs.compiler_checks }}
       vm: ${{ steps.filter.outputs.vm }}
       runtime_checks: ${{ steps.filter.outputs.runtime_checks }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
-      docs_only: ${{ steps.docsonly.outputs.docs_only }}
+      docs_only: ${{ steps.filter.outputs.docs_only }}
       macos_host_lane: ${{ steps.macos_queue.outputs.host }}
       macos_package_lane: ${{ steps.macos_queue.outputs.package }}
       macos_checks_lane: ${{ steps.macos_queue.outputs.checks }}
       # 当前 nightly → 本 commit 的累计改动是否影响 SDK；只在 push to main 上判，其余事件为空（= 照常发布）。
       sdk: ${{ steps.supersede.outputs.sdk }}
+      test_base: ${{ steps.filter.outputs.test_base }}
     steps:
       - uses: actions/checkout@v7
 
@@ -60,8 +61,14 @@ jobs:
           echo "package=$(((run_number + 1) % lane_count))" >> "$GITHUB_OUTPUT"
           echo "checks=$(((run_number + 2) % lane_count))" >> "$GITHUB_OUTPUT"
 
-      - name: Test CI runner recovery rules
-        run: python3 -m unittest discover -s .github/ci -p 'test_*.py'
+      - name: Bootstrap planner (xtask only)
+        uses: ./.github/actions/ci-bootstrap
+        with:
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
+          xtask-only: "true"
+
+      - name: Validate flow and CI control rules
+        run: xtask check flows
 
       # main 上的运行不互相打断（见顶部 concurrency 注释）：取消较早的、不影响 SDK 的 main push 运行，
       # 并判出本运行是否需要发布 nightly。
@@ -73,127 +80,19 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: .github/ci/main-supersede.sh supersede
-      - uses: dorny/paths-filter@v4
+        run: xtask ci supersede
+      - name: Plan affected flows
         id: filter
-        with:
-          predicate-quantifier: some-with-excludes
-          filters: |
-            platform:
-              - 'src/runtime/**'
-              # Rust 测试与已确认的纯测试数据不发布；build.rs 无条件编译的 C PoC 保留。
-              - '!src/runtime/tests/*.rs'
-              - '!src/runtime/tests/data/{example-manifest,invalid-manifest-missing-types,manifest-with-extra-fields}.json'
-              - '!src/runtime/tests/data/embedding_hello/**'
-              - '!src/runtime/tests/data/z42_native_e2e/**'
-              - 'src/toolchain/workload/**'
-              # 打包管道自身、它的注册表 / CLI 面，以及只在 package sdk 里被编译的工具链组件
-              # （launcher / devtools / interactive）——不在这里就等于没有任何 PR job 编过它们。
-              - 'scripts/src/package/**'
-              - 'scripts/packages.toml'
-              # 从 package/ 提取的共享配置与发布入口仍需覆盖打包管道。
-              - 'scripts/src/common/packages_config.z42'
-              - 'scripts/src/common/publish.z42'
-              - 'scripts/src/common/versions.z42'
-              - 'scripts/src/common/layout.z42'
-              # xtask setup 模块：其中的版本比较 / 平台工具辅助函数也被打包管道与平台测试调用。
-              - 'scripts/src/setup/**'
-              - 'src/toolchain/launcher/**'
-              - 'src/toolchain/devtools/**'
-              - 'src/toolchain/interactive/**'
-              # z42b 的 publish（apphost / iOS / Android 导出）只在 package-* 里被执行。
-              - 'src/toolchain/builder/**'
-              # 私有测试由宿主检查或 sdk_checks 消费。workload 与编辑器资源有独立的打包输入。
-              - '!src/toolchain/{builder,interactive,launcher}/**/tests/**'
-              - 'scripts/src/common/harness/fixtures.z42'
-              # 平台测试 backend、嵌入式 test-host 与设备宿主工程（package-wasm 也用设备宿主）。
-              - 'scripts/src/test/app/**'
-              - 'scripts/versions.toml'
-              - '.github/workflows/ci.yml'
-            # 桌面 SDK 的验证执行器与私有夹具，以及安装器（package-host 的 SDK 自检与 Installer smoke 验它）：
-            # 保留四个 host package，不选择设备 / 浏览器消费者。
-            sdk_checks:
-              - 'scripts/src/test/sdk/**'
-              - 'scripts/install-z42.*'
-              - 'src/toolchain/launcher/tests/fixtures/package/**'
-              - '.github/workflows/ci.yml'
-            # 学习手册示例：只有 package-host 用打包出的 SDK（含 Windows）重放。单独成 flag：并进 platform 会让改一页
-            # learn 就拉起 package-{ios,android,wasm} + test-desktop。
-            examples:
-              - 'examples/**'
-              - 'docs/learn/**'
-              - '.github/workflows/ci.yml'
-            # 只有生产编译器输入会改变其他消费者的 IR；私有用例由 compiler-checks / bench 覆盖。
-            compiler:
-              - 'src/compiler/**'
-              - '!src/compiler/**/tests/**'
-              - '!src/compiler/**/benches/**'
-              - '.github/workflows/ci.yml'
-            # 自举不动点、编译器单元 / CLI 夹具与 vscode 语法；保留私有 bench helper 的 codegen 回归。
-            compiler_checks:
-              - 'src/compiler/**'
-              - 'scripts/src/build/compiler*.z42'
-              # `test compiler` 的编排、CLI 夹具套件与自举不动点（fingerprint / incremental / bootstrap 子命令不在本 job）。
-              - 'scripts/src/test/compiler/{runner,e2e,selfhost,selfhost_selfcheck,projects_selfcheck}.z42'
-              - 'scripts/src/common/projects.z42'
-              # vscode 语法门比对「入库生成产物 ↔ 模板 + Lexer 关键字表」，产物与模板都在这里。
-              - 'src/toolchain/devtools/vscode/**'
-              - '.github/workflows/ci.yml'
-            # 只有生产 VM 输入会改变 z42 消费者；私有集成测试保留完整 Rust harness。
-            vm:
-              # （含 src/runtime/.cargo/config.toml：target-dir 与 wasm rustflags）
-              - 'src/runtime/**'
-              - '!src/runtime/tests/*.rs'
-              - '!src/runtime/tests/data/{example-manifest,invalid-manifest-missing-types,manifest-with-extra-fields}.json'
-              - '!src/runtime/tests/data/embedding_hello/**'
-              - '!src/runtime/tests/data/z42_native_e2e/**'
-              - 'scripts/src/test/runtime/runner.z42'
-              - '.github/workflows/ci.yml'
-            runtime_checks:
-              - 'src/runtime/**'
-              - 'scripts/src/test/runtime/runner.z42'
-              - '.github/workflows/ci.yml'
-            # stdlib [Test]（interp + jit）：stdlib 源码，加上 [Test] 的执行器（z42b、xtask 的 test-lib 编排）。
-            stdlib:
-              - 'src/libraries/**'
-              # 编译器域的扁平 / [tests] 单元也归 stdlib runner；目录工程另由 compiler-checks 跑。
-              - 'src/compiler/**/tests/**'
-              - 'src/toolchain/builder/**'
-              - '!src/toolchain/builder/**/tests/**'
-              - 'scripts/src/test/stdlib/runner.z42'
-              - 'scripts/src/common/harness/{package_units,manifest_targets,unit_projects}.z42'
-              - 'scripts/src/common/projects.z42'
-              - 'scripts/src/common/golden.z42'
-              - '.github/workflows/ci.yml'
-
-      # 纯文档快速通道：改动**全部**是文档（docs/learn、examples 除外——示例会被重放）⇒ 只跑 docs-check。
-      # 逐个文件判（全称判断，paths-filter 是「任一命中」）。PR 看文件列表；main push 看 before...sha 的 compare，
-      # 拿不到或满 300 文件就全跑。schedule / dispatch 恒为空（全跑）。
-      - name: Docs-only change?
-        id: docsonly
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
-        shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          files=""
-          before="${{ github.event.before }}"
-          # 重命名的旧路径也参与判断，例如从代码目录移到 docs/。
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files" -q '.[] | .filename, (.previous_filename // empty)')
-          elif [ -n "$before" ] && [ "$before" != "0000000000000000000000000000000000000000" ] \
-               && json=$(gh api "repos/$GITHUB_REPOSITORY/compare/$before...$GITHUB_SHA" 2>/dev/null); then
-            n=$(printf '%s' "$json" | jq '.files | length')
-            if [ "$n" -lt 300 ]; then files=$(printf '%s' "$json" | jq -r '.files[] | .filename, (.previous_filename // empty)'); fi
-          fi
-          # 非文档 = 既不在 docs/ 下、也不是 .md；学习手册与示例 = 算作非文档的例外。两者都为空才是纯文档。
-          nondoc=$(printf '%s\n' "$files" | grep -v '^$' | grep -Ev '^docs/' | grep -Ev '\.md$' || true)
-          learn=$(printf '%s\n' "$files" | grep -E '^(docs/learn/|examples/)' || true)
-          docs_only=false
-          if [ -n "$files" ] && [ -z "$nondoc" ] && [ -z "$learn" ]; then docs_only=true; fi
-          echo "docs_only=$docs_only"
-          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          XTASK_RELEASE_REQUIRED: ${{ steps.supersede.outputs.sdk }}
+        shell: bash
+        run: xtask flow plan --event-file "$GITHUB_EVENT_PATH" --out artifacts/ci-plan.json --github-output "$GITHUB_OUTPUT"
+
+      - name: Share immutable flow plan
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-plan
+          path: artifacts/ci-plan.json
 
   # ── 纯文档改动的检查：死链与文档结构、诊断码和测试布局对账。不需要 SDK
   #    构建树，xtask 用种子 z42c 编出即可。doc-lints 不在这里：纯文档改动碰不到 stdlib
@@ -248,11 +147,14 @@ jobs:
       cancel-in-progress: false
     env:
       RUN_RUST_RUNTIME: ${{ needs.changes.outputs.runtime_checks == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-      XTASK_PR_BASE: ${{ github.event.pull_request.base.sha }}
-      XTASK_PUSH_BEFORE: ${{ github.event.before }}
 
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: ci-plan
+          path: artifacts
+
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -287,19 +189,11 @@ jobs:
           if [ "${{ env.RUN_RUST_RUNTIME }}" = "true" ]; then
             SKIP="$SKIP,rust-units"
           fi
-          # PR 和 main push 按路径分流：`--changed <base>` 用 `test changed` 的映射表只跑受影响的重 stage；
-          # build wave、e2e goldens 与静态检查恒跑，scripts/ / ci.yml / 未知文件 / 拿不到 base ⇒ 全跑。
-          # schedule / dispatch、初次 push 或无法读取 base 保留全量；发布仍使用 nightly 的累计差异。
-          base="$(bash .github/ci/changed-base.sh)"
-          # 打包 SDK 会在每个平台重放同一套示例；否则保留本 job 的 examples stage。
+          # All jobs consume the same plan produced before any product builds.
           if [ "${{ needs.changes.outputs.host_package }}" = "true" ]; then
             SKIP="$SKIP,examples"
           fi
-          if [ -n "$base" ]; then
-            xtask test --no-build --skip "$SKIP" --changed "$base" 2>&1 | tee artifacts/ci-logs/test-all.log
-          else
-            xtask test --no-build --skip "$SKIP" 2>&1 | tee artifacts/ci-logs/test-all.log
-          fi
+          xtask test --no-build --skip "$SKIP" --plan artifacts/ci-plan.json 2>&1 | tee artifacts/ci-logs/test-all.log
           exit "${PIPESTATUS[0]}"
 
       # build wave 就地重写 zbc-format 字节基线；diff 非空 = 提交的基线过期（格式变更漏了 format-bump.md 清单第 4 步）。
@@ -756,6 +650,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: ci-plan
+          path: artifacts
+
 
       # 复用同轮 release VM、gen1 和 stdlib，仍由测试重建 gen2。
       - uses: ./.github/actions/xtask-bootstrap-artifact
@@ -766,7 +665,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xtask test compiler --no-build
+          xtask flow run --plan artifacts/ci-plan.json --job compiler-checks
 
       - name: VSCode grammar ↔ Lexer keyword sync (xtask check vscode-syntax)
         shell: bash
@@ -891,12 +790,12 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack@0.15.1,wasm-tools
-      - uses: ./.github/actions/setup-wasm-opt
 
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
           cache-key: wasm-v2
           rust-targets: wasm32-unknown-unknown
+      - uses: ./.github/actions/setup-wasm-opt
 
       # 发布依赖图不许混进 cranelift；宿主白盒测试的 dev-dependencies 不属于发布产物。
       # 同时检查 interp-only 和真实 wasm 入口，避免目标或 feature 选择掩盖 JIT 依赖。
@@ -1053,7 +952,7 @@ jobs:
                   artifacts/packages/z42-* scripts/install-z42.sh scripts/install-z42.ps1)
           if gh release view nightly >/dev/null 2>&1; then
             # (1) assets first — sequential --clobber with verified receipts and bounded retries
-            python3 .github/ci/upload_release_assets.py nightly "${assets[@]}"
+            xtask ci upload-release nightly "${assets[@]}"
             # (2) drop assets this build no longer ships (e.g. a renamed package)
             keep=" "
             for f in "${assets[@]}"; do keep="${keep}$(basename "$f") "; done
@@ -1115,7 +1014,6 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack@0.15.1
-      - uses: ./.github/actions/setup-wasm-opt
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -1131,6 +1029,7 @@ jobs:
         with:
           cache-key: tier2-wasm
           rust-targets: wasm32-unknown-unknown
+      - uses: ./.github/actions/setup-wasm-opt
       - name: Prime Playwright (node deps + Chromium + OS libs)
         shell: bash
         run: |

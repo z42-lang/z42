@@ -16,7 +16,7 @@ int _iosDynamicFramework(string root, string pkg, string rid, string profile, st
     string cargo = _componentPlatformOut(root, rid, profile, true);
     string native = Path.Join(pkg, "native");
     string raw = _xtaskWork(root, "ios-shared-std-" + rid);
-    _resetDir(raw); _componentCopyStd(raw, target);
+    _resetDir(raw); _componentCopyStagedStd(cargo, raw, target);
     string[] std = Path.Glob(raw, "libstd-*.dylib");
     foreach (var stem in _iosFrameworkStems(rid)) {
         string source = stem == "z42_std" ? std[0] : Path.Join(cargo, "lib" + stem + ".dylib");

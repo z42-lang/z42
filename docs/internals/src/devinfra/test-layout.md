@@ -48,7 +48,7 @@
 | 工具链某组件（launcher / builder / interactive / workload …） | `src/toolchain/<comp>/tests/` | `xtask test toolchain [<comp>]` |
 | 打包 SDK 的命令、布局、安装或发布行为 | `src/toolchain/launcher/tests/fixtures/package/`；包元数据自检追加到现有 SDK 验证器 | `xtask package sdk --verify` |
 | xtask 的改动计划、分片、调度与错误传播 | 与被测模块同目录的 `scripts/src/**/*_selfcheck.z42`，接入现有自检调用点 | 当前随 `xtask test toolchain builder` 执行 |
-| CI 的供种、runner 恢复、上传等基础设施 | `.github/ci/test_*.py` | `python3 -B -m unittest discover -s .github/ci -p 'test_*.py'` |
+| CI 的供种、runner 恢复、上传等基础设施 | `scripts/src/ci/*_selfcheck.z42`、`scripts/src/flow/*selfcheck.z42` | `xtask check flows` |
 | VM 内部（Rust） | 同模块 `*_tests.rs`；集成测试在 `src/runtime/tests/` | `xtask test runtime` |
 | 原生宿主与嵌入 ABI（C / Swift / Kotlin / 浏览器壳） | `src/toolchain/workload/<platform>/` 的现有原生测试套件 | `xtask test app <platform>`；不要复制一份标准库用例 |
 | 整程序性能场景 | `src/benches/scenarios/` | `xtask bench` |

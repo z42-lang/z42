@@ -39,24 +39,26 @@
 
 - **用例归属与选测**：新增用例按[测试用例组织规范](../../docs/internals/src/devinfra/test-layout.md#1-用例放哪)选择目录、形态和本地执行器；修改 workflow 时分别核对[构建前提、测试与发布边界](../../docs/internals/src/devinfra/ci.md#构建测试与发布的选择边界)，工程归属与用例能力不在 YAML 里另抄一份名单。
 - **统一入口**：workflow 只调 `xtask <cmd>`，不在 yaml 里硬编码构建 / 测试命令。
-- **测试基线**：PR 使用 PR base，main push 使用事件的 `before`；初次 push、无法验证基线、定期 / 手动运行保留全量。基线选择与回归在 [CI 控制目录](../ci/README.md)，发布仍使用 nightly 的累计 SDK 差异。
+- **测试基线**：PR 使用 PR base，main push 使用事件的 `before`；初次 push、无法验证基线、定期 / 手动运行保留全量。基线选择与回归在 [流程规划](../../docs/internals/src/devinfra/flows.md)，发布仍使用 nightly 的累计 SDK 差异。
 - **工具链私有测试**：builder、interactive、launcher 的私有 `tests/` 由宿主测试或 SDK 验证消费，路径筛选从 `platform` 排除这些目录。builder 的私有测试也从 `stdlib` 排除。混合改动逐文件判定，生产输入仍选择对应专项。
 - **SDK 验证**：`scripts/src/test/sdk/` 与 launcher 的发行包私有夹具只选择四个桌面 host package；打包生产实现继续选择设备 / 浏览器消费者，无需逐用例平台配置。
 - **Runtime 私有测试**：顶层 Rust 测试与已确认的纯测试数据由四个平台的完整 Rust harness 覆盖；`runtime_checks` 保留它们，`vm` / `platform` 排除它们。build.rs 使用的 `numz42-c`、未知数据、生产输入、混合改动及定期全量继续保留消费者。
 - **自举**：CI 从上一个 nightly（取不到则回退 main 上最近成功 CI 的产物）的 SDK 起步，自己编当前源码；机制见 [CI 拓扑 · 自举种子从哪来](../../docs/internals/src/devinfra/ci.md)。
 - **缓存**：Rust 依赖用 Swatinem `rust-cache`，bench 缓存由 main 上的 `bench-cache-warm` 预热。
 - **VM 准备**：共享工具链 action 默认构建 release VM，可复用同轮 Linux x64 产物，也可交给测试命令构建所需 profile。JIT golden 分片使用第三种方式构建 debug VM。[CI 拓扑](../../docs/internals/src/devinfra/ci.md)
-- **并发控制**：PR 上同一 ref 的旧 run 自动取消（`concurrency` 段）；main 的 push 运行不自动取消，由 `../ci/main-supersede.sh` 只取消不影响 SDK 的旧运行。job 由 GitHub 原生队列按可用 runner 调度。
-- **macOS 容量与恢复**：主 CI 的 macOS job 使用有界原生资源池；runner 未取得时的有限重试由 `../ci/retry_runner.py` 判定，规则见 [CI 拓扑](../../docs/internals/src/devinfra/ci.md#macos-资源队列与-runner-获取失败恢复)。
+- **并发控制**：PR 上同一 ref 的旧 run 自动取消（`concurrency` 段）；main 的 push 运行不自动取消，由 `xtask ci supersede` 只取消不影响 SDK 的旧运行。job 由 GitHub 原生队列按可用 runner 调度。
+- **macOS 容量与恢复**：主 CI 的 macOS job 使用有界原生资源池；runner 未取得时的有限重试由 `xtask ci retry-runner` 判定，规则见 [CI 拓扑](../../docs/internals/src/devinfra/ci.md#macos-资源队列与-runner-获取失败恢复)。
 
 ## 如何测试验证
 
 CI 只能在 GitHub 上跑；本地对应的门禁是 `xtask test docs links`（文档）与 `xtask test`（全量）。改动 workflow 后以 PR 上 `ci-ok` 为绿为准。
 
-夜间资产上传由 `../ci/upload_release_assets.py` 逐项执行，每项核对远端摘要、大小与上传状态；瞬时 GitHub/连接错误及收据缺失或不一致做有界退避重试；权限/参数错误及重试耗尽仍让发布失败。
+夜间资产上传由 `xtask ci upload-release` 逐项执行，核对远端摘要、大小与状态；瞬时错误做有界退避重试。
+权限错误及重试耗尽仍让发布失败。runner 恢复执行可信 main 的 xtask，不检出或运行 PR 代码。
 
-CI 供种、恢复规则与上传重试回归测试：`python3 -B -m unittest discover -s .github/ci -p 'test_*.py'`，PR 的 `detect-changes` 同样执行。
-`test_ci_bootstrap.py` 执行 composite action 的实际 Bash 块，以 SDK 命令探针检查轻量 / 完整模式的构建边界、格式代差和编译失败。
+`xtask check flows` 在本地与 detect-changes 中执行配置、选路、Git、恢复、上传、自举、golden 与安装器回归。
+目录规则与依赖图统一配置在 `scripts/flows.toml`。计划通过 artifact 共享，host 与 compiler jobs 校验后消费，
+详细接口见[流程规划](../../docs/internals/src/devinfra/flows.md)。
 
 ## 关联文档
 

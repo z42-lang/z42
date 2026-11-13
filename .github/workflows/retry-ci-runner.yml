@@ -27,7 +27,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure')
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       # workflow_run has write permissions. Only execute the trusted workflow's
       # revision on main; never check out the PR or download its artifacts.
@@ -35,9 +35,14 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: .github/ci
+
+      - name: Bootstrap trusted xtask
+        uses: ./.github/actions/ci-bootstrap
+        with:
+          gh-token: ${{ github.token }}
+          xtask-only: "true"
       - name: Retry only unacquired hosted runner jobs
         env:
           GH_TOKEN: ${{ github.token }}
           RETRY_RUN_ID: ${{ inputs.run_id }}
-        run: python3 .github/ci/retry_runner.py
+        run: xtask ci retry-runner

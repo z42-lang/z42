@@ -1,0 +1,81 @@
+namespace Z42Xtask;
+
+using Std.Json;
+
+string _ciAcquisitionError() { return "The job was not acquired by Runner of type hosted even after multiple attempts"; }
+
+bool _ciEligibleRun(JsonValue run, long attempt) {
+    return _ciString(run, "path") == ".github/workflows/ci.yml"
+        && _ciString(run, "event") == "pull_request" && _ciString(run, "status") == "completed"
+        && _ciString(run, "conclusion") == "failure" && run.Get("run_attempt").AsLong() < 3L
+        && (attempt == 0L || run.Get("run_attempt").AsLong() == attempt);
+}
+
+bool _ciCurrentPr(CiGitHub api, string prefix, JsonValue run) {
+    JsonValue links = run.Get("pull_requests");
+    for (int i = 0; i < links.Count(); i = i + 1) {
+        JsonValue pr = api.Get(prefix + "/pulls/" + links.At(i).Get("number").AsLong().ToString());
+        JsonValue head = pr.Get("head"); JsonValue base_ = pr.Get("base");
+        if (_ciString(pr, "state") == "open" && _ciString(base_, "ref") == "main"
+            && _ciString(base_.Get("repo"), "full_name") == prefix.Substring(6)
+            && _ciString(head, "sha") == _ciString(run, "head_sha")
+            && _ciString(head, "ref") == _ciString(run, "head_branch")
+            && !head.Get("repo").IsNull()
+            && _ciString(head.Get("repo"), "full_name") == _ciString(run.Get("head_repository"), "full_name")) { return true; }
+    }
+    return false;
+}
+
+bool _ciUnacquired(CiGitHub api, string prefix, JsonValue job) {
+    string conclusion = _ciString(job, "conclusion");
+    if ((conclusion != "failure" && conclusion != "cancelled") || !job.ContainsKey("runner_id")
+        || job.Get("runner_id").IsNull() || job.Get("runner_id").AsLong() != 0L
+        || _ciString(job, "runner_name").Length > 0 || !job.ContainsKey("steps")
+        || !job.Get("steps").IsArray() || job.Get("steps").Count() != 0) { return false; }
+    string url = _ciString(job, "check_run_url");
+    string checkPrefix = "https://api.github.com/" + prefix + "/check-runs/";
+    if (!url.StartsWith(checkPrefix)) { return false; }
+    string id = url.Substring(checkPrefix.Length);
+    if (id.Length == 0) { return false; }
+    for (int i = 0; i < id.Length; i = i + 1) {
+        if (id.CharAt(i) < '0' || id.CharAt(i) > '9') { return false; }
+    }
+    JsonValue annotations = api.Pages(prefix + "/check-runs/" + id + "/annotations?per_page=100");
+    bool found = false;
+    for (int i = 0; i < annotations.Count(); i = i + 1) {
+        JsonValue a = annotations.At(i);
+        if (_ciString(a, "annotation_level") != "failure") { continue; }
+        found = true;
+        if (_ciString(a, "message").Trim() != _ciAcquisitionError()) { return false; }
+    }
+    return found;
+}
+
+string _ciRetry(CiGitHub api, string repo, string id, long attempt, bool dryRun) {
+    string prefix = "repos/" + repo;
+    string path = prefix + "/actions/runs/" + id;
+    JsonValue run = api.Get(path);
+    if (!_ciEligibleRun(run, attempt) || !_ciCurrentPr(api, prefix, run)) { return "Skipped: not a failed current PR CI attempt within the retry budget."; }
+    JsonValue jobs = api.Pages(path + "/jobs?filter=latest&per_page=100", "jobs");
+    if (jobs.Count() == 0) { return "Skipped: no jobs."; }
+    string names = "";
+    for (int i = 0; i < jobs.Count(); i = i + 1) {
+        JsonValue job = jobs.At(i);
+        if (_ciString(job, "status") != "completed") { return "Skipped: jobs are still running."; }
+        string conclusion = _ciString(job, "conclusion");
+        if (conclusion == "success" || conclusion == "skipped") { continue; }
+        if (_ciString(job, "name") == "ci-ok") {
+            if (conclusion != "failure") { return "Skipped: ci-ok was cancelled."; }
+            continue;
+        }
+        if (!_ciUnacquired(api, prefix, job)) { return "Skipped: a job failed for a reason other than hosted runner acquisition."; }
+        names = names.Length == 0 ? _ciString(job, "name") : names + ", " + _ciString(job, "name");
+    }
+    if (names.Length == 0) { return "Skipped: no acquisition failures."; }
+    JsonValue fresh = api.Get(path);
+    if (!_ciEligibleRun(fresh, run.Get("run_attempt").AsLong()) || !_ciCurrentPr(api, prefix, fresh)) { return "Skipped: the PR or run changed during inspection."; }
+    string message = "Retry attempt " + (run.Get("run_attempt").AsLong() + 1L).ToString() + "/3: " + names + "; rerun ci-ok too.";
+    if (dryRun) { return "Dry run: " + message; }
+    api.Post(path + "/rerun-failed-jobs");
+    return message;
+}

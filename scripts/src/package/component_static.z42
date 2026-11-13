@@ -13,7 +13,7 @@ int _componentBuildStaticLibraries(string root, string rid, string profile) {
         if (_ridCategory(rid) != "desktop") { a = a.Arg("--target").Arg(_ridToCargo(rid)); }
         if (profile == "release") { a = a.Arg("--release"); }
         if (rid.StartsWith("ios")) { a = a.Env("IPHONEOS_DEPLOYMENT_TARGET", _vReadOr(root, "platform.ios.min_ios", "16.0")); }
-        int ac = _execIn(a, Path.Join(root, "src/runtime"));
+        int ac = _cargoBuildArtifactLog(a, _componentPlatformOut(root, rid, profile, false));
         if (ac != 0) { return ac; }
     } else {
         int c = _componentBuildStaticLegacy(root, rid, profile);
@@ -25,7 +25,8 @@ int _componentBuildStaticLibraries(string root, string rid, string profile) {
 // 旧树 / android 的 env 调用形态（与 R0 前逐字节一致）。
 int _componentBuildStaticLegacy(string root, string rid, string profile) {
     string features = "z42/static-embedding,z42/" + _componentPlatformPreset(rid).Replace(",", ",z42/");
-    Process p = _componentPlatformCargo("build", root, rid, profile, false)
+    Process p = _componentPlatformCargo("build", root, rid, profile, false, "",
+        Path.Join(_componentPlatformOut(root, rid, profile, false), "cargo-artifacts.jsonl"))
         .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("--lib").Arg("--examples")
         .Arg("--no-default-features");
     if (_componentTargetHasJit(rid)) {
@@ -33,9 +34,8 @@ int _componentBuildStaticLegacy(string root, string rid, string profile) {
         features = features + ",z42-interp/jit,z42-jit/jit";
     }
     if (rid != "browser-wasm") { features = features + ",z42-interp/native-interop"; }
-    int c = _execIn(p.Arg("--features").Arg(features), _componentPlatformWorkingDirectory(root, rid));
-    if (c != 0) { return c; }
-    return _componentFinishStatic(root, rid, profile);
+    return _cargoBuildArtifactLog(p.Arg("--features").Arg(features),
+        _componentPlatformOut(root, rid, profile, false));
 }
 
 // 静态图产出的后续步骤（两种路径共用）：组件归档重组。
@@ -59,11 +59,10 @@ int _componentStaticArchiveFromRlib(string root, string rid, string profile, str
         .Arg("--edition=2021").Arg("--crate-name").Arg(stem + "_static")
         .Arg("--crate-type=staticlib").Arg("--target").Arg(_ridToCargo(rid))
         .Arg("--extern").Arg(stem + "=" + rlib)
-        .Arg("-L").Arg("dependency=" + cargo).Arg("-L").Arg("dependency=" + Path.Join(cargo, "deps"))
-        .Arg("-L").Arg("dependency=" + Path.Join(_componentStaticDir(root, rid), profile + "/deps"))
         .Arg("-C").Arg("lto=no").Arg("-C").Arg("prefer-dynamic=no")
         .Arg("--print").Arg("native-static-libs")
         .Arg(stub).Arg("-o").Arg(Path.Join(cargo, _componentStaticName(stem, rid))).Stderr(Stdio.Pipe());
+    foreach (var path in _cargoRecordedSearchPaths(cargo)) { p = p.Arg("-L").Arg(path); }
     if (rid.StartsWith("ios")) { p = p.Env("IPHONEOS_DEPLOYMENT_TARGET", _vReadOr(root, "platform.ios.min_ios", "16.0")); }
     ProcessResult result = p.Run();
     Console.Write(result.Stdout); ConsoleError.Write(result.Stderr);
@@ -153,7 +152,13 @@ string _componentArTool() {
 void _componentStageStaticImportLibs(string cargo, string flags) {
     foreach (var flag in flags.Split(" ")) {
         if (!flag.EndsWith(".lib")) { continue; }
-        string dep = Path.Join(Path.Join(cargo, "deps"), flag);
+        string dep = "";
+        foreach (var search in _cargoRecordedSearchPaths(cargo)) {
+            int kind = search.IndexOf("=");
+            string directory = kind >= 0 ? search.Substring(kind + 1) : search;
+            string candidate = Path.Join(directory, flag);
+            if (File.Exists(candidate)) { dep = candidate; break; }
+        }
         if (File.Exists(dep)) {
             if (!File.Exists(Path.Join(cargo, flag))) { File.Copy(dep, Path.Join(cargo, flag)); }
             continue;

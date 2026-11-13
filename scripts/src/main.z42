@@ -26,6 +26,8 @@ class XtaskCommand : Command {
     public string Verbosity = "";
 
     public XtaskCommand() : base("xtask", "z42 repo dev CLI") {
+        this.AddCommand(new FlowCommand());
+        this.AddCommand(new CiCommand());
         this.AddCommand(new BuildCommand());
         this.AddCommand(new PackageCommand());
         this.AddCommand(new TestCommand());

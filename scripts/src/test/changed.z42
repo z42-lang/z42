@@ -1,14 +1,7 @@
 // xtask — `test changed`: inspect uncommitted git changes, map each file to a coarse
 // test command, dedupe, and run the union in order.
 //
-// 同一张映射表（_mapFile）每条规则给两样东西：本地用的**窄命令**（`test stdlib <lib>` 这类，`test changed` 执行）
-// 与受影响的 **gate stage**（`--skip` 的短名，`xtask test --changed <base>` 用来只跑相关的重 stage；CI 的 PR
-// test-host 腿就是这么分流的）。分类只写一次，两种消费方各取一列。
-// 设计见 docs/internals/src/devinfra/test-gate.md §7。
-//
-// Each mapped plan command is a logical `xtask …` verb — `test …`, or `bench
-// --quick` for the perf subtree (run by re-entering the in-process CLI router,
-// NOT by shelling out). First failing command short-circuits the remainder.
+// Local commands and gate skips share scripts/flows.toml and the flow planner.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -63,7 +56,9 @@ int _testChangedRun(string base_, bool dryRun) {
         return 0;
     }
 
-    int __rc = _executeChangedPlan(plan);
+    FlowConfig cfg = _flowConfigFor(root);
+    FlowPlan selected = _flowSelect(cfg, changed, root);
+    int __rc = _flowExecute(cfg, selected, selected.Steps, "");
     if (__rc == 0) { _procEnd("test changed", sw); }
     return __rc;
 }
@@ -142,61 +137,9 @@ string _changedGateSkips(string base_) {
 // Map every changed file (_mapFile) into a de-duped plan. needsFull on any file
 // replaces covered commands with the full gate; checks outside GREEN remain required.
 string[] _buildChangedPlan(string[] changed, string root = "") {
-    var plan = new List<string>();
-    var outside = new List<string>();
-    var owners = new _ChangedOwners(root.Length == 0 ? _root() : root);
-    bool full = false;
-    foreach (var f in changed) {
-        _MapResult m = _mapFile(f, owners);
-        full = full || m.needsFull;
-        foreach (var cmd in m.commands) {
-            if (cmd.Length == 0) { continue; }
-            if (!plan.Contains(cmd)) { plan.Add(cmd); }
-        }
-        foreach (var cmd in m.outsideCommands) {
-            if (cmd.Length > 0 && !outside.Contains(cmd)) { outside.Add(cmd); }
-        }
-    }
-    if (!full) { return plan.ToArray(); }
-    var all = new List<string>();
-    all.Add("xtask test");
-    all.AddRange(outside.ToArray());
-    return all.ToArray();
-}
-
-// Run each plan command in order; first failure short-circuits. Returns the
-// overall exit code (first failing command's code, or 0).
-int _executeChangedPlan(string[] cmds) {
-    Console.WriteLine("[test-changed] running...");
-    Console.WriteLine("");
-
-    foreach (var cmd in cmds) {
-        Console.WriteLine("──── " + cmd + " ────");
-        int rc = _runPlanCmd(cmd);
-        if (rc != 0) {
-            Console.WriteLine("[test-changed] command failed: " + cmd
-                + "  (exit " + rc.ToString() + ")");
-            return rc;
-        }
-        Console.WriteLine("");
-    }
-
-    Console.WriteLine("[test-changed] result: ok");
-    return 0;
-}
-
-// Mapped `xtask …` commands re-enter a fresh CLI router with the verb as argv[0].
-int _runPlanCmd(string cmd) {
-    string[] toks = _splitWords(cmd);
-    if (toks.Length == 0) { return 0; }
-    if (toks[0] == "xtask") {
-        // Drop the leading "xtask"; the remainder is the XtaskCommand argv.
-        string[] argv = new string[toks.Length - 1];
-        Array.Copy(toks, 1, argv, 0, argv.Length);
-        return new XtaskCommand().Invoke(argv);
-    }
-    ConsoleError.WriteLine("[test-changed] internal error: unrecognized plan command: " + cmd);
-    return 2;
+    if (root.Length == 0) { root = _root(); }
+    FlowConfig cfg = _flowConfigFor(root);
+    return _flowLocalCommands(cfg, _flowSelect(cfg, changed, root));
 }
 
 // ── Mapping ──────────────────────────────────────────────────────────────
@@ -215,108 +158,24 @@ class _MapResult {
     }
 }
 
-// _MapResult shorthands: _mapCmds = run this command list (local) + these gate stages (--changed);
-// _mapFull = full sweep; _mapSkip = no test impact.
-_MapResult _mapCmds(string[] cmds, string[] stages) {
-    var r = new _MapResult();
-    r.commands = cmds;
-    r.stages = stages;
-    return r;
-}
-_MapResult _mapOutsideGate(string command) {
-    return _mapOutsideGate(command, new string[0], new string[0]);
-}
-_MapResult _mapOutsideGate(string command, string[] covered, string[] stages) {
-    var commands = new List<string>();
-    commands.Add(command);
-    commands.AddRange(covered);
-    _MapResult r = _mapCmds(commands.ToArray(), stages);
-    r.outsideCommands = new string[]{ command };
-    return r;
-}
-_MapResult _mapRuntimeChange(bool production) {
-    string[] covered = production ? new string[]{ "xtask test e2e" } : new string[0];
-    string[] stages = production ? _withStage(_stagesAllZ42(), "rust-units") : new string[]{ "rust-units" };
-    return _mapOutsideGate("xtask test runtime", covered, stages);
-}
-_MapResult _mapFull() {
-    var r = new _MapResult();
-    r.needsFull = true;
-    return r;
-}
-_MapResult _mapSkip() { return new _MapResult(); }
-
-_MapResult _mapFile(string f, _ChangedOwners owners) {
-    // 学习手册与配套示例：必须排在「.md / docs/ 一律跳过」之前，
-    // 否则 examples 里的 README / 手册页改动会被当成纯文档跳过。
-    if (f.StartsWith("examples/")) {
-        string chapter = _segment(f, 1) + "/" + _segment(f, 2);
-        return _mapCmds(new string[]{ "xtask test docs examples " + chapter }, new string[]{ "examples" });
+// Both local narrow commands and gate skip metadata consume the same flow graph.
+_MapResult _mapFile(string file, _ChangedOwners owners) {
+    FlowConfig cfg = _flowConfigFor(owners.Root);
+    FlowPlan plan = _flowSelect(cfg, new string[]{ file }, owners.Root);
+    var result = new _MapResult();
+    result.needsFull = _flowHas(plan.Steps, "green");
+    result.stages = _flowStages(cfg, plan);
+    var commands = new List<string>(); var outside = new List<string>();
+    foreach (var step in plan.Steps) {
+        FlowNode n = cfg.Find(step.Id);
+        string[] args = _flowArgs(n, step);
+        if (args.Length == 0) { continue; }
+        string command = "xtask " + String.Join(" ", args);
+        if (!commands.Contains(command)) { commands.Add(command); }
+        if (n.Outside && !outside.Contains(command)) { outside.Add(command); }
     }
-    if (f.StartsWith("docs/learn/")) { return _mapCmds(new string[]{ "xtask test docs examples --book-only" }, new string[]{ "examples" }); }
-    // 测试布局规范页带机器可读清单（类别 / 能力词表），`check layout` 拿它对账 —— 同样排在「docs 一律跳过」之前。
-    if (f == "docs/internals/src/devinfra/test-layout.md") { return _mapCmds(new string[]{ "xtask check layout" }, new string[0]); }
-    // Docs / repo meta — no tests.
-    if (f.EndsWith(".md") || f.StartsWith("docs/")
-        || f == ".gitignore" || f == ".gitattributes"
-        || f.StartsWith("LICENSE") || f.StartsWith("README")) { return _mapSkip(); }
-
-    if (f.StartsWith("src/libraries/")) { return _mapLibraryFile(f, owners); }
-
-    // Runtime (Rust VM).
-    if (f.StartsWith("src/runtime/src/") || f == "src/runtime/Cargo.toml"
-        || f == "src/runtime/Cargo.lock" || f == "src/runtime/build.rs") {
-        // VM 一变，每个执行 z42 代码的 stage 都受影响（gate 侧全集 + Rust 单测；本地仍是两条窄命令）。
-        return _mapRuntimeChange(true);
-    }
-    if (f.StartsWith("src/runtime/tests/")) {
-        return _mapRuntimeChange(false);
-    }
-    // harness 驱动的夹具（`<component>/tests/fixtures/<suite>/`，见 test-layout.md）只喂自己的 harness，
-    // 必须排在下面 src/compiler/ 与 src/toolchain/ 的整组件映射之前。
-    if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }, new string[]{ "cross-zpkg" }); }
-    if (f.StartsWith("src/compiler/z42c.pipeline/tests/fixtures/multi-exe/"))  { return _mapCmds(new string[]{ "xtask test e2e --dir multi-exe" }, new string[]{ "multi-exe" }); }
-    if (f.StartsWith("src/toolchain/builder/tests/fixtures/"))                 { return _mapCmds(new string[]{ "xtask test toolchain builder" }, new string[]{ "toolchain", "targets" }); }
-    // 桌面 SDK 验证与安装器入口（其回归在 SDK 自检里）归 package sdk --verify，不属于 GREEN 的任何 stage。
-    if (f.StartsWith("scripts/src/test/sdk/") || f.StartsWith("scripts/install-z42.")
-        || f.StartsWith("src/toolchain/launcher/tests/fixtures/package/")) {
-        return _mapOutsideGate("xtask package sdk --verify");
-    }
-    // src/benches/ — whole-program timing scenarios, probe, schema, verdict fixtures.
-    // Not `test e2e` (they're not goldens) and not _mapSkip: a scenario broken by an
-    // edit (won't compile, Main moved) would otherwise stay invisible until bench-pr.yml
-    // ran it. `bench --quick` (first 2 scenarios, runs=3,
-    // warmup=1) answers "does it still compile and run" in under a minute. Whole
-    // subtree: probe/ and the schema feed the same pipeline, and over-matching only
-    // costs one quick run.
-    // gate 里没有 src/benches 的 stage（bench 场景归 bench-pr.yml）；e2e goldens 与 layout 恒跑。
-    if (f.StartsWith("src/benches/"))            { return _mapOutsideGate("xtask bench --quick"); }
-    if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test e2e", "xtask check layout" }, new string[0]); }
-
-    if (f.StartsWith("src/compiler/")) { return _mapCompilerFile(f, owners); }
-    // Toolchain (incl. z42b — the z42.builder test/bench host). A toolchain change
-    // can affect how [Test]/[Benchmark] units run, so sweep the stdlib suite.
-    // launcher / z42b 的命令行输出直接出现在学习手册的会话脚本里 → 追加 examples。
-    // 工具链组件自己的 [Test] unit（test-layout §1）由 `test toolchain` 跑，一并带上。
-    // z42b 是 [Test] / [Benchmark] / manifest target 的执行器 ⇒ 这几个 stage 都带上。
-    if (f.StartsWith("src/toolchain/launcher/") || f.StartsWith("src/toolchain/builder/")) {
-        return _mapCmds(new string[]{ "xtask test stdlib", "xtask test toolchain", "xtask test docs examples" },
-            new string[]{ "stdlib", "toolchain", "bench", "targets", "examples" });
-    }
-    if (f.StartsWith("src/toolchain/")) {
-        return _mapCmds(new string[]{ "xtask test stdlib", "xtask test toolchain" }, new string[]{ "stdlib", "toolchain" });
-    }
-
-    // 共享脚本与未细分脚本影响整个 CLI，保留全量；SDK 私有验证与安装器已按职责单独映射。workspace 清单同理。
-    if (f.StartsWith("scripts/") || f.EndsWith(".workspace.toml")) { return _mapFull(); }
-    // Anything else under src/ → full sweep (defensive).
-    if (f.StartsWith("src/")) { return _mapFull(); }
-
-    // Build artifacts — no test impact.
-    if (f.StartsWith("artifacts/")) { return _mapSkip(); }
-
-    // Unknown root-level file → full sweep (safe default).
-    return _mapFull();
+    result.commands = commands.ToArray(); result.outsideCommands = outside.ToArray();
+    return result;
 }
 
 // ── Git helpers ──────────────────────────────────────────────────────────

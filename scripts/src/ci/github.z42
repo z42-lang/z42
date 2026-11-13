@@ -1,0 +1,37 @@
+// GitHub transport is injectable so control policies run offline in xtask checks.
+namespace Z42Xtask;
+
+using Std.Json;
+using Std.IO;
+
+class CiGitHub {
+    public virtual JsonValue Get(string path) {
+        ProcessResult r = new Process("gh").Arg("api").Arg(path).Run();
+        if (r.ExitCode != 0) { throw new Exception("gh api: " + r.Stderr); }
+        return JsonValue.Parse(r.Stdout);
+    }
+    public virtual JsonValue Pages(string path, string key = "") {
+        ProcessResult r = new Process("gh").Arg("api").Arg("--paginate").Arg("--slurp").Arg(path).Run();
+        if (r.ExitCode != 0) { throw new Exception("gh api pages: " + r.Stderr); }
+        JsonValue pages = JsonValue.Parse(r.Stdout); JsonValue all = JsonValue.OfArray();
+        for (int i = 0; i < pages.Count(); i = i + 1) {
+            JsonValue items = key.Length == 0 ? pages.At(i) : pages.At(i).Get(key);
+            for (int j = 0; j < items.Count(); j = j + 1) { all.Add(items.At(j)); }
+        }
+        return all;
+    }
+    public virtual void Post(string path) {
+        ProcessResult r = new Process("gh").Arg("api").Arg("--method").Arg("POST").Arg(path).Run();
+        if (r.ExitCode != 0) { throw new Exception("gh api POST: " + r.Stderr); }
+    }
+}
+
+string _ciString(JsonValue v, string key) {
+    return v.ContainsKey(key) && v.Get(key).IsString() ? v.Get(key).AsString() : "";
+}
+
+string _ciRepo() {
+    string repo = Environment.GetEnvironmentVariable("GITHUB_REPOSITORY", "");
+    if (repo.Length == 0) { throw new Exception("GITHUB_REPOSITORY is required"); }
+    return repo;
+}

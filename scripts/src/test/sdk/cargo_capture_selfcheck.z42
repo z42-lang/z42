@@ -1,0 +1,46 @@
+// The Cargo transport must tee byte-identical stdout and preserve child exits.
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _testCargoCaptureTransport() {
+    string root = _root(); string dir = _xtaskWork(root, "cargo-capture-transport");
+    _resetDir(dir);
+    string exe = Path.Join(dir, Platform.IsWindows() ? "capture.exe" : "capture");
+    string child = Path.Join(dir, Platform.IsWindows() ? "child.exe" : "child");
+    string source = Path.Join(dir, "child.rs"); string record = Path.Join(dir, "records.jsonl");
+    try {
+        new Process("rustc").Arg("--edition=2021").Arg("-C").Arg("prefer-dynamic=no")
+            .Arg(Path.Join(root, "scripts/src/common/cargo_capture.rs")).Arg("-o").Arg(exe).Run().EnsureSuccess();
+        File.WriteAllText(source, "use std::{env, io::{self, Write}, process};\nfn main() {\n    let args: Vec<String> = env::args().collect();\n    assert_eq!(std::path::PathBuf::from(env::var_os(\"CARGO\").unwrap()).canonicalize().unwrap(), env::current_exe().unwrap().canonicalize().unwrap());\n    match args[1].as_str() {\n        \"payload\" => {\n            assert!(args[2..] == [\"--message-format=json-render-diagnostics\"] || args[2..] == [\"--message-format\", \"json-render-diagnostics\"]);\n            println!(\"{}\", r#\"{\"reason\":\"compiler-artifact\",\"filenames\":[\"unit/lib.rlib\"]}\"#);\n            eprint!(\"diagnostic\");\n        }\n        \"metadata\" => println!(\"metadata\"),\n        \"failure\" => { println!(\"build failed\"); process::exit(7); }\n        \"large\" => io::stdout().write_all(&vec![b'x'; 100000]).unwrap(),\n        _ => panic!(\"unexpected mode\"),\n    }\n}\n");
+        new Process("rustc").Arg("--edition=2021").Arg("-C").Arg("prefer-dynamic=no")
+            .Arg(source).Arg("-o").Arg(child).Run().EnsureSuccess();
+        foreach (var joined in new bool[]{ true, false }) {
+            string[] flags = joined ? new string[]{ "--message-format=json-render-diagnostics" } : new string[]{ "--message-format", "json-render-diagnostics" };
+            ProcessResult r = _captureFixture(exe, child, record, "payload", flags);
+            string payload = "{\"reason\":\"compiler-artifact\",\"filenames\":[\"unit/lib.rlib\"]}\n";
+            _captureAssert(r.ExitCode == 0 && r.Stdout == payload && r.Stderr == "diagnostic", "structured stdout and diagnostics: exit=" + r.ExitCode.ToString() + ", stderr=" + r.Stderr);
+            _captureAssert(File.ReadAllText(record) == payload, "artifact records survive outer plugin consumption");
+        }
+        File.Delete(record);
+        ProcessResult metadata = _captureFixture(exe, child, record, "metadata", new string[]{ "--format-version=1" });
+        _captureAssert(metadata.ExitCode == 0 && metadata.Stdout == "metadata\n" && !File.Exists(record), "metadata preflight does not create records");
+        File.WriteAllText(record, "existing build records");
+        _captureFixture(exe, child, record, "metadata", new string[]{ "--format-version=1" }).EnsureSuccess();
+        _captureAssert(File.ReadAllText(record) == "existing build records", "metadata followup preserves build records");
+        ProcessResult failure = _captureFixture(exe, child, record, "failure", new string[]{ "--message-format=json" });
+        _captureAssert(failure.ExitCode == 7 && failure.Stdout == "build failed\n" && File.ReadAllText(record) == failure.Stdout, "child failure remains a failure");
+        ProcessResult large = _captureFixture(exe, child, record, "large", new string[]{ "--message-format=json" });
+        _captureAssert(large.ExitCode == 0 && large.StdoutBytes.Length == 100000 && large.Stdout.Replace("x", "").Length == 0, "output exceeds one transport buffer");
+        _captureAssert(File.ReadAllText(record) == large.Stdout, "large output tee is byte-identical");
+        Console.WriteLine("  ✓ Cargo transport: stdout/stderr, both flag forms, metadata, child exits and large output");
+        return 0;
+    } finally { Directory.Delete(dir, true); }
+}
+
+ProcessResult _captureFixture(string exe, string child, string record, string mode, string[] flags) {
+    return new Process(exe).Arg(mode).Args(flags)
+        .Env("Z42_CARGO_EXECUTABLE", child).Env("Z42_CARGO_ARTIFACT_LOG", record).Run();
+}
+
+void _captureAssert(bool ok, string what) { if (!ok) { throw new Exception("Cargo transport: " + what); } }

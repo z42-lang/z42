@@ -54,9 +54,21 @@ string _componentMobileDynamicAlias(string rid) {
     if (rid.StartsWith("ios")) { return "z42-mobile-dynamic-ios"; }
     return "";
 }
-Process _componentPlatformCargo(string verb, string root, string rid, string profile, bool shared, string targetDir = "") {
+Process _componentPlatformCargo(string verb, string root, string rid, string profile, bool shared, string targetDir = "", string artifactLog = "") {
+
     Process p = new Process("cargo");
-    if (rid.StartsWith("android-")) { p = p.Arg("ndk").Arg("-t").Arg(_ridToAndroidAbi(rid)); }
+    if (rid.StartsWith("android-")) {
+        if (artifactLog.Length > 0) {
+            string ndk = Process.Which("cargo-ndk");
+            string cargo = Environment.GetEnvironmentVariable("CARGO", "");
+            if (cargo.Length == 0) { cargo = Process.Which("cargo"); }
+            if (ndk == null || cargo == null) { throw new CliException("Cargo and cargo-ndk must be on PATH"); }
+            p = new Process(ndk).Arg("ndk")
+                .Env("CARGO", _cargoArtifactProxy(root, artifactLog))
+                .Env("Z42_CARGO_EXECUTABLE", cargo).Env("Z42_CARGO_ARTIFACT_LOG", artifactLog);
+        } else { p = p.Arg("ndk"); }
+        p = p.Arg("-t").Arg(_ridToAndroidAbi(rid));
+    }
     // cargo-ndk queries workspace metadata before forwarding Cargo arguments.
     string working = _componentPlatformWorkingDirectory(root, rid);
     if (targetDir.Length == 0) { targetDir = shared ? _componentBuildDir(root) : _componentStaticDir(root, rid); }
@@ -96,7 +108,9 @@ int _componentBuildPlatform(string root, string rid, string profile) {
             .Arg("--profile").Arg(_componentCargoProfile(root, profile))
             .Env("IPHONEOS_DEPLOYMENT_TARGET", _vReadOr(root, "platform.ios.min_ios", "16.0"));
         int c = _execIn(a, Path.Join(root, "src/runtime"));
-        return c == 0 ? _componentBuildCompression(root, rid, profile, true) : c;
+        if (c != 0) { return c; }
+        _componentCopyStd(_componentPlatformOut(root, rid, profile, true), _ridToCargo(rid));
+        return _componentBuildCompression(root, rid, profile, true);
     }
     string features = "z42/" + _componentPlatformPreset(rid).Replace(",", ",z42/") + ",z42/shared-core,z42-interp/shared-core,z42-interp/native-interop";
     Process build = _componentPlatformCargo("build", root, rid, profile, true)
@@ -107,7 +121,9 @@ int _componentBuildPlatform(string root, string rid, string profile) {
         features = features + ",z42-jit/shared-core,z42-interp/jit";
     }
     int c = _execIn(build.Arg("--features").Arg(features), _componentPlatformWorkingDirectory(root, rid));
-    return c == 0 ? _componentBuildCompression(root, rid, profile, true) : c;
+    if (c != 0) { return c; }
+    _componentCopyStd(_componentPlatformOut(root, rid, profile, true), _ridToCargo(rid));
+    return _componentBuildCompression(root, rid, profile, true);
 }
 void _componentInstallPlatform(string root, string native, string rid, string profile) {
     string cargo = _componentPlatformOut(root, rid, profile, true);
@@ -116,7 +132,7 @@ void _componentInstallPlatform(string root, string native, string rid, string pr
         string name = _componentLibrary(stem, rid);
         _componentCopyRequired(Path.Join(cargo, name), Path.Join(native, name));
     }
-    _componentCopyStd(native, _ridToCargo(rid));
+    _componentCopyStagedStd(cargo, native, _ridToCargo(rid));
 }
 
 string _componentRidForTarget(string root, string target) {
@@ -154,11 +170,15 @@ int _componentBuildCompression(string root, string rid, string profile, bool sha
         if (shared && _componentAliasTree(root)) { a = a.Arg("--profile").Arg(_componentCargoProfile(root, profile)); }
         if (!shared && profile == "release") { a = a.Arg("--release"); }
         if (rid.StartsWith("ios")) { a = a.Env("IPHONEOS_DEPLOYMENT_TARGET", _vReadOr(root, "platform.ios.min_ios", "16.0")); }
-        c = _execIn(a, Path.Join(root, "src/runtime"));
+        c = shared ? _execIn(a, Path.Join(root, "src/runtime")) : _cargoBuildArtifactLog(a, cargo);
     } else {
-        c = _execIn(_componentPlatformCargo("build", root, rid, profile, shared, target)
-            .Arg("-p").Arg("z42-compression").Arg("--lib"), _componentPlatformWorkingDirectory(root, rid));
+        Process build = _componentPlatformCargo("build", root, rid, profile, shared, target,
+            shared ? "" : Path.Join(cargo, "cargo-artifacts.jsonl"))
+            .Arg("-p").Arg("z42-compression").Arg("--lib");
+        c = shared ? _execIn(build, _componentPlatformWorkingDirectory(root, rid))
+            : _cargoBuildArtifactLog(build, cargo);
     }
+
     if (c != 0) { return c; }
     Directory.Create(destination);
     if (shared) {
