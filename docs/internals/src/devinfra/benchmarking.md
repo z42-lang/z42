@@ -336,7 +336,7 @@ checkout 并轻量自举 xtask 后，`xtask ci bench-scope` 从同一份 `script
 | `bench_vm` | Cargo 声明的 `harness=false` Rust VM Criterion 目标 | 两棵 Rust 树，无需自举 z42 工具链 |
 | `bench_integration` | VM 启动、stdlib 加载、编译运行等整程序 A/B | 两棵对称 z42 工具链与 hyperfine |
 
-私有测试、xtask 路由和普通 CI 配置不触发测量；判定自检仍保留。私有 benchmark 只选择对应类别；标准库和编译器生产源影响脚本 micro 与集成测量，VM 生产源影响三类。混合改动取并集，无法验证基线时保留全部类别。
+能力探针与结果 schema 属于脚本 micro 和集成测量的共享输入，同时保留这两类消费者。私有测试、xtask 路由和普通 CI 配置不触发测量；判定自检仍保留。私有 benchmark 只选择对应类别；标准库和编译器生产源影响脚本 micro 与集成测量，VM 生产源影响三类。混合改动取并集，无法验证基线时保留全部类别。
 `bench_toolchain` 汇总脚本 / 集成类别，控制昂贵的 z42 工具链准备；仅 VM benchmark 不安装 hyperfine、不自举两套 z42c / stdlib。
 
 本地分别使用 `xtask bench stdlib`、`xtask bench vm [--base <仓库树>] [--quick]` 和 `xtask bench --tier gate`。VM runner 从各树自己的 Cargo 清单发现目标，在同一结果目录保存 base、比较 head；新增目标使用 lenient baseline。测量结论仍为 informational，Cargo 构建或执行错误返回非零。

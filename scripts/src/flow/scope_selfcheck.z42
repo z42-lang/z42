@@ -48,6 +48,11 @@ void _flowScopeChecks(FlowConfig cfg) {
         }
         _gateAssert(!_strIn(flags, "host_checks") && !_strIn(flags, "toolchain_build"), "standalone benchmarks do not start correctness jobs");
     }
+    foreach (var file in new string[]{ "src/benches/probe/capabilities.z42", "src/benches/baseline-schema.json" }) {
+        string[] flags = _flowOutputs(cfg, _flowSelect(cfg, new string[]{ file }, root));
+        _gateAssert(_strIn(flags, "bench_stdlib") && _strIn(flags, "bench_integration") && !_strIn(flags, "bench_vm"),
+            "shared language benchmark inputs retain both consumers: " + file);
+    }
     _gateAssert(_benchVmTargets(root).Length > 0, "VM measurements use declared Cargo benchmark targets");
     string test = "src/libraries/z42.io/tests/private.z42";
     FlowPlan unit = _flowSelect(cfg, new string[]{ test }, root);

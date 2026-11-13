@@ -303,8 +303,15 @@ select = ["bench-verdict"]
 publish = false
 
 [[inputs]]
-id = "bench-scenarios"
+id = "benchmark-shared-inputs"
 include = ["src/benches/**"]
+exclude = ["src/benches/scenarios/**"]
+select = ["bench-verdict", "bench-stdlib", "bench-integration"]
+publish = false
+
+[[inputs]]
+id = "bench-scenarios"
+include = ["src/benches/scenarios/**"]
 select = ["bench-quick"]
 publish = false
 
