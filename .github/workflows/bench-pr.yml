@@ -225,7 +225,7 @@ jobs:
       # codegen logic → base-style scenario .zbc. If src/runtime is unchanged,
       # base_vm == pr_vm (byte identical) → skip building base's Rust VM.
       - name: Build base (merge-base) toolchain for A/B
-        if: steps.fmtgap.outputs.gap == '0'
+        if: steps.scope.outputs.bench_toolchain == 'true' && steps.fmtgap.outcome == 'success' && steps.fmtgap.outputs.gap == '0'
         id: base
         shell: bash
         run: |
@@ -320,7 +320,7 @@ jobs:
       # `--base-driver` 让门自己判两侧 driver 是否同一个二进制；这里本就不是（BASEDRIVER 是 PRDRIVER
       # 又编一代）⇒ 门如实说「判不了」而不判红。根治需两侧 driver 同代，尚未做。
       - name: Compiler fingerprint guard (output changed ⇒ version bumped)
-        if: steps.fmtgap.outputs.gap == '0'
+        if: steps.scope.outputs.bench_toolchain == 'true' && steps.fmtgap.outcome == 'success' && steps.fmtgap.outputs.gap == '0'
         shell: bash
         run: |
           xtask test compiler fingerprint --base "$PWD/base-src" \
@@ -334,7 +334,7 @@ jobs:
       #   · 树根等长：PR 源码另开 worktree `head-src`（与 `base-src` 等长），artifacts 软链回 PR 产物；
       #   · 工具链显式且同配方：`.ab-head-alllibs` 与 `.ab-base-alllibs` 等长、同一套拷贝顺序。
       - name: Prepare head toolchain (same shape as base, for both A/B gates)
-        if: steps.fmtgap.outputs.gap == '0'
+        if: steps.scope.outputs.bench_toolchain == 'true' && steps.fmtgap.outcome == 'success' && steps.fmtgap.outputs.gap == '0'
         id: head
         shell: bash
         run: |
