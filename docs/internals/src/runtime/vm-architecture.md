@@ -26,12 +26,12 @@ TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入
 | 阶段 | 所有者 | 完成条件 |
 |---|---|---|
 | 产物准备 | `host/load.rs`、`loader/package` | 依赖合并、类型和索引准备完成 |
-| 可用性裁剪 | `host/boot.rs` | 在模块进入 Core 和 token 解析前完成裁剪并重建受影响索引 |
+| 可用性裁剪 | `host/program_builder.rs` | 在模块进入 Core 和 token 解析前完成裁剪并重建受影响索引 |
 | Core 构造 | `context/core_builder.rs` | 创建堆和各子系统状态，连接根扫描、暂停请求与加载上下文回收服务 |
 | 主线程注册 | `context/thread_lifecycle.rs` | 上下文地址固定、登记根扫描地址、启用 TLAB 并绑定 SATB |
-| 加载与执行准备 | `host/boot.rs`、`metadata/resolve` | 登记 cctor、安装并播种惰性加载器、准备 token |
-| 组件装配 | `components`、`host/load.rs` | 创建组件、连接执行后端，之后发布 LoadedProgram |
-| 调用准备 | `host/runtime.rs` | 参数钉根，首次调用清理静态存储并排空待加载类型队列 |
+| 加载与执行准备 | `host/program_builder.rs`、`metadata/resolve` | 登记 cctor、安装并播种惰性加载器、准备 token |
+| 组件装配 | `components`、`host/program_builder.rs` | 创建组件、连接执行后端，之后发布 LoadedProgram |
+| 调用准备 | `host/program.rs` | 参数钉根，首次调用清理静态存储并排空待加载类型队列 |
 | 托管初始化 | `exec/init.rs` | 执行访问屏障保证包和类型初始化的执行、等待与失败传播 |
 
 `drain_pending_type_loads` 和 `enqueue_type_load` 处理的是静态字段属主的类型加载队列，
@@ -105,7 +105,7 @@ let program = z42::host::LoadedProgram::load_file(path, options)?;
 program.run_entry(hint)?;
 ```
 
-上述装配（`available!` 折叠 → 显式构造 Core → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/host/boot.rs::boot_context` 一处完成，`host::run_app` 与嵌入 host（`host/ops.rs`）共用。
+上述装配（`available!` 折叠 → 显式构造 Core → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/host/program_builder.rs::build` 一处完成，`host::run_app` 与嵌入 host（`host/ops.rs`）共用。
 
 ### VmContext 构造入口
 
@@ -378,13 +378,14 @@ z42vm <file>                                   [main.rs：CLI + 运行时配置 
   ├── 5.1e merge_modules → final_module
   │      + build_type_registry / verify_constraints / build_*_index
   │
-  ├── boot::boot_context(final_module, BootPlan)        [boot.rs]
-  │      fold_availability → VmContext::with_module → register_cctor_of
+  ├── program_builder::build(final_module, ProgramInputs)        [program_builder.rs]
+  │      fold_availability → vm_defaults::construct → register_cctor_of
   │      → install_lazy_loader_with_deps(search_dirs, pool_len, declared, initially_loaded)
-  │      → seed_lazy_loader_types / seed_lazy_loader_impls
+  │      → seed_lazy_loader_types / seed_lazy_loader_impls / seed_lazy_loader_symbol_owners
+  │      → resolve_tokens → components.install → backends::attach
+  │      → ModuleLoaded 事件重放 → LoadedProgram::new
   │
   └── LoadedProgram::run_entry(entry)
-         → boot::prepare_execution（resolve_module：各站点 token 预填）
          → interp::run_with_static_init | jit::run
 ```
 
@@ -507,14 +508,14 @@ host::state::HOST  (RwLock<Option<HostState>>，进程单实例)
    │ z42_host_resolve_entry(handle, mod, fqn, &entry)
    │ z42_host_invoke(entry, args, n, &result)
    ▼
-interp::run_returning（解释执行；装配与 CLI 启动流程共用 boot::boot_context）
+LoadedProgram::invoke_index → EngineRegistry::invoke_mode（按宿主选择的执行模式分发）
 ```
 
 ### 模块边界与 VM 全局状态
 
 | 关系 | 说明 |
 |------|------|
-| host 模块 ↔ `VmContext` | `host::state::HOST` 持有 `HostState { config: ResolvedConfig, modules, entries, corelib }`；每个已加载 module 独占一个 `VmContext`（`HostModule.ctx`），`load_zbc` 经 `load_artifact_from_bytes` + `merge_modules`（急切并入 `z42.core` 与 `import_namespaces` 对应的 zpkg）后走 `boot::boot_context` + `prepare_execution`（与 `host::run_app` 同一套装配）；`invoke` 先（每 module 一次）`interp::init_static_fields`，再 `interp::run_returning`。`Z42ExecMode` 在 `initialize` 时只校验所选后端是否编入，不改变 `invoke` 的执行后端 |
+| host 模块 ↔ `VmContext` | `host::state::HOST` 持有宿主会话配置与句柄注册表；每个模块句柄拥有一个 `LoadedProgram` 及其独立 `VmContext`。`ops::build_host_module` 传入 VFS、resolver、预加载策略与执行模式，经 `LoadedProgram::load_bytes` → `load::prepare` → `program_builder::build` 完成装配。首次调用准备与执行访问屏障由程序调用入口统一负责，实际后端由 `EngineRegistry::invoke_mode` 按加载时选定的模式分发 |
 | stdout / stderr | `Z42WriteSink` 函数指针经 `corelib::io::install_host_stdout_sink`（stderr 同理）登记；`invoke` 期间 `HostSinkGuard` 置位 per-thread「host sink active」标志，`corelib/io` 据此把输出路由到宿主回调，结束时复原 |
 | panic 隔离 | 每个 `extern "C"` 入口经 `host::guard()` `catch_unwind` 兜底，panic → `Z42_HOST_ERR_INTERNAL` |
 | 错误诊断 | TLS `LAST_ERROR` 由 `host::error::set_error / clear_error` 管理；与 `interop::error::LAST_ERROR` 独立（两条 ABI 各自维护） |
@@ -620,7 +621,7 @@ try_lookup_function(func_name):        # VmContext 先查 per-context fn_lookup_
 
 引用表路由对应 .NET 的 TypeRef ResolutionScope：引用方元数据直接写明定义所在的程序集（AssemblyRef），
 运行期从不按命名空间猜。z42 的「引用方元数据」是每个包的 DEPS 符号表（编译器在绑定期按符号归属包记录，
-见 [zpkg DEPS](../formats/zpkg.md#deps--依赖表)）；入口包的在 boot 时播种（`BootPlan.eager_deps`），其余包的在
+见 [zpkg DEPS](../formats/zpkg.md#deps--依赖表)）；入口包的在 boot 时播种（`ProgramInputs.eager_deps`），其余包的在
 它被加载时并入，所以「当前能执行的代码」引用到的名字总能精确路由。
 
 - **精确 / 非精确**：名字本身（去泛型实参 / 签名后缀后）就是登记的类型或自由函数 ⇒ 精确，定义包里找不到即判缺
@@ -679,7 +680,7 @@ token = UNRESOLVED（bind_callee，冷路径）:
 `field_ic` / `builtin_tokens` / `static_field_tokens` / `obj_new` / `fn_ref_tokens` / `site_index`）
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
 [`resolve::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolve/mod.rs) 一次性填充。
-但 `resolve_module` **只经 `host::LoadedProgram::run_entry` → `boot::prepare_execution` 对 entry module 跑一次**——而
+但 `resolve_module` **只经 `host/program_builder.rs::build` → `resolve_tokens` 对 entry module 跑一次**——而
 interp/JIT 模式下依赖是**纯惰性加载**（[load.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/host/load.rs)
 `is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
 **所有依赖 zpkg**（自编译时即 z42c.core / z42c.syntax / z42c.semantics /
@@ -1167,7 +1168,7 @@ match callee_value {
 
 ## interp vs JIT 分发
 
-位置：`host/runtime.rs`、`exec/engine/` 与独立的 `z42-interp` / `z42-jit` 后端。
+位置：`host/program.rs`、`exec/engine/` 与独立的 `z42-interp` / `z42-jit` 后端。
 
 - **interp**：`exec_function` → `exec_instr` match 分发到近 70 个 IR 指令
   实现。`Value` 是 `Copy` 的 16B tagged enum（见 [object-abi.md](object-abi.md)）。
@@ -1427,7 +1428,7 @@ pub struct ResolvedTokens {
 ### 解析时序
 
 1. **`metadata::types::build_type_registry`**: 在 topo order 中给每个 `TypeDesc.id` 分配 —— 号从 **进程级全局发号器** `tokens::alloc_type_id_block(n)` 批量取（每模块一次 `fetch_add`，模块内连续），**不是每模块从 0 重开**（见下）
-2. **`host::LoadedProgram::run_entry`** → `boot::prepare_execution` 调 `resolver::resolve_module(&module, ctx)`：
+2. **`host::LoadedProgram::run_entry`** → `program_builder::resolve_tokens` 调 `resolver::resolve_module(&module, ctx)`：
    - 走每个 Function 的每个 (block, instr) 元组
    - 对每个 token-bearing instruction 分配 per-kind site_idx
    - 解析能解析的 token：

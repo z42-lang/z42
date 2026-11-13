@@ -535,7 +535,7 @@ resolve = candidates[0]；|candidates| ≥ 2 ⇒ E0456（调用点另报）
 - **跨包**：`FuncImplExtractor._extractFunc` 按 RegKey 精确取本份并**按 RegKey 导出**（primary 裸 →
   字节稳定）；导入侧基名 = RegKey 剥首个 `$`（标识符不含 `$` ⇒ 无需新增 TSIG 字段），符号的 `RegKey` 存完整键。
 - **运行期零改动**：VM 把函数名当不透明字符串（`func_index: String→usize`，全程不 parse `$`），静态方法调用
-  今天走的就是这条同表同键路径，mangle 串天然可用。入口 `Main` 天然 primary → 裸键 `Main`，`host/runtime.rs` 精确匹配不受影响。
+  今天走的就是这条同表同键路径，mangle 串天然可用。入口 `Main` 天然 primary → 裸键 `Main`，`host/program.rs` 精确匹配不受影响。
 - **分阶段**（bootstrap-seed）：stdlib / z42c / 工具链源码暂不写重载；待办：晚一个 nightly 才在种子消费代码里 use。
 
 #### 覆盖面：哪些「引用形态」会被判（E0601 / E0606 / E0456）

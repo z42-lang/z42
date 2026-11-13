@@ -44,7 +44,7 @@ fn program(mode: ExecMode, throws: bool) -> LoadedProgram {
     crate::host::artifact::build_block_indices(&mut module);
     crate::loader::package::build_func_index(&mut module);
     let ctx = VmContext::with_module(module);
-    crate::host::boot::prepare_execution(&ctx, ctx.module().unwrap());
+    crate::host::program_builder::resolve_tokens(&ctx, ctx.module().unwrap());
     LoadedProgram::new(ctx, mode, Some("Demo.Main".into())).unwrap()
 }
 

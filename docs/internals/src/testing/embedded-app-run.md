@@ -221,7 +221,7 @@ z42 解释器**在原生调用栈上递归**——每次 z42 调用一层原生�
 
 | 要改什么 | 改哪 |
 |---|---|
-| 启动序列 / 加载顺序 | `src/runtime/src/host/load.rs`、`host/boot.rs` |
+| 启动序列 / 加载顺序 | `src/runtime/src/host/load.rs`、`host/program_builder.rs` |
 | 嵌入入口（所有原生壳共用） | `src/runtime/src/host/mod.rs` 的 C 符号 + `src/runtime/include/z42_host.h` |
 | agent 的命令面 / 报告通道 | `src/toolchain/workload/test/agent/src/agent.z42` |
 | bundle 的跑法（golden 隔离 / unit 共享） | `src/libraries/z42.harness/src/BundleRunner.z42` |
