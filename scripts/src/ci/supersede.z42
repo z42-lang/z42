@@ -1,0 +1,53 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+// Publishing uses nightly..head, independently of the event's validation base.
+bool _ciSdkBetween(CiGitHub api, FlowConfig cfg, string root, string repo, string base_, string head) {
+    if (base_.Length == 0) { return true; }
+    if (base_ == head) { return false; }
+    try {
+        JsonValue files = api.Get("repos/" + repo + "/compare/" + base_ + "..." + head).Get("files");
+        if (!files.IsArray() || files.Count() >= 300) { return true; }
+        var owners = new _ChangedOwners(root);
+        for (int i = 0; i < files.Count(); i = i + 1) {
+            JsonValue item = files.At(i);
+            string current = item.Get("filename").AsString();
+            string previous = _ciString(item, "previous_filename");
+            foreach (var file in new string[]{ current, previous }) {
+                if (file.Length == 0) { continue; }
+                FlowInput rule = _flowInput(cfg, file, owners);
+                if (rule == null || rule.Publish) { return true; }
+            }
+        }
+        return false;
+    } catch (Exception e) { ConsoleError.WriteLine("SDK diff unknown; retain publishing: " + e.Message); return true; }
+}
+
+int _ciSupersede(CiGitHub api, bool dryRun) {
+    string repo = _ciRepo(); string root = _root();
+    FlowConfig cfg = _flowConfigFor(root);
+    string base_ = "";
+    try { base_ = api.Get("repos/" + repo + "/git/ref/tags/nightly").Get("object").Get("sha").AsString(); }
+    catch (Exception e) { ConsoleError.WriteLine("nightly base unavailable: " + e.Message); }
+    string sha = Environment.GetEnvironmentVariable("GITHUB_SHA", "");
+    bool sdk = _ciSdkBetween(api, cfg, root, repo, base_, sha);
+    string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
+    if (output.Length > 0) { File.AppendAllText(output, "sdk=" + (sdk ? "true" : "false") + "\n"); }
+    string runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID", "");
+    long number = long.Parse(Environment.GetEnvironmentVariable("GITHUB_RUN_NUMBER", "0"));
+    JsonValue runs = api.Get("repos/" + repo + "/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=50").Get("workflow_runs");
+    for (int i = 0; i < runs.Count(); i = i + 1) {
+        JsonValue run = runs.At(i); string id = run.Get("id").AsLong().ToString();
+        if (id == runId || run.Get("run_number").AsLong() >= number || _ciString(run, "status") == "completed") { continue; }
+        string path = "repos/" + repo + "/actions/runs/" + id;
+        if (_ciString(api.Get(path), "status") == "completed") { continue; }
+        if (_ciSdkBetween(api, cfg, root, repo, base_, run.Get("head_sha").AsString())) { Console.WriteLine("keep " + id + ": unpublished SDK inputs"); continue; }
+        Console.WriteLine((dryRun ? "would cancel " : "cancel ") + id);
+        if (!dryRun) {
+            try { api.Post(path + "/cancel"); } catch (Exception e) { ConsoleError.WriteLine("cancel failed: " + e.Message); }
+        }
+    }
+    return 0;
+}

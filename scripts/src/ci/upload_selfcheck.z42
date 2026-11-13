@@ -1,0 +1,68 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+using Std.Collections;
+
+class CiFakeUpload : CiUploadTransport {
+    public string Mode = "ok";
+    public int Uploads;
+    public int Views;
+    public List<int> Delays = new List<int>();
+    public List<string> Names = new List<string>();
+    public string Asset = "";
+    public override ProcessResult Run(string[] args) {
+        _gateAssert(args[0] == "release" && args[2] == "nightly", "upload uses gh release and correct tag");
+        if (args[1] == "upload") {
+            this.Uploads = this.Uploads + 1; this.Asset = args[3]; this.Names.Add(Path.GetFileName(args[3]));
+            _gateAssert(args.Length == 5 && args[4] == "--clobber", "re-resolve and clobber on each attempt");
+            if (this.Mode == "client") { return _ciResult(1, "HTTP 403: denied (EOF)"); }
+            if (this.Mode == "always" || (this.Mode == "eof" && this.Uploads == 1)) { return _ciResult(1, "EOF"); }
+            if (this.Mode == "deleted" && this.Uploads == 1) { return _ciResult(1, "HTTP 500: delete committed"); }
+            return _ciResult(0, "");
+        }
+        _gateAssert(args[1] == "view" && args[3] == "--json" && args[4] == "assets", "verify upload via remote assets");
+        this.Views = this.Views + 1;
+        if (this.Mode == "receipt-client") { return _ciResult(1, "HTTP 403: denied"); }
+        if (this.Mode == "receipt-500" && this.Views == 1) { return _ciResult(1, "HTTP 500: unavailable"); }
+        if (this.Mode == "invalid") { return _ciResult(0, "not JSON"); }
+        if (this.Mode == "always-missing" || (this.Mode == "missing" && this.Views == 1)) { return _ciResult(0, "{\"assets\":[]}"); }
+        JsonValue receipt = JsonValue.OfObject(); JsonValue items = JsonValue.OfArray(); JsonValue a = JsonValue.OfObject();
+        a.Set("name", JsonValue.OfString(Path.GetFileName(this.Asset)));
+        a.Set("size", JsonValue.OfLong(File.GetSize(this.Asset)));
+        a.Set("state", JsonValue.OfString("uploaded"));
+        a.Set("digest", JsonValue.OfString(this.Mode == "mismatch" && this.Views == 1 ? "sha256:wrong" : "sha256:" + _sha256Hex(this.Asset)));
+        items.Add(a); receipt.Set("assets", items);
+        return _ciResult(0, JsonValue.StringifyPretty(receipt));
+    }
+    public override void Delay(int seconds) { this.Delays.Add(seconds); }
+}
+
+ProcessResult _ciResult(int code, string output) { return new ProcessResult("gh", code, output, "", new byte[0], new byte[0]); }
+
+void _ciUploadChecks() {
+    string dir = _xtaskWork(_root(), "ci-upload"); _resetDir(dir);
+    string first = Path.Join(dir, "first archive.tar.gz"); string second = Path.Join(dir, "second.tar.gz");
+    File.WriteAllText(first, "current content"); File.WriteAllText(second, "second content");
+    try {
+        foreach (var mode in new string[]{ "ok", "deleted", "eof", "missing", "mismatch", "receipt-500", "client", "always", "always-missing", "receipt-client", "invalid" }) {
+            var fake = new CiFakeUpload(); fake.Mode = mode;
+            int rc = _ciUpload(fake, "nightly", new string[]{ first, second });
+            bool failed = _strIn(new string[]{ "client", "always", "always-missing", "receipt-client", "invalid" }, mode);
+            _gateAssert((rc != 0) == failed, "upload outcome: " + mode);
+            if (mode == "always" || mode == "always-missing") {
+                _gateAssert(fake.Uploads == 5 && String.Join(",", _ciDelayStrings(fake.Delays)) == "1,2,4,8", "upload retry budget");
+            } else if (failed) { _gateAssert(fake.Uploads == 1 && fake.Delays.Count == 0, "permanent errors stop before next asset"); }
+            else {
+                _gateAssert(fake.Names[fake.Names.Count - 1] == "second.tar.gz", "upload preserves asset order");
+                _gateAssert(fake.Uploads == (mode == "ok" ? 2 : 3), "retry only incomplete asset");
+            }
+        }
+        _gateAssert(!_ciTransient("HTTP 403 denied EOF") && _ciTransient("HTTP/2 502 unavailable") && !_ciTransient("bad parameter"), "transient classifier");
+    } finally { Directory.Delete(dir, true); }
+    Console.WriteLine("  ✓ CI upload: receipt, digest, ordering, retries and failures");
+}
+
+string[] _ciDelayStrings(List<int> values) {
+    var text = new List<string>(); foreach (var n in values) { text.Add(n.ToString()); } return text.ToArray();
+}

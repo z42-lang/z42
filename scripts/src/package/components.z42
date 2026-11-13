@@ -21,7 +21,10 @@ string _componentLibrary(string stem, string rid = "") {
 // （--release + RUSTFLAGS/LTO env），两代树的产物目录与调用形态各自成立。
 bool _componentR0Tree(string root) { return File.Exists(Path.Join(root, "src/runtime/.cargo/config-dynamic.toml")); }
 // cargo --profile 名（dev 的产物目录叫 debug）与产物目录名分开，勿混用。
-string _componentCargoProfile(string root, string profile) { return (_componentR0Tree(root) && profile == "release") ? "release-dynamic" : profile; }
+string _componentCargoProfile(string root, string profile) {
+    if (profile == "debug") { return "dev"; }
+    return (_componentR0Tree(root) && profile == "release") ? "release-dynamic" : profile;
+}
 string _componentDirName(string root, string profile) { return (_componentR0Tree(root) && profile == "release") ? "release-dynamic" : profile; }
 string _componentCargoOut(string root, string profile) { return Path.Join(_componentBuildDir(root), _componentDirName(root, profile)); }
 Process _componentCargo(string verb, string root, string profile, string targetDir = "") {

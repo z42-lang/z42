@@ -15,6 +15,7 @@ class CheckSpec {
 
 CheckSpec[] _checks() {
     return new CheckSpec[]{
+        new CheckSpec("flows", "flow configuration and planner regressions", () => _checkFlows()),
         new CheckSpec("vscode-syntax", "VSCode grammar agrees with Lexer keywords", () => _testVscodeSyntax()),
         new CheckSpec("diagcodes", "diagnostic registration, documentation, liveness and test coverage", () => _checkDiagCodes()),
         new CheckSpec("ci-shell", "CI shell variables are assigned before use", () => _checkCiShell()),

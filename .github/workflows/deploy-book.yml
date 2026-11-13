@@ -71,7 +71,7 @@ jobs:
       - name: Generate reference stdlib pages
         run: xtask build docs
       - name: Test book tool installer
-        run: python3 .github/scripts/test-install-book-tools.py
+        run: xtask ci check-installers book
       - name: Install mdBook + mdbook-mermaid
         run: |
           bash .github/scripts/install-book-tools.sh

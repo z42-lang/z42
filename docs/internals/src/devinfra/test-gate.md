@@ -106,50 +106,19 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 实现：`StageLogZ` + `_stageStart` / `_stageEnd` / `_stageSummary`，时长格式化 `_fmtDur`
 （`scripts/src/common/logging.z42`）。
 
-## 7. `test changed`：按改动挑测试（命令计划 + gate 分流共用一张表）
+## 7. 按改动挑测试
 
-对工作区相对 `BASE`（默认 `HEAD`）的差异与未跟踪文件逐一分类。重命名按旧路径和新路径分别选测。映射表（`_mapFile`，
-`scripts/src/test/changed.z42`）每条规则给两列：本地 `test changed` 执行的**窄命令**（去重后的并集，
-依序执行、首败短路；`--dry-run` 只打印计划，并顺带打印下一列的分流结果），与 `xtask test --changed <base>`
-（§5）用的**受影响 gate stage**。「全集」= 所有编译 / 执行 z42 代码的重 stage（`rust-units` 除外）。
+`test changed [BASE]` 对工作区差异与未跟踪文件生成窄命令；`test --changed <base>` 消费同一配置中的
+stage 元数据，保留必跑的构建波、golden 与静态检查。目录归属、影响传播和执行前提的唯一配置是
+`scripts/flows.toml`，完整用法见[按改动规划流程](flows.md)。
 
-`test changed` 读取 Git 失败时打印命令、退出码和诊断并返回 2；只有成功读取后的空结果才表示没有改动。
-`test --changed` 遇到同类失败则保留全部 stage，并打印回退原因，避免因索引损坏等读取错误漏跑测试。
+重命名计算旧、新路径。workspace 成员通过实际清单发现，使用声明的工程名；被删除、排除或未知的归属回退全量。
+`test changed` 读取 Git 失败时返回 2；`test --changed` 保留全部 stage 并打印回退原因。
+完整 `test` 未覆盖的 SDK 验证、完整 Rust harness 和整程序 benchmark 义务仍保留，不能被 GREEN 吞掉。
+本地命令以参数数组重入 CLI，首败短路。普通文档选择真实的文档校验，学习手册与示例保留会话重放。
 
-库和编译器成员通过各自清单的 `members` / `exclude` 发现。路径归入包含它的最深成员，命令使用
-`[project].name`，下表的 `src/`、`tests/`、`benches/` 均相对成员目录。成员被删除、被排除或
-无法从当前工作区确认归属时回退到完整 `test`。
-
-| 改动路径 | 窄命令 | gate stage |
-|---|---|---|
-| `src/libraries/z42.workspace.toml` | `test stdlib` + `test e2e` | 全集 |
-| 标准库成员的 `src/`、工程清单 | `test stdlib <包名>`（`src/` 另加 `test e2e`）| 全集 |
-| 标准库成员的 `tests/` | `test stdlib <包名>` | `stdlib` |
-| 标准库成员的 `benches/` | `bench stdlib <包名>` | `bench` |
-| `src/runtime/src/`、`Cargo.toml/lock`、`build.rs` | `test runtime` + `test e2e` | 全集 + `rust-units` |
-| `src/runtime/tests/` | `test runtime` | `rust-units` |
-| `src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/` | `test e2e --dir cross-zpkg` | `cross-zpkg` |
-| `src/compiler/z42c.pipeline/tests/fixtures/multi-exe/` | `test e2e --dir multi-exe` | `multi-exe` |
-| `src/toolchain/builder/tests/fixtures/` | `test toolchain builder` | `toolchain`、`targets` |
-| `scripts/src/test/sdk/`、`src/toolchain/launcher/tests/fixtures/package/` | `package sdk --verify` | —（SDK 验证在 GREEN 外；CI 由四个 host package 执行）|
-| 其余 `src/tests/` | `test e2e` + `check layout` | —（goldens 与 layout 恒跑）|
-| `src/benches/` | `bench --quick` | —（gate 里没有它）|
-| 编译器成员的 `tests/`（上述专属 harness 夹具除外） | `test compiler` + `test stdlib`（目录工程与扁平 / `[tests]` 单元分别发现） | `compiler`、`stdlib` |
-| 编译器成员的 `benches/` | `bench stdlib <包名>` + `test compiler`（codegen 单元引用 bench helper） | `bench`、`compiler` |
-| `src/compiler/z42.workspace.toml` | `test compiler` + `test stdlib` + `test e2e` | 全集 |
-| 编译器成员其余改动 | `test compiler` + `test e2e` | 全集 |
-| `src/toolchain/launcher/`、`src/toolchain/builder/` | `test stdlib` + `test toolchain` + `test docs examples`（命令行输出一变，手册里的会话脚本就失配）| `stdlib`、`toolchain`、`bench`、`targets`、`examples`（z42b 是这几种用例的执行器）|
-| 其余 `src/toolchain/` | `test stdlib`（工具链影响 `[Test]` 的执行方式，全库扫）+ `test toolchain` | `stdlib`、`toolchain` |
-| `examples/<part>/<chapter>/…` | `test docs examples <part>/<chapter>` | `examples` |
-| `docs/learn/` | `test docs examples --book-only` | `examples` |
-| 其余 `scripts/`、`*.workspace.toml`、其余 `src/`、未识别路径 | **full**（坍缩为 `test`）| **full**（不跳）|
-| 其余文档 / artifacts | 跳过 | — |
-
-设计取向是**宁可多跑不可漏跑**：任一未识别路径即保守选择完整 `test`，
-但它不能覆盖的 SDK 验证、完整 Rust harness、整程序 benchmark 冒烟继续保留在后面，分别去重并依序执行。
-GREEN 的 Rust stage 只执行库单测并编译集成测试，`test runtime` 还执行集成与 doctests，不能被前者替代。
-SDK 私有执行器和夹具按目录职责选择实际发行包验证，不需要逐用例声明平台。
-计划里的逻辑命令统一**在进程内重入 CLI 路由**（不 shell out），免去每命令一次进程启动。
+CI 用 `xtask test --plan artifacts/ci-plan.json` 消费 detect-changes 的同一份、经过提交与配置校验的计划。
+`flows` 是完整 GREEN 的必跑 stage，执行配置、Git、计划及 CI 控制回归。
 
 ## 8. 反射 runner 的输出格式（`z42b test` / `z42b bench`）
 
@@ -171,6 +140,6 @@ pretty 模式不捕获、逐字节不变。
 ## 9. 边界与限制
 
 - 单 stage / `--no-build` / `test changed` 均**不构成 GREEN**——提交判定只认完整 `xtask test`。
-- `test changed` 只看工作区相对 BASE 的 diff，不理解语义依赖（靠保守坍缩弥补）。
+- `test changed` 使用显式目录与契约图，不代替编译器语义依赖分析；未知输入保守全量。
 - JIT 一致性不在本地默认路径内，由 CI 专腿覆盖（本地可 `test e2e --mode jit` 手动跑）。
 - stage 全串行；无依赖的 stage（compiler ∥ stdlib 等）并发执行尚未实施。

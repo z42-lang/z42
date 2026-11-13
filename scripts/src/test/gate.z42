@@ -223,6 +223,7 @@ GateStage[] _gateStages(bool noBuild) {
         new GateStage("gcgen", "gc modes (z42c.semantics build)", "z42", () => _testGcModes()),
         new GateStage("vscode", "vscode-syntax", () => _testVscodeSyntax()),
         new GateStage("diagcodes", "diagcodes", () => _checkDiagCodes()),
+        new GateStage("flows", "flow planner and CI control regressions", () => _checkFlows()),
         new GateStage("ci-shell", "ci-shell", () => _checkCiShell()),
         new GateStage("proc-env", "proc-env", () => _checkProcEnv()),
         new GateStage("layout", "layout", () => _checkLayout()),

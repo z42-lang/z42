@@ -1,0 +1,353 @@
+# Inputs are ordered ownership rules: the first matching rule wins.
+# Globs use PathGlob (* and ? within a segment, ** across segments).
+# requires prepares execution; affects propagates changed contracts. Never mix them.
+version = 1
+full = ["green", "runtime", "sdk", "bench-quick", "ci-all"]
+
+[flows.green]
+affects = ["compiler-consumer", "stdlib-consumer"]
+command = ["test"]
+stages = ["@all"]
+
+[flows.runtime]
+command = ["test", "runtime"]
+stages = ["rust-units"]
+outputs = ["runtime_checks"]
+outside = true
+
+[flows.e2e]
+command = ["test", "e2e"]
+
+[flows.compiler]
+job = "compiler-checks"
+ci_command = ["test", "compiler", "--no-build"]
+command = ["test", "compiler"]
+stages = ["compiler"]
+outputs = ["compiler_checks"]
+
+[flows.stdlib]
+command = ["test", "stdlib"]
+stages = ["stdlib"]
+outputs = ["stdlib"]
+
+[flows.library]
+command = ["test", "stdlib", "{owner}"]
+stages = ["stdlib"]
+outputs = ["stdlib"]
+
+[flows.library-bench]
+command = ["bench", "stdlib", "{owner}"]
+stages = ["bench"]
+
+[flows.toolchain]
+command = ["test", "toolchain"]
+stages = ["toolchain", "targets"]
+
+[flows.examples]
+command = ["test", "docs", "examples"]
+stages = ["examples"]
+outputs = ["examples"]
+
+[flows.chapter]
+command = ["test", "docs", "examples", "{chapter}"]
+stages = ["examples"]
+outputs = ["examples"]
+
+[flows.learn]
+command = ["test", "docs", "examples", "--book-only"]
+stages = ["examples"]
+outputs = ["examples"]
+
+[flows.sdk]
+command = ["package", "sdk", "--verify"]
+outputs = ["sdk_checks"]
+outside = true
+
+[flows.bench-quick]
+command = ["bench", "--quick"]
+outside = true
+
+[flows.cross-zpkg]
+command = ["test", "e2e", "--dir", "cross-zpkg"]
+stages = ["cross-zpkg"]
+
+[flows.multi-exe]
+command = ["test", "e2e", "--dir", "multi-exe"]
+stages = ["multi-exe"]
+
+[flows.builder]
+command = ["test", "toolchain", "builder"]
+stages = ["toolchain", "targets"]
+
+[flows.layout]
+command = ["check", "layout"]
+
+[flows.docs]
+command = ["test", "docs", "links"]
+
+[flows.flow-check]
+command = ["check", "flows"]
+
+[flows.compiler-consumer]
+job = "compiler-checks"
+ci_command = ["test", "compiler", "--no-build"]
+outputs = ["compiler_checks"]
+
+[flows.stdlib-consumer]
+outputs = ["stdlib"]
+
+[flows.z42-consumers]
+affects = ["compiler-consumer", "stdlib-consumer"]
+stages = ["@z42"]
+
+[flows.compiler-source]
+affects = ["compiler", "e2e", "z42-consumers"]
+outputs = ["compiler"]
+
+[flows.runtime-source]
+affects = ["runtime", "e2e", "z42-consumers"]
+outputs = ["vm", "platform"]
+
+[flows.library-source]
+affects = ["library", "e2e", "z42-consumers"]
+outputs = ["stdlib"]
+
+[flows.platform]
+outputs = ["platform"]
+
+[flows.vm]
+outputs = ["vm"]
+
+[flows.bench-verdict]
+command = ["ci", "check-bench"]
+outside = true
+
+[flows.ci-all]
+affects = ["compiler"]
+outputs = ["platform", "compiler", "compiler_checks", "vm", "runtime_checks", "stdlib", "sdk_checks", "examples"]
+
+[[inputs]]
+id = "examples"
+include = ["examples/**"]
+select = ["chapter"]
+publish = false
+
+[[inputs]]
+id = "learn"
+bench_only = true
+include = ["docs/learn/**"]
+select = ["learn"]
+publish = false
+
+[[inputs]]
+id = "layout-vocabulary"
+include = ["docs/internals/src/devinfra/test-layout.md"]
+select = ["layout", "docs"]
+docs = true
+publish = false
+
+[[inputs]]
+id = "documentation"
+bench_only = true
+include = ["docs/**", "**/*.md", "LICENSE*", "README*"]
+select = ["docs"]
+docs = true
+publish = false
+
+[[inputs]]
+id = "repo-metadata"
+include = [".gitignore", ".gitattributes", "artifacts/**"]
+select = []
+publish = false
+
+[[inputs]]
+id = "runtime-private"
+include = ["src/runtime/tests/*.rs", "src/runtime/tests/data/example-manifest.json", "src/runtime/tests/data/invalid-manifest-missing-types.json", "src/runtime/tests/data/manifest-with-extra-fields.json", "src/runtime/tests/data/embedding_hello/**", "src/runtime/tests/data/z42_native_e2e/**"]
+select = ["runtime"]
+publish = false
+
+[[inputs]]
+id = "runtime-production"
+include = ["src/runtime/**"]
+select = ["runtime-source"]
+
+[[inputs]]
+id = "cross-package-fixtures"
+include = ["src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/**"]
+select = ["cross-zpkg", "compiler", "stdlib"]
+publish = false
+
+[[inputs]]
+id = "multi-exe-fixtures"
+include = ["src/compiler/z42c.pipeline/tests/fixtures/multi-exe/**"]
+select = ["multi-exe", "compiler", "stdlib"]
+publish = false
+
+[[inputs]]
+id = "sdk-verification"
+include = ["scripts/src/test/sdk/**", "src/toolchain/launcher/tests/fixtures/package/**"]
+select = ["sdk"]
+publish = false
+
+[[inputs]]
+id = "installers"
+include = ["scripts/install-z42.*"]
+select = ["sdk"]
+
+[[inputs]]
+id = "builder-fixtures"
+
+include = ["src/toolchain/builder/tests/fixtures/**"]
+select = ["builder"]
+publish = false
+
+[[inputs]]
+id = "toolchain-private"
+include = ["src/toolchain/builder/**/tests/**", "src/toolchain/launcher/**/tests/**", "src/toolchain/interactive/**/tests/**"]
+select = ["toolchain"]
+publish = false
+
+[[inputs]]
+id = "bench-verdict-fixtures"
+include = ["src/benches/testdata/**"]
+select = ["bench-verdict"]
+bench_only = true
+publish = false
+
+[[inputs]]
+id = "bench-scenarios"
+
+include = ["src/benches/**"]
+select = ["bench-quick"]
+publish = false
+
+[[inputs]]
+id = "golden-tests"
+include = ["src/tests/**"]
+select = ["e2e", "layout"]
+publish = false
+
+[[inputs]]
+id = "libraries-workspace"
+include = ["src/libraries/z42.workspace.toml"]
+select = ["stdlib", "e2e", "z42-consumers"]
+
+[[inputs]]
+id = "library-tests"
+include = ["src/libraries/**"]
+workspace = "src/libraries/z42.workspace.toml"
+relative = ["tests/**"]
+select = ["library"]
+publish = false
+
+[[inputs]]
+id = "library-benchmarks"
+include = ["src/libraries/**"]
+workspace = "src/libraries/z42.workspace.toml"
+relative = ["benches/**"]
+select = ["library-bench"]
+publish = false
+
+[[inputs]]
+id = "library-production"
+include = ["src/libraries/**"]
+workspace = "src/libraries/z42.workspace.toml"
+relative = ["src/**", "*.toml"]
+select = ["library-source"]
+
+[[inputs]]
+id = "compiler-workspace"
+include = ["src/compiler/z42.workspace.toml"]
+select = ["compiler-source", "stdlib"]
+
+[[inputs]]
+id = "compiler-private"
+include = ["src/compiler/**"]
+workspace = "src/compiler/z42.workspace.toml"
+relative = ["tests/**"]
+select = ["compiler", "stdlib"]
+publish = false
+
+[[inputs]]
+id = "compiler-benchmarks"
+include = ["src/compiler/**"]
+workspace = "src/compiler/z42.workspace.toml"
+relative = ["benches/**"]
+select = ["library-bench", "compiler"]
+publish = false
+
+[[inputs]]
+id = "compiler-production"
+include = ["src/compiler/**"]
+workspace = "src/compiler/z42.workspace.toml"
+relative = ["**"]
+select = ["compiler-source"]
+
+[[inputs]]
+id = "test-hosts"
+include = ["src/toolchain/launcher/**", "src/toolchain/builder/**"]
+select = ["stdlib", "toolchain", "examples", "platform"]
+
+[[inputs]]
+id = "toolchain-production"
+include = ["src/toolchain/**"]
+select = ["stdlib", "toolchain", "platform", "compiler"]
+
+[[inputs]]
+id = "ci-control"
+include = ["scripts/src/ci/**"]
+select = ["flow-check"]
+publish = false
+
+[[inputs]]
+id = "benchmark-executor"
+include = ["scripts/src/bench/**"]
+select = ["bench-verdict", "bench-quick"]
+publish = false
+
+[[inputs]]
+id = "fixture-executor"
+include = ["scripts/src/common/harness/fixtures.z42"]
+select = ["sdk", "platform"]
+publish = false
+
+[[inputs]]
+id = "planner-implementation"
+
+include = ["scripts/src/flow/**"]
+select = ["flow-check"]
+publish = false
+
+[[inputs]]
+id = "compiler-executor"
+include = ["scripts/src/test/compiler/**", "scripts/src/build/compiler*.z42"]
+select = ["compiler"]
+publish = false
+
+[[inputs]]
+id = "stdlib-executor"
+include = ["scripts/src/test/stdlib/**", "scripts/src/common/harness/package_units.z42", "scripts/src/common/harness/manifest_targets.z42", "scripts/src/common/harness/unit_projects.z42", "scripts/src/common/projects.z42", "scripts/src/common/golden.z42"]
+select = ["stdlib", "compiler"]
+publish = false
+
+[[inputs]]
+id = "runtime-executor"
+include = ["scripts/src/test/runtime/**"]
+select = ["runtime", "vm"]
+publish = false
+
+[[inputs]]
+id = "packaging"
+include = ["scripts/src/package/**", "scripts/packages.toml", "scripts/src/common/packages_config.z42", "scripts/src/common/publish.z42", "scripts/src/common/versions.z42", "scripts/src/common/layout.z42", "scripts/src/setup/**", "scripts/src/test/app/**", "scripts/versions.toml"]
+select = ["green", "platform"]
+
+[[inputs]]
+id = "ci-configuration"
+include = [".github/**", "scripts/flows.toml"]
+select = ["green", "ci-all", "flow-check"]
+publish = true
+
+[[inputs]]
+id = "scripts"
+include = ["scripts/**"]
+select = ["green"]

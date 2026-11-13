@@ -1,0 +1,90 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+using Std.Cli;
+
+class CiCommand : Command {
+    public CiCommand() : base("ci", "GitHub CI control operations") {
+        this.AddCommand(new CiRetryCommand());
+        this.AddCommand(new CiUploadCommand());
+        this.AddCommand(new CiSupersedeCommand());
+        this.AddCommand(new CiCriterionCommand());
+        this.AddCommand(new CiInstallerCheckCommand());
+        this.AddCommand(new CiBenchScopeCommand());
+        this.AddCommand(new CiBenchCheckCommand());
+    }
+}
+
+class CiRetryCommand : Command {
+    [Option(help: "CI run ID (otherwise workflow_run event or RETRY_RUN_ID)")] public string RunId = "";
+    [Option(help: "inspect without requeueing jobs")] public bool DryRun;
+    public CiRetryCommand() : base("retry-runner", "bounded recovery of unacquired hosted jobs") {}
+    public override int Run() {
+        try {
+            string id = this.RunId; long attempt = 0L;
+            string eventPath = Environment.GetEnvironmentVariable("GITHUB_EVENT_PATH", "");
+            if (id.Length == 0 && eventPath.Length > 0) {
+                JsonValue ev = JsonValue.Parse(File.ReadAllText(eventPath));
+                if (ev.ContainsKey("workflow_run")) {
+                    JsonValue run = ev.Get("workflow_run");
+                    id = run.Get("id").AsLong().ToString(); attempt = run.Get("run_attempt").AsLong();
+                }
+            }
+            if (id.Length == 0) { id = Environment.GetEnvironmentVariable("RETRY_RUN_ID", ""); }
+            if (id.Length == 0) { throw new Exception("--run-id is required"); }
+            string message = _ciRetry(new CiGitHub(), _ciRepo(), id, attempt, this.DryRun);
+            Console.WriteLine(message);
+            string summary = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY", "");
+            if (summary.Length > 0) { File.AppendAllText(summary, message + "\n"); }
+            return 0;
+        } catch (Exception e) { ConsoleError.WriteLine("ci retry: " + e.Message); return 1; }
+    }
+}
+
+class CiUploadCommand : Command {
+    [Argument(help: "release tag")] public string Release = "";
+    [Argument(help: "asset paths", passthrough: true)] public string[] Assets = new string[0];
+    public CiUploadCommand() : base("upload-release", "upload and verify assets with bounded retries") {}
+    public override int Run() {
+        try {
+            if (this.Release.Length == 0 || this.Assets.Length == 0) { throw new Exception("release and assets are required"); }
+            return _ciUpload(new CiUploadTransport(), this.Release, this.Assets);
+        } catch (Exception e) { ConsoleError.WriteLine("ci upload: " + e.Message); return 1; }
+    }
+}
+
+class CiSupersedeCommand : Command {
+    [Option(help: "inspect without cancelling older runs")] public bool DryRun;
+    public CiSupersedeCommand() : base("supersede", "retain unpublished SDK runs; supersede unrelated runs") {}
+    public override int Run() {
+        try { return _ciSupersede(new CiGitHub(), this.DryRun); }
+        catch (Exception e) { ConsoleError.WriteLine("ci supersede: " + e.Message); return 1; }
+    }
+}
+
+class CiCriterionCommand : Command {
+    [Argument(help: "Criterion results directory")] public string Directory = "";
+    public CiCriterionCommand() : base("criterion-report", "print informational Criterion confidence intervals") {}
+    public override int Run() { return _ciCriterionReport(this.Directory); }
+}
+
+class CiInstallerCheckCommand : Command {
+    [Argument(help: "book | wasm | all", choices: new string[]{ "book", "wasm", "all" })] public string Kind = "all";
+    public CiInstallerCheckCommand() : base("check-installers", "offline installer regressions") {}
+    public override int Run() { return _ciInstallerChecks(this.Kind); }
+}
+
+class CiBenchScopeCommand : Command {
+    [Option(help: "benchmark comparison base")] public string Base = "";
+    public CiBenchScopeCommand() : base("bench-scope", "select benchmark checks from flow ownership") {}
+    public override int Run() { return _ciBenchScope(this.Base); }
+}
+
+class CiBenchCheckCommand : Command {
+    public CiBenchCheckCommand() : base("check-bench", "run benchmark verdict fixtures") {}
+    public override int Run() {
+        try { return _ciCheckBench(); }
+        catch (Exception e) { ConsoleError.WriteLine(e.Message); return 1; }
+    }
+}

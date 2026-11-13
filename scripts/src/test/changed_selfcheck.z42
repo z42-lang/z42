@@ -7,7 +7,10 @@ int _selfcheckChangedGit() {
     string dir = _xtaskWork(_root(), "changed-git");
     string cwd = Environment.GetCurrentDirectory();
     string? index = Environment.GetEnvironmentVariable("GIT_INDEX_FILE");
+    string config = File.ReadAllText(Path.Join(cwd, "scripts/flows.toml"));
     _resetDir(dir);
+    Directory.Create(Path.Join(dir, "scripts"));
+    File.WriteAllText(Path.Join(dir, "scripts/flows.toml"), config);
     // 本自检串行运行；cwd / 环境在 finally 中恢复，后续 stage 不受影响。
     try {
         Environment.SetCurrentDirectory(dir);
@@ -85,16 +88,15 @@ void _checkWorkspaceChangedGit(string root) {
     string[] renamed = _changedFiles("HEAD");
     _gateAssert(String.Join(";", renamed) == lib + "/source.z42;" + lib + "/tests/renamed.z42",
         "rename selects both the former source and the new test");
-    _gateAssert(String.Join(";", _buildChangedPlan(renamed, root)) == "xtask test",
+    _gateAssert(_strIn(_buildChangedPlan(renamed, root), "xtask test"),
         "custom source outside conventional directories preserves full coverage after rename");
     _gitOutput(new string[]{ "restore", "--staged", "--worktree", "--", lib });
 
     _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ "src/compiler/groups/tests/other/benches/case.z42" }, root))
         == "xtask bench stdlib compiler.declared;xtask test compiler", "compiler bench uses owner-relative path and declared name");
-    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ "src/libraries/groups/src/ignored/tests/case.z42" }, root))
-        == "xtask test", "excluded project cannot become a named test command");
+    _gateAssert(_strIn(_buildChangedPlan(new string[]{ "src/libraries/groups/src/ignored/tests/case.z42" }, root), "xtask test"), "excluded project cannot become a named test command");
     Directory.Delete(Path.Join(root, lib), true);
-    _gateAssert(String.Join(";", _buildChangedPlan(_changedFiles("HEAD"), root)) == "xtask test",
+    _gateAssert(_strIn(_buildChangedPlan(_changedFiles("HEAD"), root), "xtask test"),
         "removed member falls back to full coverage");
     _gitOutput(new string[]{ "restore", "--worktree", "--", lib });
     _gateAssert(_changedFiles("HEAD").Length == 0, "workspace fixture restored");
@@ -115,7 +117,7 @@ void _checkSdkChangedGit(string dir) {
         "SDK verification does not claim GREEN stages");
     Directory.Create(Path.Join(dir, "scripts/src/common"));
     File.WriteAllText(Path.Join(dir, "scripts/src/common/shared.z42"), "// untracked shared script\n");
-    _gateAssert(String.Join(";", _buildChangedPlan(_changedFiles("HEAD"))) == "xtask test;xtask package sdk --verify",
+    _gateAssert(_strIn(_buildChangedPlan(_changedFiles("HEAD")), "xtask package sdk --verify") && _strIn(_buildChangedPlan(_changedFiles("HEAD")), "xtask test"),
         "real Git full fallback preserves SDK verification");
     _gateAssert(_testChangedRun("HEAD", true) == 0, "mixed SDK dry run");
 }

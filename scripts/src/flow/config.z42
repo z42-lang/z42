@@ -1,0 +1,202 @@
+// Declarative change ownership and the two independent flow graphs.
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Toml;
+using Std.Collections;
+using Z42.Project;
+
+class FlowNode {
+    public string Id = "";
+    public string[] Command = new string[0];
+    public string Job = "";
+    public string[] CiCommand = new string[0];
+    public string[] Affects = new string[0];
+    public string[] Requires = new string[0];
+    public string[] Stages = new string[0];
+    public string[] Outputs = new string[0];
+    public bool Outside;
+}
+
+class FlowInput {
+    public string Id = "";
+    public string[] Include = new string[0];
+    public string[] Exclude = new string[0];
+    public string[] Select = new string[0];
+    public string Workspace = "";
+    public string[] Relative = new string[0];
+    public bool BenchOnly;
+    public bool Docs;
+    public bool Publish = true;
+}
+
+class FlowConfig {
+    public FlowNode[] Nodes = new FlowNode[0];
+    public FlowInput[] Inputs = new FlowInput[0];
+    public string[] Full = new string[0];
+    public string Digest = "";
+    public string Path = "";
+
+    public FlowNode Find(string id) {
+        foreach (var n in this.Nodes) { if (n.Id == id) { return n; } }
+        throw new Exception("flows.toml: unknown flow '" + id + "'");
+    }
+}
+
+string[] _flowList(TomlValue v, string key) {
+    if (!v.ContainsKey(key)) { return new string[0]; }
+    TomlValue a = v.Get(key);
+    if (!a.IsArray()) { throw new Exception("flows.toml: " + key + " must be an array"); }
+    var result = new List<string>();
+    for (int i = 0; i < a.Count(); i = i + 1) {
+        if (!a.At(i).IsString() || a.At(i).AsString().Length == 0) {
+            throw new Exception("flows.toml: " + key + " must contain nonempty strings");
+        }
+        result.Add(a.At(i).AsString());
+    }
+    return result.ToArray();
+}
+
+bool _flowBool(TomlValue v, string key, bool fallback) {
+    return v.ContainsKey(key) ? v.Get(key).AsBool() : fallback;
+}
+
+void _flowKeys(TomlValue v, string[] allowed, string location) {
+    foreach (var key in v.Keys()) {
+        if (!_strIn(allowed, key)) { throw new Exception("flows.toml: unknown " + location + " key '" + key + "'"); }
+    }
+}
+
+FlowConfig _flowLoad(string path) {
+    string text = File.ReadAllText(path);
+    FlowConfig cfg = _flowParse(text);
+    cfg.Path = path;
+    return cfg;
+}
+
+FlowConfig _flowParse(string text) {
+    TomlValue doc = TomlValue.Parse(text);
+    _flowKeys(doc, new string[]{ "version", "full", "flows", "inputs" }, "root");
+    if (doc.Get("version").AsLong() != 1L) { throw new Exception("flows.toml: unsupported version"); }
+    var cfg = new FlowConfig();
+    cfg.Digest = _flowDigest(text);
+    cfg.Full = _flowList(doc, "full");
+    TomlValue table = doc.Get("flows");
+    string[] keys = table.Keys();
+    _sortStrings(keys);
+    var nodes = new List<FlowNode>();
+    foreach (var key in keys) { nodes.Add(_flowParseNode(key, table.Get(key))); }
+    cfg.Nodes = nodes.ToArray();
+    TomlValue inputs = doc.Get("inputs");
+    var rules = new List<FlowInput>();
+    for (int i = 0; i < inputs.Count(); i = i + 1) { rules.Add(_flowParseInput(inputs.At(i))); }
+    cfg.Inputs = rules.ToArray();
+    _flowValidate(cfg);
+    return cfg;
+}
+
+FlowNode _flowParseNode(string id, TomlValue v) {
+    _flowKeys(v, new string[]{ "command", "affects", "requires", "stages", "outputs", "outside", "job", "ci_command" }, id);
+    var n = new FlowNode();
+    n.Id = id;
+    n.Job = v.ContainsKey("job") ? v.Get("job").AsString() : id;
+    n.CiCommand = _flowList(v, "ci_command");
+    n.Command = _flowList(v, "command"); n.Affects = _flowList(v, "affects");
+    n.Requires = _flowList(v, "requires"); n.Stages = _flowList(v, "stages");
+    n.Outputs = _flowList(v, "outputs"); n.Outside = _flowBool(v, "outside", false);
+    _flowValidateCommand(n.Command, id);
+    _flowValidateCommand(n.CiCommand, id);
+    return n;
+}
+
+FlowInput _flowParseInput(TomlValue v) {
+    _flowKeys(v, new string[]{ "id", "include", "exclude", "select", "workspace", "relative", "docs", "publish", "bench_only" }, "input");
+    var r = new FlowInput();
+    r.Id = v.Get("id").AsString(); r.Include = _flowList(v, "include");
+    r.Exclude = _flowList(v, "exclude"); r.Select = _flowList(v, "select");
+    r.Relative = _flowList(v, "relative");
+    r.Workspace = v.ContainsKey("workspace") ? v.Get("workspace").AsString() : "";
+    r.BenchOnly = _flowBool(v, "bench_only", false);
+    r.Docs = _flowBool(v, "docs", false); r.Publish = _flowBool(v, "publish", true);
+    if (r.Id.Length == 0 || r.Include.Length == 0) { throw new Exception("flows.toml: input needs id and include"); }
+    if (r.Workspace.Length == 0 && r.Relative.Length > 0) { throw new Exception("flows.toml: relative needs workspace"); }
+    return r;
+}
+
+void _flowValidate(FlowConfig cfg) {
+    if (cfg.Full.Length == 0) { throw new Exception("flows.toml: full policy is empty"); }
+    foreach (var id in cfg.Full) { cfg.Find(id); }
+    var inputs = new List<string>();
+    foreach (var r in cfg.Inputs) {
+        if (inputs.Contains(r.Id)) { throw new Exception("flows.toml: duplicate input " + r.Id); }
+        inputs.Add(r.Id);
+        foreach (var id in r.Select) { cfg.Find(id); }
+    }
+    foreach (var n in cfg.Nodes) {
+        foreach (var id in n.Affects) { cfg.Find(id); }
+        foreach (var id in n.Requires) { cfg.Find(id); }
+        foreach (var output in n.Outputs) { _flowValidateOutput(output); }
+        foreach (var stage in n.Stages) {
+            if (stage != "@z42" && stage != "@all" && !_strIn(_changedScopedStages(), stage)) {
+                throw new Exception("flows.toml: unknown gate stage " + stage);
+            }
+        }
+    }
+    // Validate both graphs independently, including nodes not selected by today's diff.
+    var done = new List<string>(); var stack = new List<string>();
+    foreach (var n in cfg.Nodes) { _flowCheckCycle(cfg, n.Id, false, stack, done); }
+    done.Clear(); stack.Clear();
+    foreach (var n in cfg.Nodes) { _flowCheckCycle(cfg, n.Id, true, stack, done); }
+}
+
+void _flowCheckCycle(FlowConfig cfg, string id, bool execution, List<string> stack, List<string> done) {
+    if (done.Contains(id)) { return; }
+    if (stack.Contains(id)) { throw new Exception("flows.toml: cycle: " + String.Join(" -> ", stack.ToArray()) + " -> " + id); }
+    stack.Add(id);
+    FlowNode node = cfg.Find(id);
+    foreach (var next in execution ? node.Requires : node.Affects) { _flowCheckCycle(cfg, next, execution, stack, done); }
+    stack.RemoveAt(stack.Count - 1);
+    done.Add(id);
+}
+
+bool _flowMatches(string file, string[] patterns) {
+    foreach (var p in patterns) { if (PathGlob.Match(file, p)) { return true; } }
+    return false;
+}
+
+static class FlowConfigCache {
+    public static string Root = "";
+    public static string Text = "";
+    public static FlowConfig? Value = null;
+}
+
+FlowConfig _flowConfigFor(string root) {
+    string text = File.ReadAllText(Path.Join(root, "scripts/flows.toml"));
+    FlowConfig? cached = FlowConfigCache.Value;
+    if (cached != null && FlowConfigCache.Root == root && FlowConfigCache.Text == text) { return cached; }
+    FlowConfig cfg = _flowParse(text);
+    FlowConfigCache.Root = root; FlowConfigCache.Text = text; FlowConfigCache.Value = cfg;
+    return cfg;
+}
+
+void _flowValidateCommand(string[] args, string id) {
+    if (args.Length > 0 && !_strIn(new string[]{ "build", "test", "check", "bench", "package", "setup", "ci" }, args[0])) {
+        throw new Exception("flows.toml: command must name an xtask command: " + id);
+    }
+    foreach (var token in args) {
+        string rest = token.Replace("{owner}", "").Replace("{chapter}", "");
+        if (rest.Contains("{") || rest.Contains("}")) { throw new Exception("flows.toml: unknown command substitution in " + id); }
+    }
+}
+
+void _flowValidateOutput(string key) {
+    if (_strIn(new string[]{ "docs_only", "test_base", "stage_skip", "host_package", "platform_package" }, key)) {
+        throw new Exception("flows.toml: reserved output " + key);
+    }
+    for (int i = 0; i < key.Length; i = i + 1) {
+        char c = key.CharAt(i);
+        if (c != '_' && (c < 'a' || c > 'z') && (i == 0 || c < '0' || c > '9')) {
+            throw new Exception("flows.toml: invalid output key " + key);
+        }
+    }
+}

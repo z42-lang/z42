@@ -1,0 +1,59 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+bool _ciBenchOnly(FlowConfig cfg, string[] files, string root) {
+    var owners = new _ChangedOwners(root);
+    foreach (var file in files) {
+        FlowInput rule = _flowInput(cfg, file, owners);
+        if (rule == null || !rule.BenchOnly) { return false; }
+    }
+    return true;
+}
+
+int _ciBenchScope(string base_) {
+    bool only = false;
+    try {
+        string root = _root();
+        ProcessResult ancestor = new Process("git").Arg("merge-base").Arg("--is-ancestor").Arg(base_).Arg("HEAD").Run();
+        if (ancestor.ExitCode == 0) { only = _ciBenchOnly(_flowConfigFor(root), _flowDiff(root, _flowCommit(root, base_), "HEAD"), root); }
+    } catch (Exception e) { ConsoleError.WriteLine("benchmark diff unknown: " + e.Message); }
+    string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
+    if (output.Length > 0) { File.AppendAllText(output, "verdict_only=" + (only ? "true" : "false") + "\n"); }
+    Console.WriteLine("verdict_only=" + (only ? "true" : "false"));
+    return 0;
+}
+
+int _ciCheckBench() {
+    if (_abSelfTest() != 0) { return 1; }
+    string dir = "src/benches/testdata/";
+    foreach (var threshold in new string[]{ "0.15", "0.25" }) {
+        foreach (var name in new string[]{ "overlap", "regress", "improve", "separated-under-threshold" }) {
+            int want = name == "regress" || (name == "separated-under-threshold" && threshold == "0.15") ? 1 : 0;
+            _ciBenchExpect(new string[]{ "bench", "--diff", "--current", dir + "current-" + name + ".json", "--baseline", dir + "baseline.json", "--threshold-time", threshold }, want);
+        }
+        foreach (var name in new string[]{ "regress", "overlap", "improve", "separated-under-threshold", "fallback-regress", "fallback-overlap", "unmatched" }) {
+            int want = name == "regress" || name == "fallback-regress" || (name == "separated-under-threshold" && threshold == "0.15") ? 1 : 0;
+            _ciBenchExpect(new string[]{ "bench", "--micro-diff", "--current", dir + "micro-" + name + ".json", "--baseline", dir + "micro-base.json", "--threshold-time", threshold }, want);
+        }
+        string baseline = _ciBenchRounds(dir, "base");
+        foreach (var name in new string[]{ "drift", "real", "mid" }) {
+            int want = name == "real" || (name == "mid" && threshold == "0.15") ? 1 : 0;
+            _ciBenchExpect(new string[]{ "bench", "--micro-diff", "--current", _ciBenchRounds(dir, name), "--baseline", baseline, "--threshold-time", threshold }, want);
+        }
+        string missing = dir + "micro-rs-real-r1.json," + dir + "micro-rs-real-r2.json," + dir + "micro-rs-missing-r3.json";
+        _ciBenchExpect(new string[]{ "bench", "--micro-diff", "--current", missing, "--baseline", baseline, "--threshold-time", threshold }, 0);
+        _ciBenchExpect(new string[]{ "bench", "--micro-diff", "--current", missing, "--baseline", dir + "micro-rs-base-r1.json", "--threshold-time", threshold }, 2);
+    }
+    Console.WriteLine("✓ benchmark verdicts: pure rules, committed fixtures, both thresholds and usage errors");
+    return 0;
+}
+
+string _ciBenchRounds(string dir, string name) {
+    return dir + "micro-rs-" + name + "-r1.json," + dir + "micro-rs-" + name + "-r2.json," + dir + "micro-rs-" + name + "-r3.json";
+}
+
+void _ciBenchExpect(string[] args, int expected) {
+    int code = new XtaskCommand().Invoke(args);
+    _gateAssert(code == expected, "benchmark fixture exit " + expected.ToString() + ": " + String.Join(" ", args));
+}

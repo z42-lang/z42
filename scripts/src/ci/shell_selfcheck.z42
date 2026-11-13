@@ -1,0 +1,149 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+// Extract the actual literal shell body. These tests exercise production YAML,
+// so a changed command cannot silently leave a copied test implementation green.
+string _ciShellBody(string text, string marker) {
+    int start = text.IndexOf(marker);
+    if (start < 0) { throw new Exception("CI shell marker missing: " + marker); }
+    string tail = text.Substring(start);
+    int run = tail.IndexOf("run: |");
+    if (run < 0) { throw new Exception("CI run body missing: " + marker); }
+    string[] lines = tail.Substring(run + 6).Split("\n");
+    int indent = -1; string body = "";
+    for (int i = 1; i < lines.Length; i = i + 1) {
+        string line = lines[i];
+        if (line.Trim().Length == 0) { body = body + "\n"; continue; }
+        int spaces = 0;
+        while (spaces < line.Length && line.CharAt(spaces) == ' ') { spaces = spaces + 1; }
+        if (indent < 0) { indent = spaces; }
+        if (spaces < indent) { break; }
+        body = body + line.Substring(indent) + "\n";
+    }
+    return body;
+}
+
+void _ciWrite(string root, string relative, string text) {
+    string path = Path.Join(root, relative);
+    Directory.Create(Path.GetDirectoryName(path)); File.WriteAllText(path, text);
+}
+
+void _ciProbe(string root, string relative, string fixture) {
+    _ciWrite(root, relative, File.ReadAllText(Path.Join(_root(), "scripts/src/ci/testdata/" + fixture)));
+    new Process("chmod").Arg("+x").Arg(Path.Join(root, relative)).Run().EnsureSuccess();
+}
+
+string _ciGit(string root, string[] args) {
+    return new Process("git").Arg("-C").Arg(root).Arg("-c").Arg("user.name=xtask")
+        .Arg("-c").Arg("user.email=xtask@example.invalid").Arg("-c").Arg("commit.gpgsign=false")
+        .Args(args).Run().EnsureSuccess().Stdout.Trim();
+}
+
+void _ciBootstrapChecks() {
+    string script = _ciShellBody(File.ReadAllText(Path.Join(_root(), ".github/actions/ci-bootstrap/action.yml")), "- shell: bash").Replace("${{ inputs.rid }}", "linux-x64");
+    _gateAssert(!script.Contains("${{"), "bootstrap fixtures resolve all action inputs");
+    string dir = _xtaskWork(_root(), "ci bootstrap");
+    foreach (var scenario in new string[]{ "tool", "gap-tool", "missing-format-tool", "compiler-failed", "full", "bridge", "missing-format-full" }) {
+        _resetDir(dir); _ciGit(dir, new string[]{ "init", "-q" });
+        foreach (var file in new string[]{ ".z42/programs/z42c/z42c.driver.zpkg", ".z42/libs/z42.core.zpkg" }) {
+            Directory.Create(Path.GetDirectoryName(Path.Join(dir, file)));
+            File.WriteAllBytes(Path.Join(dir, file), new byte[]{ 90, 80, 75, 71, 0, 0, 1, 0 });
+        }
+        _ciWrite(dir, ".z42/seed-id.txt", "fixture-seed\n");
+        foreach (var file in new string[]{ ".z42/bin/z42c", ".z42/bin/z42vm", ".github/ci/xtask" }) { _ciProbe(dir, file, "bootstrap-probe.sh"); }
+        int minor = scenario == "bridge" || scenario == "gap-tool" ? 2 : 1;
+        if (scenario != "missing-format-tool") {
+            _ciWrite(dir, "src/compiler/z42.package/src/ZpkgWriter.z42", scenario == "missing-format-full" ? "// missing\n" : "public static int Minor = " + minor.ToString() + ";\n");
+        }
+        Directory.Create(Path.Join(dir, "src/libraries"));
+        bool full = scenario == "full" || scenario == "bridge" || scenario == "missing-format-full";
+        ProcessResult r = new Process("bash").Arg("-c").Arg(script).WorkingDirectory(dir)
+            .Env("BOOTSTRAP_FIXTURE_ROOT", dir).Env("GITHUB_WORKSPACE", dir)
+            .Env("XTASK_ONLY", full ? "false" : "true").Env("FAIL_XTASK_COMPILER", scenario == "compiler-failed" ? "1" : "0").Run();
+        string calls = File.Exists(Path.Join(dir, "calls.log")) ? File.ReadAllText(Path.Join(dir, "calls.log")) : "";
+        if (scenario == "bridge") { _gateAssert(r.ExitCode == 67 && calls.StartsWith("z42vm "), "full bootstrap enters format bridge"); }
+        else if (scenario == "compiler-failed" || scenario == "missing-format-full") { _gateAssert(r.ExitCode != 0, "bootstrap fails on " + scenario); }
+        else {
+            _gateAssert(r.ExitCode == 0, "bootstrap " + scenario + ": " + r.Stdout + r.Stderr);
+            _gateAssert(calls.StartsWith("z42c build scripts/xtask.z42.toml --release --no-incremental\n"), "seed compiler command");
+            _gateAssert(calls.Contains("xtask -v detailed build compiler") == full, "tool-only never builds product compiler");
+            _gateAssert(Directory.Exists(Path.Join(dir, ".ci-seed")) == full, "tool-only never stages product seed");
+            _gateAssert(File.ReadAllText(Path.Join(dir, "artifacts/xtask/seed-id.txt")) == "fixture-seed\n", "seed identity follows xtask");
+        }
+    }
+    Directory.Delete(dir, true);
+    Console.WriteLine("  ✓ CI bootstrap: tool-only, full, seed identity, format gap and failures");
+}
+
+void _ciGoldenChecks() {
+    string workflow = File.ReadAllText(Path.Join(_root(), ".github/workflows/ci.yml"));
+    string producer = _ciShellBody(workflow, "- name: Assemble .z42 toolchain (package dev-sdk) + bundle goldens");
+    string dir = _xtaskWork(_root(), "ci golden transfer");
+    try {
+        foreach (var includeLibrary in new bool[]{ false, true }) {
+            _resetDir(dir);
+            string language = "tests/basic/hello/source.zbc";
+            string library = "libraries/z42.core/release/tests/ordering/source.zbc";
+            _ciWrite(dir, "artifacts/build/" + language, "language bytes");
+            if (includeLibrary) { _ciWrite(dir, "artifacts/build/" + library, "library bytes"); }
+            _ciWrite(dir, "artifacts/build/libraries/z42.core/release/dist/z42.core.zpkg", "not a golden");
+            string temp = Path.Join(dir, "runner temp");
+            new Process("bash").Arg("-c").Arg("xtask() { mkdir -p \"$4\"; }\n" + producer).WorkingDirectory(dir)
+                .Env("RUNNER_TEMP", temp).Run().EnsureSuccess();
+            int i = 0;
+            foreach (var consumer in new string[]{ "- name: Extract bundled goldens (shared compiled asset)", "- name: Extract bundled goldens\n" }) {
+                string target = Path.Join(dir, "consumer" + i.ToString()); i = i + 1;
+                Directory.Create(Path.Join(target, ".z42-dl"));
+                File.Copy(Path.Join(temp, "z42sdk/goldens.tar"), Path.Join(target, ".z42-dl/goldens.tar"));
+                string body = _ciShellBody(workflow, consumer);
+                new Process("bash").Arg("-c").Arg(body).WorkingDirectory(target).Run().EnsureSuccess();
+                _gateAssert(File.ReadAllText(Path.Join(target, "artifacts/build/" + language)) == "language bytes", "language golden roundtrip");
+                _gateAssert(File.Exists(Path.Join(target, "artifacts/build/" + library)) == includeLibrary, "library golden mirror preserved");
+                _gateAssert(!File.Exists(Path.Join(target, "artifacts/build/libraries/z42.core/release/dist/z42.core.zpkg")), "transfer excludes unrelated product");
+                File.Delete(Path.Join(target, ".z42-dl/goldens.tar"));
+                _gateAssert(new Process("bash").Arg("-c").Arg(body).WorkingDirectory(target).Run().ExitCode != 0, "missing golden archive fails");
+            }
+        }
+    } finally { Directory.Delete(dir, true); }
+    Console.WriteLine("  ✓ CI goldens: both consumers, language and library mirrors, missing bundles");
+}
+
+void _ciQueueChecks() {
+    string workflow = File.ReadAllText(Path.Join(_root(), ".github/workflows/ci.yml"));
+    string script = _ciShellBody(workflow, "id: macos_queue");
+    string output = _xtaskWork(_root(), "ci-queue-output"); string first = "";
+    try {
+        foreach (var number in new string[]{ "5566", "5567", "5568", "5566" }) {
+            File.WriteAllText(output, "");
+            new Process("bash").Arg("-euo").Arg("pipefail").Arg("-c").Arg(script.Replace("${{ github.run_number }}", number))
+                .Env("GITHUB_OUTPUT", output).Run().EnsureSuccess();
+            string text = File.ReadAllText(output);
+            _gateAssert(text.Contains("=0\n") && text.Contains("=1\n") && text.Contains("=2\n"), "macOS classes occupy three distinct bounded lanes");
+            if (number == "5566") {
+                if (first.Length == 0) { first = text; }
+                else { _gateAssert(first == text, "lane selection is deterministic"); }
+            }
+        }
+    } finally { File.Delete(output); }
+    foreach (var name in new string[]{ "build-and-test", "host-package", "stdlib-interp-consistency", "package-ios", "test-ios" }) {
+        int start = workflow.IndexOf("\n  " + name + ":");
+        string tail = workflow.Substring(start + 1); int next = tail.IndexOf("\n  # ──");
+        if (next >= 0) { tail = tail.Substring(0, next); }
+        _gateAssert(tail.Contains("ci-macos-arm64") && tail.Contains("queue: max") && tail.Contains("cancel-in-progress: false"), "macOS jobs share bounded waiter queues: " + name);
+    }
+}
+
+void _ciBootstrapAvailabilityChecks() {
+    string workflow = File.ReadAllText(Path.Join(_root(), ".github/workflows/ci.yml"));
+    foreach (var name in new string[]{ "package-wasm", "test-wasm" }) {
+        int begin = workflow.IndexOf("\n  " + name + ":\n");
+        string section = workflow.Substring(begin + 1); int end = section.IndexOf("\n  # ──");
+        if (end >= 0) { section = section.Substring(0, end); }
+        int bootstrap = section.IndexOf("uses: ./.github/actions/xtask-bootstrap-artifact");
+        int installer = section.IndexOf("uses: ./.github/actions/setup-wasm-opt");
+        _gateAssert(bootstrap >= 0 && installer > bootstrap, "xtask installer regressions run after bootstrap: " + name);
+    }
+    string retry = File.ReadAllText(Path.Join(_root(), ".github/workflows/retry-ci-runner.yml"));
+    _gateAssert(retry.Contains("ref: ${{ github.workflow_sha }}") && retry.Contains("persist-credentials: false") && !retry.Contains("sparse-checkout:"), "privileged retry executes a complete trusted checkout");
+}
