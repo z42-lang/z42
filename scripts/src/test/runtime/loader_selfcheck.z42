@@ -1,0 +1,49 @@
+// Verify actual macOS loader precedence with two libraries sharing a filename.
+namespace Z42Xtask;
+using Std.IO;
+
+int _selfcheckRuntimeLoader() {
+    if (!Platform.IsMacOS()) { return 0; }
+    string dir = _xtaskWork(_root(), "runtime-loader-selfcheck");
+    _resetDir(dir);
+    string native = Path.Join(dir, "workspace");
+    string fixture = Path.Join(dir, "fixture");
+    Directory.Create(native); Directory.Create(fixture);
+    string source = Path.Join(dir, "probe.c");
+    File.WriteAllText(source, "int probe(void) { return VALUE; }\n");
+    string name = "libxtask_loader_probe.dylib";
+    _runtimeCargoExpect(new Process("cc").Arg("-dynamiclib").Arg("-DVALUE=1").Arg(source)
+        .Arg("-Wl,-install_name,@rpath/" + name).Arg("-o").Arg(Path.Join(native, name)), "shadow loader library");
+    _runtimeCargoExpect(new Process("cc").Arg("-dynamiclib").Arg("-DVALUE=42").Arg(source)
+        .Arg("-o").Arg(Path.Join(fixture, name)), "independent loader library");
+    string main = Path.Join(dir, "main.c");
+    File.WriteAllText(main, "#include <dlfcn.h>\nint main(int argc, char **argv) {\n"
+        + "  if (argc != 2) return 2;\n  void *lib = dlopen(argv[1], RTLD_NOW);\n"
+        + "  if (!lib) return 3;\n  int (*probe)(void) = (int (*)(void))dlsym(lib, \"probe\");\n"
+        + "  return probe && probe() == 42 ? 0 : 1;\n}\n");
+    string exe = Path.Join(dir, "loader");
+    _runtimeCargoExpect(new Process("cc").Arg(main).Arg("-o").Arg(exe), "loader host");
+    string std = _cmdOut("rustc", new string[]{ "--print", "target-libdir" });
+    _runtimeCargoExpect(_runtimeHarnessProc(exe, native, std).Arg(Path.Join(fixture, name)),
+        "absolute fixture path remains authoritative");
+    ProcessResult shadow = _runtimeHarnessProc(exe, native, std).Arg(Path.Join(fixture, name))
+        .Env("DYLD_LIBRARY_PATH", native).Run();
+    if (shadow.ExitCode != 1) { throw new Exception("loader negative control did not load the shadow library"); }
+    _selfcheckRuntimeLoaderDependency(dir, native, std, name);
+    Console.WriteLine("  ✅ runtime loader: absolute fixture isolation and child dependency fallback, negative controls verified");
+    return 0;
+}
+
+void _selfcheckRuntimeLoaderDependency(string dir, string native, string std, string name) {
+    string source = Path.Join(dir, "linked.c");
+    File.WriteAllText(source, "int probe(void);\nint main(void) { return probe() == 1 ? 0 : 1; }\n");
+    string exe = Path.Join(dir, "linked");
+    _runtimeCargoExpect(new Process("cc").Arg(source).Arg("-L" + native).Arg("-lxtask_loader_probe")
+        .Arg("-o").Arg(exe), "dependent child executable");
+    _runtimeCargoExpect(_runtimeHarnessProc(exe, native, std), "child resolves workspace @rpath dependency");
+    ProcessResult missing = _runtimeHarnessProc(exe, native, std)
+        .Env("DYLD_FALLBACK_LIBRARY_PATH", std).Run();
+    if (missing.ExitCode == 0 || !missing.Stderr.Contains(name)) {
+        throw new Exception("loader negative control did not reject missing child dependency");
+    }
+}

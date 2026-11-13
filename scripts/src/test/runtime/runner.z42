@@ -17,9 +17,21 @@ Process _runtimeTestCargo(string verb) {
     // --workspace：不带它时包选择落到 Cargo.toml 的 `default-members`（只有根包 z42 +
     // z42-compression），z42-abi / z42-repl / z42-rs / z42-macros / 统一宿主的测试整批不跑。
     // 完整 harness 与 GREEN 窄版共用这些参数；z42-abi 守的是 C ABI 结构体布局契约。
-    return _componentCargo(verb, _root(), "debug", _runtimeTestTarget()).Arg("--workspace")
-        .Arg("--features").Arg("z42/z42-test-fixtures");
+    return _runtimeTestCargoFor(verb, _runtimeTestTarget());
 }
+
+// 测试必须覆盖整个 Rust workspace，不能使用预选组件的生产构建 alias。
+// 旧树仍通过 _componentCargo 使用旧行为。
+Process _runtimeTestCargoFor(string verb, string targetDir) {
+    Process cargo;
+    if (_componentAliasTree(_root())) {
+        string alias = verb == "test" ? "z42-test-dyn" : "z42-dyn";
+        cargo = _componentAliasProc(_root(), alias).Arg("--target-dir").Arg(targetDir);
+    } else {
+        cargo = _componentCargo(verb, _root(), "debug", targetDir);
+    }
+    return cargo.Arg("--workspace").Arg("--features").Arg("z42/z42-test-fixtures");
+ }
 
 string _runtimeTestTarget() { return Path.Join(_componentBuildDir(_root()), "tests/runtime"); }
 Process _runtimeTestProc() { return _runtimeTestCargo("test"); }
@@ -57,17 +69,28 @@ int _runtimeTestRunHarnesses(bool libOnly) {
     int index = 0;
     foreach (var exe in executables) {
         string directory = directories[index]; index = index + 1;
-        Process test = new Process(exe).Arg("--test-threads=1").Env("RUST_MIN_STACK", "8388608")
-            .Env("DYLD_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std)
-            .Env("LD_LIBRARY_PATH", native + ":" + Path.Join(native, "deps") + ":" + std);
-        if (Platform.IsWindows()) { test = test.Env("PATH", native + ";" + Path.Join(native, "deps") + ";" + std + ";" + Environment.GetEnvironmentVariable("PATH", "")); }
+        Process test = _runtimeHarnessProc(exe, native, std).Arg("--test-threads=1");
         int c = _execIn(test.Env("CARGO_MANIFEST_DIR", directory)
             .Env("CARGO_TARGET_DIR", _runtimeTestTarget()), directory); if (c != 0) { return c; }
     }
     if (libOnly) { return 0; }
-    return _exec(_componentCargo("test", _root(), "debug", Path.Join(_runtimeTestTarget(), "docs"))
-        .Arg("--workspace").Arg("--doc").Arg("--features").Arg("z42/z42-test-fixtures")
-        .Env("RUST_MIN_STACK", "8388608"));
+    return _runtimeTestCargoFor("test", Path.Join(_runtimeTestTarget(), "docs"))
+        .Arg("--doc").Env("RUST_MIN_STACK", "8388608")
+        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
+}
+
+// DYLD_LIBRARY_PATH also overrides absolute dlopen paths: exposing workspace libraries there
+// shadows the independently built component probe. Fallback paths let child executables
+// resolve workspace dependencies without replacing existing absolute fixture paths.
+Process _runtimeHarnessProc(string exe, string native, string std) {
+    string search = native + ":" + Path.Join(native, "deps") + ":" + std;
+    Process test = new Process(exe).Env("RUST_MIN_STACK", "8388608")
+        .Env("DYLD_LIBRARY_PATH", std).Env("DYLD_FALLBACK_LIBRARY_PATH", search)
+        .Env("LD_LIBRARY_PATH", search);
+    if (Platform.IsWindows()) {
+        test = test.Env("PATH", native + ";" + Path.Join(native, "deps") + ";" + std + ";" + Environment.GetEnvironmentVariable("PATH", ""));
+    }
+    return test;
 }
 
 // `test runtime` — the Rust VM's own unit/integration harness (cargo test on
@@ -78,6 +101,7 @@ int _runtimeTestRunHarnesses(bool libOnly) {
 // (Suspect: GC region raw-pointer Send/Sync unsoundness with concurrent VmCores.)
 int _testRuntime() {
     Stopwatch sw = _procStart("test runtime");
+    int loader = _selfcheckRuntimeLoader(); if (loader != 0) { return loader; }
     int __rc = _runtimeTestRunHarnesses(false);
     if (__rc == 0) { _procEnd("test runtime", sw); }
     return __rc;
@@ -96,6 +120,7 @@ int _testRuntime() {
 //
 // 完整版仍保留为 `xtask test runtime` / CI 的独立 leg / `test changed`。
 int _testRuntimeUnits() {
+    int c = _selfcheckRuntimeCargo(); if (c != 0) { return c; }
     // 只编不跑的那部分抓「跨 src/ 与 tests/ 都构造的公共 struct 加了字段却没补齐」这类编译漏。
     return _runtimeTestRunHarnesses(true);
 }

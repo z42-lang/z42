@@ -1,0 +1,99 @@
+// 统一复制器：pack × rid → 源→目标文件清单。所有安装路径（runtime 包、SDK 闭包、
+// 自检）共用这一个入口；包形态的「该有什么」归 [runtime.pack]，「叫什么名字」归
+// [runtime.naming]，「从哪拿」由调用方传入（生产 = [runtime.output] 模板渲染，
+// 自检 = 假目录 —— 同一函数，不同源）。
+//
+// CMake 类比：≈ install(TARGETS ... RUNTIME/ARCHIVE DESTINATION) 的数据化。
+namespace Z42Xtask;
+
+using Std.Collections;
+using Std.Cli;
+using Std.IO;
+
+class _RtCopy {
+    public string Source;       // 绝对路径（构建产物侧）
+    public string DestRelative; // 包内相对路径（native/libz42.dylib 等）
+    public string Stem;
+    public string Form;         // dynamic | dynamic-import | static
+}
+
+_RtCopy _rtMkCopy(string source, string dest, string stem, string form) {
+    _RtCopy x = new _RtCopy();
+    x.Source = source; x.DestRelative = dest; x.Stem = stem; x.Form = form;
+    return x;
+}
+
+// pack 在 rid 下的完整清单。dynamicDir/staticDir = 形态源目录（调用方解析）。
+_RtCopy[] _rtResolveCopies(string root, string packName, string rid, string dynamicDir, string staticDir) {
+    _RtPack pack = null;
+    foreach (var p in _rtPacks(root)) { if (p.Name == packName) { pack = p; } }
+    if (pack == null) { throw new CliException("unknown runtime pack: " + packName); }
+
+    bool hasDynamic = false; bool hasStatic = false;
+    foreach (var f in pack.Forms) {
+        if (f == "dynamic") { hasDynamic = true; }
+        if (f == "static") { hasStatic = true; }
+    }
+    bool windows = rid.StartsWith("windows-");
+
+    List<_RtCopy> xs = new List<_RtCopy>();
+    foreach (var stem in _rtPackStems(root, packName, rid)) {
+        if (hasDynamic) {
+            string file = _rtDynamicName(root, stem, rid);
+            xs.Add(_rtMkCopy(Path.Join(dynamicDir, file), "native/" + file, stem, "dynamic"));
+            if (pack.ImportLibs && windows) {
+                string il = _rtImportLibName(root, stem);
+                xs.Add(_rtMkCopy(Path.Join(dynamicDir, il), "native/" + il, stem, "dynamic-import"));
+            }
+        }
+        if (hasStatic && stem != "z42") {   // host 归档在 examples/ 下，单独追加
+            string file = _rtStaticName(root, stem, rid);
+            xs.Add(_rtMkCopy(Path.Join(staticDir, file), "native/" + file, stem, "static"));
+        }
+    }
+    if (hasStatic) {
+        string hostFile = _rtStaticName(root, "z42", rid);
+        xs.Add(_rtMkCopy(Path.Join(Path.Join(staticDir, "examples"), hostFile), "native/" + hostFile, "z42", "static"));
+    }
+    return xs.ToArray();
+}
+
+// SDK / dev 闭包（z42vm 的 native_closure）：rid 全组件的动态形态，无 import lib。
+_RtCopy[] _rtResolveClosure(string root, string rid, string dynamicDir) {
+    List<_RtCopy> xs = new List<_RtCopy>();
+    foreach (var stem in _rtStems(root, rid)) {
+        string file = _rtDynamicName(root, stem, rid);
+        xs.Add(_rtMkCopy(Path.Join(dynamicDir, file), "native/" + file, stem, "dynamic"));
+    }
+    return xs.ToArray();
+}
+
+// 执行清单。strict = 缺源即抛（runtime 包/门禁前）；宽松 = 警告并继续（dev 流）。
+void _rtExecuteCopies(_RtCopy[] copies, string pkgDir, bool strict) {
+    foreach (var c in copies) {
+        string dst = Path.Join(pkgDir, c.DestRelative);
+        Directory.Create(Path.GetDirectoryName(dst));
+        if (File.Exists(c.Source)) {
+            File.Copy(c.Source, dst);
+        } else if (strict) {
+            throw new CliException("runtime artifact is missing: " + c.Source);
+        } else {
+            ConsoleError.WriteLine("warning: skipped missing artifact: " + c.Source);
+        }
+    }
+}
+
+// MSVC 静态形态的第三方导入库（windows.0.52.0.lib 等）：按 link.txt 名单从静态图目录随包。
+void _rtCopyThirdPartyLibs(string staticDir, string nativeDir, string[] stems) {
+    foreach (var stem in stems) {
+        string linkTxt = Path.Join(staticDir, stem + "-link.txt");
+        if (!File.Exists(linkTxt)) { continue; }
+        foreach (var flag in File.ReadAllText(linkTxt).Split(" ")) {
+            if (!flag.EndsWith(".lib")) { continue; }
+            string staged = Path.Join(staticDir, flag);
+            string inDeps = Path.Join(Path.Join(staticDir, "deps"), flag);
+            string source = File.Exists(staged) ? staged : (File.Exists(inDeps) ? inDeps : "");
+            if (source.Length > 0) { File.Copy(source, Path.Join(nativeDir, flag)); }
+        }
+    }
+}

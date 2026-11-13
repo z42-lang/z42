@@ -17,6 +17,7 @@ CheckSpec[] _checks() {
     return new CheckSpec[]{
         new CheckSpec("flows", "flow configuration and planner regressions", () => _checkFlows()),
         new CheckSpec("vscode-syntax", "VSCode grammar agrees with Lexer keywords", () => _testVscodeSyntax()),
+        new CheckSpec("runtime-cargo", "runtime Cargo aliases and legacy trees execute from their own directories", () => _selfcheckRuntimeCargo()),
         new CheckSpec("diagcodes", "diagnostic registration, documentation, liveness and test coverage", () => _checkDiagCodes()),
         new CheckSpec("ci-shell", "CI shell variables are assigned before use", () => _checkCiShell()),
         new CheckSpec("proc-env", "z42 child-process environments use the shared factories", () => _checkProcEnv()),
