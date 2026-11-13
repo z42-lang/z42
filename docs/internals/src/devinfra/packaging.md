@@ -29,9 +29,9 @@
 
 z42vm 是薄启动器，通过版本化 C 函数表动态加载统一 libz42。参数处理、配置、panic hook、tracing 与宿主实现都在库内，启动器不调用 Rust VM 接口。入口先验证 ABI 版本、大小和构建身份。
 
-interp/JIT 是独立组件。SDK、dev-sdk 与 CI 构建树必须携带同构建的完整动态闭包，不能只复制 z42vm。所有动态产物在同一个 Cargo 图中编译，使用同一 libz42 和共享 Rust std；共享构建使用 System 分配器。
+interp/JIT 是独立组件。SDK、dev-sdk 与 CI 构建树必须携带同构建的完整动态闭包，不能只复制 z42vm。共享 Rust 核心与执行后端在同一个 Cargo 图中编译，使用同一 libz42 和共享 Rust std；纯 C ABI 模块使用独立图，避免实现特性合并回核心。共享构建使用 System 分配器。
 
-macOS 采用 @rpath 和 @loader_path，Linux 采用 $ORIGIN 与 $ORIGIN/../native。z42vm 启动器自带静态 Rust std，bin/ 只有可执行文件本体；运行时、组件与共享 std 全部位于 native/（Windows 由启动器的 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR 按目录解析）。发布前检查闭包完整性，并将产物搬移到独立目录验证。
+macOS 采用 @rpath 和 @loader_path，Linux 采用 $ORIGIN 与 $ORIGIN/../native。发布 SDK 的 z42vm 启动器自带静态 Rust std；开发 SDK 复用构建树的动态 std 启动器并携带其匹配闭包。bin/ 只有可执行文件本体；运行时、组件与共享 std 全部位于 native/（Windows 由启动器的 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR 按目录解析）。发布前检查闭包完整性，并将产物搬移到独立目录验证。
 
 桌面 runtime 同时提供动态闭包和最终 C 静态归档。最终嵌入 target 是同一运行时包的 examples/z42.rs，通过 static-embedding feature 链接运行时及独立后端 rlib，不增加包装 Cargo 包；调用方先调用 z42_linked_components_init。自定义分配器与 dhat 使用最终静态宿主 z42vm_static，避免改变动态组件的分配契约。
 
