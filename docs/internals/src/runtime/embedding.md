@@ -362,7 +362,7 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 
 ## CLI 与嵌入端共用的 Rust 服务
 
-`host::LoadedProgram` 拥有一个加载后的模块及其固定地址上下文。`load_file` 与 `load_bytes` 将产物交给同一个 `host/load.rs` 准备：解析宿主 resolver、选择 prelude、解析依赖、去重并合并模块、验证约束，然后经 `host/boot.rs` 完成可用性裁剪、初始化器登记和链接。
+`host::LoadedProgram` 拥有一个加载后的模块及其固定地址上下文。`load_file` 与 `load_bytes` 将产物交给同一个 `host/load.rs` 准备：解析宿主 resolver、选择 prelude、解析依赖、去重并合并模块、验证约束，然后经 `host/program_builder.rs` 完成可用性裁剪、初始化器登记和链接。
 
 `LoadOptions` 显式携带 VFS、搜索目录、resolver、执行模式及依赖预加载策略。字节输入没有隐式入口目录；文件应用按入口目录、配置 probing 路径、标准库目录构造搜索顺序。需要在调用前解析依赖包入口的 C 宿主启用预加载；应用默认按需加载。两种策略共用解析与合并实现。
 

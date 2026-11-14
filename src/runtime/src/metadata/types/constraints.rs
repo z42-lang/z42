@@ -38,7 +38,7 @@ fn check_constraint_refs(
     // problem, and cross-zpkg base *constraints* are vanishingly rare.
     check_one(b.base_class.as_deref(), registry, owner, /*soft_allow_unresolved=*/ false)?;
     // fix-runtime-constraint-unresolved-refs (C1): interface refs are soft.
-    // `verify_constraints` runs before the lazy loader exists (boot_context), so a
+    // `verify_constraints` runs before the program context installs its lazy loader, so a
     // constraint naming an interface in a not-yet-loaded dependency zpkg is legitimately
     // unresolvable here — exactly like `Std.*`. Real resolution happens at the use
     // site, where the interpreter triggers the lazy loader. Interfaces ARE now in the

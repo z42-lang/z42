@@ -328,7 +328,7 @@ fn declaration_loads_once_on_first_call_and_rejects_mismatched_implementations_a
     extensions
         .register(crate::interop::state_for_vm(registry))
         .unwrap();
-    let ctx = crate::host::boot::with_config(
+    let ctx = crate::host::vm_defaults::with_config(
         None,
         crate::pal::fs::default_vfs(),
         extensions.freeze(),

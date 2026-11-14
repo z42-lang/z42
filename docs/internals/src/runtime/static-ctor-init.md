@@ -1,7 +1,7 @@
 # 静态构造函数的按类型初始化
 
 > 语义面见[静态构造函数](https://z42-lang.github.io/z42/reference/language/static-constructors.html)。本页讲实现。
-> 代码：`src/runtime/src/metadata/statics/cctor.rs`（数据）、`src/runtime/src/exec/init.rs`（执行与等待）；启动路径共用步骤 `src/runtime/src/host/boot.rs`。
+> 代码：`src/runtime/src/metadata/statics/cctor.rs`（数据）、`src/runtime/src/exec/init.rs`（执行与等待）；启动路径共用步骤 `src/runtime/src/host/program_builder.rs`。
 
 RuntimeState 组合静态表、初始化状态与错误记录；执行层共享同一份 Arc registry，
 保留 claim/finish、park 和 Condvar 协议。heap 先于这些数据与类型拥有者释放。
@@ -339,12 +339,12 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 `verify_static_field` 按字段类型补了个 `0`（如 wasm 上 `OSKind.Wasm` 为 0 ⇒
 `Platform.IsWasm()` 恒假，所有嵌入都会中招）。
 
-合并后的步骤只有一份，在 `src/runtime/src/host/boot.rs`：
+合并后的步骤只有一份，在 `src/runtime/src/host/program_builder.rs`：
 
 | 函数 | 做什么 | 谁调 |
 |---|---|---|
-| `boot_context` | `available!` 折叠 → 显式 Core 构造 → 登记静态构造器 → 装 lazy loader + 种类型 / impl | `host::run_app`、宿主 `build_host_module` |
-| `prepare_execution` | `resolve_module`（各站点 token 预填）| `host/load.rs::prepare` |
+| `build` | `available!` 折叠 → Core 构造 → 登记静态构造器 → loader 播种 → token 解析 → 组件连接 → 事件重放 → 程序发布 | `host/load.rs::prepare` |
+| `resolve_tokens` | `resolve_module`（各站点 token 预填）| `program_builder::build` |
 
 文件应用和嵌入端共用首次调用准备：
 
@@ -352,5 +352,5 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
   准备结果由 `LoadedProgram::initialized` 保留，后续调用不重复清空。该步骤不执行类型初始化器，
   真正的包/类型初始化由执行访问屏障负责。
 
-> 新增启动步骤时，加进 `host/boot.rs`，两条路径自动都有；别再只改 `host::run_app`。
+> 新增启动步骤时，加进 `host/program_builder.rs`，两条路径自动都有；别再只改 `host::run_app`。
 > 回归测试：`host::host_tests::invoke_sees_initialized_static_fields`（stdlib 包与用户模块各一个带初始化器的静态字段）。

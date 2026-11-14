@@ -2,7 +2,7 @@
 use std::{path::{Path, PathBuf}, sync::Arc};
 use anyhow::Result;
 use crate::{zpkg::ExecMode, pal::fs::Vfs};
-use super::{app_state::set_program_args, runtime::{LoadOptions, LoadedProgram}};
+use super::{app_state::set_program_args, program::{LoadOptions, LoadedProgram}};
 fn vfs_is_dir(fs: &dyn Vfs, p: &Path) -> bool { p.to_str().is_some_and(|s| fs.is_dir(s)) }
 /// Build-default execution mode: JIT when compiled in (make-jit-default),
 /// else Interp (jit-less builds — wasm / `--features interp-only`). Callers
