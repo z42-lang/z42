@@ -56,7 +56,7 @@ CLI 仍是 feature 限定的同 crate 适配，并非新增的组件或独立运
 | 配置与装配输入仍未完全显式 | `config/availability.rs` 查询 components；`loader/native_paths.rs`、`components/api.rs::attach_execution` 读取 runtime_config | 默认路径已归 loader；后续在装配入口捕获路径/JIT 配置及平台能力，管理实现消费显式输入 |
 | 诊断契约反向拥有装配机制 | `diagnostics/sampling.rs` 保存 BackendSource、VmComponents 并触发 attach；`components/profiling.rs` 回到 sampler 注册实现 | 诊断保留观察/采样接口，组件管理拥有能力/实例并持有 loader 代码句柄；经窄接口绑定，避免新增 Core 自持有环 |
 | 默认 VM 装配由 host 承担 | `host/program_builder.rs`、`vm_defaults.rs`、`extensions.rs`；`host/artifact.rs` 为 LazyLoader 实现构造方法 | host 解析请求，VM 装配层负责配置快照、Core/loader、组件和发布；loader 的构造实现回归其所有者 |
-| 宿主契约、CLI 与 C 适配混在一起 | `host/cli.rs`、`cli_startup.rs`、`launcher.rs` 与 `ffi.rs/config.rs/state.rs/ops.rs/marshal.rs` | host 保留功能请求/环境服务契约；CLI 成为独立宿主实现，C 适配/头文件归能力所有者，平台构建排除 CLI |
+| 普通宿主与 C 适配尚未分开 | `host/ffi.rs/config.rs/state.rs/ops.rs/marshal.rs` | CLI 已归 cli 适配且平台构建可排除；后续 C 适配/头文件归能力所有者，host 保留功能请求/环境服务契约 |
 | 初始化层级含混 | `host/state.rs` 的会话保存多个 LoadedProgram；`ops::build_host_module` 每次创建程序/VM；`LoadedProgram::invoke` 执行一次性托管初始化 | 区分会话、VM/包准备与托管初始化，不把 C initialize 当作所有模块已初始化；统一装配但保持隔离和失败终态 |
 | 进程策略混入每 VM 输入 | `config/vm_config.rs::process_loh_bytes` 在 Core 构造时修改进程级 LOH 设置 | 进程 bootstrap 与 VM 设置分开捕获，禁止任意 VM 构造改写其它 VM 可见的全局策略 |
 | loader 与 interop 混合机制和编排 | `loader/native.rs` 调 interop 注册/解析，`interop/module.rs` 反向调用 loader::native::resolve_symbol | loader 提供代码/符号来源，interop 负责描述符与编组；由装配协调器连接 |

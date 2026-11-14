@@ -27,8 +27,9 @@ components 通过 loader 请求已准备的代码，验证组件契约、绑定�
 与二进制/包的装载依赖是不同的图；保留前者不意味着组件层还要维护另一套开库和代码缓存。
 interop 验证通用 native 描述符并管理编组/实例，独立运行时库不为此绕入 components 的 VM 工厂协议。
 
-当前 components/catalog.rs 仍直接委托 PAL 开库，backends.rs 保存路径发现，统一归口 loader 尚未实现；
-loader/native.rs 与 interop/module.rs 也仍有双向装入/注册编排。这些缺口及 owner 调整见[模块边界](module-boundaries.md)。
+当前通用原生映像装入、缓存与进程保活已归 loader/code，默认原生路径归 loader/native_paths；
+components/catalog.rs 通过 loader 取得代码并校验组件契约。三种来源的明确分类/允许策略、
+loader/native.rs 与 interop/module.rs 的双向装入/注册编排仍需收口，见[模块边界](module-boundaries.md)。
 
 VM 主实现属于 z42 这一个 Cargo 包，runtime/src 内的目录是它的模块；工作区另有上述独立 crate。
 主库提供 rlib/dylib，后端各自提供 rlib/cdylib 和 init 入口。生产运行时不依赖具体后端；测试和最终静态嵌入示例通过 dev-dependency 链接独立后端的 rlib，不形成生产依赖环。
