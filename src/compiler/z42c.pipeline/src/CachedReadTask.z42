@@ -1,0 +1,31 @@
+namespace Z42.Pipeline;
+using Std.IO;
+using Z42.Package;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+// The plan stays read-only until ParallelFor joins. Each worker owns one result
+// slot; residue restoration and degradation remain in the ordered coordinator.
+internal sealed class CachedReadTask : IParallelTask {
+    private string[] _sources;
+    private string _projectDir;
+    private string _cacheDir;
+    private IncrFilePlan _plan;
+    private IrModule[] _cached;
+    private IrModule[] _restored;
+    public CachedReadTask(string[] sources, string projectDir, string cacheDir,
+                          IncrFilePlan plan, IrModule[] cached, IrModule[] restored) {
+        this._sources = sources; this._projectDir = projectDir; this._cacheDir = cacheDir;
+        this._plan = plan; this._cached = cached; this._restored = restored;
+    }
+    public void Run(int i) {
+        if (this._plan.Fresh[i] || this._cached[i] != null) { return; }
+        try {
+            string rel = IncrementalBuild.Rel(this._projectDir, this._sources[i]);
+            byte[] bytes = File.ReadAllBytes(CacheStore.ZbcPath(this._cacheDir, rel));
+            if (Std.Hashing.Murmur3.Hash128Hex(bytes) == this._plan.Metas[i].ZbcHash) {
+                this._restored[i] = ZbcReader.Read(bytes);
+            }
+        } catch (Exception e) { this._restored[i] = null; }
+    }
+}

@@ -1,0 +1,68 @@
+namespace Z42cPipelineIncrementalTests;
+using Std.IO;
+using Std.Harness;
+using Z42.Package;
+using Z42.Pipeline;
+using Z42.IR.BinaryFormat;
+using CachedReadFixture;
+
+[Test]
+void test_cache_restore_jobs_keep_raw_modules_and_cache_bytes() {
+    ParallelConfig.SetJobs(1); CacheFixture f = new CacheFixture(16);
+    try {
+        int[] jobs = new int[]{1, 2, 4}; int j = 0;
+        while (j < jobs.Length) {
+            ParallelConfig.SetJobs(jobs[j]); IncrPrep prep = f.Read();
+            Assert.True(prep.Plan.AllCached); Assert.Equal(0, prep.Plan.FreshCount); f.Check(prep);
+            int i = 0;
+            while (i < f.Sources.Length) {
+                Assert.Equal(f.Expected[i], Std.Hashing.Murmur3.Hash128Hex(File.ReadAllBytes(CacheStore.ZbcPath(f.Cache, f.Rel(i)))));
+                i = i + 1;
+            }
+            j = j + 1;
+        }
+    } finally { ParallelConfig.SetJobs(1); Directory.Delete(f.Root, true); }
+}
+
+void _breakCache(CacheFixture f) {
+    File.Delete(CacheStore.ZbcPath(f.Cache, f.Rel(1)));
+    File.WriteAllBytes(CacheStore.ZbcPath(f.Cache, f.Rel(3)), new byte[]{1, 2, 3});
+    CacheMeta decode = CacheStore.Load(f.Cache, f.Rel(5));
+    byte[] malformed = new byte[]{4, 5, 6};
+    File.WriteAllBytes(CacheStore.ZbcPath(f.Cache, f.Rel(5)), malformed);
+    decode.ZbcHash = Std.Hashing.Murmur3.Hash128Hex(malformed); CacheStore.Save(f.Cache, decode);
+    CacheMeta residue = CacheStore.Load(f.Cache, f.Rel(7));
+    residue.FnLabels = new string[0]; residue.FnLabelsCount = 0; CacheStore.Save(f.Cache, residue);
+    f.Texts[0] = f.Texts[0].Replace("n > 0", "n > 1");
+    f.Hashes[0] = ZpkgBuilder.SourceHashHex(f.Texts[0]);
+}
+
+string _restoredState(IncrPrep prep, CacheFixture f) {
+    string state = ""; int i = 0;
+    while (i < f.Sources.Length) {
+        if (prep.Plan.Fresh[i]) { Assert.True(prep.Cached[i] == null); state = state + "fresh;"; }
+        else {
+            Assert.True(prep.Cached[i] != null);
+            string hash = Std.Hashing.Murmur3.Hash128Hex(ZbcWriter.Write(prep.Cached[i]).ToBytes());
+            Assert.Equal(f.Expected[i], hash); state = state + hash + ";";
+        }
+        i = i + 1;
+    }
+    return state;
+}
+
+[Test]
+void test_cache_restore_multi_failures_match_serial_degradation() {
+    ParallelConfig.SetJobs(1); CacheFixture f = new CacheFixture(16);
+    try {
+        _breakCache(f); IncrPrep serial = f.Read();
+        Assert.False(serial.Plan.AllCached); Assert.Equal(5, serial.Plan.FreshCount);
+        string expected = _restoredState(serial, f);
+        int[] jobs = new int[]{2, 4}; int j = 0;
+        while (j < jobs.Length) {
+            ParallelConfig.SetJobs(jobs[j]); IncrPrep actual = f.Read();
+            Assert.Equal(serial.Plan.FreshCount, actual.Plan.FreshCount);
+            Assert.Equal(expected, _restoredState(actual, f)); j = j + 1;
+        }
+    } finally { ParallelConfig.SetJobs(1); Directory.Delete(f.Root, true); }
+}

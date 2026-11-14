@@ -11,3 +11,6 @@ kind    = "lib"
 # 拦编译；软限不动。豁免走源内抑制：方法级 [Suppress]、文件顶部 #suppress。
 "style.fnLinesHard" = "error"
 
+
+[benches]
+include = ["benches/*.z42", "benches/cached_read/**/*.z42"]
