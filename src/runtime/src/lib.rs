@@ -11,6 +11,8 @@ pub mod object;
 pub mod gc;
 pub mod pal;
 pub mod corelib;
+#[cfg(test)]
+#[path = "../crates/z42-profiler/src/profiler/mod.rs"]
 pub mod profiler;
 pub mod interop;
 pub mod host;

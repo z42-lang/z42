@@ -35,7 +35,7 @@ L2 retaining_roots(target)  = 从 target 沿 rev 反向 BFS，收集途经对象
 ```
 
 对象身份用块头地址（`ObjRef::as_ptr` / `ArrRef::as_ptr` as usize）作 key。反向 BFS 用 `visited` 集处理环。
-图构建、查询与纯图逻辑在 `profiler/heap/retention.rs`（`RetentionGraph`）。GC 的 `walk.rs` 提供
+图构建、查询与纯图逻辑在 `crates/z42-profiler/src/profiler/heap/retention.rs`（`RetentionGraph`）。GC 的 `walk.rs` 提供
 对象、数组和类别根原语；区域回调在锁内执行，不得重入堆。对象和数组仍分两遍枚举，
 不新增全堆临时副本。查询先在现有停世界窗口内完成全堆回收，再构图。
 

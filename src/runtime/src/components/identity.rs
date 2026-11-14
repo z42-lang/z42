@@ -21,3 +21,10 @@ pub const CORE_ABI: ExecutionCoreAbi = ExecutionCoreAbi {
         crate::context::VM_CONTEXT_STACK_LIMIT_OFFSET,
     ],
 };
+
+/// Every same-core component must pass this check before borrowing VM addresses.
+pub(super) fn validate_core(identity: crate::components::api::ExecutionIdentity, name: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(identity.image == core_identity() && identity.abi == CORE_ABI,
+        "{name} component core image or ABI mismatch; use components from the same shared-core runtime pack");
+    Ok(())
+}

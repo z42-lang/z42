@@ -24,7 +24,7 @@ pub fn jit_supported() -> bool {
     cfg!(all(any(target_arch = "x86_64", target_arch = "aarch64"),
         any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android", all(target_os = "ios", target_abi = "sim"))))
 }
-fn linked(id: ComponentId) -> Option<ComponentInit> {
+pub(super) fn linked(id: ComponentId) -> Option<ComponentInit> {
     if let Some(init) = super::linked::find(id) { return Some(init); }
     if id == INTERP_COMPONENT {
         #[cfg(test)]
@@ -34,6 +34,8 @@ fn linked(id: ComponentId) -> Option<ComponentInit> {
         #[cfg(all(test, feature = "jit", z42_jit_supported))]
         { return Some(crate::jit::component::z42_jit_init); }
     }
+    #[cfg(test)]
+    if id == PROFILER_COMPONENT { return Some(crate::profiler::component::z42_profiler_init); }
     None
 }
 pub(crate) fn native_paths() -> Vec<PathBuf> {
@@ -87,7 +89,7 @@ pub(crate) fn native_paths() -> Vec<PathBuf> {
 }
 
 fn dynamic_paths(id: ComponentId) -> Vec<PathBuf> {
-    let stem = if id == INTERP_COMPONENT { "z42_interp" } else { "z42_jit" };
+    let stem = if id == INTERP_COMPONENT { "z42_interp" } else if id == PROFILER_COMPONENT { "z42_profiler" } else { "z42_jit" };
     crate::pal::dynlib::candidate_paths(stem, native_paths())
 }
 fn auto_available(id: ComponentId) -> bool {
@@ -106,7 +108,7 @@ fn auto_available(id: ComponentId) -> bool {
 /// Default sources present in this runtime pack; actual loading still validates ABI and identity.
 pub fn jit_available() -> bool { cfg!(feature = "jit") && jit_supported() && auto_available(INTERP_COMPONENT) && auto_available(JIT_COMPONENT) }
 pub fn interp_available() -> bool { auto_available(INTERP_COMPONENT) }
-fn select(options: ComponentOptions, source: &BackendSource, id: ComponentId, name: &str) -> Result<ComponentOptions> {
+pub(super) fn select(options: ComponentOptions, source: &BackendSource, id: ComponentId, name: &str) -> Result<ComponentOptions> {
     let init = linked(id);
     match source {
         BackendSource::Disabled => bail!("{name} backend is disabled"),
@@ -131,7 +133,7 @@ fn select(options: ComponentOptions, source: &BackendSource, id: ComponentId, na
             if !path.is_file() && !crate::pal::dynlib::is_loader_name(&path) {
                 bail!("{name} backend unavailable: no linked selection and dynamic library `{}` was not found", path.display());
             }
-            let symbol = if id == INTERP_COMPONENT { "z42_interp_init" } else { "z42_jit_init" };
+            let symbol = if id == INTERP_COMPONENT { "z42_interp_init" } else if id == PROFILER_COMPONENT { "z42_profiler_init" } else { "z42_jit_init" };
             Ok(unsafe { options.with_dynamic(id, path, symbol) })
         }
     }
@@ -152,9 +154,7 @@ pub(crate) fn attach(ctx: &VmContext, mode: ExecMode) -> Result<()> {
         let interface = component_interface::<ExecutionApi>(ctx, id)?
             .ok_or_else(|| anyhow::anyhow!("{name} component does not provide its execution interface"))?;
         let identity = unsafe { (interface.core_identity)() };
-        if identity.image != super::core_identity() || identity.abi != super::CORE_ABI {
-            bail!("{name} component core image or ABI mismatch; use components from the same shared-core runtime pack");
-        }
+        super::identity::validate_core(identity, name)?;
         let code = ctx.core().components().get().and_then(|x| x.code_lease(id))
             .ok_or_else(|| anyhow::anyhow!("{name} component has no code lease"))?;
         // Acquire code lifetime before installing any backend-owned trait objects.

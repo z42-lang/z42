@@ -22,12 +22,12 @@ V8 导出使用同一 live-value 语义。保留链经 `gc::walk` 枚举对象�
 ## 如何测试验证
 
 ```bash
-(cd src/runtime && cargo test --lib profiler)
+(cd src/runtime && cargo test -p z42-profiler)
 ./xtask test
 ```
 
 ## 关联文档
 
-[诊断与剖析](../../../../docs/internals/src/runtime/diagnostics.md)、
-[堆保留诊断](../../../../docs/internals/src/runtime/heap-diagnostics.md)、
-[GC](../../../../docs/internals/src/runtime/gc.md)。
+[诊断与剖析](../../../../../../docs/internals/src/runtime/diagnostics.md)、
+[堆保留诊断](../../../../../../docs/internals/src/runtime/heap-diagnostics.md)、
+[GC](../../../../../../docs/internals/src/runtime/gc.md)。

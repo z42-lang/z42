@@ -41,7 +41,7 @@ int _iosMakeFramework(string root, string native, string stem, string source, st
     _componentCopyRequired(source, binary);
     if (stem == "z42") { _copyAbiHeaders(root, Path.Join(framework, "Headers")); }
     string header = stem == "z42" ? "#include \"z42_host.h\"\n" : "/* Runtime component; embedding interfaces are provided by z42_host.h. */\n";
-    if (stem == "z42_interp" || stem == "z42_jit") { header = header + "struct Z42ComponentDescriptor;\nconst struct Z42ComponentDescriptor* " + stem + "_init(void);\n"; }
+    if (stem == "z42_interp" || stem == "z42_jit" || stem == "z42_profiler") { header = header + "struct Z42ComponentDescriptor;\nconst struct Z42ComponentDescriptor* " + stem + "_init(void);\n"; }
     if (stem == "z42_compression") { header = header + "const void* z42_compression_get_symbol(const char* name);\n"; }
     File.WriteAllText(Path.Join(framework, "Headers/" + stem + ".h"), header);
     File.WriteAllText(Path.Join(framework, "Modules/module.modulemap"),
