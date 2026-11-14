@@ -57,6 +57,11 @@ void _flowPrGitChecks(FlowConfig cfg) {
             string saved = Path.Join(client, "artifacts/plan.json");
             File.WriteAllText(saved, JsonValue.StringifyPretty(_flowJson(cfg, plan)));
             _gateAssert(_flowReadPlan(cfg, saved, client).Base == main, "shared shallow PR plan roundtrip");
+            options.Base = oldBase;
+            bool overrideRejected = false;
+            try { _flowCreate(cfg, options, client); } catch (Exception e) { overrideRejected = true; }
+            _gateAssert(overrideRejected, "PR identity cannot be bypassed with an explicit base");
+            options.Base = "";
             foreach (var invalid in new string[]{ ev.Replace(pr, oldBase), "{\"pull_request\":{}}" }) {
                 File.WriteAllText(path, invalid);
                 _gateAssert(_flowCreate(cfg, options, client).Full, "unverified merge identity keeps all CI checks");

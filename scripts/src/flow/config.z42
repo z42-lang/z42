@@ -170,7 +170,7 @@ void _flowValidateCommand(string[] args, string id) {
 }
 
 void _flowValidateOutput(string key) {
-    if (_strIn(new string[]{ "docs_only", "test_base", "stage_skip", "host_package", "platform_package" }, key)) {
+    if (_strIn(new string[]{ "docs_only", "host_package", "platform_package" }, key)) {
         throw new Exception("flows.toml: reserved output " + key);
     }
     for (int i = 0; i < key.Length; i = i + 1) {

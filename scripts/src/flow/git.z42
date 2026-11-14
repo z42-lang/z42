@@ -51,9 +51,10 @@ FlowPlan _flowCreate(FlowConfig cfg, FlowPlanCommand options, string root) {
     if (options.EventFile.Length > 0) {
         ev = JsonValue.Parse(File.ReadAllText(options.EventFile));
         name = Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", "");
+        if (options.Base.Length > 0 && name != "push") { throw new Exception("--event-file accepts --base only for push validation"); }
         head = Environment.GetEnvironmentVariable("GITHUB_SHA", "HEAD");
         policy = "ci";
-        if (name == "push") { base_ = ev.Get("before").AsString(); }
+        if (name == "push") { base_ = options.Base.Length > 0 ? options.Base : ev.Get("before").AsString(); }
         else if (name == "pull_request") { base_ = ""; }
         else { full = true; fallback = "event requires full validation: " + name; }
         if (name == "push" && (base_.Length == 0 || base_ == "0000000000000000000000000000000000000000")) {

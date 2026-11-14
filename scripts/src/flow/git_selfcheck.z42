@@ -37,6 +37,12 @@ void _flowGitChecks(FlowConfig cfg) {
         string emptyOutput = Path.Join(dir, "artifacts/empty-output");
         _flowWriteOutputs(cfg, emptyPr, emptyOutput);
         _gateAssert(File.ReadAllText(emptyOutput).Contains("toolchain_build=false"), "real empty push without publication suppresses heavy CI jobs");
+        options.Base = base_;
+        FlowPlan cumulative = _flowCreate(cfg, options, dir);
+        _gateAssert(cumulative.Base == base_ && cumulative.Files.Length == 1
+            && cumulative.Files[0] == "src/runtime/tests/private.rs", "coalesced empty push retains intermediate private test changes");
+        _gateAssert(_strIn(_flowOutputs(cfg, cumulative), "runtime_checks"), "cumulative validation preserves tests independently of publication");
+        options.Base = "";
         _ciWrite(dir, "artifacts/event.json", eventJson);
         foreach (var kind in new string[]{ "push", "schedule", "workflow_dispatch" }) {
             Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", kind);
