@@ -154,8 +154,8 @@ void _relZipRoundtrip(string work) {
 void _relTarRoundtrip(string work) {
     string source = Path.Join(work, "tar input"); Directory.Create(source);
     Directory.Create(Path.Join(source, "empty")); Directory.Create(Path.Join(source, "bin"));
-    string[] names = Platform.IsWindows() ? new string[]{ ".hidden", "with spaces", "-C", "中文" }
-        : new string[]{ ".hidden", "with spaces", "-C", "中文", "line\nbreak" };
+    string[] names = Platform.IsWindows() ? new string[]{ ".hidden", "with spaces", "-C", "@archive", "中文" }
+        : new string[]{ ".hidden", "with spaces", "-C", "@archive", "中文", "line\nbreak" };
     foreach (var name in names) { File.WriteAllText(Path.Join(source, name), name); }
     string tool = Path.Join(source, "bin/tool"); File.WriteAllText(tool, "#!/bin/sh\nexit 0\n");
     if (!Platform.IsWindows()) {
