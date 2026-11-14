@@ -491,3 +491,7 @@ CI 文档工具安装使用 `xtask setup book-tools`，Binaryen 静态构建使�
 `--force` 强制重装。成功后输出 bin 目录，并在 Actions 中写入 `GITHUB_PATH`。
 文档工具在 Linux x64 优先下载发布包，下载不可用或其他宿主改用 Cargo；wasm-opt 需 Git、CMake 与 POSIX install。
 `xtask ci check-installers all` 离线验证安装分支，不访问外部网络。
+
+`xtask setup book-tools --check` / `xtask setup wasm-opt --check` 仅校验已有安装，不下载或构建，也不创建安装目录；
+不能与 `--force` 同用。CI 在独立任务中准备一次 Binaryen，由 WASM 打包和浏览器分片恢复同一份产物并校验，
+详见 [CI 拓扑](../docs/internals/src/devinfra/ci.md)。

@@ -132,7 +132,8 @@ xtask flow run --plan artifacts/ci-plan.json --job compiler-checks
 `xtask bench check` 验证性能判定的入库夹具；`xtask ci check-installers book|wasm` 可单独运行原生安装器的离线回归。
 `xtask setup book-tools` / `xtask setup wasm-opt` 共用于本地与 CI，从 `scripts/versions.toml` 读取固定版本；
 安装器测试注入进程替身，不依赖 PATH 中的 Shell mock。仅书籍工具实现改动选 xtask；
-Binaryen 安装器和共用命令实现改动还选 wasm 流程。
+Binaryen 安装器、共用命令实现和 `setup-wasm-opt` action 改动还选 wasm 流程，
+该 action 有明确归属，不使用未知路径的全量回退。
 
 目录图描述显式契约关系，不代替编译器的语义依赖分析。未知路径保守全量；流程执行串行，CI 的并行由 jobs 和矩阵实现。
 已有测试命令内部仍负责各自产物准备，配置可为新的组合流程声明额外 `requires`，无需复制其内部构建实现。

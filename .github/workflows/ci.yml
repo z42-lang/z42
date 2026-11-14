@@ -395,6 +395,34 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
+  wasm-opt-bootstrap:
+    name: prepare-wasm-opt(linux-x64)
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.platform_package == 'true' || needs.changes.outputs.wasm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/ci-bootstrap
+        with:
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
+          xtask-only: "true"
+      - name: Test wasm-opt installer
+        run: xtask ci check-installers wasm
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/z42-binaryen
+          key: binaryen-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/versions.toml', 'scripts/src/setup/ci_tools.z42', 'scripts/src/setup/wasm_opt.z42') }}
+      - name: Build or validate pinned wasm-opt
+        run: xtask setup wasm-opt --root "${{ runner.temp }}/z42-binaryen"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wasm-opt-linux-x64
+          overwrite: true
+          path: ${{ runner.temp }}/z42-binaryen/
+          retention-days: 3
+          if-no-files-found: error
+
   # ── current-sdk：组装 `.z42` 布局 + 打包 golden .zbc，给 test-consume / test-vm-jit。单独成 job，不拖关键路径。
   assemble-current-sdk:
     name: compile-test-assets(linux-x64)
@@ -701,7 +729,7 @@ jobs:
     name: package-wasm(linux-x64)
     timeout-minutes: 40
     # PR 上只在 platform 改动时跑（同 host-package）。
-    needs: [changes, toolchain-bootstrap]
+    needs: [changes, toolchain-bootstrap, wasm-opt-bootstrap]
     if: needs.changes.outputs.platform_package == 'true' || needs.changes.outputs.wasm == 'true'
     runs-on: ubuntu-latest
 
@@ -793,6 +821,7 @@ jobs:
       - package-ios
       - package-android
       - package-wasm
+      - wasm-opt-bootstrap
       - toolchain-bootstrap   # provides the toolchain artifact for `xtask package release`
     runs-on: ubuntu-latest
     # 所有事件的 publish-nightly 串行（job 级 group）：并发的两次会交错改同一个 nightly Release；不取消，排队等前一个发完。
@@ -852,7 +881,7 @@ jobs:
     name: test-wasm-browser(linux-x64) ${{ matrix.shard == 0 && 'smoke' || format('shard {0}/3', matrix.shard) }}
     # 冷构建（wasm-pack LTO + 全语料编译）约 27 分钟，加上分片的浏览器内运行。
     timeout-minutes: 75
-    needs: [changes, toolchain-bootstrap]
+    needs: [changes, toolchain-bootstrap, wasm-opt-bootstrap]
     # Browser-executor PRs run smoke; scheduled/manual validation runs the full corpus.
     if: ${{ needs.changes.outputs.wasm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     # 嵌入语料全量分 3 片（`--shard k/3`）；R1–R7 与语料无关，只在第 1 片跑。
@@ -1117,6 +1146,7 @@ jobs:
       - build-and-test
       - host-package
       - toolchain-bootstrap
+      - wasm-opt-bootstrap
       - assemble-current-sdk
       - consume-current-sdk
       - vm-jit-consistency

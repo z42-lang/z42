@@ -418,7 +418,7 @@ publish = false
 
 [[inputs]]
 id = "wasm-tool-installer"
-include = ["scripts/src/setup/wasm_opt.z42", "scripts/src/setup/ci_tools.z42"]
+include = ["scripts/src/setup/wasm_opt.z42", "scripts/src/setup/ci_tools.z42", ".github/actions/setup-wasm-opt/**"]
 select = ["xtask", "wasm"]
 
 [[inputs]]
