@@ -1,0 +1,1 @@
+namespace DedupBase; public int BaseValue() { return 1; }

@@ -80,9 +80,8 @@ string _validateRunTargets(RunTarget[] t, int n, string kind) {
 // totalFiles / libsTested 按引用更新。
 //
 // 非工程条目不执行；清单路径与包名分别由 ManifestLocator 和 project.name 决定。
-int _runLibKind(string root, string projDir, string kind,
-                string label, string filter, string builderZpkg, int jobsN, string mode,
-                string vm, string driverZpkg, string libs, MicroBenchAgg agg,
+int _runLibKind(string root, string projDir, string kind, string filter,
+                int jobsN, string mode, TargetTooling tooling, MicroBenchAgg agg,
                 ref int totalFiles, ref int libsTested) {
     ManifestLocation found = _findManifest(projDir);
     if (found.Kind != ManifestLocateKind.Project) { return 0; }
@@ -94,52 +93,35 @@ int _runLibKind(string root, string projDir, string kind,
     RunTarget[] tgts = _explicitTargets(man, kind);
     string verr = _validateRunTargets(tgts, tgts.Length, kind);
     if (verr.Length > 0) { ConsoleError.WriteLine("error: " + lib + ": " + verr); return -1; }
-    return _runLibViaZ42b(root, projDir, parentToml, lib, kind, label, filter,
-                          builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
-                          ref totalFiles, ref libsTested);
-}
-
-// 一个 lib 的 test 走转发：`z42b test <真 manifest> --list` 拿单元名 → 并行拉起
-// `z42b test <toml> --name <unit>`。
-//
-// 零单元时**不在这里判**：直接不带 --name 跑一次 z42b，让它自己的判定说了算 ——
-// 孤儿源守卫（有源却零单元 → 红）与「本包压根没有测试」（→ 绿）都住在 z42b 里，
-// 判据只该有一处。
-int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, string kind,
-                   string label, string filter, string builderZpkg, int jobsN, string mode,
-                   string vm, string driverZpkg, string libs, MicroBenchAgg agg,
-                   ref int totalFiles, ref int libsTested) {
     bool ok = true;
-    string[] names = _listUnitsViaZ42b(root, parentToml, kind, filter, mode, vm, builderZpkg, libs, ref ok);
+    string[] names = _listUnitsViaZ42b(root, parentToml, kind, filter, mode, tooling, ref ok);
     if (!ok) { return -1; }
     if (names.Length == 0) {
         // 零单元：交给 z42b 自己裁定（红/绿），不在 xtask 侧复制一份判据。
         // filter 非空时零命中是过滤器的事，不是发现规则的 bug —— 直接跳过。
         if (filter.Length > 0) { return 0; }
-        Process zp = _z42bProc(vm, libs).Arg("--mode").Arg(mode).Arg(builderZpkg)
-            .Arg("--").Arg(kind).Arg(parentToml);
-        if (_z42bSupportsOutRoot(vm, builderZpkg, libs)) {
+        Process zp = tooling.UnitProcess(root, parentToml, kind, mode);
+        if (_z42bSupportsOutRoot(tooling.Vm, tooling.BuilderZpkg, tooling.Libs)) {
             zp = zp.Arg("--out-root").Arg(_devTargetOutRoot(root, parentToml, kind));
         }
-        ProcessResult rr = zp.WorkingDirectory(root).Run();
+        ProcessResult rr = zp.Run();
         Console.Write(rr.Stdout);
         if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
         return (rr.ExitCode != 0) ? 1 : 0;
     }
     Console.WriteLine("");
-    Console.WriteLine("── " + lib + " (" + label + ", z42b) : " + names.Length.ToString() + " unit(s) ──");
+    Console.WriteLine("── " + lib + " (" + kind + ", z42b) : " + names.Length.ToString() + " unit(s) ──");
     totalFiles = totalFiles + names.Length;
     libsTested = libsTested + 1;
     // capture 模式（bench 基线）：给聚合结果打上执行 profile 标签 —— 从 runner 实际运行的那个
     // VM 探出来，interp 与 jit 的 micro 基线不能互相比。
     if (agg != null) {
         string epMode = (mode.Length > 0) ? mode : "interp";
-        string epProbe = _epEnsureProbe(root, vm, driverZpkg, libs);
-        VmCaps epVm = _epProbe(vm, libs, epProbe);
-        agg.setProfileOnce(_epTiersForMode(epMode), epVm, _epVmVersion(vm));
+        string epProbe = _epEnsureProbe(root, tooling.Vm, tooling.DriverZpkg, tooling.Libs);
+        VmCaps epVm = _epProbe(tooling.Vm, tooling.Libs, epProbe);
+        agg.setProfileOnce(_epTiersForMode(epMode), epVm, _epVmVersion(tooling.Vm));
     }
-    return _runUnitsViaZ42b(root, parentToml, names, names.Length, kind,
-                            jobsN, mode, vm, builderZpkg, libs, lib, agg);
+    return _runUnitsViaZ42b(root, parentToml, names, kind, jobsN, mode, tooling, lib, agg);
 }
 
 // ── micro bench 结果聚合（`bench stdlib --json`：lib / units / targets 三个 flow 共用）──────────

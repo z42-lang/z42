@@ -53,10 +53,11 @@ pub(crate) enum InitOutcome {
     LockPoisoned,
 }
 
-/// Atomically transition Uninitialized → Initialized. The provided
-/// Configuration has already been validated; this function only changes registry state.
+/// Publish the validated session and its sinks under the same lifecycle lock.
+/// `publish_sinks` only installs prepared callbacks; it must not call host code.
 pub(crate) fn try_initialize(
     config: ResolvedConfig,
+    publish_sinks: impl FnOnce(&ResolvedConfig),
 ) -> InitOutcome {
     let mut guard = match HOST.write() {
         Ok(g) => g,
@@ -65,6 +66,7 @@ pub(crate) fn try_initialize(
     if guard.is_some() {
         return InitOutcome::AlreadyInit;
     }
+    publish_sinks(&config);
     *guard = Some(HostState {
         config,
         modules: Vec::new(),
@@ -80,8 +82,9 @@ pub(crate) enum ShutdownOutcome {
     LockPoisoned,
 }
 
-/// Atomically transition Initialized → Uninitialized.
-pub(crate) fn try_shutdown() -> ShutdownOutcome {
+/// Withdraw the session and its sinks under the lifecycle lock, then destroy
+/// resources after releasing it. `clear_sinks` must not invoke host code.
+pub(crate) fn try_shutdown(clear_sinks: impl FnOnce()) -> ShutdownOutcome {
     let mut guard = match HOST.write() {
         Ok(g) => g,
         Err(_) => return ShutdownOutcome::LockPoisoned,
@@ -89,7 +92,11 @@ pub(crate) fn try_shutdown() -> ShutdownOutcome {
     if guard.is_none() {
         return ShutdownOutcome::NotInit;
     }
-    *guard = None;
+    clear_sinks();
+    let retired = guard.take();
+    drop(guard);
+    // Component/resource destructors may re-enter the host.
+    drop(retired);
     ShutdownOutcome::Done
 }
 

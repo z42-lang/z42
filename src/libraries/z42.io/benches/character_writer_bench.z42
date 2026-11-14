@@ -43,3 +43,33 @@ void writer_chars_ascii_full(Bencher b) { MeasureCharacters(b, 4096, false, fals
 void writer_chars_ascii_slice(Bencher b) { MeasureCharacters(b, 4096, true, false); }
 [Benchmark]
 void writer_chars_unicode_slice(Bencher b) { MeasureCharacters(b, 4096, true, true); }
+
+class CountingTextTarget : TextWriter {
+    public int Writes;
+    public override void Write(string value) {
+        this.Writes = this.Writes + 1;
+        GC.KeepAlive(value);
+    }
+}
+[Benchmark]
+void text_writer_chars_slice(Bencher b) {
+    char[] chars = new char[4098];
+    for (int i = 0; i < chars.Length; i++) { chars[i] = 'x'; }
+    var target = new CountingTextTarget();
+    b.iter(() => {
+        int before = target.Writes;
+        for (int i = 0; i < 128; i++) { target.WriteCharsBase(chars, 1, 4096); }
+        Assert.Equal(128, target.Writes - before);
+    });
+}
+[Benchmark]
+void string_writer_chars_slice(Bencher b) {
+    char[] chars = new char[4098];
+    for (int i = 0; i < chars.Length; i++) { chars[i] = 'x'; }
+    var writer = new StringWriter();
+    b.iter(() => {
+        for (int i = 0; i < 128; i++) { writer.Write(chars, 1, 4096); }
+        Assert.Equal(128 * 4096, writer.ToString().Length);
+        writer.Clear();
+    });
+}

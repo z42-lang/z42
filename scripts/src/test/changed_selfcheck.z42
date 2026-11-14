@@ -4,7 +4,7 @@ namespace Z42Xtask;
 using Std.IO;
 
 int _selfcheckChangedGit() {
-    string dir = _xtaskWork(_root(), "changed-git");
+    string dir = File.CreateTempDir("z42-changed-git-");
     string cwd = Environment.GetCurrentDirectory();
     string? index = Environment.GetEnvironmentVariable("GIT_INDEX_FILE");
     string config = File.ReadAllText(Path.Join(cwd, "scripts/flows.toml"));
@@ -16,6 +16,8 @@ int _selfcheckChangedGit() {
         Environment.SetCurrentDirectory(dir);
         string fixtureIndex = Path.Join(dir, "fixture-index");
         Environment.SetEnvironmentVariable("GIT_INDEX_FILE", fixtureIndex);
+        _gateAssert(_testChangedRun("HEAD", true) == 2, "explicit changed command rejects a non-repository");
+        _gateAssert(_changedGateSkips("HEAD").Length == 0, "non-repository retains every GREEN stage");
         _gitOutput(new string[]{ "init", "--quiet" });
         File.WriteAllText(Path.Join(dir, ".gitignore"), "fixture-index*\n");
         File.WriteAllText(Path.Join(dir, "README.md"), "base\n");
@@ -24,7 +26,7 @@ int _selfcheckChangedGit() {
         _gitOutput(new string[]{ "-c", "user.name=xtask", "-c", "user.email=xtask@example.invalid",
             "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixture" });
         _gateAssert(_changedFiles("HEAD").Length == 0, "clean Git diff remains empty");
-        _gateAssert(_changedGateSkips("HEAD") == String.Join(",", _changedScopedStages()), "clean diff skips scoped stages");
+        _gateAssert(_changedGateSkips("HEAD") == String.Join(",", _gateStageKeys()), "clean diff skips scoped stages");
 
         _checkWorkspaceChangedGit(dir);
 
@@ -39,7 +41,6 @@ int _selfcheckChangedGit() {
 
         // rev-parse 仍成功，但 diff / ls-files 会因损坏索引失败。
         File.WriteAllText(fixtureIndex, "bad index");
-        _gateAssert(_isInGitRepo(), "bad-index fixture is still a Git repository");
         _gateAssert(_testChangedRun("HEAD", true) == 2, "bad index must fail explicit changed command");
         _gateAssert(_changedGateSkips("HEAD").Length == 0, "bad index must keep every stage");
         File.Delete(fixtureIndex);
@@ -70,7 +71,7 @@ void _checkWorkspaceChangedGit(string root) {
     string newTest = lib + "/tests/é case.z42";
     File.WriteAllText(Path.Join(root, newTest), "// test input\n");
     _gateAssert(String.Join(";", _changedFiles("HEAD")) == newTest, "Git preserves literal paths");
-    _gateAssert(String.Join(";", _buildChangedPlan(_changedFiles("HEAD"), root)) == "xtask test stdlib lib.declared",
+    _gateAssert(String.Join(";", _flowTestCommands(_changedFiles("HEAD"), root)) == "xtask test stdlib lib.declared",
         "nested member uses the declared name");
     string skip = _changedGateSkips("HEAD");
     _gateAssert(!_skipHas(skip, "stdlib") && _skipHas(skip, "compiler") && _skipHas(skip, "rust-units"),
@@ -80,7 +81,7 @@ void _checkWorkspaceChangedGit(string root) {
     string ws = _libsWsToml(root);
     string saved = File.ReadAllText(ws);
     File.WriteAllText(ws, saved + "# modified\n");
-    _gateAssert(String.Join(";", _buildChangedPlan(_changedFiles("HEAD"), root)) == "xtask test stdlib;xtask test e2e",
+    _gateAssert(String.Join(";", _flowTestCommands(_changedFiles("HEAD"), root)) == "xtask test stdlib;xtask test e2e",
         "workspace manifest chooses the library domain without a package argument");
     File.WriteAllText(ws, saved);
 
@@ -88,15 +89,15 @@ void _checkWorkspaceChangedGit(string root) {
     string[] renamed = _changedFiles("HEAD");
     _gateAssert(String.Join(";", renamed) == lib + "/source.z42;" + lib + "/tests/renamed.z42",
         "rename selects both the former source and the new test");
-    _gateAssert(_strIn(_buildChangedPlan(renamed, root), "xtask test"),
+    _gateAssert(_strIn(_flowTestCommands(renamed, root), "xtask test"),
         "custom source outside conventional directories preserves full coverage after rename");
     _gitOutput(new string[]{ "restore", "--staged", "--worktree", "--", lib });
 
-    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ "src/compiler/groups/tests/other/benches/case.z42" }, root))
-        == "xtask bench stdlib compiler.declared;xtask test compiler", "compiler bench uses owner-relative path and declared name");
-    _gateAssert(_strIn(_buildChangedPlan(new string[]{ "src/libraries/groups/src/ignored/tests/case.z42" }, root), "xtask test"), "excluded project cannot become a named test command");
+    _gateAssert(String.Join(";", _flowTestCommands(new string[]{ "src/compiler/groups/tests/other/benches/case.z42" }, root))
+        == "xtask bench stdlib compiler.declared", "compiler bench uses owner-relative path and declared name");
+    _gateAssert(_strIn(_flowTestCommands(new string[]{ "src/libraries/groups/src/ignored/tests/case.z42" }, root), "xtask test"), "excluded project cannot become a named test command");
     Directory.Delete(Path.Join(root, lib), true);
-    _gateAssert(_strIn(_buildChangedPlan(_changedFiles("HEAD"), root), "xtask test"),
+    _gateAssert(_strIn(_flowTestCommands(_changedFiles("HEAD"), root), "xtask test"),
         "removed member falls back to full coverage");
     _gitOutput(new string[]{ "restore", "--worktree", "--", lib });
     _gateAssert(_changedFiles("HEAD").Length == 0, "workspace fixture restored");
@@ -111,13 +112,13 @@ void _checkSdkChangedGit(string dir) {
     string fixture = Path.Join(dir, "src/toolchain/launcher/tests/fixtures/package/case");
     Directory.Create(fixture);
     File.WriteAllText(Path.Join(fixture, "expect.toml"), "# SDK fixture\n");
-    _gateAssert(String.Join(";", _buildChangedPlan(_changedFiles("HEAD"))) == "xtask package sdk --verify",
+    _gateAssert(String.Join(";", _flowTestCommands(_changedFiles("HEAD"))) == "xtask package sdk --verify",
         "real Git SDK roles select one verification command");
-    _gateAssert(_changedGateSkips("HEAD") == String.Join(",", _changedScopedStages()),
+    _gateAssert(_changedGateSkips("HEAD") == String.Join(",", _gateStageKeys()),
         "SDK verification does not claim GREEN stages");
     Directory.Create(Path.Join(dir, "scripts/src/common"));
     File.WriteAllText(Path.Join(dir, "scripts/src/common/shared.z42"), "// untracked shared script\n");
-    _gateAssert(_strIn(_buildChangedPlan(_changedFiles("HEAD")), "xtask package sdk --verify") && _strIn(_buildChangedPlan(_changedFiles("HEAD")), "xtask test"),
+    _gateAssert(_strIn(_flowTestCommands(_changedFiles("HEAD")), "xtask package sdk --verify") && _strIn(_flowTestCommands(_changedFiles("HEAD")), "xtask test"),
         "real Git full fallback preserves SDK verification");
     _gateAssert(_testChangedRun("HEAD", true) == 0, "mixed SDK dry run");
 }

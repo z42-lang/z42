@@ -1,0 +1,37 @@
+namespace Z42RepeatBlockTests;
+using Std.Text;
+using Std.Harness;
+
+string Expected(string value, int count) {
+    var b = new StringBuilder();
+    for (int i = 0; i < count; i++) { b.Append(value); }
+    return b.ToString();
+}
+[Test]
+void repeat_matches_reference_across_copy_boundaries() {
+    string[] seeds = new string[]{ "", "a", "ab", "aé中😀", "abcde", "a\0中" };
+    int[] counts = new int[]{ 0, 1, 2, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 33 };
+    for (int i = 0; i < seeds.Length; i++) {
+        for (int j = 0; j < counts.Length; j++) {
+            Assert.Equal(Expected(seeds[i], counts[j]), Strings.Repeat(seeds[i], counts[j]));
+        }
+    }
+}
+[Test]
+void negative_and_empty_inputs_keep_existing_behavior() {
+    Assert.Equal("", Strings.Repeat("abc", -1));
+    Assert.Equal("", Strings.Repeat(null, 0));
+    Assert.Equal("", Strings.Repeat(null, -1));
+    Assert.Equal("", Strings.Repeat("", int.MaxValue));
+}
+[Test]
+void null_with_positive_count_keeps_exception() {
+    Assert.Throws("NullReferenceException", () => Strings.Repeat(null, 1));
+    Assert.Throws("NullReferenceException", () => Strings.Repeat(null, 2));
+}
+[Test]
+void long_unicode_repeat_has_correct_scalar_length() {
+    string value = Strings.Repeat("aé中😀", 1025);
+    Assert.Equal(4100, value.Length);
+    Assert.Equal(Expected("aé中😀", 1025), value);
+}

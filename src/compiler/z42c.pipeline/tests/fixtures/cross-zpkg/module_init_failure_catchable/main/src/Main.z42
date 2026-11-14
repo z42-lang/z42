@@ -11,7 +11,7 @@ using Std.IO;
 using Demo.MiFail;
 
 // ⚠️ 本 fixture **不覆盖第四种触达形态（静态字段读写）**，写不出来：程序里只要有一处
-// 跨包静态字段引用（哪怕在另一个函数里），启动期的 `run_pending_static_inits` 就会把
+// 跨包静态字段引用（哪怕在另一个函数里），启动期的 `drain_pending_type_loads` 就会把
 // 那个包提前加载完 ⇒ 初始化器在 `Main` 的**第一条调用**上就抛，落在所有 try 之外。
 // 静态字段那条屏障与这里的三条是同一处两行改动（`exec_object::ensure_owner_type_init`），
 // 由 `module_init_once` 覆盖其成功路径。详见 docs/internals 的「加载被提前」一节。

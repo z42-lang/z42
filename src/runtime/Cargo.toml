@@ -64,6 +64,12 @@ z42-macros = { path = "crates/z42-macros" }
 cli = ["dep:clap", "dep:tracing-subscriber"]
 # 桌面打包图的命名预设（xtask 只传名，内容归 runtime 自身；R0）。
 desktop-dynamic = ["cli", "interp", "jit", "shared-core", "native-interop", "net", "tls"]
+desktop-static  = ["static-embedding", "interp", "jit", "native-interop", "net", "tls"]
+ios-static      = ["ios", "static-embedding"]
+iossim-static   = ["ios", "jit", "static-embedding"]
+android-static  = ["android", "static-embedding"]
+wasm-static     = ["wasm", "static-embedding"]
+launcher        = ["cli", "component-loading"]
 default              = ["cli", "interp", "jit", "native-interop", "net", "tls"]
 mimalloc-alloc       = ["dep:mimalloc"]
 dhat-heap            = ["dep:dhat"]

@@ -43,22 +43,27 @@ public static class Strings {
     ///
     /// 例：`Repeat("ab", 3)` → `"ababab"`。
     public static string Repeat(string s, int count) {
-        if (count <= 0) {
-            return "";
-        }
-        int srcLen = s.Length;
-        if (srcLen == 0) {
-            return "";
-        }
-        int totalLen = srcLen * count;
-        char[] buf = new char[totalLen];
-        for (int r = 0; r < count; r++) {
-            int offset = r * srcLen;
-            for (int i = 0; i < srcLen; i++) {
-                buf[offset + i] = s.CharAt(i);
+        if (count <= 0) { return ""; }
+        int length = s.Length;
+        if (length == 0) { return ""; }
+        if (count == 1) { return s; }
+        int total = length * count;
+        char[] result = new char[total];
+        if (total <= 16) {
+            for (int r = 0; r < count; r++) {
+                for (int i = 0; i < length; i++) { result[r * length + i] = s.CharAt(i); }
             }
+            return String.FromChars(result);
         }
-        return string.FromChars(buf);
+        char[] seed = s.ToCharArray();
+        Array.CopyRange(seed, 0, result, 0, length);
+        int filled = length;
+        while (filled < total) {
+            int n = filled < total - filled ? filled : total - filled;
+            Array.CopyRange(result, 0, result, filled, n);
+            filled = filled + n;
+        }
+        return String.FromChars(result);
     }
 
     /// `s` 中第一个出现在 `chars` 里的字符的下标；无匹配返回 `-1`。`chars` 为空数组恒返回 `-1`。

@@ -10,7 +10,7 @@ bool _ciSdkBetween(CiGitHub api, FlowConfig cfg, string root, string repo, strin
     try {
         JsonValue files = api.Get("repos/" + repo + "/compare/" + base_ + "..." + head).Get("files");
         if (!files.IsArray() || files.Count() >= 300) { return true; }
-        var owners = new _ChangedOwners(root);
+        var owners = new FlowOwners(root);
         for (int i = 0; i < files.Count(); i = i + 1) {
             JsonValue item = files.At(i);
             string current = item.Get("filename").AsString();
@@ -26,6 +26,10 @@ bool _ciSdkBetween(CiGitHub api, FlowConfig cfg, string root, string repo, strin
 }
 
 int _ciSupersede(CiGitHub api, bool dryRun) {
+    if (Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", "") == "workflow_run") {
+        JsonValue ev = JsonValue.Parse(File.ReadAllText(Environment.GetEnvironmentVariable("GITHUB_EVENT_PATH", "")));
+        return _ciSupersedePr(api, _ciRepo(), ev.Get("workflow_run").Get("id").AsLong().ToString(), dryRun);
+    }
     string repo = _ciRepo(); string root = _root();
     FlowConfig cfg = _flowConfigFor(root);
     string base_ = "";

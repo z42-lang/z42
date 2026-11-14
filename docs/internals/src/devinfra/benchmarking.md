@@ -103,6 +103,20 @@ PR 树采一份、base 树采一份（复用已建的 base 工具链，仅新建
 `bench --micro-diff --current … --baseline …` 逐基准（按 `name` + 画像键配对）过同一个 `_abVerdict`。
 PR 新增或改名的基准在 base 无对应 ⇒ 信息性 skip。
 
+准备好两棵同形源码树和工具链后，本地与 CI 都用同一个原生编排入口：
+
+```bash
+./xtask bench --micro-ab --base-tree base-src --pr-tree head-src \
+    --base-vm <base-vm> --base-libs <base-flat-libs> \
+    --pr-vm <head-vm> --pr-libs <head-flat-libs> --threshold-time 0.15
+```
+
+`--base-driver` / `--pr-driver` 可显式指定；默认取对应 libs 下的 `z42c.driver.zpkg`。
+每轮按 head、base 顺序启动独立 xtask 捕获进程，避免仓库根与工具探测缓存跨树复用。
+首轮无可疑项直接通过；否则两侧各重采两轮，再由 `--micro-diff` 判定。捕获失败立即返回其退出码，
+结果缺失或判定输入错误不会按“无回归”放行；报告仍写入 `artifacts/reports/benches/micro-*.json`。
+该命令通过仓库的 `.github/ci/xtask` 入口运行当前 xtask，须先准备本树的种子 SDK 与 xtask 产物。
+
 ### 两侧必须同形捕获（e2e 与 micro 同一条规则）
 
 **否则同一份代码也会被判慢。** 被测进程的内存布局由它的输入字节决定——argv、env（`Z42_LIBS` /
@@ -328,10 +342,20 @@ criterion 层噪声底的实测（同一个 PR 的四次跑，**每次 base 与 
 触发路径包括 Runtime、标准库、编译器、`src/benches/`、xtask 源码和工程清单、判定自检脚本及本 workflow。
 纯 Markdown 改动由 `!**/*.md` 排除。
 
-checkout 并轻量自举 xtask 后，`xtask ci bench-scope` 比较事件基线与合并树，按 `scripts/flows.toml` 的 `bench_only` 归属选择验证范围。仅影响判定夹具和文档时只执行判定自检。重命名的两端均参与判断。
-涉及场景、测量编排或其他路径时走完整 A/B。基线缺失或无法验证时也走完整路径。
+checkout 并轻量自举 xtask 后，`xtask ci bench-scope` 从同一份 `scripts/flows.toml` 规划独立的测量类别，保存 `artifacts/bench-plan.json`：
 
-完整 A/B 的步骤如下。
+| 信号 | 内容 | 构建前提 |
+|---|---|---|
+| `bench_stdlib` | z42 标准库及编译器域库的 `[Benchmark]` micro A/B | 两棵对称 z42 工具链 |
+| `bench_vm` | Cargo 声明的 `harness=false` Rust VM Criterion 目标 | 两棵 Rust 树，无需自举 z42 工具链 |
+| `bench_integration` | VM 启动、stdlib 加载、编译运行等整程序 A/B | 两棵对称 z42 工具链与 hyperfine |
+
+能力探针与结果 schema 属于脚本 micro 和集成测量的共享输入，同时保留这两类消费者。私有测试、xtask 路由和普通 CI 配置不触发测量；判定自检仍保留。私有 benchmark 只选择对应类别；标准库和编译器生产源影响脚本 micro 与集成测量，VM 生产源影响三类。混合改动取并集，无法验证基线时保留全部类别。
+`bench_toolchain` 汇总脚本 / 集成类别，控制昂贵的 z42 工具链准备；仅 VM benchmark 不安装 hyperfine、不自举两套 z42c / stdlib。
+
+本地分别使用 `xtask bench stdlib`、`xtask bench vm [--base <仓库树>] [--quick]` 和 `xtask bench --tier gate`。VM runner 从各树自己的 Cargo 清单发现目标，在同一结果目录保存 base、比较 head；新增目标使用 lenient baseline。测量结论仍为 informational，Cargo 构建或执行错误返回非零。
+
+同时选择脚本和集成 A/B 时，步骤如下；每项测量由自己的信号控制。
 
 1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`），
    随后做**格式代差检测**（见 §10）。
@@ -342,10 +366,10 @@ checkout 并轻量自举 xtask 后，`xtask ci bench-scope` 比较事件基线�
    --pause-cap-ms 16 --threshold-pause 0.25 --threshold-pause-max 1.0 --base-vm/-libs/-driver …
    --pr-vm/-libs/-driver …`（PR 侧用「Prepare head toolchain」步的同形工具链，见 §3）。`MODE` 按改动面收窄：
    `src/runtime` 无非文档改动 → `jit`，否则 `both`。
-6. **micro A/B（硬门禁）**：两棵树（`head-src` / `base-src`）各采一份 `bench stdlib --json`，**同形捕获** → 第 1 轮
+6. **micro A/B（硬门禁，`xtask bench --micro-ab`）**：两棵树（`head-src` / `base-src`）各采一份 `bench stdlib --json`，**同形捕获** → 第 1 轮
    `--micro-diff --suspects …` **只点名不判红**；`suspects` 为空 ⇒ 直接通过（**零额外开销**）；
    非空 ⇒ 再采两轮，用三轮判红。
-7. **criterion A/B（informational，永不 fail）**：仅 `src/runtime` 有非文档改动时跑。
+7. **Criterion A/B（informational）**：`bench_vm=true` 时由 `xtask bench vm --base base-src` 执行，不依赖前两类工具链构建成功。各测量步骤遇到执行失败后停止后续工作。
 
 **Rust 依赖缓存在 main 上预热**（`bench-cache-warm` job：push 到 main 且动了 `src/runtime`（含其 `.cargo`）/ 本
 workflow，外加每周一次与手动触发）。原因是 GitHub 的缓存作用域：PR 分支上存的缓存**只有这个 PR 自己**能读，

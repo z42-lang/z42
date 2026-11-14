@@ -25,7 +25,6 @@ class FlowInput {
     public string[] Select = new string[0];
     public string Workspace = "";
     public string[] Relative = new string[0];
-    public bool BenchOnly;
     public bool Docs;
     public bool Publish = true;
 }
@@ -35,7 +34,6 @@ class FlowConfig {
     public FlowInput[] Inputs = new FlowInput[0];
     public string[] Full = new string[0];
     public string Digest = "";
-    public string Path = "";
 
     public FlowNode Find(string id) {
         foreach (var n in this.Nodes) { if (n.Id == id) { return n; } }
@@ -67,14 +65,10 @@ void _flowKeys(TomlValue v, string[] allowed, string location) {
     }
 }
 
-FlowConfig _flowLoad(string path) {
-    string text = File.ReadAllText(path);
-    FlowConfig cfg = _flowParse(text);
-    cfg.Path = path;
-    return cfg;
-}
+FlowConfig _flowLoad(string path) { return _flowParse(File.ReadAllText(path)); }
 
 FlowConfig _flowParse(string text) {
+    text = text.Replace("\r\n", "\n");
     TomlValue doc = TomlValue.Parse(text);
     _flowKeys(doc, new string[]{ "version", "full", "flows", "inputs" }, "root");
     if (doc.Get("version").AsLong() != 1L) { throw new Exception("flows.toml: unsupported version"); }
@@ -110,13 +104,12 @@ FlowNode _flowParseNode(string id, TomlValue v) {
 }
 
 FlowInput _flowParseInput(TomlValue v) {
-    _flowKeys(v, new string[]{ "id", "include", "exclude", "select", "workspace", "relative", "docs", "publish", "bench_only" }, "input");
+    _flowKeys(v, new string[]{ "id", "include", "exclude", "select", "workspace", "relative", "docs", "publish" }, "input");
     var r = new FlowInput();
     r.Id = v.Get("id").AsString(); r.Include = _flowList(v, "include");
     r.Exclude = _flowList(v, "exclude"); r.Select = _flowList(v, "select");
     r.Relative = _flowList(v, "relative");
     r.Workspace = v.ContainsKey("workspace") ? v.Get("workspace").AsString() : "";
-    r.BenchOnly = _flowBool(v, "bench_only", false);
     r.Docs = _flowBool(v, "docs", false); r.Publish = _flowBool(v, "publish", true);
     if (r.Id.Length == 0 || r.Include.Length == 0) { throw new Exception("flows.toml: input needs id and include"); }
     if (r.Workspace.Length == 0 && r.Relative.Length > 0) { throw new Exception("flows.toml: relative needs workspace"); }
@@ -137,7 +130,7 @@ void _flowValidate(FlowConfig cfg) {
         foreach (var id in n.Requires) { cfg.Find(id); }
         foreach (var output in n.Outputs) { _flowValidateOutput(output); }
         foreach (var stage in n.Stages) {
-            if (stage != "@z42" && stage != "@all" && !_strIn(_changedScopedStages(), stage)) {
+            if (stage != "@z42" && stage != "@all" && !_strIn(_gateStageKeys(), stage)) {
                 throw new Exception("flows.toml: unknown gate stage " + stage);
             }
         }
@@ -164,20 +157,7 @@ bool _flowMatches(string file, string[] patterns) {
     return false;
 }
 
-static class FlowConfigCache {
-    public static string Root = "";
-    public static string Text = "";
-    public static FlowConfig? Value = null;
-}
-
-FlowConfig _flowConfigFor(string root) {
-    string text = File.ReadAllText(Path.Join(root, "scripts/flows.toml"));
-    FlowConfig? cached = FlowConfigCache.Value;
-    if (cached != null && FlowConfigCache.Root == root && FlowConfigCache.Text == text) { return cached; }
-    FlowConfig cfg = _flowParse(text);
-    FlowConfigCache.Root = root; FlowConfigCache.Text = text; FlowConfigCache.Value = cfg;
-    return cfg;
-}
+FlowConfig _flowConfigFor(string root) { return _flowLoad(Path.Join(root, "scripts/flows.toml")); }
 
 void _flowValidateCommand(string[] args, string id) {
     if (args.Length > 0 && !_strIn(new string[]{ "build", "test", "check", "bench", "package", "setup", "ci" }, args[0])) {

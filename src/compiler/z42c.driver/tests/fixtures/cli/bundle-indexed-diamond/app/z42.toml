@@ -1,0 +1,5 @@
+[project]
+name="dedup.app"
+kind="exe"
+[sources]
+include=["*.z42"]

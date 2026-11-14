@@ -1,3 +1,4 @@
+//! Preserve the original managed throw across reflected/native callbacks.
 use super::*;
 
 impl VmContext {

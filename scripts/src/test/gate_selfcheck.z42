@@ -1,4 +1,4 @@
-// stage 编排与改动计划回归：必跑、skip、首败、退出码、元数据，以及计划去重与保守回退。
+// Stage execution regressions: required, skip, first failure, exit codes and registry.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -6,10 +6,7 @@ using Std.Collections;
 
 int _selfcheckGateStages() {
     _checkGateRegistry(_gateStages(false));
-    _checkChangedPlans();
-    _checkOutsideGatePlans();
     _selfcheckExamplesStage();
-    _selfcheckChangedGit();
     _selfcheckShards();
     var calls = new List<string>();
     GateStage[] stages = new GateStage[]{
@@ -18,56 +15,21 @@ int _selfcheckGateStages() {
         new GateStage("fail", "selfcheck failure", () => _recordGateCall(calls, "failed", 17)),
         new GateStage("later", "selfcheck later", () => _recordGateCall(calls, "later", 0))
     };
-    StageLogZ log = new StageLogZ();
+    List<StageTiming> log = new List<StageTiming>();
     int rc = _runGateStages(stages, "skip-me", log);
     _gateAssert(rc == 17, "first failure exit code");
     _gateAssert(String.Join(",", calls.ToArray()) == "required,failed", "skip and short circuit");
-    _gateAssert(log.Names.Count == 1 && log.Names[0] == "selfcheck required", "successful stage timing");
+    _gateAssert(log.Count == 1 && log[0].Name == "selfcheck required", "successful stage timing");
 
     calls.Clear();
-    rc = _runGateStages(stages, "skip-me,fail later,fail", new StageLogZ());
+    rc = _runGateStages(stages, "skip-me,fail later,fail", new List<StageTiming>());
     _gateAssert(rc == 0 && calls.Count == 1 && calls[0] == "required", "required stage and skip separators");
 
     calls.Clear();
-    rc = _runGateStages(stages, "not-a-stage", new StageLogZ());
+    rc = _runGateStages(stages, "not-a-stage", new List<StageTiming>());
     _gateAssert(rc == 2 && calls.Count == 0, "unknown skip rejected before any work");
-    Console.WriteLine("  ✅ stage runner: registry, changed plans, required, skip, short circuit, exit codes");
+    Console.WriteLine("  ✅ stage runner: registry, required, skip, short circuit, exit codes");
     return 0;
-}
-
-void _checkChangedPlans() {
-    var owners = new _ChangedOwners(_root());
-    _gateAssert(String.Join(";", _buildChangedPlan(new string[]{ "README.md", ".gitignore" })) == "xtask test docs links", "documentation gets local validation");
-    string[] plan = _buildChangedPlan(new string[]{ "src/libraries/z42.core/tests/a.z42", "src/runtime/tests/a.rs", "src/libraries/z42.core/tests/b.z42" });
-    _gateAssert(plan.Length == 2 && _strIn(plan, "xtask test stdlib z42.core") && _strIn(plan, "xtask test runtime"), "owner commands deduplicate and keep runtime outside GREEN");
-    foreach (var member in new string[]{ "z42c.emission", "z42.package", "z42.scripting" }) {
-        _gateAssert(String.Join(",", _mapFile("src/compiler/" + member + "/tests/unit/a.z42", owners).stages) == "compiler,stdlib", "compiler private tests keep both discovery formats");
-    }
-    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.optimization/benches/cfg_bench.z42", owners).stages) == "bench,compiler", "private compiler benchmarks keep codegen consumers");
-    _gateAssert(String.Join(",", _mapFile("src/compiler/z42c.optimization/src/IrOpt.z42", owners).stages).Contains("stdlib"), "production compiler source keeps consumers");
-    _gateAssert(_strIn(_buildChangedPlan(new string[]{ "examples/basics/hello/source.z42" }), "xtask test docs examples basics/hello"), "chapter context survives planning");
-    foreach (var file in new string[]{ "native_interop_e2e.rs", "data/embedding_hello/source.z42" }) {
-        _MapResult m = _mapFile("src/runtime/tests/" + file, owners);
-        _gateAssert(String.Join(",", m.stages) == "rust-units", "private runtime keeps Rust coverage");
-    }
-    _gateAssert(_strIn(_mapFile("src/runtime/tests/data/numz42-c/numz42.c", owners).stages, "stdlib"), "build.rs C input changes consumers");
-}
-
-void _checkOutsideGatePlans() {
-    var owners = new _ChangedOwners(_root());
-    string sdk = "scripts/src/test/sdk/verify.z42";
-    foreach (var path in new string[]{ sdk, "src/toolchain/launcher/tests/fixtures/package/case/expect.toml", "scripts/install-z42.sh" }) {
-        _MapResult m = _mapFile(path, owners);
-        _gateAssert(!m.needsFull && m.outsideCommands.Length == 1 && m.stages.Length == 0, "SDK verification belongs outside GREEN");
-        _gateAssert(String.Join(";", m.commands) == "xtask package sdk --verify", "SDK selects verification command");
-    }
-    foreach (var order in new string[]{ "first", "last" }) {
-        string[] paths = order == "first" ? new string[]{ "unknown.config", sdk } : new string[]{ sdk, "unknown.config" };
-        string[] plan = _buildChangedPlan(paths);
-        _gateAssert(plan[0] == "xtask test" && _strIn(plan, "xtask package sdk --verify") && _strIn(plan, "xtask test runtime"), "full fallback preserves external obligations in either order");
-    }
-    _gateAssert(_mapFile("scripts/src/package/desktop.z42", owners).needsFull, "production packaging keeps full GREEN");
-    _gateAssert(_mapFile("scripts/src/test/sdk/README.md", owners).commands[0] == "xtask test docs links", "SDK docs route to docs validation");
 }
 
 void _checkGateRegistry(GateStage[] stages) {

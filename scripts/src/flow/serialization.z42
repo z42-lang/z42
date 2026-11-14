@@ -77,9 +77,9 @@ int _flowCommand(FlowPlanCommand options, bool run) {
     if (options.GithubOutput.Length > 0) { _flowWriteOutputs(cfg, plan, options.GithubOutput); }
     if (options.Format == "json") { Console.WriteLine(json); }
     else { _flowPrint(cfg, plan); }
-    FlowStep[] execution = _flowJobSteps(cfg, plan, options.Job);
+    FlowStep[] execution = options.Job.Length == 0 ? _flowLocalSteps(cfg, plan) : _flowJobSteps(cfg, plan, options.Job);
     if (!run || options.DryRun) { return 0; }
-    return _flowExecute(cfg, plan, execution, options.Job);
+    return _flowExecute(cfg, execution, options.Job.Length > 0);
 }
 
 void _flowPrint(FlowConfig cfg, FlowPlan plan) {
@@ -93,6 +93,17 @@ void _flowPrint(FlowConfig cfg, FlowPlan plan) {
     if (plan.Steps.Length == 0) { Console.WriteLine("  no affected flows"); }
 }
 
+bool _flowReleaseRequired(FlowPlan plan) { return plan.Event != "pull_request" && plan.ReleaseRequired != "false"; }
+bool _flowPackageRequired(FlowPlan plan, string[] selected, bool host) {
+    return _strIn(selected, "platform") || _flowReleaseRequired(plan)
+        || (host && (_strIn(selected, "sdk_checks") || _strIn(selected, "examples")));
+}
+
+bool _flowCiOutput(FlowPlan plan, string[] selected, string key) {
+    bool preparation = key == "host_checks" || key == "toolchain_build" || key == "test_assets";
+    return _strIn(selected, key) || (preparation && (plan.Full || _flowReleaseRequired(plan)));
+}
+
 void _flowWriteOutputs(FlowConfig cfg, FlowPlan plan, string path) {
     string[] selected = _flowOutputs(cfg, plan);
     var all = new List<string>();
@@ -100,11 +111,10 @@ void _flowWriteOutputs(FlowConfig cfg, FlowPlan plan, string path) {
         foreach (var output in n.Outputs) { if (!all.Contains(output)) { all.Add(output); } }
     }
     string text = "";
-    foreach (var key in all) { text = text + key + "=" + (_strIn(selected, key) ? "true" : "false") + "\n"; }
+    foreach (var key in all) { text = text + key + "=" + (_flowCiOutput(plan, selected, key) ? "true" : "false") + "\n"; }
     text = text + "docs_only=" + (plan.DocsOnly ? "true" : "false") + "\n";
-    bool release = plan.Event != "pull_request" && plan.ReleaseRequired != "false";
-    bool platform = _strIn(selected, "platform") || release;
-    bool host = platform || _strIn(selected, "sdk_checks") || _strIn(selected, "examples");
+    bool platform = _flowPackageRequired(plan, selected, false);
+    bool host = _flowPackageRequired(plan, selected, true);
     text = text + "platform_package=" + (platform ? "true" : "false") + "\n";
     text = text + "host_package=" + (host ? "true" : "false") + "\n";
     text = text + "test_base=" + plan.Base + "\n";
@@ -115,16 +125,15 @@ void _flowWriteOutputs(FlowConfig cfg, FlowPlan plan, string path) {
 string _flowSkipStages(FlowConfig cfg, FlowPlan plan) {
     string[] needed = _flowStages(cfg, plan);
     var skip = new List<string>();
-    foreach (var stage in _changedScopedStages()) { if (!_strIn(needed, stage)) { skip.Add(stage); } }
+    foreach (var stage in _gateStageKeys()) { if (!_strIn(needed, stage)) { skip.Add(stage); } }
     return String.Join(",", skip.ToArray());
 }
 
-int _flowExecute(FlowConfig cfg, FlowPlan plan, FlowStep[] execution, string job) {
-    if (job.Length == 0) { execution = _flowLocalSteps(cfg, plan); }
+int _flowExecute(FlowConfig cfg, FlowStep[] execution, bool ci) {
     var commands = new List<string>();
     foreach (var step in execution) {
         FlowNode node = cfg.Find(step.Id);
-        string[] args = job.Length > 0 && node.CiCommand.Length > 0 ? _flowExpandArgs(node.CiCommand, step) : _flowArgs(node, step);
+        string[] args = ci && node.CiCommand.Length > 0 ? _flowExpandArgs(node.CiCommand, step) : _flowArgs(node, step);
         if (args.Length == 0) { continue; }
         string key = JsonValue.StringifyPretty(_jStrs(args));
         if (commands.Contains(key)) { continue; } commands.Add(key);

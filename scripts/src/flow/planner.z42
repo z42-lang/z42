@@ -36,7 +36,7 @@ FlowPlan _flowSelect(FlowConfig cfg, string[] files, string root, bool full = fa
     plan.Files = _dedupeNonEmpty(files);
     plan.DocsOnly = plan.Files.Length > 0 && !full;
     var selected = new List<FlowStep>();
-    var owners = new _ChangedOwners(root);
+    var owners = new FlowOwners(root);
     foreach (var file in plan.Files) {
         FlowInput rule = _flowInput(cfg, file, owners);
         if (rule == null) {
@@ -70,11 +70,11 @@ FlowPlan _flowSelect(FlowConfig cfg, string[] files, string root, bool full = fa
     return plan;
 }
 
-FlowInput _flowInput(FlowConfig cfg, string file, _ChangedOwners owners) {
+FlowInput _flowInput(FlowConfig cfg, string file, FlowOwners owners) {
     foreach (var r in cfg.Inputs) {
         if (!_flowMatches(file, r.Include) || _flowMatches(file, r.Exclude)) { continue; }
         if (r.Workspace.Length > 0) {
-            _ChangedOwner owner = owners.Find(file, Path.Join(owners.Root, r.Workspace));
+            FlowOwner owner = owners.Find(file, Path.Join(owners.Root, r.Workspace));
             // A removed/excluded member has no trustworthy current ownership.
             if (owner == null) { return null; }
             if (!_flowMatches(owner.RelativePath, r.Relative)) { continue; }
@@ -89,23 +89,15 @@ void _flowSelectFull(FlowConfig cfg, List<FlowStep> selected, string reason) {
 }
 
 void _flowImpact(FlowConfig cfg, List<FlowStep> selected, FlowStep step) {
-    foreach (var old in selected) {
-        if (old.Key() == step.Key()) {
-            if (!old.Reason.Contains(step.Reason)) { old.Reason = old.Reason + "; " + step.Reason; }
-            return;
-        }
-    }
     FlowNode node = cfg.Find(step.Id);
     string owner = step.Owner; string chapter = step.Chapter;
     // Context matters only for parameterized commands, so global flows deduplicate.
     bool parameterized = node.Affects.Length > 0 || String.Join(" ", node.Command).Contains("{owner}") || String.Join(" ", node.Command).Contains("{chapter}");
-    if (!parameterized) {
-        step.Owner = ""; step.Chapter = "";
-        foreach (var old in selected) {
-            if (old.Key() == step.Key()) {
-                if (!old.Reason.Contains(step.Reason)) { old.Reason = old.Reason + "; " + step.Reason; }
-                return;
-            }
+    if (!parameterized) { step.Owner = ""; step.Chapter = ""; }
+    foreach (var old in selected) {
+        if (old.Key() == step.Key()) {
+            if (!old.Reason.Contains(step.Reason)) { old.Reason = old.Reason + "; " + step.Reason; }
+            return;
         }
     }
     selected.Add(step);
@@ -147,7 +139,7 @@ string[] _flowStages(FlowConfig cfg, FlowPlan plan) {
     foreach (var s in plan.Steps) {
         if (s.Prerequisite) { continue; }
         foreach (var key in cfg.Find(s.Id).Stages) {
-            string[] add = key == "@z42" ? _stagesAllZ42() : key == "@all" ? _changedScopedStages() : new string[]{ key };
+            string[] add = key == "@z42" ? _gateStageKeys("z42") : key == "@all" ? _gateStageKeys() : new string[]{ key };
             foreach (var stage in add) { if (!stages.Contains(stage)) { stages.Add(stage); } }
         }
     }
@@ -157,7 +149,6 @@ string[] _flowStages(FlowConfig cfg, FlowPlan plan) {
 string[] _flowOutputs(FlowConfig cfg, FlowPlan plan) {
     var outputs = new List<string>();
     foreach (var s in plan.Steps) {
-        if (s.Prerequisite) { continue; }
         foreach (var key in cfg.Find(s.Id).Outputs) { if (!outputs.Contains(key)) { outputs.Add(key); } }
     }
     return outputs.ToArray();

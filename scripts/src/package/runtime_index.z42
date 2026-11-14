@@ -1,0 +1,239 @@
+// runtime 域读取器：packages.toml [runtime] 是 runtime 组件打包知识的单一来源
+// （R1）。xtask 的 stem 清单 / 命名分叉 / jit 矩阵全部经这里取，不再各处手抄。
+// 旧树（bench base-src 等）没有该域 —— 回落到与既有硬编码逐字节一致的内置默认。
+namespace Z42Xtask;
+
+using Std.Collections;
+using Std.Cli;
+using Std.IO;
+using Std.Toml;
+
+class _RtLib {
+    public string Name;      // 注册键（host/interp/...）
+    public string Cargo;     // -p 包名
+    public string Stem;      // 产物 stem
+    public string Kind;      // core | engine | module | tool
+    public string[] Rids;    // 可用目标（类别名或 rid）；tool 用 host-only
+    public string[] Requires;
+}
+
+// 注册键顺序 = 声明序（packages.toml 文件序），依赖方向 host ← interp ← jit。
+_RtLib[] _rtLibs(string root) {
+    TomlValue doc = TomlValue.Parse(File.ReadAllText(Path.Join(root, "scripts/packages.toml")));
+    List<_RtLib> xs = new List<_RtLib>();
+    if (doc.ContainsKey("runtime") && doc.Get("runtime").ContainsKey("lib")) {
+        TomlValue libs = doc.Get("runtime").Get("lib");
+        foreach (var name in libs.Keys()) {
+            TomlValue n = libs.Get(name);
+            _RtLib x = new _RtLib();
+            x.Name = name;
+            x.Stem = _rtStr(n, "stem", name);
+            x.Cargo = _rtStr(n, "cargo", x.Stem);
+            x.Kind = _rtStr(n, "kind", "module");
+            x.Rids = _rtStrArr(n, "rids", new string[]{ "*" });
+            x.Requires = _rtStrArr(n, "requires", new string[0]);
+            xs.Add(x);
+        }
+    }
+    if (xs.Count > 0) { return xs.ToArray(); }
+    // 旧树回退：与 R1 前的硬编码一致。
+    List<_RtLib> d = new List<_RtLib>();
+    d.Add(_rtMk("host", "z42", "z42", "core", new string[]{ "*" }, new string[0]));
+    d.Add(_rtMk("interp", "z42-interp", "z42_interp", "engine", new string[]{ "*" }, new string[]{ "host" }));
+    d.Add(_rtMk("jit", "z42-jit", "z42_jit", "engine", new string[]{ "desktop", "android", "iossim" }, new string[]{ "interp" }));
+    d.Add(_rtMk("compression", "z42-compression", "z42_compression", "module", new string[]{ "*" }, new string[0]));
+    d.Add(_rtMk("repl", "z42_repl", "z42_repl", "tool", new string[]{ "host-only" }, new string[0]));
+    return d.ToArray();
+}
+
+_RtLib _rtMk(string name, string cargo, string stem, string kind, string[] rids, string[] requires) {
+    _RtLib x = new _RtLib();
+    x.Name = name; x.Cargo = cargo; x.Stem = stem; x.Kind = kind; x.Rids = rids; x.Requires = requires;
+    return x;
+}
+string _rtStr(TomlValue n, string key, string dflt) {
+    return n.ContainsKey(key) ? n.Get(key).AsString() : dflt;
+}
+string[] _rtStrArr(TomlValue n, string key, string[] dflt) {
+    if (!n.ContainsKey(key)) { return dflt; }
+    List<string> xs = new List<string>();
+    TomlValue arr = n.Get(key);
+    for (int i = 0; i < arr.Count(); i = i + 1) { xs.Add(arr.At(i).AsString()); }
+    return xs.ToArray();
+}
+
+// rids 匹配："*" 全匹配；类别名（desktop/ios/android/wasm）按 rid 前缀族；其余精确 rid。
+bool _rtRidMatch(string spec, string rid) {
+    if (spec == "*") { return true; }
+    if (spec == "desktop") { return rid.StartsWith("linux-") || rid.StartsWith("macos-") || rid.StartsWith("windows-"); }
+    if (spec == "ios") { return rid.StartsWith("ios-"); }
+    if (spec == "iossim") { return rid.StartsWith("iossim-"); }
+    if (spec == "android") { return rid.StartsWith("android-"); }
+    if (spec == "wasm") { return rid.StartsWith("browser-"); }
+    return spec == rid;
+}
+
+// 某 rid 实际装配的库组件（tool/host-only 除外），拓扑序（requires 满足者优先）。
+_RtLib[] _rtLibsForRid(string root, string rid) {
+    _RtLib[] all = _rtLibs(root);
+    List<_RtLib> picked = new List<_RtLib>();
+    foreach (var x in all) {
+        if (x.Kind == "tool") { continue; }
+        bool ok = false;
+        foreach (var spec in x.Rids) { if (_rtRidMatch(spec, rid)) { ok = true; } }
+        if (ok) { picked.Add(x); }
+    }
+    // 简拓扑：requires 里的键排前（注册表本身声明序已基本有序，这里兜底）。
+    List<_RtLib> ordered = new List<_RtLib>();
+    while (ordered.Count < picked.Count) {
+        foreach (var x in picked) {
+            if (ordered.Contains(x)) { continue; }
+            bool ready = true;
+            foreach (var r in x.Requires) {
+                _RtLib dep = null;
+                foreach (var y in picked) { if (y.Name == r) { dep = y; } }
+                if (dep != null && !ordered.Contains(dep)) { ready = false; }
+            }
+            if (ready) { ordered.Add(x); }
+        }
+    }
+    return ordered.ToArray();
+}
+
+// 打包用 stem 清单（host 在前 = 依赖根），替换各处手抄四件套数组。
+string[] _rtStems(string root, string rid) {
+    List<string> xs = new List<string>();
+    foreach (var x in _rtLibsForRid(root, rid)) { xs.Add(x.Stem); }
+    return xs.ToArray();
+}
+
+// jit 矩阵数据化（_componentTargetHasJit 的唯一来源）。
+bool _rtRidHasJit(string root, string rid) {
+    foreach (var x in _rtLibs(root)) {
+        if (x.Stem != "z42_jit") { continue; }
+        foreach (var spec in x.Rids) { if (_rtRidMatch(spec, rid)) { return true; } }
+        return false;
+    }
+    return false;
+}
+
+// ── 命名模板：[runtime.naming]（缺省回退到内置规则，与旧 _componentLibrary/_componentStaticName 一致）──
+string _rtTemplate(string root, string kind, string platform, string dflt) {
+    TomlValue doc = TomlValue.Parse(File.ReadAllText(Path.Join(root, "scripts/packages.toml")));
+    if (!doc.ContainsKey("runtime")) { return dflt; }
+    TomlValue rt = doc.Get("runtime");
+    if (!rt.ContainsKey("naming")) { return dflt; }
+    TomlValue nk = rt.Get("naming");
+    if (!nk.ContainsKey(kind)) { return dflt; }
+    TomlValue t = nk.Get(kind);
+    if (t.ContainsKey(platform)) { return t.Get(platform).AsString(); }
+    return t.ContainsKey("other") ? t.Get("other").AsString() : dflt;
+}
+
+// rid → 平台键（windows / macos / other）；ios 与 macos 同 dylib 命名。
+string _rtPlatformKey(string rid) {
+    if (rid.StartsWith("windows-")) { return "windows"; }
+    if (rid.StartsWith("macos-") || rid.StartsWith("ios")) { return "macos"; }
+    return "other";
+}
+
+string _rtDynamicName(string root, string stem, string rid) {
+    string key = _rtPlatformKey(rid);
+    return _rtTemplate(root, "dynamic", key,
+        key == "windows" ? "{stem}.dll" : "lib{stem}" + (key == "macos" ? ".dylib" : ".so")
+    ).Replace("{stem}", stem);
+}
+
+string _rtStaticName(string root, string stem, string rid) {
+    string key = _rtPlatformKey(rid);
+    return _rtTemplate(root, "static", key,
+        key == "windows" ? "{stem}.lib" : "lib{stem}.a"
+    ).Replace("{stem}", stem);
+}
+
+string _rtImportLibName(string root, string stem) {
+    return _rtTemplate(root, "dynamic", "import_lib_windows", "{stem}.dll.lib").Replace("{stem}", stem);
+}
+
+// ── pack 形态与输出路径（R1 后半）──────────────────────────────────────────────
+
+class _RtPack {
+    public string Name;
+    public string RidClass;     // desktop | ios | android | wasm
+    public string[] Components; // lib 键名（host/interp/...）
+    public string[] Forms;      // static | dynamic | framework
+    public bool Headers;
+    public bool ImportLibs;
+    public string Std;          // shared | framework-alias | ""
+}
+
+_RtPack[] _rtPacks(string root) {
+    TomlValue doc = TomlValue.Parse(File.ReadAllText(Path.Join(root, "scripts/packages.toml")));
+    List<_RtPack> xs = new List<_RtPack>();
+    if (doc.ContainsKey("runtime") && doc.Get("runtime").ContainsKey("pack")) {
+        TomlValue packs = doc.Get("runtime").Get("pack");
+        foreach (var name in packs.Keys()) {
+            TomlValue n = packs.Get(name);
+            _RtPack x = new _RtPack();
+            x.Name = name;
+            x.RidClass = _rtStr(n, "rid_class", "desktop");
+            x.Components = _rtStrArr(n, "components", new string[0]);
+            x.Forms = _rtStrArr(n, "forms", new string[]{ "static" });
+            x.Headers = n.ContainsKey("headers") && n.Get("headers").AsBool();
+            x.ImportLibs = n.ContainsKey("import_libs") && n.Get("import_libs").AsBool();
+            x.Std = _rtStr(n, "std", "");
+            xs.Add(x);
+        }
+    }
+    return xs.ToArray();
+}
+
+// pack 在某 rid 下的实际 stem 集（pack.components × lib.rids）。
+string[] _rtPackStems(string root, string packName, string rid) {
+    _RtPack[] packs = _rtPacks(root);
+    _RtPack pack = null;
+    foreach (var p in packs) { if (p.Name == packName) { pack = p; } }
+    if (pack == null) { throw new CliException("unknown runtime pack: " + packName); }
+    List<string> xs = new List<string>();
+    foreach (var libName in pack.Components) {
+        foreach (var lib in _rtLibs(root)) {
+            if (lib.Name != libName) { continue; }
+            foreach (var spec in lib.Rids) {
+                if (_rtRidMatch(spec, rid)) { xs.Add(lib.Stem); break; }
+            }
+        }
+    }
+    return xs.ToArray();
+}
+
+// [runtime.output] 模板渲染（{root}/{profile}/{triple}）。
+string _rtOutputPath(string root, string kind, string profile, string rid = "") {
+    TomlValue doc = TomlValue.Parse(File.ReadAllText(Path.Join(root, "scripts/packages.toml")));
+    string dflt = "components";
+    if (kind == "dynamic") { dflt = "components/{profile}"; }
+    else if (kind == "launcher") { dflt = "components/launcher/{profile}"; }
+    else if (kind == "static") { dflt = "components/static/{profile}"; }
+    else if (kind == "headers") { return Path.Join(root, "src/runtime/include"); }
+    string tmpl = dflt;
+    if (doc.ContainsKey("runtime") && doc.Get("runtime").ContainsKey("output")) {
+        TomlValue o = doc.Get("runtime").Get("output");
+        if (o.ContainsKey(kind)) { tmpl = o.Get(kind).AsString(); }
+    }
+    string profileDir = profile == "release" ? _rtProfileDir(root, profile) : profile;
+    string triple = rid.Length > 0 ? _rtRidTriple(root, rid) : "";
+    string result = tmpl.Replace("{root}", "components").Replace("{profile}", profileDir).Replace("{triple}", triple);
+    return Path.Join(Path.Join(root, "artifacts/build/runtime"), result);
+}
+
+// 桌面动态图的 profile 名（era 容错：旧树无 config-dynamic 时为 release）。
+string _rtProfileDir(string root, string profile) {
+    if (File.Exists(Path.Join(root, "src/runtime/.cargo/config-dynamic.toml")) && profile == "release") {
+        return "release-dynamic";
+    }
+    return profile;
+}
+
+// rid → cargo triple（versions.toml [rid.*] 单一来源）。
+string _rtRidTriple(string root, string rid) {
+    return _vRidTriple(root, rid);
+}
