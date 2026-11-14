@@ -15,7 +15,7 @@ use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, CallInsn, Instruction, Terminator};
 use crate::zpkg::ir::ExecMode;
 use crate::object::Value;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 
 fn func(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Function {
     Function::new(crate::zpkg::ir::Function {

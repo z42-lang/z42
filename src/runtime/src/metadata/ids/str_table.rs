@@ -16,7 +16,7 @@
 //!   empty slots, which resolve to nothing.
 //!
 //! **Interned strings**: a slot's `gc` is set once, by the first `ConstStr` of that id on
-//! any thread of the VM (`VmContext::const_str`). The decision is made under the `roots`
+//! any thread of the VM (`exec::ops::const_string::load`). The decision is made under the `roots`
 //! lock, which records the string in the table's root set (scanned by the external root
 //! scanner, so an interned string lives as long as the VM). The string is allocated
 //! *before* the lock is taken — the allocator may take heap locks, and the scanner takes

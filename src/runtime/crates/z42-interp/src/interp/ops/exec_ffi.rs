@@ -15,7 +15,7 @@
 use crate::exec::exception::make_stdlib_exception;
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use anyhow::{bail, Result};
 
 use super::Frame;

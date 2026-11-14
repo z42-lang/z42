@@ -64,7 +64,7 @@ pub struct LazyLoader {
     /// (Decision 4: pre-inserted before load to break cycles).
     pub loaded_zpkgs:   FxHashSet<String>,
     /// Scratch buffer: zpkg file names newly inserted into `loaded_zpkgs` during
-    /// the current resolve. Drained (`mem::take`) by `VmContext::try_lookup_*`
+    /// the current resolve. Drained (`mem::take`) by `RuntimeLoader::try_lookup_*`
     /// to fire `ModuleLoaded` events — replaces cloning the whole `loaded_zpkgs`
     /// set on every lookup just to diff it afterwards (profiled: that per-call
     /// clone was the top interp alloc hotspot in cross-zpkg-heavy workloads like

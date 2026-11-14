@@ -49,7 +49,7 @@ pub struct LoadedProgram {
     module: Arc<Module>,
     mode: ExecMode,
     entry_hint: Option<String>,
-    initialized: OnceLock<Result<(), String>>,
+    initialized: OnceLock<()>,
 }
 
 impl LoadedProgram {
@@ -137,17 +137,10 @@ impl LoadedProgram {
             ctx.heap(),
             args.iter().map(|v| ctx.heap().pin_root(*v)).collect(),
         );
-        let initialized = self.initialized.get_or_init(|| {
+        self.initialized.get_or_init(|| {
             ctx.statics().clear_for_rerun();
             ctx.loader().drain_pending_type_loads();
-            match ctx.loader().take_static_init_error() {
-                Some(e) => Err(e),
-                None => Ok(()),
-            }
         });
-        if let Err(error) = initialized {
-            bail!("uncaught exception during static initialization: {error}");
-        }
         let outcome = ctx.core().exec().engines.invoke_mode(self.mode, ctx, self.module(), func, args);
         if crate::exec::stack_guard::is_fatal(ctx) {
             bail!(
@@ -159,9 +152,6 @@ impl LoadedProgram {
             );
         }
         let outcome = outcome?;
-        if let Some(error) = ctx.loader().take_static_init_error() {
-            bail!("uncaught exception during static initialization: {error}");
-        }
         match outcome {
             ExecOutcome::Returned(value) => Ok(value),
             ExecOutcome::Thrown(value) => bail!(

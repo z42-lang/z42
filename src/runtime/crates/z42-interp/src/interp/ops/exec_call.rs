@@ -9,7 +9,7 @@ use crate::metadata::dispatch::functions::fn_by_id;
 use crate::metadata::{Function, Module};
 use crate::object::Value;
 use crate::metadata::ids::tokens::FnId;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
 

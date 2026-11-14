@@ -236,11 +236,6 @@ impl RuntimeLoader<'_> {
         }
     }
 
-    /// defer-class-initialization: 取走首个懒初始化失败（若有）。`host::LoadedProgram::run_entry` 在入口返回后检查。
-    pub fn take_static_init_error(&self) -> Option<String> {
-        self.metadata.static_init_error.lock().take()
-    }
-
     /// Force-load every not-yet-loaded declared package (one-time eager load).
     /// Used by reflection's `make_type_from_name` dotless fallback when a class-like
     /// simple name (e.g. a constructed-generic field type_tag base `List`) can't be

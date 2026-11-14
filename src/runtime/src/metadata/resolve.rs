@@ -13,7 +13,7 @@
 //!   • `ObjNew` class + ctor  → `ObjNewSite` (class descriptor + ctor `FnId`; whatever is
 //!                              already registered, the rest filled on first dispatch)
 //!   • `StaticGet/Set.field`  → `StaticFieldId` (lazy global ID via
-//!                              `VmContext::resolve_static_field_id`)
+//!                              `StaticFields::resolve`)
 //!
 //! **Receiver-type-dependent** references (`VCall.method`, `FieldGet/Set
 //! .field_name`) are *not* resolved here. They use per-site monomorphic
@@ -90,7 +90,7 @@ use crate::metadata::dispatch::ic::{FieldIC, ObjNewSite, VCallIC};
 /// `let _ = ...` ignores the duplicate-set error).
 ///
 /// `ctx` is needed for `StaticGet/Set` resolution: static field IDs are
-/// allocated lazily through `VmContext::resolve_static_field_id` so
+/// allocated lazily through `StaticFields::resolve` so
 /// cross-zpkg static fields can be encountered in any load order.
 pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::vm::VmContext) {
     for func in &module.functions {

@@ -16,7 +16,7 @@ use crate::vm::VmContext;
 
 use super::error::{OpError, OpResult};
 
-/// 初始化屏障（`VmContext::ensure_static_field_init`：包初始化器 → 属主类型的静态构造器）。
+/// 初始化屏障（`Initialization::ensure_static_field_init`：包初始化器 → 属主类型的静态构造器）。
 /// 稳态代价：屏障纪元一次 relaxed load + 字段单元里的放行记录一次 acquire load。
 #[inline]
 fn barrier(ctx: &VmContext, module: &Module, field: &str, field_id: Option<u32>) -> OpResult<()> {

@@ -135,3 +135,5 @@
 - 静态字段存储使用 `ctx.statics()`，类型/包初始化执行使用 `ctx.initialization()`；加载只登记初始化事实，执行屏障负责运行托管代码。
 - 观察与统计归 diagnostics，线程注册/GC 停顿归 threads。注销计数转移和汇总必须持同一注册表锁，GC 回调保持 Weak 核心引用。
 - 桌面只定义一个 `z42vm` bin，SDK 只安装 `bin/z42vm[.exe]`；`native/` 只放库及嵌入资源。main 动态加载 Core 的进程入口，不另设 Windows 转发器或 native 可执行载荷。
+
+独立执行组件与 profiler 通过 components::bridge 的明确契约取得 VmContext 和 JIT 布局常量，不导入 vm 的实现路径，也不批量转出实现模块。更改内部归属时只更新契约适配位置；边界测试必须防止实现路径重新扩散。仅供 main 按符号查找的内部进程入口不发布无人消费的 C 头文件。

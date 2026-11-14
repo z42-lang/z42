@@ -16,7 +16,7 @@ use crate::object::{
     FieldAccess, ObjectLayout, TypeDesc, TypeDescCold, Value, STRUCT_LEAF_PRIM,
     TAG_I32, TAG_STR,
 };
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use std::sync::Arc;
 
 /// `class Holder { int n; string s; }`

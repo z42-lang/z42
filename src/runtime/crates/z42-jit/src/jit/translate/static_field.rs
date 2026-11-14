@@ -8,7 +8,7 @@
 //!   tag word / payload word                           `tparam_cell` protocol, as on the helper path
 //! ```
 //!
-//! The gate is `VmContext::ensure_static_field_init`'s first line: the cell records the cctor
+//! The gate is `Initialization::ensure_static_field_init`'s first line: the cell records the cctor
 //! registry's barrier epoch at which the whole barrier was last found a no-op, and every event that
 //! can make it act again moves the epoch. Both addresses belong to the VM's core, like the JIT itself.
 //!

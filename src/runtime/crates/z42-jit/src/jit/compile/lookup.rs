@@ -1,7 +1,7 @@
 //! Read-only linkage facts used while compiling a function.
 //! Queries neither load packages nor execute type initializers.
 use crate::metadata::{Function, statics::StaticCell};
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use super::state::JitRuntime;
 use crate::exec::call::forward::{builtin_forward, chained_forward};
 

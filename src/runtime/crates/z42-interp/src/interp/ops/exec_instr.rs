@@ -32,7 +32,7 @@ use crate::zpkg::{
 use crate::zpkg::CallNativeInsn;
 use crate::metadata::resolve::ResolvedTokens;
 use crate::metadata::ids::tokens::UNRESOLVED;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use anyhow::Result;
 
 use super::Frame;

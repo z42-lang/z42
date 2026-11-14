@@ -23,13 +23,13 @@
 //! shared per-context arena's staleness guard. Deref of an existing handle reads
 //! the id embedded in the handle (not the current frame), so only the *allocation*
 //! sites ([`frame_id_of`]) need the current frame's id — assigned lazily from
-//! `VmContext::next_frame_id()` the first time this frame allocates a struct. `0`
+//! `ThreadExecState::next_frame_id()` the first time this frame allocates a struct. `0`
 //! means "not yet allocated"; `next_frame_id()` never returns `0`.
 
 use crate::exec::ops::structs;
 use crate::object::Value;
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use super::{set_exception, vm_ctx_ref};
 
 /// Lazily assign (and return) this JIT frame's monotonic id, so a `StructRef` it

@@ -18,7 +18,7 @@ use crate::object::{
     STRUCT_LEAF_PRIM, TAG_I32, TAG_I64, TAG_OBJECT,
 };
 use crate::{zpkg::IrType, object::Value};
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use std::sync::Arc;
 
 #[derive(Clone, Copy)]

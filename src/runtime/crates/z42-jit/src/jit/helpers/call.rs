@@ -4,7 +4,7 @@
 use crate::object::Value;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
@@ -223,7 +223,7 @@ unsafe fn call_interp(
 /// Package-init then type-init barrier for a static call of `callee`; `Some` = the
 /// `TypeInitializationException` to throw.
 unsafe fn call_barriers(
-    vm: &crate::vm::VmContext, ctx: *const VmContext,
+    vm: &crate::components::bridge::VmContext, ctx: *const VmContext,
     callee: &crate::metadata::Function, owner: &crate::metadata::OwnerInitCell,
 ) -> Option<Value> {
     let module = super::jit_module(ctx);
@@ -293,7 +293,7 @@ pub unsafe extern "C" fn jit_native_module(
 /// leaves the error text: while the fatal flag is set the catch dispatch declines every
 /// handler, so it unwinds to the entry, which reports it.
 pub(crate) fn raised_into_exception(
-    vm: &crate::vm::VmContext, r: crate::exec::call::builtin_abi::error::Raised,
+    vm: &crate::components::bridge::VmContext, r: crate::exec::call::builtin_abi::error::Raised,
 ) -> u8 {
     use crate::exec::call::builtin_abi::error::Raised;
     let exc = match r {

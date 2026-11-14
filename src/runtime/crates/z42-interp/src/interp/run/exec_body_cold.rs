@@ -6,7 +6,7 @@
 
 use crate::metadata::{Function, Module};
 use crate::object::Value;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 

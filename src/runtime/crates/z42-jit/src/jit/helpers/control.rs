@@ -4,7 +4,7 @@
 
 use crate::object::Value;
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use super::{set_exception, take_exception, vm_ctx_ref};
 
 /// `jit_throw`: `throw_offset` is the throw site's packed code offset (baked by

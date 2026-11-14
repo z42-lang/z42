@@ -8,7 +8,7 @@ use crate::zpkg::ir::{BasicBlock, Instruction, LoadFnInsn, Terminator};
 use crate::metadata::resolve::ResolvedTokens;
 use crate::metadata::ids::tokens::UNRESOLVED;
 use crate::zpkg::ir::ExecMode;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 

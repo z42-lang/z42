@@ -6,7 +6,7 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use crate::metadata::dispatch::ic::{ctorless_hit, ctorless_note, ObjNewSite};
+use crate::metadata::dispatch::ic::{ctorless_hit, ctorless_note, fn_registration_mark, ObjNewSite};
 use crate::metadata::ids::tokens::UNRESOLVED;
 use crate::metadata::{Function, Module};
 use crate::object::{TypeDesc, Value};
@@ -104,7 +104,7 @@ pub fn resolve_ctor<'a>(
             if let Some(f) = fn_by_id((ctx).funcs(), module, id) {
                 return Ok(Some((f, Some(id as usize))));
             }
-        } else if ctorless_hit(Some(&s.ctorless), ctx.loader().fn_registration_mark()) {
+        } else if ctorless_hit(Some(&s.ctorless), fn_registration_mark()) {
             // cache-ctorless-objnew: this site proved the ctor resolves nowhere (module and
             // loader) and nothing has been registered since. A ctor in the module would have
             // been cached above instead, so the module need not be probed first.
@@ -125,7 +125,7 @@ fn bind_ctor<'a>(
     site: Option<&ObjNewSite>,
     holder: &'a mut Option<Arc<Function>>,
 ) -> Result<Option<(&'a Function, Option<usize>)>, Value> {
-    let mark = ctx.loader().fn_registration_mark();
+    let mark = fn_registration_mark();
     if let Some(f) = module.func_index.get(ctor_name).and_then(|&i| module.functions.get(i).map(|f| (i, f))) {
         let (idx, f) = f;
         // 站点 ⑤ fix-ctor-arity-skew：解析**成功**也要查——裸键在版本 skew 下会命中**错的**

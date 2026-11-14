@@ -10,7 +10,7 @@ use crate::metadata::dispatch::ic::ObjNewSite;
 use crate::object::Value;
 
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use super::{set_exception, vm_ctx_ref};
 

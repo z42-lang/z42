@@ -44,7 +44,7 @@ use crate::metadata::ids::func_table::FuncTable;
 use crate::metadata::ids::seg_vec::SparseSegTable;
 use crate::metadata::ids::tokens::FnId;
 use crate::metadata::{Function, Module};
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 
 use crate::jit::compile::lookup::CompileLookup;
 use crate::jit::runtime::frame::FnEntry;

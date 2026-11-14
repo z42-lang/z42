@@ -18,7 +18,7 @@ use crate::zpkg::ir::{BasicBlock, Terminator};
 use crate::zpkg::ir::ExecMode;
 use crate::metadata::ids::tokens::UNRESOLVED;
 use std::sync::Arc;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 
 /// A JIT-translatable `return;` function (no interp-only opcode).
 fn empty_fn(name: &str) -> Function {

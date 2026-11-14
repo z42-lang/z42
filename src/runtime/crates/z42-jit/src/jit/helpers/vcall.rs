@@ -15,7 +15,7 @@ use crate::metadata::dispatch::vcall::vcall_ic_hit;
 use crate::exec::ops::vcall::VCallTarget;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 

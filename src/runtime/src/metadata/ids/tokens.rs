@@ -134,7 +134,7 @@ define_token!(
 define_token!(
     /// Identifies one static field slot in `VmContext.static_fields: Vec<Value>`
     /// (cross-module / per-VmContext). Allocated lazily via
-    /// `VmContext::resolve_static_field_id(name)` so cross-zpkg static fields
+    /// `StaticFields::resolve(name)` so cross-zpkg static fields
     /// can be encountered in arbitrary load order.
     StaticFieldId
 );
@@ -262,7 +262,7 @@ impl TypeKeyCell {
 /// ```
 ///
 /// Nothing re-numbers a `TypeDesc` when it crosses a zpkg boundary
-/// (`VmContext::try_lookup_type` hands back the foreign `Arc` as-is), so two
+/// (`RuntimeLoader::try_lookup_type` hands back the foreign `Arc` as-is), so two
 /// classes from two zpkgs routinely share an id. A call site that sees both —
 /// e.g. `ParallelFor.Run`'s `body.Run(i)`, reached with `CompileCuTask`
 /// (z42c.semantics) *and* `SrcReadHashTask` (z42c.driver) — then dispatches the

@@ -140,7 +140,7 @@ pub(in crate::interp) fn eval_cmp_i64(op: crate::metadata::CmpOp, regs: &[Value]
 #[cold]
 #[inline(never)]
 pub(in crate::interp) fn raise(
-    ctx: &crate::vm::VmContext, module: &crate::metadata::Module, e: crate::objops::OpError,
+    ctx: &crate::components::bridge::VmContext, module: &crate::metadata::Module, e: crate::objops::OpError,
 ) -> Result<Option<Value>> {
     e.into_exception(ctx, Some(module)).map(Some)
 }

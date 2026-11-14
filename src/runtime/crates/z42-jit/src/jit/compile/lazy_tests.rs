@@ -13,7 +13,7 @@ use crate::jit::run_fn;
 use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, CallInsn, Instruction, Terminator};
 use crate::zpkg::ir::ExecMode;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 
 /// A JIT-translatable function whose body is a bare `return;` (no `Call`, no
 /// interp-only opcode → `jit_unsupported_reason` is `None`).

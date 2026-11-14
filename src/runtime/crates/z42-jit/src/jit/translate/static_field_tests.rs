@@ -13,7 +13,7 @@ use crate::metadata::ids::tokens::TypeId;
 use crate::zpkg::ir::ExecMode;
 use crate::object::{NativeData, ObjectLayout, TypeDesc, TypeDescCold};
 use crate::{zpkg::IrType, object::Value};
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use std::sync::Arc;
 
 // ── building blocks ─────────────────────────────────────────────────────────

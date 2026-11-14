@@ -8,7 +8,7 @@ use crate::{
     zpkg::{BranchTargets, Terminator},
     object::Value,
 };
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
@@ -39,7 +39,7 @@ impl Drop for FrameGuard<'_> {
 /// is reported with the frame already on the stack — and recycles its registers.
 /// The frame's arena id is taken lazily (`Frame::frame_id`), not here; the
 /// bottom frame's push also installs the context's engine guards
-/// (`VmContext::push_frame`).
+/// (`ThreadExecState::push_frame`).
 ///
 /// Must not reach a safepoint before the push: until then the callee's
 /// arguments are reachable only from `frame` (see `exec_function_body`).

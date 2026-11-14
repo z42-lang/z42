@@ -7,7 +7,7 @@ use crate::{
     zpkg::{BranchTargets, Terminator},
     object::Value,
 };
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 

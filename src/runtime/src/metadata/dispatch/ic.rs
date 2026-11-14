@@ -299,7 +299,7 @@ pub fn note_fn_registration() {
 /// `true` when this `ObjNew` site already proved its class has **no constructor**
 /// and nothing has been registered into the loader's function registry since.
 ///
-/// `live` is `VmContext::fn_registration_mark()`. `0` is the never-proved
+/// `live` is `fn_registration_mark()`. `0` is the never-proved
 /// sentinel (the live counter starts at 1), so a fresh slot never hits.
 #[inline]
 pub fn ctorless_hit(mark: Option<&std::sync::atomic::AtomicUsize>, live: usize) -> bool {

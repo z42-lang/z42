@@ -52,15 +52,6 @@ impl RuntimeLoader<'_> {
         crate::metadata::dispatch::ic::note_fn_registration();
     }
 
-    /// cache-ctorless-objnew: the current function-registration count. An `ObjNew`
-    /// site that proved "this class has no constructor" at value `n` may reuse that
-    /// answer while this still reads `n` — the loader's function registry only ever
-    /// grows, and a ctor can only appear by being inserted there.
-    #[inline]
-    pub fn fn_registration_mark(&self) -> usize {
-        crate::metadata::dispatch::ic::fn_registration_mark()
-    }
-
     /// fix-cross-pkg-subclass-fields : seed the lazy loader's
     /// `type_registry` with TypeDescs from eagerly-loaded modules (e.g. the
     /// merged main module). Used by both the z42vm CLI and the in-process

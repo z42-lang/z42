@@ -5,7 +5,7 @@
 //! `exec::ambient`'s heap (heap-less `Str::new` / `.into()` allocate from it) and,
 //! with `native-interop`, `exec::active_vm`'s `CURRENT_VM` (`z42_*` exports find
 //! the VM through it). Both stay the same for a whole activation chain, so they
-//! are installed when the **bottom** frame is pushed (`VmContext::push_frame`,
+//! are installed when the **bottom** frame is pushed (`ThreadExecState::push_frame`,
 //! frame-stack depth 0 → 1) and restored when the stack is empty again
 //! (`pop_frame`). A nested call costs no thread-local access.
 //!

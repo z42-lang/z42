@@ -17,7 +17,7 @@ mod generic_call_tests;
 use crate::metadata::Module;
 use compile::vm_interface::JitVm;
 use anyhow::Result;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use runtime::{frame::JitFrame, invoke};
 use helpers::take_exception_error;
 

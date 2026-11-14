@@ -1,4 +1,8 @@
 //! Minimal same-build VM views and physical image/layout identity for components.
+// Component-facing VM identities and layout facts stay here when their owner
+// moves internally. Export individual contracts, never whole implementation modules.
+pub use crate::vm::{VmContext, VM_CONTEXT_CCTORS_OFFSET,
+    VM_CONTEXT_SAFEPOINT_SKIP_OFFSET, VM_CONTEXT_STACK_LIMIT_OFFSET};
 use crate::components::abi::ExecutionCoreAbi;
 static CORE_IDENTITY: u8 = 0;
 pub fn core_identity() -> *const core::ffi::c_void { core::ptr::addr_of!(CORE_IDENTITY).cast() }

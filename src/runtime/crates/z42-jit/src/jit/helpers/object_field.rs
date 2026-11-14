@@ -12,7 +12,7 @@
 use crate::metadata::dispatch::ic::FieldIC;
 
 use crate::jit::runtime::frame::JitFrame;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use super::{raise, vm_ctx_ref};
 
 #[inline(always)]

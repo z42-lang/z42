@@ -5,7 +5,7 @@
 use crate::metadata::dispatch::ctor::{site_for, instance_type_args};
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 use anyhow::Result;
 
 use super::collect_args;

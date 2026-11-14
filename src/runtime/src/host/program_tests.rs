@@ -110,19 +110,6 @@ fn repeated_invocations_preserve_static_state_and_validate_entries_and_arguments
 }
 
 #[test]
-fn initialization_failure_is_sticky_and_entry_is_not_executed() {
-    let program = program(ExecMode::Interp, false);
-    *program.context().core.runtime.static_init_error.lock() = Some("init failed".into());
-    for _ in 0..2 {
-        assert!(program
-            .invoke("Demo.Main", &[])
-            .unwrap_err()
-            .to_string()
-            .contains("init failed"));
-    }
-}
-
-#[test]
 fn interpreted_exceptions_are_reported_by_the_host_service() {
     let program = program(ExecMode::Interp, true);
     assert!(program

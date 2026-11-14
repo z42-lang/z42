@@ -102,7 +102,7 @@ impl Initialization<'_> {
     }
 
     /// **静态字段访问的 cctor 屏障**（interp 与 JIT **共用同一实现**）：静态字段屏障
-    /// （`VmContext::ensure_static_field_init`）在单元里没有当前纪元的放行记录时调它。
+    /// （`Initialization::ensure_static_field_init`）在单元里没有当前纪元的放行记录时调它。
     ///
     /// 两个后端共用一份，是因为「两后端语义一致」正是这个特性最容易出错的地方——
     /// 各写一份迟早漂移。JIT 侧此前完全没有屏障，导致默认模式下静态构造器根本不跑

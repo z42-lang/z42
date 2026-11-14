@@ -37,7 +37,7 @@ pub use registry::{declare_imports, register_symbols, HelperIds};
 
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::vm::VmContext;
+use crate::components::bridge::VmContext;
 
 use crate::jit::runtime::frame::JitFrame;
 use crate::jit::compile::state::JitRuntime;

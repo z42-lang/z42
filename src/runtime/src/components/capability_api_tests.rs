@@ -153,3 +153,25 @@ fn checking_a_real_library_candidate_does_not_open_it() {
     // Windows keeps mapped DLL files locked; the build directory owns this copy
     // until the test process exits and releases its process-lifetime image cache.
 }
+
+#[test]
+fn component_vm_imports_stay_on_the_consumption_contract() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("crates");
+    for component in ["z42-interp", "z42-jit", "z42-profiler"] {
+        let mut directories = vec![root.join(component).join("src")];
+        while let Some(directory) = directories.pop() {
+            for entry in std::fs::read_dir(directory).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() { directories.push(path); continue; }
+                if path.extension().is_none_or(|ext| ext != "rs") { continue; }
+                let source = std::fs::read_to_string(&path).unwrap();
+                let grouped_owner = source.split("use z42::{").skip(1).any(|imports| {
+                    imports.split('}').next().unwrap().split(',').any(|name| name.trim() == "vm")
+                });
+                assert!(!grouped_owner && !source.contains("crate::vm::")
+                    && !source.contains("z42::vm::") && !source.contains("use z42::vm;"),
+                    "{} imports the VM implementation; use components::bridge", path.display());
+            }
+        }
+    }
+}
