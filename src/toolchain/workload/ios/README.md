@@ -56,6 +56,8 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
 build xcframework + 编 fixture + 在 iOS Simulator 上 `xcodebuild test` 跑 R1–R7（7 个 XCTest），
 JUnit → `artifacts/reports/tests/ios/junit.xml`。
 
+`./xtask package runtime --rid iossim-arm64 --verify` 验证发布归档与 Framework 的实际 C 宿主，并编译导出的 arm64 模拟器 Xcode 应用，检查组件随应用嵌入且 profiler 没有被启动链接。
+
 ## 关联文档
 
 - 跨平台契约：[`../platform-contract.md`](../platform-contract.md)（含错误码映射）

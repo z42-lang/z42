@@ -52,7 +52,7 @@ void _generateIosProject(string outputDir, string name, string bundleId,
     if (Directory.Exists(libs)) { _iosCopyTree(libs, Path.Join(srcDir, "libs")); }
 
     File.WriteAllText(Path.Join(projDir, "project.pbxproj"),   _iosPbxproj(name, bundleId, minIos, components));
-    File.WriteAllText(Path.Join(srcDir,  "main.swift"),         _iosMainSwift(name));
+    File.WriteAllText(Path.Join(srcDir,  "AppDelegate.swift"),         _iosAppDelegateSwift(name));
     File.WriteAllText(Path.Join(srcDir,  "Info.plist"),         _iosInfoPlist(bundleId, displayName));
 
     string assetsDir = Path.Join(srcDir, "Assets.xcassets");
@@ -61,7 +61,7 @@ void _generateIosProject(string outputDir, string name, string bundleId,
         "{\n  \"info\" : { \"author\" : \"xcode\", \"version\" : 1 }\n}\n");
 
     Console.WriteLine("  ✓ " + name + ".xcodeproj/project.pbxproj");
-    Console.WriteLine("  ✓ " + name + "/main.swift  " + name + "/Info.plist");
+    Console.WriteLine("  ✓ " + name + "/AppDelegate.swift  " + name + "/Info.plist");
 }
 
 // Generate project.pbxproj with fixed deterministic 24-char hex object IDs.
@@ -104,7 +104,7 @@ string _iosPbxproj(string name, string bundleId, string minIos, string[] compone
     b = b + "/* End PBXBuildFile section */\n\n";
 
     b = b + "/* Begin PBXFileReference section */\n";
-    b = b + "\t\t" + iFrMain + " = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = \"<group>\"; };\n";
+    b = b + "\t\t" + iFrMain + " = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = \"<group>\"; };\n";
     b = b + "\t\t" + iFrZpkg + " = {isa = PBXFileReference; lastKnownFileType = file; path = app.zpkg; sourceTree = \"<group>\"; };\n";
     b = b + "\t\t" + iFrXcfw + " = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = z42.framework; sourceTree = \"<group>\"; };\n";
     b = b + "\t\t" + iFrApp + " = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = " + name + ".app; sourceTree = BUILT_PRODUCTS_DIR; };\n";
@@ -190,7 +190,7 @@ string _iosPbxproj(string name, string bundleId, string minIos, string[] compone
     return b;
 }
 
-string _iosMainSwift(string name) {
+string _iosAppDelegateSwift(string name) {
     // Generated AppDelegate: run the bundled app.zpkg IN-PROCESS via the embedded
     // z42 runtime (Z42TestHost.runApp → z42_host_run_app — the same G6 embed core
     // desktop --self-contained uses). iOS bundle resources are real filesystem
