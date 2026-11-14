@@ -88,6 +88,7 @@ Process _componentCRunner(string exe, string rid) {
     return p.WorkingDirectory(Path.GetDirectoryName(exe))
         .EnvRemove("Z42_NATIVE_PATH").EnvRemove("Z42_CONFIG").EnvRemove("Z42_APP_CONFIG")
         .EnvRemove("Z42_HOME").EnvRemove("Z42_LIBS").EnvRemove("Z42_PORTABLE_VM")
+        .EnvRemove("Z42_SAMPLE_HZ").EnvRemove("SIMCTL_CHILD_Z42_SAMPLE_HZ")
         .EnvRemove("LD_LIBRARY_PATH").EnvRemove("DYLD_LIBRARY_PATH").EnvRemove("DYLD_FALLBACK_LIBRARY_PATH");
 }
 int _componentCRun(string exe, string pkg, string rid, string zbc, string mode, string action) {
@@ -95,7 +96,11 @@ int _componentCRun(string exe, string pkg, string rid, string zbc, string mode, 
         .Arg(_componentNativeBinary(pkg, "z42", rid)).Arg(zbc).Arg(Path.Join(pkg, "libs"))
         .Arg(mode).Arg(action).Arg(_componentNativeBinary(pkg, "z42_compression", rid))
         .Arg(_componentNativeBinary(pkg, "z42_profiler", rid));
-    if (action.StartsWith("sampling")) { p = p.Env("Z42_SAMPLE_HZ", "1000"); }
+    if (action.StartsWith("sampling")) {
+        // simctl forwards SIMCTL_CHILD_* to the spawned simulator process.
+        string key = rid == "iossim-arm64" ? "SIMCTL_CHILD_Z42_SAMPLE_HZ" : "Z42_SAMPLE_HZ";
+        p = p.Env(key, "1000");
+    }
     return _exec(p);
 }
 int _componentCVerifyDynamic(string root, string pkg, string rid, string zbc, string work) {

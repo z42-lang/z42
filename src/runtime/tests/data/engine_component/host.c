@@ -73,6 +73,8 @@ int main(int argc, char** argv) {
     int expect_missing = argc > 5 && strcmp(argv[5], "expect-missing") == 0;
     int sampling = argc > 5 && strncmp(argv[5], "sampling", 8) == 0;
     if (sampling && strcmp(argv[5], "sampling-missing") == 0) expect_missing = 3;
+    const char* sample_hz = getenv("Z42_SAMPLE_HZ");
+    REQUIRE(sampling ? sample_hz && strcmp(sample_hz, "1000") == 0 : sample_hz == NULL);
     struct Api api;
 #ifdef Z42_COMPONENT_DYNAMIC
     /* Retain the core image through process/TLS teardown. */
