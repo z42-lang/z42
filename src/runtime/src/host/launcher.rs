@@ -21,7 +21,7 @@ unsafe extern "C" fn run(argc: i32, argv: *const *const c_char) -> i32 {
 }
 static ENTRY: RuntimeEntry = RuntimeEntry {
     header: EntryHeader { version: ENTRY_VERSION, size: std::mem::size_of::<RuntimeEntry>() as u32 },
-    build_id: crate::components::api::COMPONENT_BUILD_ID,
+    build_id: crate::components::abi::COMPONENT_BUILD_ID,
     run: Some(run),
 };
 #[no_mangle]

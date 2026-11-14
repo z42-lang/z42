@@ -286,5 +286,5 @@ fn safepoint_policy_is_per_vm_and_shared_by_worker_resets() {
 fn configured_context(module: Option<std::sync::Arc<crate::metadata::Module>>, vfs: std::sync::Arc<dyn crate::pal::fs::Vfs>,
     extensions: crate::context::extensions::ExtensionState, config: crate::config::VmConfig,
     protocol: crate::exec::object_protocol::ObjectProtocol) -> std::pin::Pin<Box<VmContext>> {
-    super::with_config(module, vfs, extensions, config, protocol, crate::components::backends::registry())
+    super::with_config(module, vfs, extensions, config, protocol, crate::components::api::engine_registry())
 }

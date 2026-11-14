@@ -63,7 +63,7 @@ pub fn heap_direct_referrers(ctx: &VmContext, target: &Value) -> Result<Value, B
     let Some(ptr) = target_ptr(target) else {
         return Ok(ctx.heap().alloc_array(Vec::new()));
     };
-    let provider = ctx.core().diagnostics().sampler.provider(ctx)
+    let provider = crate::components::api::profiler_service(ctx)
         .map_err(|e| BuiltinError::NotSupported(format!("profiler unavailable: {e:#}")))?;
     let referrers = with_world_stopped(ctx, || provider.direct_referrers(ctx.heap(), ptr));
     let mut out = Vec::with_capacity(referrers.len());
@@ -85,7 +85,7 @@ pub fn heap_retaining_roots(ctx: &VmContext, target: &Value) -> Result<Value, Bu
     let Some(ptr) = target_ptr(target) else {
         return Ok(ctx.heap().alloc_array(Vec::new()));
     };
-    let provider = ctx.core().diagnostics().sampler.provider(ctx)
+    let provider = crate::components::api::profiler_service(ctx)
         .map_err(|e| BuiltinError::NotSupported(format!("profiler unavailable: {e:#}")))?;
     let roots = with_world_stopped(ctx, || provider.retaining_roots(ctx.heap(), ptr));
     let mut out = Vec::with_capacity(roots.len());

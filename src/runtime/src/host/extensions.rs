@@ -69,5 +69,5 @@ fn repl_candidates() -> Vec<std::path::PathBuf> {
 #[cfg(any(feature = "native-interop", feature = "component-loading"))]
 fn native_candidates(name: &str) -> Vec<std::path::PathBuf> {
     if name == "z42_repl" { return repl_candidates(); }
-    crate::pal::dynlib::candidate_paths(name, crate::components::native_paths())
+    crate::pal::dynlib::candidate_paths(name, crate::components::api::native_paths())
 }

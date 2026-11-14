@@ -108,6 +108,21 @@ pub fn resolve_native_beside(zpkg_dir: &std::path::Path, lib_name: &str) -> Opti
 pub struct Library(libloading::Library);
 
 #[cfg(any(feature = "native-interop", feature = "component-loading"))]
+fn component_images() -> &'static parking_lot::Mutex<std::collections::BTreeMap<std::path::PathBuf, std::sync::Arc<Library>>> {
+    static IMAGES: std::sync::OnceLock<parking_lot::Mutex<std::collections::BTreeMap<std::path::PathBuf, std::sync::Arc<Library>>>> = std::sync::OnceLock::new();
+    IMAGES.get_or_init(Default::default)
+}
+
+/// Inspect retained images without invoking the operating-system loader.
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
+pub(crate) fn component_is_loaded(path: &std::path::Path) -> bool {
+    let key = if is_loader_name(path) { path.to_path_buf() }
+        else if let Ok(path) = path.canonicalize() { path }
+        else { return false; };
+    component_images().lock().contains_key(&key)
+}
+
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
 impl Library {
     /// Open a runtime component and retain its native image for the process.
     /// Rust/shared-std TLS may keep destructor callbacks after the last VM exits.
@@ -116,16 +131,15 @@ impl Library {
     /// # Safety
     /// The same trust and initializer requirements as `open` apply.
     pub unsafe fn open_component(path: &std::path::Path) -> std::io::Result<std::sync::Arc<Self>> {
-        use std::{collections::BTreeMap, sync::{Arc, Mutex, OnceLock}};
-        static IMAGES: OnceLock<Mutex<BTreeMap<std::path::PathBuf, Arc<Library>>>> = OnceLock::new();
+        use std::sync::Arc;
         let path = if is_loader_name(path) { path.to_path_buf() } else { path.canonicalize()? };
-        let images = IMAGES.get_or_init(Default::default);
-        if let Some(image) = images.lock().unwrap().get(&path).cloned() {
+        let images = component_images();
+        if let Some(image) = images.lock().get(&path).cloned() {
             return Ok(image);
         }
         // Initializers may load other components; never run them under the lock.
         let image = Arc::new(unsafe { Self::open_image(&path) }?);
-        Ok(images.lock().unwrap().entry(path).or_insert(image).clone())
+        Ok(images.lock().entry(path).or_insert(image).clone())
     }
 
     /// Open the library at `path`. The error names the path.

@@ -5,6 +5,15 @@ fn file_name_wraps_the_stem() {
     assert!(f.ends_with(std::env::consts::DLL_SUFFIX));
 }
 
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
+#[test]
+fn a_missing_image_is_not_loaded_by_cache_queries() {
+    let path = std::env::temp_dir().join(format!("z42-query-missing-{}", std::process::id()))
+        .join(super::file_name("missing"));
+    for _ in 0..4 { assert!(!super::component_is_loaded(&path)); }
+    assert!(!path.exists());
+}
+
 #[cfg(all(feature = "native-interop", unix))]
 #[test]
 fn open_reports_the_path() {

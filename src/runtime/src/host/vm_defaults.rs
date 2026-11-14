@@ -43,7 +43,7 @@ impl VmContext {
             module,
             vfs,
             extensions,
-            crate::components::backends::registry(),
+            crate::components::api::engine_registry(),
         )
     }
 

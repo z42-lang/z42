@@ -24,15 +24,9 @@ pub(crate) fn build(
     if let Some(module) = ctx.module() {
         resolve_tokens(&ctx, module);
     }
-    let components = options
-        .backends
-        .components(options.mode, &options.components)?;
-    ctx.core().diagnostics().sampler.set_source(options.profiler.clone())?;
-    components.install(&ctx)?;
-    crate::components::backends::attach(&ctx, options.mode)?;
-    if ctx.core().diagnostics().sampler.enabled() {
-        ctx.core().diagnostics().sampler.provider(&ctx)?;
-    }
+    crate::components::api::prepare_program(
+        &ctx, options.mode, &options.components, &options.backends, &options.profiler,
+    )?;
     for (name, byte_size) in initial_events {
         ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ModuleLoaded {
             name,

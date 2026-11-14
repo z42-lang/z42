@@ -1,5 +1,5 @@
-use super::*;
 use super::api::*;
+use crate::components::abi::*;
 use crate::host::{LoadedProgram, LoadOptions, ExecMode};
 use crate::context::VmContext;
 use std::sync::Mutex;
@@ -196,7 +196,7 @@ fn default_backend_is_attached_without_optional_components() {
 }
 
 #[cfg(feature = "component-loading")]
-fn fixture() -> &'static std::path::Path {
+pub(super) fn fixture() -> &'static std::path::Path {
     static PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
     PATH.get_or_init(|| {
         let root = std::path::PathBuf::from(env!("Z42_RUNTIME_DIR"));

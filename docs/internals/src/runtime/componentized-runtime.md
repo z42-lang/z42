@@ -17,11 +17,12 @@
 
 main.rs 不调用 Rust VM 接口，只查找 libz42 并取得版本化 C 入口。先验证头版本、大小、构建身份和回调，再把参数交给 host::cli。已打开的库保留到进程结束，避免运行时或依赖的 TLS 析构跳入已卸载代码。
 
-普通嵌入功能从 z42::host 提供，CLI 也调用相同宿主服务。当前 host 仍转出组件管理与协议，公开签名和静态装配头也有内部类型泄露；
-收口目标是 VM 消费者通过内部 components::api 请求能力，跨库协议另列契约，普通宿主不接触组件管理。
+普通嵌入功能从 z42::host 提供，CLI 也调用相同宿主服务。VM 消费者通过内部 components::api 请求准备、执行角色及分析服务，跨库协议另列 components::abi 契约。
+当前 host 仍具名转出组件管理，公开签名和静态装配头也有内部类型泄露；普通宿主面的完整收口尚未完成。
 当前缺口与目标关系见[运行时模块边界](module-boundaries.md)，这项收口尚未完成。
 
-组件框架集中在 `runtime/src/components/`：当前 api 定义跨库协议，catalog 加载和校验工厂，options 接收配置，instance 管理每 VM 实例和租约，backends 选择并装配执行接口，identity 检查核心映像与布局，linked 管理静态工厂。当前部分消费者直接引用管理子模块；VM 内部统一访问门面尚未独立出来。
+组件框架集中在 `runtime/src/components/`：api 提供内部能力访问，execution_roles 保存不可变角色绑定，catalog 加载和校验工厂，options 接收装配输入，instance 管理每 VM 实例和租约，backends 选择执行来源与发现候选，linked 管理静态工厂。
+components::abi 定义同构建跨库 C 协议，components::bridge 检查核心映像与布局。components 只公开同构建 abi/bridge 子模块，内部 api 和管理子模块不对 crate 外开放。
 
 GC 与值/对象布局仍属于 core，不能运行中切换；它们位于分配、屏障和 safepoint 热路径，机器码使用固定布局。解析符号和崩溃栈定位是基础能力，不依赖可选调试器。
 
@@ -57,13 +58,16 @@ iOS/WASM 等平台按可信运行时组件的实际装载能力判定，不能�
 
 ## 2. 引擎注册与选择
 
-VmCore.exec.engines 持有基线 Engine、JIT 模式 Engine、TierApi 和后端配置。门面选择组件，校验后调用 ExecutionApi.attach 注册能力；core 只调用已注册能力。静态与动态后端使用同一 attach 路径，不依赖全局构造器。
+VmCore.exec.engines 持有基线 Engine、JIT 模式 Engine、TierApi 和后端配置。内部能力门面准备来源并绑定 Baseline/Optimizing 语义角色，
+注册表在任何 create_vm 之前核对绑定唯一性、提供方存在及 ExecutionApi 的版本/大小/对齐。实际接口查询仍校验返回表头。
+api 的装配协调按角色取得接口、验证核心身份后调用 ExecutionApi.attach；成功返回还须确认所需引擎已登记。core 只调用已注册能力。静态与动态后端使用同一 attach 路径，不依赖全局构造器。
 
 interp 的静态、虚、闭包和混合调用通过共享参数视图进入 Engine；JIT 的冷/不可翻译调用通过注册的基线 Engine 回落。解释器热循环保留 OSR 计数及阈值比较，交接经 TierApi。两个后端不互相引用实现，不使用进程全局 JIT 单例。
 
 LoadOptions.backends 的每个后端可选 Auto、Linked、Dynamic(path)、Disabled。Auto 优先使用静态实现，否则查询动态库；JIT 模式同时需要基线解释器。显式 JIT 请求在加载/准备阶段验证，未链接、库缺失、平台不支持、协议不匹配和被禁用均返回错误，不改成解释模式。CLI 的 --mode jit、配置和 Z42_MODE=jit 遵循相同规则。
 
-原生库搜索共用 components 的 native_paths：显式配置（含 Z42_NATIVE_PATH）、可执行文件旁 native/、../native/、可执行文件目录和已加载核心所在目录。iOS 也查询相邻 Framework 与应用的 Frameworks 目录；Android 最后交给系统加载器按库名查询，以支持 APK 内未解压的原生库。Auto 按固定候选顺序查询，显式 Dynamic 只使用所给路径。可用性查询表示候选是否存在，真正装配仍须完成库加载和接口校验。
+原生库搜索共用 components 的 native_paths：显式配置（含 Z42_NATIVE_PATH）、可执行文件旁 native/、../native/、可执行文件目录和已加载核心所在目录。iOS 也查询相邻 Framework 与应用的 Frameworks 目录；Android 最后交给系统加载器按库名查询，以支持 APK 内未解压的原生库。Auto 按固定候选顺序查询，显式 Dynamic 只使用所给路径。可用性查询只读候选文件及已装入的映像缓存，不打开库或调用工厂；Android 未知裸库名在显式准备时才交给系统加载器。
+C 宿主初始化核对 JIT 的构建/目标支持，不探测来源；缺库、入口与 ABI 错误由程序准备报告。真正装配仍须完成库加载和接口校验。
 
 ### 构建矩阵
 
@@ -186,6 +190,6 @@ profiler 的算法与线程位于 z42-profiler，diagnostics 只持有中立契�
 - [运行时/包分发](../toolchain/workload-distribution.md)
 - [诊断与跟踪](diagnostics.md)
 
-当前跨库组件协议由 z42::components::api 定义，包含描述符、C 布局接口和执行注册；core build.rs 生成共享构建身份。
-这份协议与目标中的 VM 内部访问门面同名，仍需拆分；host 的现有再导出属于待收口缺口。生产执行库单向依赖 core，
+跨库组件协议由 z42::components::abi 定义，包含描述符、C 布局接口和执行注册；core build.rs 生成共享构建身份。
+z42::components::bridge 提供最小核心身份/布局校验，不包含组件管理。host 的具名管理再导出仍属于待收口缺口。生产执行库单向依赖 core，
 通用 ABI 夹具只使用协议值和回调，实际执行组件仍链接同一份共享核心。
