@@ -15,6 +15,8 @@ class CheckSpec {
 
 CheckSpec[] _checks() {
     return new CheckSpec[]{
+        new CheckSpec("docs", "documentation links, diagnostic registration and test layout", () => _checkDocs()),
+        new CheckSpec("release-archives", "release archive contracts without product builds", () => _testPackagesRelease()),
         new CheckSpec("bench-vm", "native VM benchmark runner contracts on tiny Rust fixtures", () => _selfcheckVmBenchRunner()),
         new CheckSpec("xtask", "xtask control and execution-contract regressions without product builds", () => _checkXtask()),
         new CheckSpec("flows", "flow configuration and planner regressions", () => _checkFlows()),
@@ -27,6 +29,12 @@ CheckSpec[] _checks() {
         new CheckSpec("versions", "versions.toml agrees with its projections", () => _checkVersions()),
         new CheckSpec("doc-lints", "stdlib doc comments have no W08xx findings", () => _checkDocLints())
     };
+}
+
+int _checkDocs() {
+    int c = _testDocs(_root()); if (c != 0) { return c; }
+    c = _checkDiagCodes(); if (c != 0) { return c; }
+    return _checkLayout();
 }
 
 class CheckCommand : Command {

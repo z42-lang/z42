@@ -63,3 +63,11 @@ int _ciSupersedePr(CiGitHub api, string repo, string id, bool dryRun, int graceM
     }
     return 0;
 }
+
+int _ciSupersede(CiGitHub api, bool dryRun) {
+    if (Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", "") != "workflow_run") {
+        throw new Exception("PR cleanup requires a workflow_run event");
+    }
+    JsonValue ev = JsonValue.Parse(File.ReadAllText(Environment.GetEnvironmentVariable("GITHUB_EVENT_PATH", "")));
+    return _ciSupersedePr(api, _ciRepo(), ev.Get("workflow_run").Get("id").AsLong().ToString(), dryRun);
+}

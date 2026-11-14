@@ -19,7 +19,7 @@
 //! .field_name`) are *not* resolved here. They use per-site monomorphic
 //! inline caches (`VCallIC` / `FieldIC`) populated on first dispatch.
 //!
-//! Population timing: called from `host::LoadedProgram::run_entry` after `merge_modules` /
+//! Population timing: called from `host::program_builder::resolve_tokens` after `merge_modules` /
 //! `build_type_registry` are done (so all intra-module lookups succeed)
 //! and before any dispatch happens (so hot paths see fully-populated
 //! `ResolvedTokens`).
@@ -102,7 +102,7 @@ pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::context::Vm
 ///
 /// Extracted from `resolve_module` (perf-lazy-resolve-tokens) so
 /// **lazily-loaded** functions — whose owning zpkg is never passed through
-/// `resolve_module` (only the entry module is, in `host::LoadedProgram::run_entry`) — can populate
+/// `resolve_module` (only the entry module is, in `host::program_builder::resolve_tokens`) — can populate
 /// their per-site caches too. Before this, every function in a lazily-loaded
 /// package (e.g. all of z42c.semantics / z42c.syntax during a self-compile)
 /// ran with `resolved == None`, so its VCall PIC / FieldIC / builtin-id /

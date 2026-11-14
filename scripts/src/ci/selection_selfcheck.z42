@@ -34,6 +34,7 @@ void _ciSelectionChecks(FlowConfig cfg) {
         _gateAssert(header.Contains("needs.changes.outputs." + flag + " == 'true'"), "product job consumes explicit resource selection: " + job);
     }
     _ciQueueChecks();
+    _ciMainScopeChecks();
     _ciBootstrapAvailabilityChecks();
     string output = _xtaskWork(_root(), "flow-package-output");
     try {

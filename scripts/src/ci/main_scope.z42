@@ -1,0 +1,61 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+// Publishing uses nightly..head, independently of the event's validation base.
+bool _ciSdkBetween(CiGitHub api, FlowConfig cfg, string root, string repo, string base_, string head) {
+    if (base_.Length == 0) { return true; }
+    if (base_ == head) { return false; }
+    try {
+        JsonValue files = api.Get("repos/" + repo + "/compare/" + base_ + "..." + head).Get("files");
+        if (!files.IsArray() || files.Count() >= 300) { return true; }
+        var owners = new FlowOwners(root);
+        for (int i = 0; i < files.Count(); i = i + 1) {
+            JsonValue item = files.At(i);
+            string current = item.Get("filename").AsString();
+            string previous = _ciString(item, "previous_filename");
+            foreach (var file in new string[]{ current, previous }) {
+                if (file.Length == 0) { continue; }
+                FlowInput rule = _flowInput(cfg, file, owners);
+                if (rule == null || rule.Publish) { return true; }
+            }
+        }
+        return false;
+    } catch (Exception e) { ConsoleError.WriteLine("SDK diff unknown; retain publishing: " + e.Message); return true; }
+}
+
+// A pending main run may replace several pushes, including private test changes.
+string _ciMainBase(CiGitHub api, string repo, string head) {
+    try {
+        JsonValue runs = api.Get("repos/" + repo + "/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1").Get("workflow_runs");
+        if (!runs.IsArray() || runs.Count() == 0 || head.Length == 0) { throw new Exception("no successful main validation"); }
+        JsonValue run = runs.At(0);
+        string base_ = _ciString(run, "head_sha");
+        if (base_.Length == 0 || _ciString(run, "head_branch") != "main" || _ciString(run, "event") != "push"
+            || _ciString(run, "status") != "completed" || _ciString(run, "conclusion") != "success") {
+            throw new Exception("unexpected successful main run identity");
+        }
+        if (base_ != head) {
+            string status = _ciString(api.Get("repos/" + repo + "/compare/" + base_ + "..." + head), "status");
+            if (status != "ahead" && status != "identical") { throw new Exception("successful validation is not an ancestor of this head"); }
+        }
+        return base_;
+    } catch (Exception e) { ConsoleError.WriteLine("main validation unknown; run all checks: " + e.Message); return ""; }
+}
+
+int _ciMainScope(CiGitHub api) {
+    string repo = _ciRepo(); string root = _root();
+    string head = Environment.GetEnvironmentVariable("GITHUB_SHA", "");
+    string nightly = "";
+    try { nightly = api.Get("repos/" + repo + "/git/ref/tags/nightly").Get("object").Get("sha").AsString(); }
+    catch (Exception e) { ConsoleError.WriteLine("nightly base unavailable: " + e.Message); }
+    bool sdk = _ciSdkBetween(api, _flowConfigFor(root), root, repo, nightly, head);
+    string base_ = _ciMainBase(api, repo, head);
+    string text = "sdk=" + (sdk ? "true" : "false") + "\nvalidation_base=" + base_
+        + "\nvalidation_full=" + (base_.Length == 0 ? "true" : "false") + "\n";
+    string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
+    if (output.Length > 0) { File.AppendAllText(output, text); }
+    Console.Write(text);
+    return 0;
+}

@@ -13,7 +13,7 @@ class FlowCommand : Command {
 }
 
 class FlowPlanCommand : Command {
-    [Option(help: "Git base (default HEAD for local worktree)")] public string Base = "";
+    [Option(help: "Git base (default HEAD locally; with --event-file, override push validation base)")] public string Base = "";
     [Option(help: "compare from the merge-base of --base and HEAD")] public bool MergeBase;
     [Option(help: "Git head (omitted: include local tracked and untracked changes)")] public string Head = "";
     [Option(help: "GitHub event JSON; selects immutable CI commits")] public string EventFile = "";

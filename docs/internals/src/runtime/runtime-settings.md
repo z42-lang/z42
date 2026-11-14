@@ -57,7 +57,7 @@ flowchart TD
 
 ### 子系统配置输入
 
-配置优先级与解析仍统一归 `RuntimeConfig`。门面通过 `config/split.rs` 中的
+配置优先级与解析仍统一归 `RuntimeConfig`。门面通过 `config/subsystem_inputs.rs` 中的
 `RuntimeConfig::gc_config` 为每个堆生成 GC 拥有的 `GcConfig`，GC 不反向查询全局设置。
 默认值、覆盖值和诊断继续来自同一登记与解析流程；软上限、trace observer 和进程级 LOH
 装配保持在 VM 构造处。独立 Rust 堆的默认构造不加载进程配置，调用方可显式传入转换结果。

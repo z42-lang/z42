@@ -20,6 +20,8 @@ GC 堆本身（在 `gc`）。终端脚本适配属于 `crates/z42-repl`，压缩
 反射调用、attribute factory 和线程 action 经 `exec::engine` 的每 VM 注册槽回调脚本；
 调用参数、类型实参与 `ExecOutcome` 由 VM 调用协议承接。
 
+平台查询中的后端可用性直接使用 `components` 的能力入口；`host` 向嵌入调用方再导出同一入口。
+
 ## 功能索引
 
 | 功能 | 入口 / 文件 |

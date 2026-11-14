@@ -22,7 +22,8 @@
 | job（显示名） | 何时跑 | 职责 |
 |------|------|------|
 | `changes`（detect-changes） | 总是 | 按路径分类，并输出下游测试和打包任务的选择结果 |
-| `docs-check` | `docs_checks`，且未由宿主门禁覆盖 | `xtask test docs links` 死链门禁 + `xtask check diagcodes` + `xtask check layout` |
+| 规划器内文档检查 | `docs_checks`，且未由宿主门禁覆盖 | 复用种子 SDK 执行 `xtask check docs`，链接、诊断码与布局失败阻止下游启动 |
+| `archive-checks` | `archive_checks`，且未由完整 SDK 验证覆盖 | 四个桌面宿主用种子 SDK 执行归档与解包契约，不编译产品 |
 | `build-and-test`（test-host） | `host_checks` | 多平台 `xtask ci test-host --plan` |
 | `host-package`（package-host） | platform / sdk_checks / examples 验证，或有发布输入，或定期 / 手动运行 | 各 host RID 的 SDK 打包与验证。平台打包时还构建 runtime / workload |
 | `toolchain-bootstrap`（compile-toolchain） | `toolchain_build` | 编译 toolchain（z42c / stdlib / xtask zpkg）供下游 job 消费 |
@@ -41,7 +42,7 @@
 - **统一入口**：workflow 只调 `xtask <cmd>`，不在 yaml 里硬编码构建 / 测试命令。
 - **空 PR**：真实 Git 差异为空时不申请宿主、工具链或测试资产，仅保留轻量检测和 `ci-ok`。有改动的 draft PR、全量回退与累计 SDK 发布继续验证。
 - **性能类别**：`flows.toml` 分开选择脚本 micro、Rust VM、集成 A/B；只选 VM 时不构建 z42 工具链。
-- **测试基线**：PR 使用 PR base，main push 使用事件的 `before`；初次 push、无法验证基线、定期 / 手动运行保留全量。基线选择与回归在 [流程规划](../../docs/internals/src/devinfra/flows.md)，发布仍使用 nightly 的累计 SDK 差异。
+- **测试基线**：CI 与本地共享不可变流程计划；PR 与 main 的基线、累计验证和保守回退见[流程规划](../../docs/internals/src/devinfra/flows.md)。发布范围另按 nightly 的累计 SDK 差异判定。
 - **工具链私有测试**：builder、interactive、launcher 的私有 `tests/` 由宿主测试或 SDK 验证消费，路径筛选从 `platform` 排除这些目录。builder 的私有测试也从 `stdlib` 排除。混合改动逐文件判定，生产输入仍选择对应专项。
 - **SDK 验证**：`scripts/src/test/sdk/` 与 launcher 的发行包私有夹具只选择四个桌面 host package；打包生产实现继续选择设备 / 浏览器消费者，无需逐用例平台配置。
 - **Runtime 私有测试**：顶层 Rust 测试与已确认的纯测试数据由四个平台的完整 Rust harness 覆盖；`runtime_checks` 保留它们，`vm` / `platform` 排除它们。build.rs 使用的 `numz42-c`、未知数据、生产输入、混合改动及定期全量继续保留消费者。
@@ -49,7 +50,7 @@
 - **缓存**：Rust 依赖用 Swatinem `rust-cache`，bench 缓存由 main 上的 `bench-cache-warm` 预热。
 - **VM 准备**：共享工具链 action 默认构建 release VM，可复用同轮 Linux x64 产物，也可交给测试命令构建所需 profile。JIT golden 分片使用第三种方式构建 debug VM。[CI 拓扑](../../docs/internals/src/devinfra/ci.md)
 - **矩阵失败**：PR 上同矩阵的一项失败会取消其余项；main / 定期 / 手动运行保留完整结果。独立 job 与不同 workflow 不由矩阵 fail-fast 联动。
-- **并发控制**：PR 上同一 ref 的旧 run 自动取消（`concurrency` 段）；main 的 push 运行不自动取消，由 `xtask ci supersede` 只取消不影响 SDK 的旧运行。可信 main 的控制 workflow 正常取消同 PR 的旧 head 后，等待并重新校验，再强制结束仍滞留的旧运行。job 由 GitHub 原生队列按可用 runner 调度。
+- **并发控制**：PR 新 head 取消旧运行；main push 保留当前执行与最新等待者。累计验证、发布串行化及可信控制 workflow 的 PR 清理见[CI 调度](../../docs/internals/src/devinfra/ci.md)。
 - **macOS 容量与恢复**：主 CI 通过 `xtask ci queue` 为 macOS 分配 PR 两槽、后台一槽的独立有界资源池；runner 未取得时的有限重试由 `xtask ci retry-runner` 判定，规则见 [CI 拓扑](../../docs/internals/src/devinfra/ci.md#macos-资源队列与-runner-获取失败恢复)。
 
 ## 如何测试验证

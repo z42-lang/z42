@@ -9,13 +9,16 @@
 | 文件 | 职责 |
 |---|---|
 | `mod.rs` | RuntimeConfig 和全局配置入口 |
+| `vm_config.rs` | VmConfig：捕获后的 VM 构造输入 |
+| `subsystem_inputs.rs` | 将门面设置转换为 VM/GC/JIT 各自的输入 |
+| `subsystem_inputs_tests.rs` | 配置转换、捕获与默认值回归 |
 | `knobs.rs / knob_table.rs` | 旋钮类型与注册表 |
 | `resolve.rs / source.rs` | 配置来源与优先级 |
 | `config_tests.rs` | 配置回归测试 |
 
 ## 基础用法
 
-消费者继续从 `z42::config` 使用原有入口。
+消费者继续从 `z42::config` 使用原有入口。后端支持状态直接查询 `components`，不经宿主门面再导出。
 
 ## 如何测试验证
 

@@ -15,8 +15,9 @@
 
 ```mermaid
 flowchart TD
-  C["detect-changes"] --> TB["compile-toolchain<br/>（linux-x64）"]
+  C["detect-changes<br/>（轻量契约与文档）"] --> TB["compile-toolchain<br/>（linux-x64）"]
   C --> TH["test-host ×4 OS"]
+  C --> ARC["check-archives ×4 OS<br/>（仅归档契约）"]
   TB --> TA["compile-test-assets<br/>（golden .zbc → current-sdk）"]
   TB --> PKG["package-host / package-{ios,android,wasm}"]
   TA --> CONS["test-consume"]
@@ -124,35 +125,28 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 
 **空 PR 快速通道**：Git 差异为空且没有全量回退时，xtask 不选择 `host_checks`、`toolchain_build` 或 `test_assets`。只运行轻量 `detect-changes` 和必需汇总 `ci-ok`；四平台宿主、工具链及依赖链跳过。Draft 状态不作为跳过依据，有真实改动的 draft PR 正常验证。非 PR 的累计 SDK 发布与显式完整策略保留构建前提。
 
-**纯文档快速通道**：改动**全部**是 `docs/**` 或 `*.md`（`docs/learn/**`、`examples/**` 除外——学习手册的
-示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`。改动集合由 xtask 从真实 Git 差异读取；
-PR 使用 base SHA，push 使用 before SHA。基线无法获取或验证时保守全量。
-重命名的旧路径和新路径都参与分类。生产文件或学习手册页移入普通文档时，旧路径仍保留对应检查。
-`docs-check` 的内容：ci-bootstrap 的 `xtask-only`
-模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（先生成 reference stdlib 页，
-再查相对链接与文档结构）+ `xtask check diagcodes` + `xtask check layout`（测试类别与能力词表等机器清单对账）。
-混合文档与轻量控制层修改仍保留 `docs_checks`；宿主 GREEN 会检查文档时才卸下独立文档 job。布局检查读取仓库文件，保留种子 xtask 的轻量路径。符号引用检查用 `z42 doc --page` 按需手动查看，
-docs-check 不为它安装 Rust 或编译索引器。doc-lints 随 test-host 检查源码注释。
-`test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip；
-main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SDK，见下节的 `sdk` 判定）。schedule / dispatch 不走快速通道。
+**文档快速通道**：普通文档由 `flows.toml` 选择 `docs_checks`，在 `detect-changes` 内复用已经安装的种子 SDK，执行 `xtask check docs`，聚合链接、诊断码与测试布局检查。链接失败会在下游 job 创建之前停止；学习手册与示例仍保留重放义务。
 
-### main 上的运行不互相打断
+需要宿主验证时，文档检查由宿主门禁使用自建解析器覆盖，避免用种子解析器处理刚引入的新语法。stdlib 的源码文档 lint 仍随对应产品源验证执行。符号引用可用 `z42 doc --page` 按需检查。
 
-PR 上新 push 照常取消旧运行；**push to main 每个 commit 单独一个 concurrency group**，GitHub 不自动取消。
-否则连续合并时每个 main 运行都被下一个取消，一个都跑不完 ⇒ nightly 发不出来，而「support 先行、晚一个
-nightly 再 use」（见[编译器自举](../compiler/self-hosting.md)）的后续提交等的正是那份 nightly。
+**归档快速通道**：仅改变发布归档实现或归档自检时，`archive_checks` 在四个桌面宿主运行 `xtask check release-archives`。它只依赖种子 SDK 与系统归档工具，用小型包目录验证全部 RID、workload、归档根条目、特殊文件名及真实解包，不编译当前 VM、编译器或标准库。
 
-取消改由每个 main 运行在 `detect-changes` 里自己做（`xtask ci supersede`）：
+同一计划已选择完整桌面 SDK 验证时，归档契约由 `package sdk --verify` 覆盖，不再创建独立归档矩阵。打包布局、组件、混合产品改动与发布仍保留各自的完整构建和验证。文档验证不会屏蔽累计 SDK 发布需要的工具链准备；job 直接消费原生规划器输出的资源信号。
 
-1. 找出比自己早、还没结束的 main push 运行（带过滤的运行列表是最终一致的，只用来找候选；取消前逐个再查状态）；
-2. 对每一个，看**当前 nightly → 它的 commit** 的累计改动是否影响 SDK：**不影响就取消，影响就留着跑完发布**；
-3. 同样判出本运行自己的 `sdk`，作为 `detect-changes` 的输出；`sdk == false` 时 `publish-nightly` skip（没有新东西可发）。
+PR 与 main 的不可变基线、未知输入回退及重命名边界见[流程规划](flows.md)。
 
-按**累计**改动判、而不是只看那一个 commit：nightly 还没收进的 SDK 改动，后面每个运行都带着，它们也得能发布。
-重命名同时检查 `filename` 与 `previous_filename`。生产文件移入私有测试目录时，其删除仍影响 SDK。
+### main 的累计验证与合并队列
 
-是否影响 SDK 由 `scripts/flows.toml` 输入规则的 `publish` 字段决定，与本地选测共用目录归属；
-配置与机制见[按改动规划流程](flows.md)。拿不到 nightly、compare 失败或达到 300 文件上限时保留发布。
+main push 使用 GitHub 原生 single 并发队列：同一时间保留一个正在执行的运行和最新待运行版本。
+正在执行的运行不被新 push 打断；新的等待者替换旧等待者，避免每次合并都向 macOS 后台池追加整套 SDK 重任务。
+PR 新 head 的取消策略、每日全量与手动运行各有自己的事件分组。
+
+等待者可能跨过多个提交，因此 `detect-changes` 用只读的 `xtask ci main-scope` 分别规划两条累计范围：
+
+- **验证**：从最近一次成功的 main push CI 到本次提交。运行身份与祖先关系必须可验证；没有成功历史、API 读取失败或分支分叉时保守全测。中间提交的私有测试改动也参与选测，不能仅用最后一次 push 的 `before`。
+- **发布**：从当前 nightly 到本次提交，按 `scripts/flows.toml` 的 `publish` 字段判断。缺失 nightly、compare 失败或达到 300 文件上限时保留发布；重命名同时检查旧路径。
+
+运行真正开始后才读取基线，因而前一轮已发布的 SDK 改动不会继续触发重复打包。无需遍历并取消其他 main 运行，规划 job 仅需要读取 Actions 和仓库内容。
 
 **怎么确认 nightly 已包含某个提交**（阶段 1 落地后判断"能不能开始用"）：
 
@@ -160,11 +154,9 @@ nightly 再 use」（见[编译器自举](../compiler/self-hosting.md)）的后�
 gh api repos/z42-lang/z42/compare/<阶段1 的 main 提交>...$(gh api repos/z42-lang/z42/git/ref/tags/nightly -q .object.sha) -q .status
 ```
 
-返回 `ahead` 或 `identical` 才算包含——**不是**「发布时间晚于合并时间」。阶段 1 合并后不必盯着它的 main 运行：
-改到 SDK 路径的 main 运行不会被后来的合并取消，一定跑完发布（见上节）。
+返回 `ahead` 或 `identical` 才算包含——**不是**「发布时间晚于合并时间」。SDK 改动可由包含该提交的后续 main 运行累计验证并发布，因此以标签祖先关系判断实际生效。
 
-`publish-nightly` 自身仍是全局串行（job 级 `cancel-in-progress: false`）。main 运行不再互相取消后，较早的运行
-可能排在较新的之后才发布，所以它先查一次：**nightly 已指向本 commit 的后代** ⇒ 跳过，不拿旧 commit 覆盖新 nightly。
+`publish-nightly` 自身仍是全局串行（job 级 `cancel-in-progress: false`）。不同事件的运行可能先后完成，所以发布前先查一次：**nightly 已指向本 commit 的后代** ⇒ 跳过，不拿旧 commit 覆盖新 nightly。
 
 串行靠 job 级 concurrency group，而 GitHub 每个 group **只保留一个等待者**：连续合并时，排队中的较早发布会被
 更新运行的发布顶掉（`Canceling since a higher priority waiting request …`）。这是想要的结局——顶替者已过全部

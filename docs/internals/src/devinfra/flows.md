@@ -89,7 +89,7 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
   --out artifacts/ci-plan.json --github-output "$GITHUB_OUTPUT"
 ```
 
-规划器分别输出 `host_checks`、`toolchain_build`、`test_assets` 和 `docs_checks`。每个 job 只消费对应信号：有改动不等于要构建产品，有宿主验证也不等于要组装第二份 SDK。空 PR 不选择这些资源，只保留轻量规划与 `ci-ok`。无法读取基线、完整策略及非 PR 的累计发布义务保守保留前提。
+规划器分别输出 `host_checks`、`toolchain_build`、`test_assets`、`docs_checks` 和 `archive_checks`。每个 job 只消费对应信号：有改动不等于要构建产品，有宿主验证也不等于要组装第二份 SDK。空 PR 不选择这些资源，只保留轻量规划与 `ci-ok`。无法读取基线、完整策略及非 PR 的累计发布义务保守保留前提。
 
 | 改动职责 | 所选流程 |
 |---|---|
@@ -98,19 +98,21 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
 | VM 构建脚本 | VM harness、解释器 / JIT 验证和性能观测；不扩大为编译器或标准库单测 |
 | 共享 unit harness | 宿主目标、stdlib / compiler 消费者与脚本 benchmark；不扩大为 VM、集成性能或设备打包 |
 | toolchain 私有执行器 | 宿主 toolchain / manifest target 验证 |
-| 发布归档与索引实现 | 四平台 SDK 验证，其中包含所有 RID / workload 的真实归档与解包夹具；生产归档变更仍保留发布义务 |
+| 发布归档与索引实现、归档自检 | 四平台种子 SDK 执行 `check release-archives`，覆盖所有 RID / workload 归档与真实解包；生产归档仍保留发布义务，选中 SDK 时由 SDK 验证覆盖 |
 | 私有标准库测试 | 准备工具链，仅执行所属包；不测性能 |
 | 私有 benchmark | 仅所属性能类别；不自动选择正确性 job |
 | Android / iOS / wasm 执行器 | 仅对应平台编译与 smoke；共享设备实现仍保留全部平台契约 |
 | VM / 编译器 / 标准库生产源 | 正确性消费者与对应性能类别；VM 生产源保留完整运行时和平台契约 |
 | 无法识别的输入 | 完整策略，不以“脚本文件”作为自动免测依据 |
 
+文档由 `check docs` 聚合链接、诊断码与布局检查：无宿主验证时复用规划器 job，有宿主验证时由宿主覆盖。归档契约是本地可直接执行的独立检查，完整 SDK 验证仍聚合相同夹具。
+
 宿主 job 在本机准备工具链；`host-validation` 不额外申请供分片 / 编译器消费者下载的共享工具链产物。仅宿主验证的计划不会启动无消费者的 `compile-toolchain`，发布所需的准备仍由累计发布策略保留。
 
 `test stdlib --plan <文件>` 和 `bench stdlib --plan <文件>` 在计划绑定的工作树中保留 `{owner}`，并与分片取交集；不会把单包选择扩大成全库。A/B 的 base、head 是不同工作树，各自在本树捕获完整的已选性能类别，不向另一棵树套用提交绑定的计划。
 
-事件名与待验证提交来自 GitHub 环境。PR 使用事件的 base SHA，push 使用 before SHA；浅克隆先获取基线。
-首次 push、无法获取或验证基线时回退全量并打印原因；schedule / workflow_dispatch 使用全量策略。
+事件名与待验证提交来自 GitHub 环境。PR 从实际测试的合并提交读取两个 parent，验证第二个 parent 等于事件的 PR head SHA，再以第一个 parent 为基线。事件中的 base SHA 可能落后于合并提交，不能据此计算 PR 改动。浅克隆直接读取 commit 的 parent 头，再获取对应的不可变基线。push 默认使用 before SHA；main CI 通过 `ci main-scope` 取得最近成功的 main push CI，并以 `--base` 注入累计验证基线。`--event-file` 仅在 push 上允许覆盖 base，PR 基线不能被显式参数绕过。
+首次 push、无法获取或验证基线时回退全量并打印原因；schedule / workflow_dispatch 使用全量策略。Bench 通过 `ci bench-scope --event-file` 复用同一规划器，输出 `base_sha` 供 A/B checkout、工具链构建与改动判断统一使用；无法建立比较基线时直接报错，避免比较错误的两棵树。
 JSON 计划通过 `ci-plan` artifact 共享；消费 job 独立获取浅克隆中缺失的 base commit，再重新计算并核对计划。host 测试用 `xtask ci test-host --plan` 消费 stage 选择，编译器 job 用：
 
 ```bash
@@ -121,8 +123,7 @@ xtask flow run --plan artifacts/ci-plan.json --job compiler-checks
 产物下载上传与 job 级依赖仍由 GitHub Actions 负责，YAML 不重复维护目录归属。
 
 发布另用 nightly 到 HEAD 的累计差异，通过相同输入规则的 `publish` 字段判断；不能拿单次 push 差异替代。
-main push 中的 `xtask ci supersede` 只取消没有未发布 SDK 输入的较早 main 运行。PR 旧 head 的清理入口与隔离规则见 [CI 调度](ci.md#pr-调度)。缺失 nightly、API 失败或 compare 达到 300 文件上限时
-保留发布。它的 `sdk` 输出作为 `XTASK_RELEASE_REQUIRED` 传入计划，决定发布所需的打包范围。
+`ci main-scope` 分别输出累计验证基线与 `sdk` 发布信号；验证基线未知时工作流传入 `--full`，不会退回最后一次 push 的差异。`sdk` 作为 `XTASK_RELEASE_REQUIRED` 传入计划，决定发布所需的打包范围。缺失 nightly、API 失败或 compare 达到 300 文件上限时保留发布。main 合并队列与 PR 旧 head 清理的边界见 [CI 调度](ci.md)。
 
 ## 验证与限制
 

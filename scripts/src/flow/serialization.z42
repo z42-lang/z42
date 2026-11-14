@@ -62,8 +62,8 @@ FlowPlan _flowReadPlan(FlowConfig cfg, string path, string root) {
 int _flowCommand(FlowPlanCommand options, bool run) {
     string root = _root();
     FlowConfig cfg = _flowLoad(Path.Join(root, options.Config));
-    if (options.EventFile.Length > 0 && (options.Base.Length > 0 || options.Head.Length > 0 || options.MergeBase)) {
-        throw new Exception("--event-file cannot be combined with explicit Git inputs");
+    if (options.EventFile.Length > 0 && (options.Head.Length > 0 || options.MergeBase)) {
+        throw new Exception("--event-file cannot be combined with --head or --merge-base");
     }
     if (options.Plan.Length > 0 && (options.Base.Length > 0 || options.Head.Length > 0 || options.EventFile.Length > 0 || options.Full || options.MergeBase)) {
         throw new Exception("--plan cannot be combined with new diff inputs");
@@ -101,7 +101,8 @@ bool _flowPackageRequired(FlowPlan plan, string[] selected, bool host) {
 
 bool _flowCiOutput(FlowPlan plan, string[] selected, string key) {
     bool preparation = key == "host_checks" || key == "toolchain_build" || key == "test_assets";
-    return _strIn(selected, key) || (preparation && (plan.Full || _flowReleaseRequired(plan)));
+    return _strIn(selected, key) || (preparation && (plan.Full
+        || (_flowReleaseRequired(plan) && (key != "host_checks" || !plan.DocsOnly))));
 }
 
 void _flowWriteOutputs(FlowConfig cfg, FlowPlan plan, string path) {
@@ -112,13 +113,10 @@ void _flowWriteOutputs(FlowConfig cfg, FlowPlan plan, string path) {
     }
     string text = "";
     foreach (var key in all) { text = text + key + "=" + (_flowCiOutput(plan, selected, key) ? "true" : "false") + "\n"; }
-    text = text + "docs_only=" + (plan.DocsOnly ? "true" : "false") + "\n";
     bool platform = _flowPackageRequired(plan, selected, false);
     bool host = _flowPackageRequired(plan, selected, true);
     text = text + "platform_package=" + (platform ? "true" : "false") + "\n";
     text = text + "host_package=" + (host ? "true" : "false") + "\n";
-    text = text + "test_base=" + plan.Base + "\n";
-    text = text + "stage_skip=" + _flowSkipStages(cfg, plan) + "\n";
     File.AppendAllText(path, text);
 }
 
