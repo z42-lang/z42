@@ -18,6 +18,7 @@ CLI 是宿主的一种实现，也遵循同一入口和类型规范。C ABI 导�
 
 | 入口 | 职责 |
 |---|---|
+| `LoadOptions.profiler` / `prepare_profiler` / `profiler_loaded` / `write_heap_snapshot` | 可选分析来源选择、显式装配、状态查询和快照输出 |
 | `BackendOptions` / `BackendSource` | 再导出统一组件框架的后端选择与能力查询 |
 | [`../components/`](../components/README.md) | 组件协议、工厂加载、后端选择和实例管理的统一实现 |
 | `ComponentOptions` / `ComponentLease` | 每 VM 组件配置和接口/库寿命租约 |
@@ -66,3 +67,5 @@ LoadOptions.components 选择可选的同构建组件。ComponentOptions::with_s
 `program.rs` 实现程序加载与调用服务，`ffi.rs` 实现 C ABI。`program_tests.rs` 覆盖输入来源、重复调用、初始化错误和执行模式；`host_tests.rs` 覆盖 ABI 契约。
 
 原生提供方装配由 `builtins.rs` 选择，`extensions.rs` 注册每 VM 状态和 loader 的按名称路径服务。核心库、诊断、harness、终端、压缩分别提交描述符；host 注入匹配的 metadata 查询目录和 exec 执行表。
+
+profiler 默认按需装配。`LoadOptions.profiler` 使用 Auto、Linked、Dynamic(path) 或 Disabled；`program_builder.rs` 在组件发布前设置来源；开启 CPU 采样时加载阶段就验证，堆分析则首次使用时验证。静态宿主通过相同组件登记入口提供 `PROFILER_COMPONENT`；未选择的实现不会加载，缺失时不静默返回空分析结果。

@@ -23,13 +23,13 @@
 | 组件间依赖 | **不设依赖段**：组件独立产出；include 顺序只影响拷贝顺序 | 组件内部依赖（如 z42c.driver 的兄弟包）由 `z42 publish` 自行解析拷贝，包层无需知道 |
 | per-package 落点覆盖 | 不支持（dest 固定在组件注册表）| 当前无组件在两个包里需要不同落点；真需要再加，不预先设计 |
 | runtime 包内容 | 仅 native + stdlib（不含 z42c / z42vm CLI）| runtime 包会跨 host 安装（如 android runtime 装在 macOS host），host 专属工具放进去无意义；自举种子由 SDK 包提供 |
-| 运行时原生产物放哪 | SDK 的 `native/` 提供 libz42、interp/JIT、compression 和匹配的 Rust std；runtime 包另提供静态嵌入归档与 C 头 | SDK 使用动态运行时；runtime 保留各平台的嵌入链接形式 |
+| 运行时原生产物放哪 | SDK 的 `native/` 提供 libz42、interp/JIT、profiler、compression 和匹配的 Rust std；runtime 包另提供静态嵌入归档与 C 头 | SDK 使用动态运行时；runtime 保留各平台的嵌入链接形式 |
 
 ### SDK 动态运行时与 runtime 静态嵌入
 
 z42vm 是薄启动器，通过版本化 C 函数表动态加载统一 libz42。参数处理、配置、panic hook、tracing 与宿主实现都在库内，启动器不调用 Rust VM 接口。入口先验证 ABI 版本、大小和构建身份。
 
-interp/JIT 是独立组件。SDK、dev-sdk 与 CI 构建树必须携带同构建的完整动态闭包，不能只复制 z42vm。共享 Rust 核心与执行后端在同一个 Cargo 图中编译，使用同一 libz42 和共享 Rust std；纯 C ABI 模块使用独立图，避免实现特性合并回核心。共享构建使用 System 分配器。
+interp/JIT/profiler 是独立组件。SDK、dev-sdk 与 CI 构建树必须携带同构建的完整动态闭包，不能只复制 z42vm。共享 Rust 核心、执行后端和 profiler 在同一个 Cargo 图中编译，使用同一 libz42 和共享 Rust std；纯 C ABI 模块使用独立图，避免实现特性合并回核心。共享构建使用 System 分配器。
 
 macOS 采用 @rpath 和 @loader_path，Linux 采用 $ORIGIN 与 $ORIGIN/../native。发布 SDK 的 z42vm 启动器自带静态 Rust std；开发 SDK 复用构建树的动态 std 启动器并携带其匹配闭包。bin/ 只有可执行文件本体；运行时、组件与共享 std 全部位于 native/（Windows 由启动器的 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR 按目录解析）。发布前检查闭包完整性，并将产物搬移到独立目录验证。
 

@@ -93,7 +93,7 @@ enum HandleEntry {
 | 全堆 STW 标记 | `heap/collect.rs::mark_phase` | `collect_full`（`GC.ForceCollect()`）/ 非分代整堆回收 / 一次性 major |
 | 分代 minor 标记 | `heap/generational.rs::mark_phase_minor` | 默认收集器的绝大多数停顿 |
 | 增量 major 开镜 | `heap/roots.rs::snapshot_roots_into_mark_queue` | 增量 major 的根快照 |
-| 保留诊断反查 | `profiler/heap/retention.rs`（经 `gc/walk.rs` 扫根） | `Heap.RetainingRoots`，报成 `RootKind::Pinned` |
+| 保留诊断反查 | `crates/z42-profiler/src/profiler/heap/retention.rs`（经 `gc/walk.rs` 扫根） | `Heap.RetainingRoots`，报成 `RootKind::Pinned` |
 
 **三条标记路径必须一起改**：只补整堆那条，默认（分代）配置下强句柄照样不保活，而分代 minor
 才是绝大多数回收。诊断那条也得跟着——否则反查会显示一个「活着但没有任何 retainer」的对象，

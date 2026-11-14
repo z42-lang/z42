@@ -2,6 +2,7 @@
 pub mod counters;
 pub mod observer;
 pub mod sampling;
+pub mod retention;
 
 use std::sync::{Arc, atomic::AtomicU64};
 use parking_lot::Mutex;

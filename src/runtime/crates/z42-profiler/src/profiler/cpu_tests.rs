@@ -60,9 +60,9 @@ fn empty_stack_produces_no_row() {
 fn maybe_sample_snapshots_call_stack() {
     use crate::exec::call::frames::VmFrame;
     let ctx = VmContext::new();
-    let mut main = crate::exec::stack::stack_tests::test_function("Main", &[], Vec::new());
+    let mut main = test_function("Main");
     main.frame_meta = Some((Arc::from("Main"), Arc::from("t.z42")));
-    let mut foo = crate::exec::stack::stack_tests::test_function("foo", &[], Vec::new());
+    let mut foo = test_function("foo");
     foo.frame_meta = Some((Arc::from("foo"), Arc::from("t.z42")));
     ctx.push_frame(VmFrame::new(&main, std::ptr::null()));
     ctx.push_frame(VmFrame::new(&foo, std::ptr::null()));
@@ -157,4 +157,14 @@ fn json_escape_handles_specials() {
     assert_eq!(json_escape("a\\b"), "a\\\\b");
     // Typical z42 generic-mangled name — no escaping needed.
     assert_eq!(json_escape("List$1.Add"), "List$1.Add");
+}
+
+fn test_function(name: &str) -> crate::metadata::Function {
+    crate::metadata::Function::new(crate::zpkg::ir::Function {
+        name: name.to_owned(), param_count: 0, ret_type: "void".to_owned(),
+        exec_mode: crate::zpkg::ExecMode::Interp, blocks: Vec::new(), is_static: true,
+        visibility: 0, method_flags: 0, min_arg: 0, params_from: 0xFF, max_reg: 0,
+        cold: None, reg_types: Box::new([]), block_index: Default::default(),
+        branch_targets: Vec::new(), frame_meta: None,
+    })
 }

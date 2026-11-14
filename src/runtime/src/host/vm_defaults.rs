@@ -102,10 +102,9 @@ pub(crate) fn with_config(
     protocol: crate::exec::object_protocol::ObjectProtocol,
     engines: crate::exec::engine::EngineRegistry,
 ) -> std::pin::Pin<Box<VmContext>> {
-    let backend = match config.sample_hz {
-        Some(hz) => crate::profiler::cpu::Sampler::start(hz, config.trace_timeline),
-        None => crate::profiler::cpu::Sampler::disabled(),
-    };
+    let sampler = crate::diagnostics::sampling::Sampling::with_config(
+        config.sample_hz, config.trace_timeline,
+    );
     VmContext::with_runtime(
         module,
         vfs,
@@ -117,7 +116,7 @@ pub(crate) fn with_config(
             builtins: crate::host::builtins::functions(),
             catalog: crate::host::builtins::catalog(),
             fusion: crate::host::artifact::FUSION_INPUTS,
-            sampler: crate::diagnostics::sampling::Sampling::new(backend.enabled(), backend),
+            sampler,
         },
     )
 }

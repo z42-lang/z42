@@ -26,6 +26,22 @@ int _componentIosVerifyExport(string root, string pkg, string zbc, string work) 
             throw new CliException("exported Xcode project omitted runtime framework " + stem);
         }
     }
-    return _exec(new Process("xcodebuild").Arg("-list").Arg("-json")
-        .Arg("-project").Arg(Path.Join(project, "ComponentExport.xcodeproj")));
+    string build = Path.Join(work, "xcode-build");
+    c = _exec(new Process("xcodebuild")
+        .Arg("-project").Arg(Path.Join(project, "ComponentExport.xcodeproj"))
+        .Arg("-scheme").Arg("ComponentExport").Arg("-configuration").Arg("Release")
+        .Arg("-sdk").Arg("iphonesimulator").Arg("-arch").Arg("arm64")
+        .Arg("-derivedDataPath").Arg(build).Arg("CODE_SIGNING_ALLOWED=NO").Arg("build"));
+    if (c != 0) { return c; }
+    string app = Path.Join(build, "Build/Products/Release-iphonesimulator/ComponentExport.app");
+    foreach (var stem in _iosFrameworkStems("iossim-arm64")) {
+        if (!File.Exists(Path.Join(app, "Frameworks/" + stem + ".framework/" + stem))) {
+            throw new CliException("built Xcode app omitted runtime framework " + stem);
+        }
+    }
+    string dependencies = _cmdOut("otool", new string[]{ "-L", Path.Join(app, "ComponentExport") });
+    if (dependencies.Contains("z42_profiler.framework")) {
+        throw new CliException("Xcode app eagerly links the optional profiler");
+    }
+    return 0;
 }

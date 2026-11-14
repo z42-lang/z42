@@ -9,6 +9,7 @@
 | 子目录 | 职责 |
 |---|---|
 | z42-interp | 基线解释器；提供 rlib/cdylib，只依赖运行时与产物格式 |
+| z42-profiler | CPU 采样与堆分析，静态登记或按需加载，默认 VM 不创建分析状态 |
 | z42-jit | Cranelift、tier/OSR 和编译代码；提供 rlib/cdylib，只依赖运行时与产物格式 |
 | z42-zpkg | zpkg/zbc/zsym、静态 IR 和不可变 PackageImage；无 VM 依赖 |
 | z42-abi | no_std、零依赖的 C ABI 布局；module.rs 定义模块描述符和值，不执行注册 |

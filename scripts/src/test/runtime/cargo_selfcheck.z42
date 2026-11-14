@@ -39,12 +39,12 @@ string _runtimeCargoFixture(string root, string tree, string mode) {
     File.WriteAllText(Path.Join(runtime, ".cargo/config.toml"), config
         + "\n[env]\nZ42_RUNTIME_CARGO_FIXTURE = \"configured\"\n");
     if (mode == "r0") { File.WriteAllText(Path.Join(runtime, ".cargo/config-dynamic.toml"), "# R0 dynamic config\n"); }
-    string[] names = new string[]{ "z42", "z42-interp", "z42-jit", "z42-compression" };
+    string[] names = new string[]{ "z42", "z42-interp", "z42-jit", "z42-profiler", "z42-compression" };
     File.WriteAllText(Path.Join(runtime, "Cargo.toml"),
-        "[workspace]\nmembers = [\"z42\", \"z42-interp\", \"z42-jit\", \"z42-compression\"]\nresolver = \"2\"\n"
+        "[workspace]\nmembers = [\"z42\", \"z42-interp\", \"z42-jit\", \"crates/z42-profiler\", \"z42-compression\"]\nresolver = \"2\"\n"
         + "[profile.release-dynamic]\ninherits = \"release\"\n");
     foreach (var name in names) {
-        string crate = Path.Join(runtime, name);
+        string crate = Path.Join(runtime, name == "z42-profiler" ? "crates/z42-profiler" : name);
         Directory.Create(Path.Join(crate, "src"));
         File.WriteAllText(Path.Join(crate, "Cargo.toml"),
             "[package]\nname = \"" + name + "\"\nversion = \"0.0.0\"\nedition = \"2021\"\n"

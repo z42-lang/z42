@@ -29,7 +29,7 @@ public class iOSWorkload : WorkloadBase {
 
     /// 生成 Xcode 工程。export 模式跑到此后停（交用户在 Xcode 继续）。
     public override void GenerateProject(IPipelineContext ctx) {
-        // 1. 渲染 MyApp.xcodeproj + main.swift（调 z42_run_app）
+        // 1. 渲染 MyApp.xcodeproj + AppDelegate.swift（调 z42_host_run_app）
         // 2. bed Z42VM.xcframework（workload 安装时的相对路径）
         // 3. app.zpkg + stdlib → Resources/
         // 4. 合并 platform-overrides/ios/

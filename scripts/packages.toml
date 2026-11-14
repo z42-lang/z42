@@ -145,6 +145,12 @@ kind = "engine"
 requires = ["interp"]
 rids = ["desktop", "android", "iossim"]   # 其余目标无 JIT（_componentTargetHasJit 的数据化）
 
+[runtime.lib.profiler]
+cargo = "z42-profiler"
+stem = "z42_profiler"
+kind = "module"
+requires = ["host"]
+
 [runtime.lib.compression]
 cargo = "z42-compression"
 stem = "z42_compression"
@@ -170,7 +176,7 @@ other = "lib{stem}.a"
 # jit 的进出由 [runtime.lib.jit].rids 自动发生（pack.components ∩ lib.rids）。
 [runtime.pack.desktop_runtime]     # z42-runtime-<v>-<rid>：动态闭包 + 静态归档 + 头（+win 导入库）
 rid_class = "desktop"
-components = ["host", "interp", "jit", "compression"]
+components = ["host", "interp", "jit", "profiler", "compression"]
 forms = ["dynamic", "static"]
 headers = true
 std = "shared"
@@ -178,7 +184,7 @@ import_libs = true
 
 [runtime.pack.desktop_dynamic]     # z42-runtime-<v>-<rid>-dynamic
 rid_class = "desktop"
-components = ["host", "interp", "jit", "compression"]
+components = ["host", "interp", "jit", "profiler", "compression"]
 forms = ["dynamic"]
 headers = true
 std = "shared"
@@ -186,21 +192,21 @@ import_libs = true
 
 [runtime.pack.ios]
 rid_class = "ios"
-components = ["host", "interp", "compression"]
+components = ["host", "interp", "profiler", "compression"]
 forms = ["static", "framework"]
 headers = true
 std = "framework-alias"
 
 [runtime.pack.android]
 rid_class = "android"
-components = ["host", "interp", "jit", "compression"]
+components = ["host", "interp", "jit", "profiler", "compression"]
 forms = ["dynamic", "static"]
 headers = true
 std = "shared"
 
 [runtime.pack.wasm]
 rid_class = "wasm"
-components = ["host", "interp", "compression"]
+components = ["host", "interp", "profiler", "compression"]
 forms = ["static"]
 app = { file = "native/z42_wasm_bg.wasm", js = ["pkg-web", "pkg-nodejs"] }
 
