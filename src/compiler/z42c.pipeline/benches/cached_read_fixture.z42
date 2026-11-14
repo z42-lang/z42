@@ -1,0 +1,54 @@
+namespace CachedReadFixture;
+using Std.IO;
+using Z42.Core;
+using Z42.Pipeline;
+using Z42.Package;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+using Z42.Emission;
+
+public sealed class CacheFixture {
+    public string Root;
+    public string Cache;
+    public string[] Sources;
+    public string[] Texts;
+    public string[] Hashes;
+    public string[] Expected;
+    public CacheFixture(int count) {
+        this.Root = File.CreateTempDir("cached-read-fixture");
+        this.Cache = Path.Join(this.Root, "cache"); Directory.Create(this.Cache);
+        this.Sources = new string[count]; this.Texts = new string[count];
+        this.Hashes = new string[count]; this.Expected = new string[count];
+        CompiledModuleZ[] cms = new CompiledModuleZ[count]; ZbcFileZ[] mods = new ZbcFileZ[count];
+        string[] zbcHashes = new string[count]; int i = 0;
+        while (i < count) {
+            this.Sources[i] = Path.Join(this.Root, "F" + i.ToString() + ".z42");
+            this.Texts[i] = "namespace T; string Pick" + i.ToString()
+                + "(int n) { if (n > 0) { return \"left\"; } return \"right\"; }\n";
+            this.Hashes[i] = ZpkgBuilder.SourceHashHex(this.Texts[i]);
+            cms[i] = IrDump.BuildModuleD(this.Texts[i], this.Sources[i], null, null);
+            if (cms[i].ErrorCount != 0) { throw new Exception("cache fixture source failed"); }
+            mods[i] = new ZbcFileZ(this.Sources[i], this.Hashes[i], "T", new string[0], 0, cms[i].Module);
+            zbcHashes[i] = IncrementalCompilation.WriteCacheZbc(this.Cache, this.Root, this.Sources[i], cms[i].Module);
+            this.Expected[i] = Std.Hashing.Murmur3.Hash128Hex(ZbcWriter.Write(cms[i].Module).ToBytes());
+            i = i + 1;
+        }
+        IncrementalCompilation.WriteMetas(this.Cache, this.Root, this.Sources, this.Texts, this.Hashes, count,
+            cms, mods, null, null, null, "fixture-deps", new LanguageFeatures(), null, zbcHashes);
+    }
+    public IncrPrep Read() {
+        return IncrementalCompilation.Prepare(this.Sources, this.Sources, this.Texts, this.Hashes, this.Sources.Length,
+            this.Root, this.Cache, "fixture-deps", false, new LanguageFeatures(), false);
+    }
+    public void Check(IncrPrep prep) {
+        int i = 0;
+        while (i < this.Sources.Length) {
+            if (prep.Plan.Fresh[i] || prep.Cached[i] == null
+                || Std.Hashing.Murmur3.Hash128Hex(ZbcWriter.Write(prep.Cached[i]).ToBytes()) != this.Expected[i]) {
+                throw new Exception("restored cache differs at " + i.ToString());
+            }
+            i = i + 1;
+        }
+    }
+    public string Rel(int i) { return IncrementalBuild.Rel(this.Root, this.Sources[i]); }
+}

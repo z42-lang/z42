@@ -1,0 +1,27 @@
+namespace CachedReadBench;
+using Std.IO;
+using Std.Harness;
+using Z42.Package;
+using CachedReadFixture;
+
+void exercise(int files, int jobs, string label) {
+    ParallelConfig.SetJobs(1); CacheFixture f = new CacheFixture(files);
+    try {
+        ParallelConfig.SetJobs(jobs); f.Check(f.Read());
+        var b = new Bencher(2, 8);
+        b.iter(() => { var result = f.Read(); if (!result.Plan.AllCached) { throw new Exception("lost cache hit"); } });
+        f.Check(f.Read()); b.printSummary(label);
+    } finally { ParallelConfig.SetJobs(1); Directory.Delete(f.Root, true); }
+}
+[Benchmark]
+void bench_cached_ir_restore_8_jobs_1() { exercise(8, 1, "cached_ir_restore_8_jobs_1"); }
+[Benchmark]
+void bench_cached_ir_restore_8_jobs_4() { exercise(8, 4, "cached_ir_restore_8_jobs_4"); }
+[Benchmark]
+void bench_cached_ir_restore_64_jobs_1() { exercise(64, 1, "cached_ir_restore_64_jobs_1"); }
+[Benchmark]
+void bench_cached_ir_restore_64_jobs_4() { exercise(64, 4, "cached_ir_restore_64_jobs_4"); }
+void Main() {
+    bench_cached_ir_restore_8_jobs_1(); bench_cached_ir_restore_8_jobs_4();
+    bench_cached_ir_restore_64_jobs_1(); bench_cached_ir_restore_64_jobs_4();
+}
