@@ -6,9 +6,14 @@ using Std.Regex;
 
 class CiToolOps {
     public virtual ProcessResult Run(string exe, string[] args) {
-        ProcessResult r = new Process(exe).Args(args).Run();
-        if (r.ExitCode != 0) { ConsoleError.WriteLine(r.Stdout + r.Stderr); }
-        return r;
+        try {
+            ProcessResult r = new Process(exe).Args(args).Run();
+            if (r.ExitCode != 0) { ConsoleError.WriteLine(r.Stdout + r.Stderr); }
+            return r;
+        } catch (ProcessStartException e) {
+            ConsoleError.WriteLine(e.Message);
+            return new ProcessResult(exe, 127, "", e.Message, new byte[0], new byte[0]);
+        }
     }
 }
 

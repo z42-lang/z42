@@ -50,6 +50,8 @@ void _ciBookInstallerChecks() {
         }
         string archive = Path.Join(dir, "valid.tgz");
         new Process("tar").Args(new string[]{ "-czf", archive, "-C", Path.Join(dir, "archive"), "mdbook", "mdbook-mermaid" }).Run().EnsureSuccess();
+        _gateAssert(new CiToolOps().Run(Path.Join(dir, "missing tool"), new string[0]).ExitCode == 127, "missing optional tools preserve command-not-found fallback");
+        _gateAssert(!_ciToolVersion(new CiToolOps(), Path.Join(dir, "archive/mdbook"), "mdbook", _vRead(_root(), "toolchain.mdbook.version")), "unexecutable cached binaries trigger reinstall rather than aborting");
         _gateAssert(!_ciToolVersion(new CiToolFixture(), Path.Join(dir, "archive/mdbook"), "mdbook", "0.4.4"), "version matching rejects numeric prefixes");
         foreach (var mode in new string[]{ "valid", "http", "html", "failure", "other-host" }) {
             string target = Path.Join(dir, mode); var ops = new CiToolFixture(); ops.Mode = mode; ops.Archive = archive;
