@@ -2,63 +2,36 @@
 
 #[cfg(feature = "cli")]
 mod cli {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use z42::config::KNOWN_KNOBS;
 
-    pub fn resolve_load_options(
-        file: &str, libs: Option<&std::path::Path>, mode: z42::host::ExecMode,
+    pub fn resolve_search_dirs(
+        file: &str, libs: Option<&std::path::Path>, vfs: &dyn z42::pal::fs::Vfs,
         config: &z42::config::RuntimeConfig,
-    ) -> z42::host::LoadOptions {
+    ) -> Vec<PathBuf> {
         use z42::loader::locate::{probing, search_paths};
-        let vfs = z42::pal::fs::default_vfs();
         let entry = search_paths::entry_directory(file);
         let extra = probing::expand_probing_paths(entry, &config.probing_paths);
         probing::set_unresolved_sdk_patterns(probing::unresolved_z42_home_patterns(entry, &config.probing_paths));
-        let search_dirs = search_paths::program_search_dirs(&*vfs, file, &extra, libs);
-        z42::host::LoadOptions { mode, vfs, search_dirs, ..Default::default() }
+        search_paths::program_search_dirs(vfs, file, &extra, libs)
     }
 
-    /// Locate the stdlib libs/ directory.
-    ///
-    /// Search order (redesign-artifact-layout):
-    ///   1. `$Z42_LIBS`                                         — env override
-    ///   2. `<binary-dir>/../libs/`                             — packages/<pkg>/libs/ adjacent
-    ///   3. `<cwd>/artifacts/intermediate/libraries/flat/release/` — dev flat view (xtask build stdlib)
-    ///   4. `<cwd>/artifacts/intermediate/libraries/flat/debug/`   — dev flat view (debug profile)
+    /// Resolve explicit settings or the deployed SDK layout. Development paths
+    /// are supplied by the build tool through the same configuration interface.
     pub fn resolve_libs_dir() -> Option<PathBuf> {
-        // 1. the `libs` knob (Z42_LIBS / --set libs= / [runtime].libs)
-        //
-        // adopt-inline-env-knobs : this used to be a bare `env::var`, so the
-        // knob advertised four layers but only ever observed one — `--set libs=/x` and
-        // `[runtime].libs` were silently ignored here.
-        if let Some(v) = z42::config::runtime_config().libs_dir.as_ref()
-            .map(|p| p.display().to_string()) {
-            let p = PathBuf::from(v);
-            if p.is_dir() {
-                return Some(p);
-            }
+        let executable = std::env::current_exe().ok();
+        resolve_libs_dir_from(z42::config::runtime_config().libs_dir.as_deref(), executable.as_deref())
+    }
+
+    pub fn resolve_libs_dir_from(configured: Option<&Path>, executable: Option<&Path>) -> Option<PathBuf> {
+        if let Some(path) = configured.filter(|path| !path.as_os_str().is_empty()) {
+            // Preserve even a missing explicit path: silently using another SDK
+            // would give the VM and its child compiler different library worlds.
+            return Some(path.to_path_buf());
         }
-        // 2. <binary-dir>/../libs/  (packages 布局)
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(bin_dir) = exe.parent() {
-                let p = bin_dir.parent().unwrap_or(bin_dir).join("libs");
-                if p.is_dir() {
-                    return Some(p);
-                }
-            }
-        }
-        // 3-4. dev flat view（xtask build stdlib 产出）
-        if let Ok(cwd) = std::env::current_dir() {
-            for p in [
-                cwd.join("artifacts/intermediate/libraries/flat/release"),
-                cwd.join("artifacts/intermediate/libraries/flat/debug"),
-            ] {
-                if p.is_dir() {
-                    return Some(p);
-                }
-            }
-        }
-        None
+        let directory = executable?.parent()?;
+        let libs = directory.parent().unwrap_or(directory).join("libs");
+        libs.is_dir().then_some(libs)
     }
 
     /// Decide the value to publish into `$Z42_LIBS` so an in-process program
@@ -260,7 +233,7 @@ mod cli {
         // Effective libs dir lookup result.
         match resolve_libs_dir() {
             Some(dir) => println!("libs dir: {}", dir.display()),
-            None => println!("libs dir: (not found — run xtask build stdlib or set Z42_LIBS)"),
+            None => println!("libs dir: (not configured; set Z42_LIBS or use a complete SDK)"),
         }
     }
 }

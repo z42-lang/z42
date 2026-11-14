@@ -28,11 +28,8 @@ fn run_app_consumes_explicit_vfs_resolver_and_search_paths_without_entry_default
     vfs.mount("/virtual/z42.core.zpkg", b"invalid implicit prelude".to_vec());
     let resolver = Arc::new(Resolver(AtomicUsize::new(0)));
     let error = super::run_app("/virtual/app.zbc", Some("Missing.Main"), super::RunOpts {
-        load_options: super::LoadOptions {
-            mode: crate::zpkg::ExecMode::Interp, vfs,
-            resolver: Some(resolver.clone()), search_dirs: Vec::new(),
-            ..Default::default()
-        },
+        mode: crate::zpkg::ExecMode::Interp, vfs,
+        resolver: Some(resolver.clone()), search_dirs: Vec::new(),
         program_args: Vec::new(), print_stats: false, stats_json: false, exit_after_run: false,
     }).unwrap_err();
     assert!(error.to_string().contains("function `Missing.Main` not found"), "{error:#}");

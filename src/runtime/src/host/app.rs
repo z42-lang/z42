@@ -27,7 +27,10 @@ pub fn execution_available(mode: ExecMode) -> bool {
 /// This service loads and executes without choosing process search defaults.
 pub struct RunOpts {
     /// Fully resolved loading inputs supplied by the host implementation.
-    pub load_options: LoadOptions,
+    pub mode: ExecMode,
+    pub vfs: std::sync::Arc<dyn crate::pal::fs::Vfs>,
+    pub search_dirs: Vec<std::path::PathBuf>,
+    pub resolver: Option<std::sync::Arc<dyn super::ZpkgResolver>>,
     /// Program args forwarded to `GetCommandLineArgs()` (the app's `-- <args>`).
     pub program_args: Vec<String>,
     /// Print counter stats to stderr after the run (z42vm `--print-stats-on-exit`).
@@ -43,7 +46,10 @@ pub struct RunOpts {
 }
 
 pub fn run_app(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
-    let program = LoadedProgram::load_file(file, opts.load_options)?;
+    let program = LoadedProgram::load_file(file, LoadOptions {
+        mode: opts.mode, vfs: opts.vfs, search_dirs: opts.search_dirs,
+        resolver: opts.resolver, ..Default::default()
+    })?;
     set_program_args(program.context(), opts.program_args)?;
     let _ = EXIT_REPORT.set(ExitReport { print_stats: opts.print_stats, stats_json: opts.stats_json });
     let result = program.run_entry(entry);

@@ -44,7 +44,8 @@ int _testPackagesInstall() {
     Directory.Create(fakeCargoOut);
     string stdName = _componentStdPattern().Replace("*", "producer");
     File.WriteAllText(Path.Join(fakeCargoOut, stdName), "producer std");
-    File.WriteAllText(Path.Join(fakeCargoOut, "z42vm"), "fake-z42vm-binary");
+    string vmName = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
+    File.WriteAllText(Path.Join(fakeCargoOut, vmName), "fake-z42vm-binary");
     foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_profiler", "z42_compression" }) {
         File.WriteAllText(Path.Join(fakeCargoOut, _componentLibrary(stem)), "fake-" + stem);
     }
@@ -77,7 +78,7 @@ int _testPackagesInstall() {
     _stgAssert("install ok", _pkgInstallPackage(cfg, root, "install-test-pkg", pkgDir, ctx) == 0);
 
     // z42vm: bin/z42vm at the exact dest packages.toml declares, content matches the source (a real copy).
-    string vmBin = Path.Join(pkgDir, "bin/z42vm");
+    string vmBin = Path.Join(pkgDir, "bin", vmName);
     _stgAssert("bin/z42vm exists", File.Exists(vmBin));
     _stgAssert("bin/z42vm content", File.ReadAllText(vmBin) == "fake-z42vm-binary");
     // The repl cdylib is NOT put into bin/ (kept out of the
@@ -125,6 +126,7 @@ int _testPackagesInstall() {
     string forwardOut = _xtaskWork(root, "install-test-main-forwarder");
     Directory.Create(forwardOut);
     File.WriteAllText(Path.Join(fakeCargoOut, "z42vm.exe"), "actual-rust-main");
+    if (Platform.IsWindows()) { File.WriteAllText(Path.Join(fakeCargoOut, "z42vm"), "foreign-main"); }
     File.WriteAllText(Path.Join(forwardOut, "z42vm-windows-launcher.exe"), "process-forwarder");
     _PkgInstallCtx direct = new _PkgInstallCtx();
     direct.CargoOut = fakeCargoOut; direct.LauncherOut = forwardOut; direct.DirectHostMain = true;
@@ -134,10 +136,17 @@ int _testPackagesInstall() {
         _stgAssert("actual main beside DLLs", File.ReadAllText(Path.Join(directSdk, "native/z42vm.exe")) == "actual-rust-main");
         _stgAssert("Core not duplicated in bin", !File.Exists(Path.Join(directSdk, "bin/z42.dll")));
         _stgAssert("std not duplicated in bin", Path.Glob(Path.Join(directSdk, "bin"), "std-*.dll").Length == 0);
+        _stgAssert("POSIX executable excluded", !File.Exists(Path.Join(directSdk, "bin/z42vm")));
     } else {
         _stgAssert("POSIX uses actual main", File.ReadAllText(Path.Join(directSdk, "bin/z42vm")) == "fake-z42vm-binary");
         _stgAssert("POSIX has no forwarding payload", !File.Exists(Path.Join(directSdk, "native/z42vm.exe")));
+        _stgAssert("Windows executable excluded", !File.Exists(Path.Join(directSdk, "bin/z42vm.exe")));
     }
+    File.Delete(Path.Join(fakeCargoOut, vmName));
+    bool missingMainRejected = false;
+    try { missingMainRejected = _pkgInstallZ42vm(ctx, sdkDir) != 0; } catch (Exception e) { missingMainRejected = true; }
+    _stgAssert("stale destination cannot hide missing source main", missingMainRejected);
+    File.WriteAllText(Path.Join(fakeCargoOut, vmName), "fake-z42vm-binary");
     File.Delete(Path.Join(fakeCargoOut, _componentLibrary("z42_jit")));
     bool rejected = false;
     _PkgInstallCtx jitCtx = new _PkgInstallCtx();

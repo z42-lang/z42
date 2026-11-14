@@ -36,7 +36,7 @@ VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺�
 ## 基础用法
 
 CLI 和 Rust 调用方使用 `host::run_app`，或用 `LoadedProgram::load_file` / `load_bytes` 创建长期存活的程序后调用 `invoke`。两种来源共享产物准备流程。VFS、搜索目录、包 resolver 和依赖预加载策略由 `LoadOptions` 明确传入。
-一次性调用的 `RunOpts.load_options` 使用同一加载输入；run_app 不读取 CLI 搜索配置或隐式补默认目录。main 解析环境变量、相对路径和 stdlib 路径；C/Rust 便利适配可选择各自的进程配置策略，浏览器显式传入页面 VFS 与目录。
+一次性调用的 `RunOpts` 只接收模式、VFS、搜索目录、resolver 等功能输入，在 host 内部转换为加载请求，不携带组件管理状态；run_app 不读取 CLI 搜索配置或隐式补默认目录。main 解析环境变量、相对路径和 stdlib 路径；C/Rust 便利适配可选择各自的进程配置策略，浏览器显式传入页面 VFS 与目录。
 
 需要进程崩溃报告的宿主调用 `host::signal::install()`，CLI 在进程启动时安装。
 

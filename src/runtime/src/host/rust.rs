@@ -146,10 +146,12 @@ pub fn run_app(
     args: Vec<String>,
 ) -> Result<(), HostError> {
     install_app_config(file);
+    let vfs = z42::pal::fs::default_vfs();
     let opts = z42::host::RunOpts {
-        load_options: super::services::process_load_options(
-            file, libs_dir.as_deref(), mode.unwrap_or_else(z42::host::default_mode), z42::pal::fs::default_vfs(),
-        ),
+        mode: mode.unwrap_or_else(z42::host::default_mode),
+        search_dirs: super::services::process_search_dirs(file, libs_dir.as_deref(), &*vfs),
+        vfs,
+        resolver: None,
         program_args: args,
         print_stats: false,
         stats_json: false,

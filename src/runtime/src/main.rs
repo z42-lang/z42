@@ -320,7 +320,7 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
     if cli.verbose {
         match &libs_dir {
             Some(dir) => log_libs(dir),
-            None => tracing::info!("libs dir: not found (set $Z42_LIBS or run package.sh)"),
+            None => tracing::info!("libs dir: not configured (set Z42_LIBS or use a complete SDK)"),
         }
     }
 
@@ -344,11 +344,15 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
 
     // Shared app-run core (add-embedded-app-run): load the app + execute its
     // entry — the same core the embedding path (z42-host::run_app) uses.
+    let vfs = z42::pal::fs::default_vfs();
     let result = z42::host::run_app(
         file,
         cli.entry.as_deref(),
         z42::host::RunOpts {
-            load_options: resolve_load_options(&file, libs_dir.as_deref(), effective_mode, &cfg),
+            mode: effective_mode,
+            search_dirs: resolve_search_dirs(file, libs_dir.as_deref(), &*vfs, &cfg),
+            vfs,
+            resolver: None,
             program_args: cli.args.clone(),
             print_stats: cli.stats.is_some(),
             stats_json: cli.stats == Some(StatsFormat::Json),

@@ -61,19 +61,17 @@ int _pkgInstallComponent(string root, _PkgComponent comp, string pkgDir, _PkgIns
 int _pkgInstallZ42vm(_PkgInstallCtx ctx, string pkgDir) {
     string bin = Path.Join(pkgDir, "bin");
     Directory.Create(bin);
+    string cargoOut = !ctx.DirectHostMain && ctx.LauncherOut.Length > 0 ? ctx.LauncherOut : ctx.CargoOut;
+    if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: z42vm: no cargo output dir"); return 1; }
     if (ctx.DirectHostMain && Platform.IsWindows()) {
+        if (ctx.LauncherOut.Length == 0) { ConsoleError.WriteLine("error: z42vm: no forwarder output dir"); return 1; }
         string native = Path.Join(pkgDir, "native");
         Directory.Create(native);
         _componentCopyRequired(Path.Join(ctx.CargoOut, "z42vm.exe"), Path.Join(native, "z42vm.exe"));
         _componentCopyRequired(Path.Join(ctx.LauncherOut, "z42vm-windows-launcher.exe"), Path.Join(bin, "z42vm.exe"));
     } else {
-        string cargoOut = !ctx.DirectHostMain && ctx.LauncherOut.Length > 0 ? ctx.LauncherOut : ctx.CargoOut;
-        if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: z42vm: no cargo output dir"); return 1; }
-        _copyIfExists(Path.Join(cargoOut, "z42vm"), Path.Join(bin, "z42vm"));
-        _copyIfExists(Path.Join(cargoOut, "z42vm.exe"), Path.Join(bin, "z42vm.exe"));
-        if (!File.Exists(Path.Join(bin, "z42vm")) && !File.Exists(Path.Join(bin, "z42vm.exe"))) {
-            ConsoleError.WriteLine("error: z42vm not built in " + cargoOut); return 1;
-        }
+        string executable = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
+        _componentCopyRequired(Path.Join(cargoOut, executable), Path.Join(bin, executable));
     }
     _makeExe(Path.Join(bin, "z42vm"));
     // native_closure：z42vm 的动态闭包（组件动态库 + 恰好一份共享 std）装进同包 native/ ——

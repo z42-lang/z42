@@ -42,7 +42,8 @@ PAL 保留底层开库与符号原语；组件层只持有 loader 代码句柄�
 CLI 的参数和启动环境归 main.rs 及其私有 main_startup.rs，直接动态链接 libz42 并消费 host 的 VM 接口，
 不新增 CLI 目录/库模块，也不导出私有 C 入口表。非 CLI 平台库不编译 main 或其解析/日志实现。
 Cargo 仅在 cli 与 component-loading 同时启用时选择动态 z42vm binary；静态示例复用同一可执行宿主实现。
-一次性 run_app 和 LoadedProgram 共用显式 LoadOptions，环境、相对路径、搜索默认值由来源适配解析，
+一次性 run_app 接收模式、VFS、搜索目录和 resolver 等功能输入，在 host 内部构造 LoadedProgram 的加载请求，
+不把历史 LoadOptions 中的组件管理状态扩散到该接口。环境、相对路径、搜索默认值由来源适配解析，
 加载服务不读取 CLI probing 设置或隐式补目录。
 
 ### 当前可核对的缺口

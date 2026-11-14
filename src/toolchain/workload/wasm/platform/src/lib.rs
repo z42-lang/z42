@@ -270,12 +270,10 @@ pub fn run_test_app(
     };
     let vfs = page_vfs_handle();
     let opts = z42::host::RunOpts {
-        load_options: z42::host::LoadOptions {
-            mode: z42::host::default_mode(),
-            search_dirs: z42::loader::locate::search_paths::program_search_dirs(&*vfs, app_path, &[], libs.as_deref()),
-            vfs: vfs.clone(),
-            ..Default::default()
-        },
+        mode: z42::host::default_mode(),
+        search_dirs: z42::loader::locate::search_paths::program_search_dirs(&*vfs, app_path, &[], libs.as_deref()),
+        vfs,
+        resolver: None,
         program_args: args,
         print_stats: false,
         stats_json: false,

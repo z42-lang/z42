@@ -772,10 +772,12 @@ pub unsafe extern "C" fn z42_host_run_app(
         // Fix: run the VM on a dedicated large-stack thread so the embedded stack
         // budget matches/exceeds desktop.
         let run_vm = move || -> i32 {
+            let vfs = crate::pal::fs::default_vfs();
             let opts = crate::host::RunOpts {
-                load_options: super::services::process_load_options(
-                    &app, libs.as_deref(), crate::host::default_mode(), crate::pal::fs::default_vfs(),
-                ),
+                mode: crate::host::default_mode(),
+                search_dirs: super::services::process_search_dirs(&app, libs.as_deref(), &*vfs),
+                vfs,
+                resolver: None,
                 program_args: prog_args,
                 print_stats: false,
                 stats_json: false,

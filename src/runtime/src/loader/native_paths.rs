@@ -6,7 +6,7 @@ pub(crate) fn directories() -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
     // Explicit paths retain priority over executable- and core-relative defaults.
-    paths.extend(crate::config::runtime_config().native_search_paths.iter().cloned());
+    paths.extend(crate::config::runtime_config_snapshot().native_search_paths.iter().cloned());
 
     // Support SDK bin/native siblings and colocated development libraries.
     if let Ok(exe) = std::env::current_exe() {
