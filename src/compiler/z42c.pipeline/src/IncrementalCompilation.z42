@@ -100,17 +100,18 @@ public static class IncrementalCompilation {
         bool stable = false;
         while (!stable) {
             stable = true;
+            int pending = 0; i = 0;
+            while (i < n) { if (!plan.Fresh[i] && cached[i] == null) { pending = pending + 1; } i = i + 1; }
+            IrModule[] restored = null;
+            if (pending > 0) {
+                restored = new IrModule[n];
+                ParallelFor.Run(n, ParallelConfig.Jobs(pending), new CachedReadTask(srcs, projectDir, cacheDir, plan, cached, restored));
+            }
             i = 0;
             while (i < n) {
                 if (!plan.Fresh[i] && cached[i] == null) {
                     string rel = IncrementalBuild.Rel(projectDir, srcs[i]);
-                    IrModule m = null;
-                    try {
-                        byte[] zbc = File.ReadAllBytes(CacheStore.ZbcPath(cacheDir, rel));
-                        // zbc↔meta 配对校验（fix-cache-atomic-writes）：对不上 = 这份 zbc 不是这条 meta 写的
-                        // （崩溃留下的新旧混搭）→ 按不可读处理，走下方同一条降级（该文件 fresh）。
-                        if (Std.Hashing.Murmur3.Hash128Hex(zbc) == plan.Metas[i].ZbcHash) { m = ZbcReader.Read(zbc); }
-                    } catch (Exception e) { m = null; }
+                    IrModule m = restored[i];
                     if (m != null && !IncrementalCompilation._applyResidue(m, plan.Metas[i])) { m = null; }
                     if (m == null) {
                         if (reportDegradation) { ConsoleError.WriteLine("  [degrade/unreadable-cache] " + rel + " -> fresh"); }

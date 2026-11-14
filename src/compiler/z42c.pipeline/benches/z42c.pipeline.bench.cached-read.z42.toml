@@ -1,0 +1,13 @@
+[project]
+name = "z42c.pipeline.bench.cached-read"
+version = "0.1.0"
+kind = "exe"
+[sources]
+include = ["cached_read/cached_read_fixture.z42", "cached_read/cached_read_bench.z42"]
+[dependencies]
+"z42c.pipeline" = "0.1.0"
+"z42.package" = "0.1.0"
+"z42c.emission" = "0.1.0"
+"z42c.core" = "0.1.0"
+[build]
+output_dir = "../../../../artifacts/build/compiler/z42c.pipeline/${profile}/benches/cached-read"

@@ -80,3 +80,9 @@
 
 ## 依赖关系
 `z42c.core`、`z42c.syntax`、`z42c.semantics`、`z42c.emission`（`IrDump` / `CompiledModuleZ`）、`z42c.optimization`（`Opt` 开关解析）、`z42.package`、`z42.project`、`z42.compiler.contracts`（`ICompiler` / `IReplCompiler` 接口，无环）、`z42.io` + `z42.encoding`（CacheStore）。stdlib 自动可用。
+
+## 缓存恢复与基准
+
+缓存 IR 恢复先按现有文件 jobs 预算并行读取、校验 zbc/meta 配对并解码；Join 后按源序回填残留、处理降级与失效闭包。它不改变全命中时的诊断执行策略。`benches/z42c.pipeline.bench.cached-read.z42.toml` 覆盖 8/64 文件、jobs 1/4 的完整 Prepare 请求（真实缓存 setup 与字节检查在计时外）。
+
+`benches/cached_read/` 是默认发现器的一个目录单元：共享夹具和四个基准一起编译，夹具文件不单独作为基准执行。
