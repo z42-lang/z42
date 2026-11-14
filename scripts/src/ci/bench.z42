@@ -33,14 +33,20 @@ int _ciBenchScope(string base_, string eventFile) {
     FlowPlan plan = _ciBenchPlan(cfg, root, base_, eventFile);
     string path = Path.Join(_artifactsDir(root), "bench-plan.json");
     Directory.Create(Path.GetDirectoryName(path)); File.WriteAllText(path, JsonValue.StringifyPretty(_flowJson(cfg, plan)) + "\n");
+    string text = _ciBenchText(cfg, plan);
+    string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
+    if (output.Length > 0) { File.AppendAllText(output, text); }
+    Console.Write(text);
+    return 0;
+}
+
+string _ciBenchText(FlowConfig cfg, FlowPlan plan) {
     string[] flags = _flowOutputs(cfg, plan);
     bool language = _strIn(flags, "bench_stdlib") || _strIn(flags, "bench_integration");
     string text = "base_sha=" + plan.Base + "\n"
         + "bench_toolchain=" + (language ? "true" : "false") + "\n"
         + "verdict_only=" + (!language && !_strIn(flags, "bench_vm") ? "true" : "false") + "\n";
+    text = text + "bench_owners=" + (_strIn(flags, "bench_stdlib") ? _microPlanOwners(cfg, plan) : "") + "\n";
     foreach (var key in _ciBenchKinds()) { text = text + key + "=" + (_strIn(flags, key) ? "true" : "false") + "\n"; }
-    string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
-    if (output.Length > 0) { File.AppendAllText(output, text); }
-    Console.Write(text);
-    return 0;
+    return text;
 }
