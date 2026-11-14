@@ -5,7 +5,7 @@ version = "0.1.0"
 kind    = "lib"
 
 [sources]
-include = ["**/*.z42", "../../benches/cached_read_fixture.z42"]
+include = ["**/*.z42", "../../benches/cached_read/cached_read_fixture.z42"]
 
 [dependencies]
 "z42c.emission"  = "0.1.0"   # IrDump / CompiledModuleZ（整包编译取诊断）
