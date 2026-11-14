@@ -2,9 +2,10 @@ use anyhow::Result;
 use clap::{Parser, ValueEnum};
 
 // CLI 启动期辅助（stdlib 定位 / tracing / panic hook / --info / 模块路径）。
-#[path = "cli_startup.rs"]
-mod startup;
-use startup::*;
+mod process_startup;
+use process_startup::*;
+mod entry_protocol;
+mod runtime_entry;
 
 #[derive(Parser)]
 #[command(name = "z42vm", about = "z42 Virtual Machine", version)]
@@ -367,4 +368,4 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
 
 #[cfg(test)]
 #[path = "cli_tests.rs"]
-mod main_tests;
+mod cli_tests;

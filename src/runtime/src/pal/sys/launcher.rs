@@ -1,5 +1,5 @@
 //! Native launcher bootstrap, independent of runtime Rust types and initialization.
-use crate::entry_api::*;
+use crate::entry_protocol::*;
 use anyhow::{bail, ensure, Context, Result};
 use std::{ffi::CString, mem::ManuallyDrop, path::PathBuf};
 mod identity { include!(concat!(env!("OUT_DIR"), "/identity.rs")); }

@@ -31,6 +31,11 @@ VM 程序准备、执行角色查询和分析请求通过内部 `components::api
 支持性查询只核对目标能力，候选查询只读路径与已装入映像缓存；Android 未知的裸库名不会因查询触发装入。
 显式准备仍可交给系统加载器按名称装入并校验。独立后端对核心模块使用私有导入，不再通过自身批量再导出。
 
+CLI 的参数、启动环境和进程 C 入口位于独立 cli 适配目录，消费 host 的 VM 功能接口，
+host 不再导出 cli 或入口协议。cli feature 关闭时不编译该模块与可选解析/日志依赖；
+Cargo 仅在 cli 与 component-loading 同时启用时选择动态 z42vm binary。
+CLI 仍是 feature 限定的同 crate 适配，并非新增的组件或独立运行时库。
+
 ### 当前可核对的缺口
 
 | 缺口 | 代码证据 | 影响与目标 |
@@ -42,7 +47,7 @@ VM 程序准备、执行角色查询和分析请求通过内部 `components::api
 | 使用形态分类不完整 | `components/catalog.rs::Registration` 只有 Static/Dynamic，`components/backends.rs::BackendSource` 的 Linked 只查询已登记入口，Dynamic 走显式开库 | 分开静态链接、链接动态库和运行时装入；记录实际来源，按运行时策略核对，不能只改枚举名字 |
 | 组件管理与配置相互依赖 | `config/availability.rs` 查询 components；`components/backends.rs::native_paths`、`components/api.rs::attach_execution` 读取 runtime_config | 在装配入口捕获路径/JIT 配置及平台能力，组件管理消费显式输入 |
 | 诊断契约反向拥有装配机制 | `diagnostics/sampling.rs` 保存 BackendSource、VmComponents 并触发 attach；`components/profiling.rs` 回到 sampler 注册实现 | 诊断保留观察/采样接口，组件管理拥有来源和代码保活；经窄接口绑定，避免新增 Core 自持有环 |
-| 默认 VM 装配由 host 承担 | `host/program_builder.rs`、`vm_defaults.rs`、`extensions.rs`；`host/artifact.rs` 为 LazyLoader 实现构造方法 | host 解析请求，VM 装配层负责配置快照、Core/loader、组件和发布；loader 的构造实现回归其所有者 |
+| 默认 VM 装配由 host 承担 | `host/program_builder.rs`、`vm_defaults.rs`、`extensions.rs`；`host/artifact.rs` 为 LazyLoader 实现构造方法 | CLI 已独立适配 host；VM 装配层仍需拥有配置快照、Core/loader、组件和发布，loader 构造归其所有者 |
 | loader 与 interop 混合机制和编排 | `loader/native.rs` 调 interop 注册/解析，`interop/module.rs` 反向调用 loader::native::resolve_symbol | loader 提供代码/符号来源，interop 负责描述符与编组；由装配协调器连接 |
 | 元数据解析直接驱动 VM 加载 | `metadata/resolve/mod.rs` 接收 VmContext，enqueue_type_load/drain_pending_type_loads | 将解析事实与加载编排分开，用最小解析视图和待加载请求连接 |
 | 对象表示反向依赖执行和加载域 | `object/value/ref_word.rs::alloc_box_ambient` 访问 exec::ambient；`object/object/object.rs::NativeData` 引用 loader 身份；`object/types/type_desc.rs` 引用 metadata TypeId | 抽出身份/布局词汇，分离编码与需堆的装箱操作；保留屏障协议，不把 object/GC 的必要协作当成可直接删除的依赖 |

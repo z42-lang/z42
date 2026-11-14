@@ -2,7 +2,7 @@
 
 ## 职责
 
-`src/lib.rs` 编译唯一的运行时包 `z42`。`src/` 内的 host、上下文、执行、元数据、对象、GC、PAL、config、corelib、interop 都是包内模块。`src/main.rs` 只通过版本化 C 入口动态加载运行时；CLI 实现在 `host/cli.rs`，与嵌入端共用 host 服务。Cargo 命令用 `-p z42` 选择运行时。
+`src/lib.rs` 编译唯一的运行时包 `z42`。`src/` 内的 host、上下文、执行、元数据、对象、GC、PAL、config、corelib、interop 都是包内模块。`src/main.rs` 只通过版本化 C 入口动态加载运行时；CLI 实现在 `cli/mod.rs`，与嵌入端共用 host 服务。Cargo 命令用 `-p z42` 选择运行时。
 
 执行 z42 编译产物（`.zbc` / `.zpkg`）。后端：解释器（interp）+ Cranelift JIT（desktop 默认，惰性逐函数编译）；AOT 为桩。
 不含编译器（在 `src/compiler/`）与标准库（在 `src/libraries/`）。
@@ -17,8 +17,8 @@
 | 文件 | 职责 |
 |------|------|
 | `main.rs` | 动态加载运行时，检查 C 入口的 ABI 和构建身份 |
-| `host/cli.rs` | 参数解析、启动策略和调用共用宿主服务 |
-| `host/cli_startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
+| `cli/mod.rs` | 参数解析、启动策略和调用共用宿主服务 |
+| `cli/process_startup.rs` | `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、模块搜索路径解析 |
 | `corelib/builtins.rs` / `host/builtins.rs` | 核心库导出自身描述符，host 经 interop 注册独立提供方并生成查询目录与执行表 |
 | `corelib/mod.rs` | 核心库提供 GetType 和默认 ToString 的对象协议绑定；宿主将其注入 VM |
 | `host/artifact.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |

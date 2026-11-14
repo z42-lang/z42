@@ -16,6 +16,17 @@ pub mod corelib;
 pub mod profiler;
 pub mod interop;
 pub mod host;
+/// CLI host adapter, excluded from non-CLI runtime builds.
+///
+/// The ordinary host surface does not export command-line implementations:
+/// ```compile_fail
+/// use z42::host::cli::run_from;
+/// ```
+/// ```compile_fail
+/// use z42::host::entry_api::RuntimeEntry;
+/// ```
+#[cfg(feature = "cli")]
+pub mod cli;
 pub mod config;
 pub use exec::ops::object as objops;
 /// Same-build component contracts; VM management remains crate-private.
