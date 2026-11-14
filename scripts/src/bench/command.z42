@@ -51,6 +51,7 @@ class BenchCommand : Command {
     public BenchCommand() : base("bench", "benchmarks") {
         this.SetDefaultAction("e2e hyperfine scenarios");
         this.AddCommand(new LibUnitsCommand("bench", "per-lib [Benchmark]"));
+        this.AddCommand(new BenchPrepareCommand());
         this.AddCommand(new BenchTargetsCommand());
         this.AddCommand(new BenchVerdictCheckCommand());
         this.AddCommand(new BenchCriterionCommand());

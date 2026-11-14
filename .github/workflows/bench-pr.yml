@@ -217,101 +217,11 @@ jobs:
         shell: bash
         run: xtask bench check
 
-      # Build the base (merge-base) toolchain on THIS runner. The PR z42c (newer)
-      # compiles the older base source (staged bootstrap guarantees newer compiles
-      # older). Only scenario RUNTIME is measured, and base's driver still runs base's
-      # codegen logic → base-style scenario .zbc. If src/runtime is unchanged,
-      # base_vm == pr_vm (byte identical) → skip building base's Rust VM.
-      - name: Build base (merge-base) toolchain for A/B
+      # Native preparation preserves provider ordering and equal-length measured paths.
+      - name: Prepare symmetric A/B toolchains
         if: steps.scope.outputs.bench_toolchain == 'true' && steps.fmtgap.outcome == 'success' && steps.fmtgap.outputs.gap == '0'
-        id: base
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROOT="$PWD"
-          BASE_SHA="${{ steps.scope.outputs.base_sha }}"
-          # 动态图产物目录名因树而异（R0 后 release-dynamic，旧树 release）。A/B 等长不变量靠
-          # 各树内固定名软链 ab → 实际目录；两侧都经 <树>/artifacts/build/runtime/ab/z42vm 取 VM。
-          abdir() { local rt="$1/artifacts/build/runtime"; local d=release; [ -d "$rt/release-dynamic" ] && d=release-dynamic; ln -sfn "$d" "$rt/ab"; }
-          abdir "$ROOT"
-          PRVM="$ROOT/artifacts/build/runtime/ab/z42vm"
-          PRDRIVER="$ROOT/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"
-
-          # PR flat libs (stdlib + z42c siblings) — PR driver's runtime resolve
-          # set + the TSIG surface base compiler source is type-checked against.
-          # Per-file copy (not a single `cp <glob> dir/`): each z42c member's dist
-          # bundles copies of its sibling zpkgs, so the compiler glob resolves the
-          # same basename (e.g. z42c.core.zpkg) from multiple dirs → GNU cp aborts
-          # with "will not overwrite just-created". The copies are byte-identical, so
-          # a per-file loop (last-wins) is safe. (Same for every dist-glob copy below.)
-          PRALL="$ROOT/.ab-pr-alllibs"; rm -rf "$PRALL"; mkdir -p "$PRALL"
-          cp -f "$ROOT/artifacts/intermediate/libraries/flat/release/"*.zpkg "$PRALL/"
-          # 只拷 base 成员表里也存在的编译器包：PR 独有（重命名/合并出来）的包进 base 解析域
-          # ⇒ 同 FQN 双包 E0606，base workspace 当场红。
-          for f in "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg; do
-            n="$(basename "$f" .zpkg)"
-            if grep -q "\"$n\"" "$ROOT/base-src/src/compiler/z42.workspace.toml"; then cp -f "$f" "$PRALL/"; fi
-          done
-
-          # base z42vm: reuse PR's unless src/runtime differs base..pr.
-          # 排除 *.md：README 改动不算「VM 变了」（benchmarking.md §8）。
-          if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime ':(exclude,glob)src/runtime/**/*.md'; then
-            echo "→ src/runtime unchanged base..pr → base_vm = pr_vm"
-            BASEVM="$PRVM"
-          else
-            echo "→ src/runtime changed → build complete base runtime and components"
-            # Use the same build graph as the head: the launcher requires its
-            # matching core, execution backends, compression library and shared std.
-            # xtask resolves the repository from cwd, so this builds base sources.
-            ( cd base-src && xtask build runtime )
-            abdir "$ROOT/base-src"
-            BASEVM="$ROOT/base-src/artifacts/build/runtime/ab/z42vm"
-          fi
-
-          # base z42c: PR driver compiles base-src/src/compiler (newer→older).
-          ( cd base-src/src/compiler && \
-            Z42_LIBS="$PRALL" "$PRVM" "$PRDRIVER" --mode jit -- build --workspace --release --no-incremental )
-
-          # 取证：两侧 driver 是否同一个二进制（下面 fingerprint guard 判读用）。sha 相同而输出不同
-          # ⇒ 编译非确定性；sha 不同 ⇒ 自举代差（BASEDRIVER 是 PRDRIVER 又编一代）。
-          echo "driver sha (pr)   $(sha256sum "$PRDRIVER" | cut -c1-16)  $PRDRIVER"
-
-          # base flat libs = base z42c siblings + stdlib (to RUN the base driver) +
-          # base stdlib (built next, overwriting the seed stdlib for measurement).
-          BASEALL="$ROOT/.ab-base-alllibs"; rm -rf "$BASEALL"; mkdir -p "$BASEALL"
-          for f in "$ROOT/base-src/artifacts/build/compiler/"*/release/dist/*.zpkg; do cp -f "$f" "$BASEALL/"; done
-          # ⚠️ 顺序承重：上面那圈编译器 dist 自带构建时那一代 stdlib 副本 ⇒ 下面的 PR flat 必须
-          # 在后（后拷者赢）。BASEDRIVER 是 PR z42c 对着 PR stdlib 编的，要同代 stdlib 才跑得起来
-          # （extern mangling 跨 z42c 版本可能不同 → `undefined function …$N`）；下面建好的 base
-          # stdlib 再覆盖它们用于实测。
-          for f in "$ROOT/artifacts/intermediate/libraries/flat/release/"*.zpkg; do cp -f "$f" "$BASEALL/"; done
-          BASEDRIVER="$BASEALL/z42c.driver.zpkg"
-          echo "driver sha (base) $(sha256sum "$BASEDRIVER" | cut -c1-16)  $BASEDRIVER"
-          # ⚠ 以下构建用 **PR 的 VM** 跑，不是 BASEVM：BASEALL 里此刻是 PR stdlib，可能用到 base VM
-          # 还没有的 builtin。产物字节由 BASEDRIVER 决定、与执行它的 VM 无关；BASEVM 只用于实测环节
-          # （那时 BASEALL 已被 base stdlib 覆盖）。
-          #
-          # 携带插件先于 workspace：z42.harness 经 [plugins.export] 携带 z42.harness.lint，其 release
-          # 构建会验插件工程 dist（PluginCarry._verifyDist）⇒ 产物须先于 workspace 存在。与 xtask 的
-          # _buildStdlibCarriedPlugins 同一 CLI 形态（`build <toml> --release --output-dir <工程>/dist
-          # --internal-of z42.harness`：lint 用宿主的 internal 成员）。只建产物、不平铺进 BASEALL 同级
-          # plugins/——PR 侧 PRALL 同样没有，两侧对称。
-          # Z42_LIBS 用 PR flat（纯 stdlib）而不是 BASEALL：契约包（z42c.syntax / z42c.plugin）对
-          # kind=plugin 免声明，靠 SdkLibs.Plan 从 Z42_LIBS 上溯探到 driver dist 收集候选；BASEALL 的
-          # 祖先探不到 driver dist，且同名 zpkg 被 BASEALL 遮蔽 ⇒ 候选空 ⇒ E0497。
-          LINT_TOML="$ROOT/base-src/src/libraries/z42.harness/plugins/lint/z42.z42.toml"
-          if [ -f "$LINT_TOML" ]; then
-            ( cd base-src/src/libraries && \
-              Z42_LIBS="$ROOT/artifacts/intermediate/libraries/flat/release" "$PRVM" "$BASEDRIVER" --mode jit -- build "$LINT_TOML" --release \
-                --output-dir "$(dirname "$LINT_TOML")/dist" --internal-of z42.harness )
-          fi
-          ( cd base-src/src/libraries && \
-            Z42_LIBS="$BASEALL" "$PRVM" "$BASEDRIVER" --mode jit -- build --workspace --release --no-incremental )
-          for f in "$ROOT/base-src/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$BASEALL/"; done
-
-          echo "base_vm=$BASEVM"         >> "$GITHUB_OUTPUT"
-          echo "base_libs=$BASEALL"      >> "$GITHUB_OUTPUT"
-          echo "base_driver=$BASEDRIVER" >> "$GITHUB_OUTPUT"
+        id: prepare
+        run: xtask bench prepare --base "${{ steps.scope.outputs.base_sha }}"
 
       # 编译器指纹门：用 PR 编译器把 base stdlib 源码再编一遍、逐包比字节——输出变了而
       # CompilerFingerprint / 格式 Minor 没累加 ⇒ 红（docs/internals/src/compiler/compiler-fingerprint.md）。
@@ -322,44 +232,7 @@ jobs:
         shell: bash
         run: |
           xtask test compiler fingerprint --base "$PWD/base-src" \
-              --base-driver "${{ steps.base.outputs.base_driver }}"
-
-      # PR 侧的树与工具链，逐项对齐 base 侧（Build base 步）的形状；e2e 与 micro 两道 A/B 共用。
-      # 🔴 两侧必须**同形**（benchmarking.md §3「两侧必须同形捕获」）：被测进程的 argv / env / 路径字节数
-      # 决定它的内存布局，布局能让同一份代码稳定快慢 10%~60%，且每轮复测都一样 ⇒ 复测看不见、只会当成回归。
-      # libs 目录的**内容**也要同配方：VM 启动时逐个读 Z42_LIBS 下每个 zpkg 的 NSPC，目录里多十几个
-      # 编译器包 = 那一侧启动多干活。
-      #   · 树根等长：PR 源码另开 worktree `head-src`（与 `base-src` 等长），artifacts 软链回 PR 产物；
-      #   · 工具链显式且同配方：`.ab-head-alllibs` 与 `.ab-base-alllibs` 等长、同一套拷贝顺序。
-      - name: Prepare head toolchain (same shape as base, for both A/B gates)
-        if: steps.scope.outputs.bench_toolchain == 'true' && steps.fmtgap.outcome == 'success' && steps.fmtgap.outputs.gap == '0'
-        id: head
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROOT="$PWD"
-          git worktree add --detach head-src HEAD
-          ln -s ../artifacts head-src/artifacts
-          HEADALL="$ROOT/.ab-head-alllibs"; rm -rf "$HEADALL"; mkdir -p "$HEADALL"
-          for f in "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg; do cp -f "$f" "$HEADALL/"; done
-          for f in "$ROOT/artifacts/intermediate/libraries/flat/release/"*.zpkg; do cp -f "$f" "$HEADALL/"; done
-          for f in "$ROOT/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$HEADALL/"; done
-          BASEVM="${{ steps.base.outputs.base_vm }}"
-          BASEALL="${{ steps.base.outputs.base_libs }}"
-          # VM 没变 ⇒ base_vm 就是 PR 的 z42vm，两侧同一个路径串；变了 ⇒ 各取本树 artifacts 下的那个（等长）。
-          if [ "$BASEVM" = "$ROOT/artifacts/build/runtime/ab/z42vm" ]; then
-            HEADVM="$BASEVM"
-          else
-            # head-src/artifacts 是 ../artifacts 的软链 —— ab 已在本树建好（见 base 步）。
-            HEADVM="$ROOT/head-src/artifacts/build/runtime/ab/z42vm"
-          fi
-          # 等长是这一步的不变量：谁改了目录名，这里当场红，而不是悄悄变回有偏的门。
-          [ "${#HEADALL}" -eq "${#BASEALL}" ] && [ "${#HEADVM}" -eq "${#BASEVM}" ] \
-            || { echo "::error::A/B 两侧工具链路径不等长（$HEADALL / $BASEALL；$HEADVM / $BASEVM）"; exit 1; }
-          echo "head libs: $(ls "$HEADALL" | wc -l) zpkg（base: $(ls "$BASEALL" | wc -l)）"
-          echo "head_vm=$HEADVM"                         >> "$GITHUB_OUTPUT"
-          echo "head_libs=$HEADALL"                      >> "$GITHUB_OUTPUT"
-          echo "head_driver=$HEADALL/z42c.driver.zpkg"   >> "$GITHUB_OUTPUT"
+              --base-driver "${{ steps.prepare.outputs.base_driver }}"
 
       - name: Same-runner A/B regression gate (symmetric toolchains; >15% time fails)
         if: steps.scope.outputs.bench_integration == 'true' && steps.fmtgap.outputs.gap == '0'
@@ -383,26 +256,26 @@ jobs:
           # --pr-*：PR 侧用上一步备好的同形工具链，不用树内那套（路径长度、libs 内容都与 base 侧不同）。
           xtask bench --ab --tier gate --mode "$MODE" --threshold-time 0.15 \
               --pause-cap-ms 16 --threshold-pause 0.25 --threshold-pause-max 1.0 \
-              --base-vm     "${{ steps.base.outputs.base_vm }}" \
-              --base-libs   "${{ steps.base.outputs.base_libs }}" \
-              --base-driver "${{ steps.base.outputs.base_driver }}" \
-              --pr-vm       "${{ steps.head.outputs.head_vm }}" \
-              --pr-libs     "${{ steps.head.outputs.head_libs }}" \
-              --pr-driver   "${{ steps.head.outputs.head_driver }}"
+              --base-vm     "${{ steps.prepare.outputs.base_vm }}" \
+              --base-libs   "${{ steps.prepare.outputs.base_libs }}" \
+              --base-driver "${{ steps.prepare.outputs.base_driver }}" \
+              --pr-vm       "${{ steps.prepare.outputs.head_vm }}" \
+              --pr-libs     "${{ steps.prepare.outputs.head_libs }}" \
+              --pr-driver   "${{ steps.prepare.outputs.head_driver }}"
 
       # The native gate captures whole rounds in head/base order and resamples
       # suspicious results twice, sharing the same policy with local development.
       - name: Micro A/B gate (symmetric capture; resample-on-suspicion; >15% time fails)
-        if: ${{ success() && steps.scope.outputs.bench_stdlib == 'true' && steps.fmtgap.outputs.gap == '0' && steps.base.outcome == 'success' && steps.head.outcome == 'success' }}
+        if: ${{ success() && steps.scope.outputs.bench_stdlib == 'true' && steps.fmtgap.outputs.gap == '0' && steps.prepare.outcome == 'success' }}
         shell: bash
         env:
           BENCH_OWNERS: ${{ steps.scope.outputs.bench_owners }}
         run: |
           xtask bench --micro-ab --owners "${BENCH_OWNERS?benchmark scope is required}" --threshold-time 0.15 \
-              --base-vm "${{ steps.base.outputs.base_vm }}" \
-              --base-libs "${{ steps.base.outputs.base_libs }}" \
-              --pr-vm "${{ steps.head.outputs.head_vm }}" \
-              --pr-libs "${{ steps.head.outputs.head_libs }}"
+              --base-vm "${{ steps.prepare.outputs.base_vm }}" \
+              --base-libs "${{ steps.prepare.outputs.base_libs }}" \
+              --pr-vm "${{ steps.prepare.outputs.head_vm }}" \
+              --pr-libs "${{ steps.prepare.outputs.head_libs }}"
 
       # Rust measurements need only the two Rust trees, not either z42 toolchain.
       - name: VM Criterion A/B (informational)

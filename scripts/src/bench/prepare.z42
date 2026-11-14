@@ -1,0 +1,115 @@
+namespace Z42Xtask;
+
+using Std.Cli;
+using Std.IO;
+
+class BenchTools {
+    public string Vm = "";
+    public string Libs = "";
+    public string Driver = "";
+}
+
+class BenchPrepared {
+    public int Code;
+    public BenchTools Base = new BenchTools();
+    public BenchTools Head = new BenchTools();
+}
+
+class BenchPrepareOps {
+    public string Root = "";
+    public virtual int Runtime(string tree) {
+        return _execIn(new Process("bash").Arg(Path.Join(this.Root, ".github/ci/xtask")).Args(new string[]{ "build", "runtime" }), tree);
+    }
+    public virtual int Compile(string tree, string vm, string driver, string libs, string[] args) {
+        return _execIn(_z42cProcMode(vm, libs, driver, "jit").Args(args), tree);
+    }
+    public virtual int Head(string tree) {
+        int code = _execIn(new Process("git").Args(new string[]{ "worktree", "add", "--detach", tree, "HEAD" }), this.Root);
+        return code != 0 ? code : _execIn(new Process("ln").Args(new string[]{ "-s", "../artifacts", Path.Join(tree, "artifacts") }), this.Root);
+    }
+}
+
+class BenchPrepareCommand : Command {
+    [Option(help: "verified base commit checked out in base-src")] public string Base = "";
+    public BenchPrepareCommand() : base("prepare", "prepare symmetric base/head A/B toolchains") {}
+    public override int Run() {
+        if (this.Base.Length == 0) { throw new CliException("--base is required"); }
+        var prepared = _benchPrepare(_root(), this.Base, new BenchPrepareOps());
+        if (prepared.Code != 0) { return prepared.Code; }
+        string text = _benchToolsText("base", prepared.Base) + _benchToolsText("head", prepared.Head);
+        string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
+        if (output.Length > 0) { File.AppendAllText(output, text); }
+        Console.Write(text); return 0;
+    }
+}
+
+string _benchToolsText(string side, BenchTools tools) {
+    return side + "_vm=" + tools.Vm + "\n" + side + "_libs=" + tools.Libs + "\n" + side + "_driver=" + tools.Driver + "\n";
+}
+
+BenchPrepared _benchPrepare(string root, string reference, BenchPrepareOps ops) {
+    string tree = Path.Join(root, "base-src"); string head = Path.Join(root, "head-src");
+    string base_ = _flowCommit(root, reference);
+    if (Path.Normalize(_gitOutput(new string[]{ "-C", tree, "rev-parse", "--show-toplevel" }).Trim()) != Path.Normalize(tree)
+        || _flowCommit(tree, "HEAD") != base_) { throw new CliException("base-src does not match --base"); }
+    _gitOutput(new string[]{ "-C", root, "merge-base", "--is-ancestor", base_, "HEAD" });
+    if (Directory.Exists(head) || File.Exists(head)) { throw new CliException("head-src already exists; preserve or remove that worktree explicitly"); }
+    if (tree.Length != head.Length) { throw new CliException("A/B source-tree paths differ in length"); }
+    foreach (var file in _changedFiles("HEAD", root)) {
+        if (!file.StartsWith("base-src/") && !file.StartsWith(".ab-pr-alllibs/")
+            && !file.StartsWith(".ab-base-alllibs/") && !file.StartsWith(".ab-head-alllibs/")) {
+            throw new CliException("commit source changes before A/B preparation: " + file);
+        }
+    }
+    if (_changedFiles("HEAD", tree).Length > 0) { throw new CliException("base-src contains uncommitted changes"); }
+    ops.Root = root;
+    var result = new BenchPrepared();
+    var pr = new BenchTools(); pr.Vm = _benchAliasVm(root); pr.Driver = _driverZpkg(root, "release");
+    _benchRequireFile(pr.Driver);
+    pr.Libs = Path.Join(root, ".ab-pr-alllibs"); _resetDir(pr.Libs);
+    _benchCopyPackages(_libsDir(root), false, pr.Libs, null);
+    _benchCopyPackages(_buildMirror(root, "src/compiler"), true, pr.Libs, _benchBaseMembers(tree));
+    result.Base.Vm = pr.Vm;
+    if (_benchRuntimeChanged(root, base_)) {
+        result.Code = ops.Runtime(tree); if (result.Code != 0) { return result; }
+        result.Base.Vm = _benchAliasVm(tree);
+    }
+    result.Code = _benchBuildBase(root, tree, pr, result.Base, ops);
+    if (result.Code != 0) { return result; }
+    result.Code = ops.Head(head); if (result.Code != 0) { return result; }
+    result.Head.Vm = result.Base.Vm == pr.Vm ? pr.Vm : Path.Join(head, "artifacts/build/runtime/ab/z42vm");
+    result.Head.Libs = Path.Join(root, ".ab-head-alllibs"); _resetDir(result.Head.Libs);
+    _benchCopyPackages(_buildMirror(root, "src/compiler"), true, result.Head.Libs, null);
+    _benchCopyPackages(_libsDir(root), false, result.Head.Libs, null);
+    _benchCopyPackages(_buildMirror(root, "src/libraries"), true, result.Head.Libs, null);
+    result.Head.Driver = Path.Join(result.Head.Libs, "z42c.driver.zpkg");
+    _benchRequireFile(result.Head.Driver); _benchRequireFile(result.Head.Vm);
+    if (result.Head.Libs.Length != result.Base.Libs.Length || result.Head.Vm.Length != result.Base.Vm.Length) {
+        throw new CliException("A/B measured toolchain paths differ in length");
+    }
+    return result;
+}
+
+int _benchBuildBase(string root, string tree, BenchTools pr, BenchTools baseline, BenchPrepareOps ops) {
+    int code = ops.Compile(Path.Join(tree, "src/compiler"), pr.Vm, pr.Driver, pr.Libs,
+        new string[]{ "build", "--workspace", "--release", "--no-incremental" });
+    if (code != 0) { return code; }
+    baseline.Libs = Path.Join(root, ".ab-base-alllibs"); _resetDir(baseline.Libs);
+    _benchCopyPackages(_buildMirror(tree, "src/compiler"), true, baseline.Libs, null);
+    // The base driver was built against PR stdlib; its bundled seed copies must lose.
+    _benchCopyPackages(_libsDir(root), false, baseline.Libs, null);
+    baseline.Driver = Path.Join(baseline.Libs, "z42c.driver.zpkg"); _benchRequireFile(baseline.Driver);
+    _benchDriverReceipt("pr", pr.Driver); _benchDriverReceipt("base", baseline.Driver);
+    string lint = Path.Join(tree, "src/libraries/z42.harness/plugins/lint/z42.z42.toml");
+    if (File.Exists(lint)) {
+        code = ops.Compile(Path.Join(tree, "src/libraries"), pr.Vm, baseline.Driver, _libsDir(root),
+            new string[]{ "build", lint, "--release", "--output-dir", Path.Join(Path.GetDirectoryName(lint), "dist"), "--internal-of", "z42.harness" });
+        if (code != 0) { return code; }
+    }
+    // Build on the new VM; the old VM is reserved for measurement after base stdlib replaces PR stdlib.
+    code = ops.Compile(Path.Join(tree, "src/libraries"), pr.Vm, baseline.Driver, baseline.Libs,
+        new string[]{ "build", "--workspace", "--release", "--no-incremental" });
+    if (code != 0) { return code; }
+    _benchCopyPackages(_buildMirror(tree, "src/libraries"), true, baseline.Libs, null);
+    return 0;
+}

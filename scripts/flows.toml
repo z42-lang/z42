@@ -435,6 +435,12 @@ select = ["xtask"]
 publish = false
 
 [[inputs]]
+id = "language-benchmark-tooling"
+include = ["scripts/src/bench/prepare*.z42"]
+select = ["bench-verdict", "bench-stdlib", "bench-integration"]
+publish = false
+
+[[inputs]]
 id = "benchmark-executor"
 include = ["scripts/src/bench/**"]
 select = ["bench-verdict", "bench-measure"]

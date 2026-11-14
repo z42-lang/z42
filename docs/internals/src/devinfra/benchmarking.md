@@ -1,6 +1,6 @@
 # 性能基准与回归门禁
 
-> 代码：`scripts/src/bench/bench.z42`、`scripts/src/bench/gc_pause.z42`、`src/benches/`、`src/runtime/benches/`、`.github/workflows/bench-pr.yml`
+> 代码：`scripts/src/bench/bench.z42`、`scripts/src/bench/prepare.z42`、`scripts/src/bench/gc_pause.z42`、`src/benches/`、`src/runtime/benches/`、`.github/workflows/bench-pr.yml`
 >
 > 命令与旗标以 `xtask bench -h` / `xtask bench stdlib -h` 为准。
 
@@ -127,7 +127,7 @@ PR 新增或改名的基准在 base 无对应 ⇒ 信息性 skip。
 编译器包 = base 侧启动多干活 ⇒ 比值整体偏向「PR 更快」，盖住真回归（e2e 曾因此 `03_startup`
 稳定测出 0.81~0.84）。
 
-因此 PR 侧不用树内隐式工具链，而是由 workflow 的「Prepare head toolchain」步备一套与 base 同形的，
+因此 PR 侧不用树内隐式工具链，而是由原生 `xtask bench prepare --base <commit>` 准备两套同形工具链，
 e2e（`bench --ab --pr-vm/--pr-libs/--pr-driver`）与 micro（`capture`）两道 A/B 共用：
 
 - **树根等长**：PR 源码另开 worktree `head-src`，与 `base-src` 等长，`artifacts` 软链回 PR 产物。
@@ -135,7 +135,7 @@ e2e（`bench --ab --pr-vm/--pr-libs/--pr-driver`）与 micro（`capture`）两�
   vm 两侧同串（VM 未变）或各取本树 `artifacts` 下的那个（等长）。
 - **e2e 的 scenario `.zbc` 等长**：`<name>-base.zbc` / `<name>-head.zbc`（`_abZbcPath`）。
 
-workflow 里断言这两组路径等长，谁改了目录名当场红；`bench --ab` 自己发现两侧 vm / libs 路径不等长时
+原生准备入口断言这两组路径等长，谁改了目录名当场红；`bench --ab` 自己发现两侧 vm / libs 路径不等长时
 打一行 ⚠️（本地不传 `--pr-*` 时就是这样，结果里混着布局偏差）。
 
 ### GC 停顿子门禁
@@ -366,10 +366,10 @@ CI 在规划时导出 `bench_owners`，本地可用 `--plan <plan.json>` 在主�
    随后做**格式代差检测**（见 §10）。
 2. bootstrap PR 工具链（nightly z42c 种子 → 当前源码 warm 自建）。
 3. **判红逻辑自检**用 `xtask bench check` 执行纯 JSON 与纯函数检查，在测量之前报告失败。
-4. **建 base 工具链**（同 runner，见 §3）。
+4. **准备 base / head 工具链**（同 runner，见 §3）：`xtask bench prepare --base <base_sha>` 验证 `base-src` 的不可变提交，使用 PR driver 编译 base compiler，再使用 base driver 在 PR VM 上构建 base 插件和标准库。仅 runtime 生产源改动时重建 base VM；文档改动复用 PR VM。然后创建 `head-src`、保留两侧库覆盖顺序与等长路径，输出六个工具链路径并写入 GitHub outputs。已存在的 `head-src`、不匹配的基线、未提交的源码和缺失产物会拒绝执行，不删除用户已有工作树。
 5. **e2e A/B（硬门禁）**：`bench --ab --tier gate --mode $MODE --threshold-time 0.15
    --pause-cap-ms 16 --threshold-pause 0.25 --threshold-pause-max 1.0 --base-vm/-libs/-driver …
-   --pr-vm/-libs/-driver …`（PR 侧用「Prepare head toolchain」步的同形工具链，见 §3）。`MODE` 按改动面收窄：
+   --pr-vm/-libs/-driver …`（两侧都使用原生准备步骤的显式路径，见 §3）。`MODE` 按改动面收窄：
    `src/runtime` 无非文档改动 → `jit`，否则 `both`。
 6. **micro A/B（硬门禁，`xtask bench --micro-ab`）**：两棵树（`head-src` / `base-src`）各采一份 `bench stdlib --json`，**同形捕获** → 第 1 轮
    `--micro-diff --suspects …` **只点名不判红**；`suspects` 为空 ⇒ 直接通过（**零额外开销**）；
