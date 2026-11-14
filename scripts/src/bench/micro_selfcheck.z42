@@ -1,6 +1,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Json;
 
 class MicroFixtureCapture : MicroCapture {
     public string Fixtures = "";
@@ -8,10 +9,12 @@ class MicroFixtureCapture : MicroCapture {
     public int Calls;
     public int FailAt;
     public bool Missing;
+    public bool Throw;
     public string ExpectedOwners = "";
     public override int Capture(string tree, string vm, string libs, string driver, string output, string owners) {
         _gateAssert(owners == this.ExpectedOwners, "all captures retain the same owner scope");
         this.Calls = this.Calls + 1;
+        if (this.Throw) { throw new Exception("capture fixture exception"); }
         bool head = this.Calls % 2 == 1;
         _gateAssert(tree.EndsWith(head ? "/head-src" : "/base-src") && vm.EndsWith(head ? "/pr-vm" : "/base-vm")
             && libs.EndsWith(head ? "/pr-libs" : "/base-libs") && driver == Path.Join(libs, "z42c.driver.zpkg"), "capture keeps head/base tools and source trees paired");
@@ -34,21 +37,32 @@ void _microAbChecks() {
             var capture = new MicroFixtureCapture(); capture.Fixtures = Path.Join(_root(), "src/benches/testdata"); capture.Scenario = scenario;
             int code = _benchMicroAbAt(root, cmd, capture);
             _gateAssert(code == (scenario == "real" ? 1 : 0) && capture.Calls == (scenario == "overlap" ? 2 : 6), "micro A/B whole-round policy: " + scenario);
+            _microExecutionCheck(root, code, capture.Calls, "");
         }
         cmd.Owners = "z42.json,z42.io,z42.json";
         var scoped = new MicroFixtureCapture(); scoped.Fixtures = Path.Join(_root(), "src/benches/testdata");
         scoped.Scenario = "real"; scoped.ExpectedOwners = "z42.io,z42.json";
         _gateAssert(_benchMicroAbAt(root, cmd, scoped) == 1 && scoped.Calls == 6, "scoped resampling preserves both owners on all six captures");
+        _microExecutionCheck(root, 1, 6, "z42.io,z42.json");
         cmd.Owners = "";
         _microScopeChecks();
         for (int fail = 1; fail <= 6; fail = fail + 1) {
             var capture = new MicroFixtureCapture(); capture.Fixtures = Path.Join(_root(), "src/benches/testdata"); capture.Scenario = "real"; capture.FailAt = fail;
             _gateAssert(_benchMicroAbAt(root, cmd, capture) == 17 && capture.Calls == fail, "capture failures stop immediately, including resampling");
+            _microExecutionCheck(root, 17, fail, "");
         }
         var missing = new MicroFixtureCapture(); missing.Missing = true;
         _gateAssert(_benchMicroAbAt(root, cmd, missing) == 2 && missing.Calls == 1, "stale captures cannot mask a missing result");
+        _microExecutionCheck(root, 2, 1, "");
+        var throws = new MicroFixtureCapture(); throws.Throw = true;
+        bool propagated = false;
+        try { _benchMicroAbAt(root, cmd, throws); } catch (Exception e) { propagated = e.Message.Contains("capture fixture exception"); }
+        _gateAssert(propagated, "reporting retains the original capture exception");
+        _microExecutionCheck(root, -1, 1, "");
+        File.WriteAllText(Path.Join(_benchDir(root), "micro-suspects.txt"), "stale suspect\n");
         cmd.PrVm = "";
         _gateAssert(_benchMicroAbAt(root, cmd, missing) == 2 && missing.Calls == 1, "missing tool overrides fail before capture");
+        _microExecutionCheck(root, 2, 0, "");
         string cwd = Environment.GetCurrentDirectory();
         var child = new MicroCapture(); child.Root = root;
         Directory.Create(Path.Join(root, ".github/ci"));
@@ -61,4 +75,24 @@ void _microAbChecks() {
             && Environment.GetCurrentDirectory() == cwd, "capture isolates cwd and preserves argument boundaries");
         Console.WriteLine("✓ micro A/B: early success, full resampling, verdicts, stale files and capture failures");
     } finally { Directory.Delete(root, true); }
+}
+
+void _microExecutionCheck(string root, int code, int calls, string owners) {
+    JsonValue report = JsonValue.Parse(File.ReadAllText(Path.Join(_benchDir(root), "micro-execution.json")));
+    _gateAssert(report.Get("schema").AsString() == "micro-execution-v1" && report.Get("exit_code").AsLong() == (long)code,
+        "execution receipt is fresh and retains the actual return code");
+    _gateAssert(report.Get("outcome").AsString() == (code == 0 ? "success" : code == -1 ? "exception" : "failed")
+        && report.Get("elapsed_ms").AsLong() >= 0L && report.Get("captures").Count() == calls, "partial execution never appears successful");
+    JsonValue captures = report.Get("captures");
+    for (int i = 0; i < captures.Count(); i = i + 1) {
+        JsonValue capture = captures.At(i);
+        _gateAssert(capture.Get("round").AsLong() == (long)(i / 2 + 1) && capture.Get("side").AsString() == (i % 2 == 0 ? "pr" : "base")
+            && capture.Get("elapsed_ms").AsLong() >= 0L && String.Join(",", _epJsonToStrArr(capture.Get("owners"))) == owners,
+            "capture timing retains round, side and canonical owner boundaries");
+        int expected = (code == 17 || code == -1) && i == calls - 1 ? code : 0;
+        _gateAssert(capture.Get("exit_code").AsLong() == (long)expected, "capture failures are attributed to the actual failing position");
+    }
+    if (calls == 0) { _gateAssert(report.Get("suspects").Count() == 0, "precondition failure never imports stale suspect data"); }
+    var summary = new MicroExecution(); summary.Captures = captures; summary.ExitCode = code;
+    _gateAssert(summary.Markdown(0L, 0).Contains("| Round | Side | Scope | Capture time | Exit |"), "CI and local reports share the recorded capture data");
 }

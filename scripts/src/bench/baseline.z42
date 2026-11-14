@@ -1,0 +1,194 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+// `bench --diff [--current P] [--baseline P] [--threshold-time T] [--threshold-memory M] [--quiet]`
+// Compares current bench results
+// against a baseline (both conform to src/benches/baseline-schema.json): per-benchmark
+// delta = (cur - base) / base. Interval-aware gate — a regression requires BOTH
+// delta > --threshold-time (default 0.05) / --threshold-memory (default 0.10) AND
+// the current confidence interval separated from the baseline's (cur.ci_lower >
+// base.ci_upper). Overlapping intervals ⇒ noise ⇒ not a regression (marked
+// (overlap)). A side lacking ci_lower/ci_upper falls back to the bare-mean-ratio
+// gate (marked (no-ci)). Exit codes: 0 = no regression, 1 = regression, 2 = tool error.
+int _benchDiff(BenchCommand cmd) {
+    string root = _root();
+    string current = cmd.Current;
+    if (current.Length == 0) { current = Path.Join(_benchDir(root), "e2e.json"); }
+    string baseline = cmd.Baseline;
+    double thrTime = 0.05;
+    string tt = cmd.ThresholdTime;
+    if (tt.Length > 0) { thrTime = Double.Parse(tt); }
+    double thrMem = cmd.ThresholdMemory;
+    bool quiet = cmd.Quiet;
+    // 没有「自动挑一份主分支基线」的默认值：`--diff` 必须显式给 --baseline <path>（本地优化前后对比的正常用法）。
+    if (baseline.Length == 0) {
+        ConsoleError.WriteLine("error: bench --diff requires an explicit --baseline <path>");
+        ConsoleError.WriteLine("  hint: capture one first, e.g. `xtask bench` then copy artifacts/reports/benches/e2e.json aside");
+        return 2;
+    }
+    string curPath  = _absUnder(root, current);
+    string basePath = _absUnder(root, baseline);
+    if (!File.Exists(curPath))  { ConsoleError.WriteLine("error: current results not found: " + current); return 2; }
+    if (!File.Exists(basePath)) { ConsoleError.WriteLine("error: baseline not found: " + baseline); return 2; }
+
+    JsonValue cur  = JsonValue.Parse(File.ReadAllText(curPath));
+    JsonValue base_ = JsonValue.Parse(File.ReadAllText(basePath));
+    JsonValue curBs  = cur.Get("benchmarks");
+    JsonValue baseBs = base_.Get("benchmarks");
+
+    if (!quiet) {
+        Console.WriteLine("Comparing:");
+        Console.WriteLine("  current:  " + cur.Get("commit").AsString() + "  (" + current + ")");
+        Console.WriteLine("  baseline: " + base_.Get("commit").AsString() + "  (" + baseline + ")");
+        Console.WriteLine("  gate: delta>" + thrTime.ToString() + " (time) / " + thrMem.ToString() + " (mem) AND CI-separated = regression");
+        Console.WriteLine("");
+    }
+
+    int regressions = 0;
+    int total = 0;
+    // current-driven diff (matches baseline by name+metric; (new) when absent).
+    for (int j = 0; j < curBs.Count(); j = j + 1) {
+        JsonValue c = curBs.At(j);
+        string name   = c.Get("name").AsString();
+        string metric = c.Get("metric").AsString();
+        double curV   = c.Get("value").AsDouble();
+        string unit   = c.Get("unit").AsString();
+        string mkey   = _epBenchModeKey(c);
+        total = total + 1;
+        string label = name + " [" + metric + " " + mkey + "]";
+        JsonValue baseObj = _findBenchObj(baseBs, name, metric, mkey);
+        if (baseObj == null) {
+            if (!quiet) { Console.WriteLine("  " + label + "  (new)  " + curV.ToString() + " " + unit); }
+            continue;
+        }
+        double baseV = baseObj.Get("value").AsDouble();
+        if (baseV == 0.0) {
+            if (!quiet) { Console.WriteLine("  " + label + "  baseline=0 (skip)"); }
+            continue;
+        }
+        double delta = (curV - baseV) / baseV;
+        bool isMem = (metric == "memory" || unit == "bytes" || unit == "KB" || unit == "MB");
+        double thr = isMem ? thrMem : thrTime;
+        string sym = "≈";
+        string note = "";
+        // Interval-aware gate: a regression must be BOTH large (|delta| > thr) AND
+        // statistically distinguishable (current CI separated from baseline CI).
+        // Overlapping intervals ⇒ the mean shift is within measurement noise ⇒ ≈,
+        // no matter how big delta looks.
+        if (_hasCi(c) && _hasCi(baseObj)) {
+            double cLo = c.Get("ci_lower").AsDouble();
+            double cHi = c.Get("ci_upper").AsDouble();
+            double bLo = baseObj.Get("ci_lower").AsDouble();
+            double bHi = baseObj.Get("ci_upper").AsDouble();
+            if (delta > thr && cLo > bHi) { sym = "↑"; regressions = regressions + 1; }
+            else if (delta < (0.0 - thr) && cHi < bLo) { sym = "↓"; }
+            else if (delta > thr || delta < (0.0 - thr)) { note = " (overlap)"; }
+        } else {
+            // Fallback: a side lacks ci_lower/ci_upper → bare-mean-ratio gate.
+            note = " (no-ci)";
+            if (delta > thr) { sym = "↑"; regressions = regressions + 1; }
+            else if (delta < (0.0 - thr)) { sym = "↓"; }
+        }
+        if (!quiet || sym == "↑") {
+            Console.WriteLine("  " + label + "  " + baseV.ToString() + " " + unit
+                + " → " + curV.ToString() + " " + unit + "  " + sym + " " + (delta * 100.0).ToString() + "%" + note);
+        }
+    }
+    // baseline-only (removed) annotations — informational, never a regression.
+    if (!quiet) {
+        for (int k = 0; k < baseBs.Count(); k = k + 1) {
+            JsonValue b = baseBs.At(k);
+            string name   = b.Get("name").AsString();
+            string metric = b.Get("metric").AsString();
+            string mkey   = _epBenchModeKey(b);
+            if (_findBenchValue(curBs, name, metric, mkey) < 0.0) {
+                Console.WriteLine("  " + name + " [" + metric + " " + mkey + "]  (removed)  "
+                    + b.Get("value").AsDouble().ToString() + " " + b.Get("unit").AsString());
+            }
+        }
+    }
+
+    // derive interp/jit speedup where both were measured.
+    _printSpeedups(curBs);
+
+    Console.WriteLine("");
+    if (regressions > 0) {
+        Console.WriteLine("❌ " + regressions.ToString() + " regression(s) — delta over threshold AND CI-separated (out of " + total.ToString() + " benchmarks)");
+        return 1;
+    }
+    Console.WriteLine("✅ no regression (interval-aware; " + total.ToString() + " benchmarks compared)");
+    return 0;
+}
+
+// value of the benchmark matching name+metric+mode-key, or -1.0 if absent.
+// mkey ("<mode_label>@<os>/<arch>") keeps interp-vs-jit
+// and cross-platform results from ever comparing against each other.
+double _findBenchValue(JsonValue benchmarks, string name, string metric, string mkey) {
+    JsonValue b = _findBenchObj(benchmarks, name, metric, mkey);
+    return b == null ? -1.0 : b.Get("value").AsDouble();
+}
+
+// like _findBenchValue but returns the whole benchmark object (or null if absent),
+// so the interval-aware gate can read ci_lower/ci_upper off the baseline entry.
+JsonValue _findBenchObj(JsonValue benchmarks, string name, string metric, string mkey) {
+    for (int i = 0; i < benchmarks.Count(); i = i + 1) {
+        JsonValue b = benchmarks.At(i);
+        if (b.Get("name").AsString() == name && b.Get("metric").AsString() == metric
+            && _epBenchModeKey(b) == mkey) {
+            return b;
+        }
+    }
+    return null;
+}
+
+// true iff the benchmark carries both confidence-interval bounds (present & non-null).
+// Get() throws on a missing key and AsDouble() throws on null, so guard before reading.
+bool _hasCi(JsonValue b) {
+    JsonValue lo = null; JsonValue hi = null;
+    if (!b.TryGet("ci_lower", ref lo) || lo.IsNull()) { return false; }
+    if (!b.TryGet("ci_upper", ref hi) || hi.IsNull()) { return false; }
+    return true;
+}
+
+// for each (name, metric, platform) measured under
+// BOTH interp and jit, print the interp/jit speedup (>1 = jit faster). Iterates
+// the jit-labelled entries and looks up the matching interp entry. Informational
+// only — not a schema field, never a regression signal.
+void _printSpeedups(JsonValue benchmarks) {
+    bool header = false;
+    for (int i = 0; i < benchmarks.Count(); i = i + 1) {
+        JsonValue b = benchmarks.At(i);
+        JsonValue p = null;
+        if (!b.TryGet("profile", ref p) || p.Get("mode_label").AsString() != "jit") { continue; }
+        string name    = b.Get("name").AsString();
+        string metric  = b.Get("metric").AsString();
+        JsonValue plat = p.Get("platform");
+        string suffix  = "@" + plat.Get("os").AsString() + "/" + plat.Get("arch").AsString();
+        double jitV    = b.Get("value").AsDouble();
+        double interpV = _findBenchValue(benchmarks, name, metric, "interp" + suffix);
+        if (interpV <= 0.0 || jitV <= 0.0) { continue; }
+        if (!header) {
+            Console.WriteLine("");
+            Console.WriteLine("Speedup (interp/jit, >1 = jit faster):");
+            header = true;
+        }
+        Console.WriteLine("  " + name + " [" + metric + suffix + "]  " + (interpV / jitV).ToString() + "x");
+    }
+}
+
+// one benchmark object from a hyperfine export JSON (time values are seconds → ms).
+// carries the schema-v2 `profile` (mode composition +
+// platform + probed caps) so interp/jit results never compare against each other.
+string _benchObj(string hjson, string name, string runs, string[] tiers, VmCaps vm) {
+    JsonValue r0 = JsonValue.Parse(File.ReadAllText(hjson)).Get("results").At(0);
+    string val = (r0.Get("mean").AsDouble() * 1000.0).ToString();
+    string lo  = (r0.Get("min").AsDouble()  * 1000.0).ToString();
+    string hi  = (r0.Get("max").AsDouble()  * 1000.0).ToString();
+    return "    {\n      \"name\": \"" + name + "\",\n      \"tier\": \"z42-e2e\""
+        + ",\n      \"metric\": \"time\",\n      \"value\": " + val
+        + ",\n      \"unit\": \"ms\",\n      \"ci_lower\": " + lo
+        + ",\n      \"ci_upper\": " + hi + ",\n      \"samples\": " + runs
+        + ",\n      \"profile\": " + _epProfileJson(tiers, new string[0], vm) + "\n    }";
+}

@@ -60,6 +60,7 @@ dry-run 跑真实脚本，不联网）；真实 SDK 的离线安装由 CI packag
 > 见共享模块 `src/common/versions.z42`）。
 
 micro A/B 可用 `bench --micro-ab --plan <plan.json>` 消费已验证 owner 范围；手动选包用 `bench stdlib --owners z42.json,z42.io`。边界见[性能门禁](../docs/internals/src/devinfra/benchmarking.md)。
+每次 micro A/B 会写 `artifacts/reports/benches/micro-execution.json`，记录捕获范围、每轮耗时和失败位置；CI 同时显示摘要并上传该报告。
 
 ## 全局选项
 
@@ -392,9 +393,12 @@ scripts/
     │   └── vscode.z42            生成 z42.tmLanguage.json + **`check vscode-syntax` 门**
     └── bench/              性能测量：bench / profile
         ├── command.z42           `bench` 族的命令类（不带子命令 = e2e；stdlib / vm / targets）
-        ├── bench.z42             bench 基准 / --diff / --micro-diff / --ab 同 runner 回归门禁（判定数学 `_abVerdict` 可 `--ab-selftest`）
+        ├── bench.z42 / baseline.z42  e2e 场景捕获 / 离线 baseline 对比
+        ├── ab.z42 / statistics.z42  同 runner e2e A/B 编排 / 两层共用的判定数学（`--ab-selftest`）
+        ├── micro_diff.z42         micro 报告匹配与跨轮判定
         ├── gc_pause.z42          GC 停顿指标解析（bench 场景头 `// gc-pause: report`）
         ├── micro.z42 / micro_selfcheck.z42  脚本 micro A/B 整轮捕获、可疑复测与失败传播（本地 / CI 共用）
+        ├── micro_report.z42      每次捕获的计时、范围与结果报告
         ├── vm.z42 / vm_selfcheck.z42  Rust VM Criterion runner 与真实 Cargo 夹具
         ├── criterion.z42         Criterion 置信区间报告
         ├── verdict_selfcheck.z42  `bench check`：入库判定夹具与退出码
