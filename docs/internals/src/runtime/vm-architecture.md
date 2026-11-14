@@ -167,8 +167,10 @@ Rust 查询/注册/pin 操作经 interop 模块函数访问冻结扩展状态，
 
 > **模块布局**：`context/`：`mod.rs`（hub：VM_CORES / snapshot /
 > `VmContextPtr` / `CoreContextReclaimer`）+ `types.rs`（VmCore/VmContext struct）+
-> `core_builder.rs`（Core 构造）+ `thread_lifecycle.rs`（worker 加入 + Drop）（帧栈归 `exec/call/frame_stack.rs`，见下「帧栈的归属」）+ `pending_exception.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
-> （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）（静态状态归 `metadata/statics/`，执行与等待归 `exec/init.rs`）（`is`/`as`/`catch` 前置缓存类型在 `metadata/dispatch/isa_cache.rs`）/ `symres.rs`（「确定不存在」判定）。
+> `core_builder.rs`（Core 构造）+ `thread_lifecycle.rs`（worker 加入 + Drop）（帧栈归 `exec/call/frame_stack.rs`，见下「帧栈的归属」）+ `frames.rs` / `statics.rs` / `lookup.rs`
+> （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）（静态状态归 `metadata/statics/`，执行与等待归 `exec/init.rs`）（`is`/`as`/`catch` 前置缓存类型在 `metadata/dispatch/isa_cache.rs`）。
+> 缺符号裁决归 `exec/symbol_resolution.rs`，静态零值物化归 `exec/ops/object/static_defaults.rs`；
+> 异常交接行为归 `exec/thread_state.rs` 的 `ThreadExecState`，调用方通过 `ctx.exec()` 使用，不在 context 中保留转发。
 
 `VmCore.loader` 是 `loader/state.rs` 的 `LoaderState`，持有惰性加载器、加载上下文、待初始化类型队列、
 队列长度镜像、批处理 in-flight 计数与注入的 VFS。队列空值判定、批处理窗口和原有锁/内存序保持一致；
@@ -652,7 +654,7 @@ try_lookup_function(func_name):        # VmContext 先查 per-context fn_lookup_
 `ResolvedTokens.method_tokens[site]`（`AtomicU32`）存被调函数的 `FnId`。入口函数的 `FnId` 等于
 `module.functions` 下标，惰性包函数的 `FnId` 排在其后，所以一个 u32 就够得着所有已登记的函数。
 
-- **解析期按名填**（[resolver.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolve/mod.rs)）：
+- **解析期按名填**（[resolver.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolve.rs)）：
   `module` 是 FuncTable 的入口模块时（`FuncTable::is_entry`，生产路径恒成立），名字经 `FuncTable::id_of` 解析——
   先入口模块、再已登记的惰性函数，与调用路径冷解析同一优先级。惰性包里的函数首执解析时自己的包已登记，
   **包内调用一开始就绑好**；调入尚未加载的包的站点留 `UNRESOLVED`。只查不加载。签名容不下本站点实参数的目标
@@ -689,7 +691,7 @@ token = UNRESOLVED（bind_callee，冷路径）:
 上面所有 per-site 缓存（`method_tokens` / `vcall_ic` /
 `field_ic` / `builtin_tokens` / `static_field_tokens` / `obj_new` / `fn_ref_tokens` / `site_index`）
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
-[`resolve::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolve/mod.rs) 一次性填充。
+[`resolve::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolve.rs) 一次性填充。
 但 `resolve_module` **只经 `host/program_builder.rs::build` → `resolve_tokens` 对 entry module 跑一次**——而
 interp/JIT 模式下依赖是**纯惰性加载**（[load.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/host/load.rs)
 `is_eager = matches!(mode, Aot)`，非 AOT 全 false）：除用户 artifact 外，
@@ -704,7 +706,7 @@ Field 无 IC、Builtin/Static 走名字查、每个 Call 都对 entry module 的
 profile 里 `get_inner`+`memcmp`+`try_lookup_*` 的大头即源于此。
 
 做法：`resolve_module` 的**单函数体**抽成
-[`resolve_function_tokens(func, module, ctx)`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolve/mod.rs)，
+[`resolve_function_tokens(func, module, ctx)`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolve.rs)，
 并在 [`exec_function_body`](https://github.com/z42-lang/z42/blob/main/src/runtime/crates/z42-interp/src/interp/run/mod.rs) 顶部**首次执行时**
 按需填充（`if func.resolved.get().is_none()`，OnceLock 门禁 → 每函数只解析一次；
 热路径仅一次 relaxed atomic load，指令循环本就要再读它）。
@@ -1404,7 +1406,7 @@ mixed-type sites 调用，删除会让那些 sites 慢一档。
 
 ## Method token system
 
-位置：`src/runtime/src/metadata/ids/tokens.rs` + `metadata/resolve/mod.rs`（+ `resolver/ic.rs`）+ `context/statics.rs::resolve_static_field_id` + 各 `interp/ops/exec_*.rs` 热路径
+位置：`src/runtime/src/metadata/ids/tokens.rs` + `metadata/resolve.rs`（+ `resolver/ic.rs`）+ `context/statics.rs::resolve_static_field_id` + 各 `interp/ops/exec_*.rs` 热路径
 
 **问题**: z42 IR 所有跨引用 dispatch 用 `String` + `HashMap.get()` 做身份。每次虚调用一次 hash + 字符串等价比较；IR 内存表示膨胀；反射 R-series 设计无 token 锚点。
 
@@ -1423,7 +1425,7 @@ pub struct FieldId(pub u32);      // → TypeDesc.fields[id]
 pub struct StaticFieldId(pub u32);// → VmCore.runtime.statics 的单元 id
 pub struct VTableSlot(pub u32);   // → TypeDesc.vtable[id]
 
-// metadata/resolve/mod.rs — Function.resolved 内容
+// metadata/resolve.rs — Function.resolved 内容
 pub struct ResolvedTokens {
     pub method_tokens:        Vec<AtomicU32>,   // Call 站点：被调函数的 FnId（未加载的包留 UNRESOLVED；JIT 共用）
     pub builtin_tokens:       Vec<u32>,         // Builtin 站点（100% 命中）

@@ -60,7 +60,7 @@ fn jit(vm: &VmContext, m: &Module, name: &str) -> Value {
     let entry = rt.resolve_fn_by_id(vm, m.func_index[name]).expect("compiles");
     match unsafe { call_entry(vm, entry, crate::jit::runtime::frame::JitFrame::new(vm, entry.max_reg, &[])) } {
         NativeOutcome::Returned(v) => v.unwrap_or(Value::Null),
-        NativeOutcome::Threw => panic!("threw {:?}", vm.take_exception()),
+        NativeOutcome::Threw => panic!("threw {:?}", vm.exec().take_exception()),
     }
 }
 

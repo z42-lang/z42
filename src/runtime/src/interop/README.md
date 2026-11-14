@@ -19,7 +19,7 @@
 
 提供方提交名称和 `BuiltinDesc` 切片。`RegistryBuilder::register` 在修改前检查完整切片，空名称、重复提供方或同一提供方内重复函数名称均报错；失败不发布部分条目。`freeze` 产生不可变快照，`resolve(provider, name)` 只查询指定提供方。不同提供方允许同名导出；存在歧义的裸名不解析，避免按装配顺序覆盖。
 
-独立 crate 通过 `RegistryBuilder::register_module` 提交版本化 C 描述符，静态和动态入口共用校验及调用路径。默认提供方由 `host/builtins.rs` 选择：`z42.core`、`z42_diagnostics`、`z42_harness`、`z42_repl` 与 `z42_compression`。corelib 只维护自身描述符。metadata 的 `BuiltinCatalog` 保存名称/ID/折叠事实，exec 通过同序的执行表调用；ID 不跨进程持久化。
+独立 crate 提供版本化 C 模块描述符。核心 provider 描述归 corelib/builtins.rs，由 providers.rs 通用注册器冻结目录，不预登记 compression 或 REPL。首次限定模块调用经 loader 查找 `<name>_module_v1`，interop 校验 ABI 与请求模块名后登记，并按需创建每 VM 状态。纯查询和未使用的库不触发装入、描述入口或实例创建。lib.rs 组合根仅保存已链接入口指针；静态 resolver 和运行时动态库共用自描述协议，不需要 Core 先链接声明版独立 crate。metadata 的 BuiltinCatalog 保存核心名称/ID/折叠事实，ID 不跨进程持久化。
 
 Tier 1 外部类型仍按 `(module, name)` 在每 VM 注册。`loader::native::load_library` 装入库并在指定 VM 上调用注册入口；PAL 负责操作系统原语。
 

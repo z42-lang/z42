@@ -119,7 +119,7 @@ fn tostring_result(ctx: &VmContext, module: &Module, val: &Value) -> Result<ToSt
 /// Earlier the exception was swallowed into an `<exception: …>` string and the
 /// program carried on.
 fn tostring_threw(ctx: &VmContext, thrown: Value) -> anyhow::Error {
-    ctx.set_pending_thrown(thrown);
+    ctx.exec().set_pending_thrown(thrown);
     anyhow::anyhow!("ToString threw an exception")
 }
 

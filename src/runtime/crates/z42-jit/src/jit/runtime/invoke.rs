@@ -41,7 +41,7 @@ impl NativeOutcome {
         match self {
             NativeOutcome::Returned(ret) => crate::exec::call::outcome::ExecOutcome::Returned(ret),
             NativeOutcome::Threw =>
-                crate::exec::call::outcome::ExecOutcome::Thrown(vm.take_exception().unwrap_or(Value::Null)),
+                crate::exec::call::outcome::ExecOutcome::Thrown(vm.exec().take_exception().unwrap_or(Value::Null)),
         }
     }
 }

@@ -104,7 +104,7 @@ pub fn exec_instr(
         // `Err` + the exception in `pending_thrown` (see `dispatch::tostring_threw`).
         Instruction::Add { dst, a, b } => {
             if let Err(e) = exec_value::add(ctx, module, frame, *dst, *a, *b) {
-                return ctx.take_pending_thrown().map(Some).ok_or(e);
+                return ctx.exec().take_pending_thrown().map(Some).ok_or(e);
             }
         }
         Instruction::Sub { dst, a, b } => exec_value::sub(frame, *dst, *a, *b)?,
@@ -151,7 +151,7 @@ pub fn exec_instr(
         Instruction::StrConcat { dst, a, b } => exec_value::str_concat(ctx, frame, *dst, *a, *b)?,
         Instruction::ToStr     { dst, src }  => {
             if let Err(e) = exec_value::to_str(ctx, module, frame, *dst, *src) {
-                return ctx.take_pending_thrown().map(Some).ok_or(e);
+                return ctx.exec().take_pending_thrown().map(Some).ok_or(e);
             }
         }
 

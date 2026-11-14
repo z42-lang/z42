@@ -266,3 +266,30 @@ pub(crate) unsafe fn span<'a, T>(data: *const T, len: usize) -> Result<&'a [T]> 
 pub(crate) unsafe fn text<'a>(value: abi::Text) -> Result<&'a str> {
     std::str::from_utf8(unsafe { span(value.data, value.len)? }).map_err(|error| anyhow!(error))
 }
+
+
+/// An explicit qualified module call may discover an implementation without a
+/// prelinked declaration. Queries use resolve_native_module and never enter here.
+#[derive(Debug)]
+pub(crate) struct ModuleLookupFailure(pub anyhow::Error);
+impl std::fmt::Display for ModuleLookupFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, formatter)
+    }
+}
+impl std::error::Error for ModuleLookupFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(self.0.as_ref()) }
+}
+
+pub(crate) fn load_named(ctx: &crate::context::VmContext, name: &str) -> Result<Arc<NativeModule>> {
+    crate::loader::linked::validate_name(name)?;
+    if let Some(module) = resolve_native_module(ctx, name)? { return Ok(module); }
+    let symbol = format!("{name}_module_v1");
+    let pointer = crate::loader::native::resolve_symbol(ctx, name, &symbol).map_err(ModuleLookupFailure)?;
+    let entry: abi::ModuleEntry = unsafe { std::mem::transmute(pointer) };
+    let descriptor = unsafe { entry() };
+    let module = unsafe { NativeModule::parse(descriptor)? };
+    if module.name != name { bail!("native implementation name `{}` does not match requested module `{name}`", module.name); }
+    unsafe { register_native_module(ctx, descriptor)? };
+    resolve_native_module(ctx, name)?.ok_or_else(|| anyhow!("native module was not registered"))
+}

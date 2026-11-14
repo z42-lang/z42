@@ -106,7 +106,7 @@ fn module(functions: Vec<Function>) -> Module {
 /// The production translator's view of the VM: no call forwarding, the heap's barrier gate.
 struct Lookup<'a>(&'a VmContext);
 impl ForwardLookup for Lookup<'_> {
-    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { crate::host::builtins::catalog() }
+    fn builtins(&self) -> &crate::metadata::builtins::BuiltinCatalog { crate::interop::providers::catalog() }
     fn forward_of_id(&self, _: u32) -> Option<u32> { None }
     fn forward_of_name(&self, _: &str) -> Option<u32> { None }
     fn barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
@@ -132,7 +132,7 @@ impl Jitted<'_> {
         let before = HELPER_CALLS.with(|c| c.get());
         let out = match unsafe { call_entry(self.vm, &self.entry, JitFrame::new(self.vm, self.entry.max_reg, args)) } {
             NativeOutcome::Returned(v) => Ok(v.unwrap_or(Value::Null)),
-            NativeOutcome::Threw => Err(format!("{:?}", self.vm.take_exception())),
+            NativeOutcome::Threw => Err(format!("{:?}", self.vm.exec().take_exception())),
         };
         (out, HELPER_CALLS.with(|c| c.get()) - before)
     }

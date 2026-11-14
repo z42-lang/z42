@@ -23,7 +23,7 @@ pub fn bind_callee<'a>(
     method_token: Option<&std::sync::atomic::AtomicU32>,
     holder: &'a mut Option<Arc<Function>>,
 ) -> Result<(&'a Function, Option<usize>), Value> {
-    use crate::context::symres::wrong_arity_exception;
+    use crate::exec::symbol_resolution::wrong_arity_exception;
     use crate::metadata::dispatch::functions::call_arity;
     use std::sync::atomic::Ordering;
     if let Some(&idx) = module.func_index.get(fname) {

@@ -90,7 +90,7 @@ pub(super) unsafe fn jit_module<'a>(ctx: *const VmContext) -> &'a Module {
 }
 
 pub(super) fn set_exception(ctx: &VmContext, v: Value) {
-    ctx.set_exception(v);
+    ctx.exec().set_exception(v);
 }
 
 /// objops 错误 → JIT 的异常通道：物化成异常值塞进 pending 槽，返回 1（translate 端 `check`
@@ -113,7 +113,7 @@ pub(super) unsafe fn raise(ctx: *const VmContext, e: crate::objops::OpError) -> 
 }
 
 pub(super) fn take_exception(ctx: &VmContext) -> Option<Value> {
-    ctx.take_exception()
+    ctx.exec().take_exception()
 }
 
 pub fn take_exception_error(ctx: &VmContext, module: &crate::metadata::Module) -> anyhow::Error {

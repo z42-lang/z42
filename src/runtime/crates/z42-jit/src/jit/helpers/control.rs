@@ -51,7 +51,7 @@ pub unsafe extern "C" fn jit_match_catch_type(
         Err(_) => return 0,
     };
     let vm_ctx = vm_ctx_ref(ctx);
-    let exc = match vm_ctx.peek_exception() {
+    let exc = match vm_ctx.exec().peek_exception() {
         Some(v) => v,
         None    => return 0,
     };

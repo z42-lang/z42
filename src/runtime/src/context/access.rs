@@ -2,6 +2,15 @@
 use super::*;
 
 impl VmContext {
+    // ── GC heap ───────────────────────────────────────────────────────────
+
+    /// Borrow the GC heap as a trait object. All script-driven allocations go
+    /// through this entry point; see `docs/internals/src/runtime/gc.md`.
+    pub fn heap(&self) -> &Heap {
+        self.core.heap.as_ref()
+    }
+
+
     /// Public accessor for the shared compiled Module installed by
     /// [`with_module`](Self::with_module). Returns `None` if VmContext was
     /// built via [`new`](Self::new) (test path).
