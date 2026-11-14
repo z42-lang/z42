@@ -62,9 +62,15 @@ pub(crate) fn invoke_export(
                 None if registry.provider_functions(provider).is_some() => return None,
                 None => match module::load_named(ctx, provider) {
                     Ok(module) => Some(module),
-                    Err(error) => return Some(Err(Box::new(BuiltinError::NotSupported(
-                        format!("native module `{provider}` unavailable: {error:#}")
-                    )))),
+                    Err(error) => {
+                        let message = format!("native module `{provider}` export `{name}` unavailable: {error:#}");
+                        let failure = if error.is::<module::ModuleLookupFailure>() {
+                            BuiltinError::Exception { class: "Std.MissingSymbolException", message }
+                        } else {
+                            BuiltinError::NotSupported(message)
+                        };
+                        return Some(Err(Box::new(failure)));
+                    },
                 },
             }
         },

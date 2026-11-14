@@ -49,12 +49,12 @@ fn qualified_dispatch_never_uses_a_bare_name_winner() {
         assert_eq!(invoke_module(&ctx, provider, "__qualified_same", &[], &[]).unwrap(), Some(Value::I64(expected)));
     }
     assert!(super::invoke_export(&ctx, None, "__qualified_same", &[]).is_none());
-    for (provider, name) in [("qualified.second", "__qualified_void"), ("z42_repl", "__println")] {
+    for (provider, name) in [("missing.provider", "__qualified_same"),
+        ("qualified.second", "__qualified_void"), ("z42_repl", "__println")] {
         let error = invoke_module(&ctx, provider, name, &[], &[]).unwrap_err();
         assert!(matches!(*error, BuiltinError::Exception { class: "Std.MissingSymbolException", ref message }
             if message.contains(provider) && message.contains(name)), "{error:?}");
     }
-    assert!(matches!(*invoke_module(&ctx, "missing.provider", "__qualified_same", &[], &[]).unwrap_err(), BuiltinError::NotSupported(_)));
     assert!(matches!(*invoke_module(&ctx, "qualified.first", "__qualified_same", &[], &[9]).unwrap_err(),
         BuiltinError::Internal(_)));
 }
