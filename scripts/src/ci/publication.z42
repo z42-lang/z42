@@ -4,6 +4,21 @@ using Std.IO;
 
 bool _ciNightlyStale(CiGitHub api, string repo, string head) {
     string prefix = "repos/" + repo;
+    string latest = _ciString(api.Get(prefix + "/git/ref/heads/main").Get("object"), "sha");
+    if (latest.Length == 0 || head.Length == 0) { throw new Exception("missing main publication identity"); }
+    if (latest != head) {
+        var delta = api.Get(prefix + "/compare/" + head + "..." + latest);
+        var files = delta.Get("files");
+        if (_ciString(delta, "status") != "ahead" || !files.IsArray() || files.Count() >= 300) {
+            throw new Exception("main publication relationship is unverified");
+        }
+        for (int i = 0; i < files.Count(); i = i + 1) {
+            foreach (var file in new string[]{ _ciString(files.At(i), "filename"), _ciString(files.At(i), "previous_filename") }) {
+                // GITHUB_TOKEN cannot move a release to an outdated workflow revision.
+                if (file.StartsWith(".github/workflows/")) { return true; }
+            }
+        }
+    }
     string nightly = "";
     try { nightly = _ciString(api.Get(prefix + "/git/ref/tags/nightly").Get("object"), "sha"); }
     catch (Exception e) { if (!e.Message.Contains("HTTP 404")) { throw e; } return false; }

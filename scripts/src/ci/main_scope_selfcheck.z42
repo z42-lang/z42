@@ -8,11 +8,16 @@ class CiMainFake : CiGitHub {
     public JsonValue Compare = JsonValue.Parse("{\"status\":\"ahead\",\"files\":[{\"filename\":\"README.md\"}]}");
     public string Fail = "";
     public string TagError = "";
+    public string Main = "head";
     public override JsonValue Get(string path) {
         if (this.Fail.Length > 0 && path.Contains(this.Fail)) { throw new Exception("fixture API failure " + this.Fail); }
         if (path.Contains("/actions/workflows/ci.yml/runs?")) {
             _gateAssert(path.Contains("branch=main") && path.Contains("event=push") && path.Contains("status=success"), "validation baseline query excludes unfinished and failed runs");
             return this.Runs;
+        }
+        if (path.EndsWith("/git/ref/heads/main")) {
+            JsonValue v = JsonValue.OfObject(); JsonValue obj = JsonValue.OfObject();
+            obj.Set("sha", JsonValue.OfString(this.Main)); v.Set("object", obj); return v;
         }
         if (path.Contains("/compare/")) { return this.Compare; }
         if (path.EndsWith("/git/ref/tags/nightly") && this.TagError.Length > 0) { throw new Exception(this.TagError); }
@@ -36,8 +41,14 @@ void _ciMainScopeChecks() {
         _gateAssert(rejected, "unverified nightly comparisons stop publication");
     }
     api = new CiMainFake();
-    api.Fail = "/compare/";
+    api.Fail = "/compare/"; api.Main = "nightly";
     _gateAssert(!_ciNightlyStale(api, "owner/repo", "nightly"), "the same commit may repair its existing nightly");
+    api = new CiMainFake(); api.Main = "latest";
+    api.Compare.Get("files").At(0).Set("filename", JsonValue.OfString(".github/workflows/ci.yml"));
+    _gateAssert(_ciNightlyStale(api, "owner/repo", "head"), "outdated workflow publication is skipped before uploading assets with GITHUB_TOKEN");
+    api.Compare.Get("files").At(0).Set("filename", JsonValue.OfString("README.md"));
+    api.TagError = "not found (HTTP 404)";
+    _gateAssert(!_ciNightlyStale(api, "owner/repo", "head"), "a later documentation commit does not block the previous publisher");
     api = new CiMainFake(); api.TagError = "not found (HTTP 404)";
     _gateAssert(!_ciNightlyStale(api, "owner/repo", "head"), "the first nightly may be created when its tag is absent");
     api.TagError = "rate limited (HTTP 403)"; bool tagRejected = false;

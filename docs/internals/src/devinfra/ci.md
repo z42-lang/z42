@@ -138,9 +138,9 @@ PR 与 main 的不可变基线、未知输入回退及重命名边界见[流程�
 ### main 的累计验证与资产替换
 
 main push 按 commit 分组，让新提交的规划 job 可以立即判断旧运行是否已过时。
-`xtask ci supersede` 只检查最近 100 次 main push CI，按 `scripts/flows.toml` 的 `publish` 属性比较每个旧 head 到当前 head：
+`xtask ci supersede` 只检查最近 100 次 main push CI，先按 `scripts/flows.toml` 的 `publish` 属性检查本次 push 的 `before..head`：
 
-- 存在资产改动且确认是后代：取消较早的运行，释放旧构建和测试。
+- 本次 push 存在资产改动，且确认当前 head 是旧 head 的后代：取消较早的运行，释放旧构建和测试。
 - 只有文档、私有测试或其他不发布改动：保留旧运行，不打断前一提交的 nightly。
 - 身份、祖先关系或差异不可确认：不取消旧运行，显式记录错误，当前 CI 继续正常验证。
 
@@ -164,7 +164,8 @@ gh api repos/z42-lang/z42/compare/<阶段1 的 main 提交>...$(gh api repos/z42
 返回 `ahead` 或 `identical` 才算包含——**不是**「发布时间晚于合并时间」。SDK 改动可由包含该提交的后续 main 运行累计验证并发布，因此以标签祖先关系判断实际生效。
 
 `publish-nightly` 自身仍是全局串行（job 级 `cancel-in-progress: false`）。获得发布锁后，`xtask ci check-publication` 确认标签祖先关系：
-nightly 已指向本 commit 的后代则跳过旧发布；API 失败、分叉或身份缺失时拒绝写入，不拿旧资产覆盖新 nightly。
+nightly 已指向本 commit 的后代，或当前 main 已更新 `.github/workflows/`，则在上传前跳过旧发布；API 失败、分叉或身份缺失时拒绝写入，不拿旧资产覆盖新 nightly。
+过时 workflow 不能使用 `GITHUB_TOKEN` 移动发布到该版本（[GitHub 权限规则](https://docs.github.com/en/rest/releases/releases#update-a-release)）；当前 main 继续承担累计发布，仅后续文档改动不阻止旧发布。
 发布 job 的 `always()` 同时排除失败或取消的前置 job；只有归档汇总成功且防回退检查通过，资产更新步骤才用 `always()` 抵御普通取消。
 取消可终止构建和准备工作，不中断已开始的上传、移动标签和完整性校验。
 
