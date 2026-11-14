@@ -18,7 +18,7 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 提供平台�
 | `vfs/` | `Vfs` 的实现：`LocalFs`（标准库 fs）、`MemoryFs`（实例自有的 `path → bytes`，`mount()` 挂文件）|
 | `process.rs` | `exit_code()`、`own_process_group()`、`ProcessTree`（超时杀整棵进程树）、`find_executable()` |
 | `random.rs` | `fill()` —— OS CSPRNG |
-| `dynlib.rs` | `is_supported()` / `require_supported()` 查询和限制脚本扩展装载、`file_name()`、`resolve_native_beside()` 定向探测同目录原生依赖、`Library::open()` / `open_component()`（进程寿命代码映像）/ `component_is_loaded()`（只读已装入缓存）/ `symbol()` —— 运行时唯一的 dlopen 入口 |
+| `dynlib.rs` | 脚本扩展支持性、文件名/候选平台布局、同目录探测、映像地址查询及 `Library` 开库/符号 OS 原语；缓存和进程代码保活归 loader/code |
 | `console.rs` | 区分有效 console 输入与交互终端；移动端、浏览器及无输入句柄的宿主不访问 stdin |
 | `mem.rs` | 页大小、GC chunk 页的 `decommit` / `recommit` |
 | `thread.rs` | 栈边界、`current_token()`、`run_with_stack()` |
@@ -62,4 +62,4 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 提供平台�
 依赖 `libc` (unix-only)；`net.rs` 的 `set_tcp_keepalive` 用 `socket2`（`net` feature）。其他 cargo feature 见
 `docs/internals/src/runtime/pal.md` "platform feature gates" 节。
 
-脚本 native 扩展的支持性同时取决于构建开关和 OS_CAPS.native_extensions。iOS、WASM 和未启用 native interop 时返回 false，实际装载返回 Unsupported。`open_component` 属可信运行时组件的独立契约，不借脚本扩展权限判定。
+脚本 native 扩展的支持性同时取决于构建开关和 OS_CAPS.native_extensions。iOS、WASM 和未启用动态装载时返回 false，实际装载返回 Unsupported。loader/code 对可信运行时代码使用独立部署契约，不借脚本扩展权限判定；PAL 不保留组件管理或映像缓存。

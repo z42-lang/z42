@@ -243,7 +243,7 @@ fn dynamic_options(second: &str) -> ComponentOptions {
     }
 }
 #[cfg(feature = "component-loading")]
-unsafe fn symbol<T: Copy>(library: &crate::pal::dynlib::Library, name: &str) -> T {
+unsafe fn symbol<T: Copy>(library: &crate::loader::code::CodeImage, name: &str) -> T {
     unsafe { library.symbol(name).unwrap() }
 }
 #[test]
@@ -287,17 +287,17 @@ fn real_dynamic_library_shares_the_static_protocol_and_stays_loaded_for_leases()
         "native code remains mapped for thread-local destructors"
     );
     assert_eq!(live(), 0, "image retention must not retain VM instances");
-    let same = unsafe { crate::pal::dynlib::Library::open_component(fixture()).unwrap() };
+    let same = unsafe { crate::loader::code::open(fixture()).unwrap() };
     assert!(std::sync::Arc::ptr_eq(&same, &weak_library.upgrade().unwrap()));
     let alias = fixture().parent().unwrap().join(".").join(fixture().file_name().unwrap());
-    let aliased = unsafe { crate::pal::dynlib::Library::open_component(&alias).unwrap() };
+    let aliased = unsafe { crate::loader::code::open(&alias).unwrap() };
     assert!(std::sync::Arc::ptr_eq(&same, &aliased));
 }
 #[test]
 #[cfg(feature = "component-loading")]
 fn dynamic_failures_reject_before_publication_and_destroy_partial_state() {
     let _lock = LOCK.lock().unwrap();
-    let library = unsafe { crate::pal::dynlib::Library::open(fixture()).unwrap() };
+    let library = unsafe { crate::loader::code::open(fixture()).unwrap() };
     let reset: extern "C" fn() = unsafe { symbol(&library, "probe_reset") };
     let live: extern "C" fn() -> usize = unsafe { symbol(&library, "probe_live") };
     let created: extern "C" fn() -> u64 = unsafe { symbol(&library, "probe_created") };

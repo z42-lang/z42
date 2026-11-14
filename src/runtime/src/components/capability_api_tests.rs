@@ -145,11 +145,11 @@ fn checking_a_real_library_candidate_does_not_open_it() {
     let fixture = super::component_tests::fixture();
     let path = fixture.with_file_name(crate::pal::dynlib::file_name(&format!("z42_query_probe_{}", std::process::id())));
     std::fs::copy(fixture, &path).unwrap();
-    assert!(!crate::pal::dynlib::component_is_loaded(&path));
+    assert!(!crate::loader::code::is_loaded(&path));
     assert!(super::backends::known_source(&path));
-    assert!(!crate::pal::dynlib::component_is_loaded(&path), "a presence query loaded native code");
-    let _image = unsafe { crate::pal::dynlib::Library::open_component(&path) }.unwrap();
-    assert!(crate::pal::dynlib::component_is_loaded(&path), "explicit preparation loads the same valid image");
+    assert!(!crate::loader::code::is_loaded(&path), "a presence query loaded native code");
+    let _image = unsafe { crate::loader::code::open(&path) }.unwrap();
+    assert!(crate::loader::code::is_loaded(&path), "explicit preparation loads the same valid image");
     // Windows keeps mapped DLL files locked; the build directory owns this copy
     // until the test process exits and releases its process-lifetime image cache.
 }

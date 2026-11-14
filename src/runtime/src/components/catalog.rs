@@ -15,7 +15,7 @@ pub struct Factory {
     pub(crate) destroy: DestroyVm,
     pub(crate) query: QueryInterface,
     #[cfg(feature = "component-loading")]
-    pub(crate) library: Option<Arc<crate::pal::dynlib::Library>>,
+    pub(crate) library: Option<Arc<crate::loader::code::CodeImage>>,
 }
 
 impl Factory {
@@ -36,11 +36,11 @@ impl Factory {
     pub fn id(&self) -> ComponentId { self.id }
     pub fn dependencies(&self) -> &[ComponentId] { &self.dependencies }
     #[cfg(all(test, feature = "component-loading"))]
-    pub fn library(&self) -> Option<&Arc<crate::pal::dynlib::Library>> { self.library.as_ref() }
+    pub fn library(&self) -> Option<&Arc<crate::loader::code::CodeImage>> { self.library.as_ref() }
     /// # Safety
     /// This library owns every callback and table retained by the factory.
     #[cfg(feature = "component-loading")]
-    pub unsafe fn with_library(mut self, library: Arc<crate::pal::dynlib::Library>) -> Self {
+    pub unsafe fn with_library(mut self, library: Arc<crate::loader::code::CodeImage>) -> Self {
         self.library = Some(library); self
     }
 }
@@ -126,7 +126,7 @@ fn load(registration: &Registration) -> Result<Factory> {
         Registration::Dynamic { id, path, symbol, .. } => {
             #[cfg(feature = "component-loading")]
             {
-                let library = unsafe { crate::pal::dynlib::Library::open_component(path) }?;
+                let library = unsafe { crate::loader::code::open(path) }?;
                 let init = unsafe { library.symbol::<ComponentInit>(symbol) }?;
                 let factory = unsafe { read_descriptor(*id, init) }?;
                 Ok(unsafe { factory.with_library(library) })

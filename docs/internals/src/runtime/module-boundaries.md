@@ -35,6 +35,10 @@ VM 程序准备、执行角色查询和分析请求通过内部 `components::api
 每 VM 的协议表由 Core 保存，worker 借用同一份不可变服务；exec 只保留托管 ToString 调用、异常与字符串物化。
 独立执行组件经同构建 bridge 读取服务，协议表不拥有 VM/托管值，也不增加逐指令注册表查询。
 
+通用代码映像由 loader/code 装入、缓存与保活，组件和独立 native 库共用，不解释消费者 ABI。
+默认 native 路径归 loader/native_paths，host 为独立库提供路径时不再经过 components。
+PAL 保留底层开库与符号原语；组件层只持有 loader 代码句柄和组件契约/实例依赖。
+
 ### 当前可核对的缺口
 
 | 缺口 | 代码证据 | 影响与目标 |
@@ -44,9 +48,8 @@ VM 程序准备、执行角色查询和分析请求通过内部 `components::api
 | C 静态装配混入普通宿主头 | `include/z42_host.h` 的 Z42ComponentId、ComponentInit 与 `z42_host_register_static_component`；`host/ffi.rs` | 静态链接胶水必须同轮迁移到明确的内部部署/装配契约，不能只隐藏 Rust 名字 |
 | 通用管理查询仍泄露实现身份 | host 转出的 `component_interface(ctx, ComponentId)`；`components::abi::RuntimeApi` 的跨组件依赖查询 | VM 执行消费者已按语义角色请求服务；普通 host 的按 ID 管理查询仍需移除，协议内依赖 ID 由管理层拥有 |
 | 使用形态分类不完整 | `components/catalog.rs::Registration` 只有 Static/Dynamic，`components/backends.rs::BackendSource` 的 Linked 只查询已登记入口，Dynamic 走显式开库 | 分开静态链接、链接动态库和运行时装入；记录实际来源，按运行时策略核对，不能只改枚举名字 |
-| 组件层仍拥有代码装入 | `components/catalog.rs` 打开原生库、展开加载闭包；`components/backends.rs` 搜索候选路径 | 代码来源、映像/符号、装载依赖与保活统一归 loader；components 消费代码结果，拥有能力绑定和实例语义依赖 |
-| 组件管理与配置相互依赖 | `config/availability.rs` 查询 components；`components/backends.rs::native_paths`、`components/api.rs::attach_execution` 读取 runtime_config | 在装配入口捕获路径/JIT 配置及平台能力，组件管理消费显式输入 |
-| 诊断契约反向拥有装配机制 | `diagnostics/sampling.rs` 保存 BackendSource、VmComponents 并触发 attach；`components/profiling.rs` 回到 sampler 注册实现 | 诊断保留观察/采样接口，组件管理拥有来源和代码保活；经窄接口绑定，避免新增 Core 自持有环 |
+| 配置与装配输入仍未完全显式 | `config/availability.rs` 查询 components；`loader/native_paths.rs`、`components/api.rs::attach_execution` 读取 runtime_config | 默认路径已归 loader；后续在装配入口捕获路径/JIT 配置及平台能力，管理实现消费显式输入 |
+| 诊断契约反向拥有装配机制 | `diagnostics/sampling.rs` 保存 BackendSource、VmComponents 并触发 attach；`components/profiling.rs` 回到 sampler 注册实现 | 诊断保留观察/采样接口，组件管理拥有能力/实例并持有 loader 代码句柄；经窄接口绑定，避免新增 Core 自持有环 |
 | 默认 VM 装配由 host 承担 | `host/program_builder.rs`、`vm_defaults.rs`、`extensions.rs`；`host/artifact.rs` 为 LazyLoader 实现构造方法 | host 解析请求，VM 装配层负责配置快照、Core/loader、组件和发布；loader 的构造实现回归其所有者 |
 | 宿主契约、CLI 与 C 适配混在一起 | `host/cli.rs`、`cli_startup.rs`、`launcher.rs` 与 `ffi.rs/config.rs/state.rs/ops.rs/marshal.rs` | host 保留功能请求/环境服务契约；CLI 成为独立宿主实现，C 适配/头文件归能力所有者，平台构建排除 CLI |
 | 初始化层级含混 | `host/state.rs` 的会话保存多个 LoadedProgram；`ops::build_host_module` 每次创建程序/VM；`LoadedProgram::invoke` 执行一次性托管初始化 | 区分会话、VM/包准备与托管初始化，不把 C initialize 当作所有模块已初始化；统一装配但保持隔离和失败终态 |
@@ -108,7 +111,7 @@ C initialize 当前建立进程单例宿主会话，不等于创建一个承载�
 |---|---|---|
 | host | VM 宿主功能请求与环境服务契约 | 功能级请求与结果，不是组件注册表、CLI 实现或 C 句柄表 |
 | VM 装配层 | 构造输入、启动顺序和失败发布边界 | 接受显式配置及服务，产生可调用程序 |
-| components 管理实现 | 能力到提供方的绑定、经验证的工厂契约、每 VM 实例与语义依赖 | 内部 api 的准备/能力查询；加载交给 loader，实例保留所需代码句柄 |
+| components 管理实现 | 能力到提供方的绑定、工厂缓存、实例依赖闭包、每 VM 实例及 loader 代码句柄 | 内部 api 的准备/能力查询；不让消费者传实现 ID，不返回可修改的 OnceLock，不保存映像缓存 |
 | exec / diagnostics | 引擎与观察/采样的消费契约 | 装配时绑定的接口；不决定组件库路径或具体实现 |
 | 同构建协议层 | 描述符、版本、身份、接口表及最小桥接 | 仅给 VM 与组件适配器；不是普通宿主 SDK 扩展面 |
 | loader / interop | loader 拥有代码来源/装载依赖/符号/保活；interop 拥有描述符/编组/原生实例 | 窄接口与 VM 装配连接，不互相承担完整装入事务 |

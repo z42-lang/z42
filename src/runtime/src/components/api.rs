@@ -89,8 +89,3 @@ pub(super) fn attach_execution(ctx: &VmContext, mode: ExecMode) -> Result<()> {
 pub(crate) fn engine_registry() -> crate::exec::engine::EngineRegistry {
     super::backends::registry()
 }
-
-#[cfg(any(feature = "native-interop", feature = "component-loading"))]
-pub(crate) fn native_paths() -> Vec<std::path::PathBuf> {
-    super::backends::native_paths()
-}

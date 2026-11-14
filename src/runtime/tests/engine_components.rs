@@ -130,7 +130,7 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
     let fqn = CString::new("EngineComponentProbe.Echo").unwrap();
     // Keep the C host image through thread exit, including its TLS destructors.
     unsafe {
-        let library = z42::pal::dynlib::Library::open_component(&path).unwrap();
+        let library = std::mem::ManuallyDrop::new(z42::pal::dynlib::Library::open(&path).unwrap());
         let initialize = library.symbol::<Initialize>("z42_host_initialize").unwrap();
         let load = library.symbol::<Load>("z42_host_load_zbc").unwrap();
         let resolve = library.symbol::<Resolve>("z42_host_resolve_entry").unwrap();

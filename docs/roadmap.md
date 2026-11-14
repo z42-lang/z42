@@ -57,6 +57,9 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ### runtime-module-boundaries：运行时模块边界收口
 
+通用 native 映像装入、规范路径缓存与进程代码保活已集中到 loader/code，默认原生路径归 loader/native_paths；
+组件和独立库共用，PAL 仅保留 OS 原语。后续三来源策略应在 loader 边界建立，组件继续负责能力/契约/实例。
+
 当前问题与目标结构见[运行时模块边界](internals/src/runtime/module-boundaries.md)。内部能力门面与同构建协议已分离，执行角色绑定和无装载副作用的查询已实现；
 crate 已按 component、直接引用的 VM/配套模块、独立运行时库明确分类。对象协议先按所有者归回 object；
 后续优先将代码来源/外部依赖统一归 loader，再收口 host/CLI/模块 C ABI 与 VM 装配流程。

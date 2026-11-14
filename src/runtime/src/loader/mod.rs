@@ -18,3 +18,6 @@ pub use state::LoaderState;
 
 pub mod native;
 pub mod linked;
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
+pub(crate) mod code;
+pub(crate) mod native_paths;
