@@ -52,4 +52,3 @@ fn lookup_value_type(ctx: &VmContext, tag: &str) -> Option<std::sync::Arc<TypeDe
         || (td.is_struct() && td.struct_layout_ref().is_some_and(|l| l.size > 0));
     by_value.then_some(td)
 }
-
