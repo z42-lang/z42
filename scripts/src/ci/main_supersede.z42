@@ -1,0 +1,53 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+bool _ciMainRun(JsonValue run, string repo) {
+    return _ciString(run, "path") == ".github/workflows/ci.yml"
+        && _ciString(run, "event") == "push" && _ciString(run, "head_branch") == "main"
+        && _ciString(run.Get("head_repository"), "full_name") == repo
+        && _ciString(run, "head_sha").Length > 0 && _ciString(run, "status") != "completed";
+}
+
+bool _ciOlderMain(JsonValue old, JsonValue current, string repo) {
+    return _ciMainRun(old, repo) && _ciMainRun(current, repo)
+        && old.Get("workflow_id").AsLong() == current.Get("workflow_id").AsLong()
+        && old.Get("run_number").AsLong() < current.Get("run_number").AsLong()
+        && _ciString(old, "head_sha") != _ciString(current, "head_sha");
+}
+
+int _ciSupersedeMain(CiGitHub api, string repo, string id, bool dryRun, string before) {
+    string prefix = "repos/" + repo;
+    string path = prefix + "/actions/runs/" + id;
+    JsonValue current = api.Get(path);
+    if (!_ciMainRun(current, repo)) { return 0; }
+    string head = _ciString(current, "head_sha");
+    string latest = prefix + "/git/ref/heads/main";
+    if (_ciString(api.Get(latest).Get("object"), "sha") != head) { return 0; }
+    // Only this push may replace earlier CI; cumulative release scope is independent.
+    if (before.Length == 0 || before == head) { return 0; }
+    string root = _root(); FlowConfig cfg = _flowConfigFor(root);
+    JsonValue pushed = api.Get(prefix + "/compare/" + before + "..." + head);
+    if (_ciString(pushed, "status") != "ahead" || !_ciSdkFiles(cfg, root, pushed.Get("files"))) { return 0; }
+    JsonValue runs = api.Get(prefix + "/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=100").Get("workflow_runs");
+    for (int i = 0; i < runs.Count(); i = i + 1) {
+        JsonValue old = runs.At(i);
+        if (!_ciOlderMain(old, current, repo)) { continue; }
+        string oldHead = _ciString(old, "head_sha");
+        JsonValue diff = api.Get(prefix + "/compare/" + oldHead + "..." + head);
+        // Unknown ancestry or files must never authorize a destructive action.
+        if (_ciString(diff, "status") != "ahead") { continue; }
+        string oldPath = prefix + "/actions/runs/" + old.Get("id").AsLong().ToString();
+        JsonValue fresh = api.Get(oldPath);
+        if (!_ciOlderMain(fresh, api.Get(path), repo) || _ciString(fresh, "head_sha") != oldHead
+            || _ciString(api.Get(latest).Get("object"), "sha") != head) { continue; }
+        Console.WriteLine((dryRun ? "would cancel superseded main run " : "cancel superseded main run ") + old.Get("id").AsLong().ToString());
+        // No force-cancel: an always() release update may be completing its asset transaction.
+        if (!dryRun) {
+            try { api.Post(oldPath + "/cancel"); }
+            catch (Exception e) { if (_ciString(api.Get(oldPath), "status") != "completed") { throw e; } }
+        }
+    }
+    return 0;
+}

@@ -50,7 +50,7 @@
 - **缓存**：Rust 依赖用 Swatinem `rust-cache`，bench 缓存由 main 上的 `bench-cache-warm` 预热。
 - **VM 准备**：共享工具链 action 默认构建 release VM，可复用同轮 Linux x64 产物，也可交给测试命令构建所需 profile。JIT golden 分片使用第三种方式构建 debug VM。[CI 拓扑](../../docs/internals/src/devinfra/ci.md)
 - **矩阵失败**：PR 上同矩阵的一项失败会取消其余项；main / 定期 / 手动运行保留完整结果。独立 job 与不同 workflow 不由矩阵 fail-fast 联动。
-- **并发控制**：PR 新 head 取消旧运行；main push 保留当前执行与最新等待者。累计验证、发布串行化及可信控制 workflow 的 PR 清理见[CI 调度](../../docs/internals/src/devinfra/ci.md)。
+- **并发控制**：PR 新 head 取消旧运行；main push 仅在资产变化时取消旧运行，文档等非发布改动保留前者。累计验证、发布串行化及可信控制 workflow 的 PR 清理见[CI 调度](../../docs/internals/src/devinfra/ci.md)。
 - **macOS 容量与恢复**：主 CI 通过 `xtask ci queue` 为 macOS 分配 PR 两槽、后台一槽的独立有界资源池；runner 未取得时的有限重试由 `xtask ci retry-runner` 判定，规则见 [CI 拓扑](../../docs/internals/src/devinfra/ci.md#macos-资源队列与-runner-获取失败恢复)。
 
 ## 如何测试验证

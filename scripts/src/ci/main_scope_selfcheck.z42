@@ -7,13 +7,20 @@ class CiMainFake : CiGitHub {
     public JsonValue Runs = JsonValue.Parse("{\"workflow_runs\":[{\"head_sha\":\"base\",\"head_branch\":\"main\",\"event\":\"push\",\"status\":\"completed\",\"conclusion\":\"success\"}]}");
     public JsonValue Compare = JsonValue.Parse("{\"status\":\"ahead\",\"files\":[{\"filename\":\"README.md\"}]}");
     public string Fail = "";
+    public string TagError = "";
+    public string Main = "head";
     public override JsonValue Get(string path) {
-        if (this.Fail.Length > 0 && path.Contains(this.Fail)) { throw new Exception("fixture API failure"); }
+        if (this.Fail.Length > 0 && path.Contains(this.Fail)) { throw new Exception("fixture API failure " + this.Fail); }
         if (path.Contains("/actions/workflows/ci.yml/runs?")) {
             _gateAssert(path.Contains("branch=main") && path.Contains("event=push") && path.Contains("status=success"), "validation baseline query excludes unfinished and failed runs");
             return this.Runs;
         }
+        if (path.EndsWith("/git/ref/heads/main")) {
+            JsonValue v = JsonValue.OfObject(); JsonValue obj = JsonValue.OfObject();
+            obj.Set("sha", JsonValue.OfString(this.Main)); v.Set("object", obj); return v;
+        }
         if (path.Contains("/compare/")) { return this.Compare; }
+        if (path.EndsWith("/git/ref/tags/nightly") && this.TagError.Length > 0) { throw new Exception(this.TagError); }
         if (path.EndsWith("/git/ref/tags/nightly")) { return JsonValue.Parse("{\"object\":{\"sha\":\"nightly\"}}"); }
         throw new Exception("unexpected main API GET " + path);
     }
@@ -22,6 +29,32 @@ class CiMainFake : CiGitHub {
 
 void _ciMainScopeChecks() {
     var api = new CiMainFake();
+    _gateAssert(_ciNightlyStale(api, "owner/repo", "head"), "a newer nightly rejects an older writer");
+    foreach (var status in new string[]{ "behind", "identical" }) {
+        api.Compare.Set("status", JsonValue.OfString(status));
+        _gateAssert(!_ciNightlyStale(api, "owner/repo", "head"), "a verified forward publication remains allowed");
+    }
+    foreach (var why in new string[]{ "diverged", "", "api" }) {
+        api.Compare.Set("status", JsonValue.OfString(why)); api.Fail = why == "api" ? "/compare/" : "";
+        bool rejected = false;
+        try { _ciNightlyStale(api, "owner/repo", "head"); } catch (Exception e) { rejected = true; }
+        _gateAssert(rejected, "unverified nightly comparisons stop publication");
+    }
+    api = new CiMainFake();
+    api.Fail = "/compare/"; api.Main = "nightly";
+    _gateAssert(!_ciNightlyStale(api, "owner/repo", "nightly"), "the same commit may repair its existing nightly");
+    api = new CiMainFake(); api.Main = "latest";
+    api.Compare.Get("files").At(0).Set("filename", JsonValue.OfString(".github/workflows/ci.yml"));
+    _gateAssert(_ciNightlyStale(api, "owner/repo", "head"), "outdated workflow publication is skipped before uploading assets with GITHUB_TOKEN");
+    api.Compare.Get("files").At(0).Set("filename", JsonValue.OfString("README.md"));
+    api.TagError = "not found (HTTP 404)";
+    _gateAssert(!_ciNightlyStale(api, "owner/repo", "head"), "a later documentation commit does not block the previous publisher");
+    api = new CiMainFake(); api.TagError = "not found (HTTP 404)";
+    _gateAssert(!_ciNightlyStale(api, "owner/repo", "head"), "the first nightly may be created when its tag is absent");
+    api.TagError = "rate limited (HTTP 403)"; bool tagRejected = false;
+    try { _ciNightlyStale(api, "owner/repo", "head"); } catch (Exception e) { tagRejected = true; }
+    _gateAssert(tagRejected, "a tag API failure is not mistaken for the first publication");
+    api = new CiMainFake();
     _gateAssert(_ciMainBase(api, "owner/repo", "head") == "base", "main validation starts at the last successful push");
     api.Fail = "/compare/";
     _gateAssert(_ciMainBase(api, "owner/repo", "base") == "base", "the already validated head needs no comparison");

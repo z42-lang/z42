@@ -135,18 +135,25 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 
 PR 与 main 的不可变基线、未知输入回退及重命名边界见[流程规划](flows.md)。
 
-### main 的累计验证与合并队列
+### main 的累计验证与资产替换
 
-main push 使用 GitHub 原生 single 并发队列：同一时间保留一个正在执行的运行和最新待运行版本。
-正在执行的运行不被新 push 打断；新的等待者替换旧等待者，避免每次合并都向 macOS 后台池追加整套 SDK 重任务。
-PR 新 head 的取消策略、每日全量与手动运行各有自己的事件分组。
+main push 按 commit 分组，让新提交的规划 job 可以立即判断旧运行是否已过时。
+`xtask ci supersede` 只检查最近 100 次 main push CI，先按 `scripts/flows.toml` 的 `publish` 属性检查本次 push 的 `before..head`：
 
-等待者可能跨过多个提交，因此 `detect-changes` 用只读的 `xtask ci main-scope` 分别规划两条累计范围：
+- 本次 push 存在资产改动，且确认当前 head 是旧 head 的后代：取消较早的运行，释放旧构建和测试。
+- 只有文档、私有测试或其他不发布改动：保留旧运行，不打断前一提交的 nightly。
+- 身份、祖先关系或差异不可确认：不取消旧运行，显式记录错误，当前 CI 继续正常验证。
+
+只有当前 main head 的规划器可取消同仓库、同 workflow、较小 run number 的运行；写请求前再读取身份与 main head。
+这也能释放旧并发分组遗留的运行。main 只发送普通取消，不 force-cancel，以允许已开始的资产写入完成。
+PR 新 head 的取消、每日全量与手动运行仍按事件分组。
+
+`detect-changes` 用 `xtask ci main-scope` 分别规划两条累计范围：
 
 - **验证**：从最近一次成功的 main push CI 到本次提交。运行身份与祖先关系必须可验证；没有成功历史、API 读取失败或分支分叉时保守全测。中间提交的私有测试改动也参与选测，不能仅用最后一次 push 的 `before`。
-- **发布**：从当前 nightly 到本次提交，按 `scripts/flows.toml` 的 `publish` 字段判断。缺失 nightly、compare 失败或达到 300 文件上限时保留发布；重命名同时检查旧路径。
+- **发布**：从当前 nightly 到本次提交，按 `publish` 字段判断。缺失 nightly、compare 失败或达到 300 文件上限时保留发布；重命名同时检查旧路径。
 
-运行真正开始后才读取基线，因而前一轮已发布的 SDK 改动不会继续触发重复打包。无需遍历并取消其他 main 运行，规划 job 仅需要读取 Actions 和仓库内容。
+所以代码提交 B 被取消后，文档提交 C 仍会从 nightly 累计发现 B 的资产改动。不会因最后一个 commit 只改文档而漏发。
 
 **怎么确认 nightly 已包含某个提交**（阶段 1 落地后判断"能不能开始用"）：
 
@@ -156,7 +163,11 @@ gh api repos/z42-lang/z42/compare/<阶段1 的 main 提交>...$(gh api repos/z42
 
 返回 `ahead` 或 `identical` 才算包含——**不是**「发布时间晚于合并时间」。SDK 改动可由包含该提交的后续 main 运行累计验证并发布，因此以标签祖先关系判断实际生效。
 
-`publish-nightly` 自身仍是全局串行（job 级 `cancel-in-progress: false`）。不同事件的运行可能先后完成，所以发布前先查一次：**nightly 已指向本 commit 的后代** ⇒ 跳过，不拿旧 commit 覆盖新 nightly。
+`publish-nightly` 自身仍是全局串行（job 级 `cancel-in-progress: false`）。获得发布锁后，`xtask ci check-publication` 确认标签祖先关系：
+nightly 已指向本 commit 的后代，或当前 main 已更新 `.github/workflows/`，则在上传前跳过旧发布；API 失败、分叉或身份缺失时拒绝写入，不拿旧资产覆盖新 nightly。
+过时 workflow 不能使用 `GITHUB_TOKEN` 移动发布到该版本（[GitHub 权限规则](https://docs.github.com/en/rest/releases/releases#update-a-release)）；当前 main 继续承担累计发布，仅后续文档改动不阻止旧发布。
+发布 job 的 `always()` 同时排除失败或取消的前置 job；只有归档汇总成功且防回退检查通过，资产更新步骤才用 `always()` 抵御普通取消。
+取消可终止构建和准备工作，不中断已开始的上传、移动标签和完整性校验。
 
 串行靠 job 级 concurrency group，而 GitHub 每个 group **只保留一个等待者**：连续合并时，排队中的较早发布会被
 更新运行的发布顶掉（`Canceling since a higher priority waiting request …`）。这是想要的结局——顶替者已过全部

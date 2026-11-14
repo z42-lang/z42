@@ -14,12 +14,11 @@ on:
   schedule:
     - cron: '0 16 * * *'
 
-# main push 保留当前执行与最新等待者；起跑后按最近成功验证计算累计改动。
-# PR 新 head 取消旧运行；schedule / dispatch 独立分组，保留定期全量职责。
+# main push is admitted per commit so the planner can retain equivalent asset runs.
+# xtask cancels older main runs only when their assets are superseded.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
-  queue: single
-  cancel-in-progress: ${{ github.event_name != 'push' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: true
 
 jobs:
   # 规划器输出重 job 开关；schedule / dispatch 使用完整验证策略。
@@ -28,7 +27,7 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     permissions:
-      actions: read         # 累计验证基线：最近成功的 main CI
+      actions: write        # 累计验证基线：最近成功的 main CI
       contents: read
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
@@ -65,6 +64,13 @@ jobs:
       - name: Select bounded macOS runner queue
         id: macos_queue
         run: xtask ci queue
+
+      - name: Release superseded main asset runs
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: xtask ci supersede
 
       - name: Select cumulative main validation and publication
         id: main_scope
@@ -772,7 +778,11 @@ jobs:
   publish-nightly:
     name: publish-nightly
     timeout-minutes: 40
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.changes.outputs.sdk != 'false'
+    # Normal workflow cancellation must not interrupt an already-started asset update.
+    if: >-
+      always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main' && needs.changes.outputs.sdk != 'false'
     # needs 只列编 / 测 / 打包**当前源码**的 job。所有自举都从上一版 nightly 起步，自愈靠 自举纪律
     # （上一版 nightly 必须能编当前源）。不要加纯下载自举的门（vm-jit / stdlib-jit）：格式 bump 时它们会暂时红、
     # 下次自愈，把 publish 挂在它们身上只会多一条死锁边。
@@ -795,29 +805,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # 防回退：main 的运行不再互相取消，较早的运行可能在较新的之后才排到发布（本 job 的 group 串行）。
-      # nightly 已指向本 commit 的后代 ⇒ 跳过，不拿旧 commit 覆盖新 nightly。
-      - name: Skip if nightly is already newer
-        id: stale
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          cur=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/nightly" -q .object.sha 2>/dev/null || true)
-          stale=false
-          if [ -n "$cur" ] && [ "$cur" != "$GITHUB_SHA" ]; then
-            rel=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${GITHUB_SHA}...${cur}" -q .status 2>/dev/null || true)
-            if [ "$rel" = "ahead" ]; then stale=true; fi
-          fi
-          echo "nightly @ ${cur:-<none>}, this run @ $GITHUB_SHA ⇒ stale=$stale"
-          echo "stale=$stale" >> "$GITHUB_OUTPUT"
-
       - name: Provision z42vm + xtask (consume toolchain artifact)
-        if: steps.stale.outputs.stale != 'true'
         uses: ./.github/actions/xtask-bootstrap-artifact
         with:
           vm: prebuilt
+
+      # Check inside the serialized publication job; API errors must stop the write.
+      - name: Skip if nightly is already newer
+        id: stale
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: xtask ci check-publication
 
       # 各 package job 已在自己的 runner 上用 `--archive` 出好归档——upload-artifact 不保留可执行位，
       # 所以不能下载包目录到这里再打。
@@ -831,6 +829,7 @@ jobs:
 
       # 合并 4 份逐 RID 桌面 workload → SHA256SUMS → release-index.json（与 release.yml 同一条命令）。
       - name: Release aggregate (nightly)
+        id: aggregate
         if: steps.stale.outputs.stale != 'true'
         shell: bash
         run: |
@@ -842,7 +841,7 @@ jobs:
       # draft——其它运行的 GITHUB_TOKEN 看不见它，所有种子下载失败、CI 死锁。所以只做：上传（--clobber）→ 删掉本次
       # 不再发的资产 → PATCH 移动 tag → 改标题 / 说明。
       - name: Update nightly release in place
-        if: steps.stale.outputs.stale != 'true'
+        if: always() && steps.aggregate.outcome == 'success' && steps.stale.outputs.stale == 'false'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
