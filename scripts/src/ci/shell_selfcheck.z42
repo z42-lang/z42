@@ -118,7 +118,8 @@ void _ciQueueChecks() {
     string release = workflow.Substring(publish);
     _gateAssert(release.Contains("always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')")
         && release.Contains("if: always() && steps.aggregate.outcome == 'success' && steps.stale.outputs.stale == 'false'")
-        && release.Contains("run: xtask ci check-publication"),
+        && release.Contains("run: xtask ci check-publication") && release.Contains("run: xtask ci publish-nightly")
+        && !release.Contains("gh release edit nightly") && !release.Contains("gh release create nightly"),
         "normal cancellation retains only a prepared release update; failed prerequisites and older nightly writes are rejected");
     foreach (var name in new string[]{ "archive-checks", "build-and-test", "host-package", "vm-jit-consistency", "stdlib-consistency", "test-wasm", "test-ios", "test-android" }) {
         int begin = workflow.IndexOf("\n  " + name + ":");

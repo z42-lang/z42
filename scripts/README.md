@@ -81,6 +81,7 @@ micro A/B 可用 `bench --micro-ab --plan <plan.json>` 消费已验证 owner 范
 示例：`xtask -v detailed build compiler` 会打出冷启动供种的完整候选路径选择过程。
 
 CI 调度使用 `ci supersede` 按资产差异取消旧 main 运行，`ci check-publication` 阻止 nightly 回退；边界与验证见 [CI 调度](../docs/internals/src/devinfra/ci.md)。
+`ci publish-nightly` 消费已汇总的 `artifacts/packages`，原地更新发布并核对资产收据；本地执行同样要求 `GH_TOKEN`、`GITHUB_REPOSITORY` 和与当前检出一致的 `GITHUB_SHA`。
 
 ## 命令一览
 

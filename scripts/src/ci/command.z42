@@ -10,6 +10,7 @@ class CiCommand : Command {
         this.AddCommand(new CiQueueCommand());
         this.AddCommand(new CiRetryCommand());
         this.AddCommand(new CiUploadCommand());
+        this.AddCommand(new CiPublishNightlyCommand());
         this.AddCommand(new CiMainScopeCommand());
         this.AddCommand(new CiPublicationCommand());
         this.AddCommand(new CiSupersedeCommand());
@@ -108,5 +109,13 @@ class CiPublicationCommand : Command {
     public override int Run() {
         try { return _ciCheckPublication(new CiGitHub()); }
         catch (Exception e) { ConsoleError.WriteLine("publication check: " + e.Message); return 1; }
+    }
+}
+
+class CiPublishNightlyCommand : Command {
+    public CiPublishNightlyCommand() : base("publish-nightly", "update nightly in place and verify publication receipts") {}
+    public override int Run() {
+        try { return _ciPublishNightly(); }
+        catch (Exception e) { ConsoleError.WriteLine("nightly publication: " + e.Message); return 1; }
     }
 }
