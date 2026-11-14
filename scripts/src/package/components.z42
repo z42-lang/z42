@@ -93,6 +93,7 @@ int _componentBuild(string root, string profile) {
         _componentArtifactExecutable(result.Stdout));
     int c = _componentBuildCompression(root, _detectHostRid(), profile, true);
     if (c == 0) { _componentCopyStd(_componentCargoOut(root, profile)); }
+    if (c == 0) { c = _componentBuildEntry(root, profile, _componentCargoOut(root, profile)); }
     return c;
 }
 
@@ -143,29 +144,21 @@ void _componentInstallLibraries(string cargo, string pkg, bool importLibs = fals
     _componentCopyStagedStd(cargo, Path.Join(pkg, "native"));
 }
 
-// Build the single process entry with static std; Core remains dynamically loaded.
-string _componentLauncherDir(string root) { return Path.Join(_componentBuildDir(root), "launcher"); }
-string _componentLauncherOut(string root, string profile) { return Path.Join(_componentLauncherDir(root), profile); }
-int _componentBuildLauncher(string root, string profile) {
-    if (_componentAliasTree(root)) {
-        Process a = _componentAliasProc(root, "z42-launcher")
-            .Arg("--target-dir").Arg(_componentLauncherDir(root));
-        if (profile == "release") { a = a.Arg("--release"); }
-        return _execIn(a, Path.Join(root, "src/runtime"));
-    }
-    Process p = _cargoCmd("build", _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
-        .Arg("--manifest-path").Arg(_runtimeManifest())
-        .Arg("--target-dir").Arg(_componentLauncherDir(root))
-        .Arg("-p").Arg("z42").Arg("--bin").Arg("z42vm")
-        .Arg("--no-default-features").Arg("--features").Arg("z42/component-loading")
-        .EnvRemove("CARGO_ENCODED_RUSTFLAGS");
-    // 静态 std 启动器；macOS 预留 load-command 余量，否则打包期 install_name_tool
-    // -add_rpath 报 "larger updated load commands do not fit"。
-    string flags = "-C prefer-dynamic=no";
-    if (Platform.IsMacOS()) { flags = flags + " -C link-arg=-Wl,-headerpad_max_install_names"; }
-    p = p.Env("RUSTFLAGS", flags);
-    if (profile == "release") { p = p.Arg("--release"); }
-    return _exec(p);
+// The static-std entry has an isolated compile graph, but one public output:
+// publish the executable beside Core so artifact consumers need no build cache.
+string _componentEntryDir(string root) { return Path.Join(_componentBuildDir(root), "entry"); }
+string _componentEntryOut(string root, string profile) { return Path.Join(_componentEntryDir(root), profile); }
+int _componentBuildEntry(string root, string profile, string output) {
+    Process build = _componentAliasProc(root, "z42-entry")
+        .Arg("--target-dir").Arg(_componentEntryDir(root));
+    if (profile == "release") { build = build.Arg("--release"); }
+    else if (profile != "debug") { build = build.Arg("--profile").Arg(profile); }
+    int c = _execIn(build, Path.Join(root, "src/runtime"));
+    if (c != 0) { return c; }
+    Directory.Create(output);
+    string executable = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
+    _componentCopyRequired(Path.Join(_componentEntryOut(root, profile), executable), Path.Join(output, executable));
+    return 0;
 }
 
 void _componentCopyStd(string native, string target = "") {

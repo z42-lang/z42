@@ -98,6 +98,6 @@ z42-static-wasm   = ["z42-static", "-p", "z42", "-p", "z42-profiler", "-p", "z42
 z42-compression-static = ["z42-static", "-p", "z42-compression", "--lib"]
 
 # SDK process entry loads Core at runtime and links its own static std.
-z42-launcher = ["build", "--locked", "-p", "z42", "--bin", "z42vm",
+z42-entry = ["build", "--locked", "-p", "z42", "--bin", "z42vm",
     "--no-default-features", "--features", "z42/component-loading",
     "--config", "build.rustflags=['-C','prefer-dynamic=no']"]

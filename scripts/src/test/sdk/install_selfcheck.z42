@@ -120,20 +120,11 @@ int _testPackagesInstall() {
     _stgAssert("SDK C headers excluded", !Directory.Exists(Path.Join(sdkDir, "native/include")));
     _stgAssert("SDK import lib excluded", !File.Exists(Path.Join(sdkDir, "native/z42.dll.lib"))
         && !File.Exists(Path.Join(sdkDir, "native/z42_compression.dll.lib")));
-    // One executable per SDK on every desktop platform, from the static-std entry graph.
-    string entrySdk = _xtaskWork(root, "install-test-main");
-    _resetDir(entrySdk);
-    string entryOut = _xtaskWork(root, "install-test-main-entry");
-    Directory.Create(entryOut);
-    File.WriteAllText(Path.Join(entryOut, vmName), "dynamic-core-entry");
-    _PkgInstallCtx entry = new _PkgInstallCtx();
-    entry.CargoOut = fakeCargoOut; entry.LauncherOut = entryOut;
-    _stgAssert("main entry install", _pkgInstallZ42vm(entry, entrySdk) == 0);
-    _stgAssert("uses process entry", File.ReadAllText(Path.Join(entrySdk, "bin/" + vmName)) == "dynamic-core-entry");
-    _stgAssert("no native executable", !File.Exists(Path.Join(entrySdk, "native/z42vm.exe"))
-        && !File.Exists(Path.Join(entrySdk, "native/z42vm")));
-    _stgAssert("Core only in native", !File.Exists(Path.Join(entrySdk, "bin/" + _componentLibrary("z42"))));
-    _stgAssert("no shared std in bin", Path.Glob(Path.Join(entrySdk, "bin"), _componentStdPattern()).Length == 0);
+    // Consume only the public runtime artifact: no private entry build directory.
+    _stgAssert("no native executable", !File.Exists(Path.Join(sdkDir, "native/z42vm.exe"))
+        && !File.Exists(Path.Join(sdkDir, "native/z42vm")));
+    _stgAssert("Core only in native", !File.Exists(Path.Join(sdkDir, "bin/" + _componentLibrary("z42"))));
+    _stgAssert("no shared std in bin", Path.Glob(Path.Join(sdkDir, "bin"), _componentStdPattern()).Length == 0);
     File.Delete(Path.Join(fakeCargoOut, vmName));
     bool missingMainRejected = false;
     try { missingMainRejected = _pkgInstallZ42vm(ctx, sdkDir) != 0; } catch (Exception e) { missingMainRejected = true; }
