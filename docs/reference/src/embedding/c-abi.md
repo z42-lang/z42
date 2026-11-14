@@ -154,11 +154,13 @@ Z42Error z42_host_last_error(Z42HostRef host);
 Z42HostStatus z42_host_initialize(const Z42HostConfig* cfg, Z42HostRef* out_host);
 ```
 
-**进程内同时只能有一个 VM。** 成功时 `*out_host` 被写成非 NULL 句柄；失败时先被写成 NULL，
+**进程内同时只能有一个宿主会话。** 成功时 `*out_host` 被写成非 NULL 句柄；失败时先被写成 NULL，
 所以调用方不需要自己预清零。`shutdown` 之后可以再 `initialize`（可以反复循环），
-但两个 VM **不能同时**存在——第二次会拿到 `ERR_ALREADY_INIT`。
+但两个宿主会话**不能同时**存在——第二次会拿到 `ERR_ALREADY_INIT`。
 
 内部已串行化，从多个线程同时调用不会数据竞争；但语义上只有一个会赢。
+
+初始化失败不更改已有宿主会话及其 stdout / stderr 回调；`out_host` 保持 NULL。
 
 ### `z42_host_load_zbc`
 

@@ -158,20 +158,11 @@ pub unsafe extern "C" fn z42_host_initialize(
             Err(e) => return classify_config_error(e),
         };
 
-        // Install host-side sinks (if any) before signalling success so
-        // subsequent invokes route through them.
-        let stdout_sink = build_host_sink(resolved.stdout_sink, resolved.sink_user_data);
-        let stderr_sink = build_host_sink(resolved.stderr_sink, resolved.sink_user_data);
-        io::install_host_stdout_sink(stdout_sink);
-        io::install_host_stderr_sink(stderr_sink);
-
         // Probe search_paths for z42.core.zpkg — best-effort, missing
         // corelib is reported only when actual user code references it.
         match ops::probe_corelib(&resolved) {
             Ok(()) => (),
             Err(e) => {
-                io::install_host_stdout_sink(None);
-                io::install_host_stderr_sink(None);
                 return set_error(
                     Z42HostStatus::BadConfig,
                     format!("z42_host_initialize: corelib probe failed: {e:#}"),
@@ -179,23 +170,22 @@ pub unsafe extern "C" fn z42_host_initialize(
             }
         };
 
-        match state::try_initialize(resolved) {
+        match state::try_initialize(resolved, |config| {
+            io::install_host_stdout_sink(build_host_sink(config.stdout_sink, config.sink_user_data));
+            io::install_host_stderr_sink(build_host_sink(config.stderr_sink, config.sink_user_data));
+        }) {
             state::InitOutcome::Initialized => {
                 unsafe { *out_host = HOST_SENTINEL as *mut Z42Host };
                 clear_error();
                 Z42HostStatus::Ok
             }
             state::InitOutcome::AlreadyInit => {
-                io::install_host_stdout_sink(None);
-                io::install_host_stderr_sink(None);
                 set_error(
                     Z42HostStatus::AlreadyInit,
                     "z42_host_initialize: VM is already initialized",
                 )
             }
             state::InitOutcome::LockPoisoned => {
-                io::install_host_stdout_sink(None);
-                io::install_host_stderr_sink(None);
                 set_error(
                     Z42HostStatus::Internal,
                     "z42_host_initialize: host state lock poisoned",
@@ -214,10 +204,11 @@ pub unsafe extern "C" fn z42_host_shutdown(host: *mut Z42Host) -> Z42HostStatus 
                 "z42_host_shutdown: host handle is NULL",
             );
         }
-        match state::try_shutdown() {
+        match state::try_shutdown(|| {
+            io::install_host_stdout_sink(None);
+            io::install_host_stderr_sink(None);
+        }) {
             state::ShutdownOutcome::Done => {
-                io::install_host_stdout_sink(None);
-                io::install_host_stderr_sink(None);
                 clear_error();
                 Z42HostStatus::Ok
             }
@@ -520,24 +511,24 @@ fn set_sink(
     user_data: *mut c_void,
     slot: SinkSlot,
 ) -> Z42HostStatus {
-    if !is_valid_handle(host as *const ()) {
-        let label = match slot {
-            SinkSlot::Stdout => "stdout",
-            SinkSlot::Stderr => "stderr",
-        };
-        return set_error(
-            Z42HostStatus::NotInit,
-            format!("z42_host_set_{label}_sink: VM is not initialized"),
-        );
+    let label = match slot {
+        SinkSlot::Stdout => "stdout",
+        SinkSlot::Stderr => "stderr",
+    };
+    if host as usize != HOST_SENTINEL {
+        return set_error(Z42HostStatus::NotInit,
+            format!("z42_host_set_{label}_sink: VM is not initialized"));
     }
     let host_sink = build_host_sink(sink, user_data as usize);
-    match slot {
-        SinkSlot::Stdout => {
-            io::install_host_stdout_sink(host_sink);
-        }
-        SinkSlot::Stderr => {
-            io::install_host_stderr_sink(host_sink);
-        }
+    // Keep the session alive through installation so shutdown cannot leave a
+    // stale sink installed, and a new session cannot inherit this update.
+    let installed = state::with_state_read(|_| match slot {
+        SinkSlot::Stdout => { io::install_host_stdout_sink(host_sink); }
+        SinkSlot::Stderr => { io::install_host_stderr_sink(host_sink); }
+    });
+    if installed.is_none() {
+        return set_error(Z42HostStatus::NotInit,
+            format!("z42_host_set_{label}_sink: VM is not initialized"));
     }
     clear_error();
     Z42HostStatus::Ok

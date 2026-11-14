@@ -25,7 +25,7 @@ if any_pending() { ensure_type_init(...) }   // 热路径的全部代价
 - 有静态构造器 → 只在它们**跑完之前**付查表代价；**全部跑完后计数归零、屏障重新免费**
 
 「无锁镜像只用于 `== 0`（可证无事可做）方向」不是新发明——旁边的
-`pending_type_init_count` / `running_static_inits` 用的是同一套手法。
+`pending_type_load_count` / `type_load_batch_inflight` 用的是同一套手法。
 
 实际程序里门几乎总是开着：boot 时会登记 z42.core 里十几个带初始化器的类型，一个普通程序一个都用不到，
 计数永远到不了 0。所以门后面还有两层按对象缓存的快路，真正决定稳态代价的是它们：
@@ -260,7 +260,7 @@ catch (Exception e) {
 
 #### ⚠️ 「能 catch」的前提是加载没被提前（已知偏离）
 
-`init_static_fields` 在**启动期**调 `run_pending_static_inits()`，把「主模块里被静态字段
+`LoadedProgram::invoke_index` 的首次调用准备调 `drain_pending_type_loads()`，把「主模块里被静态字段
 引用到的类」所属的包**提前加载**。于是只要程序里存在**一处**跨包静态字段引用（哪怕写在
 一个从未被调用的函数里），那个包就在 `Main` 的第一条语句之前加载完毕 ⇒ 它的初始化器会在
 `Main` 的**第一条调用**上触发，落在用户所有 `try` 之外 ⇒ 失败就是未捕获异常。
@@ -276,7 +276,7 @@ void Main() {
 
 C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时把 module initializer 提到
 `Main` 之前（实测实验①）；引用写在另一个方法里则照常可 catch（实验②）。**这是一条与 C#
-的真实偏离，但成因在 `run_pending_static_inits` 的加载提前，不在本节的失败语义**，
+的真实偏离，但成因在 `drain_pending_type_loads` 的加载提前，不在本节的失败语义**，
 射程也更大（它影响的是「包何时加载」，不只是初始化失败）。尚未处理。
 
 这也是上面那个 fixture 覆盖不到静态字段那条屏障的原因 —— 想触达它就必然写出一处静态字段
@@ -343,17 +343,14 @@ C# 不会这样：它只在 `Main` 体**直接**引用依赖模块的类型时�
 
 | 函数 | 做什么 | 谁调 |
 |---|---|---|
-| `boot_context` | `available!` 折叠 → `VmContext::with_module` → 登记静态构造器 → 装 lazy loader + 种类型 / impl | `host::run_app`、宿主 `build_host_module` |
-| `prepare_execution` | `resolve_module`（各站点 token 预填）| `host::LoadedProgram::run_entry`、宿主 `build_host_module` |
+| `boot_context` | `available!` 折叠 → 显式 Core 构造 → 登记静态构造器 → 装 lazy loader + 种类型 / impl | `host::run_app`、宿主 `build_host_module` |
+| `prepare_execution` | `resolve_module`（各站点 token 预填）| `host/load.rs::prepare` |
 
-**静态字段初始化本身仍由调用方决定时机**，因为两边的「程序」形状不同：
+文件应用和嵌入端共用首次调用准备：
 
-- `host::LoadedProgram::run_entry`：进入 `Main` 之前跑一次 `init_static_fields`；
-- 宿主：**每个模块在首次 `invoke` 时跑一次**，放在宿主 stdout sink 守卫内（初始化器的输出也送到宿主）。
-  `init_static_fields` 会先清空全部静态字段，所以绝不能跑第二次——结果存在 `HostModule.static_init`
-  （`OnceLock`）。失败是**粘滞**的：之后每次 invoke 都报同一个错，而不是在半初始化的静态状态上继续跑。
-  每次 invoke 结束后还要取一次 `take_static_init_error`（本次调用中首次触达、惰性加载的包的初始化失败），
-  与 `host::LoadedProgram::run_entry` 一致；两处都归为 `Z42HostStatus::VmException`。
+- `host::LoadedProgram::invoke_index`：首次调用时清空静态存储，排空待加载类型队列；
+  准备结果由 `LoadedProgram::initialized` 保留，后续调用不重复清空。该步骤不执行类型初始化器，
+  真正的包/类型初始化由执行访问屏障负责。
 
 > 新增启动步骤时，加进 `host/boot.rs`，两条路径自动都有；别再只改 `host::run_app`。
 > 回归测试：`host::host_tests::invoke_sees_initialized_static_fields`（stdlib 包与用户模块各一个带初始化器的静态字段）。
