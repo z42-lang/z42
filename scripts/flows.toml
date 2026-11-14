@@ -76,6 +76,12 @@ command = ["package", "sdk", "--verify"]
 outputs = ["sdk_checks"]
 outside = true
 
+[flows.archive-checks]
+command = ["check", "release-archives"]
+job = "archive-checks"
+outputs = ["archive_checks"]
+outside = true
+
 [flows.bench-quick]
 outputs = ["bench_integration"]
 command = ["bench", "--quick"]
@@ -101,7 +107,7 @@ command = ["check", "layout"]
 
 [flows.docs]
 outputs = ["docs_checks"]
-command = ["test", "docs", "links"]
+command = ["check", "docs"]
 
 [flows.flow-check]
 command = ["check", "flows"]
@@ -270,6 +276,12 @@ publish = false
 id = "multi-exe-fixtures"
 include = ["src/compiler/z42c.pipeline/tests/fixtures/multi-exe/**"]
 select = ["multi-exe", "compiler", "stdlib"]
+publish = false
+
+[[inputs]]
+id = "archive-verification"
+include = ["scripts/src/test/sdk/release_selfcheck.z42"]
+select = ["archive-checks"]
 publish = false
 
 [[inputs]]
@@ -512,7 +524,7 @@ publish = false
 [[inputs]]
 id = "release-archives"
 include = ["scripts/src/package/release.z42"]
-select = ["sdk"]
+select = ["archive-checks"]
 
 [[inputs]]
 id = "packaging"

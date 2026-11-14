@@ -47,8 +47,7 @@ jobs:
       ios: ${{ steps.filter.outputs.ios }}
       wasm: ${{ steps.filter.outputs.wasm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
-      docs_only: ${{ steps.filter.outputs.docs_only }}
-      docs_checks: ${{ steps.filter.outputs.docs_checks }}
+      archive_checks: ${{ steps.filter.outputs.archive_checks }}
       macos_host_lane: ${{ steps.macos_queue.outputs.host }}
       macos_package_lane: ${{ steps.macos_queue.outputs.package }}
       macos_checks_lane: ${{ steps.macos_queue.outputs.checks }}
@@ -101,39 +100,51 @@ jobs:
       - name: Validate selected planner contracts
         run: xtask flow run --plan artifacts/ci-plan.json --job planner
 
+      # 宿主门禁使用自建解析器覆盖文档；其余情况复用本 job 的种子 xtask。
+      - name: Check lightweight documentation contracts
+        if: steps.filter.outputs.docs_checks == 'true' && steps.filter.outputs.host_checks != 'true'
+        run: xtask check docs
+
       - name: Share immutable flow plan
         uses: actions/upload-artifact@v7
         with:
           name: ci-plan
           path: artifacts/ci-plan.json
 
-  # ── 纯文档改动的检查：死链与文档结构、诊断码和测试布局对账。不需要 SDK
-  #    构建树，xtask 用种子 z42c 编出即可。doc-lints 不在这里：纯文档改动碰不到 stdlib
-  #    的 `///`（那是 src/）；它是 `xtask test` 的一个 stage，随 build-and-test 跑。
-  docs-check:
-    name: docs-check(linux-x64)
-    timeout-minutes: 20
+  archive-checks:
+    name: check-archives(${{ matrix.platform }})
     needs: changes
-    if: needs.changes.outputs.docs_checks == 'true' && (needs.changes.outputs.host_checks != 'true' || needs.changes.outputs.docs_only == 'true')
-    runs-on: ubuntu-latest
+    if: needs.changes.outputs.archive_checks == 'true' && needs.changes.outputs.host_package != 'true'
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: ${{ github.event_name == 'pull_request' }}
+      matrix:
+        include:
+          - { os: ubuntu-latest,    platform: linux-x64 }
+          - { os: ubuntu-24.04-arm, platform: linux-arm64 }
+          - { os: macos-26,         platform: macos-arm64 }
+          - { os: windows-latest,   platform: windows-x64 }
+    runs-on: ${{ matrix.os }}
+    concurrency:
+      group: ${{ matrix.platform == 'macos-arm64' && format('ci-macos-arm64-{0}', needs.changes.outputs.macos_checks_lane) || format('ci-archives-{0}-{1}', github.run_id, matrix.platform) }}
+      queue: max
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
-
-      - name: Bootstrap xtask (seed z42c → current xtask only)
-        uses: ./.github/actions/ci-bootstrap
+      - uses: ./.github/actions/ci-bootstrap
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           xtask-only: "true"
-
-      # `test docs links` 先 `build docs` 生成 reference 的 stdlib 包页（不入库），用的是 xtask 自带的 z42c.syntax——
-      # xtask-only 下那是种子 SDK 的解析器；stdlib 用上种子还不认的语法时，到下一次 nightly 前这里会红（窗口很短）。
-      - name: Docs gates
+      - uses: actions/download-artifact@v8
+        with:
+          name: ci-plan
+          path: artifacts
+      - name: Check every RID archive with host tools
         shell: bash
-        run: |
-          set -euo pipefail
-          xtask test docs links
-          xtask check diagcodes
-          xtask check layout
+        run: xtask flow run --plan artifacts/ci-plan.json --job archive-checks
 
   build-and-test:
     name: test-host(${{ matrix.platform }})
@@ -141,8 +152,8 @@ jobs:
     timeout-minutes: 75
     # 本 job 按规划器要求验证非文档改动；完整 Rust harness 只在 VM 相关改动或定期运行时执行。
     needs: changes
-    # 纯文档改动（PR 与 main push）走 docs-check（见 changes 的 Docs-only 步骤）；本 job 被 skip 时 ci-ok 照样绿。
-    if: needs.changes.outputs.host_checks == 'true' && needs.changes.outputs.docs_only != 'true'
+    # 验证范围由原生规划器决定；累计发布所需的构建前提独立选择。
+    if: needs.changes.outputs.host_checks == 'true'
     strategy:
       fail-fast: ${{ github.event_name == 'pull_request' }}
       matrix:
@@ -330,7 +341,7 @@ jobs:
     timeout-minutes: 30
     # 需要代码验证时构建：artifact 是打包 / 平台测试 / current-sdk 各 job 的根。
     needs: changes
-    if: needs.changes.outputs.toolchain_build == 'true' && needs.changes.outputs.docs_only != 'true'
+    if: needs.changes.outputs.toolchain_build == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -1159,7 +1170,7 @@ jobs:
     if: always()
     needs:
       - changes
-      - docs-check
+      - archive-checks
       - build-and-test
       - host-package
       - toolchain-bootstrap

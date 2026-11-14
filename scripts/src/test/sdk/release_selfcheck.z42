@@ -1,7 +1,7 @@
 // xtask — 打包命令的 `--archive` / `package release` 自检。
 //
 // 与同目录其它 selfcheck 同一形态：xtask 是 exe，反射 [Test] runner 看不到它 ⇒ 不匹配就抛。
-// 由 packages.toml 自检聚合（`package sdk --verify` 的第一步）。
+// 由 `check release-archives` 独立执行，也由 `package sdk --verify` 的 packages.toml 自检聚合。
 //
 // 不碰真实产物：在 xtask 的自检目录（`_xtaskWork`）下造齐 versions.toml 全部 RID 的**假包目录**（各放一个小文件；桌面
 // workload 放 `apphost-<rid>`），外加一个 debug profile 的噪声目录，逐个目录出归档（`--archive` 的那一步，归档与包目录
@@ -140,6 +140,7 @@ void _relZipRoundtrip(string work) {
     string source = Path.Join(work, "zip input's files");
     Directory.Create(Path.Join(source, "libs/nested")); Directory.Create(Path.Join(source, "empty"));
     File.WriteAllText(Path.Join(source, "libs/nested/with spaces.zpkg"), "nested bytes");
+    File.WriteAllBytes(Path.Join(source, "libs/nested/payload"), _relBinaryPayload());
     File.WriteAllText(Path.Join(source, ".hidden"), "hidden bytes");
     string archive = Path.Join(work, "zip output's archive.zip");
     _relAssert("zip roundtrip", _relZipDir(source, archive) == 0);
@@ -147,6 +148,7 @@ void _relZipRoundtrip(string work) {
     string target = Path.Join(work, "zip output"); Directory.Create(target);
     new Process("unzip").Arg("-q").Arg(archive).Arg("-d").Arg(target).Run().EnsureSuccess();
     _relAssert("zip preserves nested paths", File.ReadAllText(Path.Join(target, "libs/nested/with spaces.zpkg")) == "nested bytes");
+    _relCheckBinary(Path.Join(target, "libs/nested/payload"));
     _relAssert("zip preserves hidden files", File.ReadAllText(Path.Join(target, ".hidden")) == "hidden bytes");
     _relAssert("zip preserves empty directories", Directory.Exists(Path.Join(target, "empty")));
 }
@@ -158,6 +160,7 @@ void _relTarRoundtrip(string work) {
         : new string[]{ ".hidden", "with spaces", "-C", "@archive", "中文", "line\nbreak" };
     foreach (var name in names) { File.WriteAllText(Path.Join(source, name), name); }
     string tool = Path.Join(source, "bin/tool"); File.WriteAllText(tool, "#!/bin/sh\nexit 0\n");
+    File.WriteAllBytes(Path.Join(source, "bin/payload"), _relBinaryPayload());
     if (!Platform.IsWindows()) {
         new Process("chmod").Arg("+x").Arg(tool).Run().EnsureSuccess();
         File.SymLink("bin/tool", Path.Join(source, "current"));
@@ -167,6 +170,8 @@ void _relTarRoundtrip(string work) {
     _relCanonicalEntries(archive);
     string target = Path.Join(work, "tar output"); Directory.Create(target);
     _relTarTool().Arg("-xf").Arg(archive).Arg("-C").Arg(target).Run().EnsureSuccess();
+    _relAssert("tar preserves nested file bytes", File.ReadAllText(Path.Join(target, "bin/tool")) == File.ReadAllText(tool));
+    _relCheckBinary(Path.Join(target, "bin/payload"));
     foreach (var name in names) {
         string file = Path.Join(target, name);
         _relAssert("tar contains " + name + " (entries: " + String.Join(", ", Directory.Enumerate(target)) + ")", File.Exists(file));
@@ -181,6 +186,14 @@ void _relTarRoundtrip(string work) {
     string emptyArchive = Path.Join(work, "empty.tar.gz");
     _relAssert("empty tar", _exec(_relTar(empty, emptyArchive)) == 0);
     _relAssert("empty tar has no synthetic root", _relTarTool().Arg("-tf").Arg(emptyArchive).Run().EnsureSuccess().Stdout.Length == 0);
+}
+
+byte[] _relBinaryPayload() { return new byte[]{ 0, 255, 128, 10, 13, 0, 42 }; }
+
+void _relCheckBinary(string path) {
+    byte[] expected = _relBinaryPayload(); byte[] actual = File.ReadAllBytes(path);
+    _relAssert("binary payload length", actual.Length == expected.Length);
+    for (int i = 0; i < expected.Length; i = i + 1) { _relAssert("binary payload byte", actual[i] == expected[i]); }
 }
 
 // JSON 字符串数组 → "a,b"（与 String.Join 的期望值对比）。

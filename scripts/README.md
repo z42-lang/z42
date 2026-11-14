@@ -107,6 +107,7 @@ dry-run 跑真实脚本，不联网）；真实 SDK 的离线安装由 CI packag
 | `test e2e [--dir <cat>] [--file <p>] [--mode interp\|jit]` | 跑 `src/tests/` 端到端（golden + cross-zpkg；最常用） | `cargo build` + golden 产物 | 默认全跑；`--dir`/`--file` narrow |
 | `test stdlib [lib]` | stdlib 源 / 编译器变动 | `build stdlib` + z42b（z42.builder.zpkg） | 各 stdlib lib 的 `[Test]` 通过率 |
 | `test compiler [--no-build]` | z42c 编译器变动 | 自建工具链，或通过 `--no-build` 使用已构建的工具链 | 全成员自举不动点（gen1==gen2）+ [Test] units + e2e |
+| `check docs` / `check release-archives` | 文档契约 / 发布归档实现或自检改动 | 种子 SDK，归档检查另需系统归档工具 | 链接、诊断码、布局 / 全 RID 归档与真实解包，不构建产品 |
 | `package sdk --verify` | 改打包系统 / 发行版相关后，验证打包出的 SDK 能独立工作 | 组装出的这份 SDK（缺本机桌面 workload 就先打） | packages.toml 自检（解析 / 组件安装 / 发布归档）+ 发行包夹具 + packaged z42c/z42vm 跑 golden |
 | `flow plan / run / graph / check` | 本地与 CI 按改动选择流程 | `flows.toml` + Git | 可解释计划、JSON 与 Mermaid；详见[流程规划](../docs/internals/src/devinfra/flows.md) |
 | `test changed [base]` | 增量自测（按改动文件挑 stage） | 上述各命令（in-process 调度） | 仅跑受影响的 stage |
@@ -469,5 +470,5 @@ iteration 期可用 `test changed`（按改动挑 stage）或单跑某 stage（`
 
 ## 按改动选择 CI 资源
 
-`flows.toml` 是目录归属、资源前提与正确性 / 性能消费者的配置入口。`check xtask` 用种子 SDK 验证规划、执行、清单和工作流契约；`check bench-vm` 用小型 Rust 夹具验证 VM benchmark runner。控制层改动不因同属 xtask 而触发所有产品测试。
+`flows.toml` 是目录归属、资源前提与正确性 / 性能消费者的配置入口。`check xtask` 用种子 SDK 验证规划、执行、清单和工作流契约；`check bench-vm` 用小型 Rust 夹具验证 VM benchmark runner。`check docs` 聚合链接、诊断码与布局；`check release-archives` 独立验证发布归档，不需要产品构建。控制层改动不因同属 xtask 而触发所有产品测试。
 `test stdlib --plan` 与 `bench stdlib --plan` 保留计划所属包及分片；`bench vm --base <树>` 直接对两棵 Rust 树做 Criterion A/B。完整配置说明见[流程规划](../docs/internals/src/devinfra/flows.md)。

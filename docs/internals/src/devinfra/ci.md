@@ -15,8 +15,9 @@
 
 ```mermaid
 flowchart TD
-  C["detect-changes"] --> TB["compile-toolchain<br/>（linux-x64）"]
+  C["detect-changes<br/>（轻量契约与文档）"] --> TB["compile-toolchain<br/>（linux-x64）"]
   C --> TH["test-host ×4 OS"]
+  C --> ARC["check-archives ×4 OS<br/>（仅归档契约）"]
   TB --> TA["compile-test-assets<br/>（golden .zbc → current-sdk）"]
   TB --> PKG["package-host / package-{ios,android,wasm}"]
   TA --> CONS["test-consume"]
@@ -124,17 +125,15 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 
 **空 PR 快速通道**：Git 差异为空且没有全量回退时，xtask 不选择 `host_checks`、`toolchain_build` 或 `test_assets`。只运行轻量 `detect-changes` 和必需汇总 `ci-ok`；四平台宿主、工具链及依赖链跳过。Draft 状态不作为跳过依据，有真实改动的 draft PR 正常验证。非 PR 的累计 SDK 发布与显式完整策略保留构建前提。
 
-**纯文档快速通道**：改动**全部**是 `docs/**` 或 `*.md`（`docs/learn/**`、`examples/**` 除外——学习手册的
-示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`。改动集合由 xtask 从真实 Git 差异读取；
-PR 与 main 的选测消费已验证的不可变基线，解析方式见[流程规划](flows.md)。基线无法获取或验证时保守全量。
-重命名的旧路径和新路径都参与分类。生产文件或学习手册页移入普通文档时，旧路径仍保留对应检查。
-`docs-check` 的内容：ci-bootstrap 的 `xtask-only`
-模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（先生成 reference stdlib 页，
-再查相对链接与文档结构）+ `xtask check diagcodes` + `xtask check layout`（测试类别与能力词表等机器清单对账）。
-混合文档与轻量控制层修改仍保留 `docs_checks`；宿主 GREEN 会检查文档时才卸下独立文档 job。布局检查读取仓库文件，保留种子 xtask 的轻量路径。符号引用检查用 `z42 doc --page` 按需手动查看，
-docs-check 不为它安装 Rust 或编译索引器。doc-lints 随 test-host 检查源码注释。
-`test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip；
-main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SDK，见下节的 `sdk` 判定）。schedule / dispatch 不走快速通道。
+**文档快速通道**：普通文档由 `flows.toml` 选择 `docs_checks`，在 `detect-changes` 内复用已经安装的种子 SDK，执行 `xtask check docs`，聚合链接、诊断码与测试布局检查。链接失败会在下游 job 创建之前停止；学习手册与示例仍保留重放义务。
+
+需要宿主验证时，文档检查由宿主门禁使用自建解析器覆盖，避免用种子解析器处理刚引入的新语法。stdlib 的源码文档 lint 仍随对应产品源验证执行。符号引用可用 `z42 doc --page` 按需检查。
+
+**归档快速通道**：仅改变发布归档实现或归档自检时，`archive_checks` 在四个桌面宿主运行 `xtask check release-archives`。它只依赖种子 SDK 与系统归档工具，用小型包目录验证全部 RID、workload、归档根条目、特殊文件名及真实解包，不编译当前 VM、编译器或标准库。
+
+同一计划已选择完整桌面 SDK 验证时，归档契约由 `package sdk --verify` 覆盖，不再创建独立归档矩阵。打包布局、组件、混合产品改动与发布仍保留各自的完整构建和验证。文档验证不会屏蔽累计 SDK 发布需要的工具链准备；job 直接消费原生规划器输出的资源信号。
+
+PR 与 main 的不可变基线、未知输入回退及重命名边界见[流程规划](flows.md)。
 
 ### main 的累计验证与合并队列
 

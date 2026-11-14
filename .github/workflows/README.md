@@ -22,7 +22,8 @@
 | job（显示名） | 何时跑 | 职责 |
 |------|------|------|
 | `changes`（detect-changes） | 总是 | 按路径分类，并输出下游测试和打包任务的选择结果 |
-| `docs-check` | `docs_checks`，且未由宿主门禁覆盖 | `xtask test docs links` 死链门禁 + `xtask check diagcodes` + `xtask check layout` |
+| 规划器内文档检查 | `docs_checks`，且未由宿主门禁覆盖 | 复用种子 SDK 执行 `xtask check docs`，链接、诊断码与布局失败阻止下游启动 |
+| `archive-checks` | `archive_checks`，且未由完整 SDK 验证覆盖 | 四个桌面宿主用种子 SDK 执行归档与解包契约，不编译产品 |
 | `build-and-test`（test-host） | `host_checks` | 多平台 `xtask ci test-host --plan` |
 | `host-package`（package-host） | platform / sdk_checks / examples 验证，或有发布输入，或定期 / 手动运行 | 各 host RID 的 SDK 打包与验证。平台打包时还构建 runtime / workload |
 | `toolchain-bootstrap`（compile-toolchain） | `toolchain_build` | 编译 toolchain（z42c / stdlib / xtask zpkg）供下游 job 消费 |
