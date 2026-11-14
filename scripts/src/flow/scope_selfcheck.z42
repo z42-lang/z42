@@ -107,6 +107,13 @@ void _flowScopeChecks(FlowConfig cfg) {
         empty.Event = "pull_request";
     }
     FlowPlan mixedDocs = _flowSelect(cfg, new string[]{ "README.md", "scripts/src/flow/planner.z42" }, root);
+    FlowPlan archives = _flowSelect(cfg, new string[]{ "scripts/src/package/release.z42" }, root);
+    string[] archiveFlags = _flowOutputs(cfg, archives);
+    _gateAssert(archives.Publish && _strIn(archiveFlags, "sdk_checks") && _strIn(archiveFlags, "toolchain_build")
+        && !_strIn(archiveFlags, "host_checks") && !_strIn(archiveFlags, "platform") && _ciBenchOnly(cfg, archives.Files, root),
+        "release archiving verifies SDK and all RID archive fixtures without unrelated product suites");
+    _gateAssert(_strIn(_flowOutputs(cfg, _flowSelect(cfg, new string[]{ "scripts/src/package/release.z42", "src/runtime/src/lib.rs" }, root)), "platform"),
+        "mixed archive and production changes retain platform validation");
     _gateAssert(_strIn(_flowOutputs(cfg, mixedDocs), "docs_checks") && !_strIn(_flowOutputs(cfg, mixedDocs), "host_checks"), "mixed documentation and control changes retain links without product tests");
     FlowPlan privateTool = _flowSelect(cfg, new string[]{ "src/toolchain/builder/tests/fixtures/a/expect.toml" }, root);
     _gateAssert(!_strIn(_flowOutputs(cfg, privateTool), "test_assets"), "private toolchain tests do not assemble a second SDK");
