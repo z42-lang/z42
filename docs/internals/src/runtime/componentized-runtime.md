@@ -75,6 +75,8 @@ WASM 最终产品的默认发布契约是**最小生产 release**：只链接应
 
 ## 3. 描述符、身份与边界
 
+ComponentOptions 将启用根与提供方来源分别保存。现有 with_static / with_dynamic 同时登记来源并启用；with_static_provider / with_dynamic_provider 只登记来源。Catalog 先检查全部 ID 重复，再从启用根按稳定 ID 顺序递归加载所需工厂；未使用的提供方不调用 init 或打开动态库。来源只来自显式配置，不额外扫描或改变后端策略。接口查询读取冻结注册表，不触发组件加载。
+
 组件 init 返回不可变 ComponentDescriptor；其头检查协议版本、结构大小、构建身份和预期 ID。依赖先排序，拒绝重复、缺依赖和环；接口表检查版本、大小与对齐。组件全部创建成功后才发布注册表，失败按依赖反序回滚。
 
 构建身份来自 workspace Rust 源码、清单/锁文件、工具链、target 和 target features。ExecutionApi 还返回核心物理身份及编译期 Core ABI 摘要；摘要含核心布局、偏移和影响布局/行为的构建选项。传递借用的 VmContext 地址前必须全部匹配，拒绝把另一份静态 core 或不兼容 feature/profile 的 core 当作同一 VM。

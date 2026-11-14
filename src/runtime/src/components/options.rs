@@ -14,6 +14,7 @@ use crate::components::api::*;
 #[derive(Clone, Default)]
 pub struct ComponentOptions {
     registrations: Vec<Registration>,
+    roots: Vec<ComponentId>,
     catalog: Option<Arc<OnceLock<Result<Arc<Catalog>, String>>>>,
 }
 impl ComponentOptions {
@@ -24,6 +25,16 @@ impl ComponentOptions {
     /// init and every returned descriptor span/table/callback must satisfy the
     /// component ABI, concurrency and lifetime contracts. No unwinding is allowed.
     pub unsafe fn with_static(mut self, id: ComponentId, init: ComponentInit) -> Self {
+        self = unsafe { self.with_static_provider(id, init) };
+        self.roots.push(id);
+        self
+    }
+    /// Make a static factory available to declared dependencies without enabling it.
+    /// Unused providers are never initialized and do not create VM instances.
+    ///
+    /// # Safety
+    /// The factory obeys the same ABI and lifetime contract as [`Self::with_static`].
+    pub unsafe fn with_static_provider(mut self, id: ComponentId, init: ComponentInit) -> Self {
         self.registrations.push(Registration::Static { id, init, cache: Default::default() });
         self.catalog = Some(Arc::new(OnceLock::new()));
         self
@@ -34,6 +45,21 @@ impl ComponentOptions {
     /// The library and symbol must implement the component ABI. Loading native code
     /// executes its initializers; its descriptors/callbacks obey with_static's contract.
     pub unsafe fn with_dynamic(
+        mut self,
+        id: ComponentId,
+        path: impl Into<PathBuf>,
+        symbol: impl Into<String>,
+    ) -> Self {
+        self = unsafe { self.with_dynamic_provider(id, path, symbol) };
+        self.roots.push(id);
+        self
+    }
+    /// Make a dynamic factory available to declared dependencies without opening
+    /// its library until an enabled component requires it.
+    ///
+    /// # Safety
+    /// The library and symbol obey [`Self::with_dynamic`]'s native-code contract.
+    pub unsafe fn with_dynamic_provider(
         mut self,
         id: ComponentId,
         path: impl Into<PathBuf>,
@@ -51,7 +77,9 @@ impl ComponentOptions {
     pub(crate) fn merged(&self, extra: &Self) -> Self {
         let mut registrations = self.registrations.clone();
         registrations.extend(extra.registrations.iter().cloned());
-        Self { registrations, catalog: Some(Arc::new(OnceLock::new())) }
+        let mut roots = self.roots.clone();
+        roots.extend(extra.roots.iter().copied());
+        Self { registrations, roots, catalog: Some(Arc::new(OnceLock::new())) }
     }
     pub(crate) fn install(&self, ctx: &VmContext) -> Result<()> {
         if ctx.core().components().get().is_some() {
@@ -68,7 +96,7 @@ impl ComponentOptions {
             None => VmComponents::create(&[], vm_id),
             Some(cell) => {
                 let catalog = cell.get_or_init(|| {
-                    Catalog::load(&self.registrations)
+                    Catalog::load(&self.registrations, &self.roots)
                         .map(Arc::new)
                         .map_err(|e| format!("{e:#}"))
                 });
@@ -82,7 +110,7 @@ impl ComponentOptions {
         self.catalog
             .as_ref()
             .unwrap()
-            .get_or_init(|| Catalog::load(&self.registrations).map(Arc::new).map_err(|e| format!("{e:#}")))
+            .get_or_init(|| Catalog::load(&self.registrations, &self.roots).map(Arc::new).map_err(|e| format!("{e:#}")))
             .as_ref()
             .unwrap()
             .clone()
