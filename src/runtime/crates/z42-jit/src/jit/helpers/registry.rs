@@ -69,6 +69,7 @@ pub struct HelperIds {
     pub call:           FuncId,
     pub call_mta:       FuncId,
     pub builtin:        FuncId,
+    pub native_module:  FuncId,
     // array
     pub array_new:      FuncId,
     pub array_new_lit:  FuncId,
@@ -142,6 +143,7 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_call",          call::jit_call);
     reg!("jit_call_mta",      call::jit_call_mta);
     reg!("jit_builtin",       call::jit_builtin);
+    reg!("jit_native_module", call::jit_native_module);
     // array
     reg!("jit_array_new",     array::jit_array_new);
     reg!("jit_array_new_lit", array::jit_array_new_lit);
@@ -228,6 +230,7 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // fix-jit-builtin-ext-fallback: name_ptr/len added so an UNRESOLVED id (native-ext
         // facade unresolved at compile time) can resolve by name at call time.
         builtin:       decl!("jit_builtin",    [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t], [i8t]),
+        native_module: decl!("jit_native_module", [ptr, ptr, i32t, ptr, i64t, ptr, i64t, ptr, i64t], [i8t]),
         array_new:     decl!("jit_array_new",     [ptr, ptr, i32t, i32t, i8t, ptr, i32t, i8t, ptr, i64t], [i8t]),
         array_new_lit: decl!("jit_array_new_lit", [ptr, ptr, i32t, ptr, i64t, ptr], [i8t]),
         array_get:     decl!("jit_array_get",     [ptr, ptr, i32t, i32t, i32t, i8t],           [i8t]),

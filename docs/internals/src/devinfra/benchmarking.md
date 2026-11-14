@@ -103,6 +103,20 @@ PR 树采一份、base 树采一份（复用已建的 base 工具链，仅新建
 `bench --micro-diff --current … --baseline …` 逐基准（按 `name` + 画像键配对）过同一个 `_abVerdict`。
 PR 新增或改名的基准在 base 无对应 ⇒ 信息性 skip。
 
+准备好两棵同形源码树和工具链后，本地与 CI 都用同一个原生编排入口：
+
+```bash
+./xtask bench --micro-ab --base-tree base-src --pr-tree head-src \
+    --base-vm <base-vm> --base-libs <base-flat-libs> \
+    --pr-vm <head-vm> --pr-libs <head-flat-libs> --threshold-time 0.15
+```
+
+`--base-driver` / `--pr-driver` 可显式指定；默认取对应 libs 下的 `z42c.driver.zpkg`。
+每轮按 head、base 顺序启动独立 xtask 捕获进程，避免仓库根与工具探测缓存跨树复用。
+首轮无可疑项直接通过；否则两侧各重采两轮，再由 `--micro-diff` 判定。捕获失败立即返回其退出码，
+结果缺失或判定输入错误不会按“无回归”放行；报告仍写入 `artifacts/reports/benches/micro-*.json`。
+该命令通过仓库的 `.github/ci/xtask` 入口运行当前 xtask，须先准备本树的种子 SDK 与 xtask 产物。
+
 ### 两侧必须同形捕获（e2e 与 micro 同一条规则）
 
 **否则同一份代码也会被判慢。** 被测进程的内存布局由它的输入字节决定——argv、env（`Z42_LIBS` /
@@ -352,7 +366,7 @@ checkout 并轻量自举 xtask 后，`xtask ci bench-scope` 从同一份 `script
    --pause-cap-ms 16 --threshold-pause 0.25 --threshold-pause-max 1.0 --base-vm/-libs/-driver …
    --pr-vm/-libs/-driver …`（PR 侧用「Prepare head toolchain」步的同形工具链，见 §3）。`MODE` 按改动面收窄：
    `src/runtime` 无非文档改动 → `jit`，否则 `both`。
-6. **micro A/B（硬门禁）**：两棵树（`head-src` / `base-src`）各采一份 `bench stdlib --json`，**同形捕获** → 第 1 轮
+6. **micro A/B（硬门禁，`xtask bench --micro-ab`）**：两棵树（`head-src` / `base-src`）各采一份 `bench stdlib --json`，**同形捕获** → 第 1 轮
    `--micro-diff --suspects …` **只点名不判红**；`suspects` 为空 ⇒ 直接通过（**零额外开销**）；
    非空 ⇒ 再采两轮，用三轮判红。
 7. **Criterion A/B（informational）**：`bench_vm=true` 时由 `xtask bench vm --base base-src` 执行，不依赖前两类工具链构建成功。各测量步骤遇到执行失败后停止后续工作。

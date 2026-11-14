@@ -48,6 +48,11 @@ pub(crate) fn invoke_export(
         Err(error) => return Some(Err(Box::new(BuiltinError::Internal(error.to_string())))),
     };
     let registry = state.providers;
+    if let Some(provider) = provider {
+        if let Some(id) = registry.resolve(provider, name) {
+            return Some((registry.functions()[id.0 as usize].call_slice)(ctx, arguments));
+        }
+    }
     let module = match provider {
         Some(provider) => state
             .external_modules

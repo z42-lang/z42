@@ -55,7 +55,7 @@ public static class Op {
     public static int BitNot = 0x1C; public static int Shl = 0x1D; public static int Shr = 0x1E;
     public static int ToStr  = 0x1F;   // GS4 interpolation: dst = src.ToString()
     public static int Call = 0x50; public static int Builtin = 0x51; public static int VCall = 0x52;
-    public static int CallNative = 0x53;   // [Native(lib,type,entry)] typed native call (Tier 1 C ABI; opcode already in zbc format)
+    public static int CallNative = 0x53;   // Native module function (empty type) or Tier 1 typed call
     public static int FieldGet = 0x60; public static int FieldSet = 0x61;
     public static int ObjNew = 0x70; public static int IsInstance = 0x71; public static int AsCast = 0x72;
     public static int Typeof = 0x73;   // dst, TypeName(str idx), arg_count(u8), TypeArg(str idx)[]（zbc 1.18；z42c 暂不 emit）

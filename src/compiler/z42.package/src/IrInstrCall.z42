@@ -93,9 +93,7 @@ public sealed class BuiltinInstr : IrInstr {
     }
 }
 
-// typed native call（`[Native(lib,type,entry)]` extern 桩函数体；镜像 VM Instruction::CallNative，
-// opcode 0x53）。区别于 BuiltinInstr：带 module/type 限定，经 z42_register_type 注册的 Tier 1 C ABI
-// 直接符号分派（非 builtin 表）。
+// 限定 native 调用（opcode 0x53）：空 Type 查询 Module 的函数，非空 Type 查询 Tier 1 类型方法。
 public sealed class CallNativeInstr : IrInstr {
     public TypedReg   Dst;
     public string     Module;
@@ -107,7 +105,7 @@ public sealed class CallNativeInstr : IrInstr {
         this.Dst = dst; this.Module = modu; this.Type = typ; this.Symbol = sym; this.Args = args; this.ArgCount = argCount;
     }
     public override string Dump() {
-        string s = this.Dst.Dump() + " = call.native " + this.Module + "::" + this.Type + "::" + this.Symbol + "(";
+        string s = this.Dst.Dump() + " = call.native " + this.Module + "::" + (this.Type == "" ? "" : this.Type + "::") + this.Symbol + "(";
         int i = 0;
         while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
         return s + ")";
