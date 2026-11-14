@@ -7,7 +7,6 @@
 namespace Z42Xtask;
 
 using Std.Collections;
-using Std.Encoding;
 using Std.IO;
 using Std.Json;
 using Std.Time;
@@ -278,10 +277,10 @@ Process _relTar(string dir, string ar) {
     Process p = new Process("tar").Arg("-C").Arg(dir);
     if (Platform.IsMacOS()) { p = p.Env("COPYFILE_DISABLE", "1").Arg("--no-xattrs").Arg("--no-mac-metadata"); }
     string[] entries = _sortedStrings(Directory.Enumerate(dir));
-    string names = entries.Length == 0 ? "" : String.Join("\0", entries) + "\0";
-    // Explicit, NUL-delimited entries avoid a synthetic '.' root and preserve arbitrary names.
-    return p.Arg("-czf").Arg(ar).Arg("--null").Arg("-T").Arg("-")
-        .Stdin(Stdio.Pipe()).StdinBytes(Utf8.GetBytes(names));
+    p = p.Arg("-czf").Arg(ar);
+    // Pass names as literal argv, including leading dashes; never archive the '.' wrapper.
+    return entries.Length > 0 ? p.Arg("--").Args(entries)
+        : p.Arg("-T").Arg("-").Stdin(Stdio.Pipe()).StdinBytes(new byte[0]);
 }
 
 // 目录内容（不含目录本身）→ zip。PowerShell 5.1 的旧 .NET 目标默认使用反斜杠；
