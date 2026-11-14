@@ -81,7 +81,7 @@ typedef struct Z42HostConfig {
 |---|---|
 | `abi_version` | 不等于 `Z42_HOST_ABI_VERSION` → `ERR_BAD_CONFIG` |
 | `struct_size` | 调用方编译时的 `sizeof(Z42HostConfig)`；小于 v2 布局 → `ERR_BAD_CONFIG` |
-| `exec_mode` | 值不在 0–3 → `ERR_BAD_CONFIG`；`JIT` 没有已链接或可找到的动态后端、或平台不支持 → `ERR_FEATURE_OFF`；`AOT` 未开启对应 feature 也返回此错误。`Default` 使用构建默认后端，`Interp` 使用解释器，`JIT` 使用 JIT；AOT 尚未实现，执行时明确返回错误 |
+| `exec_mode` | 值不在 0–3 → `ERR_BAD_CONFIG`；`JIT` 未开启构建能力或平台不支持 → `ERR_FEATURE_OFF`；组件来源在加载程序时校验，缺失或不兼容返回 `ERR_VM_EXCEPTION`；`AOT` 未开启对应 feature 也返回此错误。`Default` 使用构建默认后端，`Interp` 使用解释器，`JIT` 使用 JIT；AOT 尚未实现，执行时明确返回错误 |
 | `heap_initial_bytes` / `heap_max_bytes` | **当前被忽略**，填 0 即可 |
 | `stdout_sink` / `stderr_sink` | 见 [stdout / stderr 重定向](#stdout--stderr-重定向) |
 | `sink_user_data` | 原样透传给上面两个回调。一份 config 只有一个，两个 sink 共用；要分开就 init 之后用 `z42_host_set_*_sink` 各设各的 |
@@ -121,7 +121,7 @@ typedef enum Z42HostStatus {
 | `ERR_ALREADY_INIT` (1) | 进程内已有活着的 VM 时再次 `initialize` |
 | `ERR_NOT_INIT` (2) | 未初始化（或已 shutdown）时调用任何需要 VM 的 API，含拿失效句柄调用 |
 | `ERR_BAD_CONFIG` (3) | `cfg == NULL`、`out_host == NULL`、`abi_version` 不匹配、`struct_size` 过小、`exec_mode` 越界、`search_paths` 非法（含非 UTF-8 路径、数组超 4096 项）、`search_paths` 里的 `z42.core.zpkg` 解析不了；另外 `resolve_entry` 的 `fqn == NULL` 或非 UTF-8、`shutdown` 的 `host == NULL`、`z42_zpkg_read_namespaces` 的 `visit == NULL` 也归这一档 |
-| `ERR_FEATURE_OFF` (4) | 请求 `JIT`，但平台不支持、未链接且找不到动态组件；或请求未开启的 `AOT` feature |
+| `ERR_FEATURE_OFF` (4) | 请求 `JIT`，但构建未开启或平台不支持；或请求未开启的 `AOT` feature |
 | `ERR_BAD_ZBC` (10) | 字节不是可解析的 `.zbc` / `.zpkg`；`bytes == NULL` 而 `length != 0`；依赖 zpkg 解析失败；**IR 约束校验失败也走这一档** |
 | `ERR_VERIFICATION` (11) | **当前运行时从不返回**。枚举值保留，宿主不必为它写分支 |
 | `ERR_ENTRY_NOT_FOUND` (20) | FQN 不在模块的函数表里；`module` 句柄为 NULL；`invoke` 的 `entry` 句柄为 NULL |
@@ -157,6 +157,8 @@ Z42HostStatus z42_host_initialize(const Z42HostConfig* cfg, Z42HostRef* out_host
 **进程内同时只能有一个宿主会话。** 成功时 `*out_host` 被写成非 NULL 句柄；失败时先被写成 NULL，
 所以调用方不需要自己预清零。`shutdown` 之后可以再 `initialize`（可以反复循环），
 但两个宿主会话**不能同时**存在——第二次会拿到 `ERR_ALREADY_INIT`。
+
+初始化只检查执行模式的构建与平台支持，不搜索或打开执行组件库。缺库、入口及组件协议错误由 `load_zbc` 报告。
 
 内部已串行化，从多个线程同时调用不会数据竞争；但语义上只有一个会赢。
 
