@@ -1,0 +1,121 @@
+namespace Z42cPipelineIncrementalTests;
+using Std.IO;
+using Std.Harness;
+using Z42.Emission;
+using Z42.Package;
+using Z42.Pipeline;
+using Z42.IR.BinaryFormat;
+using CachedReadFixture;
+
+string[] _chainTexts(bool reverse) {
+    string[] texts = new string[]{
+        "namespace Chain; public class A { public static int Number() { return 1; } }",
+        "namespace Chain; public class B { public static A Echo(A value) { return value; } }",
+        "namespace Chain; public class C { public static B Wrap(B value) { return value; } }",
+        "namespace Unrelated; public class D { public static int Separate() { return 9; } }"};
+    if (reverse) { return new string[]{texts[3], texts[2], texts[1], texts[0]}; }
+    return texts;
+}
+int _chainIndex(int logical, bool reverse) { return reverse ? 3 - logical : logical; }
+
+void _assertFreshCompilation(CacheFixture f, IncrPrep prep, bool expectErrors) {
+    // Debug's normal optimization profile is zero; both paths use that same profile.
+    CompiledModuleZ[] actual = IrDump.BuildPackageCus(f.Texts, f.Sources, f.Sources.Length,
+        prep.Cus, null, null, false, prep.Cached, 0);
+    CompiledModuleZ[] fresh = IrDump.BuildPackage(f.Texts, f.Sources, f.Sources.Length, null, null, false);
+    int errors = 0; int i = 0;
+    while (i < fresh.Length) {
+        Assert.Equal(fresh[i].ErrorCount, actual[i].ErrorCount);
+        Assert.Equal(String.ConcatParts(fresh[i].DiagMsgs, fresh[i].DiagCount),
+            String.ConcatParts(actual[i].DiagMsgs, actual[i].DiagCount));
+        errors = errors + fresh[i].ErrorCount;
+        if (!expectErrors) {
+            string expected = Std.Hashing.Murmur3.Hash128Hex(ZbcWriter.Write(fresh[i].Module).ToBytes());
+            string got = Std.Hashing.Murmur3.Hash128Hex(ZbcWriter.Write(actual[i].Module).ToBytes());
+            if (expected != got) { throw new Exception("fresh module mismatch at " + i.ToString() + " expected=" + expected + " actual=" + got); }
+        }
+        if (prep.Plan.Fresh[i]) { Assert.True(prep.Cached[i] == null); }
+        else {
+            Assert.True(prep.Cached[i] != null);
+            Assert.Equal(f.Expected[i], Std.Hashing.Murmur3.Hash128Hex(ZbcWriter.Write(prep.Cached[i]).ToBytes()));
+        }
+        i = i + 1;
+    }
+    Assert.Equal(expectErrors, errors > 0);
+}
+
+void _chainApiControl(bool reverse, bool invalid) {
+    string root = File.CreateTempDir("cache-chain-api");
+    try {
+        ParallelConfig.SetJobs(1); CacheFixture f = new CacheFixture(root, _chainTexts(reverse));
+        f.Check(f.Read());
+        int a = _chainIndex(0, reverse);
+        if (invalid) { f.Texts[a] = f.Texts[a].Replace("class A", "class RenamedA"); }
+        else { f.Texts[a] = f.Texts[a].Replace("int Number()", "long Number()"); }
+        f.Hashes[a] = ZpkgBuilder.SourceHashHex(f.Texts[a]);
+        int[] jobs = new int[]{1, 2, 4}; int j = 0;
+        while (j < jobs.Length) {
+            ParallelConfig.SetJobs(jobs[j]); IncrPrep prep = f.Read();
+            Assert.Equal(3, prep.Plan.FreshCount); Assert.False(prep.Plan.AllCached);
+            int i = 0;
+            while (i < 4) {
+                Assert.Equal(i != 3, prep.Plan.Fresh[_chainIndex(i, reverse)]); i = i + 1;
+            }
+            _assertFreshCompilation(f, prep, invalid); j = j + 1;
+        }
+    } finally { ParallelConfig.SetJobs(1); Directory.Delete(root, true); }
+}
+
+[Test]
+void test_cached_chain_api_change_matches_fresh_in_both_source_orders() {
+    _chainApiControl(false, false); _chainApiControl(true, false);
+}
+[Test]
+void test_cached_chain_api_error_matches_fresh_diagnostics() {
+    _chainApiControl(false, true); _chainApiControl(true, true);
+}
+
+void _damageChainCache(CacheFixture f, int index, int damage) {
+    string path = CacheStore.ZbcPath(f.Cache, f.Rel(index));
+    if (damage == 0) { File.Delete(path); }
+    else if (damage == 1) { File.WriteAllBytes(path, new byte[]{1, 2, 3}); }
+    else {
+        CacheMeta meta = CacheStore.Load(f.Cache, f.Rel(index));
+        if (damage == 2) {
+            byte[] malformed = new byte[]{4, 5, 6}; File.WriteAllBytes(path, malformed);
+            meta.ZbcHash = Std.Hashing.Murmur3.Hash128Hex(malformed);
+        } else { meta.FnLabels = new string[0]; meta.FnLabelsCount = 0; }
+        CacheStore.Save(f.Cache, meta);
+    }
+}
+
+[Test]
+void test_cached_chain_missing_entry_and_unreadable_ir_keep_distinct_closures() {
+    // Missing zbc invalidates the metadata entry too; unreadable bytes retain the known surface.
+    int order = 0;
+    while (order < 2) {
+        int damage = 0;
+        while (damage < 4) {
+            string root = File.CreateTempDir("cache-chain-degrade");
+            try {
+                ParallelConfig.SetJobs(1); CacheFixture f = new CacheFixture(root, _chainTexts(order == 1));
+                f.Check(f.Read());
+                int a = _chainIndex(0, order == 1); _damageChainCache(f, a, damage);
+                int[] jobs = new int[]{1, 2, 4}; int j = 0;
+                while (j < jobs.Length) {
+                    ParallelConfig.SetJobs(jobs[j]); IncrPrep prep = f.Read();
+                    int expectedFresh = damage == 0 ? 3 : 1;
+                    if (prep.Plan.FreshCount != expectedFresh) { throw new Exception("degradation order=" + order.ToString() + " damage=" + damage.ToString() + " jobs=" + jobs[j].ToString() + " fresh=" + prep.Plan.FreshCount.ToString()); }
+                    int i = 0;
+                    while (i < 4) {
+                        bool expected = damage == 0 ? i != _chainIndex(3, order == 1) : i == a;
+                        Assert.Equal(expected, prep.Plan.Fresh[i]); i = i + 1;
+                    }
+                    _assertFreshCompilation(f, prep, false); j = j + 1;
+                }
+            } finally { ParallelConfig.SetJobs(1); Directory.Delete(root, true); }
+            damage = damage + 1;
+        }
+        order = order + 1;
+    }
+}
