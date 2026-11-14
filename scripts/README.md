@@ -389,7 +389,8 @@ scripts/
     │   ├── install.z42           `setup [--os]`：按 versions.toml 装开发依赖
     │   ├── android.z42           Android SDK·NDK·模拟器
     │   ├── check.z42             `setup check`：只读在场校验
-    │   ├── ci_installers_selfcheck.z42 + testdata/  CI 工具安装器的离线回归与命令探针
+    │   ├── ci_tools.z42 / book_tools.z42 / wasm_opt.z42  固定版本的文档工具与 Binaryen 安装
+    │   ├── ci_installers_selfcheck.z42  原生安装器离线回归（进程替身，无 Shell 探针）
     │   └── vscode.z42            生成 z42.tmLanguage.json + **`check vscode-syntax` 门**
     └── bench/              性能测量：bench / profile
         ├── command.z42           `bench` 族的命令类（不带子命令 = e2e；stdlib / vm / targets）
@@ -484,3 +485,9 @@ iteration 期可用 `test changed`（按改动挑 stage）或单跑某 stage（`
 
 `flows.toml` 是目录归属、资源前提与正确性 / 性能消费者的配置入口。`check xtask` 用种子 SDK 验证规划、执行、清单和工作流契约；`check bench-vm` 用小型 Rust 夹具验证 VM benchmark runner。`check docs` 聚合链接、诊断码与布局；`check release-archives` 独立验证发布归档，不需要产品构建。控制层改动不因同属 xtask 而触发所有产品测试。
 `test stdlib --plan` 与 `bench stdlib --plan` 保留计划所属包及分片；`bench vm --base <树>` 直接对两棵 Rust 树做 Criterion A/B。完整配置说明见[流程规划](../docs/internals/src/devinfra/flows.md)。
+
+CI 文档工具安装使用 `xtask setup book-tools`，Binaryen 静态构建使用 `xtask setup wasm-opt`。
+两者从 `versions.toml` 读取固定版本，默认安装到 `artifacts/tools/<tool>`；`--root` 指定目录，
+`--force` 强制重装。成功后输出 bin 目录，并在 Actions 中写入 `GITHUB_PATH`。
+文档工具在 Linux x64 优先下载发布包，下载不可用或其他宿主改用 Cargo；wasm-opt 需 Git、CMake 与 POSIX install。
+`xtask ci check-installers all` 离线验证安装分支，不访问外部网络。

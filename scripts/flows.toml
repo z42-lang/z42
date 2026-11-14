@@ -411,8 +411,19 @@ select = ["bench-verdict"]
 publish = false
 
 [[inputs]]
+id = "book-tool-installer"
+include = ["scripts/src/setup/book_tools.z42"]
+select = ["xtask"]
+publish = false
+
+[[inputs]]
+id = "wasm-tool-installer"
+include = ["scripts/src/setup/wasm_opt.z42", "scripts/src/setup/ci_tools.z42"]
+select = ["xtask", "wasm"]
+
+[[inputs]]
 id = "installer-regressions"
-include = ["scripts/src/setup/ci_installers_selfcheck.z42", "scripts/src/setup/testdata/**"]
+include = ["scripts/src/setup/ci_installers_selfcheck.z42"]
 select = ["xtask"]
 publish = false
 

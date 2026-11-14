@@ -64,6 +64,12 @@ void _flowPlannerChecks(FlowConfig cfg) {
         FlowPlan capture = _flowSelect(cfg, new string[]{ helper }, root);
         _gateAssert(capture.Publish && _flowHas(capture.Steps, "sdk") && _flowHas(capture.Steps, "green") && _strIn(_flowOutputs(cfg, capture), "platform"), "Cargo artifact helpers select SDK and platform publication");
     }
+    FlowPlan bookTools = _flowSelect(cfg, new string[]{ "scripts/src/setup/book_tools.z42" }, root);
+    _gateAssert(!bookTools.Publish && _flowHas(bookTools.Steps, "xtask") && !_flowHas(bookTools.Steps, "wasm") && !_flowHas(bookTools.Steps, "green"), "book installer avoids product tests and publishing");
+    foreach (var installer in new string[]{ "scripts/src/setup/wasm_opt.z42", "scripts/src/setup/ci_tools.z42" }) {
+        FlowPlan wasmTools = _flowSelect(cfg, new string[]{ installer }, root);
+        _gateAssert(wasmTools.Publish && _flowHas(wasmTools.Steps, "wasm") && !_flowHas(wasmTools.Steps, "green"), "Binaryen installer retains actual wasm consumer");
+    }
     FlowPlan fullPlan = _flowSelect(cfg, new string[0], root, true);
     _gateAssert(_flowJobSteps(cfg, fullPlan, "compiler-checks").Length > 0 && _strIn(_flowOutputs(cfg, fullPlan), "stdlib"), "full gate retains delegated CI obligations");
     _flowExpectBad(minimal.Replace("command =", "ci_command =").Replace("[\"check\", \"flows\"]", "[\"bash\"]"), "external CI command");

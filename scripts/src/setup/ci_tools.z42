@@ -1,0 +1,39 @@
+namespace Z42Xtask;
+
+using Std.Cli;
+using Std.IO;
+using Std.Regex;
+
+class CiToolOps {
+    public virtual ProcessResult Run(string exe, string[] args) {
+        ProcessResult r = new Process(exe).Args(args).Run();
+        if (r.ExitCode != 0) { ConsoleError.WriteLine(r.Stdout + r.Stderr); }
+        return r;
+    }
+}
+
+bool _ciToolVersion(CiToolOps ops, string binary, string name, string version) {
+    if (!File.Exists(binary)) { return false; }
+    ProcessResult r = ops.Run(binary, new string[]{ "--version" });
+    return r.ExitCode == 0 && Regex.Compile("^" + name + " (version )?v?" + version.Replace(".", "\\.") + "($|[ \\r\\n(])").IsMatch(r.Stdout.Trim());
+}
+
+class SetupCiToolCommand : Command {
+    [Option(help: "installation directory (default: artifacts/tools/<tool>)")] public string Root = "";
+    [Option(help: "reinstall even when the pinned version is cached")] public bool Force;
+    public SetupCiToolCommand(string name) : base(name, "install pinned " + name) {}
+    public override int Run() {
+        string target = this.Root.Length == 0 ? Path.Join(_root(), "artifacts/tools/" + this.CommandName()) : Path.Normalize(Path.IsRooted(this.Root) ? this.Root : Path.Join(Environment.GetCurrentDirectory(), this.Root));
+        string stage = _xtaskWork(_root(), "install-" + this.CommandName()); _resetDir(stage);
+        try {
+            var ops = new CiToolOps();
+            int code = this.CommandName() == "book-tools" ? _ciInstallBooks(_root(), target, stage, _detectHostRid(), this.Force, ops)
+                : _ciInstallWasm(_root(), target, stage, this.Force, ops);
+            if (code != 0) { return code; }
+            string bin = Path.Join(target, "bin");
+            string output = Environment.GetEnvironmentVariable("GITHUB_PATH", "");
+            if (output.Length > 0) { File.AppendAllText(output, bin + "\n"); }
+            Console.WriteLine("Installed tools: " + bin); return 0;
+        } finally { Directory.Delete(stage, true); }
+    }
+}
