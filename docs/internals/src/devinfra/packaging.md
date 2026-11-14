@@ -52,7 +52,8 @@ C 声明的源码归能力所有者：宿主声明位于 `src/runtime/src/host/z
 workload、Swift modulemap、JNI 与 C 调用方继续使用原有统一头，无需为每个内部模块增加 include 或转发文件。
 内部头文件移动只影响其聚合声明；原有 SDK 头名、分发位置和 workload 引用不受影响。
 
-安装器自检确认统一头包含组件声明且没有源码相对 include；真实 C 部署使用同一个统一头编译与链接。
+设备测试宿主暂存也调用同一个 `_runtimeHeaderText`，比较展开后的内容再决定是否重写，保持 CMake/Xcode 增量构建。
+安装器自检覆盖 Android/iOS 的实际转发头，确认暂存结果与发布头一致、没有源码相对 include，重复暂存不重写；真实 C 部署使用同一个统一头编译与链接。
 source-identity 检查比较发布头与同一展开过程的结果，其余源文件继续逐字节比较。
 
 ## 2. 构建 → 安装
