@@ -194,6 +194,11 @@ struct NegativeResolveCache {
 }
 
 impl LazyLoader {
+    /// Current dependency search order, including directories added by explicit loads.
+    pub(crate) fn search_dirs(&self) -> &[PathBuf] {
+        &self.search_dirs
+    }
+
     /// Seed the lazy loader's type_registry with TypeDescs from eagerly-loaded
     /// modules (e.g. the merged main module containing z42.core + user code).
     /// The cross-zpkg fixup pass (`try_fixup_inheritance`) consults this
