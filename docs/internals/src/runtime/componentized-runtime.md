@@ -17,9 +17,11 @@
 
 main.rs 不调用 Rust VM 接口，只查找 libz42 并取得版本化 C 入口。先验证头版本、大小、构建身份和回调，再把参数交给 host::cli。已打开的库保留到进程结束，避免运行时或依赖的 TLS 析构跳入已卸载代码。
 
-嵌入接口与类型统一从 z42::host 提供。CLI 只处理参数、启动和进程策略，也调用 host。组件内部 Rust API 不自动成为嵌入 API。
+普通嵌入功能从 z42::host 提供，CLI 也调用相同宿主服务。当前 host 仍转出组件管理与协议，公开签名和静态装配头也有内部类型泄露；
+收口目标是 VM 消费者通过内部 components::api 请求能力，跨库协议另列契约，普通宿主不接触组件管理。
+当前缺口与目标关系见[运行时模块边界](module-boundaries.md)，这项收口尚未完成。
 
-组件框架集中在 `runtime/src/components/`：api 定义协议，catalog 加载和校验工厂，options 接收配置，instance 管理每 VM 实例和租约，backends 选择并装配执行接口，identity 检查核心映像与布局，linked 管理静态工厂。host 再导出嵌入入口；VM 只持有实例集合，不另设组件管理模块。
+组件框架集中在 `runtime/src/components/`：当前 api 定义跨库协议，catalog 加载和校验工厂，options 接收配置，instance 管理每 VM 实例和租约，backends 选择并装配执行接口，identity 检查核心映像与布局，linked 管理静态工厂。当前部分消费者直接引用管理子模块；VM 内部统一访问门面尚未独立出来。
 
 GC 与值/对象布局仍属于 core，不能运行中切换；它们位于分配、屏障和 safepoint 热路径，机器码使用固定布局。解析符号和崩溃栈定位是基础能力，不依赖可选调试器。
 
@@ -154,4 +156,6 @@ profiler 的算法与线程位于 z42-profiler，diagnostics 只持有中立契�
 - [运行时/包分发](../toolchain/workload-distribution.md)
 - [诊断与跟踪](diagnostics.md)
 
-Component protocol ownership: z42::components::api defines descriptors, C-layout interfaces and execution registration. Core build.rs generates the shared build identity. Host re-exports the public embedding types; execution libraries depend on the core, preserving an acyclic Cargo graph. Generic ABI fixtures use only protocol values and callbacks; actual execution components still link the single shared core.
+当前跨库组件协议由 z42::components::api 定义，包含描述符、C 布局接口和执行注册；core build.rs 生成共享构建身份。
+这份协议与目标中的 VM 内部访问门面同名，仍需拆分；host 的现有再导出属于待收口缺口。生产执行库单向依赖 core，
+通用 ABI 夹具只使用协议值和回调，实际执行组件仍链接同一份共享核心。
