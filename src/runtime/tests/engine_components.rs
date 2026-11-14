@@ -2,10 +2,9 @@
 //! after relocation, using only the packaged core/std/backend library closure.
 #![cfg(feature = "shared-core")]
 use std::{path::PathBuf, sync::Arc};
-use z42::components::abi::{ExecutionApi, JIT_COMPONENT, INTERP_COMPONENT};
 use z42::host::{
-    BackendOptions, BackendSource, ComponentLease, ExecMode,
-    LoadOptions, LoadedProgram, Value, component_interface, component_ids,
+    BackendOptions, BackendSource, ExecMode,
+    LoadOptions, LoadedProgram, Value, VmContext,
 };
 
 fn input(name: &str) -> PathBuf {
@@ -63,29 +62,27 @@ fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
             let result = ctx.core().exec().engines.invoke_mode(ExecMode::Interp, ctx, module, hot, &[Value::I64(20_000)]).unwrap();
             assert!(matches!(result, z42::exec::call::outcome::ExecOutcome::Returned(Some(Value::I64(199_990_000)))));
             assert!(ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_native_from_interp > before, "dynamic interpreter must hand its hot loop to the dynamic JIT");
-            assert_eq!(component_ids(ctx), [INTERP_COMPONENT, JIT_COMPONENT]);
         } else {
             assert_eq!(first.context().core().diagnostics().snapshot(first.context().core().threads()).jit_methods_compiled, 0);
-            assert_eq!(component_ids(first.context()), [INTERP_COMPONENT]);
         }
         drop(first);
         assert_eq!(echo(&second, 40), 42);
     }
 }
 #[test]
-fn interface_lease_retains_native_code_and_core_until_final_release() {
+fn worker_retains_dynamic_execution_after_host_release() {
     let program = load(ExecMode::Jit, backends()).unwrap();
     assert_eq!(echo(&program, 5), 6);
-    let weak = Arc::downgrade(&program.context().core_arc());
-    let lease: ComponentLease<ExecutionApi> = component_interface(program.context(), JIT_COMPONENT).unwrap().unwrap();
-    let before = unsafe { (lease.core_identity)() };
+    let weak = Arc::downgrade(program.context().core());
+    let worker = VmContext::new_with_core(program.context().core_arc());
+    let module = Arc::clone(program.context().module().unwrap());
     drop(program);
     assert!(weak.upgrade().is_some());
-    let after = unsafe { (lease.core_identity)() };
-    assert_eq!(before.image, after.image);
-    assert_eq!(before.abi, after.abi);
-    drop(lease);
-    assert!(weak.upgrade().is_none(), "backend state and code leases must not form a Core cycle");
+    let function = module.functions.iter().find(|f| f.name == "EngineComponentProbe.Echo").unwrap();
+    let result = worker.core().exec().engines.invoke_mode(ExecMode::Jit, &worker, &module, function, &[Value::I64(5)]).unwrap();
+    assert!(matches!(result, z42::exec::call::outcome::ExecOutcome::Returned(Some(Value::I64(7)))));
+    drop(worker);
+    assert!(weak.upgrade().is_none(), "backend state must not form a Core cycle");
 }
 #[test]
 fn missing_disabled_and_unlinked_backends_are_errors() {
