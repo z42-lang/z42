@@ -59,7 +59,7 @@
 与包目录并排放不会撞。命名规则（下表）只在 `scripts/src/package/release.z42` 里写一次，release.yml、nightly 与本地共用。
 tar 归档直接包含包内的顶层条目，不写入 `.` 根条目或 `./` 路径前缀。归档器只传入实际顶层条目：macOS 的 BSD tar 使用 NUL 分隔列表；Linux 与 Windows 的 GNU tar 使用参数数组及 `--`。
 Windows 使用开发环境已有的 Git Bash GNU tar，并强制将盘符路径视为本地归档，
-GNU tar 使用 PAX 格式及 UTF-8 编码，确保中文文件名也能由 Windows 的原生 tar 正确还原；
+GNU tar 使用 PAX 格式及 UTF-8 编码；发布流程及自检的读取、解包也使用同一工具，避免 Windows 系统 tar 对非 ANSI 文件名的解码限制。
 保留隐藏文件、空目录、含空格或换行的文件名，以及原有可执行位与符号链接；macOS 扩展属性仍不进入发布包。
 Windows ZIP 的条目名统一使用 `/`，不随 PowerShell 的 .NET 目标框架切换为反斜杠，确保在 macOS / Linux 上也能还原目录。
 `release` 默认就在 `artifacts/packages/` 上做，要求 9 个 RID 的归档齐全（单机凑不齐，它是汇总 job 的步骤）。

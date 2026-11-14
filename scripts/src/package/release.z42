@@ -38,7 +38,7 @@ int _releaseAssembleDesktop(string label, string dist) {
         Directory.Create(tmp);
         int xc;
         if (ar.EndsWith(".zip")) { xc = _exec(new Process("unzip").Arg("-q").Arg(ar).Arg("-d").Arg(tmp)); }
-        else { xc = _exec(new Process("tar").Arg("-xzf").Arg(ar).Arg("-C").Arg(tmp)); }
+        else { xc = _exec(_relTarTool().Arg("-xzf").Arg(ar).Arg("-C").Arg(tmp)); }
         if (xc != 0) { ConsoleError.WriteLine("extract failed: " + ar); return 1; }
         foreach (var h in Path.Glob(tmp, "apphost-" + rid + "*")) {
             File.Copy(h, Path.Join(merged, Path.GetFileName(h)));
@@ -274,7 +274,7 @@ int _pkgArchiveDir(string dir, string ver, string label, string outDir) {
 
 // 目录内容（不含目录本身）→ tar.gz。macOS 的 bsdtar 默认把本机扩展属性（com.apple.provenance 等）写成 pax 扩展头、
 // 再加 AppleDouble `._*` 伴生文件——发布归档不该带这些：关掉它们。
-Process _relTar(string dir, string ar) {
+Process _relTarTool() {
     string tool = "tar";
     if (Platform.IsWindows()) {
         // Resolve Git's GNU tar directly: a bare bash.exe may be the WSL launcher.
@@ -282,7 +282,14 @@ Process _relTar(string dir, string ar) {
         tool = Path.Normalize(Path.Join(gitExec, "../../../usr/bin/tar.exe"));
         if (!File.Exists(tool)) { throw new Exception("Git Bash GNU tar not found: " + tool); }
     }
-    Process p = new Process(tool).Arg("-C").Arg(dir);
+    // Use the same UTF-8 tool for reading and writing. Windows' system libarchive
+    // may reject PAX names outside its ANSI code page even when correctly encoded.
+    Process p = new Process(tool);
+    return Platform.IsMacOS() ? p : p.Env("LC_ALL", "C.UTF-8").Arg("--force-local");
+}
+
+Process _relTar(string dir, string ar) {
+    Process p = _relTarTool().Arg("-C").Arg(dir);
     if (Platform.IsMacOS()) { p = p.Env("COPYFILE_DISABLE", "1").Arg("--no-xattrs").Arg("--no-mac-metadata"); }
     string[] entries = _sortedStrings(Directory.Enumerate(dir));
     if (Platform.IsMacOS()) {
@@ -291,8 +298,7 @@ Process _relTar(string dir, string ar) {
         return p.Arg("-czf").Arg(ar).Arg("--null").Arg("-T").Arg("-")
             .Stdin(Stdio.Pipe()).StdinBytes(Utf8.GetBytes(names));
     }
-    // GNU tar must not interpret a Windows drive letter as a remote archive host.
-    p = p.Env("LC_ALL", "C.UTF-8").Arg("--format=pax").Arg("--force-local");
+    p = p.Arg("--format=pax");
     p = p.Arg("-czf").Arg(ar);
     // Pass names as literal argv, including leading dashes; never archive the '.' wrapper.
     return entries.Length > 0 ? p.Arg("--").Args(entries)

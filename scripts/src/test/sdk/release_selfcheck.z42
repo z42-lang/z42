@@ -87,7 +87,7 @@ int _testPackagesRelease() {
         _relAssert("per-RID desktop pieces removed", Path.Glob(dist, "z42-workload-" + label + "-desktop-*").Length == 0);
         string x = Path.Join(work, "x");
         Directory.Create(x);
-        _relAssert("extract merged", _exec(new Process("tar").Arg("-xzf").Arg(merged).Arg("-C").Arg(x)) == 0);
+        _relAssert("extract merged", _exec(_relTarTool().Arg("-xzf").Arg(merged).Arg("-C").Arg(x)) == 0);
         _relAssert("merged has " + nD.ToString() + " apphosts", Path.Glob(x, "apphost-*").Length == nD);
         // 合并后：nD × (sdk + runtime) + desktop + nP runtime + nW workload + test
         int wantSums = nD * 2 + nP + nW + 2;
@@ -129,7 +129,7 @@ int _testPackagesRelease() {
 }
 
 void _relCanonicalEntries(string archive) {
-    Process list = archive.EndsWith(".zip") ? new Process("unzip").Arg("-Z1") : new Process("tar").Arg("-tf");
+    Process list = archive.EndsWith(".zip") ? new Process("unzip").Arg("-Z1") : _relTarTool().Arg("-tf");
     foreach (var entry in list.Arg(archive).Run().EnsureSuccess().Stdout.Split("\n")) {
         _relAssert("canonical archive entry " + entry, entry != "." && !entry.StartsWith("./") && !entry.Contains("/./")
             && (!archive.EndsWith(".zip") || !entry.Contains("\\")));
@@ -166,7 +166,7 @@ void _relTarRoundtrip(string work) {
     _relAssert("tar roundtrip", _exec(_relTar(source, archive)) == 0);
     _relCanonicalEntries(archive);
     string target = Path.Join(work, "tar output"); Directory.Create(target);
-    new Process("tar").Arg("-xf").Arg(archive).Arg("-C").Arg(target).Run().EnsureSuccess();
+    _relTarTool().Arg("-xf").Arg(archive).Arg("-C").Arg(target).Run().EnsureSuccess();
     foreach (var name in names) {
         string file = Path.Join(target, name);
         _relAssert("tar contains " + name + " (entries: " + String.Join(", ", Directory.Enumerate(target)) + ")", File.Exists(file));
@@ -180,7 +180,7 @@ void _relTarRoundtrip(string work) {
     string empty = Path.Join(work, "empty input"); Directory.Create(empty);
     string emptyArchive = Path.Join(work, "empty.tar.gz");
     _relAssert("empty tar", _exec(_relTar(empty, emptyArchive)) == 0);
-    _relAssert("empty tar has no synthetic root", new Process("tar").Arg("-tf").Arg(emptyArchive).Run().EnsureSuccess().Stdout.Length == 0);
+    _relAssert("empty tar has no synthetic root", _relTarTool().Arg("-tf").Arg(emptyArchive).Run().EnsureSuccess().Stdout.Length == 0);
 }
 
 // JSON 字符串数组 → "a,b"（与 String.Join 的期望值对比）。
