@@ -1,0 +1,20 @@
+namespace StaticCompilerTests;
+using Std.IO;
+using Std.Harness;
+using Z42.Build;
+using Z42.Project;
+
+[Test]
+void test_default_pipeline_compiler_compiles_without_injection() {
+    string dir = File.CreateTempDir("static-pipeline-compiler");
+    try {
+        File.WriteAllText(Path.Join(dir, "source.z42"), "public int Answer() { return 7; }\n");
+        string output = Path.Join(dir, "compiled.zpkg");
+        var req = new CompileRequest(dir, output, new string[0], "debug", false, true, "lib", new string[0], 0);
+        req.Manifest = ManifestLoader.ParseText("[project]\nname=\"static.boundary\"\nversion=\"0.1.0\"\nkind=\"lib\"\n[sources]\ninclude=[\"source.z42\"]\n");
+        Pipeline pipeline = new Pipeline();
+        CompileResult result = pipeline.Compiler.Compile(req);
+        Assert.True(result.Ok); Assert.Equal("", result.Diagnostics);
+        Assert.Equal(output, result.Zpkg); Assert.True(File.Exists(output));
+    } finally { Directory.Delete(dir, true); }
+}

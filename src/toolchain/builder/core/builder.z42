@@ -1,20 +1,10 @@
-// z42b — 构建编排器（build orchestrator）。wire-z42b 2b 已接入编译。
-//
-// 职责：读 z42.toml/--rid → 构造 z42.compiler.contracts 管线（注入 编译器 + workload + hooks）→ 跑。
-//   build   → tail no-op（产平台无关 app.zpkg）
-//   export  → 跑到 GenerateProject 停（原生 IDE 工程，ios/android）
-//   publish → 一路到 Package（可分发件 apphost/.ipa/.aab/wasm）
-//
-// 关键设计（与 z42c 共享编译实现，见 z42.compiler.contracts/src/ICompiler.z42）：
-//   Compile 头相位经 z42.compiler.contracts 的 `ICompiler` 接口**在进程内**调编译器库——和独立 z42c
-//   CLI 调的是同一份实现，**不 fork z42c 子进程**。实现由 _hostCompiler **运行时动态注入**
-//   （加载 programs/z42c/z42c.pipeline.zpkg 反射实例化 Z42cCompiler——z42b 编译期零 z42c 依赖，
-//   见 dynamic-component-registration design）。_selectWorkload 暂返 WorkloadBase（平台 workload 后续）。
-// 命令层在 builder_commands.z42 / builder_new.z42；CLI 路由在 builder_cli.z42。
+// z42b 构建编排器：装配 z42.build.Pipeline、编译器、workload 和 hooks。
+// 编译器由静态依赖 z42c.pipeline 提供；编译在当前 VM 进程内执行。
 namespace Z42Builder;
 
 using Std.IO;
 using Z42.Build;
+using Z42.Pipeline;
 using Z42.Project;
 
 // 编排入口：命令层解析出 manifest + target + sourceDir（+ manifest `[build] hooks`
@@ -82,36 +72,8 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir,
 
 // ── 注入点 ───────────────────────────────────────────────────────────────────
 
-// 共享编译实现入口（wire-z42b 2b，dynamic-component-registration）：**运行时动态注入**——
-// z42b 编译期只依赖 z42.compiler.contracts 的 ICompiler 接口（零 z42c 编译期依赖，独立 exe +
-// stdlib-only 可构建不破）；此处经 ModuleLoader.Load 把编译器组件 zpkg（z42c.pipeline，
-// 含 Z42cCompiler : ICompiler）加载进 live VM → 反射实例化 → 接口 cast 注入。
-// 与 z42c.driver CLI 共享同一编译实现（PackageCompile 核心），不 fork z42c 子进程。
-// 换/升级编译器 = 替换 zpkg，本文件零改动。组件缺失（runtime-only SDK）→ NoCompiler 兜底。
-ICompiler _hostCompiler() {
-    string zpkg = _findCompilerZpkg();
-    if (zpkg.Length == 0) {
-        ConsoleError.WriteLine("z42b: compiler component not found (Z42_HOME/programs/z42c, SDK via Z42_PORTABLE_VM, or dev artifacts) — build verbs unavailable");
-        return new NoCompiler();
-    }
-    try {
-        ModuleLoader.Load(zpkg);
-        object o = ModuleLoader.Create("Z42.Pipeline.Z42cCompiler");
-        if (o == null) {
-            ConsoleError.WriteLine("z42b: Z42cCompiler type not resolvable after loading " + zpkg);
-            return new NoCompiler();
-        }
-        ICompiler c = o as ICompiler;
-        if (c == null) {
-            ConsoleError.WriteLine("z42b: loaded Z42cCompiler does not satisfy ICompiler (component/interface version mismatch?)");
-            return new NoCompiler();
-        }
-        return c;
-    } catch (Exception e) {
-        ConsoleError.WriteLine("z42b: compiler component load failed (" + e.Message + "); falling back to NoCompiler");
-        return new NoCompiler();
-    }
-}
+// 默认编译器与 driver 共用同一后端；接口仍允许宿主替换实现。
+ICompiler _hostCompiler() { return new Z42cCompiler(); }
 
 // 定位编译器组件 zpkg（z42c.pipeline.zpkg；其 6 个 z42c.* 兄弟须与之同目录——ModuleLoader
 // 依赖闭包按 entry-dir + Z42_LIBS 解析）。探测序：

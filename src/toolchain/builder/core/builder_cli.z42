@@ -2,7 +2,7 @@
 //
 // 用户经 `z42 <verb>` 到达 new / test / bench / clean / publish（launcher 转发），故这些命令的
 // 帮助名写 `z42 <verb>`；build / export 只供编排方（xtask）直接调用，保留 `z42b` 名。
-// 编译器经 _hostCompiler 运行时动态注入（见 builder.z42）；test/bench 处理见 builder_test.z42。
+// 编译器经 _hostCompiler 静态构造（见 builder.z42）；test/bench 处理见 builder_test.z42。
 namespace Z42Builder;
 
 using Std.IO;
@@ -56,7 +56,7 @@ ArgParser _newArgParser() {
 SubcommandRouter _builderRoot() {
     SubcommandRouter root = new SubcommandRouter("z42b", "z42 build orchestrator");
 
-    // new / build / publish / export（编译器动态注入）。
+    // new / build / publish / export（编译器静态构造）。
     root.Add("new", "create a new project", _newArgParser());
 
     ArgParser build = new ArgParser("z42b build", "compile to a platform-agnostic app.zpkg");
@@ -206,7 +206,7 @@ int _dispatchBuilder(CommandResolution res) {
     if (top == "bench") { return _cmdBench(r); }
     if (top == "clean") { return _cmdClean(r); }
     if (top == "publish") { return _cmdPublishZ42b(r); }   // move-publish-to-z42b
-    // wire-z42b 2b：build/new/export 编排（编译器经 _hostCompiler 运行时动态注入）。
+    // wire-z42b 2b：build/new/export 编排（编译器经 _hostCompiler 静态构造）。
     if (top == "build")  { return _cmdBuild(r); }
     if (top == "new")    { return _cmdNew(r); }
     if (top == "export") { return _cmdExport(r); }

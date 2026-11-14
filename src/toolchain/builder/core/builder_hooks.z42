@@ -10,7 +10,7 @@
 // 顺序：hook 目录在前，插件按 `[plugins]` 声明序；多于一个时经 `CompositeBuildHooks` 逐相位依次调用。
 // 只带 analyzer / generator 位的插件归编译器（BuildSession），这里跳过。
 //
-// 复用 dynamic-component-registration 的组件注入模式（_hostCompiler 同款三段：Load → GetType → as-cast）——
+// 复用 dynamic-component-registration 的组件注入模式（Load → GetType → as-cast）——
 // 零代码生成、零子进程。
 namespace Z42Builder;
 

@@ -3,10 +3,11 @@ using Std.IO;
 using Std.Harness;
 using Z42.Build;
 using Z42.Project;
+using Z42.Pipeline;
 
 [Test]
-void test_dynamic_compiler_contract_invokes_real_compile() {
-    ICompiler compiler = ModuleLoader.Create("Z42.Pipeline.Z42cCompiler") as ICompiler;
+void test_static_compiler_contract_invokes_real_compile() {
+    ICompiler compiler = new Z42cCompiler();
     Assert.True(compiler != null);
     string dir = File.CreateTempDir("compiler-contract-boundary");
     try {
@@ -21,8 +22,8 @@ void test_dynamic_compiler_contract_invokes_real_compile() {
 }
 
 [Test]
-void test_dynamic_repl_contract_invokes_real_round() {
-    IReplCompiler compiler = ModuleLoader.Create("Z42.Pipeline.Z42cReplCompiler") as IReplCompiler;
+void test_static_repl_contract_invokes_real_round() {
+    IReplCompiler compiler = new Z42cReplCompiler();
     Assert.True(compiler != null);
     string[] dirs = new string[] { Environment.GetEnvironmentVariable("Z42_LIBS", "") };
     object world = compiler.CreateWorld(dirs, dirs.Length, new string[0], 0);

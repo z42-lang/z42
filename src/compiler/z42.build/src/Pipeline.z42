@@ -1,6 +1,7 @@
 namespace Z42.Build;
 
 using Z42.Project;
+using Z42.Pipeline;
 
 /// 管线驱动 —— 定义整条「编译 → 发布」的**流程**。
 ///
@@ -27,7 +28,7 @@ public class Pipeline {
     public Pipeline() {
         this.Hooks    = new BuildHooks();      // 默认空 hook
         this.Workload = new WorkloadBase();    // 默认 no-op workload（无平台时兜底）
-        this.Compiler = new NoCompiler();      // 默认空编译器；driver / 编排器注入真实 z42c 实现
+        this.Compiler = new Z42cCompiler();      // 默认使用静态编译器；宿主仍可显式替换接口实现
     }
 
     /// 执行整条管线，返回进程退出码。

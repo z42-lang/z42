@@ -128,15 +128,14 @@ void _purgeBootstrapPrebuildsFromFlat(string root, string stdlibFlat) {
 // 成员 = z42c 自依赖链上须先于 workspace 自建 fresh 进 flat 的当前源库：
 //   z42.core      一切的地基（隐式 prelude）；z42c 的消费面含其新增门面（如 Std.BitConverter）
 //   z42.project   轴②：driver 编译期消费 ProjectManifest 的 [plugins] 段字段
-//   z42.build     轴②：z42c.pipeline 编译期消费 IReplCompiler / ReplCompileResult
 //   z42.package   轴④主环：z42c **运行期**依赖（IR 模型 + zbc/zpkg 后端，ZpkgBuilder）
 //   z42c.core     可移植前端，semantics/pipeline/driver 的共享库依赖
 //   z42c.syntax   同上（依赖 z42c.core，排其后）
-// 轴② / 轴④ 与「不 warm-skip」的理由见 self-hosting.md「轴 ④ 的破环预建」。序内约束：z42.build 依赖
-// z42.project；z42c.syntax 依赖 z42c.core；z42.package 与 z42.project / z42.build 互不依赖（相对序可换）。
+// 轴② / 轴④ 与「不 warm-skip」的理由见 self-hosting.md「轴 ④ 的破环预建」。
+// z42c.syntax 依赖 z42c.core；编译契约随 pipeline 构建，build 框架在 pipeline 之后。
 // 各包真实 import 关系见 src/compiler/z42.workspace.toml 头注。
 string[] _bootstrapPrebuilds() {
-    return new string[]{ "z42.core", "z42.project", "z42.compiler.contracts", "z42.build", "z42.package", "z42c.core", "z42c.syntax" };
+    return new string[]{ "z42.core", "z42.project", "z42.package", "z42c.core", "z42c.syntax" };
 }
 
 // 破环预建成员的 toml，按目录约定探测：stdlib 域在 src/libraries/，编译器域在 src/compiler/

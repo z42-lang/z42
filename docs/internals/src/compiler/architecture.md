@@ -80,10 +80,9 @@ graph LR
 
 - z42.build 框架接口先行，部分实现体为桩，按 spec-first 落地。
 - z42b CLI：`test` / `bench` / `clean` / `publish` 已可用；`new` / `build` / `export` 待接入。
-- `ICompiler` 拟抽为中立微库，让 z42c 与 z42b 都只依赖它。索引见 `docs/roadmap.md` Deferred Backlog。
 
 ## 编译服务契约边界
 
-`z42.compiler.contracts` 拥有编译/REPL 接口和请求结果；pipeline 实现它，scripting 调用它。
+`z42c.pipeline` 同时拥有编译/REPL 契约与实现。build 与 scripting 静态依赖 pipeline，后者不反向依赖二者。
 编排框架 `z42.build` 消费契约并提供 Pipeline/PackageScheduler，driver 与 builder 仍依赖这些实际实现。
 共享 `Z42.Build` 命名空间不等于相同包归属；契约仍依赖 project 的清单与 workspace 域模型。

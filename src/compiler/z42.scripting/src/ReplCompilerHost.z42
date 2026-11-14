@@ -1,83 +1,12 @@
-// REPL 编译器组件的运行期反射注入（sink-repl-compile-facade）——mirror builder.z42 `_hostCompiler`。
-//
-// scripting 编译期只依赖 z42.compiler.contracts 的 `IReplCompiler` 接口（stdlib-only，前端 z42c.core/syntax 亦已
-// 是 stdlib）；此处经 `ModuleLoader.Load` 把编译器组件 zpkg（z42c.pipeline，含 `Z42cReplCompiler :
-// IReplCompiler` + 6 个 z42c.* 兄弟依赖闭包）加载进 live VM → `Type.GetType` 反射实例化 → 接口 cast。
-// 与 z42b 的 ICompiler 注入同构（wire-z42b-dynamic-injection-preference）。换/升级编译器 = 替换 zpkg，
-// 本文件零改动。组件缺失（runtime-only SDK）→ `NoReplCompiler` 兜底（编译恒失败、补全恒空）。
+// The compiler is a declared package dependency; construction remains lazy.
 namespace Z42.Scripting;
-
-using Std.IO;
-using Z42.Build;       // IReplCompiler / NoReplCompiler
+using Z42.Build;
+using Z42.Pipeline;
 
 public static class ReplCompilerHost {
-    private static IReplCompiler Cached;   // 惰性单例：首次 Get 解析 + 缓存（组件只加载一次）。
-
-    // 取注入的 REPL 编译器实现。首次调用解析组件、反射实例化并缓存；之后瞬回缓存。
-    // 组件缺失 / 加载失败 → NoReplCompiler 兜底（不抛，REPL 退化而非崩）。
+    private static IReplCompiler Cached;
     public static IReplCompiler Get() {
-        if (ReplCompilerHost.Cached != null) { return ReplCompilerHost.Cached; }
-        ReplCompilerHost.Cached = ReplCompilerHost._resolve();
+        if (ReplCompilerHost.Cached == null) { ReplCompilerHost.Cached = new Z42cReplCompiler(); }
         return ReplCompilerHost.Cached;
-    }
-
-    private static IReplCompiler _resolve() {
-        string zpkg = ReplCompilerHost._findCompilerZpkg();
-        if (zpkg.Length == 0) {
-            ConsoleError.WriteLine("z42i: compiler component not found (Z42_HOME/programs/z42c, SDK via Z42_PORTABLE_VM, or dev artifacts) — REPL eval unavailable");
-            return new NoReplCompiler();
-        }
-        try {
-            ModuleLoader.Load(zpkg);   // 加载组件 + 依赖闭包
-            object o = ModuleLoader.Create("Z42.Pipeline.Z42cReplCompiler");
-            if (o == null) {
-                ConsoleError.WriteLine("z42i: Z42cReplCompiler type not resolvable after loading " + zpkg);
-                return new NoReplCompiler();
-            }
-            IReplCompiler c = o as IReplCompiler;
-            if (c == null) {
-                ConsoleError.WriteLine("z42i: loaded Z42cReplCompiler does not satisfy IReplCompiler (component/interface version mismatch?)");
-                return new NoReplCompiler();
-            }
-            return c;
-        } catch (Exception e) {
-            ConsoleError.WriteLine("z42i: compiler component load failed (" + e.Message + "); falling back to NoReplCompiler");
-            return new NoReplCompiler();
-        }
-    }
-
-    // 定位编译器组件 zpkg（z42c.pipeline.zpkg；其传递闭包 z42c.semantics/... 须与它同目录——
-    // ModuleLoader.Load 现把被加载 zpkg 自身所在目录并入 search_dirs（fix-repl-sdk-compiler-closure），
-    // 故 programs/z42c/ 里的兄弟自然解析，无需复制进 app payload）。探测序同 builder.z42 `_findCompilerZpkg`：
-    //   ① Z42_HOME/programs/z42c/（SDK 安装态；launcher 转发 `z42 repl` 时已设）
-    //   ② Z42_PORTABLE_VM 反推 SDK 根（<sdk>/bin/z42vm → <sdk>/programs/z42c/）
-    //   ③ 开发树 artifacts/build/compiler/z42c.driver/release/dist/（exe 自包含 bundle，7 兄弟共存）
-    //   ④ Z42_LIBS 目录（单目录；dev warm-z42c 回路 / workspace 运行：编译器组件与 stdlib 同置一处）——
-    //      REPL 的调用上下文比 z42b 更杂（驱动测试直驱 Script.Eval），故比 builder 多这一兜底。
-    private static string _findCompilerZpkg() {
-        // ① **VM 已解析的 zpkg 搜索序**（add-deployment-model 批 5 use，#832）。
-        //        `ModuleSearch.Dirs()` 给的是结果——相对项已按 entry zpkg 解析、`probing-paths` 的通配符
-        //        已展开、不存在的已剔除。位置由清单的 `[profile.<n>.runtime] probing-paths` 声明，
-        //        **代码里不再出现 `programs/z42c/` 这个路径**：位置变了只改清单。
-        string[] msDirs = ModuleSearch.Dirs();
-        int msI = 0;
-        while (msI < msDirs.Length) {
-                string pm = Path.Join(msDirs[msI], "z42c.pipeline.zpkg");
-                if (File.Exists(pm)) { return pm; }
-                msI = msI + 1;
-        }
-        // ② **兜底：Z42_LIBS 单目录**。保留它而不是像 builder 那样删干净，因为 REPL 的调用
-        //    上下文更杂——驱动测试直驱 `Script.Eval`，那是**非 app 路径**（没有 entry zpkg），
-        //    `ModuleSearch.Dirs()` 在那里按设计返回空数组。
-        //
-        //  （批 5 use）：原先这里有四档硬编码（Z42_HOME/programs/z42c → Z42_PORTABLE_VM
-        // 反推 SDK 根 → 开发树 artifacts 路径 → Z42_LIBS），与 `builder.z42` 那份几乎逐行相同。
-        // 位置改由清单的 `probing-paths` 声明后，前三档删除，**代码里不再出现 `programs/z42c/`**。
-        string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
-        if (libs.Length > 0) {
-            string p4 = Path.Join(libs, "z42c.pipeline.zpkg");
-            if (File.Exists(p4)) { return p4; }
-        }
-        return "";
     }
 }

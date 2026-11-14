@@ -7,7 +7,7 @@
 // 均不推进会话、作失败 EvalResult 返回（错误恢复）——异常不逃逸，REPL 可继续接受输入。
 //
 // sink-repl-compile-facade：编译世界（DepScanResult）+ 编译编排住编译器（z42c.pipeline，经
-// `IReplCompiler` 门面 + 运行期反射注入），scripting 编译期 stdlib-only。CachedScan 是 opaque
+// `IReplCompiler` 门面 + 静态绑定），scripting 静态依赖 pipeline。CachedScan 是 opaque
 // `object` 句柄；ParseAll/PackageCompile/DepScan 全不在本文件出现。
 //
 // 状态模型（D7 + D8）：会话变量提升为 Vars{N} 类静态字段；每轮 carry 前轮全部变量
