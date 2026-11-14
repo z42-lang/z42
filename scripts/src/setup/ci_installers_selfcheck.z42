@@ -1,6 +1,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Cli;
 using Std.Collections;
 
 class CiToolFixture : CiToolOps {
@@ -37,7 +38,7 @@ class CiToolFixture : CiToolOps {
 int _ciInstallerChecks(string kind) {
     try {
         if (kind == "book" || kind == "all") { _ciBookInstallerChecks(); }
-        if (kind == "wasm" || kind == "all") { _ciWasmInstallerChecks(); }
+        if (kind == "wasm" || kind == "all") { _ciWasmInstallerChecks(); _ciToolCheckModeChecks(); }
         return 0;
     } catch (Exception e) { ConsoleError.WriteLine("CI installer: " + e.Message); return 1; }
 }
@@ -88,6 +89,8 @@ void _ciWasmInstallerChecks() {
             string calls = String.Join("\n", ops.Calls.ToArray());
             _gateAssert(calls.Contains(_vRead(_root(), "toolchain.binaryen.revision")) && calls.Contains("-DBUILD_SHARED_LIBS=OFF") && calls.Contains("--target wasm-opt --parallel 2"), "pinned static source build");
             if (expected == 0) {
+                int verified = ops.Calls.Count;
+                _gateAssert(_ciToolsReady(_root(), target, "wasm-opt", ops) && ops.Calls.Count == verified + 1, "artifact consumers only probe the binary without source builds");
                 int before = ops.Calls.Count;
                 _gateAssert(_ciInstallWasm(_root(), target, stage, false, ops) == 0 && ops.Calls.Count == before + 1, "validated revision cache avoids rebuild");
                 _ciWrite(target, "revision", "stale revision"); before = ops.Calls.Count;
@@ -96,4 +99,31 @@ void _ciWasmInstallerChecks() {
         }
     } finally { Directory.Delete(dir, true); }
     Console.WriteLine("  ✓ wasm installer: pinned static build, cache, version and failure");
+}
+
+void _ciToolCheckModeChecks() {
+    string dir = _xtaskWork(_root(), "ci tool check"); _resetDir(dir);
+    try {
+        var ops = new CiToolFixture(); string target = Path.Join(dir, "restored tool");
+        _gateAssert(!_ciToolsReady(_root(), target, "wasm-opt", ops) && ops.Calls.Count == 0, "missing artifacts fail without downloads or builds");
+        _ciWrite(target, "revision", _vRead(_root(), "toolchain.binaryen.revision"));
+        _ciWrite(target, "bin/wasm-opt", "wasm-opt version 129");
+        _gateAssert(!_ciToolsReady(_root(), target, "wasm-opt", ops) && ops.Calls.Count == 1, "wrong artifact version fails without rebuilding");
+        _ciWrite(target, "bin/wasm-opt", "wasm-opt version " + _vRead(_root(), "toolchain.binaryen.version"));
+        _ciWrite(target, "revision", "unrelated commit"); int before = ops.Calls.Count;
+        _gateAssert(!_ciToolsReady(_root(), target, "wasm-opt", ops) && ops.Calls.Count == before, "mismatched revision fails before executing the artifact");
+        var command = new SetupCiToolCommand("wasm-opt"); command.Check = true; command.Force = true; command.Root = Path.Join(dir, "missing root");
+        bool rejected = false;
+        try { command.Run(); } catch (CliException e) { rejected = true; }
+        _gateAssert(rejected && !Directory.Exists(command.Root), "check rejects force before changing the installation");
+        command.Force = false;
+        _gateAssert(command.Run() == 1 && !Directory.Exists(command.Root), "CLI check fails on missing tools without creating the target");
+        string suffix = Platform.OS() == "windows" ? ".exe" : "";
+        foreach (var name in new string[]{ "mdbook", "mdbook-mermaid" }) {
+            _ciWrite(target, "bin/" + name + suffix, name + " v" + _vRead(_root(), "toolchain." + name + ".version"));
+        }
+        before = ops.Calls.Count;
+        _gateAssert(_ciToolsReady(_root(), target, "book-tools", ops) && ops.Calls.Count == before + 2, "book check validates both versions without installing");
+    } finally { Directory.Delete(dir, true); }
+    Console.WriteLine("  ✓ tool check mode: read-only validation, version/revision failures and incompatible flags");
 }

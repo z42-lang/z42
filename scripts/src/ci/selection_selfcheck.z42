@@ -33,6 +33,7 @@ void _ciSelectionChecks(FlowConfig cfg) {
         header = header.Substring(0, header.IndexOf("    steps:"));
         _gateAssert(header.Contains("needs.changes.outputs." + flag + " == 'true'"), "product job consumes explicit resource selection: " + job);
     }
+    _ciWasmArtifactChecks(workflow);
     _ciQueueChecks();
     _ciMainScopeChecks();
     _ciMainSupersedeChecks();
@@ -74,4 +75,23 @@ JsonValue _ciCompareFiles(string file, string previous) {
     item.Set("filename", JsonValue.OfString(file));
     if (previous.Length > 0) { item.Set("previous_filename", JsonValue.OfString(previous)); }
     files.Add(item); result.Set("files", files); return result;
+}
+
+void _ciWasmArtifactChecks(string workflow) {
+    foreach (var job in new string[]{ "package-wasm", "test-wasm", "publish-nightly", "ci-ok" }) {
+        string header = workflow.Substring(workflow.IndexOf("\n  " + job + ":"));
+        header = header.Substring(0, header.IndexOf("    steps:"));
+        _gateAssert(header.Contains("wasm-opt-bootstrap"), "all consumers and the aggregate depend on wasm-opt preparation: " + job);
+    }
+    string producer = workflow.Substring(workflow.IndexOf("\n  wasm-opt-bootstrap:"));
+    producer = producer.Substring(0, producer.IndexOf("    steps:"));
+    _gateAssert(producer.Contains("needs: changes") && !producer.Contains("toolchain-bootstrap"), "tool preparation runs independently of product compilation");
+    foreach (var flag in new string[]{ "platform_package", "wasm" }) {
+        _gateAssert(producer.Contains("needs.changes.outputs." + flag + " == 'true'"), "resource admission covers each WASM consumer: " + flag);
+    }
+    _gateAssert(workflow.Split("name: wasm-opt-linux-x64").Length == 2, "exactly one job uploads the shared tool artifact");
+    string consumer = File.ReadAllText(Path.Join(_root(), ".github/actions/setup-wasm-opt/action.yml"));
+    _gateAssert(consumer.Contains("name: wasm-opt-linux-x64") && consumer.Contains("--check --root")
+        && !consumer.Contains("actions/cache") && !consumer.Contains("run-id:"), "consumers validate only the same-run artifact, with no build/cache fallback");
+    Console.WriteLine("  ✓ WASM tool artifact: single producer, parallel prerequisites, consumer admission and aggregate failure propagation");
 }

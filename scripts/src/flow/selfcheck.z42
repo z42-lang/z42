@@ -66,7 +66,7 @@ void _flowPlannerChecks(FlowConfig cfg) {
     }
     FlowPlan bookTools = _flowSelect(cfg, new string[]{ "scripts/src/setup/book_tools.z42" }, root);
     _gateAssert(!bookTools.Publish && _flowHas(bookTools.Steps, "xtask") && !_flowHas(bookTools.Steps, "wasm") && !_flowHas(bookTools.Steps, "green"), "book installer avoids product tests and publishing");
-    foreach (var installer in new string[]{ "scripts/src/setup/wasm_opt.z42", "scripts/src/setup/ci_tools.z42" }) {
+    foreach (var installer in new string[]{ "scripts/src/setup/wasm_opt.z42", "scripts/src/setup/ci_tools.z42", ".github/actions/setup-wasm-opt/action.yml" }) {
         FlowPlan wasmTools = _flowSelect(cfg, new string[]{ installer }, root);
         _gateAssert(wasmTools.Publish && _flowHas(wasmTools.Steps, "wasm") && !_flowHas(wasmTools.Steps, "green"), "Binaryen installer retains actual wasm consumer");
     }

@@ -1,15 +1,14 @@
-name: Build pinned wasm-opt
-description: Cache a static Binaryen built from its pinned source commit (requires bootstrapped xtask)
+name: Restore pinned wasm-opt
+description: Restore and validate the current run's static Binaryen (requires bootstrapped xtask)
 runs:
   using: composite
   steps:
-    - name: Test wasm-opt installer
-      shell: bash
-      run: xtask ci check-installers wasm
-    - uses: actions/cache@v6
+    - uses: actions/download-artifact@v8
       with:
+        name: wasm-opt-linux-x64
         path: ${{ runner.temp }}/z42-binaryen
-        key: binaryen-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/versions.toml', 'scripts/src/setup/ci_tools.z42', 'scripts/src/setup/wasm_opt.z42') }}
-    - name: Build or validate wasm-opt
+    - name: Validate restored wasm-opt
       shell: bash
-      run: xtask setup wasm-opt --root "${{ runner.temp }}/z42-binaryen"
+      run: |
+        chmod +x "${{ runner.temp }}/z42-binaryen/bin/wasm-opt"
+        xtask setup wasm-opt --check --root "${{ runner.temp }}/z42-binaryen"
