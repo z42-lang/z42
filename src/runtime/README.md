@@ -2,7 +2,7 @@
 
 ## 职责
 
-`src/lib.rs` 编译唯一的运行时包 `z42`。`src/` 内的 host、上下文、执行、元数据、对象、GC、PAL、config、corelib、interop 与 profiler 都是包内模块。`src/main.rs` 只通过版本化 C 入口动态加载运行时；CLI 实现在 `host/cli.rs`，与嵌入端共用 host 服务。Cargo 命令用 `-p z42` 选择运行时。
+`src/lib.rs` 编译唯一的运行时包 `z42`。`src/` 内的 host、上下文、执行、元数据、对象、GC、PAL、config、corelib、interop 都是包内模块。`src/main.rs` 只通过版本化 C 入口动态加载运行时；CLI 实现在 `host/cli.rs`，与嵌入端共用 host 服务。Cargo 命令用 `-p z42` 选择运行时。
 
 执行 z42 编译产物（`.zbc` / `.zpkg`）。后端：解释器（interp）+ Cranelift JIT（desktop 默认，惰性逐函数编译）；AOT 为桩。
 不含编译器（在 `src/compiler/`）与标准库（在 `src/libraries/`）。
@@ -59,7 +59,7 @@
 | `crates/z42-compression/` | 独立压缩模块的脚本注册与算法，见 [`README.md`](crates/z42-compression/README.md) |
 | `src/corelib/` | 内置函数（builtin）实现，统一入口 `invoke_builtin` 供 interp / JIT 调用（builtin ABI v2：`exec/call/builtin_abi/`），见 [`src/corelib/README.md`](src/corelib/README.md) |
 | `src/gc/` | 具体 Heap 与分代 / STW / 增量 major 回收，见 [`src/gc/README.md`](src/gc/README.md) |
-| `src/profiler/` | CPU 采样、堆摘要、V8 快照与保留链，见 [`src/profiler/README.md`](src/profiler/README.md) |
+| `crates/z42-profiler/src/profiler/` | CPU 采样、堆摘要、V8 快照与保留链，见 [`crates/z42-profiler/README.md`](crates/z42-profiler/README.md) |
 | `src/context/` | `VmContext`（通过 host 提供嵌入入口）：固定地址的每线程视图，组合 exec/runtime/diagnostics/threads 状态并共享 Arc<VmCore> |
 | `src/interop/` | 原生提供方注册/查询与 Tier 1 C ABI 编组，见 [`src/interop/README.md`](src/interop/README.md) |
 | `src/components/` | 统一组件协议、工厂加载、后端选择与每 VM 生命周期，见 [`src/components/README.md`](src/components/README.md) |
@@ -121,6 +121,7 @@ GC 的 chunk 分配、代数与弱句柄 epoch 校验仍由 `gc/var_region` 管�
 | 子 crate | 职责 | 状态 |
 |---------|------|------|
 | `crates/z42-interp/` | 基线解释器、Engine 与组件工厂 | 在用 |
+| `crates/z42-profiler/` | 可选 CPU 采样、堆快照与保留图，按需装配 | 在用 |
 | `crates/z42-jit/` | Cranelift、tier/OSR、代码页与组件工厂 | 在用 |
 | `crates/z42-zpkg/` | 静态产物格式、解析、IR 与不可变包映像；无 VM 依赖 | 在用 |
 | `crates/z42-abi/` | 类型与模块 C ABI 的 Rust `#[repr(C)]` 布局（`no_std`，无依赖） | 在用 |

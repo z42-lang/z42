@@ -52,7 +52,7 @@ void _plSdk(string root, _PkgLayout L, string rid) {
     // import lib 也不进 SDK：z42vm 只 dlopen，链接期文件属于 runtime 包（嵌入者直接链接用）。
     foreach (var f in new string[]{ "include", "libz42.a", "z42.lib",
                                     "libz42_compression.a", "z42_compression.lib", "z42_compression.dll.lib",
-                                    "z42.dll.lib", "z42_interp.dll.lib", "z42_jit.dll.lib" }) {
+                                    "libz42_profiler.a", "z42_profiler.lib", "z42_profiler.dll.lib", "z42.dll.lib", "z42_interp.dll.lib", "z42_jit.dll.lib" }) {
         L.Absent("native/" + f, "嵌入件只在 runtime 包");
     }
     if (rid.StartsWith("windows-")) {
@@ -77,7 +77,7 @@ void _plRuntimeDesktop(string root, _PkgLayout L, string rid) {
     _plStaticComponents(L, rid);
     if (rid.StartsWith("windows-")) {
         // 桌面 runtime 包同时提供动态链接面：嵌入者可链 import lib 直接注册组件（不 dlopen）。
-        foreach (var stem in new string[]{ "z42", "z42_interp", "z42_jit", "z42_compression" }) {
+        foreach (var stem in _rtStems(_root(), rid)) {
             L.HasFile("native/" + stem + ".dll.lib");
         }
     }
@@ -104,6 +104,7 @@ void _plRuntimeIos(_PkgLayout L, string rid) {
 
 void _plRuntimeAndroid(_PkgLayout L, string rid) {
     _plStaticComponents(L, rid);
+    L.HasFile("native/libz42_profiler.so");
     L.HasFile("native/libz42_interp.so");
     if (_componentTargetHasJit(rid)) { L.HasFile("native/libz42_jit.so"); }
     L.HasFile("native/libz42_compression.so");
@@ -223,7 +224,7 @@ class _PkgLayout {
 }
 
 void _plStaticComponents(_PkgLayout L, string rid) {
-    foreach (var stem in new string[]{ "z42_interp", "z42_compression", "z42_jit" }) {
+    foreach (var stem in new string[]{ "z42_interp", "z42_profiler", "z42_compression", "z42_jit" }) {
         string file = "native/" + _componentStaticName(stem, rid);
         if (stem == "z42_jit" && !_componentTargetHasJit(rid)) {
             L.Absent(file, "target has no JIT"); continue;

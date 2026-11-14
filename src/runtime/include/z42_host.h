@@ -277,9 +277,12 @@ typedef struct Z42ComponentId { uint8_t bytes[16]; } Z42ComponentId;
 static const Z42ComponentId Z42_COMPONENT_INTERP = {{0x7a, 0x34, 0x32, 0x2e, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x70, 0x2e, 0x76, 0x31, 0x00, 0x00, 0x00}};
 static const Z42ComponentId Z42_COMPONENT_JIT = {{0x7a, 0x34, 0x32, 0x2e, 0x6a, 0x69, 0x74, 0x2e, 0x76, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
 
+static const Z42ComponentId Z42_COMPONENT_PROFILER = {{0x7a, 0x34, 0x32, 0x2e, 0x70, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x72, 0x2e, 0x76, 0x31, 0x00}};
+
 /* Factories are supplied by the selected component libraries, not the core. */
 const Z42ComponentDescriptor* z42_interp_init(void);
 const Z42ComponentDescriptor* z42_jit_init(void);
+const Z42ComponentDescriptor* z42_profiler_init(void);
 
 /* Call before creating a host. init and its callbacks must be trusted and remain
  * loaded for the process lifetime. Repeating the same registration is idempotent;

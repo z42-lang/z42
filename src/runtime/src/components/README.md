@@ -14,6 +14,7 @@
 | `catalog.rs` | 按启用根加载工厂依赖闭包、缓存与描述符校验、依赖排序和代码所有权 |
 | `options.rs` | 启用根与可用提供方配置、事务装配入口和带租约的只读查询 |
 | `instance.rs` | 每 VM 创建/销毁、核心与依赖服务、接口租约和反序清理 |
+| `profiling.rs` | profiler 按需装配、同核心身份检查与代码寿命 |
 | `backends.rs` | interp/JIT 来源选择、能力查询、身份检查和执行接口装配 |
 | `linked.rs` | 进程寿命的静态工厂登记；不保存 VM 实例 |
 | `identity.rs` | 单份 runtime 映像身份与编译期内存布局校验 |

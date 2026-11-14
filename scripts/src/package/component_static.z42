@@ -27,7 +27,7 @@ int _componentBuildStaticLegacy(string root, string rid, string profile) {
     string features = "z42/static-embedding,z42/" + _componentPlatformPreset(rid).Replace(",", ",z42/");
     Process p = _componentPlatformCargo("build", root, rid, profile, false, "",
         Path.Join(_componentPlatformOut(root, rid, profile, false), "cargo-artifacts.jsonl"))
-        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-interp").Arg("--lib").Arg("--examples")
+        .Arg("-p").Arg("z42").Arg("-p").Arg("z42-profiler").Arg("-p").Arg("z42-interp").Arg("--lib").Arg("--examples")
         .Arg("--no-default-features");
     if (_componentTargetHasJit(rid)) {
         p = p.Arg("-p").Arg("z42-jit");
@@ -41,6 +41,8 @@ int _componentBuildStaticLegacy(string root, string rid, string profile) {
 // 静态图产出的后续步骤（两种路径共用）：组件归档重组。
 int _componentFinishStatic(string root, string rid, string profile) {
     int c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_interp");
+    if (c != 0) { return c; }
+    c = _componentStaticArchiveFromRlib(root, rid, profile, "z42_profiler");
     if (c != 0) { return c; }
     c = _componentBuildCompression(root, rid, profile, false);
     if (c != 0 || !_componentTargetHasJit(rid)) { return c; }

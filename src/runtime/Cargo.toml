@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "tests/data/component", "crates/z42-interp", "crates/z42-jit", "crates/z42-zpkg", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl"]
+members = [".", "tests/data/component", "crates/z42-profiler", "crates/z42-interp", "crates/z42-jit", "crates/z42-zpkg", "crates/z42-abi", "crates/z42-rs", "crates/z42-macros", "crates/z42-compression", "crates/z42-repl"]
 default-members = [".", "crates/z42-zpkg", "crates/z42-compression"]
 
 [workspace.package]
@@ -100,6 +100,7 @@ signal-hook-registry = "1.4"
 # Backends depend on this runtime. Only final examples/tests link their rlibs here;
 # the production runtime has no dependency on a concrete execution backend.
 [dev-dependencies]
+z42-profiler = { path = "crates/z42-profiler", default-features = false }
 z42-interp = { path = "crates/z42-interp", default-features = false }
 jsonschema = { version = "0.56", default-features = false }
 criterion  = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }

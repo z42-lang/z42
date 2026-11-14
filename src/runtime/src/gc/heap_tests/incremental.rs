@@ -963,3 +963,32 @@ fn a_minor_inside_a_cycle_reclaims_what_was_born_dead_in_it() {
     std::mem::forget((x, arr));
     heap.finish_major_cycle_for_test();
 }
+
+/// Clear both complete four-word batches and a tail before the grey array is scanned.
+fn run_bulk_reference_clear(barrier_on: bool) -> bool {
+    let heap = Heap::default();
+    heap.set_mode(GcMode::StwMarkSweep);
+    let _bound = Bound::to(&heap);
+    crate::gc::satb::set_disabled_for_test(!barrier_on);
+    let x = heap.alloc_object(dummy_type_desc("BulkTarget"), vec![], NativeData::None);
+    let holder = crate::object::ArrayObj::alloc_filled(&heap,
+        crate::object::ElemType::intern("object"), crate::object::ElemKind::Ref, 9, x);
+    let Value::Array(array) = holder else { panic!("reference array") };
+    let _root = heap.pin_root(holder);
+    let weak = heap.make_weak(&x).unwrap();
+    heap.open_major_cycle();
+    heap.snapshot_roots_into_mark_queue();
+    assert!(array.borrow().try_clear_elems(0, 9).unwrap());
+    heap.drain_mark_queue();
+    heap.close_major_marking();
+    heap.sweep_phase();
+    is_alive(&heap, &weak)
+}
+#[test]
+fn satb_bulk_clear_records_references_in_batches_and_tail() {
+    assert!(run_bulk_reference_clear(true));
+}
+#[test]
+fn without_satb_bulk_clear_loses_the_unscanned_referent() {
+    assert!(!run_bulk_reference_clear(false));
+}

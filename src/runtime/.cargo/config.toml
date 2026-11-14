@@ -58,19 +58,19 @@ z42-test-dyn = [
 ]
 
 # 桌面动态组件图（z42vm 同图）。--profile 由调用方追加（release → release-dynamic）。
-z42-dynamic = ["z42-dyn", "-p", "z42", "-p", "z42-interp", "-p", "z42-jit",
+z42-dynamic = ["z42-dyn", "-p", "z42", "-p", "z42-profiler", "-p", "z42-interp", "-p", "z42-jit",
     "--no-default-features",
-    "--features", "z42/desktop-dynamic,z42-interp/dynamic,z42-jit/dynamic"]
+    "--features", "z42/desktop-dynamic,z42-profiler/shared-core,z42-interp/dynamic,z42-jit/dynamic"]
 # compression 动态图（默认特性 = backend；桌面与移动同配方，移动由调用方追加 --target）。
 z42-compression-dynamic = ["z42-dyn", "-p", "z42-compression", "--lib"]
 # iOS 动态图（真机无 JIT）。调用方追加 --target <triple>。
-z42-mobile-dynamic-ios = ["z42-dyn", "-p", "z42", "-p", "z42-interp", "--lib",
+z42-mobile-dynamic-ios = ["z42-dyn", "-p", "z42", "-p", "z42-profiler", "-p", "z42-interp", "--lib",
     "--no-default-features",
-    "--features", "z42/ios,z42/shared-core,z42-interp/shared-core,z42-interp/native-interop"]
+    "--features", "z42/ios,z42/shared-core,z42-profiler/shared-core,z42-interp/shared-core,z42-interp/native-interop"]
 # iOS 模拟器动态图（含 JIT）。
-z42-mobile-dynamic-iossim = ["z42-dyn", "-p", "z42", "-p", "z42-interp", "-p", "z42-jit", "--lib",
+z42-mobile-dynamic-iossim = ["z42-dyn", "-p", "z42", "-p", "z42-profiler", "-p", "z42-interp", "-p", "z42-jit", "--lib",
     "--no-default-features",
-    "--features", "z42/ios,z42/jit,z42/shared-core,z42-interp/shared-core,z42-interp/native-interop,z42-interp/jit,z42-jit/shared-core"]
+    "--features", "z42/ios,z42/jit,z42/shared-core,z42-profiler/shared-core,z42-interp/shared-core,z42-interp/native-interop,z42-interp/jit,z42-jit/shared-core"]
 
 # 静态基座：显式 prefer-dynamic=no + release 关 LTO（profile 名不变，输出目录不动）。
 z42-static = [
@@ -79,19 +79,19 @@ z42-static = [
     "--config", "profile.release.lto=false",
 ]
 # 静态嵌入图（--lib --examples；example z42 = 最终静态归档）。移动由调用方追加 --target。
-z42-static-desktop = ["z42-static", "-p", "z42", "-p", "z42-interp", "-p", "z42-jit",
+z42-static-desktop = ["z42-static", "-p", "z42", "-p", "z42-profiler", "-p", "z42-interp", "-p", "z42-jit",
     "--lib", "--examples", "--no-default-features",
     "--features", "z42/desktop-static,z42-interp/jit,z42-interp/native-interop,z42-jit/jit"]
-z42-static-ios    = ["z42-static", "-p", "z42", "-p", "z42-interp",
+z42-static-ios    = ["z42-static", "-p", "z42", "-p", "z42-profiler", "-p", "z42-interp",
     "--lib", "--examples", "--no-default-features",
     "--features", "z42/ios-static,z42-interp/native-interop"]
-z42-static-iossim = ["z42-static", "-p", "z42", "-p", "z42-interp", "-p", "z42-jit",
+z42-static-iossim = ["z42-static", "-p", "z42", "-p", "z42-profiler", "-p", "z42-interp", "-p", "z42-jit",
     "--lib", "--examples", "--no-default-features",
     "--features", "z42/iossim-static,z42-interp/jit,z42-interp/native-interop,z42-jit/jit"]
-z42-static-android = ["z42-static", "-p", "z42", "-p", "z42-interp", "-p", "z42-jit",
+z42-static-android = ["z42-static", "-p", "z42", "-p", "z42-profiler", "-p", "z42-interp", "-p", "z42-jit",
     "--lib", "--examples", "--no-default-features",
     "--features", "z42/android-static,z42-interp/jit,z42-interp/native-interop,z42-jit/jit"]
-z42-static-wasm   = ["z42-static", "-p", "z42", "-p", "z42-interp",
+z42-static-wasm   = ["z42-static", "-p", "z42", "-p", "z42-profiler", "-p", "z42-interp",
     "--lib", "--examples", "--no-default-features",
     "--features", "z42/wasm-static"]
 # compression 静态图（默认特性 = backend）。

@@ -218,3 +218,19 @@ unsafe impl ComponentInterface for ExecutionApi {
 
 }
 pub use execution::*;
+
+/// Optional diagnostics implementation. Attach borrows the same-build shared core
+/// and installs a provider through its internal Rust contract; no Rust ownership
+/// crosses this C table. Identity must be checked before attach.
+pub const PROFILER_COMPONENT: ComponentId = ComponentId::new(0x7a34322e70726f66696c65722e763100);
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ProfilerApi {
+    pub header: ApiHeader,
+    pub core_identity: unsafe extern "C" fn() -> ExecutionIdentity,
+    pub attach: unsafe extern "C" fn(*const c_void, u32, u32) -> ComponentStatus,
+}
+unsafe impl ComponentInterface for ProfilerApi {
+    const ID: InterfaceId = InterfaceId::new(0x7a34322e70726f66696c652e61706900);
+    const VERSION: u32 = 1;
+}

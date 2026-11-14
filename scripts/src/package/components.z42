@@ -70,10 +70,15 @@ Process _componentTargets(Process build, string root) {
         .Arg("-p").Arg("z42")
         .Arg("-p").Arg("z42-interp").Arg("-p").Arg("z42-jit")
         .Arg("--no-default-features");
+    string profiler = "";
+    if (File.Exists(Path.Join(root, "src/runtime/crates/z42-profiler/Cargo.toml"))) {
+        p = p.Arg("-p").Arg("z42-profiler");
+        profiler = ",z42-profiler/shared-core";
+    }
     // 旧树（bench base-src 等）没有 R0 的命名别名，回退展开串。
-    if (_componentR0Tree(root)) { return p.Arg("--features").Arg("z42/desktop-dynamic,z42-interp/dynamic,z42-jit/dynamic"); }
+    if (_componentR0Tree(root)) { return p.Arg("--features").Arg("z42/desktop-dynamic,z42-interp/dynamic,z42-jit/dynamic" + profiler); }
     return p.Arg("--features").Arg("z42/cli,z42/interp,z42/jit,z42/shared-core,z42/native-interop,z42/net,z42/tls"
-        + ",z42-interp/shared-core,z42-interp/jit,z42-interp/native-interop,z42-jit/shared-core");
+        + ",z42-interp/shared-core,z42-interp/jit,z42-interp/native-interop,z42-jit/shared-core" + profiler);
 }
 
 int _componentBuild(string root, string profile) {

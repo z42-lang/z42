@@ -62,7 +62,8 @@ static int failure(struct Api* api, Z42HostRef host, int expect_missing) {
     Z42Error error = api->error(host);
     const char* message = error.message ? error.message : "no error message";
     fprintf(stderr, "component host: %s\n", message);
-    int missing = expect_missing == 2 ? strstr(message, "compression") != NULL
+    int missing = expect_missing == 3 ? strstr(message, "profiler") != NULL
+        : expect_missing == 2 ? strstr(message, "compression") != NULL
         : expect_missing && (strstr(message, "JIT") || strstr(message, "jit") || strstr(message, "Jit"));
     if (host) api->shutdown(host);
     return missing ? 0 : 1;
@@ -70,6 +71,10 @@ static int failure(struct Api* api, Z42HostRef host, int expect_missing) {
 int main(int argc, char** argv) {
     if (argc < 5) return 2; /* core path, bytecode, libs, mode, [expect-missing] */
     int expect_missing = argc > 5 && strcmp(argv[5], "expect-missing") == 0;
+    int sampling = argc > 5 && strncmp(argv[5], "sampling", 8) == 0;
+    if (sampling && strcmp(argv[5], "sampling-missing") == 0) expect_missing = 3;
+    const char* sample_hz = getenv("Z42_SAMPLE_HZ");
+    REQUIRE(sampling ? sample_hz && strcmp(sample_hz, "1000") == 0 : sample_hz == NULL);
     struct Api api;
 #ifdef Z42_COMPONENT_DYNAMIC
     /* Retain the core image through process/TLS teardown. */
@@ -112,6 +117,9 @@ int main(int argc, char** argv) {
 #ifdef Z42_COMPONENT_HAS_JIT
     if (api.reg(Z42_COMPONENT_JIT, z42_jit_init) != Z42_HOST_OK) return 1;
 #endif
+#ifdef Z42_COMPONENT_HAS_PROFILER
+    REQUIRE(api.reg(Z42_COMPONENT_PROFILER, z42_profiler_init) == Z42_HOST_OK);
+#endif
 #ifdef Z42_COMPONENT_HAS_COMPRESSION
     REQUIRE(api.native("z42_compression", z42_compression_get_symbol) == Z42_HOST_OK);
     REQUIRE(api.native("z42_compression", z42_compression_get_symbol) == Z42_HOST_OK);
@@ -122,6 +130,7 @@ int main(int argc, char** argv) {
 #endif
 #ifdef Z42_COMPONENT_DYNAMIC
     if (argc > 6) REQUIRE(!module_loaded(argv[6]));
+    if (argc > 7) REQUIRE(!module_loaded(argv[7]));
 #endif
     REQUIRE(api.native(NULL, empty_resolver) == Z42_HOST_ERR_BAD_CONFIG);
     REQUIRE(api.native("z42_compression", NULL) == Z42_HOST_ERR_BAD_CONFIG);
@@ -142,7 +151,7 @@ int main(int argc, char** argv) {
     fclose(file);
     Z42ModuleRef module = NULL;
     if (api.load(host, bytes, (size_t)length, &module) != Z42_HOST_OK) return failure(&api, host, expect_missing);
-    if (expect_missing) { fprintf(stderr, "unlinked JIT unexpectedly loaded\n"); return 1; }
+    if (expect_missing == 1 || expect_missing == 3) { fprintf(stderr, "missing component unexpectedly loaded\n"); return 1; }
     Z42EntryRef entry = NULL;
     if (api.resolve(host, module, "EngineComponentProbe.Echo", &entry) != Z42_HOST_OK) return failure(&api, host, 0);
     for (uint64_t i = 40; i < 43; ++i) {
@@ -152,6 +161,7 @@ int main(int argc, char** argv) {
     }
 #ifdef Z42_COMPONENT_DYNAMIC
     if (argc > 6) REQUIRE(!module_loaded(argv[6]));
+    if (argc > 7) REQUIRE(module_loaded(argv[7]) == sampling);
 #endif
     if (argc > 5 && strncmp(argv[5], "compression", 11) == 0) {
         REQUIRE(api.resolve(host, module, "EngineComponentProbe.CompressionRoundtrip", &entry) == Z42_HOST_OK);
@@ -162,6 +172,17 @@ int main(int argc, char** argv) {
         REQUIRE(!missing && result.tag == Z42_VALUE_TAG_I64 && result.payload == 36);
 #ifdef Z42_COMPONENT_DYNAMIC
         if (argc > 6) REQUIRE(module_loaded(argv[6]));
+#endif
+    }
+    if (argc > 5 && strncmp(argv[5], "profiler", 8) == 0) {
+        REQUIRE(api.resolve(host, module, "EngineComponentProbe.HeapInspection", &entry) == Z42_HOST_OK);
+        Z42Value result = {0};
+        Z42HostStatus inspected = api.invoke(entry, NULL, 0, &result);
+        int missing = strcmp(argv[5], "profiler-missing") == 0;
+        if (inspected != Z42_HOST_OK) return failure(&api, host, missing ? 3 : 0);
+        REQUIRE(!missing && result.tag == Z42_VALUE_TAG_I64 && result.payload == 42);
+#ifdef Z42_COMPONENT_DYNAMIC
+        if (argc > 7) REQUIRE(module_loaded(argv[7]));
 #endif
     }
     if (api.shutdown(host) != Z42_HOST_OK) return failure(&api, host, 0);
