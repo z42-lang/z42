@@ -10,7 +10,7 @@ use crate::metadata::dispatch::ic::{ctorless_hit, ctorless_note, ObjNewSite};
 use crate::metadata::ids::tokens::UNRESOLVED;
 use crate::metadata::{Function, Module};
 use crate::object::{TypeDesc, Value};
-use crate::context::symres;
+use crate::exec::exception::symbol_resolution;
 use crate::context::VmContext;
 
 use crate::metadata::dispatch::functions::{fn_by_id, lazy_call_id};
@@ -25,7 +25,7 @@ pub fn resolve_class(
     if let Some(td) = site.and_then(|s| s.class.get()) {
         // runtime-ambiguous-use-site: a second package declaring the class may load at any
         // time, so this stays per allocation (one relaxed load while none was ever seen).
-        if let Some(exc) = symres::ambiguous_type_exception(ctx, module, class_name) {
+        if let Some(exc) = symbol_resolution::ambiguous_type_exception(ctx, module, class_name) {
             return Err(exc);
         }
         return Ok(Arc::clone(td));
@@ -49,7 +49,7 @@ fn resolve_class_slow(
             // 字段槽 ⇒ 构造器的 FieldSet 被丢弃、后续 FieldGet 全读 Null）。`missing_type_exception`
             // 判定确定不存在就抛；回落描述符只留给它的正当用途（合并模块带 ClassDesc / 编译器
             // 合成的本地类）。回落描述符每次现建，不进缓存（与此前行为一致）。
-            if let Some(exc) = symres::missing_type_exception(ctx, module, class_name) {
+            if let Some(exc) = symbol_resolution::missing_type_exception(ctx, module, class_name) {
                 return Err(exc);
             }
             (Arc::new(make_fallback_type_desc(module, class_name)), false)
@@ -66,11 +66,11 @@ fn resolve_class_slow(
         }
     } else { type_desc };
     // runtime-ambiguous-use-site：**用**一个被两个包各自声明的类型 → 报错。
-    if let Some(exc) = symres::ambiguous_type_exception(ctx, module, class_name) {
+    if let Some(exc) = symbol_resolution::ambiguous_type_exception(ctx, module, class_name) {
         return Err(exc);
     }
     // 站点 ④ fix-silent-symbol-resolution：惰性解析都走完了还是残缺 ⇒ 基类确定不存在。
-    if let Some(exc) = symres::missing_base_exception(ctx, module, &type_desc) {
+    if let Some(exc) = symbol_resolution::missing_base_exception(ctx, module, &type_desc) {
         return Err(exc);
     }
     // Only a complete descriptor the registries hold is cached: a fallback one is rebuilt
@@ -130,7 +130,7 @@ fn bind_ctor<'a>(
         let (idx, f) = f;
         // 站点 ⑤ fix-ctor-arity-skew：解析**成功**也要查——裸键在版本 skew 下会命中**错的**
         // 构造器（单构造器必是 primary、必占裸键），而建帧不做 arity 校验。不符不缓存。
-        if let Some(exc) = symres::wrong_arity_exception(
+        if let Some(exc) = symbol_resolution::wrong_arity_exception(
             ctx, module, ctor_name, crate::metadata::dispatch::functions::call_arity(f), phys_argc,
         ) {
             return Err(exc);
@@ -141,7 +141,7 @@ fn bind_ctor<'a>(
     match ctx.try_lookup_function(ctor_name) {
         Some(lazy) => {
             // 站点 ⑤：惰性加载来的构造器同样查（跨包构造器正是 skew 的主战场）。
-            if let Some(exc) = symres::wrong_arity_exception(
+            if let Some(exc) = symbol_resolution::wrong_arity_exception(
                 ctx, module, ctor_name, crate::metadata::dispatch::functions::call_arity(lazy.as_ref()), phys_argc,
             ) {
                 return Err(exc);
@@ -153,7 +153,7 @@ fn bind_ctor<'a>(
         None => {
             // 站点 ③ fix-silent-symbol-resolution：带实参却解析不到构造器 = 定案缺失，不能把
             // 「未经构造」的对象写进 dst（字段全零值，错误现场离根因十万八千里）。
-            if let Some(exc) = symres::missing_ctor_exception(
+            if let Some(exc) = symbol_resolution::missing_ctor_exception(
                 ctx, module, class_name, ctor_name, phys_argc - 1, ctor_known,
             ) {
                 return Err(exc);

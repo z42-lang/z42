@@ -34,7 +34,7 @@ unsafe fn jit_with_str<R>(ctx: *const VmContext, v: &Value, f: impl FnOnce(&str)
 /// the error text. Returns the "thrown" sentinel.
 pub(crate) unsafe fn stringify_failed(ctx: *const VmContext, e: anyhow::Error) -> u8 {
     let vm = vm_ctx_ref(ctx);
-    let exc = vm.take_pending_thrown().unwrap_or_else(|| Value::Str(e.to_string().into()));
+    let exc = vm.exec().take_pending_thrown().unwrap_or_else(|| Value::Str(e.to_string().into()));
     set_exception(vm, exc);
     1
 }

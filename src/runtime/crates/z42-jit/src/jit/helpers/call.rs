@@ -189,7 +189,7 @@ unsafe fn call_interp(
     vm.set_top_frame_pc(caller_offset);
     // runtime-ambiguous-use-site：与 interp `exec_call` 对称（两后端同判据）。
     // 常态 = 一次 relaxed 原子读，进程内没发生过碰撞时恒 false。
-    if let Some(exc) = crate::context::symres::ambiguous_function_exception(vm, module, &callee.name) {
+    if let Some(exc) = crate::exec::exception::symbol_resolution::ambiguous_function_exception(vm, module, &callee.name) {
         set_exception(vm, exc);
         return 1;
     }

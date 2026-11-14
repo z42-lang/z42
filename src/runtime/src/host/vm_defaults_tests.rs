@@ -168,7 +168,7 @@ fn object_protocol_consumer_errors_keep_the_original_channels() {
     let root = ctx.heap().pin_root(object.clone());
     let error = with_obj_str(&ctx, &module, &object, str::to_owned).unwrap_err();
     assert!(error.to_string().contains("registered ToString failure"));
-    assert!(ctx.take_pending_thrown().is_none());
+    assert!(ctx.exec().take_pending_thrown().is_none());
     ctx.heap().unpin_root(root);
 }
 

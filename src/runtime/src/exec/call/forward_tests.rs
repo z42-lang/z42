@@ -144,7 +144,7 @@ fn jit(vm: &VmContext, m: &Module, name: &str) -> Result<Value, String> {
     match unsafe { call_entry(vm, entry, crate::jit::runtime::frame::JitFrame::new(vm, entry.max_reg, &[])) } {
         NativeOutcome::Returned(v) => Ok(v.unwrap_or(Value::Null)),
         NativeOutcome::Threw => {
-            let exc = vm.take_exception().expect("pending exception");
+            let exc = vm.exec().take_exception().expect("pending exception");
             Err(thrown_text(vm, m, &exc))
         }
     }

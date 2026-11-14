@@ -132,7 +132,7 @@ impl Jitted<'_> {
         let before = HELPER_CALLS.with(|c| c.get());
         let out = match unsafe { call_entry(self.vm, &self.entry, JitFrame::new(self.vm, self.entry.max_reg, args)) } {
             NativeOutcome::Returned(v) => Ok(v.unwrap_or(Value::Null)),
-            NativeOutcome::Threw => Err(format!("{:?}", self.vm.take_exception())),
+            NativeOutcome::Threw => Err(format!("{:?}", self.vm.exec().take_exception())),
         };
         (out, HELPER_CALLS.with(|c| c.get()) - before)
     }

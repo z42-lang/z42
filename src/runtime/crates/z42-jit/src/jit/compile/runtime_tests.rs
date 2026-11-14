@@ -121,7 +121,7 @@ fn function_compiled_on_one_thread_runs_natively_on_another() {
             match run(&w, e) {
                 NativeOutcome::Returned(Some(Value::I64(42))) => {}
                 NativeOutcome::Returned(v) => panic!("unexpected return {v:?}"),
-                NativeOutcome::Threw => panic!("threw {:?}", w.take_exception()),
+                NativeOutcome::Threw => panic!("threw {:?}", w.exec().take_exception()),
             }
             assert_eq!(compiled_here(&w), 0, "nothing compiled on the worker");
             assert_eq!(w.exec.call_stack.depth(), 0, "the native frame was pushed on and popped off the worker's stack");
@@ -167,11 +167,11 @@ fn exception_thrown_in_jit_code_on_a_worker_stays_on_the_worker() {
             let w = VmContext::new_with_core(vm.core_arc());
             let e = crate::jit::compile::state::runtime(&w).unwrap().resolve_fn_by_id(&w, 0).expect("compiled");
             assert!(matches!(run(&w, e), NativeOutcome::Threw));
-            assert!(matches!(w.take_exception(), Some(Value::I64(13))), "pending on the worker");
+            assert!(matches!(w.exec().take_exception(), Some(Value::I64(13))), "pending on the worker");
             assert_eq!(w.exec.call_stack.depth(), 0, "unwound");
         }).join().expect("worker");
     });
-    assert!(vm.peek_exception().is_none(), "the main thread's pending slot is untouched");
+    assert!(vm.exec().peek_exception().is_none(), "the main thread's pending slot is untouched");
 }
 
 #[test]
@@ -200,7 +200,7 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
             w.push_frame(VmFrame::new(f.func, &regs));
             w.exec.jit_head.stack_limit.store(usize::MAX, Ordering::Relaxed);
             let forced = matches!(run(&w, f), NativeOutcome::Threw)
-                && matches!(w.take_exception(), Some(Value::Str(s)) if s.as_str().contains("stack overflow"));
+                && matches!(w.exec().take_exception(), Some(Value::Str(s)) if s.as_str().contains("stack overflow"));
             w.pop_frame();
             // Unbounded recursion on this thread's 8 MiB stack stops at its own limit.
             let deep = crate::jit::run_fn(&w, "r").expect_err("overflows").to_string();

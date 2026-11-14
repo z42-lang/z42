@@ -9,6 +9,9 @@
 | 入口 | 职责 |
 |---|---|
 | `exception/` | 异常对象构造、传播和栈迹捕获；解释器与 JIT 保持各自的传播通道 |
+| `exception/symbol_resolution.rs` | 解析穷尽后的缺符号/歧义/实参数错误裁决与托管异常，不归上下文状态模块 |
+| `exception/pending.rs` | ThreadExecState 的 JIT 与反射/原生回调异常交接；消费、观察与线程隔离 |
+| `ops/object/static_defaults.rs` | 静态字段声明类型的零值与值类型物化，需要加载和 GC 的执行语义 |
 | `stack_guard.rs` | 原生栈余量、致命标记与报告；两个后端共用 |
 | `init.rs` | 类型与包初始化屏障、执行、parked 等待及异常构造 |
 | `thread_state.rs` | `ThreadExecState` 的帧、池、arena、异常槽与 JIT 中立头；每线程独立 |

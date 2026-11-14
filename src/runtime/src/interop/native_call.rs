@@ -168,7 +168,7 @@ pub(crate) fn invoke_export(
         };
         drop(park);
         if status == abi::THROWN {
-            return Err(Box::new(match ctx.take_pending_thrown() {
+            return Err(Box::new(match ctx.exec().take_pending_thrown() {
                 Some(value) => BuiltinError::Thrown(value),
                 None => BuiltinError::Internal(
                     "native module returned THROWN without a script exception".into(),
@@ -176,13 +176,13 @@ pub(crate) fn invoke_export(
             }));
         }
         if status != abi::OK {
-            let _ = ctx.take_pending_thrown();
+            let _ = ctx.exec().take_pending_thrown();
             return Err(Box::new(frame.error.unwrap_or_else(|| {
                 BuiltinError::Internal("native module failed without an error".into())
             })));
         }
         // Editing callbacks may deliberately swallow a script exception.
-        let _ = ctx.take_pending_thrown();
+        let _ = ctx.exec().take_pending_thrown();
         let result = frame.result.ok_or_else(|| {
             Box::new(BuiltinError::Internal(
                 "native module did not return a value or void".into(),
@@ -352,7 +352,7 @@ unsafe extern "C" fn invoke_script(
                     Ok(frame.arena.insert(owned))
                 }
                 crate::exec::call::outcome::ExecOutcome::Thrown(value) => {
-                    frame.ctx.set_pending_thrown(value);
+                    frame.ctx.exec().set_pending_thrown(value);
                     Err(BuiltinError::Thrown(value))
                 }
             }

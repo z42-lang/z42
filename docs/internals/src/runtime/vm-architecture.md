@@ -167,8 +167,10 @@ Rust 查询/注册/pin 操作经 interop 模块函数访问冻结扩展状态，
 
 > **模块布局**：`context/`：`mod.rs`（hub：VM_CORES / snapshot /
 > `VmContextPtr` / `CoreContextReclaimer`）+ `types.rs`（VmCore/VmContext struct）+
-> `core_builder.rs`（Core 构造）+ `thread_lifecycle.rs`（worker 加入 + Drop）（帧栈归 `exec/call/frame_stack.rs`，见下「帧栈的归属」）+ `pending_exception.rs` / `frames.rs` / `statics.rs` / `lookup.rs`
-> （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）（静态状态归 `metadata/statics/`，执行与等待归 `exec/init.rs`）（`is`/`as`/`catch` 前置缓存类型在 `metadata/dispatch/isa_cache.rs`）/ `symres.rs`（「确定不存在」判定）。
+> `core_builder.rs`（Core 构造）+ `thread_lifecycle.rs`（worker 加入 + Drop）（帧栈归 `exec/call/frame_stack.rs`，见下「帧栈的归属」）+ `frames.rs` / `statics.rs` / `lookup.rs`
+> （各 concern 的 `impl VmContext` 块，inherent impl 可跨文件）（静态状态归 `metadata/statics/`，执行与等待归 `exec/init.rs`）（`is`/`as`/`catch` 前置缓存类型在 `metadata/dispatch/isa_cache.rs`）。
+> 缺符号裁决归 `exec/exception/symbol_resolution.rs`，静态零值物化归 `exec/ops/object/static_defaults.rs`；
+> 异常交接行为归 `exec/exception/pending.rs` 的 `ThreadExecState`，调用方通过 `ctx.exec()` 使用，不在 context 中保留转发。
 
 `VmCore.loader` 是 `loader/state.rs` 的 `LoaderState`，持有惰性加载器、加载上下文、待初始化类型队列、
 队列长度镜像、批处理 in-flight 计数与注入的 VFS。队列空值判定、批处理窗口和原有锁/内存序保持一致；

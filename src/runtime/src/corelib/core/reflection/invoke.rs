@@ -43,7 +43,7 @@ pub(crate) fn read_obj_slot(v: &Value, field: &str) -> Value {
 /// 原样传播(raise 侧再 set 回 pending,异常类型与栈不变);其余 anyhow 错误 →
 /// `Legacy`(`Std.Exception`,与旧表语义一致)。
 pub(crate) fn reentry<T>(ctx: &VmContext, r: anyhow::Result<T>) -> Result<T, BuiltinError> {
-    r.map_err(|e| match ctx.take_pending_thrown() {
+    r.map_err(|e| match ctx.exec().take_pending_thrown() {
         Some(v) => BuiltinError::Thrown(v),
         None => BuiltinError::Legacy(e),
     })
@@ -278,7 +278,7 @@ fn invoke_qualified_with<A: AsRef<[Value]>>(
         ExecOutcome::Thrown(val) => {
             // Propagate the ORIGINAL exception value (preserving its type) through
             // the builtin error channel; exec_call::builtin re-raises it.
-            ctx.set_pending_thrown(val);
+            ctx.exec().set_pending_thrown(val);
             bail!("__z42_reflected_throw__")
         }
     }
@@ -321,7 +321,7 @@ pub fn invoke_static(ctx: &VmContext, fqn: &crate::object::string::vstr::Str) ->
         ExecOutcome::Returned(Some(v)) => Ok(v),
         ExecOutcome::Returned(None) => Ok(Value::Null),
         ExecOutcome::Thrown(val) => {
-            ctx.set_pending_thrown(val);
+            ctx.exec().set_pending_thrown(val);
             bail!("__z42_reflected_throw__")
         }
     }
@@ -489,7 +489,7 @@ fn run_first_noarg_ctor(
         };
         if let Some(o) = outcome {
             if let ExecOutcome::Thrown(val) = o {
-                ctx.set_pending_thrown(val);
+                ctx.exec().set_pending_thrown(val);
                 bail!("__z42_reflected_throw__");
             }
             break; // ran the first matching ctor
@@ -582,7 +582,7 @@ pub fn ctor_invoke(ctx: &VmContext, ci: &Value, args_arr: &Value) -> anyhow::Res
         // A constructor returns void; the constructed object is the result.
         ExecOutcome::Returned(_) => Ok(boxed_if_struct(&td, obj)),
         ExecOutcome::Thrown(val) => {
-            ctx.set_pending_thrown(val);
+            ctx.exec().set_pending_thrown(val);
             bail!("__z42_reflected_throw__")
         }
     }

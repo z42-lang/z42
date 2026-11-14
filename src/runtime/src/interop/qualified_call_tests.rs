@@ -122,7 +122,7 @@ fn jit_module_calls_compile_and_preserve_provider_void_and_null() {
         let entry = rt.resolve_fn_by_id(&ctx, 0).expect("module call must compile, not fall back");
         match unsafe { call_entry(&ctx, entry, JitFrame::new(&ctx, entry.max_reg, &[])) } {
             NativeOutcome::Returned(value) => assert_eq!(value, Some(expected)),
-            NativeOutcome::Threw => panic!("unexpected native throw: {:?}", ctx.take_exception()),
+            NativeOutcome::Threw => panic!("unexpected native throw: {:?}", ctx.exec().take_exception()),
         }
     }
 }

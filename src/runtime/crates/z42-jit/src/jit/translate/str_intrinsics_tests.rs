@@ -138,7 +138,7 @@ fn run_jit(m: &Module, idx: usize, args: &[Value], init_pending: bool) -> (Strin
     let entry = rt.compile_with(&m.functions[idx], &Callees(m)).expect("compile");
     let out = match unsafe { call_entry(&vm, &entry, JitFrame::new(&vm, entry.max_reg, args)) } {
         NativeOutcome::Returned(v) => show(v.unwrap_or(Value::Null)),
-        NativeOutcome::Threw => show(vm.take_exception().unwrap_or(Value::Null)),
+        NativeOutcome::Threw => show(vm.exec().take_exception().unwrap_or(Value::Null)),
     };
     let slow = [GET_LENGTH, CHAR_AT, GET_ITEM].iter().any(|&w| rt.slot_probe(w).0 > 0);
     (out, slow)

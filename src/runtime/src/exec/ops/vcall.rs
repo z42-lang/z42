@@ -115,7 +115,7 @@ pub fn resolve_vcall<'a>(
             (func.name.as_str(), crate::metadata::dispatch::functions::call_arity(func)),
         VCallTarget::Immediate(_) | VCallTarget::Thrown(_) => return Ok(resolved),
     };
-    if let Some(exc) = crate::context::symres::wrong_arity_exception(ctx, module, name, sig, phys) {
+    if let Some(exc) = crate::exec::exception::symbol_resolution::wrong_arity_exception(ctx, module, name, sig, phys) {
         return Ok(ResolvedVCall { target: VCallTarget::Thrown(exc), this: resolved.this });
     }
     Ok(resolved)

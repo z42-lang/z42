@@ -3,7 +3,7 @@
 //! 每次访问先过初始化屏障（包初始化器 → 属主类型的静态构造器），失败抛可 catch 的
 //! `TypeInitializationException`。读到 `Null` 时才确证字段是否声明过：未声明 → 缺符号异常；
 //! 声明了但从未赋值 → 惰性装入该字段类型的零值（值 struct 是一个全零的盒子，见
-//! `symres::static_zero_value`）。值本身在 `VmCore.statics` 的单元里，读写不拿锁
+//! `static_defaults::static_zero_value`）。值本身在 `VmCore.statics` 的单元里，读写不拿锁
 //! （`metadata::statics`）。JIT 生成码内联屏障的稳态判定与常见形态的单元读写
 //! （`jit::translate::static_field`），其余情况经 helper 调这里。
 
@@ -11,7 +11,7 @@ use crate::metadata::ids::tokens::StaticFieldId;
 use crate::metadata::Module;
 use crate::object::Value;
 use crate::exec::init::make_type_init_exception;
-use crate::context::symres::{verify_static_field, StaticNullVerdict};
+use crate::exec::exception::symbol_resolution::{verify_static_field, StaticNullVerdict};
 use crate::context::VmContext;
 
 use super::error::{OpError, OpResult};

@@ -198,7 +198,7 @@ pub(super) fn call_attribute_factories(
             // through the builtin error channel (`exec_call::builtin` takes it),
             // instead of flattening it into a `Std.Exception` message.
             Some(crate::exec::call::outcome::ExecOutcome::Thrown(v)) => {
-                ctx.set_pending_thrown(v);
+                ctx.exec().set_pending_thrown(v);
                 anyhow::bail!("attribute constructor threw an exception");
             }
             None => None,

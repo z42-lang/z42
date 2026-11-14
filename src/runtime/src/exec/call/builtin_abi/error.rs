@@ -160,7 +160,7 @@ impl BuiltinError {
     pub fn into_anyhow(self, ctx: &VmContext) -> anyhow::Error {
         match self {
             BuiltinError::Thrown(v) => {
-                ctx.set_pending_thrown(v);
+                ctx.exec().set_pending_thrown(v);
                 anyhow::anyhow!("exception")
             }
             BuiltinError::Legacy(e) => e,
@@ -240,7 +240,7 @@ pub enum Raised {
 pub fn raise(
     ctx: &VmContext, module: &Module, builtin: &str, e: BuiltinError, extra_rows: &[FrameSnapshot],
 ) -> Raised {
-    if let Some(thrown) = ctx.take_pending_thrown() {
+    if let Some(thrown) = ctx.exec().take_pending_thrown() {
         crate::exec::exception::populate_stack_trace_with(&thrown, ctx, module, extra_rows);
         return Raised::Throw(thrown);
     }

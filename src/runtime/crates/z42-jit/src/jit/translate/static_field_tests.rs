@@ -113,7 +113,7 @@ fn run_on(vm: &VmContext, idx: usize, args: &[Value]) -> (Result<Value, String>,
     let before = STATIC_HELPER_CALLS.with(|c| c.get());
     let out = match unsafe { call_entry(vm, &entry, JitFrame::new(vm, entry.max_reg, args)) } {
         NativeOutcome::Returned(v) => Ok(v.unwrap_or(Value::Null)),
-        NativeOutcome::Threw => Err(thrown_text(vm.take_exception())),
+        NativeOutcome::Threw => Err(thrown_text(vm.exec().take_exception())),
     };
     (out, STATIC_HELPER_CALLS.with(|c| c.get()) - before)
 }

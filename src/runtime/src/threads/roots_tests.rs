@@ -11,7 +11,7 @@ fn categorized_and_collector_roots_preserve_pending_exceptions() {
     let first_weak = ctx.heap().make_weak(&first).unwrap();
     let second_weak = ctx.heap().make_weak(&second).unwrap();
     *ctx.exec.pending_exception.lock() = Some(first);
-    ctx.set_pending_thrown(second);
+    ctx.exec().set_pending_thrown(second);
     let _pause = crate::threads::safepoint::request_gc_pause(&ctx).unwrap();
     let mut collector = Vec::new();
     unsafe { CoreRoots(Arc::downgrade(ctx.core())).visit_roots(&mut |v| collector.push(*v)); }
@@ -33,7 +33,7 @@ fn categorized_and_collector_roots_preserve_pending_exceptions() {
     assert_eq!(*ctx.exec.pending_exception.lock(), Some(first));
     drop(collector);
     drop(classified);
-    assert_eq!(ctx.take_pending_thrown(), Some(second));
+    assert_eq!(ctx.exec().take_pending_thrown(), Some(second));
     *ctx.exec.pending_exception.lock() = None;
     ctx.heap().collect_full();
     assert!(ctx.heap().upgrade_weak(&first_weak).is_none());
