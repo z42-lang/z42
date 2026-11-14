@@ -19,7 +19,6 @@ VM 内部怎么实现这套 ABI 不在本页。
 SDK 包不带嵌入件——它的 `native/` 只放 z42vm 自己加载的扩展库。
 iOS / Android 的 facade 目录下各有一个同名**转发头**，内容只是 `#include` 上面那一份。
 
-桌面进程入口另见 `z42_main.h`：启用 cli feature 的 Core 导出 `int32_t z42_main_v1(void)`，由唯一的 z42vm 可执行文件在加载库后调用一次。它读取本进程参数与环境，返回进程退出码；嵌入 VM 继续使用本页的 host 接口。SDK 的 native/ 不放另一个 z42vm.exe。
 
 ---
 
