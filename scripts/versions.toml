@@ -57,6 +57,16 @@ min_version = "22"
 # wasm tests / playwright 需要；verify-only
 version = "24.21.0"   # Active LTS "Krypton"; `xtask setup --os wasm`（及 wasm 测试缺 node 时）下载此版本到 artifacts/tools/node
 
+[toolchain.mdbook]
+version = "0.4.40"
+
+[toolchain.mdbook-mermaid]
+version = "0.14.0"
+
+[toolchain.binaryen]
+version = "130"
+revision = "5d704ad52bc77a258e8fa3f9d34fcc5e8799c1c3"
+
 [toolchain.z42]
 # z42-bootstrap: which prebuilt z42 SDK scripts/install-z42.{sh,ps1} install into <repo>/.z42
 # when run from this checkout (they read this one line; keep it a quoted string).

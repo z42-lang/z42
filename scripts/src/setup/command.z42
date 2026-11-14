@@ -19,6 +19,8 @@ class SetupCommand : Command {
         this.SetDefaultAction("install the host base / a platform's essential deps");
         this.AddCommand(new SetupVscodeCommand());
         this.AddCommand(new SetupCheckCommand());
+        this.AddCommand(new SetupCiToolCommand("book-tools"));
+        this.AddCommand(new SetupCiToolCommand("wasm-opt"));
     }
     public override int Run() { return _setupInstall(this.Os.Value, this.Force); }
 }

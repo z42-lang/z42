@@ -1,6 +1,38 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
+
+class CiToolFixture : CiToolOps {
+    public string Mode = "valid";
+    public string Archive = "";
+    public int FailAt;
+    public List<string> Calls = new List<string>();
+    public override ProcessResult Run(string exe, string[] args) {
+        this.Calls.Add(exe + " " + String.Join(" ", args));
+        if (this.FailAt > 0 && this.Calls.Count == this.FailAt) { return _ciResult(23, "failed fixture process"); }
+        if (exe == "curl") {
+            if (this.Mode == "http" || this.Mode == "failure") { return _ciResult(22, ""); }
+            string path = args[args.Length - 2];
+            if (this.Mode == "html") { File.WriteAllText(path, "<html>unavailable</html>"); }
+            else { File.Copy(this.Archive, path); }
+        } else if (exe == "tar") {
+            return new Process(exe).Args(args).Run();
+        } else if (exe == "install") {
+            File.Copy(args[2], args[3]);
+        } else if (exe == "cargo") {
+            if (this.Mode == "failure") { return _ciResult(37, ""); }
+            _ciWrite(args[6], "bin/" + args[1], args[1] + " v" + args[3]);
+        } else if (exe == "cmake" && args[0] == "--build") {
+            if (this.Mode == "failed-build") { return _ciResult(27, ""); }
+            _ciWrite(args[1], "bin/wasm-opt", "wasm-opt version " + (this.Mode == "wrong-version" ? "129" : _vRead(_root(), "toolchain.binaryen.version")));
+        } else if (exe != "git" && exe != "cmake") {
+            _gateAssert(args.Length == 1 && args[0] == "--version", "version probe has no shell arguments");
+            return _ciResult(0, File.ReadAllText(exe));
+        }
+        return _ciResult(0, "");
+    }
+}
 
 int _ciInstallerChecks(string kind) {
     try {
@@ -12,57 +44,55 @@ int _ciInstallerChecks(string kind) {
 
 void _ciBookInstallerChecks() {
     string dir = _xtaskWork(_root(), "ci book installer"); _resetDir(dir);
-    string installer = Path.Join(_root(), ".github/scripts/install-book-tools.sh");
     try {
-        _ciProbe(dir, "tools/curl", "scripts/src/setup/testdata/book-curl.sh"); _ciProbe(dir, "tools/cargo", "scripts/src/setup/testdata/book-cargo.sh");
-        _ciWrite(dir, "archive/tool-fixture", "tool fixture");
+        foreach (var name in new string[]{ "mdbook", "mdbook-mermaid" }) {
+            _ciWrite(dir, "archive/" + name, name + " v" + _vRead(_root(), "toolchain." + name + ".version"));
+        }
         string archive = Path.Join(dir, "valid.tgz");
-        new Process("tar").Arg("-czf").Arg(archive).Arg("-C").Arg(Path.Join(dir, "archive")).Arg("tool-fixture").Run().EnsureSuccess();
-        int i = 0;
-        foreach (var mode in new string[]{ "valid", "http", "html", "failure" }) {
-            string target = Path.Join(dir, "target" + i.ToString()); i = i + 1;
-            string log = target + ".log"; bool failure = mode == "failure";
-            ProcessResult r = new Process("bash").Arg(installer)
-                .Env("PATH", Path.Join(dir, "tools") + ":" + Environment.GetEnvironmentVariable("PATH", ""))
-                .Env("BOOK_TOOLS_ROOT", target).Env("MOCK_KIND", failure ? "http" : mode)
-                .Env("MOCK_ARCHIVE", archive).Env("MOCK_LOG", log).Env("MOCK_CARGO_EXIT", failure ? "37" : "0").Run();
-            _gateAssert(r.ExitCode == (failure ? 37 : 0), "book installer propagates " + mode);
-            if (mode == "valid") {
-                _gateAssert(!File.Exists(log) && File.ReadAllText(Path.Join(target, "bin/tool-fixture")) == "tool fixture", "valid release avoids cargo");
-            } else {
-                string calls = File.ReadAllText(log);
-                _gateAssert(calls.Contains("install mdbook --version 0.4.40 --locked --root " + target), "book fallback pins version");
-                _gateAssert(calls.Contains("install mdbook-mermaid --version 0.14.0") == !failure, "book installer stops on first failure");
+        new Process("tar").Args(new string[]{ "-czf", archive, "-C", Path.Join(dir, "archive"), "mdbook", "mdbook-mermaid" }).Run().EnsureSuccess();
+        _gateAssert(new CiToolOps().Run(Path.Join(dir, "missing tool"), new string[0]).ExitCode == 127, "missing optional tools preserve command-not-found fallback");
+        _gateAssert(!_ciToolVersion(new CiToolOps(), Path.Join(dir, "archive/mdbook"), "mdbook", _vRead(_root(), "toolchain.mdbook.version")), "unexecutable cached binaries trigger reinstall rather than aborting");
+        _gateAssert(!_ciToolVersion(new CiToolFixture(), Path.Join(dir, "archive/mdbook"), "mdbook", "0.4.4"), "version matching rejects numeric prefixes");
+        foreach (var mode in new string[]{ "valid", "http", "html", "failure", "other-host" }) {
+            string target = Path.Join(dir, mode); var ops = new CiToolFixture(); ops.Mode = mode; ops.Archive = archive;
+            int code = _ciInstallBooks(_root(), target, dir, mode == "other-host" ? "macos-arm64" : "linux-x64", false, ops);
+            _gateAssert(code == (mode == "failure" ? 37 : 0), "book installer propagates " + mode);
+            string calls = String.Join("\n", ops.Calls.ToArray());
+            _gateAssert(calls.Contains("cargo install mdbook ") == (mode != "valid"), "release avoids cargo; invalid download falls back");
+            if (mode == "failure") { _gateAssert(!calls.Contains("mdbook-mermaid"), "first error stops the second installer"); }
+            else {
+                _gateAssert(_ciToolVersion(ops, Path.Join(target, "bin/mdbook"), "mdbook", _vRead(_root(), "toolchain.mdbook.version")), "book version validated");
+                int before = ops.Calls.Count;
+                _gateAssert(_ciInstallBooks(_root(), target, dir, "linux-x64", false, ops) == 0 && ops.Calls.Count == before + 2, "cached books only probe versions");
             }
         }
     } finally { Directory.Delete(dir, true); }
-    Console.WriteLine("  ✓ book installer: release, HTTP/HTML fallback and cargo failure");
+    Console.WriteLine("  ✓ book installer: release, HTTP/HTML fallback, cache and cargo failure");
 }
 
 void _ciWasmInstallerChecks() {
     string dir = _xtaskWork(_root(), "ci wasm installer"); _resetDir(dir);
-    string installer = Path.Join(_root(), ".github/scripts/install-wasm-opt.sh");
     try {
-        _ciProbe(dir, "tools/git", "scripts/src/setup/testdata/wasm-git.sh"); _ciProbe(dir, "tools/cmake", "scripts/src/setup/testdata/wasm-cmake.sh");
+        for (int fail = 1; fail <= 6; fail = fail + 1) {
+            string target = Path.Join(dir, "failure " + fail.ToString()); var failed = new CiToolFixture(); failed.FailAt = fail;
+            _gateAssert(_ciInstallWasm(_root(), target, dir, false, failed) == 23 && failed.Calls.Count == fail,
+                "every git/configure/build failure stops immediately with its exit code");
+        }
         foreach (var mode in new string[]{ "build", "failed-build", "wrong-version", "stale-cache" }) {
-            string target = Path.Join(dir, mode); string log = target + ".log";
-            if (mode == "stale-cache") {
-                _ciWrite(target, "bin/wasm-opt", "#!/usr/bin/env bash\necho 'wasm-opt version 129'\n");
-                new Process("chmod").Arg("+x").Arg(Path.Join(target, "bin/wasm-opt")).Run().EnsureSuccess();
-            }
-            Process p = new Process("bash").Arg(installer)
-                .Env("PATH", Path.Join(dir, "tools") + ":" + Environment.GetEnvironmentVariable("PATH", ""))
-                .Env("WASM_OPT_ROOT", target).Env("MOCK_LOG", log)
-                .Env("MOCK_BUILD_EXIT", mode == "failed-build" ? "27" : "0")
-                .Env("MOCK_VERSION", mode == "wrong-version" ? "129" : "130");
-            ProcessResult r = p.Run();
+            string target = Path.Join(dir, mode); string stage = Path.Join(dir, mode + " stage"); Directory.Create(stage);
+            var ops = new CiToolFixture(); ops.Mode = mode;
+            if (mode == "stale-cache") { _ciWrite(target, "bin/wasm-opt", "wasm-opt version 129"); }
+            int code = _ciInstallWasm(_root(), target, stage, false, ops);
             int expected = mode == "failed-build" ? 27 : mode == "wrong-version" ? 1 : 0;
-            _gateAssert(r.ExitCode == expected, "wasm installer propagates " + mode + ": " + r.Stdout + r.Stderr);
-            string calls = File.ReadAllText(log);
-            _gateAssert(calls.Contains("5d704ad52bc77a258e8fa3f9d34fcc5e8799c1c3") && calls.Contains("-DBUILD_SHARED_LIBS=OFF") && calls.Contains("--target wasm-opt"), "wasm installer pins static source build");
+            _gateAssert(code == expected, "wasm installer propagates " + mode);
+            string calls = String.Join("\n", ops.Calls.ToArray());
+            _gateAssert(calls.Contains(_vRead(_root(), "toolchain.binaryen.revision")) && calls.Contains("-DBUILD_SHARED_LIBS=OFF") && calls.Contains("--target wasm-opt --parallel 2"), "pinned static source build");
             if (expected == 0) {
-                _gateAssert(p.Run().ExitCode == 0 && File.ReadAllText(log) == calls, "validated wasm cache avoids rebuild");
-            }
+                int before = ops.Calls.Count;
+                _gateAssert(_ciInstallWasm(_root(), target, stage, false, ops) == 0 && ops.Calls.Count == before + 1, "validated revision cache avoids rebuild");
+                _ciWrite(target, "revision", "stale revision"); before = ops.Calls.Count;
+                _gateAssert(_ciInstallWasm(_root(), target, stage, false, ops) == 0 && ops.Calls.Count > before + 1, "wrong revision rebuilds even with matching version");
+            } else { _gateAssert(!File.Exists(Path.Join(target, "revision")), "failed installs never publish a cache receipt"); }
         }
     } finally { Directory.Delete(dir, true); }
     Console.WriteLine("  ✓ wasm installer: pinned static build, cache, version and failure");

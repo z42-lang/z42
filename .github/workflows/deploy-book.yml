@@ -26,8 +26,11 @@ on:
       - 'src/compiler/z42.doc/**'
       - 'scripts/src/build/docs/generate.z42'
       - '.github/workflows/deploy-book.yml'
-      - '.github/scripts/install-book-tools.sh'
-      - '.github/scripts/test-install-book-tools.py'
+      - 'scripts/src/setup/book_tools.z42'
+      - 'scripts/src/setup/ci_tools.z42'
+      - 'scripts/src/setup/ci_installers_selfcheck.z42'
+      - 'scripts/src/setup/command.z42'
+      - 'scripts/versions.toml'
   pull_request:
     paths:
       - 'docs/book/**'
@@ -41,8 +44,11 @@ on:
       - 'src/compiler/z42.doc/**'
       - 'scripts/src/build/docs/generate.z42'
       - '.github/workflows/deploy-book.yml'
-      - '.github/scripts/install-book-tools.sh'
-      - '.github/scripts/test-install-book-tools.py'
+      - 'scripts/src/setup/book_tools.z42'
+      - 'scripts/src/setup/ci_tools.z42'
+      - 'scripts/src/setup/ci_installers_selfcheck.z42'
+      - 'scripts/src/setup/command.z42'
+      - 'scripts/versions.toml'
   workflow_dispatch:
 
 permissions:
@@ -73,9 +79,7 @@ jobs:
       - name: Test book tool installer
         run: xtask ci check-installers book
       - name: Install mdBook + mdbook-mermaid
-        run: |
-          bash .github/scripts/install-book-tools.sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        run: xtask setup book-tools
       - name: Build
         # mdbook-mermaid install 向 checkout 副本注入 mermaid 预处理器配置 + js 资源
         # （仓库内 book.toml 保持干净；本地无插件也能 build，GitHub 网页原生渲染 mermaid）

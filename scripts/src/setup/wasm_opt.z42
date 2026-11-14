@@ -1,0 +1,32 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _ciInstallWasm(string root, string target, string stage, bool force, CiToolOps ops) {
+    string version = _vRead(root, "toolchain.binaryen.version");
+    string revision = _vRead(root, "toolchain.binaryen.revision");
+    string binary = Path.Join(target, "bin/wasm-opt"); string receipt = Path.Join(target, "revision");
+    if (!force && File.Exists(receipt) && File.ReadAllText(receipt) == revision
+        && _ciToolVersion(ops, binary, "wasm-opt", version)) { return 0; }
+    string src = Path.Join(stage, "src"); string build = Path.Join(stage, "build");
+    foreach (var args in new string[][]{
+        new string[]{ "init", "--quiet", src },
+        new string[]{ "-C", src, "remote", "add", "origin", "https://github.com/WebAssembly/binaryen.git" },
+        new string[]{ "-C", src, "fetch", "--depth", "1", "origin", revision },
+        new string[]{ "-C", src, "checkout", "--detach", "FETCH_HEAD" }
+    }) {
+        int code = ops.Run("git", args).ExitCode; if (code != 0) { return code; }
+    }
+    int configured = ops.Run("cmake", new string[]{ "-S", src, "-B", build, "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_SHARED_LIBS=OFF", "-DBUILD_TESTS=OFF", "-DBYN_ENABLE_ASSERTIONS=OFF", "-DENABLE_WERROR=OFF" }).ExitCode;
+    if (configured != 0) { return configured; }
+    int built = ops.Run("cmake", new string[]{ "--build", build, "--target", "wasm-opt", "--parallel", "2" }).ExitCode;
+    if (built != 0) { return built; }
+    string candidate = Path.Join(build, "bin/wasm-opt");
+    if (!_ciToolVersion(ops, candidate, "wasm-opt", version)) { return 1; }
+    Directory.Create(Path.Join(target, "bin"));
+    if (File.Exists(receipt)) { File.Delete(receipt); }
+    int installed = ops.Run("install", new string[]{ "-m", "755", candidate, binary }).ExitCode;
+    if (installed != 0) { return installed; }
+    if (!_ciToolVersion(ops, binary, "wasm-opt", version)) { return 1; }
+    File.WriteAllText(receipt, revision); return 0;
+}
