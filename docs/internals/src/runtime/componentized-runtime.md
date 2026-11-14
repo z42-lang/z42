@@ -1,19 +1,37 @@
 # 组件化运行时（Componentized Runtime）
 
-运行时主库直接拥有共享 VM 实现，解释器、JIT 和 profiler 是独立 Rust 库。静态链接与同构建动态组件共用 host 门面与组件装配协议；profiler 按需加载，debugger 尚未独立实现。
+运行时主库组合直接编译引用的 VM 模块；解释器、JIT 和 profiler 是 VM component，压缩/终端等是独立运行时库。
+VM 能力经 components 内部门面消费，通用 native 库经自身或 interop 接口消费。profiler 按需准备，debugger 尚未独立实现。
 
 ## 1. 库边界
 
-| 库 | 拥有的实现 | 依赖方向 |
+| 库 | 类型 | 拥有的实现/依赖 |
 |---|---|---|
-| z42-zpkg | zpkg/zbc/zsym 解析、静态 IR 和不可变 PackageImage | 不依赖 VM |
-| z42（runtime/src/lib.rs） | host、VM、对象、GC、PAL、配置、corelib、interop 与轻量诊断契约/计数器 | 不依赖具体引擎 |
-| z42-interp | 解释器、基线 Engine 和组件工厂 | 依赖 core，不依赖 JIT |
-| z42-jit | Cranelift、编译代码、tier/OSR 实现和组件工厂 | 依赖 core，不依赖 interp 实现 |
-| z42-profiler | CPU 采样、堆摘要/快照与保留图算法和组件工厂 | 依赖 core |
-| z42-compression | 压缩算法与稳定 C ABI | 不依赖 core 或执行后端 |
+| z42-zpkg | 直接编译引用的 VM 模块 | zpkg/zbc/zsym、静态 IR 和 PackageImage，不依赖 VM；不经过组件发现/实例管理 |
+| z42（runtime/src/lib.rs） | VM 模块的组合根 | VM、对象、GC、PAL、配置、corelib、interop 和宿主服务，不生产依赖具体执行组件 |
+| z42-interp | component | 基线 Engine 与工厂，消费同构建 Core 契约，不依赖 JIT 实现 |
+| z42-jit | component | Cranelift、tier/OSR 与工厂，消费同构建 Core 契约，不依赖 interp 实现 |
+| z42-profiler | component | 采样/堆分析与工厂，消费 Core 的诊断/GC 契约 |
+| z42-abi / z42-rs / z42-macros | 直接引用的配套模块 | 共享协议、native SDK 和构建期宏，不依赖 VM 实现；宏按编译阶段使用 |
+| z42-compression | 独立运行时库 | 压缩 API 和通用 native 模块，不依赖 Core/引擎，不实现 VM component 工厂 |
+| z42-repl | 独立运行时库 | 通用输入与编辑器，经 native ABI 接入，不依赖 Core/引擎 |
 
-运行时只有一个 Cargo 包；runtime/src 内的目录都是它的模块。主库提供 rlib/dylib，后端各自提供 rlib/cdylib 和 init 入口。生产运行时不依赖具体后端；测试和最终静态嵌入示例通过 dev-dependency 链接独立后端的 rlib，不形成生产依赖环。
+crate 类别描述职责与消费者，链接形态描述代码如何进入进程，两者相互独立。普通 Rust 依赖由 Cargo/链接器处理；
+运行时需要装入的是 zpkg、原生库等产物，不能把 rlib 或每个内部模块都当作可激活组件。
+独立运行时库可作为普通 Rust 依赖复用，也可通过 native 模块描述符接入 VM，其业务实现不携带 VM 具体类型。
+
+### 代码加载与组件实例分工（目标，尚未全部实施）
+
+loader 统一拥有代码来源、路径/符号、装载依赖与映像保活；静态、链接共享库、运行时装入分别记录来源并检查允许策略。
+components 通过 loader 请求已准备的代码，验证组件契约、绑定能力、创建并释放每 VM 实例。组件实例间的语义依赖顺序
+与二进制/包的装载依赖是不同的图；保留前者不意味着组件层还要维护另一套开库和代码缓存。
+interop 验证通用 native 描述符并管理编组/实例，独立运行时库不为此绕入 components 的 VM 工厂协议。
+
+当前 components/catalog.rs 仍直接委托 PAL 开库，backends.rs 保存路径发现，统一归口 loader 尚未实现；
+loader/native.rs 与 interop/module.rs 也仍有双向装入/注册编排。这些缺口及 owner 调整见[模块边界](module-boundaries.md)。
+
+VM 主实现属于 z42 这一个 Cargo 包，runtime/src 内的目录是它的模块；工作区另有上述独立 crate。
+主库提供 rlib/dylib，后端各自提供 rlib/cdylib 和 init 入口。生产运行时不依赖具体后端；测试和最终静态嵌入示例通过 dev-dependency 链接独立后端的 rlib，不形成生产依赖环。
 
 main.rs 不调用 Rust VM 接口，只查找 libz42 并取得版本化 C 入口。先验证头版本、大小、构建身份和回调，再把参数交给 host::cli。已打开的库保留到进程结束，避免运行时或依赖的 TLS 析构跳入已卸载代码。
 
@@ -36,7 +54,7 @@ GC 与值/对象布局仍属于 core，不能运行中切换；它们位于分�
 |---|---|---|
 | 静态链接 | 实现归档链接进最终宿主/运行时；装配胶水保持工厂入口可达 | 核对构建清单、显式登记与运行时启用策略；不依赖全局构造器隐式登记 |
 | 动态链接 | 组件共享库是宿主/运行时的链接依赖，由系统链接/装载机制提供入口 | 核对链接清单、已绑定实现映像与运行时策略；保留依赖映像及回调寿命；不再按库名当作运行时加载来源搜索 |
-| 运行时装入 | 明确请求后由 PAL 使用 dlopen/LoadLibrary 等装库、解析描述符入口 | 装库前检查允许策略、可信组件平台能力及路径；取得入口后校验协议、核心身份和依赖，再创建实例与发布 |
+| 运行时装入 | 明确请求后由 loader 统一请求 PAL 使用 dlopen/LoadLibrary 装库并取得入口 | loader 在开库前检查允许策略、平台能力、来源与依赖；能力适配器校验协议/核心身份，再创建实例与发布 |
 
 “动态链接”不是运行时 `open_library` 的别名，构建 profile 的 release/debug 也不表示使用形态。
 实际来源由构建/部署清单与装配适配器声明并核对，不能仅凭一个函数指针、文件存在或 Dynamic 名称推断。
@@ -191,5 +209,5 @@ profiler 的算法与线程位于 z42-profiler，diagnostics 只持有中立契�
 - [诊断与跟踪](diagnostics.md)
 
 跨库组件协议由 z42::components::abi 定义，包含描述符、C 布局接口和执行注册；core build.rs 生成共享构建身份。
-z42::components::bridge 提供最小核心身份/布局校验，不包含组件管理。host 的具名管理再导出仍属于待收口缺口。生产执行库单向依赖 core，
+z42::components::bridge 提供最小核心身份/布局校验及只读对象服务借用，不包含组件管理。对象协议定义归 object，bridge 只将 Core 的已绑定服务交给经过同核心校验的执行组件，不做组件表查询。host 的具名管理再导出仍属于待收口缺口。生产执行库单向依赖 core，
 通用 ABI 夹具只使用协议值和回调，实际执行组件仍链接同一份共享核心。

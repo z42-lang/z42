@@ -31,6 +31,10 @@ VM 程序准备、执行角色查询和分析请求通过内部 `components::api
 支持性查询只核对目标能力，候选查询只读路径与已装入映像缓存；Android 未知的裸库名不会因查询触发装入。
 显式准备仍可交给系统加载器按名称装入并校验。独立后端对核心模块使用私有导入，不再通过自身批量再导出。
 
+对象协议定义在 object/protocol.rs，以不透明的上下文/错误类型参数连接提供方，不引用 exec/context 实现。
+每 VM 的协议表由 Core 保存，worker 借用同一份不可变服务；exec 只保留托管 ToString 调用、异常与字符串物化。
+独立执行组件经同构建 bridge 读取服务，协议表不拥有 VM/托管值，也不增加逐指令注册表查询。
+
 ### 当前可核对的缺口
 
 | 缺口 | 代码证据 | 影响与目标 |
@@ -40,9 +44,13 @@ VM 程序准备、执行角色查询和分析请求通过内部 `components::api
 | C 静态装配混入普通宿主头 | `include/z42_host.h` 的 Z42ComponentId、ComponentInit 与 `z42_host_register_static_component`；`host/ffi.rs` | 静态链接胶水必须同轮迁移到明确的内部部署/装配契约，不能只隐藏 Rust 名字 |
 | 通用管理查询仍泄露实现身份 | host 转出的 `component_interface(ctx, ComponentId)`；`components::abi::RuntimeApi` 的跨组件依赖查询 | VM 执行消费者已按语义角色请求服务；普通 host 的按 ID 管理查询仍需移除，协议内依赖 ID 由管理层拥有 |
 | 使用形态分类不完整 | `components/catalog.rs::Registration` 只有 Static/Dynamic，`components/backends.rs::BackendSource` 的 Linked 只查询已登记入口，Dynamic 走显式开库 | 分开静态链接、链接动态库和运行时装入；记录实际来源，按运行时策略核对，不能只改枚举名字 |
+| 组件层仍拥有代码装入 | `components/catalog.rs` 打开原生库、展开加载闭包；`components/backends.rs` 搜索候选路径 | 代码来源、映像/符号、装载依赖与保活统一归 loader；components 消费代码结果，拥有能力绑定和实例语义依赖 |
 | 组件管理与配置相互依赖 | `config/availability.rs` 查询 components；`components/backends.rs::native_paths`、`components/api.rs::attach_execution` 读取 runtime_config | 在装配入口捕获路径/JIT 配置及平台能力，组件管理消费显式输入 |
 | 诊断契约反向拥有装配机制 | `diagnostics/sampling.rs` 保存 BackendSource、VmComponents 并触发 attach；`components/profiling.rs` 回到 sampler 注册实现 | 诊断保留观察/采样接口，组件管理拥有来源和代码保活；经窄接口绑定，避免新增 Core 自持有环 |
 | 默认 VM 装配由 host 承担 | `host/program_builder.rs`、`vm_defaults.rs`、`extensions.rs`；`host/artifact.rs` 为 LazyLoader 实现构造方法 | host 解析请求，VM 装配层负责配置快照、Core/loader、组件和发布；loader 的构造实现回归其所有者 |
+| 宿主契约、CLI 与 C 适配混在一起 | `host/cli.rs`、`cli_startup.rs`、`launcher.rs` 与 `ffi.rs/config.rs/state.rs/ops.rs/marshal.rs` | host 保留功能请求/环境服务契约；CLI 成为独立宿主实现，C 适配/头文件归能力所有者，平台构建排除 CLI |
+| 初始化层级含混 | `host/state.rs` 的会话保存多个 LoadedProgram；`ops::build_host_module` 每次创建程序/VM；`LoadedProgram::invoke` 执行一次性托管初始化 | 区分会话、VM/包准备与托管初始化，不把 C initialize 当作所有模块已初始化；统一装配但保持隔离和失败终态 |
+| 进程策略混入每 VM 输入 | `config/vm_config.rs::process_loh_bytes` 在 Core 构造时修改进程级 LOH 设置 | 进程 bootstrap 与 VM 设置分开捕获，禁止任意 VM 构造改写其它 VM 可见的全局策略 |
 | loader 与 interop 混合机制和编排 | `loader/native.rs` 调 interop 注册/解析，`interop/module.rs` 反向调用 loader::native::resolve_symbol | loader 提供代码/符号来源，interop 负责描述符与编组；由装配协调器连接 |
 | 元数据解析直接驱动 VM 加载 | `metadata/resolve/mod.rs` 接收 VmContext，enqueue_type_load/drain_pending_type_loads | 将解析事实与加载编排分开，用最小解析视图和待加载请求连接 |
 | 对象表示反向依赖执行和加载域 | `object/value/ref_word.rs::alloc_box_ambient` 访问 exec::ambient；`object/object/object.rs::NativeData` 引用 loader 身份；`object/types/type_desc.rs` 引用 metadata TypeId | 抽出身份/布局词汇，分离编码与需堆的装箱操作；保留屏障协议，不把 object/GC 的必要协作当成可直接删除的依赖 |
@@ -58,10 +66,12 @@ flowchart TD
     H[host：宿主请求与结果] --> V[VM 装配与程序会话]
     V --> A[components::api：内部能力门面]
     E[VM 服务准备与诊断请求] --> A
-    A --> M[组件管理：来源、依赖、实例与寿命]
+    A --> M[组件管理：能力绑定与实例]
+    M --> L[loader：代码来源/依赖/符号/保活]
     M --> P[最小同构建协议与适配器]
     P --> I[interp / JIT / profiler 实现]
-    V --> L[loader / interop 协调]
+    V --> N[interop：描述符/编组/原生实例]
+    N --> L
     V --> C[Core 与子系统状态]
 ```
 
@@ -73,16 +83,35 @@ flowchart TD
 再在内部使用组件 ID 构造依赖闭包和实例。基线与优化引擎属于不同语义角色，即使接口形状相同也不会混选。
 未配置的多提供方歧义与能力缺失均显式报错；能力查询仍不触发绑定、装库或创建实例。
 
+组件实例间的语义依赖决定创建/销毁顺序；代码/外部依赖的装载由 loader 处理。普通 Rust/Cargo 依赖已在构建时组合，
+不因拆成 crate 而增加运行时加载。三类 crate 的实际接入关系见[组件化运行时](componentized-runtime.md#1-库边界)。
+
+### host 与初始化收口方向（尚未实施）
+
+main.rs 当前已经是薄动态启动器，CLI 解析/进程启动实现仍编入启用 cli feature 的共享 Core。目标是 main/CLI、
+C 绑定和其它平台分别适配同一 VM 服务契约；动态库边界继续使用版本化 C 表/回调，不传 Rust trait 对象。
+VM 组合层提供单一准备流程，平台适配只转换输入，不复制模块初始化和包加载实现：
+
+```text
+CLI/C/Rust 输入 → 功能请求与配置快照 → 入口 zpkg/依赖解析及验证
+→ Core/环境服务 → 元数据链接 → loader 准备代码 → components 绑定/实例
+→ 发布已加载程序 → 首次调用的一次性托管初始化 → invoke
+```
+
+C initialize 当前建立进程单例宿主会话，不等于创建一个承载所有顶层模块的 Core；每个 LoadedProgram 仍拥有自己的 VM。
+上述收口保留这一隔离行为和初始化失败终态，后续若改变生命周期需单独定义行为契约。C 句柄表、编组、线程错误通道归 C 适配，
+参数来源/进程退出/hooks 归 CLI 宿主，Core 构造与服务/模块准备归 VM。C 导出及 .h 随实际能力所有者维护，SDK include 只聚合分发。
+
 ### 状态与协议归属
 
 | 所有者 | 保存/提供 | 消费者需要什么 |
 |---|---|---|
-| host | 宿主配置、句柄、回调及输入输出适配 | 功能级请求与结果，不是组件注册表 |
+| host | VM 宿主功能请求与环境服务契约 | 功能级请求与结果，不是组件注册表、CLI 实现或 C 句柄表 |
 | VM 装配层 | 构造输入、启动顺序和失败发布边界 | 接受显式配置及服务，产生可调用程序 |
-| components 管理实现 | 能力到提供方的绑定、工厂缓存、依赖闭包、每 VM 实例与代码保活 | 内部 api 的准备/能力查询；不让消费者传实现 ID，不返回可修改的 OnceLock |
+| components 管理实现 | 能力到提供方的绑定、经验证的工厂契约、每 VM 实例与语义依赖 | 内部 api 的准备/能力查询；加载交给 loader，实例保留所需代码句柄 |
 | exec / diagnostics | 引擎与观察/采样的消费契约 | 装配时绑定的接口；不决定组件库路径或具体实现 |
 | 同构建协议层 | 描述符、版本、身份、接口表及最小桥接 | 仅给 VM 与组件适配器；不是普通宿主 SDK 扩展面 |
-| loader / interop | 代码来源/符号与描述符/编组分别拥有 | 窄接口连接，不互相承担完整装入事务 |
+| loader / interop | loader 拥有代码来源/装载依赖/符号/保活；interop 拥有描述符/编组/原生实例 | 窄接口与 VM 装配连接，不互相承担完整装入事务 |
 | object / GC / threads | 表示、屏障、分配、暂停与根协议 | 共享必要数据契约，通过回调适配，逐步减少实现穿透 |
 
 ## 实现
@@ -101,11 +130,29 @@ flowchart TD
 | components/backends.rs | 来源选择、平台发现、初始引擎注册表 | source/discovery 按职责拆分；装配协调由内部 api 拥有，同构建协议位于 components::abi |
 | loader/native.rs、exec/native.rs | 原生库装入/注册；native 调用服务 | native_library_loader.rs、native_module_registration.rs、native_call_services.rs |
 | host/profiling.rs、components/profiling.rs | 宿主诊断请求；profiler 装配 | diagnostic_requests.rs、profiler_attachment.rs |
+| object/protocol.rs、exec/ops/stringify.rs | 对象能力契约；托管调用/默认文本物化 | 定义与执行桥已按所有者分开；继续检查 exec/ops 中布局/存储事实与执行编排的混合 |
 | host/load.rs、program_builder.rs、vm_defaults.rs | 包准备、程序/VM 装配和默认策略 | 职责先迁到 VM 装配层，再按 program_preparation、vm_assembly、default_services 命名 |
 | context/types.rs | Core、线程视图和布局偏移 | 按 vm_core、vm_context、context_layout 拆分，保持布局约束 |
 
 `*_config`、`*_policy`、`*_registry` 等后缀表达不同职责。目录本身已足够限定的局部文件不为全仓唯一名机械改名；
 对外引用面收口后，具体实现文件重命名只影响其模块声明、适配器和同目录测试。
+
+### 对象相关文件的归属判定
+
+相似文件名需要按实际执行职责判断，不能把带 object/struct 名称的代码整体归入表示层：
+
+| 实际入口 | 源码中的职责 | 整理方向 |
+|---|---|---|
+| `object/protocol.rs` | 不拥有状态的四个能力回调 | 已归 object；Core 持有绑定，corelib 提供实现，exec 消费 |
+| `exec/ops/object/field.rs` | 槽/名称读取、派发缓存、pin 视图和带屏障写入 | 表示/字段位置来自 object；执行视图和屏障编排保留执行层，后续抽取纯存储部分 |
+| `exec/ops/object/array.rs` | 数组读取/写入、类型实参解析、帧 arena 分配 | 元素编码/布局归 object；泛型解析、arena 和执行错误保留 exec |
+| `exec/ops/object/struct_leaf.rs` | 布局查询、快照、装箱分配和写屏障 | 纯布局已在 object/types/named_struct_layout；显式堆/屏障服务可再抽象，不把 VmContext 依赖搬入 object |
+| `exec/ops/structs.rs` | 当前帧 struct 分配、拆箱、复制及布局解析 | arena 生命周期与 frame_id 校验归 exec；布局事实通过只读查询提供 |
+| `exec/ops/object/error.rs` | OpError 到托管异常的物化 | 保留执行层；对象存储层返回自己的错误事实，不构造 VM 异常 |
+| `exec/ops/scalar.rs` | 算术、比较、转换和指令错误判据 | 保留执行语义；输入是 Value 并不足以证明属于 object |
+
+`lib.rs` 的 `objops` 仍是 `exec/ops/object` 的转出路径。后续整理同时收口真实所有者与消费者，
+避免长期维护多个路径；删除旧入口时连同后端、corelib、测试和文档迁移。
 
 ## 边界与限制
 

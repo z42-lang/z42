@@ -2,6 +2,8 @@
 
 ## 职责
 
+crate 类型：VM 模块的组合根。内部模块直接编译引用；独立执行组件通过 components 门面接入，独立运行时库通过自身或 native/interop 接口接入。
+
 `src/lib.rs` 编译唯一的运行时包 `z42`。`src/` 内的 host、上下文、执行、元数据、对象、GC、PAL、config、corelib、interop 都是包内模块。`src/main.rs` 只通过版本化 C 入口动态加载运行时；CLI 实现在 `host/cli.rs`，与嵌入端共用 host 服务。Cargo 命令用 `-p z42` 选择运行时。
 
 执行 z42 编译产物（`.zbc` / `.zpkg`）。后端：解释器（interp）+ Cranelift JIT（desktop 默认，惰性逐函数编译）；AOT 为桩。

@@ -30,6 +30,18 @@ fn echo(program: &LoadedProgram, value: i64) -> i64 {
     }
 }
 #[test]
+fn actual_dynamic_object_protocol_callbacks_and_execution_bridges_agree() {
+    for mode in [ExecMode::Interp, ExecMode::Jit] {
+        let program = load(mode, backends()).unwrap();
+        for _ in 0..2 {
+            assert!(matches!(program.invoke("EngineComponentProbe.ObjectProtocolRoundtrip", &[]).unwrap(), Some(Value::I64(42))));
+        }
+        if mode == ExecMode::Jit {
+            assert!(program.context().counters_snapshot().jit_methods_compiled > 0);
+        }
+    }
+}
+#[test]
 fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
     // This test thread exits after both VMs/options drop. Backend/dependency TLS
     // destructors must still point into mapped native images at thread exit.

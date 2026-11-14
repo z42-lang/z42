@@ -2,21 +2,21 @@
 
 ## 职责
 
-本目录包含可独立编译的执行后端、产物格式、native SDK 和原生扩展。运行时主库入口位于 ../src/lib.rs，host 与 CLI 是该包内部的宿主模块，不在本目录重复包装。
+本目录按职责包含 VM component、直接编译引用的 VM/配套模块、独立运行时库三类 crate。运行时组合根位于 ../src/lib.rs；是否生成 cdylib 不决定类别，具体边界见[组件化运行时](../../../docs/internals/src/runtime/componentized-runtime.md)。
 
 ## 功能索引
 
-| 子目录 | 职责 |
-|---|---|
-| z42-interp | 基线解释器；提供 rlib/cdylib，只依赖运行时与产物格式 |
-| z42-profiler | CPU 采样与堆分析，静态登记或按需加载，默认 VM 不创建分析状态 |
-| z42-jit | Cranelift、tier/OSR 和编译代码；提供 rlib/cdylib，只依赖运行时与产物格式 |
-| z42-zpkg | zpkg/zbc/zsym、静态 IR 和不可变 PackageImage；无 VM 依赖 |
-| z42-abi | no_std、零依赖的 C ABI 布局；module.rs 定义模块描述符和值，不执行注册 |
-| z42-rs | Rust 类型/模块编写辅助；module.rs 封装调用值、错误和回调，不链接 VM |
-| z42-macros | proc-macro；由 Rust 独立编译，供 native SDK 与 builtin 描述使用 |
-| z42-compression | C ABI 压缩组件；原生首次使用时动态加载，静态宿主按需链接/登记；默认最终 WASM 编入 |
-| z42-repl | registration.rs 提供脚本注册与 console 能力边界，editor.rs 提供可选桌面编辑器 |
+| 子目录 | 类型 | 职责与入口 |
+|---|---|---|
+| z42-interp | component | 基线解释器；VM 通过 components::api 消费，提供 rlib/cdylib |
+| z42-profiler | component | CPU 采样与堆分析；通过 components::api 按需准备，默认不创建分析状态 |
+| z42-jit | component | Cranelift、tier/OSR 与编译代码；VM 通过 components::api 消费 |
+| z42-zpkg | VM 模块 | 直接 Rust 引用的 zpkg/zbc/zsym、静态 IR 和 PackageImage；无 VM 依赖 |
+| z42-abi | 配套协议模块 | 直接引用的 no_std C ABI 布局、模块描述符和值；不执行注册 |
+| z42-rs | 配套 SDK 模块 | Rust native 编写辅助，封装值/错误/回调，不链接 VM |
+| z42-macros | 配套构建模块 | 构建期 proc-macro，供 native SDK 与 builtin 描述使用 |
+| z42-compression | 独立运行时库 | 独立压缩 API 与通用 native 描述符，经 loader/interop 或自身 API 接入 |
+| z42-repl | 独立运行时库 | 通用输入、模块注册与可选编辑器，经 loader/interop 或自身 API 接入 |
 
 ## 依赖关系
 

@@ -2,21 +2,13 @@
 
 ## 职责
 
+crate 类型：直接编译引用的配套 SDK 模块。供 VM 和独立 native 库使用，不是运行时 component，也不链接 VM 实现。
+
 z42 Tier 2 native interop API（用户面向）。Rust 库作者通过实现这里的 trait（手写或借助 `z42-macros` 的 derive）把自己的类型暴露给 z42 用户代码。
 
 需要 `std`（`z42-abi` 才是 `no_std`）；依赖 `z42-abi` + `z42-macros`，不依赖 runtime crate。
 
-## 核心文件
-
-| 文件 | 职责 |
-|------|------|
-| `src/lib.rs` | crate 入口；`prelude` 模块 + `z42_abi` 重导出 |
-| `src/native_helpers.rs` | 宏生成代码用的运行期辅助（panic → 错误码 Z0905 等） |
-| `src/types.rs` | `Z42Args` / `Z42Value` / `Z42TypeRef` / `Z42Error` / `Descriptor` 用户友好别名 |
-| `src/traits.rs` | `Z42Type` / `Z42Traceable` / `Visitor` trait 骨架 |
-| `tests/skeleton_tests.rs` | 验证用户能手写实现这些 trait（不依赖 macro） |
-
-## 入口点
+## 功能索引
 
 `use z42_rs::prelude::*;`：
 
@@ -32,7 +24,7 @@ z42 Tier 2 native interop API（用户面向）。Rust 库作者通过实现这�
 
 `#[derive(Z42Type)]` / `#[trait_impl]` / reverse-call 等高层能力待 source generator（C5）联动设计；主入口是 `#[z42::methods]` + `module!`，`Z42Type` trait 由宏自动 emit。
 
-## 用法示例
+## 基础用法
 
 ```rust
 use z42_rs::prelude::*;
@@ -63,3 +55,18 @@ z42::module! {
 ```bash
 (cd src/runtime && cargo test -p z42-rs)    # 手写实现 trait 的骨架测试
 ```
+
+## 关联文档
+
+- [原生 ABI](../../../../docs/internals/src/runtime/native-abi.md)
+- [原生扩展契约](../../../../docs/reference/src/embedding/native-interop.md)
+
+## 核心文件
+
+| 文件 | 职责 |
+|------|------|
+| `src/lib.rs` | crate 入口；`prelude` 模块 + `z42_abi` 重导出 |
+| `src/native_helpers.rs` | 宏生成代码用的运行期辅助（panic → 错误码 Z0905 等） |
+| `src/types.rs` | `Z42Args` / `Z42Value` / `Z42TypeRef` / `Z42Error` / `Descriptor` 用户友好别名 |
+| `src/traits.rs` | `Z42Type` / `Z42Traceable` / `Visitor` trait 骨架 |
+| `tests/skeleton_tests.rs` | 验证用户能手写实现这些 trait（不依赖 macro） |

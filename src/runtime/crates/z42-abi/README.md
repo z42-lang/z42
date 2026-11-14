@@ -2,18 +2,13 @@
 
 ## 职责
 
+crate 类型：直接编译引用的配套协议模块。它提供 VM/native 边界的共享词汇，不拥有组件实例或代码装载行为。
+
 z42 Tier 1 native interop ABI 的 Rust 镜像。是 [`include/z42_abi.h`](../../include/z42_abi.h) 在 Rust 侧的权威等价定义；任何 Rust 代码（VM、Tier 2 高层 API、用户 native 库）都从这里引用 ABI 类型与函数签名。
 
 `no_std`，无依赖；可在任意 Rust 上下文使用。
 
-## 核心文件
-
-| 文件 | 职责 |
-|------|------|
-| `src/lib.rs` | `#[repr(C)]` 镜像所有 ABI 类型；`extern "C"` 声明 `z42_*` 函数 |
-| `tests/abi_layout_tests.rs` | 验证 `offset_of!` / `size_of` / 旗标常量未漂移 |
-
-## 入口点
+## 功能索引
 
 - 类型：`Z42TypeDescriptor_v1`、`Z42MethodDesc`、`Z42FieldDesc`、`Z42TraitImpl`、`Z42Value`、`Z42Args`、`Z42TypeRef`、`Z42Error`
 - 常量：`Z42_ABI_VERSION` + `Z42_TYPE_FLAG_*` / `Z42_METHOD_FLAG_*` / `Z42_FIELD_FLAG_*`
@@ -35,3 +30,19 @@ z42 Tier 1 native interop ABI 的 Rust 镜像。是 [`include/z42_abi.h`](../../
 - 新字段只追加，不重排
 - 所有访问通过 `z42_*` 函数，不直接读写 struct 字段
 - major 版本升级 = 显式 break（语义版本规则）
+
+## 如何测试验证
+
+在 `src/runtime/` 运行 `cargo test -p z42-abi`；完整覆盖运行仓库根 `./xtask test runtime`。
+
+## 关联文档
+
+- [原生 ABI](../../../../docs/internals/src/runtime/native-abi.md)
+- [原生扩展契约](../../../../docs/reference/src/embedding/native-interop.md)
+
+## 核心文件
+
+| 文件 | 职责 |
+|------|------|
+| `src/lib.rs` | `#[repr(C)]` 镜像所有 ABI 类型；`extern "C"` 声明 `z42_*` 函数 |
+| `tests/abi_layout_tests.rs` | 验证 `offset_of!` / `size_of` / 旗标常量未漂移 |

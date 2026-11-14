@@ -170,7 +170,7 @@ fn resolve_vcall_unchecked<'a>(
     if let Value::BoxedStruct(gc) = obj_val {
         if let Some(scalar) = gc.borrow().boxed_prim_i64() {
             if method == "GetType" && arity == 0 {
-                let ty = (ctx.core.exec.object_protocol.get_type)(ctx, &obj_val)?;
+                let ty = (ctx.core().object_protocol().get_type)(ctx, &obj_val)?;
                 return Ok(ResolvedVCall { target: VCallTarget::Immediate(ty), this: obj_val.clone() });
             }
             // make-enum-distinct-type 1.5: an enum box carries the enum's own TypeDesc, so
@@ -214,7 +214,7 @@ fn resolve_vcall_unchecked<'a>(
     if let Value::BoxedStruct(b) = obj_val {
         if arity == 0 {
             if method == "GetType" {
-                let ty = (ctx.core.exec.object_protocol.get_type)(ctx, &obj_val)?;
+                let ty = (ctx.core().object_protocol().get_type)(ctx, &obj_val)?;
                 return Ok(ResolvedVCall { target: VCallTarget::Immediate(ty), this: obj_val.clone() });
             }
             if method == "GetHashCode" {

@@ -12,8 +12,7 @@
 | `stack_guard.rs` | 原生栈余量、致命标记与报告；两个后端共用 |
 | `init.rs` | 类型与包初始化屏障、执行、parked 等待及异常构造 |
 | `thread_state.rs` | `ThreadExecState` 的帧、池、arena、异常槽与 JIT 中立头；每线程独立 |
-| `state.rs` | `ExecState` 内联组合每 VM 引擎注册表与对象协议服务，门面提供具体注册 |
-| `object_protocol.rs` | 私有 GetType / 默认 ToString / 按名称与泛型实参构造 Type 的函数指针契约；worker 共享不可变服务，默认文本仍以 Rust String 返回给调用方 |
+| `state.rs` | `ExecState` 组合每 VM 引擎注册表、builtin 目录与栈分配策略；对象协议由 Core 单独持有 |
 | `native.rs` | native 调用与 owned pin 提供方契约；门面在创建 VM 前登记，worker 共享 |
 | `active_vm.rs` | native-interop 回调的活动 VM TLS 与激活 guard；底帧与宿主重入共用，退出时恢复前一上下文 |
 | `ambient.rs` | 执行期当前堆 TLS、HeapGuard 嵌套恢复和堆 epoch |
@@ -33,6 +32,7 @@
 ## 基础用法
 
 解释器和 JIT helper 从 `z42::exec::ops::scalar` 调用共享函数；JIT 内联发码遵循相同规则，由双模式 golden 验证。异常对象的构造和传播由调用方处理。
+对象能力契约位于 `object/protocol.rs`；执行层借用 Core 已绑定的服务，保留托管调用、异常和文本物化。
 
 ## 如何测试验证
 

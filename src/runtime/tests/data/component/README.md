@@ -2,6 +2,8 @@
 
 ## 职责
 
+crate 类型：component 测试夹具。只用于验证组件协议/生命周期，不是生产依赖或普通宿主接口。
+
 A real cdylib using only z42::components::abi. It owns fixture state and uses runtime service callbacks; it never creates a VM or accesses heap/thread state. The same source also supplies static registration tests.
 
 ## 功能索引

@@ -10,6 +10,7 @@ pub struct VmCore {
     pub(crate) threads: crate::threads::ThreadState,
     /// Shared execution state, including engine registrations and backend code lifetime.
     pub(crate) exec: crate::exec::ExecState,
+    pub(crate) object_protocol: crate::object::protocol::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError>,
     /// Owned heap. Its root providers keep Weak<VmCore> to avoid ownership cycles.
     /// Metadata and interop providers remain alive until after heap teardown.
     pub(crate) heap:               Box<Heap>,
@@ -56,6 +57,7 @@ impl VmContext {
     #[inline] pub fn threads(&self) -> &crate::threads::ThreadLocalState { &self.threads }
 }
 impl VmCore {
+    #[inline] pub(crate) fn object_protocol(&self) -> &crate::object::protocol::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError> { &self.object_protocol }
     #[inline] pub(crate) fn components(&self) -> &std::sync::OnceLock<crate::components::api::VmComponents> { &self.components }
     #[inline] pub fn exec(&self) -> &crate::exec::ExecState { &self.exec }
     #[inline] pub fn heap(&self) -> &Heap { &self.heap }

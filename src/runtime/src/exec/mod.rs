@@ -10,7 +10,6 @@ pub mod active_vm;
 pub mod call;
 pub mod stack;
 pub mod engine;
-pub mod object_protocol;
 
 pub mod init;
 
