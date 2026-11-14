@@ -8,8 +8,9 @@ using CachedReadFixture;
 
 [Test]
 void test_cache_restore_jobs_keep_raw_modules_and_cache_bytes() {
-    ParallelConfig.SetJobs(1); CacheFixture f = new CacheFixture(16);
+    ParallelConfig.SetJobs(1); string root = File.CreateTempDir("cached-read-fixture");
     try {
+        CacheFixture f = new CacheFixture(root, 16);
         int[] jobs = new int[]{1, 2, 4}; int j = 0;
         while (j < jobs.Length) {
             ParallelConfig.SetJobs(jobs[j]); IncrPrep prep = f.Read();
@@ -21,7 +22,7 @@ void test_cache_restore_jobs_keep_raw_modules_and_cache_bytes() {
             }
             j = j + 1;
         }
-    } finally { ParallelConfig.SetJobs(1); Directory.Delete(f.Root, true); }
+    } finally { ParallelConfig.SetJobs(1); Directory.Delete(root, true); }
 }
 
 void _breakCache(CacheFixture f) {
@@ -53,8 +54,9 @@ string _restoredState(IncrPrep prep, CacheFixture f) {
 
 [Test]
 void test_cache_restore_multi_failures_match_serial_degradation() {
-    ParallelConfig.SetJobs(1); CacheFixture f = new CacheFixture(16);
+    ParallelConfig.SetJobs(1); string root = File.CreateTempDir("cached-read-fixture");
     try {
+        CacheFixture f = new CacheFixture(root, 16);
         _breakCache(f); IncrPrep serial = f.Read();
         Assert.False(serial.Plan.AllCached); Assert.Equal(5, serial.Plan.FreshCount);
         string expected = _restoredState(serial, f);
@@ -64,5 +66,5 @@ void test_cache_restore_multi_failures_match_serial_degradation() {
             Assert.Equal(serial.Plan.FreshCount, actual.Plan.FreshCount);
             Assert.Equal(expected, _restoredState(actual, f)); j = j + 1;
         }
-    } finally { ParallelConfig.SetJobs(1); Directory.Delete(f.Root, true); }
+    } finally { ParallelConfig.SetJobs(1); Directory.Delete(root, true); }
 }

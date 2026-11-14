@@ -87,3 +87,5 @@
 缓存 IR 恢复先按现有文件 jobs 预算并行读取、校验 zbc/meta 配对并解码；Join 后按源序回填残留、处理降级与失效闭包。它不改变全命中时的诊断执行策略。`benches/z42c.pipeline.bench.cached-read.z42.toml` 覆盖 8/64 文件、jobs 1/4 的完整 Prepare 请求（真实缓存 setup 与字节检查在计时外）。
 
 `benches/cached_read/` 是默认发现器的一个目录单元：共享夹具和四个基准一起编译，夹具文件不单独作为基准执行。
+
+`tests/incremental/cached_dependency_tests.z42` 用真实整包声明与缓存覆盖 A→B→C 的 API 失效传播、错误诊断和四类缓存损坏，按正反源序、jobs 1/2/4 与全新编译的模块字节对账。缺失 zbc 使条目整体作废并保守传播；哈希、解码或残留失败保留已知声明面，未改动的依赖方仍可命中；测试和基准的临时目录由调用方在夹具构造前持有，构造失败也会清理。
