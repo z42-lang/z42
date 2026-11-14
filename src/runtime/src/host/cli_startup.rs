@@ -214,8 +214,8 @@ pub fn print_build_info(resolution: &z42::config::Resolution, ctx: &z42::config:
 
     // Exec modes actually available (function of feature flags)
     let mut modes: Vec<&str> = Vec::new();
-    if z42::host::interp_available() { modes.push("interp"); }
-    if z42::host::jit_available() { modes.push("jit"); }
+    if crate::components::api::execution_available(crate::components::api::ExecutionRole::Baseline) { modes.push("interp"); }
+    if crate::components::api::execution_available(crate::components::api::ExecutionRole::Optimizing) { modes.push("jit"); }
     #[cfg(feature = "aot")] modes.push("aot");
     println!("exec modes: {}", modes.join(", "));
 

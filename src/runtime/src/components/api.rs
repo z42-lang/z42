@@ -1,236 +1,96 @@
-//! Internal, same-build component protocol. No VM implementation or owned Rust values
-//! cross this ABI. Descriptors/tables are immutable until their library is released.
-use core::ffi::c_void;
+//! VM-only capability access. Provider identities and management stay inside components.
+use crate::{components::abi::{ExecutionApi, ExecutionConfig, ComponentStatus}, context::VmContext, zpkg::ExecMode};
+use anyhow::Result;
+pub(crate) use super::execution_roles::ExecutionRole;
+pub use super::backends::{BackendOptions, BackendSource};
+pub use super::instance::{ComponentLease, VmComponents};
+pub use super::options::{ComponentOptions, component_interface, component_ids};
+pub use super::linked::register_static_component;
+use super::execution_roles::ExecutionBindings;
 
-pub const COMPONENT_ABI_VERSION: u32 = 1;
-include!(concat!(env!("OUT_DIR"), "/identity.rs"));
-
-macro_rules! id_type {
-    ($name:ident) => {
-        #[repr(C)]
-        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        pub struct $name(pub [u8; 16]);
-        impl $name {
-            pub const fn new(value: u128) -> Self {
-                Self(value.to_be_bytes())
-            }
-        }
-        impl core::fmt::Display for $name {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                for byte in self.0 {
-                    write!(f, "{byte:02x}")?;
-                }
-                Ok(())
-            }
-        }
-    };
-}
-id_type!(ComponentId);
-id_type!(InterfaceId);
-
-/// Integer newtype accepts unknown native status values without enum-discriminant UB.
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ComponentStatus(pub u32);
-impl ComponentStatus {
-    pub const OK: Self = Self(0);
-    pub const UNAVAILABLE: Self = Self(1);
-    pub const ERROR: Self = Self(2);
-    pub const INVALID_ARGUMENT: Self = Self(3);
+/// Prepare once before publishing the program; execution uses its bound engines.
+pub(crate) fn prepare_program(
+    ctx: &VmContext, mode: ExecMode, components: &ComponentOptions,
+    backends: &BackendOptions, profiler: &BackendSource,
+) -> Result<()> {
+    let selected = backends.components(mode, components)?;
+    let mut roles = vec![(ExecutionRole::Baseline, crate::components::abi::INTERP_COMPONENT)];
+    if mode == ExecMode::Jit {
+        roles.push((ExecutionRole::Optimizing, crate::components::abi::JIT_COMPONENT));
+    }
+    let bindings = ExecutionBindings::new(roles)?;
+    ctx.core().diagnostics().sampler.set_source(profiler.clone())?;
+    selected.install_bound(ctx, bindings)?;
+    attach_execution(ctx, mode)?;
+    if ctx.core().diagnostics().sampler.enabled() {
+        profiler_service(ctx)?;
+    }
+    Ok(())
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct ApiHeader {
-    pub version: u32,
-    pub size: u32,
-}
-impl ApiHeader {
-    pub const fn of<T>(version: u32) -> Self {
-        Self {
-            version,
-            size: core::mem::size_of::<T>() as u32,
-        }
+/// Pure lookup: no discovery, loading, factory callbacks or instance creation.
+pub(crate) fn execution(ctx: &VmContext, role: ExecutionRole) -> Result<Option<ComponentLease<ExecutionApi>>> {
+    match ctx.core().components().get() {
+        Some(components) => components.execution(role, ctx.core_arc()),
+        None => Ok(None),
     }
 }
 
-/// # Safety
-/// Implementors must be immutable, C-layout, header-first function tables with no
-/// owned Rust data. ID/version identify the exact table; callbacks obey their ABI
-/// and synchronization contracts. Returned tables remain valid until destroy_vm.
-pub unsafe trait ComponentInterface: Copy + Send + Sync + 'static {
-    const ID: InterfaceId;
-    const VERSION: u32;
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct InterfaceSpec {
-    pub id: InterfaceId,
-    pub version: u32,
-    pub size: u32,
-    pub alignment: u32,
-}
-impl InterfaceSpec {
-    pub const fn of<T: ComponentInterface>() -> Self {
-        Self {
-            id: T::ID,
-            version: T::VERSION,
-            size: core::mem::size_of::<T>() as u32,
-            alignment: core::mem::align_of::<T>() as u32,
-        }
+pub(crate) fn execution_supported(role: ExecutionRole) -> bool {
+    match role {
+        ExecutionRole::Baseline => true,
+        ExecutionRole::Optimizing => super::backends::jit_supported(),
     }
 }
 
-pub type VmHandle = *mut c_void;
-pub type InstanceHandle = *mut c_void;
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct InterfaceRef {
-    pub api: *const ApiHeader,
-    pub context: InstanceHandle,
-}
-impl InterfaceRef {
-    pub const NONE: Self = Self {
-        api: core::ptr::null(),
-        context: core::ptr::null_mut(),
-    };
+/// Known source presence, not an ABI-validity guarantee. Preparation validates it.
+pub(crate) fn execution_available(role: ExecutionRole) -> bool {
+    match role {
+        ExecutionRole::Baseline => super::backends::interp_available(),
+        ExecutionRole::Optimizing => super::backends::jit_available(),
+    }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct IdSpan {
-    pub data: *const ComponentId,
-    pub len: usize,
-}
-impl IdSpan {
-    pub const EMPTY: Self = Self {
-        data: core::ptr::null(),
-        len: 0,
-    };
-}
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct InterfaceSpan {
-    pub data: *const InterfaceSpec,
-    pub len: usize,
+pub(crate) fn profiler_service(ctx: &VmContext) -> Result<&dyn crate::diagnostics::sampling::ProfilerBackend> {
+    ctx.core().diagnostics().sampler.provider(ctx)
 }
 
-/// Services live until every instance receiving this table has been destroyed.
-/// query_component grants access only to declared, already-initialized dependencies.
-#[repr(C)]
-pub struct RuntimeApi {
-    pub header: ApiHeader,
-    pub get_service:
-        unsafe extern "C" fn(VmHandle, InterfaceId, u32, *mut InterfaceRef) -> ComponentStatus,
-    pub query_component: unsafe extern "C" fn(
-        VmHandle,
-        ComponentId,
-        InterfaceId,
-        u32,
-        *mut InterfaceRef,
-    ) -> ComponentStatus,
+pub(crate) fn attach_profiler(ctx: &VmContext, source: &BackendSource, hz: u32, trace: bool) -> Result<()> {
+    super::profiling::attach(ctx, source, hz, trace)
 }
 
-/// Core-owned, immutable identity service. The supplied handle is borrowed, not owned.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct VmInfoApi {
-    pub header: ApiHeader,
-    pub vm_id: unsafe extern "C" fn(VmHandle, *mut u64) -> ComponentStatus,
-}
-unsafe impl ComponentInterface for VmInfoApi {
-    const ID: InterfaceId = InterfaceId::new(1);
-    const VERSION: u32 = 1;
-}
-
-pub type ComponentInit = unsafe extern "C" fn() -> *const ComponentDescriptor;
-pub type CreateVm =
-    unsafe extern "C" fn(*const RuntimeApi, VmHandle, *mut InstanceHandle) -> ComponentStatus;
-pub type DestroyVm = unsafe extern "C" fn(InstanceHandle);
-pub type QueryInterface =
-    unsafe extern "C" fn(InstanceHandle, InterfaceId, u32, *mut InterfaceRef) -> ComponentStatus;
-
-/// Same-build immutable factory. All pointer spans must be valid for the library's
-/// lifetime. Callbacks/state must support concurrent interface leases. No unwinding
-/// may cross the ABI. create_vm's nonnull output must always be destroyable, including
-/// on failure; a successful stateless instance may use a null handle.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct ComponentDescriptor {
-    pub header: ApiHeader,
-    pub build_id: [u8; 32],
-    pub id: ComponentId,
-    pub dependencies: IdSpan,
-    pub interfaces: InterfaceSpan,
-    pub create_vm: Option<CreateVm>,
-    pub destroy_vm: Option<DestroyVm>,
-    pub query_interface: Option<QueryInterface>,
-}
-// Descriptors are immutable; registering their factories is unsafe and requires all
-// spans/callbacks to satisfy the contract above. They retain no mutable VM state.
-unsafe impl Sync for ComponentDescriptor {}
-
-mod execution {
-//! Same-build execution registration. The VM is borrowed for attach only; all
-//! persistent execution state is created inside the shared runtime core.
-use super::{ApiHeader, ComponentId, ComponentInterface, ComponentStatus, InterfaceId};
-use core::ffi::c_void;
-pub const INTERP_COMPONENT: ComponentId = ComponentId::new(0x7a34322e696e746572702e7631000000);
-pub const JIT_COMPONENT: ComponentId = ComponentId::new(0x7a34322e6a69742e7631000000000000);
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ExecutionConfig {
-    pub threshold: u32,
-    pub osr_threshold: u32,
-    pub interp_tierup: u32,
-    pub profile: u32,
-    pub debug_promote: u32,
-}
-/// Layout and build-configuration stamp copied from the core metadata used to
-/// compile a backend. Image address alone cannot detect a differently configured
-/// consumer that happens to resolve the same shared-library file.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ExecutionCoreAbi {
-    pub flags: u64,
-    pub layouts: [usize; 8],
-}
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct ExecutionIdentity {
-    pub image: *const c_void,
-    pub abi: ExecutionCoreAbi,
-}
-/// attach must only register the advertised backend, without executing managed
-/// code. Host checks core_identity before passing any borrowed VM address.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct ExecutionApi {
-    pub header: ApiHeader,
-    pub core_identity: unsafe extern "C" fn() -> ExecutionIdentity,
-    pub attach: unsafe extern "C" fn(*const c_void, *const ExecutionConfig) -> ComponentStatus,
-}
-unsafe impl ComponentInterface for ExecutionApi {
-    const ID: InterfaceId = InterfaceId::new(0x7a34322e657865632e76310000000000);
-    const VERSION: u32 = 1;
+pub(super) fn attach_execution(ctx: &VmContext, mode: ExecMode) -> Result<()> {
+    for role in [ExecutionRole::Baseline, ExecutionRole::Optimizing] {
+        if role == ExecutionRole::Optimizing && mode != ExecMode::Jit { continue; }
+        let name = if role == ExecutionRole::Baseline { "interpreter" } else { "JIT" };
+        let components = ctx.core().components().get()
+            .ok_or_else(|| anyhow::anyhow!("execution components are not prepared"))?;
+        let interface = execution(ctx, role)?
+            .ok_or_else(|| anyhow::anyhow!("{name} component does not provide its execution interface"))?;
+        let identity = unsafe { (interface.core_identity)() };
+        crate::components::bridge::validate_core(identity, name)?;
+        let code = components.execution_code(role)
+            .ok_or_else(|| anyhow::anyhow!("{name} component has no code lease"))?;
+        // Acquire code lifetime before installing any backend-owned trait objects.
+        ctx.core().exec().engines.retain_code(code);
+        let cfg = crate::config::runtime_config().jit_config();
+        let config = ExecutionConfig { threshold: cfg.threshold, osr_threshold: cfg.osr_threshold,
+            interp_tierup: cfg.interp_tierup, profile: cfg.profile as u32, debug_promote: cfg.debug_promote as u32 };
+        let status = unsafe { (interface.attach)((ctx as *const VmContext).cast(), &config) };
+        anyhow::ensure!(status == ComponentStatus::OK, "{name} registration failed: status {}", status.0);
+    }
+    anyhow::ensure!(ctx.core().exec().engines.has_baseline(), "interpreter component did not register its execution engine");
+    if mode == ExecMode::Jit {
+        anyhow::ensure!(ctx.core().exec().engines.has_jit(), "JIT component did not register its execution engine");
+    }
+    Ok(())
 }
 
+pub(crate) fn engine_registry() -> crate::exec::engine::EngineRegistry {
+    super::backends::registry()
 }
-pub use execution::*;
 
-/// Optional diagnostics implementation. Attach borrows the same-build shared core
-/// and installs a provider through its internal Rust contract; no Rust ownership
-/// crosses this C table. Identity must be checked before attach.
-pub const PROFILER_COMPONENT: ComponentId = ComponentId::new(0x7a34322e70726f66696c65722e763100);
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct ProfilerApi {
-    pub header: ApiHeader,
-    pub core_identity: unsafe extern "C" fn() -> ExecutionIdentity,
-    pub attach: unsafe extern "C" fn(*const c_void, u32, u32) -> ComponentStatus,
-}
-unsafe impl ComponentInterface for ProfilerApi {
-    const ID: InterfaceId = InterfaceId::new(0x7a34322e70726f66696c652e61706900);
-    const VERSION: u32 = 1;
+#[cfg(any(feature = "native-interop", feature = "component-loading"))]
+pub(crate) fn native_paths() -> Vec<std::path::PathBuf> {
+    super::backends::native_paths()
 }

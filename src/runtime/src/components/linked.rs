@@ -1,5 +1,5 @@
 //! Process-wide static factory selection. VM state belongs to component instances.
-use super::api::{ComponentId, ComponentInit};
+use crate::components::abi::{ComponentId, ComponentInit};
 use anyhow::{ensure, Result};
 use parking_lot::RwLock;
 use std::{collections::BTreeMap, sync::OnceLock};

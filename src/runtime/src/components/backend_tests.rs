@@ -1,5 +1,5 @@
-use super::*;
 use super::api::*;
+use crate::components::abi::*;
 use crate::host::{LoadedProgram, LoadOptions, ExecMode, VmContext};
 use std::sync::atomic::{AtomicUsize, Ordering};
 fn load(mode: ExecMode, backends: BackendOptions) -> anyhow::Result<LoadedProgram> {
@@ -34,7 +34,7 @@ fn explicit_disable_and_missing_dynamic_library_fail() {
     let missing = std::env::temp_dir().join("z42-backend-missing-test").join("never-created.so");
     let options = BackendOptions { interp: BackendSource::Dynamic(missing), ..Default::default() };
     assert!(failure(ExecMode::Interp, options).contains("was not found"));
-    if jit_supported() {
+    if super::backends::jit_supported() {
         let off = BackendOptions { jit: BackendSource::Disabled, ..Default::default() };
         assert!(failure(ExecMode::Jit, off).contains("JIT backend is disabled"));
     }
@@ -44,12 +44,12 @@ fn explicit_disable_and_missing_dynamic_library_fail() {
 fn absent_static_jit_is_an_error_without_fallback() {
     let options = BackendOptions { jit: BackendSource::Linked, ..Default::default() };
     let error = failure(ExecMode::Jit, options);
-    assert!(error.contains(if jit_supported() { "not statically linked" } else { "unsupported on this target" }), "{error}");
+    assert!(error.contains(if super::backends::jit_supported() { "not statically linked" } else { "unsupported on this target" }), "{error}");
 }
 static FOREIGN: u8 = 0;
 static ATTACH_CALLS: AtomicUsize = AtomicUsize::new(0);
 unsafe extern "C" fn identity() -> ExecutionIdentity {
-    ExecutionIdentity { image: core::ptr::addr_of!(FOREIGN).cast(), abi: crate::components::CORE_ABI }
+    ExecutionIdentity { image: core::ptr::addr_of!(FOREIGN).cast(), abi: crate::components::bridge::CORE_ABI }
 }
 unsafe extern "C" fn attach_foreign(_ctx: *const core::ffi::c_void, _config: *const ExecutionConfig) -> ComponentStatus {
     ATTACH_CALLS.fetch_add(1, Ordering::Relaxed); ComponentStatus::OK
@@ -79,16 +79,16 @@ fn another_core_is_rejected_before_any_vm_address_is_passed_to_it() {
     let ctx = crate::host::vm_defaults::construct(None, crate::pal::fs::default_vfs(), Default::default(),
         crate::exec::engine::EngineRegistry::new(None));
     let components = unsafe { ComponentOptions::default().with_static(INTERP_COMPONENT, foreign_init) };
-    components.install(&ctx).unwrap();
-    let error = super::backends::attach(&ctx, ExecMode::Interp).unwrap_err();
+    components.install_bound(&ctx, super::execution_roles::ExecutionBindings::new([(super::api::ExecutionRole::Baseline, INTERP_COMPONENT)]).unwrap()).unwrap();
+    let error = super::api::attach_execution(&ctx, ExecMode::Interp).unwrap_err();
     assert!(error.to_string().contains("core image or ABI mismatch"));
     assert_eq!(ATTACH_CALLS.load(Ordering::Relaxed), 0);
 }
 
 unsafe extern "C" fn wrong_abi_identity() -> ExecutionIdentity {
-    let mut abi = crate::components::CORE_ABI;
+    let mut abi = crate::components::bridge::CORE_ABI;
     abi.flags ^= 1;
-    ExecutionIdentity { image: crate::components::core_identity(), abi }
+    ExecutionIdentity { image: crate::components::bridge::core_identity(), abi }
 }
 static WRONG_ABI_API: ExecutionApi = ExecutionApi { header: ApiHeader::of::<ExecutionApi>(1),
     core_identity: wrong_abi_identity, attach: attach_foreign };
@@ -107,7 +107,7 @@ fn same_image_with_incompatible_compiled_layout_is_rejected() {
     let ctx = crate::host::vm_defaults::construct(None, crate::pal::fs::default_vfs(), Default::default(),
         crate::exec::engine::EngineRegistry::new(None));
     let components = unsafe { ComponentOptions::default().with_static(INTERP_COMPONENT, wrong_abi_init) };
-    components.install(&ctx).unwrap();
-    assert!(super::backends::attach(&ctx, ExecMode::Interp).unwrap_err().to_string().contains("core image or ABI mismatch"));
+    components.install_bound(&ctx, super::execution_roles::ExecutionBindings::new([(super::api::ExecutionRole::Baseline, INTERP_COMPONENT)]).unwrap()).unwrap();
+    assert!(super::api::attach_execution(&ctx, ExecMode::Interp).unwrap_err().to_string().contains("core image or ABI mismatch"));
     assert_eq!(ATTACH_CALLS.load(Ordering::Relaxed), 0);
 }

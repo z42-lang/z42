@@ -7,7 +7,7 @@
 执行 z42 编译产物（`.zbc` / `.zpkg`）。后端：解释器（interp）+ Cranelift JIT（desktop 默认，惰性逐函数编译）；AOT 为桩。
 不含编译器（在 `src/compiler/`）与标准库（在 `src/libraries/`）。
 
-解释器与 JIT 分别属于独立的 z42-interp、z42-jit 库，单向依赖运行时；生产运行时不链接具体后端。host 统一选择静态/动态组件并注册引擎，每 VM 的 TierApi 归执行层，后端拥有编译器和代码页。
+解释器与 JIT 分别属于独立的 z42-interp、z42-jit 库，单向依赖运行时；生产运行时不链接具体后端。host 将准备请求交给内部 `components::api`，组件层选择来源并注册引擎，每 VM 的 TierApi 归执行层，后端拥有编译器和代码页。
 
 ## 目录结构与核心文件
 
@@ -62,7 +62,8 @@
 | `crates/z42-profiler/src/profiler/` | CPU 采样、堆摘要、V8 快照与保留链，见 [`crates/z42-profiler/README.md`](crates/z42-profiler/README.md) |
 | `src/context/` | `VmContext`（通过 host 提供嵌入入口）：固定地址的每线程视图，组合 exec/runtime/diagnostics/threads 状态并共享 Arc<VmCore> |
 | `src/interop/` | 原生提供方注册/查询与 Tier 1 C ABI 编组，见 [`src/interop/README.md`](src/interop/README.md) |
-| `src/components/` | 统一组件协议、工厂加载、后端选择与每 VM 生命周期，见 [`src/components/README.md`](src/components/README.md) |
+| `src/components/abi.rs` / `src/components/bridge.rs` | 独立组件共享的同构建协议及核心身份/布局桥，不经 host 转出 |
+| `src/components/` | 内部能力门面、角色绑定、工厂加载、后端选择与每 VM 生命周期，见 [`src/components/README.md`](src/components/README.md) |
 | `src/host/` | CLI 与外部宿主共用的 Rust 加载、调用及应用服务，包含 `z42_host.h` 的 C ABI 适配，见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
 | `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
 | `src/exec/exception/` | 异常对象布局、传播模型与栈迹捕获 |

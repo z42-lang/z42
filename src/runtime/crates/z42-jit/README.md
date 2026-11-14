@@ -10,6 +10,8 @@
 
 src/jit 为后端实现，src/jit/component.rs 提供工厂与 ExecutionApi；src/jit/config.rs 再导出 core 的输入类型。
 
+独立实现通过 `z42::components::abi` 使用描述符和 C 布局接口，通过 `z42::components::bridge` 校验共享核心身份/布局。核心模块仅私有导入，不由本库再导出。
+
 ## 基础用法
 
 静态宿主链接本库并登记组件工厂；运行时的 jit feature 只启用中立契约，不链接具体实现。仅桌面 x64/arm64 编译 Cranelift。嵌入调用方统一使用 z42::host，不直接依赖组件内部模块。

@@ -2,8 +2,8 @@
 
 ## 职责
 
-统一组件协议、静态工厂登记、动态库加载、依赖校验和每 VM 实例管理。`VmCore` 持有实例集合，worker 共享所属 Core 的组件状态。
-组件管理属于 VM 内部设施；当前仍存在 host 再导出及消费者穿透子模块的缺口，内部门面尚未收口，详见[模块边界](../../../../docs/internals/src/runtime/module-boundaries.md)。
+提供 VM 内部能力门面、静态工厂登记、动态库加载、依赖校验和每 VM 实例管理。`VmCore` 持有实例集合，worker 共享所属 Core 的组件状态。
+组件管理及其子模块在 crate 内部可见，VM 消费者经 `components::api` 准备和查询能力；host 仍有具名管理类型和签名泄露，详见[模块边界](../../../../docs/internals/src/runtime/module-boundaries.md)。
 
 组件工厂只持有描述符、回调和原生库代码，可以跨 VM 共享；实例、JIT 状态和堆仍按 VM 隔离。这里不实现解释器、JIT 或其他具体组件。
 
@@ -11,20 +11,21 @@
 
 | 文件 | 职责 |
 |---|---|
-| `api.rs` | 当前为跨库 C 协议，并非目标中的 VM 内部访问门面；两者待分离 |
+| `api.rs` | 内部准备协调、执行角色绑定/附着/查询和分析服务入口 |
 | `catalog.rs` | 按启用根加载工厂依赖闭包、缓存与描述符校验、依赖排序和代码所有权 |
 | `options.rs` | 启用根与可用提供方配置、事务装配入口和带租约的只读查询 |
 | `instance.rs` | 每 VM 创建/销毁、核心与依赖服务、接口租约和反序清理 |
 | `profiling.rs` | profiler 按需装配、同核心身份检查与代码寿命 |
-| `backends.rs` | interp/JIT 来源选择、能力查询、身份检查和执行接口装配 |
+| `backends.rs` | interp/JIT 来源选择、候选发现、目标能力和初始引擎注册表 |
 | `linked.rs` | 进程寿命的静态工厂登记；不保存 VM 实例 |
-| `identity.rs` | 单份 runtime 映像身份与编译期内存布局校验 |
+| `execution_roles.rs` | 基线/优化角色到提供方的不可变绑定，实例创建前验证接口 |
+| `abi.rs` / `bridge.rs` | 同构建跨库 C 协议与最小核心身份/布局桥 |
 
 ## 基础用法
 
-当前 VM 装配使用 `ComponentOptions`、`BackendOptions` 与查询接口，部分入口仍经 host 转出。目标访问关系是
-VM 消费者通过内部 `components::api` 请求能力，管理实现和具体组件对消费者透明；普通宿主只表达功能请求。
-组件实现目前通过 `z42::components::api` 使用同构建协议；该跨库协议与内部门面的拆分尚未实施。
+VM 消费者通过内部 `components::api` 请求准备、执行角色和分析服务。执行角色绑定在实例创建前验证，
+消费者不传具体提供方 ID；执行热路径使用一次装配的引擎。`ComponentOptions`、`BackendOptions` 等具名入口仍经 host 转出，宿主公开面的完整收口尚未完成。
+独立组件通过 `z42::components::abi` 使用同构建协议，`components::bridge` 只提供共享核心身份和布局。
 描述符、接口头、构建身份与执行核心身份均在装配时校验。
 
 三种使用形态的目标是静态链接、作为共享库依赖的动态链接、运行时显式装入分别建模，并按运行时策略检查；
@@ -54,4 +55,4 @@ cargo test -p z42 --lib components:: -- --test-threads=1
 
 ## 核心文件
 
-`mod.rs` 汇总组件框架的 Rust 接口；`api.rs` 定义协议，`catalog.rs` 管理工厂代码，`instance.rs` 管理每 VM 状态。构建身份要求同源、同工具链与目标；跨版本组件不兼容。
+`mod.rs` 声明私有管理子模块；`api.rs` 提供 VM 内部门面，`catalog.rs` 管理工厂代码，`instance.rs` 管理每 VM 状态。构建身份要求同源、同工具链与目标；跨版本组件不兼容。
