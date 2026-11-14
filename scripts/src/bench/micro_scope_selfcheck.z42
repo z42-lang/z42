@@ -33,7 +33,7 @@ void _microScopeChecks() {
     _gateAssert(rejected, "explicit scope cannot override a validated plan");
     string workflow = File.ReadAllText(Path.Join(root, ".github/workflows/bench-pr.yml"));
     _gateAssert(workflow.Contains("BENCH_OWNERS: ${{ steps.scope.outputs.bench_owners }}")
-        && workflow.Contains("--micro-ab --owners \"$BENCH_OWNERS\""), "CI passes scope frozen before A/B scratch trees dirty the checkout");
+        && workflow.Contains("--micro-ab --owners \"${BENCH_OWNERS?benchmark scope is required}\""), "CI passes scope frozen before A/B scratch trees dirty the checkout");
     mixed = _flowSelect(cfg, new string[]{ "src/libraries/z42.json/benches/read.z42" }, root);
     _gateAssert(_ciBenchText(cfg, mixed).Contains("bench_owners=z42.json\n"), "CI scope preserves the same narrow owner");
     mixed = _flowSelect(cfg, new string[]{ "src/runtime/src/lib.rs" }, root);
