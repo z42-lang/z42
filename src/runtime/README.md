@@ -19,8 +19,7 @@ crate 类型：VM 模块的组合根。内部模块直接编译引用；独立�
 | 文件 | 职责 |
 |------|------|
 | `main.rs` | 命令行宿主实现；解析参数并直接调用动态链接的 host 接口 |
-| `main_startup.rs` | main 的私有启动辅助：stdlib 定位、环境与搜索目录、日志和构建信息 |
-| `main_windows_launcher.rs` | Windows SDK 的进程转发入口；实际 main 与唯一 DLL 闭包同目录，不装库、不提供 VM 接口 |
+| `main_startup.rs` | main 的私有启动辅助；也按独立构建 feature 提供 Windows 的少量进程转发逻辑，不装库或提供 VM 接口 |
 | `corelib/builtins.rs` / `host/builtins.rs` | 核心库导出自身描述符，host 经 interop 注册独立提供方并生成查询目录与执行表 |
 | `corelib/mod.rs` | 核心库提供 GetType 和默认 ToString 的对象协议绑定；宿主将其注入 VM |
 | `host/artifact.rs` | 门面在函数融合准备时读取进程配置，为公开加载入口与每 VM loader 提供同一惰性输入 |

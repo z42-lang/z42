@@ -18,7 +18,7 @@ required-features = ["cli", "component-loading"]
 
 [[bin]]
 name = "z42vm-windows-launcher"
-path = "src/main_windows_launcher.rs"
+path = "src/main_startup.rs"
 required-features = ["windows-launcher"]
 
 [lib]

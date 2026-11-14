@@ -1,9 +1,9 @@
 //! zpkg 依赖的**额外搜索目录**展开（add-deployment-model 批 3）。
 //!
 //! `Z42_PROBING_PATHS` / `[runtime] probing-paths` 声明的每一项在**解析时**展开成具体目录，
-//! 由 `app.rs` 的 `search_dirs` 消费（entry-dir 之后、libs 之前）。
+//! 由 main/C/Rust 等来源适配解析后，作为显式搜索路径交给加载服务（entry-dir 之后、libs 之前）。
 //!
-//! 放 lib 而不是 bin 的 `startup.rs`：唯一消费者 `app.rs` 就在 lib 里，bin 够不着。
+//! 模式展开由各宿主来源复用；加载服务本身不读取 CLI 环境或决定默认目录。
 
 use std::path::PathBuf;
 
