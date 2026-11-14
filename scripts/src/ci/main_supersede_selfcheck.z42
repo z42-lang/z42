@@ -77,6 +77,14 @@ void _ciMainSupersedeChecks() {
     api.Diff.Get("files").At(0).Set("previous_filename", JsonValue.OfString("src/runtime/src/lib.rs"));
     _ciSupersedeMain(api, "owner/repo", "42", false, "before");
     _gateAssert(api.Posts.Count == 1, "renaming a production file into documentation still supersedes assets");
+    foreach (var position in new int[]{ 0, 299 }) {
+        api = new CiMainSupersedeFake(); api.Diff = _ciTruncatedMainDiff("src/runtime/src/lib.rs", "", position);
+        _ciSupersedeMain(api, "owner/repo", "42", false, "before");
+        _gateAssert(api.Posts.Count == 1, "a known asset anywhere in a capped comparison authorizes verified replacement");
+    }
+    api = new CiMainSupersedeFake(); api.Diff = _ciTruncatedMainDiff("docs/moved.md", "src/runtime/src/lib.rs", 299);
+    _ciSupersedeMain(api, "owner/repo", "42", false, "before");
+    _gateAssert(api.Posts.Count == 1, "partial comparisons retain previous asset ownership on rename");
     foreach (var field in new string[]{ "path", "event", "head_branch", "head_sha" }) {
         api = new CiMainSupersedeFake(); api.Old.Set(field, JsonValue.OfString(""));
         _ciSupersedeMain(api, "owner/repo", "42", false, "before");
@@ -96,11 +104,11 @@ void _ciMainSupersedeChecks() {
         _ciSupersedeMain(api, "owner/repo", "42", false, "before");
         _gateAssert(api.Posts.Count == 0, "main cleanup rejects stale or unrelated runs: " + why);
     }
-    foreach (var why in new string[]{ "api", "missing-files", "truncated", "denied", "finish-error" }) {
+    foreach (var why in new string[]{ "api", "missing-files", "truncated", "truncated-unknown", "denied", "finish-error" }) {
         api = new CiMainSupersedeFake(); api.Race = why;
         if (why == "missing-files") { api.Diff.Set("files", JsonValue.OfString("unknown")); }
-        if (why == "truncated") {
-            for (int i = 1; i < 300; i = i + 1) { api.Diff.Get("files").Add(JsonValue.Parse("{\"filename\":\"README.md\"}")); }
+        if (why == "truncated" || why == "truncated-unknown") {
+            api.Diff = _ciTruncatedMainDiff(why == "truncated" ? "README.md" : "unknown.production", "", 0);
         }
         bool failed = false;
         try { _ciSupersedeMain(api, "owner/repo", "42", false, "before"); } catch (Exception e) { failed = true; }
@@ -108,4 +116,15 @@ void _ciMainSupersedeChecks() {
             "unknown diffs never authorize cancellation, completion races are accepted, errors stay visible: " + why);
     }
     Console.WriteLine("  ✓ main cleanup: asset ownership, documentation retention, rename, ancestry, isolation and cancellation races");
+}
+
+JsonValue _ciTruncatedMainDiff(string path, string previous, int position) {
+    JsonValue diff = JsonValue.OfObject(); JsonValue files = JsonValue.OfArray();
+    for (int i = 0; i < 300; i = i + 1) {
+        JsonValue item = JsonValue.OfObject();
+        item.Set("filename", JsonValue.OfString(i == position ? path : "docs/page" + i.ToString() + ".md"));
+        if (i == position && previous.Length > 0) { item.Set("previous_filename", JsonValue.OfString(previous)); }
+        files.Add(item);
+    }
+    diff.Set("status", JsonValue.OfString("ahead")); diff.Set("files", files); return diff;
 }
