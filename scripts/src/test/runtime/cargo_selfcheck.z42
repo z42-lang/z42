@@ -13,6 +13,14 @@ int _selfcheckRuntimeCargo() {
             .WorkingDirectory(runtime), mode + " lockfile");
         _runtimeCargoExpect(_componentTargets(_componentCargo("build", tree, "release"), tree)
             .Arg("--offline"), mode + " runtime build");
+        if (mode != "aliases") {
+            string host = Path.Join(tree, "host"); Directory.Create(host);
+            string binary = Path.Join(host, Platform.IsWindows() ? "z42vm.exe" : "z42vm");
+            File.WriteAllText(binary, "historical-host");
+            if (_componentBuildEntry(tree, "release", host) != 0 || File.ReadAllText(binary) != "historical-host") {
+                throw new Exception("runtime Cargo " + mode + ": absent entry recipe must preserve the built host");
+            }
+        }
         string destination = Path.Join(tree, "native");
         int c = _componentBuildCompression(tree, _detectHostRid(), "release", true, destination);
         if (c != 0 || !File.Exists(Path.Join(destination, _componentLibrary("z42_compression")))) {

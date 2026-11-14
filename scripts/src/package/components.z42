@@ -1,6 +1,7 @@
 // Desktop runtime component build and installation, shared by SDK and runtime packages.
 namespace Z42Xtask;
 using Std.IO;
+using Std.Toml;
 using Std.Cli;
 
 string _componentBuildDir(string root) { return Path.Join(_buildMirror(root, Path.Join(root, "src/runtime")), "components"); }
@@ -21,10 +22,13 @@ bool _componentR0Tree(string root) {
 }
 // R1f：单文件 config.toml 的 [alias] 图配方（≈ CMakePresets）存在与否。旧树（bench base-src
 // 等）没有配方 —— 回退 R0 前的 env 调用形态。alias 仅经目录发现生效，调用方 cwd 须在 src/runtime。
-bool _componentAliasTree(string root) {
-    string cfg = Path.Join(root, "src/runtime/.cargo/config.toml");
-    return File.Exists(cfg) && File.ReadAllText(cfg).Contains("z42-dynamic");
+bool _componentHasAlias(string root, string name) {
+    string path = Path.Join(root, "src/runtime/.cargo/config.toml");
+    if (!File.Exists(path)) { return false; }
+    TomlValue config = TomlValue.Parse(File.ReadAllText(path));
+    return config.ContainsKey("alias") && config.Get("alias").ContainsKey(name);
 }
+bool _componentAliasTree(string root) { return _componentHasAlias(root, "z42-dynamic"); }
 // alias 进程基座：cwd=src/runtime（alias 发现条件），阻断继承的 rustflags 环境通道。
 Process _componentAliasProc(string root, string alias) {
     return new Process("cargo").Arg(alias)
@@ -149,6 +153,8 @@ void _componentInstallLibraries(string cargo, string pkg, bool importLibs = fals
 string _componentEntryDir(string root) { return Path.Join(_componentBuildDir(root), "entry"); }
 string _componentEntryOut(string root, string profile) { return Path.Join(_componentEntryDir(root), profile); }
 int _componentBuildEntry(string root, string profile, string output) {
+    // Historical A/B trees already produce their direct host in the runtime graph.
+    if (!_componentHasAlias(root, "z42-entry")) { return 0; }
     Process build = _componentAliasProc(root, "z42-entry")
         .Arg("--target-dir").Arg(_componentEntryDir(root));
     if (profile == "release") { build = build.Arg("--release"); }
