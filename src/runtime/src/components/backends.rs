@@ -3,7 +3,7 @@ use super::ComponentOptions;
 use anyhow::{bail, Result};
 use std::path::PathBuf;
 use crate::component_abi::*;
-use crate::{zpkg::ExecMode, context::VmContext, exec::engine::EngineRegistry};
+use crate::{zpkg::ExecMode, exec::engine::EngineRegistry};
 
 #[derive(Clone, Debug, Default)]
 pub enum BackendSource {
