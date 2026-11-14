@@ -16,10 +16,16 @@
 ```mermaid
 flowchart TD
   C["detect-changes<br/>（轻量契约与文档）"] --> TB["compile-toolchain<br/>（linux-x64）"]
+  C --> WO["prepare-wasm-opt<br/>（linux-x64）"]
+  WO --> WP["package-wasm"]
+  WO --> WT["test-wasm"]
+  TB --> WP
+  TB --> WT
+  WP --> PUB
   C --> TH["test-host ×4 OS"]
   C --> ARC["check-archives ×4 OS<br/>（仅归档契约）"]
   TB --> TA["compile-test-assets<br/>（golden .zbc → current-sdk）"]
-  TB --> PKG["package-host / package-{ios,android,wasm}"]
+  TB --> PKG["package-host / package-{ios,android}"]
   TA --> CONS["test-consume"]
   TA --> JIT["test-vm-jit ×2 shard"]
   TB --> SL["test-stdlib-{jit,interp}"]
@@ -46,6 +52,12 @@ Linux x64 直接取 `compile-toolchain` 上传的 `z42vm-linux-x64`（VM 和同�
 
 `compile-test-assets` **故意从 `compile-toolchain` 里拆出来**：golden regen 很慢，留在里面会卡住
 `package-*` → `publish-nightly` 这条关键路径，而打包根本不消费测试资产。
+
+`prepare-wasm-opt` 只在 WASM 打包或浏览器测试被选中时运行；它用 nightly 种子编出 xtask，
+与产品工具链构建并行，按固定修订构建或读取缓存，再上传本轮唯一的 `wasm-opt-linux-x64`。
+WASM 打包和所有浏览器分片消费同一 artifact，不重复编译 Binaryen。下载后恢复二进制执行权限，
+用 `xtask setup wasm-opt --check` 核对版本和修订，再注册 PATH；缺失或损坏直接失败，不回退源码构建。
+`ci-ok` 和 nightly 发布也直接依赖准备任务，生产者失败不会被消费者跳过掩盖。版本及静态构建参数由原生安装器维护。
 
 `test-consume` 用下载的 SDK 编译并运行 xtask，再调用一次无筛选的 `test e2e --mode interp --no-rebuild --jobs 4`：
 golden 消费共享 `.zbc`，随后 cross-zpkg 与 multi-exe 各编跑一次，整条路径都只使用下载的工具链。

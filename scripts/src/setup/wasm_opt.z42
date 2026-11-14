@@ -6,8 +6,7 @@ int _ciInstallWasm(string root, string target, string stage, bool force, CiToolO
     string version = _vRead(root, "toolchain.binaryen.version");
     string revision = _vRead(root, "toolchain.binaryen.revision");
     string binary = Path.Join(target, "bin/wasm-opt"); string receipt = Path.Join(target, "revision");
-    if (!force && File.Exists(receipt) && File.ReadAllText(receipt) == revision
-        && _ciToolVersion(ops, binary, "wasm-opt", version)) { return 0; }
+    if (!force && _ciWasmReady(root, target, ops)) { return 0; }
     string src = Path.Join(stage, "src"); string build = Path.Join(stage, "build");
     foreach (var args in new string[][]{
         new string[]{ "init", "--quiet", src },
@@ -29,4 +28,10 @@ int _ciInstallWasm(string root, string target, string stage, bool force, CiToolO
     if (installed != 0) { return installed; }
     if (!_ciToolVersion(ops, binary, "wasm-opt", version)) { return 1; }
     File.WriteAllText(receipt, revision); return 0;
+}
+
+bool _ciWasmReady(string root, string target, CiToolOps ops) {
+    string receipt = Path.Join(target, "revision");
+    return File.Exists(receipt) && File.ReadAllText(receipt) == _vRead(root, "toolchain.binaryen.revision")
+        && _ciToolVersion(ops, Path.Join(target, "bin/wasm-opt"), "wasm-opt", _vRead(root, "toolchain.binaryen.version"));
 }
