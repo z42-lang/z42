@@ -5,5 +5,6 @@
 module Z42VMC {
     header "z42_abi.h"
     header "z42_host.h"
+    header "z42_components.h"
     export *
 }

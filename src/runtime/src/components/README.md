@@ -17,6 +17,7 @@
 | `instance.rs` | 每 VM 创建/销毁、核心与依赖服务、接口租约和反序清理 |
 | `profiling.rs` | profiler 按需装配、同核心身份检查与代码寿命 |
 | `backends.rs` | interp/JIT 来源选择、候选发现、目标能力和初始引擎注册表 |
+| `ffi.rs` / `z42_components.h` | 最终链接组合的 C 登记契约；返回组件状态，不访问 host 错误槽 |
 | `linked.rs` | 进程寿命的静态工厂登记；不保存 VM 实例 |
 | `execution_roles.rs` | 基线/优化角色到提供方的不可变绑定，实例创建前验证接口 |
 | `abi.rs` / `bridge.rs` | 同构建跨库 C 协议与最小核心身份/布局、对象服务只读桥 |
@@ -26,6 +27,7 @@
 VM 消费者通过内部 `components::api` 请求准备、执行角色和分析服务。执行角色绑定在实例创建前验证，
 消费者不传具体提供方 ID；执行热路径使用一次装配的引擎。`ComponentOptions`、`BackendOptions` 等具名入口仍经 host 转出，宿主公开面的完整收口尚未完成。
 独立组件通过 `z42::components::abi` 使用同构建协议，`components::bridge` 提供共享核心身份、布局和已绑定对象服务的只读借用；不提供组件管理入口。
+最终 Rust 组合根使用 `abi::register_static_component`；C 组合根包含本目录的 `z42_components.h`，SDK 安装器将其发布到 include。两者仅登记工厂，不调用工厂或创建 VM。
 描述符、接口头、构建身份与执行核心身份均在装配时校验。
 
 三种使用形态的目标是静态链接、作为共享库依赖的动态链接、运行时显式装入分别建模，并按运行时策略检查；

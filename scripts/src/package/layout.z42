@@ -73,6 +73,7 @@ void _plSdk(string root, _PkgLayout L, string rid) {
 // 桌面 runtime 包 = 嵌入者拿 libz42 的唯一来源：静态 + 动态（Windows 另有 import lib）+ C 头。
 void _plRuntimeDesktop(string root, _PkgLayout L, string rid) {
     L.HasFile("native/include/z42_host.h");
+    L.HasFile("native/include/z42_components.h");
     L.HasFile("native/include/z42_native.h");
     _plComponentLibraries(L, rid);
     L.HasFile(rid.StartsWith("windows-") ? "native/z42.lib" : "native/libz42.a");
@@ -150,6 +151,7 @@ void _plRuntimeWasm(_PkgLayout L) {
 void _plToolingIos(_PkgLayout L) {
     L.HasDir("Sources/Z42VM");
     L.HasFile("Sources/Z42VMC/include/z42_host.h");
+    L.HasFile("Sources/Z42VMC/include/z42_components.h");
     L.HasFile("Package.swift");
     string ps = File.Exists(L.P("Package.swift")) ? File.ReadAllText(L.P("Package.swift")) : "";
     L.Expect(ps.Contains("__Z42_RUNTIME_XCFRAMEWORK__"), "Package.swift 是安装期解析的占位模板", "缺占位符 __Z42_RUNTIME_XCFRAMEWORK__");
@@ -162,6 +164,7 @@ void _plToolingAndroid(_PkgLayout L) {
     L.HasDir("z42vm/src/main/java/io/z42/vm");
     L.HasFile("z42vm/src/main/cpp/z42vm_jni.c");
     L.HasFile("z42vm/src/main/cpp/include/z42_host.h");
+    L.HasFile("z42vm/src/main/cpp/include/z42_components.h");
 }
 
 void _plToolingWasm(_PkgLayout L) {
@@ -243,6 +246,7 @@ void _plStaticComponents(_PkgLayout L, string rid) {
 
 void _plIosDynamic(_PkgLayout L, string rid) {
     L.HasFile("native/z42.framework/Headers/z42_host.h");
+    L.HasFile("native/z42.framework/Headers/z42_components.h");
     foreach (var stem in _iosFrameworkStems(rid)) {
         _plIosFramework(L, rid, stem);
     }

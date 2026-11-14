@@ -16,6 +16,10 @@
 //! use z42::host::ComponentDescriptor;
 //! let _: Option<ComponentDescriptor> = None;
 //! ```
+//! Static composition is not part of the ordinary host interface:
+//! ```compile_fail
+//! use z42::host::register_static_component;
+//! ```
 //! Root protocol aliases and management names are not public component contracts:
 //! ```compile_fail
 //! use z42::component_abi::ComponentDescriptor;
@@ -23,6 +27,10 @@
 //! ```compile_fail
 //! use z42::components::ComponentOptions;
 //! ```
+/// Final-link composition only: register a process-lifetime factory without
+/// exposing the VM's component manager through the ordinary host API.
+pub use super::linked::register_static_component;
+
 use core::ffi::c_void;
 
 pub const COMPONENT_ABI_VERSION: u32 = 1;

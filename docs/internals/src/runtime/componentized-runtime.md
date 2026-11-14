@@ -144,7 +144,7 @@ ComponentOptions 将启用根与提供方来源分别保存。现有 with_static
 
 动态宿主、Rust 执行后端、共享核心与验证可执行文件必须在同一 Cargo 图中构建。纯 C ABI 的 compression 实现在隔离的 target 图中构建，避免算法 feature 合并回只依赖接口声明的 core。分开运行 Cargo 可能因开发依赖或传递依赖 feature 合并不同而覆盖成不兼容的 Rust metadata/符号；打包器一次构建全部目标后，从同一组产物搬移并验证，不再用后续 Cargo 调用重写核心。
 
-共享 std 的动态构建使用 System 分配器。自定义分配器和 dhat 位于最终静态宿主 z42vm_static，通过独立 target-dir 构建，不覆盖动态运行时。C 的 libz42.a 保留默认解释器初始化入口 z42_linked_components_init；自定义组合可通过 z42_host_register_static_component 登记实际链接的后端，Rust 宿主使用 host::register_static_component。静态组合须使用同一次构建图产生的库，不能混用不同 feature/profile 的核心。静态登记仅保留进程寿命工厂，不保留 VM 实例。
+共享 std 的动态构建使用 System 分配器。自定义分配器和 dhat 位于最终静态宿主 z42vm_static，通过独立 target-dir 构建，不覆盖动态运行时。C 的 libz42.a 保留默认解释器初始化入口 z42_linked_components_init；自定义组合可通过 z42_component_register_static 登记实际链接的后端，Rust 宿主使用 components::abi::register_static_component。静态组合须使用同一次构建图产生的库，不能混用不同 feature/profile 的核心。静态登记仅保留进程寿命工厂，不保留 VM 实例。
 
 SDK 的 native/ 包含统一 libz42、interp/JIT 组件、compression 和匹配的 Rust std。runtime 包另外提供 C 头文件和最终静态嵌入归档；Windows 另含导入库。macOS 使用 @rpath 标识和 @loader_path，ELF 使用 $ORIGIN；库与头文件、stdlib 一起搬移后可使用。
 桌面 SDK 只安装 bin/z42vm[.exe]，它使用静态 std，native/ 不包含另一个 z42vm。显式 Z42_RUNTIME_LIBRARY 优先，否则定位可执行文件相对 native/ 或同目录 Core；不查 cwd/artifacts。Windows 以 DLL_LOAD_DIR 和 DEFAULT_DIRS 解析库旁依赖。Core 保活至进程退出，不创建转发子进程。Windows runtime 导入库仍供嵌入者动态链接使用。

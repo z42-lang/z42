@@ -136,8 +136,8 @@ string _wasmPackageJson(string version) {
 void _pkgEmitManifestWasm(string pkgDir, string rid, string version, string profile, string buildHost) {
     string binList = _quotedDirList(Path.Join(pkgDir, "bin"), "");
     string libsList = _quotedDirList(Path.Join(pkgDir, "libs"), ".zpkg");
-    string staticList = _quotedExisting(Path.Join(pkgDir, "native"), "libz42.a", "");
-    string dynamicList = _quotedExisting(Path.Join(pkgDir, "native"), "z42_wasm_bg.wasm", "");
+    string staticList = _quotedExisting(Path.Join(pkgDir, "native"), new string[]{ "libz42.a", "" });
+    string dynamicList = _quotedExisting(Path.Join(pkgDir, "native"), new string[]{ "z42_wasm_bg.wasm", "" });
     string m = _workloadPkgHeader("z42-workload-wasm", version, rid, profile, buildHost);
     m = m + "[contents]\n";
     m = m + "bin         = [" + binList + "]\n";
@@ -146,7 +146,7 @@ void _pkgEmitManifestWasm(string pkgDir, string rid, string version, string prof
     m = m + "static      = [" + staticList + "]\n";
     m = m + "dynamic     = [" + dynamicList + "]\n";
     m = m + "containers  = []\n";
-    m = m + "includes    = [\"z42_abi.h\", \"z42_host.h\", \"z42_native.h\"]\n\n";
+    m = m + "includes    = [\"z42_abi.h\", \"z42_host.h\", \"z42_components.h\", \"z42_native.h\"]\n\n";
     m = m + "[contents.platform]\n";
     m = m + "npm-manifest = \"package.json\"\n";
     m = m + "runtime-pack = \"z42-runtime-" + version + "-" + rid + "\"  # separate; install symlinks pkg-web/pkg-nodejs\n\n";

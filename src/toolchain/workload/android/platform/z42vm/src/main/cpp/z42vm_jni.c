@@ -20,7 +20,8 @@
 #include <string.h>
 
 #include "z42_host.h"
-extern int z42_linked_components_init(void);
+#include "z42_components.h"
+
 
 /* ── Cached JavaVM + Kotlin class / method IDs ────────────────────────── */
 

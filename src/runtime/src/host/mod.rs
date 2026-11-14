@@ -1,5 +1,4 @@
 //! Shared Rust host services and C embedding adapters.
-use crate::components::abi::*;
 pub use crate::components::api::{ComponentOptions, ComponentLease, component_interface, component_ids};
 pub use crate::{object::Value, pal::fs::Vfs, vm::{VmContext, VmCore}, metadata::Module};
 pub mod config;
@@ -40,7 +39,6 @@ pub use z42_abi::{Z42Value, Z42_VALUE_TAG_I64};
 /// Ergonomic Rust embedding over the shared host services.
 pub mod rust;
 
-pub use crate::components::api::register_static_component;
 pub use crate::loader::linked::{NativeSymbolResolver, register_static_library as register_static_native_library};
 
 pub use crate::config::{RuntimeConfig, VmConfig};

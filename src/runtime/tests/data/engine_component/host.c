@@ -3,6 +3,7 @@
 #define _GNU_SOURCE
 #endif
 #include "z42_host.h"
+#include "z42_components.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,7 +39,7 @@ typedef Z42HostStatus (*Resolve)(Z42HostRef, Z42ModuleRef, const char*, Z42Entry
 typedef Z42HostStatus (*Invoke)(Z42EntryRef, const Z42Value*, size_t, Z42Value*);
 typedef Z42HostStatus (*Shutdown)(Z42HostRef);
 typedef Z42Error (*LastError)(Z42HostRef);
-typedef Z42HostStatus (*Register)(Z42ComponentId, Z42ComponentInit);
+typedef uint32_t (*Register)(Z42ComponentId, Z42ComponentInit);
 #define REQUIRE(condition) do { if (!(condition)) { fprintf(stderr, "C host check failed at line %d: %s\n", __LINE__, #condition); return 1; } } while (0)
 typedef Z42HostStatus (*RegisterNative)(const char*, Z42NativeSymbolResolver);
 struct Api { RegisterNative native; Initialize initialize; Load load; Resolve resolve; Invoke invoke;
@@ -96,6 +97,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 #define BIND(field, type, name) api.field = (type)SYMBOL(library, name); if (!api.field) return 1
+    REQUIRE(SYMBOL(library, "z42_host_register_static_component") == NULL);
     BIND(native, RegisterNative, "z42_host_register_static_native_library");
     BIND(initialize, Initialize, "z42_host_initialize");
     BIND(load, Load, "z42_host_load_zbc");
@@ -103,22 +105,22 @@ int main(int argc, char** argv) {
     BIND(invoke, Invoke, "z42_host_invoke");
     BIND(shutdown, Shutdown, "z42_host_shutdown");
     BIND(error, LastError, "z42_host_last_error");
-    BIND(reg, Register, "z42_host_register_static_component");
+    BIND(reg, Register, "z42_component_register_static");
     typedef int (*LinkedInit)(void);
     LinkedInit linked_init = (LinkedInit)SYMBOL(library, "z42_linked_components_init");
     if (!linked_init || linked_init() != 0) return 1;
 #else
     api = (struct Api){ z42_host_register_static_native_library, z42_host_initialize, z42_host_load_zbc, z42_host_resolve_entry,
-        z42_host_invoke, z42_host_shutdown, z42_host_last_error, z42_host_register_static_component };
-    if (api.reg(Z42_COMPONENT_INTERP, NULL) != Z42_HOST_ERR_BAD_CONFIG) return 1;
-    if (api.reg(Z42_COMPONENT_INTERP, z42_interp_init) != Z42_HOST_OK) return 1;
-    if (api.reg(Z42_COMPONENT_INTERP, z42_interp_init) != Z42_HOST_OK) return 1;
-    if (api.reg(Z42_COMPONENT_INTERP, conflicting_factory) != Z42_HOST_ERR_BAD_CONFIG) return 1;
+        z42_host_invoke, z42_host_shutdown, z42_host_last_error, z42_component_register_static };
+    if (api.reg(Z42_COMPONENT_INTERP, NULL) != Z42_COMPONENT_INVALID_ARGUMENT) return 1;
+    if (api.reg(Z42_COMPONENT_INTERP, z42_interp_init) != Z42_COMPONENT_OK) return 1;
+    if (api.reg(Z42_COMPONENT_INTERP, z42_interp_init) != Z42_COMPONENT_OK) return 1;
+    if (api.reg(Z42_COMPONENT_INTERP, conflicting_factory) != Z42_COMPONENT_ERROR) return 1;
 #ifdef Z42_COMPONENT_HAS_JIT
-    if (api.reg(Z42_COMPONENT_JIT, z42_jit_init) != Z42_HOST_OK) return 1;
+    if (api.reg(Z42_COMPONENT_JIT, z42_jit_init) != Z42_COMPONENT_OK) return 1;
 #endif
 #ifdef Z42_COMPONENT_HAS_PROFILER
-    REQUIRE(api.reg(Z42_COMPONENT_PROFILER, z42_profiler_init) == Z42_HOST_OK);
+    REQUIRE(api.reg(Z42_COMPONENT_PROFILER, z42_profiler_init) == Z42_COMPONENT_OK);
 #endif
 #ifdef Z42_COMPONENT_HAS_COMPRESSION
     REQUIRE(api.native("z42_compression", z42_compression_get_symbol) == Z42_HOST_OK);

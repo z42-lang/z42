@@ -420,18 +420,19 @@ int main(void) {
 
 另有可选的组件化动态 runtime 包：C 宿主链接其中的 z42（macOS/Linux 为 libz42，Windows 导入库为 z42.dll.lib）。部署时保留 native/ 内同包的共享核心、Rust std 和 interp/JIT 组件；这些库必须来自同一构建，不能混用版本。用 Z42_NATIVE_PATH 指向组件目录，或将 native/ 放在宿主可执行文件旁。显式请求 JIT 时，库缺失或不兼容会报错，不自动改成解释模式。
 
-组件也可以**直接链接**而非 dlopen：Windows 动态包随发每个组件的导入库（`z42.dll.lib`、`z42_interp.dll.lib`、`z42_jit.dll.lib`、`z42_profiler.dll.lib`、`z42_compression.dll.lib`，由包内 manifest.toml 的 `[assets].import_libs` 点名）；链接后调 `z42_host_register_static_component(Z42_COMPONENT_INTERP, z42_interp_init)`（JIT 同理）与 `z42_host_register_static_native_library("z42_compression", z42_compression_get_symbol)` 登记工厂——与静态归档同一套登记协议，运行期仍走同构建身份校验。macOS/Linux 直接链 `libz42_interp.dylib` / `libz42_interp.so` 等库文件。
+组件也可以**直接链接**而非 dlopen：Windows 动态包随发每个组件的导入库（`z42.dll.lib`、`z42_interp.dll.lib`、`z42_jit.dll.lib`、`z42_profiler.dll.lib`、`z42_compression.dll.lib`，由包内 manifest.toml 的 `[assets].import_libs` 点名）；链接后调 `z42_component_register_static(Z42_COMPONENT_INTERP, z42_interp_init)`（JIT 同理）与 `z42_host_register_static_native_library("z42_compression", z42_compression_get_symbol)` 登记工厂——与静态归档同一套登记协议，运行期仍走同构建身份校验。macOS/Linux 直接链 `libz42_interp.dylib` / `libz42_interp.so` 等库文件。
 
 Windows 宿主若按运行期装载（dlopen）而非直接链接：请用 `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS` 标志加载（或先 `AddDllDirectory` 指向 native/），z42.dll 依赖的共享 Rust std（`std-*.dll`，随包在 native/）才能按 dll 自身目录解析——z42vm 启动器正是这么做的。包内 manifest.toml 描述了全部内容物与链接配方（组件文件、归档顺序、link_flags、init 调用）。
 
 静态宿主可直接选择独立组件。所有库须来自同一 runtime 包；链接所需的 `libz42_interp.a`（Windows 为 `z42_interp.lib`）及 `libz42.a`，原生链接参数取包内 `manifest.toml` 的 `[components.<stem>].link_flags`（Windows 的第三方导入库由 `[assets].third_party_libs` 点名、随包提供）。加载程序前登记工厂：
 
 ```c
-Z42HostStatus status = z42_host_register_static_component(
+#include "z42_components.h"
+uint32_t status = z42_component_register_static(
     Z42_COMPONENT_INTERP, z42_interp_init);
 ```
 
-JIT 库只在支持的平台发布；使用 JIT 时同时链接并登记 interp 与 JIT。空工厂或冲突登记返回 `ERR_BAD_CONFIG`，相同工厂重复登记成功；真正装配时仍校验构建身份和 ABI。工厂及其回调必须在整个进程期间有效。默认静态解释器组合也提供 `z42_linked_components_init()`。
+JIT 库只在支持的平台发布；使用 JIT 时同时链接并登记 interp 与 JIT。空工厂返回 `Z42_COMPONENT_INVALID_ARGUMENT`，冲突登记返回 `Z42_COMPONENT_ERROR`，相同工厂重复登记返回 `Z42_COMPONENT_OK`；该登记接口不修改宿主错误槽；真正装配时仍校验构建身份和 ABI。工厂及其回调必须在整个进程期间有效。默认静态解释器组合也提供 `z42_linked_components_init()`。
 
 压缩库独立于执行后端。静态宿主选择链接 `libz42_compression.a`，并在创建宿主前调用：
 
@@ -447,7 +448,8 @@ Android arm64/x64 runtime 同时发布核心、解释器、JIT 和压缩的独�
 CPU 采样与堆分析由可选 profiler 提供。原生动态部署使用同包的 `libz42_profiler.dylib` / `libz42_profiler.so` / `z42_profiler.dll`；未使用分析功能时不会装载它。静态宿主按需链接 `libz42_profiler.a`（Windows 为 `z42_profiler.lib`），在创建宿主前登记：
 
 ```c
-Z42HostStatus status = z42_host_register_static_component(
+#include "z42_components.h"
+uint32_t status = z42_component_register_static(
     Z42_COMPONENT_PROFILER, z42_profiler_init);
 ```
 

@@ -76,7 +76,7 @@ void _rtEmitRuntimeManifest(string pkgDir, string rid, string profile, string ve
 
     l.Add("[assets]");
     List<string> headers = new List<string>();
-    foreach (var h in new string[]{ "z42_abi.h", "z42_host.h", "z42_native.h" }) {
+    foreach (var h in new string[]{ "z42_abi.h", "z42_host.h", "z42_components.h", "z42_native.h" }) {
         if (File.Exists(Path.Join(native, "include/" + h))) { headers.Add("native/include/" + h); }
     }
     if (headers.Count > 0) { l.Add("headers = [" + _rtQuoteJoin(headers) + "]"); }

@@ -106,7 +106,7 @@ int _pkgInstallApphost(_PkgComponent comp, string pkgDir, _PkgInstallCtx ctx) {
     return _z42bPublish(ctx.HostVm, ctx.Z42bZpkg, ctx.Libs, ctx.ApphostStub, comp.project, ctx.Rid, pkgDir);
 }
 
-// Copy the two C ABI headers (z42_abi.h + z42_host.h) from the runtime source
+// Copy owner-provided C contracts from the runtime source
 // tree into a package's include dir. Single source-path SoT for every packaging
 // backend that ships the embed headers. Creates destIncludeDir
 // itself — 谁写谁建，见 _pkgSetupDir 注释。
@@ -114,6 +114,7 @@ void _copyAbiHeaders(string root, string destIncludeDir) {
     Directory.Create(destIncludeDir);
     File.Copy(Path.Join(root, "src/runtime/include/z42_abi.h"), Path.Join(destIncludeDir, "z42_abi.h"));
     File.Copy(Path.Join(root, "src/runtime/include/z42_host.h"), Path.Join(destIncludeDir, "z42_host.h"));
+    File.Copy(Path.Join(root, "src/runtime/src/components/z42_components.h"), Path.Join(destIncludeDir, "z42_components.h"));
     File.Copy(Path.Join(root, "src/runtime/include/z42_native.h"), Path.Join(destIncludeDir, "z42_native.h"));
 }
 

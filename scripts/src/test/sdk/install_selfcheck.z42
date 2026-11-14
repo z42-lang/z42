@@ -104,6 +104,7 @@ int _testPackagesInstall() {
     }
     _stgAssert("native/include/z42_abi.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_abi.h")));
     _stgAssert("native/include/z42_host.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_host.h")));
+    _stgAssert("native/include/z42_components.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_components.h")));
     _stgAssert("mobile facade excluded", !File.Exists(Path.Join(pkgDir, "native/libunrelated_platform.a")));
     _stgAssert("REPL excluded", !File.Exists(Path.Join(pkgDir, "native/libz42_repl.dylib")));
 
