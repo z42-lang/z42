@@ -1,0 +1,40 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+void _ciHostChecks(FlowConfig cfg) {
+    string root = _root();
+    FlowPlan full = _flowSelect(cfg, new string[0], root, true); full.Full = true; full.Event = "pull_request";
+    foreach (var flag in new string[]{ "vm", "compiler", "compiler_checks", "stdlib", "runtime_checks", "platform" }) {
+        _gateAssert(_strIn(_flowOutputs(cfg, full), flag), "full policy selects the jobs without workflow event fallbacks: " + flag);
+    }
+    string linux = _ciHostSkips(cfg, full, "linux-x64");
+    _gateAssert(_skipHas(linux, "stdlib") && _skipHas(linux, "compiler") && _skipHas(linux, "vscode") && _skipHas(linux, "rust-units") && _skipHas(linux, "examples"), "host delegates dedicated jobs, full runtime and packaged examples");
+    _gateAssert(!_skipHas(linux, "cross-zpkg") && !_skipHas(linux, "bench"), "linux retains required fixture and benchmark lanes");
+    string mac = _ciHostSkips(cfg, full, "macos-arm64");
+    _gateAssert(_skipHas(mac, "cross-zpkg") && _skipHas(mac, "bench") && _unknownGateSkip(_gateStages(true), mac).Length == 0, "other hosts omit linux-only work with valid skip keys");
+    FlowPlan compiler = _flowSelect(cfg, new string[]{ "src/compiler/z42c.optimization/src/IrOpt.z42" }, root); compiler.Event = "pull_request";
+    _gateAssert(!_skipHas(_ciHostSkips(cfg, compiler, "linux-x64"), "examples"), "host keeps examples when no package job accepts them");
+    string dir = _xtaskWork(root, "ci-host-checks"); _resetDir(dir);
+    Console.WriteLine("  CI host fixture checks (expected stale/conflict failures below)");
+    try {
+        string origin = Path.Join(dir, "origin"); Directory.Create(origin);
+        _ciGit(origin, new string[]{ "init", "-q", "-b", "main" });
+        string golden = "src/compiler/z42.package/tests/fixtures/zbc-format/example.txt";
+        _ciWrite(origin, golden, "baseline\n"); _ciWrite(origin, "README.md", "base\n");
+        _ciGit(origin, new string[]{ "add", "." }); _ciGit(origin, new string[]{ "commit", "-qm", "base" });
+        string client = Path.Join(dir, "client"); _ciGit(dir, new string[]{ "clone", "--quiet", origin, client });
+        _gateAssert(_ciCheckGoldenBaselines(client) == 0, "unchanged golden baselines pass");
+        _ciWrite(client, golden, "stale\n"); _gateAssert(_ciCheckGoldenBaselines(client) == 1, "rewritten golden baselines fail");
+        _ciGit(client, new string[]{ "restore", "--", golden });
+        _ciWrite(origin, "README.md", "upstream\n"); _ciGit(origin, new string[]{ "commit", "-qam", "advance" });
+        _gateAssert(_ciMergeLatestMain(client) && _flowCommit(client, "HEAD") == _flowCommit(origin, "HEAD"), "latest-main preflight merges a reachable update");
+        _ciWrite(client, "README.md", "branch\n"); _ciGit(client, new string[]{ "commit", "-qam", "branch" });
+        string head = _flowCommit(client, "HEAD");
+        _ciWrite(origin, "README.md", "conflict\n"); _ciGit(origin, new string[]{ "commit", "-qam", "conflict" });
+        _gateAssert(!_ciMergeLatestMain(client) && _flowCommit(client, "HEAD") == head && _ciGit(client, new string[]{ "status", "--porcelain" }).Length == 0, "conflicted preflight aborts without changing the tested head");
+        _ciGit(client, new string[]{ "remote", "remove", "origin" });
+        _gateAssert(!_ciMergeLatestMain(client), "unavailable preflight preserves normal diagnostic validation");
+    } finally { Directory.Delete(dir, true); }
+    Console.WriteLine("  ✓ CI host: delegation, golden baselines and real latest-main preflight");
+}

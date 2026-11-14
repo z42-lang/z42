@@ -40,6 +40,8 @@ GC 只认识 `gc/to_vm.rs` 中的根、暂停和上下文回收契约。`GcRoots
 持久提供方捕获 `Weak<VmCore>`；`GcToVm` 由当前 `VmContext` 适配线程暂停，返回借用该上下文的
 RAII 令牌。`GcToVm` 的实现须保证令牌有效期间所有其他 mutator 已停止，根访问只能在暂停内进行。
 具体状态机和 root registry 遍历位于 `threads`，当前堆 TLS 位于 `exec/ambient.rs`。
+`threads/roots.rs` 的同一份枚举同时提供 collector 的普通根视图和诊断的分类根视图，
+包括静态字段、驻留串及各线程的异常、帧和 arena。两种视图都遵守同一暂停协议。
 堆销毁按 heap epoch 幂等撤销 SATB 注册，覆盖增量标记与 one-shot 回调 unwind；不能只依赖增量 phase 判断。
 
 加载上下文回收由 `loader/context_gc.rs` 适配：标记后创建 VM 拥有的关联快照，GC 把同一批

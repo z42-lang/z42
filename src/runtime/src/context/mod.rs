@@ -47,8 +47,10 @@ use std::sync::{Arc, Weak};
 use crate::gc::{Heap};
 
 mod types;
-mod construct;
-mod native;
+mod access;
+mod observation;
+mod thread_lifecycle;
+mod pending_exception;
 mod frames;
 mod statics;
 mod lookup;
@@ -128,9 +130,9 @@ mod vm_context_tests;
 #[cfg(all(test, z42_test_facade))]
 mod symres_tests;
 
-mod bootstrap;
+mod core_builder;
 
 
-pub use bootstrap::RuntimeInputs;
+pub use core_builder::RuntimeInputs;
 
 pub mod extensions;

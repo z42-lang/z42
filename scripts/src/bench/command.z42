@@ -49,6 +49,7 @@ class BenchCommand : Command {
         this.AddCommand(new BenchTargetsCommand());
         this.AddCommand(new BenchVerdictCheckCommand());
         this.AddCommand(new BenchCriterionCommand());
+        this.AddCommand(new BenchVmCommand());
     }
 
     public override int Run() {
@@ -81,4 +82,14 @@ class BenchCriterionCommand : Command {
     [Argument(help: "Criterion results directory")] public string Directory = "";
     public BenchCriterionCommand() : base("criterion-report", "print informational Criterion confidence intervals") {}
     public override int Run() { return _benchCriterionReport(this.Directory); }
+}
+
+class BenchVmCommand : Command {
+    [Option(help: "optional base repository tree for same-runner Criterion A/B")] public string Base = "";
+    [Option(help: "Criterion quick measurement mode")] public bool Quick;
+    public BenchVmCommand() : base("vm", "measure declared Rust VM benchmarks; regression verdicts are informational") {}
+    public override int Run() {
+        try { return _benchVmAt(_root(), this.Base.Length > 0 ? (Path.IsRooted(this.Base) ? this.Base : Path.Join(_root(), this.Base)) : "", this.Quick); }
+        catch (Exception e) { ConsoleError.WriteLine("bench vm: " + e.Message); return 2; }
+    }
 }

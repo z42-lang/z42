@@ -66,9 +66,9 @@ fn type_objects_survive_unrelated_loads_and_pending_initialization() {
     publish(&ctx, &td);
     let first = make_type_object(&ctx, td.clone());
     publish(&ctx, &declaration("Demo.Added"));
-    ctx.enqueue_type_init("Demo.Pending");
+    ctx.enqueue_type_load("Demo.Pending");
     assert!(same_object(&first, &make_type_object(&ctx, td.clone())));
-    assert!(ctx.static_init_drain_is_noop(&[]));
+    assert!(ctx.type_load_drain_is_noop(&[]));
     assert!(same_object(&first, &make_type_object(&ctx, td)));
 }
 

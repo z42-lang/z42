@@ -111,22 +111,31 @@ void _ciGoldenChecks() {
 
 void _ciQueueChecks() {
     string workflow = File.ReadAllText(Path.Join(_root(), ".github/workflows/ci.yml"));
-    string script = _ciShellBody(workflow, "id: macos_queue");
-    string output = _xtaskWork(_root(), "ci-queue-output"); string first = "";
-    try {
-        foreach (var number in new string[]{ "5566", "5567", "5568", "5566" }) {
-            File.WriteAllText(output, "");
-            new Process("bash").Arg("-euo").Arg("pipefail").Arg("-c").Arg(script.Replace("${{ github.run_number }}", number))
-                .Env("GITHUB_OUTPUT", output).Run().EnsureSuccess();
-            string text = File.ReadAllText(output);
-            _gateAssert(text.Contains("=0\n") && text.Contains("=1\n") && text.Contains("=2\n"), "macOS classes occupy three distinct bounded lanes");
-            if (number == "5566") {
+    foreach (var name in new string[]{ "build-and-test", "host-package", "vm-jit-consistency", "stdlib-consistency", "test-wasm", "test-ios", "test-android" }) {
+        int begin = workflow.IndexOf("\n  " + name + ":");
+        string section = workflow.Substring(begin + 1);
+        section = section.Substring(0, section.IndexOf("matrix:"));
+        _gateAssert(section.Contains("fail-fast: ${{ github.event_name == 'pull_request' }}"), "PR matrix failure releases sibling jobs: " + name);
+    }
+    _gateAssert(workflow.Substring(workflow.IndexOf("\n  ci-ok:")).Contains("if: always()"), "cancelled current-head validation still reaches the required aggregate gate");
+    _gateAssert(workflow.IndexOf("id: macos_queue") > workflow.IndexOf("Bootstrap planner (xtask only)")
+        && workflow.Contains("run: xtask ci queue"), "queue policy runs in xtask after planner bootstrap");
+    foreach (var kind in new string[]{ "pull_request", "push", "schedule", "workflow_dispatch" }) {
+        string first = "";
+        foreach (var number in new long[]{ 5566L, 5567L, 5568L, 5566L }) {
+            string text = _ciMacosQueue(kind, number);
+            if (kind == "pull_request") {
+                _gateAssert(text.Contains("=pr-0\n") && text.Contains("=pr-1\n") && !text.Contains("background"), "PRs share two reserved lanes");
+            } else {
+                _gateAssert(text == "host=background-0\npackage=background-0\nchecks=background-0\n", "background work uses its own bounded lane");
+            }
+            if (number == 5566L) {
                 if (first.Length == 0) { first = text; }
                 else { _gateAssert(first == text, "lane selection is deterministic"); }
             }
         }
-    } finally { File.Delete(output); }
-    foreach (var name in new string[]{ "build-and-test", "host-package", "stdlib-interp-consistency", "package-ios", "test-ios" }) {
+    }
+    foreach (var name in new string[]{ "build-and-test", "host-package", "stdlib-consistency", "package-ios", "test-ios" }) {
         int start = workflow.IndexOf("\n  " + name + ":");
         string tail = workflow.Substring(start + 1); int next = tail.IndexOf("\n  # ──");
         if (next >= 0) { tail = tail.Substring(0, next); }
@@ -146,4 +155,6 @@ void _ciBootstrapAvailabilityChecks() {
     }
     string retry = File.ReadAllText(Path.Join(_root(), ".github/workflows/retry-ci-runner.yml"));
     _gateAssert(retry.Contains("ref: ${{ github.workflow_sha }}") && retry.Contains("persist-credentials: false") && !retry.Contains("sparse-checkout:"), "privileged retry executes a complete trusted checkout");
+    _gateAssert(retry.Contains("types: [requested, completed]") && retry.Contains("run: xtask ci supersede")
+        && retry.Contains("github.event.action == 'requested'"), "stale cleanup starts from a requested event before the old run can finish");
 }

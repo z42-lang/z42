@@ -83,7 +83,7 @@ pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
 /// threshold.
 fn run_with_static_init(ctx: &VmContext, entry_name: &str) -> Result<()> {
     ctx.static_fields_clear();
-    ctx.run_pending_static_inits();
+    ctx.drain_pending_type_loads();
     run_fn(ctx, entry_name)
 }
 

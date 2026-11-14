@@ -15,6 +15,8 @@ class CheckSpec {
 
 CheckSpec[] _checks() {
     return new CheckSpec[]{
+        new CheckSpec("bench-vm", "native VM benchmark runner contracts on tiny Rust fixtures", () => _selfcheckVmBenchRunner()),
+        new CheckSpec("xtask", "xtask control and execution-contract regressions without product builds", () => _checkXtask()),
         new CheckSpec("flows", "flow configuration and planner regressions", () => _checkFlows()),
         new CheckSpec("vscode-syntax", "VSCode grammar agrees with Lexer keywords", () => _testVscodeSyntax()),
         new CheckSpec("runtime-cargo", "runtime Cargo aliases and legacy trees execute from their own directories", () => _selfcheckRuntimeCargo()),

@@ -80,7 +80,9 @@ mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台
 
 `state.rs` 持一个 `static HOST: RwLock<Option<HostState>>`。
 `initialize` 拿写锁、发现 `Some` 就返回 `AlreadyInit`；`shutdown` 拿写锁换成 `None`。
-状态转移只在这两处，`ops` 层一律经 `with_state_read` / `with_state_write` 访问，
+sink 的发布和清理与会话状态转移持有同一把锁；失败的初始化不修改已有会话的 sink。
+配置校验和 corelib 探测在发布前完成，资源销毁在释放状态锁后进行，允许析构回调重入。
+sink 更新持有会话读锁，避免关闭后安装旧回调。状态转移只在这两处，`ops` 层一律经 `with_state_read` / `with_state_write` 访问，
 拿不到状态（`None`）时统一映射成 `ERR_NOT_INIT`。
 
 ```rust

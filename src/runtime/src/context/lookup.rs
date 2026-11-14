@@ -132,11 +132,9 @@ impl VmContext {
         })?;
         let r = loader.load_module_from_path(path);
         drop(state);
-        // defer-class-initialization: 显式加载路径（z42b / 宿主 LoadModule）内部会
-        // `force_load_all_declared()` 拉进依赖闭包，那些包的 `__static_init__` 同样入队，
-        // 必须在这里排空——否则「类已注册但初始化器没跑」，静态字段永远读到 null
-        // （实测：z42b 的 `DepScanCache._count` 是 Null，崩在 DepScan.ScanDirs）。
-        self.run_pending_static_inits();
+        // Complete queued type-owner loading outside the loader lock. Execution
+        // barriers remain responsible for managed package/type initialization.
+        self.drain_pending_type_loads();
         r
     }
 
@@ -144,9 +142,8 @@ impl VmContext {
     /// from raw bytes (packed zpkg / bare zbc) into the live registries. Backs
     /// the `__load_bytecode_in_memory` builtin used by `z42.scripting` (REPL) so
     /// freshly compiled bytecode is invocable with zero disk I/O. (add-z42-repl)
-    /// Returns the freshly-loaded module's own `*.__static_init__` function names
-    /// so the caller runs only this round's static init (REPL carry-forward — a full
-    /// clear+rerun would wipe prior rounds' mutated static state).
+    /// Preserves existing static storage; new initialization facts are registered
+    /// for execution barriers without rerunning or clearing earlier REPL rounds.
     pub fn load_module_bytes_into_vm(
         &self, raw: &[u8],
     ) -> anyhow::Result<()> {
@@ -162,12 +159,12 @@ impl VmContext {
         let r = loader.load_module_from_bytes(raw);
         drop(state);
         // 同上（REPL 每轮的字节码加载路径）。
-        self.run_pending_static_inits();
+        self.drain_pending_type_loads();
         r
     }
 
-    /// An already-registered function, or `None` — **never loads a package and never
-    /// runs initializers** (unlike [`Self::try_lookup_function`]). For callers that
+    /// An already-registered function, or `None`, without loading a package.
+    /// Unlike [`Self::try_lookup_function`], this only reads current registrations. For callers that
     /// must not re-enter the VM, such as the JIT translator recognising intrinsics and
     /// the `[Native]` forward probe (`exec::call::forward`).
     pub fn probe_loaded_function(&self, func_name: &str) -> Option<Arc<Function>> {
@@ -177,8 +174,8 @@ impl VmContext {
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {
         // parallel-parse-and-cache：线程本地前置缓存，命中不碰共享锁（见 `fn_lookup_cache`）。
         if let Some(f) = self.runtime.fn_lookup_cache.lock().get(func_name).cloned() {
-            if !self.static_init_drain_is_noop(&[]) {
-                self.run_pending_static_inits();
+            if !self.type_load_drain_is_noop(&[]) {
+                self.drain_pending_type_loads();
             }
             return Some(f);
         }
@@ -204,8 +201,8 @@ impl VmContext {
         // `resolved` 已经是最终答案（`Some` = 命中，`None` = 负缓存里的确定性「否」）。
         if let Some(resolved) = fast {
             if let Some(f) = &resolved { self.runtime.fn_lookup_cache.lock().insert(func_name.into(), Arc::clone(f)); }
-            if !self.static_init_drain_is_noop(&[]) {
-                self.run_pending_static_inits();
+            if !self.type_load_drain_is_noop(&[]) {
+                self.drain_pending_type_loads();
             }
             return resolved;
         }
@@ -223,11 +220,11 @@ impl VmContext {
             let newly = std::mem::take(&mut loader.newly_loaded);
             (result, newly)
         };
-        if self.static_init_drain_is_noop(&newly_loaded) {
+        if self.type_load_drain_is_noop(&newly_loaded) {
             return result;
         }
-        // defer-class-initialization (T1): 锁已释放，跑刚拉进来的包的初始化器。
-        self.run_pending_static_inits();
+        // Resolve queued type owners after releasing the loader lock.
+        self.drain_pending_type_loads();
         for name in newly_loaded {
             self.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
         }
@@ -268,8 +265,8 @@ impl VmContext {
         // parallel-parse-and-cache：线程本地前置缓存，命中不碰共享锁（见 `type_lookup_cache`）。
         let cached = self.runtime.type_lookup_cache.lock().get(class_name).cloned();
         if let Some(td) = cached {
-            if !self.static_init_drain_is_noop(&[]) {
-                self.run_pending_static_inits();
+            if !self.type_load_drain_is_noop(&[]) {
+                self.drain_pending_type_loads();
             }
             return Some(self.current_type_desc(td));
         }
@@ -296,8 +293,8 @@ impl VmContext {
             if let Some(td) = &resolved {
                 if !td.base_unmerged() { self.runtime.type_lookup_cache.lock().insert(class_name.into(), Arc::clone(td)); }
             }
-            if !self.static_init_drain_is_noop(&[]) {
-                self.run_pending_static_inits();
+            if !self.type_load_drain_is_noop(&[]) {
+                self.drain_pending_type_loads();
             }
             return resolved.map(|td| self.current_type_desc(td));
         }
@@ -310,54 +307,30 @@ impl VmContext {
             let newly = std::mem::take(&mut loader.newly_loaded);
             (result, newly)
         };
-        if self.static_init_drain_is_noop(&newly_loaded) {
+        if self.type_load_drain_is_noop(&newly_loaded) {
             return result.map(|td| self.current_type_desc(td));
         }
         // defer-class-initialization (T2): 同上。
-        self.run_pending_static_inits();
+        self.drain_pending_type_loads();
         for name in newly_loaded {
             self.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
         }
         result.map(|td| self.current_type_desc(td))
     }
 
-    /// cache-failed-name-resolution: `true` when `run_pending_static_inits` provably
-    /// has nothing to do, so a lookup can skip it and its two extra mutex round-trips
-    /// plus the `static_init_state` scan. Not a semantic change: every `false` falls
-    /// through to the real drain, and the barrier `static_init_concurrent` depends on
-    /// is preserved because "another thread is inside an initializer" is exactly
-    /// `running_static_inits != 0`.
-    ///
-    /// `newly_loaded` comes out of the loader lock the caller already held;
-    /// the other two reads are plain atomics.
+    /// No packages or queued type owners need the drain path. A batch being
+    /// detached by another thread prevents caching an incomplete lookup result.
     #[inline]
-    pub fn static_init_drain_is_noop(&self, newly_loaded: &[String]) -> bool {
+    pub fn type_load_drain_is_noop(&self, newly_loaded: &[String]) -> bool {
         use std::sync::atomic::Ordering;
         newly_loaded.is_empty()
-            && self.core.loader.pending_type_init_count.load(Ordering::Relaxed) == 0
-            && self.core.loader.init_batch_inflight.load(Ordering::Acquire) == 0
+            && self.core.loader.pending_type_load_count.load(Ordering::Relaxed) == 0
+            && self.core.loader.type_load_batch_inflight.load(Ordering::Acquire) == 0
     }
-    /// 排空「待加载类型」队列（静态字段引用触发点 T3）。
-    ///
-    /// **必须在 loader 锁释放后调用** —— 解析类型会触发包加载，而加载要抢同一把锁。
-    /// 排空是循环的：加载一个包可能让更多类型变得可解析。
-    ///
-    /// 重入（初始化器内部再次触发查找）由线程本地 `DRAINING` 标志挡掉：嵌套调用直接返回，
-    /// 由最外层的循环继续消费新入队的项。
-    ///
-    /// # 这里**只加载，不初始化**
-    ///
-    /// 类型初始化器的运行时机归**访问点**的屏障（`exec_object::static_get` 顶部的
-    /// `ensure_owner_type_init` / `obj_new` / 静态调用），不在这里。曾经在这里直接跑过，
-    /// 结果是类型初始化器在**函数解析期**就执行，破坏「首次使用前」语义 —— static-ctor
-    /// 的 6 个 golden 全部报 `expected: before, actual: cctor ran`。
-    ///
-    /// 历史：本函数曾同时排空第二个队列（`pending_static_inits`，即包级
-    /// `__static_init__`），连同 `InitState::Claimed` 认领窗口、`running_static_inits`
-    /// 计数、`await_init_quiescence` 自旋等一整套并发防护。静态字段初始化器并入
-    /// 每类型的类型初始化器后（unify-static-init-into-cctor），那条管道整体删除；
-    /// 并发保证改由 `CctorRegistry::claim` 的跨线程等待承担。
-    pub fn run_pending_static_inits(&self) {
+    /// Resolve queued type owners and load their packages without running managed
+    /// initializers. Package/type initialization remains the execution barriers' job.
+    /// A recursive lookup leaves any newly queued work to the outer drain loop.
+    pub fn drain_pending_type_loads(&self) {
         thread_local! {
             static DRAINING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
         }
@@ -372,15 +345,15 @@ impl VmContext {
 
         loop {
             // 取队列**之前**先宣告在飞：从这一刻起到本批处理完，别的线程都不会把
-            // 「队列与计数都是零」误读成「已静止」（见 `init_batch_inflight`）。
-            self.core.loader.init_batch_inflight.fetch_add(1, std::sync::atomic::Ordering::Release);
+            // 「队列与计数都是零」误读成「已静止」（见 `type_load_batch_inflight`）。
+            self.core.loader.type_load_batch_inflight.fetch_add(1, std::sync::atomic::Ordering::Release);
             let types: Vec<String> = {
-                let mut q = self.core.loader.pending_type_inits.lock();
-                self.core.loader.pending_type_init_count
+                let mut q = self.core.loader.pending_type_loads.lock();
+                self.core.loader.pending_type_load_count
                     .store(0, std::sync::atomic::Ordering::Relaxed);
                 std::mem::take(&mut *q)
             };
-            self.core.loader.init_batch_inflight.fetch_sub(1, std::sync::atomic::Ordering::Release);
+            self.core.loader.type_load_batch_inflight.fetch_sub(1, std::sync::atomic::Ordering::Release);
             if types.is_empty() { return; }
             for class_fq in &types {
                 let _ = self.try_lookup_type(class_fq);
@@ -389,7 +362,7 @@ impl VmContext {
     }
 
 
-    /// defer-class-initialization: 该类是否已在 registry 中（即所属包已加载 + 初始化过）。
+    /// Whether the lazy registry already contains this loaded type.
     /// 只读，不触发任何加载——供 T3 入队前的快速过滤。
     pub fn has_loaded_type(&self, class_fq: &str) -> bool {
         let state = self.core.loader.lazy_loader.read();
@@ -399,13 +372,13 @@ impl VmContext {
         }
     }
 
-    /// defer-class-initialization: 入队一个「静态字段所属类」，等待 `run_pending_static_inits`
-    /// 触发其所属包的加载 + 初始化。由 `metadata::resolve` 在解析静态字段名时调用。
-    pub fn enqueue_type_init(&self, class_fq: &str) {
-        let mut q = self.core.loader.pending_type_inits.lock();
+    /// Queue a static field owner for package loading during token preparation.
+    /// This registers initialization facts; it does not execute its initializer.
+    pub fn enqueue_type_load(&self, class_fq: &str) {
+        let mut q = self.core.loader.pending_type_loads.lock();
         if !q.iter().any(|c| c == class_fq) {
             q.push(class_fq.to_string());
-            self.core.loader.pending_type_init_count
+            self.core.loader.pending_type_load_count
                 .store(q.len(), std::sync::atomic::Ordering::Relaxed);
         }
     }
@@ -431,10 +404,9 @@ impl VmContext {
                 None => Vec::new(),
             }
         };
-        // defer-class-initialization: 反射的 dotless 兜底会一次性拉进所有包，
-        // 它们的 `__static_init__` 同样入队，必须排空（所有会触发加载的入口都要排空，
-        // 否则「类已注册但初始化器没跑」的窗口会重新出现）。
-        self.run_pending_static_inits();
+        // Reflection may load multiple packages. Drain any queued type owners
+        // before publishing their load events; do not execute their initializers.
+        self.drain_pending_type_loads();
         for name in newly {
             self.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
         }
