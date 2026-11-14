@@ -275,11 +275,14 @@ int _pkgArchiveDir(string dir, string ver, string label, string outDir) {
 // 目录内容（不含目录本身）→ tar.gz。macOS 的 bsdtar 默认把本机扩展属性（com.apple.provenance 等）写成 pax 扩展头、
 // 再加 AppleDouble `._*` 伴生文件——发布归档不该带这些：关掉它们。
 Process _relTar(string dir, string ar) {
-    // Windows' system bsdtar treats -C specially even in a file list. Git Bash supplies GNU tar.
-    Process p = Platform.IsWindows()
-        ? new Process("bash").Arg("-c").Arg("exec /usr/bin/tar \"$@\"").Arg("xtask-tar")
-        : new Process("tar");
-    p = p.Arg("-C").Arg(dir);
+    string tool = "tar";
+    if (Platform.IsWindows()) {
+        // Resolve Git's GNU tar directly: a bare bash.exe may be the WSL launcher.
+        string gitExec = new Process("git").Arg("--exec-path").Run().EnsureSuccess().Stdout.Trim();
+        tool = Path.Normalize(Path.Join(gitExec, "../../../usr/bin/tar.exe"));
+        if (!File.Exists(tool)) { throw new Exception("Git Bash GNU tar not found: " + tool); }
+    }
+    Process p = new Process(tool).Arg("-C").Arg(dir);
     if (Platform.IsMacOS()) { p = p.Env("COPYFILE_DISABLE", "1").Arg("--no-xattrs").Arg("--no-mac-metadata"); }
     string[] entries = _sortedStrings(Directory.Enumerate(dir));
     if (Platform.IsMacOS()) {
