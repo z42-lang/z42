@@ -3,6 +3,19 @@
 use std::path::PathBuf;
 use z42::config::KNOWN_KNOBS;
 
+pub fn resolve_load_options(
+    file: &str, libs: Option<&std::path::Path>, mode: z42::host::ExecMode,
+    config: &z42::config::RuntimeConfig,
+) -> z42::host::LoadOptions {
+    use z42::loader::locate::{probing, search_paths};
+    let vfs = z42::pal::fs::default_vfs();
+    let entry = search_paths::entry_directory(file);
+    let extra = probing::expand_probing_paths(entry, &config.probing_paths);
+    probing::set_unresolved_sdk_patterns(probing::unresolved_z42_home_patterns(entry, &config.probing_paths));
+    let search_dirs = search_paths::program_search_dirs(&*vfs, file, &extra, libs);
+    z42::host::LoadOptions { mode, vfs, search_dirs, ..Default::default() }
+}
+
 /// Locate the stdlib libs/ directory.
 ///
 /// Search order (redesign-artifact-layout):
@@ -214,8 +227,8 @@ pub fn print_build_info(resolution: &z42::config::Resolution, ctx: &z42::config:
 
     // Exec modes actually available (function of feature flags)
     let mut modes: Vec<&str> = Vec::new();
-    if crate::components::api::execution_available(crate::components::api::ExecutionRole::Baseline) { modes.push("interp"); }
-    if crate::components::api::execution_available(crate::components::api::ExecutionRole::Optimizing) { modes.push("jit"); }
+    if z42::host::execution_available(z42::host::ExecMode::Interp) { modes.push("interp"); }
+    if z42::host::execution_available(z42::host::ExecMode::Jit) { modes.push("jit"); }
     #[cfg(feature = "aot")] modes.push("aot");
     println!("exec modes: {}", modes.join(", "));
 

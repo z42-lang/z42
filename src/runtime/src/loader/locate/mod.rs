@@ -2,6 +2,7 @@
 pub mod namespace_index;
 pub mod probing;
 pub mod namespace;
+pub mod search_paths;
 pub use namespace::{extract_import_namespaces, resolve_dependency, resolve_namespace};
 
 #[cfg(all(test, z42_test_facade))]

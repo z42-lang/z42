@@ -147,13 +147,13 @@ pub fn run_app(
 ) -> Result<(), HostError> {
     install_app_config(file);
     let opts = z42::host::RunOpts {
-        mode: mode.unwrap_or_else(z42::host::default_mode),
-        libs_dir,
+        load_options: super::services::process_load_options(
+            file, libs_dir.as_deref(), mode.unwrap_or_else(z42::host::default_mode), z42::pal::fs::default_vfs(),
+        ),
         program_args: args,
         print_stats: false,
         stats_json: false,
         exit_after_run: false,
-        vfs: None,
     };
     z42::host::run_app(file, entry, opts).map_err(|e| match z42::exec::stack_guard::take_report() {
         Some(report) => HostError::Fatal(report),

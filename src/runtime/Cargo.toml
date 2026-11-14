@@ -9,12 +9,17 @@ version = "0.7.0"
 name = "z42"
 version.workspace = true
 edition = "2021"
-description = "z42 unified runtime, embedding API and dynamic VM launcher"
+description = "z42 unified runtime, embedding API and VM command-line host"
 
 [[bin]]
 name = "z42vm"
 path = "src/main.rs"
 required-features = ["cli", "component-loading"]
+
+[[bin]]
+name = "z42vm-windows-launcher"
+path = "src/main_windows_launcher.rs"
+required-features = ["windows-launcher"]
 
 [lib]
 name = "z42"
@@ -70,7 +75,7 @@ ios-static      = ["ios", "static-embedding"]
 iossim-static   = ["ios", "jit", "static-embedding"]
 android-static  = ["android", "static-embedding"]
 wasm-static     = ["wasm", "static-embedding"]
-launcher        = ["cli", "component-loading"]
+windows-launcher = []
 default              = ["cli", "interp", "jit", "native-interop", "net", "tls"]
 mimalloc-alloc       = ["dep:mimalloc"]
 dhat-heap            = ["dep:dhat"]

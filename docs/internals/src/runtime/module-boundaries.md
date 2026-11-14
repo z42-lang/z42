@@ -39,10 +39,11 @@ VM 程序准备、执行角色查询和分析请求通过内部 `components::api
 默认 native 路径归 loader/native_paths，host 为独立库提供路径时不再经过 components。
 PAL 保留底层开库与符号原语；组件层只持有 loader 代码句柄和组件契约/实例依赖。
 
-CLI 的参数、启动环境和进程 C 入口位于独立 cli 适配目录，消费 host 的 VM 功能接口，
-host 不再导出 cli 或入口协议。cli feature 关闭时不编译该模块与可选解析/日志依赖；
-Cargo 仅在 cli 与 component-loading 同时启用时选择动态 z42vm binary。
-CLI 仍是 feature 限定的同 crate 适配，并非新增的组件或独立运行时库。
+CLI 的参数和启动环境归 main.rs 及其私有 main_startup.rs，直接动态链接 libz42 并消费 host 的 VM 接口，
+不新增 CLI 目录/库模块，也不导出私有 C 入口表。非 CLI 平台库不编译 main 或其解析/日志实现。
+Cargo 仅在 cli 与 component-loading 同时启用时选择动态 z42vm binary；静态示例复用同一可执行宿主实现。
+一次性 run_app 和 LoadedProgram 共用显式 LoadOptions，环境、相对路径、搜索默认值由来源适配解析，
+加载服务不读取 CLI probing 设置或隐式补目录。
 
 ### 当前可核对的缺口
 
@@ -96,8 +97,8 @@ flowchart TD
 
 ### host 与初始化收口方向（尚未实施）
 
-main.rs 当前已经是薄动态启动器，CLI 解析/进程启动实现仍编入启用 cli feature 的共享 Core。目标是 main/CLI、
-C 绑定和其它平台分别适配同一 VM 服务契约；动态库边界继续使用版本化 C 表/回调，不传 Rust trait 对象。
+main.rs 已直接动态链接共享 Core；参数解析、环境和相对路径是该宿主的实现，C 绑定和其它平台也消费同一 VM 服务契约。
+同构建 Rust 宿主使用 Rust 接口；需要 C 互操作的边界才使用版本化 C 布局/回调，不跨 C ABI 传 Rust trait 对象。
 VM 组合层提供单一准备流程，平台适配只转换输入，不复制模块初始化和包加载实现：
 
 ```text

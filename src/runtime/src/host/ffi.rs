@@ -773,13 +773,13 @@ pub unsafe extern "C" fn z42_host_run_app(
         // budget matches/exceeds desktop.
         let run_vm = move || -> i32 {
             let opts = crate::host::RunOpts {
-                mode: crate::host::default_mode(),
-                libs_dir: libs,
+                load_options: super::services::process_load_options(
+                    &app, libs.as_deref(), crate::host::default_mode(), crate::pal::fs::default_vfs(),
+                ),
                 program_args: prog_args,
                 print_stats: false,
                 stats_json: false,
                 exit_after_run: false,
-                vfs: None,
             };
             let result = crate::host::run_app(&app, entry_owned.as_deref(), opts);
             // runtime-audit P0-4: fatal VM error → its report + the fixed code.

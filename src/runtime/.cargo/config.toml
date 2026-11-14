@@ -43,7 +43,7 @@ rustflags = ["-C", "link-arg=-zstack-size=16777216"]
 z42-dyn = [
     "build", "--locked",
     "--config", "target.'cfg(all())'.rustflags=['-C','prefer-dynamic','-C','rpath']",
-    "--config", "target.'cfg(any(target_os = \"macos\", target_os = \"ios\"))'.rustflags=['-C','link-arg=-Wl,-rpath,@loader_path']",
+    "--config", "target.'cfg(any(target_os = \"macos\", target_os = \"ios\"))'.rustflags=['-C','link-arg=-Wl,-rpath,@loader_path','-C','link-arg=-Wl,-headerpad_max_install_names']",
     "--config", "target.'cfg(target_os = \"linux\")'.rustflags=['-C','link-arg=-Wl,-rpath,$ORIGIN','-C','link-arg=-Wl,-rpath,$ORIGIN/../native']",
     "--config", "target.'cfg(target_os = \"android\")'.rustflags=['-C','link-arg=-Wl,-rpath,$ORIGIN']",
 ]
@@ -52,7 +52,7 @@ z42-dyn = [
 z42-test-dyn = [
     "test", "--locked",
     "--config", "target.'cfg(all())'.rustflags=['-C','prefer-dynamic','-C','rpath']",
-    "--config", "target.'cfg(any(target_os = \"macos\", target_os = \"ios\"))'.rustflags=['-C','link-arg=-Wl,-rpath,@loader_path']",
+    "--config", "target.'cfg(any(target_os = \"macos\", target_os = \"ios\"))'.rustflags=['-C','link-arg=-Wl,-rpath,@loader_path','-C','link-arg=-Wl,-headerpad_max_install_names']",
     "--config", "target.'cfg(target_os = \"linux\")'.rustflags=['-C','link-arg=-Wl,-rpath,$ORIGIN','-C','link-arg=-Wl,-rpath,$ORIGIN/../native']",
     "--config", "target.'cfg(target_os = \"android\")'.rustflags=['-C','link-arg=-Wl,-rpath,$ORIGIN']",
 ]
@@ -97,8 +97,7 @@ z42-static-wasm   = ["z42-static", "-p", "z42", "-p", "z42-profiler", "-p", "z42
 # compression 静态图（默认特性 = backend）。
 z42-compression-static = ["z42-static", "-p", "z42-compression", "--lib"]
 
-# 静态 std 启动器（bin z42vm）；macOS 预留 install_name_tool 余量。
-z42-launcher = ["build", "--locked", "-p", "z42", "--bin", "z42vm",
-    "--no-default-features", "--features", "z42/launcher",
-    "--config", "build.rustflags=['-C','prefer-dynamic=no']",
-    "--config", "target.'cfg(target_os = \"macos\")'.rustflags=['-C','prefer-dynamic=no','-C','link-arg=-Wl,-headerpad_max_install_names']"]
+# Windows SDK 的进程转发入口；不链接 VM，实际 main 与 DLL 闭包同目录。
+z42-launcher = ["build", "--locked", "-p", "z42", "--bin", "z42vm-windows-launcher",
+    "--no-default-features", "--features", "z42/windows-launcher",
+    "--config", "build.rustflags=['-C','prefer-dynamic=no']"]

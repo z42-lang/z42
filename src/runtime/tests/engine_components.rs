@@ -131,6 +131,7 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
     // Keep the C host image through thread exit, including its TLS destructors.
     unsafe {
         let library = std::mem::ManuallyDrop::new(z42::pal::dynlib::Library::open(&path).unwrap());
+        assert!(library.symbol::<extern "C" fn()>("z42_runtime_entry_v1").is_err(), "CLI must not be exported by the runtime library");
         let initialize = library.symbol::<Initialize>("z42_host_initialize").unwrap();
         let load = library.symbol::<Load>("z42_host_load_zbc").unwrap();
         let resolve = library.symbol::<Resolve>("z42_host_resolve_entry").unwrap();

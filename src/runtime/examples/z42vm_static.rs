@@ -1,4 +1,6 @@
-//! Static embedding reference; register linked factories, then use the CLI host adapter.
+#[path = "../src/main.rs"]
+mod executable;
+// Static embedding reference using the same executable host implementation.
 #[cfg(all(feature = "mimalloc-alloc", not(feature = "dhat-heap")))]
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -10,5 +12,5 @@ fn main() -> anyhow::Result<()> {
     #[cfg(all(feature = "jit", z42_jit_supported))]
     unsafe { z42::host::register_static_component(z42::components::abi::JIT_COMPONENT, z42_jit::component::z42_jit_init)?; }
     unsafe { z42::host::register_static_component(z42::components::abi::PROFILER_COMPONENT, z42_profiler::component::z42_profiler_init)?; }
-    z42::cli::run_from(std::env::args_os())
+    executable::run_from(std::env::args_os())
 }

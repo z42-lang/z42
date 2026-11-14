@@ -268,14 +268,18 @@ pub fn run_test_app(
     } else {
         Some(std::path::PathBuf::from(libs_dir))
     };
+    let vfs = page_vfs_handle();
     let opts = z42::host::RunOpts {
-        mode: z42::host::default_mode(),
-        libs_dir: libs,
+        load_options: z42::host::LoadOptions {
+            mode: z42::host::default_mode(),
+            search_dirs: z42::loader::locate::search_paths::program_search_dirs(&*vfs, app_path, &[], libs.as_deref()),
+            vfs: vfs.clone(),
+            ..Default::default()
+        },
         program_args: args,
         print_stats: false,
         stats_json: false,
         exit_after_run: false,
-        vfs: Some(page_vfs_handle()),
     };
     z42::host::run_app(app_path, entry_opt, opts)
         .map_err(|e| js_error("VmException", 40, &format!("{e:#}")))

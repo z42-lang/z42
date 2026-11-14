@@ -23,7 +23,7 @@ pub use z42_zpkg::{ExecMode, image::PackageImage};
 pub use ffi::*;
 pub use resolver::{read_zpkg_namespaces, ZpkgResolver};
 pub use program::{LoadOptions, LoadedProgram};
-pub use app::{default_mode, run_app, RunOpts};
+pub use app::{default_mode, execution_available, run_app, RunOpts};
 pub use app_state::{program_args, set_program_args};
 pub(crate) use app::report_on_exit;
 #[cfg(test)] mod host_tests;

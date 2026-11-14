@@ -58,7 +58,7 @@ Process _componentCargo(string verb, string root, string profile, string targetD
     }
     // 旧树：R0 前的调用形态（env flags + --release）。
     string flags = "-C prefer-dynamic -C rpath";
-    if (Platform.IsMacOS()) { flags = flags + " -C link-arg=-Wl,-rpath,@loader_path"; }
+    if (Platform.IsMacOS()) { flags = flags + " -C link-arg=-Wl,-rpath,@loader_path -C link-arg=-Wl,-headerpad_max_install_names"; }
     else if (Platform.IsLinux()) { flags = flags + " -C link-arg=-Wl,-rpath,$ORIGIN -C link-arg=-Wl,-rpath,$ORIGIN/../native"; }
     p = p.EnvRemove("CARGO_ENCODED_RUSTFLAGS").Env("RUSTFLAGS", flags).Env("CARGO_PROFILE_RELEASE_LTO", "false");
     if (profile == "release") { p = p.Arg("--release"); }
@@ -128,7 +128,7 @@ int _packageDynamicRuntime(string rid, string profile, bool noBuild, bool verify
 
 // importLibs：Windows 下是否随包拷动态库的导入库（<stem>.dll.lib）。runtime 包要
 // （嵌入者直接链接组件而非 dlopen，见 z42_host.h 的 register_static_* 协议）；
-// SDK 不要 —— z42vm 只 dlopen，链接期文件纯属负载。
+// SDK 运行已链接的 z42vm，不分发供嵌入者链接的导入库。
 void _componentInstallLibraries(string cargo, string pkg, bool importLibs = false) {
     // R1 统一复制器入口：动态闭包（可选 import lib）+ 恰好一份共享 std。
     string rid = _detectHostRid();
@@ -143,17 +143,15 @@ void _componentInstallLibraries(string cargo, string pkg, bool importLibs = fals
     _componentCopyStagedStd(cargo, Path.Join(pkg, "native"));
 }
 
-// z42vm 启动器单独出一图：静态 Rust std（prefer-dynamic=no），exe 自身不再依赖共享
-// libstd —— bin/ 里只有 z42vm 本体，共享 std 只随 native/ 分发（z42.dll 的依赖由
-// launcher 的 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|DEFAULT_DIRS 从 dll 自己的目录解析）。
-// 与组件动态图分开的 target-dir 防止 rustflags 串扰；bin 不引用 lib crate 的代码，
-// 链接期未被引用的 rlib 自然不进 exe。identity 由 build.rs 计算（输入不含 rustflags），
-// 与动态图的 COMPONENT_BUILD_ID 一致，launcher 的 same-build 校验不变。
-// 与 components/、components/static 平级的第三棵树（rustflags 互不串扰）；profile 子目录由 cargo 生成
-// （--release ⇒ <launcher>/<profile>/z42vm，同另两棵图的约定）。
+// Current Rust main links the dynamic Core directly. Only Windows needs a
+// separate process entry beside bin/: the actual main stays with the DLL closure.
+// Older trees keep their original C-entry launcher recipe for baseline builds.
+// Keep its static-std graph separate so flags cannot overwrite the dynamic Core.
+bool _componentDirectHostMain(string root) { return File.Exists(Path.Join(root, "src/runtime/src/main_windows_launcher.rs")); }
 string _componentLauncherDir(string root) { return Path.Join(_componentBuildDir(root), "launcher"); }
 string _componentLauncherOut(string root, string profile) { return Path.Join(_componentLauncherDir(root), profile); }
 int _componentBuildLauncher(string root, string profile) {
+    if (_componentDirectHostMain(root) && !Platform.IsWindows()) { return 0; }
     if (_componentAliasTree(root)) {
         Process a = _componentAliasProc(root, "z42-launcher")
             .Arg("--target-dir").Arg(_componentLauncherDir(root));
@@ -163,8 +161,8 @@ int _componentBuildLauncher(string root, string profile) {
     Process p = _cargoCmd("build", _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--target-dir").Arg(_componentLauncherDir(root))
-        .Arg("-p").Arg("z42").Arg("--bin").Arg("z42vm")
-        .Arg("--no-default-features").Arg("--features").Arg("z42/cli,z42/component-loading")
+        .Arg("-p").Arg("z42").Arg("--bin").Arg(_componentDirectHostMain(root) ? "z42vm-windows-launcher" : "z42vm")
+        .Arg("--no-default-features").Arg("--features").Arg(_componentDirectHostMain(root) ? "z42/windows-launcher" : "z42/cli,z42/component-loading")
         .EnvRemove("CARGO_ENCODED_RUSTFLAGS");
     // 静态 std 启动器；macOS 预留 load-command 余量，否则打包期 install_name_tool
     // -add_rpath 报 "larger updated load commands do not fit"。
