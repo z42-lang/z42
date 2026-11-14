@@ -11,7 +11,7 @@ use crate::metadata::ids::tokens::StaticFieldId;
 use crate::metadata::Module;
 use crate::object::Value;
 use crate::exec::init::make_type_init_exception;
-use crate::exec::exception::symbol_resolution::{verify_static_field, StaticNullVerdict};
+use crate::exec::symbol_resolution::{verify_static_field, StaticNullVerdict};
 use crate::context::VmContext;
 
 use super::error::{OpError, OpResult};

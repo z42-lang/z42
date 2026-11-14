@@ -205,7 +205,7 @@ z42vm 经版本化 C 入口动态加载 `native/libz42`；发布闭包见 [packa
 |---|---|---|---|---|
 | L-8 | — | 物理拆 crate：暂不做，VM 保持单 crate、各层是 `src/runtime/src/<模块>/`（User 2026-10-29）；以后是否拆另议 | — | ⏸ |
 | L-9 | feature | 监控 API（diagnostics/monitor）→ debugger（0.8.x，前置：.zsym 局部变量信息）→ profiler 的分配采样与覆盖率；AOT（M9）时拆出 codegen | 各自立项，动工前出方案 | ⬜ |
-| L-11 | refactor | 审查 runtime 查询与执行边界：`metadata/resolve/mod.rs::resolve_module` / `resolve_function_tokens` 仍接收 `VmContext`；沿其静态字段、类型查找调用链区分纯查询、加载和初始化执行，把有副作用的慢路径交给 loader/exec | 逐调用点核对「四不」；不能以改目录或机械移除上下文参数代替行为验证；覆盖惰性加载、静态初始化、失败与线程等待 | ⬜ |
+| L-11 | refactor | 审查 runtime 查询与执行边界：`metadata/resolve.rs::resolve_module` / `resolve_function_tokens` 仍接收 `VmContext`；沿其静态字段、类型查找调用链区分纯查询、加载和初始化执行，把有副作用的慢路径交给 loader/exec | 逐调用点核对「四不」；不能以改目录或机械移除上下文参数代替行为验证；覆盖惰性加载、静态初始化、失败与线程等待 | ⬜ |
 
 现有的 VM 状态组合、组件注册与门面装配见[组件化运行时](internals/src/runtime/componentized-runtime.md)，
 宿主与应用共用的启动步骤见[嵌入宿主](internals/src/runtime/embedding.md)。
@@ -224,7 +224,7 @@ z42vm 经版本化 C 入口动态加载 `native/libz42`；发布闭包见 [packa
 | X-12 | perf/vm | **分配快路**（依赖 M15、M16）：`jit_obj_new` 是 11 参 helper，每次经过具体 `Heap`、2 次 TLS、全局原子记账、`Arc<TypeDesc>` clone，ctor 再走完整调用协议；解释器 `new` 还为 ctor 实参 malloc 一个 Vec。改法：TLAB cursor / limit 挪进 VmContext，站点稳定后用纪元门（同 X-4）跳过屏障，生成码直接 bump、写头、清零；空洞复用只走慢路 | CoreCLR 每线程分配上下文 + 内联 bump（≈10 条指令、0 原子） | 09_alloc_ctorless 1.5–2×；z42c `jit_obj_new` 14.5% inclusive | ⬜ |
 | X-13 | perf/jit | **后台 / 批量编译 + 代码 arena**：编译在调用线程上、持全局 `Mutex`，持锁期间其他线程直接等不 park；每函数一次 `finalize_definitions`、各占一块 mmap。动工前先对齐编译耗时两个口径（计数 1.59 s vs 采样 3.9%） | CoreCLR tier1 后台编译 | z42c 墙钟 −5~15%，`--jobs` 不再串行等锁 | ⬜ |
 | X-14 | perf/interp | **解释器调用路径继续瘦身**：调用仍有两道屏障，并逐次检查 `$mta:` 转发。将 X-4 的纪元快路用于解释器调用，减少重复屏障与实参扫描；须保留属主初始化、加载和歧义诊断的语义 | — | 减少屏障与扫描开销（需重测） | ⬜ |
-| X-15 | perf/vm | **异常惰性栈**：throw 时当场格式化整条栈（`exec/exception/mod.rs`），`find_handler` 按 String label 查 HashMap。改法：只存 (func, pc) 快照，读 StackTrace 时才格式化；异常表用块下标 | CoreCLR 惰性 IP 数组 | 异常密集代码 5–10× | ⬜ |
+| X-15 | perf/vm | **异常惰性栈**：throw 时当场格式化整条栈（`exec/exception.rs`），`find_handler` 按 String label 查 HashMap。改法：只存 (func, pc) 快照，读 StackTrace 时才格式化；异常表用块下标 | CoreCLR 惰性 IP 数组 | 异常密集代码 5–10× | ⬜ |
 | X-16 | perf/jit | **调用 safepoint 轮询去重**：被调方入口与调用方返回后各轮询一次。先确定 GC 停顿延迟约束，再判断哪些调用可安全省去一次 | — | 降低调用轮询开销（需重测） | ⏸ 需确认延迟约束 |
 
 ### 6.3 内存与 GC（M 系列）

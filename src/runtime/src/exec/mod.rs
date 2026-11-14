@@ -1,5 +1,6 @@
 //! Shared instruction execution semantics.
 pub mod exception;
+pub mod symbol_resolution;
 pub mod stack_guard;
 pub mod ops;
 pub mod ambient;

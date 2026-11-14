@@ -2,7 +2,7 @@
 use crate::{context::VmContext, object::TypeDesc};
 
 /// 声明类型为 `tag` 的静态字段的**零值**（C# 的 `default(T)`）。静态存储的默认初始化归 VM：
-/// 槽位从未写过时为 `Null`，[`crate::exec::exception::symbol_resolution::verify_static_field`] 在第一次读到它时按声明类型补上这里的值，
+/// 槽位从未写过时为 `Null`，[`crate::exec::symbol_resolution::verify_static_field`] 在第一次读到它时按声明类型补上这里的值，
 /// 调用方经 `StaticTable::init_default` 装入槽位（先到者胜）。
 ///
 /// | 声明类型 | 零值 |

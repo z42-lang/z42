@@ -10,7 +10,7 @@ use crate::metadata::dispatch::ic::{ctorless_hit, ctorless_note, ObjNewSite};
 use crate::metadata::ids::tokens::UNRESOLVED;
 use crate::metadata::{Function, Module};
 use crate::object::{TypeDesc, Value};
-use crate::exec::exception::symbol_resolution;
+use crate::exec::symbol_resolution;
 use crate::context::VmContext;
 
 use crate::metadata::dispatch::functions::{fn_by_id, lazy_call_id};

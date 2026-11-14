@@ -127,7 +127,7 @@ pub(super) fn call(
     // token 可能是解析期按名填好的惰性目标，所以每次调用都判，不能只在绑定时判。
     // 也先于折叠与转入原生码：歧义调用不该因为目标是 `[Native]` 桩或已编译就静默通过。
     // 常态代价 = 一次 relaxed 原子读（进程内从没碰撞过时恒 false）。
-    if let Some(exc) = crate::exec::exception::symbol_resolution::ambiguous_function_exception(ctx, module, fname) {
+    if let Some(exc) = crate::exec::symbol_resolution::ambiguous_function_exception(ctx, module, fname) {
         return Ok(Some(exc));
     }
     // runtime-audit P1-8: a `[Native]` forwarder runs its builtin directly.
