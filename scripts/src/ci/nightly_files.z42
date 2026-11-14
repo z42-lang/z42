@@ -1,0 +1,52 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+using Std.Time;
+
+string[] _ciNightlyAssets(string root) {
+    string dir = Path.Join(root, "artifacts/packages");
+    var assets = new List<string>();
+    assets.Add(Path.Join(dir, "SHA256SUMS")); assets.Add(Path.Join(dir, "release-index.json"));
+    var archives = new List<string>();
+    foreach (var file in Path.Glob(dir, "z42-*")) { archives.Add(file); }
+    archives.Sort();
+    if (archives.Count == 0) { throw new Exception("nightly archives are missing"); }
+    foreach (var archive in archives) { assets.Add(archive); }
+    assets.Add(Path.Join(root, "scripts/install-z42.sh")); assets.Add(Path.Join(root, "scripts/install-z42.ps1"));
+    var names = new List<string>();
+    foreach (var asset in assets) {
+        if (!File.Exists(asset) || File.GetSize(asset) == 0) { throw new Exception("missing or empty nightly asset: " + asset); }
+        string name = Path.GetFileName(asset);
+        if (names.Contains(name)) { throw new Exception("duplicate nightly asset: " + name); }
+        names.Add(name);
+    }
+    return assets.ToArray();
+}
+
+string _ciNightlyNotes(string root, string shortSha, string date) {
+    string generated = File.ReadAllText(Path.Join(root, "artifacts/packages/release-notes.md")).Trim();
+    if (generated.Length == 0) { throw new Exception("nightly release notes are empty"); }
+    string notes = "**Rolling pre-release** built from `main` on " + date + " (commit `" + shortSha + "`).\n\n"
+        + "- **Unsigned** — do not use for production.\n"
+        + "- **Replaced on every push to main** — URL stays stable, contents change.\n"
+        + "- For tagged releases see [Releases](../../releases?q=v).\n\n" + generated + "\n";
+    string file = _xtaskWork(root, "nightly-publish-notes.md");
+    Directory.Create(Path.GetDirectoryName(file));
+    File.WriteAllText(file, notes); return file;
+}
+
+int _ciPublishNightly() {
+    string root = _root(); string head = Environment.GetEnvironmentVariable("GITHUB_SHA", "");
+    string actual = _gitOutput(new string[]{ "-C", root, "rev-parse", "HEAD" }).Trim();
+    if (head.Length == 0 || head != actual) { throw new Exception("nightly publication must use the checked-out GITHUB_SHA"); }
+    string shortSha = _gitOutput(new string[]{ "-C", root, "rev-parse", "--short", "HEAD" }).Trim();
+    string date = DateTime.UtcNow().ToIso8601().Substring(0, 10);
+    string[] assets = _ciNightlyAssets(root);
+    string notes = _ciNightlyNotes(root, shortSha, date);
+    try {
+        _ciNightlyPublish(new CiNightlyTransport(), _ciRepo(), head,
+            "Nightly (main @ " + shortSha + " · " + date + ")", notes, assets);
+        return 0;
+    } finally { File.Delete(notes); }
+}

@@ -12,6 +12,7 @@ int _checkFlows() {
         _flowScopeChecks(cfg);
         _ciRetryChecks();
         _ciUploadChecks();
+        _ciNightlyChecks();
         _ciBootstrapChecks();
         _ciGoldenChecks();
         if (_ciInstallerChecks("all") != 0) { return 1; }

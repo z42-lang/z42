@@ -1,0 +1,72 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+using Std.Collections;
+using Std.Regex;
+
+class CiNightlyTransport : CiUploadTransport {
+    public virtual int Upload(string[] assets) { return _ciUpload(this, "nightly", assets); }
+}
+
+ProcessResult _ciNightlyRun(CiNightlyTransport transport, string[] args) {
+    ProcessResult result = transport.Run(args);
+    if (result.ExitCode != 0) { throw new Exception("nightly " + String.Join(" ", args) + ": " + result.Stdout + result.Stderr); }
+    return result;
+}
+
+JsonValue _ciNightlyRelease(CiNightlyTransport transport, string repo, bool allowMissing) {
+    ProcessResult result = transport.Run(new string[]{ "api", "repos/" + repo + "/releases/tags/nightly" });
+    if (result.ExitCode != 0) {
+        if (allowMissing && Regex.Compile("\\bHTTP 404\\b").IsMatch(result.Stdout + result.Stderr)) { return JsonValue.OfNull(); }
+        throw new Exception("nightly release lookup: " + result.Stdout + result.Stderr);
+    }
+    JsonValue release = JsonValue.Parse(result.Stdout);
+    if (!release.Get("assets").IsArray() || _ciString(release, "tag_name") != "nightly") {
+        throw new Exception("invalid nightly release identity or asset inventory");
+    }
+    return release;
+}
+
+void _ciNightlyPublish(CiNightlyTransport transport, string repo, string head, string title, string notes, string[] assets) {
+    JsonValue release = _ciNightlyRelease(transport, repo, true);
+    if (release.IsNull()) {
+        var create = new List<string>();
+        foreach (var arg in new string[]{ "release", "create", "nightly", "--prerelease", "--target", head, "--title", title, "--notes-file", notes }) { create.Add(arg); }
+        foreach (var asset in assets) { create.Add(asset); }
+        _ciNightlyRun(transport, create.ToArray());
+    } else {
+        int code = transport.Upload(assets);
+        if (code != 0) { throw new Exception("nightly asset upload failed: " + code.ToString()); }
+        // Refresh after uploads: --clobber replaces asset IDs, but cleanup is by exact name.
+        JsonValue inventory = _ciNightlyRelease(transport, repo, false).Get("assets");
+        var keep = new List<string>();
+        foreach (var asset in assets) { keep.Add(Path.GetFileName(asset)); }
+        for (int i = 0; i < inventory.Count(); i = i + 1) {
+            string name = _ciString(inventory.At(i), "name");
+            if (name.Length == 0) { throw new Exception("missing remote nightly asset name"); }
+            if (!keep.Contains(name)) { _ciNightlyRun(transport, new string[]{ "release", "delete-asset", "nightly", name, "--yes" }); }
+        }
+        // Never delete/recreate the release or tag: an asynchronous deletion can detach the new release.
+        _ciNightlyRun(transport, new string[]{ "api", "-X", "PATCH", "repos/" + repo + "/git/refs/tags/nightly", "-f", "sha=" + head, "-F", "force=true" });
+        _ciNightlyRun(transport, new string[]{ "release", "edit", "nightly", "--title", title, "--notes-file", notes, "--target", head, "--prerelease", "--draft=false" });
+    }
+    _ciNightlyVerify(transport, repo, head, assets);
+    Console.WriteLine("✓ nightly @ " + head + " published in place (non-draft, tag moved, assets complete)");
+}
+
+void _ciNightlyVerify(CiNightlyTransport transport, string repo, string head, string[] assets) {
+    JsonValue release = _ciNightlyRelease(transport, repo, false);
+    if (!release.Get("draft").IsBool() || release.Get("draft").AsBool()
+        || !release.Get("prerelease").IsBool() || !release.Get("prerelease").AsBool()
+        || _ciString(release, "target_commitish") != head) { throw new Exception("nightly publication metadata does not match the tested commit"); }
+    string tag = _ciString(JsonValue.Parse(_ciNightlyRun(transport,
+        new string[]{ "api", "repos/" + repo + "/git/ref/tags/nightly" }).Stdout).Get("object"), "sha");
+    if (tag != head) { throw new Exception("nightly tag does not match the tested commit: " + tag); }
+    string receipt = JsonValue.StringifyPretty(release);
+    foreach (var asset in assets) {
+        if (!_ciReceipt(receipt, Path.GetFileName(asset), File.GetSize(asset), "sha256:" + _sha256Hex(asset))) {
+            throw new Exception("nightly asset receipt missing or mismatched: " + asset);
+        }
+    }
+}
