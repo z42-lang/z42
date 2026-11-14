@@ -47,7 +47,7 @@ macOS 采用 @rpath 和 @loader_path，Linux 采用 $ORIGIN 与 $ORIGIN/../nativ
 
 C 声明的源码归能力所有者：宿主声明位于 `src/runtime/src/host/z42_host.h`，组件链接声明位于
 `src/runtime/src/components/z42_components.h`。`src/runtime/include/z42_host.h` 是统一发布入口，
-只包含公共 ABI 和所有者头的 include，不保存这些领域的实现或重复声明。
+只包含公共 ABI 和所有者头的 include，不保存这些领域的实现或重复声明。共享原生协议的 `z42_abi.h`、`z42_native.h` 由 `crates/z42-abi/` 维护，runtime/include 下的同名文件只提供分发入口；三份发布头都经同一个展开过程输出。
 
 `_copyAbiHeaders` 调用 `_runtimeHeaderText` 展开所有者的相对 include，形成平铺、自包含的
 `native/include/z42_host.h`；普通公共 include（例如 `z42_abi.h`）保持原样。
