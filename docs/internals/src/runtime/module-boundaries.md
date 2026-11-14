@@ -39,6 +39,11 @@ VM 程序准备、执行角色查询和分析请求通过内部 `components::api
 默认 native 路径归 loader/native_paths，host 为独立库提供路径时不再经过 components。
 PAL 保留底层开库与符号原语；组件层只持有 loader 代码句柄和组件契约/实例依赖。
 
+CLI 的参数、启动环境和进程 C 入口位于独立 cli 适配目录，消费 host 的 VM 功能接口，
+host 不再导出 cli 或入口协议。cli feature 关闭时不编译该模块与可选解析/日志依赖；
+Cargo 仅在 cli 与 component-loading 同时启用时选择动态 z42vm binary。
+CLI 仍是 feature 限定的同 crate 适配，并非新增的组件或独立运行时库。
+
 ### 当前可核对的缺口
 
 | 缺口 | 代码证据 | 影响与目标 |

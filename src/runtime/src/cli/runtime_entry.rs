@@ -1,5 +1,5 @@
-//! Dynamic process entry delegates to the same host CLI used by static embeddings.
-use super::entry_api::*;
+//! Dynamic process entry delegates to the CLI adapter used by static embeddings.
+use super::entry_protocol::*;
 use std::ffi::{c_char, CStr, OsString};
 
 unsafe extern "C" fn run(argc: i32, argv: *const *const c_char) -> i32 {
@@ -11,7 +11,7 @@ unsafe extern "C" fn run(argc: i32, argv: *const *const c_char) -> i32 {
             anyhow::ensure!(!arg.is_null(), "null launcher argument");
             args.push(OsString::from(unsafe { CStr::from_ptr(arg) }.to_str()?));
         }
-        super::cli::run_from(args)
+        super::run_from(args)
     });
     match result {
         Ok(Ok(())) => 0,
@@ -26,3 +26,5 @@ static ENTRY: RuntimeEntry = RuntimeEntry {
 };
 #[no_mangle]
 pub extern "C" fn z42_runtime_entry_v1() -> *const RuntimeEntry { &ENTRY }
+// Keep the producer signature checked against the standalone launcher's type.
+const _: GetRuntimeEntry = z42_runtime_entry_v1;

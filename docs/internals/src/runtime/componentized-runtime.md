@@ -33,7 +33,7 @@ loader/native.rs 与 interop/module.rs 也仍有双向装入/注册编排。这�
 VM 主实现属于 z42 这一个 Cargo 包，runtime/src 内的目录是它的模块；工作区另有上述独立 crate。
 主库提供 rlib/dylib，后端各自提供 rlib/cdylib 和 init 入口。生产运行时不依赖具体后端；测试和最终静态嵌入示例通过 dev-dependency 链接独立后端的 rlib，不形成生产依赖环。
 
-main.rs 不调用 Rust VM 接口，只查找 libz42 并取得版本化 C 入口。先验证头版本、大小、构建身份和回调，再把参数交给 host::cli。已打开的库保留到进程结束，避免运行时或依赖的 TLS 析构跳入已卸载代码。
+main.rs 不调用 Rust VM 接口，只查找 libz42 并取得版本化 C 入口。先验证头版本、大小、构建身份和回调，再把参数交给 cli::run_from。已打开的库保留到进程结束，避免运行时或依赖的 TLS 析构跳入已卸载代码。
 
 普通嵌入功能从 z42::host 提供，CLI 也调用相同宿主服务。VM 消费者通过内部 components::api 请求准备、执行角色及分析服务，跨库协议另列 components::abi 契约。
 当前 host 仍具名转出组件管理，公开签名和静态装配头也有内部类型泄露；普通宿主面的完整收口尚未完成。
