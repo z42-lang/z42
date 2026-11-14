@@ -510,6 +510,11 @@ select = ["runtime", "vm"]
 publish = false
 
 [[inputs]]
+id = "release-archives"
+include = ["scripts/src/package/release.z42"]
+select = ["sdk"]
+
+[[inputs]]
 id = "packaging"
 include = ["scripts/src/package/**", "scripts/packages.toml", "scripts/src/common/cargo_artifacts.z42", "scripts/src/common/cargo_capture.rs", "scripts/src/common/packages_config.z42", "scripts/src/common/publish.z42", "scripts/src/common/versions.z42", "scripts/src/common/layout.z42", "scripts/src/setup/**", "scripts/src/test/app/**", "scripts/versions.toml"]
 select = ["green", "platform", "sdk"]
