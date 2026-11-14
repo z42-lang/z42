@@ -43,7 +43,6 @@ const TYPED: &[&[abi::BuiltinDesc]] = &[
     crate::corelib::tls::typed::DESCS,
     #[cfg(not(feature = "tls"))]
     crate::corelib::net::unsupported::tls::DESCS,
-    crate::corelib::core::diagnostics::typed::DESCS,
     crate::corelib::core::array::typed::DESCS,
 ];
 

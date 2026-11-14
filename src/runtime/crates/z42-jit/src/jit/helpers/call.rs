@@ -265,6 +265,28 @@ pub unsafe extern "C" fn jit_builtin(
     }
 }
 
+/// Qualified module calls share the interpreter's provider and typed exception semantics.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_native_module(
+    frame: *mut JitFrame, ctx: *const VmContext, dst: u32,
+    module_ptr: *const u8, module_len: usize, name_ptr: *const u8, name_len: usize,
+    args_ptr: *const u32, argc: usize,
+) -> u8 {
+    let frame = &mut *frame;
+    let vm = vm_ctx_ref(ctx);
+    // The translator embeds spans borrowed from validated, retained Rust Strings.
+    let provider = std::str::from_utf8_unchecked(std::slice::from_raw_parts(module_ptr, module_len));
+    let name = std::str::from_utf8_unchecked(std::slice::from_raw_parts(name_ptr, name_len));
+    let args = std::slice::from_raw_parts(args_ptr, argc);
+    match crate::exec::call::builtins::invoke_module(vm, provider, name, &frame.regs, args) {
+        Ok(Some(value)) => { frame.regs[dst as usize] = value; 0 }
+        Ok(None) => 0,
+        Err(error) => raised_into_exception(vm, crate::exec::call::builtin_abi::error::raise(
+            vm, super::jit_module(ctx), &format!("{provider}::{name}"), *error, &[],
+        )),
+    }
+}
+
 /// A failed builtin call → the JIT's exception channel (pending exception + status 1).
 /// The thrown value comes from the shared `abi::error::raise` (same class, message and
 /// trace as the interpreter). A fatal error — or an exception class that is not loaded —

@@ -46,6 +46,17 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
 
+                Instruction::CallNative(insn) if insn.type_name.is_empty() => {
+                    let d = self.ri(insn.dst);
+                    let (mp, ml) = self.str_val(&insn.module);
+                    let (np, nl) = self.str_val(&insn.symbol);
+                    let (ap, al) = self.regs_val(&insn.args);
+                    let inst = self.builder.ins().call(self.hr_native_module,
+                        &[self.frame_val, self.ctx_val, d, mp, ml, np, nl, ap, al]);
+                    let ret = self.builder.inst_results(inst)[0]; self.check(ret);
+                    emit_safepoint_check(self.builder, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
+                }
+
                 // Arrays
                 // P1-2 PR 8: a function reference's target is its site's `FnId` token. Bound
                 // at translate time (load-time pre-fill or an earlier execution) ⇒ baked: a

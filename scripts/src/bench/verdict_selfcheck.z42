@@ -3,6 +3,7 @@ namespace Z42Xtask;
 using Std.IO;
 
 int _checkBenchVerdicts() {
+    _microAbChecks();
     _gateAssert(_criterionTag(0.6, 0.005) == "SUSPECT" && _criterionTag(0.4, 0.26) == "REGRESSION", "Criterion needs entire interval above threshold");
     if (_abSelfTest() != 0) { return 1; }
     string dir = "src/benches/testdata/";

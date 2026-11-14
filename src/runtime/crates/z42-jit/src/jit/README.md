@@ -30,7 +30,7 @@
 | `value.rs` | 常量加载、Copy、字符串、`get_bool` |
 | `arith.rs` | 算术、比较、逻辑、一元、位运算 |
 | `control.rs` | `throw` / `install_catch` / `match_catch_type` |
-| `call.rs` | `jit_call`、`jit_builtin` |
+| `call.rs` | `jit_call`、`jit_builtin`、库限定函数的 `jit_native_module`；空类型名的 CallNative 经通用模块桥调用，typed native 仍回落解释器 |
 | `array.rs` | 数组分配、元素访问、长度 |
 | `object.rs` | 对象分配（类 / 构造器解析与站点缓存共用 `exec::ops::obj_new`，ctor 按 `FnId` 走槽位）、类型检查、静态字段（内联快路未放行时的 `jit_static_get` / `jit_static_set`）、`default(T)` |
 | `vcall.rs` | 虚调用的 JIT **调用侧**：PIC 命中（载荷 = `FnId`，惰性目标也在内）→ by-id tiered `FnEntry`，冷 → 按 id 经注册 Engine 回落 interp；miss → `exec::ops::vcall::resolve_vcall`（与 interp 共用的**唯一**目标解析：装箱基元 / 装箱 struct / primitive-as-struct / vtable·层级 walk + PIC 安装）→ 编译入口或已注册 Engine 回退 |

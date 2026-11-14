@@ -231,7 +231,7 @@ dst       u16    目标寄存器；无目标 = 0xFFFF
 | 0x50 | Call | `u32 method_token` + args |
 | 0x51 | Builtin | `u32 name_idx` + args |
 | 0x52 | VCall | `u32 method_idx, u16 obj` + args |
-| 0x53 | CallNative | `u32 module, u32 type, u32 symbol` + args |
+| 0x53 | CallNative | `u32 module, u32 type, u32 symbol` + args；空 type 调用模块函数，非空 type 调用 Tier 1 类型方法 |
 | 0x55 | LoadFn | `u32 method_token` |
 | 0x56 | CallIndirect | `u16 callee` + args |
 | 0x57 | MkClos | `u32 method_token` + args（捕获）。闭包一律堆分配 |

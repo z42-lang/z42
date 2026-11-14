@@ -90,10 +90,10 @@ public sealed class StubEmitter {
         if (isVoid) { dstTag = IrType.Void; }
         TypedReg dst = new TypedReg(totalParams, dstTag);
         IrInstr[] instrs = new IrInstr[1];
-        // `[Native(lib="L", type="T", entry="E")]` 带 type= → typed native call（CallNative，Tier 1 C ABI
-        // 经 z42_register_type 直接符号分派）；否则（positional / 仅 entry=）→ builtin 桩（VM 的 builtin 表）。
+        // 显式 lib 保留在 CallNative 中：空 type 查询模块导出，非空 type 走 typed ABI。
+        // 无限定的 positional / entry 声明仍走 core builtin 表。
         string[] lt = this._nativeLibType(rawMem);
-        if (lt[1] != "") {
+        if (lt[0] != "" || lt[1] != "") {
             instrs[0] = new CallNativeInstr(dst, lt[0], lt[1], nat, args, totalParams);
         } else {
             instrs[0] = new BuiltinInstr(dst, nat, args, totalParams);
@@ -177,7 +177,7 @@ public sealed class StubEmitter {
         int rsz = this._g.Layouts.StructSize(retStructName);
         IrInstr[] instrs = new IrInstr[3];
         string[] lt = this._nativeLibType(rawMem);
-        if (lt[1] != "") { instrs[0] = new CallNativeInstr(boxed, lt[0], lt[1], nat, args, declaredParams); }
+        if (lt[0] != "" || lt[1] != "") { instrs[0] = new CallNativeInstr(boxed, lt[0], lt[1], nat, args, declaredParams); }
         else            { instrs[0] = new BuiltinInstr(boxed, nat, args, declaredParams); }
         instrs[1] = new AsCastInstr(unboxed, boxed, this._g._qLayout(retStructName));
         instrs[2] = new StructCopyInstr(sret, unboxed, rsz);

@@ -1,0 +1,27 @@
+using Std;
+
+class NativeModuleCalls {
+    [Native(lib = "z42_repl", entry = "__repl_console_supported")]
+    public static extern bool ConsoleAvailable();
+    [Native(lib = "z42_repl", entry = "__repl_set_completer")]
+    public static extern void SetCompleter(string name);
+    [Native(lib = "z42_repl", entry = "__diag_counters")]
+    public static extern object WrongProvider();
+    [Native(lib = "unregistered_module", entry = "__repl_console_supported")]
+    public static extern bool MissingModule();
+    [Native(lib = "z42_repl", entry = "__repl_set_keywords")]
+    public static extern void WrongArgument(int value);
+}
+
+void Main() {
+    bool available = NativeModuleCalls.ConsoleAvailable();
+    NativeModuleCalls.SetCompleter("");
+    int caught = 0;
+    try { NativeModuleCalls.WrongProvider(); }
+    catch (MissingSymbolException) { caught = caught + 1; }
+    try { NativeModuleCalls.MissingModule(); }
+    catch (MissingSymbolException) { caught = caught + 1; }
+    try { NativeModuleCalls.WrongArgument(1); }
+    catch (InvalidCastException) { caught = caught + 1; }
+    if (caught != 3) { throw new Exception("qualified native calls must reject missing provider exports"); }
+}

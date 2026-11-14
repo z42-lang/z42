@@ -181,6 +181,21 @@ pub(super) fn builtin(
     }
 }
 
+/// Adapt a qualified module call to the shared provider service and exception path.
+pub(super) fn native_module(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, insn: &crate::zpkg::CallNativeInsn,
+) -> Result<Option<Value>> {
+    match crate::exec::call::builtins::invoke_module(
+        ctx, &insn.module, &insn.symbol, &frame.regs, &insn.args,
+    ) {
+        Ok(Some(value)) => { frame.set(insn.dst, value); Ok(None) }
+        Ok(None) => Ok(None),
+        Err(error) => raised(crate::exec::call::builtin_abi::error::raise(
+            ctx, module, &format!("{}::{}", insn.module, insn.symbol), *error, &[],
+        )),
+    }
+}
+
 /// `raise`'s verdict in the interpreter's channels: a thrown value, or an `Err`.
 #[cold]
 pub(super) fn raised(r: crate::exec::call::builtin_abi::error::Raised) -> Result<Option<Value>> {
