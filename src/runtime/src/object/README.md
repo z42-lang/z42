@@ -6,7 +6,7 @@
 
 ## 功能索引
 
-- `value/`：Value、原子单元、引用字、型参单元、struct blob、纯值种类名称，以及 context-free 格式化和盒装值哈希。
+- `value/`：Value、`payloads.rs` 中的引用/pin/闭包载荷、原子单元、引用字、型参单元、struct blob、纯值种类名称，以及 context-free 格式化和盒装值哈希。
 - `types/`：TypeDesc 形状、字段、对象/struct 布局、元素类型及泛型实参句柄。
 - `header/`：区块头、标记位、强/弱句柄与 generation 快照。
 - `object/`：对象与堆外对象存储、字段访问、引用遍历，以及 native Monitor 的同步状态。

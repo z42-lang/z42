@@ -46,7 +46,7 @@ mod parse;
 mod render;
 mod source;
 mod resolve;
-mod split;
+mod subsystem_inputs;
 pub use availability::*;
 pub use cli::*;
 pub use knob_table::{knob_by_env_name, knob_by_key, KNOWN_KNOBS};
@@ -530,5 +530,5 @@ fn split_paths(s: &str) -> Vec<PathBuf> {
 #[path = "config_tests.rs"]
 mod tests;
 
-mod snapshot;
-pub use snapshot::VmConfig;
+mod vm_config;
+pub use vm_config::VmConfig;
