@@ -7,6 +7,7 @@
 namespace Z42Xtask;
 
 using Std.Collections;
+using Std.Encoding;
 using Std.IO;
 using Std.Json;
 using Std.Time;
@@ -276,14 +277,20 @@ int _pkgArchiveDir(string dir, string ver, string label, string outDir) {
 Process _relTar(string dir, string ar) {
     Process p = new Process("tar").Arg("-C").Arg(dir);
     if (Platform.IsMacOS()) { p = p.Env("COPYFILE_DISABLE", "1").Arg("--no-xattrs").Arg("--no-mac-metadata"); }
-    return p.Arg("-czf").Arg(ar).Arg(".");
+    string[] entries = _sortedStrings(Directory.Enumerate(dir));
+    string names = entries.Length == 0 ? "" : String.Join("\0", entries) + "\0";
+    // Explicit, NUL-delimited entries avoid a synthetic '.' root and preserve arbitrary names.
+    return p.Arg("-czf").Arg(ar).Arg("--null").Arg("-T").Arg("-")
+        .Stdin(Stdio.Pipe()).StdinBytes(Utf8.GetBytes(names));
 }
 
-// 目录内容（不含目录本身）→ zip。Windows 上用 .NET 的 ZipFile（条目分隔符是 `/`；Windows PowerShell 5.1 的
-// Compress-Archive 会写出 `\`，Linux 上 unzip 要告警并以非零退出）；其它主机用 `zip`。
+// 目录内容（不含目录本身）→ zip。PowerShell 5.1 的旧 .NET 目标默认使用反斜杠；
+// 在加载 ZipFile 前显式选择标准 `/` 分隔符，不能依赖宿主应用的 target framework。
 int _relZipDir(string dir, string zipPath) {
     if (Platform.IsWindows()) {
-        string ps = "Add-Type -AssemblyName System.IO.Compression.FileSystem; "
+        string ps = "$ErrorActionPreference = 'Stop'; "
+            + "[AppContext]::SetSwitch('Switch.System.IO.Compression.ZipFile.UseBackslash', $false); "
+            + "Add-Type -AssemblyName System.IO.Compression.FileSystem; "
             + "[System.IO.Compression.ZipFile]::CreateFromDirectory('" + dir.Replace("'", "''") + "', '"
             + zipPath.Replace("'", "''") + "')";
         return _exec(new Process("powershell").Arg("-NoProfile").Arg("-Command").Arg(ps));

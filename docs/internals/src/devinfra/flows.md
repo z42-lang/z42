@@ -98,6 +98,7 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
 | VM 构建脚本 | VM harness、解释器 / JIT 验证和性能观测；不扩大为编译器或标准库单测 |
 | 共享 unit harness | 宿主目标、stdlib / compiler 消费者与脚本 benchmark；不扩大为 VM、集成性能或设备打包 |
 | toolchain 私有执行器 | 宿主 toolchain / manifest target 验证 |
+| 发布归档与索引实现 | 四平台 SDK 验证，其中包含所有 RID / workload 的真实归档与解包夹具；生产归档变更仍保留发布义务 |
 | 私有标准库测试 | 准备工具链，仅执行所属包；不测性能 |
 | 私有 benchmark | 仅所属性能类别；不自动选择正确性 job |
 | Android / iOS / wasm 执行器 | 仅对应平台编译与 smoke；共享设备实现仍保留全部平台契约 |

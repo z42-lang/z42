@@ -57,6 +57,9 @@
 **本地出发布归档**：打包命令带 `--archive`，本次产出的包目录旁边（`artifacts/packages/`）就多出与 CI 同名、
 同格式的归档（label 缺省取 `versions.toml` 的版本；只有 release profile 的包会发布）。归档名自带平台 / 架构，
 与包目录并排放不会撞。命名规则（下表）只在 `scripts/src/package/release.z42` 里写一次，release.yml、nightly 与本地共用。
+tar 归档直接包含包内的顶层条目，不写入 `.` 根条目或 `./` 路径前缀。归档器使用 NUL 分隔的条目列表，
+保留隐藏文件、空目录、含空格或换行的文件名，以及原有可执行位与符号链接；macOS 扩展属性仍不进入发布包。
+Windows ZIP 的条目名统一使用 `/`，不随 PowerShell 的 .NET 目标框架切换为反斜杠，确保在 macOS / Linux 上也能还原目录。
 `release` 默认就在 `artifacts/packages/` 上做，要求 9 个 RID 的归档齐全（单机凑不齐，它是汇总 job 的步骤）。
 
 `--no-build` 让它消费已有的 z42c + stdlib 产物（CI warm 路径用）。
