@@ -47,7 +47,7 @@ pub(crate) fn jit_unsupported_reason(func: &Function) -> Option<&'static str> {
 /// and type tests need unsupported method-parameter handling.
 pub(crate) fn unsupported_reason(instr: &Instruction) -> Option<&'static str> {
     Some(match instr {
-        Instruction::CallNative(_)           => "CallNative",
+        Instruction::CallNative(insn) if !insn.type_name.is_empty() => "CallNative typed",
         Instruction::CallNativeVtable { .. } => "CallNativeVtable",
         Instruction::PinPtr { .. }           => "PinPtr",
         Instruction::UnpinPtr { .. }         => "UnpinPtr",

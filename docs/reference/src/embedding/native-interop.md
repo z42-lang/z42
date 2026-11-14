@@ -4,7 +4,7 @@
 
 本页是**扩展作者与宿主开发者**要查的契约：z42 代码怎么声明一个 native 调用、native 库怎么把类型注册进
 VM、边界上允许出现哪些类型、谁负责释放什么。[C ABI 契约](c-abi.md) 讲的是反方向——宿主怎么启动并驱动
-VM；两边共用同一套 `Z42Value` / `Z42Args` 值形状。
+VM。模块函数协议使用 `z42_native.h`，类型方法协议使用 `z42_abi.h`；两者的值布局和编组契约分别定义。
 
 ---
 
@@ -13,20 +13,19 @@ VM；两边共用同一套 `Z42Value` / `Z42Args` 值形状。
 | 目标 | 写法 | 现状 |
 |---|---|---|
 | 调用 z42vm 内置的原生函数 | `extern` + `[Native("__name")]` | 只有 `z42.core` 能这样写；其余包写了报 `E0919`，改调 core 的公开 API |
-| 调用随 SDK 分发的 native 扩展库（如压缩） | `[Native(lib="z42_x", entry="__y")]` | 可用；解析只看 `entry`，`lib` 是给人看的 |
+| 调用随 SDK 分发的 native 扩展库（如压缩） | `[Native(lib="z42_x", entry="__y")]` | interp/JIT 可用；按 `(lib, entry)` 精确查询，缺失抛 `MissingSymbolException` |
 | 调用**自己**用 C / Rust 写的 native 类型的方法 | `[Native(lib=, type=, entry=)]` + Tier 1 注册 | 可用，**仅解释器**；类型须由宿主或静态链接注册 |
 | 在宿主程序里启动 z42 VM | `z42_host.h` | 见 [C ABI 契约](c-abi.md) |
 
-三条路共享同一条铁律：**跨边界的数据 100% blittable，没有自动编组**。高级类型（`string` / 数组 /
-class 实例）不会被自动转换成 C 形状——要么投成标量后再传，要么根本不能传。
+模块函数通过 C 描述符声明参数与返回类型，支持标量、字符串、字节数组和字符串数组的复制。typed native 类型方法只接收下文定义的 blittable 标量与指针；托管 class 实例不会自动转换成 C 对象。
 
 ---
 
 ## 1. 契约要点
 
-1. **零编组** —— 边界上只有 blittable 标量与指针。唯一的例外是 `string` → `*const c_char`，由 VM 在
+1. **明确编组契约** —— 模块函数按 `z42_native.h` 复制值；typed 类型方法边界只有 blittable 标量与指针，其 `string` → `*const c_char` 由 VM 在
    调用期间借出一份 NUL 结尾的副本（§5.3）。
-2. **稳定 C 基座** —— 所有能力最终都落到 `z42_abi.h` 的 C ABI 上。Rust 宏只是它的糖；用 C / C++ / Zig /
+2. **稳定 C 基座** —— 模块函数使用 `z42_native.h`，typed 类型方法使用 `z42_abi.h`。Rust 宏只是它的糖；用 C / C++ / Zig /
    Go cgo 手写描述符能得到完全相同的效果。
 3. **`abi_version` 永远是第一个字段** —— 新版本只在结构体尾部追加字段，不重排。
 4. **panic 不过线** —— native 侧的 panic 必须在自己的 `extern "C"` 壳里截住；跨过 FFI 线是未定义行为。
@@ -36,7 +35,7 @@ class 实例）不会被自动转换成 C 形状——要么投成标量后再�
 
 ## 2. z42 侧：`extern` + `[Native]`
 
-### 2.1 两种形态
+### 2.1 调用形态
 
 ```z42
 namespace Demo;
@@ -57,12 +56,12 @@ public static class Console {
 }
 ```
 
-判据只有一条：**`[Native]` 里有没有 `type=`**。
+`lib` 选择模块，`type` 非空时再选择该模块注册的类型；没有限定信息的 core 声明查询内置函数。
 
 | 形态 | 分派到 | `lib=` 的作用 |
 |---|---|---|
 | `[Native("__name")]` / `[Native(entry="__name")]` | VM 内置函数表，未命中再查 native 扩展表 | — |
-| `[Native(lib="L", entry="__name")]` | 同上（**按 `entry` 名解析，`lib` 不参与**） | 不参与解析；但 `z42.core` 以外的包**必须写**（落点规则，缺了报 `E0919`） |
+| `[Native(lib="L", entry="__name")]` | 模块函数：精确查询 `L::__name`，缺失抛 `MissingSymbolException` | 必须与注册的提供方名称一致，不回落其他模块 |
 | `[Native(lib="L", type="T", entry="E")]` | Tier 1：`L::T::E`，经 `z42_register_type` 注册的方法表 | 参与解析，必须与注册时的 `module_name` 一致 |
 
 第三种形态是扩展作者真正会用的：`lib` 对应描述符的 `module_name`，`type` 对应 `type_name`，`entry`
@@ -72,7 +71,7 @@ public static class Console {
 ### 2.2 方法必须怎么写
 
 - 标 `extern`，**只有分号、没有方法体**。
-- 参数与返回类型只能是 §5.1 的 blittable 集合。
+- typed 类型方法的参数与返回类型只能是 §5.1 的 blittable 集合；模块函数的支持类型见 §2.3。
 - 实例方法的接收者以**第一个参数**出现在 ABI 签名里；上例把句柄显式写成 `long ptr`，是今天唯一可用的形状
   （native 类型还不能合成为脚本可见的 class，见 §5.5）。
 
@@ -80,6 +79,14 @@ public static class Console {
 > `E0904`，`[Native(...)]` 没有入口名、键拼错、值不是字符串字面量、有 `type` 没 `lib` 报 `E0907`。
 > ⚠️ **参数是否 blittable 仍不校验**，入口名是否真的注册过也只能到运行时才知道——写错会以 marshal 错误或
 > `unknown native type` / `unknown method` 的形式暴露。见[诊断码全表 E0901–E0916](../appendix/error-codes.md)。
+
+### 2.3 模块函数
+
+`[Native(lib="L", entry="E")]` 调用宿主已注册的模块或接口声明。C 模块的入口返回 `z42_native.h` 的模块描述符；静态宿主和动态库提交相同描述符，已有声明的实现可在首次调用时加载。调用不会按目录枚举未注册模块。
+
+参数支持整数、浮点、布尔、UTF-8 字符串、可空字符串、字节数组和字符串数组。返回另支持 void；void 与返回 null 不同。指针和长度只在同步调用期间借用，接收方复制内容；native 实现负责释放自己的资源。模块注册名、导出名和签名必须与脚本声明匹配，错误按运行时异常传播。
+
+模块函数在 interp/JIT 均可用，不要求 libffi；不允许动态加载的平台使用静态实现。不同模块可导出同名函数，`lib` 始终参与查询。类型方法的旧 Tier 1 协议及以下章节的 blittable 限制继续独立适用。
 
 ---
 

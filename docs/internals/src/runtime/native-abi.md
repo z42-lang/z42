@@ -469,8 +469,7 @@ z42.net 改调新方法，旧方法与旧 builtin 一起挂债；种子不再声
 
 ### 6.6 与独立 native 模块的关系
 
-`[Native(lib="z42_compression", entry="__deflate_compress")]` 这类 facade 声明发的是同一条
-`BuiltinInstr`，当前编译器尚未把 `lib=` 保留为自由函数调用的解析键。运行时先查询内部 builtin，再通过通用桥查唯一模块导出；有歧义则不解析。独立模块不参与内部 builtin 的 frameless 折叠。模块描述符、静态/动态入口与通用脚本回调见 [native-extensions.md](native-extensions.md)，压缩实例见 [native-ext-loader.md](native-ext-loader.md)。
+`[Native(lib="z42_compression", entry="__deflate_compress")]` 这类 facade 声明生成 `CallNative`，保留模块名并以空类型名标识模块函数。interp/JIT 经共享调用桥只查询指定模块；缺失时抛 `MissingSymbolException`。无 lib 的 core 声明仍走 `BuiltinInstr` 与索引派发。独立模块不参与内部 builtin 的 frameless 折叠。模块描述符、静态/动态入口与通用脚本回调见 [native-extensions.md](native-extensions.md)，压缩实例见 [native-ext-loader.md](native-ext-loader.md)。
 
 ---
 

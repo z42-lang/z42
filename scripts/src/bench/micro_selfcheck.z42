@@ -1,0 +1,56 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+class MicroFixtureCapture : MicroCapture {
+    public string Fixtures = "";
+    public string Scenario = "overlap";
+    public int Calls;
+    public int FailAt;
+    public bool Missing;
+    public override int Capture(string tree, string vm, string libs, string driver, string output) {
+        this.Calls = this.Calls + 1;
+        bool head = this.Calls % 2 == 1;
+        _gateAssert(tree.EndsWith(head ? "/head-src" : "/base-src") && vm.EndsWith(head ? "/pr-vm" : "/base-vm")
+            && libs.EndsWith(head ? "/pr-libs" : "/base-libs") && driver == Path.Join(libs, "z42c.driver.zpkg"), "capture keeps head/base tools and source trees paired");
+        if (this.Calls == this.FailAt) { return 17; }
+        if (!this.Missing) {
+            string name = this.Scenario == "overlap" ? (head ? "micro-overlap" : "micro-base")
+                : "micro-rs-" + (head ? this.Scenario : "base") + "-r" + ((this.Calls + 1) / 2).ToString();
+            File.Copy(Path.Join(this.Fixtures, name + ".json"), output);
+        }
+        return 0;
+    }
+}
+
+void _microAbChecks() {
+    string root = _xtaskWork(_root(), "micro-ab"); _resetDir(root);
+    var cmd = new BenchCommand();
+    cmd.BaseVm = "base-vm"; cmd.PrVm = "pr-vm"; cmd.BaseLibs = "base-libs"; cmd.PrLibs = "pr-libs";
+    try {
+        foreach (var scenario in new string[]{ "overlap", "drift", "real" }) {
+            var capture = new MicroFixtureCapture(); capture.Fixtures = Path.Join(_root(), "src/benches/testdata"); capture.Scenario = scenario;
+            int code = _benchMicroAbAt(root, cmd, capture);
+            _gateAssert(code == (scenario == "real" ? 1 : 0) && capture.Calls == (scenario == "overlap" ? 2 : 6), "micro A/B whole-round policy: " + scenario);
+        }
+        for (int fail = 1; fail <= 6; fail = fail + 1) {
+            var capture = new MicroFixtureCapture(); capture.Fixtures = Path.Join(_root(), "src/benches/testdata"); capture.Scenario = "real"; capture.FailAt = fail;
+            _gateAssert(_benchMicroAbAt(root, cmd, capture) == 17 && capture.Calls == fail, "capture failures stop immediately, including resampling");
+        }
+        var missing = new MicroFixtureCapture(); missing.Missing = true;
+        _gateAssert(_benchMicroAbAt(root, cmd, missing) == 2 && missing.Calls == 1, "stale captures cannot mask a missing result");
+        cmd.PrVm = "";
+        _gateAssert(_benchMicroAbAt(root, cmd, missing) == 2 && missing.Calls == 1, "missing tool overrides fail before capture");
+        string cwd = Environment.GetCurrentDirectory();
+        var child = new MicroCapture(); child.Root = root;
+        Directory.Create(Path.Join(root, ".github/ci"));
+        string tree = Path.Join(root, "tree with spaces"); Directory.Create(tree);
+        // The probe receives production argv; its cwd must be the selected source tree.
+        File.WriteAllText(Path.Join(root, ".github/ci/xtask"), "printf '%s\\n' \"$PWD\" \"$@\" > argv.txt\nexit 17\n");
+        _gateAssert(child.Capture(tree, "vm with spaces", "libs with spaces", "driver with spaces", "out with spaces") == 17, "real capture propagates process exit");
+        string args = File.ReadAllText(Path.Join(tree, "argv.txt"));
+        _gateAssert(args == tree + "\nbench\nstdlib\n--json\nout with spaces\n--no-build\n--mode\ninterp\n--vm\nvm with spaces\n--libs\nlibs with spaces\n--driver\ndriver with spaces\n"
+            && Environment.GetCurrentDirectory() == cwd, "capture isolates cwd and preserves argument boundaries");
+        Console.WriteLine("✓ micro A/B: early success, full resampling, verdicts, stale files and capture failures");
+    } finally { Directory.Delete(root, true); }
+}

@@ -84,6 +84,7 @@ pub(super) struct TxCtx<'a, 'b> {
     pub(super) hr_call: FuncRef,
     pub(super) hr_call_mta: FuncRef,
     pub(super) hr_builtin: FuncRef,
+    pub(super) hr_native_module: FuncRef,
     pub(super) hr_array_new: FuncRef,
     pub(super) hr_array_new_lit: FuncRef,
     pub(super) hr_array_get: FuncRef,

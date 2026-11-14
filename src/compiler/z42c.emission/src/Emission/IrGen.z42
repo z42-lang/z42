@@ -582,7 +582,7 @@ public sealed class IrGen {
 
 
     // `[Native(lib="L", type="T", ...)]` named 形的 lib + type。返回 [lib, type]，缺则 ""。
-    // type != "" → typed native call（CallNative）；否则 builtin 桩。
+    // lib/type 限定生成 CallNative；空 type 为模块函数，无限定为 core builtin。
 
     // native 桩函数（镜像 C# EmitNativeStub legacy 路径）：单块 entry，体 = builtin(__name) + ret。
     // args r0..r(N-1)、dst rN（void→Void 否则 Unknown）；RetType="object"/"void"、ExecMode="Interp"、

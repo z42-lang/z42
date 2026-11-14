@@ -18,6 +18,14 @@ pub(crate) fn registry() -> &'static NativeRegistry {
                 name: "z42.core",
                 functions: crate::corelib::builtins::DESCS,
             },
+            NativeProvider {
+                name: "z42_diagnostics",
+                functions: crate::corelib::core::diagnostics::typed::DESCS,
+            },
+            NativeProvider {
+                name: "z42_harness",
+                functions: crate::corelib::io::harness::DESCS,
+            },
             #[cfg(test)]
             NativeProvider {
                 name: "z42.test",

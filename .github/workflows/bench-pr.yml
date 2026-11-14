@@ -392,66 +392,17 @@ jobs:
               --pr-libs     "${{ steps.head.outputs.head_libs }}" \
               --pr-driver   "${{ steps.head.outputs.head_driver }}"
 
-      # ── micro/stdlib tier same-runner A/B ──
-      # micro [Benchmark]s run IN-PROCESS under z42b, so base+pr stdlib cannot be
-      # co-loaded (unlike e2e's isolated per-scenario z42vm). Instead capture two
-      # ISOLATED `bench stdlib --json` baselines on THIS runner — PR tree + base tree —
-      # and diff them (bench --micro-diff).
-      #
-      # 两侧同形：PR 侧与 base 侧走同一个 `capture`，树与工具链来自「Prepare head toolchain」步。
-      #
-      # micro 硬门禁 = 可疑即复测（benchmarking.md §5）：第 1 轮只点名可疑条目；有标记才整轮
-      # 重采两次，用三轮比值的跑间离散度判红。整轮重采而不按 benchmark 名过滤：
-      # `bench stdlib --filter` 过滤的是文件名，按名重采要另建映射，映射错 = 静默少测。
+      # The native gate captures whole rounds in head/base order and resamples
+      # suspicious results twice, sharing the same policy with local development.
       - name: Micro A/B gate (symmetric capture; resample-on-suspicion; >15% time fails)
         if: ${{ success() && steps.scope.outputs.bench_stdlib == 'true' && steps.fmtgap.outputs.gap == '0' && steps.base.outcome == 'success' && steps.head.outcome == 'success' }}
         shell: bash
         run: |
-          set -euo pipefail
-          A="$PWD/artifacts/reports/benches"
-          ROOT="$PWD"
-          xt() { xtask "$@"; }
-
-          BASEVM="${{ steps.base.outputs.base_vm }}"
-          BASEALL="${{ steps.base.outputs.base_libs }}"
-          HEADVM="${{ steps.head.outputs.head_vm }}"
-          HEADALL="${{ steps.head.outputs.head_libs }}"
-
-          # 一轮捕获，两侧共用：跑 PR 的 xtask（垫片按自己所在位置定位 `.z42` 与 xtask.zpkg，不看 cwd），
-          # cwd=<tree> ⇒ _root()=<tree>（bench 源码 / 产物目录都是那棵树的），工具链显式传入、不做树内重建。
-          capture() { # <tree> <vm> <libs> <out.json>
-            ( cd "$1" && \
-              xtask bench stdlib --json "$4" --no-build --mode interp \
-                --vm "$2" --driver "$3/z42c.driver.zpkg" --libs "$3" )
-          }
-          capture head-src "$HEADVM" "$HEADALL" "$A/micro-pr.json"
-          capture base-src "$BASEVM" "$BASEALL" "$A/micro-base.json"
-
-          # 第 1 轮：只用来点名可疑条目，**不判红**（它的区间正是不可信的那个）。
-          xt bench --micro-diff --threshold-time 0.15 \
-              --current  "$A/micro-pr.json" \
-              --baseline "$A/micro-base.json" \
-              --suspects "$A/micro-suspects.txt" || true
-          # `--suspects` 总会写出文件（没有可疑就是空文件）⇒ 文件不存在 = xtask 崩了，
-          # 不能读成「没有可疑」。set -e 已经拦住崩溃，这里再显式确认一次。
-          [ -f "$A/micro-suspects.txt" ] || { echo "::error::micro round 1 未写出 suspects 文件"; exit 1; }
-          if [ ! -s "$A/micro-suspects.txt" ]; then
-            echo "✅ micro round 1 未标记任何条目 —— 无需复测（零额外开销）"
-            exit 0
-          fi
-          echo "── round 1 标记了以下条目，进入复测 ──"
-          cat "$A/micro-suspects.txt"
-
-          for r in 2 3; do
-            echo "── micro resample round $r ──"
-            capture head-src "$HEADVM" "$HEADALL" "$A/micro-pr-r$r.json"
-            capture base-src "$BASEVM" "$BASEALL" "$A/micro-base-r$r.json"
-          done
-
-          # 最终判定：三轮比值的**跑间**离散度重算区间。这一步才是硬门禁。
-          xt bench --micro-diff --threshold-time 0.15 \
-              --current  "$A/micro-pr.json,$A/micro-pr-r2.json,$A/micro-pr-r3.json" \
-              --baseline "$A/micro-base.json,$A/micro-base-r2.json,$A/micro-base-r3.json"
+          xtask bench --micro-ab --threshold-time 0.15 \
+              --base-vm "${{ steps.base.outputs.base_vm }}" \
+              --base-libs "${{ steps.base.outputs.base_libs }}" \
+              --pr-vm "${{ steps.head.outputs.head_vm }}" \
+              --pr-libs "${{ steps.head.outputs.head_libs }}"
 
       # Rust measurements need only the two Rust trees, not either z42 toolchain.
       - name: VM Criterion A/B (informational)
