@@ -292,7 +292,7 @@ Process _relTar(string dir, string ar) {
             .Stdin(Stdio.Pipe()).StdinBytes(Utf8.GetBytes(names));
     }
     // GNU tar must not interpret a Windows drive letter as a remote archive host.
-    p = p.Arg("--force-local");
+    p = p.Env("LC_ALL", "C.UTF-8").Arg("--format=pax").Arg("--force-local");
     p = p.Arg("-czf").Arg(ar);
     // Pass names as literal argv, including leading dashes; never archive the '.' wrapper.
     return entries.Length > 0 ? p.Arg("--").Args(entries)

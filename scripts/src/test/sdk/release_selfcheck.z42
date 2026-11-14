@@ -167,7 +167,11 @@ void _relTarRoundtrip(string work) {
     _relCanonicalEntries(archive);
     string target = Path.Join(work, "tar output"); Directory.Create(target);
     new Process("tar").Arg("-xf").Arg(archive).Arg("-C").Arg(target).Run().EnsureSuccess();
-    foreach (var name in names) { _relAssert("tar preserves " + name, File.ReadAllText(Path.Join(target, name)) == name); }
+    foreach (var name in names) {
+        string file = Path.Join(target, name);
+        _relAssert("tar contains " + name + " (entries: " + String.Join(", ", Directory.Enumerate(target)) + ")", File.Exists(file));
+        _relAssert("tar preserves " + name, File.ReadAllText(file) == name);
+    }
     _relAssert("tar preserves empty directories", Directory.Exists(Path.Join(target, "empty")));
     if (!Platform.IsWindows()) {
         _relAssert("tar preserves executability", _exec(new Process(Path.Join(target, "bin/tool"))) == 0);
