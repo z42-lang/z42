@@ -1,0 +1,57 @@
+// Whole-round micro captures share one policy between local runs and CI.
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+
+class MicroCapture {
+    public string Root = "";
+    public virtual int Capture(string tree, string vm, string libs, string driver, string output) {
+        // Separate processes keep repo-root and tool-discovery caches isolated per tree.
+        return _execIn(new Process("bash").Arg(Path.Join(this.Root.Length > 0 ? this.Root : _root(), ".github/ci/xtask"))
+            .Args(new string[]{ "bench", "stdlib", "--json", output, "--no-build", "--mode", "interp",
+                "--vm", vm, "--libs", libs, "--driver", driver }), tree);
+    }
+}
+
+int _benchMicroAbAt(string root, BenchCommand cmd, MicroCapture capture) {
+    if (cmd.BaseVm.Length == 0 || cmd.BaseLibs.Length == 0 || cmd.PrVm.Length == 0 || cmd.PrLibs.Length == 0) {
+        ConsoleError.WriteLine("micro A/B requires --base-vm, --base-libs, --pr-vm and --pr-libs"); return 2;
+    }
+    string dir = _benchDir(root); Directory.Create(dir);
+    var pr = new List<string>(); var baseline = new List<string>();
+    var diff = new BenchCommand();
+    diff.ThresholdTime = cmd.ThresholdTime.Length > 0 ? cmd.ThresholdTime : "0.15";
+    string suspects = Path.Join(dir, "micro-suspects.txt");
+    if (File.Exists(suspects)) { File.Delete(suspects); }
+    for (int round = 1; round <= 3; round = round + 1) {
+        string suffix = round == 1 ? ".json" : "-r" + round.ToString() + ".json";
+        string current = Path.Join(dir, "micro-pr" + suffix); pr.Add(current);
+        string previous = Path.Join(dir, "micro-base" + suffix); baseline.Add(previous);
+        foreach (var head in new bool[]{ true, false }) {
+            string tree = head ? cmd.PrTree : cmd.BaseTree;
+            string vm = head ? cmd.PrVm : cmd.BaseVm;
+            string libs = _microPath(root, head ? cmd.PrLibs : cmd.BaseLibs);
+            string driver = head ? cmd.PrDriver : cmd.BaseDriver;
+            string output = head ? current : previous;
+            if (File.Exists(output)) { File.Delete(output); }
+            int rc = capture.Capture(_microPath(root, tree), _microPath(root, vm), libs,
+                driver.Length > 0 ? _microPath(root, driver) : Path.Join(libs, "z42c.driver.zpkg"), output);
+            if (rc != 0) { return rc; }
+            if (!File.Exists(output)) { ConsoleError.WriteLine("micro capture did not write " + output); return 2; }
+        }
+        if (round == 2) { continue; }
+        diff.Current = String.Join(",", pr.ToArray()); diff.Baseline = String.Join(",", baseline.ToArray());
+        diff.Suspects = round == 1 ? suspects : "";
+        int verdict = _benchMicroDiff(diff);
+        if (round == 3 || verdict > 1) { return verdict; }
+        if (!File.Exists(suspects)) { throw new Exception("micro round 1 did not write suspects"); }
+        if (File.ReadAllText(suspects).Length == 0) {
+            Console.WriteLine("✅ micro round 1: no suspects; no resampling needed"); return 0;
+        }
+        Console.WriteLine("── micro suspects; recapture two complete rounds ──\n" + File.ReadAllText(suspects));
+    }
+    return 2;
+}
+
+string _microPath(string root, string path) { return Path.IsRooted(path) ? path : Path.Join(root, path); }
