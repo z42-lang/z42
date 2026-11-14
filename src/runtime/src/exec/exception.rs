@@ -248,4 +248,3 @@ pub fn make_oom_exception(ctx: &VmContext, module: &Module, message: String) -> 
 #[cfg(all(test, z42_test_facade))]
 #[path = "exception_tests.rs"]
 pub mod tests;
-
