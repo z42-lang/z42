@@ -109,8 +109,8 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
 
 `test stdlib --plan <文件>` 和 `bench stdlib --plan <文件>` 在计划绑定的工作树中保留 `{owner}`，并与分片取交集；不会把单包选择扩大成全库。A/B 的 base、head 是不同工作树，各自在本树捕获完整的已选性能类别，不向另一棵树套用提交绑定的计划。
 
-事件名与待验证提交来自 GitHub 环境。PR 使用事件的 base SHA，push 使用 before SHA；浅克隆先获取基线。
-首次 push、无法获取或验证基线时回退全量并打印原因；schedule / workflow_dispatch 使用全量策略。
+事件名与待验证提交来自 GitHub 环境。PR 从实际测试的合并提交读取两个 parent，验证第二个 parent 等于事件的 PR head SHA，再以第一个 parent 为基线。事件中的 base SHA 可能落后于合并提交，不能据此计算 PR 改动。浅克隆直接读取 commit 的 parent 头，再获取对应的不可变基线。push 默认使用 before SHA；main CI 通过 `ci main-scope` 取得最近成功的 main push CI，并以 `--base` 注入累计验证基线。`--event-file` 仅在 push 上允许覆盖 base，PR 基线不能被显式参数绕过。
+首次 push、无法获取或验证基线时回退全量并打印原因；schedule / workflow_dispatch 使用全量策略。Bench 通过 `ci bench-scope --event-file` 复用同一规划器，输出 `base_sha` 供 A/B checkout、工具链构建与改动判断统一使用；无法建立比较基线时直接报错，避免比较错误的两棵树。
 JSON 计划通过 `ci-plan` artifact 共享；消费 job 独立获取浅克隆中缺失的 base commit，再重新计算并核对计划。host 测试用 `xtask ci test-host --plan` 消费 stage 选择，编译器 job 用：
 
 ```bash
@@ -121,8 +121,7 @@ xtask flow run --plan artifacts/ci-plan.json --job compiler-checks
 产物下载上传与 job 级依赖仍由 GitHub Actions 负责，YAML 不重复维护目录归属。
 
 发布另用 nightly 到 HEAD 的累计差异，通过相同输入规则的 `publish` 字段判断；不能拿单次 push 差异替代。
-main push 中的 `xtask ci supersede` 只取消没有未发布 SDK 输入的较早 main 运行。PR 旧 head 的清理入口与隔离规则见 [CI 调度](ci.md#pr-调度)。缺失 nightly、API 失败或 compare 达到 300 文件上限时
-保留发布。它的 `sdk` 输出作为 `XTASK_RELEASE_REQUIRED` 传入计划，决定发布所需的打包范围。
+`ci main-scope` 分别输出累计验证基线与 `sdk` 发布信号；验证基线未知时工作流传入 `--full`，不会退回最后一次 push 的差异。`sdk` 作为 `XTASK_RELEASE_REQUIRED` 传入计划，决定发布所需的打包范围。缺失 nightly、API 失败或 compare 达到 300 文件上限时保留发布。main 合并队列与 PR 旧 head 清理的边界见 [CI 调度](ci.md)。
 
 ## 验证与限制
 

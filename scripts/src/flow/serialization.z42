@@ -62,8 +62,8 @@ FlowPlan _flowReadPlan(FlowConfig cfg, string path, string root) {
 int _flowCommand(FlowPlanCommand options, bool run) {
     string root = _root();
     FlowConfig cfg = _flowLoad(Path.Join(root, options.Config));
-    if (options.EventFile.Length > 0 && (options.Base.Length > 0 || options.Head.Length > 0 || options.MergeBase)) {
-        throw new Exception("--event-file cannot be combined with explicit Git inputs");
+    if (options.EventFile.Length > 0 && (options.Head.Length > 0 || options.MergeBase)) {
+        throw new Exception("--event-file cannot be combined with --head or --merge-base");
     }
     if (options.Plan.Length > 0 && (options.Base.Length > 0 || options.Head.Length > 0 || options.EventFile.Length > 0 || options.Full || options.MergeBase)) {
         throw new Exception("--plan cannot be combined with new diff inputs");
@@ -117,8 +117,6 @@ void _flowWriteOutputs(FlowConfig cfg, FlowPlan plan, string path) {
     bool host = _flowPackageRequired(plan, selected, true);
     text = text + "platform_package=" + (platform ? "true" : "false") + "\n";
     text = text + "host_package=" + (host ? "true" : "false") + "\n";
-    text = text + "test_base=" + plan.Base + "\n";
-    text = text + "stage_skip=" + _flowSkipStages(cfg, plan) + "\n";
     File.AppendAllText(path, text);
 }
 

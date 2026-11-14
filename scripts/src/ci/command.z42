@@ -10,6 +10,7 @@ class CiCommand : Command {
         this.AddCommand(new CiQueueCommand());
         this.AddCommand(new CiRetryCommand());
         this.AddCommand(new CiUploadCommand());
+        this.AddCommand(new CiMainScopeCommand());
         this.AddCommand(new CiSupersedeCommand());
         this.AddCommand(new CiInstallerCheckCommand());
         this.AddCommand(new CiBenchScopeCommand());
@@ -61,10 +62,18 @@ class CiUploadCommand : Command {
 
 class CiSupersedeCommand : Command {
     [Option(help: "inspect without cancelling older runs")] public bool DryRun;
-    public CiSupersedeCommand() : base("supersede", "retain unpublished SDK runs; release superseded PR runs") {}
+    public CiSupersedeCommand() : base("supersede", "release superseded PR runs") {}
     public override int Run() {
         try { return _ciSupersede(new CiGitHub(), this.DryRun); }
         catch (Exception e) { ConsoleError.WriteLine("ci supersede: " + e.Message); return 1; }
+    }
+}
+
+class CiMainScopeCommand : Command {
+    public CiMainScopeCommand() : base("main-scope", "select cumulative main validation and publication inputs") {}
+    public override int Run() {
+        try { return _ciMainScope(new CiGitHub()); }
+        catch (Exception e) { ConsoleError.WriteLine("main scope: " + e.Message); return 1; }
     }
 }
 
@@ -76,8 +85,12 @@ class CiInstallerCheckCommand : Command {
 
 class CiBenchScopeCommand : Command {
     [Option(help: "benchmark comparison base")] public string Base = "";
+    [Option(help: "GitHub event JSON; resolve the tested PR merge base")] public string EventFile = "";
     public CiBenchScopeCommand() : base("bench-scope", "select benchmark checks from flow ownership") {}
-    public override int Run() { return _ciBenchScope(this.Base); }
+    public override int Run() {
+        try { return _ciBenchScope(this.Base, this.EventFile); }
+        catch (Exception e) { ConsoleError.WriteLine("benchmark scope: " + e.Message); return 2; }
+    }
 }
 
 class CiHostTestCommand : Command {

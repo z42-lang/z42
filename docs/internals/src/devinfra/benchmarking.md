@@ -55,7 +55,7 @@ CI 传 `--tier gate`。
 flowchart TD
   subgraph pr[PR 触碰性能路径 — 同一台 runner]
     C1[checkout PR] --> BT[ci-bootstrap<br/>PR 工具链]
-    C2[checkout base.sha<br/>path: base-src] --> BB[PR z42c 编 base 源<br/>→ base 工具链]
+    C2[checkout 已验证的合并基线<br/>path: base-src] --> BB[PR z42c 编 base 源<br/>→ base 工具链]
     BT --> AB{{每 scenario × mode}}
     BB --> AB
     AB -->|base_vm base.zbc + pr_vm pr.zbc<br/>hyperfine 双命令同机相邻| M[base.mean/stddev<br/>pr.mean/stddev]
@@ -357,7 +357,7 @@ checkout 并轻量自举 xtask 后，`xtask ci bench-scope` 从同一份 `script
 
 同时选择脚本和集成 A/B 时，步骤如下；每项测量由自己的信号控制。
 
-1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`），
+1. checkout PR 的实际合并提交，用 `xtask ci bench-scope --event-file` 验证其 parent，选择性能类别并输出 `base_sha`。checkout 这份基线（`path: base-src`，两者 `fetch-depth: 0`），
    随后做**格式代差检测**（见 §10）。
 2. bootstrap PR 工具链（nightly z42c 种子 → 当前源码 warm 自建）。
 3. **判红逻辑自检**用 `xtask bench check` 执行纯 JSON 与纯函数检查，在测量之前报告失败。

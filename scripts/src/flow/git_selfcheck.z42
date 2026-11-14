@@ -29,16 +29,22 @@ void _flowGitChecks(FlowConfig cfg) {
         Environment.SetEnvironmentVariable("GITHUB_SHA", head);
         Environment.SetEnvironmentVariable("XTASK_RELEASE_REQUIRED", "false");
         var options = new FlowPlanCommand("plan"); options.EventFile = eventPath;
-        Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", "pull_request");
+        Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", "push");
         string eventJson = File.ReadAllText(eventPath);
-        _ciWrite(dir, "artifacts/event.json", "{\"pull_request\":{\"base\":{\"sha\":\"" + unchangedBase + "\"}}}");
+        _ciWrite(dir, "artifacts/event.json", "{\"before\":\"" + unchangedBase + "\"}");
         FlowPlan emptyPr = _flowCreate(cfg, options, dir);
         _gateAssert(emptyPr.Files.Length == 0 && !emptyPr.Full && emptyPr.Steps.Length == 0, "real empty planning commit has no affected flows");
         string emptyOutput = Path.Join(dir, "artifacts/empty-output");
         _flowWriteOutputs(cfg, emptyPr, emptyOutput);
-        _gateAssert(File.ReadAllText(emptyOutput).Contains("toolchain_build=false"), "real empty PR suppresses heavy CI jobs");
+        _gateAssert(File.ReadAllText(emptyOutput).Contains("toolchain_build=false"), "real empty push without publication suppresses heavy CI jobs");
+        options.Base = base_;
+        FlowPlan cumulative = _flowCreate(cfg, options, dir);
+        _gateAssert(cumulative.Base == base_ && cumulative.Files.Length == 1
+            && cumulative.Files[0] == "src/runtime/tests/private.rs", "coalesced empty push retains intermediate private test changes");
+        _gateAssert(_strIn(_flowOutputs(cfg, cumulative), "runtime_checks"), "cumulative validation preserves tests independently of publication");
+        options.Base = "";
         _ciWrite(dir, "artifacts/event.json", eventJson);
-        foreach (var kind in new string[]{ "push", "pull_request", "schedule", "workflow_dispatch" }) {
+        foreach (var kind in new string[]{ "push", "schedule", "workflow_dispatch" }) {
             Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", kind);
             FlowPlan p = _flowCreate(cfg, options, dir);
             bool full = kind == "schedule" || kind == "workflow_dispatch";
@@ -88,6 +94,7 @@ void _flowGitChecks(FlowConfig cfg) {
         Directory.Delete(dir, true);
     }
     Console.WriteLine("  ✓ flow Git: event bases, full events, fetch failures, rename and stale plans");
+    _flowPrGitChecks(cfg);
 }
 
 void _flowExpectStale(FlowConfig cfg, string path, string root, string why) {
