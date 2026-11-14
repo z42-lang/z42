@@ -92,19 +92,21 @@ pub(crate) fn clear_range(c: &Cells, index: usize, count: usize, size: usize,
         offsets.sort_unstable();
         std::borrow::Cow::Owned(offsets)
     };
+    // Select each primitive gap once for all elements. References remain
+    // untouched until their individual SATB deletion below.
+    let mut cursor = 0;
+    for &offset in sorted.iter() {
+        let offset = offset as usize;
+        if cursor < offset {
+            anyhow::ensure!(c.clear_strided_bytes(base + cursor, count, size, offset - cursor), "invalid struct primitive gap");
+        }
+        cursor = offset + 8;
+    }
+    if cursor < size {
+        anyhow::ensure!(c.clear_strided_bytes(base + cursor, count, size, size - cursor), "invalid struct primitive tail");
+    }
     for element in 0..count {
         let start = base + element * size;
-        let mut cursor = 0;
-        for &offset in sorted.iter() {
-            let offset = offset as usize;
-            if cursor < offset {
-                anyhow::ensure!(c.clear_bytes(start + cursor, offset - cursor), "invalid struct primitive gap");
-            }
-            cursor = offset + 8;
-        }
-        if cursor < size {
-            anyhow::ensure!(c.clear_bytes(start + cursor, size - cursor), "invalid struct primitive tail");
-        }
         // Preserve the original reference order, including repeated aliases.
         for &offset in ref_offsets { ref_word::store_word_recorded(c, start + offset as usize, 0); }
     }

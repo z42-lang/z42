@@ -207,6 +207,30 @@ impl<'a> Cells<'a> {
         true
     }
 
+    /// Zero the same primitive gap in a checked sequence of equal-sized blobs.
+    /// Width selection is shared by all rows when their gaps are word-aligned.
+    pub(crate) fn clear_strided_bytes(&self, off: usize, count: usize, stride: usize, len: usize) -> bool {
+        if count == 0 { return true; }
+        if (count - 1).checked_mul(stride).and_then(|last| off.checked_add(last))
+            .and_then(|last| last.checked_add(len)).is_none_or(|end| end > self.len)
+        {
+            return false;
+        }
+        if len == 0 { return true; }
+        if off % 8 == 0 && stride % 8 == 0 && len % 8 == 0 {
+            for row in 0..count {
+                // SAFETY: the last row's end was checked; every row and chunk
+                // is aligned. These are the same relaxed chunks as clear_bytes.
+                unsafe { clear_raw::<8>(self.base.add(off + row * stride), len / 8); }
+            }
+        } else {
+            for row in 0..count {
+                if !self.clear_bytes(off + row * stride, len) { return false; }
+            }
+        }
+        true
+    }
+
     /// Zero a checked range of uniform primitive cells. Every store retains the
     /// element's width and relaxed ordering; invalid ranges write nothing.
     #[inline]
