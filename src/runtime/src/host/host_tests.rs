@@ -1398,7 +1398,7 @@ fn c_host_jit_mode_uses_the_shared_engine_and_returns_values() {
         let second = invoke_hello_fn(host, module, "UserStatic");
         assert_eq!((first.tag, first.payload), (z42_abi::Z42_VALUE_TAG_I64, 42));
         assert_eq!(second.payload, first.payload);
-        assert!(state::with_state_read(|s| s.modules[0].context().core().diagnostics().snapshot(modules[0].context().core().threads()).jit_methods_compiled).unwrap() > 0);
+        assert!(state::with_state_read(|s| s.modules[0].context().core().diagnostics().snapshot(s.modules[0].context().core().threads()).jit_methods_compiled).unwrap() > 0);
         invoke_hello_fn(host, module, "Main");
     });
     assert!(String::from_utf8(capture.into_inner().unwrap()).unwrap().contains("Hello, World!"));

@@ -366,6 +366,6 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
 }
 
 #[cfg(test)]
-#[path = "main_tests.rs"]
-mod main_tests;
+#[path = "main_command_tests.rs"]
+mod tests;
 
