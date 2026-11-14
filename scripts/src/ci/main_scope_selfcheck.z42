@@ -1,0 +1,68 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+class CiMainFake : CiGitHub {
+    public JsonValue Runs = JsonValue.Parse("{\"workflow_runs\":[{\"head_sha\":\"base\",\"head_branch\":\"main\",\"event\":\"push\",\"status\":\"completed\",\"conclusion\":\"success\"}]}");
+    public JsonValue Compare = JsonValue.Parse("{\"status\":\"ahead\",\"files\":[{\"filename\":\"README.md\"}]}");
+    public string Fail = "";
+    public override JsonValue Get(string path) {
+        if (this.Fail.Length > 0 && path.Contains(this.Fail)) { throw new Exception("fixture API failure"); }
+        if (path.Contains("/actions/workflows/ci.yml/runs?")) {
+            _gateAssert(path.Contains("branch=main") && path.Contains("event=push") && path.Contains("status=success"), "validation baseline query excludes unfinished and failed runs");
+            return this.Runs;
+        }
+        if (path.Contains("/compare/")) { return this.Compare; }
+        if (path.EndsWith("/git/ref/tags/nightly")) { return JsonValue.Parse("{\"object\":{\"sha\":\"nightly\"}}"); }
+        throw new Exception("unexpected main API GET " + path);
+    }
+    public override void Post(string path) { throw new Exception("main planning must not mutate workflow runs"); }
+}
+
+void _ciMainScopeChecks() {
+    var api = new CiMainFake();
+    _gateAssert(_ciMainBase(api, "owner/repo", "head") == "base", "main validation starts at the last successful push");
+    api.Fail = "/compare/";
+    _gateAssert(_ciMainBase(api, "owner/repo", "base") == "base", "the already validated head needs no comparison");
+    foreach (var path in new string[]{ "/compare/", "/actions/workflows/" }) {
+        api.Fail = path;
+        _gateAssert(_ciMainBase(api, "owner/repo", "head").Length == 0, "unavailable validation history requests all checks");
+    }
+    api = new CiMainFake();
+    foreach (var status in new string[]{ "behind", "diverged", "" }) {
+        api.Compare.Set("status", JsonValue.OfString(status));
+        _gateAssert(_ciMainBase(api, "owner/repo", "head").Length == 0, "unverified ancestry cannot narrow validation");
+    }
+    foreach (var field in new string[]{ "head_sha", "head_branch", "event", "status", "conclusion" }) {
+        api = new CiMainFake(); api.Runs.Get("workflow_runs").At(0).Set(field, JsonValue.OfString(""));
+        _gateAssert(_ciMainBase(api, "owner/repo", "head").Length == 0, "unexpected successful run identity requests all checks");
+    }
+    api = new CiMainFake(); api.Runs = JsonValue.Parse("{\"workflow_runs\":[]}");
+    _gateAssert(_ciMainBase(api, "owner/repo", "head").Length == 0, "first main run validates everything");
+    string repo = Environment.GetEnvironmentVariable("GITHUB_REPOSITORY", "");
+    string head = Environment.GetEnvironmentVariable("GITHUB_SHA", "");
+    string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
+    string path = _xtaskWork(_root(), "main-scope-output");
+    try {
+        Environment.SetEnvironmentVariable("GITHUB_REPOSITORY", "owner/repo");
+        Environment.SetEnvironmentVariable("GITHUB_SHA", "head");
+        Environment.SetEnvironmentVariable("GITHUB_OUTPUT", path);
+        api = new CiMainFake();
+        File.WriteAllText(path, ""); _ciMainScope(api);
+        string text = File.ReadAllText(path);
+        _gateAssert(text.Contains("sdk=false\n") && text.Contains("validation_base=base\n") && text.Contains("validation_full=false\n"), "validation and publication have independent bases");
+        api.Fail = "/actions/workflows/";
+        File.WriteAllText(path, ""); _ciMainScope(api); text = File.ReadAllText(path);
+        _gateAssert(text.Contains("sdk=false\n") && text.Contains("validation_full=true\n"), "unknown validation cannot silently use the last event diff");
+        api.Fail = "/compare/";
+        File.WriteAllText(path, ""); _ciMainScope(api); text = File.ReadAllText(path);
+        _gateAssert(text.Contains("sdk=true\n") && text.Contains("validation_full=true\n"), "unknown comparisons retain validation and publishing");
+    } finally {
+        Environment.SetEnvironmentVariable("GITHUB_REPOSITORY", repo);
+        Environment.SetEnvironmentVariable("GITHUB_SHA", head);
+        Environment.SetEnvironmentVariable("GITHUB_OUTPUT", output);
+        File.Delete(path);
+    }
+    Console.WriteLine("  ✓ main scope: cumulative validation, identity, ancestry, API failures and independent publication");
+}

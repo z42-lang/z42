@@ -373,7 +373,7 @@ scripts/
     │   ├── test_workload.z42     **`package workload test`**：打 payload-only 的 test workload（`test` 是 workload 名，不是「测试」）
     │   └── release.z42           `--archive`（包目录 → 归档）/ `package release`（desktop 合并 → SHA256SUMS → index → release-notes）
     ├── flow/               配置、workspace 成员归属（owners.z42）、所属包与分片交集（unit_projects.z42）、影响图与执行图、计划校验与导出
-    ├── ci/                 GitHub 控制策略、宿主验证（host.z42）、离线回归与自举命令探针
+    ├── ci/                 GitHub 控制策略、main 累计规划（main_scope.z42）、宿主验证（host.z42）、离线回归与自举命令探针
     ├── setup/              `setup`：各平台依赖 / 编辑器资产
     │   ├── command.z42           `setup` 族的命令类（不带子命令 = 安装）
     │   ├── install.z42           `setup [--os]`：按 versions.toml 装开发依赖

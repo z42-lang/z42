@@ -14,12 +14,12 @@ on:
   schedule:
     - cron: '0 16 * * *'
 
-# 同一 ref、同一事件里新的运行取消旧的；事件名进 group，schedule 与 push 不互相取消。
-# main 的 push 每个 commit 单独一组（不自动取消），改由 detect-changes 的 xtask ci supersede 只取消
-# 不影响 SDK 的旧运行——否则连续合并时 nightly 一个也发不出来（ci.md §2「main 上的运行不互相打断」）。
+# main push 保留当前执行与最新等待者；起跑后按最近成功验证计算累计改动。
+# PR 新 head 取消旧运行；schedule / dispatch 独立分组，保留定期全量职责。
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  queue: single
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   # 规划器输出重 job 开关；schedule / dispatch 使用完整验证策略。
@@ -28,9 +28,8 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     permissions:
-      actions: write        # supersede：取消被替换的 main push 运行
+      actions: read         # 累计验证基线：最近成功的 main CI
       contents: read
-      pull-requests: read   # Docs-only PR?：读 PR 文件列表
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
       # 非 PR 运行只在确认没有待发布 SDK 改动时收窄。空结果包含定期、手动与无法判定的情况。
@@ -54,8 +53,7 @@ jobs:
       macos_package_lane: ${{ steps.macos_queue.outputs.package }}
       macos_checks_lane: ${{ steps.macos_queue.outputs.checks }}
       # 当前 nightly → 本 commit 的累计改动是否影响 SDK；只在 push to main 上判，其余事件为空（= 照常发布）。
-      sdk: ${{ steps.supersede.outputs.sdk }}
-      test_base: ${{ steps.filter.outputs.test_base }}
+      sdk: ${{ steps.main_scope.outputs.sdk }}
     steps:
       - uses: actions/checkout@v7
 
@@ -69,23 +67,32 @@ jobs:
         id: macos_queue
         run: xtask ci queue
 
-      # main 上的运行不互相打断（见顶部 concurrency 注释）：取消较早的、不影响 SDK 的 main push 运行，
-      # 并判出本运行是否需要发布 nightly。
-      - name: Supersede older main runs
-        id: supersede
+      - name: Select cumulative main validation and publication
+        id: main_scope
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        # 这一步出错不该拖垮 main：失败时 sdk 输出为空 ⇒ publish-nightly 照常（安全的默认），只是没取消旧运行。
+        # 读取失败时保守全测，并保留发布。
         continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: xtask ci supersede
+        run: xtask ci main-scope
       - name: Plan affected flows
         id: filter
         env:
-          XTASK_RELEASE_REQUIRED: ${{ steps.supersede.outputs.sdk }}
+          XTASK_RELEASE_REQUIRED: ${{ steps.main_scope.outputs.sdk }}
+          XTASK_VALIDATION_BASE: ${{ steps.main_scope.outputs.validation_base }}
+          XTASK_VALIDATION_FULL: ${{ steps.main_scope.outputs.validation_full }}
         shell: bash
-        run: xtask flow plan --event-file "$GITHUB_EVENT_PATH" --out artifacts/ci-plan.json --github-output "$GITHUB_OUTPUT"
+        run: |
+          args=()
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            if [ "${XTASK_VALIDATION_FULL:-}" = false ] && [ -n "${XTASK_VALIDATION_BASE:-}" ]; then
+              args+=(--base "${XTASK_VALIDATION_BASE:-}")
+            else
+              args+=(--full)
+            fi
+          fi
+          xtask flow plan --event-file "${GITHUB_EVENT_PATH:?GitHub event path is required}" "${args[@]}" --out artifacts/ci-plan.json --github-output "$GITHUB_OUTPUT"
 
       - name: Setup Rust for selected runner fixtures
         if: steps.filter.outputs.rust_tools == 'true'
