@@ -1,0 +1,66 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Cli;
+using Std.Collections;
+using Std.Crypto;
+using Std.Encoding;
+using Z42.Project;
+
+void _benchRequireFile(string path) {
+    if (!File.Exists(path) || File.GetSize(path) <= 0L) { throw new CliException("missing A/B toolchain artifact: " + path); }
+}
+
+string _benchAliasVm(string tree) {
+    string runtime = Path.Join(tree, "artifacts/build/runtime");
+    string profile = File.Exists(Path.Join(runtime, "release-dynamic/z42vm")) ? "release-dynamic" : "release";
+    _benchRequireFile(Path.Join(runtime, profile + "/z42vm"));
+    string alias = Path.Join(runtime, "ab");
+    if ((Directory.Exists(alias) || File.Exists(alias))
+        && new Process("readlink").Arg(alias).Run().ExitCode != 0) {
+        throw new CliException("A/B runtime alias already exists and is not a symlink");
+    }
+    if (_execIn(new Process("ln").Args(new string[]{ "-sfn", profile, "ab" }), runtime) != 0) {
+        throw new CliException("cannot create the A/B runtime alias");
+    }
+    return Path.Join(runtime, "ab/z42vm");
+}
+
+bool _benchRuntimeChanged(string root, string base_) {
+    ProcessResult diff = new Process("git").Args(new string[]{ "-C", root, "diff", "--quiet", base_ + "..HEAD", "--",
+        "src/runtime", ":(exclude,glob)src/runtime/**/*.md" }).Run();
+    if (diff.ExitCode > 1) { throw new CliException("cannot compare A/B runtime sources: " + diff.Stderr); }
+    return diff.ExitCode == 1;
+}
+
+string[] _benchBaseMembers(string tree) {
+    string[] projects = _workspaceProjects(_compilerWsToml(tree)); _requireUniqueProjects(projects);
+    string[] names = new string[projects.Length];
+    for (int i = 0; i < projects.Length; i = i + 1) { names[i] = ManifestLoader.Load(projects[i]).Project.Name; }
+    return names;
+}
+
+void _benchCopyPackages(string source, bool members, string destination, string[] allowed) {
+    if (!Directory.Exists(source)) { throw new CliException("missing A/B package directory: " + source); }
+    var found = new List<string>();
+    if (members) {
+        foreach (var entry in Directory.Enumerate(source)) {
+            string dist = Path.Join(Path.Join(source, entry), "release/dist");
+            if (Directory.Exists(dist)) { found.AddRange(Path.Glob(dist, "*.zpkg")); }
+        }
+    } else { found.AddRange(Path.Glob(source, "*.zpkg")); }
+    string[] files = found.ToArray(); _sortStrings(files);
+    int copied = 0;
+    foreach (var file in files) {
+        string name = Path.GetFileName(file);
+        if (allowed != null && !_strIn(allowed, name.Substring(0, name.Length - 5))) { continue; }
+        _benchRequireFile(file);
+        _copyIfNewer(file, Path.Join(destination, name)); copied = copied + 1;
+    }
+    if (copied == 0) { throw new CliException("no A/B packages staged from " + source); }
+}
+
+void _benchDriverReceipt(string side, string path) {
+    string sha = Hex.Encode(Sha256.Hash(File.ReadAllBytes(path)));
+    Console.WriteLine("driver sha (" + side + ") " + sha.Substring(0, 16) + " " + path);
+}

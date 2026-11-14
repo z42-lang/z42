@@ -1,0 +1,128 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+class BenchPrepareFixture : BenchPrepareOps {
+    public int Compiles;
+    public int Runtimes;
+    public int FailAt;
+    public int RuntimeCode;
+    public override int Runtime(string tree) {
+        this.Runtimes = this.Runtimes + 1;
+        _benchFixtureFile(Path.Join(tree, "artifacts/build/runtime/release/z42vm"), "base-vm");
+        Directory.Create(Path.Join(tree, "artifacts/build/runtime/release-dynamic"));
+        return this.RuntimeCode;
+    }
+    public override int Compile(string tree, string vm, string driver, string libs, string[] args) {
+        this.Compiles = this.Compiles + 1;
+        _gateAssert(vm == Path.Join(this.Root, "artifacts/build/runtime/ab/z42vm"), "every build runs on the PR VM, including a changed old runtime");
+        if (this.Compiles == this.FailAt) { return 17; }
+        string baseline = Path.Join(this.Root, "base-src");
+        if (tree.EndsWith("/src/compiler")) {
+            _gateAssert(File.ReadAllText(Path.Join(libs, "z42.core.zpkg")) == "pr-flat"
+                && File.Exists(Path.Join(libs, "z42c.keep.zpkg")) && !File.Exists(Path.Join(libs, "z42c.new.zpkg")),
+                "base compilation uses PR stdlib and declared base compiler providers, excluding new-only namespaces");
+            _benchFixtureFile(Path.Join(baseline, "artifacts/build/compiler/driver/release/dist/z42c.driver.zpkg"), "base-driver");
+            _benchFixtureFile(Path.Join(baseline, "artifacts/build/compiler/driver/release/dist/z42.core.zpkg"), "base-bundled-old");
+        } else if (_strIn(args, "--internal-of")) {
+            _gateAssert(libs == _libsDir(this.Root) && driver == Path.Join(this.Root, ".ab-base-alllibs/z42c.driver.zpkg")
+                && _strIn(args, "--internal-of") && _strIn(args, "z42.harness"), "carried plugin has the base driver, PR flat lookup and explicit host authorization");
+        } else {
+            _gateAssert(libs == Path.Join(this.Root, ".ab-base-alllibs") && File.ReadAllText(Path.Join(libs, "z42.core.zpkg")) == "pr-flat",
+                "PR stdlib overrides the base driver's bundled seed before base stdlib is built");
+            _benchFixtureFile(Path.Join(baseline, "artifacts/build/libraries/core/release/dist/z42.core.zpkg"), "base-final");
+        }
+        return 0;
+    }
+}
+
+void _benchFixtureFile(string path, string text) {
+    Directory.Create(Path.GetDirectoryName(path)); File.WriteAllText(path, text);
+}
+
+string _benchPrepareFixture(string root, string change) {
+    _resetDir(root);
+    _benchFixtureFile(Path.Join(root, ".gitignore"), "artifacts/\n.ab-*/\nbase-src/\nhead-src/\n");
+    _benchFixtureFile(Path.Join(root, "src/compiler/z42.workspace.toml"), "[workspace]\nmembers = [\"driver\", \"renamed-dir\"]\n[workspace.build]\noutput_dir = \"../../artifacts/build/compiler/${project_name}/${profile}\"\n");
+    _benchFixtureFile(Path.Join(root, "src/compiler/driver/z42.toml"), "[project]\nname = \"z42c.driver\"\n");
+    _benchFixtureFile(Path.Join(root, "src/compiler/renamed-dir/z42.toml"), "[project]\nname = \"z42c.keep\"\n");
+    if (change != "pre-plugin") { _benchFixtureFile(Path.Join(root, "src/libraries/z42.harness/plugins/lint/z42.z42.toml"), "[project]\nname = \"lint\"\n"); }
+    _benchFixtureFile(Path.Join(root, "src/runtime/source.rs"), "base");
+    _gitOutput(new string[]{ "-C", root, "init", "-q" });
+    _gitOutput(new string[]{ "-C", root, "config", "user.name", "fixture" });
+    _gitOutput(new string[]{ "-C", root, "config", "user.email", "fixture@example.invalid" });
+    _gitOutput(new string[]{ "-C", root, "add", ".gitignore", "src" });
+    _gitOutput(new string[]{ "-C", root, "commit", "-qm", "base" });
+    string base_ = _flowCommit(root, "HEAD");
+    _gitOutput(new string[]{ "-C", root, "worktree", "add", "--detach", "base-src", base_ });
+    _benchFixtureFile(Path.Join(root, change == "runtime" ? "src/runtime/source.rs" : change == "docs" ? "src/runtime/README.md" : "README.md"), "head");
+    _gitOutput(new string[]{ "-C", root, "add", "." });
+    _gitOutput(new string[]{ "-C", root, "commit", "-qam", "head" });
+    _benchFixtureFile(Path.Join(root, "artifacts/build/runtime/release-dynamic/z42vm"), "pr-vm");
+    _benchFixtureFile(Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"), "pr-driver");
+    _benchFixtureFile(Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42.core.zpkg"), "pr-bundled-old");
+    _benchFixtureFile(Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.keep.zpkg"), "keep");
+    _benchFixtureFile(Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.new.zpkg"), "new-only");
+    _benchFixtureFile(Path.Join(root, "artifacts/intermediate/libraries/flat/release/z42.core.zpkg"), "pr-flat");
+    _benchFixtureFile(Path.Join(root, "artifacts/build/libraries/core/release/dist/z42.core.zpkg"), "pr-final");
+    return base_;
+}
+
+void _benchPrepareChecks() {
+    string dir = _xtaskWork(_root(), "bench-prepare"); _resetDir(dir);
+    string root = Path.Join(dir, "tree with spaces");
+    try {
+        foreach (var change in new string[]{ "none", "docs", "runtime", "pre-plugin" }) {
+            string base_ = _benchPrepareFixture(root, change);
+            var ops = new BenchPrepareFixture();
+            BenchPrepared tools = _benchPrepare(root, base_, ops);
+            _gateAssert(tools.Code == 0 && ops.Compiles == (change == "pre-plugin" ? 2 : 3) && ops.Runtimes == (change == "runtime" ? 1 : 0), "only production runtime changes rebuild the base VM");
+            _gateAssert(File.ReadAllText(Path.Join(tools.Base.Libs, "z42.core.zpkg")) == "base-final"
+                && File.ReadAllText(Path.Join(tools.Head.Libs, "z42.core.zpkg")) == "pr-final", "each measured side uses its own final stdlib, not bundled seeds");
+            _gateAssert(tools.Base.Vm.Length == tools.Head.Vm.Length && tools.Base.Libs.Length == tools.Head.Libs.Length
+                && (change == "runtime" ? tools.Base.Vm != tools.Head.Vm : tools.Base.Vm == tools.Head.Vm), "measured paths are equal-length or share the exact unchanged VM");
+            _gateAssert(_flowCommit(Path.Join(root, "head-src"), "HEAD") == _flowCommit(root, "HEAD"), "the head worktree uses the tested commit");
+            _gateAssert(_benchToolsText("base", tools.Base).Contains("base_driver=" + tools.Base.Driver + "\n"), "native toolchain paths reach the workflow output protocol");
+        }
+        for (int fail = 1; fail <= 3; fail = fail + 1) {
+            string base_ = _benchPrepareFixture(root, "none"); var ops = new BenchPrepareFixture(); ops.FailAt = fail;
+            _gateAssert(_benchPrepare(root, base_, ops).Code == 17 && ops.Compiles == fail && !Directory.Exists(Path.Join(root, "head-src")),
+                "failed compilation preserves the real exit code and stops before head preparation");
+        }
+        string changed = _benchPrepareFixture(root, "runtime"); var failedRuntime = new BenchPrepareFixture(); failedRuntime.RuntimeCode = 19;
+        _gateAssert(_benchPrepare(root, changed, failedRuntime).Code == 19 && failedRuntime.Compiles == 0, "runtime build failures stop before compiler preparation");
+        foreach (var file in new string[]{ "src/runtime/source.rs", "src/runtime/untracked.rs" }) {
+            string before = _benchPrepareFixture(root, "none"); _benchFixtureFile(Path.Join(root, file), "uncommitted");
+            bool dirty = false;
+            try { _benchPrepare(root, before, new BenchPrepareFixture()); } catch (Exception e) { dirty = true; }
+            _gateAssert(dirty && File.ReadAllText(Path.Join(root, file)) == "uncommitted", "tracked and untracked source changes are preserved and rejected");
+        }
+        string protectedAlias = _benchPrepareFixture(root, "none");
+        _benchFixtureFile(Path.Join(root, "artifacts/build/runtime/ab"), "keep alias data");
+        bool aliasRejected = false;
+        try { _benchPrepare(root, protectedAlias, new BenchPrepareFixture()); } catch (Exception e) { aliasRejected = true; }
+        _gateAssert(aliasRejected && File.ReadAllText(Path.Join(root, "artifacts/build/runtime/ab")) == "keep alias data", "an existing non-symlink runtime path is never overwritten");
+        string corrupt = _benchPrepareFixture(root, "none");
+        _benchFixtureFile(Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.keep.zpkg"), "");
+        bool corruptRejected = false;
+        try { _benchPrepare(root, corrupt, new BenchPrepareFixture()); } catch (Exception e) { corruptRejected = true; }
+        _gateAssert(corruptRejected, "empty compiler providers cannot silently produce an incomplete baseline");
+        string dirtyBase = _benchPrepareFixture(root, "none");
+        _benchFixtureFile(Path.Join(root, "base-src/src/runtime/source.rs"), "baseline-dirty");
+        bool baseRejected = false;
+        try { _benchPrepare(root, dirtyBase, new BenchPrepareFixture()); } catch (Exception e) { baseRejected = true; }
+        _gateAssert(baseRejected, "a modified baseline cannot be presented as the verified commit");
+        string baseline = _benchPrepareFixture(root, "none");
+        _benchFixtureFile(Path.Join(root, "head-src/keep.txt"), "preserve");
+        bool rejected = false;
+        try { _benchPrepare(root, baseline, new BenchPrepareFixture()); } catch (Exception e) { rejected = true; }
+        _gateAssert(rejected && File.ReadAllText(Path.Join(root, "head-src/keep.txt")) == "preserve", "pre-existing worktrees are never deleted or overwritten");
+        rejected = false;
+        try { _benchPrepare(root, "HEAD", new BenchPrepareFixture()); } catch (Exception e) { rejected = true; }
+        _gateAssert(rejected, "a mismatched base checkout cannot prepare measured artifacts");
+        string workflow = File.ReadAllText(Path.Join(_root(), ".github/workflows/bench-pr.yml"));
+        _gateAssert(workflow.Contains("run: xtask bench prepare --base") && workflow.Contains("steps.prepare.outputs.head_vm")
+            && !workflow.Contains("git worktree add --detach head-src") && !workflow.Contains(".ab-base-alllibs"), "workflow consumes native preparation instead of duplicating filesystem recipes");
+        Console.WriteLine("  ✓ A/B prepare: declared providers, stdlib generations, runtime reuse, legacy paths, isolation and failure propagation");
+    } finally { Directory.Delete(dir, true); }
+}
