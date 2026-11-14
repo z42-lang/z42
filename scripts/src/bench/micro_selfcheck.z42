@@ -8,7 +8,9 @@ class MicroFixtureCapture : MicroCapture {
     public int Calls;
     public int FailAt;
     public bool Missing;
-    public override int Capture(string tree, string vm, string libs, string driver, string output) {
+    public string ExpectedOwners = "";
+    public override int Capture(string tree, string vm, string libs, string driver, string output, string owners) {
+        _gateAssert(owners == this.ExpectedOwners, "all captures retain the same owner scope");
         this.Calls = this.Calls + 1;
         bool head = this.Calls % 2 == 1;
         _gateAssert(tree.EndsWith(head ? "/head-src" : "/base-src") && vm.EndsWith(head ? "/pr-vm" : "/base-vm")
@@ -33,6 +35,12 @@ void _microAbChecks() {
             int code = _benchMicroAbAt(root, cmd, capture);
             _gateAssert(code == (scenario == "real" ? 1 : 0) && capture.Calls == (scenario == "overlap" ? 2 : 6), "micro A/B whole-round policy: " + scenario);
         }
+        cmd.Owners = "z42.json,z42.io,z42.json";
+        var scoped = new MicroFixtureCapture(); scoped.Fixtures = Path.Join(_root(), "src/benches/testdata");
+        scoped.Scenario = "real"; scoped.ExpectedOwners = "z42.io,z42.json";
+        _gateAssert(_benchMicroAbAt(root, cmd, scoped) == 1 && scoped.Calls == 6, "scoped resampling preserves both owners on all six captures");
+        cmd.Owners = "";
+        _microScopeChecks();
         for (int fail = 1; fail <= 6; fail = fail + 1) {
             var capture = new MicroFixtureCapture(); capture.Fixtures = Path.Join(_root(), "src/benches/testdata"); capture.Scenario = "real"; capture.FailAt = fail;
             _gateAssert(_benchMicroAbAt(root, cmd, capture) == 17 && capture.Calls == fail, "capture failures stop immediately, including resampling");
@@ -47,9 +55,9 @@ void _microAbChecks() {
         string tree = Path.Join(root, "tree with spaces"); Directory.Create(tree);
         // The probe receives production argv; its cwd must be the selected source tree.
         File.WriteAllText(Path.Join(root, ".github/ci/xtask"), "printf '%s\\n' \"$PWD\" \"$@\" > argv.txt\nexit 17\n");
-        _gateAssert(child.Capture(tree, "vm with spaces", "libs with spaces", "driver with spaces", "out with spaces") == 17, "real capture propagates process exit");
+        _gateAssert(child.Capture(tree, "vm with spaces", "libs with spaces", "driver with spaces", "out with spaces", "z42.io,z42.json") == 17, "real capture propagates process exit");
         string args = File.ReadAllText(Path.Join(tree, "argv.txt"));
-        _gateAssert(args == tree + "\nbench\nstdlib\n--json\nout with spaces\n--no-build\n--mode\ninterp\n--vm\nvm with spaces\n--libs\nlibs with spaces\n--driver\ndriver with spaces\n"
+        _gateAssert(args == tree + "\nbench\nstdlib\n--json\nout with spaces\n--no-build\n--mode\ninterp\n--vm\nvm with spaces\n--libs\nlibs with spaces\n--driver\ndriver with spaces\n--owners\nz42.io,z42.json\n"
             && Environment.GetCurrentDirectory() == cwd, "capture isolates cwd and preserves argument boundaries");
         Console.WriteLine("✓ micro A/B: early success, full resampling, verdicts, stale files and capture failures");
     } finally { Directory.Delete(root, true); }

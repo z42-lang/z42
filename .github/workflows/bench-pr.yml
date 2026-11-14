@@ -395,8 +395,10 @@ jobs:
       - name: Micro A/B gate (symmetric capture; resample-on-suspicion; >15% time fails)
         if: ${{ success() && steps.scope.outputs.bench_stdlib == 'true' && steps.fmtgap.outputs.gap == '0' && steps.base.outcome == 'success' && steps.head.outcome == 'success' }}
         shell: bash
+        env:
+          BENCH_OWNERS: ${{ steps.scope.outputs.bench_owners }}
         run: |
-          xtask bench --micro-ab --threshold-time 0.15 \
+          xtask bench --micro-ab --owners "${BENCH_OWNERS?benchmark scope is required}" --threshold-time 0.15 \
               --base-vm "${{ steps.base.outputs.base_vm }}" \
               --base-libs "${{ steps.base.outputs.base_libs }}" \
               --pr-vm "${{ steps.head.outputs.head_vm }}" \

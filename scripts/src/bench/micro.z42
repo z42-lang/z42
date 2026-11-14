@@ -3,14 +3,18 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Collections;
+using Std.Cli;
+using Z42.Project;
 
 class MicroCapture {
     public string Root = "";
-    public virtual int Capture(string tree, string vm, string libs, string driver, string output) {
+    public virtual int Capture(string tree, string vm, string libs, string driver, string output, string owners) {
         // Separate processes keep repo-root and tool-discovery caches isolated per tree.
-        return _execIn(new Process("bash").Arg(Path.Join(this.Root.Length > 0 ? this.Root : _root(), ".github/ci/xtask"))
+        var process = new Process("bash").Arg(Path.Join(this.Root.Length > 0 ? this.Root : _root(), ".github/ci/xtask"))
             .Args(new string[]{ "bench", "stdlib", "--json", output, "--no-build", "--mode", "interp",
-                "--vm", vm, "--libs", libs, "--driver", driver }), tree);
+                "--vm", vm, "--libs", libs, "--driver", driver });
+        if (owners.Length > 0) { process.Args(new string[]{ "--owners", owners }); }
+        return _execIn(process, tree);
     }
 }
 
@@ -18,6 +22,8 @@ int _benchMicroAbAt(string root, BenchCommand cmd, MicroCapture capture) {
     if (cmd.BaseVm.Length == 0 || cmd.BaseLibs.Length == 0 || cmd.PrVm.Length == 0 || cmd.PrLibs.Length == 0) {
         ConsoleError.WriteLine("micro A/B requires --base-vm, --base-libs, --pr-vm and --pr-libs"); return 2;
     }
+    string owners = _microBenchOwners(cmd);
+    Console.WriteLine("micro scope: " + (owners.Length > 0 ? owners : "all packages"));
     string dir = _benchDir(root); Directory.Create(dir);
     var pr = new List<string>(); var baseline = new List<string>();
     var diff = new BenchCommand();
@@ -36,7 +42,7 @@ int _benchMicroAbAt(string root, BenchCommand cmd, MicroCapture capture) {
             string output = head ? current : previous;
             if (File.Exists(output)) { File.Delete(output); }
             int rc = capture.Capture(_microPath(root, tree), _microPath(root, vm), libs,
-                driver.Length > 0 ? _microPath(root, driver) : Path.Join(libs, "z42c.driver.zpkg"), output);
+                driver.Length > 0 ? _microPath(root, driver) : Path.Join(libs, "z42c.driver.zpkg"), output, owners);
             if (rc != 0) { return rc; }
             if (!File.Exists(output)) { ConsoleError.WriteLine("micro capture did not write " + output); return 2; }
         }
@@ -55,3 +61,30 @@ int _benchMicroAbAt(string root, BenchCommand cmd, MicroCapture capture) {
 }
 
 string _microPath(string root, string path) { return Path.IsRooted(path) ? path : Path.Join(root, path); }
+
+string _microOwnerNames(string[] projects) {
+    var names = new List<string>();
+    foreach (var project in projects) { names.Add(ManifestLoader.Load(project).Project.Name); }
+    string[] ordered = names.ToArray(); _sortStrings(ordered);
+    return String.Join(",", ordered);
+}
+
+string _microPlanOwners(FlowConfig cfg, FlowPlan plan) {
+    if (!_strIn(_flowOutputs(cfg, plan), "bench_stdlib")) { throw new CliException("plan selects no script benchmarks"); }
+    foreach (var step in plan.Steps) {
+        if (!step.Prerequisite && _strIn(cfg.Find(step.Id).Outputs, "bench_stdlib") && step.Owner.Length == 0) { return ""; }
+    }
+    string[] projects = _flowUnitProjects(cfg, plan, "bench", "");
+    if (projects.Length == 0) { throw new CliException("plan has no benchmark owners"); }
+    return _microOwnerNames(projects);
+}
+
+string _microBenchOwners(BenchCommand cmd) {
+    if (cmd.Plan.Length > 0 && cmd.Owners.Length > 0) { throw new CliException("choose --plan or --owners"); }
+    string root = _root();
+    if (cmd.Plan.Length > 0) {
+        FlowConfig cfg = _flowConfigFor(root);
+        return _microPlanOwners(cfg, _flowReadPlan(cfg, cmd.Plan, root));
+    }
+    return cmd.Owners.Length == 0 ? "" : _microOwnerNames(_ownerUnitProjects(root, "bench", cmd.Owners));
+}
