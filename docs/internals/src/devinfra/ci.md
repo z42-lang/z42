@@ -470,10 +470,12 @@ minor 不一致就会把所有 job 推进两代自举那条已知会挂的路。
 
 ### 发布方式：原地更新，从不删除重建
 
-`publish-nightly` 对 `nightly` release **只做原地更新**：① `xtask ci upload-release` 调 `gh release upload --clobber` 串行覆盖并核对每项 SHA256 / 字节数 / uploaded 状态 →
+`xtask ci publish-nightly` 消费 `xtask package release nightly` 的汇总结果，由原生执行器生成标题 / 说明、选择归档和安装器并编排发布。执行前核对 `GITHUB_SHA` 与当前检出一致，必需资产和生成说明非空；YAML 只保留调用与发布保护条件。本地复现需要相同的汇总目录、GitHub 仓库身份与 token。
+
+对 `nightly` release **只做原地更新**：① 复用 `xtask ci upload-release` 的上传器，调 `gh release upload --clobber` 串行覆盖并核对每项 SHA256 / 字节数 / uploaded 状态 →
 ② 删掉本次不再产出的旧资产 → ③ `PATCH git/refs/tags/nightly` 把 tag 移到本次 commit →
 ④ `gh release edit` 改标题 / 说明 / target。release 对象与 tag 从不消失；只有仓库里一个 nightly 都没有时才
-`gh release create`。发布后校验三件事：非 draft、tag 指向本次 commit、资产齐全。
+`gh release create`。只有 release API 明确返回 HTTP 404 才进入创建分支；权限、限流、网络错误与无效响应直接失败。发布后校验非 draft 且为 prerelease、tag 与 release target 都指向本次 commit，以及全部资产的 SHA256、大小与 uploaded 状态。任一步失败均停止后续写入。
 
 单项上传遇到 HTTP 5xx、EOF 或瞬时连接错误，或者上传返回成功但远端资产收据缺失 / 摘要、大小、状态不符时，最多尝试 5 次，间隔 1/2/4/8 秒。每次上传返回成功后用 release 的资产元数据核对本地内容，确认交付才继续下一项。每次重新解析并覆盖该资产，允许前次删除已生效但响应失败；成功的前序资产不在同一调用内重复上传。HTTP 4xx 等非瞬时错误或预算耗尽保留失败状态，后续 tag/metadata 更新与最终验证不执行，发布门禁仍为红。
 

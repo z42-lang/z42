@@ -845,63 +845,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          short_sha=$(git rev-parse --short HEAD)
-          today=$(date -u +%Y-%m-%d)
-          # 安装命令与下载表由上一步 `xtask package release` 按 versions.toml 生成（release-notes.md，不作附件）；
-          # 先读进变量：heredoc 里的命令替换失败不会触发 set -e。
-          generated=$(cat artifacts/packages/release-notes.md)
-          notes=$(cat <<EOF
-          **Rolling pre-release** built from \`main\` on ${today} (commit \`${short_sha}\`).
-
-          - **Unsigned** — do not use for production.
-          - **Replaced on every push to main** — URL stays stable, contents change.
-          - For tagged releases see [Releases](../../releases?q=v).
-
-          ${generated}
-          EOF
-          )
-          title="Nightly (main @ ${short_sha} · ${today})"
-          assets=(artifacts/packages/SHA256SUMS artifacts/packages/release-index.json
-                  artifacts/packages/z42-* scripts/install-z42.sh scripts/install-z42.ps1)
-          if gh release view nightly >/dev/null 2>&1; then
-            # (1) assets first — sequential --clobber with verified receipts and bounded retries
-            xtask ci upload-release nightly "${assets[@]}"
-            # (2) drop assets this build no longer ships (e.g. a renamed package)
-            keep=" "
-            for f in "${assets[@]}"; do keep="${keep}$(basename "$f") "; done
-            for name in $(gh release view nightly --json assets -q '.assets[].name'); do   # asset names have no spaces
-              case "$keep" in
-                *" $name "*) ;;
-                *) echo "  removing stale asset $name"; gh release delete-asset nightly "$name" --yes ;;
-              esac
-            done
-            # (3) move the tag to this commit — the release follows the tag NAME, so it never detaches
-            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/nightly" -f sha="$GITHUB_SHA" -F force=true >/dev/null
-            # (4) metadata; target = the commit setup-z42-sdk records as the seed identity
-            gh release edit nightly --title "$title" --notes "$notes" --target "$GITHUB_SHA" --prerelease --draft=false
-          else
-            # No nightly at all (first publish, or deleted by hand): create once; later runs only update.
-            gh release create nightly --prerelease --target "$GITHUB_SHA" --title "$title" --notes "$notes" "${assets[@]}"
-          fi
-          # Verify: published (a DRAFT is invisible to other runs' GITHUB_TOKEN ⇒ every
-          # download-bootstrap job fails), tag on this commit, every asset present.
-          if [ "$(gh release view nightly --json isDraft -q .isDraft)" = "true" ]; then
-            echo "::error::nightly release is a draft — download-bootstrap jobs will fail"; exit 1
-          fi
-          tag_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/nightly" -q .object.sha)
-          if [ "$tag_sha" != "$GITHUB_SHA" ]; then
-            echo "::error::nightly tag points at $tag_sha, expected $GITHUB_SHA"; exit 1
-          fi
-          have=" $(gh release view nightly --json assets -q '.assets[].name' | tr '\n' ' ')"
-          for f in "${assets[@]}"; do
-            case "$have" in
-              *" $(basename "$f") "*) ;;
-              *) echo "::error::asset $(basename "$f") missing after publish"; exit 1 ;;
-            esac
-          done
-          echo "✓ nightly @ ${short_sha} published in place (non-draft, tag moved, assets complete)"
+        run: xtask ci publish-nightly
 
   # ── Tier-2 平台测试（nightly）：wasm（Playwright）、iOS 模拟器、Android 模拟器，各自把 JUnit 发成 Check。
   test-wasm:

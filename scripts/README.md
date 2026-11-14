@@ -83,6 +83,7 @@ micro A/B 可用 `bench --micro-ab --plan <plan.json>` 消费已验证 owner 范
 示例：`xtask -v detailed build compiler` 会打出冷启动供种的完整候选路径选择过程。
 
 CI 调度使用 `ci supersede` 按资产差异取消旧 main 运行，`ci check-publication` 阻止 nightly 回退；边界与验证见 [CI 调度](../docs/internals/src/devinfra/ci.md)。
+`ci publish-nightly` 消费已汇总的 `artifacts/packages`，原地更新发布并核对资产收据；本地执行同样要求 `GH_TOKEN`、`GITHUB_REPOSITORY` 和与当前检出一致的 `GITHUB_SHA`。
 
 ## 命令一览
 
@@ -106,6 +107,7 @@ CI 调度使用 `ci supersede` 按资产差异取消旧 main 运行，`ci check-
 | `package workload [--rid R \| test] [--archive]` | per-RID desktop workload / payload-only test workload | `cargo` | workload 包目录 |
 | 上面三条带 `--archive [--label L]` | 同时出发布归档（CI 各 package job / 本地发布；只限 release profile） | 本次产出的包目录 | 包目录旁的 `artifacts/packages/z42-{sdk,runtime,workload}-<L>-….{tar.gz,zip}` |
 | `package release <label> [--dir D] …` | 发布汇总：合并 desktop workload → SHA256SUMS → release-index.json → release-notes.md | 9 个 RID 的归档（默认在 `artifacts/packages/`） | 合并后的 desktop workload + `SHA256SUMS` + `release-index.json` + `release-notes.md`（release 页正文：安装命令 + 下载表，按 versions.toml 生成，不作附件） |
+| `bench prepare --base <commit>` | 为已检出到 `base-src` 的基线准备 Linux/macOS A/B 工具链 | 当前 PR 工具链 + git + ln | 同形 base/head 库目录、VM 与 driver 路径；输出可供本地和 CI 测量复用 |
 | `bench [--tier T] [--diff\|--ab]` | 性能基准 / 回归对比（场景在 `src/benches/`） | z42c + hyperfine | 各场景编译/执行耗时；`--diff` 比对两组结果，`--ab` 同 runner A/B 判红 |
 | `profile <script> [--cpu\|--heap\|--threads\|--e2e\|--all]` | 深挖某个 `.z42` 脚本的性能 | z42c +（可选）samply/dhat/hyperfine | `artifacts/reports/profile/<name>/`：CPU 火焰图 / dhat 堆报告 / peak-RSS / counter 摘要 + `report.md` |
 | `test` | **每次 commit / 合并前必跑** | 下面各 stage | 串联全部验证 stage（`test --list` 查询清单；机制见 internals/devinfra/test-gate.md；完整 runtime 测试独立运行） |

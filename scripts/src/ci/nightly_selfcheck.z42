@@ -1,0 +1,115 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+using Std.Collections;
+
+class CiNightlyFake : CiNightlyTransport {
+    public string Mode = "ok";
+    public int Reads;
+    public string[] Assets = new string[0];
+    public List<string> Calls = new List<string>();
+    public override int Upload(string[] assets) {
+        _gateAssert(String.Join("|", assets) == String.Join("|", this.Assets), "upload receives the complete ordered asset set");
+        this.Calls.Add("upload"); return this.Mode == "upload" ? 17 : 0;
+    }
+    public override ProcessResult Run(string[] args) {
+        if (args[0] == "api" && args.Length == 2) {
+            if (args[1].EndsWith("/git/ref/tags/nightly")) {
+                this.Calls.Add("verify-tag");
+                return _ciResult(0, "{\"object\":{\"sha\":\"" + (this.Mode == "wrong-tag" ? "other" : "head") + "\"}}");
+            }
+            _gateAssert(args[1] == "repos/owner/repo/releases/tags/nightly", "release lookup uses the expected repository and tag");
+            this.Reads = this.Reads + 1; this.Calls.Add("read");
+            if (this.Reads == 1 && (this.Mode == "create" || this.Mode == "create-fail")) { return _ciResult(1, "gh: Not Found (HTTP 404)"); }
+            if (this.Reads == 1 && _strIn(new string[]{ "403", "500", "network" }, this.Mode)) {
+                return _ciResult(1, this.Mode == "network" ? "connection reset" : "HTTP " + this.Mode);
+            }
+            if (this.Mode == "invalid") { return _ciResult(0, "not JSON"); }
+            if (this.Reads > 1 && this.Mode == "read-after-upload") { return _ciResult(1, "HTTP 403"); }
+            return _ciResult(0, this.Receipt());
+        }
+        if (args[0] == "api") {
+            _gateAssert(String.Join("|", args) == "api|-X|PATCH|repos/owner/repo/git/refs/tags/nightly|-f|sha=head|-F|force=true", "tag moves in place to the tested commit");
+            this.Calls.Add("tag"); return _ciResult(this.Mode == "tag" ? 1 : 0, "tag result");
+        }
+        _gateAssert(args[0] == "release" && args[2] == "nightly", "mutations address nightly");
+        string op = args[1]; this.Calls.Add(op);
+        if (op == "delete-asset") {
+            _gateAssert(args.Length == 5 && args[3] == "old archive.zip" && args[4] == "--yes", "cleanup uses exact names, including spaces");
+        } else if (op == "edit") {
+            _gateAssert(String.Join("|", args) == "release|edit|nightly|--title|title with spaces|--notes-file|" + args[6] + "|--target|head|--prerelease|--draft=false", "edit preserves argument boundaries and publication identity");
+            _gateAssert(File.ReadAllText(args[6]).Contains("generated table"), "metadata reads the generated notes file");
+        } else {
+            _gateAssert(op == "create" && args.Length == 10 + this.Assets.Length, "only the explicit missing release creates once with all assets");
+            _gateAssert(args[3] == "--prerelease" && args[4] == "--target" && args[5] == "head" && args[6] == "--title" && args[7] == "title with spaces" && args[8] == "--notes-file", "creation preserves metadata arguments");
+            for (int i = 0; i < this.Assets.Length; i = i + 1) { _gateAssert(args[10 + i] == this.Assets[i], "creation preserves every asset argument"); }
+        }
+        return _ciResult(this.Mode == op && op != "create" || this.Mode == "create-fail" ? 1 : 0, op + " result");
+    }
+    public string Receipt() {
+        JsonValue release = JsonValue.OfObject(); JsonValue assets = JsonValue.OfArray();
+        release.Set("tag_name", JsonValue.OfString(this.Mode == "wrong-release" ? "v1" : "nightly"));
+        release.Set("draft", JsonValue.OfBool(this.Mode == "draft"));
+        release.Set("prerelease", JsonValue.OfBool(this.Mode != "stable"));
+        release.Set("target_commitish", JsonValue.OfString(this.Mode == "wrong-target" ? "other" : "head"));
+        foreach (var path in this.Assets) {
+            if (this.Mode == "missing") { continue; }
+            JsonValue asset = JsonValue.OfObject(); asset.Set("name", JsonValue.OfString(Path.GetFileName(path)));
+            asset.Set("size", JsonValue.OfLong(File.GetSize(path) + (this.Mode == "size" ? 1L : 0L)));
+            asset.Set("digest", JsonValue.OfString(this.Mode == "digest" ? "sha256:wrong" : "sha256:" + _sha256Hex(path)));
+            asset.Set("state", JsonValue.OfString(this.Mode == "pending" ? "new" : "uploaded")); assets.Add(asset);
+        }
+        if (this.Reads == 2 && this.Mode != "create") {
+            JsonValue stale = JsonValue.OfObject(); stale.Set("name", JsonValue.OfString("old archive.zip")); assets.Add(stale);
+        }
+        release.Set("assets", assets); return JsonValue.StringifyPretty(release);
+    }
+}
+
+void _ciNightlyChecks() {
+    string root = _xtaskWork(_root(), "nightly publish with spaces"); _resetDir(root);
+    string dir = Path.Join(root, "artifacts/packages"); Directory.Create(dir); Directory.Create(Path.Join(root, "scripts"));
+    foreach (var path in new string[]{ "SHA256SUMS", "release-index.json", "z42-b archive.zip", "z42-a.tar.gz", "release-notes.md" }) {
+        File.WriteAllText(Path.Join(dir, path), "generated table");
+    }
+    foreach (var path in new string[]{ "install-z42.sh", "install-z42.ps1" }) { File.WriteAllText(Path.Join(root, "scripts", path), "installer"); }
+    try {
+        string[] assets = _ciNightlyAssets(root);
+        _gateAssert(assets.Length == 6 && Path.GetFileName(assets[2]) == "z42-a.tar.gz" && Path.GetFileName(assets[3]) == "z42-b archive.zip", "local assets have complete deterministic coverage");
+        string notes = _ciNightlyNotes(root, "abc123", "2026-01-02");
+        _gateAssert(File.ReadAllText(notes).Contains("commit `abc123`") && File.ReadAllText(notes).Contains("generated table"), "notes retain identity and aggregate content");
+        foreach (var mode in new string[]{ "ok", "create", "create-fail", "403", "500", "network", "invalid", "wrong-release", "upload", "read-after-upload", "delete-asset", "tag", "edit", "draft", "stable", "wrong-target", "wrong-tag", "missing", "size", "digest", "pending" }) {
+            var fake = new CiNightlyFake(); fake.Assets = assets; fake.Mode = mode; bool failed = false; string error = "";
+            try { _ciNightlyPublish(fake, "owner/repo", "head", "title with spaces", notes, assets); } catch (Exception e) { failed = true; error = e.Message; }
+            _gateAssert(failed == (mode != "ok" && mode != "create"), "publication outcome: " + mode + " " + error);
+            string calls = String.Join(",", fake.Calls.ToArray());
+            if (mode == "ok") { _gateAssert(calls == "read,upload,read,delete-asset,tag,edit,read,verify-tag", "existing release mutation and verification ordering"); }
+            if (mode == "create") { _gateAssert(calls == "read,create,read,verify-tag", "first release is created once without deleting the tag"); }
+            if (_strIn(new string[]{ "403", "500", "network", "invalid", "wrong-release" }, mode)) { _gateAssert(calls == "read", "read errors cannot authorize writes: " + mode); }
+            if (mode == "upload" || mode == "read-after-upload") { _gateAssert(!fake.Calls.Contains("delete-asset") && !fake.Calls.Contains("tag"), "incomplete upload cannot remove assets or move the tag"); }
+            if (mode == "delete-asset") { _gateAssert(!fake.Calls.Contains("tag"), "cleanup failure prevents tag movement"); }
+            if (mode == "tag") { _gateAssert(!fake.Calls.Contains("edit"), "tag failure stops metadata updates"); }
+            if (mode == "edit") { _gateAssert(!fake.Calls.Contains("verify-tag"), "metadata failure cannot claim a successful publication"); }
+        }
+        File.Delete(notes);
+        File.WriteAllText(assets[0], ""); bool empty = false;
+        try { _ciNightlyAssets(root); } catch (Exception e) { empty = true; }
+        _gateAssert(empty, "empty required local assets fail before network access");
+        File.Delete(assets[0]); bool missing = false;
+        try { _ciNightlyAssets(root); } catch (Exception e) { missing = true; }
+        _gateAssert(missing, "missing required assets cannot reach publication");
+        File.WriteAllText(assets[0], "checksums"); File.Delete(assets[2]); File.Delete(assets[3]); bool archives = false;
+        try { _ciNightlyAssets(root); } catch (Exception e) { archives = true; }
+        _gateAssert(archives, "metadata alone cannot publish an empty archive set");
+        File.WriteAllText(Path.Join(dir, "release-notes.md"), ""); bool emptyNotes = false;
+        try { _ciNightlyNotes(root, "abc123", "2026-01-02"); } catch (Exception e) { emptyNotes = true; }
+        _gateAssert(emptyNotes, "empty generated release notes cannot reach publication");
+        string previous = Environment.GetEnvironmentVariable("GITHUB_SHA", "");
+        try {
+            Environment.SetEnvironmentVariable("GITHUB_SHA", "not-the-checked-out-commit");
+            _gateAssert(new CiPublishNightlyCommand().Run() != 0, "the real command rejects a mismatched publication commit before network access");
+        } finally { Environment.SetEnvironmentVariable("GITHUB_SHA", previous); }
+    } finally { Directory.Delete(root, true); }
+    Console.WriteLine("  ✓ nightly publication: in-place ordering, first release, strict reads, metadata and complete asset receipts");
+}
