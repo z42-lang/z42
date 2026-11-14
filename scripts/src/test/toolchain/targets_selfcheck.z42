@@ -3,9 +3,11 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Collections;
+using Z42.Project;
 
 int _selfcheckFixtureTargets(string root, TargetTooling tt) {
     _selfcheckFixtureManifest(root);
+    _selfcheckExampleTargets(root);
     string dir = _xtaskWork(root, "fixture-target-selection");
     _resetDir(dir);
     File.WriteAllText(Path.Join(dir, "source.z42"),
@@ -61,4 +63,26 @@ void _selfcheckFixtureManifest(string root) {
     if (_findManifest(dir).ManifestPath != workspace) { throw new Exception("fixture manifest: workspace not selected"); }
     Directory.Delete(dir, true);
     Console.WriteLine("  ✅ fixture manifest: missing, unrelated TOML, named, ambiguous, bare priority, workspace");
+}
+
+void _selfcheckExampleTargets(string root) {
+    string dir = _xtaskWork(root, "example-targets"); _resetDir(dir);
+    try {
+        Directory.Create(Path.Join(dir, "examples/one/deep"));
+        File.WriteAllText(Path.Join(dir, "examples/one/deep/source.z42"), "namespace NestedExample;\n");
+        File.WriteAllText(Path.Join(dir, "examples/demo.z42"), "namespace ExampleShape;\n");
+        _gateAssert(_countMatches(dir, new string[]{ "examples/*/deep/*.z42" }, 1) == 1, "example source selection uses project glob discovery");
+        DepEntry[] targetDeps = new DepEntry[32];
+        targetDeps[0] = new DepEntry("shared", "1.0.0", ""); targetDeps[1] = new DepEntry("target.empty", "", "");
+        for (int i = 2; i < targetDeps.Length; i = i + 1) { targetDeps[i] = new DepEntry("dep" + i.ToString(), "*", ""); }
+        RunTarget target = new RunTarget("demo", true, false, "", new string[0], 0, targetDeps, 32, true);
+        RunTarget normalized = _normalizeExample(dir, target);
+        _gateAssert(!target.HasEntry && normalized.HasEntry && normalized.Entry == "ExampleShape.Main" && normalized.RunInTest, "example normalization keeps the project model and leaves the manifest unchanged");
+        ProjectManifest manifest = ManifestLoader.ParseText("[project]\nname = \"example-test\"\n[dependencies]\nshared = \"3.0.0\"\nproject = \"3.0.0\"\n[examples.dependencies]\nshared = \"2.0.0\"\nsection = \"2.0.0\"\n");
+        Dictionary<string, string> merged = _exampleDeps(manifest, normalized.Deps, normalized.DepCount);
+        string[] keys = merged.Keys();
+        _gateAssert(merged.Count == 34 && merged["shared"] == "1.0.0" && merged["target.empty"] == "*" && keys[0] == "shared" && keys[32] == "section" && keys[33] == "project", "example dependencies keep first-wins precedence and insertion order beyond initial capacity");
+        string text = _renderExampleManifest("example-test", normalized.Entry, true, new string[]{ "examples/demo.z42" }, "out", merged);
+        _gateAssert(ManifestLoader.ParseText(text).DepCount == 34, "example manifest retains every merged dependency");
+    } finally { Directory.Delete(dir, true); }
 }

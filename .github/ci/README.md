@@ -9,13 +9,14 @@
 
 ```bash
 xtask flow plan --event-file "$GITHUB_EVENT_PATH" --out artifacts/ci-plan.json
+xtask ci test-host --plan artifacts/ci-plan.json
 xtask ci retry-runner --run-id <ID> --dry-run
 xtask ci upload-release nightly <asset> [<asset> ...]
 ```
 
 ## 如何测试验证
 
-`xtask check flows` 在本地和 CI 中执行同一套离线回归，覆盖真实 Git 基线、选路、计划过期、发布范围、
+`xtask check xtask` / `xtask check flows` 在本地和 CI 中执行同一套离线回归，覆盖真实 Git 基线、选路、计划过期、发布范围、
 runner 恢复、上传重试、自举探针、golden 传递与安装器；无需构建当前产品。
 `xtask bench check` 用入库 JSON 验证性能判定规则。完整门禁仍为 `xtask test`。
 

@@ -1,0 +1,23 @@
+// Preserve package ownership through local and CI unit-test / benchmark execution.
+namespace Z42Xtask;
+
+using Std.Collections;
+
+string[] _flowUnitProjects(FlowConfig cfg, FlowPlan plan, string kind, string shard) {
+    string root = _root();
+    string output = kind == "bench" ? "bench_stdlib" : "stdlib";
+    int[] parts = _parseShard(shard);
+    if (!_strIn(_flowOutputs(cfg, plan), output)) { return new string[0]; }
+    string[] all = _allUnitProjects(root, kind);
+    string[] candidates = parts[1] > 0 ? _shardUnitProjects(root, kind, parts[0], parts[1]) : all;
+    var requested = new List<string>();
+    foreach (var step in plan.Steps) {
+        if (step.Prerequisite || !_strIn(cfg.Find(step.Id).Outputs, output)) { continue; }
+        if (step.Owner.Length == 0) { return candidates; }
+        string project = _selectUnitProject(all, step.Owner);
+        if (!requested.Contains(project)) { requested.Add(project); }
+    }
+    var selected = new List<string>();
+    foreach (var project in candidates) { if (requested.Contains(project)) { selected.Add(project); } }
+    return selected.ToArray();
+}

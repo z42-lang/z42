@@ -1,0 +1,1 @@
+namespace DedupApp; using Std.IO; using DedupBase; using DedupMiddle; void Main() { Console.WriteLine(BaseValue() + MiddleValue()); }

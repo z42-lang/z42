@@ -25,7 +25,8 @@
 
 计划输出应放在 gitignore 覆盖的目录（如 `artifacts/`）或仓库外，防止计划文件自身变成新的改动。
 计划绑定 schema、配置 SHA256、解析后的 base/head、事件策略及工作区摘要。工作区摘要包含索引状态、
-tracked diff 与未跟踪文件的内容。执行时重新规划并核对整个计划；提交、配置或输入发生变化时拒绝旧计划。
+tracked diff 与未跟踪文件的内容。配置在解析时将 CRLF 规范为 LF 后计算摘要，确保同一配置可跨 Linux / Windows checkout 消费。
+工作区摘要仍保留原始内容校验；配置实质变更仍会使计划失效。执行时重新规划并核对整个计划；提交、配置或输入发生变化时拒绝旧计划。
 提交模式还要求工作区干净。计划不携带可直接信任的任意 Shell，命令从当前配置重新推导。
 
 `test changed [base]` 与 `test --changed <base>` 直接消费 `FlowPlan`：一次读取配置、一次规划，再分别取得本地命令或 gate stage 的补集。
@@ -55,8 +56,7 @@ outside = true
 
 `workspace` 指向现有 workspace 清单，`relative` 匹配成员内路径。成员及其排除规则复用项目发现器，
 命令中的 `{owner}` 使用 `[project].name`，不从目录名猜测。`{chapter}` 用于 examples 的章节参数。
-删除、排除或无法发现的成员保守回退。`docs` 标记普通文档快速通道，`publish` 标记发布输入，
-`bench_only` 标记只需性能判定夹具、不需完整 A/B 测量的输入。
+删除、排除或无法发现的成员保守回退。`docs` 标记普通文档快速通道，`publish` 独立标记发布输入。性能范围由流程节点的 `bench_stdlib`、`bench_vm`、`bench_integration` 信号决定，不再另列输入白名单。
 
 流程节点的字段：
 
@@ -64,7 +64,7 @@ outside = true
 |---|---|
 | `command` | 本地 xtask 参数数组；空数组表示聚合节点 |
 | `affects` | 该契约改变后受影响的流程，传递展开 |
-| `requires` | 执行该节点前所需的流程，拓扑排序后执行 |
+| `requires` | 执行所需的流程或资源节点；前提的 `outputs` 同样汇总，且不沿 `affects` 扩散 |
 | `stages` | gate stage 键；`@z42` / `@all` 从现有 stage 注册表展开 |
 | `outputs` | CI 选择信号，由规划器汇总 |
 | `outside` | 完整 GREEN 未覆盖的义务，如 SDK 验证或完整 Runtime harness |
@@ -89,11 +89,28 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
   --out artifacts/ci-plan.json --github-output "$GITHUB_OUTPUT"
 ```
 
-规划器输出 `validation_required`，表示差异、完整策略或待发布 SDK 是否需要验证。空 PR 的值为 `false`：只保留轻量规划与 `ci-ok`，宿主测试、工具链构建及依赖它的任务跳过。空改动与纯文档分别判定；无法读取基线、schedule / dispatch 的完整策略及非 PR 的累计发布义务继续保守验证。
+规划器分别输出 `host_checks`、`toolchain_build`、`test_assets` 和 `docs_checks`。每个 job 只消费对应信号：有改动不等于要构建产品，有宿主验证也不等于要组装第二份 SDK。空 PR 不选择这些资源，只保留轻量规划与 `ci-ok`。无法读取基线、完整策略及非 PR 的累计发布义务保守保留前提。
+
+| 改动职责 | 所选流程 |
+|---|---|
+| xtask 规划、命令路由、CI workflow | 种子 SDK 编译 xtask，`check xtask` 自身契约；VM benchmark runner 另用小型 Rust 夹具 |
+| 标准库 / 编译器构建脚本 | 自身契约与对应 `build stdlib` / `build compiler`，CI 仅准备共享工具链 |
+| VM 构建脚本 | VM harness、解释器 / JIT 验证和性能观测；不扩大为编译器或标准库单测 |
+| 共享 unit harness | 宿主目标、stdlib / compiler 消费者与脚本 benchmark；不扩大为 VM、集成性能或设备打包 |
+| toolchain 私有执行器 | 宿主 toolchain / manifest target 验证 |
+| 私有标准库测试 | 准备工具链，仅执行所属包；不测性能 |
+| 私有 benchmark | 仅所属性能类别；不自动选择正确性 job |
+| Android / iOS / wasm 执行器 | 仅对应平台编译与 smoke；共享设备实现仍保留全部平台契约 |
+| VM / 编译器 / 标准库生产源 | 正确性消费者与对应性能类别；VM 生产源保留完整运行时和平台契约 |
+| 无法识别的输入 | 完整策略，不以“脚本文件”作为自动免测依据 |
+
+宿主 job 在本机准备工具链；`host-validation` 不额外申请供分片 / 编译器消费者下载的共享工具链产物。仅宿主验证的计划不会启动无消费者的 `compile-toolchain`，发布所需的准备仍由累计发布策略保留。
+
+`test stdlib --plan <文件>` 和 `bench stdlib --plan <文件>` 在计划绑定的工作树中保留 `{owner}`，并与分片取交集；不会把单包选择扩大成全库。A/B 的 base、head 是不同工作树，各自在本树捕获完整的已选性能类别，不向另一棵树套用提交绑定的计划。
 
 事件名与待验证提交来自 GitHub 环境。PR 使用事件的 base SHA，push 使用 before SHA；浅克隆先获取基线。
 首次 push、无法获取或验证基线时回退全量并打印原因；schedule / workflow_dispatch 使用全量策略。
-JSON 计划通过 `ci-plan` artifact 共享；消费 job 独立获取浅克隆中缺失的 base commit，再重新计算并核对计划。host 测试用 `xtask test --plan` 消费 stage 选择，编译器 job 用：
+JSON 计划通过 `ci-plan` artifact 共享；消费 job 独立获取浅克隆中缺失的 base commit，再重新计算并核对计划。host 测试用 `xtask ci test-host --plan` 消费 stage 选择，编译器 job 用：
 
 ```bash
 xtask flow run --plan artifacts/ci-plan.json --job compiler-checks
@@ -103,13 +120,13 @@ xtask flow run --plan artifacts/ci-plan.json --job compiler-checks
 产物下载上传与 job 级依赖仍由 GitHub Actions 负责，YAML 不重复维护目录归属。
 
 发布另用 nightly 到 HEAD 的累计差异，通过相同输入规则的 `publish` 字段判断；不能拿单次 push 差异替代。
-`xtask ci supersede` 只取消没有未发布 SDK 输入的较早 main 运行。缺失 nightly、API 失败或 compare 达到 300 文件上限时
+main push 中的 `xtask ci supersede` 只取消没有未发布 SDK 输入的较早 main 运行。PR 旧 head 的清理入口与隔离规则见 [CI 调度](ci.md#pr-调度)。缺失 nightly、API 失败或 compare 达到 300 文件上限时
 保留发布。它的 `sdk` 输出作为 `XTASK_RELEASE_REQUIRED` 传入计划，决定发布所需的打包范围。
 
 ## 验证与限制
 
 `xtask check flows` 验证配置、影响与前提的隔离、workspace 归属、真实 Git 事件基线、重命名、计划过期、
-发布范围、runner 恢复、上传重试、自举边界、golden 归档和安装器。它也作为完整 GREEN 的必跑 stage；选测与真实 Git 回归只由此 stage 执行一次。
+资源与三类 benchmark 选择、所属包和分片交集、发布范围、runner 恢复、上传重试、自举边界、golden 归档和安装器。它也作为完整 GREEN 的必跑 stage；选测与真实 Git 回归只由此 stage 执行一次。
 `xtask bench check` 验证性能判定的入库夹具；`xtask ci check-installers book|wasm` 可单独运行安装器回归。
 
 目录图描述显式契约关系，不代替编译器的语义依赖分析。未知路径保守全量；流程执行串行，CI 的并行由 jobs 和矩阵实现。

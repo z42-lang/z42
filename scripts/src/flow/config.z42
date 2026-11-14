@@ -25,7 +25,6 @@ class FlowInput {
     public string[] Select = new string[0];
     public string Workspace = "";
     public string[] Relative = new string[0];
-    public bool BenchOnly;
     public bool Docs;
     public bool Publish = true;
 }
@@ -69,6 +68,7 @@ void _flowKeys(TomlValue v, string[] allowed, string location) {
 FlowConfig _flowLoad(string path) { return _flowParse(File.ReadAllText(path)); }
 
 FlowConfig _flowParse(string text) {
+    text = text.Replace("\r\n", "\n");
     TomlValue doc = TomlValue.Parse(text);
     _flowKeys(doc, new string[]{ "version", "full", "flows", "inputs" }, "root");
     if (doc.Get("version").AsLong() != 1L) { throw new Exception("flows.toml: unsupported version"); }
@@ -104,13 +104,12 @@ FlowNode _flowParseNode(string id, TomlValue v) {
 }
 
 FlowInput _flowParseInput(TomlValue v) {
-    _flowKeys(v, new string[]{ "id", "include", "exclude", "select", "workspace", "relative", "docs", "publish", "bench_only" }, "input");
+    _flowKeys(v, new string[]{ "id", "include", "exclude", "select", "workspace", "relative", "docs", "publish" }, "input");
     var r = new FlowInput();
     r.Id = v.Get("id").AsString(); r.Include = _flowList(v, "include");
     r.Exclude = _flowList(v, "exclude"); r.Select = _flowList(v, "select");
     r.Relative = _flowList(v, "relative");
     r.Workspace = v.ContainsKey("workspace") ? v.Get("workspace").AsString() : "";
-    r.BenchOnly = _flowBool(v, "bench_only", false);
     r.Docs = _flowBool(v, "docs", false); r.Publish = _flowBool(v, "publish", true);
     if (r.Id.Length == 0 || r.Include.Length == 0) { throw new Exception("flows.toml: input needs id and include"); }
     if (r.Workspace.Length == 0 && r.Relative.Length > 0) { throw new Exception("flows.toml: relative needs workspace"); }
@@ -171,7 +170,7 @@ void _flowValidateCommand(string[] args, string id) {
 }
 
 void _flowValidateOutput(string key) {
-    if (_strIn(new string[]{ "docs_only", "validation_required", "test_base", "stage_skip", "host_package", "platform_package" }, key)) {
+    if (_strIn(new string[]{ "docs_only", "test_base", "stage_skip", "host_package", "platform_package" }, key)) {
         throw new Exception("flows.toml: reserved output " + key);
     }
     for (int i = 0; i < key.Length; i = i + 1) {

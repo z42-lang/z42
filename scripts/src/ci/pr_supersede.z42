@@ -1,0 +1,65 @@
+// An obsolete PR's always() jobs can retain its workflow concurrency group after cancellation.
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+using Std.Threading;
+
+string _ciLinkedPr(JsonValue run) {
+    if (!run.ContainsKey("pull_requests")) { return ""; }
+    JsonValue links = run.Get("pull_requests");
+    if (!links.IsArray() || links.Count() != 1) { return ""; }
+    long number = links.At(0).Get("number").AsLong();
+    return number > 0L ? number.ToString() : "";
+}
+
+bool _ciSamePrWorkflow(JsonValue old, JsonValue current) {
+    return _ciString(current, "path") == ".github/workflows/ci.yml"
+        && _ciString(current, "event") == "pull_request" && _ciLinkedPr(current).Length > 0
+        && _ciString(old, "path") == _ciString(current, "path")
+        && _ciString(old, "event") == "pull_request" && _ciLinkedPr(old) == _ciLinkedPr(current)
+        && old.Get("workflow_id").AsLong() == current.Get("workflow_id").AsLong()
+        && old.Get("run_number").AsLong() < current.Get("run_number").AsLong()
+        && _ciString(old, "status") != "completed"
+        && _ciString(old, "head_sha").Length > 0 && _ciString(old, "head_sha") != _ciString(current, "head_sha")
+        && _ciString(old, "head_branch") == _ciString(current, "head_branch")
+        && _ciString(old.Get("head_repository"), "full_name").Length > 0
+        && _ciString(old.Get("head_repository"), "full_name") == _ciString(current.Get("head_repository"), "full_name");
+}
+
+bool _ciStalePrRun(CiGitHub api, string prefix, string currentPath, string oldPath) {
+    JsonValue current = api.Get(currentPath);
+    return _ciSamePrWorkflow(api.Get(oldPath), current) && _ciCurrentPr(api, prefix, current);
+}
+
+void _ciCancelPrRun(CiGitHub api, string path, string operation) {
+    try { api.Post(path + "/" + operation); }
+    catch (Exception e) {
+        // Completion can race either request. Other errors must stay visible.
+        if (_ciString(api.Get(path), "status") != "completed") { throw e; }
+    }
+}
+
+int _ciSupersedePr(CiGitHub api, string repo, string id, bool dryRun, int graceMs = 2000) {
+    string prefix = "repos/" + repo;
+    string path = prefix + "/actions/runs/" + id;
+    JsonValue current = api.Get(path);
+    if (_ciString(current, "path") != ".github/workflows/ci.yml"
+        || _ciString(current, "event") != "pull_request" || _ciLinkedPr(current).Length == 0
+        || !_ciCurrentPr(api, prefix, current)) { return 0; }
+    // A bounded recent page covers superseded heads without walking repository history.
+    JsonValue runs = api.Get(prefix + "/actions/workflows/ci.yml/runs?event=pull_request&per_page=100").Get("workflow_runs");
+    for (int i = 0; i < runs.Count(); i = i + 1) {
+        JsonValue old = runs.At(i);
+        if (!_ciSamePrWorkflow(old, current)) { continue; }
+        string oldPath = prefix + "/actions/runs/" + old.Get("id").AsLong().ToString();
+        if (!_ciStalePrRun(api, prefix, path, oldPath)) { continue; }
+        Console.WriteLine((dryRun ? "would cancel stale PR run " : "cancel stale PR run ") + old.Get("id").AsLong().ToString());
+        if (dryRun) { continue; }
+        _ciCancelPrRun(api, oldPath, "cancel");
+        if (graceMs > 0) { Thread.Sleep(graceMs); }
+        // Never force the new/current head, even if a push or PR closure raced inspection.
+        if (_ciStalePrRun(api, prefix, path, oldPath)) { _ciCancelPrRun(api, oldPath, "force-cancel"); }
+    }
+    return 0;
+}

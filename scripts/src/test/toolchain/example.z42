@@ -58,7 +58,7 @@ void _exampleRunProject(string root, string projDir, string projName, string tom
     string verr = _validateRunTargets(tgts, tgts.Length, "example");
     if (verr.Length > 0) { ConsoleError.WriteLine("error: " + projName + ": " + verr); counts.Failed = counts.Failed + 1; return; }
     foreach (var ex in _discoverExamples(projDir, man, tgts)) {
-        DepBundle deps = _exampleDeps(man, ex.DepNames, ex.DepVersions, ex.DepCount);
+        Dictionary<string, string> deps = _exampleDeps(man, ex.Deps, ex.DepCount);
         int rc = _runExampleTarget(root, projDir, projName, tt, ex, deps);
         counts.Compiled = counts.Compiled + 1;
         if (ex.RunInTest) { counts.Ran = counts.Ran + 1; }
@@ -66,29 +66,14 @@ void _exampleRunProject(string root, string projDir, string projName, string tom
     }
 }
 
-// Local example unit. xtask reads the imported RunTarget (z42.project) but does not
-// construct it, so synthesised / normalised examples use this local type; deps are
-// carried as raw (name, version) arrays.
-class ExampleUnit {
-    public string   Name        { get; set; }
-    public string   Entry       { get; set; }
-    public bool     HasEntry    { get; set; }
-    public string[] Sources     { get; set; }
-    public int      SrcCount    { get; set; }
-    public string[] DepNames    { get; set; }   // raw dep (name, version) pairs — primitive
-    public string[] DepVersions { get; set; }   // arrays only (no imported DepEntry field)
-    public int      DepCount    { get; set; }
-    public bool     RunInTest   { get; set; }
-}
-
 // All example targets for a project: convention auto (section [examples] auto,
 // dir `examples/`) overlaid by explicit [[example]] (same name overrides). Auto
 // examples derive entry = <namespace>.Main from their source file.
-ExampleUnit[] _discoverExamples(string projDir, ProjectManifest man, RunTarget[] explicitTgts) {
-    List<ExampleUnit> acc = new List<ExampleUnit>();
+RunTarget[] _discoverExamples(string projDir, ProjectManifest man, RunTarget[] explicitTgts) {
+    List<RunTarget> acc = new List<RunTarget>();
     if (_sectionAuto(man, "example")) { acc.AddRange(_autoExamples(projDir)); }
     foreach (var t in explicitTgts) {
-        ExampleUnit norm = _normalizeExample(projDir, t);
+        RunTarget norm = _normalizeExample(projDir, t);
         int at = 0;
         while (at < acc.Count && acc[at].Name != t.Name) { at = at + 1; }
         if (at < acc.Count) { acc[at] = norm; } else { acc.Add(norm); }
@@ -98,10 +83,10 @@ ExampleUnit[] _discoverExamples(string projDir, ProjectManifest man, RunTarget[]
 
 // Convention examples under <projDir>/examples/: single-file *.z42 (name=stem)
 // and dir */source.z42 (name=dir). Entry = source namespace + ".Main".
-ExampleUnit[] _autoExamples(string projDir) {
+RunTarget[] _autoExamples(string projDir) {
     string dir = Path.Join(projDir, "examples");
-    if (!Directory.Exists(dir)) { return new ExampleUnit[0]; }
-    List<ExampleUnit> r = new List<ExampleUnit>();
+    if (!Directory.Exists(dir)) { return new RunTarget[0]; }
+    List<RunTarget> r = new List<RunTarget>();
     foreach (var e in _sortedStrings(Directory.Enumerate(dir))) {
         string full = Path.Join(dir, e);
         if (Directory.Exists(full)) {
@@ -117,10 +102,8 @@ ExampleUnit[] _autoExamples(string projDir) {
     return r.ToArray();
 }
 
-// Convert an explicit [[example]] RunTarget → ExampleUnit, deriving entry from the
-// convention source when the target omits one. (Reads imported RunTarget fields;
-// never `new`s it.)
-ExampleUnit _normalizeExample(string projDir, RunTarget t) {
+// Keep the project model; derive a missing entry without mutating the manifest target.
+RunTarget _normalizeExample(string projDir, RunTarget t) {
     string entry = t.Entry;
     bool hasEntry = t.HasEntry;
     if (!hasEntry) {
@@ -130,24 +113,14 @@ ExampleUnit _normalizeExample(string projDir, RunTarget t) {
         else if (File.Exists(dsrc)) { entry = _fileEntry(dsrc); }
         hasEntry = entry.Length > 0;
     }
-    string[] dn = new string[t.DepCount];
-    string[] dv = new string[t.DepCount];
-    int di = 0;
-    while (di < t.DepCount) { dn[di] = t.Deps[di].Name; dv[di] = t.Deps[di].Version; di = di + 1; }
-    ExampleUnit u = new ExampleUnit();
-    u.Name = t.Name; u.Entry = entry; u.HasEntry = hasEntry;
-    u.Sources = t.Sources; u.SrcCount = t.SrcCount;
-    u.DepNames = dn; u.DepVersions = dv; u.DepCount = t.DepCount; u.RunInTest = t.RunInTest;
-    return u;
+    return new RunTarget(t.Name, t.Harness, hasEntry, entry, t.Sources, t.SrcCount,
+        t.Deps, t.DepCount, t.RunInTest);
 }
 
 // A convention example unit: Main program, harness ignored, entry derived.
-ExampleUnit _mkExample(string name, string entry, string[] inc) {
-    ExampleUnit u = new ExampleUnit();
-    u.Name = name; u.Entry = entry; u.HasEntry = entry.Length > 0;
-    u.Sources = inc; u.SrcCount = inc.Length;
-    u.DepNames = new string[0]; u.DepVersions = new string[0]; u.DepCount = 0; u.RunInTest = false;
-    return u;
+RunTarget _mkExample(string name, string entry, string[] inc) {
+    return new RunTarget(name, false, entry.Length > 0, entry, inc, inc.Length,
+        new DepEntry[0], 0, false);
 }
 
 // <namespace>.Main from a source file (or "Main" when no namespace is declared).

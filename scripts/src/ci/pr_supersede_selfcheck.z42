@@ -1,0 +1,114 @@
+namespace Z42Xtask;
+
+using Std.Json;
+using Std.Collections;
+using Std.IO;
+
+class CiStaleFake : CiGitHub {
+    public JsonValue Current;
+    public JsonValue Old;
+    public JsonValue Pr;
+    public List<string> Posts = new List<string>();
+    public int OldReads;
+    public string Race = "";
+    public CiStaleFake() {
+        var fixture = new CiFakeGitHub(); this.Current = fixture.RunData; this.Pr = fixture.Pr;
+        this.Current.Set("id", JsonValue.OfLong(42L));
+        this.Current.Set("workflow_id", JsonValue.OfLong(7L));
+        this.Current.Set("run_number", JsonValue.OfLong(9L));
+        this.Current.Set("status", JsonValue.OfString("queued"));
+        this.Old = JsonValue.Parse(JsonValue.StringifyPretty(this.Current));
+        this.Old.Set("id", JsonValue.OfLong(41L));
+        this.Old.Set("run_number", JsonValue.OfLong(8L));
+        this.Old.Set("head_sha", JsonValue.OfString("old"));
+    }
+    public override JsonValue Get(string path) {
+        JsonValue value;
+        if (path.EndsWith("/pulls/3")) { value = this.Pr; }
+        else if (path.EndsWith("/actions/runs/42")) { value = this.Current; }
+        else if (path.EndsWith("/actions/runs/41")) {
+            this.OldReads = this.OldReads + 1;
+            if (this.OldReads == 1 && this.Race == "before") { this.Pr.Get("head").Set("sha", JsonValue.OfString("next")); }
+            value = this.Old;
+        } else if (path.EndsWith("/ci.yml/runs?event=pull_request&per_page=100")) {
+            value = JsonValue.OfObject(); JsonValue runs = JsonValue.OfArray();
+            runs.Add(this.Current); runs.Add(this.Old); value.Set("workflow_runs", runs);
+        } else { throw new Exception("unexpected stale-run API GET " + path); }
+        return JsonValue.Parse(JsonValue.StringifyPretty(value));
+    }
+    public override void Post(string path) {
+        _gateAssert(path == "repos/owner/repo/actions/runs/41/cancel"
+            || path == "repos/owner/repo/actions/runs/41/force-cancel", "only the verified obsolete run is mutated");
+        this.Posts.Add(path);
+        if (path.EndsWith("/cancel")) {
+            if (this.Race == "push") { this.Pr.Get("head").Set("sha", JsonValue.OfString("next")); }
+            if (this.Race == "restore") { this.Pr.Get("head").Set("sha", JsonValue.OfString("old")); }
+            if (this.Race == "close") { this.Pr.Set("state", JsonValue.OfString("closed")); }
+            if (this.Race == "complete" || this.Race == "complete-error") { this.Old.Set("status", JsonValue.OfString("completed")); }
+        }
+        if (this.Race == "complete-error" || this.Race == "denied") { throw new Exception("fake API request failed"); }
+    }
+}
+
+void _ciPrSupersedeChecks() {
+    var api = new CiStaleFake();
+    _ciSupersedePr(api, "owner/repo", "42", false, 0);
+    _gateAssert(api.Posts.Count == 2 && api.Posts[1].EndsWith("/force-cancel"), "unresponsive stale always job is released");
+    api = new CiStaleFake(); _ciSupersedePr(api, "owner/repo", "42", true, 0);
+    _gateAssert(api.Posts.Count == 0, "stale run dry-run never writes");
+    api = new CiStaleFake();
+    api.Current.Get("head_repository").Set("full_name", JsonValue.OfString("fork/repo"));
+    api.Old.Get("head_repository").Set("full_name", JsonValue.OfString("fork/repo"));
+    api.Pr.Get("head").Get("repo").Set("full_name", JsonValue.OfString("fork/repo"));
+    _ciSupersedePr(api, "owner/repo", "42", false, 0);
+    _gateAssert(api.Posts.Count == 2, "trusted cleanup supports a linked fork PR");
+    foreach (var why in new string[]{ "head", "empty-head", "workflow", "workflow-id", "event", "repo", "branch", "pr", "unlinked", "newer", "completed", "current-workflow", "current-event", "current-repo", "multiple", "target", "closed", "stale-current" }) {
+        api = new CiStaleFake();
+        if (why == "head") { api.Old.Set("head_sha", JsonValue.OfString("abc")); }
+        if (why == "empty-head") { api.Old.Set("head_sha", JsonValue.OfString("")); }
+        if (why == "workflow") { api.Old.Set("path", JsonValue.OfString(".github/workflows/bench-pr.yml")); }
+        if (why == "workflow-id") { api.Old.Set("workflow_id", JsonValue.OfLong(8L)); }
+        if (why == "event") { api.Old.Set("event", JsonValue.OfString("push")); }
+        if (why == "repo") { api.Old.Get("head_repository").Set("full_name", JsonValue.OfString("fork/repo")); }
+        if (why == "branch") { api.Old.Set("head_branch", JsonValue.OfString("another")); }
+        if (why == "pr") { api.Old.Get("pull_requests").At(0).Set("number", JsonValue.OfLong(4L)); }
+        if (why == "unlinked") { api.Old.Set("pull_requests", JsonValue.OfArray()); }
+        if (why == "newer") { api.Old.Set("run_number", JsonValue.OfLong(10L)); }
+        if (why == "completed") { api.Old.Set("status", JsonValue.OfString("completed")); }
+        if (why == "current-workflow") { api.Current.Set("path", JsonValue.OfString(".github/workflows/release.yml")); }
+        if (why == "current-event") { api.Current.Set("event", JsonValue.OfString("push")); }
+        if (why == "current-repo") { api.Current.Get("head_repository").Set("full_name", JsonValue.OfString("fork/repo")); }
+        if (why == "multiple") { api.Current.Get("pull_requests").Add(JsonValue.Parse("{\"number\":4}")); }
+        if (why == "target") { api.Pr.Get("base").Set("ref", JsonValue.OfString("release")); }
+        if (why == "closed") { api.Pr.Set("state", JsonValue.OfString("closed")); }
+        if (why == "stale-current") { api.Pr.Get("head").Set("sha", JsonValue.OfString("next")); }
+        _ciSupersedePr(api, "owner/repo", "42", false, 0);
+        _gateAssert(api.Posts.Count == 0, "stale cleanup rejects " + why);
+    }
+    foreach (var race in new string[]{ "before", "push", "restore", "close", "complete", "complete-error" }) {
+        api = new CiStaleFake(); api.Race = race;
+        _ciSupersedePr(api, "owner/repo", "42", false, 0);
+        _gateAssert(api.Posts.Count == (race == "before" ? 0 : 1), "stale cleanup revalidates cancellation race: " + race);
+    }
+    api = new CiStaleFake(); api.Race = "denied"; bool failed = false;
+    try { _ciSupersedePr(api, "owner/repo", "42", false, 0); } catch (Exception e) { failed = true; }
+    _gateAssert(failed && api.Posts.Count == 1, "permission errors do not silently claim cleanup");
+    string eventName = Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", "");
+    string eventPath = Environment.GetEnvironmentVariable("GITHUB_EVENT_PATH", "");
+    string repo = Environment.GetEnvironmentVariable("GITHUB_REPOSITORY", "");
+    string path = _xtaskWork(_root(), "ci-supersede-event.json");
+    try {
+        File.WriteAllText(path, "{\"workflow_run\":{\"id\":42}}");
+        Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", "workflow_run");
+        Environment.SetEnvironmentVariable("GITHUB_EVENT_PATH", path);
+        Environment.SetEnvironmentVariable("GITHUB_REPOSITORY", "owner/repo");
+        api = new CiStaleFake();
+        _gateAssert(_ciSupersede(api, true) == 0 && api.Posts.Count == 0, "workflow event delegates to PR cleanup without main publication APIs");
+    } finally {
+        Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", eventName);
+        Environment.SetEnvironmentVariable("GITHUB_EVENT_PATH", eventPath);
+        Environment.SetEnvironmentVariable("GITHUB_REPOSITORY", repo);
+        File.Delete(path);
+    }
+    Console.WriteLine("  ✓ CI stale runs: head / workflow / repository isolation, forks, cancellation races and dry run");
+}

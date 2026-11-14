@@ -11,6 +11,7 @@ name: Bench PR Regression
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened]
     paths:
       - 'src/runtime/**'
       - 'src/libraries/**'
@@ -121,7 +122,7 @@ jobs:
       # ::warning:: + job summary 明示「本次没测」（不能静默变绿）；自检与 criterion 照跑。
       # 常量读不出来 ⇒ 直接失败，绝不按「无代差」放行。
       - name: Detect zbc/zpkg format gap (base vs PR)
-        if: steps.scope.outputs.verdict_only == 'false'
+        if: steps.scope.outputs.bench_toolchain == 'true'
         id: fmtgap
         shell: bash
         run: |
@@ -186,7 +187,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install hyperfine
-        if: steps.scope.outputs.verdict_only == 'false'
+        if: steps.scope.outputs.bench_integration == 'true'
         run: |
           cargo install hyperfine --version 1.20.0 --locked --root "$HOME/.local"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -207,7 +208,7 @@ jobs:
       # Seed from the prev nightly + build current source warm (xtask bench
       # rebuilds stdlib via the warm self-build). Same path as CI build-and-test.
       - name: Bootstrap toolchain (nightly z42c seed → current source)
-        if: steps.scope.outputs.verdict_only == 'false'
+        if: steps.scope.outputs.bench_toolchain == 'true'
         uses: ./.github/actions/ci-bootstrap
         with:
           rid: linux-x64
@@ -224,7 +225,7 @@ jobs:
       # codegen logic → base-style scenario .zbc. If src/runtime is unchanged,
       # base_vm == pr_vm (byte identical) → skip building base's Rust VM.
       - name: Build base (merge-base) toolchain for A/B
-        if: steps.fmtgap.outputs.gap == '0'
+        if: steps.scope.outputs.bench_toolchain == 'true' && steps.fmtgap.outcome == 'success' && steps.fmtgap.outputs.gap == '0'
         id: base
         shell: bash
         run: |
@@ -319,7 +320,7 @@ jobs:
       # `--base-driver` 让门自己判两侧 driver 是否同一个二进制；这里本就不是（BASEDRIVER 是 PRDRIVER
       # 又编一代）⇒ 门如实说「判不了」而不判红。根治需两侧 driver 同代，尚未做。
       - name: Compiler fingerprint guard (output changed ⇒ version bumped)
-        if: steps.fmtgap.outputs.gap == '0'
+        if: steps.scope.outputs.bench_toolchain == 'true' && steps.fmtgap.outcome == 'success' && steps.fmtgap.outputs.gap == '0'
         shell: bash
         run: |
           xtask test compiler fingerprint --base "$PWD/base-src" \
@@ -333,7 +334,7 @@ jobs:
       #   · 树根等长：PR 源码另开 worktree `head-src`（与 `base-src` 等长），artifacts 软链回 PR 产物；
       #   · 工具链显式且同配方：`.ab-head-alllibs` 与 `.ab-base-alllibs` 等长、同一套拷贝顺序。
       - name: Prepare head toolchain (same shape as base, for both A/B gates)
-        if: steps.fmtgap.outputs.gap == '0'
+        if: steps.scope.outputs.bench_toolchain == 'true' && steps.fmtgap.outcome == 'success' && steps.fmtgap.outputs.gap == '0'
         id: head
         shell: bash
         run: |
@@ -363,7 +364,7 @@ jobs:
           echo "head_driver=$HEADALL/z42c.driver.zpkg"   >> "$GITHUB_OUTPUT"
 
       - name: Same-runner A/B regression gate (symmetric toolchains; >15% time fails)
-        if: steps.fmtgap.outputs.gap == '0'
+        if: steps.scope.outputs.bench_integration == 'true' && steps.fmtgap.outputs.gap == '0'
         shell: bash
         run: |
           set -euo pipefail
@@ -403,7 +404,7 @@ jobs:
       # 重采两次，用三轮比值的跑间离散度判红。整轮重采而不按 benchmark 名过滤：
       # `bench stdlib --filter` 过滤的是文件名，按名重采要另建映射，映射错 = 静默少测。
       - name: Micro A/B gate (symmetric capture; resample-on-suspicion; >15% time fails)
-        if: ${{ !cancelled() && steps.fmtgap.outputs.gap == '0' && steps.base.outcome == 'success' && steps.head.outcome == 'success' }}
+        if: ${{ success() && steps.scope.outputs.bench_stdlib == 'true' && steps.fmtgap.outputs.gap == '0' && steps.base.outcome == 'success' && steps.head.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -452,37 +453,10 @@ jobs:
               --current  "$A/micro-pr.json,$A/micro-pr-r2.json,$A/micro-pr-r3.json" \
               --baseline "$A/micro-base.json,$A/micro-base-r2.json,$A/micro-base-r3.json"
 
-      # ── criterion(Rust) tier A/B — informational, never fails (benchmarking.md §7) ──
-      # Only when the PR touched src/runtime (VM unchanged ⇒ result cannot move).
-      # criterion's NATIVE baseline compare: base tree SAVES, PR tree COMPARES; a shared
-      # CRITERION_HOME lets the two trees' runs meet. New or renamed cases are measured
-      # without a comparison until their baseline exists. Its bootstrap CI is within-run and
-      # blind to between-run drift, so it only prints. ⚠️ 别删测量：它是 GC 内部热路径
-      # 唯一的观测点；要重新硬门禁需先量出跑间漂移，不是调阈值。
-      - name: Criterion(Rust) A/B (informational — never fails; only if src/runtime changed)
-        if: ${{ !cancelled() && steps.scope.outputs.verdict_only == 'false' && steps.base.outcome == 'success' && steps.head.outcome == 'success' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          # 排除 *.md：README 改动不算「VM 变了」（benchmarking.md §8）。
-          if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime ':(exclude,glob)src/runtime/**/*.md'; then
-            echo "→ src/runtime unchanged base..pr → skip criterion A/B (VM byte-identical)"
-            exit 0
-          fi
-          export CRITERION_HOME="$PWD/.criterion-ab"
-          rm -rf "$CRITERION_HOME"; mkdir -p "$CRITERION_HOME"
-          echo "── base: save criterion baseline 'ab-base' (base tree) ──"
-          ( cd base-src/src/runtime && CRITERION_HOME="$CRITERION_HOME" \
-              cargo bench --locked \
-                --bench gc_cycle_bench -- --save-baseline ab-base )
-          echo "── pr: compare against 'ab-base' (this tree) ──"
-          ( cd src/runtime && CRITERION_HOME="$CRITERION_HOME" \
-            cargo bench --locked \
-              --bench gc_cycle_bench -- --baseline-lenient ab-base )
-          echo "── informational: 整个 95% 区间在 +25% 之上（lower_bound > thr）= 标记，但不 fail ──"
-          xtask bench criterion-report "$CRITERION_HOME"
-          echo "── criterion tier is informational; it never fails this job ──"
+      # Rust measurements need only the two Rust trees, not either z42 toolchain.
+      - name: VM Criterion A/B (informational)
+        if: success() && steps.scope.outputs.bench_vm == 'true'
+        run: xtask bench vm --base base-src
 
       - name: Upload A/B results
         if: always() && steps.scope.outputs.verdict_only == 'false'
@@ -490,6 +464,8 @@ jobs:
         with:
           name: bench-ab-results
           path: |
+            artifacts/bench-plan.json
+            artifacts/reports/benches/criterion/
             artifacts/reports/benches/ab.json
             artifacts/reports/benches/micro-pr.json
             artifacts/reports/benches/micro-base.json
