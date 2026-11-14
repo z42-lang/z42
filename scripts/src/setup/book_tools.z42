@@ -1,0 +1,31 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _ciInstallBooks(string root, string target, string stage, string rid, bool force, CiToolOps ops) {
+    Directory.Create(Path.Join(target, "bin"));
+    foreach (var name in new string[]{ "mdbook", "mdbook-mermaid" }) {
+        string version = _vRead(root, "toolchain." + name + ".version");
+        string binary = Path.Join(target, "bin/" + name + (rid.StartsWith("windows-") ? ".exe" : ""));
+        if (!force && _ciToolVersion(ops, binary, name, version)) { continue; }
+        bool release = false;
+        if (rid == "linux-x64") {
+            string archive = Path.Join(stage, name + ".tar.gz");
+            string repo = name == "mdbook" ? "rust-lang/mdBook" : "badboy/mdbook-mermaid";
+            string url = "https://github.com/" + repo + "/releases/download/v" + version + "/" + name + "-v" + version + "-x86_64-unknown-linux-gnu.tar.gz";
+            if (ops.Run("curl", new string[]{ "--fail", "--location", "--silent", "--show-error", "--retry", "2", "--connect-timeout", "10", "--max-time", "30", "--output", archive, url }).ExitCode == 0
+                && ops.Run("tar", new string[]{ "-tzf", archive, name }).ExitCode == 0) {
+                int code = ops.Run("tar", new string[]{ "-xzf", archive, "-C", Path.Join(target, "bin"), name }).ExitCode;
+                if (code != 0) { return code; }
+                release = true;
+            }
+        }
+        if (!release) {
+            Console.WriteLine("Installing " + name + " " + version + " from crates.io");
+            int code = ops.Run("cargo", new string[]{ "install", name, "--version", version, "--locked", "--root", target, "--force" }).ExitCode;
+            if (code != 0) { return code; }
+        }
+        if (!_ciToolVersion(ops, binary, name, version)) { ConsoleError.WriteLine("Unexpected installed version: " + name); return 1; }
+    }
+    return 0;
+}
