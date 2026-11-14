@@ -2,7 +2,7 @@
 //! after relocation, using only the packaged core/std/backend library closure.
 #![cfg(feature = "shared-core")]
 use std::{path::PathBuf, sync::Arc};
-use z42::component_abi::{ExecutionApi, JIT_COMPONENT, INTERP_COMPONENT};
+use z42::components::abi::{ExecutionApi, JIT_COMPONENT, INTERP_COMPONENT};
 use z42::host::{
     BackendOptions, BackendSource, ComponentLease, ExecMode,
     LoadOptions, LoadedProgram, Value, component_interface, component_ids,

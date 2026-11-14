@@ -17,12 +17,12 @@
 
 main.rs 不调用 Rust VM 接口，只查找 libz42 并取得版本化 C 入口。先验证头版本、大小、构建身份和回调，再把参数交给 host::cli。已打开的库保留到进程结束，避免运行时或依赖的 TLS 析构跳入已卸载代码。
 
-普通嵌入功能从 z42::host 提供，CLI 也调用相同宿主服务。VM 消费者通过内部 components::api 请求准备、执行角色及分析服务，跨库协议另列 component_abi 契约。
+普通嵌入功能从 z42::host 提供，CLI 也调用相同宿主服务。VM 消费者通过内部 components::api 请求准备、执行角色及分析服务，跨库协议另列 components::abi 契约。
 当前 host 仍具名转出组件管理，公开签名和静态装配头也有内部类型泄露；普通宿主面的完整收口尚未完成。
 当前缺口与目标关系见[运行时模块边界](module-boundaries.md)，这项收口尚未完成。
 
 组件框架集中在 `runtime/src/components/`：api 提供内部能力访问，execution_roles 保存不可变角色绑定，catalog 加载和校验工厂，options 接收装配输入，instance 管理每 VM 实例和租约，backends 选择执行来源与发现候选，linked 管理静态工厂。
-根 component_abi 定义同构建跨库 C 协议，component_bridge 检查核心映像与布局。components 及其管理子模块不对 crate 外开放。
+components::abi 定义同构建跨库 C 协议，components::bridge 检查核心映像与布局。components 只公开同构建 abi/bridge 子模块，内部 api 和管理子模块不对 crate 外开放。
 
 GC 与值/对象布局仍属于 core，不能运行中切换；它们位于分配、屏障和 safepoint 热路径，机器码使用固定布局。解析符号和崩溃栈定位是基础能力，不依赖可选调试器。
 
@@ -190,6 +190,6 @@ profiler 的算法与线程位于 z42-profiler，diagnostics 只持有中立契�
 - [运行时/包分发](../toolchain/workload-distribution.md)
 - [诊断与跟踪](diagnostics.md)
 
-跨库组件协议由 z42::component_abi 定义，包含描述符、C 布局接口和执行注册；core build.rs 生成共享构建身份。
-z42::component_bridge 提供最小核心身份/布局校验，不包含组件管理。host 的具名管理再导出仍属于待收口缺口。生产执行库单向依赖 core，
+跨库组件协议由 z42::components::abi 定义，包含描述符、C 布局接口和执行注册；core build.rs 生成共享构建身份。
+z42::components::bridge 提供最小核心身份/布局校验，不包含组件管理。host 的具名管理再导出仍属于待收口缺口。生产执行库单向依赖 core，
 通用 ABI 夹具只使用协议值和回调，实际执行组件仍链接同一份共享核心。

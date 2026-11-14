@@ -10,7 +10,7 @@
 
 src/jit 为后端实现，src/jit/component.rs 提供工厂与 ExecutionApi；src/jit/config.rs 再导出 core 的输入类型。
 
-独立实现通过 `z42::component_abi` 使用描述符和 C 布局接口，通过 `z42::component_bridge` 校验共享核心身份/布局。核心模块仅私有导入，不由本库再导出。
+独立实现通过 `z42::components::abi` 使用描述符和 C 布局接口，通过 `z42::components::bridge` 校验共享核心身份/布局。核心模块仅私有导入，不由本库再导出。
 
 ## 基础用法
 

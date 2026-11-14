@@ -324,6 +324,6 @@ fn parse_args(args: JsValue) -> Result<Vec<Value>, JsValue> {
 }
 
 fn register_backend() -> Result<(), JsValue> {
-    unsafe { z42::host::register_static_component(z42::component_abi::INTERP_COMPONENT, z42_interp::component::z42_interp_init) }
+    unsafe { z42::host::register_static_component(z42::components::abi::INTERP_COMPONENT, z42_interp::component::z42_interp_init) }
         .map_err(|e| js_error("ComponentError", 1, &format!("{e:#}")))
 }

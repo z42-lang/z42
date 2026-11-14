@@ -12,7 +12,7 @@
 | `src/profiler/cpu.rs` | CPU 采样器和分析服务实现 |
 | `src/profiler/heap/` | 堆摘要、V8 快照和保留图算法 |
 
-独立实现通过 `z42::component_abi` 使用描述符和 C 布局接口，通过 `z42::component_bridge` 校验共享核心身份/布局。核心模块仅私有导入，不由本库再导出。
+独立实现通过 `z42::components::abi` 使用描述符和 C 布局接口，通过 `z42::components::bridge` 校验共享核心身份/布局。核心模块仅私有导入，不由本库再导出。
 
 ## 基础用法
 

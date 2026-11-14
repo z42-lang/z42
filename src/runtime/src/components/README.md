@@ -19,13 +19,13 @@
 | `backends.rs` | interp/JIT 来源选择、候选发现、目标能力和初始引擎注册表 |
 | `linked.rs` | 进程寿命的静态工厂登记；不保存 VM 实例 |
 | `execution_roles.rs` | 基线/优化角色到提供方的不可变绑定，实例创建前验证接口 |
-| `../component_abi.rs` / `../component_bridge.rs` | 同构建跨库 C 协议与最小核心身份/布局桥 |
+| `abi.rs` / `bridge.rs` | 同构建跨库 C 协议与最小核心身份/布局桥 |
 
 ## 基础用法
 
 VM 消费者通过内部 `components::api` 请求准备、执行角色和分析服务。执行角色绑定在实例创建前验证，
 消费者不传具体提供方 ID；执行热路径使用一次装配的引擎。`ComponentOptions`、`BackendOptions` 等具名入口仍经 host 转出，宿主公开面的完整收口尚未完成。
-独立组件通过 `z42::component_abi` 使用同构建协议，`component_bridge` 只提供共享核心身份和布局。
+独立组件通过 `z42::components::abi` 使用同构建协议，`components::bridge` 只提供共享核心身份和布局。
 描述符、接口头、构建身份与执行核心身份均在装配时校验。
 
 三种使用形态的目标是静态链接、作为共享库依赖的动态链接、运行时显式装入分别建模，并按运行时策略检查；

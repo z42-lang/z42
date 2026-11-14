@@ -1,5 +1,5 @@
-use super::{api, ComponentOptions, execution_roles::ExecutionBindings};
-use crate::{component_abi::*, context::VmContext};
+use super::{api, api::ComponentOptions, execution_roles::ExecutionBindings};
+use crate::{components::abi::*, context::VmContext};
 use std::sync::{Mutex, atomic::{AtomicUsize, Ordering}};
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -10,7 +10,7 @@ const RENAMED: ComponentId = ComponentId::new(0xc002);
 const WRONG_VERSION: ComponentId = ComponentId::new(0xc003);
 
 unsafe extern "C" fn identity() -> ExecutionIdentity {
-    ExecutionIdentity { image: crate::component_bridge::core_identity(), abi: crate::component_bridge::CORE_ABI }
+    ExecutionIdentity { image: crate::components::bridge::core_identity(), abi: crate::components::bridge::CORE_ABI }
 }
 unsafe extern "C" fn attach(_: *const core::ffi::c_void, _: *const ExecutionConfig) -> ComponentStatus {
     ComponentStatus::OK
@@ -66,8 +66,8 @@ fn changing_provider_identity_does_not_change_the_role_consumer() {
         let bindings = ExecutionBindings::new([(api::ExecutionRole::Baseline, id)]).unwrap();
         options.install_bound(&ctx, bindings).unwrap();
         let observed = consume(&ctx);
-        assert_eq!(observed.image, crate::component_bridge::core_identity());
-        assert_eq!(observed.abi, crate::component_bridge::CORE_ABI);
+        assert_eq!(observed.image, crate::components::bridge::core_identity());
+        assert_eq!(observed.abi, crate::components::bridge::CORE_ABI);
         assert!(api::execution(&ctx, api::ExecutionRole::Optimizing).unwrap().is_none());
     }
     assert_eq!(CREATES.load(Ordering::SeqCst), 2);
@@ -99,7 +99,7 @@ fn invalid_or_ambiguous_bindings_fail_before_instances_are_created() {
     ] {
         let factory = unsafe { super::catalog::Factory::from_validated_descriptor(&ORIGINAL, vec![], specs) }.unwrap();
         let bindings = ExecutionBindings::new([(api::ExecutionRole::Baseline, FIRST)]).unwrap();
-        assert!(super::VmComponents::create_bound(&[std::sync::Arc::new(factory)], 1, bindings).is_err());
+        assert!(api::VmComponents::create_bound(&[std::sync::Arc::new(factory)], 1, bindings).is_err());
     }
     assert_eq!(CREATES.load(Ordering::SeqCst), 0);
 }
@@ -121,7 +121,7 @@ fn role_queries_are_read_only_and_worker_leases_preserve_lifetime() {
     drop(ctx); drop(worker);
     assert!(weak.upgrade().is_some());
     assert_eq!(LIVE.load(Ordering::SeqCst), 1);
-    assert_eq!(unsafe { (lease.core_identity)() }.image, crate::component_bridge::core_identity());
+    assert_eq!(unsafe { (lease.core_identity)() }.image, crate::components::bridge::core_identity());
     drop(lease);
     assert!(weak.upgrade().is_none());
     assert_eq!(LIVE.load(Ordering::SeqCst), 0);

@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},
 };
-use crate::component_abi::*;
+use crate::components::abi::*;
 
 pub struct Factory {
     pub(crate) id: ComponentId,

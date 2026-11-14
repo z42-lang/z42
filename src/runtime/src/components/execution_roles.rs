@@ -1,5 +1,5 @@
 //! Immutable semantic-role bindings, validated before component instances exist.
-use crate::component_abi::{ComponentId, ComponentInterface, ExecutionApi};
+use crate::components::abi::{ComponentId, ComponentInterface, ExecutionApi};
 use super::catalog::Factory;
 use anyhow::{ensure, Result};
 use std::sync::Arc;

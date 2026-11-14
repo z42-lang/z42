@@ -1,5 +1,5 @@
-use super::*;
-use crate::component_abi::*;
+use super::api::*;
+use crate::components::abi::*;
 use crate::host::{LoadedProgram, LoadOptions, ExecMode};
 use crate::context::VmContext;
 use std::sync::Mutex;

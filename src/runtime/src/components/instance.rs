@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 use std::{
     collections::BTreeMap, ffi::c_void, marker::PhantomData, ops::Deref, ptr::NonNull, sync::Arc,
 };
-use crate::component_abi::*;
+use crate::components::abi::*;
 use super::execution_roles::{ExecutionBindings, ExecutionRole};
 
 #[derive(Clone, Copy)]

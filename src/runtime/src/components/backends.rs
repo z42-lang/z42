@@ -1,8 +1,8 @@
 //! Backend source selection and registration before any managed execution.
-use super::ComponentOptions;
+use super::options::ComponentOptions;
 use anyhow::{bail, Result};
 use std::path::PathBuf;
-use crate::component_abi::*;
+use crate::components::abi::*;
 use crate::{zpkg::ExecMode, exec::engine::EngineRegistry};
 
 #[derive(Clone, Debug, Default)]
@@ -70,7 +70,7 @@ pub(crate) fn native_paths() -> Vec<PathBuf> {
 
     // Embedded libraries need not live beside the application's executable.
     // Keep explicit and executable-relative overrides ahead of the core image.
-    if let Some(image) = crate::pal::dynlib::image_path(crate::component_bridge::core_identity()) {
+    if let Some(image) = crate::pal::dynlib::image_path(crate::components::bridge::core_identity()) {
         if let Some(directory) = image.parent() {
             let directory = directory.to_path_buf();
             if !paths.contains(&directory) { paths.push(directory.clone()); }

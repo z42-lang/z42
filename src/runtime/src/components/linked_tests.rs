@@ -1,6 +1,6 @@
 use super::*;
-unsafe extern "C" fn first() -> *const crate::component_abi::ComponentDescriptor { std::ptr::null() }
-unsafe extern "C" fn second() -> *const crate::component_abi::ComponentDescriptor { std::ptr::null() }
+unsafe extern "C" fn first() -> *const crate::components::abi::ComponentDescriptor { std::ptr::null() }
+unsafe extern "C" fn second() -> *const crate::components::abi::ComponentDescriptor { std::ptr::null() }
 #[test]
 fn static_providers_are_idempotent_and_conflicting_replacement_is_rejected() {
     let id = ComponentId::new(0x8991795687984578374);

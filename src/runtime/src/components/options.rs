@@ -1,13 +1,13 @@
 //! Component selection and automatic attachment of same-build runtime components.
 use super::catalog::{Catalog, Registration};
-use super::VmComponents;
+use super::instance::{ComponentLease, VmComponents};
 use crate::context::VmContext;
 use anyhow::{bail, Result};
 use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},
 };
-use crate::component_abi::*;
+use crate::components::abi::*;
 use super::execution_roles::ExecutionBindings;
 
 /// Immutable component selection. Clones share the factory load result; each VM
@@ -130,7 +130,7 @@ impl ComponentOptions {
 pub fn component_interface<T: ComponentInterface>(
     ctx: &VmContext,
     id: ComponentId,
-) -> Result<Option<super::ComponentLease<T>>> {
+) -> Result<Option<ComponentLease<T>>> {
     if let Some(components) = ctx.core().components().get() {
         let interface = components.lease(id, ctx.core_arc())?;
         if interface.is_some() { return Ok(interface); }

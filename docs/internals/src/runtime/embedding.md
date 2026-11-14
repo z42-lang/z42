@@ -373,7 +373,7 @@ wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那
 
 ## 可选原生组件
 
-当前 Rust 宿主仍通过 `LoadOptions.components` 选择同构建组件；管理类型从 `z42::host` 获取，协议类型单独从 `z42::component_abi` 获取。
+当前 Rust 宿主仍通过 `LoadOptions.components` 选择同构建组件；管理类型从 `z42::host` 获取，协议类型单独从 `z42::components::abi` 获取。
 这是尚待收口的管理公开面；VM 内部消费者使用 `components::api` 的能力请求。
 `ComponentOptions::with_static` 接收已链接的工厂函数，`with_dynamic` 接收预期组件 ID、库路径和 C 初始化入口；
 调用方通过 unsafe 承诺原生代码及 ABI 的有效性。两种方法同时登记来源并启用组件。

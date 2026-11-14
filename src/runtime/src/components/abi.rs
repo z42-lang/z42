@@ -3,7 +3,7 @@
 //!
 //! Component producers consume this same-build protocol directly:
 //! ```
-//! use z42::component_abi::{ComponentDescriptor, ComponentId};
+//! use z42::components::abi::{ComponentDescriptor, ComponentId};
 //! assert_eq!(std::mem::size_of::<ComponentId>(), 16);
 //! let _: Option<ComponentDescriptor> = None;
 //! ```
@@ -15,6 +15,13 @@
 //! ```compile_fail
 //! use z42::host::ComponentDescriptor;
 //! let _: Option<ComponentDescriptor> = None;
+//! ```
+//! Root protocol aliases and management names are not public component contracts:
+//! ```compile_fail
+//! use z42::component_abi::ComponentDescriptor;
+//! ```
+//! ```compile_fail
+//! use z42::components::ComponentOptions;
 //! ```
 use core::ffi::c_void;
 
@@ -252,5 +259,5 @@ unsafe impl ComponentInterface for ProfilerApi {
 }
 
 #[cfg(test)]
-#[path = "component_abi_tests.rs"]
+#[path = "abi_tests.rs"]
 mod tests;

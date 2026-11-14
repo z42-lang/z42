@@ -1,9 +1,12 @@
 //! VM-only capability access. Provider identities and management stay inside components.
-use crate::{component_abi::{ExecutionApi, ExecutionConfig, ComponentStatus}, context::VmContext, zpkg::ExecMode};
+use crate::{components::abi::{ExecutionApi, ExecutionConfig, ComponentStatus}, context::VmContext, zpkg::ExecMode};
 use anyhow::Result;
 pub(crate) use super::execution_roles::ExecutionRole;
-pub(crate) use super::{BackendSource, ComponentLease, VmComponents};
-use super::{BackendOptions, ComponentOptions, execution_roles::ExecutionBindings};
+pub use super::backends::{BackendOptions, BackendSource};
+pub use super::instance::{ComponentLease, VmComponents};
+pub use super::options::{ComponentOptions, component_interface, component_ids};
+pub use super::linked::register_static_component;
+use super::execution_roles::ExecutionBindings;
 
 /// Prepare once before publishing the program; execution uses its bound engines.
 pub(crate) fn prepare_program(
@@ -11,9 +14,9 @@ pub(crate) fn prepare_program(
     backends: &BackendOptions, profiler: &BackendSource,
 ) -> Result<()> {
     let selected = backends.components(mode, components)?;
-    let mut roles = vec![(ExecutionRole::Baseline, crate::component_abi::INTERP_COMPONENT)];
+    let mut roles = vec![(ExecutionRole::Baseline, crate::components::abi::INTERP_COMPONENT)];
     if mode == ExecMode::Jit {
-        roles.push((ExecutionRole::Optimizing, crate::component_abi::JIT_COMPONENT));
+        roles.push((ExecutionRole::Optimizing, crate::components::abi::JIT_COMPONENT));
     }
     let bindings = ExecutionBindings::new(roles)?;
     ctx.core().diagnostics().sampler.set_source(profiler.clone())?;
@@ -65,7 +68,7 @@ pub(super) fn attach_execution(ctx: &VmContext, mode: ExecMode) -> Result<()> {
         let interface = execution(ctx, role)?
             .ok_or_else(|| anyhow::anyhow!("{name} component does not provide its execution interface"))?;
         let identity = unsafe { (interface.core_identity)() };
-        crate::component_bridge::validate_core(identity, name)?;
+        crate::components::bridge::validate_core(identity, name)?;
         let code = components.execution_code(role)
             .ok_or_else(|| anyhow::anyhow!("{name} component has no code lease"))?;
         // Acquire code lifetime before installing any backend-owned trait objects.

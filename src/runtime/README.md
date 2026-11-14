@@ -62,7 +62,7 @@
 | `crates/z42-profiler/src/profiler/` | CPU 采样、堆摘要、V8 快照与保留链，见 [`crates/z42-profiler/README.md`](crates/z42-profiler/README.md) |
 | `src/context/` | `VmContext`（通过 host 提供嵌入入口）：固定地址的每线程视图，组合 exec/runtime/diagnostics/threads 状态并共享 Arc<VmCore> |
 | `src/interop/` | 原生提供方注册/查询与 Tier 1 C ABI 编组，见 [`src/interop/README.md`](src/interop/README.md) |
-| `src/component_abi.rs` / `src/component_bridge.rs` | 独立组件共享的同构建协议及核心身份/布局桥，不经 host 转出 |
+| `src/components/abi.rs` / `src/components/bridge.rs` | 独立组件共享的同构建协议及核心身份/布局桥，不经 host 转出 |
 | `src/components/` | 内部能力门面、角色绑定、工厂加载、后端选择与每 VM 生命周期，见 [`src/components/README.md`](src/components/README.md) |
 | `src/host/` | CLI 与外部宿主共用的 Rust 加载、调用及应用服务，包含 `z42_host.h` 的 C ABI 适配，见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
 | `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
