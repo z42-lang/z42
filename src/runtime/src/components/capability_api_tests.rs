@@ -134,7 +134,7 @@ fn successful_attach_without_registering_the_requested_engine_is_rejected() {
         crate::exec::engine::EngineRegistry::new(None));
     let options = unsafe { ComponentOptions::default().with_static(RENAMED, renamed) };
     options.install_bound(&ctx, ExecutionBindings::new([(api::ExecutionRole::Baseline, RENAMED)]).unwrap()).unwrap();
-    let error = super::backends::attach(&ctx, crate::zpkg::ExecMode::Interp).unwrap_err().to_string();
+    let error = super::api::attach_execution(&ctx, crate::zpkg::ExecMode::Interp).unwrap_err().to_string();
     assert!(error.contains("did not register"), "{error}");
     assert!(!ctx.core().exec().engines.has_baseline());
 }

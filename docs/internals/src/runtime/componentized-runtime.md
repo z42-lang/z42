@@ -21,7 +21,7 @@ main.rs 不调用 Rust VM 接口，只查找 libz42 并取得版本化 C 入口�
 当前 host 仍具名转出组件管理，公开签名和静态装配头也有内部类型泄露；普通宿主面的完整收口尚未完成。
 当前缺口与目标关系见[运行时模块边界](module-boundaries.md)，这项收口尚未完成。
 
-组件框架集中在 `runtime/src/components/`：api 提供内部能力访问，execution_roles 保存不可变角色绑定，catalog 加载和校验工厂，options 接收装配输入，instance 管理每 VM 实例和租约，backends 选择并装配执行接口，linked 管理静态工厂。
+组件框架集中在 `runtime/src/components/`：api 提供内部能力访问，execution_roles 保存不可变角色绑定，catalog 加载和校验工厂，options 接收装配输入，instance 管理每 VM 实例和租约，backends 选择执行来源与发现候选，linked 管理静态工厂。
 根 component_abi 定义同构建跨库 C 协议，component_bridge 检查核心映像与布局。components 及其管理子模块不对 crate 外开放。
 
 GC 与值/对象布局仍属于 core，不能运行中切换；它们位于分配、屏障和 safepoint 热路径，机器码使用固定布局。解析符号和崩溃栈定位是基础能力，不依赖可选调试器。
@@ -60,7 +60,7 @@ iOS/WASM 等平台按可信运行时组件的实际装载能力判定，不能�
 
 VmCore.exec.engines 持有基线 Engine、JIT 模式 Engine、TierApi 和后端配置。内部能力门面准备来源并绑定 Baseline/Optimizing 语义角色，
 注册表在任何 create_vm 之前核对绑定唯一性、提供方存在及 ExecutionApi 的版本/大小/对齐。实际接口查询仍校验返回表头。
-装配适配器按角色取得接口、验证核心身份后调用 ExecutionApi.attach；成功返回还须确认所需引擎已登记。core 只调用已注册能力。静态与动态后端使用同一 attach 路径，不依赖全局构造器。
+api 的装配协调按角色取得接口、验证核心身份后调用 ExecutionApi.attach；成功返回还须确认所需引擎已登记。core 只调用已注册能力。静态与动态后端使用同一 attach 路径，不依赖全局构造器。
 
 interp 的静态、虚、闭包和混合调用通过共享参数视图进入 Engine；JIT 的冷/不可翻译调用通过注册的基线 Engine 回落。解释器热循环保留 OSR 计数及阈值比较，交接经 TierApi。两个后端不互相引用实现，不使用进程全局 JIT 单例。
 

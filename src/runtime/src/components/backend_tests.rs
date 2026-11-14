@@ -80,7 +80,7 @@ fn another_core_is_rejected_before_any_vm_address_is_passed_to_it() {
         crate::exec::engine::EngineRegistry::new(None));
     let components = unsafe { ComponentOptions::default().with_static(INTERP_COMPONENT, foreign_init) };
     components.install_bound(&ctx, super::execution_roles::ExecutionBindings::new([(super::api::ExecutionRole::Baseline, INTERP_COMPONENT)]).unwrap()).unwrap();
-    let error = super::backends::attach(&ctx, ExecMode::Interp).unwrap_err();
+    let error = super::api::attach_execution(&ctx, ExecMode::Interp).unwrap_err();
     assert!(error.to_string().contains("core image or ABI mismatch"));
     assert_eq!(ATTACH_CALLS.load(Ordering::Relaxed), 0);
 }
@@ -108,6 +108,6 @@ fn same_image_with_incompatible_compiled_layout_is_rejected() {
         crate::exec::engine::EngineRegistry::new(None));
     let components = unsafe { ComponentOptions::default().with_static(INTERP_COMPONENT, wrong_abi_init) };
     components.install_bound(&ctx, super::execution_roles::ExecutionBindings::new([(super::api::ExecutionRole::Baseline, INTERP_COMPONENT)]).unwrap()).unwrap();
-    assert!(super::backends::attach(&ctx, ExecMode::Interp).unwrap_err().to_string().contains("core image or ABI mismatch"));
+    assert!(super::api::attach_execution(&ctx, ExecMode::Interp).unwrap_err().to_string().contains("core image or ABI mismatch"));
     assert_eq!(ATTACH_CALLS.load(Ordering::Relaxed), 0);
 }
