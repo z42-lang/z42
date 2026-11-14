@@ -243,7 +243,9 @@ impl Library {
 ```
 
 运行时只在这里 dlopen：用户 native 扩展（`loader/native`）、`libz42_compression`（`compression`）、REPL 编辑器
-`libz42_repl`（`crates/z42-repl/src/registration.rs`），提供方均通过 loader 请求装入。脚本扩展在 iOS/WASM 或关闭 native interop 时拒绝；可信运行时组件的 `open_component` 使用独立装载契约。
+`libz42_repl`（`crates/z42-repl/src/registration.rs`），提供方均通过 loader 请求装入。脚本扩展在 iOS/WASM 或关闭动态装载时拒绝；可信运行时代码由 loader/code 使用独立部署契约请求底层开库。
+PAL 的 Library 只拥有一个 OS 引用，drop 会释放该引用；loader/code 统一按规范路径缓存 CodeImage 并保活到进程退出，
+避免组件或独立 native 库的 TLS 析构回调失效。PAL 不解释组件/native 描述符，也不保存运行时映像缓存。
 
 ### `pal/random.rs` — 熵
 

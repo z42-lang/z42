@@ -60,13 +60,13 @@ fn worker_retains_facade_resources_until_last_context_drop() {
 
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::exec::call::builtin_abi::BuiltinError;
-use crate::exec::object_protocol::ObjectProtocol;
+use crate::object::protocol::ObjectProtocol;
 use crate::exec::ops::{stringify::with_obj_str, vcall::{resolve_vcall, VCallTarget}};
 use std::{cell::Cell, sync::Arc};
 
 thread_local! { static PROTOCOL_CALLS: Cell<usize> = const { Cell::new(0) }; }
 
-fn protocol_context(protocol: ObjectProtocol) -> std::pin::Pin<Box<VmContext>> {
+fn protocol_context(protocol: ObjectProtocol<VmContext, BuiltinError>) -> std::pin::Pin<Box<VmContext>> {
     configured_context(
         None, crate::pal::fs::default_vfs(),
         crate::host::extensions::freeze(Default::default()),
@@ -177,11 +177,11 @@ fn object_protocol_default_services_are_shared_with_workers_without_retaining_th
     let primary = VmContext::new();
     let other = VmContext::with_vfs(crate::pal::fs::default_vfs());
     let worker = VmContext::new_with_core(primary.core_arc());
-    assert!(std::ptr::eq(&primary.core.exec.object_protocol, &worker.core.exec.object_protocol));
-    assert!(!std::ptr::eq(&primary.core.exec.object_protocol, &other.core.exec.object_protocol));
+    assert!(std::ptr::eq(primary.core().object_protocol(), worker.core().object_protocol()));
+    assert!(!std::ptr::eq(primary.core().object_protocol(), other.core().object_protocol()));
     let weak = Arc::downgrade(&primary.core_arc());
     drop(primary);
-    let protocol = worker.core.exec.object_protocol;
+    let protocol = *worker.core().object_protocol();
     assert_eq!((protocol.default_to_string)(&Value::Null).unwrap(), "null");
     // Reflection needs the Std.Type shell; a bare VM deliberately returns null.
     worker.install_lazy_loader(None, 0);
@@ -285,6 +285,6 @@ fn safepoint_policy_is_per_vm_and_shared_by_worker_resets() {
 
 fn configured_context(module: Option<std::sync::Arc<crate::metadata::Module>>, vfs: std::sync::Arc<dyn crate::pal::fs::Vfs>,
     extensions: crate::context::extensions::ExtensionState, config: crate::config::VmConfig,
-    protocol: crate::exec::object_protocol::ObjectProtocol) -> std::pin::Pin<Box<VmContext>> {
+    protocol: ObjectProtocol<VmContext, BuiltinError>) -> std::pin::Pin<Box<VmContext>> {
     super::with_config(module, vfs, extensions, config, protocol, crate::components::api::engine_registry())
 }

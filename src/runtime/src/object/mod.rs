@@ -1,5 +1,6 @@
 //! Values, object storage, layouts and managed handles.
 
+pub mod protocol;
 pub mod value;
 pub mod types;
 pub mod header;

@@ -772,14 +772,16 @@ pub unsafe extern "C" fn z42_host_run_app(
         // Fix: run the VM on a dedicated large-stack thread so the embedded stack
         // budget matches/exceeds desktop.
         let run_vm = move || -> i32 {
+            let vfs = crate::pal::fs::default_vfs();
             let opts = crate::host::RunOpts {
                 mode: crate::host::default_mode(),
-                libs_dir: libs,
+                search_dirs: super::services::process_search_dirs(&app, libs.as_deref(), &*vfs),
+                vfs,
+                resolver: None,
                 program_args: prog_args,
                 print_stats: false,
                 stats_json: false,
                 exit_after_run: false,
-                vfs: None,
             };
             let result = crate::host::run_app(&app, entry_owned.as_deref(), opts);
             // runtime-audit P0-4: fatal VM error → its report + the fixed code.

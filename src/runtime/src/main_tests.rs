@@ -1,6 +1,39 @@
-use super::{libs_env_to_publish, resolve_config_mode, Cli, ExecMode};
+use super::{libs_env_to_publish, resolve_config_mode, resolve_libs_dir_from, Cli, ExecMode};
 use clap::Parser;
 use std::path::Path;
+
+#[test]
+fn explicit_libs_never_silently_switch_to_the_sdk_directory() {
+    let root = std::env::temp_dir().join(format!("z42-explicit-libs-{}", std::process::id()));
+    let sdk_libs = root.join("sdk/libs");
+    let executable = root.join("sdk/bin/z42vm");
+    std::fs::create_dir_all(&sdk_libs).unwrap();
+    let missing = root.join("host-selected-missing");
+    assert_eq!(resolve_libs_dir_from(Some(&missing), Some(&executable)), Some(missing));
+    assert_eq!(resolve_libs_dir_from(None, Some(&executable)), Some(sdk_libs));
+    assert_eq!(resolve_libs_dir_from(None, None), None);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn startup_does_not_probe_development_artifacts() {
+    const MARKER: &str = "Z42_STARTUP_REPOSITORY_TRAP";
+    if let Some(executable) = std::env::var_os(MARKER) {
+        assert_eq!(resolve_libs_dir_from(None, Some(Path::new(&executable))), None);
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("z42-startup-artifacts-{}", std::process::id()));
+    for profile in ["release", "debug"] {
+        std::fs::create_dir_all(root.join("artifacts/intermediate/libraries/flat").join(profile)).unwrap();
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["startup_does_not_probe_development_artifacts", "--nocapture"])
+        .current_dir(&root).env(MARKER, root.join("unconfigured/bin/z42vm"))
+        .output().unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"), "child regression test was not executed");
+}
 
 // VM resolved a dir and Z42_LIBS is unset → publish the resolved dir so the
 // in-process z42c sees the same libs dir (SDK layout works with no env set).

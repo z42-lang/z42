@@ -30,6 +30,18 @@ fn echo(program: &LoadedProgram, value: i64) -> i64 {
     }
 }
 #[test]
+fn actual_dynamic_object_protocol_callbacks_and_execution_bridges_agree() {
+    for mode in [ExecMode::Interp, ExecMode::Jit] {
+        let program = load(mode, backends()).unwrap();
+        for _ in 0..2 {
+            assert!(matches!(program.invoke("EngineComponentProbe.ObjectProtocolRoundtrip", &[]).unwrap(), Some(Value::I64(42))));
+        }
+        if mode == ExecMode::Jit {
+            assert!(program.context().counters_snapshot().jit_methods_compiled > 0);
+        }
+    }
+}
+#[test]
 fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
     // This test thread exits after both VMs/options drop. Backend/dependency TLS
     // destructors must still point into mapped native images at thread exit.
@@ -118,7 +130,8 @@ fn packaged_c_embedding_host_loads_components_and_shuts_down() {
     let fqn = CString::new("EngineComponentProbe.Echo").unwrap();
     // Keep the C host image through thread exit, including its TLS destructors.
     unsafe {
-        let library = z42::pal::dynlib::Library::open_component(&path).unwrap();
+        let library = std::mem::ManuallyDrop::new(z42::pal::dynlib::Library::open(&path).unwrap());
+        assert!(library.symbol::<extern "C" fn()>("z42_runtime_entry_v1").is_err(), "CLI must not be exported by the runtime library");
         let initialize = library.symbol::<Initialize>("z42_host_initialize").unwrap();
         let load = library.symbol::<Load>("z42_host_load_zbc").unwrap();
         let resolve = library.symbol::<Resolve>("z42_host_resolve_entry").unwrap();

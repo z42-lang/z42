@@ -16,7 +16,7 @@ int _componentRelocate(string native) {
     }
     return 0;
 }
-int _componentRelocateImports(string path, string native) {
+int _componentRelocateImports(string path, string native, string prefix = "@loader_path/") {
     string output = _cmdOut("otool", new string[]{ "-L", path });
     if (output.Length == 0) { throw new CliException("otool could not inspect " + path); }
     string[] lines = output.Split("\n");
@@ -26,8 +26,8 @@ int _componentRelocateImports(string path, string native) {
         if (marker < 0) { continue; }
         string old = line.Substring(0, marker);
         string name = Path.GetFileName(old);
-        if (!File.Exists(Path.Join(native, name)) || old == "@rpath/" + name) { continue; }
-        int c = _exec(new Process("install_name_tool").Arg("-change").Arg(old).Arg("@rpath/" + name).Arg(path));
+        if (name == Path.GetFileName(path) || !File.Exists(Path.Join(native, name)) || old == prefix + name) { continue; }
+        int c = _exec(new Process("install_name_tool").Arg("-change").Arg(old).Arg(prefix + name).Arg(path));
         if (c != 0) { return c; }
     }
     if (!_cmdOut("otool", new string[]{ "-l", path }).Contains("path @loader_path (")) {
@@ -62,12 +62,11 @@ void _plRuntimeDynamic(_PkgLayout L, string rid) {
 int _componentRelocateLauncher(string pkg) {
     string bin = Path.Join(pkg, "bin");
     string native = Path.Join(pkg, "native");
-    // Windows 不再把 std-*.dll 拷进 bin/：z42vm 来自静态 std 启动器图，自身无共享 std 依赖；
-    // z42.dll 链的 std 由 launcher 的 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|DEFAULT_DIRS 从 native/ 解析。
+    // Windows 的实际 main 与唯一 Core/std 在 native；bin 只转发进程，不加载 DLL。
     if (Platform.IsWindows()) { return 0; }
     if (!Platform.IsMacOS()) { return 0; }
     string exe = Path.Join(bin, "z42vm");
-    int c = _componentRelocateImports(exe, native); if (c != 0) { return c; }
+    int c = _componentRelocateImports(exe, native, "@loader_path/../native/"); if (c != 0) { return c; }
     c = _exec(new Process("install_name_tool").Arg("-add_rpath").Arg("@loader_path/../native").Arg(exe));
     if (c != 0) { return c; }
     return _exec(new Process("codesign").Arg("--force").Arg("--sign").Arg("-").Arg(exe));

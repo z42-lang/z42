@@ -2,6 +2,8 @@
 
 ## 职责
 
+crate 类型：直接编译引用的配套构建模块。proc-macro 由 Rust 编译器在构建期使用，不属于 VM 的运行时组件或库装载流程。
+
 z42 的 proc macro，两组互不相干的用户：
 
 - **Tier 2 ergonomic Rust API**：让 Rust 用户不必手写 `Z42TypeDescriptor_v1` 字面量即可把任意 Rust 类型暴露给 z42；
@@ -9,7 +11,7 @@ z42 的 proc macro，两组互不相干的用户：
   函数，宏生成从寄存器读参的包装器、描述符与模块的 `DESCS`。展开按 `crate::` 路径引用 VM 内部类型，只供 `z42`
   crate 使用。机制见 internals「native ABI §6」。
 
-## 入口
+## 功能索引
 
 | Macro | 形式 | 作用 |
 |-------|------|------|
@@ -19,7 +21,7 @@ z42 的 proc macro，两组互不相干的用户：
 | `z42_macros::builtins` | `#[builtins]` 作用于内联 `mod { ... }`，模块内函数标 `#[builtin(name = "__x", pure?, blocking?, reenters?, this = "M"?)]` | VM builtin ABI v2：每函数一个读参包装器（寄存器 / 切片两份实例）+ `BuiltinDesc`；模块尾部 `DESCS` |
 | `z42::trait_impl` | `#[trait_impl("trait_name")]` | 未实现：报清晰 `compile_error!` 指向 spec C5 |
 
-## 用法示例
+## 基础用法
 
 ```rust
 use z42_rs::prelude::*;
@@ -65,10 +67,15 @@ z42::module! {
 - 下：`proc-macro2`、`quote`、`syn`、`convert_case`
 - 平级：`z42-abi`（macro 展开引用其类型 / 常量；不直接依赖）
 
-## 测试
+## 如何测试验证
 
 - `tests/expand_smoke.rs` + trybuild（`tests/fail/`）：4 个诊断 case（缺 module/name attr、非法 module 名、derive 重定向消息）
 - 运行：`(cd src/runtime && cargo test -p z42-macros)`
 - 端到端（`z42_vm` 测试 binary 内）：`tests/native_interop_e2e.rs::rust_counter_*` 验证宏生成的 descriptor 与 C 写的等价
 - `#[builtins]`：在 `z42` crate 内测（宏展开引用 VM 内部类型）——`exec/call/builtin_abi/abi_tests.rs`（读参、null / 类型不符 / 个数不符、
   错误种类 → 异常类、`blocking`）与 `exec/call/builtin_abi/test_builtins.rs`（`cfg(test)` 的测试用 builtin）
+
+## 关联文档
+
+- [原生 ABI](../../../../docs/internals/src/runtime/native-abi.md)
+- [原生扩展契约](../../../../docs/reference/src/embedding/native-interop.md)

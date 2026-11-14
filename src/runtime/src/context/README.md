@@ -21,6 +21,7 @@
 ## 基础用法
 
 入口类型从 `z42::host::{VmCore, VmContext}` 获取。主上下文构造装配由 crate 门面实现；worker 用 `new_with_core` 共享现有 Core。跨线程读取帧前须遵守所属线程或暂停线程约束。
+对象协议的不可变表由 Core 持有，worker 借用同一服务，不放入执行状态。Core 的访问入口仅 crate 内可见；同构建后端通过 `components::bridge` 读取所需服务。
 
 ## 如何测试验证
 

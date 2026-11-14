@@ -2,6 +2,8 @@
 
 ## 职责
 
+crate 类型：component。VM 经内部 components::api 消费基线执行能力；本库只通过同构建 ABI 和最小 bridge 连接 VM。
+
 拥有字节码解释器与基线 Engine，只依赖共享核心和组件协议。
 
 ## 功能索引
@@ -11,6 +13,7 @@
 src/interp 为解释实现，src/interp/component.rs 提供静态工厂和 ExecutionApi，src/lib.rs 为边界。
 
 独立实现通过 `z42::components::abi` 使用描述符和 C 布局接口，通过 `z42::components::bridge` 校验共享核心身份/布局。核心模块仅私有导入，不由本库再导出。
+构造泛型 Type 时通过 bridge 只读借用 Core 已绑定的对象协议，契约属于 object；不穿透 ExecState 或查询组件注册表。
 
 ## 基础用法
 

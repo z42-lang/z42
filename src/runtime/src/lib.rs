@@ -1,4 +1,16 @@
 //! Unified runtime library. Optional execution backends live in independent crates.
+//!
+//! Command-line implementations and their former private process protocol are
+//! executable-owned, not library APIs:
+//! ```compile_fail
+//! use z42::host::cli::run_from;
+//! ```
+//! ```compile_fail
+//! use z42::cli::run_from;
+//! ```
+//! ```compile_fail
+//! use z42::host::entry_api::RuntimeEntry;
+//! ```
 extern crate self as z42;
 pub use z42_zpkg as zpkg;
 pub mod context;

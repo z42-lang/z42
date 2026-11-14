@@ -1,4 +1,4 @@
-//! Physical image identity and the compile-time ABI expected by its consumers.
+//! Minimal same-build VM views and physical image/layout identity for components.
 use crate::components::abi::ExecutionCoreAbi;
 static CORE_IDENTITY: u8 = 0;
 pub fn core_identity() -> *const core::ffi::c_void { core::ptr::addr_of!(CORE_IDENTITY).cast() }
@@ -27,4 +27,13 @@ pub(super) fn validate_core(identity: crate::components::abi::ExecutionIdentity,
     anyhow::ensure!(identity.image == core_identity() && identity.abi == CORE_ABI,
         "{name} component core image or ABI mismatch; use components from the same shared-core runtime pack");
     Ok(())
+}
+
+/// Borrow object capabilities already bound to this VM. Execution components call
+/// this only after their same-core identity has been validated; no registry lookup.
+#[inline]
+pub fn object_protocol(ctx: &crate::context::VmContext) -> &crate::object::protocol::ObjectProtocol<
+    crate::context::VmContext, crate::exec::call::builtin_abi::BuiltinError,
+> {
+    ctx.core().object_protocol()
 }

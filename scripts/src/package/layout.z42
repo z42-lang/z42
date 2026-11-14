@@ -56,6 +56,7 @@ void _plSdk(string root, _PkgLayout L, string rid) {
         L.Absent("native/" + f, "嵌入件只在 runtime 包");
     }
     if (rid.StartsWith("windows-")) {
+        if (_componentDirectHostMain(root)) { L.HasFile("native/z42vm.exe"); }
         L.Expect(Path.Glob(L.P("bin"), "std-*.dll").Length == 0,
             "bin 无共享 std dll（z42vm 是静态 std 启动器；std 只随 native/ 发）", "bin/std-*.dll 存在");
     }

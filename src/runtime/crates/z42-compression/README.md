@@ -2,6 +2,8 @@
 
 ## 职责
 
+crate 类型：独立运行时库。算法和独立 C API 可脱离 VM 使用；VM 通过 native/interop 接入，由 loader 提供代码，不使用 components 的 VM 组件工厂。
+
 拥有压缩脚本接口、模块注册描述符和算法实现，使用通用 C ABI 与运行时交互，不依赖运行时 crate。
 
 ## 功能索引

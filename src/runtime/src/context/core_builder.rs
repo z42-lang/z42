@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 pub struct RuntimeInputs {
     pub extensions: crate::context::extensions::ExtensionState,
     pub config: crate::config::VmConfig,
-    pub object_protocol: crate::exec::object_protocol::ObjectProtocol,
+    pub object_protocol: crate::object::protocol::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError>,
     pub engines: crate::exec::engine::EngineRegistry,
     pub builtins: &'static [crate::exec::call::builtin_abi::BuiltinDesc],
     pub catalog: &'static crate::metadata::builtins::BuiltinCatalog,
@@ -41,8 +41,9 @@ impl VmContext {
                 sampler,
             },
             exec: crate::exec::ExecState::new(
-                engines, builtins, object_protocol, config.stack_alloc,
+                engines, builtins, config.stack_alloc,
             ),
+            object_protocol,
             ext_state,
         });
 

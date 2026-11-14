@@ -8,7 +8,9 @@
 
 | 入口 | 职责 |
 |---|---|
-| `native.rs` | 宿主注入的按名称路径服务、PAL 装入、通用模块及 Tier 1 注册入口与库代码保活 |
+| `code.rs` | 通用原生映像装入、规范路径缓存、符号访问和进程代码保活；不解析消费者 ABI、不创建 VM 实例 |
+| `native_paths.rs` | 组件和独立运行时库共用的默认搜索目录策略 |
+| `native.rs` | 宿主注入的按名称路径服务、通用模块及 Tier 1 注册入口，调用 code 装入映像 |
 | `linked.rs` | 宿主显式注册的进程寿命 C 符号解析器，先于动态候选查询 |
 | `state.rs` | `LoaderState`：每 VM 惰性加载器、上下文、初始化队列与 VFS 依赖 |
 | `fusion_inputs.rs` | 私有融合输入与惰性输入来源 |
@@ -22,6 +24,7 @@
 ## 基础用法
 
 常用入口为 `load_artifact`、`load_artifact_from_bytes`、`merge_modules` 和 `LazyLoader`，从 `z42::loader` 导入。调用方仍提供 VFS 与搜索目录；`ModuleSearch.Dirs` 从所属 VM 的加载器查询当前目录快照，worker 共享、不跨 VM 复用；公开入口只汇总拥有者，不在 metadata 中保留加载别名。
+`locate::search_paths` 只组合显式入口、额外路径和 libs，并通过传入 VFS 检查目录；进程环境与默认路径由 main/C/Rust/浏览器等来源实现解析。
 
 块索引准备在实际重算每个函数的融合侧表时才调用输入来源。门面绑定进程配置，文件、字节、可用性探测与惰性加载共用该读取策略。每 VM 的加载状态只保存函数指针，构造和解码阶段不因这项注入提前读取融合配置。
 
@@ -41,4 +44,4 @@
 
 `mod.rs` 汇总加载入口；各子目录实现与原有测试同目录组织。包定位、读取、初始化准备和卸载协议的先后关系由既有调用流程保持。
 
-路径服务只在请求具体库时运行。`native::open_library` 在执行 OS 装载前检查 PAL 支持；iOS/WASM 不支持脚本 native 动态库。格式解码归 z42-zpkg，符号配对和 build ID 校验由 loader 执行。
+路径服务只在请求具体库时运行。`native::open_library` 是内部入口，在执行 OS 装载前检查 PAL 支持；iOS/WASM 不支持脚本 native 动态库。可信运行时组件由部署适配器校验后请求 code 装入，不借此扩大脚本权限。格式解码归 z42-zpkg，各消费者负责自己的描述符和身份校验。

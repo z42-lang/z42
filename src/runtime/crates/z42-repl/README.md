@@ -2,6 +2,8 @@
 
 ## 职责
 
+crate 类型：独立运行时库。输入/编辑功能和 native 模块 ABI 不依赖 VM；经自身 API 或 loader/interop 接入，不注册为 VM component。
+
 拥有 Repl 脚本接口描述、每 VM 回调配置、通用输入和可选终端编辑/历史后端；不依赖运行时 crate。编译求值属于 z42.scripting，静态值反射属于 corelib。
 
 ## 功能索引

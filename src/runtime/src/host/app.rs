@@ -1,9 +1,7 @@
 //! One-shot application execution through the Rust host service.
-use std::{path::{Path, PathBuf}, sync::Arc};
 use anyhow::Result;
-use crate::{zpkg::ExecMode, pal::fs::Vfs};
+use crate::zpkg::ExecMode;
 use super::{app_state::set_program_args, program::{LoadOptions, LoadedProgram}};
-fn vfs_is_dir(fs: &dyn Vfs, p: &Path) -> bool { p.to_str().is_some_and(|s| fs.is_dir(s)) }
 /// Build-default execution mode: JIT when compiled in (make-jit-default),
 /// else Interp (jit-less builds — wasm / `--features interp-only`). Callers
 /// without an explicit mode (embedding one-shot) use this.
@@ -14,13 +12,25 @@ pub fn default_mode() -> ExecMode {
     { ExecMode::Interp }
 }
 
-/// Resolved options for [`run_app`]. The caller resolves execution mode, the stdlib
-/// `libs` dir, program args, and stat-printing; `run` performs the load + execute.
+/// Query whether this host can prepare an execution mode, without loading code
+/// or constructing a VM. Component identities remain an internal concern.
+pub fn execution_available(mode: ExecMode) -> bool {
+    use crate::components::api::{self, ExecutionRole};
+    match mode {
+        ExecMode::Interp => api::execution_available(ExecutionRole::Baseline),
+        ExecMode::Jit => api::execution_available(ExecutionRole::Optimizing),
+        ExecMode::Aot => false,
+    }
+}
+
+/// A host implementation resolves loading inputs, program arguments and reporting.
+/// This service loads and executes without choosing process search defaults.
 pub struct RunOpts {
-    /// Effective execution mode (already resolved from CLI / config / build default).
+    /// Fully resolved loading inputs supplied by the host implementation.
     pub mode: ExecMode,
-    /// Stdlib `libs/` directory (where `z42.core.zpkg` and deps live), if found.
-    pub libs_dir: Option<PathBuf>,
+    pub vfs: std::sync::Arc<dyn crate::pal::fs::Vfs>,
+    pub search_dirs: Vec<std::path::PathBuf>,
+    pub resolver: Option<std::sync::Arc<dyn super::ZpkgResolver>>,
     /// Program args forwarded to `GetCommandLineArgs()` (the app's `-- <args>`).
     pub program_args: Vec<String>,
     /// Print counter stats to stderr after the run (z42vm `--print-stats-on-exit`).
@@ -32,63 +42,13 @@ pub struct RunOpts {
     /// OS instead of freeing it block by block. Embedders and nested runs keep
     /// using the process, so they say `false`.
     pub exit_after_run: bool,
-    /// The file system the app is loaded from and runs on (the VM's [`Vfs`]). `None` =
-    /// [`crate::pal::fs::default_vfs`]. An embedder that mounted the app into a
-    /// `MemoryFs` passes that here; a nested run passes its caller's.
-    pub vfs: Option<Arc<dyn Vfs>>,
+
 }
 
 pub fn run_app(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
-    let libs_dir = opts.libs_dir;
-    let vfs = opts.vfs.unwrap_or_else(crate::pal::fs::default_vfs);
-    let fs = &*vfs;
-    // Dependency search dirs (support-colocated-zpkg-deps): resolve a dep zpkg
-    // from the ENTRY zpkg's own directory first, then any declared probing paths,
-    // then the stdlib `libs/`. Fixed order for deterministic resolution; de-duped.
-    //
-    // add-deployment-model 批 3: `Z42_PROBING_PATHS` / `[runtime] probing-paths` sits
-    // **between** entry-dir and libs — a dependency deployed next to the exe still wins
-    // over a shared copy, and a shared copy still wins over the framework's own. This is
-    // the whole of "declare it shared and it is not copied": the build leaves it out of
-    // the dist, and this is where it is found instead.
-    let search_dirs: Vec<PathBuf> = {
-        let mut dirs: Vec<PathBuf> = Vec::new();
-        let entry_dir = match std::path::Path::new(file).parent() {
-            Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
-            _ => PathBuf::from("."),
-        };
-        if vfs_is_dir(fs, &entry_dir) {
-            dirs.push(entry_dir.clone());
-        }
-        // Relative probing paths resolve against the entry zpkg's dir, so the same
-        // install behaves identically whatever cwd it is launched from.
-        for p in crate::loader::locate::probing::expand_probing_paths(&entry_dir, &crate::config::runtime_config().probing_paths) {
-            if !dirs.iter().any(|d| d == &p) {
-                dirs.push(p);
-            }
-        }
-        if let Some(libs) = &libs_dir {
-            if !dirs.iter().any(|d| d == libs) {
-                dirs.push(libs.clone());
-            }
-        }
-        dirs
-    };
-    // add-sdk-libs D6：记下展开后不存在的 `${Z42_HOME}` 条目，供依赖解析失败时提示「是否没装 SDK」。
-    {
-        let entry_dir = match std::path::Path::new(file).parent() {
-            Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
-            _ => PathBuf::from("."),
-        };
-        crate::loader::locate::probing::set_unresolved_sdk_patterns(crate::loader::locate::probing::unresolved_z42_home_patterns(
-            &entry_dir,
-            &crate::config::runtime_config().probing_paths,
-        ));
-    }
-
     let program = LoadedProgram::load_file(file, LoadOptions {
-        components: Default::default(), backends: Default::default(), profiler: Default::default(),
-        mode: opts.mode, vfs, search_dirs, resolver: None, eager_dependencies: false,
+        mode: opts.mode, vfs: opts.vfs, search_dirs: opts.search_dirs,
+        resolver: opts.resolver, ..Default::default()
     })?;
     set_program_args(program.context(), opts.program_args)?;
     let _ = EXIT_REPORT.set(ExitReport { print_stats: opts.print_stats, stats_json: opts.stats_json });

@@ -4,7 +4,7 @@ use crate::context::extensions::{ExtensionState, VmExtensions};
 
 pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     let mut defaults = VmExtensions::new();
-    // Cache logical resolutions per VM; PAL retains native images independently.
+    // Cache logical resolutions per VM; loader/code retains images independently.
     #[cfg(any(feature = "native-interop", feature = "component-loading"))]
     add(&mut defaults, crate::loader::native::Libraries::default());
     // Interop providers must outlive heap, engines, user state and core-library resources.
@@ -69,5 +69,5 @@ fn repl_candidates() -> Vec<std::path::PathBuf> {
 #[cfg(any(feature = "native-interop", feature = "component-loading"))]
 fn native_candidates(name: &str) -> Vec<std::path::PathBuf> {
     if name == "z42_repl" { return repl_candidates(); }
-    crate::pal::dynlib::candidate_paths(name, crate::components::api::native_paths())
+    crate::pal::dynlib::candidate_paths(name, crate::loader::native_paths::directories())
 }

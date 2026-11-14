@@ -1,34 +1,9 @@
-//! `RuntimeConfig` — centralized declaration of every `Z42_*` runtime knob
-//! consumed by `main.rs` startup.
+//! Runtime settings, layered resolution and process configuration publication.
 //!
-//! Roslyn / CoreCLR parallel: `inc/clrconfigvalues.h` macro table that
-//! registers every runtime knob with a default + type + description in
-//! one place. docs/review.md Part 4 D1 — was P0 because adding a new
-//! knob previously meant scattering `std::env::var("Z42_X")` calls
-//! across `main.rs` / `host/signal.rs` / `gc/` / `interop/`, with no
-//! single place to discover what knobs exist.
-//!
-//! # Scope (this Phase 1 refactor)
-//!
-//! Centralizes the **5 startup-consumed** env vars:
-//! `Z42_LIBS` / `Z42_LOG` / `Z42_CRASH_DIR` / `Z42_TARGET`
-//! (reserved). These are the knobs `--info` reports and that `main.rs`
-//! reads at boot.
-//!
-//! Subsystem-local OnceLock-cached env reads (`Z42_NATIVE_PATH` in
-//! `loader/native.rs`, `Z42_SAFEPOINT_THROTTLE` / `Z42_GC_*` in `gc/`,
-//! `Z42_STRESS_ITERS` in tests) keep their existing inline reads —
-//! migrating those is Phase 2 (separate small refactor). The `KNOWN_KNOBS`
-//! table here lists ALL of them for discovery / `--info` purposes
-//! even though the actual values are read elsewhere.
-//!
-//! # Why a `&'static [KnobSpec]` table not just struct fields
-//!
-//! Each knob has metadata (`name` / `description` / `default_hint`) that
-//! `--info` needs to render. Putting them in a const table makes
-//! enumeration trivial. The struct also stores the *resolved values*
-//! for the 5 startup knobs; subsystem-local knobs are listed but not
-//! pre-resolved (they need to stay lazy for OnceLock cache semantics).
+//! Hosts install resolved settings before constructing VM services. The installed
+//! value is immutable; ordinary consumers retain lazy initialization as a fallback.
+//! Capability queries use temporary snapshots until the host publishes its value.
+//! Knob metadata provides discovery, validation and configuration diagnostics.
 
 use crate::gc::GcMode;
 use std::path::PathBuf;
@@ -515,6 +490,14 @@ pub fn init_runtime_config(cfg: RuntimeConfig) -> Result<(), RuntimeConfig> {
 #[inline]
 pub fn runtime_config() -> &'static RuntimeConfig {
     RUNTIME_CONFIG.get_or_init(RuntimeConfig::from_env)
+}
+
+/// Inspect effective settings without publishing defaults ahead of the host.
+pub(crate) fn runtime_config_snapshot() -> std::borrow::Cow<'static, RuntimeConfig> {
+    match RUNTIME_CONFIG.get() {
+        Some(config) => std::borrow::Cow::Borrowed(config),
+        None => std::borrow::Cow::Owned(RuntimeConfig::from_env()),
+    }
 }
 
 fn split_paths(s: &str) -> Vec<PathBuf> {

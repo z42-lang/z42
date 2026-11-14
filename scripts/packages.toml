@@ -95,6 +95,7 @@ project = "src/compiler/z42c.driver/z42c.driver.z42.toml"
 
 # ② 固定形态组件（非 z42-toml 驱动，xtask 按 kind 各一个固定函数产出）
 [component.z42vm]
+# The Rust host links libz42 directly; Windows bin/ forwards to native/z42vm.exe.
 kind = "cargo-bin"
 project = "src/runtime/Cargo.toml"
 dest = "bin/z42vm"

@@ -209,11 +209,13 @@ compression 由 cdylib 加载时注册到 per-VM ext 表，见 [native ABI §6.6
 namespace 是 `Std.IO`，不在 prelude 名单里，所以 hello world 仍必须写 `using Std.IO;`**——不写报
 `E0436`。「把 Console 上提到 core」已经发生，「`Std.IO` 进 prelude using」没有。
 
-VM 找 stdlib zpkg 的顺序（`src/runtime/src/host/cli_startup.rs::resolve_libs_dir`）：
+VM 找 stdlib zpkg 的顺序（`src/runtime/src/main_startup.rs::resolve_libs_dir`）：
 
 1. `libs` 旋钮（`Z42_LIBS` / `--set libs=` / `[runtime].libs`）
 2. `<binary-dir>/../libs/`（packages 布局）
-3. `<cwd>/artifacts/intermediate/libraries/flat/{release,debug}/`（`xtask build stdlib` 的扁平视图）
+
+明确配置的路径即使不存在也不切换到另一份 SDK。开发树运行由 xtask 通过 `Z42_LIBS` 注入对应扁平视图；
+main 不探测 cwd 或 artifacts 布局。
 
 每个目录都是**扁平视图**：`<包名>.zpkg`（或 `.zbc`）平铺，无 namespace 索引——VM 与嵌入宿主读每个
 zpkg 的 `NSPC` 段自行建映射。

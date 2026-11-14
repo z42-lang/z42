@@ -23,7 +23,7 @@ pub use z42_zpkg::{ExecMode, image::PackageImage};
 pub use ffi::*;
 pub use resolver::{read_zpkg_namespaces, ZpkgResolver};
 pub use program::{LoadOptions, LoadedProgram};
-pub use app::{default_mode, run_app, RunOpts};
+pub use app::{default_mode, execution_available, run_app, RunOpts};
 pub use app_state::{program_args, set_program_args};
 pub(crate) use app::report_on_exit;
 #[cfg(test)] mod host_tests;
@@ -40,15 +40,8 @@ pub use z42_abi::{Z42Value, Z42_VALUE_TAG_I64};
 /// Ergonomic Rust embedding over the shared host services.
 pub mod rust;
 
-/// Process entry policy shared by the dynamic launcher and static embeddings.
-#[cfg(feature = "cli")]
-pub mod cli;
 pub use crate::components::api::register_static_component;
 pub use crate::loader::linked::{NativeSymbolResolver, register_static_library as register_static_native_library};
-#[cfg(feature = "cli")]
-mod launcher;
-#[cfg(feature = "cli")]
-pub mod entry_api;
 
 pub use crate::config::{RuntimeConfig, VmConfig};
 

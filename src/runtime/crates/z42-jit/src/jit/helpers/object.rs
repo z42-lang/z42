@@ -129,7 +129,7 @@ pub unsafe extern "C" fn jit_typeof(
         .unwrap_or("<invalid>");
     let type_args = std::slice::from_raw_parts(type_args_ptr, type_args_count);
     let ctx = vm_ctx_ref(ctx);
-    let v = (ctx.core().exec().object_protocol.make_constructed_type)(ctx, type_name, type_args);
+    let v = (z42::components::bridge::object_protocol(ctx).make_constructed_type)(ctx, type_name, type_args);
     (*frame).regs[dst as usize] = v;
 }
 

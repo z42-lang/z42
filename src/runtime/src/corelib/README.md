@@ -118,6 +118,8 @@ xtask test stdlib
 
 ## 核心文件
 
+`mod.rs::object_protocol` 提供 `object::protocol::ObjectProtocol` 的具体回调，由 VM 装配注入 Core；契约归 object，托管调用与返回文本的 GC 物化归执行层。
+
 | 文件 | 职责 |
 | `resource_registry.rs` | 模块资源表的锁、单调槽号与必需扩展状态查询；阻塞 I/O 的锁边界由调用模块维护 |
 |------|------|

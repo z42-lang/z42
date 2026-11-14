@@ -42,3 +42,22 @@ long HeapInspection() {
     Std.Diagnostics.Heap.DirectReferrers(target);
     return 42L;
 }
+
+class ProtocolValue { }
+class ProtocolBox<T> { }
+class ProtocolOverride {
+    public override string ToString() { return "overridden"; }
+}
+Type ProtocolType<T>() { return typeof(T); }
+
+long ObjectProtocolRoundtrip() {
+    ProtocolValue value = new ProtocolValue();
+    if (value.GetType().FullName != ProtocolType<ProtocolValue>().FullName) { return 1L; }
+    if ($"{value}" != "ProtocolValue") { return 2L; }
+    ProtocolOverride custom = new ProtocolOverride();
+    if ($"{custom}" != "overridden") { return 3L; }
+    if (typeof(ProtocolBox<long>).FullName != ProtocolType<ProtocolBox<long>>().FullName) { return 4L; }
+    object boxed = 42L;
+    if (boxed.GetType().FullName != typeof(long).FullName) { return 5L; }
+    return 42L;
+}

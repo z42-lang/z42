@@ -18,6 +18,12 @@ TierApi 拥有后端实现并缓存 OSR 阈值。编译槽、编译器、OSR 入
 
 共享 Call/FnRef 的加载绑定在 `exec/ops/call.rs`；ToString 在 `exec/ops/stringify.rs` 并通过 Engine 执行；加载期 fusion 识别器及缓存形态在 `metadata/fusion.rs`。
 
+对象能力契约位于 `object/protocol.rs`。`ObjectProtocol<Context, Error>` 只保存四个函数指针，
+上下文和错误类型由装配者选择，不引用具体 VM 或执行层。corelib 提供 GetType、默认文本和 Type 构造回调，
+VM 装配注入 Core；worker 共享所属 Core 的不可变表，不存入 ExecState。
+独立解释器/JIT 通过同构建 `components::bridge::object_protocol` 借用已绑定服务，不进行组件注册表查询。
+默认文本仍以 Rust String 返回，调用者负责 GC 字符串物化；覆盖 ToString 的托管调用与异常仍由 exec 承接。
+
 ## 初始化阶段与所有者
 
 宿主会话、VM 装配和托管初始化有不同寿命。`z42_host_initialize` 只校验宿主配置、

@@ -2,6 +2,8 @@
 
 ## 职责
 
+crate 类型：VM 独立模块。由消费方直接通过 Cargo/Rust API 引用，不注册为 component，也不在运行时装入本 crate。
+
 解析 zbc、zpkg 和 zsym，提供静态 IR、名称查询、调试记录与不可变包映像。不依赖 VM、执行后端、堆或宿主状态。
 
 ## 功能索引

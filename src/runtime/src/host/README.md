@@ -2,7 +2,8 @@
 
 ## 职责
 
-本目录是唯一运行时包 `z42` 的宿主模块，不单独编译。Rust 接口、C ABI、CLI 实现、静态组件登记与动态进程入口都在这里组合，共用运行时服务。根 `main.rs` 仅通过版本化 C 入口加载运行时。
+本目录是唯一运行时包 `z42` 的宿主模块，不单独编译。当前组合 Rust 接口、C ABI 与静态组件登记，共用运行时服务。
+命令行参数和启动环境由 [main](../main.rs) 及其私有启动辅助实现，不经 host 导出。main 直接动态链接 libz42，通过本目录的加载/执行接口使用 VM，无专属 C 进程入口。
 
 为命令行、Rust 嵌入端和外部 C 宿主提供统一加载、初始化与调用服务。CLI 负责参数和进程策略，C ABI 负责指针、句柄和状态码；产物解析、GC 和执行语义由各底层子系统实现。
 
@@ -20,6 +21,7 @@ VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺�
 | `ComponentOptions` / `ComponentLease` | 当前仍转出的每 VM 管理配置与租约，目标归内部组件门面 |
 | `component_ids` / `component_interface` | 当前仍转出的内部查询，目标归内部组件门面 |
 | `LoadedProgram` / `LoadOptions` | 文件或字节加载、宿主 VFS 与 resolver、入口解析、模式选择、重复调用及初始化状态 |
+| `execution_available` | 按执行模式查询可用性，不暴露组件身份，不装库或创建 VM |
 | `artifact.rs` / `load.rs` | 依赖解析、去重、合并、约束和索引准备 |
 | `run_app` / `RunOpts` | 一次性应用运行、应用参数、退出报告和进程退出时的释放策略 |
 | `ffi.rs` / `config.rs` / `state.rs` | C ABI 适配、配置验证及宿主句柄注册表 |
@@ -34,6 +36,7 @@ VM 内部组件门面、跨库协议与普通宿主契约的区别及当前缺�
 ## 基础用法
 
 CLI 和 Rust 调用方使用 `host::run_app`，或用 `LoadedProgram::load_file` / `load_bytes` 创建长期存活的程序后调用 `invoke`。两种来源共享产物准备流程。VFS、搜索目录、包 resolver 和依赖预加载策略由 `LoadOptions` 明确传入。
+一次性调用的 `RunOpts` 只接收模式、VFS、搜索目录、resolver 等功能输入，在 host 内部转换为加载请求，不携带组件管理状态；run_app 不读取 CLI 搜索配置或隐式补默认目录。main 解析环境变量、相对路径和 stdlib 路径；C/Rust 便利适配可选择各自的进程配置策略，浏览器显式传入页面 VFS 与目录。
 
 需要进程崩溃报告的宿主调用 `host::signal::install()`，CLI 在进程启动时安装。
 
