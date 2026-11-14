@@ -61,7 +61,7 @@ mod main_startup;
 extern "C" fn z42_main_v1() -> i32 {
     match std::panic::catch_unwind(|| main_startup::run_from(std::env::args_os())) {
         Ok(Ok(())) => 0,
-        Ok(Err(error)) => { eprintln!("z42vm: {error:#}"); 1 }
+        Ok(Err(error)) => { eprintln!("Error: {error:?}"); 1 }
         Err(_) => { eprintln!("z42vm: runtime panicked"); 1 }
     }
 }
