@@ -427,7 +427,7 @@ Windows 宿主若按运行期装载（dlopen）而非直接链接：请用 `LOAD
 静态宿主可直接选择独立组件。所有库须来自同一 runtime 包；链接所需的 `libz42_interp.a`（Windows 为 `z42_interp.lib`）及 `libz42.a`，原生链接参数取包内 `manifest.toml` 的 `[components.<stem>].link_flags`（Windows 的第三方导入库由 `[assets].third_party_libs` 点名、随包提供）。加载程序前登记工厂：
 
 ```c
-#include "z42_components.h"
+#include "z42_host.h"
 uint32_t status = z42_component_register_static(
     Z42_COMPONENT_INTERP, z42_interp_init);
 ```
@@ -448,7 +448,7 @@ Android arm64/x64 runtime 同时发布核心、解释器、JIT 和压缩的独�
 CPU 采样与堆分析由可选 profiler 提供。原生动态部署使用同包的 `libz42_profiler.dylib` / `libz42_profiler.so` / `z42_profiler.dll`；未使用分析功能时不会装载它。静态宿主按需链接 `libz42_profiler.a`（Windows 为 `z42_profiler.lib`），在创建宿主前登记：
 
 ```c
-#include "z42_components.h"
+#include "z42_host.h"
 uint32_t status = z42_component_register_static(
     Z42_COMPONENT_PROFILER, z42_profiler_init);
 ```

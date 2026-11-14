@@ -3,7 +3,6 @@
 #define _GNU_SOURCE
 #endif
 #include "z42_host.h"
-#include "z42_components.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

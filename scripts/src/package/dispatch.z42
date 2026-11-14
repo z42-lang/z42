@@ -211,7 +211,7 @@ _PkgIdentityRule[] _pkgIdentityRules(string root) {
     string iosSrc  = Path.Join(root, "src/toolchain/workload/ios/platform");
     string andProj = Path.Join(root, "src/toolchain/workload/android/platform");
     string wasmJs  = Path.Join(root, "src/toolchain/workload/wasm/platform/js");
-    _PkgIdentityRule[] rs = new _PkgIdentityRule[13];
+    _PkgIdentityRule[] rs = new _PkgIdentityRule[10];
     // stdlib zpkg/zsym（_pkgCopyLibsOf）
     rs[0] = _pkgRule("stdlib libs",        "libs",                          _libsDir(root), "");
     // C ABI 头，三个落点同一份源（_copyAbiHeaders）
@@ -227,10 +227,6 @@ _PkgIdentityRule[] _pkgIdentityRules(string root) {
     rs[8] = _pkgRule("Android CMakeLists", "z42vm/src/main/cpp/CMakeLists.txt", Path.Join(andProj, "z42vm/src/main/cpp/CMakeLists.txt"), "");
     // wasm（_packageWasm）
     rs[9] = _pkgRule("wasm js facade",     "js",                            wasmJs, "");
-    string componentHeader = Path.Join(root, "src/runtime/src/components/z42_components.h");
-    rs[10] = _pkgRule("component ABI header", "native/include/z42_components.h", componentHeader, "");
-    rs[11] = _pkgRule("component ABI header (ios)", "Sources/Z42VMC/include/z42_components.h", componentHeader, "");
-    rs[12] = _pkgRule("component ABI header (android)", "z42vm/src/main/cpp/include/z42_components.h", componentHeader, "");
     return rs;
 }
 
@@ -278,7 +274,8 @@ void _pkgIdentityWalk(string pkgDir, string srcDir, string suffix, string rel, _
 void _pkgIdentityOne(string pkgFile, string srcFile, string rel, _PkgIdentityTally t) {
     if (!File.Exists(srcFile)) { return; }   // 源侧没有对应物 → 不在本门管辖内
     t.Compared = t.Compared + 1;
-    if (!_filesEqual(pkgFile, srcFile)) {
+    bool equal = srcFile.EndsWith(".h") ? File.ReadAllText(pkgFile) == _runtimeHeaderText(srcFile) : _filesEqual(pkgFile, srcFile);
+    if (!equal) {
         ConsoleError.WriteLine("  ✗ " + rel + " differs from " + srcFile);
         t.Mismatch = t.Mismatch + 1;
     }

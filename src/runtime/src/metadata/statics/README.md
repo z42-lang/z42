@@ -14,7 +14,7 @@
 ## 基础用法
 
 内部通过 `metadata::statics` 访问存储与查询。初始化执行层使用同一份 registry，
-在 `exec::init::claim_with` 等待时提供 native park 守卫；数据层不等待或调用 VM 代码。
+在 `exec/init.rs 的 claim_with` 等待时提供 native park 守卫；数据层不等待或调用 VM 代码。
 
 ## 如何测试验证
 

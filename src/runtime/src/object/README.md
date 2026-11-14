@@ -16,6 +16,8 @@
 
 ## 基础用法
 
+对象能力契约通过 `object::ObjectProtocol` 消费；`protocol.rs` 为私有实现，调用方不引用其文件路径。
+
 公共值词汇可从 `crate::object::{Value, TypeDesc, ScriptObject, ArrayObj, Str, ObjRef, ArrRef}` 导入；区块布局从 `z42::object::header` 导入。
 格式化与哈希的 crate 内部实现位于 `value/format.rs` 与 `value/boxed_hash.rs`，由执行层和 builtin 共同消费。
 GC 仍负责 chunk 分配、回收、代数及弱句柄的 chunk epoch 校验；需要堆或运行期服务的既有调用由分层基线持续约束。

@@ -32,7 +32,7 @@ fn try_native_static_call(
 ) -> Option<Result<Option<Value>>> {
     let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
     if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
-    tier.invoke(ctx, crate::exec::engine::TierTarget::Site(id),
+    tier.invoke(ctx, crate::exec::TierTarget::Site(id),
         crate::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args }, method_type_args)
         .map(|result| result.map(|outcome| native_result_to_dst(frame, dst, outcome)))
 }
@@ -109,10 +109,10 @@ pub(super) fn call(
     // 拉进来，它的 `[ModuleInit]` 必须在本包任何代码（包括马上要调的这个函数）之前跑完。
     // 稳态代价 = 一次 relaxed load。
     if let Err(msg) = ctx.initialization().ensure_module_inits(Some(fname)) {
-        return Ok(Some(crate::exec::init::make_type_init_exception(ctx, module, &msg)));
+        return Ok(Some(crate::exec::make_type_init_exception(ctx, module, &msg)));
     }
     if let Err(msg) = ctx.initialization().ensure_callee_owner_init(fname, &target.owner_init) {
-        return Ok(Some(crate::exec::init::make_type_init_exception(ctx, module, &msg)));
+        return Ok(Some(crate::exec::make_type_init_exception(ctx, module, &msg)));
     }
 
     // runtime-jit-tiering Phase 1.5 (mixed-mode): count the callee toward its tier-up
@@ -262,7 +262,7 @@ fn try_native_indirect_call(
         Some(receiver) => crate::exec::call::args::CallArgs::Receiver { receiver, regs: &frame.regs, indices: args },
         None => crate::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args },
     };
-    tier.invoke(ctx, crate::exec::engine::TierTarget::Site(id), view, &[])
+    tier.invoke(ctx, crate::exec::TierTarget::Site(id), view, &[])
         .map(|result| result.map(|outcome| native_result_to_dst(frame, dst, outcome)))
 }
 

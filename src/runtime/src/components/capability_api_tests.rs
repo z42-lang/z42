@@ -131,7 +131,7 @@ fn role_queries_are_read_only_and_worker_leases_preserve_lifetime() {
 fn successful_attach_without_registering_the_requested_engine_is_rejected() {
     let _guard = LOCK.lock().unwrap();
     let ctx = crate::host::vm_defaults::construct(None, crate::pal::fs::default_vfs(), Default::default(),
-        crate::exec::engine::EngineRegistry::new(None));
+        crate::exec::EngineRegistry::new(None));
     let options = unsafe { ComponentOptions::default().with_static(RENAMED, renamed) };
     options.install_bound(&ctx, ExecutionBindings::new([(api::ExecutionRole::Baseline, RENAMED)]).unwrap()).unwrap();
     let error = super::api::attach_execution(&ctx, crate::zpkg::ExecMode::Interp).unwrap_err().to_string();

@@ -261,7 +261,7 @@ fn reinstall_keeps_the_published_config_and_tier() {
 
 #[test]
 fn explicit_mixed_entry_config_counts_before_compiling() {
-    use crate::exec::engine::{TierBackend, TierTarget};
+    use crate::exec::{TierBackend, TierTarget};
     use crate::exec::call::{args::CallArgs, outcome::ExecOutcome};
     let config = crate::config::RuntimeConfig::from_getter(|key| match key {
         "Z42_JIT_THRESHOLD" => Some("10".to_string()),

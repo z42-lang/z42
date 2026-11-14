@@ -28,7 +28,7 @@ fn c_registration_is_lazy_idempotent_and_independent_of_host_errors() {
 
 #[cfg(unix)]
 #[test]
-fn ordinary_c_host_header_does_not_expose_composition() {
+fn unified_native_header_exposes_host_and_linkage_without_extra_includes() {
     use std::{io::Write, process::{Command, Stdio}};
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let compile = |source: &str| {
@@ -42,9 +42,6 @@ fn ordinary_c_host_header_does_not_expose_composition() {
     };
     let host = compile("#include \"z42_host.h\"\nZ42HostRef host;\n");
     assert!(host.status.success(), "{}", String::from_utf8_lossy(&host.stderr));
-    let hidden = compile("#include \"z42_host.h\"\nZ42ComponentId component;\n");
-    assert!(!hidden.status.success());
-    assert!(String::from_utf8_lossy(&hidden.stderr).contains("Z42ComponentId"));
-    let composition = compile("#include \"z42_components.h\"\nuint32_t init(void) { return z42_component_register_static(Z42_COMPONENT_INTERP, z42_interp_init); }\n");
+    let composition = compile("#include \"z42_host.h\"\nuint32_t init(void) { return z42_component_register_static(Z42_COMPONENT_INTERP, z42_interp_init); }\n");
     assert!(composition.status.success(), "{}", String::from_utf8_lossy(&composition.stderr));
 }

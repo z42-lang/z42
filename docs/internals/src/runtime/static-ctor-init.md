@@ -104,7 +104,7 @@ stateDiagram-v2
 ```
 
 **他线程正在跑（`Running(别的线程)`）时，本线程阻塞到终态**，与 C# 一致：每个类型恰好初始化一次，
-其他线程看到的一定是初始化完成后的状态。实现要点（`exec::init::claim_with`）：
+其他线程看到的一定是初始化完成后的状态。实现要点（`exec/init.rs 的 claim_with`）：
 
 - 等在与 `map` 配对的 Condvar 上，`finish` 推到终态时唤醒；不轮询。
 - 等待期间持有 `NativeParkGuard`，本线程算作已 park。否则跑 cctor 的线程一旦触发 GC，GC 握手就要等

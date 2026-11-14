@@ -107,7 +107,7 @@ if report.print_stats {
         (ph.count, ph.total_us, if ph.count == 0 { 0 } else { ph.max_us })
     };
     use std::sync::atomic::Ordering::Relaxed;
-    let snap = crate::diagnostics::counters::ProfileSnapshot::new(
+    let snap = crate::diagnostics::ProfileSnapshot::new(
         counters, h.allocations,
         h.minor_collections, h.major_collections, h.reclaimed_bytes,
     )

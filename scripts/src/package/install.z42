@@ -113,8 +113,7 @@ int _pkgInstallApphost(_PkgComponent comp, string pkgDir, _PkgInstallCtx ctx) {
 void _copyAbiHeaders(string root, string destIncludeDir) {
     Directory.Create(destIncludeDir);
     File.Copy(Path.Join(root, "src/runtime/include/z42_abi.h"), Path.Join(destIncludeDir, "z42_abi.h"));
-    File.Copy(Path.Join(root, "src/runtime/include/z42_host.h"), Path.Join(destIncludeDir, "z42_host.h"));
-    File.Copy(Path.Join(root, "src/runtime/src/components/z42_components.h"), Path.Join(destIncludeDir, "z42_components.h"));
+    File.WriteAllText(Path.Join(destIncludeDir, "z42_host.h"), _runtimeHeaderText(Path.Join(root, "src/runtime/include/z42_host.h")));
     File.Copy(Path.Join(root, "src/runtime/include/z42_native.h"), Path.Join(destIncludeDir, "z42_native.h"));
 }
 
@@ -183,4 +182,20 @@ int _pkgInstallEditorAssets(string root, string pkgDir) {
 int _pkgBuildRuntime(string rid, string profile) {
     if (rid != _detectHostRid()) { throw new Std.Cli.CliException("desktop component packages must be built on the target RID"); }
     return _componentBuild(_root(), profile);
+}
+
+// Resolve owner-relative includes for distribution; ordinary public includes
+// remain unchanged. Source-tree and SDK consumers share the same umbrella.
+string _runtimeHeaderText(string source) {
+    string text = File.ReadAllText(source);
+    foreach (var line in text.Split("\n")) {
+        string directive = line.Trim();
+        if (!directive.StartsWith("#include \"../")) { continue; }
+        int end = directive.Substring(10).IndexOf("\"");
+        if (end < 0) { throw new Std.Cli.CliException("invalid owner header include: " + source); }
+        string relative = directive.Substring(10, end);
+        string owner = Path.Join(Path.GetDirectoryName(source), relative);
+        text = text.Replace(line, _runtimeHeaderText(owner));
+    }
+    return text;
 }

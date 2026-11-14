@@ -3,7 +3,7 @@ use super::options::ComponentOptions;
 use anyhow::{bail, Result};
 use std::path::PathBuf;
 use crate::components::abi::*;
-use crate::{zpkg::ExecMode, exec::engine::EngineRegistry};
+use crate::{zpkg::ExecMode, exec::EngineRegistry};
 
 #[derive(Clone, Debug, Default)]
 pub enum BackendSource {
@@ -98,7 +98,7 @@ impl BackendOptions {
 
 pub(crate) fn registry() -> EngineRegistry {
     #[cfg(test)]
-    let baseline = Some(&crate::interp::engine::ENGINE as &'static dyn crate::exec::engine::Engine);
+    let baseline = Some(&crate::interp::engine::ENGINE as &'static dyn crate::exec::Engine);
     #[cfg(not(test))]
     let baseline = None;
     let registry = EngineRegistry::new(baseline);

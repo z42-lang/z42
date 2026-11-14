@@ -28,7 +28,7 @@ pub(crate) fn build(
         &ctx, options.mode, &options.components, &options.backends, &options.profiler,
     )?;
     for (name, byte_size) in initial_events {
-        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::ModuleLoaded {
+        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::ModuleLoaded {
             name,
             byte_size,
         });
@@ -75,7 +75,7 @@ fn build_context(mut module: Module, inputs: ProgramInputs) -> Pin<Box<VmContext
         Some(module),
         inputs.vfs,
         Default::default(),
-        crate::exec::engine::EngineRegistry::new(None),
+        crate::exec::EngineRegistry::new(None),
     );
     // Entry types register initialization facts before any use. The lazy loader
     // does the same when additional types become visible.

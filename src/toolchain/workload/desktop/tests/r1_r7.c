@@ -24,7 +24,6 @@
 #include <string.h>
 
 #include "z42_host.h"
-#include "z42_components.h"
 
 /* ── stdout capture sink (no prefix; raw bytes) ─────────────────────────── */
 static char   g_buf[65536];
@@ -62,6 +61,7 @@ static Z42HostConfig mkcfg(const char* const* paths) {
 
 int main(int argc, char** argv) {
 #ifdef Z42_STATIC_LINK
+    extern int z42_linked_components_init(void);
     if (z42_linked_components_init() != 0) { return 1; }
 #endif
 

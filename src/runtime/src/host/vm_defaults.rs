@@ -77,7 +77,7 @@ pub(crate) fn construct(
     module: Option<crate::metadata::Module>,
     vfs: Arc<dyn crate::pal::fs::Vfs>,
     extensions: crate::vm::VmExtensions,
-    engines: crate::exec::engine::EngineRegistry,
+    engines: crate::exec::EngineRegistry,
 ) -> std::pin::Pin<Box<VmContext>> {
     let module = module.map(|mut module| {
         module.clear_link_state();
@@ -99,8 +99,8 @@ pub(crate) fn with_config(
     vfs: Arc<dyn crate::pal::fs::Vfs>,
     extensions: crate::vm::ExtensionState,
     config: crate::config::VmConfig,
-    protocol: crate::object::protocol::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError>,
-    engines: crate::exec::engine::EngineRegistry,
+    protocol: crate::object::ObjectProtocol<VmContext, crate::exec::call::builtin_abi::BuiltinError>,
+    engines: crate::exec::EngineRegistry,
 ) -> std::pin::Pin<Box<VmContext>> {
     let sampler = crate::diagnostics::sampling::Sampling::with_config(
         config.sample_hz, config.trace_timeline,

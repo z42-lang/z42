@@ -26,7 +26,7 @@
 //!
 
 use crate::exec::call::builtin_abi::BuiltinError;
-use crate::exec::{engine, call::args::CallArgs};
+use crate::exec::{self, call::args::CallArgs};
 use crate::exec::call::outcome::ExecOutcome;
 use crate::object::{NativeData, TypeDesc, Value};
 use crate::zpkg::index::well_known_names;

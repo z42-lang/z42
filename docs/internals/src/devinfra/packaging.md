@@ -41,6 +41,20 @@ macOS 采用 @rpath 和 @loader_path，Linux 采用 $ORIGIN 与 $ORIGIN/../nativ
 
 共享 Rust std 在生产图构建成功后按该工具链暂存到产物目录。SDK、开发 SDK 和预编译 CI 产物的消费方从该目录复制匹配的 std，不查询接收机器的 rustup。缺失或有歧义时拒绝组包；刷新构建目录的 std 时清除旧版本。
 
+### Native 统一头与模块所有权
+
+C 声明的源码归能力所有者：宿主声明位于 `src/runtime/src/host/z42_host.h`，组件链接声明位于
+`src/runtime/src/components/z42_components.h`。`src/runtime/include/z42_host.h` 是统一发布入口，
+只包含公共 ABI 和所有者头的 include，不保存这些领域的实现或重复声明。
+
+`_copyAbiHeaders` 调用 `_runtimeHeaderText` 展开所有者的相对 include，形成平铺、自包含的
+`native/include/z42_host.h`；普通公共 include（例如 `z42_abi.h`）保持原样。
+workload、Swift modulemap、JNI 与 C 调用方继续使用原有统一头，无需为每个内部模块增加 include 或转发文件。
+内部头文件移动只影响其聚合声明；原有 SDK 头名、分发位置和 workload 引用不受影响。
+
+安装器自检确认统一头包含组件声明且没有源码相对 include；真实 C 部署使用同一个统一头编译与链接。
+source-identity 检查比较发布头与同一展开过程的结果，其余源文件继续逐字节比较。
+
 ## 2. 构建 → 安装
 
 ```mermaid
@@ -121,7 +135,7 @@ graph LR
 ## 5. source-identity 门：逐字节，且失联即红
 
 每个包组装完（`_pkgFinish`）都跑 `_pkgSourceIdentityCheck`：**比对包内每一份从仓库拷进去的副本 vs
-仓库源，逐字节**。
+仓库源，逐字节**。C 聚合头以所有者 include 展开后的内容为源，使用与发布相同的展开过程。
 
 **不是哈希**——直接读两个文件比字节，比 hash 更强（无碰撞面、不依赖外部工具）。
 函数名不含 sha。仓里、CI 日志里出现的 "SHA invariant" 字样指的就是这道门。
@@ -131,7 +145,7 @@ graph LR
 | 规则 | 包内路径 | 仓库源 |
 |---|---|---|
 | stdlib libs | `libs/`（`.zpkg` + `.zsym`）| 扁平 stdlib dist |
-| C ABI headers | `native/include/*.h` | `src/runtime/include/` |
+| C ABI headers | `native/include/*.h` | `src/runtime/include/`；所有者相对 include 展开后的内容 |
 | C ABI headers (ios) | `Sources/Z42VMC/include/*.h` | 同上 |
 | C ABI headers (android) | `z42vm/src/main/cpp/include/*.h` | 同上 |
 | iOS Swift | `Sources/Z42VM/*.swift` | `src/toolchain/workload/ios/platform/Sources/Z42VM/` |

@@ -9,7 +9,7 @@ fn lookup_and_queue_drain_need_no_vm_heap_or_execution_engine() {
         Arc::new(crate::pal::vfs::MemoryFs::new()),
         || crate::loader::fusion_inputs::FusionInputs { no_fusion: true, no_typed_fusion: true, fusion_debug: false },
     );
-    let events = crate::diagnostics::observer::RuntimeObserverRegistry::new();
+    let events = crate::diagnostics::RuntimeObserverRegistry::new();
     let loader = RuntimeLoader::new(&state, &metadata, &cache, &events);
     loader.install_lazy_loader(None, 0);
     assert!(loader.try_lookup_function("Missing.Run").is_none());

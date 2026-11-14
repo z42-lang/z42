@@ -27,7 +27,7 @@
 VM 消费者通过内部 `components::api` 请求准备、执行角色和分析服务。执行角色绑定在实例创建前验证，
 消费者不传具体提供方 ID；执行热路径使用一次装配的引擎。`ComponentOptions`、`BackendOptions` 等具名入口仍经 host 转出，宿主公开面的完整收口尚未完成。
 独立组件通过 `z42::components::abi` 使用同构建协议，`components::bridge` 提供共享核心身份、布局和已绑定对象服务的只读借用；不提供组件管理入口。
-最终 Rust 组合根使用 `abi::register_static_component`；C 组合根包含本目录的 `z42_components.h`，SDK 安装器将其发布到 include。两者仅登记工厂，不调用工厂或创建 VM。
+最终 Rust 组合根使用 `abi::register_static_component`；C 声明在本目录的 `z42_components.h` 维护，由 native 聚合进既有的 `z42_host.h` 发布；调用方不单独包含组件头。两者仅登记工厂，不调用工厂或创建 VM。
 描述符、接口头、构建身份与执行核心身份均在装配时校验。
 
 三种使用形态的目标是静态链接、作为共享库依赖的动态链接、运行时显式装入分别建模，并按运行时策略检查；

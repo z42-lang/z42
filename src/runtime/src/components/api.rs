@@ -85,6 +85,6 @@ pub(super) fn attach_execution(ctx: &VmContext, mode: ExecMode) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn engine_registry() -> crate::exec::engine::EngineRegistry {
+pub(crate) fn engine_registry() -> crate::exec::EngineRegistry {
     super::backends::registry()
 }

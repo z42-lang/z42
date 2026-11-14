@@ -232,9 +232,10 @@ void _pkgEmitManifest(string pkgDir, string rid, string version, string profile,
     string binList = _quotedDirList(Path.Join(pkgDir, "bin"), "");
     string libsList = _quotedDirList(Path.Join(pkgDir, "libs"), ".zpkg");
     // Manifest lists the actual shared runtime closure; static archives and headers belong to runtime packages.
-    string staticList = _quotedExisting(Path.Join(pkgDir, "native"), new string[]{ "libz42.a", "z42.lib" });
+    string staticList = _quotedExisting(Path.Join(pkgDir, "native"), "libz42.a", "z42.lib");
     string dynamicList = _quotedDirList(Path.Join(pkgDir, "native"), rid.StartsWith("windows-") ? ".dll" : (rid.StartsWith("macos-") ? ".dylib" : ".so"));
-    string includeList = _quotedExisting(Path.Join(pkgDir, "native/include"), new string[]{ "z42_abi.h", "z42_host.h", "z42_components.h", "z42_native.h" });
+    string includeList = _quotedExisting(Path.Join(pkgDir, "native/include"), "z42_abi.h", "z42_host.h");
+    if (File.Exists(Path.Join(pkgDir, "native/include/z42_native.h"))) { includeList = includeList + ", \"z42_native.h\""; }
     string m = "";
     m = m + "[package]\n";
     m = m + "name        = \"z42-" + rid + "\"\n";
@@ -273,12 +274,11 @@ string _quotedDirList(string dir, string suffix) {
     return acc;
 }
 
-string _quotedExisting(string dir, string[] names) {
+string _quotedExisting(string dir, string a, string b) {
     string acc = "";
-    foreach (var name in names) {
-        if (name.Length == 0 || !File.Exists(Path.Join(dir, name))) { continue; }
-        if (acc.Length > 0) { acc = acc + ", "; }
-        acc = acc + "\"" + name + "\"";
-    }
+    // length guards: skip empty names — z42 File.Exists is true for the dir itself
+    // (Path.Join(dir,"")==dir), which would otherwise emit a spurious "".
+    if (a.Length > 0 && File.Exists(Path.Join(dir, a))) { acc = "\"" + a + "\""; }
+    if (b.Length > 0 && File.Exists(Path.Join(dir, b))) { if (acc.Length > 0) { acc = acc + ", "; } acc = acc + "\"" + b + "\""; }
     return acc;
 }

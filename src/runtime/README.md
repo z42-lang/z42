@@ -11,6 +11,11 @@ crate 类型：VM 模块的组合根。内部模块直接编译引用；独立�
 
 解释器与 JIT 分别属于独立的 z42-interp、z42-jit 库，单向依赖运行时；生产运行时不链接具体后端。host 将准备请求交给内部 `components::api`，组件层选择来源并注册引擎，每 VM 的 TierApi 归执行层，后端拥有编译器和代码页。
 
+跨模块引用使用所属领域的稳定导出；实现文件移动不改变消费路径。C 声明由各模块维护，
+native 安装器将其聚合成既有统一头，workload 不增加逐模块 include。
+具体边界与公开面见[运行时模块边界](../../docs/internals/src/runtime/module-boundaries.md)，
+分发过程见[打包机制](../../docs/internals/src/devinfra/packaging.md)。
+
 ## 目录结构与核心文件
 
 顶层职责边界见 [`src/README.md`](src/README.md)。

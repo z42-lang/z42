@@ -44,7 +44,16 @@ main.rs 只依赖 std/libloading，加载 libz42 的 z42_main_v1。命令行参�
 不把历史 LoadOptions 中的组件管理状态扩散到该接口。环境、相对路径、搜索默认值由来源适配解析，
 加载服务不读取 CLI probing 设置或隐式补目录。
 
-组件静态装配协议由 components 所有：Rust 最终组合根使用 `components::abi::register_static_component`，C 使用独立的 `z42_components.h` 与 `z42_component_register_static`。登记只保存进程寿命工厂；空指针/冲突以组件状态返回，不依赖 host 会话或错误槽。普通 `z42_host.h` 不包含组件身份与工厂声明。
+领域根提供稳定消费契约：`exec::{EngineRegistry, Initialization, TierBackend}`、
+`diagnostics::{RuntimeCounters, CounterSnapshot, RuntimeEvent}`、`object::ObjectProtocol`。
+engine/init、counters/observer、protocol 实现模块私有；实现文件移动只需调整所属模块的声明与显式导出。
+模块内的实现引用不做机械改写，也不建立总括所有领域的 prelude。正向 doctest 与私有路径 compile_fail 验证这条边界。
+
+组件静态装配协议由 components 所有：Rust 最终组合根使用 `components::abi::register_static_component`，C 使用 `z42_component_register_static`。
+登记只保存进程寿命工厂，空指针/冲突以组件状态返回，不依赖 host 会话或错误槽。
+`src/host/z42_host.h` 与 `src/components/z42_components.h` 分别维护所属声明；`include/z42_host.h` 是 native 的统一聚合入口。
+打包展开所有者相对 include，输出平铺的 `native/include/z42_host.h`；workload 的 include 与 modulemap 不随实现目录变化。
+这个发布聚合入口不等于 Rust host 的组件管理 API。
 
 ### 当前可核对的缺口
 

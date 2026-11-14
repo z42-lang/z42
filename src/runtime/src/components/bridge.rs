@@ -36,7 +36,7 @@ pub(super) fn validate_core(identity: crate::components::abi::ExecutionIdentity,
 /// Borrow object capabilities already bound to this VM. Execution components call
 /// this only after their same-core identity has been validated; no registry lookup.
 #[inline]
-pub fn object_protocol(ctx: &crate::vm::VmContext) -> &crate::object::protocol::ObjectProtocol<
+pub fn object_protocol(ctx: &crate::vm::VmContext) -> &crate::object::ObjectProtocol<
     crate::vm::VmContext, crate::exec::call::builtin_abi::BuiltinError,
 > {
     ctx.core().object_protocol()

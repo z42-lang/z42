@@ -185,7 +185,7 @@ unsafe fn invoke_interp(
             return unsafe { crate::jit::runtime::forward::call_forward(frame_ref, ctx, dst, func, id, Some(this), arg_regs) };
         }
     }
-    match crate::exec::engine::invoke_args(vm_ctx, module, func, crate::exec::call::args::CallArgs::Receiver { receiver: this, regs: &frame_ref.regs, indices: arg_regs }, mta)
+    match crate::exec::invoke_args(vm_ctx, module, func, crate::exec::call::args::CallArgs::Receiver { receiver: this, regs: &frame_ref.regs, indices: arg_regs }, mta)
     {
         Ok(crate::exec::call::outcome::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0

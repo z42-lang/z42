@@ -39,7 +39,7 @@ pub(super) fn ffi_call(
     // marshal error) are counted — they still represent FFI traffic.
     ctx.counters().native_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     if ctx.core().diagnostics().runtime_observers.has_observers() {
-        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::NativeCallEntered {
+        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::RuntimeEvent::NativeCallEntered {
             module: module_name.to_string(),
             symbol: format!("{type_name}::{symbol}"),
         });

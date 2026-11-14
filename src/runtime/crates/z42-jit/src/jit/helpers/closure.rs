@@ -193,7 +193,7 @@ pub unsafe extern "C" fn jit_call_indirect(
             args.extend(env_val_opt);
             args.extend(user_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
             vm_ctx.exec().set_top_frame_pc(caller_offset);
-            return match crate::exec::engine::invoke(vm_ctx, module, callee, &args) {
+            return match crate::exec::invoke(vm_ctx, module, callee, &args) {
                 Ok(crate::exec::call::outcome::ExecOutcome::Returned(ret)) => {
                     frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0
                 }

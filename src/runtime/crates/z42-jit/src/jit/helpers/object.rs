@@ -55,11 +55,11 @@ pub unsafe extern "C" fn jit_obj_new(
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。TypeDesc 已在手 →
     // 一次 `Option` 判断即可。add-module-init-hook：包级初始化先于类型初始化。与 interp 对称。
     if let Err(msg) = vm.initialization().ensure_module_inits(Some(type_desc.name.as_str())) {
-        set_exception(vm, crate::exec::init::make_type_init_exception(vm, module, &msg));
+        set_exception(vm, crate::exec::make_type_init_exception(vm, module, &msg));
         return 1;
     }
     if let Err(msg) = vm.initialization().ensure_type_init(&type_desc) {
-        set_exception(vm, crate::exec::init::make_type_init_exception(vm, module, &msg));
+        set_exception(vm, crate::exec::make_type_init_exception(vm, module, &msg));
         return 1;
     }
     // Bound before the object exists (binding may load a package; see interp `obj_new`).
@@ -101,7 +101,7 @@ pub unsafe extern "C" fn jit_obj_new(
                 let mut ctor_args: Vec<Value> = Vec::with_capacity(argc + 1);
                 ctor_args.push(obj_val.clone());
                 ctor_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
-                match crate::exec::engine::invoke(vm, module, func, &ctor_args) {
+                match crate::exec::invoke(vm, module, func, &ctor_args) {
                     Ok(crate::exec::call::outcome::ExecOutcome::Returned(_)) => {} // ctor mutated `this` in place
                     Ok(crate::exec::call::outcome::ExecOutcome::Thrown(val)) => { set_exception(vm, val); return 1; }
                     Err(e) => { set_exception(vm, Value::Str(e.to_string().into())); return 1; }
