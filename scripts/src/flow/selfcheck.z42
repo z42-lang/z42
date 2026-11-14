@@ -79,7 +79,7 @@ void _flowExpectBad(string text, string why) {
 // Existing local change contracts are checked on FlowPlan directly, once in the flows stage.
 void _checkChangedPlans(FlowConfig cfg) {
     string root = _root();
-    _gateAssert(String.Join(";", _flowTestCommands(new string[]{ "README.md", ".gitignore" })) == "xtask test docs links", "documentation gets local validation");
+    _gateAssert(String.Join(";", _flowTestCommands(new string[]{ "README.md", ".gitignore" })) == "xtask check docs", "documentation gets local validation");
     FlowPlan mixed = _flowSelect(cfg, new string[]{ "src/libraries/z42.core/tests/a.z42", "src/runtime/tests/a.rs", "src/libraries/z42.core/tests/b.z42" }, root);
     string[] commands = _flowLocalCommands(cfg, mixed);
     _gateAssert(commands.Length == 2 && _strIn(commands, "xtask test stdlib z42.core") && _strIn(commands, "xtask test runtime"), "owner commands deduplicate and keep runtime outside GREEN");
@@ -117,7 +117,7 @@ void _checkOutsideGatePlans(FlowConfig cfg) {
         _gateAssert(_flowSkipStages(cfg, plan).Length == 0, "full fallback keeps every scoped stage");
     }
     _gateAssert(_flowHas(_flowSelect(cfg, new string[]{ "scripts/src/package/desktop.z42" }, root).Steps, "green"), "production packaging keeps full GREEN");
-    _gateAssert(_flowTestCommands(new string[]{ "scripts/src/test/sdk/README.md" })[0] == "xtask test docs links", "SDK docs route to docs validation");
+    _gateAssert(_flowTestCommands(new string[]{ "scripts/src/test/sdk/README.md" })[0] == "xtask check docs", "SDK docs route to docs validation");
 }
 
 string[] _flowTestCommands(string[] changed, string root = "") {

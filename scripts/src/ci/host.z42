@@ -19,7 +19,7 @@ int _ciTestHost(string path) {
     string root = _root(); string rid = _detectHostRid();
     FlowConfig cfg = _flowConfigFor(root);
     FlowPlan plan = _flowReadPlan(cfg, path, root);
-    if (!_flowCiOutput(plan, _flowOutputs(cfg, plan), "host_checks") || plan.DocsOnly) { return 0; }
+    if (!_flowCiOutput(plan, _flowOutputs(cfg, plan), "host_checks")) { return 0; }
     int rc;
     if (!Platform.IsWindows()) {
         rc = _testAll(true, _ciHostSkips(cfg, plan, rid)); if (rc != 0) { return rc; }

@@ -106,15 +106,7 @@ void _flowScopeChecks(FlowConfig cfg) {
         _gateAssert(_flowCiOutput(empty, _flowOutputs(cfg, empty), key), "unpublished cumulative release retains " + key);
         empty.Event = "pull_request";
     }
-    FlowPlan mixedDocs = _flowSelect(cfg, new string[]{ "README.md", "scripts/src/flow/planner.z42" }, root);
-    FlowPlan archives = _flowSelect(cfg, new string[]{ "scripts/src/package/release.z42" }, root);
-    string[] archiveFlags = _flowOutputs(cfg, archives);
-    _gateAssert(archives.Publish && _strIn(archiveFlags, "sdk_checks") && _strIn(archiveFlags, "toolchain_build")
-        && !_strIn(archiveFlags, "host_checks") && !_strIn(archiveFlags, "platform") && _ciBenchOnly(cfg, archives.Files, root),
-        "release archiving verifies SDK and all RID archive fixtures without unrelated product suites");
-    _gateAssert(_strIn(_flowOutputs(cfg, _flowSelect(cfg, new string[]{ "scripts/src/package/release.z42", "src/runtime/src/lib.rs" }, root)), "platform"),
-        "mixed archive and production changes retain platform validation");
-    _gateAssert(_strIn(_flowOutputs(cfg, mixedDocs), "docs_checks") && !_strIn(_flowOutputs(cfg, mixedDocs), "host_checks"), "mixed documentation and control changes retain links without product tests");
+    _flowPreflightChecks(cfg);
     FlowPlan privateTool = _flowSelect(cfg, new string[]{ "src/toolchain/builder/tests/fixtures/a/expect.toml" }, root);
     _gateAssert(!_strIn(_flowOutputs(cfg, privateTool), "test_assets"), "private toolchain tests do not assemble a second SDK");
     string workflow = File.ReadAllText(Path.Join(root, ".github/workflows/ci.yml"));
@@ -140,4 +132,40 @@ void _flowScopeChecks(FlowConfig cfg) {
     _gateAssert(String.Join(",", _flowOutputs(tiny, _flowSelect(tiny, new string[]{ "tests/a" }, root))) == "toolchain_build",
         "prerequisite prepares resources without affecting consumers");
     Console.WriteLine("  ✓ flow scope: control, build, test, benchmark, device and production obligations");
+}
+
+void _flowPreflightChecks(FlowConfig cfg) {
+    string root = _root();
+    foreach (var file in new string[]{ "scripts/src/package/release.z42", "scripts/src/test/sdk/release_selfcheck.z42" }) {
+        FlowPlan plan = _flowSelect(cfg, new string[]{ file }, root);
+        string[] flags = _flowOutputs(cfg, plan);
+        _gateAssert(plan.Publish == file.Contains("/package/") && _strIn(flags, "archive_checks"), "archive producer and regression have separate publication obligations");
+        foreach (var key in new string[]{ "sdk_checks", "toolchain_build", "host_checks", "platform" }) {
+            _gateAssert(!_strIn(flags, key), "pure archive checks do not request " + key);
+        }
+        _gateAssert(_ciBenchOnly(cfg, plan.Files, root) && _flowJobSteps(cfg, plan, "archive-checks").Length == 1,
+            "archive checks run the native suite without performance measurements");
+        _gateAssert(String.Join(";", _flowLocalCommands(cfg, plan)) == "xtask check release-archives", "local archive validation matches CI");
+    }
+    FlowPlan mixed = _flowSelect(cfg, new string[]{ "scripts/src/package/release.z42", "src/runtime/src/lib.rs" }, root);
+    mixed.Event = "pull_request";
+    _gateAssert(_strIn(_flowOutputs(cfg, mixed), "platform") && _flowPackageRequired(mixed, _flowOutputs(cfg, mixed), true),
+        "mixed runtime changes retain full packages, which also verify archives");
+    FlowPlan docs = _flowSelect(cfg, new string[]{ "README.md", "scripts/src/flow/planner.z42" }, root);
+    _gateAssert(_strIn(_flowOutputs(cfg, docs), "docs_checks") && !_strIn(_flowOutputs(cfg, docs), "host_checks"), "mixed documentation and control changes retain lightweight contracts");
+    docs = _flowSelect(cfg, new string[]{ "README.md" }, root); docs.Event = "push"; docs.ReleaseRequired = "true";
+    string[] selected = _flowOutputs(cfg, docs);
+    _gateAssert(docs.DocsOnly && !_flowCiOutput(docs, selected, "host_checks")
+        && _flowCiOutput(docs, selected, "toolchain_build") && _flowPackageRequired(docs, selected, true),
+        "documentation-only validation preserves cumulative SDK preparation without host suites");
+    mixed = _flowSelect(cfg, new string[]{ "README.md", "src/runtime/src/lib.rs" }, root);
+    string skip = _ciHostSkips(cfg, mixed, "linux-x64");
+    foreach (var key in new string[]{ "docs", "diagcodes", "layout" }) {
+        _gateAssert(!_skipHas(skip, key), "host validation covers the deferred documentation contract " + key);
+    }
+    string workflow = File.ReadAllText(Path.Join(root, ".github/workflows/ci.yml"));
+    _gateAssert(!workflow.Contains("needs.changes.outputs.docs_only") && !workflow.Contains("\n  docs-check:"), "resource consumers do not override preparation or start another docs job");
+    int docsAt = workflow.IndexOf("run: xtask check docs");
+    _gateAssert(docsAt >= 0 && docsAt < workflow.IndexOf("name: Share immutable flow plan"), "lightweight documentation failures stop dependent jobs before plan publication");
+    _gateAssert(workflow.Contains("outputs.archive_checks == 'true' && needs.changes.outputs.host_package != 'true'"), "archive matrix does not repeat full SDK archive validation");
 }

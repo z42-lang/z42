@@ -114,8 +114,9 @@ void _ciQueueChecks() {
     string workflowHeader = workflow.Substring(0, workflow.IndexOf("\njobs:"));
     _gateAssert(workflowHeader.Contains("queue: single") && !workflowHeader.Contains("github.sha")
         && workflowHeader.Contains("cancel-in-progress: ${{ github.event_name != 'push' }}"), "main keeps its running workflow and only the latest pending push; PR replacement remains enabled");
-    foreach (var name in new string[]{ "build-and-test", "host-package", "vm-jit-consistency", "stdlib-consistency", "test-wasm", "test-ios", "test-android" }) {
+    foreach (var name in new string[]{ "archive-checks", "build-and-test", "host-package", "vm-jit-consistency", "stdlib-consistency", "test-wasm", "test-ios", "test-android" }) {
         int begin = workflow.IndexOf("\n  " + name + ":");
+        _gateAssert(begin >= 0, "matrix job exists: " + name);
         string section = workflow.Substring(begin + 1);
         section = section.Substring(0, section.IndexOf("matrix:"));
         _gateAssert(section.Contains("fail-fast: ${{ github.event_name == 'pull_request' }}"), "PR matrix failure releases sibling jobs: " + name);

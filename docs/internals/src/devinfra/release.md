@@ -62,6 +62,7 @@ Windows 使用开发环境已有的 Git Bash GNU tar，并强制将盘符路径�
 GNU tar 使用 PAX 格式及 UTF-8 编码；发布流程及自检的读取、解包也使用同一工具，避免 Windows 系统 tar 对非 ANSI 文件名的解码限制。
 保留隐藏文件、空目录、含空格或换行的文件名，以及原有可执行位与符号链接；macOS 扩展属性仍不进入发布包。
 Windows ZIP 的条目名统一使用 `/`，不随 PowerShell 的 .NET 目标框架切换为反斜杠，确保在 macOS / Linux 上也能还原目录。
+`xtask check release-archives` 使用种子 SDK 与系统归档工具独立验证这些契约，不构建产品；覆盖所有 RID / workload 的小型归档及真实解包，也由 `package sdk --verify` 聚合执行。
 `release` 默认就在 `artifacts/packages/` 上做，要求 9 个 RID 的归档齐全（单机凑不齐，它是汇总 job 的步骤）。
 
 `--no-build` 让它消费已有的 z42c + stdlib 产物（CI warm 路径用）。

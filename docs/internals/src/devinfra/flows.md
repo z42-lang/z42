@@ -89,7 +89,7 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
   --out artifacts/ci-plan.json --github-output "$GITHUB_OUTPUT"
 ```
 
-规划器分别输出 `host_checks`、`toolchain_build`、`test_assets` 和 `docs_checks`。每个 job 只消费对应信号：有改动不等于要构建产品，有宿主验证也不等于要组装第二份 SDK。空 PR 不选择这些资源，只保留轻量规划与 `ci-ok`。无法读取基线、完整策略及非 PR 的累计发布义务保守保留前提。
+规划器分别输出 `host_checks`、`toolchain_build`、`test_assets`、`docs_checks` 和 `archive_checks`。每个 job 只消费对应信号：有改动不等于要构建产品，有宿主验证也不等于要组装第二份 SDK。空 PR 不选择这些资源，只保留轻量规划与 `ci-ok`。无法读取基线、完整策略及非 PR 的累计发布义务保守保留前提。
 
 | 改动职责 | 所选流程 |
 |---|---|
@@ -98,12 +98,14 @@ xtask flow plan --event-file "$GITHUB_EVENT_PATH" \
 | VM 构建脚本 | VM harness、解释器 / JIT 验证和性能观测；不扩大为编译器或标准库单测 |
 | 共享 unit harness | 宿主目标、stdlib / compiler 消费者与脚本 benchmark；不扩大为 VM、集成性能或设备打包 |
 | toolchain 私有执行器 | 宿主 toolchain / manifest target 验证 |
-| 发布归档与索引实现 | 四平台 SDK 验证，其中包含所有 RID / workload 的真实归档与解包夹具；生产归档变更仍保留发布义务 |
+| 发布归档与索引实现、归档自检 | 四平台种子 SDK 执行 `check release-archives`，覆盖所有 RID / workload 归档与真实解包；生产归档仍保留发布义务，选中 SDK 时由 SDK 验证覆盖 |
 | 私有标准库测试 | 准备工具链，仅执行所属包；不测性能 |
 | 私有 benchmark | 仅所属性能类别；不自动选择正确性 job |
 | Android / iOS / wasm 执行器 | 仅对应平台编译与 smoke；共享设备实现仍保留全部平台契约 |
 | VM / 编译器 / 标准库生产源 | 正确性消费者与对应性能类别；VM 生产源保留完整运行时和平台契约 |
 | 无法识别的输入 | 完整策略，不以“脚本文件”作为自动免测依据 |
+
+文档由 `check docs` 聚合链接、诊断码与布局检查：无宿主验证时复用规划器 job，有宿主验证时由宿主覆盖。归档契约是本地可直接执行的独立检查，完整 SDK 验证仍聚合相同夹具。
 
 宿主 job 在本机准备工具链；`host-validation` 不额外申请供分片 / 编译器消费者下载的共享工具链产物。仅宿主验证的计划不会启动无消费者的 `compile-toolchain`，发布所需的准备仍由累计发布策略保留。
 

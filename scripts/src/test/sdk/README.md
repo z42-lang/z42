@@ -14,15 +14,17 @@
 | 回归真实退出 0 / 7、输出不符与编译失败 | `test/sdk/goldens_selfcheck.z42` 的 `_selfcheckDistGoldens` |
 | 验证 Cargo 消息转发、元数据透传与子进程退出码 | `test/sdk/cargo_capture_selfcheck.z42` |
 | 校验 Cargo 产物路径和生产方 Rust std 的拷贝边界 | `test/sdk/cargo_artifacts_selfcheck.z42` |
+| 独立验证全部 RID 归档与真实解包 | `check release-archives` → `test/sdk/release_selfcheck.z42` |
 | 校验包配置、组件安装与发布归档 | `test/sdk/package_selfcheck.z42` 的 `_pkgSelfCheck` |
 
 ## 如何测试验证
 
 ```bash
-.github/ci/xtask package sdk --verify
+./xtask check release-archives
+./xtask package sdk --verify
 ```
 
-CI 在四个桌面 host package 中执行同一入口。测试执行器与私有发行包夹具改动按目录职责选择这些 job，不需要逐用例声明平台或 tier。
+完整 SDK 验证在四个桌面 host package 中执行；归档契约可通过种子 SDK 独立运行，也保留在 SDK 验证的聚合入口中。测试执行器与私有发行包夹具改动按目录职责选择这些 job，不需要逐用例声明平台或 tier。
 
 ## 关联文档
 
