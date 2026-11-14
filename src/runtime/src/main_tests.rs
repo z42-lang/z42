@@ -25,6 +25,6 @@ fn cargo_has_one_vm_bin_and_no_windows_forwarder_feature() {
     let manifest = include_str!("../Cargo.toml");
     let entries: Vec<_> = manifest.split("[[bin]]").skip(1).collect();
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].starts_with("\nname = \"z42vm\""));
+    assert_eq!(entries[0].lines().find(|line| !line.trim().is_empty()), Some("name = \"z42vm\""));
     assert!(!manifest.contains("windows-launcher"));
 }
