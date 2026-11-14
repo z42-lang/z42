@@ -1,0 +1,108 @@
+namespace Z42Xtask;
+
+using Std.Json;
+using Std.Collections;
+using Std.IO;
+
+class CiMainSupersedeFake : CiGitHub {
+    public JsonValue Current;
+    public JsonValue Old;
+    public JsonValue Prior = JsonValue.OfObject();
+    public JsonValue Diff = JsonValue.Parse("{\"status\":\"ahead\",\"files\":[{\"filename\":\"src/runtime/src/lib.rs\"}]}");
+    public string Latest = "head";
+    public string Race = "";
+    public int OldReads;
+    public List<string> Posts = new List<string>();
+    public CiMainSupersedeFake() {
+        this.Current = JsonValue.Parse("{\"id\":42,\"workflow_id\":7,\"run_number\":9,\"head_sha\":\"head\",\"head_branch\":\"main\",\"head_repository\":{\"full_name\":\"owner/repo\"},\"path\":\".github/workflows/ci.yml\",\"event\":\"push\",\"status\":\"in_progress\"}");
+        this.Old = JsonValue.Parse(JsonValue.StringifyPretty(this.Current));
+        this.Old.Set("id", JsonValue.OfLong(41L)); this.Old.Set("run_number", JsonValue.OfLong(8L));
+        this.Old.Set("head_sha", JsonValue.OfString("old"));
+    }
+    public override JsonValue Get(string path) {
+        if (this.Race == "api" && path.Contains("/compare/")) { throw new Exception("comparison unavailable"); }
+        if (path.EndsWith("/actions/runs/42")) { return this.Current; }
+        if (path.EndsWith("/actions/runs/40")) { return this.Prior; }
+        if (path.EndsWith("/actions/runs/41")) {
+            this.OldReads = this.OldReads + 1;
+            if (this.Race == "advance") { this.Latest = "next"; }
+            if (this.Race == "complete") { this.Old.Set("status", JsonValue.OfString("completed")); }
+            return this.Old;
+        }
+        if (path.EndsWith("/git/ref/heads/main")) {
+            JsonValue v = JsonValue.OfObject(); JsonValue obj = JsonValue.OfObject();
+            obj.Set("sha", JsonValue.OfString(this.Latest)); v.Set("object", obj); return v;
+        }
+        if (path.EndsWith("/runs?branch=main&event=push&per_page=100")) {
+            JsonValue v = JsonValue.OfObject(); JsonValue runs = JsonValue.OfArray();
+            runs.Add(this.Current); runs.Add(this.Old);
+            if (this.Prior.ContainsKey("id")) { runs.Add(this.Prior); }
+            v.Set("workflow_runs", runs); return v;
+        }
+        if (path.EndsWith("/compare/prior...head")) { return JsonValue.Parse("{\"status\":\"ahead\",\"files\":[{\"filename\":\"src/runtime/src/lib.rs\"}]}"); }
+        if (path.EndsWith("/compare/old...head")) { return this.Diff; }
+        throw new Exception("unexpected main cleanup GET " + path);
+    }
+    public override void Post(string path) {
+        _gateAssert(path == "repos/owner/repo/actions/runs/41/cancel" || path == "repos/owner/repo/actions/runs/40/cancel", "main cleanup only normally cancels a verified older run");
+        this.Posts.Add(path);
+        if (this.Race == "denied" || this.Race == "finish-error") {
+            if (this.Race == "finish-error") { this.Old.Set("status", JsonValue.OfString("completed")); }
+            throw new Exception("cancellation failed");
+        }
+    }
+}
+
+void _ciMainSupersedeChecks() {
+    var api = new CiMainSupersedeFake(); _ciSupersedeMain(api, "owner/repo", "42", false);
+    _gateAssert(api.Posts.Count == 1, "new production assets replace the old main CI");
+    api = new CiMainSupersedeFake(); _ciSupersedeMain(api, "owner/repo", "42", true);
+    _gateAssert(api.Posts.Count == 0, "main cleanup dry-run never cancels");
+    foreach (var file in new string[]{ "README.md", "src/runtime/tests/test.rs", "scripts/src/ci/queue.z42", "src/libraries/z42.json/tests/test.z42" }) {
+        api = new CiMainSupersedeFake(); api.Diff.Get("files").At(0).Set("filename", JsonValue.OfString(file));
+        _ciSupersedeMain(api, "owner/repo", "42", false);
+        _gateAssert(api.Posts.Count == 0, "non-published changes retain the previous asset run: " + file);
+    }
+    api = new CiMainSupersedeFake(); api.Diff.Get("files").At(0).Set("filename", JsonValue.OfString("README.md"));
+    api.Prior = JsonValue.Parse(JsonValue.StringifyPretty(api.Old));
+    api.Prior.Set("id", JsonValue.OfLong(40L)); api.Prior.Set("run_number", JsonValue.OfLong(7L));
+    api.Prior.Set("head_sha", JsonValue.OfString("prior"));
+    _ciSupersedeMain(api, "owner/repo", "42", false);
+    _gateAssert(api.Posts.Count == 1 && api.Posts[0].EndsWith("/40/cancel"),
+        "a documentation head retains the preceding code publisher but cancels an older superseded asset run");
+    api = new CiMainSupersedeFake(); api.Diff.Get("files").At(0).Set("filename", JsonValue.OfString("README.md"));
+    api.Diff.Get("files").At(0).Set("previous_filename", JsonValue.OfString("src/runtime/src/lib.rs"));
+    _ciSupersedeMain(api, "owner/repo", "42", false);
+    _gateAssert(api.Posts.Count == 1, "renaming a production file into documentation still supersedes assets");
+    foreach (var field in new string[]{ "path", "event", "head_branch", "head_sha" }) {
+        api = new CiMainSupersedeFake(); api.Old.Set(field, JsonValue.OfString(""));
+        _ciSupersedeMain(api, "owner/repo", "42", false);
+        _gateAssert(api.Posts.Count == 0, "main cleanup isolates run identity: " + field);
+    }
+    foreach (var why in new string[]{ "workflow", "newer", "same-head", "completed", "repo", "current-repo", "stale", "behind", "diverged", "advance", "complete" }) {
+        api = new CiMainSupersedeFake();
+        if (why == "workflow") { api.Old.Set("workflow_id", JsonValue.OfLong(8L)); }
+        if (why == "newer") { api.Old.Set("run_number", JsonValue.OfLong(10L)); }
+        if (why == "same-head") { api.Old.Set("head_sha", JsonValue.OfString("head")); }
+        if (why == "completed") { api.Old.Set("status", JsonValue.OfString("completed")); }
+        if (why == "repo") { api.Old.Get("head_repository").Set("full_name", JsonValue.OfString("fork/repo")); }
+        if (why == "current-repo") { api.Current.Get("head_repository").Set("full_name", JsonValue.OfString("fork/repo")); }
+        if (why == "stale") { api.Latest = "next"; }
+        if (why == "behind" || why == "diverged") { api.Diff.Set("status", JsonValue.OfString(why)); }
+        if (why == "advance" || why == "complete") { api.Race = why; }
+        _ciSupersedeMain(api, "owner/repo", "42", false);
+        _gateAssert(api.Posts.Count == 0, "main cleanup rejects stale or unrelated runs: " + why);
+    }
+    foreach (var why in new string[]{ "api", "missing-files", "truncated", "denied", "finish-error" }) {
+        api = new CiMainSupersedeFake(); api.Race = why;
+        if (why == "missing-files") { api.Diff.Set("files", JsonValue.OfString("unknown")); }
+        if (why == "truncated") {
+            for (int i = 1; i < 300; i = i + 1) { api.Diff.Get("files").Add(JsonValue.Parse("{\"filename\":\"README.md\"}")); }
+        }
+        bool failed = false;
+        try { _ciSupersedeMain(api, "owner/repo", "42", false); } catch (Exception e) { failed = true; }
+        _gateAssert(failed == (why != "finish-error") && api.Posts.Count == (why == "denied" || why == "finish-error" ? 1 : 0),
+            "unknown diffs never authorize cancellation, completion races are accepted, errors stay visible: " + why);
+    }
+    Console.WriteLine("  ✓ main cleanup: asset ownership, documentation retention, rename, ancestry, isolation and cancellation races");
+}

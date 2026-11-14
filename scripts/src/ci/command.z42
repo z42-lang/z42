@@ -11,6 +11,7 @@ class CiCommand : Command {
         this.AddCommand(new CiRetryCommand());
         this.AddCommand(new CiUploadCommand());
         this.AddCommand(new CiMainScopeCommand());
+        this.AddCommand(new CiPublicationCommand());
         this.AddCommand(new CiSupersedeCommand());
         this.AddCommand(new CiInstallerCheckCommand());
         this.AddCommand(new CiBenchScopeCommand());
@@ -62,7 +63,7 @@ class CiUploadCommand : Command {
 
 class CiSupersedeCommand : Command {
     [Option(help: "inspect without cancelling older runs")] public bool DryRun;
-    public CiSupersedeCommand() : base("supersede", "release superseded PR runs") {}
+    public CiSupersedeCommand() : base("supersede", "release superseded PR or main asset runs") {}
     public override int Run() {
         try { return _ciSupersede(new CiGitHub(), this.DryRun); }
         catch (Exception e) { ConsoleError.WriteLine("ci supersede: " + e.Message); return 1; }
@@ -99,5 +100,13 @@ class CiHostTestCommand : Command {
     public override int Run() {
         try { return _ciTestHost(this.Plan); }
         catch (Exception e) { ConsoleError.WriteLine("ci test-host: " + e.Message); return 2; }
+    }
+}
+
+class CiPublicationCommand : Command {
+    public CiPublicationCommand() : base("check-publication", "reject stale or unverified nightly publication") {}
+    public override int Run() {
+        try { return _ciCheckPublication(new CiGitHub()); }
+        catch (Exception e) { ConsoleError.WriteLine("publication check: " + e.Message); return 1; }
     }
 }

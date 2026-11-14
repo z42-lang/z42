@@ -1,0 +1,24 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+bool _ciNightlyStale(CiGitHub api, string repo, string head) {
+    string prefix = "repos/" + repo;
+    string nightly = "";
+    try { nightly = _ciString(api.Get(prefix + "/git/ref/tags/nightly").Get("object"), "sha"); }
+    catch (Exception e) { if (!e.Message.Contains("HTTP 404")) { throw e; } return false; }
+    if (nightly.Length == 0 || head.Length == 0) { throw new Exception("missing publication identity"); }
+    if (nightly == head) { return false; }
+    string status = _ciString(api.Get(prefix + "/compare/" + head + "..." + nightly), "status");
+    if (status == "ahead") { return true; }
+    if (status == "behind" || status == "identical") { return false; }
+    throw new Exception("nightly ancestry is unverified: " + status);
+}
+
+int _ciCheckPublication(CiGitHub api) {
+    bool stale = _ciNightlyStale(api, _ciRepo(), Environment.GetEnvironmentVariable("GITHUB_SHA", ""));
+    string text = "stale=" + (stale ? "true" : "false") + "\n";
+    string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
+    if (output.Length > 0) { File.AppendAllText(output, text); }
+    Console.Write(text); return 0;
+}

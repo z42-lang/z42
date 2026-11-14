@@ -35,6 +35,7 @@ void _ciSelectionChecks(FlowConfig cfg) {
     }
     _ciQueueChecks();
     _ciMainScopeChecks();
+    _ciMainSupersedeChecks();
     _ciBootstrapAvailabilityChecks();
     string output = _xtaskWork(_root(), "flow-package-output");
     try {

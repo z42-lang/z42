@@ -9,20 +9,24 @@ bool _ciSdkBetween(CiGitHub api, FlowConfig cfg, string root, string repo, strin
     if (base_ == head) { return false; }
     try {
         JsonValue files = api.Get("repos/" + repo + "/compare/" + base_ + "..." + head).Get("files");
-        if (!files.IsArray() || files.Count() >= 300) { return true; }
-        var owners = new FlowOwners(root);
-        for (int i = 0; i < files.Count(); i = i + 1) {
-            JsonValue item = files.At(i);
-            string current = item.Get("filename").AsString();
-            string previous = _ciString(item, "previous_filename");
-            foreach (var file in new string[]{ current, previous }) {
-                if (file.Length == 0) { continue; }
-                FlowInput rule = _flowInput(cfg, file, owners);
-                if (rule == null || rule.Publish) { return true; }
-            }
-        }
-        return false;
+        return _ciSdkFiles(cfg, root, files);
     } catch (Exception e) { ConsoleError.WriteLine("SDK diff unknown; retain publishing: " + e.Message); return true; }
+}
+
+bool _ciSdkFiles(FlowConfig cfg, string root, JsonValue files) {
+    if (!files.IsArray() || files.Count() >= 300) { throw new Exception("incomplete SDK comparison"); }
+    var owners = new FlowOwners(root);
+    for (int i = 0; i < files.Count(); i = i + 1) {
+        JsonValue item = files.At(i);
+        string current = item.Get("filename").AsString();
+        string previous = _ciString(item, "previous_filename");
+        foreach (var file in new string[]{ current, previous }) {
+            if (file.Length == 0) { continue; }
+            FlowInput rule = _flowInput(cfg, file, owners);
+            if (rule == null || rule.Publish) { return true; }
+        }
+    }
+    return false;
 }
 
 // A pending main run may replace several pushes, including private test changes.
