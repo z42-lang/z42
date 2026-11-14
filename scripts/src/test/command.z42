@@ -90,6 +90,7 @@ class TestListCommand : Command {
 class LibUnitsCommand : Command {
     [Option(help: "skip tooling rebuild")] public bool NoBuild;
     [Option(help: "name filter", shortName: "k")] public string Filter = "";
+    [Option(help: "select package owners from a validated flow plan")] public string Plan = "";
     [Option(help: "parallel unit batch width")] public string Jobs = "";
     [Option(help: "execution mode (default: interp; jit forks z42vm)", choices: new string[]{ "interp", "jit" })]
     public string Mode = "";

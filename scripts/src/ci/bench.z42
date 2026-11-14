@@ -1,25 +1,38 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Json;
+
+string[] _ciBenchKinds() { return new string[]{ "bench_stdlib", "bench_vm", "bench_integration" }; }
 
 bool _ciBenchOnly(FlowConfig cfg, string[] files, string root) {
-    var owners = new FlowOwners(root);
-    foreach (var file in files) {
-        FlowInput rule = _flowInput(cfg, file, owners);
-        if (rule == null || !rule.BenchOnly) { return false; }
-    }
+    string[] flags = _flowOutputs(cfg, _flowSelect(cfg, files, root));
+    foreach (var key in _ciBenchKinds()) { if (_strIn(flags, key)) { return false; } }
     return true;
 }
 
 int _ciBenchScope(string base_) {
-    bool only = false;
+    string root = _root(); FlowConfig cfg = _flowConfigFor(root);
+    FlowPlan plan;
     try {
-        string root = _root();
-        ProcessResult ancestor = new Process("git").Arg("merge-base").Arg("--is-ancestor").Arg(base_).Arg("HEAD").Run();
-        if (ancestor.ExitCode == 0) { only = _ciBenchOnly(_flowConfigFor(root), _flowDiff(root, _flowCommit(root, base_), "HEAD"), root); }
-    } catch (Exception e) { ConsoleError.WriteLine("benchmark diff unknown: " + e.Message); }
+        _gitOutput(new string[]{ "merge-base", "--is-ancestor", base_, "HEAD" });
+        base_ = _flowCommit(root, base_);
+        plan = _flowSelect(cfg, _flowDiff(root, base_, "HEAD"), root);
+    } catch (Exception e) {
+        ConsoleError.WriteLine("benchmark diff unknown; measure all families: " + e.Message);
+        plan = _flowSelect(cfg, new string[0], root, true); plan.Full = true; base_ = "";
+    }
+    plan.Base = base_; plan.Head = _flowCommit(root, "HEAD"); plan.Policy = "commits";
+    plan.Event = "pull_request"; plan.ReleaseRequired = "false";
+    string path = Path.Join(_artifactsDir(root), "bench-plan.json");
+    Directory.Create(Path.GetDirectoryName(path)); File.WriteAllText(path, JsonValue.StringifyPretty(_flowJson(cfg, plan)) + "\n");
+    string[] flags = _flowOutputs(cfg, plan);
+    bool language = _strIn(flags, "bench_stdlib") || _strIn(flags, "bench_integration");
+    string text = "bench_toolchain=" + (language ? "true" : "false") + "\n"
+        + "verdict_only=" + (!language && !_strIn(flags, "bench_vm") ? "true" : "false") + "\n";
+    foreach (var key in _ciBenchKinds()) { text = text + key + "=" + (_strIn(flags, key) ? "true" : "false") + "\n"; }
     string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
-    if (output.Length > 0) { File.AppendAllText(output, "verdict_only=" + (only ? "true" : "false") + "\n"); }
-    Console.WriteLine("verdict_only=" + (only ? "true" : "false"));
+    if (output.Length > 0) { File.AppendAllText(output, text); }
+    Console.Write(text);
     return 0;
 }

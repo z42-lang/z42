@@ -10,7 +10,10 @@ void _flowGitChecks(FlowConfig cfg) {
     string release = Environment.GetEnvironmentVariable("XTASK_RELEASE_REQUIRED", "");
     try {
         _ciGit(dir, new string[]{ "init", "-q" });
+        _ciGit(dir, new string[]{ "config", "core.autocrlf", "false" });
         _ciWrite(dir, ".gitignore", "artifacts/\n");
+        _ciWrite(dir, ".gitattributes", "*.toml text\n");
+        _ciWrite(dir, "scripts/flows.toml", File.ReadAllText(Path.Join(_root(), "scripts/flows.toml")).Replace("\r\n", "\n"));
         _ciWrite(dir, "README.md", "base\n");
         _ciWrite(dir, "src/runtime/src/lib.rs", "production\n");
         _ciGit(dir, new string[]{ "add", "." }); _ciGit(dir, new string[]{ "commit", "-qm", "base" });
@@ -33,7 +36,7 @@ void _flowGitChecks(FlowConfig cfg) {
         _gateAssert(emptyPr.Files.Length == 0 && !emptyPr.Full && emptyPr.Steps.Length == 0, "real empty planning commit has no affected flows");
         string emptyOutput = Path.Join(dir, "artifacts/empty-output");
         _flowWriteOutputs(cfg, emptyPr, emptyOutput);
-        _gateAssert(File.ReadAllText(emptyOutput).Contains("validation_required=false"), "real empty PR suppresses heavy CI jobs");
+        _gateAssert(File.ReadAllText(emptyOutput).Contains("toolchain_build=false"), "real empty PR suppresses heavy CI jobs");
         _ciWrite(dir, "artifacts/event.json", eventJson);
         foreach (var kind in new string[]{ "push", "pull_request", "schedule", "workflow_dispatch" }) {
             Environment.SetEnvironmentVariable("GITHUB_EVENT_NAME", kind);
@@ -94,12 +97,17 @@ void _flowExpectStale(FlowConfig cfg, string path, string root, string why) {
 }
 
 void _flowConsumerChecks(FlowConfig cfg, FlowPlan plan, string origin) {
-    foreach (var kind in new string[]{ "reachable", "missing-origin" }) {
+    foreach (var kind in new string[]{ "reachable", "missing-origin", "crlf" }) {
         string dir = Path.Join(origin, "artifacts/consumer-" + kind); Directory.Create(dir);
         _ciGit(dir, new string[]{ "init", "-q" });
+        _ciGit(dir, new string[]{ "config", "core.autocrlf", kind == "crlf" ? "true" : "false" });
         _ciGit(dir, new string[]{ "remote", "add", "origin", origin });
         _ciGit(dir, new string[]{ "fetch", "--quiet", "--depth=1", "origin", plan.Head });
         _ciGit(dir, new string[]{ "checkout", "--quiet", "--detach", "FETCH_HEAD" });
+        string text = File.ReadAllText(Path.Join(dir, "scripts/flows.toml"));
+        if (kind == "crlf") { _gateAssert(text.Contains("\r\n"), "consumer uses a real Git CRLF checkout"); }
+        FlowConfig consumer = _flowParse(text);
+        _gateAssert(consumer.Digest == cfg.Digest, "shared plan configuration is portable across checkouts");
         bool basePresent = true;
         try { _flowCommit(dir, plan.Base); } catch (Exception e) { basePresent = false; }
         _gateAssert(!basePresent, "consumer fixture starts with only the shallow head");
@@ -107,9 +115,9 @@ void _flowConsumerChecks(FlowConfig cfg, FlowPlan plan, string origin) {
         _ciWrite(dir, "artifacts/ci-plan.json", JsonValue.StringifyPretty(_flowJson(cfg, plan)));
         if (kind == "missing-origin") {
             _ciGit(dir, new string[]{ "remote", "remove", "origin" });
-            _flowExpectStale(cfg, path, dir, "consumer cannot fetch the saved base");
+            _flowExpectStale(consumer, path, dir, "consumer cannot fetch the saved base");
         } else {
-            _gateAssert(_flowReadPlan(cfg, path, dir).Head == plan.Head, "consumer fetches and validates shared plan base");
+            _gateAssert(_flowReadPlan(consumer, path, dir).Head == plan.Head, "consumer fetches and validates shared plan base");
             _gateAssert(_flowCommit(dir, plan.Base) == plan.Base, "consumer has the exact plan base after validation");
         }
     }

@@ -1,0 +1,61 @@
+// Host validation policy shared by GitHub and local reproduction.
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+
+string _ciHostSkips(FlowConfig cfg, FlowPlan plan, string rid) {
+    var skip = new List<string>();
+    skip.AddRange(_splitWords(_flowSkipStages(cfg, plan).Replace(",", " ")));
+    skip.AddRange(new string[]{ "stdlib", "compiler", "vscode" });
+    if (rid != "linux-x64") { skip.AddRange(new string[]{ "cross-zpkg", "bench" }); }
+    string[] outputs = _flowOutputs(cfg, plan);
+    if (_strIn(outputs, "runtime_checks")) { skip.Add("rust-units"); }
+    if (_flowPackageRequired(plan, outputs, true)) { skip.Add("examples"); }
+    return String.Join(",", _dedupeNonEmpty(skip.ToArray()));
+}
+
+int _ciTestHost(string path) {
+    string root = _root(); string rid = _detectHostRid();
+    FlowConfig cfg = _flowConfigFor(root);
+    FlowPlan plan = _flowReadPlan(cfg, path, root);
+    if (!_flowCiOutput(plan, _flowOutputs(cfg, plan), "host_checks") || plan.DocsOnly) { return 0; }
+    int rc;
+    if (!Platform.IsWindows()) {
+        rc = _testAll(true, _ciHostSkips(cfg, plan, rid)); if (rc != 0) { return rc; }
+        rc = _ciCheckGoldenBaselines(root); if (rc != 0) { return rc; }
+    }
+    if (_strIn(_flowOutputs(cfg, plan), "runtime_checks")) {
+        if (Platform.IsWindows()) { rc = _buildTest(); if (rc != 0) { return rc; } }
+        rc = _testRuntime(); if (rc != 0) { return rc; }
+    }
+    if (plan.Event == "pull_request" && rid == "linux-x64"
+        && Environment.GetEnvironmentVariable("GITHUB_ACTIONS", "") == "true" && _ciMergeLatestMain(root)) {
+        return _checkDiagCodes();
+    }
+    return 0;
+}
+
+int _ciCheckGoldenBaselines(string root) {
+    string fixtures = "src/compiler/z42.package/tests/fixtures/zbc-format";
+    int rc = new Process("git").Arg("-C").Arg(root).Arg("diff").Arg("--quiet").Arg("--").Arg(fixtures).Run().ExitCode;
+    if (rc == 0) { return 0; }
+    ConsoleError.WriteLine("committed zbc-format baselines are stale; regenerate with xtask build test and commit the reviewed fixtures");
+    _exec(new Process("git").Arg("-C").Arg(root).Arg("--no-pager").Arg("diff").Arg("--stat").Arg("--").Arg(fixtures));
+    return 1;
+}
+
+// Supplementary code-number check; GitHub itself rejects a conflicted PR.
+bool _ciMergeLatestMain(string root) {
+    ProcessResult fetch = new Process("git").Arg("-C").Arg(root).Args(new string[]{ "fetch", "--no-tags", "--deepen=200", "origin", "main" }).Run();
+    if (fetch.ExitCode != 0 || new Process("git").Arg("-C").Arg(root).Args(new string[]{ "merge-base", "HEAD", "FETCH_HEAD" }).Run().ExitCode != 0) {
+        Console.WriteLine("CI latest-main preflight unavailable; normal diagnostic checks still apply");
+        return false;
+    }
+    ProcessResult merge = new Process("git").Arg("-C").Arg(root)
+        .Args(new string[]{ "-c", "user.name=ci", "-c", "user.email=ci@z42.invalid", "merge", "--no-edit", "FETCH_HEAD" }).Run();
+    if (merge.ExitCode == 0) { return true; }
+    new Process("git").Arg("-C").Arg(root).Args(new string[]{ "merge", "--abort" }).Run();
+    Console.WriteLine("CI latest-main preflight found a merge conflict; GitHub mergeability remains authoritative");
+    return false;
+}

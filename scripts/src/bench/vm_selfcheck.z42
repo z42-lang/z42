@@ -1,0 +1,29 @@
+// Real dependency-free Cargo fixtures verify both trees, argv and failure propagation.
+namespace Z42Xtask;
+
+using Std.IO;
+
+int _selfcheckVmBenchRunner() {
+    string dir = _xtaskWork(_root(), "vm-bench-runner"); _resetDir(dir);
+    try {
+        foreach (var tree in new string[]{ "base", "head" }) {
+            string runtime = Path.Join(dir, tree + "/src/runtime"); Directory.Create(runtime);
+            File.WriteAllText(Path.Join(runtime, "Cargo.toml"), "[package]\nname = \"bench-fixture\"\nversion = \"0.0.0\"\nedition = \"2021\"\n[[bench]]\nname = \"contract\"\npath = \"contract.rs\"\nharness = false\n");
+            File.WriteAllText(Path.Join(runtime, "Cargo.lock"), "version = 4\n[[package]]\nname = \"bench-fixture\"\nversion = \"0.0.0\"\n");
+            File.WriteAllText(Path.Join(runtime, "contract.rs"),
+                "fn main() { let a: Vec<String> = std::env::args().collect(); assert!(a.iter().any(|s| s == \"--quick\"));\n"
+                + "let phase = if a.iter().any(|s| s == \"--save-baseline\") { \"base\" } else { assert!(a.iter().any(|s| s == \"--baseline-lenient\")); \"head\" };\n"
+                + "std::fs::write(std::path::Path::new(&std::env::var(\"CRITERION_HOME\").unwrap()).join(phase), std::env::current_dir().unwrap().to_string_lossy().as_bytes()).unwrap(); }\n");
+        }
+        string head = Path.Join(dir, "head"); string base_ = Path.Join(dir, "base");
+        _gateAssert(_benchVmAt(head, base_, true) == 0, "VM benchmark runs without either z42 toolchain");
+        string results = Path.Join(_benchDir(head), "criterion");
+        _gateAssert(File.ReadAllText(Path.Join(results, "base")) == Path.Join(base_, "src/runtime")
+            && File.ReadAllText(Path.Join(results, "head")) == Path.Join(head, "src/runtime"), "VM benchmark uses independent Rust roots and one result directory");
+        Console.WriteLine("  VM benchmark fixture: expected nonzero child exit follows");
+        File.WriteAllText(Path.Join(head, "src/runtime/contract.rs"), "fn main() { std::process::exit(17); }\n");
+        _gateAssert(_benchVmAt(head, "", true) != 0, "VM benchmark process failure is not an informational verdict");
+        Console.WriteLine("✓ VM benchmark: Cargo targets, symmetric roots, quick argv and failure propagation");
+        return 0;
+    } finally { Directory.Delete(dir, true); }
+}

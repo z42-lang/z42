@@ -1,0 +1,1 @@
+namespace DedupMiddle; using DedupBase; public int MiddleValue() { return BaseValue(); }

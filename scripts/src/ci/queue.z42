@@ -1,0 +1,22 @@
+// Separate bounded pools keep background SDK work from occupying every PR lane.
+namespace Z42Xtask;
+
+using Std.IO;
+
+string _ciMacosQueue(string eventName, long number) {
+    bool pr = eventName == "pull_request";
+    long slots = pr ? 2L : 1L;
+    string pool = pr ? "pr-" : "background-";
+    return "host=" + pool + (number % slots).ToString() + "\n"
+        + "package=" + pool + ((number + 1L) % slots).ToString() + "\n"
+        + "checks=" + pool + ((number + 2L) % slots).ToString() + "\n";
+}
+
+int _ciQueue() {
+    long number = long.Parse(Environment.GetEnvironmentVariable("GITHUB_RUN_NUMBER", "0"));
+    string text = _ciMacosQueue(Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", ""), number);
+    string output = Environment.GetEnvironmentVariable("GITHUB_OUTPUT", "");
+    if (output.Length > 0) { File.AppendAllText(output, text); }
+    Console.Write(text);
+    return 0;
+}
