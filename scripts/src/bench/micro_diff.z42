@@ -1,0 +1,178 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+// Match benchmark name, metric and execution profile before computing any ratio.
+// Each resampled comparison requires a matching entry in every captured round.
+// Single-round and repeated-round verdicts share the statistics module.
+int _benchMicroDiff(BenchCommand cmd) {
+    string root = _root();
+    string current = cmd.Current;
+    if (current.Length == 0) { current = Path.Join(_benchDir(root), "micro-pr.json"); }
+    string baseline = cmd.Baseline;
+    if (baseline.Length == 0) { baseline = Path.Join(_benchDir(root), "micro-base.json"); }
+    double thr = 0.10;
+    string tt = cmd.ThresholdTime;
+    if (tt.Length > 0) { thr = Double.Parse(tt); }
+    // Resample: comma-separated round files, pr and base in lockstep.
+    // One file each = the single-round SEM path. k>=2 = the resampled
+    // path: the interval comes from the between-round dispersion of the ratios.
+    string[] curPaths  = current.Split(",");
+    string[] basePaths = baseline.Split(",");
+    if (curPaths.Length != basePaths.Length) {
+        ConsoleError.WriteLine("error: --current and --baseline must list the same number of rounds ("
+            + curPaths.Length.ToString() + " vs " + basePaths.Length.ToString() + ")");
+        return 2;
+    }
+    int k = curPaths.Length;
+    JsonValue[] curDocs  = new JsonValue[k];
+    JsonValue[] baseDocs = new JsonValue[k];
+    for (int i = 0; i < k; i = i + 1) {
+        string cp = _absUnder(root, curPaths[i].Trim());
+        string bp = _absUnder(root, basePaths[i].Trim());
+        if (!File.Exists(cp)) { ConsoleError.WriteLine("error: micro current not found: " + curPaths[i]); return 2; }
+        if (!File.Exists(bp)) { ConsoleError.WriteLine("error: micro baseline not found: " + basePaths[i]); return 2; }
+        curDocs[i]  = JsonValue.Parse(File.ReadAllText(cp)).Get("benchmarks");
+        baseDocs[i] = JsonValue.Parse(File.ReadAllText(bp)).Get("benchmarks");
+    }
+    JsonValue curBs  = curDocs[0];
+    JsonValue baseBs = baseDocs[0];
+    if (k > 1) {
+        Console.WriteLine("Micro A/B RESAMPLED (" + k.ToString()
+            + " rounds, interval from between-round dispersion; gate: R_lower > 1+" + thr.ToString() + "):");
+    } else {
+        Console.WriteLine("Micro A/B (same-runner base vs pr; gate: R_lower > 1+" + thr.ToString() + "):");
+    }
+
+    // `--suspects <path>`: names of entries this (round-1) pass flags, one per line,
+    // for the caller to decide whether resampling is worth starting. Always written
+    // when asked — an empty file is the "nothing suspicious" answer, and callers test
+    // it with `[ -s ]`, so not writing it would read as "no suspects" on a crash.
+    string suspectsPath = cmd.Suspects;
+    string suspects = "";
+
+    int regr = 0; int compared = 0; int newb = 0; int dropped = 0;
+    for (int j = 0; j < curBs.Count(); j = j + 1) {
+        JsonValue c = curBs.At(j);
+        string name   = c.Get("name").AsString();
+        string metric = c.Get("metric").AsString();
+        string mkey   = _epBenchModeKey(c);
+        JsonValue b = _findBenchObj(baseBs, name, metric, mkey);
+        if (b == null) { newb = newb + 1; continue; }
+        AbVerdict v = new AbVerdict();
+        if (k > 1) {
+            v = _microResampled(curDocs, baseDocs, k, name, metric, mkey, thr);
+            if (v.Verdict == "no-data") {
+                // Present in round 1 but not in every round. A benchmark that comes and
+                // goes between rounds is not evidence of a regression — keep it OUT of
+                // the gate, but say so: silently dropping gate entries is how a gate
+                // goes blind.
+                Console.WriteLine("  ⚠️  " + name + " [" + mkey + "]: missing from some round — excluded from the gate");
+                dropped = dropped + 1;
+                continue;
+            }
+        } else {
+            v = _microVerdict(b, c, thr);
+        }
+        compared = compared + 1;
+        _abPrint(name, mkey, v);
+        if (v.IsRegression) { regr = regr + 1; suspects = suspects + name + "\n"; }
+    }
+    if (newb > 0) {
+        Console.WriteLine("  (" + newb.ToString() + " new benchmark(s) with no base match — skipped)");
+    }
+    if (dropped > 0) {
+        Console.WriteLine("  (" + dropped.ToString() + " benchmark(s) excluded — not present in every round)");
+    }
+    if (suspectsPath.Length > 0) { File.WriteAllText(_absUnder(root, suspectsPath), suspects); }
+    Console.WriteLine("");
+    if (regr > 0) {
+        Console.WriteLine("❌ " + regr.ToString() + " micro regression(s) — R_lower > 1+thr (of "
+            + compared.ToString() + " same-runner comparisons)");
+        return 1;
+    }
+    Console.WriteLine("✅ no micro regression (same-runner A/B; " + compared.ToString() + " compared)");
+    return 0;
+}
+
+// One benchmark's resampled verdict: its ratio in EVERY round, then
+// `_abResampleVerdict`. Returns a "no-data" verdict when the entry is not matched
+// in all k rounds (the caller excludes it from the gate and says so).
+AbVerdict _microResampled(JsonValue[] curDocs, JsonValue[] baseDocs, int k,
+                          string name, string metric, string mkey, double thr) {
+    // An unmatched / non-positive round records ratio 0, which `_abResampleVerdict` turns into "no-data".
+    double[] ratios = new double[k];
+    for (int i = 0; i < k; i = i + 1) {
+        JsonValue ci = _findBenchObj(curDocs[i], name, metric, mkey);
+        JsonValue bi = _findBenchObj(baseDocs[i], name, metric, mkey);
+        if (ci == null || bi == null) { ratios[i] = 0.0; continue; }
+        double bm = _microMean(bi);
+        double cm = _microMean(ci);
+        ratios[i] = bm > 0.0 && cm > 0.0 ? cm / bm : 0.0;
+    }
+    return _abResampleVerdict(ratios, thr);
+}
+
+// Per-benchmark micro verdict. Prefer the SEM path (Bencher mean/stddev) when BOTH baselines carry it;
+// otherwise (a baseline without mean_ns/stddev_ns, = -1) fall back to the INTERVAL-AWARE min/max comparison —
+// both baselines always carry value + ci_lower/ci_upper. Same R_lower > 1+thr criterion either way
+// (via _abClassify).
+AbVerdict _microVerdict(JsonValue b, JsonValue c, double thr) {
+    if (_microHasSem(b) && _microHasSem(c)) {
+        return _abVerdict(_microMean(b), _microSd(b), _microN(b),
+                          _microMean(c), _microSd(c), _microN(c), thr);
+    }
+    AbVerdict v = new AbVerdict();
+    double baseV = b.Get("value").AsDouble();
+    double prV   = c.Get("value").AsDouble();
+    if (baseV <= 0.0 || prV <= 0.0) { v.Verdict = "no-data"; return v; }
+    v.Ratio = prV / baseV;
+    if (!_microHasCiBounds(b) || !_microHasCiBounds(c)) {
+        v.HasCi = false; v.RLower = v.Ratio; v.RUpper = v.Ratio;
+        _abClassify(v, thr);
+        return v;
+    }
+    // Ratio CI from the min/max intervals: [pr.lo/base.hi, pr.hi/base.lo]. A
+    // regression needs pr's fastest sample to still exceed base's slowest by the
+    // threshold (R_lower > 1+thr) — overlapping intervals ⇒ noise ⇒ not a regression.
+    double bLo = b.Get("ci_lower").AsDouble(); double bHi = b.Get("ci_upper").AsDouble();
+    double cLo = c.Get("ci_lower").AsDouble(); double cHi = c.Get("ci_upper").AsDouble();
+    if (bHi <= 0.0 || bLo <= 0.0) { v.RLower = v.Ratio; v.RUpper = v.Ratio; v.HasCi = false; _abClassify(v, thr); return v; }
+    v.RLower = cLo / bHi;
+    v.RUpper = cHi / bLo;
+    _abClassify(v, thr);
+    return v;
+}
+
+// SEM usable ⟺ mean present + stddev>0 + samples>1 (matches _abVerdict's haveCi).
+bool _microHasSem(JsonValue b) {
+    double mean = -1.0; double sd = -1.0; double n = 0.0;
+    return b.TryGetValue<double>("mean_ns", ref mean)     && mean >= 0.0
+        && b.TryGetValue<double>("stddev_ns", ref sd)     && sd > 0.0
+        && b.TryGetValue<double>("samples", ref n)        && n > 1.0;
+}
+bool _microHasCiBounds(JsonValue b) {
+    JsonValue lo = null; JsonValue hi = null;
+    return b.TryGet("ci_lower", ref lo) && b.TryGet("ci_upper", ref hi);
+}
+
+// Point estimate for a micro benchmark object: prefer mean_ns; fall back to
+// value (median) when mean_ns is absent/-1 (older baseline).
+double _microMean(JsonValue b) {
+    double mean = -1.0;
+    if (b.TryGetValue<double>("mean_ns", ref mean) && mean >= 0.0) { return mean; }
+    return b.Get("value").AsDouble();
+}
+// Dispersion: stddev_ns, or 0 (→ _abVerdict no-ci fallback) when absent/-1.
+double _microSd(JsonValue b) {
+    double sd = -1.0;
+    if (b.TryGetValue<double>("stddev_ns", ref sd) && sd >= 0.0) { return sd; }
+    return 0.0;
+}
+// Sample count n for SEM = stddev/sqrt(n); 0 (→ no-ci) when absent.
+double _microN(JsonValue b) {
+    double n = 0.0;
+    b.TryGetValue<double>("samples", ref n);
+    return n;
+}

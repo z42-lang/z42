@@ -1,0 +1,113 @@
+namespace Z42Xtask;
+
+// The regression verdict of one scenario's A/B comparison (base vs pr, both
+// compiled + measured on the SAME runner, seconds apart). See `_abVerdict`.
+class AbVerdict {
+    public double Ratio;      // pr_mean / base_mean  (>1 = pr slower)
+    public double RLower;     // 95% lower bound of the true ratio (SEM-propagated)
+    public double RUpper;     // 95% upper bound
+    public string Verdict;    // "regression" | "faster" | "overlap" | "no-data"
+    public bool IsRegression;
+    public bool HasCi;        // false = stddev/n missing → bare-ratio fallback (no-ci)
+    public int Rounds;        // measurement rounds behind the interval: 1 = single-round
+                              // SEM; k>1 = resampled, interval from the BETWEEN-ROUND
+                              // ratio dispersion (see _abResampleVerdict).
+    public AbVerdict() {
+        this.Ratio = 1.0; this.RLower = 1.0; this.RUpper = 1.0;
+        this.Verdict = "overlap"; this.IsRegression = false; this.HasCi = true;
+        this.Rounds = 1;
+    }
+}
+
+// Pure regression verdict from two same-runner measurements. Because base & pr
+// are measured on the SAME machine seconds apart, the machine speed factor k
+// cancels in ratio = pr/base, so the within-run SEM is usable here (unlike a
+// cross-runner baseline diff). thr = fractional regression threshold (0.10 = 10%);
+// Z = 1.96 (95%). Missing stddev/n (n≤1 or stddev≤0) → bare-ratio (no-ci).
+//   relSE = sqrt((SEM_p/mean_p)^2 + (SEM_b/mean_b)^2)      // quotient error prop
+//   R_lower = ratio*(1 - Z*relSE);  regression ⟺ R_lower > 1 + thr
+AbVerdict _abVerdict(double baseMean, double baseStddev, double baseN,
+                     double prMean, double prStddev, double prN, double thr) {
+    AbVerdict v = new AbVerdict();
+    if (baseMean <= 0.0 || prMean <= 0.0) { v.Verdict = "no-data"; return v; }
+    v.Ratio = prMean / baseMean;
+    bool haveCi = baseStddev > 0.0 && prStddev > 0.0 && baseN > 1.0 && prN > 1.0;
+    if (!haveCi) {
+        v.HasCi = false;
+        v.RLower = v.Ratio; v.RUpper = v.Ratio;
+        _abClassify(v, thr);
+        return v;
+    }
+    double semB = baseStddev / Math.Sqrt(baseN);
+    double semP = prStddev / Math.Sqrt(prN);
+    double relB = semB / baseMean;
+    double relP = semP / prMean;
+    double relSE = Math.Sqrt(relP * relP + relB * relB);
+    double z = 1.96;
+    v.RLower = v.Ratio * (1.0 - z * relSE);
+    v.RUpper = v.Ratio * (1.0 + z * relSE);
+    _abClassify(v, thr);
+    return v;
+}
+
+// Fill Verdict/IsRegression from R_lower/R_upper vs the threshold band.
+void _abClassify(AbVerdict v, double thr) {
+    if (v.RLower > 1.0 + thr) { v.Verdict = "regression"; v.IsRegression = true; }
+    else if (v.RUpper < 1.0 - thr) { v.Verdict = "faster"; }
+    else { v.Verdict = "overlap"; }
+}
+
+// ── 可疑即复测（benchmarking.md §5「可疑即复测」）──────────────────────────────────────
+// Final verdict for an entry that round 1 flagged as a regression, recomputed from k INDEPENDENT same-runner
+// ratios (one per round). `_abVerdict`'s interval comes from the WITHIN-run variance of one hyperfine
+// invocation and does not model between-process variance (CPU frequency, page cache, allocator/GC start state,
+// code layout), so it is ~3x too narrow; the dispersion OF THE RATIOS across re-measurements of the SAME two
+// binaries is the estimate that sees it.
+//
+//   R_lower = mean(ratios) − t(1-sided 95%, df=k-1) · sd(ratios)/sqrt(k)
+//   regression ⟺ R_lower > 1 + thr        (same rule as every other path)
+//
+// ONE-SIDED on purpose, unlike `_abVerdict`'s two-sided Z=1.96: the gate asks a one-sided question, and at k=3
+// the two-sided quantile (4.303) would blunt the margin enough to wave a real +20% regression through.
+//
+// COVERED BY `bench --ab-selftest` (pure function, see _abSelfTest).
+AbVerdict _abResampleVerdict(double[] ratios, double thr) {
+    AbVerdict v = new AbVerdict();
+    int k = ratios.Length;
+    v.Rounds = k;
+    // k<2 has no between-round dispersion to speak of — the caller must not get a
+    // verdict that looks resampled when it is not.
+    if (k < 2) { v.Verdict = "no-data"; v.HasCi = false; return v; }
+    double sum = 0.0;
+    for (int i = 0; i < k; i = i + 1) {
+        if (ratios[i] <= 0.0) { v.Verdict = "no-data"; v.HasCi = false; return v; }
+        sum = sum + ratios[i];
+    }
+    double mean = sum / (double)k;
+    double ss = 0.0;
+    for (int i = 0; i < k; i = i + 1) { double d = ratios[i] - mean; ss = ss + d * d; }
+    double sd = Math.Sqrt(ss / (double)(k - 1));
+    double se = sd / Math.Sqrt((double)k);
+    double t = _abTCrit95(k - 1);
+    v.Ratio = mean;
+    v.RLower = mean - t * se;
+    v.RUpper = mean + t * se;
+    _abClassify(v, thr);
+    return v;
+}
+
+// One-sided 95% Student-t critical value, by degrees of freedom. Small df is the
+// whole point here (k=3 ⇒ df=2 ⇒ 2.920), so the table is exact where it matters
+// and falls back to the normal quantile once df is large enough not to.
+double _abTCrit95(int df) {
+    if (df <= 1) { return 6.314; }
+    if (df == 2) { return 2.920; }
+    if (df == 3) { return 2.353; }
+    if (df == 4) { return 2.132; }
+    if (df == 5) { return 2.015; }
+    if (df == 6) { return 1.943; }
+    if (df == 7) { return 1.895; }
+    if (df == 8) { return 1.860; }
+    if (df == 9) { return 1.833; }
+    return 1.645;
+}

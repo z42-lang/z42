@@ -406,7 +406,7 @@ publish = false
 
 [[inputs]]
 id = "benchmark-verdict-implementation"
-include = ["scripts/src/bench/verdict_selfcheck.z42", "scripts/src/bench/criterion.z42"]
+include = ["scripts/src/bench/verdict_selfcheck.z42", "scripts/src/bench/criterion.z42", "scripts/src/bench/prepare_selfcheck.z42", "scripts/src/bench/statistics_selfcheck.z42", "scripts/src/bench/micro_selfcheck.z42", "scripts/src/bench/micro_scope_selfcheck.z42"]
 select = ["bench-verdict"]
 publish = false
 
@@ -436,8 +436,20 @@ publish = false
 
 [[inputs]]
 id = "language-benchmark-tooling"
-include = ["scripts/src/bench/prepare*.z42"]
+include = ["scripts/src/bench/prepare.z42", "scripts/src/bench/prepare_files.z42", "scripts/src/bench/statistics.z42"]
 select = ["bench-verdict", "bench-stdlib", "bench-integration"]
+publish = false
+
+[[inputs]]
+id = "integration-benchmark-executor"
+include = ["scripts/src/bench/bench.z42", "scripts/src/bench/ab.z42"]
+select = ["bench-verdict", "bench-integration"]
+publish = false
+
+[[inputs]]
+id = "benchmark-baseline-verdict"
+include = ["scripts/src/bench/baseline.z42"]
+select = ["bench-verdict"]
 publish = false
 
 [[inputs]]

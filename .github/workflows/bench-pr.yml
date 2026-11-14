@@ -289,11 +289,5 @@ jobs:
           name: bench-ab-results
           path: |
             artifacts/bench-plan.json
-            artifacts/reports/benches/criterion/
-            artifacts/reports/benches/ab.json
-            artifacts/reports/benches/micro-pr.json
-            artifacts/reports/benches/micro-base.json
-            artifacts/reports/benches/micro-pr-r*.json
-            artifacts/reports/benches/micro-base-r*.json
-            artifacts/reports/benches/micro-suspects.txt
+            artifacts/reports/benches/
           if-no-files-found: ignore
