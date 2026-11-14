@@ -311,6 +311,31 @@ fn primitive_cell_clear_supports_every_atomic_width() {
 }
 
 #[test]
+fn primitive_copy_dispatch_preserves_memmove_at_every_width_and_small_count() {
+    let h = heap();
+    let _g = HeapGuard::enter(&h);
+    let initial: Vec<u8> = (0..256).map(|i| (i % 251) as u8).collect();
+    for width in [1, 2, 4, 8] {
+        for (source, destination) in [(0, 0), (0, 1), (1, 0), (1, 4), (4, 1)] {
+            for count in [0, 1, 3, 4, 5, 16, 17] {
+                let a = arr(&h, ArrayObj::alloc_filled(&h, ElemType::intern("byte"), ElemKind::Bytes, 256, Value::I64(0)));
+                let _root = h.pin_root(Value::Array(a));
+                let array = a.borrow();
+                assert!(array.write_byte_range(0, &initial));
+                let cells = array.cells();
+                assert!(cells.copy_prims(destination, &cells, source, count, width));
+                let mut expected = initial.clone();
+                expected.copy_within(source * width..(source + count) * width, destination * width);
+                assert_eq!(array.byte_snapshot().unwrap(), expected);
+                assert!(!cells.copy_prims(usize::MAX, &cells, 0, 1, width));
+                assert!(!cells.copy_prims(0, &cells, 0, usize::MAX, width));
+                assert_eq!(array.byte_snapshot().unwrap(), expected);
+            }
+        }
+    }
+}
+
+#[test]
 fn struct_bulk_clear_zeros_only_the_requested_blobs_and_all_reference_leaves() {
     let h = heap(); let _g = HeapGuard::enter(&h);
     let value = obj(&h); let _value_root = h.pin_root(value);
@@ -333,6 +358,40 @@ fn struct_bulk_clear_zeros_only_the_requested_blobs_and_all_reference_leaves() {
             assert!(refs.iter().all(|r| *r == if cleared { Value::Null } else { value }));
         }
         assert!(a.borrow().try_clear_elems(8, 0).unwrap());
+    }
+}
+
+#[test]
+fn strided_primitive_gaps_preserve_padding_and_reject_invalid_ranges_before_writing() {
+    let h = heap(); let _g = HeapGuard::enter(&h);
+    let a = arr(&h, ArrayObj::alloc_filled(&h, ElemType::intern("byte"), ElemKind::Bytes, 256, Value::I64(165)));
+    let _root = h.pin_root(Value::Array(a));
+    let array = a.borrow(); let cells = array.cells();
+    let initial = vec![165; 256];
+    for start in 0..16 {
+        for stride in [0, 12, 16, 24] {
+            for length in 0..17 {
+                for count in [0, 1, 2, 5] {
+                    assert!(cells.copy_in(0, &initial));
+                    assert!(cells.clear_strided_bytes(start, count, stride, length));
+                    let mut expected = initial.clone();
+                    for row in 0..count {
+                        let from = start + row * stride;
+                        expected[from..from + length].fill(0);
+                    }
+                    assert_eq!(array.byte_snapshot().unwrap(), expected);
+                }
+            }
+        }
+    }
+    assert!(cells.copy_in(0, &initial));
+    for (off, count, stride, length) in [
+        (240, 2, 16, 8), (0, usize::MAX, 16, 8),
+        (usize::MAX, 1, 0, 1), (8, 2, usize::MAX, 8),
+        (0, 1, 0, usize::MAX),
+    ] {
+        assert!(!cells.clear_strided_bytes(off, count, stride, length));
+        assert_eq!(array.byte_snapshot().unwrap(), initial);
     }
 }
 

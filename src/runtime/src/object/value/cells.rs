@@ -189,12 +189,44 @@ impl<'a> Cells<'a> {
     #[inline]
     pub(crate) fn clear_bytes(&self, off: usize, len: usize) -> bool {
         if off.checked_add(len).is_none_or(|end| end > self.len) { return false; }
+        if len == 0 { return true; }
+        if off % 8 == 0 && len % 8 == 0 {
+            // SAFETY: the complete primitive span is checked above. The view
+            // and offset are 8-aligned, so these are exactly the chunks that
+            // the general loop would select, with the same relaxed stores.
+            unsafe { clear_raw::<8>(self.base.add(off), len / 8); }
+            return true;
+        }
         let mut k = 0;
         while k < len {
             let w = chunk_width(self.base as usize + off + k, len - k);
             // SAFETY: checked span, naturally aligned chunk, primitive bytes only.
             unsafe { store_raw(self.base.add(off + k), w, 0); }
             k += w;
+        }
+        true
+    }
+
+    /// Zero the same primitive gap in a checked sequence of equal-sized blobs.
+    /// Width selection is shared by all rows when their gaps are word-aligned.
+    pub(crate) fn clear_strided_bytes(&self, off: usize, count: usize, stride: usize, len: usize) -> bool {
+        if count == 0 { return true; }
+        if (count - 1).checked_mul(stride).and_then(|last| off.checked_add(last))
+            .and_then(|last| last.checked_add(len)).is_none_or(|end| end > self.len)
+        {
+            return false;
+        }
+        if len == 0 { return true; }
+        if off % 8 == 0 && stride % 8 == 0 && len % 8 == 0 {
+            for row in 0..count {
+                // SAFETY: the last row's end was checked; every row and chunk
+                // is aligned. These are the same relaxed chunks as clear_bytes.
+                unsafe { clear_raw::<8>(self.base.add(off + row * stride), len / 8); }
+            }
+        } else {
+            for row in 0..count {
+                if !self.clear_bytes(off + row * stride, len) { return false; }
+            }
         }
         true
     }
@@ -237,16 +269,19 @@ impl<'a> Cells<'a> {
         if !fits(self, di) || !fits(src, si) {
             return false;
         }
-        // SAFETY (both loops): every index is in bounds (checked above) and `w`-aligned (the
-        // blocks are 8-aligned and element `i` sits at `i * w`); view contract.
-        let mv = |k: usize| unsafe {
-            let bits = load_raw(src.base.add((si + k) * w), w, Ordering::Relaxed);
-            store_raw(self.base.add((di + k) * w), w, bits);
-        };
-        if std::ptr::eq(self.base, src.base) && di > si {
-            (0..n).rev().for_each(mv);
-        } else {
-            (0..n).for_each(mv);
+        if n == 0 { return true; }
+        let backwards = std::ptr::eq(self.base, src.base) && di > si;
+        // SAFETY: both complete ranges were checked. Each view is 8-aligned,
+        // and the starting offsets are multiples of the selected cell width.
+        unsafe {
+            let dst = self.base.add(di * w);
+            let from = src.base.add(si * w);
+            match w {
+                1 => copy_raw::<1>(dst, from, n, backwards),
+                2 => copy_raw::<2>(dst, from, n, backwards),
+                4 => copy_raw::<4>(dst, from, n, backwards),
+                _ => copy_raw::<8>(dst, from, n, backwards),
+            }
         }
         true
     }
@@ -410,5 +445,22 @@ unsafe fn clear_raw<const WIDTH: usize>(base: *mut u8, n: usize) {
     for index in 0..n {
         // SAFETY: the caller validated the entire span and its alignment.
         unsafe { store_raw(base.add(index * WIDTH), WIDTH, 0); }
+    }
+}
+
+/// # Safety
+/// Both pointers cover n initialized, WIDTH-aligned primitive cells. WIDTH is
+/// supported; concurrent access obeys the Cells contract. For an overlapping
+/// range in the same view, backwards selects the memmove direction.
+#[inline(always)]
+unsafe fn copy_raw<const WIDTH: usize>(dst: *mut u8, src: *mut u8, n: usize, backwards: bool) {
+    let copy = |index| unsafe {
+        let bits = load_raw(src.add(index * WIDTH), WIDTH, Ordering::Relaxed);
+        store_raw(dst.add(index * WIDTH), WIDTH, bits);
+    };
+    if backwards {
+        for index in (0..n).rev() { copy(index); }
+    } else {
+        for index in 0..n { copy(index); }
     }
 }

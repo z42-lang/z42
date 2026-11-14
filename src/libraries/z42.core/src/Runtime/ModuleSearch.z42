@@ -1,14 +1,13 @@
 namespace Std.Runtime;
 
-/// 本进程解析 zpkg 依赖时会去哪些目录找（**解析后的实际搜索序**）。
+/// 当前 VM 解析 zpkg 依赖时使用的实际搜索目录，按优先级排列。
 ///
-/// 相对项已按 **entry zpkg 所在目录**解析（不是 cwd）、`probing-paths` 里的 `*` /
-/// `**` 已展开、不存在的目录已剔除。与 `Std.Runtime.RuntimeConfig` 的分工：
-/// `RuntimeConfig.Get("probing-paths")` 给原始配置串（未展开、不知道相对谁），本类给
-/// 解析后的实际搜索序。
+/// CLI 启动时按入口包目录解析相对项、展开 probing-paths 通配符并剔除不存在的目录；
+/// 嵌入宿主通过加载选项传入目录。显式加载其他位置的包后，查询包含加载器新增的目录。
+/// RuntimeConfig.Get("probing-paths") 返回原始配置，本类返回所属 VM 加载器的当前结果。
 public static class ModuleSearch {
-    /// 按序的搜索目录。非 app 路径（纯 host 嵌入）→ 空数组。空数组是**有意义的答案**：
-    /// 说明这个进程没有任何 zpkg 搜索路径，不是错误。
+    /// 返回独立的目录数组快照；修改数组不影响加载器。
+    /// 同一 VM 的 worker 共享搜索路径，不同 VM 相互隔离。未安装加载器时返回空数组。
     [Native("__search_dirs")]
     public static extern string[] Dirs();
 }

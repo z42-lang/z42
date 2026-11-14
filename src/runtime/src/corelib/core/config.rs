@@ -52,18 +52,15 @@ pub fn cfg_source(key: &str) -> &'static str {
         .map_or("default", |r| r.source.label())
 }
 
-/// `__search_dirs() -> string[]` —— 本进程解析 zpkg 依赖时**按序**查找的目录。
-///
-/// 返回的是 `app.rs` 算好的**结果**：相对项已按 entry zpkg 目录解析、`probing-paths` 的通配符
-/// 已展开、不存在的已剔除。给的是结果而不是配置，是为了让调用方**不必重做那套规则** ——
-/// 重做就会漂移，而这正是今天两份 `_findCompilerZpkg` 各写四档探测的由来。
-///
-/// 非 app 路径（纯 host 嵌入）未初始化 → 空数组。
+/// `__search_dirs() -> string[]`: snapshot this VM's current package search order.
+/// Worker contexts share their Core's loader; bare contexts return an empty array.
 pub fn search_dirs(ctx: &VmContext) -> Value {
-    let dirs: Vec<Value> = crate::loader::locate::probing::search_dirs()
-        .iter()
-        .map(|p| Value::Str(p.display().to_string().into()))
-        .collect();
+    let paths = {
+        let loader = ctx.core().loader().lazy_loader.read();
+        loader.as_ref().map_or_else(Vec::new, |loader| loader.search_dirs().to_vec())
+    };
+    // Release the loader lock before allocating managed values.
+    let dirs = paths.iter().map(|p| Value::Str(p.display().to_string().into())).collect();
     ctx.heap().alloc_array(dirs)
 }
 
@@ -130,3 +127,7 @@ pub mod typed {
     #[builtin(name = "__cfg_available", pure)]
     pub fn available(key: &str) -> bool { cfg_available(key) }
 }
+
+#[cfg(test)]
+#[path = "config_tests.rs"]
+mod tests;

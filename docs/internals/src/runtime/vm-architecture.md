@@ -107,6 +107,10 @@ program.run_entry(hint)?;
 
 上述装配（`available!` 折叠 → 显式构造 Core → cctor 登记 → `install_lazy_loader_with_deps` → 种入 lazy loader 的类型/impl）在 `src/runtime/src/host/program_builder.rs::build` 一处完成，`host::run_app` 与嵌入 host（`host/ops.rs`）共用。
 
+`Std.Runtime.ModuleSearch.Dirs` 在所属 Core 的加载器读锁下复制当前搜索目录，释放锁后构造托管数组。
+CLI、Rust 和 C 宿主均查询实际加载器状态；worker 共享同一结果，不同 VM 相互隔离。
+显式加载包新增的同址目录会出现在后续快照中，查询本身不触发加载。
+
 ### VmContext 构造入口
 
 | 方法 | 用途 | 备注 |

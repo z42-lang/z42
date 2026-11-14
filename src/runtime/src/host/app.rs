@@ -74,9 +74,6 @@ pub fn run_app(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         }
         dirs
     };
-    // 交给 z42 侧只读查询（`Std.Runtime.ModuleSearch.Dirs`）。存的是**解析结果**——相对项已按
-    // entry zpkg 解析、通配符已展开 —— 免得调用方各自重做一遍规则然后慢慢漂移。
-    crate::loader::locate::probing::set_search_dirs(search_dirs.clone());
     // add-sdk-libs D6：记下展开后不存在的 `${Z42_HOME}` 条目，供依赖解析失败时提示「是否没装 SDK」。
     {
         let entry_dir = match std::path::Path::new(file).parent() {
