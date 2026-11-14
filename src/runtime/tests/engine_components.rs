@@ -161,3 +161,34 @@ fn dynamic_interpreter_preserves_native_pin_instructions() {
     let outcome = ctx.core().exec().engines.invoke_mode(ExecMode::Interp, ctx, &module, &module.functions[0], &[]).unwrap();
     assert!(matches!(outcome, ExecOutcome::Returned(Some(Value::I64(11)))));
 }
+
+#[test]
+fn actual_dynamic_profiler_is_lazy_isolated_and_releases_its_core() {
+    let a = load(ExecMode::Interp, backends()).unwrap();
+    let b = load(ExecMode::Interp, backends()).unwrap();
+    assert!(!z42::host::profiler_loaded(a.context()));
+    assert_eq!(echo(&a, 40), 41);
+    assert!(!z42::host::profiler_loaded(a.context()));
+    let weak = Arc::downgrade(a.context().core());
+    assert!(matches!(a.invoke("EngineComponentProbe.HeapInspection", &[]).unwrap(), Some(Value::I64(42))));
+    assert!(z42::host::profiler_loaded(a.context()));
+    assert!(!z42::host::profiler_loaded(b.context()));
+    let file = input("Z42_TEST_ENGINE_BYTECODE").with_extension("heapsnapshot");
+    let bytes = z42::host::write_heap_snapshot(a.context(), file.to_str().unwrap()).unwrap();
+    assert!(bytes > 0);
+    let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert!(json.get("snapshot").is_some());
+    std::fs::remove_file(file).unwrap();
+    drop(a);
+    assert!(weak.upgrade().is_none());
+}
+#[test]
+fn unlinked_profiler_fails_only_when_requested() {
+    let program = LoadedProgram::load_file(input("Z42_TEST_ENGINE_BYTECODE").to_str().unwrap(), LoadOptions {
+        mode: ExecMode::Interp, backends: backends(), profiler: BackendSource::Linked,
+        search_dirs: vec![input("Z42_TEST_ENGINE_LIBS")], ..Default::default()
+    }).unwrap();
+    assert_eq!(echo(&program, 40), 41);
+    let error = z42::host::prepare_profiler(program.context()).unwrap_err().to_string();
+    assert!(error.contains("profiler") && error.contains("not statically linked"), "{error}");
+}

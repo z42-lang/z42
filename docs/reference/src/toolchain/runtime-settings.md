@@ -246,7 +246,7 @@ probing 路径 ${Z42_HOME}/programs/z42c 无法解析 —— 是否没有安装 
   外加近上限 / 超预算的边界事件。
 - **`jit-profile`** — 打开 JIT 编译剖析。bool 接受 `true`/`false`、`1`/`0`、`yes`/`no`、
   `on`/`off`。
-- **`sample-hz`** — safepoint 采样剖析器频率（Hz），任何 ≥1 的值即开启 z42 级 CPU 采样。
+- **`sample-hz`** — safepoint 采样剖析器频率（Hz），任何 ≥1 的值即请求 z42 级 CPU 采样。需要部署或静态登记同构建的 profiler；缺失或不兼容时在执行前报错。
 - **`sample-out`** — 采样火焰图的 folded-stacks 输出路径（inferno 格式）。
 - **`thread-stack-bytes`** — VM 创建的线程（`Std.Threading.Thread`、嵌入式 app 运行线程）的
   原生栈大小，写法同 `gc-max-bytes`。z42 调用在原生栈上递归，栈用完是**致命错误**（打印 z42

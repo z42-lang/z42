@@ -195,10 +195,18 @@ fn store_boxed(c: &Cells, off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
 pub fn store_word_recorded(c: &Cells, off: usize, w: u64) {
     let old = c.store_ref_word(off, w);
     if old != 0 {
-        // SAFETY: `old` was this cell's word an instant ago, so its referent is still live (no
-        // safepoint in between).
-        crate::gc::satb::record_overwrite(&unsafe { decode_for_trace(old) });
+        record_old_word(old);
     }
+}
+
+// Keep tag decoding and SATB queueing out of every inlined reference store.
+// A nonzero old word is returned only while a major mark is active.
+#[cold]
+#[inline(never)]
+fn record_old_word(old: u64) {
+    // SAFETY: the cell held this word immediately before its atomic swap; no
+    // safepoint occurs between the swap and recording its live referent.
+    crate::gc::satb::record_overwrite(&unsafe { decode_for_trace(old) });
 }
 
 /// GC 追踪：`off` 处的引用单元若非 null，交出它（种类 7 交出盒子）。

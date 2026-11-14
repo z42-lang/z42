@@ -31,13 +31,8 @@ fn gate_dispatch_errors_and_backend_lifetime() {
     for enabled in [false, true] {
         let polls = Arc::new(AtomicUsize::new(0));
         let drops = Arc::new(AtomicUsize::new(0));
-        let sampling = Sampling::new(
-            enabled,
-            Backend {
-                polls: polls.clone(),
-                drops: drops.clone(),
-            },
-        );
+        let sampling = Sampling::with_config(enabled.then_some(100), false);
+        sampling.install(Box::new(Backend { polls: polls.clone(), drops: drops.clone() })).ok().unwrap();
         assert_eq!(sampling.enabled(), enabled);
         sampling.poll(&ctx);
         assert_eq!(polls.load(Ordering::Relaxed), usize::from(enabled));
@@ -53,4 +48,10 @@ fn gate_dispatch_errors_and_backend_lifetime() {
         drop(sampling);
         assert_eq!(drops.load(Ordering::Relaxed), 1);
     }
+}
+
+impl ProfilerBackend for Backend {
+    fn write_heap_snapshot(&self, _: &VmContext, _: &str) -> anyhow::Result<i64> { anyhow::bail!("test provider") }
+    fn direct_referrers(&self, _: &Heap, _: usize) -> Vec<super::super::retention::RetainerInfo> { Vec::new() }
+    fn retaining_roots(&self, _: &Heap, _: usize) -> Vec<super::super::retention::RootInfo> { Vec::new() }
 }
