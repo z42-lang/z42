@@ -14,7 +14,8 @@ bool _ciSdkBetween(CiGitHub api, FlowConfig cfg, string root, string repo, strin
 }
 
 bool _ciSdkFiles(FlowConfig cfg, string root, JsonValue files) {
-    if (!files.IsArray() || files.Count() >= 300) { throw new Exception("incomplete SDK comparison"); }
+    if (!files.IsArray()) { throw new Exception("incomplete SDK comparison"); }
+    bool complete = files.Count() < 300;
     var owners = new FlowOwners(root);
     for (int i = 0; i < files.Count(); i = i + 1) {
         JsonValue item = files.At(i);
@@ -23,9 +24,11 @@ bool _ciSdkFiles(FlowConfig cfg, string root, JsonValue files) {
         foreach (var file in new string[]{ current, previous }) {
             if (file.Length == 0) { continue; }
             FlowInput rule = _flowInput(cfg, file, owners);
-            if (rule == null || rule.Publish) { return true; }
+            // A known asset proves impact even when the remaining paths are unavailable.
+            if ((rule != null && rule.Publish) || (rule == null && complete)) { return true; }
         }
     }
+    if (!complete) { throw new Exception("incomplete SDK comparison"); }
     return false;
 }
 
