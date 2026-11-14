@@ -275,6 +275,7 @@ scripts/
     │   ├── fs.z42                文件系统原语（_resetDir/_copyAll/_linkAll/_copyFile/_copyIfExists/_cleanGlob/_makeExe；写入前先断链）
     │   └── harness/              test 与 bench 共用的执行机制（只被 test/、bench/ 调用，不进发布判定）
     │       ├── fixtures.z42          声明式夹具（`expect.toml`）的通用引擎：z42c / z42b 命令行夹具与发行包夹具共用
+    │       ├── tooling.z42           共享工具路径与 z42b unit 进程工厂
     │       ├── fixture_tools.z42     开发树夹具共用的 z42c / z42b / VM 进程工厂
     │       ├── fixture_build.z42     多包 / 多入口夹具的构建、隔离 libs、产物定位与汇总
     │       ├── manifest_targets.z42  manifest 目标读取/校验、test/bench 编排与聚合（stdlib / targets / example 三个 flow 共用）
@@ -296,6 +297,7 @@ scripts/
     │       └── index.z42         `build docs index`：Rust 符号索引（`z42 doc` 查询用）
     ├── test/               `test` 命令族与各类验证，按被测对象分子目录（见 test-layout.md §1）
     │   ├── command.z42           `test` 族的命令类 + LibUnitsCommand（test stdlib / bench stdlib 共用）
+    │   ├── tooling.z42           stdlib / 目标 / example 共用的工具链准备与显式工具链覆盖
     │   ├── gate.z42              GREEN / e2e 编排 + stage 单源登记 / 只读列表 / 计时
     │   ├── gate_selfcheck.z42    stage 编排回归（skip / 必跑 / 首败 / 退出码），随 builder 夹具跑
     │   ├── changed.z42           `test changed` / `test --changed`：直接消费 flow 计划的命令与 stage
@@ -370,8 +372,8 @@ scripts/
     │   ├── fixtures/             组件校验用的 WASM 宿主夹具
     │   ├── test_workload.z42     **`package workload test`**：打 payload-only 的 test workload（`test` 是 workload 名，不是「测试」）
     │   └── release.z42           `--archive`（包目录 → 归档）/ `package release`（desktop 合并 → SHA256SUMS → index → release-notes）
-    ├── flow/               配置、workspace 成员归属（owners.z42）、影响图与执行图、计划校验与导出
-    ├── ci/                 GitHub 控制策略、离线回归与自举命令探针
+    ├── flow/               配置、workspace 成员归属（owners.z42）、所属包与分片交集（unit_projects.z42）、影响图与执行图、计划校验与导出
+    ├── ci/                 GitHub 控制策略、宿主验证（host.z42）、离线回归与自举命令探针
     ├── setup/              `setup`：各平台依赖 / 编辑器资产
     │   ├── command.z42           `setup` 族的命令类（不带子命令 = 安装）
     │   ├── install.z42           `setup [--os]`：按 versions.toml 装开发依赖
@@ -380,9 +382,10 @@ scripts/
     │   ├── ci_installers_selfcheck.z42 + testdata/  CI 工具安装器的离线回归与命令探针
     │   └── vscode.z42            生成 z42.tmLanguage.json + **`check vscode-syntax` 门**
     └── bench/              性能测量：bench / profile
-        ├── command.z42           `bench` 族的命令类（不带子命令 = e2e；stdlib / targets）
+        ├── command.z42           `bench` 族的命令类（不带子命令 = e2e；stdlib / vm / targets）
         ├── bench.z42             bench 基准 / --diff / --micro-diff / --ab 同 runner 回归门禁（判定数学 `_abVerdict` 可 `--ab-selftest`）
         ├── gc_pause.z42          GC 停顿指标解析（bench 场景头 `// gc-pause: report`）
+        ├── vm.z42 / vm_selfcheck.z42  Rust VM Criterion runner 与真实 Cargo 夹具
         ├── criterion.z42         Criterion 置信区间报告
         ├── verdict_selfcheck.z42  `bench check`：入库判定夹具与退出码
         └── profile.z42           profile 单脚本性能（cpu/heap/threads/e2e；samply/dhat/hyperfine + counter JSON）
@@ -462,3 +465,8 @@ iteration 期可用 `test changed`（按改动挑 stage）或单跑某 stage（`
 - [构建编排](../docs/internals/src/devinfra/build.md) —— 编译器 workspace 自建拓扑、stdlib 三阶段、不动点验证、golden 重生
 - [开发基础设施概览](../docs/internals/src/devinfra/README.md) —— xtask 三条产线全景
 - 操作手册（构建/测试的完整流程）：[`docs/internals/src/devinfra/`](../docs/internals/src/devinfra)
+
+## 按改动选择 CI 资源
+
+`flows.toml` 是目录归属、资源前提与正确性 / 性能消费者的配置入口。`check xtask` 用种子 SDK 验证规划、执行、清单和工作流契约；`check bench-vm` 用小型 Rust 夹具验证 VM benchmark runner。控制层改动不因同属 xtask 而触发所有产品测试。
+`test stdlib --plan` 与 `bench stdlib --plan` 保留计划所属包及分片；`bench vm --base <树>` 直接对两棵 Rust 树做 Criterion A/B。完整配置说明见[流程规划](../docs/internals/src/devinfra/flows.md)。

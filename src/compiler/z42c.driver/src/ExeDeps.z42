@@ -60,6 +60,8 @@ int _bundleExeDeps(BundleSeed seed, PathClosureOut closure, ProjectManifest pm, 
         ZpkgInfo info = ZpkgReader.Open(bytes, candidate);
         int rc = _planExeDependency(item.Name, dir, distDir, info, bytes, ownZbc, copiedZbc, copies);
         if (rc != ExitCode.Ok) { return rc; }
+        // A selected local package must not be requeued as a skipped SDK root.
+        item.SdkSkip = false;
         selected.Add(file);
         if (info != null) {
             BundleDomain domain = item.Domain;

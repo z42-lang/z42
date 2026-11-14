@@ -15,20 +15,6 @@ using Std.IO;
 using Std.Collections;
 using Z42.Project;
 
-// Resolved toolchain for a manifest-target run (release build-tree paths).
-class TargetTooling {
-    public string Vm { get; set; }
-    public string DriverZpkg { get; set; }
-    public string Libs { get; set; }         // stdlib flat（Z42_LIBS）
-    public string BuilderZpkg { get; set; }  // z42b reflective runner
-    // 夹具在 build/ 镜像的**拷贝**上跑（z42b 把目标 / 父包产物写在
-    // 清单目录旁，直接跑源码树里的夹具就会在 src/tests 下留产物）。两棵树各拷一次，整个 run 共用
-    // —— 不能每个 smoke 各自重置：reuse-parent 等用例要看前面用例留下的父包产物。
-    public string FixturesRoot { get; set; }      // src/toolchain/builder/tests/fixtures/manifest-targets 的拷贝
-    public string Z42bFixturesRoot { get; set; }  // src/toolchain/builder/tests/fixtures/z42b 的拷贝
-    public bool   Ok { get; set; }
-}
-
 // Root dir holding the e2e manifest-target fixtures.
 string _fixturesRoot(string root) { return Path.Join(root, "src/toolchain/builder/tests/fixtures/manifest-targets"); }
 
@@ -53,27 +39,6 @@ bool _smokeBegin(string toml, string title) {
 // stage skips cleanly rather than failing the z42b build.
 bool _releaseStdlibReady(string root) {
     return File.Exists(Path.Join(_libsDir(root), "z42.core.zpkg"));
-}
-
-// Build (unless noBuild) + resolve the release toolchain, then build z42b so
-// harness=true targets can run. Mirrors _testLibCore's prep so the two flows use
-// identical z42c / stdlib / z42b artifacts.
-TargetTooling _prepFixtureTooling(string root, bool noBuild) {
-    TargetTooling t = new TargetTooling();
-    t.Ok = false;
-    if (!noBuild) {
-        Console.WriteLine("→ Preparing tooling (z42vm + stdlib; release)...");
-        int c = _buildRuntime(); if (c != 0) { return t; }   // ⚠ VM first — see _testLibCore
-        c = _buildStdlib();      if (c != 0) { return t; }
-    }
-    t.Vm = _builtVm(root, "release");
-    t.DriverZpkg = _driverZpkg(root, "release");
-    t.Libs = _libsDir(root);
-    t.BuilderZpkg = _toolchainZpkg(root, _z42bToml());
-    Console.WriteLine("→ Building z42b (z42.builder.zpkg; reflective test runner)...");
-    if (_buildZ42bWith(root, t.Vm, t.DriverZpkg, t.Libs) != 0) { return t; }
-    t.Ok = true;
-    return t;
 }
 
 // `xtask test toolchain builder [--target name]` / `xtask bench targets [name]` core. kind =
@@ -276,7 +241,7 @@ int _runFixtureKind(string root, string fixName, string toml,
     if (verr.Length > 0) { ConsoleError.WriteLine("error: " + fixName + ": " + verr); return 1; }
     // 发现交给 z42b：`--list` 一次拿全（约定单元 + 显式目标，两种 harness 都在内）。
     bool ok = true;
-    string[] all = _listUnitsViaZ42b(root, toml, kind, "", "interp", tt.Vm, tt.BuilderZpkg, tt.Libs, ref ok);
+    string[] all = _listUnitsViaZ42b(root, toml, kind, "", "interp", tt, ref ok);
     if (!ok) { return 1; }
     foreach (var u in all) { if (!available.Contains(u)) { available.Add(u); } }
     string[] sel = all;   // 精确名筛选（0 或 1 个）
@@ -286,6 +251,5 @@ int _runFixtureKind(string root, string fixName, string toml,
     Console.WriteLine("");
     Console.WriteLine("── " + fixName + " (" + sel.Length.ToString() + " " + label + ") ──");
     // jobs=1：fixture 数量小，串行输出更好读（stdlib 那条才需要并行）。
-    return _runUnitsViaZ42b(root, toml, sel, sel.Length, kind,
-                            1, "interp", tt.Vm, tt.BuilderZpkg, tt.Libs, fixName, null);
+    return _runUnitsViaZ42b(root, toml, sel, kind, 1, "interp", tt, fixName, null);
 }

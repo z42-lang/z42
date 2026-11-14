@@ -149,7 +149,6 @@ string[] _flowStages(FlowConfig cfg, FlowPlan plan) {
 string[] _flowOutputs(FlowConfig cfg, FlowPlan plan) {
     var outputs = new List<string>();
     foreach (var s in plan.Steps) {
-        if (s.Prerequisite) { continue; }
         foreach (var key in cfg.Find(s.Id).Outputs) { if (!outputs.Contains(key)) { outputs.Add(key); } }
     }
     return outputs.ToArray();
