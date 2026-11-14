@@ -78,6 +78,8 @@ dry-run 跑真实脚本，不联网）；真实 SDK 的离线安装由 CI packag
 
 示例：`xtask -v detailed build compiler` 会打出冷启动供种的完整候选路径选择过程。
 
+CI 调度使用 `ci supersede` 按资产差异取消旧 main 运行，`ci check-publication` 阻止 nightly 回退；边界与验证见 [CI 调度](../docs/internals/src/devinfra/ci.md)。
+
 ## 命令一览
 
 | 命令 | 触发时机 | 关键依赖 | 主要产物 |

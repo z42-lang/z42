@@ -112,8 +112,14 @@ void _ciGoldenChecks() {
 void _ciQueueChecks() {
     string workflow = File.ReadAllText(Path.Join(_root(), ".github/workflows/ci.yml"));
     string workflowHeader = workflow.Substring(0, workflow.IndexOf("\njobs:"));
-    _gateAssert(workflowHeader.Contains("queue: single") && !workflowHeader.Contains("github.sha")
-        && workflowHeader.Contains("cancel-in-progress: ${{ github.event_name != 'push' }}"), "main keeps its running workflow and only the latest pending push; PR replacement remains enabled");
+    _gateAssert(workflowHeader.Contains("github.sha") && workflowHeader.Contains("cancel-in-progress: true")
+        && workflow.Contains("run: xtask ci supersede"), "main planners run per commit and apply asset-aware cancellation; PR replacement remains enabled");
+    int publish = workflow.IndexOf("\n  publish-nightly:");
+    string release = workflow.Substring(publish);
+    _gateAssert(release.Contains("always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')")
+        && release.Contains("if: always() && steps.aggregate.outcome == 'success' && steps.stale.outputs.stale == 'false'")
+        && release.Contains("run: xtask ci check-publication"),
+        "normal cancellation retains only a prepared release update; failed prerequisites and older nightly writes are rejected");
     foreach (var name in new string[]{ "archive-checks", "build-and-test", "host-package", "vm-jit-consistency", "stdlib-consistency", "test-wasm", "test-ios", "test-android" }) {
         int begin = workflow.IndexOf("\n  " + name + ":");
         _gateAssert(begin >= 0, "matrix job exists: " + name);

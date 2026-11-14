@@ -65,8 +65,13 @@ int _ciSupersedePr(CiGitHub api, string repo, string id, bool dryRun, int graceM
 }
 
 int _ciSupersede(CiGitHub api, bool dryRun) {
+    if (Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", "") == "push") {
+        if (Environment.GetEnvironmentVariable("GITHUB_REF", "") != "refs/heads/main") { return 0; }
+        JsonValue push = JsonValue.Parse(File.ReadAllText(Environment.GetEnvironmentVariable("GITHUB_EVENT_PATH", "")));
+        return _ciSupersedeMain(api, _ciRepo(), Environment.GetEnvironmentVariable("GITHUB_RUN_ID", ""), dryRun, _ciString(push, "before"));
+    }
     if (Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME", "") != "workflow_run") {
-        throw new Exception("PR cleanup requires a workflow_run event");
+        throw new Exception("cleanup requires a main push or PR workflow_run event");
     }
     JsonValue ev = JsonValue.Parse(File.ReadAllText(Environment.GetEnvironmentVariable("GITHUB_EVENT_PATH", "")));
     return _ciSupersedePr(api, _ciRepo(), ev.Get("workflow_run").Get("id").AsLong().ToString(), dryRun);
