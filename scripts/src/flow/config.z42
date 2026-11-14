@@ -68,6 +68,7 @@ void _flowKeys(TomlValue v, string[] allowed, string location) {
 FlowConfig _flowLoad(string path) { return _flowParse(File.ReadAllText(path)); }
 
 FlowConfig _flowParse(string text) {
+    text = text.Replace("\r\n", "\n");
     TomlValue doc = TomlValue.Parse(text);
     _flowKeys(doc, new string[]{ "version", "full", "flows", "inputs" }, "root");
     if (doc.Get("version").AsLong() != 1L) { throw new Exception("flows.toml: unsupported version"); }
