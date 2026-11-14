@@ -168,4 +168,5 @@ void _flowPreflightChecks(FlowConfig cfg) {
     int docsAt = workflow.IndexOf("run: xtask check docs");
     _gateAssert(docsAt >= 0 && docsAt < workflow.IndexOf("name: Share immutable flow plan"), "lightweight documentation failures stop dependent jobs before plan publication");
     _gateAssert(workflow.Contains("outputs.archive_checks == 'true' && needs.changes.outputs.host_package != 'true'"), "archive matrix does not repeat full SDK archive validation");
+    _gateAssert(workflow.Replace("\r\n", "\n").Contains("shell: bash\n        run: xtask flow run --plan artifacts/ci-plan.json --job archive-checks"), "Windows archive checks execute the Bash shim instead of opening it through file association");
 }

@@ -143,6 +143,7 @@ jobs:
           name: ci-plan
           path: artifacts
       - name: Check every RID archive with host tools
+        shell: bash
         run: xtask flow run --plan artifacts/ci-plan.json --job archive-checks
 
   build-and-test:
