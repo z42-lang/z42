@@ -30,6 +30,7 @@
 | C 静态装配混入普通宿主头 | `include/z42_host.h` 的 Z42ComponentId、ComponentInit 与 `z42_host_register_static_component`；`host/ffi.rs` | 静态链接胶水必须同轮迁移到明确的内部部署/装配契约，不能只隐藏 Rust 名字 |
 | VM 消费者穿透组件子模块 | `host/program_builder.rs` 调 backends::attach；`diagnostics/sampling.rs` 调 profiling::attach | 通过内部 components::api 准备/查询能力；具体组件路径只留在实现与适配器中 |
 | 查询仍要求知道实现身份 | `components/options.rs::component_interface(ctx, ComponentId)`；`components/api.rs::RuntimeApi` 按组件 ID 查询 | VM 消费者按稳定能力/版本/角色请求服务；组件 ID 仅由管理层用于来源、实例与依赖绑定 |
+| 使用形态分类不完整 | `components/catalog.rs::Registration` 只有 Static/Dynamic，`components/backends.rs::BackendSource` 的 Linked 只查询已登记入口，Dynamic 走显式开库 | 分开静态链接、链接动态库和运行时装入；记录实际来源，按运行时策略核对，不能只改枚举名字 |
 | 名为 api 的文件混合两种接口 | `components/api.rs` 定义 ComponentDescriptor、RuntimeApi、ExecutionApi、ProfilerApi 等跨库表 | VM 访问门面与同构建协议分开命名和拥有，不把跨库表直接作为业务调用面 |
 | 组件管理与配置相互依赖 | `config/availability.rs` 查询 components；`components/backends.rs::native_paths/attach` 读取 runtime_config | 在装配入口捕获路径/JIT 配置及平台能力，组件管理消费显式输入 |
 | 能力查询可能有装载副作用 | `components/backends.rs::auto_available` 在 Android 库名回落时调用 Library::open_component | 分开支持性、已知候选与已装配能力；只在显式准备时装库，保留实际装配校验 |

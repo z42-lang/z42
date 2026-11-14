@@ -27,6 +27,9 @@ VM 消费者通过内部 `components::api` 请求能力，管理实现和具体�
 组件实现目前通过 `z42::components::api` 使用同构建协议；该跨库协议与内部门面的拆分尚未实施。
 描述符、接口头、构建身份与执行核心身份均在装配时校验。
 
+三种使用形态的目标是静态链接、作为共享库依赖的动态链接、运行时显式装入分别建模，并按运行时策略检查；
+当前 Static/Dynamic 登记与 Linked/Dynamic 来源尚未完成这项区分，详见[三种使用形态](../../../../docs/internals/src/runtime/componentized-runtime.md#组件三种使用形态目标契约)。
+
 加载流程为：选择启用根与提供方来源 → 递归加载并校验所需工厂闭包 → 按依赖创建每 VM 实例 → 发布注册表 → 装配执行接口。
 
 `with_static` / `with_dynamic` 选择启用根；`with_static_provider` / `with_dynamic_provider` 只登记可被依赖的来源。未使用的提供方不调用 init、不打开库，也不创建实例。依赖必须有显式来源；不会扫描其他进程工厂或绕过后端禁用策略。普通接口查询保持只读，不触发装配。失败回滚和正常释放均按依赖逆序销毁。`ComponentLease` 保留所属 Core、实例和代码；原生映像的进程寿命缓存由 PAL 管理，防止 TLS 析构跳入已卸载代码。
