@@ -168,6 +168,13 @@ fn registered_functions() -> Vec<(&'static str, bool)> {
     for module in registry.modules() {
         functions.extend(module.functions().map(|(name, function)| (name, function.result == z42_abi::module::VOID)));
     }
+    // Test the libraries' own descriptors directly. Runtime Core initialization
+    // must not pre-register independent modules just to support this audit.
+    let repl = unsafe { crate::interop::module::NativeModule::parse(z42_repl::z42_repl_module_v1()) }.unwrap();
+    let compression = unsafe { crate::interop::module::NativeModule::declaration(z42_compression::registration::declaration()) }.unwrap();
+    for module in [&repl, &compression] {
+        functions.extend(module.functions().map(|(name, function)| (name, function.result == z42_abi::module::VOID)));
+    }
     functions
 }
 
