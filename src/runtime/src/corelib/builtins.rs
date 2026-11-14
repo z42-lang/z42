@@ -1,4 +1,4 @@
-//! Core-library descriptors. Provider assembly belongs to the host.
+//! Core-library descriptors and their logical provider ownership.
 use crate::exec::call::builtin_abi as abi;
 
 const TYPED: &[&[abi::BuiltinDesc]] = &[
@@ -49,3 +49,12 @@ const TYPED: &[&[abi::BuiltinDesc]] = &[
 const JOINED: [abi::BuiltinDesc; abi::descs_len(TYPED)] = abi::concat_descs(TYPED);
 
 pub(crate) const DESCS: &[abi::BuiltinDesc] = &JOINED;
+
+
+pub(crate) const PROVIDERS: &[(&str, &[abi::BuiltinDesc])] = &[
+    ("z42.core", DESCS),
+    ("z42_diagnostics", crate::corelib::core::diagnostics::typed::DESCS),
+    ("z42_harness", crate::corelib::io::harness::DESCS),
+    #[cfg(test)]
+    ("z42.test", crate::exec::call::builtin_abi::test_builtins::DESCS),
+];

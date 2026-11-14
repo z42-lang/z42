@@ -547,18 +547,18 @@ fn make_closure_returns_null_for_invalid_args() {
 fn builtin_table_join_preserves_order_and_has_no_holes() {
 
     // 没有被填充值漏下来的空洞（padding 的名字是空串）。
-    assert!(crate::host::builtins::functions().iter().all(|d| !d.name.is_empty()),
-        "a padding slot leaked into crate::host::builtins::functions() — the const join left a hole");
+    assert!(crate::interop::providers::functions().iter().all(|d| !d.name.is_empty()),
+        "a padding slot leaked into crate::interop::providers::functions() — the const join left a hole");
     // 名字唯一——重复会让 name→id 索引静默丢掉一个实现。
-    let mut names: Vec<&str> = crate::host::builtins::functions().iter().map(|d| d.name).collect();
+    let mut names: Vec<&str> = crate::interop::providers::functions().iter().map(|d| d.name).collect();
     let total = names.len();
     names.sort_unstable();
     names.dedup();
-    assert_eq!(names.len(), total, "duplicate builtin name in crate::host::builtins::functions()");
+    assert_eq!(names.len(), total, "duplicate builtin name in crate::interop::providers::functions()");
     // 拼接保持模块注册顺序：`builtin_assembly.rs` 的 TYPED 首模块（convert）在表头，
     // 最后一个真实模块（batch 12b 收官的 array）在 cfg(test) 的测试 builtin 之前。
-    let idx = |n: &str| crate::host::builtins::functions().iter().position(|d| d.name == n).unwrap();
-    assert_eq!(crate::host::builtins::functions()[0].name, "__mmh3_hex_str", "the first module (convert) heads the table");
+    let idx = |n: &str| crate::interop::providers::functions().iter().position(|d| d.name == n).unwrap();
+    assert_eq!(crate::interop::providers::functions()[0].name, "__mmh3_hex_str", "the first module (convert) heads the table");
     assert!(idx("__array_clone") < idx("__test_abi_args"),
         "modules must join in registration order");
 }

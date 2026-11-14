@@ -48,7 +48,7 @@ parking_lot = "0.12"
 
 blake3 = "1"
 
-z42-compression = { path = "crates/z42-compression", default-features = false }
+z42-compression = { path = "crates/z42-compression", default-features = false, optional = true }
 z42-repl = { path = "crates/z42-repl", default-features = false }
 z42-rs = { path = "crates/z42-rs", default-features = false }
 

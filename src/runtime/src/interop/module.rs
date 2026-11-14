@@ -266,3 +266,19 @@ pub(crate) unsafe fn span<'a, T>(data: *const T, len: usize) -> Result<&'a [T]> 
 pub(crate) unsafe fn text<'a>(value: abi::Text) -> Result<&'a str> {
     std::str::from_utf8(unsafe { span(value.data, value.len)? }).map_err(|error| anyhow!(error))
 }
+
+
+/// An explicit qualified module call may discover an implementation without a
+/// prelinked declaration. Queries use resolve_native_module and never enter here.
+pub(crate) fn load_named(ctx: &crate::context::VmContext, name: &str) -> Result<Arc<NativeModule>> {
+    crate::loader::linked::validate_name(name)?;
+    if let Some(module) = resolve_native_module(ctx, name)? { return Ok(module); }
+    let symbol = format!("{name}_module_v1");
+    let pointer = crate::loader::native::resolve_symbol(ctx, name, &symbol)?;
+    let entry: abi::ModuleEntry = unsafe { std::mem::transmute(pointer) };
+    let descriptor = unsafe { entry() };
+    let module = unsafe { NativeModule::parse(descriptor)? };
+    if module.name != name { bail!("native implementation name `{}` does not match requested module `{name}`", module.name); }
+    unsafe { register_native_module(ctx, descriptor)? };
+    resolve_native_module(ctx, name)?.ok_or_else(|| anyhow!("native module was not registered"))
+}

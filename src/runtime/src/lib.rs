@@ -42,3 +42,12 @@ pub mod jit;
 
 #[cfg(all(feature = "shared-core", any(feature = "mimalloc-alloc", feature = "dhat-heap")))]
 compile_error!("shared-core runtime packs require the system allocator; custom allocators belong to a final static host");
+
+
+// Final Core linkage composition. Entries are borrowed only on first module use;
+// recording a function pointer must not run the module's descriptor or VM callbacks.
+pub(crate) const LINKED_NATIVE_MODULES: &[(&str, z42_abi::module::ModuleEntry)] = &[
+    ("z42_repl", z42_repl::z42_repl_module_v1),
+    #[cfg(feature = "bundled-compression")]
+    ("z42_compression", z42_compression::z42_compression_module_v1),
+];

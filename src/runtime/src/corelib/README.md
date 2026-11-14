@@ -27,7 +27,7 @@ GC 堆本身（在 `gc`）。终端脚本适配属于 `crates/z42-repl`，压缩
 | 功能 | 入口 / 文件 |
 |------|-----------|
 | 隔离应用执行 / 退出报告 | `application.rs` 私有服务，由门面创建前注入；worker 只复制函数指针，不引用门面 RunOpts |
-| builtin 实现与登记 | 各功能模块生成 DESCS；`corelib/builtins.rs` 只拼接核心库；host 经 interop 装配各提供方。名称/ID 查询在 `metadata/builtins.rs`，分发在 `exec/call/builtins.rs` |
+| builtin 实现与登记 | 各功能模块生成 DESCS；`corelib/builtins.rs` 只拼接核心库；interop 通用注册器消费 corelib 的 provider 描述。名称/ID 查询在 `metadata/builtins.rs`，分发在 `exec/call/builtins.rs` |
 | builtin ABI v2：类型化实参 / 返回值、`BuiltinError` 与异常类、`blocking` | **`exec/call/builtin_abi/`**（`args.rs` / `ret.rs` / `error.rs`；宏在 `crates/z42-macros/src/builtins_attr.rs`） |
 | 值转换 / 解析（`Parse` / `TryParse`）/ to-string / 装箱 | `core/convert.rs`（`typed` 模块，ABI v2）；纯值格式化从 object/value 直接再导出 |
 | 控制台 IO（print / readline：`typed` 模块，ABI v2；写进程 stdout / stderr 与读 stdin 都 park）/ TestIO 捕获（sink 栈） | `io/mod.rs` |
@@ -125,7 +125,7 @@ xtask test stdlib
 |------|------|
 | `mod.rs` | 名称↔`BuiltinId` 解析 + `invoke_builtin` / `exec_builtin` 分发 |
 | `../exec/call/builtin_abi/` | builtin ABI v2：`BuiltinDesc` / `FromArg` / `IntoRet` / `Blocking` / `BuiltinError` + `raise`（两引擎共用的失败出口）；`test_builtins.rs` 是 `cfg(test)` 的测试用 builtin |
-| `corelib/builtins.rs` | 核心库 `DESCS`；host 注册完整提供方集合后生成 BuiltinId |
+| `corelib/builtins.rs` | 核心库 `DESCS`；corelib 声明核心 provider，interop 冻结目录后生成 BuiltinId |
 | `core/reflection/mod.rs` | 反射 hub —— 导入 + 共享常量 + 私有 re-glob 各 concern 子模块（兄弟经 `use super::*` 互见）+ `pub use` 保留公开 API |
 | `core/reflection/type_object.rs` | `Std.Type` 对象构造（`make_type_object` / `make_type_from_name` / `make_constructed_type`）+ handle/slot 辅助 |
 | `core/reflection/type_query.rs` | 类型查询谓词（base / interfaces / members / nested / is_abstract·sealed·value·record·interface·class·primitive·generic / assignable_from / visibility）|

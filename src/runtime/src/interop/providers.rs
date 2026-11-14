@@ -165,3 +165,21 @@ impl NativeRegistry {
 #[cfg(test)]
 #[path = "providers_tests.rs"]
 mod tests;
+
+
+/// Freeze core descriptors without resolving or initializing independent modules.
+pub(crate) fn registry() -> &'static NativeRegistry {
+    static REGISTRY: std::sync::OnceLock<NativeRegistry> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        #[cfg(feature = "native-interop")]
+        crate::interop::exports::install_panic_hook();
+        let mut builder = RegistryBuilder::default();
+        for &(name, functions) in crate::corelib::builtins::PROVIDERS {
+            builder.register(NativeProvider { name, functions })
+                .unwrap_or_else(|error| panic!("invalid core native provider: {error:#}"));
+        }
+        builder.freeze()
+    })
+}
+pub(crate) fn functions() -> &'static [BuiltinDesc] { registry().functions() }
+pub(crate) fn catalog() -> &'static BuiltinCatalog { registry().catalog() }

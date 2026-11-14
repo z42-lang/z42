@@ -162,7 +162,7 @@ fn declared_natives_full() -> Vec<(String, bool, String)> {
 }
 
 fn registered_functions() -> Vec<(&'static str, bool)> {
-    let registry = crate::host::builtins::registry();
+    let registry = crate::interop::providers::registry();
     let mut functions: Vec<_> = registry.functions().iter()
         .map(|function| (function.name, function.ret == crate::exec::call::builtin_abi::RetKind::Void)).collect();
     for module in registry.modules() {
@@ -179,7 +179,7 @@ fn every_declared_native_has_a_builtin() {
         .map(|(name, at)| format!("{name} (declared at {at})"))
         .collect();
     assert!(missing.is_empty(),
-        "stdlib declares [Native] names with no crate::host::builtins::functions() entry (add the Rust builtin or fix the name):\n  {}",
+        "stdlib declares [Native] names with no crate::interop::providers::functions() entry (add the Rust builtin or fix the name):\n  {}",
         missing.join("\n  "));
 }
 
@@ -193,7 +193,7 @@ fn every_builtin_is_declared_or_allowlisted() {
         .filter(|n| !declared.contains(*n) && !allow.contains(n) && !n.starts_with("__test_abi_"))
         .collect();
     assert!(undeclared.is_empty(),
-        "crate::host::builtins::functions() entries neither declared via [Native] in src/libraries nor allowlisted \
+        "crate::interop::providers::functions() entries neither declared via [Native] in src/libraries nor allowlisted \
          (declare them in stdlib, or add to UNDECLARED_ALLOWLIST with a reason):\n  {}",
         undeclared.join("\n  "));
     // The allowlist must not go stale either: an allowlisted name that IS now declared should
@@ -206,7 +206,7 @@ fn every_builtin_is_declared_or_allowlisted() {
     let table: BTreeSet<&str> = registered_functions().into_iter().map(|(name, _)| name).collect();
     let unknown: Vec<&str> = allow.iter().copied().filter(|n| !table.contains(n)).collect();
     assert!(unknown.is_empty(),
-        "UNDECLARED_ALLOWLIST names are not crate::host::builtins::functions() at all:\n  {}", unknown.join("\n  "));
+        "UNDECLARED_ALLOWLIST names are not crate::interop::providers::functions() at all:\n  {}", unknown.join("\n  "));
 }
 
 /// 🔴 stdlib 声明的 `void` ⟺ 表项的 `RetKind` 是 `Void`（split-north-null ④ 的闭环门）。
@@ -224,7 +224,7 @@ fn declared_voidness_matches_the_builtin_table() {
         let Some(&tbl_void) = table.get(name.as_str()) else { continue };  // 名字那条门管这格
         if decl_void != tbl_void {
             bad.push(format!(
-                "  {name}: stdlib 声明{}，而 crate::host::builtins::functions() 的 RetKind 是{}  ({where_})",
+                "  {name}: stdlib 声明{}，而 crate::interop::providers::functions() 的 RetKind 是{}  ({where_})",
                 if decl_void { "返回 void" } else { "有返回值" },
                 if tbl_void { "Void" } else { "非 Void" },
             ));
@@ -234,7 +234,7 @@ fn declared_voidness_matches_the_builtin_table() {
     bad.dedup();
     assert!(
         bad.is_empty(),
-        "stdlib 的 [Native] 返回类型与 crate::host::builtins::functions() 的 RetKind 登记不一致：\n{}\n\
+        "stdlib 的 [Native] 返回类型与 crate::interop::providers::functions() 的 RetKind 登记不一致：\n{}\n\
          修法：让 Rust 签名与声明一致——声明 void 的返回 `()`（`RetKind::Void`），\n\
          有返回值的返回具体值类型。\n\
          （change split-null-sentinel-channels ④：void 不再用 `Value::Null` 表示）",

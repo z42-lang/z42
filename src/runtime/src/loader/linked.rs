@@ -9,28 +9,11 @@ use std::{
 
 pub type NativeSymbolResolver = unsafe extern "C" fn(*const c_char) -> *const c_void;
 
-/// The stdlib native libraries a statically linked host may supply. Hosts
-/// register implementations by logical name (`z42_<library>`); anything else
-/// is a configuration mistake and must fail loudly instead of sitting in the
-/// table unread (C host self-check pins this).
-const KNOWN_STATIC_LIBRARIES: &[&str] = &[
-    "z42_compression",
-    // Synthetic library driven through the generic declaration/lazy-load
-    // machinery by interop module tests.
-    #[cfg(test)]
-    "native.lazy.test",
-];
-
 #[derive(Default)]
 struct Providers(RwLock<HashMap<String, NativeSymbolResolver>>);
 impl Providers {
     fn register(&self, name: &str, resolver: NativeSymbolResolver) -> Result<()> {
-        if name.is_empty() || name.bytes().any(|byte| matches!(byte, 0 | b'/' | b'\\')) {
-            bail!("invalid logical native library name");
-        }
-        if !KNOWN_STATIC_LIBRARIES.contains(&name) {
-            bail!("unknown stdlib native library `{name}`");
-        }
+        validate_name(name)?;
         let mut providers = self.0.write();
         if let Some(previous) = providers.get(name) {
             if !std::ptr::fn_addr_eq(*previous, resolver) {
@@ -74,9 +57,23 @@ pub unsafe fn register_static_library(name: &str, resolver: NativeSymbolResolver
 }
 
 pub(crate) fn resolve(library: &str, symbol: &str) -> Option<Result<*mut c_void>> {
-    providers().resolve(library, symbol)
+    if let Some(result) = providers().resolve(library, symbol) { return Some(result); }
+    if symbol == format!("{library}_module_v1") {
+        if let Some((_, entry)) = crate::LINKED_NATIVE_MODULES.iter().find(|(name, _)| *name == library) {
+            return Some(Ok(*entry as *const () as *mut c_void));
+        }
+    }
+    None
 }
 
 #[cfg(test)]
 #[path = "linked_tests.rs"]
 mod tests;
+
+
+pub(crate) fn validate_name(name: &str) -> Result<()> {
+    if name.is_empty() || name.bytes().any(|byte| matches!(byte, 0 | b'/' | b'\\')) {
+        bail!("invalid logical native library name");
+    }
+    Ok(())
+}

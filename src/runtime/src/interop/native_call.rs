@@ -54,12 +54,20 @@ pub(crate) fn invoke_export(
         }
     }
     let module = match provider {
-        Some(provider) => state
-            .external_modules
-            .read()
-            .get(provider)
-            .cloned()
-            .or_else(|| registry.module(provider)),
+        Some(provider) => {
+            let known = state.external_modules.read().get(provider).cloned()
+                .or_else(|| registry.module(provider));
+            match known {
+                Some(module) => Some(module),
+                None if registry.provider_functions(provider).is_some() => return None,
+                None => match module::load_named(ctx, provider) {
+                    Ok(module) => Some(module),
+                    Err(error) => return Some(Err(Box::new(BuiltinError::NotSupported(
+                        format!("native module `{provider}` unavailable: {error:#}")
+                    )))),
+                },
+            }
+        },
         None => {
             if registry
                 .functions()

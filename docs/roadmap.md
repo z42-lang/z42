@@ -57,6 +57,8 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ### runtime-module-boundaries：运行时模块边界收口
 
+核心 builtin 描述归 corelib，独立 native 模块首次使用才通过 loader 自描述入口与 interop 校验登记；不再在 host 预登记 compression，通用静态 resolver 移除具体库白名单。剩余 VM 装配、组件管理公开面及三来源策略继续按下表推进。
+
 context 拆分按状态所有者推进：缺符号执行异常与线程异常交接先归 exec，静态默认值物化归对象执行层；
 随后拆 loader 加载/查找、diagnostics 观察与帧操作，保留 Core/线程聚合、布局和生命周期。
 加载解析与执行初始化屏障分别处理，保持异常根、锁顺序、worker 隔离和 JIT 偏移契约。
