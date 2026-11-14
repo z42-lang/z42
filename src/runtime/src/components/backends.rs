@@ -38,59 +38,10 @@ pub(super) fn linked(id: ComponentId) -> Option<ComponentInit> {
     if id == PROFILER_COMPONENT { return Some(crate::profiler::component::z42_profiler_init); }
     None
 }
-pub(crate) fn native_paths() -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-
-    // 1. Explicit override (CI / dev / power user). `Z42_NATIVE_PATH`
-    //    is colon-separated on Unix, semicolon-separated on Windows.
-    //    runtime-config-phase2 : centralised through
-    //    `RuntimeConfig::native_search_paths` (pre-split at config init).
-    paths.extend(crate::config::runtime_config().native_search_paths.iter().cloned());
-
-    // 2. Default SDK layout, relative to the running z42vm binary:
-    //      <exec_dir>/../native/    — SDK package layout (bin/ and native/ siblings)
-    //      <exec_dir>/native/       — dev / cargo-target layout when scripts symlink
-    //      <exec_dir>              — raw cargo-target layout (libz42_*.dylib sit next
-    //                                 to z42vm directly; added  to remove
-    //                                 the manual `ln -sf ../libz42_compression.dylib
-    //                                 release/native/libz42_compression.dylib` setup
-    //                                 step every fresh `cargo build` previously
-    //                                 required). `parse_z42_lib_name` filters to
-    //                                 `libz42_<name>.{so,dylib,dll}`, so dependency
-    //                                 dylibs / `libz42.rlib` / `*.a` are ignored.
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent_dir) = exe.parent() {
-            if let Some(sdk_root) = parent_dir.parent() {
-                paths.push(sdk_root.join("native"));
-            }
-            paths.push(parent_dir.join("native"));
-            paths.push(parent_dir.to_path_buf());
-        }
-    }
-
-    // Embedded libraries need not live beside the application's executable.
-    // Keep explicit and executable-relative overrides ahead of the core image.
-    if let Some(image) = crate::pal::dynlib::image_path(crate::components::bridge::core_identity()) {
-        if let Some(directory) = image.parent() {
-            let directory = directory.to_path_buf();
-            if !paths.contains(&directory) { paths.push(directory.clone()); }
-            #[cfg(target_os = "ios")]
-            { let bundled = directory.join("Frameworks"); if !paths.contains(&bundled) { paths.push(bundled); } }
-            #[cfg(target_os = "ios")]
-            if directory.extension().is_some_and(|extension| extension == "framework") {
-                if let Some(frameworks) = directory.parent() {
-                    let frameworks = frameworks.to_path_buf();
-                    if !paths.contains(&frameworks) { paths.push(frameworks); }
-                }
-            }
-        }
-    }
-    paths
-}
 
 fn dynamic_paths(id: ComponentId) -> Vec<PathBuf> {
     let stem = if id == INTERP_COMPONENT { "z42_interp" } else if id == PROFILER_COMPONENT { "z42_profiler" } else { "z42_jit" };
-    crate::pal::dynlib::candidate_paths(stem, native_paths())
+    crate::pal::dynlib::candidate_paths(stem, crate::loader::native_paths::directories())
 }
 fn auto_available(id: ComponentId) -> bool {
     if linked(id).is_some() { return true; }
@@ -99,7 +50,7 @@ fn auto_available(id: ComponentId) -> bool {
 pub(super) fn known_source(path: &std::path::Path) -> bool {
     if path.is_file() { return true; }
     #[cfg(any(feature = "native-interop", feature = "component-loading"))]
-    if crate::pal::dynlib::component_is_loaded(path) { return true; }
+    if crate::loader::code::is_loaded(path) { return true; }
     false
 }
 /// Default sources present in this runtime pack; actual loading still validates ABI and identity.

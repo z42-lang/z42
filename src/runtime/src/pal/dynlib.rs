@@ -108,40 +108,7 @@ pub fn resolve_native_beside(zpkg_dir: &std::path::Path, lib_name: &str) -> Opti
 pub struct Library(libloading::Library);
 
 #[cfg(any(feature = "native-interop", feature = "component-loading"))]
-fn component_images() -> &'static parking_lot::Mutex<std::collections::BTreeMap<std::path::PathBuf, std::sync::Arc<Library>>> {
-    static IMAGES: std::sync::OnceLock<parking_lot::Mutex<std::collections::BTreeMap<std::path::PathBuf, std::sync::Arc<Library>>>> = std::sync::OnceLock::new();
-    IMAGES.get_or_init(Default::default)
-}
-
-/// Inspect retained images without invoking the operating-system loader.
-#[cfg(any(feature = "native-interop", feature = "component-loading"))]
-pub(crate) fn component_is_loaded(path: &std::path::Path) -> bool {
-    let key = if is_loader_name(path) { path.to_path_buf() }
-        else if let Ok(path) = path.canonicalize() { path }
-        else { return false; };
-    component_images().lock().contains_key(&key)
-}
-
-#[cfg(any(feature = "native-interop", feature = "component-loading"))]
 impl Library {
-    /// Open a runtime component and retain its native image for the process.
-    /// Rust/shared-std TLS may keep destructor callbacks after the last VM exits.
-    /// Per-VM state still drops normally; component images cannot be hot-unloaded.
-    ///
-    /// # Safety
-    /// The same trust and initializer requirements as `open` apply.
-    pub unsafe fn open_component(path: &std::path::Path) -> std::io::Result<std::sync::Arc<Self>> {
-        use std::sync::Arc;
-        let path = if is_loader_name(path) { path.to_path_buf() } else { path.canonicalize()? };
-        let images = component_images();
-        if let Some(image) = images.lock().get(&path).cloned() {
-            return Ok(image);
-        }
-        // Initializers may load other components; never run them under the lock.
-        let image = Arc::new(unsafe { Self::open_image(&path) }?);
-        Ok(images.lock().entry(path).or_insert(image).clone())
-    }
-
     /// Open the library at `path`. The error names the path.
     ///
     /// # Safety
@@ -152,7 +119,7 @@ impl Library {
         unsafe { Self::open_image(path) }
     }
 
-    unsafe fn open_image(path: &std::path::Path) -> std::io::Result<Self> {
+    pub(crate) unsafe fn open_image(path: &std::path::Path) -> std::io::Result<Self> {
         unsafe { libloading::Library::new(path) }
             .map(Library)
             .map_err(|e| std::io::Error::other(format!("dlopen({}): {e}", path.display())))

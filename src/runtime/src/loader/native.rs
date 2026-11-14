@@ -1,4 +1,4 @@
-//! Native library resolution and registration. PAL retains opened images through
+//! Native library resolution and registration. loader/code retains images through
 //! process/TLS teardown; this module caches logical identities per VM. Generic
 //! modules use `<name>_module_v1`, while typed libraries use `<name>_register`.
 
@@ -32,11 +32,11 @@ type RegisterFn = unsafe extern "C" fn();
 /// # Safety
 /// The path must identify trusted code; opening runs library initializers.
 #[cfg(feature = "native-interop")]
-pub unsafe fn open_library(
+pub(crate) unsafe fn open_library(
     path: &Path,
-) -> std::io::Result<std::sync::Arc<crate::pal::dynlib::Library>> {
+) -> std::io::Result<std::sync::Arc<crate::loader::code::CodeImage>> {
     crate::pal::dynlib::require_supported()?;
-    unsafe { crate::pal::dynlib::Library::open_component(path) }.map_err(|error| {
+    unsafe { crate::loader::code::open(path) }.map_err(|error| {
         std::io::Error::new(error.kind(), format!("dlopen({}): {error}", path.display()))
     })
 }
@@ -101,14 +101,14 @@ pub fn guess_register_symbol(path: &Path) -> Option<String> {
 #[path = "native_tests.rs"]
 mod tests;
 
-/// Per-VM name resolution cache. Process code lifetime belongs to PAL.
+/// Per-VM name resolution cache. Process code lifetime belongs to loader/code.
 #[derive(Default)]
 #[cfg(any(feature = "native-interop", feature = "component-loading"))]
 pub(crate) struct Libraries {
     named: parking_lot::Mutex<
         std::collections::HashMap<
             String,
-            Result<std::sync::Arc<crate::pal::dynlib::Library>, String>,
+            Result<std::sync::Arc<crate::loader::code::CodeImage>, String>,
         >,
     >,
 }
@@ -152,7 +152,7 @@ pub(crate) fn resolve_symbol(
                         if !candidate.is_file() && !crate::pal::dynlib::is_loader_name(&candidate) {
                             continue;
                         }
-                        return unsafe { crate::pal::dynlib::Library::open_component(&candidate) }
+                        return unsafe { crate::loader::code::open(&candidate) }
                             .map_err(anyhow::Error::from);
                     }
                     bail_native_missing(library)
@@ -197,7 +197,7 @@ fn bail_native_missing<T>(library: &str) -> Result<T> {
 #[cfg(feature = "component-loading")]
 pub fn load_native_module(ctx: &VmContext, path: &Path) -> Result<()> {
     crate::pal::dynlib::require_supported()?;
-    let image = unsafe { crate::pal::dynlib::Library::open_component(path)? };
+    let image = unsafe { crate::loader::code::open(path)? };
     let stem = path
         .file_stem()
         .and_then(OsStr::to_str)

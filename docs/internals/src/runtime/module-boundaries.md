@@ -31,6 +31,10 @@ VM 程序准备、执行角色查询和分析请求通过内部 `components::api
 支持性查询只核对目标能力，候选查询只读路径与已装入映像缓存；Android 未知的裸库名不会因查询触发装入。
 显式准备仍可交给系统加载器按名称装入并校验。独立后端对核心模块使用私有导入，不再通过自身批量再导出。
 
+通用代码映像由 loader/code 装入、缓存与保活，组件和独立 native 库共用，不解释消费者 ABI。
+默认 native 路径归 loader/native_paths，host 为独立库提供路径时不再经过 components。
+PAL 保留底层开库与符号原语；组件层只持有 loader 代码句柄和组件契约/实例依赖。
+
 ### 当前可核对的缺口
 
 | 缺口 | 代码证据 | 影响与目标 |
@@ -40,8 +44,8 @@ VM 程序准备、执行角色查询和分析请求通过内部 `components::api
 | C 静态装配混入普通宿主头 | `include/z42_host.h` 的 Z42ComponentId、ComponentInit 与 `z42_host_register_static_component`；`host/ffi.rs` | 静态链接胶水必须同轮迁移到明确的内部部署/装配契约，不能只隐藏 Rust 名字 |
 | 通用管理查询仍泄露实现身份 | host 转出的 `component_interface(ctx, ComponentId)`；`components::abi::RuntimeApi` 的跨组件依赖查询 | VM 执行消费者已按语义角色请求服务；普通 host 的按 ID 管理查询仍需移除，协议内依赖 ID 由管理层拥有 |
 | 使用形态分类不完整 | `components/catalog.rs::Registration` 只有 Static/Dynamic，`components/backends.rs::BackendSource` 的 Linked 只查询已登记入口，Dynamic 走显式开库 | 分开静态链接、链接动态库和运行时装入；记录实际来源，按运行时策略核对，不能只改枚举名字 |
-| 组件管理与配置相互依赖 | `config/availability.rs` 查询 components；`components/backends.rs::native_paths`、`components/api.rs::attach_execution` 读取 runtime_config | 在装配入口捕获路径/JIT 配置及平台能力，组件管理消费显式输入 |
-| 诊断契约反向拥有装配机制 | `diagnostics/sampling.rs` 保存 BackendSource、VmComponents 并触发 attach；`components/profiling.rs` 回到 sampler 注册实现 | 诊断保留观察/采样接口，组件管理拥有来源和代码保活；经窄接口绑定，避免新增 Core 自持有环 |
+| 配置与装配输入仍未完全显式 | `config/availability.rs` 查询 components；`loader/native_paths.rs`、`components/api.rs::attach_execution` 读取 runtime_config | 默认路径已归 loader；后续在装配入口捕获路径/JIT 配置及平台能力，管理实现消费显式输入 |
+| 诊断契约反向拥有装配机制 | `diagnostics/sampling.rs` 保存 BackendSource、VmComponents 并触发 attach；`components/profiling.rs` 回到 sampler 注册实现 | 诊断保留观察/采样接口，组件管理拥有能力/实例并持有 loader 代码句柄；经窄接口绑定，避免新增 Core 自持有环 |
 | 默认 VM 装配由 host 承担 | `host/program_builder.rs`、`vm_defaults.rs`、`extensions.rs`；`host/artifact.rs` 为 LazyLoader 实现构造方法 | host 解析请求，VM 装配层负责配置快照、Core/loader、组件和发布；loader 的构造实现回归其所有者 |
 | loader 与 interop 混合机制和编排 | `loader/native.rs` 调 interop 注册/解析，`interop/module.rs` 反向调用 loader::native::resolve_symbol | loader 提供代码/符号来源，interop 负责描述符与编组；由装配协调器连接 |
 | 元数据解析直接驱动 VM 加载 | `metadata/resolve/mod.rs` 接收 VmContext，enqueue_type_load/drain_pending_type_loads | 将解析事实与加载编排分开，用最小解析视图和待加载请求连接 |
@@ -79,7 +83,7 @@ flowchart TD
 |---|---|---|
 | host | 宿主配置、句柄、回调及输入输出适配 | 功能级请求与结果，不是组件注册表 |
 | VM 装配层 | 构造输入、启动顺序和失败发布边界 | 接受显式配置及服务，产生可调用程序 |
-| components 管理实现 | 能力到提供方的绑定、工厂缓存、依赖闭包、每 VM 实例与代码保活 | 内部 api 的准备/能力查询；不让消费者传实现 ID，不返回可修改的 OnceLock |
+| components 管理实现 | 能力到提供方的绑定、工厂缓存、实例依赖闭包、每 VM 实例及 loader 代码句柄 | 内部 api 的准备/能力查询；不让消费者传实现 ID，不返回可修改的 OnceLock，不保存映像缓存 |
 | exec / diagnostics | 引擎与观察/采样的消费契约 | 装配时绑定的接口；不决定组件库路径或具体实现 |
 | 同构建协议层 | 描述符、版本、身份、接口表及最小桥接 | 仅给 VM 与组件适配器；不是普通宿主 SDK 扩展面 |
 | loader / interop | 代码来源/符号与描述符/编组分别拥有 | 窄接口连接，不互相承担完整装入事务 |
