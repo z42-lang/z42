@@ -103,7 +103,7 @@ fn load_fn_with(ctx: &VmContext, m: &Module, frame: &mut Frame, name: &str, tok:
 #[test]
 fn lazy_target_binds_its_fn_id_and_dispatches_without_its_name() {
     let ctx = VmContext::with_module(module("Entry", vec![const_fn("Entry.H$0", 1)]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let g = register_lazy(&ctx, const_fn("Lazy.G$0", 7));
     let entry = Arc::clone(ctx.module().unwrap());
     let mut frame = Frame::new(&ctx, &[], 4);
@@ -116,9 +116,9 @@ fn lazy_target_binds_its_fn_id_and_dispatches_without_its_name() {
 
     // Fresh loader name space, a context without the per-ctx lookup cache: the name is
     // gone, the value (and the bound site) still work.
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let ctx2 = VmContext::new_with_core(Arc::clone(&ctx.core));
-    assert!(ctx2.try_lookup_function("Lazy.G$0").is_none());
+    assert!(ctx2.loader().try_lookup_function("Lazy.G$0").is_none());
     let mut frame2 = Frame::new(&ctx2, &[], 4);
     assert!(load_fn_with(&ctx2, &entry, &mut frame2, "Lazy.G$0", Some(&tok)).is_none());
     assert!(super::call_indirect(&ctx2, &entry, &mut frame2, 1, 0, &[]).unwrap().is_none());
@@ -135,7 +135,7 @@ fn closure_binds_its_fn_id_and_passes_the_env() {
         Instruction::Add { dst: 4, a: 3, b: 1 },
     ], Some(4));
     let ctx = VmContext::with_module(module("Entry", vec![const_fn("Entry.H$0", 1)]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let add = register_lazy(&ctx, add);
     let entry = Arc::clone(ctx.module().unwrap());
     let mut frame = Frame::new(&ctx, &[], 8);
@@ -155,7 +155,7 @@ fn closure_binds_its_fn_id_and_passes_the_env() {
 #[test]
 fn undefined_target_throws_at_creation() {
     let ctx = VmContext::with_module(module("Entry", vec![const_fn("Entry.H$0", 1)]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let entry = Arc::clone(ctx.module().unwrap());
     let mut frame = Frame::new(&ctx, &[], 4);
     frame.set(0, Value::I64(5));
@@ -175,7 +175,7 @@ fn undefined_target_throws_at_creation() {
 #[test]
 fn delegate_equality_and_name_follow_the_bound_id() {
     let ctx = VmContext::with_module(module("Entry", vec![const_fn("Entry.A$0", 1), const_fn("Entry.B$0", 2)]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     register_lazy(&ctx, const_fn("Lazy.G$0", 7));
     let entry = Arc::clone(ctx.module().unwrap());
     let mut frame = Frame::new(&ctx, &[], 8);
@@ -221,7 +221,7 @@ fn resolver_prefills_and_first_execution_binds() {
         ], Some(3)),
         const_fn("Entry.H$0", 1),
     ]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let g = register_lazy(&ctx, const_fn("Lazy.G$0", 7));
     let entry = Arc::clone(ctx.module().unwrap());
     let main = &entry.functions[0];
@@ -239,7 +239,7 @@ fn resolver_prefills_and_first_execution_binds() {
 #[test]
 fn non_entry_module_binds_local_indices_only() {
     let ctx = VmContext::new();
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     register_lazy(&ctx, const_fn("Lazy.G$0", 7));
     let m = module("M", vec![const_fn("M.A$0", 1), const_fn("M.B$0", 2)]);
     let mut frame = Frame::new(&ctx, &[], 4);

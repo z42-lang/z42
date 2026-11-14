@@ -29,7 +29,7 @@ use z42::{
     object::{NativeData, TypeDesc, Value},
     metadata::ids::tokens::TypeId,
 };
-use z42::context::VmContext;
+use z42::vm::VmContext;
 
 fn make_type_desc(name: &str) -> Arc<TypeDesc> {
     Arc::new(TypeDesc {

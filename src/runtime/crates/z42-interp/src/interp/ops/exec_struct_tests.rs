@@ -113,7 +113,7 @@ fn value_semantics_copy_then_mutate_leaves_source_unchanged() {
 /// (prims) + tag@8 (string ref leaf); size 12, one ref leaf at offset 8.
 #[test]
 fn heap_object_inline_struct_field_roundtrips() {
-    use crate::context::VmContext;
+    use crate::components::bridge::VmContext;
     use crate::object::{NativeData, TypeDesc, TypeDescCold};
     use crate::zpkg::NameIndex;
     use crate::metadata::ids::tokens::TypeId;
@@ -184,7 +184,7 @@ fn heap_object_inline_struct_field_roundtrips() {
 /// one ref leaf.
 #[test]
 fn struct_array_element_leaf_access_via_handle() {
-    use crate::context::VmContext;
+    use crate::components::bridge::VmContext;
     use crate::object::{ArrayObj, StructArrayElem, STRUCT_REF_ARC_STRING};
 
     let layout = Arc::new(StructTypeLayout {
@@ -201,7 +201,7 @@ fn struct_array_element_leaf_access_via_handle() {
     // make-value-copy: StructRefHeap payload lives in the per-context transient arena; the
     // register holds an 8B handle. Alloc both element handles into `ctx`'s arena (frame_id 7).
     let mk_sr = |idx: u32| {
-        let hidx = ctx.transient_alloc(
+        let hidx = ctx.exec().transient_alloc(
             7,
             crate::exec::call::transient_arena::TransientPayload::StructElem(
                 StructArrayElem { arr: arr_gc, index: idx },
@@ -271,7 +271,7 @@ fn boxed_struct_owns_snapshot_and_survives_arena_truncate() {
 /// which is why no jit lane caught it. This test is the mode-independent guard.
 #[test]
 fn stack_object_inline_struct_field_roundtrips() {
-    use crate::context::VmContext;
+    use crate::components::bridge::VmContext;
     use crate::object::{TypeDesc, TypeDescCold};
     use crate::zpkg::NameIndex;
     use crate::metadata::ids::tokens::TypeId;
@@ -303,7 +303,7 @@ fn stack_object_inline_struct_field_roundtrips() {
     let ctx = VmContext::new();
     let mut frame = Frame::new(&ctx, &[], 8);
     let obj = crate::object::OwnedObject::of_type(td);
-    let idx = ctx.stack_alloc_obj(frame.frame_id(&ctx), obj);
+    let idx = ctx.exec().stack_alloc_obj(frame.frame_id(&ctx), obj);
     let base = Value::StackObject { idx, frame_id: frame.frame_id(&ctx) };
 
     frame.set(0, base);
@@ -398,7 +398,7 @@ fn symbolization_cost_by_path_depth() {
 
     for depth in 1..=4usize {
         let vm = VmContext::new();
-        vm.install_lazy_loader(None, 0);
+        vm.loader().install_lazy_loader(None, 0);
         if let Some(l) = vm.core.loader.lazy_loader.write().as_mut() {
             for i in 0..depth {
                 let nest = if i + 1 < depth { Some(format!("Bench.L{}", i + 1)) } else { None };

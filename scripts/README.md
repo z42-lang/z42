@@ -18,7 +18,7 @@ xtask <command> [args]                         # 直接运行
 xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分（launcher 保持通用
 运行时）。冷启动如何先产出 xtask 见下文「冷启动 bootstrap」。
 
-桌面 z42vm 的 main 直接动态链接 libz42，CLI 不放进 Core，也不使用私有 C 入口。打包保留一份 native 共享库闭包；Windows 的 bin 入口仅转发到与 DLL 同目录的实际 main，`build runtime` 负责产出它，开发 SDK 只组装已有产物。
+桌面只定义一个 z42vm bin，通过 dlopen/LoadLibrary 加载 native/libz42 的进程入口。命令行策略在 Core 的 cli feature 内，通过 host 接口运行程序。native 只保留共享库闭包，不包含 z42vm.exe；build runtime 产出静态 std 的轻量入口，最终入口归并到 Core 所在的 runtime 输出；开发 SDK 只消费这份完整产物，不读取入口私有编译目录。
 
 `src/` 下的 `.z42` 除 `hooks.z42`（z42b build hook，`namespace Build`）外全部是 xtask 模块（含 stdlib 构建逻辑 `src/build/stdlib.z42`）。
 安装脚本运行在「还没有 z42 工具链」的最前端，故保持 shell / PowerShell：

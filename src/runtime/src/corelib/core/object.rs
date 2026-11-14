@@ -1,5 +1,5 @@
 use crate::object::{NativeData, TypeDesc, Value};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::{bail, Result};
 use crate::exec::call::builtin_abi::BuiltinError;
 use std::sync::Arc;
@@ -127,7 +127,7 @@ pub fn delegate_target(delegate: &Value) -> Value {
 /// - 其他 → Null
 pub fn delegate_fn_name(ctx: &VmContext, delegate: &Value) -> Result<Value, BuiltinError> {
     let Some(id) = delegate.callable_id() else { return Ok(Value::Null) };
-    match ctx.callable_fn(id) {
+    match ctx.core().runtime().callable_fn(id) {
         Some(f) => Ok(Value::Str(ctx.heap().alloc_str(&f.name))),
         // A callable's id is bound by this VM: an unregistered one is a broken handle.
         None => Err(BuiltinError::Internal(format!(

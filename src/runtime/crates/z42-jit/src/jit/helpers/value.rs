@@ -6,7 +6,7 @@
 use crate::object::value::format::with_value_str;
 use crate::object::Value;
 use crate::jit::runtime::frame::JitFrame;
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 use crate::jit::runtime::invoke::{call_entry, NativeOutcome};
 use super::{set_exception, vm_ctx_ref};
 
@@ -69,7 +69,7 @@ pub unsafe extern "C" fn jit_const_str(
 ) -> u8 {
     let vm = vm_ctx_ref(ctx);
     // Same lookup as interp `const_str`: the VM's string table, lock-free once interned.
-    if let Some(s) = vm.const_str(super::jit_module(ctx), idx) {
+    if let Some(s) = crate::exec::ops::const_string::load(&vm, super::jit_module(ctx), idx) {
         (*frame).regs[dst as usize] = Value::Str(s);
         return 0;
     }

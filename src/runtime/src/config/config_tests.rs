@@ -532,7 +532,7 @@ fn meta_knobs_are_internal_and_never_file_settable() {
         assert_eq!(k.tier, Tier::Internal, "{}: meta knob must be Internal tier", k.name);
         assert_eq!(
             k.sources,
-            LayerMask::CLI_ENV,
+            if k.name == "Z42_RUNTIME_LIBRARY" { LayerMask::ENV_ONLY } else { LayerMask::CLI_ENV },
             "{}: a knob that names a config file (or controls diagnostic severity) must not be \
              settable from a config file — that is self-referential",
             k.name
@@ -1564,8 +1564,9 @@ fn env_only_is_now_reserved_for_scaffolding_and_meta_knobs() {
     // **必须**是 ENV_ONLY —— 消费它的测试在进程跑起来之后才用
     // `Environment.SetEnvironmentVariable` 打开它，而 CLI / 配置文件层都在启动时就定死了，
     // 声明那两层等于说谎。
-    assert_eq!(env_only, vec!["Z42_SPAWN_ENV_DELAY_MS", "Z42_STRESS_ITERS"],
-        "ENV_ONLY is for test scaffolding only; meta knobs use CLI_ENV");
+    // Core selection happens before CLI parsing or Core configuration exists.
+    assert_eq!(env_only, vec!["Z42_RUNTIME_LIBRARY", "Z42_SPAWN_ENV_DELAY_MS", "Z42_STRESS_ITERS"],
+        "ENV_ONLY is limited to pre-Core image selection and test scaffolding");
 }
 
 #[test]

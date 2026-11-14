@@ -9,7 +9,7 @@
 
 use crate::metadata::Function;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
 use crate::jit::helpers::JitFn;
@@ -71,9 +71,9 @@ pub(crate) unsafe fn enter_compiled(
     vm: &VmContext, code: *const u8, func: *const Function, mut frame: JitFrame,
 ) -> NativeOutcome {
     let jit_fn: JitFn = unsafe { std::mem::transmute(code) };
-    vm.push_frame(crate::exec::call::frames::VmFrame::new(func, &frame.regs as *const _));
+    vm.exec().push_frame(&vm, crate::exec::call::frames::VmFrame::new(func, &frame.regs as *const _));
     let r = unsafe { jit_fn(&mut frame, vm) };
-    vm.pop_frame();
+    vm.exec().pop_frame();
     if r != 0 {
         frame.recycle(vm);
         return NativeOutcome::Threw;

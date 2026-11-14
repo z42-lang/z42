@@ -2,7 +2,7 @@
 //! Availability folding precedes context construction and token resolution;
 //! initializer registration and lazy-loader seeding precede any execution.
 
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use crate::loader::lazy::ZpkgCandidate;
 use crate::metadata::Module;
 use std::path::PathBuf;
@@ -28,7 +28,7 @@ pub(crate) fn build(
         &ctx, options.mode, &options.components, &options.backends, &options.profiler,
     )?;
     for (name, byte_size) in initial_events {
-        ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::ModuleLoaded {
+        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::ModuleLoaded {
             name,
             byte_size,
         });
@@ -81,10 +81,10 @@ fn build_context(mut module: Module, inputs: ProgramInputs) -> Pin<Box<VmContext
     // does the same when additional types become visible.
     if let Some(m) = ctx.module() {
         for td in m.type_registry.values() {
-            ctx.register_cctor_of(td);
+            ctx.initialization().register_cctor_of(td);
         }
     }
-    ctx.install_lazy_loader_with_deps(
+    ctx.loader().install_lazy_loader_with_deps(
         inputs.search_dirs,
         string_pool_len,
         inputs.declared_candidates,
@@ -94,10 +94,10 @@ fn build_context(mut module: Module, inputs: ProgramInputs) -> Pin<Box<VmContext
     // and eagerly-loaded artifacts' impl pairs.
     if let Some(m) = ctx.module() {
         let func_names: Vec<String> = m.functions.iter().map(|f| f.name.clone()).collect();
-        ctx.seed_lazy_loader_types(&m.type_registry, &func_names);
+        ctx.loader().seed_lazy_loader_types(&m.type_registry, &func_names);
     }
-    ctx.seed_lazy_loader_impls(&inputs.eager_impl_pairs);
-    ctx.seed_lazy_loader_symbol_owners(&inputs.eager_deps);
+    ctx.loader().seed_lazy_loader_impls(&inputs.eager_impl_pairs);
+    ctx.loader().seed_lazy_loader_symbol_owners(&inputs.eager_deps);
     ctx
 }
 

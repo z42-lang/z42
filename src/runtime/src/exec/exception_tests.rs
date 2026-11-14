@@ -8,7 +8,7 @@ mod make_stdlib_exception_tests {
     use crate::metadata::Module;
     use crate::metadata::ids::tokens::TypeId;
     use crate::object::FieldSlot;
-    use crate::context::VmContext;
+    use crate::vm::VmContext;
     
     use std::sync::Arc;
 

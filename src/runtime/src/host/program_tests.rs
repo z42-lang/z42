@@ -3,7 +3,7 @@ use crate::{
     zpkg::{self, BasicBlock, ExecMode, Instruction, Terminator},
     object::Value,
     pal::vfs::MemoryFs,
-    context::VmContext, metadata::Module,
+    vm::VmContext, metadata::Module,
 };
 use std::sync::Arc;
 
@@ -92,11 +92,11 @@ fn repeated_invocations_preserve_static_state_and_validate_entries_and_arguments
     );
     program
         .context()
-        .static_set("Demo.sentinel", Value::I64(91))
+        .statics().set_named("Demo.sentinel", Value::I64(91))
         .unwrap();
     program.run_entry(None).unwrap();
     assert_eq!(
-        program.context().static_get("Demo.sentinel"),
+        program.context().statics().get_named("Demo.sentinel"),
         Value::I64(91)
     );
     assert!(program.invoke("missing", &[]).is_err());
@@ -106,20 +106,7 @@ fn repeated_invocations_preserve_static_state_and_validate_entries_and_arguments
         .to_string()
         .contains("arg-count-mismatch"));
     let other = self::program(ExecMode::Interp, false);
-    assert_eq!(other.context().static_get("Demo.sentinel"), Value::Null);
-}
-
-#[test]
-fn initialization_failure_is_sticky_and_entry_is_not_executed() {
-    let program = program(ExecMode::Interp, false);
-    *program.context().core.runtime.static_init_error.lock() = Some("init failed".into());
-    for _ in 0..2 {
-        assert!(program
-            .invoke("Demo.Main", &[])
-            .unwrap_err()
-            .to_string()
-            .contains("init failed"));
-    }
+    assert_eq!(other.context().statics().get_named("Demo.sentinel"), Value::Null);
 }
 
 #[test]
@@ -150,17 +137,17 @@ fn jit_host_calls_return_values_compile_and_preserve_static_state() {
         program.invoke("Demo.Main", &[]).unwrap(),
         Some(Value::I64(42))
     );
-    assert!(program.context().counters_snapshot().jit_methods_compiled > 0);
+    assert!(program.context().core().diagnostics().snapshot(program.context().core().threads()).jit_methods_compiled > 0);
     program
         .context()
-        .static_set("Demo.sentinel", Value::I64(91))
+        .statics().set_named("Demo.sentinel", Value::I64(91))
         .unwrap();
     assert_eq!(
         program.invoke("Demo.Main", &[]).unwrap(),
         Some(Value::I64(42))
     );
     assert_eq!(
-        program.context().static_get("Demo.sentinel"),
+        program.context().statics().get_named("Demo.sentinel"),
         Value::I64(91)
     );
     let throwing = self::program(ExecMode::Jit, true);

@@ -1,7 +1,7 @@
 //! Read-only linkage facts used while compiling a function.
 //! Queries neither load packages nor execute type initializers.
 use crate::metadata::{Function, statics::StaticCell};
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 use super::state::JitRuntime;
 use crate::exec::call::forward::{builtin_forward, chained_forward};
 
@@ -85,7 +85,7 @@ impl CompileLookup<'_> {
     /// Builtin id `func` forwards to (shape 1, or shape 2 over an already-registered
     /// target), gated on its static-call barrier being a no-op.
     fn barrier_free_forward(&self, func: &Function) -> Option<u32> {
-        if !self.vm.callee_owner_init_free(&func.name) {
+        if !self.vm.initialization().callee_owner_init_free(&func.name) {
             return None;
         }
         builtin_forward(func, self.vm.core().runtime().builtins).or_else(|| chained_forward(func, |name| {
@@ -101,7 +101,7 @@ impl CompileLookup<'_> {
         if let Some(func) = module.func_index.get(name).and_then(|&i| module.functions.get(i)) {
             return f(func);
         }
-        let func = self.vm.probe_loaded_function(name)?;
+        let func = self.vm.loader().probe_loaded_function(name)?;
         f(&func)
     }
 }
@@ -135,6 +135,6 @@ impl ForwardLookup for CompileLookup<'_> {
 
     /// The static table and the cctor registry belong to the core too (cells never move).
     fn static_cell(&self, id: u32) -> Option<(*const StaticCell, *const std::sync::atomic::AtomicU32)> {
-        self.vm.jit_static_cell(id)
+        self.vm.statics().jit_cell(id)
     }
 }

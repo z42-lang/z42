@@ -92,21 +92,21 @@ z42c build: warning: [profile.release.runtime] 未知运行时旋钮 `gc-mdoe`�
 
 ### 默认只看得到 14 个
 
-`--list-knobs` 默认**只列 `public` 档的 14 个**，`--all` 才列出全部 47 个：
+`--list-knobs` 默认**只列 `public` 档的 14 个**，`--all` 才列出全部 48 个：
 
 ```console
 $ z42vm --list-knobs
-runtime knobs (14 of 47; pass --all for unsupported + internal knobs)
+runtime knobs (14 of 48; pass --all for unsupported + internal knobs)
 …
 $ z42vm --list-knobs --all
-runtime knobs (47 of 47)
+runtime knobs (48 of 48)
 ```
 
-`--show-config` 同样默认 14 行、`--all` 47 行。从 z42 代码里调
-`Std.Runtime.RuntimeConfig.Names()` 拿到的是**全部 47 个**——脚本侧不分档。
+`--show-config` 同样默认 14 行、`--all` 48 行。从 z42 代码里调
+`Std.Runtime.RuntimeConfig.Names()` 拿到的是**全部 48 个**——脚本侧不分档。
 
-那 47 个里有 5 个是**元旋钮**（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG` /
-`Z42_HOME` / `Z42_PORTABLE_VM`）：它们决定读哪个文件、诊断多严格、SDK 装在哪，只收命令行与
+那 48 个里有 6 个是**元旋钮**（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG` /
+`Z42_HOME` / `Z42_PORTABLE_VM` / `Z42_RUNTIME_LIBRARY`）：它们决定读哪个文件、诊断多严格、SDK 装在哪，只收命令行与
 环境变量，写进配置文件会自指（或者根本不是「这个应用的」设置），所以没有 kebab 形式的 key。
 
 `--show-config` 的输出每行是 `key = 值  [来源层]`，被压过的层缩进列在下面：
@@ -275,11 +275,11 @@ probing 路径 ${Z42_HOME}/programs/z42c 无法解析 —— 是否没有安装 
   `gc-slice-ms`、`gc-soft-threshold`、`gc-throttle-ratio`、`jit-interp-tierup`、
   `jit-threshold`、`osr-threshold`、`safepoint-throttle`、`stackalloc`。
   它们能设、会生效，但默认值随版本调整，不承诺稳定。
-- **`internal`**（15 个）——机制内部件、保留位与五个元旋钮：`fusion-debug`、`no-fusion`、
+- **`internal`**（16 个）——机制内部件、保留位与六个元旋钮：`fusion-debug`、`no-fusion`、
   `no-typed-fusion`、`jit-debug-promote`、`gc-phases`、`gc-verify-cards`、`repl-native`、
   `spawn-env-delay-ms`、`stress-iters`（只在 debug build 存在，且只收环境变量）、
   `target`（保留，尚未实现），以及 `Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG` /
-  `Z42_HOME` / `Z42_PORTABLE_VM`。
+  `Z42_HOME` / `Z42_PORTABLE_VM` / `Z42_RUNTIME_LIBRARY`。
 
 一个旋钮的值要生效需四项全通过：允许的来源层 → build 类型（有的只在 debug build 存在）
 → 本二进制编进了它需要的 feature → 当前平台允许。任一不满足则值被丢弃并给一条诊断，
@@ -340,3 +340,5 @@ mode = "interp"
 `--stats=json` 是单行 JSON（供工具抓取）。
 
 `z42vm --verbose` / `-v` 等价 `--set log=z42=info`。
+
+`Z42_RUNTIME_LIBRARY` 只接受环境变量：它在 Core 与 CLI 配置初始化前指定要加载的库文件，显式路径失败时直接退出。未设置时仅使用可执行文件相对的 native/ 或同目录库；不查构建目录。

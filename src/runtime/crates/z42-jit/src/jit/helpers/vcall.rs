@@ -15,7 +15,7 @@ use crate::metadata::dispatch::vcall::vcall_ic_hit;
 use crate::exec::ops::vcall::VCallTarget;
 
 use crate::jit::runtime::frame::{FnEntry, JitFrame};
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 use crate::jit::runtime::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
@@ -80,7 +80,7 @@ unsafe fn vcall_impl(
 
     // jit-stack-trace: stamp the caller's call-site offset once at entry; each
     // invoke path below pushes the callee frame before running.
-    vm_ctx.set_top_frame_pc(caller_offset);
+    vm_ctx.exec().set_top_frame_pc(caller_offset);
 
     let obj_val = frame_ref.regs[obj as usize].clone();
     let arg_regs = std::slice::from_raw_parts(args_ptr, argc);

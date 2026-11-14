@@ -17,7 +17,7 @@ mod generic_call_tests;
 use crate::metadata::Module;
 use compile::vm_interface::JitVm;
 use anyhow::Result;
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 use runtime::{frame::JitFrame, invoke};
 use helpers::take_exception_error;
 
@@ -51,7 +51,7 @@ pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
         let func = match module.func_index.get(entry_name).and_then(|&idx| module.functions.get(idx)) {
             Some(f) => f,
             None => {
-                holder = ctx.try_lookup_function(entry_name)
+                holder = ctx.loader().try_lookup_function(entry_name)
                     .ok_or_else(|| anyhow::anyhow!("JIT: entry `{}` not found", entry_name))?;
                 holder.as_ref()
             }
@@ -82,8 +82,8 @@ pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
 /// (`jit_call`/vcall/closure/ctor + the interp central divert) apply the tier-up
 /// threshold.
 fn run_with_static_init(ctx: &VmContext, entry_name: &str) -> Result<()> {
-    ctx.static_fields_clear();
-    ctx.drain_pending_type_loads();
+    ctx.statics().clear_for_rerun();
+    ctx.loader().drain_pending_type_loads();
     run_fn(ctx, entry_name)
 }
 
@@ -112,7 +112,7 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str, config: config::J
     compile::state::install(ctx, module, config)?;
 
     let setup_us = start.elapsed().as_micros() as u64;
-    ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::JitModuleCompiled {
+    ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::JitModuleCompiled {
         module_name:    module.module_name().to_string(),
         function_count,
         duration_us:    setup_us,
@@ -130,7 +130,7 @@ pub fn invoke_host(ctx: &VmContext, module: &Module, func: &crate::metadata::Fun
     let start = std::time::Instant::now();
     compile::state::install(ctx, module, config)?;
     if first_install {
-        ctx.fire_runtime_event(&crate::diagnostics::observer::RuntimeEvent::JitModuleCompiled {
+        ctx.core().diagnostics().runtime_observers.fire(&crate::diagnostics::observer::RuntimeEvent::JitModuleCompiled {
             module_name: module.module_name().to_owned(), function_count: module.functions().len() as u32,
             duration_us: start.elapsed().as_micros() as u64,
         });

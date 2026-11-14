@@ -37,7 +37,7 @@ fn actual_dynamic_object_protocol_callbacks_and_execution_bridges_agree() {
             assert!(matches!(program.invoke("EngineComponentProbe.ObjectProtocolRoundtrip", &[]).unwrap(), Some(Value::I64(42))));
         }
         if mode == ExecMode::Jit {
-            assert!(program.context().counters_snapshot().jit_methods_compiled > 0);
+            assert!(program.context().core().diagnostics().snapshot(program.context().core().threads()).jit_methods_compiled > 0);
         }
     }
 }
@@ -56,16 +56,16 @@ fn actual_dynamic_engines_preserve_vm_isolation_worker_gc_and_exceptions() {
         assert_eq!(echo(&first, 40), 43, "a failed invocation must not poison subsequent calls");
         if mode == ExecMode::Jit {
             let ctx = first.context();
-            assert!(ctx.counters_snapshot().jit_methods_compiled > 0);
-            let before = ctx.counters_snapshot().jit_native_from_interp;
+            assert!(ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_methods_compiled > 0);
+            let before = ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_native_from_interp;
             let module = ctx.module().unwrap();
             let hot = module.functions.iter().find(|f| f.name == "EngineComponentProbe.HotLoop").unwrap();
             let result = ctx.core().exec().engines.invoke_mode(ExecMode::Interp, ctx, module, hot, &[Value::I64(20_000)]).unwrap();
             assert!(matches!(result, z42::exec::call::outcome::ExecOutcome::Returned(Some(Value::I64(199_990_000)))));
-            assert!(ctx.counters_snapshot().jit_native_from_interp > before, "dynamic interpreter must hand its hot loop to the dynamic JIT");
+            assert!(ctx.core().diagnostics().snapshot(ctx.core().threads()).jit_native_from_interp > before, "dynamic interpreter must hand its hot loop to the dynamic JIT");
             assert_eq!(component_ids(ctx), [INTERP_COMPONENT, JIT_COMPONENT]);
         } else {
-            assert_eq!(first.context().counters_snapshot().jit_methods_compiled, 0);
+            assert_eq!(first.context().core().diagnostics().snapshot(first.context().core().threads()).jit_methods_compiled, 0);
             assert_eq!(component_ids(first.context()), [INTERP_COMPONENT]);
         }
         drop(first);

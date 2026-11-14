@@ -45,7 +45,7 @@ pub fn method_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crat
                 .and_then(|&i| m.functions.get(i))
                 .map(|f| f.custom_attributes().to_vec())
         })
-        .or_else(|| ctx.try_lookup_function(&qualified).map(|f| f.custom_attributes().to_vec()))
+        .or_else(|| ctx.loader().try_lookup_function(&qualified).map(|f| f.custom_attributes().to_vec()))
         .unwrap_or_default();
     call_attribute_factories(ctx, &attrs).map_err(BuiltinError::Legacy)
 }
@@ -64,8 +64,8 @@ pub fn field_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate
     let (class, field) = (&qualified[..dot], &qualified[dot + 1..]);
     let resolve = |name: &str| {
         ctx.module()
-            .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.current_type_desc(td)))
-            .or_else(|| ctx.try_lookup_type(name))
+            .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
+            .or_else(|| ctx.loader().try_lookup_type(name))
     };
     let mut current = resolve(class);
     let mut seen = HashSet::new();
@@ -113,8 +113,8 @@ pub fn property_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &cr
     let backing = format!("__prop_{prop}");
     let td = ctx
         .module()
-        .and_then(|m| m.type_registry.get(class).cloned().map(|td| ctx.current_type_desc(td)))
-        .or_else(|| ctx.try_lookup_type(class));
+        .and_then(|m| m.type_registry.get(class).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
+        .or_else(|| ctx.loader().try_lookup_type(class));
     let attrs: Vec<crate::zpkg::ir::AttributeRef> = td
         .as_ref()
         .map(|td| {
@@ -154,7 +154,7 @@ pub fn param_custom_attributes(ctx: &VmContext, _this: &Value, qualified: &crate
                 .and_then(|&i| m.functions.get(i))
                 .and_then(lookup)
         })
-        .or_else(|| ctx.try_lookup_function(&qualified).and_then(|f| lookup(&f)))
+        .or_else(|| ctx.loader().try_lookup_function(&qualified).and_then(|f| lookup(&f)))
         .unwrap_or_default();
     call_attribute_factories(ctx, &attrs).map_err(BuiltinError::Legacy)
 }
@@ -187,7 +187,7 @@ pub(super) fn call_attribute_factories(
         }
         let outcome = if let Some(&idx) = module.func_index.get(a.factory_func.as_str()) {
             Some(crate::exec::engine::invoke(ctx, &module, &module.functions[idx], &[])?)
-        } else if let Some(func) = ctx.try_lookup_function(&a.factory_func) {
+        } else if let Some(func) = ctx.loader().try_lookup_function(&a.factory_func) {
             Some(crate::exec::engine::invoke(ctx, &module, func.as_ref(), &[])?)
         } else {
             None

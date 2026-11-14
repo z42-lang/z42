@@ -4,7 +4,7 @@
 
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 use anyhow::{bail, Result};
 
 use crate::exec::ops::stringify::{obj_to_gc_str, with_obj_str};
@@ -17,9 +17,9 @@ use super::Frame;
 pub(super) fn const_str(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, idx: u32,
 ) -> Result<()> {
-    // Interned per VM by string id (`VmContext::const_str`): after the first execution a
+    // Interned per VM by string id (`exec::ops::const_string::load`): after the first execution a
     // lock-free load, entry-module and lazily loaded code alike.
-    let Some(s) = ctx.const_str(module, idx) else {
+    let Some(s) = crate::exec::ops::const_string::load(&ctx, module, idx) else {
         bail!("string pool index {idx} out of range");
     };
     frame.set(dst, Value::Str(s));

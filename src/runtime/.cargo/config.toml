@@ -97,7 +97,7 @@ z42-static-wasm   = ["z42-static", "-p", "z42", "-p", "z42-profiler", "-p", "z42
 # compression 静态图（默认特性 = backend）。
 z42-compression-static = ["z42-static", "-p", "z42-compression", "--lib"]
 
-# Windows SDK 的进程转发入口；不链接 VM，实际 main 与 DLL 闭包同目录。
-z42-launcher = ["build", "--locked", "-p", "z42", "--bin", "z42vm-windows-launcher",
-    "--no-default-features", "--features", "z42/windows-launcher",
+# SDK process entry loads Core at runtime and links its own static std.
+z42-entry = ["build", "--locked", "-p", "z42", "--bin", "z42vm",
+    "--no-default-features", "--features", "z42/component-loading",
     "--config", "build.rustflags=['-C','prefer-dynamic=no']"]

@@ -21,13 +21,13 @@ pub(crate) struct State {
     slots: crate::corelib::resource_registry::ResourceRegistry<std::thread::JoinHandle<anyhow::Result<()>>>,
 }
 
-pub(super) fn state(ctx: &crate::context::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
+pub(super) fn state(ctx: &crate::vm::VmContext) -> Result<&State, crate::exec::call::builtin_abi::BuiltinError> {
     crate::corelib::resource_registry::state(ctx)
 }
 
 use crate::exec::call::outcome::ExecOutcome;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::{anyhow, bail, Result};
 use std::sync::Arc;
 
@@ -58,7 +58,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::exec:
              constructed via VmContext::new() instead of VmContext::with_module()".into()));
     }
 
-    let core_for_thread: Arc<crate::context::VmCore> = Arc::clone(&ctx.core());
+    let core_for_thread: Arc<crate::vm::VmCore> = Arc::clone(&ctx.core());
     let id = state(ctx)?.slots.alloc_id();
 
     // 🔴 **fix-spawn-env-gc-root **: root the captured environment *here*, on the
@@ -137,7 +137,7 @@ pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::exec:
 /// the heap's root map, and the alternative needs a handshake with the worker that buys
 /// nothing.
 struct SpawnedEnvRoot {
-    core:   Arc<crate::context::VmCore>,
+    core:   Arc<crate::vm::VmCore>,
     handle: crate::gc::RootHandle,
 }
 
@@ -152,7 +152,7 @@ impl Drop for SpawnedEnvRoot {
 #[z42_macros::builtins]
 pub mod typed {
     use crate::exec::call::builtin_abi::{Blocking, BuiltinError};
-    use crate::context::VmContext;
+    use crate::vm::VmContext;
 
     /// `__thread_sleep(millis)` — block the current thread. Negative values saturate to
     /// 0 (BCL `Thread.Sleep`). The whole body runs parked (`blocking`): a sleeping thread
@@ -223,7 +223,7 @@ fn run_spawned_action(
         }
     };
 
-    let target = thread_ctx.callable_fn(fn_id).ok_or_else(|| anyhow!(
+    let target = thread_ctx.core().runtime().callable_fn(fn_id).ok_or_else(|| anyhow!(
         "spawned action: function id {} is not registered in this VM", fn_id.0
     ))?;
     let outcome = crate::exec::engine::invoke(thread_ctx, module, target, &arg_vals)?;

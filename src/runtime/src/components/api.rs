@@ -1,5 +1,5 @@
 //! VM-only capability access. Provider identities and management stay inside components.
-use crate::{components::abi::{ExecutionApi, ExecutionConfig, ComponentStatus}, context::VmContext, zpkg::ExecMode};
+use crate::{components::abi::{ExecutionApi, ExecutionConfig, ComponentStatus}, vm::VmContext, zpkg::ExecMode};
 use anyhow::Result;
 pub(crate) use super::execution_roles::ExecutionRole;
 pub use super::backends::{BackendOptions, BackendSource};

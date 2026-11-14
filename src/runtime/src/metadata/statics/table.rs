@@ -37,7 +37,7 @@ const W1: usize = 8;
 /// One static field's storage. All-zero = `null`, never written.
 ///
 /// Next to the value: the field's static-constructor owner, as the type-init barrier
-/// (`VmContext::ensure_static_owner_init`) resolved it — so a hot static access does not re-derive
+/// (`Initialization::ensure_static_owner_init`) resolved it — so a hot static access does not re-derive
 /// the owner from the name. Owner state `0` = not looked up, [`OWNER_EXEMPT`] = no owner type or
 /// one without a static constructor, [`OWNER_CHECK`] = check `owner` (published before the state,
 /// release / acquire; the descriptor is kept alive by [`StaticTable::owners`]).

@@ -26,3 +26,13 @@ pub struct ThreadDiagnosticsState {
 }
 
 pub(crate) mod contention;
+
+impl DiagnosticsState {
+    /// Exact totals across living and departed contexts; base is read under the
+    /// same registry lock used to transfer a departing shard into it.
+    pub fn snapshot(&self, threads: &crate::threads::ThreadState) -> counters::Snapshot {
+        threads.with_counter_shards(|shards| {
+            shards.fold(self.counters.snapshot(), |total, shard| total.add(shard.snapshot()))
+        })
+    }
+}

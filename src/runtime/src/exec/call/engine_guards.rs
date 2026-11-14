@@ -5,7 +5,7 @@
 //! `exec::ambient`'s heap (heap-less `Str::new` / `.into()` allocate from it) and,
 //! with `native-interop`, `exec::active_vm`'s `CURRENT_VM` (`z42_*` exports find
 //! the VM through it). Both stay the same for a whole activation chain, so they
-//! are installed when the **bottom** frame is pushed (`VmContext::push_frame`,
+//! are installed when the **bottom** frame is pushed (`ThreadExecState::push_frame`,
 //! frame-stack depth 0 → 1) and restored when the stack is empty again
 //! (`pop_frame`). A nested call costs no thread-local access.
 //!
@@ -29,7 +29,7 @@ use std::cell::UnsafeCell;
 
 use crate::exec::ambient::HeapGuard;
 
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 struct Installed {
     // Field order = drop order: restore `CURRENT_VM`, then the heap.
@@ -59,7 +59,7 @@ impl EngineGuards {
         ctx.exec.jit_head.stack_limit.store(crate::exec::stack_guard::limit(), std::sync::atomic::Ordering::Relaxed);
         #[cfg(feature = "jit")]
         if ctx.exec.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed).is_null() {
-            ctx.publish_tier();
+            ctx.exec().publish_tier(&ctx.core().exec().engines);
         }
         // SAFETY: the context outlives its guards — they are dropped at the
         // last pop or, at the latest, with the context itself.

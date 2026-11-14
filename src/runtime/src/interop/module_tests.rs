@@ -324,7 +324,7 @@ fn declaration_loads_once_on_first_call_and_rejects_mismatched_implementations_a
     let mut builder = RegistryBuilder::default();
     unsafe { builder.register_declaration(&DECLARATION) }.unwrap();
     let registry = Box::leak(Box::new(builder.freeze()));
-    let mut extensions = crate::context::extensions::VmExtensions::new();
+    let mut extensions = crate::vm::VmExtensions::new();
     extensions
         .register(crate::interop::state_for_vm(registry))
         .unwrap();
@@ -441,7 +441,7 @@ fn blocking_provider_reenters_the_interpreter_and_copies_callback_results() {
         vec![script_function, Function::new(void_function)],
         Default::default(),
     ));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     unsafe extern "C" fn callback(raw: *mut abi::Call) -> u32 {
         let ctx = unsafe { frame(raw) }.unwrap().ctx;
         assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 1);

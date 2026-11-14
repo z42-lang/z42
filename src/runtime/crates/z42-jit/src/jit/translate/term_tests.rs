@@ -4,7 +4,7 @@ use crate::jit::compile::state::install;
 use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, Instruction, Terminator};
 use crate::zpkg::ir::ExecMode;
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 
 fn block(label: &str, instructions: Vec<Instruction>, terminator: Terminator) -> BasicBlock {
     BasicBlock { label: label.to_string(), instructions, terminator }

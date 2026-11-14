@@ -1,6 +1,6 @@
 use super::*;
 use crate::exec::call::builtin_abi::{BuiltinFlags, CallResult, ParamKind, RetKind};
-use crate::{context::VmContext, object::Value};
+use crate::{vm::VmContext, object::Value};
 
 fn slice(_: &VmContext, _: &[Value]) -> CallResult {
     Ok(Some(Value::I64(42)))

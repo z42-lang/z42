@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use crate::zpkg::ir::METHOD_FLAG_SRET;
 use crate::object::Value;
 use crate::metadata::{Function, Module};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use super::{args::CallArgs, outcome::ExecOutcome};
 use crate::gc::{Heap, RootHandle};
 
@@ -41,7 +41,7 @@ pub fn invoke(
     // copies and the return slot live in its arena across any callee collection.
     for (argument, declared_type) in arguments.iter_mut().zip(function.param_types().iter()) {
         if let Value::BoxedStruct(object) = *argument {
-            let is_struct = ctx.try_lookup_type(declared_type)
+            let is_struct = ctx.loader().try_lookup_type(declared_type)
                 .is_some_and(|ty| ty.struct_layout().is_some());
             if is_struct {
                 *argument = crate::exec::ops::structs::unbox_struct(ctx, frame_id, &object)?;
@@ -49,15 +49,15 @@ pub fn invoke(
         }
     }
     let result_slot = if needs_boxed_return(function, arguments.len()) {
-        let descriptor = ctx.try_lookup_type(&function.ret_type)
+        let descriptor = ctx.loader().try_lookup_type(&function.ret_type)
             .ok_or_else(|| anyhow!("indirect struct return: unknown type `{}`", function.ret_type))?;
         let layout = descriptor.struct_layout()
             .ok_or_else(|| anyhow!("indirect struct return: `{}` has no struct layout", function.ret_type))?;
-        let index = ctx.struct_alloc(frame_id, descriptor.name.clone().into(), layout);
+        let index = ctx.exec().struct_alloc(frame_id, descriptor.name.clone().into(), layout);
         arguments.push(Value::StructRef { idx: index, frame_id });
         Some(index)
     } else { None };
-    let native = ctx.tier().and_then(|tier| tier.invoke(
+    let native = ctx.exec().tier(&ctx.core().exec().engines).and_then(|tier| tier.invoke(
         ctx, crate::exec::engine::TierTarget::Site(id), CallArgs::Values(&arguments), &[],
     ));
     let outcome = match native {

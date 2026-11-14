@@ -6,12 +6,12 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use crate::metadata::dispatch::ic::{ctorless_hit, ctorless_note, ObjNewSite};
+use crate::metadata::dispatch::ic::{ctorless_hit, ctorless_note, fn_registration_mark, ObjNewSite};
 use crate::metadata::ids::tokens::UNRESOLVED;
 use crate::metadata::{Function, Module};
 use crate::object::{TypeDesc, Value};
 use crate::exec::symbol_resolution;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 use crate::metadata::dispatch::functions::{fn_by_id, lazy_call_id};
 use crate::metadata::dispatch::ctor::make_fallback_type_desc;
@@ -41,7 +41,7 @@ fn resolve_class_slow(
     // in the lazy loader until first use; probe it before falling back to a blank
     // synthetic descriptor.
     let resolved = module.type_registry.get(class_name).cloned()
-        .or_else(|| ctx.try_lookup_type(class_name));
+        .or_else(|| ctx.loader().try_lookup_type(class_name));
     let (type_desc, cacheable) = match resolved {
         Some(td) => (td, true),
         None => {
@@ -60,7 +60,7 @@ fn resolve_class_slow(
     // `try_fixup_inheritance` 补齐过（`Arc::make_mut` 写时复制只让惰性注册表拿到修好的副本）。
     // 旗子在手，这里换成修好的那份。
     let type_desc = if type_desc.base_unmerged() {
-        match ctx.try_lookup_type(class_name) {
+        match ctx.loader().try_lookup_type(class_name) {
             Some(fixed) if !fixed.base_unmerged() => fixed,
             _ => type_desc,
         }
@@ -104,7 +104,7 @@ pub fn resolve_ctor<'a>(
             if let Some(f) = fn_by_id((ctx).funcs(), module, id) {
                 return Ok(Some((f, Some(id as usize))));
             }
-        } else if ctorless_hit(Some(&s.ctorless), ctx.fn_registration_mark()) {
+        } else if ctorless_hit(Some(&s.ctorless), fn_registration_mark()) {
             // cache-ctorless-objnew: this site proved the ctor resolves nowhere (module and
             // loader) and nothing has been registered since. A ctor in the module would have
             // been cached above instead, so the module need not be probed first.
@@ -125,7 +125,7 @@ fn bind_ctor<'a>(
     site: Option<&ObjNewSite>,
     holder: &'a mut Option<Arc<Function>>,
 ) -> Result<Option<(&'a Function, Option<usize>)>, Value> {
-    let mark = ctx.fn_registration_mark();
+    let mark = fn_registration_mark();
     if let Some(f) = module.func_index.get(ctor_name).and_then(|&i| module.functions.get(i).map(|f| (i, f))) {
         let (idx, f) = f;
         // 站点 ⑤ fix-ctor-arity-skew：解析**成功**也要查——裸键在版本 skew 下会命中**错的**
@@ -138,7 +138,7 @@ fn bind_ctor<'a>(
         if let Some(s) = site { s.ctor.store(idx as u32, Ordering::Relaxed); }
         return Ok(Some((f, Some(idx))));
     }
-    match ctx.try_lookup_function(ctor_name) {
+    match ctx.loader().try_lookup_function(ctor_name) {
         Some(lazy) => {
             // 站点 ⑤：惰性加载来的构造器同样查（跨包构造器正是 skew 的主战场）。
             if let Some(exc) = symbol_resolution::wrong_arity_exception(

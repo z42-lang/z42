@@ -66,7 +66,7 @@ context 拆分按状态所有者推进：缺符号执行异常与线程异常交
 通用 native 映像装入、规范路径缓存与进程代码保活已集中到 loader/code，默认原生路径归 loader/native_paths；
 组件和独立库共用，PAL 仅保留 OS 原语。后续三来源策略应在 loader 边界建立，组件继续负责能力/契约/实例。
 
-CLI 参数/启动环境已归 main 及其私有辅助，直接动态链接 libz42；删除 CLI 目录/库模块和私有 C 入口。host 的 run_app/LoadedProgram 共用明确加载输入，main 等来源实现负责环境和相对路径；非 CLI 平台库排除这些实现与依赖。
+桌面只保留 z42vm bin，通过 dlopen/LoadLibrary 加载 Core 的进程入口；CLI 参数/启动环境归 cli feature 下的私有 main_command/main_startup，无额外 CLI 目录或 Windows 转发器。host 的 run_app/LoadedProgram 共用明确加载输入，main 等来源实现负责环境和相对路径；非 CLI 平台库排除这些实现与依赖。
 这不代表 C 宿主 ABI、组件管理公开面或默认 VM 装配已迁完，后续继续按各自所有者收口。
 
 当前问题与目标结构见[运行时模块边界](internals/src/runtime/module-boundaries.md)。内部能力门面与同构建协议已分离，执行角色绑定和无装载副作用的查询已实现；

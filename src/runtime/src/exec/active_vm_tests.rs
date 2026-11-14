@@ -1,5 +1,5 @@
 use super::{current_vm, VmGuard};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 #[test]
 fn same_context_nesting_preserves_the_outer_activation() {

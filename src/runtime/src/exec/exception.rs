@@ -26,7 +26,7 @@ use anyhow::{anyhow, Result};
 use crate::object::{NativeData, TypeDesc};
 use crate::metadata::Module;
 use crate::object::{default_value_for, Value};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use crate::exec::stack::{FrameSnapshot, format_stack_trace};
 
 /// fix-silent-symbol-resolution：构造 `Std.MissingSymbolException`。
@@ -35,7 +35,7 @@ use crate::exec::stack::{FrameSnapshot, format_stack_trace};
 /// `catch (MissingSymbolException e)` 甚至 `catch (Exception e)`。逐级回落保证 stdlib
 /// 缺任一类时仍把错误传出去，而不是静默吞掉。
 pub fn make_missing_symbol_exception(
-    ctx: &crate::context::VmContext,
+    ctx: &crate::vm::VmContext,
     module: &crate::metadata::Module,
     msg: String,
 ) -> crate::object::Value {
@@ -95,7 +95,7 @@ pub fn populate_stack_trace_with(value: &Value, ctx: &VmContext, module: &Module
     let slot = match slot_opt { Some(s) => s, None => return };
 
     // Step 2: snapshot stack outside the borrow (reads call_stack RefCell).
-    let mut frames = ctx.snapshot_call_stack();
+    let mut frames = ctx.exec().snapshot_call_stack();
     frames.extend_from_slice(extra);
     let trace  = format_stack_trace(&frames);
 
@@ -202,7 +202,7 @@ pub fn make_stdlib_exception_with(
         .type_registry
         .get(type_fq)
         .cloned()
-        .or_else(|| ctx.try_lookup_type(type_fq))
+        .or_else(|| ctx.loader().try_lookup_type(type_fq))
         .ok_or_else(|| anyhow!("stdlib type `{type_fq}` not loaded; cannot construct exception"))?;
 
     let mut slots: Vec<Value> = type_desc

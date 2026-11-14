@@ -29,7 +29,7 @@ pub fn methodof(ctx: &VmContext, qualified: &crate::object::string::vstr::Str) -
     let known = match ctx.core().runtime().module.as_ref() {
         Some(m) => m.func_index.contains_key(qualified.as_str()),
         None => false,
-    } || ctx.try_lookup_function(&qualified).is_some();
+    } || ctx.loader().try_lookup_function(&qualified).is_some();
     if !known {
         return Err(BuiltinError::Internal(format!(
             "__methodof: no emitted function named `{qualified}` — the compiler emitted a \

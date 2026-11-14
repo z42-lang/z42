@@ -11,7 +11,7 @@ pub fn load_module(ctx: &VmContext, path: &crate::object::string::vstr::Str) -> 
     // the pending type-load queue. Do NOT call `init_static_fields` — it clears every
     // static field in the VM, so the caller's own state (and any already-initialized
     // type) would silently read back as zero after each load.
-    ctx.load_module_into_vm(&path)?;
+    ctx.loader().load_module_into_vm(&path)?;
     Ok(Value::Null)
 }
 
@@ -45,7 +45,7 @@ pub fn load_bytecode_in_memory(ctx: &VmContext, bytes_arr: &Value) -> anyhow::Re
         ),
         None => bail!("__load_bytecode_in_memory: missing byte[] argument"),
     };
-    ctx.load_module_bytes_into_vm(&bytes)?;
+    ctx.loader().load_module_bytes_into_vm(&bytes)?;
     // unify-static-init-into-cctor（7.4）：此前在此**只跑本轮**的 `__static_init__`
     // —— 不能跑全量 `init_static_fields`，那会清空所有静态字段、毁掉 REPL 跨轮
     // carry-forward（用户 `.Add` 进 List 的东西会没）。

@@ -7,7 +7,7 @@ unsafe extern "C" fn identity() -> ExecutionIdentity {
 }
 unsafe extern "C" fn attach(vm: *const c_void, config: *const ExecutionConfig) -> ComponentStatus {
     if vm.is_null() || config.is_null() { return ComponentStatus::INVALID_ARGUMENT; }
-    let ctx = unsafe { &*vm.cast::<crate::context::VmContext>() };
+    let ctx = unsafe { &*vm.cast::<crate::components::bridge::VmContext>() };
     let config = unsafe { &*config };
     let _ = config;
     match ctx.core().exec().engines.register_jit(&super::engine::ENGINE, crate::exec::engine::JitConfig {

@@ -14,7 +14,8 @@ use crate::{
     object::ArrRef,
 };
 use crate::object::Value;
-use crate::context::{VmContext, VmContextPtr, VmCore};
+use crate::vm::{VmContext, VmCore};
+use crate::threads::VmContextPtr;
 
 fn assert_send<T: Send>() {}
 fn assert_sync<T: Sync>() {}

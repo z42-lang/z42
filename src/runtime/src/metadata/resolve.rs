@@ -13,7 +13,7 @@
 //!   • `ObjNew` class + ctor  → `ObjNewSite` (class descriptor + ctor `FnId`; whatever is
 //!                              already registered, the rest filled on first dispatch)
 //!   • `StaticGet/Set.field`  → `StaticFieldId` (lazy global ID via
-//!                              `VmContext::resolve_static_field_id`)
+//!                              `StaticFields::resolve`)
 //!
 //! **Receiver-type-dependent** references (`VCall.method`, `FieldGet/Set
 //! .field_name`) are *not* resolved here. They use per-site monomorphic
@@ -90,9 +90,9 @@ use crate::metadata::dispatch::ic::{FieldIC, ObjNewSite, VCallIC};
 /// `let _ = ...` ignores the duplicate-set error).
 ///
 /// `ctx` is needed for `StaticGet/Set` resolution: static field IDs are
-/// allocated lazily through `VmContext::resolve_static_field_id` so
+/// allocated lazily through `StaticFields::resolve` so
 /// cross-zpkg static fields can be encountered in any load order.
-pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::context::VmContext) {
+pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::vm::VmContext) {
     for func in &module.functions {
         resolve_function_tokens(func, module, ctx);
     }
@@ -122,7 +122,7 @@ pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::context::Vm
 pub fn resolve_function_tokens(
     func: &Function,
     module: &crate::metadata::Module,
-    ctx: &crate::context::VmContext,
+    ctx: &crate::vm::VmContext,
 ) {
     {
         // Skip if already populated (idempotent).
@@ -289,7 +289,7 @@ pub fn resolve_function_tokens(
         // ordering doesn't matter. Resolution is "always succeed" — if the
         // name was first seen in this module, this is the allocation site.
         let static_field_tokens: Vec<AtomicU32> = static_site_names.iter()
-            .map(|name| AtomicU32::new(ctx.resolve_static_field_id(name).0))
+            .map(|name| AtomicU32::new(ctx.statics().resolve(name).0))
             .collect();
 
         // defer-class-initialization (T3): 静态字段引用是「首次主动使用」的一种，
@@ -305,8 +305,8 @@ pub fn resolve_function_tokens(
         // 否则会在函数解析期就跑掉类型初始化器，破坏「首次使用前」语义。
         for name in &static_site_names {
             let Some((class_fq, _field)) = name.rsplit_once('.') else { continue };
-            if ctx.has_loaded_type(class_fq) { continue; }
-            ctx.enqueue_type_load(class_fq);
+            if ctx.loader().has_loaded_type(class_fq) { continue; }
+            ctx.loader().enqueue_type_load(class_fq);
         }
 
         let resolved = ResolvedTokens {
@@ -323,7 +323,7 @@ pub fn resolve_function_tokens(
         // Publish tokens only after their queued type owners have been resolved.
         // Observing a prepared function must also expose its types and registered
         // cctor facts. Managed initialization still runs at execution barriers.
-        ctx.drain_pending_type_loads();
+        ctx.loader().drain_pending_type_loads();
 
         // OnceLock idempotent set — Err means already set (race or repeat call).
         let _ = func.resolved.set(resolved);

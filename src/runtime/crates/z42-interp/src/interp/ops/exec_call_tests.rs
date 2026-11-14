@@ -80,7 +80,7 @@ fn returned(outcome: ExecOutcome) -> Value {
 #[test]
 fn lazy_package_calls_bind_to_fn_ids_at_resolve_time() {
     let ctx = VmContext::with_module(module("Entry", vec![const7("Entry.H$0")]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let g = register_lazy(&ctx, const7("Lazy.G$0"));
     let f = register_lazy(&ctx, func("Lazy.F$0", 0, vec![
         call(0, "Lazy.G$0", &[]),
@@ -103,7 +103,7 @@ fn interp_call_runs_and_binds_lazy_targets_by_fn_id() {
     let ctx = VmContext::with_module(module("Entry", vec![
         func("Entry.Main$0", 0, vec![call(0, "Late.G$0", &[])], Some(0)),
     ]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let entry = Arc::clone(ctx.module().unwrap());
     let main = &entry.functions[0];
     crate::metadata::resolve::resolve_function_tokens(main, &entry, &ctx);
@@ -124,7 +124,7 @@ fn interp_call_runs_and_binds_lazy_targets_by_fn_id() {
 #[test]
 fn non_entry_module_never_caches_a_lazy_fn_id() {
     let ctx = VmContext::new();
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let g = register_lazy(&ctx, const7("Lazy.G$0"));
     assert_eq!(g.id.get(), Some(FnId(0)), "same number as the module's first function");
     let m = module("M", vec![
@@ -148,7 +148,7 @@ fn entry_function_wins_over_a_same_named_lazy_one() {
         func("Entry.Main$0", 0, vec![call(0, "Shared.F$0", &[])], Some(0)),
         const7("Shared.F$0"),
     ]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let lazy = register_lazy(&ctx, func("Shared.F$0", 0, vec![Instruction::ConstI32 { dst: 0, val: 9 }], Some(0)));
     assert_eq!(lazy.id.get(), Some(FnId(2)), "the shadowed lazy function has its own id");
     let entry = Arc::clone(ctx.module().unwrap());
@@ -164,12 +164,12 @@ fn entry_function_wins_over_a_same_named_lazy_one() {
 #[test]
 fn reinstalled_loader_does_not_see_old_names() {
     let ctx = VmContext::with_module(module("Entry", vec![const7("Entry.H$0")]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     register_lazy(&ctx, const7("Lazy.G$0"));
     assert!(ctx.funcs().id_of("Lazy.G$0").is_some());
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     assert!(ctx.funcs().id_of("Lazy.G$0").is_none());
-    assert!(ctx.try_lookup_function("Lazy.G$0").is_none());
+    assert!(ctx.loader().try_lookup_function("Lazy.G$0").is_none());
     let g2 = register_lazy(&ctx, const7("Lazy.G$0"));
     assert_eq!(g2.id.get(), Some(FnId(2)), "ids are never reused");
 }

@@ -8,7 +8,7 @@ use crate::{
     zpkg::{BranchTargets, Terminator},
     object::Value,
 };
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
@@ -136,7 +136,7 @@ impl Frame {
         if id != 0 {
             return id;
         }
-        let id = ctx.next_frame_id();
+        let id = ctx.exec().next_frame_id();
         self.id.set(id);
         id
     }

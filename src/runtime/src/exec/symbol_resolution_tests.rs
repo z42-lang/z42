@@ -147,7 +147,7 @@ use crate::zpkg::index::name::NameIndex;
 use crate::metadata::ids::tokens::TypeId;
 use crate::object::{StructFieldLayout, StructTypeLayout, TypeDesc, TypeDescCold};
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::sync::Arc;
 
 fn type_desc(name: &str, class_flags: u8, cold: TypeDescCold) -> Arc<TypeDesc> {
@@ -178,7 +178,7 @@ fn static_field(name: &str, tag: &str) -> FieldDesc {
 /// `Demo.Pair`（泛型 struct 定义）、`Demo.Color`（枚举）、`Demo.Box`（类）、两个持有静态字段的属主。
 fn vm_with_types() -> std::pin::Pin<Box<VmContext>> {
     let vm = VmContext::new();
-    vm.install_lazy_loader(None, 0);
+    vm.loader().install_lazy_loader(None, 0);
     let types = [
         two_int_struct("Demo.Point"),
         two_int_struct("Demo.Pair"),

@@ -8,7 +8,7 @@ use anyhow::{bail, Result};
 use crate::metadata::dispatch::ic::{vcall_ic_install, VCallIC};
 use crate::metadata::{Function, Module};
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 use crate::metadata::dispatch::vcall::{resolve_virtual, iface_slot_method, erased_iface_slot_key};
 use crate::metadata::dispatch::receiver::{primitive_class_name, value_synthetic_type_id};
@@ -131,7 +131,7 @@ pub(crate) fn resolve_iface_slot(
     ctx: &VmContext, module: &Module, obj_val: &Value, key: &str,
 ) -> Option<String> {
     let erased = erased_iface_slot_key(key);
-    let lookup = |name: &str| module.type_registry.get(name).cloned().or_else(|| ctx.try_lookup_type(name));
+    let lookup = |name: &str| module.type_registry.get(name).cloned().or_else(|| ctx.loader().try_lookup_type(name));
     let probe = |td: &crate::object::TypeDesc| -> Option<String> {
         crate::metadata::dispatch::vcall::iface_slot_implementation(td, key, erased.as_deref())
     };
@@ -328,7 +328,7 @@ fn resolve_vcall_unchecked<'a>(
                 if cur == type_desc.name {
                     type_desc.base_name.clone()
                 } else {
-                    ctx.try_lookup_type(&cur).and_then(|td| td.base_name.clone())
+                    ctx.loader().try_lookup_type(&cur).and_then(|td| td.base_name.clone())
                 }
             });
         if spec_no_inherit { break; }   // S1-d：特化名只认接收者自己那一层
@@ -424,7 +424,7 @@ fn target_by_name<'a>(ctx: &'a VmContext, module: &'a Module, name: &str) -> Opt
             return Some(VCallTarget::Local { func, id: Some(idx) });
         }
     }
-    let lazy = ctx.try_lookup_function(name)?;
+    let lazy = ctx.loader().try_lookup_function(name)?;
     // Every function the loader hands out is registered in the VM's `FuncTable` (it is the
     // loader's registry), whose slot keeps it alive for the VM's lifetime — so borrow it from
     // there instead of carrying the `Arc`.

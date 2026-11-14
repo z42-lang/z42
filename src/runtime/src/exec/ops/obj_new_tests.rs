@@ -80,7 +80,7 @@ fn register_lazy_type(ctx: &VmContext, td: &Arc<TypeDesc>) {
 /// `new Pkg.Foo()` with both the class and its ctor in a lazily loaded package.
 fn lazy_pkg_ctx() -> (std::pin::Pin<Box<VmContext>>, Arc<TypeDesc>, Arc<Function>) {
     let ctx = VmContext::with_module(module("Entry", vec![ctor("Entry.Other..ctor$0", 1)], vec![]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let td = class("Pkg.Foo", false);
     register_lazy_type(&ctx, &td);
     let f = register_lazy_fn(&ctx, ctor("Pkg.Foo..ctor$0", 1));
@@ -115,10 +115,10 @@ fn lazy_class_and_ctor_are_cached_by_identity() {
     assert_eq!(site.ctor.load(Ordering::Relaxed), id as u32, "the lazy FnId is cached");
 
     // Fresh loader name space, seen from a context without a per-ctx lookup cache.
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let ctx2 = VmContext::new_with_core(Arc::clone(&ctx.core));
-    assert!(ctx2.try_lookup_function("Pkg.Foo..ctor$0").is_none());
-    assert!(ctx2.try_lookup_type("Pkg.Foo").is_none());
+    assert!(ctx2.loader().try_lookup_function("Pkg.Foo..ctor$0").is_none());
+    assert!(ctx2.loader().try_lookup_type("Pkg.Foo").is_none());
     let s = site_for((&ctx2).funcs(), &entry, Some(&site));
     assert!(Arc::ptr_eq(&resolve_class(&ctx2, &entry, "Pkg.Foo", s).unwrap(), &td));
     let mut holder = None;
@@ -145,7 +145,7 @@ fn interp_obj_new_hits_the_site_cache() {
         }
     };
     run(&ctx);
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let ctx2 = VmContext::new_with_core(Arc::clone(&ctx.core));
     run(&ctx2);
 }
@@ -211,7 +211,7 @@ fn fallback_and_unmerged_descriptors_are_not_cached() {
     let ctx = VmContext::with_module(module(
         "Entry", vec![ctor("Entry.Other..ctor$0", 1)], vec![class("Entry.Half", true)],
     ));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let entry = Arc::clone(ctx.module().unwrap());
 
     let site = ObjNewSite::default();
@@ -231,7 +231,7 @@ fn fallback_and_unmerged_descriptors_are_not_cached() {
 #[test]
 fn non_entry_module_never_uses_the_cache() {
     let ctx = VmContext::new();
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let td = class("Pkg.Foo", false);
     register_lazy_type(&ctx, &td);
     let f = register_lazy_fn(&ctx, ctor("Pkg.Foo..ctor$0", 1));
@@ -259,7 +259,7 @@ fn resolver_prefills_registered_class_and_ctor() {
     let ctx = VmContext::with_module(module(
         "Entry", vec![func("Entry.Main", 0, vec![new_foo])], vec![Arc::clone(&td)],
     ));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let f = register_lazy_fn(&ctx, ctor("Pkg.Foo..ctor$0", 1));
     let entry = Arc::clone(ctx.module().unwrap());
     crate::metadata::resolve::resolve_function_tokens(&entry.functions[0], &entry, &ctx);

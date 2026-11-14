@@ -1,4 +1,4 @@
-//! Unit tests for `context::cctor`.
+//! Unit tests for `vm::cctor`.
 
 use super::*;
 use crate::exec::init::{claim, claim_with};
@@ -146,8 +146,8 @@ fn free_function_barrier_loads_no_package() {
     use crate::loader::locate::namespace_index::ZpkgCandidate;
     let zpkg = std::path::PathBuf::from(env!("Z42_RUNTIME_DIR"))
         .join("../compiler/z42.package/tests/fixtures/zpkg-format/packed-minimal/source.zpkg");
-    let ctx = crate::context::VmContext::new();
-    ctx.install_lazy_loader_with_deps(
+    let ctx = crate::vm::VmContext::new();
+    ctx.loader().install_lazy_loader_with_deps(
         Vec::new(), 0,
         vec![("packed.zpkg".to_string(), ZpkgCandidate { file_path: zpkg, namespaces: vec!["Packed".to_string()] })],
         Vec::new(),
@@ -156,7 +156,7 @@ fn free_function_barrier_loads_no_package() {
     ctx.core.runtime.cctors.register("Other.C", "Other.C.$cctor");
 
     let cell = crate::metadata::OwnerInitCell::default();
-    assert!(ctx.ensure_callee_owner_init("Demo.Greet$1", &cell).is_ok());
+    assert!(ctx.initialization().ensure_callee_owner_init("Demo.Greet$1", &cell).is_ok());
     let loaded = ctx.core.loader.lazy_loader.read().as_ref().map(|l| l.loaded_zpkgs.len());
     assert_eq!(loaded, Some(0), "the barrier for a free function must not load packages");
     assert!(matches!(cell.get(), Some(None)), "a free function is cached as exempt");
@@ -173,12 +173,12 @@ fn owner_class_split() {
 /// static access does not re-derive the owner from the name each time.
 #[test]
 fn static_barrier_caches_the_owner_answer_per_field_id() {
-    let ctx = crate::context::VmContext::new();
+    let ctx = crate::vm::VmContext::new();
     // Some type with a pending static constructor keeps the global gate open.
     ctx.core.runtime.cctors.register("Other.C", "Other.C.$cctor");
-    let other = ctx.resolve_static_field_id("Demo.Holder.Other");
-    let id = ctx.resolve_static_field_id("Demo.Holder.Count");
-    assert!(ctx.ensure_static_owner_init("Demo.Holder.Count", Some(id.0)).is_ok());
+    let other = ctx.statics().resolve("Demo.Holder.Other");
+    let id = ctx.statics().resolve("Demo.Holder.Count");
+    assert!(ctx.initialization().ensure_static_owner_init("Demo.Holder.Count", Some(id.0)).is_ok());
     use crate::metadata::statics::StaticOwner;
     let owner = |id| ctx.core.runtime.statics.cell(id).map(|c| c.owner());
     assert!(matches!(owner(id), Some(StaticOwner::Exempt)), "owner without a cctor is cached as exempt");
@@ -214,7 +214,7 @@ fn waiting_claim_parks_and_wakes_on_finish() {
 #[test]
 fn gc_pause_does_not_wait_for_a_thread_waiting_on_a_cctor() {
     use std::sync::atomic::Ordering;
-    use crate::context::VmContext;
+    use crate::vm::VmContext;
     let collector = VmContext::new();
     let core = collector.core_arc();
     core.runtime.cctors.register("A.C", "A.C.$cctor");
@@ -266,22 +266,22 @@ fn barrier_epoch_moves_on_every_invalidating_event() {
 /// The barrier records its verdict in the field's cell only once it keeps passing for every thread.
 #[test]
 fn static_field_barrier_records_only_a_settled_verdict() {
-    let ctx = crate::context::VmContext::new();
-    let id = ctx.resolve_static_field_id("Demo.Holder.Count");
+    let ctx = crate::vm::VmContext::new();
+    let id = ctx.statics().resolve("Demo.Holder.Count");
     let cell = || ctx.core.runtime.statics.cell(id).unwrap();
     // No static constructor pending at all: settled.
-    assert!(ctx.ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
+    assert!(ctx.initialization().ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
     assert!(cell().barrier_ready(ctx.core.runtime.cctors.barrier_epoch()));
     // A constructor registered elsewhere invalidates the record; the owner (no cctor) is exempt.
     ctx.core.runtime.cctors.register("Other.C", "Other.C.$cctor");
     assert!(!cell().barrier_ready(ctx.core.runtime.cctors.barrier_epoch()));
-    assert!(ctx.ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
+    assert!(ctx.initialization().ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
     assert!(cell().barrier_ready(ctx.core.runtime.cctors.barrier_epoch()));
     // An explicit module (re)load forgets owners and verdicts.
-    ctx.forget_static_owners();
+    ctx.statics().forget_owners();
     assert!(!cell().barrier_ready(ctx.core.runtime.cctors.barrier_epoch()));
     // A site without a resolved id passes and records nothing.
-    assert!(ctx.ensure_static_field_init("Demo.Holder.Count", None).is_ok());
+    assert!(ctx.initialization().ensure_static_field_init("Demo.Holder.Count", None).is_ok());
     assert!(!cell().barrier_ready(ctx.core.runtime.cctors.barrier_epoch()));
     // A package initializer still to run (here: running on this thread, so the barrier passes
     // re-entrantly) is not settled.
@@ -294,7 +294,7 @@ fn static_field_barrier_records_only_a_settled_verdict() {
     ctx.core.runtime.cctors.register_module_init(&m, FxHashSet::default());
     ctx.core.runtime.cctors.register("Demo.$Module", "Demo.$Module.$init");
     assert!(claim(&ctx.core.runtime.cctors, "Demo.$Module").unwrap().is_some());
-    assert!(ctx.ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
+    assert!(ctx.initialization().ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
     assert!(!cell().barrier_ready(ctx.core.runtime.cctors.barrier_epoch()), "re-entrant pass is not settled");
 }
 
@@ -303,19 +303,19 @@ fn static_field_barrier_records_only_a_settled_verdict() {
 /// that keeps passing until the epoch moves may be short-circuited.
 #[test]
 fn callee_barrier_settled_tracks_the_same_events_as_the_epoch() {
-    let ctx = crate::context::VmContext::new();
+    let ctx = crate::vm::VmContext::new();
     let owner = crate::metadata::OwnerInitCell::default();
     // Nothing pending anywhere: settled (this is the `any_cctor_pending == false`
     // world, where `call_compiled` never even reaches the gate).
-    assert!(ctx.callee_barrier_settled(&owner));
+    assert!(ctx.initialization().callee_barrier_settled(&owner));
     // A static constructor pending elsewhere + this callee's owner unresolved:
     // not settled (the full barrier resolves the owner cell first).
     ctx.core.runtime.cctors.register("Other.C", "Other.C.$cctor");
-    assert!(!ctx.callee_barrier_settled(&owner));
+    assert!(!ctx.initialization().callee_barrier_settled(&owner));
     // Owner resolved to "no static constructor" (a free function's steady
     // state): exempt for good.
     let _ = owner.set(None);
-    assert!(ctx.callee_barrier_settled(&owner));
+    assert!(ctx.initialization().callee_barrier_settled(&owner));
     // A package initializer pending: never settled, owner exempt or not.
     let m = Arc::new(crate::object::TypeDesc {
         class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
@@ -324,5 +324,5 @@ fn callee_barrier_settled_tracks_the_same_events_as_the_epoch() {
         id: crate::metadata::ids::tokens::TypeId::UNRESOLVED,
     });
     ctx.core.runtime.cctors.register_module_init(&m, FxHashSet::default());
-    assert!(!ctx.callee_barrier_settled(&owner));
+    assert!(!ctx.initialization().callee_barrier_settled(&owner));
 }

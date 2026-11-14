@@ -14,7 +14,7 @@ use crate::object::{
 };
 use crate::object::Value;
 use crate::object::ElemType;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::sync::Arc;
 
 fn no_fid() -> u32 { panic!("frame id must not be needed here") }
@@ -144,7 +144,7 @@ fn stack_object_fields_go_through_the_arena() {
     let vm = VmContext::new();
     let Value::Object(rc) = holder() else { unreachable!() };
     let td = rc.type_desc_arc().clone();
-    let idx = vm.stack_alloc_obj(5, crate::object::OwnedObject::new(td, 16));
+    let idx = vm.exec().stack_alloc_obj(5, crate::object::OwnedObject::new(td, 16));
     let so = Value::StackObject { idx, frame_id: 5 };
     field_set(&vm, &so, "n", &Value::I64(9), None).unwrap();
     assert_eq!(field_get(&vm, &so, "n", None).unwrap(), Value::I64(9));

@@ -27,7 +27,7 @@ use crate::metadata::dispatch::{
 use crate::metadata::ids::tokens::TypeKeyCell;
 use crate::object::{ArrayMode, ArrayObj, ElemType};
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 use super::error::{OpError, OpResult, INVALID_CAST_EXC};
 
@@ -202,7 +202,7 @@ fn known_class(ctx: &VmContext, name: &str) -> bool {
 
 fn lookup_desc(ctx: &VmContext, name: &str) -> Option<std::sync::Arc<crate::object::TypeDesc>> {
     ctx.module().and_then(|m| m.type_registry.get(name).cloned())
-        .or_else(|| ctx.try_lookup_type(name))
+        .or_else(|| ctx.loader().try_lookup_type(name))
 }
 
 fn assignable_name(ctx: &VmContext, src: &str, dst: &str) -> bool {
@@ -250,7 +250,7 @@ fn holds_box_of(ctx: &VmContext, holder: &str, strukt: &str) -> bool {
         _ => {}
     }
     let Some(m) = ctx.module() else { return true };
-    let known = m.type_registry.contains_key(holder) || ctx.try_lookup_type(holder).is_some();
+    let known = m.type_registry.contains_key(holder) || ctx.loader().try_lookup_type(holder).is_some();
     !known || crate::exec::ops::cast::is_subclass_or_eq_td(ctx, &m.type_registry, strukt, holder)
 }
 
@@ -324,7 +324,7 @@ fn copy_checked(
 /// 把一份 struct 元素的字节 + 引用叶子装箱。泛型 struct 实例名查不到时按擦除基名（同 `try_struct_backed`）。
 fn box_struct(ctx: &VmContext, elem: ElemType, bytes: &[u8], refs: &[Value]) -> OpResult<Value> {
     let name: &str = &elem;
-    let name = if ctx.try_lookup_type(name).is_some() { name } else { name.split('<').next().unwrap_or(name) };
+    let name = if ctx.loader().try_lookup_type(name).is_some() { name } else { name.split('<').next().unwrap_or(name) };
     match crate::objops::struct_leaf::box_struct_blob(ctx, name, bytes, refs)? {
         Value::Null => Err(OpError::oom(format!("a boxed {name}"))),
         v => Ok(v),

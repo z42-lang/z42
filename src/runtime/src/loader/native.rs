@@ -12,7 +12,7 @@ use anyhow::Result;
 use anyhow::Context;
 use anyhow::anyhow;
 
-use crate::context::VmContext;
+use crate::vm::VmContext;
 #[cfg(feature = "native-interop")]
 use crate::interop::error;
 

@@ -6,7 +6,6 @@ pub struct RuntimeState {
     pub builtins: &'static super::builtins::BuiltinCatalog,
     pub statics: super::statics::StaticTable,
     pub cctors: Arc<super::statics::CctorRegistry>,
-    pub static_init_error: parking_lot::Mutex<Option<String>>,
     /// Linked entry projection; its immutable package data can be shared.
     pub module: Option<Arc<Module>>,
     /// Per-VM append-only FnId identity and function ownership.
@@ -28,7 +27,6 @@ impl RuntimeState {
             builtins,
             statics: Default::default(),
             cctors: Arc::new(super::statics::CctorRegistry::default()),
-            static_init_error: parking_lot::Mutex::new(None),
             module, funcs, types, strings,
             reflection_types: Box::default(),
         }
@@ -52,5 +50,15 @@ impl ThreadRuntimeState {
             type_lookup_cache: Default::default(),
             fn_lookup_cache: Default::default(),
         }
+    }
+}
+
+impl RuntimeState {
+    pub fn current_type_desc(&self, declaration: Arc<crate::object::TypeDesc>) -> Arc<crate::object::TypeDesc> {
+        self.types.get_arc(declaration.id).unwrap_or(declaration)
+    }
+    pub fn callable_fn(&self, id: super::ids::tokens::FnId) -> Option<&super::Function> {
+        self.module.as_ref()?;
+        self.funcs.get(id)
     }
 }

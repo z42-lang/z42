@@ -7,7 +7,7 @@
 
 use crate::metadata::Function;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 
 // ── JitFrame ─────────────────────────────────────────────────────────────────
 
@@ -41,7 +41,7 @@ pub struct JitFrame<'a> {
     pub regs: Vec<Value>,
     /// This activation's id for arena slots it allocates (struct values),
     /// `0` until taken: `struct_ops::frame_id_of` takes one from
-    /// `VmContext::next_frame_id()` on first use, and an OSR hand-off inherits
+    /// `ThreadExecState::next_frame_id()` on first use, and an OSR hand-off inherits
     /// the interp frame's (taken or `0`). The id keys the arena staleness guard
     /// exactly like an interp frame's; the arena's LIFO truncation is driven by
     /// the `VmFrame` bases (push/pop_frame), not by the id.

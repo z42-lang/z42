@@ -5,7 +5,7 @@
 pub mod typed {
     use crate::exec::call::builtin_abi::{Blocking, BuiltinError, RefArg};
     use crate::object::Value;
-    use crate::context::VmContext;
+    use crate::vm::VmContext;
 
     /// Echo every scalar kind back as text.
     #[builtin(name = "__test_abi_args")]
@@ -48,7 +48,7 @@ pub mod typed {
     /// Prepare unparked, block parked, convert after.
     #[builtin(name = "__test_abi_prepared")]
     pub fn prepared(ctx: &VmContext, ms: i64) -> Blocking<String> {
-        let depth = ctx.frame_stack_depth();
+        let depth = ctx.exec().frame_stack_depth();
         Blocking::new(move || {
             std::thread::sleep(std::time::Duration::from_millis(ms as u64));
             Ok(format!("depth {depth}"))

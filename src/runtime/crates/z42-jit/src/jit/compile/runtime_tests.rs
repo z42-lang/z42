@@ -15,7 +15,7 @@ use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, CallInsn, Instruction, Terminator};
 use crate::zpkg::ir::ExecMode;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 
 fn func(name: &str, instructions: Vec<Instruction>, terminator: Terminator) -> Function {
     Function::new(crate::zpkg::ir::Function {
@@ -100,8 +100,8 @@ fn a_context_older_than_the_install_picks_the_jit_up_at_its_next_entry() {
     install(&vm, &module, crate::config::runtime_config().jit_config()).expect("install");
     assert!(crate::jit::compile::state::runtime(&w).is_none(), "not until its next bottom frame push");
     let regs: Vec<Value> = Vec::new();
-    w.push_frame(VmFrame::new(&module.functions[0], &regs));
-    w.pop_frame();
+    w.exec().push_frame(&w, VmFrame::new(&module.functions[0], &regs));
+    w.exec().pop_frame();
     assert!(std::ptr::eq(crate::jit::compile::state::runtime(&w).expect("picked up"), crate::jit::compile::state::runtime(&vm).unwrap()));
 }
 
@@ -127,7 +127,7 @@ fn function_compiled_on_one_thread_runs_natively_on_another() {
             assert_eq!(w.exec.call_stack.depth(), 0, "the native frame was pushed on and popped off the worker's stack");
         }).join().expect("worker");
     });
-    assert_eq!(vm.counters_snapshot().jit_methods_compiled, 1, "compiled exactly once VM-wide");
+    assert_eq!(vm.core().diagnostics().snapshot(vm.core().threads()).jit_methods_compiled, 1, "compiled exactly once VM-wide");
 }
 
 #[test]
@@ -197,11 +197,11 @@ fn compiled_prologue_checks_the_running_threads_stack_limit() {
             // stack address makes the prologue report an overflow: it reads the
             // context's own head.
             let regs: Vec<Value> = Vec::new();
-            w.push_frame(VmFrame::new(f.func, &regs));
+            w.exec().push_frame(&w, VmFrame::new(f.func, &regs));
             w.exec.jit_head.stack_limit.store(usize::MAX, Ordering::Relaxed);
             let forced = matches!(run(&w, f), NativeOutcome::Threw)
                 && matches!(w.exec().take_exception(), Some(Value::Str(s)) if s.as_str().contains("stack overflow"));
-            w.pop_frame();
+            w.exec().pop_frame();
             // Unbounded recursion on this thread's 8 MiB stack stops at its own limit.
             let deep = crate::jit::run_fn(&w, "r").expect_err("overflows").to_string();
             (stored, crate::exec::stack_guard::limit(), forced, deep)

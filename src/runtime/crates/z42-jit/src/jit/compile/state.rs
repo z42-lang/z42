@@ -44,7 +44,7 @@ use crate::metadata::ids::func_table::FuncTable;
 use crate::metadata::ids::seg_vec::SparseSegTable;
 use crate::metadata::ids::tokens::FnId;
 use crate::metadata::{Function, Module};
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 
 use crate::jit::compile::lookup::CompileLookup;
 use crate::jit::runtime::frame::FnEntry;
@@ -166,7 +166,7 @@ pub(crate) fn install_tuned<'a>(
 /// contexts take it at construction or at their next bottom frame push.
 fn publish_to(vm: &VmContext, rt: &JitRuntime) {
     let _ = rt;
-    vm.publish_tier();
+    vm.exec().publish_tier(&vm.core().exec().engines);
 }
 
 impl JitRuntime {
@@ -236,7 +236,7 @@ impl JitRuntime {
         if let Some(id) = self.funcs.lazy_id(name) {
             return Some(id.0 as usize);
         }
-        let f = vm.try_lookup_function(name)?;
+        let f = vm.loader().try_lookup_function(name)?;
         self.id_of_func(&f)
     }
 
@@ -428,4 +428,4 @@ mod runtime_tests;
 
 /// Backend-local view of the neutral tier header.
 #[inline]
-pub(crate) fn runtime(ctx: &VmContext) -> Option<&JitRuntime> { ctx.tier()?.backend::<JitRuntime>() }
+pub(crate) fn runtime(ctx: &VmContext) -> Option<&JitRuntime> { ctx.exec().tier(&ctx.core().exec().engines)?.backend::<JitRuntime>() }

@@ -57,7 +57,7 @@ fn load_lazily(ctx: &VmContext, pkg: Module) {
 /// and the instantiation `Pkg.Box<int>`.
 fn setup() -> std::pin::Pin<Box<VmContext>> {
     let ctx = VmContext::with_module(module("App", vec![class("App.Thing", Some("Pkg.Base"), &[])]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     load_lazily(&ctx, module("Pkg", vec![
         class("Pkg.IShape", None, &[]),
         class("Pkg.Base", None, &["Pkg.IShape"]),
@@ -68,7 +68,7 @@ fn setup() -> std::pin::Pin<Box<VmContext>> {
 }
 
 fn lazy(ctx: &VmContext, name: &str) -> Arc<TypeDesc> {
-    ctx.try_lookup_type(name).unwrap_or_else(|| panic!("{name} registered"))
+    ctx.loader().try_lookup_type(name).unwrap_or_else(|| panic!("{name} registered"))
 }
 
 fn isa(ctx: &VmContext, td: &TypeDesc, target: &str, key: &TypeKeyCell) -> bool {
@@ -197,7 +197,7 @@ fn explicit_reload_clears_the_caches() {
     let leaf = lazy(&ctx, "Pkg.Leaf");
     let key = TypeKeyCell::new();
     assert!(isa(&ctx, &leaf, "Pkg.Base", &key));
-    let _ = ctx.load_module_bytes_into_vm(&[]); // fails to parse, still clears first
+    let _ = ctx.loader().load_module_bytes_into_vm(&[]); // fails to parse, still clears first
     assert_eq!(ctx.runtime.isa_cache.get(leaf.id.0, key.get().unwrap()), None);
     assert!(ctx.runtime.subclass_memo.lock().is_empty());
 }

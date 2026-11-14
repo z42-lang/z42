@@ -143,10 +143,10 @@ fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
     // resolve to a real handle.)
     if let Some(m) = ctx.module() {
         if let Some(td) = m.type_registry.get(name) {
-            return Some(ctx.current_type_desc(td.clone()));
+            return Some(ctx.core().runtime().current_type_desc(td.clone()));
         }
     }
-    if let Some(td) = ctx.try_lookup_type(name) {
+    if let Some(td) = ctx.loader().try_lookup_type(name) {
         return Some(td);
     }
     // An *unqualified* class name (no `.`) that failed the FQ lookups above.
@@ -163,8 +163,8 @@ fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
         }
         // precise-pkg-refs: a statically referenced type's short name maps to its full name
         // (and thus its defining package) through the DEPS symbol lists — load just that.
-        if let Some(full) = ctx.referenced_full_name(name) {
-            if let Some(td) = ctx.try_lookup_type(&full) {
+        if let Some(full) = ctx.loader().referenced_full_name(name) {
+            if let Some(td) = ctx.loader().try_lookup_type(&full) {
                 return Some(td);
             }
         }
@@ -175,7 +175,7 @@ fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
         // (`int`/`bool`/`string`…) never trigger the eager load. After the first
         // force-load, `remaining_declared()` is empty → repeat calls are cheap.
         if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
-            ctx.force_load_all_packages();
+            ctx.loader().force_load_all_packages();
             if let Some(td) = resolve_dotless_simple(ctx, name) {
                 return Some(td);
             }
@@ -189,7 +189,7 @@ fn resolve_named_type(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
     // signatures carry `"i32"`/`"i64"`/`"str"` — `primitive_fqn` maps both to the
     // one FQN. (Handle-carrying, unlike the former handle-less alias synthetic.)
     if let Some(fqn) = primitive_fqn(name) {
-        if let Some(td) = ctx.try_lookup_type(fqn) {
+        if let Some(td) = ctx.loader().try_lookup_type(fqn) {
             return Some(td);
         }
     }
@@ -316,13 +316,13 @@ pub(super) fn canonical_type_name(tag: &str) -> String {
 /// and never mis-bind. Shared by `make_type_from_name`'s add-json-serde /
 /// add-collection-serde dotless fallback (with an optional force-load retry).
 pub(super) fn resolve_dotless_simple(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
-    let fq = ctx.unique_loaded_full_name(name)?;
+    let fq = ctx.loader().unique_loaded_full_name(name)?;
     if let Some(m) = ctx.module() {
         if let Some(td) = m.type_registry.get(&fq) {
-            return Some(ctx.current_type_desc(td.clone()));
+            return Some(ctx.core().runtime().current_type_desc(td.clone()));
         }
     }
-    ctx.try_lookup_type(&fq)
+    ctx.loader().try_lookup_type(&fq)
 }
 
 /// The canonical runtime name (`type_names::canonical`) of the type a `Std.Type` stands for:
@@ -355,8 +355,8 @@ pub(super) fn instantiation_desc(ctx: &VmContext, ty: &Value) -> Option<Arc<Type
     }
     let name = type_value_name(ty)?;
     ctx.module()
-        .and_then(|m| m.type_registry.get(&name).cloned().map(|td| ctx.current_type_desc(td)))
-        .or_else(|| ctx.try_lookup_type(&name))
+        .and_then(|m| m.type_registry.get(&name).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
+        .or_else(|| ctx.loader().try_lookup_type(&name))
 }
 
 pub(super) fn type_handle(args: &[Value]) -> Option<Arc<TypeDesc>> {
@@ -383,7 +383,7 @@ pub(super) fn type_handle_of(ty: &Value) -> Option<Arc<TypeDesc>> {
 /// loaded (a hard environment bug, not user-reachable).
 pub(super) fn alloc_named(ctx: &VmContext, type_name: &str, named: &[(&str, Value)]) -> Result<Value> {
     let td = ctx
-        .try_lookup_type(type_name)
+        .loader().try_lookup_type(type_name)
         .ok_or_else(|| anyhow::anyhow!("reflection: {type_name} not loaded (z42.core missing?)"))?;
     let mut slots = vec![Value::Null; td.fields.len()];
     for (k, v) in named {

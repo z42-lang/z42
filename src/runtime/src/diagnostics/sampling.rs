@@ -1,5 +1,5 @@
 //! Light profiling contracts and a lazy per-VM provider; no analysis implementation.
-use crate::{components::api::{BackendSource, VmComponents}, context::VmContext, gc::Heap};
+use crate::{components::api::{BackendSource, VmComponents}, vm::VmContext, gc::Heap};
 use std::sync::OnceLock;
 
 pub trait SampleBackend: Send + Sync {

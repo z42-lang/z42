@@ -1,7 +1,7 @@
 //! Monitor state transitions and parked blocking operations.
 use std::{sync::Arc, thread::ThreadId, time::Duration};
 use crate::object::Monitor;
-use crate::{context::VmContext, exec::call::builtin_abi::{Blocking, BuiltinError, IntoRet}};
+use crate::{vm::VmContext, exec::call::builtin_abi::{Blocking, BuiltinError, IntoRet}};
 /// `enter` 慢路径 park 之前的自旋轮数：前 `SPIN_BUSY_ROUNDS` 轮忙等，其余轮 `yield_now`。
 const SPIN_ROUNDS: u32 = 40;
 const SPIN_BUSY_ROUNDS: u32 = 32;

@@ -1,4 +1,8 @@
 //! Minimal same-build VM views and physical image/layout identity for components.
+// Component-facing VM identities and layout facts stay here when their owner
+// moves internally. Export individual contracts, never whole implementation modules.
+pub use crate::vm::{VmContext, VM_CONTEXT_CCTORS_OFFSET,
+    VM_CONTEXT_SAFEPOINT_SKIP_OFFSET, VM_CONTEXT_STACK_LIMIT_OFFSET};
 use crate::components::abi::ExecutionCoreAbi;
 static CORE_IDENTITY: u8 = 0;
 pub fn core_identity() -> *const core::ffi::c_void { core::ptr::addr_of!(CORE_IDENTITY).cast() }
@@ -11,14 +15,14 @@ pub const CORE_ABI: ExecutionCoreAbi = ExecutionCoreAbi {
         | ((cfg!(feature = "mimalloc-alloc") as u64) << 5)
         | ((cfg!(feature = "profile-contention") as u64) << 6),
     layouts: [
-        core::mem::size_of::<crate::context::VmContext>(),
-        core::mem::size_of::<crate::context::VmCore>(),
+        core::mem::size_of::<crate::vm::VmContext>(),
+        core::mem::size_of::<crate::vm::VmCore>(),
         core::mem::size_of::<crate::object::Value>(),
         core::mem::size_of::<crate::metadata::Function>(),
         core::mem::size_of::<crate::metadata::Module>(),
         core::mem::size_of::<crate::object::TypeDesc>(),
         core::mem::align_of::<crate::object::Value>(),
-        crate::context::VM_CONTEXT_STACK_LIMIT_OFFSET,
+        crate::vm::VM_CONTEXT_STACK_LIMIT_OFFSET,
     ],
 };
 
@@ -32,8 +36,8 @@ pub(super) fn validate_core(identity: crate::components::abi::ExecutionIdentity,
 /// Borrow object capabilities already bound to this VM. Execution components call
 /// this only after their same-core identity has been validated; no registry lookup.
 #[inline]
-pub fn object_protocol(ctx: &crate::context::VmContext) -> &crate::object::protocol::ObjectProtocol<
-    crate::context::VmContext, crate::exec::call::builtin_abi::BuiltinError,
+pub fn object_protocol(ctx: &crate::vm::VmContext) -> &crate::object::protocol::ObjectProtocol<
+    crate::vm::VmContext, crate::exec::call::builtin_abi::BuiltinError,
 > {
     ctx.core().object_protocol()
 }

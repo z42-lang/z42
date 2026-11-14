@@ -5,7 +5,7 @@
 use crate::exec::stack::FrameSnapshot;
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 /// What a builtin can fail with. Every kind but `Internal` / `Thrown` is one stdlib
 /// exception class (.NET names and hierarchy — [`BuiltinError::classes`]); the message

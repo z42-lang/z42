@@ -86,7 +86,7 @@ fn local(target: &VCallTarget<'_>) -> (*const Function, Option<usize>) {
 #[test]
 fn lazy_target_is_installed_in_the_pic_by_fn_id() {
     let ctx = VmContext::with_module(module("Entry", vec![method("Entry.Other.Run$0", 1)]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let run = register_lazy(&ctx, method("Pkg.Foo.Run$0", 7));
     let id = run.id.get().expect("registered").0 as usize;
     assert_eq!(id, 1, "lazy ids follow the entry module's");
@@ -107,7 +107,7 @@ fn lazy_target_is_installed_in_the_pic_by_fn_id() {
 #[test]
 fn interp_vcall_hits_the_pic_for_a_lazy_target() {
     let ctx = VmContext::with_module(module("Entry", vec![method("Entry.Other.Run$0", 1)]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     register_lazy(&ctx, method("Pkg.Foo.Run$0", 7));
     let entry = Arc::clone(ctx.module().unwrap());
     let obj = object(&ctx, "Pkg.Foo", "Run$0", "Pkg.Foo.Run$0");
@@ -121,9 +121,9 @@ fn interp_vcall_hits_the_pic_for_a_lazy_target() {
 
     // Fresh name space, seen from a context without a per-ctx lookup cache (shares the
     // core, so the same `FuncTable`): `Pkg.Foo.Run$0` no longer resolves by name.
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let ctx2 = VmContext::new_with_core(Arc::clone(&ctx.core));
-    assert!(ctx2.try_lookup_function("Pkg.Foo.Run$0").is_none());
+    assert!(ctx2.loader().try_lookup_function("Pkg.Foo.Run$0").is_none());
     let mut frame = Frame::new(&ctx2, &[], 4);
     frame.set(0, obj);
     let thrown = crate::interp::ops::exec_vcall::vcall(&ctx2, &entry, &mut frame, 1, 0, "Run$0", &[], Some(&ic), &[]).unwrap();
@@ -151,7 +151,7 @@ fn entry_target_payload_is_its_index() {
 #[test]
 fn arity_mismatch_is_not_cached() {
     let ctx = VmContext::with_module(module("Entry", vec![method("Entry.Other.Run$0", 1)]));
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     register_lazy(&ctx, method("Pkg.Foo.Run$0", 7));   // takes the receiver only
     let entry = Arc::clone(ctx.module().unwrap());
     let obj = object(&ctx, "Pkg.Foo", "Run$0", "Pkg.Foo.Run$0");
@@ -167,7 +167,7 @@ fn arity_mismatch_is_not_cached() {
 #[test]
 fn non_entry_module_never_caches_a_lazy_target() {
     let ctx = VmContext::new();
-    ctx.install_lazy_loader(None, 0);
+    ctx.loader().install_lazy_loader(None, 0);
     let run = register_lazy(&ctx, method("Pkg.Foo.Run$0", 7));
     assert_eq!(run.id.get(), Some(FnId(0)), "same number as the module's first function");
     let m = module("M", vec![method("M.Other.Run$0", 1)]);

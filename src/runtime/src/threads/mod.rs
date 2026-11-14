@@ -4,6 +4,6 @@ pub mod roots;
 pub mod safepoint;
 
 mod state;
-pub use state::{ThreadState, ThreadLocalState};
+pub use state::{ThreadState, ThreadLocalState, VmContextPtr};
 
 mod monitor;

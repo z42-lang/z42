@@ -1,6 +1,6 @@
 //! Facade assembly of core-library services; the VM stores only typed extension state.
 use crate::corelib;
-use crate::context::extensions::{ExtensionState, VmExtensions};
+use crate::vm::{ExtensionState, VmExtensions};
 
 pub(crate) fn freeze(extensions: VmExtensions) -> ExtensionState {
     let mut defaults = VmExtensions::new();

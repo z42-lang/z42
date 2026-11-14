@@ -1,6 +1,6 @@
 use crate::exec::call::builtins::{exec_builtin, exec_builtin_value};
 use crate::object::{NativeData, TypeDesc, Value};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use std::sync::Arc;
 
 fn s(v: &str) -> Value { Value::Str(v.into()) }
@@ -20,7 +20,7 @@ fn ctx_with_std_type() -> std::pin::Pin<Box<VmContext>> {
         zpkg::index::name::NameIndex, object::FieldSlot, metadata::ids::tokens::TypeId,
     };
     let c = VmContext::new();
-    c.install_lazy_loader(None, 0);
+    c.loader().install_lazy_loader(None, 0);
     let mut fi = NameIndex::new();
     fi.insert("__name".to_string(), 0);
     fi.insert("__fullName".to_string(), 1);
@@ -43,7 +43,7 @@ fn ctx_with_std_type() -> std::pin::Pin<Box<VmContext>> {
     types.insert("Std.Type".to_string(), td);
     // 这个 fixture 没有自由函数，归属判定用不到函数表 ⇒ 传空切片（参数是必填的，见
     // `LazyLoader::seed_types_for_lookup`：必填正是为了让漏供的路径编译期就红）。
-    c.seed_lazy_loader_types(&types, &[]);
+    c.loader().seed_lazy_loader_types(&types, &[]);
     c
 }
 

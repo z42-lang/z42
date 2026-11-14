@@ -1,5 +1,5 @@
 //! Materialize a declared static field default using the running VM.
-use crate::{context::VmContext, object::TypeDesc};
+use crate::{vm::VmContext, object::TypeDesc};
 
 /// 声明类型为 `tag` 的静态字段的**零值**（C# 的 `default(T)`）。静态存储的默认初始化归 VM：
 /// 槽位从未写过时为 `Null`，[`crate::exec::symbol_resolution::verify_static_field`] 在第一次读到它时按声明类型补上这里的值，
@@ -45,9 +45,9 @@ fn lookup_value_type(ctx: &VmContext, tag: &str) -> Option<std::sync::Arc<TypeDe
     }
     let name: String = tag.chars().filter(|c| !c.is_whitespace()).collect();
     if let Some(lt) = name.find('<') {
-        if !ctx.try_lookup_type(&name[..lt])?.is_struct() { return None; }
+        if !ctx.loader().try_lookup_type(&name[..lt])?.is_struct() { return None; }
     }
-    let td = ctx.try_lookup_type(&name)?;
+    let td = ctx.loader().try_lookup_type(&name)?;
     let by_value = td.is_enum()
         || (td.is_struct() && td.struct_layout_ref().is_some_and(|l| l.size > 0));
     by_value.then_some(td)

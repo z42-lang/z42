@@ -6,7 +6,7 @@
 
 use crate::metadata::Module;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 pub const NULL_REF_EXC: &str = crate::exec::ops::scalar::NULL_REF_EXC;
 pub const INVALID_CAST_EXC: &str = crate::exec::ops::scalar::INVALID_CAST_EXC;

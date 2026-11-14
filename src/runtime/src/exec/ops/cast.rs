@@ -1,6 +1,6 @@
 //! Type-test execution and on-demand resolution; pure predicates live in runtime/dispatch.
 use crate::object::{TypeDesc, Value};
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use crate::metadata::dispatch::isa::*;
 
 // ── Subclass check ───────────────────────────────────────────────────────────
@@ -25,7 +25,7 @@ pub fn is_subclass_or_eq_td(
     if derived == target {
         return true;
     }
-    let Some(td) = registry.get(derived).cloned().or_else(|| ctx.try_lookup_type(derived)) else {
+    let Some(td) = registry.get(derived).cloned().or_else(|| ctx.loader().try_lookup_type(derived)) else {
         return constructed_name_isa(ctx, registry, derived, target);
     };
     if !td.id.is_resolved() {
@@ -151,7 +151,7 @@ fn callable_isa(
         return false;
     }
     let erased = class_name.split('<').next().unwrap_or(class_name);
-    match registry.get(erased).cloned().or_else(|| ctx.try_lookup_type(erased)) {
+    match registry.get(erased).cloned().or_else(|| ctx.loader().try_lookup_type(erased)) {
         Some(td) => td.is_delegate(),
         None => true,
     }
@@ -167,7 +167,7 @@ fn integer_as_enum_isa(
     registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
     class_name: &str,
 ) -> bool {
-    registry.get(class_name).cloned().or_else(|| ctx.try_lookup_type(class_name)).is_some_and(|td| td.is_enum())
+    registry.get(class_name).cloned().or_else(|| ctx.loader().try_lookup_type(class_name)).is_some_and(|td| td.is_enum())
 }
 
 /// An **unboxed** value struct (`StructRef` — a `T`-typed value in a generic body, a struct that
@@ -239,7 +239,7 @@ pub(crate) fn target_key(
     if let Some(td) = registry.get(target).filter(|td| td.id.is_resolved()) {
         return td.id.0;
     }
-    if let Some(id) = ctx.loaded_type_id(target) {
+    if let Some(id) = ctx.loader().loaded_type_id(target) {
         return id.0;
     }
     ctx.types().name_key(target)
@@ -257,7 +257,7 @@ fn is_subclass_or_eq_td_walk(
     let mut cur_td = match registry
         .get(derived)
         .cloned()
-        .or_else(|| ctx.try_lookup_type(derived))
+        .or_else(|| ctx.loader().try_lookup_type(derived))
     {
         Some(td) => td,
         None => return false,
@@ -295,7 +295,7 @@ fn is_subclass_or_eq_td_walk(
         let next = match registry
             .get(base)
             .cloned()
-            .or_else(|| ctx.try_lookup_type(base))
+            .or_else(|| ctx.loader().try_lookup_type(base))
         {
             Some(td) => td,
             None => return false,
@@ -322,7 +322,7 @@ fn iface_reaches_td(
         if name == target || erased_either(&name, target) { return true; }
         if !seen.insert(name.clone()) { continue; }
         let td = registry.get(name.as_str()).cloned()
-            .or_else(|| ctx.try_lookup_type(name.as_str()));
+            .or_else(|| ctx.loader().try_lookup_type(name.as_str()));
         if let Some(t) = td {
             for bi in t.interfaces() { queue.push(bi.to_string()); }
         }

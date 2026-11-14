@@ -1,9 +1,9 @@
 //! Shared reference reads and writes for backend frames and builtin ref arguments.
 use anyhow::Result;
-use crate::{object::Value, context::VmContext};
+use crate::{object::Value, vm::VmContext};
 
 /// Spec impl-ref-out-in-runtime: dereference a `Value::Ref { kind }` into
-/// the underlying value. Stack kind looks up `ctx.frame_state_at(frame_idx)`
+/// the underlying value. Stack kind looks up `ctx.exec().frame_state_at(frame_idx)`
 /// (raw pointer, safe under design Decision 9: refs don't escape call
 /// stack). Array/Field kinds borrow the held ArrRef and read.
 pub fn deref_ref(
@@ -12,7 +12,7 @@ pub fn deref_ref(
     use crate::object::RefKind;
     match kind {
         RefKind::Stack { frame_idx, slot } => {
-            let regs_ptr = ctx.frame_state_at(*frame_idx as usize)
+            let regs_ptr = ctx.exec().frame_state_at(*frame_idx as usize)
                 .ok_or_else(|| anyhow::anyhow!(
                     "ref points to popped frame (frame_idx={frame_idx})"))?;
             // SAFETY: spec Decision 9 — refs never escape the call stack;
@@ -44,7 +44,7 @@ pub fn store_thru_ref(
     use crate::object::RefKind;
     match kind {
         RefKind::Stack { frame_idx, slot } => {
-            let regs_ptr = ctx.frame_state_at(*frame_idx as usize)
+            let regs_ptr = ctx.exec().frame_state_at(*frame_idx as usize)
                 .ok_or_else(|| anyhow::anyhow!(
                     "ref points to popped frame (frame_idx={frame_idx})"))?;
             // SAFETY: same as deref_ref; the frame is still active.

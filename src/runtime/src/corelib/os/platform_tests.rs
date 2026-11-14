@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 #[test]
 fn os_returns_consts_value() {

@@ -74,7 +74,7 @@ pub(super) fn object_inline_struct_field_get(
     ctx: &VmContext, rc: &crate::object::ObjRef, name: &str,
 ) -> Result<Option<Value>> {
     let class_name = rc.type_desc().name.to_string();
-    let resolve = |n: &str| ctx.try_lookup_type(n);
+    let resolve = |n: &str| ctx.loader().try_lookup_type(n);
     // `struct_field_fq` returns the field type's **fully-qualified** struct name (or
     // `None` for a primitive / reference field → ordinary slot path).
     let struct_type = match crate::object::types::named_struct_layout::struct_field_fq(&resolve, &class_name, name) {
@@ -156,7 +156,7 @@ pub(super) fn object_inline_struct_field_set(
     rc: &crate::object::ObjRef, name: &str, value: &Value,
 ) -> Result<Option<()>> {
     let class_name = rc.type_desc().name.to_string();
-    let resolve = |n: &str| ctx.try_lookup_type(n);
+    let resolve = |n: &str| ctx.loader().try_lookup_type(n);
     // `struct_field_fq` returns the field type's fully-qualified struct name.
     let struct_type = match crate::object::types::named_struct_layout::struct_field_fq(&resolve, &class_name, name) {
         Some(fq) => fq,
@@ -231,7 +231,7 @@ pub(super) fn write_struct_leaf(
     leaf: &crate::object::types::named_struct_layout::FieldLeaf,
     src: &crate::object::ObjRef,
 ) -> Result<()> {
-    let resolve = |n: &str| ctx.try_lookup_type(n);
+    let resolve = |n: &str| ctx.loader().try_lookup_type(n);
     let nested = crate::object::types::named_struct_layout::compute(&resolve, &leaf.type_name)?;
     if nested.ref_offsets.iter().any(|&nro| parent.ref_index(leaf.byte_off + nro).is_none()) {
         bail!("struct field reflection: nested ref leaf offset not in parent bitmap");
@@ -260,7 +260,7 @@ pub(super) fn boxed_struct_field_set(
 ) -> Result<Value> {
     use crate::object::prim_width;
     let type_name = gc.type_desc().name.to_string();
-    let resolve = |n: &str| ctx.try_lookup_type(n);
+    let resolve = |n: &str| ctx.loader().try_lookup_type(n);
     let comp = crate::object::types::named_struct_layout::compute(&resolve, &type_name)?;
     if let Some(sl) = gc.type_desc().struct_layout() {
         comp.validate_against(&sl, &type_name)?;

@@ -18,7 +18,7 @@ use crate::zpkg::ir::{BasicBlock, Terminator};
 use crate::zpkg::ir::ExecMode;
 use crate::metadata::ids::tokens::UNRESOLVED;
 use std::sync::Arc;
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 
 /// A JIT-translatable `return;` function (no interp-only opcode).
 fn empty_fn(name: &str) -> Function {
@@ -59,7 +59,7 @@ fn module_of(name: &str, functions: Vec<Function>) -> Module {
 }
 
 fn compiled_count(vm: &VmContext) -> u64 {
-    vm.counters_snapshot().jit_methods_compiled
+    vm.core().diagnostics().snapshot(vm.core().threads()).jit_methods_compiled
 }
 
 /// An untranslatable function (`LoadLocalAddr` is interp-only).

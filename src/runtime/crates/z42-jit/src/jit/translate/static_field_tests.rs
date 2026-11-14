@@ -13,7 +13,7 @@ use crate::metadata::ids::tokens::TypeId;
 use crate::zpkg::ir::ExecMode;
 use crate::object::{NativeData, ObjectLayout, TypeDesc, TypeDescCold};
 use crate::{zpkg::IrType, object::Value};
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 use std::sync::Arc;
 
 // ── building blocks ─────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ fn vm_of(build: &dyn Fn() -> Module) -> std::pin::Pin<Box<VmContext>> {
     let m = Arc::clone(vm.module().expect("entry module"));
     install(&vm, &m, crate::config::runtime_config().jit_config()).expect("install");
     for td in m.type_registry.values() {
-        vm.register_cctor_of(td);
+        vm.initialization().register_cctor_of(td);
     }
     vm
 }
@@ -278,7 +278,7 @@ fn cctor_module(throws: bool, spin: i64) -> Module {
 }
 
 fn runs(vm: &VmContext) -> Value {
-    vm.static_get("T.C.runs")
+    vm.statics().get_named("T.C.runs")
 }
 
 #[test]
@@ -298,7 +298,7 @@ fn the_first_compiled_access_runs_the_static_constructor_exactly_once() {
     assert_eq!(run_on(&vm, 0, &[]), (Ok(Value::I64(7)), 0));
 
     // A re-run clears every static and the initializers run again — not skipped by a stale record.
-    vm.static_fields_clear();
+    vm.statics().clear_for_rerun();
     assert_eq!(run_on(&vm, 0, &[]), (Ok(Value::I64(7)), 1));
     assert_eq!(runs(&vm), Value::I64(1), "ran again after the clear");
 }

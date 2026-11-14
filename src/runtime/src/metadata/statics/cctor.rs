@@ -167,7 +167,7 @@ impl Default for CctorRegistry {
 
 impl CctorRegistry {
     /// `module_pending` / `module_failed` 的字节偏移：JIT 内联字符串原语（`jit::translate::str_intrinsics`）
-    /// 在快路径上直接读这两个计数，代替 `jit_call` 的包级屏障门（[`crate::context::VmContext::module_init_gate_open`]）。
+    /// 在快路径上直接读这两个计数，代替 `jit_call` 的包级屏障门（[`crate::exec::init::Initialization::module_init_gate_open`]）。
     #[cfg(feature = "jit")]
     pub const MODULE_PENDING_OFFSET: usize = std::mem::offset_of!(CctorRegistry, module_pending);
     #[cfg(feature = "jit")]
@@ -237,7 +237,7 @@ impl CctorRegistry {
 
     /// 加载期登记一个包的 `<ns>.$Module` 伪类型。由 `LazyLoader::insert_type` 在自己的写锁内
     /// 调用 —— **只记账，不执行**：初始化器是用户代码，在加载锁内跑它会重入符号解析而死锁。
-    /// 执行归屏障（`VmContext::ensure_module_inits`），那时锁已释放。
+    /// 执行归屏障（`Initialization::ensure_module_inits`），那时锁已释放。
     /// `owned` = **这个包实际拥有的符号名集合**（类型 FQN ∪ 函数 FQN），归属判定的唯一依据。
     ///
     /// 🔴 它是**必填参数**，不是可选项：这样「某条加载路径忘了供」在**编译期**就过不去，

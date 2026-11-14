@@ -4,7 +4,7 @@ use super::{
     native_value::{self, Arena, Owned},
 };
 use crate::exec::call::builtin_abi::{BuiltinError, CallResult};
-use crate::{context::VmContext, object::Value};
+use crate::{vm::VmContext, object::Value};
 use std::{ffi::c_void, sync::Arc};
 use z42_abi::module as abi;
 
@@ -339,7 +339,7 @@ unsafe extern "C" fn invoke_script(
             let function = match module.func_index.get(name) {
                 Some(&index) => &module.functions[index],
                 None => {
-                    loaded = frame.ctx.try_lookup_function(name).ok_or_else(|| {
+                    loaded = frame.ctx.loader().try_lookup_function(name).ok_or_else(|| {
                         BuiltinError::Exception {
                             class: "Std.MissingSymbolException",
                             message: format!("native callback `{name}` not found"),

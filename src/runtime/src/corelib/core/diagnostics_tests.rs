@@ -36,14 +36,14 @@ fn diag_counters_appended_last_preserves_ids() {
 #[test]
 fn retention_query_waits_for_running_mutators_to_park() {
     use crate::object::Value;
-    use crate::context::VmContext;
+    use crate::vm::VmContext;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{mpsc, Arc};
     use std::time::{Duration, Instant};
 
     let ctx = VmContext::new();
     let target = ctx.heap().alloc_array(vec![Value::I64(1)]);
-    ctx.static_set("Diag.Keep", target).unwrap();   // keep it reachable
+    ctx.statics().set_named("Diag.Keep", target).unwrap();   // keep it reachable
 
     let stop = Arc::new(AtomicBool::new(false));
     let (registered_tx, registered_rx) = mpsc::channel();

@@ -9,7 +9,7 @@ use crate::metadata::dispatch::functions::fn_by_id;
 use crate::metadata::{Function, Module};
 use crate::object::Value;
 use crate::metadata::ids::tokens::FnId;
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 use anyhow::{bail, Result};
 use std::sync::Arc;
 
@@ -30,7 +30,7 @@ fn try_native_static_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize, args: &[u32],
     method_type_args: &[String],
 ) -> Option<Result<Option<Value>>> {
-    let tier = ctx.tier()?;
+    let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
     if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
     tier.invoke(ctx, crate::exec::engine::TierTarget::Site(id),
         crate::exec::call::args::CallArgs::Registers { regs: &frame.regs, indices: args }, method_type_args)
@@ -108,10 +108,10 @@ pub(super) fn call(
     // add-module-init-hook：**包级**初始化先于类型初始化 —— 解析上面那个名字可能刚把一个包
     // 拉进来，它的 `[ModuleInit]` 必须在本包任何代码（包括马上要调的这个函数）之前跑完。
     // 稳态代价 = 一次 relaxed load。
-    if let Err(msg) = ctx.ensure_module_inits(Some(fname)) {
+    if let Err(msg) = ctx.initialization().ensure_module_inits(Some(fname)) {
         return Ok(Some(crate::exec::init::make_type_init_exception(ctx, module, &msg)));
     }
-    if let Err(msg) = ctx.ensure_callee_owner_init(fname, &target.owner_init) {
+    if let Err(msg) = ctx.initialization().ensure_callee_owner_init(fname, &target.owner_init) {
         return Ok(Some(crate::exec::init::make_type_init_exception(ctx, module, &msg)));
     }
 
@@ -256,7 +256,7 @@ pub(super) fn load_fn(
 fn try_native_indirect_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize, env: Option<Value>, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
-    let tier = ctx.tier()?;
+    let tier = ctx.exec().tier(&ctx.core().exec().engines)?;
     if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) { return None; }
     let view = match env {
         Some(receiver) => crate::exec::call::args::CallArgs::Receiver { receiver, regs: &frame.regs, indices: args },

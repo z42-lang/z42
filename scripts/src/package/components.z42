@@ -22,10 +22,13 @@ bool _componentR0Tree(string root) {
 }
 // R1f：单文件 config.toml 的 [alias] 图配方（≈ CMakePresets）存在与否。旧树（bench base-src
 // 等）没有配方 —— 回退 R0 前的 env 调用形态。alias 仅经目录发现生效，调用方 cwd 须在 src/runtime。
-bool _componentAliasTree(string root) {
-    string cfg = Path.Join(root, "src/runtime/.cargo/config.toml");
-    return File.Exists(cfg) && File.ReadAllText(cfg).Contains("z42-dynamic");
+bool _componentHasAlias(string root, string name) {
+    string path = Path.Join(root, "src/runtime/.cargo/config.toml");
+    if (!File.Exists(path)) { return false; }
+    TomlValue config = TomlValue.Parse(File.ReadAllText(path));
+    return config.ContainsKey("alias") && config.Get("alias").ContainsKey(name);
 }
+bool _componentAliasTree(string root) { return _componentHasAlias(root, "z42-dynamic"); }
 // alias 进程基座：cwd=src/runtime（alias 发现条件），阻断继承的 rustflags 环境通道。
 Process _componentAliasProc(string root, string alias) {
     return new Process("cargo").Arg(alias)
@@ -94,6 +97,7 @@ int _componentBuild(string root, string profile) {
         _componentArtifactExecutable(result.Stdout));
     int c = _componentBuildCompression(root, _detectHostRid(), profile, true);
     if (c == 0) { _componentCopyStd(_componentCargoOut(root, profile)); }
+    if (c == 0) { c = _componentBuildEntry(root, profile, _componentCargoOut(root, profile)); }
     return c;
 }
 
@@ -144,37 +148,23 @@ void _componentInstallLibraries(string cargo, string pkg, bool importLibs = fals
     _componentCopyStagedStd(cargo, Path.Join(pkg, "native"));
 }
 
-// Current Rust main links the dynamic Core directly. Only Windows needs a
-// separate process entry beside bin/: the actual main stays with the DLL closure.
-// Older trees keep their original C-entry launcher recipe for baseline builds.
-// Keep its static-std graph separate so flags cannot overwrite the dynamic Core.
-bool _componentDirectHostMain(string root) {
-    TomlValue manifest = TomlValue.Parse(File.ReadAllText(Path.Join(root, "src/runtime/Cargo.toml")));
-    return manifest.ContainsKey("features") && manifest.Get("features").ContainsKey("windows-launcher");
-}
-string _componentLauncherDir(string root) { return Path.Join(_componentBuildDir(root), "launcher"); }
-string _componentLauncherOut(string root, string profile) { return Path.Join(_componentLauncherDir(root), profile); }
-int _componentBuildLauncher(string root, string profile) {
-    if (_componentDirectHostMain(root) && !Platform.IsWindows()) { return 0; }
-    if (_componentAliasTree(root)) {
-        Process a = _componentAliasProc(root, "z42-launcher")
-            .Arg("--target-dir").Arg(_componentLauncherDir(root));
-        if (profile == "release") { a = a.Arg("--release"); }
-        return _execIn(a, Path.Join(root, "src/runtime"));
-    }
-    Process p = _cargoCmd("build", _runtimeCargoConfig()).WorkingDirectory(root).Arg("--locked")
-        .Arg("--manifest-path").Arg(_runtimeManifest())
-        .Arg("--target-dir").Arg(_componentLauncherDir(root))
-        .Arg("-p").Arg("z42").Arg("--bin").Arg(_componentDirectHostMain(root) ? "z42vm-windows-launcher" : "z42vm")
-        .Arg("--no-default-features").Arg("--features").Arg(_componentDirectHostMain(root) ? "z42/windows-launcher" : "z42/cli,z42/component-loading")
-        .EnvRemove("CARGO_ENCODED_RUSTFLAGS");
-    // 静态 std 启动器；macOS 预留 load-command 余量，否则打包期 install_name_tool
-    // -add_rpath 报 "larger updated load commands do not fit"。
-    string flags = "-C prefer-dynamic=no";
-    if (Platform.IsMacOS()) { flags = flags + " -C link-arg=-Wl,-headerpad_max_install_names"; }
-    p = p.Env("RUSTFLAGS", flags);
-    if (profile == "release") { p = p.Arg("--release"); }
-    return _exec(p);
+// The static-std entry has an isolated compile graph, but one public output:
+// publish the executable beside Core so artifact consumers need no build cache.
+string _componentEntryDir(string root) { return Path.Join(_componentBuildDir(root), "entry"); }
+string _componentEntryOut(string root, string profile) { return Path.Join(_componentEntryDir(root), profile); }
+int _componentBuildEntry(string root, string profile, string output) {
+    // Historical A/B trees already produce their direct host in the runtime graph.
+    if (!_componentHasAlias(root, "z42-entry")) { return 0; }
+    Process build = _componentAliasProc(root, "z42-entry")
+        .Arg("--target-dir").Arg(_componentEntryDir(root));
+    if (profile == "release") { build = build.Arg("--release"); }
+    else if (profile != "debug") { build = build.Arg("--profile").Arg(profile); }
+    int c = _execIn(build, Path.Join(root, "src/runtime"));
+    if (c != 0) { return c; }
+    Directory.Create(output);
+    string executable = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
+    _componentCopyRequired(Path.Join(_componentEntryOut(root, profile), executable), Path.Join(output, executable));
+    return 0;
 }
 
 void _componentCopyStd(string native, string target = "") {

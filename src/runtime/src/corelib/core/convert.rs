@@ -3,7 +3,7 @@ pub use crate::object::value::format::{FmtBuf, value_to_str, with_value_str};
 use crate::object::Value;
 use crate::objops::struct_leaf::box_struct_blob;
 use crate::zpkg::index::well_known_names::int_wrapper_scalar_spec;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 use anyhow::{bail, Result};
 use crate::exec::call::builtin_abi as abi;
 
@@ -12,7 +12,7 @@ use crate::exec::call::builtin_abi as abi;
 /// 名，`raw` = 裸 i64。宽度未知（不该发生）→ 全 8 字节 signed 兜底（仍能 round-trip i64）。
 /// 无引用叶子（整数）→ `struct_refs`/`slots` 空。
 pub(crate) fn box_prim_to_heap(ctx: &VmContext, class: &str, raw: i64) -> Result<Value> {
-    let td = ctx.try_lookup_type(class).ok_or_else(|| {
+    let td = ctx.loader().try_lookup_type(class).ok_or_else(|| {
         anyhow::anyhow!("__box_prim: unknown prim wrapper type `{class}`")
     })?;
     // make-enum-distinct-type 1.5: enums box through this same path, but with the
@@ -292,7 +292,7 @@ pub mod typed {
     use super::{parse_double, parse_int, try_int, try_store, value_to_str};
     use crate::exec::call::builtin_abi::{BuiltinError, RefArg};
     use crate::object::Value;
-    use crate::context::VmContext;
+    use crate::vm::VmContext;
 
     /// native-hash：字符串（按其 UTF-8 字节）→ MurmurHash3_x86_128 的 32 个小写 hex 字符。
     /// 等价于 z42 侧 `Murmur3.Hash128Hex(Utf8.GetBytes(s))`（对拍见上）。

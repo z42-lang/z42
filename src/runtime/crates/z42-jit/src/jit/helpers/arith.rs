@@ -7,7 +7,7 @@ use crate::object::Value;
 // truth `crate::exec::ops::scalar` (shared with interp), not a JIT-local copy.
 use crate::exec::ops::scalar;
 use crate::jit::runtime::frame::JitFrame;
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 use super::{set_exception, vm_ctx_ref};
 
 // ── Arithmetic ───────────────────────────────────────────────────────────────

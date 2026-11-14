@@ -10,7 +10,7 @@ unsafe extern "C" fn attach(vm: *const c_void, hz: u32, trace: u32) -> Component
     #[cfg(target_arch = "wasm32")]
     if hz != 0 { return ComponentStatus::UNAVAILABLE; }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let ctx = unsafe { &*vm.cast::<z42::context::VmContext>() };
+        let ctx = unsafe { &*vm.cast::<z42::components::bridge::VmContext>() };
         let sampler = if hz == 0 { super::cpu::Sampler::disabled() }
             else { super::cpu::Sampler::start(hz, trace != 0) };
         ctx.core().diagnostics().sampler.install(Box::new(sampler))

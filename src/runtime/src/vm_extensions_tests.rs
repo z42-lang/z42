@@ -1,5 +1,5 @@
 use super::VmExtensions;
-use crate::{pal::fs::default_vfs, context::VmContext};
+use crate::{pal::fs::default_vfs, vm::VmContext};
 use std::sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}};
 
 #[test]

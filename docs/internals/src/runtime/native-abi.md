@@ -270,7 +270,7 @@ builtin 写成**普通的类型化 Rust 函数**，放进所在领域文件里�
 #[z42_macros::builtins]
 pub mod typed {
     use crate::exec::call::builtin_abi::{BuiltinError, RefArg};
-    use crate::context::VmContext;
+    use crate::vm::VmContext;
 
     #[builtin(name = "__int32_parse", pure)]
     pub fn int32_parse(s: &str) -> Result<i64, BuiltinError> { … }

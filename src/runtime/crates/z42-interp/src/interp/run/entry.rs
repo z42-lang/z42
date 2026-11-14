@@ -7,7 +7,7 @@ use crate::{
     zpkg::{BranchTargets, Terminator},
     object::Value,
 };
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
@@ -68,7 +68,7 @@ pub fn run_outcome(
 /// 经 `declared_namespaces()` 触发 lazy load、按 FQN 字母序去重逐一调用。
 /// 那条路的问题正是本变更要消灭的：**按名字序而非依赖序**，跨类型依赖静默读到零值。
 pub fn init_static_fields(ctx: &VmContext, _module: &Module) -> Result<()> {
-    ctx.static_fields_clear();
+    ctx.statics().clear_for_rerun();
 
     // unify-static-init-into-cctor（7.4）：此前这里做两件事 ——
     //   ① 扫 `module.functions` 里所有 `*.__static_init__` 并按名字序**急切执行**；
@@ -78,7 +78,7 @@ pub fn init_static_fields(ctx: &VmContext, _module: &Module) -> Result<()> {
     //
     // 仍然要排空「待加载类型」队列（T3 在主模块解析期入队的静态字段所属类）——
     // 那只做**加载**，让屏障在访问点有类型可查；初始化本身不在这里发生。
-    ctx.drain_pending_type_loads();
+    ctx.loader().drain_pending_type_loads();
     Ok(())
 }
 

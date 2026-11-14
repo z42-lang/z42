@@ -5,8 +5,8 @@ use super::*;
 /// Resolve a type name to its `TypeDesc` (main module then lazy loader).
 pub(super) fn resolve_td(ctx: &VmContext, name: &str) -> Option<Arc<TypeDesc>> {
     ctx.module()
-        .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.current_type_desc(td)))
-        .or_else(|| ctx.try_lookup_type(name))
+        .and_then(|m| m.type_registry.get(name).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
+        .or_else(|| ctx.loader().try_lookup_type(name))
 }
 
 /// True if `derived` is assignable to `target` (subclass / interface impl / self),
@@ -136,8 +136,8 @@ pub(super) fn type_has_no_arg_ctor(ctx: &VmContext, name: &str) -> bool {
     let Some(m) = ctx.module() else { return true };
     // Any explicit ctor with args means no-arg construction may be unavailable;
     // but a class with NO ctor at all constructs by default → treat as satisfied.
-    let has_bare = m.func_index.contains_key(&cand_bare) || ctx.try_lookup_function(&cand_bare).is_some();
-    let has_zero = m.func_index.contains_key(&cand_zero) || ctx.try_lookup_function(&cand_zero).is_some();
+    let has_bare = m.func_index.contains_key(&cand_bare) || ctx.loader().try_lookup_function(&cand_bare).is_some();
+    let has_zero = m.func_index.contains_key(&cand_zero) || ctx.loader().try_lookup_function(&cand_zero).is_some();
     let has_any_ctor = m.func_index.keys().any(|k| k.starts_with(&format!("{name}.{simple}$")));
     has_bare || has_zero || !has_any_ctor
 }

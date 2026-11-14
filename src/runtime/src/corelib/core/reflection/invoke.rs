@@ -261,7 +261,7 @@ fn invoke_qualified_with<A: AsRef<[Value]>>(
     let func = match module.func_index.get(qualified) {
         Some(&idx) => &module.functions[idx],
         None => {
-            lazy = ctx.try_lookup_function(qualified).ok_or_else(|| {
+            lazy = ctx.loader().try_lookup_function(qualified).ok_or_else(|| {
                 anyhow::anyhow!("reflective invoke: function `{qualified}` not found")
             })?;
             lazy.as_ref()
@@ -309,7 +309,7 @@ pub fn invoke_static(ctx: &VmContext, fqn: &crate::object::string::vstr::Str) ->
             engine::invoke(ctx, module, f, &[])?
         }
         None => {
-            let f = ctx.try_lookup_function(&qualified).ok_or_else(|| {
+            let f = ctx.loader().try_lookup_function(&qualified).ok_or_else(|| {
                 anyhow::anyhow!("__invoke_static: function `{qualified}` not found")
             })?;
             invoke_arity_check(&qualified, f.param_count, 0)?;
@@ -344,8 +344,8 @@ pub(super) fn construction_target(
 ) -> Option<(Arc<TypeDesc>, crate::object::TypeArgs)> {
     let lookup = |n: &str| {
         ctx.module()
-            .and_then(|m| m.type_registry.get(n).cloned().map(|td| ctx.current_type_desc(td)))
-            .or_else(|| ctx.try_lookup_type(n))
+            .and_then(|m| m.type_registry.get(n).cloned().map(|td| ctx.core().runtime().current_type_desc(td)))
+            .or_else(|| ctx.loader().try_lookup_type(n))
     };
     if let Some(td) = lookup(name) {
         let args = td.type_args_handle();
@@ -480,7 +480,7 @@ fn run_first_noarg_ctor(
                 Some(engine::invoke(ctx, module, &module.functions[idx], &[obj.clone()])?)
             }
             Some(_) => None,
-            None => match ctx.try_lookup_function(cand) {
+            None => match ctx.loader().try_lookup_function(cand) {
                 Some(f) if arity_ok(f.as_ref()) => {
                     Some(engine::invoke(ctx, module, f.as_ref(), &[obj.clone()])?)
                 }
@@ -541,7 +541,7 @@ pub fn ctor_invoke(ctx: &VmContext, ci: &Value, args_arr: &Value) -> anyhow::Res
         Some(member) if td.name != class_name => {
             let spec = format!("{}{member}", td.name);
             let exists = ctx.module().is_some_and(|m| m.func_index.contains_key(&spec))
-                || ctx.try_lookup_function(&spec).is_some();
+                || ctx.loader().try_lookup_function(&spec).is_some();
             if exists { spec } else { qualified }
         }
         _ => qualified,
@@ -571,7 +571,7 @@ pub fn ctor_invoke(ctx: &VmContext, ci: &Value, args_arr: &Value) -> anyhow::Res
             engine::invoke(ctx, module, f, &call_args)?
         }
         None => {
-            let f = ctx.try_lookup_function(&qualified).ok_or_else(|| {
+            let f = ctx.loader().try_lookup_function(&qualified).ok_or_else(|| {
                 anyhow::anyhow!("ConstructorInfo.Invoke: constructor `{qualified}` not found")
             })?;
             invoke_arity_check(&qualified, f.param_count, call_args.len())?;

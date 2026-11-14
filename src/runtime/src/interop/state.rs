@@ -2,7 +2,7 @@
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 #[cfg(feature = "native-interop")]
 use std::sync::Arc;
 

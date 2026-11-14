@@ -13,7 +13,7 @@ use crate::jit::run_fn;
 use crate::metadata::{Function, Module};
 use crate::zpkg::ir::{BasicBlock, CallInsn, Instruction, Terminator};
 use crate::zpkg::ir::ExecMode;
-use crate::context::VmContext;
+use crate::components::bridge::VmContext;
 
 /// A JIT-translatable function whose body is a bare `return;` (no `Call`, no
 /// interp-only opcode → `jit_unsupported_reason` is `None`).
@@ -79,7 +79,7 @@ fn module_of(name: &str, functions: Vec<Function>) -> Module {
 
 /// VM-wide total (every thread's shard).
 fn compiled_count(vm: &VmContext) -> u64 {
-    vm.counters_snapshot().jit_methods_compiled
+    vm.core().diagnostics().snapshot(vm.core().threads()).jit_methods_compiled
 }
 
 #[test]

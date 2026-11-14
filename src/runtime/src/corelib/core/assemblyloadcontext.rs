@@ -22,7 +22,7 @@ use super::reflection::make_type_object;
 use crate::loader::contexts::{AssemblyId, ContextId, ContextState, UnloadOutcome};
 use crate::object::NativeData;
 use crate::object::Value;
-use crate::context::VmContext;
+use crate::vm::VmContext;
 
 const STD_LOADCONTEXT: &str = "Std.Runtime.AssemblyLoadContext";
 const STD_ASSEMBLY: &str = "Std.Reflection.Assembly";
@@ -33,7 +33,7 @@ const ASM_ID_SLOT: &str = "__asmId";
 /// Allocate a native-handle-backed z42 object (no data slots written; the class
 /// exposes everything via `[Native]` methods).
 fn alloc_native(ctx: &VmContext, type_name: &str, native: NativeData) -> Result<Value> {
-    let td = ctx.try_lookup_type(type_name).ok_or_else(|| {
+    let td = ctx.loader().try_lookup_type(type_name).ok_or_else(|| {
         anyhow::anyhow!("load-context: {type_name} not loaded (z42.core missing?)")
     })?;
     let slots = vec![Value::Null; td.fields.len()];
