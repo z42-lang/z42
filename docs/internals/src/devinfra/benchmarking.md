@@ -1,6 +1,6 @@
 # 性能基准与回归门禁
 
-> 代码：`scripts/src/bench/bench.z42`、`scripts/src/bench/prepare.z42`、`scripts/src/bench/gc_pause.z42`、`src/benches/`、`src/runtime/benches/`、`.github/workflows/bench-pr.yml`
+> 代码：`scripts/src/bench/bench.z42`、`scripts/src/bench/ab.z42`、`scripts/src/bench/statistics.z42`、`scripts/src/bench/micro_diff.z42`、`scripts/src/bench/micro_report.z42`、`scripts/src/bench/prepare.z42`、`scripts/src/bench/gc_pause.z42`、`src/benches/`、`src/runtime/benches/`、`.github/workflows/bench-pr.yml`
 >
 > 命令与旗标以 `xtask bench -h` / `xtask bench stdlib -h` 为准。
 
@@ -115,6 +115,14 @@ PR 新增或改名的基准在 base 无对应 ⇒ 信息性 skip。
 每轮按 head、base 顺序启动独立 xtask 捕获进程，避免仓库根与工具探测缓存跨树复用。
 首轮无可疑项直接通过；否则两侧各重采两轮，再由 `--micro-diff` 判定。捕获失败立即返回其退出码，
 结果缺失或判定输入错误不会按“无回归”放行；报告仍写入 `artifacts/reports/benches/micro-*.json`。
+
+### 执行耗时与失败位置
+
+每次 `bench --micro-ab` 都生成 `artifacts/reports/benches/micro-execution.json`（`micro-execution-v1`）。它记录整体 outcome / 返回码 / 耗时、实际执行的各次捕获，以及首轮 suspects。每次捕获包含轮次、PR / base、完整 owner 范围、耗时、返回码、输出路径与文件是否存在；全包范围明确标记为 `all`。异常仍向调用方传播，报告中的 `-1` 表示该调用抛出异常、没有返回码。
+
+报告在成功、失败、缺少捕获结果、前提未满足和异常路径都会刷新，未开始捕获的失败不会带入旧 suspects。捕获耗时包含子命令启动、runner 准备、采样与汇总，不等于单个函数的耗时；它用于区分捕获慢、复测多和具体失败位置，函数性能仍由原始测量报告和统计门禁判断。
+
+CI 将相同数据写入 step summary，并随 A/B artifact 上传执行报告。本地读取同一 JSON 即可复现诊断；生成报告不改变捕获次序、owner 范围、复测次数或阈值。
 该命令通过仓库的 `.github/ci/xtask` 入口运行当前 xtask，须先准备本树的种子 SDK 与 xtask 产物。
 
 ### 两侧必须同形捕获（e2e 与 micro 同一条规则）
@@ -355,6 +363,8 @@ micro A/B 从已验证的流程计划确定包范围：仅 benchmark 源码变�
 无性能义务的计划拒绝测量，不会被解释成全量。标准库、编译器、VM 生产源和公共测量配置仍保留全量消费者，不从不完整的隐式依赖推断安全子集。
 CI 在规划时导出 `bench_owners`，本地可用 `--plan <plan.json>` 在主控树验证，再把相同的精确包名传给 base / head 两树的 `bench stdlib --owners`；每轮复测使用同一范围，不改变采样和判红算法。
 本地可用 `xtask bench --micro-ab --owners z42.json,z42.io` 配合显式工具链参数，或 `xtask bench stdlib --owners z42.json,z42.io` 运行相同范围。
+
+性能执行器同样按职责选测：共享统计实现验证脚本与集成两类消费者，e2e 执行器只选集成，micro 判定和执行报告只选脚本；离线 baseline 对比与纯自检只运行判定夹具。这些语言侧模块不触发 Rust Criterion，未知 benchmark 实现仍保留完整性能验证。
 
 `bench_toolchain` 汇总脚本 / 集成类别，控制昂贵的 z42 工具链准备；仅 VM benchmark 不安装 hyperfine、不自举两套 z42c / stdlib。
 

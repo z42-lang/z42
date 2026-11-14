@@ -1,14 +1,6 @@
 use super::*;
 
 impl VmContext {
-    // ── GC heap ───────────────────────────────────────────────────────────
-
-    /// Borrow the GC heap as a trait object. All script-driven allocations go
-    /// through this entry point; see `docs/internals/src/runtime/gc.md`.
-    pub fn heap(&self) -> &Heap {
-        self.core.heap.as_ref()
-    }
-
     // ── Static fields ─────────────────────────────────────────────────────
     //
     // Storage is `core.runtime.statics` (`static_table`): one stable-address cell per
@@ -159,26 +151,4 @@ impl VmContext {
         self.core.runtime.cctors.reset_for_rerun();
     }
 
-    // ── JIT exception bridge ──────────────────────────────────────────────
-
-    /// JIT helpers store a thrown user value here; the JIT entry sees the
-    /// `extern "C"` return code = 1 and pulls the value via
-    /// `take_exception()` to propagate as `ExecOutcome::Thrown`.
-    pub fn set_exception(&self, val: Value) {
-        *self.exec.pending_exception.lock() = Some(val);
-    }
-
-    /// Pop the pending exception (called once per `extern "C"` failure).
-    pub fn take_exception(&self) -> Option<Value> {
-        self.exec.pending_exception.lock().take()
-    }
-
-    /// Peek at the pending exception without removing it. Used by JIT catch-type
-    /// dispatch (catch-by-generic-type): the throw helper has set the
-    /// exception, the dispatch helper inspects its class to decide which catch
-    /// handler to jump to, and a later `take_exception` (via `jit_install_catch`)
-    /// hands the value to the chosen catch register.
-    pub fn peek_exception(&self) -> Option<Value> {
-        self.exec.pending_exception.lock().clone()
-    }
 }

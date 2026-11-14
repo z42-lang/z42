@@ -48,7 +48,7 @@ parking_lot = "0.12"
 
 blake3 = "1"
 
-z42-compression = { path = "crates/z42-compression", default-features = false }
+z42-compression = { path = "crates/z42-compression", default-features = false, optional = true }
 z42-repl = { path = "crates/z42-repl", default-features = false }
 z42-rs = { path = "crates/z42-rs", default-features = false }
 
@@ -106,6 +106,7 @@ signal-hook-registry = "1.4"
 # Backends depend on this runtime. Only final examples/tests link their rlibs here;
 # the production runtime has no dependency on a concrete execution backend.
 [dev-dependencies]
+z42-compression = { path = "crates/z42-compression", default-features = false }
 z42-profiler = { path = "crates/z42-profiler", default-features = false }
 z42-interp = { path = "crates/z42-interp", default-features = false }
 jsonschema = { version = "0.56", default-features = false }

@@ -40,27 +40,27 @@ fn two_contexts_static_fields_isolated() {
 #[test]
 fn pending_exception_take_unset_is_none() {
     let ctx = VmContext::new();
-    assert!(ctx.take_exception().is_none());
+    assert!(ctx.exec().take_exception().is_none());
 }
 
 #[test]
 fn pending_exception_set_then_take_consumes() {
     let ctx = VmContext::new();
-    ctx.set_exception(Value::Str("oops".into()));
-    let v = ctx.take_exception();
+    ctx.exec().set_exception(Value::Str("oops".into()));
+    let v = ctx.exec().take_exception();
     assert!(matches!(v, Some(Value::Str(ref s)) if **s == *"oops"));
     // Subsequent take returns None (consumed).
-    assert!(ctx.take_exception().is_none());
+    assert!(ctx.exec().take_exception().is_none());
 }
 
 #[test]
 fn two_contexts_exception_isolated() {
     let ctx1 = VmContext::new();
     let ctx2 = VmContext::new();
-    ctx1.set_exception(Value::Str("ctx1".into()));
+    ctx1.exec().set_exception(Value::Str("ctx1".into()));
     // ctx2 stays empty.
-    assert!(ctx2.take_exception().is_none());
-    let v = ctx1.take_exception();
+    assert!(ctx2.exec().take_exception().is_none());
+    let v = ctx1.exec().take_exception();
     assert!(matches!(v, Some(Value::Str(ref s)) if **s == *"ctx1"));
 }
 
@@ -72,9 +72,9 @@ fn pending_thrown_is_per_thread() {
     // reach only the thread whose builtin set it.
     let ctx1 = VmContext::new();
     let ctx2 = VmContext::new_with_core(std::sync::Arc::clone(&ctx1.core));
-    ctx1.set_pending_thrown(Value::Str("ctx1".into()));
-    assert!(ctx2.take_pending_thrown().is_none());
-    let v = ctx1.take_pending_thrown();
+    ctx1.exec().set_pending_thrown(Value::Str("ctx1".into()));
+    assert!(ctx2.exec().take_pending_thrown().is_none());
+    let v = ctx1.exec().take_pending_thrown();
     assert!(matches!(v, Some(Value::Str(ref s)) if **s == *"ctx1"));
 }
 
@@ -85,10 +85,10 @@ fn pending_thrown_is_a_gc_root() {
     heap.set_mode(crate::gc::GcMode::StwMarkSweep);
     let exc = heap.alloc_array(vec![Value::I64(1)]);
     let weak = heap.make_weak(&exc).expect("heap object");
-    ctx.set_pending_thrown(exc);
+    ctx.exec().set_pending_thrown(exc);
     heap.force_collect();
     assert!(heap.upgrade_weak(&weak).is_some(), "value held only by pending_thrown was swept");
-    assert!(ctx.take_pending_thrown().is_some());
+    assert!(ctx.exec().take_pending_thrown().is_some());
 }
 
 // ── runtime counters (per thread, summed on snapshot) ───────────────────────

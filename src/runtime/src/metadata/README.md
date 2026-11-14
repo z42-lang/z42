@@ -14,7 +14,7 @@
 | `Module` / `Function` | 静态定义的链接投影、写时复制和 VM 站点状态 |
 | `ids/` | token、FnId / TypeId、函数/类型/字符串表与只追加分段表 |
 | `types/` | TypeDesc 注册表组装、继承补全和约束验证 |
-| `resolve/` | 每函数预链接与 ResolvedTokens 侧表 |
+| `resolve.rs` | 每函数预链接与 ResolvedTokens 侧表 |
 | `dispatch/` | VCall / Field IC、IsaCache、接收者与函数身份/arity、构造/ISA 的纯事实查询及原子发布 |
 
 ## 基础用法

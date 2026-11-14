@@ -104,7 +104,7 @@ fn min_arg_is_ignored_entirely() {
 // 因为那正是 zbc 1.39 之前全部产物的形态，也是「这个类本来就没有构造器」的合法形态。
 // 判错的代价是静默跳过一个真实存在的构造器——比它要修的 bug 更坏。
 
-use super::symres::ctor_missing_is_definite;
+use super::ctor_missing_is_definite;
 
 #[test]
 fn bare_alloc_empty_ctor_name_is_never_missing() {
@@ -139,7 +139,8 @@ fn args_alone_still_decide_without_the_marker() {
 // 全零的盒子，编译器把 struct 静态字段存成盒子）。回归来源：只认基元标签时 `static Point P;`
 // 一读就崩在 `StructCopy src: … got Null`，`static Color C;` 读出 `null`。
 
-use super::symres::{static_zero_value, verify_static_field, StaticNullVerdict};
+use super::{verify_static_field, StaticNullVerdict};
+use crate::exec::ops::object::static_defaults::static_zero_value;
 use crate::metadata::Module;
 use crate::zpkg::ir::{FieldDesc, CLASS_FLAG_ENUM, CLASS_FLAG_STRUCT};
 use crate::zpkg::index::name::NameIndex;

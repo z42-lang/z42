@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
 #endif
     REQUIRE(api.native(NULL, empty_resolver) == Z42_HOST_ERR_BAD_CONFIG);
     REQUIRE(api.native("z42_compression", NULL) == Z42_HOST_ERR_BAD_CONFIG);
-    REQUIRE(api.native("unknown_library", empty_resolver) == Z42_HOST_ERR_BAD_CONFIG);
+    REQUIRE(api.native("../invalid_library", empty_resolver) == Z42_HOST_ERR_BAD_CONFIG);
     const char* search[] = { argv[3], NULL };
     Z42HostConfig cfg = {0};
     cfg.abi_version = Z42_HOST_ABI_VERSION; cfg.struct_size = sizeof(cfg);

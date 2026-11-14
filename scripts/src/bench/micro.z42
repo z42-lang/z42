@@ -19,6 +19,15 @@ class MicroCapture {
 }
 
 int _benchMicroAbAt(string root, BenchCommand cmd, MicroCapture capture) {
+    var report = new MicroExecution();
+    try {
+        int code = _benchMicroAbRun(root, cmd, new MicroTimedCapture(capture, report));
+        report.ExitCode = code; report.Outcome = code == 0 ? "success" : "failed";
+        return code;
+    } finally { report.Save(root); }
+}
+
+int _benchMicroAbRun(string root, BenchCommand cmd, MicroCapture capture) {
     if (cmd.BaseVm.Length == 0 || cmd.BaseLibs.Length == 0 || cmd.PrVm.Length == 0 || cmd.PrLibs.Length == 0) {
         ConsoleError.WriteLine("micro A/B requires --base-vm, --base-libs, --pr-vm and --pr-libs"); return 2;
     }

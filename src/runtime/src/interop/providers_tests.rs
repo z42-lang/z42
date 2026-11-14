@@ -142,30 +142,13 @@ fn reject_duplicate_provider_and_empty_names() {
 }
 
 #[test]
-fn host_providers_have_separate_ownership() {
-    let registry = crate::host::builtins::registry();
+fn core_catalog_does_not_initialize_independent_native_modules() {
+    let registry = crate::interop::providers::registry();
     assert!(registry.resolve("z42.core", "__str_length").is_some());
-    assert!(
-        registry
-            .module("z42_repl")
-            .unwrap()
-            .function("__repl_readline")
-            .is_some()
-    );
+    assert!(registry.resolve("z42.core", "__repl_member_names").is_some());
     assert!(registry.resolve("z42.core", "__repl_readline").is_none());
-    assert!(
-        registry
-            .resolve("z42.core", "__repl_member_names")
-            .is_some()
-    );
-    #[cfg(any(feature = "native-interop", feature = "bundled-compression"))]
-    assert!(
-        registry
-            .module("z42_compression")
-            .unwrap()
-            .function("__deflate_compress")
-            .is_some()
-    );
+    assert!(registry.module("z42_repl").is_none());
+    assert!(registry.module("z42_compression").is_none());
 }
 
 #[test]

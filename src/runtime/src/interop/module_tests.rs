@@ -156,7 +156,7 @@ fn crate_module_registers_and_marshals_without_a_runtime_wrapper() {
             .unwrap()
             .is_err()
     );
-    assert!(invoke_export(&ctx, Some("other"), "__native_echo", &[]).is_none());
+    assert!(invoke_export(&ctx, Some("other"), "__native_echo", &[]).unwrap().is_err());
     assert!(!crate::interop::state::state(&ctx).unwrap().instances.read().contains_key("native.test"));
     let error = invoke_export(&ctx, None, "__native_error", &[])
         .unwrap()
@@ -481,4 +481,55 @@ fn blocking_provider_reenters_the_interpreter_and_copies_callback_results() {
     let copied = native_value::from_vm(&returned, abi::STR_ARRAY, "callback", 0).unwrap();
     assert!(matches!(copied, NativeValue::Strings(values) if values == ["中文", ""]));
     assert_eq!(ctx.core.threads.parked_count.load(Ordering::Acquire), 0);
+}
+
+
+#[test]
+fn undeclared_linked_module_is_untouched_until_called_and_shared_only_within_its_vm() {
+    use std::sync::atomic::AtomicUsize;
+    static ENTRIES: AtomicUsize = AtomicUsize::new(0);
+    static AUTO: abi::Module = abi::Module { name: abi::Text::new("independent.auto.example"), ..MODULE };
+    unsafe extern "C" fn entry() -> *const abi::Module {
+        ENTRIES.fetch_add(1, Ordering::SeqCst);
+        &AUTO
+    }
+    unsafe extern "C" fn resolver(name: *const std::ffi::c_char) -> *const c_void {
+        assert_eq!(unsafe { std::ffi::CStr::from_ptr(name) }.to_bytes(), b"independent.auto.example_module_v1");
+        entry as *const () as *const c_void
+    }
+    unsafe { crate::host::register_static_native_library("independent.auto.example", resolver) }.unwrap();
+    let first = VmContext::new();
+    let second = VmContext::new();
+    assert!(crate::interop::resolve_native_module(&first, "independent.auto.example").unwrap().is_none());
+    assert!(crate::interop::resolve_native_module(&second, "independent.auto.example").unwrap().is_none());
+    assert_eq!(ENTRIES.load(Ordering::SeqCst), 0);
+    let invoke = |ctx: &VmContext| invoke_export(ctx, Some("independent.auto.example"), "__native_echo", &[Value::Str("echo".into())]).unwrap().unwrap();
+    assert_eq!(invoke(&first), Some(Value::Str("echo".into())));
+    assert_eq!(invoke(&first), Some(Value::Str("echo".into())));
+    let worker = VmContext::new_with_core(first.core_arc());
+    assert_eq!(invoke(&worker), Some(Value::Str("echo".into())));
+    assert_eq!(ENTRIES.load(Ordering::SeqCst), 1);
+    assert!(crate::interop::resolve_native_module(&second, "independent.auto.example").unwrap().is_none());
+    assert_eq!(invoke(&second), Some(Value::Str("echo".into())));
+    assert_eq!(ENTRIES.load(Ordering::SeqCst), 2);
+}
+
+
+#[test]
+fn automatic_module_rejects_bad_abi_or_name_without_publishing_any_module() {
+    static BAD_ABI: abi::Module = abi::Module { version: 0, ..MODULE };
+    unsafe extern "C" fn wrong_name() -> *const abi::Module { &MODULE }
+    unsafe extern "C" fn bad_abi() -> *const abi::Module { &BAD_ABI }
+    unsafe extern "C" fn name_resolver(_: *const std::ffi::c_char) -> *const c_void { wrong_name as *const () as *const c_void }
+    unsafe extern "C" fn abi_resolver(_: *const std::ffi::c_char) -> *const c_void { bad_abi as *const () as *const c_void }
+    for (name, resolver) in [
+        ("independent.wrong.name", name_resolver as crate::loader::linked::NativeSymbolResolver),
+        ("independent.bad.abi", abi_resolver as crate::loader::linked::NativeSymbolResolver),
+    ] {
+        unsafe { crate::host::register_static_native_library(name, resolver) }.unwrap();
+        let ctx = VmContext::new();
+        assert!(invoke_export(&ctx, Some(name), "__native_echo", &[]).unwrap().is_err());
+        assert!(crate::interop::resolve_native_module(&ctx, name).unwrap().is_none());
+        assert!(crate::interop::resolve_native_module(&ctx, "native.test").unwrap().is_none());
+    }
 }

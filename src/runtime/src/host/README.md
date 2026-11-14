@@ -65,6 +65,6 @@ LoadOptions.components 选择可选的同构建组件。ComponentOptions::with_s
 
 `program.rs` 实现程序加载与调用服务，`ffi.rs` 实现 C ABI。`program_tests.rs` 覆盖输入来源、重复调用、初始化错误和执行模式；`host_tests.rs` 覆盖 ABI 契约。
 
-原生提供方装配由 `builtins.rs` 选择，`extensions.rs` 注册每 VM 状态和 loader 的按名称路径服务。核心库、诊断、harness、终端、压缩分别提交描述符；host 注入匹配的 metadata 查询目录和 exec 执行表。
+核心 builtin 描述由 corelib/builtins.rs 提供，interop 通用注册器冻结匹配的查询目录和执行表；host 不列举或预登记独立库。extensions.rs 注入每 VM 状态和 loader 的按名称路径服务。独立库首次限定模块调用才经 loader 读取库自身描述并由 interop 校验登记，未使用时不加载或创建状态。
 
 profiler 默认按需装配。`LoadOptions.profiler` 使用 Auto、Linked、Dynamic(path) 或 Disabled；`program_builder.rs` 经内部 `components::api::prepare_program` 在组件发布前设置来源；开启 CPU 采样时加载阶段就验证，堆分析则首次使用时验证。静态宿主通过相同组件登记入口提供 `PROFILER_COMPONENT`；未选择的实现不会加载，缺失时不静默返回空分析结果。

@@ -67,7 +67,7 @@ crate 类型：VM 模块的组合根。内部模块直接编译引用；独立�
 | `src/components/` | 内部能力门面、角色绑定、工厂加载、后端选择与每 VM 生命周期，见 [`src/components/README.md`](src/components/README.md) |
 | `src/host/` | CLI 与外部宿主共用的 Rust 加载、调用及应用服务，包含 `z42_host.h` 的 C ABI 适配，见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
 | `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |
-| `src/exec/exception/` | 异常对象布局、传播模型与栈迹捕获 |
+| `src/exec/exception.rs` | 异常对象布局、传播模型与栈迹捕获 |
 
 ### crates/z42-zpkg/src/ — 静态包信息
 | 文件 | 职责 |

@@ -1,0 +1,61 @@
+namespace Z42Xtask;
+
+using Std.IO;
+
+// Pure-function fixtures exercise thresholds, interval width and between-round dispersion.
+int _abSelfTest() {
+    int fails = 0;
+    AbVerdict a = _abVerdict(100.0, 1.0, 10.0, 120.0, 1.0, 10.0, 0.10);
+    fails = fails + _abExpect("real-regression", a, "regression", true);
+    AbVerdict e = _abVerdict(100.0, 1.0, 10.0, 120.0, 1.0, 10.0, 0.25);
+    fails = fails + _abExpect("separated-under-threshold", e, "overlap", false);
+    AbVerdict b = _abVerdict(100.0, 20.0, 10.0, 115.0, 20.0, 10.0, 0.10);
+    fails = fails + _abExpect("noisy-overlap", b, "overlap", false);
+    AbVerdict c = _abVerdict(100.0, 1.0, 10.0, 80.0, 1.0, 10.0, 0.10);
+    fails = fails + _abExpect("faster", c, "faster", false);
+    AbVerdict d = _abVerdict(100.0, 0.0, 10.0, 120.0, 0.0, 10.0, 0.10);
+    fails = fails + _abExpect("no-ci-regression", d, "regression", true);
+    if (d.HasCi) { Console.WriteLine("  FAIL no-ci-regression: expected HasCi=false"); fails = fails + 1; }
+
+    // ── _abResampleVerdict ──
+    double[] tight = new double[]{ 1.30, 1.32, 1.29 };
+    AbVerdict f = _abResampleVerdict(tight, 0.15);
+    fails = fails + _abExpect("resample-real-regression", f, "regression", true);
+    if (f.Rounds != 3) { Console.WriteLine("  FAIL resample-real-regression: expected Rounds=3"); fails = fails + 1; }
+
+    // mean(ratios) = 1.25 is ITSELF above 1+0.15 — only the between-round dispersion
+    // rescues it, so this case falsifies "the interval width got lost" (t=0 / SEM
+    // substituted in), which a drift case with a below-threshold mean cannot do.
+    double[] drift = new double[]{ 1.60, 1.05, 1.10 };
+    AbVerdict g = _abResampleVerdict(drift, 0.15);
+    fails = fails + _abExpect("resample-drift-rescued", g, "overlap", false);
+
+    double[] mid = new double[]{ 1.20, 1.21, 1.19 };
+    fails = fails + _abExpect("resample-threshold-sensitive@0.15",
+        _abResampleVerdict(mid, 0.15), "regression", true);
+    fails = fails + _abExpect("resample-threshold-sensitive@0.25",
+        _abResampleVerdict(mid, 0.25), "overlap", false);
+
+    double[] one = new double[]{ 1.30 };
+    AbVerdict h = _abResampleVerdict(one, 0.15);
+    fails = fails + _abExpect("resample-too-few-rounds", h, "no-data", false);
+    if (h.HasCi) { Console.WriteLine("  FAIL resample-too-few-rounds: expected HasCi=false"); fails = fails + 1; }
+
+    fails = fails + _abPauseSelfTest();   // pause gate
+
+    if (fails == 0) { Console.WriteLine("✅ _abVerdict + _abResampleVerdict + pause selftest: 17/17 passed"); return 0; }
+    Console.WriteLine("❌ _abVerdict + _abResampleVerdict selftest: " + fails.ToString() + " failure(s)");
+    return 1;
+}
+
+int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
+    if (v.Verdict == wantVerdict && v.IsRegression == wantRegr) {
+        Console.WriteLine("  ok " + label + ": " + v.Verdict + " (ratio=" + v.Ratio.ToString()
+            + " R_lower=" + v.RLower.ToString() + " R_upper=" + v.RUpper.ToString() + ")");
+        return 0;
+    }
+    Console.WriteLine("  FAIL " + label + ": got verdict=" + v.Verdict
+        + " regr=" + (v.IsRegression ? "true" : "false")
+        + " want verdict=" + wantVerdict + " regr=" + (wantRegr ? "true" : "false"));
+    return 1;
+}

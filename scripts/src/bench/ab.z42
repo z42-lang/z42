@@ -1,0 +1,239 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+
+// Result of running one scenario×mode A/B comparison.
+class AbOutcome {
+    public int Rc;            // 0 = ok, 2 = tool error (compile/hyperfine failed)
+    public bool IsRegression;
+    public bool Resampled;    // consumed one unit of the caller's resample budget
+    public string Json;       // one ab.json result fragment ("" on error)
+    public AbOutcome() { this.Rc = 0; this.IsRegression = false; this.Resampled = false; this.Json = ""; }
+}
+
+// 一侧的 scenario .zbc 路径。side ∈ {"base","head"}：两个词**等长**是承重的——.zbc 路径进被测进程的
+// argv，两侧 argv 字节数不同就会挪动内存布局、把同一份代码测出快慢（benchmarking.md「两侧必须同形」）。
+string _abZbcPath(string work, string name, string side) {
+    return Path.Join(work, name + "-" + side + ".zbc");
+}
+
+// Compile `src` to a .zbc with the given toolchain (vm+driver, Z42_LIBS=libs).
+int _abEmitZbc(string vm, string driver, string libs, string src, string zbc) {
+    return _exec(_z42cProc(vm, libs, driver)
+        .Arg("--emit-zbc").Arg(src).Arg(zbc));
+}
+
+// One measurement round of one scenario×mode: hyperfine BOTH commands in a single
+// invocation (same runner, adjacent → between-run drift cancels within the round).
+// The `env Z42_LIBS=… <vm> …` prefix lets one hyperfine invocation run each side
+// under its own libs (--shell=none execs `env`, a real binary; CI/dev are unix).
+class AbRound {
+    public int Rc;            // 0 = ok, 2 = tool error (hyperfine failed / unusable means)
+    public double BaseMean; public double BaseSd;   // seconds
+    public double PrMean;   public double PrSd;
+    public AbRound() {
+        this.Rc = 0; this.BaseMean = 0.0; this.BaseSd = 0.0; this.PrMean = 0.0; this.PrSd = 0.0;
+    }
+    public double Ratio() { return this.PrMean / this.BaseMean; }
+}
+
+AbRound _abOneRound(string work, string name, string m, int round,
+    string baseCmd, string prCmd, string warmup, string runs) {
+    AbRound o = new AbRound();
+    string outJson = Path.Join(work, name + "-" + m + "-ab-r" + round.ToString() + ".json");
+    Console.WriteLine("→ A/B " + name + " [" + m + "] round " + round.ToString()
+        + " (warmup=" + warmup + ", runs=" + runs + ")...");
+    int hc = _exec(new Process("hyperfine")
+        .Arg("--warmup").Arg(warmup).Arg("--runs").Arg(runs)
+        .Arg("--export-json").Arg(outJson).Arg("--shell=none")
+        .Arg("--command-name").Arg(name + "-base").Arg(baseCmd)
+        .Arg("--command-name").Arg(name + "-pr").Arg(prCmd));
+    if (hc != 0) { o.Rc = 2; return o; }
+    JsonValue res = JsonValue.Parse(File.ReadAllText(outJson)).Get("results");
+    JsonValue b = res.At(0);
+    JsonValue p = res.At(1);
+    o.BaseMean = b.Get("mean").AsDouble();   o.BaseSd = b.Get("stddev").AsDouble();
+    o.PrMean   = p.Get("mean").AsDouble();   o.PrSd   = p.Get("stddev").AsDouble();
+    if (o.BaseMean <= 0.0 || o.PrMean <= 0.0) { o.Rc = 2; }
+    return o;
+}
+
+// One scenario×mode A/B: compile base.zbc + pr.zbc, measure round 1, and — when
+// round 1 says "regression" and the caller still has resample budget — re-measure
+// the SAME two binaries `extraRounds` more times and re-decide from the
+// between-round ratio dispersion (see _abResampleVerdict for why the single-round
+// interval cannot be trusted on its own).
+//
+// Only a round-1 REGRESSION is resampled. `faster` and `overlap` are not: the gate
+// is one-sided, so refining a verdict that cannot fail the job buys nothing, and
+// the cost argument rests on suspicion being rare.
+AbOutcome _abOneScenario(string work, string name, string ns, string m, string src,
+    string baseVm, string baseDriver, string baseLibs,
+    string prVm, string prDriver, string prLibs,
+    string warmup, string runs, double thr, int extraRounds) {
+    AbOutcome o = new AbOutcome();
+    string baseZbc = _abZbcPath(work, name, "base");
+    string prZbc   = _abZbcPath(work, name, "head");
+    if (_abEmitZbc(baseVm, baseDriver, baseLibs, src, baseZbc) != 0) { o.Rc = 2; return o; }
+    if (_abEmitZbc(prVm,   prDriver,   prLibs,   src, prZbc)   != 0) { o.Rc = 2; return o; }
+    string baseCmd = "env Z42_LIBS=" + baseLibs + " " + baseVm + " " + baseZbc + " " + ns + ".Main --mode " + m;
+    string prCmd   = "env Z42_LIBS=" + prLibs   + " " + prVm   + " " + prZbc   + " " + ns + ".Main --mode " + m;
+    AbRound r1 = _abOneRound(work, name, m, 1, baseCmd, prCmd, warmup, runs);
+    if (r1.Rc != 0) { o.Rc = 2; return o; }
+    double nRuns = Double.Parse(runs);
+    AbVerdict v = _abVerdict(r1.BaseMean, r1.BaseSd, nRuns, r1.PrMean, r1.PrSd, nRuns, thr);
+    string ratios = r1.Ratio().ToString();
+    if (v.IsRegression && extraRounds > 0) {
+        Console.WriteLine("  ? " + name + " [" + m + "] round-1 regression (ratio="
+            + r1.Ratio().ToString() + ") → resampling " + extraRounds.ToString()
+            + " more round(s); the verdict comes from the between-round dispersion");
+        double[] rs = new double[extraRounds + 1];
+        rs[0] = r1.Ratio();
+        for (int i = 0; i < extraRounds; i = i + 1) {
+            AbRound rn = _abOneRound(work, name, m, i + 2, baseCmd, prCmd, warmup, runs);
+            if (rn.Rc != 0) { o.Rc = 2; return o; }
+            rs[i + 1] = rn.Ratio();
+            ratios = ratios + "," + rs[i + 1].ToString();
+        }
+        o.Resampled = true;
+        v = _abResampleVerdict(rs, thr);
+    }
+    o.IsRegression = v.IsRegression;
+    o.Json = _abResultJson(name, m, r1, v, ratios);
+    _abPrint(name, m, v);
+    return o;
+}
+
+// one ab.json result object. Means/stddevs are ROUND 1's (hyperfine seconds → ms);
+// `round_ratios` carries every round's ratio so a resampled verdict can be re-derived
+// from the artifact without re-running the job.
+string _abResultJson(string name, string m, AbRound r1, AbVerdict v, string ratios) {
+    return "    {\n      \"name\": \"" + name + "\",\n      \"mode\": \"" + m + "\""
+        + ",\n      \"base_mean_ms\": " + (r1.BaseMean * 1000.0).ToString()
+        + ",\n      \"base_stddev_ms\": " + (r1.BaseSd * 1000.0).ToString()
+        + ",\n      \"pr_mean_ms\": " + (r1.PrMean * 1000.0).ToString()
+        + ",\n      \"pr_stddev_ms\": " + (r1.PrSd * 1000.0).ToString()
+        + ",\n      \"rounds\": " + v.Rounds.ToString()
+        + ",\n      \"round_ratios\": [" + ratios + "]"
+        + ",\n      \"ratio\": " + v.Ratio.ToString() + ",\n      \"r_lower\": " + v.RLower.ToString()
+        + ",\n      \"r_upper\": " + v.RUpper.ToString() + ",\n      \"verdict\": \"" + v.Verdict + "\"\n    }";
+}
+
+// human-readable one-line A/B verdict.
+void _abPrint(string name, string m, AbVerdict v) {
+    string sym = "≈";
+    if (v.Verdict == "regression") { sym = "↑"; }
+    else if (v.Verdict == "faster") { sym = "↓"; }
+    string tag = v.HasCi ? "" : " (no-ci)";
+    // k>1 ⇒ the interval came from between-round dispersion, not the within-run SEM.
+    // Say so on the line: the two are not the same evidence and read identically otherwise.
+    if (v.Rounds > 1) { tag = tag + " (resampled k=" + v.Rounds.ToString() + ")"; }
+    Console.WriteLine("  " + name + " [" + m + "]  " + sym + " " + v.Verdict + tag
+        + "  ratio=" + v.Ratio.ToString() + "  R_lower=" + v.RLower.ToString()
+        + "  R_upper=" + v.RUpper.ToString());
+}
+
+// `bench --ab --base-vm V --base-libs L --base-driver D [--mode M] [--threshold-time T] [--quick]`
+// Same-runner A/B regression gate. For each scenario×mode: compile with the base
+// toolchain and the PR toolchain, hyperfine both on this runner, and verdict via
+// `_abVerdict`. Writes artifacts/reports/benches/ab.json. Exit: 0 = no regression, 1 =
+// regression(s), 2 = tool error / bad args. bench-baselines/bench-update untouched.
+int _benchAb(BenchCommand cmd) {
+    string baseVm = cmd.BaseVm;
+    string baseLibs = cmd.BaseLibs;
+    string baseDriver = cmd.BaseDriver;
+    if (baseVm.Length == 0 || baseLibs.Length == 0 || baseDriver.Length == 0) {
+        ConsoleError.WriteLine("error: bench --ab requires --base-vm, --base-libs and --base-driver");
+        return 2;
+    }
+    bool quick = cmd.Quick;
+    string warmup = quick ? "1" : "3";
+    string runs = quick ? "3" : "10";
+    double thr = 0.10;
+    string tt = cmd.ThresholdTime;
+    if (tt.Length > 0) { thr = Double.Parse(tt); }
+    // Resample: extra rounds for an entry round 1 flagged (0 = off, the rollback knob). Default 2 ⇒ k=3 ratios ⇒
+    // df=2. Cost lands only on flagged entries, so a clean PR pays nothing at all.
+    int extraRounds = cmd.ResampleRounds;
+    if (extraRounds < 0) { ConsoleError.WriteLine("error: --resample-rounds must be >= 0"); return 2; }
+    // Budget cap. Resampling is priced on suspicion being RARE; if a PR flags more
+    // entries than this, that is itself evidence of a real, broad regression, so the
+    // remaining entries keep their round-1 verdict (which fails the job) instead of
+    // spending unbounded runner time to confirm what is already the likely answer.
+    int resampleBudget = 3;
+    // pause gate = p99 超 cap 且 > base×(1+thr)，或 max 超 cap 且 > base×(1+maxThr)（见 bench/gc_pause.z42 头注）。
+    double pauseCap = cmd.PauseCapMs;
+    double pauseThr = cmd.ThresholdPause;
+    double pauseMaxThr = cmd.ThresholdPauseMax;
+    string tier = cmd.Tier;
+    // PR（被测）侧工具链 + 探针 + 场景选择与 `_bench` 同一份（门禁只测 gate 层：CI 传 --tier gate）。
+    // CI 显式传 --pr-*，与 --base-* 同配方、等长（bench-pr.yml「Prepare head toolchain」）。
+    BenchEnv e = _benchEnvWith(cmd.Mode, cmd.PrVm, cmd.PrLibs, cmd.PrDriver);
+    if (e.Rc != 0) { return e.Rc; }
+    // 两侧被测进程的输入（`env Z42_LIBS=<libs> <vm> <zbc> …`）字节数不同 ⇒ 内存布局不同 ⇒ 同一份代码也会
+    // 测出快慢；libs 目录的内容也要同配方（VM 启动时逐个读 libs 下每个 zpkg 的 NSPC）。这里只能查长度。
+    if (e.Vm.Length != baseVm.Length || e.Libs.Length != baseLibs.Length) {
+        Console.WriteLine("⚠️  A/B 两侧工具链路径不等长（vm " + e.Vm.Length.ToString() + " vs " + baseVm.Length.ToString()
+            + "，libs " + e.Libs.Length.ToString() + " vs " + baseLibs.Length.ToString()
+            + "）——比值里混着布局偏差；要可信的结果请用 --pr-vm/--pr-libs/--pr-driver 传同形工具链");
+    }
+    BenchScenario[] scen = _benchSelectScenarios(e, tier, quick);
+    if (e.Rc != 0) { return e.Rc; }
+    string work = Directory.CreateTempDir("xtask-bench-ab");
+
+    string items = "";
+    int nb = 0; int regr = 0; int toolErr = 0;
+    foreach (var s in scen) {
+        foreach (var m in e.Modes) {
+            if (!_benchModeRunnable(e, s.Name, m)) { continue; }
+            int mayResample = resampleBudget > 0 ? extraRounds : 0;
+            AbOutcome o = _abOneScenario(work, s.Name, s.Ns, m, s.Src,
+                baseVm, baseDriver, baseLibs, e.Vm, e.Driver, e.Libs, warmup, runs, thr, mayResample);
+            if (o.Rc != 0) { toolErr = toolErr + 1; continue; }
+            if (o.Resampled) { resampleBudget = resampleBudget - 1; }
+            if (o.IsRegression && mayResample == 0 && extraRounds > 0) {
+                Console.WriteLine("  ⚠️  resample budget exhausted — this verdict is the "
+                    + "single-round one (see _abResampleVerdict on why that interval is optimistic)");
+            }
+            if (nb > 0) { items = items + ",\n"; }
+            items = items + o.Json; nb = nb + 1;
+            if (o.IsRegression) { regr = regr + 1; }
+            if (s.ReportsPause) {
+                AbOutcome po = _abPauseScenario(s.Name, m, baseVm, _abZbcPath(work, s.Name, "base"), baseLibs,
+                    e.Vm, _abZbcPath(work, s.Name, "head"), e.Libs, s.Ns + ".Main", pauseCap, pauseThr, pauseMaxThr);
+                if (po.Rc != 0) { toolErr = toolErr + 1; continue; }
+                items = items + ",\n" + po.Json; nb = nb + 1;
+                if (po.IsRegression) { regr = regr + 1; }
+            }
+        }
+    }
+    _abWriteJson(e.Root, e.ResultsDir, items);
+    return _abFinish(nb, regr, toolErr);
+}
+
+// wrap accumulated A/B result fragments in the ab-v1 envelope → artifacts/reports/benches/ab.json.
+void _abWriteJson(string root, string resultsDir, string items) {
+    string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
+    string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+    string doc = "{\n  \"schema\": \"ab-v1\",\n  \"commit\": \"" + commit
+        + "\",\n  \"branch\": \"" + branch + "\",\n  \"timestamp\": \"" + _utcNow()
+        + "\",\n  \"results\": [\n" + items + "\n  ]\n}\n";
+    File.WriteAllText(Path.Join(resultsDir, "ab.json"), doc);
+}
+
+// summary line + exit code for the A/B run.
+int _abFinish(int nb, int regr, int toolErr) {
+    Console.WriteLine("");
+    if (toolErr > 0) {
+        Console.WriteLine("⚠️  " + toolErr.ToString() + " scenario(s) errored (compile/hyperfine)");
+        return 2;
+    }
+    if (regr > 0) {
+        Console.WriteLine("❌ " + regr.ToString() + " regression(s) — R_lower > 1+thr (out of "
+            + nb.ToString() + " same-runner A/B comparisons)");
+        return 1;
+    }
+    Console.WriteLine("✅ no regression (same-runner A/B; " + nb.ToString() + " comparisons)");
+    return 0;
+}

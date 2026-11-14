@@ -10,6 +10,18 @@
 //! - **diagnostics**: the thread's counter shard;
 //! - **threads**: parked TLAB and safepoint throttle.
 //!
+//! Execution failures and handoff belong to `exec`, rather than context state:
+//!
+//! ```compile_fail
+//! use z42::context::symres;
+//! ```
+//!
+//! ```compile_fail
+//! fn pending(ctx: &z42::context::VmContext) {
+//!     ctx.take_exception();
+//! }
+//! ```
+//!
 //! # Lifecycle
 //!
 //! ```ignore
@@ -50,12 +62,9 @@ mod types;
 mod access;
 mod observation;
 mod thread_lifecycle;
-mod pending_exception;
 mod frames;
 mod statics;
 mod lookup;
-// fix-silent-symbol-resolution：「确定不存在」的判定（两后端共用）。
-pub mod symres;
 
 pub use types::{
     VmCore, VmContext, VM_CONTEXT_CCTORS_OFFSET, VM_CONTEXT_SAFEPOINT_SKIP_OFFSET,
@@ -127,8 +136,6 @@ use crate::object::{TypeDesc, Value};
 #[cfg(all(test, z42_test_facade))]
 #[path = "vm_context_tests.rs"]
 mod vm_context_tests;
-#[cfg(all(test, z42_test_facade))]
-mod symres_tests;
 
 mod core_builder;
 

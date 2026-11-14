@@ -1,0 +1,78 @@
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Json;
+using Std.Time;
+
+class MicroExecution {
+    public JsonValue Captures = JsonValue.OfArray();
+    public string Outcome = "exception";
+    public int ExitCode = -1;
+    private Stopwatch _total = Stopwatch.StartNew();
+
+    public void Record(string output, string owners, int code, long elapsedMs) {
+        int index = this.Captures.Count();
+        JsonValue item = JsonValue.OfObject();
+        item.Set("round", JsonValue.OfLong((long)(index / 2 + 1)));
+        item.Set("side", JsonValue.OfString(index % 2 == 0 ? "pr" : "base"));
+        item.Set("scope", JsonValue.OfString(owners.Length == 0 ? "all" : "owners"));
+        item.Set("owners", owners.Length == 0 ? JsonValue.OfArray() : _jStrs(owners.Split(",")));
+        item.Set("exit_code", JsonValue.OfLong((long)code));
+        item.Set("elapsed_ms", JsonValue.OfLong(elapsedMs));
+        item.Set("output", JsonValue.OfString(output));
+        item.Set("output_exists", JsonValue.OfBool(File.Exists(output)));
+        this.Captures.Add(item);
+    }
+
+    public void Save(string root) {
+        long elapsedMs = this._total.Elapsed().TotalMilliseconds();
+        string dir = _benchDir(root); Directory.Create(dir);
+        JsonValue suspects = JsonValue.OfArray();
+        string suspectFile = Path.Join(dir, "micro-suspects.txt");
+        // Preconditions can fail before the gate deletes old captures and suspects.
+        if (this.Captures.Count() >= 2 && File.Exists(suspectFile)) {
+            foreach (var line in File.ReadAllText(suspectFile).Split("\n")) {
+                if (line.Trim().Length > 0) { suspects.Add(JsonValue.OfString(line.Trim())); }
+            }
+        }
+        JsonValue report = JsonValue.OfObject();
+        report.Set("schema", JsonValue.OfString("micro-execution-v1"));
+        report.Set("outcome", JsonValue.OfString(this.Outcome));
+        report.Set("exit_code", JsonValue.OfLong((long)this.ExitCode));
+        report.Set("elapsed_ms", JsonValue.OfLong(elapsedMs));
+        report.Set("captures", this.Captures); report.Set("suspects", suspects);
+        string path = Path.Join(dir, "micro-execution.json");
+        File.WriteAllText(path, JsonValue.StringifyPretty(report) + "\n");
+        Console.WriteLine("micro execution: " + this.Captures.Count().ToString() + " captures, " + _fmtDur(elapsedMs) + "; " + path);
+        string summary = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY", "");
+        // Offline fixtures have their own root and must not enter a real job summary.
+        if (summary.Length > 0 && Path.Normalize(root) == Path.Normalize(_root())) {
+            File.AppendAllText(summary, this.Markdown(elapsedMs, suspects.Count()));
+        }
+    }
+
+    public string Markdown(long elapsedMs, int suspectCount) {
+        string text = "\n### Micro A/B execution\n\nOutcome: " + this.Outcome + " (exit " + this.ExitCode.ToString()
+            + "); elapsed: " + _fmtDur(elapsedMs) + "; initial suspects: " + suspectCount.ToString() + ".\n\n"
+            + "| Round | Side | Scope | Capture time | Exit |\n| --- | --- | --- | --- | --- |\n";
+        for (int i = 0; i < this.Captures.Count(); i = i + 1) {
+            JsonValue item = this.Captures.At(i);
+            string scope = item.Get("scope").AsString() == "all" ? "all" : String.Join(",", _epJsonToStrArr(item.Get("owners")));
+            text = text + "| " + item.Get("round").AsLong().ToString() + " | " + item.Get("side").AsString()
+                + " | " + scope.Replace("|", "\\|") + " | " + _fmtDur(item.Get("elapsed_ms").AsLong())
+                + " | " + item.Get("exit_code").AsLong().ToString() + " |\n";
+        }
+        return text;
+    }
+}
+
+class MicroTimedCapture : MicroCapture {
+    private MicroCapture _inner;
+    private MicroExecution _report;
+    public MicroTimedCapture(MicroCapture inner, MicroExecution report) { this._inner = inner; this._report = report; }
+    public override int Capture(string tree, string vm, string libs, string driver, string output, string owners) {
+        Stopwatch timer = Stopwatch.StartNew(); int code = -1;
+        try { code = this._inner.Capture(tree, vm, libs, driver, output, owners); return code; }
+        finally { this._report.Record(output, owners, code, timer.Elapsed().TotalMilliseconds()); }
+    }
+}

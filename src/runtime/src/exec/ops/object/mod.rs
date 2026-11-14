@@ -12,6 +12,7 @@ pub mod array_bulk;
 pub mod error;
 pub mod field;
 pub mod statics;
+pub(crate) mod static_defaults;
 pub mod struct_leaf;
 
 pub use error::{ArrayOp, OpError, OpResult, Throw};
